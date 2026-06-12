@@ -1,0 +1,3 @@
+[submodule "cmfgen_source"]
+	path = cmfgen_source
+	url = /u/sbrennan/cur_cmf
