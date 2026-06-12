@@ -3,7 +3,7 @@
 # STELLA injects 1e51 erg via EBurst thermal bomb into the stationary shell
 
 # Model identification
-model_name: "X1-test"              # Unique identifier for this model (used in directory names and file naming)
+model_name: "X1-noscat"              # Unique identifier for this model (used in directory names and file naming)
 description: "RSG shell + beta-law wind + thermal bomb: physically motivated progenitor structure"
 
 # Ejecta parameters (from create_embedded_hhe_shell.py)
@@ -96,7 +96,7 @@ stella:
   initial_kinetic_energy: 0.0  # EKO: pre-existing KE (0 = use thermal bomb instead, non-zero = add to existing KE)
   nstmax: 900000               # Max timesteps (standard value for 15-day simulation)
   eps: 0.003                   # Gear integrator accuracy (smaller = tighter tolerance, more robust)
-  disable_scattering: True   # Enable scattering for physically accurate radiation transport
+  disable_scattering: True  # Enable scattering for physically accurate radiation transport
 
   # Radioactive nickel56 distribution (for .xni file generation)
   # Ni56 decay provides additional heating in the ejecta (important for lightcurve)
