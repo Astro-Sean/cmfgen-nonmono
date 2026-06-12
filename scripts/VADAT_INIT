@@ -1,0 +1,1018 @@
+!===========================================================
+!  CMFGEN VADAT for SN model
+!  Comments summarise behaviour and recommended usage.
+!===========================================================
+
+
+!-----------------------------------------------------------
+! 1. Atmospheric structure & basic SN setup
+!-----------------------------------------------------------
+
+! Inner radius of the model in units of 1e10 cm.
+! For SN models this is the inner boundary of the ejecta grid
+! (not the radius at Rosseland tau=2/3 as for hydrostatic stars).
+! It must correspond to the innermost radius in SN_HYDRO_DATA.
+0.32161021      [RSTAR]
+
+! Outer radius in units of the inner radius.
+! For SN models this should match the ratio R_outer / R_inner
+! implied by SN_HYDRO_DATA. Very inconsistent values can cause
+! failures in velocity-law and grid setup.
+2.16178924D+07  [RMAX]
+
+! Velocity law selector.
+! Value 11: use the velocity and density directly from the
+! SN hydrodynamic structure (SN_HYDRO_DATA).
+11              [VEL_LAW]
+
+! Terminal velocity in km/s, used as a reference scale.
+! For a hydrodynamic SN model it should be broadly consistent
+! with the maximum velocity in SN_HYDRO_DATA.
+80472.26        [VINF]
+
+! Total luminosity in units of L_sun.
+! For hydrodynamic SN models the emergent luminosity is largely
+! set by the hydrodynamics and radioactive heating; this field
+! is often used only for bookkeeping.
+0.0             [LSTAR]
+
+! Total mass in units of M_sun.
+! Should be consistent with the ejecta mass used in the hydro
+! simulation; used in some diagnostic output.
+9.28497         [MASS]
+
+! Global clumping switch.
+! T: use a depth-dependent volume filling factor f(r).
+! F: treat the ejecta as smooth and unclumped.
+! SN models are often started with clumping switched off.
+F               [DO_CL]
+
+! Choice of clumping law, only used when clumping is enabled.
+! NONE indicates that no analytic clumping law is used.
+NONE            [CL_LAW]
+
+! Number of free clumping parameters for the chosen law.
+! Must be consistent with the selected clumping prescription.
+0               [N_CL_PAR]
+
+
+
+! Sequence number in an SN model time series (1,2,3,...).
+! Useful for tracking models in a time sequence; not physical.
+1               [TS_NO]
+
+! Age of the explosion in days.
+! Must match the age in SN_HYDRO_DATA so that any time-dependent
+! terms and decay power are consistent.
+2.5925974E+01   [SN_AGE]
+
+! Option controlling how the initial temperature structure is obtained.
+! Using the hydro temperature is recommended for the first model.
+USE_HYDRO       [SN_T_OPT]
+
+! When true, enforce a strictly homologous flow (velocity ∝ radius).
+! When false, preserve the exact velocity profile from the hydro input,
+! which is preferred if the hydro solution is not strictly homologous.
+F               [PURE_HUB]
+
+! Treatment of gamma-ray energy from radioactive decays.
+! LOCAL deposits all decay energy locally without explicit transport.
+! Other choices allow approximate or externally computed transport.
+LOCAL           [GAMRAY_TRANS]
+
+! Non-thermal electron solver switch.
+! When true, CMFGEN solves for the non-thermal electron distribution
+! and includes non-thermal ionisation and excitation explicitly.
+! At early times this can often be neglected; at nebular epochs it
+! becomes important.
+F               [TRT_NON_TE]
+
+
+!-----------------------------------------------------------
+! 2. Time-dependence, radioactive decays, adiabatic terms
+!-----------------------------------------------------------
+
+! Local flag documenting that adiabatic effects are considered.
+! Actual inclusion of adiabatic cooling is controlled by other
+! dedicated switches.
+T               [INCL_ADIABATIC]
+
+! Include adiabatic cooling in the energy equation.
+! This term is important when the expansion timescale is short
+! compared to radiative or thermal timescales, as in SN ejecta.
+! It can be turned off temporarily for debugging.
+F [INC_AD]
+
+! Include advection (flow) terms in the rate equations.
+! In SN modelling, explicit time dependence is usually controlled
+! via the comoving time-derivative; advection is an additional
+! correction that may be switched on for realism once basic
+! convergence is established.
+F [INC_ADV]
+
+! Include the comoving time derivative D/Dt in the statistical
+! equilibrium equations.
+! This is needed for fully time-dependent SN sequences; for a purely
+! stationary snapshot this is usually left false.
+F               [DO_DDT]
+
+! Include the energy input from radioactive decays.
+! Essential for SN models whose luminosity is powered by decaying
+! isotopes such as nickel and cobalt.
+F               [INC_RAD_DECAYS]
+
+! Local diagnostic flag related to Ng usage; does not affect physics.
+F               [CHK_NG]
+
+
+!-----------------------------------------------------------
+! 3. Continuum frequency grid
+!-----------------------------------------------------------
+
+! Read a precomputed continuum frequency set from file.
+! When false, the continuum grid is constructed internally.
+F               [RD_CF_FILE]
+
+! Minimum continuum frequency in units of 10^15 Hz.
+! Sets the low-frequency limit of the transfer grid.
+0.00149897      [MIN_CF]
+
+! Maximum continuum frequency in units of 10^15 Hz.
+! Must be high enough to include all important bound-free edges,
+! and extended further if X-rays are present.
+50.000D0        [MAX_CF]
+
+! Spacing factor for low frequencies.
+! Frequencies are geometrically spaced with this factor below a
+! certain threshold; values close to unity give finer spacing.
+1.10D0          [FRAC_SP]
+
+! Spacing factor for high frequencies.
+! Sets the geometric factor for stepping to higher frequencies.
+1.05D0          [AMP_FAC]
+
+! Maximum spacing near bound-free edges (in 10^15 Hz).
+! Controls how finely edges are sampled for recombination rates.
+0.10D0          [MAX_BF]
+
+! Enable level dissolution in the treatment of bound-free opacities.
+! This improves behaviour near series limits by turning dense high-n
+! lines into a pseudo-continuum.
+T               [DO_DIS]
+
+! Velocity spacing in km/s used on the low-frequency side of a
+! bound-free edge when inserting extra continuum frequencies.
+200.0D0         [dV_LEV]
+
+! Factor by which the spacing grows as one moves away from the
+! bound-free edge; expressed relative to the base spacing.
+1.4             [AMP_DIS]
+
+! Lower frequency bound (in 10^15 Hz) for applying the special
+! dissolution spacing rules.
+0.1             [MIN_DIS]
+
+! Control of where the continuum opacity and emissivity are evaluated.
+! When false, chi and eta are evaluated only at a subset of frequencies
+! separated by the chosen velocity spacing and interpolated in between,
+! which speeds up the calculation.
+F               [CROSS]
+
+! Maximum velocity separation in km/s between frequencies at which
+! the continuum opacity and emissivity are explicitly computed when
+! interpolation is used.
+750.0           [V_CROSS]
+
+! Gaussian width in km/s used to smooth photoionisation cross-sections.
+! If the atomic data are already smoothed, CMFGEN will avoid excessive
+! additional smoothing.
+750.0           [SIG_GAU_KMS]
+
+! Extent, in units of the terminal velocity, over which a line is
+! allowed to influence the continuum and rates beyond its resonance
+! zone in the comoving frame.
+0.5             [EXT_LINE_VAR]
+
+! Threshold for identifying lines whose net radiative bracket is
+! sufficiently close to zero that a net-rate linearisation can be used.
+! When the net bracket is within this fractional tolerance of unity,
+! the line behaves effectively optically thin.
+0.01            [ZNET_VAR_LIM]
+
+! Choose whether weak lines are treated using net rates.
+! When true and the line satisfies the weakness criteria, full
+! linearisation can be avoided for that transition to save time.
+T               [WNET]
+
+! Weak-line criterion based on the maximum ratio of line opacity
+! to continuum opacity.
+! When this ratio stays below the chosen limit, the line is considered
+! weak for the purposes of net-rate treatment.
+0.10            [WK_LIM]
+
+
+!-----------------------------------------------------------
+! 4. Radiation-field solver & relativity
+!-----------------------------------------------------------
+
+! Use the fully relativistic moment solver for the radiation field.
+! This includes all v/c terms in the comoving-frame moment equations,
+! which is important for fast SN ejecta.
+T               [USE_J_REL]
+
+! Include relativistic corrections in the comoving-frame transfer
+! equation.
+T               [INCL_REL]
+
+! Include advection terms in the comoving-frame transfer equation,
+! adding further v/c corrections to the transport.
+T               [INCL_ADV_TRANS]
+
+! Include the time derivative of J in the transfer equation.
+! For strictly stationary SN models this is disabled; for explicit
+! time-dependent transport this is switched on.
+F               [INCL_DJDT]
+
+! Force use of the transfer routines that include the J time derivative,
+! even if the derivative itself is not applied.
+F               [USE_DJDT_RTE]
+
+! Compute the continuum mean intensity J using Eddington factors
+! derived from a separate formal solution.
+T               [JC_W_EDD]
+
+! Similarly, compute the line pseudo-continuum mean intensity using
+! Eddington factors.
+T               [JBAR_W_EDD]
+
+! Use the diffusion approximation at the inner boundary.
+! This assumes the innermost layers are optically thick and in
+! radiative equilibrium.
+T               [DIF]
+
+! Explicit choice of the inner boundary method as diffusion.
+DIFFUSION       [IB_METH]
+
+! Treat electron scattering as coherent in frequency in the CMF solver.
+! For more realistic scattering in flux calculations, incoherent
+! scattering is typically handled in CMF_FLUX.
+T               [COH_ES]
+
+! Historical flag controlling alternate use of previously computed J;
+! kept only for backward compatibility.
+F               [OLD_J]
+
+! When true, use a mixture of coherent and incoherent scattering in
+! the linearisation based on the similarity between J and the
+! scattered J; still considered experimental.
+F               [MIX_COH]
+
+! Threshold on the relative difference between the mean intensity and
+! the electron-scattered mean intensity when deciding whether to use
+! coherent behaviour in the variation of J.
+0.1             [ES_FAC]
+
+! Choice of closure relation for the highest moment in the moment
+! equations.
+! Here, the ratio N/J is used, which is more stable than N/H when
+! H passes through zero at some radii.
+N_ON_J          [N_TYPE]
+
+! Method used to solve the transfer equation along rays.
+! The integral short-characteristics method is used, with additional
+! insertion of points near the tangential plane to improve accuracy.
+INT/INS         [FG_OPT]
+
+
+!-----------------------------------------------------------
+! 5. Accuracy options for chi, tau, moments
+!-----------------------------------------------------------
+
+! Method for computing optical depth from opacity.
+! The chosen method uses trapezoidal integration with monotonic
+! derivatives in log-log space to avoid spurious oscillations.
+ZERO            [METHOD]        ! SNA stable setting
+
+! Maximum allowed change in velocity per step for the ray-based
+! computation of Eddington factors.
+! Large values effectively disable the automatic insertion of
+! extra points along rays.
+20000.0D0       [VFRAC_FG]      ! Coarser ray spacing for J(mom)/J(ray) stability
+
+! Maximum velocity step for the moment-based solution grid.
+! Large values also disable extra point insertion in that stage.
+20000.0D0       [VFRAC_MOM]     ! Coarser moment spacing for J(mom)/J(ray) stability
+
+! Use the thick-boundary treatment for the continuum at the outer
+! boundary. This improves the behaviour of the flux and moments in
+! the outermost layers.
+T               [THK_CONT]
+
+! Use trapezoidal weighting of intensities when computing the angle
+! moments J, H, K, N from the discrete-ray intensities.
+T               [TRAP_J]
+
+
+!-----------------------------------------------------------
+! 6. Line broadening & intrinsic profiles
+!-----------------------------------------------------------
+
+! Reference temperature (in 10^4 K) for computing thermal Doppler
+! widths of spectral lines, when a fixed temperature is assumed.
+4.0D0           [TDOP]
+
+! Atomic mass (in atomic mass units) used in the Doppler-width
+! calculation when a single representative ion is assumed.
+4.0D0           [AMASS_DOP]
+
+! Microturbulent velocity (km/s) used in computing the intrinsic
+! line profile widths.
+50.0D0          [VTURB]
+
+! Half-width of the resonance zone, in units of the Doppler width,
+! used in the comoving-frame line radiative transfer.
+6.0             [MAX_DOP]
+
+! Frequency spacing across the resonance zone, expressed in units of
+! the Doppler width, for sampling the intrinsic line profile.
+1.0D0           [FRAC_DOP]
+
+! Velocity spacing (km/s) between sample points across the full
+! comoving-frame line profile outside the resonance zone.
+200.0           [dV_CMF_PROF]
+
+! Velocity spacing (km/s) for sampling the non-coherent electron
+! scattering wings in the comoving frame.
+300.0           [dV_CMF_WING]
+
+! Extent of the non-coherent electron scattering wings, in km/s,
+! beyond the resonance zone in frequency space.
+2500.0          [ES_WING_EXT]
+
+! Extent, in units of the terminal velocity, of the coherent electron
+! scattering wings beyond the resonance zone.
+3.0             [R_CMF_WING_EXT]
+
+
+!-----------------------------------------------------------
+! 7. Observed-frame spectrum control (within CMFGEN)
+!-----------------------------------------------------------
+
+! Half-width of the observed-frame line profile in units of the
+! terminal velocity. Determines how far the observed spectrum is
+! computed about the line centre.
+1.1             [OBS_EXT_RAT]
+
+! Velocity spacing (km/s) of the observed-frame spectrum across
+! the central part of the line.
+100.0           [dV_OBS_PROF]
+
+! Velocity spacing (km/s) in the observed-frame electron scattering
+! wings.
+400.0           [dV_OBS_WING]
+
+! Velocity spacing (km/s) between lines (in continuum regions) in
+! the observed-frame spectrum.
+2000.0          [dV_OBS_BIG]
+
+! When true, the run is a pure flux calculation with no update of
+! populations; here it is left false since CMFGEN is used for the
+! structure.
+F               [FLUX_CAL_ONLY]
+
+! When true, the formal solution is extended outward in radius by an
+! additional factor to test sensitivity to the outer boundary; here
+! this feature is disabled.
+F               [EXT_FRM_SOL]
+
+! When true, extra frequencies are inserted in the formal solution to
+! improve the resolution of line profiles; generally recommended.
+T               [INS_F_FRM_SOL]
+
+! Choice of observed-frame formal solver; here the integral
+! short-characteristics method is used.
+INT             [FRM_OPT]
+
+! When true, equivalent widths of lines are computed using the
+! Sobolev approximation during the run; left false here.
+F               [DO_SOB_LINES]
+
+! When true, the frequencies associated with Sobolev/CMF lines are
+! included in defining the observed-frame grid; left false here.
+F               [SOB_FREQ_IN_OBS]
+
+! Controls which wavelengths are treated with the global line handling
+! mode vs. pure continuum; when true, the global mode applies between
+! the specified lower and upper limits.
+T               [LAM_SET]
+
+! Lower wavelength limit (in Angstrom) for including lines in the
+! flux calculation.
+5.0E+01         [F_LAM_BEG]
+
+! Upper wavelength limit (in Angstrom) for including lines in the
+! flux calculation.
+5.0E+04         [F_LAM_END]
+
+
+!---------- SN outer/inner fine-grid control ----------
+[N_IB_INS]  30     ! SNA stable setting
+[N_OB_INS]  30     ! SNA stable setting
+[REV_RGRID]  T     ! Dessart: automatic grid revision with spacing constraints (5% R, 10% T/rho/tau jumps)
+
+!-----------------------------------------------------------
+! 8. Treatment of bound-bound transitions
+!-----------------------------------------------------------
+
+! Global choice of line treatment for all species.
+! BLANK uses full line blanketing with overlapping lines treated
+! explicitly in the comoving frame.
+BLANK           [GLOBAL_LINE]
+
+! Threshold on gf for omitting very weak lines, in combination with
+! a lower-level index requirement and atomic-number cutoff.
+1.0D-3          [GF_CUT]
+
+! Only transitions with lower-level indices above this value are
+! considered for the gf-cut, so that important low-lying transitions
+! are always retained.
+9               [GF_LEV_CUT]
+
+! Atomic-number threshold above which the gf-cut is applied.
+! This allows gf-filtering to be restricted mostly to iron-group
+! and heavier elements.
+22              [AT_CUT]
+
+! Minimum number of downward transitions that a level must have
+! before any of its lines can be omitted, ensuring that no level
+! is completely disconnected.
+10              [MIN_TRANS]
+
+! Use a thick-line boundary condition in the CMF solver for lines,
+! ensuring consistent treatment of line source functions at the
+! outer boundary.
+T               [THK_LINE]
+
+! Adjust negative line opacities arising from population inversions
+! so that the total opacity remains positive and numerically stable.
+T               [CHK_L_POS]
+
+! Strategy for handling negative line opacities in the blanketed
+! calculation. The chosen option ties the opacity floor to a
+! fraction of the electron scattering opacity.
+ESEC_CHK        [NEG_OPAC_OPT]
+
+! When true, sets the rates in He II resonance lines to zero.
+! This is only for specialised tests; here it is left false.
+F               [He2_RES=0]
+
+! Allow Sobolev overlap between different lines when the Sobolev
+! approximation is used; not relevant in fully blanketed CMF mode.
+F               [ALLOW_OL]
+
+! Maximum velocity separation (km/s) between overlapping Sobolev
+! resonance zones for treating them as a coupled system.
+50.0            [OL_DIF]
+
+! Apply a scaling correction to the line heating and cooling rates
+! to compensate for errors introduced by grouping many levels into
+! super-levels.
+T               [SCL_LN]
+
+! Restrict the application of the line heating/cooling scaling to
+! cases where line frequencies are within a certain fractional
+! spacing of each other.
+0.5             [SCL_LN_FAC]
+
+
+!-----------------------------------------------------------
+! 9. Physical process switches
+!-----------------------------------------------------------
+
+! Include charge exchange reactions with hydrogen and helium.
+! For many hot, highly ionised SN conditions, this can be left off;
+! it is more relevant when significant neutral fractions are present.
+F               [INC_CHG]
+
+! Include two-photon decay processes (e.g. 2s->1s in hydrogen).
+! This can usually be turned on without harm, but is off here.
+F               [INC_TWO]
+
+! Include Penning ionisation processes.
+! Rarely used in stellar and SN modelling; left off.
+F               [INC_PEN]
+
+! Include Rayleigh scattering by neutral hydrogen.
+! Important primarily in the far-UV; off here for simplicity.
+F               [INC_RAY]        ! SNA stable setting
+
+! Include additional X-ray emission from shocks in the wind or
+! ejecta; off here as no shock-generated X-ray component is used.
+F               [INC_XRAYS]
+
+
+!-----------------------------------------------------------
+! 10. Starting a new model (initialisation)
+!-----------------------------------------------------------
+
+! Read a custom radial grid from a file analogous to the departure
+! coefficient files; used mainly for specialised tests.
+F               [RD_IN_R_GRID]
+
+! Use linear interpolation from a previous model’s populations
+! rather than starting from separate XzV IN files.
+! For first SN models or large parameter jumps this is usually
+! left false.
+F               [LIN_INT]
+
+! Renormalise the populations to satisfy abundance constraints
+! exactly during initialisation; typically not needed.
+T               [POP_SCALE]      ! SNA stable setting
+
+! Perform a separate initial iteration on the temperature structure
+! before the main run. For SN models using a good hydro temperature
+! guess this can be left false.
+F               [IT_ON_T]
+
+! Electron-scattering or Rosseland optical depth above which the
+! initial temperature is re-estimated from a simple thermal balance
+! or grey-solution approach.
+20.0            [T_INIT_TAU]
+
+! Rosseland optical depth above which the temperature is forced to
+! follow a grey-atmosphere solution during initialisation.
+10.0D0          [GREY_TAU]       ! SNA stable setting
+
+! Use LTE populations for the initial guess.
+! For SN models this is often combined with a minimum excitation
+! temperature to avoid underflows in low-density outer layers.
+F               [LTE_EST]
+
+! Minimum excitation temperature in units of 10^4 K used when
+! computing initial LTE populations. Prevents extremely low
+! temperatures from producing unphysical population ratios.
+3.00D-1         [T_EXC]         ! 3000 K floor for stability
+
+! Minimum temperature in units of 10^4 K.
+3.0D-01         [T_MIN]         ! 3000 K floor to prevent PREVENT_LOW_T overflow
+
+
+!-----------------------------------------------------------
+! 11. Species-specific line options & dielectronic recombination (global)
+!-----------------------------------------------------------
+
+! Global line-treatment mode (BLANK) already set above for most species.
+! The following per-ion options override that global choice for selected ions.
+
+!----------------------------------------
+! Per-ion line treatment switches (CMF / SOB)
+!----------------------------------------
+
+! Treat neutral hydrogen lines with the CMF (non-Sobolev, non-blanketed)
+! line transfer solver for testing and comparison. This overrides the
+! global BLANK mode for this ion.
+CMF          [TRANS_HI]
+
+! Treat neutral He I lines with the CMF solver.
+CMF          [TRANS_HeI]
+
+! Treat singly ionised He II lines with the CMF solver.
+CMF          [TRANS_He2]
+
+! Treat neutral carbon lines (C I) with the CMF solver.
+CMF          [TRANS_CI]
+
+! Treat singly ionised carbon lines (C II) with the CMF solver.
+CMF          [TRANS_C2]
+
+! Treat doubly ionised carbon lines (C III) with the CMF solver.
+CMF          [TRANS_CIII]
+
+! Treat triply ionised carbon lines (C IV) with the CMF solver.
+CMF          [TRANS_CIV]
+
+! Treat neutral nitrogen lines (N I) with the CMF solver.
+CMF          [TRANS_NI]
+
+! Treat singly ionised nitrogen lines (N II) with the CMF solver.
+CMF          [TRANS_N2]
+
+! Treat doubly ionised nitrogen lines (N III) with the CMF solver.
+CMF          [TRANS_NIII]
+
+! Treat triply ionised nitrogen lines (N IV) with the CMF solver.
+CMF          [TRANS_NIV]
+
+! Treat quadruply ionised nitrogen lines (N V) with the CMF solver.
+CMF          [TRANS_NV]
+
+! Treat neutral oxygen lines (O I) with the Sobolev approximation.
+SOB          [TRANS_OI]
+
+! Treat singly ionised oxygen lines (O II) with the Sobolev approximation.
+SOB          [TRANS_O2]
+
+! Treat doubly ionised oxygen lines (O III) with the Sobolev approximation.
+SOB          [TRANS_OIII]
+
+! Treat triply ionised oxygen lines (O IV) with the Sobolev approximation.
+SOB          [TRANS_OIV]
+
+! Treat quadruply ionised oxygen lines (O V) with the Sobolev approximation.
+SOB          [TRANS_OV]
+
+! Treat highly ionised oxygen lines (O VI/OSIX) with the Sobolev approximation.
+SOB          [TRANS_OSIX]
+
+! Treat singly ionised silicon lines (Sk2 ≡ Si II) with the Sobolev approximation.
+SOB          [TRANS_Sk2]
+
+! Treat doubly ionised silicon lines (SkIII ≡ Si III) with the Sobolev approximation.
+SOB          [TRANS_SkIII]
+
+! Treat triply ionised silicon lines (SkIV ≡ Si IV) with the Sobolev approximation.
+SOB          [TRANS_SkIV]
+
+! Treat doubly ionised sulphur lines (S III) with the Sobolev approximation.
+SOB          [TRANS_SIII]
+
+! Treat triply ionised sulphur lines (S IV) with the Sobolev approximation.
+SOB          [TRANS_SIV]
+
+! Treat quadruply ionised sulphur lines (S V) with the Sobolev approximation.
+SOB          [TRANS_SV]
+
+! Treat highly ionised sulphur lines (S VI/SSIX) with the Sobolev approximation.
+SOB          [TRANS_SSIX]
+
+! Treat doubly ionised iron lines (Fe III) with the Sobolev approximation.
+SOB          [TRANS_FeIII]
+
+! Treat triply ionised iron lines (Fe IV) with the Sobolev approximation.
+SOB          [TRANS_FeIV]
+
+! Treat quadruply ionised iron lines (Fe V) with the Sobolev approximation.
+SOB          [TRANS_FeV]
+
+! Treat highly ionised iron lines (Fe VI/FeSIX) with the Sobolev approximation.
+SOB          [TRANS_FeSIX]
+
+! Treat even higher iron ionisation stages (Fe VII/FeSEV) with the Sobolev approximation.
+SOB          [TRANS_FeSEV]
+
+
+!----------------------------------------
+! Additional element abundances written as negative values so
+! they are interpreted as mass fractions. Together with the
+! entries above, these should sum to unity.
+!----------------------------------------
+
+! Abundance of hydrogen, written as a negative value so that it
+! is interpreted as a mass fraction. The set of negative entries
+! for all elements should sum to unity (to numerical precision).
+
+-5.207197D-02   [HYD/X]
+-1.07D-01       [HE/X]
+-4.23D-01       [OXY/X]
+-1.21D-02       [CAL/X]
+-4.6322869D-02  [CARB/X]
+-5.9004106D-05  [NIT/X]
+-1.1656253D-01  [NEON/X]
+-4.7441808D-02  [MAG/X]
+-1.6312100D-01  [SIL/X]
+-3.6666922D-03  [IRON/X]
+-0.0D-6         [PHOS/X]
+-0.0D-06        [SUL/X]
+-2.8189559D-02  [NICK/X]
+-1.1194512D-02  [ARG/X]
+-1.2234476D-04  [TIT/X]
+-1.2256985D-03  [CHRO/X]
+
+
+!----------------------------------------
+! Detailed dielectronic recombination switches
+!----------------------------------------
+
+! Treat low-temperature dielectronic recombination as separate,
+! non-overlapping lines (T) or subsume into photoionisation
+! cross-sections (F). Here left false globally; per-ion flags below
+! control which LTDR sets are used.
+F            [DIE_AS_LINE]
+
+! Velocity scale (km/s) for smoothing dielectronic recombination
+! features merged into bound-free cross-sections or treated as lines.
+1000.0D0     [VSM_DIE]
+
+
+! Per-ion LTDR inclusion flags: first logical controls standard LS-allowed
+! autoionising states, second logical controls LS-forbidden or special
+! states. They determine whether tabulated Nussbaumer–Storey / WI data
+! are used for each ion.
+
+F,F          [DIE_HI]
+F,F          [DIE_HeI]
+F,F          [DIE_He2]
+
+F,F          [DIE_CI]
+F,F          [DIE_C2]
+F,T          [DIE_CIII]
+F,F          [DIE_CIV]
+F,F          [DIE_CaI]
+F,F          [DIE_Ca2]
+F,F          [DIE_CaIII]
+F,F          [DIE_NI]
+F,F          [DIE_N2]
+F,F          [DIE_NIII]
+F,T          [DIE_NIV]
+F,F          [DIE_NV]
+
+F,F          [DIE_OI]
+F,F          [DIE_O2]
+F,F          [DIE_OIII]
+F,F          [DIE_OIV]
+T,T          [DIE_OV]
+F,F          [DIE_OSIX]
+
+F,F          [DIE_Sk2]
+F,F          [DIE_SkIII]
+F,F          [DIE_SkIV]
+
+F,F          [DIE_PIII]
+F,F          [DIE_PIV]
+F,F          [DIE_PV]
+F,F          [DIE_PPIX]
+
+F,F          [DIE_SIII]
+F,F          [DIE_SIV]
+F,F          [DIE_SV]
+F,F          [DIE_SSIX]
+
+F,F          [DIE_FeIII]
+F,F          [DIE_FeIV]
+F,F          [DIE_FeV]
+F,F          [DIE_FeSIX]
+F,F          [DIE_FeSEV]
+
+
+F,F          [DIE_NkIII]
+
+!----------------------------------------
+! Level-fixing controls for convergence
+!----------------------------------------
+
+! For each ion below, the integer gives the number of lowest levels
+! that are to be held fixed during iterations (typically 0, meaning
+! all levels are free to respond).
+
+0            [FIX_HI]
+0            [FIX_HYD]
+0            [FIX_HeI]
+0            [FIX_He2]
+0            [FIX_HE]
+
+0            [FIX_CI]
+0            [FIX_C2]
+0            [FIX_CIII]
+0            [FIX_CIV]
+0            [FIX_CARB]
+
+0            [FIX_NI]
+0            [FIX_N2]
+0            [FIX_NIII]
+0            [FIX_NIV]
+0            [FIX_NV]
+0            [FIX_NIT]
+
+0            [FIX_OI]
+0            [FIX_O2]
+0            [FIX_OIII]
+0            [FIX_OIV]
+0            [FIX_OV]
+0            [FIX_OSIX]
+0            [FIX_OXY]
+
+0            [FIX_Sk2]
+0            [FIX_SkIII]
+0            [FIX_SkIV]
+0            [FIX_SIL]
+
+0            [FIX_SIII]
+0            [FIX_SIV]
+0            [FIX_SV]
+0            [FIX_SSIX]
+0            [FIX_SUL]
+
+0            [FIX_FeIII]
+0            [FIX_FeIV]
+0            [FIX_FeV]
+0            [FIX_FeSIX]
+0            [FIX_FeSEV]
+0            [FIX_IRON]
+
+
+!-----------------------------------------------------------
+! 12. Convergence aids: T / NE / impurities
+!-----------------------------------------------------------
+
+! Fix the electron density during iterations.
+! When false, the electron density is solved consistently with
+! ionisation balance.
+F               [FIX_NE]
+
+! Automatically hold impurity species fixed during iterations when
+! their populations are extremely small and may cause noise in the
+! convergence.
+F               [FIX_IMP]
+
+! Hold the temperature fixed during iterations.
+! When true, CMFGEN does not update T, which can help stabilise
+! early iterations; here it is currently false so T is free.
+T [FIX_T]
+
+! Automatically release the temperature to be solved once other
+! corrections fall below a specified threshold.
+! Left false here to keep manual control over FIX_T.
+F               [FIX_T_AUTO]
+
+! Fix the temperature at the inner boundary over a chosen number
+! of depths. Used only in specialised SN runs with very large depth
+! optical depths.
+F               [FIX_INB_T]
+
+! Legacy option for fixing the temperature above a specified
+! Rosseland optical depth; superseded by more flexible controls.
+0.0             [TAU_SCL_T]
+
+
+!-----------------------------------------------------------
+! 13. Linearisation / BA matrix / iteration control
+!-----------------------------------------------------------
+
+! Choice of linearisation matrix structure across depths.
+! A tridiagonal structure couples each depth to its immediate
+! neighbours and gives good convergence while keeping memory
+! manageable.
+TRIDIAG         [SOL_METH]       ! SNA stable setting
+
+! Method used to scale corrections before applying them.
+! In this mode the largest correction at each depth is limited
+! to a chosen factor, while weaker corrections are scaled down
+! accordingly; impurity species are handled separately.
+MAJOR           [SCALE_OPT]
+
+! Convergence criterion for the largest fractional correction
+! (in percent). When the maximum correction falls below this
+! value on a full linearisation, the run is considered converged.
+1.0D-02 [EPS_TERM]
+
+! Maximum allowed multiplicative change to any variable in
+! a single full linearisation iteration.
+10.0D0          [MAX_LIN]
+
+! Maximum allowed multiplicative change during a Lambda
+! iteration (used when linearisation is temporarily suspended).
+1.0D+05         [MAX_LAM]
+
+! Hard limit on how large any correction is allowed to become;
+! larger corrections cause the run to stop to avoid numerical
+! instabilities.
+1.0D+40         [MAX_CHNG]
+
+! Always recompute the BA matrix on iterations that are designated
+! full linearisation steps.
+F               [COMP_BA]
+
+! Store the inverse of the BA matrix in scratch files to
+! accelerate subsequent solves when BA is held fixed.
+T               [STORE_BA_INV]
+
+! Write part of the BA inverse to disk in order to reduce
+! main-memory usage during the run.
+T               [WR_PRT_INV]
+
+! Number of successive iterations for which the BA matrix can
+! be held fixed once corrections become small.
+2               [N_FIX_BA]
+
+! Store the BA matrix itself to disk (BAMAT) for reuse
+! on subsequent iterations.
+T               [STORE_BA]
+
+! When the fractional change in J falls below this threshold,
+! variations in chi and eta may be ignored and the BA matrix
+! held fixed to save time.
+1.0D-04         [BA_CHK_FAC]
+
+! Threshold on the maximum correction (in percent) below which
+! BA recomputation is turned off and the stored matrix is reused.
+15.0D0          [FIX_BA]
+
+! If the largest correction exceeds this factor, the iteration
+! type is switched to a pure Lambda iteration for stability.
+400.0D0         [LAM_VAL]
+
+! Maximum number of Lambda iterations permitted between
+! full linearisation iterations.
+2               [NUM_LAM]
+
+! Read an explicitly supplied solution vector to start an
+! iteration; disabled here so the run starts from the usual
+! initial conditions.
+F               [RD_SOL]
+
+
+!-----------------------------------------------------------
+! 14. Enhanced spatial grid & Eddington factors
+!-----------------------------------------------------------
+
+! Enable the use of an enhanced spatial grid for solving the
+! transfer equation, with additional points inserted between
+! depths. Off here for simplicity.
+T               [INC_GRID]      ! SNA stable setting
+
+! When the enhanced grid is used, choose whether to apply it
+! at all frequencies or only above a chosen threshold.
+F               [ALL_FREQ]
+
+! Frequency in units of 10^15 Hz below which the enhanced grid
+! is not applied.
+3.19            [ACC_END]
+
+! Number of intermediate points inserted between each pair
+! of original depth points when the enhanced grid is active.
+2               [N_INS]
+
+! Index of the first depth at which extra points are inserted
+! for the enhanced grid.
+1               [ST_INT]
+
+! Index of the last depth for which the enhanced grid is used.
+30              [END_INT]
+
+! Number of depths counted inwards from the outer boundary for
+! which a quadratic interpolation is used to preserve the
+! diffusion approximation in the deep layers.
+50              [ND_QUAD]
+
+! Interpolation scheme used when defining the enhanced spatial
+! grid: logarithmic spacing is chosen here.
+LOG             [INTERP_TYPE]
+
+! Frequency interval, expressed as the number of frequencies,
+! after which contributions to the BA matrix from the current
+! frequency are accumulated into the stored BA matrix.
+200             [N_PAR]
+
+! Whether to compute new Eddington factors on the first
+! iteration of a run.
+T               [COMP_F]
+
+! Target accuracy for the computation of Eddington factors
+! in the moment solver, in fractional units.
+1.0D-04         [ACC_F]
+
+
+!-----------------------------------------------------------
+! 15. Ng acceleration
+!-----------------------------------------------------------
+
+! Enable Ng acceleration, which extrapolates successive iterations
+! to accelerate convergence when corrections have become small.
+F [DO_NG]
+
+! Threshold on the maximum correction (in percent) below which
+! Ng acceleration is allowed to operate.
+5.0D0           [BEG_NG]
+
+! Earliest iteration on which Ng acceleration is allowed,
+! so that the outer layers have responded to changes at depth
+! before extrapolation is attempted.
+15              [IBEG_NG]
+
+! Depth bandwidth (in number of depth points) over which Ng
+! acceleration is applied in a single block.
+60              [BW_NG]
+
+! Number of iterations between successive Ng accelerations.
+8               [ITS/NG]
+
+
+!-----------------------------------------------------------
+! 16. Relativistic observer-frame options
+!-----------------------------------------------------------
+
+! Include all relativistic terms when computing the observed
+! spectrum from the comoving-frame solution.
+T               [REL_OBS]
+
+! Include all relativistic terms when computing the comoving
+! intensities that are later transformed to the observer frame.
+T               [REL_CMF]
+
+
+!-----------------------------------------------------------
+! DEBUG STEPS
+!-----------------------------------------------------------
+
+
+F  [AUTO_ADD]

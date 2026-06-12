@@ -1,0 +1,202 @@
+# SN2024pba Model Configuration File - RSG Progenitor + Thermal Bomb
+# Inner region: stationary RSG shell (power-law density) + beta-law accelerating wind
+# STELLA injects 1e51 erg via EBurst thermal bomb into the stationary shell
+
+# Model identification
+model_name: "X1-test"              # Unique identifier for this model (used in directory names and file naming)
+description: "RSG shell + beta-law wind + thermal bomb: physically motivated progenitor structure"
+
+# Ejecta parameters (from create_embedded_hhe_shell.py)
+# This section defines the initial density/velocity/composition structure of the progenitor system
+ejecta:
+  # ================================================================
+  # EJECTA A: Inner RSG progenitor shell (stationary, r < R_star)
+  # This represents the H/He-rich envelope of the red supergiant progenitor
+  # ================================================================
+  M_ejecta_A: 5.0          # Total shell mass in Msun (mass of RSG envelope)
+  R_star_cm: 5.0e13        # RSG stellar radius (~700 Rsun = 5e13 cm) - inner boundary of wind
+  n_shell: 2.0             # Density power-law exponent: rho ∝ r^(-n_shell) - controls shell density profile
+
+  # Shell composition (solar-like H/He envelope)
+  fx_H_A: 0.70             # Hydrogen mass fraction in inner shell (solar-like)
+  fx_He_A: 0.28            # Helium mass fraction in inner shell (solar-like)
+  # Remaining 2% is metals (C, O, etc.)
+
+  # ================================================================
+  # EJECTA B: Outer metal-rich ejecta (r > R_star, extends to V_ejecta_B_max_kms)
+  # This represents the stripped envelope from the companion star (Type IIb-like)
+  # ================================================================
+  M_ejecta_B: 2.0          # Mass of stripped envelope ejecta in Msun
+  days_ejecta_B: 400       # Age of ejecta B in days (sets its spatial extent via homologous expansion: R = v*t)
+  E_kin_ejecta_B: 0        # No separate kinetic energy constraint (0 = use homologous expansion only)
+  V_ejecta_B_max_kms: 10000  # Maximum velocity for metal-rich ejecta B (km/s) - wind appended beyond this
+
+  # Ejecta B composition (metal-rich stripped envelope, Type IIb-like)
+  fx_H_B: 0.01             # Hydrogen mass fraction (very low - stripped envelope)
+  fx_He_B: 0.40            # Helium mass fraction (dominant)
+  fx_Fe_B: 0.03            # Iron mass fraction (core-processed material)
+  fx_Si_B: 0.05            # Silicon mass fraction (core-processed material)
+  fx_C_B: 0.02             # Carbon mass fraction (He-burning products)
+  # Remaining mass is oxygen (1 - sum of above fractions)
+
+  # ================================================================
+  # WIND: Pre-SN wind from RSG progenitor (R_star < r < R_cross)
+  # This defines the wind that existed before the supernova explosion
+  # ================================================================
+  wind_velocity_type: "beta_law"  # "beta_law" (accelerating from surface) or "homologous" (v=r/t)
+  Mdot_wind: 0.0          # Mass loss rate in Msun/yr (typical RSG wind rate)
+  V_inf_kms: 250.0         # Terminal wind velocity in km/s (for beta_law: accelerates from 0 at R_star to V_inf)
+  beta_wind: 5.0           # Beta-law exponent: v(r) = V_inf*(1 - R_star/r)^beta (higher = slower acceleration)
+  wind_time_days: 400     # Characteristic time for homologous expansion: v(r) = r/t (only for homologous mode)
+
+  # Wind composition (independent from shell)
+  fx_H_wind: 0.70         # Hydrogen mass fraction in wind (solar-like)
+  fx_He_wind: 0.28        # Helium mass fraction in wind (solar-like)
+  # Remaining 2% is metals
+
+  # ================================================================
+  # GRID AND GENERAL PARAMETERS
+  # ================================================================
+  N_rho_ejecta_B: 4         # Density power-law exponent for ejecta B: rho ∝ r^(-N). Lower = shallower, more mass at outer edge. N=7 is steep (standard outer SN ejecta), N=4 is moderate.
+  n_cells: 10000            # Number of radial cells for profile generation (higher = better resolution)
+  stationary_ejecta_A: true  # If true, inner shell has v=0 initially (STELLA adds kinetic energy via thermal bomb)
+
+  # Transition smoothing parameters (sigmoid blending)
+  sigmoid_k: 20             # Steepness of sigmoid transition (higher = sharper, lower = smoother. Default: 20)
+
+
+# Hydro backend selection
+# Options: 'stella' (1D Lagrangian radiation hydrodynamics) or 'heracles' (3D AMR)
+hydro_backend: stella
+
+# STELLA-specific parameters
+# STELLA is a 1D Lagrangian radiation hydrodynamics code for supernova evolution
+stella:
+  target_days: 25.0      # Target evolution time in days (40 days past SBO ~13 days)
+  nzon: 500                # Number of radial zones (must match compiled Mzon in zone.inc - requires recompile if changed)
+  kappa: 0.34              # Electron scattering opacity in cm^2/g (controls radiation transport)
+  snapshot_interval: 5.0   # Output snapshot interval in days (12 epochs to cover 55 days)
+  r_min: 1e12              # Minimum radius to include (cm) — excludes dense inner wind to avoid numerical stiffness
+  stella_root: "/ptmp/sbrennan/stella/OpenStella"  # Path to STELLA installation directory
+  partition: "general"      # SLURM partition for job submission
+  memory: "16G"            # Memory allocation per node
+  time: "23:59:00"         # Walltime limit for SLURM job (24 hour limit)
+
+  # Hybrid grid parameters for better transition resolution
+  # Uses linear spacing in inner region (RSG shell) and log spacing in outer region (wind)
+  outer_fraction: 0.3      # Fraction of zones in outer (log-spaced) region (default: 0.3)
+  transition_radius: 1e13  # Radius (cm) where grid transitions from linear to log spacing (default: 1e13)
+
+  # Explosion parameters: thermal bomb (EBurst) spreads energy over AMHT mass
+  # The thermal bomb injects 1e51 erg of energy into the innermost zones to simulate core collapse
+  explosion_energy: 10.0       # EBurst in units of 1e50 erg (10 = 1e51 erg, typical SN energy)
+  explosion_mass: 0.15        # AMHT: heated core mass in Msun (RSG: spread energy over more mass)
+  explosion_time: 0.1        # tBurst: energy injection duration in seconds (short burst = shock-like)
+  explosion_delay: 0.0       # Delay before thermal bomb triggers in seconds (set to 0 for immediate explosion)
+  initial_kinetic_energy: 0.0  # EKO: pre-existing KE (0 = use thermal bomb instead, non-zero = add to existing KE)
+  nstmax: 900000               # Max timesteps (standard value for 15-day simulation)
+  eps: 0.003                   # Gear integrator accuracy (smaller = tighter tolerance, more robust)
+  disable_scattering: True   # Enable scattering for physically accurate radiation transport
+
+  # Radioactive nickel56 distribution (for .xni file generation)
+  # Ni56 decay provides additional heating in the ejecta (important for lightcurve)
+  nickel56:
+    enabled: False             # Enable Ni56 radioactive decay (set to True for lightcurve calculations)
+    total_mass_msun: 0.05      # Total Ni56 mass in Msun (typical SN value)
+    distribution_mass_msun: 0.5   # Mass range over which Ni56 is distributed (inner X Msun)
+    distribution_type: "uniform"  # Distribution type: "uniform" or "gaussian"
+
+# Temperature profile parameters
+# Controls the initial temperature distribution in the progenitor model
+temperature:
+  temp_profile_type: "adiabatic"  # Type of temperature profile: "adiabatic" (T ∝ rho^(gamma-1)) or "isothermal"
+  N_T_ejecta: 0.6           # Temperature power law exponent for ejecta (T ∝ r^(-N_T))
+  T_inner_max: 100000      # K maximum temperature in inner shell (sets temperature scale)
+
+# HERACLES simulation parameters (unused for stella backend, kept for reference)
+# HERACLES is a 3D AMR radiation hydrodynamics code (not used when hydro_backend=stella)
+heracles:
+  mode: "hydrorad"         # HERACLES mode: "hydrorad" (radiation hydrodynamics) or "hydro" (hydro only)
+  simulation_days: 50      # Simulation duration in days
+  target_days: 100         # Target time for output
+  heracles_dir: "../heracles/hydro"  # HERACLES output directory
+  output_dir: "../heracles/hydro"    # HERACLES output directory
+  Lbox_cm: 5.0e17          # Simulation box size in cm
+  r_inner_cm: 1.0e7        # Inner boundary radius in cm
+  r_transition_cm: 1.0e12  # Transition radius for hybrid mesh
+  nx_inner_linear: 3000    # Number of cells in inner linear region
+  nx_hybrid_blend: 0       # Hybrid mesh blending parameter
+  hybrid_sigmoid_k: 10     # Sigmoid steepness for hybrid mesh transition
+  dt_max: 30               # Maximum timestep in seconds
+  nout: 100                # Number of output snapshots
+  partition: "general"     # SLURM partition
+  cpus: 2                  # Number of CPUs
+  memory: "16G"            # Memory allocation
+  time: "23:58:00"         # Walltime limit
+
+# CMFGEN conversion parameters
+# Controls how STELLA output is converted to CMFGEN format for spectrum synthesis
+cmfgen_conversion:
+  heracles_dir: "heracles"  # Directory containing hydrodynamic output (legacy parameter)
+  snapshot_days: 5      # STELLA snapshot day to use for CMFGEN (40 days past SBO)
+  output_file: "cmfgen/SN_HYDRO_DATA"  # Output file path for CMFGEN input
+  tau_max: 30              # Optical depth cutoff for inner boundary (tau > tau_max excluded)
+  tau_min: 1e-4            # Optical depth cutoff for outer boundary (tau < tau_min excluded)
+  n_grid: 100              # Base grid size for CMFGEN (before adaptive refinement)
+  adaptive_grid: true      # Enable adaptive grid refinement based on gradients
+  gradient_threshold: 0.5  # Threshold for adaptive grid refinement
+  velocity_max_kms: 10000  # Maximum velocity to include in cmfgen grid (km/s)
+  opacity_model: "electron_scattering"  # Opacity model for optical depth calculation
+  kappa_constant: 0.34     # Constant opacity value (cm^2/g) if using constant opacity model
+  enable_grid_thinning: true   # Enable grid thinning to remove near-degenerate points
+  grid_thinning_threshold: 0.005  # min_dr/r threshold for thinning (0.5% - removes points with too small spacing)
+  # Dessart-style adaptive grid parameters (refines grid based on physical gradients)
+  enable_adaptive_grid: true   # Enable Dessart-style adaptive grid refinement
+  base_grid_target: 100        # Target base grid size before refinement (default: 100)
+  max_radius_jump: 0.05        # Max radius jump fraction (default: 0.05 = 5% - refine if dr/r > 5%)
+  max_temp_jump: 0.10          # Max temperature jump fraction (default: 0.10 = 10% - refine if dT/T > 10%)
+  max_density_jump: 0.10       # Max density jump fraction (default: 0.10 = 10% - refine if drho/rho > 10%)
+  max_ne_jump: 0.10            # Max electron density jump fraction (default: 0.10 = 10% - refine if dne/ne > 10%)
+  max_logtau_jump: 0.10        # Max log optical depth jump (default: 0.10 = 10% - refine if dlogtau > 10%)
+
+# CMFGEN run parameters
+# CMFGEN is a NLTE spectrum synthesis code for supernovae
+cmfgen:
+  model_dir: "../models/${model_name}/cmfgen"  # CMFGEN model directory
+  submit_script: "../models/${model_name}/cmfgen/submit_cmfgen.sh"  # SLURM submission script
+  base_dir: "./base"       # CMFGEN base directory (contains atomic data)
+  model_type: "supernova"  # CMFGEN model type
+  run_init: true            # Run CMFGEN init stage (initial NLTE calculation)
+  run_stable: false        # Run CMFGEN stable stage (convergence check)
+  run_final: true           # Run CMFGEN final stage (full spectrum calculation)
+  run_obs: true            # Run CMFGEN obs stage (observer-frame spectrum)
+  partition: "general"     # SLURM partition for CMFGEN jobs
+  time: "1:00:00"         # Walltime limit for CMFGEN jobs (1 day limit)
+  cpus: 4                  # Number of CPUs for CMFGEN
+  memory: "32G"            # Memory allocation for CMFGEN
+  quick: false             # Quick mode (reduced accuracy for faster runs)
+  debug: true              # Debug mode (additional output)
+  fix_temperature: True    # Fix temperature to input values (no T calculation)
+  single_final: true        # Run single final stage (skip init/stable if already done)
+  init_num_its: 3          # Number of iterations for init stage
+
+# SEDONA parameters for spectrum generation
+# SEDONA is a Monte Carlo radiative transfer code for spectrum synthesis
+sedona:
+  partition: "general"     # SLURM partition for SEDONA jobs
+  cpus: 4                  # Number of CPUs for SEDONA
+  memory: "16G"            # Memory allocation for SEDONA
+  time: "1:00:00"         # Walltime limit for SEDONA jobs (1 day limit)
+  # SEDONA will use snapshot_days from cmfgen_conversion for tstep_time_start
+  # Inner boundary source will be auto-configured from SN_HYDRO_DATA (core_radius, core_temperature, core_luminosity)
+
+# Output directories
+# Defines where different stages of the pipeline write their output
+output:
+  base_dir: "./models"               # Base directory for all models
+  model_dir: "./models/${model_name}"  # Model-specific directory (variable substitution)
+  heracles_output: "heracles"        # HERACLES output subdirectory
+  cmfgen_output: "cmfgen"            # CMFGEN output subdirectory
+  sedona_output: "sedona"            # SEDONA output subdirectory
+  plots: "plots"                    # Diagnostic plots directory
+  outputs: "outputs"                # Additional outputs directory

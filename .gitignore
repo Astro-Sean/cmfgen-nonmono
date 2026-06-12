@@ -1,0 +1,50 @@
+# Model data (large files)
+models/
+*.swd
+*.tt
+*.mod
+*.res
+*.bm
+*.balance
+*.crv
+*.prf
+SN_HYDRO_DATA
+*.abn
+*.rho
+*.xni
+*.hyd
+
+# Plots and outputs
+plots/
+output/
+outputs/
+*.png
+*.pdf
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# SLURM logs
+*.out
+*.err
+submit.log
+
+# Fortran build artifacts
+*.o
+gmon.out
+
+# CMFGEN large files
+OUTGEN
+
+# TARDIS / temp
+tardis/
+*.core.*
+
+# IDE
+*.code-workspace
+
+# Git itself (already tracked)
+!.gitignore

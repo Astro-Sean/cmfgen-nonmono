@@ -1,0 +1,18 @@
+150 [ND]                !Number of depth points
+15        [NC]                !Number of core rays
+165 [NP]                !Number of impact parameters [ND+NC]
+3 [NUM_BNDS]          !Use 3 for tridiagonal matrix (should be odd)
+150000         [NCF_MAX]           !Total number of frequencies
+350            [MAX_SIM]           !Maximum # of lines whose Doppler profile overlpas.
+120000         [NLINE_MAX]         !Maximum # of bound-bound transitions
+21             [NLF]               !For CMF option only
+
+20,20,30       [HI_ISF]
+45,45,69       [HeI_ISF]
+58,58,58       [OI_ISF]
+264,264,493    [SkI_ISF]              !Si I: match SkI_F_TO_S (f_to_s_ls; 493 full levels, 264 super)
+137,137,340    [O2_ISF]
+181,181,1579   [FeI_ISF]              !Fe I: match FeI_F_TO_S (f_to_s_181; 1579 full levels, 181 super)
+135,135,2698   [Fe2_ISF]              !Fe II: match Fe2_F_TO_S (f_to_s_135; 2698 full, 135 super)
+79,79,157      [Sk2_ISF]              !Si II: match Sk2_F_TO_S (f_to_s_79; 157 full levels, 79 super)
+105,105,1500   [FeIII_ISF]
