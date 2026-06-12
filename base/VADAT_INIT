@@ -24,6 +24,9 @@ F               [PURE_HUB]     ! Keep exact V(r) from hydro
 T               [SN_DEBUG_LUM] ! RLUMST, OBSFLUX writes
 LOCAL           [GAMRAY_TRANS] ! Local gamma-ray deposition
 T               [TRT_NON_TE]   ! Non-thermal electrons off
+T               [INC_SHOCK_POWER] ! Include shock power from hydro
+F               [SCL_PWR_BY_FCL] ! Scale shock power by CLUMP_FAC
+F               [ADD_SHOCK_POWER_SLOWLY] ! Introduce shock power slowly
 F               [DO_HYDRO]     ! Not running CMFGEN hydro
 T               [NMONO_J]      ! Non-monotonic J
 
@@ -47,7 +50,7 @@ F               [INS_DEP]      ! Instantaneous decay at SN_AGE
 !        thermal Doppler core is narrow; 1000 km/s spacing still resolves
 !        line profiles while halving the number of explicit chi/eta points
 F               [RD_CF_FILE]   ! Build frequency grid internally
-0.003D0         [MIN_CF]       ! [OPT] was 0.00149897; raise to avoid sparse far-IR
+1.0D-4         [MIN_CF]       ! [OPT] was 0.003; lower to accommodate SN_HYDRO_DATA frequency range
 15.0D0          [MAX_CF]       ! [OPT] was 20.0; 15x10^15 Hz sufficient for IIn
 1.08D0          [FRAC_SP]      ! [OPT] was 1.10; smoother low-nu spacing
 1.04D0          [AMP_FAC]      ! [OPT] was 1.05; smoother high-nu spacing

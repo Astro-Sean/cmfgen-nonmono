@@ -1298,11 +1298,11 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "T",
+            "INC_SHOCK_POWER": "F",
             "ALL_FREQ": "T",
 
             "RD_CF_FILE": "F",
-            "MIN_CF": "0.01D0",
+            "MIN_CF": "1.0D-4",
             "MAX_CF": "13.5D0",
             "FRAC_SP": "1.08D0",
             "AMP_FAC": "1.04D0",
@@ -1412,14 +1412,14 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED, not CMFGEN rad decays)
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "T",
+            "INC_SHOCK_POWER": "F",
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
             # Avoid an observed edge-case: "HNU zero for frequency: 3.00000000E-03" at the low-nu edge.
             # Raise MIN_CF so the solver doesn't hit the extreme far-IR tail during bootstrap.
-            "MIN_CF": "0.01D0",
+            "MIN_CF": "1.0D-4",
             # Avoid an edge-case observed in OUTGEN: "HNU zero for frequency: ~1.5E+01".
             # Empirically this can trigger at the high-frequency end of the continuum grid.
             # Back off further from the upper edge to keep the init bootstrap stable.
@@ -1565,12 +1565,12 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "T",
+            "INC_SHOCK_POWER": "F",
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
-            "MIN_CF": "0.01D0",
+            "MIN_CF": "1.0D-4",
             "MAX_CF": "13.5D0",
             "FRAC_SP": "1.08D0",    # [OPT] was 1.10; smoother low-nu spacing
             "AMP_FAC": "1.04D0",    # [OPT] was 1.05; smoother high-nu spacing
@@ -1695,12 +1695,12 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED, not CMFGEN rad decays)
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "T",
+            "INC_SHOCK_POWER": "F",
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
-            "MIN_CF": "0.01D0",
+            "MIN_CF": "1.0D-4",
             "MAX_CF": "13.5D0",
             "FRAC_SP": "1.08D0",    # [OPT] was 1.10; smoother low-nu spacing
             "AMP_FAC": "1.04D0",    # [OPT] was 1.05; smoother high-nu spacing
