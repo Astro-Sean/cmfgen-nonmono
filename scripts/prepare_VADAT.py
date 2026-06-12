@@ -1298,6 +1298,7 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",
             "INC_RAD_DECAYS": inc_rad_decays,
+            "INC_SHOCK_POWER": "T",
             "ALL_FREQ": "T",
 
             "RD_CF_FILE": "F",
@@ -1411,6 +1412,7 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED, not CMFGEN rad decays)
             "INC_RAD_DECAYS": inc_rad_decays,
+            "INC_SHOCK_POWER": "T",
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
@@ -1563,6 +1565,7 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",
             "INC_RAD_DECAYS": inc_rad_decays,
+            "INC_SHOCK_POWER": "T",
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
@@ -1692,6 +1695,7 @@ def apply_profile(
             "SN_T_OPT": "USE_HYDRO",
             "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED, not CMFGEN rad decays)
             "INC_RAD_DECAYS": inc_rad_decays,
+            "INC_SHOCK_POWER": "T",
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
