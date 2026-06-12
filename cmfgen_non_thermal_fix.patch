@@ -1,0 +1,73 @@
+From 01135fa416cfd296c22a77ca092e69a89af5442e Mon Sep 17 00:00:00 2001
+From: Sean Brennan <sbrennan@mpia.de>
+Date: Fri, 12 Jun 2026 19:04:47 +0200
+Subject: [PATCH] Fix segfault in non-thermal routines when no radioactive
+ decays loaded
+
+Add ASSOCIATED() checks for RADIOACTIVE_DECAY_ENERGY pointer in:
+- SE_BA_NON_THERM_V3: handles case where DO_RAD_DECAYS is false
+- WRITE_NON_THERM_V1: same null-pointer protection
+
+Also change WRK_EDEP_eV calculation to use WRK_EDEP (which includes
+shock power) instead of RADIOACTIVE_DECAY_ENERGY directly. This allows
+shock-driven non-thermal electrons to work correctly when radioactive
+decays are disabled.
+---
+ new_main/subs/non_therm/se_ba_non_therm_v3.f90 | 11 ++++++++---
+ new_main/subs/non_therm/write_non_therm_v1.f90 |  9 +++++++--
+ 2 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/new_main/subs/non_therm/se_ba_non_therm_v3.f90 b/new_main/subs/non_therm/se_ba_non_therm_v3.f90
+index ee7f4e9..5052c6c 100644
+--- a/new_main/subs/non_therm/se_ba_non_therm_v3.f90
++++ b/new_main/subs/non_therm/se_ba_non_therm_v3.f90
+@@ -73,10 +73,15 @@
+         PI=ACOS(-1.0_LDP)
+         SCALE=1.0E+10_LDP/4.0_LDP/PI
+ 
+-        dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
++        IF (ASSOCIATED(RADIOACTIVE_DECAY_ENERGY)) THEN
++          dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
++          WRK_EDEP = RADIOACTIVE_DECAY_ENERGY
++        ELSE
++          dE_RAD_DECAY=0.0_LDP
++          WRK_EDEP = 0.0_LDP
++        END IF
+ 	dE_SHOCK_POWER=0.0_LDP
+ !
+-        WRK_EDEP = RADIOACTIVE_DECAY_ENERGY
+ 	IF(INC_SHOCK_POWER)THEN
+ 	  WRK_EDEP        = WRK_EDEP + SHOCK_POWER * SHOCK_POWER_FAC
+ 	  dE_SHOCK_POWER  = SHOCK_POWER * SHOCK_POWER_FAC
+@@ -86,7 +91,7 @@
+ !
+         STEQ_T=STEQ_T+SCALE*WRK_EDEP                      !*FRAC_ELEC_HEATING
+ !
+-	WRK_EDEP_eV=DEC_NRG_SCL_FAC*RADIOACTIVE_DECAY_ENERGY/ELECTRON_VOLT()
++	WRK_EDEP_eV=DEC_NRG_SCL_FAC*WRK_EDEP/ELECTRON_VOLT()
+ !
+ 	DO I=1,NUM_IONS
+ 	  ATM(I)%NTCXzV(:)=0.0_LDP
+diff --git a/new_main/subs/non_therm/write_non_therm_v1.f90 b/new_main/subs/non_therm/write_non_therm_v1.f90
+index e278d23..b9f2992 100644
+--- a/new_main/subs/non_therm/write_non_therm_v1.f90
++++ b/new_main/subs/non_therm/write_non_therm_v1.f90
+@@ -54,8 +54,13 @@
+ !
+         PI=ACOS(-1.0_LDP)
+         SCALE=1.0E+10_LDP/4.0_LDP/PI
+-        dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
+-	RADIOACTIVE_DECAY_ENERGY_eV=DEC_NRG_SCL_FAC*RADIOACTIVE_DECAY_ENERGY/ELECTRON_VOLT()
++        IF (ASSOCIATED(RADIOACTIVE_DECAY_ENERGY)) THEN
++          dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
++	  RADIOACTIVE_DECAY_ENERGY_eV=DEC_NRG_SCL_FAC*RADIOACTIVE_DECAY_ENERGY/ELECTRON_VOLT()
++        ELSE
++          dE_RAD_DECAY=0.0_LDP
++	  RADIOACTIVE_DECAY_ENERGY_eV=0.0_LDP
++        END IF
+ !
+ 	CALL GET_LU(LU,'WRITE_NT_RATES')
+ 	OPEN(UNIT=LU,FILE='NON_TH_RATES',STATUS='UNKNOWN',ACTION='WRITE')
+-- 
+2.47.3
+
