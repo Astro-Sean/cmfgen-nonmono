@@ -831,8 +831,10 @@ def plot_comparison(orig_r, orig_rho, orig_T, orig_v, orig_tau, orig_sigma,
     ax.step(orig_r_rsun, orig_tau, 'b--', alpha=0.7, linewidth=2, label='Original STELLA', where='post')
     ax.step(new_r_rsun, new_tau, 'r-', alpha=0.7, linewidth=2, label='CMFGEN', where='post')
     ax.axhline(y=2/3, color='orange', linestyle=':', alpha=0.8, linewidth=2, label='τ = 2/3')
-    # Highlight selected tau range [tau_min, tau_max] in grey
-    ax.axhspan(tau_min, tau_max, facecolor='gray', alpha=0.2, label=f'τ range: [{tau_min:.1e}, {tau_max:.1e}]')
+    # Highlight actual tau range of trimmed data in grey
+    actual_tau_min = new_tau.min()
+    actual_tau_max = new_tau.max()
+    ax.axhspan(actual_tau_min, actual_tau_max, facecolor='gray', alpha=0.2, label=f'τ range: [{actual_tau_min:.1e}, {actual_tau_max:.1e}]')
     ax.set_xlabel('r/R☉', fontsize=12)
     ax.set_ylabel('Optical Depth τ', fontsize=12)
     ax.set_title('Optical Depth Profile', fontsize=14)
