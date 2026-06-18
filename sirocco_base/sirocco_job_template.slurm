@@ -4,8 +4,8 @@
 #SBATCH --error=sirocco_%j.err
 #SBATCH --time={TIME_LIMIT}
 #SBATCH --partition={PARTITION}
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task={CPUS}
+#SBATCH --ntasks={CPUS}
+#SBATCH --cpus-per-task=1
 #SBATCH --mem={MEMORY}
 #SBATCH --chdir={WORK_DIR}
 
@@ -59,7 +59,7 @@ fi
 
 # Run SIROCCO spectrum calculation (MPI-parallel)
 echo "Running SIROCCO with $SLURM_NTASKS MPI tasks..."
-$SIROCCO_HOME/bin/sirocco {MODEL_NAME}.pf
+mpirun -np $SLURM_NTASKS $SIROCCO_HOME/bin/sirocco {MODEL_NAME}.pf
 
 echo "SIROCCO completed"
 echo "Date: $(date)"
