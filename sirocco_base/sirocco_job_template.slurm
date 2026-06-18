@@ -4,14 +4,14 @@
 #SBATCH --error=sirocco_%j.err
 #SBATCH --time={TIME_LIMIT}
 #SBATCH --partition={PARTITION}
-#SBATCH --ntasks={CPUS}
-#SBATCH --cpus-per-task=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task={CPUS}
 #SBATCH --mem={MEMORY}
 #SBATCH --chdir={WORK_DIR}
 
 set -euo pipefail
 
-export SIROCCO_HOME=/ptmp/sbrennan/heracles/explosion_hydro/sirocco/sirocco
+export SIROCCO_HOME=/ptmp/sbrennan/sirocoo/sirocco
 export PATH=$SIROCCO_HOME/bin:$PATH
 
 # Load required modules for SIROCCO
@@ -30,11 +30,11 @@ echo "Date: $(date)"
 # Copy atomic data files if not present
 if [ ! -f "standard80_sn_kurucz.dat" ]; then
     echo "Copying atomic data files..."
-    cp /ptmp/sbrennan/heracles/explosion_hydro/sirocco/supernova_400d/standard80.dat standard80_sn_kurucz.dat
+    cp /ptmp/sbrennan/sirocoo/supernova_400d/standard80.dat standard80_sn_kurucz.dat
 fi
 if [ ! -d "data/atomic" ]; then
     mkdir -p data/atomic
-    cp -r /ptmp/sbrennan/heracles/explosion_hydro/sirocco/sirocco/xdata/atomic/* data/atomic/
+    cp -r /ptmp/sbrennan/sirocoo/sirocco/xdata/atomic/* data/atomic/
 fi
 
 # Convert CMFGEN SN_HYDRO_DATA to SIROCCO import format if needed
@@ -59,7 +59,7 @@ fi
 
 # Run SIROCCO spectrum calculation (MPI-parallel)
 echo "Running SIROCCO with $SLURM_NTASKS MPI tasks..."
-mpirun -np $SLURM_NTASKS $SIROCCO_HOME/bin/sirocco {MODEL_NAME}.pf
+$SIROCCO_HOME/bin/sirocco {MODEL_NAME}.pf
 
 echo "SIROCCO completed"
 echo "Date: $(date)"
