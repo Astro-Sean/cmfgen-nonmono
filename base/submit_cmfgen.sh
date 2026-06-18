@@ -306,6 +306,14 @@ if [[ -z "${FINAL_WALL_GRACEFUL}" ]]; then
 fi
 FINAL_REQUEUE_MAX="${CMFGEN_FINAL_REQUEUE_MAX:-500}"
 
+# Debug mode: 2 iterations only, no graceful stop, no requeue.
+# Must come AFTER the graceful timer defaults so these take final effect.
+if [[ $debug -eq 1 ]]; then
+  FINAL_NUM_ITS=2
+  FINAL_GRACEFUL_SLEEP_SEC=999999999  # Disable sleep-based fallback timer
+  FINAL_WALL_GRACEFUL=0               # Disable #SBATCH --signal + USR1 handler
+fi
+
 echo ""
 echo "Resources:"
 echo "  Partition:       $part"
@@ -870,7 +878,7 @@ cat > "${MODEL_DIR}/${FINAL_SLURM}" <<EOF
 #SBATCH --error=cmf_FINAL_%j.err
 #SBATCH --time=${timelimit}
 #SBATCH --partition=${part}
-#SBATCH --signal=B:USR1@${FINAL_SIGNAL_BEFORE_SEC}
+$([ "${FINAL_WALL_GRACEFUL}" != "0" ] && echo "#SBATCH --signal=B:USR1@${FINAL_SIGNAL_BEFORE_SEC}")
 #SBATCH --requeue
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${cpus}
@@ -1100,20 +1108,23 @@ trap request_graceful_stop USR1
 # Fallback for clusters that do not reliably deliver pre-timeout signals:
 # request graceful stop ~18h after start (for a 24h walltime).
 graceful_timer_pid=""
-graceful_after_sec="\${CMFGEN_GRACEFUL_AFTER_SEC:-${FINAL_GRACEFUL_SLEEP_SEC}}"
-start_graceful_timer() {
-  (
-    sleep "\${graceful_after_sec}"
-    request_graceful_stop
-  ) &
-  graceful_timer_pid=\$!
-}
+# stop_graceful_timer: always defined; no-op when timer is disabled.
 stop_graceful_timer() {
   if [[ -n "\${graceful_timer_pid}" ]] && kill -0 "\${graceful_timer_pid}" 2>/dev/null; then
     kill "\${graceful_timer_pid}" 2>/dev/null || true
   fi
 }
-start_graceful_timer
+# Start fallback sleep timer unless disabled (debug mode sets to 999999999).
+if [[ ${FINAL_GRACEFUL_SLEEP_SEC} -lt 100000000 ]]; then
+  (
+    sleep ${FINAL_GRACEFUL_SLEEP_SEC}
+    request_graceful_stop
+  ) &
+  graceful_timer_pid=\$!
+  echo "Graceful timer started: fires in ${FINAL_GRACEFUL_SLEEP_SEC}s (PID \${graceful_timer_pid})"
+else
+  echo "Graceful timer disabled (FINAL_GRACEFUL_SLEEP_SEC=${FINAL_GRACEFUL_SLEEP_SEC})"
+fi
 
 # ---------------------------
 # Resource settings (from SLURM)
@@ -1416,7 +1427,7 @@ cat > "${MODEL_DIR}/${SINGLE_FINAL_SLURM}" <<EOF
 #SBATCH --error=cmf_FINAL_%j.err
 #SBATCH --time=${timelimit}
 #SBATCH --partition=${part}
-#SBATCH --signal=B:USR1@${FINAL_SIGNAL_BEFORE_SEC}
+$([ "${FINAL_WALL_GRACEFUL}" != "0" ] && echo "#SBATCH --signal=B:USR1@${FINAL_SIGNAL_BEFORE_SEC}")
 #SBATCH --requeue
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${cpus}
@@ -1495,20 +1506,23 @@ PY
 trap request_graceful_stop USR1
 
 graceful_timer_pid=""
-graceful_after_sec="\${CMFGEN_GRACEFUL_AFTER_SEC:-${FINAL_GRACEFUL_SLEEP_SEC}}"
-start_graceful_timer() {
-  (
-    sleep "\${graceful_after_sec}"
-    request_graceful_stop
-  ) &
-  graceful_timer_pid=\$!
-}
+# stop_graceful_timer: always defined; no-op when timer is disabled.
 stop_graceful_timer() {
   if [[ -n "\${graceful_timer_pid}" ]] && kill -0 "\${graceful_timer_pid}" 2>/dev/null; then
     kill "\${graceful_timer_pid}" 2>/dev/null || true
   fi
 }
-start_graceful_timer
+# Start fallback sleep timer unless disabled (debug mode sets to 999999999).
+if [[ ${FINAL_GRACEFUL_SLEEP_SEC} -lt 100000000 ]]; then
+  (
+    sleep ${FINAL_GRACEFUL_SLEEP_SEC}
+    request_graceful_stop
+  ) &
+  graceful_timer_pid=\$!
+  echo "Graceful timer started: fires in ${FINAL_GRACEFUL_SLEEP_SEC}s (PID \${graceful_timer_pid})"
+else
+  echo "Graceful timer disabled (FINAL_GRACEFUL_SLEEP_SEC=${FINAL_GRACEFUL_SLEEP_SEC})"
+fi
 
 CPUS=\${SLURM_CPUS_PER_TASK:-2}
 export OMP_NUM_THREADS=\$CPUS
