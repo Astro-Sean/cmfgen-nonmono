@@ -201,7 +201,7 @@ TIME_DEFAULT="24:00:00"
 CPUS_DEFAULT=4
 # CMFGEN BA / matrix steps often need many GB; too-small requests can OOM during the first BA build.
 # Defaults tuned to be "reasonable" while still avoiding the prior 8G OOM failures.
-MEM_DEFAULT="${CMFGEN_SLURM_MEM:-8G}"
+MEM_DEFAULT="${CMFGEN_SLURM_MEM:-16G}"
 
 # INIT can often run with less than FINAL, but still needs enough for the first BA build.
 INIT_MEM_DEFAULT="${CMFGEN_INIT_SLURM_MEM:-24G}"
