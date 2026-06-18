@@ -42,6 +42,14 @@ endif
 #***********************************************************************
 
 #*****************************************************************************
+#    Atomic data soft links -- skip if already present (requeue optimisation)
+#*****************************************************************************
+
+if ( -e TWO_PHOT_DATA && -e PHOTHI_A && -e PHOTHe2_A ) then
+  echo "Atomic data links already present; skipping ln -sf section."
+else
+
+#*****************************************************************************
 # Generic
 # -------
  #*****************************************************************************
@@ -599,6 +607,8 @@ endif
 #  ln -sf  $ATOMIC/NICK/IX/11jun01/f_to_s_48.dat                NkIX_F_TO_S
 #  ln -sf  $ATOMIC/NICK/IX/11jun01/nkix_osc.dat                 NkIX_F_OSCDAT
 #  ln -sf  $ATOMIC/NICK/IX/11jun01/col_guess.dat                NkIX_COL_DATA
+endif
+
 #*****************************************************************************
 #
 # END OF ATOMIC DATA SOFT LINKS
