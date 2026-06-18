@@ -15,7 +15,7 @@
 #   --with-stable   Include STABLE phase (INIT->STABLE->FINAL->OBS)
 #   --single-final  Skip INIT; start FINAL from LTE (default: ON)
 #   --with-init     Disable single-final mode; use INIT->FINAL chain
-#   --quick         Request minimal resources (4 CPUs, 8G mem, 12h FINAL) for faster queue turnaround
+#   --quick         Request minimal resources (4 CPUs, 32G mem, 12h FINAL) for faster queue turnaround
 #   --no-submit     Only write files; do not call sbatch
 #   --restart       Only (re)submit FINAL and OBS Slurm jobs (INIT is not submitted)
 #   --vary_T        Allow temperature to vary (default: T is held fixed)
@@ -201,20 +201,20 @@ TIME_DEFAULT="24:00:00"
 CPUS_DEFAULT=4
 # CMFGEN BA / matrix steps often need many GB; too-small requests can OOM during the first BA build.
 # Defaults tuned to be "reasonable" while still avoiding the prior 8G OOM failures.
-MEM_DEFAULT="${CMFGEN_SLURM_MEM:-16G}"
+MEM_DEFAULT="${CMFGEN_SLURM_MEM:-32G}"
 
 # INIT can often run with less than FINAL, but still needs enough for the first BA build.
-INIT_MEM_DEFAULT="${CMFGEN_INIT_SLURM_MEM:-24G}"
+INIT_MEM_DEFAULT="${CMFGEN_INIT_SLURM_MEM:-32G}"
 
 PARTITION_DEBUG="interactive"
 TIME_DEBUG="01:59:00"
 CPUS_DEBUG=4
-MEM_DEBUG="8G"
+MEM_DEBUG="32G"
 
 # Quick preset: minimal resources for faster backfill / shorter queue wait
 TIME_QUICK="24:00:00"
 CPUS_QUICK=4
-MEM_QUICK="${CMFGEN_SLURM_MEM_QUICK:-24G}"
+MEM_QUICK="${CMFGEN_SLURM_MEM_QUICK:-32G}"
 
 # INIT: default interactive partition, 1h59 (cluster max on many sites). Override with CMFGEN_INIT_* env vars.
 # Keep memory aligned with main MEM_DEFAULT to avoid early BA OOM.
