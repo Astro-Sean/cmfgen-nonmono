@@ -292,7 +292,7 @@ fi
 
 # FINAL continuation policy (written into run_cmfgen_FINAL.slurm):
 #   wall         — default: Slurm SIGUSR1 before walltime + sleep fallback; NUM_ITS=0 then scontrol requeue.
-#   finish       — no wall preemption; after each clean ./batch.sh exit, scontrol requeue until max restarts
+#   finish       — no wall preemption; after each clean tcsh -f ./batch.sh exit, scontrol requeue until max restarts
 #                  or you create .CMFGEN_FINAL_NO_REQUEUE in the model dir. Does not auto-submit OBS (see submit block).
 #   recoverable  — no wall preemption; requeue only if OUTGEN matches a few soft-fail strings. OBS not auto-submitted.
 FINAL_REQUEUE_WHEN="${CMFGEN_FINAL_REQUEUE_WHEN:-wall}"
@@ -651,7 +651,7 @@ echo "Running out2in.sh and batch.sh..."
 "\$cmfdist/com/out2in.sh"
 
 
-./batch.sh
+tcsh -f ./batch.sh
 check_outgen_for_fatal
 
 echo "Preparing restart inputs (out2in.sh)..."
@@ -850,7 +850,7 @@ else
 fi
 
 echo "Running batch.sh (pure Lambda settling)..."
-./batch.sh
+tcsh -f ./batch.sh
 check_outgen_for_fatal
 
 echo "Preparing restart inputs (out2in.sh)..."
@@ -1304,7 +1304,7 @@ PY
 
 echo "Running batch.sh..."
 require_restart_inputs_or_abort
-./batch.sh
+tcsh -f ./batch.sh
 check_outgen_for_fatal
 stop_graceful_timer
 
@@ -1596,7 +1596,7 @@ print("IN_ITS had NUM_ITS=0; set to ${FINAL_NUM_ITS} before batch.sh.")
 PY
 
 echo "Running batch.sh..."
-./batch.sh
+tcsh -f ./batch.sh
 check_outgen_for_fatal
 stop_graceful_timer
 

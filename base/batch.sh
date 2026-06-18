@@ -1,4 +1,4 @@
-#!/bin/tcsh
+#!/bin/tcsh -f
 #
 #**********************************************************************
 #   Define directories (CAPITAL LETTERS)
@@ -10,7 +10,7 @@
 # cmfdist = CMFGEN install (exe, lib, com); set here if not already set (e.g. by run_cmfgen_*.slurm)
 #
 
-if ( ! $?cmfdist ) setenv cmfdist /u/sbrennan/cur_cmf_og
+if ( ! $?cmfdist ) setenv cmfdist /u/sbrennan/cur_cmf
 if ( ! $?ATOMIC ) setenv ATOMIC /u/sbrennan/atomic
 setenv CMFGEN_PROG   $cmfdist/exe/cmfgen_dev.exe
 
