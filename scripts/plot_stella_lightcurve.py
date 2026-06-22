@@ -151,13 +151,15 @@ def plot_lightcurves(tt: dict, bands: list[str], distance_modulus: float,
         ext = EXTINCTION_COEFF.get(band, 3.1) * ebv
         mag = mag + distance_modulus + ext
         
-        # Plot post-SBO (positive times) with solid lines
+        # Plot post-SBO (positive times) with solid lines and markers
         if np.any(post_sbo_mask):
-            ax_lc.plot(t[post_sbo_mask], mag[post_sbo_mask], color=color, ls='-', lw=1.8, label=label)
-        
-        # Plot pre-SBO (negative times) with dashed lines
+            ax_lc.plot(t[post_sbo_mask], mag[post_sbo_mask], color=color, ls='-', lw=1.8,
+                      marker='o', markersize=3, alpha=0.8, label=label)
+
+        # Plot pre-SBO (negative times) with dashed lines and markers
         if np.any(pre_sbo_mask):
-            ax_lc.plot(t[pre_sbo_mask], mag[pre_sbo_mask], color=color, ls='--', lw=1.8, alpha=0.7, label=f'{label} (pre-SBO)')
+            ax_lc.plot(t[pre_sbo_mask], mag[pre_sbo_mask], color=color, ls='--', lw=1.8,
+                      marker='s', markersize=3, alpha=0.7, label=f'{label} (pre-SBO)')
 
     if invert_y:
         ax_lc.invert_yaxis()
@@ -183,13 +185,15 @@ def plot_lightcurves(tt: dict, bands: list[str], distance_modulus: float,
     # M_bol_sun = 4.74
     lum_erg_s = LSUN * 10.0 ** ((4.74 - mbol) / 2.5)
     
-    # Plot post-SBO (positive times) with solid line
+    # Plot post-SBO (positive times) with solid line and markers
     if np.any(post_sbo_mask):
-        ax_bol.semilogy(t[post_sbo_mask], lum_erg_s[post_sbo_mask], color='black', lw=1.8)
-    
-    # Plot pre-SBO (negative times) with dashed line
+        ax_bol.semilogy(t[post_sbo_mask], lum_erg_s[post_sbo_mask], color='black', lw=1.8,
+                       marker='o', markersize=3, alpha=0.8)
+
+    # Plot pre-SBO (negative times) with dashed line and markers
     if np.any(pre_sbo_mask):
-        ax_bol.semilogy(t[pre_sbo_mask], lum_erg_s[pre_sbo_mask], color='black', ls='--', lw=1.8, alpha=0.7)
+        ax_bol.semilogy(t[pre_sbo_mask], lum_erg_s[pre_sbo_mask], color='black', ls='--', lw=1.8,
+                       marker='s', markersize=3, alpha=0.7)
     
     if days_max is not None:
         ax_bol.set_xlim(t[0], days_max)

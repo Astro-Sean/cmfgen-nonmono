@@ -3,8 +3,13 @@
 # STELLA injects 1e51 erg via EBurst thermal bomb into the stationary shell
 
 # Model identification
-model_name: "X1-noscat"              # Unique identifier for this model (used in directory names and file naming)
+model_name: "X1_scat"                   # Unique identifier for this model (used in directory names and file naming)
 description: "RSG shell + beta-law wind + thermal bomb: physically motivated progenitor structure"
+
+# Spectrum code execution flags
+run_cmfgen: True                  # Run CMFGEN spectrum synthesis
+run_sirocco: True                 # Run SIROCCO radiative transfer
+run_sedona: True                  # Run SEDONA Monte Carlo radiative transfer
 
 # Ejecta parameters (from create_embedded_hhe_shell.py)
 # This section defines the initial density/velocity/composition structure of the progenitor system
@@ -62,7 +67,7 @@ ejecta:
   stationary_ejecta_A: true  # If true, inner shell has v=0 initially (STELLA adds kinetic energy via thermal bomb)
 
   # Transition smoothing parameters (sigmoid blending)
-  sigmoid_k: 20             # Steepness of sigmoid transition (higher = sharper, lower = smoother. Default: 20)
+  sigmoid_k: 10             # Steepness of sigmoid transition (higher = sharper, lower = smoother. Default: 20)
 
 
 # Hydro backend selection
@@ -72,7 +77,7 @@ hydro_backend: stella
 # STELLA-specific parameters
 # STELLA is a 1D Lagrangian radiation hydrodynamics code for supernova evolution
 stella:
-  target_days: 25.0      # Target evolution time in days (40 days past SBO ~13 days)
+  target_days: 60.0      # Target evolution time in days (60 days total)
   nzon: 500                # Number of radial zones (must match compiled Mzon in zone.inc - requires recompile if changed)
   kappa: 0.34              # Electron scattering opacity in cm^2/g (controls radiation transport)
   snapshot_interval: 5.0   # Output snapshot interval in days (12 epochs to cover 55 days)
@@ -89,19 +94,22 @@ stella:
 
   # Explosion parameters: thermal bomb (EBurst) spreads energy over AMHT mass
   # The thermal bomb injects 1e51 erg of energy into the innermost zones to simulate core collapse
-  explosion_energy: 10.0       # EBurst in units of 1e50 erg (10 = 1e51 erg, typical SN energy)
+  explosion_energy: 5.0       # EBurst in units of 1e50 erg (10 = 1e51 erg, typical SN energy)
   explosion_mass: 0.15        # AMHT: heated core mass in Msun (RSG: spread energy over more mass)
   explosion_time: 0.1        # tBurst: energy injection duration in seconds (short burst = shock-like)
   explosion_delay: 0.0       # Delay before thermal bomb triggers in seconds (set to 0 for immediate explosion)
   initial_kinetic_energy: 0.0  # EKO: pre-existing KE (0 = use thermal bomb instead, non-zero = add to existing KE)
-  nstmax: 900000               # Max timesteps (standard value for 15-day simulation)
-  eps: 0.003                   # Gear integrator accuracy (smaller = tighter tolerance, more robust)
-  disable_scattering: True  # Enable scattering for physically accurate radiation transport
+  nstmax: 2000000             # Max timesteps (increased for 60-day run)
+  eps: 0.003                   # Gear integrator accuracy (0.003 = reference value; 0.001 was too tight at SBO)
+  hmax: 86400.0                # Max timestep in seconds (1 day; tight 3600s caused repeated failures at SBO)
+  tau_tol: 1.1                 # TauTol: Ncnd changes when tau(Ncnd) outside [FitTau/TauTol, FitTau*TauTol]
+                               # 1.1 fires earlier (tau<13.6) giving smaller Ncnd jumps vs 1.3 (tau<11.5)
+  disable_scattering: False  # Enable scattering for physically accurate radiation transport
 
   # Radioactive nickel56 distribution (for .xni file generation)
   # Ni56 decay provides additional heating in the ejecta (important for lightcurve)
   nickel56:
-    enabled: False             # Enable Ni56 radioactive decay (set to True for lightcurve calculations)
+    enabled: True              # Enable Ni56 radioactive decay (set to True for lightcurve calculations)
     total_mass_msun: 0.05      # Total Ni56 mass in Msun (typical SN value)
     distribution_mass_msun: 0.5   # Mass range over which Ni56 is distributed (inner X Msun)
     distribution_type: "uniform"  # Distribution type: "uniform" or "gaussian"
@@ -138,7 +146,7 @@ heracles:
 # Controls how STELLA output is converted to CMFGEN format for spectrum synthesis
 cmfgen_conversion:
   heracles_dir: "heracles"  # Directory containing hydrodynamic output (legacy parameter)
-  snapshot_days: 5      # STELLA snapshot day to use for CMFGEN (40 days past SBO)
+  snapshot_days: 40      # STELLA snapshot day to use for CMFGEN (40 days post SBO)
   output_file: "cmfgen/SN_HYDRO_DATA"  # Output file path for CMFGEN input
   tau_max: 30              # Optical depth cutoff for inner boundary (tau > tau_max excluded)
   tau_min: 1e-4            # Optical depth cutoff for outer boundary (tau < tau_min excluded)

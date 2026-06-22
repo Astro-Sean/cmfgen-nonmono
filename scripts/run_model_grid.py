@@ -23,6 +23,7 @@ import argparse
 import subprocess
 from pathlib import Path
 import os
+import re
 
 
 def load_yaml_config(config_file):
@@ -224,6 +225,11 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
         # Use the conversion script from sedona
         sedona_convert = project_dir.parent / 'sedona' / 'convert_cmfgen_to_sedona_v2.py'
         if sedona_convert.exists():
+            # Remove existing .mod file to ensure fresh conversion
+            if mod_file.exists():
+                print(f"  Removing existing {mod_file.name} to ensure fresh conversion")
+                mod_file.unlink()
+            
             result = subprocess.run(
                 [sys.executable, str(sedona_convert), str(sn_hydro), str(mod_file)],
                 capture_output=True,
@@ -244,6 +250,36 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
         print(f"  ERROR: SN_HYDRO_DATA not found at {sn_hydro}")
         print(f"    SEDONA requires CMFGEN SN_HYDRO_DATA to create the .mod file")
         return False
+
+    # Analyze .mod file: read innermost zone radius and detect zero-abundance species
+    mod_species_z = []
+    zero_abundance_z = set()
+    r_first_zone = None
+    if mod_file.exists():
+        with open(mod_file) as f:
+            mod_lines = f.readlines()
+        if len(mod_lines) >= 4:
+            species_line = mod_lines[2].strip()
+            try:
+                mod_species_z = [int(x) for x in species_line.split()]
+            except ValueError:
+                mod_species_z = []
+            for col, z in enumerate(mod_species_z):
+                has_mass = False
+                for line in mod_lines[3:]:
+                    parts = line.strip().split()
+                    if len(parts) >= 5 + col:
+                        if float(parts[4 + col]) > 0:
+                            has_mass = True
+                            break
+                if not has_mass:
+                    zero_abundance_z.add(z)
+            first_data = mod_lines[3].strip().split()
+            if len(first_data) >= 1:
+                r_first_zone = float(first_data[0])
+        if zero_abundance_z:
+            print(f"  WARNING: Zero-abundance species in .mod: {sorted(zero_abundance_z)}")
+            print(f"    These will be removed from opacity_atoms_in_nlte")
     
     # Get snapshot days from cmfgen_conversion config (fallback only)
     cmfgen_conv = config.get('cmfgen_conversion', {})
@@ -352,11 +388,40 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
                     sigma_sb = 5.6704e-5
                     luminosity = 4 * np.pi * r_inner**2 * sigma_sb * T_inner**4
                     print(f"  WARNING: Could not read luminosity from SN_HYDRO_DATA, calculating from R,T")
-                
+
+                # Try reading new inner-boundary header lines (written on previous runs)
+                r_inner_from_header = None
+                T_inner_from_header = None
+                L_inner_from_header = None
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('Inner boundary radius [cm]:'):
+                        try:
+                            r_inner_from_header = float(stripped.split()[-1])
+                        except (ValueError, IndexError):
+                            pass
+                    elif stripped.startswith('Inner boundary temperature [K]:'):
+                        try:
+                            T_inner_from_header = float(stripped.split()[-1])
+                        except (ValueError, IndexError):
+                            pass
+                    elif stripped.startswith('Inner boundary luminosity [erg/s]:'):
+                        try:
+                            L_inner_from_header = float(stripped.split()[-1])
+                        except (ValueError, IndexError):
+                            pass
+
+                if r_inner_from_header is not None:
+                    r_inner = r_inner_from_header
+                if T_inner_from_header is not None:
+                    T_inner = T_inner_from_header
+                if L_inner_from_header is not None:
+                    luminosity = L_inner_from_header
+
                 print(f"  Tau-trimmed model (SN_HYDRO_DATA):")
                 print(f"    Time since energy injection: {snapshot_days:.2f} days")
-                print(f"    Inner boundary (zone {nd}): R={r_inner:.3e} cm, T={T_inner:.0f} K")
-                print(f"    Luminosity: {luminosity_lsun:.3e} L_sun = {luminosity:.3e} erg/s")
+                print(f"    Inner boundary (zone {nd}): R={r_inner:.6e} cm, T={T_inner:.0f} K")
+                print(f"    Luminosity: {luminosity:.3e} erg/s")
                 print(f"    (Values from stellar simulation at tau_max boundary)")
         except Exception as e:
             print(f"  WARNING: Could not parse SN_HYDRO_DATA: {e}")
@@ -372,13 +437,59 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
         # Replace placeholders (use @ delimiters to avoid Lua table syntax conflicts)
         text = text.replace('@model_name@', model_name)
         text = text.replace('@snapshot_days@', str(snapshot_days))
-        text = text.replace('@r_inner@', f"{r_inner:.3e}")
+
+        # Ensure core_radius does not exceed first zone radius (avoid zones inside core)
+        if r_first_zone is not None and r_inner >= r_first_zone:
+            core_radius = r_first_zone * 0.9999
+            print(f"  Adjusted core_radius from {r_inner:.6e} to {core_radius:.6e} cm")
+            print(f"    (first zone radius = {r_first_zone:.6e} cm)")
+        else:
+            core_radius = r_inner
+        text = text.replace('@r_inner@', f"{core_radius:.6e}")
         text = text.replace('@temperature@', f"{T_inner:.2e}")
         text = text.replace('@luminosity@', f"{luminosity:.3e}")
+
+        # Filter species from NLTE list that are missing from .mod or have zero abundance
+        missing_from_mod = set()
+        if mod_species_z:
+            nlte_match = re.search(r'opacity_atoms_in_nlte\s*=\s*\{([^}]*)\}', text)
+            if nlte_match:
+                all_z = [int(x.strip()) for x in nlte_match.group(1).split(',') if x.strip()]
+                missing_from_mod = set(all_z) - set(mod_species_z)
+
+        species_to_remove = zero_abundance_z | missing_from_mod
+
+        # Temperature-based NLTE filtering: heavy species cause singular matrices at low T
+        NLTE_TEMP_THRESHOLD = 5000.0  # K
+        COLD_NLTE_ATOMS = {14, 26}    # Si, Fe (and Ni, Co if ever added)
+        if T_inner < NLTE_TEMP_THRESHOLD:
+            cold_atoms_in_list = COLD_NLTE_ATOMS & set(all_z if 'all_z' in dir() else [])
+            if not cold_atoms_in_list and mod_species_z:
+                # all_z may not be defined yet if no missing_from_mod; rebuild it
+                nlte_match = re.search(r'opacity_atoms_in_nlte\s*=\s*\{([^}]*)\}', text)
+                if nlte_match:
+                    all_z = [int(x.strip()) for x in nlte_match.group(1).split(',') if x.strip()]
+                    cold_atoms_in_list = COLD_NLTE_ATOMS & set(all_z)
+            if cold_atoms_in_list:
+                species_to_remove = species_to_remove | cold_atoms_in_list
+                print(f"  Low T inner boundary ({T_inner:.0f} K < {NLTE_TEMP_THRESHOLD:.0f} K):")
+                print(f"    Removing heavy NLTE species {sorted(cold_atoms_in_list)} to avoid singular matrix")
+
+        if species_to_remove:
+            nlte_match = re.search(r'opacity_atoms_in_nlte\s*=\s*\{([^}]*)\}', text)
+            if nlte_match:
+                original = nlte_match.group(0)
+                all_z = [int(x.strip()) for x in nlte_match.group(1).split(',') if x.strip()]
+                filtered = [z for z in all_z if z not in species_to_remove]
+                new_nlte = f'opacity_atoms_in_nlte = {{{", ".join(str(z) for z in filtered)}}}'
+                text = text.replace(original, new_nlte)
+                print(f"  Filtered opacity_atoms_in_nlte: removed {sorted(species_to_remove)}")
+                print(f"    New list: {filtered}")
+
         param_template.write_text(text)
         print(f"  Generated param.lua:")
         print(f"    Time since energy injection: {snapshot_days:.2f} days")
-        print(f"    Inner boundary: R={r_inner:.3e} cm, T={T_inner:.0f} K, L={luminosity:.3e} erg/s")
+        print(f"    Inner boundary: R={core_radius:.6e} cm, T={T_inner:.0f} K, L={luminosity:.3e} erg/s")
     else:
         print(f"  WARNING: param.lua template not found in sedona_base")
     
@@ -414,7 +525,14 @@ def submit_heracles_job(config, scripts_dir, project_dir, debug=False, config_fi
     partition = 'interactive' if debug else heracles.get('partition', 'small')
     cpus = heracles.get('cpus', 2)
     memory = heracles.get('memory', '16G')
-    time = '01:59:00' if debug else heracles.get('time', '23:59:00')
+    # Enforce partition time limits: interactive = 1:59:00 max, general/small = 1-00:00:00 (1 day)
+    if debug:
+        time = '01:59:00'
+    else:
+        time = heracles.get('time', '23:59:00')
+        # Override to 1-day limit if partition is general or small and time is > 1 day
+        if partition in ('general', 'small') and time != '1-00:00:00':
+            time = '1-00:00:00'
     
     if debug:
         print(f"DEBUG MODE: Using partition={partition}, time={time}, simulation_days={simulation_days}")
@@ -488,7 +606,13 @@ def submit_heracles_job(config, scripts_dir, project_dir, debug=False, config_fi
 
 
 def submit_conversion_job(config, scripts_dir, project_dir, heracles_job_id, debug=False):
-    """Submit CMFGEN conversion job with dependency on HERACLES."""
+    """Submit CMFGEN conversion job with dependency on HERACLES.
+
+    NOTE: This function is currently unused. The HERACLES workflow embeds the conversion
+    step at the end of heracles_job_template.slurm, and the STELLA workflow embeds it
+    inside stella_job_template.slurm. Kept for potential future use as a standalone
+    conversion job.
+    """
     model_name = config.get('model_name', 'unknown')
     print(f"\n{'='*60}")
     print(f"Submitting CMFGEN conversion job for model: {model_name}")
@@ -504,7 +628,14 @@ def submit_conversion_job(config, scripts_dir, project_dir, heracles_job_id, deb
     partition = 'interactive' if debug else heracles.get('partition', 'small')
     cpus = heracles.get('cpus', 2)
     memory = heracles.get('memory', '16G')
-    time = '01:59:00' if debug else '02:00:00'
+    # Enforce partition time limits: interactive = 1:59:00 max, general/small = 1-00:00:00 (1 day)
+    if debug:
+        time = '01:59:00'
+    else:
+        time = '02:00:00'
+        # Override to 1-day limit if partition is general or small
+        if partition in ('general', 'small'):
+            time = '1-00:00:00'
     
     # HERACLES root
     heracles_root = os.environ.get('HERACLES_ROOT', '/ptmp/sbrennan/heracles')
@@ -560,7 +691,7 @@ def submit_conversion_job(config, scripts_dir, project_dir, heracles_job_id, deb
     return job_id
 
 
-def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None, debug=False):
+def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None, debug=False, config_file=None):
     """Submit CMFGEN jobs (init, final, obs) using submit_cmfgen_jobs.sh script."""
     model_name = config.get('model_name', 'unknown')
     print(f"\n{'='*60}")
@@ -573,9 +704,9 @@ def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None,
     model_dir = (project_dir / model_dir).absolute()
     cmfgen_dir = model_dir / 'cmfgen'
     
-    # Read temperature control, init_num_its, and single_final from config
+    # Read init_num_its and single_final from config
+    # Note: fix_temperature is handled internally by submit_cmfgen.sh (FIX_T=T by default)
     cmfgen_cfg = config.get('cmfgen', {})
-    fix_temperature = cmfgen_cfg.get('fix_temperature', False)
     init_num_its = cmfgen_cfg.get('init_num_its', 3)
     single_final = cmfgen_cfg.get('single_final', True)
     
@@ -585,12 +716,18 @@ def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None,
     # Make script executable
     os.chmod(submit_script, 0o755)
     
-    # Build command (temperature is always allowed to vary)
+    # Build command
     dep_id = dependency_job_id if dependency_job_id else ""
+    # config_file should always be set by process_config, but provide fallback for safety
+    config_file_arg = str(config_file) if config_file else ""
+    # Enforce partition time limits: interactive = 1:59:00 max, general = 1-00:00:00 (1 day)
+    cmfgen_partition = 'interactive' if debug else 'general'
+    cmfgen_time = '01:59:00' if debug else '1-00:00:00'  # general partition = 1 day max
     cmd = [str(submit_script), model_name, str(model_dir), str(cmfgen_dir), dep_id,
            str(init_num_its),
-           'interactive' if debug else 'general', '01:59:00' if debug else '23:59:00',
-           '1' if single_final else '0']
+           cmfgen_partition, cmfgen_time,
+           '1' if single_final else '0',
+           config_file_arg]
     if debug:
         cmd.insert(1, '--debug')
     
@@ -648,8 +785,8 @@ def submit_sedona_job(config, scripts_dir, project_dir, dependency_job_id=None, 
     cpus = sedona_cfg.get('cpus', 4)
     memory = sedona_cfg.get('memory', '16G')
     time_limit = '01:59:00' if debug else sedona_cfg.get('time', '24:00:00')
-    # Enforce 1-day limit for general partition
-    if partition == 'general' and not debug:
+    # Enforce 1-day limit for general or small partition
+    if partition in ('general', 'small') and not debug:
         time_limit = '1-00:00:00'
     
     # Check for required files (warn only - .mod will be created by STELLA/HERACLES conversion)
@@ -721,6 +858,190 @@ def submit_sedona_job(config, scripts_dir, project_dir, dependency_job_id=None, 
 
 
 
+def prepare_sirocco_directory(config, scripts_dir, project_dir):
+    """Prepare SIROCCO directory by copying base files and creating the .pf parameter file."""
+    model_name = config.get('model_name', 'unknown')
+    print(f"\n{'='*60}")
+    print(f"Preparing SIROCCO directory for model: {model_name}")
+    print(f"{'='*60}")
+
+    output = config.get('output', {})
+    model_dir = output.get('model_dir', '../models/${model_name}').replace('${model_name}', model_name)
+    model_dir = (project_dir / model_dir).absolute()
+
+    sirocco_dir = model_dir / 'sirocco'
+    sirocco_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy sirocco_base files
+    sirocco_base = project_dir / 'sirocco_base'
+    if sirocco_base.exists():
+        print(f"Copying SIROCCO base files from {sirocco_base}...")
+        import shutil
+        for f in sirocco_base.iterdir():
+            if f.is_file():
+                dest = sirocco_dir / f.name
+                shutil.copy2(f, dest)
+                print(f"  Copied {f.name}")
+    else:
+        print(f"WARNING: sirocco_base directory not found at {sirocco_base}")
+
+    # Convert SN_HYDRO_DATA -> SIROCCO import file
+    sn_hydro = model_dir / 'cmfgen' / 'SN_HYDRO_DATA'
+    import_file = sirocco_dir / f'{model_name}.import.txt'
+
+    n_wind = 0
+    r_inner_cm = 1.0e14
+    t_inner_k = 10000.0
+    central_mass_msol = 1.4
+
+    if sn_hydro.exists():
+        print(f"Converting CMFGEN SN_HYDRO_DATA to SIROCCO import format...")
+        convert_script = scripts_dir / 'convert_cmfgen_to_sirocco.py'
+        if convert_script.exists():
+            # Remove existing import file to ensure fresh conversion
+            if import_file.exists():
+                print(f"  Removing existing {import_file.name} to ensure fresh conversion")
+                import_file.unlink()
+            
+            result = subprocess.run(
+                [sys.executable, str(convert_script), str(sn_hydro), str(import_file)],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                print(f"  Successfully created {model_name}.import.txt")
+                print(result.stdout)
+            else:
+                print(f"  ERROR: SIROCCO conversion failed")
+                print(result.stdout)
+                print(result.stderr)
+                return False
+        else:
+            print(f"  ERROR: Conversion script not found at {convert_script}")
+            return False
+
+        # Read boundary conditions from conversion script output
+        boundary_file = sirocco_dir / 'boundary_conditions.txt'
+        if boundary_file.exists():
+            print(f"  Reading boundary conditions from {boundary_file.name}...")
+            for line in boundary_file.read_text().splitlines():
+                if 'inner_boundary_radius_cm' in line:
+                    r_inner_cm = float(line.split('=')[1].strip())
+                elif 'inner_boundary_temperature_K' in line:
+                    t_inner_k = float(line.split('=')[1].strip())
+            print(f"    Using inner boundary: R={r_inner_cm:.3e} cm, T={t_inner_k:.0f} K")
+
+        # Read key scalars from import file to fill .pf template
+        if import_file.exists():
+            import numpy as np
+            lines = import_file.read_text().splitlines()
+            data_lines = [l for l in lines if not l.startswith('#') and l.strip()]
+            # Count total data lines (all cells in domain 0 for 1D spherical)
+            wind_lines = [l for l in data_lines if len(l.split()) >= 2 and l.split()[1] == '0']
+            if wind_lines:
+                n_wind = len(wind_lines)
+                print(f"  Detected {n_wind} wind cells from import file")
+        else:
+            print(f"  WARNING: SN_HYDRO_DATA not found at {sn_hydro}")
+            print(f"    SIROCCO import file will be created at runtime by the job script.")
+
+    # Patch .pf template
+    pf_template = sirocco_dir / 'sirocco.pf'
+    pf_dest = sirocco_dir / f'{model_name}.pf'
+    if pf_template.exists():
+        text = pf_template.read_text()
+        replacements = {
+            '@model_name@': model_name,
+            '@r_inner_cm@': f'{r_inner_cm:.6e}',
+            '@t_inner_k@': f'{t_inner_k:.1f}',
+            '@central_mass_msol@': f'{central_mass_msol:.2f}',
+            '@n_wind@': str(n_wind + 3) if n_wind > 0 else '503',  # +3 guard cells
+        }
+        for k, v in replacements.items():
+            text = text.replace(k, v)
+        pf_dest.write_text(text)
+        print(f"  Wrote {pf_dest.name} (n_wind={n_wind}, r_inner={r_inner_cm:.3e} cm, T={t_inner_k:.0f} K)")
+        pf_template.unlink()
+    else:
+        print(f"  WARNING: sirocco.pf template not found")
+
+    print(f"SIROCCO directory prepared: {sirocco_dir}")
+    return True
+
+
+def submit_sirocco_job(config, scripts_dir, project_dir, dependency_job_id=None, debug=False):
+    """Submit SIROCCO job to produce spectrum from existing hydro data."""
+    model_name = config.get('model_name', 'unknown')
+    print(f"\n{'='*60}")
+    print(f"Submitting SIROCCO job for model: {model_name}")
+    print(f"{'='*60}")
+
+    output_cfg = config.get('output', {})
+    model_dir = output_cfg.get('model_dir', '../models/${model_name}').replace('${model_name}', model_name)
+    model_dir = (project_dir / model_dir).absolute()
+    sirocco_dir = model_dir / 'sirocco'
+
+    sirocco_cfg = config.get('sirocco', {})
+    heracles_cfg = config.get('heracles', {})
+
+    partition = 'interactive' if debug else sirocco_cfg.get('partition', heracles_cfg.get('partition', 'general'))
+    cpus = sirocco_cfg.get('cpus', 4)
+    memory = sirocco_cfg.get('memory', '16G')
+    time_limit = '01:59:00' if debug else sirocco_cfg.get('time', '24:00:00')
+    # Enforce 1-day limit for general or small partition
+    if partition in ('general', 'small') and not debug:
+        time_limit = '1-00:00:00'
+
+    import_file = sirocco_dir / f'{model_name}.import.txt'
+    if not import_file.exists():
+        print(f"  WARNING: No import file found at {import_file}")
+        print(f"    SIROCCO job will be submitted with dependency - it will fail if import file is missing at runtime.")
+
+    job_file = sirocco_dir / f'sirocco_{model_name}.slurm'
+    sirocco_dir.mkdir(parents=True, exist_ok=True)
+
+    template_file = project_dir / 'sirocco_base' / 'sirocco_job_template.slurm'
+    if not template_file.exists():
+        print(f"ERROR: SIROCCO job template not found at {template_file}")
+        return None
+
+    with open(template_file, 'r') as f:
+        template = f.read()
+
+    variables = {
+        'MODEL_NAME': model_name,
+        'TIME_LIMIT': time_limit,
+        'PARTITION': partition,
+        'CPUS': str(cpus),
+        'MEMORY': memory,
+        'WORK_DIR': str(sirocco_dir),
+        'CMFGEN_DATA': str(model_dir / 'cmfgen' / 'SN_HYDRO_DATA'),
+        'IMPORT_FILE': str(import_file),
+    }
+
+    job_script = substitute_template(template, variables)
+
+    with open(job_file, 'w') as f:
+        f.write(job_script)
+
+    dep_arg = f"--dependency=afterok:{dependency_job_id}" if dependency_job_id else ""
+
+    cmd = ['sbatch']
+    if dep_arg:
+        cmd.append(dep_arg)
+    cmd.append(str(job_file))
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"ERROR: SIROCCO job submission failed")
+        print(result.stdout)
+        print(result.stderr)
+        return None
+
+    job_id = result.stdout.strip().split()[-1]
+    print(f"SIROCCO job submitted: {job_id}")
+    return job_id
+
+
 def should_use_multistage(target_days):
     """Determine if multi-stage simulation should be used for long runs."""
     return False  # Disabled - always use single-stage execution
@@ -771,25 +1092,27 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     heracles_target = heracles_cfg.get('target_days', 15)
     target_days   = stella_target if stella_target is not None else heracles_target
     
-    # Debug output
-    print(f"[DEBUG] STELLA target_days: {stella_target}")
-    print(f"[DEBUG] HERACLES target_days: {heracles_target}")
-    print(f"[DEBUG] Final target_days: {target_days}")
     nzon          = stella_cfg.get('nzon', 200)
+    nzon_max      = stella_cfg.get('nzon_max', nzon)  # Allow AMR headroom if > nzon
     kappa         = stella_cfg.get('kappa', 0.34)
     tau_max       = stella_cfg.get('tau_max', 30.0)
-    tau_min       = stella_cfg.get('tau_min', 1e-4)
+    tau_min       = stella_cfg.get('tau_min', 0)
+    rho_min       = stella_cfg.get('rho_min') or 0.0
     
-    # Adaptive output strategy based on simulation length
-    if target_days <= 15:
-        # Short simulations: standard 8 outputs
-        snapshot_interval = target_days / 8.0
-    elif target_days <= 30:
-        # Medium simulations: 12 outputs
-        snapshot_interval = target_days / 12.0
+    # Use explicit snapshot_interval from config if provided; otherwise compute adaptively
+    if stella_cfg.get('snapshot_interval') is not None:
+        snapshot_interval = float(stella_cfg['snapshot_interval'])
     else:
-        # Long simulations: 20 outputs max, more frequent early on
-        snapshot_interval = target_days / 20.0
+        # Adaptive output strategy based on simulation length
+        if target_days <= 15:
+            # Short simulations: standard 8 outputs
+            snapshot_interval = target_days / 8.0
+        elif target_days <= 30:
+            # Medium simulations: 12 outputs
+            snapshot_interval = target_days / 12.0
+        else:
+            # Long simulations: 20 outputs max, more frequent early on
+            snapshot_interval = target_days / 20.0
     
     # Ensure minimum interval of 0.5 days for numerical stability
     snapshot_interval = max(snapshot_interval, 0.5)
@@ -826,6 +1149,8 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     hmax = stella_cfg.get('hmax', hmax_default)
     enable_convection = stella_cfg.get('enable_convection', enable_convection_default)
     fit_tau = stella_cfg.get('fit_tau', 15.0)
+    tau_tol = stella_cfg.get('tau_tol', 1.3)
+    abs_fraction = stella_cfg.get('abs_fraction', 1e-2)
     givdtl = stella_cfg.get('givdtl', True)
     custom_output_times = stella_cfg.get('custom_output_times', None)
     outer_fraction = stella_cfg.get('outer_fraction', 0.3)
@@ -867,7 +1192,14 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     max_logtau_jump = cmfgen_conv_cfg.get('max_logtau_jump', 0.10)
     partition     = 'interactive' if debug else stella_cfg.get('partition', heracles_cfg.get('partition', 'general'))
     memory        = stella_cfg.get('memory', heracles_cfg.get('memory', '16G'))
-    time_limit    = '01:59:00' if debug else stella_cfg.get('time', '12:00:00')
+    # Enforce partition time limits: interactive = 1:59:00 max, general/small = 1-00:00:00 (1 day)
+    if debug:
+        time_limit = '01:59:00'
+    else:
+        time_limit = stella_cfg.get('time', '12:00:00')
+        # Override to 1-day limit if partition is general or small and time is > 1 day
+        if partition in ('general', 'small') and time_limit != '1-00:00:00':
+            time_limit = '1-00:00:00'
 
     stella_root   = stella_cfg.get('stella_root', '/ptmp/sbrennan/stella/OpenStella')
     input_profile = stella_cfg.get('input_profile',
@@ -916,9 +1248,11 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
         'INPUT_PROFILE': input_profile,
         'TARGET_DAYS':   target_days,
         'NZON':          nzon,
+        'NZON_MAX':      nzon_max,
         'KAPPA':         kappa,
         'TAU_MAX':       tau_max,
         'TAU_MIN':       tau_min,
+        'RHO_MIN_ARG':   f'--rho-min="{rho_min}"' if rho_min > 0 else '',
         'SNAPSHOT_INTERVAL': snapshot_interval,
         'R_MIN':         r_min,
         'EXPLOSION_ENERGY': explosion_energy,
@@ -932,6 +1266,8 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
         'HMAX': hmax,
         'ENABLE_CONV_ARG': '--enable-convection' if enable_convection else '',
         'FIT_TAU': fit_tau,
+        'TAU_TOL': tau_tol,
+        'ABS_FRACTION': abs_fraction,
         'GIVDTL_ARG': '--givdtl' if givdtl else '',
         'CMFGEN_SNAPSHOT_DAYS': cmfgen_snapshot_days,
         'ENABLE_GRID_THINNING_ARG': '--enable-grid-thinning' if enable_grid_thinning else '',
@@ -1016,7 +1352,7 @@ def run_stella_conversion(config, scripts_dir, project_dir):
     target_days = cmfgen_conv_cfg.get('snapshot_days', stella_cfg.get('target_days', 40))
     kappa = stella_cfg.get('kappa', 0.34)
     tau_max = stella_cfg.get('tau_max', 30.0)
-    tau_min = stella_cfg.get('tau_min', 1e-4)
+    tau_min = stella_cfg.get('tau_min', 0)
     enable_grid_thinning = cmfgen_conv_cfg.get('enable_grid_thinning', False)
     enable_adaptive_grid = cmfgen_conv_cfg.get('enable_adaptive_grid', True)
     base_grid_target = cmfgen_conv_cfg.get('base_grid_target', 100)
@@ -1181,15 +1517,21 @@ def plot_stella_lightcurve_if_available(config, scripts_dir, project_dir):
         return False
 
 
-def process_config(config_file, scripts_dir, project_dir, debug=False, debug_days=1, redo_heracles=True, plot_lightcurve=True, skip_stella=False, run_cmfgen=True, run_sedona=True):
+def process_config(config_file, scripts_dir, project_dir, debug=False, debug_days=1, redo_heracles=True, plot_lightcurve=True, skip_stella=False, run_cmfgen=None, run_sedona=None, run_sirocco=None):
     """Process a single configuration file.
     
     Args:
-        run_cmfgen: If True, submit CMFGEN job to produce spectrum (requires SN_HYDRO_DATA)
-        run_sedona: If True, submit SEDONA job to produce spectrum (requires .mod file)
+        run_cmfgen: If True, submit CMFGEN job to produce spectrum (requires SN_HYDRO_DATA). If None, read from config.
+        run_sedona: If True, submit SEDONA job to produce spectrum (requires .mod file). If None, read from config.
+        run_sirocco: If True, submit SIROCCO job to produce spectrum (requires SN_HYDRO_DATA). If None, read from config.
     """
     config = load_yaml_config(config_file)
     model_name = config.get('model_name', 'unknown')
+    
+    # Read spectrum code flags from config, allowing CLI override
+    run_cmfgen = config.get('run_cmfgen', True) if run_cmfgen is None else run_cmfgen
+    run_sedona = config.get('run_sedona', True) if run_sedona is None else run_sedona
+    run_sirocco = config.get('run_sirocco', True) if run_sirocco is None else run_sirocco
     
     # Determine which codes are being used
     use_stella = config.get('hydro_backend', 'heracles').lower() == 'stella'
@@ -1199,12 +1541,11 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
     print(f"Processing model: {model_name}")
     print(f"Config file: {config_file}")
     print(f"Hydro code: {hydro_code} (hydrodynamic radiation modeling)")
-    if run_cmfgen and run_sedona:
-        print(f"Spectrum codes: CMFGEN + SEDONA (independent spectrum generation)")
-    elif run_sedona:
-        print(f"Spectrum code: SEDONA only")
+    active_codes = [c for c, flag in [('CMFGEN', run_cmfgen), ('SEDONA', run_sedona), ('SIROCCO', run_sirocco)] if flag]
+    if active_codes:
+        print(f"Spectrum codes: {' + '.join(active_codes)} (independent spectrum generation)")
     else:
-        print(f"Spectrum code: CMFGEN (default single-final mode)")
+        print(f"Spectrum code: None (all spectrum codes disabled)")
     if debug:
         print(f"DEBUG MODE ENABLED")
     print(f"{'='*70}")
@@ -1294,10 +1635,11 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
             print(f"ERROR: Namelist generation failed for {model_name}")
             return None
     
-    # Step 3: Prepare CMFGEN directory (copy base files)
-    if not prepare_cmfgen_directory(config, scripts_dir, project_dir):
-        print(f"ERROR: CMFGEN directory preparation failed for {model_name}")
-        return None
+    # Step 3: Prepare CMFGEN directory (copy base files) - only if running CMFGEN
+    if run_cmfgen:
+        if not prepare_cmfgen_directory(config, scripts_dir, project_dir):
+            print(f"ERROR: CMFGEN directory preparation failed for {model_name}")
+            return None
 
     # Create output directory for model artifacts (lightcurve CSV, etc.)
     output_cfg = config.get('output', {})
@@ -1373,17 +1715,24 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
         if not prepare_sedona_directory(config, scripts_dir, project_dir):
             print(f"WARNING: SEDONA directory preparation failed for {model_name}")
             # Continue anyway to allow manual setup
-    
-    # Step 5: Submit spectrum generation jobs (CMFGEN and/or SEDONA)
+
+    # Step 4c: Prepare SIROCCO directory if SIROCCO will be run
+    if run_sirocco:
+        if not prepare_sirocco_directory(config, scripts_dir, project_dir):
+            print(f"WARNING: SIROCCO directory preparation failed for {model_name}")
+            # Continue anyway to allow manual setup
+
+    # Step 5: Submit spectrum generation jobs (CMFGEN, SEDONA and/or SIROCCO)
     cmfgen_job_ids = None
     sedona_job_id = None
+    sirocco_job_id = None
     
     if run_cmfgen:
         print(f"\nSubmitting CMFGEN spectrum generation job...")
-        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug)
+        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug, config_file)
         if cmfgen_job_ids is None:
             print(f"ERROR: CMFGEN jobs submission failed for {model_name}")
-            # Continue anyway if SEDONA is also requested
+            # Continue anyway if SEDONA/SIROCCO also requested
     
     if run_sedona:
         print(f"\nSubmitting SEDONA spectrum generation job...")
@@ -1391,14 +1740,13 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
         if sedona_job_id is None:
             print(f"ERROR: SEDONA job submission failed for {model_name}")
             # Continue anyway
-    
-    # If neither CMFGEN nor SEDONA was requested, run CMFGEN by default (backward compatibility)
-    if not run_cmfgen and not run_sedona:
-        print(f"\nSubmitting CMFGEN spectrum generation job (default)...")
-        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug)
-        if cmfgen_job_ids is None:
-            print(f"ERROR: CMFGEN jobs submission failed for {model_name}")
-            return None
+
+    if run_sirocco:
+        print(f"\nSubmitting SIROCCO spectrum generation job...")
+        sirocco_job_id = submit_sirocco_job(config, scripts_dir, project_dir, heracles_job_id, debug)
+        if sirocco_job_id is None:
+            print(f"ERROR: SIROCCO job submission failed for {model_name}")
+            # Continue anyway
     
     hydro_label = 'STELLA' if use_stella else 'HERACLES'
     print(f"\n{'='*70}")
@@ -1413,13 +1761,16 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
         print(f"  CMFGEN OBS:   {cmfgen_job_ids['obs']}")
     if sedona_job_id:
         print(f"  SEDONA:       {sedona_job_id}")
+    if sirocco_job_id:
+        print(f"  SIROCCO:      {sirocco_job_id}")
     print(f"{'='*70}")
 
     return {
         'model_name': model_name,
         'heracles_job_id': heracles_job_id,
         'cmfgen_job_ids': cmfgen_job_ids,
-        'sedona_job_id': sedona_job_id
+        'sedona_job_id': sedona_job_id,
+        'sirocco_job_id': sirocco_job_id,
     }
 
 
@@ -1441,15 +1792,19 @@ def main():
                         help='Skip lightcurve plotting')
     parser.add_argument('--skip-stella', dest='skip_stella', action='store_true', default=False,
                         help='Skip STELLA run and use existing stella/ output (default: False)')
-    parser.add_argument('--run-cmfgen', dest='run_cmfgen', action='store_true', default=True,
-                        help='Submit CMFGEN job to produce spectrum (default: True)')
+    parser.add_argument('--run-cmfgen', dest='run_cmfgen', action='store_true', default=None,
+                        help='Submit CMFGEN job to produce spectrum (default: from config)')
     parser.add_argument('--no-cmfgen', dest='run_cmfgen', action='store_false',
                         help='Skip CMFGEN job')
-    parser.add_argument('--run-sedona', dest='run_sedona', action='store_true', default=True,
-                        help='Submit SEDONA job to produce spectrum (default: True)')
+    parser.add_argument('--run-sedona', dest='run_sedona', action='store_true', default=None,
+                        help='Submit SEDONA job to produce spectrum (default: from config)')
     parser.add_argument('--no-sedona', dest='run_sedona', action='store_false',
                         help='Skip SEDONA job')
-    
+    parser.add_argument('--run-sirocco', dest='run_sirocco', action='store_true', default=None,
+                        help='Submit SIROCCO job to produce spectrum (default: from config)')
+    parser.add_argument('--no-sirocco', dest='run_sirocco', action='store_false',
+                        help='Skip SIROCCO job')
+
     args = parser.parse_args()
     
     # Determine project directory
@@ -1481,20 +1836,30 @@ def main():
         print(f"HERACLES: skipped if SN_HYDRO_DATA exists (--no-redo-heracles)")
     if args.skip_stella:
         print(f"STELLA: skipped (--skip-stella)")
-    if args.run_cmfgen:
-        print(f"Spectrum generation: CMFGEN enabled (default)")
+    if args.run_cmfgen is None:
+        print(f"Spectrum generation: CMFGEN (from config)")
+    elif args.run_cmfgen:
+        print(f"Spectrum generation: CMFGEN enabled (--run-cmfgen)")
     else:
         print(f"Spectrum generation: CMFGEN disabled (--no-cmfgen)")
-    if args.run_sedona:
-        print(f"Spectrum generation: SEDONA enabled (default)")
+    if args.run_sedona is None:
+        print(f"Spectrum generation: SEDONA (from config)")
+    elif args.run_sedona:
+        print(f"Spectrum generation: SEDONA enabled (--run-sedona)")
     else:
         print(f"Spectrum generation: SEDONA disabled (--no-sedona)")
+    if args.run_sirocco is None:
+        print(f"Spectrum generation: SIROCCO (from config)")
+    elif args.run_sirocco:
+        print(f"Spectrum generation: SIROCCO enabled (--run-sirocco)")
+    else:
+        print(f"Spectrum generation: SIROCCO disabled (--no-sirocco)")
     print(f"{'='*70}")
     
     # Process each config
     results = []
     for config_file in config_files:
-        result = process_config(config_file, scripts_dir, project_dir, args.debug, args.debug_days, args.redo_heracles, args.plot_lightcurve, args.skip_stella, args.run_cmfgen, args.run_sedona)
+        result = process_config(config_file, scripts_dir, project_dir, args.debug, args.debug_days, args.redo_heracles, args.plot_lightcurve, args.skip_stella, args.run_cmfgen, args.run_sedona, args.run_sirocco)
         if result:
             results.append(result)
     
@@ -1519,6 +1884,8 @@ def main():
             print(f"    CMFGEN OBS: {result['cmfgen_job_ids']['obs']}")
         if result.get('sedona_job_id'):
             print(f"    SEDONA:     {result['sedona_job_id']}")
+        if result.get('sirocco_job_id'):
+            print(f"    SIROCCO:    {result['sirocco_job_id']}")
     print(f"\nMonitor with: squeue -u $USER")
     print(f"{'='*70}")
 

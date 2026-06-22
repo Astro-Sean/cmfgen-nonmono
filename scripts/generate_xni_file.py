@@ -48,14 +48,15 @@ def generate_xni(nickel_config, nzon=500):
     print(f"  Ni56 mass fraction: {mass_fraction:.6f}")
     print(f"  Distribution type: {dist_type}")
     
-    # Create array of 1002 floats (2 header + 500 zones + 500 padding)
-    floats = [0.0] * 1002
-    
+    # Create array of (2 + 2*nzon) floats (2 header + nzon zones + nzon padding)
+    n_floats = 2 + 2 * nzon
+    floats = [0.0] * n_floats
+
     # Header floats (based on existing file structure)
     floats[0] = 5.605194e-42  # Metadata float 1
     floats[1] = -1.417409e-34  # Metadata float 2
-    
-    # Zone values (indices 2-501)
+
+    # Zone values (indices 2 .. 1+nzon)
     # Based on existing file: alternating pattern of mass_fraction and near-zero
     for i in range(nzon):
         idx = 2 + i
@@ -65,18 +66,18 @@ def generate_xni(nickel_config, nzon=500):
         else:
             # Odd indices: near-zero placeholder
             floats[idx] = -1.417409e-34
-    
-    # Padding/duplicate values (indices 502-1001)
+
+    # Padding/duplicate values (indices 2+nzon .. 1+2*nzon)
     # Same pattern as zone values
     for i in range(nzon):
-        idx = 502 + i
+        idx = 2 + nzon + i
         if i % 2 == 0:
             floats[idx] = mass_fraction
         else:
             floats[idx] = -1.417409e-34
-    
+
     # Convert to binary
-    data = struct.pack('f' * 1002, *floats)
+    data = struct.pack('f' * n_floats, *floats)
     
     return data
 

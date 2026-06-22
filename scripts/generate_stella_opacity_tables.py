@@ -64,7 +64,8 @@ def write_fortran_record(f, *arrays):
 
 def generate_opus_tables(vladsf_dir, model_name, nzon=200, kappa_es=0.34,
                          nfreq=100, ntab=14, ns=6, skip=None,
-                         wlmin=1.0, wlmax=5.0e4, ulgr=14.0):
+                         wlmin=1.0, wlmax=5.0e4, ulgr=14.0,
+                         abs_fraction=1e-2):
     """
     Generate STELLA opacity table files for homogeneous electron scattering.
 
@@ -80,6 +81,11 @@ def generate_opus_tables(vladsf_dir, model_name, nzon=200, kappa_es=0.34,
     skip        : zone skip for opacity table (@skip, default = Mzon/2)
     wlmin,wlmax : wavelength range in Angstrom
     ulgr        : log10(UR) where UR = STELLA length unit in cm (default 14 -> UR=1e14 cm)
+    abs_fraction: kappa_abs/kappa_scat ratio for the .ab file (default 1e-2).
+                  The absorption opacity prevents degenerate radiation equations at UV
+                  frequencies when newly uncovered zones have J~0 and B~0 (SCAT=T).
+                  Physically: even pure scattering media have small free-free absorption.
+                  1e-2 is conservative (99% scattering); 1e-4 caused numerical crashes.
     """
     if skip is None:
         skip = max(1, nzon // 2)
@@ -129,10 +135,14 @@ def generate_opus_tables(vladsf_dir, model_name, nzon=200, kappa_es=0.34,
 
     # hpbansc1 shape: (Nfreq, Ntab, Ntab, nim) - 4D, one per time slice file
     hpbansc1 = np.full((nfreq, ntab, ntab, nim), hapval, dtype=np.float32)
-    # hpbanab1 (absorption only) — for pure electron scattering set = hpbansc1
-    # (assuming all extinction is scattering; absorption = very small fraction)
-    hapabs_val = np.float32(np.log(max(kappa_es * 1e-4 * urho * ur, 1e-30)))
+    # hpbanab1 (absorption only) — absorption fraction of total scattering opacity.
+    # abs_fraction=1e-2 gives kappa_abs = 1% of kappa_scat.  This is the minimum
+    # needed to prevent structurally singular Jacobians at UV frequencies (where B=0
+    # and J~0 for newly uncovered cool zones).  1e-4 (old default) caused crashes.
+    hapabs_val = np.float32(np.log(max(kappa_es * abs_fraction * urho * ur, 1e-30)))
     hpbanab1 = np.full((nfreq, ntab, ntab, nim), hapabs_val, dtype=np.float32)
+    print(f"  Absorption opacity fraction: {abs_fraction:.0e}  "
+          f"(kappa_abs = {kappa_es * abs_fraction:.2e} cm^2/g)")
 
     # --- Time grid ---
     # daybegl=0, dayendl=2 in ronfitab.trf
@@ -193,13 +203,17 @@ def main():
                         help='Number of time slices (@Ns = 6)')
     parser.add_argument('--skip', type=int, default=None,
                         help='Zone skip (@skip, default=Mzon/2)')
+    parser.add_argument('--abs-fraction', type=float, default=1e-2,
+                        help='kappa_abs/kappa_scat ratio for .ab file (default 1e-2). '
+                             'Prevents degenerate UV radiation equations with SCAT=T. '
+                             'Must be > 0; 1e-2 is conservative (99%% scattering).')
     args = parser.parse_args()
 
     print(f"Generating STELLA electron scattering opacity tables:")
     print(f"  vladsf_dir: {args.vladsf_dir}")
     print(f"  model_name: {args.model_name}")
     print(f"  Nzon={args.nzon}, Nfreq={args.nfreq}, Ntab={args.ntab}, Ns={args.ns}")
-    print(f"  kappa_es={args.kappa} cm^2/g")
+    print(f"  kappa_es={args.kappa} cm^2/g, abs_fraction={args.abs_fraction:.0e}")
 
     generate_opus_tables(
         args.vladsf_dir,
@@ -210,6 +224,7 @@ def main():
         ntab=args.ntab,
         ns=args.ns,
         skip=args.skip,
+        abs_fraction=args.abs_fraction,
     )
 
 

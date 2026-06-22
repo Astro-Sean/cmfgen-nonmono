@@ -627,7 +627,8 @@ def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
 
 def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
                         time_days: float, mass_fractions: dict,
-                        lum_lsun: float, t_floor: float = 3000.0):
+                        lum_lsun: float, t_floor: float = 3000.0,
+                        r_inner_cm: float = None, T_inner_K: float = None):
     """Write CMFGEN SN_HYDRO_DATA file (outer->inner order)."""
     n = len(r_cm)
     nfrac = len(mass_fractions)
@@ -684,6 +685,10 @@ def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
         f.write(f"Number of isotopes:                        0\n")
         f.write(f"Time(days) since explosion:      {time_days:15.5E}\n")
         f.write(f"Energy Lum [lsun]:               {lum_lsun:15.6E}\n")
+        if r_inner_cm is not None:
+            f.write(f"Inner boundary radius [cm]:      {r_inner_cm:15.6E}\n")
+        if T_inner_K is not None:
+            f.write(f"Inner boundary temperature [K]:  {T_inner_K:15.6E}\n")
         f.write('\n')
         write_block(f, "Radius grid (10^10cm)", r_1e10)
         write_block(f, "Velocity (km/s)",       v_kms)
@@ -1441,11 +1446,10 @@ def main():
         i_outer = 0
         while i_outer < nzon and tau[i_outer] < tau_min_current:
             i_outer += 1
-        # Find inner boundary: last zone where tau <= tau_max (keep zones between tau_min and tau_max)
+        # Find inner boundary: last zone where tau <= tau_max
         i_inner = nzon - 1
         while i_inner > 0 and tau[i_inner] > tau_max_current:
             i_inner -= 1
-        i_inner = min(i_inner + 1, nzon - 1)  # Include one more zone to ensure we have tau <= tau_max
         i_outer = max(0, i_outer - 1)
 
         n_after_tau = i_inner - i_outer + 1
@@ -1461,7 +1465,14 @@ def main():
         tau_min_current *= 0.5  # Relax outer boundary
         print(f"  Attempt {attempt+1}: relaxing tau bounds to [{tau_min_current:.2e}, {tau_max_current:.2e}]")
 
-    # Final tau trim
+    # Inner boundary: zone just behind tau_max (NOT in SN_HYDRO_DATA)
+    i_boundary = min(i_inner + 1, nzon - 1)
+    r_inner_boundary = r[i_boundary]
+    T_inner_boundary = T[i_boundary]
+    print(f"Inner boundary zone (not in SN_HYDRO_DATA): depth {i_boundary}, "
+          f"T={T_inner_boundary:.1f} K, R={r_inner_boundary:.2e} cm")
+
+    # Final tau trim: exclude the boundary zone
     sl = slice(i_outer, i_inner + 1)
     print(f"Tau trim: keep depths {i_outer}..{i_inner}  "
           f"(tau=[{tau[i_outer]:.2e},{tau[i_inner]:.2e}])")
@@ -1556,15 +1567,10 @@ def main():
     # Sigma
     sigma = sigma_velocity(r, v)
 
-    # Luminosity: use blackbody at inner boundary (tau_max) for CMFGEN
-    # The .lbol file contains emergent luminosity, not inner boundary luminosity
-    # For CMFGEN, we need the luminosity at the inner boundary of the trimmed grid
-    i_inner = len(r) - 1
-    T_inner = T[i_inner]
-    r_inner = r[i_inner]
-    lum_lsun = luminosity_bb(T_inner, r_inner) / LSUN
-    print(f"Inner boundary (tau~{args.tau_max}): depth {i_inner}, T={T_inner:.1f} K, "
-          f"R={r_inner:.2e} cm -> L={lum_lsun:.3e} Lsun (blackbody)")
+    # Luminosity: blackbody at inner boundary (zone just behind tau_max)
+    lum_lsun = luminosity_bb(T_inner_boundary, r_inner_boundary) / LSUN
+    print(f"Inner boundary (zone behind tau_max): T={T_inner_boundary:.1f} K, "
+          f"R={r_inner_boundary:.2e} cm -> L={lum_lsun:.3e} Lsun (blackbody)")
     
     # Also print photospheric luminosity for reference
     tau2 = compute_kappa_tau(r, rho, kappa_arr)
@@ -1579,7 +1585,8 @@ def main():
     write_sn_hydro_data(
         args.output_file, r, v, rho, T, sigma, kappa_arr,
         time_days=t_pick, mass_fractions=mass_fractions, lum_lsun=lum_lsun,
-        t_floor=args.t_floor
+        t_floor=args.t_floor,
+        r_inner_cm=r_inner_boundary, T_inner_K=T_inner_boundary
     )
     
     # Generate diagnostic plots

@@ -247,7 +247,7 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
            check_gradients=True, max_dr_r=0.15, max_dT_T=0.20, max_drho_rho=0.20,
            max_du_u=0.20, adaptive_refinement=True, max_iterations=10, nzon_max=500,
            detect_composition=True, detect_shock_features=True, detect_photo_features=True,
-           detect_curvature=True):
+           detect_curvature=True, track_refinement=True):
     """Resample profile to nzon_target zones using logarithmic radius spacing.
 
     Log-r spacing is essential for profiles spanning many decades in radius
@@ -299,14 +299,26 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
         return r, rho, p, u, fH, fHe, fC, fO, fSi, fFe
 
     # Start with uniform log-r spacing
-    r_new = np.logspace(np.log10(r[0]), np.log10(r[-1]), nzon_target)
+    # If nzon_target == nzon_max, start with fewer zones to allow AMR to work
+    if adaptive_refinement and nzon_target == nzon_max:
+        # Start with 80% of target, let AMR add the remaining 20%
+        initial_nzon = int(nzon_target * 0.8)
+        print(f"  [AMR] Starting with {initial_nzon} zones (will refine to {nzon_max})")
+        r_new = np.logspace(np.log10(r[0]), np.log10(r[-1]), initial_nzon)
+    else:
+        initial_nzon = nzon_target
+        r_new = np.logspace(np.log10(r[0]), np.log10(r[-1]), nzon_target)
+
+    # Track refinement locations for visualization
+    refinement_locations = []  # Radii where zones were added via AMR
+    gradient_violations = []  # Radii where gradient violations were detected
 
     def interp_logr(x, r_target):
         return np.interp(r_target, r, x)
 
     # Adaptive refinement loop
     if adaptive_refinement:
-        print(f"\n[Adaptive Refinement] Starting with {nzon_target} zones (max: {nzon_max})...")
+        print(f"\n[Adaptive Refinement] Starting with {len(r_new)} zones (max: {nzon_max})...")
         
         for iteration in range(max_iterations):
             # Check if we've reached the maximum
@@ -356,6 +368,13 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
             if iteration == 0:
                 print(f"  Iteration {iteration+1}: {n_violations} gradient violations detected")
 
+            # Track violation locations for visualization
+            if track_refinement:
+                violation_indices = np.where(violations)[0]
+                for idx in violation_indices:
+                    r_violation = (r_new[idx] + r_new[idx+1]) / 2
+                    gradient_violations.append(r_violation)
+
             # Add zones at violation locations
             # Insert midpoint between zones with violations
             violation_indices = np.where(violations)[0]
@@ -364,6 +383,8 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
                 # Add midpoint between zone idx and idx+1
                 r_mid = np.sqrt(r_new[idx] * r_new[idx+1])  # Geometric mean
                 new_radii.append(r_mid)
+                if track_refinement:
+                    refinement_locations.append(r_mid)
 
             if new_radii:
                 # Check if adding these would exceed max
@@ -419,23 +440,27 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
             
             # Composition interfaces
             if detect_composition:
-                comp_indices = detect_composition_interfaces(r_new, fH_new, fHe_new, fC_new, 
+                comp_indices = detect_composition_interfaces(r_new, fH_new, fHe_new, fC_new,
                                                              fO_new, fSi_new, fFe_new, threshold=0.1)
                 if len(comp_indices) > 0:
                     print(f"  Composition interfaces: {len(comp_indices)} detected")
                     for idx in comp_indices:
                         r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
                         feature_radii.append(r_mid)
+                        if track_refinement:
+                            refinement_locations.append(r_mid)
             
             # Shock fronts
             if detect_shock_features:
-                shock_indices = detect_shocks(r_new, rho_new, p_new, u_new, 
+                shock_indices = detect_shocks(r_new, rho_new, p_new, u_new,
                                              pressure_threshold=0.5, velocity_threshold=0.3)
                 if len(shock_indices) > 0:
                     print(f"  Shock fronts: {len(shock_indices)} detected")
                     for idx in shock_indices:
                         r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
                         feature_radii.append(r_mid)
+                        if track_refinement:
+                            refinement_locations.append(r_mid)
             
             # Photosphere
             if detect_photo_features:
@@ -446,6 +471,8 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
                     if len(photo_indices) > 0:
                         r_mid = np.sqrt(r_new[photo_indices[0]] * r_new[photo_indices[-1]])
                         feature_radii.append(r_mid)
+                        if track_refinement:
+                            refinement_locations.append(r_mid)
             
             # High curvature regions
             if detect_curvature:
@@ -455,6 +482,8 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
                     for idx in curv_indices:
                         r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
                         feature_radii.append(r_mid)
+                        if track_refinement:
+                            refinement_locations.append(r_mid)
             
             # Add feature zones if space available
             if feature_radii:
@@ -472,6 +501,18 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
                     print(f"  Added {len(feature_radii)} feature zones")
             
             print(f"  Final grid size after feature refinement: {len(r_new)} zones")
+
+    # Pad to exact nzon_max if needed: fill largest gaps first
+    if len(r_new) < nzon_max:
+        n_pad = nzon_max - len(r_new)
+        print(f"\n[Gap Filling] Padding from {len(r_new)} to {nzon_max} zones ({n_pad} added)")
+        for _ in range(n_pad):
+            gaps = np.diff(np.log10(r_new))
+            max_gap_idx = np.argmax(gaps)
+            r_mid = np.sqrt(r_new[max_gap_idx] * r_new[max_gap_idx + 1])
+            r_new = np.sort(np.append(r_new, r_mid))
+            if track_refinement:
+                refinement_locations.append(r_mid)
 
     # Final interpolation
     rho_new = interp_logr(rho, r_new)
@@ -501,22 +542,22 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
     # Final gradient report
     if check_gradients:
         print(f"\n[Final Gradient Check] Analyzing {len(r_new)} zones...")
-        
+
         dr_r = np.abs(np.diff(r_new) / r_new[:-1])
         dT_T = np.abs(np.diff(T_new) / np.maximum(T_new[:-1], 1e-10))
         drho_rho = np.abs(np.diff(rho_new) / np.maximum(rho_new[:-1], 1e-30))
         du_u = np.abs(np.diff(u_new) / np.maximum(np.abs(u_new[:-1]), 1e-10))
-        
+
         n_dr_r = np.sum(dr_r > max_dr_r)
         n_dT_T = np.sum(dT_T > max_dT_T)
         n_drho_rho = np.sum(drho_rho > max_drho_rho)
         n_du_u = np.sum(du_u > max_du_u)
-        
+
         print(f"  Radius jumps > {max_dr_r*100:.0f}%: {n_dr_r} zones")
         print(f"  Temperature jumps > {max_dT_T*100:.0f}%: {n_dT_T} zones")
         print(f"  Density jumps > {max_drho_rho*100:.0f}%: {n_drho_rho} zones")
         print(f"  Velocity jumps > {max_du_u*100:.0f}%: {n_du_u} zones")
-        
+
         total_violations = n_dr_r + n_dT_T + n_drho_rho + n_du_u
         if total_violations == 0:
             print(f"  ✓ All gradients within acceptable limits")
@@ -524,7 +565,200 @@ def rezone(r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon_target: int,
             print(f"  ⚠ {total_violations} gradient violations remain")
             print(f"    Consider increasing max_iterations or nzon for better resolution")
 
-    return r_new, rho_new, p_new, u_new, fH_new, fHe_new, fC_new, fO_new, fSi_new, fFe_new
+        # Track final gradient violation locations by type for visualization
+        if track_refinement and total_violations > 0:
+            # Track violations by type with dictionaries
+            gradient_violations_by_type = {
+                'radius': [],
+                'temperature': [],
+                'density': [],
+                'velocity': []
+            }
+
+            # Radius violations
+            radius_violations = dr_r > max_dr_r
+            radius_indices = np.where(radius_violations)[0]
+            for idx in radius_indices:
+                r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                gradient_violations_by_type['radius'].append(r_viol)
+
+            # Temperature violations
+            temp_violations = dT_T > max_dT_T
+            temp_indices = np.where(temp_violations)[0]
+            for idx in temp_indices:
+                r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                gradient_violations_by_type['temperature'].append(r_viol)
+
+            # Density violations
+            density_violations = drho_rho > max_drho_rho
+            density_indices = np.where(density_violations)[0]
+            for idx in density_indices:
+                r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                gradient_violations_by_type['density'].append(r_viol)
+
+            # Velocity violations
+            velocity_violations = du_u > max_du_u
+            velocity_indices = np.where(velocity_violations)[0]
+            for idx in velocity_indices:
+                r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                gradient_violations_by_type['velocity'].append(r_viol)
+
+            # Store as part of gradient_violations (will be unpacked in plotting)
+            gradient_violations = gradient_violations_by_type
+        else:
+            gradient_violations = None
+
+        # If violations remain and we have room for more zones, continue AMR
+        if total_violations > 0 and len(r_new) < nzon_max and adaptive_refinement:
+            print(f"  [AMR] Continuing refinement to resolve {total_violations} violations...")
+            remaining_iterations = max_iterations - (max_iterations if iteration else 0)
+            # Continue AMR loop with remaining iterations
+            for extra_iter in range(remaining_iterations):
+                if len(r_new) >= nzon_max:
+                    print(f"    Reached maximum zone limit ({nzon_max})")
+                    break
+
+                # Interpolate quantities
+                rho_new = interp_logr(rho, r_new)
+                p_new   = interp_logr(p, r_new)
+                u_new   = interp_logr(u, r_new)
+                fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
+                fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
+                fC_new  = np.clip(interp_logr(fC, r_new),  0, 1)
+                fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
+                fSi_new = np.clip(interp_logr(fSi, r_new), 0, 1)
+                fFe_new = np.clip(interp_logr(fFe, r_new), 0, 1)
+
+                # Renormalise mass fractions
+                mf_sum = fH_new + fHe_new + fC_new + fO_new + fSi_new + fFe_new
+                mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
+                fH_new  /= mf_sum
+                fHe_new /= mf_sum
+                fC_new  /= mf_sum
+                fO_new  /= mf_sum
+                fSi_new /= mf_sum
+                fFe_new /= mf_sum
+
+                # Compute temperature
+                T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
+                                                  fC=fC_new, fO=fO_new, fSi=fSi_new, fFe=fFe_new)
+
+                # Check for gradient violations
+                dr_r = np.abs(np.diff(r_new) / r_new[:-1])
+                dT_T = np.abs(np.diff(T_new) / np.maximum(T_new[:-1], 1e-10))
+                drho_rho = np.abs(np.diff(rho_new) / np.maximum(rho_new[:-1], 1e-30))
+                du_u = np.abs(np.diff(u_new) / np.maximum(np.abs(u_new[:-1]), 1e-10))
+
+                violations = (dr_r > max_dr_r) | (dT_T > max_dT_T) | (drho_rho > max_drho_rho) | (du_u > max_du_u)
+                n_violations = np.sum(violations)
+
+                if n_violations == 0:
+                    print(f"    ✓ All gradients resolved after adding {len(r_new) - initial_nzon} zones")
+                    break
+
+                # Add zones at violation locations
+                violation_indices = np.where(violations)[0]
+                new_radii = []
+                for idx in violation_indices:
+                    r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
+                    new_radii.append(r_mid)
+                    if track_refinement:
+                        refinement_locations.append(r_mid)
+
+                if new_radii:
+                    if len(r_new) + len(new_radii) > nzon_max:
+                        n_add = nzon_max - len(r_new)
+                        if n_add > 0:
+                            new_radii = new_radii[:n_add]
+                            r_new = np.sort(np.concatenate([r_new, new_radii]))
+                            print(f"    Added {len(new_radii)} zones (reached max {nzon_max})")
+                        else:
+                            print(f"    Cannot add more zones (at max {nzon_max})")
+                        break
+                    else:
+                        r_new = np.sort(np.concatenate([r_new, new_radii]))
+                        print(f"    Added {len(new_radii)} zones (total: {len(r_new)})")
+                else:
+                    break
+
+            # Recompute final gradient check
+            rho_new = interp_logr(rho, r_new)
+            p_new   = interp_logr(p, r_new)
+            u_new   = interp_logr(u, r_new)
+            fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
+            fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
+            fC_new  = np.clip(interp_logr(fC, r_new),  0, 1)
+            fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
+            fSi_new = np.clip(interp_logr(fSi, r_new), 0, 1)
+            fFe_new = np.clip(interp_logr(fFe, r_new), 0, 1)
+
+            mf_sum = fH_new + fHe_new + fC_new + fO_new + fSi_new + fFe_new
+            mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
+            fH_new  /= mf_sum
+            fHe_new /= mf_sum
+            fC_new  /= mf_sum
+            fO_new  /= mf_sum
+            fSi_new /= mf_sum
+            fFe_new /= mf_sum
+
+            T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
+                                              fC=fC_new, fO=fO_new, fSi=fSi_new, fFe=fFe_new)
+
+            dr_r = np.abs(np.diff(r_new) / r_new[:-1])
+            dT_T = np.abs(np.diff(T_new) / np.maximum(T_new[:-1], 1e-10))
+            drho_rho = np.abs(np.diff(rho_new) / np.maximum(rho_new[:-1], 1e-30))
+            du_u = np.abs(np.diff(u_new) / np.maximum(np.abs(u_new[:-1]), 1e-10))
+
+            n_dr_r = np.sum(dr_r > max_dr_r)
+            n_dT_T = np.sum(dT_T > max_dT_T)
+            n_drho_rho = np.sum(drho_rho > max_drho_rho)
+            n_du_u = np.sum(du_u > max_du_u)
+
+            print(f"  [Final Check after extended AMR]")
+            print(f"    Radius jumps > {max_dr_r*100:.0f}%: {n_dr_r} zones")
+            print(f"    Temperature jumps > {max_dT_T*100:.0f}%: {n_dT_T} zones")
+            print(f"    Density jumps > {max_drho_rho*100:.0f}%: {n_drho_rho} zones")
+            print(f"    Velocity jumps > {max_du_u*100:.0f}%: {n_du_u} zones")
+
+            # Update gradient violations for visualization
+            if track_refinement and (n_dr_r + n_dT_T + n_drho_rho + n_du_u) > 0:
+                gradient_violations_by_type = {
+                    'radius': [],
+                    'temperature': [],
+                    'density': [],
+                    'velocity': []
+                }
+
+                radius_violations = dr_r > max_dr_r
+                radius_indices = np.where(radius_violations)[0]
+                for idx in radius_indices:
+                    r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                    gradient_violations_by_type['radius'].append(r_viol)
+
+                temp_violations = dT_T > max_dT_T
+                temp_indices = np.where(temp_violations)[0]
+                for idx in temp_indices:
+                    r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                    gradient_violations_by_type['temperature'].append(r_viol)
+
+                density_violations = drho_rho > max_drho_rho
+                density_indices = np.where(density_violations)[0]
+                for idx in density_indices:
+                    r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                    gradient_violations_by_type['density'].append(r_viol)
+
+                velocity_violations = du_u > max_du_u
+                velocity_indices = np.where(velocity_violations)[0]
+                for idx in velocity_indices:
+                    r_viol = (r_new[idx] + r_new[idx+1]) / 2
+                    gradient_violations_by_type['velocity'].append(r_viol)
+
+                gradient_violations = gradient_violations_by_type
+
+    # Convert to numpy arrays for return
+    refinement_locations = np.array(refinement_locations) if refinement_locations else np.array([])
+
+    return r_new, rho_new, p_new, u_new, fH_new, fHe_new, fC_new, fO_new, fSi_new, fFe_new, refinement_locations, gradient_violations
 
 
 def write_hyd(fname: str, r_cm, rho, T, u_cms, t_start_s: float,
@@ -586,8 +820,9 @@ def write_dat(fname: str, model_name: str, target_days: float,
               explosion_time: float = 1.0, explosion_delay: float = 0.0,
               initial_kinetic_energy: float = 0.0,
               nstmax: int = 900000, disable_scattering: bool = False,
-              eps: float = 0.003, hmax: float = 5e5,
-              enable_convection: bool = False, fit_tau: float = 15.0,
+              eps: float = 0.003, hmin: float = 1e-14, hmax: float = 5e5,
+              meth: int = 2, enable_convection: bool = False, fit_tau: float = 15.0,
+              tau_tol: float = 1.3,
               givdtl: bool = True, custom_output_times: list = None):
     """Write STELLA run/strad/*.dat control file for model_name.
 
@@ -628,9 +863,9 @@ def write_dat(fname: str, model_name: str, target_days: float,
 
     with open(fname, 'w') as f:
         f.write(f"   EPS   (STIFF ACCURACY)   HMIN (MIN.STEP(SEC)) HMAX (MAX.STEP(SEC))\n")
-        f.write(f"   {eps:.4g}                    1.D-14               {hmax:.4g}\n")
+        f.write(f"   {eps:.4g}                    {hmin:.4g}               {hmax:.4g}\n")
         f.write(f"   METH  ADAMS(1)-GEAR(2)-GEAR+BGH(3)   JSTART  (0-START_ELSE_ORDER) MAXORD KNadap\n")
-        f.write(f"    2                        0                            4        -4\n")
+        f.write(f"    {meth}                        0                            4        -4\n")
         f.write(f"   abs(NSTA)>abs(NSTB)=>reads last   TcurA     TcurB\n")
         f.write(f"   -9000     -1                      {t_start:.4f}   {t_end:.4f}\n")
         f.write(f"   NSTMAX  NDebug  NOUT    IOUT (0 -full <0 print zones)   MBATCH\n")
@@ -645,8 +880,8 @@ def write_dat(fname: str, model_name: str, target_days: float,
         givdtl_flag = "T" if givdtl else "F"
         f.write(f"   THRMAT   CRAP     CONV     EDTM     CHNCND  Givdtl\n")
         f.write(f"   1.D-30   1.D0     {conv_flag}        T        T       {givdtl_flag}\n")
-        # Temperature floor: 3000 K for all runs (physically motivated minimum)
-        temp_floor = "3.D-02"  # 3000 K
+        # Temperature floor: 1000 K for all runs (prevents negative T in solver)
+        temp_floor = "1.D-02"  # 1000 K
         
         f.write(f"   FLOOR(R) FLOOR(V) FLOOR(T) FLOOR(RADIAT)    FLOOR(UCONV)\n")
         f.write(f"   1.D-12   1.D-03   {temp_floor}   1.D-02           1.D-04\n")
@@ -655,7 +890,7 @@ def write_dat(fname: str, model_name: str, target_days: float,
         # Set scattering based on disable_scattering flag
         scat_flag = "F" if disable_scattering else "T"
         f.write(f"   FitTau   TAUTOL   Rvis   AQ    BQ       DRT     NRT     SCAT\n")
-        f.write(f"   {fit_tau:.1f}D0   1.3D0     1.D0   2.D0  1.D+00   1.      1       {scat_flag}\n")
+        f.write(f"   {fit_tau:.1f}D0   {tau_tol:.1f}D0     1.D0   2.D0  1.D+00   1.      1       {scat_flag}\n")
         f.write(f"    NTO then    DATA TO\n")
         f.write(f"    {len(epochs)}\n")
         for t_out in epochs:
@@ -675,6 +910,12 @@ def main():
     parser.add_argument('--rcen', type=float, default=None, help='Inner boundary radius (cm)')
     parser.add_argument('--rho-cen', type=float, default=None, help='Central density (g/cc)')
     parser.add_argument('--r-min', type=float, default=1e7, help='Minimum radius to include (cm) - excludes inner wind (default: 1e7)')
+    parser.add_argument('--tau-min', type=float, default=1e-4,
+                        help='Trim outer zones where cumulative optical depth from surface < tau_min (default: 1e-4)')
+    parser.add_argument('--rho-min', type=float, default=0.0,
+                        help='Trim outer zones where density < rho_min (g/cm^3) (default: 0 = no trimming)')
+    parser.add_argument('--kappa', type=float, default=0.34,
+                        help='Opacity (cm^2/g) for tau-min trimming and photosphere detection (default: 0.34)')
     parser.add_argument('--target-days', type=float, default=15.0,
                         help='Target simulation endpoint (days)')
     parser.add_argument('--snapshot-interval', type=float, default=5.0,
@@ -695,12 +936,19 @@ def main():
                         help='Disable scattering for faster execution')
     parser.add_argument('--eps', type=float, default=0.003,
                         help='STIFF accuracy parameter EPS (default: 0.003)')
+    parser.add_argument('--hmin', type=float, default=1e-14,
+                        help='Minimum timestep HMIN in seconds (default: 1e-14)')
     parser.add_argument('--hmax', type=float, default=5e5,
                         help='Maximum timestep HMAX in seconds (default: 5e5 = ~5.8 days)')
+    parser.add_argument('--meth', type=int, default=2, choices=[1, 2, 3],
+                        help='Integrator method: 1=Adams, 2=GEAR, 3=GEAR+BGH (default: 2)')
     parser.add_argument('--enable-convection', action='store_true',
                         help='Enable convection (CONV=T) for extended progenitors')
     parser.add_argument('--fit-tau', type=float, default=15.0,
                         help='FitTau parameter for radiation transport (default: 15.0)')
+    parser.add_argument('--tau-tol', type=float, default=1.3,
+                        help='TauTol: Ncnd changes when tau outside [FitTau/TauTol, FitTau*TauTol] '
+                             '(default: 1.3; use 1.1 for scattering runs to avoid large Ncnd jumps)')
     parser.add_argument('--givdtl', action='store_true', default=True,
                         help='Enable detailed output (Givdtl=T, default: True)')
     parser.add_argument('--custom-output-times', type=str, default=None,
@@ -783,6 +1031,69 @@ def main():
     fSi = prof['fSi']
     fFe = prof['fFe']
 
+    # Trim outer regions where cumulative optical depth from surface is below threshold
+    if args.tau_min is not None and args.tau_min > 0:
+        kappa = args.kappa
+        dr = np.diff(r)
+        dtau_zone = kappa * rho[1:] * dr
+        # tau_zone_cum[i] = optical depth from r[i] to the surface
+        tau_zone_cum = np.cumsum(dtau_zone[::-1])[::-1]
+        keep_zone = tau_zone_cum >= args.tau_min
+        if np.any(keep_zone):
+            first_keep = np.where(keep_zone)[0][0]  # innermost zone with enough tau
+            n_keep = first_keep + 2  # r points = zones + 1
+            if n_keep < len(r):
+                n_trim = len(r) - n_keep
+                print(f"  Trimming outer {n_trim} zones (tau < {args.tau_min:.2e} at r={r[n_keep-1]:.2e} cm)")
+                print(f"    Kept {n_keep} zones, r=[{r[0]:.2e},{r[n_keep-1]:.2e}] cm")
+                r = r[:n_keep]
+                rho = rho[:n_keep]
+                p = p[:n_keep]
+                u = u[:n_keep]
+                prof['fH'] = prof['fH'][:n_keep]
+                prof['fHe'] = prof['fHe'][:n_keep]
+                prof['fC'] = prof['fC'][:n_keep]
+                prof['fO'] = prof['fO'][:n_keep]
+                prof['fSi'] = prof['fSi'][:n_keep]
+                prof['fFe'] = prof['fFe'][:n_keep]
+            else:
+                print(f"  No outer trimming needed (all zones tau >= {args.tau_min:.2e})")
+        else:
+            print(f"  Warning: entire profile is optically thin (tau < {args.tau_min:.2e}); keeping full grid")
+
+    # Trim outer regions where density falls below threshold
+    if args.rho_min is not None and args.rho_min > 0:
+        keep_rho = rho >= args.rho_min
+        if np.any(keep_rho):
+            last_keep = np.where(keep_rho)[0][-1]  # outermost zone dense enough
+            n_keep = last_keep + 1
+            if n_keep < len(r):
+                n_trim = len(r) - n_keep
+                print(f"  Trimming outer {n_trim} zones (rho < {args.rho_min:.2e} g/cm^3 at r={r[n_keep]:.2e} cm)")
+                print(f"    Kept {n_keep} zones, r=[{r[0]:.2e},{r[n_keep-1]:.2e}] cm")
+                r = r[:n_keep]
+                rho = rho[:n_keep]
+                p = p[:n_keep]
+                u = u[:n_keep]
+                prof['fH'] = prof['fH'][:n_keep]
+                prof['fHe'] = prof['fHe'][:n_keep]
+                prof['fC'] = prof['fC'][:n_keep]
+                prof['fO'] = prof['fO'][:n_keep]
+                prof['fSi'] = prof['fSi'][:n_keep]
+                prof['fFe'] = prof['fFe'][:n_keep]
+            else:
+                print(f"  No outer trimming needed (all zones rho >= {args.rho_min:.2e})")
+        else:
+            print(f"  Warning: entire profile below rho_min={args.rho_min:.2e}; keeping full grid")
+
+    # Re-assign abundance variables after any trimming so lengths match r
+    fH  = prof['fH']
+    fHe = prof['fHe']
+    fC  = prof['fC']
+    fO  = prof['fO']
+    fSi = prof['fSi']
+    fFe = prof['fFe']
+
     print(f"Input profile: {len(r)} zones, r=[{r[0]:.2e},{r[-1]:.2e}] cm, "
           f"v=[{u[0]/1e5:.0f},{u[-1]/1e5:.0f}] km/s")
 
@@ -800,7 +1111,7 @@ def main():
 
     if len(r) != nzon:
         print(f"Rezoning {len(r)} -> {nzon} zones (uniform log-r spacing with adaptive refinement)...")
-        r, rho, p, u, fH, fHe, fC, fO, fSi, fFe = rezone(
+        r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, refinement_locations, gradient_violations = rezone(
             r, rho, p, u, fH, fHe, fC, fO, fSi, fFe, nzon,
             check_gradients=args.check_gradients,
             max_dr_r=args.max_dr_r,
@@ -813,8 +1124,12 @@ def main():
             detect_composition=args.detect_composition,
             detect_shock_features=args.detect_shock_features,
             detect_photo_features=args.detect_photo_features,
-            detect_curvature=args.detect_curvature
+            detect_curvature=args.detect_curvature,
+            track_refinement=True
         )
+    else:
+        refinement_locations = np.array([])
+        gradient_violations = None
 
     # Inject kinetic energy if specified (EKO mode)
     if args.initial_kinetic_energy > 0:
@@ -870,26 +1185,33 @@ def main():
               explosion_delay=args.explosion_delay,
               initial_kinetic_energy=args.initial_kinetic_energy,
               nstmax=args.nstmax, disable_scattering=args.disable_scattering,
-              eps=args.eps, hmax=args.hmax,
-              enable_convection=args.enable_convection, fit_tau=args.fit_tau, givdtl=args.givdtl,
+              eps=args.eps, hmin=args.hmin, hmax=args.hmax, meth=args.meth,
+              enable_convection=args.enable_convection, fit_tau=args.fit_tau,
+              tau_tol=args.tau_tol, givdtl=args.givdtl,
               custom_output_times=custom_output_times)
 
     # -------------------------------------------------------
     # Final step: plot the generated .hyd profile for verification
     # -------------------------------------------------------
-    plot_hyd_profile(str(hyd_file), str(outdir / f"{args.model_name}_hyd_profile.png"), input_profile=args.input_profile)
+    plot_hyd_profile(str(hyd_file), str(outdir / f"{args.model_name}_hyd_profile.png"),
+                     input_profile=args.input_profile,
+                     refinement_locations=refinement_locations,
+                     gradient_violations=gradient_violations)
 
     print(f"\nSTELLA input files written to {outdir}/")
     print(f"  {hyd_file.name}  {abn_file.name}  {dat_file.name}")
     print(f"  NZON={nzon}  (compile STELLA with Mzon={nzon} in zone.inc)")
 
 
-def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None):
+def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None,
+                     refinement_locations=None, gradient_violations=None):
     """Read the generated .hyd file and plot all columns for verification.
 
     Produces a 2x3 multi-panel figure showing density, temperature, velocity,
     cumulative mass, zone mass increment, and temperature–density phase space.
     If input_profile is provided, overlays the original profile for comparison.
+    If refinement_locations is provided, marks where AMR added zones.
+    If gradient_violations is provided, marks where gradient violations were detected.
     """
     try:
         import matplotlib
@@ -997,6 +1319,83 @@ def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None):
     axes[1, 2].set_ylabel('Temperature [K]')
     axes[1, 2].legend()
     axes[1, 2].grid(True, ls='--', alpha=0.4)
+
+    # Mark AMR refinement locations and gradient violations on radius-based panels only
+    # (panels 1-5 have radius on x-axis, panel 6 is density vs temperature phase space)
+    radius_panels = [axes[0, 0], axes[0, 1], axes[0, 2], axes[1, 0], axes[1, 1]]
+
+    if refinement_locations is not None and len(refinement_locations) > 0:
+        for ax in radius_panels:
+            for r_ref in refinement_locations:
+                ax.axvline(x=r_ref, color='green', linestyle=':', alpha=0.5, linewidth=1)
+
+    # Mark gradient violations by type with different colors
+    if gradient_violations is not None and isinstance(gradient_violations, dict):
+        # New format: dictionary by type
+        violation_colors = {
+            'radius': 'orange',
+            'temperature': 'red',
+            'density': 'purple',
+            'velocity': 'cyan'
+        }
+        violation_labels = {
+            'radius': 'Radius',
+            'temperature': 'Temperature',
+            'density': 'Density',
+            'velocity': 'Velocity'
+        }
+
+        for ax in radius_panels:
+            for vtype, locations in gradient_violations.items():
+                if len(locations) > 0:
+                    for r_viol in locations:
+                        ax.axvline(x=r_viol, color=violation_colors[vtype],
+                                  linestyle='--', alpha=0.4, linewidth=1.5)
+    elif gradient_violations is not None and len(gradient_violations) > 0:
+        # Old format: single array (backward compatibility)
+        for ax in radius_panels:
+            for r_viol in gradient_violations:
+                ax.axvline(x=r_viol, color='orange', linestyle='--', alpha=0.3, linewidth=1)
+
+    # Add legend for AMR markers and gradient violations if any were used
+    if (refinement_locations is not None and len(refinement_locations) > 0) or \
+       (gradient_violations is not None and (
+           (isinstance(gradient_violations, dict) and any(len(v) > 0 for v in gradient_violations.values())) or
+           (not isinstance(gradient_violations, dict) and len(gradient_violations) > 0)
+       )):
+        from matplotlib.lines import Line2D
+        legend_elements = []
+        if refinement_locations is not None and len(refinement_locations) > 0:
+            legend_elements.append(Line2D([0], [0], color='green', linestyle=':', alpha=0.5,
+                                         label=f'AMR zones ({len(refinement_locations)})'))
+
+        if gradient_violations is not None:
+            if isinstance(gradient_violations, dict):
+                # New format: add each violation type
+                violation_colors = {
+                    'radius': 'orange',
+                    'temperature': 'red',
+                    'density': 'purple',
+                    'velocity': 'cyan'
+                }
+                violation_labels = {
+                    'radius': 'Radius',
+                    'temperature': 'Temperature',
+                    'density': 'Density',
+                    'velocity': 'Velocity'
+                }
+                for vtype, locations in gradient_violations.items():
+                    if len(locations) > 0:
+                        legend_elements.append(Line2D([0], [0], color=violation_colors[vtype],
+                                                     linestyle='--', alpha=0.4,
+                                                     label=f'{violation_labels[vtype]} violations ({len(locations)})'))
+            elif len(gradient_violations) > 0:
+                # Old format
+                legend_elements.append(Line2D([0], [0], color='orange', linestyle='--', alpha=0.3,
+                                             label=f'Gradient violations ({len(gradient_violations)})'))
+
+        if legend_elements:
+            axes[0, 0].legend(handles=legend_elements, loc='upper right', fontsize=7)
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(output_png, dpi=150)

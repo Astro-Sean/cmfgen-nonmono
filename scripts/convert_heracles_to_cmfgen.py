@@ -2790,6 +2790,23 @@ def convert_heracles_to_cmfgen(heracles_dir, target_days=30, output_file='SN_HYD
     if tau_max is None:
         tau_max = 30.0
     print(f"Using tau range: [{tau_min}, {tau_max}]")
+    
+    # Find zone just behind tau_max for inner boundary (NOT in SN_HYDRO_DATA)
+    i_boundary = None
+    r_inner_boundary_cm = None
+    T_inner_boundary_K = None
+    if np.any(tau > tau_max):
+        i_max = np.where(tau <= tau_max)[0][-1] if np.any(tau <= tau_max) else 0
+        i_boundary = min(i_max + 1, len(tau) - 1)
+        r_inner_boundary_cm = radius_cm[i_boundary]
+        T_inner_boundary_K = temperature[i_boundary]
+        print(f"Inner boundary zone (not in SN_HYDRO_DATA): depth {i_boundary}, "
+              f"T={T_inner_boundary_K:.1f} K, R={r_inner_boundary_cm:.2e} cm")
+    else:
+        # All zones below tau_max, use innermost zone
+        r_inner_boundary_cm = radius_cm[-1]
+        T_inner_boundary_K = temperature[-1]
+    
     print(f"\nTrimming HERACLES snapshot to optical depth range [{tau_min}, {tau_max}]")
     
     (radius_cm, density, velocity_cms, temperature, mass_fractions, kappa_cm2_per_g_array) = \
@@ -3225,6 +3242,8 @@ def convert_heracles_to_cmfgen(heracles_dir, target_days=30, output_file='SN_HYD
         f.write(f"Number of isotopes:                  {n_isotopes:>3d}\n")
         f.write(f"Time(days) since explosion:          {time_days:10.5E}\n")
         f.write(f"Energy Lum [lsun]:                   {energy_lum:11.6E}\n")
+        f.write(f"Inner boundary radius [cm]:          {r_inner_boundary_cm:15.6E}\n")
+        f.write(f"Inner boundary temperature [K]:      {T_inner_boundary_K:15.6E}\n")
         f.write("\n")
         
         # Radius grid (10^10 cm)
