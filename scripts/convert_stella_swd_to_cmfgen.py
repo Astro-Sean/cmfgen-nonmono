@@ -30,6 +30,7 @@ The output SN_HYDRO_DATA is in CMFGEN outer->inner (decreasing r) order.
 from __future__ import annotations
 
 import argparse
+import struct
 import sys
 from pathlib import Path
 
@@ -163,7 +164,41 @@ def read_abn(abn_path: str, nzon: int) -> dict[str, np.ndarray]:
     return data
 
 
-def read_lbol(lbol_path: str) -> dict[float, float]:
+def read_xni(xni_path: str, nzon: int) -> np.ndarray:
+    """Read STELLA *.xni file -> Ni56 mass fraction per zone.
+    
+    The .xni file is binary with 32-bit floats:
+    - 2 header floats (metadata)
+    - nzon zone values (Ni56 mass fraction, alternating with placeholders)
+    - nzon padding values (duplicate pattern)
+    
+    Returns array[nzon] of Ni56 mass fractions, sorted outer->inner.
+    """
+    with open(xni_path, 'rb') as f:
+        data = f.read()
+    
+    # Unpack as 32-bit floats
+    n_floats = len(data) // 4
+    floats = struct.unpack('f' * n_floats, data)
+    
+    # Extract Ni56 values (indices 2, 4, 6, ... up to 2+nzon)
+    # Based on generate_xni_file.py pattern: even indices have mass fraction
+    ni56_values = []
+    for i in range(nzon):
+        idx = 2 + 2 * i  # Skip 2 header, then every other value
+        if idx < len(floats):
+            ni56_values.append(floats[idx])
+    
+    arr = np.array(ni56_values)
+    if len(arr) < nzon:
+        raise ValueError(f"XNI file has {len(arr)} zones, expected {nzon}")
+    if len(arr) > nzon:
+        arr = arr[:nzon]
+    
+    # The .xni file is written inner->outer, but we need outer->inner
+    arr = arr[::-1]
+    
+    return arr
     """Read STELLA *.lbol file -> bolometric luminosity vs time.
     
     Returns dict keyed by t_day -> L_bol (Lsun).
@@ -359,16 +394,14 @@ def approximate_rosseland_opacity(T, rho, X, Y, Z, n_e=None, mass_fractions=None
     # Free-free (bremsstrahlung) using Kramers formula
     kappa_ff = 1.7e20 * (1.0 + X) * rho_safe * (T_safe ** -3.5)
     
-    # Line opacity approximation (simplified for SN conditions)
-    # Based on Anderson (1989) and Kurucz line lists
-    # Dominant in metal-rich ejecta at T < 10000 K
-    kappa_line = np.zeros_like(T_safe)
-    line_mask = T_safe < 10000.0  # Line opacity important at lower temperatures
-    # Line opacity scales with metal abundance and density
-    kappa_line[line_mask] = 1.0e24 * Z * rho_safe[line_mask] * (T_safe[line_mask] ** -2.0)
-    
+    # Note: a kappa_line ~ Z*rho*T^{-2} term was previously included here but removed.
+    # It created a hard discontinuity at T=10000K (the mask threshold) that produced
+    # unphysical jumps of ~2000x in kappa across adjacent zones with identical composition.
+    # CMFGEN computes line opacities self-consistently from atomic data; this crude
+    # approximation is not needed and actively misleads the tau/grid calculation.
+
     # Total Rosseland opacity
-    kappa_rosseland = kappa_es + kappa_bf + kappa_ff + kappa_line
+    kappa_rosseland = kappa_es + kappa_bf + kappa_ff
     
     return kappa_rosseland
 
@@ -628,10 +661,11 @@ def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
 def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
                         time_days: float, mass_fractions: dict,
                         lum_lsun: float, t_floor: float = 3000.0,
-                        r_inner_cm: float = None, T_inner_K: float = None):
+                        r_inner_cm: float = None, T_inner_K: float = None,
+                        ni56_initial: np.ndarray = None):
     """Write CMFGEN SN_HYDRO_DATA file (outer->inner order)."""
     n = len(r_cm)
-    nfrac = len(mass_fractions)
+    # nfrac is computed after isotope handling below (mass_fractions may be modified)
     r_1e10 = r_cm / 1e10
     
     # Ensure positive time for CMFGEN/SEDONA compatibility
@@ -649,6 +683,13 @@ def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
 
     # Break flat isothermal regions after floor to prevent SEDONA/CMFGEN singular-matrix crashes
     T_K = break_isothermal_regions(T_K, t_floor=t_floor)
+
+    # Recalculate kappa consistently from the floored/capped temperature so that
+    # kappa and T stored in SN_HYDRO_DATA are self-consistent.  The kappa passed
+    # in was computed before the T floor, so cold zones had kappa_bf ~ T^{-3.5}
+    # blown up by orders of magnitude relative to the floored temperature.
+    kappa = compute_kappa_total(rho, T_K, mass_fractions)
+    print(f"[kappa] Recalculated after T floor: min={kappa.min():.3e}, max={kappa.max():.3e} cm²/g")
 
     T_10k  = T_K / 1e4
 
@@ -679,10 +720,93 @@ def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
             f.write(''.join(f"  {v:22.15E}" for v in chunk) + '\n')
         f.write('\n')
 
+    # Calculate radioactive decay chain: Ni56 -> Co56 -> Fe56
+    # Decay timescales (from STELLA source: volenpumnoint.f line 99)
+    t_Ni = 8.8      # days (e-folding time for Ni56)
+    t_Co = 111.3    # days (e-folding time for Co56)
+
+    # Get initial Ni56 mass fraction from parameter (from .xni file)
+    # If not provided, check mass_fractions (backward compatibility)
+    if ni56_initial is not None:
+        Ni56_initial = ni56_initial
+    else:
+        Ni56_initial = mass_fractions.get('Ni56', np.zeros(n))
+
+    # Calculate decayed fractions at snapshot time
+    Ni56_t = Ni56_initial * np.exp(-time_days / t_Ni)
+    Co56_t = Ni56_initial * (t_Co / (t_Co - t_Ni)) * (np.exp(-time_days / t_Co) - np.exp(-time_days / t_Ni))
+    Fe56_t = Ni56_initial - Ni56_t - Co56_t  # Total decayed to Fe56
+
+    # Print decay information
+    if np.any(Ni56_initial > 1e-10):
+        max_Ni56_init = np.max(Ni56_initial)
+        max_Ni56_t = np.max(Ni56_t)
+        max_Co56_t = np.max(Co56_t)
+        max_Fe56_t = np.max(Fe56_t)
+        print(f"[Radioactive decay] t={time_days:.1f} days:")
+        print(f"  Initial Ni56 max fraction: {max_Ni56_init:.4e}")
+        print(f"  Current Ni56 max fraction: {max_Ni56_t:.4e} ({100*max_Ni56_t/max_Ni56_init:.1f}% remaining)")
+        print(f"  Co56 max fraction: {max_Co56_t:.4e}")
+        print(f"  Fe56 (from decay) max fraction: {max_Fe56_t:.4e}")
+
+    # Update elemental mass fractions and prepare isotopic data for CMFGEN.
+    #
+    # The Ni56 decay chain is: Ni56 -> Co56 -> Fe56
+    #
+    # From rd_sn_data.f (ELSE branch, lines ~448-474):
+    #   For every element that has isotopes listed in SN_HYDRO_DATA, CMFGEN:
+    #     1. Sums the isotope mass fractions for that element
+    #     2. Checks that elemental mass fraction is within 20% of the isotope sum (STOP if not)
+    #     3. Replaces the elemental population with the isotope sum
+    #
+    # Therefore, for EACH species that has an isotope entry, the elemental mass
+    # fraction must be present AND must equal the sum of its isotopes.
+    #
+    #   NICK elemental  = Ni56_t    (all Ni56 is radioactive; no stable Ni56 in progenitor)
+    #   NICK 56 isotope = Ni56_t
+    #
+    #   COB elemental   = Co56_t    (all Co56 comes from Ni56 decay; no stable Co56 in progenitor)
+    #   COB 56 isotope  = Co56_t
+    #
+    #   IRON elemental  = stable_fe + Fe56_t   (progenitor Fe + Fe56 from decay)
+    #   IRON 56 isotope = stable_fe + Fe56_t   (must equal elemental)
+    #
+    # The original Ni56 key in mass_fractions is the initial value (pre-decay), so we
+    # replace it with the current value. FePeak gets updated to include decayed Fe56.
+
+    # Replace initial Ni56 with current (decayed) value
+    if 'Ni56' in mass_fractions:
+        del mass_fractions['Ni56']
+    mass_fractions['NICK'] = Ni56_t
+
+    # Add Co56 as a new elemental species (none existed before in .abn)
+    mass_fractions['COB'] = Co56_t
+
+    # Update FePeak to include Fe56 produced by decay
+    stable_fe = np.zeros(n)
+    if 'FePeak' in mass_fractions:
+        stable_fe = mass_fractions.pop('FePeak')
+    total_fe = stable_fe + Fe56_t
+    mass_fractions['IRON'] = total_fe
+
+    # Build isotopic data: (species_name, baryon_number) -> mass_fraction array
+    # All three isotopes must be present and match their elemental counterparts.
+    isotopic_data = {
+        ('NICK', 56): Ni56_t,    # matches NICK elemental
+        ('COB',  56): Co56_t,    # matches COB  elemental
+        ('IRON', 56): total_fe,  # matches IRON elemental
+    }
+
+    n_isotopes = len(isotopic_data)
+    nfrac = len(mass_fractions)  # Count after all updates
+
+    # Build plot-only mass fractions for visualisation
+    mass_fractions_plot = mass_fractions.copy()  # already has NICK, COB, IRON
+
     with open(outpath, 'w') as f:
         f.write(f"Number of data points:            {n:8d}\n")
         f.write(f"Number of mass fractions:         {nfrac:8d}\n")
-        f.write(f"Number of isotopes:                        0\n")
+        f.write(f"Number of isotopes:               {n_isotopes:8d}\n")
         f.write(f"Time(days) since explosion:      {time_days:15.5E}\n")
         f.write(f"Energy Lum [lsun]:               {lum_lsun:15.6E}\n")
         if r_inner_cm is not None:
@@ -701,6 +825,16 @@ def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
         for elem, frac in mass_fractions.items():
             cmfgen_name = CMFGEN_ELEM_NAMES.get(elem, elem)
             write_block(f, f"{cmfgen_name} mass fraction", frac)
+
+        # Write isotopic data
+        # Format: "SPECIES_NAME BARYON_NUMBER mass fraction"
+        per_line = 8
+        for (iso_name, baryon_num), iso_frac in isotopic_data.items():
+            f.write(f"{iso_name} {baryon_num} mass fraction\n")
+            for i in range(0, len(iso_frac), per_line):
+                chunk = iso_frac[i:i+per_line]
+                f.write(''.join(f"  {v:22.15E}" for v in chunk) + '\n')
+            f.write('\n')
 
     print(f"Written {outpath}  ({n} depth points, {nfrac} mass fractions)")
     print(f"  t={time_days:.3f} days, L={lum_lsun:.3e} Lsun")
@@ -1025,6 +1159,7 @@ def plot_mass_fractions_stacked(radius_cm, density, mass_fractions, time_days, o
     """Create a mass fraction plot vs radius.
     
     Plots original STELLA data as dashed lines and trimmed CMFGEN data as solid lines.
+    Isotopes (NICK, COB, IRON) are shown with distinct dotted/dash-dot styles.
     """
     rsun_cm = 6.96e10
     
@@ -1039,49 +1174,46 @@ def plot_mass_fractions_stacked(radius_cm, density, mass_fractions, time_days, o
     else:
         has_trimmed = False
     
-    # Prepare mass fraction data
-    element_order = ['H', 'He', 'C', 'O', 'Si', 'Fe']
-    element_colors = {
-        'H': '#FF6B6B', 'He': '#4ECDC4', 'C': '#45B7D1',
-        'O': '#96CEB4', 'Si': '#FFEAA7', 'Fe': '#DDA0DD'
-    }
-    
-    # Add Ni56 if present with significant mass fraction
-    if 'Ni56' in mass_fractions and np.max(mass_fractions['Ni56']) > 1e-4:
-        element_order.append('Ni56')
-        element_colors['Ni56'] = '#e377c2'  # Magenta for Ni56
-        print(f"[Mass fraction plot] Adding Ni56 (max fraction: {np.max(mass_fractions['Ni56']):.4f})")
-    
-    # Also add Ni56 to trimmed data if present
-    if has_trimmed and 'Ni56' in mf_trim and np.max(mf_trim['Ni56']) > 1e-4:
-        if 'Ni56' not in element_order:
-            element_order.append('Ni56')
-            element_colors['Ni56'] = '#e377c2'
+    # Elemental species: (key_in_orig, key_in_trim, display_label, color)
+    ELEM_SPECS = [
+        ('H',      'H',    'H',    '#FF6B6B'),
+        ('He',     'He',   'He',   '#4ECDC4'),
+        ('C',      'C',    'C',    '#45B7D1'),
+        ('O',      'O',    'O',    '#96CEB4'),
+        ('Si',     'Si',   'Si',   '#FFEAA7'),
+        ('FePeak', 'IRON', 'Fe',   '#DDA0DD'),
+    ]
+    # Isotope species shown only in trimmed (CMFGEN) data (radioactive parents only)
+    ISO_SPECS = [
+        ('NICK', 'Ni56 (isotope)', '#e377c2', '-.'),
+        ('COB',  'Co56 (isotope)', '#ff7f0e', '-.'),
+    ]
     
     fig, ax = plt.subplots(figsize=(10, 6))
     
     # Plot original STELLA data as dashed background
     x_orig = r_orig / rsun_cm
-    for elem in element_order:
-        if elem in mass_fractions and np.any(mass_fractions[elem] > 1e-30):
-            mf = mass_fractions[elem]
-            color = element_colors.get(elem, 'gray')
-            # Plot entire original model as dashed
-            ax.plot(x_orig, mf, color=color, linewidth=1.5, linestyle='--', alpha=0.5)
+    for key_orig, key_trim, label, color in ELEM_SPECS:
+        if key_orig in mass_fractions and np.any(mass_fractions[key_orig] > 1e-30):
+            ax.plot(x_orig, mass_fractions[key_orig], color=color,
+                    linewidth=1.5, linestyle='--', alpha=0.5)
     
-    # Plot trimmed CMFGEN data as solid foreground
+    # Plot trimmed CMFGEN elemental data as solid foreground
     if has_trimmed:
         x_trim = r_trim / rsun_cm
-        for elem in element_order:
-            if elem in mf_trim and np.any(mf_trim[elem] > 1e-30):
-                mf = mf_trim[elem]
-                color = element_colors.get(elem, 'gray')
-                # Plot trimmed data as solid
-                ax.plot(x_trim, mf, color=color, linewidth=2.5, linestyle='-', label=elem)
+        for key_orig, key_trim, label, color in ELEM_SPECS:
+            if key_trim in mf_trim and np.any(mf_trim[key_trim] > 1e-30):
+                ax.plot(x_trim, mf_trim[key_trim], color=color,
+                        linewidth=2.5, linestyle='-', label=label)
+        # Plot isotopes as dash-dot
+        for key, label, color, ls in ISO_SPECS:
+            if key in mf_trim and np.any(mf_trim[key] > 1e-30):
+                ax.plot(x_trim, mf_trim[key], color=color,
+                        linewidth=2, linestyle=ls, label=label)
     
     ax.set_xlabel(r'r / R$_\odot$', fontsize=12)
     ax.set_ylabel('Mass Fraction', fontsize=12)
-    ax.set_title(f'Mass Fractions: STELLA (dashed) vs CMFGEN (solid)\nt = {time_days:.1f} days', fontsize=14)
+    ax.set_title(f'Mass Fractions: STELLA (dashed) vs CMFGEN (solid) + isotopes (dash-dot)\nt = {time_days:.1f} days', fontsize=14)
     ax.set_xlim(x_orig.min() * 0.9, x_orig.max() * 1.1)
     ax.set_ylim(0, 1.05)
     ax.set_xscale('log')
@@ -1250,12 +1382,28 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
     ax3.grid(True, alpha=0.3, which='both')
     ax3.set_xlim(r_min, r_max)
     
-    # Composition
+    # Composition — elemental (solid) + isotopes (dash-dot)
     ax4 = axes[3]
-    for elem, color in zip(['H', 'He', 'C', 'O', 'Si', 'Fe'],
-                           ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD']):
-        if elem in mass_fractions:
-            ax4.plot(r_plt, mass_fractions[elem], label=elem, color=color, linewidth=2)
+    ELEM_COMP = [
+        ('H',    'H',    '#FF6B6B', '-'),
+        ('He',   'He',   '#4ECDC4', '-'),
+        ('C',    'CARB', '#45B7D1', '-'),
+        ('O',    'OXY',  '#96CEB4', '-'),
+        ('Si',   'SIL',  '#FFEAA7', '-'),
+        ('IRON', 'IRON', '#DDA0DD', '-'),
+    ]
+    ISO_COMP = [
+        ('NICK', 'Ni56', '#e377c2', '-.'),
+        ('COB',  'Co56', '#ff7f0e', '-.'),
+    ]
+    for key, label, color, ls in ELEM_COMP:
+        if key in mass_fractions and np.any(mass_fractions[key] > 1e-10):
+            ax4.plot(r_plt, mass_fractions[key], label=label, color=color,
+                     linewidth=2, linestyle=ls)
+    for key, label, color, ls in ISO_COMP:
+        if key in mass_fractions and np.any(mass_fractions[key] > 1e-10):
+            ax4.plot(r_plt, mass_fractions[key], label=label, color=color,
+                     linewidth=1.5, linestyle=ls)
     ax4.set_ylabel('Mass Fraction')
     ax4.set_title('Composition')
     ax4.legend(fontsize=8, ncol=2)
@@ -1303,6 +1451,8 @@ def main():
     parser.add_argument('swd_file',    help='STELLA *.swd output file')
     parser.add_argument('output_file', help='Output SN_HYDRO_DATA path')
     parser.add_argument('--abn-file',     default=None)
+    parser.add_argument('--xni-file',     default=None,
+                        help='STELLA *.xni file for Ni56 distribution')
     parser.add_argument('--lbol-file',    default=None,
                         help='STELLA *.lbol file for actual bolometric luminosity')
     parser.add_argument('--target-days',  type=float, default=None,
@@ -1318,21 +1468,21 @@ def main():
     parser.add_argument('--enable-grid-thinning', action='store_true',
                         help='Enable grid thinning to remove near-degenerate points')
     parser.add_argument('--grid-thinning-threshold', type=float, default=0.005,
-                        help='min_dr/r threshold for grid thinning (default: 0.005 = 0.5%)')
+                        help='min_dr/r threshold for grid thinning (default: 0.005)')
     parser.add_argument('--enable-adaptive-grid', action='store_true',
                         help='Enable Dessart-style adaptive grid refinement')
     parser.add_argument('--base-grid-target', type=int, default=100,
                         help='Target base grid size before adaptive refinement (default: 100)')
     parser.add_argument('--max-radius-jump', type=float, default=0.05,
-                        help='Max radius jump fraction for adaptive grid (default: 0.05 = 5%)')
+                        help='Max radius jump fraction for adaptive grid (default: 0.05)')
     parser.add_argument('--max-temp-jump', type=float, default=0.10,
-                        help='Max temperature jump fraction (default: 0.10 = 10%)')
+                        help='Max temperature jump fraction (default: 0.10)')
     parser.add_argument('--max-density-jump', type=float, default=0.10,
-                        help='Max density jump fraction (default: 0.10 = 10%)')
+                        help='Max density jump fraction (default: 0.10)')
     parser.add_argument('--max-ne-jump', type=float, default=0.10,
-                        help='Max electron density jump fraction (default: 0.10 = 10%)')
+                        help='Max electron density jump fraction (default: 0.10)')
     parser.add_argument('--max-logtau-jump', type=float, default=0.10,
-                        help='Max log optical depth jump (default: 0.10 = 10%)')
+                        help='Max log optical depth jump (default: 0.10)')
     parser.add_argument('--max-points',   type=int,   default=500,
                         help='Maximum number of grid points for adaptive refinement (default: 500)')
     parser.add_argument('--t-floor',      type=float, default=3000.0,
@@ -1409,14 +1559,46 @@ def main():
             'Si': abn_raw['Si'],
             'S':  abn_raw['S'],
             'Ca': abn_raw['Ca'],
-            'Fe': abn_raw['FePeak'],
+            'FePeak': abn_raw['FePeak'],
         }
-        # Normalise
+        # Save original mass fractions before trimming (before normalization)
+        orig_mass_fractions = {k: v.copy() for k, v in mass_fractions.items()}
+        
+        # Initialize ni56_for_isotopes (will be filled from .xni or .abn)
+        ni56_for_isotopes = np.zeros(nzon)
+        
+        # Read Ni56 from .xni file if provided (overrides .abn Ni56)
+        if args.xni_file:
+            print(f"Reading Ni56 distribution from {args.xni_file}...")
+            try:
+                ni56_from_xni = read_xni(args.xni_file, nzon)
+                # Store Ni56 separately for isotopic data, don't add to mass_fractions yet
+                ni56_for_isotopes = ni56_from_xni
+                print(f"  Ni56 max fraction: {np.max(ni56_from_xni):.4e}")
+            except Exception as e:
+                print(f"  WARNING: Failed to read .xni file: {e}")
+                print(f"  Using Ni56 from .abn file instead")
+                ni56_for_isotopes = abn_raw['Ni56'].copy()
+        else:
+            # Use Ni56 from .abn file
+            ni56_for_isotopes = abn_raw['Ni56'].copy()
+        
+        # Remove Ni56 from elemental mass fractions (will be in isotopic_data)
+        # This must happen BEFORE normalization
+        if 'Ni56' in mass_fractions:
+            del mass_fractions['Ni56']
+        
+        # Normalise elemental mass fractions (stable material only)
         mf_sum = sum(mass_fractions.values())
         mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
         mass_fractions = {k: v / mf_sum for k, v in mass_fractions.items()}
-        # Save original mass fractions before trimming
-        orig_mass_fractions = {k: v.copy() for k, v in mass_fractions.items()}
+        
+        # Update orig_mass_fractions to match (remove Ni56, normalize)
+        if 'Ni56' in orig_mass_fractions:
+            del orig_mass_fractions['Ni56']
+        orig_mf_sum = sum(orig_mass_fractions.values())
+        orig_mf_sum = np.where(orig_mf_sum < 1e-10, 1.0, orig_mf_sum)
+        orig_mass_fractions = {k: v / orig_mf_sum for k, v in orig_mass_fractions.items()}
     else:
         # Simple 2-component H+He placeholder
         print("WARNING: no --abn-file supplied; using H=0.7/He=0.3 everywhere")
@@ -1428,6 +1610,8 @@ def main():
         }
         # Save original mass fractions before trimming
         orig_mass_fractions = {k: v.copy() for k, v in mass_fractions.items()}
+        # No Ni56 in this case
+        ni56_for_isotopes = np.zeros(nzon)
 
     # Optical depth trimming with adaptive relaxation to meet minimum point requirement
     # tau is ordered from outside (small tau) to inside (large tau)
@@ -1480,6 +1664,13 @@ def main():
     r    = r[sl];   v    = v[sl];   T    = T[sl]
     rho  = rho[sl]; kappa_arr = kappa_arr[sl]
     mass_fractions = {k: v2[sl] for k, v2 in mass_fractions.items()}
+    
+    # Trim Ni56 array to match the trimmed grid
+    if 'ni56_for_isotopes' in locals():
+        ni56_for_isotopes = ni56_for_isotopes[sl]
+
+    # Save post-tau-trim grid for Ni56 interpolation after grid processing
+    r_tau_trim = r.copy()
 
     # Disable artifact filter - it was removing optically thick zones (high density)
     # The high density zones in the inner region are physical, not artifacts
@@ -1557,6 +1748,11 @@ def main():
     else:
         print(f"[Grid Processing] DISABLED - keeping all {len(r)} zones")
 
+    # Resample Ni56 to the final grid after downsampling/refinement
+    if len(ni56_for_isotopes) != len(r):
+        print(f"[Ni56 Resample] Interpolating Ni56 from {len(ni56_for_isotopes)} to {len(r)} grid points")
+        ni56_for_isotopes = np.interp(r, r_tau_trim[::-1], ni56_for_isotopes[::-1])
+
     # Final check: ensure we meet minimum point requirement
     if len(r) < args.min_points:
         print(f"WARNING: Final grid has {len(r)} points, below minimum {args.min_points}")
@@ -1566,6 +1762,10 @@ def main():
 
     # Sigma
     sigma = sigma_velocity(r, v)
+
+    # Ensure ni56_for_isotopes is defined (even if empty)
+    if 'ni56_for_isotopes' not in locals():
+        ni56_for_isotopes = np.zeros(len(r))
 
     # Luminosity: blackbody at inner boundary (zone just behind tau_max)
     lum_lsun = luminosity_bb(T_inner_boundary, r_inner_boundary) / LSUN
@@ -1586,8 +1786,21 @@ def main():
         args.output_file, r, v, rho, T, sigma, kappa_arr,
         time_days=t_pick, mass_fractions=mass_fractions, lum_lsun=lum_lsun,
         t_floor=args.t_floor,
-        r_inner_cm=r_inner_boundary, T_inner_K=T_inner_boundary
+        r_inner_cm=r_inner_boundary, T_inner_K=T_inner_boundary,
+        ni56_initial=ni56_for_isotopes
     )
+
+    # Create mass_fractions_plot with Co56 and Fe56 for visualization
+    # The write function already calculated the decay chain, so we need to recalculate for plotting
+    mass_fractions_plot = mass_fractions.copy()
+    t_Ni = 8.8
+    t_Co = 111.3
+    Ni56_initial = ni56_for_isotopes.copy()
+    Ni56_t = Ni56_initial * np.exp(-abs(t_pick) / t_Ni)
+    Co56_t = Ni56_initial * (t_Co / (t_Co - t_Ni)) * (np.exp(-abs(t_pick) / t_Co) - np.exp(-abs(t_pick) / t_Ni))
+    Fe56_t = Ni56_initial - Ni56_t - Co56_t
+    mass_fractions_plot['Co56'] = Co56_t
+    mass_fractions_plot['Fe56'] = Fe56_t
     
     # Generate diagnostic plots
     print("\n--- Generating diagnostic plots ---")
@@ -1613,7 +1826,7 @@ def main():
     
     # Plot mass fractions: dashed = original STELLA, solid = trimmed CMFGEN
     plot_mass_fractions_stacked(orig_r_for_plot, orig_rho_for_plot, orig_mass_fractions, t_pick, args.output_file,
-                                 trimmed_radius_cm=r, trimmed_mass_fractions=mass_fractions)
+                                 trimmed_radius_cm=r, trimmed_mass_fractions=mass_fractions_plot)
     
     # Plot dr vs r
     plot_dr_vs_r(r, args.output_file, t_pick, rho=rho, T=T, v=v)
