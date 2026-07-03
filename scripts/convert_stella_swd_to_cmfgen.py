@@ -1002,7 +1002,7 @@ def break_isothermal_regions(temperature, t_floor=3000.0, min_rel_change=5e-4):
 
 def plot_comparison(orig_r, orig_rho, orig_T, orig_v, orig_tau, orig_sigma,
                    new_r, new_rho, new_T, new_v, new_tau, new_sigma,
-                   output_file, time_days, tau_min=1e-5, tau_max=100.0,
+                   output_file, time_days, tau_min=1e-5, tau_max=30.0,
                    orig_mass_fractions=None, new_mass_fractions=None):
     """Plot before/after comparison of STELLA to CMFGEN conversion"""
     rsun_cm = 6.96e10
@@ -1254,7 +1254,7 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
 
 def plot_mass_fractions_stacked(radius_cm, density, mass_fractions, time_days, output_file,
                                 trimmed_radius_cm=None, trimmed_mass_fractions=None,
-                                tau=None, tau_min=1e-5, tau_max=50.0):
+                                tau=None, tau_min=1e-5, tau_max=30.0):
     """Create a mass fraction plot vs radius.
     
     Plots original STELLA data as dashed lines and trimmed CMFGEN data as solid lines.
@@ -1559,7 +1559,7 @@ def main():
                         help='STELLA *.lbol file for actual bolometric luminosity')
     parser.add_argument('--target-days',  type=float, default=None,
                         help='Pick epoch closest to this (default: last epoch)')
-    parser.add_argument('--tau-max',      type=float, default=50.0)
+    parser.add_argument('--tau-max',      type=float, default=30.0)
     parser.add_argument('--tau-min',      type=float, default=1e-4)
     parser.add_argument('--nzon-target',  type=int,   default=200)
     parser.add_argument('--min-points',   type=int,   default=150,
@@ -1750,7 +1750,8 @@ def main():
 
     print(f"Original tau range: [{tau.min():.3e}, {tau.max():.3e}]")
 
-    # Initial tau trimming
+    # Initial tau trimming (Dessart+2015: truncate at tau_Rosseland=30)
+    print(f"[Tau Trim] Dessart+2015 style: truncating at tau_Rosseland={args.tau_max:.1f}")
     tau_max_current = args.tau_max
     tau_min_current = args.tau_min
 
