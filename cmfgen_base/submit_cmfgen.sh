@@ -1383,6 +1383,11 @@ EOF
 # ---------------------------------------------------------
 # Write SINGLE_FINAL slurm (LTE cold start; no prior INIT)
 # ---------------------------------------------------------
+# Pre-compute NO_REL_FLAG for heredoc expansion (set -u safe)
+NO_REL_FLAG=""
+if [[ "${CMFGEN_NO_RELATIVISTIC:-0}" == "1" ]]; then
+  NO_REL_FLAG="--no-relativistic"
+fi
 cat > "${MODEL_DIR}/${SINGLE_FINAL_SLURM}" <<EOF
 #!/bin/bash
 #SBATCH --job-name=${JOB_PREFIX}_cmfgen_FINAL${tag:+_${tag}}

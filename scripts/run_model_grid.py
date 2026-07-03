@@ -1885,7 +1885,7 @@ def extract_stella_lightcurve_pysynphot(config, scripts_dir, project_dir):
         return False
 
 
-def process_config(config_file, scripts_dir, project_dir, debug=False, debug_days=1, redo_heracles=True, plot_lightcurve=True, skip_stella=False, run_cmfgen=None, run_sedona=None, run_sirocco=None, cancel_jobs=False, force_cancel=False):
+def process_config(config_file, scripts_dir, project_dir, debug=False, debug_days=1, redo_heracles=True, plot_lightcurve=True, skip_stella=False, run_cmfgen=None, run_sedona=None, run_sirocco=None, cancel_jobs=False, force_cancel=False, no_relativistic=False):
     """Process a single configuration file.
     
     Args:
@@ -2143,7 +2143,7 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
     
     if run_cmfgen:
         print(f"\nSubmitting CMFGEN spectrum generation job...")
-        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug, config_file, args.no_relativistic)
+        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug, config_file, no_relativistic)
         if cmfgen_job_ids is None:
             print(f"ERROR: CMFGEN jobs submission failed for {model_name}")
             # Continue anyway if SEDONA/SIROCCO also requested
@@ -2285,7 +2285,7 @@ def main():
     # Process each config
     results = []
     for config_file in config_files:
-        result = process_config(config_file, scripts_dir, project_dir, args.debug, args.debug_days, args.redo_heracles, args.plot_lightcurve, args.skip_stella, args.run_cmfgen, args.run_sedona, args.run_sirocco, args.cancel_jobs, args.force_cancel)
+        result = process_config(config_file, scripts_dir, project_dir, args.debug, args.debug_days, args.redo_heracles, args.plot_lightcurve, args.skip_stella, args.run_cmfgen, args.run_sedona, args.run_sirocco, args.cancel_jobs, args.force_cancel, args.no_relativistic)
         if result:
             results.append(result)
     
