@@ -1997,10 +1997,11 @@ def main():
         print(f"[Grid Processing] DISABLED - keeping all {len(r)} zones")
 
     # Resample Ni56 to the final grid after downsampling/refinement
-    # Both r and r_tau_trim are in outer->inner order, so no reversal needed
+    # Both r and r_tau_trim are in outer->inner (decreasing) order.
+    # np.interp requires xp to be INCREASING, so we reverse both arrays.
     if len(ni56_for_isotopes) != len(r):
         print(f"[Ni56 Resample] Interpolating Ni56 from {len(ni56_for_isotopes)} to {len(r)} grid points")
-        ni56_for_isotopes = np.interp(r, r_tau_trim, ni56_for_isotopes)
+        ni56_for_isotopes = np.interp(r, r_tau_trim[::-1], ni56_for_isotopes[::-1])
 
     # Final check: ensure we meet minimum point requirement
     if len(r) < args.min_points:
