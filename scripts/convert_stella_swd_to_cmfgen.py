@@ -1751,33 +1751,28 @@ def main():
     print(f"Original tau range: [{tau.min():.3e}, {tau.max():.3e}]")
 
     # Initial tau trimming (Dessart+2015: truncate at tau_Rosseland=30)
+    # STRICT: do NOT relax tau_max if too few points. Adaptive grid will add
+    # points where gradients require it, but we keep the tau=30 boundary.
     print(f"[Tau Trim] Dessart+2015 style: truncating at tau_Rosseland={args.tau_max:.1f}")
     tau_max_current = args.tau_max
     tau_min_current = args.tau_min
 
-    for attempt in range(10):  # Max 10 relaxation attempts
-        # Find outer boundary: first zone where tau >= tau_min
-        i_outer = 0
-        while i_outer < nzon and tau[i_outer] < tau_min_current:
-            i_outer += 1
-        # Find inner boundary: last zone where tau <= tau_max
-        i_inner = nzon - 1
-        while i_inner > 0 and tau[i_inner] > tau_max_current:
-            i_inner -= 1
-        i_outer = max(0, i_outer - 1)
+    # Find outer boundary: first zone where tau >= tau_min
+    i_outer = 0
+    while i_outer < nzon and tau[i_outer] < tau_min_current:
+        i_outer += 1
+    # Find inner boundary: last zone where tau <= tau_max
+    i_inner = nzon - 1
+    while i_inner > 0 and tau[i_inner] > tau_max_current:
+        i_inner -= 1
+    i_outer = max(0, i_outer - 1)
 
-        n_after_tau = i_inner - i_outer + 1
+    n_after_tau = i_inner - i_outer + 1
 
-        # If we have enough points after tau trimming, proceed
-        if n_after_tau >= args.min_points:
-            break
-
-        # Otherwise, relax tau bounds
-        if attempt == 0:
-            print(f"[Adaptive Tau Trim] Initial trim gives {n_after_tau} points < {args.min_points} minimum")
-        tau_max_current *= 2.0  # Relax inner boundary (allow higher tau)
-        tau_min_current *= 0.5  # Relax outer boundary
-        print(f"  Attempt {attempt+1}: relaxing tau bounds to [{tau_min_current:.2e}, {tau_max_current:.2e}]")
+    if n_after_tau < args.min_points:
+        print(f"[Tau Trim] WARNING: only {n_after_tau} points within tau range "
+              f"(min_points={args.min_points}), but keeping strict tau_max={tau_max_current}")
+        print(f"  Adaptive grid will add points where gradients require resolution.")
 
     # Inner boundary: zone just behind tau_max (NOT in SN_HYDRO_DATA)
     i_boundary = min(i_inner + 1, nzon - 1)
