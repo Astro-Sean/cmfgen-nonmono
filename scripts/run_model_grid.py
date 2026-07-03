@@ -828,7 +828,7 @@ def submit_conversion_job(config, scripts_dir, project_dir, heracles_job_id, deb
     return job_id
 
 
-def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None, debug=False, config_file=None):
+def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None, debug=False, config_file=None, no_relativistic=False):
     """Submit CMFGEN jobs (init, final, obs) using submit_cmfgen_jobs.sh script."""
     model_name = config.get('model_name', 'unknown')
     print(f"\n{'='*60}")
@@ -879,7 +879,8 @@ def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None,
            '1' if single_final else '0',
            config_file_arg,
            '1' if inc_rad_decays else '0',
-           str(vel_law)]
+           str(vel_law),
+           '1' if no_relativistic else '0']
     if debug:
         cmd.insert(1, '--debug')
     
@@ -2142,7 +2143,7 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
     
     if run_cmfgen:
         print(f"\nSubmitting CMFGEN spectrum generation job...")
-        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug, config_file)
+        cmfgen_job_ids = submit_cmfgen_jobs(config, scripts_dir, project_dir, heracles_job_id, debug, config_file, args.no_relativistic)
         if cmfgen_job_ids is None:
             print(f"ERROR: CMFGEN jobs submission failed for {model_name}")
             # Continue anyway if SEDONA/SIROCCO also requested
@@ -2210,6 +2211,8 @@ def main():
                         help='Submit CMFGEN job to produce spectrum (default: from config)')
     parser.add_argument('--no-cmfgen', dest='run_cmfgen', action='store_false',
                         help='Skip CMFGEN job')
+    parser.add_argument('--no-relativistic', dest='no_relativistic', action='store_true', default=False,
+                        help='Disable relativistic moment solver for faster debug runs (sets USE_JREL=F, USE_J_REL=F, INCL_REL=F, INCL_ADV_TRANS=F, USE_FRM_REL=F)')
     parser.add_argument('--run-sedona', dest='run_sedona', action='store_true', default=None,
                         help='Submit SEDONA job to produce spectrum (default: from config)')
     parser.add_argument('--no-sedona', dest='run_sedona', action='store_false',

@@ -11,7 +11,7 @@ if [[ "$1" == "--debug" ]]; then
 fi
 
 if [[ $# -lt 4 ]]; then
-    echo "Usage: $0 [--debug] <MODEL_NAME> <MODEL_DIR> <CMFGEN_DIR> <HERACLES_JOB_ID> [INIT_NUM_ITS] [PARTITION] [TIME] [SINGLE_FINAL] [CONFIG_FILE] [INC_RAD_DECAYS] [VEL_LAW]"
+    echo "Usage: $0 [--debug] <MODEL_NAME> <MODEL_DIR> <CMFGEN_DIR> <HERACLES_JOB_ID> [INIT_NUM_ITS] [PARTITION] [TIME] [SINGLE_FINAL] [CONFIG_FILE] [INC_RAD_DECAYS] [VEL_LAW] [NO_RELATIVISTIC]"
     exit 1
 fi
 
@@ -26,6 +26,7 @@ SINGLE_FINAL="${8:-1}"
 CONFIG_FILE="${9:-}"
 INC_RAD_DECAYS="${10:-0}"
 VEL_LAW="${11:-12}"
+NO_RELATIVISTIC="${12:-0}"
 
 # Export environment variables for submit_cmfgen.sh
 export CMFGEN_INIT_PARTITION="${PARTITION}"
@@ -47,6 +48,9 @@ fi
 
 # Export radioactive decays flag for prepare_VADAT.py
 export CMFGEN_INC_RAD_DECAYS="${INC_RAD_DECAYS}"
+
+# Export no-relativistic flag for prepare_VADAT.py
+export CMFGEN_NO_RELATIVISTIC="${NO_RELATIVISTIC}"
 
 # Derive BASE_DIR from MODEL_DIR (MODEL_DIR is <project>/models/<model>/cmfgen)
 # Use the actual project root path

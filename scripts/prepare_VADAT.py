@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
+
 """
 HPC-side script: update CMFGEN VADAT and write RDINR from SN_HYDRO_DATA.
 
@@ -83,6 +85,8 @@ DAY = 86400.0          # s
 LSUN_ERG_S = 3.828e33  # L_sun in erg/s (for LSTAR)
 
 # Map human-readable element symbols to CMFGEN "DUM" labels.
+# Full composition for complex interacting supernova systems: H, He, C, N, O, Ne, Mg, Si, S, Ar, Ca, Ti, Cr, Fe, Ni, Co
+# CMFGEN species names from cmfgen.f source code
 CMFGEN_LABELS = {
     "H": "HYD", "HE": "HE", "He": "HE",
     "C": "CARB", "N": "NIT", "O": "OXY", "Ne": "NEON",
@@ -92,6 +96,8 @@ CMFGEN_LABELS = {
 
 # (Z, mean atomic weight in amu) for DUM keys in SN_HYDRO_DATA mass-fraction headers.
 # Used by write_gammas_in_from_hydro so GETELEC_V2's sum_s gamma_s * n_s matches n_e.
+# Full composition for complex interacting supernova systems: H, He, C, N, O, Ne, Mg, Si, S, Ar, Ca, Ti, Cr, Fe, Ni, Co
+# CMFGEN species names from cmfgen.f source code
 DUM_ATOMIC: Dict[str, Tuple[int, float]] = {
     "HYD": (1, 1.008),
     "HE": (2, 4.002602),
@@ -349,7 +355,8 @@ def parse_sn_hydro(filepath: Path) -> HydroData:
 
     temp_104k: Optional[np.ndarray] = None
     kappa_cgs: Optional[np.ndarray] = None
-    temp_start = find_start_optional(["temperature"])
+    # Use ["temperature", "10^4"] to avoid matching header comment "Inner boundary temperature [K]"
+    temp_start = find_start_optional(["temperature", "10^4"])
     if temp_start is not None:
         temp_block = parse_block(temp_start)
         if len(temp_block) >= N:
@@ -902,11 +909,14 @@ def write_input_hydro_dat_sniin(hydro: HydroData, path: Path) -> None:
     else:
         kappa = np.full(n, KAPPA_ES_CGS)
     # Tau from outer to inner: tau[n-1]=0, tau[j] = tau[j+1] + 0.5*(k*rho)[j,j+1] * (r[j+1]-r[j])
+    # The outer tau must be > 0 because RV_SN_MODEL_SNIIN takes LOG(TAU_HYDRO(1)) to build a
+    # geometric tau grid; a zero outer tau produces NaN/Inf and SIGSEGV in LIN_INTERP.
     tau_oi = np.zeros(n)
     for j in range(n - 2, -1, -1):
         dr = r_cm[j + 1] - r_cm[j]  # > 0 (outer to inner)
         krho_avg = 0.5 * (kappa[j] * rho[j] + kappa[j + 1] * rho[j + 1])
         tau_oi[j] = tau_oi[j + 1] + krho_avg * dr
+    tau_oi[-1] = max(tau_oi[-1], 1.0e-30)
     # Print so we can verify the data being written matches what was read from SN_HYDRO_DATA
     print(f"[input_hydro.dat] NHYDRO={n} (from SN_HYDRO_DATA)")
     print(f"[input_hydro.dat] R(1e10 cm): min={r_1e10.min():.6e} max={r_1e10.max():.6e}")
@@ -1274,11 +1284,6 @@ def apply_profile(
     # These are intentionally environment-variable driven so Slurm job scripts
     # (or submit wrappers) can adjust behavior without editing model files.
     #
-    # - CMFGEN_N_TYPE:
-    #     Overrides VADAT [N_TYPE] (e.g. "G_ONLY", "N_ON_J", "MIXED").
-    #     CMFGEN suggests changing N_TYPE as an alternative when comp_j_blank.f
-    #     reports "Mean intensity blowing up".
-    #
     # - CMFGEN_N_OB_INS:
     #     Overrides VADAT [N_OB_INS] (outer-boundary insertion points). CMFGEN
     #     suggests a finer outer grid as the preferred fix for J-instabilities.
@@ -1290,54 +1295,63 @@ def apply_profile(
 
     if profile == "single_final":
         # Single-final: skip INIT entirely; start from LTE populations (LTE_EST=T).
-        # Uses loose init-like settings but with DO_LAM_AUTO=T so CMFGEN can auto-switch
-        # from Lambda to Non-Lambda once populations are stable enough.
-        # DO_NG=F initially to avoid divergent Ng acceleration on unstable LTE start.
+        # Uses Lambda iterations initially; CMFGEN auto-switches to Non-Lambda once stable.
+        # Dessart+2015: T fixed to hydro, coherent ES, G_ONLY/DIAG solver throughout.
+        # DO_NG=F during LTE bootstrap to avoid divergent Ng on unstable initial populations.
         desired = {
             "LTE_EST": "T",
-            "SN_T_OPT": "USE_HYDRO",
+            "SN_T_OPT": "USE_T_IN",
             "LSTAR": "0.0D0",
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "F",
+            "INC_SHOCK_POWER": "F",   # Dessart+2015: shock heating already in hydro T(r)
             "ALL_FREQ": "T",
 
             "RD_CF_FILE": "F",
-            "MIN_CF": "1.0D-4",
+            "MIN_CF": "1.0D-1",        # Raised to 0.1 to avoid MOM_J_REL_V9 NaN errors at extreme far-IR
             "MAX_CF": "13.5D0",
             "FRAC_SP": "1.08D0",
             "AMP_FAC": "1.04D0",
             "MAX_BF": "0.05D0",
             "CROSS": "F",
-            "V_CROSS": "500.0D0",   # 500 km/s for 500 km/s feature resolution
-            "SIG_GAU_KMS": "500.0D0",  # match V_CROSS for consistency
+            "V_CROSS": "500.0D0",
+            "SIG_GAU_KMS": "500.0D0",
 
+            # Dessart+2015: relativistic moment solver required for SN models
             "USE_JREL": "T",
             "USE_J_REL": "T",
             "INCL_REL": "T",
             "INCL_ADV_TRANS": "T",
             "USE_FRM_REL": "T",
-            "NMONO_J": "F",
+            "NMONO_J": "F",           # monotonic J for LTE bootstrap stability
+
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
             "JC_W_EDD": "T",
             "THK_CONT": "F",
-            "USE_LAM_ES": "F",
-            "COH_ES": "T",
+            "USE_LAM_ES": "T",        # [OPT] was F; enable Lambda iteration for J (stable for SN models)
+            "COH_ES": "T",            # Dessart+2015: coherent ES throughout
             "MIX_COH": "F",
 
+            # Dessart+2015: T fixed to hydro; Ne free for self-consistency
             "FIX_T": "T",
-            "FIX_NE": "F",
+            "FIX_NE": "F",            # Ne free: self-consistent with radiation field (was T)
             "FIX_IMP": "T",
             "FIX_INB_T": "F",
             "FIX_INB_NE": "F",
             "FIX_X_DPTH": "0",
 
-            "SOL_METH": "TRIDIAG",
+            # N_ON_J/TRIDIAG: consistent with NUM_BNDS=3 (off-diagonal corrections for blanketed IIn)
+            # NOTE: TRIDIAG couples nearest-neighbour depths, propagating corrections across shock regions
+            # more effectively than DIAG, roughly halving iteration count for complex velocity fields.
             "SCALE_OPT": "MAJOR",
             "MAX_LIN": "2.0D0",
             "MAX_CHNG": "1.0D4",
             "COMP_BA": "T",
-            "N_FIX_BA": "25",
-            "BA_CHK_FAC": "5.0D-04",
-            "FIX_BA": "5.0D-03",
+            "N_FIX_BA": "1",          # [OPT] was 50; recompute BA every iteration for N_ON_J stability
+            "BA_CHK_FAC": "1.0D-02", # [OPT] was 1.0D-05; standard threshold for N_ON_J
+            "FIX_BA": "1.0D-02",     # [OPT] was 5.0D-04; standard 1% threshold for N_ON_J
             "LAM_VAL": "2.0D2",
             "NUM_LAM": "40",
 
@@ -1351,28 +1365,27 @@ def apply_profile(
             "NEG_OPAC_OPT": "SRCE_CHK",
             "SCL_LN": "T",
             "SCL_LN_FAC": "0.1D0",
-            "ES_FAC": "0.6D0",
+            "ES_FAC": "0.8D0",        # [OPT] was 0.6; standard damping for robustness
 
             # LTE cold start: LTE_EST=T, no *_IN files required
-            "LTE_EST": "T",
             "LIN_INT": "F",
             "IT_ON_T": "F",
             "POP_SCALE": "T",
-            "T_MIN": "3.0D-01",      # 3000 K (raised from 2000K for stability)
-            "T_EXC": "3.00D-1",      # Excitation temperature (3000 K)
+            "T_MIN": "3.0D-01",
+            "T_EXC": "3.00D-1",
             "GREY_TAU": "10.0D0",
             "METHOD": "ZERO",
             "INC_RAY": "F",
 
             "REV_RGRID": "F",
             "RD_IN_R_GRID": "F",
-            "N_IB_INS": "10",
+            "N_IB_INS": "10",         # CMFGEN hard limit is 16; 10 is safe
             "N_OB_INS": "10",
-            "N_TYPE": "G_ONLY",
+            "N_TYPE": "G_ONLY",      # Changed from N_ON_J due to convergence issues (excessive iteration count with NaN errors)
 
-            "INC_GRID": "T",
-            "VFRAC_FG": "0.4D0",
-            "VFRAC_MOM": "0.4D0",
+            "INC_GRID": "F",        # Disabled to avoid SIGMA > -1 limitation in EXTEND_VTSIGMA for interacting SNe
+            "VFRAC_FG": "0.50D0",    # [OPT] was 0.4; coarser ray spacing for SN (prevents ND adjustment)
+            "VFRAC_MOM": "0.50D0",   # [OPT] was 0.4; coarser moment spacing for SN (prevents ND adjustment)
             "OB_METH": "HONJ",
 
             "ACC_END": "5.0D0",
@@ -1395,31 +1408,34 @@ def apply_profile(
             "dV_OBS_WING": "150.0D0",
             "dV_OBS_BIG": "800.0D0",
 
-            "EPS_TERM": "1.0D-1",
-            "ACC_F": "5.0D-02",
+            "EPS_TERM": "1.0D-01",    # relaxed convergence for DIAG stability (was 0.05; 0.1 gives more room)
+            "ACC_F": "5.0D-02",       # relaxed Eddington convergence for DIAG stability (was 0.01)
 
-            # Lambda auto-switch enabled; no Ng on unstable LTE start
+            # Lambda auto-switch; no Ng on unstable LTE start
             "DO_LAM_IT": "T",
-            "DO_NG": "F",
+            "DO_NG": "F",             # disabled for LTE bootstrap; re-enable once populations settle
+            "IBEG_NG": "50",          # start Ng after 50 iterations of Lambda settling
+            "BW_NG": "30",
+            "ITS/NG": "4",
         }
 
     elif profile == "init":
         # Very loose parameters for initial run to maximise chance of convergence (final profile tightens).
-        # Type IIn: LSTAR=0. N_TYPE=N_ON_J + NUM_BNDS=3 for better stability (avoids J-instability).
-        # SNEC: T and Ne from SN_HYDRO_DATA; keep them fixed during init for stability.
-        # IMPORTANT: Use monotonic J during LTE_EST phase (NMONO_J=F); enable non-monotonic J only in final run.
+        # Dessart+2015: T fixed to hydro, coherent ES, G_ONLY/DIAG solver.
+        # FIX_NE=T during init: prevents huge first-iteration corrections from unstable LTE start.
+        # NMONO_J=F: monotonic J during LTE_EST phase; non-monotonic only in final run.
         desired = {
-            "SN_T_OPT": "USE_HYDRO",
-            "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED, not CMFGEN rad decays)
+            "SN_T_OPT": "USE_T_IN",
+            "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED)
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "F",
+            "INC_SHOCK_POWER": "F",   # Dessart+2015: shock heating already in hydro T(r)
             "ALL_FREQ": "T",
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
             # Avoid an observed edge-case: "HNU zero for frequency: 3.00000000E-03" at the low-nu edge.
             # Raise MIN_CF so the solver doesn't hit the extreme far-IR tail during bootstrap.
-            "MIN_CF": "1.0D-4",
+            "MIN_CF": "1.0D-1",        # Raised to 0.1 to avoid MOM_J_REL_V9 NaN errors at extreme far-IR
             # Avoid an edge-case observed in OUTGEN: "HNU zero for frequency: ~1.5E+01".
             # Empirically this can trigger at the high-frequency end of the continuum grid.
             # Back off further from the upper edge to keep the init bootstrap stable.
@@ -1443,6 +1459,11 @@ def apply_profile(
             "NMONO_J": "F",          # F = use monotonic J during LTE_EST; non-monotonic J enabled in final profile
             "JC_W_EDD": "T",
             "THK_CONT": "F",         # Thick outer BC during init
+
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
             # INIT bootstrap: disable USE_LAM_ES. We have observed "HNU zero for frequency" failures
             # early in great iteration 1 along the formal-solution path when USE_LAM_ES is enabled.
             # FINAL retains USE_LAM_ES=T for the intended Type IIn treatment once restartable state exists.
@@ -1450,25 +1471,26 @@ def apply_profile(
             "COH_ES": "T",
             "MIX_COH": "F",          # F = no coherent/incoherent mix in linearisation (more stable)
 
-            # Init: FIX_T=T; FIX_X_DPTH=0 (temperature fixed to input SN_HYDRO_DATA)
+            # Dessart+2015: T fixed to hydro at all depths; Ne free for self-consistency
             "FIX_T": "T",
-            "FIX_NE": "F",           # F = allow Ne to vary (CMFGEN full freedom to solve)
-            "FIX_IMP": "T",          # T = auto-fix impurity species during init (avoids SIGFPE from tiny pops)
-            "FIX_INB_T": "F",        # Fix T at inner boundary
-            "FIX_INB_NE": "F",       # F = allow Ne at inner boundary to vary (CMFGEN full freedom)
-            "FIX_X_DPTH": "0",       # Temperature fixed at all depths
+            "FIX_NE": "F",           # Ne free: self-consistent with radiation field (was T)
+            "FIX_IMP": "T",          # T = auto-fix impurity species during init
+            "FIX_INB_T": "F",        # inner boundary T from hydro (FIX_T=T covers all depths)
+            "FIX_INB_NE": "F",
+            "FIX_X_DPTH": "0",       # T fixed at ALL depths (consistent with FIX_T=T)
 
-            # [OPT] Linearisation & BA settings for IIn convergence
-            "SOL_METH": "TRIDIAG",   # [OPT] was DIAG; tridiagonal for shock region
-            "SCALE_OPT": "MAJOR",    # Conservative scaling for stability
-            "MAX_LIN": "2.0D0",      # [OPT] smaller linearization steps for stability
-            "MAX_CHNG": "1.0D4",     # [OPT] was 1e40; finite hard cap
-            "COMP_BA": "T",         # Recompute BA each time
-            "N_FIX_BA": "25",        # [OPT] more BA matrix fix iterations for stability
-            "BA_CHK_FAC": "5.0D-04", # [OPT] was 1e-4; looser recompute threshold
-            "FIX_BA": "5.0D-03",     # [OPT] was 1e-2; freeze BA only when very small
-            "LAM_VAL": "600.0D0",    # [OPT] was 400; raise Lambda fallback threshold
-            "NUM_LAM": "2",          # [OPT] was 3; fewer Lambda iters per cycle
+            # G_ONLY/DIAG: consistent with NUM_BNDS=1 (Dessart+2015 style)
+            # NOTE: With DIAG (no depth coupling), BA must be VERY accurate before freezing
+            # or the uncorrected errors cause runaway oscillations (10^8% divergences).
+            "SCALE_OPT": "MAJOR",
+            "MAX_LIN": "2.0D0",
+            "MAX_CHNG": "1.0D4",     # finite hard cap prevents runaway corrections
+            "COMP_BA": "T",
+            "N_FIX_BA": "50",        # many BA recomputes (was 5; need >25 for DIAG stability)
+            "BA_CHK_FAC": "1.0D-05", # check BA every iteration when frozen (tighter than 5e-4)
+            "FIX_BA": "5.0D-04",     # freeze only at < 0.05% error (was 5%; 100x tighter for DIAG)
+            "LAM_VAL": "600.0D0",    # raise Lambda fallback threshold for IIn
+            "NUM_LAM": "2",
 
             # [OPT] Bound-bound & blanketing for IIn models
             "GLOBAL_LINE": "SOB",   # Sobolev rates
@@ -1483,6 +1505,11 @@ def apply_profile(
             "SCL_LN_FAC": "0.1D0",   # Line scale-out limit (Doppler frac)
             "MIX_COH": "F",          # [OPT] was T; disable for convergence phase
             "ES_FAC": "0.6D0",       # Increased damping for ES oscillation
+
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             # LTE initial populations; when ~half the model is NLTE, T_EXC from mid-depth softens outer-half guess (see recommended_t_exc_init).
             "LTE_EST": "T",          # T = set departure coefficients to LTE (outer half uses T_EXC floor in SET_DC_LTE_V2)
@@ -1499,20 +1526,20 @@ def apply_profile(
 
             "REV_RGRID": "T",       # Enable automatic grid revision to handle problematic regions (was F)
             "RD_IN_R_GRID": "F",
-            "N_IB_INS": "10",        # SNA stable setting (must be <= 16 per CMFGEN limit)
-            "N_OB_INS": "10",        # SNA stable setting (must be <= 16 per CMFGEN limit)
+            "N_IB_INS": "15",        # More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
+            "N_OB_INS": "15",        # More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
             "OB_RAT": "1.5D0",       # Outer boundary step ratio for grid stability
             "IB_RAT": "2.0D0",       # Inner boundary step ratio for grid stability
             # NOTE: ADJUST_R_DEFAULTS file is created separately, not a VADAT keyword
             # More robust bootstrap for fixed-T SN models.
             # NOTE: CMFGEN may print "HNU zero for frequency" when H_nu ~ 0 at some depths; this is
             # often transient and not necessarily fatal.
-            "N_TYPE": "G_ONLY",     # G_ONLY setting (NUM_BNDS=1, SOL_METH=DIAG)
+            "N_TYPE": "G_ONLY",      # Changed from N_ON_J due to convergence issues (excessive iteration count with NaN errors)
 
             # J stability: enable grid revision for init to ensure monotonic grid
-            "INC_GRID": "T",        # Enable automatic grid revision for init
-            "VFRAC_FG": "0.4D0",    # Finer ray spacing for J stability
-            "VFRAC_MOM": "0.4D0",   # Finer moment spacing for J stability
+            "INC_GRID": "F",        # Disabled to avoid SIGMA > -1 limitation in EXTEND_VTSIGMA for interacting SNe
+            "VFRAC_FG": "0.50D0",    # [OPT] was 0.4; coarser ray spacing for SN (prevents ND adjustment)
+            "VFRAC_MOM": "0.50D0",   # [OPT] was 0.4; coarser moment spacing for SN (prevents ND adjustment)
             "OB_METH": "HONJ",   # Use HONJ for outer boundary (required by MOM_JREL_V9)
 
             # [OPT] Spatial grid settings for IIn models
@@ -1539,22 +1566,18 @@ def apply_profile(
             "dV_OBS_WING": "150.0D0", # [OPT] was 400; resolve 100 km/s features
             "dV_OBS_BIG": "800.0D0",  # [OPT] was 2000; resolve 100 km/s features
 
-            # [OPT] Convergence settings for init
-            "EPS_TERM": "1.0D-1",    # [OPT] increased from 5.0D-02; relaxed termination epsilon for shocked regions
-            "ACC_F": "5.0D-02",      # [OPT] relaxed from 1.0D-03; looser Eddington convergence
-            "ACC_END": "5.0D0",      # relax enhanced-accuracy frequency threshold
+            # Convergence settings for init
+            "EPS_TERM": "5.0D-02",   # relaxed but not too loose; consistent with stable phase
+            "ACC_F": "1.0D-02",      # tighter Eddington convergence reduces late-iteration oscillations
+            "ACC_END": "5.0D0",
 
-            # Use LAMBDA iterations during init, but keep auto-toggle off via IN_ITS (DO_LAM_AUTO=F).
-            # Allow very large MAXCH on first iters so we don't abort (MAX_CHNG high); scale still limits applied correction.
-            "DO_LAM_IT": "T",        # T = use LAMBDA iters during init (CMFGEN keyword; distinct from LAM_SET)
-            "FIX_BA": "6.0D-01",     # [OPT] increased from 4.0D-01; freeze BA at higher threshold for stability
-            "BA_CHK_FAC": "5.0D-04", # [OPT] increased from 1.0D-03; less aggressive BA recompute trigger
+            "DO_LAM_IT": "T",        # use Lambda iterations during init
 
-            # Scale: MAJOR provides more conservative scaling for stability
-            "SCALE_OPT": "MAJOR",
-
-            # INIT: disable Ng acceleration (it can amplify bad early iterations when T is fixed).
+            # INIT: disable Ng acceleration (can diverge on bad LTE initial populations)
             "DO_NG": "F",
+            "IBEG_NG": "50",         # if DO_NG later enabled, start after 50 iterations
+            "BW_NG": "30",
+            "ITS/NG": "4",
         }
 
     elif profile == "stable":
@@ -1562,7 +1585,7 @@ def apply_profile(
         # Uses populations from init, runs pure Lambda to settle NLTE populations
         # before allowing Non-Lambda iterations in final.
         desired = {
-            "SN_T_OPT": "USE_HYDRO",
+            "SN_T_OPT": "USE_T_IN",
             "LSTAR": "0.0D0",
             "INC_RAD_DECAYS": inc_rad_decays,
             "INC_SHOCK_POWER": "F",
@@ -1570,7 +1593,7 @@ def apply_profile(
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
-            "MIN_CF": "1.0D-4",
+            "MIN_CF": "1.0D-1",        # Raised to 0.1 to avoid MOM_J_REL_V9 NaN errors at extreme far-IR
             "MAX_CF": "13.5D0",
             "FRAC_SP": "1.08D0",    # [OPT] was 1.10; smoother low-nu spacing
             "AMP_FAC": "1.04D0",    # [OPT] was 1.05; smoother high-nu spacing
@@ -1593,24 +1616,30 @@ def apply_profile(
             "MIX_COH": "F",
             "ES_FAC": "0.6D0",       # Increased damping for ES oscillation
 
-            # Stable: FIX_T=T; FIX_X_DPTH=0 (temperature fixed to input SN_HYDRO_DATA)
-            "FIX_T": "T",
-            "FIX_NE": "F",
-            "FIX_IMP": "T",
-            "FIX_INB_T": "F",        # Fix T at inner boundary
-            "FIX_X_DPTH": "0",       # Temperature fixed at all depths
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
-            # [OPT] Linearisation & BA settings for IIn convergence
-            "SOL_METH": "TRIDIAG",   # [OPT] was DIAG; tridiagonal for shock region
-            "SCALE_OPT": "MAJOR",    # Limit per-depth max change
-            "MAX_LIN": "3.0D0",      # [OPT] was 10.0; damped step size
-            "MAX_CHNG": "1.0D4",     # [OPT] was 1e40; finite hard cap
-            "COMP_BA": "T",         # Recompute BA each time
-            "N_FIX_BA": "1",         # [OPT] was 2; recompute BA every iteration
-            "BA_CHK_FAC": "5.0D-04", # [OPT] was 1e-4; looser recompute threshold
-            "FIX_BA": "5.0D-03",     # [OPT] was 1e-2; freeze BA only when very small
-            "LAM_VAL": "600.0D0",    # [OPT] was 400; raise Lambda fallback threshold
-            "NUM_LAM": "2",          # [OPT] was 3; fewer Lambda iters per cycle
+            # Dessart+2015: T fixed to hydro; Ne free to converge self-consistently
+            "FIX_T": "T",
+            "FIX_NE": "F",            # Ne free in stable phase (populations from init are now reasonable)
+            "FIX_IMP": "T",
+            "FIX_INB_T": "F",
+            "FIX_X_DPTH": "0",        # T fixed at ALL depths
+
+            # G_ONLY/DIAG: consistent with NUM_BNDS=1 (Dessart+2015 style)
+            # NOTE: With DIAG (no depth coupling), BA must be VERY accurate before freezing
+            # or the uncorrected errors cause runaway oscillations (10^8% divergences).
+            "SCALE_OPT": "MAJOR",
+            "MAX_LIN": "2.0D0",       # tighter than 3.0; reduces LIMIT-clipping
+            "MAX_CHNG": "1.0D4",      # finite hard cap
+            "COMP_BA": "T",
+            "N_FIX_BA": "50",        # many BA recomputes (was 5; need >25 for DIAG stability)
+            "BA_CHK_FAC": "1.0D-05", # check BA every iteration when frozen (tighter than 5e-4)
+            "FIX_BA": "5.0D-04",     # freeze only at < 0.05% error (was 5%; 100x tighter for DIAG)
+            "LAM_VAL": "600.0D0",
+            "NUM_LAM": "2",
 
             # [OPT] Bound-bound & blanketing for IIn models
             "GLOBAL_LINE": "SOB",   # Sobolev rates
@@ -1625,6 +1654,11 @@ def apply_profile(
             "SCL_LN_FAC": "0.1D0",   # Line scale-out limit (Doppler frac)
             "MIX_COH": "F",          # [OPT] was T; disable for convergence phase
 
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
+
             # Use interpolated populations from init (not LTE)
             "LTE_EST": "F",
             "LIN_INT": "T",
@@ -1632,13 +1666,13 @@ def apply_profile(
 
             "REV_RGRID": "T",       # Enable automatic grid revision for problematic regions
             "RD_IN_R_GRID": "F",
-            "N_IB_INS": "10",        # CMFGEN limit (must be <= 16)
-            "N_OB_INS": "10",        # CMFGEN limit (must be <= 16)
+            "N_IB_INS": "15",        # More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
+            "N_OB_INS": "15",        # More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
             "OB_RAT": "1.5D0",       # Outer boundary step ratio for grid stability
             "IB_RAT": "2.0D0",       # Inner boundary step ratio for grid stability
             # NOTE: ADJUST_R_DEFAULTS file is created separately, not a VADAT keyword
             # Use G_ONLY (NUM_BNDS=1, SOL_METH=DIAG)
-            "N_TYPE": "G_ONLY",
+            "N_TYPE": "G_ONLY",      # Changed from N_ON_J due to convergence issues (excessive iteration count with NaN errors)
             "POP_SCALE": "T",        # SNA stable setting
             "GREY_TAU": "10.0D0",     # SNA stable setting
             "METHOD": "ZERO",        # SNA stable setting
@@ -1647,8 +1681,8 @@ def apply_profile(
             "T_MIN": "3.0D-01",      # 3000 K unified floor
 
             "INC_GRID": "F",        # Disable automatic grid revision
-            "VFRAC_FG": "0.4D0",    # Finer ray spacing for J stability
-            "VFRAC_MOM": "0.4D0",   # Finer moment spacing for J stability
+            "VFRAC_FG": "0.50D0",    # [OPT] was 0.4; coarser ray spacing for SN    # Finer ray spacing for J stability
+            "VFRAC_MOM": "0.50D0",   # [OPT] was 0.4; coarser moment spacing for SN   # Finer moment spacing for J stability
             "OB_METH": "HONJ",   # Use HONJ for outer boundary (required by MOM_JREL_V9)
 
             # [OPT] Spatial grid settings for IIn models
@@ -1675,24 +1709,26 @@ def apply_profile(
             "dV_OBS_WING": "150.0D0", # [OPT] was 400; resolve 100 km/s features
             "dV_OBS_BIG": "800.0D0",  # [OPT] was 2000; resolve 100 km/s features
 
-            # [OPT] Convergence settings for stable
-            "EPS_TERM": "5.0D-02",   # [OPT] was 1e-2; relaxed for Lambda phase
-            "ACC_F": "5.0D-02",      # [OPT] was 2e-2; tighter Eddington convergence
-            "ACC_END": "3.0D0",
+            # Convergence settings for stable phase
+            "EPS_TERM": "5.0D-02",
+            "ACC_F": "1.0D-02",       # tighter Eddington convergence reduces late oscillations
+            "ACC_END": "5.0D0",
 
-            # KEY: Stay in pure Lambda - high LAM_VAL prevents Non-Lambda switch
+            # Stay in pure Lambda; high LAM_VAL prevents Non-Lambda switch
             "DO_LAM_IT": "T",
 
-            "SCALE_OPT": "LOCAL",
-
+            # Ng disabled during Lambda settling phase to avoid amplifying oscillations
             "DO_NG": "F",
+            "IBEG_NG": "50",
+            "BW_NG": "30",
+            "ITS/NG": "4",
         }
 
     elif profile == "final":
         # Use all INIT parameters except: LTE_EST=F, MAX_CHNG=1.0D4, DO_NG=T, DO_LAM_AUTO=T
         # Reads population levels from *_IN files (from previous run)
         desired = {
-            "SN_T_OPT": "USE_HYDRO",
+            "SN_T_OPT": "USE_T_IN",
             "LSTAR": "0.0D0",         # SN: 0 (no central L; heating from hydro T/ED, not CMFGEN rad decays)
             "INC_RAD_DECAYS": inc_rad_decays,
             "INC_SHOCK_POWER": "F",
@@ -1700,7 +1736,7 @@ def apply_profile(
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
-            "MIN_CF": "1.0D-4",
+            "MIN_CF": "1.0D-1",        # Raised to 0.1 to avoid MOM_J_REL_V9 NaN errors at extreme far-IR
             "MAX_CF": "13.5D0",
             "FRAC_SP": "1.08D0",    # [OPT] was 1.10; smoother low-nu spacing
             "AMP_FAC": "1.04D0",    # [OPT] was 1.05; smoother high-nu spacing
@@ -1722,20 +1758,28 @@ def apply_profile(
             "MIX_COH": "F",
             "ES_FAC": "0.6D0",
 
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
+
+            # Dessart+2015: T fixed to hydro; Ne free in final
             "FIX_T": "T",
-            "FIX_NE": "F",
+            "FIX_NE": "F",            # Ne free in final (populations now well-established)
             "FIX_IMP": "T",
             "FIX_INB_T": "F",
-            "FIX_X_DPTH": "0",
+            "FIX_X_DPTH": "0",        # T fixed at ALL depths
 
-            "SOL_METH": "TRIDIAG",
+            # G_ONLY/DIAG: consistent with NUM_BNDS=1
+            # NOTE: With DIAG (no depth coupling), BA must be VERY accurate before freezing
+            # or the uncorrected errors cause runaway oscillations (10^8% divergences).
             "SCALE_OPT": "MAJOR",
-            "MAX_LIN": "3.0D0",
-            "MAX_CHNG": "1.0D4",     # Tighter convergence cap
+            "MAX_LIN": "2.0D0",
+            "MAX_CHNG": "1.0D4",
             "COMP_BA": "T",
-            "N_FIX_BA": "1",
-            "BA_CHK_FAC": "5.0D-04",
-            "FIX_BA": "5.0D-03",
+            "N_FIX_BA": "50",        # many BA recomputes (was 5; need >25 for DIAG stability)
+            "BA_CHK_FAC": "1.0D-05", # check BA every iteration when frozen (tighter than 5e-4)
+            "FIX_BA": "5.0D-04",     # freeze only at < 0.05% error (was 5%; 100x tighter for DIAG)
             "LAM_VAL": "600.0D0",
             "NUM_LAM": "2",
 
@@ -1750,29 +1794,33 @@ def apply_profile(
             "SCL_LN": "T",
             "SCL_LN_FAC": "0.1D0",
             "MIX_COH": "F",
-            "ES_FAC": "0.6D0",
+            "ES_FAC": "0.6D0",        # Dessart+2015: 0.6 throughout for IIn
 
-            "LTE_EST": "F",          # F = read population levels from *_IN files (from previous run)
+            # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
+            "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
+            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
+
+            "LTE_EST": "F",           # read population levels from *_IN files
             "IT_ON_T": "F",
             "POP_SCALE": "T",
-            "T_MIN": "3.0D-01",      # 3000 K (raised from 2000K for stability)
-            "T_EXC": "3.00D-1",      # Excitation temperature (3000 K)
+            "T_MIN": "3.0D-01",
+            "T_EXC": "3.00D-1",
             "GREY_TAU": "10.0D0",
             "METHOD": "ZERO",
             "INC_RAY": "F",
 
-            "REV_RGRID": "T",       # Enable automatic grid revision for problematic regions
+            "REV_RGRID": "T",
             "RD_IN_R_GRID": "F",
-            "N_IB_INS": "10",
-            "N_OB_INS": "10",
-            "OB_RAT": "1.5D0",       # Outer boundary step ratio for grid stability
-            "IB_RAT": "2.0D0",       # Inner boundary step ratio for grid stability
-            # NOTE: ADJUST_R_DEFAULTS file is created separately, not a VADAT keyword
-            "N_TYPE": "G_ONLY",
+            "N_IB_INS": "15",         # More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
+            "N_OB_INS": "15",
+            "OB_RAT": "1.5D0",
+            "IB_RAT": "2.0D0",
+            "N_TYPE": "G_ONLY",      # Changed from N_ON_J due to convergence issues (excessive iteration count with NaN errors)
 
-            "INC_GRID": "T",
-            "VFRAC_FG": "0.4D0",
-            "VFRAC_MOM": "0.4D0",
+            "INC_GRID": "F",        # Disabled to avoid SIGMA > -1 limitation in EXTEND_VTSIGMA for interacting SNe
+            "VFRAC_FG": "0.50D0",    # [OPT] was 0.4; coarser ray spacing for SN
+            "VFRAC_MOM": "0.50D0",   # [OPT] was 0.4; coarser moment spacing for SN
             "OB_METH": "HONJ",
 
             "ALL_FREQ": "T",
@@ -1796,61 +1844,69 @@ def apply_profile(
             "dV_OBS_WING": "150.0D0",
             "dV_OBS_BIG": "800.0D0",
 
-            "EPS_TERM": "5.0D-02",
-            "ACC_F": "1.0D-03",
-            "ACC_END": "5.0D0",
+            "EPS_TERM": "1.0D-02",    # tightest criterion for final convergence
+            "ACC_F": "1.0D-02",       # tighter Eddington convergence
 
             "DO_LAM_IT": "T",
-            "FIX_BA": "4.0D-01",
-            "BA_CHK_FAC": "1.0D-03",
 
-            "SCALE_OPT": "LOCAL",
-
-            "DO_NG": "T",            # Ng acceleration enabled
+            # Enable Ng acceleration in final phase once populations are settled
+            "DO_NG": "T",
+            "IBEG_NG": "50",          # start Ng after 50 Lambda iterations
+            "BW_NG": "30",
+            "ITS/NG": "4",
         }
 
     if convergence_mode == "stable":
-        # Conservative damping for NLTE-heavy models where LIMIT clipping repeats
-        # and lambda corrections remain very large for many iterations.
-        # MAX_LIN: max linearization step per depth per iteration.
-        # LAM_VAL/NUM_LAM: stay in pure Lambda phase longer before switching to non-Lambda.
-        # IBEG_NG: delay Ng acceleration until populations are well-behaved.
-        # T_EXC / N_FIX_BA: keep BA matrix frozen more aggressively to avoid instability.
+        # Conservative damping for NLTE-heavy IIn models where LIMIT clipping repeats
+        # and lambda corrections remain large for many iterations (Dessart+2015 style).
+        # These overrides apply on top of the profile defaults for extra damping.
+        # Stable-mode overrides: tighter step sizes and more Lambda iterations.
+        # CRITICAL: N_FIX_BA must be large (>=30) and FIX_BA must be small (<=1e-2)
+        # to keep CMFGEN in lambda-iteration until populations are well-converged.
+        # Switching to BA too early (N_FIX_BA=5, FIX_BA=15%) causes the
+        # "maximum change > 1" divergence in SOLVEBA_V13 because the Newton step
+        # is taken while corrections are still O(10-100%), far outside the linear regime.
         stable_overrides = {
             "single_final": {
-                "MAX_LIN": "1.5D0",
+                "MAX_LIN": "1.0D0",     # tighter step size for LTE bootstrap stability
+                "MAX_LAM": "1.0D5",     # 1e5 cap; increased to allow large LTE→NLTE corrections during cold-start
                 "LAM_VAL": "2.0D2",
                 "NUM_LAM": "40",
-                "N_FIX_BA": "15",
-                "FIX_BA": "6.0D-01",
-                "IBEG_NG": "80",
+                "N_FIX_BA": "30",       # stay in lambda until corrections are small
+                "FIX_BA": "1.0D-02",   # switch to BA only when max change < 1%
+                "MAX_CHNG": "1.0D4",
+                "IBEG_NG": "80",        # delay Ng start to iteration 80
                 "SCALE_OPT": "MAJOR",
             },
             "init": {
-                "MAX_LIN": "1.5D0",     # tighter than 2.0 to reduce LIMIT-clipped corrections
+                "MAX_LIN": "1.0D0",     # tighter than 2.0 to reduce LIMIT-clipped corrections
+                "MAX_LAM": "1.0D5",     # 1e5 cap; increased to allow large LTE→NLTE corrections during cold-start
                 "LAM_VAL": "2.0D2",     # stay in Lambda longer on init
                 "NUM_LAM": "40",        # more Lambda iterations before switch
-                "N_FIX_BA": "15",
-                "FIX_BA": "6.0D-01",
+                "N_FIX_BA": "30",       # stay in lambda until corrections are small
+                "FIX_BA": "1.0D-02",   # switch to BA only when max change < 1%
+                "MAX_CHNG": "1.0D4",
                 "IBEG_NG": "80",
                 "SCALE_OPT": "MAJOR",
             },
             "stable": {
                 "MAX_LIN": "1.5D0",     # tighter than 2.0; cuts LIMIT-clipping frequency
+                "MAX_LAM": "1.0D3",     # 1000x; populations partially converged from init checkpoint
                 "LAM_VAL": "1.0D3",     # stay in Lambda even longer for shock-rich models
                 "NUM_LAM": "50",        # more Lambda iterations
-                "N_FIX_BA": "20",
-                "FIX_BA": "6.0D-01",
-                "IBEG_NG": "150",       # delay Ng further to avoid divergent acceleration
+                "N_FIX_BA": "30",       # stay in lambda until corrections are small
+                "FIX_BA": "1.0D-02",   # switch to BA only when max change < 1%
+                "IBEG_NG": "100",       # delay Ng further; populations still settling
                 "SCALE_OPT": "MAJOR",
             },
             "final": {
-                "MAX_LIN": "1.1D0",     # very tight for final convergence (was 1.2)
-                "LAM_VAL": "1.0D2",     # more Lambda before Ng kicks in (was 5.0D1)
-                "NUM_LAM": "40",        # more Lambda iterations (was 30)
-                "N_FIX_BA": "15",
-                "FIX_BA": "5.0D-03",
-                "IBEG_NG": "50",        # slightly later Ng start (was 40)
+                "MAX_LIN": "1.5D0",     # moderately tight for final convergence
+                "MAX_LAM": "1.0D2",     # 100x cap; reduced to prevent population instabilities during final convergence
+                "LAM_VAL": "2.0D2",     # keep Lambda fallback threshold
+                "NUM_LAM": "10",        # moderate Lambda iterations
+                "N_FIX_BA": "30",       # stay in lambda until corrections are small
+                "FIX_BA": "1.0D-02",   # switch to BA only when max change < 1%
+                "IBEG_NG": "50",        # start Ng after 50 Lambda iterations
                 "SCALE_OPT": "MAJOR",
             },
         }
@@ -2023,6 +2079,17 @@ def main() -> int:
         default=None,
         help="Path to YAML config file containing vadat_overrides section to apply after auto-configuration.",
     )
+    p.add_argument(
+        "--vel-law",
+        type=int,
+        default=12,
+        help="CMFGEN VEL_LAW value (default: 12 for IIn tau-based grid; 11 for direct SN_HYDRO_DATA R/V/SIGMA).",
+    )
+    p.add_argument(
+        "--no-relativistic",
+        action="store_true",
+        help="Disable relativistic moment solver and corrections for faster debug runs. Sets USE_JREL=F, USE_J_REL=F, INCL_REL=F, INCL_ADV_TRANS=F, USE_FRM_REL=F.",
+    )
 
     args = p.parse_args()
     wdir = Path(args.directory).resolve()
@@ -2141,6 +2208,8 @@ def main() -> int:
             "RCUB_RHO": hydro.params.get("RCUB_RHO", 0.0),
             "RHO_CORE": hydro.params.get("RHO_CORE", 0.0),
             "VEL_CORE": hydro.params.get("VEL_CORE", 100.0),
+            "VCORE": hydro.params.get("VEL_CORE", 100.0),   # km/s; required for VEL_LAW=12
+            "BETA1": 1.0,                                    # homologous flow; required for VEL_LAW=12
         }
         # Init: use T at mid-depth so outer (NLTE) half gets excitation floor, not full LTE.
         t_exc = recommended_t_exc_init(hydro) if profile in ("init", "single_final") else recommended_t_exc(hydro)
@@ -2192,43 +2261,82 @@ def main() -> int:
         # RD_SN_DATA matches isotope MF lines to ISO(:) from NUC_DECAY_DATA; that table is only
         # loaded when INC_RAD_DECAYS=T. Force T from the file header so a missed parse cannot
         # leave INC_RAD_DECAYS=F (which yields NUM_ISOTOPES=0 and "isotope data not recognized").
-        if n_iso_hydro > 0:
+        # However, if CMFGEN_INC_RAD_DECAYS is set to 0, force F to avoid isotope consistency issues.
+        inc_rad_decays_env = os.environ.get("CMFGEN_INC_RAD_DECAYS", "1")
+        if n_iso_hydro > 0 and inc_rad_decays_env == "1":
             set_or_append_keyword(lines, "INC_RAD_DECAYS", "T")
             profile_changes.append(
                 f"INC_RAD_DECAYS=T (SN_HYDRO_DATA declares {n_iso_hydro} isotope block(s); "
                 "required for RD_SN_DATA / NUC_DECAY_DATA ISO table)"
             )
+        elif n_iso_hydro > 0 and inc_rad_decays_env == "0":
+            set_or_append_keyword(lines, "INC_RAD_DECAYS", "F")
+            profile_changes.append(
+                f"INC_RAD_DECAYS=F (forced by CMFGEN_INC_RAD_DECAYS=0 to avoid isotope consistency issues)"
+            )
+
+        # Set VEL_LAW from CLI argument (default: 12 for IIn models with tau-based grid)
+        set_or_append_keyword(lines, "VEL_LAW", str(args.vel_law))
+        profile_changes.append(f"VEL_LAW={args.vel_law} (from --vel-law CLI argument)")
+
+        # Disable relativistic solvers for faster debug runs (--no-relativistic)
+        if args.no_relativistic:
+            rel_keys = ["USE_JREL", "USE_J_REL", "INCL_REL", "INCL_ADV_TRANS", "USE_FRM_REL"]
+            for key in rel_keys:
+                set_or_append_keyword(lines, key, "F")
+            profile_changes.append(
+                "Relativistic solvers disabled (--no-relativistic): "
+                f"{', '.join(rel_keys)}=F"
+            )
+
         model_spec_path = wdir / args.model_spec
         die_key_changes = ensure_die_keys_for_model_spec(lines, model_spec_path)
         profile_changes.extend(die_key_changes)
 
         # Init/Stable: ensure LAMBDA is enabled (DO_LAM_IT=T) and allow very large MAXCH so we don't abort.
         # DO_LAM_AUTO is controlled via IN_ITS (init/stable: F, final: T).
-        # Init uses a higher MAX_CHNG than stable: first-iteration MAXCH can exceed 1e24 (e.g. bad population guess at depth 1).
+        # MAX_LAM caps the per-step Lambda population change: too high causes population explosions
+        # at the cold-start outer boundary (STEQ ~ 1e9), which inflates populations by MAX_LAM-fold
+        # and crashes STEQ in the next iteration with a SIGSEGV. Values per profile:
+        #   init / single_final: 1e5 (cold-start, farthest from NLTE solution - increased to allow large LTE→NLTE corrections)
+        #   stable:              1e3 (partially converged from init checkpoint)
+        #   final:               1e2 (well-converged from stable/init checkpoint - reduced for stability)
         if profile == "init":
             set_or_append_keyword(lines, "DO_LAM_IT", "T")
             set_or_append_keyword(lines, "SCALE_OPT", "MAJOR")
+            set_or_append_keyword(lines, "MAX_LAM", "1.0D5")
             set_or_append_keyword(lines, "MAX_CHNG", "1.0D30")
             set_or_append_keyword(lines, "LIN_INT", "F")
             # Keep RD_IN_R_GRID=T to use RDINR, but LIN_INT=F to avoid HI_IN read error
             profile_changes.append(
-                "Init profile: DO_LAM_IT=T, SCALE_OPT=MAJOR, MAX_CHNG=1.0D30, LIN_INT=F  "
-                "(LAMBDA iters; loose MAXCH abort cap for bootstrap only)"
+                "Init profile: DO_LAM_IT=T, SCALE_OPT=MAJOR, MAX_LAM=1.0D5, MAX_CHNG=1.0D30, LIN_INT=F  "
+                "(LAMBDA iters; MAX_LAM=1e5 allows large LTE→NLTE corrections during cold-start)"
             )
-        elif profile in ("stable", "single_final"):
+        elif profile == "single_final":
             set_or_append_keyword(lines, "DO_LAM_IT", "T")
             set_or_append_keyword(lines, "SCALE_OPT", "MAJOR")
+            set_or_append_keyword(lines, "MAX_LAM", "1.0D5")
             set_or_append_keyword(lines, "MAX_CHNG", "1.0D30")
             profile_changes.append(
-                f"{profile} profile: DO_LAM_IT=T, SCALE_OPT=MAJOR, MAX_CHNG=1.0D30  "
-                "(LAMBDA iters enabled; allow very large MAXCH so run does not abort)"
+                "single_final profile: DO_LAM_IT=T, SCALE_OPT=MAJOR, MAX_LAM=1.0D5, MAX_CHNG=1.0D30  "
+                "(LAMBDA iters; MAX_LAM=1e5 allows large LTE→NLTE corrections during cold-start)"
+            )
+        elif profile == "stable":
+            set_or_append_keyword(lines, "DO_LAM_IT", "T")
+            set_or_append_keyword(lines, "SCALE_OPT", "MAJOR")
+            set_or_append_keyword(lines, "MAX_LAM", "1.0D3")
+            set_or_append_keyword(lines, "MAX_CHNG", "1.0D30")
+            profile_changes.append(
+                "stable profile: DO_LAM_IT=T, SCALE_OPT=MAJOR, MAX_LAM=1.0D3, MAX_CHNG=1.0D30  "
+                "(LAMBDA iters; MAX_LAM=1000 for partially-converged populations from init)"
             )
         elif profile == "final":
             set_or_append_keyword(lines, "SCALE_OPT", "MAJOR")
+            set_or_append_keyword(lines, "MAX_LAM", "1.0D2")
             set_or_append_keyword(lines, "MAX_CHNG", "1.0D30")
             profile_changes.append(
-                "Final profile: SCALE_OPT=MAJOR, MAX_CHNG=1.0D30  "
-                "(allow very large MAXCH for final convergence)"
+                "Final profile: SCALE_OPT=MAJOR, MAX_LAM=1.0D2, MAX_CHNG=1.0D30  "
+                "(MAX_LAM=100 for stable final convergence with well-converged populations)"
             )
         if profile == "final" and out2in_renames:
             profile_changes.append(f"OUT->IN: {len(out2in_renames)} files (*OUT renamed to *_IN)")
@@ -2417,18 +2525,29 @@ def main() -> int:
         # Create ADJUST_R_DEFAULTS for runtime grid refinement (handles problematic regions)
         adjust_r_path = wdir / "ADJUST_R_DEFAULTS"
         adjust_r_content = """! ADJUST_R_DEFAULTS - Runtime R-grid refinement for CMFGEN stability
-! Automatically adjusts R-grid to prioritize problematic regions
+! Targets the deep ejecta/shock interaction region where convergence
+! problems concentrate (e.g. depth ~285-295 in a 311-point grid).
+! Dessart+2015: grid refinement near shock front critical for IIn models.
 !
-N_ITS         5          ! Number of grid revisions to perform
-STRT_ITS      1          ! First iteration to start grid revision
-FREQ_ITS      10         ! Frequency of grid revisions (every N iterations)
-GRID_METH     TAU_SPACE  ! Regridding method: TAU_SPACE, VEL_SPACE, FULL_R, OB_ONLY
-GRID_TYPE     REFINE     ! Grid type: UNIFORM, MODUN, FIX_NX, REFINE, VTAU
-FG_MIN       -6.5D0      ! Min log(Tau) for fine grid refinement region
-FG_MAX       -5.5D0      ! Max log(Tau) for fine grid refinement region
+[N_ITS] 5
+! Number of grid revisions to perform
+[STRT_ITS] 1
+! First iteration to start grid revision
+[FREQ_ITS] 10
+! Frequency of grid revisions (every N iterations)
+[GRID_METH] TAU_SPACE
+! Regridding method: TAU_SPACE, VEL_SPACE, FULL_R, OB_ONLY
+[GRID_TYPE] REFINE
+! Grid type: UNIFORM, MODUN, FIX_NX, REFINE, VTAU
+[FG_MIN] -2.0D0
+! Min log(Tau) for fine grid: targets tau~0.01 (deep ejecta)
+[FG_MAX] 0.5D0
+! Max log(Tau) for fine grid: up to tau~3 (shock front region)
 ! Parameters for outer/inner boundary handling
-OB_OPT        DEFAULT    ! Outer boundary option: DEFAULT or SPECIFY
-IB_OPT        DEFAULT    ! Inner boundary option: DEFAULT or SPECIFY
+[OB_OPT] DEFAULT
+! Outer boundary option: DEFAULT or SPECIFY
+[IB_OPT] DEFAULT
+! Inner boundary option: DEFAULT or SPECIFY
 """
         adjust_r_path.write_text(adjust_r_content)
         print(f"Wrote ADJUST_R_DEFAULTS (runtime grid refinement for problematic regions)")

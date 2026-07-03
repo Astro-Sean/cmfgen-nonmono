@@ -1504,7 +1504,13 @@ if [[ "\${SLURM_RESTART_COUNT:-0}" -eq 0 && ! -f .CMFGEN_SINGLE_FINAL_PREPPED ]]
   if [[ -n "\${CMFGEN_INC_RAD_DECAYS:-}" ]]; then
     echo "CMFGEN_INC_RAD_DECAYS=\${CMFGEN_INC_RAD_DECAYS} (passed to prepare_VADAT.py)"
   fi
-  python "${VADAT_SCRIPT}" --single-final --convergence-mode stable --vel-law "${VEL_LAW}" ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+  # Build optional flags for prepare_VADAT.py
+  NO_REL_FLAG=""
+  if [[ "${CMFGEN_NO_RELATIVISTIC:-0}" == "1" ]]; then
+    NO_REL_FLAG="--no-relativistic"
+    echo "CMFGEN_NO_RELATIVISTIC=1 (passed --no-relativistic to prepare_VADAT.py)"
+  fi
+  python "${VADAT_SCRIPT}" --single-final --convergence-mode stable --vel-law "${VEL_LAW}" ${varyt_arg} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
   python "${INITS_SCRIPT}" --single-final --num-its ${FINAL_NUM_ITS} ${varyt_arg} >> 'batch.log'
   touch .CMFGEN_SINGLE_FINAL_PREPPED
 else
