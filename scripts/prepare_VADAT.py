@@ -755,7 +755,7 @@ def update_in_its_for_profile(wdir: Path, profile: str) -> List[str]:
     Policy:
       - init:   DO_LAM_IT=T, DO_LAM_AUTO=F, DO_GT_AUTO=T, DO_T_AUTO=F, D2_EQ_D1=T
       - stable: DO_LAM_IT=T, DO_LAM_AUTO=F, DO_GT_AUTO=T, DO_T_AUTO=F, D2_EQ_D1=T
-      - final:  DO_LAM_IT=T, DO_LAM_AUTO=T,  DO_GT_AUTO=T, DO_T_AUTO=F, D2_EQ_D1=T
+      - final:  DO_LAM_IT=T, DO_LAM_AUTO=F, DO_GT_AUTO=T, DO_T_AUTO=F, D2_EQ_D1=T
 
     Temperature auto-updates (DO_T_AUTO=F) are disabled since FIX_T=T fixes T to SN_HYDRO_DATA.
     DO_GT_AUTO=T and D2_EQ_D1=T are enabled for better convergence in stiff Type IIn/CSM setups.
@@ -766,7 +766,7 @@ def update_in_its_for_profile(wdir: Path, profile: str) -> List[str]:
 
     lines = read_lines(in_its_path)
     want_lam = "T"
-    want_auto = "T" if profile == "final" else "F"
+    want_auto = "F"  # Dessart+2015: pure Lambda iteration in all phases
     want_gt = "T"
     want_t = "F"
     want_d2 = "T"  # Always enable D2_EQ_D1 for stability (tie depth-2 pops to depth-1)
@@ -1295,8 +1295,8 @@ def apply_profile(
 
     if profile == "single_final":
         # Single-final: skip INIT entirely; start from LTE populations (LTE_EST=T).
-        # Uses Lambda iterations initially; CMFGEN auto-switches to Non-Lambda once stable.
-        # Dessart+2015: T fixed to hydro, coherent ES, G_ONLY/DIAG solver throughout.
+        # Dessart+2015: pure Lambda iteration (no Non-Lambda auto-switch), non-coherent ES.
+        # Dessart+2015: T fixed to hydro, G_ONLY/DIAG solver throughout.
         # DO_NG=F during LTE bootstrap to avoid divergent Ng on unstable initial populations.
         desired = {
             "LTE_EST": "T",
@@ -1327,12 +1327,12 @@ def apply_profile(
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
             "JC_W_EDD": "T",
             "THK_CONT": "F",
             "USE_LAM_ES": "T",        # [OPT] was F; enable Lambda iteration for J (stable for SN models)
-            "COH_ES": "T",            # Dessart+2015: coherent ES throughout
+            "COH_ES": "F",            # Dessart+2015: non-coherent ES (incoherent Thomson scattering for line wings)
             "MIX_COH": "F",
 
             # Dessart+2015: T fixed to hydro; Ne free for self-consistency
@@ -1412,9 +1412,10 @@ def apply_profile(
             "EPS_TERM": "1.0D-01",    # relaxed convergence for DIAG stability (was 0.05; 0.1 gives more room)
             "ACC_F": "5.0D-02",       # relaxed Eddington convergence for DIAG stability (was 0.01)
 
-            # Lambda auto-switch; no Ng on unstable LTE start
+            # Dessart+2015: pure Lambda iteration, no auto-switch to Non-Lambda
             "DO_LAM_IT": "T",
-            "DO_NG": "F",             # disabled for LTE bootstrap; re-enable once populations settle
+            "DO_LAM_AUTO": "F",
+            "DO_NG": "F",             # disabled for LTE bootstrap
             "IBEG_NG": "50",          # start Ng after 50 iterations of Lambda settling
             "BW_NG": "30",
             "ITS/NG": "4",
@@ -1464,13 +1465,13 @@ def apply_profile(
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
             # INIT bootstrap: disable USE_LAM_ES. We have observed "HNU zero for frequency" failures
             # early in great iteration 1 along the formal-solution path when USE_LAM_ES is enabled.
             # FINAL retains USE_LAM_ES=T for the intended Type IIn treatment once restartable state exists.
             "USE_LAM_ES": "F",
-            "COH_ES": "T",
+            "COH_ES": "F",             # Dessart+2015: non-coherent ES
             "MIX_COH": "F",          # F = no coherent/incoherent mix in linearisation (more stable)
 
             # Dessart+2015: T fixed to hydro at all depths; Ne free for self-consistency
@@ -1510,7 +1511,7 @@ def apply_profile(
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             # LTE initial populations; when ~half the model is NLTE, T_EXC from mid-depth softens outer-half guess (see recommended_t_exc_init).
@@ -1574,6 +1575,7 @@ def apply_profile(
             "ACC_END": "5.0D0",
 
             "DO_LAM_IT": "T",        # use Lambda iterations during init
+            "DO_LAM_AUTO": "F",      # Dessart+2015: pure Lambda, no auto-switch to Non-Lambda
 
             # INIT: disable Ng acceleration (can diverge on bad LTE initial populations)
             "DO_NG": "F",
@@ -1615,13 +1617,13 @@ def apply_profile(
             "JC_W_EDD": "T",
             # Electron scattering: lambda iteration for J (Type IIn)
             "USE_LAM_ES": "F",
-            "COH_ES": "T",
+            "COH_ES": "F",             # Dessart+2015: non-coherent ES
             "MIX_COH": "F",
             "ES_FAC": "0.6D0",       # Increased damping for ES oscillation
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             # Dessart+2015: T fixed to hydro; Ne free to converge self-consistently
@@ -1659,7 +1661,7 @@ def apply_profile(
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             # Use interpolated populations from init (not LTE)
@@ -1717,8 +1719,9 @@ def apply_profile(
             "ACC_F": "1.0D-02",       # tighter Eddington convergence reduces late oscillations
             "ACC_END": "5.0D0",
 
-            # Stay in pure Lambda; high LAM_VAL prevents Non-Lambda switch
+            # Dessart+2015: pure Lambda iteration, no auto-switch to Non-Lambda
             "DO_LAM_IT": "T",
+            "DO_LAM_AUTO": "F",
 
             # Ng disabled during Lambda settling phase to avoid amplifying oscillations
             "DO_NG": "F",
@@ -1728,7 +1731,8 @@ def apply_profile(
         }
 
     elif profile == "final":
-        # Use all INIT parameters except: LTE_EST=F, MAX_CHNG=1.0D4, DO_NG=T, DO_LAM_AUTO=T
+        # Use all INIT parameters except: LTE_EST=F, MAX_CHNG=1.0D4, DO_NG=F, DO_LAM_AUTO=F
+        # Dessart+2015: pure Lambda iteration, no Ng, no Non-Lambda auto-switch.
         # Reads population levels from *_IN files (from previous run)
         desired = {
             "SN_T_OPT": "USE_T_IN",
@@ -1758,13 +1762,13 @@ def apply_profile(
             "JC_W_EDD": "T",
             "THK_CONT": "F",
             "USE_LAM_ES": "F",
-            "COH_ES": "T",
+            "COH_ES": "F",             # Dessart+2015: non-coherent ES
             "MIX_COH": "F",
             "ES_FAC": "0.6D0",
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             # Dessart+2015: T fixed to hydro; Ne free in final
@@ -1802,7 +1806,7 @@ def apply_profile(
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "75.0D0",      # [OPT] Elevated turbulence for shock regions (not in STELLA T)
+            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             "LTE_EST": "F",           # read population levels from *_IN files
@@ -1852,10 +1856,11 @@ def apply_profile(
             "ACC_F": "1.0D-02",       # tighter Eddington convergence
 
             "DO_LAM_IT": "T",
+            "DO_LAM_AUTO": "F",      # Dessart+2015: pure Lambda, no auto-switch to Non-Lambda
 
-            # Enable Ng acceleration in final phase once populations are settled
-            "DO_NG": "T",
-            "IBEG_NG": "50",          # start Ng after 50 Lambda iterations
+            # Dessart+2015: pure Lambda iteration, no Ng acceleration
+            "DO_NG": "F",
+            "IBEG_NG": "50",
             "BW_NG": "30",
             "ITS/NG": "4",
         }
@@ -2034,7 +2039,7 @@ def main() -> int:
     g.add_argument("--init", action="store_true", help="LTE initial model: base VADAT_INIT, write VADAT with init profile (LTE_EST=T, T fixed, loose convergence).")
     g.add_argument("--stable", action="store_true", help="Stable Lambda-only run: base existing VADAT, pure Lambda iterations to settle populations before final (LTE_EST=F, LIN_INT=T).")
     g.add_argument("--final", action="store_true", help="Final run: base existing VADAT (after init/stable), apply final profile (LTE_EST=F, LIN_INT=T, tight convergence).")
-    g.add_argument("--single-final", action="store_true", help="Single-final LTE cold-start: base VADAT_INIT, write VADAT with single_final profile (LTE_EST=T, DO_LAM_AUTO=T, no prior INIT needed).")
+    g.add_argument("--single-final", action="store_true", help="Single-final LTE cold-start: base VADAT_INIT, write VADAT with single_final profile (LTE_EST=T, DO_LAM_AUTO=F, no prior INIT needed).")
 
     p.add_argument("--vadat-init", default="VADAT_INIT", help="Template VADAT init file base name (default: VADAT_INIT).")
     p.add_argument("--vadat-out", default="VADAT", help="Output VADAT filename (default: VADAT).")
@@ -2297,8 +2302,8 @@ def main() -> int:
         die_key_changes = ensure_die_keys_for_model_spec(lines, model_spec_path)
         profile_changes.extend(die_key_changes)
 
-        # Init/Stable: ensure LAMBDA is enabled (DO_LAM_IT=T) and allow very large MAXCH so we don't abort.
-        # DO_LAM_AUTO is controlled via IN_ITS (init/stable: F, final: T).
+        # Init/Stable/Final: ensure LAMBDA is enabled (DO_LAM_IT=T) and allow very large MAXCH so we don't abort.
+        # DO_LAM_AUTO=F in all phases: Dessart+2015 uses pure Lambda iteration.
         # MAX_LAM caps the per-step Lambda population change: too high causes population explosions
         # at the cold-start outer boundary (STEQ ~ 1e9), which inflates populations by MAX_LAM-fold
         # and crashes STEQ in the next iteration with a SIGSEGV. Values per profile:

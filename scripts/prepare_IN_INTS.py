@@ -110,13 +110,14 @@ def write_final_in_its(
 ):
     """
     Write IN_ITS for the *final* run.
+    Dessart+2015: pure Lambda iteration (no Non-Lambda auto-switch).
     """
     cfg: Dict[str, str] = {}
 
     cfg["NUM_ITS"] = str(num_its if num_its is not None else 500)
-    # Full-iteration phase: enable auto-toggle from LAMBDA to Non-Lambda iterations
+    # Dessart+2015: simple Lambda iteration, no auto-switch to Non-Lambda
     cfg["DO_LAM_IT"] = "T"
-    cfg["DO_LAM_AUTO"] = "T"
+    cfg["DO_LAM_AUTO"] = "F"
     # Temperature control: disable auto-updates since FIX_T=T fixes T to SN_HYDRO_DATA
     cfg["DO_T_AUTO"] = "F"
     cfg["DO_GT_AUTO"] = "T"
@@ -125,7 +126,7 @@ def write_final_in_its(
     (directory / "IN_ITS").write_text(format_in_its(cfg))
     mode = "T fixed" if hold_t else "T varies"
     d2m = "D2_EQ_D1=T" if d2_eq_d1 else "D2_EQ_D1=F"
-    print(f"Wrote final IN_ITS ({mode}; {d2m}) in {directory}")
+    print(f"Wrote final IN_ITS (Lambda only, {mode}; {d2m}) in {directory}")
 
 
 def write_single_final_in_its(
@@ -137,13 +138,14 @@ def write_single_final_in_its(
 ):
     """
     Write IN_ITS for the *single-final* LTE cold-start run.
-    Starts from LTE populations and auto-switches Lambda->Non-Lambda.
+    Dessart+2015: simple Lambda iteration, no auto-switch to Non-Lambda.
     """
     cfg: Dict[str, str] = {}
 
     cfg["NUM_ITS"] = str(num_its if num_its is not None else 100000)
+    # Dessart+2015: simple Lambda iteration for non-coherent ES convergence
     cfg["DO_LAM_IT"] = "T"
-    cfg["DO_LAM_AUTO"] = "T"
+    cfg["DO_LAM_AUTO"] = "F"
     # Temperature control: disable auto-updates since FIX_T=T fixes T to SN_HYDRO_DATA
     cfg["DO_T_AUTO"] = "F"
     cfg["DO_GT_AUTO"] = "T"
@@ -152,7 +154,7 @@ def write_single_final_in_its(
     (directory / "IN_ITS").write_text(format_in_its(cfg))
     mode = "T fixed" if hold_t else "T varies"
     d2m = "D2_EQ_D1=T" if d2_eq_d1 else "D2_EQ_D1=F"
-    print(f"Wrote single-final IN_ITS (LTE cold start, Lambda->Non-Lambda auto, {mode}; {d2m}) in {directory}")
+    print(f"Wrote single-final IN_ITS (Lambda only, {mode}; {d2m}) in {directory}")
 
 
 def main():
@@ -187,7 +189,7 @@ def main():
     group.add_argument(
         "--single-final",
         action="store_true",
-        help="Write IN_ITS for the *single-final* LTE cold-start run (no prior INIT; DO_LAM_AUTO=T).",
+        help="Write IN_ITS for the *single-final* LTE cold-start run (no prior INIT; DO_LAM_AUTO=F).",
     )
     parser.add_argument(
         "--num-its",
