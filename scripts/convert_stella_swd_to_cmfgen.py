@@ -1804,35 +1804,43 @@ def main():
     # Dessart-style adaptive grid workflow
     if args.enable_adaptive_grid:
         print("\n--- Dessart-style Adaptive Grid Workflow ---")
-        
-        # Save original grid after tau trim (before downsampling)
+
+        # Save original grid after tau trim
         orig_r_adapt = r.copy()
         orig_v_adapt = v.copy()
         orig_T_adapt = T.copy()
         orig_rho_adapt = rho.copy()
         orig_tau_adapt = tau.copy()
-        
-        # Step 1: Downsample to base grid target (80-100 points)
-        mf_list = list(mass_fractions.values())
-        result = downsample_grid(r, v, T, rho, kappa_arr, *mf_list, 
-                                target_points=args.base_grid_target)
-        n_fixed = 4
-        r, v, T, rho, kappa_arr = result[:n_fixed + 1]
-        for i, key in enumerate(mass_fractions):
-            mass_fractions[key] = result[n_fixed + 1 + i]
-        
-        # Save downsampled grid (before adaptive refinement)
+
+        n_base = len(r)
+
+        # Step 1: Only downsample if tau-trimmed grid exceeds max_points.
+        # Otherwise keep the tau-trimmed resolution as the base grid.
+        if n_base > args.max_points:
+            print(f"[Base Grid] Tau-trimmed grid has {n_base} points > max_points={args.max_points}, downsampling to {args.base_grid_target}")
+            mf_list = list(mass_fractions.values())
+            result = downsample_grid(r, v, T, rho, kappa_arr, *mf_list,
+                                    target_points=args.base_grid_target)
+            n_fixed = 4
+            r, v, T, rho, kappa_arr = result[:n_fixed + 1]
+            for i, key in enumerate(mass_fractions):
+                mass_fractions[key] = result[n_fixed + 1 + i]
+            n_base = len(r)
+        else:
+            print(f"[Base Grid] Keeping tau-trimmed grid: {n_base} points (<= max_points={args.max_points})")
+
+        # Save base grid (before adaptive refinement)
         downsampled_r = r.copy()
         downsampled_v = v.copy()
         downsampled_T = T.copy()
         downsampled_rho = rho.copy()
         downsampled_tau = compute_kappa_tau(r, rho, kappa_arr)
-        
+
         # Step 2: Calculate electron density and optical depth for adaptive refinement
         n_e = calculate_electron_density(rho, T, mass_fractions)
         tau = compute_kappa_tau(r, rho, kappa_arr)
-        
-        # Step 3: Apply adaptive grid refinement
+
+        # Step 3: Apply adaptive grid refinement (adds points only where gradients are steep)
         r, v, T, rho, n_e, tau, mass_fractions = adaptive_grid_refinement(
             r, v, T, rho, n_e, tau, mass_fractions,
             max_radius_jump=args.max_radius_jump,
@@ -1842,10 +1850,10 @@ def main():
             max_logtau_jump=args.max_logtau_jump,
             max_points=args.max_points
         )
-        
+
         # Recalculate kappa with refined grid
         kappa_arr = compute_kappa_total(rho, T, mass_fractions)
-        
+
         # Generate adaptive grid diagnostic plots
         print("\n--- Generating Adaptive Grid Diagnostic Plots ---")
         plot_adaptive_grid_diagnostics(
