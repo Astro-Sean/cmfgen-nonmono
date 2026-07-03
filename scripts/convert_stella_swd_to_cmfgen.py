@@ -1130,72 +1130,69 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
                                    max_density_jump=0.10, max_ne_jump=0.10,
                                    max_logtau_jump=0.10, max_points=500):
     """Create diagnostic plots for adaptive grid refinement process.
-    
-    Shows:
-    1. Grid evolution: Original → Downsampled → Refined
-    2. Jump distributions before/after refinement
-    3. Violation locations
+
+    Shows WHERE steep gradients are located and how AMR fixes them:
+    1. Grid evolution: Original → Base → Refined
+    2. Velocity, Temperature, Density profiles with grid markers
+    3. Jump values vs radius (before/after AMR) with threshold lines
     """
     import matplotlib.pyplot as plt
-    
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+
+    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
     fig.suptitle(f'Adaptive Grid Diagnostics - {time_days:.1f} days', fontsize=16)
-    
+
     RSUN = 6.96e10
-    
+
     # Convert to Rsun for plotting
     orig_r_rsun = orig_r / RSUN
     downsampled_r_rsun = downsampled_r / RSUN
     refined_r_rsun = refined_r / RSUN
-    
+
     # Plot 1: Grid evolution - radius
     ax = axes[0, 0]
-    ax.plot(orig_r_rsun, np.arange(len(orig_r)), 'o-', markersize=2, linewidth=0.5, 
-            label=f'Original ({len(orig_r)} pts)', alpha=0.5, color='gray')
+    ax.plot(orig_r_rsun, np.arange(len(orig_r)), 'o-', markersize=2, linewidth=0.5,
+            label=f'Tau-trimmed ({len(orig_r)} pts)', alpha=0.5, color='gray')
     ax.plot(downsampled_r_rsun, np.arange(len(downsampled_r)), 's-', markersize=4, linewidth=1,
-            label=f'Downsampled ({len(downsampled_r)} pts)', alpha=0.7, color='blue')
-    ax.plot(refined_r_rsun, np.arange(len(refined_r)), '^-', markersize=3, linewidth=0.8,
-            label=f'Refined ({len(refined_r)} pts)', alpha=0.9, color='red')
-    ax.set_xlabel('r/R☉', fontsize=12)
+            label=f'Base grid ({len(downsampled_r)} pts)', alpha=0.7, color='blue')
+    ax.plot(refined_r_rsun, np.arange(len(refined_r)), '^-', markersize=2, linewidth=0.8,
+            label=f'AMR refined ({len(refined_r)} pts)', alpha=0.9, color='red')
+    ax.set_xlabel('r / R☉', fontsize=12)
     ax.set_ylabel('Grid Index', fontsize=12)
     ax.set_title('Grid Evolution', fontsize=14)
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log')
-    
-    # Plot 2: Physical quantities comparison
+
+    # Plot 2: Velocity profile with grid markers
     ax = axes[0, 1]
-    ax.plot(orig_r_rsun, orig_v / 1e5, 'o-', markersize=2, linewidth=0.5, 
-            label='Original v', alpha=0.5, color='gray')
-    ax.plot(downsampled_r_rsun, downsampled_v / 1e5, 's-', markersize=4, linewidth=1,
-            label='Downsampled v', alpha=0.7, color='blue')
-    ax.plot(refined_r_rsun, refined_v / 1e5, '^-', markersize=3, linewidth=0.8,
-            label='Refined v', alpha=0.9, color='red')
-    ax.set_xlabel('r/R☉', fontsize=12)
+    ax.plot(orig_r_rsun, orig_v / 1e5, '-', linewidth=1.5, label='Tau-trimmed', alpha=0.5, color='gray')
+    ax.plot(downsampled_r_rsun, downsampled_v / 1e5, 'o', markersize=4, linestyle='None',
+            label='Base grid', alpha=0.7, color='blue')
+    ax.plot(refined_r_rsun, refined_v / 1e5, '.', markersize=2, linestyle='None',
+            label='AMR refined', alpha=0.9, color='red')
+    ax.set_xlabel('r / R☉', fontsize=12)
     ax.set_ylabel('Velocity (km/s)', fontsize=12)
     ax.set_title('Velocity Profile', fontsize=14)
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log')
-    ax.set_yscale('log')
-    
-    # Plot 3: Temperature comparison
+
+    # Plot 3: Temperature profile with grid markers
     ax = axes[0, 2]
-    ax.plot(orig_r_rsun, orig_T, 'o-', markersize=2, linewidth=0.5, 
-            label='Original T', alpha=0.5, color='gray')
-    ax.plot(downsampled_r_rsun, downsampled_T, 's-', markersize=4, linewidth=1,
-            label='Downsampled T', alpha=0.7, color='blue')
-    ax.plot(refined_r_rsun, refined_T, '^-', markersize=3, linewidth=0.8,
-            label='Refined T', alpha=0.9, color='red')
-    ax.set_xlabel('r/R☉', fontsize=12)
+    ax.plot(orig_r_rsun, orig_T, '-', linewidth=1.5, label='Tau-trimmed', alpha=0.5, color='gray')
+    ax.plot(downsampled_r_rsun, downsampled_T, 'o', markersize=4, linestyle='None',
+            label='Base grid', alpha=0.7, color='blue')
+    ax.plot(refined_r_rsun, refined_T, '.', markersize=2, linestyle='None',
+            label='AMR refined', alpha=0.9, color='red')
+    ax.set_xlabel('r / R☉', fontsize=12)
     ax.set_ylabel('Temperature (K)', fontsize=12)
     ax.set_title('Temperature Profile', fontsize=14)
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
     ax.set_xscale('log')
     ax.set_yscale('log')
-    
-    # Calculate jumps for downsampled grid
+
+    # Calculate jumps for base and refined grids
     def calculate_jumps(r, T, rho, tau):
         eps = 1e-30
         dr_r = np.abs(np.diff(r) / r[:-1])
@@ -1203,48 +1200,85 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
         drho_rho = np.abs(np.diff(rho) / rho[:-1])
         dlogtau = np.abs(np.diff(np.log10(np.maximum(tau, eps))))
         return dr_r, dT_T, drho_rho, dlogtau
-    
-    dr_r_down, dT_T_down, drho_rho_down, dlogtau_down = calculate_jumps(
+
+    dr_r_base, dT_T_base, drho_rho_base, dlogtau_base = calculate_jumps(
         downsampled_r, downsampled_T, downsampled_rho, downsampled_tau)
     dr_r_ref, dT_T_ref, drho_rho_ref, dlogtau_ref = calculate_jumps(
         refined_r, refined_T, refined_rho, refined_tau)
-    
-    # Plot 4: Jump distributions - radius
+
+    # Plot 4: Radius jump vs radius (shows WHERE violations are)
     ax = axes[1, 0]
-    ax.hist(dr_r_down, bins=30, alpha=0.5, label=f'Downsampled (max={dr_r_down.max():.3f})', color='blue')
-    ax.hist(dr_r_ref, bins=30, alpha=0.5, label=f'Refined (max={dr_r_ref.max():.3f})', color='red')
-    ax.axvline(max_radius_jump, color='k', linestyle='--', label=f'Threshold ({max_radius_jump})')
-    ax.set_xlabel('dr/r', fontsize=12)
-    ax.set_ylabel('Count', fontsize=12)
-    ax.set_title('Radius Jump Distribution', fontsize=14)
-    ax.legend(fontsize=10)
+    ax.semilogy(downsampled_r_rsun[:-1], dr_r_base, 'o-', markersize=3, linewidth=0.8,
+                label=f'Base grid ({len(dr_r_base)} edges)', alpha=0.7, color='blue')
+    ax.semilogy(refined_r_rsun[:-1], dr_r_ref, '.', markersize=2,
+                label=f'AMR refined ({len(dr_r_ref)} edges)', alpha=0.5, color='red')
+    ax.axhline(max_radius_jump, color='k', linestyle='--', linewidth=2,
+               label=f'Threshold ({max_radius_jump})')
+    # Shade violation regions for base grid
+    violation_mask = dr_r_base > max_radius_jump
+    if np.any(violation_mask):
+        ax.fill_between(downsampled_r_rsun[:-1], max_radius_jump, 1e6,
+                        where=violation_mask, alpha=0.15, color='orange',
+                        label=f'Violation zones ({np.sum(violation_mask)})')
+    ax.set_xlabel('r / R☉', fontsize=12)
+    ax.set_ylabel('dr / r', fontsize=12)
+    ax.set_title('Radius Jump vs Radius', fontsize=14)
+    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
-    ax.set_yscale('log')
-    
-    # Plot 5: Jump distributions - temperature
+    ax.set_xscale('log')
+    ax.set_ylim(bottom=1e-6)
+
+    # Plot 5: Temperature jump vs radius
     ax = axes[1, 1]
-    ax.hist(dT_T_down, bins=30, alpha=0.5, label=f'Downsampled (max={dT_T_down.max():.3f})', color='blue')
-    ax.hist(dT_T_ref, bins=30, alpha=0.5, label=f'Refined (max={dT_T_ref.max():.3f})', color='red')
-    ax.axvline(max_temp_jump, color='k', linestyle='--', label=f'Threshold ({max_temp_jump})')
-    ax.set_xlabel('dT/T', fontsize=12)
-    ax.set_ylabel('Count', fontsize=12)
-    ax.set_title('Temperature Jump Distribution', fontsize=14)
-    ax.legend(fontsize=10)
+    ax.semilogy(downsampled_r_rsun[:-1], dT_T_base, 'o-', markersize=3, linewidth=0.8,
+                label=f'Base grid ({len(dT_T_base)} edges)', alpha=0.7, color='blue')
+    ax.semilogy(refined_r_rsun[:-1], dT_T_ref, '.', markersize=2,
+                label=f'AMR refined ({len(dT_T_ref)} edges)', alpha=0.5, color='red')
+    ax.axhline(max_temp_jump, color='k', linestyle='--', linewidth=2,
+               label=f'Threshold ({max_temp_jump})')
+    violation_mask = dT_T_base > max_temp_jump
+    if np.any(violation_mask):
+        ax.fill_between(downsampled_r_rsun[:-1], max_temp_jump, 1e6,
+                        where=violation_mask, alpha=0.15, color='orange',
+                        label=f'Violation zones ({np.sum(violation_mask)})')
+    ax.set_xlabel('r / R☉', fontsize=12)
+    ax.set_ylabel('dT / T', fontsize=12)
+    ax.set_title('Temperature Jump vs Radius', fontsize=14)
+    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
-    ax.set_yscale('log')
-    
-    # Plot 6: Jump distributions - density
+    ax.set_xscale('log')
+    ax.set_ylim(bottom=1e-6)
+
+    # Plot 6: Density + Log(tau) jump vs radius
     ax = axes[1, 2]
-    ax.hist(drho_rho_down, bins=30, alpha=0.5, label=f'Downsampled (max={drho_rho_down.max():.3f})', color='blue')
-    ax.hist(drho_rho_ref, bins=30, alpha=0.5, label=f'Refined (max={drho_rho_ref.max():.3f})', color='red')
-    ax.axvline(max_density_jump, color='k', linestyle='--', label=f'Threshold ({max_density_jump})')
-    ax.set_xlabel('drho/rho', fontsize=12)
-    ax.set_ylabel('Count', fontsize=12)
-    ax.set_title('Density Jump Distribution', fontsize=14)
-    ax.legend(fontsize=10)
+    ax.semilogy(downsampled_r_rsun[:-1], drho_rho_base, 'o-', markersize=3, linewidth=0.8,
+                label=f'Base drho/rho ({len(drho_rho_base)})', alpha=0.7, color='blue')
+    ax.semilogy(refined_r_rsun[:-1], drho_rho_ref, '.', markersize=2,
+                label=f'AMR drho/rho ({len(drho_rho_ref)})', alpha=0.5, color='red')
+    ax.axhline(max_density_jump, color='k', linestyle='--', linewidth=1.5,
+               label=f'drho/rho thr ({max_density_jump})')
+    # Secondary axis for dlogtau
+    ax2 = ax.twinx()
+    ax2.semilogy(downsampled_r_rsun[:-1], dlogtau_base, 's-', markersize=2, linewidth=0.6,
+                 label=f'Base dlogτ ({len(dlogtau_base)})', alpha=0.5, color='green')
+    ax2.semilogy(refined_r_rsun[:-1], dlogtau_ref, ',', markersize=1,
+                 label=f'AMR dlogτ ({len(dlogtau_ref)})', alpha=0.3, color='cyan')
+    ax2.axhline(max_logtau_jump, color='darkgreen', linestyle=':', linewidth=1.5,
+                label=f'dlogτ thr ({max_logtau_jump})')
+    ax2.set_ylabel('dlog τ', fontsize=12, color='green')
+    ax2.tick_params(axis='y', labelcolor='green')
+    ax.set_xlabel('r / R☉', fontsize=12)
+    ax.set_ylabel('drho / rho', fontsize=12)
+    ax.set_title('Density & Log(τ) Jump vs Radius', fontsize=14)
+    # Combine legends
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc='upper right')
     ax.grid(True, alpha=0.3)
-    ax.set_yscale('log')
-    
+    ax.set_xscale('log')
+    ax.set_ylim(bottom=1e-6)
+    ax2.set_ylim(bottom=1e-6)
+
     plt.tight_layout()
     plot_file = output_file.replace('.dat', '_adaptive_grid.png').replace('SN_HYDRO_DATA', 'SN_HYDRO_DATA_adaptive_grid')
     plt.savefig(plot_file, dpi=150, bbox_inches='tight')
