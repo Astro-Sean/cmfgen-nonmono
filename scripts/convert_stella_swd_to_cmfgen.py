@@ -1246,9 +1246,9 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
 
     # --- LOWER ROW: Jump histograms before/after AMR ---
 
-    # Plot 4: Density jump histogram
+    # Plot 4: Density jump histogram (linear x-axis)
     ax = axes[1, 0]
-    bins = np.logspace(-4, 0, 40)
+    bins = np.linspace(0, 1, 40)
     ax.hist(drho_rho_base, bins=bins, alpha=0.5, label=f'Base grid ({n_base}) max={drho_rho_base.max():.3f}', color='blue')
     ax.hist(drho_rho_ref, bins=bins, alpha=0.5, label=f'AMR refined ({n_ref}) max={drho_rho_ref.max():.3f}', color='red')
     ax.axvline(max_density_jump, color='k', linestyle='--', linewidth=2, label=f'Threshold ({max_density_jump})')
@@ -1257,10 +1257,10 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
     ax.set_title('Density Jump Distribution', fontsize=14)
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
-    ax.set_xscale('log')
+    ax.set_xlim(left=0)
     ax.set_yscale('log')
 
-    # Plot 5: Temperature jump histogram
+    # Plot 5: Temperature jump histogram (linear x-axis)
     ax = axes[1, 1]
     ax.hist(dT_T_base, bins=bins, alpha=0.5, label=f'Base grid ({n_base}) max={dT_T_base.max():.3f}', color='blue')
     ax.hist(dT_T_ref, bins=bins, alpha=0.5, label=f'AMR refined ({n_ref}) max={dT_T_ref.max():.3f}', color='red')
@@ -1270,10 +1270,10 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
     ax.set_title('Temperature Jump Distribution', fontsize=14)
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
-    ax.set_xscale('log')
+    ax.set_xlim(left=0)
     ax.set_yscale('log')
 
-    # Plot 6: Velocity (dr/r) jump histogram
+    # Plot 6: Velocity (dr/r) jump histogram (linear x-axis)
     ax = axes[1, 2]
     ax.hist(dr_r_base, bins=bins, alpha=0.5, label=f'Base grid ({n_base}) max={dr_r_base.max():.3f}', color='blue')
     ax.hist(dr_r_ref, bins=bins, alpha=0.5, label=f'AMR refined ({n_ref}) max={dr_r_ref.max():.3f}', color='red')
@@ -1283,7 +1283,7 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
     ax.set_title('Radius Jump Distribution', fontsize=14)
     ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
-    ax.set_xscale('log')
+    ax.set_xlim(left=0)
     ax.set_yscale('log')
 
     plt.tight_layout()
