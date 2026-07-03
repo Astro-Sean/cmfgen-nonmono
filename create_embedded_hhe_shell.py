@@ -39,7 +39,8 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
                                  R_star_cm=None, n_shell=2.0, wind_velocity_type='beta_law',
                                  V_inf_kms=100.0, beta_wind=1.0, wind_time_days=400.0,
                                  R_CSM_MAX=None, V_ejecta_B_max_kms=10000.0,
-                                 N_rho_ejecta_B=7):
+                                 N_rho_ejecta_B=7,
+                                 V_ejecta_A_initial_kms=0.0):
     """
     Create a multi-shell HERACLES profile with embedded H/He system.
     Structure (NEW LAYOUT):
@@ -188,7 +189,8 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
         R_CSM_max = V_max_ejecta_B * t_ejecta_B_total
         print(f"  Computed R_CSM_max from ejecta B expansion = {R_CSM_max:.3e} cm")
     # Wind velocity function for crossover search (used in both modes for rho_wind)
-    if use_rsg_mode:
+    # When Mdot_wind=0, set wind velocity to zero to avoid interference
+    if Mdot_wind > 0 and use_rsg_mode:
         if wind_velocity_type == 'beta_law':
             def wind_velocity(r_arr):
                 x = np.maximum(1.0 - R_star_cm / r_arr, 0.0)
@@ -202,7 +204,7 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
             raise ValueError(f"Unknown wind_velocity_type: {wind_velocity_type}. Use 'beta_law' or 'homologous'")
     else:
         def wind_velocity(r_arr):
-            return np.full_like(r_arr, v_CSM)
+            return np.zeros_like(r_arr)  # Zero velocity when no wind
     # Find R_crossover: where ejecta B velocity reaches V_ejecta_B_max_kms
     # Metal-rich ejecta extends to this velocity, then wind is appended
     V_ejecta_B_max = V_ejecta_B_max_kms * km_s
@@ -303,18 +305,29 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
         rho_ejecta = np.where(r <= R_t, rho_0_shell,
                               rho_0_shell * (r / R_t)**(-n_s))
         # Stationary in RSG mode — STELLA injects explosion energy via thermal bomb
-        # BUT: give shell a small non-zero velocity to prevent infinite du/u
-        # at the A/B boundary, which crashes STELLA's integrator with scattering ON.
-        # u rises gradually from ~0 at center to match ejecta B velocity at R_star.
-        # The thermal bomb still dominates — this is purely for numerical stability.
-        u_boundary = R_inner_shell / t_ejecta_B_total  # ejecta B velocity at boundary
-        u_ejecta = u_boundary * (r / R_inner_shell)**0.1
-        u_floor = 1e3  # cm/s  (~0.01 km/s) absolute floor
-        u_ejecta = np.maximum(u_ejecta, u_floor)
-        print(f"  RSG shell (Dessart+2015): rho_0={rho_0_shell:.2e} g/cm3, "
-              f"v_t={v_t/km_s:.0f} km/s, n={n_s}, M_shell={M_ejecta_A} Msun")
-        print(f"    Shell velocity: floor={u_floor:.0f} cm/s, "
-              f"boundary={u_boundary:.2e} cm/s (gradual power-law rise)")
+        # NEW APPROACH: give inner ejecta initial velocity for collision instead of thermal bomb
+        if V_ejecta_A_initial_kms > 0:
+            # Give inner ejecta constant initial velocity
+            V_ejecta_A_initial = V_ejecta_A_initial_kms * km_s
+            u_ejecta = np.full_like(r, V_ejecta_A_initial)
+            print(f"  V_ejecta_A_initial_kms={V_ejecta_A_initial_kms:.0f}: setting inner H/He ejecta to constant velocity {V_ejecta_A_initial_kms} km/s")
+            print(f"  RSG shell (Dessart+2015): rho_0={rho_0_shell:.2e} g/cm3, "
+                  f"v_t={v_t/km_s:.0f} km/s, n={n_s}, M_shell={M_ejecta_A} Msun")
+            print(f"    Shell velocity: constant={V_ejecta_A_initial:.0f} cm/s ({V_ejecta_A_initial_kms:.0f} km/s)")
+        else:
+            # Original thermal bomb approach: small non-zero velocity for numerical stability
+            # BUT: give shell a small non-zero velocity to prevent infinite du/u
+            # at the A/B boundary, which crashes STELLA's integrator with scattering ON.
+            # u rises gradually from ~0 at center to match ejecta B velocity at R_star.
+            # The thermal bomb still dominates — this is purely for numerical stability.
+            u_boundary = R_inner_shell / t_ejecta_B_total  # ejecta B velocity at boundary
+            u_ejecta = u_boundary * (r / R_inner_shell)**0.1
+            u_floor = 1e3  # cm/s  (~0.01 km/s) absolute floor
+            u_ejecta = np.maximum(u_ejecta, u_floor)
+            print(f"  RSG shell (Dessart+2015): rho_0={rho_0_shell:.2e} g/cm3, "
+                  f"v_t={v_t/km_s:.0f} km/s, n={n_s}, M_shell={M_ejecta_A} Msun")
+            print(f"    Shell velocity: floor={u_floor:.0f} cm/s, "
+                  f"boundary={u_boundary:.2e} cm/s (gradual power-law rise)")
     else:
         # Legacy: constant core + power-law envelope
         R0 = R_inner_shell / 3
@@ -330,8 +343,16 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
         rho_ejecta = np.where(r < R0, rho_0, rho_0 * (r / R0)**(-N_rho))
         u_ejecta = r / R_inner_shell * V_max
         if stationary_ejecta_A:
-            u_ejecta = np.zeros_like(r)
-            print(f"  stationary_ejecta_A=True: zeroing inner H/He ejecta velocities (r < R_t = {R_inner_shell:.2e} cm)")
+            if V_ejecta_A_initial_kms > 0:
+                # New approach: give inner ejecta initial velocity for collision
+                V_ejecta_A_initial = V_ejecta_A_initial_kms * km_s
+                u_ejecta = np.full_like(r, V_ejecta_A_initial)
+                print(f"  V_ejecta_A_initial_kms={V_ejecta_A_initial_kms:.0f}: setting inner H/He ejecta to constant velocity {V_ejecta_A_initial_kms} km/s")
+            else:
+                # Original thermal bomb approach: stationary
+                u_ejecta = np.zeros_like(r)
+                print(f"  stationary_ejecta_A=True: zeroing inner H/He ejecta velocities (r < R_t = {R_inner_shell:.2e} cm)")
+        # For non-stationary case, keep the original velocity profile (u_ejecta already set above)
     # Shell composition (solar-like H/He envelope - 5-element composition)
     fx_H_ejecta_arr  = fx_H_A  * np.ones_like(r)
     fx_He_ejecta_arr = fx_He_A * np.ones_like(r)
@@ -428,10 +449,16 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
         mask_wind = np.zeros_like(r, dtype=bool)
         mask_ejecta_B = r >= R_inner_shell
     # Blending at A/B boundary (R_inner_shell) using sigmoid for smooth transition
-    delta_R_AB = 0.02 * R_inner_shell
+    # Moderate blending for initial velocity case - preserve physical collision dynamics
+    if V_ejecta_A_initial_kms > 0:
+        delta_R_AB = 0.10 * R_inner_shell  # Moderate blending (10% of R_star)
+        blend_sigmoid_k = sigmoid_k / 2  # Moderate transition for velocity
+    else:
+        delta_R_AB = 0.02 * R_inner_shell  # Standard blending for thermal bomb case
+        blend_sigmoid_k = sigmoid_k
     mask_blend_AB = (r >= R_inner_shell - delta_R_AB) & (r < R_inner_shell + delta_R_AB)
     # Use sigmoid for smooth transition (sigmoid_k controls steepness)
-    blend_alpha_AB = sigmoid(r, R_inner_shell, k=sigmoid_k)
+    blend_alpha_AB = sigmoid(r, R_inner_shell, k=blend_sigmoid_k)
     log_rho_shell = np.log(rho_ejecta)
     log_rho_ejecta_B = np.log(rho_ejecta_B)
     rho_blend_AB = np.exp(log_rho_shell * (1.0 - blend_alpha_AB) + log_rho_ejecta_B * blend_alpha_AB)
@@ -587,28 +614,31 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
     sigma[0] = sigma[1]
     sigma[-1] = sigma[-2]
     # ================================================================
-    # TEMPERATURE
+    # TEMPERATURE  (Dessart+2015 RSG envelope + 6000K CSM)
     # ================================================================
     T_min = 1000.0  # K minimum floor
-    T_interface = 2000  # K at shell/wind boundary
+    T_interface = 2000.0  # K at shell edge — original Dessart+2015 value
+    T_csm = 6000.0  # K — outer ejecta / CSM temperature for LTE stability
     if temp_profile_type == 'adiabatic':
         GAMMA = 5.0 / 3.0
-        # Use the last point inside the shell for rho_at_inner to avoid picking up
-        # the tenuous wind density, which would give unphysically high shell temps
-        idx_shell = np.where(r < R_inner_shell)[0]
-        if len(idx_shell) > 0:
-            idx_inner = idx_shell[-1]
+        # Inner ejecta (Ejecta A, r < R_inner_shell): adiabatic profile from Dessart+2015.
+        # T(r) = T_interface * (rho_ejecta(r) / rho_ejecta_edge)^(gamma-1)
+        # Using the unblended rho_ejecta ensures physically correct adiabat.
+        # Reference: Dessart et al. 2015, arXiv:1503.05463.
+        #
+        # Find the shell outer edge (last point of pure inner ejecta, before blending)
+        pure_shell_mask = r < (R_inner_shell - delta_R_AB)
+        if np.any(pure_shell_mask):
+            idx_edge = np.where(pure_shell_mask)[0][-1]
+            rho_ejecta_edge = rho_ejecta[idx_edge]
         else:
-            idx_inner = np.argmin(np.abs(r - R_inner_shell))
-        rho_at_inner = rho[idx_inner]
-        T_shell = T_interface * (rho / rho_at_inner)**(GAMMA - 1.0)
-        # Wind and ejecta B: constant T_CSM (5000 K for metal-rich ejecta)
-        T_csm = np.full_like(r, T_CSM)
-        # Blend temperature across A/B boundary with same sigmoid as density/velocity
-        # to eliminate the contact discontinuity that crashes STELLA's integrator
-        T = T_shell * (1.0 - blend_alpha_AB) + T_csm * blend_alpha_AB
+            rho_ejecta_edge = rho_ejecta[0]
+        # Adiabatic temperature for inner ejecta (Dessart+2015)
+        T_adia = T_interface * (rho_ejecta / rho_ejecta_edge)**(GAMMA - 1.0)
+        # Only apply adiabat to inner ejecta; CSM gets constant 6000K
+        T = np.where(r < R_inner_shell, T_adia, T_csm)
     else:
-        T = np.full_like(r, T_CSM)
+        T = np.full_like(r, T_csm)
     T = np.maximum(T, T_min)
     # Apply density floor to prevent numerical singularities
     rho_floor = 1e-30  # g/cm^3
@@ -668,7 +698,7 @@ def write_heracles_profile(profile, output_file):
         # Write header
         f.write("# HERACLES profileinit file for embedded H/He-rich supernova model\n")
         f.write("# Based on arXiv:1503.05463 approach\n")
-        f.write("# columns: r_cm rho_cgs p_cgs u_cgs fx_H fx_He fx_O fx_Si fx_Ca fx_Fe fx_Ni\n")
+        f.write("# columns: r_cm rho_cgs p_cgs u_cgs T_K fx_H fx_He fx_O fx_Si fx_Ca fx_Fe fx_Ni\n")
         f.write(f"# Model parameters:\n")
         params = profile['parameters']
         f.write(f"#   M_ejecta_A = {params['M_ejecta_A_Msun']:.2f} Msun\n")
@@ -684,11 +714,11 @@ def write_heracles_profile(profile, output_file):
         f.write(f"#   n_cells = {params['n_cells']}\n")
         f.write("# Row order: strictly increasing r_cm (required by HERACLES init.f90 interpolation).\n")
         f.write("#\n")
-        # Write data (HERACLES format: r rho p u fx_H fx_He fx_O fx_Si fx_Ca fx_Fe fx_Ni)
+        # Write data (HERACLES format: r rho p u T fx_H fx_He fx_O fx_Si fx_Ca fx_Fe fx_Ni)
         n = len(profile['r'])
         for i in range(n):
             f.write(f"{profile['r'][i]:.8e} {profile['rho'][i]:.8e} "
-                   f"{profile['p'][i]:.8e} {profile['u'][i]:.8e} "
+                   f"{profile['p'][i]:.8e} {profile['u'][i]:.8e} {profile['T'][i]:.8e} "
                    f"{profile['fx_H'][i]:.8e} {profile['fx_He'][i]:.8e} "
                    f"{profile['fx_O'][i]:.8e} "
                    f"{profile['fx_Si'][i]:.8e} {profile['fx_Ca'][i]:.8e} "

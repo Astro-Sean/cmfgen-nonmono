@@ -38,6 +38,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from scipy.signal import savgol_filter
 
 
 # Physical constants
@@ -499,6 +500,70 @@ def sigma_velocity(r, v_kms):
     sigma[0]  = sigma[1]
     sigma[-1] = sigma[-2]
     return sigma
+
+
+def smooth_velocity_discontinuities(r, v_kms, sigma_threshold=2.0, smooth_width=5):
+    """Smooth sharp velocity discontinuities to reduce sigma spikes.
+    
+    Detects regions where sigma exceeds threshold and applies aggressive moving average smoothing
+    to create a smooth velocity transition at ejecta interfaces.
+    
+    Args:
+        r: Radius array (cm), outer->inner
+        v_kms: Velocity array (km/s), outer->inner
+        sigma_threshold: Sigma value above which smoothing is applied (default: 2.0)
+        smooth_width: Number of points on each side for smoothing (default: 5)
+    
+    Returns:
+        Smoothed velocity array
+    """
+    v_smooth = v_kms.copy()
+    sigma = sigma_velocity(r, v_kms)
+    
+    # Find indices where sigma exceeds threshold
+    spike_indices = np.where(np.abs(sigma) > sigma_threshold)[0]
+    
+    if len(spike_indices) == 0:
+        return v_smooth
+    
+    print(f"[Velocity Smoothing] Found {len(spike_indices)} points with |sigma| > {sigma_threshold}")
+    print(f"[Velocity Smoothing] WARNING: This is a physical ejecta interface. Consider increasing grid resolution instead.")
+    
+    # Group contiguous spike indices into regions
+    regions = []
+    if len(spike_indices) > 0:
+        current_region = [spike_indices[0]]
+        for idx in spike_indices[1:]:
+            if idx == current_region[-1] + 1:
+                current_region.append(idx)
+            else:
+                regions.append(current_region)
+                current_region = [idx]
+        regions.append(current_region)
+    
+    # Apply aggressive moving average smoothing to each region
+    for region in regions:
+        region_start = max(0, region[0] - smooth_width)
+        region_end = min(len(v_kms) - 1, region[-1] + smooth_width)
+        
+        if region_end - region_start < 4:
+            continue
+        
+        # Apply multiple passes of moving average with larger window
+        window_size = 5
+        for pass_num in range(3):  # 3 passes
+            v_temp = v_smooth.copy()
+            for i in range(region_start + window_size, region_end - window_size):
+                # 5-point moving average
+                v_temp[i] = np.mean(v_smooth[i-window_size:i+window_size+1])
+            v_smooth = v_temp
+    
+    # Recompute sigma to verify improvement
+    new_sigma = sigma_velocity(r, v_smooth)
+    max_sigma_reduction = np.max(np.abs(sigma)) - np.max(np.abs(new_sigma))
+    print(f"[Velocity Smoothing] Max |sigma| reduced from {np.max(np.abs(sigma)):.2f} to {np.max(np.abs(new_sigma)):.2f}")
+    
+    return v_smooth
 
 
 def thin_degenerate_grid(radius, *arrays, min_dr_r=0.005):
@@ -1630,6 +1695,12 @@ def main():
                         help='Maximum number of grid points for adaptive refinement (default: 500)')
     parser.add_argument('--t-floor',      type=float, default=3000.0,
                         help='Minimum temperature floor in K (default: 3000)')
+    parser.add_argument('--smooth-velocity', action='store_true',
+                        help='Enable velocity smoothing to reduce sigma spikes at ejecta interfaces')
+    parser.add_argument('--sigma-threshold', type=float, default=2.0,
+                        help='Sigma threshold for velocity smoothing (default: 2.0)')
+    parser.add_argument('--smooth-width', type=int, default=5,
+                        help='Number of points for velocity smoothing window (default: 5)')
     args = parser.parse_args()
 
     print(f"Reading {args.swd_file}...")
@@ -2009,6 +2080,12 @@ def main():
         print(f"  Consider increasing STELLA nzon or relaxing tau bounds further")
     else:
         print(f"[Grid Check] Final grid has {len(r)} points >= minimum {args.min_points}")
+
+    # Apply velocity smoothing if requested
+    if args.smooth_velocity:
+        v = smooth_velocity_discontinuities(r, v, 
+                                            sigma_threshold=args.sigma_threshold,
+                                            smooth_width=args.smooth_width)
 
     # Sigma
     sigma = sigma_velocity(r, v)

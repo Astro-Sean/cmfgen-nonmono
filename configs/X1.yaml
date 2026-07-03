@@ -1,10 +1,10 @@
-# SN2024pba Model Configuration File - RSG Progenitor + Thermal Bomb
-# Inner region: stationary RSG shell (power-law density) + beta-law accelerating wind
-# STELLA injects 1e51 erg via EBurst thermal bomb into the stationary shell
+# SN2024pba Model Configuration File - RSG Progenitor + Inner Ejecta Initial Velocity
+# Inner region: RSG shell with initial velocity for collision with outer metal-rich ejecta
+# Inner ejecta naturally collides with outer ejecta at 3000 km/s (no thermal bomb)
 
 # Model identification
-model_name: "X1_lam2"                           # Short name for STELLA Fortran string limit
-description: "RSG shell + beta-law wind + thermal bomb: physically motivated progenitor structure - full heating - CMFGEN retry with fixed settings"
+model_name: "X_noscat"                           # Short name for STELLA Fortran string limit
+description: "RSG shell + beta-law wind + inner ejecta initial velocity: physically motivated progenitor structure - inner ejecta collides with outer metal-rich ejecta at 3000 km/s"
 
 # Spectrum code execution flags
 run_cmfgen: True                  # Run CMFGEN spectrum synthesis
@@ -25,6 +25,7 @@ ejecta:
   M_ejecta_A: 3.0         # [INCREASED] was 5.0; larger H envelope for longer plateau (~100 days)
   R_star_cm: 5.0e13        # RSG stellar radius (~700 Rsun = 5e13 cm) - inner boundary of wind
   n_shell: 2.0             # Density power-law exponent: rho ∝ r^(-n_shell) - controls shell density profile
+  V_ejecta_A_initial_kms: 3000.0  # Initial velocity for inner ejecta collision (km/s) - replaces thermal bomb
 
   # Shell composition (solar-like H/He envelope - 5-element composition)
   # Based on Asplund et al. 2009 solar abundances (excluding C due to atomic data issues)
@@ -107,14 +108,11 @@ stella:
   transition_radius: 1e13  # Radius (cm) where grid transitions from linear to log spacing (default: 1e13)
 
   # Explosion parameters: thermal bomb (EBurst) spreads energy over AMHT mass
-  # The thermal bomb injects energy into the innermost zones to simulate core collapse.
-  # For RSG models, the energy must be spread over enough mass/time to avoid a stiff shock
-  # that causes STELLA KFLAG=-2 / singular-Jacobian convergence failures.
-  # For the 60-day long run, more gradual energy injection (larger AMHT/tBurst) and a
-  # tighter timestep cap are used to keep the Gear solver stable through late-time evolution.
-  explosion_energy: 5.0       # 8e50 erg total thermal bomb energy
-  explosion_mass: 2.0         # Spread over 4 Msun to reduce shock stiffness (prevents early KFLAG=-2)
-  explosion_time: 10.0        # 10s injection duration for gradual explosion
+  # NEW APPROACH: Using initial velocity instead of thermal bomb for physical collision
+  # The thermal bomb is disabled (explosion_energy=0) - inner ejecta has initial velocity
+  explosion_energy: 0.0       # Disabled - using initial velocity instead of thermal bomb
+  explosion_mass: 0.0         # Disabled - using initial velocity instead of thermal bomb
+  explosion_time: 10.0        # 10s injection duration (not used when explosion_energy=0)
   explosion_delay: 0.0        # Delay before thermal bomb triggers in seconds (set to 0 for immediate explosion)
   initial_kinetic_energy: 0.0  # EKO: pre-existing KE (0 = use thermal bomb instead, non-zero = add to existing KE)
   nstmax: 2000000             # Max timesteps (increased for 150-day run)
@@ -127,7 +125,7 @@ stella:
                                # 1.3 -> band is [11.5, 19.5]; wider band = fewer/smaller Ncnd jumps
                                # Was 1.1 -> band [13.6, 16.5]; too tight: triggered Ncnd jump at tau=13.5
                                # causing IFAIL=17 (structurally singular Jacobian) at t=75d in 3 Msun model
-  disable_scattering: False   # False = enable scattering (needed for H-rich RSG plateau; X1_meth2 used SCAT=T)
+  disable_scattering: True  # False = enable scattering (needed for H-rich RSG plateau; X1_meth2 used SCAT=T)
   tau_min: 1e-4               # Trim outermost zones where electron-scattering tau < tau_min (default: 1e-4)
                                # Set to default to output full zone structure for proper analysis
                                # Trimming of outer vacuum zones should be done in analysis scripts, not in STELLA
@@ -151,12 +149,23 @@ stella:
   # opal_table_dir: "/ptmp/sbrennan/SNEC/SNEC"
 
   # Radioactive nickel56 distribution (for .xni file generation)
+  # Dual distribution: Ejecta A (fresh Ni56) + Ejecta B (decayed Co56 from 400-day old SN)
   nickel56:
     enabled: True              # Enable Ni56 radioactive decay (set to True for lightcurve calculations)
-    total_mass_msun: 0.05      # Total Ni56 mass in Msun (typical SN value)
-    distribution_mass_msun: 0.5   # Mass range over which Ni56 is distributed (inner X Msun)
-    distribution_type: "uniform"  # Distribution type: "uniform" or "gaussian"
-    inner_zone_fraction: 0.4    # Place Ni56 only in inner 40% of zones (metal-rich ejecta)
+    
+    # Ejecta A: Inner H-rich shell (3.0 Msun) - fresh Ni56 for current explosion
+    ejecta_a:
+      total_mass_msun: 0.0     # Set to 0 - focusing on interaction power only
+      distribution_mass_msun: 0.5   # Distribute over ejecta A mass (3.0 Msun)
+      distribution_type: "uniform"
+      inner_zone_fraction: 0.4    # Inner 40% of zones (core region)
+    
+    # Ejecta B: Outer metal-rich ejecta (2.0 Msun) - decayed Co56 from 400-day old SN 2011dh
+    ejecta_b:
+      total_mass_msun: 0.0017   # Surviving Co56 after 400 days (from SN 2011dh initial 0.06 Msun)
+      distribution_mass_msun: 2.0   # Distribute over full ejecta B mass (2.0 Msun)
+      distribution_type: "uniform"
+      inner_zone_fraction: 1.0    # Throughout ejecta B (all zones)
 
 # Temperature profile parameters
 # Controls the initial temperature distribution in the progenitor model
@@ -198,6 +207,7 @@ cmfgen_conversion:
   max_radius_jump: 0.05        # Max radius jump fraction (default: 0.05 = 5% - refine if dr/r > 5%)
   max_temp_jump: 0.10          # Max temperature jump fraction (default: 0.10 = 10% - refine if dT/T > 10%)
   max_density_jump: 0.15       # Max density jump fraction (default: 0.15 = 15% - refine if drho/rho > 15%)
+  smooth_velocity: false       # Disable velocity smoothing - physical collision should be preserved
   max_ne_jump: 0.10            # Max electron density jump fraction (default: 0.10 = 10% - refine if dne/ne > 10%)
   max_logtau_jump: 0.10        # Max log optical depth jump (default: 0.10 = 10% - refine if dlogtau > 10%)
 

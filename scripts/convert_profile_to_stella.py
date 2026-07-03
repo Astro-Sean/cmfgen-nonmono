@@ -33,7 +33,7 @@ import numpy as np
 
 
 def parse_heracles_profile(fname: str) -> dict:
-    """Read HERACLES input_profile (r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi)."""
+    """Read HERACLES input_profile (r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi)."""
     import re
     data = []
     explosion_age_days = None
@@ -48,7 +48,7 @@ def parse_heracles_profile(fname: str) -> dict:
                     explosion_age_days = float(m.group(1))
                 continue
             cols = [float(x) for x in stripped.split()]
-            if len(cols) < 11:
+            if len(cols) < 12:
                 continue
             data.append(cols)
     arr = np.array(data)
@@ -57,13 +57,14 @@ def parse_heracles_profile(fname: str) -> dict:
         'rho':                arr[:, 1],
         'p':                  arr[:, 2],
         'u_cms':              arr[:, 3],
-        'fH':                 arr[:, 4],
-        'fHe':                arr[:, 5],
-        'fO':                 arr[:, 6],
-        'fSi':                arr[:, 7],
-        'fCa':                arr[:, 8],
-        'fFe':                arr[:, 9],
-        'fNi':                arr[:, 10],
+        'T':                  arr[:, 4],  # Temperature from profile
+        'fH':                 arr[:, 5],
+        'fHe':                arr[:, 6],
+        'fO':                 arr[:, 7],
+        'fSi':                arr[:, 8],
+        'fCa':                arr[:, 9],
+        'fFe':                arr[:, 10],
+        'fNi':                arr[:, 11],
         'explosion_age_days': explosion_age_days,
     }
 
@@ -71,15 +72,25 @@ def parse_heracles_profile(fname: str) -> dict:
 def temperature_from_pressure(p_cgs, rho_cgs: np.ndarray,
                                fH=None, fHe=None, fO=None,
                                fSi=None, fCa=None, fFe=None, fNi=None,
-                               mu: float = 0.62) -> np.ndarray:
+                               mu: float = 0.62, T_from_profile=None) -> np.ndarray:
     """Estimate temperature from pressure.
 
     Uses the larger of radiation temperature (P_rad = a*T^4/3) and ideal-gas
-    temperature, with a floor of 3000 K (STELLA needs reasonable initial T).
+    temperature, with a floor of 6000 K (STELLA needs reasonable initial T).
+
+    If T_from_profile is provided, use it directly (preferred for LTE stability).
+    Otherwise compute from pressure.
 
     If mass-fraction arrays are provided, mu is computed per-zone from the
     composition (neutral-gas approximation).  Otherwise the fallback mu is used.
     """
+    # If temperature is provided in profile, use it directly
+    if T_from_profile is not None:
+        T = np.asarray(T_from_profile, dtype=float)
+        T = np.maximum(T, 6000.0)  # Force minimum 6000K for LTE stability
+        T = np.minimum(T, 1e8)  # Cap at reasonable maximum
+        return T
+    
     p = np.asarray(p_cgs, dtype=float)
     rho = np.asarray(rho_cgs, dtype=float)
     k_B = 1.380649e-16    # erg/K
@@ -104,7 +115,8 @@ def temperature_from_pressure(p_cgs, rho_cgs: np.ndarray,
     T_gas = p * mu_arr * m_H / (rho * k_B)
     T_rad = (3.0 * p / a_rad) ** 0.25
     T = np.maximum(T_gas, T_rad)
-    T = np.clip(T, 3000.0, 1e8)
+    T = np.maximum(T, 6000.0)  # Force minimum 6000K for LTE stability
+    T = np.minimum(T, 1e8)  # Cap at reasonable maximum
     return T
 
 
@@ -244,7 +256,7 @@ def detect_high_curvature(r, quantity, threshold=0.5):
     return curvature_indices
 
 
-def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
+def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
            outer_fraction=0.3, outer_bias=2.0, transition_radius=1e13,
            check_gradients=True, max_dr_r=0.15, max_dT_T=0.20, max_drho_rho=0.20,
            max_du_u=0.20, adaptive_refinement=True, max_iterations=10, nzon_max=500,
@@ -298,7 +310,7 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
     """
     n = len(r)
     if n == nzon_target:
-        return r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi
+        return r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi
 
     # Start with uniform log-r spacing
     # If nzon_target == nzon_max, start with fewer zones to allow AMR to work
@@ -332,6 +344,8 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             rho_new = interp_logr(rho, r_new)
             p_new   = interp_logr(p, r_new)
             u_new   = interp_logr(u, r_new)
+            T_new   = interp_logr(T, r_new)
+            T_new   = np.maximum(T_new, 1000.0)  # Floor for numerical stability
             fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
             fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
             fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
@@ -351,9 +365,8 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fFe_new /= mf_sum
             fNi_new /= mf_sum
 
-            # Compute temperature
-            T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
-                                              fO=fO_new, fSi=fSi_new, fCa=fCa_new, fFe=fFe_new, fNi=fNi_new)
+            # Use interpolated temperature from profile (preserves original structure)
+            # Fallback to pressure-based estimate only if T is not available
 
             # Check for gradient violations
             dr_r = np.abs(np.diff(r_new) / r_new[:-1])
@@ -419,6 +432,8 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             rho_new = interp_logr(rho, r_new)
             p_new   = interp_logr(p, r_new)
             u_new   = interp_logr(u, r_new)
+            T_new   = interp_logr(T, r_new)
+            T_new   = np.maximum(T_new, 1000.0)
             fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
             fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
             fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
@@ -426,7 +441,7 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fCa_new = np.clip(interp_logr(fCa, r_new), 0, 1)
             fFe_new = np.clip(interp_logr(fFe, r_new), 0, 1)
             fNi_new = np.clip(interp_logr(fNi, r_new), 0, 1)
-            
+
             # Renormalise mass fractions
             mf_sum = fH_new + fHe_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
             mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
@@ -437,10 +452,6 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fCa_new /= mf_sum
             fFe_new /= mf_sum
             fNi_new /= mf_sum
-            
-            # Compute temperature
-            T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
-                                              fO=fO_new, fSi=fSi_new, fCa=fCa_new, fFe=fFe_new, fNi=fNi_new)
             
             feature_radii = []
             
@@ -527,6 +538,8 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
     rho_new = interp_logr(rho, r_new)
     p_new   = interp_logr(p, r_new)
     u_new   = interp_logr(u, r_new)
+    T_new   = interp_logr(T, r_new)
+    T_new   = np.maximum(T_new, 1000.0)
     fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
     fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
     fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
@@ -546,9 +559,9 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
     fFe_new /= mf_sum
     fNi_new /= mf_sum
 
-    # Compute temperature for final gradient check
-    T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
-                                      fO=fO_new, fSi=fSi_new, fCa=fCa_new, fFe=fFe_new, fNi=fNi_new)
+    # Temperature already interpolated from profile above
+    # Ensure it's sane for gradient checking
+    T_new = np.maximum(T_new, 1000.0)
 
     # Final gradient report
     if check_gradients:
@@ -652,9 +665,8 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
                 fFe_new /= mf_sum
                 fNi_new /= mf_sum
 
-                # Compute temperature
-                T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
-                                                  fO=fO_new, fSi=fSi_new, fCa=fCa_new, fFe=fFe_new, fNi=fNi_new)
+                # Temperature already interpolated from profile above
+                T_new = np.maximum(T_new, 1000.0)
 
                 # Check for gradient violations
                 dr_r = np.abs(np.diff(r_new) / r_new[:-1])
@@ -716,8 +728,8 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fFe_new /= mf_sum
             fNi_new /= mf_sum
 
-            T_new = temperature_from_pressure(p_new, rho_new, fH=fH_new, fHe=fHe_new,
-                                              fO=fO_new, fSi=fSi_new, fCa=fCa_new, fFe=fFe_new, fNi=fNi_new)
+            # Temperature already interpolated from profile above
+            T_new = np.maximum(T_new, 1000.0)
 
             dr_r = np.abs(np.diff(r_new) / r_new[:-1])
             dT_T = np.abs(np.diff(T_new) / np.maximum(T_new[:-1], 1e-10))
@@ -773,7 +785,7 @@ def rezone(r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
     # Convert to numpy arrays for return
     refinement_locations = np.array(refinement_locations) if refinement_locations else np.array([])
 
-    return r_new, rho_new, p_new, u_new, fH_new, fHe_new, fO_new, fSi_new, fCa_new, fFe_new, fNi_new, refinement_locations, gradient_violations
+    return r_new, rho_new, p_new, u_new, T_new, fH_new, fHe_new, fO_new, fSi_new, fCa_new, fFe_new, fNi_new, refinement_locations, gradient_violations
 
 
 def write_hyd(fname: str, r_cm, rho, T, u_cms, t_start_s: float,
@@ -1047,6 +1059,8 @@ def main():
             rho = rho[mask]
             p = p[mask]
             u = u[mask]
+            if 'T' in prof:
+                prof['T'] = prof['T'][mask]
             fH  = fH[mask]
             fHe = fHe[mask]
             fO  = fO[mask]
@@ -1095,6 +1109,8 @@ def main():
                 rho = rho[:n_keep]
                 p = p[:n_keep]
                 u = u[:n_keep]
+                if 'T' in prof:
+                    prof['T'] = prof['T'][:n_keep]
                 prof['fH'] = prof['fH'][:n_keep]
                 prof['fHe'] = prof['fHe'][:n_keep]
                 prof['fCa'] = prof['fCa'][:n_keep]
@@ -1121,6 +1137,8 @@ def main():
                 rho = rho[:n_keep]
                 p = p[:n_keep]
                 u = u[:n_keep]
+                if 'T' in prof:
+                    prof['T'] = prof['T'][:n_keep]
                 prof['fH'] = prof['fH'][:n_keep]
                 prof['fHe'] = prof['fHe'][:n_keep]
                 prof['fCa'] = prof['fCa'][:n_keep]
@@ -1157,10 +1175,16 @@ def main():
         rcen = r[0] * 0.95
     rho_cen = args.rho_cen if args.rho_cen is not None else rho[0]
 
+    # Get temperature from profile BEFORE rezone so it is preserved through grid refinement
+    T = prof.get('T', None)
+    if T is None:
+        # Fallback: compute from pressure if not in profile
+        T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi)
+
     if len(r) != nzon:
         print(f"Rezoning {len(r)} -> {nzon} zones (uniform log-r spacing with adaptive refinement)...")
-        r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, refinement_locations, gradient_violations = rezone(
-            r, rho, p, u, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon,
+        r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, refinement_locations, gradient_violations = rezone(
+            r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon,
             check_gradients=args.check_gradients,
             max_dr_r=args.max_dr_r,
             max_dT_T=args.max_dT_T,
@@ -1202,8 +1226,12 @@ def main():
             print(f"  Injecting kinetic energy into stationary profile: EKO={args.initial_kinetic_energy:.4g} x1e50 erg")
             print(f"    Assigning homologous velocities: v_max={v_scale/1e5:.0f} km/s")
 
-    # Compute temperature from pressure using actual composition
-    T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi)
+    # Temperature already interpolated by rezone() from profile; ensure it's sane
+    if T is None or len(T) != len(r):
+        # Fallback: compute from pressure if not available
+        T_from_profile = prof.get('T', None)
+        T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi, T_from_profile=T_from_profile)
+    T = np.maximum(T, 1000.0)  # Absolute floor for numerical stability
 
     # Parse custom output times if provided
     custom_output_times = None
@@ -1308,8 +1336,10 @@ def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None,
         fFe_in = prof['fFe']
         fNi_in = prof['fNi']
         # Compute temperature for input profile
+        T_from_profile_in = prof.get('T', None)
         T_in = temperature_from_pressure(p_in, rho_in, fH=fH_in, fHe=fHe_in,
-                                       fO=fO_in, fSi=fSi_in, fCa=fCa_in, fFe=fFe_in, fNi=fNi_in)
+                                       fO=fO_in, fSi=fSi_in, fCa=fCa_in, fFe=fFe_in, fNi=fNi_in,
+                                       T_from_profile=T_from_profile_in)
 
     fig, axes = plt.subplots(2, 3, figsize=(14, 8))
     if input_profile and r_in is not None:
