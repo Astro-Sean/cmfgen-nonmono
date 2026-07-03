@@ -12,6 +12,13 @@ This script:
    - Submits CMFGEN run job with dependency (named: cmfgen_{model_name})
 3. Returns job IDs for monitoring
 
+Config options:
+  - reuse_stella: If True, use existing STELLA output from current model directory instead of running STELLA
+  - stella_source_model: Model name to copy STELLA output from (deprecated, no longer needed)
+  - run_cmfgen: If True, submit CMFGEN job to produce spectrum
+  - run_sedona: If True, submit SEDONA job to produce spectrum
+  - run_sirocco: If True, submit SIROCCO job to produce spectrum
+
 Usage:
     python run_model_grid.py [config1.yaml config2.yaml ...]
     python run_model_grid.py --all  # Process all configs in configs/
@@ -24,6 +31,7 @@ import subprocess
 from pathlib import Path
 import os
 import re
+import numpy as np
 
 
 def load_yaml_config(config_file):
@@ -31,6 +39,49 @@ def load_yaml_config(config_file):
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     return config
+
+
+def calculate_kinetic_energy_from_profile(profile_path):
+    """Compute total kinetic energy (in 1e50 erg) from an input_profile.
+
+    The profile is expected to have columns:
+        r_cm  rho_cgs  p_cgs  u_cgs  fx_H  fx_He  ...
+
+    Shell masses are computed using the same spherical-shell convention as
+    convert_profile_to_stella.py (inner boundary = previous radius or centre).
+    """
+    if not Path(profile_path).exists():
+        print(f"  WARNING: Profile {profile_path} not found, cannot compute KE")
+        return None
+
+    try:
+        data = np.loadtxt(str(profile_path), comments='#')
+        if data.ndim == 1:
+            data = data.reshape(1, -1)
+        r = data[:, 0]          # cm
+        rho = data[:, 1]        # g/cm^3
+        u = data[:, 3]          # cm/s  (column index 3 = u_cgs)
+
+        # Match shell-mass prescription in convert_profile_to_stella.py:
+        # inner boundary = rcen (defaults to r[0]*0.95 in converter)
+        rcen = r[0] * 0.95
+        r_lo = np.concatenate([[rcen], r[:-1]])
+        r_hi = r
+        dm = (4.0 / 3.0) * np.pi * (r_hi**3 - r_lo**3) * rho
+        dm = np.maximum(dm, 0.0)
+
+        ekin_cgs = 0.5 * np.sum(dm * u**2)
+        ekin_1e50 = ekin_cgs / 1e50
+        m_total_msun = np.sum(dm) / 1.989e33
+
+        print(f"  Auto-computed KE from profile:")
+        print(f"    M_total = {m_total_msun:.3f} Msun")
+        print(f"    E_kin   = {ekin_1e50:.3f} x 1e50 erg")
+        print(f"    v_rms   = {np.sqrt(np.average(u**2, weights=dm))/1e5:.1f} km/s")
+        return float(ekin_1e50)
+    except Exception as exc:
+        print(f"  WARNING: Failed to compute KE from profile: {exc}")
+        return None
 
 
 def substitute_template(template, variables):
@@ -111,13 +162,71 @@ def check_existing_jobs(model_name):
         if len(parts) >= 3:
             job_id = parts[0]  # Column 0 is the JOBID
             job_name = parts[2]  # Column 2 is the job NAME
-            # Match exact model name with underscore prefix/suffix to avoid partial matches
-            # e.g., "X" matches "heracles_X", "cmf_X_init", "cmfgen_X_INIT" but not "heracles_X1"
-            # Also match CMFGEN jobs that contain the model name in their job name
-            if f'_{model_name}_' in job_name or job_name.endswith(f'_{model_name}') or model_name in job_name:
-                jobs.append(job_id)
+            # Match exact model name with underscore delimiters to avoid partial matches
+            # Matches: "X1_heating_*", "*_X1_heating_*", or "*_X1_heating"
+            # Does NOT match: "X1_heating2_*", "X1_heating_scat_*" (when looking for "X1_heating")
+            if (job_name.startswith(f'{model_name}_') or 
+                f'_{model_name}_' in job_name or 
+                job_name.endswith(f'_{model_name}')):
+                jobs.append((job_id, job_name))
     
     return jobs
+
+
+def cancel_existing_jobs(model_name, force=False, verbose=True):
+    """Cancel existing Slurm jobs for this model.
+    
+    Args:
+        model_name: Model name to match
+        force: If True, cancel without asking. If False, prompt user.
+        verbose: If True, print detailed messages. If False, be silent.
+    
+    Returns:
+        Number of jobs cancelled
+    """
+    existing_jobs = check_existing_jobs(model_name)
+    
+    if not existing_jobs:
+        return 0
+    
+    if verbose:
+        print(f"\nFound {len(existing_jobs)} existing job(s) for model '{model_name}':")
+        for job_id, job_name in existing_jobs:
+            print(f"  {job_id}: {job_name}")
+    
+    if not force:
+        response = input(f"Cancel these jobs? (y/N): ").strip().lower()
+        if response != 'y':
+            if verbose:
+                print("Skipping job cancellation.")
+            return 0
+    
+    cancelled_count = 0
+    for job_id, job_name in existing_jobs:
+        try:
+            result = subprocess.run(
+                ['scancel', job_id],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                if verbose:
+                    print(f"  Cancelled job {job_id} ({job_name})")
+                cancelled_count += 1
+            else:
+                if verbose:
+                    print(f"  Failed to cancel job {job_id}: {result.stderr}")
+        except Exception as e:
+            if verbose:
+                print(f"  Error cancelling job {job_id}: {e}")
+    
+    if cancelled_count > 0 and verbose:
+        print(f"Cancelled {cancelled_count} job(s)")
+        # Wait a moment for Slurm to process the cancellations
+        import time
+        time.sleep(2)
+    
+    return cancelled_count
 
 
 def prepare_cmfgen_directory(config, scripts_dir, project_dir):
@@ -133,7 +242,7 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir):
     model_dir = (project_dir / model_dir).absolute()
     
     cmfgen = config.get('cmfgen', {})
-    base_dir = cmfgen.get('base_dir', '../base')
+    base_dir = cmfgen.get('base_dir', '../cmfgen_base')
     base_dir = (project_dir / base_dir).absolute()
 
     # model_type selects the CMFGEN executable used in batch.sh
@@ -219,9 +328,15 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
     # Convert CMFGEN SN_HYDRO_DATA to SEDONA .mod format
     sn_hydro = model_dir / 'cmfgen' / 'SN_HYDRO_DATA'
     mod_file = sedona_dir / f'{model_name}.mod'
-    
+
+    # Read SEDONA settings
+    sedona_cfg = config.get('sedona', {})
+    use_homologous = sedona_cfg.get('use_homologous_expansion', False)
+
     if sn_hydro.exists():
         print(f"Converting CMFGEN SN_HYDRO_DATA to SEDONA .mod format...")
+        if use_homologous:
+            print(f"  Homologous expansion enabled: correct time + radius in .mod header")
         # Use the conversion script from sedona
         sedona_convert = project_dir.parent / 'sedona' / 'convert_cmfgen_to_sedona_v2.py'
         if sedona_convert.exists():
@@ -229,12 +344,12 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
             if mod_file.exists():
                 print(f"  Removing existing {mod_file.name} to ensure fresh conversion")
                 mod_file.unlink()
-            
-            result = subprocess.run(
-                [sys.executable, str(sedona_convert), str(sn_hydro), str(mod_file)],
-                capture_output=True,
-                text=True
-            )
+
+            cmd = [sys.executable, str(sedona_convert), str(sn_hydro), str(mod_file)]
+            if use_homologous:
+                cmd.extend(['--homologous', '--time-days', str(snapshot_days)])
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
                 print(f"  Successfully created {model_name}.mod")
                 print(result.stdout)
@@ -486,6 +601,27 @@ def prepare_sedona_directory(config, scripts_dir, project_dir):
                 print(f"  Filtered opacity_atoms_in_nlte: removed {sorted(species_to_remove)}")
                 print(f"    New list: {filtered}")
 
+        # Configure homologous expansion if requested
+        if use_homologous:
+            text = text.replace('hydro_module = "none"', 'hydro_module = "homologous"')
+            # Enable fuzz lines for iron-group blanketing (important for SN spectra)
+            text = text.replace('opacity_fuzz_expansion       = 0', 'opacity_fuzz_expansion       = 1')
+            # Disable NLTE to avoid singular matrix (known issue with SEDONA NLTE solver)
+            text = text.replace('opacity_use_nlte             = 1', 'opacity_use_nlte             = 0')
+            # Ensure data_fuzzline_file is set
+            if 'data_fuzzline_file' not in text:
+                text = text.replace(
+                    'data_atomic_file   = sedona_home.."/data/cmfgen_levelcap100.hdf5"',
+                    'data_atomic_file   = sedona_home.."/data/cmfgen_levelcap100.hdf5"\ndata_fuzzline_file = sedona_home.."/data/kurucz_cd23_fuzz.hdf5"  -- Iron-group line blanketing'
+                )
+            print(f"  Configured param.lua for homologous expansion:")
+            print(f"    hydro_module = 'homologous'")
+            print(f"    opacity_fuzz_expansion = 1")
+            print(f"    opacity_use_nlte = 0")
+        else:
+            print(f"  Configured param.lua for non-homologous (legacy) mode:")
+            print(f"    hydro_module = 'none' (Sobolev line expansion disabled)")
+
         param_template.write_text(text)
         print(f"  Generated param.lua:")
         print(f"    Time since energy injection: {snapshot_days:.2f} days")
@@ -524,7 +660,7 @@ def submit_heracles_job(config, scripts_dir, project_dir, debug=False, config_fi
     # Resource settings
     partition = 'interactive' if debug else heracles.get('partition', 'small')
     cpus = heracles.get('cpus', 2)
-    memory = heracles.get('memory', '16G')
+    memory = '8G' if debug else heracles.get('memory', '16G')
     # Enforce partition time limits: interactive = 1:59:00 max, general/small = 1-00:00:00 (1 day)
     if debug:
         time = '01:59:00'
@@ -548,9 +684,10 @@ def submit_heracles_job(config, scripts_dir, project_dir, debug=False, config_fi
     with open(template_file, 'r') as f:
         template = f.read()
     
-    # Use debug config file if provided, otherwise use original config
+    # Use debug config file if provided, otherwise use original config.
+    # Config files are named <model_name>.yaml (not model_<model_name>.yaml).
     if config_file is None:
-        config_file = project_dir / 'configs' / f'model_{model_name}.yaml'
+        config_file = project_dir / 'configs' / f'{model_name}.yaml'
     
     # Substitute variables (convert to proper types for formatting)
     variables = {
@@ -704,11 +841,13 @@ def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None,
     model_dir = (project_dir / model_dir).absolute()
     cmfgen_dir = model_dir / 'cmfgen'
     
-    # Read init_num_its and single_final from config
+    # Read init_num_its, single_final, and vel_law from config
     # Note: fix_temperature is handled internally by submit_cmfgen.sh (FIX_T=T by default)
     cmfgen_cfg = config.get('cmfgen', {})
     init_num_its = cmfgen_cfg.get('init_num_its', 3)
-    single_final = cmfgen_cfg.get('single_final', True)
+    single_final = cmfgen_cfg.get('single_final', False)
+    inc_rad_decays = cmfgen_cfg.get('inc_rad_decays', False)
+    vel_law = cmfgen_cfg.get('vel_law', 12)  # Default to 12 for IIn models (tau-based grid)
     
     # Submit script
     submit_script = scripts_dir / 'submit_cmfgen_jobs.sh'
@@ -720,14 +859,27 @@ def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None,
     dep_id = dependency_job_id if dependency_job_id else ""
     # config_file should always be set by process_config, but provide fallback for safety
     config_file_arg = str(config_file) if config_file else ""
-    # Enforce partition time limits: interactive = 1:59:00 max, general = 1-00:00:00 (1 day)
-    cmfgen_partition = 'interactive' if debug else 'general'
-    cmfgen_time = '01:59:00' if debug else '1-00:00:00'  # general partition = 1 day max
+    # Use interactive partition with 8GB memory and 2h time limit in debug mode
+    # Otherwise use general partition with 24h time limit for all stages
+    if debug:
+        cmfgen_partition = 'interactive'
+        cmfgen_time = '01:59:00'
+        env = os.environ.copy()
+        env['CMFGEN_SLURM_MEM'] = '8G'
+        env['CMFGEN_INIT_SLURM_MEM'] = '8G'
+    else:
+        cmfgen_partition = 'general'
+        cmfgen_time = '24:00:00'
+        env = os.environ.copy()
+        env['CMFGEN_SLURM_MEM'] = '16G'
+        env['CMFGEN_INIT_SLURM_MEM'] = '16G'
     cmd = [str(submit_script), model_name, str(model_dir), str(cmfgen_dir), dep_id,
            str(init_num_its),
            cmfgen_partition, cmfgen_time,
            '1' if single_final else '0',
-           config_file_arg]
+           config_file_arg,
+           '1' if inc_rad_decays else '0',
+           str(vel_law)]
     if debug:
         cmd.insert(1, '--debug')
     
@@ -736,7 +888,8 @@ def submit_cmfgen_jobs(config, scripts_dir, project_dir, dependency_job_id=None,
         cmd,
         capture_output=True,
         text=True,
-        cwd=project_dir
+        cwd=project_dir,
+        env=env
     )
     
     if result.returncode != 0:
@@ -783,7 +936,7 @@ def submit_sedona_job(config, scripts_dir, project_dir, dependency_job_id=None, 
     # Resource settings
     partition = 'interactive' if debug else sedona_cfg.get('partition', heracles_cfg.get('partition', 'general'))
     cpus = sedona_cfg.get('cpus', 4)
-    memory = sedona_cfg.get('memory', '16G')
+    memory = '8G' if debug else sedona_cfg.get('memory', '16G')
     time_limit = '01:59:00' if debug else sedona_cfg.get('time', '24:00:00')
     # Enforce 1-day limit for general or small partition
     if partition in ('general', 'small') and not debug:
@@ -1117,16 +1270,45 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     # Ensure minimum interval of 0.5 days for numerical stability
     snapshot_interval = max(snapshot_interval, 0.5)
     r_min         = stella_cfg.get('r_min', 0.0)
-    explosion_energy = stella_cfg.get('explosion_energy', 0.0)
-    explosion_mass   = stella_cfg.get('explosion_mass', 0.0)
-    explosion_time   = stella_cfg.get('explosion_time', 1.0)
-    explosion_delay  = stella_cfg.get('explosion_delay', 0.0)
-    initial_kinetic_energy = stella_cfg.get('initial_kinetic_energy', 0.0)
-    
+
     # Detect RSG-like models (extended stationary envelope) for robust defaults
     ejecta_cfg = config.get('ejecta', {})
     is_rsg = (ejecta_cfg.get('stationary_ejecta_A', False) and
               float(ejecta_cfg.get('R_star_cm', 0)) > 1e13)
+
+    # RSG thermal bomb defaults: spread energy over more mass and longer time
+    # to avoid the stiff shock that causes STELLA KFLAG=-2 / singular-Jacobian
+    # convergence failures. Long runs (target_days > 30) need more gradual energy
+    # injection and a lower timestep ceiling to keep the Gear solver stable.
+    # These are only used if the user does not explicitly set the parameters.
+    if is_rsg:
+        explosion_energy_default = 5.0      # 5e50 erg (typical SN)
+        if target_days > 30:
+            explosion_mass_default   = 1.5      # 1.5 Msun (more mass than short-run 1.0)
+            explosion_time_default   = 5.0      # 5 s (more gradual than 1 s)
+        else:
+            explosion_mass_default   = 1.0      # 1.0 Msun (more mass than 0.15)
+            explosion_time_default   = 1.0      # 1 second (longer than 0.1s)
+    else:
+        explosion_energy_default = 0.0
+        explosion_mass_default   = 0.0
+        explosion_time_default   = 1.0
+
+    explosion_energy = stella_cfg.get('explosion_energy', explosion_energy_default)
+    explosion_mass   = stella_cfg.get('explosion_mass', explosion_mass_default)
+    explosion_time   = stella_cfg.get('explosion_time', explosion_time_default)
+    explosion_delay  = stella_cfg.get('explosion_delay', 0.0)
+    initial_kinetic_energy = stella_cfg.get('initial_kinetic_energy', 0.0)
+
+    # Warn if the thermal bomb energy density is very high (common cause of KFLAG=-2)
+    if explosion_mass > 0 and explosion_time > 0:
+        energy_density = explosion_energy / explosion_mass  # 1e50 erg / Msun
+        power = explosion_energy / explosion_time  # 1e50 erg / s
+        if is_rsg and (energy_density > 1e3 or power > 1e3):
+            print(f"  WARNING: High RSG thermal bomb energy density")
+            print(f"    Energy density: {energy_density:.1e} x 1e50 erg/Msun")
+            print(f"    Power: {power:.1e} x 1e50 erg/s")
+            print(f"    Consider increasing explosion_mass or explosion_time")
 
     # Adaptive numerical parameters for long simulations
     if target_days <= 15:
@@ -1140,21 +1322,81 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     nstmax = stella_cfg.get('nstmax', nstmax)
     disable_scattering = stella_cfg.get('disable_scattering', False)
 
-    # RSG-robust defaults: looser accuracy, capped timestep, disable convection (causes instability)
+    # RSG-robust defaults: looser accuracy, capped timestep, GEAR+BGH solver, disable convection
+    # GEAR+BGH (meth=3) recomputes the Jacobian during integration and is more robust
+    # for extremely stiff ejecta-ejecta collision shocks than standard GEAR (meth=2).
     eps_default = 0.003
-    hmax_default = 86400.0 if is_rsg else 5e5  # 1 day vs ~5.8 days
+    if is_rsg and target_days > 30:
+        hmax_default = 43200.0  # 0.5 day cap for long RSG runs (stiffer late-time evolution)
+        meth_default = 3        # GEAR+BGH for robustness in long RSG collision runs
+    elif is_rsg:
+        hmax_default = 86400.0  # 1 day cap for short RSG runs
+        meth_default = 2        # Standard GEAR for short RSG runs
+    else:
+        hmax_default = 5e5      # ~5.8 day cap for non-RSG
+        meth_default = 2
     enable_convection_default = False  # Disabled due to numerical instability in innermost zone
 
-    eps = stella_cfg.get('eps', eps_default)
-    hmax = stella_cfg.get('hmax', hmax_default)
-    enable_convection = stella_cfg.get('enable_convection', enable_convection_default)
-    fit_tau = stella_cfg.get('fit_tau', 15.0)
-    tau_tol = stella_cfg.get('tau_tol', 1.3)
-    abs_fraction = stella_cfg.get('abs_fraction', 1e-2)
+    meth = int(stella_cfg.get('meth', meth_default))
+    if meth not in (1, 2, 3):
+        print(f"WARNING: meth={meth} not in {{1,2,3}}, resetting to default {meth_default}")
+        meth = meth_default
+
+    eps = float(stella_cfg.get('eps', eps_default))
+    hmax = float(stella_cfg.get('hmax', hmax_default))
+    enable_convection = stella_cfg.get('convection',
+                                       stella_cfg.get('enable_convection',
+                                                      enable_convection_default))
+    fit_tau = float(stella_cfg.get('fit_tau', 15.0))
+    tau_tol = float(stella_cfg.get('tau_tol', 1.3))
+    # Derive He mass fraction for Kramers free-free opacity tables.
+    # Use wind composition if available (most representative of CSM),
+    # fallback to shell A, then a solar default.
+    ejecta_cfg2 = config.get('ejecta', {})
+    fHe = float(ejecta_cfg2.get('fx_He_wind')
+                or ejecta_cfg2.get('fx_He_A')
+                or ejecta_cfg2.get('fx_He_B')
+                or 0.28)
+    fH  = float(ejecta_cfg2.get('fx_H_wind')
+                or ejecta_cfg2.get('fx_H_A')
+                or ejecta_cfg2.get('fx_H_B')
+                or (1.0 - fHe - 0.02))  # fallback: solar metals ~2%
+    abs_fraction_floor = stella_cfg.get('abs_fraction_floor', 1e-4)
+    # Legacy abs_fraction: if explicitly set in YAML, pass as constant override;
+    # otherwise leave as None so generate_stella_opacity_tables.py uses Kramers.
+    abs_fraction_override = stella_cfg.get('abs_fraction', None)
+    # OPAL Rosseland mean opacity tables (Iglesias & Rogers 1996).
+    # When enabled, per-zone composition is read from the input_profile and
+    # the SNEC OPAL tables (codataa..e) are used for hpbanab1.
+    use_opal_tables  = stella_cfg.get('use_opal_tables', False)
+    opal_table_dir   = stella_cfg.get('opal_table_dir',
+                           str(scripts_dir.parent / 'SNEC' / 'SNEC')
+                           if (scripts_dir.parent / 'SNEC' / 'SNEC' / 'tables').exists()
+                           else str(Path('/ptmp/sbrennan/SNEC/SNEC')))
+    input_profile_path = stella_cfg.get('input_profile', None)
+    # ronfict: use STELLA's native vladsf opacity preprocessor (xronfict.exe) to generate
+    # fully frequency-dependent multigroup opacity tables via Saha + bound-free/free-free/line
+    # physics.  This supersedes the grey generate_stella_opacity_tables.py approach.
+    # Requires: xronfict.exe, lineatom.dat, yakovlev/ cross-section data, and the eve .mod/.xni files.
+    use_ronfict = stella_cfg.get('use_ronfict', False)
+    # Resolve stella_root early so defaults for ronfict_exe / yakovlev_dir are correct.
+    stella_root_for_ronfict = stella_cfg.get('stella_root', '/ptmp/sbrennan/stella/OpenStella')
+    ronfict_exe = stella_cfg.get('ronfict_exe',
+                      str(Path(stella_root_for_ronfict) / 'run' / 'vladsf' / 'xronfict.exe'))
+    yakovlev_dir = stella_cfg.get('yakovlev_dir',
+                      str(Path(stella_root_for_ronfict) / 'run' / 'vladsf' / 'yakovlev'))
     givdtl = stella_cfg.get('givdtl', True)
     custom_output_times = stella_cfg.get('custom_output_times', None)
+    iout = stella_cfg.get('iout', 10)  # Output frequency: 1=every timestep, 10=every 10 timesteps
     outer_fraction = stella_cfg.get('outer_fraction', 0.3)
     transition_radius = stella_cfg.get('transition_radius', 1e13)
+    
+    # Wacc parameters for temperature convergence control
+    wacc_r = float(stella_cfg.get('wacc_r', 1.0))
+    wacc_v = float(stella_cfg.get('wacc_v', 1.0))
+    wacc_t = float(stella_cfg.get('wacc_t', 0.5))  # Default 0.5 for stability with heating
+    wacc_rad = float(stella_cfg.get('wacc_rad', 1.0))
+    temp_floor = float(stella_cfg.get('temp_floor', 0.1))  # Default 0.1 = 1000 K
     
     print(f"\n{'='*60}")
     print(f"Submitting STELLA job for model: {model_name}")
@@ -1170,7 +1412,8 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     print(f"  NSTMAX: {nstmax}")
     print(f"  Scattering: {'Disabled' if disable_scattering else 'Enabled'}")
     if is_rsg:
-        print(f"  [RSG mode] EPS={eps}, HMAX={hmax:.0f}s, CONV={'T' if enable_convection else 'F'}")
+        method_name = {1: 'Adams', 2: 'GEAR', 3: 'GEAR+BGH'}.get(meth, 'Unknown')
+        print(f"  [RSG mode] EPS={eps}, HMAX={hmax:.0f}s, METH={meth} ({method_name}), CONV={'T' if enable_convection else 'F'}")
     if should_use_multistage(target_days):
         stages = get_multistage_plan(target_days)
         print(f"  Multi-stage simulation plan:")
@@ -1191,7 +1434,7 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     max_ne_jump = cmfgen_conv_cfg.get('max_ne_jump', 0.10)
     max_logtau_jump = cmfgen_conv_cfg.get('max_logtau_jump', 0.10)
     partition     = 'interactive' if debug else stella_cfg.get('partition', heracles_cfg.get('partition', 'general'))
-    memory        = stella_cfg.get('memory', heracles_cfg.get('memory', '16G'))
+    memory        = '8G' if debug else stella_cfg.get('memory', heracles_cfg.get('memory', '16G'))
     # Enforce partition time limits: interactive = 1:59:00 max, general/small = 1-00:00:00 (1 day)
     if debug:
         time_limit = '01:59:00'
@@ -1204,6 +1447,22 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     stella_root   = stella_cfg.get('stella_root', '/ptmp/sbrennan/stella/OpenStella')
     input_profile = stella_cfg.get('input_profile',
                         str(model_dir / 'stella' / 'input_profile'))
+
+    # Audit: compute kinetic energy from profile for informational purposes.
+    # WARNING: STELLA's EKO does NOT add KE — it REPLACES the velocity profile
+    # with a triangular shape scaled to match EKO.  To preserve input velocities
+    # (e.g. fast CSM from a previous collision), EKO must be 0.0.  If more
+    # driving energy is needed, increase explosion_energy instead.
+    if Path(input_profile).exists():
+        computed_ke = calculate_kinetic_energy_from_profile(input_profile)
+        if computed_ke is not None:
+            if initial_kinetic_energy > 0.0:
+                print(f"  WARNING: EKO={initial_kinetic_energy:.3f} will REPLACE all input velocities")
+                print(f"           with a triangular profile (input had KE={computed_ke:.3f}).")
+                print(f"           To preserve velocities, set initial_kinetic_energy: 0.0")
+                print(f"           and increase explosion_energy instead.")
+            else:
+                print(f"  INFO: Profile KE = {computed_ke:.3f} x 1e50 erg (EKO=0, velocities preserved)")
 
     stella_run_dir = model_dir / 'stella'
     stella_run_dir.mkdir(parents=True, exist_ok=True)
@@ -1238,10 +1497,14 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     # Convert custom_output_times list to comma-separated string for template
     custom_output_times_str = ','.join(str(t) for t in custom_output_times) if custom_output_times else ''
     
+    plots_dir = model_dir / 'plots'
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
     variables = {
         'MODEL_NAME':    model_name,
         'MODEL_DIR':     str(model_dir),
         'PROJECT_DIR':   str(project_dir),
+        'PLOTS_DIR':     str(plots_dir),
         'SCRIPTS_DIR':   str(scripts_dir),
         'STELLA_ROOT':   stella_root,
         'STELLA_RUN_DIR': str(stella_run_dir),
@@ -1264,10 +1527,19 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
         'DISABLE_SCATTERING_ARG': '--disable-scattering' if disable_scattering else '',
         'EPS': eps,
         'HMAX': hmax,
+        'METH': meth,
         'ENABLE_CONV_ARG': '--enable-convection' if enable_convection else '',
         'FIT_TAU': fit_tau,
         'TAU_TOL': tau_tol,
-        'ABS_FRACTION': abs_fraction,
+        'FH': fH,
+        'FHE': fHe,
+        'ABS_FRACTION_FLOOR': abs_fraction_floor,
+        'ABS_FRACTION_ARG': f'--abs-fraction {abs_fraction_override}' if abs_fraction_override is not None else '',
+        'OPAL_TABLES_ARG': (
+            f'--opal-tables '
+            f'--opal-table-dir "{opal_table_dir}" '
+            f'--input-profile "{input_profile_path or input_profile}"'
+        ) if use_opal_tables else '',
         'GIVDTL_ARG': '--givdtl' if givdtl else '',
         'CMFGEN_SNAPSHOT_DAYS': cmfgen_snapshot_days,
         'ENABLE_GRID_THINNING_ARG': '--enable-grid-thinning' if enable_grid_thinning else '',
@@ -1279,13 +1551,23 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
         'MAX_DENSITY_JUMP': max_density_jump,
         'MAX_NE_JUMP': max_ne_jump,
         'MAX_LOGTAU_JUMP': max_logtau_jump,
+        'WACC_R': wacc_r,
+        'WACC_V': wacc_v,
+        'WACC_T': wacc_t,
+        'WACC_RAD': wacc_rad,
+        'TEMP_FLOOR': temp_floor,
         'CUSTOM_OUTPUT_TIMES_ARG': f'--custom-output-times="{custom_output_times_str}"' if custom_output_times else '',
+        'IOUT_ARG': f'--iout={iout}',
         'OUTER_FRACTION': outer_fraction,
         'TRANSITION_RADIUS': transition_radius,
         'PARTITION':     partition,
         'MEMORY':        memory,
         'TIME':          time_limit,
         'CONFIG_FILE':   str(config_file) if config_file else '',
+        # ronfict multigroup opacity table generation
+        'USE_RONFICT':   'true' if use_ronfict else 'false',
+        'RONFICT_EXE':   ronfict_exe,
+        'YAKOVLEV_DIR':  yakovlev_dir,
     }
 
     job_script = substitute_template(template, variables)
@@ -1319,32 +1601,54 @@ def heracles_output_exists(config, project_dir):
     return sn_hydro.exists(), sn_hydro
 
 
-def run_stella_conversion(config, scripts_dir, project_dir):
-    """Run STELLA .swd -> SN_HYDRO_DATA conversion if output is missing."""
+def run_stella_conversion(config, scripts_dir, project_dir, source_model_name=None):
+    """Run STELLA .swd -> SN_HYDRO_DATA conversion if output is missing.
+    
+    Args:
+        source_model_name: If specified, use .swd file from this model name (for reuse_stella case).
+                          When reuse_stella=True, this is the current model name (uses existing output).
+    """
     model_name = config.get('model_name', 'unknown')
     output = config.get('output', {})
     model_dir = output.get('model_dir', '../models/${model_name}').replace('${model_name}', model_name)
     model_dir = (project_dir / model_dir).absolute()
+    
+    # Ensure cmfgen directory exists for output
+    cmfgen_dir = model_dir / 'cmfgen'
+    cmfgen_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Ensure plots directory exists for diagnostic plots
+    plots_dir = model_dir / 'plots'
+    plots_dir.mkdir(parents=True, exist_ok=True)
     
     sn_hydro = model_dir / 'cmfgen' / 'SN_HYDRO_DATA'
     if sn_hydro.exists():
         print(f"  SN_HYDRO_DATA already exists: {sn_hydro}")
         return True
     
+    # Use source model name for .swd file if reusing STELLA output
+    swd_model_name = source_model_name if source_model_name else model_name
+    
     # Find .swd file (check strad directory first, then main stella directory)
-    swd_file = model_dir / 'stella' / 'strad' / f'{model_name}.swd'
+    swd_file = model_dir / 'stella' / 'strad' / f'{swd_model_name}.swd'
     if not swd_file.exists():
-        swd_file = model_dir / 'stella' / f'{model_name}.swd'
+        swd_file = model_dir / 'stella' / f'{swd_model_name}.swd'
     if not swd_file.exists():
         print(f"ERROR: STELLA .swd not found for model {model_name}")
-        print(f"  Checked: {model_dir}/stella/strad/{model_name}.swd")
-        print(f"  Checked: {model_dir}/stella/{model_name}.swd")
+        print(f"  Checked: {model_dir}/stella/strad/{swd_model_name}.swd")
+        print(f"  Checked: {model_dir}/stella/{swd_model_name}.swd")
         return False
     
-    # Find .abn file
-    abn_file = model_dir / 'stella' / 'modmake' / f'{model_name}.abn'
+    # Find .abn file (use source model name if reusing STELLA output)
+    abn_model_name = source_model_name if source_model_name else model_name
+    abn_file = model_dir / 'stella' / 'modmake' / f'{abn_model_name}.abn'
     if not abn_file.exists():
         abn_file = None
+    
+    # Find input_profile for composition fallback (if .abn has zero Ca)
+    input_profile = model_dir / 'stella' / 'input_profile'
+    if not input_profile.exists():
+        input_profile = None
     
     # Get conversion parameters from config
     stella_cfg = config.get('stella', {})
@@ -1385,6 +1689,8 @@ def run_stella_conversion(config, scripts_dir, project_dir):
     ]
     if abn_file:
         cmd += ['--abn-file', str(abn_file)]
+    if input_profile:
+        cmd += ['--input-profile', str(input_profile)]
     if enable_grid_thinning:
         cmd.append('--enable-grid-thinning')
     if enable_adaptive_grid:
@@ -1426,8 +1732,8 @@ def stella_is_complete(config, project_dir, stella_dir):
         data = np.loadtxt(str(tt_file))
         if data.size == 0:
             return False
-        # Last column is time in days
-        final_time_days = data[-1, -1]
+        # First column is time in days (was incorrectly using last column gdepos)
+        final_time_days = data[-1, 0]
         target_days = config.get('stella', {}).get('target_days',
                          config.get('heracles', {}).get('target_days', 40))
         # Consider complete if within 1% of target or reached target
@@ -1517,21 +1823,92 @@ def plot_stella_lightcurve_if_available(config, scripts_dir, project_dir):
         return False
 
 
-def process_config(config_file, scripts_dir, project_dir, debug=False, debug_days=1, redo_heracles=True, plot_lightcurve=True, skip_stella=False, run_cmfgen=None, run_sedona=None, run_sirocco=None):
+def extract_stella_lightcurve_pysynphot(config, scripts_dir, project_dir):
+    """Run pysynphot lightcurve extraction after STELLA completes.
+
+    Produces a gap-free multi-band lightcurve (UBVRI + SDSS ugriz) from
+    STELLA's .flx SED and .swd snapshots. Output is written to
+    <model_dir>/output/lightcurve.csv in the same format as the existing
+    lightcurve.csv with ugriz bands appended.
+    """
+    model_name = config.get('model_name', 'unknown')
+    output = config.get('output', {})
+    model_dir = output.get('model_dir', '../models/${model_name}').replace('${model_name}', model_name)
+    model_dir = (project_dir / model_dir).absolute()
+
+    # Locate input files
+    swd_file = model_dir / 'stella' / 'strad' / f'{model_name}.swd'
+    if not swd_file.exists():
+        swd_file = model_dir / 'stella' / f'{model_name}.swd'
+
+    flx_file = model_dir / 'stella' / 'strad' / f'{model_name}.flx'
+    if not flx_file.exists():
+        flx_file = model_dir / 'stella' / f'{model_name}.flx'
+
+    tt_file = model_dir / 'stella' / f'{model_name}.tt'
+
+    if not swd_file.exists() or not flx_file.exists():
+        print(f"  [pysynphot] Missing .swd or .flx for {model_name}, skipping lightcurve extraction")
+        return False
+
+    out_dir = model_dir / 'output'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_csv = out_dir / 'lightcurve.csv'
+    plot_png = model_dir / 'plots' / 'lightcurve_pysynphot.png'
+    plot_png.parent.mkdir(parents=True, exist_ok=True)
+
+    extract_script = scripts_dir / 'extract_lightcurve_pysynphot.py'
+    if not extract_script.exists():
+        print(f"WARNING: extract_lightcurve_pysynphot.py not found, skipping")
+        return False
+
+    print(f"\n{'='*60}")
+    print(f"Extracting pysynphot lightcurve for {model_name}")
+    print(f"{'='*60}")
+
+    cmd = [
+        sys.executable, str(extract_script),
+        str(swd_file), str(flx_file),
+        '--tt-file', str(tt_file),
+        '--output', str(out_csv),
+        '--plot', str(plot_png),
+        '--title', f'{model_name} Lightcurve (pysynphot)',
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        print(f"Lightcurve CSV saved: {out_csv}")
+        return True
+    else:
+        print(f"WARNING: pysynphot lightcurve extraction failed")
+        print(result.stderr)
+        return False
+
+
+def process_config(config_file, scripts_dir, project_dir, debug=False, debug_days=1, redo_heracles=True, plot_lightcurve=True, skip_stella=False, run_cmfgen=None, run_sedona=None, run_sirocco=None, cancel_jobs=False, force_cancel=False):
     """Process a single configuration file.
     
     Args:
         run_cmfgen: If True, submit CMFGEN job to produce spectrum (requires SN_HYDRO_DATA). If None, read from config.
         run_sedona: If True, submit SEDONA job to produce spectrum (requires .mod file). If None, read from config.
         run_sirocco: If True, submit SIROCCO job to produce spectrum (requires SN_HYDRO_DATA). If None, read from config.
+        cancel_jobs: If True, cancel existing jobs with the same model name before submitting new ones.
+        force_cancel: If True, force cancel existing jobs without prompting.
     """
     config = load_yaml_config(config_file)
     model_name = config.get('model_name', 'unknown')
+    
+    # Cancel existing jobs if requested
+    if cancel_jobs:
+        cancel_existing_jobs(model_name, force=force_cancel)
     
     # Read spectrum code flags from config, allowing CLI override
     run_cmfgen = config.get('run_cmfgen', True) if run_cmfgen is None else run_cmfgen
     run_sedona = config.get('run_sedona', True) if run_sedona is None else run_sedona
     run_sirocco = config.get('run_sirocco', True) if run_sirocco is None else run_sirocco
+    
+    # Read reuse_stella flag from config
+    reuse_stella = config.get('reuse_stella', False)
+    # stella_source_model is deprecated - no longer needed
     
     # Determine which codes are being used
     use_stella = config.get('hydro_backend', 'heracles').lower() == 'stella'
@@ -1550,22 +1927,13 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
         print(f"DEBUG MODE ENABLED")
     print(f"{'='*70}")
     
-    # Check for existing jobs
-    existing_jobs = check_existing_jobs(model_name)
-    if existing_jobs:
-        print(f"\nWARNING: Found {len(existing_jobs)} existing job(s) for model {model_name}:")
-        for job_id in existing_jobs:
-            print(f"  - {job_id}")
-        print(f"\nAutomatically cancelling existing jobs...")
-        import subprocess
-        try:
-            subprocess.run(['scancel'] + existing_jobs, check=True, capture_output=True, text=True)
-            print(f"Cancelled {len(existing_jobs)} job(s)")
-        except subprocess.CalledProcessError as e:
-            print(f"WARNING: Failed to cancel some jobs: {e.stderr}")
-        # Wait a moment for cancellation to take effect
-        import time
-        time.sleep(2)
+    # Check for existing jobs (cancel by default unless --keep-jobs is specified)
+    if cancel_jobs:
+        cancelled = cancel_existing_jobs(model_name, force=force_cancel, verbose=True)
+        if cancelled == 0:
+            print(f"No existing jobs found for model {model_name}")
+    else:
+        print(f"\n--keep-jobs specified: skipping job cancellation")
     
     # Extract paths
     output = config.get('output', {})
@@ -1602,7 +1970,32 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
     if not generate_profile(config, scripts_dir, project_dir, config_file, hydro_backend):
         print(f"ERROR: Profile generation failed for {model_name}")
         return None
+
+    # Step 1a: Verify the generated profile actually exists on disk
+    output_cfg = config.get('output', {})
+    # Use the updated model_name from config (may have -debug suffix)
+    current_model_name = config.get('model_name', model_name)
+    base_dir_cfg = output_cfg.get('base_dir', './models').replace('${model_name}', current_model_name)
+    if use_stella:
+        hydro_out = output_cfg.get('stella_output', 'stella').replace('${model_name}', current_model_name)
+    else:
+        hydro_out = output_cfg.get('heracles_output', 'heracles').replace('${model_name}', current_model_name)
     
+    # Check if base_dir is an absolute path (for grid models)
+    if str(base_dir_cfg).startswith('/'):
+        # Use absolute path directly
+        profile_path = Path(base_dir_cfg) / current_model_name / hydro_out / 'input_profile'
+    elif not str(hydro_out).startswith('models') and not str(hydro_out).startswith('./models') and not str(hydro_out).startswith('../'):
+        profile_path = project_dir / base_dir_cfg / current_model_name / hydro_out / 'input_profile'
+    else:
+        # For relative paths like "stella", construct the full path from model_dir
+        model_dir = (project_dir / output_cfg.get('model_dir', '../models/${model_name}').replace('${model_name}', current_model_name)).absolute()
+        profile_path = model_dir / hydro_out / 'input_profile'
+    if not profile_path.exists():
+        print(f"ERROR: Expected profile not found after generation: {profile_path}")
+        return None
+    print(f"  Verified profile exists: {profile_path}")
+
     # Step 1b: Read profile max radius and update Lbox_cm to match
     if not use_stella:
         output_cfg = config.get('output', {})
@@ -1656,7 +2049,25 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
 
     if use_stella:
         # STELLA path: check for existing stella/ folder
-        if skip_stella:
+        if reuse_stella:
+            # Use existing STELLA output from current model directory
+            print(f"\nreuse_stella: True - using existing STELLA output from current model directory")
+            target_stella_dir = model_dir_resolved / 'stella'
+            
+            if not target_stella_dir.exists():
+                print(f"ERROR: STELLA directory not found in current model: {target_stella_dir}")
+                print(f"  reuse_stella requires an existing stella/ directory in the model folder")
+                return None
+            
+            print(f"  Using existing STELLA output from {target_stella_dir}")
+            
+            # Run conversion to create SN_HYDRO_DATA (use current model name for .swd file lookup)
+            if not run_stella_conversion(config, scripts_dir, project_dir, source_model_name=model_name):
+                print(f"ERROR: STELLA conversion failed for {model_name}")
+                return None
+            
+            hydro_job_id = ""
+        elif skip_stella:
             print(f"\n--skip-stella set: skipping STELLA job submission")
             hydro_job_id = ""
         else:
@@ -1667,8 +2078,10 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
                 if is_complete:
                     print(f"\nFound complete STELLA output folder: {stella_path}")
                     print(f"  Simulation reached target time, skipping STELLA job submission")
-                    print(f"  Proceeding directly to CMFGEN/SEDONA")
                     print(f"  (use --redo-heracles to force resubmission)")
+                    # Extract complete multi-band lightcurve with pysynphot
+                    extract_stella_lightcurve_pysynphot(config, scripts_dir, project_dir)
+                    print(f"  Proceeding directly to CMFGEN/SEDONA")
                     hydro_job_id = ""
                 else:
                     print(f"\nFound incomplete STELLA output folder: {stella_path}")
@@ -1776,7 +2189,8 @@ def process_config(config_file, scripts_dir, project_dir, debug=False, debug_day
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Master workflow script for automated supernova model grid'
+        description='Master workflow script for automated supernova model grid. '
+                    'Use --cancel-jobs to automatically cancel existing jobs with the same model name before submitting new ones.'
     )
     parser.add_argument('configs', nargs='*', help='YAML config files (or use --all)')
     parser.add_argument('--all', action='store_true', help='Process all configs in configs/')
@@ -1804,6 +2218,10 @@ def main():
                         help='Submit SIROCCO job to produce spectrum (default: from config)')
     parser.add_argument('--no-sirocco', dest='run_sirocco', action='store_false',
                         help='Skip SIROCCO job')
+    parser.add_argument('--keep-jobs', dest='cancel_jobs', action='store_false', default=True,
+                        help='Keep existing jobs with the same model name (default: cancel them to prevent duplicates)')
+    parser.add_argument('--force-cancel', dest='force_cancel', action='store_true', default=False,
+                        help='Force cancel existing jobs without prompting (use for automated workflows)')
 
     args = parser.parse_args()
     
@@ -1854,12 +2272,17 @@ def main():
         print(f"Spectrum generation: SIROCCO enabled (--run-sirocco)")
     else:
         print(f"Spectrum generation: SIROCCO disabled (--no-sirocco)")
+    if args.cancel_jobs:
+        cancel_mode = "force" if args.force_cancel else "prompt"
+        print(f"Job cancellation: ENABLED (mode: {cancel_mode}) - existing jobs with same model name will be cancelled")
+    else:
+        print(f"Job cancellation: DISABLED (--keep-jobs specified)")
     print(f"{'='*70}")
     
     # Process each config
     results = []
     for config_file in config_files:
-        result = process_config(config_file, scripts_dir, project_dir, args.debug, args.debug_days, args.redo_heracles, args.plot_lightcurve, args.skip_stella, args.run_cmfgen, args.run_sedona, args.run_sirocco)
+        result = process_config(config_file, scripts_dir, project_dir, args.debug, args.debug_days, args.redo_heracles, args.plot_lightcurve, args.skip_stella, args.run_cmfgen, args.run_sedona, args.run_sirocco, args.cancel_jobs, args.force_cancel)
         if result:
             results.append(result)
     

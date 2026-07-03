@@ -1,0 +1,24 @@
+! ADJUST_R_DEFAULTS - Runtime R-grid refinement for CMFGEN stability
+! Targets the deep ejecta/shock interaction region where convergence
+! problems concentrate (e.g. depth ~285-295 in a 311-point grid).
+! Dessart+2015: grid refinement near shock front critical for IIn models.
+!
+[N_ITS] 5
+! Number of grid revisions to perform
+[STRT_ITS] 1
+! First iteration to start grid revision
+[FREQ_ITS] 10
+! Frequency of grid revisions (every N iterations)
+[GRID_METH] TAU_SPACE
+! Regridding method: TAU_SPACE, VEL_SPACE, FULL_R, OB_ONLY
+[GRID_TYPE] REFINE
+! Grid type: UNIFORM, MODUN, FIX_NX, REFINE, VTAU
+[FG_MIN] -2.0D0
+! Min log(Tau) for fine grid: targets tau~0.01 (deep ejecta)
+[FG_MAX] 0.5D0
+! Max log(Tau) for fine grid: up to tau~3 (shock front region)
+! Parameters for outer/inner boundary handling
+[OB_OPT] DEFAULT
+! Outer boundary option: DEFAULT or SPECIFY
+[IB_OPT] DEFAULT
+! Inner boundary option: DEFAULT or SPECIFY

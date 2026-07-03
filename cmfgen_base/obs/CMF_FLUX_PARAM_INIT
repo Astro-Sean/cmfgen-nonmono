@@ -21,7 +21,7 @@ T            [DIF]              !Diffusion approx.
 F            [COH_ES]           !Assume coherent electron scattering?
 F            [OLD_J]            !Read old J to provide estiamte of J_ES
 LOGMON       [METHOD]           !Use log interp to compute chi.LOGLOG
-N_ON_J        [N_TYPE]           !How to handle N in MOM_J_CMF
+G_ONLY        [N_TYPE]           !How to handle N in MOM_J_CMF
 INT/INS      [FG_OPT]
 T            [THK_CONT]         !Thick boundary condition for continuum ?
 T            [TRAP_J]           !Use trapazoidal wights to compute J ?
@@ -63,8 +63,8 @@ T            [DO_CMF_EW]
 T            [DO_ALL_SOB] 
 SOB          [GLOBAL_LINE]      !Global line switch (BLANK, SOB, CMF, NONE)
 T            [LAM_SET]          !Swith to SOB for long wavelengths?
-3000.0D0     [F_LAM_BEG]        !Lambda to begin flux calculation.
-25000.0D0    [F_LAM_END]        !Lambda to end flux calculation.
+4000.0D0     [F_LAM_BEG]        !Lambda to begin flux calculation.
+10000.0D0    [F_LAM_END]        !Lambda to end flux calculation.
  
 F            [THK_LINE]         !Thk line boundary condition ?
 T            [CHK_L_POS]        !Check for negative line opacity?

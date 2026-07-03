@@ -13,13 +13,14 @@
 #   --debug         Use interactive partition preset
 #   --all           Submit full INIT->FINAL->OBS chain (STABLE is skipped by default)
 #   --with-stable   Include STABLE phase (INIT->STABLE->FINAL->OBS)
-#   --single-final  Skip INIT; start FINAL from LTE (default: ON)
+#   --single-final  Skip INIT; start FINAL from LTE (default: OFF)
 #   --with-init     Disable single-final mode; use INIT->FINAL chain
 #   --quick         Request minimal resources (4 CPUs, 32G mem, 12h FINAL) for faster queue turnaround
 #   --no-submit     Only write files; do not call sbatch
 #   --restart       Only (re)submit FINAL and OBS Slurm jobs (INIT is not submitted)
 #   --vary_T        Allow temperature to vary (default: T is held fixed)
 #   --fix-T         Fix temperature (default: T is held fixed). Use --no-fix-T to allow T to vary
+#   --vel-law=N     Set CMFGEN VEL_LAW value (default: 12 for IIn tau-based grid; 11 for direct hydro)
 #   -h|--help       Show help
 #
 # Notes:
@@ -42,12 +43,13 @@ rm -f -- cmf_INIT_*.out cmf_INIT_*.err cmf_STABLE_*.out cmf_STABLE_*.err cmf_FIN
 debug=0
 all_jobs=0
 with_stable=0
-single_final=1
+single_final=0
 quick=0
 no_submit=0
 restart=0
 vary_t=0
 fix_t=1
+VEL_LAW="12"
 MODEL_DIR=""
 DEPENDENCY_JOB=""
 
@@ -65,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --fix-T) fix_t=1; shift ;;
     --no-fix-T) fix_t=0; shift ;;
     --dependency=*) DEPENDENCY_JOB="${1#*=}"; shift ;;
+    --vel-law=*) VEL_LAW="${1#*=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; break ;;
     -*)
@@ -103,7 +106,7 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" ]]; then
   echo "  Performing manual cleanup: keeping base files and SN_HYDRO_DATA, deleting everything else..."
   
   # Manual cleanup: keep base files and SN_HYDRO_DATA, delete everything else
-  # Base files to keep (copied from /ptmp/sbrennan/SN2024pba/base)
+  # Base files to keep (copied from /ptmp/sbrennan/SN2024pba/cmfgen_base)
   BASE_FILES_TO_KEEP="batch.sh VADAT_INIT IN_ITS MODEL_SPEC NUC_DECAY_DATA arnaud_rothenflug.dat"
   # Also keep SN_HYDRO_DATA and obs directory
   FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs"
@@ -177,7 +180,17 @@ VADAT_SCRIPT="${PROJECT_ROOT}/scripts/prepare_VADAT.py"
 INITS_SCRIPT="${PROJECT_ROOT}/scripts/prepare_IN_INTS.py"
 # Model name = name of the models/<MODEL_NAME>/cmfgen directory's parent (i.e. models/<MODEL_NAME>)
 MODEL_NAME_FROM_DIR="$(basename "$(dirname "$MODEL_DIR")")"
-CONFIG_FILE="${PROJECT_ROOT}/configs/model_${MODEL_NAME_FROM_DIR}.yaml"
+# Use CMFGEN_CONFIG_FILE if set by submit_cmfgen_jobs.sh; otherwise find the config by name.
+# Config files are named <MODEL_NAME>.yaml (not model_<MODEL_NAME>.yaml).
+if [[ -n "${CMFGEN_CONFIG_FILE:-}" && -f "${CMFGEN_CONFIG_FILE}" ]]; then
+  CONFIG_FILE="${CMFGEN_CONFIG_FILE}"
+elif [[ -f "${PROJECT_ROOT}/configs/${MODEL_NAME_FROM_DIR}.yaml" ]]; then
+  CONFIG_FILE="${PROJECT_ROOT}/configs/${MODEL_NAME_FROM_DIR}.yaml"
+else
+  # Legacy fallback: model_<name>.yaml
+  CONFIG_FILE="${PROJECT_ROOT}/configs/model_${MODEL_NAME_FROM_DIR}.yaml"
+fi
+echo "  CONFIG_FILE: ${CONFIG_FILE}"
 
 OBS_TEMPLATE_DIR="${CMFDIST}/obs_template"
 if [[ ! -d "${OBS_TEMPLATE_DIR}" ]]; then
@@ -198,7 +211,7 @@ echo "  OBS_TPL: $OBS_TEMPLATE_DIR"
 # ---------------------------
 PARTITION_DEFAULT="general"
 TIME_DEFAULT="24:00:00"
-CPUS_DEFAULT=4
+CPUS_DEFAULT=16
 # CMFGEN BA / matrix steps often need many GB; too-small requests can OOM during the first BA build.
 # Defaults tuned to be "reasonable" while still avoiding the prior 8G OOM failures.
 MEM_DEFAULT="${CMFGEN_SLURM_MEM:-32G}"
@@ -209,17 +222,17 @@ INIT_MEM_DEFAULT="${CMFGEN_INIT_SLURM_MEM:-32G}"
 PARTITION_DEBUG="interactive"
 TIME_DEBUG="01:59:00"
 CPUS_DEBUG=4
-MEM_DEBUG="32G"
+MEM_DEBUG="8G"
 
 # Quick preset: minimal resources for faster backfill / shorter queue wait
 TIME_QUICK="24:00:00"
-CPUS_QUICK=4
+CPUS_QUICK=16
 MEM_QUICK="${CMFGEN_SLURM_MEM_QUICK:-32G}"
 
-# INIT: default interactive partition, 1h59 (cluster max on many sites). Override with CMFGEN_INIT_* env vars.
+# INIT: default general partition, 24h. Override with CMFGEN_INIT_* env vars.
 # Keep memory aligned with main MEM_DEFAULT to avoid early BA OOM.
-INIT_PARTITION="${CMFGEN_INIT_PARTITION:-interactive}"
-INIT_TIME="${CMFGEN_INIT_TIME:-01:59:00}"
+INIT_PARTITION="${CMFGEN_INIT_PARTITION:-general}"
+INIT_TIME="${CMFGEN_INIT_TIME:-24:00:00}"
 
 # STABLE always runs on general partition (longer runtime needed for pure Lambda settling)
 STABLE_PARTITION="general"
@@ -239,7 +252,7 @@ STABLE_NUM_ITS=10
 FINAL_NUM_ITS=100000
 
 OBS_TIME_DEFAULT="24:00:00"
-OBS_TIME_DEBUG="01:00:00"
+OBS_TIME_DEBUG="01:30:00"
 
 INIT_SLURM="run_cmfgen_INIT.slurm"
 STABLE_SLURM="run_cmfgen_STABLE.slurm"
@@ -361,10 +374,10 @@ fi
 mkdir -p "${MODEL_DIR}/obs"
 
 # SN_HYDRO_DATA overview: structure + mass fractions -> plots/ (non-fatal if matplotlib or file missing)
-PLOT_SN_HYDRO_SCRIPT="$(dirname "$VADAT_SCRIPT")/plot_sn_hydro_cmfgen_inputs.py"
+PLOT_SN_HYDRO_SCRIPT="${PROJECT_ROOT}/scripts/plot_sn_hydro_cmfgen_inputs.py"
 if [[ ! -f "$PLOT_SN_HYDRO_SCRIPT" ]]; then
-  _submit_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  PLOT_SN_HYDRO_SCRIPT="${_submit_dir}/../scripts/plot_sn_hydro_cmfgen_inputs.py"
+  # Fallback: try to find in VADAT_SCRIPT directory (legacy)
+  PLOT_SN_HYDRO_SCRIPT="$(dirname "$VADAT_SCRIPT")/plot_sn_hydro_cmfgen_inputs.py"
 fi
 HYDRO_DATA="${MODEL_DIR}/SN_HYDRO_DATA"
 if [[ -f "$HYDRO_DATA" ]]; then
@@ -641,7 +654,7 @@ fi
 echo "Running Python prep scripts (INIT chunk)..."
 rm -f .CMFGEN_INIT_PREPPED
 rm -f batch.log OUTGEN
-python "${VADAT_SCRIPT}" --init --convergence-mode stable ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+python "${VADAT_SCRIPT}" --init --convergence-mode stable --fix_ne --vel-law "${VEL_LAW}" ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
 python "${INITS_SCRIPT}" --init --num-its ${INIT_NUM_ITS} ${varyt_arg} >> 'batch.log'
 export CMFGEN_AUTO_SET_RSTAR="\${CMFGEN_AUTO_SET_RSTAR:-0}"
 export CMFGEN_AUTO_SET_LSTAR="\${CMFGEN_AUTO_SET_LSTAR:-0}"
@@ -783,7 +796,7 @@ if [[ ! -f .CMFGEN_STABLE_PREPPED ]]; then
   "\$cmfdist/com/out2in.sh"
 
   echo "Running Python prep scripts for STABLE phase..."
-  python "${VADAT_SCRIPT}" --stable --convergence-mode stable ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+  python "${VADAT_SCRIPT}" --stable --convergence-mode stable --vel-law "${VEL_LAW}" ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
   python "${INITS_SCRIPT}" --stable --num-its ${STABLE_NUM_ITS} ${varyt_arg} >> 'batch.log'
 
   # Outer-boundary refinement to reduce J-instabilities (comp_j_blank blow-ups).
@@ -817,31 +830,6 @@ if not done:
         out.insert(0, f"{desired} [N_OB_INS]")
 p.write_text("\n".join(out) + "\n")
 print(f"Applied outer-boundary refinement: N_OB_INS={desired}")
-PY
-
-  # Allow overriding N_TYPE at submit time via CMFGEN_N_TYPE (default N_ON_J).
-  CMFGEN_N_TYPE="\${CMFGEN_N_TYPE:-N_ON_J}"
-  python - <<PY
-from pathlib import Path
-
-p = Path("VADAT")
-if not p.exists():
-    raise SystemExit(0)
-
-desired = "\${CMFGEN_N_TYPE}".strip()
-lines = p.read_text().splitlines()
-out = []
-done = False
-for ln in lines:
-    if "[N_TYPE]" in ln:
-        out.append(f"{desired} [N_TYPE]")
-        done = True
-    else:
-        out.append(ln)
-if not done:
-    out.insert(0, f"{desired} [N_TYPE]")
-p.write_text("\n".join(out) + "\n")
-print(f"Applied N_TYPE={desired}")
 PY
 
   touch .CMFGEN_STABLE_PREPPED
@@ -895,7 +883,7 @@ check_outgen_for_fatal() {
     echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
     return 2
   fi
-  if grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up" "\$outgen"; then
+  if grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large" "\$outgen"; then
     echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
     echo "---- OUTGEN tail (last 80 lines) ----" >&2
     tail -n 80 "\$outgen" >&2 || true
@@ -1156,7 +1144,7 @@ fi
 rm -f -- "\$next"
 
 echo "Running final Python scripts..."
-python "${VADAT_SCRIPT}" --final --convergence-mode stable ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+python "${VADAT_SCRIPT}" --final --convergence-mode stable --vel-law "${VEL_LAW}" ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
 python "${INITS_SCRIPT}" --final --num-its ${FINAL_NUM_ITS} ${varyt_arg} >> 'batch.log'
 export CMFGEN_AUTO_SET_RSTAR="\${CMFGEN_AUTO_SET_RSTAR:-0}"
 export CMFGEN_AUTO_SET_LSTAR="\${CMFGEN_AUTO_SET_LSTAR:-0}"
@@ -1193,31 +1181,6 @@ if not done:
         out.insert(0, f"{desired} [N_OB_INS]")
 p.write_text("\n".join(out) + "\n")
 print(f"Applied outer-boundary refinement: N_OB_INS={desired}")
-PY
-
-# Allow overriding N_TYPE at submit time via CMFGEN_N_TYPE (default N_ON_J).
-CMFGEN_N_TYPE="\${CMFGEN_N_TYPE:-N_ON_J}"
-python - <<PY
-from pathlib import Path
-
-p = Path("VADAT")
-if not p.exists():
-    raise SystemExit(0)
-
-desired = "\${CMFGEN_N_TYPE}".strip()
-lines = p.read_text().splitlines()
-out = []
-done = False
-for ln in lines:
-    if "[N_TYPE]" in ln:
-        out.append(f"{desired} [N_TYPE]")
-        done = True
-    else:
-        out.append(ln)
-if not done:
-    out.insert(0, f"{desired} [N_TYPE]")
-p.write_text("\n".join(out) + "\n")
-print(f"Applied N_TYPE={desired}")
 PY
 
 # Prevent VAR_MOM_J_CMF NV<ND crash (observed ND=218, NV=200) by capping
@@ -1402,7 +1365,7 @@ fi
 
 # Plot observed spectrum after BATOBS finishes (non-fatal if plotting fails).
 echo "Plotting observed spectrum (post-BATOBS)..."
-plotter="${MODEL_DIR}/../scripts/plot_cmfgen_obs_spectrum.py"
+plotter="${PROJECT_ROOT}/scripts/plot_cmfgen_obs_spectrum.py"
 if [[ -f "\$plotter" ]]; then
   if command -v python3 >/dev/null 2>&1; then
     python3 "\$plotter" "obs_fin_10" --out "obs_spectrum.png" || echo "WARNING: spectrum plot failed (non-fatal)"
@@ -1442,7 +1405,7 @@ check_outgen_for_fatal() {
     echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
     return 2
   fi
-  if grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up" "\$outgen"; then
+  if grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large" "\$outgen"; then
     echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
     echo "---- OUTGEN tail (last 80 lines) ----" >&2
     tail -n 80 "\$outgen" >&2 || true
@@ -1537,7 +1500,11 @@ echo "CPUs: \$CPUS"
 if [[ "\${SLURM_RESTART_COUNT:-0}" -eq 0 && ! -f .CMFGEN_SINGLE_FINAL_PREPPED ]]; then
   echo "First run: LTE cold-start prep..."
   rm -f batch.log OUTGEN
-  python "${VADAT_SCRIPT}" --single-final --convergence-mode stable ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+  # Pass CMFGEN_INC_RAD_DECAYS environment variable to prepare_VADAT.py
+  if [[ -n "\${CMFGEN_INC_RAD_DECAYS:-}" ]]; then
+    echo "CMFGEN_INC_RAD_DECAYS=\${CMFGEN_INC_RAD_DECAYS} (passed to prepare_VADAT.py)"
+  fi
+  python "${VADAT_SCRIPT}" --single-final --convergence-mode stable --vel-law "${VEL_LAW}" ${varyt_arg} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
   python "${INITS_SCRIPT}" --single-final --num-its ${FINAL_NUM_ITS} ${varyt_arg} >> 'batch.log'
   touch .CMFGEN_SINGLE_FINAL_PREPPED
 else
@@ -1635,7 +1602,8 @@ fi
 # ---------------------------------------------------------
 # Match INIT/STABLE/OBS (*_cmfgen_<tag>) and FINAL (*_FINAL_N*_cmfgen); STABLE was missing
 # from the old pattern, and FINAL uses _FINAL_N1_cmfgen not _FINAL_cmfgen_<tag>.
-existing=$(squeue -u "${USER:-$(whoami)}" -h -o "%j" 2>/dev/null | grep -E "^${JOB_PREFIX}_(INIT|STABLE|FINAL|OBS)_" || true)
+# Also match dynamically renamed FINAL jobs (e.g., _FINAL_N1_cmfgen, _FINAL_N2_cmfgen)
+existing=$(squeue -u "${USER:-$(whoami)}" -h -o "%j" 2>/dev/null | grep -E "^${JOB_PREFIX}_(INIT|STABLE|FINAL|OBS)_|${JOB_PREFIX}_FINAL_N[0-9]+_cmfgen" || true)
 if [[ -n "$existing" ]]; then
   echo "ERROR: CMFGEN jobs already running or pending for this model (${JOB_PREFIX}):"
   echo "$existing"

@@ -452,6 +452,18 @@ else
 # -------
 #*****************************************************************************
 
+ ln -sf  $ATOMIC/CA/I/19apr23/osc_data                    CaI_F_OSCDAT
+ ln -sf  $ATOMIC/CA/I/19apr23/f_to_s_58                   CaI_F_TO_S
+ ln -sf  $ATOMIC/CA/I/19apr23/phot_data_A                 PHOTCaI_A
+ ln -sf  $ATOMIC/CA/I/19apr23/phot_data_B                 PHOTCaI_B
+ ln -sf  $ATOMIC/CA/I/19apr23/col_data                    CaI_COL_DATA
+
+ ln -sf  $ATOMIC/CA/II/19apr23/osc_data                    Ca2_F_OSCDAT
+ ln -sf  $ATOMIC/CA/II/19apr23/f_to_s_79                   Ca2_F_TO_S
+ ln -sf  $ATOMIC/CA/II/19apr23/phot_data_A                 PHOTCa2_A
+ ln -sf  $ATOMIC/CA/II/19apr23/phot_data_B                 PHOTCa2_B
+ ln -sf  $ATOMIC/CA/II/19apr23/col_data                    Ca2_COL_DATA
+
  ln -sf  $ATOMIC/CA/III/10apr99/phot_smooth.dat            PHOTCaIII_A
  ln -sf  $ATOMIC/CA/III/10apr99/osc_op_sp.dat              CaIII_F_OSCDAT
  ln -sf  $ATOMIC/CA/III/10apr99/f_to_s.dat                 CaIII_F_TO_S

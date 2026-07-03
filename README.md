@@ -92,7 +92,7 @@ SN2024pba/
 │   ├── convert_cmfgen_to_sedona_v2.py
 │   ├── stella_job_template.slurm
 │   └── ...
-├── base/                 # CMFGEN base files (VADAT, batch.sh, etc.)
+├── cmfgen_base/          # CMFGEN base files (VADAT, batch.sh, etc.)
 ├── sedona_base/          # SEDONA templates (param.lua, job template)
 ├── models/
 │   └── X1-test-debug/
@@ -163,5 +163,5 @@ watch -n 30 squeue -u $USER       # Auto-refresh every 30s
 
 - `scripts/` — Workflow automation, conversion tools, templates
 - `configs/` — Model parameter files
-- `base/` — CMFGEN base configuration files
+- `cmfgen_base/` — CMFGEN base configuration files
 - `sedona_base/` — SEDONA parameter templates and plotting tools
