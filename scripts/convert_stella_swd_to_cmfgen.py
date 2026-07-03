@@ -559,7 +559,7 @@ def downsample_grid(radius, *arrays, target_points=100):
 
 def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
                              max_radius_jump=0.05, max_temp_jump=0.10,
-                             max_density_jump=0.10, max_ne_jump=0.10,
+                             max_density_jump=0.15, max_ne_jump=0.10,
                              max_logtau_jump=0.10, max_points=500):
     """Apply Dessart's adaptive grid refinement criteria.
     
@@ -1127,7 +1127,7 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
                                    refined_r, refined_v, refined_T, refined_rho, refined_tau,
                                    output_file, time_days,
                                    max_radius_jump=0.05, max_temp_jump=0.10,
-                                   max_density_jump=0.10, max_ne_jump=0.10,
+                                   max_density_jump=0.15, max_ne_jump=0.10,
                                    max_logtau_jump=0.10, max_points=500):
     """Create diagnostic plots for adaptive grid refinement process.
 
@@ -1613,8 +1613,8 @@ def main():
                         help='Max radius jump fraction for adaptive grid (default: 0.05)')
     parser.add_argument('--max-temp-jump', type=float, default=0.10,
                         help='Max temperature jump fraction (default: 0.10)')
-    parser.add_argument('--max-density-jump', type=float, default=0.10,
-                        help='Max density jump fraction (default: 0.10)')
+    parser.add_argument('--max-density-jump', type=float, default=0.15,
+                        help='Max density jump fraction (default: 0.15)')
     parser.add_argument('--max-ne-jump', type=float, default=0.10,
                         help='Max electron density jump fraction (default: 0.10)')
     parser.add_argument('--max-logtau-jump', type=float, default=0.10,

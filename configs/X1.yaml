@@ -196,7 +196,7 @@ cmfgen_conversion:
   min_points: 80              # Minimum points in output SN_HYDRO_DATA (default: 80)
   max_radius_jump: 0.05        # Max radius jump fraction (default: 0.05 = 5% - refine if dr/r > 5%)
   max_temp_jump: 0.10          # Max temperature jump fraction (default: 0.10 = 10% - refine if dT/T > 10%)
-  max_density_jump: 0.10       # Max density jump fraction (default: 0.10 = 10% - refine if drho/rho > 10%)
+  max_density_jump: 0.15       # Max density jump fraction (default: 0.15 = 15% - refine if drho/rho > 15%)
   max_ne_jump: 0.10            # Max electron density jump fraction (default: 0.10 = 10% - refine if dne/ne > 10%)
   max_logtau_jump: 0.10        # Max log optical depth jump (default: 0.10 = 10% - refine if dlogtau > 10%)
 
