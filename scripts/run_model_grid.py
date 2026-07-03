@@ -1428,7 +1428,8 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
     grid_thinning_threshold = cmfgen_conv_cfg.get('grid_thinning_threshold', 0.005)
     # Adaptive grid parameters
     enable_adaptive_grid = cmfgen_conv_cfg.get('enable_adaptive_grid', False)
-    base_grid_target = cmfgen_conv_cfg.get('base_grid_target', 100)
+    base_grid_target = cmfgen_conv_cfg.get('base_grid_target', 80)
+    min_points = cmfgen_conv_cfg.get('min_points', 80)
     max_radius_jump = cmfgen_conv_cfg.get('max_radius_jump', 0.05)
     max_temp_jump = cmfgen_conv_cfg.get('max_temp_jump', 0.10)
     max_density_jump = cmfgen_conv_cfg.get('max_density_jump', 0.15)
