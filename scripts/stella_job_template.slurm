@@ -87,6 +87,7 @@ python "$SCRIPTS_DIR/convert_profile_to_stella.py" \
     "$MODEL_NAME" \
     "$MODMAKE_DIR" \
     --nzon="$NZON" \
+    --nzon-max="{NZON_MAX}" \
     --target-days="$TARGET_DAYS" \
     --snapshot-interval="{SNAPSHOT_INTERVAL}" \
     --r-min="$R_MIN" \
@@ -98,13 +99,24 @@ python "$SCRIPTS_DIR/convert_profile_to_stella.py" \
     --nstmax="{NSTMAX}" \
     --eps="{EPS}" \
     --hmax="{HMAX}" \
+    --meth="{METH}" \
     {ENABLE_CONV_ARG} \
     {DISABLE_SCATTERING_ARG} \
     --fit-tau="{FIT_TAU}" \
+    --tau-tol="{TAU_TOL}" \
     {GIVDTL_ARG} \
     {CUSTOM_OUTPUT_TIMES_ARG} \
+    {IOUT_ARG} \
     --outer-fraction="{OUTER_FRACTION}" \
     --transition-radius="{TRANSITION_RADIUS}" \
+    --tau-min="{TAU_MIN}" \
+    {RHO_MIN_ARG} \
+    --kappa="{KAPPA}" \
+    --wacc-r="{WACC_R}" \
+    --wacc-v="{WACC_V}" \
+    --wacc-t="{WACC_T}" \
+    --wacc-rad="{WACC_RAD}" \
+    --temp-floor="{TEMP_FLOOR}" \
     2>&1 | tee -a stella_build.log
 
 # Create strad directory and copy .dat file
@@ -129,7 +141,7 @@ else
     exit 1
 fi
 
-# Link lineatom.dat to model vladsf directory
+# Prepare vladsf directory and link lineatom.dat (needed by both grey and ronfict paths)
 mkdir -p "$MODEL_WORK_DIR/vladsf"
 cd "$MODEL_WORK_DIR/vladsf"
 if [[ -f "$STELLA_ROOT/vladsf/lineatom.dat" ]]; then
@@ -139,22 +151,6 @@ elif [[ -f "$STELLA_ROOT/run/vladsf/lineatom.dat" ]]; then
 else
     echo "WARNING: lineatom.dat not found" >&2
 fi
-
-# Generate STELLA opacity tables (test.1 through test.6) for homogeneous electron scattering
-# BINARY_NZON must match zone.inc Mzon used to compile the STELLA binary (not model zone count)
-BINARY_NZON=$(grep -oP '^PARAMETER\(Mzon=\K[0-9]+' "$STELLA_ROOT/src/zone.inc" 2>/dev/null | head -1 || echo "{NZON}")
-echo ""
-echo "--- Generating vladsf opacity tables (Mzon=$BINARY_NZON, kappa={KAPPA}) ---"
-rm -f "$MODEL_WORK_DIR/vladsf/{MODEL_NAME}."{1,2,3,4,5,6} "$MODEL_WORK_DIR/vladsf/{MODEL_NAME}.ab" 2>/dev/null || true
-python "$SCRIPTS_DIR/generate_stella_opacity_tables.py" \
-    "$MODEL_WORK_DIR/vladsf" "{MODEL_NAME}" \
-    --nzon "$BINARY_NZON" --kappa {KAPPA} 2>&1
-if [ ! -s "$MODEL_WORK_DIR/vladsf/{MODEL_NAME}.1" ]; then
-    echo "ERROR: Failed to generate opacity tables"
-    exit 1
-fi
-FILE_SIZE=$(wc -c < "$MODEL_WORK_DIR/vladsf/{MODEL_NAME}.1")
-echo "Opacity tables generated (${FILE_SIZE} bytes each)."
 
 # -------------------------------------------------------
 # Step 5: Convert .hyd + .abn to .mod format via eve2
@@ -246,6 +242,105 @@ if [ ! -s "$MODEL_WORK_DIR/eve/{MODEL_NAME}.mod" ]; then
     exit 1
 fi
 echo ".mod file created successfully ($(wc -c < {MODEL_NAME}.mod) bytes)"
+
+# -------------------------------------------------------
+# Step 5b: Generate vladsf opacity tables
+#   USE_RONFICT=true  -> xronfict.exe (full Saha + per-frequency bf/ff/line physics)
+#   USE_RONFICT=false -> generate_stella_opacity_tables.py (grey Rosseland mean)
+# -------------------------------------------------------
+echo ""
+USE_RONFICT="{USE_RONFICT}"
+RONFICT_EXE="{RONFICT_EXE}"
+YAKOVLEV_DIR="{YAKOVLEV_DIR}"
+BINARY_NZON=$(grep -oP '^PARAMETER\(Mzon=\K[0-9]+' "$STELLA_ROOT/src/zone.inc" 2>/dev/null | head -1 || echo "{NZON}")
+
+if [[ "$USE_RONFICT" == "true" ]]; then
+    echo "--- Generating multigroup vladsf opacity tables via xronfict.exe ---"
+    if [[ ! -x "$RONFICT_EXE" ]]; then
+        echo "ERROR: xronfict.exe not found or not executable at $RONFICT_EXE" >&2
+        exit 1
+    fi
+
+    cd "$MODEL_WORK_DIR/vladsf"
+
+    # Link yakovlev cross-section data directory
+    if [[ -d "$YAKOVLEV_DIR" ]]; then
+        ln -sfn "$YAKOVLEV_DIR" yakovlev
+    else
+        echo "WARNING: yakovlev dir not found at $YAKOVLEV_DIR" >&2
+    fi
+
+    # Prefer pre-compiled linedata.dump if available (much faster than lineatom.dat)
+    LINEDATA_DUMP="$STELLA_ROOT/models/X_STELA/vladsf/linedata.dump"
+    if [[ -f "$LINEDATA_DUMP" ]]; then
+        ln -sf "$LINEDATA_DUMP" linedata.dump
+        echo "  Using pre-compiled linedata.dump"
+    fi
+
+    # Remove stale opacity files
+    rm -f "{MODEL_NAME}."{1,2,3,4,5,6} "{MODEL_NAME}.ab" 2>/dev/null || true
+
+    # Write ronfict.1 input file (blank comment line + data line)
+    # Paths are relative to the vladsf run directory
+    cat > ronfict.1 <<RONFEOF
+  Model                          NiDist                        results          opafile
+'../eve/{MODEL_NAME}.mod'  '../eve/{MODEL_NAME}.xni'  'ronfict.res'  '{MODEL_NAME}.0'
+RONFEOF
+
+    # xronfict.exe runs for ~3 min per time slice * 6 slices = ~18-20 min total.
+    # It writes one file per slice (.1 first, then .2-.6) only after completing all
+    # 50 zones * 14 rho * 14 T = 9800 opacity calls per slice.
+    # Each call invokes the full Saha solver + bf/ff/line physics.
+    # DO NOT interrupt: all 6 files + .ab must be present and non-empty for STELLA.
+    echo "  Running xronfict.exe (expected ~18-20 min for 6 time slices)..."
+    echo "  Progress is logged to ronfict.log; each 'done time=' line = 1 completed slice."
+    echo "  xronfict start: $(date)"
+
+    # Run xronfict.exe synchronously (no background monitoring to avoid pipefail issues)
+    "$RONFICT_EXE" 2>&1 | tee ronfict.log
+    EXIT_RONF=$?
+
+    echo "  xronfict end: $(date) (exit=$EXIT_RONF)"
+
+    # Validate: KNadap=-4 requires ALL 6 frequency files + .ab to be non-empty
+    RONF_OK=true
+    for nf in 1 2 3 4 5 6; do
+        if [[ ! -s "{MODEL_NAME}.$nf" ]]; then
+            echo "ERROR: xronfict.exe produced empty/missing opacity file {MODEL_NAME}.$nf" >&2
+            RONF_OK=false
+        fi
+    done
+    if [[ ! -s "{MODEL_NAME}.ab" ]]; then
+        echo "ERROR: xronfict.exe produced empty/missing absorption file {MODEL_NAME}.ab" >&2
+        RONF_OK=false
+    fi
+    if [[ "$RONF_OK" != "true" ]]; then
+        echo "  Check $MODEL_WORK_DIR/vladsf/ronfict.log for details" >&2
+        echo "  Last 20 lines of ronfict.log:" >&2
+        tail -20 ronfict.log >&2
+        exit 1
+    fi
+    FILE_SIZE=$(wc -c < "{MODEL_NAME}.1")
+    echo "Multigroup opacity tables generated via xronfict: all 7 files present (${FILE_SIZE} bytes each)."
+
+else
+    echo "--- Generating vladsf opacity tables via generate_stella_opacity_tables.py (Mzon=$BINARY_NZON, kappa={KAPPA}) ---"
+    cd "$MODEL_WORK_DIR/vladsf"
+    rm -f "{MODEL_NAME}."{1,2,3,4,5,6} "{MODEL_NAME}.ab" 2>/dev/null || true
+    /mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/python3.12 "$SCRIPTS_DIR/generate_stella_opacity_tables.py" \
+        "$MODEL_WORK_DIR/vladsf" "{MODEL_NAME}" \
+        --nzon "$BINARY_NZON" --kappa {KAPPA} \
+        --fh {FH} --fhe {FHE} --abs-fraction-floor {ABS_FRACTION_FLOOR} \
+        --stella-root "{STELLA_ROOT}" \
+        --plot-dir "{PLOTS_DIR}" \
+        {ABS_FRACTION_ARG} {OPAL_TABLES_ARG} 2>&1
+    if [[ ! -s "$MODEL_WORK_DIR/vladsf/{MODEL_NAME}.1" ]]; then
+        echo "ERROR: Failed to generate opacity tables"
+        exit 1
+    fi
+    FILE_SIZE=$(wc -c < "{MODEL_NAME}.1")
+    echo "Grey opacity tables generated (${FILE_SIZE} bytes each)."
+fi
 
 # -------------------------------------------------------
 # Step 6: Set up STELLA run directory
@@ -340,6 +435,7 @@ python "$SCRIPTS_DIR/convert_stella_swd_to_cmfgen.py" \
     {ENABLE_GRID_THINNING_ARG} \
     {ENABLE_ADAPTIVE_GRID_ARG} \
     --base-grid-target="{BASE_GRID_TARGET}" \
+    --min-points="{MIN_POINTS}" \
     --max-radius-jump="{MAX_RADIUS_JUMP}" \
     --max-temp-jump="{MAX_TEMP_JUMP}" \
     --max-density-jump="{MAX_DENSITY_JUMP}" \
@@ -382,21 +478,45 @@ echo "Evolution plots: $PLOTS_DIR/{MODEL_NAME}_evolution.png, $PLOTS_DIR/{MODEL_
 # Lightcurve and .tt handling
 if [[ -n "$TT_FILE" ]]; then
     cp "$TT_FILE" "$CMFGEN_DIR/"
-    cp "$TT_FILE" "$OUTPUT_DIR/"
+    cp "$TT_FILE" "$OUTPUT_DIR/{MODEL_NAME}.tt"
     echo "Lightcurve copied: $TT_FILE -> $CMFGEN_DIR/"
-    echo "Lightcurve copied: $TT_FILE -> $OUTPUT_DIR/"
+    echo "Lightcurve copied: $TT_FILE -> $OUTPUT_DIR/{MODEL_NAME}.tt"
 
     # Plot lightcurve
     python "$SCRIPTS_DIR/plot_stella_lightcurve.py" \
         "$CMFGEN_DIR/{MODEL_NAME}.tt" \
-        --output "$PLOTS_DIR/stella_lightcurve.png" \
+        --output "$PLOTS_DIR/{MODEL_NAME}_stella_lightcurve.png" \
         --days-max "$TARGET_DAYS" \
-        --csv "$OUTPUT_DIR/lightcurve.csv" \
+        --csv "$OUTPUT_DIR/{MODEL_NAME}_lightcurve.csv" \
         2>&1 | tee -a stella_build.log
-    echo "Lightcurve plot: $PLOTS_DIR/stella_lightcurve.png"
-    echo "Lightcurve CSV: $OUTPUT_DIR/lightcurve.csv"
+    echo "Lightcurve plot: $PLOTS_DIR/{MODEL_NAME}_stella_lightcurve.png"
+    echo "Lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve.csv"
 else
     echo "Note: No .tt lightcurve file found for {MODEL_NAME}"
+fi
+
+# -------------------------------------------------------
+# Step 8b: Extract complete multi-band lightcurve with pysynphot
+# -------------------------------------------------------
+echo ""
+echo "--- Extracting complete pysynphot lightcurve ---"
+FLX_FILE="$STRAD_DIR/{MODEL_NAME}.flx"
+if [[ ! -f "$FLX_FILE" ]]; then
+    FLX_FILE="$MODEL_WORK_DIR/strad/{MODEL_NAME}.flx"
+fi
+if [[ -f "$SWD_FILE" && -f "$FLX_FILE" ]]; then
+    # Use waterboa python (has pysynphot in user .local); conda env may lack it
+    /mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/python3.12 \
+        "$SCRIPTS_DIR/extract_lightcurve_pysynphot.py" \
+        "$SWD_FILE" \
+        "$FLX_FILE" \
+        --tt-file "$TT_FILE" \
+        --output "$OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv" \
+        --plot "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
+        2>&1 | tee -a stella_build.log
+    echo "Complete lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
+else
+    echo "Note: Missing .swd or .flx for pysynphot extraction"
 fi
 
 # -------------------------------------------------------
@@ -555,6 +675,9 @@ except:
     sed -i "s/@luminosity@/$LUMINOSITY/g" "$PARAM_TEMPLATE"
     
     echo "Generated param.lua with R=$R_INNER_CM cm, T=$T_INNER K, L=$LUMINOSITY erg/s"
+    
+    # Fix zero-abundance species and core radius safety
+    python3 /ptmp/sbrennan/SN2024pba/scripts/fix_sedona_param.py "$SEDONA_DIR"
 else
     echo "WARNING: param.lua template not found in sedona_base"
 fi

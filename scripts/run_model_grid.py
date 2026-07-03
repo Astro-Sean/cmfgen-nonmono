@@ -1547,6 +1547,7 @@ def submit_stella_job(config, scripts_dir, project_dir, debug=False, config_file
         'GRID_THINNING_THRESHOLD': grid_thinning_threshold,
         'ENABLE_ADAPTIVE_GRID_ARG': '--enable-adaptive-grid' if enable_adaptive_grid else '',
         'BASE_GRID_TARGET': base_grid_target,
+        'MIN_POINTS': min_points,
         'MAX_RADIUS_JUMP': max_radius_jump,
         'MAX_TEMP_JUMP': max_temp_jump,
         'MAX_DENSITY_JUMP': max_density_jump,
@@ -1660,7 +1661,8 @@ def run_stella_conversion(config, scripts_dir, project_dir, source_model_name=No
     tau_min = stella_cfg.get('tau_min', 0)
     enable_grid_thinning = cmfgen_conv_cfg.get('enable_grid_thinning', False)
     enable_adaptive_grid = cmfgen_conv_cfg.get('enable_adaptive_grid', True)
-    base_grid_target = cmfgen_conv_cfg.get('base_grid_target', 100)
+    base_grid_target = cmfgen_conv_cfg.get('base_grid_target', 80)
+    min_points = cmfgen_conv_cfg.get('min_points', 80)
     max_radius_jump = cmfgen_conv_cfg.get('max_radius_jump', 0.05)
     max_temp_jump = cmfgen_conv_cfg.get('max_temp_jump', 0.10)
     max_density_jump = cmfgen_conv_cfg.get('max_density_jump', 0.10)
@@ -1681,6 +1683,7 @@ def run_stella_conversion(config, scripts_dir, project_dir, source_model_name=No
         '--tau-min', str(tau_min),
         '--model-name', model_name,
         '--base-grid-target', str(base_grid_target),
+        '--min-points', str(min_points),
         '--max-radius-jump', str(max_radius_jump),
         '--max-temp-jump', str(max_temp_jump),
         '--max-density-jump', str(max_density_jump),

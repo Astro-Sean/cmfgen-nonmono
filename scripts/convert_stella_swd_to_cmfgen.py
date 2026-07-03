@@ -1562,7 +1562,7 @@ def main():
     parser.add_argument('--tau-max',      type=float, default=30.0)
     parser.add_argument('--tau-min',      type=float, default=1e-4)
     parser.add_argument('--nzon-target',  type=int,   default=200)
-    parser.add_argument('--min-points',   type=int,   default=150,
+    parser.add_argument('--min-points',   type=int,   default=80,
                         help='Minimum number of points in output SN_HYDRO_DATA')
     parser.add_argument('--kappa',        type=float, default=0.34,
                         help='Electron scattering opacity cm^2/g')
@@ -1573,8 +1573,8 @@ def main():
                         help='min_dr/r threshold for grid thinning (default: 0.005)')
     parser.add_argument('--enable-adaptive-grid', action='store_true',
                         help='Enable Dessart-style adaptive grid refinement')
-    parser.add_argument('--base-grid-target', type=int, default=100,
-                        help='Target base grid size before adaptive refinement (default: 100)')
+    parser.add_argument('--base-grid-target', type=int, default=80,
+                        help='Target base grid size before adaptive refinement (default: 80)')
     parser.add_argument('--max-radius-jump', type=float, default=0.05,
                         help='Max radius jump fraction for adaptive grid (default: 0.05)')
     parser.add_argument('--max-temp-jump', type=float, default=0.10,
