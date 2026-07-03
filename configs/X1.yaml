@@ -3,7 +3,7 @@
 # STELLA injects 1e51 erg via EBurst thermal bomb into the stationary shell
 
 # Model identification
-model_name: "X1_lam"                           # Short name for STELLA Fortran string limit
+model_name: "X1_lam2"                           # Short name for STELLA Fortran string limit
 description: "RSG shell + beta-law wind + thermal bomb: physically motivated progenitor structure - full heating - CMFGEN retry with fixed settings"
 
 # Spectrum code execution flags
@@ -156,6 +156,7 @@ stella:
     total_mass_msun: 0.05      # Total Ni56 mass in Msun (typical SN value)
     distribution_mass_msun: 0.5   # Mass range over which Ni56 is distributed (inner X Msun)
     distribution_type: "uniform"  # Distribution type: "uniform" or "gaussian"
+    inner_zone_fraction: 0.4    # Place Ni56 only in inner 40% of zones (metal-rich ejecta)
 
 # Temperature profile parameters
 # Controls the initial temperature distribution in the progenitor model
