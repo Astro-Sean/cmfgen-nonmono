@@ -1305,6 +1305,7 @@ def apply_profile(
             "INC_RAD_DECAYS": inc_rad_decays,
             "INC_SHOCK_POWER": "F",   # Dessart+2015: shock heating already in hydro T(r)
             "ALL_FREQ": "T",
+            "LAM_SET": "F",           # Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
 
             "RD_CF_FILE": "F",
             "MIN_CF": "1.0D-1",        # Raised to 0.1 to avoid MOM_J_REL_V9 NaN errors at extreme far-IR
@@ -1430,6 +1431,7 @@ def apply_profile(
             "INC_RAD_DECAYS": inc_rad_decays,
             "INC_SHOCK_POWER": "F",   # Dessart+2015: shock heating already in hydro T(r)
             "ALL_FREQ": "T",
+            "LAM_SET": "F",           # Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
@@ -1590,6 +1592,7 @@ def apply_profile(
             "INC_RAD_DECAYS": inc_rad_decays,
             "INC_SHOCK_POWER": "F",
             "ALL_FREQ": "T",
+            "LAM_SET": "F",           # Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
@@ -1733,6 +1736,7 @@ def apply_profile(
             "INC_RAD_DECAYS": inc_rad_decays,
             "INC_SHOCK_POWER": "F",
             "ALL_FREQ": "T",
+            "LAM_SET": "F",           # Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
 
             # [OPT] Continuum frequency grid for IIn models
             "RD_CF_FILE": "F",      # Build frequency grid internally
