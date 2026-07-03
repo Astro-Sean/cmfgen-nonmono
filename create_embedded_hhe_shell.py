@@ -3,9 +3,16 @@
 Create initial HERACLES profile for embedded H/He-rich supernova model
 Based on arXiv:1503.05463 - Numerical simulations of super-luminous supernovae of type IIn
 This script sets up a multi-shell structure:
-1. Inner region (R < Rt): Ejecta A - H/He-rich progenitor envelope (M_ejecta_A, fx_H_A)
-2. Middle region (Rt < R < 1e16 cm): H/He-rich CSM wind
-3. Outer region (R > 1e16 cm): Ejecta B - metal-rich stripped envelope SN (M_ejecta_B, fx_H_B)
+1. Inner region (R < R_star): Ejecta A - H/He-rich progenitor envelope (M_ejecta_A, fx_H_A)
+   - Contains Ni56 (radioactive material from exploded core)
+2. Middle region (R_star < R < R_crossover): Ejecta B - metal-rich stripped envelope SN (M_ejecta_B, fx_H_B)
+   - No Ni56 (outer stripped envelope material)
+3. Outer region (R > R_crossover): Wind from RSG progenitor (if Mdot_wind > 0)
+   - No Ni56 (solar composition wind)
+
+IMPORTANT: fx_Ni_B parameter controls Ni56 in the INNER ejecta (Ejecta A), not the outer ejecta (Ejecta B).
+This is because Ni56 is produced in the core and should be in the innermost material.
+
 Usage:
     python create_embedded_hhe_shell.py --days 400 --output profile_embedded_hhe.dat --plots
 """
@@ -332,7 +339,7 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
     fx_Si_ejecta_arr = fx_Si_A * np.ones_like(r)
     fx_Ca_ejecta_arr = fx_Ca_A * np.ones_like(r)
     fx_Fe_ejecta_arr = fx_Fe_A * np.ones_like(r)
-    fx_Ni_ejecta_arr = 0.0 * np.ones_like(r)  # Ni is negligible in solar composition
+    fx_Ni_ejecta_arr = 0.0 * np.ones_like(r)  # No Ni56 in input_profile - comes from .xni file only
     # ================================================================
     # EJECTA B  (R_inner_shell < r < R_crossover) - NEW LAYOUT
     # ================================================================
@@ -360,14 +367,15 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
     print(f"  Ejecta B: homologous rho ∝ r^(-{N_rho_eff:.0f}), "
           f"rho at R_inner={rho_0_B_final:.2e}, rho at R_cross="
           f"{rho_0_B_final*(R_crossover/R_inner_shell)**(-N_rho_eff):.2e} g/cm3")
-    # Composition: metal-rich stripped envelope (ejecta B) - SN2011dh-like (5 elements + Ni)
+    # Composition: metal-rich stripped envelope (ejecta B) - SN2011dh-like (5 elements, no Ni)
+    # Ni56 is only in the inner ejecta (exploded core material), not in the outer stripped envelope
     fx_H_ejecta_B  = fx_H_B * np.ones_like(r)
     fx_He_ejecta_B = fx_He_B * np.ones_like(r)
     fx_O_ejecta_B  = fx_O_B * np.ones_like(r)
     fx_Si_ejecta_B = fx_Si_B * np.ones_like(r)
     fx_Ca_ejecta_B = fx_Ca_B * np.ones_like(r)
     fx_Fe_ejecta_B = fx_Fe_B * np.ones_like(r)
-    fx_Ni_ejecta_B = fx_Ni_B * np.ones_like(r)
+    fx_Ni_ejecta_B = 0.0 * np.ones_like(r)  # No Ni56 in outer ejecta B
     # ================================================================
     # WIND REGION  (R_star_cm < r < R_CSM_MAX) - Wind starts from RSG surface
     # ================================================================
@@ -395,7 +403,7 @@ def create_embedded_hhe_profile(days_ejecta_A=11.6, days_ejecta_B=400, n_cells=1
     fx_Si_wind_arr = fx_Si_A * np.ones_like(r)
     fx_Ca_wind_arr = fx_Ca_A * np.ones_like(r)
     fx_Fe_wind_arr = fx_Fe_A * np.ones_like(r)
-    fx_Ni_wind_arr = 0.0 * np.ones_like(r)  # Ni is negligible in solar composition
+    fx_Ni_wind_arr = 0.0 * np.ones_like(r)  # No Ni56 in wind (solar composition)
     # ================================================================
     # SMOOTH TRANSITION LAYERS (NEW LAYOUT: A → B → Wind)
     # Wind is calculated from R_star_cm (RSG surface) outward

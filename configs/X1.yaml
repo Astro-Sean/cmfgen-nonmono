@@ -53,7 +53,7 @@ ejecta:
   fx_Si_B: 0.07            # Silicon mass fraction (core-processed material)
   fx_Ca_B: 0.02            # Calcium mass fraction (alpha-chain)
   fx_Fe_B: 0.07            # Iron mass fraction (core-processed material)
-  fx_Ni_B: 0.03            # Nickel mass fraction (radioactive 56Ni for light curve)
+  fx_Ni_B: 0.0            # Nickel mass fraction (set to 0 - Ni56 comes from .xni file only)
   # Remaining ~0.23% is trace metals (C, Ne, Mg, S, etc. - not included)
 
   # ================================================================
