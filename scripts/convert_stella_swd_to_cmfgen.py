@@ -612,15 +612,49 @@ def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
     n_e_list = list(n_e)
     tau_list = list(tau)
     mf_lists = {elem: list(mass_fractions[elem]) for elem in mass_fractions}
-    
+
+    # --- Diagnostic: count violations in the BASE grid before any AMR ---
+    n_viol_r = n_viol_T = n_viol_rho = n_viol_tau = 0
+    max_dr_r = max_dT_T = max_drho_rho = max_dlogtau = 0.0
+    for i in range(len(r_list) - 1):
+        dr_r = abs(r_list[i+1] - r_list[i]) / max(abs(r_list[i]), 1e-30)
+        dT_T = abs(T_list[i+1] - T_list[i]) / max(T_list[i], 1e-30)
+        drho_rho = abs(rho_list[i+1] - rho_list[i]) / max(rho_list[i], 1e-30)
+        eps = 1e-30
+        dlogtau = abs(np.log10(max(tau_list[i+1], eps)) - np.log10(max(tau_list[i], eps)))
+
+        max_dr_r = max(max_dr_r, dr_r)
+        max_dT_T = max(max_dT_T, dT_T)
+        max_drho_rho = max(max_drho_rho, drho_rho)
+        max_dlogtau = max(max_dlogtau, dlogtau)
+
+        if dr_r > max_radius_jump:       n_viol_r += 1
+        if dT_T > max_temp_jump:         n_viol_T += 1
+        if drho_rho > max_density_jump:  n_viol_rho += 1
+        if dlogtau > max_logtau_jump and tau_list[i] > 0.01:
+            n_viol_tau += 1
+
+    print(f"[AMR Audit] Base grid ({len(r_list)} points) violation summary:")
+    print(f"  dr/r:     {n_viol_r:4d} edges exceed {max_radius_jump}  (max jump = {max_dr_r:.3f})")
+    print(f"  dT/T:     {n_viol_T:4d} edges exceed {max_temp_jump}  (max jump = {max_dT_T:.3f})")
+    print(f"  drho/rho: {n_viol_rho:4d} edges exceed {max_density_jump}  (max jump = {max_drho_rho:.3f})")
+    print(f"  dlogtau:  {n_viol_tau:4d} edges exceed {max_logtau_jump}  (max jump = {max_dlogtau:.3f})")
+    total_violations = n_viol_r + n_viol_T + n_viol_rho + n_viol_tau
+    if total_violations == 0:
+        print("[AMR Audit] Base grid already meets ALL criteria. No AMR needed.")
+        # Return original arrays without modification
+        return (np.array(r_list), np.array(v_list), np.array(T_list),
+                np.array(rho_list), np.array(n_e_list), np.array(tau_list),
+                {k: np.array(v) for k, v in mf_lists.items()})
+
     max_iterations = 100  # Prevent infinite loops
     iteration = 0
     n_inserted_total = 0
-    
+
     while iteration < max_iterations:
         n_inserted = 0
         i = 0
-        
+
         while i < len(r_list) - 1:
             if len(r_list) >= max_points:
                 print(f"[Adaptive Grid] Reached max_points ({max_points}), stopping refinement")
@@ -629,11 +663,13 @@ def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
             dr_r = abs(r_list[i+1] - r_list[i]) / max(abs(r_list[i]), 1e-30)
             dT_T = abs(T_list[i+1] - T_list[i]) / max(T_list[i], 1e-30)
             drho_rho = abs(rho_list[i+1] - rho_list[i]) / max(rho_list[i], 1e-30)
-            dne_ne = abs(n_e_list[i+1] - n_e_list[i]) / max(n_e_list[i], 1e-30)
             eps = 1e-30
             dlogtau = abs(np.log10(max(tau_list[i+1], eps)) - np.log10(max(tau_list[i], eps)))
-            
+
             # Check if any criterion is violated
+            # NOTE: dne/ne is excluded because n_e is computed from an approximate
+            # ionization formula that creates artificial jumps at ionization fronts.
+            # The physically meaningful quantities (r, T, rho, tau) are checked instead.
             violation = False
             if dr_r > max_radius_jump:
                 violation = True
@@ -641,13 +677,11 @@ def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
                 violation = True
             if drho_rho > max_density_jump:
                 violation = True
-            if dne_ne > max_ne_jump:
-                violation = True
             # Skip dlogtau criterion in very optically thin outer regions (tau < 0.01)
             # to prevent over-refinement where opacity is negligible
             if dlogtau > max_logtau_jump and tau_list[i] > 0.01:
                 violation = True
-            
+
             if violation:
                 # Check minimum spacing to prevent over-refinement
                 MIN_DR_OVER_R = 1e-5  # Minimum relative spacing
@@ -658,28 +692,28 @@ def adaptive_grid_refinement(radius, v, T, rho, n_e, tau, mass_fractions,
                     # Insert a point at the midpoint
                     r_new, v_new, T_new, rho_new, n_e_new, tau_new, mf_new = interpolate_arrays(
                         r_list, v_list, T_list, rho_list, n_e_list, tau_list, mf_lists, i, i+1, 0.5)
-                    
+
                     r_list.insert(i+1, r_new)
                     v_list.insert(i+1, v_new)
                     T_list.insert(i+1, T_new)
                     rho_list.insert(i+1, rho_new)
                     n_e_list.insert(i+1, n_e_new)
                     tau_list.insert(i+1, tau_new)
-                    
+
                     for elem in mf_lists:
                         mf_lists[elem].insert(i+1, mf_new[elem])
-                    
+
                     n_inserted += 1
                     i += 2  # Skip over the newly inserted point
             else:
                 i += 1
-        
+
         n_inserted_total += n_inserted
         if n_inserted == 0:
             break  # No more violations, converged
-        
+
         iteration += 1
-    
+
     if n_inserted_total > 0:
         print(f"[Adaptive Grid] Inserted {n_inserted_total} points to meet gradient criteria")
         print(f"  Final grid size: {len(r_list)} points")
