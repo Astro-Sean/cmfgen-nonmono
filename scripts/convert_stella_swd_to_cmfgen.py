@@ -1841,7 +1841,81 @@ def main():
     # Disable artifact filter - it was removing optically thick zones (high density)
     # The high density zones in the inner region are physical, not artifacts
     print("[Artifact Filter] DISABLED - keeping all zones after tau trim")
-    
+
+    # --- Outer boundary refinement ---
+    # The photosphere and spectrum formation region are in the outer layers.
+    # Add extra points where tau < 1 to improve Sobolev/flux accuracy.
+    def refine_outer_boundary(r, v, T, rho, kappa, mass_fractions, tau, max_extra=20, tau_thresh=1.0):
+        """Insert additional points in the outer low-tau region (tau < tau_thresh)."""
+        n = len(r)
+        # Find the index where tau first exceeds tau_thresh (outer->inner order)
+        i_thresh = n
+        for i in range(n):
+            if tau[i] > tau_thresh:
+                i_thresh = i
+                break
+        # The outer region is indices 0 .. i_thresh-1
+        n_outer = i_thresh
+        if n_outer < 3:
+            print(f"[Outer Refine] Outer region too small ({n_outer} pts), skipping")
+            return r, v, T, rho, kappa, mass_fractions, tau
+
+        # We insert points between consecutive pairs in the outer region
+        # Limit to avoid bloat
+        n_insert_target = min(max_extra, n_outer)
+        # Choose evenly spaced insertion points
+        insert_indices = []
+        step = max(1, n_outer // n_insert_target)
+        for i in range(0, n_outer - 1, step):
+            insert_indices.append(i)
+
+        # Build new arrays by inserting at midpoints
+        def interp_linear(a, b, frac):
+            return a + frac * (b - a)
+        def interp_log(a, b, frac):
+            eps = 1e-30
+            return 10 ** (np.log10(max(a, eps)) + frac * (np.log10(max(b, eps)) - np.log10(max(a, eps))))
+
+        r_new, v_new, T_new, rho_new, kappa_new, tau_new = list(r), list(v), list(T), list(rho), list(kappa), list(tau)
+        mf_new = {k: list(v) for k, v in mass_fractions.items()}
+
+        # Insert from the end backwards to keep indices valid
+        offset = 0
+        for i in sorted(insert_indices, reverse=True):
+            j = i + offset  # current position in growing list
+            if j >= len(r_new) - 1:
+                continue
+            r_mid = interp_linear(r_new[j], r_new[j+1], 0.5)
+            v_mid = interp_linear(v_new[j], v_new[j+1], 0.5)
+            T_mid = interp_log(T_new[j], T_new[j+1], 0.5)
+            rho_mid = interp_log(rho_new[j], rho_new[j+1], 0.5)
+            kappa_mid = interp_log(kappa_new[j], kappa_new[j+1], 0.5)
+            tau_mid = interp_log(tau_new[j], tau_new[j+1], 0.5)
+
+            r_new.insert(j+1, r_mid)
+            v_new.insert(j+1, v_mid)
+            T_new.insert(j+1, T_mid)
+            rho_new.insert(j+1, rho_mid)
+            kappa_new.insert(j+1, kappa_mid)
+            tau_new.insert(j+1, tau_mid)
+            for elem in mf_new:
+                mf_mid = interp_linear(mf_new[elem][j], mf_new[elem][j+1], 0.5)
+                mf_new[elem].insert(j+1, mf_mid)
+            offset += 1
+
+        n_added = len(r_new) - n
+        print(f"[Outer Refine] Inserted {n_added} points in outer region (tau < {tau_thresh})")
+        print(f"  Outer region: {n_outer} -> {n_outer + n_added} points")
+        return (np.array(r_new), np.array(v_new), np.array(T_new),
+                np.array(rho_new), np.array(kappa_new),
+                {k: np.array(v) for k, v in mf_new.items()}, np.array(tau_new))
+
+    # Apply outer boundary refinement before AMR
+    tau = compute_kappa_tau(r, rho, kappa_arr)
+    r, v, T, rho, kappa_arr, mass_fractions, tau = refine_outer_boundary(
+        r, v, T, rho, kappa_arr, mass_fractions, tau,
+        max_extra=20, tau_thresh=1.0)
+
     # Dessart-style adaptive grid workflow
     if args.enable_adaptive_grid:
         print("\n--- Dessart-style Adaptive Grid Workflow ---")
