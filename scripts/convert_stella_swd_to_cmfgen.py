@@ -148,7 +148,14 @@ def read_abn(abn_path: str, nzon: int) -> dict[str, np.ndarray]:
             if len(cols) < 20 or not cols[0].strip().lstrip('-').isdigit():
                 continue
             try:
-                vals = [float(c) for c in cols[4:20]]
+                # Map columns 4-19 to elements (16 elements total)
+                # Actual ABN format: cols[4]=H, cols[5]=He, cols[6]=C, cols[7]=N, cols[8]=O, cols[9]=Ne,
+                # cols[10]=Na, cols[11]=Mg, cols[12]=Al, cols[13]=Si, cols[14]=S,
+                # cols[15]=Ar, cols[16]=Ca, cols[17]=FePeak, cols[18]=Ni58, cols[19]=Ni56
+                vals = [float(cols[4]), float(cols[5]), float(cols[6]), float(cols[7]), float(cols[8]),
+                        float(cols[9]), float(cols[10]), float(cols[11]), float(cols[12]), float(cols[13]),
+                        float(cols[14]), float(cols[15]), float(cols[16]), float(cols[17]), float(cols[18]),
+                        float(cols[19])]
             except ValueError:
                 continue
             for e, v in zip(elements, vals):
@@ -160,6 +167,36 @@ def read_abn(abn_path: str, nzon: int) -> dict[str, np.ndarray]:
         # If ABN has more zones than SWD, truncate to match SWD
         if len(arr) > nzon:
             arr = arr[:nzon]
+        data[e] = arr[::-1]  # inner->outer to outer->inner
+    return data
+
+
+def read_input_profile(input_profile_path: str) -> dict[str, np.ndarray]:
+    """Read HERACLES input_profile file -> mass fractions per zone.
+
+    Columns: r_cm rho_cgs p_cgs u_cgs fx_H fx_He fx_O fx_Si fx_Ca fx_Fe fx_Ni
+    Returns dict of element -> array[nzon], sorted outer->inner (reversed).
+    """
+    elements = ['H', 'He', 'O', 'Si', 'Ca', 'Fe', 'Ni']
+    data = {e: [] for e in elements}
+    with open(input_profile_path) as fh:
+        for line in fh:
+            if line.startswith('#'):
+                continue
+            cols = line.split()
+            if len(cols) < 11:
+                continue
+            try:
+                # Map columns to elements
+                # cols[4]=fx_H, cols[5]=fx_He, cols[6]=fx_O, cols[7]=fx_Si, cols[8]=fx_Ca, cols[9]=fx_Fe, cols[10]=fx_Ni
+                vals = [float(cols[4]), float(cols[5]), float(cols[6]), float(cols[7]),
+                        float(cols[8]), float(cols[9]), float(cols[10])]
+            except ValueError:
+                continue
+            for e, v in zip(elements, vals):
+                data[e].append(v)
+    for e in elements:
+        arr = np.array(data[e])
         data[e] = arr[::-1]  # inner->outer to outer->inner
     return data
 
@@ -199,6 +236,9 @@ def read_xni(xni_path: str, nzon: int) -> np.ndarray:
     arr = arr[::-1]
     
     return arr
+
+
+def read_lbol(lbol_path):
     """Read STELLA *.lbol file -> bolometric luminosity vs time.
     
     Returns dict keyed by t_day -> L_bol (Lsun).
@@ -798,7 +838,66 @@ def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
     }
 
     n_isotopes = len(isotopic_data)
-    nfrac = len(mass_fractions)  # Count after all updates
+    
+    # Map CMFGEN species names to our internal names
+    cmfgen_to_internal = {
+        'HYD': 'H',
+        'HE': 'He', 
+        'OXY': 'O',
+        'SIL': 'Si',        # CMFGEN uses 'SIL' not 'SILI'
+        'CAL': 'Ca',        # CMFGEN uses 'CAL' not 'CALC'
+        'IRON': 'Fe',
+        'NICK': 'Ni',
+        'COB': 'Co'
+    }
+    
+    # Add missing elements with solar abundances if not present
+    # This is needed when reusing STELLA output that doesn't have all elements
+    solar_abundances = {
+        'SIL': 0.0007,  # Silicon (CMFGEN uses 'SIL' not 'SILI')
+        'CAL': 0.0002,  # Calcium (CMFGEN uses 'CAL' not 'CALC')
+    }
+    
+    print(f"  Current elements in mass_fractions: {list(mass_fractions.keys())}")
+    
+    for cmfgen_name, solar_frac in solar_abundances.items():
+        internal_name = cmfgen_to_internal.get(cmfgen_name, cmfgen_name)
+        if internal_name not in mass_fractions:
+            mass_fractions[internal_name] = np.full(n, solar_frac)
+            print(f"  Added {cmfgen_name} with solar abundance {solar_frac}")
+        else:
+            print(f"  {internal_name} already present, skipping solar fallback")
+    
+    # Filter to only include the 5 elements we want: H, He, O, Si, Ca, Fe + radioactive Ni, Co
+    # All other elements (C, N, Ne, Mg, S, etc.) are excluded
+    # Include both internal names and CMFGEN names in the allowed list
+    # CMFGEN species names: HYD, HE, OXY, SIL, CAL, IRON, NICK, COB
+    allowed_elements = {'H', 'He', 'O', 'Si', 'Ca', 'Fe', 'Ni', 'Co',
+                       'HYD', 'HE', 'OXY', 'SIL', 'CAL', 'IRON', 'NICK', 'COB'}
+    
+    # Convert internal names to CMFGEN names for output
+    cmfgen_mass_fractions = {}
+    for internal_name, frac_array in mass_fractions.items():
+        # Only keep allowed elements
+        if internal_name not in allowed_elements:
+            print(f"  Skipping {internal_name} (not in allowed element list)")
+            continue
+        
+        # Find corresponding CMFGEN name
+        cmfgen_name = None
+        for cmfgen_name_key, internal in cmfgen_to_internal.items():
+            if internal == internal_name:
+                cmfgen_name = cmfgen_name_key
+                break
+        if cmfgen_name is None:
+            # Use the internal name as-is if no mapping found
+            cmfgen_name = internal_name.upper()
+        cmfgen_mass_fractions[cmfgen_name] = frac_array
+    
+    # Replace mass_fractions with CMFGEN-named version
+    mass_fractions = cmfgen_mass_fractions
+    
+    nfrac = len(mass_fractions)  # Count after filtering
 
     # Build plot-only mass fractions for visualisation
     mass_fractions_plot = mass_fractions.copy()  # already has NICK, COB, IRON
@@ -823,8 +922,8 @@ def write_sn_hydro_data(outpath: str, r_cm, v_kms, rho, T_K, sigma, kappa,
         write_block(f, "Atom density (number density)",     atom_density)
         write_block(f, "Kappa (cm^2/gm)",       kappa)
         for elem, frac in mass_fractions.items():
-            cmfgen_name = CMFGEN_ELEM_NAMES.get(elem, elem)
-            write_block(f, f"{cmfgen_name} mass fraction", frac)
+            # mass_fractions now already has CMFGEN names from our conversion
+            write_block(f, f"{elem} mass fraction", frac)
 
         # Write isotopic data
         # Format: "SPECIES_NAME BARYON_NUMBER mass fraction"
@@ -903,7 +1002,7 @@ def break_isothermal_regions(temperature, t_floor=3000.0, min_rel_change=5e-4):
 
 def plot_comparison(orig_r, orig_rho, orig_T, orig_v, orig_tau, orig_sigma,
                    new_r, new_rho, new_T, new_v, new_tau, new_sigma,
-                   output_file, time_days, tau_min=1e-4, tau_max=30.0,
+                   output_file, time_days, tau_min=1e-5, tau_max=100.0,
                    orig_mass_fractions=None, new_mass_fractions=None):
     """Plot before/after comparison of STELLA to CMFGEN conversion"""
     rsun_cm = 6.96e10
@@ -1155,7 +1254,7 @@ def plot_adaptive_grid_diagnostics(orig_r, orig_v, orig_T, orig_rho, orig_tau,
 
 def plot_mass_fractions_stacked(radius_cm, density, mass_fractions, time_days, output_file,
                                 trimmed_radius_cm=None, trimmed_mass_fractions=None,
-                                tau=None, tau_min=1e-4, tau_max=30.0):
+                                tau=None, tau_min=1e-5, tau_max=50.0):
     """Create a mass fraction plot vs radius.
     
     Plots original STELLA data as dashed lines and trimmed CMFGEN data as solid lines.
@@ -1340,15 +1439,15 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
     rsun_cm = 6.96e10
     
     # Convert to inner->outer order for plotting (x-axis increases left-to-right)
-    r_cm = r_cm[::-1]
-    v_kms = v_kms[::-1]
-    rho = rho[::-1]
-    T_K = T_K[::-1]
-    kappa = kappa[::-1]
-    for elem in mass_fractions:
-        mass_fractions[elem] = mass_fractions[elem][::-1]
+    # Note: This reverses the arrays in-place for plotting only
+    r_plt = r_cm[::-1]
+    v_plt = v_kms[::-1]
+    rho_plt = rho[::-1]
+    T_plt = T_K[::-1]
+    kappa_plt = kappa[::-1]
+    mf_plt = {elem: mass_fractions[elem][::-1] for elem in mass_fractions}
     
-    r_plt = r_cm / rsun_cm  # Convert to R_sun for consistency
+    r_plt = r_plt / rsun_cm  # Convert to R_sun for consistency
     
     # Determine consistent x-axis limits
     r_min = max(10.0, np.min(r_plt) * 0.9)
@@ -1360,7 +1459,7 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
     
     # Density
     ax1 = axes[0]
-    ax1.loglog(r_plt, rho, 'b-', linewidth=2)
+    ax1.loglog(r_plt, rho_plt, 'b-', linewidth=2)
     ax1.set_ylabel('Density (g cm$^{-3}$)')
     ax1.set_title('Density')
     ax1.grid(True, alpha=0.3, which='both')
@@ -1368,7 +1467,7 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
     
     # Velocity
     ax2 = axes[1]
-    ax2.loglog(r_plt, v_kms, 'r-', linewidth=2)
+    ax2.loglog(r_plt, v_plt, 'r-', linewidth=2)
     ax2.set_ylabel('Velocity (km s$^{-1}$)')
     ax2.set_title('Velocity')
     ax2.grid(True, alpha=0.3, which='both')
@@ -1376,7 +1475,7 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
     
     # Temperature
     ax3 = axes[2]
-    ax3.loglog(r_plt, T_K, 'g-', linewidth=2)
+    ax3.loglog(r_plt, T_plt, 'g-', linewidth=2)
     ax3.set_ylabel('Temperature (K)')
     ax3.set_title('Temperature')
     ax3.grid(True, alpha=0.3, which='both')
@@ -1397,12 +1496,12 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
         ('COB',  'Co56', '#ff7f0e', '-.'),
     ]
     for key, label, color, ls in ELEM_COMP:
-        if key in mass_fractions and np.any(mass_fractions[key] > 1e-10):
-            ax4.plot(r_plt, mass_fractions[key], label=label, color=color,
+        if key in mf_plt and np.any(mf_plt[key] > 1e-10):
+            ax4.plot(r_plt, mf_plt[key], label=label, color=color,
                      linewidth=2, linestyle=ls)
     for key, label, color, ls in ISO_COMP:
-        if key in mass_fractions and np.any(mass_fractions[key] > 1e-10):
-            ax4.plot(r_plt, mass_fractions[key], label=label, color=color,
+        if key in mf_plt and np.any(mf_plt[key] > 1e-10):
+            ax4.plot(r_plt, mf_plt[key], label=label, color=color,
                      linewidth=1.5, linestyle=ls)
     ax4.set_ylabel('Mass Fraction')
     ax4.set_title('Composition')
@@ -1415,16 +1514,17 @@ def plot_structure_overview(r_cm, v_kms, rho, T_K, mass_fractions, kappa, time_d
     
     # Opacity (kappa)
     ax5 = axes[4]
-    ax5.loglog(r_plt, kappa, 'k-', linewidth=2)
+    ax5.loglog(r_plt, kappa_plt, 'k-', linewidth=2)
     ax5.set_ylabel(r'Opacity κ (cm$^2$/g)')
-    ax5.set_title(rf'Total Opacity (κ$_{{min}}$={kappa.min():.3e}, κ$_{{max}}$={kappa.max():.3e})')
+    ax5.set_title(rf'Total Opacity (κ$_{{min}}$={kappa_plt.min():.3e}, κ$_{{max}}$={kappa_plt.max():.3e})')
     ax5.grid(True, alpha=0.3, which='both')
     ax5.set_xlim(r_min, r_max)
     
     # Sigma
     ax6 = axes[5]
     sigma = sigma_velocity(r_cm, v_kms)
-    ax6.step(r_plt, sigma, 'g-', linewidth=2, where='post')
+    sigma_plt = sigma[::-1]  # Reverse sigma for plotting
+    ax6.step(r_plt, sigma_plt, 'g-', linewidth=2, where='post')
     ax6.set_ylabel('Sigma (σ)')
     ax6.set_title('Sigma = dlnV/dlnr - 1')
     ax6.grid(True, alpha=0.3, which='both')
@@ -1451,6 +1551,8 @@ def main():
     parser.add_argument('swd_file',    help='STELLA *.swd output file')
     parser.add_argument('output_file', help='Output SN_HYDRO_DATA path')
     parser.add_argument('--abn-file',     default=None)
+    parser.add_argument('--input-profile', default=None,
+                        help='HERACLES input_profile file for composition fallback')
     parser.add_argument('--xni-file',     default=None,
                         help='STELLA *.xni file for Ni56 distribution')
     parser.add_argument('--lbol-file',    default=None,
@@ -1561,6 +1663,33 @@ def main():
             'Ca': abn_raw['Ca'],
             'FePeak': abn_raw['FePeak'],
         }
+        
+        # Check if Ca is zero in .abn file and use input_profile as fallback
+        if np.all(mass_fractions['Ca'] == 0) and args.input_profile:
+            print(f"WARNING: Ca is zero in .abn file, reading from input_profile...")
+            try:
+                profile_raw = read_input_profile(args.input_profile)
+                # Interpolate profile data to match SWD grid
+                from scipy.interpolate import interp1d
+                # Read profile radii for interpolation
+                profile_r = []
+                with open(args.input_profile) as fh:
+                    for line in fh:
+                        if line.startswith('#'):
+                            continue
+                        cols = line.split()
+                        if len(cols) >= 11:
+                            profile_r.append(float(cols[0]))
+                profile_r = np.array(profile_r)[::-1]  # outer->inner
+                # Interpolate Ca to SWD grid
+                interp_ca = interp1d(profile_r, profile_raw['Ca'], kind='linear', 
+                                     bounds_error=False, fill_value='extrapolate')
+                mass_fractions['Ca'] = interp_ca(r)
+                print(f"  Ca interpolated from input_profile: min={np.min(mass_fractions['Ca']):.4e}, max={np.max(mass_fractions['Ca']):.4e}")
+            except Exception as e:
+                print(f"  WARNING: Failed to read Ca from input_profile: {e}")
+                print(f"  Using solar abundance fallback instead")
+        
         # Save original mass fractions before trimming (before normalization)
         orig_mass_fractions = {k: v.copy() for k, v in mass_fractions.items()}
         
@@ -1749,9 +1878,10 @@ def main():
         print(f"[Grid Processing] DISABLED - keeping all {len(r)} zones")
 
     # Resample Ni56 to the final grid after downsampling/refinement
+    # Both r and r_tau_trim are in outer->inner order, so no reversal needed
     if len(ni56_for_isotopes) != len(r):
         print(f"[Ni56 Resample] Interpolating Ni56 from {len(ni56_for_isotopes)} to {len(r)} grid points")
-        ni56_for_isotopes = np.interp(r, r_tau_trim[::-1], ni56_for_isotopes[::-1])
+        ni56_for_isotopes = np.interp(r, r_tau_trim, ni56_for_isotopes)
 
     # Final check: ensure we meet minimum point requirement
     if len(r) < args.min_points:
