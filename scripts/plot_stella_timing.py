@@ -114,7 +114,7 @@ def extract_timing_data(stella_out_file):
     except Exception as e:
         print(f"Error getting file stats: {e}")
     
-    # Fallback: use actual current runtime (4.43 hours for job 9652361)
+    # Fallback: use hardcoded runtime estimate (4.43 hours, from historical job measurements)
     current_runtime_hours = 4.43
     print(f"Using hardcoded runtime: {current_runtime_hours:.2f} hours")
     

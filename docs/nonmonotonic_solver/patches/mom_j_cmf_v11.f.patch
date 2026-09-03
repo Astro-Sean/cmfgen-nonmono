@@ -1,0 +1,72 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/plane/mom_j_cmf_v11.f	2025-06-12 23:34:02.000000000 +0200
++++ cmfgen_source/plane/mom_j_cmf_v11.f	2026-08-20 20:01:12.361513000 +0200
+@@ -383,6 +383,7 @@
+             T1=LOG(R(I)/R_SM(K))
+             V(I)=((V_COEF(K,1)*T1+V_COEF(K,2))*T1+V_COEF(K,3))*T1+V_COEF(K,4)
+             SIGMA(I)=((SIGMA_COEF(K,1)*T1+SIGMA_COEF(K,2))*T1+SIGMA_COEF(K,3))*T1+SIGMA_COEF(K,4)
++            IF(SIGMA(I) .LT. -0.999_LDP)SIGMA(I)=-0.999_LDP
+           END DO
+ !
+ 	  ALLOCATE ( J_INDX(ND_SM) );       J_INDX(1:ND_SM)=0
+@@ -529,9 +530,21 @@
+ ! 	 (2)	Vd+1/2=0.5*( Vd + Vd+1 )
+ ! Note that V is in km/s and SIGMA=(dlnV/dlnR-1.0)
+ !
++! Guard SIGMA for non-monotonic velocity flows (SIGMA < -1).
++! The moment equations use (1+SIGMA*X) terms which go negative when
++! SIGMA < -1, breaking the tridiagonal solver (negative J, oscillating
++! solutions). Clamp SIGMA to >= -0.999, consistent with the guard in
++! FG_J_CMF_V13 (dGAMdR/GAMH), rv_sn_model_sniin.f, adjust_r_grid_v4.f,
++! and do_ng_accel_band_v4.f. The GAM computation in FG_J_CMF_V13 already
++! uses the Dessart+2015 formula MAX(SQRT(T2*T2+0.01),-0.2*(1+SIGMA),0.1)
++! which is well-defined for any SIGMA; this clamp ensures the moment
++! equation coefficients remain positive-definite for the tridiagonal solve.
++!
+ 	  DO I=1,ND-1
+ 	    CON_GAMH(I)=2.0_LDP*3.33564E-06_LDP*(V(I)+V(I+1))/(R(I)+R(I+1))
+-	    AV_SIGMA(I)=0.5_LDP*(SIGMA(I)+SIGMA(I+1))
++	    T1=0.5_LDP*(SIGMA(I)+SIGMA(I+1))
++	    IF(T1 .LT. -0.999_LDP)T1=-0.999_LDP
++	    AV_SIGMA(I)=T1
+ 	    CON_GAM(I)=3.33564E-06_LDP*V(I)/R(I)
+ 	  END DO
+ 	  CON_GAM(ND)=3.33564E-06_LDP*V(ND)/R(ND)
+@@ -568,8 +581,10 @@
+ !
+ 	DO I=2,ND-1
+ 	  DTAUONQ(I)=0.5_LDP*(DTAU(I)+DTAU(I-1))/Q(I)
+-	  PSI(I)=DTAUONQ(I)*GAM(I)*( 1.0_LDP+SIGMA(I)*K_ON_J(I) )
+-	  PSIPREV(I)=DTAUONQ(I)*GAM(I)*(  1.0_LDP+SIGMA(I)*K_ON_J_PREV(I) )
++	  T1=SIGMA(I)
++	  IF(T1 .LT. -0.999_LDP)T1=-0.999_LDP
++	  PSI(I)=DTAUONQ(I)*GAM(I)*( 1.0_LDP+T1*K_ON_J(I) )
++	  PSIPREV(I)=DTAUONQ(I)*GAM(I)*(  1.0_LDP+T1*K_ON_J_PREV(I) )
+ 	END DO
+ !
+ ! Compute vectors used to compute the flux vector H.
+@@ -650,8 +665,10 @@
+ ! Evaluate TA,TB,TC for boudary conditions
+ !
+ 	IF(OUT_BC_TYPE .LE. 1)THEN 		!Old (def) BC.
+-	  PSI(1)=GAM(1)*(HBC+NBC*SIGMA(1))
+-	  PSIPREV(1)=GAM(1)*( HBC_PREV+NBC_PREV*SIGMA(1) )
++	  T1=SIGMA(1)
++	  IF(T1 .LT. -0.999_LDP)T1=-0.999_LDP
++	  PSI(1)=GAM(1)*(HBC+NBC*T1)
++	  PSIPREV(1)=GAM(1)*( HBC_PREV+NBC_PREV*T1 )
+ 	  TC(1)=-K_ON_J(2)*Q(2)/DTAU(1)
+ 	  TB(1)=K_ON_J(1)*Q(1)/DTAU(1) + PSI(1) + HBC
+ 	  XM(1)=PSIPREV(1)*RSQJNU_PREV(1)
+@@ -659,8 +676,10 @@
+ 	  VB(1)=0.0_LDP
+ 	  VC(1)=0.0_LDP
+ 	ELSE
+-	  PSI(1)=GAM(1)*(1.0_LDP+SIGMA(1)*K_ON_J(1))
+-	  PSIPREV(1)=GAM(1)*(1.0_LDP+SIGMA(1)*K_ON_J_PREV(1))
++	  T1=SIGMA(1)
++	  IF(T1 .LT. -0.999_LDP)T1=-0.999_LDP
++	  PSI(1)=GAM(1)*(1.0_LDP+T1*K_ON_J(1))
++	  PSIPREV(1)=GAM(1)*(1.0_LDP+T1*K_ON_J_PREV(1))
+ 	  T1=0.25_LDP*(CHI(2)+CHI(1))*(R(2)-R(1))
+ 	  TC(1)=(HU(1)-EPS(1))/T1
+ 	  TB(1)= (COH_VEC(1)-1.0_LDP) -(HL(1)+HBC+EPS(1))/T1 -PSI(1)

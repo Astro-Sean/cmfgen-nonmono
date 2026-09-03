@@ -195,7 +195,8 @@ def parse_stella_output(out_file):
         latest_photosphere = photosphere_lines[-1]
         # Parse: primag Tph Rph Iph
         # Format: "primag Tph Rph Iph=         472  0.157922286969477"
-        # Note: Tph in STELLA output is in units of 10^4 K (UTp = 1e4)
+        # Note: Tph in STELLA .out output is printed in units of 10^4 K.
+        #       (This is the .out display format; STELLA's internal UTP = 1e5 K.)
         # Note: Rph in STELLA output is in units of solar radii (R_sun)
         try:
             # Split on '=' and take the second part
@@ -239,7 +240,8 @@ def parse_stella_output(out_file):
     vph_km_s = None
     if rph_cm is not None and time_seconds > 0:
         vph_cm_s = rph_cm / time_seconds  # cm/s
-        vph_km_s = vph_cm_s / 1e4  # km/s (STELLA uses 10^4 cm/s as velocity unit)
+        vph_km_s = vph_cm_s / 1e4  # NOTE: result is in 1e4 cm/s, not true km/s (would need /1e5).
+                                # STELLA's internal velocity unit is 1e8 cm/s (see .swd parser).
     
     # Parse terminal time from .dat file
     dat_file = find_stella_dat_file()

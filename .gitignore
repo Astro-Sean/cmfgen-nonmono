@@ -1,50 +1,52 @@
-# Model data (large files)
-models/
-*.swd
-*.tt
-*.mod
-*.res
-*.bm
-*.balance
-*.crv
-*.prf
-SN_HYDRO_DATA
-*.abn
-*.rho
-*.xni
-*.hyd
+# ============================================================
+# Whitelist .gitignore
+# Only code source files and scripts are tracked.
+# Model run output, generated reports, and data are ignored.
+# ============================================================
 
-# Plots and outputs
-plots/
-output/
-outputs/
-*.png
-*.pdf
-*.csv
+# --- Ignore everything in the root by default ---
+/*
 
-# Python
+# --- Un-ignore source directories ---
+!/scripts/
+!/cmfgen_base/
+!/cmfgen_nonmono_dev/
+!/cmfgen_nonmono_dev_V3/
+!/sedona_base/
+!/sirocco_base/
+!/superlite_base/
+!/configs/
+!/cmfgen_source
+!/docs/
+!/latex/
+!/.devin/
+
+# --- Un-ignore specific root files ---
+!/.gitignore
+!/.gitmodules
+!/README.md
+!/AGENTS.md
+
+# ============================================================
+# Patterns that apply within un-ignored directories
+# ============================================================
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
-# SLURM logs
-*.out
-*.err
+# Editor / system temp files
+*.swp
+*~
+*.core.*
+.DS_Store
+
+# SLURM output (scoped pattern — won't affect build_*.out in dev dirs)
+slurm-*.out
+slurm-*.err
 submit.log
 
-# Fortran build artifacts
-*.o
-gmon.out
-
-# CMFGEN large files
+# CMFGEN output file
 OUTGEN
-
-# TARDIS / temp
-tardis/
-*.core.*
-
-# IDE
-*.code-workspace
-
-# Git itself (already tracked)
-!.gitignore

@@ -1,0 +1,21 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/plane/fg_j_cmf_v12.f	2025-06-12 23:34:01.000000000 +0200
++++ cmfgen_source/plane/fg_j_cmf_v12.f	2026-08-19 18:13:32.750832000 +0200
+@@ -927,7 +927,6 @@
+ 	      T1=LOG(R_RAY(I,LS)/R_EXT(K))
+ 	      V_RAY(I)=((V_COEF(K,1)*T1+V_COEF(K,2))*T1+V_COEF(K,3))*T1+V_COEF(K,4)
+ 	      SIGMA_RAY(I)=((SIGMA_COEF(K,1)*T1+SIGMA_COEF(K,2))*T1+SIGMA_COEF(K,3))*T1+SIGMA_COEF(K,4)
+-	      IF(SIGMA_RAY(I) .LE. -1.0_LDP)SIGMA_RAY(I)=-0.999_LDP
+ 	    END DO
+ !
+ !
+@@ -942,7 +941,9 @@
+ 	    DO I=1,NI_RAY(LS)
+ 	      MU=Z(I,LS)/R_RAY(I,LS)
+ 	      T1=3.33564E-06_LDP*V_RAY(I)/R_RAY(I,LS)
+-	      GAM(I,LS)=T1*( 1.0_LDP+SIGMA_RAY(I)*(MU**2) )
++	      T2=1.0_LDP+SIGMA_RAY(I)*(MU**2)
++	      T2=MAX(SQRT(T2*T2+0.01_LDP),-0.2_LDP*(1.0_LDP+SIGMA_RAY(I)),0.1_LDP)
++	      GAM(I,LS)=T1*T2
+ 	    END DO
+ !
+ 	    IF(SOLUTION_METHOD .EQ. 'INTEGRAL' .AND. NI_RAY(LS) .NE. 1)THEN

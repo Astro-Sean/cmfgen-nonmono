@@ -116,8 +116,11 @@ def generate_type2p_profile(n_points=100):
 
 def write_sn_hydro_data(profile, filename):
     """
-    Write profile to SN_HYDRO_DATA format.
-    
+    Write profile to SN_HYDRO_DATA format matching Dessart's reference format.
+
+    Header titles and data format match the reference SN_HYDRO_DATA from
+    https://ttt.astro.su.se/~maer0651/M15-He-O-Ca-evo-new-4-all/34/SN_HYDRO_DATA
+
     Parameters:
     -----------
     profile : dict
@@ -125,82 +128,45 @@ def write_sn_hydro_data(profile, filename):
     filename : str
         Output filename
     """
+    def write_block(f, label, values, per_line=8):
+        f.write(f"{label}\n")
+        for i in range(0, len(values), per_line):
+            chunk = values[i:i+per_line]
+            f.write(''.join(f"    {v:14.7E}" for v in chunk) + '\n')
+        f.write('\n')
+
     with open(filename, 'w') as f:
-        # Header
-        f.write(f"Number of data points:                  {profile['n_points']:20}\n")
-        f.write(f"Number of mass fractions:                {profile['n_mass_fractions']:20}\n")
-        f.write(f"Number of isotopes:                        {profile['n_isotopes']:20}\n")
-        f.write(f"Time(days) since explosion:          {profile['time_days']:10.5E}\n")
-        f.write(f"Energy Lum [lsun]:                  {profile['lum_lsun']:10.6E}\n")
+        # Header (matching Dessart reference format)
+        f.write(f"Number of data points:{profile['n_points']:>10d}\n")
+        f.write(f"Number of mass fractions:{profile['n_mass_fractions']:>10d}\n")
+        f.write(f"Number of isotopes:{profile['n_isotopes']:>10d}\n")
+        f.write(f"Time(days) since explosion:{profile['time_days']:>15.7f}\n")
+        # Extra header line used by our pipeline (not in Dessart reference but
+        # read by prepare_VADAT.py, run_model_grid.py, fix_sedona_param.py).
+        f.write(f"Energy Lum [lsun]:{profile['lum_lsun']:>19.6E}\n")
         f.write("\n")
-        
-        # Radius grid
-        f.write("Radius grid (10^10cm)\n")
-        for i in range(0, len(profile['r']), 8):
-            end = min(i + 8, len(profile['r']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['r'][i:end]) + "\n")
-        
-        # Velocity
-        f.write("\nVelocity (km/s)\n")
-        for i in range(0, len(profile['v']), 8):
-            end = min(i + 8, len(profile['v']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['v'][i:end]) + "\n")
-        
-        # Sigma
-        f.write("\nSigma (dlnV/dlnr-1)\n")
-        for i in range(0, len(profile['sigma']), 8):
-            end = min(i + 8, len(profile['sigma']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['sigma'][i:end]) + "\n")
-        
-        # Temperature
-        f.write("\nTemperature (10^4 K)\n")
-        for i in range(0, len(profile['t']), 8):
-            end = min(i + 8, len(profile['t']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['t'][i:end]) + "\n")
-        
-        # Density
-        f.write("\nDensity (gm/cm^3)\n")
-        for i in range(0, len(profile['rho']), 8):
-            end = min(i + 8, len(profile['rho']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['rho'][i:end]) + "\n")
-        
-        # Electron density
-        f.write("\nElectron density (number density)\n")
-        for i in range(0, len(profile['electron_density']), 8):
-            end = min(i + 8, len(profile['electron_density']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['electron_density'][i:end]) + "\n")
-        
-        # Atom density
-        f.write("\nAtom density (number density)\n")
-        for i in range(0, len(profile['atom_density']), 8):
-            end = min(i + 8, len(profile['atom_density']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['atom_density'][i:end]) + "\n")
-        
-        # Kappa
-        f.write("\nKappa (cm^2/gm)\n")
-        for i in range(0, len(profile['kappa']), 8):
-            end = min(i + 8, len(profile['kappa']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['kappa'][i:end]) + "\n")
-        
-        # Rosseland mean opacity
-        f.write("\nRosseland mean opacty (10^{-10} cm^{-1})\n")
-        for i in range(0, len(profile['rosseland']), 8):
-            end = min(i + 8, len(profile['rosseland']))
-            f.write("  " + " ".join(f"{x:20.15E}" for x in profile['rosseland'][i:end]) + "\n")
-        
+
+        # Data blocks (order and titles match Dessart reference)
+        write_block(f, "Radius grid (10^10cm)", profile['r'])
+        write_block(f, "Velocity (km/s)",       profile['v'])
+        write_block(f, "Sigma (dlnV/dlnr-1)",   profile['sigma'])
+        write_block(f, "Temperature (10^4 K)",  profile['t'])
+        write_block(f, "Density (gm/cm^3)",     profile['rho'])
+        write_block(f, "Atom density (/cm^3)",  profile['atom_density'])
+        write_block(f, "Electron density (/cm^3)", profile['electron_density'])
+        write_block(f, "Rosseland mean opacty (10^{-10} cm^{-1})", profile['rosseland'])
+        write_block(f, "Kappa (cm^2/gm)",       profile['kappa'])
+
         # Mass fractions (26 species total, most zero)
-        species_order = ['HYD', 'HE', 'CARB', 'NIT', 'OXY', 'FLU', 'NEON', 'SOD', 
-                         'MAG', 'ALUM', 'SIL', 'PHOS', 'SUL', 'CHL', 'ARG', 'POT', 
+        species_order = ['HYD', 'HE', 'CARB', 'NIT', 'OXY', 'FLU', 'NEON', 'SOD',
+                         'MAG', 'ALUM', 'SIL', 'PHOS', 'SUL', 'CHL', 'ARG', 'POT',
                          'CAL', 'SCAN', 'TIT', 'VAN', 'CHRO', 'MAN', 'IRON', 'COB', 'NICK', 'BAR']
         for species in species_order:
-            f.write(f"\n{species} mass fraction\n")
             if species in profile['mass_fractions']:
                 mf = profile['mass_fractions'][species]
             else:
                 mf = np.zeros(profile['n_points'])
-            for i in range(0, len(mf), 8):
-                end = min(i + 8, len(mf))
-                f.write("  " + " ".join(f"{x:20.15E}" for x in mf[i:end]) + "\n")
+            write_block(f, f"{species} mass fraction", mf)
 
 def main():
     """Main function."""

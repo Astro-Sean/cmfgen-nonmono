@@ -1,0 +1,75 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/plane/fg_j_cmf_v13.f	2025-06-12 23:34:01.000000000 +0200
++++ cmfgen_source/plane/fg_j_cmf_v13.f	2026-08-19 20:17:33.535889329 +0200
+@@ -325,7 +325,7 @@
+ !
+ 	REAL(KIND=LDP) DBC
+ 	REAL(KIND=LDP) I_CORE
+-	REAL(KIND=LDP) T1,T2
++	REAL(KIND=LDP) T1,T2,T3,T4
+ 	REAL(KIND=LDP) DELTA_Z
+ 	REAL(KIND=LDP) ALPHA
+ 	REAL(KIND=LDP) ESEC_POW
+@@ -939,7 +939,6 @@
+ 	      T1=LOG(R_RAY(I,LS)/R_EXT(K))
+ 	      V_RAY(I)=((V_COEF(K,1)*T1+V_COEF(K,2))*T1+V_COEF(K,3))*T1+V_COEF(K,4)
+ 	      SIGMA_RAY(I)=((SIGMA_COEF(K,1)*T1+SIGMA_COEF(K,2))*T1+SIGMA_COEF(K,3))*T1+SIGMA_COEF(K,4)
+-	      IF(SIGMA_RAY(I) .LE. -1.0_LDP)SIGMA_RAY(I)=-0.999_LDP
+ 	    END DO
+ !
+ !
+@@ -954,24 +953,50 @@
+ 	    DO I=1,NI_RAY(LS)
+ 	      MU=Z(I,LS)/R_RAY(I,LS)
+ 	      T1=3.33564E-06_LDP*V_RAY(I)/R_RAY(I,LS)
+-	      GAM(I,LS)=T1*( 1.0_LDP+SIGMA_RAY(I)*(MU**2) )
+-	    END DO
++	      T2=1.0_LDP+SIGMA_RAY(I)*(MU**2)
++	      T2=MAX(SQRT(T2*T2+0.01_LDP),-0.2_LDP*(1.0_LDP+SIGMA_RAY(I)),0.1_LDP)
++	      GAM(I,LS)=T1*T2
++	    END DO
++!
++! Guard SIGMA for non-monotonic velocity flows (SIGMA < -1).
++! The GAM computation at line 958 already guards SIGMA via the Dessart+2015
++! formula: MAX(SQRT(T2*T2+0.01),-0.2*(1+SIGMA),0.1). However, dGAMdR and
++! GAMH use SIGMA_RAY directly, which produces pathological derivatives when
++! SIGMA < -1 (e.g. SIGMA=-1.6 gives dGAMdR = GAM*(-1.6)/R, a large negative
++! contribution that corrupts dCHIdR_RAY and DTAU, producing negative optical
++! depths and negative mean intensities in the formal solution).
++!
++! Fix: clamp SIGMA_RAY to >= -0.999 for the dGAMdR and GAMH computations.
++! This is consistent with the -1.2<SIGMA<-1.0 -> -0.999 clamp used in
++! rv_sn_model_sniin.f, adjust_r_grid_v4.f, and do_ng_accel_band_v4.f.
++! The GAM itself is already guarded by the Dessart+2015 formula, so this
++! clamp only affects the derivative (dGAMdR) and the half-point GAMH.
+ !
+ 	    IF(SOLUTION_METHOD .EQ. 'INTEGRAL' .AND. NI_RAY(LS) .NE. 1)THEN
+ 	      DO I=1,NI_RAY(LS)
+ 	        MU=Z(I,LS)/R_RAY(I,LS)
+ 	        T1=3.33564E-06_LDP*V_RAY(I)/R_RAY(I,LS)
+-	        dGAMdR(I,LS)=GAM(I,LS)*SIGMA_RAY(I)/R_RAY(I,LS)
++		T2=SIGMA_RAY(I)
++		IF(T2 .LT. -0.999_LDP)T2=-0.999_LDP
++	        dGAMdR(I,LS)=GAM(I,LS)*T2/R_RAY(I,LS)
+ 	        J=MAX(I-1,1); K=MIN(NI,I+1)
++		T3=SIGMA_RAY(J)
++		IF(T3 .LT. -0.999_LDP)T3=-0.999_LDP
++		T4=SIGMA_RAY(K)
++		IF(T4 .LT. -0.999_LDP)T4=-0.999_LDP
+ 	        dGAMdR(I,LS)=dGAMdR(I,LS)+T1*(MU**2)*
+-	1           (SIGMA_RAY(J)-SIGMA_RAY(K))/(R_RAY(J,LS)-R_RAY(K,LS))
++	1           (T3-T4)/(R_RAY(J,LS)-R_RAY(K,LS))
+ 	      END DO
+ 	    ELSE IF(SOLUTION_METHOD .EQ. 'DIFFERENCE')THEN
+ 	      DO I=1,NI_RAY(LS)-1
+ 	        MU=(Z(I,LS)+Z(I+1,LS))/(R_RAY(I,LS)+R_RAY(I+1,LS))
++		T1=SIGMA_RAY(I)
++		IF(T1 .LT. -0.999_LDP)T1=-0.999_LDP
++		T2=SIGMA_RAY(I+1)
++		IF(T2 .LT. -0.999_LDP)T2=-0.999_LDP
+ 	        GAMH(I,LS)=(V_RAY(I+1)+V_RAY(I))*3.33564E-06_LDP*
+ 	1                   (  1.0_LDP+0.5_LDP*(MU**2)*
+-	1                   (SIGMA_RAY(I)+SIGMA_RAY(I+1))  )/
++	1                   (T1+T2)  )/
+ 	1                   (R_RAY(I,LS)+R_RAY(I+1,LS))
+ 	     END DO
+ 	     GAMH(NI,LS)=0.0_LDP

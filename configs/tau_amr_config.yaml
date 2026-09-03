@@ -1,0 +1,83 @@
+# Tau-AMR Grid Optimiser — threshold configuration
+# ================================================
+# All tunable thresholds for scripts/tau_amr_optimiser.py (AMRConfig).
+# Override defaults for sensitivity / convergence testing.  Per the project
+# AGENTS.md mandatory-evidence policy, do NOT declare any threshold optimal
+# without convergence testing (500/750/1000-point runs).
+#
+# This file is the SINGLE SOURCE OF TRUTH for tau-AMR thresholds.
+# It is read by:
+#   1. tau_amr_optimiser.py standalone:  --config configs/tau_amr_config.yaml
+#   2. run_model_grid.py orchestrator:  set cmfgen_conversion.tau_amr_config
+#      in the model YAML to point to this file (or a copy)
+#   3. convert_stella_swd_to_cmfgen.py: --tau-amr-config <path>
+#
+# Priority: CLI arg (if not None) > YAML config file > AMRConfig defaults.
+
+# --- Point budget ---
+max_points: 1000          # HARD upper limit (CMFGEN constraint)
+min_points: 60            # adaptive stop floor
+base_grid_points: 80      # initial coarse log(tau) grid
+
+# --- Optical depth ---
+tau_floor: 1.0e-6         # log(tau+floor) guard for optically thin zones
+kappa_source: hybrid      # 'stella' | 'hybrid' | 'kramers'
+
+# --- Soft refinement targets (dimensionless ratios) ---
+target_dlogtau: 0.08      # max dlog10(tau) per cell in smooth regions
+target_dlogrho: 0.30      # max dlog10(rho) per cell
+target_dv_kms: 300.0      # max |dv| per cell (km/s)
+target_dlogT: 0.20        # max dlog10(T) per cell
+target_dr_over_r: 0.10    # max geometric stretch
+target_dtau_es: 1.0       # max electron-scattering tau per cell
+target_dlogchi: 0.5       # max dlog10(chi) per cell (opacity gradient)
+target_dv_over_v: 0.30    # max |dv|/v per cell (velocity/frequency coupling)
+
+# --- Soft refinement weights ---
+w_tau: 1.0
+w_rho: 0.5
+w_v: 0.5
+w_T: 0.4
+w_curv: 0.3
+w_dtau_es: 0.6            # electron-scattering optical depth
+w_dlogchi: 0.5            # opacity gradient
+w_dv_over_v: 0.4          # velocity/frequency coupling
+
+# --- Hard-constraint thresholds ---
+composition_jump: 0.30        # |dX_i| > this => chemical interface
+composition_trace_floor: 1.0e-4
+min_points_per_interface: 5
+shock_density_jump: 1.5       # rho compression ratio
+shock_velocity_curv: 0.5      # normalised 2nd difference of v
+shock_temp_jump: 0.5          # dlogT
+min_points_per_shock: 7
+velocity_extrema_window: 5
+min_points_per_extremum: 5
+min_dr_r: 1.0e-4
+
+# --- Composition interface representation ---
+interface_transition_zones: 3
+
+# --- Conservation ---
+conserve_mass: true
+mass_tol: 1.0e-3
+
+# --- Diagnostics ---
+plot: true
+verbose: true
+
+# --- Escalation (Stage A progressive refinement) ---
+# After recursive_amr produces the initial grid, escalate_grid inserts
+# points at the geometric-mean radius of each pathological cell and
+# re-checks until no failures or max_points is reached.
+escalation:
+  max_rounds: 5          # max escalation rounds (0 = disable)
+  # Pathological-cell hard thresholds (FAIL conditions, not soft targets):
+  max_dr_over_r: 0.15    # 15% radius change per cell
+  max_dv_over_v: 0.50    # 50% velocity change per cell
+  max_dlog_rho: 1.0      # 1 dex density change per cell
+  max_dlog_T: 0.5        # 0.5 dex temperature change per cell
+  max_dlog_chi: 1.5      # 1.5 dex opacity change per cell
+  max_dtau_es: 2.0       # 2.0 electron-scattering tau per cell
+  max_density_ratio: 100.0
+  max_chi_ratio: 500.0

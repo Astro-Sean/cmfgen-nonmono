@@ -30,7 +30,7 @@ def read_swd_all_epochs(swd_path: str) -> dict:
     """Read all epochs from STELLA .swd file.
     
     Returns dict with epoch times as keys, each containing zone-by-zone data.
-    Columns: t(days), zone, logM, logR, V(km/s), logTg, logTr, logrho, logP, logQv, logeng, Flum(1e40), WRKX
+    Columns: t(days), zone, logM, logR, V(1e8 cm/s), logTg, logTr, logrho, logP, logQv, logeng, Flum(1e40), WRKX
     """
     epochs = {}
     current_t = None
@@ -69,12 +69,13 @@ def read_swd_all_epochs(swd_path: str) -> dict:
 
 def compute_derived_quantities(data: np.ndarray):
     """Compute derived physical quantities from STELLA data."""
-    # Extract columns
+    # Extract columns with proper unit conversions
+    # STELLA units: V in 1e8 cm/s, rho in log10(rho/1e-6 g/cc)
     r_cm = 10**data[:, 3]  # Radius in cm
     T_gas = 10**data[:, 5]  # Gas temperature in K
     T_rad = 10**data[:, 6]  # Radiation temperature in K
-    v_kms = data[:, 4]      # Velocity in km/s
-    rho = 10**data[:, 8]    # Density in g/cm^3
+    v_kms = data[:, 4] * 1000.0  # Convert from 1e8 cm/s to km/s
+    rho = (10**data[:, 8]) * 1e-6  # Convert from log10(rho/1e-6) to g/cm^3
     log_eng = data[:, 10]   # log10(internal energy density)
     Flum = data[:, 11] * 1e40  # Luminosity in erg/s
     
@@ -164,17 +165,52 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
     # Common x-axis label
     fig.text(0.5, 0.02, 'Radius (10$^{15}$ cm)', ha='center', fontsize=12)
     
-    # Calculate x-axis range from all selected epochs
+    # Calculate x-axis range and all y-ranges from all selected (post-SBO)
+    # epochs together, so no single epoch dominates the scale.  Pre-SBO
+    # epochs are already excluded by the t >= 0 filter above.
     x_min_all = 1e10
     x_max_all = 0
+    rho_min_all, rho_max_all = np.inf, 0
+    T_min_all, T_max_all = np.inf, 0
+    v_max_all = 0
+    flum_min_pos, flum_max = np.inf, 0
+    opacity_min_all, opacity_max_all = np.inf, 0
+    tau_min_all, tau_max_all = np.inf, 0
     for t in selected_times:
         data = epochs[t]
         q = compute_derived_quantities(data)
         x_min_all = min(x_min_all, q['r_15'].min())
         x_max_all = max(x_max_all, q['r_15'].max())
-    
+        rho_pos = q['rho'][q['rho'] > 0]
+        if len(rho_pos) > 0:
+            rho_min_all = min(rho_min_all, rho_pos.min())
+            rho_max_all = max(rho_max_all, rho_pos.max())
+        T_pos = q['T_gas'][q['T_gas'] > 0]
+        if len(T_pos) > 0:
+            T_min_all = min(T_min_all, T_pos.min())
+            T_max_all = max(T_max_all, T_pos.max())
+        v_max_all = max(v_max_all, q['v_kms'].max())
+        flum_pos = q['Flum'][q['Flum'] > 0]
+        if len(flum_pos) > 0:
+            flum_min_pos = min(flum_min_pos, flum_pos.min())
+            flum_max = max(flum_max, flum_pos.max())
+        op_pos = q['opacity'][q['opacity'] > 0]
+        if len(op_pos) > 0:
+            opacity_min_all = min(opacity_min_all, op_pos.min())
+            opacity_max_all = max(opacity_max_all, op_pos.max())
+        tau_pos = q['tau'][q['tau'] > 0]
+        if len(tau_pos) > 0:
+            tau_min_all = min(tau_min_all, tau_pos.min())
+            tau_max_all = max(tau_max_all, tau_pos.max())
+
     x_min = x_min_all * 0.9
     x_max = x_max_all * 1.1
+    rho_ylim = (rho_min_all * 0.1, rho_max_all * 10) if rho_max_all > 0 else None
+    T_ylim = (T_min_all * 0.5, T_max_all * 2.0) if T_max_all > 0 else (1e3, 1e5)
+    v_ylim = (0, v_max_all * 1.1) if v_max_all > 0 else (0, 1)
+    flum_ylim = (flum_min_pos * 0.1, flum_max * 2) if flum_max > 0 else (1e40, 1e44)
+    opacity_ylim = (opacity_min_all * 0.1, opacity_max_all * 10) if opacity_max_all > 0 else None
+    tau_ylim = (tau_min_all * 0.1, tau_max_all * 2) if tau_max_all > 0 else None
     
     # Store legend handles and labels
     legend_handles = []
@@ -190,7 +226,7 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
         ax = axes[0, 0]
         ax.semilogy(r_15, q['T_gas'], color=color, linewidth=1.5, alpha=0.8)
         ax.set_ylabel('Temperature [K]', fontsize=10)
-        ax.set_ylim(1e3, 1e5)
+        ax.set_ylim(T_ylim)
         ax.set_xlim(x_min, x_max)
         ax.grid(True, alpha=0.3)
         ax.set_title('Temperature', fontsize=11)
@@ -208,7 +244,7 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
         ax = axes[1, 0]
         ax.plot(r_15, q['v_kms'], color=color, linewidth=1.5, alpha=0.8)
         ax.set_ylabel('Velocity [km s$^{-1}$]', fontsize=10)
-        ax.set_ylim(0, max(q['v_kms']) * 1.1)
+        ax.set_ylim(v_ylim)
         ax.set_xlim(x_min, x_max)
         ax.grid(True, alpha=0.3)
         ax.set_title('Velocity', fontsize=11)
@@ -217,7 +253,7 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
         ax = axes[1, 1]
         ax.semilogy(r_15, q['Flum'], color=color, linewidth=1.5, alpha=0.8)
         ax.set_ylabel(r'Luminosity [erg s$^{-1}$]', fontsize=10)
-        ax.set_ylim(q['Flum'][q['Flum'] > 0].min() * 0.1, q['Flum'].max() * 2)
+        ax.set_ylim(flum_ylim)
         ax.set_xlim(x_min, x_max)
         ax.grid(True, alpha=0.3)
         ax.set_title('Luminosity', fontsize=11)
@@ -226,7 +262,8 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
         ax = axes[2, 0]
         ax.loglog(r_15, q['rho'], color=color, linewidth=1.5, alpha=0.8)
         ax.set_ylabel(r'Density [g cm$^{-3}$]', fontsize=10)
-        ax.set_ylim(q['rho'].min() * 0.1, q['rho'].max() * 10)
+        if rho_ylim is not None:
+            ax.set_ylim(rho_ylim)
         ax.set_xlim(x_min, x_max)
         ax.grid(True, alpha=0.3)
         ax.set_title('Density', fontsize=11)
@@ -244,7 +281,8 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
         ax = axes[3, 0]
         ax.loglog(r_15, q['opacity'], color=color, linewidth=1.5, alpha=0.8)
         ax.set_ylabel(r'Opacity [cm$^{-1}$]', fontsize=10)
-        ax.set_ylim(q['opacity'].min() * 0.1, q['opacity'].max() * 10)
+        if opacity_ylim is not None:
+            ax.set_ylim(opacity_ylim)
         ax.set_xlim(x_min, x_max)
         ax.grid(True, alpha=0.3)
         ax.set_title('Opacity', fontsize=11)
@@ -253,7 +291,8 @@ def plot_overlay(epochs: dict, n_epochs: int, output_file: str):
         ax = axes[3, 1]
         ax.semilogy(r_15, q['tau'], color=color, linewidth=1.5, alpha=0.8)
         ax.set_ylabel('Optical depth', fontsize=10)
-        ax.set_ylim(q['tau'].min() * 0.1, q['tau'].max() * 2)
+        if tau_ylim is not None:
+            ax.set_ylim(tau_ylim)
         ax.set_xlim(x_min, x_max)
         ax.grid(True, alpha=0.3)
         ax.set_title('Optical Depth', fontsize=11)

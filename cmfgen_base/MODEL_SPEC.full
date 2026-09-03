@@ -1,0 +1,21 @@
+150 [ND]                !Number of depth points
+8   [NC]                !Number of core rays
+165 [NP]                !Number of impact parameters [ND+NC]
+1 [NUM_BNDS]          !1 = diagonal (DIAG) for N_TYPE=G_ONLY; 3 = tridiagonal for N_ON_J
+150000         [NCF_MAX]           !Total number of frequencies
+350            [MAX_SIM]           !Maximum # of lines whose Doppler profile overlpas.
+120000         [NLINE_MAX]         !Maximum # of bound-bound transitions
+21             [NLF]               !For CMF option only
+
+20,20,30       [HI_ISF]              !H I: 2 ionization stages
+45,45,69       [HeI_ISF]             !He I: 2 ionization stages
+58,58,58       [OI_ISF]              !O I: 2 ionization stages
+264,264,493    [SkI_ISF]             !Si I: 2 ionization stages
+79,79,157      [Sk2_ISF]             !Si II: 2 ionization stages
+30,30,30       [CaI_ISF]             !Ca I: 2 ionization stages
+30,30,30       [Ca2_ISF]             !Ca II: 2 ionization stages
+181,181,1579   [FeI_ISF]             !Fe I-V: 6 ionization stages (Dessart+2015)
+135,135,2698   [Fe2_ISF]             !Fe II
+105,105,1500   [FeIII_ISF]           !Fe III
+110,110,1000   [FeIV_ISF]            !Fe IV
+139,139,1000   [FeV_ISF]             !Fe V

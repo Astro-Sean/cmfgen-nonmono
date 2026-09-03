@@ -1,0 +1,2565 @@
+5
+1
+0
+2
+
+r
+a
+
+M
+8
+1
+
+]
+
+R
+S
+.
+h
+p
+-
+o
+r
+t
+s
+a
+[
+
+1
+v
+3
+6
+4
+5
+0
+.
+3
+0
+5
+1
+:
+v
+i
+X
+r
+a
+
+Mon. Not. R. Astron. Soc. 000, 1–24 (2011)
+
+Printed 24 August 2018
+
+(MN LATEX style ﬁle v2.2)
+
+Numerical simulations of super-luminous supernovae of type IIn
+
+Luc Dessart,1 Edouard Audit,2 and D. John Hillier3
+
+1: Laboratoire Lagrange, UMR7293, Universit´e Nice Sophia-Antipolis, CNRS, Observatoire de la Cˆote d’Azur, 06300 Nice, France.
+2: CEA, Maison de la Simulation, USR 3441, CEA-CNRS-INRIA- Univ. Paris-Sud - Univ. de Versailles, 91191, Gif-sur-Yvette Cedex, France.
+3: Department of Physics and Astronomy & Pittsburgh Particle Physics, Astrophysics, and Cosmology Center (PITT PACC),
+University of Pittsburgh, 3941 O’Hara Street, Pittsburgh, PA 15260, USA.
+
+Accepted 2015 March 18. Received 2015 March 09; in original form 2015 January 06
+
+ABSTRACT
+We present numerical simulations that
+include 1-D Eulerian multi-group radiation-
+hydrodynamics, 1-D non-Local-Thermodynamic-Equilibrium (non-LTE) radiative transfer,
+and 2-D polarised radiative transfer for super-luminous interacting supernovae (SNe). Our
+reference model is a ∼10 M⊙ inner shell with 1051 erg ramming into a ∼3 M⊙ cold outer
+shell (the circumstellar-medium, or CSM) that extends from 1015 to 2×1016 cm and moves at
+100 km s−1. We discuss the light curve evolution, which cannot be captured adequately with a
+grey approach. In these interactions, the shock-crossing time through the optically-thick CSM
+is much longer than the photon diffusion time. Radiation is thus continuously leaking from the
+shock through the CSM, in disagreement with the shell-shocked model that is often invoked.
+Our spectra redden with time, with a peak distribution in the near-UV during the ﬁrst month
+gradually shifting to the optical range over the following year. Initially Balmer lines exhibit
+a narrow line core and the broad line wings that are characteristic of electron scattering in
+the SNe IIn atmospheres (CSM). At later times they also exhibit a broad blue shifted com-
+ponent which arises from the cold dense shell. Our model results are broadly consistent with
+the bolometric light curve and spectral evolution observed for SN 2010jl. Invoking a prolate
+pole-to-equator density ratio in the CSM, we can also reproduce the ∼2% continuum polarisa-
+tion, and line depolarisation, observed in SN 2010jl. By varying the inner shell kinetic energy
+and the mass and extent of the outer shell, a large range of peak luminosities and durations,
+broadly compatible with super-luminous SNe IIn like 2010jl or 2006gy, can be produced.
+
+Key words: radiative transfer – radiation hydrodynamics – polarisation – supernovae: general
+– supernovae: individual: 2010jl
+
+1 INTRODUCTION
+
+Since the original identiﬁcation of interacting supernovae (SNe;
+Dopita et al. 1984; Niemela et al. 1985) and the creation of
+the sample of such pe-
+the SN IIn class (Schlegel 1990),
+culiar Type II SNe has grown from a few to a few tens
+of events. It has also revealed an intriguing diversity, span-
+ning a range of luminosities, duration,
+line proﬁle morphol-
+ogy, with events like SNe 1988Z (Stathakis & Sadler 1991;
+Turatto et al. 1993), 1994W (Sollerman et al. 1998; Chugai et al.
+2004), 2006gy (Smith et al. 2007), and the enigmatic SN 2009ip
+(Mauerhan et al. 2013; Pastorello et al. 2013; Margutti et al. 2014).
+The origin of Type IIn SNe is associated with the interaction of
+fast material with previously-expelled slowly-expanding material
+(Grasberg & Nadezhin 1986). The resulting shock leads to deceler-
+ation of the inner shell, acceleration of the outer shell, and con-
+version of kinetic energy into internal and radiative energy. Be-
+cause (standard) non-interacting SNe radiate merely 1% of their
+total energy (the rest being kinetic), interacting SNe can easily
+
+reach extraordinary luminosities by tapping this abundant reser-
+voir of kinetic energy. For example, an interaction extracting 30%
+of a 1051 erg ejecta could produce a SN IIn with a luminosity of
+1010 L⊙ for 3 months.
+
+Super luminous interacting SNe require both a high kinetic
+energy in the inner shell and a large mass reservoir in the outer
+shell (see, e.g., Moriya et al. 2013b). Two good examples of such
+SNe IIn are SN 2006gy (Smith et al. 2007) and more recently
+SN 2010jl (Stoll et al. 2011). The latter has extensive photomet-
+ric and spectroscopic observations (Stoll et al. 2011; Zhang et al.
+2012; Ofek et al. 2014; Fransson et al. 2014) and also has spec-
+tropolarimetric data (Patat et al. 2011; Williams et al. 2014). How
+stars produce the outer shell
+is unclear – it may be mate-
+rial ejected by the pair-production instability (Barkat et al. 1967;
+Woosley et al. 2007) or it may be material ejected via a super-
+Eddington wind (Owocki et al. 2004). Here, we simply consider the
+interaction between a fast moving inner shell and a slowly-moving
+
+2011 RAS
+
+c
+(cid:13)
+
+ 
+ 
+ 
+ 
+ 
+ 
+2
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+massive outer shell, and leave aside speculations concerning their
+origin.
+
+Numerical simulations of
+
+interacting SNe are generally
+undertaken with radiation hydrodynamics (Chugai et al. 2004;
+Woosley et al. 2007; Moriya et al. 2013b; Whalen et al. 2013), hy-
+drodynamics combined with a parameterised cooling function
+(van Marle et al. 2010; Chen et al. 2014), or pure hydrodynamics
+(by assuming adiabaticity; see, e.g., Blondin et al. 1996). When
+studying super-luminous SNe IIn, radiation hydrodynamics with
+a non-grey (multi-group) treatment is a must because the radia-
+tion contribution is a sizeable fraction of the pressure/energy in the
+problem, the characteristic temperatures of the radiation and of the
+gas may differ strongly, and the emerging radiation provides essen-
+tial signatures characterising the event.
+
+The radiative transfer modelling for SNe IIn comes at present
+in two ﬂavours. It is either based on the results of radiation hy-
+drodynamics simulations but limited to a single line, e.g., Hα
+(Chugai et al. 2004), or based on an ad-hoc atmospheric structure
+and the assumption of steady-state radiation through a diffusive op-
+tically thick inner boundary (Dessart et al. 2009).
+
+In this work, we discuss numerical simulations for super-
+luminous SNe of type IIn, including studies with radiation hydro-
+dynamics, radiative transfer, and polarised radiative transfer codes.
+In Section 2, we ﬁrst present the multi-group 1-D Eulerian radia-
+tion hydrodynamics simulations we perform with HERACLES, in-
+cluding the numerical approach, the standard interaction conﬁgu-
+ration we adopt as initial conditions, and the results for both the
+dynamics and the radiation. We then present in Section 3 non-LTE
+radiative-transfer simulations with CMFGEN, which we compute
+for a number of snapshots using the results from the radiation-
+hydrodynamical modelling. We discuss line proﬁle broadening, and
+the relative roles of expansion and electron scattering. In Section 4,
+we present polarisation calculations based on these CMFGEN simu-
+lations but artiﬁcially distorted along an axis of symmetry, in order
+to produce prolate density conﬁgurations. We assess the level of
+asymmetry needed to explain the observed continuum polarisation
+(and line depolarisation) reported for SN 2010jl. In Section 5, we
+discuss the dependency of our results on the interaction properties,
+varying the kinetic energy of the inner shell and the mass/extent of
+the circumstellar medium (CSM). Finally, in Section 6, we present
+our conclusions.
+
+2 RADIATION HYDRODYNAMICS WITH HERACLES
+
+2.1 Numerical approach
+
+a
+
+is
+
+Eulerian multi-dimensional
+
+radiation-
+HERACLES
+hydrodynamics code (Gonz´alez et al. 2007), with the possibility
+for multi-group radiation transport
+(Vaytet et al. 2011). The
+hydrodynamics is treated using a standard second order Godunov
+scheme. For the radiation transfer, conduction, ﬂux limited diffu-
+sion (FLD) and the M1 moment model (Dubroca & Feugeas 1999)
+are implemented in HERACLES, the latter two with the possibility
+of using a multi-group approach. Apart from a comparison test that
+uses a grey treatment, the simulations presented in this paper are
+all done using the multi-group M1 moment model. As explained
+below, a multi-group treatment is necessary in order to take into
+account the large opacity variations with frequency and the strong
+imbalance between radiation and gas temperature. The M1 model
+has also some strong beneﬁt compared to the more standard
+FLD approach. First of all the M1 model is exact in both the
+
+diffusion and the free-streaming limit and is rather accurate in
+between. It is therefore well suited to model regions with low or
+intermediate optical depth. Furthermore, the M1 method solves
+explicitly for both the energy and the ﬂux through moments of
+the radiative transfer equations. The M1 model can distinguish
+between absorption/emission and scattering opacities. The effect
+of scattering in regions where the scattering opacity is dominant
+can then be taken into account. Finally, the radiative transfer is
+formulated in the co-moving frame and as is shown in Vaytet et al.
+(2011) the Doppler and aberrations effects are properly accounted
+for, which is important when large velocity gradients are present.
+
+We use the multi-group solver because grey radiation trans-
+port, often used for simulations of non-interacting Type II SNe, is
+inadequate in SNe IIn. In non-interacting Type II SNe, the radiation
+and the gas have similar temperatures everywhere (even identical at
+large optical depths), so that adopting the Rosseland mean opacity,
+for example, is not a bad representation of the effective opacity of
+the material. In contrast, the radiation produced from the interac-
+tion in SNe IIn has a characteristic temperature that can vastly differ
+from the medium that it traverses, and the total continuum optical
+depth is not much in excess of about ten. In the next section, we il-
+lustrate the impact on the light curve produced by assuming a grey
+rather than an energy-dependent LTE opacity for the material.
+
+In this work, we adopt a uniform composition, with a H mass
+fraction of 0.633, He mass fraction of 0.36564, and an iron mass
+fraction of 0.00136 to reﬂect approximately the near-solar compo-
+sition of a blue or a red supergiant (hereafter BSG/RSG) star (for
+SN 2010jl, Stoll et al. 2011) argue for a sub-solar metallicity, which
+may be important for understanding how these SNe IIn come about,
+but is irrelevant for the present radiation-hydrodynamics consider-
+ations).
+
+We supply the code with an opacity table for our adopted com-
+position. We compute our opacities as a function of density, tem-
+perature and energy group. Energy groups are positioned at strate-
+gic locations to capture the strong variation in absorptive opacity
+with wavelength. We use one group for the entire Lyman contin-
+uum (including the X-ray range), two groups for the Balmer con-
+tinuum, two for the Paschen continuum, and three groups for the
+Brackett continuum and beyond.1 Our opacity code computes the
+LTE level populations and ionisation state of the gas, and then uses
+the atomic data available within CMFGEN to compute LTE opaci-
+ties and to make the opacity table. The domain covered is 10−20 to
+10−5 g cm−3 in 200 bins, and from 2000 to 500,000 K in 500 bins
+— we use the nearest edge for requests outside the table bound-
+aries. Here, we consider the contribution from electron scattering
+and bound-free opacity for H I, He I- II, and Fe I-XII. A major lim-
+itation of our work is that we ignore line opacity and emissivity
+in our HERACLES simulations. Metal line blanketing (in particular
+from Fe) would enhance the opacity in the UV (inhibiting further
+the escape of UV photons). We also neglect cooling due to CNO
+elements, which requires a non-LTE study with speciﬁc allowance
+for enhanced photon escape due to the velocity ﬁeld. Inclusion of
+these effects is left to a future study.
+
+In Fig. 1, we plot the photon mean free path and its inverse
+
+1 We tried using several energy groups to cover the X-ray and the EUV
+ranges better but this caused numerical problems with the radiative trans-
+fer. The solver struggled converging when an exceedingly small energy/ﬂux
+was present in those energy groups, a situation encountered outside of the
+shocked region. In practice, this should not impact our results sizeably be-
+cause the optical depth to hard radiation (all Lyman photons) is huge at all
+times considered here.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+]
+
+m
+c
+
+5
+1
+0
+1
+[
+
+h
+t
+a
+P
+e
+e
+r
+F
+n
+a
+e
+M
+
+]
+
+m
+c
+
+5
+1
+0
+1
+[
+
+h
+t
+a
+P
+e
+e
+r
+F
+n
+a
+e
+M
+
+105
+
+104
+
+103
+
+102
+
+101
+
+100
+
+10−1
+
+1010
+
+108
+
+106
+
+104
+
+102
+
+100
+
+10−2
+
+10−4
+
+10−6
+
+10−8
+
+E.S.
+Rosseland Mean
+
+ρ=1.16x10−14g cm−3
+
+104
+
+105
+
+Temperature [K]
+
+ρ=1.16x10−14g cm−3
+
+T=3011K
+
+Bound-Free
+E.S.
+
+103
+
+Wavelength [˚A]
+
+104
+
+]
+1
+−
+m
+c
+
+5
+1
+−
+
+0
+1
+[
+
+y
+t
+i
+c
+a
+p
+O
+
+5
+
+4
+
+3
+
+2
+
+1
+
+0
+
+]
+
+m
+c
+
+5
+1
+0
+1
+[
+
+h
+t
+a
+P
+e
+e
+r
+F
+n
+a
+e
+M
+
+104
+
+103
+
+102
+
+101
+
+100
+
+10−1
+
+10−2
+
+Super-luminous Type IIn SNe
+
+3
+
+ρ=1.16x10−14g cm−3
+
+E.S.
+Rosseland
+
+104
+
+105
+
+Temperature [K]
+
+ρ=1.16x10−14g cm−3
+
+T=12009K
+
+Bound-Free
+E.S.
+
+103
+
+Wavelength [˚A]
+
+104
+
+10−14 g cm−3.
+Figure 1. Top row: Illustration of the variation of the photon mean free path (left) and inverse mean free path (right) at a mass density of 1.16
+The electron-scattering opacity (black) is the main contribution to the Rosseland-mean opacity (red; which accounts for bound-bound and bound-free pro-
+cesses), except in the regions of partial ionisation of H and He at 8000-20000 K and in the iron-opacity bump in the range 100000-200000 K. The precise
+temperature regions where these offsets occur depend on density. The most critical variation in the opacity is associated with the recombination of H and
+He, leading to a very small opacity at low temperature. Bottom row: Illustration of the wavelength dependence of the photon mean free path associated with
+12000 K (right), corresponding to conditions in which hydrogen is neutral and ionised, respectively. The
+absorptive processes (blue) at
+ﬁlled dots correspond to the central wavelength of each energy group used for both the opacity table and the HERACLES simulations.
+
+3000 K (left) and
+
+∼
+
+∼
+
+×
+
+(i.e., the opacity) against wavelength for different processes at dif-
+ferent densities and temperatures. In super-luminous SNe IIn the
+spectrum formation region is typically optically thick in the Ly-
+man continuum (and at X-ray wavelengths) and high-energy pho-
+tons will tend to thermalise, even at low electron-scattering opti-
+cal depth. Longward of the Lyman continuum, electron scattering
+opacity typically dominates over absorptive opacities and so low-
+energy photons will thermalise inefﬁciently at most times and lo-
+cations.
+
+The simulations in this work use an ideal gas equation of state
+with γ = 5/3.2 We also adopt a mean atomic weight of 1.38 in all
+simulations. In practice, this value depends on the ionisation state
+of the gas, but in ways that need to be determined by using a general
+equation of state — this is left to a forthcoming study.
+
+Our simulations are 1-D and use a uniform radial grid with
+1600 points, covering from 0.05 to 2× 1016 cm. Degrading the res-
+
+2 We therefore ignore the variations in thermodynamic quantities that arise
+from variations in ionisation.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+olution by a factor of four produces the same overall properties
+(e.g., the bolometric maximum is changed by ∼ 10%), although the
+shock is less resolved and more numerical diffusion occurs as the
+interaction region crosses grid zones in the course of the simula-
+tion. This has a visible impact on the properties of the forward and
+reverse shocks and the associated temperature jumps, but it does
+not inﬂuence signiﬁcantly the energy solved for by HERACLES.
+Very high resolution simulations that yielded better resolution of
+the shock structure gave, for example, similar results for the prop-
+erties of the CSM, the shock propagation speed, and the emergent
+luminosity.
+
+The initial conﬁguration for the interaction is determined an-
+alytically. We prescribe a density and a temperature structure for
+the inner shell (tagged as the SN ejecta, but the results apply to any
+ejected shell with similar properties) and the outer shell (we assume
+the CSM arises from pre-SN mass loss in the form of a wind). We
+adopt a structure for the SN ejecta which is based on the simulations
+of core-collapse SNe we perform (Dessart et al. 2010b,a), in prac-
+tice comparable to the formulation of Chevalier & Irwin (2011) and
+Moriya et al. (2013b). In the present paper, we are only interested
+
+4
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+104
+
+103
+
+102
+
+]
+
+1
+−
+s
+
+m
+k
+[
+
+y
+t
+i
+c
+o
+l
+e
+V
+
+]
+
+3
+−
+m
+c
+g
+[
+
+y
+t
+i
+s
+n
+e
+D
+
+10−11
+10−12
+10−13
+10−14
+10−15
+10−16
+10−17
+
+]
+
+K
+
+[
+
+e
+r
+u
+t
+a
+r
+e
+p
+m
+e
+T
+
+10−1
+
+100
+
+101
+
+Radius [1015cm]
+
+]
+
+⊙
+M
+
+[
+
+s
+s
+a
+M
+
+10−1
+
+100
+
+101
+
+Radius [1015cm]
+
+104
+
+103
+
+10
+
+8
+
+6
+
+4
+
+2
+
+0
+
+10−1
+
+100
+
+101
+
+Radius [1015cm]
+
+10−1
+
+100
+
+101
+
+Radius [1015cm]
+
+Figure 2. Initial conﬁguration for the reference interaction model X simulated with HERACLES. We show radial proﬁles of the velocity, the temperature, the
+mass density, and the Lagrangian mass. Global quantities and additional details for this model are given in Table 1 and Section 2.1.
+
+in studying the basic properties of super-luminous SNe IIn and thus
+focus on one event (i.e., SN 2010jl), for which we are guided by the
+parameters of Fransson et al. (2014), who argue for a SN explosion
+leading to interaction with a dense and extended CSM. We do not
+include any unstable nuclei in the simulation and thus ignore any
+contribution from radioactive decay.
+
+For our standard interaction model, named X, we take a
+9.8 M⊙ inner ejecta (in homologous expansion) with 1051 erg. Its
+density structure is given by a power law in radius with exponent
+Nρ = 8 outside of V0 ∼ 3000 km s−1 and constant within it. Its
+temperature structure is given by a power law in density with expo-
+nent NT = 0.4, rising from 2000 K at the ejecta/CSM interface ra-
+dius located at Rt (we enforce a maximum temperature of 65000 K
+in the inner ejecta). The SN ejecta is 11.6 d old when the interaction
+starts. For the outer shell, which starts at Rt = 1015 cm, we adopt
+a wind structure with a constant velocity of 100 km s−1 (and con-
+stant temperature of 2000 K), but split that space into two regions
+of distinct density. Below 1016 cm, we prescribe a mass loss rate
+of 0.1 M⊙ yr−1, and beyond that radius we use a mass loss rate of
+10−3 M⊙ yr−1 (i.e., two orders of magnitude smaller). The moti-
+vation for this is three fold. First, the CSM mass should not be un-
+realistically large. By truncating the high mass loss region, we can
+control the total CSM mass for any chosen mass loss. Second, the
+phase of high mass loss in massive stars like η Car lasts for a period
+of the order of ten years, not for centuries. With our choice of outer
+radius and wind speed, the high mass loss phase has a duration of
+∼ 28 yr. Third, the transition to a lower density outer region will
+facilitate a reduction in the luminosity at later times, as observed
+
+in SN 2010jl past 300 d (see below, and Fransson et al. 2014). For
+convenience, we interpolate the density at the junction between the
+two shells in order to smooth the proﬁle and avoid an overly abrupt
+change in luminosity when the shock reaches this region. The inner
+edge of the outer shell has a kinematic age of 3.2 yr. The CSM has
+a total mass of 2.89 M⊙ and a total kinetic energy of 5.2×1047 erg.
+To summarise, for the SN ejecta (R < Rt), we adopt:
+
+V (R) = (R/Rt)Vmax ,
+
+V0 = Vmax/3 ,
+
+ρ(V ) = ρ0(V0/V )Nρ for V > V0 ,
+ρ(V ) = ρ0 for V < V0 and
+T (V ) = 2000 (ρ(V )/ρ(Vmax))NT K .
+
+The proportionality constants ρ0 and Vmax are adjusted so that the
+total SN ejecta mass and kinetic energy match the desired values
+(see Table 1). For the CSM (R > Rt), we adopt:
+
+ρ(R) = ˙M /4πR2V ,
+
+V = 100 km s−1 and ,
+T = 2000 K
+
+where ˙M = ˙MCSM,in for R < 1016 cm and ˙M = ˙MCSM,out for
+R > 1016 cm.
+
+The initial conditions for model X are shown in Fig. 2. To ex-
+plore some dependencies of our results, we vary these ejecta/CSM
+conditions and discuss the implications in Section 5 (see also Ta-
+ble 1).
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+5
+
+Table 1. Summary of simulations performed in this work. The reference model X is discussed in detail through the most part of the paper (Section 2), while
+1013 and
+additional simulations (Xe3 etc.) are discussed in Section 5. For all simulations, the minimum and maximum radii of the Eulerian grid are 5
+1016 cm, and the transition radius between the SN ejecta and the CSM lies at a radius Rt of 1015 cm. In all cases, the mass of the inner shell (the SN
+2
+×
+ejecta) is 9.8 M⊙, and the CSM wind velocity is 100 km s−1. Results from the HERACLES simulation for each model are given in the last three columns. The
+time to peak is the time to reach maximum from the time when the rising bolometric luminosity is only 1% of the value at peak (this way, we cancel the light
+travel time to the outer boundary, where we record the ﬂux). We ﬁnally add results from Section 3 for the bolometric correction and colour at peak. Numbers
+in parenthesis are powers of ten.
+
+×
+
+model
+
+X
+Xe3
+Xe3m6
+Xe3m6r
+Xe10
+Xe10m6
+Xm3
+Xm6
+
+Ekin,SN Vmax,SN Ekin,CSM MCSM ˙MCSM,in
+[1051 erg]
+[1051 erg]
+
+[km s−1]
+
+[M⊙]
+
+[M⊙ yr−1]
+
+˙MCSM,out Lbol,peak B.C.@peak (V
+
+[erg s−1]
+
+1
+3
+3
+3
+10
+10
+1
+1
+
+9608
+16642
+16642
+16642
+30384
+30384
+9608
+9608
+
+5.17(-4)
+9.70(-4)
+5.15(-3)
+6.08(-3)
+2.55(-3)
+1.31(-2)
+1.46(-3)
+2.87(-3)
+
+2.89
+2.89
+17.31
+26.73
+2.89
+17.31
+8.66
+17.31
+
+0.1
+0.1
+0.6
+0.6
+0.1
+0.6
+0.3
+0.6
+
+0.001
+0.001
+0.006
+0.006
+0.001
+0.006
+0.003
+0.006
+
+3.024(43)
+1.204(44)
+2.080(44)
+1.818(44)
+6.399(44)
+1.091(45)
+3.906(43)
+4.751(43)
+
+[mag]
+
+-1.06
+-1.35
+-1.39
+-1.05
+-1.46
+-1.80
+-0.84
+-0.80
+
+I)@peak tpeak
+[d]
+
+−
+[mag]
+
+R Ldt
+[1051 erg]
+
+0.15
+0.11
+0.01
+0.06
+0.13
+-0.04
+0.13
+0.27
+
+19.4
+15.7
+55.7
+68.3
+12.7
+34.2
+47.9
+77.5
+
+0.32
+0.88
+2.05
+2.13
+2.92
+6.89
+0.49
+0.63
+
+2.2 Results from the HERACLES simulation
+
+Below, we present the salient features from the interaction sim-
+ulation, together with illustrations of the bolometric light curve
+(Fig. 3), the interaction evolution (Figs. 4–7), the properties of the
+photosphere and of the dense shell (Fig. 8), the evolution of the
+ﬂuid and of the radiation properties versus radius (Fig. 9), and the
+shock structure (ﬁg. 10). We deﬁne the photosphere as the location
+where the optical depth integrated inwards from the outer boundary
+is 2/3. For convenience, we consider only the electron-scattering
+opacity when computing the photosphere location. This choice is
+suitable because the bulk of the emerging radiation emerges in the
+optical spectral region where electron scattering is the dominant
+opacity source. At X-ray and UV wavelengths energy-dependent
+optical depths would need to be used.
+
+Initially the CSM, by construction, is at 2000 K and neutral.
+It has a huge opacity to Lyman-continuum photons but is transpar-
+ent at longer wavelengths (Fig. 1). However, after about a week,
+this CSM is ionised (the ionisation is nearly complete for hydro-
+gen, but only partial for helium). This rapid change occurs as an
+ionisation front sweeps the CSM (see the early migration of the
+photosphere, shown as a ﬁlled dot, in Fig. 8), triggered by the huge
+luminosity arising at the shock. At the onset of interaction, both the
+CSM density and the ejecta velocity are maximum, so the shock
+luminosity is at its maximum. The luminosity is dominated by the
+contribution from the forward shock and can be estimated with
+Lshock ∼ 2πr2ρcsmv3
+shock (see, e.g., Chugai & Danziger 1994),
+which is of the order of 3×1044 erg s−1. As time progresses, the
+fast ejecta is decelerated by the CSM and the shock luminosity
+decreases. Within 10 d, the maximum velocity is ∼ 6000 km s−1
+and the shock luminosity ∼3×1043 erg s−1. These luminosities are
+extreme. Adopting a representative radiative luminosity of a few
+1043 erg s−1 crossing the CSM over the ﬁrst ten days, this amounts
+to a total radiative energy on the order of 1049 erg, which is 100-
+1000 times the energy required to ionise the hydrogen atoms in that
+H-rich shell. Only a small fraction of this energy is absorbed but
+this is more than sufﬁcient to cause rapid ionisation of the CSM.
+
+Once the CSM is ionised, the minimum continuum opacity
+is set by electron scattering, and is moderate at all wavelengths.
+Photons, which are injected at the shock, are thermalised due to
+the huge X-ray/UV opacity and converted to UV/optical photons.
+These photons are trapped and escape after diffusing for a time
+tdiﬀ ∼ τcsm∆R/c, where ∆R = Rphot − Rcds, and Rphot is
+
+Figure 3. Bolometric light curve evolution for the SN IIn model X (multi-
+group; black) and its grey counterpart (blue). We add the bolometric lumi-
+<200 d from
+nosity at the shock (green dashed curve), which differs at times
+∼
+the recorded bolometric luminosity because of optical depth and light travel
+time effects (there is an 8 d light travel time to the outer boundary from the
+initial location of the interaction region and a
+35 d diffusion time through
+the CSM once it has become ionised). For comparison, we show the an-
+alytical model light curve (red dashed curve) of Fransson et al. (2014) for
+SN 2010jl.
+
+∼
+
+As the code is Eulerian, the ﬂow constantly leaves the grid at
+the outer boundary. Conditions are ﬂow out, for both the gas and
+the radiation. At the inner boundary, we use a reﬂecting condition
+for the radiation (zero ﬂux). For the gas, we use an inﬂow condi-
+tion dynamically consistent with the properties of the inner shell.
+We assign to this injected material a low temperature of 2000 K, a
+velocity that preserves the homologous expansion of the inner shell
+material (V ∝ R), and a density ρib = ρ1x3, with x = t/(t + dt),
+and where ρ1 is the density in the ﬁrst active zone, t = Rib/Vib,
+and dt is the time step. The injected material has no dynamical or
+radiative inﬂuence on the physics of the interaction and our results.
+We continue the simulations until the interaction region moves out
+of the grid, until the luminosity becomes about 100 times smaller
+than at maximum, or when 2 years have passed, whatever comes
+ﬁrst.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+6
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Figure 4. Radial slices through the grid showing the temperature, the ratio of the internal (i.e., gas) energy and the radiation energy (i.e., the mean intensity),
+the velocity, the luminosity, the mass density, the reduced ﬂux, the opacity (inverse mean free path) for each group (coloured curves) and for electron scattering
+(dashed black curve) together with the associated optical depth (integrated inwards from the outer boundary; the dotted black line corresponds to τ = 2/3).
+The coloured curves correspond to each one of the eight energy groups (ordered from low to high energy/frequency; see labels in bottom right panel and
+discussion in Section 2.1). We use 3 groups longward of the Paschen jump, two groups in the Paschen continuum, two groups in the Balmer continuum, and
+one group for the Lyman continuum. The time is 4.1 d after the onset of the interaction. The electron scattering contribution is not included in these groups.
+
+the photospheric radius and Rcds is the Cold-Dense-Shell (CDS)
+radius. This CDS is very narrow (i.e., 1013 cm) and is bounded
+by the reverse shock and the forward shock. As can be seen in
+Figs. 6–7 and Fig. 10, the forward shock exhibits a Zel’dovich spike
+(Zel’dovich & Raizer 1967) where the gas temperature becomes
+very high before relaxing to its post-shock value. In practice, the
+CDS is not cold – its temperature at these early times is in excess
+of 20000 K, having, however, efﬁciently cooled from X-ray shock
+
+temperatures by radiative emission.3 In our reference simulation
+(i.e., for this adopted CSM structure) at 10 days after the onset of
+
+3 We obtain higher spike temperatures of >105 K with higher resolution.
+However, it is in practice difﬁcult to resolve the spike structure given the
+scale of the problem. Shock temperatures of 107-108 K are obtained if we
+simulate the same interaction conﬁguration without radiation transport (i.e.,
+equivalent to hydrodynamics only). When radiation is included, radiation
+mediates the properties of the shock. The large heat capacity of the photon
+gas reduces the shock temperature. The diffusion and the escape of radiation
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+7
+
+Figure 5. Same as Fig. 4, but now for a time of 29.9 d after the onset of the interaction.
+
+the interaction, Rphot ∼ 7×1015 cm, the CSM (electron scattering)
+optical depth is ∼15, and the diffusion time from the shock to the
+photosphere is ∼35 d.
+
+The light curve we obtain if we assume grey radiation trans-
+port (within the M1 model) is quite different (blue curve in Fig. 3),
+especially at early times. The luminosity is maximum at the begin-
+ning, because the grey opacity is very low for cold gas. In contrast,
+the opacity to X-rays and UV photons is huge at low temperature.
+Hence, in the grey case, the photons initially produced at the shock
+travel without being absorbed and reach the outer boundary unadul-
+terated. It is only subsequently that the streaming radiation raises
+
+from the shocked region exacerbates the reduction in temperature of the
+shocked region compared to a pure hydrodynamics conﬁguration.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+the CSM temperature and increases its optical depth, causing a dip
+and a bump in the light curve, but the corresponding opacity in
+the X/UV ranges is still much lower than what it is in Nature. The
+radiation properties (bolometric luminosity, but also colours etc.)
+are thus affected. This test clearly shows that multi-group radia-
+tion transport (with groups that span from short to long wavelength,
+even coarsely) is important when modelling SNe IIn.
+
+The evolution of the photospheric radius is quite complicated.
+Initially it progresses to larger radii as the CSM becomes more
+ionised. Once the medium is fully ionised, the photospheric radius
+remains almost constant (Fig. 9). Depending on circumstances, the
+photospheric radius can then either decrease or increase. First, the
+CSM may recombine and its opacity to radiation decrease, leading
+to a recession of the photosphere. This is not seen in our simulations
+
+8
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Figure 6. Same as Fig. 4, but now for a time of 179.9 d after the onset of the interaction.
+
+because the large and sustained supply of radiation from the shock
+maintains a high ionisation in the CSM. The other circumstance,
+which inevitably occurs, is that the shock (and the CDS), eventu-
+ally overtakes Rphot causing the photospheric radius to increase
+again. This occurs in this simulation at ∼ 200 d, which implies that
+the average shock velocity over the ﬁrst 200 days is ∼3000 km s−1
+(Fig. 8). Because of expansion, the electron-scattering optical depth
+of the CDS decreases with time. 4
+
+The evolution of the light curve for the ﬁrst ∼ 200 d is
+
+4 This holds once the CSM is fully ionised. Radial compression of CSM
+material by the shock does not change the CSM electron-scattering optical
+depth; this would require lateral compression, inexistent in a spherically-
+symmetric simulation. Absorptive optical depths may increase (because
+
+essentially at ﬁxed Rphot. The morphology of the light curve
+(Fig. 3) differs from the monotonically decreasing shock luminos-
+ity because of optical depth effects, very much in the manner of
+56Ni powered optically-thick ejecta of standard SNe (Arnett 1982;
+Chevalier & Irwin 2011; Moriya et al. 2013b). At early times, the
+Lshock is huge but the optical depth is large so radiation energy
+is stored and released on a diffusion time scale of about a month.
+Bolometric maximum occurs at t ∼ tdiﬀ. Past maximum, the SN
+radiation exceeds for a while and eventually becomes equal to the
+shock luminosity. A steady-state conﬁguration sets in because the
+shock luminosity evolves slowly and the diffusion time is only a
+
+such process are often proportional to the square of the density) but except
+for the optical depth of the Lyman continuum these also decline.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+9
+
+Figure 7. Same as Fig. 4, but now for a time of 389.9 d after the onset of the interaction.
+
+few days (because the CDS gets closer to Rphot). Thus, the bolo-
+metric evolution over the ﬁrst 200 d reﬂects primarily variations
+not in Rphot but in the radiation temperature, itself dependent on
+the amount of energy injected and stored between the photosphere
+and the CDS. For times t < tdiﬀ, this energy accumulates and the
+temperature of the optically-thick CSM gas goes up to a maximum
+around bolometric maximum. For times t > tdiﬀ, less and less
+energy is stored until the steady-steady state regime is reached. As
+the shock luminosity decreases, the radiation temperature decreases
+too and the SN luminosity ebbs.5
+
+At the end of the simulation, a total of 0.3×1051 erg has been
+radiated, drawn from the 1051 erg of kinetic energy stored in the
+inner ejecta. There still remains, untapped, 0.7×1051 erg of kinetic
+energy in the system, contained in the un-shocked SN ejecta (i.e.,
+the SN ejecta material not affected by the interaction, which rep-
+resents 50% of the total SN ejecta mass) and in the massive CDS,
+which still advances through space at ∼3000 km s−1. So, for this
+conﬁguration, we obtain a conversion efﬁciency of kinetic to ra-
+diation energy of 30% (little additional kinetic energy will be ex-
+
+5 In theory, the adopted value of the mean atomic weight should inﬂuence
+the gas temperature. For partial ionisation, the mean atomic weight could
+be around 0.6-0.7, rather than 1.38, which corresponds to the neutral H-
+
+rich gas adopted here. We ran a simulation for the reference model X with
+a value of 0.6, but found very similar results, probably because in super-
+luminous SNe IIn, the entire material is partially ionised throughout most
+of the evolution — the ionisation state of the plasma does not change.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+10
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Figure 8. Illustration of the evolution of the material properties at the photosphere (left; logarithmic scale for abscissa). and at the location of maximum
+density within the dense shell (right). Note the migration of the photosphere to larger radii during the ﬁrst 8 days, as well as the sudden jump in photospheric
+properties at
+
+220 d, when the CSM material exterior to the CDS is no longer optically thick (because the CDS has swept up the dense part of the CSM).
+
+∼
+
+tracted in this interaction because the remaining CSM is very low
+density). In a multi-dimensional conﬁguration, some kinetic energy
+could also be stored in the lateral direction. Hence, the present 1-D
+simulation likely overestimates what the equivalent 3-D simulation
+would produce. Unlike Moriya et al. (2013b), we make no attempt
+to estimate this, in part because these lateral motions will be much
+slower than the radial motion of the material and thus cannot rep-
+resent a large energy loss for the radiation.
+
+In the next section, we will discuss in more detail the radia-
+tive transfer properties of this interaction. One thing to note is that
+despite the signiﬁcant optical depth of the conﬁguration, the pho-
+ton mean free path is non negligible. This is particularly true in the
+inner ejecta region once expansion has caused signiﬁcant cooling
+because these regions do not beneﬁt from the shock luminosity (the
+bulk of the radiation streams radially outwards from the interac-
+tion). There is a temperature jump ahead of the interaction (Fig. 10)
+caused by radiation leakage from the shock, as in the phenomenon
+of shock breakout in core-collapse SNe (Klein & Chevalier 1978).
+This structure is comoving with the shock, since the conditions that
+cause it persist for as long as the shock remains optically-thick.
+
+Our results are in agreement with the radiation hydrodynam-
+ics simulations of Moriya et al. (2013b). Our simulation also em-
+phasises that the shell shocked model (Smith & McCray 2007) is
+not adequate for optically-thick super-luminous SNe IIn, as also
+pointed out by Moriya et al. (2013a). The basic inconsistency with
+the shell-shocked model is that it is not possible for a shock to cross
+a very extended CSM, ionise it, store energy within it, and subse-
+quently let this shocked material radiate the deposited energy. This
+scenario applies to shocks crossing the interior of a stellar enve-
+lope (as in successful core-collapse SNe) only because the stellar
+interior has a huge optical depth. At every location except for the
+outermost stellar layers, the radiation dominated shock progresses
+outward faster than the photons it carries in its wake because the
+photon mean free path is exceedingly small and photon diffusion
+times exceedingly long compared to the shock-crossing time. In in-
+teracting SNe, this conﬁguration does not hold at all. Even for very
+high CSM densities, the shock-crossing time through the CSM will
+always far exceed the diffusion time through the shell so that radi-
+ation deposited by the shock is continuously being radiated by the
+shocked material. The present simulation shows that the basic light
+curve properties of super luminous SNe can be explained with a
+simple and physically consistent setup. It also illustrates how the
+
+simplistic “diffusion model” can be misleading, and how an argu-
+ment based on dimensional analysis can sometimes lead to wrong
+conclusions.
+
+In our simulations spectrum formation takes place primarily
+in the slow moving CSM for about 200 d, but past that the spec-
+trum formation region will be tied to the much faster moving CDS.
+The CDS optical depth will be too small to ensure full thermalisa-
+tion within the slow unshocked material even if the location where
+the optical depth is 2/3 (i.e., the photosphere), lies there. This im-
+plies that line proﬁles should evolve and become more Doppler-
+broadened as time passes in super-luminous SNe, while line broad-
+ening by electron scattering would dominate only at early times
+(Dessart et al. 2009). This behaviour is important to study as it car-
+ries information on the potentially large residue of kinetic energy
+left untapped in the interaction. For example, this matters when es-
+timating the kinetic energy in the inner shell and whether this inner
+shell originates in an energetic explosion that requires the gravita-
+tional collapse of the iron core of a massive star.
+
+The radiation injected by the shock and crossing the CSM
+does work on the material and accelerates it. This radiative ac-
+celeration is however modest, and limited to the peak time of the
+light curve, leading to an increase of the CSM velocity from 100
+to ∼ 200 km s−1 (Fig. 9). At early times, the material that receives
+a larger acceleration, just ahead of the shock, lies at a large optical
+depth and is thus less visible that the photons emitted further out,
+in regions where the acceleration is more modest. At late times,
+the material ahead of the shock is too optically-thin to receive a
+signiﬁcant acceleration. The radiative acceleration in the HERA-
+CLES simulation is likely underestimated because of the neglect of
+line opacity and the potential boost from line desaturation caused
+by velocity gradients (Castor et al. 1975; Owocki 2015). However,
+our simulations suggest that the radiation arising at the shock only
+cause a modest acceleration of the unshocked CSM. This is com-
+patible with the near-constant width of the narrow P-Cygni proﬁle
+seen in SN 2010jl (Fransson et al. 2014). As we discuss in the next
+section, this modest acceleration seems an unlikely origin of the
+peak blueshift seen in the broad emission component of Hα.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+11
+
+Figure 9. Evolution of the radial proﬁles for the velocity, luminosity, temperature, and mass density for the reference model X. The epochs shown are 0.01,1,
+2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 50, 100, 150, 200, 250, 300, 350, 400 d after the onset of the interaction. Dots refer to the location of the photosphere — such
+a location exists for about 350 d, ﬁrst located in the CSM and then in the CDS. Past 350 d, the total electron scattering optical depth is less than 2/3, making
+electron scattering a poor frequency-redistribution mechanism at such late times.
+
+Figure 10. Proﬁles for the density, temperature, velocity, and bolometric luminosity in the shock region at maximum light (all normalised for visibility) as a
+function of radius (left) and mass (right) in the reference model X. The resolution is somewhat too small to fully resolve the shock structure, a problem that
+arises from the Eulerian approach.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+12
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+3 SPECTROSCOPIC MODELLING WITH CMFGEN
+
+3.1 Numerical approach
+
+At selected epochs during the evolution, from 20 to ∼ 200 d af-
+ter the onset of the interaction, we post-process the HERACLES
+simulation with the non-LTE radiative transfer code CMFGEN
+(Hillier & Miller 1998; Hillier & Dessart 2012). While there is no
+explicit time-dependence in the CMFGEN simulations undertaken
+here, time dependence is implicitly taken into account since we
+use the density, temperature, and velocity structures computed with
+HERACLES. We thus retain a much higher physical consistency than
+in Dessart et al. (2009). We use an adaptive grid to resolve care-
+fully the strongly varying density and temperature proﬁles, as well
+as the optical depth. The grid is truncated at small radii when the
+inward integrated Rosseland-mean optical depth reaches 30. The ﬁ-
+nal models discussed here use 100 grid points and adopt a turbulent
+velocity of 20 km s−1.
+
+We use the same H, He, and Fe mass fractions as for the
+radiation-hydrodynamical simulations. We limit the model atom to
+H I, He I, He II, Fe I–VI with the same super-level assignment as
+in Dessart et al. (2013). Higher ionisation stages are unnecessary
+since the gas temperature in the simulations at the times considered
+is below ∼ 80000 K (this maximum temperature is limited to a few
+zones at the shock and to early times). In the present simulations,
+the spectrum formation region has a characteristic temperature of
+about 10000 K or less. A discussion of the signatures of ions from
+CNO and other intermediate mass elements (which are merely trace
+elements compared to H and He here) is deferred to a subsequent
+study.
+
+The current version of CMFGEN does not allow us to calcu-
+late non-LTE line blanketed model atmospheres for non-monotonic
+velocity ﬂows. This property of interacting SNe is however funda-
+mental and should be taken into account. In this work, to overcome
+this limitation and take into account the non-monotonic velocity
+structure, we ignore lines when treating the continuous spectrum,
+but model the lines for the non-LTE analysis using the Sobolev
+approximation. Non-monotonic velocity ﬂows do not cause major
+issues with the Sobolev approximation6 since it is a local approxi-
+mation that uses the absolute value of the velocity gradient to com-
+pute the optical depth (Castor 1970). Since the density and temper-
+ature structures are taken from the hydrodynamical simulation we
+believe this to be a very reasonable ﬁrst approach.
+
+To compute the observed spectrum we wrote a new routine ca-
+pable of computing J in the comoving frame in the presence of non-
+monotonic velocity ﬁelds. With this routine we were able to allow
+for the inﬂuence of (non-coherent) electron scattering which was
+iterated to convergence using a simple lambda-iteration. Relatively
+minor changes were then made to CMF FLUX (Busche & Hillier
+
+|
+
+, where σ
+
+1 + σµ2
+
+d ln V /d ln R
+
+6 One problem we needed to address is that the Sobolev optical depth be-
+comes inﬁnite for one particular direction when the radial velocity gradient
+is not positive. This occurs because in a spherical ﬂow the Sobolev optical
+depth is proportional to 1/
+1. The
+|
+σ. In practical terms
+angular factor will be inﬁnite when µ =
+this does not affect the escape probability very much due to the small
+solid angle subtended by the singularity. However, in the standard com-
+putational approach the angle grid is not well sampled (the sampling be-
+comes worse as we move away from µ = 1), and numerical instabilities
+occurred at one or two depths, which we overcame by limiting the increase
+in optical depth. In this work we used the simple approach of choosing
+max(
+|
+
+0.2(1 + σ)) for
+
+when σ < 0.
+
+1 + σµ2
+
+1 + σµ2
+
+≡
+1/√
+
+±
+
+−
+
+−
+
+−
+
+|
+
+|
+
+|
+
+,
+
+2005) to facilitate the computation of the observed spectrum in the
+observer’s frame.
+
+In Dessart et al. (2009), we used a prescription for the den-
+sity structure of the emitting region and the ansatz was that an
+optically-thick shell was radiating the ﬂux. In that approach, the
+entire grid was in radiative equilibrium, and the ﬂux was forced
+to diffuse through the densest regions of the atmosphere (these re-
+gions were also the hottest by imposing the diffusion approxima-
+tion at the base). The dynamical conﬁguration presented in Sec-
+tion 2 is obviously quite different, but this simplistic treatment is in
+fact not so bad at early times, when the interaction region and the
+inner CSM are optically thick because in this case the details of the
+inner boundary conditions are lost. Hence, for as long as the con-
+ﬁguration is optically thick, the approach of Dessart et al. (2009)
+can provide a good match to the observations of some SNe IIn like
+1994W without being dynamically consistent.
+
+3.2 Spectral evolution
+
+We thus compute non-LTE spectra at 20.8, 41.7, 62.5, 83.3, 104.2,
+125.0, 145.8, 166.7, 208.3 d after the onset of the interaction. The
+spectral evolution shown in Fig. 11 reveals a striking similar-
+ity to observations of numerous super-luminous SNe IIn, includ-
+ing SN 2010jl (Zhang et al. 2012; Fransson et al. 2014). The SED
+evolves very slowly with time, with a progression towards redder
+colours, a diminishing ﬂux shortward of 4000 ˚A, and a decreasing
+ionisation visible through the strengthening of Fe II lines. H I and
+He I lines behave in a more complicated way.
+
+Line proﬁles prior to 100 days show the distinct symmetric
+morphology resulting from frequency redistribution by scattering
+with thermal electrons (Chugai 2001; Dessart et al. 2009), with a
+typical width of a few 1000 km s−1 — in earlier calculations, where
+we limited the velocities to 100 km s−1 on the CMFGEN grid, we
+obtained similar proﬁles. The width of this component only reﬂects
+redistribution of photons in frequency space by electron scattering
+– it provides no information about the shock velocity. Superposed
+on the broad wings, is a very narrow component with a P-Cygni
+proﬁle morphology. This narrow component corresponds to line
+emission and absorption weakly affected by electron scattering,
+and which preferentially arises from the outer regions of the CSM
+(which are moving at ∼>100 km s−1 in our model X) where line
+opacity may still be large but where the electron-scattering opacity
+is negligible.
+
+At a qualitative level, the early-time spectra shown in Fig. 11
+are analogous to those computed in Dessart et al. (2009) de-
+spite the very different approaches in the description of the den-
+sity/temperature structure.
+
+After 100 days, the line proﬁle morphology changes. In addi-
+tion to the two components discussed above, we see a blue shifted
+emission component that arises from the CDS. It is blue shifted be-
+cause the CDS is moving at a velocity of ∼3000 km s−1 and is op-
+tically thick in the continuum – line photons emitted in the red are
+absorbed by the near side of the CDS. The blueshift of peak emis-
+sion seen in non-interacting Type II SNe (Dessart & Hillier 2005b)
+has a similar origin. These Hα properties agree well at the quali-
+tative level with the observations of SN 2010jl (Zhang et al. 2012),
+although the magnitude of the emission blueshift is overestimated
+and the magnitude of the line width is underestimated (Fig. 12).
+
+We give a summary of the CMFGEN model properties in Ta-
+ble 2. The CMFGEN bolometric luminosity agrees with the HERA-
+CLES value to within 5-25% at early times (i.e. prior to ∼ 200 d),
+which is noteworthy since the two codes differ vastly in the treat-
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+13
+
+Figure 11. Montage of spectra at selected epochs (see right label) for our reference model X. The high-frequency patterns in the UV are caused by line
+blanketing from Fe II and Fe III in this model, while the optical is composed of H I, He I, and Fe II lines. At early times, lines typically show a hybrid
+morphology with a narrow core and extended wings, up to about 2000 km s−1 from line centre. These wings are due to incoherent electron scattering. As time
+progresses, a blue shifted component, associated with emission from the CDS, grows in strength. Line broadening is then caused by electron scattering and
+expansion.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+14
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Table 2. Summary of properties for the CMFGEN simulations based on the reference interaction model X. We include the properties at the photosphere, at the
+location of maximum density in the interaction region (the CDS), and the properties of the ﬁtted blackbody (see Fig. 13 for an example). We select epochs
+when the CDS is well below the photosphere, so that the interaction region is optically thick.
+
+age
+
+[d]
+
+Lbol MB MV MR MI
+
+Rphot
+
+Tphot Ne,phot
+
+Rcds
+
+Tcds Ne,cds
+
+Rbb
+
+Tbb
+
+Lbb
+
+[erg s−1]
+
+[mag]
+
+[mag]
+
+[mag]
+
+[mag]
+
+[1015 cm]
+
+[104 K]
+
+[cm−3]
+
+[1015 cm]
+
+[104 K]
+
+[cm−3]
+
+[1015 cm]
+
+[104 K]
+
+[erg s−1]
+
+2.15(43)
+20.8
+2.23(43)
+41.7
+1.21(43)
+62.5
+83.3
+9.88(42)
+104.2 8.65(42)
+125.0 7.99(42)
+145.8 7.26(42)
+
+-18.61 -18.68 -18.85 -18.86
+-18.84 -18.98 -19.14 -19.21
+-18.40 -18.68 -18.90 -19.03
+-18.16 -18.55 -18.82 -19.01
+-17.95 -18.43 -18.74 -18.99
+-17.74 -18.27 -18.62 -18.89
+-17.56 -18.12 -18.49 -18.77
+
+7.17
+7.10
+7.02
+7.04
+7.11
+7.08
+7.15
+
+1.33
+1.27
+1.09
+1.00
+0.97
+0.98
+1.00
+
+4.36(8)
+4.42(8)
+4.05(8)
+4.00(8)
+3.94(8)
+3.96(8)
+3.90(8)
+
+1.25
+1.78
+2.86
+3.37
+3.91
+3.64
+4.94
+
+1.66
+1.18
+1.01
+0.79
+0.76
+0.61
+0.69
+
+1.76(11)
+1.33(11)
+1.05(11)
+3.93(10)
+2.25(10)
+9.24(9)
+9.51(9)
+
+1.172
+1.448
+1.616
+1.848
+2.083
+2.199
+2.199
+
+1.084
+1.033
+0.879
+0.788
+0.715
+0.673
+0.646
+
+2.259(43)
+2.371(43)
+1.289(43)
+1.050(43)
+9.068(42)
+8.496(42)
+7.503(42)
+
+Figure 12. Montage of multi-epoch spectra for Model X (left) and SN 2010jl (right; Zhang et al. 2012) shown in velocity space with respect to the rest
+wavelength of Hα. Qualitatively, the model reproduces well the strengthening of the blue-shifted emission component and the increasing width of the observed
+Hα line proﬁle. Quantitatively, the magnitude of the blueshift is somewhat too high while the width of the emission feature is underestimated.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+15
+
+Figure 14. Radial variation of the optical depth associated with electron
+scattering, various continua, and lines of Hα and He I 5875 ˚A (for which we
+plot the Sobolev optical depth). Thermalisation in the Lyman continuum is
+ensured, but not in the Balmer and Paschen continua. The large Sobolev
+length caused by the small velocity gradient in the CSM causes the Hα line
+optical depth to be very large, and to exceed that in the Lyman continuum.
+
+blackbody. We ﬁnd non-planckian effects here associated with di-
+lution due to electron scattering (causing Rbb < Rphot; see, e.g.,
+Dessart & Hillier 2005a), and ﬂux excess rather than blanketing in
+the UV (as if multiple blackbody emitters with different tempera-
+tures were contributing).
+
+We show the optical depth for electron scattering, selected
+continuum wavelengths, as well as selected lines in Fig. 14. It is ev-
+ident that thermalisation is complete for UV photons in this model,
+but photons redder than the Lyman edge poorly thermalise, even at
+an early epoch of 41.7 d after the onset of interaction. For these,
+electron scattering is the main source of opacity. The blackbody
+radius underestimates the radius of the CDS at all times, although
+the bulk of the SN ﬂux arises from outside the CDS. Overall, the
+radiation ﬁeld in this SN conﬁguration is not well described by the
+Planck distribution. These considerations are conﬁrmed by Fig. 15,
+which illustrates how much smaller the mean intensity is compared
+to the Planck function, except at the location of lines. Furthermore,
+in our reference model, the bulk of the ﬂux arises at all times from
+layers where the electron scattering optical depth is never greater
+than 10, and more typically a few only (see also Fig. 10).
+
+The shallow density structure,
+
+the wavelength-dependent
+opacities, and the strong albedo, lead to a very spatially extended
+spectrum formation region. For example, the emission/absorption
+of Hα photons occurs throughout the grid, with the exception of
+the outermost regions of the CSM where the density is very low.
+At early times observed line photons primarily originate at larger
+radii because line photons emitted deeper suffer more scatterings,
+and hence have a greater probability of being absorbed. Line pho-
+tons that could accrue very large frequency shifts by multiple scat-
+tering with thermal electrons tend to be absorbed before they can
+escape. In our reference model, we ﬁnd that the bulk of Hα photons
+arise from regions with an electron scattering optical depth of a few,
+giving rise to emission in line wings extending to ∼ 3000 km s−1
+from line centre, and characterised by a proﬁle with a FWHM of
+∼1500 km s−1. This is somewhat similar to values in SN 2010jl
+(Zhang et al. 2012) at early epochs. However at later times the pro-
+ﬁles in SN 2010jl are broader and blue shifted. We also see this
+
+Figure 13. Comparison of the total synthetic ﬂux (black), the contin-
+uum synthetic ﬂux (blue) and the best match blackbody ﬂux to the optical
+range (red), for the reference model X at 41.7 d after the onset of inter-
+109 L⊙,
+action. In the same order, the cumulative luminosities are 5.83
+109 L⊙. The blackbody radius and temperature
+6.18
+1015 cm and 10331.6 K. The photospheric radius and tempera-
+are 1.45
+ture at that time are 7.10
+
+1015 cm and 12670.0 K.
+
+109 L⊙, and 4.45
+
+×
+
+×
+
+×
+
+×
+
+×
+
+ment of the radiative transfer (M1 method using eight energy
+groups versus a two-moment solver using 105 energy groups) and
+of the thermodynamic state of the gas (LTE versus non-LTE) —
+past 200 d, the bolometric luminosity predicted by the two codes
+differs sizeably (about a factor of 2), probably because non-LTE
+effects are stronger (the CDS is no longer embedded within the
+optically thick CSM). A mismatch is expected during the ﬁrst 1-2
+months because light-travel time effects are ignored in the compu-
+tation of the ﬂux in CMFGEN (the time dependence of the model
+is implicitly taken into account since we ﬁx the temperature, but
+no explicit time dependence is accounted for when computing the
+ﬂux in the formal solution of the radiative transfer equation in CM-
+FGEN). This matters when the properties of the interaction vary on
+a short time scale (i.e., comparable to the free-ﬂight time of ∼8 d
+to the outer boundary, where the luminosity is recorded).
+
+The slow evolution of the SED reﬂects the slowly varying
+shock luminosity (which arises from the smooth variation in both
+the ejecta density/velocity proﬁle and from the slowly varying CSM
+density for a wind conﬁguration), leading to a decrease in radi-
+ation/gas temperature in the optically thick regions of the CSM.
+Consequently, the electron scattering wings weaken as the ionisa-
+tion level and the electron scattering optical depth decrease (this is
+caused by the shrinking of the spectrum formation region, which is
+bounded by the ﬁxed photosphere and the outward moving dense
+shell or shock). For about 200 d after the onset of the interaction, the
+spectrum formation process is essentially unchanged in this simu-
+lation.
+
+It is customary in the community to compare the SED with a
+blackbody. At each epoch, we ﬁt the CMFGEN SED ﬂux ratio be-
+tween 4800 and 8000 ˚A to infer Tbb — we use an iterative proce-
+dure to ﬁnd the temperature for which the model and the blackbody
+have between these two wavelengths the same ﬂux ratio to within
+one part in 10000). We determine the corresponding blackbody ra-
+dius Rbb by matching the blackbody to the model luminosity Lλ at
+λ (i.e., through R2
+bb = Lλ/4π2Bλ(Tbb)). The total blackbody lu-
+minosity Lbb is then 4πR2
+bb. An example is shown in Fig. 13.
+Although the match is excellent in the ﬁtted range, the SED is not a
+
+bbσT 4
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+16
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Figure 15. Left: Variation of the ratio of the mean intensity Jλ and the Planck function Bλ in the simulation at 41.7 d, shown as a function of wavelength and
+ejecta/CSM location. The label at right gives the electron-scattering optical depth τes associated with each panel. At this time, the CDS is at τes
+10. Right:
+Variation of Jλ and Bλ versus radius and shown for various continuum wavelengths.
+
+∼
+
+effect at late times, with the extra emission associated with the
+CDS (Fig. 12). The blueshift of the broad Hα line is caused by an
+optical depth effect that affects all SNe (Dessart & Hillier 2005b;
+Anderson et al. 2014). At early times, the peak blueshift is not seen
+because the Hα photons emitted from the CDS are unable to es-
+cape – they undergo numerous electron scatterings and are eventu-
+ally destroyed by a continuum absorption. All these properties are
+illustrated in Figs. 16–17.
+
+As found in earlier studies (e.g., Hillier 1991) the adopted tur-
+bulent velocity also affects the strength of the electron scattering
+wings. This occurs since a larger turbulent velocity increases the
+Sobolev length, and hence leads to an increased probability that a
+line photon scattering within the Sobolev resonance zone will ex-
+perience an electron scattering interaction, which, because of the
+large Doppler shift, will cause it to be shifted out of resonance al-
+lowing it to escape.
+
+4 POLARISATION CALCULATIONS
+
+The dense shell that forms in the interaction is Rayleigh-Taylor
+unstable and should be simulated in 3-D — this is left for future
+work. There is, however, observational evidence from spectropo-
+larimetric observations that some SNe IIn are asymmetric on large
+
+scale (Leonard et al. 2000; Wang et al. 2001; Hoffman et al. 2008;
+Patat et al. 2011). This we try to address in this section by perform-
+ing 2-D polarisation calculations.
+
+We post-process the CMFGEN simulation for model X at 41.7 d
+by computing linear polarisation proﬁles in the same fashion as de-
+scribed in Dessart & Hillier (2011). We break spherical symmetry
+by enforcing a latitudinal variation in density (thus preserving axial
+symmetry). In practice, we use ρ(r, µ) = ρ(r, µ = 0)(1 + A1µ2),
+where µ ≡ cos θ, and θ is the colatitude. The magnitude of the
+asymmetry is controlled through the parameter A1, which we vary
+from 0.1, to 0.2, 0.4, 0.8, and 1.6. The resulting axially symmet-
+ric ejecta has therefore a prolate morphology, with pole-to-equator
+density ratios (at a given radius) of 1.1, 1.2, 1.4, 1.8, and 2.6. This
+adopted type of asymmetry is chosen for its simplicity – other
+choices might also yield similar continuum and line polarisations.
+
+We show the ﬂux in the Hα line and in the overlapping
+continuum in Fig. 18 for an observer along a line-of-sight per-
+pendicular to the axis of symmetry. Along this direction, the
+continuum polarisation has its maximum value, reaching about
+1.6% for A1 = 1.6. As we progress towards the Hα rest wave-
+length from continuum regions (i.e., ∼> 3000 km s−1 from line cen-
+tre), the polarisation decreases steadily, as observed in SN 2010jl
+(Patat et al. 2011; Williams et al. 2014) and in some Wolf-Rayet
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+17
+
+left:
+
+Illustration of
+
+the wavelength (λ) and depth (R) dependence of
+
+Figure 16.
+the quantity PR>R15 δF (R, λ), where δF (R, λ) =
+(2π/D2) R∆R ∆z η(p, z, λ) e−τ (p,z,λ)pdp, and R15 is R in units of 1015 cm. Here, D is the distance; ∆R and ∆z are the shell thickness in the ra-
+dial direction and along the ray with impact parameter p, respectively; η(p, z, λ) and τ (p, z, λ) are the emissivity and the ray optical depth at location (p, z)
+and wavelength λ. The gray scale in the bottom panel shows how PR>R15 δF (R, λ) varies as we progress inwards from the outer boundary, indicating
+the relative ﬂux contributions of different regions. If we choose R15 as the minimum radius on the CMFGEN grid, we recover the total ﬂux. The grayscale
+also shows how lines increasingly broaden (and the peak line ﬂux decreases) as we progress outwards. The dash-dotted line corresponds to the radius of the
+electron-scattering photosphere, and the dashed line (which overlaps with x-abscissa here) corresponds to the CDS radius. The top panel shows selected cuts
+(see right label) of the quantity PR>R15 δF (R, λ). From top to bottom (R15 = 10, 7.2, 5.0, 3.0), PR>R15 δF (R, λ) represents 4, 45, 77, and 98 per cent
+of the total emergent ﬂux at 6800 ˚A. Right: Same as left, but now zooming in on the Hα region. The depth variation of the line width, inﬂuenced by electron
+scattering, is evident in the bottom panel.
+
+stars (Schulte-Ladbeck et al. 1991; Harries et al. 1998). In our sim-
+ulation, this reduced polarisation across the line is a signature of
+the distinct formation of the continuum and the line. Because of the
+lower optical depth, continuum photon arise from a much greater
+electron-scattering optical depth than do Hα line photons (Fig. 14).
+Furthermore, line photons emitted in a recombination process start
+off with zero polarisation, and therefore can only accumulate a
+lower polarisation through a reduced number of scatterings before
+escape. This depolarisation is maximum within 100 km s−1 of line
+centre since over this spectral range, one sees photons that under-
+went essentially no scattering with free electrons (photons scattered
+by free electrons receive a wavelength-shift and, statistically, end
+up somewhere in the wings; see discussion in Dessart et al. 2009).
+In this context, whatever the imposed deformation on the ejecta, the
+polarisation at line centre is zero.7
+
+Surprisingly the polarisation is parallel to the major axis (i.e.,
+positive; see top panel of Fig. 18) — this property is, naively, not
+
+7 Equivalent simulations for Type II SNe may yield a residual polarisa-
+tion at line centre because these photons are emitted at a non negligible
+electron-scattering optical depth (Dessart & Hillier 2011). Spectrum forma-
+tion in SNe II-P and SNe IIn is drastically different.
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+expected since scattering of the light from a point source by an opti-
+cally thin prolate spheroid has the polarisation at right angles to the
+major axis (Brown & McLean 1977). In our convention (and that
+of Brown & McLean 1977), the polarisation is positive when it is
+parallel to the axis of symmetry (for further details, see Section 2 of
+Dessart & Hillier 2011). The reason for this behaviour in the cur-
+rent simulation is that the CSM is optically thick, and the observed
+(and hence scattered) ﬂux predominantly escapes from equatorial
+regions, where the densities are lowest (Fig 19).
+
+The correspondence between our simulations and the mor-
+phology of the polarised and of the total ﬂuxes of SN 2010jl sug-
+gests ﬁrst that our model for super-luminous SNe IIn like 2010jl
+is adequate. Secondly, the observed polarisation implies that the
+ionised CSM causing the polarisation is signiﬁcantly asymmetric.
+If axially symmetric, a pole to equator density ratio of ∼ 3 could
+explain the observed continuum polarisation. While the CSM is
+asymmetric, it is however unclear whether the inner shell is also
+asymmetric — it does not need to be. Multi-dimensional radiation
+hydrodynamics simulations are needed to model the spatial prop-
+erties of the shocked CSM (for example, in the current context, the
+shock strength should also be latitude dependent, causing variations
+in temperature, ionisation, velocities etc with angle), so that we can
+
+18
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Figure 17. Same as Fig. 16, but now for a time of 208.3 d after the onset of interaction. In the left column, the greyscale is shown on a logarithmic scale. From
+top to bottom (R15 = 10, 7.2, 6.4), PR>R15 δF (R, λ) represents 6, 41, and 94 per cent of the total emergent ﬂux at 6800 ˚A. The ﬂux contributions from
+the fast moving CDS and the slow moving CSM are clearly visible. The emission from the CDS is blue shifted, while the CSM emission is symmetric around
+line centre. Electron scattering affects the emitted photons from both components.
+
+better characterise the nature of the asymmetry at the origin of the
+observed polarisation in SNe IIn like 2010jl.
+
+5 DEPENDENCY ON SOME MODEL PARAMETERS
+
+Varying the properties of either the CSM mass or the explosion
+energy can affect the emergent radiation. This has been discussed
+in the past for the bolometric luminosity or the colours (see,
+e.g., Chugai et al. 2004; Woosley et al. 2007; van Marle et al. 2010;
+Moriya et al. 2013b). Here, we repeat such explorations to investi-
+gate the impact on spectral signatures as well.
+
+5.1 Impact on the bolometric light curve
+
+Taking model X as a reference, we produce models in which the
+SN ejecta kinetic energy is scaled by a factor of 3 (Xe3) or 10
+(Xe10). We produce models in which the CSM density is scaled by
+a factor of 3 (Xm3) or 6 (Xm6). We also consider combinations of
+both, with models Xe3m6 or Xe10m6. Finally, we consider model
+Xe3m6r, where the high-density CSM extends to 1.5×1016 cm
+rather than 1016 cm only. Table 1 summarises these model prop-
+erties.
+
+These alterations produce a considerable diversity of bolomet-
+ric light curves (Fig. 20), in directions that are well understood. In-
+creasing the kinetic energy causes a much greater shock luminosity
+at all times, but since the CSM structure is not changed, the diffu-
+sion time through the CSM is unchanged (the time to maximum is
+decreased by just a few days for higher SN ejecta kinetic energy).
+
+The bolometric light curves shift upward for increasing energy.
+The mean radiation-energy density in the CSM also increases with
+shock luminosity, which raises the radiation temperature. Colours
+are thus strongly affected, getting bluer for higher energy (see be-
+low and Table 1 where we give the bolometric correction and the
+colour V − I at bolometric maximum).
+
+Varying the CSM mass (corresponding in our approach to a
+change in mass loss rate) modulates the impedance of the “interac-
+tion engine”. For larger CSM density and total mass, more kinetic
+energy is extracted from the SN ejecta. This energy is converted
+primarily into radiation. Consequently, varying the CSM mass af-
+fects the light curve properties. Higher CSM mass implies higher
+CSM optical depth and a longer diffusion time, hence a delayed
+time of peak. A larger CSM mass buffer implies more kinetic en-
+ergy is tapped so the bolometric maximum is more luminous. In the
+model set X, Xm3, Xm6, the total energy radiated is 0.32, 0.49, and
+0.63×1051 erg (for the same ejecta kinetic energy of 1051 erg), so,
+the conversion efﬁciency can be considerably enhanced when the
+CSM mass exceeds signiﬁcantly the SN ejecta mass, with values
+here as high as ∼ 70% (models Xe3m6, Xe10m6, or Xm6).
+
+Combinations of higher CSM mass and higher ejecta ki-
+netic energy (e.g., model Xe3m6) ) shift the reference model
+(quite suitable to SN 2010jl) to the domain where SN 2006gy lies
+(Smith et al. 2007), with peak luminosities of the order of a few
+1044 erg s−1 sustained for 2-3 months and a peak time that occurs
+later (∼2 months after the onset of the interaction).
+
+Finally, extending the region of high density in the CSM from
+1016 to 1.5×1016 cm (models Xe3m6r versus model Xe3m6) leads
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+19
+
+SN 2010jl
+
+Figure 19. Colour map of the speciﬁc intensity (scaled by the impact pa-
+3992 km s−1 from the Hα line centre
+rameter p) on the plane of the sky at
+−
+(this Doppler velocity corresponds to a continuum region — see top panel
+of Fig. 18), for the model with A1 = 1.6, at 41.7 d after the onset of the
+interaction, and seen at a 90◦ inclination (i.e. edge-on). We overplot seg-
+ments (black bars) showing the local polarisation strength and orientation
+(the length corresponding to 100 per cent polarisation is shown at the bot-
+tom right).
+
+4000
+
+6000
+
+5
+] Hα
+4
+
+d
+e
+s
+i
+l
+a
+m
+r
+o
+n
+
+[
+
+x
+u
+F
+
+l
+
+]
+
+%
+
+[
+
+n
+o
+i
+t
+a
+s
+i
+r
+a
+l
+o
+P
+
+3
+
+2
+
+1
+
+0
+
+2
+
+1
+
+0
+
+−6000 −4000 −2000
+
+0
+Velocity [km s−1]
+
+2000
+
+Figure 18. Top: Total and polarised ﬂux across the Hα line and the over-
+lapping continuum for different inclinations (90◦ corresponds to an equa-
+torial view), at 41.7 d after the onset of the interaction (hence close to the
+epoch of maximum light), showing the larger continuum polarisation, the
+depolarisation across the line proﬁle, and the unpolarised line core. The
+prolate asymmetry is characterised by a pole-to-equator density ratio of 2.6
+(A1 = 1.6). Middle: Same as top, but now showing the percentage polar-
+isation for different magnitudes of the asymmetry (A1 values between 0.1
+and 0.6) and for an equatorial view. Bottom: Spectro-polarimetric observa-
+tions of the Hα line for SN 2010jl on November 18.2UT (Patat et al. 2011),
+which is within a few days of our model time (left panel). In the context of
+our model, the observed polarisation may be interpreted as arising from a
+prolate CSM with a pole-to-equator density ratio of
+
+3.
+
+∼
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+to a sustained high luminosity beyond 300 d. In fact, all the light
+curves in Fig 20 show a break after 150-300 d, except for model
+Xe3m6r. This light curve break in our simulations is associated
+with the shock (or the CDS) reaching the outer edge of the denser
+parts of the CSM (the shock in model Xe3m6r has not yet reached
+1.5×1016 cm at the last time shown in Fig. 20) and starting to en-
+counter lower density material (see Table 1 for details).
+
+The pre-acceleration of the CSM by the radiation from the
+shock depends on the adopted conﬁguration. In model X, we
+obtained a modest enhancement in CSM velocity from 100 to
+200 km s−1. This pre-acceleration is stronger when we use a larger
+ejecta kinetic energy (stronger shock, higher luminosity) or if the
+
+20
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+CSM density is increased (there is a delicate balance to get here
+since a higher CSM density means a higher opacity and thus more
+radiation momentum extracted but it also implies more inertia) —
+see Fig. 21.
+
+5.2 Impact on maximum light spectra
+
+The diversity in bolometric light curves discussed in the preced-
+ing section is also strongly present in the spectra at maximum light
+(Fig. 22). For the highest energy explosion, the shift in temperature
+in the ionised CSM leads to a major rise in ionisation for hydro-
+gen and helium, producing very blue and nearly featureless spectra
+(whatever blanketing from Fe occurs in the UV and far-UV). For
+models with enhanced CSM mass, the temperature/ionisation con-
+ditions are comparable to reference model X, but the line ﬂuxes are
+increased. The higher the CSM mass, the redder the colour at peak.
+Interestingly, in models with very high CSM mass, although
+the Balmer line ﬂuxes are much higher, the extent of the elec-
+tron scattering wings does not increase beyond a maximum of
+∼ 3000 km s−1. The likely reason is that line photons do not just
+scatter off free electrons in the CSM — there is a non-zero prob-
+ability that they are absorbed in a bound-free or free-free process
+leading to photon destruction. The broader and blue shifted lines
+seen at late times require that we see photons blue shifted by ex-
+pansion. For the present case, the broader blue-shifted component
+seen at late times arises from the CDS. We see a blue-shift since the
+CDS absorbs emission from the far side of the shell. Thus the Hα
+blueshift seen in SN 2010jl (Smith et al. 2012; Zhang et al. 2012;
+Fransson et al. 2014) might simply just stem from an optical-depth
+effect, without any dust intervening in the process. As the optical
+depth of the shell declines, we expect the proﬁle to become more
+symmetric.
+
+6 CONCLUSION
+
+In this work, we have presented numerical simulations for inter-
+acting SNe in which both the kinetic energy of the explosively-
+produced inner shell and the mass of the wind-produced outer shell
+are very large. We used an inner shell kinetic energy of 1051 erg or
+more, and a CSM mass of at least 3 M⊙. These simulations corre-
+spond to possible conﬁgurations for super-luminous SNe IIn.
+
+Our contribution is novel because we post-process our multi-
+group radiation-hydrodynamics simulations with radiative trans-
+fer tools, to compute non-LTE spectra and polarisation signatures.
+With this more global approach, we can study the numerous fea-
+tures that make super-luminous SNe IIn unique.
+
+We ﬁnd that the light curve of a super-luminous SN IIn is com-
+posed of several distinct phases. Initially, the cold CSM is neutral
+and transparent to optical photons. As the interaction starts, the ra-
+diation from the shock drives an ionisation front through the CSM
+and makes it optically thick at all wavelengths. This ﬁrst phase
+takes about a week after the onset of the interaction, which cor-
+responds roughly to the light crossing time through the shell. At
+the time we record the ﬁrst emerging photons from the SN IIn, the
+CSM is therefore already optically thick. In our reference model,
+the photosphere is then located at ∼ 7×1015 cm and will remain at
+that radius for months. The second phase corresponds to the shock
+crossing of the optically thick CSM. In our reference model, this
+phases lasts ∼> 200 d. Over this duration, the shock is located below
+the photosphere, at an electron-scattering optical depth of about
+15 initially. Radiation from the shock is thus continuously released
+
+deep in the CSM and comes out on a diffusion time scale. This con-
+text is analogous to optically thick ejecta inﬂuenced by radioactive
+decay, although the shock energy is not all channeled into radiation
+energy. Here, the shock luminosity decreases with time because
+of the decreasing shock strength as more and more CSM is being
+swept up. Although the CSM hardly expands, the diffusion time
+scale and the optical depth decrease because of the expansion of the
+interaction region. We thus obtain a bell shape morphology for the
+light curve around maximum. This variation is not associated by the
+migration of the photospheric radius, but by the variation in shock
+luminosity, radiation temperature, and CSM/photospheric temper-
+ature. Optical depth effects on the light curve persist for as long as
+the shock is located below the ∼ 7×1015 cm. The third phase starts
+when the shock overtakes this location. The photosphere then fol-
+lows the dense shell.
+
+Our multi-group radiation hydrodynamics simulation pro-
+duces the basic light curve morphology of type IIn super-luminous
+SNe. Our reference model was tuned to roughly match the inferred
+properties of SN 2010jl (Fransson et al. 2014), but other simula-
+tions with different inner-shell kinetic energy and CSM mass en-
+compass a variety of light curves, including extreme events like
+SN 2006gy (Smith et al. 2007).
+
+We illustrate the importance of performing multi-group radi-
+ation hydrodynamics. By contrast, grey (i.e., one-group) radiation
+hydrodynamics simulations do not account adequately for the opac-
+ity of the material and produce a discrepant SN IIn light curve mor-
+phology.
+
+Our simulations conﬁrm the earlier work of Moriya et al.
+(2013b) that the shell shocked model of Smith & McCray (2007)
+is not physically sound. The reason is that in interacting SNe, even
+a massive CSM cannot have a continuum optical depth greater than
+a few tens. Because such CSM are by nature extended, the shock-
+crossing time far exceeds the time it takes the shock luminosity
+to diffuse through the optically thick layers. The situation is anal-
+ogous to shock emergence in an exploding star, except that here
+the conﬁguration is quasi steady state — it persists for as long
+as there is optically-thick CSM material ahead of the shock. Our
+results, which are in agreement with the independent simulations
+of Moriya et al. (2013b), provide a simple and physically consis-
+tent explanation for the light curves of type IIn super-luminous
+SNe. Overall, the shell-shocked model really belongs to the domain
+of (successful) core-collapse SNe in which a radiation-dominated
+shock crosses a stellar envelope whose optical depth is huge every-
+where apart from the surface.
+
+The non-LTE radiative transfer simulations, based on the ra-
+diation hydrodynamics simulations, produce spectra that are ini-
+tially blue and redden progressively as the CSM/photosphere cools
+down after bolometric maximum. We obtain symmetric emission
+proﬁles, broadened by non-coherent scattering with free electrons
+(of thermal origin), with wings that extend up to 3000 km s−1
+from line centre, and together with a narrower P-Cygni proﬁle
+(< 100 km s−1) forming in the outer cold CSM. Varying the ejecta
+kinetic energy or the CSM mass alters the shock luminosity, the
+mean radiation energy in the optically thick CSM, and causes clear
+variations in colour and ionisation. Varying the CSM density by a
+factor of 6 changes the strength of recombination lines but does
+not produce broader lines at bolometric maximum, despite the en-
+hanced electron-scattering optical depth. Photons emitted at an op-
+tical depth τ perform τ 2 scatterings before escaping. If the albedo
+is 99%, photons coming from τ > 10 are likely absorbed within the
+ionised CSM and photons do not obtain arbitrarily large frequency
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+21
+
+Figure 20. Light curve diversity obtained by varying some of the parameters of our reference model X (see details in Table 1). Models whose name contains
+en have a SN ejecta kinetic energy scaled by a factor n relative to model X. Models whose name contains mn have a CSM mass loss rate scaled by a factor n
+relative to model X. Model Xe3m6r differs from the rest because the dense part of the CSM extends to 1.5
+
+1016 cm rather than 1016 cm.
+
+×
+
+shifts from line centre. Broader electron scattering wings may arise
+for a greater albedo.
+
+Our simulations indicate that photon absorption is probably
+efﬁcient only in the Lyman continuum. At low photon frequen-
+cies, absorptive processes are weak and therefore photon absorp-
+tion occurs only if the total optical depth at the site of emission is
+large (say above 10) — in our reference simulation with a mass
+loss rate of 0.1 M⊙ yr−1 for the CSM, the maximum CSM con-
+tinuum τ is only 15. Early on, the optical depth in the CDS is high
+enough to ensure complete thermalisation. Then, line broadening is
+probably dominated by non-coherent scattering with thermal elec-
+trons. However, at later times, thermalisation does not occur at all
+depths in the CSM. In the reference model, this is associated with
+an increased broadening and blueward asymmetry of line proﬁles
+with time. These features are also present in the observations of
+SN 2010jl (e.g., Hα; Fig. 12) — this suggests a growing contri-
+bution from Doppler broadening, connected with photon emission
+from the fast expanding CDS. We believe this hybrid line forma-
+tion is at the origin of the very large Hα line width in SN 2010jl,
+as well as the blueshift of its peak emission. Interestingly, the mod-
+est peak luminosities and the absence of broad lines at all times
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+in events like SN 1994W (Chugai et al. 2004; Dessart et al. 2009)
+or SN 2011ht (Humphreys et al. 2012) are perplexing because the
+emission from the CDS should be seen once the CSM becomes
+transparent.
+
+To complement our radiation hydrodynamics simulations with
+HERACLES and our non-LTE radiative transfer simulations with
+CMFGEN, which assume spherical symmetry, we present some po-
+larisation simulations for aspherical but axially symmetric conﬁgu-
+rations. Our results for a prolate morphology with a pole-to-equator
+density ratio of ∼ 3 yield a maximum ∼< 2% continuum polarisa-
+tion compatible with the value observed for SN 2010jl (Patat et al.
+2011). In this context, the asymmetry may stem only from the
+CSM, although both inner and outer shells may be asymmetric. In
+future work, we will extend the HERACLES simulations to 2-D to
+study large scale asymmetries and to 3-D to study the stability of
+the dense shell.
+
+ACKNOWLEDGMENTS
+
+We thank Ralph Sutherland and Claes Fransson for discussion
+and comments, and Nando Patat for providing the spectropolari-
+
+22
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Figure 21. Velocity proﬁles from the HERACLES simulations for models
+Xe10m6 (top), Xe3m6r (middle), and Xm6 (bottom). The epochs shown
+correspond to 0.01,1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 50, 100, 150, 200, 250,
+and 300 d after the onset of the interaction. Notice the pre-acceleration that
+takes place ahead of the shock.
+
+metric data for SN 2010jl published in Patat et al. (2011). Dessart
+acknowledges ﬁnancial support from the European Community
+through an International Re-integration Grant, under grant num-
+ber PIRG04-GA-2008-239184, and from “Agence Nationale de la
+Recherche” grant ANR-2011-Blanc-SIMI-BS56-0007. Hillier ac-
+knowledges support from STScI theory grant HST-AR-12640.01,
+and NASA theory grant NNX10AC80G. This material is based
+upon work partially supported by the National Science Foundation
+under grant number AST-1311993. Hillier would also like to ac-
+knowledge the hospitality and support of the Distinguished Visitor
+program at the Research School of Astronomy and Astrophysics
+
+(RSAA) at the Australian National University (ANU). This work
+was also supported in part by the National Science Foundation un-
+der Grant No. PHYS-1066293 and beneﬁted from the hospitality
+of the Aspen Center for Physics. This work was granted access to
+the HPC resources of CINES under the allocations c2013046608
+and c2014046608 made by GENCI (Grand Equipement National
+de Calcul Intensif). This work also utilised computing resources of
+the M´esocentre SIGAMM, hosted by the Observatoire de la Cˆote
+d’Azur, Nice, France.
+
+REFERENCES
+
+Anderson, J. P., Dessart, L., Gutierrez, C. P., Hamuy, M., Mor-
+rell, N. I., Phillips, M., Folatelli, G., Stritzinger, M. D., Freed-
+man, W. L., Gonz´alez-Gait´an, S., McCarthy, P., Suntzeff, N., &
+Thomas-Osip, J. 2014, MNRAS, 441, 671
+
+Arnett, W. D. 1982, ApJ, 253, 785
+Barkat, Z., Rakavy, G., & Sack, N. 1967, Physical Review Letters,
+
+18, 379
+
+Blondin, J. M., Lundqvist, P., & Chevalier, R. A. 1996, ApJ, 472,
+
+257
+
+Brown, J. C. & McLean, I. S. 1977, A&A, 57, 141
+Busche, J. R. & Hillier, D. J. 2005, AJ, 129, 454
+Castor, J. I. 1970, MNRAS, 149, 111
+Castor, J. I., Abbott, D. C., & Klein, R. I. 1975, ApJ, 195, 157
+Chen, K.-J., Woosley, S., Heger, A., Almgren, A., & Whalen, D. J.
+
+2014, ApJ, 792, 28
+
+Chevalier, R. A. & Irwin, C. M. 2011, ApJL, 729, L6
+Chugai, N. N. 2001, MNRAS, 326, 1448
+Chugai, N. N., Blinnikov, S. I., Cumming, R. J., Lundqvist, P.,
+Bragaglia, A., Filippenko, A. V., Leonard, D. C., Matheson, T.,
+& Sollerman, J. 2004, MNRAS, 352, 1213
+
+Chugai, N. N. & Danziger, I. J. 1994, MNRAS, 268, 173
+Dessart, L. & Hillier, D. J. 2005a, A&A, 439, 671
+—. 2005b, A&A, 437, 667
+—. 2011, MNRAS, 415, 3497
+Dessart, L., Hillier, D. J., Gezari, S., Basa, S., & Matheson, T.
+
+2009, MNRAS, 394, 21
+
+Dessart, L., Hillier, D. J., Waldman, R., & Livne, E. 2013, MN-
+
+RAS, 433, 1745
+
+Dessart, L., Livne, E., & Waldman, R. 2010a, MNRAS, 408, 827
+—. 2010b, MNRAS, 405, 2113
+Dopita, M. A., Cohen, M., Schwartz, R. D., & Evans, R. 1984,
+
+ApJL, 287, L69
+
+Dubroca, B. & Feugeas, J. 1999, CRAS, 329, 915
+Fransson, C., Ergon, M., Challis, P. J., Chevalier, R. A., France,
+K., Kirshner, R. P., Marion, G. H., Milisavljevic, D., Smith, N.,
+Bufano, F., Friedman, A. S., Kangas, T., Larsson, J., Mattila, S.,
+Benetti, S., Chornock, R., Czekala, I., Soderberg, A., & Soller-
+man, J. 2014, ApJ, 797, 118
+
+Gonz´alez, M., Audit, E., & Huynh, P. 2007, A&A, 464, 429
+Grasberg, E. K. & Nadezhin, D. K. 1986, Soviet Astronomy Let-
+
+ters, 12, 68
+
+Harries, T. J., Hillier, D. J., & Howarth, I. D. 1998, MNRAS, 296,
+
+1072
+
+Hillier, D. J. 1991, A&A, 247, 455
+Hillier, D. J. & Dessart, L. 2012, MNRAS, 424, 252
+Hillier, D. J. & Miller, D. L. 1998, ApJ, 496, 407
+Hoffman, J. L., Leonard, D. C., Chornock, R., Filippenko, A. V.,
+
+Barth, A. J., & Matheson, T. 2008, ApJ, 688, 1186
+
+Humphreys, R. M., Davidson, K., Jones, T. J., Pogge, R. W.,
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+Super-luminous Type IIn SNe
+
+23
+
+Figure 22. Left: Maximum light spectra for the interaction models with different ejecta kinetic energy and/or CSM mass/density (see Table 1 for additional
+details). Note the strong shift in colour for interaction models with higher ejecta kinetic energy. Right: Same as left, but showing the Hα line region, in velocity
+space. Interestingly, even for very large CSM densities (and thus mass loss rates), the maximum extent of the electron-scattering wings is 2000-3000 km s−1.
+The much broader wings of Hα in SN 2010jl as time progresses suggest that they do not stem exclusively from scattering with electrons but must instead
+contain a contribution from Doppler-shifted line photons (i.e., emitted from the fast moving material in the interaction region).
+
+Grammer, S. H., Prieto, J. L., & Pritchard, T. A. 2012, ApJ, 760,
+93
+
+Klein, R. I. & Chevalier, R. A. 1978, ApJL, 223, L109
+Leonard, D. C., Filippenko, A. V., Barth, A. J., & Matheson, T.
+
+2000, ApJ, 536, 239
+
+Margutti, R., Milisavljevic, D., Soderberg, A. M., Chornock,
+R., Zauderer, B. A., Murase, K., Guidorzi, C., Sanders, N. E.,
+Kuin, P., Fransson, C., Levesque, E. M., Chandra, P., Berger, E.,
+Bianco, F. B., Brown, P. J., Challis, P., Chatzopoulos, E., Che-
+ung, C. C., Choi, C., Chomiuk, L., Chugai, N., Contreras, C.,
+Drout, M. R., Fesen, R., Foley, R. J., Fong, W., Friedman, A. S.,
+Gall, C., Gehrels, N., Hjorth, J., Hsiao, E., Kirshner, R., Im, M.,
+Leloudas, G., Lunnan, R., Marion, G. H., Martin, J., Morrell, N.,
+Neugent, K. F., Omodei, N., Phillips, M. M., Rest, A., Silver-
+man, J. M., Strader, J., Stritzinger, M. D., Szalai, T., Utterback,
+N. B., Vinko, J., Wheeler, J. C., Arnett, D., Campana, S., Cheva-
+lier, R., Ginsburg, A., Kamble, A., Roming, P. W. A., Pritchard,
+T., & Stringfellow, G. 2014, ApJ, 780, 21
+
+Mauerhan, J. C., Smith, N., Filippenko, A. V., Blanchard, K. B.,
+Blanchard, P. K., Casper, C. F. E., Cenko, S. B., Clubb, K. I.,
+Cohen, D. P., Fuller, K. L., Li, G. Z., & Silverman, J. M. 2013,
+MNRAS, 430, 1801
+
+Moriya, T. J., Blinnikov, S. I., Baklanov, P. V., Sorokina, E. I., &
+
+Dolgov, A. D. 2013a, MNRAS, 430, 1402
+
+Niemela, V. S., Ruiz, M. T., & Phillips, M. M. 1985, ApJ, 289, 52
+Ofek, E. O., Zoglauer, A., Boggs, S. E., Barri´ere, N. M., Reynolds,
+S. P., Fryer, C. L., Harrison, F. A., Cenko, S. B., Kulkarni, S. R.,
+Gal-Yam, A., Arcavi, I., Bellm, E., Bloom, J. S., Christensen,
+F., Craig, W. W., Even, W., Filippenko, A. V., Grefenstette, B.,
+Hailey, C. J., Laher, R., Madsen, K., Nakar, E., Nugent, P. E.,
+Stern, D., Sullivan, M., Surace, J., & Zhang, W. W. 2014, ApJ,
+781, 42
+
+Owocki, S. P. 2015, in Astrophysics and Space Science Library,
+Vol. 412, Astrophysics and Space Science Library, ed. J. S. Vink,
+113
+
+Owocki, S. P., Gayley, K. G., & Shaviv, N. J. 2004, ApJ, 616, 525
+Pastorello, A., Cappellaro, E., Inserra, C., Smartt, S. J., Pignata,
+G., Benetti, S., Valenti, S., Fraser, M., Tak´ats, K., Benitez, S.,
+Botticella, M. T., Brimacombe, J., Bufano, F., Cellier-Holzem,
+F., Costado, M. T., Cupani, G., Curtis, I., Elias-Rosa, N., Er-
+gon, M., Fynbo, J. P. U., Hambsch, F.-J., Hamuy, M., Harutyun-
+yan, A., Ivarson, K. M., Kankare, E., Martin, J. C., Kotak, R.,
+LaCluyze, A. P., Maguire, K., Mattila, S., Maza, J., McCrum,
+M., Miluzio, M., Norgaard-Nielsen, H. U., Nysewander, M. C.,
+Ochner, P., Pan, Y.-C., Pumo, M. L., Reichart, D. E., Tan, T. G.,
+Taubenberger, S., Tomasella, L., Turatto, M., & Wright, D. 2013,
+ApJ, 767, 1
+
+Patat, F., Taubenberger, S., Benetti, S., Pastorello, A., & Haru-
+
+Moriya, T. J., Blinnikov, S. I., Tominaga, N., Yoshida, N., Tanaka,
+
+tyunyan, A. 2011, A&A, 527, L6
+
+M., Maeda, K., & Nomoto, K. 2013b, MNRAS, 428, 1020
+
+Schlegel, E. M. 1990, MNRAS, 244, 269
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+24
+
+Luc Dessart, Edouard Audit, and D.J. Hillier
+
+Schulte-Ladbeck, R. E., Nordsieck, K. H., Taylor, M., Nook,
+M. A., Bjorkman, K. S., Magalhaes, A. M., & Anderson, C. M.
+1991, ApJ, 382, 301
+
+Smith, N., Li, W., Foley, R. J., Wheeler, J. C., & et al. 2007, ApJ,
+
+666, 1116
+
+Smith, N. & McCray, R. 2007, ApJL, 671, L17
+Smith, N., Silverman, J. M., Filippenko, A. V., Cooper, M. C.,
+Matheson, T., Bian, F., Weiner, B. J., & Comerford, J. M. 2012,
+AJ, 143, 17
+
+Sollerman, J., Cumming, R. J., & Lundqvist, P. 1998, ApJ, 493,
+
+933
+
+Stathakis, R. A. & Sadler, E. M. 1991, MNRAS, 250, 786
+Stoll, R., Prieto, J. L., Stanek, K. Z., Pogge, R. W., Szczygieł,
+D. M., Pojma´nski, G., Antognini, J., & Yan, H. 2011, ApJ, 730,
+34
+
+Turatto, M., Cappellaro, E., Danziger, I. J., Benetti, S., Gouiffes,
+
+C., & della Valle, M. 1993, MNRAS, 262, 128
+
+van Marle, A. J., Smith, N., Owocki, S. P., & van Veelen, B. 2010,
+
+MNRAS, 407, 2305
+
+Vaytet, N. M. H., Audit, E., Dubroca, B., & Delahaye, F. 2011,
+
+JQSRT, 112, 1323
+
+Wang, L., Howell, D. A., H¨oﬂich, P., & Wheeler, J. C. 2001, ApJ,
+
+550, 1030
+
+Whalen, D. J., Even, W., Lovekin, C. C., Fryer, C. L., Stiavelli,
+M., Roming, P. W. A., Cooke, J., Pritchard, T. A., Holz, D. E., &
+Knight, C. 2013, ApJ, 768, 195
+
+Williams, G. G., Dessart, L., Hoffman, J. L., Huk, L. N., Leonard,
+D. C., Milne, P., Smith, N., & Smith, P. S. 2014, in American
+Astronomical Society Meeting Abstracts, Vol. 223, 354.22
+
+Woosley, S. E., Blinnikov, S., & Heger, A. 2007, Nature, 450, 390
+Zel’dovich, Y. B. & Raizer, Y. P. 1967, Physics of shock waves
+
+and high-temperature hydrodynamic phenomena
+
+Zhang, T., Wang, X., Wu, C., Chen, J., Chen, J., Liu, Q., Huang,
+F., Liang, J., Zhao, X., Lin, L., Wang, M., Dennefeld, M., Zhang,
+J., Zhai, M., Wu, H., Fan, Z., Zou, H., Zhou, X., & Ma, J. 2012,
+AJ, 144, 131
+
+2011 RAS, MNRAS 000, 1–24
+
+c
+(cid:13)
+
+

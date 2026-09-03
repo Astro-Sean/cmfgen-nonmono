@@ -23,7 +23,7 @@ def read_swd_epoch(swd_path: str, target_time: float = None):
     """Read STELLA .swd file and extract data for a specific epoch or all epochs.
     
     Returns dict with epoch times as keys, each containing zone-by-zone data.
-    Columns in .swd: t(days), zone, logM, logR, V(km/s), logTg, logTr, logrho, logP, logQv, logeng, Flum(1e40), WRKX
+    Columns in .swd: t(days), zone, logM, logR, V(1e8 cm/s), logTg, logTr, logrho, logP, logQv, logeng, Flum(1e40), WRKX
     
     Note: Zone 1 is always the first line of an epoch (with t != 0), zones 2-500 follow (with t = 0).
     Sometimes zone 500 also has t != 0 if it's a single-zone epoch or file structure quirk.
@@ -79,15 +79,16 @@ def find_nearest_epoch(epochs: dict, target_time: float):
 
 def compute_opacity(data: np.ndarray) -> np.ndarray:
     """Compute opacity from STELLA data (simplified approximation)."""
-    # Extract columns
-    log_rho = data[:, 8]  # log10(rho)
+    # Extract columns with proper unit conversions
+    # STELLA units: V in 1e8 cm/s, rho in log10(rho/1e-6 g/cc)
+    log_rho = data[:, 8]  # log10(rho/1e-6)
     log_Tg = data[:, 5]   # log10(T_gas)
     
     # Approximate electron scattering opacity: kappa = 0.2(1+X) cm^2/g for fully ionized
     # Assume solar composition: X ~ 0.7, so kappa ~ 0.34 cm^2/g
     kappa_es = 0.34  # cm^2/g
     
-    rho = 10**log_rho
+    rho = (10**log_rho) * 1e-6  # Convert from log10(rho/1e-6) to g/cm^3
     T = 10**log_Tg
     
     # Opacity coefficient per unit mass (cm^2/g)
@@ -134,7 +135,7 @@ def plot_radial_grid(epochs: dict, target_time: float, output_file: str):
     r_cm = 10**data[:, 3]  # Radius in cm
     T_gas = 10**data[:, 5]  # Gas temperature in K
     T_rad = 10**data[:, 6]  # Radiation temperature in K (may be 0 in some zones)
-    v_kms = data[:, 4]      # Velocity in km/s
+    v_kms = data[:, 4]      # Velocity (native STELLA units: 1e8 cm/s; no conversion applied here)
     rho = 10**data[:, 8]    # Density in g/cm^3
     log_eng = data[:, 10]   # log10(internal energy density)
     Flum = data[:, 11] * 1e40  # Luminosity in erg/s (Flum is in 1e40)
@@ -190,7 +191,9 @@ def plot_radial_grid(epochs: dict, target_time: float, output_file: str):
     ax = axes[0, 0]
     ax.semilogy(r_15, T_gas, 'b-', linewidth=1.5, label='T_gas')
     ax.set_ylabel('Temperature [K]', fontsize=11)
-    ax.set_ylim(1e3, 1e5)
+    T_pos = T_gas[T_gas > 0]
+    if len(T_pos) > 0:
+        ax.set_ylim(T_pos.min() * 0.5, T_pos.max() * 2.0)
     ax.set_xlim(x_min, x_max)
     ax.grid(True, alpha=0.3)
     ax.set_title('Temperature', fontsize=12)

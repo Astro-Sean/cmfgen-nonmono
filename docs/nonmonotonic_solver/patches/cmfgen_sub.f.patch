@@ -1,0 +1,12 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/new_main/cmfgen_sub.f	2025-06-18 16:04:43.000000000 +0200
++++ cmfgen_source/new_main/cmfgen_sub.f	2026-08-21 09:11:59.342658000 +0200
+@@ -1019,7 +1019,8 @@
+ 	1                      PURE_HUBBLE_FLOW,N_IB_INS,N_OB_INS,RDINR,ND,LUIN)
+            VINF=V(1)
+ 	 ELSE IF(VELTYPE .EQ. 12)THEN
+-	   CALL RV_SN_MODEL_SNIIN(R,V,SIGMA,RMAX,RP,VCORE,V_BETA1,RDINR,LUIN,ND)
++	   CALL RV_SN_MODEL_SNIIN(R,V,SIGMA,RMAX,RP,VCORE,V_BETA1,RDINR,LUIN,ND,
++	1                             N_OB_INS)
+ 	   VINF=V(1)
+ 	 ELSE
+ 	   WRITE(LUER,*)'Invalid Velocity Law'

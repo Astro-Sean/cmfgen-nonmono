@@ -1,0 +1,15 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/new_main/subs/do_ng_accel_band_v4.f	2023-12-03 15:59:58.000000000 +0100
++++ cmfgen_source/new_main/subs/do_ng_accel_band_v4.f	2026-08-20 21:08:17.948402000 +0200
+@@ -171,6 +171,12 @@
+           R(2:ND-1)=BIG_POPS(NT+1,2:ND-1)
+           V(2:ND-1)=BIG_POPS(NT+2,2:ND-1)
+           SIGMA(2:ND-1)=BIG_POPS(NT+3,2:ND-1)-1.0_LDP
++!
++! Clamp Ng-extrapolated SIGMA to avoid non-monotonic-velocity singularities.
++!
++	  DO I=2,ND-1
++	    IF(SIGMA(I) .LT. -0.999_LDP)SIGMA(I)=-0.999_LDP
++	  END DO
+ 	END IF
+ !
+ 	RETURN	

@@ -10,7 +10,7 @@
 # cmfdist = CMFGEN install (exe, lib, com); set here if not already set (e.g. by run_cmfgen_*.slurm)
 #
 
-if ( ! $?cmfdist ) setenv cmfdist /u/sbrennan/cur_cmf
+if ( ! $?cmfdist ) setenv cmfdist /viper/ptmp1/sbrennan/SN2024pba/cmfgen_source
 if ( ! $?ATOMIC ) setenv ATOMIC /u/sbrennan/atomic
 setenv CMFGEN_PROG   $cmfdist/exe/cmfgen_dev.exe
 
@@ -45,7 +45,7 @@ endif
 #    Atomic data soft links -- skip if already present (requeue optimisation)
 #*****************************************************************************
 
-if ( -e TWO_PHOT_DATA && -e PHOTHI_A && -e PHOTHe2_A ) then
+if ( -e TWO_PHOT_DATA && -e PHOTHI_A && -e PHOTHeI_A ) then
   echo "Atomic data links already present; skipping ln -sf section."
 else
 
@@ -71,37 +71,40 @@ else
  ln -sf  $ATOMIC/HYD/I/5dec96/hicol.tlusty                 HI_COL_DATA
 
 #*****************************************************************************
-#    Helium
+#    Helium (He I + He II)
 #   --------
+#   He II re-added: Saha analysis of SN_HYDRO_DATA at 35.57d shows He II
+#   max fraction 99.86% in hot inner zones (T up to 11668 K). He II 4686
+#   is a key diagnostic line. He II is hydrogen-like (n=1-10 f_to_s).
+#   Previous "MAXCH explosions" were likely frequency-grid issues, now
+#   handled by NCF_MAX=150000.
 #*****************************************************************************
- ln -sf  $ATOMIC/HE/II/5dec96/he2phot.dat                  PHOTHe2_A
- ln -sf  $ATOMIC/HE/II/5dec96/he2_osc.dat                  He2_F_OSCDAT
- ln -sf  $ATOMIC/HE/II/5dec96/he2_f_to_s_22.dat            He2_F_TO_S
- ln -sf  $ATOMIC/HE/II/5dec96/he2col.dat                   He2_COL_DATA
-#
  ln -sf  $ATOMIC/HE/I/5dec96/heiphot_a7.dat                PHOTHeI_A
  ln -sf  $ATOMIC/HE/I/5dec96/heioscdat_a7.dat              HeI_F_OSCDAT
  ln -sf  $ATOMIC/HE/I/5dec96/hei_f_to_s_a7_ext.dat            HeI_F_TO_S
  ln -sf  $ATOMIC/HE/I/5dec96/heicol.dat                    HeI_COL_DATA
+
+ ln -sf  $ATOMIC/HE/II/5dec96/he2phot.dat                  PHOTHe2_A
+ ln -sf  $ATOMIC/HE/II/5dec96/he2_osc.dat                  He2_F_OSCDAT
+ ln -sf  $ATOMIC/HE/II/5dec96/he2_f_to_s_10.dat            He2_F_TO_S
+ ln -sf  $ATOMIC/HE/II/5dec96/he2col.dat                   He2_COL_DATA
 
 #*****************************************************************************
 #    Carbon
 #   --------
 #*****************************************************************************
 
- ln -sf  $ATOMIC/CARB/II/tst/phot_sm_100.dat            PHOTC2_A
- ln -sf  $ATOMIC/CARB/II/tst/phot_data_B.dat            PHOTC2_B
- ln -sf  $ATOMIC/CARB/II/tst/c2osc_rev.dat              C2_F_OSCDAT
- ln -sf  $ATOMIC/CARB/II/tst/c2col.dat                  C2_COL_DATA
- ln -sf  $ATOMIC/CARB/II/tst/f_to_s_104.dat             C2_F_TO_S
- ln -sf  $ATOMIC/CARB/II/tst/c2_auto.dat                C2_AUTO_DATA
+ ln -sf  $ATOMIC/CARB/I/19apr23/phot_data_A               PHOTCI_A
+ ln -sf  $ATOMIC/CARB/I/19apr23/osc_data                  CI_F_OSCDAT
+ ln -sf  $ATOMIC/CARB/I/19apr23/f_to_s_122                CI_F_TO_S
+ ln -sf  $ATOMIC/CARB/I/19apr23/col_data                  CI_COL_DATA
 
- ln -sf  $ATOMIC/CARB/III/23dec04/ciiiphot_sm_a_500.dat      PHOTCIII_A
- ln -sf  $ATOMIC/CARB/III/23dec04/ciiiphot_sm_b_500.dat      PHOTCIII_B
- ln -sf  $ATOMIC/CARB/III/23dec04/ciiiosc_st_split_big.dat   CIII_F_OSCDAT
- ln -sf  $ATOMIC/CARB/III/23dec04/ciii_f_to_s_split_big.dat  CIII_F_TO_S
- ln -sf  $ATOMIC/CARB/III/23dec04/ciiicol.dat                CIII_COL_DATA
- ln -sf  $ATOMIC/CARB/III/23dec04/dieciii_ic.dat             DIECIII
+ ln -sf  $ATOMIC/CARB/II/19apr23/phot_data_A              PHOTC2_A
+ ln -sf  $ATOMIC/CARB/II/19apr23/phot_data_B              PHOTC2_B
+ ln -sf  $ATOMIC/CARB/II/19apr23/osc_data                 C2_F_OSCDAT
+ ln -sf  $ATOMIC/CARB/II/19apr23/col_data                 C2_COL_DATA
+ ln -sf  /viper/ptmp1/sbrennan/SN2024pba/atomic/C2_f_to_s_no_2p3               C2_F_TO_S
+ ln -sf  $ATOMIC/CARB/II/19apr23/auto_data                C2_AUTO_DATA
 
 #  ln -sf  $ATOMIC/CARB/IV/5dec96/civphot_a12.dat            PHOTCIV_A
 #  ln -sf  $ATOMIC/CARB/IV/5dec96/civosc_a12_split.dat       CIV_F_OSCDAT
@@ -148,15 +151,16 @@ else
  ln -sf  $ATOMIC/OXY/I/19apr23/phot_data_B                 PHOTOI_B
  ln -sf  $ATOMIC/OXY/I/19apr23/col_data                    OI_COL_DATA
 
- ln -sf  $ATOMIC/OXY/II/23mar05/o2osc_fin.dat              O2_F_OSCDAT
- ln -sf  $ATOMIC/OXY/II/23mar05/f_to_s_137.dat             O2_F_TO_S
- ln -sf  $ATOMIC/OXY/II/23mar05/phot_sm_0                  PHOTO2_A
- ln -sf  $ATOMIC/OXY/II/23mar05/o2col.dat                  O2_COL_DATA
+ ln -sf  $ATOMIC/OXY/II/19apr23/osc_data                   O2_F_OSCDAT
+ ln -sf  $ATOMIC/OXY/II/19apr23/f_to_s_137                 O2_F_TO_S
+ ln -sf  $ATOMIC/OXY/II/19apr23/phot_data_A                PHOTO2_A
+ ln -sf  $ATOMIC/OXY/II/19apr23/col_data                   O2_COL_DATA
 
- ln -sf  $ATOMIC/OXY/III/15mar08/oiiiosc                   OIII_F_OSCDAT
- ln -sf  $ATOMIC/OXY/III/15mar08/phot_sm_0                 PHOTOIII_A
- ln -sf  $ATOMIC/OXY/III/15mar08/f_to_s_165                OIII_F_TO_S
- ln -sf  $ATOMIC/OXY/III/15mar08/col_data.dat              OIII_COL_DATA
+# O III (OIII) — ionization closure for O II; Saha max 2.25% at T>7400K
+ ln -sf  $ATOMIC/OXY/III/19apr23/osc_data                  OIII_F_OSCDAT
+ ln -sf  $ATOMIC/OXY/III/19apr23/f_to_s_107                OIII_F_TO_S
+ ln -sf  $ATOMIC/OXY/III/19apr23/phot_data_A               PHOTOIII_A
+ ln -sf  $ATOMIC/OXY/III/19apr23/col_data                  OIII_COL_DATA
 
 #  ln -sf  $ATOMIC/OXY/IV/19nov07/phot_sm_50_A               PHOTOIV_A
 #  ln -sf  $ATOMIC/OXY/IV/19nov07/phot_sm_50_B               PHOTOIV_B
@@ -222,15 +226,15 @@ else
 # Sodium
 #--------
 #*****************************************************************************
- ln -sf $ATOMIC/NA/I/5aug97/nai_osc_split.dat     NaI_F_OSCDAT
- ln -sf $ATOMIC/NA/I/5aug97/nai_phot_a.dat        PHOTNaI_A
- ln -sf $ATOMIC/NA/I/5aug97/col_guess.dat         NaI_COL_DATA
- ln -sf $ATOMIC/NA/I/5aug97/nai_f_to_s_sm.dat     NaI_F_TO_S
+ ln -sf $ATOMIC/NA/I/19apr23/osc_data            NaI_F_OSCDAT
+ ln -sf $ATOMIC/NA/I/19apr23/phot_data_A         PHOTNaI_A
+ ln -sf $ATOMIC/NA/I/19apr23/col_data            NaI_COL_DATA
+ ln -sf $ATOMIC/NA/I/19apr23/f_to_s_sm           NaI_F_TO_S
 
- ln -sf  $ATOMIC/NA/II/15feb01/phot_data.dat              PHOTNa2_A
- ln -sf  $ATOMIC/NA/II/15feb01/na2_osc.dat                Na2_F_OSCDAT
- ln -sf  $ATOMIC/NA/II/15feb01/f_to_s_ls_21.dat           Na2_F_TO_S
- ln -sf  $ATOMIC/NA/II/15feb01/col_guess.dat              Na2_COL_DATA
+ ln -sf  $ATOMIC/NA/II/19apr23/phot_data_A               PHOTNa2_A
+ ln -sf  $ATOMIC/NA/II/19apr23/osc_data                  Na2_F_OSCDAT
+ ln -sf  $ATOMIC/NA/II/19apr23/f_to_s_ls_21              Na2_F_TO_S
+ ln -sf  $ATOMIC/NA/II/19apr23/col_data                  Na2_COL_DATA
 
 #  ln -sf  $ATOMIC/NA/III/15feb01/phot_sm_3000.dat          PHOTNaIII_A
 #  ln -sf  $ATOMIC/NA/III/15feb01/naiiiosc_rev.dat          NaIII_F_OSCDAT
@@ -291,21 +295,23 @@ else
  
 # Si II (Sk2) - Type IIn: auto_data required for levels above ionization limit
  ln -sf  $ATOMIC/SIL/II/19apr23/osc_data                   Sk2_F_OSCDAT
- ln -sf  $ATOMIC/SIL/II/19apr23/f_to_s_79                  Sk2_F_TO_S
+ ln -sf  /viper/ptmp1/sbrennan/SN2024pba/atomic/Sk2_f_to_s_no_3s3p2  Sk2_F_TO_S
  ln -sf  $ATOMIC/SIL/II/19apr23/phot_data_A                PHOTSk2_A
  ln -sf  $ATOMIC/SIL/II/19apr23/phot_data_B                PHOTSk2_B
  ln -sf  $ATOMIC/SIL/II/19apr23/col_data                   Sk2_COL_DATA
  ln -sf  $ATOMIC/SIL/II/19apr23/auto_data                  Sk2_AUTO_DATA
 
- ln -sf  $ATOMIC/SIL/III/5dec96b/phot_op.dat               PHOTSkIII_A
- ln -sf  $ATOMIC/SIL/III/5dec96b/osc_op_split_rev.dat      SkIII_F_OSCDAT
- ln -sf  $ATOMIC/SIL/III/5dec96b/f_to_s_split.dat          SkIII_F_TO_S
- ln -sf  $ATOMIC/SIL/III/5dec96b/col_data                  SkIII_COL_DATA
+# Si III (SkIII) — ionization closure for Si II; Saha max 100% in hot zones
+ ln -sf  $ATOMIC/SIL/III/19apr23/osc_data                  SkIII_F_OSCDAT
+ ln -sf  $ATOMIC/SIL/III/19apr23/f_to_s_split              SkIII_F_TO_S
+ ln -sf  $ATOMIC/SIL/III/19apr23/phot_data_A               PHOTSkIII_A
+ ln -sf  $ATOMIC/SIL/III/19apr23/col_data                  SkIII_COL_DATA
 
- ln -sf  $ATOMIC/SIL/IV/5dec96/phot_op.dat                 PHOTSkIV_A
- ln -sf  $ATOMIC/SIL/IV/5dec96/osc_op_split.dat            SkIV_F_OSCDAT
- ln -sf  $ATOMIC/SIL/IV/5dec96/f_to_s_split.dat            SkIV_F_TO_S
- ln -sf  $ATOMIC/SIL/IV/5dec96/col_guess.dat               SkIV_COL_DATA
+# Si IV (SkIV) — ionization closure for Si III; Saha max 5.4% at T>7400K
+ ln -sf  $ATOMIC/SIL/IV/19apr23/osc_data                   SkIV_F_OSCDAT
+ ln -sf  $ATOMIC/SIL/IV/19apr23/f_to_s_split               SkIV_F_TO_S
+ ln -sf  $ATOMIC/SIL/IV/19apr23/phot_data_A                PHOTSkIV_A
+ ln -sf  $ATOMIC/SIL/IV/19apr23/col_data                   SkIV_COL_DATA
 
 #*****************************************************************************
 # Phosphorous
@@ -453,21 +459,19 @@ else
 #*****************************************************************************
 
  ln -sf  $ATOMIC/CA/I/19apr23/osc_data                    CaI_F_OSCDAT
- ln -sf  $ATOMIC/CA/I/19apr23/f_to_s_58                   CaI_F_TO_S
+ ln -sf  $ATOMIC/CA/I/19apr23/f_to_s_term                 CaI_F_TO_S
  ln -sf  $ATOMIC/CA/I/19apr23/phot_data_A                 PHOTCaI_A
- ln -sf  $ATOMIC/CA/I/19apr23/phot_data_B                 PHOTCaI_B
  ln -sf  $ATOMIC/CA/I/19apr23/col_data                    CaI_COL_DATA
 
- ln -sf  $ATOMIC/CA/II/19apr23/osc_data                    Ca2_F_OSCDAT
- ln -sf  $ATOMIC/CA/II/19apr23/f_to_s_79                   Ca2_F_TO_S
- ln -sf  $ATOMIC/CA/II/19apr23/phot_data_A                 PHOTCa2_A
- ln -sf  $ATOMIC/CA/II/19apr23/phot_data_B                 PHOTCa2_B
- ln -sf  $ATOMIC/CA/II/19apr23/col_data                    Ca2_COL_DATA
+ ln -sf  $ATOMIC/CA/II/19apr23/osc_data                   Ca2_F_OSCDAT
+ ln -sf  $ATOMIC/CA/II/19apr23/f_to_s_sm                  Ca2_F_TO_S
+ ln -sf  $ATOMIC/CA/II/19apr23/phot_data_A                PHOTCa2_A
+ ln -sf  /viper/ptmp1/sbrennan/SN2024pba/cmfgen_base/ca2_col_data_filtered  Ca2_COL_DATA
 
- ln -sf  $ATOMIC/CA/III/10apr99/phot_smooth.dat            PHOTCaIII_A
- ln -sf  $ATOMIC/CA/III/10apr99/osc_op_sp.dat              CaIII_F_OSCDAT
- ln -sf  $ATOMIC/CA/III/10apr99/f_to_s.dat                 CaIII_F_TO_S
- ln -sf  $ATOMIC/CA/III/10apr99/col_guess.dat              CaIII_COL_DATA
+ ln -sf  $ATOMIC/CA/III/19apr23/phot_data_A               PHOTCaIII_A
+ ln -sf  $ATOMIC/CA/III/19apr23/osc_data                  CaIII_F_OSCDAT
+ ln -sf  $ATOMIC/CA/III/19apr23/f_to_s                    CaIII_F_TO_S
+ ln -sf  $ATOMIC/CA/III/19apr23/col_data                  CaIII_COL_DATA
 # #
 #  ln -sf  $ATOMIC/CA/IV/10apr99/phot_smooth.dat             PHOTCaIV_A
 #  ln -sf  $ATOMIC/CA/IV/10apr99/osc_op_sp.dat               CaIV_F_OSCDAT
@@ -551,24 +555,24 @@ else
  
 # Fe II (Fe2)
  ln -sf  $ATOMIC/FE/II/19apr23/osc_data                    Fe2_F_OSCDAT
- ln -sf  $ATOMIC/FE/II/19apr23/f_to_s_135                  Fe2_F_TO_S
+ ln -sf  $ATOMIC/FE/II/19apr23/f_to_s_135                   Fe2_F_TO_S
  ln -sf  $ATOMIC/FE/II/19apr23/phot_data_A                 PHOTFe2_A
  ln -sf  $ATOMIC/FE/II/19apr23/col_data                    Fe2_COL_DATA
 
- ln -sf  $ATOMIC/FE/III/7feb05/phot_sm_3000.dat             PHOTFeIII_A
- ln -sf  $ATOMIC/FE/III/7feb05/FeIII_OSC                    FeIII_F_OSCDAT
- ln -sf  $ATOMIC/FE/III/7feb05/f_to_s_105                   FeIII_F_TO_S
- ln -sf  $ATOMIC/FE/III/7feb05/col_data.dat                 FeIII_COL_DATA
+ ln -sf  $ATOMIC/FE/III/19apr23/phot_data_A               PHOTFeIII_A
+ ln -sf  $ATOMIC/FE/III/19apr23/osc_data                  FeIII_F_OSCDAT
+ ln -sf  $ATOMIC/FE/III/19apr23/f_to_s_105                 FeIII_F_TO_S
+ ln -sf  $ATOMIC/FE/III/19apr23/col_data                  FeIII_COL_DATA
 
-#  ln -sf  $ATOMIC/FE/IV/18oct00/phot_sm_3000.dat             PHOTFeIV_A
-#  ln -sf  $ATOMIC/FE/IV/18oct00/f_to_s_100.dat               FeIV_F_TO_S
-#  ln -sf  $ATOMIC/FE/IV/18oct00/feiv_osc_rev.dat             FeIV_F_OSCDAT
-#  ln -sf  $ATOMIC/FE/IV/18oct00/col_data.dat                 FeIV_COL_DATA
+ ln -sf  $ATOMIC/FE/IV/19apr23/phot_data_A                 PHOTFeIV_A
+ ln -sf  $ATOMIC/FE/IV/19apr23/f_to_s_110                   FeIV_F_TO_S
+ ln -sf  $ATOMIC/FE/IV/19apr23/feiv_osc                    FeIV_F_OSCDAT
+ ln -sf  $ATOMIC/FE/IV/19apr23/col_data                    FeIV_COL_DATA
 
-#  ln -sf  $ATOMIC/FE/V/18oct00/phot_sm_3000.dat              PHOTFeV_A
-#  ln -sf  $ATOMIC/FE/V/18oct00/f_to_s_139.dat                FeV_F_TO_S
-#  ln -sf  $ATOMIC/FE/V/18oct00/fev_osc.dat                   FeV_F_OSCDAT
-#  ln -sf  $ATOMIC/FE/V/18oct00/col_guess.dat                 FeV_COL_DATA
+ ln -sf  $ATOMIC/FE/V/19apr23/phot_data_A                  PHOTFeV_A
+ ln -sf  $ATOMIC/FE/V/19apr23/f_to_s_139                   FeV_F_TO_S
+ ln -sf  $ATOMIC/FE/V/19apr23/osc_data                     FeV_F_OSCDAT
+ ln -sf  $ATOMIC/FE/V/19apr23/col_data                     FeV_COL_DATA
 
 #  ln -sf  $ATOMIC/FE/VI/18oct00/phot_sm_3000.dat             PHOTFeSIX_A
 #  ln -sf  $ATOMIC/FE/VI/18oct00/fevi_osc.dat                 FeSIX_F_OSCDAT

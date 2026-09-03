@@ -1,0 +1,268 @@
+# X model with mdot=1e-3 - RSH shell + 400-day-old SN_12C_CSM5 ejecta
+# Inner: H/He shell (3.0 Msun, 5000 km/s, X=0.7, Y=0.3)
+# Outer: 400-day homologously evolved SN_12C_CSM5 ejecta (metal-rich)
+# Wind mdot=1e-3 (10x lower than X model) to reduce early interaction luminosity
+# STELLA evolves the interaction for 45 days, CMFGEN/SEDONA/SuperLite at 30d post-SBO
+
+model_name: "X_mdot1e-3"
+description: "RSH H/He shell (3.0 Msun, 5000 km/s) + 400-day-old SN_12C_CSM5 ejecta. Wind mdot=1e-3 (10x lower than X). Interaction model for late-time spectra. STELLA 45 days, CMFGEN/SEDONA/SuperLite at 30d post-SBO."
+
+run_cmfgen: True
+run_sirocco: False
+run_sedona: True
+run_superlite: True
+
+reuse_stella: False
+restart_stella: False
+
+# ── X Model Configuration (shell + old ejecta, with wind) ────────────────────
+# This triggers prepare_x_model.py which:
+# 1. Reads the SN_12C_CSM5 STELLA .swd (latest epoch ~95 days)
+# 2. Homologously evolves to 400 days
+# 3. Creates H/He shell (3.0 Msun, 5000 km/s)
+# 4. Combines shell (inner) + ejecta (outer) with a wind buffer zone
+# 5. Writes .hyd, .abn, .xni, .dat, input_profile
+x_model_from_sn:
+  source_dir: "/viper/ptmp1/sbrennan/SN2024pba/SN_12C_CSM5"
+  source_age_days: 400.0          # Homologously evolve source ejecta to 400 days
+  shell_mass_msun: 3.0            # H/He shell mass
+  shell_velocity_kms: 5000        # Shell launch velocity
+  shell_xh: 0.7                   # H mass fraction in shell
+  shell_yhe: 0.3                  # He mass fraction in shell
+  # Dessart+2015 (SN 2010jl) power-law shell structure
+  n_rho: 8.0                      # Density power-law exponent (Dessart 2010jl: 8)
+  v0_kms: 3000.0                  # Core/envelope transition velocity (Dessart: 3000)
+  n_T: 0.4                        # Temperature power-law exponent (Dessart+2015: 0.4)
+  T_interface_K: 2000.0           # Shell T at outer edge (Dessart+2015: 2000 K at interface)
+  T_max_K: 65000.0                # Max shell T in core (Dessart+2015: 65000 K)
+  t_start_days: 2.0               # STELLA start time (shell pre-expanded; 2d captures rise)
+  ejecta_T_floor_K: 2000.0        # Ejecta T set to 2000K (isothermal, matching Luc/Dessart+2015 CSM)
+  no_wind: False                  # Use wind to connect shell and ejecta
+  se_transition_dex: 0.5          # Shell-ejecta buffer width in dex of log10(r)
+  wind_mdot_msun_yr: 1.0e-3       # CSM mass-loss rate (10x lower than X model)
+  wind_velocity_kms: 100          # CSM wind velocity (Dessart+2015: 100 km/s)
+  wind_T_K: 2000                  # Wind temperature (Dessart+2015: 2000 K isothermal)
+  explosion_energy: 0.0           # No thermal bomb (shell velocity from .hyd)
+  aq: 10.0                        # High AQ for non-monotonic velocity (shell->ejecta)
+  fit_tau: 5.0                    # FitTau=5 for frequency-dependent opacity (AGENTS.md)
+  meth: 3                         # GEAR+BGH integrator (better for stiff systems)
+  temp_floor: 0.03                # 300 K temperature floor
+  floor_rad: 0.01                 # 100 K radiation floor
+  hmin: 1.0e-14                   # Min timestep
+  hmax: 3600.0                    # Max timestep (1 hour for interaction resolution)
+
+# Ejecta parameters (unused for X model mode, but required by schema)
+ejecta:
+  M_ejecta_A: 0.0
+  R_star_cm: 0.0
+  n_shell: 0.0
+  V_ejecta_A_initial_kms: 0.0
+
+hydro_backend: stella
+stella:
+  convection: False
+  target_days: 45.0              # 45 days of STELLA evolution
+  nzon: 500
+  kappa: 0.34
+  snapshot_interval: 1.0
+  iout: 10
+  r_min: 0.0
+  rho_min: 0.0                   # No density trimming
+  stella_root: "/ptmp/sbrennan/stella/OpenStella"
+  partition: "general"
+  memory: "16G"
+  time: "23:59:00"
+
+  # Grid parameters
+  outer_fraction: 0.3
+  transition_radius: 1e13
+
+  # Explosion parameters
+  # No thermal bomb — shell velocity is encoded in .hyd file
+  explosion_energy: 0.0          # No bomb (EKO=0, velocities from .hyd)
+  explosion_mass: 0.0
+  explosion_time: 1.0
+  explosion_delay: 0.0
+
+  # EKO=0: STELLA preserves .hyd velocities
+  initial_kinetic_energy: 0.0
+
+  nstmax: 2000000
+  eps: 0.003                     # Gear integrator accuracy
+  hmax: 3600.0                   # Max timestep (1 hour for interaction resolution)
+  hmin: 1.0e-14                  # Min timestep
+  meth: 3                        # GEAR+BGH (better for stiff interaction systems)
+  aq: 10.0                       # High AQ for non-monotonic velocity
+  bq: 1.0                        # Pseudo-viscosity
+  fit_tau: 5.0                   # FitTau=5 for SN ejecta (AGENTS.md)
+  tau_tol: 1.3
+  disable_scattering: False
+  stella_tau_min: 1e-4
+
+  # Temperature convergence
+  wacc_r: 1.0
+  wacc_v: 1.0
+  wacc_t: 0.5
+  wacc_rad: 0.5
+  temp_floor: 0.03              # 300 K
+  floor_rad: 0.01               # 100 K
+
+  # Opacity tables
+  use_ronfict: true
+
+  # Ni56: no radioactive decay in X model (interaction-only)
+  nickel56:
+    enabled: False
+
+# Temperature profile (unused for X model mode)
+temperature:
+  temp_profile_type: "adiabatic"
+  N_T_ejecta: 0.6
+  T_inner_max: 100000
+  T_csm: 5000
+
+# CMFGEN conversion parameters
+cmfgen_conversion:
+  heracles_dir: "heracles"
+  snapshot_days: [30]           # CMFGEN at ~30 days post-explosion
+  epoch_tolerance: 2.0
+  stella_extra_days: 0
+  output_file: "cmfgen/SN_HYDRO_DATA"
+  cmfgen_tau_max: 30
+  cmfgen_tau_min: 0.01
+  n_grid: 100
+  adaptive_grid: true
+  gradient_threshold: 0.5
+  velocity_max_kms: 10000
+  v_min_km_s: 2500.0            # Match SN_12C_CSM2 V_inner~2477 km/s for inner boundary stability
+  opacity_model: "stella_nlte"
+  kappa_constant: 0.34
+  enable_grid_thinning: true
+  grid_thinning_threshold: 0.005
+  enable_adaptive_grid: true
+  base_grid_target: 80
+  max_points: 150
+  min_points: 50
+  min_nd: 150
+  max_radius_jump: 0.05
+  max_temp_jump: 0.10
+  max_density_jump: 0.15
+  smooth_velocity: false
+  no_velocity_smoothing: true
+  smooth_wiggles: true
+  wiggle_window: 5
+  velocity_smooth_window_kms: 50.0
+  enable_velocity_spacing_optimization: false
+  include_ne_amr: false
+  max_ne_jump: 0.10
+  max_logtau_jump: 0.25
+  max_velocity_jump: 0.30
+  max_sigma_jump: 0.5
+  max_cell_ratio: 1.5
+  thin_grid_tau: 1.0
+  thin_grid_priority: 4.0
+  outer_boundary_extra_points: 5
+  outer_boundary_ratio: 1.5
+  min_dr_r: 1.0e-6
+  max_dr_r: 0.15
+  sigma_priority_threshold: 1.0
+  sigma_priority: 10.0
+  dsigma_priority_threshold: 0.3
+  dsigma_priority: 10.0
+  smooth_sigma: false
+  max_dsigma: 1.0
+  sigma_smooth_passes: 10
+  sigma_smooth_window: 0.3
+
+# CMFGEN run parameters (matching X1_fix / SN_12C_CSM2 configuration)
+cmfgen:
+  base_dir: "./cmfgen_base"
+  model_type: "static_snapshot"
+  init_num_its: 25
+  single_final: True            # SINGLE_FINAL (LTE cold start, LTE_EST=T)
+  proxy_populations: False               # CMFGEN built-in LTE_EST=T
+  inc_rad_decays: True
+  vturb: 20.0
+  incl_rel: False
+  vel_law: 12                   # VEL_LAW=12 for non-monotonic velocity (IIn-like)
+  target_nd: 156                # SN_HYDRO_DATA max 150 points; MND=150=target_nd-6
+  depth_independent_solver: False  # TRIDIAG (NUM_BNDS=3, N_TYPE=N_ON_J): required for non-monotonic velocity (sigma < -1). G_ONLY cannot handle velocity reversals.
+  vadat_overrides:
+    OB_RAT: "1.0D0"
+    STOP_IF_BP: "F"
+    THK_CONT: "F"
+    IB_STAB: "0.1D0"
+    VFRAC_MOM: "6.64D0"
+    FIX_T: "T"
+    FIX_T_AUTO: "F"
+    N_IB_INS: "0"
+    DO_NG: "F"
+    MAX_LAM: "1.0D5"
+    MAX_LIN: "3.0D0"
+    METHOD: "ZERO"
+    LAM_SCALE_OPT: "LIMIT"
+    BA_CHK_FAC: "5.0D-02"
+    REV_RGRID: "F"
+  partition: "small"
+  time: "12:00:00"
+  mem: "16G"
+  init_mem: "16G"
+  init_partition: "interactive"
+  init_time: "01:59:00"
+  n_ob_ins: 30
+  final_requeue_when: "finish"
+  final_requeue_max: 500
+  auto_set_rstar: False
+  auto_set_lstar: False
+  phot_tau: 0.6666667
+  bb_teff_k: 9100
+  lstar_radius_mode: "RMAX"
+
+# SEDONA configuration (Monte Carlo radiation transport)
+sedona:
+  partition: "general"
+  cpus: 8
+  memory: "128G"
+  time: "23:59:00"
+  use_homologous_expansion: false
+  use_nlte: false
+  opacity_line_expansion: 1
+  opacity_bound_bound: 0
+  opacity_fuzz_expansion: 0
+  line_velocity_width_kms: 200
+  nzon_target: 300
+  transport_steady_iterate: 100
+  ntasks: 8
+  core_n_emit: 1e6
+  particles_n_emit_thermal: 5e8
+  particles_n_emit_radioactive: 5e4
+  particles_max_total: 2e9
+  particles_last_iter_pump: 20
+  transport_nu_grid_spacing: 0.005
+  transport_nu_min: 2.5e14
+  transport_nu_max: 1.2e15
+  spectrum_nu_grid_spacing: 0.0005
+  transport_radiative_equilibrium: 1
+  transport_use_ddmc: 0
+  transport_ddmc_tau_threshold: 1000.0
+
+# SuperLite configuration (Monte Carlo radiation transport)
+superlite:
+  partition: "general"
+  ntasks: 1
+  cpus_per_task: 16
+  memory: "16G"
+  time: "23:59:00"
+  install_dir: "/ptmp/sbrennan/superlite"
+  exe: "/ptmp/sbrennan/superlite/superlite"
+  truncate_tau: 20
+
+# Output directories
+output:
+  model_dir: "./X_mdot1e-3"
+  stella_output: "stella"
+  cmfgen_output: "cmfgen"
+  sedona_output: "sedona"
+  superlite_output: "superlite"
+  plots: "plots"
+  outputs: "output"

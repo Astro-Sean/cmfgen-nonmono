@@ -1,0 +1,31 @@
+! IT_SPECIFIER - Iteration cycle control file for CMFGEN
+!
+! When present, this file forces a particular iteration sequence.
+! The cycle is repeated unless the NORM option is found.
+! Specify only one option per line. The number of consecutive
+! iterations of the same type is specified by a number following
+! the option (if no number is present, 1 is assumed).
+!
+! This file is read EVERY iteration by SPECIFY_IT_CYCLE_V3
+! ($cmfdist/subs/specify_it_cycle_v3.f) and can be modified
+! while the model is running.
+!
+! Available options:
+!   LAM N              - Do N Lambda iterations (Ne fixed, T fixed)
+!   FULL N             - Do N full iterations (BA computed, T varies)
+!   FULL(FIXT) N       - Do N full iterations (BA computed, T fixed)
+!   FULL(FIXBA) N      - Do N full iterations (BA held fixed, T varies)
+!   FULL(FIXT,FIXBA) N - Do N full iterations (BA held fixed, T fixed)
+!   DO_NG              - Force NG acceleration on next iteration
+!   DO_AV              - Force population averaging on next iteration
+!   NORM               - Return to normal CMFGEN iteration control
+!                        (when reached, lower statements are ignored)
+!   REVISE_R           - Force R-grid revision on next iteration
+!
+! Default: NORM (let CMFGEN decide via DO_LAM_AUTO, DO_NG, etc.)
+!
+! prepare_VADAT.py overwrites this file when iteration_strategy
+! is specified in the YAML config. To use a custom strategy,
+! set cmfgen.iteration_strategy in the YAML config.
+!
+NORM

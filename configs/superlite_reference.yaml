@@ -1,0 +1,75 @@
+# SuperLite configuration reference — all exposed parameters
+#
+# This file documents every SuperLite numerical parameter that can be
+# set through YAML configuration.  Copy the relevant sections into
+# your model's config.yaml under the 'superlite:' key.
+#
+# All parameters have sensible defaults; only override what you need.
+
+superlite:
+  # === Execution settings ===
+  input_source: swd              # 'swd' (direct STELLA) or 'sn_hydro_data' (legacy)
+  install_dir: /ptmp/sbrennan/superlite
+  exe: /ptmp/sbrennan/superlite/superlite
+
+  # === SLURM resource settings ===
+  partition: general
+  ntasks: 1
+  cpus_per_task: 8
+  memory: 16G
+  time: '12:00:00'
+
+  # === Grid construction ===
+  grid_method: adaptive          # 'adaptive' (physics-aware AMR) or 'tau_weighted' (legacy)
+  truncate_tau: 10000            # Drop zones with cumulative tau > this (10000 = no truncation)
+  max_cells: 250                 # Maximum SuperLite cells after downsampling
+  min_cells: 20                  # Never go below this many cells
+  no_downsample: false           # If true, keep all post-truncation zones
+  rho_floor: 0.0                 # Drop zones with rho < this (g/cm³)
+  t_floor_K: 2000.0              # Temperature floor (K) — SuperLite zeta table starts at 2000 K
+
+  # === Adaptive grid (AMR) parameters ===
+  # Only used when grid_method: adaptive
+  amr:
+    rho_grad: 0.5                # |d log rho / d log r| threshold for refinement
+    temp_grad: 0.3               # |d log T / d log r| threshold
+    vel_grad: 0.05               # |dv/v| per cell threshold
+    comp_grad: 0.1               # |dX / d log r| threshold for composition gradients
+    cannon_interface_cells: 5    # Cells to resolve each cannon boundary
+    shock_dv_threshold: 100.0    # Velocity change (km/s) to flag a shock
+
+  # === SuperLite numerical parameters ===
+  # These control the actual SuperLite radiation transport calculation.
+  # All values shown are the production defaults.
+  numerical:
+    # Wavelength groups (transport)
+    grp_ng: 6000                 # Number of wavelength groups (logarithmic grid)
+    grp_wlmin: 1d-8              # Transport wavelength min (cm) = 1 Å
+    grp_wlmax: 30d-5             # Transport wavelength max (cm) = 30000 Å
+
+    # Flux output bins
+    flx_ndim: 3500               # Number of flux output bins
+    flx_wlmin: 3d-5              # Flux wavelength min (cm) = 3000 Å
+    flx_wlmax: 2d-4              # Flux wavelength max (cm) = 20000 Å
+
+    # Monte Carlo particles
+    src_n2s: 25                  # 2^n source particles (25 = 33M, 26 = 67M)
+
+    # DDMC (discrete diffusion Monte Carlo)
+    trn_tauddmc: 3d0             # IMC→DDMC transition threshold (mfp per cell)
+    taulump: 3d0                 # DDMC group lumping threshold (mfp)
+
+    # NLTE (non-LTE)
+    nlte: true                   # Enable NLTE for H bound-bound
+    nlte_nelem: 1                # Number of NLTE elements (must be 1, H only)
+    niter: 3                     # Radiation temperature feedback iterations
+
+    # Nebular approximation
+    nebular: true                # Mazzali & Lucy 1993 nebular approximation
+
+    # Opacity control
+    opacmixrossel: 0d0           # Rosseland mixing fraction (0=Planck, 1=Rosseland)
+    nobbopac: false              # Disable bound-bound opacity
+    nobfopac: false              # Disable bound-free opacity
+    noffopac: false              # Disable free-free opacity
+    nothmson: false              # Disable Thomson scattering

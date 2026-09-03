@@ -1,0 +1,495 @@
+# SN2024pba Model Configuration File - X_1_fix: Si II atomic data fix
+# Based on X1.yaml with modified Si II (Sk2) atomic data:
+# - Custom f_to_s file: 3s3p2 doubly-excited states moved to LTE (SL=80)
+# - MODEL_SPEC ISF: 10,10,10 → 6,6,6 (only 3s2-based states are NLTE)
+# - This removes the Sk2 SL=3 (3s_3p2_2De) convergence cascade driver
+# - Key Si II lines preserved: 6347/6371 doublet (3s2_4p→3s2_3p), 3856/3862 (3s2_5s→3s2_3p)
+
+# Model identification
+model_name: "X_1_fix"                       # Short name for STELLA Fortran string limit
+description: "X_1 with Si II atomic data fix: 3s3p2 doubly-excited states moved to LTE to prevent convergence cascade"
+
+# Spectrum code execution flags
+run_cmfgen: True                   # Run CMFGEN spectrum synthesis
+run_sirocco: False                 # Run SIROCCO radiative transfer
+run_sedona: True                # Run SEDONA Monte Carlo radiative transfer
+run_superlite: True              # Run SuperLite Monte Carlo radiative transfer
+
+# STELLA reuse configuration: reuse X_1's STELLA output (same hydro model)
+reuse_stella: True      # Reuse existing STELLA output from X_1 (copied to X_1_fix/stella/)
+                        # .swd/.rho/.abn files renamed from X_1.* to X_1_fix.* to match model_name
+
+# Ejecta parameters (from create_embedded_hhe_shell.py)
+# This section defines the initial density/velocity/composition structure of the progenitor system
+ejecta:
+  # ================================================================
+  # EJECTA A: Inner RSG progenitor shell (stationary, r < R_star)
+  # This represents the H/He-rich envelope of the red supergiant progenitor
+  # ================================================================
+  M_ejecta_A: 3.0         # [INCREASED] was 5.0; larger H envelope for longer plateau (~100 days)
+  R_star_cm: 5.0e13        # RSG stellar radius (~700 Rsun = 5e13 cm) - inner boundary of wind
+  n_shell: 2.0             # Density power-law exponent: rho ∝ r^(-n_shell) - controls shell density profile
+  V_ejecta_A_initial_kms: 5000.0  # Initial velocity for inner ejecta collision (km/s) - replaces thermal bomb
+  # H/He -> Metal transition smoothing (avoids sharp ionization front)
+  transition_AB_width_fraction: 2.0   # Width of A/B blending zone as fraction of R_star (2.0 = 200% spans to 3*R_star)
+  transition_AB_sigmoid_k: 25         # Sigmoid steepness (lower = smoother, higher = sharper; 8 = sharper transition)
+
+  # Shell composition (solar-like H/He envelope - 5-element composition)
+  # Based on Asplund et al. 2009 solar abundances (excluding C due to atomic data issues)
+  fx_H_A: 0.70             # Hydrogen mass fraction in inner shell (solar)
+  fx_He_A: 0.28            # Helium mass fraction in inner shell (solar)
+  fx_O_A: 0.009            # Oxygen mass fraction (solar)
+  fx_Si_A: 0.0007          # Silicon mass fraction (solar)
+  fx_Ca_A: 0.0002          # Calcium mass fraction (solar)
+  fx_Fe_A: 0.0013          # Iron mass fraction (solar)
+  # Remaining ~0.009% is trace metals (C, N, Ne, Mg, S, etc. - not included)
+
+  # ================================================================
+  # EJECTA B: Outer metal-rich ejecta (r > R_star, extends to V_ejecta_B_max_kms)
+  # This represents the stripped envelope from the companion star (Type IIb-like)
+  # ================================================================
+  M_ejecta_B: 2.0          # Mass of stripped envelope ejecta in Msun
+  days_ejecta_B: 400       # Age of ejecta B in days (sets its spatial extent via homologous expansion: R = v*t)
+  E_kin_ejecta_B: 0        # No separate kinetic energy constraint (0 = use homologous expansion only)
+  V_ejecta_B_max_kms: 10000  # Maximum velocity for metal-rich ejecta B (km/s) - wind appended beyond this
+
+  # Ejecta B composition (metal-rich stripped envelope - SN 2011dh Type IIb)
+  # Based on Ergon et al. 2014, 2015; Sahu et al. 2021 (5-element composition)
+  fx_H_B: 0.02             # Hydrogen mass fraction (very low - stripped envelope)
+  fx_He_B: 0.38            # Helium mass fraction (dominant)
+  fx_O_B: 0.18             # Oxygen mass fraction (He-burning products)
+  fx_Si_B: 0.07            # Silicon mass fraction (core-processed material)
+  fx_Ca_B: 0.02            # Calcium mass fraction (alpha-chain)
+  fx_Fe_B: 0.07            # Iron mass fraction (core-processed material)
+  fx_Ni_B: 0.0            # Nickel mass fraction (set to 0 - Ni56 comes from .xni file only)
+  # Remaining ~0.23% is trace metals (C, Ne, Mg, S, etc. - not included)
+
+  # ================================================================
+  # WIND: Pre-SN wind from RSG progenitor (R_star < r < R_cross)
+  # This defines the wind that existed before the supernova explosion
+  # ================================================================
+  wind_velocity_type: "beta_law"  # "beta_law" (accelerating from surface) or "homologous" (v=r/t)
+  Mdot_wind: 0.0          # Mass loss rate in Msun/yr (typical RSG wind rate)
+  V_inf_kms: 250.0         # Terminal wind velocity in km/s (for beta_law: accelerates from 0 at R_star to V_inf)
+  beta_wind: 5.0           # Beta-law exponent: v(r) = V_inf*(1 - R_star/r)^beta (higher = slower acceleration)
+  wind_time_days: 400     # Characteristic time for homologous expansion: v(r) = r/t (only for homologous mode)
+
+  # Wind composition (independent from shell)
+  fx_H_wind: 0.70         # Hydrogen mass fraction in wind (solar-like)
+  fx_He_wind: 0.28        # Helium mass fraction in wind (solar-like)
+  # Remaining 2% is metals
+
+  # ================================================================
+  # GRID AND GENERAL PARAMETERS
+  # ================================================================
+  N_rho_ejecta_B: 4         # Density power-law exponent for ejecta B: rho ∝ r^(-N). Lower = shallower, more mass at outer edge. N=7 is steep (standard outer SN ejecta), N=4 is moderate.
+  n_cells: 10000            # Number of radial cells for profile generation (higher = better resolution)
+  stationary_ejecta_A: true  # If true, inner shell has v=0 initially (STELLA adds kinetic energy via thermal bomb)
+  sigmoid_k: 20             # Global sigmoid steepness for all transitions (higher = sharper, lower = smoother)
+
+
+# Hydro backend selection
+# Options: 'stella' (1D Lagrangian radiation hydrodynamics) or 'heracles' (3D AMR)
+hydro_backend: stella
+
+# STELLA-specific parameters
+# STELLA is a 1D Lagrangian radiation hydrodynamics code for supernova evolution
+stella:
+  convection: False
+  target_days: 50.0                # Target evolution time in days (observed time). STELLA crashes at ~53d sim time
+                                   # due to temperature going negative in inner zones. With tretard~10d, the last
+                                   # usable SWD epoch is ~43d observed. Setting 50d gives margin for the solver.
+  nzon: 500                # Number of radial zones (must match compiled Mzon in zone.inc - requires recompile if changed)
+  kappa: 0.34              # Electron scattering opacity in cm^2/g (controls radiation transport)
+  snapshot_interval: 1.0          # Output snapshot interval in days (every 1 day)
+  iout: 10                # Output frequency: 1=every timestep (full lightcurve), 10=every 10 timesteps (default: 10)
+  r_min: 1e12              # Minimum radius to include (cm) — excludes dense inner wind to avoid numerical stiffness
+  stella_root: "/ptmp/sbrennan/stella/OpenStella"  # Path to STELLA installation directory
+  partition: "general"      # SLURM partition for job submission
+  memory: "16G"            # Memory allocation per node
+  time: "23:59:00"         # Walltime limit for SLURM job (24 hour limit)
+
+  # Hybrid grid parameters for better transition resolution
+  # Uses linear spacing in inner region (RSG shell) and log spacing in outer region (wind)
+  outer_fraction: 0.3      # Fraction of zones in outer (log-spaced) region (default: 0.3)
+  transition_radius: 1e13  # Radius (cm) where grid transitions from linear to log spacing (default: 1e13)
+
+  # Explosion parameters: thermal bomb (EBurst) spreads energy over AMHT mass
+  # EKO=0: STELLA preserves the .hyd velocity profile as-is. This is REQUIRED
+  # for interacting systems where the input profile has physically motivated
+  # velocities (3000 km/s inner ejecta, beta-law wind, outer ejecta).
+  # EKO>0 OVERWRITES ALL velocities with a triangular (linear-in-mass) profile
+  # scaled to match EKO, destroying the input velocity structure. The
+  # mass_fract_tri parameter only controls WHERE the triangular starts, not
+  # whether it overwrites. See begtt.f / begradsep.f lines 218-258.
+  explosion_energy: 0.0       # Disabled - no thermal bomb (velocities from .hyd profile)
+  explosion_mass: 0.0         # Disabled - no thermal bomb
+  explosion_time: 10.0        # 10s injection duration (not used when explosion_energy=0)
+  explosion_delay: 0.0        # Delay before thermal bomb triggers in seconds (set to 0 for immediate explosion)
+  initial_kinetic_energy: 0.0  # EKO=0: preserve .hyd velocities (profile KE ~3.97e50 erg already in velocities)
+  nstmax: 2000000             # Max timesteps (increased for 150-day run)
+  eps: 0.003                   # Gear integrator accuracy (0.003 = reference value)
+  hmax: 3600.0                # Max timestep cap = 1 hour (reduced from 0.5 day to resolve shock interaction)
+  meth: 3                     # GEAR+BGH: recomputes Jacobian during integration (robust for stiff shocks)
+  fit_tau: 15.0                 # FitTau: target optical depth for radiation transport fine-grid zone (Ncnd)
+                               # Ncnd tracks the zone where tau ~ FitTau; lower values move Ncnd deeper into ejecta
+  tau_tol: 1.3                 # TauTol: Ncnd changes when tau(Ncnd) outside [FitTau/TauTol, FitTau*TauTol]
+                               # 1.3 -> band is [11.5, 19.5]; wider band = fewer/smaller Ncnd jumps
+                               # Was 1.1 -> band [13.6, 16.5]; too tight: triggered Ncnd jump at tau=13.5
+                               # causing IFAIL=17 (structurally singular Jacobian) at t=75d in 3 Msun model
+  disable_scattering: False # False = enable scattering (needed for H-rich RSG plateau; X1_meth2 used SCAT=T)
+  stella_tau_min: 1e-4        # Trim outermost zones during profile → STELLA conversion where electron-scattering tau < stella_tau_min (default: 1e-4)
+                               # Set to default to output full zone structure for proper analysis
+                               # Trimming of outer vacuum zones should be done in analysis scripts, not in STELLA
+
+  # Temperature convergence control parameters
+  # Wacc parameters control the accuracy weights for different variables in the STELLA solver
+  # Higher values = stricter convergence (more accurate but potentially unstable)
+  # Lower values = more relaxed convergence (more stable but less accurate)
+  wacc_r: 1.0                 # Wacc(R) - radius accuracy weight (default: 1.0)
+  wacc_v: 1.0                 # Wacc(V) - velocity accuracy weight (default: 1.0)
+  wacc_t: 1.0                 # Wacc(T) - temperature accuracy weight (0.5 = same as working X1_meth2 run)
+                              # NOTE: 2.0 caused KFLAG=-2 at 83.9 days in X1_meth2_ns_10msun (too strict
+                              # during H recombination plateau). 0.5 allows looser T convergence = more stable.
+  wacc_rad: 1.0               # Wacc(RADIAT) - radiation accuracy weight (default: 1.0)
+  temp_floor: 0.2           # FLOOR(T) - minimum temperature in 10^4 K units (0.002 = 20 K; same as X1_meth2 which completed 60 days)
+                               # DO NOT set this to 0.5 (5000 K) - it clamps zones at the H recombination temperature
+                               # causing energy conservation errors and KFLAG=-2 failures at ~80 days during plateau
+  # Opacity tables
+  use_ronfict: true            # Use xronfict.exe for full multigroup opacity (Saha + bf/ff/line)
+  # use_opal_tables: true
+  # opal_table_dir: "/ptmp/sbrennan/SNEC/SNEC"
+
+  # Radioactive nickel56 distribution (for .xni file generation)
+  # Dual distribution: Ejecta A (fresh Ni56) + Ejecta B (decayed Co56 from 400-day old SN)
+  nickel56:
+    enabled: False              # Enable Ni56 radioactive decay (set to True for lightcurve calculations)
+    
+    # Ejecta A: Inner H-rich shell (3.0 Msun) - fresh Ni56 for current explosion
+    ejecta_a:
+      total_mass_msun: 0.0     # Set to 0 - focusing on interaction power only
+      distribution_mass_msun: 0.5   # Distribute over ejecta A mass (3.0 Msun)
+      distribution_type: "uniform"
+      inner_zone_fraction: 0.4    # Inner 40% of zones (core region)
+    
+    # Ejecta B: Outer metal-rich ejecta (2.0 Msun) - decayed Co56 from 400-day old SN 2011dh
+    ejecta_b:
+      total_mass_msun: 0.0017   # Surviving Co56 after 400 days (from SN 2011dh initial 0.06 Msun)
+      distribution_mass_msun: 2.0   # Distribute over full ejecta B mass (2.0 Msun)
+      distribution_type: "uniform"
+      inner_zone_fraction: 1.0    # Throughout ejecta B (all zones)
+
+# Temperature profile parameters
+# Controls the initial temperature distribution in the progenitor model
+temperature:
+  temp_profile_type: "adiabatic"  # Type of temperature profile: "adiabatic" (T ∝ rho^(gamma-1)) or "isothermal"
+  N_T_ejecta: 0.6           # Temperature power law exponent for ejecta (T ∝ r^(-N_T))
+  T_inner_max: 100000      # K maximum temperature in inner shell (sets temperature scale)
+  T_csm: 5000              # K CSM / outer ejecta temperature
+
+# CMFGEN conversion parameters
+# Controls how STELLA output is converted to CMFGEN format for spectrum synthesis
+cmfgen_conversion:
+  heracles_dir: "heracles"  # Directory containing hydrodynamic output (legacy parameter)
+  snapshot_days: [30]  # Days at which to generate CMFGEN/SEDONA snapshots (time-series workflow)
+  stella_extra_days: 10   # STELLA runs to max(snapshot_days) + this many days
+                          # Conversion script picks the closest available epoch in the .swd file.
+  output_file: "cmfgen/SN_HYDRO_DATA"  # Output file path for CMFGEN input
+  # NOTE: The convert_stella_swd_to_cmfgen.py script uses STELLA's NLTE Rosseland opacity
+  # (column 12 of .swd = WRKX) which includes electron scattering, bound-free, free-free.
+  # cmfgen_tau_min and cmfgen_tau_max below refer to the cumulative Rosseland optical depth computed from
+  # these STELLA opacities (NOT simple electron-scattering tau with constant kappa=0.34).
+  cmfgen_tau_max: 30            # Optical depth cutoff for inner boundary (Dessart+2015 default).
+                                # Reduced from 50 to 30: high-opacity inner zones are expensive for
+                                # MCMC processing (SEDONA/SuperLite) and contribute little to the
+                                # spectrum. DIFFUSION IB still works at tau=30 (approximate but
+                                # stable — ZERO_FLUX gives L=0 which causes population explosion).
+  cmfgen_tau_min: 1e-3       # Outer boundary during STELLA → CMFGEN conversion: include ALL zones (no tau_min cut). Metal-rich CSM at
+                           # tau_Ross << 1 still produces strong line absorption via Sobolev opacity
+                           # which CMFGEN computes self-consistently. Cutting at tau_min > 0 would
+                           # exclude the outer CSM material that dominates spectral features at 40d+.
+  n_grid: 100              # Base grid size for CMFGEN (before adaptive refinement)
+  adaptive_grid: true      # Enable adaptive grid refinement based on gradients
+  gradient_threshold: 0.5  # Threshold for adaptive grid refinement
+  velocity_max_kms: 10000  # Maximum velocity to include in cmfgen grid (km/s)
+  # NOTE: The converter uses STELLA's NLTE Rosseland opacity (WRKX from .swd col 12)
+  # for the tau calculation, NOT the constant kappa below. The kappa_constant is only
+  # used as a fallback if STELLA opacity is unavailable in the .swd file.
+  opacity_model: "stella_nlte"  # Use STELLA's NLTE Rosseland opacity for tau calculation
+  kappa_constant: 0.34      # Fallback electron-scattering opacity (only if STELLA kappa unavailable)
+  enable_grid_thinning: true   # Enable grid thinning to remove near-degenerate points
+  grid_thinning_threshold: 0.005  # min_dr/r threshold for thinning (0.5% - removes points with too small spacing)
+  # Dessart+2015 (1503.05463) adaptive grid parameters
+  # "We use an adaptive grid to resolve carefully the strongly varying density
+  #  and temperature profiles, as well as the optical depth. The grid is truncated
+  #  at small radii when the inward integrated Rosseland-mean optical depth reaches 30.
+  #  The final models discussed here use 100 grid points." (Section 3.1)
+  enable_adaptive_grid: true   # Enable priority-based adaptive grid refinement
+  base_grid_target: 50         # Start with 50 well-spaced (log-r) base points
+  max_points: 150              # Reduced from 400 to 150 (Dessart+2015 uses 100 grid points).
+                                # With 400 points, 127/401 zones (32%) had sigma < -1, causing
+                                # CMFGEN population divergence. With 150 points, the velocity
+                                # reversal is captured by fewer, larger cells, reducing the number
+                                # of non-monotonic zones the Sobolev solver must handle.
+                                # AMR budget is directed at physical gradients (rho, T, tau, Ne)
+                                # rather than sigma optimization.
+  min_points: 150              # Minimum points in output SN_HYDRO_DATA (match max_points=150
+                                # so the grid is always exactly 150 points, matching Luc's
+                                # standard and ensuring NHYDRO==MND in rv_sn_model_sniin.f
+                                # so CMFGEN uses the AMR grid directly instead of regridding).
+  min_nd: 150                # Match max_points — no fill-up beyond the AMR budget
+  # Non-monotonic velocity handling (Dessart+2015, 2022):
+  # The X_1 model has 127/401 zones (32%) with sigma < -1 due to the RSG shell
+  # collision with outer ejecta. The Sobolev nonmonotonic solver (USE_LAM_ES=T)
+  # handles this for line transfer, but population convergence can fail when
+  # >20% of zones are non-monotonic (Dessart+2015 uses 100 grid points with
+  # HERACLES snapshots; our 401-zone grid is much more challenging).
+  # Options:
+  #   enforce_homologous: false → preserve non-monotonic velocity (Dessart+2015 approach)
+  #   enforce_homologous: true  → override V=R/t (Dessart+2022 approach for optically thin CSM)
+  # With enforce_homologous=true, the velocity is replaced with homologous expansion
+  # after grid conversion, eliminating all sigma < -1 zones. This allows CMFGEN to
+  # converge using the standard solver path. The temperature/density structure from
+  # STELLA is preserved — only the velocity is overridden.
+  # See docs/1503.05463v1.pdf (Dessart+2015) and docs/2204.00446v1.pdf (Dessart+2022).
+  enforce_homologous: false    # Preserve non-monotonic velocity (Dessart+2015 approach).
+                                # VEL_LAW=12 + USE_LAM_ES=T handles non-monotonic velocity via
+                                # formal solution. The sigma<-1 zones are physical (RSG shell
+                                # collision) and must be preserved for correct spectral modelling.
+                                # The O I/Fe III ISF reduction (5,5,13 / 1,1,10) fixes the
+                                # convergence runaway that was previously blamed on sigma.
+  sigma_warn_fraction: 0.20    # Warn if >20% of zones have sigma < -1
+  thin_grid_tau: 1.0
+  thin_grid_priority: 0.5      # DEPRIORITIZE thin outer regions (was 4.0) to save AMR budget
+                                # for the physically important inner/photospheric regions.
+                                # With only 150 points, can't afford spending budget on tau<1 zones.
+  outer_boundary_extra_points: 5  # REDUCED from 20 (2026-08-03): with the default outer_boundary_ratio
+                                # (1.5) and geometric spacing (finest cell at the boundary, growing
+                                # inward by 1.5x per point — see insert_outer_boundary_points()), 20
+                                # points compounds to a cluster of ~15 points all within a fractional
+                                # radius of ~1e-4 of the outer boundary (dr/r rounds to 0.0000 for all
+                                # of them). This caused "Mean intensity blowing up, which is due to an
+                                # instability... Try a finer grid at the outer boundary" in comp_j_blank.f
+                                # on the very first CMFGEN iteration for the day-5 X_1 run — CMFGEN's own
+                                # diagnostic message is misleading here; the real problem was too many
+                                # near-degenerate points (not too few), destabilizing the formal solution
+                                # derivative near r~0. 5 matches the validated-working SN_12C_proxy value.
+  outer_boundary_ratio: 1.5     # (unchanged, now explicit) geometric growth ratio for the 5 points above
+  sigma_priority_threshold: 2.0 # |sigma| above which edges get extra AMR priority
+  sigma_priority: 1.0          # NO BOOST (was 10.0): with 150 points, don't spend AMR budget
+                                # refining the velocity reversal. Let it be captured by larger cells.
+                                # This reduces the number of sigma < -1 zones by not over-resolving
+                                # the reversal region.
+  dsigma_priority_threshold: 0.5 # |d(sigma)| above which edges get extra AMR priority
+  dsigma_priority: 1.0         # NO BOOST (was 10.0): same rationale — don't over-resolve sigma
+                                # transitions with a tight 150-point budget.
+  max_radius_jump: 0.05        # Max radius jump fraction (refine if dr/r > 5%)
+  max_temp_jump: 0.10          # Max temperature jump fraction (refine if dT/T > 10%)
+  max_density_jump: 0.15       # Max density jump fraction (refine if drho/rho > 15%)
+  # Dessart+2015: non-monotonic velocity is preserved and handled via Sobolev regularization
+  # "we ignore lines when treating the continuous spectrum, but model the lines
+  #  for the non-LTE analysis using the Sobolev approximation" (Section 3.1)
+  smooth_velocity: false       # Preserve physical non-monotonic velocity from STELLA
+  no_velocity_smoothing: true  # Explicitly disable all velocity smoothing
+  enable_velocity_spacing_optimization: false  # Preserve original non-monotonic structure
+  include_ne_amr: true          # ENABLED (2026-08-03, was false): investigation on SN_12C_proxy found
+                                # this default left the H/He recombination front essentially unresolved
+                                # (single-cell jumps up to 4.4x in electron density) even though
+                                # max_ne_jump=0.10 was configured — with include_ne_amr=false,
+                                # run_model_grid.py silently overrides max_ne_jump to 1e10, making it
+                                # a no-op. That under-resolved front was found to correlate with (though
+                                # not be the root cause of) the NLTE solver's LAMBDA-iteration cascade
+                                # divergence. See AGENTS.md "Divergence Investigation" section.
+  max_ne_jump: 0.10            # Max electron density jump fraction (10%, now enforced)
+  ne_priority_threshold: 1.0    # ADDED (2026-08-03): boost AMR score for edges where
+                                # (dNe/Ne)/max_ne_jump > 1.0, so recombination-front edges compete for
+                                # AMR budget against the many velocity/sigma-driven edges in this
+                                # non-monotonic-velocity model (X_1 has an even more complex velocity
+                                # structure than SN_12C_proxy: RSG shell colliding with outer ejecta).
+  ne_priority: 8.0              # Same value validated on SN_12C_proxy (halved the worst single-step
+                                # electron-density jump at equal or lower total grid size).
+  max_logtau_jump: 0.10        # Max log optical depth jump (refine if dlogtau > 10%)
+  # Velocity/sigma AMR criteria (added 2026-07-16 to smooth sigma spikes at shock fronts)
+  # These refine the grid where velocity changes rapidly even if rho/T/tau are smooth,
+  # preventing the sigma = dlnv/dlnr - 1 spikes that cause instability.
+  max_velocity_jump: 0.30      # RELAXED from 0.05 to 0.30: with 150 points, can't afford refining
+                                # every 5% velocity jump. Allow 30% jumps per cell so the velocity
+                                # reversal is captured by fewer cells, reducing sigma < -1 zone count.
+  max_sigma_jump: 5.0          # RELAXED from 0.5 to 5.0: allow large sigma jumps between cells.
+                                # With 150 points, trying to keep sigma smooth costs too much budget.
+  max_abs_sigma: 100.0         # EFFECTIVELY DISABLE sigma-driven AMR (was hardcoded 5.0).
+                                # Set to 100 so |sigma| never triggers refinement — let physical
+                                # gradients (rho, T, tau, Ne) drive grid placement instead.
+  sigma_optimize: false        # DISABLE optimal insertion point selection for sigma minimization.
+                                # Use simple midpoint insertion — faster and lets physical gradients
+                                # drive grid placement rather than sigma optimization.
+  sigma_conformance_headroom: 0  # NO extra points beyond max_points for sigma conformance pass.
+                                # With 150-point budget, can't afford the default 40-point headroom.
+  # Sigma-transition smoothing: smooth the sigma *gradient* (transitions between regions)
+  # without erasing the sigma *magnitude* (physical non-monotonic spikes at shock front).
+  # Makes sigma evolve gradually from ~0 (outer) to ~-20 (shock front) instead of jumping.
+  # Uses Gaussian smoothing in log(r)-log(v) space on the AMR-refined grid.
+  # Tested on X_1 5.0days: window=0.3% gives 0 jumps > 1.0, max|sigma|=21.4 (preserved).
+  smooth_sigma: true           # Enable sigma-transition smoothing (default: true)
+  max_dsigma: 1.0              # Target max |d(sigma)| between adjacent points after smoothing
+  sigma_smooth_passes: 10      # Number of smoothing passes (unused in Gaussian mode)
+  sigma_smooth_window: 0.3     # Gaussian width as % of log-r range (0.3 = recommended)
+
+# CMFGEN run parameters
+# CMFGEN is a NLTE spectrum synthesis code for supernovae
+cmfgen:
+  base_dir: "./cmfgen_base"   # CMFGEN base directory with Si II atomic data fix (custom f_to_s, 6,6,6 ISF)
+  model_type: "static_snapshot"  # CMFGEN model type (steady-state snapshot with USE_LAM_ES=T for non-monotonic v)
+  init_num_its: 25        # Number of iterations for init stage
+  vel_law: 12             # VEL_LAW=12: RV_SN_MODEL_SNIIN — tau-based grid from input_hydro.dat,
+                          # designed for non-monotonic velocity flows (interacting/IIn SNe).
+                          # Reads R/V/RHO/T from input_hydro.dat (SNIIN format) and builds its own
+                          # tau_ES-based grid. RD_IN_R_GRID=F so RDINR is not used for the R grid.
+  target_nd: 150          # Ignored for VEL_LAW=12: no velocity-aware downsampling (AMR grid used directly).
+                          # Only affects RDINR for VEL_LAW=11 (RD_IN_R_GRID=T).
+  # single_final: removed (always True now; INIT/STABLE stages eliminated)
+  proxy_populations: False           # Use CMFGEN built-in LTE_EST=T (no proxy _IN files).
+                           # LTE_EST=T forces DC_INTERP_METHOD='LTE' in rd_control_variables.f,
+                           # so CMFGEN computes LTE populations internally from T/Ne of SN_HYDRO_DATA.
+                           # This is the standard CMFGEN cold-start approach (Dessart+2015).
+  inc_rad_decays: True    # Include radioactive decay isotopes (SN_HYDRO_DATA has isotope blocks)
+  # Dessart+2015: "adopt a turbulent velocity of 20 km/s" (Section 3.1)
+  vturb: 20.0              # Turbulent velocity in km/s (Dessart+2015 value)
+  # Non-monotonic velocity: USE_LAM_ES=T (J=TC formal solution) bypasses moment solver entirely.
+  # Sobolev line code handles non-monotonic velocity via Dessart+2015 prescription.
+  # No time evolution (steady state).
+  incl_rel: False          # --no-relativistic: disables time evolution; USE_LAM_ES=T for radiation transport
+  vadat_overrides:
+    OB_RAT: "1.0D0"
+    STOP_IF_BP: "F"
+    THK_CONT: "F"          # Thin outer boundary (tau_outer ~ 1e-5; VEL_LAW=12 defaults to T which is wrong here)
+    # Diffusion inner boundary: inject LSTAR at inner boundary via DBB.
+    # With cmfgen_tau_max=30, the Rosseland tau at the inner boundary is ~30,
+    # which is approximate for diffusion but stable (Dessart+2015 uses tau=30).
+    # ZERO_FLUX (DIF=F) gives L=0 → populations explode; DIFFUSION fixes this.
+    DIF: "T"
+    IB_METH: "DIFFUSION"
+    # T is always fixed to SN_HYDRO_DATA (FIX_T=T, FIX_T_AUTO=F).
+    # During LAMBDA iterations, T is always fixed (cmfgen_sub.f:611 hardcodes
+    # FIXED_T=.TRUE.). With FIX_T_AUTO=F, DO_LAM_AUTO=F and DO_T_AUTO=F, so
+    # T remains fixed in non-LAMBDA mode too. This breaks the T-population
+    # feedback loop and is the most stable configuration.
+    FIX_T: "T"
+    FIX_T_AUTO: "F"
+    # Radiation solver keys (USE_J_REL, USE_LAM_ES, N_TYPE, INCL_REL, USE_FRM_REL)
+    # are set by prepare_VADAT.py get_rel_config() — do NOT override them here.
+    # USE_LAM_ES=T, USE_J_REL=F, N_TYPE=N_ON_J (J=TC formal solution, bypasses MOM_JREL_V9).
+  # SLURM resource configuration
+  partition: "general"            # SLURM partition for CMFGEN jobs
+  time: "23:59:00"               # Wall time for CMFGEN jobs (1 day)
+  mem: "16G"                     # Memory for FINAL/OBS jobs
+  init_mem: "16G"                # Memory for INIT/STABLE jobs
+  init_partition: "general"      # SLURM partition for INIT jobs
+  init_time: "23:59:00"          # Wall time for INIT jobs (1 day)
+  # Grid/solver configuration
+  n_ob_ins: 30                   # Outer boundary insertion points for R grid
+  # FINAL requeue configuration
+  final_requeue_when: "wall"     # Requeue trigger: wall (walltime) or ng (NG failure)
+  final_requeue_max: 500         # Maximum requeue count
+  # Blackbody override (default OFF: prepare_VADAT owns LSTAR + RSTAR/RMAX)
+  auto_set_rstar: False          # Auto-set RSTAR from photosphere
+  auto_set_lstar: False          # Auto-set LSTAR from blackbody
+  phot_tau: 0.6666667            # Target optical depth for photosphere
+  bb_teff_k: 9100                # Blackbody Teff in K
+  lstar_radius_mode: "RMAX"      # RMAX or PHOT for LSTAR radius mode
+
+# SEDONA parameters for spectrum generation
+# SEDONA is a Monte Carlo radiative transfer code for spectrum synthesis
+sedona:
+  partition: "general"              # SLURM partition for SEDONA jobs
+  cpus: 4                            # Number of CPUs for SEDONA (= ntasks, since cpus-per-task=1)
+  memory: "30G"                      # Memory allocation
+  time: "23:59:00"                   # Walltime limit
+  use_homologous_expansion: false   # Static snapshot mode (paper: no homologous expansion)
+                                    #   true  -> hydro_module="homologous", fuzz lines, NLTE off
+                                    #   false -> hydro_module="none", static snapshot, NLTE per use_nlte
+  use_nlte: false               # LTE (Saha-Boltzmann populations): avoids NLTE rate matrix singularities in non-monotonic velocity field
+
+  # Line opacity: Sobolev OFF, direct Voigt ON (non-monotonic velocity safe)
+  # Sobolev assumes monotonic velocity (photon encounters each line once) — invalid for
+  # interacting SNe with shock fronts. Direct Voigt is physically correct for any velocity
+  # field and produces P-Cygni features via MC Doppler shifting through the velocity field.
+  opacity_line_expansion: 1    # Sobolev ON with local |dv/dr| (non-monotonic velocity safe)
+  opacity_bound_bound: 0       # Direct Voigt OFF (causes photon trapping in optically thick ejecta)
+  opacity_fuzz_expansion: 0    # Fuzz OFF (uses 1/t_exp, wrong for non-monotonic velocity)
+  line_velocity_width_kms: 200 # Turbulent broadening for Voigt lines (km/s). Reduces line trapping
+                               # vs thermal Doppler width (~1-13 km/s) while preserving distinct P-Cygni features.
+
+  # Resolution and convergence settings
+  nzon_target: 300                  # Target number of zones in .mod file (default: 200, higher = better resolution)
+  transport_steady_iterate: 30      # 30 iterations for validation (100 for production)
+  ntasks: 4                          # MPI tasks for SEDONA parallelism (4x for interactive partition)
+  core_n_emit: 5e5                  # Core photon emission (reduced for 150-zone validation)
+  particles_n_emit_thermal: 5e6     # 5e6 thermal photons (reduced for 150-zone validation)
+  particles_n_emit_radioactive: 5e4 # 5×10^4 photon packets (auto-disabled when no radioactive species)
+  particles_max_total: 2e8          # Override SEDONA default max for high-photon runs
+  particles_last_iter_pump: 10      # Average radiation field over last 10 iterations
+  transport_nu_grid_spacing: 0.005 # Transport grid: q=0.005 (~1060 bins, finer to reduce zero-bin fraction)
+  transport_nu_min: 2.5e14         # Transport grid min: 2.5e14 Hz (12000 A) - narrowed to optical for validation
+  transport_nu_max: 1.2e15         # Transport grid max: 1.2e15 Hz (2500 A) - narrowed to optical for validation
+  spectrum_nu_grid_spacing: 0.0005  # Spectrum grid: q=0.0005 (~785 bins in optical, ~150 km/s resolution)
+  transport_radiative_equilibrium: 1 # Solve for temperature (radiative equilibrium)
+
+  # DDMC (Discrete Diffusion Monte Carlo) for high optical depth
+  # Interacting SNe have tau_es ~ 150; standard MC gives <0.01% escape fraction.
+  # DDMC uses diffusion approximation in optically thick zones, dramatically
+  # improving photon escape rate. Method 2 = DDMC (Fleck & Canfield 1984).
+  transport_use_ddmc: 0              # 0=off (standard MC: stable escape fraction, no accumulation)
+  transport_ddmc_tau_threshold: 1000.0  # Effectively unused with DDMC off
+  
+  # SEDONA will use snapshot_days from cmfgen_conversion for tstep_time_start
+  # Inner boundary source will be auto-configured from SN_HYDRO_DATA (core_radius, core_temperature, core_luminosity)
+
+# SuperLite configuration (Monte Carlo radiation transport for interacting SNe)
+# SuperLite uses IMC-DDMC methods, handles non-homologous expansion natively.
+# Input: SN_HYDRO_DATA -> input.str (via convert_sn_hydro_to_superlite.py)
+superlite:
+  partition: "general"             # SLURM partition for SuperLite jobs
+  ntasks: 1                            # SuperLite serial (OpenMP only, no MPI)
+  cpus_per_task: 8                     # OpenMP threads (8 for 67M packets, fits QOS gaps)
+  memory: "16G"                        # Memory for run
+  time: "23:59:00"                     # Walltime limit
+  install_dir: "/ptmp/sbrennan/superlite"  # SuperLite installation directory
+  exe: "/ptmp/sbrennan/superlite/superlite"  # Path to compiled executable
+  truncate_tau: 20                # Trim zones with tau_Ross > 20 (MC codes are expensive in
+                                  # high-opacity regions; SuperLite IMC-DDMC handles tau<20
+                                  # efficiently, deeper zones contribute little to the spectrum).
+
+# Output directories
+# Defines where different stages of the pipeline write their output
+output:
+  model_dir: "./models/${model_name}"  # Model-specific directory (variable substitution)
+  stella_output: "stella"            # STELLA output subdirectory
+  cmfgen_output: "cmfgen"            # CMFGEN output subdirectory
+  sedona_output: "sedona"            # SEDONA output subdirectory
+  superlite_output: "superlite"      # SuperLite output subdirectory
+  plots: "plots"                    # Diagnostic plots directory
+  outputs: "outputs"                # Additional outputs directory
+
+
+# OLD - Don';t use ehracles anymore
+# HERACLES simulation parameters (unused for stella backend, kept for reference)
+# HERACLES is a 3D AMR radiation hydrodynamics code (not used when hydro_backend=stella)
+heracles:
+  mode: "hydrorad"         # HERACLES mode: "hydrorad" (radiation hydrodynamics) or "hydro" (hydro only)
+  simulation_days: 50      # Simulation duration in days
+  target_days: 100         # Target time for output
+  heracles_dir: "../heracles/hydro"  # HERACLES output directory
+  output_dir: "../heracles/hydro"    # HERACLES output directory
+  Lbox_cm: 5.0e17          # Simulation box size in cm
+  r_inner_cm: 1.0e7        # Inner boundary radius in cm
+  r_transition_cm: 1.0e12  # Transition radius for hybrid mesh
+  nx_inner_linear: 3000    # Number of cells in inner linear region
+  nx_hybrid_blend: 0       # Hybrid mesh blending parameter
+  hybrid_sigmoid_k: 10     # Sigmoid steepness for hybrid mesh transition
+  dt_max: 30               # Maximum timestep in seconds
+  nout: 100                # Number of output snapshots
+  partition: "general"     # SLURM partition
+  cpus: 2                  # Number of CPUs
+  memory: "16G"            # Memory allocation
+  time: "23:58:00"         # Walltime limit

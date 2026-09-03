@@ -85,26 +85,39 @@ def read_sn_hydro_data(filename):
     assert 'Density' in lines[i], f"Expected 'Density' at line {i}"
     i += 1
     density_data = []
-    while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Electron'):
+    while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Atom') \
+            and not lines[i].strip().startswith('Electron') and not lines[i].strip().startswith('Rosseland') \
+            and not lines[i].strip().startswith('Kappa') and not ('mass fraction' in lines[i].lower()):
         density_data.extend([float(x) for x in lines[i].split()])
         i += 1
     density = np.array(density_data)
     i += 1  # Skip empty line or move to next section
-    
+
+    # Skip atom density section (comes before electron density in Dessart format)
+    if i < len(lines) and 'Atom' in lines[i]:
+        i += 1
+        while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Electron') \
+                and not lines[i].strip().startswith('Rosseland') and not lines[i].strip().startswith('Kappa') \
+                and not ('mass fraction' in lines[i].lower()):
+            i += 1
+        i += 1  # Skip empty line or move to next section
+
     # Skip electron density section
     if i < len(lines) and 'Electron' in lines[i]:
         i += 1
-        while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Atom') and not lines[i].strip().startswith('Mass'):
+        while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Rosseland') \
+                and not lines[i].strip().startswith('Kappa') and not ('mass fraction' in lines[i].lower()):
             i += 1
         i += 1  # Skip empty line or move to next section
-    
-    # Skip atom density section
-    if i < len(lines) and 'Atom' in lines[i]:
+
+    # Skip Rosseland mean opacity section
+    if i < len(lines) and 'Rosseland' in lines[i]:
         i += 1
-        while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Kappa') and not lines[i].strip().startswith('Mass'):
+        while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Kappa') \
+                and not ('mass fraction' in lines[i].lower()):
             i += 1
         i += 1  # Skip empty line or move to next section
-    
+
     # Skip kappa section
     if i < len(lines) and 'Kappa' in lines[i]:
         i += 1
@@ -160,41 +173,35 @@ def read_sn_hydro_data(filename):
 def write_sn_hydro_data(filename, data):
     """
     Write SN_HYDRO_DATA file with smoothed Sigma values.
+    Uses Dessart reference header titles and data format.
     """
+    def write_block(f, label, values, per_line=8):
+        f.write(f"{label}\n")
+        for i in range(0, len(values), per_line):
+            chunk = values[i:i+per_line]
+            f.write(''.join(f"    {v:14.7E}" for v in chunk) + '\n')
+        f.write('\n')
+
     with open(filename, 'w') as f:
-        # Write header
-        f.write(f"Number of data points:          {data['n_points']:>15}\n")
-        f.write(f"Number of mass fractions:        {data['n_mass_fractions']:>15}\n")
-        f.write(f"Number of isotopes:               {data['n_isotopes']:>15}\n")
-        f.write(f"Time(days) since explosion:      {data['time_days']:>15.7f}\n")
-        f.write(f"Energy Lum [lsun]:               {data['energy_lum']:>15.6f}\n")
+        # Header (matching Dessart reference format)
+        f.write(f"Number of data points:{data['n_points']:>10d}\n")
+        f.write(f"Number of mass fractions:{data['n_mass_fractions']:>10d}\n")
+        f.write(f"Number of isotopes:{data['n_isotopes']:>10d}\n")
+        f.write(f"Time(days) since explosion:{data['time_days']:>15.7f}\n")
+        if data.get('energy_lum') is not None:
+            f.write(f"Energy Lum [lsun]:{data['energy_lum']:>19.6E}\n")
         f.write("\n")
-        
-        # Write radius
-        f.write("Radius grid (10^10cm)\n")
-        f.write(" ".join([f"{x:.15E}" for x in data['radius']]) + "\n")
-        
-        # Write velocity
-        f.write("Velocity (km/s)\n")
-        f.write(" ".join([f"{x:.15E}" for x in data['velocity']]) + "\n")
-        
-        # Write sigma
-        f.write("Sigma (dlnV/dlnr-1)\n")
-        f.write(" ".join([f"{x:.15E}" for x in data['sigma']]) + "\n")
-        
-        # Write temperature
-        f.write("Temperature (K)\n")
-        f.write(" ".join([f"{x:.15E}" for x in data['temperature']]) + "\n")
-        
-        # Write density
-        f.write("Density (gm/cm^3)\n")
-        f.write(" ".join([f"{x:.15E}" for x in data['density']]) + "\n")
-        
-        # Write mass fractions
-        f.write("Mass fractions\n")
+
+        # Data blocks (order and titles match Dessart reference)
+        write_block(f, "Radius grid (10^10cm)", data['radius'])
+        write_block(f, "Velocity (km/s)",       data['velocity'])
+        write_block(f, "Sigma (dlnV/dlnr-1)",   data['sigma'])
+        write_block(f, "Temperature (10^4 K)",  data['temperature'])
+        write_block(f, "Density (gm/cm^3)",     data['density'])
+
+        # Mass fractions
         for elem in sorted(data['mass_fractions'].keys()):
-            f.write(f"{elem}: ")
-            f.write(" ".join([f"{x:.15E}" for x in data['mass_fractions'][elem]]) + "\n")
+            write_block(f, f"{elem} mass fraction", data['mass_fractions'][elem])
 
 
 def smooth_sigma_savgol(r, velocity, window_length=9, polyorder=3, threshold=2.0, target_max=5.0):

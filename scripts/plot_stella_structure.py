@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Plot STELLA structure overview from .swd file (similar to HERACLES structure_overview.png).
+"""Plot STELLA structure overview from .swd file (similar to [DEPRECATED] HERACLES structure_overview.png).
+
+HERACLES is deprecated; the project now uses the STELLA -> CMFGEN pipeline.
 
 STELLA .swd file format (ASCII):
   t_day   km   log10(M_ext_Msun)   log10(R_cm)   V_kms
@@ -100,13 +102,13 @@ def plot_structure_overview(swd_data: np.ndarray, abn_data: dict, epoch_days: fl
                             output_path: str, model_name: str):
     """Create 6-panel structure overview plot."""
     # Extract data from swd (columns 0-12)
-    # t_day, km, log10(M), log10(R), V, log10(Tg), log10(Tr), log10(rho), log10(P), log10(Qv), log10(eng), Flum, WRKX
+    # t_day, km, log10(M), log10(R), V(1e8 cm/s), log10(Tg), log10(Tr), log10(rho/1e-6), log10(P), log10(Qv), log10(eng), Flum(1e40), WRKX
     km = swd_data[:, 1].astype(int)
     R_cm = 10**swd_data[:, 3]
-    V_kms = swd_data[:, 4]
+    V_kms = swd_data[:, 4] * 1000.0  # Convert from 1e8 cm/s to km/s
     T_gas = 10**swd_data[:, 5]
     T_rad = 10**swd_data[:, 6]
-    rho = 10**swd_data[:, 7]
+    rho = (10**swd_data[:, 7]) * 1e-6  # Convert from log10(rho/1e-6) to g/cm^3
     P = 10**swd_data[:, 8]
     
     # Extract mass fractions from abn (match by km index)

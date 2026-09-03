@@ -1,0 +1,297 @@
+CMFGEN Novice User's Guide
+John Hillier, Phil Massey and Kathryn Neugent
+June 2009
+
+***********************************
+**** RUNNING A BRAND NEW MODEL ****
+***********************************
+
+I. Select a starting model and set up the directory
+  - Create a new directory for the star's model
+
+  - Determine the ogrid model that most closely matches
+    - Mdot, Teff, log g
+  > cpmod oldModel newModel
+  > cd newModel
+
+II. Get VADAT Reasonable
+  - edit VADAT
+    - Vinfin, B, Mdot, L (change from logL), Teff, log g
+    - edit abundances by using MOD_SUM Z(Sun) (but H = +1.0 and He = 0.1)
+      - LMC = - Z(SUN) * 0.5
+      - SMC = - Z(SUN) * 0.2
+    - LIN_INT = F if new Teff; T if the model is close in Teff
+    - T_INIT_TAU = 0.5 -> 1.5
+    - Make sure clumping is turned on
+
+III. Compute LTE opacities
+  > mkdir lte (local thermodynamic equilibrium)
+  > cp VADAT lte
+  > cp MODEL_SPEC lte
+  - From another model / lte
+    > cp GRID_PARAMS lte
+    > cp ltebat.sh lte
+  > cd lte
+  - Admire GRID_PARAMS
+    - Should say 25 and 37 (and 25 x 37 = 925)
+  - edit MODEL_SPEC
+    - ND = 925
+    - NP = 940 (ND + 15)
+  > ltebat.sh &
+
+IV. We want to make reasonable initial hydro file.
+  > cd ..
+  > mkdir hydro_dir (DO NOT call it hydro)
+  - copy everything from another hydro_dir into the new hydro_dir
+  > cd hydro_dir
+  - edit HYDRO_PARAMS
+    - REF_R (Reference Radius) = R(Tau=2/3) * 6.96
+    - CON_R (Connection Radius) = A little larger than REF_R (194)
+    - RSTAR = A little smaller than REF_R (188)
+    - LOG_G, TEFF, MDOT, VINF, BETA
+    - OB_P1 = 30 -> 200
+
+  - Assume that ltebat finished (check with top ... should last between 10 and 15 minutes)
+
+  > cp ../lte/ROSSELAND_LTE_TAB . 
+  > $cmfdist/exe/wind_hyd.exe
+    > /null
+    > e
+    > 65  (number of grid points)
+    > 100 (tau max for model)
+  > cp RVSIG_COL_NEW ../RVSIG_COL
+  > cp ROSSELAND_LTE_TAB ../
+  > cd ..
+  - Feel free to clean up lte with rmlinks, rm POP*, and rm *OUT
+
+V. Set file to make 1 iteration so that we can check input paramters etc.
+  - edit VADAT
+    - RSTAR = RVSIG_COL's core Rad
+    - RMAX = RVSIG_COL's ratio of inner to outer
+  - edit IN_ITS
+    - NUM_ITS = 1 (only want one iteration)
+    - LAMBDA = T (both, but it's the first one that is forcing it)
+  - edit MODEL_SPEC
+    - ND = 65
+    - NP = 80
+  - From another SMC or LMC model (depending on the star)
+    > cp GREY_SCL_FACOUT GREY_SCL_FAC_IN
+  > batch.sh & (should run for around 20 minutes)
+  - Check the output files (see below).
+
+  
+VI. Run a complete model with Hydro turned on:
+  - edit HYDRO_DEFAULTS
+    - N_ITS = 3
+    - STRT_ITS = 10 (or 12)
+    - FREQ_ITS = 10
+    - add 100 [MAX_R] if it isn't already there
+  - edit IN_ITS
+    - NUM_ITS = 100
+    - LAMBDAS should both be true
+  > rm OUTGEN (only if not reasonable 1st iteartion).
+  > batch.sh &
+
+VII. After a few hours, check the output files (see below) and adjust the model if need be (see below)
+
+*************************************************
+**** RUNNING A MODEL OFF A PRE-EXISTING STAR ****
+*************************************************
+  - Create a new directory for the star's model
+  > cpmod old new
+
+  - edit VADAT
+    - If you change the mass loss rate, change the filling factors (FIL_FAC_1 and FIL_FAC_2) to preserve XRay Luminosity. The XRay 
+Luminosity scales as the inverse of the mass loss rate. The filling factor must then be adjusted appropriately and if you want to 
+increase the XRay Luminosity by a factor of four, double both filling factors.
+    - Also, if clumping is being turned on, the mass loss rate must be decreased by (a factor of 3.33) 1/3
+
+EXAMPLE:
+
+Current Mdot = 1
+Desired Mdot = 1.5
+50% increase
+
+So, the XRay Luminosity needs to decrease by 50%
+(.50)^(1/2) = .7
+So, the filling factor needs to increase by 70%.
+
+Current filling factor: 1
+New filling factor: 0.3
+
+  - edit HYDRO_DEFAULTS
+    - N_ITS = 3
+    - STRT_ITS = 10
+    - FREQ_ITS = 10
+  - edit IN_ITS (Lambda = T, 100 iterations)
+
+  > batch.sh &
+
+*********************************
+**** AFTER MODEL IS FINISHED ****
+*********************************
+
+  > dscratch
+  > rmlinks
+  > clean
+    - remove EDDFACTOR?
+    - remove EDDFACTOR_INFO?
+
+  - get rid of all iterations except a few at the end
+    > $cmfdist/exe/rewrite_scr.exe
+      - 1
+      - (defaults)
+    > $cmfdist/com/mvscr.sh
+
+  - examine:
+      OUTGEN
+      OBSFLUX
+      CORRECTION_SUM
+      MOD_SUM
+      HYDRO
+
+*************************************
+**** ADJUSTING A MODE ON THE FLY ****
+*************************************
+
+  - edit IN_ITS to do 0 more iterations (stop gracefully)
+
+   - Changing X-ray luminosity
+     - Adjust filling factors, set DO_LAM_IT=T in IN_ITS, and restart.
+
+   - Forcing more hydrostatic iterations
+     - determine the last iteration by looking at POINT1
+     - edit HYDRO_DEFAULTS: 
+          N_ITS = ?
+          STRT_ITS = last iteration +1
+     - if good convergence at depth: cp GREY_SCL_FACOUT GREY_SCL_FAC_IN
+
+  
+  
+ 
+*********************************
+**** FIXING POOR CONVERGENCE ****
+*********************************
+
+  - Force the model to average the last two iterations (if oscillating)
+    > $cmfdist/exe/do_ng_v2.exe
+    - Then restart the model in same directory.
+    - You can always force an Ng accelration by the same code.
+
+  - Insert more depth points
+    - Make sure running model ended gracefully.
+    - Create a new model directory, and do "cpmod"
+    - Use $cmfdist/exe/rev_rvsig.exe to update RVSIG_COL file with additional grid points.
+    - Revise MODEL_SPEC with new ND/NP.
+    - Set LIN_INT=T in VADAT
+    > batch.sh &
+
+**********************
+**** OUTPUT FILES ****
+**********************
+
+  OUTGEN - summary of changes at each iteration
+    > grep Maximum OUTGEN (the change at the end should be small)
+    > tail OUTGEN (anything bad at the end?)
+    - Look at top of file (especially if changing atomic data, non-regular parameter for unusual output).
+
+  CORRECTION_SUM - summary of changes at each depth
+    - check to see if the model is oscillating or if it has actually already converged        
+    - often convergence may be limited by a few populations at a few depths (if corrections for only few pops > 10%, you may want to 
+for an NG or do an AV).
+
+  HYDRO 
+    - look at the errors when velocity = 10 km/s. The errors should be better than 4%
+    - If they aren't, then more hydro iterations are needed
+    - edit HYDRO_DEFAULTS to be 1 or 2 (perhaps copying GREY_SCL_FACOUT to GRAY_SCL_FAC_IN).
+
+  OBSFLUX 
+    - check the luminosity (should be consistent within a percent)
+    - XRay Luminosity 
+      > tail OBSFLUX
+      - Look at second number from bottom ... should be at around 1.0E-7
+      - If it isn't, then edit VADAT
+      - Search on FIL_FAC
+      - Edit the filling factor
+      - If you want to increase the XRay Luminosity by a factor of four, double both filling factors
+
+  MOD_SUM - summary of model
+    - examine Teff and log g and make sure they haven't changed drastically from the initial values
+    - check abundances etc
+
+*************************
+**** MAKE A SPECTRUM ****
+*************************
+
+  > mkdir obs (in model directory.)
+  - Copy from another obs directory
+    - batobs.sh
+    - CMF_FLUX_PARAM_INIT
+  > cd obs
+  > batobs.sh &
+
+  - If the job is killed, rm CMF_FLUX_PARAM
+
+  - This process takes around 3 hours
+
+- One big run that takes around 2 hours
+- One smaller job that takes around 1 hour
+- One last job that takes around 20 minutes
+
+ (Ask DJH how to run spectra with scaled abundances etc).
+
+******************
+**** PLOTTING ****
+******************
+
+(more complete plotting manual for pg_plot: http://www.astro.caltech.edu/~tjp/pgplot/)
+
+  > plt_spec
+  obs > model observed spectrum (e.g.: obs_fin_10)
+      * use obs_fin_10 for supergiants
+      * use obs_fin_5 for dwarfs
+
+  
+  
+  
+  
+      
+  
+  
+  plt_spec
+    rd_mod - read model observational data
+    rd_obs(rad_vel=-actual rad_vel) - read in observed spectrum and correct to rest frame
+
+/Users/massey/cmfspect/*.txt
+
+    rot - rotate (need a flam to send it to the plot buffer)
+    norm - normalize (if optical ... don't need an flam)
+
+Continuum file = obs_cont
+
+    flam - corrects for the reddening
+
+  Note: Options can be appended with arbitary extensions. These create a unique extension with
+  which to use the . approach. .rd_obs(rad_vel=-50) will do old rd_obs option, but update
+  rad_vel.
+
+GRAMON_PGPLOT
+    a - define the axis
+    c - set certain plots to be visible or invisible
+        L - line
+        I - invisible
+    e - exit
+    h - help
+    nm - normalize within a region
+    noi - exits the plot package
+    yar - y arithmetic
+    colors
+      1 = red
+      2 = blue
+      3 = green
+    See web page for more info.
+
+  
+  
+  
+

@@ -78,11 +78,9 @@ F            [INC_XRAYS]
  
 SOB          [TRANS_HI]         !Method for treating HI lines ?
 SOB          [TRANS_HeI]         !Method for treating HeI lines ?
-SOB          [TRANS_He2]         !Method for treating He2 lines ?
 
 SOB          [TRANS_CI]         !Method for treating CI lines ?
 SOB          [TRANS_C2]         !Method for treating C2 lines ?
-SOB          [TRANS_CIII]         !Method for treating CIII lines ?
 SOB          [TRANS_CIV]         !Method for treating CIV lines ?
 
 SOB          [TRANS_NI]         !Method for treating NI lines ?
@@ -93,7 +91,6 @@ SOB          [TRANS_NV]         !Method for treating NV lines ?
 
 SOB          [TRANS_OI]         !Method for treating OI lines ?
 SOB          [TRANS_O2]         !Method for treating O2 lines ?
-SOB          [TRANS_OIII]         !Method for treating OIII lines ?
 SOB          [TRANS_OIV]         !Method for treating OIV lines ?
 SOB          [TRANS_OV]         !Method for treating OV lines ?
 SOB          [TRANS_OSIX]         !Method for treating OSIX lines ?
@@ -108,8 +105,6 @@ SOB          [TRANS_NeSEV]        !Method for treating NeSEV lines ?
 
 SOB          [TRANS_SkI]         !Method for treating SkI lines ?
 SOB          [TRANS_Sk2]         !Method for treating Sk2 lines ?
-SOB          [TRANS_SkIII]       !Method for treating SkIII lines ?
-SOB          [TRANS_SkIV]        !Method for treating SkIV lines ?
 
 SOB          [TRANS_NaI]         !Method for treating NaI lines ?
 
@@ -162,11 +157,9 @@ T            [OPAC_LIMS]
  
 HZ_STARK     [PROF_HI]         !Method for treating HI lines ?
 DOPPLER      [PROF_HeI]        !Method for treating HeI lines ?
-HZ_STARK     [PROF_He2]        !Method for treating He2 lines ?
 
 DOPPLER      [PROF_CI]         !Method for treating CI lines ?
 DOPPLER      [PROF_C2]         !Method for treating C2 lines ?
-DOPPLER      [PROF_CIII]       !Method for treating CIII lines ?
 DOPPLER      [PROF_CIV]        !Method for treating CIV lines ?
 
 DOPPLER      [PROF_NI]         !Method for treating NI lines ?
@@ -177,7 +170,6 @@ DOPPLER      [PROF_NV]         !Method for treating NV lines ?
 
 DOPPLER      [PROF_OI]         !Method for treating OI lines ?
 DOPPLER      [PROF_O2]         !Method for treating O2 lines ?
-DOPPLER      [PROF_OIII]       !Method for treating OIII lines ?
 DOPPLER      [PROF_OIV]        !Method for treating OIV lines ?
 DOPPLER      [PROF_OV]         !Method for treating OV lines ?
 DOPPLER      [PROF_OSIX]       !Method for treating OSIX lines ?
@@ -192,8 +184,6 @@ DOPPLER      [PROF_NeSEV]      !Method for treating NeSEV lines ?
 
 DOPPLER      [PROF_SkI]        !Method for treating SkI lines ?
 DOPPLER      [PROF_Sk2]        !Method for treating Sk2 lines ?
-DOPPLER      [PROF_SkIII]      !Method for treating SkIII lines ?
-DOPPLER      [PROF_SkIV]       !Method for treating SkIV lines ?
 
 DOPPLER      [PROF_NaI]        !Method for treating NaI lines ?
 

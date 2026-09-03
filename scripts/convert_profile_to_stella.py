@@ -1,4 +1,8 @@
-"""Convert a HERACLES-style initial profile to STELLA *.hyd + *.abn input files.
+"""Convert a [DEPRECATED] HERACLES-style initial profile to STELLA *.hyd + *.abn input files.
+
+HERACLES is deprecated and does not fit the science case (interacting Type IIn SNe).
+The project now uses the STELLA -> CMFGEN pipeline exclusively. STELLA .hyd is the
+active input format; HERACLES profile parsing is retained for backward compatibility.
 
 STELLA input format (see OpenStella/readme.stella):
 
@@ -9,8 +13,9 @@ STELLA input format (see OpenStella/readme.stella):
 *.abn  -- abundance profile (mass fractions per zone)
   Lines 1..Nzon: km  0  0  0  H  He  C  N  O  Ne  Na  Mg  Al  Si  S  Ar  Ca  FePeak  Ni58  Ni56
 
-HERACLES profile columns (from header comment):
+[DEPRECATED] HERACLES profile columns (from header comment):
   r_cm  rho_cgs  p_cgs  u_cgs  fx_H  fx_He  fx_C  fx_O  fx_Si  fx_Fe
+  Note: STELLA .hyd format is the active path for the STELLA -> CMFGEN pipeline.
 
 Usage:
   python convert_profile_to_stella.py INPUT_PROFILE MODEL_NAME OUTPUT_DIR [OPTIONS]
@@ -33,50 +38,83 @@ import numpy as np
 
 
 def parse_heracles_profile(fname: str) -> dict:
-    """Read HERACLES input_profile (r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi)."""
+    """Read input_profile (r, rho, p, u, T, fH, fHe, [fC], fO, fSi, fCa, fFe, fNi).
+
+    Supports both 12-column (legacy, C merged into O) and 13-column (C separate)
+    formats.  When 13 columns are detected, fC is read from column 7 and fO from
+    column 8.  When 12 columns are detected (legacy), fC is set to zeros and fO
+    retains the merged O+C value.
+
+    Note: STELLA .hyd is the active input format; this parsing is retained for
+    backward compatibility with the STELLA -> CMFGEN pipeline.
+    """
     import re
     data = []
-    explosion_age_days = None
+    csm_age_days = None  # CSM spatial structure age (not simulation start time)
     with open(fname) as fh:
         for line in fh:
             stripped = line.strip()
             if not stripped:
                 continue
             if stripped.startswith('#'):
-                m = re.search(r'SN explosion age\s*=\s*([\d.eE+\-]+)', stripped)
+                # Read CSM age for spatial structure (not simulation start time)
+                m = re.search(r'Ejecta B age\s*=\s*([\d.eE+\-]+)', stripped)
                 if m:
-                    explosion_age_days = float(m.group(1))
+                    csm_age_days = float(m.group(1))
                 continue
             cols = [float(x) for x in stripped.split()]
             if len(cols) < 12:
                 continue
             data.append(cols)
     arr = np.array(data)
-    return {
-        'r_cm':               arr[:, 0],
-        'rho':                arr[:, 1],
-        'p':                  arr[:, 2],
-        'u_cms':              arr[:, 3],
-        'T':                  arr[:, 4],  # Temperature from profile
-        'fH':                 arr[:, 5],
-        'fHe':                arr[:, 6],
-        'fO':                 arr[:, 7],
-        'fSi':                arr[:, 8],
-        'fCa':                arr[:, 9],
-        'fFe':                arr[:, 10],
-        'fNi':                arr[:, 11],
-        'explosion_age_days': explosion_age_days,
-    }
+    ncols = arr.shape[1]
+    if ncols >= 13:
+        # 13-column format: C is separate (col 7 = fC, col 8 = fO)
+        return {
+            'r_cm':               arr[:, 0],
+            'rho':                arr[:, 1],
+            'p':                  arr[:, 2],
+            'u_cms':              arr[:, 3],
+            'T':                  arr[:, 4],
+            'fH':                 arr[:, 5],
+            'fHe':                arr[:, 6],
+            'fC':                 arr[:, 7],
+            'fO':                 arr[:, 8],
+            'fSi':                arr[:, 9],
+            'fCa':                arr[:, 10],
+            'fFe':                arr[:, 11],
+            'fNi':                arr[:, 12],
+            'csm_age_days':       csm_age_days,
+        }
+    else:
+        # 12-column legacy format: C merged into O (col 7 = fO+C)
+        return {
+            'r_cm':               arr[:, 0],
+            'rho':                arr[:, 1],
+            'p':                  arr[:, 2],
+            'u_cms':              arr[:, 3],
+            'T':                  arr[:, 4],
+            'fH':                 arr[:, 5],
+            'fHe':                arr[:, 6],
+            'fC':                 np.zeros(len(arr)),
+            'fO':                 arr[:, 7],
+            'fSi':                arr[:, 8],
+            'fCa':                arr[:, 9],
+            'fFe':                arr[:, 10],
+            'fNi':                arr[:, 11],
+            'csm_age_days':       csm_age_days,
+        }
 
 
 def temperature_from_pressure(p_cgs, rho_cgs: np.ndarray,
-                               fH=None, fHe=None, fO=None,
+                               fH=None, fHe=None, fC=None, fO=None,
                                fSi=None, fCa=None, fFe=None, fNi=None,
                                mu: float = 0.62, T_from_profile=None) -> np.ndarray:
     """Estimate temperature from pressure.
 
     Uses the larger of radiation temperature (P_rad = a*T^4/3) and ideal-gas
-    temperature, with a floor of 6000 K (STELLA needs reasonable initial T).
+    temperature. No floor is applied here — the FLOOR(T) parameter in the
+    STELLA .dat file controls the minimum temperature at runtime.
 
     If T_from_profile is provided, use it directly (preferred for LTE stability).
     Otherwise compute from pressure.
@@ -87,7 +125,6 @@ def temperature_from_pressure(p_cgs, rho_cgs: np.ndarray,
     # If temperature is provided in profile, use it directly
     if T_from_profile is not None:
         T = np.asarray(T_from_profile, dtype=float)
-        T = np.maximum(T, 6000.0)  # Force minimum 6000K for LTE stability
         T = np.minimum(T, 1e8)  # Cap at reasonable maximum
         return T
     
@@ -101,12 +138,13 @@ def temperature_from_pressure(p_cgs, rho_cgs: np.ndarray,
     if fH is not None:
         fH  = np.asarray(fH,  dtype=float)
         fHe = np.asarray(fHe, dtype=float) if fHe is not None else np.zeros_like(fH)
+        fC  = np.asarray(fC,  dtype=float) if fC  is not None else np.zeros_like(fH)
         fO  = np.asarray(fO,  dtype=float) if fO  is not None else np.zeros_like(fH)
         fSi = np.asarray(fSi, dtype=float) if fSi is not None else np.zeros_like(fH)
         fCa = np.asarray(fCa, dtype=float) if fCa is not None else np.zeros_like(fH)
         fFe = np.asarray(fFe, dtype=float) if fFe is not None else np.zeros_like(fH)
         fNi = np.asarray(fNi, dtype=float) if fNi is not None else np.zeros_like(fH)
-        mu_arr = 1.0 / (fH/1.0 + fHe/4.0 + fO/16.0 + fSi/28.0 + fCa/40.0 + fFe/56.0 + fNi/58.0)
+        mu_arr = 1.0 / (fH/1.0 + fHe/4.0 + fC/12.0 + fO/16.0 + fSi/28.0 + fCa/40.0 + fFe/56.0 + fNi/58.0)
         # Guard against pathological all-zero compositions
         mu_arr = np.where(np.isfinite(mu_arr), mu_arr, mu)
     else:
@@ -115,31 +153,38 @@ def temperature_from_pressure(p_cgs, rho_cgs: np.ndarray,
     T_gas = p * mu_arr * m_H / (rho * k_B)
     T_rad = (3.0 * p / a_rad) ** 0.25
     T = np.maximum(T_gas, T_rad)
-    T = np.maximum(T, 6000.0)  # Force minimum 6000K for LTE stability
     T = np.minimum(T, 1e8)  # Cap at reasonable maximum
     return T
 
 
-def detect_composition_interfaces(r, fH, fHe, fO, fSi, fCa, fFe, fNi, threshold=0.1):
+def detect_composition_interfaces(r, fH, fHe, fO, fSi, fCa, fFe, fNi, threshold=0.1, fC=None):
     """Detect composition interfaces where mass fractions change rapidly.
-    
+
     Parameters:
     -----------
     r: array
         Radius array (cm)
     fH, fHe, fO, fSi, fCa, fFe, fNi: arrays
         Mass fraction arrays
+    fC: array or None
+        Carbon mass fraction (optional, for 13-column format)
     threshold: float
         Minimum relative change to trigger refinement (default: 0.1 = 10%)
-    
+
     Returns:
     --------
     interface_indices: array
         Indices where composition interfaces are detected
     """
     interface_indices = []
-    
-    for f, name in zip([fH, fHe, fO, fSi, fCa, fFe, fNi], ['H', 'He', 'O', 'Si', 'Ca', 'Fe', 'Ni']):
+
+    species = [fH, fHe, fO, fSi, fCa, fFe, fNi]
+    names = ['H', 'He', 'O', 'Si', 'Ca', 'Fe', 'Ni']
+    if fC is not None:
+        species.insert(2, fC)
+        names.insert(2, 'C')
+
+    for f, name in zip(species, names):
         # Calculate relative change in mass fraction
         df = np.abs(np.diff(f))
         df_max = np.maximum(f[:-1], f[1:])
@@ -257,11 +302,12 @@ def detect_high_curvature(r, quantity, threshold=0.5):
 
 
 def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
+           fC=None,
            outer_fraction=0.3, outer_bias=2.0, transition_radius=1e13,
            check_gradients=True, max_dr_r=0.15, max_dT_T=0.20, max_drho_rho=0.20,
            max_du_u=0.20, adaptive_refinement=True, max_iterations=10, nzon_max=500,
            detect_composition=True, detect_shock_features=True, detect_photo_features=True,
-           detect_curvature=True, track_refinement=True):
+           detect_curvature=True, track_refinement=True, min_dr_r=0.005):
     """Resample profile to nzon_target zones using logarithmic radius spacing.
 
     Log-r spacing is essential for profiles spanning many decades in radius
@@ -307,10 +353,17 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
         If True, detect and refine photosphere region (default: True)
     detect_curvature: bool
         If True, detect and refine high-curvature regions (default: True)
+    min_dr_r: float
+        Minimum relative zone spacing dr/r threshold for warnings (default: 0.005 = 0.5%).
+        Zones closer than this trigger a warning but are NOT removed, because
+        removing zones would make Nzon != Mzon, causing a fatal STELLA crash
+        (EVE uses Mzon for state-vector indexing, STRAD uses Nzon).
     """
     n = len(r)
+    if fC is None:
+        fC = np.zeros(n)
     if n == nzon_target:
-        return r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi
+        return r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, fC
 
     # Start with uniform log-r spacing
     # If nzon_target == nzon_max, start with fewer zones to allow AMR to work
@@ -345,9 +398,10 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             p_new   = interp_logr(p, r_new)
             u_new   = interp_logr(u, r_new)
             T_new   = interp_logr(T, r_new)
-            T_new   = np.maximum(T_new, 1000.0)  # Floor for numerical stability
+            T_new   = np.maximum(T_new, 10.0)  # Floor for numerical stability
             fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
             fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
+            fC_new  = np.clip(interp_logr(fC, r_new),  0, 1)
             fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
             fSi_new = np.clip(interp_logr(fSi, r_new), 0, 1)
             fCa_new = np.clip(interp_logr(fCa, r_new), 0, 1)
@@ -355,10 +409,11 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fNi_new = np.clip(interp_logr(fNi, r_new), 0, 1)
 
             # Renormalise mass fractions
-            mf_sum = fH_new + fHe_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
+            mf_sum = fH_new + fHe_new + fC_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
             mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
             fH_new  /= mf_sum
             fHe_new /= mf_sum
+            fC_new  /= mf_sum
             fO_new  /= mf_sum
             fSi_new /= mf_sum
             fCa_new /= mf_sum
@@ -399,6 +454,11 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             for idx in violation_indices:
                 # Add midpoint between zone idx and idx+1
                 r_mid = np.sqrt(r_new[idx] * r_new[idx+1])  # Geometric mean
+                # Enforce minimum dr/r: skip if either resulting pair would be too small
+                dr_left = (r_mid - r_new[idx]) / r_new[idx]
+                dr_right = (r_new[idx+1] - r_mid) / r_mid
+                if min_dr_r > 0 and (dr_left < min_dr_r or dr_right < min_dr_r):
+                    continue
                 new_radii.append(r_mid)
                 if track_refinement:
                     refinement_locations.append(r_mid)
@@ -433,9 +493,10 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             p_new   = interp_logr(p, r_new)
             u_new   = interp_logr(u, r_new)
             T_new   = interp_logr(T, r_new)
-            T_new   = np.maximum(T_new, 1000.0)
+            T_new   = np.maximum(T_new, 10.0)
             fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
             fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
+            fC_new  = np.clip(interp_logr(fC, r_new),  0, 1)
             fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
             fSi_new = np.clip(interp_logr(fSi, r_new), 0, 1)
             fCa_new = np.clip(interp_logr(fCa, r_new), 0, 1)
@@ -443,31 +504,44 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fNi_new = np.clip(interp_logr(fNi, r_new), 0, 1)
 
             # Renormalise mass fractions
-            mf_sum = fH_new + fHe_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
+            mf_sum = fH_new + fHe_new + fC_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
             mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
             fH_new  /= mf_sum
             fHe_new /= mf_sum
+            fC_new  /= mf_sum
             fO_new  /= mf_sum
             fSi_new /= mf_sum
             fCa_new /= mf_sum
             fFe_new /= mf_sum
             fNi_new /= mf_sum
-            
+
             feature_radii = []
-            
+
+            # Helper: check if inserting r_mid between r_new[idx] and r_new[idx+1]
+            # would violate min_dr_r. Returns True if insertion is allowed.
+            def _can_insert(idx, r_mid):
+                if min_dr_r <= 0:
+                    return True
+                dr_left = (r_mid - r_new[idx]) / r_new[idx]
+                dr_right = (r_new[idx+1] - r_mid) / r_mid
+                return dr_left >= min_dr_r and dr_right >= min_dr_r
+
             # Composition interfaces
             if detect_composition:
                 comp_indices = detect_composition_interfaces(r_new, fH_new, fHe_new,
-                                                             fO_new, fSi_new, fCa_new, fFe_new, fNi_new, threshold=0.1)
+                                                             fO_new, fSi_new, fCa_new, fFe_new, fNi_new, threshold=0.1,
+                                                             fC=fC_new)
                 if len(comp_indices) > 0:
                     print(f"  Composition interfaces: {len(comp_indices)} detected")
                     for idx in comp_indices:
                         if idx < len(r_new) - 1:  # Guard against out-of-bounds
                             r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
+                            if not _can_insert(idx, r_mid):
+                                continue
                             feature_radii.append(r_mid)
                             if track_refinement:
                                 refinement_locations.append(r_mid)
-            
+
             # Shock fronts
             if detect_shock_features:
                 shock_indices = detect_shocks(r_new, rho_new, p_new, u_new,
@@ -477,10 +551,12 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
                     for idx in shock_indices:
                         if idx < len(r_new) - 1:  # Guard against out-of-bounds
                             r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
+                            if not _can_insert(idx, r_mid):
+                                continue
                             feature_radii.append(r_mid)
                             if track_refinement:
                                 refinement_locations.append(r_mid)
-            
+
             # Photosphere
             if detect_photo_features:
                 photo_indices = detect_photosphere(r_new, rho_new, T_new, kappa_guess=0.3)
@@ -489,10 +565,14 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
                     # Add zones at photosphere boundaries
                     if len(photo_indices) > 0 and photo_indices[-1] < len(r_new) - 1:
                         r_mid = np.sqrt(r_new[photo_indices[0]] * r_new[photo_indices[-1]])
-                        feature_radii.append(r_mid)
-                        if track_refinement:
-                            refinement_locations.append(r_mid)
-            
+                        # Check min_dr_r against the actual spanning zones
+                        if min_dr_r <= 0 or (
+                            (r_mid - r_new[photo_indices[0]]) / r_new[photo_indices[0]] >= min_dr_r
+                            and (r_new[photo_indices[-1]] - r_mid) / r_mid >= min_dr_r):
+                            feature_radii.append(r_mid)
+                            if track_refinement:
+                                refinement_locations.append(r_mid)
+
             # High curvature regions
             if detect_curvature:
                 curv_indices = detect_high_curvature(r_new, rho_new, threshold=0.5)
@@ -501,6 +581,8 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
                     for idx in curv_indices:
                         if idx < len(r_new) - 1:  # Guard against out-of-bounds
                             r_mid = np.sqrt(r_new[idx] * r_new[idx+1])
+                            if not _can_insert(idx, r_mid):
+                                continue
                             feature_radii.append(r_mid)
                             if track_refinement:
                                 refinement_locations.append(r_mid)
@@ -523,25 +605,84 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             print(f"  Final grid size after feature refinement: {len(r_new)} zones")
 
     # Pad to exact nzon_max if needed: fill largest gaps first
+    # Skip gaps where splitting would violate min_dr_r (too narrow)
     if len(r_new) < nzon_max:
         n_pad = nzon_max - len(r_new)
-        print(f"\n[Gap Filling] Padding from {len(r_new)} to {nzon_max} zones ({n_pad} added)")
+        print(f"\n[Gap Filling] Padding from {len(r_new)} to {nzon_max} zones ({n_pad} to add)")
+        n_actually_added = 0
         for _ in range(n_pad):
+            gaps = np.diff(np.log10(r_new))
+            max_gap_idx = np.argmax(gaps)
+            r_mid = np.sqrt(r_new[max_gap_idx] * r_new[max_gap_idx + 1])
+            # Enforce min_dr_r: skip if either resulting pair would be too small
+            if min_dr_r > 0:
+                dr_left = (r_mid - r_new[max_gap_idx]) / r_new[max_gap_idx]
+                dr_right = (r_new[max_gap_idx + 1] - r_mid) / r_mid
+                if dr_left < min_dr_r or dr_right < min_dr_r:
+                    # This gap is too narrow to split; zero it out and try next
+                    gaps[max_gap_idx] = -1
+                    # Find next largest gap
+                    max_gap_idx = np.argmax(gaps)
+                    if gaps[max_gap_idx] < 0:
+                        # No more splittable gaps
+                        print(f"  No more gaps splittable with min_dr_r={min_dr_r:.4f}; "
+                              f"stopped at {len(r_new)} zones")
+                        break
+                    r_mid = np.sqrt(r_new[max_gap_idx] * r_new[max_gap_idx + 1])
+            r_new = np.sort(np.append(r_new, r_mid))
+            n_actually_added += 1
+            if track_refinement:
+                refinement_locations.append(r_mid)
+        print(f"  Added {n_actually_added} zones via gap filling")
+
+    # Report minimum dr/r (enforced during AMR — should be >= min_dr_r now).
+    # The initial uniform log-r grid may have pairs below min_dr_r if the
+    # radius range is very large and nzon is small; these are not inserted
+    # by AMR so they persist from the initial grid.
+    if min_dr_r > 0:
+        dr_over_r = np.diff(r_new) / r_new[:-1]
+        n_tight = np.sum(dr_over_r < min_dr_r)
+        min_val = dr_over_r.min()
+        if n_tight > 0:
+            print(f"\n[Min dr/r] INFO: {n_tight} zone pairs have dr/r < {min_dr_r:.4f} "
+                  f"(smallest dr/r = {min_val:.6f}). These are from the initial "
+                  f"uniform grid; AMR-inserted zones respect min_dr_r={min_dr_r:.4f}.")
+        else:
+            print(f"\n[Min dr/r] OK: All zone pairs have dr/r >= {min_dr_r:.4f} "
+                  f"(smallest dr/r = {min_val:.6f})")
+
+    # CRITICAL: Nzon in the .hyd MUST equal compiled Mzon in zone.inc.
+    # EVE indexes the state vector Y as Y(K + 2*Mzon) for temperature,
+    # but STRAD reads it as Y(K + 2*Nzon). If Nzon != Mzon, STRAD reads
+    # garbage memory and the run crashes immediately (Tp=0, ifail 33).
+    # If min_dr_r prevented us from reaching nzon_max, relax the constraint
+    # and fill remaining gaps (better to have a few small zones than a crash).
+    if len(r_new) < nzon_max:
+        n_remaining = nzon_max - len(r_new)
+        print(f"\n[Gap Filling] Relaxing min_dr_r to fill {n_remaining} remaining zones")
+        for _ in range(n_remaining):
             gaps = np.diff(np.log10(r_new))
             max_gap_idx = np.argmax(gaps)
             r_mid = np.sqrt(r_new[max_gap_idx] * r_new[max_gap_idx + 1])
             r_new = np.sort(np.append(r_new, r_mid))
             if track_refinement:
                 refinement_locations.append(r_mid)
+    if len(r_new) != nzon_max:
+        raise RuntimeError(
+            f"FATAL: Final grid has {len(r_new)} zones but compiled Mzon={nzon_max}. "
+            f"Nzon must equal Mzon or STELLA will crash due to state-vector index mismatch "
+            f"between EVE (uses Mzon) and STRAD (uses Nzon)."
+        )
 
     # Final interpolation
     rho_new = interp_logr(rho, r_new)
     p_new   = interp_logr(p, r_new)
     u_new   = interp_logr(u, r_new)
     T_new   = interp_logr(T, r_new)
-    T_new   = np.maximum(T_new, 1000.0)
+    T_new   = np.maximum(T_new, 10.0)
     fH_new  = np.clip(interp_logr(fH, r_new),  0, 1)
     fHe_new = np.clip(interp_logr(fHe, r_new), 0, 1)
+    fC_new  = np.clip(interp_logr(fC, r_new),  0, 1)
     fO_new  = np.clip(interp_logr(fO, r_new),  0, 1)
     fSi_new = np.clip(interp_logr(fSi, r_new), 0, 1)
     fCa_new = np.clip(interp_logr(fCa, r_new), 0, 1)
@@ -549,10 +690,11 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
     fNi_new = np.clip(interp_logr(fNi, r_new), 0, 1)
 
     # Renormalise mass fractions
-    mf_sum = fH_new + fHe_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
+    mf_sum = fH_new + fHe_new + fC_new + fO_new + fSi_new + fCa_new + fFe_new + fNi_new
     mf_sum = np.where(mf_sum < 1e-10, 1.0, mf_sum)
     fH_new  /= mf_sum
     fHe_new /= mf_sum
+    fC_new  /= mf_sum
     fO_new  /= mf_sum
     fSi_new /= mf_sum
     fCa_new /= mf_sum
@@ -561,7 +703,7 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
 
     # Temperature already interpolated from profile above
     # Ensure it's sane for gradient checking
-    T_new = np.maximum(T_new, 1000.0)
+    T_new = np.maximum(T_new, 10.0)
 
     # Final gradient report
     if check_gradients:
@@ -666,7 +808,7 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
                 fNi_new /= mf_sum
 
                 # Temperature already interpolated from profile above
-                T_new = np.maximum(T_new, 1000.0)
+                T_new = np.maximum(T_new, 10.0)
 
                 # Check for gradient violations
                 dr_r = np.abs(np.diff(r_new) / r_new[:-1])
@@ -729,7 +871,7 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
             fNi_new /= mf_sum
 
             # Temperature already interpolated from profile above
-            T_new = np.maximum(T_new, 1000.0)
+            T_new = np.maximum(T_new, 10.0)
 
             dr_r = np.abs(np.diff(r_new) / r_new[:-1])
             dT_T = np.abs(np.diff(T_new) / np.maximum(T_new[:-1], 1e-10))
@@ -785,7 +927,7 @@ def rezone(r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon_target: int,
     # Convert to numpy arrays for return
     refinement_locations = np.array(refinement_locations) if refinement_locations else np.array([])
 
-    return r_new, rho_new, p_new, u_new, T_new, fH_new, fHe_new, fO_new, fSi_new, fCa_new, fFe_new, fNi_new, refinement_locations, gradient_violations
+    return r_new, rho_new, p_new, u_new, T_new, fH_new, fHe_new, fO_new, fSi_new, fCa_new, fFe_new, fNi_new, fC_new, refinement_locations, gradient_violations
 
 
 def write_hyd(fname: str, r_cm, rho, T, u_cms, t_start_s: float,
@@ -795,6 +937,20 @@ def write_hyd(fname: str, r_cm, rho, T, u_cms, t_start_s: float,
     Note: u_cms is expected to be in cm/s (from input_profile u_cgs).
     """
     Msun = 1.989e33
+
+    # Fix duplicate or near-duplicate radii that create zero-mass zones
+    # (these cause STELLA's Jacobian to become structurally singular)
+    # Instead of removing zones (which mismatches STELLA's compiled Mzon),
+    # perturb the duplicate radius slightly to give a non-zero mass.
+    # Must use >1e-7 relative spacing to be visible in e15.7 format (7 sig digits).
+    if len(r_cm) > 1:
+        min_rel_spacing = 1e-6  # Minimum relative spacing (visible in e15.7 format)
+        for i in range(1, len(r_cm)):
+            if r_cm[i] - r_cm[i-1] < r_cm[i-1] * min_rel_spacing:
+                # Perturb this zone's radius to be slightly larger than previous
+                r_cm[i] = r_cm[i-1] * (1.0 + min_rel_spacing)
+                print(f"  WARNING: perturbed zone {i+1} radius to {r_cm[i]:.6e} (was duplicate of zone {i})")
+
     n = len(r_cm)
 
     # Cumulative Lagrangian mass
@@ -812,7 +968,7 @@ def write_hyd(fname: str, r_cm, rho, T, u_cms, t_start_s: float,
         # BM1: NS core mass (may be zero)
         # Rcen: core radius (must match rcen_cm used for zone masses)
         # rhoCen: density to left of first rho on grid (must be nonzero)
-        t_start_use = max(t_start_s, 0.0)  # Allow t_start=0 for bomb mode
+        t_start_use = 0.0  # Always start at t=0 (explosion time), CSM structure is pre-expansion
         f.write(f"{t_start_use:12.3E}{n:6d}{mass_cut_msun:13.5E}{rcen_cm:13.5E}{rho_cen:13.5E}\n")
         for km in range(n):
             dMr = dm_cgs[km] / Msun
@@ -823,22 +979,33 @@ def write_hyd(fname: str, r_cm, rho, T, u_cms, t_start_s: float,
     print(f"Written {fname}  ({n} zones, M_total={M_r[-1]/Msun:.3f} Msun)")
 
 
-def write_abn(fname: str, fH, fHe, fO, fSi, fCa, fFe, fNi, r_cm):
+def write_abn(fname: str, fH, fHe, fO, fSi, fCa, fFe, fNi, r_cm, fC=None):
     """Write STELLA *.abn file.
     Columns: km  0  0  0  H  He  C  N  O  Ne  Na  Mg  Al  Si  S  Ar  Ca  FePeak  Ni58  Ni56
-    We set C=N=Na=Ne=Mg=Al=S=Ar=Ni58=0 and put Ca=fCa, FePeak=fFe.
-    Ni56 is set to 0 here - radioactive Ni56 comes from the .xni file only.
+    C is written as a separate element (fC).  If fC is not provided, C=0
+    (legacy behaviour with C merged into O).
+
+    The LAST column (Ni56 / XNifor) is the radioactive Ni56 mass fraction that
+    eve2 reads (evesn2.f: read(23,*)...,XNifor(j)) and writes to the .xni file.
+    eve2 does NOT read a pre-existing .xni -- it only writes one -- so Ni56
+    MUST be placed here in the .abn last column.  We write fNi (from the
+    input_profile's Ni column) into this column.
     """
     n = len(fH)
+    fNi_arr = np.asarray(fNi, dtype=float) if fNi is not None else np.zeros(n)
+    fC_arr  = np.asarray(fC, dtype=float) if fC is not None else np.zeros(n)
+    n_ni = int(np.sum(fNi_arr > 1e-10))
     with open(fname, 'w') as f:
         for km in range(n):
             # Format: (i4,1p,19e10.3)
             # km  dum  dum  dum  H  He  C  N  O  Ne  Na  Mg  Al  Si  S  Ar  Ca  FePeak  Ni58  Ni56
+            stable = np.array([fH[km], fHe[km], fC_arr[km], fO[km], fSi[km], fCa[km], fFe[km]], dtype=float)
+            stable *= (1.0 - fNi_arr[km]) / max(stable.sum(), 1e-30)
             f.write(f"{km+1:4d}{0.0:10.3E}{0.0:10.3E}{0.0:10.3E}"
-                    f"{fH[km]:10.3E}{fHe[km]:10.3E}{0.0:10.3E}"
-                    f"{0.0:10.3E}{fO[km]:10.3E}{0.0:10.3E}{0.0:10.3E}{0.0:10.3E}{0.0:10.3E}{fSi[km]:10.3E}"
-                    f"{0.0:10.3E}{0.0:10.3E}{fCa[km]:10.3E}{fFe[km]:10.3E}{0.0:10.3E}{0.0:10.3E}\n")
-    print(f"Written {fname}  ({n} zones, Ni56=0 - radioactive Ni56 from .xni file only)")
+                    f"{stable[0]:10.3E}{stable[1]:10.3E}{stable[2]:10.3E}"
+                    f"{0.0:10.3E}{stable[3]:10.3E}{0.0:10.3E}{0.0:10.3E}{0.0:10.3E}{0.0:10.3E}{stable[4]:10.3E}"
+                    f"{0.0:10.3E}{0.0:10.3E}{stable[5]:10.3E}{stable[6]:10.3E}{0.0:10.3E}{fNi_arr[km]:10.3E}\n")
+    print(f"Written {fname}  ({n} zones, Ni56/XNifor from input_profile fNi column, {n_ni} zones with Ni56>0)")
 
 
 def write_dat(fname: str, model_name: str, target_days: float,
@@ -853,10 +1020,14 @@ def write_dat(fname: str, model_name: str, target_days: float,
               tau_tol: float = 1.3,
               givdtl: bool = True, custom_output_times: list = None,
               wacc_r: float = 1.0, wacc_v: float = 1.0, wacc_t: float = 0.5, wacc_rad: float = 1.0,
-              temp_floor: float = 0.1, iout: int = 10):
+              temp_floor: float = 0.03, floor_rad: float = 0.01, iout: int = 10,
+              aq: float = 2.0, bq: float = 1.0,
+              amni: float = 0.0, xmni: float = 0.0):
     """Write STELLA run/strad/*.dat control file for model_name.
 
     explosion_age_days: age of the SN at start of the .hyd profile (days since explosion).
+                       NOTE: This parameter is deprecated - simulation always starts at t=0.
+                       The CSM spatial structure represents pre-explosion wind, but timing starts at explosion.
     target_days: additional days of evolution beyond the explosion age.
     snapshot_interval_days: output snapshots every N days (default: 5.0).
     explosion_energy: EBurst in units of 1e50 erg (0 = no bomb). e.g. 10 = 1e51 erg.
@@ -868,12 +1039,13 @@ def write_dat(fname: str, model_name: str, target_days: float,
     wacc_v: Wacc(V) - velocity accuracy weight (default: 1.0).
     wacc_t: Wacc(T) - temperature accuracy weight (default: 0.5 for stability).
     wacc_rad: Wacc(RADIAT) - radiation accuracy weight (default: 1.0).
-    temp_floor: FLOOR(T) - minimum temperature in 10^4 K units (default: 0.1 = 1000 K).
+    temp_floor: FLOOR(T) - minimum gas temperature in 10^4 K units (default: 0.03 = 300 K, STELLA reference).
+    floor_rad: FLOOR(RADIAT) - minimum radiation temperature in 10^4 K units (default: 0.01 = 100 K).
     iout: output frequency (1=every timestep, 10=every 10 timesteps, 0=full zone data).
     TcurA/TcurB in STELLA .dat are in real days; STELLA stops when t*UTIME >= TcurB*86400.
     """
-    t_start = explosion_age_days  # days at start of .hyd (= timetobegin/86400)
-    t_end = explosion_age_days + target_days  # absolute day to stop
+    t_start = 0.0  # Always start at t=0 (explosion time), CSM structure is pre-expansion
+    t_end = target_days  # Stop at target_days after explosion
 
     # Generate output epochs in absolute days, spaced from t_start to t_end
     # STELLA TO array has KOMAX=80 slots — must not exceed this
@@ -905,12 +1077,23 @@ def write_dat(fname: str, model_name: str, target_days: float,
         f.write(f"   abs(NSTA)>abs(NSTB)=>reads last   TcurA     TcurB\n")
         f.write(f"   -9000     -1                      {t_start:.4f}   {t_end:.4f}\n")
         f.write(f"   NSTMAX  NDebug  NOUT    IOUT (0 -full <0 print zones)   MBATCH\n")
-        f.write(f"   {nstmax}   100000  {len(epochs)}      {iout}                             900\n")
+        # NOUT controls how often PRIBAL writes .swd in the main loop (every NOUT steps).
+        # Must be < 200 to avoid per-step PRIBAL calls (stradsep5tt.f:640 IF(NOUT>=200) block),
+        # which causes buffer overflow/SIGSEGV.
+        # With NOUT=10 and ~23000 timesteps, the .swd fills up (~445MB / 2378 epochs) at ~5d.
+        # NOUT=100 gives 10x fewer writes, covering the full 0-9d range with ~238 epochs.
+        nout_val = nout if nout is not None else len(epochs)
+        f.write(f"   {nstmax}   100000  {nout_val}      {iout}                             900\n")
         f.write(f"   AMNI (CONTAM. MASS)     XMNI (56NI MASS)\n")
-        f.write(f"   8.D-01                  0.0d0\n")
+        f.write(f"   {amni:.4g}D0                  {xmni:.4g}D0\n")
         f.write(f"   AMHT(Solar)  EBurst(1e50) tBurst(s)  tstart -- Heated Core, Energy & time\n")
         f.write(f"   {explosion_mass:.4g}d0      {explosion_energy:.4g}d0      {explosion_time:.4g}d0      {explosion_delay:.4g}d0\n")
         f.write(f"   EKO (kin.energy,1e50) mass fract.tri. u profile  us (out +1)\n")
+        # EKO>0: STELLA OVERWRITES all .hyd velocities with a triangular (linear-in-mass)
+        #         profile scaled to EKO. mass_fract_tri (AI1) only controls WHERE the
+        #         triangular starts (0=innermost zone), NOT whether it overwrites.
+        #         See begtt.f / begradsep.f lines 218-258.
+        # EKO=0: STELLA preserves the .hyd velocity profile as-is.
         f.write(f"   {initial_kinetic_energy:.4g}d0                      0.d0  9.d-1  1.d0          +1.\n")
         conv_flag = "T" if enable_convection else "F"
         givdtl_flag = "T" if givdtl else "F"
@@ -920,13 +1103,14 @@ def write_dat(fname: str, model_name: str, target_days: float,
         temp_floor_str = f"{temp_floor:.2g}D+00"
 
         f.write(f"   FLOOR(R) FLOOR(V) FLOOR(T) FLOOR(RADIAT)    FLOOR(UCONV)\n")
-        f.write(f"   1.D-12   1.D-03   {temp_floor_str}   1.D-02           1.D-04\n")
+        floor_rad_str = f"{floor_rad:.2g}D+00"
+        f.write(f"   1.D-12   1.D-03   {temp_floor_str}   {floor_rad_str}           1.D-04\n")
         f.write(f"   Wacc(R)  Wacc(V)  Wacc(T)  Wacc(RADIAT)\n")
         f.write(f"   {wacc_r:.2g}d-0    {wacc_v:.2g}d-0    {wacc_t:.2g}D-00   {wacc_rad:.2g}D-00\n")
         # Set scattering based on disable_scattering flag
         scat_flag = "F" if disable_scattering else "T"
         f.write(f"   FitTau   TAUTOL   Rvis   AQ    BQ       DRT     NRT     SCAT\n")
-        f.write(f"   {fit_tau:.1f}D0   {tau_tol:.1f}D0     1.D0   2.D0  1.D+00   1.      1       {scat_flag}\n")
+        f.write(f"   {fit_tau:.2f}D0   {tau_tol:.2f}D0     1.D0   {aq:.1f}D0  {bq:.1f}D+00   1.      1       {scat_flag}\n")
         f.write(f"    NTO then    DATA TO\n")
         f.write(f"    {len(epochs)}\n")
         for t_out in epochs:
@@ -936,7 +1120,7 @@ def write_dat(fname: str, model_name: str, target_days: float,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('input_profile', help='HERACLES input_profile path')
+    parser.add_argument('input_profile', help='[DEPRECATED] HERACLES input_profile path (STELLA .hyd is the active format)')
     parser.add_argument('model_name', help='STELLA model name (used for output filenames)')
     parser.add_argument('output_dir', help='Directory to write *.hyd, *.abn, *.dat')
     parser.add_argument('--nzon', type=int, default=500, help='Target Lagrangian zone count (default: 500)')
@@ -987,10 +1171,24 @@ def main():
                              '(default: 1.3; use 1.1 for scattering runs to avoid large Ncnd jumps)')
     parser.add_argument('--givdtl', action='store_true', default=True,
                         help='Enable detailed output (Givdtl=T, default: True)')
+    parser.add_argument('--aq', type=float, default=2.0,
+                        help='Artificial viscosity coefficient AQ for shock capturing (default: 2.0). '
+                             'Increase for stronger shocks (e.g., 5.0-10.0 for non-monotonic velocity).')
+    parser.add_argument('--bq', type=float, default=1.0,
+                        help='Pseudo-viscosity coefficient BQ for Rayleigh-Taylor (default: 1.0)')
+    parser.add_argument('--amni', type=float, default=0.0,
+                        help='AMNI: contaminated (Ni56 core) mass in Msun (default: 0.0 = auto). '
+                             'Set to match nickel56 distribution_mass_msun for KEPLER models.')
+    parser.add_argument('--xmni', type=float, default=0.0,
+                        help='XMNI: 56Ni mass in Msun (default: 0.0 = auto). '
+                             'Set to match nickel56 total_mass_msun for KEPLER models.')
     parser.add_argument('--custom-output-times', type=str, default=None,
                         help='Comma-separated list of custom output times in days (e.g., "3.1,6.2,9.3")')
     parser.add_argument('--iout', type=int, default=10,
                         help='Output frequency: 1=every timestep (full lightcurve), 10=every 10 timesteps (default: 10)')
+    parser.add_argument('--nout', type=int, default=100,
+                        help='NOUT: .swd snapshot write frequency in timesteps (default: 100). '
+                             'Must be < 200. NOUT=10 fills .swd at ~5d; NOUT=100 covers ~50d.')
     parser.add_argument('--outer-fraction', type=float, default=0.3,
                         help='Fraction of zones in outer (log-spaced) region (default: 0.3)')
     parser.add_argument('--transition-radius', type=float, default=1e13,
@@ -998,13 +1196,17 @@ def main():
     parser.add_argument('--check-gradients', action='store_true', default=True,
                         help='Enable gradient checking for smooth profiles (default: True)')
     parser.add_argument('--max-dr-r', type=float, default=0.15,
-                        help='Max allowed relative radius jump (default: 0.15 = 15%)')
+                        help='Max allowed relative radius jump (default: 0.15 = 15%%)')
+    parser.add_argument('--min-dr-r', type=float, default=0.01,
+                        help='Minimum relative zone spacing dr/r (default: 0.01 = 1%%). '
+                             'Zones closer than this are NOT inserted during AMR, preventing '
+                             'tiny zones that force small timesteps.')
     parser.add_argument('--max-dT-T', type=float, default=0.20,
-                        help='Max allowed relative temperature jump (default: 0.20 = 20%)')
+                        help='Max allowed relative temperature jump (default: 0.20 = 20%%)')
     parser.add_argument('--max-drho-rho', type=float, default=0.20,
-                        help='Max allowed relative density jump (default: 0.20 = 20%)')
+                        help='Max allowed relative density jump (default: 0.20 = 20%%)')
     parser.add_argument('--max-du-u', type=float, default=0.20,
-                        help='Max allowed relative velocity jump (default: 0.20 = 20%)')
+                        help='Max allowed relative velocity jump (default: 0.20 = 20%%)')
     parser.add_argument('--adaptive-refinement', action='store_true', default=True,
                         help='Enable adaptive grid refinement in high-gradient regions (default: True)')
     parser.add_argument('--max-iterations', type=int, default=10,
@@ -1025,8 +1227,10 @@ def main():
                         help='Wacc(T) - temperature accuracy weight (default: 0.5 for stability)')
     parser.add_argument('--wacc-rad', type=float, default=1.0,
                         help='Wacc(RADIAT) - radiation accuracy weight (default: 1.0)')
-    parser.add_argument('--temp-floor', type=float, default=0.1,
-                        help='FLOOR(T) - minimum temperature in 10^4 K units (default: 0.1 = 1000 K)')
+    parser.add_argument('--temp-floor', type=float, default=0.03,
+                        help='FLOOR(T) - minimum temperature in 10^4 K units (default: 0.03 = 300 K, STELLA reference)')
+    parser.add_argument('--floor-rad', type=float, default=0.01,
+                        help='FLOOR(RADIAT) - minimum radiation temperature in 10^4 K units (default: 0.01 = 100 K)')
     args = parser.parse_args()
 
     nzon = min(args.nzon, args.nzon_max)
@@ -1034,6 +1238,7 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"Reading profile: {args.input_profile}")
+    # [DEPRECATED] HERACLES profile parsing; STELLA .hyd is the active input format
     prof = parse_heracles_profile(args.input_profile)
 
     r   = prof['r_cm']
@@ -1042,6 +1247,7 @@ def main():
     u   = prof['u_cms']
     fH  = prof['fH']
     fHe = prof['fHe']
+    fC  = prof.get('fC', np.zeros_like(fH))
     fO  = prof['fO']
     fSi = prof['fSi']
     fCa = prof['fCa']
@@ -1061,27 +1267,42 @@ def main():
             u = u[mask]
             if 'T' in prof:
                 prof['T'] = prof['T'][mask]
-            fH  = fH[mask]
-            fHe = fHe[mask]
-            fO  = fO[mask]
-            fSi = fSi[mask]
-            fCa = fCa[mask]
-            fFe = fFe[mask]
-            fNi = fNi[mask]
+            prof['fH']  = prof['fH'][mask]
+            prof['fHe'] = prof['fHe'][mask]
+            prof['fC']  = prof['fC'][mask]
+            prof['fO']  = prof['fO'][mask]
+            prof['fSi'] = prof['fSi'][mask]
+            prof['fCa'] = prof['fCa'][mask]
+            prof['fFe'] = prof['fFe'][mask]
+            prof['fNi'] = prof['fNi'][mask]
+            fH  = prof['fH']
+            fHe = prof['fHe']
+            fC  = prof['fC']
+            fO  = prof['fO']
+            fSi = prof['fSi']
+            fCa = prof['fCa']
+            fFe = prof['fFe']
+            fNi = prof['fNi']
 
     # Thermal bomb mode: force t_start = 0 (stationary profile, STELLA does the explosion)
     if args.explosion_energy > 0:
         args.t_start = 0.0
         print(f"  Thermal bomb mode: t_start forced to 0 (EBurst={args.explosion_energy:.4g} x1e50 erg)")
-    # Auto-detect start time from profile header if not explicitly provided
-    elif args.t_start == 0.0 and prof.get('explosion_age_days') is not None:
-        args.t_start = prof['explosion_age_days'] * 86400.0
-        print(f"  Auto-detected explosion age: {prof['explosion_age_days']:.1f} days "
-              f"-> t_start = {args.t_start:.3e} s")
-    # For EKO mode with stationary profiles, set negative start time to include pre-explosion phase
+    # EKO mode: start at t=0 (explosion time); CSM structure is pre-explosion
+    # NOTE: EKO>0 causes STELLA to overwrite velocities with a triangular profile.
+    # For profiles with correct velocities, use EKO=0 instead.
     elif args.initial_kinetic_energy > 0 and args.t_start == 0.0:
-        args.t_start = -20.0 * 86400.0  # Start at -20 days
-        print(f"  EKO mode with stationary profile: t_start set to -20 days for pre-explosion phase")
+        args.t_start = 0.0  # Start at explosion time (CSM structure is pre-explosion)
+        print(f"  EKO mode: t_start=0 (KE={args.initial_kinetic_energy:.4g} x1e50 erg)")
+        print(f"  WARNING: STELLA will overwrite .hyd velocities with triangular profile!")
+        if prof.get('csm_age_days') is not None:
+            print(f"  CSM spatial structure represents {prof['csm_age_days']:.1f} day old wind")
+    # CSM structure already represents pre-explosion wind, so simulation should start at t=0
+    elif args.t_start == 0.0:
+        args.t_start = 0.0
+        if prof.get('csm_age_days') is not None:
+            print(f"  CSM spatial structure represents {prof['csm_age_days']:.1f} day old wind")
+        print(f"  Simulation starts at t=0 (explosion time, EKO=0: velocities from .hyd preserved)")
     fH  = prof['fH']
     fHe = prof['fHe']
     fO  = prof['fO']
@@ -1113,6 +1334,7 @@ def main():
                     prof['T'] = prof['T'][:n_keep]
                 prof['fH'] = prof['fH'][:n_keep]
                 prof['fHe'] = prof['fHe'][:n_keep]
+                prof['fC'] = prof['fC'][:n_keep]
                 prof['fCa'] = prof['fCa'][:n_keep]
                 prof['fO'] = prof['fO'][:n_keep]
                 prof['fSi'] = prof['fSi'][:n_keep]
@@ -1141,6 +1363,7 @@ def main():
                     prof['T'] = prof['T'][:n_keep]
                 prof['fH'] = prof['fH'][:n_keep]
                 prof['fHe'] = prof['fHe'][:n_keep]
+                prof['fC'] = prof['fC'][:n_keep]
                 prof['fCa'] = prof['fCa'][:n_keep]
                 prof['fO'] = prof['fO'][:n_keep]
                 prof['fSi'] = prof['fSi'][:n_keep]
@@ -1154,6 +1377,7 @@ def main():
     # Re-assign abundance variables after any trimming so lengths match r
     fH  = prof['fH']
     fHe = prof['fHe']
+    fC  = prof['fC']
     fO  = prof['fO']
     fSi = prof['fSi']
     fCa = prof['fCa']
@@ -1179,12 +1403,13 @@ def main():
     T = prof.get('T', None)
     if T is None:
         # Fallback: compute from pressure if not in profile
-        T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi)
+        T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fC=fC, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi)
 
     if len(r) != nzon:
         print(f"Rezoning {len(r)} -> {nzon} zones (uniform log-r spacing with adaptive refinement)...")
-        r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, refinement_locations, gradient_violations = rezone(
+        r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, fC, refinement_locations, gradient_violations = rezone(
             r, rho, p, u, T, fH, fHe, fO, fSi, fCa, fFe, fNi, nzon,
+            fC=fC,
             check_gradients=args.check_gradients,
             max_dr_r=args.max_dr_r,
             max_dT_T=args.max_dT_T,
@@ -1197,13 +1422,19 @@ def main():
             detect_shock_features=args.detect_shock_features,
             detect_photo_features=args.detect_photo_features,
             detect_curvature=args.detect_curvature,
-            track_refinement=True
+            track_refinement=True,
+            min_dr_r=args.min_dr_r
         )
     else:
         refinement_locations = np.array([])
         gradient_violations = None
 
     # Inject kinetic energy if specified (EKO mode)
+    # WARNING: EKO>0 in the .dat file causes STELLA to OVERWRITE all .hyd velocities
+    # with a triangular (linear-in-mass) profile. The scaling below adjusts the .hyd
+    # velocities, but STELLA will ignore them and use its own triangular profile.
+    # This .hyd scaling is only useful for energy accounting before STELLA overwrites.
+    # For interacting systems with physically motivated velocities, use EKO=0.
     if args.initial_kinetic_energy > 0:
         Msun = 1.989e33
         E_target = args.initial_kinetic_energy * 1e50  # erg
@@ -1214,24 +1445,26 @@ def main():
         dm_cgs = np.maximum(dm_cgs, 0.0)
         M_total = np.sum(dm_cgs)
         E_current = 0.5 * np.sum(dm_cgs * u**2)
+        print(f"  WARNING: EKO={args.initial_kinetic_energy:.4g} x1e50 erg > 0")
+        print(f"    STELLA will OVERWRITE all .hyd velocities with a triangular profile!")
+        print(f"    The input velocity structure will be LOST. Use EKO=0 to preserve it.")
         if E_current > 0:
             scale_factor = np.sqrt(E_target / E_current)
             u = u * scale_factor
-            print(f"  Injecting kinetic energy: EKO={args.initial_kinetic_energy:.4g} x1e50 erg")
-            print(f"    Scaling velocities by {scale_factor:.3f} (E_current={E_current/1e50:.3f} x1e50 -> E_target={E_target/1e50:.3f} x1e50)")
+            print(f"  Scaling .hyd velocities by {scale_factor:.3f} for energy accounting")
+            print(f"    (E_current={E_current/1e50:.3f} x1e50 -> E_target={E_target/1e50:.3f} x1e50)")
         else:
             # Profile is stationary, assign homologous velocities based on radius
             v_scale = np.sqrt(2 * E_target / M_total)
             u = v_scale * (r / r[-1])
-            print(f"  Injecting kinetic energy into stationary profile: EKO={args.initial_kinetic_energy:.4g} x1e50 erg")
-            print(f"    Assigning homologous velocities: v_max={v_scale/1e5:.0f} km/s")
+            print(f"  Assigning homologous velocities to stationary profile: v_max={v_scale/1e5:.0f} km/s")
 
     # Temperature already interpolated by rezone() from profile; ensure it's sane
     if T is None or len(T) != len(r):
         # Fallback: compute from pressure if not available
         T_from_profile = prof.get('T', None)
-        T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi, T_from_profile=T_from_profile)
-    T = np.maximum(T, 1000.0)  # Absolute floor for numerical stability
+        T = temperature_from_pressure(p, rho, fH=fH, fHe=fHe, fC=fC, fO=fO, fSi=fSi, fCa=fCa, fFe=fFe, fNi=fNi, T_from_profile=T_from_profile)
+    T = np.maximum(T, 10.0)  # Absolute floor for numerical stability
 
     # Parse custom output times if provided
     custom_output_times = None
@@ -1251,9 +1484,9 @@ def main():
     write_hyd(str(hyd_file), r, rho, T, u,
               t_start_s=args.t_start, mass_cut_msun=args.mass_cut,
               rcen_cm=rcen, rho_cen=rho_cen)
-    write_abn(str(abn_file), fH, fHe, fO, fSi, fCa, fFe, fNi, r)
+    write_abn(str(abn_file), fH, fHe, fO, fSi, fCa, fFe, fNi, r, fC=fC)
     write_dat(str(dat_file), args.model_name, target_days=args.target_days,
-              explosion_age_days=args.t_start / 86400.0,
+              explosion_age_days=0.0,  # Always start at t=0 (explosion time)
               snapshot_interval_days=args.snapshot_interval,
               explosion_energy=args.explosion_energy,
               explosion_mass=args.explosion_mass,
@@ -1266,7 +1499,10 @@ def main():
               tau_tol=args.tau_tol, givdtl=args.givdtl,
               custom_output_times=custom_output_times,
               wacc_r=args.wacc_r, wacc_v=args.wacc_v, wacc_t=args.wacc_t, wacc_rad=args.wacc_rad,
-              temp_floor=args.temp_floor, iout=args.iout)
+              temp_floor=args.temp_floor, floor_rad=args.floor_rad, iout=args.iout,
+              nout=args.nout,
+              aq=args.aq, bq=args.bq,
+              amni=args.amni, xmni=args.xmni)
 
     # -------------------------------------------------------
     # Final step: plot the generated .hyd profile for verification
@@ -1321,8 +1557,9 @@ def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None,
     Mr   = arr[:, 6]
 
     # Parse input profile if provided
-    r_in, rho_in, p_in, u_in, fH_in, fHe_in, fO_in, fSi_in, fCa_in, fFe_in, fNi_in = None, None, None, None, None, None, None, None, None, None, None
+    r_in, rho_in, p_in, u_in, fH_in, fHe_in, fC_in, fO_in, fSi_in, fCa_in, fFe_in, fNi_in = None, None, None, None, None, None, None, None, None, None, None, None
     if input_profile and Path(input_profile).exists():
+        # [DEPRECATED] HERACLES profile parsing; STELLA .hyd is the active input format
         prof = parse_heracles_profile(input_profile)
         r_in = prof['r_cm']
         rho_in = prof['rho']
@@ -1330,6 +1567,7 @@ def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None,
         u_in = prof['u_cms']
         fH_in = prof['fH']
         fHe_in = prof['fHe']
+        fC_in = prof.get('fC', None)
         fO_in = prof['fO']
         fSi_in = prof['fSi']
         fCa_in = prof['fCa']
@@ -1337,7 +1575,7 @@ def plot_hyd_profile(hyd_file: str, output_png: str, input_profile: str = None,
         fNi_in = prof['fNi']
         # Compute temperature for input profile
         T_from_profile_in = prof.get('T', None)
-        T_in = temperature_from_pressure(p_in, rho_in, fH=fH_in, fHe=fHe_in,
+        T_in = temperature_from_pressure(p_in, rho_in, fH=fH_in, fHe=fHe_in, fC=fC_in,
                                        fO=fO_in, fSi=fSi_in, fCa=fCa_in, fFe=fFe_in, fNi=fNi_in,
                                        T_from_profile=T_from_profile_in)
 

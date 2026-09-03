@@ -91,7 +91,7 @@ def read_sn_hydro_data(filepath):
     r_1e10 = _read_block("Radius grid (10^10cm)")
     v_kms = _read_block("Velocity (km/s)")
     rho = _read_block("Density (gm/cm^3)")
-    T = _read_block("Temperature (10^3 K)")
+    T = _read_block("Temperature (10^4 K)")
 
     if r_1e10 is None or v_kms is None or rho is None:
         raise ValueError(f"Could not parse required blocks from {filepath}")
@@ -100,7 +100,7 @@ def read_sn_hydro_data(filepath):
     r_cm = r_1e10[::-1] * 1.0e10
     v_cms = v_kms[::-1] * 1.0e5
     rho = rho[::-1]
-    T_K = T[::-1] * 1.0e3 if T is not None else None
+    T_K = T[::-1] * 1.0e4 if T is not None else None
 
     # If header values not available, use first grid cell values
     if inner_boundary_radius is None:

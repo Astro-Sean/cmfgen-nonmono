@@ -4,6 +4,7 @@
 #SBATCH --error=stella_{MODEL_NAME}_%j.err
 #SBATCH --time={TIME}
 #SBATCH --partition={PARTITION}
+#SBATCH --qos=a0008
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem={MEMORY}
@@ -26,12 +27,13 @@ SCRIPTS_DIR="{SCRIPTS_DIR}"
 PROJECT_DIR="{PROJECT_DIR}"
 MODEL_NAME="{MODEL_NAME}"
 MODEL_DIR="{MODEL_DIR}"
+RESTART_STELLA="{RESTART_STELLA}"
 STELLA_RUN_DIR="{STELLA_RUN_DIR}"
 TARGET_DAYS="{TARGET_DAYS}"
 NZON="{NZON}"
 KAPPA="{KAPPA}"
-TAU_MAX="{TAU_MAX}"
-TAU_MIN="{TAU_MIN}"
+STELLA_TAU_MAX="{TAU_MAX}"
+STELLA_TAU_MIN="{TAU_MIN}"
 R_MIN="{R_MIN}"
 CONFIG_FILE="{CONFIG_FILE}"
 
@@ -39,7 +41,7 @@ INPUT_PROFILE="{INPUT_PROFILE}"
 
 module purge
 module load intel/2024.0
-module load python-waterboa/2025.06
+module load python-waterboa/2024.06
 export SYSTYPE="ifort"
 export HOMEStella="$STELLA_ROOT"
 export PATH="$STELLA_ROOT/bin:$PATH"
@@ -75,49 +77,151 @@ cd "$MODEL_WORK_DIR"
 
 # -------------------------------------------------------
 # Step 3: Convert input_profile -> STELLA *.hyd + *.abn
+#         (or use pre-generated KEPLER .hyd/.abn if present)
 # -------------------------------------------------------
 echo ""
 echo "--- Converting input profile to STELLA format ---"
 MODMAKE_DIR="$MODEL_WORK_DIR/modmake"
 mkdir -p "$MODMAKE_DIR"
 
-# Use python from loaded module (has numpy)
-python "$SCRIPTS_DIR/convert_profile_to_stella.py" \
-    "$INPUT_PROFILE" \
-    "$MODEL_NAME" \
-    "$MODMAKE_DIR" \
-    --nzon="$NZON" \
-    --nzon-max="{NZON_MAX}" \
-    --target-days="$TARGET_DAYS" \
-    --snapshot-interval="{SNAPSHOT_INTERVAL}" \
-    --r-min="$R_MIN" \
-    --explosion-energy="{EXPLOSION_ENERGY}" \
-    --explosion-mass="{EXPLOSION_MASS}" \
-    --explosion-time="{EXPLOSION_TIME}" \
-    --explosion-delay="{EXPLOSION_DELAY}" \
-    --initial-kinetic-energy="{INITIAL_KINETIC_ENERGY}" \
-    --nstmax="{NSTMAX}" \
-    --eps="{EPS}" \
-    --hmax="{HMAX}" \
-    --meth="{METH}" \
-    {ENABLE_CONV_ARG} \
-    {DISABLE_SCATTERING_ARG} \
-    --fit-tau="{FIT_TAU}" \
-    --tau-tol="{TAU_TOL}" \
-    {GIVDTL_ARG} \
-    {CUSTOM_OUTPUT_TIMES_ARG} \
-    {IOUT_ARG} \
-    --outer-fraction="{OUTER_FRACTION}" \
-    --transition-radius="{TRANSITION_RADIUS}" \
-    --tau-min="{TAU_MIN}" \
-    {RHO_MIN_ARG} \
-    --kappa="{KAPPA}" \
-    --wacc-r="{WACC_R}" \
-    --wacc-v="{WACC_V}" \
-    --wacc-t="{WACC_T}" \
-    --wacc-rad="{WACC_RAD}" \
-    --temp-floor="{TEMP_FLOOR}" \
-    2>&1 | tee -a stella_build.log
+# Check if .hyd and .abn already exist (KEPLER pre-SN mode pre-generates them)
+# KEPLER_MODE is set by run_model_grid.py based on whether 'kepler_presn' is in the config
+HYD_PREGEN="$MODMAKE_DIR/{MODEL_NAME}.hyd"
+ABN_PREGEN="$MODMAKE_DIR/{MODEL_NAME}.abn"
+KEPLER_MODE="{KEPLER_MODE}"
+
+if [[ "$KEPLER_MODE" == "true" && -f "$HYD_PREGEN" && -f "$ABN_PREGEN" ]]; then
+    echo "Using pre-generated .hyd and .abn files"
+    DAT_PREGEN="$MODMAKE_DIR/{MODEL_NAME}.dat"
+    if [[ -f "$DAT_PREGEN" ]]; then
+        echo "  Pre-generated .dat found — skipping convert_profile_to_stella.py"
+    else
+    # Back up the KEPLER .hyd, .abn (convert_profile_to_stella.py will overwrite them)
+    cp "$HYD_PREGEN" "${HYD_PREGEN}.kepler_bak"
+    cp "$ABN_PREGEN" "${ABN_PREGEN}.kepler_bak"
+    # Run convert_profile_to_stella.py to generate .dat with all correct parameters
+    # (the KEPLER write_dat has fewer parameters; this ensures full parameter coverage)
+    python "$SCRIPTS_DIR/convert_profile_to_stella.py" \
+        "$INPUT_PROFILE" \
+        "$MODEL_NAME" \
+        "$MODMAKE_DIR" \
+        --nzon="$NZON" \
+        --nzon-max="{NZON_MAX}" \
+        --target-days="$TARGET_DAYS" \
+        --snapshot-interval="{SNAPSHOT_INTERVAL}" \
+        --r-min="$R_MIN" \
+        --explosion-energy="{EXPLOSION_ENERGY}" \
+        --explosion-mass="{EXPLOSION_MASS}" \
+        --explosion-time="{EXPLOSION_TIME}" \
+        --explosion-delay="{EXPLOSION_DELAY}" \
+        --initial-kinetic-energy="{INITIAL_KINETIC_ENERGY}" \
+        --nstmax="{NSTMAX}" \
+        --eps="{EPS}" \
+        --hmax="{HMAX}" \
+        --hmin="{HMIN}" \
+        --meth="{METH}" \
+        {ENABLE_CONV_ARG} \
+        {DISABLE_SCATTERING_ARG} \
+        --fit-tau="{FIT_TAU}" \
+        --tau-tol="{TAU_TOL}" \
+        {GIVDTL_ARG} \
+        {CUSTOM_OUTPUT_TIMES_ARG} \
+        {IOUT_ARG} \
+        {NOUT_ARG} \
+        --outer-fraction="{OUTER_FRACTION}" \
+        --transition-radius="{TRANSITION_RADIUS}" \
+        --tau-min="{TAU_MIN}" \
+        {RHO_MIN_ARG} \
+        --kappa="{KAPPA}" \
+        --wacc-r="{WACC_R}" \
+        --wacc-v="{WACC_V}" \
+        --wacc-t="{WACC_T}" \
+        --wacc-rad="{WACC_RAD}" \
+        --temp-floor="{TEMP_FLOOR}" \
+        --floor-rad="{FLOOR_RAD}" \
+        --aq="{AQ}" \
+        --bq="{BQ}" \
+        --min-dr-r="{MIN_DR_R}" \
+        --amni="{NI56_DIST_MASS}" \
+        --xmni="{NI56_TOTAL_MASS}" \
+        2>&1 | tee -a stella_build.log
+    fi
+    # Restore the pre-generated .hyd, .abn, and .dat if backups exist
+    # (SWD snapshot mode skips conversion, so no backups to restore)
+    if [[ -f "${HYD_PREGEN}.kepler_bak" ]]; then
+        cp "${HYD_PREGEN}.kepler_bak" "$HYD_PREGEN"
+        cp "${ABN_PREGEN}.kepler_bak" "$ABN_PREGEN"
+        if [[ -f "${DAT_PREGEN}.kepler_bak" ]]; then
+            cp "${DAT_PREGEN}.kepler_bak" "$DAT_PREGEN"
+        fi
+        rm -f "${HYD_PREGEN}.kepler_bak" "${ABN_PREGEN}.kepler_bak" "${DAT_PREGEN}.kepler_bak"
+        echo "Pre-generated .hyd/.abn/.dat restored"
+    fi
+else
+    # Standard mode: convert input_profile -> .hyd + .abn + .dat
+    python "$SCRIPTS_DIR/convert_profile_to_stella.py" \
+        "$INPUT_PROFILE" \
+        "$MODEL_NAME" \
+        "$MODMAKE_DIR" \
+        --nzon="$NZON" \
+        --nzon-max="{NZON_MAX}" \
+        --target-days="$TARGET_DAYS" \
+        --snapshot-interval="{SNAPSHOT_INTERVAL}" \
+        --r-min="$R_MIN" \
+        --explosion-energy="{EXPLOSION_ENERGY}" \
+        --explosion-mass="{EXPLOSION_MASS}" \
+        --explosion-time="{EXPLOSION_TIME}" \
+        --explosion-delay="{EXPLOSION_DELAY}" \
+        --initial-kinetic-energy="{INITIAL_KINETIC_ENERGY}" \
+        --nstmax="{NSTMAX}" \
+        --eps="{EPS}" \
+        --hmax="{HMAX}" \
+        --hmin="{HMIN}" \
+        --meth="{METH}" \
+        {ENABLE_CONV_ARG} \
+        {DISABLE_SCATTERING_ARG} \
+        --fit-tau="{FIT_TAU}" \
+        --tau-tol="{TAU_TOL}" \
+        {GIVDTL_ARG} \
+        {CUSTOM_OUTPUT_TIMES_ARG} \
+        {IOUT_ARG} \
+        {NOUT_ARG} \
+        --outer-fraction="{OUTER_FRACTION}" \
+        --transition-radius="{TRANSITION_RADIUS}" \
+        --tau-min="{TAU_MIN}" \
+        {RHO_MIN_ARG} \
+        --kappa="{KAPPA}" \
+        --wacc-r="{WACC_R}" \
+        --wacc-v="{WACC_V}" \
+        --wacc-t="{WACC_T}" \
+        --wacc-rad="{WACC_RAD}" \
+        --temp-floor="{TEMP_FLOOR}" \
+        --floor-rad="{FLOOR_RAD}" \
+        --aq="{AQ}" \
+        --bq="{BQ}" \
+        --min-dr-r="{MIN_DR_R}" \
+        --amni="{NI56_DIST_MASS}" \
+        --xmni="{NI56_TOTAL_MASS}" \
+        2>&1 | tee -a stella_build.log
+fi
+
+python - "$HYD_PREGEN" "$ABN_PREGEN" "$NZON" <<'PY'
+import sys
+import numpy as np
+hyd = np.loadtxt(sys.argv[1], skiprows=1)
+abn = np.loadtxt(sys.argv[2])
+nzon = int(sys.argv[3])
+if hyd.shape != (nzon, 8):
+    raise SystemExit(f'Invalid .hyd shape {hyd.shape}; expected ({nzon}, 8)')
+if abn.shape != (nzon, 20):
+    raise SystemExit(f'Invalid .abn shape {abn.shape}; expected ({nzon}, 20)')
+if np.any(hyd[:, 1] <= 0) or np.any(np.diff(hyd[:, 2]) <= 0) or np.any(np.diff(hyd[:, 6]) < 0):
+    raise SystemExit('Invalid .hyd mass or radial ordering')
+composition_sum = abn[:, 4:20].sum(axis=1)
+if np.any(abn[:, 4:20] < -1e-12) or np.any(np.abs(composition_sum - 1.0) > 2e-3):
+    raise SystemExit(f'Invalid .abn composition sums: [{composition_sum.min():.6f}, {composition_sum.max():.6f}]')
+print(f'STELLA input validation passed: {nzon} zones, ejecta mass={hyd[:, 1].sum():.5f} Msun, X(Ni56) max={abn[:, 19].max():.5f}')
+PY
 
 # Create strad directory and copy .dat file
 STRAD_DIR="$MODEL_WORK_DIR/strad"
@@ -225,13 +329,12 @@ EVEOF
 
 # Remove stale outputs (but keep pre-generated .xni file if it exists)
 rm -f "{MODEL_NAME}.mod" "res.{MODEL_NAME}" "{MODEL_NAME}.rho"
-# Only remove .xni if it wasn't pre-generated by run_model_grid.py
-if [ ! -f "{MODEL_NAME}.xni" ]; then
-    # .xni doesn't exist, will be generated by eve2
-    :
-else
-    # .xni exists (pre-generated), keep it
-    echo "Using pre-generated .xni file"
+# Back up pre-generated .xni before eve2 (eve2 overwrites it with 1e-6-floored values)
+XNI_BACKUP=""
+if [ -f "{MODEL_NAME}.xni" ]; then
+    cp "{MODEL_NAME}.xni" "{MODEL_NAME}.xni.pregen"
+    XNI_BACKUP="{MODEL_NAME}.xni.pregen"
+    echo "Backed up pre-generated .xni file before eve2"
 fi
 
 ./eve2.exe 2>&1 | tee -a "$MODEL_WORK_DIR/stella_build.log"
@@ -242,6 +345,52 @@ if [ ! -s "$MODEL_WORK_DIR/eve/{MODEL_NAME}.mod" ]; then
     exit 1
 fi
 echo ".mod file created successfully ($(wc -c < {MODEL_NAME}.mod) bytes)"
+
+# Overwrite the .xni file with the correct Ni56 distribution.
+# eve2 floors Ni56 at 1e-6 for all zones (evesn2.f: XNifor=max(xnifac*XNifor,1.d-6)),
+# so when .abn has Ni56=0, eve2 writes 1e-6 everywhere -> STELLA sees ~1.7e-6 Msun
+# instead of the intended Ni56 mass.  Restore the pre-generated .xni (backed up
+# before eve2, or from modmake/ in KEPLER mode) after eve2 overwrites it.
+if [ "{ZERO_NI56}" = "true" ]; then
+    echo "Zeroing .xni file (no radioactive decay — Ni56 disabled)"
+    python3 -c "
+import struct
+nzon = {NZON}
+rec_len = nzon * 8
+with open('{MODEL_NAME}.xni', 'wb') as f:
+    f.write(struct.pack('i', rec_len))
+    f.write(struct.pack(f'{nzon}d', *([0.0] * nzon)))
+    f.write(struct.pack('i', rec_len))
+print(f'  Written zero .xni: {{4 + rec_len + 4}} bytes, {nzon} zones (Fortran unformatted REAL*8)')
+"
+elif [ -f "$MODMAKE_DIR/{MODEL_NAME}.xni" ]; then
+    echo "Restoring correct .xni file (Ni56 distribution) from modmake/ after eve2"
+    cp "$MODMAKE_DIR/{MODEL_NAME}.xni" "{MODEL_NAME}.xni"
+    python3 -c "
+import struct, numpy as np
+with open('{MODEL_NAME}.xni', 'rb') as f:
+    data = f.read()
+rec_len = struct.unpack('i', data[:4])[0]
+nzon = rec_len // 8
+xnifor = np.array(struct.unpack(f'{nzon}d', data[4:4+nzon*8]))
+print(f'  .xni restored: {nzon} zones, max XNifor={xnifor.max():.4f}, non-zero={(xnifor > 1e-30).sum()}')
+"
+elif [ -n "$XNI_BACKUP" ] && [ -f "$XNI_BACKUP" ]; then
+    echo "Restoring pre-generated .xni file (Ni56 distribution) after eve2"
+    cp "$XNI_BACKUP" "{MODEL_NAME}.xni"
+    python3 -c "
+import struct, numpy as np
+with open('{MODEL_NAME}.xni', 'rb') as f:
+    data = f.read()
+rec_len = struct.unpack('i', data[:4])[0]
+nzon = rec_len // 8
+xnifor = np.array(struct.unpack(f'{nzon}d', data[4:4+nzon*8]))
+print(f'  .xni restored: {nzon} zones, max XNifor={xnifor.max():.4f}, non-zero={(xnifor > 1e-30).sum()}')
+"
+else
+    echo "WARNING: No pre-generated .xni found — using eve2 output (Ni56~1e-6)"
+fi
+rm -f "{MODEL_NAME}.xni.pregen" 2>/dev/null || true
 
 # -------------------------------------------------------
 # Step 5b: Generate vladsf opacity tables
@@ -365,14 +514,48 @@ echo ""
 echo "--- Running STELLA (target: $TARGET_DAYS days) ---"
 # STELLA checks for {runname}.prf and {runname}.crv: both must be absent for BEGRUN=.TRUE.
 # STELLA also cannot overwrite .res, .bm, .balance, .swd, .tt files
+# Backup previous output before cleaning (preserves lightcurve for comparison)
+echo "--- Backing up previous STELLA output ---"
+BACKUP_DIR="$MODEL_WORK_DIR/backup_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+for backup_dir in "$STELLA_ROOT/res" "$STRAD_DIR" "$MODEL_WORK_DIR"; do
+    for ext in swd swd_rad tt flx lbol ph res; do
+        if [[ -s "$backup_dir/$MODEL_NAME.$ext" ]]; then
+            cp "$backup_dir/$MODEL_NAME.$ext" "$BACKUP_DIR/" 2>/dev/null || true
+        fi
+    done
+done
+if ls "$BACKUP_DIR"/* >/dev/null 2>&1; then
+    echo "  Backed up previous output to $BACKUP_DIR"
+else
+    rmdir "$BACKUP_DIR" 2>/dev/null || true
+    echo "  No previous output to back up"
+fi
+
 # Clean up files that STELLA must overwrite from both strad/ and model work directories
 # Use absolute paths to ensure files are deleted from correct locations
+# RESTART_STELLA: if "true", preserve .prf and .crv files so STELLA
+# restarts from them (BEGRUN=.FALSE. in stradsep5tt.f). STELLA reads the
+# restart state from .prf (profile) and .crv (curve) files, NOT from .res.
+# The .res file is output-only (opened with status='unknown' after patch).
+# Also preserve .swd and .tt so the lightcurve is continuous across restart.
 echo "--- Cleaning up files that STELLA must overwrite ---"
+mkdir -p "$STELLA_ROOT/res"
+rm -f "$STELLA_ROOT/res/$MODEL_NAME.swd" "$STELLA_ROOT/res/$MODEL_NAME.swd_rad" "$STELLA_ROOT/res/$MODEL_NAME.tt" \
+      "$STELLA_ROOT/res/$MODEL_NAME.lbol" "$STELLA_ROOT/res/$MODEL_NAME.ph" \
+      "$STELLA_ROOT/res/$MODEL_NAME.flx"
 for cleanup_dir in "$STRAD_DIR" "$MODEL_WORK_DIR"; do
-    rm -f "$cleanup_dir/$MODEL_NAME.res" "$cleanup_dir/$MODEL_NAME.bm" \
-          "$cleanup_dir/$MODEL_NAME.balance" "$cleanup_dir/$MODEL_NAME.swd" \
-          "$cleanup_dir/$MODEL_NAME.tt" "$cleanup_dir/$MODEL_NAME.prf" \
-          "$cleanup_dir/$MODEL_NAME.crv" 2>/dev/null || true
+    if [[ "$RESTART_STELLA" == "true" && -f "$cleanup_dir/$MODEL_NAME.prf" && -f "$cleanup_dir/$MODEL_NAME.crv" ]]; then
+        echo "  RESTART MODE: preserving .prf, .crv, .swd, .tt for checkpoint restart"
+    else
+        rm -f "$cleanup_dir/$MODEL_NAME.res" "$cleanup_dir/$MODEL_NAME.bm" \
+              "$cleanup_dir/$MODEL_NAME.balance" "$cleanup_dir/$MODEL_NAME.swd" \
+              "$cleanup_dir/$MODEL_NAME.swd_rad" \
+              "$cleanup_dir/$MODEL_NAME.tt" "$cleanup_dir/$MODEL_NAME.flx" \
+              "$cleanup_dir/$MODEL_NAME.lbol" "$cleanup_dir/$MODEL_NAME.ph" \
+              "$cleanup_dir/$MODEL_NAME.prf" \
+              "$cleanup_dir/$MODEL_NAME.crv" 2>/dev/null || true
+    fi
 done
 
 # strad.1: header + one entry (5 columns)
@@ -387,16 +570,104 @@ STRAD
 echo "  strad.1 written; dat file: $DAT_FILE"
 
 # Run STELLA executable
-"$XSTELLA" < /dev/null 2>&1 | tee stella_run.log
-echo "STELLA run complete."
+# Capture exit code without aborting (set -e would exit before .swd copy)
+STELLA_EXIT=0
+"$XSTELLA" < /dev/null 2>&1 | tee stella_run.log || STELLA_EXIT=$?
+echo "STELLA run complete (exit=$STELLA_EXIT)."
 
 # STELLA moves .swd and .tt to $HOMEStella/res/ at end of run
-# Copy them back from STELLA res/ directory to model work directory
+# Copy them back even if STELLA crashed — partial .swd output is still useful
+# for CMFGEN/SEDONA snapshots at epochs before the crash.
 cp "$STELLA_ROOT/res/$MODEL_NAME.swd" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STELLA_ROOT/res/$MODEL_NAME.swd_rad" "$MODEL_WORK_DIR/" 2>/dev/null || true
 cp "$STELLA_ROOT/res/$MODEL_NAME.tt" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STELLA_ROOT/res/$MODEL_NAME.lbol" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STELLA_ROOT/res/$MODEL_NAME.ph" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STELLA_ROOT/res/$MODEL_NAME.flx" "$MODEL_WORK_DIR/" 2>/dev/null || true
 # Also try strad/ in case STELLA behavior changes
 cp "$STRAD_DIR/$MODEL_NAME.swd" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STRAD_DIR/$MODEL_NAME.swd_rad" "$MODEL_WORK_DIR/" 2>/dev/null || true
 cp "$STRAD_DIR/$MODEL_NAME.tt" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STRAD_DIR/$MODEL_NAME.flx" "$MODEL_WORK_DIR/" 2>/dev/null || true
+cp "$STRAD_DIR/$MODEL_NAME.lbol" "$MODEL_WORK_DIR/" 2>/dev/null || true
+
+# Check what we got
+if [[ ! -s "$MODEL_WORK_DIR/$MODEL_NAME.swd" ]]; then
+    echo "ERROR: No usable .swd file found after STELLA run" >&2
+    exit 1
+fi
+SWD_SIZE=$(stat -c%s "$MODEL_WORK_DIR/$MODEL_NAME.swd")
+echo "  .swd file: $MODEL_WORK_DIR/$MODEL_NAME.swd ($SWD_SIZE bytes)"
+if [[ -f "$MODEL_WORK_DIR/$MODEL_NAME.swd_rad" ]]; then
+    SWD_RAD_SIZE=$(stat -c%s "$MODEL_WORK_DIR/$MODEL_NAME.swd_rad")
+    echo "  .swd_rad file: $MODEL_WORK_DIR/$MODEL_NAME.swd_rad ($SWD_RAD_SIZE bytes)"
+else
+    echo "  WARNING: No .swd_rad file found after STELLA run"
+fi
+if [[ -f "$MODEL_WORK_DIR/$MODEL_NAME.tt" ]]; then
+    echo "  .tt file: $MODEL_WORK_DIR/$MODEL_NAME.tt"
+else
+    echo "  WARNING: No .tt file found after STELLA run"
+fi
+
+if [[ $STELLA_EXIT -ne 0 ]]; then
+    echo "WARNING: STELLA exited with code $STELLA_EXIT; checking for usable partial output." >&2
+fi
+
+# Count epochs and find last epoch in .swd
+SWD_INFO=$(python - "$MODEL_WORK_DIR/$MODEL_NAME.swd" <<'PY'
+import sys, re
+epochs = set()
+last = None
+with open(sys.argv[1]) as fh:
+    for line in fh:
+        # Use regex to handle concatenated numbers (missing spaces in .swd)
+        fields = re.findall(r'[-+]?\d*\.?\d+[eE][-+]?\d+|[-+]?\d*\.?\d+', line.strip())
+        if len(fields) < 13:
+            continue
+        try:
+            t = float(fields[0])
+            km = int(float(fields[1]))
+            if km == 1:
+                epochs.add(round(t, 2))
+            last = max(t, last) if last is not None else t
+        except (ValueError, IndexError):
+            pass
+if last is None:
+    print("0|None|0")
+else:
+    # Count post-explosion epochs (t > 0)
+    post_exp = [t for t in epochs if t > 0]
+    print(f"{len(epochs)}|{last:.4f}|{len(post_exp)}")
+PY
+)
+SWD_EPOCH_COUNT=$(echo "$SWD_INFO" | cut -d'|' -f1)
+LAST_SWD_DAY=$(echo "$SWD_INFO" | cut -d'|' -f2)
+POST_EXP_EPOCHS=$(echo "$SWD_INFO" | cut -d'|' -f3)
+
+echo "  .swd contains $SWD_EPOCH_COUNT epochs ($POST_EXP_EPOCHS post-explosion), last = $LAST_SWD_DAY d"
+
+# Require at least 1 post-explosion epoch for useful output
+if [[ "$POST_EXP_EPOCHS" -lt 1 ]]; then
+    echo "ERROR: .swd has no post-explosion epochs (only initial condition); cannot produce useful output." >&2
+    exit 1
+fi
+
+# Warn if last epoch is far from target
+MIN_SWD_DAY=$(python - "$TARGET_DAYS" <<'PY'
+import sys
+end = float(sys.argv[1])
+print(end - max(0.25, 0.01 * end))
+PY
+)
+if ! python - "$LAST_SWD_DAY" "$MIN_SWD_DAY" <<'PY'
+import sys
+raise SystemExit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)
+PY
+then
+    echo "WARNING: STELLA .swd last epoch ($LAST_SWD_DAY d) is short of target ($MIN_SWD_DAY d)." >&2
+    echo "         Late snapshot days may be skipped by epoch_tolerance filter." >&2
+fi
 
 # -------------------------------------------------------
 # Step 8: Locate .swd output and convert to SN_HYDRO_DATA
@@ -418,7 +689,7 @@ fi
 echo "Found .swd: $SWD_FILE"
 
 ABN_FILE="$MODMAKE_DIR/{MODEL_NAME}.abn"
-CMFGEN_DIR="$MODEL_DIR/cmfgen"
+CMFGEN_DIR="$MODEL_DIR/cmfgen/{CMFGEN_DAY_LABEL}"
 mkdir -p "$CMFGEN_DIR"
 OUTPUT_HYDRO="$CMFGEN_DIR/SN_HYDRO_DATA"
 
@@ -428,8 +699,8 @@ python "$SCRIPTS_DIR/convert_stella_swd_to_cmfgen.py" \
     --abn-file="$ABN_FILE" \
     --target-days="{CMFGEN_SNAPSHOT_DAYS}" \
     --kappa="$KAPPA" \
-    --tau-max="$TAU_MAX" \
-    --tau-min="$TAU_MIN" \
+    --tau-max="{CMFGEN_TAU_MAX}" \
+    --tau-min="{CMFGEN_TAU_MIN}" \
     --model-name="$MODEL_NAME" \
     --grid-thinning-threshold="{GRID_THINNING_THRESHOLD}" \
     {ENABLE_GRID_THINNING_ARG} \
@@ -441,6 +712,12 @@ python "$SCRIPTS_DIR/convert_stella_swd_to_cmfgen.py" \
     --max-density-jump="{MAX_DENSITY_JUMP}" \
     --max-ne-jump="{MAX_NE_JUMP}" \
     --max-logtau-jump="{MAX_LOGTAU_JUMP}" \
+    --max-points="{MAX_POINTS}" \
+    --min-nd="{MIN_ND}" \
+    {SMOOTH_VELOCITY_ARG} \
+    --sigma-threshold="{SIGMA_THRESHOLD}" \
+    --smooth-width="{SMOOTH_WIDTH}" \
+    {COARSEN_NEGATIVE_SIGMA_ARG} \
     2>&1 | tee -a stella_build.log
 
 echo ""
@@ -467,13 +744,30 @@ mkdir -p "$OUTPUT_DIR"
 PLOTS_DIR="$MODEL_DIR/plots"
 mkdir -p "$PLOTS_DIR"
 
+# Remove stale plots from previous runs
+rm -f "$PLOTS_DIR"/*.png "$PLOTS_DIR"/*.csv 2>/dev/null || true
+
 # Plot evolution (density, temperature, pressure, etc.) from .swd snapshots
 python "$SCRIPTS_DIR/plot_stella_evolution.py" \
     "$SWD_FILE" \
     "$PLOTS_DIR" \
     --n-epochs 10 \
-    2>&1 | tee -a stella_build.log
+    2>&1 | tee -a stella_build.log || echo "WARNING: evolution plotting failed (non-fatal)"
 echo "Evolution plots: $PLOTS_DIR/{MODEL_NAME}_evolution.png, $PLOTS_DIR/{MODEL_NAME}_radial_profiles.png"
+
+# Plot radial evolution of mass fractions for each element
+if [[ -f "$SWD_FILE" && -f "$SCRIPTS_DIR/plot_composition_evolution.py" ]]; then
+    echo "Plotting composition evolution from .swd file (now includes composition data)..."
+    python "$SCRIPTS_DIR/plot_composition_evolution.py" \
+        "$ABN_FILE" \
+        "$PLOTS_DIR" \
+        --swd_file "$SWD_FILE" \
+        --n-epochs 10 \
+        2>&1 | tee -a stella_build.log || echo "WARNING: composition evolution plotting failed (non-fatal)"
+    echo "Composition evolution plot: $PLOTS_DIR/{MODEL_NAME}_composition_evolution.png"
+else
+    echo "Skipping composition evolution plot (no .swd file or script not found)"
+fi
 
 # Lightcurve and .tt handling
 if [[ -n "$TT_FILE" ]]; then
@@ -482,15 +776,23 @@ if [[ -n "$TT_FILE" ]]; then
     echo "Lightcurve copied: $TT_FILE -> $CMFGEN_DIR/"
     echo "Lightcurve copied: $TT_FILE -> $OUTPUT_DIR/{MODEL_NAME}.tt"
 
-    # Plot lightcurve
-    python "$SCRIPTS_DIR/plot_stella_lightcurve.py" \
+    # Plot lightcurve (with SN 2011dh reference overlay)
+    PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" python "$SCRIPTS_DIR/plot_stella_lightcurve.py" \
         "$CMFGEN_DIR/{MODEL_NAME}.tt" \
         --output "$PLOTS_DIR/{MODEL_NAME}_stella_lightcurve.png" \
         --days-max "$TARGET_DAYS" \
         --csv "$OUTPUT_DIR/{MODEL_NAME}_lightcurve.csv" \
-        2>&1 | tee -a stella_build.log
+        --sn2011dh \
+        2>&1 | tee -a stella_build.log || echo "WARNING: lightcurve plotting failed (non-fatal)"
     echo "Lightcurve plot: $PLOTS_DIR/{MODEL_NAME}_stella_lightcurve.png"
     echo "Lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve.csv"
+
+    # Multiband (U,B,V,R,I) lightcurve vs SN 2011dh observations
+    # Uses plot_model.py --step multiband (only needs .tt file)
+    PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" python "$SCRIPTS_DIR/plot_model.py" \
+        "$MODEL_DIR" --step multiband \
+        2>&1 | tee -a stella_build.log || echo "WARNING: multiband plot failed (non-fatal)"
+    echo "Multiband plot: $PLOTS_DIR/stella_output_multiband.png"
 else
     echo "Note: No .tt lightcurve file found for {MODEL_NAME}"
 fi
@@ -504,20 +806,44 @@ FLX_FILE="$STRAD_DIR/{MODEL_NAME}.flx"
 if [[ ! -f "$FLX_FILE" ]]; then
     FLX_FILE="$MODEL_WORK_DIR/strad/{MODEL_NAME}.flx"
 fi
-if [[ -f "$SWD_FILE" && -f "$FLX_FILE" ]]; then
-    # Use waterboa python (has pysynphot in user .local); conda env may lack it
-    /mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/python3.12 \
-        "$SCRIPTS_DIR/extract_lightcurve_pysynphot.py" \
-        "$SWD_FILE" \
-        "$FLX_FILE" \
-        --tt-file "$TT_FILE" \
-        --output "$OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv" \
-        --plot "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
-        2>&1 | tee -a stella_build.log
-    echo "Complete lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
-else
-    echo "Note: Missing .swd or .flx for pysynphot extraction"
+if [[ ! -f "$FLX_FILE" ]]; then
+    FLX_FILE="$MODEL_WORK_DIR/{MODEL_NAME}.flx"
 fi
+if [[ ! -s "$FLX_FILE" ]]; then
+    echo "WARNING: STELLA did not produce a usable .flx SED."
+    echo "  Falling back to .lbol-based lightcurve extraction."
+
+    # Fallback: extract lightcurve from .lbol (STELLA native bolometric + UBVRI)
+    LBOL_FILE="$MODEL_WORK_DIR/{MODEL_NAME}.lbol"
+    if [[ ! -f "$LBOL_FILE" ]]; then
+        LBOL_FILE="$STELLA_ROOT/res/{MODEL_NAME}.lbol"
+    fi
+    if [[ -s "$LBOL_FILE" ]]; then
+        echo "  Using .lbol file: $LBOL_FILE"
+        PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" python "$SCRIPTS_DIR/extract_lightcurve_from_lbol.py" \
+            "$LBOL_FILE" \
+            --output "$OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv" \
+            --plot "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
+            2>&1 | tee -a stella_build.log || echo "WARNING: .lbol extraction failed"
+        echo "Complete lightcurve CSV (from .lbol): $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
+    else
+        echo "ERROR: No .lbol file found either; cannot extract lightcurve." >&2
+        exit 1
+    fi
+else
+# Use waterboa python (has pysynphot in user .local); conda env may lack it
+PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" \
+/mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/python3.12 \
+    "$SCRIPTS_DIR/extract_lightcurve_pysynphot.py" \
+    "$SWD_FILE" \
+    "$FLX_FILE" \
+    --tt-file "$TT_FILE" \
+    --output "$OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv" \
+    --plot "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
+    2>&1 | tee -a stella_build.log || echo "WARNING: pysynphot lightcurve extraction failed (non-fatal; NumPy 2.0 incompatibility in pysynphot)"
+echo "Complete lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
+fi
+echo "Complete lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
 
 # -------------------------------------------------------
 # Step 9: Prepare SEDONA directory
@@ -525,7 +851,7 @@ fi
 echo ""
 echo "--- Preparing SEDONA directory ---"
 
-SEDONA_DIR="$MODEL_DIR/sedona"
+SEDONA_DIR="$MODEL_DIR/sedona/{CMFGEN_DAY_LABEL}"
 mkdir -p "$SEDONA_DIR"
 
 # Copy sedona_base files
@@ -690,7 +1016,7 @@ echo "SEDONA directory prepared: $SEDONA_DIR"
 echo ""
 echo "--- Preparing CMFGEN directory ---"
 
-CMFGEN_DIR="$MODEL_DIR/cmfgen"
+CMFGEN_DIR="$MODEL_DIR/cmfgen/{CMFGEN_DAY_LABEL}"
 CMFGEN_BASE="$PROJECT_DIR/cmfgen_base"
 
 if [[ -d "$CMFGEN_BASE" ]]; then
@@ -712,6 +1038,33 @@ if [[ -d "$CMFGEN_BASE" ]]; then
     echo "CMFGEN directory prepared: $CMFGEN_DIR"
 else
     echo "WARNING: cmfgen_base directory not found at $CMFGEN_BASE"
+fi
+
+# -------------------------------------------------------
+# Step 11: Generate nickel evolution plot (if Ni56 enabled)
+# -------------------------------------------------------
+echo ""
+echo "--- Generating nickel evolution plot ---"
+
+PLOTS_DIR="$MODEL_DIR/plots"
+mkdir -p "$PLOTS_DIR"
+
+XNI_FILE="$MODEL_WORK_DIR/eve/{MODEL_NAME}.xni"
+ABN_DIR="$MODEL_WORK_DIR/modmake"
+SWD_FILE="$MODEL_WORK_DIR/{MODEL_NAME}.swd"
+NICKEL_PLOT="$PLOTS_DIR/nickel_evolution.png"
+
+if [[ -f "$XNI_FILE" ]] && [[ -d "$ABN_DIR" ]]; then
+    echo "Found .xni file and .abn directory, generating nickel evolution plot..."
+    python "$SCRIPTS_DIR/plot_nickel_evolution.py" \
+        "$MODEL_DIR" \
+        --xni-file "$XNI_FILE" \
+        --abn-dir "$ABN_DIR" \
+        --swd-file "$SWD_FILE" \
+        --n-epochs 10 \
+        --output "$NICKEL_PLOT" || echo "WARNING: Nickel evolution plot generation failed"
+else
+    echo "Skipping nickel evolution plot (no .xni or .abn files found)"
 fi
 
 echo ""

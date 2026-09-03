@@ -126,7 +126,8 @@ def plot_multigroup_luminosity(ph_path: str, swd_path: str, target_time: float, 
     print(f"Using .swd epoch at t = {swd_time:.2f} days (closest to {selected_time:.2f} days)")
     swd_data = swd_epochs[swd_time]
     
-    # Extract radius from .swd file (column 3 is logR in 1e10 cm)
+    # Extract radius from .swd file (column 3 is logR in cm)
+    # STELLA units: V in 1e8 cm/s, rho in log10(rho/1e-6 g/cc)
     r_cm = 10**swd_data[:, 3]  # Radius in cm
     r_15 = r_cm / 1e15  # Radius in 10^15 cm
     

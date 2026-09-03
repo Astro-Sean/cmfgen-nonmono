@@ -1,0 +1,62 @@
+
+
+
+
+
+
+
+
+
+Numerical Setup
+S. Brennan
+
+Max Planck Institute for Astrophysics, Garching, Germany
+
+
+
+Numerical Setup
+
+We model the double-explosion scenario with a two-stage pipeline coupling the
+multi-group radiation hydrodynamics code STELLA
+ with the non-LTE radiative transfer code CMFGEN
+Hillier1998, Dessart2015.  In the first stage (SNA), a Type IIb
+progenitor - the solar-metallicity  model s12.0 of
+WoosleyHeger2007, stripped to a 3 helium core and
+matched to model 12C of for SN2011dh - is exploded with a
+thermal bomb of erg deposited over 10s in the inner
+0.3, yielding a final kinetic energy of 0.7foe.  A thin
+hydrogen envelope of 0.03-0.10 () is added to the surface,
+and a low-density () sigmoid-blended
+circumstellar wind extends to cm for numerical stability.  A
+ mass of 0.075 is distributed over the inner
+0.3.  STELLA evolves the explosion with 500 Lagrangian zones using a
+GEAR integrator (), with  to preserve the
+pre-SN velocity structure,  for frequency-dependent
+opacity, and a minimum of  diffusion zones to prevent
+late-time  collapse.
+
+In the second stage (SNB), the SNA ejecta is homologously evolved to
+400d and serves as the CSM.  A H/He shell (1.0, ,
+) with a power-law density profile () following
+Dessart2016 is placed at the centre and launched at 5000 into
+the CSM.  STELLA evolves the shell-CSM interaction for 45d with
+ (preserving both shell and CSM velocities), enhanced artificial
+viscosity () for the strong velocity reversal, and no  (the
+luminosity is entirely interaction-powered).
+
+At selected epochs (30d post-SBO for SNA; 20-40d post-launch for SNB),
+snapshots are extracted from the STELLA output and remapped onto CMFGEN depth
+grids () using an adaptive algorithm that resolves ionisation
+fronts and velocity reversals.  CMFGEN computes non-LTE level populations and
+emergent spectra with VELLAW=12 (reading the non-homologous
+velocity directly), a tridiagonal depth-coupling solver for the non-monotonic
+velocity, Ng acceleration disabled to avoid trace-species instability at
+ionisation fronts, and temperature fixed to the hydrodynamic values.  The
+inner boundary uses a diffusion condition seeded by the STELLA luminosity.
+The complete pipeline - progenitor conversion, STELLA evolution, snapshot
+extraction, CMFGEN spectral synthesis, and dependency-chained job submission
+- is orchestrated by a single workflow manager on the MPCDF Viper HPC
+cluster.
+
+aasjournal
+

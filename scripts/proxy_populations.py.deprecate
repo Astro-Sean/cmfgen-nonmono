@@ -1,0 +1,2932 @@
+#!/usr/bin/env python3
+"""Generate proxy population _IN files for CMFGEN using dilute LTE (Saha-Boltzmann
+with radiation dilution factor W). Parses SN_HYDRO_DATA and F_OSCDAT atomic data
+files, computes departure coefficients, and writes _IN files compatible with
+CMFGEN's REGRID_LOG_DC_V1 subroutine."""
+
+import argparse
+import os
+import re
+import sys
+import math
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+from collections import defaultdict
+
+# Physical constants
+HDKT = 4.7994145          # h/k_B in units of (10^15 Hz)^{-1} * (10^4 K)
+SPEED_LIGHT = 2.9979248e10 # cm/s
+M_H = 1.6733e-24           # hydrogen mass in grams
+
+
+def detect_lte_floor_from_vadat(model_dir):
+    """Auto-detect whether LTE-at-T_local (--lte-floor) is the correct proxy_populations mode
+    by reading the VADAT file that prepare_VADAT.py has already written.
+
+    With USE_LAM_ES=T (J=B(T_local)) and FIX_T=T, the radiation field is thermal
+    at T_local. LTE at T_local is the correct starting point — NLTE-aware mode
+    would write T_ion != T_local, causing huge initial corrections.
+
+    With USE_LAM_ES=F (full moment solver), J is solved self-consistently and
+    can differ from B(T_local). NLTE-aware mode (default) is appropriate.
+
+    Returns True if LTE-at-T_local is recommended, False for NLTE-aware.
+    Prints a diagnostic message explaining the decision.
+    """
+    vadat_path = os.path.join(model_dir, 'VADAT')
+    if not os.path.exists(vadat_path):
+        print(f"[Auto-detect] VADAT not found at {vadat_path} — defaulting to NLTE-aware mode")
+        return False
+
+    use_lam_es = None
+    fix_t = None
+    with open(vadat_path) as f:
+        for line in f:
+            if '[USE_LAM_ES]' in line:
+                use_lam_es = line.strip().split()[0].upper() == 'T'
+            elif '[FIX_T]' in line:
+                fix_t = line.strip().split()[0].upper() == 'T'
+
+    if use_lam_es is None or fix_t is None:
+        print(f"[Auto-detect] Could not read USE_LAM_ES or FIX_T from VADAT — defaulting to NLTE-aware mode")
+        return False
+
+    if use_lam_es and fix_t:
+        print(f"[Auto-detect] USE_LAM_ES=T + FIX_T=T → J=B(T_local). Using LTE-at-T_local (--lte-floor mode).")
+        print(f"  NLTE-aware mode would write T_ion != T_local, mismatching the CMFGEN radiation field.")
+        return True
+    else:
+        print(f"[Auto-detect] USE_LAM_ES={use_lam_es} + FIX_T={fix_t} → J may differ from B(T_local).")
+        print(f"  Using NLTE-aware mode (dilute Saha at T_ion with W dilution).")
+        return False
+L_SUN = 3.828e33           # erg/s
+SIGMA_SB = 5.670374e-5     # Stefan-Boltzmann constant (erg/s/cm^2/K^4)
+
+# Species to element mapping: species_name -> (element_label, atomic_mass, ion_stage)
+# ion_stage: 1=neutral, 2=singly ionized, 3=doubly ionized
+# Kept for backwards compatibility and as an explicit override cache.
+_SPECIES_MAP = {
+    'HI':    ('HYD',  1.0,  1),
+    'HeI':   ('HE',   4.0,  1),
+    'CI':    ('CARB',12.0,  1),
+    'C2':    ('CARB',12.0,  2),
+    'OI':    ('OXY', 16.0,  1),
+    'O2':    ('OXY', 16.0,  2),
+    'SkI':   ('SIL', 28.1,  1),
+    'Sk2':   ('SIL', 28.1,  2),
+    'CaI':   ('CAL', 40.1,  1),
+    'Ca2':   ('CAL', 40.1,  2),
+    'CaIII': ('CAL', 40.1,  3),
+    'FeI':   ('IRON',55.8,  1),
+    'Fe2':   ('IRON',55.8,  2),
+    'FeIII': ('IRON',55.8,  3),
+    'FeIV':  ('IRON',55.8,  4),
+    'FeV':   ('IRON',55.8,  5),
+}
+
+# Atomic properties for MODEL file generation from MODEL_SPEC
+# species_name -> (Z, Gion, At_No)
+# Kept for backwards compatibility and as an explicit override cache.
+_SPECIES_ATOMIC = {
+    'HI':    (1.0,  1.0,  1.0),
+    'HeI':   (1.0,  2.0,  2.0),
+    'CI':    (1.0,  2.0,  6.0),
+    'C2':    (2.0,  1.0,  6.0),
+    'OI':    (1.0,  4.0,  8.0),
+    'O2':    (2.0,  9.0,  8.0),
+    'SkI':   (1.0,  2.0, 14.0),
+    'Sk2':   (2.0,  1.0, 14.0),
+    'CaI':   (1.0,  2.0, 20.0),
+    'Ca2':   (2.0,  1.0, 20.0),
+    'CaIII': (3.0,  1.0, 20.0),
+    'FeI':   (1.0, 10.0, 26.0),
+    'Fe2':   (2.0,  9.0, 26.0),
+    'FeIII': (3.0,  6.0, 26.0),
+    'FeIV':  (4.0,  1.0, 26.0),
+    'FeV':   (5.0,  4.0, 26.0),
+}
+
+# Element label used in SN_HYDRO_DATA mass-fraction section -> (Z, atomic mass)
+ELEMENT_INFO = {
+    'HYD':  (1,   1.008),
+    'HE':   (2,   4.003),
+    'CARB': (6,  12.011),
+    'NIT':  (7,  14.007),
+    'OXY':  (8,  15.999),
+    'SIL':  (14, 28.085),
+    'CAL':  (20, 40.078),
+    'IRON': (26, 55.845),
+    'NICK': (28, 58.693),
+    'SOD':  (11, 22.990),
+    'MASS': (12, 24.305),
+    'ALUM': (13, 26.982),
+    'PHOS': (15, 30.974),
+    'SULF': (16, 32.065),
+    'CHLO': (17, 35.453),
+    'ARGO': (18, 39.948),
+    'POTA': (19, 39.098),
+    'SCAN': (21, 44.956),
+    'TITA': (22, 47.867),
+    'VANA': (23, 50.942),
+    'CHRO': (24, 51.996),
+    'MANG': (25, 54.938),
+    'COBA': (27, 58.933),
+    'COPP': (29, 63.546),
+    'ZINC': (30, 65.380),
+    'NEON': (10, 20.180),
+    'FLUO': (9,  18.998),
+}
+
+# Map species code prefix (as used in MODEL_SPEC) -> ELEMENT_INFO key.
+# 'Sk' is the CMFGEN short code for Silicon (Si); 'MASS' is the STELLA Mg label.
+_PREFIX_TO_LABEL = {
+    'H': 'HYD', 'He': 'HE', 'C': 'CARB', 'N': 'NIT', 'O': 'OXY',
+    'Ne': 'NEON', 'F': 'FLUO',
+    'Na': 'SOD', 'Mg': 'MASS', 'Al': 'ALUM', 'Sk': 'SIL', 'Si': 'SIL',
+    'P': 'PHOS', 'S': 'SULF', 'Cl': 'CHLO', 'Ar': 'ARGO', 'K': 'POTA',
+    'Ca': 'CAL', 'Sc': 'SCAN', 'Ti': 'TITA', 'V': 'VANA', 'Cr': 'CHRO',
+    'Mn': 'MANG', 'Fe': 'IRON', 'Co': 'COBA', 'Ni': 'NICK', 'Cu': 'COPP',
+    'Zn': 'ZINC',
+}
+
+# Roman/Arabic ion stage suffixes.
+_ION_SUFFIX = {
+    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+    'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
+    '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+    '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
+}
+
+
+def parse_species_name(name):
+    """Parse a MODEL_SPEC/CMFGEN species name into (element_code, ion_stage).
+    Handles: HI, HeI, C2, FeIII, Sk2, CaIII, NiIX, etc.
+    Returns (None, None) if the name cannot be parsed.
+    """
+    m = re.match(r'^([A-Z][a-z]?)([IVX]+|\d{1,2})$', name)
+    if not m:
+        # Also try one-letter + suffix (e.g. HI, OI)
+        m = re.match(r'^([A-Z])([IVX]+|\d{1,2})$', name)
+    if not m:
+        return None, None
+    elem = m.group(1)
+    suffix = m.group(2)
+    if suffix not in _ION_SUFFIX:
+        return None, None
+    return elem, _ION_SUFFIX[suffix]
+
+
+def get_species_info(name):
+    """Return (element_label, atomic_mass, ion_stage) for a species name.
+    Uses explicit _SPECIES_MAP when available, otherwise falls back to a
+    generic element/ion parser so that new species (e.g. MgI, NiIV, etc.)
+    do not need to be hardcoded.
+    """
+    if name in _SPECIES_MAP:
+        return _SPECIES_MAP[name]
+    elem, ion_stage = parse_species_name(name)
+    if elem is None or elem not in _PREFIX_TO_LABEL:
+        raise KeyError(f"Species {name} not in _SPECIES_MAP and cannot be auto-parsed")
+    label = _PREFIX_TO_LABEL[elem]
+    if label not in ELEMENT_INFO:
+        raise KeyError(f"Element label {label} for {name} not in ELEMENT_INFO")
+    _, mass = ELEMENT_INFO[label]
+    return label, mass, ion_stage
+
+
+def get_atomic_info(name, gion_default=1.0):
+    """Return (Z, Gion, At_No) for a species name.
+    Uses explicit _SPECIES_ATOMIC when available, otherwise falls back to the
+    periodic table in ELEMENT_INFO. The Gion (ground-state statistical weight
+    of the NEXT ion) is not known a priori for new species; the Saha chain in
+    build_saha_atomic_data() now reads it from the next stage's F_OSCDAT,
+    so this function returns (Z, 1.0, At_No) for unknown species.
+    """
+    if name in _SPECIES_ATOMIC:
+        return _SPECIES_ATOMIC[name]
+    elem, ion_stage = parse_species_name(name)
+    if elem is None or elem not in _PREFIX_TO_LABEL:
+        raise KeyError(f"Species {name} not in _SPECIES_ATOMIC and cannot be auto-parsed")
+    label = _PREFIX_TO_LABEL[elem]
+    if label not in ELEMENT_INFO:
+        raise KeyError(f"Element label {label} for {name} not in ELEMENT_INFO")
+    z, _ = ELEMENT_INFO[label]
+    return float(ion_stage), gion_default, float(z)
+
+
+
+def parse_sn_hydro_data(filepath):
+    """Parse SN_HYDRO_DATA file. Returns dict with arrays of length ND."""
+    with open(filepath) as f:
+        lines = f.readlines()
+
+    def find_section(name):
+        for i, line in enumerate(lines):
+            if line.strip().lower().startswith(name.lower()):
+                return i
+        return -1
+
+    def read_array(start_idx, nd):
+        vals = []
+        i = start_idx + 1
+        while len(vals) < nd:
+            parts = lines[i].split()
+            for p in parts:
+                vals.append(float(p))
+                if len(vals) >= nd:
+                    break
+            i += 1
+        return vals
+
+    # Header
+    nd = int(re.search(r'\d+', lines[0]).group())
+    nmfrac = int(re.search(r'\d+', lines[1]).group())
+    time_days = float(lines[3].split()[-1])
+    lum_lsun = float(lines[4].split()[-1])
+    r_inner_cm = float(lines[5].split()[-1])
+    t_inner_k = float(lines[6].split()[-1])
+
+    # Sections
+    r_idx = find_section('Radius grid')
+    v_idx = find_section('Velocity')
+    sigma_idx = find_section('Sigma')
+    t_idx = find_section('Temperature')
+    rho_idx = find_section('Density')
+    ed_idx = find_section('Electron density')
+    natom_idx = find_section('Atom density')
+    kappa_idx = find_section('Kappa')
+
+    radius = read_array(r_idx, nd)       # 10^10 cm
+    velocity = read_array(v_idx, nd)     # km/s
+    sigma = read_array(sigma_idx, nd)
+    temperature = read_array(t_idx, nd)  # 10^4 K
+    density = read_array(rho_idx, nd)    # g/cm^3
+    ed = read_array(ed_idx, nd)          # number density
+    natom = read_array(natom_idx, nd)    # number density
+    kappa = read_array(kappa_idx, nd) if kappa_idx >= 0 else [0.0]*nd  # cm^2/g
+
+    # Mass fractions
+    mass_fracs = {}
+    elem_labels = ['HYD', 'HE', 'CARB', 'NIT', 'OXY', 'NEON', 'FLUO',
+                   'SOD', 'MASS', 'ALUM', 'SIL', 'PHOS', 'SULF', 'CHLO',
+                   'ARGO', 'POTA', 'CAL', 'SCAN', 'TITA', 'VANA', 'CHRO',
+                   'MANG', 'IRON', 'COBA', 'NICK', 'COPP', 'ZINC',
+                   'NICK 56', 'COB 56']
+    for label in elem_labels:
+        idx = find_section(f'{label} mass fraction')
+        if idx >= 0:
+            mass_fracs[label] = read_array(idx, nd)
+
+    # Fallback for elements not in SN_HYDRO_DATA (e.g., CARB when the hydro
+    # model doesn't track Carbon separately). Use a small solar-like default
+    # so proxy _IN files get non-zero populations; CMFGEN's own abundance
+    # (from VADAT CARB/X) will override during iteration.
+    if 'CARB' not in mass_fracs:
+        mass_fracs['CARB'] = [3.0e-3] * nd  # solar X_C ~ 3e-3 (Asplund 2009)
+
+    return {
+        'nd': nd, 'time_days': time_days, 'lum_lsun': lum_lsun,
+        'r_inner_cm': r_inner_cm, 't_inner_k': t_inner_k,
+        'radius': radius, 'velocity': velocity, 'sigma': sigma,
+        'temperature': temperature, 'density': density,
+        'ed': ed, 'natom': natom, 'kappa': kappa,
+        'mass_fracs': mass_fracs,
+    }
+
+
+def parse_vadat_abundances(vadat_path):
+    """Parse elemental mass fractions from VADAT DUM/X entries.
+
+    CMFGEN uses a single (depth-averaged) abundance for each element at ALL
+    depths. The VADAT stores these as -frac where frac is the mass fraction
+    (e.g., HYD/X = -0.657 means X_H = 0.657).
+
+    The proxy _IN files MUST use these VADAT abundances, not the local
+    SN_HYDRO_DATA mass fractions, because CMFGEN's SOLVEBA enforces the
+    VADAT abundance as a constraint on the total elemental population at
+    every depth. If the proxy uses local hydro abundances (which vary with
+    depth), the initial populations will be inconsistent with SOLVEBA's
+    constraint by up to ~1e28 at composition boundaries, causing huge
+    initial corrections (~1e20%) that require ~100+ iterations to converge.
+
+    Returns dict: element_label -> mass_fraction (linear, not log).
+    """
+    abundances = {}
+    with open(vadat_path) as f:
+        for line in f:
+            m = re.match(r'\s*(-?[\d.ED+-]+)\s+\[(\w+)/X\]', line)
+            if m:
+                val_str = m.group(1).replace('D', 'E').replace('d', 'e')
+                val = float(val_str)
+                elem = m.group(2)
+                abundances[elem] = -val  # VADAT stores -frac
+    return abundances
+
+
+def parse_f_oscdat(filepath):
+    """Parse F_OSCDAT file. Returns dict with n_levels, ionization_energy,
+    stat_wt list, energy list (cm^-1), fedge list (10^15 Hz), and transitions.
+
+    Transitions are stored as a list of dicts with keys:
+      i, j (1-based level indices), f (oscillator strength), A (Einstein A, s^-1),
+      wavelength (Angstrom).
+    Only transitions with A > 0 are stored (radiative transitions).
+    """
+    with open(filepath) as f:
+        lines = f.readlines()
+
+    # Find the !Date line(s) — some files (e.g. Fe2) have two date lines.
+    # The format is: "date_value  !Date" (the !Date tag is at the end).
+    # After the last !Date line, the next line is "n_levels  !Number of energy levels".
+    i = 0
+    while i < len(lines):
+        if '!Date' in lines[i]:
+            i += 1
+            # Skip any additional !Date lines (Fe2 has two)
+            while i < len(lines) and '!Date' in lines[i]:
+                i += 1
+            break
+        i += 1
+
+    # Next line: number of energy levels
+    n_levels = int(lines[i].split()[0])
+    i += 1
+    # Next line: ionization energy
+    ionization_en = float(lines[i].split()[0])
+    i += 1
+    # Next line: screened nuclear charge
+    i += 1
+    # Next line: number of transitions
+    i += 1
+    # Skip blank/comment lines until we hit level data
+    while i < len(lines) and ('!' in lines[i] or lines[i].strip() == ''):
+        i += 1
+
+    stat_wt = []
+    energy = []
+    fedge = []
+    for j in range(n_levels):
+        parts = lines[i].split()
+        # Format: name, stat_wt, energy(cm^-1), ARAD, C4, level_index
+        sw = float(parts[1])
+        en = float(parts[2])
+        fe = (ionization_en - en) * SPEED_LIGHT * 1.0e-15
+        stat_wt.append(sw)
+        energy.append(en)
+        fedge.append(fe)
+        i += 1
+
+    # Parse transitions: look for lines with the i-j pattern.
+    # HI format: "1___ -2___      4.162E-01   4.696E+08     1215.67      1-  2      1"
+    # Fe2 format: "3d6(5D)4s_a6De[9/2]       -3d6(5D)4s_a6De[7/2]             1.733E-08   2.140E-03   2.599E+05     1-   2        1"
+    # The key is to find the "i-j" field (e.g. "1-  2") and the f, A, wavelength values.
+    transitions = []
+    while i < len(lines):
+        line = lines[i].strip()
+        # Look for lines containing a pattern like "N-   N" (level indices)
+        # The i-j field has format: "int-int" with possible spaces
+        import re
+        # Match the i-j pattern anywhere in the line
+        ij_match = re.search(r'(\d+)-\s*(\d+)\s+\d+\s*\|', line)
+        if not ij_match:
+            # Also try without the | (HI format)
+            ij_match = re.search(r'(\d+)-\s*(\d+)\s+\d+\s*$', line)
+        if ij_match:
+            ti = int(ij_match.group(1))
+            tj = int(ij_match.group(2))
+            # Find f, A, wavelength values before the i-j field.
+            # These can be in scientific notation (e.g. 1.733E-08) or plain float (e.g. 1215.67)
+            # Look for 3 consecutive numeric values before the i-j pattern
+            before_ij = line[:ij_match.start()]
+            # Match both scientific and plain float patterns
+            num_pattern = re.findall(r'([\d.]+(?:E[+-]?\d+)?)', before_ij)
+            # Filter to only those that look like f, A, wavelength (last 3 numbers)
+            if len(num_pattern) >= 3:
+                try:
+                    f_val = float(num_pattern[-3])
+                    a_val = float(num_pattern[-2])
+                    wl = float(num_pattern[-1])
+                    transitions.append({
+                        'i': ti, 'j': tj, 'f': f_val, 'A': a_val,
+                        'wavelength': wl,
+                    })
+                except (ValueError, IndexError):
+                    pass
+        i += 1
+
+    return {
+        'n_levels': n_levels,
+        'ionization_energy': ionization_en,
+        'stat_wt': stat_wt,
+        'energy': energy,
+        'fedge': fedge,
+        'transitions': transitions,
+    }
+
+
+def parse_model_species(filepath):
+    """Parse MODEL file to get species list with N_F, Gion, etc.
+    Works for any species CMFGEN writes (e.g. HI, HeI, C2, FeIII, Sk2)."""
+    with open(filepath) as f:
+        lines = f.readlines()
+
+    species_list = []
+    for line in lines:
+        # General CMFGEN MODEL line: name n_f n_s z gion mass at_no ...
+        m = re.match(r'\s+([A-Z][a-zA-Z0-9]*)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)', line)
+        if not m:
+            continue
+        name = m.group(1)
+        # Reject lines that don't look like a species (e.g. headers)
+        if not re.match(r'^[A-Z][a-z]*[IVX]*$', name) and not re.match(r'^[A-Z][a-z]*\d+$', name):
+            continue
+        n_f = int(m.group(2))
+        n_s = int(m.group(3))
+        z = float(m.group(4))
+        gion = float(m.group(5))
+        mass = float(m.group(6))
+        at_no = float(m.group(7))
+        species_list.append({
+            'name': name, 'n_f': n_f, 'n_s': n_s,
+            'z': z, 'gion': gion, 'mass': mass, 'at_no': at_no,
+        })
+    return species_list
+
+
+def parse_model_spec_species(filepath):
+    """Parse MODEL_SPEC file to get species list when MODEL file is not available.
+    Extracts species names and N_F from ISF entries, looks up atomic properties.
+    Works for any species (e.g. FeIV, MgI, NiIX) and tolerates optional spaces
+    around the ISF commas (e.g. " 5, 5, 5 [HeI_ISF]")."""
+    with open(filepath) as f:
+        lines = f.readlines()
+
+    species_list = []
+    for line in lines:
+        # Match lines like "5, 5, 5       [HeI_ISF]  !..." or "10,10,10 [HeI_ISF]"
+        m = re.match(r'(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s+\[(\w+)_ISF\]', line)
+        if not m:
+            continue
+        n_v = int(m.group(1))
+        n_s = int(m.group(2))
+        n_f = int(m.group(3))
+        name = m.group(4)
+        try:
+            elem_label, mass, _ = get_species_info(name)
+            z, gion, at_no = get_atomic_info(name)
+        except KeyError:
+            # Skip species we cannot map; the caller will warn.
+            continue
+        species_list.append({
+            'name': name, 'n_f': n_f, 'n_s': n_s, 'n_v': n_v,
+            'z': z, 'gion': gion, 'mass': mass, 'at_no': at_no,
+        })
+    return species_list
+
+
+def compute_w(radius, r_inner_cm):
+    """Compute geometric radiation dilution factor W.
+    W = 0.5 * (1 - sqrt(1 - (R_in/R)^2)) for R > R_in.
+    radius is in 10^10 cm, r_inner_cm in cm."""
+    r_inner_10 = r_inner_cm / 1e10
+    w = []
+    for r in radius:
+        if r <= r_inner_10:
+            w.append(1.0)
+        else:
+            ratio = r_inner_10 / r
+            w.append(0.5 * (1.0 - math.sqrt(max(0.0, 1.0 - ratio**2))))
+    return w
+
+
+def compute_t_rad(hydro, tau=None, r_ph_10cm=None, tau_trans=1.0):
+    """Compute radiation temperature T_rad at each depth.
+
+    The radiation field temperature represents the temperature that
+    characterizes J(nu) — i.e., J(nu) ≈ W * B(nu, T_rad).
+
+    In SN ejecta:
+    - Optically thick (tau >> 1): J ≈ B(T_local), so T_rad = T_local
+    - Optically thin (tau << 1): J ≈ W * B(T_ph), so T_rad = T_ph
+      (the radiation field is set by the photosphere, not the local gas)
+
+    T_ph is the photospheric temperature (T at tau = 2/3).
+
+    The old approach computed T_eff(R) = (L/(4πR²σ))^(1/4), which DECREASES
+    outward and gives T_rad < T_local in the outer layers — the opposite of
+    what we need. The radiation field at radius R is set by the photosphere
+    below, not by the local luminosity.
+
+    Transition: T_rad = T_local + (T_ph - T_local) * exp(-tau/tau_trans)
+    This gives T_rad → T_local at depth and T_rad → T_ph at the surface.
+
+    Returns T_rad in units of 10^4 K (same as hydro['temperature'])."""
+    nd = hydro['nd']
+    t_local = hydro['temperature']  # 10^4 K
+
+    if tau is None or r_ph_10cm is None:
+        # Fallback: compute tau and find photosphere
+        tau = compute_tau(hydro)
+        r_ph_10cm, ph_idx = find_photosphere(hydro, tau)
+
+    # Photospheric temperature: interpolate T at tau = 2/3
+    t_ph = None
+    for i in range(nd - 1):
+        if tau[i] >= 2.0/3.0:
+            if i == 0:
+                t_ph = t_local[0]
+            else:
+                t0, t1 = tau[i-1], tau[i]
+                tt0, tt1 = t_local[i-1], t_local[i]
+                if t1 == t0:
+                    t_ph = t_local[i]
+                else:
+                    frac = ((2.0/3.0) - t0) / (t1 - t0)
+                    t_ph = tt0 + frac * (tt1 - tt0)
+            break
+    if t_ph is None:
+        t_ph = t_local[nd-1]  # fallback to innermost
+
+    # T_rad with tau-dependent transition
+    t_rad = []
+    for i in range(nd):
+        weight = math.exp(-tau[i] / tau_trans)  # 1 at surface, 0 at depth
+        t = t_local[i] + (t_ph - t_local[i]) * weight
+        t_rad.append(max(t, 0.01))  # floor at 100 K
+    return t_rad
+
+
+def compute_tau(hydro):
+    """Compute optical depth profile from SN_HYDRO_DATA kappa and density.
+
+    tau(i) = integral from R(i) to R(1) of kappa * rho * dR
+    (integrated from outside in; depth 1 = outermost).
+
+    Uses the Rosseland mean kappa from SN_HYDRO_DATA (which includes both
+    line and continuum opacity from STELLA). Falls back to electron-scattering
+    kappa_es = 0.2*(1+X) if kappa is not available.
+
+    Returns tau array of length ND (outer-to-inner, matching hydro convention).
+    """
+    nd = hydro['nd']
+    radius = hydro['radius']        # 10^10 cm
+    density = hydro['density']      # g/cm^3
+    kappa = hydro.get('kappa', [0.0]*nd)  # cm^2/g
+
+    # If kappa is all zeros, compute electron-scattering kappa from H mass fraction
+    if all(k == 0.0 for k in kappa):
+        x_h = hydro['mass_fracs'].get('HYD', [0.7]*nd)
+        kappa = [0.2 * (1.0 + x_h[i]) for i in range(nd)]
+
+    # tau integrated from outside (depth 1) inward
+    tau = [0.0] * nd
+    for i in range(1, nd):
+        # Cell between depth i-1 and i (outer to inner)
+        dr = abs(radius[i] - radius[i-1]) * 1e10  # cm
+        # Use average kappa and density for the cell
+        k_avg = 0.5 * (kappa[i] + kappa[i-1])
+        rho_avg = 0.5 * (density[i] + density[i-1])
+        dtau = k_avg * rho_avg * dr
+        tau[i] = tau[i-1] + dtau
+    return tau
+
+
+def find_photosphere(hydro, tau, tau_target=2.0/3.0):
+    """Find the photosphere radius where tau = tau_target.
+
+    SN_HYDRO_DATA is ordered outer-to-inner (depth 1 = outermost, depth ND = innermost).
+    tau increases from outside (tau~0) to inside (tau~100).
+    Returns R_ph in 10^10 cm, and the depth index where tau crosses tau_target.
+    """
+    nd = hydro['nd']
+    radius = hydro['radius']
+
+    # Find where tau crosses tau_target (tau increases with depth index)
+    for i in range(nd - 1):
+        if tau[i] >= tau_target:
+            # Interpolate between depth i-1 and i
+            if i == 0:
+                return radius[0], 0
+            t0, t1 = tau[i-1], tau[i]
+            r0, r1 = radius[i-1], radius[i]
+            if t1 == t0:
+                return radius[i], i
+            frac = (tau_target - t0) / (t1 - t0)
+            r_ph = r0 + frac * (r1 - r0)
+            return r_ph, i
+
+    # tau never reaches tau_target — use innermost radius
+    return radius[nd-1], nd-1
+
+
+def compute_w_eff(radius, r_ph_10cm, tau, tau_trans=1.0):
+    """Compute depth-dependent effective radiation dilution factor W_eff.
+
+    In the optically thick region (tau >> 1): J ≈ B(T), so W_eff → 1 (LTE).
+    In the optically thin region (tau << 1): J ≈ W_geom * B(T_rad),
+    where W_geom = 0.5*(1 - sqrt(1 - (R_ph/R)^2)) is the geometric dilution
+    from the photosphere.
+
+    Transition: W_eff = W_geom + (1 - W_geom) * (1 - exp(-tau/tau_trans))
+    This smoothly interpolates:
+      - tau → 0:   W_eff → W_geom (diluted radiation, NLTE-like)
+      - tau → inf: W_eff → 1       (trapped radiation, LTE)
+
+    radius:    array in 10^10 cm (outer-to-inner)
+    r_ph_10cm: photosphere radius in 10^10 cm
+    tau:       optical depth array (outer-to-inner, increasing)
+    tau_trans: transition optical depth (default 1.0)
+    """
+    w_eff = []
+    for i in range(len(radius)):
+        r = radius[i]
+        if r <= r_ph_10cm:
+            w_geom = 1.0
+        else:
+            ratio = r_ph_10cm / r
+            w_geom = 0.5 * (1.0 - math.sqrt(max(0.0, 1.0 - ratio**2)))
+        # Optical depth transition: 0 at surface, 1 at depth
+        tau_factor = 1.0 - math.exp(-tau[i] / tau_trans)
+        w = w_geom + (1.0 - w_geom) * tau_factor
+        w = min(w, 1.0)
+        w_eff.append(w)
+    return w_eff
+
+
+def compute_t_ion(t_local, t_rad, tau, tau_trans=1.0):
+    """Compute hybrid ionization temperature for NLTE-aware Saha equation.
+
+    In the optically thick region (tau >> 1): T_ion = T_local (LTE, consistent
+    with hydro electron density).
+    In the optically thin region (tau << 1): T_ion = T_rad (radiation-driven
+    ionization — the UV radiation field from the hot inner ejecta ionizes the
+    outer layers more than Saha at T_local would predict).
+
+    Transition: T_ion = T_local + (T_rad - T_local) * exp(-tau/tau_trans)
+
+    This mimics the key NLTE effect: in SN outer layers, the ionization is set
+    by the radiation field (J ~ W*B(T_rad)), not the gas temperature. Using
+    T_local for Saha gives H neutral at T=3000K, but the actual NLTE solution
+    has H partially ionized by the UV radiation field.
+
+    t_local: gas temperature in 10^4 K (from SN_HYDRO_DATA)
+    t_rad:   radiation temperature in 10^4 K (from luminosity)
+    tau:     optical depth array
+    tau_trans: transition optical depth
+    """
+    t_ion = []
+    for i in range(len(t_local)):
+        weight = math.exp(-tau[i] / tau_trans)  # 1 at surface, 0 at depth
+        t = t_local[i] + (t_rad[i] - t_local[i]) * weight
+        t_ion.append(max(t, t_local[i]))  # never go below T_local
+    return t_ion
+
+
+def get_excite_temp(t, gs_dc, fedge_gs, hdkt=HDKT, accuracy=1e-2, max_iter=1000):
+    """Replicate CMFGEN's GET_EXCITE_TEMP: solve for T_EXC from ground state DC.
+    t: electron temperature in 10^4 K
+    gs_dc: ground state departure coefficient
+    fedge_gs: ground state FEDGE in 10^15 Hz
+    Returns T_EXC in 10^4 K."""
+    nu_hdkt = fedge_gs * hdkt
+    t_exc = t
+    old_val = 1e-4
+    for j in range(max_iter):
+        t1 = math.exp(nu_hdkt * (1.0/t_exc - 1.0/t))
+        t2 = gs_dc - t1 * (t/t_exc)**1.5
+        t3 = (nu_hdkt/t_exc + 1.5 * (t/t_exc)**1.5) * t1
+        if t3 == 0:
+            break
+        dtont = -t2 / t3
+        if dtont < -0.6:
+            t_exc = 0.4 * t_exc
+        elif dtont > 4.0:
+            t_exc = 4.0 * t_exc
+        else:
+            t_exc = t_exc * (1.0 + dtont)
+        if t_exc <= 0:
+            t_exc = 0.01 * t
+        if abs(t_exc/old_val - 1.0) < accuracy:
+            break
+        old_val = t_exc
+    return t_exc
+
+
+def compute_dc_lte_cmfgen(nlev, nd, t, fedge, t_exc_min=0.3):
+    """Compute LTE departure coefficients exactly as CMFGEN's SET_DC_LTE_V2.
+
+    Replicates the Fortran subroutine in subs/set_dc_lte_v2.f:
+      TMIN_LOC = TMIN * (1 + max(0, (EDGE(1) - 3.5)) / 20)
+      DO I=1,ND
+        DXzV(I) = 1.0
+        IF T(I) > TMIN_LOC:
+          XzVLTE(:,I) = 0.0           ! log(DC) = 0 → DC = 1 (full LTE)
+        ELSE:
+          XzVLTE(J,I) = HDKT*EDGE(J)*(1/TMIN_LOC - 1/T(I))   ! log(DC)
+      END DO
+
+    Note: SET_DC_LTE_V2 stores LOG(DC), not DC. We return linear DC.
+    Note: No (T/T_EXC)^1.5 factor — that's from GET_EXCITE_TEMP, not LTE.
+    Note: TMIN_LOC is species-dependent via EDGE(1) (ground state edge freq).
+
+    All temperatures in 10^4 K, FEDGE in 10^15 Hz (same as CMFGEN).
+    """
+    # TMIN_LOC: species-dependent minimum temperature
+    # EDGE(1) is the ground state edge frequency in 10^15 Hz
+    edge1 = fedge[0]
+    tmin_loc = t_exc_min * (1.0 + max(0.0, (edge1 - 3.5)) / 20.0)
+
+    dc = [[0.0]*nd for _ in range(nlev)]
+    for i in range(nd):
+        if t[i] > tmin_loc:
+            # T > TMIN_LOC: full LTE, DC = 1 for all levels
+            for j in range(nlev):
+                dc[j][i] = 1.0
+        else:
+            # T <= TMIN_LOC: depleted populations
+            # DC = exp(HDKT * EDGE(J) * (1/TMIN_LOC - 1/T))
+            # Since T < TMIN_LOC, (1/TMIN_LOC - 1/T) < 0, so DC < 1
+            for j in range(nlev):
+                arg = HDKT * fedge[j] * (1.0/tmin_loc - 1.0/t[i])
+                if arg > 700:
+                    arg = 700
+                elif arg < -700:
+                    arg = -700
+                dc[j][i] = math.exp(arg)
+    return dc
+
+
+def compute_dc(nlev, nd, t, t_exc, fedge, w, t_exc_min=0.3):
+    """Compute departure coefficients DC(J,I) using dilute LTE with excitation temperature.
+    DC(J,I) = ((T(I)/T_EXC(I))**1.5) * EXP(HDKT*FEDGE(J)*(1/T_EXC(I) - 1/T(I)))
+    Ground state DC = W (dilution factor), T_EXC solved from ground state DC.
+    All temperatures in 10^4 K, FEDGE in 10^15 Hz.
+    Floor DC at max(W*1e-5, 1e-30) to prevent zero populations in BA matrix.
+
+    t_exc_min: minimum excitation temperature floor in 10^4 K (default 0.3 = 3000 K).
+    Mimics CMFGEN's SET_DC_LTE_V2 T_EXC behavior: when T < T_EXC_min, populations
+    are computed at T_EXC_min instead of T, preventing exponential overflows in
+    very cold outer zones where LTE at T~1000K would give n_excited/n_gs ~ 1e-100."""
+    dc = [[0.0]*nd for _ in range(nlev)]
+    for i in range(nd):
+        dc_min = max(w[i] * 1e-5, 1e-30)
+        # Apply T_EXC floor: never let T_exc go below t_exc_min
+        t_exc_eff = max(t_exc[i], t_exc_min)
+        # Also floor T itself for the DC formula (mimics SET_DC_LTE_V2 TMIN_LOC)
+        t_eff = max(t[i], t_exc_min)
+        ratio = t_eff / t_exc_eff if t_exc_eff > 0 else 1.0
+        ratio15 = ratio**1.5
+        for j in range(nlev):
+            arg = HDKT * fedge[j] * (1.0/t_exc_eff - 1.0/t_eff)
+            if arg > 700:
+                arg = 700
+            elif arg < -700:
+                arg = -700
+            val = ratio15 * math.exp(arg)
+            if val < dc_min:
+                val = dc_min
+            elif val > 1e10:
+                val = 1e10
+            dc[j][i] = val
+    return dc
+
+
+def compute_dc_dilute_lte(nlev, nd, t_local, t_ion, fedge, w, t_exc_min=0.3,
+                          di_ratio=None):
+    """Compute departure coefficients for dilute LTE with T_ion.
+
+    The correct dilute LTE DC when DI is the dilute Saha ion density:
+
+        DC(J,I) = W * [DI_full/DI_dilute] * (T_local/T_ion)^1.5
+                  * exp(HDKT*FEDGE(J)*(1/T_local - 1/T_ion))
+
+    where DI_full is the full Saha ion density at T_ion and DI_dilute is the
+    dilute Saha ion density (W * Saha). The ratio DI_full/DI_dilute accounts
+    for the W dilution in the ionization balance: for low-chi species where
+    W*Saha >> 1, both give f≈1 so the ratio is 1.0. For high-chi species (e.g.,
+    He I→II at 24.6 eV) where W*Saha ~ 1, f_dilute < f_full, so the ratio > 1,
+    boosting the DC to compensate for the reduced DI.
+
+    This accounts for the temperature difference between the gas (T_local, used
+    by CMFGEN for the LTE Boltzmann factor) and the radiation field (T_ion, which
+    sets the actual NLTE excitation). In the optically thick regime (T_ion =
+    T_local, W=1): DC = 1 (full LTE). In the optically thin regime (T_ion >
+    T_local, W<1): the exponential factor exp(edge*(1/kT_local - 1/kT_ion)) >>
+    1, partially compensating for W < 1 and giving DC >> W.
+
+    The previous approach (DC = W, with T_exc from get_excite_temp) used the
+    wrong sign in the exponent: exp(HDKT*FEDGE*(1/T_exc - 1/T)) gives DC < 1
+    when T_exc > T, but the correct formula has exp(HDKT*FEDGE*(1/T - 1/T_exc))
+    which gives DC > 1. The old formula depleted populations that should be
+    enhanced, causing initial populations to be off by 1e18x at depth 178
+    (T_local=3008K, T_ion=7635K, W=0.009).
+
+    di_ratio: optional array of DI_full/DI_dilute ratios per depth. When None,
+    ratio is assumed 1.0 (correct when W*Saha >> 1 for all depths).
+
+    All temperatures in 10^4 K, FEDGE in 10^15 Hz (same as CMFGEN).
+    """
+    dc = [[0.0]*nd for _ in range(nlev)]
+    for i in range(nd):
+        dc_min = max(w[i] * 1e-5, 1e-30)
+        # Apply floors to both temperatures
+        t_loc = max(t_local[i], t_exc_min)
+        t_ion_eff = max(t_ion[i], t_exc_min)
+        ratio15 = (t_loc / t_ion_eff)**1.5 if t_ion_eff > 0 else 1.0
+        # DI ratio: accounts for dilute Saha giving smaller DI than full Saha
+        di_f = di_ratio[i] if di_ratio is not None else 1.0
+        for j in range(nlev):
+            arg = HDKT * fedge[j] * (1.0/t_loc - 1.0/t_ion_eff)
+            if arg > 700:
+                arg = 700
+            elif arg < -700:
+                arg = -700
+            val = w[i] * di_f * ratio15 * math.exp(arg)
+            if val < dc_min:
+                val = dc_min
+            elif val > 1e30:
+                val = 1e30
+            dc[j][i] = val
+    return dc
+
+
+def compute_dc_nlte_reduced(atom_data, nlev, nd, t, ed, ion_pop, w, t_rad,
+                            next_ion_pop=None, t_exc_min=0.3,
+                            current_ion_pop=None, gion_next=1.0):
+    """Compute NLTE departure coefficients that produce physically correct
+    initial populations for CMFGEN.
+
+    CMFGEN's LTEPOP_WLD_V2 computes LTE populations as:
+      n_LTE(J) = W * g(J) * exp(EDGE(J)*HDKT/T) * C * ED * DI_next * T^(-1.5) / GION_next
+
+    where DI_next is the NEXT ion stage's density (from the _IN file's DI column)
+    and GION_next is the next ion's ground-state statistical weight.
+
+    The initial population is: n_init(J) = DC(J) * n_LTE(J)
+
+    The problem: when the current ion is dominant (e.g. Fe2 at T=4800K),
+    DI_next (Fe3) is extremely small, making n_LTE tiny. The actual NLTE
+    population should be ~n_current * g(J) * exp(-dE/kT) / Z, which is
+    much larger. This creates enormous initial corrections (1e18+).
+
+    Solution: compute DC = n_physical / n_LTE, where n_physical uses the
+    CURRENT ion's density (not the next ion's).
+
+    Since n_LTE(J) ∝ g(J) * exp(edge(J)*HDKT/T) and
+    n_physical(J) ∝ g(J) * exp(-dE(J)/kT), and
+    exp(edge(J)*HDKT/T) = exp(edge(0)*HDKT/T) * exp(-dE(J)/kT),
+    the ratio DC(J) = n_physical(J) / n_LTE(J) is the SAME for all levels:
+
+      DC = n_current / [Z * W * C * ED * DI_next * T^(-1.5) * exp(edge(0)*HDKT/T) / GION_next]
+
+    This is the ratio of the current ion density to the Saha-predicted
+    density (which uses DI_next). When the current ion is dominant,
+    this ratio is very large.
+
+    Args:
+        atom_data: parsed F_OSCDAT dict
+        nlev: number of levels to write
+        nd: number of depth points
+        t: temperatures in 10^4 K
+        ed: electron densities in cm^-3
+        ion_pop: NEXT ion stage density (DI) in cm^-3 (written to _IN file)
+        w: radiation dilution factor
+        t_rad: radiation temperature in 10^4 K
+        next_ion_pop: same as ion_pop (API compat)
+        t_exc_min: minimum excitation temperature floor in 10^4 K
+        current_ion_pop: CURRENT ion stage's total density in cm^-3.
+                         If provided, DC is computed as n_current/n_LTE.
+                         If None, DC=1 (LTE fallback).
+        gion_next: ground-state statistical weight of the NEXT ion stage
+
+    Returns:
+        dc: 2D array [nlev][nd] of departure coefficients
+    """
+    import numpy as np
+
+    K_B = 1.3807e-16  # erg/K
+    H_PLANCK = 6.6261e-27  # erg*s
+    C_CM = 2.9979e10  # cm/s
+    # CMFGEN LTE constant: 2.07078E-22
+    CMFGEN_C = 2.07078e-22
+
+    n_full = min(nlev, atom_data['n_levels'])
+    stat_wt = atom_data['stat_wt'][:n_full]
+    energy_cm = atom_data['energy'][:n_full]
+    fedge = atom_data['fedge'][:n_full]
+
+    dc = np.ones((nlev, nd))
+
+    if current_ion_pop is None:
+        # Without current ion density, can't compute correct DCs
+        return dc.tolist()
+
+    for i in range(nd):
+        T_K = max(t[i] * 1e4, t_exc_min * 1e4)
+        T4 = T_K / 1e4
+        ne = max(ed[i], 1.0)
+        W = max(w[i], 1e-6)
+        di_next = max(ion_pop[i], 1e-100)  # next ion density (DI in _IN file)
+        n_current = max(current_ion_pop[i], 1e-100)  # current ion total density
+
+        # Partition function Z = sum_j g_j * exp(-dE_j/kT)
+        Z = 0.0
+        for j in range(n_full):
+            dE = (energy_cm[j] - energy_cm[0]) * H_PLANCK * C_CM  # erg
+            arg = -dE / (K_B * T_K)
+            if arg > 700: arg = 700
+            elif arg < -700: arg = -700
+            Z += stat_wt[j] * math.exp(arg)
+        if Z <= 0:
+            Z = stat_wt[0]
+
+        # CMFGEN LTE population of ground state:
+        # n_LTE_gs = W * g_gs * exp(edge_gs*HDKT/T) * C * ED * DI_next * T^(-1.5) / GION_next
+        edge_gs = fedge[0]  # 10^15 Hz
+        # HDKT = h*c/k_B in units of 10^15 Hz * 10^4 K = 4.7993
+        # exp(edge_gs * HDKT / T) where T is in 10^4 K
+        exp_factor = math.exp(min(edge_gs * HDKT / max(t[i], t_exc_min), 700))
+
+        n_lte_gs = (W * stat_wt[0] * exp_factor * CMFGEN_C *
+                    ne * di_next * max(t[i], t_exc_min)**(-1.5) / max(gion_next, 1.0))
+
+        if n_lte_gs > 1e-100:
+            # DC = n_current_gs / n_LTE_gs
+            # n_current_gs = n_current * g_gs / Z
+            n_current_gs = n_current * stat_wt[0] / Z
+            dc_val = n_current_gs / n_lte_gs
+            # Floor and cap
+            dc_val = max(dc_val, 1e-30)
+            dc_val = min(dc_val, 1e30)
+        else:
+            dc_val = 1.0
+
+        # All levels get the same DC (as derived in the docstring)
+        for j in range(nlev):
+            dc[j, i] = dc_val
+
+    return dc.tolist()
+
+
+# Fallback ionization energies in cm^-1, only used if a species' own
+# F_OSCDAT file cannot be found in the model directory (see
+# build_saha_atomic_data(), which is strongly preferred: it reads the
+# ionization energy directly from each species' F_OSCDAT -- the exact same
+# atomic-data file CMFGEN itself reads for that species -- instead of a
+# hardcoded literal here that could silently drift from the atomic dataset
+# actually in use, or worse, assume higher ionization stages exist (e.g.
+# Fe IV, Fe V) that the current model's MODEL_SPEC does not even include.
+# Key: (element_label, ion_stage) -> ionization_energy in cm^-1
+IONIZATION_ENERGIES_CM_FALLBACK = {
+    ('HYD', 1): 109678.764,    # H I -> H II (13.6 eV)
+    ('HE',  1): 198310.773,   # He I -> He II (24.6 eV)
+    ('CARB', 1): 90820.4,     # C I -> C II (11.3 eV)
+    ('CARB', 2): 196664.7,    # C II -> C III (24.4 eV)
+    ('OXY', 1): 109837.020,   # O I -> O II (13.6 eV)
+    ('OXY', 2): 283270.9,     # O II -> O III (35.1 eV)
+    ('SIL', 1): 65747.760,    # Si I -> Si II (8.15 eV)
+    ('SIL', 2): 131838.140,   # Si II -> Si III (16.3 eV)
+    ('CAL', 1): 49305.000,    # Ca I -> Ca II (6.11 eV)
+    ('CAL', 2): 95752.000,    # Ca II -> Ca III (11.9 eV)
+    ('CAL', 3): 410614.1,     # Ca III -> Ca IV (50.9 eV)
+    ('IRON', 1): 63737.000,   # Fe I -> Fe II (7.90 eV)
+    ('IRON', 2): 130563.000,  # Fe II -> Fe III (16.2 eV)
+}
+
+# Saha constant: (2*pi*m_e*k_B/h^2)^(3/2) * 2 in cgs
+# = 2.414e15 * T^(3/2) cm^-3 for T in K
+# Using (h/k_B) in cm*K: h/k_B = 1.4388 cm*K
+# Saha equation: n_{i+1}/n_i = (2*g_{i+1}/g_i)*(2*pi*m_e*k_B*T/h^2)^(3/2)/n_e * exp(-chi/(k_B*T))
+# The g_{i+1}/g_i (upper-ion-ground / lower-ion-ground statistical weight)
+# ratio is supplied per-transition by build_saha_atomic_data() from the
+# model's own atomic data, rather than assumed to be 1.
+# SAHA_CONST includes the factor of 2 for electron spin degeneracy.
+# VERIFIED against ltepop_wld_v2.f:67 (LTEPOP_C = 2.07078E-22 is the reciprocal
+# with the factor of 2 in the denominator).
+# 2.414e15 * 2 = 4.828e15.
+SAHA_CONST = 4.828e15  # (2*pi*m_e*k_B/h^2)^(3/2) * 2, cgs, K^(-3/2)
+
+
+def build_saha_atomic_data(model_dir, species_list):
+    """Build per-element Saha ionization-energy and statistical-weight-ratio
+    chains directly from THIS model's own F_OSCDAT atomic-data files (the
+    same files symlinked into model_dir that CMFGEN itself reads for level
+    energies/edges), instead of a hardcoded, model-independent table.
+
+    This guarantees:
+      1. Ionization energies match the exact atomic dataset in use (no risk
+         of drift between a literal Python dict and the actual F_OSCDAT).
+      2. The Saha ionization chain only spans ion stages actually present
+         in this model's MODEL_SPEC/MODEL (e.g. if only FeI/Fe2/FeIII are
+         tracked, we never solve a fictitious Fe III->IV->V balance using
+         energies for ions the NLTE model doesn't otherwise represent).
+      3. The g_upper/g_lower statistical-weight ratio in the Saha equation
+         uses the real GION (ion ground-state weight, from MODEL/MODEL_SPEC)
+         and the real ground-state weight of the lower ion (F_OSCDAT stat_wt
+         of level 1), instead of implicitly assuming a ratio of 1.
+
+    Returns (chi_by_element, gratio_by_element, atom_data_cache):
+      chi_by_element[elem_label]    = [chi_1->2, chi_2->3, ...] in cm^-1
+      gratio_by_element[elem_label] = [g_2/g_1, g_3/g_2, ...]
+      atom_data_cache[species_name] = parsed F_OSCDAT dict (reusable by the
+                                       caller to avoid re-parsing the file).
+    """
+    by_elem = defaultdict(dict)  # elem_label -> {ion_stage: (name, sp)}
+    for sp in species_list:
+        name = sp['name']
+        try:
+            elem_label, _, ion_stage = get_species_info(name)
+        except KeyError:
+            continue
+        by_elem[elem_label][ion_stage] = (name, sp)
+
+    atom_data_cache = {}
+    chi_by_element = {}
+    gratio_by_element = {}
+    for elem_label, stages in by_elem.items():
+        chi_list = []
+        gratio_list = []
+        stage = 1
+        while stage in stages:
+            name, sp = stages[stage]
+            oscdat_path = os.path.join(model_dir, f'{name}_F_OSCDAT')
+            if not os.path.exists(oscdat_path):
+                print(f"    WARNING: {oscdat_path} not found; cannot extend "
+                      f"Saha chain for {elem_label} past stage {stage} using "
+                      f"model atomic data.")
+                break
+            if name not in atom_data_cache:
+                atom_data_cache[name] = parse_f_oscdat(oscdat_path)
+            atom_data = atom_data_cache[name]
+            g_neutral = atom_data['stat_wt'][0]  # ground state of THIS stage, from F_OSCDAT
+
+            # Only include this ionization transition if the NEXT stage is also
+            # in the MODEL. If the next stage is not modelled (e.g. Fe IV is
+            # absent while Fe I/II/III are present), the current stage is the
+            # highest modelled stage and acts as the Saha "sink" — all
+            # population that would otherwise go to higher ions stays here.
+            # Including the transition to an unmodelled stage (e.g. Fe III->IV
+            # with chi=247200 cm^-1) causes the Saha solver to put ~100% of
+            # the element into the unmodelled stage at high T, leaving the
+            # modelled stages with ~1e-10 fraction and producing DI values
+            # that are ~1e10x too small.
+            if stage + 1 not in stages:
+                stage += 1
+                continue
+
+            # Ground-state weight of the NEXT ionization stage: prefer the
+            # F_OSCDAT for stage+1 if it is in the model, fall back to the value
+            # from the MODEL file / MODEL_SPEC parser, or 1.0 as last resort.
+            g_ion = sp.get('gion', 0.0)
+            if stage + 1 in stages:
+                name_next, _ = stages[stage + 1]
+                oscdat_next = os.path.join(model_dir, f'{name_next}_F_OSCDAT')
+                if os.path.exists(oscdat_next):
+                    if name_next not in atom_data_cache:
+                        atom_data_cache[name_next] = parse_f_oscdat(oscdat_next)
+                    g_ion = atom_data_cache[name_next]['stat_wt'][0]
+            if g_ion <= 0.0:
+                g_ion = 1.0
+
+            chi_list.append(atom_data['ionization_energy'])
+            gratio_list.append(g_ion / g_neutral if g_neutral > 0 else 1.0)
+            stage += 1
+        if chi_list:
+            chi_by_element[elem_label] = chi_list
+            gratio_by_element[elem_label] = gratio_list
+    return chi_by_element, gratio_by_element, atom_data_cache
+
+
+def compute_saha_ion_frac(element_label, ion_stage, hydro, atomic_mass, t_override=None,
+                          t_floor_min=0.3, min_ion_frac=1e-30, w_dilute=None,
+                          chi_list=None, gratio_list=None):
+    """Compute Saha ionization fraction for a given ion stage at each depth.
+    Returns fraction f_i = n_ion_stage / n_element.
+    Uses Saha equation with electron density from SN_HYDRO_DATA.
+    For multi-stage elements, solves the full Saha system.
+
+    t_override: optional array of temperatures in 10^4 K to use instead of
+    hydro['temperature']. When provided, the Saha equation uses T_ion (hybrid
+    T_local/T_rad) instead of T_local, giving NLTE-aware ionization in the
+    optically thin outer layers where the radiation field drives ionization.
+
+    w_dilute: optional array of radiation dilution factors W per depth. When
+    provided, the Saha ratio is multiplied by W, giving the *dilute Saha*
+    equation that accounts for the diluted radiation field in optically thin
+    layers. This prevents over-ionization of high-chi species (e.g., He I→II
+    at 24.6 eV) that occurs with full Saha at T_ion: W * Saha(T_ion) gives
+    f_HeII ≈ 0.24 instead of 0.97, matching the actual NLTE solution much
+    better. For low-chi species (H, Ca, Fe) where W * Saha >> 1, the dilute
+    Saha gives the same result as full Saha (f ≈ 1.0).
+
+    t_floor_min: minimum Saha temperature in 10^4 K (default 0.3 = 3000 K).
+    The *effective* floor used per-species is scaled up with ionization energy
+    (mirroring CMFGEN's SET_DC_LTE_V2 TMIN_LOC mechanism, which raises the
+    floor for higher-edge-frequency species). This prevents the Saha equation
+    from underflowing to a numerically vanishing ion fraction (~1e-30 or
+    smaller) in cold outer zones, which otherwise produces a CMFGEN LTE
+    population estimate of ~0 for the ion density (DI) — requiring an
+    effectively infinite correction once NLTE iterations begin and triggering
+    a population explosion (see AGENTS.md "CRITICAL: _IN File Ion Density...").
+
+    min_ion_frac: absolute floor on the returned ion fraction (default 1e-30).
+    Keeps trace species from underflowing to a numerically vanishing ion fraction
+    in cold outer zones, while staying far below typical population levels so it
+    does not force an artificially large DI estimate.
+
+    chi_list, gratio_list: per-transition ionization energies (cm^-1) and
+    upper/lower statistical-weight ratios for this element, as built by
+    build_saha_atomic_data() from the model's own F_OSCDAT/MODEL_SPEC data.
+    If not supplied, falls back to IONIZATION_ENERGIES_CM_FALLBACK with
+    gratio=1 (legacy behaviour) -- only intended for species whose F_OSCDAT
+    could not be located."""
+    nd = hydro['nd']
+    ed = hydro['ed']
+    if t_override is not None:
+        t_local_1e4 = t_override  # use hybrid T_ion (10^4 K units)
+    else:
+        t_local_1e4 = hydro['temperature']  # 10^4 K units
+    mass_fracs = hydro['mass_fracs'].get(element_label, [0.0]*nd)
+    density = hydro['density']
+
+    # Ionization chain for this element: prefer the model's own atomic data
+    # (chi_list/gratio_list, from build_saha_atomic_data), fall back to the
+    # hardcoded table (gratio=1) only if that wasn't available.
+    if chi_list is None:
+        chi_list = []
+        gratio_list = []
+        stage = 1
+        while (element_label, stage) in IONIZATION_ENERGIES_CM_FALLBACK:
+            chi_list.append(IONIZATION_ENERGIES_CM_FALLBACK[(element_label, stage)])
+            gratio_list.append(1.0)
+            stage += 1
+    elif gratio_list is None:
+        gratio_list = [1.0] * len(chi_list)
+    n_stages = len(chi_list) + 1  # n_stages ionization levels: 0..n_stages-1
+
+    # If we don't have ionization data, fall back to even split
+    if n_stages == 1:
+        return [mass_fracs[i] * density[i] / (atomic_mass * M_H) for i in range(nd)], \
+               [1.0] * nd
+
+    # Species-dependent Saha temperature floor, analogous to CMFGEN's
+    # SET_DC_LTE_V2 TMIN_LOC: TMIN_LOC = T_floor_min * (1 + max(0, edge-3.5)/20).
+    # Convert the relevant ionization energy (chi of the stage being ionized
+    # INTO, i.e. chi_list[ion_stage-1] when available, else the ground-state
+    # chi) from cm^-1 to an "edge frequency" in 10^15 Hz (nu = chi*c) so the
+    # same functional form applies. Higher ionization energy -> higher floor,
+    # giving high-chi species (He II->III, Fe III->IV, etc.) more numerical
+    # headroom without assuming a specific (and potentially wrong) degree of
+    # NLTE over-ionization.
+    ref_chi = chi_list[min(ion_stage - 1, len(chi_list) - 1)] if chi_list else chi_list[0]
+    edge_equiv = ref_chi * SPEED_LIGHT / 1e15
+    t_floor = t_floor_min * (1.0 + max(0.0, edge_equiv - 3.5) / 20.0)
+
+    fracs = []
+    ion_pops = []
+    for i in range(nd):
+        T = max(t_local_1e4[i], t_floor) * 1e4  # apply species-dependent floor, then convert to K
+        ne = max(ed[i], 1.0)  # floor ne to avoid division by zero
+
+        # Compute Saha ratios in LOG SPACE (Issue 6 fix):
+        # log_r_j = log(n_{j+1}/n_j) to avoid overflow/underflow in extreme
+        # SN conditions (very high T, very low ne, very high chi).
+        log_r = []
+        for j in range(n_stages - 1):
+            chi_j = chi_list[j]  # in cm^-1
+            kt_cm = 0.695 * T  # k_B*T in cm^-1
+            if kt_cm <= 0:
+                log_r.append(-700.0)
+                continue
+            arg = -chi_j / kt_cm
+            arg = max(min(arg, 700.0), -700.0)
+            log_saha = (math.log(SAHA_CONST) + 1.5 * math.log(max(T, 1.0))
+                        - math.log(max(ne, 1.0)) + arg)
+            log_saha += math.log(max(gratio_list[j], 1e-30))
+            if w_dilute is not None:
+                log_saha += math.log(max(w_dilute[i], 1e-30))
+            log_r.append(log_saha)
+
+        # Solve in log space using logsumexp:
+        # f_j = f_0 * exp(sum(log_r[0:j]))
+        # f_0 = 1 / sum_j exp(cumlog[j])
+        # log_denom = logsumexp(cumlog)
+        cumlog = [0.0]  # cumlog[0] = 0
+        for j in range(n_stages - 1):
+            cumlog.append(cumlog[-1] + log_r[j])
+        # logsumexp
+        max_cl = max(cumlog)
+        denom_sum = sum(math.exp(cl - max_cl) for cl in cumlog)
+        log_denom = max_cl + math.log(denom_sum)
+        stage_fracs = [math.exp(cl - log_denom) for cl in cumlog]
+
+        # ion_stage is 1-based: ion_stage=1 -> stage_fracs[0], etc.
+        f_ion = stage_fracs[min(ion_stage - 1, n_stages - 1)]
+        f_ion = max(f_ion, min_ion_frac)  # absolute floor to avoid underflow
+
+        n_elem = density[i] * mass_fracs[i] / (atomic_mass * M_H)
+        ion_pops.append(n_elem * f_ion)
+        fracs.append(f_ion)
+
+    return ion_pops, fracs
+
+
+def smooth_depth_profile(vals, max_ratio_per_step=10.0, floor_ratio=0.0):
+    """Remove single-depth numerical spikes from a per-depth profile (ordered
+    outer->inner, matching SN_HYDRO_DATA) while preserving sharp physical
+    ionization fronts.
+
+    Uses a 3-point median filter, which:
+      - Replaces a single-depth spike with the median of its neighbours
+        (e.g. Saha amplifying a small T/Ne wiggle into a 1-point outlier)
+      - Preserves sharp 2-sided transitions (ionization fronts at temperature
+        discontinuities) because the median of [low, high, high] is high and
+        the median of [low, low, high] is low — the transition passes through
+        unchanged
+      - Does not alter smooth regions (median of 3 similar values ≈ the
+        middle value)
+
+    This replaces the previous per-step ratio-clamping approach, which limited
+    adjacent-depth changes to max_ratio_per_step (default 10x). That approach
+    was fundamentally incompatible with real physical ionization fronts in
+    interacting supernova models: the temperature discontinuity at the
+    shock-shell / H/He-shell boundary (e.g. 13071K → 5485K in one depth step
+    in X_v2) causes Saha ion fractions to change by 4–13 orders of magnitude
+    in a single depth — a real physical feature that the ratio clamp would
+    artificially spread over 5+ depth points, distorting DI by up to 13 dex
+    (observed for FeIII_IN, HeI_IN, FeI_IN in X_v2, 2026-08-20).
+
+    floor_ratio: optional floor at floor_ratio * max(vals) to guard against
+    underflow. Default 0.0 (disabled) — the min_ion_frac floor applied
+    upstream in compute_saha_ion_frac is the physically motivated floor and
+    should not be redundantly raised here.
+
+    max_ratio_per_step: retained for API compatibility but not used by the
+    median filter. The median filter inherently bounds single-depth spikes
+    without limiting multi-depth transitions.
+
+    Returns a new list; does not modify the input in place."""
+    n = len(vals)
+    if n == 0:
+        return vals
+    vmax = max(vals)
+    if vmax <= 0:
+        return list(vals)
+
+    # Apply optional floor (disabled by default; min_ion_frac is the real floor)
+    if floor_ratio > 0:
+        floor = floor_ratio * vmax
+        out = [max(v, floor) for v in vals]
+    else:
+        out = list(vals)
+
+    # 3-point median filter: replace each point with the median of itself and
+    # its two neighbours. This removes single-depth spikes while preserving
+    # sharp 2-sided transitions (ionization fronts).
+    if n < 3:
+        return out
+    result = list(out)
+    for i in range(n):
+        if i == 0:
+            a, b, c = out[0], out[0], out[1]
+        elif i == n - 1:
+            a, b, c = out[n - 2], out[n - 1], out[n - 1]
+        else:
+            a, b, c = out[i - 1], out[i], out[i + 1]
+        result[i] = sorted([a, b, c])[1]  # median of 3
+    return result
+
+
+def write_in_file(filepath, species_name, atom_data, hydro, w, ion_pop, dc, t_write=None):
+    """Write _IN file in CMFGEN format compatible with REGRID_LOG_DC_V1.
+
+    t_write: optional array of temperatures in 10^4 K to write in the T column
+    instead of hydro['temperature']. When provided (e.g., T_ion for NLTE-aware
+    proxy), CMFGEN's LTEPOP_WLD_V2 computes LTE populations at T_write instead
+    of T_local. This is the key to getting robust initial populations: by
+    writing T_ion (the radiation temperature), the LTE Boltzmann factor
+    exp(-edge/kT_ion) matches the NLTE excitation, so DC=W suffices (DC ≤ 1,
+    within CMFGEN's numerical comfort zone) instead of needing DC ~ 1e13.
+    The actual temperature structure is unaffected — it comes from T_IN
+    (written by prepare_VADAT.py from SN_HYDRO_DATA), not from the _IN file.
+    """
+    nd = hydro['nd']
+    nlev = atom_data['n_levels']
+    radius = hydro['radius']
+    ed = hydro['ed']
+    t = t_write if t_write is not None else hydro['temperature']
+    velocity = hydro['velocity']
+    r_inner_10 = hydro['r_inner_cm'] / 1e10
+
+    # R(ND) is the innermost radius (last point in SN_HYDRO_DATA, outer->inner order)
+    r_nd = radius[nd - 1]
+    rlum = 0.0  # LSTAR=0 for SN models
+
+    with open(filepath, 'w') as f:
+        # Header
+        f.write('\n')
+        date_str = datetime.now().strftime('%d-%b-%Y').upper()
+        f.write(f' {date_str}                           !Format date\n')
+        f.write('\n')
+        # R(ND), RLUM, NLEV, ND  (matching Fortran FORMAT 2120)
+        f.write(f' {r_nd:14.8E}     {rlum:12.4E}    {nlev:4d}    {nd:4d}\n')
+
+        # Per-depth data
+        for i in range(nd):
+            clump_fac = 1.0
+            f.write('\n')
+            # R(I), ION_POP(I), ED(I), T(I), 0.0, V(I), CLUMP_FAC(I), I
+            f.write(f' {radius[i]:17.10E}{ion_pop[i]:17.8E}{ed[i]:17.8E}'
+                    f'{t[i]:17.8E}{0.0:17.8E}{velocity[i]:17.8E}'
+                    f'{clump_fac:17.8E}  {i+1:4d} \n')
+            # DC values, 5 per line (Fortran format 1X,1P,5E17.7)
+            for j_start in range(0, nlev, 5):
+                line = ' '
+                for j in range(j_start, min(j_start+5, nlev)):
+                    line += f'{dc[j][i]:17.7E}'
+                f.write(line + '\n')
+
+
+def compute_grey_opacity(hydro, ne, kappa_bf_baseline):
+    """Compute grey opacity from electron density and bound-free baseline.
+
+    κ_total = κ_bf + κ_es + κ_ff
+
+    - κ_es = σ_T * n_e / ρ  (electron scattering, Thomson)
+    - κ_ff = 3.7e22 * (1+X) * ρ * T^(-3.5)  (Kramers free-free, cgs, per gram)
+    - κ_bf = baseline from hydro (non-es part of the Rosseland mean)
+
+    Only κ_es changes with ionization (the key feedback):
+    ionization → n_e → κ_es → τ → W → ionization.
+    κ_ff depends on T and ρ (fixed from hydro), not on n_e directly.
+    At SN ejecta temperatures (~4000 K), κ_ff is negligible compared to κ_es.
+    """
+    SIGMA_T = 6.6524e-25  # Thomson cross-section, cm²
+    nd = hydro['nd']
+    rho = hydro['density']
+    T = [t * 1e4 for t in hydro['temperature']]  # K
+    x_h = hydro['mass_fracs'].get('HYD', [0.7]*nd)
+
+    kappa = []
+    for i in range(nd):
+        kappa_es = SIGMA_T * max(ne[i], 1.0) / max(rho[i], 1e-30)
+        kappa_ff = 3.7e22 * (1.0 + x_h[i]) * rho[i] * max(T[i], 100.0)**(-3.5)
+        kappa_total = kappa_bf_baseline[i] + kappa_es + kappa_ff
+        kappa.append(max(kappa_total, 1e-5))
+    return kappa
+
+
+def iterate_grey_lambda(hydro, species_list, chi_by_element, gratio_by_element,
+                        max_iter=100, tol=1e-3, tau_trans=1.0, min_ion_frac=1e-30,
+                        t_floor_min=0.3, lte_floor=False, damping=0.5):
+    """Iterate grey lambda: populations ↔ radiation field self-consistency.
+
+    Similar to TARDIS/ARTIS simplified lambda iteration:
+    1. Start with hydro kappa → compute τ, W, T_rad
+    2. Compute Saha populations for all elements → get n_e
+    3. Compute new grey κ from n_e (κ_es + κ_ff + κ_bf baseline)
+    4. Recompute τ, W, T_rad, T_ion
+    5. Iterate until n_e and κ converge
+
+    This makes the LTE→NLTE transition self-consistent:
+    - Deep inside (τ≫1): W→1, T_ion→T_local (full LTE)
+    - At surface (τ≪1): W<1, T_ion→T_rad (NLTE: radiation-driven ionization)
+    - The transition point depends on opacity, which depends on ionization
+
+    With lte_floor=True: W=1, T_ion=T_local everywhere; iteration only
+    refines n_e and κ (for a self-consistent τ profile and Ne).
+
+    Returns: (w, t_rad, t_ion, ne, tau, r_ph_10, ion_fracs_by_element)
+    """
+    nd = hydro['nd']
+    rho = hydro['density']
+
+    # Initial kappa from hydro (Rosseland mean from STELLA, includes line+continuum)
+    kappa_hydro = list(hydro.get('kappa', [0.0]*nd))
+    if all(k == 0.0 for k in kappa_hydro):
+        x_h = hydro['mass_fracs'].get('HYD', [0.7]*nd)
+        kappa_hydro = [0.2 * (1.0 + x_h[i]) for i in range(nd)]
+
+    # Separate bound-free baseline: κ_bf = κ_hydro - κ_es(hydro ne)
+    # This is the non-electron-scattering part (lines, bound-free, etc.)
+    # It stays roughly constant across the iteration (bound-free cross-sections
+    # don't change dramatically with ionization in the grey mean).
+    SIGMA_T = 6.6524e-25
+    ne_hydro = hydro['ed']
+    kappa_bf = []
+    for i in range(nd):
+        kappa_es_hydro = SIGMA_T * max(ne_hydro[i], 1.0) / max(rho[i], 1e-30)
+        kappa_bf.append(max(kappa_hydro[i] - kappa_es_hydro, 0.01))
+
+    ne = list(ne_hydro)
+    kappa = list(kappa_hydro)
+
+    # Build per-element data for the Saha solver
+    element_data = []
+    for elem_label in hydro['mass_fracs']:
+        mass_fracs = hydro['mass_fracs'][elem_label]
+        if not mass_fracs or max(mass_fracs) <= 0:
+            continue
+        chi_list = chi_by_element.get(elem_label)
+        gratio_list = gratio_by_element.get(elem_label)
+        if not chi_list:
+            continue
+        if elem_label in ELEMENT_INFO:
+            _, atomic_mass = ELEMENT_INFO[elem_label]
+        else:
+            continue
+        element_data.append((elem_label, atomic_mass, chi_list, gratio_list, mass_fracs))
+
+    if not element_data:
+        print("  Grey-λ: no elements with ionization data; using static W/T_ion")
+        hydro['kappa'] = kappa
+        tau = compute_tau(hydro)
+        r_ph_10, _ = find_photosphere(hydro, tau)
+        w = compute_w_eff(hydro['radius'], r_ph_10, tau, tau_trans=tau_trans)
+        t_rad = compute_t_rad(hydro, tau=tau, r_ph_10cm=r_ph_10, tau_trans=tau_trans)
+        t_ion = compute_t_ion(hydro['temperature'], t_rad, tau, tau_trans=tau_trans)
+        return w, t_rad, t_ion, ne, tau, r_ph_10, {}
+
+    print(f"  Grey-λ iteration: {len(element_data)} elements, "
+          f"hydro Ne range {min(ne):.3e} - {max(ne):.3e}")
+
+    ion_fracs_by_element = {}
+    iter_log = []
+    max_ne_change = 1.0
+    max_kappa_change = 1.0
+
+    for iteration in range(max_iter):
+        # Step 1: Compute τ from current κ
+        hydro['kappa'] = kappa
+        tau = compute_tau(hydro)
+
+        # Step 2: Find photosphere and compute radiation field
+        r_ph_10, ph_idx = find_photosphere(hydro, tau)
+        w = compute_w_eff(hydro['radius'], r_ph_10, tau, tau_trans=tau_trans)
+        t_rad = compute_t_rad(hydro, tau=tau, r_ph_10cm=r_ph_10, tau_trans=tau_trans)
+        t_ion = compute_t_ion(hydro['temperature'], t_rad, tau, tau_trans=tau_trans)
+
+        if lte_floor:
+            saha_t = None  # T_local
+            saha_w = None  # W=1 (no dilution)
+        else:
+            saha_t = t_ion
+            saha_w = w
+
+        # Step 3: Compute Saha for all elements → get n_e
+        ne_new = np.zeros(nd)
+        ion_fracs_by_element = {}
+
+        for elem_label, atomic_mass, chi_list, gratio_list, mass_fracs in element_data:
+            n_stages = len(chi_list) + 1
+            ref_chi = chi_list[0]
+            edge_equiv = ref_chi * SPEED_LIGHT / 1e15
+            t_floor = t_floor_min * (1.0 + max(0.0, edge_equiv - 3.5) / 20.0)
+
+            fracs_all = []
+            for i in range(nd):
+                if saha_t is not None:
+                    T = max(saha_t[i], t_floor) * 1e4
+                else:
+                    T = max(hydro['temperature'][i], t_floor) * 1e4
+                ne_i = max(ne[i], 1.0)
+
+                r = []
+                for j in range(n_stages - 1):
+                    chi_j = chi_list[j]
+                    kt_cm = 0.695 * T
+                    if kt_cm <= 0:
+                        r.append(0.0)
+                        continue
+                    arg = -chi_j / kt_cm
+                    if arg < -700:
+                        arg = -700
+                    saha_ratio = SAHA_CONST * T**1.5 / ne_i * math.exp(arg)
+                    saha_ratio *= gratio_list[j]
+                    if saha_w is not None:
+                        saha_ratio *= saha_w[i]
+                    r.append(saha_ratio)
+
+                denom = 1.0
+                products = [1.0]
+                for j in range(n_stages - 1):
+                    prod = products[-1] * r[j]
+                    products.append(prod)
+                    denom += prod
+
+                f0 = 1.0 / denom
+                stage_fracs = [f0 * products[j] for j in range(n_stages)]
+                stage_fracs = [max(f, min_ion_frac) for f in stage_fracs]
+                s = sum(stage_fracs)
+                stage_fracs = [f/s for f in stage_fracs]
+                fracs_all.append(stage_fracs)
+
+            ion_fracs_by_element[elem_label] = fracs_all
+
+            n_elem = [rho[i] * mass_fracs[i] / (atomic_mass * M_H) for i in range(nd)]
+            for i in range(nd):
+                charge = sum(j * fracs_all[i][j] for j in range(n_stages))
+                ne_new[i] += n_elem[i] * charge
+
+        ne_new = np.maximum(ne_new, 1.0)
+
+        # Record per-species population levels for this iteration
+        iter_populations = {}
+        for (elem_label, atomic_mass, chi_list, _, mass_fracs), fracs_all in zip(
+                element_data, ion_fracs_by_element.values()):
+            n_stages = len(fracs_all[0])
+            n_elem = [rho[i] * mass_fracs[i] / (atomic_mass * M_H) for i in range(nd)]
+            stage_pops = []
+            for stage in range(n_stages):
+                nions = [n_elem[i] * fracs_all[i][stage] for i in range(nd)]
+                stage_pops.append({
+                    'ion_frac_min': min(fracs_all[i][stage] for i in range(nd)),
+                    'ion_frac_max': max(fracs_all[i][stage] for i in range(nd)),
+                    'nion_min': min(nions),
+                    'nion_max': max(nions),
+                    'nion_outer': nions[0],
+                    'nion_photosphere': nions[ph_idx],
+                    'nion_inner': nions[nd - 1],
+                })
+            iter_populations[elem_label] = stage_pops
+
+        iter_log.append({
+            'iteration': iteration + 1,
+            'max_ne_change': max_ne_change,
+            'max_kappa_change': max_kappa_change,
+            'ne_min': float(min(ne_new)),
+            'ne_max': float(max(ne_new)),
+            'tau_ph': float(tau[ph_idx]),
+            'w_ph': float(w[ph_idx]),
+            't_rad_ph': float(t_rad[ph_idx]),
+            't_ion_ph': float(t_ion[ph_idx]),
+            'populations': iter_populations,
+        })
+
+        # Step 4: Compute new grey κ
+        kappa_new = compute_grey_opacity(hydro, ne_new, kappa_bf_baseline=kappa_bf)
+
+        # Step 5: Check convergence
+        max_ne_change = max(abs(ne_new[i] - ne[i]) / max(abs(ne[i]), 1.0)
+                          for i in range(nd))
+        max_kappa_change = max(abs(kappa_new[i] - kappa[i]) / max(abs(kappa[i]), 1e-10)
+                              for i in range(nd))
+
+        print(f"    Grey-λ iter {iteration+1}: "
+              f"max Δne={max_ne_change:.3e}, max Δκ={max_kappa_change:.3e}, "
+              f"Ne={min(ne_new):.3e}-{max(ne_new):.3e}, "
+              f"τ_ph={tau[ph_idx]:.2f}")
+
+        # Damped update for stability
+        ne = (damping * np.asarray(ne) + (1-damping) * ne_new).tolist()
+        kappa = [damping * kappa[i] + (1-damping) * kappa_new[i] for i in range(nd)]
+
+        if max_ne_change < tol and max_kappa_change < tol:
+            print(f"    Grey-λ converged after {iteration+1} iterations")
+            break
+    else:
+        print(f"    Grey-λ did not fully converge in {max_iter} iterations "
+              f"(max Δne={max_ne_change:.3e}, max Δκ={max_kappa_change:.3e})")
+
+    # Final radiation field from converged κ
+    hydro['kappa'] = kappa
+    tau = compute_tau(hydro)
+    r_ph_10, ph_idx = find_photosphere(hydro, tau)
+    w = compute_w_eff(hydro['radius'], r_ph_10, tau, tau_trans=tau_trans)
+    t_rad = compute_t_rad(hydro, tau=tau, r_ph_10cm=r_ph_10, tau_trans=tau_trans)
+    t_ion = compute_t_ion(hydro['temperature'], t_rad, tau, tau_trans=tau_trans)
+
+    # Update hydro with converged ne
+    hydro['ed'] = ne
+
+    print(f"  Grey-λ result: Ne {min(ne):.3e}-{max(ne):.3e}, "
+          f"τ {min(tau):.2f}-{max(tau):.2f}, "
+          f"W {min(w):.4f}-{max(w):.4f}")
+
+    return w, t_rad, t_ion, ne, tau, r_ph_10, ion_fracs_by_element, iter_log
+
+
+def generate_proxy_populations(model_dir, hydro_data_path, output_dir=None, plot=False,
+                      t_exc_min=0.3, tau_trans=1.0, min_ion_frac=1e-30,
+                      smooth_max_ratio=10.0, lte_floor=False, nlte_solver=False,
+                      grey_max_iter=100, grey_tol=1e-3):
+    """Generate proxy _IN files for all species in the MODEL file.
+
+    Uses a grey lambda iteration (similar to TARDIS/ARTIS) to compute
+    self-consistent initial populations:
+
+    1. Start with hydro kappa → compute τ, W, T_rad, T_ion.
+    2. Solve Saha for all elements → get ionization fractions + n_e.
+    3. Recompute grey κ from new n_e (κ_es + κ_ff + κ_bf baseline).
+    4. Iterate 1-3 until n_e and κ converge (typically 5-15 iterations).
+    5. Use converged W, T_ion, n_e for per-species Saha → DI (ion density).
+    6. Compute departure coefficients (DC) for excitation structure.
+    7. Write _IN files; update GAMMAS_IN with converged n_e.
+
+    The iteration makes the LTE→NLTE transition self-consistent:
+    - Deep inside (τ≫1): W→1, T_ion→T_local (full LTE)
+    - At surface (τ≪1): W<1, T_ion→T_rad (NLTE: radiation-driven ionization)
+    - The transition point depends on opacity, which depends on ionization
+
+    With lte_floor=True: W=1, T_ion=T_local everywhere; the iteration only
+    refines n_e and κ for a self-consistent τ profile and Ne.
+
+    t_exc_min: minimum excitation temperature floor in 10^4 K (default 0.3 = 3000 K),
+               matching CMFGEN's T_EXC parameter.
+    tau_trans: optical depth transition scale for W_eff and T_ion (default 1.0).
+               Controls how quickly the model transitions from LTE (depth) to
+               NLTE-like (surface) behavior.
+    min_ion_frac: absolute floor on Saha ion fractions (default 1e-30).
+               Prevents the DI (next-ion-stage population) column from
+               underflowing to a numerically vanishing value in cold outer
+               zones, which otherwise forces CMFGEN's LTE estimate for that
+               species to ~0 and triggers a population explosion once NLTE
+               iterations begin (see AGENTS.md "CRITICAL: _IN File Ion
+               Density..." and the X1_proxy 40d post-mortem).
+    smooth_max_ratio: maximum allowed multiplicative change of ion_pop/DC
+               between adjacent depths (default 10.0). Removes single-depth
+               discontinuities that can trigger a non-converging ping-pong
+               oscillation in CMFGEN's DIAG solver (observed at the
+               SN_12C_proxy inner boundary). Does not limit the *overall*
+               multi-depth dynamic range of a profile, only per-step jumps.
+    lte_floor: when True, use pure LTE at T_local for both DI and DC (no T_ion,
+               no W dilution, DC=1.0). This is consistent with FIX_T=T and
+               USE_LAM_ES=T (J=B(T)), where the radiation field is thermal at
+               T_local. The only difference from CMFGEN's built-in LTE_EST is
+               that DI is floored at min_ion_frac (1e-30) instead of 1e-200,
+               giving trace species a non-zero starting population above the
+               FIXPOP threshold so they can evolve in NLTE iterations.
+    """
+    if output_dir is None:
+        output_dir = model_dir
+
+    # Clear only proxy/Cmfgen population plots before generating new ones.
+    # Do NOT delete SN_HYDRO_DATA diagnostic plots (e.g. sn_hydro_data_*.png)
+    # or other non-proxy plots that may exist in the same directory.
+    plots_dir = os.path.join(output_dir, 'plots')
+    if os.path.isdir(plots_dir):
+        import glob
+        for f in glob.glob(os.path.join(plots_dir, 'POP_INIT_proxy_*')) + \
+                 glob.glob(os.path.join(plots_dir, 'POP_CMFGEN_*')):
+            if os.path.isfile(f) or os.path.islink(f):
+                os.remove(f)
+        print(f"  Cleared proxy population plots from: {plots_dir}")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    # Parse hydro data
+    print(f"Parsing SN_HYDRO_DATA: {hydro_data_path}")
+    hydro = parse_sn_hydro_data(hydro_data_path)
+    nd = hydro['nd']
+    print(f"  ND={nd}, L={hydro['lum_lsun']:.3e} Lsun, "
+          f"R_in={hydro['r_inner_cm']:.3e} cm, T_in={hydro['t_inner_k']:.1f} K")
+    t_outer_k = hydro['temperature'][0] * 1e4
+    t_inner_k = hydro['temperature'][nd - 1] * 1e4
+    print(f"  T range: {t_outer_k:.0f} K (outer, depth 1) - {t_inner_k:.0f} K (inner, depth {nd})")
+    if t_outer_k < 5000.0:
+        print(f"  WARNING: outer T={t_outer_k:.0f} K is very cold — Saha ionization for "
+              f"high-chi species (He II->III, Fe III->IV, etc.) will be numerically "
+              f"floored (min_ion_frac={min_ion_frac:.1e}) rather than physically "
+              f"determined. This is expected/handled, but corrections at the outer "
+              f"boundary may still be large during the first few NLTE iterations.")
+
+    # Parse VADAT abundances (depth-averaged, used by CMFGEN's SOLVEBA)
+    # CRITICAL: The proxy _IN files must use VADAT abundances, not local hydro
+    # mass fractions, because CMFGEN enforces the VADAT abundance at every depth.
+    # Using local hydro abundances creates a mismatch of up to ~1e28 at composition
+    # boundaries (e.g., X_Fe=1e-30 in H/He shell vs X_Fe=0.01 in VADAT), causing
+    # ~1e20% initial corrections that require ~100+ iterations to converge.
+    vadat_path = os.path.join(model_dir, 'VADAT')
+    vadat_abundances = {}
+    if os.path.exists(vadat_path):
+        vadat_abundances = parse_vadat_abundances(vadat_path)
+        print(f"  VADAT abundances (depth-averaged, used by CMFGEN SOLVEBA):")
+        for elem, frac in sorted(vadat_abundances.items()):
+            if frac > 1e-10:
+                print(f"    {elem}: {frac:.6f}")
+        # Replace hydro mass_fracs with VADAT abundances for DI computation
+        # Keep hydro mass_fracs for reference/diagnostics
+        hydro['_hydro_mass_fracs'] = hydro['mass_fracs']
+        hydro['mass_fracs'] = {elem: [frac] * nd for elem, frac in vadat_abundances.items()}
+        # Also add any elements in hydro that are not in VADAT (e.g., CARB fallback)
+        for elem, fracs in hydro['_hydro_mass_fracs'].items():
+            if elem not in hydro['mass_fracs']:
+                hydro['mass_fracs'][elem] = fracs
+        print(f"  Using VADAT abundances for DI computation (consistent with CMFGEN SOLVEBA)")
+    else:
+        print(f"  WARNING: VADAT not found at {vadat_path}; using local hydro abundances")
+        print(f"    This may cause large initial corrections at composition boundaries")
+
+    # Parse MODEL file for species list (fall back to MODEL_SPEC if MODEL not found)
+    model_path = os.path.join(model_dir, 'MODEL')
+    if os.path.exists(model_path):
+        print(f"Parsing MODEL: {model_path}")
+        species_list = parse_model_species(model_path)
+    else:
+        model_spec_path = os.path.join(model_dir, 'MODEL_SPEC')
+        print(f"MODEL not found; parsing MODEL_SPEC: {model_spec_path}")
+        species_list = parse_model_spec_species(model_spec_path)
+    print(f"  Found {len(species_list)} species")
+
+    # Build Saha ionization-energy / statistical-weight chains from this
+    # model's own F_OSCDAT atomic data (same files CMFGEN reads), spanning
+    # only the ion stages actually present in species_list. atom_data_cache
+    # is reused below so each F_OSCDAT is only parsed once.
+    chi_by_element, gratio_by_element, atom_data_cache = build_saha_atomic_data(
+        model_dir, species_list)
+
+    # --- Grey lambda iteration ---
+    # Iterate populations ↔ radiation field until self-consistent (TARDIS/ARTIS-like):
+    #   1. Compute τ, W, T_rad from current opacity
+    #   2. Solve Saha for all elements → get ionization fractions + n_e
+    #   3. Recompute grey κ from new n_e (κ_es + κ_ff + κ_bf baseline)
+    #   4. Go to 1 until n_e and κ converge
+    #
+    # This makes the LTE→NLTE transition self-consistent: deep inside (τ≫1),
+    # W→1, T_ion→T_local (full LTE); at surface (τ≪1), W<1, T_ion→T_rad (NLTE).
+    # The transition point depends on opacity, which depends on ionization.
+    w, t_rad, t_ion, ne_iter, tau, r_ph_10, ion_fracs_iter, iter_log = iterate_grey_lambda(
+        hydro, species_list, chi_by_element, gratio_by_element,
+        max_iter=grey_max_iter, tol=grey_tol,
+        tau_trans=tau_trans, min_ion_frac=min_ion_frac,
+        lte_floor=lte_floor)
+
+    ph_idx = min(range(nd), key=lambda i: abs(tau[i] - 2.0/3.0))
+    r_ph_cm = r_ph_10 * 1e10
+    print(f"  Photosphere: R_ph={r_ph_cm:.3e} cm (depth index {ph_idx}, tau={tau[ph_idx]:.3f})")
+    print(f"  W_eff range: {min(w):.6f} - {max(w):.6f} (tau_trans={tau_trans})")
+    t_rad_min = min(t_rad) * 1e4
+    t_rad_max = max(t_rad) * 1e4
+    n_corrected = sum(1 for i in range(nd) if t_rad[i] > hydro['temperature'][i])
+    print(f"  T_rad range: {t_rad_min:.0f} - {t_rad_max:.0f} K "
+          f"({n_corrected}/{nd} depths use T_rad > T_local)")
+    n_nlte = sum(1 for i in range(nd) if abs(t_ion[i] - hydro['temperature'][i]) > 0.01)
+    print(f"  T_ion: {n_nlte}/{nd} depths use NLTE-corrected ionization T")
+    print(f"  Ne (iterated): {min(ne_iter):.3e} - {max(ne_iter):.3e} "
+          f"(hydro: {min(hydro['ed']):.3e} - {max(hydro['ed']):.3e})")
+
+    # Write per-iteration population diagnostics (log + plot)
+    write_grey_lambda_diagnostics(iter_log, output_dir)
+
+    # Collect ionization fractions for plotting, grouped by element
+    ion_data = defaultdict(lambda: {'stages': [], 'fracs': []})
+    comp_data = {}  # LTE vs NLTE comparison data for each species
+
+    # Generate _IN file for each species
+    for sp in species_list:
+        name = sp['name']
+        try:
+            elem_label, atomic_mass, ion_stage = get_species_info(name)
+        except KeyError as exc:
+            print(f"  Skipping {name}: {exc}")
+            continue
+
+        oscdat_path = os.path.join(model_dir, f'{name}_F_OSCDAT')
+        if not os.path.exists(oscdat_path):
+            print(f"  Skipping {name}: {oscdat_path} not found")
+            continue
+
+        print(f"  Processing {name} ({elem_label}, stage {ion_stage})...")
+        atom_data = atom_data_cache.get(name) or parse_f_oscdat(oscdat_path)
+        chi_list = chi_by_element.get(elem_label)
+        gratio_list = gratio_by_element.get(elem_label)
+        if chi_list is None:
+            print(f"    WARNING: no model-derived Saha chain for {elem_label}; "
+                  f"falling back to hardcoded ionization energies.")
+        nlev_osc = atom_data['n_levels']
+        # Use NS (superlevels) for the _IN file, not NF (full levels).
+        # REGRID_LOG_DC_V1 extrapolates levels NS+1..NF via T_EXCITE from level NS,
+        # then applies F_TO_S mapping: all full levels in each superlevel get the
+        # DC of the lowest full level. Writing NS levels avoids near-zero Boltzmann
+        # factors for high full levels (near ionization threshold) that produce
+        # ~1e40+ initial corrections when CMFGEN compares proxy vs LTE populations.
+        nlev = min(sp['n_s'], sp['n_f'])
+        if sp['n_s'] > sp['n_f']:
+            nlev = sp['n_f']  # F_TO_S with SL=80 bypass: NS may exceed NF
+        print(f"    NLEV={nlev} (NS={sp['n_s']}, NF={sp['n_f']}, F_OSCDAT has {nlev_osc}), "
+              f"ION_EN={atom_data['ionization_energy']:.1f} cm^-1")
+
+        # Truncate atom data to N_F levels
+        atom_data_trunc = {
+            'n_levels': nlev,
+            'ionization_energy': atom_data['ionization_energy'],
+            'stat_wt': atom_data['stat_wt'][:nlev],
+            'energy': atom_data['energy'][:nlev],
+            'fedge': atom_data['fedge'][:nlev],
+            'transitions': atom_data.get('transitions', []),
+        }
+
+        # --- Step 6: Compute Saha ionization ---
+        # CRITICAL: The _IN file's ion density column (DI) must be the population
+        # of the NEXT HIGHER ionization stage (ion_stage+1), NOT the current stage.
+        # CMFGEN's LTEPOP_WLD_V2 uses DI as the ion density of the next higher
+        # stage to compute LTE populations via the Saha-Boltzmann equation:
+        #   n_LTE(J,level i) ∝ DI(J+1) * ED * T^{-1.5} * g(i) * exp(-edge(i)/kT)
+        #
+        # lte_floor mode: Use pure Saha at T_local (no T_ion, no W dilution).
+        # This is consistent with FIX_T=T and USE_LAM_ES=T (J=B(T)), where the
+        # radiation field is thermal at T_local. DI is floored at min_ion_frac
+        # (1e-30) instead of CMFGEN's LTE_EST default of 1e-200, giving trace
+        # species a non-zero starting population above the FIXPOP threshold.
+        #
+        # Default (NLTE-aware) mode: Use dilute Saha at T_ion with W dilution.
+        #   n_{i+1}/n_i = W * Saha_ratio(T_ion)
+        # This gives NLTE-like initial populations but is inconsistent with
+        # FIX_T=T (CMFGEN evaluates LTE at T_local, not T_ion).
+        if lte_floor:
+            saha_t_override = None  # T_local
+            saha_w = None            # No dilution (W=1.0, J=B(T))
+        else:
+            saha_t_override = t_ion
+            saha_w = w
+        # Use converged Ne from the grey-λ iteration for the Saha equation.
+        # hydro['ed'] has already been updated by iterate_grey_lambda.
+        ion_pop_raw, ion_frac_raw = compute_saha_ion_frac(elem_label, ion_stage + 1, hydro,
+                                                   atomic_mass, t_override=saha_t_override,
+                                                   min_ion_frac=min_ion_frac,
+                                                   w_dilute=saha_w, chi_list=chi_list,
+                                                   gratio_list=gratio_list)
+        # Full Saha at T_ion (no dilution) for the DC correction DI_full/DI_dilute.
+        ion_pop_full, _ = compute_saha_ion_frac(elem_label, ion_stage + 1, hydro,
+                                                 atomic_mass, t_override=saha_t_override,
+                                                 min_ion_frac=min_ion_frac,
+                                                 w_dilute=None, chi_list=chi_list,
+                                                 gratio_list=gratio_list)
+
+        # Also compute current stage fraction for diagnostics
+        _, ion_frac_cur_raw = compute_saha_ion_frac(elem_label, ion_stage, hydro,
+                                                 atomic_mass, t_override=saha_t_override,
+                                                 min_ion_frac=min_ion_frac,
+                                                 w_dilute=saha_w, chi_list=chi_list,
+                                                 gratio_list=gratio_list)
+
+        # --- Step 6b: Smooth ion FRACTION (not absolute DI) BEFORE DC ---
+        # CRITICAL ORDER-OF-OPERATIONS FIX (Issue 1):
+        # Smoothing MUST happen BEFORE DC calculation, not after.
+        # The DC corresponds to the DI written to the _IN file.  If we smooth
+        # DI after computing DC, CMFGEN reconstructs n = DC_old * LTE(DI_new)
+        # instead of n = DC * LTE(DI).  This defeats the purpose of the
+        # reduced-NLTE DC calculation.
+        #
+        # We smooth the ion FRACTION, not the absolute DI, to preserve
+        # composition transitions: when n_elem drops, DI = n_elem * frac
+        # drops proportionally.  Smoothing absolute DI across a composition
+        # interface creates unphysical DI values (trace-species explosion).
+        ion_frac_smoothed = smooth_depth_profile(list(ion_frac_raw),
+                                                  max_ratio_per_step=smooth_max_ratio)
+        ion_frac_cur_smoothed = smooth_depth_profile(list(ion_frac_cur_raw),
+                                                      max_ratio_per_step=smooth_max_ratio)
+        # Recompute ion_pop from smoothed fraction and element density
+        elem_density_s = hydro['density']
+        elem_mass_frac_s = hydro['mass_fracs'].get(elem_label, [0.0]*nd)
+        _, atomic_mass_s = ELEMENT_INFO.get(elem_label, (0, 1.0))
+        ion_pop = []
+        for i in range(nd):
+            n_elem = elem_density_s[i] * elem_mass_frac_s[i] / (atomic_mass_s * M_H)
+            ion_pop.append(n_elem * ion_frac_smoothed[i])
+        ion_frac = ion_frac_smoothed
+        ion_frac_cur = ion_frac_cur_smoothed
+
+        # Report smoothing impact
+        n_changed = sum(1 for i in range(nd) if abs(ion_frac_raw[i] - ion_frac_smoothed[i]) > 1e-10)
+        if n_changed > 0:
+            max_change = max(abs(ion_frac_raw[i] - ion_frac_smoothed[i]) / max(ion_frac_raw[i], 1e-30) for i in range(nd))
+            print(f"    Smoothing: {n_changed}/{nd} depths changed, max relative change: {max_change:.2e}")
+
+        di_ratio = [ion_pop_full[i] / max(ion_pop[i], 1e-100) for i in range(nd)]
+
+        print(f"    Dilute Saha ion fraction (stage {ion_stage}): {min(ion_frac_cur):.3e} - {max(ion_frac_cur):.3e}")
+        print(f"    DI (stage {ion_stage+1}) fraction: {min(ion_frac):.3e} - {max(ion_frac):.3e}")
+
+        # Store for plotting (use final smoothed fraction for diagnostics)
+        ion_data[elem_label]['stages'].append((ion_stage, name))
+        ion_data[elem_label]['fracs'].append(ion_frac_cur)
+
+        # --- LTE comparison: pure Saha at T_local (no W, no T_ion) ---
+        ion_pop_lte, ion_frac_lte = compute_saha_ion_frac(elem_label, ion_stage + 1, hydro,
+                                                          atomic_mass, t_override=None,
+                                                          min_ion_frac=min_ion_frac,
+                                                          chi_list=chi_list,
+                                                          gratio_list=gratio_list)
+
+        # --- Step 7: Departure coefficients ---
+        # DC is now computed from the FINAL (smoothed) ion_pop.  No quantity
+        # used in the DC calculation may subsequently be modified.
+        # The DC (departure coefficient) controls the excitation structure within
+        # each ion. CMFGEN's LTEPOP_WLD_V2 computes:
+        #   n_LTE(J) = W * g(J) * exp(EDGE(J)*HDKT/T_local) * C * ED * DI * T_local^{-1.5}
+        # and the initial population is n_init(J) = DC(J) * n_LTE(J, T_local, DI).
+        #
+        # lte_floor mode: DC=1.0 (pure LTE at T_local). This is consistent with
+        # FIX_T=T and USE_LAM_ES=T: J=B(T_local), so LTE at T_local is the
+        # correct starting point. compute_dc_lte_cmfgen applies a T_EXC floor
+        # (matching CMFGEN's SET_DC_LTE_V2) to prevent exponential underflow in
+        # cold zones — DC=1.0 for T >= T_exc_min, slightly >1 for T < T_exc_min.
+        #
+        # Default (NLTE-aware, TARDIS/ARTIS nebular dilute-LTE):
+        #   - Ionization: dilute Saha at T_ion with W dilution → DI is already
+        #     the NLTE ion density for the radiation field.
+        #   - Excitation: LTE at T_ion, then dilute each level by W.
+        #   - _IN T column is written as T_ion, so CMFGEN's LTEPOP evaluates
+        #     the Boltzmann factor at the radiation temperature, and DC ~ W.
+        # This is self-consistent with T_ion and is the closest simple match to
+        # the TARDIS/ARTIS initial-guess nebular approximation.
+        if nlte_solver:
+            # Reduced NLTE solver: computes DCs that produce physically
+            # correct initial populations. The key insight is that CMFGEN's
+            # LTE formula uses the NEXT ion's density (DI), which is tiny
+            # when the current ion is dominant. The DC must compensate by
+            # being n_current / n_LTE, which can be very large.
+            # Compute current ion's total density from ion_frac_cur
+            elem_density_nl = hydro['density']
+            elem_mass_frac_nl = hydro['mass_fracs'].get(elem_label, [0.0]*nd)
+            _, atomic_mass_nl = ELEMENT_INFO.get(elem_label, (0, 1.0))
+            current_ion_pop = []
+            for i in range(nd):
+                n_elem = elem_density_nl[i] * elem_mass_frac_nl[i] / (atomic_mass_nl * M_H)
+                current_ion_pop.append(n_elem * ion_frac_cur[i])
+            # Get gion_next: ground-state statistical weight of the NEXT ion stage.
+            # Try the next species' F_OSCDAT, fall back to gratio_list, then 1.0.
+            gion_next_val = 1.0
+            gratio_list_nl = gratio_by_element.get(elem_label, [])
+            if ion_stage - 1 < len(gratio_list_nl) and len(atom_data_trunc['stat_wt']) > 0:
+                gion_next_val = gratio_list_nl[ion_stage - 1] * atom_data_trunc['stat_wt'][0]
+            dc = compute_dc_nlte_reduced(atom_data_trunc, nlev, nd,
+                                         hydro['temperature'], hydro['ed'],
+                                         ion_pop, w, t_rad,
+                                         next_ion_pop=ion_pop,
+                                         t_exc_min=t_exc_min,
+                                         current_ion_pop=current_ion_pop,
+                                         gion_next=gion_next_val)
+            dc_lte = compute_dc_lte_cmfgen(nlev, nd, hydro['temperature'],
+                                       atom_data_trunc['fedge'],
+                                       t_exc_min=t_exc_min)
+            t_write = None  # use T_local (FIX_T=T)
+        elif lte_floor:
+            dc = compute_dc_lte_cmfgen(nlev, nd, hydro['temperature'],
+                                       atom_data_trunc['fedge'],
+                                       t_exc_min=t_exc_min)
+            dc_lte = dc  # Same in lte_floor mode
+            t_write = None  # use T_local in _IN file
+        else:
+            dc = compute_dc_dilute_lte(nlev, nd, t_ion, t_ion,
+                                       atom_data_trunc['fedge'], w,
+                                       t_exc_min=t_exc_min,
+                                       di_ratio=di_ratio)
+            # Also compute DC_LTE for diagnostics/comparison
+            dc_lte = compute_dc_lte_cmfgen(nlev, nd, hydro['temperature'],
+                                       atom_data_trunc['fedge'],
+                                       t_exc_min=t_exc_min)
+            t_write = t_ion
+
+        # --- Step 9: Write _IN file ---
+        # Smoothing was already applied in Step 6b BEFORE the DC calculation.
+        # The ion_pop and dc are now self-consistent: DC corresponds to the
+        # same DI that is written to the _IN file.
+        #
+        # Write _IN file: T_local in lte_floor mode, T_ion in TARDIS/ARTIS
+        # nebular mode. The T column sets the LTE Boltzmann/ionization T used
+        # by LTEPOP_WLD_V2 for the initial populations, so it must match the
+        # DC/excitation temperature choice above.
+        out_path = os.path.join(output_dir, f'{name}_IN')
+        write_in_file(out_path, name, atom_data_trunc, hydro, w, ion_pop, dc,
+                      t_write=t_write)
+        print(f"    Written: {out_path}")
+
+        # Store comparison data for plotting
+        comp_data[name] = {
+            'elem_label': elem_label, 'ion_stage': ion_stage,
+            'ion_frac_lte': ion_frac_lte, 'ion_frac_nlte': ion_frac,
+            'dc_lte': dc_lte, 'dc_nlte': dc,
+            'nlev': nlev, 'fedge': atom_data_trunc['fedge'],
+            'ion_pop_lte': ion_pop_lte, 'ion_pop_nlte': ion_pop,
+        }
+
+    # Update GAMMAS_IN with the converged Ne from the grey-λ iteration.
+    # prepare_VADAT.py wrote GAMMAS_IN with the hydro Ne before proxy_populations
+    # ran; we need to patch the electron density section with the iterated Ne so
+    # CMFGEN's GETELEC_V2 initial estimate matches the proxy populations.
+    gammas_path = os.path.join(output_dir, 'GAMMAS_IN')
+    if os.path.exists(gammas_path):
+        update_gammas_in_ne(gammas_path, ne_iter, nd)
+        print(f"  Updated GAMMAS_IN with iterated Ne ({min(ne_iter):.3e} - {max(ne_iter):.3e})")
+
+    if plot:
+        plot_ionization(hydro, ion_data, output_dir)
+        plot_lte_vs_nlte(hydro, comp_data, output_dir, tau, r_ph_10, t_rad, t_ion, w)
+
+    print("Done.")
+
+
+def update_gammas_in_ne(gammas_path, ne_new, nd):
+    """Patch the electron density section of GAMMAS_IN with converged Ne.
+
+    GAMMAS_IN format (from write_gammas_in_from_hydro in prepare_VADAT.py):
+      - Leading blank
+      - '!Number of depth points'
+      - '!Electron density' followed by ED values (10 per line, .3E)
+      - '!Radius (10^10cm)' followed by R values
+      - '!Temperature (10^4 K)' followed by T values
+      - Per-species gamma blocks
+
+    We replace only the ED values, preserving everything else.
+    ne_new is in outer-to-inner order (matching SN_HYDRO_DATA / GAMMAS_IN).
+    """
+    with open(gammas_path) as f:
+        lines = f.readlines()
+
+    # Find the '!Electron density' section
+    ed_start = -1
+    for i, line in enumerate(lines):
+        if 'Electron density' in line:
+            ed_start = i + 1
+            break
+    if ed_start < 0:
+        print(f"  WARNING: Could not find 'Electron density' section in {gammas_path}")
+        return
+
+    # Count how many lines the ED section occupies (nd values, 10 per line)
+    n_ed_lines = (nd + 9) // 10
+
+    # Replace ED values
+    fmt10 = lambda vals: "    " + "   ".join(f"{x:.3E}" for x in vals)
+    new_ed_lines = []
+    for i in range(0, nd, 10):
+        chunk = ne_new[i:i+10]
+        new_ed_lines.append(fmt10(chunk) + "\n")
+
+    # Find the end of the ED section (next '!' comment line)
+    ed_end = ed_start
+    count = 0
+    while ed_end < len(lines) and count < n_ed_lines:
+        if lines[ed_end].strip().startswith('!'):
+            break
+        ed_end += 1
+        count += 1
+
+    # Rebuild the file
+    out = lines[:ed_start] + new_ed_lines + lines[ed_end:]
+    with open(gammas_path, 'w') as f:
+        f.writelines(out)
+
+
+def plot_ionization(hydro, ion_data, output_dir):
+    """Generate diagnostic plots of ionization fraction vs radius.
+
+    Produces two figures:
+    1. Per-element panels showing all ionization stages vs radius.
+    2. A combined figure showing the dominant ionization stage for each element.
+    Also plots T and ne profiles for context.
+
+    Args:
+        hydro: Parsed SN_HYDRO_DATA dict.
+        ion_data: Dict keyed by element label, each with 'stages' and 'fracs'.
+        output_dir: Directory to write PNG files.
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        print("WARNING: matplotlib not available; skipping plots")
+        return
+
+    RSUN_CM = 6.96e10
+    radius_10cm = np.array(hydro['radius'])  # in 10^10 cm
+    # Convert to inner->outer order (x-axis increases left-to-right, matching SN_HYDRO_DATA plots)
+    r_plt = radius_10cm[::-1] * 1e10  # cm
+    velocity = np.array(hydro['velocity'])[::-1]  # km/s, inner->outer
+    t_k = np.array([t * 1e4 for t in hydro['temperature']])[::-1]  # K, inner->outer
+    ed = np.array(hydro['ed'])[::-1]  # cm^-3, inner->outer
+    nd = hydro['nd']
+
+    # Consistent x-axis limits (matching plot_structure_overview in convert_stella_swd_to_cmfgen.py)
+    r_min = np.min(r_plt) * 0.9
+    r_max = np.max(r_plt) * 1.1
+
+    # Element display names and ion stage labels
+    elem_names = {
+        'HYD': 'H', 'HE': 'He', 'OXY': 'O', 'SIL': 'Si',
+        'CAL': 'Ca', 'IRON': 'Fe',
+    }
+    roman = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII'}
+
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+
+    # --- Figure 1: Per-element ionization fractions vs radius ---
+    n_elements = len(ion_data)
+    n_cols = 3
+    n_rows = (n_elements + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4.5 * n_rows), squeeze=False)
+    fig.suptitle('Saha Ionization Fractions vs Radius (Proxy-Populations)', fontsize=14, y=1.01)
+
+    for idx, (elem_label, data) in enumerate(sorted(ion_data.items())):
+        ax = axes[idx // n_cols][idx % n_cols]
+        elem_name = elem_names.get(elem_label, elem_label)
+
+        for (stage, sp_name), frac in zip(data['stages'], data['fracs']):
+            frac_arr = np.array(frac)[::-1]  # inner->outer
+            label = f'{elem_name} {roman.get(stage, str(stage))}'
+            ax.semilogy(r_plt, frac_arr, label=label, linewidth=1.5)
+
+        ax.set_xlabel(r'Radius (cm)', fontsize=11)
+        ax.set_ylabel('Ion fraction')
+        ax.set_title(f'{elem_name} ({elem_label})', fontsize=12, fontweight='bold')
+        ax.set_ylim(1e-30, 2)
+        ax.set_xlim(r_min, r_max)
+        ax.set_xscale('log')
+        ax.legend(fontsize=8, loc='best')
+        ax.grid(True, alpha=0.3, which='both')
+
+    # Hide unused subplots
+    for idx in range(n_elements, n_rows * n_cols):
+        axes[idx // n_cols][idx % n_cols].set_visible(False)
+
+    plt.tight_layout()
+    fig1_path = os.path.join(plots_dir, 'POP_INIT_proxy_ionization_vs_radius.png')
+    fig.savefig(fig1_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Plot saved: {fig1_path}")
+
+    # --- Figure 2: Structure profiles (T, ne, velocity) ---
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+
+    ax1.semilogy(r_plt, t_k, 'k-', linewidth=1.5)
+    ax1.set_ylabel('Temperature (K)', fontsize=12)
+    ax1.set_title('SN_HYDRO_DATA Structure Profiles', fontsize=14, fontweight='bold')
+    ax1.grid(True, alpha=0.3, which='both')
+    ax1.set_xlim(r_min, r_max)
+
+    ax2.loglog(r_plt, ed, 'b-', linewidth=1.5)
+    ax2.set_ylabel(r'$n_e$ (cm$^{-3}$)', fontsize=12)
+    ax2.grid(True, alpha=0.3, which='both')
+    ax2.set_xlim(r_min, r_max)
+
+    ax3.plot(r_plt, velocity, 'r-', linewidth=1.5)
+    ax3.set_xlabel(r'Radius (cm)', fontsize=12)
+    ax3.set_ylabel('Velocity (km/s)', fontsize=12)
+    ax3.grid(True, alpha=0.3)
+    ax3.set_xlim(r_min, r_max)
+    ax3.set_xscale('log')
+
+    plt.tight_layout()
+    fig2_path = os.path.join(plots_dir, 'POP_INIT_proxy_structure_profiles.png')
+    fig.savefig(fig2_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Plot saved: {fig2_path}")
+
+    # --- Figure 3: All elements stacked area chart (dominant ion) ---
+    fig, ax = plt.subplots(figsize=(12, 6))
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(ion_data), 1)))
+
+    for idx, (elem_label, data) in enumerate(sorted(ion_data.items())):
+        elem_name = elem_names.get(elem_label, elem_label)
+        # Find the dominant ion stage at each depth
+        max_frac = np.zeros(nd)
+        max_stage = np.zeros(nd, dtype=int)
+        for (stage, _), frac in zip(data['stages'], data['fracs']):
+            frac_arr = np.array(frac)[::-1]  # inner->outer
+            mask = frac_arr > max_frac
+            max_frac[mask] = frac_arr[mask]
+            max_stage[mask] = stage
+
+        # Plot the dominant stage number vs radius
+        ax.step(r_plt, max_stage, where='mid', label=elem_name,
+                linewidth=2, color=colors[idx])
+
+    ax.set_xlabel(r'Radius (cm)', fontsize=12)
+    ax.set_ylabel('Dominant ion stage', fontsize=12)
+    ax.set_title('Dominant Ionization Stage vs Radius', fontsize=14, fontweight='bold')
+    ax.set_yticks([1, 2, 3, 4, 5, 6])
+    ax.set_yticklabels(['I', 'II', 'III', 'IV', 'V', 'VI'])
+    ax.set_xlim(r_min, r_max)
+    ax.set_xscale('log')
+    ax.legend(fontsize=9, loc='best')
+    ax.grid(True, alpha=0.3, which='both')
+
+    plt.tight_layout()
+    fig3_path = os.path.join(plots_dir, 'POP_INIT_proxy_dominant_ion_stage.png')
+    fig.savefig(fig3_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Plot saved: {fig3_path}")
+
+
+def plot_lte_vs_nlte(hydro, comp_data, output_dir, tau, r_ph_10, t_rad, t_ion, w):
+    """Generate comparison plots: LTE (CMFGEN internal) vs NLTE proxy estimates.
+
+    Produces a multi-panel figure showing:
+    1. Temperature profiles: T_local, T_rad, T_ion, T_EXC floor
+    2. Dilution factor W_eff vs tau
+    3. Ionization fraction: LTE vs NLTE proxy for each species
+    4. Ground-state departure coefficient: LTE (DC=1) vs NLTE proxy (DC=W_eff)
+    5. Population ratio: NLTE/LTE for ground state (shows the NLTE correction factor)
+    """
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    nd = hydro['nd']
+    radius = hydro['radius']  # 10^10 cm, outer-to-inner
+    t_local = hydro['temperature']  # 10^4 K
+
+    # Convert to inner-to-outer for plotting (more intuitive)
+    # Use log10(R in cm) for x-axis
+    r_plt = np.array(radius[::-1]) * 1e10  # cm
+    tau_plt = np.array(tau[::-1])
+    t_local_plt = np.array(t_local[::-1]) * 1e4  # K
+    t_rad_plt = np.array(t_rad[::-1]) * 1e4
+    t_ion_plt = np.array(t_ion[::-1]) * 1e4
+    w_plt = np.array(w[::-1])
+
+    r_min = np.min(r_plt) * 0.9
+    r_max = np.max(r_plt) * 1.1
+
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+
+    # --- Figure 4: Temperature and W profiles ---
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    # Panel 1: Temperature profiles
+    ax = axes[0][0]
+    ax.semilogy(r_plt, t_local_plt, 'k-', linewidth=1.5, label='T_local (gas)')
+    ax.semilogy(r_plt, t_rad_plt, 'r--', linewidth=1.5, label='T_rad (radiation)')
+    ax.semilogy(r_plt, t_ion_plt, 'b-', linewidth=1.5, label='T_ion (hybrid, for Saha)')
+    ax.axhline(3000, color='gray', linestyle=':', linewidth=1, label='T_EXC floor (3000 K)')
+    # Mark photosphere
+    r_ph_cm = r_ph_10 * 1e10  # cm
+    ax.axvline(r_ph_cm, color='green', linestyle='-.', linewidth=1, alpha=0.7, label=f'R_ph ($\\tau$=2/3)')
+    ax.set_xlabel(r'Radius (cm)', fontsize=11)
+    ax.set_ylabel('Temperature (K)', fontsize=11)
+    ax.set_title('Temperature Profiles', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=8, loc='best')
+    ax.grid(True, alpha=0.3, which='both')
+    ax.set_xlim(r_min, r_max)
+    ax.set_xscale('log')
+
+    # Panel 2: W_eff and tau
+    ax = axes[0][1]
+    ax.semilogy(r_plt, w_plt, 'b-', linewidth=1.5, label='W_eff')
+    ax.semilogy(r_plt, tau_plt, 'r-', linewidth=1.5, label='$\\tau$ (Rosseland)')
+    ax.axhline(1.0, color='gray', linestyle=':', linewidth=1)
+    ax.axhline(2.0/3.0, color='green', linestyle='-.', linewidth=1, alpha=0.7, label='$\\tau$=2/3')
+    ax.axvline(r_ph_cm, color='green', linestyle='-.', linewidth=1, alpha=0.7)
+    ax.set_xlabel(r'Radius (cm)', fontsize=11)
+    ax.set_ylabel('W_eff / $\\tau$', fontsize=11)
+    ax.set_title('Dilution Factor & Optical Depth', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=8, loc='best')
+    ax.grid(True, alpha=0.3, which='both')
+    ax.set_xlim(r_min, r_max)
+    ax.set_xscale('log')
+
+    # Panel 3: Ionization fractions — LTE vs NLTE for key species
+    ax = axes[1][0]
+    key_species = ['HI', 'HeI', 'He2', 'OI', 'Ca2', 'Fe2', 'FeIII']
+    colors = plt.cm.tab10(np.linspace(0, 1, len(key_species)))
+    for idx, name in enumerate(key_species):
+        if name not in comp_data:
+            continue
+        cd = comp_data[name]
+        frac_lte = np.array(cd['ion_frac_lte'][::-1])
+        frac_nlte = np.array(cd['ion_frac_nlte'][::-1])
+        elem = cd['elem_label']
+        stage = cd['ion_stage']
+        roman = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V'}
+        elem_names = {'HYD': 'H', 'HE': 'He', 'OXY': 'O', 'SIL': 'Si',
+                      'CAL': 'Ca', 'IRON': 'Fe'}
+        label_base = f'{elem_names.get(elem, elem)} {roman.get(stage, str(stage))}'
+        ax.semilogy(r_plt, frac_lte, '--', color=colors[idx], linewidth=1,
+                    label=f'{label_base} LTE')
+        ax.semilogy(r_plt, frac_nlte, '-', color=colors[idx], linewidth=1.5,
+                    label=f'{label_base} NLTE')
+    ax.axvline(r_ph_cm, color='green', linestyle='-.', linewidth=1, alpha=0.7)
+    ax.set_xlabel(r'Radius (cm)', fontsize=11)
+    ax.set_ylabel('Ion fraction', fontsize=11)
+    ax.set_title('Ionization: LTE (dashed) vs NLTE proxy (solid)', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=6, loc='best', ncol=2)
+    ax.grid(True, alpha=0.3, which='both')
+    ax.set_xlim(r_min, r_max)
+    ax.set_xscale('log')
+    ax.set_ylim(1e-30, 2)
+
+    # Panel 4: Ground-state population ratio NLTE/LTE
+    ax = axes[1][1]
+    for idx, name in enumerate(key_species):
+        if name not in comp_data:
+            continue
+        cd = comp_data[name]
+        dc_lte_gs = np.array(cd['dc_lte'][0][::-1])
+        dc_nlte_gs = np.array(cd['dc_nlte'][0][::-1])
+        # Population ratio = DC_nlte / DC_lte (since pop = DC * LTE_pop)
+        # DC_lte = 1 (by definition), so ratio = DC_nlte
+        # But with T_exc floor, DC_lte may differ from 1 at low T
+        ratio = dc_nlte_gs / np.maximum(dc_lte_gs, 1e-30)
+        elem = cd['elem_label']
+        stage = cd['ion_stage']
+        roman = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V'}
+        elem_names = {'HYD': 'H', 'HE': 'He', 'OXY': 'O', 'SIL': 'Si',
+                      'CAL': 'Ca', 'IRON': 'Fe'}
+        label_base = f'{elem_names.get(elem, elem)} {roman.get(stage, str(stage))}'
+        ax.semilogy(r_plt, ratio, '-', color=colors[idx], linewidth=1.5,
+                    label=f'{label_base} gs')
+    ax.axhline(1.0, color='gray', linestyle=':', linewidth=1, label='LTE (ratio=1)')
+    ax.axvline(r_ph_cm, color='green', linestyle='-.', linewidth=1, alpha=0.7)
+    ax.set_xlabel(r'Radius (cm)', fontsize=11)
+    ax.set_ylabel('Population ratio (NLTE/LTE)', fontsize=11)
+    ax.set_title('Ground-State Population Correction', fontsize=12, fontweight='bold')
+    ax.legend(fontsize=7, loc='best')
+    ax.grid(True, alpha=0.3, which='both')
+    ax.set_xlim(r_min, r_max)
+    ax.set_xscale('log')
+
+    fig.suptitle('LTE vs NLTE Proxy Comparison (Proxy-Populations)', fontsize=14, y=1.01)
+    plt.tight_layout()
+    fig4_path = os.path.join(plots_dir, 'POP_INIT_proxy_lte_vs_nlte_comparison.png')
+    fig.savefig(fig4_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Plot saved: {fig4_path}")
+
+    # --- Figure 5: Per-species population profiles (LTE vs NLTE) ---
+    # Show ground-state and first excited state populations for each species
+    n_species = len(comp_data)
+    n_cols = 3
+    n_rows = (n_species + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4.5 * n_rows), squeeze=False)
+    fig.suptitle('Level Populations: LTE (dashed) vs NLTE Proxy (solid)', fontsize=14, y=1.01)
+
+    elem_names = {'HYD': 'H', 'HE': 'He', 'OXY': 'O', 'SIL': 'Si',
+                  'CAL': 'Ca', 'IRON': 'Fe'}
+    roman = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V'}
+
+    for idx, (name, cd) in enumerate(sorted(comp_data.items())):
+        ax = axes[idx // n_cols][idx % n_cols]
+        elem = cd['elem_label']
+        stage = cd['ion_stage']
+        nlev = cd['nlev']
+        label_base = f'{elem_names.get(elem, elem)} {roman.get(stage, str(stage))}'
+
+        # Compute actual populations: pop = ion_pop * DC * LTE_pop_fraction
+        # For simplicity, plot DC * ion_pop (proportional to actual population)
+        ion_pop_lte = np.array(cd['ion_pop_lte'][::-1])
+        ion_pop_nlte = np.array(cd['ion_pop_nlte'][::-1])
+
+        # Ground state (level 0)
+        dc_lte_gs = np.array(cd['dc_lte'][0][::-1])
+        dc_nlte_gs = np.array(cd['dc_nlte'][0][::-1])
+        pop_gs_lte = ion_pop_lte * dc_lte_gs
+        pop_gs_nlte = ion_pop_nlte * dc_nlte_gs
+        ax.semilogy(r_plt, np.maximum(pop_gs_lte, 1e-30), 'k--', linewidth=1,
+                    label='gs LTE')
+        ax.semilogy(r_plt, np.maximum(pop_gs_nlte, 1e-30), 'k-', linewidth=1.5,
+                    label='gs NLTE')
+
+        # First excited state (level 1, if present)
+        if nlev > 1:
+            dc_lte_ex = np.array(cd['dc_lte'][1][::-1])
+            dc_nlte_ex = np.array(cd['dc_nlte'][1][::-1])
+            pop_ex_lte = ion_pop_lte * dc_lte_ex
+            pop_ex_nlte = ion_pop_nlte * dc_nlte_ex
+            ax.semilogy(r_plt, np.maximum(pop_ex_lte, 1e-30), 'r--', linewidth=1,
+                        label='exc LTE')
+            ax.semilogy(r_plt, np.maximum(pop_ex_nlte, 1e-30), 'r-', linewidth=1.5,
+                        label='exc NLTE')
+
+        ax.axvline(r_ph_cm, color='green', linestyle='-.', linewidth=1, alpha=0.7)
+        ax.set_title(label_base, fontsize=11, fontweight='bold')
+        ax.set_xlabel(r'Radius (cm)', fontsize=9)
+        ax.set_ylabel('Population (cm$^{-3}$)', fontsize=9)
+        ax.legend(fontsize=7, loc='best')
+        ax.grid(True, alpha=0.3, which='both')
+        ax.set_xlim(r_min, r_max)
+        ax.set_xscale('log')
+
+    # Hide unused subplots
+    for idx in range(len(comp_data), n_rows * n_cols):
+        axes[idx // n_cols][idx % n_cols].set_visible(False)
+
+    plt.tight_layout()
+    fig5_path = os.path.join(plots_dir, 'POP_INIT_proxy_lte_vs_nlte_populations.png')
+    fig.savefig(fig5_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Plot saved: {fig5_path}")
+
+
+def write_grey_lambda_diagnostics(iter_log, output_dir):
+    """Write a text log and (if possible) a plot of per-iteration
+    population levels for each ion stage from the grey-lambda iteration."""
+    import numpy as np
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+
+    log_path = os.path.join(plots_dir, 'POP_INIT_proxy_grey_lambda_convergence.txt')
+    with open(log_path, 'w') as f:
+        f.write('Grey-lambda iteration population log\n')
+        f.write('=' * 80 + '\n\n')
+        f.write(f"{'Iter':>5}  {'dNe':>10}  {'dkap':>10}  "
+                f"{'Ne_min':>12}  {'Ne_max':>12}  {'tau_ph':>8}  "
+                f"{'W_ph':>8}  {'T_rad_ph':>10}  {'T_ion_ph':>10}\n")
+        f.write('-' * 100 + '\n')
+        for entry in iter_log:
+            f.write(f"{entry['iteration']:5d}  "
+                    f"{entry['max_ne_change']:10.3e}  "
+                    f"{entry['max_kappa_change']:10.3e}  "
+                    f"{entry['ne_min']:12.3e}  "
+                    f"{entry['ne_max']:12.3e}  "
+                    f"{entry['tau_ph']:8.4f}  "
+                    f"{entry['w_ph']:8.6f}  "
+                    f"{entry['t_rad_ph']*1e4:10.1f}  "
+                    f"{entry['t_ion_ph']*1e4:10.1f}\n")
+
+        f.write('\n')
+        f.write('Per-species ion populations (cm^-3) at outer / photosphere / inner\n')
+        f.write('=' * 80 + '\n')
+        for entry in iter_log:
+            f.write(f"\n--- Iteration {entry['iteration']}\n")
+            for elem_label in sorted(entry['populations'].keys()):
+                stage_pops = entry['populations'][elem_label]
+                for stage, pops in enumerate(stage_pops):
+                    f.write(f"  {elem_label:6s} stage {stage+1:2d}:  "
+                            f"outer={pops['nion_outer']:12.3e}  "
+                            f"photo={pops['nion_photosphere']:12.3e}  "
+                            f"inner={pops['nion_inner']:12.3e}  "
+                            f"(frac min={pops['ion_frac_min']:.3e} max={pops['ion_frac_max']:.3e})\n")
+    print(f"  Grey-λ convergence log: {log_path}")
+
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+
+    if not iter_log:
+        return
+
+    n_elements = len(iter_log[0]['populations'])
+    if n_elements == 0:
+        return
+
+    n_cols = 3
+    n_rows = (n_elements + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4.5 * n_rows), squeeze=False)
+    fig.suptitle('Grey-λ Ion Population Convergence (photosphere)', fontsize=14, y=1.01)
+
+    roman = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI'}
+    elem_names = {'HYD': 'H', 'HE': 'He', 'OXY': 'O', 'SIL': 'Si', 'CAL': 'Ca', 'IRON': 'Fe'}
+    iters = [e['iteration'] for e in iter_log]
+
+    for idx, elem_label in enumerate(sorted(iter_log[0]['populations'].keys())):
+        ax = axes[idx // n_cols][idx % n_cols]
+        n_stages = len(iter_log[0]['populations'][elem_label])
+        colors = plt.cm.tab10(np.linspace(0, 1, max(n_stages, 1)))
+        for stage in range(n_stages):
+            nion_photo = [e['populations'][elem_label][stage]['nion_photosphere']
+                          for e in iter_log]
+            label = f"{elem_names.get(elem_label, elem_label)} {roman.get(stage+1, str(stage+1))}"
+            ax.semilogy(iters, np.maximum(nion_photo, 1e-30), '-o',
+                        color=colors[stage], linewidth=1.2, markersize=4, label=label)
+        ax.set_xlabel('Iteration', fontsize=10)
+        ax.set_ylabel('Population (cm$^{-3}$)', fontsize=10)
+        ax.set_title(f"{elem_names.get(elem_label, elem_label)} ({elem_label})",
+                     fontsize=12, fontweight='bold')
+        ax.legend(fontsize=8, loc='best')
+        ax.grid(True, alpha=0.3, which='both')
+
+    for idx in range(n_elements, n_rows * n_cols):
+        axes[idx // n_cols][idx % n_cols].set_visible(False)
+
+    plt.tight_layout()
+    plot_path = os.path.join(plots_dir, 'POP_INIT_proxy_grey_lambda_convergence.png')
+    fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Grey-λ convergence plot: {plot_path}")
+
+
+def parse_cmfgen_convergence(outgen_path):
+    """Parse CMFGEN OUTGEN for per-iteration population correction data.
+
+    Extracts:
+      - Maximum % increase/decrease per iteration (with depth index)
+      - DIAG lines (J, D, STEQ, POP_OLD) per iteration
+      - REGRID_DIAG lines (initial regridding diagnostics)
+      - LTE_DIAG lines (LTE population diagnostics per iteration)
+
+    Returns a dict with:
+      'iterations': list of iteration numbers
+      'max_increase': list of (depth, value) per iteration
+      'max_decrease': list of (depth, value) per iteration
+      'diag_lines': list of (iteration, J, D, STEQ, POP_OLD) per iteration
+      'lte_diag': list of (iteration, NC2, K, DI, ED, T, RGU, LOG_C2LTE_1, LOG_C2LTE_7, C2LTE_7)
+      'regrid_diag': list of (R, DI, ED, T, POPATOM, DC_1_5)
+    """
+    import re
+
+    if not os.path.exists(outgen_path):
+        return None
+
+    with open(outgen_path) as f:
+        lines = f.readlines()
+
+    result = {
+        'iterations': [],
+        'max_increase': [],
+        'max_decrease': [],
+        'diag_lines': [],
+        'lte_diag': [],
+        'regrid_diag': [],
+    }
+
+    current_iter = 0
+    regrid_seen = False
+
+    for line in lines:
+        # REGRID_DIAG: Fe2_IN D=176 R=  1.71348313E+05 DI=    7.1215E+05 ...
+        if 'REGRID_DIAG:' in line and 'R=' in line:
+            m = re.search(r'R=\s*([\d.eE+-]+)\s+DI=\s*([\d.eE+-]+)\s+ED=\s*([\d.eE+-]+)\s+T=\s*([\d.eE+-]+)\s+POPATOM=\s*([\d.eE+-]+)', line)
+            if m:
+                result['regrid_diag'].append({
+                    'R': float(m.group(1)),
+                    'DI': float(m.group(2)),
+                    'ED': float(m.group(3)),
+                    'T': float(m.group(4)),
+                    'POPATOM': float(m.group(5)),
+                })
+
+        # REGRID_DIAG: DC(1:5)=   -4.4595E-01 ...
+        if 'REGRID_DIAG: DC' in line:
+            m = re.findall(r'(-?[\d.eE+-]+)', line.replace('REGRID_DIAG: DC(1:5)=', ''))
+            if m and result['regrid_diag']:
+                result['regrid_diag'][-1]['DC'] = [float(x) for x in m[:5]]
+
+        # Maximum % increase at depth    1 is  2.15E+20  (LAMBDA)          --- iteration    1
+        m = re.search(r'Maximum % increase at depth\s+(\d+)\s+is\s+([\d.eE+-]+).*iteration\s+(\d+)', line)
+        if m:
+            depth = int(m.group(1))
+            value = float(m.group(2))
+            current_iter = int(m.group(3))
+            if current_iter not in result['iterations']:
+                result['iterations'].append(current_iter)
+            result['max_increase'].append((current_iter, depth, value))
+
+        # Maximum % decrease at depth   55 is  1.10E+02  (LAMBDA)          --- iteration    1
+        m = re.search(r'Maximum % decrease at depth\s+(\d+)\s+is\s+([\d.eE+-]+).*iteration\s+(\d+)', line)
+        if m:
+            depth = int(m.group(1))
+            value = float(m.group(2))
+            current_iter = int(m.group(3))
+            result['max_decrease'].append((current_iter, depth, value))
+
+        # DIAG: J=  89 D=   1 STEQ= -2.15E+18 POP_OLD=  2.00E-15
+        m = re.search(r'DIAG:\s+J=\s*(\d+)\s+D=\s*(\d+)\s+STEQ=\s*(-?[\d.eE+-]+)\s+POP_OLD=\s*(-?[\d.eE+-]+)', line)
+        if m:
+            result['diag_lines'].append({
+                'iteration': current_iter,
+                'J': int(m.group(1)),
+                'D': int(m.group(2)),
+                'STEQ': float(m.group(3)),
+                'POP_OLD': float(m.group(4)),
+            })
+
+        # LTE_DIAG: NC2=  80 K=176 DI=    7.0822E+04 ED=    3.2618E+09 T=    4.4945E+00 RGU=    5.5782E-10
+        m = re.search(r'LTE_DIAG:\s+NC2=\s*(\d+)\s+K=\s*(\d+)\s+DI=\s*(-?[\d.eE+-]+)\s+ED=\s*(-?[\d.eE+-]+)\s+T=\s*(-?[\d.eE+-]+)\s+RGU=\s*(-?[\d.eE+-]+)', line)
+        if m:
+            entry = {
+                'iteration': current_iter,
+                'NC2': int(m.group(1)),
+                'K': int(m.group(2)),
+                'DI': float(m.group(3)),
+                'ED': float(m.group(4)),
+                'T': float(m.group(5)),
+                'RGU': float(m.group(6)),
+            }
+            # Check next line for LOG_C2LTE
+            result['lte_diag'].append(entry)
+
+        # LTE_DIAG: LOG_C2LTE(1,7)=   -1.4825E+01   -1.5126E+01    2.6974E-07
+        m = re.search(r'LTE_DIAG:\s+LOG_C2LTE\(1,7\)=\s*(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)', line)
+        if m and result['lte_diag']:
+            result['lte_diag'][-1]['LOG_C2LTE_1'] = float(m.group(1))
+            result['lte_diag'][-1]['LOG_C2LTE_7'] = float(m.group(2))
+            result['lte_diag'][-1]['C2LTE_7'] = float(m.group(3))
+
+    return result
+
+
+def plot_cmfgen_convergence(outgen_path, output_dir):
+    """Plot CMFGEN population changes per iteration per depth from OUTGEN.
+
+    Produces:
+      1. Max correction (increase/decrease) vs iteration — shows convergence trend
+      2. DIAG STEQ vs iteration — shows statistical equilibrium residual
+      3. DIAG POP_OLD vs iteration — shows population at the most-corrected depth
+      4. LTE_DIAG DI vs iteration — shows next-ion density evolution at diagnostic depth
+      5. LTE_DIAG C2LTE(7) vs iteration — shows LTE population evolution at diagnostic depth
+      6. Per-depth correction heatmap — shows which depths have the largest corrections
+         across all iterations (from DIAG lines)
+    """
+    conv = parse_cmfgen_convergence(outgen_path)
+    if conv is None or not conv['iterations']:
+        print(f"  No CMFGEN convergence data found in {outgen_path}")
+        return
+
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import LogNorm
+    except Exception:
+        print("  matplotlib not available; skipping CMFGEN convergence plots")
+        return
+
+    plots_dir = os.path.join(output_dir, 'plots')
+    # Clear previous CMFGEN convergence plots (keep proxy plots if present)
+    import glob
+    for f in glob.glob(os.path.join(plots_dir, 'POP_CMFGEN_*')):
+        if os.path.isfile(f) or os.path.islink(f):
+            os.remove(f)
+    os.makedirs(plots_dir, exist_ok=True)
+
+    iters = conv['iterations']
+    n_iters = len(iters)
+
+    # --- Figure 1: Max corrections vs iteration ---
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+    inc_iters = [e[0] for e in conv['max_increase']]
+    inc_vals = [e[2] for e in conv['max_increase']]
+    inc_depths = [e[1] for e in conv['max_increase']]
+    ax1.semilogy(inc_iters, inc_vals, '-o', color='crimson', linewidth=1.5, markersize=6)
+    for i, (it, d, v) in enumerate(zip(inc_iters, inc_depths, inc_vals)):
+        ax1.annotate(f'd{d}', (it, v), textcoords="offset points", xytext=(5, 5),
+                     fontsize=7, color='crimson')
+    ax1.set_ylabel('Max % Increase', fontsize=11)
+    ax1.set_title('CMFGEN Population Corrections per Iteration', fontsize=13, fontweight='bold')
+    ax1.grid(True, alpha=0.3, which='both')
+    ax1.axhline(y=1.0, color='green', linestyle='--', alpha=0.5, label='Converged (100%)')
+    ax1.legend(fontsize=9)
+
+    dec_iters = [e[0] for e in conv['max_decrease']]
+    dec_vals = [e[2] for e in conv['max_decrease']]
+    dec_depths = [e[1] for e in conv['max_decrease']]
+    ax2.semilogy(dec_iters, dec_vals, '-o', color='steelblue', linewidth=1.5, markersize=6)
+    for i, (it, d, v) in enumerate(zip(dec_iters, dec_depths, dec_vals)):
+        ax2.annotate(f'd{d}', (it, v), textcoords="offset points", xytext=(5, 5),
+                     fontsize=7, color='steelblue')
+    ax2.set_xlabel('CMFGEN Iteration', fontsize=11)
+    ax2.set_ylabel('Max % Decrease', fontsize=11)
+    ax2.grid(True, alpha=0.3, which='both')
+    ax2.axhline(y=1.0, color='green', linestyle='--', alpha=0.5, label='Converged (100%)')
+    ax2.legend(fontsize=9)
+
+    plt.tight_layout()
+    fig1_path = os.path.join(plots_dir, 'POP_CMFGEN_max_corrections_vs_iteration.png')
+    fig.savefig(fig1_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  CMFGEN max corrections plot: {fig1_path}")
+
+    # --- Figure 2: DIAG STEQ and POP_OLD vs iteration ---
+    if conv['diag_lines']:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+        diag_iters = [d['iteration'] for d in conv['diag_lines']]
+        diag_steq = [abs(d['STEQ']) for d in conv['diag_lines']]
+        diag_pop = [d['POP_OLD'] for d in conv['diag_lines']]
+        diag_depths = [d['D'] for d in conv['diag_lines']]
+        diag_J = [d['J'] for d in conv['diag_lines']]
+
+        ax1.semilogy(diag_iters, diag_steq, '-s', color='darkorange', linewidth=1.5, markersize=5)
+        for i, (it, d, v) in enumerate(zip(diag_iters, diag_depths, diag_steq)):
+            ax1.annotate(f'd{d}', (it, v), textcoords="offset points", xytext=(5, 5),
+                         fontsize=7, color='darkorange')
+        ax1.set_ylabel('|STEQ| (statistical equilibrium)', fontsize=11)
+        ax1.set_title('CMFGEN Statistical Equilibrium Residual per Iteration',
+                      fontsize=13, fontweight='bold')
+        ax1.grid(True, alpha=0.3, which='both')
+
+        ax2.semilogy(diag_iters, diag_pop, '-s', color='purple', linewidth=1.5, markersize=5)
+        for i, (it, d, v) in enumerate(zip(diag_iters, diag_depths, diag_pop)):
+            ax2.annotate(f'd{d}', (it, v), textcoords="offset points", xytext=(5, 5),
+                         fontsize=7, color='purple')
+        ax2.set_xlabel('CMFGEN Iteration', fontsize=11)
+        ax2.set_ylabel('POP_OLD (population before correction)', fontsize=11)
+        ax2.grid(True, alpha=0.3, which='both')
+
+        plt.tight_layout()
+        fig2_path = os.path.join(plots_dir, 'POP_CMFGEN_steq_popold_vs_iteration.png')
+        fig.savefig(fig2_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"  CMFGEN STEQ/POP_OLD plot: {fig2_path}")
+
+    # --- Figure 3: LTE_DIAG evolution at diagnostic depth ---
+    if conv['lte_diag']:
+        # Group by depth K
+        by_depth = {}
+        for e in conv['lte_diag']:
+            k = e['K']
+            if k not in by_depth:
+                by_depth[k] = []
+            by_depth[k].append(e)
+
+        fig, axes = plt.subplots(len(by_depth), 2, figsize=(14, 4 * len(by_depth)),
+                                 squeeze=False)
+        fig.suptitle('CMFGEN LTE Population Diagnostics per Iteration',
+                     fontsize=13, fontweight='bold', y=1.01)
+
+        for row, (k, entries) in enumerate(sorted(by_depth.items())):
+            iters_k = [e['iteration'] for e in entries]
+            di_vals = [e['DI'] for e in entries]
+            ed_vals = [e['ED'] for e in entries]
+            t_vals = [e['T'] for e in entries]
+
+            ax1 = axes[row][0]
+            ax1b = ax1.twinx()
+            ax1.semilogy(iters_k, di_vals, '-o', color='crimson', linewidth=1.5, markersize=4, label='DI (next ion)')
+            ax1b.semilogy(iters_k, ed_vals, '-s', color='steelblue', linewidth=1, markersize=3, label='ED')
+            ax1.set_xlabel('Iteration', fontsize=10)
+            ax1.set_ylabel('DI (cm$^{-3}$)', fontsize=10, color='crimson')
+            ax1b.set_ylabel('ED (cm$^{-3}$)', fontsize=10, color='steelblue')
+            ax1.set_title(f'Depth {k}: DI and ED vs Iteration', fontsize=11)
+            ax1.grid(True, alpha=0.3, which='both')
+            ax1.tick_params(axis='y', labelcolor='crimson')
+            ax1b.tick_params(axis='y', labelcolor='steelblue')
+
+            ax2 = axes[row][1]
+            if 'C2LTE_7' in entries[0]:
+                c2lte_vals = [max(e.get('C2LTE_7', 1e-300), 1e-300) for e in entries]
+                ax2.semilogy(iters_k, c2lte_vals, '-o', color='darkgreen', linewidth=1.5, markersize=4, label='C2LTE(7)')
+                ax2.set_ylabel('C2LTE level 7 (cm$^{-3}$)', fontsize=10, color='darkgreen')
+            ax2.set_xlabel('Iteration', fontsize=10)
+            ax2.set_title(f'Depth {k}: LTE Population (level 7) vs Iteration', fontsize=11)
+            ax2.grid(True, alpha=0.3, which='both')
+
+        plt.tight_layout()
+        fig3_path = os.path.join(plots_dir, 'POP_CMFGEN_lte_diag_vs_iteration.png')
+        fig.savefig(fig3_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"  CMFGEN LTE diagnostic plot: {fig3_path}")
+
+    # --- Figure 4: Per-depth DIAG heatmap ---
+    if conv['diag_lines']:
+        # Collect all unique depths and iterations
+        all_depths = sorted(set(d['D'] for d in conv['diag_lines']))
+        all_iters = sorted(set(d['iteration'] for d in conv['diag_lines']))
+
+        # Build a matrix: |STEQ| per (iteration, depth)
+        # Note: DIAG only reports the single most-corrected depth per iteration,
+        # so most cells will be empty. We show what's available.
+        fig, ax = plt.subplots(figsize=(10, 6))
+        diag_by_iter = {}
+        for d in conv['diag_lines']:
+            it = d['iteration']
+            if it not in diag_by_iter:
+                diag_by_iter[it] = []
+            diag_by_iter[it].append((d['D'], abs(d['STEQ']), d['J']))
+
+        for it in sorted(diag_by_iter.keys()):
+            entries = diag_by_iter[it]
+            depths = [e[0] for e in entries]
+            steqs = [e[1] for e in entries]
+            js = [e[2] for e in entries]
+            ax.scatter([it] * len(depths), depths, c=steqs, s=50,
+                       cmap='YlOrRd', norm=LogNorm(), edgecolors='black', linewidth=0.5,
+                       zorder=3)
+            for d, s, j in zip(depths, steqs, js):
+                ax.annotate(f'J{j}', (it, d), fontsize=6, ha='center', va='bottom')
+
+        ax.set_xlabel('CMFGEN Iteration', fontsize=11)
+        ax.set_ylabel('Depth', fontsize=11)
+        ax.set_title('CMFGEN Per-Depth |STEQ| at Most-Corrected Location',
+                     fontsize=13, fontweight='bold')
+        ax.grid(True, alpha=0.2)
+        ax.invert_yaxis()  # depth 1 at top (outer boundary)
+
+        # Add colorbar
+        sm = plt.cm.ScalarMappable(cmap='YlOrRd', norm=LogNorm(
+            vmin=max(min(abs(d['STEQ']) for d in conv['diag_lines']), 1e-30),
+            vmax=max(abs(d['STEQ']) for d in conv['diag_lines'])))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, label='|STEQ|')
+
+        plt.tight_layout()
+        fig4_path = os.path.join(plots_dir, 'POP_CMFGEN_depth_steq_heatmap.png')
+        fig.savefig(fig4_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"  CMFGEN depth-STEQ heatmap: {fig4_path}")
+
+    # --- Write convergence summary text ---
+    summary_path = os.path.join(plots_dir, 'POP_CMFGEN_convergence_summary.txt')
+    with open(summary_path, 'w') as f:
+        f.write('CMFGEN Convergence Summary (from OUTGEN)\n')
+        f.write('=' * 80 + '\n\n')
+        f.write(f"Iterations found: {n_iters}\n\n")
+
+        f.write("Maximum corrections per iteration:\n")
+        f.write(f"  {'Iter':>5}  {'Max % Inc':>12}  {'Inc Depth':>10}  {'Max % Dec':>12}  {'Dec Depth':>10}\n")
+        f.write('-' * 70 + '\n')
+        for i in range(n_iters):
+            inc = conv['max_increase'][i] if i < len(conv['max_increase']) else (0, 0, 0)
+            dec = conv['max_decrease'][i] if i < len(conv['max_decrease']) else (0, 0, 0)
+            f.write(f"  {iters[i]:5d}  {inc[2]:12.2e}  {inc[1]:10d}  {dec[2]:12.2e}  {dec[1]:10d}\n")
+
+        if conv['diag_lines']:
+            f.write(f"\nDIAG lines (most-corrected level per iteration):\n")
+            f.write(f"  {'Iter':>5}  {'J':>5}  {'D':>5}  {'STEQ':>14}  {'POP_OLD':>14}\n")
+            f.write('-' * 55 + '\n')
+            for d in conv['diag_lines']:
+                f.write(f"  {d['iteration']:5d}  {d['J']:5d}  {d['D']:5d}  {d['STEQ']:14.2e}  {d['POP_OLD']:14.2e}\n")
+
+        if conv['regrid_diag']:
+            f.write(f"\nREGRID diagnostics (initial regridding):\n")
+            for r in conv['regrid_diag']:
+                f.write(f"  R={r['R']:.4e}  DI={r['DI']:.4e}  ED={r['ED']:.4e}  "
+                        f"T={r['T']:.4e}  POPATOM={r['POPATOM']:.4e}\n")
+                if 'DC' in r:
+                    f.write(f"  DC(1:5)={r['DC']}\n")
+
+    print(f"  CMFGEN convergence summary: {summary_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Generate proxy population _IN files for CMFGEN using NLTE-aware dilute LTE')
+    parser.add_argument('model_dir', help='Path to CMFGEN model directory (containing MODEL, *_F_OSCDAT)')
+    parser.add_argument('--hydro-data', help='Path to SN_HYDRO_DATA file')
+    parser.add_argument('--output-dir', help='Output directory for _IN files (default: model_dir)')
+    parser.add_argument('--plot', action='store_true',
+                        help='Generate ionization diagnostic plots (requires matplotlib)')
+    parser.add_argument('--t-exc-min', type=float, default=0.3,
+                        help='Minimum excitation temperature floor in 10^4 K (default 0.3 = 3000 K, '
+                             'matching CMFGEN T_EXC). Prevents overflows in cold outer zones.')
+    parser.add_argument('--tau-trans', type=float, default=1.0,
+                        help='Optical depth transition scale for W_eff and T_ion (default 1.0). '
+                             'Controls LTE→NLTE transition sharpness.')
+    parser.add_argument('--min-ion-frac', type=float, default=1e-30,
+                        help='Absolute floor on Saha ion fractions (default 1e-30). '
+                             'Prevents DI underflow in cold outer zones that otherwise triggers '
+                             'population explosions (see AGENTS.md).')
+    parser.add_argument('--smooth-max-ratio', type=float, default=10.0,
+                        help='Maximum multiplicative change of ion_pop/DC between adjacent depths '
+                             '(default 10.0). Removes single-depth discontinuities that can cause '
+                             'a non-converging DIAG-solver oscillation.')
+    parser.add_argument('--lte-floor', action='store_true',
+                        help='Use pure LTE at T_local for DI and DC (consistent with FIX_T=T and '
+                             'USE_LAM_ES=T). DI floored at min_ion_frac (1e-30) instead of 1e-200, giving '
+                             'trace species a non-zero start above the FIXPOP threshold.')
+    parser.add_argument('--nlte-solver', action='store_true',
+                        help='Use reduced NLTE solver for departure coefficients. Computes '
+                             'recombination-dominated populations from the next ion stage '
+                             'using F_OSCDAT transition rates. Prevents 1e18 initial '
+                             'corrections for excited levels in cool gas.')
+    parser.add_argument('--grey-max-iter', type=int, default=100,
+                        help='Maximum grey-lambda iterations for self-consistent '
+                             'ionization/opacity convergence (default 100). '
+                             'More iterations give a better optimized starting point.')
+    parser.add_argument('--grey-tol', type=float, default=1e-3,
+                        help='Grey-lambda convergence tolerance on max relative '
+                             'change in ne and kappa (default 1e-3 = 0.1%%). '
+                             'Tighter tolerance gives a better optimized starting point.')
+    parser.add_argument('--plot-convergence', action='store_true',
+                        help='Only plot CMFGEN convergence from existing OUTGEN (no _IN generation). '
+                             'Shows population changes per iteration per depth.')
+    args = parser.parse_args()
+
+    # --plot-convergence: only plot CMFGEN convergence from existing OUTGEN
+    if args.plot_convergence:
+        outgen_path = os.path.join(args.model_dir, 'OUTGEN')
+        if not os.path.exists(outgen_path):
+            print(f"Error: OUTGEN not found at {outgen_path}")
+            sys.exit(1)
+        plot_cmfgen_convergence(outgen_path, args.output_dir or args.model_dir)
+        return
+
+    # Auto-detect lte_floor from VADAT if not explicitly set
+    if not args.lte_floor:
+        args.lte_floor = detect_lte_floor_from_vadat(args.model_dir)
+
+    if args.hydro_data is None:
+        # Default: look for SN_HYDRO_DATA two levels up from model_dir
+        args.hydro_data = os.path.join(os.path.dirname(os.path.dirname(args.model_dir)), 'SN_HYDRO_DATA')
+
+    if not os.path.exists(args.hydro_data):
+        print(f"Error: SN_HYDRO_DATA not found at {args.hydro_data}")
+        sys.exit(1)
+
+    generate_proxy_populations(args.model_dir, args.hydro_data, args.output_dir, plot=args.plot,
+                      t_exc_min=args.t_exc_min, tau_trans=args.tau_trans,
+                      min_ion_frac=args.min_ion_frac, smooth_max_ratio=args.smooth_max_ratio,
+                      lte_floor=args.lte_floor, nlte_solver=args.nlte_solver,
+                      grey_max_iter=args.grey_max_iter, grey_tol=args.grey_tol)
+
+    # If OUTGEN exists from a previous CMFGEN run, plot convergence diagnostics
+    outgen_path = os.path.join(args.model_dir, 'OUTGEN')
+    if os.path.exists(outgen_path):
+        print(f"\nParsing CMFGEN convergence from {outgen_path}...")
+        plot_cmfgen_convergence(outgen_path, args.output_dir or args.model_dir)
+
+
+if __name__ == '__main__':
+    main()

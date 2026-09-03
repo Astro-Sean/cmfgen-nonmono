@@ -1,0 +1,13 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/subs/sobew_grad_v2.f	2023-12-03 15:41:33.000000000 +0100
++++ cmfgen_source/subs/sobew_grad_v2.f	2026-08-19 18:12:56.301386000 +0200
+@@ -125,7 +125,9 @@
+ ! NB: GAM is the angle dependent SOBOLEV optical depth.
+ !
+ 	    DO I=1,NI
+-	      GAM(I)=GAMH(I)/ABS(1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I))
++	      T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
++	      T1=MAX(SQRT(T1*T1+0.01_LDP),-0.2_LDP*(1.0_LDP+SIGMA(I)),0.1_LDP)
++	      GAM(I)=GAMH(I)/T1
+ 	    END DO
+ !
+ ! Compute optical depth increments.

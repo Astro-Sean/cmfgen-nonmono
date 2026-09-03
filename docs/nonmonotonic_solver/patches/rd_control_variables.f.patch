@@ -1,0 +1,11 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/new_main/mod_subs/rd_control_variables.f	2025-02-24 13:51:41.000000000 +0100
++++ cmfgen_source/new_main/mod_subs/rd_control_variables.f	2026-08-19 21:32:45.523121000 +0200
+@@ -175,6 +175,8 @@
+ 	    SN_MODEL=.TRUE.
+ 	    SN_HYDRO_MODEL=.TRUE.
+ 	  ELSE IF(VELTYPE .EQ. 12)THEN
++	    SN_MODEL=.TRUE.
++	    SN_HYDRO_MODEL=.TRUE.
+ 	    CALL RD_STORE_DBLE(VCORE,'VCORE',L_TRUE,'Initial velocity (km/s)')
+ 	    CALL RD_STORE_DBLE(V_BETA1,'BETA1',L_TRUE,'Power of velocity Law')
+ 	  ELSE

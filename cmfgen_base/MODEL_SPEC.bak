@@ -1,0 +1,27 @@
+150 [ND]                !Number of depth points
+8   [NC]                !Number of core rays
+158 [NP]                !Number of impact parameters [ND+NC]
+1 [NUM_BNDS]          !1=DIAG for N_TYPE=G_ONLY; 3=TRIDIAG for N_ON_J
+150000         [NCF_MAX]           !Total number of frequencies
+350            [MAX_SIM]           !Max # overlapping Doppler line profiles
+80000          [NLINE_MAX]         !Maximum # of bound-bound transitions
+21             [NLF]               !For CMF option only
+!
+! Model atom for Type IIb/IIn (SN2024pba) - original CMFGEN functionality
+! Elements: H, He, O, Si, Ca, Fe + radioactive Ni/Co
+! ISF format: NV,NS,NF where NV=important vars, NS=super, NF=full
+! When NV=NS=NF: no superlevel grouping, all levels are NLTE
+! Species: HI, HeI, OI, SkI, Sk2, CaI, Ca2, FeI, Fe2, FeIII
+! Ghost species removed: C, N, O II-VI, Si III-VI, Fe IV-VII
+!   (TRANS_ entries caused CMFGEN to solve species without ISF entries)
+!
+30,30,30        [HI_ISF]             !H I: n=1-12 (Balmer, Paschen, Brackett)
+40,43,53           [HeI_ISF]            !He I: 5 NLTE (n=1-2 only; n=3+ causes blowups at T~4000K)
+28,47,136        [OI_ISF]             !O I: 10 NLTE, 14 superlevels (maxSL=14 at NF=30), 30 full
+40,76,141           [SkI_ISF]            !Si I: ground state (ionization balance)
+30,30,30        [Sk2_ISF]            !Si II: 10 NLTE (NF=NS bypasses F_TO_S with SL=80 for 3s3p2)
+116,116,116           [CaI_ISF]            !Ca I: ground state (ionization balance)
+18,18,61        [Ca2_ISF]            !Ca II: H&K, NIR triplet, [Ca II] (12 lev)
+19,45,149           [FeI_ISF]            !Fe I: ground state (ionization balance)
+16,36,150        [Fe2_ISF]            !Fe II: 10 NLTE, 15 superlevels (maxSL=15 at NF=50), 50 full
+15,36,148         [FeIII_ISF]          !Fe III: 5 NLTE, 12 superlevels (maxSL=12 at NF=30), 30 full

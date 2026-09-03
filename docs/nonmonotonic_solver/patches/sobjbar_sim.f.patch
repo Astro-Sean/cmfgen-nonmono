@@ -1,0 +1,13 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/subs/sobjbar_sim.f	2023-12-03 15:41:33.000000000 +0100
++++ cmfgen_source/subs/sobjbar_sim.f	2026-08-19 18:12:57.068739000 +0200
+@@ -110,7 +110,9 @@
+ 	  AV(1:NI)=0.0_LDP
+ 	  CALL ZALONGP(R,Z,P(LS),NI)
+ 	  DO I=1,NI
+-	    GAM(I)=GAMH(I)/ABS(1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I))
++	    T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
++	    T1=MAX(SQRT(T1*T1+0.01_LDP),-0.2_LDP*(1.0_LDP+SIGMA(I)),0.1_LDP)
++	    GAM(I)=GAMH(I)/T1
+ 	  END DO
+ C
+ C SOURCE(1) is the boundary continuum source function.

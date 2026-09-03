@@ -1,0 +1,191 @@
+# SuperLite Input Parameters Reference
+# =====================================
+# This file documents all input parameters for SuperLite's input.par namelist.
+# The default values below are used when generating input.par for production runs.
+#
+# Wavelength units: cm (1 Angstrom = 1e-8 cm)
+# Optical range: 3000-10000 Angstrom = 3e-5 to 1e-4 cm
+#
+# Parameter explanations:
+# ======================
+#
+# in_name          : Simulation name (used for output file naming)
+# in_comment       : Free-text comment describing the model
+#
+# --- Parallelization ---
+# in_nomp          : Number of OpenMP threads per MPI task
+#                    Set to 1 when using MPI to avoid oversubscription
+#
+# --- Iterations ---
+# in_niter         : Number of MC transport iterations
+#                    1 = single pass (standard for LTE post-processing)
+#                    >1 = iterative (only useful with in_nlte=T for radiation
+#                    temperature feedback via nlte_rad_est)
+#
+# --- Grid Geometry ---
+# in_grd_igeom     : Geometry type (11 = 1D spherical, only option supported)
+# in_ndim          : Grid dimensions [nx, ny, nz]
+#                    For 1D sph: [ncells, 1, 1]
+#                    Must match the number of cells in input.str
+#
+# --- Group Structure (Transport Wavelength Grid) ---
+# in_grp_ng        : Number of wavelength groups for opacity/transport
+#                    0 = read from input.wlgrid file
+#                    6000 = production quality (~5 Angstrom/bin at optical)
+#                    KEEP WIDE: UV photons must be transported even if output
+#                    is optical-only, since they scatter into optical range
+# in_grp_ngs       : Number of subgroups per opacity group (1 = no refinement)
+# in_grp_wlmin     : Lower wavelength boundary for transport [cm]
+#                    1d-8 = 1 Angstrom (covers UV for correct scattering)
+# in_grp_wlmax     : Upper wavelength boundary for transport [cm]
+#                    30d-5 = 30000 Angstrom (covers IR)
+#
+# --- Flux Output Grid (Spectrum Bins) ---
+# in_flx_ndim      : Number of flux output bins [nwl, nmu, nom]
+#                    For optical-only: use 3500 bins over 3000-10000 Angstrom
+#                    = ~2 Angstrom/bin (good S/N with 67M packets)
+# in_flx_wlmin     : Lower wavelength for flux output [cm]
+#                    3d-5 = 3000 Angstrom (optical blue cutoff)
+# in_flx_wlmax     : Upper wavelength for flux output [cm]
+#                    1d-4 = 10000 Angstrom (optical red cutoff)
+#
+# --- Source Particles ---
+# in_src_ns        : Total source particles per step (0 = use n2s instead)
+# in_src_n2s       : 2^n source particles per step (EXPONENT, not count!)
+#                    20 = 1,048,576 particles (debug/test)
+#                    22 = 4,194,304 particles (low S/N, fast)
+#                    26 = 67,108,864 particles (production, high S/N)
+#                    MUST be large enough: 2^n2s > ncells (else crash:
+#                    "insufficient vacancies in particle array")
+# in_srcepwr       : Source particle energy weighting (1 = linear,
+#                    equal number of packets per erg emitted)
+# in_L_bol         : Bolometric luminosity scaling factor [erg/s].
+#                    SuperLite computes T_gas^4-weighted spatial emission
+#                    distribution, then renormalises total to in_L_bol
+#                    (sourceenergy.f90:56).  Spectral shape is Planck at
+#                    local gas temperature, independent of in_L_bol.
+#                    Derived from STELLA .swd Flum at outer boundary
+#                    (emergent luminosity) at the SAME EPOCH as structure.
+# in_L_inner       : Inner boundary source luminosity [erg/s] (experimental)
+# in_surfsrcmu     : Surface source direction: 'isot' (isotropic) or 'beam'
+# in_srcmax        : Peak source strength (0 = use L_bol)
+#
+# --- Transport ---
+# in_trn_errorfatal: Stop on transport error (T=stop, F=continue)
+# in_trn_tauddmc   : Mean free paths per cell for DDMC threshold
+#                    3 = switch to DDMC when cell optical depth > 3
+#                    (lower = more DDMC, faster but less accurate)
+# in_taulump       : MFP threshold for lumping DDMC groups
+#                    3 = lump groups when group optical depth > 3
+# in_puretran      : Use pure IMC (no DDMC hybrid) - slower but simpler
+# in_trn_noamp     : Disable amplification factor (T=recommended for stability)
+# in_thm_aniso     : Anisotropic Thomson scattering (experimental)
+#
+# --- EOS / Ionization ---
+# in_noeos         : Skip EOS solve (T=no ionization balance, for debugging)
+# in_nebular       : Nebular approximation for cells above photosphere
+#                    (uses radiation field instead of LTE for ionization)
+# in_R_phot        : Photospheric radius for nebular dilution [cm]
+#                    Must be > 0 (computed by converter at grey tau=2/3,
+#                    consistent with SuperLite's get_rphot subroutine).
+#                    Below R_phot: LTE Saha ionization.
+#                    Above R_phot: nebular approximation with dilution W.
+#                    R_phot is updated during calculation ONLY when in_nlte=t.
+#
+# --- NLTE ---
+# in_nlte          : Non-LTE treatment for H bound-bound opacity
+#                    (experimental, only for hydrogen)
+# in_nlte_nelem    : Number of elements treated NLTE (must be 1 = H only)
+#
+# --- Opacities ---
+# in_opacmixrossel : Mix Rosseland with Planck mean (0=pure Planck,
+#                    1=pure Rosseland)
+# in_nobbopac      : Disable bound-bound (line) opacity (F=include)
+# in_nobfopac      : Disable bound-free (photoionization) opacity (F=include)
+# in_noffopac      : Disable free-free opacity (F=include)
+# in_nothmson      : Disable Thomson scattering (F=include)
+#
+# --- Analytic Opacities (alternative to physical, for testing) ---
+# in_opacanaltype  : 'none' (use physical), 'grey', 'mono', or 'line'
+# in_ldisp1        : Analytic line strength (odd groups)
+# in_ldisp2        : Analytic line strength (even groups)
+# in_gas_sigcoef   : Power-law scattering opacity coefficient
+# in_gas_sigtpwr   : Power-law scattering opacity T exponent
+# in_gas_sigrpwr   : Power-law scattering opacity rho exponent
+# in_gas_capcoef   : Power-law absorption opacity coefficient
+# in_gas_captpwr   : Power-law absorption opacity T exponent
+# in_gas_caprpwr   : Power-law absorption opacity rho exponent
+#
+# --- Output Control ---
+# in_io_grabstdout : Redirect stdout to output.log (F=stdout to terminal)
+# in_io_dogrdtally : Write per-cell transport tallies (large files)
+# in_io_nogriddump : Suppress grid variable output
+# in_io_opacdump   : Opacity output: 'off', 'one' (first iter), 'all'
+# in_io_pdensdump   : Partial ionization densities: 'off' or 'on'
+# in_io_profdump   : Write profile (radius, temp, etc.) at end
+# in_io_debugging  : Enable all debug output (sets all above)
+
+# ============================================================
+# PRODUCTION DEFAULTS (optical-only flux, wide transport)
+# ============================================================
+
+&inputpars
+
+in_name = '{MODEL_NAME}'
+in_comment = 'Production nebular, 1-D sph model of {MODEL_NAME} at {EPOCH}'
+
+!-- misc (in_nomp = OpenMP threads, must match --cpus-per-task in SLURM)
+ in_nomp = {NOMP}
+ in_io_grabstdout = f
+ in_io_opacdump = 'one'
+ in_io_profdump = t
+
+!-- grid settings
+ in_ndim = {NDIM}, 1, 1
+
+!-- group settings (WIDE: 1-30000 Angstrom for correct UV transport)
+ in_grp_ng = 6000
+ in_grp_wlmin = 1d-8
+ in_grp_wlmax = 30d-5
+
+!-- flux settings (OPTICAL+NIR: 3000-20000 Angstrom, ~5 A/bin for good S/N)
+!-- Extended beyond 10000 A to capture the true spectral peak in cool,
+!-- interacting-supernova models where the color temperature may be < 3000 K.
+ in_flx_ndim = 3500, 1, 1
+ in_flx_wlmin = 3d-5
+ in_flx_wlmax = 2d-4
+
+!-- particle numbers (2^25 = 33M particles for good S/N: ~9.5k packets/bin)
+ in_src_n2s = 25
+ in_L_bol = {L_BOL}
+
+!-- ddmc mfp per cell
+ in_trn_tauddmc = 3d0
+ in_taulump = 3d0
+
+!-- EOS / ionization: nebular approximation (Mazzali & Lucy 1993)
+!-- Cells above photosphere use dilute radiation field for ionization
+!-- instead of pure Saha-LTE. More accurate for outer ejecta where
+!-- radiation field dominates over collisions.
+!-- R_phot must be set explicitly (grey tau=1 radius from SN_HYDRO_DATA).
+!-- The converter computes this automatically from the density profile.
+ in_nebular = t
+ in_R_phot = {R_PHOT}
+
+!-- NLTE enabled: iterative radiation-temperature feedback.
+!-- in_nlte=t with in_niter=3 allows the radiation field from the hot shock
+!-- region to heat and ionize the outer CSM/ejecta during iteration. This is
+!-- essential for interacting supernovae where the ionization front is
+!-- maintained by the radiation field, not by the gas temperature alone.
+!-- Cost: ~3x runtime vs single-pass LTE.
+ in_nlte = t
+ in_nlte_nelem = 1
+ in_niter = 3
+
+!-- opacity settings (all physical opacities enabled)
+ in_nobbopac = f
+ in_nobfopac = f
+ in_noffopac = f
+ in_nothmson = f
+
+/

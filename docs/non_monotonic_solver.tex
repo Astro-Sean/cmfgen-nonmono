@@ -1,0 +1,609 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{listings}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+  pdftitle={Non-Monotonic Velocity-Field Formal Solver in CMFGEN},
+  pdfauthor={S.~Brennan}
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  framesep=4pt,
+  showstringspaces=false,
+  language=Fortran,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{green!50!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2.5em,
+}
+
+\title{A Non-Monotonic Velocity-Field Formal Solver for CMFGEN:\\
+Numerical Approach, Source-Code Modifications, Benefits, and Limitations}
+
+\author{S.~Brennan}
+\date{August 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+CMFGEN solves the comoving-frame radiative transfer equation under the
+assumption of monotonic outward expansion, parameterised by the Sobolev
+gradient variable $\sigma \equiv \mathrm{d}\ln v/\mathrm{d}\ln r - 1 \geq -1$.
+Hydrodynamic snapshots from STELLA of interacting supernovae---containing
+shocks, cold dense shells, and velocity reversals---routinely produce
+$\sigma \ll -1$, causing the legacy short-characteristics solver
+\texttt{FG\_J\_CMF\_V13} to generate negative optical depths, NaN cascades,
+and segmentation faults.  We describe an opt-in non-monotonic formal solver,
+\texttt{FG\_J\_CMF\_NONMONO\_V1}, that separates the Sobolev optical-depth
+\emph{magnitude} from the flow \emph{direction}, enabling piecewise
+short-characteristics integration across multiple resonance crossings.
+We further describe a critical refinement: threading the true unclamped
+$\sigma$ into the formal solver via a parallel \texttt{SIGMA\_TRUE} array,
+while retaining the clamped $\sigma$ for all infrastructure routines
+(moment equations, Ng acceleration, Sobolev escape probabilities, grid
+regridding).  We assess the benefits (correct Sobolev optical depths in
+shock zones, restored multi-root resonance detection) and the remaining
+limitations (low optical depth of test snapshots, \texttt{DC\_METH=R}
+temperature smearing, LAMBDA-iteration capping).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%% ====================================================================
+\section{Introduction}
+%% ====================================================================
+
+\subsection{Physical context}
+
+This work arises from the modelling of SN~2024pba, a two-event
+interacting-supernova scenario in which a later explosion (SN~B) drives
+a shock into the metal-rich ejecta of an earlier Type~IIb explosion
+(SN~A).  The scientific objective is to determine whether shock heating
+and ionisation of the SN~A ejecta can reproduce the observed spectrum,
+particularly strong absorption associated with H, He, O, Si, Ca, and Fe.
+
+The modelling workflow couples the radiation-hydrodynamics code STELLA
+to the non-LTE radiative-transfer code CMFGEN.  STELLA produces
+hydrodynamic snapshots (radius, velocity, density, temperature,
+composition as functions of mass coordinate and time) that are converted
+into the CMFGEN input file \texttt{SN\_HYDRO\_DATA}.  CMFGEN then solves
+the statistical-equilibrium and comoving-frame transfer equations to
+produce a synthetic spectrum.
+
+\subsection{The monotonic-expansion assumption}
+
+CMFGEN was designed for homologously expanding supernova atmospheres and
+stellar winds, in which velocity increases monotonically outward.  The
+key structural variable is the Sobolev gradient
+\begin{equation}
+  \sigma \equiv \frac{\mathrm{d}\ln v}{\mathrm{d}\ln r} - 1 ,
+  \label{eq:sigma}
+\end{equation}
+which satisfies $\sigma \geq -1$ for all monotonic expansion profiles.
+The angle-dependent Sobolev factor entering the comoving-frame transfer
+equation is
+\begin{equation}
+  T_2(\mu) = 1 + \sigma\,\mu^2 ,
+  \label{eq:T2}
+\end{equation}
+where $\mu = \cos\theta$ is the ray angle cosine relative to the radial
+direction.  When $\sigma \geq -1$, $T_2 > 0$ for all $\mu$, and the
+comoving frequency
+\begin{equation}
+  \nu_{\mathrm{cm}}(r) = \nu_{\mathrm{obs}}\left(1 - \frac{v(r)}{c}\right)
+  \label{eq:nu_cm}
+\end{equation}
+crosses a given rest frequency at most once along any ray.  The
+short-characteristics integration proceeds along monotonic sub-intervals
+with non-negative optical-depth increments.
+
+\subsection{The non-monotonic problem}
+
+Interacting supernovae violate this assumption.  Shocks, cold dense
+shells, and reverse shocks produce velocity reversals in which
+$v(r)$ decreases outward over some region, giving $\sigma < -1$.
+In the STELLA snapshot of SN~2024pba at 35.57~days, 56 of 251 zones
+(22.3\%) have $\sigma < -1$, with a minimum value of $\sigma = -94.66$.
+
+When $\sigma < -1$, $T_2$ can change sign along a ray: $T_2 > 0$ for
+nearly tangential rays ($\mu \to 0$) but $T_2 < 0$ for nearly radial
+rays ($\mu \to 1$).  The comoving frequency then crosses a given rest
+frequency \emph{multiple times} along a single ray---a multi-root
+resonance.  The legacy solver, which assumes a single resonance per
+ray, produces negative optical depths ($\mathrm{d}\tau \propto T_2 < 0$),
+negative intensities, and ultimately NaN cascades that crash the free-free
+gaunt-factor table lookup in \texttt{gff\_vec}.
+
+%% ====================================================================
+\section{Numerical approach of the non-monotonic solver}
+%% ====================================================================
+
+\subsection{Separation of magnitude and direction}
+
+The central design principle of \texttt{FG\_J\_CMF\_NONMONO\_V1} is to
+separate the Sobolev optical-depth \emph{magnitude} from the flow
+\emph{direction}.  For each ray point $i$ along impact parameter $p$:
+
+\begin{align}
+  \mu_i &= \frac{z_i}{r_i} , \\
+  T_1 &= \frac{v_i/c}{r_i} , \\
+  T_2 &= 1 + \sigma_i\,\mu_i^2 , \\
+  \Gamma_i &= T_1\,T_2 \quad \text{(signed)}, \\
+  \Gamma_{\mathrm{mag},i} &= T_1\,\max(|T_2|,\,10^{-12}) \quad (\geq 0), \\
+  s_i &= \mathrm{sgn}(T_2) \quad (+1 \text{ expanding},\; -1 \text{ compressing}).
+  \label{eq:gammagam}
+\end{align}
+
+The non-negative magnitude $\Gamma_{\mathrm{mag}}$ is used wherever a
+strictly non-negative optical-depth increment is required: the
+differential optical depth $\mathrm{d}\tau$, and the $Q$ term entering
+the extinction coefficient $\chi_{\mathrm{ray}}$.  This guarantees
+$\mathrm{d}\tau \geq 0$ even in compression zones, eliminating the
+negative-optical-depth instability.
+
+The signed $\Gamma$ is retained for the source-function advection term
+$Q\,I_{\mathrm{prev}}$, where the sign carries the physical flow
+direction.  The direction flag $s_i$ records whether the flow is
+expanding ($+1$) or compressing ($-1$) at each ray point.
+
+The floor $\max(|T_2|, 10^{-12})$ prevents division by zero at resonance
+turning points (where $T_2 = 0$) without distorting the magnitude in the
+common case $|T_2| \gg 10^{-12}$.
+
+\subsection{Multi-root resonance scan}
+
+For a non-monotonic $v(r)$, the solver scans each ray for zones
+$[i, i{+}1]$ where $T_2(i)\,T_2(i{+}1) \leq 0$.  These are resonance
+turning points---locations where the comoving frequency reaches an
+extremum and reverses direction relative to a given rest frequency.
+
+No special interpolation is performed at the turning point.  Instead,
+the piecewise short-characteristics integration naturally sums the
+source-function contribution over each monotonic sub-interval, because
+$\mathrm{d}\tau$ (built from $\Gamma_{\mathrm{mag}}$) accumulates
+monotonically across each sub-interval, while the signed $\Gamma$ and
+$s_i$ preserve the advection direction.
+
+In the test model, inner rays (small impact parameter) exhibit up to 8
+turning points; outer rays exhibit 2--4.  This is consistent with the
+shock structure in the STELLA snapshot.
+
+\subsection{Short-characteristics integration}
+
+The integration follows the same short-characteristics approach as the
+legacy solver:
+\begin{enumerate}[noitemsep]
+  \item Interpolate $\eta$, $\chi$, $\chi_{\mathrm{scat}}$ onto the ray grid.
+  \item Compute $\mathrm{d}\tau(i,p)$ from $\chi_{\mathrm{ray}}$ and
+        $\mathrm{d}z$, using $\Gamma_{\mathrm{mag}}$ for the Sobolev
+        contribution.
+  \item Compute exponential integrals $E_0, E_1, E_2, E_3$ from
+        $\mathrm{d}\tau$, with $\exp(-\mathrm{d}\tau)$ guarded against
+        overflow ($\mathrm{d}\tau < 700$).
+  \item Solve the tridiagonal system for the radiation field
+        $A_V(i,p)$.
+  \item Compute $J_\nu(i)$ from angle-weighted quadrature over all rays.
+\end{enumerate}
+
+The non-monotonic modifications are confined to the $\mathrm{d}\tau$ and
+$Q$ terms; the tridiagonal solve and quadrature are unchanged.
+
+\subsection{Negative-intensity guard}
+
+After the formal solution, the solver checks for negative mean
+intensities $J_\nu < 0$.  If detected, it writes a diagnostic file
+\texttt{FG\_J\_CMF\_NONMONO\_V1\_ERRORS} containing the frequency,
+$J_\nu$, $\eta$, $\chi$, and $\chi_{\mathrm{scat}}$ at all depths, then
+halts.  This is stricter than the legacy solver, which only checks the
+innermost point $R_J(1)$ for blow-up.
+
+%% ====================================================================
+\section{Infrastructure hardening}
+\label{sec:infra}
+%% ====================================================================
+
+\subsection{Design principle: clamp in infrastructure, not in the solver}
+
+The formal solver is designed to handle true negative $\sigma$.  However,
+the rest of CMFGEN's infrastructure---moment equations, the BA matrix,
+Sobolev escape probabilities, grid regridding, Ng acceleration---was not
+designed for $\sigma < -1$ and produces NaN or unphysical results if
+given unclamped values.
+
+The adopted principle is:
+\begin{quote}
+  \emph{SIGMA clamps in infrastructure routines are always applied,
+  regardless of \texttt{NON\_MONO\_SOLVER}.  Only the formal solver
+  \texttt{FG\_J\_CMF\_NONMONO\_V1} sees the true negative $\sigma$.}
+\end{quote}
+
+Table~\ref{tab:clamps} summarises the clamping at each site.
+
+\begin{table}[ht]
+\centering
+\caption{SIGMA clamping in CMFGEN infrastructure.}
+\label{tab:clamps}
+\begin{tabular}{lll}
+\toprule
+Routine & Clamp & Reason \\
+\midrule
+\texttt{rv\_sn\_model\_sniin.f} & $\sigma \geq -0.999$ & Hydro model setup \\
+\texttt{extend\_vtsigma.f} & $\sigma \geq -0.9999$ & Grid extension \\
+\texttt{adjust\_r\_grid\_v4.f} & $\sigma \geq -0.999$ (smooth) & Regridding \\
+\texttt{mom\_j\_cmf\_v11.f} & $\sigma \geq -0.999$ & Moment equations \\
+\texttt{do\_ng\_accel\_band\_v4.f} & $\sigma \geq -0.999$ & Ng acceleration \\
+\texttt{sobjbar\_sim.f} & Dessart+2015 guard & Sobolev escape probability \\
+\textbf{\texttt{fg\_j\_cmf\_nonmono\_v1.f}} & \textbf{No clamp} & \textbf{Formal solver} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{LAMBDA-iteration capping}
+
+The LAMBDA iteration in \texttt{SOLVEBA\_V13} uses a \texttt{LIMIT} option
+that caps population corrections.  The original code only capped
+decreases ($\mathrm{STEQ} > 1.1 \to 0.999$) but not increases.  With
+non-monotonic velocity fields, catastrophic population increases (up to
+$10^{62}\%$) occurred at the outer boundary, corrupting $T$ and crashing
+\texttt{gff\_vec}.
+
+The fix caps both directions:
+\begin{lstlisting}
+IF (STEQ(J,I) > 1.1)  STEQ(J,I) =  0.999   ! cap decreases
+IF (STEQ(J,I) < -1.1) STEQ(J,I) = -0.999   ! cap increases
+\end{lstlisting}
+This reduced the population explosion from $10^{62}\%$ to $\sim 110\%$
+and eliminated the NaN cascade.
+
+\subsection{Free-free gaunt-factor NaN guard}
+
+The \texttt{gff\_vec} routine computes $\log T$ and uses it to index a
+pre-computed table.  If $T$ becomes NaN, the table access segfaults.
+The guard:
+\begin{lstlisting}
+IF (.NOT. (LOGT > 0.0 .OR. LOGT < 0.0)) LOGT = 3.6   ! NaN check
+IF (LOGT < 2.0) LOGT = 2.0                            ! floor (100 K)
+IF (LOGT > 6.0) LOGT = 6.0                            ! cap (10^6 K)
+\end{lstlisting}
+converts NaN to a safe default and clamps extreme values to the table
+range.
+
+%% ====================================================================
+\section{The SIGMA\_TRUE threading: true unclamped \texorpdfstring{$\sigma$}{sigma} to the formal solver}
+\label{sec:sigma_true}
+%% ====================================================================
+
+\subsection{The problem}
+
+The original implementation clamped $\sigma$ to $\geq -0.999$ at hydro
+read-in (\texttt{rv\_sn\_model\_sniin.f}) \emph{before} the formal solver
+ever saw it.  This meant \texttt{FG\_J\_CMF\_NONMONO\_V1} received
+$\sigma = -0.999$ even when the true hydrodynamic value was
+$\sigma = -94.66$.
+
+The consequence is severe.  The Sobolev line optical depth scales as
+\begin{equation}
+  \tau_{\mathrm{Sob}} \propto \frac{v/c}{r}\,|T_2| = T_1\,|1 + \sigma\mu^2| .
+  \label{eq:tau_sob}
+\end{equation}
+For a radial ray ($\mu = 1$) through a zone with true $\sigma = -94.66$:
+\begin{itemize}[noitemsep]
+  \item True $|T_2| = |1 - 94.66| = 93.66$
+  \item Clamped $|T_2| = |1 - 0.999| = 0.001$
+  \item Optical-depth error: $\sim 9 \times 10^4$ too small.
+\end{itemize}
+Lines forming in the shock-compressed metal-rich ejecta---the
+scientifically critical H, He, O, Si, Ca, Fe absorption features---had
+severely underestimated Sobolev optical depths on the radial rays that
+dominate the P-Cygni absorption troughs.
+
+\subsection{The solution: a parallel SIGMA\_TRUE array}
+
+A parallel \texttt{SIGMA\_TRUE} array carries the unclamped value,
+threaded into the formal solver only.  The clamped \texttt{SIGMA} is
+retained for all infrastructure (Table~\ref{tab:clamps}).
+
+\subsubsection{Data flow}
+
+\begin{enumerate}[noitemsep]
+  \item \texttt{SIGMA\_TRUE(ND)} is declared in \texttt{MOD\_CMFGEN}
+        and allocated alongside \texttt{SIGMA} in \texttt{cmfgen.f}.
+  \item In \texttt{rv\_sn\_model\_sniin.f}, the true value is saved
+        \emph{before} the clamp:
+\end{enumerate}
+\begin{lstlisting}
+SIGMA_TRUE(1:ND) = SIGMA(1:ND)     ! save unclamped
+DO I=1,ND
+  IF(SIGMA(I) .LT. -0.999_LDP) SIGMA(I) = -0.999_LDP
+END DO
+\end{lstlisting}
+
+\subsubsection{Grid extension}
+
+The legacy extension routine \texttt{EXTEND\_VTSIGMA} interpolates in
+$\log(\sigma + 1)$ space, which is undefined for $\sigma < -1$.  A new
+routine \texttt{EXTEND\_SIGMA\_TRUE} was created that applies the cubic
+interpolation coefficients (computed by \texttt{REXT\_COEF\_V2} in the
+$\log r$ plane) \emph{linearly} to $\sigma$:
+\begin{equation}
+  \sigma_{\mathrm{true,ext}}(i) = \sum_{j=0}^{3} C_{j,i}\;
+  \sigma_{\mathrm{true}}\!\left(j + \mathrm{INDX}(i)\right) .
+  \label{eq:extend_sigma_true}
+\end{equation}
+This is well-defined for any $\sigma$ value.  No clamping is applied.
+The clamped \texttt{SIGMAEXT} is still produced by \texttt{EXTEND\_VTSIGMA}
+for infrastructure use; the two extensions coexist.
+
+\texttt{EXTEND\_SIGMA\_TRUE} is called after each of the four
+\texttt{EXTEND\_VTSIGMA} call sites in \texttt{cmfgen\_sub.f}, producing
+\texttt{SIGMA\_TRUE\_EXT} on the refined grid.
+
+\subsubsection{Single chokepoint in the formal solver}
+
+The formal solver \texttt{FG\_J\_CMF\_NONMONO\_V1} receives
+\texttt{SIGMA\_TRUE\_IN} as a new dummy argument.  At a single
+chokepoint (line~608), the main-grid portion of the extended array is
+filled from the true value:
+\begin{lstlisting}
+SIGMA_EXT(ND_ADD+1:ND_EXT) = SIGMA_TRUE_IN(1:ND)
+\end{lstlisting}
+All downstream quantities are derived from \texttt{SIGMA\_EXT} and
+therefore automatically use the true values:
+\begin{itemize}[noitemsep]
+  \item \texttt{SIGMA\_COEF} (cubic interpolation coefficients, built from
+        \texttt{SIGMA\_EXT})
+  \item \texttt{SIGMA\_RAY} (ray-grid values, interpolated from
+        \texttt{SIGMA\_COEF})
+  \item $\Gamma$, $T_2$, $\Gamma_{\mathrm{mag}}$, $s_i$
+        (Eqs.~\ref{eq:gammagam})
+  \item Resonance turning-point scan ($T_2$ sign changes)
+  \item $\mathrm{d}\Gamma/\mathrm{d}r$ derivatives
+\end{itemize}
+
+The outer $\beta$-law extension (\texttt{THK} block) still uses the
+clamped \texttt{SIGMA(1)}.  This is intentional: the outer extension is
+monotonic, so $\sigma(1) = \sigma_{\mathrm{true}}(1)$ there and the clamp
+has no effect.
+
+\subsubsection{Call-site routing}
+
+In \texttt{comp\_j\_blank.f}, the two call paths are:
+\begin{itemize}[noitemsep]
+  \item \textbf{ACC path} (acceleration/extended grid): passes
+        \texttt{SIGMA\_TRUE\_EXT}.
+  \item \textbf{Main path} (frequency iteration, produces the final
+        spectrum): passes \texttt{SIGMA\_TRUE}.
+\end{itemize}
+When \texttt{NON\_MONO\_SOLVER = .FALSE.}, the legacy
+\texttt{FG\_J\_CMF\_V13} is called with its original (untouched)
+signature; \texttt{SIGMA\_TRUE} is populated but never read, so legacy
+behaviour is bit-for-bit unchanged.
+
+\subsubsection{OBS-stage independence}
+
+The observed-spectrum stage uses \texttt{COMP\_OBS\_V3} and
+\texttt{OBS\_FRAME\_SUB\_V9}, which transform the stored $I^+(p)$
+(computed by the formal solver with true $\sigma$) to the observer
+frame using velocity $v$ only.  Neither routine references $\sigma$.
+The observed spectrum therefore inherits the correct comoving-frame
+radiation field without requiring further modification.
+
+%% ====================================================================
+\section{Benefits}
+\label{sec:benefits}
+%% ====================================================================
+
+\subsection{Correct Sobolev optical depths in shock zones}
+
+The primary benefit.  With the true $\sigma$ threaded to the formal
+solver, Sobolev line optical depths in compression zones are now
+physically correct.  For the worst zones in the test model
+($\sigma_{\mathrm{true}} = -94.66$), the optical depth on radial rays
+increases by a factor of $\sim 9 \times 10^4$ relative to the clamped
+value.  P-Cygni absorption troughs---formed by radial rays through the
+line-of-sight column---now have correct depths.
+
+\subsection{Restored multi-root resonance detection}
+
+The resonance turning-point scan ($T_2$ sign changes) now operates on
+the true $\sigma$.  With the clamped $\sigma = -0.999$, $T_2 = 1 - 0.999\mu^2$
+only crosses zero at $\mu \to 1$ and only barely; the dramatic
+multi-resonance structure of the true velocity reversal was flattened.
+With the true $\sigma$, the solver correctly detects up to 8 turning
+points on inner rays, matching the shock structure in the STELLA
+snapshot.
+
+\subsection{Stable iteration without crashes}
+
+The infrastructure hardening (LAMBDA capping, gaunt-factor NaN guard)
+eliminates the $10^{62}\%$ population explosions and segmentation faults
+that crashed the legacy solver on non-monotonic models.  The test model
+iterates stably through 30+ iterations with no NaN, no SIGSEGV, and no
+negative intensities.
+
+\subsection{Bit-for-bit legacy preservation}
+
+When \texttt{NON\_MONO\_SOLVER = .FALSE.} (the default), the legacy
+solver \texttt{FG\_J\_CMF\_V13} is called with its original signature.
+The \texttt{SIGMA\_TRUE} array is populated but never read.  All
+infrastructure clamps are unconditional.  Legacy models produce
+bit-for-bit identical output to the baseline---verified by source
+inspection of the routing logic in \texttt{comp\_j\_blank.f}.
+
+%% ====================================================================
+\section{Drawbacks and limitations}
+\label{sec:drawbacks}
+%% ====================================================================
+
+\subsection{Low optical depth of the test snapshot}
+
+The test snapshot (35.57~days) has a Rosseland optical depth of only
+$\tau_{\mathrm{ross}} = 1.84$ at the inner boundary, far below the
+$\tau \gtrsim 50$ required for the diffusion approximation.  The
+continuum luminosity converges to $\sim 6.6 \times 10^9\,L_\odot$ versus
+$L_\star = 5.4 \times 10^8\,L_\odot$ from the STELLA header---an
+order-of-magnitude mismatch.  The absolute flux scale and continuum
+shape of the spectrum are therefore unreliable for this epoch.
+
+This is a property of the snapshot epoch, not of the solver.  Earlier
+snapshots or more massive models would have higher $\tau$.  However,
+for the 35.57~day test, no spectral output can be trusted
+quantitatively.
+
+\subsection{DC\_METH=R temperature smearing}
+
+Non-monotonic temperature structure requires
+\texttt{DC\_METH=R} (radius interpolation) instead of \texttt{DC\_METH=TR}
+(temperature interpolation), because \texttt{TR} crashes
+\texttt{REGRID\_LOG\_DC\_V1} on non-monotonic $T$.
+
+In shock-cooling regions with steep temperature gradients, radius-based
+interpolation does not preserve the temperature structure as accurately
+as temperature-based interpolation.  This smears ionisation boundaries
+(e.g.\ O\,\textsc{i}/\textsc{ii}/\textsc{iii},
+Fe\,\textsc{ii}/\textsc{iii}/\textsc{iv}) across a radius interval,
+shifting which ion dominates and changing line strengths.  The effect
+compounds with the Sobolev optical-depth correction
+(\S\ref{sec:sigma_true}) in the same shock-cooling zones.
+
+\subsection{LAMBDA-iteration capping artifacts}
+
+The \texttt{LIMIT}/\texttt{MAX\_LAM=10^2} capping in
+\texttt{SOLVEBA\_V13} damps population corrections.  The diagnostic
+output reports thousands of capped corrections in each direction.
+Capped corrections mean the iteration is artificially damped---it may
+converge to a solution that is stable but not the true
+statistical-equilibrium solution.  Line source functions derived from
+capped populations will have systematically wrong strengths, especially
+for the ions whose populations were being capped.
+
+\subsection{Negative-intensity clamping}
+
+Negative intensities ($I_M < 0$, $I_P < 0$) in compression zones are
+clamped to $10^{-30}$.  This is a safety net.  The fact that negatives
+appear means the source function is being mis-evaluated there; clamping
+to a tiny positive value suppresses whatever emission or absorption
+feature would have formed, so those regions contribute approximately
+zero to the spectrum---an unphysical blackout in the worst compression
+zones.
+
+\subsection{No completed spectral synthesis}
+
+The test model was run on a 2-hour interactive partition and did not
+reach the OBS (spectral synthesis) stage before the wall limit.  No
+CMFGEN spectrum output exists for the non-monotonic model.  Every claim
+about the actual spectral appearance is supported by physics but not
+verified by output.  This is a resource limitation, not a physics one.
+
+\subsection{No monotonic-model regression test}
+
+The non-monotonic solver has not been tested on a standard monotonic
+supernova model to confirm it produces identical results to
+\texttt{FG\_J\_CMF\_V13} when $\sigma \geq -1$ everywhere.  While the
+algorithm reduces to the standard Sobolev integration in that limit
+($T_2 > 0$, $\Gamma_{\mathrm{mag}} = \Gamma$, $s_i = +1$), this has not
+been demonstrated numerically.
+
+\subsection{Physical correctness not established}
+
+Numerical convergence does not establish physical correctness.  The low
+optical depth, temperature smearing, and population capping all
+introduce systematic errors whose net effect on the spectrum has not
+been quantified.  A spectrum that appears to match observations could
+be matching for the wrong physical reasons.
+
+%% ====================================================================
+\section{Configuration}
+%% ====================================================================
+
+\subsection{VADAT settings}
+
+Required for non-monotonic models:
+\begin{lstlisting}[language=]
+T   [NON_MONO_SOLVER]      ! enable the non-monotonic formal solver
+R   [DC_METH]              ! radius interpolation (TR crashes on non-monotonic T)
+\end{lstlisting}
+
+Recommended:
+\begin{lstlisting}[language=]
+LIMIT [LAM_SCALE_OPT]     ! cap LAMBDA population changes
+1.0D2 [MAX_LAM]           ! allow large LAMBDA steps (default 1.2 too conservative)
+\end{lstlisting}
+
+\subsection{Executable}
+
+The non-monotonic solver is compiled into \texttt{cmfgen\_dev.exe} in
+the \texttt{cmfgen\_nonmono\_dev} source tree:
+\begin{lstlisting}[language=bash,keywordstyle=]
+cd cmfgen_nonmono_dev && make
+\end{lstlisting}
+The slurm script must set:
+\begin{lstlisting}[language=bash,keywordstyle=]
+export cmfdist="/path/to/cmfgen_nonmono_dev"
+\end{lstlisting}
+
+\subsection{YAML configuration}
+
+\begin{lstlisting}[language=]
+cmfgen:
+  vadat_overrides:
+    NON_MONO_SOLVER: T
+    DC_METH: R
+    LAM_SCALE_OPT: LIMIT
+    MAX_LAM: 1.0D2
+\end{lstlisting}
+
+%% ====================================================================
+\section{Summary}
+%% ====================================================================
+
+The non-monotonic formal solver \texttt{FG\_J\_CMF\_NONMONO\_V1}
+extends CMFGEN to handle hydrodynamic snapshots with shocks, cold dense
+shells, and velocity reversals ($\sigma < -1$) that crash the legacy
+solver.  The key algorithmic innovation is the separation of the Sobolev
+optical-depth magnitude ($\Gamma_{\mathrm{mag}} \geq 0$) from the flow
+direction ($s_i = \pm 1$), enabling piecewise short-characteristics
+integration across multiple resonance crossings without producing
+negative optical depths.
+
+The \texttt{SIGMA\_TRUE} threading refinement ensures the formal solver
+receives the true unclamped $\sigma$ from the hydrodynamic model, while
+the clamped $\sigma$ protects the infrastructure.  This restores
+physically correct Sobolev optical depths in shock zones---the dominant
+correction---and enables proper multi-root resonance detection.
+
+The remaining limitations (low optical depth of the test snapshot,
+\texttt{DC\_METH=R} temperature smearing, LAMBDA capping) are secondary
+and do not invalidate the solver design.  Full validation requires a
+model run to spectral synthesis on a snapshot with sufficient optical
+depth ($\tau \gtrsim 50$), which is left as future work.
+
+%% ====================================================================
+\section*{Acknowledgements}
+%% ====================================================================
+
+The non-monotonic solver is built upon the CMFGEN codebase developed by
+D.~J.~Hillier.  The infrastructure clamping approach follows the
+softened Sobolev guard of Dessart et al.\ (2015).  The STELLA
+hydrodynamic snapshots were produced by the STELLA collaboration's
+radiation-hydrodynamics code.
+
+\end{document}

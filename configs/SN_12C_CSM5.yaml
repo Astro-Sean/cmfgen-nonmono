@@ -1,0 +1,281 @@
+# SN_12C_CSM5 - 100-day STELLA run, dimmer than CSM4
+# W&H07 s12.0 stripped He core, Type IIb, matching Ergon et al. 2022 model 12C / SN 2011dh
+#
+# Analysis of previous models:
+#   CSM2 (H=0.10, E=0.7): Peak Mbol=-17.12 (0.26 mag too bright), V matches at peak
+#     but V 0.66 mag too faint at 80d (photosphere exits H layer too early).
+#     U 1.0 mag too bright at 10-20d (SED too blue).
+#   CSM3 (H=0.15, E=0.6): V much better at 80d (0.14 mag too faint) from lower E
+#     (slower expansion → photosphere stays in H longer). BUT thick H (0.15 Msun)
+#     created catastrophic early bump (peak Mbol=-21.65, 4.8 mag too bright) from
+#     shock-cooling envelope emission.
+#   CSM4 (H=0.10, E=0.6, Ni56=0.075): Peak V=-17.14 (0.14 mag too bright),
+#     early bump Mbol=-16.9 at 5d from H layer shock cooling. CSM mdot=1e-7
+#     already negligible but H mass and explosion energy still too high.
+#
+# CSM5 strategy: Reduce brightness from all angles:
+#   - H surface mass: 0.05 Msun (halved from CSM4, less shock cooling bump)
+#   - Explosion energy: 0.5 foe (lower than CSM4's 0.6, slower expansion)
+#   - Ni56: 0.06 Msun (lower than CSM4's 0.075, dimmer peak and late-time)
+#   - CSM mdot: 1e-10 (effectively zero, stability only, no interaction luminosity)
+#   - cmfgen_tau_min: 0.0 (include all velocity material in CMFGEN, was 0.01)
+#   - velocity_max_kms: 20000 (was 10000, include fast ejecta up to ~15000 km/s)
+#
+# CMFGEN snapshot at 30d post-SBO for spectral modelling
+
+model_name: "SN_12C_CSM5"
+description: "100-day run with reduced brightness: H=0.05 Msun, E=0.5 foe, Ni56=0.06 Msun, CSM mdot=1e-10. W&H07 s12.0 stripped He core, Type IIb matching Ergon et al. 2022 model 12C / SN 2011dh. CMFGEN at 30d post-SBO with tau_min=0 to include full velocity range."
+
+run_cmfgen: True
+run_sirocco: False
+run_sedona: False
+run_superlite: False
+
+reuse_stella: False
+restart_stella: False
+
+# ── KEPLER Pre-SN Model Configuration ──────────────────────────────────────
+# The s12.0-presn-stripped file is the W&H07 12 Msun solar metallicity pre-SN
+# model with the H envelope removed (stripped to He core at ~3.0 Msun).
+# This mimics binary stripping that produces a Type IIb progenitor.
+kepler_presn:
+  presn_file: "/viper/ptmp1/sbrennan/SN2024pba/SN_12C_CSM5/s12.0-presn-stripped"
+  mass_cut_msun: 1.4            # Compact remnant mass (Msun) - standard NS
+  h_surface_fraction: 0.7      # H mass fraction in the thin surface layer (X=0.7)
+  h_surface_mass_msun: 0.05    # Mass of the H surface layer in Msun
+                                # HALVED from CSM4's 0.10. The H layer shock cooling
+                                # bump reached Mbol=-16.9 at 5d in CSM4, which is too
+                                # bright. Halving the H mass should reduce this bump
+                                # by ~0.75 mag (L ~ M_H).
+  t_floor_K: 3000.0             # Initial temperature floor in K
+  smooth_profile: True          # Smooth steep density gradients to prevent solver stall
+  smooth_max_gradient: 5.0      # Threshold |dlog rho/dlog r| above which smoothing is applied
+  smooth_sigma: 3.0             # Gaussian smoothing width in zone units
+
+  # CSM wind: sigmoid-blended transition from the pre-SN stellar profile to a
+  # very low-density 1/r^2 wind. This provides just enough optically thick
+  # material at large radii to prevent STELLA's radiation solver from stalling
+  # when the photosphere exits the compact ejecta.
+  #
+  # With mdot=1e-7, the grey tau is ~0.2 — essentially a vacuum with just
+  # enough material for numerical stability. Total CSM mass ~3e-5 Msun.
+  csm_wind:
+    n_zones: 50                 # Wind zones (reduces ejecta zones from 500 to 450)
+    mdot_msun_yr: 1.0e-10       # Mass-loss rate — effectively zero, no interaction
+                                # luminosity. Just enough material for numerical
+                                # stability (prevents photosphere from exiting to
+                                # vacuum). Total CSM mass ~3e-8 Msun.
+    velocity_kms: 100           # Wind velocity (YSG wind, outer radius = v * t)
+    duration_yr: 320            # Wind duration — extended wind (r_outer ~ 1e17 cm)
+    T_K: 5000                   # Wind temperature
+    density_profile: sigmoid    # Sigmoid-blended transition (C^inf smooth)
+
+# Ejecta parameters (unused for KEPLER pre-SN mode, but required by schema)
+ejecta:
+  M_ejecta_A: 0.0
+  R_star_cm: 0.0
+  n_shell: 0.0
+  V_ejecta_A_initial_kms: 0.0
+
+hydro_backend: stella
+stella:
+  convection: False
+  target_days: 100.0            # 100 days total (~98.8d post-SBO)
+  nzon: 500
+  kappa: 0.34
+  snapshot_interval: 1.0
+  iout: 10
+  r_min: 0.0
+  rho_min: 0.0                  # No density trimming — CSM wind provides low-density
+                                # outer material that prevents shock from exploding
+                                # into vacuum
+  stella_root: "/ptmp/sbrennan/stella/OpenStella"
+  partition: "general"
+  memory: "16G"
+  time: "23:59:00"
+
+  # Grid parameters
+  outer_fraction: 0.3
+  transition_radius: 1e13
+
+  # Explosion parameters
+  # Target KE = 0.5 foe (lower than CSM4's 0.6, slower expansion = dimmer peak).
+  # The thermal bomb at explosion_time=100s only converts ~61% of EBurst to KE.
+  # Reduced explosion_time from 100s to 10s for higher KE efficiency (~80-85%).
+  # Increased explosion_energy from 5.0 to 6.0 to compensate: 0.6 foe input →
+  # ~0.5 foe KE after losses (matching the CSM5 target).
+  explosion_energy: 6.0         # EBurst=6: 0.6e51 erg input (target 0.5 foe KE after losses)
+  explosion_mass: 0.3           # AMHT: heated core mass in Msun
+  explosion_time: 10.0          # tBurst=10s: shorter bomb for higher KE efficiency
+  explosion_delay: 0.0
+
+  # EKO=0: STELLA preserves .hyd velocities (all zero for pre-SN KEPLER model).
+  initial_kinetic_energy: 0.0
+
+  nstmax: 2000000
+  eps: 0.003                    # Gear integrator accuracy (STELLA reference)
+  hmax: 500000.0                # Max timestep (~5.8 days)
+  hmin: 1.0e-14                 # Min timestep (STELLA reference)
+  meth: 2                       # Standard GEAR
+  aq: 50.0                      # Artificial viscosity (needed for thermal-bomb shock)
+  bq: 1.0                       # Pseudo-viscosity (Rayleigh-Taylor)
+  fit_tau: 5.0                  # FitTau=5 for SN ejecta with frequency-dependent
+                                # opacity (X_scat2.dat reference). FitTau=15 collapses
+                                # Ncnd prematurely (min-freq tau ~100x smaller than grey).
+  tau_tol: 1.3                  # Ncnd tolerance band
+  disable_scattering: False     # Enable scattering (needed for H-rich layers)
+  stella_tau_min: 1e-4          # Trim outer zones with tau < this
+
+  # Temperature convergence
+  wacc_r: 1.0
+  wacc_v: 1.0
+  wacc_t: 0.5
+  wacc_rad: 0.5
+  temp_floor: 0.03              # FLOOR(T) in 10^4 K units (0.03 = 300 K)
+  floor_rad: 0.01               # FLOOR(RADIAT) in 10^4 K units (0.01 = 100 K)
+
+  # Opacity tables
+  use_ronfict: true
+
+  # Ni56 distribution (radioactive decay)
+  # LOWERED from 0.075 (CSM4, Ergon et al. 2022) to 0.06 Msun.
+  # CSM4 was 0.14 mag too bright at peak; reducing Ni56 by 20% should
+  # reduce peak brightness by ~0.2 mag.
+  nickel56:
+    enabled: True
+    total_mass_msun: 0.06      # Total Ni56 mass (Msun) - reduced from Ergon et al. 2022
+    distribution_mass_msun: 0.3 # Distribute over inner 0.3 Msun of ejecta
+    distribution_type: "uniform"
+    inner_zone_fraction: 0.4    # Inner 40% of zones
+
+# Temperature profile (unused for KEPLER mode - temperatures from KEPLER model)
+temperature:
+  temp_profile_type: "adiabatic"
+  N_T_ejecta: 0.6
+  T_inner_max: 100000
+  T_csm: 5000
+
+# CMFGEN conversion parameters
+cmfgen_conversion:
+  heracles_dir: "heracles"
+  snapshot_days: [30]          # CMFGEN at 30 days post-SBO
+  epoch_tolerance: 2.0
+  stella_extra_days: 0
+  output_file: "cmfgen/SN_HYDRO_DATA"
+  cmfgen_tau_max: 30
+  cmfgen_tau_min: 0.0          # Include ALL zones (no tau cut) to capture fast
+                                # material up to ~15000 km/s. Was 0.01 which cut off
+                                # everything above ~6600 km/s, missing the fast Hα
+                                # absorption component seen in observations.
+  n_grid: 100
+  adaptive_grid: true
+  gradient_threshold: 0.5
+  velocity_max_kms: 20000      # Include fast ejecta (STELLA has V up to 15000 km/s)
+  opacity_model: "stella_nlte"
+  kappa_constant: 0.34
+  enable_grid_thinning: true
+  grid_thinning_threshold: 0.005
+  enable_adaptive_grid: true
+  base_grid_target: 80
+  max_points: 400
+  min_points: 50
+  min_nd: 220
+  max_radius_jump: 0.05
+  max_temp_jump: 0.10
+  max_density_jump: 0.15
+  smooth_velocity: false
+  no_velocity_smoothing: true
+  smooth_wiggles: true
+  wiggle_window: 5
+  velocity_smooth_window_kms: 50.0
+  enable_velocity_spacing_optimization: false
+  include_ne_amr: false
+  max_ne_jump: 0.10
+  max_logtau_jump: 0.25
+  max_velocity_jump: 0.30
+  max_sigma_jump: 0.5
+  max_cell_ratio: 1.5
+  thin_grid_tau: 1.0
+  thin_grid_priority: 4.0
+  outer_boundary_extra_points: 5
+  outer_boundary_ratio: 1.5
+  min_dr_r: 1.0e-6
+  max_dr_r: 0.15
+  sigma_priority_threshold: 1.0
+  sigma_priority: 10.0
+  dsigma_priority_threshold: 0.3
+  dsigma_priority: 10.0
+  smooth_sigma: false
+  max_dsigma: 1.0
+  sigma_smooth_passes: 10
+  sigma_smooth_window: 0.3
+
+# CMFGEN run parameters (matching CSM2 configuration for convergence stability)
+cmfgen:
+  base_dir: "./cmfgen_base"
+  model_type: "static_snapshot"
+  init_num_its: 25
+  # single_final: removed (always True now; INIT/STABLE stages eliminated)
+  proxy_populations: False            # CMFGEN built-in LTE_EST=T
+  inc_rad_decays: True
+  vturb: 20.0
+  incl_rel: False
+  vel_law: 12               # VEL_LAW=12 for non-monotonic velocity
+  target_nd: 150
+  depth_independent_solver: False  # TRIDIAG (NUM_BNDS=3, N_TYPE=N_ON_J): required for non-monotonic velocity (sigma < -1). G_ONLY cannot handle velocity reversals.
+  remove_species: ["FeIV_ISF", "FeV_ISF"]  # Remove Fe IV/V: chi=54.8/77 eV, never thermally populated at 30d (T_max~7700K)
+  vadat_overrides:
+    OB_RAT: "1.0D0"
+    STOP_IF_BP: "F"
+    STOP_IF_MW: "F"
+    THK_CONT: "F"
+    # DIF and IB_METH are auto-detected by prepare_VADAT.py from SN_HYDRO_DATA:
+    #   tau_inner >= 50 -> DIFFUSION (DIF=T)
+    #   tau_inner <  50 -> ZERO_FLUX (DIF=F) — optically thin inner boundary
+    FIX_T: "T"
+    FIX_T_AUTO: "F"
+    # CMFGEN manual recommended values for BA/LAMBDA iterations:
+    # MAX_LAM=1E5, MAX_LIN=3 (reduced for cold-start stability),
+    # BA_CHK_FAC=5%, COMP_BA=T, DO_NG=F, METHOD=ZERO, LAM_SCALE_OPT=LIMIT,
+    # REV_RGRID=F (runtime AMR regridding can overshoot for sigma < -1).
+    DO_NG: "F"
+    MAX_LAM: "1.0D5"
+    MAX_LIN: "3.0D0"
+    METHOD: "ZERO"
+    LAM_SCALE_OPT: "LIMIT"
+    BA_CHK_FAC: "5.0D-02"
+    REV_RGRID: "F"
+  partition: "general"
+  time: "23:59:00"
+  mem: "16G"
+  init_mem: "16G"
+  init_partition: "general"
+  init_time: "23:59:00"
+  n_ob_ins: 30
+  final_requeue_when: "finish"  # Disable wall-time requeue
+  final_requeue_max: 500
+  auto_set_rstar: False
+  auto_set_lstar: False
+  phot_tau: 0.6666667
+  bb_teff_k: 9100
+  lstar_radius_mode: "RMAX"
+
+# SuperLite run parameters
+superlite:
+  partition: "general"
+  ntasks: 1                          # SuperLite serial (OpenMP only, no MPI)
+  cpus_per_task: 16                  # OpenMP threads
+  memory: "16G"
+  time: "23:59:00"
+  install_dir: "/ptmp/sbrennan/superlite"
+  exe: "/ptmp/sbrennan/superlite/superlite"
+
+# Output directories
+output:
+  model_dir: "./SN_12C_CSM5"
+  stella_output: "stella"
+  cmfgen_output: "cmfgen"
+  sedona_output: "sedona"
+  superlite_output: "superlite"
+  plots: "plots"
+  outputs: "output"

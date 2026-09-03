@@ -1,0 +1,144 @@
+--- cmfgen_baseline/clean_cmfgen/cur_cmf/new_main/subs/rv_sn_model_sniin.f	2023-12-03 15:59:58.000000000 +0100
++++ cmfgen_source/new_main/subs/rv_sn_model_sniin.f	2026-08-20 21:08:10.243804000 +0200
+@@ -3,11 +3,13 @@
+ !   Routine to set up the radius grid for IIn simulations. We use the TAU_ES
+ !   grid from hydrodynamical simulation
+ !
+-	SUBROUTINE RV_SN_MODEL_SNIIN(R,V,SIGMA,RMAX,RP,VCORE,BETA1,RDINR,LU,ND)
++	SUBROUTINE RV_SN_MODEL_SNIIN(R,V,SIGMA,RMAX,RP,VCORE,BETA1,RDINR,LU,ND,
++	1                             N_OB_INS_IN)
+ 	USE SET_KIND_MODULE
+ 	IMPLICIT NONE
+ 	INTEGER ND
+ 	INTEGER LU
++	INTEGER, INTENT(IN) :: N_OB_INS_IN
+ 	REAL(KIND=LDP) R(ND)
+ 	REAL(KIND=LDP) V(ND)
+ 	REAL(KIND=LDP) SIGMA(ND)
+@@ -21,7 +23,8 @@
+ ! Local arrays.
+ !
+ 	REAL(KIND=LDP) TA(ND),TB(ND),TC(ND)
+-	REAL(KIND=LDP) T1,T2,DLNR
++	REAL(KIND=LDP) V_TEMP(ND)
++	REAL(KIND=LDP) T1,T2,DLNR,FRAC
+ !
+ 	INTEGER NBND_INS
+ 	INTEGER I,J,MND
+@@ -42,7 +45,8 @@
+          REAL(KIND=LDP) T0, S1, S2, RINT, HRHO, VRAT, VMIN, BETA_ACC
+ !
+ !
+-       NBND_INS=3 ! LUC: changed from 2 to 3 --- KEYWORD in VADAT not used
++       NBND_INS=N_OB_INS_IN
++      IF(NBND_INS .LT. 1)NBND_INS=3 ! fallback to default if VADAT has 0
+ !
+ ! Check whether the passed parameters are valid.
+ !
+@@ -51,10 +55,11 @@
+           WRITE(LUER,*)'Error in RV_SN_MODEL --- Invalid BETA'
+ 	  STOP
+ 	END IF
+-	IF(NBND_INS .LT. 1 .OR. NBND_INS .GT. 3)THEN
++	IF(NBND_INS .LT. 1 .OR. NBND_INS .GT. ND/4)THEN
+ 	  LUER=ERROR_LU()
+-          WRITE(LUER,*)'Error in STARPCYG_V3 --- Invalid NBND_INS'
+-          WRITE(LUER,*)'NBND_INS should be 1, 2, or 3'
++          WRITE(LUER,*)'Error in RV_SN_MODEL_SNIIN --- Invalid NBND_INS'
++          WRITE(LUER,*)'NBND_INS should be between 1 and ND/4'
++          STOP
+ 	END IF
+ !
+ 	IF(RDINR)THEN
+@@ -139,7 +144,7 @@
+ ! TB is the radius and TC is tau_es scaled with the temperature to resolve shock
+         ALLOCATE (R_HYDRO(NHYDRO),V_HYDRO(NHYDRO),TAU_HYDRO(NHYDRO))
+         DO I=1,NHYDRO
+-           READ(LU,*) R_HYDRO(I),V_HYDRO,XD,XT,XL,XTAU,TAU_HYDRO(I)
++           READ(LU,*) R_HYDRO(I),V_HYDRO(I),XD,XT,XL,XTAU,TAU_HYDRO(I)
+         ENDDO
+         CLOSE(LU)
+ 
+@@ -168,12 +173,6 @@
+ 
+         CALL LIN_INTERP(NEW_TAU,TA,MND,TAU_HYDRO,R_HYDRO,NHYDRO)
+ 
+-        ! reverse order of the TA array to become hte R grid
+-        TB = TA
+-        DO I=1,MND
+-           TA(I) = TB(MND-I+1)
+-        ENDDO
+-
+         RP = TA(MND)
+         RMAX=  TA(1)
+         WRITE(127,*) 'LUC: NBND_INS: ',NBND_INS
+@@ -218,18 +217,47 @@
+ 	  R(ND-2)=R(ND)+(TA(MND-1)-TA(MND))/8.0_LDP
+ 	  R(4)=TA(1)-(TA(1)-TA(2))/3.0_LDP
+ 	  R(ND-3)=R(ND)+(TA(MND-1)-TA(MND))/3.0_LDP
++	ELSE
++         T1=TA(1)-TA(2)
++         T2=TA(MND-1)-TA(MND)
++         DO J=1,NBND_INS
++           IF(J .EQ. 1)THEN
++             R(1+J)=TA(1)-T1/20.0_LDP
++             R(ND-J)=R(ND)+T2/20.0_LDP
++           ELSE IF(J .EQ. 2)THEN
++             R(1+J)=TA(1)-T1/8.0_LDP
++             R(ND-J)=R(ND)+T2/8.0_LDP
++           ELSE IF(J .EQ. 3)THEN
++             R(1+J)=TA(1)-T1/3.0_LDP
++             R(ND-J)=R(ND)+T2/3.0_LDP
++           ELSE
++             FRAC=MIN(0.5_LDP+0.15_LDP*DFLOAT(J-3),0.9_LDP)
++             R(1+J)=TA(1)-T1*FRAC
++             R(ND-J)=R(ND)+T2*FRAC
++           END IF
++         END DO
+ 	END IF
+ !
+-	DO I=1,NHYDRO
+-	  T1=R_HYDRO(I)
+-	  R_HYDRO(I)=R_HYDRO(NHYDRO-I+1)
+-	  R_HYDRO(NHYDRO-I+1)=T1
+-	  T1=V_HYDRO(I)
+-	  V_HYDRO(I)=V_HYDRO(NHYDRO-I+1)
+-	  V_HYDRO(NHYDRO-I+1)=T1
+-	END DO
++! R_HYDRO and V_HYDRO are already in outer-to-inner (decreasing) order
++! from input_hydro.dat, matching TA order. No reversal needed.
+ !
+-        CALL LIN_INTERP(V,TA,ND,V_HYDRO,R_HYDRO,NHYDRO)
++       CALL LIN_INTERP(TA,V_TEMP,MND,R_HYDRO,V_HYDRO,NHYDRO)
++!
++       V(1)=V_TEMP(1)
++       V(ND)=V_TEMP(MND)
++       DO I=2,MND-1
++         V(NBND_INS+I)=V_TEMP(I)
++       END DO
++!
++       T1=(V_TEMP(2)-V_TEMP(1))/(TA(2)-TA(1))
++       DO I=2,NBND_INS+1
++         V(I)=V_TEMP(1)+T1*(R(I)-TA(1))
++       END DO
++!
++       T1=(V_TEMP(MND)-V_TEMP(MND-1))/(TA(MND)-TA(MND-1))
++       DO I=ND-NBND_INS,ND-1
++         V(I)=V_TEMP(MND)+T1*(R(I)-TA(MND))
++       END DO
+ 	WRITE(127,*)RP,RMAX,VCORE,BETA1
+ 	DO I=2,ND-1
+ 	  T1=(V(I-1)-V(I))/(R(I-1)-R(I))
+@@ -240,6 +268,12 @@
+ 	SIGMA(1)=R(1)*(V(1)-V(2))/(R(1)-R(2))/V(1)-1.0_LDP
+ 	SIGMA(ND)=R(ND)*(V(ND-1)-V(ND))/(R(ND-1)-R(ND))/V(ND)-1.0_LDP
+ !
++! Clamp non-monotonic SIGMA to avoid singularities in Sobolev/moment solvers.
++!
++	DO I=1,ND
++	  IF(SIGMA(I) .LT. -0.999_LDP)SIGMA(I)=-0.999_LDP
++	END DO
++!
+ 	DO I=1,ND
+ 	  WRITE(127,'(3ES12.4)')R(I),V(I),SIGMA(I)
+ 	END DO

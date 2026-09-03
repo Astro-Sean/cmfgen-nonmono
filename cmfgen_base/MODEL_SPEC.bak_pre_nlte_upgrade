@@ -1,0 +1,58 @@
+122 [ND]                !Number of depth points
+8   [NC]                !Number of core rays
+130 [NP]                !Number of impact parameters [ND+NC]
+1 [NUM_BNDS]          !1=DIAG for N_TYPE=G_ONLY; 3=TRIDIAG for N_ON_J
+150000         [NCF_MAX]           !Total number of frequencies
+350            [MAX_SIM]           !Max # overlapping Doppler line profiles
+80000          [NLINE_MAX]         !Maximum # of bound-bound transitions
+21             [NLF]               !For CMF option only
+!
+! Optimized model atom for SN2024pba (Type IIn, interacting SN)
+! Generated from SN_HYDRO_DATA analysis at 35.57d via optimize_model_spec_v2.py
+!
+! Elements: H, He, O, Si, Ca, Fe
+! ISF format: NV,NS,NF where NV=important vars, NS=super, NF=full
+! When NV=NS=NF: no superlevel grouping, all levels are NLTE
+!
+! Ion selection based on Saha/LTE analysis of SN_HYDRO_DATA:
+!   T range: 3000-11668 K, 3 physical zones (He-rich outer, O/Si/Ca/Fe middle, H-rich inner)
+!
+! Diagnostic species (detailed NLTE):
+!   HI    — Hα, Hβ, Hγ (Saha: HI max 100%, HII implicit)
+!   HeI   — He I 5876, 6678 (Saha: HeI max 100%; n≥3 causes convergence blowups)
+!   He2   — He II 4686 (Saha: HeII max 99.86% in hot inner zones; NEW — previously omitted)
+!   OI    — O I 7774, 8446 (Saha: OI max 100% in cool zones)
+!   Sk2   — Si II 6355 λ-doublet (Saha: SiII max 100%)
+!   Ca2   — Ca II H&K, NIR triplet (Saha: CaII max 100%)
+!   Fe2   — Fe II lines (Saha: FeII max 100%)
+!   FeIII — Fe III lines (Saha: FeIII max 99.9%)
+!
+! Ionization closure species (reduced/ground-state atoms):
+!   O2     — O II: Saha max 100% in hot zones, dominant ion there; 4 NLTE for ionization balance
+!   OIII   — O III: Saha max 2.25%, closure for O II; ground state
+!   SkI    — Si I: Saha max 43.9% in cool zones, trace; ground state
+!   SkIII  — Si III: Saha max 100% in hot zones, dominant ion there; 4 NLTE for ionization balance
+!   SkIV   — Si IV: Saha max 5.4%, closure for Si III; ground state
+!   CaI    — Ca I: Saha max 0.02%, trace; ground state
+!   CaIII  — Ca III: Saha max 100% in hot zones, closure for Ca II; ground state
+!   FeI    — Fe I: Saha max 22%, trace in cool zones; ground state
+!   FeIV   — Fe IV: Saha max 45.5%, closure for Fe III; ground state
+!
+12,12,12        [HI_ISF]             !H I: n=1-12 NLTE (diagnostic: Hα/Hβ/Hγ)
+5,5,5           [HeI_ISF]            !He I: 5 NLTE (diagnostic: 5876/6678; n≥3 blowups)
+10,10,10        [He2_ISF]            !He II: 10 NLTE (diagnostic: 4686; he2_f_to_s_10; NEW)
+10,14,30        [OI_ISF]             !O I: 10 NLTE, 14 super, 30 full (diagnostic: 7774/8446)
+4,5,10          [O2_ISF]             !O II: 4 NLTE, 5 super, 10 full (closure: Saha max 100% hot; NS=5 matches f_to_s_137 SL groups for NF=10; NEW)
+1,1,1           [OIII_ISF]           !O III: ground state (closure: Saha max 2.25%; NEW)
+1,1,1           [SkI_ISF]            !Si I: ground state (trace: Saha max 43.9% cool)
+10,10,10        [Sk2_ISF]            !Si II: 10 NLTE (diagnostic: 6355 doublet)
+4,6,10          [SkIII_ISF]          !Si III: 4 NLTE, 6 super, 10 full (closure: Saha max 100% hot; NS=6 matches f_to_s_split SL groups for NF=10; NEW)
+1,1,1           [SkIV_ISF]           !Si IV: ground state (closure: Saha max 5.4%; NEW)
+1,1,1           [CaI_ISF]            !Ca I: ground state (trace: Saha max 0.02%)
+12,12,12        [Ca2_ISF]            !Ca II: 12 NLTE (diagnostic: H&K, NIR triplet)
+1,1,1           [CaIII_ISF]          !Ca III: ground state (closure: Saha max 100% hot; NEW)
+1,1,1           [FeI_ISF]            !Fe I: ground state (trace: Saha max 22% cool)
+10,22,80        [Fe2_ISF]            !Fe II: 10 NLTE, 22 super, 80 full (diagnostic)
+1,3,10          [FeIII_ISF]          !Fe III: 1 NLTE, 3 super, 10 full (diagnostic; 5,24,80 caused SL divergence)
+1,1,1           [FeIV_ISF]           !Fe IV: ground state (closure: Saha max 45.5% at 12000K)
+1,1,1           [FeV_ISF]            !Fe V: ground state (closure for Fe IV; prevents implicit species divergence)
