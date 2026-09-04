@@ -10159,8 +10159,14 @@ def main():
                           tau_breakpoints=tau_bp, thin_tau_threshold=args.thin_grid_tau)
 
         # Plot structure overview
+        # Recompute total atom number density on the final (possibly trimmed) grid
+        inv_A = np.zeros(len(r))
+        for elem, frac in mass_fractions.items():
+            A = elem_A.get(elem, 28.0)
+            inv_A += frac / A
+        n_atom = rho * AVOGADRO * inv_A
         plot_structure_overview(r, v, rho, T, mass_fractions, kappa_arr, t_pick, plot_output,
-                               n_e=n_e, n_atom=n_atom,
+                               n_e=new_ne, n_atom=n_atom,
                                ne_from_stella=(ne_stella_snap is not None))
 
         # Plot sigma vs grid index
