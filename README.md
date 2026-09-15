@@ -46,7 +46,9 @@ SN2024pba/
 ├── observational_data/   Observed spectra and photometry
 ├── presn_models/         Pre-supernova progenitor models
 ├── homo_model/           Homologous expansion test models
-├── docs/                 Documentation, papers, and reference notes
+├── docs/                 Papers, PDFs, and non-markdown reference material
+├── markdown/             All .md documentation files (consolidated)
+├── audits/               All audit .md files (consolidated)
 ├── OLD/                  Archived/deprecated models and backups
 ├── SN_12C*/              SN 2011dh comparison model directories
 └── AGENTS.md             Agent guidelines (do not edit without testing)
@@ -85,3 +87,4 @@ All plots go to `models/<model_name>/plots/` with filenames:
 {code}_{epoch}_{type}.png
 ```
 Examples: `sedona_30d_spectrum.png`, `superlite_30d_sdec_spectrum.png`
+# cmfgen-nonmono
