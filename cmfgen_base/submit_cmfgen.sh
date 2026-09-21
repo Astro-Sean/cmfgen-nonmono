@@ -476,7 +476,7 @@ fi
 # ---------------------------
 PARTITION_DEFAULT="small"
 TIME_DEFAULT="${TIME_DEFAULT:-23:59:00}"
-CPUS_DEFAULT=8
+CPUS_DEFAULT=4
 # CMFGEN BA / matrix steps often need many GB; too-small requests can OOM during the first BA build.
 # Default 32G for production; debug uses 30G on interactive partition.
 MEM_DEFAULT="${SLURM_MEM}"
@@ -486,7 +486,7 @@ INIT_MEM_DEFAULT="${INIT_SLURM_MEM}"
 
 PARTITION_DEBUG="interactive"
 TIME_DEBUG="01:59:00"
-CPUS_DEBUG=4
+CPUS_DEBUG=8
 MEM_DEBUG="30G"
 
 # Quick preset: minimal resources for faster backfill / shorter queue wait
