@@ -808,7 +808,7 @@ check_outgen_for_fatal() {
     echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
     return 2
   fi
-  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
+  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -v "I_NEXT sweep update.*cap/NaN writes= *0 " | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
     echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
     echo "---- OUTGEN tail (last 80 lines) ----" >&2
     tail -n 80 "\$outgen" >&2 || true
@@ -1656,7 +1656,7 @@ check_outgen_for_fatal() {
     echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
     return 2
   fi
-  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
+  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -v "I_NEXT sweep update.*cap/NaN writes= *0 " | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
     echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
     echo "---- OUTGEN tail (last 80 lines) ----" >&2
     tail -n 80 "\$outgen" >&2 || true
