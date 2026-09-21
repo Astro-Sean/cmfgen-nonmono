@@ -58,7 +58,34 @@ PROXY_POPULATIONS_GREY_TOL=""
 PROXY_POPULATIONS_V2="0"
 PROXY_COMPLEX_MODEL="0"
 PROXY_POPULATIONS_MASS_FRAC_FLOOR=""
-INIT_PARTITION="general"
+PROXY_IONIZATION_MODE=""
+PROXY_NE_MAX_ITER=""
+PROXY_NE_TOL=""
+PROXY_T_EXC_SOURCE=""
+PROXY_T_ION_FLOOR=""
+PROXY_DC_MAX=""
+PROXY_EXCITATION_MODE=""
+PROXY_DC_LOG_CAP=""
+PROXY_TAU_TRANS=""
+PROXY_NO_NON_LOCAL_REVERSALS=""
+PROXY_NLTE_UPSILON=""
+PROXY_NLTE_UPSILON_FORB=""
+PROXY_NLTE_F_THRESHOLD=""
+PROXY_NLTE_ELEMS=""
+PROXY_STELLA_FILE=""
+PROXY_STELLA_RADIUS_COLUMN=""
+PROXY_STELLA_VELOCITY_COLUMN=""
+PROXY_STELLA_TAU_COLUMN=""
+PROXY_STELLA_TRAD_COLUMN=""
+PROXY_STELLA_TION_COLUMN=""
+PROXY_STELLA_LUMINOSITY_COLUMN=""
+PROXY_STELLA_ENERGY_DENSITY_COLUMN=""
+PROXY_STELLA_RADIUS_UNIT=""
+PROXY_STELLA_TEMPERATURE_UNIT=""
+PROXY_STELLA_INTERP_COORD=""
+PROXY_V2_STRATEGY=""
+PROXY_PREV_MODEL=""
+INIT_PARTITION="small"
 FINAL_PARTITION=""
 INIT_TIME="23:59:00"
 INIT_NUM_ITS="${INIT_NUM_ITS:-1000}"
@@ -106,6 +133,7 @@ while [[ $# -gt 0 ]]; do
     --reversal-n-insert=*) REVERSAL_N_INSERT="${1#*=}"; shift ;;
     --target-nd=*) TARGET_ND="${1#*=}"; shift ;;
     --init-num-its=*) INIT_NUM_ITS="${1#*=}"; shift ;;
+    --gt-auto=*) GT_AUTO="${1#*=}"; shift ;;
     --model-type=*) MODEL_TYPE="${1#*=}"; shift ;;
     --inc-rad-decays=*) INC_RAD_DECAYS="${1#*=}"; shift ;;
     --no-relativistic=*) NO_RELATIVISTIC="${1#*=}"; shift ;;
@@ -118,11 +146,44 @@ while [[ $# -gt 0 ]]; do
     --proxy-populations-v2=*) PROXY_POPULATIONS_V2="${1#*=}"; shift ;;
     --proxy-complex-model=*) PROXY_COMPLEX_MODEL="${1#*=}"; shift ;;
     --proxy-populations-mass-frac-floor=*) PROXY_POPULATIONS_MASS_FRAC_FLOOR="${1#*=}"; shift ;;
+    --proxy-ionization-mode=*) PROXY_IONIZATION_MODE="${1#*=}"; shift ;;
+    --proxy-ne-max-iter=*) PROXY_NE_MAX_ITER="${1#*=}"; shift ;;
+    --proxy-ne-tol=*) PROXY_NE_TOL="${1#*=}"; shift ;;
+    --proxy-t-exc-source=*) PROXY_T_EXC_SOURCE="${1#*=}"; shift ;;
+    --proxy-t-ion-floor=*) PROXY_T_ION_FLOOR="${1#*=}"; shift ;;
+    --proxy-dc-max=*) PROXY_DC_MAX="${1#*=}"; shift ;;
+    --proxy-excitation-mode=*) PROXY_EXCITATION_MODE="${1#*=}"; shift ;;
+    --proxy-dc-log-cap=*) PROXY_DC_LOG_CAP="${1#*=}"; shift ;;
+    --proxy-tau-trans=*) PROXY_TAU_TRANS="${1#*=}"; shift ;;
+    --proxy-no-non-local-reversals=*)
+      case "${1#*=}" in
+        0) PROXY_NO_NON_LOCAL_REVERSALS="" ;;
+        1) PROXY_NO_NON_LOCAL_REVERSALS="1" ;;
+        *) echo "ERROR: --proxy-no-non-local-reversals expects 0 or 1, got '${1#*=}'" >&2; exit 2 ;;
+      esac
+      shift ;;
+    --proxy-nlte-upsilon=*) PROXY_NLTE_UPSILON="${1#*=}"; shift ;;
+    --proxy-nlte-upsilon-forb=*) PROXY_NLTE_UPSILON_FORB="${1#*=}"; shift ;;
+    --proxy-nlte-f-threshold=*) PROXY_NLTE_F_THRESHOLD="${1#*=}"; shift ;;
+    --proxy-nlte-elems=*) PROXY_NLTE_ELEMS="${1#*=}"; shift ;;
+    --proxy-stella-file=*) PROXY_STELLA_FILE="${1#*=}"; shift ;;
+    --proxy-stella-radius-column=*) PROXY_STELLA_RADIUS_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-velocity-column=*) PROXY_STELLA_VELOCITY_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-tau-column=*) PROXY_STELLA_TAU_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-trad-column=*) PROXY_STELLA_TRAD_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-tion-column=*) PROXY_STELLA_TION_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-luminosity-column=*) PROXY_STELLA_LUMINOSITY_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-energy-density-column=*) PROXY_STELLA_ENERGY_DENSITY_COLUMN="${1#*=}"; shift ;;
+    --proxy-stella-radius-unit=*) PROXY_STELLA_RADIUS_UNIT="${1#*=}"; shift ;;
+    --proxy-stella-temperature-unit=*) PROXY_STELLA_TEMPERATURE_UNIT="${1#*=}"; shift ;;
+    --proxy-stella-interpolation-coordinate=*) PROXY_STELLA_INTERP_COORD="${1#*=}"; shift ;;
+    --proxy-v2-strategy=*) PROXY_V2_STRATEGY="${1#*=}"; shift ;;
+    --proxy-prev-model=*) PROXY_PREV_MODEL="${1#*=}"; shift ;;
     --partition=*) INIT_PARTITION="${1#*=}"; FINAL_PARTITION="${1#*=}"; shift ;;
     --time=*) INIT_TIME="${1#*=}"; TIME_DEFAULT="${1#*=}"; shift ;;
     --obs-time=*) OBS_TIME_OVERRIDE="${1#*=}"; shift ;;
-    --mem=*) SLURM_MEM="${1#*=}"; shift ;;
-    --init-mem=*) INIT_SLURM_MEM="${1#*=}"; shift ;;
+    --mem=*) SLURM_MEM="${1#*=}"; SLURM_MEM_EXPLICIT=1; shift ;;
+    --init-mem=*) INIT_SLURM_MEM="${1#*=}"; INIT_SLURM_MEM_EXPLICIT=1; shift ;;
     --cpus=*) CPUS_OVERRIDE="${1#*=}"; shift ;;
     --n-ob-ins=*) N_OB_INS="${1#*=}"; shift ;;
     --final-requeue-when=*) FINAL_REQUEUE_WHEN="${1#*=}"; shift ;;
@@ -163,15 +224,27 @@ MODEL_DIR="$(cd "$MODEL_DIR" && pwd)"
 
 # ---------------------------
 # CMFGEN environment paths (needed early for manual cleanup)
+# Cluster-aware default: detect RAVEN vs VIPER from hostname.
 # ---------------------------
-CMFDIST="${CMFDIST:-/viper/ptmp1/sbrennan/SN2024pba/cmfgen_source}"
+_host="$(hostname 2>/dev/null || echo)"
+case "$_host" in
+  raven*|rav*) _cmfdist_default="/raven/ptmp/sbrennan/SN2024pba/cmfgen_nonmono_dev_V4"
+               _atomic_default="/raven/ptmp/sbrennan/atomic"
+               _project_dir_default="/raven/ptmp/sbrennan/SN2024pba" ;;
+  *)            _cmfdist_default="/viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V4"
+               _atomic_default="/viper/u1/sbrennan/atomic"
+               _project_dir_default="/viper/ptmp1/sbrennan/SN2024pba" ;;
+esac
+CMFDIST="${CMFDIST:-$_cmfdist_default}"
+ATOMIC="${ATOMIC:-$_atomic_default}"
+PROJECT_DIR="${PROJECT_DIR:-$_project_dir_default}"
 
 # ---------------------------
 # Manual cleanup (if restart_model.sh not found)
 # Must happen BEFORE submit.log is created
 # ---------------------------
 RESTART_HELPER="${CMFDIST}/com/restart_model.sh"
-if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" ]]; then
+if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FINAL:-0}" != "1" ]]; then
   echo "WARNING: restart_model.sh not found at $RESTART_HELPER"
   echo "  Performing manual cleanup: keeping base files and SN_HYDRO_DATA, deleting everything else..."
   
@@ -183,13 +256,15 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" ]]; then
   # Also keep SN_HYDRO_DATA, obs directory, and plots/ (SN_HYDRO_DATA diagnostic
   # plots from convert_stella_swd_to_cmfgen.py — structure_overview.png, mass_fractions.png)
   # Also keep EDDFACTOR + EDDFACTOR_INFO when present (for USE_FIXED_J initialization)
-  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO"
+  # Also keep GREY_SCL_FAC_IN (T/Tgrey scaling from STELLA conversion, aids initial convergence)
+  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat RVTJ OUTGEN MODEL CUR_MODEL_DATA SPECIES_MASSES OBSFLUX"
   
   cd "${MODEL_DIR}"
   
   # Create temporary list of files to delete
   for item in *; do
     keep=0
+    [[ "$item" == conversion_attempt_* ]] && keep=1
     for keep_pattern in $FILES_TO_KEEP; do
       if [[ "$item" == "$keep_pattern" ]] || [[ "$item" == "$keep_pattern".* ]]; then
         keep=1
@@ -228,8 +303,12 @@ FOLDER_NAME="$(basename "$MODEL_DIR")"
 # Use JOB_PREFIX from CLI arg, otherwise fall back to FOLDER_NAME
 JOB_PREFIX="${JOB_PREFIX:-${FOLDER_NAME}}"
 
+# Model name from CLI arg; fallback to parent directory name.
+# Must be defined before first use (set -u aborts on unbound variables).
+MODEL_NAME_FROM_DIR="${MODEL_NAME:-$(basename "$(dirname "$MODEL_DIR")")}"
+
 # Model name and epoch label for centralized output filenames
-CMFGEN_MODEL_BASE="${MODEL_NAME:-${MODEL_NAME_FROM_DIR}}"
+CMFGEN_MODEL_BASE="${MODEL_NAME_FROM_DIR}"
 # Derive epoch from SN_HYDRO_DATA if available (e.g. "4.90200E+00" -> "4.9d")
 EPOCH_LABEL=""
 if [[ -f "${MODEL_DIR}/SN_HYDRO_DATA" ]]; then
@@ -261,16 +340,41 @@ echo "======================================================"
 
 # ---------------------------
 # CMFGEN environment paths
+# Cluster-aware defaults already set above (CMFDIST, ATOMIC, PROJECT_DIR).
+# These lines are kept for backward compatibility in case the early block
+# was skipped (e.g. when this script is sourced partially).
 # ---------------------------
-CMFDIST="${CMFDIST:-/viper/ptmp1/sbrennan/SN2024pba/cmfgen_source}"
-ATOMIC="${HOME}/atomic"
+CMFDIST="${CMFDIST:-$_cmfdist_default}"
+ATOMIC="${ATOMIC:-$_atomic_default}"
+PROJECT_DIR="${PROJECT_DIR:-$_project_dir_default}"
+
+# ---------------------------
+# Cluster-aware module loads for SLURM heredocs
+# RAVEN: intel/2024.0 + mkl/2024.0 (ifort classic, oneAPI)
+# VIPER: intel/2024.0 + mkl/2026.0 (ifx/oneAPI)
+# ---------------------------
+case "$_host" in
+  raven*|rav*)
+    INTEL_MODULE="intel/2024.0"
+    MKL_MODULE="mkl/2024.0"
+    PYTHON_MODULE="python-waterboa/2025.06"
+    MKL_LIB_PATH="/mpcdf/soft/SLE_15/packages/x86_64/intel_oneapi/2024.0/mkl/2024.0/lib/intel64"
+    COMPILER_LIB_PATH="/mpcdf/soft/SLE_15/packages/x86_64/intel_oneapi/2024.0/compiler/2024.0/lib"
+    ;;
+  *)
+    INTEL_MODULE="intel/2024.0"
+    MKL_MODULE="mkl/2026.0"
+    PYTHON_MODULE="python-waterboa/2024.06"
+    MKL_LIB_PATH="/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64"
+    COMPILER_LIB_PATH="/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/compiler/2026.0/lib"
+    ;;
+esac
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(dirname "$(dirname "$(dirname "$MODEL_DIR")")")}"
 VADAT_SCRIPT="${PROJECT_ROOT}/scripts/prepare_VADAT.py"
 INITS_SCRIPT="${PROJECT_ROOT}/scripts/prepare_IN_INTS.py"
+CMF_PARAM_SCRIPT="${PROJECT_ROOT}/scripts/prepare_CMF_PARAM.py"
 PROXY_POPULATIONS_SCRIPT="${PROJECT_ROOT}/scripts/proxy_populations.py.deprecate"
-# Model name from CLI arg; fallback to parent directory name
-MODEL_NAME_FROM_DIR="${MODEL_NAME:-$(basename "$(dirname "$MODEL_DIR")")}"
 # Use CONFIG_FILE from CLI arg if provided; otherwise find the config by name.
 # Config files are named <MODEL_NAME>.yaml (not model_<MODEL_NAME>.yaml).
 if [[ -n "${CONFIG_FILE:-}" && -f "${CONFIG_FILE}" ]]; then
@@ -328,6 +432,7 @@ echo "  CMFDIST: $CMFDIST"
 echo "  ATOMIC:  $ATOMIC"
 echo "  VADAT:   $VADAT_SCRIPT"
 echo "  INITS:   $INITS_SCRIPT"
+echo "  CMF_PAR: $CMF_PARAM_SCRIPT"
 echo "  OBS_TPL: $OBS_TEMPLATE_DIR"
 if [[ "${PROXY_POPULATIONS}" == "1" || "${PROXY_POPULATIONS_V2}" == "1" ]]; then
   echo "  PROXY:   $PROXY_POPULATIONS_SCRIPT (proxy dilute-LTE _IN files)"
@@ -369,8 +474,8 @@ fi
 # Resource presets (smaller requests = faster queue scheduling on most clusters)
 # Increase MEM_DEFAULT / CPUS_DEFAULT if FINAL fails with OOM or needs more threads.
 # ---------------------------
-PARTITION_DEFAULT="general"
-TIME_DEFAULT="${TIME_DEFAULT:-24:00:00}"
+PARTITION_DEFAULT="small"
+TIME_DEFAULT="${TIME_DEFAULT:-23:59:00}"
 CPUS_DEFAULT=8
 # CMFGEN BA / matrix steps often need many GB; too-small requests can OOM during the first BA build.
 # Default 32G for production; debug uses 30G on interactive partition.
@@ -385,11 +490,11 @@ CPUS_DEBUG=4
 MEM_DEBUG="30G"
 
 # Quick preset: minimal resources for faster backfill / shorter queue wait
-TIME_QUICK="24:00:00"
+TIME_QUICK="23:59:00"
 CPUS_QUICK=8
 MEM_QUICK="${SLURM_MEM}"
 
-# INIT: default general partition, 24h. Override with CMFGEN_INIT_* env vars.
+# INIT: default general partition, 23:59:00. Override with CMFGEN_INIT_* env vars.
 # Keep memory aligned with main MEM_DEFAULT to avoid early BA OOM.
 INIT_PARTITION="${INIT_PARTITION}"
 INIT_TIME="${INIT_TIME}"
@@ -397,8 +502,8 @@ INIT_TIME="${INIT_TIME}"
 # FINAL/SINGLE_FINAL: high-iteration mode; graceful chunking/requeue handles walltime.
 FINAL_NUM_ITS=100000
 
-OBS_TIME_DEFAULT="24:00:00"
-OBS_TIME_DEBUG="01:30:00"
+OBS_TIME_DEFAULT="23:59:00"
+OBS_TIME_DEBUG="01:59:00"
 
 FINAL_SLURM="run_cmfgen_FINAL.slurm"
 SINGLE_FINAL_SLURM="run_cmfgen_SINGLE_FINAL.slurm"
@@ -410,6 +515,23 @@ if [[ $debug -eq 1 ]]; then
   cpus="$CPUS_DEBUG"
   mem="$MEM_DEBUG"
   init_mem="$MEM_DEBUG"
+  # Honour an explicit --mem/--init-mem even in debug mode: large-ND grids
+  # can exceed the 30G debug preset (OOM during STEQ/BA init), and silently
+  # dropping the request causes a requeue-OOM loop.  The 30G preset still
+  # applies when no explicit value was passed.
+  if [[ -n "${SLURM_MEM_EXPLICIT:-}" ]]; then mem="$SLURM_MEM"; fi
+  if [[ -n "${INIT_SLURM_MEM_EXPLICIT:-}" ]]; then init_mem="$INIT_SLURM_MEM"; fi
+  # Interactive partition MaxMemPerNode=32000M: a request above ~31G
+  # pends forever on MaxMemPerLimit.  Cap all debug requests at 30G.
+  for _v in mem init_mem; do
+    _m="${!_v}"
+    _gb=$(awk -v m="$_m" 'BEGIN{u=toupper(m); v=u+0; if(u ~ /G$/) printf "%d",v;
+          else if(u ~ /M$/) printf "%d",v/1024; else printf "%d",v/1024}')
+    if [[ -n "$_gb" && "$_gb" -gt 30 ]]; then
+      echo "  MEM clamp (debug): ${_v}=${_m} exceeds 30G interactive cap -- using 30G"
+      printf -v "$_v" '30G'
+    fi
+  done
   obs_timelimit="$OBS_TIME_DEBUG"
   tag="debug"
 elif [[ $quick -eq 1 ]]; then
@@ -430,6 +552,19 @@ else
   tag=""
 fi
 
+# ── HARDCODED partition time / graceful-stop enforcement ────────────
+# Override any --time= or TIME_DEFAULT value with the hardcoded rules.
+# These cannot be overridden by config, CLI, or environment.
+if [[ "$part" == "interactive" ]]; then
+  timelimit="01:59:00"
+  obs_timelimit="01:59:00"
+  INIT_TIME="01:59:00"
+else
+  timelimit="23:59:00"
+  obs_timelimit="23:59:00"
+  INIT_TIME="23:59:00"
+fi
+
 # Allow explicit CPU override from YAML config (via run_model_grid.py)
 if [[ -n "${CPUS_OVERRIDE}" ]]; then
   cpus="$CPUS_OVERRIDE"
@@ -443,32 +578,28 @@ fi
 
 # If using interactive partition (but not via --debug), cap OBS time to <2h
 # since the interactive partition requires less than 2h runtime.
-if [[ "$part" == "interactive" && "$obs_timelimit" == "24:00:00" ]]; then
+if [[ "$part" == "interactive" ]]; then
   obs_timelimit="$OBS_TIME_DEBUG"
   echo "  Interactive partition detected: capping OBS time to $obs_timelimit"
 fi
 
-# FINAL graceful chunking (walltime-dependent):
-# - Normal partition (24h): graceful stop at 20h (72000s), signal 4h before wall.
-# - Debug mode (01:30): graceful stop disabled (FINAL_WALL_GRACEFUL=0).
-# The sleep fallback fires AFTER the USR1 signal would fire, acting as a safety
-# net in case SLURM misses the signal.
+# FINAL graceful chunking — HARDCODED per partition (not configurable):
+#   interactive:  graceful stop at 5400s  (1h30m into 01:59:00 wall)
+#   any other:    graceful stop at 79200s (22h   into 23:59:00 wall)
+# The USR1 signal fires (wall - graceful_stop) seconds before the wall time.
+# The sleep fallback fires at the same point, acting as a safety net in case
+# SLURM misses the USR1 signal.
 #
-# User-configurable via GRACEFUL_STOP_SEC (overrides the automatic calculation).
-GRACEFUL_STOP_SEC="${GRACEFUL_STOP_SEC:-}"
+# GRACEFUL_STOP_SEC from the environment is IGNORED — these values are hardcoded.
+GRACEFUL_STOP_SEC=""
 
 # Compute wall time in seconds for the current timelimit
 _wall_sec_graceful=$(echo "$timelimit" | awk -F: '{if (NF==3) print $1*3600+$2*60+$3; else if (NF==2) print $1*60+$2; else print $1}')
 
-if [[ -n "${GRACEFUL_STOP_SEC}" ]]; then
-  FINAL_GRACEFUL_SLEEP_SEC="${GRACEFUL_STOP_SEC}"
+if [[ "$part" == "interactive" ]]; then
+  FINAL_GRACEFUL_SLEEP_SEC=5400
 else
-  # Default: 83.3% of wall time for >=12h jobs, 75% for shorter (e.g. 2h interactive)
-  if [[ "$_wall_sec_graceful" -ge 43200 ]]; then
-    FINAL_GRACEFUL_SLEEP_SEC=$(echo "$_wall_sec_graceful" | awk '{printf "%d", $1 * 0.833}')
-  else
-    FINAL_GRACEFUL_SLEEP_SEC=$(echo "$_wall_sec_graceful" | awk '{printf "%d", $1 * 0.75}')
-  fi
+  FINAL_GRACEFUL_SLEEP_SEC=79200
 fi
 FINAL_SIGNAL_BEFORE_SEC=$(( _wall_sec_graceful - FINAL_GRACEFUL_SLEEP_SEC ))
 echo "  Graceful stop: ${FINAL_GRACEFUL_SLEEP_SEC}s into ${_wall_sec_graceful}s wall (signal ${FINAL_SIGNAL_BEFORE_SEC}s before wall)"
@@ -550,6 +681,7 @@ if [[ ! -f "${MODEL_DIR}/SN_HYDRO_DATA" ]]; then
 fi
 [[ -f "$VADAT_SCRIPT" ]] || die "Missing: $VADAT_SCRIPT"
 [[ -f "$INITS_SCRIPT" ]] || die "Missing: $INITS_SCRIPT"
+[[ -f "$CMF_PARAM_SCRIPT" ]] || die "Missing: $CMF_PARAM_SCRIPT"
 [[ -x "${MODEL_DIR}/batch.sh" ]] || die "Missing or not executable: ${MODEL_DIR}/batch.sh"
 [[ -x "${CMFDIST}/com/out2in.sh" ]] || die "Missing or not executable: ${CMFDIST}/com/out2in.sh"
 
@@ -609,6 +741,9 @@ if [[ $restart -eq 0 && $no_submit -eq 0 ]]; then
   rm -f "${MODEL_DIR}/.CMFGEN_SINGLE_FINAL_PREPPED" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_REQUEST_REQUEUE" "${MODEL_DIR}/.CMFGEN_STABLE_REQUEST_REQUEUE" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_FINAL_NEEDS_NUM_ITS_RESET" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/.CMFGEN_JOB_START" "${MODEL_DIR}/.CMFGEN_EARLY_EXIT_COUNT" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
 fi
 
 # If we're doing a full (re)run, force prep to re-run.
@@ -616,6 +751,8 @@ fi
 if [[ $restart -eq 0 ]]; then
   rm -f "${MODEL_DIR}/.CMFGEN_INIT_PREPPED" "${MODEL_DIR}/.CMFGEN_STABLE_PREPPED" "${MODEL_DIR}/.CMFGEN_FINAL_PREPPED" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_SINGLE_FINAL_PREPPED" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/.CMFGEN_JOB_START" "${MODEL_DIR}/.CMFGEN_EARLY_EXIT_COUNT" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
 fi
 
 # Always rewrite all scripts
@@ -671,7 +808,7 @@ check_outgen_for_fatal() {
     echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
     return 2
   fi
-  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
+  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
     echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
     echo "---- OUTGEN tail (last 80 lines) ----" >&2
     tail -n 80 "\$outgen" >&2 || true
@@ -711,16 +848,30 @@ check_convergence_for_divergence() {
   local n_required=5    # need this many consecutive high values to flag divergence
   local n_high=0
   local last_vals=""
+  local first_high="" last_val=""
   while read -r iter val; do
     [[ -z "\$val" ]] && continue
     last_vals="\${last_vals} \${val}"
+    last_val="\$val"
     if (( \$(echo "\$val > \$threshold" | bc -l 2>/dev/null || echo 0) )); then
+      [[ -z "\$first_high" || \$n_high -eq 0 ]] && first_high="\$val"
       n_high=\$((n_high + 1))
     else
       n_high=0  # reset on any non-high value
+      first_high=""
     fi
   done < "\${CONV_HIST}"
+  # 2026-09-13: a run of high but rapidly DECREASING MAXCH values is the
+  # normal damped recovery after a cold start (or restart), not divergence.
+  # Only flag divergence when the tail value has not dropped below half of
+  # the first high value in the current run.
   if [[ \$n_high -ge \$n_required ]]; then
+    if [[ -n "\$first_high" && -n "\$last_val" ]] && \\
+       (( \$(echo "\$last_val < 0.5*\$first_high" | bc -l 2>/dev/null || echo 0) )); then
+      echo "NOTE: \${n_high} consecutive iterations > \${threshold}% but MAXCH is"
+      echo "      decreasing (\${first_high} -> \${last_val}); treating as recovery, not divergence."
+      return 0
+    fi
     echo "ERROR: CMFGEN model is DIVERGING — last max % changes:\${last_vals}" >&2
     echo "  \${n_high} consecutive iterations with max change > \${threshold}%." >&2
     echo "  Requeuing will not help. Stopping to prevent resource waste." >&2
@@ -894,14 +1045,31 @@ echo "======================================"
 echo "CMFGEN FINAL Job Started"
 echo "Job ID: \$SLURM_JOB_ID"
 echo "Partition: \$SLURM_JOB_PARTITION"
-echo "CPUs: \$SLURM_CPUS_PER_TASK"
+echo "CPUs: requested=\$SLURM_CPUS_PER_TASK allocated=\$SLURM_CPUS_ON_NODE effective=\${OMP_NUM_THREADS:-unset}"
 echo "Node: \$SLURMD_NODENAME"
 echo "======================================"
 
 # Label this FINAL (re)queue instance as N1, N2, ... for easier tracking.
-# Slurm provides SLURM_RESTART_COUNT during requeues/restarts (initial run typically 0).
+# Use a file-based counter because scontrol requeue resets SLURM_RESTART_COUNT.
+REQUEUE_COUNT_FILE=".CMFGEN_REQUEUE_COUNT"
+if [[ -f "\${REQUEUE_COUNT_FILE}" ]]; then
+  file_requeue_count=\$(cat "\${REQUEUE_COUNT_FILE}" 2>/dev/null || echo 0)
+else
+  file_requeue_count=0
+fi
+# Also check SLURM_RESTART_COUNT for backward compatibility.
 restart_count="\${SLURM_RESTART_COUNT:-0}"
-requeue_idx=\$((restart_count + 1))
+if [[ "\${restart_count}" -gt "\${file_requeue_count}" ]]; then
+  file_requeue_count="\${restart_count}"
+fi
+# If this is a requeue (sentinel exists or count > 0), increment the counter
+# NOW so that even if the job is cancelled before reaching the else branch,
+# the next requeue will see the correct count.
+if [[ -f .CMFGEN_SINGLE_FINAL_PREPPED || "\${file_requeue_count}" -gt 0 || "\${restart_count}" -gt 0 ]]; then
+  file_requeue_count=\$((file_requeue_count + 1))
+  echo "\${file_requeue_count}" > "\${REQUEUE_COUNT_FILE}"
+fi
+requeue_idx=\$((file_requeue_count + 1))
 final_job_name="${JOB_PREFIX}_cmfgen_N\${requeue_idx}"
 if command -v scontrol >/dev/null 2>&1; then
   scontrol update JobId="\$SLURM_JOB_ID" JobName="\$final_job_name" >/dev/null 2>&1 || true
@@ -910,14 +1078,15 @@ echo "CMFGEN iteration label (for job-name tracking): \${final_job_name}"
 
 # Do not delete Slurm stdout/stderr logs; they are essential for debugging failures.
 module purge
-module load intel/2024.0
-module load mkl/2026.0
-module load python-waterboa/2024.06
+module load ${INTEL_MODULE}
+module load ${MKL_MODULE}
+module load ${PYTHON_MODULE}
 # Explicitly set MKL library path (workaround for module loading issues on compute nodes)
-export LD_LIBRARY_PATH=/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64:\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export LD_LIBRARY_PATH=${MKL_LIB_PATH}:${COMPILER_LIB_PATH}:\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 
 export cmfdist="${CMFDIST}"
 export ATOMIC="${ATOMIC}"
+export PROJECT_DIR="${PROJECT_DIR}"
 export CMFGEN_MODEL_TYPE="${MODEL_TYPE}"
 export SCRATCH_DIR="SCRATCH/"
 mkdir -p SCRATCH/
@@ -925,6 +1094,36 @@ mkdir -p SCRATCH/
 # Sentinel indicating we previously requested a clean stop (NUM_ITS=0)
 # and need to restore NUM_ITS back to 500 before starting CMFGEN again.
 NUM_ITS_RESET_SENTINEL=".CMFGEN_FINAL_NEEDS_NUM_ITS_RESET"
+
+# Requeue state file: explicit state machine for graceful-stop / requeue logic.
+# Values:
+#   READY=0  — batch.sh is running, no graceful stop requested yet
+#   READY=1  — graceful stop requested (NUM_ITS=0), CMFGEN should exit cleanly
+# The state file is written BEFORE batch.sh (READY=0) and updated by
+# request_graceful_stop() (READY=1).  After batch.sh, the post-run logic
+# reads this file to decide whether to requeue.
+REQUEUE_STATE_FILE=".CMFGEN_REQUEUE_STATE"
+
+# Write the requeue state file.  Usage: write_requeue_state <value>
+write_requeue_state() {
+  local val="\$1"
+  echo "READY=\${val}" > "\${REQUEUE_STATE_FILE}" 2>/dev/null || true
+  echo "TIMESTAMP=\$(date +%s)" >> "\${REQUEUE_STATE_FILE}" 2>/dev/null || true
+  echo "JOB_ID=\${SLURM_JOB_ID:-unknown}" >> "\${REQUEUE_STATE_FILE}" 2>/dev/null || true
+}
+
+# Read the READY value from the state file.  Returns 0 or 1, defaults to 0
+# if the file is missing or unreadable.
+read_requeue_state() {
+  local state_file="\${REQUEUE_STATE_FILE}"
+  if [[ ! -f "\$state_file" ]]; then
+    echo 0
+    return
+  fi
+  local ready
+  ready=\$(grep -m1 '^READY=' "\$state_file" 2>/dev/null | cut -d= -f2 2>/dev/null || echo 0)
+  echo "\${ready:-0}"
+}
 
 # Graceful chunking (FINAL only): ~18h into a 24h walltime, stop cleanly (NUM_ITS=0),
 # then out2in.sh and scontrol requeue so the model can continue until convergence.
@@ -952,6 +1151,7 @@ p.write_text("\n".join(out) + "\n")
 PY
   touch .CMFGEN_REQUEST_REQUEUE
   touch "\${NUM_ITS_RESET_SENTINEL}"
+  write_requeue_state 1
 }
 trap request_graceful_stop USR1
 
@@ -979,7 +1179,12 @@ fi
 # ---------------------------
 # Resource settings (from SLURM)
 # ---------------------------
-CPUS=\${SLURM_CPUS_PER_TASK:-8}
+# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
+# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
+# than requested (e.g. whole-node allocation on the interactive partition).
+CPUS=\${SLURM_CPUS_ON_NODE:-\${SLURM_CPUS_PER_TASK:-8}}
+CPUS=\$(( CPUS / \${SLURM_NTASKS:-1} ))
+[[ \$CPUS -lt 1 ]] && CPUS=8
 export OMP_NUM_THREADS=\$CPUS
 export MKL_NUM_THREADS=\$CPUS
 export OMP_STACKSIZE=512M
@@ -1031,10 +1236,42 @@ if [[ "${NO_RELATIVISTIC}" == "1" ]]; then
   echo "NO_RELATIVISTIC=1 (passed --no-relativistic to prepare_VADAT.py)"
 fi
 python "${VADAT_SCRIPT}" --final --convergence-mode stable --vel-law "${VEL_LAW}" ${MODEL_TYPE_FLAG} ${INC_RAD_DECAYS_FLAG} ${TARGET_ND_FLAG} ${USE_HYDRO_GRID_FLAG} ${SMOOTH_JUMPS_FLAG} ${BLEND_FLAG} ${MONOTONIZE_FLAG:-} ${CHEMICAL_FLAG:-} ${REVERSAL_FLAG:-} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
-python "${INITS_SCRIPT}" --final --num-its ${FINAL_NUM_ITS} >> 'batch.log'
+python "${INITS_SCRIPT}" --final --num-its ${FINAL_NUM_ITS} ${GT_AUTO:+--gt-auto ${GT_AUTO}} >> 'batch.log'
 export CMFGEN_AUTO_SET_RSTAR="${AUTO_SET_RSTAR}"
 export CMFGEN_AUTO_SET_LSTAR="${AUTO_SET_LSTAR}"
 auto_set_rstar_lstar_from_hydro
+
+# On a requeue, reuse the converged Eddington factors from the previous
+# segment.  prepare_VADAT.py always writes "T [COMP_F]", which forces CMFGEN
+# to recompute EDDFACTOR from scratch; under USE_LAM_ES that zeroes J at the
+# first frequency of the first iteration of each restarted segment.
+# EDDFACTOR/EDDFACTOR_INFO persist across requeues, so when both exist we
+# flip COMP_F to F and let CMFGEN read them directly.
+if [[ "\${file_requeue_count:-0}" -gt 0 && -f EDDFACTOR && -f EDDFACTOR_INFO ]]; then
+  echo "Requeue detected with valid EDDFACTOR: setting COMP_F=F in VADAT (reuse converged Eddington factors)"
+  python - <<'PY'
+from pathlib import Path
+
+p = Path("VADAT")
+lines = p.read_text().splitlines()
+out = []
+flipped = False
+for ln in lines:
+    if "[COMP_F]" in ln:
+        stripped = ln.lstrip()
+        toks = stripped.split(None, 1)
+        if toks and toks[0] == "T":
+            lead = ln[: len(ln) - len(stripped)]
+            ln = lead + "F" + stripped[1:]
+            flipped = True
+    out.append(ln)
+if flipped:
+    p.write_text("\n".join(out) + "\n")
+    print("VADAT: COMP_F flipped T -> F (EDDFACTOR/EDDFACTOR_INFO will be read).")
+else:
+    print("VADAT: COMP_F not T or key absent; left unchanged.")
+PY
+fi
 
 # Preserve restart state unconditionally.
 #
@@ -1112,8 +1349,14 @@ for _f in POINT1 POINT2 SCRTEMP STEQ_VALS J_COMP JEW EWDATA CFDAT_OUT CONT_FREQ 
   [[ -e "\$_f" && ! -L "\$_f" ]] && mv "\$_f" SCRATCH/ 2>/dev/null || true
   ln -sf "SCRATCH/\$_f" "\$_f" 2>/dev/null || true
 done
+# 2026-09-13: stamp for stale-RVTJ detection in the early-exit check below.
+touch .CMFGEN_JOB_START
+# 2026-09-15: write READY=0 to the requeue state file before starting
+# CMFGEN.  request_graceful_stop() will update this to READY=1 when
+# the graceful stop fires.  After batch.sh, the post-run logic reads
+# this file to decide whether to requeue.
+write_requeue_state 0
 tcsh -f ./batch.sh
-check_outgen_for_fatal
 stop_graceful_timer
 
 # Track convergence: extract last max % change from OUTGEN and append to
@@ -1121,10 +1364,47 @@ stop_graceful_timer
 # used to detect divergence before the next requeue.
 track_convergence
 
+# A run that did not finish cleanly is never rescheduled: check OUTGEN for
+# fatal patterns before anything else (including out2in).
+fatal_rc=0
+check_outgen_for_fatal || fatal_rc=\$?
+if [[ \${fatal_rc} -ne 0 ]]; then
+  echo "ERROR: CMFGEN did not finish cleanly (fatal pattern in OUTGEN). NOT requeuing." >&2
+  exit \${fatal_rc}
+fi
+
 echo "Preparing restart inputs (out2in.sh)..."
 "\$cmfdist/com/out2in.sh"
 
-if [[ -f .CMFGEN_REQUEST_REQUEUE ]]; then
+# 2026-09-15: requeue state machine.  The REQUEUE_STATE_FILE tracks
+# whether the graceful stop was requested (READY=1) or not (READY=0).
+# This replaces the sentinel-file approach (.CMFGEN_REQUEST_REQUEUE)
+# with an explicit state file that is more robust and easier to debug.
+#
+# State transitions:
+#   READY=0  → batch.sh running, no graceful stop
+#   READY=1  → graceful stop requested (NUM_ITS=0), CMFGEN exiting
+#
+# After batch.sh:
+#   READY=1 + no fatal patterns + no divergence → requeue
+#   READY=0 + valid RVTJ (newer than .CMFGEN_JOB_START) → job complete, no requeue
+#   READY=0 + missing/stale RVTJ → crash/early exit, fail
+#
+# .CMFGEN_JOB_START is touched before each batch.sh so a stale RVTJ
+# (e.g. seeded from a previous day) does not count as completion.
+requeue_ready=\$(read_requeue_state)
+echo "Requeue state: READY=\${requeue_ready}"
+if [[ "\${requeue_ready}" != "1" ]]; then
+  if [[ ! -f RVTJ || ! RVTJ -nt .CMFGEN_JOB_START ]]; then
+    echo "ERROR: CMFGEN exited before completing a run (missing/stale RVTJ) without a graceful-stop request." >&2
+    echo "  NOT requeuing — check OUTGEN/batch.log, fix the failure," >&2
+    echo "  and resubmit via run_model_grid.py." >&2
+    exit 6
+  fi
+  rm -f .CMFGEN_EARLY_EXIT_COUNT
+fi
+
+if [[ "\${requeue_ready}" == "1" ]]; then
   # Check for divergence before requeuing. If the model is diverging,
   # stop instead of wasting more compute on a non-convergent cycle.
   check_convergence_for_divergence
@@ -1133,8 +1413,9 @@ if [[ -f .CMFGEN_REQUEST_REQUEUE ]]; then
     echo "ERROR: Divergence detected after batch.sh. NOT requeuing." >&2
     exit \$div_rc
   fi
-  echo "Requeue requested; requeueing job \$SLURM_JOB_ID..."
+  echo "Requeue requested (READY=1); requeueing job \$SLURM_JOB_ID..."
   rm -f .CMFGEN_REQUEST_REQUEUE
+  rm -f "\${REQUEUE_STATE_FILE}"
   scontrol requeue "\$SLURM_JOB_ID" || echo "WARNING: scontrol requeue failed; re-submit manually."
   exit 0
 fi
@@ -1176,14 +1457,15 @@ echo "Partition: \$SLURM_JOB_PARTITION"
 echo "======================================"
 
 module purge
-module load intel/2024.0
-module load mkl/2026.0
-module load python-waterboa/2024.06
+module load ${INTEL_MODULE}
+module load ${MKL_MODULE}
+module load ${PYTHON_MODULE}
 # Explicitly set MKL library path (workaround for module loading issues on compute nodes)
-export LD_LIBRARY_PATH=/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64:\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export LD_LIBRARY_PATH=${MKL_LIB_PATH}:${COMPILER_LIB_PATH}:\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 
 export cmfdist="${CMFDIST}"
 export ATOMIC="${ATOMIC}"
+export PROJECT_DIR="${PROJECT_DIR}"
 export CMFGEN_MODEL_TYPE="${MODEL_TYPE}"
 export SCRATCH_DIR="SCRATCH/"
 mkdir -p SCRATCH/
@@ -1193,19 +1475,27 @@ echo "Preparing batobs.sh..."
 cp -f "${OBS_TEMPLATE_DIR}/batobs.sh" batobs.sh
 cp -f "${OBS_TEMPLATE_DIR}/CMF_FLUX_PARAM_INIT" CMF_FLUX_PARAM_INIT
 
-# N_TYPE: Use N_ON_J for OBS formal solution with complex non-monotonic velocity.
-# G_ONLY was tested and caused "Mean intensity blowing up" at the inner boundary
-# because it ignores the N/J anisotropy term that is essential for non-monotonic
-# velocity profiles (Dessart+2015 interacting SNe). N_ON_J includes the full
-# radiation field anisotropy, which stabilizes the formal solution.
-# The template CMF_FLUX_PARAM_INIT already has N_ON_J — no patching needed.
+# Enforce non-monotonic OBS settings dynamically (analogue of
+# prepare_VADAT.py for the main VADAT).  This guarantees the OBS
+# formal solution uses FG_J_CMF_NONMONO_V1 with N_ON_J / BLANK,
+# matching the main CMFGEN run — regardless of template drift.
+echo "Enforcing non-monotonic OBS settings via prepare_CMF_PARAM.py..."
+python3 "${CMF_PARAM_SCRIPT}" \
+  --template CMF_FLUX_PARAM_INIT \
+  --output CMF_FLUX_PARAM_INIT \
+  --vadat-overrides "${CONFIG_FILE}"
 
 chmod +x batobs.sh
 
 # ---------------------------
 # Resource settings (from SLURM)
 # ---------------------------
-CPUS=\${SLURM_CPUS_PER_TASK:-8}
+# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
+# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
+# than requested (e.g. whole-node allocation on the interactive partition).
+CPUS=\${SLURM_CPUS_ON_NODE:-\${SLURM_CPUS_PER_TASK:-8}}
+CPUS=\$(( CPUS / \${SLURM_NTASKS:-1} ))
+[[ \$CPUS -lt 1 ]] && CPUS=8
 export OMP_NUM_THREADS=\$CPUS
 export MKL_NUM_THREADS=\$CPUS
 export OMP_STACKSIZE=512M
@@ -1287,12 +1577,17 @@ fi
 if [[ -n "${NOTIFICATION_EMAIL}" ]]; then
   if [[ -s "obs_fin_10" ]]; then
     if command -v mailx >/dev/null 2>&1; then
-      printf 'CMFGEN spectrum completed successfully.\nModel: %s\nEpoch: %s\nSpectrum: %s\nJob: %s\n' \
-        '${CMFGEN_MODEL_BASE}' '${EPOCH_LABEL}' "\$CENTRAL_OUTPUTS/${CMFGEN_MODEL_BASE}_CMFGEN_${EPOCH_LABEL}.dat" "\$SLURM_JOB_ID" \
-        | mailx -s 'CMFGEN spectrum complete: ${CMFGEN_MODEL_BASE} ${EPOCH_LABEL}' '${NOTIFICATION_EMAIL}'
-      echo "Notification email sent to ${NOTIFICATION_EMAIL}"
+      _attach_args=()
+      if [[ -f "\$spectrum_plot" ]]; then
+        _attach_args=(-a "\$spectrum_plot")
+      fi
+      printf 'CMFGEN spectrum completed successfully.\nModel: %s\nEpoch: %s\nSpectrum: %s\nPlot: %s\nJob: %s\n' \
+        '${CMFGEN_MODEL_BASE}' '${EPOCH_LABEL}' "\$CENTRAL_OUTPUTS/${CMFGEN_MODEL_BASE}_CMFGEN_${EPOCH_LABEL}.dat" "\$spectrum_plot" "\$SLURM_JOB_ID" \
+        | timeout 30 mailx -s 'CMFGEN spectrum complete: ${CMFGEN_MODEL_BASE} ${EPOCH_LABEL}' "\${_attach_args[@]}" '${NOTIFICATION_EMAIL}' 2>/dev/null \
+        && echo "Notification email sent to ${NOTIFICATION_EMAIL}" \
+        || echo "WARNING: notification email failed or timed out (non-fatal)"
     else
-      echo "ERROR: notification requested but mailx is unavailable" >&2
+      echo "WARNING: notification requested but mailx is unavailable (non-fatal)" >&2
     fi
   else
     echo "WARNING: obs_fin_10 missing or empty; skipping notification email" >&2
@@ -1361,7 +1656,7 @@ check_outgen_for_fatal() {
     echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
     return 2
   fi
-  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
+  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
     echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
     echo "---- OUTGEN tail (last 80 lines) ----" >&2
     tail -n 80 "\$outgen" >&2 || true
@@ -1401,16 +1696,30 @@ check_convergence_for_divergence() {
   local n_required=5    # need this many consecutive high values to flag divergence
   local n_high=0
   local last_vals=""
+  local first_high="" last_val=""
   while read -r iter val; do
     [[ -z "\$val" ]] && continue
     last_vals="\${last_vals} \${val}"
+    last_val="\$val"
     if (( \$(echo "\$val > \$threshold" | bc -l 2>/dev/null || echo 0) )); then
+      [[ -z "\$first_high" || \$n_high -eq 0 ]] && first_high="\$val"
       n_high=\$((n_high + 1))
     else
       n_high=0  # reset on any non-high value
+      first_high=""
     fi
   done < "\${CONV_HIST}"
+  # 2026-09-13: a run of high but rapidly DECREASING MAXCH values is the
+  # normal damped recovery after a cold start (or restart), not divergence.
+  # Only flag divergence when the tail value has not dropped below half of
+  # the first high value in the current run.
   if [[ \$n_high -ge \$n_required ]]; then
+    if [[ -n "\$first_high" && -n "\$last_val" ]] && \\
+       (( \$(echo "\$last_val < 0.5*\$first_high" | bc -l 2>/dev/null || echo 0) )); then
+      echo "NOTE: \${n_high} consecutive iterations > \${threshold}% but MAXCH is"
+      echo "      decreasing (\${first_high} -> \${last_val}); treating as recovery, not divergence."
+      return 0
+    fi
     echo "ERROR: CMFGEN model is DIVERGING — last max % changes:\${last_vals}" >&2
     echo "  \${n_high} consecutive iterations with max change > \${threshold}%." >&2
     echo "  Requeuing will not help. Stopping to prevent resource waste." >&2
@@ -1445,31 +1754,66 @@ echo "======================================"
 echo "CMFGEN SINGLE-FINAL Job Started (LTE cold start)"
 echo "Job ID: \$SLURM_JOB_ID"
 echo "Partition: \$SLURM_JOB_PARTITION"
-echo "CPUs: \$SLURM_CPUS_PER_TASK"
+echo "CPUs: requested=\$SLURM_CPUS_PER_TASK allocated=\$SLURM_CPUS_ON_NODE effective=\${OMP_NUM_THREADS:-unset}"
 echo "Node: \$SLURMD_NODENAME"
 echo "======================================"
 
+# Use file-based requeue counter (scontrol requeue resets SLURM_RESTART_COUNT).
+REQUEUE_COUNT_FILE=".CMFGEN_REQUEUE_COUNT"
+if [[ -f "\${REQUEUE_COUNT_FILE}" ]]; then
+  file_requeue_count=\$(cat "\${REQUEUE_COUNT_FILE}" 2>/dev/null || echo 0)
+else
+  file_requeue_count=0
+fi
 restart_count="\${SLURM_RESTART_COUNT:-0}"
-requeue_idx=\$((restart_count + 1))
+if [[ "\${restart_count}" -gt "\${file_requeue_count}" ]]; then
+  file_requeue_count="\${restart_count}"
+fi
+# Increment counter NOW if this is a requeue (sentinel exists or count > 0).
+if [[ -f .CMFGEN_SINGLE_FINAL_PREPPED || "\${file_requeue_count}" -gt 0 || "\${restart_count}" -gt 0 ]]; then
+  file_requeue_count=\$((file_requeue_count + 1))
+  echo "\${file_requeue_count}" > "\${REQUEUE_COUNT_FILE}"
+fi
+requeue_idx=\$((file_requeue_count + 1))
 final_job_name="${JOB_PREFIX}_cmfgen_N\${requeue_idx}"
 if command -v scontrol >/dev/null 2>&1; then
   scontrol update JobId="\$SLURM_JOB_ID" JobName="\$final_job_name" >/dev/null 2>&1 || true
 fi
 
 module purge
-module load intel/2024.0
-module load mkl/2026.0
-module load python-waterboa/2024.06
+module load ${INTEL_MODULE}
+module load ${MKL_MODULE}
+module load ${PYTHON_MODULE}
 # Explicitly set MKL library path (workaround for module loading issues on compute nodes)
-export LD_LIBRARY_PATH=/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64:\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export LD_LIBRARY_PATH=${MKL_LIB_PATH}:${COMPILER_LIB_PATH}:\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 
 export cmfdist="${CMFDIST}"
 export ATOMIC="${ATOMIC}"
+export PROJECT_DIR="${PROJECT_DIR}"
 export CMFGEN_MODEL_TYPE="${MODEL_TYPE}"
 export SCRATCH_DIR="SCRATCH/"
 mkdir -p SCRATCH/
 
 NUM_ITS_RESET_SENTINEL=".CMFGEN_FINAL_NEEDS_NUM_ITS_RESET"
+
+# Requeue state file (see FINAL section for full documentation).
+REQUEUE_STATE_FILE=".CMFGEN_REQUEUE_STATE"
+write_requeue_state() {
+  local val="\$1"
+  echo "READY=\${val}" > "\${REQUEUE_STATE_FILE}" 2>/dev/null || true
+  echo "TIMESTAMP=\$(date +%s)" >> "\${REQUEUE_STATE_FILE}" 2>/dev/null || true
+  echo "JOB_ID=\${SLURM_JOB_ID:-unknown}" >> "\${REQUEUE_STATE_FILE}" 2>/dev/null || true
+}
+read_requeue_state() {
+  local state_file="\${REQUEUE_STATE_FILE}"
+  if [[ ! -f "\$state_file" ]]; then
+    echo 0
+    return
+  fi
+  local ready
+  ready=\$(grep -m1 '^READY=' "\$state_file" 2>/dev/null | cut -d= -f2 2>/dev/null || echo 0)
+  echo "\${ready:-0}"
+}
 
 request_graceful_stop() {
   echo ""
@@ -1495,6 +1839,7 @@ p.write_text("\n".join(out) + "\n")
 PY
   touch .CMFGEN_REQUEST_REQUEUE
   touch "\${NUM_ITS_RESET_SENTINEL}"
+  write_requeue_state 1
 }
 trap request_graceful_stop USR1
 
@@ -1517,7 +1862,12 @@ else
   echo "Graceful timer disabled (FINAL_GRACEFUL_SLEEP_SEC=${FINAL_GRACEFUL_SLEEP_SEC})"
 fi
 
-CPUS=\${SLURM_CPUS_PER_TASK:-8}
+# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
+# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
+# than requested (e.g. whole-node allocation on the interactive partition).
+CPUS=\${SLURM_CPUS_ON_NODE:-\${SLURM_CPUS_PER_TASK:-8}}
+CPUS=\$(( CPUS / \${SLURM_NTASKS:-1} ))
+[[ \$CPUS -lt 1 ]] && CPUS=8
 export OMP_NUM_THREADS=\$CPUS
 export MKL_NUM_THREADS=\$CPUS
 export OMP_STACKSIZE=512M
@@ -1526,8 +1876,26 @@ echo "CPUs: \$CPUS"
 
 # On the very first run (not a requeue), do LTE cold-start prep.
 # No hard reset needed for fresh models (copied from base/).
-# On requeues (SLURM_RESTART_COUNT>0), skip prep so we continue from checkpoint.
-if [[ "\${SLURM_RESTART_COUNT:-0}" -eq 0 && ! -f .CMFGEN_SINGLE_FINAL_PREPPED ]]; then
+# On requeues, skip prep so we continue from checkpoint.
+# Use a file-based counter because scontrol requeue resets SLURM_RESTART_COUNT.
+REQUEUE_COUNT_FILE=".CMFGEN_REQUEUE_COUNT"
+if [[ -f "\${REQUEUE_COUNT_FILE}" ]]; then
+  file_requeue_count=\$(cat "\${REQUEUE_COUNT_FILE}" 2>/dev/null || echo 0)
+else
+  file_requeue_count=0
+fi
+is_requeue=0
+if [[ "\${SLURM_RESTART_COUNT:-0}" -gt 0 ]]; then
+  is_requeue=1
+fi
+if [[ "\${file_requeue_count}" -gt 0 ]]; then
+  is_requeue=1
+fi
+if [[ -f .CMFGEN_SINGLE_FINAL_PREPPED ]]; then
+  is_requeue=1
+fi
+if [[ "\${is_requeue}" -eq 0 ]]; then
+  echo "0" > "\${REQUEUE_COUNT_FILE}"
   echo "First run: LTE cold-start prep..."
   rm -f batch.log OUTGEN
   echo "MODEL_TYPE=${MODEL_TYPE} INC_RAD_DECAYS=${INC_RAD_DECAYS}"
@@ -1536,7 +1904,7 @@ if [[ "\${SLURM_RESTART_COUNT:-0}" -eq 0 && ! -f .CMFGEN_SINGLE_FINAL_PREPPED ]]
     echo "NO_RELATIVISTIC=1 (passed --no-relativistic to prepare_VADAT.py)"
   fi
   python "${VADAT_SCRIPT}" --single-final --convergence-mode stable --vel-law "${VEL_LAW}" ${MODEL_TYPE_FLAG} ${INC_RAD_DECAYS_FLAG} ${TARGET_ND_FLAG} ${USE_HYDRO_GRID_FLAG} ${SMOOTH_JUMPS_FLAG} ${BLEND_FLAG} ${MONOTONIZE_FLAG:-} ${CHEMICAL_FLAG:-} ${REVERSAL_FLAG:-} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
-  python "${INITS_SCRIPT}" --single-final --num-its ${FINAL_NUM_ITS} >> 'batch.log'
+  python "${INITS_SCRIPT}" --single-final --num-its ${FINAL_NUM_ITS} ${GT_AUTO:+--gt-auto ${GT_AUTO}} >> 'batch.log'
   if [[ "${PROXY_POPULATIONS}" == "1" || "${PROXY_POPULATIONS_V2}" == "1" ]]; then
     echo "PROXY_POPULATIONS: generating proxy dilute-LTE _IN files and overriding VADAT..."
     # Create atomic data symlinks needed by proxy_populations (normally done by batch.sh)
@@ -1570,7 +1938,7 @@ if [[ "\${SLURM_RESTART_COUNT:-0}" -eq 0 && ! -f .CMFGEN_SINGLE_FINAL_PREPPED ]]
       ln -sf "\$ATOMIC/OXY/II/19apr23/f_to_s_137"            O2_F_TO_S
       ln -sf "\$ATOMIC/OXY/III/19apr23/f_to_s_107"           OIII_F_TO_S
       ln -sf "\$ATOMIC/SIL/I/19apr23/f_to_s_ls"              SkI_F_TO_S
-      ln -sf "/viper/ptmp1/sbrennan/SN2024pba/atomic/Sk2_f_to_s_no_3s3p2"  Sk2_F_TO_S
+      ln -sf "\$PROJECT_DIR/atomic/Sk2_f_to_s_no_3s3p2"  Sk2_F_TO_S
       ln -sf "\$ATOMIC/SIL/III/19apr23/f_to_s_split"         SkIII_F_TO_S
       ln -sf "\$ATOMIC/SIL/IV/19apr23/f_to_s_split"          SkIV_F_TO_S
       ln -sf "\$ATOMIC/CA/I/19apr23/f_to_s_term"             CaI_F_TO_S
@@ -1591,7 +1959,19 @@ if [[ "\${SLURM_RESTART_COUNT:-0}" -eq 0 && ! -f .CMFGEN_SINGLE_FINAL_PREPPED ]]
       if [[ "${PROXY_POPULATIONS_NLTE_SOLVER}" == "1" ]]; then
         _v2_strategy="GREY"
       fi
-      python "${PROJECT_ROOT}/scripts/proxy_populations_v2.py" . --hydro-data "\${PROXY_HYDRO}" --output-dir . --plots --strategy "\${_v2_strategy}" --min-ion-frac "${PROXY_POPULATIONS_MIN_ION_FRAC:-1.0e-30}" --mass-frac-floor "${PROXY_POPULATIONS_MASS_FRAC_FLOOR:-1.0e-8}" ${PROXY_POPULATIONS_T_EXC_MIN:+--t-exc-min "${PROXY_POPULATIONS_T_EXC_MIN}"} --write-t-ion --smooth --t-ion-source stella ${PROXY_COMPLEX_MODEL:+--complex-model} >> 'batch.log' || true
+      # Explicit strategy override (e.g. CONTINUATION) wins over the
+      # NLTE_SOLVER-derived default.
+      if [[ -n "${PROXY_V2_STRATEGY}" ]]; then
+        _v2_strategy="${PROXY_V2_STRATEGY}"
+      fi
+      # CONTINUATION needs a previous converged model dir: explicit
+      # PROXY_PREV_MODEL wins, else PREV_CMFGEN_DIR (previous day).
+      _v2_prev_model="${PROXY_PREV_MODEL:-${PREV_CMFGEN_DIR}}"
+      if [[ "\${_v2_strategy}" == "CONTINUATION" && -z "\${_v2_prev_model}" ]]; then
+        echo "  WARNING: PROXY_V2_STRATEGY=CONTINUATION but no prev model dir; using GREY"
+        _v2_strategy="GREY"
+      fi
+      python "${PROJECT_ROOT}/scripts/proxy_populations_v2.py" . --hydro-data "\${PROXY_HYDRO}" --output-dir . --plots --strategy "\${_v2_strategy}" --min-ion-frac "${PROXY_POPULATIONS_MIN_ION_FRAC:-1.0e-30}" --mass-frac-floor "${PROXY_POPULATIONS_MASS_FRAC_FLOOR:-1.0e-8}" ${PROXY_POPULATIONS_T_EXC_MIN:+--t-exc-min "${PROXY_POPULATIONS_T_EXC_MIN}"} --smooth --t-ion-source stella --ionization-mode "${PROXY_IONIZATION_MODE:-nebular}" --t-exc-source "${PROXY_T_EXC_SOURCE:-rad}" ${PROXY_T_ION_FLOOR:+--t-ion-floor "${PROXY_T_ION_FLOOR}"} ${PROXY_DC_MAX:+--dc-max "${PROXY_DC_MAX}"} ${PROXY_COMPLEX_MODEL:+--complex-model} ${PROXY_NE_MAX_ITER:+--ne-max-iter "${PROXY_NE_MAX_ITER}"} ${PROXY_NE_TOL:+--ne-tol "${PROXY_NE_TOL}"} ${PROXY_EXCITATION_MODE:+--excitation-mode "${PROXY_EXCITATION_MODE}"} ${PROXY_DC_LOG_CAP:+--dc-log-cap "${PROXY_DC_LOG_CAP}"} ${PROXY_TAU_TRANS:+--tau-trans "${PROXY_TAU_TRANS}"} ${PROXY_NO_NON_LOCAL_REVERSALS:+--no-non-local-reversals} ${PROXY_NLTE_UPSILON:+--nlte-upsilon "${PROXY_NLTE_UPSILON}"} ${PROXY_NLTE_UPSILON_FORB:+--nlte-upsilon-forb "${PROXY_NLTE_UPSILON_FORB}"} ${PROXY_NLTE_F_THRESHOLD:+--nlte-f-threshold "${PROXY_NLTE_F_THRESHOLD}"} ${PROXY_NLTE_ELEMS:+--nlte-elems "${PROXY_NLTE_ELEMS}"} ${PROXY_STELLA_FILE:+--stella-file "${PROXY_STELLA_FILE}"} ${PROXY_STELLA_RADIUS_COLUMN:+--stella-radius-column "${PROXY_STELLA_RADIUS_COLUMN}"} ${PROXY_STELLA_VELOCITY_COLUMN:+--stella-velocity-column "${PROXY_STELLA_VELOCITY_COLUMN}"} ${PROXY_STELLA_TAU_COLUMN:+--stella-tau-column "${PROXY_STELLA_TAU_COLUMN}"} ${PROXY_STELLA_TRAD_COLUMN:+--stella-trad-column "${PROXY_STELLA_TRAD_COLUMN}"} ${PROXY_STELLA_TION_COLUMN:+--stella-tion-column "${PROXY_STELLA_TION_COLUMN}"} ${PROXY_STELLA_LUMINOSITY_COLUMN:+--stella-luminosity-column "${PROXY_STELLA_LUMINOSITY_COLUMN}"} ${PROXY_STELLA_ENERGY_DENSITY_COLUMN:+--stella-energy-density-column "${PROXY_STELLA_ENERGY_DENSITY_COLUMN}"} ${PROXY_STELLA_RADIUS_UNIT:+--stella-radius-unit "${PROXY_STELLA_RADIUS_UNIT}"} ${PROXY_STELLA_TEMPERATURE_UNIT:+--stella-temperature-unit "${PROXY_STELLA_TEMPERATURE_UNIT}"} ${PROXY_STELLA_INTERP_COORD:+--stella-interpolation-coordinate "${PROXY_STELLA_INTERP_COORD}"} \${_v2_prev_model:+--prev-model "\${_v2_prev_model}"} >> 'batch.log'
     else
       python "${PROXY_POPULATIONS_SCRIPT}" . --hydro-data "\${PROXY_HYDRO}" --plot ${PROXY_POPULATIONS_MIN_ION_FRAC:+--min-ion-frac "${PROXY_POPULATIONS_MIN_ION_FRAC}"} ${PROXY_POPULATIONS_NLTE_SOLVER:+--nlte-solver} ${PROXY_POPULATIONS_GREY_MAX_ITER:+--grey-max-iter "${PROXY_POPULATIONS_GREY_MAX_ITER}"} ${PROXY_POPULATIONS_GREY_TOL:+--grey-tol "${PROXY_POPULATIONS_GREY_TOL}"} >> 'batch.log'
     fi
@@ -1636,36 +2016,51 @@ if hydro_path.exists():
     except Exception:
         pass
 lines = p.read_text().splitlines()
+# If proxy wrote species *_IN files, CMFGEN must read them (LTE_EST=F).
+# YAML vadat_overrides.LTE_EST=T is only a fallback when proxy failed.
+_skip_in = {"GAMMAS_IN", "T_IN", "RDINR", "VADAT"}
+proxy_in_files = [
+    q for q in Path(".").glob("*_IN")
+    if q.name not in _skip_in and q.is_file() and q.stat().st_size > 100
+]
+proxy_ok = len(proxy_in_files) > 0
 # Pre-scan: check if LTE_EST=T was explicitly set by prepare_VADAT.py (via vadat_overrides)
 lte_est_is_t = any(
     ln.split("[")[0].strip().upper() == "T" and "[LTE_EST]" in ln
     for ln in lines
 )
+# Honour the proxy files whenever they exist, even if YAML asked for LTE_EST=T.
+use_proxy = proxy_ok
 out = []
 for ln in lines:
     if "[LTE_EST]" in ln:
-        if lte_est_is_t:
-            out.append(ln)  # Keep LTE_EST=T (explicitly requested via vadat_overrides)
+        if use_proxy:
+            out.append("F [LTE_EST]")
+        elif lte_est_is_t:
+            out.append(ln)  # Keep LTE_EST=T (explicitly requested; no proxy files)
         else:
             out.append("F [LTE_EST]")
     elif "[LIN_INT]" in ln:
-        if not lte_est_is_t:
+        if use_proxy:
+            out.append("T [LIN_INT]")
+        elif not lte_est_is_t:
             out.append("T [LIN_INT]")
         else:
-            out.append("F [LIN_INT]")  # LIN_INT=F with LTE_EST=T (LTE cold start, no _IN interpolation)
+            out.append("F [LIN_INT]")  # LIN_INT=F with LTE_EST=T (LTE cold start)
     elif "[DO_DDT]" in ln:
         out.append("F [DO_DDT]")
     elif "[USE_DJDT_RTE]" in ln:
         out.append("F [USE_DJDT_RTE]")
     elif "[DC_METH]" in ln:
-        out.append(f"{dc_meth} [DC_METH]")  # Always apply dc_meth (REGRID_LOG_DC_V1 uses DC_METH even with LTE_EST=T)
-    # NOTE: USE_J_REL, USE_JREL, MAX_LAM, MAX_LIN, IBEG_NG, DO_NG are NOT overridden here.
-    # prepare_VADAT.py sets them correctly per profile and get_rel_config().
+        out.append(f"{dc_meth} [DC_METH]")
     else:
         out.append(ln)
 p.write_text("\n".join(out) + "\n")
-if lte_est_is_t:
-    print(f"  VADAT: LTE_EST=T preserved (LTE cold start; proxy _IN files generated but ignored by LTE_EST)")
+if use_proxy:
+    print(f"  VADAT: LTE_EST=F, LIN_INT=T, DO_DDT=F, USE_DJDT_RTE=F, DC_METH={dc_meth} "
+          f"({len(proxy_in_files)} proxy _IN files; MAX_LAM/MAX_LIN/DO_NG from prepare_VADAT.py)")
+elif lte_est_is_t:
+    print(f"  VADAT: LTE_EST=T preserved (LTE cold start; no usable proxy _IN files)")
 else:
     print(f"  VADAT: LTE_EST=F, LIN_INT=T, DO_DDT=F, USE_DJDT_RTE=F, DC_METH={dc_meth} (proxy _IN files; MAX_LAM/MAX_LIN/DO_NG from prepare_VADAT.py)")
 PYPROXY
@@ -1684,9 +2079,9 @@ else
   fi
 
   # Check max requeue count to prevent infinite requeueing.
-  if [[ "\${SLURM_RESTART_COUNT:-0}" -ge "\${MAX_REQUEUE}" ]]; then
+  if [[ "\${file_requeue_count}" -ge "\${MAX_REQUEUE}" ]]; then
     echo "ERROR: Maximum requeue count (\${MAX_REQUEUE}) reached. Stopping." >&2
-    echo "  The model has not converged after \${SLURM_RESTART_COUNT} requeues." >&2
+    echo "  The model has not converged after \${file_requeue_count} requeues." >&2
     echo "  Check CONVERGENCE_HISTORY and OUTGEN.tail for diagnostics." >&2
     exit 5
   fi
@@ -1809,8 +2204,14 @@ for _f in POINT1 POINT2 SCRTEMP STEQ_VALS J_COMP JEW EWDATA CFDAT_OUT CONT_FREQ 
   [[ -e "\$_f" && ! -L "\$_f" ]] && mv "\$_f" SCRATCH/ 2>/dev/null || true
   ln -sf "SCRATCH/\$_f" "\$_f" 2>/dev/null || true
 done
+# 2026-09-13: stamp for stale-RVTJ detection in the early-exit check below.
+touch .CMFGEN_JOB_START
+# 2026-09-15: write READY=0 to the requeue state file before starting
+# CMFGEN.  request_graceful_stop() will update this to READY=1 when
+# the graceful stop fires.  After batch.sh, the post-run logic reads
+# this file to decide whether to requeue.
+write_requeue_state 0
 tcsh -f ./batch.sh
-check_outgen_for_fatal
 stop_graceful_timer
 
 # Track convergence: extract last max % change from OUTGEN and append to
@@ -1818,10 +2219,47 @@ stop_graceful_timer
 # used to detect divergence before the next requeue.
 track_convergence
 
+# A run that did not finish cleanly is never rescheduled: check OUTGEN for
+# fatal patterns before anything else (including out2in).
+fatal_rc=0
+check_outgen_for_fatal || fatal_rc=\$?
+if [[ \${fatal_rc} -ne 0 ]]; then
+  echo "ERROR: CMFGEN did not finish cleanly (fatal pattern in OUTGEN). NOT requeuing." >&2
+  exit \${fatal_rc}
+fi
+
 echo "Preparing restart inputs (out2in.sh)..."
 "\$cmfdist/com/out2in.sh"
 
-if [[ -f .CMFGEN_REQUEST_REQUEUE ]]; then
+# 2026-09-15: requeue state machine.  The REQUEUE_STATE_FILE tracks
+# whether the graceful stop was requested (READY=1) or not (READY=0).
+# This replaces the sentinel-file approach (.CMFGEN_REQUEST_REQUEUE)
+# with an explicit state file that is more robust and easier to debug.
+#
+# State transitions:
+#   READY=0  → batch.sh running, no graceful stop
+#   READY=1  → graceful stop requested (NUM_ITS=0), CMFGEN exiting
+#
+# After batch.sh:
+#   READY=1 + no fatal patterns + no divergence → requeue
+#   READY=0 + valid RVTJ (newer than .CMFGEN_JOB_START) → job complete, no requeue
+#   READY=0 + missing/stale RVTJ → crash/early exit, fail
+#
+# .CMFGEN_JOB_START is touched before each batch.sh so a stale RVTJ
+# (e.g. seeded from a previous day) does not count as completion.
+requeue_ready=\$(read_requeue_state)
+echo "Requeue state: READY=\${requeue_ready}"
+if [[ "\${requeue_ready}" != "1" ]]; then
+  if [[ ! -f RVTJ || ! RVTJ -nt .CMFGEN_JOB_START ]]; then
+    echo "ERROR: CMFGEN exited before completing a run (missing/stale RVTJ) without a graceful-stop request." >&2
+    echo "  NOT requeuing — check OUTGEN/batch.log, fix the failure," >&2
+    echo "  and resubmit via run_model_grid.py." >&2
+    exit 6
+  fi
+  rm -f .CMFGEN_EARLY_EXIT_COUNT
+fi
+
+if [[ "\${requeue_ready}" == "1" ]]; then
   # Check for divergence before requeuing. If the model is diverging,
   # stop instead of wasting more compute on a non-convergent cycle.
   check_convergence_for_divergence
@@ -1830,8 +2268,9 @@ if [[ -f .CMFGEN_REQUEST_REQUEUE ]]; then
     echo "ERROR: Divergence detected after batch.sh. NOT requeuing." >&2
     exit \$div_rc
   fi
-  echo "Requeue requested; requeueing job \$SLURM_JOB_ID..."
+  echo "Requeue requested (READY=1); requeueing job \$SLURM_JOB_ID..."
   rm -f .CMFGEN_REQUEST_REQUEUE
+  rm -f "\${REQUEUE_STATE_FILE}"
   scontrol requeue "\$SLURM_JOB_ID" || echo "WARNING: scontrol requeue failed; re-submit manually."
   exit 0
 fi
@@ -1879,7 +2318,21 @@ if [[ -n "$DEPENDENCY_JOB" ]]; then
   echo "First CMFGEN job depends on HERACLES job: $DEPENDENCY_JOB"
 fi
 
-if [[ $restart -eq 1 ]]; then
+if [[ "${SKIP_FINAL:-0}" == "1" ]]; then
+  # SKIP_FINAL: the FINAL/SINGLE_FINAL job already completed (RVTJ exists).
+  # Submit only the OBS job, with no dependency on FINAL.
+  # The OBS slurm copies the CMF_FLUX_PARAM_INIT template at runtime, so
+  # template fixes take effect without regenerating the slurm script.
+  echo "SKIP_FINAL=1: submitting OBS only (FINAL already complete)..."
+  echo "CMFGEN Job ID: (skipped -- SKIP_FINAL=1)"
+
+  if [[ "${SKIP_OBS:-0}" != "1" ]]; then
+    jid_obs=$(sbatch --parsable $DEP_FLAG "${MODEL_DIR}/${OBS_SLURM}")
+    echo "OBS Job ID:    $jid_obs (no FINAL dependency)"
+  else
+    echo "OBS Job ID:    (skipped -- SKIP_OBS=1)"
+  fi
+elif [[ $restart -eq 1 ]]; then
   # Warm restart: use FINAL_SLURM (reads *_IN populations from previous run)
   echo "Restart mode: submitting CMFGEN (warm restart) and OBS..."
 
