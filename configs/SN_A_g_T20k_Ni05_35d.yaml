@@ -5,17 +5,19 @@
 # archive/old_sn_a_models/SN_A/SN_A_g_T20k_Ni05/stella/SN_A_g_T20k_Ni05.swd
 # (runs to ~62 d, so the 35 d snapshot is inside the range).
 #
-# Standard solver (no non-mono block): the SN_A ejecta is homologous and
-# monotonic, so the standard Sobolev/moment path applies. VEL_LAW=11 +
-# RDINR still reads V directly from SN_HYDRO_DATA.
+# Solver settings identical to the running TypeIIn_10d_DEV7_KNOP2 model
+# (user request): dev7 Knop non-monotonic solver (DO_NONMONO_KNOP,
+# FG_J_CMF_NONMONO_V1) + GLOBAL_LINE=BLANK, same VADAT overrides
+# (ZERO_FLUX inner BC, FIX_T, FIX_NE, FIX_BA=1/N_FIX_BA=10), so the two
+# spectra are directly comparable. The SN_A ejecta is monotonic
+# (min sigma -0.78) — the Knop solver handles arbitrary V fields.
 #
 # skip_stella: reuses the archived .swd; only the SN_HYDRO_DATA
 # conversion at snapshot_days=35.0 runs, then CMFGEN + OBS.
 #
-# TypeIIn-specific overrides removed vs the DEV7_STD template:
-#   - DIF/IB_METH: let prepare_VADAT.py auto-detect the inner boundary
-#     (SN_A inner ejecta is dense; DIFFUSION is expected if tau>=50).
-#   - FIX_NE: was a TypeIIn divergence experiment; let SE solve Ne.
+# The only TypeIIn keys not carried over are the conversion velocity
+# window (300-20000 km/s here vs 2500-10000 for TypeIIn — that window
+# would truncate the SN_A ejecta wing at 13716 km/s) and the swd path.
 
 model_name: SN_A_g_T20k_Ni05
 description: 'SN_A best fit (SN_A_g_T20k_Ni05, rms 0.244): CMFGEN spectrum
@@ -112,7 +114,7 @@ cmfgen_conversion:
 cmfgen:
   base_dir: ./cmfgen_base
   model_type: static_snapshot
-  init_num_its: 1000
+  init_num_its: 200
   single_final: true
   cpus_per_task: 4
   target_nd: 150
@@ -124,12 +126,17 @@ cmfgen:
   # V directly from SN_HYDRO_DATA.
   vel_law: 11
   depth_independent_solver: true
-  # Standard solver: no non_mono_mode (SN_A ejecta is monotonic).
+  # Dev7 Knop et al. (2009) non-monotonic formal solver
+  # (FG_J_CMF_NONMONO_V1) + GLOBAL_LINE=BLANK — same solver as the
+  # running TypeIIn_KNOP2 model for a directly comparable spectrum.
+  non_mono_mode: KNOP
   do_gt_auto: false
   proxy_populations: true
   vadat_overrides:
     LSTAR: 0.0D0
     VTURB: 20.0D0
+    DIF: F
+    IB_METH: ZERO_FLUX
     STOP_IF_BP: F
     # T structure comes from the hydro (incl. Ni56 heating) — hold fixed.
     FIX_T: T
@@ -138,13 +145,21 @@ cmfgen:
     # Start in Lambda mode, auto-switch to BA at MAXCH<50%.
     DO_LAM_IT: T
     DO_LAM_AUTO: T
+    # Explicit KNOP activation (both spellings).
+    DO_NOMONO_KNOP: T
+    DO_NONMONO_KNOP: T
     # VEL_LAW=11 + RD_IN_R_GRID=T: MODEL_SPEC ND must equal the RDINR
     # point count, so no boundary insertions are allowed.
     N_OB_INS: 0
     N_IB_INS: 0
     REV_RGRID: F
+    FIX_NE: T
     FIX_BA: 1.0D0
     N_FIX_BA: 10
+  # Same diagnostics as the TypeIIn_KNOP2 run.
+  cmf_flux_param_overrides:
+    WR_dFR: T
+    WR_IP: T
   mem: 31G
   init_mem: 31G
   n_ob_ins: 0
