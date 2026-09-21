@@ -257,7 +257,10 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FI
   # plots from convert_stella_swd_to_cmfgen.py — structure_overview.png, mass_fractions.png)
   # Also keep EDDFACTOR + EDDFACTOR_INFO when present (for USE_FIXED_J initialization)
   # Also keep GREY_SCL_FAC_IN (T/Tgrey scaling from STELLA conversion, aids initial convergence)
-  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat RVTJ OUTGEN MODEL CUR_MODEL_DATA SPECIES_MASSES OBSFLUX"
+  # Also keep the restart/checkpoint set that run_model_grid.py preserves on
+  # resubmission (RVTJ/POP*/POINT*/FGINEXT_GS/SCRATCH warm-start state) so this
+  # cleanup does not undo the orchestrator's restore.
+  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat RVTJ OUTGEN MODEL CUR_MODEL_DATA SPECIES_MASSES OBSFLUX SN_HYDRO_FOR_NEXT_MODEL RS_XRAY_FLUXES POINT1 POINT2 FGINEXT_GS MOMJNXT_GS GAMMAS JH_AT_CURRENT_TIME JH_AT_CURRENT_TIME_INFO SCRATCH"
   
   cd "${MODEL_DIR}"
   
@@ -265,6 +268,8 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FI
   for item in *; do
     keep=0
     [[ "$item" == conversion_attempt_* ]] && keep=1
+    [[ "$item" == POP* ]] && keep=1
+    [[ "$item" == *_IN || "$item" == *_OUT ]] && keep=1
     for keep_pattern in $FILES_TO_KEEP; do
       if [[ "$item" == "$keep_pattern" ]] || [[ "$item" == "$keep_pattern".* ]]; then
         keep=1
