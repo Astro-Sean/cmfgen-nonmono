@@ -613,7 +613,9 @@ class IonSelector:
 #
 SPECIES_CLASSIFICATION: Dict[str, str] = {
     # DIAGNOSTIC: produce observed spectral lines, need detailed NLTE
-    "HI": "DIAGNOSTIC", "HeI": "DIAGNOSTIC", "He2": "DIAGNOSTIC",
+    # He2 (He II) EXCLUDED — requires ~1e14x correction from LTE in cool
+    # diluted ejecta, driving convergence instability.
+    "HI": "DIAGNOSTIC", "HeI": "DIAGNOSTIC",
     "OI": "DIAGNOSTIC", "Sk2": "DIAGNOSTIC", "Ca2": "DIAGNOSTIC",
     "Fe2": "DIAGNOSTIC", "FeIII": "DIAGNOSTIC",
     "SkI": "DIAGNOSTIC", "FeI": "DIAGNOSTIC",
@@ -627,7 +629,7 @@ SPECIES_CLASSIFICATION: Dict[str, str] = {
 
 # NIST label -> CMFGEN label mapping (for IonSelector output)
 NIST_TO_CMFGEN: Dict[str, str] = {
-    "HI": "HI", "HeI": "HeI", "HeII": "He2",
+    "HI": "HI", "HeI": "HeI",
     "OI": "OI", "OII": "O2", "OIII": "OIII",
     "SiI": "SkI", "SiII": "Sk2", "SiIII": "SkIII", "SiIV": "SkIV",
     "CaI": "CaI", "CaII": "Ca2", "CaIII": "CaIII",
@@ -642,7 +644,6 @@ NIST_TO_CMFGEN: Dict[str, str] = {
 SEARCH_RANGES: Dict[str, Tuple[int, int, int, int, int, int]] = {
     "HI":     (8,  15, 10, 15, 12, 20),
     "HeI":    (5,  10,  5, 15, 10, 30),
-    "He2":    (5,  10,  5, 15, 10, 20),
     "OI":     (8,  15, 10, 20, 20, 50),
     "O2":     (3,  10,  5, 15,  5, 20),
     "OIII":   (1,   5,  1, 10,  1, 10),
@@ -677,6 +678,38 @@ class LevelSelector:
         self.pop_threshold = pop_threshold
         self.conv_threshold = conv_threshold
 
+    def _batch_sh_link_targets(self) -> Dict[str, Path]:
+        """Parse 'ln -sf TARGET NAME_SUFFIX' lines from the run-dir batch.sh.
+
+        The optimiser runs before the atomic-data symlinks are created,
+        so batch.sh is the authoritative record of which data-file
+        variant the run will link (e.g. FeIII -> f_to_s_105, not the
+        largest f_to_s file in the archive).  Validating NS/NF against
+        the wrong variant produces ISF values that abort
+        RD_F_TO_S_IDS_V4 at run time.
+        """
+        if getattr(self, "_link_targets", None) is not None:
+            return self._link_targets
+        targets: Dict[str, Path] = {}
+        batch = self.cmfgen_dir / "batch.sh" if self.cmfgen_dir else None
+        if batch is not None and batch.exists():
+            project = self.cmfgen_dir.resolve().parents[2]
+            for line in batch.read_text(errors="replace").splitlines():
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                m = re.match(r"ln\s+-sf\s+(\S+)\s+(\S+)", s)
+                if not m:
+                    continue
+                tgt = (
+                    m.group(1)
+                    .replace("$ATOMIC", str(self.atomic_dir))
+                    .replace("$PROJECT_DIR", str(project))
+                )
+                targets[m.group(2)] = Path(tgt)
+        self._link_targets = targets
+        return targets
+
     def _resolve_f_to_s(self, species: str) -> Optional[Path]:
         """Mirror the logic of the original optimize_model_spec.py."""
         # Convert to CMFGEN name for symlink lookup
@@ -689,6 +722,11 @@ class LevelSelector:
                     target = link.resolve()
                     if target.is_file():
                         return target
+        # batch.sh declares the link targets before the symlinks exist
+        for name in (cmfgen_name, species):
+            target = self._batch_sh_link_targets().get(f"{name}_F_TO_S")
+            if target is not None and target.is_file():
+                return target
 
         # Parse element/ion from CMFGEN species name (e.g. Fe2, FeIII)
         m = re.match(r"([A-Z][a-z]?)([I]+|2|III|IV|V|VI)", species)
@@ -731,6 +769,11 @@ class LevelSelector:
                     target = link.resolve()
                     if target.is_file():
                         return target
+        # batch.sh declares the link targets before the symlinks exist
+        for name in (cmfgen_name, species):
+            target = self._batch_sh_link_targets().get(f"{name}_F_OSCDAT")
+            if target is not None and target.is_file():
+                return target
         # Try atomic dir via SPECIES_INFO
         m = re.match(r"([A-Z][a-z]?)([I]+|2|III|IV|V|VI)", species)
         if not m:

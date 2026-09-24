@@ -20,6 +20,12 @@
 ! physically seeded He2_IN instead.  AUTO_ADD_ION_STAGES (VADAT
 ! [AUTO_ADD]) remains as a safety net for any missing XzV_IN.
 !
+! 24-Oct-2026 F_TO_S corrections: NS must equal MAXVAL(F_TO_S[1:NF])
+! for the variant batch.sh actually links (RD_F_TO_S_IDS_V4 aborts
+! otherwise).  Sk2 is 1:1 because the linked no_3s3p2 file dumps
+! levels >=3 into SL 80; Ca2/FeIII/FeIV NS corrected to the linked
+! f_to_s_sm / f_to_s_105 / f_to_s_110 tables.
+!
 8,15,15       [HI_ISF]          ! H I
 7,15,15       [HeI_ISF]         ! He I
 10,10,10      [He2_ISF]         ! He II (1:1, he2_f_to_s_10)
@@ -27,14 +33,14 @@
 4,5,10        [O2_ISF]          ! O II
 4,6,10        [OIII_ISF]        ! O III
 15,20,38      [SkI_ISF]         ! Si I
-15,20,40      [Sk2_ISF]         ! Si II
+15,40,40      [Sk2_ISF]         ! Si II (1:1; linked no_3s3p2 F_TO_S dumps levels to SL80)
 4,6,10        [SkIII_ISF]       ! Si III
 4,6,10        [SkIV_ISF]        ! Si IV
 1,1,1         [CaI_ISF]         ! Ca I
-14,20,28      [Ca2_ISF]         ! Ca II
+14,17,28      [Ca2_ISF]         ! Ca II (NS=17 required by f_to_s_sm at NF=28)
 4,5,10        [CaIII_ISF]       ! Ca III
 15,25,87      [FeI_ISF]         ! Fe I
 20,30,113     [Fe2_ISF]         ! Fe II
-10,20,45      [FeIII_ISF]       ! Fe III
-4,2,10        [FeIV_ISF]        ! Fe IV
+10,15,45      [FeIII_ISF]       ! Fe III (NS=15 required by f_to_s_105 at NF=45)
+4,3,10        [FeIV_ISF]        ! Fe IV (NS=3 required by f_to_s_110 at NF=10)
 3,1,5         [FeV_ISF]         ! Fe V
