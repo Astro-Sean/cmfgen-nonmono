@@ -867,16 +867,23 @@ undefined for $\sigma < -1$).
 
 \subsection{Bypassing the moment equations}
 
-Because the moment equations are unstable for $\sigma < -1$, the
-non-monotonic solver must \emph{bypass} them.  This is controlled by the
+Because the standard moment equations are unstable for $\sigma < -1$, the
+non-monotonic solver offers two radiation-field paths, controlled by the
 VADAT flag \texttt{USE\_LAM\_ES}:
 
 \begin{itemize}[nosep]
-  \item \texttt{USE\_LAM\_ES = F}: solve the moment equations
-        (standard path, unstable for $\sigma < -1$).
+  \item \texttt{USE\_LAM\_ES = F}: in the dev7 tree
+        (\texttt{DO\_NONMONO\_KNOP=T}) this dispatches to the dedicated
+        non-monotonic moment solver \texttt{MOM\_J\_CMF\_NONMONO\_V1}
+        (signed coupling, frequency-coupled \texttt{J\_NEXT\_FRQ},
+        negative-$J$ quarantine via \texttt{MOM\_RF\_KEEPNEG}, and a
+        sweep-drift maturity gate that only permits BA once the stored
+        field is stable).  Without the dev7 modifications the standard
+        moment solve is unstable for $\sigma < -1$.
   \item \texttt{USE\_LAM\_ES = T}: use the ray-based $J$ directly, and
         compute Eddington factors from the ray moments via
-        \texttt{GET\_MOMS\_NON\_REL} (the non-monotonic path).
+        \texttt{GET\_MOMS\_NON\_REL} (the formal Knop path, recommended
+        and required for the OBS module).
 \end{itemize}
 
 The Eddington factors ($K/J$, $N/J$) computed from the ray moments are

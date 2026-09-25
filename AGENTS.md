@@ -1,27 +1,201 @@
-````markdown
 # AGENTS.md — SN2024pba Two-Event Supernova Modelling Pipeline
 
 ## 1. Purpose
 
-This repository models a two-event interacting-supernova scenario:
+This repository is a **scientific modelling project**, not a job-running project.
 
-- **SN_A**: an earlier Type IIb explosion producing metal-rich ejecta.
-- **SN_B**: a later explosion/shell interaction with the older SN_A ejecta.
+It tests a two-event interacting-supernova scenario for SN 2024pba:
 
-The scientific objective is to determine whether heating and ionisation of the metal-rich SN_A ejecta by the SN_B interaction can reproduce the observed spectrum, particularly strong absorption associated with:
+- **SN_A**: an earlier Type IIb explosion that produced metal-rich ejecta.
+- **SN_B**: a later explosion / shell interaction that collides with the older SN_A ejecta.
 
-- H
-- He
-- O
-- Si
-- Ca
-- Fe
+The scientific question is:
 
-The repository contains a coupled STELLA → CMFGEN → SEDONA/SuperLite modelling workflow.
+> Can heating and ionisation of the metal-rich SN_A ejecta by the SN_B
+> interaction reproduce the observed SN 2024pba spectrum, especially
+> the strong absorption associated with H, He, O, Si, Ca and Fe?
 
-This document is the authoritative guidance for AI agents working on the repository.
+A model answers that question only if those features can be **physically
+attributed**: which ion, which transition, which radius, which velocity,
+and which ejecta component (SN_A metal-rich material vs SN_B / CSM).
 
-Historical notes, old prompts, copied code comments and previous `AGENTS.md` files are **not authoritative** if they conflict with the current source code, configuration, input files or reproducible tests.
+The repository contains a coupled STELLA → CMFGEN → SEDONA/SuperLite
+modelling workflow. Those codes are tools for the question above.
+Getting CMFGEN to finish, producing a plot, or lowering MAXCH is not
+the scientific objective.
+
+This document is the authoritative guidance for AI agents working on
+the repository.
+
+Historical notes, old prompts, copied code comments, chat summaries and
+previous `AGENTS.md` files are **not authoritative** if they conflict
+with the current source code, configuration, input files or reproducible
+tests.
+
+### 1.1 What success looks like
+
+A scientifically useful model must do all of the following:
+
+1. Start from a hydrodynamical structure whose provenance, time, units
+   and conservation properties are known (STELLA `.swd` → `SN_HYDRO_DATA`).
+2. Preserve the interaction physics that the spectrum depends on:
+   shocks, velocity reversals, composition interfaces, and the
+   distinction between gas temperature and radiation temperature.
+3. Use an atomic model in which H, He, O, Si, Ca and Fe are present
+   for physical reasons, not because they were convenient to converge.
+4. Produce a numerically stable spectrum whose important absorption
+   and emission features are identified with ion, transition, formation
+   depth and velocity.
+5. Test, where possible, whether those features arise from heated SN_A
+   ejecta rather than from the SN_B shell/CSM alone.
+6. Record enough provenance that another person can repeat the run from
+   the YAML config through `scripts/run_model_grid.py`.
+
+A spectrum file, a SLURM `COMPLETED` state, or a falling MAXCH history
+is **not** success.
+
+### 1.2 What this project is not
+
+Do not treat the following as the goal:
+
+- forcing CMFGEN (or SuperLite) to converge at any physical cost;
+- deleting ions, levels or species because they are numerically awkward;
+- silently monotonising a shocked or reversing velocity field;
+- replacing missing flux, temperature or populations with a floor so
+  that the code continues;
+- matching the observed spectrum by eye without line attribution;
+- assuming that STELLA continuum opacity, SuperLite LTE, and CMFGEN NLTE
+  are interchangeable answers to the same question;
+- using a nebular / geometrically diluted ionisation approximation in
+  an optically thin, shock-heated interaction where T_gas and T_rad
+  differ;
+- presenting a numerical warning, or the absence of one, as a scientific
+  result.
+
+Numerical methods (Lambda iteration, DIAG BA, JFNK, Ng acceleration,
+grid AMR, proxy populations) exist to **solve the physical equations
+faithfully**. They are not the science.
+
+### 1.3 Roles of the codes
+
+Keep the codes in their physical roles:
+
+| Code | Role | It does not |
+|------|------|-------------|
+| STELLA | Radiation-hydrodynamics: density, velocity, T_gas, T_rad, composition, shocks vs time | Compute an NLTE line spectrum |
+| CMFGEN | NLTE statistical equilibrium and radiative transfer on a snapshot; line formation | Invent hydrodynamics or erase non-monotonic flow |
+| SuperLite / SEDONA | Independent spectral / Monte Carlo cross-check | Replace CMFGEN line attribution |
+
+YAML is **intent**. The files CMFGEN actually ran (`VADAT`, `IN_ITS`,
+`SN_HYDRO_DATA`, `MODEL_SPEC`, `OUTGEN`) are **fact**. Report fact.
+
+### 1.4 Good scientific practice — always
+
+These rules apply to every task: diagnosis, code changes, config
+changes, plots, and written conclusions. They are not optional and
+they are not waived because a job is running, a deadline is close, or
+a change “only affects numerics”.
+
+**Physics before numerics.** If a model is unstable, identify whether
+the cause is physical, atomic, grid, initial-population, numerical or
+input-format (see §27). Do not start by increasing iteration counts,
+fixing populations, or removing ions.
+
+**Evidence, not plausibility.** Classify every technical claim as
+`VERIFIED`, `SUPPORTED`, `UNVERIFIED`, `CONTRADICTED` or `BLOCKED`
+(§5). A result that “looks reasonable” remains `UNVERIFIED`. Never
+upgrade it to `VERIFIED` without source, a test, a run, or inspection
+of generated files.
+
+**Trace the executed path.** Read the code that ran and the files that
+were written. Do not infer behaviour from a filename, a YAML comment,
+a previous chat, or a default you expect CMFGEN to have used. Confirm
+`VEL_LAW`, `DO_LAM_IT`, `USE_JFNK`, `LTE_EST` and similar keys from
+`OUTGEN` / `VADAT`, not from the YAML alone.
+
+**Diagnose before editing.** Inspect structure, abundances, T_gas,
+T_rad, optical depth, SIGMA, populations and the actual warning. A
+diagnostic that says “NaN/negative” may be a 1e-30 floor on an EUV
+Wien tail; a “successful” spectrum may have no physically identified
+lines. Interpret the quantity, not the English.
+
+**Do not silently change the physical model.** No global velocity
+monotonisation, no generic flux epsilon, no abundance renormalisation
+that hides missing mass, no temperature floor that masquerades as
+shock heating. Any numerical floor must be local, documented, tested
+and physically justified.
+
+**Conservation and units are science.** Check mass, elemental mass,
+kinetic energy, abundance normalisation, radius/velocity orientation
+and time definitions (`t_A` vs `t_B_SBO` vs snapshot age). A unit
+error is a wrong model, not a plotting issue.
+
+**Initial populations are guesses.** LTE, nebular (Mazzali & Lucy),
+dilute-LTE and proxy `*_IN` files are starting estimates. CMFGEN’s
+converged populations are the solution. Do not treat the guess as the
+ionisation structure of SN 2024pba.
+
+**Line identification is required.** A trough near an observed
+wavelength is not an ID. Report species, ion, transition, formation
+radius, velocity, temperature, density, abundance and optical depth
+for the important H, He, O, Si, Ca and Fe features (§30–§31).
+
+**Attribute the ejecta component.** Where possible, compare SN_A only,
+SN_B / CSM only, and the interaction, and perform species-ablation
+tests. The hypothesis is specifically that **heated SN_A metal-rich
+ejecta** produce the observed absorption.
+
+**Reproduce through the orchestrator.** Production, debug, restart and
+re-run jobs go through `scripts/run_model_grid.py` (§2). A result
+obtained by a raw `sbatch` is not a pipeline product.
+
+**Test, then dry-run, then a controlled model.** Do not jump from an
+edit to a production submission (§37–§38). After a Fortran change,
+rebuild the executable that the YAML `install_dir` actually points to.
+
+**Minimal, reversible source changes.** Prefer input preparation,
+YAML, `MODEL_SPEC` and diagnostics over editing CMFGEN/STELLA/SuperLite
+source. Source patches must be reviewable and must not alter monotonic
+`VEL_LAW≠12` behaviour without cause (§43).
+
+**Report limitations honestly.** Every major task ends with exactly one
+of `PASS`, `PASS WITH LIMITATIONS`, `FAIL` or `BLOCKED` (§49). If the
+spectrum is unattributed, the velocity path unverified, or JFNK
+untested at runtime, say so.
+
+**Leave the repository scientifically usable.** Do not overwrite raw
+models, mix stale binaries with new source, pollute `cmfgen_source/`
+with run products, or leave two conflicting “current” configs.
+
+### 1.5 Observational comparison
+
+Compare models to SN 2024pba data in `observational_data/` at the
+correct epoch, in consistent flux/luminosity units, and with the same
+redshift/velocity convention the observations use.
+
+**SN_A fit window.** When judging the best-fitting SN_A lightcurve
+model, only photometry with **MJD < 60544** counts. Later data belong
+to the second-event / SN_B epoch and must not be held against an
+SN_A-only model. The scoring tools encode this cut
+(`FIT_MAX_MJD` in `scripts/plot_sn_a_pba_grid_vs_obs.py`).
+
+**Current best SN_A fit (2026-10 rescore).** Scoring every usable
+`.tt`/lightcurve under `SN_A_grid/` gives `SN_A_g_T20k_Ni075` at rms
+0.19 on the SDSS (`tt_sdss`) photometric system, and `SN_A_g_T20k_Ni05`
+(`archive/old_sn_a_models/SN_A/SN_A_g_T20k_Ni05/`, E=9, Ni56=0.05,
+M_ext=0.05, R_ext=200, T_base=20kK) at rms 0.24 on the proxy `.tt`
+system. The two systems carry a ~0.3 mag systematic offset, so compare
+like with like. `SN_A_X_E07Ni05_R400M20` scores 0.60 (tt_sdss) in the
+current scoring; it remains the ejecta source for the `_onR400M20`
+SN_B runs.
+
+Do not:
+
+- shift the model in wavelength until it “looks right” without reporting
+  the shift;
+- scale the continuum arbitrarily and then claim a line-strength match;
+- compare a 40 d post-SBO snapshot to a spectrum from a different
+  reference time without stating both clocks.
 
 ---
 
@@ -33,7 +207,7 @@ Historical notes, old prompts, copied code comments and previous `AGENTS.md` fil
 
 ```text
 scripts/run_model_grid.py
-````
+```
 
 Agents must not normally submit individual STELLA, CMFGEN or SuperLite jobs directly.
 
@@ -54,12 +228,41 @@ stella_job_template.slurm
 
 unless performing a specifically documented diagnostic test.
 
-The orchestrator is responsible for:
+### 2.1.1 Strict enforcement
 
-1. resolving the YAML configuration;
-2. determining which codes should run;
-3. determining which existing outputs can be reused;
-4. preparing model directories;
+This rule is **absolute** and applies to every submission, including:
+
+- production runs;
+- debug runs;
+- single-epoch runs;
+- restart runs;
+- interactive-partition runs;
+- tests of newly rebuilt executables;
+- re-runs after source-code fixes;
+- re-runs after configuration changes;
+- re-runs of failed models;
+- re-runs with a different grid size, temperature floor, partition, or CPU count.
+
+There is **no** scenario in which an agent may submit a CMFGEN, STELLA, SuperLite or SEDONA job with a raw `sbatch` call and treat the result as a valid pipeline product.
+
+If `run_model_grid.py` fails to submit, the correct response is to **fix the orchestrator or the YAML config**, not to bypass it.
+
+If a raw `sbatch` is used as a one-off diagnostic (e.g. to test whether a script is syntactically valid SLURM), the resulting job must be clearly labelled as a diagnostic, must not be treated as a model output, and must be cancelled once the diagnostic is complete.
+
+### 2.1.2 How to submit a model
+
+The canonical invocation is:
+
+```bash
+python scripts/run_model_grid.py <path/to/config.yaml> [--epochs <day> ...]
+```
+
+The orchestrator:
+
+1. resolves the YAML configuration;
+2. determines which codes should run;
+3. determines which existing outputs can be reused;
+4. prepares model directories;
 5. converting input data;
 6. generating CMFGEN inputs;
 7. constructing `MODEL_SPEC`;
@@ -133,6 +336,76 @@ must:
 7. submit the CMFGEN job.
 
 An existing model must never be assumed to be compatible merely because its filename exists.
+
+## 2.3 Hardcoded partition time / graceful-stop rules
+
+SLURM time limits and graceful-stop timing are **hardcoded per partition** and must **not** be overridden by YAML config, CLI flags, or environment variables.
+
+| Partition | Time limit | Graceful stop | USR1 signal before wall |
+|-----------|------------|---------------|-------------------------|
+| `interactive` | `01:59:00` | `5400s` (1 h 30 m) | `1740s` (29 m) |
+| any other (e.g. `general`, `small`) | `23:59:00` | `79200s` (22 h) | `7140s` (119 m) |
+
+These values are enforced in:
+
+- `scripts/run_model_grid.py` — `get_time_limit()` and `get_graceful_stop_sec()`
+- `cmfgen_base/submit_cmfgen.sh` — graceful stop calculation block
+- `scripts/submit_cmfgen_jobs.sh` — default `TIME` positional arg
+
+The `graceful_stop_sec` key in YAML `cmfgen:` config and the `GRACEFUL_STOP_SEC` environment variable are **ignored**.
+
+The graceful stop fires an in-job `sleep` timer that sets `NUM_ITS=0` in `IN_ITS`, causing CMFGEN to exit cleanly after the current iteration. The `--requeue` SLURM flag then requeues the job so it continues from the checkpoint.
+
+**Requeue is conditional on a clean finish.** A FINAL/SINGLE_FINAL job is rescheduled *only* when the graceful-stop handler set the requeue state file `.CMFGEN_REQUEUE_STATE` to `READY=1` (NUM_ITS=0) *and* `check_outgen_for_fatal` found no fatal pattern in `OUTGEN`. Any other early exit — a crash, a Fortran `STOP`, the `MAX_CHNG_LIM` guard, or simply a missing/stale `RVTJ` — fails the job with a non-zero exit instead of rescheduling, so a deterministic failure cannot loop on requeue. (Policy revised 2026-09-13; previously any missing-RVTJ exit was requeued up to 10 times. State file introduced 2026-09-15; replaces the `.CMFGEN_REQUEST_REQUEUE` sentinel with an explicit `READY=0`/`READY=1` state machine.)
+
+The requeue state machine works as follows:
+
+1. **Before `batch.sh`:** `write_requeue_state 0` writes `READY=0` to `.CMFGEN_REQUEUE_STATE`. This indicates CMFGEN is running and no graceful stop has been requested.
+2. **On graceful stop (USR1 signal or sleep timer):** `request_graceful_stop()` sets `NUM_ITS=0` in `IN_ITS` and calls `write_requeue_state 1`, updating the state file to `READY=1`.
+3. **After `batch.sh`:** The post-run logic reads `.CMFGEN_REQUEUE_STATE`:
+   - `READY=1` + no fatal patterns in OUTGEN + no divergence → `scontrol requeue`
+   - `READY=0` + valid RVTJ (newer than `.CMFGEN_JOB_START`) → job complete, no requeue
+   - `READY=0` + missing/stale RVTJ → crash/early exit, fail with exit code 6
+4. **On requeue:** The state file is deleted before `scontrol requeue`, so the next requeue cycle starts fresh.
+
+The state file also records `TIMESTAMP` and `JOB_ID` for debugging. It is cleaned up on full resubmission (not requeue) via the cleanup block in `submit_cmfgen.sh`.
+
+### 2.3.1 `submission:` key (partition selection)
+
+The top-level YAML `submission:` key selects the partition (and thus the
+hardcoded time limit / graceful stop) for the **whole model**:
+
+| `submission:` | Partition | Time limit | Graceful stop |
+|--------------|-----------|------------|---------------|
+| `normal` | `small` | `23:59:00` | `79200s` (22 h) |
+| `debug` | `interactive` | `01:59:00` | `5400s` (1 h 30 m) |
+
+`submission` takes precedence over the legacy `debug:` boolean and over
+per-section `partition:` / `time:` keys. When `submission` is set, the
+per-section `partition:` / `time:` / `init_partition:` / `init_time:` keys
+are stripped from the in-memory config (see `resolve_submission()` in
+`scripts/run_model_grid.py`). When `submission` is absent, the legacy
+behaviour (`debug:` + per-section `partition:`) is preserved.
+
+CMFGEN requeue behaviour (`final_requeue_when: wall`, `final_requeue_max`)
+applies in **both** modes; debug only disables requeue when
+`final_requeue_when=never` or `final_requeue_max=0`.
+
+### 2.3.2 STELLA concurrency cap (`MAX_RUNNING_STELLA`)
+
+When a single `run_model_grid.py` invocation submits multiple configs,
+at most `MAX_RUNNING_STELLA` (= 2, defined in `scripts/run_model_grid.py`)
+STELLA hydro jobs may run concurrently. The STELLA job of config *i* is
+submitted with an `afterany` dependency on the STELLA job of config
+*i* − `MAX_RUNNING_STELLA` (round-robin lanes).
+
+- `afterany` (not `afterok`) is deliberate: one failed grid point must not
+  block the rest of the chain.
+- Only actually-submitted STELLA jobs consume a lane — configs with
+  `skip_stella`/`reuse_stella` or complete existing output do not.
+- An explicit `--stella-dependency` applies to the first
+  `MAX_RUNNING_STELLA` lane heads; later jobs are chained automatically.
+
 
 ---
 
@@ -238,7 +511,9 @@ SN2024pba/
 ├── observational_data/
 ├── presn_models/
 ├── homo_model/
-├── docs/
+├── docs/                Papers, PDFs, and non-markdown reference material
+├── markdown/            All .md documentation (moved from docs/ and root)
+├── audits/              All audit .md files (consolidated from audit/ and root)
 ├── OLD/
 ├── SN_12C*/
 └── AGENTS.md
@@ -262,6 +537,11 @@ Do not pollute source directories with:
 ---
 
 # 5. Evidence Policy
+
+This policy applies to **scientific claims** (line IDs, ionisation,
+component attribution, “the model matches the data”) as well as to
+code and numerical conclusions. A plot is not evidence until the
+quantity it shows has been identified.
 
 Every technical conclusion must be classified as:
 
@@ -381,6 +661,115 @@ Validate:
 If an existing `.swd` is reused, perform the same validation as for a newly generated model.
 
 Never assume that an old `.swd` is valid because it previously produced a spectrum.
+
+## 7.1 STELLA executable: NVARS consistency fix and NCN_JUMP stability patch
+
+The STELLA installation at `/ptmp/sbrennan/stella/OpenStella` had two critical
+issues that prevented the `SN_B_v2` model from evolving past initialization:
+
+### Issue 1: NVARS mismatch across source files
+
+The OpenStella checkout had `PARAMETER(NVARS=4)` in `stradsep5tt.f` but
+`PARAMETER(NVARS=3)` in all other source files (`begradsep.f`, `eddi.f`,
+`stiffbghY12m.f`, `hcdfnrad.f`, `traneq.f`, etc.).
+
+`NVARS` controls the number of independent variables per zone in the state
+vector `Y`:
+- `NVARS=3`: variables are radius, velocity, temperature (3 equations per zone)
+- `NVARS=4`: would add a 4th variable (convective velocity `UC`), but `DIFMAT`
+  in `hcdfnrad.f` only computes 3 equations, leaving empty Jacobian rows
+
+The mismatch caused two distinct failures depending on which files had which
+`NVARS` value:
+
+1. **With `NVARS=3` in `begradsep.f`, `NVARS=4` in `stradsep5tt.f`** (the
+   original state): the `COMMON/CUTOFF/` block had different sizes in the two
+   files. `begradsep` wrote `FLOOR(4), Wacc(4), FitTau, TauTol, Rvis, CONV`
+   (12 elements), but `stradsep5tt` read `FLOOR(5), Wacc(5), FitTau, TauTol,
+   Rvis, CONV` (14 elements). This caused `stradsep5tt` to read `Rvis` as
+   `FitTau` and `CONV` (a logical) as `TauTol`, producing `TauTol=NaN`.
+   The Ncnew search condition `TAU*TauTol < FitTau` became `NaN < 1.0` which
+   is always false, so the Ncnd reduction was skipped. The solver then tried
+   to factorize a 500-zone matrix, causing `Y12MFF IFAIL=24`.
+
+2. **With `NVARS=4` in all files**: the solver tried to solve for 4 variables
+   per zone, but `DIFMAT` only computed 3 equations, leaving empty rows in the
+   Jacobian. This caused `Y12MFF IFAIL=17` (empty row in sparse matrix).
+
+**Fix**: Set `PARAMETER(NVARS=3)` consistently in ALL source files, including
+`stradsep5tt.f`. This matches the 3-equation design of `DIFMAT` and makes the
+`COMMON/CUTOFF/` block consistent across all compilation units.
+
+### Issue 2: Ncnd decrease rate
+
+The original code allows `Ncnd` to drop from 500 to 5 in a single step when
+the optical depth is very low. This can cause solver instability at
+initialization.
+
+**Fix**: Added `PARAMETER(NCN_JUMP=20)` and the line
+`IF(Ncnew>0.AND.Ncnew<Ncnd-NCN_JUMP)Ncnew=Ncnd-NCN_JUMP` after the
+`IF(Ncnew<NCNMIN)Ncnew=0` check in both code paths of `stradsep5tt.f`.
+This limits the Ncnd decrease to 20 zones per step, making the transition
+gradual (500→480→460→...→5). When `Ncnew=0` (all-thin switch), the limit
+is not applied.
+
+### Current source parameters
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `NVARS` | `3` | Variables per zone: radius, velocity, temperature |
+| `NCNMIN` | `5` | Minimum diffusion zones; below this, switches to all-thin |
+| `NCN_JUMP` | `20` | Maximum Ncnd decrease per step (added for stability) |
+| `TREZON` | `3.D18` | Zone dropping threshold (effectively disabled) |
+| `tsmoth` | `4.D6` | Smoothing time (force line commented out, as in original) |
+| `Ncnew < NCNMIN` | `Ncnew = 0` | Switches to all-thin mode (ray tracing) |
+
+### Rebuilding
+
+All `.f` files must be recompiled with `NVARS=3`. The full rebuild procedure:
+
+```bash
+cd /ptmp/sbrennan/stella/OpenStella/strad
+for f in *.f; do
+    ifort -c -132 -save -zero -O3 -fp-model strict "$f"
+done
+cp *.o ../obj/
+
+cd ../src
+for f in *.f; do
+    ifort -c -132 -save -zero -O3 -fp-model strict "$f"
+done
+cp *.o ../obj/
+
+cd ../eve
+ifort -c -132 -save -zero -O3 -fp-model strict evesn2.f
+cp evesn2.o ../obj/
+
+# Link xstella6new.exe (exclude evesn2.o and opazr.o to avoid symbol conflicts)
+cd ../obj
+rm -f evesn2.o opazr.o
+ifort -o ../run/strad/xstella6new.exe *.o
+
+# Link eve2.exe (uses opazr.o, not oparon.o)
+cd ../src
+ifort -c -132 -save -zero -O3 -fp-model strict opazr.f
+cp opazr.o ../obj/
+cd ../eve
+ifort -o ../run/eve/eve2.exe evesn2.o ../obj/length.o ../obj/oparon.o \
+    ../obj/stradio.o ../obj/sahaandd.o ../obj/sahaz.o ../obj/azdat.o \
+    ../obj/hapsepnc.o ../obj/ubv.o ../obj/opazr.o ../obj/volenpumnoint.o \
+    ../obj/vtimef90.o ../obj/words.o ../obj/burnc.o ../obj/cosetbgh.o
+```
+
+The `.trf` source requires the `trefor` preprocessor, which has environment
+issues on this system. The `.f` files are the directly compilable source.
+
+### OpenStella_conv reference
+
+The clean reference tree at `/ptmp/sbrennan/stella/OpenStella_conv` has
+`NVARS=4` in all files. This is a different code version that properly
+supports 4 variables per zone. The OpenStella tree only supports 3
+variables per zone and must use `NVARS=3` consistently.
 
 ---
 
@@ -1178,6 +1567,7 @@ until stable.
 # 30. Spectral Validation
 
 A successful CMFGEN run is not automatically a scientifically successful model.
+A falling MAXCH, a finite luminosity, or a plotted flux is not a line identification.
 
 Validate:
 
@@ -1235,6 +1625,55 @@ remove O
 and determine how the spectrum changes.
 
 This establishes whether observed absorption is genuinely produced by heated SN_A material.
+
+### 31.1 SDEC species-ablation tool (pseudo-SDEC decomposition)
+
+`scripts/submit_sdec_ablation.py` builds per-element ablated OBS
+spectra for a converged model and a TARDIS-SDEC-style stacked
+decomposition plot. It is the implemented form of the ablation
+experiments above:
+
+- creates `<cmfgen_dir>/SDEC/<Elem>/` workdirs, each a cmf_flux OBS run
+  with `SCL_<species>_ABUND` scaled to ~0 (default `1.0D-10`), removing
+  that element's opacity while all populations stay frozen;
+- `SCL_*_ABUND` is the only ablation compatible with the non-monotonic
+  OBS solver (`GLOBAL_LINE=BLANK`, all `TRANS_*=BLANK`; per-ion
+  `TRANS_*=NONE` is ignored in BLANK mode);
+- `../` inside each `<Elem>` dir resolves `VADAT`, `RVTJ`, `batch.sh`,
+  `MODEL_SPEC`, `MODEL`, `POP*` and `FGINEXT_GS` via symlinks in
+  `SDEC/` (cmf_flux reads `POP<species>` through `DIR_NAME` from the
+  `../RVTJ` stdin path);
+- jobs chain `afterok` with at most `--max-parallel` (default 2)
+  concurrent; a final job makes the plot via
+  `scripts/plot_sdec_decomposition.py`.
+
+Orchestrator integration: `run_model_grid.py --sdec` (or YAML
+`sdec.enabled: true`, optional `species`, `max_parallel`, `scale`)
+submits SDEC jobs chained `afterok` on FINAL/J-RELEASE, with the plot
+job also waiting on the pipeline OBS job for the baseline spectrum.
+
+Caveats: components are not additive (line overlap/blanketing) and
+populations are frozen — same approximation as TARDIS last-interaction
+tagging. `SCL_HYD`/`SCL_HE` keep the e.s. continuum (`ESEC` uses `ED`
+from RVTJ) but remove H/He lines and edges.
+
+**Baseline consistency (22-Sep-2026).** The emergent flux contains an
+`ESEC*J` electron-scattering emissivity evaluated on the `FGINEXT_GS`
+I_NEXT field, so the baseline and every ablation must restore the same
+I_NEXT generation (check the `RESTORED COMPLETE I_NEXT GENERATION
+(tag=N)` line in each `OUT_FLUX`). A pipeline `obs/obs_fin_10` produced
+by an OBS job that read `FGINEXT_GS` while FINAL was still writing it
+carries a different generation; the resulting deltas pick up a
+species-independent offset that masquerades as the same feature under
+several elements (seen as fake "He and Fe emission" under H-alpha on
+TypeIIn_KNOP/10.00days). `submit_sdec_ablation.py` therefore always
+submits an unablated `ALL` job in the same batch (opt out with
+`--no-submit-all`), and `plot_sdec_decomposition.py` prefers
+`SDEC/ALL/obs_fin_10` as the baseline and warns on tag mismatches.
+The plot's default `exclusive` attribution assigns each wavelength bin
+to the species with the largest delta so each component is owned by a
+single element; `--attribution shared` reproduces the old stacked
+overlap.
 
 ---
 
@@ -1461,6 +1900,77 @@ Demonstrate that:
 
 Do not silently monotonise a physical velocity profile.
 
+## 39.1 `VEL_LAW=12` is downgraded to 11 under `NON_MONO_SOLVER=T`
+
+**VERIFIED (2026-09-08):** When `NON_MONO_SOLVER=T`, `prepare_VADAT.py`
+rewrites `VEL_LAW` from 12 to 11 and logs:
+
+```text
+[NON_MONO] VEL_LAW forced: 12 -> 11 (required for non-monotonic static BLANK solver)
+```
+
+This is required, not a bug: the static non-monotonic BLANK solver
+`FG_J_CMF_NONMONO_V1` is reached through `SET_RV_HYDRO_MODEL_V3`, which
+is the `VEL_LAW=11` code path. `VEL_LAW=12` (`RV_SN_MODEL_SNIIN`) does
+not route to the non-monotonic formal solver.
+
+Consequences that must be accounted for:
+
+* The `vel_law` key in YAML is retained at 12 because the STELLA→CMFGEN
+  converter keys its `SIGMA` formula off that value and expects the
+  `VEL_LAW=12` finite-difference form (`sigma_velocity`). Under
+  `VEL_LAW=11` the solver instead evaluates the analytic derivative of a
+  monotone-cubic (PCHIP) interpolant, so the written `Sigma` column and
+  the solver's internal `SIGMA` are computed by **different formulae**.
+* The section 39 checklist above must therefore be verified against the
+  `VEL_LAW=11` path, not the 12 path.
+* Confirm the actual value from the `[NON_MONO] VEL_LAW forced` line in
+  `OUTGEN`. Never assume the YAML value is what CMFGEN ran with.
+
+**Enforcement pipeline (VERIFIED):** `run_model_grid.py` resolves
+`NON_MONO_SOLVER=T` in `enforce_cmfgen_sn_iin_settings()`, which applies
+the same forced-key table as `prepare_VADAT.NON_MONO_FORCED_VADAT`
+(imported, single source of truth), fills the verified non-monotonic
+iteration defaults (`DO_NG=T`, `NUM_LAM=2`, `LAM_VAL=2.0D2`,
+`BEG_NG=1.0D1`, `IBEG_NG=20`, `COMP_BA=T`, `FIX_T_AUTO=F`,
+`FIX_NE=F`, `FIX_IMP=F`, `MAX_LIN=5.0D0`, `FIX_BA=1.0D1`,
+`N_FIX_BA=2`, `BA_CHK_FAC=1.0D-05`, `EPS_TERM=5.0D-02`,
+`DO_DIS=T`, `INC_PEN=T`, `INC_RAY=T` — Dessart reference VADAT
+values adopted 2026-09-25), drops any
+`iteration_strategy`, and disables `monotonize_velocity` /
+`enforce_homologous` (both erase the sigma<-1 structure the solver
+exists to model). The resolved config is written to
+`<model_dir>/config_resolved.yaml` and *that file* — not the raw YAML —
+is passed to `prepare_VADAT.py --vadat-overrides` on the compute node.
+`prepare_VADAT.py` re-applies the forced keys at VADAT-write time, so
+the two layers cannot disagree.
+
+## 39.2 `SIGMA` must be recomputed after any grid modification
+
+**VERIFIED (2026-09-08):** `SIGMA = dlnV/dlnR - 1` is a derivative of the
+grid, not a per-point sample. Any step that inserts or removes radius
+points invalidates it, and subsetting it with a boolean mask is wrong —
+it must be **recomputed** from the final `R`, `V`.
+
+The `max_points` hard cap in `convert_stella_swd_to_cmfgen.py` previously
+subset `r`, `v`, `T`, `rho`, `n_e`, `tau`, `kappa_arr`, `mass_fractions`
+and `ni56_for_isotopes` but left `sigma` at its pre-trim length. For
+`SN_B_v2_M3_V5000` at 40 d this wrote a `Sigma` block of **206 values
+into a file declaring 100 data points**, whose first 100 entries belonged
+to different radii — they disagreed with the file's own `R`,`V` columns at
+65 of 100 depths (max discrepancy 21.94).
+
+This parsed without error because `rd_sn_data.f:165` uses
+`READ(LU,*)SIGMA_HYDRO`, a list-directed read of exactly `NX` values; the
+surplus lines were then skipped by the section-header loop as
+unrecognised. The corrupt column fed `VOL_EXP_FAC`
+(`rd_sn_data.f:246`). `SIGMA`/`SIGMA_TRUE` were unaffected because those
+are derived from `input_hydro.dat`.
+
+`write_sn_hydro_data` now validates that every profile array and mass
+fraction has exactly one value per radius point and raises otherwise.
+Do not remove that guard.
+
 ---
 
 # 40. Velocity Reversals and Shocks
@@ -1550,6 +2060,17 @@ VEL_LAW != 12
 
 Do not modify unrelated solver components merely to obtain convergence.
 
+**Attribution comment required.** Every edit to CMFGEN source code must
+include a comment at the site of the change stating:
+
+```text
+edited by Sean Brennan (DATE)
+```
+
+where `DATE` is the date the edit was made. This applies to every modified
+line or block so that local changes can be distinguished from the original
+source during review and diffs.
+
 Prefer:
 
 ```text
@@ -1611,7 +2132,7 @@ which is the standard approach used by Dessart and Hillier reference models:
 
 1. Lambda iterations run until MAXCH < 50%
 2. `DO_LAM_AUTO` auto-switches `DO_LAM_IT=F` in IN_ITS
-3. Full BA iterations begin with `LAM_VAL=400` / `NUM_LAM=2` fallback
+3. Full BA iterations begin with `LAM_VAL=200` / `NUM_LAM=2` fallback
 4. If BA overshoots, `solve_for_pops.f` automatically returns to Lambda
 
 To use this approach, omit `iteration_strategy` from the YAML config.
@@ -1638,14 +2159,50 @@ vadat_overrides:
   COMP_BA: T          # BA corrections enabled
   SOL_METH: DIAG      # Depth-independent solver
   NUM_LAM: '2'        # Manual: "Typically choose 2"
-  LAM_VAL: 4.0D2      # Fallback to Lambda if MAXCH > 400
+  LAM_VAL: 2.0D2      # Fallback to Lambda if MAXCH > 200 (Dessart VADAT)
   BEG_NG: 1.0D1       # Manual: "5% to 10%" (was 1.0D15 = disabled)
-  IBEG_NG: '15'       # Manual: "at least 15 iterations"
+  IBEG_NG: '20'       # Dessart VADAT: at least 20 iterations
+  BW_NG: '40'         # Dessart VADAT band width
+  FIX_IMP: F          # Impurity populations iterated (Dessart VADAT)
+  MAX_LIN: 5.0D0      # 5x BA correction cap (Dessart VADAT)
+  FIX_BA: 1.0D1       # Keep computing BA until MAXCH < 10%
+  N_FIX_BA: '2'       # Hold BA at most 2 iterations (manual recommended)
+  BA_CHK_FAC: 1.0D-05 # Dessart VADAT BA accuracy check
+  EPS_TERM: 5.0D-02   # Convergence threshold (Dessart VADAT)
+  DO_DIS: T           # Level dissolution (Dessart VADAT)
+  INC_PEN: T          # Penning ionization (Dessart VADAT)
+  INC_RAY: T          # Rayleigh scattering (Dessart VADAT)
   NON_MONO_SOLVER: T  # Non-monotonic formal solver
   USE_LAM_ES: T       # J from formal solution, not moment equations
 ```
 
 **Do not set `iteration_strategy`** — let `DO_LAM_AUTO` control the mode.
+
+#### `cmfgen.use_lam_es` — verified J-update setups (KNOP mode)
+
+Under `non_mono_mode: KNOP`, `cmfgen.use_lam_es` selects the J source
+and the verified solver pairing (TypeIIn_10d runs, 22-23 Sep 2026):
+
+```yaml
+cmfgen:
+  non_mono_mode: KNOP
+  use_lam_es: true    # J from FG_J_CMF_NONMONO_V1 formal solution
+                      # -> USE_LAM_ES=T + SOL_METH=DIAG (NUM_BNDS=1)
+  # or
+  use_lam_es: false   # J from MOM_J_CMF_NONMONO_V1 moment solve
+                      # -> USE_LAM_ES=F + SOL_METH=TRI (NUM_BNDS=3)
+```
+
+`use_lam_es` is the setup selector: it overrides a conflicting
+`depth_independent_solver` or `vadat_overrides.USE_LAM_ES` (loudly).
+Under `non_mono_mode: SOB` only `use_lam_es: true` is valid (F would
+fall back to the clamped-sigma `MOM_J_CMF_V11`); F requests are forced
+back to T+DIAG with a warning.  Outside non-monotonic mode the key
+stamps `USE_LAM_ES` only — `SOL_METH` stays owned by
+`depth_independent_solver`.  OBS (`cmf_flux`) always uses
+`USE_LAM_ES=T` regardless of the main run: the OBS binary has no
+`MOM_J_CMF_NONMONO_V1`, so the OBS J must come from the formal
+solution either way.
 
 ### Requeue configuration
 
@@ -1769,9 +2326,102 @@ REPRODUCTION_RUNBOOK.md
 REPOSITORY_HYGIENE_REPORT.md
 ```
 
+## 45.1 Writing style for reports and documents
+
+All prose written for this repository must read like it was written by
+a scientist, not generated by a model. This applies to Markdown
+reports, LaTeX documents, commit messages, comments intended for
+publication, and any text a collaborator will read.
+
+- Do not use em dashes. Use full stops, commas, colons or parentheses
+  instead.
+- Write plainly and directly. State what was done, what was found and
+  what the evidence is. Do not pad sentences with hedging or
+  transitional filler.
+- Avoid stock AI phrasing: "delve", "crucial", "leverage",
+  "moreover", "furthermore", "it is important to note", "in
+  conclusion", "not only ... but also", and similar constructions.
+- Prefer concrete nouns and verbs over abstract framing. "BA
+  corrections diverge at depth 57" over "the iteration exhibits
+  challenging convergence behaviour".
+- Do not add rhetorical emphasis, bullet-point symmetry for its own
+  sake, or summary paragraphs that restate what the table already
+  says.
+- Keep the tone flat and technical. Enthusiasm, praise and apologetic
+  language do not belong in a report.
+- Do not attribute authorship to the agent. Commit messages, code
+  comments, reports and documentation must not mention Devin or any
+  AI assistant, and must not contain "Generated with" trailers,
+  `Co-Authored-By` lines, or any other tool attribution. Commits are
+  authored by the user; write them as if the user wrote them.
+
+Existing documents do not need to be rewritten, but new or edited
+sections must follow this style.
+
+## 45.2 Plot and figure style
+
+These rules apply to every figure produced for this repository,
+whether diagnostic or for presentation.
+
+**No titles on plots.** Do not put `ax.set_title(...)` on panels and
+do not add `fig.suptitle(...)` by default. The figure must be
+self-describing through axis labels, units and legends. If a figure
+genuinely needs identifying context (model name, epoch), put it in
+the filename and, at most, one line of suptitle text at the top.
+Never repeat the same information in a title, an axis label and the
+filename.
+
+**Discrete data are drawn as steps.** Quantities defined per grid
+zone or per CMFGEN depth (density, temperature, velocity, sigma,
+optical depth, mass fractions, population ratios) are plotted with
+`ax.step(..., where='mid')`, not `ax.plot`. Connecting lines imply a
+continuity the data do not have. When replacing `ax.loglog` or
+`ax.semilogx` with `ax.step`, set the scales explicitly with
+`ax.set_xscale('log')` / `ax.set_yscale('log')`. Bars, histograms,
+scatter markers and reference lines (`axhline`, `axvline`, `axvspan`)
+stay as they are.
+
+**Depth index on the top axis.** Radius-axis plots of CMFGEN-depth
+quantities carry a secondary upper x axis showing the depth index
+(1 = outermost), produced by `_add_depth_axis` in
+`scripts/convert_stella_swd_to_cmfgen_plots.py`. Ticks are thinned
+automatically where the grid compresses so labels do not overlap.
+
+**Units and labels are mandatory.** Every axis states its quantity
+and unit. Legends appear once per distinct meaning; do not create
+duplicate entries for the same thing (for example a shaded region and
+a proxy patch both labelled identically).
+
+**No annotation clutter.** Do not add text arrows, boxed labels or
+insets that restate what the axes already show. An inset or arrow is
+acceptable only when it reveals structure invisible at the main scale.
+
+**Compare on a common grid.** Before differencing or plotting a
+ratio between hydro input and CMFGEN output, interpolate onto the
+same radius grid. Index-by-index comparison of resampled grids
+manufactures artificial features. Guard interpolation against
+non-monotonic grids, out-of-range points, NaN/Inf and zero
+denominators.
+
+**No redundant figures.** Before adding a new plot, check whether an
+existing diagnostic already shows the quantity. When a plot is
+superseded, remove both the file and the code that generates it;
+do not leave dead plotting code or stale PNGs in run directories.
+
+**Technical defaults.** Use the matplotlib `Agg` backend (no display
+is available). Save to the run's `plots/` directory. Figures are
+diagnostics: they must reflect the processed data honestly and are
+not evidence of convergence or correctness by themselves.
+
 ---
 
 # 46. Agent Behaviour
+
+§1 is the goal of every task. Pipeline edits, solver flags, grid
+changes and job submissions are means. If a proposed change would
+make the code finish while destroying shocks, composition interfaces,
+H/He/O/Si/Ca/Fe line formation, or the SN_A vs SN_B distinction,
+do not make it.
 
 When asked to modify the modelling pipeline:
 
@@ -1843,6 +2493,12 @@ modify CMFGEN source unnecessarily
 reuse stale generated inputs without validation
 claim convergence from the existence of a spectrum file
 claim a spectrum match without line attribution
+treat a warning string as proof of NaN, failure, or success
+claim VERIFIED because a result looks physically reasonable
+equate falling MAXCH with a correct NLTE solution
+confuse T_gas, T_rad, T_exc and ionisation temperature
+use nebular geometric dilution for this optically thin interaction
+present YAML intent as the settings CMFGEN actually ran
 ```
 
 ---
@@ -1873,9 +2529,13 @@ spectrum is numerically stable
 important lines are physically identified
         AND
 model provenance is complete
+        AND
+the SN_A / SN_B origin of those lines has been addressed
 ```
 
-A successful executable run alone is insufficient.
+A successful executable run alone is insufficient. Matching the
+hypothesis in §1 is the acceptance test; the list above is how that
+hypothesis is made falsifiable.
 
 ---
 
@@ -1916,13 +2576,15 @@ Do not report `PASS` if:
 * stale inputs/binaries may have been used;
 * production was bypassed around `run_model_grid.py`;
 * the repository is left ambiguous or contaminated with stale generated files.
+* the important H, He, O, Si, Ca or Fe features have not been physically identified;
+* SN_A vs SN_B origin of those features has not been addressed, even qualitatively;
+* a numerical method (Lambda, BA, JFNK) was substituted for a physical diagnosis.
 
-```
-```
+Historical notes after this section are **not** a substitute for §§1–49.
 
 ---
 
-# 29. CMFGEN Restart/Requeue Stability (2026-09-01)
+# Appendix A — CMFGEN Restart/Requeue Stability (2026-09-01)
 
 ## 29.1 Problem
 
@@ -2028,3 +2690,141 @@ restart bug — it is an atomic model complexity problem:
 The restart fixes above ensure that diverging models are detected and
 stopped, rather than requeuing indefinitely and generating 433 GB
 output files.
+
+---
+
+# Appendix B — SuperLite Nebular Approximation: Critical Ionisation Bug (2026-09-04)
+
+### Problem
+
+SuperLite models of SN_B_v2 at 40 days showed **no emission or absorption
+lines** — only a smooth continuum with ~5% Monte Carlo noise.
+
+### Root Cause
+
+The nebular approximation (`in_nebular = t`, Mazzali & Lucy 1993) was
+killing all ionisation in the outer (metal-rich) cells:
+
+1. `in_R_phot = 2.71e15 cm` (from the converter's grey tau=2/3 estimate).
+2. For the metal-rich SN_A ejecta at r ~ 2.3e16 cm, the geometric dilution
+   factor is W ≈ 0.003.
+3. The effective radiation temperature for ionisation is
+   T_eff = T_rad × W^(1/4) ≈ 4700 × 0.24 ≈ **1100 K**.
+4. At 1100 K, every element is completely neutral and in its ground state.
+   No excited states → no optical line opacity.
+
+This caused SuperLite's opacity to be **15 orders of magnitude lower**
+than STELLA's:
+
+| Quantity | STELLA .swd | SuperLite (nebular) |
+|----------|------------|---------------------|
+| kappa_Ross (hot metal-rich zones) | 0.45 cm²/g | 3×10⁻¹⁶ cm²/g |
+| Total Rosseland tau | 0.25 | ~0 |
+
+With zero optical depth, no photosphere and no lines can form. The
+spectrum is just a sum of smooth Planck functions at the local gas
+temperatures.
+
+### Why the Nebular Approximation Is Wrong Here
+
+The nebular approximation is designed for **optically thick** ejecta
+where a well-defined photosphere exists and the radiation field above
+it is geometrically diluted. In this model:
+
+- The **total Rosseland tau is only 0.25** — the ejecta is optically thin.
+- The gas temperature (set by the SN_B shock interaction, T_gas ~ 8000 K)
+  is **much higher** than the radiation temperature (T_rad ~ 4700 K).
+- The dilution factor drives the effective ionisation temperature to
+  ~1100 K, far below the gas temperature.
+
+LTE ionisation at T_gas = 8000 K gives significant Ca II, Fe II, and
+Si II fractions — exactly the ions that produce the strong lines this
+model is supposed to show.
+
+### Fix
+
+1. **Turn off the nebular approximation**: Set `in_nebular = f` in
+   `input.par`. This uses LTE Saha ionisation at the gas temperature,
+   which is much higher than the diluted radiation temperature.
+
+2. **YAML configuration**: Add `nebular: false` under
+   `superlite.numerical` in the YAML config:
+   ```yaml
+   superlite:
+     numerical:
+       nebular: false
+       nlte: true
+       nlte_nelem: 1
+       niter: 3
+   ```
+
+3. **Keep NLTE on** (`in_nlte = t`): The NLTE iteration updates the
+   radiation temperature from the transport solution, which is still
+   useful. But the ionisation should use LTE (gas temperature) as the
+   starting point.
+
+### Argparse Bug Fix
+
+The converter had `type=bool` for `--sl-nebular` and `--sl-nlte`
+arguments. In Python, `bool("false")` returns `True` because any
+non-empty string is truthy. This meant `--sl-nebular false` would
+still enable the nebular approximation.
+
+Fixed by adding a `str2bool()` function that properly interprets
+`true/false/t/f/yes/no/1/0` strings.
+
+### Template Override Fix
+
+The `write_input_par` function uses a reference template
+(`superlite_base/input_parameters_reference.par`) that has
+`in_nebular = t` hardcoded. The template path only replaced
+`{MODEL_NAME}`, `{EPOCH}`, etc., but not the nebular/NLTE settings.
+
+Fixed by adding `re.sub()` calls to override `in_nebular`, `in_nlte`,
+`in_nlte_nelem`, and `in_niter` in the template output with the actual
+parameter values.
+
+### Key Files
+
+- `scripts/convert_stella_swd_to_superlite.py`: Converter with the fix
+- `SN_B_v2/config_superlite_40d.yaml`: YAML config with `nebular: false`
+- `/ptmp/sbrennan/superlite/ionsmod.f`: SuperLite nebular EOS (uses
+  `in_R_phot` for dilution factor)
+- `/ptmp/sbrennan/superlite/GAS/eos_update.f`: EOS dispatch (nebular vs LTE)
+
+## Preparation consistency checks (2026-09-14)
+
+VERIFIED: VEL_LAW=11 uses SN_HYDRO_DATA depth-dependent composition. Proxy generation must use that composition and preserve the source electron-density reference (`ne_max_iter=1`); iterating a different proxy reference is rejected. Regenerate inputs through the orchestrator after preparation changes.
+
+VERIFIED: The converter writer may change T/kappa after grid selection. Boundary metadata and the authoritative post-write audit must use serialized profiles, not pre-write arrays. Conversion stdout/stderr and previous hydro inputs are retained in per-attempt directories; a nonzero converter exit is fatal even if an output file exists.
+
+Verification: `python3 -m pytest scripts/test_cmfgen_preparation_consistency.py scripts/test_proxy_populations_v2.py -q`; `python3 -m pytest scripts/grid_mapping/tests -q`; `bash -n scripts/submit_cmfgen_jobs.sh`; `bash -n cmfgen_base/submit_cmfgen.sh`. These tests validate interfaces, not spectral convergence or the physical accuracy of proxy estimates.
+
+UNVERIFIED: Source/executable equivalence for the grey-initialization patch. On 2026-09-14 Raven and Viper V4 executables had identical hashes but differing rd_control_variables.f sources. Do not infer executed grey initialization from executable strings; LIN_INT=T selects GRID, which bypasses the initial grey-temperature loop.
+
+## STELLA executable policy — parallel OpenStella mandatory (2026-09-16)
+
+All STELLA hydro jobs must use the OpenMP-parallel OpenStella build:
+
+```text
+/ptmp/sbrennan/stella/OpenStella_parallel
+```
+
+Enforced centrally in `scripts/run_model_grid.py`:
+
+- `DEFAULT_STELLA_ROOT` is the parallel build. A config whose
+  `stella.stella_root` points at a legacy serial build (any path whose
+  basename is `OpenStella`, on any mount: `/ptmp`, `/raven`, `/viper`)
+  is overridden to the parallel build with a printed warning — the
+  override is reported in the submission log, so the executed build is
+  always visible.
+- `stella.cpus_per_task` defaults to 3 when the parallel build is used
+  (matching the validated `parallel_test_p3` run), 1 otherwise. An
+  explicit `cpus_per_task` in the config always wins.
+- Escape hatch for deliberate serial runs (e.g. the serial-vs-parallel
+  baseline): set `stella.allow_serial_stella: true` in the config.
+  `configs/parallel_test/parallel_test_baseline.yaml` uses this.
+
+The parallel build was validated by `parallel_test_p1/p2/p3`
+(configs in `configs/parallel_test/`); the serial baseline run is
+`parallel_test_baseline`.
