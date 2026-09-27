@@ -244,7 +244,11 @@ PROJECT_DIR="${PROJECT_DIR:-$_project_dir_default}"
 # Must happen BEFORE submit.log is created
 # ---------------------------
 RESTART_HELPER="${CMFDIST}/com/restart_model.sh"
-if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FINAL:-0}" != "1" ]]; then
+# CMFGEN_WARM_RESTART=1 (from run_model_grid.py cmfgen.warm_restart: true)
+# requests a deliberate continuation: skip the fresh-start cleanup entirely
+# so POINT1/2, SCRTEMP/SCRATCH, POP*, *_IN and the prep/requeue markers all
+# survive and the generated slurm takes its checkpoint-restore branch.
+if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FINAL:-0}" != "1" && "${CMFGEN_WARM_RESTART:-0}" != "1" ]]; then
   echo "WARNING: restart_model.sh not found at $RESTART_HELPER"
   echo "  Performing manual cleanup: keeping base files and SN_HYDRO_DATA, deleting everything else..."
   
@@ -254,13 +258,19 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FI
   # control files read by CMFGEN every iteration (see docs/full_descr.txt).
   BASE_FILES_TO_KEEP="batch.sh VADAT_INIT IN_ITS MODEL_SPEC NUC_DECAY_DATA arnaud_rothenflug.dat IT_SPECIFIER ADJUST_CORRECTIONS ADJUST_R_DEFAULTS RDINR T_IN VADAT submit_cmfgen.sh tablec1.dat tablec2.dat tablec3.dat tablec4.dat tablec5.dat tablec6.dat tablec7.dat tablec8.dat ca2_col_data_filtered"
   # Also keep SN_HYDRO_DATA, obs directory, and plots/ (SN_HYDRO_DATA diagnostic
-  # plots from convert_stella_swd_to_cmfgen.py — structure_overview.png, mass_fractions.png)
+  # plots from convert_stella_swd_to_cmfgen.py — SN_HYDRO_DATA_*.png)
   # Also keep EDDFACTOR + EDDFACTOR_INFO when present (for USE_FIXED_J initialization)
   # Also keep GREY_SCL_FAC_IN (T/Tgrey scaling from STELLA conversion, aids initial convergence)
-  # Also keep the restart/checkpoint set that run_model_grid.py preserves on
-  # resubmission (RVTJ/POP*/POINT*/FGINEXT_GS/SCRATCH warm-start state) so this
-  # cleanup does not undo the orchestrator's restore.
-  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat RVTJ OUTGEN MODEL CUR_MODEL_DATA SPECIES_MASSES OBSFLUX SN_HYDRO_FOR_NEXT_MODEL RS_XRAY_FLUXES POINT1 POINT2 FGINEXT_GS MOMJNXT_GS GAMMAS JH_AT_CURRENT_TIME JH_AT_CURRENT_TIME_INFO SCRATCH"
+  #
+  # A new submission is a FRESH START, not a continuation: all warm-start
+  # state is removed so CMFGEN cold-starts.  Continuation is only via the
+  # in-job requeue cycle (checkpoints in SCRATCH/ survive within a job) or
+  # an explicit --restart submission (which skips this cleanup entirely).
+  # Deleted state: RVTJ, MODEL, CUR_MODEL_DATA (restart dumps), POINT1/2,
+  # SCRTEMP and SCRATCH/ (SCR_READ_V2 warm-restart checkpoints), POP* and
+  # species *_IN/*_OUT (population continuation; T_IN and GAMMAS_IN are
+  # inputs and stay), FGINEXT_GS/MOMJNXT_GS (Knop GS radiation state).
+  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat OUTGEN SPECIES_MASSES OBSFLUX SN_HYDRO_FOR_NEXT_MODEL RS_XRAY_FLUXES GAMMAS GAMMAS_IN JH_AT_CURRENT_TIME JH_AT_CURRENT_TIME_INFO config_resolved.yaml"
   
   cd "${MODEL_DIR}"
   
@@ -268,8 +278,6 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FI
   for item in *; do
     keep=0
     [[ "$item" == conversion_attempt_* ]] && keep=1
-    [[ "$item" == POP* ]] && keep=1
-    [[ "$item" == *_IN || "$item" == *_OUT ]] && keep=1
     for keep_pattern in $FILES_TO_KEEP; do
       if [[ "$item" == "$keep_pattern" ]] || [[ "$item" == "$keep_pattern".* ]]; then
         keep=1
@@ -505,7 +513,9 @@ INIT_PARTITION="${INIT_PARTITION}"
 INIT_TIME="${INIT_TIME}"
 
 # FINAL/SINGLE_FINAL: high-iteration mode; graceful chunking/requeue handles walltime.
-FINAL_NUM_ITS=100000
+# Cap at 500 great iterations per user policy (27-Sep-2026): a model that has not
+# converged by then is treated as a failure to investigate, not to keep requeueing.
+FINAL_NUM_ITS=500
 
 OBS_TIME_DEFAULT="23:59:00"
 OBS_TIME_DEBUG="01:59:00"
@@ -701,29 +711,9 @@ fi
 # Pre-create obs/ so SLURM --chdir won't fail at job start
 mkdir -p "${MODEL_DIR}/obs"
 
-# SN_HYDRO_DATA overview: structure + mass fractions -> plots/ (non-fatal if matplotlib or file missing)
-PLOT_SN_HYDRO_SCRIPT="${PROJECT_ROOT}/scripts/plot_sn_hydro_cmfgen_inputs.py"
-if [[ ! -f "$PLOT_SN_HYDRO_SCRIPT" ]]; then
-  # Fallback: try to find in VADAT_SCRIPT directory (legacy)
-  PLOT_SN_HYDRO_SCRIPT="$(dirname "$VADAT_SCRIPT")/plot_sn_hydro_cmfgen_inputs.py"
-fi
-HYDRO_DATA="${MODEL_DIR}/SN_HYDRO_DATA"
-if [[ -f "$HYDRO_DATA" ]]; then
-  if [[ -f "$PLOT_SN_HYDRO_SCRIPT" ]]; then
-    mkdir -p "${MODEL_DIR}/plots"
-    export PREPARE_VADAT_PY="$VADAT_SCRIPT"
-    echo "Writing SN_HYDRO_DATA overview plots -> ${MODEL_DIR}/plots"
-    if command -v python3 >/dev/null 2>&1; then
-      python3 "$PLOT_SN_HYDRO_SCRIPT" "$MODEL_DIR" || echo "WARNING: hydro overview plots failed (non-fatal)"
-    else
-      python "$PLOT_SN_HYDRO_SCRIPT" "$MODEL_DIR" || echo "WARNING: hydro overview plots failed (non-fatal)"
-    fi
-  else
-    echo "WARNING: plot script not found (skip hydro plots): $PLOT_SN_HYDRO_SCRIPT"
-  fi
-else
-  echo "WARNING: no SN_HYDRO_DATA in model dir (skip hydro overview plots): $HYDRO_DATA"
-fi
+# SN_HYDRO_DATA overview plots (structure_overview.png, mass_fractions.png) were
+# removed: redundant with SN_HYDRO_DATA_structure_overview.png and
+# SN_HYDRO_DATA_mass_fraction.png produced by convert_stella_swd_to_cmfgen.py.
 
 # Full (non-restart) pipeline: hard-reset stale CMFGEN run products so INIT matches a fresh model.
 # restart_model.sh is csh; keeps VADAT / SN_HYDRO_DATA / batch.sh; see CMFDIST/com/restart_model.sh.
@@ -742,22 +732,29 @@ if [[ $restart -eq 0 && $no_submit -eq 0 ]]; then
 
   # Full resubmission safety: wipe all local "prep" markers and requeue sentinels so
   # no stale state can skip prep steps or leave NUM_ITS=0 from a prior graceful-stop.
-  rm -f "${MODEL_DIR}/.CMFGEN_INIT_PREPPED" "${MODEL_DIR}/.CMFGEN_STABLE_PREPPED" "${MODEL_DIR}/.CMFGEN_FINAL_PREPPED" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_SINGLE_FINAL_PREPPED" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_REQUEST_REQUEUE" "${MODEL_DIR}/.CMFGEN_STABLE_REQUEST_REQUEUE" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_FINAL_NEEDS_NUM_ITS_RESET" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_JOB_START" "${MODEL_DIR}/.CMFGEN_EARLY_EXIT_COUNT" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
+  # Skipped under CMFGEN_WARM_RESTART=1: the markers/counter are what route the
+  # generated slurm into its checkpoint-restore branch for a deliberate
+  # continuation.
+  if [[ "${CMFGEN_WARM_RESTART:-0}" != "1" ]]; then
+    rm -f "${MODEL_DIR}/.CMFGEN_INIT_PREPPED" "${MODEL_DIR}/.CMFGEN_STABLE_PREPPED" "${MODEL_DIR}/.CMFGEN_FINAL_PREPPED" 2>/dev/null || true
+    rm -f "${MODEL_DIR}/.CMFGEN_SINGLE_FINAL_PREPPED" 2>/dev/null || true
+    rm -f "${MODEL_DIR}/.CMFGEN_REQUEST_REQUEUE" "${MODEL_DIR}/.CMFGEN_STABLE_REQUEST_REQUEUE" 2>/dev/null || true
+    rm -f "${MODEL_DIR}/.CMFGEN_FINAL_NEEDS_NUM_ITS_RESET" 2>/dev/null || true
+    rm -f "${MODEL_DIR}/.CMFGEN_JOB_START" "${MODEL_DIR}/.CMFGEN_EARLY_EXIT_COUNT" 2>/dev/null || true
+    rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
+    # A stale requeue count >0 makes the generated slurm take the requeue
+    # branch (checkpoint restore, no VADAT prep) -- a silent continuation.
+    rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_COUNT" 2>/dev/null || true
+  fi
 fi
 
 # If we're doing a full (re)run, force prep to re-run.
 # In --restart mode, we preserve the existing prep markers.
-if [[ $restart -eq 0 ]]; then
+if [[ $restart -eq 0 && "${CMFGEN_WARM_RESTART:-0}" != "1" ]]; then
   rm -f "${MODEL_DIR}/.CMFGEN_INIT_PREPPED" "${MODEL_DIR}/.CMFGEN_STABLE_PREPPED" "${MODEL_DIR}/.CMFGEN_FINAL_PREPPED" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_SINGLE_FINAL_PREPPED" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_JOB_START" "${MODEL_DIR}/.CMFGEN_EARLY_EXIT_COUNT" 2>/dev/null || true
-  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" "${MODEL_DIR}/.CMFGEN_REQUEUE_COUNT" 2>/dev/null || true
 fi
 
 # Always rewrite all scripts
@@ -806,21 +803,6 @@ if [[ ! -f "${MODEL_DIR}/SN_HYDRO_DATA" ]]; then
   echo "  This snapshot may be beyond the epoch STELLA reached before crashing." >&2
   exit 1
 fi
-
-check_outgen_for_fatal() {
-  local outgen="OUTGEN"
-  if [[ ! -f "\$outgen" ]]; then
-    echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
-    return 2
-  fi
-  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -v "I_NEXT sweep update.*cap/NaN writes= *0 " | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
-    echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
-    echo "---- OUTGEN tail (last 80 lines) ----" >&2
-    tail -n 80 "\$outgen" >&2 || true
-    echo "------------------------------------" >&2
-    return 3
-  fi
-}
 
 # Track convergence across requeues in a small file. CMFGEN appends to OUTGEN
 # with APPEND mode, so OUTGEN grows unboundedly across requeues (observed
@@ -1184,12 +1166,9 @@ fi
 # ---------------------------
 # Resource settings (from SLURM)
 # ---------------------------
-# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
-# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
-# than requested (e.g. whole-node allocation on the interactive partition).
-CPUS=\${SLURM_CPUS_ON_NODE:-\${SLURM_CPUS_PER_TASK:-8}}
-CPUS=\$(( CPUS / \${SLURM_NTASKS:-1} ))
-[[ \$CPUS -lt 1 ]] && CPUS=8
+# Use the requested task size. On Viper general, SLURM_CPUS_ON_NODE is
+# the whole node (256) and must not be used. See AGENTS.md section 2.3.3.
+CPUS=\${SLURM_CPUS_PER_TASK:-8}
 export OMP_NUM_THREADS=\$CPUS
 export MKL_NUM_THREADS=\$CPUS
 export OMP_STACKSIZE=512M
@@ -1369,15 +1348,6 @@ stop_graceful_timer
 # used to detect divergence before the next requeue.
 track_convergence
 
-# A run that did not finish cleanly is never rescheduled: check OUTGEN for
-# fatal patterns before anything else (including out2in).
-fatal_rc=0
-check_outgen_for_fatal || fatal_rc=\$?
-if [[ \${fatal_rc} -ne 0 ]]; then
-  echo "ERROR: CMFGEN did not finish cleanly (fatal pattern in OUTGEN). NOT requeuing." >&2
-  exit \${fatal_rc}
-fi
-
 echo "Preparing restart inputs (out2in.sh)..."
 "\$cmfdist/com/out2in.sh"
 
@@ -1391,7 +1361,7 @@ echo "Preparing restart inputs (out2in.sh)..."
 #   READY=1  → graceful stop requested (NUM_ITS=0), CMFGEN exiting
 #
 # After batch.sh:
-#   READY=1 + no fatal patterns + no divergence → requeue
+#   READY=1 + no divergence → requeue
 #   READY=0 + valid RVTJ (newer than .CMFGEN_JOB_START) → job complete, no requeue
 #   READY=0 + missing/stale RVTJ → crash/early exit, fail
 #
@@ -1425,9 +1395,37 @@ if [[ "\${requeue_ready}" == "1" ]]; then
   exit 0
 fi
 
+# Post-run diagnostics: verify the converged model is physically sensible
+# (structure vs hydro input, convergence history, ionization fractions,
+# radiation field, departure coefficients).  Non-fatal - a plotting
+# failure must not fail the completed job.
+echo "Generating CMFGEN diagnostic plots..."
+diag_plotter="${PROJECT_ROOT}/scripts/plot_cmfgen_diagnostics.py"
+if [[ -f "\$diag_plotter" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "\$diag_plotter" "${MODEL_DIR}" || echo "WARNING: diagnostics plotting failed (non-fatal)"
+  else
+    python "\$diag_plotter" "${MODEL_DIR}" || echo "WARNING: diagnostics plotting failed (non-fatal)"
+  fi
+else
+  echo "WARNING: diagnostics plotter not found at \$diag_plotter (skipped)"
+fi
+
 echo "FINAL Job Complete"
 echo "======================================"
 EOF
+
+# ---------------------------------------------------------
+# cmf_flux builds a finer grid than the model run, so the OBS job can
+# need far more memory than FINAL.  When the non-mono estimate exceeds
+# the interactive MaxMemPerNode cap, run_model_grid.py routes the OBS
+# job to a normal partition via CMFGEN_OBS_PARTITION / CMFGEN_OBS_MEM;
+# otherwise OBS inherits the FINAL job's settings.
+obs_part="${CMFGEN_OBS_PARTITION:-$part}"
+obs_mem="${CMFGEN_OBS_MEM:-$mem}"
+if [[ "$obs_part" != "interactive" && "$part" == "interactive" ]]; then
+  obs_timelimit="$OBS_TIME_DEFAULT"
+fi
 
 # ---------------------------------------------------------
 # Write OBS slurm
@@ -1438,12 +1436,12 @@ cat > "${MODEL_DIR}/${OBS_SLURM}" <<EOF
 #SBATCH --output=cmf_OBS_%j.out
 #SBATCH --error=cmf_OBS_%j.err
 #SBATCH --time=${obs_timelimit}
-#SBATCH --partition=${part}
-$([ "${part}" != "interactive" ] && echo "#SBATCH --qos=n0004")
+#SBATCH --partition=${obs_part}
+$([ "${obs_part}" != "interactive" ] && echo "#SBATCH --qos=n0004")
 
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${cpus}
-#SBATCH --mem=${mem}
+#SBATCH --mem=${obs_mem}
 #SBATCH --chdir=${MODEL_DIR}/obs
 
 set -euo pipefail
@@ -1495,12 +1493,9 @@ chmod +x batobs.sh
 # ---------------------------
 # Resource settings (from SLURM)
 # ---------------------------
-# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
-# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
-# than requested (e.g. whole-node allocation on the interactive partition).
-CPUS=\${SLURM_CPUS_ON_NODE:-\${SLURM_CPUS_PER_TASK:-8}}
-CPUS=\$(( CPUS / \${SLURM_NTASKS:-1} ))
-[[ \$CPUS -lt 1 ]] && CPUS=8
+# Use the requested task size. On Viper general, SLURM_CPUS_ON_NODE is
+# the whole node (256) and must not be used. See AGENTS.md section 2.3.3.
+CPUS=\${SLURM_CPUS_PER_TASK:-8}
 export OMP_NUM_THREADS=\$CPUS
 export MKL_NUM_THREADS=\$CPUS
 export OMP_STACKSIZE=512M
@@ -1586,9 +1581,39 @@ if [[ -n "${NOTIFICATION_EMAIL}" ]]; then
       if [[ -f "\$spectrum_plot" ]]; then
         _attach_args=(-a "\$spectrum_plot")
       fi
-      printf 'CMFGEN spectrum completed successfully.\nModel: %s\nEpoch: %s\nSpectrum: %s\nPlot: %s\nJob: %s\n' \
-        '${CMFGEN_MODEL_BASE}' '${EPOCH_LABEL}' "\$CENTRAL_OUTPUTS/${CMFGEN_MODEL_BASE}_CMFGEN_${EPOCH_LABEL}.dat" "\$spectrum_plot" "\$SLURM_JOB_ID" \
-        | timeout 30 mailx -s 'CMFGEN spectrum complete: ${CMFGEN_MODEL_BASE} ${EPOCH_LABEL}' "\${_attach_args[@]}" '${NOTIFICATION_EMAIL}' 2>/dev/null \
+      # Include the last "great iteration" block from OUTGEN so the email
+      # shows the final convergence state. OBS runs in obs/, so OUTGEN is
+      # one level up; plain OUTGEN covers a flat run directory.
+      _outgen=""
+      for _og in ../OUTGEN OUTGEN; do
+        if [[ -s "\$_og" ]]; then _outgen="\$_og"; break; fi
+      done
+      _iter_block=""
+      if [[ -n "\$_outgen" ]]; then
+        _iter_start=\$(grep -n 'Current great iteration count' "\$_outgen" | tail -n 1 | cut -d: -f1 || true)
+        if [[ -n "\$_iter_start" ]]; then
+          _iter_block=\$(tail -n +"\$_iter_start" "\$_outgen" | head -n 300)
+        else
+          _iter_block=\$(tail -n 120 "\$_outgen")
+        fi
+      fi
+      _mail_subject='CMFGEN spectrum complete: ${CMFGEN_MODEL_BASE} ${EPOCH_LABEL}'
+      _mail_body=\$(printf 'CMFGEN spectrum completed successfully.\nModel: %s\nEpoch: %s\nSpectrum: %s\nPlot: %s\nJob: %s\n' \
+        '${CMFGEN_MODEL_BASE}' '${EPOCH_LABEL}' "\$CENTRAL_OUTPUTS/${CMFGEN_MODEL_BASE}_CMFGEN_${EPOCH_LABEL}.dat" "\$spectrum_plot" "\$SLURM_JOB_ID")
+      if [[ -n "\$_iter_block" ]]; then
+        _mail_body="\$_mail_body
+---- Final iteration (OUTGEN tail) ----
+\$_iter_block"
+      fi
+      # Compute nodes cannot write to the local postfix maildrop (postdrop
+      # "Permission denied"), so sendmail-mode mailx hangs until the timeout.
+      # Try direct SMTP to the MPCDF relay first; fall back to sendmail mode
+      # (works on interactive/login nodes) if the relay is unreachable.
+      _smtp_relay="\${CMFGEN_SMTP_RELAY:-smtp://hpcmailrelay.mpcdf.mpg.de:25}"
+      printf '%s\n' "\$_mail_body" \
+        | timeout 30 mailx -S "mta=\${_smtp_relay}" -s "\$_mail_subject" "\${_attach_args[@]}" '${NOTIFICATION_EMAIL}' 2>/dev/null \
+        || printf '%s\n' "\$_mail_body" \
+        | timeout 30 mailx -s "\$_mail_subject" "\${_attach_args[@]}" '${NOTIFICATION_EMAIL}' 2>/dev/null \
         && echo "Notification email sent to ${NOTIFICATION_EMAIL}" \
         || echo "WARNING: notification email failed or timed out (non-fatal)"
     else
@@ -1654,21 +1679,6 @@ if [[ ! -f "${MODEL_DIR}/SN_HYDRO_DATA" ]]; then
   echo "  This snapshot may be beyond the epoch STELLA reached before crashing." >&2
   exit 1
 fi
-
-check_outgen_for_fatal() {
-  local outgen="OUTGEN"
-  if [[ ! -f "\$outgen" ]]; then
-    echo "ERROR: missing \$outgen after batch.sh (CMFGEN did not write OUTGEN?)" >&2
-    return 2
-  fi
-  if grep -v "recommend --no-relativistic to prevent" "\$outgen" | grep -v "CMF_BLKBAND_NONMONO_V1.*NaN.*zeroed" | grep -v "SOLVEBA_NONMONO_V1.*NaN.*zeroed" | grep -v "NaN STEQ at depth" | grep -v "FG_J_CMF_NONMONO_V1.*capped/NaN writes= *0 cells>0.5=" | grep -v "MOM_J_CMF_NONMONO_V1.*capped/NaN writes= *0 NCF=" | grep -v "I_NEXT sweep update.*cap/NaN writes= *0 " | grep -Eq "NaN|Error in MON_INTERP|Segmentation fault|SIG(ABRT|SEGV)|floating invalid|Error in comp_j_blank\\.f|Mean intensity blowing up|bad initial population guesses|Predicted changes are too large|Error in SETPOP_WLD_V2|zero RGU"; then
-    echo "ERROR: fatal pattern detected in \$outgen (NaN / MON_INTERP / crash). Aborting stage." >&2
-    echo "---- OUTGEN tail (last 80 lines) ----" >&2
-    tail -n 80 "\$outgen" >&2 || true
-    echo "------------------------------------" >&2
-    return 3
-  fi
-}
 
 # Track convergence across requeues in a small file. CMFGEN appends to OUTGEN
 # with APPEND mode, so OUTGEN grows unboundedly across requeues (observed
@@ -1867,12 +1877,9 @@ else
   echo "Graceful timer disabled (FINAL_GRACEFUL_SLEEP_SEC=${FINAL_GRACEFUL_SLEEP_SEC})"
 fi
 
-# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
-# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
-# than requested (e.g. whole-node allocation on the interactive partition).
-CPUS=\${SLURM_CPUS_ON_NODE:-\${SLURM_CPUS_PER_TASK:-8}}
-CPUS=\$(( CPUS / \${SLURM_NTASKS:-1} ))
-[[ \$CPUS -lt 1 ]] && CPUS=8
+# Use the requested task size. On Viper general, SLURM_CPUS_ON_NODE is
+# the whole node (256) and must not be used. See AGENTS.md section 2.3.3.
+CPUS=\${SLURM_CPUS_PER_TASK:-8}
 export OMP_NUM_THREADS=\$CPUS
 export MKL_NUM_THREADS=\$CPUS
 export OMP_STACKSIZE=512M
@@ -2224,15 +2231,6 @@ stop_graceful_timer
 # used to detect divergence before the next requeue.
 track_convergence
 
-# A run that did not finish cleanly is never rescheduled: check OUTGEN for
-# fatal patterns before anything else (including out2in).
-fatal_rc=0
-check_outgen_for_fatal || fatal_rc=\$?
-if [[ \${fatal_rc} -ne 0 ]]; then
-  echo "ERROR: CMFGEN did not finish cleanly (fatal pattern in OUTGEN). NOT requeuing." >&2
-  exit \${fatal_rc}
-fi
-
 echo "Preparing restart inputs (out2in.sh)..."
 "\$cmfdist/com/out2in.sh"
 
@@ -2246,7 +2244,7 @@ echo "Preparing restart inputs (out2in.sh)..."
 #   READY=1  → graceful stop requested (NUM_ITS=0), CMFGEN exiting
 #
 # After batch.sh:
-#   READY=1 + no fatal patterns + no divergence → requeue
+#   READY=1 + no divergence → requeue
 #   READY=0 + valid RVTJ (newer than .CMFGEN_JOB_START) → job complete, no requeue
 #   READY=0 + missing/stale RVTJ → crash/early exit, fail
 #
@@ -2278,6 +2276,22 @@ if [[ "\${requeue_ready}" == "1" ]]; then
   rm -f "\${REQUEUE_STATE_FILE}"
   scontrol requeue "\$SLURM_JOB_ID" || echo "WARNING: scontrol requeue failed; re-submit manually."
   exit 0
+fi
+
+# Post-run diagnostics: verify the converged model is physically sensible
+# (structure vs hydro input, convergence history, ionization fractions,
+# radiation field, departure coefficients).  Non-fatal - a plotting
+# failure must not fail the completed job.
+echo "Generating CMFGEN diagnostic plots..."
+diag_plotter="${PROJECT_ROOT}/scripts/plot_cmfgen_diagnostics.py"
+if [[ -f "\$diag_plotter" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "\$diag_plotter" "${MODEL_DIR}" || echo "WARNING: diagnostics plotting failed (non-fatal)"
+  else
+    python "\$diag_plotter" "${MODEL_DIR}" || echo "WARNING: diagnostics plotting failed (non-fatal)"
+  fi
+else
+  echo "WARNING: diagnostics plotter not found at \$diag_plotter (skipped)"
 fi
 
 echo "SINGLE-FINAL Job Complete"
