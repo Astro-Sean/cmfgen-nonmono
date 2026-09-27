@@ -10,8 +10,32 @@
 # cmfdist = CMFGEN install (exe, lib, com); set here if not already set (e.g. by run_cmfgen_*.slurm)
 #
 
-if ( ! $?cmfdist ) setenv cmfdist /viper/ptmp1/sbrennan/SN2024pba/cmfgen_source
-if ( ! $?ATOMIC ) setenv ATOMIC /u/sbrennan/atomic
+if ( ! $?cmfdist ) then
+  set _hn = `hostname`
+  if ( "$_hn" =~ raven* || "$_hn" =~ rav* ) then
+    setenv cmfdist /raven/ptmp/sbrennan/SN2024pba/cmfgen_nonmono_dev_V4
+  else
+    setenv cmfdist /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V4
+  endif
+endif
+if ( ! $?ATOMIC ) then
+  set _hn = `hostname`
+  if ( "$_hn" =~ raven* || "$_hn" =~ rav* ) then
+    setenv ATOMIC /raven/ptmp/sbrennan/atomic
+  else
+    setenv ATOMIC /viper/u1/sbrennan/atomic
+  endif
+endif
+# PROJECT_DIR: the SN2024pba repository root on the local cluster.
+# Used for custom atomic data files that live in the repo's atomic/ directory.
+if ( ! $?PROJECT_DIR ) then
+  set _hn = `hostname`
+  if ( "$_hn" =~ raven* || "$_hn" =~ rav* ) then
+    setenv PROJECT_DIR /raven/ptmp/sbrennan/SN2024pba
+  else
+    setenv PROJECT_DIR /viper/ptmp1/sbrennan/SN2024pba
+  endif
+endif
 setenv CMFGEN_PROG   $cmfdist/exe/cmfgen_dev.exe
 
 
@@ -23,13 +47,28 @@ set DEFAULT_THREADS = 4
 # ***********************************************************************
 # Set OMP_NUM_THREADS based on Slurm or default
 # ***********************************************************************
+# Honour the requested task size. On Viper general, SLURM_CPUS_ON_NODE
+# is the whole node (256) and must not be used. See AGENTS.md §2.3.3.
 if ( $?SLURM_CPUS_PER_TASK ) then
-  # If Slurm is available, use the number of CPUs per task
   setenv OMP_NUM_THREADS $SLURM_CPUS_PER_TASK
-  echo "Using $SLURM_CPUS_PER_TASK OpenMP threads (from Slurm)"
+  setenv MKL_NUM_THREADS $SLURM_CPUS_PER_TASK
+  echo "Using $SLURM_CPUS_PER_TASK OpenMP threads (requested; node has ${SLURM_CPUS_ON_NODE})"
+else if ( $?SLURM_CPUS_ON_NODE ) then
+  if ( $?SLURM_NTASKS && "$SLURM_NTASKS" != "" ) then
+    @ EFFECTIVE_CPUS = $SLURM_CPUS_ON_NODE / $SLURM_NTASKS
+  else
+    @ EFFECTIVE_CPUS = $SLURM_CPUS_ON_NODE
+  endif
+  if ( $EFFECTIVE_CPUS < 1 ) then
+    @ EFFECTIVE_CPUS = $DEFAULT_THREADS
+  endif
+  setenv OMP_NUM_THREADS $EFFECTIVE_CPUS
+  setenv MKL_NUM_THREADS $EFFECTIVE_CPUS
+  echo "Using $EFFECTIVE_CPUS OpenMP threads (allocated=$SLURM_CPUS_ON_NODE / ntasks=$SLURM_NTASKS)"
 else
   # Default to DEFAULT_THREADS if Slurm is not available
   setenv OMP_NUM_THREADS $DEFAULT_THREADS
+  setenv MKL_NUM_THREADS $DEFAULT_THREADS
   echo "Slurm not detected; defaulting to $DEFAULT_THREADS OpenMP thread(s)"
 endif
 #
@@ -103,7 +142,7 @@ else
  ln -sf  $ATOMIC/CARB/II/19apr23/phot_data_B              PHOTC2_B
  ln -sf  $ATOMIC/CARB/II/19apr23/osc_data                 C2_F_OSCDAT
  ln -sf  $ATOMIC/CARB/II/19apr23/col_data                 C2_COL_DATA
- ln -sf  /viper/ptmp1/sbrennan/SN2024pba/atomic/C2_f_to_s_no_2p3               C2_F_TO_S
+ ln -sf  $PROJECT_DIR/atomic/C2_f_to_s_no_2p3               C2_F_TO_S
  ln -sf  $ATOMIC/CARB/II/19apr23/auto_data                C2_AUTO_DATA
 
 #  ln -sf  $ATOMIC/CARB/IV/5dec96/civphot_a12.dat            PHOTCIV_A
@@ -295,7 +334,7 @@ else
  
 # Si II (Sk2) - Type IIn: auto_data required for levels above ionization limit
  ln -sf  $ATOMIC/SIL/II/19apr23/osc_data                   Sk2_F_OSCDAT
- ln -sf  /viper/ptmp1/sbrennan/SN2024pba/atomic/Sk2_f_to_s_no_3s3p2  Sk2_F_TO_S
+ ln -sf  $PROJECT_DIR/atomic/Sk2_f_to_s_no_3s3p2  Sk2_F_TO_S
  ln -sf  $ATOMIC/SIL/II/19apr23/phot_data_A                PHOTSk2_A
  ln -sf  $ATOMIC/SIL/II/19apr23/phot_data_B                PHOTSk2_B
  ln -sf  $ATOMIC/SIL/II/19apr23/col_data                   Sk2_COL_DATA
@@ -466,7 +505,7 @@ else
  ln -sf  $ATOMIC/CA/II/19apr23/osc_data                   Ca2_F_OSCDAT
  ln -sf  $ATOMIC/CA/II/19apr23/f_to_s_sm                  Ca2_F_TO_S
  ln -sf  $ATOMIC/CA/II/19apr23/phot_data_A                PHOTCa2_A
- ln -sf  /viper/ptmp1/sbrennan/SN2024pba/cmfgen_base/ca2_col_data_filtered  Ca2_COL_DATA
+ ln -sf  $PROJECT_DIR/cmfgen_base/ca2_col_data_filtered  Ca2_COL_DATA
 
  ln -sf  $ATOMIC/CA/III/19apr23/phot_data_A               PHOTCaIII_A
  ln -sf  $ATOMIC/CA/III/19apr23/osc_data                  CaIII_F_OSCDAT

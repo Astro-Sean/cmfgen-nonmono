@@ -1,7 +1,7 @@
 """CMFGEN source audit module.
 
 Encapsulates the findings from the local modified-CMFGEN source audit
-(see docs/grid_mapping_audit/01_cmfgen_source_audit.md for the full audit).
+(see audits/grid_mapping_audit/01_cmfgen_source_audit.md for the full audit).
 
 This module provides programmatic access to the audit findings so that
 the grid mapping code can verify compatibility with the local solver.
@@ -98,7 +98,7 @@ class SolverAuditFindings:
     source_tree_path: str = "/viper/ptmp1/sbrennan/SN2024pba/cmfgen_source"
 
     # Audit document path
-    audit_doc_path: str = "docs/grid_mapping_audit/01_cmfgen_source_audit.md"
+    audit_doc_path: str = "audits/grid_mapping_audit/01_cmfgen_source_audit.md"
 
 
 def get_audit_findings() -> SolverAuditFindings:

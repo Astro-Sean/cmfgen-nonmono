@@ -58,8 +58,6 @@ Usage (standalone)::
 
 It is also callable as a library function ``run_tau_amr()`` and is wired into
 ``convert_stella_swd_to_cmfgen.py`` via ``--base-grid-method tau_amr_recursive``.
-
-Author: Devin (Cognition) for the SN2024pba project.
 """
 
 from __future__ import annotations

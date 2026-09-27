@@ -129,6 +129,11 @@ cmfgen:
   non_mono_mode: KNOP
   do_gt_auto: false
   proxy_populations: true
+  # A-priori MODEL_SPEC pruning: prune_stalled_levels.py --prior runs
+  # after SN_HYDRO_DATA is ready and before submission, trimming
+  # Boltzmann-dead, non-line-forming tail superlevels that otherwise
+  # pin MAXCH at the per-depth SCALE cap (e.g. O II 2s2p4 SL4/SL5).
+  prune_model_spec: true
   vadat_overrides:
     LSTAR: 0.0D0
     VTURB: 20.0D0
@@ -158,16 +163,23 @@ cmfgen:
     N_OB_INS: 0
     N_IB_INS: 0
     REV_RGRID: F
-    # FIX_NE=T test (19-Sep-2026): the unclipped run diverged at it9
-    # with var 194 (electron density) the worst residual at nearly
-    # every depth. Pin Ne to the hydro estimate to isolate whether the
-    # Ne/charge-conservation equation is the divergence driver.
-    FIX_NE: T
+    # FIX_NE=F (project default, 25-Sep-2026): Ne solved from charge
+    # conservation. The 19-Sep FIX_NE=T test pinned Ne to isolate the
+    # it9 divergence driver (var 194, electron density); test concluded.
+    FIX_NE: F
     # Stall fix (18-Sep-2026): FIX_BA=15 + N_FIX_BA=0 froze the Jacobian
-    # permanently once MAXCH<15% — the M15 runs plateaued at ~0.357.
-    # N_FIX_BA=10 gives periodic BA refreshes; FIX_BA=1 delays freezing.
-    FIX_BA: 1.0D0
-    N_FIX_BA: 10
+    # permanently once MAXCH<15% -- the M15 runs plateaued at ~0.357.
+    # N_FIX_BA=10 gave an 11-iteration stale-Jacobian window in which the
+    # DEC channel diverged (17%->49% at the d30 ionization front) until the
+    # next refresh. N_FIX_BA=2 refreshes every 3rd iteration (the manual's
+    # recommended value); the BA build is cheap relative to the ~650 s
+    # Knop I_NEXT refresh that dominates each iteration.
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+    # EPS_TERM=1e-2 requires MAXCH<0.01% -- unreachable while the lagged
+    # Knop field carries a ~2e-2 residual at |Q|->1 compression cells.
+    # 1.0 terminates at the stated <1% target.
+    EPS_TERM: 1.0D0
     # Deliberately NO LAM_SCALE_OPT=LIMIT (user directive 18-Sep-2026):
     # the correction clip only masks divergence. If the model diverges,
     # the cause is elsewhere (J at reversal depths, boundary sigma,

@@ -323,8 +323,8 @@ cmfgen:
     OB_RAT: "1.0D0"
     STOP_IF_BP: "F"
     THK_CONT: "F"          # Thin outer boundary (tau_outer ~ 1e-5; VEL_LAW=12 defaults to T which is wrong here)
-    MAX_LAM: "1.5D0"       # 50% per iter — prevents J-population cascade (2.0 caused divergence at iter 16)
-    MAX_LIN: "1.0D1"       # 10 for linearization
+    MAX_LAM: 1.0D10       # user directive 15-Sep-2026 (was 1.5 — J-cascade history: 2.0 diverged at iter 16; watch)
+    MAX_LIN: 5.0D0       # 20 for linearization
     # Diffusion inner boundary: inject LSTAR at inner boundary via DBB.
     # With cmfgen_tau_max=100, the Rosseland tau at the inner boundary is >50,
     # satisfying the diffusion approximation validity requirement.

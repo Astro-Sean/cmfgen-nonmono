@@ -1022,7 +1022,8 @@ def write_dat(fname: str, model_name: str, target_days: float,
               wacc_r: float = 1.0, wacc_v: float = 1.0, wacc_t: float = 0.5, wacc_rad: float = 1.0,
               temp_floor: float = 0.03, floor_rad: float = 0.01, iout: int = 10,
               aq: float = 2.0, bq: float = 1.0,
-              amni: float = 0.0, xmni: float = 0.0):
+              amni: float = 0.0, xmni: float = 0.0,
+              tcura_days: float = 0.0):
     """Write STELLA run/strad/*.dat control file for model_name.
 
     explosion_age_days: age of the SN at start of the .hyd profile (days since explosion).
@@ -1039,12 +1040,13 @@ def write_dat(fname: str, model_name: str, target_days: float,
     wacc_v: Wacc(V) - velocity accuracy weight (default: 1.0).
     wacc_t: Wacc(T) - temperature accuracy weight (default: 0.5 for stability).
     wacc_rad: Wacc(RADIAT) - radiation accuracy weight (default: 1.0).
-    temp_floor: FLOOR(T) - minimum gas temperature in 10^4 K units (default: 0.03 = 300 K, STELLA reference).
-    floor_rad: FLOOR(RADIAT) - minimum radiation temperature in 10^4 K units (default: 0.01 = 100 K).
+    temp_floor: FLOOR(T) - minimum gas temperature in 10^5 K units (default: 0.03 = 3000 K, STELLA UTP=1e5).
+    floor_rad: FLOOR(RADIAT) - minimum radiation temperature in 10^5 K units (default: 0.01 = 1000 K).
     iout: output frequency (1=every timestep, 10=every 10 timesteps, 0=full zone data).
     TcurA/TcurB in STELLA .dat are in real days; STELLA stops when t*UTIME >= TcurB*86400.
     """
-    t_start = 0.0  # Always start at t=0 (explosion time), CSM structure is pre-expansion
+    t_start = 0.0  # Epoch axis stays anchored to explosion time
+    tcura = tcura_days  # TcurA: STELLA clock value at run start (days)
     t_end = target_days  # Stop at target_days after explosion
 
     # Generate output epochs in absolute days, spaced from t_start to t_end
@@ -1075,7 +1077,7 @@ def write_dat(fname: str, model_name: str, target_days: float,
         f.write(f"   METH  ADAMS(1)-GEAR(2)-GEAR+BGH(3)   JSTART  (0-START_ELSE_ORDER) MAXORD KNadap\n")
         f.write(f"    {meth}                        0                            4        -4\n")
         f.write(f"   abs(NSTA)>abs(NSTB)=>reads last   TcurA     TcurB\n")
-        f.write(f"   -9000     -1                      {t_start:.4f}   {t_end:.4f}\n")
+        f.write(f"   -9000     -1                      {tcura:.4f}   {t_end:.4f}\n")
         f.write(f"   NSTMAX  NDebug  NOUT    IOUT (0 -full <0 print zones)   MBATCH\n")
         # NOUT controls how often PRIBAL writes .swd in the main loop (every NOUT steps).
         # Must be < 200 to avoid per-step PRIBAL calls (stradsep5tt.f:640 IF(NOUT>=200) block),
@@ -1099,7 +1101,7 @@ def write_dat(fname: str, model_name: str, target_days: float,
         givdtl_flag = "T" if givdtl else "F"
         f.write(f"   THRMAT   CRAP     CONV     EDTM     CHNCND  Givdtl\n")
         f.write(f"   1.D-30   1.D0     {conv_flag}        T        T       {givdtl_flag}\n")
-        # Temperature floor in 10^4 K units, written as Fortran D-format
+        # Temperature floor in 10^5 K units (STELLA UTP=1e5 K), written as Fortran D-format
         temp_floor_str = f"{temp_floor:.2g}D+00"
 
         f.write(f"   FLOOR(R) FLOOR(V) FLOOR(T) FLOOR(RADIAT)    FLOOR(UCONV)\n")
@@ -1126,6 +1128,8 @@ def main():
     parser.add_argument('--nzon', type=int, default=500, help='Target Lagrangian zone count (default: 500)')
     parser.add_argument('--nzon-max', type=int, default=500)
     parser.add_argument('--t-start', type=float, default=0.0, help='Start time in seconds')
+    parser.add_argument('--tcura-days', type=float, default=0.0,
+                        help='TcurA: STELLA clock start time in days (default: 0.0)')
     parser.add_argument('--mass-cut', type=float, default=0.0, help='Core mass in Msun')
     parser.add_argument('--rcen', type=float, default=None, help='Inner boundary radius (cm)')
     parser.add_argument('--rho-cen', type=float, default=None, help='Central density (g/cc)')
@@ -1228,9 +1232,9 @@ def main():
     parser.add_argument('--wacc-rad', type=float, default=1.0,
                         help='Wacc(RADIAT) - radiation accuracy weight (default: 1.0)')
     parser.add_argument('--temp-floor', type=float, default=0.03,
-                        help='FLOOR(T) - minimum temperature in 10^4 K units (default: 0.03 = 300 K, STELLA reference)')
+                        help='FLOOR(T) - minimum temperature in 10^5 K units (default: 0.03 = 3000 K, STELLA UTP=1e5)')
     parser.add_argument('--floor-rad', type=float, default=0.01,
-                        help='FLOOR(RADIAT) - minimum radiation temperature in 10^4 K units (default: 0.01 = 100 K)')
+                        help='FLOOR(RADIAT) - minimum radiation temperature in 10^5 K units (default: 0.01 = 1000 K)')
     args = parser.parse_args()
 
     nzon = min(args.nzon, args.nzon_max)
@@ -1502,7 +1506,8 @@ def main():
               temp_floor=args.temp_floor, floor_rad=args.floor_rad, iout=args.iout,
               nout=args.nout,
               aq=args.aq, bq=args.bq,
-              amni=args.amni, xmni=args.xmni)
+              amni=args.amni, xmni=args.xmni,
+              tcura_days=args.tcura_days)
 
     # -------------------------------------------------------
     # Final step: plot the generated .hyd profile for verification

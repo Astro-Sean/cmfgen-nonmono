@@ -145,7 +145,7 @@ _PREFIX_TO_LABEL = {
     'Ne': 'NEON', 'F': 'FLUO',
     'Na': 'SOD', 'Mg': 'MASS', 'Al': 'ALUM', 'Sk': 'SIL', 'Si': 'SIL',
     'P': 'PHOS', 'S': 'SULF', 'Cl': 'CHLO', 'Ar': 'ARGO', 'K': 'POTA',
-    'Ca': 'CAL', 'Sc': 'SCAN', 'Ti': 'TITA', 'V': 'VANA', 'Cr': 'CHRO',
+    'Ca': 'CAL', 'Sc': 'SCAN', 'Ti': 'TITA', 'Tk': 'TITA', 'V': 'VANA', 'Cr': 'CHRO',
     'Mn': 'MANG', 'Fe': 'IRON', 'Co': 'COBA', 'Ni': 'NICK', 'Cu': 'COPP',
     'Zn': 'ZINC',
 }
@@ -154,6 +154,7 @@ _PREFIX_TO_LABEL = {
 _ION_SUFFIX = {
     'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
     'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
+    'SIX': 6, 'SEV': 7,
     '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
     '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
 }
@@ -164,10 +165,10 @@ def parse_species_name(name):
     Handles: HI, HeI, C2, FeIII, Sk2, CaIII, NiIX, etc.
     Returns (None, None) if the name cannot be parsed.
     """
-    m = re.match(r'^([A-Z][a-z]?)([IVX]+|\d{1,2})$', name)
+    m = re.match(r'^([A-Z][a-z]?)([IVX]+|SIX|SEV|\d{1,2})$', name)
     if not m:
         # Also try one-letter + suffix (e.g. HI, OI)
-        m = re.match(r'^([A-Z])([IVX]+|\d{1,2})$', name)
+        m = re.match(r'^([A-Z])([IVX]+|SIX|SEV|\d{1,2})$', name)
     if not m:
         return None, None
     elem = m.group(1)
@@ -272,11 +273,24 @@ def parse_sn_hydro_data(filepath):
                    'SOD', 'MASS', 'ALUM', 'SIL', 'PHOS', 'SULF', 'CHLO',
                    'ARGO', 'POTA', 'CAL', 'SCAN', 'TITA', 'VANA', 'CHRO',
                    'MANG', 'IRON', 'COBA', 'NICK', 'COPP', 'ZINC',
-                   'NICK 56', 'COB 56']
+                   'NICK 56', 'COB 56',
+                   # CMFGEN DUM labels (used by the KNOP/VEL_LAW=11 path)
+                   'MAG', 'SUL', 'ARG', 'TIT', 'MAN', 'COB', 'CHL']
     for label in elem_labels:
         idx = find_section(f'{label} mass fraction')
         if idx >= 0:
             mass_fracs[label] = read_array(idx, nd)
+
+    # Alias STELLA-style labels onto CMFGEN sections (and vice versa) so the
+    # species lookups below find the mass fraction under either naming.
+    _LABEL_ALIAS = {'MASS': 'MAG', 'SULF': 'SUL', 'ARGO': 'ARG',
+                    'TITA': 'TIT', 'MANG': 'MAN', 'COBA': 'COB',
+                    'CHLO': 'CHL'}
+    for _stella, _cmf in _LABEL_ALIAS.items():
+        if _stella not in mass_fracs and _cmf in mass_fracs:
+            mass_fracs[_stella] = mass_fracs[_cmf]
+        elif _cmf not in mass_fracs and _stella in mass_fracs:
+            mass_fracs[_cmf] = mass_fracs[_stella]
 
     # Fallback for elements not in SN_HYDRO_DATA (e.g., CARB when the hydro
     # model doesn't track Carbon separately). Use a small solar-like default

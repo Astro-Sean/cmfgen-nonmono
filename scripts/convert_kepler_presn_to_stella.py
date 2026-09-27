@@ -12,10 +12,23 @@ This script:
   1. Reads the Kepler presn profile
   2. Excises the inner compact remnant (mass < mass_cut_msun)
   3. Remaps the remaining ejecta onto nzon STELLA zones (log-spaced in radius)
-  4. Zeroes the pre-collapse infall velocities (STELLA uses thermal bomb)
+  4. Zeroes the pre-collapse infall velocities (SN_A convention: the model
+     is blown up by the EBurst thermal bomb in the .dat — see below)
   5. Sets an initial temperature floor (STELLA radiation floor)
   6. Maps composition to STELLA 7-element scheme: H, He, C, O, Si, Ca, FePeak
   7. Writes .hyd, .abn, .xni, .dat, and input_profile files
+
+Explosion convention (two-event workflow):
+  This script builds the SN_A setup — the KEPLER pre-SN model is blown up
+  by the EBurst thermal bomb (--explosion-energy > 0).  Keep EKO=0:
+  EKO>0 makes STELLA overwrite the entire .hyd velocity column with a
+  triangular-in-mass profile, destroying the constructed wind velocity.
+  The --initial-velocity-energy option is a bomb-free escape hatch that
+  writes the same triangular v(m) directly into the .hyd (wind zones keep
+  their beta-law); never combine it with EBurst.
+
+  The SN_B setup is the opposite convention — an embedded shell driven by
+  its own mass and velocity (EBurst=0, EKO=0): see prepare_SN_B_model.py.
 
 Usage:
     python convert_kepler_presn_to_stella.py <presn_file> <model_name> [options]
@@ -164,7 +177,7 @@ def add_h_surface_layer(g, h_fraction, h_mass_msun, n_transition_zones=10):
     (1 - h_fraction) to maintain sum = 1.
 
     The H/He composition transition is smoothed over n_transition_zones using
-    a sigmoid function to prevent a sharp opacity jump that can trigger
+    a linear ramp to prevent a sharp opacity jump that can trigger
     radiation transport instabilities in STELLA (the solver produces negative
     luminosities and the photosphere collapses to Ncnd=1).
 
@@ -205,9 +218,9 @@ def add_h_surface_layer(g, h_fraction, h_mass_msun, n_transition_zones=10):
 
     # Smooth the H/He transition over n_transition_zones to prevent
     # a sharp opacity jump that triggers radiation transport instabilities.
-    # Instead of a step function (fH=0 below, fH=h_fraction above), use a
-    # sigmoid that transitions from 0 to h_fraction over n_transition_zones
-    # at the inner edge of the H layer.
+    # Instead of a step function (fH=0 below, fH=h_fraction above), ramp
+    # linearly from 0 to h_fraction over n_transition_zones at the inner
+    # edge of the H layer.
     h_indices = np.where(h_mask)[0]
     if n_h_zones > n_transition_zones and n_transition_zones > 0:
         transition_start = h_indices[0] - n_transition_zones
@@ -219,12 +232,11 @@ def add_h_surface_layer(g, h_fraction, h_mass_msun, n_transition_zones=10):
         h_frac_profile = np.zeros(len(r))
         h_frac_profile[h_mask] = h_fraction
 
-        # Sigmoid transition over the transition zones
+        # Linear ramp over the transition zones
         trans_idx = np.arange(transition_start, transition_end)
         if len(trans_idx) > 0:
             x = (trans_idx - transition_start) / max(transition_end - transition_start - 1, 1)
-            sigmoid = 1.0 / (1.0 + np.exp(-8.0 * (x - 0.5)))
-            h_frac_profile[trans_idx] = h_fraction * sigmoid
+            h_frac_profile[trans_idx] = h_fraction * x
 
         print(f"  H/He transition: smoothed over {n_transition_zones} zones "
               f"(zones {transition_start}-{transition_end-1})")
@@ -809,7 +821,8 @@ def reduce_surface_density(g, n_zones, rho_target, verbose=True):
 
 def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
                  T_wind_K=5000.0, h_fraction=0.7, he_fraction=0.28,
-                 density_profile='matched', power_law_index=None, verbose=True):
+                 density_profile='matched', power_law_index=None,
+                 rho_floor=1.0e-20, verbose=True):
     """Append a low-density H envelope beyond the ejecta.
 
     The envelope provides optically thick material at large radii, preventing
@@ -866,6 +879,21 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
             of radius before the profile goes to hard vacuum -- avoiding
             the immediate (td~1e-10d) crash seen with a fixed r^-2 wind
             whose slope doesn't match the ejecta's at the interface.
+        'crossover': upper envelope of the ejecta-slope extrapolation and
+            the Mdot-set 1/r² wind -- the two extrapolated profiles join
+            directly at their crossing radius (continuous density, single
+            slope break).  Replaces the deprecated 'sigmoid' (which smeared
+            the slope change over ~0.5 dex and produced light-curve kinks).
+        'accelerating': beta-law v(r) wind, rho = max(ejecta-slope
+            extrapolation, Mdot/4πr²v(r)).
+        'sigmoid': DEPRECATED alias for 'crossover'.
+    power_law_index : float or None
+        Optional override of the fitted ejecta surface slope n (used by
+        'crossover', 'extrapolate').
+    rho_floor : float
+        Minimum wind density in g/cc (default 1e-20).  Steep extrapolated
+        tails underflow below STELLA's table limits; zones below the floor
+        are clamped.
     verbose : bool
         Print diagnostics
     """
@@ -880,11 +908,21 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
 
     kappa = 0.34  # electron scattering
 
-    # Compute the wind density at the inner edge (r_ej)
+    # 'sigmoid' is deprecated: the sigmoid slope-blend around the crossover
+    # created an artificial ~0.5 dex transition region that showed up as
+    # kinks in the decay-phase light curve.  It now maps to 'crossover',
+    # which joins the two extrapolated profiles directly at r_cross.
     if density_profile == 'sigmoid':
-        # Sigmoid-blended wind: follow the ejecta's own steep power-law
-        # density profile outward until it naturally reaches the physical
-        # wind density, then sigmoid-transition to the 1/r² wind slope.
+        print("    WARNING: density_profile='sigmoid' is deprecated — using "
+              "'crossover' (direct join of the extrapolated profiles, no "
+              "sigmoid slope blend).")
+        density_profile = 'crossover'
+
+    # Compute the wind density at the inner edge (r_ej)
+    if density_profile == 'crossover':
+        # Crossover wind: extrapolate the ejecta's own steep power-law
+        # density profile outward until it meets the physical 1/r² wind
+        # set by Mdot, then switch directly to the wind profile.
         #
         # The previous 'matched' approach set rho_wind(r_ej) = rho_ej_surface,
         # which for a compact progenitor (rho_surf ~ 0.02 g/cc, r_ej ~ 1 R_sun)
@@ -896,14 +934,13 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         #   rho_ej_surf * (r/r_ej)^(-n_surf) = rho_wind_inner * (r/r_ej)^(-2)
         #   r_trans = r_ej * (rho_ej_surf / rho_wind_inner)^(1/(n_surf-2))
         #
-        # Below r_trans: use the ejecta power law (steep, n~5).
-        # Above r_trans: use the wind power law (1/r²).
-        # Around r_trans: sigmoid-blend the SLOPE from n_surf to 2 over a
-        # small width w_slope dex, smoothing the kink without creating a
-        # density jump.
-        #
-        # This keeps the density CONTINUOUS at r_ej (it follows the ejecta
-        # profile) and only transitions the SLOPE where the two profiles meet.
+        # Below r_trans: ejecta power law (steep, n~5-7).
+        # Above r_trans: wind power law (1/r²).
+        # rho(r) = max(rho_ej_ext, rho_wind): continuous at both the surface
+        # and the crossover (the profiles are equal there by construction),
+        # with a single slope break at r_trans where the physical wind
+        # takes over from the ejecta extension — a real feature of the
+        # joined profile, not an artificially smeared sigmoid transition.
 
         # Fit the local log-log slope from the last few real ejecta zones
         n_fit = min(6, len(g['r']) - 1)
@@ -930,19 +967,36 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         r_cross = r_ej * density_ratio**(1.0 / (n_surf - 2.0))
         logr_cross = np.log10(r_cross)
 
-        # Sigmoid width for slope transition: small (0.5 dex) — just enough
-        # to smooth the kink at the crossover, not to span the whole wind.
-        w_trans = 0.5  # dex
-
         if verbose:
-            print(f"    [sigmoid] fitted surface slope n = {n_surf:.2f} "
+            print(f"    [crossover] fitted surface slope n = {n_surf:.2f} "
                   f"(d ln rho/d ln r = {slope:.2f})")
-            print(f"    [sigmoid] wind density at r_ej: {rho_wind_inner:.3e} g/cc "
+            print(f"    [crossover] wind density at r_ej: {rho_wind_inner:.3e} g/cc "
                   f"(Mdot={Mdot_implied_msun_yr:.1e} Msun/yr)")
-            print(f"    [sigmoid] density contrast: {log10_ratio:.1f} dex")
-            print(f"    [sigmoid] crossover at r={r_cross:.3e} cm "
+            print(f"    [crossover] density contrast: {log10_ratio:.1f} dex")
+            print(f"    [crossover] crossover at r={r_cross:.3e} cm "
                   f"({r_cross/r_ej:.0f}x r_ej, log10(r_cross)={logr_cross:.3f})")
-            print(f"    [sigmoid] slope transition width: {w_trans:.1f} dex")
+
+    elif density_profile == 'accelerating':
+        # Accelerating beta-law wind: rho(r) = Mdot / (4 pi r^2 v(r)) with
+        # v(r) = v_wind * (1 - r_ej/r).  Because v -> 0 at the surface, the
+        # wind density formally diverges there, so it crosses the ejecta's
+        # extrapolated surface slope close to the edge.  The density profile
+        # is the upper envelope of the two:
+        #   rho(r) = max( rho_surf * (r_ej/r)^n_surf , Mdot/(4 pi r^2 v(r)) )
+        # which is continuous at the interface (both start at rho_surf) and
+        # at the crossover — no sigmoid stitching needed.  Only the slope
+        # changes at the crossover (n_surf -> ~2).
+        Mdot_implied = mdot_msun_yr * MSUN / sec_per_year  # g/s
+        Mdot_implied_msun_yr = mdot_msun_yr
+        rho_wind_inner = rho_ej_surface
+        n_fit = min(6, len(g['r']) - 1)
+        slope = np.polyfit(np.log(g['r'][-n_fit:]),
+                           np.log(g['rho'][-n_fit:]), 1)[0]
+        n_surf = np.clip(-slope, 2.5, 12.0)
+        if verbose:
+            print(f"    [accelerating] fitted surface slope n = {n_surf:.2f}")
+            print(f"    [accelerating] rho continuous at edge "
+                  f"(rho_surf = {rho_ej_surface:.3e} g/cc)")
 
     elif density_profile == 'extrapolate':
         # Fit the local log-log slope from the last few real ejecta zones
@@ -954,6 +1008,10 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         slope = np.polyfit(logr_fit, logrho_fit, 1)[0]  # d ln rho / d ln r (negative)
         n_surf = -slope
         n_surf = np.clip(n_surf, 2.5, 12.0)  # sanity bounds
+        # Same optional slope override as 'crossover' (steeper index ->
+        # less extended mass).
+        if power_law_index is not None and power_law_index > 0:
+            n_surf = float(power_law_index)
         rho_wind_inner = rho_ej_surface
         Mdot_implied = 4 * np.pi * r_ej**2 * v_wind * rho_ej_surface
         Mdot_implied_msun_yr = Mdot_implied * sec_per_year / MSUN
@@ -984,8 +1042,8 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         M_wind = Mdot_implied * (r_outer - r_ej) / v_wind
         # tau = kappa * Mdot / (4π v) * (1/r_ej - 1/r_outer)
         tau_wind = kappa * Mdot_implied / (4 * np.pi * v_wind) * (1.0/r_ej - 1.0/r_outer)
-    elif density_profile == 'sigmoid':
-        # Sigmoid wind: mass is dominated by the ejecta power-law extension
+    elif density_profile == 'crossover':
+        # Crossover wind: mass is dominated by the ejecta power-law extension
         # from r_ej to r_cross (where it meets the wind), plus the wind mass
         # from r_cross to r_outer.  The ejecta extension mass is:
         #   M_ej_ext = 4π rho_surf r_ej³ ∫₁^(r_cross/r_ej) x^(2-n_surf) dx
@@ -1002,6 +1060,12 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         tau_ej_ext = kappa * rho_ej_surface * r_ej / (n_surf - 1.0) * (1.0 - x_cross**(1.0 - n_surf))
         tau_wind_part = kappa * Mdot_implied / (4 * np.pi * v_wind) * (1.0/r_cross - 1.0/r_outer)
         tau_wind = tau_ej_ext + tau_wind_part
+    elif density_profile == 'accelerating':
+        # Steady accelerating wind: M = Mdot * t_wind (independent of v(r));
+        # tau from the terminal-velocity part of the wind.
+        M_wind = Mdot_implied * t_wind_yr * sec_per_year
+        tau_wind = kappa * Mdot_implied / (4 * np.pi * v_wind) * \
+                   (1.0/r_ej - 1.0/r_outer)
     elif density_profile == 'extrapolate':
         # Power-law rho(r) = rho_ej_surface * (r/r_ej)^-n_surf.
         # M = 4*pi*rho_surf*r_ej^3 * integral_1^(r_outer/r_ej) x^(2-n_surf) dx
@@ -1027,7 +1091,7 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         print(f"    rho at ejecta surface: {rho_ej_surface:.3e} g/cc")
         print(f"    rho at inner (wind):   {rho_wind_inner:.3e} g/cc")
         print(f"    Density contrast: {density_contrast:.1f}x")
-        if density_profile in ('matched', 'wind', 'sigmoid'):
+        if density_profile in ('matched', 'wind', 'crossover'):
             print(f"    Implied Mdot: {Mdot_implied_msun_yr:.4e} Msun/yr "
                   f"(config Mdot: {mdot_msun_yr:.4e})")
         print(f"    Wind mass (estimate): {M_wind_msun:.5f} Msun")
@@ -1036,8 +1100,8 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
     # Create envelope grid with smooth spacing transition from ejecta to wind.
     # The ejecta grid has very fine spacing (~0.006 dex/zone); the wind needs to
     # start at this spacing and gradually widen to cover the full wind extent.
-    # We use a sigmoid-based spacing function: dlogr starts at the ejecta spacing
-    # and increases to the average wind spacing over a transition region.
+    # dlogr starts at the ejecta spacing and ramps linearly (in zone index) to
+    # the average wind spacing over a transition region.
     logr_ej = np.log10(r_ej)
     logr_outer = np.log10(r_outer)
     total_wind_dex = logr_outer - logr_ej
@@ -1052,24 +1116,24 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
     # Average wind spacing if uniformly distributed
     avg_wind_spacing = total_wind_dex / n_wind_zones
 
-    # Build wind grid with sigmoid-varying spacing: start at ejecta_spacing,
-    # transition to avg_wind_spacing over the first ~30% of wind zones.
+    # Build wind grid with linearly-ramped spacing: start at ejecta_spacing,
+    # ramp to avg_wind_spacing over the first ~30% of wind zones.
     # This ensures no grid-spacing discontinuity at the ejecta-wind interface.
     n_trans = max(5, n_wind_zones // 3)  # transition over first 1/3 of wind
     logr_wind = []
     current_logr = logr_ej
     for i in range(n_wind_zones):
-        if i < n_trans:
-            # Sigmoid transition from ejecta_spacing to avg_wind_spacing
-            s = 1.0 / (1.0 + np.exp(-(i - n_trans/2) / (n_trans/6.0)))
-            spacing = ejecta_spacing * (1 - s) + avg_wind_spacing * s
-        else:
-            spacing = avg_wind_spacing
+        frac = min(1.0, i / max(n_trans - 1, 1))
+        spacing = ejecta_spacing + (avg_wind_spacing - ejecta_spacing) * frac
         current_logr += spacing
         if current_logr > logr_outer:
             current_logr = logr_outer
         logr_wind.append(current_logr)
     r_wind = 10**np.array(logr_wind)
+    if np.any(np.diff(r_wind) <= 0):
+        # Ramp overshot the outer radius before the last zone (duplicate radii
+        # would give zero-mass zones).  Fall back to uniform log-spacing.
+        r_wind = np.logspace(logr_ej, logr_outer, n_wind_zones + 1)[1:]
 
     if verbose:
         print(f"    [grid] Ejecta spacing: {ejecta_spacing:.4f} dex/zone")
@@ -1078,50 +1142,63 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
               f"(gap: {r_wind[0]/r_ej:.3f}x)")
         print(f"    [grid] Last wind zone at r={r_wind[-1]:.3e} cm")
 
+    # Wind velocity: beta=1 law v(r) = v_wind * (1 - r_ej/r).  This is the
+    # standard stellar-wind velocity profile: v -> 0 at the ejecta surface
+    # (continuous with the static ejecta, no velocity discontinuity at the
+    # interface) and v -> v_wind asymptotically at large radius.
+    # Computed before the density profile because the 'accelerating' wind
+    # density rho = Mdot/(4 pi r^2 v(r)) depends on it.
+    v_wind_arr = v_wind * (1.0 - r_ej / r_wind)
+    if verbose:
+        print(f"    [velocity] v at inner wind: {v_wind_arr[0]/1e5:.2f} km/s, "
+              f"outer: {v_wind_arr[-1]/1e5:.2f} km/s (beta=1 law)")
+
     # Envelope density profile
     if density_profile in ('matched', 'wind'):
         # 1/r² wind: rho(r) = rho_inner * (r_ej / r)²
         rho_wind = rho_wind_inner * (r_ej / r_wind)**2
-    elif density_profile == 'sigmoid':
-        # Crossover-based sigmoid: follow the ejecta power law from r_ej
-        # outward until it meets the wind power law at r_cross, then
-        # sigmoid-blend the SLOPE from n_surf to 2 around r_cross.
+    elif density_profile == 'crossover':
+        # Direct extrapolation join: extend the ejecta power law outward and
+        # the 1/r² wind inward, and take the upper envelope.
         #
         # rho_ej(r)   = rho_surface * (r_ej / r)^n_surf   [ejecta power law]
         # rho_wind(r) = Mdot / (4π r² v_wind)              [physical wind]
         #
-        # Both profiles are continuous at r_cross (they meet there).
-        # The sigmoid blends the effective slope n_eff(r):
-        #   n_eff(r) = n_surf * (1 - S) + 2 * S
-        #   S(r) = sigmoid((log10 r - log10 r_cross) / w_trans)
-        #
-        # Then: log rho(r) = log rho(r_ej) - ∫ n_eff(r') d log r'
-        # For the wind zones, this is computed numerically by cumulative
-        # integration of n_eff over log r.
-        logr_wind = np.log10(r_wind)
-        S = 1.0 / (1.0 + np.exp(-(logr_wind - logr_cross) / w_trans))
-        n_eff = n_surf * (1.0 - S) + 2.0 * S  # effective slope at each zone
-
-        # Integrate: log rho = log rho_ej(r_ej) - ∫ n_eff d(log r)
-        # Start from r_ej with the ejecta surface density
-        log_rho_start = np.log10(rho_ej_surface)
-        dlogr = np.diff(np.concatenate([[np.log10(r_ej)], logr_wind]))
-        log_rho = np.zeros(n_wind_zones)
-        current_log_rho = log_rho_start
-        for i in range(n_wind_zones):
-            current_log_rho -= n_eff[i] * dlogr[i]
-            log_rho[i] = current_log_rho
-        rho_wind = 10**log_rho
+        # The profiles are equal at r_cross by construction, so the envelope
+        # is continuous in density with a single slope break (n_surf -> 2)
+        # where the physical wind takes over.  No sigmoid stitching.
+        rho_ej_ext = rho_ej_surface * (r_ej / r_wind)**n_surf
+        rho_wind_w2 = rho_wind_inner * (r_ej / r_wind)**2
+        rho_wind = np.maximum(rho_ej_ext, rho_wind_w2)
 
         if verbose:
-            print(f"    [sigmoid] S at inner: {S[0]:.3f}, S at outer: {S[-1]:.3f}")
-            print(f"    [sigmoid] n_eff at inner: {n_eff[0]:.2f}, n_eff at outer: {n_eff[-1]:.2f}")
-            print(f"    [sigmoid] rho at inner: {rho_wind[0]:.3e} g/cc")
-            print(f"    [sigmoid] rho at crossover: ", end="")
-            # Find zone closest to r_cross
+            logr_wind = np.log10(r_wind)
             icross = np.argmin(np.abs(logr_wind - logr_cross))
-            print(f"{rho_wind[icross]:.3e} g/cc (zone {icross+1})")
-            print(f"    [sigmoid] rho at outer: {rho_wind[-1]:.3e} g/cc")
+            print(f"    [crossover] rho at inner: {rho_wind[0]:.3e} g/cc")
+            print(f"    [crossover] rho at crossover: "
+                  f"{rho_wind[icross]:.3e} g/cc (zone {icross+1})")
+            print(f"    [crossover] rho at outer: {rho_wind[-1]:.3e} g/cc")
+
+    elif density_profile == 'accelerating':
+        # rho(r) = max( ejecta slope extrapolation, Mdot/(4 pi r^2 v(r)) ).
+        # The accelerating-wind density diverges as v -> 0 at the surface,
+        # so the upper envelope continues the ejecta slope from the edge
+        # (continuous density AND slope there) until the two profiles cross,
+        # then follows the wind.  Only a slope kink at the crossover — no
+        # sigmoid stitching.
+        rho_ej_ext = rho_ej_surface * (r_ej / r_wind)**n_surf
+        rho_wind_acc = Mdot_implied / (4.0 * np.pi * r_wind**2 *
+                                     np.maximum(v_wind_arr, 1.0))
+        rho_wind = np.maximum(rho_ej_ext, rho_wind_acc)
+        if verbose:
+            cross = rho_wind_acc > rho_ej_ext
+            icross = np.argmax(cross) if cross.any() else n_wind_zones - 1
+            print(f"    [accelerating] ejecta-slope/wind crossover at "
+                  f"r={r_wind[icross]:.3e} cm "
+                  f"({r_wind[icross]/r_ej:.1f}x r_ej, zone {icross+1})")
+            print(f"    [accelerating] rho at inner: {rho_wind[0]:.3e}, "
+                  f"at crossover: {rho_wind[icross]:.3e}, "
+                  f"outer: {rho_wind[-1]:.3e} g/cc")
 
     elif density_profile == 'extrapolate':
         # rho(r) = rho_ej_surface * (r_ej / r)^n_surf -- matches value AND
@@ -1131,18 +1208,19 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         rho_wind = np.full(n_wind_zones, rho_wind_inner)
 
     # Temperature: extrapolate the ejecta's own temperature power-law slope
-    # into the wind zones, with a smooth sigmoid transition to the cold wind
-    # temperature (T_wind_K) at large radii.  This avoids the hard temperature
-    # discontinuity (T_ej ~ 3e6 K -> T_wind = 5e3 K in one zone) that causes
-    # STELLA's radiation transport solver to stall (KFLAG=-2, ifail 33) during
+    # into the wind zones, flooring at the cold wind temperature (T_wind_K)
+    # at large radii.  This avoids the hard temperature discontinuity
+    # (T_ej ~ 3e6 K -> T_wind = 5e3 K in one zone) that causes STELLA's
+    # radiation transport solver to stall (KFLAG=-2, ifail 33) during
     # shock breakout when the photosphere reaches the ejecta/wind interface.
     #
     # Following Dessart et al. (2017, A&A 609, A6): the atmospheric/wind
-    # temperature should transition smoothly from the stellar surface value
-    # using the star's own temperature gradient, not a hard jump to a fixed
-    # cold value.  We fit the local log-log temperature slope from the last
-    # few ejecta zones and extrapolate, then sigmoid-blend to T_wind_K over
-    # a transition width of ~1 dex in radius.
+    # temperature should follow the star's own temperature gradient, not a
+    # hard jump to a fixed cold value.  We fit the local log-log temperature
+    # slope from the last few ejecta zones and extrapolate; once the
+    # extrapolation falls to the wind equilibrium temperature we hold
+    # T_wind_K (single slope break where the two profiles cross — no sigmoid
+    # blend region).
     n_fit = min(6, len(g['r']) - 1)
     logr_fit = np.log(g['r'][-n_fit:])
     logT_fit = np.log(np.maximum(g['T'][-n_fit:], 1.0))
@@ -1153,15 +1231,16 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
     # Extrapolate T from the ejecta surface using the fitted slope
     T_extrap = T_ej_surface * (r_wind / r_ej)**T_slope
 
-    # Sigmoid transition from extrapolated T to cold wind T over ~2 dex
-    # Transition centered at 1.0 dex beyond r_ej (so the first few wind zones
-    # follow the ejecta T profile, then smoothly transition to T_wind_K).
-    # The wider transition (2 dex vs 1 dex) prevents a sharp temperature
-    # gradient at the ejecta/wind boundary where zone spacing doubles.
-    w_T_trans = 2.0  # dex — transition width
-    logr_T_cross = np.log10(r_ej) + 1.0  # transition center at 1.0 dex beyond r_ej
-    S_T = 1.0 / (1.0 + np.exp(-(np.log10(r_wind) - logr_T_cross) / w_T_trans))
-    T_wind = T_extrap * (1.0 - S_T) + T_wind_K * S_T
+    # Crossover to the cold wind temperature: follow the extrapolated ejecta
+    # temperature until it reaches T_wind_K, then hold the wind equilibrium
+    # value.  T_extrap decreases monotonically (T_slope < 0), so the crossing
+    # radius is analytic:
+    #   r_Tcross = r_ej * (T_ej_surface / T_wind_K)^(-1/T_slope)
+    if T_ej_surface > T_wind_K and T_slope < 0:
+        r_Tcross = r_ej * (T_ej_surface / T_wind_K)**(-1.0 / T_slope)
+    else:
+        r_Tcross = r_ej  # already at/below wind temperature
+    T_wind = np.maximum(T_extrap, T_wind_K)
 
     if verbose:
         print(f"    [T profile] fitted surface T slope: {T_slope:.2f} "
@@ -1169,10 +1248,18 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
         print(f"    [T profile] T at ejecta surface: {T_ej_surface:.3e} K")
         print(f"    [T profile] T at inner wind (extrapolated): {T_wind[0]:.3e} K")
         print(f"    [T profile] T at outer wind (cold): {T_wind[-1]:.3e} K")
-        print(f"    [T profile] sigmoid transition at {10**logr_T_cross:.3e} cm "
-              f"(width: {w_T_trans:.1f} dex)")
+        print(f"    [T profile] crossover to T_wind at {r_Tcross:.3e} cm")
 
-    v_wind_arr = np.zeros(n_wind_zones)  # stationary (bomb mode creates velocities)
+    # Density floor: STELLA cannot handle arbitrarily small densities
+    # (steep 'extrapolate' tails underflow to ~1e-36).  Clamp the wind to
+    # a physical vacuum-level floor (configurable via --wind-rho-floor /
+    # csm_wind.rho_floor in the YAML).
+    n_floored = int(np.sum(rho_wind < rho_floor))
+    if n_floored > 0:
+        rho_wind = np.maximum(rho_wind, rho_floor)
+        if verbose:
+            print(f"    [floor] {n_floored} wind zones clamped to "
+                  f"rho = {rho_floor:.1e} g/cc")
 
     # Compute actual optical depth and mass of the wind region
     r_lo = np.concatenate([[r_ej], r_wind[:-1]])
@@ -1196,10 +1283,11 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
     fFe_w = np.full(n_wind_zones, 1.0 - h_fraction - he_fraction)  # metals
     fNi56_w = np.zeros(n_wind_zones)
 
-    # For sigmoid profile: no ejecta-zone blending needed. The wind density
-    # starts at the ejecta surface value (continuous) and follows the ejecta
-    # power law until the crossover radius, then transitions to the wind.
-    # The ejecta zones keep their original densities.
+    # For the extrapolate/crossover profiles: no ejecta-zone blending needed.
+    # The wind density starts at the ejecta surface value (continuous) and
+    # follows the ejecta power law; for 'crossover' it switches to the wind
+    # power law where the two extrapolated profiles meet.  The ejecta zones
+    # keep their original densities.
 
     # Append wind zones to grid
     g['r'] = np.concatenate([g['r'], r_wind])
@@ -1222,6 +1310,47 @@ def add_csm_wind(g, n_wind_zones, mdot_msun_yr, v_wind_kms, t_wind_yr,
     return g
 
 
+# ── Initial velocity profile (kinetic explosion without EKO overwrite) ───────
+def set_initial_velocity_profile(g, energy_e50, n_wind_zones=0, ai2=0.9,
+                                 verbose=True):
+    """Imprint a triangular-in-mass initial velocity profile on g['v'].
+
+    Replicates the shape STELLA's EKO builds internally (begtt.f): velocity
+    rises linearly in enclosed mass to a peak at mass fraction ai2 of the
+    bound structure, then declines linearly to zero at the ejecta surface.
+    Normalised so the kinetic energy of the bound structure (all zones
+    except the wind) equals energy_e50 x 1e50 erg.
+
+    Unlike EKO, which overwrites the entire .hyd velocity column, the
+    constructed wind zones keep their beta-law velocity — the CSM is not
+    launched at ejecta speed.  The ramp terminates at the ejecta surface so
+    v -> 0 meets the wind's low base velocity without a jump.
+    """
+    r = g['r']; rho = g['rho']; n = len(r)
+    r_lo = np.concatenate([[r[0]], r[:-1]])
+    dm = np.maximum((4.0/3.0)*np.pi*(r**3 - r_lo**3)*rho, 0.0)
+    m_enc = np.cumsum(dm)
+    n_bound = n - n_wind_zones if n_wind_zones > 0 else n
+    M_b = m_enc[n_bound-1]
+    i2 = int(np.searchsorted(m_enc[:n_bound]/M_b, ai2))
+    tri = np.zeros(n)
+    tri[:i2+1] = m_enc[:i2+1]/m_enc[i2]
+    tri[i2+1:n_bound] = (M_b - m_enc[i2+1:n_bound])/(M_b - m_enc[i2])
+    ke = 0.5*np.sum(dm[:n_bound]*tri[:n_bound]**2)
+    tri *= np.sqrt(energy_e50*1e50/ke)
+    v_new = g['v'].copy()
+    v_new[:n_bound] = tri[:n_bound]
+    g['v'] = v_new
+    if verbose:
+        print(f"\n  [init-vel] triangular-in-mass initial velocity profile "
+              f"(EBurst=EKO=0):")
+        print(f"    KE(bound structure) = {energy_e50:.3f}e50 erg, "
+              f"peak v = {tri[i2]/1e5:.0f} km/s at zone {i2} "
+              f"(m={m_enc[i2]/MSUN:.3f} Msun)")
+        print(f"    v -> 0 at ejecta surface; wind keeps its constructed "
+              f"profile (outer edge v = {g['v'][n-1]/1e5:.1f} km/s)")
+
+
 # ── Remap onto uniform STELLA grid ───────────────────────────────────────────
 def remap_to_stella_grid(kep, mass_cut_msun, nzon, t_floor_K=3000.0, verbose=True,
                          h_surface_fraction=0.0, h_surface_mass_msun=0.0,
@@ -1232,9 +1361,10 @@ def remap_to_stella_grid(kep, mass_cut_msun, nzon, t_floor_K=3000.0, verbose=Tru
                          rho_min=0.0, n_wind_zones=0, wind_mdot=0.0,
                          wind_velocity=100.0, wind_duration_yr=1000.0,
                          wind_T_K=5000.0, wind_density_profile='uniform',
-                         wind_power_law_index=None,
+                         wind_power_law_index=None, wind_rho_floor=1.0e-20,
                          reduce_surf_n_zones=0,
-                         reduce_surf_rho_target=0.0):
+                         reduce_surf_rho_target=0.0,
+                         initial_velocity_energy=0.0):
     """Excise inner compact remnant and remap onto nzon log-spaced STELLA zones.
 
     Mass coordinates above mass_cut_msun are kept.
@@ -1319,8 +1449,9 @@ def remap_to_stella_grid(kep, mass_cut_msun, nzon, t_floor_K=3000.0, verbose=Tru
 
     rho_new = log_interp(rho_src)
     T_new   = np.maximum(log_interp(T_src), t_floor_K)
-    # Zero pre-SN infall velocities — STELLA thermal bomb sets explosion velocities
-    v_new   = np.zeros(nzon)
+    # Zero pre-SN infall velocities — explosion velocities are imposed later
+    # (EBurst thermal bomb, EKO, or --initial-velocity-energy .hyd profile)
+    v_new   = np.zeros(n_ejecta)
 
     fH_new  = interp(fH_src);  fHe_new = interp(fHe_src)
     fC_new  = interp(fC_src);  fO_new  = interp(fO_src)
@@ -1395,7 +1526,8 @@ def remap_to_stella_grid(kep, mass_cut_msun, nzon, t_floor_K=3000.0, verbose=Tru
 
     # Add CSM wind if requested ('extrapolate' mode needs no Mdot -- it
     # derives its density purely from the ejecta's own surface value/slope)
-    if n_wind_zones > 0 and (wind_mdot > 0 or wind_density_profile == 'extrapolate'):
+    if n_wind_zones > 0 and (wind_mdot > 0 or wind_density_profile
+                             in ('extrapolate', 'crossover', 'sigmoid')):
         wind_h_frac = h_surface_fraction if h_surface_fraction > 0 else 0.7
         wind_he_frac = 1.0 - wind_h_frac - 0.02  # small metals fraction
         add_csm_wind(g_out, n_wind_zones, wind_mdot, wind_velocity,
@@ -1403,7 +1535,16 @@ def remap_to_stella_grid(kep, mass_cut_msun, nzon, t_floor_K=3000.0, verbose=Tru
                      h_fraction=wind_h_frac, he_fraction=wind_he_frac,
                      density_profile=wind_density_profile,
                      power_law_index=wind_power_law_index,
+                     rho_floor=wind_rho_floor,
                      verbose=verbose)
+
+    # Imprint the initial velocity field (kinetic explosion) AFTER the wind
+    # is added so the wind zones keep their constructed beta-law velocity.
+    # Use with EBurst=0 and EKO=0 in the .dat: the .hyd carries the explosion.
+    if initial_velocity_energy > 0:
+        set_initial_velocity_profile(g_out, initial_velocity_energy,
+                                     n_wind_zones=n_wind_zones,
+                                     verbose=verbose)
 
     return g_out
 
@@ -1586,55 +1727,48 @@ def write_dat(fname, model_name, target_days,
               explosion_energy=10.0, explosion_mass=0.5, explosion_time=1.0,
               explosion_delay=0.0, initial_kinetic_energy=0.0,
               nstmax=2000000,
-              eps=0.003, hmax=5e5, meth=2,
-              wacc_t=0.5, temp_floor=0.03,
-              snapshot_interval=10.0, iout=1,
-              ni56_mass=0.075):
-    """Write STELLA *.dat control file for a Type IIb explosion."""
-    import math
+              eps=0.003, hmin=1e-14, hmax=5e5, meth=2,
+              iout=10, nout=100,
+              fit_tau=15.0, tau_tol=1.3, aq=2.0, bq=1.0,
+              enable_convection=False, disable_scattering=False, givdtl=True,
+              wacc_r=1.0, wacc_v=1.0, wacc_t=0.5, wacc_rad=1.0,
+              temp_floor=0.03, floor_rad=0.01,
+              snapshot_interval=10.0,
+              ni56_mass=0.075, ni56_dist=None,
+              custom_output_times=None):
+    """Write STELLA *.dat control file for a Type IIb explosion.
 
-    t_start = 0.0
-    t_end   = target_days
+    SN_A convention: explosion_energy (EBurst) > 0 is the thermal bomb that
+    blows up the KEPLER model; initial_kinetic_energy (EKO) stays 0 so the
+    .hyd velocity column is preserved.  initial_velocity_energy is a
+    bomb-free alternative that writes the velocity into .hyd instead —
+    it must never be combined with a nonzero EBurst.
 
-    # Output epochs (log-spaced after first few days, then linear)
-    KOMAX = 80
-    n_epochs = min(KOMAX, max(10, int(target_days / snapshot_interval)))
-    # First few days more densely sampled (shock breakout), then uniform
-    early = [0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 20.0]
-    late  = np.linspace(30.0, target_days, n_epochs - len(early)).tolist()
-    epochs = sorted(set(early + late))[:KOMAX]
-
-    with open(fname, 'w') as f:
-        f.write(f"   EPS   (STIFF ACCURACY)   HMIN (MIN.STEP(SEC)) HMAX (MAX.STEP(SEC))\n")
-        f.write(f"   {eps:.4g}                    1e-14               {hmax:.4g}\n")
-        f.write(f"   METH  ADAMS(1)-GEAR(2)-GEAR+BGH(3)   JSTART  (0-START_ELSE_ORDER) MAXORD KNadap\n")
-        f.write(f"    {meth}                        0                            4        -4\n")
-        f.write(f"   abs(NSTA)>abs(NSTB)=>reads last   TcurA     TcurB\n")
-        f.write(f"   -9000     -1                      {t_start:.4f}   {t_end:.4f}\n")
-        f.write(f"   NSTMAX  NDebug  NOUT    IOUT (0 -full <0 print zones)   MBATCH\n")
-        f.write(f"   {nstmax}   100000  {len(epochs)}      {iout}                             900\n")
-        f.write(f"   AMNI (CONTAM. MASS)     XMNI (56NI MASS)\n")
-        f.write(f"   {explosion_mass:.4g}D0                  {ni56_mass:.4g}D0\n")
-        f.write(f"   AMHT(Solar)  EBurst(1e50) tBurst(s)  tstart -- Heated Core, Energy & time\n")
-        f.write(f"   {explosion_mass:.4g}d0      {explosion_energy:.4g}d0      {explosion_time:.4g}d0      {explosion_delay:.4g}d0\n")
-        f.write(f"   EKO (kin.energy,1e50) mass fract.tri. u profile  us (out +1)\n")
-        # EKO>0: STELLA creates triangular velocity profile scaled to EKO kinetic energy.
-        # EKO=0: STELLA preserves .hyd velocities (which are 0 for KEPLER pre-SN models).
-        f.write(f"   {initial_kinetic_energy:.4g}d0                      0.d0  9.d-1  1.d0          +1.\n")
-        f.write(f"   THRMAT   CRAP     CONV     EDTM     CHNCND  Givdtl\n")
-        f.write(f"   1.D-30   1.D0     F        T        T       T\n")
-        f.write(f"   FLOOR(R) FLOOR(V) FLOOR(T) FLOOR(RADIAT)    FLOOR(UCONV)\n")
-        f.write(f"   1.D-12   1.D-03   {temp_floor:.3g}D+00   1.D-02           1.D-04\n")
-        f.write(f"   Wacc(R)  Wacc(V)  Wacc(T)  Wacc(RADIAT)\n")
-        f.write(f"   1d-0    1d-0    {wacc_t:.2g}D-00   1D-00\n")
-        f.write(f"   FitTau   TAUTOL   Rvis   AQ    BQ       DRT     NRT     SCAT\n")
-        f.write(f"   15.0D0   1.1D0     1.D0   2.D0  1.D+00   1.      1       T\n")
-        f.write(f"    NTO then    DATA TO\n")
-        f.write(f"    {len(epochs)}\n")
-        for ep in epochs:
-            f.write(f"     {ep:.4f}\n")
-
-    print(f"Written {fname}  ({len(epochs)} output epochs, target={target_days} days)")
+    Delegates to convert_profile_to_stella.write_dat so the .dat carries the
+    full resolved parameter set (single source of truth for the .dat format).
+    AMNI (Ni56 contamination mass) is set to ni56_dist if given, else
+    explosion_mass — matching the historical behaviour of this writer.
+    """
+    from convert_profile_to_stella import write_dat as _write_dat
+    _write_dat(fname, model_name, target_days,
+               nout=nout,
+               snapshot_interval_days=snapshot_interval,
+               explosion_energy=explosion_energy,
+               explosion_mass=explosion_mass,
+               explosion_time=explosion_time,
+               explosion_delay=explosion_delay,
+               initial_kinetic_energy=initial_kinetic_energy,
+               nstmax=nstmax,
+               disable_scattering=disable_scattering,
+               eps=eps, hmin=hmin, hmax=hmax, meth=meth,
+               enable_convection=enable_convection,
+               fit_tau=fit_tau, tau_tol=tau_tol,
+               givdtl=givdtl, custom_output_times=custom_output_times,
+               wacc_r=wacc_r, wacc_v=wacc_v, wacc_t=wacc_t, wacc_rad=wacc_rad,
+               temp_floor=temp_floor, floor_rad=floor_rad,
+               iout=iout, aq=aq, bq=bq,
+               amni=ni56_dist if ni56_dist is not None else explosion_mass,
+               xmni=ni56_mass)
     print(f"  Explosion: EBurst={explosion_energy}e50 erg, AMHT={explosion_mass} Msun, "
           f"tBurst={explosion_time} s")
 
@@ -1652,20 +1786,72 @@ def main():
     parser.add_argument('--target-days',  type=float, default=400.0,
                         help='Simulation duration in days (default: 400)')
     parser.add_argument('--explosion-energy', type=float, default=10.0,
-                        help='EBurst in units of 1e50 erg (default: 10 = 1e51 erg)')
+                        help='EBurst in units of 1e50 erg (default: 10 = 1e51 erg). '
+                             'SN_A convention: this thermal bomb blows up the '
+                             'KEPLER model. Keep >0 for SN_A; the SN_B '
+                             'embedded-shell path (prepare_SN_B_model.py) uses 0.')
     parser.add_argument('--explosion-mass',   type=float, default=0.5,
                         help='AMHT heated core mass in Msun (default: 0.5)')
     parser.add_argument('--explosion-time',   type=float, default=1.0,
                         help='tBurst energy injection duration in seconds (default: 1)')
     parser.add_argument('--initial-kinetic-energy', type=float, default=0.0,
                         help='EKO in units of 1e50 erg (default: 0 = preserve .hyd velocities). '
-                             'EKO>0 creates a triangular velocity profile scaled to EKO. '
-                             'For KEPLER pre-SN models (.hyd v=0), set EKO>0 to create the explosion '
-                             'velocity profile. Total energy = EKO + EBurst.')
+                             'KEEP 0 for SN_A: EKO>0 makes STELLA overwrite the whole .hyd '
+                             'velocity column (including the constructed wind) with a '
+                             'triangular-in-mass profile. Total energy = EKO + EBurst.')
+    parser.add_argument('--initial-velocity-energy', type=float, default=0.0,
+                        help='Bomb-free escape hatch: writes a triangular-in-mass '
+                             'initial velocity profile into the .hyd carrying this '
+                             'much KE (1e50 erg); wind zones keep their constructed '
+                             'velocity. Requires --explosion-energy 0 and '
+                             '--initial-kinetic-energy 0 — never combine with EBurst.')
     parser.add_argument('--ni56-mass',    type=float, default=0.1,
                         help='Total Ni56 mass in Msun (default: 0.1)')
     parser.add_argument('--ni56-dist',    type=float, default=0.2,
                         help='Ejecta mass (Msun) over which Ni56 is distributed (default: 0.2)')
+    # ── .dat solver/control parameters (forwarded to the full-parameter
+    #    write_dat in convert_profile_to_stella.py) ──
+    parser.add_argument('--explosion-delay', type=float, default=0.0,
+                        help='tstart / explosion delay in days (default: 0)')
+    parser.add_argument('--snapshot-interval', type=float, default=5.0,
+                        help='Days between .swd snapshot epochs (default: 5)')
+    parser.add_argument('--custom-output-times', type=str, default=None,
+                        help='Comma-separated list of output epochs (days); overrides '
+                             '--snapshot-interval epoch generation')
+    parser.add_argument('--nstmax',       type=int,   default=2000000,
+                        help='NSTMAX max timesteps (default: 2000000)')
+    parser.add_argument('--eps',          type=float, default=0.003,
+                        help='EPS stiff-solver accuracy (default: 0.003)')
+    parser.add_argument('--hmin',         type=float, default=1e-14,
+                        help='HMIN min timestep in s (default: 1e-14)')
+    parser.add_argument('--hmax',         type=float, default=5e5,
+                        help='HMAX max timestep in s (default: 5e5)')
+    parser.add_argument('--meth',         type=int,   default=2,
+                        help='Integrator: 1=Adams, 2=GEAR, 3=GEAR+BGH (default: 2)')
+    parser.add_argument('--iout',         type=int,   default=10,
+                        help='IOUT output frequency (default: 10)')
+    parser.add_argument('--nout',         type=int,   default=100,
+                        help='NOUT .swd write cadence in steps (default: 100; must be <200)')
+    parser.add_argument('--fit-tau',      type=float, default=15.0,
+                        help='FitTau parameter for radiation transport (default: 15.0)')
+    parser.add_argument('--tau-tol',      type=float, default=1.3,
+                        help='TAUTOL parameter (default: 1.3)')
+    parser.add_argument('--aq',           type=float, default=2.0,
+                        help='AQ artificial viscosity (default: 2.0; higher for shocks)')
+    parser.add_argument('--bq',           type=float, default=1.0,
+                        help='BQ artificial viscosity (default: 1.0)')
+    parser.add_argument('--wacc-r',       type=float, default=1.0)
+    parser.add_argument('--wacc-v',       type=float, default=1.0)
+    parser.add_argument('--wacc-t',       type=float, default=0.5)
+    parser.add_argument('--wacc-rad',     type=float, default=1.0)
+    parser.add_argument('--temp-floor',   type=float, default=0.03,
+                        help='FLOOR(T) in 1e5 K units (default: 0.03 = 3000 K)')
+    parser.add_argument('--floor-rad',    type=float, default=0.01,
+                        help='FLOOR(RADIAT) in 1e5 K units (default: 0.01 = 1000 K)')
+    parser.add_argument('--enable-convection', action='store_true', default=False)
+    parser.add_argument('--disable-scattering', action='store_true', default=False)
+    parser.add_argument('--no-givdtl',    dest='givdtl', action='store_false', default=True,
+                        help='Disable Givdtl (default: enabled)')
     parser.add_argument('--t-floor',      type=float, default=3000.0,
                         help='Initial temperature floor in K (default: 3000)')
     parser.add_argument('--h-surface-fraction', type=float, default=0.0,
@@ -1720,17 +1906,30 @@ def main():
     parser.add_argument('--wind-T',       type=float, default=5000.0,
                         help='Wind temperature in K (default: 5000).')
     parser.add_argument('--wind-density-profile', type=str, default='matched',
-                        help="Density profile: 'matched' (default, 1/r² wind "
+                        help="Density profile: 'accelerating' (beta-law v(r) wind, "
+                             "rho=max(ejecta-slope extrapolation, Mdot/4pir^2v) — "
+                             "continuous at edge), "
+                             "'crossover' (upper envelope of ejecta-slope "
+                             "extrapolation and the Mdot-set 1/r² wind — the "
+                             "profiles join directly at their crossing radius; "
+                             "replaces the deprecated 'sigmoid'), "
+                             "'matched' (default, 1/r² wind "
                              "starting at ejecta surface density), 'wind' (1/r² "
                              "with density from Mdot), 'uniform', or 'extrapolate' "
                              "(power-law extension matching the ejecta's own "
                              "local density slope -- no gradient kink; does not "
                              "require --wind-mdot).")
     parser.add_argument('--wind-power-law-index', type=float, default=None,
-                        help='Override the fitted ejecta surface slope for sigmoid '
-                             'profile. Steeper index (e.g. 12-15) reduces CSM mass '
-                             'and minimizes early-time interaction bump. '
+                        help='Override the fitted ejecta surface slope for '
+                             'crossover/extrapolate profiles. Steeper index '
+                             '(e.g. 12-15) reduces CSM mass and minimizes '
+                             'early-time interaction bump. '
                              'Default: None (use fitted slope ~6.5).')
+    parser.add_argument('--wind-rho-floor', type=float, default=1.0e-20,
+                        help='Minimum wind density in g/cc (default: 1e-20). '
+                             'Steep extrapolated tails can underflow below '
+                             'STELLA table limits; zones below the floor are '
+                             'clamped. Set 0 to disable.')
     parser.add_argument('--reduce-surf-zones', type=int, default=0,
                         help='Number of outermost ejecta zones to reduce density (default: 0). '
                              'Creates a smoother surface profile to help the radiation solver.')
@@ -1785,7 +1984,8 @@ def main():
     kep = read_kepler_presn(args.presn_file)
 
     # 2. Remap onto STELLA grid
-    n_wind = args.wind_zones if (args.wind_mdot > 0 or args.wind_density_profile == 'extrapolate') else 0
+    n_wind = args.wind_zones if (args.wind_mdot > 0 or args.wind_density_profile
+                               in ('extrapolate', 'crossover', 'sigmoid')) else 0
     n_ejecta = args.nzon - n_wind
     print(f"\n=== Remapping onto {args.nzon} STELLA zones ({n_ejecta} ejecta + {n_wind} wind) ===")
     g = remap_to_stella_grid(kep, args.mass_cut, args.nzon,
@@ -1808,8 +2008,10 @@ def main():
                              wind_T_K=args.wind_T,
                              wind_density_profile=args.wind_density_profile,
                              wind_power_law_index=args.wind_power_law_index,
+                             wind_rho_floor=args.wind_rho_floor,
                              reduce_surf_n_zones=args.reduce_surf_zones,
-                             reduce_surf_rho_target=args.reduce_surf_rho)
+                             reduce_surf_rho_target=args.reduce_surf_rho,
+                             initial_velocity_energy=args.initial_velocity_energy)
 
     # 2b. Smooth steepest gradients if requested
     if args.smooth_profile:
@@ -1861,12 +2063,28 @@ def main():
     # 6. Write .dat
     dat_path = outdir / f"{args.model_name}.dat"
     print(f"\n=== Writing {dat_path} ===")
+    custom_times = ([float(x) for x in args.custom_output_times.split(',')]
+                    if args.custom_output_times else None)
     write_dat(str(dat_path), args.model_name, args.target_days,
               explosion_energy=args.explosion_energy,
               explosion_mass=args.explosion_mass,
               explosion_time=args.explosion_time,
+              explosion_delay=args.explosion_delay,
               initial_kinetic_energy=args.initial_kinetic_energy,
-              ni56_mass=args.ni56_mass)
+              nstmax=args.nstmax,
+              eps=args.eps, hmin=args.hmin, hmax=args.hmax, meth=args.meth,
+              iout=args.iout, nout=args.nout,
+              fit_tau=args.fit_tau, tau_tol=args.tau_tol,
+              aq=args.aq, bq=args.bq,
+              enable_convection=args.enable_convection,
+              disable_scattering=args.disable_scattering,
+              givdtl=args.givdtl,
+              wacc_r=args.wacc_r, wacc_v=args.wacc_v,
+              wacc_t=args.wacc_t, wacc_rad=args.wacc_rad,
+              temp_floor=args.temp_floor, floor_rad=args.floor_rad,
+              snapshot_interval=args.snapshot_interval,
+              ni56_mass=args.ni56_mass, ni56_dist=args.ni56_dist,
+              custom_output_times=custom_times)
 
     # 7. Write [DEPRECATED] HERACLES-format input_profile (needed by opacity table generator)
     # Note: HERACLES is deprecated; project uses STELLA -> CMFGEN pipeline

@@ -1,0 +1,667 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2021) (preloaded format=pdflatex 2026.8.31)  15 SEP 2026 15:05
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**scenario.tex
+(./scenario.tex
+LaTeX2e <2020-10-01> patch level 4
+L3 programming layer <2021-02-18>
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/base/article.cls
+Document Class: article 2020/04/10 v1.4m Standard LaTeX document class
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/base/size11.clo
+File: size11.clo 2020/04/10 v1.4m Standard LaTeX file (size option)
+)
+\c@part=\count179
+\c@section=\count180
+\c@subsection=\count181
+\c@subsubsection=\count182
+\c@paragraph=\count183
+\c@subparagraph=\count184
+\c@figure=\count185
+\c@table=\count186
+\abovecaptionskip=\skip47
+\belowcaptionskip=\skip48
+\bibindent=\dimen138
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/natbib/natbib.sty
+Package: natbib 2010/09/13 8.31b (PWD, AO)
+\bibhang=\skip49
+\bibsep=\skip50
+LaTeX Info: Redefining \cite on input line 694.
+\c@NAT@ctr=\count187
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsmath/amsmath.sty
+Package: amsmath 2020/09/23 v2.17i AMS math features
+\@mathmargin=\skip51
+
+For additional information on amsmath, use the `?' option.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsmath/amstext.sty
+Package: amstext 2000/06/29 v2.01 AMS text
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsmath/amsgen.sty
+File: amsgen.sty 1999/11/30 v2.0 generic functions
+\@emptytoks=\toks15
+\ex@=\dimen139
+))
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsmath/amsbsy.sty
+Package: amsbsy 1999/11/29 v1.2d Bold Symbols
+\pmbraise@=\dimen140
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsmath/amsopn.sty
+Package: amsopn 2016/03/08 v2.02 operator names
+)
+\inf@bad=\count188
+LaTeX Info: Redefining \frac on input line 234.
+\uproot@=\count189
+\leftroot@=\count190
+LaTeX Info: Redefining \overline on input line 399.
+\classnum@=\count191
+\DOTSCASE@=\count192
+LaTeX Info: Redefining \ldots on input line 496.
+LaTeX Info: Redefining \dots on input line 499.
+LaTeX Info: Redefining \cdots on input line 620.
+\Mathstrutbox@=\box47
+\strutbox@=\box48
+\big@size=\dimen141
+LaTeX Font Info:    Redeclaring font encoding OML on input line 743.
+LaTeX Font Info:    Redeclaring font encoding OMS on input line 744.
+\macc@depth=\count193
+\c@MaxMatrixCols=\count194
+\dotsspace@=\muskip16
+\c@parentequation=\count195
+\dspbrk@lvl=\count196
+\tag@help=\toks16
+\row@=\count197
+\column@=\count198
+\maxfields@=\count199
+\andhelp@=\toks17
+\eqnshift@=\dimen142
+\alignsep@=\dimen143
+\tagshift@=\dimen144
+\tagwidth@=\dimen145
+\totwidth@=\dimen146
+\lineht@=\dimen147
+\@envbody=\toks18
+\multlinegap=\skip52
+\multlinetaggap=\skip53
+\mathdisplay@stack=\toks19
+LaTeX Info: Redefining \[ on input line 2923.
+LaTeX Info: Redefining \] on input line 2924.
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsfonts/amssymb.sty
+Package: amssymb 2013/01/14 v3.01 AMS font symbols
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsfonts/amsfonts.sty
+Package: amsfonts 2013/01/14 v3.01 Basic AMSFonts support
+\symAMSa=\mathgroup4
+\symAMSb=\mathgroup5
+LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
+(Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
+))
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/graphics/graphicx.sty
+Package: graphicx 2020/09/09 v1.2b Enhanced LaTeX Graphics (DPC,SPQR)
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/graphics/keyval.sty
+Package: keyval 2014/10/28 v1.15 key=value parser (DPC)
+\KV@toks@=\toks20
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/graphics/graphics.sty
+Package: graphics 2020/08/30 v1.4c Standard LaTeX Graphics (DPC,SPQR)
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/graphics/trig.sty
+Package: trig 2016/01/03 v1.10 sin cos tan (DPC)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/graphics-cfg/graphics.cfg
+File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
+)
+Package graphics Info: Driver file: pdftex.def on input line 105.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/graphics-def/pdftex.def
+File: pdftex.def 2020/10/05 v1.2a Graphics/color driver for pdftex
+))
+\Gin@req@height=\dimen148
+\Gin@req@width=\dimen149
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/booktabs/booktabs.sty
+Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
+\heavyrulewidth=\dimen150
+\lightrulewidth=\dimen151
+\cmidrulewidth=\dimen152
+\belowrulesep=\dimen153
+\belowbottomsep=\dimen154
+\aboverulesep=\dimen155
+\abovetopsep=\dimen156
+\cmidrulesep=\dimen157
+\cmidrulekern=\dimen158
+\defaultaddspace=\dimen159
+\@cmidla=\count266
+\@cmidlb=\count267
+\@aboverulesep=\dimen160
+\@belowrulesep=\dimen161
+\@thisruleclass=\count268
+\@lastruleclass=\count269
+\@thisrulewidth=\dimen162
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hyperref/hyperref.sty
+Package: hyperref 2021-02-27 v7.00k Hypertext links for LaTeX
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/ltxcmds/ltxcmds.sty
+Package: ltxcmds 2020-05-10 v1.25 LaTeX kernel commands for general use (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/iftex/iftex.sty
+Package: iftex 2020/03/06 v1.0d TeX engine tests
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/pdftexcmds/pdftexcmds.sty
+Package: pdftexcmds 2020-06-27 v0.33 Utility functions of pdfTeX for LuaTeX (HO
+)
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/infwarerr/infwarerr.sty
+Package: infwarerr 2019/12/03 v1.5 Providing info/warning/error messages (HO)
+)
+Package pdftexcmds Info: \pdf@primitive is available.
+Package pdftexcmds Info: \pdf@ifprimitive is available.
+Package pdftexcmds Info: \pdfdraftmode found.
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/kvsetkeys/kvsetkeys.sty
+Package: kvsetkeys 2019/12/15 v1.18 Key value parser (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/kvdefinekeys/kvdefinekeys.sty
+Package: kvdefinekeys 2019-12-19 v1.6 Define keys (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/pdfescape/pdfescape.sty
+Package: pdfescape 2019/12/09 v1.15 Implements pdfTeX's escape features (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hycolor/hycolor.sty
+Package: hycolor 2020-01-27 v1.10 Color options for hyperref/bookmark (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/letltxmacro/letltxmacro.sty
+Package: letltxmacro 2019/12/03 v1.6 Let assignment for LaTeX macros (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/auxhook/auxhook.sty
+Package: auxhook 2019-12-17 v1.6 Hooks for auxiliary files (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/kvoptions/kvoptions.sty
+Package: kvoptions 2020-10-07 v3.14 Key value format for package options (HO)
+)
+\@linkdim=\dimen163
+\Hy@linkcounter=\count270
+\Hy@pagecounter=\count271
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hyperref/pd1enc.def
+File: pd1enc.def 2021-02-27 v7.00k Hyperref: PDFDocEncoding definition (HO)
+Now handling font encoding PD1 ...
+... no UTF-8 mapping file for font encoding PD1
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hyperref/hyperref-langpatches.def
+File: hyperref-langpatches.def 2021-02-27 v7.00k Hyperref: patches for babel la
+nguages
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/intcalc/intcalc.sty
+Package: intcalc 2019/12/15 v1.3 Expandable calculations with integers (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/etexcmds/etexcmds.sty
+Package: etexcmds 2019/12/15 v1.7 Avoid name clashes with e-TeX commands (HO)
+)
+\Hy@SavedSpaceFactor=\count272
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hyperref/puenc.def
+File: puenc.def 2021-02-27 v7.00k Hyperref: PDF Unicode definition (HO)
+Now handling font encoding PU ...
+... no UTF-8 mapping file for font encoding PU
+)
+Package hyperref Info: Hyper figures OFF on input line 4192.
+Package hyperref Info: Link nesting OFF on input line 4197.
+Package hyperref Info: Hyper index ON on input line 4200.
+Package hyperref Info: Plain pages OFF on input line 4207.
+Package hyperref Info: Backreferencing OFF on input line 4212.
+Package hyperref Info: Implicit mode ON; LaTeX internals redefined.
+Package hyperref Info: Bookmarks ON on input line 4445.
+\c@Hy@tempcnt=\count273
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/url/url.sty
+\Urlmuskip=\muskip17
+Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
+)
+LaTeX Info: Redefining \url on input line 4804.
+\XeTeXLinkMargin=\dimen164
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/bitset/bitset.sty
+Package: bitset 2019/12/09 v1.3 Handle bit-vector datatype (HO)
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/bigintcalc/bigintcalc.sty
+Package: bigintcalc 2019/12/15 v1.5 Expandable calculations on big integers (HO
+)
+))
+\Fld@menulength=\count274
+\Field@Width=\dimen165
+\Fld@charsize=\dimen166
+Package hyperref Info: Hyper figures OFF on input line 6075.
+Package hyperref Info: Link nesting OFF on input line 6080.
+Package hyperref Info: Hyper index ON on input line 6083.
+Package hyperref Info: backreferencing OFF on input line 6090.
+Package hyperref Info: Link coloring OFF on input line 6095.
+Package hyperref Info: Link coloring with OCG OFF on input line 6100.
+Package hyperref Info: PDF/A mode OFF on input line 6105.
+LaTeX Info: Redefining \ref on input line 6145.
+LaTeX Info: Redefining \pageref on input line 6149.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/base/atbegshi-ltx.sty
+Package: atbegshi-ltx 2020/08/17 v1.0a Emulation of the original atbegshi packa
+ge
+with kernel methods
+)
+\Hy@abspage=\count275
+\c@Item=\count276
+\c@Hfootnote=\count277
+)
+Package hyperref Info: Driver (autodetected): hpdftex.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hyperref/hpdftex.def
+File: hpdftex.def 2021-02-27 v7.00k Hyperref driver for pdfTeX
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/base/atveryend-ltx.sty
+Package: atveryend-ltx 2020/08/19 v1.0a Emulation of the original atvery packag
+e
+with kernel methods
+)
+\Fld@listcount=\count278
+\c@bookmark@seq@number=\count279
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/rerunfilecheck/rerunfilecheck.sty
+Package: rerunfilecheck 2019/12/05 v1.9 Rerun checks for auxiliary files (HO)
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/uniquecounter/uniquecounter.sty
+Package: uniquecounter 2019/12/15 v1.4 Provide unlimited unique counter (HO)
+)
+Package uniquecounter Info: New unique counter `rerunfilecheck' on input line 2
+86.
+)
+\Hy@SectionHShift=\skip54
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/base/fontenc.sty
+Package: fontenc 2020/08/10 v2.0s Standard LaTeX package
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/microtype/microtype.sty
+Package: microtype 2021/03/14 v2.8c Micro-typographical refinements (RS)
+\MT@toks=\toks21
+\MT@count=\count280
+LaTeX Info: Redefining \textls on input line 790.
+\MT@outer@kern=\dimen167
+LaTeX Info: Redefining \textmicrotypecontext on input line 1374.
+\MT@listname@count=\count281
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/microtype/microtype-pdftex.def
+File: microtype-pdftex.def 2021/03/14 v2.8c Definitions specific to pdftex (RS)
+
+LaTeX Info: Redefining \lsstyle on input line 915.
+LaTeX Info: Redefining \lslig on input line 915.
+\MT@outer@space=\skip55
+)
+Package microtype Info: Loading configuration file microtype.cfg.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/microtype/microtype.cfg
+File: microtype.cfg 2021/03/14 v2.8c microtype main configuration file (RS)
+))
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/l3backend/l3backend-pdftex.def
+File: l3backend-pdftex.def 2021-03-18 L3 backend support: PDF output (pdfTeX)
+\l__color_backend_stack_int=\count282
+\l__pdf_internal_box=\box49
+) (./scenario.aux)
+\openout1 = `scenario.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 24.
+LaTeX Font Info:    ... okay on input line 24.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+\scratchcounter=\count283
+\scratchdimen=\dimen168
+\scratchbox=\box50
+\nofMPsegments=\count284
+\nofMParguments=\count285
+\everyMPshowfont=\toks22
+\MPscratchCnt=\count286
+\MPscratchDim=\dimen169
+\MPnumerator=\count287
+\makeMPintoPDFobject=\count288
+\everyMPtoPDFconversion=\toks23
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/epstopdf-pkg/epstopdf-base.sty
+Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/grfext/grfext.sty
+Package: grfext 2019/12/03 v1.3 Manage graphics extensions (HO)
+)
+Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
+85.
+Package grfext Info: Graphics extension search list:
+(grfext)             [.pdf,.png,.jpg,.mps,.jpeg,.jbig2,.jb2,.PDF,.PNG,.JPG,.JPE
+G,.JBIG2,.JB2,.eps]
+(grfext)             \AppendGraphicsExtensions on input line 504.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/latexconfig/epstopdf-sys.cfg
+File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
+e
+))
+Package hyperref Info: Link coloring OFF on input line 24.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/hyperref/nameref.sty
+Package: nameref 2021-04-02 v2.47 Cross-referencing by name of section
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/refcount/refcount.sty
+Package: refcount 2019/12/15 v3.6 Data extraction from label references (HO)
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+generic/gettitlestring/gettitlestring.sty
+Package: gettitlestring 2019/12/15 v1.6 Cleanup title references (HO)
+)
+\c@section@level=\count289
+)
+LaTeX Info: Redefining \ref on input line 24.
+LaTeX Info: Redefining \pageref on input line 24.
+LaTeX Info: Redefining \nameref on input line 24.
+ (./scenario.out) (./scenario.out)
+\@outlinefile=\write3
+\openout3 = `scenario.out'.
+
+LaTeX Info: Redefining \microtypecontext on input line 24.
+Package microtype Info: Generating PDF output.
+Package microtype Info: Character protrusion enabled (level 2).
+Package microtype Info: Using default protrusion set `alltext'.
+Package microtype Info: Automatic font expansion enabled (level 2),
+(microtype)             stretch: 20, shrink: 20, step: 1, non-selected.
+Package microtype Info: Using default expansion set `alltext-nott'.
+LaTeX Info: Redefining \showhyphens on input line 24.
+Package microtype Info: No adjustment of tracking.
+Package microtype Info: No adjustment of interword spacing.
+Package microtype Info: No adjustment of character kerning.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/microtype/mt-cmr.cfg
+File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
+(RS)
+)
+LaTeX Font Info:    Trying to load font information for U+msa on input line 33.
+
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsfonts/umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/microtype/mt-msa.cfg
+File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 33.
+
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/amsfonts/umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/microtype/mt-msb.cfg
+File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
+)
+LaTeX Font Info:    Trying to load font information for T1+cmtt on input line 4
+5.
+
+(/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/tex/
+latex/base/t1cmtt.fd
+File: t1cmtt.fd 2019/12/16 v2.5j Standard LaTeX font definitions
+)
+Package microtype Info: Loading generic protrusion settings for font family
+(microtype)             `cmtt' (encoding: T1).
+(microtype)             For optimal results, create family-specific settings.
+(microtype)             See the microtype manual for details.
+<figures/fig_obs_lc.pdf, id=38, 420.86171pt x 231.2286pt>
+File: figures/fig_obs_lc.pdf Graphic file (type pdf)
+<use figures/fig_obs_lc.pdf>
+Package pdftex.def Info: figures/fig_obs_lc.pdf  used on input line 64.
+(pdftex.def)             Requested size: 360.0pt x 197.79776pt.
+
+Overfull \hbox (65.05023pt too wide) in paragraph at lines 78--94
+ [][] 
+ []
+
+<figures/fig_spectra.pdf, id=40, 416.68987pt x 298.0061pt>
+File: figures/fig_spectra.pdf Graphic file (type pdf)
+<use figures/fig_spectra.pdf>
+Package pdftex.def Info: figures/fig_spectra.pdf  used on input line 107.
+(pdftex.def)             Requested size: 360.0pt x 257.46252pt.
+<figures/fig_schematic.pdf, id=42, 440.64046pt x 372.65671pt>
+File: figures/fig_schematic.pdf Graphic file (type pdf)
+<use figures/fig_schematic.pdf>
+Package pdftex.def Info: figures/fig_schematic.pdf  used on input line 124.
+(pdftex.def)             Requested size: 352.27078pt x 297.90013pt.
+[1
+
+{/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-var/fonts
+/map/pdftex/updmap/pdftex.map}]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 137.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 137.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 137.
+
+
+Package natbib Warning: Citation `Blinnikov1998' on page 2 undefined on input l
+ine 147.
+
+
+Package natbib Warning: Citation `Blinnikov2006' on page 2 undefined on input l
+ine 147.
+
+<figures/fig_sn_a_lc.pdf, id=66, 414.7727pt x 223.4318pt>
+File: figures/fig_sn_a_lc.pdf Graphic file (type pdf)
+<use figures/fig_sn_a_lc.pdf>
+Package pdftex.def Info: figures/fig_sn_a_lc.pdf  used on input line 152.
+(pdftex.def)             Requested size: 360.0pt x 193.93405pt.
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 162.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 162.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 162.
+
+[2 <./figures/fig_obs_lc.pdf>]
+<figures/fig_input_structure.pdf, id=133, 420.55995pt x 430.18553pt>
+File: figures/fig_input_structure.pdf Graphic file (type pdf)
+<use figures/fig_input_structure.pdf>
+Package pdftex.def Info: figures/fig_input_structure.pdf  used on input line 18
+5.
+(pdftex.def)             Requested size: 306.0022pt x 313.02196pt.
+
+Overfull \hbox (22.78406pt too wide) in paragraph at lines 203--210
+[]\T1/cmr/bx/n/10.95 (-20) First bump \T1/cmr/m/n/10.95 (-20) ($\OML/cmm/m/it/1
+0.95 M \OMS/cmsy/m/n/10.95 ^^Y ^^@\OT1/cmr/m/n/10.95 (-20) 16\OML/cmm/m/it/10.9
+5 :\OT1/cmr/m/n/10.95 (-20) 3$\T1/cmr/m/n/10.95 (-20) , $\OML/cmm/m/it/10.95 t 
+\OMS/cmsy/m/n/10.95 ^^Y \OT1/cmr/m/n/10.95 (-20) 10$\T1/cmr/m/n/10.95 (-20) --4
+0 d af-ter launch): shock-cooling/diffusion.
+ []
+
+<figures/fig_model_lc.pdf, id=135, 417.32913pt x 234.56137pt>
+File: figures/fig_model_lc.pdf Graphic file (type pdf)
+<use figures/fig_model_lc.pdf>
+Package pdftex.def Info: figures/fig_model_lc.pdf  used on input line 220.
+(pdftex.def)             Requested size: 360.0pt x 202.34518pt.
+[3] [4 <./figures/fig_spectra.pdf>]
+<figures/fig_heating.pdf, id=217, 420.55995pt x 410.55656pt>
+File: figures/fig_heating.pdf Graphic file (type pdf)
+<use figures/fig_heating.pdf>
+Package pdftex.def Info: figures/fig_heating.pdf  used on input line 264.
+(pdftex.def)             Requested size: 306.0022pt x 298.73904pt.
+LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <14.4> not available
+(Font)              Font shape `T1/cmtt/m/n' tried instead on input line 275.
+
+Overfull \hbox (58.98793pt too wide) in paragraph at lines 278--283
+\T1/cmr/m/n/10.95 (-20) All pro-duc-tion mod-els are gen-er-ated and sub-mit-te
+d through \T1/cmtt/m/n/10.95 scripts/run_model_grid.py\T1/cmr/m/n/10.95 (-20) ,
+
+ []
+
+
+Overfull \hbox (1.8564pt too wide) in paragraph at lines 278--283
+\T1/cmr/m/n/10.95 (-20) with the nam-ing con-ven-tion \T1/cmtt/m/n/10.95 X_M{ma
+ss}_V{velocity}[_W{mdot}][_we{dex}]\T1/cmr/m/n/10.95 (-20) .
+ []
+
+[5 <./figures/fig_schematic.pdf>]
+Overfull \hbox (25.21918pt too wide) in paragraph at lines 288--301
+ [][] 
+ []
+
+<figures/fig_grid.pdf, id=294, 428.81328pt x 245.40865pt>
+File: figures/fig_grid.pdf Graphic file (type pdf)
+<use figures/fig_grid.pdf>
+Package pdftex.def Info: figures/fig_grid.pdf  used on input line 305.
+(pdftex.def)             Requested size: 360.0pt x 206.04074pt.
+[6 <./figures/fig_sn_a_lc.pdf>]
+
+Package natbib Warning: Citation `Hillier1998' on page 7 undefined on input lin
+e 342.
+
+
+Package natbib Warning: Citation `Dessart2015' on page 7 undefined on input lin
+e 342.
+
+No file scenario.bbl.
+
+Package natbib Warning: There were undefined citations.
+
+[7 <./figures/fig_input_structure.pdf>] [8 <./figures/fig_model_lc.pdf>]
+[9 <./figures/fig_heating.pdf>] [10 <./figures/fig_grid.pdf>] (./scenario.aux)
+Package rerunfilecheck Info: File `scenario.out' has not changed.
+(rerunfilecheck)             Checksum: D7AFC0DCF66AA109FD4D5695E7935190;1686.
+ ) 
+Here is how much of TeX's memory you used:
+ 11354 strings out of 480837
+ 175064 string characters out of 5898573
+ 501954 words of memory out of 5000000
+ 28260 multiletter control sequences out of 15000+600000
+ 425699 words of font info for 150 fonts, out of 8000000 for 9000
+ 36 hyphenation exceptions out of 8191
+ 71i,10n,74p,926b,405s stack positions out of 5000i,500n,10000p,200000b,80000s
+{/viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fo
+nts/enc/dvips/cm-super/cm-super-t1.enc}{/viper/u1/system/soft/RHEL_9/packages/x
+86_64/texlive/2021/2021/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}</
+viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/
+type1/public/amsfonts/cm/cmmi10.pfb></viper/u1/system/soft/RHEL_9/packages/x86_
+64/texlive/2021/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></vipe
+r/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmr10.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/te
+xlive/2021/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></viper/u1/s
+ystem/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmr8.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2
+021/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></viper/u1/system
+/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/
+2021/texmf-dist/fonts/type1/public/cm-super/sfbx1000.pfb></viper/u1/system/soft
+/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/public/cm-supe
+r/sfbx1095.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/
+texmf-dist/fonts/type1/public/cm-super/sfbx1200.pfb></viper/u1/system/soft/RHEL
+_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/public/cm-super/sfb
+x1440.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf
+-dist/fonts/type1/public/cm-super/sfrm1000.pfb></viper/u1/system/soft/RHEL_9/pa
+ckages/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/public/cm-super/sfrm1095
+.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist
+/fonts/type1/public/cm-super/sfrm1200.pfb></viper/u1/system/soft/RHEL_9/package
+s/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/public/cm-super/sfrm1728.pfb>
+</viper/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/font
+s/type1/public/cm-super/sfti1000.pfb></viper/u1/system/soft/RHEL_9/packages/x86
+_64/texlive/2021/2021/texmf-dist/fonts/type1/public/cm-super/sfti1095.pfb></vip
+er/u1/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/typ
+e1/public/cm-super/sftt1000.pfb></viper/u1/system/soft/RHEL_9/packages/x86_64/t
+exlive/2021/2021/texmf-dist/fonts/type1/public/cm-super/sftt1095.pfb></viper/u1
+/system/soft/RHEL_9/packages/x86_64/texlive/2021/2021/texmf-dist/fonts/type1/pu
+blic/cm-super/sftt1440.pfb>
+Output written on scenario.pdf (10 pages, 594871 bytes).
+PDF statistics:
+ 687 PDF objects out of 1000 (max. 8388607)
+ 236 compressed objects within 3 object streams
+ 31 named destinations out of 1000 (max. 500000)
+ 40553 words of extra memory for PDF output out of 42996 (max. 10000000)
+

@@ -284,7 +284,9 @@ class TestSiteConfig(unittest.TestCase):
         site = get_site_config()
         self.assertEqual(site.interactive_partition, "interactive")
         self.assertEqual(site.production_partition, "general")
-        self.assertEqual(site.cluster_name, "viper")
+        # cluster_name is detected from scontrol; on Viper it is "viper",
+        # on Raven it is "raven".  Just verify it is a known MPCDF cluster.
+        self.assertIn(site.cluster_name, ("viper", "raven"))
 
     def test_unknown_partition(self):
         """Unknown partition raises error."""

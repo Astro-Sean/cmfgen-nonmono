@@ -132,6 +132,11 @@ cmfgen:
   non_mono_mode: KNOP
   do_gt_auto: false
   proxy_populations: true
+  # A-priori MODEL_SPEC pruning: prune_stalled_levels.py --prior runs
+  # after SN_HYDRO_DATA is ready and before submission, trimming
+  # Boltzmann-dead, non-line-forming tail superlevels that otherwise
+  # pin MAXCH at the per-depth SCALE cap.
+  prune_model_spec: true
   vadat_overrides:
     LSTAR: 0.0D0
     VTURB: 20.0D0
@@ -153,9 +158,13 @@ cmfgen:
     N_OB_INS: 0
     N_IB_INS: 0
     REV_RGRID: F
-    FIX_NE: T
-    FIX_BA: 1.0D0
-    N_FIX_BA: 10
+    FIX_NE: F
+    FIX_BA: 1.0D1
+    # N_FIX_BA=10 gave an 11-iteration stale-Jacobian window; refresh every
+    # 3rd iteration instead (manual-recommended 2).
+    N_FIX_BA: 2
+    # EPS_TERM=1e-2 requires MAXCH<0.01%; 1.0 terminates at the <1% target.
+    EPS_TERM: 1.0D0
   # Same diagnostics as the TypeIIn_KNOP2 run.
   cmf_flux_param_overrides:
     WR_dFR: T

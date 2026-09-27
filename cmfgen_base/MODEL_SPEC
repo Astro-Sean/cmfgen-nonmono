@@ -1,46 +1,32 @@
-100 [ND]                !Number of depth points (set dynamically by prepare_VADAT.py)
+150 [ND]                !Number of depth points (set dynamically by prepare_VADAT.py)
 12  [NC]                !Number of core rays
-112 [NP]                !Number of impact parameters [ND+NC for BLANK mode]
+162 [NP]                !Number of impact parameters [ND+NC for BLANK mode]
 1 [NUM_BNDS]          !1=DIAG for N_TYPE=G_ONLY; 3=TRIDIAG for N_ON_J
 100000         [NCF_MAX]           !Total number of frequencies
 350            [MAX_SIM]           !Max # of overlapping Doppler line profiles
 80000          [NLINE_MAX]         !Maximum # of bound-bound transitions
 21             [NLF]               !For CMF option only
 !
-! Full 18-species MODEL_SPEC (23-Oct-2026): every ionisation stage in the
-! atomic table (VADAT_INIT TRANS_ list) is included so each element has a
-! complete ionisation chain.  ISF values are the per-model optimiser
-! recommendations (optimize_model_spec_v2.py, TypeIIn 10d audit), which
-! are checked against NS == MAXVAL(F_TO_S[1:NF]).  He2 ISF is 1:1
-! (he2_f_to_s_10).  Stages O IV, Si V and Ca IV do not exist in the
-! atomic table and cannot be added.
-!
-! He II (He2) is restored: it was removed earlier because a cold-start
-! LTE seed needed ~1e14x correction; proxy_populations now supplies a
-! physically seeded He2_IN instead.  AUTO_ADD_ION_STAGES (VADAT
-! [AUTO_ADD]) remains as a safety net for any missing XzV_IN.
-!
-! 24-Oct-2026 F_TO_S corrections: NS must equal MAXVAL(F_TO_S[1:NF])
-! for the variant batch.sh actually links (RD_F_TO_S_IDS_V4 aborts
-! otherwise).  Sk2 is 1:1 because the linked no_3s3p2 file dumps
-! levels >=3 into SL 80; Ca2/FeIII/FeIV NS corrected to the linked
-! f_to_s_sm / f_to_s_105 / f_to_s_110 tables.
+! Default MODEL_SPEC: first and second ionisation stages for H, O, Si, Ca.
+! Fe extended to Fe IV. H has only HI (single electron).
+! He II (He2) REMOVED - it requires ~1e14x population correction from LTE
+! in the cool diluted SN_A ejecta, driving convergence instability.
+! He is represented by He I only (He II ionization potential 54.4 eV is
+! not reached in this regime).
+! O II pruned to the three 2p3 terms (21-Sep-2026): the 2s2p4 superlevels
+! (14.9 and 20.6 eV, far-UV transitions only) were Boltzmann-dead at the
+! hydro temperatures yet pinned MAXCH at ~10-14% via the SCALE-capped
+! collapse of their populations (prune_stalled_levels.py, TypeIIn_KNOP2).
 !
 8,15,15       [HI_ISF]          ! H I
 7,15,15       [HeI_ISF]         ! He I
-10,10,10      [He2_ISF]         ! He II (1:1, he2_f_to_s_10)
 15,20,48      [OI_ISF]          ! O I
-4,5,10        [O2_ISF]          ! O II
-4,6,10        [OIII_ISF]        ! O III
+3,3,5         [O2_ISF]          ! O II (2p3 terms only; was 4,5,10)
 15,20,38      [SkI_ISF]         ! Si I
-15,40,40      [Sk2_ISF]         ! Si II (1:1; linked no_3s3p2 F_TO_S dumps levels to SL80)
-4,6,10        [SkIII_ISF]       ! Si III
-4,6,10        [SkIV_ISF]        ! Si IV
+10,20,20      [Sk2_ISF]         ! Si II
 1,1,1         [CaI_ISF]         ! Ca I
-14,17,28      [Ca2_ISF]         ! Ca II (NS=17 required by f_to_s_sm at NF=28)
-4,5,10        [CaIII_ISF]       ! Ca III
+15,17,40      [Ca2_ISF]         ! Ca II
 15,25,87      [FeI_ISF]         ! Fe I
 20,30,113     [Fe2_ISF]         ! Fe II
-10,15,45      [FeIII_ISF]       ! Fe III (NS=15 required by f_to_s_105 at NF=45)
-4,3,10        [FeIV_ISF]        ! Fe IV (NS=3 required by f_to_s_110 at NF=10)
-3,1,5         [FeV_ISF]         ! Fe V
+10,16,50      [FeIII_ISF]       ! Fe III
+4,3,10        [FeIV_ISF]        ! Fe IV

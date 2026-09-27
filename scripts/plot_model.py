@@ -447,6 +447,50 @@ def read_2011dh_photometry(obs_dir):
     return result
 
 
+def read_sn2024pba_sn_a(obs_file, exp_mjd=60488.0):
+    """Read SN 2024pba first-peak (SN_A) photometry from SN_A_lightcurve.dat.
+
+    Columns: MJD,Date,Mag,Error,Filter,Limit_3p0S2N,Limit_5p0S2N.
+    Returns dict of per-band {'phase', 'mag', 'err'} for detections and
+    {'phase', 'lim'} for 5-sigma non-detections, in ABSOLUTE magnitudes.
+
+    Conventions (same as plot_sn_b_grid_vs_obs.py):
+      z = 0.0186 -> DM = 34.52 (~80 Mpc), E(B-V) = 0.15 (S&F2011),
+      A_g = 0.495, A_r = 0.343, A_i = 0.255.
+      Phase zero = EXP_MJD = 60488.0 (bracketed by i-band non-det/det).
+    """
+    import csv
+    DM = 34.52
+    ext = {'g': 3.303 * 0.15, 'r': 2.285 * 0.15, 'i': 1.698 * 0.15}
+    out = {b: {'phase': [], 'mag': [], 'err': [],
+               'lim_phase': [], 'lim': []} for b in ext}
+    with open(obs_file) as f:
+        for row in csv.DictReader(f):
+            band = row['Filter'].strip()
+            if band not in ext:
+                continue
+            phase = float(row['MJD']) - exp_mjd
+            mag = row['Mag'].strip()
+            if mag and mag != '-':
+                out[band]['phase'].append(phase)
+                out[band]['mag'].append(float(mag) - DM - ext[band])
+                try:
+                    out[band]['err'].append(float(row['Error']))
+                except ValueError:
+                    out[band]['err'].append(0.05)
+            else:
+                try:
+                    lim = float(row['Limit_5p0S2N']) - DM - ext[band]
+                except ValueError:
+                    continue
+                out[band]['lim_phase'].append(phase)
+                out[band]['lim'].append(lim)
+    for band in out:
+        for k in out[band]:
+            out[band][k] = np.array(out[band][k])
+    return out
+
+
 def read_2011dh_bolometric(obs_dir):
     """Read SN 2011dh bolometric luminosity from Ergon et al. (2015) tablec9.dat.
 
@@ -467,20 +511,43 @@ def read_2011dh_bolometric(obs_dir):
 
 
 def plot_multiband_lightcurve(tt_file, model_name, output_file,
-                              obs_dir=None):
+                              obs_dir=None, pba_obs_file=None):
     """Plot multiband (U,B,V,R,I) lightcurve from STELLA .tt file,
     compared to SN 2011dh observations (if available).
+
+    If pba_obs_file is given (SN_A_lightcurve.dat), also overlay the
+    SN 2024pba first-peak photometry: SDSS g on the V panel, r on the
+    R panel, i on the I panel (Johnson vs SDSS bands are close but not
+    identical; expect ~0.1-0.3 mag systematics, especially V vs g).
+
+    All lightcurves are plotted vs days since their own I/i-band peak
+    (peak-time alignment, not explosion-date alignment).
+
+    Band colours follow the superbol convention (mnicholl/superbol):
+    U=slateblue, B=blue, V=yellowgreen, R=crimson, I=chocolate;
+    SDSS g=green, r=red, i=goldenrod.
 
     STELLA .tt has absolute magnitudes. Observations are converted to
     absolute magnitudes using dm=29.62 and Galactic+host extinction.
     """
     stella = read_tt_file(tt_file)
-    t = stella['time']
+    t_raw = stella['time']
+    # Peak-time alignment: x = days since the model's I-band peak
+    t_ipeak = t_raw[np.argmin(stella['MI'])]
+    t = t_raw - t_ipeak
 
     bands = ['U', 'B', 'V', 'R', 'I']
     stella_keys = {'U': 'MU', 'B': 'MB', 'V': 'MV', 'R': 'MR', 'I': 'MI'}
-    band_colors = {'U': 'purple', 'B': 'blue', 'V': 'green',
-                   'R': 'orange', 'I': 'red'}
+    # superbol (mnicholl) band colours
+    band_colors = {'U': 'slateblue', 'B': 'b', 'V': 'yellowgreen',
+                   'R': 'crimson', 'I': 'chocolate'}
+    pba_colors = {'g': 'g', 'r': 'r', 'i': 'goldenrod'}
+    # SN 2024pba SDSS band -> STELLA Johnson panel
+    pba_band_map = {'g': 'V', 'r': 'R', 'i': 'I'}
+    # Observed SN 2024pba i-band peak (brightest secure i detection,
+    # i=17.586 at MJD 60507.493; the i=17.5 point at MJD 60698 is a
+    # late-time subtraction artifact)
+    PBA_I_PEAK_MJD = 60507.493
 
     # Read observations if available
     obs = None
@@ -491,17 +558,35 @@ def plot_multiband_lightcurve(tt_file, model_name, output_file,
             obs = read_2011dh_photometry(obs_dir)
         if os.path.exists(os.path.join(obs_dir, 'tablec9.dat')):
             obs_bol = read_2011dh_bolometric(obs_dir)
+    pba_obs = None
+    if pba_obs_file is not None:
+        import os
+        if os.path.exists(pba_obs_file):
+            # phase = days since the observed i-band peak
+            pba_obs = read_sn2024pba_sn_a(pba_obs_file,
+                                          exp_mjd=PBA_I_PEAK_MJD)
+
+    # SN 2011dh: shift to days since its own I-band peak
+    obs_i_peak_phase = None
+    if obs is not None:
+        _valid_i = ~np.isnan(obs['I'])
+        if _valid_i.any():
+            obs_i_peak_phase = obs['phase'][_valid_i][
+                np.argmin(obs['I'][_valid_i])]
 
     n_panels = len(bands) + 1  # +1 for bolometric
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle(f'{model_name} - Multiband Lightcurve vs SN 2011dh',
-                 fontsize=14, fontweight='bold')
+    title = f'{model_name} - Multiband Lightcurve vs SN 2011dh'
+    if pba_obs is not None:
+        title += ' + SN 2024pba SN_A (g/r/i)'
+    fig.suptitle(title, fontsize=14, fontweight='bold')
     axes_flat = axes.flatten()
 
-    # Compute x/y limits from STELLA model data only
+    # Compute x/y limits from STELLA model data only (peak-relative time
+    # can be negative, so no lower clamp)
     t_min, t_max = t.min(), t.max()
     x_pad = 0.05 * (t_max - t_min)
-    xlim = (max(t_min - x_pad, 0), t_max + x_pad)
+    xlim = (t_min - x_pad, t_max + x_pad)
 
     # Collect all STELLA magnitude ranges for shared y-limit per panel
     stella_mags = {
@@ -525,12 +610,13 @@ def plot_multiband_lightcurve(tt_file, model_name, output_file,
     ax.plot(t, stella['Mbol'], 'k-', linewidth=1.5, label='STELLA Mbol')
     ax.plot(t, stella['Mbolavg'], 'k--', linewidth=1.0, alpha=0.5,
             label='STELLA Mbolavg')
-    if obs_bol is not None:
-        ax.plot(obs_bol['phase'], obs_bol['Mbol'], 'ko', markersize=4,
-                alpha=0.6, label='SN 2011dh (Ergon+2015)')
+    if obs_bol is not None and obs_i_peak_phase is not None:
+        ax.plot(obs_bol['phase'] - obs_i_peak_phase, obs_bol['Mbol'],
+                'o', mfc='none', mec='k', markersize=4, alpha=0.6,
+                label='SN 2011dh (Ergon+2015)')
     ax.set_xlim(*xlim)
     ax.set_ylim(*_ylim('bol'))
-    ax.set_xlabel('Time (days)')
+    ax.set_xlabel('Days since I-band peak')
     ax.set_ylabel('Absolute M_bol')
     ax.set_title('Bolometric')
     ax.legend(fontsize=8)
@@ -543,15 +629,32 @@ def plot_multiband_lightcurve(tt_file, model_name, output_file,
         key = stella_keys[band]
         ax.plot(t, stella[key], '-', color=band_colors[band],
                 linewidth=1.5, label=f'STELLA {band}')
-        if obs is not None:
+        if obs is not None and obs_i_peak_phase is not None:
             obs_mag = obs[band]
             valid = ~np.isnan(obs_mag)
-            ax.plot(obs['phase'][valid], obs_mag[valid], 'o',
-                    color=band_colors[band], markersize=4, alpha=0.6,
+            ax.plot(obs['phase'][valid] - obs_i_peak_phase,
+                    obs_mag[valid], 'o',
+                    mfc='none', mec=band_colors[band],
+                    markersize=4, alpha=0.6,
                     label=f'SN 2011dh {band}')
+        if pba_obs is not None:
+            for pba_band, panel_band in pba_band_map.items():
+                if panel_band != band:
+                    continue
+                d = pba_obs[pba_band]
+                c = pba_colors[pba_band]
+                if len(d['phase']):
+                    ax.errorbar(d['phase'], d['mag'], yerr=d['err'],
+                                fmt='s', color=c, mfc=c, mec='k',
+                                markersize=3.5, capsize=1.75, alpha=0.8,
+                                label=f'SN 2024pba {pba_band}')
+                if len(d['lim_phase']):
+                    ax.plot(d['lim_phase'], d['lim'], 'v',
+                            mfc=c, mec='k', markersize=4, alpha=0.6,
+                            label=f'SN 2024pba {pba_band} lim')
         ax.set_xlim(*xlim)
         ax.set_ylim(*_ylim(band))
-        ax.set_xlabel('Time (days)')
+        ax.set_xlabel('Days since I-band peak')
         ax.set_ylabel(f'Absolute M_{band}')
         ax.set_title(f'{band} band')
         ax.legend(fontsize=8)
@@ -927,9 +1030,17 @@ def plot_step(model_dir, step_name, plots_dir, swd_day=None):
             obs_dir = model_dir.parent / 'observational_data' / 'SN2011dh'
             if not obs_dir.exists():
                 obs_dir = Path(__file__).resolve().parent.parent / 'observational_data' / 'SN2011dh'
+            # SN 2024pba SN_A overlay only makes sense for SN_A-family models
+            # (phase zero is the SN_A explosion, not e.g. the SN_B shell launch)
+            pba_obs = None
+            if 'SN_A' in str(model_dir):
+                _pba = Path(__file__).resolve().parent.parent / 'observational_data' / 'SN_A_lightcurve.dat'
+                if _pba.exists():
+                    pba_obs = str(_pba)
             plot_multiband_lightcurve(str(tt), model_dir.name,
                                       str(plots_dir / f'{step_name}_multiband.png'),
-                                      obs_dir=str(obs_dir) if obs_dir.exists() else None)
+                                      obs_dir=str(obs_dir) if obs_dir.exists() else None,
+                                      pba_obs_file=pba_obs)
         else:
             print(f"  WARNING: .tt not found for multiband plot: {tt}")
         # Plot structure at final epoch
@@ -968,9 +1079,17 @@ def plot_step(model_dir, step_name, plots_dir, swd_day=None):
         obs_dir = model_dir.parent / 'observational_data' / 'SN2011dh'
         if not obs_dir.exists():
             obs_dir = Path(__file__).resolve().parent.parent / 'observational_data' / 'SN2011dh'
+        # SN 2024pba SN_A overlay only for SN_A-family models (phase zero
+        # is the SN_A explosion, not e.g. the SN_B shell launch)
+        pba_obs = None
+        if 'SN_A' in str(model_dir):
+            _pba = Path(__file__).resolve().parent.parent / 'observational_data' / 'SN_A_lightcurve.dat'
+            if _pba.exists():
+                pba_obs = str(_pba)
         plot_multiband_lightcurve(str(tt), model_dir.name,
                                   str(plots_dir / 'stella_output_multiband.png'),
-                                  obs_dir=str(obs_dir) if obs_dir.exists() else None)
+                                  obs_dir=str(obs_dir) if obs_dir.exists() else None,
+                                  pba_obs_file=pba_obs)
 
     elif step_name == 'stella_evolution':
         # Multi-epoch structure and composition evolution from .swd

@@ -234,7 +234,28 @@ def convert_to_superlite(header, r, v, sigma, T, rho, mass_fracs, output_dir,
     
     # Write input.par from reference template
     t_days = t_snap if t_snap else header.get('t_days', 30.0)
-    lum_lsun = header.get('lum_lsun', 1e42)
+    lum_lsun = header.get('lum_lsun')
+    if lum_lsun is None:
+        # Ejecta-only files have no Energy Lum header. Estimate the emergent
+        # luminosity as the blackbody at the tau=2/3 surface (kappa*rho
+        # integrated inward), else the inner-boundary blackbody.
+        # r/T are outer-to-inner; r already in cm, T in K.
+        if kappa is not None and np.any(kappa > 0):
+            tau = np.zeros(nd)
+            for i in range(1, nd):
+                tau[i] = tau[i - 1] + 0.5 * (
+                    kappa[i] * rho[i] + kappa[i - 1] * rho[i - 1]
+                ) * (r[i - 1] - r[i])
+            if tau[-1] >= 2.0 / 3.0:
+                i_ph = min(int(np.searchsorted(tau, 2.0 / 3.0)), nd - 1)
+                lum_lsun = (
+                    4.0 * np.pi * r[i_ph] ** 2 * 5.6704e-5 * T[i_ph] ** 4
+                    / 3.828e33
+                )
+        if lum_lsun is None:
+            lum_lsun = 4.0 * np.pi * r[-1] ** 2 * 5.6704e-5 * T[-1] ** 4 / 3.828e33
+        print(f"No Energy Lum header - using ejecta luminosity estimate: "
+              f"{lum_lsun:.3e} Lsun")
     lum_erg = lum_lsun * 3.828e33  # lsun to erg/s
 
     # Model name from SN_HYDRO_DATA or default

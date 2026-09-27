@@ -21,7 +21,7 @@ T            [DIF]              !Diffusion approx.
 F            [COH_ES]           !Assume coherent electron scattering?
 F            [OLD_J]            !Read old J to provide estiamte of J_ES
 LOGMON       [METHOD]           !Use log interp to compute chi.LOGLOG
-G_ONLY        [N_TYPE]           !How to handle N in MOM_J_CMF
+N_ON_J        [N_TYPE]           !How to handle N in MOM_J_CMF (N_ON_J stable at velocity reversals)
 INT/INS      [FG_OPT]
 T            [THK_CONT]         !Thick boundary condition for continuum ?
 T            [TRAP_J]           !Use trapazoidal wights to compute J ?
@@ -51,9 +51,9 @@ F            [FLUX_CAL_ONLY]    !Do a flux calculation only?
 F            [EXT_FRM_SOL]	!Extend formal solutiona factor of 10 in R
 T            [INS_F_FRM_SOL]    !Insert extra frequencies in the formal sol?
 INT          [FRM_OPT]
-T            [DO_SOB_LINES]     !Compute Sobolev EW's
+F            [DO_SOB_LINES]     !Compute Sobolev EW's (F: BLANK mode handles lines in continuum)
 0.01         [EW_CUT]           !Only print if ABS(EW) > EW_CUT
-T            [SOB_FREQ_IN_OBS]  !
+F            [SOB_FREQ_IN_OBS]  !No Sobolev frequencies in observed spectrum (BLANK mode)
 F            [WR_ETA]           !
 F            [WR_FLUX]          !
 F            [WR_CMF_FORCE]     !
@@ -61,8 +61,8 @@ F            [WR_SOB_FORCE]     !
 F            [WR_IP]            !
 T            [DO_CMF_EW]
 T            [DO_ALL_SOB] 
-SOB          [GLOBAL_LINE]      !Global line switch (BLANK, SOB, CMF, NONE)
-T            [LAM_SET]          !Swith to SOB for long wavelengths?
+BLANK        [GLOBAL_LINE]      !Global line switch (BLANK, SOB, CMF, NONE)
+F            [LAM_SET]          !Do not switch to SOB for long wavelengths (BLANK mode)
 4000.0D0     [F_LAM_BEG]        !Lambda to begin flux calculation.
 10000.0D0    [F_LAM_END]        !Lambda to end flux calculation.
  
@@ -76,79 +76,79 @@ F            [INC_XRAYS]
 300          [T_SHOCK]
 400          [V_SHOCK]
  
-SOB          [TRANS_HI]         !Method for treating HI lines ?
-SOB          [TRANS_HeI]         !Method for treating HeI lines ?
+BLANK         [TRANS_HI]         !Method for treating HI lines ?
+BLANK         [TRANS_HeI]         !Method for treating HeI lines ?
 
-SOB          [TRANS_CI]         !Method for treating CI lines ?
-SOB          [TRANS_C2]         !Method for treating C2 lines ?
-SOB          [TRANS_CIV]         !Method for treating CIV lines ?
+BLANK         [TRANS_CI]         !Method for treating CI lines ?
+BLANK         [TRANS_C2]         !Method for treating C2 lines ?
+BLANK         [TRANS_CIV]         !Method for treating CIV lines ?
 
-SOB          [TRANS_NI]         !Method for treating NI lines ?
-SOB          [TRANS_N2]         !Method for treating N2 lines ?
-SOB          [TRANS_NIII]         !Method for treating NIII lines ?
-SOB          [TRANS_NIV]         !Method for treating NIV lines ?
-SOB          [TRANS_NV]         !Method for treating NV lines ?
+BLANK         [TRANS_NI]         !Method for treating NI lines ?
+BLANK         [TRANS_N2]         !Method for treating N2 lines ?
+BLANK         [TRANS_NIII]         !Method for treating NIII lines ?
+BLANK         [TRANS_NIV]         !Method for treating NIV lines ?
+BLANK         [TRANS_NV]         !Method for treating NV lines ?
 
-SOB          [TRANS_OI]         !Method for treating OI lines ?
-SOB          [TRANS_O2]         !Method for treating O2 lines ?
-SOB          [TRANS_OIV]         !Method for treating OIV lines ?
-SOB          [TRANS_OV]         !Method for treating OV lines ?
-SOB          [TRANS_OSIX]         !Method for treating OSIX lines ?
+BLANK         [TRANS_OI]         !Method for treating OI lines ?
+BLANK         [TRANS_O2]         !Method for treating O2 lines ?
+BLANK         [TRANS_OIV]         !Method for treating OIV lines ?
+BLANK         [TRANS_OV]         !Method for treating OV lines ?
+BLANK         [TRANS_OSIX]         !Method for treating OSIX lines ?
 
-SOB          [TRANS_NeI]          !Method for treating NeI lines ?
-SOB          [TRANS_Ne2]          !Method for treating Ne2 lines ?
-SOB          [TRANS_NeIII]        !Method for treating NeIII lines ?
-SOB          [TRANS_NeIV]         !Method for treating NeIV lines ?
-SOB          [TRANS_NeV]          !Method for treating  NeV lines ?
-SOB          [TRANS_NeSIX]        !Method for treating NeSIX lines ?
-SOB          [TRANS_NeSEV]        !Method for treating NeSEV lines ?
+BLANK         [TRANS_NeI]          !Method for treating NeI lines ?
+BLANK         [TRANS_Ne2]          !Method for treating Ne2 lines ?
+BLANK         [TRANS_NeIII]        !Method for treating NeIII lines ?
+BLANK         [TRANS_NeIV]         !Method for treating NeIV lines ?
+BLANK         [TRANS_NeV]          !Method for treating  NeV lines ?
+BLANK         [TRANS_NeSIX]        !Method for treating NeSIX lines ?
+BLANK         [TRANS_NeSEV]        !Method for treating NeSEV lines ?
 
-SOB          [TRANS_SkI]         !Method for treating SkI lines ?
-SOB          [TRANS_Sk2]         !Method for treating Sk2 lines ?
+BLANK         [TRANS_SkI]         !Method for treating SkI lines ?
+BLANK         [TRANS_Sk2]         !Method for treating Sk2 lines ?
 
-SOB          [TRANS_NaI]         !Method for treating NaI lines ?
+BLANK         [TRANS_NaI]         !Method for treating NaI lines ?
 
-SOB          [TRANS_MgI]         !Method for treating MgI lines ?
-SOB          [TRANS_Mg2]         !Method for treating Mg2 lines ?
+BLANK         [TRANS_MgI]         !Method for treating MgI lines ?
+BLANK         [TRANS_Mg2]         !Method for treating Mg2 lines ?
 
-SOB          [TRANS_AlI]         !Method for treating AlI lines ?
-SOB          [TRANS_Al2]         !Method for treating Al2 lines ?
-SOB          [TRANS_AlIII]       !Method for treating AlIII lines ?
+BLANK         [TRANS_AlI]         !Method for treating AlI lines ?
+BLANK         [TRANS_Al2]         !Method for treating Al2 lines ?
+BLANK         [TRANS_AlIII]       !Method for treating AlIII lines ?
 
-SOB          [TRANS_SI]          !Method for treating OIII lines ?
-SOB          [TRANS_S2]          !Method for treating OIII lines ?
-SOB          [TRANS_SIII]        !Method for treating OIII lines ?
-SOB          [TRANS_SIV]         !Method for treating OIV lines ?
-SOB          [TRANS_SV]          !Method for treating OV lines ?
-SOB          [TRANS_SSIX]        !Method for treating OSIX lines ?
+BLANK         [TRANS_SI]          !Method for treating OIII lines ?
+BLANK         [TRANS_S2]          !Method for treating OIII lines ?
+BLANK         [TRANS_SIII]        !Method for treating OIII lines ?
+BLANK         [TRANS_SIV]         !Method for treating OIV lines ?
+BLANK         [TRANS_SV]          !Method for treating OV lines ?
+BLANK         [TRANS_SSIX]        !Method for treating OSIX lines ?
 
-SOB          [TRANS_ArI]          !Method for treating ArI lines ?
-SOB          [TRANS_Ar2]          !Method for treating Ar2 lines ?
-SOB          [TRANS_ArIII]        !Method for treating ArIII lines ?
-SOB          [TRANS_ArIV]         !Method for treating ArIV lines ?
-SOB          [TRANS_ArV]          !Method for treating ArV lines ?
-SOB          [TRANS_ArSIX]        !Method for treating ArSIX lines ?
-SOB          [TRANS_ArSEV]        !Method for treating ArSEV lines ?
+BLANK         [TRANS_ArI]          !Method for treating ArI lines ?
+BLANK         [TRANS_Ar2]          !Method for treating Ar2 lines ?
+BLANK         [TRANS_ArIII]        !Method for treating ArIII lines ?
+BLANK         [TRANS_ArIV]         !Method for treating ArIV lines ?
+BLANK         [TRANS_ArV]          !Method for treating ArV lines ?
+BLANK         [TRANS_ArSIX]        !Method for treating ArSIX lines ?
+BLANK         [TRANS_ArSEV]        !Method for treating ArSEV lines ?
 
-SOB          [TRANS_CaI]         !Method for treating CaI lines ?
-SOB          [TRANS_Ca2]         !Method for treating Ca2 lines ?
-SOB          [TRANS_CaIII]        !Method for treating CaIII lines ?
-SOB          [TRANS_CaIV]         !Method for treating CaIV lines ?
-SOB          [TRANS_CaV]          !Method for treating CaV lines ?
-SOB          [TRANS_CaSIX]        !Method for treating CaSIX lines ?
-SOB          [TRANS_CaSEV]        !Method for treating CaSEV lines ?
-SOB          [TRANS_CaVIII]       !Method for treating CaVIII lines ?
+BLANK         [TRANS_CaI]         !Method for treating CaI lines ?
+BLANK         [TRANS_Ca2]         !Method for treating Ca2 lines ?
+BLANK         [TRANS_CaIII]        !Method for treating CaIII lines ?
+BLANK         [TRANS_CaIV]         !Method for treating CaIV lines ?
+BLANK         [TRANS_CaV]          !Method for treating CaV lines ?
+BLANK         [TRANS_CaSIX]        !Method for treating CaSIX lines ?
+BLANK         [TRANS_CaSEV]        !Method for treating CaSEV lines ?
+BLANK         [TRANS_CaVIII]       !Method for treating CaVIII lines ?
 
-SOB          [TRANS_FeI]         !Method for treating FeI lines ?
-SOB          [TRANS_Fe2]         !Method for treating Fe2 lines ?
-SOB          [TRANS_FeIII]         !Method for treating FeIII lines ?
-SOB          [TRANS_FeIV]         !Method for treating FeIV lines ?
-SOB          [TRANS_FeV]         !Method for treating FeV lines ?
-SOB          [TRANS_FeSIX]         !Method for treating FeSIX lines ?
-SOB          [TRANS_FeSEV]         !Method for treating FeSEV lines ?
-SOB          [TRANS_FeVIII]         !Method for treating FeVIII lines ?
-SOB          [TRANS_FeIX]         !Method for treating FeIX lines ?
-SOB          [TRANS_FeX]         !Method for treating FeX lines ?
+BLANK         [TRANS_FeI]         !Method for treating FeI lines ?
+BLANK         [TRANS_Fe2]         !Method for treating Fe2 lines ?
+BLANK         [TRANS_FeIII]         !Method for treating FeIII lines ?
+BLANK         [TRANS_FeIV]         !Method for treating FeIV lines ?
+BLANK         [TRANS_FeV]         !Method for treating FeV lines ?
+BLANK         [TRANS_FeSIX]         !Method for treating FeSIX lines ?
+BLANK         [TRANS_FeSEV]         !Method for treating FeSEV lines ?
+BLANK         [TRANS_FeVIII]         !Method for treating FeVIII lines ?
+BLANK         [TRANS_FeIX]         !Method for treating FeIX lines ?
+BLANK         [TRANS_FeX]         !Method for treating FeX lines ?
 
 LIST         [GLOBAL_PROF]
 T            [OPAC_LIMS]
@@ -242,7 +242,7 @@ DOPPLER      [PROF_NkX]        !Method for treating NkX lines ?
 
 T            [JC_W_EDD]         !Use Eddington factors to compute continuum J
 T            [JBAR_W_EDD]       !Use Eddington factors to compute JBAR for lines.
-T            [INC_GRID]         !Do an error calculation ?
+F            [INC_GRID]         !F: non-monotonic solver requires INC_GRID=F
 T            [ALL_FREQ]         !
 3.19         [ACC_END]          !
 3            [N_INS]            !NPINS
@@ -255,3 +255,11 @@ LOG          [INTERP_TYPE]      !LOG or LIN plane
  
 F            [COMP_F]           !Compute new Continuum f values ?
 1.0D-04      [ACC_F]            !Convergence accuracy for F
+ 
+! Non-monotonic velocity-field solver (Knop et al. 2009).
+! Must match main CMFGEN VADAT: NON_MONO_SOLVER=T, USE_LAM_ES=T,
+! GLOBAL_LINE=BLANK, DO_SOB_LINES=F, N_TYPE=N_ON_J, all TRANS_*=BLANK.
+! Requires FG_OPT=INT/INS (set above). Incompatible with USE_FIXED_J,
+! USE_FRM_REL, USE_J_REL, USE_DJDT_RTE, PLANE_PARALLEL (all default F).
+T            [USE_LAM_ES]       !Lambda iteration (bypasses moment solver for non-monotonic velocity)
+T            [NON_MONO_SOLVER]  !Use FG_J_CMF_NONMONO_V1 (Knop et al. 2009) for sigma < -1

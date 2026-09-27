@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-Plot Nickel56 evolution from STELLA simulation.
+Plot Ni56 -> Co56 -> Fe56 evolution for a STELLA run.
 
-Shows initial Ni56 distribution (grey dashed) from .xni file and
-Ni56 evolution at multiple timesteps from STELLA .abn files.
+STELLA does not advect/decay composition fields: XNifor (initial Ni56 mass
+fraction per zone) is static and enters only the radioactive heating rate.
+The Ni56/Co56/Fe56 evolution is therefore reconstructed analytically on the
+Lagrangian zones:
+
+    Ni56(t) = X0 * exp(-t/tau_Ni)
+    Co56(t) = X0 * (tau_Co/(tau_Co-tau_Ni)) * (exp(-t/tau_Co) - exp(-t/tau_Ni))
+    Fe56(t) = X0 - Ni56 - Co56            (Bateman chain, tau_Ni=8.8d, tau_Co=111.3d)
+
+Spatial evolution is taken from the .swd: each zone's radius at every epoch.
+The decay age is PROPER_T ~= t_ob - t_ob(first epoch), i.e. the run's internal
+clock (t = 0 corresponds to the .xni initial distribution).
 
 Usage:
     python plot_nickel_evolution.py MODEL_DIR [OPTIONS]
-    
+
 Options:
     --xni-file PATH          Path to .xni file (default: stella/eve/MODEL.xni)
-    --abn-dir PATH           Directory containing .abn files (default: stella/modmake)
+    --abn-dir PATH           Directory containing input .abn (initial Ni56 col check)
+    --swd-file PATH          Path to .swd file for radius data
     --n-epochs N             Number of epochs to plot (default: 10)
     --output PATH            Output plot path (default: nickel_evolution.png)
 """
@@ -20,259 +31,212 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import Normalize
 from pathlib import Path
 import sys
 import argparse
-import glob
 
 
-def read_xni(xni_path: str) -> tuple:
-    """Read .xni binary file and return Ni56 mass fractions and metadata.
-    
+# Decay e-folding times (STELLA: volenpumnoint.f; also used by
+# convert_stella_swd_to_cmfgen.py for the SN_HYDRO_DATA isotope blocks)
+TAU_NI = 8.8    # days, Ni56 -> Co56
+TAU_CO = 111.3  # days, Co56 -> Fe56
+
+
+def read_xni(xni_path: str) -> np.ndarray:
+    """Read a STELLA .xni file -> Ni56 mass fraction per zone.
+
+    Two on-disk formats exist:
+      * Fortran unformatted single record of nzon REAL*8 values
+        (written by generate_xni_file.py and eve2): 4-byte record markers
+        bracket nzon doubles.
+      * Legacy float32 layout: 2 header floats then nzon (value, pad) pairs.
+
     Returns:
-        tuple: (ni56_fractions, header_metadata)
+        ni56 mass fraction array, inner -> outer zone order.
     """
-    with open(xni_path, 'rb') as f:
-        data = f.read()
-    
-    # .xni format: 2 header floats + 500 zone pairs (value + placeholder)
+    data = Path(xni_path).read_bytes()
+
+    # Fortran unformatted REAL*8 record: [rec_len][rec_len bytes][rec_len]
+    if len(data) >= 8:
+        rec_len = struct.unpack('i', data[:4])[0]
+        tail = struct.unpack('i', data[-4:])[0]
+        if rec_len > 0 and rec_len % 8 == 0 and 4 + rec_len + 4 == len(data) \
+                and tail == rec_len:
+            n = rec_len // 8
+            return np.array(struct.unpack(f'{n}d', data[4:4 + rec_len]))
+
+    # Legacy float32: 2 header floats + nzon pairs
     n_floats = len(data) // 4
     floats = struct.unpack('f' * n_floats, data)
-    
-    header = floats[:2]
     nzon = (n_floats - 2) // 2
-    
-    # Extract zone values (every other float starting at index 2)
-    ni56_fractions = np.array([floats[2 + 2*z] for z in range(nzon)])
-    
-    return ni56_fractions, header
+    return np.array([floats[2 + 2 * z] for z in nzon])
 
 
-def read_abn(abn_path: str) -> dict:
-    """Read STELLA .abn file for mass fractions.
-    
-    Format: km  dum  dum  dum  H  He  C  N  O  Ne  Na  Mg  Al  Si  S  Ar  Ca  FePeak  Ni58  Ni56
-    
-    Returns:
-        dict with element mass fractions
+def read_swd_epochs(swd_path: str):
+    """Parse a STELLA .swd into per-epoch zone data.
+
+    Format: an epoch starts on a line whose first column is the epoch time
+    (observer time t_ob = PROPER_T - t_retard); its second column is 1.
+    Following rows have 0 in column 0 and the zone index in column 1.
+    Relevant columns: [0]=t or 0, [1]=zone, [2]=log10(M_ext/Msun),
+    [3]=log10(R/cm), [4]=V/1e8 cm/s.
+
+    Returns list of (t_ob_days, radius_cm[nzones], velocity_cms[nzones]).
     """
-    data = []
-    with open(abn_path) as f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            cols = [float(x) for x in stripped.split()]
-            if len(cols) >= 20:
-                data.append(cols)
-    
-    arr = np.array(data)
-    return {
-        'km': arr[:, 0].astype(int),
-        'H': arr[:, 4],
-        'He': arr[:, 5],
-        'C': arr[:, 6],
-        'N': arr[:, 7],
-        'O': arr[:, 8],
-        'Ne': arr[:, 9],
-        'Na': arr[:, 10],
-        'Mg': arr[:, 11],
-        'Al': arr[:, 12],
-        'Si': arr[:, 13],
-        'S': arr[:, 14],
-        'Ar': arr[:, 15],
-        'Ca': arr[:, 16],
-        'Fe': arr[:, 17],
-        'Ni58': arr[:, 18],
-        'Ni56': arr[:, 19],
-    }
-
-
-def read_swd_for_mass_and_radius(swd_path: str, epoch_days: float) -> tuple:
-    """Read STELLA .swd file and extract cumulative mass and radius data for a specific epoch.
-    
-    Returns (cumulative_mass_Msun, radius_cm) for each zone.
-    """
+    epochs = []
+    t_cur = None
+    rad, vel = [], []
     with open(swd_path) as f:
         for line in f:
             cols = line.split()
             if len(cols) < 13:
                 continue
-            
-            t = float(cols[0])
-            km = int(cols[1])
-            
-            # Find the requested epoch
-            if km == 1 and t == epoch_days:
-                # Read all zones for this epoch
-                # Columns: t(days), zone, logM, logR, V(1e8 cm/s), logTg, logTr, logrho, logP, logQv, logeng, Flum, WRKX
-                logM = []
-                logR = []
-                logM.append(float(cols[2]))  # log10(M_ext_Msun)
-                logR.append(float(cols[3]))  # log10(R_cm)
-                
-                for line in f:
-                    cols = line.split()
-                    if len(cols) < 13:
-                        continue
-                    t_next = float(cols[0])
-                    km_next = int(cols[1])
-                    
-                    if t_next == 0:  # Zone data
-                        logM.append(float(cols[2]))
-                        logR.append(float(cols[3]))
-                    elif km_next == 1:  # Next epoch
-                        break
-                
-                return 10**np.array(logM), 10**np.array(logR)  # Convert from log10 to linear
-    
-    # If exact epoch not found, return None
-    return None, None
+            try:
+                c0 = float(cols[0])
+                zone = int(cols[1])
+            except ValueError:
+                continue
+            if c0 != 0.0:
+                if t_cur is not None and rad:
+                    epochs.append((t_cur, np.array(rad), np.array(vel)))
+                t_cur = c0
+                rad, vel = [10.0 ** float(cols[3])], [float(cols[4]) * 1e8]
+            else:
+                rad.append(10.0 ** float(cols[3]))
+                vel.append(float(cols[4]) * 1e8)
+    if t_cur is not None and rad:
+        epochs.append((t_cur, np.array(rad), np.array(vel)))
+    return epochs
 
 
-def find_abn_files(abn_dir: str) -> list:
-    """Find all .abn files in directory sorted by time."""
-    abn_files = sorted(Path(abn_dir).glob("*.abn"))
-    return abn_files
+def decay_chain(X0, age_days):
+    """Bateman solution for Ni56 -> Co56 -> Fe56 given initial fraction X0."""
+    t = np.maximum(age_days, 0.0)
+    ni = X0 * np.exp(-t / TAU_NI)
+    co = X0 * (TAU_CO / (TAU_CO - TAU_NI)) * (np.exp(-t / TAU_CO) - np.exp(-t / TAU_NI))
+    fe = X0 - ni - co
+    return ni, co, fe
 
 
-def extract_time_from_abn_filename(abn_path: str) -> float:
-    """Extract time in days from .abn filename."""
-    # Format: X1_lam2-debug_T0.2000.abn or similar
-    stem = Path(abn_path).stem
-    try:
-        # Try to extract time from common patterns
-        if '_T' in stem:
-            time_str = stem.split('_T')[-1].replace('.abn', '')
-            return float(time_str)
-        elif '_t' in stem:
-            time_str = stem.split('_t')[-1].replace('.abn', '')
-            return float(time_str)
-        else:
-            # Fallback: try to parse as float
-            return float(stem.split('_')[-1])
-    except (ValueError, IndexError):
-        return 0.0
+def plot_nickel_evolution(xni_path, abn_dir, swd_path, n_epochs, output_path,
+                          model_name):
+    """Ni56 and Co56 mass fraction vs radius at several epochs.
 
-
-def plot_nickel_evolution(xni_path: str, abn_dir: str, swd_path: str,
-                          n_epochs: int, output_path: str, model_name: str):
-    """Create nickel evolution plot: Ni56 mass fraction vs radius over time.
-
-    Reads the initial Ni56 distribution from the .xni file and the time-evolved
-    Ni56 mass fractions from STELLA .abn output files, then plots them as a
-    function of radius (from the .swd file) at several epochs.
+    The .xni initial distribution is placed on the Lagrangian zones and decayed
+    analytically; each epoch's zone radii come from the .swd so the curves show
+    the distribution moving outward while decaying.
     """
-
-    # Read initial Ni56 distribution from .xni
     print(f"Reading initial Ni56 from {xni_path}")
-    ni56_initial, header = read_xni(xni_path)
-    nzon = len(ni56_initial)
+    ni56_0 = read_xni(xni_path)
+    nzon = len(ni56_0)
+    print(f"  {nzon} zones, max X(Ni56) = {ni56_0.max():.4e}, "
+          f"{(ni56_0 > 1e-30).sum()} non-zero")
 
-    # Find .abn files
-    abn_files = find_abn_files(abn_dir)
-    print(f"Found {len(abn_files)} .abn files")
-
-    if len(abn_files) == 0:
-        print("ERROR: No .abn files found")
+    epochs = read_swd_epochs(swd_path)
+    print(f"Found {len(epochs)} epochs in {swd_path}")
+    if not epochs:
+        print("ERROR: no epochs parsed from .swd")
         return
 
-    # Select epochs to plot
-    if len(abn_files) > n_epochs:
-        indices = np.linspace(0, len(abn_files) - 1, n_epochs, dtype=int)
-        selected_abn = [abn_files[i] for i in indices]
-    else:
-        selected_abn = abn_files
+    # Decay clock: PROPER_T ~= t_ob - t_ob(first).  Zone count may differ
+    # between epochs (Nzmod); interpolate onto the .xni zone count when needed.
+    t_first = epochs[0][0]
 
-    # Read mass and radius data from .swd for each epoch
-    print(f"Reading mass and radius data from {swd_path}")
-    mass_profiles = []
-    radius_profiles = []
-    ni56_profiles = []
-    epoch_times = []
+    if len(epochs) > n_epochs:
+        pick = np.linspace(0, len(epochs) - 1, n_epochs, dtype=int)
+        epochs = [epochs[i] for i in pick]
 
-    for abn_file in selected_abn:
-        time_days = extract_time_from_abn_filename(str(abn_file))
-        epoch_times.append(time_days)
-        mass, radius = read_swd_for_mass_and_radius(swd_path, time_days)
-        if mass is not None:
-            mass_profiles.append(mass)
-            radius_profiles.append(radius)
-        else:
-            # Fallback to zone index
-            mass_profiles.append(np.arange(nzon))
-            radius_profiles.append(np.arange(nzon))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5.5), sharey=True)
+    species = [
+        ('Ni56', r'$^{56}$Ni'),
+        ('Co56', r'$^{56}$Co'),
+        ('Fe56', r'$^{56}$Fe'),
+    ]
 
-        # Read Ni56 mass fraction from .abn file
-        abn_data = read_abn(str(abn_file))
-        ni56_profiles.append(abn_data['Ni56'])
+    norm = Normalize(vmin=0.0, vmax=max(t - t_first for t, _, _ in epochs))
+    cmap = cm.viridis
 
-    # Create plot: Ni56 mass fraction vs radius
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Initial Ni56 distribution on the first epoch's radius grid
+    r0 = epochs[0][1]
+    if len(r0) != nzon:
+        r0 = np.interp(np.linspace(0, 1, nzon), np.linspace(0, 1, len(r0)), r0)
+    for ax in axes:
+        ax.plot(r0, ni56_0, 'k--', lw=2, alpha=0.8,
+                label=r'initial $^{56}$Ni (.xni)')
 
-    colors = plt.cm.viridis(np.linspace(0, 1, len(selected_abn)))
+    for t_ob, radius, _vel in epochs:
+        age = t_ob - t_first
+        ni, co, fe = decay_chain(ni56_0, age)
+        r = radius
+        if len(r) != nzon:
+            # resample zone values onto the epoch's zone-fraction axis
+            xi = np.linspace(0, 1, nzon)
+            xq = np.linspace(0, 1, len(r))
+            ni = np.interp(xq, xi, ni)
+            co = np.interp(xq, xi, co)
+            fe = np.interp(xq, xi, fe)
+        color = cmap(norm(age))
+        for ax, (key, _label), prof in zip(axes, species, (ni, co, fe)):
+            ax.plot(r, np.maximum(prof, 1e-12), color=color, lw=1.8, alpha=0.9)
+        axes[0].plot([], [], color=color, lw=1.8,
+                     label=f't = {age:.1f} d')
 
-    # Plot Ni56 evolution from .abn files
-    for i, (ni56, radius) in enumerate(zip(ni56_profiles, radius_profiles)):
-        time_days = epoch_times[i]
-        ax.plot(radius, ni56, color=colors[i], linewidth=2, alpha=0.8,
-                label=f't = {time_days:.2f} d')
+    for ax, (_key, label) in zip(axes, species):
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_ylim(1e-8, 5e-1)
+        ax.set_xlabel('Radius (cm)')
+        ax.set_title(label)
+        ax.grid(True, alpha=0.3, which='both')
+    axes[0].set_ylabel('Mass fraction')
+    axes[0].legend(fontsize=8, loc='upper right')
 
-    # Plot initial Ni56 distribution (grey dashed) using first epoch's radius
-    if radius_profiles:
-        ax.plot(radius_profiles[0], ni56_initial, 'k--', linewidth=2, alpha=0.7,
-                label='Initial (from .xni)')
+    fig.suptitle(
+        f'{model_name}: radioactive decay chain on Lagrangian zones '
+        f'(decay age = PROPER_T; $\\tau_{{Ni}}$={TAU_NI} d, '
+        f'$\\tau_{{Co}}$={TAU_CO} d)')
+    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    fig.subplots_adjust(left=0.06, right=0.90, top=0.82, wspace=0.12)
+    cax = fig.add_axes([0.92, 0.15, 0.015, 0.67])
+    fig.colorbar(sm, cax=cax, label='time since explosion (d)')
 
-    # Formatting
-    ax.set_xlabel('Radius (cm)', fontsize=12)
-    ax.set_ylabel('Ni56 Mass Fraction', fontsize=12)
-    ax.set_title(f'Ni56 Evolution: {model_name}', fontsize=14)
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_ylim(bottom=1e-10)
-    ax.legend(loc='upper left', fontsize=10)
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     print(f"Saved plot to {output_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Plot Ni56 evolution from STELLA')
+    parser = argparse.ArgumentParser(
+        description='Plot Ni56/Co56 evolution from STELLA')
     parser.add_argument('model_dir', help='Model directory path')
     parser.add_argument('--xni-file', help='Path to .xni file')
-    parser.add_argument('--abn-dir', help='Directory containing .abn files')
+    parser.add_argument('--abn-dir',
+                        help='Directory containing .abn files (unused; kept '
+                             'for backward-compatible invocation)')
     parser.add_argument('--swd-file', help='Path to .swd file for radius data')
-    parser.add_argument('--n-epochs', type=int, default=10, 
-                       help='Number of epochs to plot (default: 10)')
+    parser.add_argument('--n-epochs', type=int, default=10,
+                        help='Number of epochs to plot (default: 10)')
     parser.add_argument('--output', default='nickel_evolution.png',
-                       help='Output plot path (default: nickel_evolution.png)')
-    
+                        help='Output plot path (default: nickel_evolution.png)')
+
     args = parser.parse_args()
-    
+
     model_dir = Path(args.model_dir)
     model_name = model_dir.name
-    
-    # Set default paths
+
     xni_path = args.xni_file or str(model_dir / 'stella' / 'eve' / f'{model_name}.xni')
-    abn_dir = args.abn_dir or str(model_dir / 'stella' / 'modmake')
     swd_path = args.swd_file or str(model_dir / 'stella' / f'{model_name}.swd')
-    
-    # Check if files exist
+
     if not Path(xni_path).exists():
         print(f"ERROR: .xni file not found: {xni_path}")
         sys.exit(1)
-    
-    if not Path(abn_dir).exists():
-        print(f"ERROR: .abn directory not found: {abn_dir}")
-        sys.exit(1)
-    
     if not Path(swd_path).exists():
-        print(f"WARNING: .swd file not found: {swd_path}")
-        print("Will use zone index instead of radius")
-    
-    plot_nickel_evolution(xni_path, abn_dir, swd_path, args.n_epochs, 
+        print(f"ERROR: .swd file not found: {swd_path}")
+        sys.exit(1)
+
+    plot_nickel_evolution(xni_path, args.abn_dir, swd_path, args.n_epochs,
                           args.output, model_name)
 
 

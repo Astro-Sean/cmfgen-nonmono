@@ -370,6 +370,19 @@ The requeue state machine works as follows:
 
 The state file also records `TIMESTAMP` and `JOB_ID` for debugging. It is cleaned up on full resubmission (not requeue) via the cleanup block in `submit_cmfgen.sh`.
 
+**Fresh start on resubmission (2026-09-26).** A new submission is a
+cold start, not a continuation. Both wipe paths now remove warm-start
+state: `POINT1`/`POINT2`/`SCRTEMP`/`SCRATCH/` (the `SCR_READ_V2`
+checkpoints), species `*_IN`/`*_OUT`, `POP*`, `RVTJ`, `MODEL`,
+`CUR_MODEL_DATA`, `FGINEXT_GS`/`MOMJNXT_GS`, and the
+`.CMFGEN_REQUEUE_COUNT` file (a stale count >0 would otherwise route a
+new submission into the requeue branch and skip VADAT prep).
+Continuation survives only inside a job's own requeue cycle; deliberate
+warm restarts use `submit_cmfgen.sh --restart` or
+`cmfgen.warm_restart: true` in the YAML (`CMFGEN_WARM_RESTART=1` also
+works). `skip_final` (OBS-only) resubmits still preserve everything
+because those files are OBS inputs.
+
 ### 2.3.1 `submission:` key (partition selection)
 
 The top-level YAML `submission:` key selects the partition (and thus the
@@ -405,6 +418,38 @@ submitted with an `afterany` dependency on the STELLA job of config
   `skip_stella`/`reuse_stella` or complete existing output do not.
 - An explicit `--stella-dependency` applies to the first
   `MAX_RUNNING_STELLA` lane heads; later jobs are chained automatically.
+
+### 2.3.3 Viper partition placement (verified 2026-09-25)
+
+`#SBATCH --partition=general` does not mean the job runs on `general`.
+The Viper job-submit filter moves a partial-node request onto `small`.
+Confirm the partition from `scontrol show job`, not from the script.
+
+Compute nodes in both partitions (`vipc`) have 256 CPUs (2 sockets x 64
+cores) and 480000 MB of memory.
+
+| Partition | MaxTime | What a job actually gets |
+|-----------|---------|--------------------------|
+| `interactive` | 2:00:00 | Debug jobs under 2 h |
+| `small` | 1-00:00:00 | One node, shared. `MaxNodes=1`, `MaxMemPerNode=240000` MB |
+| `general` | 1-00:00:00 | Exclusive whole node (`OverSubscribe=EXCLUSIVE`). The allocation is 256 CPUs |
+
+Checked with `sbatch --test-only` on 2026-09-25:
+
+- `--partition=general` with 8 or 16 CPUs, including `--exclusive`, was placed on `small`.
+- `--partition=general` with 72 CPUs and 100 GB was placed on `general` and assigned 256 processors.
+- Asking for 256 CPUs directly failed (`Requested node configuration is not available`).
+- Asking for two nodes failed (`node fill grade less than 50%`).
+
+`SLURM_CPUS_ON_NODE` on `general` is 256, the whole node, not the
+`--cpus-per-task` request. `batch.sh` and the SLURM script must set
+`OMP_NUM_THREADS` and `MKL_NUM_THREADS` from `SLURM_CPUS_PER_TASK`.
+Using `SLURM_CPUS_ON_NODE` makes CMFGEN start one thread per core on the
+node.
+
+A 16-CPU CMFGEN job belongs on `small`. It still uses the 23:59:00 wall
+and the 79200 s graceful stop from the table in §2.3. `submission: normal`
+already selects `small`.
 
 
 ---
@@ -1935,8 +1980,8 @@ iteration defaults (`DO_NG=T`, `NUM_LAM=2`, `LAM_VAL=2.0D2`,
 `BEG_NG=1.0D1`, `IBEG_NG=20`, `COMP_BA=T`, `FIX_T_AUTO=F`,
 `FIX_NE=F`, `FIX_IMP=F`, `MAX_LIN=5.0D0`, `FIX_BA=1.0D1`,
 `N_FIX_BA=2`, `BA_CHK_FAC=1.0D-05`, `EPS_TERM=5.0D-02`,
-`DO_DIS=T`, `INC_PEN=T`, `INC_RAY=T` — Dessart reference VADAT
-values adopted 2026-09-25), drops any
+`DO_DIS=T` (level dissolution), `INC_PEN=T` (Penning ionization),
+`INC_RAY=T` (Rayleigh scattering) - adopted 2026-09-25), drops any
 `iteration_strategy`, and disables `monotonize_velocity` /
 `enforce_homologous` (both erase the sigma<-1 structure the solver
 exists to model). The resolved config is written to
@@ -1944,6 +1989,44 @@ exists to model). The resolved config is written to
 is passed to `prepare_VADAT.py --vadat-overrides` on the compute node.
 `prepare_VADAT.py` re-applies the forced keys at VADAT-write time, so
 the two layers cannot disagree.
+
+**FIX_NE=F is the project default for ALL models** (adopted
+2026-09-25): `enforce_cmfgen_sn_iin_settings()` stamps `FIX_NE=F`
+into `vadat_overrides` on every run unless the YAML sets it
+explicitly, and `prepare_VADAT.py` writes `FIX_NE=F` +
+`FIX_INB_NE=F` for every profile when no override is present. The
+hydro electron density is a Saha/LTE guess, not the NLTE ionization
+balance; CMFGEN must solve Ne from charge conservation. `FIX_NE=T`
+remains available as a deliberate override
+(`vadat_overrides: {FIX_NE: T}` or `prepare_VADAT.py --fix_ne`) —
+e.g. to isolate Ne as a divergence driver — but it must not silently
+be the default.
+
+**Numerics and spectral gridding** (aligned to the reference VADAT
+in `cmfgen_validation/jnk_extracted/VADAT`, adopted 2026-10): solver
+numerics - `METHOD=ZERO` (zero-order depth interpolation),
+`MAX_CHNG=1.0D150` (abort threshold on BA corrections), `N_PAR=2000`
+(frequencies solved between BA matrix rebuilds), `COMP_F=F` (skip the
+initial Eddington-factor pass), `STORE_BA_INV=F`/`WR_PRT_INV=F` (do
+not store BA inverses), `ALL_FREQ=F` (apply the enhanced spatial grid
+only where needed), `T_MIN=0.2` (temperature floor), `T_INIT_TAU=1.5`/
+`GREY_TAU=0.5` (initial-model and grey-atmosphere optical depths);
+the continuum frequency grid (`MIN_CF=3.0D-3` to `MAX_CF=2.0D2` in
+1e15 Hz, `FRAC_SP=1.10`/`AMP_FAC=1.05` limit the ratio of adjacent
+frequencies, `MAX_BF=0.10` caps spacing near bound-free edges); line
+broadening (`TDOP=1.0`/`AMASS_DOP=4.0D+10` set the Doppler width,
+`MAX_DOP=6`/`FRAC_DOP=1.0` cap the profile extent,
+`dV_CMF_PROF=200`/`dV_CMF_WING=300` CMF-frame velocity sampling,
+`R_CMF_WING_EXT=3` wing extent in Doppler widths); line cuts
+(`GF_CUT=2.0D-3` drops weak lines, `AT_CUT=10`/`MIN_TRANS=9` trim
+transitions per ion); and the OBS grid (`OBS_EXT_RAT=1.1` extends the
+observed-frame range, `dV_OBS_PROF/WING/BIG=100/400/2000` sampling,
+`F_LAM_BEG=0`). `F_LAM_END=2.5D4` (2.5 um, user directive).
+Deliberately retained: `ES_WING_EXT=12000` (ES wing extent beyond
+VINF), `SIG_GAU_KMS/V_CROSS=500` (feature resolution), and
+`EPS_TERM` overrides in production configs. These defaults live in
+`prepare_VADAT.py` profile dicts and both `VADAT_INIT` templates;
+explicit YAML `vadat_overrides` still win.
 
 ## 39.2 `SIGMA` must be recomputed after any grid modification
 
@@ -2128,7 +2211,7 @@ still >500%). The 500–2000% corrections were physically meaningless —
 was valid.
 
 The current approach uses CMFGEN's built-in auto-switch (`DO_LAM_AUTO=T`)
-which is the standard approach used by Dessart and Hillier reference models:
+which performs the standard Lambda-to-BA handoff:
 
 1. Lambda iterations run until MAXCH < 50%
 2. `DO_LAM_AUTO` auto-switches `DO_LAM_IT=F` in IN_ITS
@@ -2159,19 +2242,19 @@ vadat_overrides:
   COMP_BA: T          # BA corrections enabled
   SOL_METH: DIAG      # Depth-independent solver
   NUM_LAM: '2'        # Manual: "Typically choose 2"
-  LAM_VAL: 2.0D2      # Fallback to Lambda if MAXCH > 200 (Dessart VADAT)
+  LAM_VAL: 2.0D2      # Fall back to Lambda when MAXCH exceeds this
   BEG_NG: 1.0D1       # Manual: "5% to 10%" (was 1.0D15 = disabled)
-  IBEG_NG: '20'       # Dessart VADAT: at least 20 iterations
-  BW_NG: '40'         # Dessart VADAT band width
-  FIX_IMP: F          # Impurity populations iterated (Dessart VADAT)
-  MAX_LIN: 5.0D0      # 5x BA correction cap (Dessart VADAT)
+  IBEG_NG: '20'       # Minimum Lambda iterations before Ng
+  BW_NG: '40'         # Depths per Ng acceleration band
+  FIX_IMP: F          # Impurity populations iterated, not held fixed
+  MAX_LIN: 5.0D0      # Cap on the BA correction multiplier
   FIX_BA: 1.0D1       # Keep computing BA until MAXCH < 10%
   N_FIX_BA: '2'       # Hold BA at most 2 iterations (manual recommended)
-  BA_CHK_FAC: 1.0D-05 # Dessart VADAT BA accuracy check
-  EPS_TERM: 5.0D-02   # Convergence threshold (Dessart VADAT)
-  DO_DIS: T           # Level dissolution (Dessart VADAT)
-  INC_PEN: T          # Penning ionization (Dessart VADAT)
-  INC_RAY: T          # Rayleigh scattering (Dessart VADAT)
+  BA_CHK_FAC: 1.0D-05 # BA accuracy-check threshold
+  EPS_TERM: 5.0D-02   # Iteration convergence threshold
+  DO_DIS: T           # Level dissolution (occupation probabilities)
+  INC_PEN: T          # Include Penning ionization
+  INC_RAY: T          # Include Rayleigh scattering
   NON_MONO_SOLVER: T  # Non-monotonic formal solver
   USE_LAM_ES: T       # J from formal solution, not moment equations
 ```
@@ -2206,21 +2289,23 @@ solution either way.
 
 ### Requeue configuration
 
-Production runs must use the `general` partition with 24h wall time
-and requeue enabled:
+Production runs use a 24 h wall and requeue. On Viper the partition for
+a partial-node CMFGEN job is `small`. A `partition: general` request
+with fewer than a whole node is moved to `small` (§2.3.3). A job that
+stays on `general` occupies all 256 CPUs on the node.
 
 ```yaml
 cmfgen:
-  partition: general
-  time: '24:00:00'
+  partition: small
+  time: '23:59:00'
   final_requeue_when: wall
   final_requeue_max: 500
 ```
 
-The `interactive` partition only accepts jobs < 2h and is suitable only
-for debug runs (hardcoded to 01:30:00). Setting `final_requeue_max: 0`
-causes the job to abort immediately on the first requeue, wasting all
-convergence progress.
+The `interactive` partition only accepts jobs under 2 h and is suitable
+only for debug runs (hardcoded to 01:59:00). Setting
+`final_requeue_max: 0` causes the job to abort on the first requeue,
+which discards the iterations already completed.
 
 ## ADJUST_CORRECTIONS
 

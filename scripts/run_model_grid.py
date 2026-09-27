@@ -83,12 +83,13 @@ _NON_MONO_FORCED_VADAT_FALLBACK = {
     "PURE_HUB": "F",
     "VEL_LAW": "11",
     "RD_IN_R_GRID": "T",
+    "N_OB_INS": "0",
+    "N_IB_INS": "0",
     "FG_OPT": "INT/INS",
     "USE_FIXED_J": "F",
     "PP_MOD": "F",
     "PP_NOV": "F",
     "AUTO_SMOOTH": "F",
-    "MAX_CHNG": "1.0D100",
     "TRANS_HI": "BLANK",
     "TRANS_HeI": "BLANK",
     "TRANS_He2": "BLANK",
@@ -109,15 +110,21 @@ _NON_MONO_FORCED_VADAT_FALLBACK = {
     "TRANS_FeV": "BLANK",
 }
 try:
-    from prepare_VADAT import NON_MONO_FORCED_VADAT, build_non_mono_forced_vadat
+    from prepare_VADAT import (
+        NON_MONO_FORCED_VADAT,
+        NON_MONO_SOB_RECOMMENDED,
+        build_non_mono_forced_vadat,
+    )
 except ImportError:
     try:
         from scripts.prepare_VADAT import (
             NON_MONO_FORCED_VADAT,
+            NON_MONO_SOB_RECOMMENDED,
             build_non_mono_forced_vadat,
         )
     except ImportError:
         NON_MONO_FORCED_VADAT = _NON_MONO_FORCED_VADAT_FALLBACK
+        NON_MONO_SOB_RECOMMENDED = {}
 
         def build_non_mono_forced_vadat(line_treatment="BLANK"):
             """Fallback builder mirroring prepare_VADAT.build_non_mono_forced_vadat."""
@@ -1591,11 +1598,40 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     wind_duration_days = float(x_cfg.get("wind_duration_days", 0.0) or 0.0)
     wind_mdot_bg = float(x_cfg.get("wind_mdot_bg_msun_yr", 1e-7) or 1e-7)
     se_transition_dex = x_cfg.get("se_transition_dex", 0.5)
+    sw_transition_dex = x_cfg.get("sw_transition_dex", 0.5)
+    sc_v_sharp_zones = int(x_cfg.get("sc_v_sharp_zones", 0) or 0)
+    ce_v_ramp_zones = int(x_cfg.get("ce_v_ramp_zones", 0) or 0)
     we_transition_dex = x_cfg.get("we_transition_dex", 0.5)
     density_matched_wind = x_cfg.get("density_matched_wind", False)
     cd_transition_zones = x_cfg.get("cd_transition_zones", 5)
     v_blend_zones = x_cfg.get("v_blend_zones", 30)
     force_homologous_velocity = x_cfg.get("force_homologous_velocity", False)
+    # Analytical power-law CSM (prepare_SN_B_model_v2.py):
+    # rho ~ r^-n homologous envelope (u = r/t_cs) replacing the
+    # 1/r^2 steady wind; SN_A ejecta is still the outer envelope.
+    powerlaw_csm = bool(
+        x_cfg.get("powerlaw_csm", x_cfg.get("chugai_csm", False))
+    )
+    csm_powerlaw_n = float(x_cfg.get("csm_powerlaw_n", 2.0))
+    csm_age_days = float(x_cfg.get("csm_age_days", 0.0) or 0.0)
+    csm_rho15 = float(x_cfg.get("csm_rho15_gcc", 0.0) or 0.0)
+    csm_w = float(x_cfg.get("csm_w_gcm", 0.0) or 0.0)
+    csm_density_match = bool(x_cfg.get("csm_density_match", True))
+    csm_match_shell = bool(x_cfg.get("csm_match_shell", False))
+    beta_wind = bool(x_cfg.get("beta_wind", False))
+    wind_beta = float(x_cfg.get("wind_beta", 1.0))
+    wind_rstar_cm = float(x_cfg.get("wind_rstar_cm", 0.0) or 0.0)
+    wind_clumping = float(x_cfg.get("wind_clumping", 1.0))
+    csm_T = x_cfg.get("csm_T_K", None)
+    csm_composition = x_cfg.get("csm_composition", None)
+    csm_r_outer_cm = float(x_cfg.get("csm_r_outer_cm", 0.0) or 0.0)
+    csm_ua0 = x_cfg.get("csm_ua0_kms", 0.0)
+    csm_cutoff_r = float(x_cfg.get("csm_cutoff_r_cm", 0.0) or 0.0)
+    csm_cutoff_n = x_cfg.get("csm_cutoff_n", 12.0)
+    csm_T_gamma = x_cfg.get("csm_T_gamma", 0.3)
+    csm_T_min = x_cfg.get("csm_T_min_K", None)
+    ejecta_T_const = float(x_cfg.get("ejecta_T_const_K", 0.0) or 0.0)
+    ejecta_r_inner_cm = float(x_cfg.get("ejecta_r_inner_cm", 0.0) or 0.0)
     # Explosion convention (two-event workflow):
     #   SN_B (x_model_from_sn, this path): velocity-driven embedded shell.
     #   The .hyd built by prepare_SN_B_model.py already carries the shell's
@@ -1676,6 +1712,13 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
         )
     elif no_wind:
         print(f"    Wind: SKIPPED (no_wind=True)")
+    elif powerlaw_csm:
+        print(
+            f"    CSM: power-law homologous envelope "
+            f"(rho~r^-{csm_powerlaw_n:g}, t_cs={csm_age_days or 'auto(=SN_A age)'} d, "
+            f"density_match={csm_density_match}, "
+            f"rho15={csm_rho15 or '-'}, w={csm_w or '-'})"
+        )
     elif density_matched_wind:
         print(
             f"    Wind: DENSITY-MATCHED (Mdot derived, v={wind_velocity} km/s, "
@@ -1686,7 +1729,9 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     print(f"    Target days: {target_days}, Snapshot day: {snapshot_day}")
     print(f"    Output: {model_dir_abs}")
 
-    script = scripts_dir / "prepare_SN_B_model.py"
+    script = scripts_dir / (
+        "prepare_SN_B_model_v2.py" if powerlaw_csm else "prepare_SN_B_model.py"
+    )
     cmd = [
         sys.executable,
         str(script),
@@ -1807,6 +1852,61 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
         )
     if force_homologous_velocity:
         cmd.append("--force-homologous-velocity")
+    if powerlaw_csm:
+        cmd.extend(
+            [
+                "--csm-powerlaw-n",
+                str(csm_powerlaw_n),
+                "--csm-age-days",
+                str(csm_age_days),
+                "--csm-rho15",
+                str(csm_rho15),
+                "--csm-w",
+                str(csm_w),
+                "--csm-ua0",
+                str(csm_ua0),
+                "--csm-cutoff-r-cm",
+                str(csm_cutoff_r),
+                "--csm-cutoff-n",
+                str(csm_cutoff_n),
+            ]
+        )
+        if csm_T is not None:
+            cmd.extend(["--csm-T", str(csm_T)])
+        cmd.extend(["--csm-T-gamma", str(csm_T_gamma)])
+        if csm_T_min is not None:
+            cmd.extend(["--csm-T-min", str(csm_T_min)])
+        if csm_composition:
+            cmd.extend(["--csm-composition", str(csm_composition)])
+        cmd.extend(["--sw-transition-dex", str(sw_transition_dex)])
+        if sc_v_sharp_zones > 0:
+            cmd.extend(["--sc-v-sharp-zones", str(sc_v_sharp_zones)])
+        if ce_v_ramp_zones > 0:
+            cmd.extend(["--ce-v-ramp-zones", str(ce_v_ramp_zones)])
+        if beta_wind:
+            cmd.extend(
+                [
+                    "--beta-wind",
+                    "--wind-beta",
+                    str(wind_beta),
+                    "--wind-clumping",
+                    str(wind_clumping),
+                ]
+            )
+            if wind_rstar_cm > 0:
+                cmd.extend(["--wind-rstar-cm", str(wind_rstar_cm)])
+        if csm_match_shell:
+            cmd.append("--csm-match-shell")
+        if not csm_density_match:
+            cmd.append("--no-csm-density-match")
+        if ejecta_r_inner_cm > 0:
+            cmd.extend(["--ejecta-r-inner-cm", str(ejecta_r_inner_cm)])
+        if ejecta_T_const > 0:
+            cmd.extend(["--ejecta-T-const", str(ejecta_T_const)])
+        if no_ejecta:
+            cmd.extend(
+                ["--csm-r-outer-cm", str(csm_r_outer_cm or wind_r_outer_cm)]
+            )
     if no_smooth_ejecta:
         cmd.append("--no-smooth-ejecta")
     cmd.extend(
@@ -2363,14 +2463,10 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                     f"  Preserving existing EDDFACTOR + EDDFACTOR_INFO for USE_FIXED_J initialization"
                 )
 
-        # Preserve restart/output files from previous CMFGEN run.
-        # These are expensive to regenerate and needed for restart, analysis,
-        # or downstream codes. The directory wipe would otherwise destroy them.
+        # Preserve output/diagnostic files from the previous CMFGEN run.
+        # The directory wipe would otherwise destroy them.
         restart_files = [
-            "OUTGEN",  # CMFGEN output populations (restart)
-            "RVTJ",  # R, V, T, J structure (restart + OBS input)
-            "MODEL",  # Current model structure (restart)
-            "CUR_MODEL_DATA",  # Current model data (restart)
+            "OUTGEN",  # CMFGEN iteration log
             "SPECIES_MASSES",  # Species mass inventory (diagnostic)
             "OBSFLUX",  # Observer-frame flux (OBS output)
             "RS_XRAY_FLUXES",  # X-ray fluxes (diagnostic)
@@ -2380,36 +2476,60 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
             # would override DO_LAM_AUTO. prepare_VADAT.py writes or deletes
             # it from the YAML iteration_strategy on the compute node.
         ]
+        # A new submission is a fresh start, not a continuation: warm-start
+        # state (RVTJ/MODEL/CUR_MODEL_DATA restart dumps, POINT1/POINT2
+        # SCR_READ_V2 checkpoints, POP* and the Knop FGINEXT_GS/MOMJNXT_GS
+        # Gauss-Seidel radiation state) is wiped so CMFGEN cold-starts.
+        # Continuation remains available in two cases only:
+        #   - skip_final / OBS-only resubmits, where these files are inputs
+        #     to the OBS step of the already-completed run;
+        #   - cmfgen.warm_restart: true in the YAML (or CMFGEN_WARM_RESTART=1),
+        #     a deliberate request to resume from the checkpoint.
+        skip_final = cmfgen_cfg.get("skip_final", False) or os.environ.get(
+            "SKIP_FINAL"
+        ) == "1"
+        warm_restart = cmfgen_cfg.get("warm_restart", False) or os.environ.get(
+            "CMFGEN_WARM_RESTART"
+        ) == "1"
         # VADAT is regenerated by prepare_VADAT.py inside the FINAL/SINGLE_FINAL
         # job, so it is normally safe to wipe.  Under skip_final (OBS-only
         # resubmission) no job regenerates it, but batobs.sh reads MASS from
         # ../VADAT — preserve it so SKIP_FINAL resubmits can run OBS.
-        if cmfgen_cfg.get("skip_final", False) or os.environ.get("SKIP_FINAL") == "1":
+        if skip_final:
             restart_files.append("VADAT")
-        # POP<SPECIES> population files (POPHYD, POPHE, ...) are CMFGEN outputs
-        # required by the OBS (cmf_flux) spectrum step. Without them cmf_flux
-        # finds zero species and segfaults in INDEXX. They are only rewritten
-        # when a CMFGEN run completes, so losing them forces a full rerun.
-        restart_files += [
-            p.name for p in sorted(cmfgen_dir.glob("POP*")) if p.is_file()
-        ]
-        # POINT1/POINT2 are the SCR_READ_V2 checkpoint files (R, V, SIGMA,
-        # POPS, and the nonmono GS radiation state). They are the ONLY warm
-        # restart state: without them a resubmitted FINAL cold-starts from
-        # LTE, and POP* cannot be regenerated except by a complete run.
-        restart_files += [p for p in ("POINT1", "POINT2") if (cmfgen_dir / p).is_file()]
-        # FGINEXT_GS / MOMJNXT_GS hold the Knop non-monotonic Gauss-Seidel
-        # lagged upwind-intensity state (I_NEXT / J_NEXT_FRQ at compressing
-        # depths).  POINT1/POINT2 do NOT contain this state: it converges
-        # slowly over great iterations (INEXT_RELAX=0.5) and, where the
-        # compressing chi_hat barrier is stiff (e.g. the TypeIIn shell
-        # velocity jump), is still far from converged after ~60 its.  Wiping
-        # it on resubmission cold-starts the coupling and prevents the
-        # boundary intensity CV_BOUND (hence OBSFLUX) from ever converging
-        # through the workflow.
-        restart_files += [
-            p for p in ("FGINEXT_GS", "MOMJNXT_GS") if (cmfgen_dir / p).is_file()
-        ]
+        if skip_final or warm_restart:
+            # RVTJ/MODEL/CUR_MODEL_DATA are required by OBS (cmf_flux reads
+            # RVTJ and VADAT) and by a deliberate warm restart.
+            restart_files += ["RVTJ", "MODEL", "CUR_MODEL_DATA"]
+            # POP<SPECIES> population files (POPHYD, POPHE, ...) are CMFGEN
+            # outputs required by the OBS (cmf_flux) spectrum step. Without
+            # them cmf_flux finds zero species and segfaults in INDEXX. They
+            # are only rewritten when a CMFGEN run completes, so losing them
+            # forces a full rerun.
+            restart_files += [
+                p.name for p in sorted(cmfgen_dir.glob("POP*")) if p.is_file()
+            ]
+            # POINT1/POINT2 are the SCR_READ_V2 checkpoint files (R, V, SIGMA,
+            # POPS, and the nonmono GS radiation state). They are the ONLY warm
+            # restart state: without them a resubmitted FINAL cold-starts from
+            # LTE, and POP* cannot be regenerated except by a complete run.
+            restart_files += [
+                p for p in ("POINT1", "POINT2") if (cmfgen_dir / p).is_file()
+            ]
+            # FGINEXT_GS / MOMJNXT_GS hold the Knop non-monotonic Gauss-Seidel
+            # lagged upwind-intensity state (I_NEXT / J_NEXT_FRQ at compressing
+            # depths).  POINT1/POINT2 do NOT contain this state: it converges
+            # slowly over great iterations (INEXT_RELAX=0.5) and, where the
+            # compressing chi_hat barrier is stiff (e.g. the TypeIIn shell
+            # velocity jump), is still far from converged after ~60 its.
+            # Wiping it on resubmission cold-starts the coupling and prevents
+            # the boundary intensity CV_BOUND (hence OBSFLUX) from ever
+            # converging through the workflow.
+            restart_files += [
+                p
+                for p in ("FGINEXT_GS", "MOMJNXT_GS")
+                if (cmfgen_dir / p).is_file()
+            ]
         restart_backups = {}
         for fname in restart_files:
             fpath = cmfgen_dir / fname
@@ -6452,6 +6572,20 @@ def submit_j_release_job(
     # HARDCODED time limit per partition (config 'time' is IGNORED)
     time_limit = get_time_limit(debug)
     obs_time = time_limit
+    obs_partition, obs_mem = partition, mem
+    if debug:
+        # cmf_flux needs more memory than the interactive cap allows on
+        # fine grids; run the OBS job on the normal partition instead.
+        obs_est_gb, _ = estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg)
+        if obs_est_gb is not None and obs_est_gb > DEBUG_MEM_CAP_GB:
+            obs_partition = PROD_PARTITION
+            obs_mem = f"{int(np.ceil(obs_est_gb / 5.0) * 5)}G"
+            obs_time = get_time_limit(False)
+            print(
+                f"  [MEM] J-RELEASE OBS needs ~{obs_est_gb:.0f}G > "
+                f"{DEBUG_MEM_CAP_GB:.0f}G interactive cap -- OBS job goes "
+                f"to {PROD_PARTITION} with {obs_mem}"
+            )
 
     j_release_slurm = cmfgen_dir / "run_cmfgen_j_release.slurm"
     j_release_slurm.write_text(
@@ -6545,11 +6679,11 @@ echo "J-RELEASE job finished on $(date)"
 #SBATCH --output=cmf_jrelease_obs_%j.out
 #SBATCH --error=cmf_jrelease_obs_%j.err
 #SBATCH --time={obs_time}
-#SBATCH --partition={partition}
+#SBATCH --partition={obs_partition}
 #SBATCH --qos=n0008
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task={cpus}
-#SBATCH --mem={mem}
+#SBATCH --mem={obs_mem}
 #SBATCH --chdir={cmfgen_dir}
 
 set -euo pipefail
@@ -6594,8 +6728,29 @@ _attach_args=()
 if [[ -f "$SPEC_PLOT" ]]; then
     _attach_args=(-a "$SPEC_PLOT")
 fi
+# Include the last "great iteration" block from OUTGEN so the email shows
+# the final convergence state. OUTGEN sits in the CMFGEN run directory;
+# the ../ fallback covers jobs running in an obs/ subdirectory.
+_iter_log=""
+for _og in "{cmfgen_dir}/OUTGEN" "OUTGEN" "../OUTGEN"; do
+    if [[ -s "$_og" ]]; then _iter_log="$_og"; break; fi
+done
+_iter_block=""
+if [[ -n "$_iter_log" ]]; then
+    _iter_start=$(grep -n 'Current great iteration count' "$_iter_log" | tail -n 1 | cut -d: -f1 || true)
+    if [[ -n "$_iter_start" ]]; then
+        _iter_block=$(tail -n +"$_iter_start" "$_iter_log" | head -n 300)
+    else
+        _iter_block=$(tail -n 120 "$_iter_log")
+    fi
+fi
 _mail_subject="CMFGEN OBS completed for {model_name}"
 _mail_body=$(printf "CMFGEN OBS job completed successfully.\\nobs_fin_10 is non-empty.\\nSpectrum: %s\\nPlot: %s\\n" "$SPEC_OUT" "$SPEC_PLOT")
+if [[ -n "$_iter_block" ]]; then
+    _mail_body="$_mail_body
+---- Final iteration (OUTGEN tail) ----
+$_iter_block"
+fi
 # Compute nodes cannot write to the local postfix maildrop (postdrop
 # "Permission denied"), so sendmail-mode mailx hangs until the timeout.
 # Try direct SMTP to the MPCDF relay first; fall back to sendmail mode.
@@ -6738,8 +6893,9 @@ def submit_cmfgen_jobs(
         )
     # SLURM resources
     # Debug mode: interactive partition, 8 CPUs, 30G memory.
-    # Production mode: general partition, 8 CPUs, 32G memory.
-    # Config values override production defaults but not debug presets.
+    # Production mode: small partition, 4 CPUs, 32G memory.
+    # cmfgen.cpus_per_task overrides the production default. It is passed
+    # as --cpus-per-task. batch.sh must thread from SLURM_CPUS_PER_TASK.
     cmfgen_cpus = cmfgen_cfg.get("cpus_per_task", None)
     partition, cmfgen_cpus, slurm_mem = get_job_resources(
         debug,
@@ -6960,6 +7116,25 @@ def submit_cmfgen_jobs(
         env["SKIP_OBS"] = "1"
     if cmfgen_cfg.get("skip_final", False):
         env["SKIP_FINAL"] = "1"
+    # Deliberate continuation: tells submit_cmfgen.sh to skip the fresh-start
+    # cleanup and sentinel removal so the slurm takes its checkpoint-restore
+    # branch (mirrors prepare_cmfgen_dir preserving the warm-start files).
+    if cmfgen_cfg.get("warm_restart", False):
+        env["CMFGEN_WARM_RESTART"] = "1"
+    if debug:
+        # The OBS (cmf_flux) grid is often much finer than the model grid.
+        # If its estimate tops the interactive MaxMemPerNode cap, the OBS
+        # job would be clamped to 30G and OOM -- route it to the normal
+        # partition with a sized request instead.
+        obs_est_gb, _ = estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg)
+        if obs_est_gb is not None and obs_est_gb > DEBUG_MEM_CAP_GB:
+            env["CMFGEN_OBS_PARTITION"] = PROD_PARTITION
+            env["CMFGEN_OBS_MEM"] = f"{int(np.ceil(obs_est_gb / 5.0) * 5)}G"
+            print(
+                f"  [MEM] OBS needs ~{obs_est_gb:.0f}G > "
+                f"{DEBUG_MEM_CAP_GB:.0f}G interactive cap -- OBS job goes "
+                f"to {PROD_PARTITION} with {env['CMFGEN_OBS_MEM']}"
+            )
     if proxy_populations and cmfgen_cfg.get("proxy_populations_v2", False):
         env["USE_PROXY_V2"] = "1"
     if graceful_stop_sec:
@@ -9626,7 +9801,7 @@ def enforce_cmfgen_sn_iin_settings(config):
     v = cmfgen.setdefault("vadat_overrides", {})
     # Keys present in the YAML vadat_overrides before any forcing below —
     # an explicit user value wins over the SN_IIN stamps for keys that are
-    # safe to vary (e.g. REL_OBS/REL_CMF for the Stockholm reference setup).
+    # safe to vary (e.g. REL_OBS/REL_CMF relativistic-observer flags).
     user_vadat_keys = set(v)
 
     # ── use_lam_es setup selector ──────────────────────────────────
@@ -9787,6 +9962,64 @@ def enforce_cmfgen_sn_iin_settings(config):
                     )
                 cmfgen["depth_independent_solver"] = True
 
+        # SOB-mode recommended defaults — the Dessart+2015
+        # (arXiv:1503.05463) recipe validated on the m15 2.82d model
+        # (job 12001805).  Fill only when the user has not set the key;
+        # prepare_VADAT stamps the same NON_MONO_SOB_RECOMMENDED table
+        # at VADAT-write time, so the two layers stay consistent.
+        if _nm_mode == "SOB":
+            # Fill on the pre-force user key set: a YAML value always
+            # wins, but keys already stamped by the forced table (e.g.
+            # NEG_OPAC_OPT=SRCE_CHK) still take the SOB recipe value so
+            # the resolved config matches what prepare_VADAT writes.
+            _sob_filled = []
+            for _key, _val in NON_MONO_SOB_RECOMMENDED.items():
+                if _key not in user_vadat_keys and v.get(_key) != _val:
+                    v[_key] = _val
+                    _sob_filled.append(f"{_key}={_val}")
+            if _sob_filled:
+                print(
+                    f"  [NON_MONO_SOB] recommended defaults applied "
+                    f"(unset in YAML): {', '.join(_sob_filled)}"
+                )
+
+            # Explicit DIF=F + JBAR_W_EDD=T is a guaranteed STOP on the
+            # first BA iteration (SUB_SOB_LINE_V3 -> PERTJFEAU_IBC needs
+            # DIF=T).  Warn at resolve time; prepare_VADAT stamps
+            # JBAR_W_EDD=F on the node when the final VADAT has DIF=F
+            # (the auto-select there can pick DIF=T from tau_inner).
+            if (
+                "DIF" in user_vadat_keys
+                and not _vadat_true(v.get("DIF"))
+                and _vadat_true(v.get("JBAR_W_EDD", "F"))
+            ):
+                print(
+                    "  [NON_MONO_SOB] WARNING: JBAR_W_EDD=T with DIF=F -- "
+                    "PERTJFEAU_IBC STOPs under DIF=F (only diffusion "
+                    "installed); use DIF=T/IB_METH=DIFFUSION or "
+                    "JBAR_W_EDD=F"
+                )
+
+            # LSTAR=0 leaves the inner boundary dead (DTDR=0) -- the
+            # divergent m15 configuration (job 12000611).  prepare_VADAT
+            # normally stamps LSTAR from the SN_HYDRO_DATA 'Energy Lum'
+            # header; an explicit override can still zero it.
+            _lstar_raw = v.get("LSTAR")
+            if _lstar_raw is not None:
+                try:
+                    _lstar_val = float(
+                        str(_lstar_raw).replace("D", "E").replace("d", "e")
+                    )
+                except ValueError:
+                    _lstar_val = None
+                if _lstar_val is not None and abs(_lstar_val) < 1.0e-30:
+                    print(
+                        "  [NON_MONO_SOB] WARNING: LSTAR=0 -- dead inner "
+                        "boundary (DTDR=0); the m15 SOB run diverged from "
+                        "it1 under this setting.  Use the SN_HYDRO_DATA "
+                        "'Energy Lum' value with DIF=T/IB_METH=DIFFUSION"
+                    )
+
         # VEL_LAW=11 + RD_IN_R_GRID=T reads the R grid verbatim from
         # RDINR, so MODEL_SPEC ND must equal the RDINR point count.
         # cmfgen.n_ob_ins is passed to submit_cmfgen_jobs.sh (arg 19 ->
@@ -9802,16 +10035,30 @@ def enforce_cmfgen_sn_iin_settings(config):
 
         # Verified non-monotonic iteration defaults (AGENTS.md §43.5) —
         # filled only when the user has not chosen a value.
+        # Damping / convergence values: Ne free (charge conservation),
+        # impurities iterated, tighter BA damping, earlier Lambda
+        # fallback, level dissolution + Rayleigh + Penning on.
         _nm_defaults = {
             "DO_LAM_IT": "T",  # start in Lambda mode
             "DO_LAM_AUTO": "T",  # auto-switch Lambda -> BA/JFNK at MAXCH<50%
             "DO_NG": "T",  # Ng acceleration (essential for DIAG)
             "COMP_BA": "T",  # recompute BA each iteration
             "NUM_LAM": "2",  # post-switch Lambda fallback count
-            "LAM_VAL": "4.0D2",  # fall back to Lambda if MAXCH > 400%
+            "LAM_VAL": "2.0D2",  # fall back to Lambda if MAXCH > 200%
             "BEG_NG": "1.0D1",  # start Ng when max change < 10%
-            "IBEG_NG": "15",  # at least 15 iterations before first Ng
+            "IBEG_NG": "20",  # at least 20 iterations before first Ng
+            "BW_NG": "40",  # depths per Ng acceleration band
             "FIX_T_AUTO": "F",  # static snapshot: T fixed to hydro
+            "FIX_NE": "F",  # Ne solved from charge conservation
+            "FIX_IMP": "F",  # impurity populations iterated like majors
+            "MAX_LIN": "5.0D0",  # 5x BA correction cap (tighter damping)
+            "FIX_BA": "1.0D1",  # keep computing BA until MAXCH < 10%
+            "N_FIX_BA": "2",  # hold BA at most 2 iterations
+            "BA_CHK_FAC": "1.0D-05",  # tight BA accuracy check
+            "EPS_TERM": "5.0D-02",  # iteration convergence threshold
+            "DO_DIS": "T",  # level dissolution
+            "INC_PEN": "T",  # Penning ionization
+            "INC_RAY": "T",  # Rayleigh scattering
             "BA_MAXCH_FAIL": "1.0D30",  # always accept BA step (rejection disabled; user directive 16-Sep-2026)
         }
         _filled = []
@@ -9950,6 +10197,10 @@ def enforce_cmfgen_sn_iin_settings(config):
     _force("N_TYPE", "N_ON_J", "SN_IIN")
     _force_unless_user("REL_OBS", "F", "SN_IIN")
     _force_unless_user("REL_CMF", "F", "SN_IIN")
+    # Ne is solved from charge conservation, not held at the hydro Saha
+    # estimate (an LTE guess, not the NLTE ionization balance).  Applies to
+    # every model, not only non-monotonic ones (default adopted 25-Sep-2026).
+    _force_unless_user("FIX_NE", "F", "SN_IIN")
     # Population smoothing destabilizes non-monotonic velocity models.
     _force("AUTO_SMOOTH", "F", "SN_IIN")
     # Static snapshot: no time-derivative terms.
@@ -10399,6 +10650,13 @@ def process_config(
         if config.get("stella_from_swd_snapshot", None):
             print(
                 f"  SWD snapshot mode: input_profile not required (using .hyd/.abn/.dat directly)"
+            )
+        elif config.get("cmfgen_conversion", {}).get("use_existing_sn_hydro", False):
+            # Externally supplied SN_HYDRO_DATA (e.g. a converted hydro file
+            # with no .swd to convert from) needs no input_profile.
+            print(
+                "  use_existing_sn_hydro=True: input_profile not required "
+                "(SN_HYDRO_DATA provided directly)"
             )
         else:
             print(f"ERROR: Expected profile not found after generation: {profile_path}")

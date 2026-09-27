@@ -3,7 +3,7 @@ CMFGEN Non-Monotonic Velocity Solver — Design Document
 ================================================================================
 Project:  SN2024pba (X2_sn interacting supernova model)
 Date:     2026-08-01
-Author:   S. Brennan (with Devin AI assistance)
+Author:   S. Brennan
 Status:   Implemented, audited, resubmitted
 
 ================================================================================

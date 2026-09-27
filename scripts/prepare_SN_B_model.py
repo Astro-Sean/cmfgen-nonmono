@@ -774,6 +774,9 @@ def create_wind(mdot_msun_yr, v_wind_kms, T_wind_K, r_inner_cm, r_outer_cm,
     M_wind = np.sum(np.maximum(dm, 0))
     print(f"    Wind mass: {M_wind/MSUN:.4f} Msun")
     print(f"    rho range: [{rho.min():.3e}, {rho.max():.3e}] g/cc")
+    t_flow = (r_outer_cm - r_inner_cm) / v_wind / 86400.0
+    print(f"    Implied wind duration: {t_flow:.0f} d "
+          f"((r_outer - r_inner) / v_wind)")
 
     # Compute optical depth through wind
     kappa_est = 0.34
@@ -1570,9 +1573,18 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
     log_r_max = np.log10(r_max)
 
     # Wind properties
-    mdot = wind['rho'][0] * 4 * np.pi * wind['r_inner']**2 * wind['v'][0]
     v_wind = wind['v'][0]
     T_wind = wind['T'][0]
+    # Wind density on the final grid is interpolated from the supplied
+    # profile rather than rebuilt from a single Mdot: a finite-age wind
+    # (--wind-duration-days) concatenates two Mdot segments and its
+    # leading edge must survive.  For a steady 1/r^2 wind the
+    # interpolation is exact in log-log space, so behaviour is unchanged.
+    _w_src_lr = np.log10(wind['r'])
+    _w_src_lrho = np.log10(np.maximum(wind['rho'], 1e-300))
+
+    def wind_rho_at(rr):
+        return 10.0 ** np.interp(np.log10(rr), _w_src_lr, _w_src_lrho)
 
     # --- Compute buffer zone sizes ---
     # Shell-wind buffer: ramps from rho_shell_edge to rho_wind(r_buffer_end)
@@ -1590,7 +1602,7 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
 
     r_sw_buffer_end = r_shell_outer * (10 ** sw_transition_dex)
     rho_sw_start = shell['rho'][-1]  # shell density at outer edge (power-law tail)
-    rho_sw_end = mdot / (4 * np.pi * r_sw_buffer_end**2 * v_wind)  # wind density at buffer end
+    rho_sw_end = wind_rho_at(r_sw_buffer_end)  # wind density at buffer end
     sw_contrast = np.log10(max(rho_sw_start, 1e-300) / max(rho_sw_end, 1e-300))
 
     # Number of buffer zones: enough for gradient < 16
@@ -1616,7 +1628,7 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
 
     # Wind-ejecta buffer: ramps from rho_wind to rho_ejecta
     r_we_buffer_start = r_ej_inner / (10 ** we_transition_dex)
-    rho_we_start = mdot / (4 * np.pi * r_we_buffer_start**2 * v_wind)
+    rho_we_start = wind_rho_at(r_we_buffer_start)
     rho_we_end = ej_rho_sorted[0]  # ejecta density at inner edge
     we_contrast = abs(np.log10(max(rho_we_end, 1e-300) / max(rho_we_start, 1e-300)))
     we_grad = we_contrast / we_transition_dex
@@ -1770,9 +1782,10 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
     # Temperature: linear from shell T at outer edge to wind T
     sw_buf_T = np.linspace(shell['T'][-1], T_wind, nzon_sw_buffer)
 
-    # Wind: log-spaced, 1/r^2 density, constant velocity
+    # Wind: log-spaced, density interpolated from the supplied profile
+    # (steady 1/r^2 wind, or young wind + background for finite duration)
     wind_r = np.logspace(np.log10(r_sw_buffer_end), np.log10(r_we_buffer_start), nzon_wind + 1)[1:]
-    wind_rho = mdot / (4 * np.pi * wind_r**2 * v_wind)
+    wind_rho = wind_rho_at(wind_r)
     wind_v = np.full(nzon_wind, v_wind)
     wind_T = np.full(nzon_wind, T_wind)
 
@@ -2781,7 +2794,7 @@ def write_x_dat(fname, model_name, target_days, snapshot_day,
                 fit_tau=5.0, temp_floor=0.03, floor_rad=0.01, hmin=1e-14,
                 t_start_days=0.0, r_max_cm=0.0, v_max_cm_s=0.0,
                 wacc_r=1.0, wacc_v=1.0, wacc_t=0.5, wacc_rad=0.5,
-                tau_tol=1.3, disable_scattering=False):
+                tau_tol=1.3, disable_scattering=False, tcura_days=None):
     """Write STELLA .dat control file for SN_B model.
 
     The SN_B model is velocity-driven: EKO=0 and EBurst=0 are enforced
@@ -2813,7 +2826,10 @@ def write_x_dat(fname, model_name, target_days, snapshot_day,
     c_light = 2.998e10  # cm/s
     light_time_days = r_max_cm / c_light / 86400.0 if r_max_cm > 0 else 0.0
 
-    t_start = t_start_days  # PROPER_T at simulation start
+    # TcurA is the STELLA clock value at run start; defaults to t_start_days
+    # (the shell's coasting time) but can be overridden independently to test
+    # the clock convention without changing the pre-expanded profile.
+    t_start = tcura_days if tcura_days is not None else t_start_days
     # TcurB: PROPER_T at which OBS.TIME = target_days
     # OBS.TIME = PROPER_T - r_max/c, so PROPER_T = target_days + r_max/c
     #
@@ -2961,6 +2977,9 @@ def main():
                         help='STELLA start time in days (shell pre-expanded). '
                              'Sets r_outer = v_shell * t_start. Must be > 0. '
                              '(default: 10.0, Dessart 2010jl: 11.6)')
+    parser.add_argument('--tcura-days', type=float, default=None,
+                        help='TcurA: STELLA clock start time in days written to '
+                             'the .dat file. Default: use --t-start.')
     parser.add_argument('--ejecta-T-floor', type=float, default=1000.0,
                         help='Ejecta temperature floor in K (400d-old Ni56-free: ~300 R)')
     parser.add_argument('--ejecta-rho-min', type=float, default=0.0,
@@ -3062,6 +3081,22 @@ def main():
                              'If 0, defaults to v_wind * (source_age + t_start), '
                              'i.e. source_age is interpreted as the wind duration '
                              'before shell launch.')
+    parser.add_argument('--wind-duration-days', type=float, default=0.0,
+                        help='Finite-age wind (standard shell+wind+ejecta mode). '
+                             'If >0, truncate the connecting wind at '
+                             'r_lead = v_wind * wind_duration_days and fill the '
+                             'remaining gap to the ejecta with a tenuous '
+                             'background wind (--wind-mdot-bg). Use this when '
+                             'the mass-loss episode began a known number of '
+                             'days before shell launch (e.g. at SN_A), so the '
+                             'wind cannot have reached the ejecta inner edge. '
+                             'Default 0 fills the whole shell-ejecta gap with '
+                             'the same steady Mdot (fossil-CSM assumption).')
+    parser.add_argument('--wind-mdot-bg', type=float, default=1e-7,
+                        help='Background wind Mdot in Msun/yr used beyond the '
+                             'truncated wind leading edge (--wind-duration-days). '
+                             'Represents the older, tenuous CSM the young wind '
+                             'runs into.')
     parser.add_argument('--immediate-contact', action='store_true',
                         help='Shell and ejecta in direct contact (no buffer zone). '
                              'Computes self-consistent t_start so shell outer edge '
@@ -3414,9 +3449,68 @@ def main():
                 f"  3. Use --no-wind --immediate-contact (no wind needed)"
             )
 
-        wind = create_wind(args.wind_mdot, args.wind_velocity, args.wind_T,
-                           wind_r_inner, wind_r_outer,
-                           composition=args.shell_composition)
+        r_lead = (args.wind_velocity * 1e5
+                  * args.wind_duration_days * 86400.0)
+        if args.wind_duration_days > 0 and r_lead < wind_r_outer:
+            # Finite-age wind: the leading edge cannot have travelled
+            # farther than v_wind * duration.  The gap between the wind
+            # front and the ejecta inner edge is filled with an older,
+            # tenuous background wind -- a single steady Mdot spanning the
+            # whole gap would claim the wind has been flowing for
+            # (r_outer - r_inner) / v_wind days.
+            if r_lead <= wind_r_inner:
+                raise ValueError(
+                    f"Wind duration too short: r_lead={r_lead:.3e} cm is "
+                    f"inside the shell outer edge {wind_r_inner:.3e} cm.\n"
+                    f"--wind-duration-days must exceed "
+                    f"{wind_r_inner / (args.wind_velocity * 1e5 * 86400.0):.1f} d "
+                    f"at v_wind={args.wind_velocity:.0f} km/s.")
+            span1 = np.log10(r_lead) - np.log10(wind_r_inner)
+            span2 = np.log10(wind_r_outer) - np.log10(r_lead)
+            nz1 = max(20, int(round(100 * span1 / (span1 + span2))))
+            nz2 = max(20, 100 - nz1)
+            print(f"  Finite-age wind: r_lead={r_lead:.3e} cm "
+                  f"({args.wind_duration_days:.0f} d at "
+                  f"{args.wind_velocity:.0f} km/s); background beyond")
+            young = create_wind(args.wind_mdot, args.wind_velocity,
+                                args.wind_T, wind_r_inner, r_lead,
+                                nzon_wind=nz1,
+                                composition=args.shell_composition)
+            # The leading edge is physically a contact discontinuity, but
+            # a ~4-dex density step in one zone gives |dlog rho/dlog r|
+            # ~800 and stalls the solver.  Ramp log-linearly over ~0.3
+            # dex so the gradient stays under the buffer limit of 16.
+            lead_span_dex = 0.30
+            r_tr_end = r_lead * 10.0 ** lead_span_dex
+            if r_tr_end >= wind_r_outer:
+                r_tr_end = r_lead * 10.0 ** (0.8 * span2)
+            nz_tr = 16
+            v_w = args.wind_velocity * 1e5
+            rho_bg_at_tr = (args.wind_mdot_bg * MSUN / YR_TO_S
+                            / (4 * np.pi * r_tr_end**2 * v_w))
+            tr = {k: np.full(nz_tr, v[0]) if isinstance(v, np.ndarray)
+                  else v for k, v in young.items()}
+            tr['r'] = np.logspace(np.log10(young['r'][-1]),
+                                  np.log10(r_tr_end), nz_tr + 1)[1:]
+            tr['rho'] = np.logspace(np.log10(young['rho'][-1]),
+                                    np.log10(rho_bg_at_tr), nz_tr)
+            bg = create_wind(args.wind_mdot_bg, args.wind_velocity,
+                             args.wind_T, r_tr_end * 1.001, wind_r_outer,
+                             nzon_wind=nz2,
+                             composition=args.shell_composition)
+            wind = {k: np.concatenate([young[k], tr[k], bg[k]])
+                    if isinstance(v, np.ndarray) else v
+                    for k, v in young.items()}
+            wind['r_inner'] = wind_r_inner
+            wind['r_outer'] = wind_r_outer
+            tr_lo = np.concatenate([[tr['r'][0] * 0.999], tr['r'][:-1]])
+            tr_mass = ((4 / 3) * np.pi
+                       * (tr['r']**3 - tr_lo**3) * tr['rho']).sum()
+            wind['M_wind'] = young['M_wind'] + bg['M_wind'] + tr_mass
+        else:
+            wind = create_wind(args.wind_mdot, args.wind_velocity,
+                               args.wind_T, wind_r_inner, wind_r_outer,
+                               composition=args.shell_composition)
 
         # Step 4: Combine shell + wind + ejecta
         print(f"\n--- Step 4: Combining shell + wind + ejecta ---")
@@ -3475,6 +3569,7 @@ def main():
                 meth=args.meth, temp_floor=args.temp_floor,
                 floor_rad=args.floor_rad, hmin=args.hmin, hmax=args.hmax,
                 t_start_days=args.t_start,
+                tcura_days=args.tcura_days,
                 r_max_cm=combined['r'].max(),
                 v_max_cm_s=combined['v'].max(),
                 wacc_r=args.wacc_r, wacc_v=args.wacc_v,

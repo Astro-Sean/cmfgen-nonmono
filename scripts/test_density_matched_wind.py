@@ -30,12 +30,12 @@ from scipy.interpolate import interp1d
 
 # Reuse the production helpers
 sys.path.insert(0, str(Path(__file__).parent))
-from prepare_x_model import (
+from prepare_SN_B_model import (
     read_source_ejecta,
     create_hhe_shell,
     create_wind,
     combine_shell_wind_ejecta,
-    _sigmoid_blend, _sigmoid_blend_weights,
+    _interface_blend, _interface_ramp_weights,
     MSUN, YR_TO_S, SOLAR_COMPOSITION,
 )
 
@@ -187,11 +187,11 @@ def combine_shell_wind_ejecta_density_matched(
     cd_rho = mdot_matched / (4.0 * np.pi * cd_r**2 * v_wind)
 
     v_ej_inner = ej_v_sorted[0]
-    cd_v = _sigmoid_blend(transition_zones, v_wind, v_ej_inner,
-                          transition_zones=transition_zones)
-    cd_T = _sigmoid_blend(transition_zones, T_wind,
-                          max(ej_T_sorted[0], ejecta_T_floor),
-                          transition_zones=transition_zones)
+    cd_v = _interface_blend(transition_zones, v_wind, v_ej_inner,
+                            transition_zones=transition_zones)
+    cd_T = _interface_blend(transition_zones, T_wind,
+                            max(ej_T_sorted[0], ejecta_T_floor),
+                            transition_zones=transition_zones)
 
     # --- Ejecta grid (log-spaced, interpolated from source) ---
     ej_r_new = np.logspace(log_r_ej, log_r_max, nzon_ejecta + 1)[1:]
@@ -268,7 +268,7 @@ def combine_shell_wind_ejecta_density_matched(
         else:
             ej_comp_inner[key] = 0.0
 
-    cd_w = _sigmoid_blend_weights(transition_zones, transition_zones=transition_zones)
+    cd_w = _interface_ramp_weights(transition_zones, transition_zones=transition_zones)
 
     comp_combined = {}
     for key in all_elem_keys:

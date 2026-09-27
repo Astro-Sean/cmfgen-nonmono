@@ -136,17 +136,17 @@ def write_sn_hydro_data(profile, filename):
         f.write('\n')
 
     with open(filename, 'w') as f:
-        # Header (matching Dessart reference format)
+        # Header (SN_HYDRO_DATA format)
         f.write(f"Number of data points:{profile['n_points']:>10d}\n")
         f.write(f"Number of mass fractions:{profile['n_mass_fractions']:>10d}\n")
         f.write(f"Number of isotopes:{profile['n_isotopes']:>10d}\n")
         f.write(f"Time(days) since explosion:{profile['time_days']:>15.7f}\n")
-        # Extra header line used by our pipeline (not in Dessart reference but
-        # read by prepare_VADAT.py, run_model_grid.py, fix_sedona_param.py).
+        # Extra header line used by our pipeline; read by prepare_VADAT.py,
+        # run_model_grid.py, fix_sedona_param.py.
         f.write(f"Energy Lum [lsun]:{profile['lum_lsun']:>19.6E}\n")
         f.write("\n")
 
-        # Data blocks (order and titles match Dessart reference)
+        # Data blocks (SN_HYDRO_DATA order and titles)
         write_block(f, "Radius grid (10^10cm)", profile['r'])
         write_block(f, "Velocity (km/s)",       profile['v'])
         write_block(f, "Sigma (dlnV/dlnr-1)",   profile['sigma'])

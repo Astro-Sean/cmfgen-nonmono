@@ -1,0 +1,83 @@
+# dev7 Knop-solver check (18-Sep-2026): same monotonic homologous ejecta
+# snapshot as the dev7 sanity run (M15-He-O-Ca-evo, t=25.10407 d, ND=150),
+# but with the Knop et al. (2009) non-monotonic formal solver active
+# (DO_NONMONO_KNOP=T via non_mono_mode: KNOP).
+#
+# Purpose: exercise the dev7 FG_J_CMF_NONMONO_V1 code path end to end —
+# populations + spectrum — on a model where the solver is numerically
+# benign (sigma=0 everywhere, N_COMP=0).  This validates the plumbing
+# (VADAT keys, solver dispatch, USE_LAM_ES Eddington fill, GS warm-up);
+# it is NOT a test of compression-zone handling, which requires a
+# non-monotonic SN_HYDRO_DATA.
+
+model_name: M15_HeOCa_25d_DEV7_knop
+description: 'dev7 knop: M15-He-O-Ca-evo homologous snapshot at 25.10 d
+  (monotonic, sigma=0) with DO_NONMONO_KNOP=T.
+  cmfgen_dev.exe from cmfgen_nonmono_dev_V7.'
+run_cmfgen: true
+run_sirocco: false
+run_sedona: false
+run_superlite: false
+skip_stella: true
+cancel_jobs: true
+force_cancel: true
+plot_lightcurve: false
+submission: debug
+hydro_backend: stella
+
+cmfgen_conversion:
+  snapshot_days:
+  - 25.1
+  use_existing_sn_hydro: true
+
+cmfgen:
+  base_dir: ./cmfgen_base
+  model_type: static_snapshot
+  init_num_its: 1000
+  single_final: true
+  target_nd: 150
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V7
+  inc_rad_decays: false
+  vturb: 50.0
+  incl_rel: false
+  vel_law: 11
+  depth_independent_solver: true
+  do_gt_auto: false
+  # Knop et al. (2009) formal solver: DO_NONMONO_KNOP=T (dev7 spelling)
+  # activates the non-mono machinery; non_mono_mode selects KNOP/BLANK.
+  # The forced table also stamps DO_NOMONO_KNOP=T (V6 spelling, ignored
+  # by dev7), NON_MONO_SOLVER=T, GLOBAL_LINE=BLANK, USE_LAM_ES=T,
+  # VEL_LAW=11, INC_GRID=F, FG_OPT=INT/INS.
+  non_mono_mode: KNOP
+  vadat_overrides:
+    DO_NONMONO_KNOP: T
+    LSTAR: 0.0D0
+    VTURB: 50.0D0
+    DIF: F
+    IB_METH: ZERO_FLUX
+    STOP_IF_BP: F
+    REV_RGRID: F
+    N_OB_INS: 0
+    FIX_NE: F
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+  mem: 31G
+  init_mem: 31G
+  n_ob_ins: 0
+  final_requeue_when: wall
+  final_requeue_max: 500
+  auto_set_rstar: false
+  auto_set_lstar: false
+  phot_tau: 0.6666667
+  bb_teff_k: 9100
+  lstar_radius_mode: RMAX
+  notification_email: sbrennan@mpe.mpg.de
+
+output:
+  model_dir: ./dev7_knop/M15_HeOCa_25d_DEV7_knop
+  stella_output: stella
+  cmfgen_output: cmfgen
+  sedona_output: sedona
+  superlite_output: superlite
+  plots: plots
+  outputs: output

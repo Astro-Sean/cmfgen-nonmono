@@ -3,8 +3,24 @@
 --   use_homologous_expansion=true  -> hydro_module="homologous", fuzz lines, NLTE off
 --   use_homologous_expansion=false -> hydro_module="none", static snapshot, NLTE per config
 --
--- Line opacity: Sobolev ON with local |dv/dr| (non-monotonic velocity fix in source)
--- DDMC OFF: causes photon accumulation with many low-tau zones (standard MC is stable)
+-- Line opacity for non-monotonic velocity (SN 2024pba interaction models):
+--   Direct Voigt (bound_bound=1) is the non-monotonic-safe path. Opacity is
+--   evaluated per-cell in the comoving frame; a photon can resonate with the
+--   same line in multiple cells at different radii (multiple resonance points).
+--   Sobolev (line_expansion=1) uses tau = n_l * sigma * f * lambda * t_exp,
+--   which assumes homologous expansion (t_exp = 1/(dv/dr) = const). This is
+--   WRONG for non-monotonic velocity (shocks, reversals) because the Sobolev
+--   length is not t_exp * v but 1/|dv/dr_sob|, which varies with radius and
+--   ray angle. See AGENTS.md §40 and docs/non_monotonic_solver.md.
+--   VERIFIED (2026-09-10): line_expansion_opacity in AtomicSpecies_opacities.cpp
+--   uses `time` = t_now_ (global expansion time), NOT local dv/dr.
+--   VERIFIED (2026-09-10): bound_bound_opacity evaluates Voigt profile per-cell
+--   on the frequency grid; no velocity-gradient assumption.
+-- DDMC ON (transport_use_ddmc=2): handles photon trapping in optically thick
+--   zones where direct Voigt produces high peak optical depths. Without DDMC,
+--   direct Voigt in static snapshots causes severe photon trapping (tau_line
+--   >> tau_es). DDMC (Fleck & Canfield 1984) converts MC transport to diffusion
+--   in zones with tau > threshold, enabling efficient escape.
 -- LTE: opacity_use_nlte=0, opacity_atoms_in_nlte={} (Saha-Boltzmann populations)
 
 grid_type    = "grid_1D_sphere"
@@ -20,11 +36,16 @@ data_fuzzline_file = sedona_home.."/data/kurucz_cd23_fuzz.hdf5"  -- Iron-group l
 -- Transport properties
 transport_nu_grid  = {1.0e14, 2.0e16, 0.005, 1}  -- Transport grid: q=0.005 (~1060 bins, finer to reduce zero-bin fraction)
 transport_radiative_equilibrium  = 0  -- Hold T fixed from hydro (paper: no temperature update)
+transport_boundary_in_reflect   = 1  -- Reflect photons at inner boundary (needed for core source)
 transport_steady_iterate         = 25  -- Will be overridden by config if specified
 
--- DDMC disabled: causes photon accumulation with many low-tau zones (standard MC is stable)
-transport_use_ddmc               = 0  -- 0=off (standard MC: stable escape fraction, no accumulation)
-transport_ddmc_tau_threshold     = 1000.0  -- Effectively unused with DDMC off
+-- DDMC (Discrete Diffusion Monte Carlo) for optically thick zones.
+-- Direct Voigt line opacity produces high peak optical depths in static
+-- snapshots. DDMC=2 (Fleck & Canfield 1984) converts MC to diffusion in
+-- zones with tau > threshold, enabling efficient photon escape.
+-- Without DDMC, direct Voigt causes severe photon trapping (tau_line >> tau_es).
+transport_use_ddmc               = 2  -- 2=DDMC (Fleck & Canfield 1984)
+transport_ddmc_tau_threshold     = 10.0  -- DDMC active in zones with tau > 10
 
 -- Output spectrum frequency grid
 -- Narrowed to optical range (2.5e14-1.2e15 Hz = 2500-12000 A) for maximum resolution.
@@ -53,13 +74,18 @@ core_luminosity  = @luminosity@   -- erg/s, L=4piR^2sigmaT^4 from innermost regi
 core_fix_luminosity = 1  -- Rescale spectrum by 1/escape_fraction to correct for absorbed photons
 
 -- Opacity settings: auto-configured by run_model_grid.py
---   use_homologous_expansion=true  -> fuzz_exp=1, line_exp=1, use_nlte=0
---   use_homologous_expansion=false -> fuzz_exp=0, line_exp=1, bound_bound=0, use_nlte per config
+--   use_homologous_expansion=true  -> fuzz_exp=1, line_exp=1, bound_bound=0 (Sobolev OK for homologous)
+--   use_homologous_expansion=false -> fuzz_exp=0, line_exp=0, bound_bound=1 (direct Voigt for non-monotonic)
+-- Direct Voigt (bound_bound=1) is NON-MONOTONIC-SAFE: opacity is per-cell in
+--   comoving frame, handles multiple resonance points in velocity reversals.
+-- Sobolev (line_expansion=1) assumes homologous expansion (tau = n*sigma*f*lambda*t_exp).
+--   WRONG for non-monotonic velocity: Sobolev length should be 1/|dv/dr_sob|, not t_exp*v.
+-- Fuzz expansion provides iron-group line blanketing (uses 1/t_exp Sobolev approx).
 opacity_grey_opacity         = 0
 opacity_electron_scattering  = 1
 opacity_fuzz_expansion       = 0
-opacity_line_expansion       = 1  -- Sobolev ON with local |dv/dr| (non-monotonic velocity safe, source code fix)
-opacity_bound_bound          = 0  -- Direct Voigt OFF (causes photon trapping in optically thick ejecta)
+opacity_line_expansion       = 0  -- Sobolev OFF (assumes homologous expansion; wrong for non-monotonic velocity)
+opacity_bound_bound          = 1  -- Direct Voigt ON (non-monotonic-safe: per-cell opacity, multiple resonance points)
 opacity_bound_free           = 1
 opacity_free_free            = 1
 opacity_epsilon              = 1

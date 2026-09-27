@@ -159,6 +159,15 @@ in_comment = 'Production nebular, 1-D sph model of {MODEL_NAME} at {EPOCH}'
  in_src_n2s = 25
  in_L_bol = {L_BOL}
 
+!-- inner boundary source: injects a blackbody spectrum at the inner
+!-- boundary with temperature in_srcmax and luminosity in_L_inner.
+!-- Essential when the radiation field color temperature (Tbb) is much
+!-- higher than the gas temperature (cool ejecta with hot photosphere).
+!-- in_L_bol is set to 0 when the boundary source is active, since all
+!-- radiation comes from below the computational domain.
+ in_L_inner = {L_INNER}
+ in_srcmax = {SRCMAX}
+
 !-- ddmc mfp per cell
  in_trn_tauddmc = 3d0
  in_taulump = 3d0

@@ -23,8 +23,8 @@ MODEL_DIR="$2"
 CMFGEN_DIR="$3"
 HERACLES_JOB_ID="$4"
 INIT_NUM_ITS="${5:-3}"
-PARTITION="${6:-general}"
-TIME="${7:-24:00:00}"
+PARTITION="${6:-small}"
+TIME="${7:-23:59:00}"
 SINGLE_FINAL="${8:-1}"
 CONFIG_FILE="${9:-}"
 INC_RAD_DECAYS="${10:-0}"
@@ -67,6 +67,75 @@ REVERSAL_N_INSERT="${46:-0}"
 PROXY_POPULATIONS_T_EXC_MIN="${47:-}"
 PROXY_POPULATIONS_V2="${48:-0}"
 CPUS_PER_TASK="${49:-}"
+
+# Named args appended after the positional args by run_model_grid.py
+# (otherwise silently dropped -> node-side proxy falls back to defaults).
+PROXY_IONIZATION_MODE=""
+PROXY_T_EXC_SOURCE=""
+PROXY_T_ION_FLOOR=""
+PROXY_COMPLEX_MODEL=""
+PROXY_POPULATIONS_MASS_FRAC_FLOOR=""
+PROXY_DC_MAX=""
+PROXY_EXCITATION_MODE=""
+PROXY_DC_LOG_CAP=""
+PROXY_NLTE_UPSILON=""
+PROXY_NLTE_UPSILON_FORB=""
+PROXY_NLTE_F_THRESHOLD=""
+PROXY_NLTE_ELEMS=""
+PROXY_STELLA_FILE=""
+PROXY_STELLA_RADIUS_COLUMN=""
+PROXY_STELLA_VELOCITY_COLUMN=""
+PROXY_STELLA_TAU_COLUMN=""
+PROXY_STELLA_TRAD_COLUMN=""
+PROXY_STELLA_TION_COLUMN=""
+PROXY_STELLA_LUMINOSITY_COLUMN=""
+PROXY_STELLA_ENERGY_DENSITY_COLUMN=""
+PROXY_STELLA_RADIUS_UNIT=""
+PROXY_STELLA_TEMPERATURE_UNIT=""
+PROXY_STELLA_INTERP_COORD=""
+PROXY_V2_STRATEGY=""
+PROXY_PREV_MODEL=""
+PROXY_NE_MAX_ITER=""
+PROXY_NE_TOL=""
+PROXY_TAU_TRANS=""
+PROXY_NO_NON_LOCAL_REVERSALS=""
+GT_AUTO=""
+for _arg in "$@"; do
+  case "${_arg}" in
+    --gt-auto=*) GT_AUTO="${_arg#*=}" ;;
+    --proxy-ionization-mode=*) PROXY_IONIZATION_MODE="${_arg#*=}" ;;
+    --proxy-t-exc-source=*) PROXY_T_EXC_SOURCE="${_arg#*=}" ;;
+    --proxy-t-ion-floor=*) PROXY_T_ION_FLOOR="${_arg#*=}" ;;
+    --proxy-complex-model=*) PROXY_COMPLEX_MODEL="${_arg#*=}" ;;
+    --proxy-populations-mass-frac-floor=*) PROXY_POPULATIONS_MASS_FRAC_FLOOR="${_arg#*=}" ;;
+    --proxy-dc-max=*) PROXY_DC_MAX="${_arg#*=}" ;;
+    --proxy-excitation-mode=*) PROXY_EXCITATION_MODE="${_arg#*=}" ;;
+    --proxy-dc-log-cap=*) PROXY_DC_LOG_CAP="${_arg#*=}" ;;
+    --proxy-ne-max-iter=*) PROXY_NE_MAX_ITER="${_arg#*=}" ;;
+    --proxy-ne-tol=*) PROXY_NE_TOL="${_arg#*=}" ;;
+    --proxy-tau-trans=*) PROXY_TAU_TRANS="${_arg#*=}" ;;
+    --proxy-no-non-local-reversals=*) PROXY_NO_NON_LOCAL_REVERSALS="${_arg#*=}" ;;
+    --proxy-nlte-upsilon=*) PROXY_NLTE_UPSILON="${_arg#*=}" ;;
+    --proxy-nlte-upsilon-forb=*) PROXY_NLTE_UPSILON_FORB="${_arg#*=}" ;;
+    --proxy-nlte-f-threshold=*) PROXY_NLTE_F_THRESHOLD="${_arg#*=}" ;;
+    --proxy-nlte-elems=*) PROXY_NLTE_ELEMS="${_arg#*=}" ;;
+    --proxy-stella-file=*) PROXY_STELLA_FILE="${_arg#*=}" ;;
+    --proxy-stella-radius-column=*) PROXY_STELLA_RADIUS_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-velocity-column=*) PROXY_STELLA_VELOCITY_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-tau-column=*) PROXY_STELLA_TAU_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-trad-column=*) PROXY_STELLA_TRAD_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-tion-column=*) PROXY_STELLA_TION_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-luminosity-column=*) PROXY_STELLA_LUMINOSITY_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-energy-density-column=*) PROXY_STELLA_ENERGY_DENSITY_COLUMN="${_arg#*=}" ;;
+    --proxy-stella-radius-unit=*) PROXY_STELLA_RADIUS_UNIT="${_arg#*=}" ;;
+    --proxy-stella-temperature-unit=*) PROXY_STELLA_TEMPERATURE_UNIT="${_arg#*=}" ;;
+    --proxy-stella-interpolation-coordinate=*) PROXY_STELLA_INTERP_COORD="${_arg#*=}" ;;
+    --proxy-v2-strategy=*) PROXY_V2_STRATEGY="${_arg#*=}" ;;
+    --proxy-prev-model=*) PROXY_PREV_MODEL="${_arg#*=}" ;;
+    --proxy-*) echo "ERROR: unknown proxy option: ${_arg}" >&2; exit 2 ;;
+  esac
+done
+
 BLEND_FLAG=""
 if [[ "${BLEND_COMPOSITION}" == "1" ]]; then
   BLEND_FLAG="--blend-composition --blend-sigma=${BLEND_SIGMA} --blend-solar-weight=${BLEND_SOLAR_WEIGHT}"
@@ -89,7 +158,14 @@ fi
 USE_PROXY_V2="${USE_PROXY_V2:-0}"
 
 # Derive BASE_DIR from MODEL_DIR (MODEL_DIR is <project>/models/<model>/cmfgen)
-BASE_DIR="/viper/ptmp1/sbrennan/SN2024pba/cmfgen_base"
+# Cluster-aware: detect RAVEN vs VIPER from hostname to avoid hardcoded paths.
+_host="$(hostname 2>/dev/null || echo)"
+case "$_host" in
+  raven*|rav*) BASE_DIR="/raven/ptmp/sbrennan/SN2024pba/cmfgen_base" ;;
+  *)            BASE_DIR="/viper/ptmp1/sbrennan/SN2024pba/cmfgen_base" ;;
+esac
+# Allow explicit override via environment
+BASE_DIR="${CMFGEN_BASE_DIR:-$BASE_DIR}"
 PROJECT_ROOT="$(dirname "$BASE_DIR")"
 
 # Derive job prefix from model name and day label
@@ -142,6 +218,7 @@ fi
 
 # Pass SKIP_OBS to submit_cmfgen.sh via environment (read from config)
 export SKIP_OBS="${SKIP_OBS:-0}"
+export SKIP_FINAL="${SKIP_FINAL:-0}"
 
 # Pass all config as CLI args to submit_cmfgen.sh (no env vars)
 "${BASE_DIR}/submit_cmfgen.sh" \
@@ -160,6 +237,7 @@ export SKIP_OBS="${SKIP_OBS:-0}"
     ${CHEMICAL_FLAG} \
     ${REVERSAL_FLAG} \
     --init-num-its="${INIT_NUM_ITS}" \
+    ${GT_AUTO:+--gt-auto="${GT_AUTO}"} \
     --model-type="${MODEL_TYPE}" \
     --inc-rad-decays="${INC_RAD_DECAYS}" \
     --no-relativistic="${NO_RELATIVISTIC}" \
@@ -190,11 +268,44 @@ export SKIP_OBS="${SKIP_OBS:-0}"
     ${PROXY_POPULATIONS_GREY_TOL:+--proxy-populations-grey-tol="${PROXY_POPULATIONS_GREY_TOL}"} \
     ${PROXY_POPULATIONS_T_EXC_MIN:+--proxy-populations-t-exc-min="${PROXY_POPULATIONS_T_EXC_MIN}"} \
     --proxy-populations-v2="${PROXY_POPULATIONS_V2}" \
+    ${PROXY_IONIZATION_MODE:+--proxy-ionization-mode="${PROXY_IONIZATION_MODE}"} \
+    ${PROXY_T_EXC_SOURCE:+--proxy-t-exc-source="${PROXY_T_EXC_SOURCE}"} \
+    ${PROXY_T_ION_FLOOR:+--proxy-t-ion-floor="${PROXY_T_ION_FLOOR}"} \
+    ${PROXY_COMPLEX_MODEL:+--proxy-complex-model="${PROXY_COMPLEX_MODEL}"} \
+    ${PROXY_POPULATIONS_MASS_FRAC_FLOOR:+--proxy-populations-mass-frac-floor="${PROXY_POPULATIONS_MASS_FRAC_FLOOR}"} \
+    ${PROXY_DC_MAX:+--proxy-dc-max="${PROXY_DC_MAX}"} \
+    ${PROXY_EXCITATION_MODE:+--proxy-excitation-mode="${PROXY_EXCITATION_MODE}"} \
+    ${PROXY_DC_LOG_CAP:+--proxy-dc-log-cap="${PROXY_DC_LOG_CAP}"} \
+    ${PROXY_NE_MAX_ITER:+--proxy-ne-max-iter="${PROXY_NE_MAX_ITER}"} \
+    ${PROXY_NE_TOL:+--proxy-ne-tol="${PROXY_NE_TOL}"} \
+    ${PROXY_TAU_TRANS:+--proxy-tau-trans="${PROXY_TAU_TRANS}"} \
+    ${PROXY_NO_NON_LOCAL_REVERSALS:+--proxy-no-non-local-reversals="${PROXY_NO_NON_LOCAL_REVERSALS}"} \
+    ${PROXY_NLTE_UPSILON:+--proxy-nlte-upsilon="${PROXY_NLTE_UPSILON}"} \
+    ${PROXY_NLTE_UPSILON_FORB:+--proxy-nlte-upsilon-forb="${PROXY_NLTE_UPSILON_FORB}"} \
+    ${PROXY_NLTE_F_THRESHOLD:+--proxy-nlte-f-threshold="${PROXY_NLTE_F_THRESHOLD}"} \
+    ${PROXY_NLTE_ELEMS:+--proxy-nlte-elems="${PROXY_NLTE_ELEMS}"} \
+    ${PROXY_STELLA_FILE:+--proxy-stella-file="${PROXY_STELLA_FILE}"} \
+    ${PROXY_STELLA_RADIUS_COLUMN:+--proxy-stella-radius-column="${PROXY_STELLA_RADIUS_COLUMN}"} \
+    ${PROXY_STELLA_VELOCITY_COLUMN:+--proxy-stella-velocity-column="${PROXY_STELLA_VELOCITY_COLUMN}"} \
+    ${PROXY_STELLA_TAU_COLUMN:+--proxy-stella-tau-column="${PROXY_STELLA_TAU_COLUMN}"} \
+    ${PROXY_STELLA_TRAD_COLUMN:+--proxy-stella-trad-column="${PROXY_STELLA_TRAD_COLUMN}"} \
+    ${PROXY_STELLA_TION_COLUMN:+--proxy-stella-tion-column="${PROXY_STELLA_TION_COLUMN}"} \
+    ${PROXY_STELLA_LUMINOSITY_COLUMN:+--proxy-stella-luminosity-column="${PROXY_STELLA_LUMINOSITY_COLUMN}"} \
+    ${PROXY_STELLA_ENERGY_DENSITY_COLUMN:+--proxy-stella-energy-density-column="${PROXY_STELLA_ENERGY_DENSITY_COLUMN}"} \
+    ${PROXY_STELLA_RADIUS_UNIT:+--proxy-stella-radius-unit="${PROXY_STELLA_RADIUS_UNIT}"} \
+    ${PROXY_STELLA_TEMPERATURE_UNIT:+--proxy-stella-temperature-unit="${PROXY_STELLA_TEMPERATURE_UNIT}"} \
+    ${PROXY_STELLA_INTERP_COORD:+--proxy-stella-interpolation-coordinate="${PROXY_STELLA_INTERP_COORD}"} \
+    ${PROXY_V2_STRATEGY:+--proxy-v2-strategy="${PROXY_V2_STRATEGY}"} \
+    ${PROXY_PREV_MODEL:+--proxy-prev-model="${PROXY_PREV_MODEL}"} \
     "${CMFGEN_DIR}"
 
 # Parse job IDs from submit.log (in CMFGEN_DIR where submit_cmfgen.sh writes it)
 FINAL_JOB=$(grep "CMFGEN Job ID" "${CMFGEN_DIR}/submit.log" | awk '{print $4}' | head -1)
 OBS_JOB=$(grep "OBS Job ID" "${CMFGEN_DIR}/submit.log" | awk '{print $4}' | head -1)
+# If FINAL was skipped, FINAL_JOB will be "(skipped" — set to empty
+if [[ "${FINAL_JOB}" == "(skipped" || "${FINAL_JOB}" == "" ]]; then
+  FINAL_JOB=""
+fi
 # If OBS was skipped, OBS_JOB will be "(skipped" — set to empty
 if [[ "${OBS_JOB}" == "(skipped" || "${OBS_JOB}" == "" ]]; then
   OBS_JOB=""

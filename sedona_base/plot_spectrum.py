@@ -222,7 +222,7 @@ plt.savefig(out1, dpi=150, bbox_inches='tight')
 plt.close()
 print(f'Saved spectrum plot: {out1}')
 
-# ── Plot 2: SEDONA (smoothed) vs SN2024pba, dual y-axis ──────────────
+# ── Plot 2: SEDONA (smoothed) vs SN2024pba, single y-axis ─────────────
 
 fig, ax1 = plt.subplots(figsize=(12, 6))
 
@@ -230,20 +230,11 @@ fig, ax1 = plt.subplots(figsize=(12, 6))
 smooth_window = max(3, int(round(15.0 / np.median(np.diff(lam)))))
 flux_smooth = uniform_filter1d(flux, size=smooth_window)
 
-# Model spectrum on left y-axis (at SN2024pba distance)
-ax1.step(lam, flux_smooth, where='mid', color='C0', linewidth=1.2,
-         label=f'SEDONA {model_label} (smoothed)', zorder=5)
-ax1.set_xlabel(r'Wavelength ($\AA$)')
-ax1.set_ylabel(r'Model flux (erg s$^{-1}$ cm$^{-2}$ $\AA^{-1}$)', color='C0')
-ax1.tick_params(axis='y', labelcolor='C0')
-ax1.set_xlim(3000, 10000)
-# Auto-scale y-lims to the visible model data within xlims
-pos_flux = flux_smooth[flux_smooth > 0]
-if len(pos_flux) > 0:
-    ax1.set_ylim(pos_flux.min() * 0.3, pos_flux.max() * 3)
-
-# Observed spectrum on right y-axis (at observed distance, no scaling)
+# Observed spectrum (loaded first so we can scale model to match)
 has_obs = False
+obs_lam = None
+obs_flux = None
+obs_err = None
 if os.path.isfile(OBS_FILE):
     try:
         obs_lam, obs_flux, obs_err = load_observed(OBS_FILE)
@@ -251,15 +242,6 @@ if os.path.isfile(OBS_FILE):
         obs_lam = obs_lam[mask]
         obs_flux = obs_flux[mask]
         obs_err = obs_err[mask]
-
-        ax2 = ax1.twinx()
-        ax2.step(obs_lam, obs_flux, where='mid', color='black', linewidth=0.8,
-                 label='SN2024pba +25.1d (NOT/ALFOSC)', zorder=4)
-        ax2.fill_between(obs_lam, obs_flux - obs_err, obs_flux + obs_err,
-                         color='black', alpha=0.15, step='mid', zorder=2)
-        ax2.set_ylabel(r'Observed flux (erg s$^{-1}$ cm$^{-2}$ $\AA^{-1}$)',
-                       color='black')
-        ax2.tick_params(axis='y', labelcolor='black')
         has_obs = True
         print(f"Observed spectrum loaded: {len(obs_lam)} points, "
               f"{obs_lam.min():.0f}-{obs_lam.max():.0f} A")
@@ -268,18 +250,38 @@ if os.path.isfile(OBS_FILE):
 else:
     print(f"Warning: observed spectrum not found at {OBS_FILE}")
 
+# Plot observed spectrum on the same axis
+if has_obs:
+    ax1.step(obs_lam, obs_flux, where='mid', color='black', linewidth=0.8,
+             label='SN2024pba +25.1d (NOT/ALFOSC)', zorder=4)
+    ax1.fill_between(obs_lam, obs_flux - obs_err, obs_flux + obs_err,
+                     color='black', alpha=0.15, step='mid', zorder=2)
+
+# Plot model spectrum on the same axis
+ax1.step(lam, flux_smooth, where='mid', color='C0', linewidth=1.2,
+         label=f'SEDONA {model_label} (smoothed)', zorder=5)
+ax1.set_xlabel(r'Wavelength ($\AA$)')
+ax1.set_ylabel(r'Flux (erg s$^{-1}$ cm$^{-2}$ $\AA^{-1}$)')
+ax1.set_xlim(3000, 10000)
+
+# Auto-scale y-lims to both model and observed data within xlims
+all_flux = []
+pos_model = flux_smooth[flux_smooth > 0]
+if len(pos_model) > 0:
+    all_flux.extend(pos_model.tolist())
+if has_obs:
+    pos_obs = obs_flux[obs_flux > 0]
+    if len(pos_obs) > 0:
+        all_flux.extend(pos_obs.tolist())
+if len(all_flux) > 0:
+    ax1.set_ylim(min(all_flux) * 0.3, max(all_flux) * 3)
+
 add_line_annotations(ax1)
 ax1.set_title(f'SEDONA {model_label} vs SN2024pba +25.1d')
 ax1.grid(True, alpha=0.3)
 
-# Combined legend
-lines1, labels1 = ax1.get_legend_handles_labels()
-if has_obs:
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right',
-               fontsize='small')
-else:
-    ax1.legend(loc='upper right', fontsize='small')
+# Legend
+ax1.legend(loc='upper right', fontsize='small')
 
 plt.tight_layout()
 out2 = os.path.join(plots_dir, f'sedona_{epoch_tag}_spectrum_comparison.png')
@@ -309,10 +311,22 @@ ax.set_xlim(3000, 10000)
 ax.set_title(f'SEDONA {model_label} vs SN2024pba +25.1d (d={D_MPC} Mpc)')
 ax.grid(True, alpha=0.3)
 ax.legend(loc='upper right', fontsize='small')
-# Auto-scale y-lims to the visible data within xlims
-pos_flux = flux_smooth[flux_smooth > 0]
-if len(pos_flux) > 0:
-    ax.set_ylim(pos_flux.min() * 0.3, pos_flux.max() * 3)
+# Auto-scale y-lims to both model and observed data within xlims
+all_flux_bc = []
+pos_flux_bc = flux_smooth[flux_smooth > 0]
+if len(pos_flux_bc) > 0:
+    all_flux_bc.extend(pos_flux_bc.tolist())
+if os.path.isfile(OBS_FILE):
+    try:
+        obs_lam2, obs_flux2, _ = load_observed(OBS_FILE)
+        mask2 = (obs_lam2 >= 3000) & (obs_lam2 <= 10000)
+        pos_obs2 = obs_flux2[mask2][obs_flux2[mask2] > 0]
+        if len(pos_obs2) > 0:
+            all_flux_bc.extend(pos_obs2.tolist())
+    except Exception:
+        pass
+if len(all_flux_bc) > 0:
+    ax.set_ylim(min(all_flux_bc) * 0.3, max(all_flux_bc) * 3)
 plt.tight_layout()
 plt.savefig('spectrum_auto_plot.png', dpi=150, bbox_inches='tight')
 plt.close()

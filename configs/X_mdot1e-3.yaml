@@ -197,11 +197,11 @@ cmfgen:
     FIX_T_AUTO: "F"
     N_IB_INS: "0"
     DO_NG: "F"
-    MAX_LAM: "1.0D5"
-    MAX_LIN: "3.0D0"
+    MAX_LAM: 1.0D10
+    MAX_LIN: 5.0D0
     METHOD: "ZERO"
     LAM_SCALE_OPT: "LIMIT"
-    BA_CHK_FAC: "5.0D-02"
+    BA_CHK_FAC: "1.0D-05"
     REV_RGRID: "F"
   partition: "small"
   time: "12:00:00"

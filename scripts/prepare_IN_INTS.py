@@ -212,6 +212,7 @@ def write_init_in_its(
     template: Dict[str, str],
     num_its: int | None,
     d2_eq_d1: bool = True,
+    gt_auto: str | None = None,
 ):
     """
     Write IN_ITS for the *initial* Lambda-iteration run,
@@ -242,7 +243,7 @@ def write_init_in_its(
     # keeping T fixed during BA iterations is the physically consistent choice
     # for a static hydro snapshot.
     cfg["DO_T_AUTO"] = "T" if t_varies else "F"
-    cfg["DO_GT_AUTO"] = "T" if t_varies else "F"
+    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -257,6 +258,7 @@ def write_stable_in_its(
     template: Dict[str, str],
     num_its: int | None,
     d2_eq_d1: bool = True,
+    gt_auto: str | None = None,
 ):
     """
     Write IN_ITS for the *stable* Lambda-only run between init and final.
@@ -288,7 +290,7 @@ def write_stable_in_its(
     # keeping T fixed during BA iterations is the physically consistent choice
     # for a static hydro snapshot.
     cfg["DO_T_AUTO"] = "T" if t_varies else "F"
-    cfg["DO_GT_AUTO"] = "T" if t_varies else "F"
+    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -303,6 +305,7 @@ def write_final_in_its(
     template: Dict[str, str],
     num_its: int | None,
     d2_eq_d1: bool = True,
+    gt_auto: str | None = None,
 ):
     """
     Write IN_ITS for the *final* run.
@@ -340,7 +343,7 @@ def write_final_in_its(
     # keeping T fixed during BA iterations is the physically consistent choice
     # for a static hydro snapshot.
     cfg["DO_T_AUTO"] = "T" if t_varies else "F"
-    cfg["DO_GT_AUTO"] = "T" if t_varies else "F"
+    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -357,6 +360,7 @@ def write_single_final_in_its(
     template: Dict[str, str],
     num_its: int | None,
     d2_eq_d1: bool = True,
+    gt_auto: str | None = None,
 ):
     """
     Write IN_ITS for the *single-final* LTE cold-start run.
@@ -397,7 +401,7 @@ def write_single_final_in_its(
     # DO_GT_AUTO: only relevant when T is being released (FIX_T=F).
     # When T is fixed to the hydro snapshot, grey-T iteration is unnecessary
     # and can destabilise the non-monotonic formal solver.
-    cfg["DO_GT_AUTO"] = "T" if t_varies else "F"
+    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -444,6 +448,12 @@ def main():
         action="store_true",
         help="Set D2_EQ_D1=F (independent depth-2 populations). Default is T (tied to depth-1 for stability).",
     )
+    parser.add_argument(
+        "--gt-auto",
+        choices=["T", "F"],
+        default=None,
+        help="Override DO_GT_AUTO (grey-T update). Default: T when VADAT has FIX_T=F, else F.",
+    )
 
     args = parser.parse_args()
     directory = Path(args.directory)
@@ -459,9 +469,9 @@ def main():
     # signals DO_LAM_AUTO=T (exit Lambda mode for BA convergence).
     d2 = not bool(args.no_d2_eq_d1)
     if args.single_final:
-        write_single_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2)
+        write_single_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto)
     else:  # args.final
-        write_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2)
+        write_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto)
 
 
 if __name__ == "__main__":

@@ -364,17 +364,29 @@ def plot_radial_profiles(epochs, output_file: str, n_epochs_max: int = 10, pre_s
     """
     # Include all epochs
     times = sorted(t for t in epochs.keys())
-    t_offset = times[0]  # Offset to make t=0 at energy injection
-    
+    t_first = times[0]  # earliest epoch (pre-explosion) for the top axis
+
     # Filter for pre-SBO only if requested
     if pre_sbo_only:
         # Filter to only negative times (pre-explosion)
         times = [t for t in times if t < 0]
+    else:
+        # Post-shock-breakout epochs only
+        post_sbo = [t for t in times if t > 0]
+        if post_sbo:
+            times = post_sbo
 
-    # Select epochs to plot (evenly spaced)
+    # Select epochs to plot: log-spaced in time so early post-SBO
+    # evolution is sampled more densely
     if len(times) > n_epochs_max:
-        indices = np.linspace(0, len(times) - 1, n_epochs_max, dtype=int)
-        selected_times = [times[i] for i in indices]
+        if pre_sbo_only:
+            indices = np.linspace(0, len(times) - 1, n_epochs_max, dtype=int)
+            selected_times = [times[i] for i in indices]
+        else:
+            targets = np.logspace(np.log10(max(times[0], 1e-2)),
+                                  np.log10(times[-1]), n_epochs_max)
+            selected_times = sorted({min(times, key=lambda t: abs(t - tg))
+                                     for tg in targets})
     else:
         selected_times = times
     
@@ -392,7 +404,7 @@ def plot_radial_profiles(epochs, output_file: str, n_epochs_max: int = 10, pre_s
     fig.suptitle(title, fontsize=16, fontweight='bold')
     
     # Get initial (pre-explosion) radius from first epoch for top axis
-    first_epoch = epochs[times[0]]
+    first_epoch = epochs[t_first]
     r_initial = 10**first_epoch[:, 3]  # cm
 
     # Collect y-range across all selected epochs for proper ylims.

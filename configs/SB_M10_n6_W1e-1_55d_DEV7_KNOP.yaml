@@ -1,0 +1,144 @@
+# SN_B broad-grid model SB_M10_V10k_n6_W1e-1 at ~20 d post bolometric
+# peak — end-to-end test of the dev7 non-monotonic KNOP setup with
+# a-priori MODEL_SPEC pruning (cmfgen.prune_model_spec).
+#
+# Epoch: STELLA lightcurve (output/SB_M10_V10k_n6_W1e-1.tt) peaks at
+# Mbol=-18.2, t=34.6 d; +20 d -> snapshot_days=55.0.
+#
+# reuse_stella: the existing .swd in the model's own directory
+# (stella_source_swd below) is reused; only the SN_HYDRO_DATA
+# conversion runs inline, then the MODEL_SPEC audit/prune, then
+# CMFGEN submission. (skip_stella would instead run the input-profile
+# generator, which is meant for fresh STELLA setups.)
+#
+# Conversion settings are taken from the model's own config.yaml (the
+# stella_subset grid that produced the 40.00days run). The cmfgen block
+# is the dev7 KNOP solver stack shared with TypeIIn_10d_DEV7_KNOP2.
+
+model_name: SB_M10_n6_W1e-1_55d_DEV7
+description: 'SB_M10_V10k_n6_W1e-1 (M=10, V=10k, n=6, W=1e-1) at ~20 d
+  post peak (t=55 d): dev7 KNOP + prune_model_spec test.'
+run_cmfgen: true
+run_sirocco: false
+run_sedona: false
+run_superlite: false
+skip_stella: false
+reuse_stella: true
+cancel_jobs: false
+force_cancel: false
+plot_lightcurve: false
+submission: normal
+hydro_backend: stella
+
+cmfgen_conversion:
+  heracles_dir: heracles
+  snapshot_days:
+  - 55.0
+  epoch_tolerance: 2.0
+  stella_extra_days: 0
+  stella_source_swd: /viper/ptmp1/sbrennan/SN2024pba/SN_B_broad_grid/SB_M10_V10k_n6_W1e-1/stella/SB_M10_V10k_n6_W1e-1.swd
+  output_file: cmfgen/SN_HYDRO_DATA
+  cmfgen_tau_max: 100
+  cmfgen_tau_min: 0.0
+  t_floor_K: 5000.0
+  n_grid: 100
+  adaptive_grid: true
+  gradient_threshold: 0.5
+  velocity_max_kms: 10000
+  v_min_km_s: 100.0
+  opacity_model: stella_nlte
+  kappa_constant: 0.34
+  enable_grid_thinning: false
+  grid_thinning_threshold: 0.005
+  enable_adaptive_grid: true
+  use_tau_amr: false
+  base_grid_method: stella_subset
+  tau_spacing: auto
+  composition_aware: true
+  composition_grid_insertion: false
+  composition_gradient_threshold: 0.3
+  base_grid_target: 100
+  max_points: 100
+  max_thin_zones: 0
+  sigma_global_preserve_threshold: 2.0
+  trace_threshold: 1.0e-06
+
+cmfgen:
+  base_dir: ./cmfgen_base
+  model_type: static_snapshot
+  init_num_its: 200
+  single_final: true
+  cpus_per_task: 4
+  target_nd: 100
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V7
+  inc_rad_decays: true
+  vturb: 20.0
+  incl_rel: false
+  # VEL_LAW=11 (SET_RV_HYDRO_MODEL_V3): reads R from RDINR and
+  # interpolates V from SN_HYDRO_DATA — required for non-monotonic
+  # velocity fields.
+  vel_law: 11
+  depth_independent_solver: true
+  # Dev7 Knop et al. (2009) non-monotonic formal solver
+  # (FG_J_CMF_NONMONO_V1) + GLOBAL_LINE=BLANK.
+  non_mono_mode: KNOP
+  do_gt_auto: false
+  proxy_populations: true
+  # A-priori MODEL_SPEC pruning: prune_stalled_levels.py --prior runs
+  # after SN_HYDRO_DATA is ready and before submission, trimming
+  # Boltzmann-dead, non-line-forming tail superlevels that otherwise
+  # pin MAXCH at the per-depth SCALE cap (e.g. O II 2s2p4 SL4/SL5).
+  prune_model_spec: true
+  vadat_overrides:
+    LSTAR: 0.0D0
+    VTURB: 20.0D0
+    # ZERO_FLUX inner boundary, consistent with LSTAR=0 ejecta-only runs.
+    DIF: F
+    IB_METH: ZERO_FLUX
+    STOP_IF_BP: F
+    FIX_T: T
+    FIX_T_AUTO: F
+    FIX_IMP: T
+    # Lambda iteration then auto-handoff to BA at MAXCH<50%.
+    DO_LAM_IT: T
+    DO_LAM_AUTO: T
+    # Explicit KNOP activation (both spellings).
+    DO_NOMONO_KNOP: T
+    DO_NONMONO_KNOP: T
+    # VEL_LAW=11 + RD_IN_R_GRID=T: ND must equal the RDINR point count.
+    N_OB_INS: 0
+    N_IB_INS: 0
+    REV_RGRID: F
+    FIX_NE: F
+    # BA refresh every 3rd iteration; kills the stale-Jacobian window
+    # that grew the DEC channel between refreshes under N_FIX_BA=10.
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+    # Terminate at MAXCH<1%; 1e-2 would demand 0.01%, unreachable while
+    # the lagged Knop field carries a ~2e-2 residual at |Q|->1 cells.
+    EPS_TERM: 1.0D0
+  cmf_flux_param_overrides:
+    WR_dFR: T
+    WR_IP: T
+  mem: 31G
+  init_mem: 31G
+  n_ob_ins: 0
+  final_requeue_when: wall
+  final_requeue_max: 500
+  auto_set_rstar: false
+  auto_set_lstar: false
+  phot_tau: 0.6666667
+  bb_teff_k: 9100
+  lstar_radius_mode: RMAX
+  notification_email: sbrennan@mpe.mpg.de
+
+output:
+  # Write into the model's canonical directory: the new run lands at
+  # cmfgen/55.00days alongside the existing cmfgen/40.00days.
+  model_dir: ./SN_B_broad_grid/SB_M10_V10k_n6_W1e-1
+  stella_output: stella
+  cmfgen_output: cmfgen
+  sedona_output: sedona
+  superlite_output: superlite
+  plots: plots
+  outputs: output

@@ -47,6 +47,15 @@ if 'PYSYN_CDBS' not in os.environ:
 # Suppress warnings BEFORE importing pysynphot
 warnings.filterwarnings('ignore')
 
+# NumPy 2.0 compatibility: pysynphot uses aliases removed in NumPy 2.0
+# (np.alltrue in validate_wavetable, and possibly others).  Restore them.
+for _alias, _impl in (('alltrue', np.all), ('sometrue', np.any),
+                      ('product', np.prod), ('cumproduct', np.cumprod),
+                      ('NaN', np.nan), ('Inf', np.inf),
+                      ('float', float), ('int', int), ('bool', bool)):
+    if not hasattr(np, _alias):
+        setattr(np, _alias, _impl)
+
 import pysynphot as S
 import matplotlib
 matplotlib.use('Agg')
@@ -487,6 +496,32 @@ def _quiet_observation(sp, bp):
         return S.Observation(sp, bp)
 
 
+def read_tt(tt_path: str):
+    """Parse a STELLA .tt lightcurve file -> {time: {'U','B','V','R','I','bol'}}."""
+    tt_data = {}
+    if not tt_path or not Path(tt_path).exists():
+        return tt_data
+    with open(tt_path) as fh:
+        for line in fh:
+            s = line.strip()
+            if not s or s.startswith('time') or s.startswith('XNianm'):
+                continue
+            try:
+                parts = s.split()
+                if len(parts) >= 14:
+                    t = float(parts[0])
+                    if t > 0:
+                        tt_data[t] = {
+                            'U': float(parts[7]), 'B': float(parts[8]),
+                            'V': float(parts[9]), 'R': float(parts[11]),
+                            'I': float(parts[10]),
+                            'bol': float(parts[6]),
+                        }
+            except ValueError:
+                continue
+    return tt_data
+
+
 # ── Main extraction ────────────────────────────────────────────────────────
 def extract(swd_path: str, flx_path: str, tt_path: str | None = None,
             max_epochs: int = 500, dt_min_days: float = 0.05):
@@ -545,6 +580,12 @@ def extract(swd_path: str, flx_path: str, tt_path: str | None = None,
     n = len(all_times)
     print(f"[pysynphot] Unified time grid: {n} epochs")
 
+    # Load .tt bolometry early: it is STELLA's own UBVRI/bolometric output and
+    # is used both to validate .swd-fallback epochs and to calibrate at the end.
+    tt_data = read_tt(tt_path) if tt_path else {}
+    tt_times = np.array(sorted(tt_data.keys())) if tt_data else None
+    n_swd_rejected = 0
+
     # Pre-load bandpass objects quietly
     bandpasses = {}
     for band, info in FILTER_DEFS.items():
@@ -588,6 +629,20 @@ def extract(swd_path: str, flx_path: str, tt_path: str | None = None,
 
         if sp is None and t in swd:
             sp, L_bol = swd_to_spectrum(swd[t])
+            if sp is not None and tt_times is not None:
+                # Validate the .swd-derived spectrum against the run's own .tt
+                # bolometry.  The .swd per-zone Flum scaling can be orders of
+                # magnitude off (observed L_bol ~1e57 erg/s vs .tt ~1e42); a
+                # reconstruction that disagrees by >1.25 mag is untrustworthy
+                # and the epoch is dropped rather than emitting garbage rows.
+                j = int(np.argmin(np.abs(tt_times - t)))
+                if abs(tt_times[j] - t) < 0.5:
+                    our_bol = MBOL_SUN - 2.5 * np.log10(L_bol / LSUN)
+                    if not np.isfinite(our_bol) or \
+                            abs(our_bol - tt_data[float(tt_times[j])]['bol']) > 1.25:
+                        sp = None
+                        L_bol = np.nan
+                        n_swd_rejected += 1
 
         if sp is None:
             continue
@@ -604,46 +659,29 @@ def extract(swd_path: str, flx_path: str, tt_path: str | None = None,
             except Exception:
                 pass
 
-    # ── Calibrate against .tt ──────────────────────────────────────────
-    if tt_path and Path(tt_path).exists():
-        tt_data = {}
-        with open(tt_path) as fh:
-            for line in fh:
-                s = line.strip()
-                if not s or s.startswith('time') or s.startswith('XNianm'):
-                    continue
-                try:
-                    parts = s.split()
-                    if len(parts) >= 14:
-                        t = float(parts[0])
-                        if t > 0:
-                            tt_data[t] = {
-                                'U': float(parts[7]), 'B': float(parts[8]),
-                                'V': float(parts[9]), 'R': float(parts[11]),
-                                'I': float(parts[10]),
-                                'bol': float(parts[6]),
-                            }
-                except ValueError:
-                    continue
+    if n_swd_rejected:
+        print(f"[pysynphot] Rejected {n_swd_rejected} .swd-fallback epochs "
+              f"that disagreed with .tt bolometry by >1.25 mag")
 
-        if tt_data:
-            print(f"[pysynphot] Calibrating against {len(tt_data)} .tt epochs")
-            for band in ['U', 'B', 'V', 'R', 'I', 'bol_mag']:
-                offsets = []
-                for t_tt, vals in tt_data.items():
-                    idx = np.argmin(np.abs(results['time'] - t_tt))
-                    if band == 'bol_mag':
-                        our_val = results['bol_mag'][idx]
-                        ref = vals['bol']
-                    else:
-                        our_val = results[band][idx]
-                        ref = vals[band]
-                    if np.isfinite(our_val) and np.isfinite(ref):
-                        offsets.append(ref - our_val)
-                if offsets:
-                    zp = np.median(offsets)
-                    results[band] = results[band] + zp
-                    print(f"  {band} offset = {zp:.3f} mag")
+    # ── Calibrate against .tt ──────────────────────────────────────────
+    if tt_data:
+        print(f"[pysynphot] Calibrating against {len(tt_data)} .tt epochs")
+        for band in ['U', 'B', 'V', 'R', 'I', 'bol_mag']:
+            offsets = []
+            for t_tt, vals in tt_data.items():
+                idx = np.argmin(np.abs(results['time'] - t_tt))
+                if band == 'bol_mag':
+                    our_val = results['bol_mag'][idx]
+                    ref = vals['bol']
+                else:
+                    our_val = results[band][idx]
+                    ref = vals[band]
+                if np.isfinite(our_val) and np.isfinite(ref):
+                    offsets.append(ref - our_val)
+            if offsets:
+                zp = np.median(offsets)
+                results[band] = results[band] + zp
+                print(f"  {band} offset = {zp:.3f} mag")
 
     return results
 

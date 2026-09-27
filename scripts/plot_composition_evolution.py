@@ -22,6 +22,14 @@ from pathlib import Path
 import sys
 import argparse
 
+# Decay-chain helpers live in plot_nickel_evolution.py (same directory)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from plot_nickel_evolution import read_xni, decay_chain, TAU_NI, TAU_CO
+    HAVE_NI_TOOLS = True
+except Exception:
+    HAVE_NI_TOOLS = False
+
 
 def read_swd_all_epochs(swd_path: str) -> dict:
     """Read all epochs from STELLA .swd file with composition data.
@@ -109,7 +117,8 @@ def read_abn(abn_path: str) -> dict:
 
 
 def plot_composition_profile(abn_data: dict, output_file: str, elements: list = None,
-                              swd_data: dict = None, n_epochs_max: int = 10):
+                              swd_data: dict = None, n_epochs_max: int = 10,
+                              ni56_0: np.ndarray = None):
     """Create multi-panel plot showing radial profile of mass fractions.
 
     Uses dual x-axes:
@@ -158,10 +167,20 @@ def plot_composition_profile(abn_data: dict, output_file: str, elements: list = 
         r_initial = None
         r_final = None
 
+    # Radioactive decay-chain panels: only when Ni56 was actually present in
+    # the run (.xni, or .abn column as fallback) and .swd epochs exist to
+    # supply the radius grid.
+    radio_species = []
+    if ni56_0 is not None and swd_data and np.nanmax(ni56_0) > 1e-30:
+        radio_species = [('ni', r'$^{56}$Ni'), ('co', r'$^{56}$Co'), ('fe', r'$^{56}$Fe')]
+        print(f"  Ni56 detected (max X={np.nanmax(ni56_0):.3e}): "
+              f"adding Ni56/Co56/Fe56 decay-chain panels")
+
     # --- Create figure ---------------------------------------------------
     n_elements = len(valid_elements)
+    n_panels = n_elements + len(radio_species)
     n_cols = 3
-    n_rows = (n_elements + n_cols - 1) // n_cols
+    n_rows = (n_panels + n_cols - 1) // n_cols
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4.5 * n_rows))
     if n_rows == 1:
@@ -249,8 +268,74 @@ def plot_composition_profile(abn_data: dict, output_file: str, elements: list = 
         ax_bot.set_title(display_name, fontsize=12, fontweight='bold')
         ax_bot.tick_params(labelsize=8)
 
+    # --- Radioactive decay-chain panels ---------------------------------
+    # Ni56 -> Co56 -> Fe56 reconstructed analytically on the Lagrangian zones
+    # (STELLA does not advect/decay the .xni field); each epoch's radius grid
+    # comes from the .swd. Decay age follows plot_nickel_evolution.py: the
+    # run's internal clock, t_ob - t_ob(first epoch).
+    if radio_species:
+        times = times_sorted
+        if len(times) > n_epochs_max:
+            idx_sel = np.linspace(0, len(times) - 1, n_epochs_max, dtype=int)
+            times = [times[j] for j in idx_sel]
+        colors = plt.cm.viridis(np.linspace(0, 1, len(times)))
+        t_first = times_sorted[0]
+        nzon_xni = len(ni56_0)
+        r_init_by_zone = {kz: rz for kz, rz in zip(zones_initial, r_initial)}
+        r_xni = np.array([r_init_by_zone.get(z + 1, np.nan)
+                          for z in range(nzon_xni)])
+        r_xni_mask = ~np.isnan(r_xni)
+
+        for k, (sp_key, sp_label) in enumerate(radio_species):
+            i = n_elements + k
+            ax_bot = axes[i // n_cols, i % n_cols]
+
+            for j, t in enumerate(times):
+                ni, co, fe = decay_chain(ni56_0, t - t_first)
+                prof = {'ni': ni, 'co': co, 'fe': fe}[sp_key]
+                r = 10**swd_data[t][:, 3]
+                if len(r) != nzon_xni:
+                    xi = np.linspace(0, 1, nzon_xni)
+                    prof = np.interp(np.linspace(0, 1, len(r)), xi, prof)
+                ax_bot.plot(r, np.maximum(prof, 1e-12), color=colors[j],
+                            linewidth=1.5, alpha=0.8, label=f'{t:.1f} d')
+
+            ax_bot.set_xscale('log')
+            ax_bot.set_yscale('log')
+            r_final_val = 10**last_epoch[:, 3]
+            ax_bot.set_xlim(r_final_val.min() * 0.7, r_final_val.max() * 1.3)
+            ax_bot.set_ylim(1e-8, 1.1)
+            ax_bot.set_xlabel('Post-explosion R (cm)', fontsize=9)
+
+            # Top axis: initial distribution vs pre-explosion radius.
+            # Co56 and Fe56 start at zero; only the Ni56 panel shows the
+            # initial .xni curve.
+            ax_top = ax_bot.twiny()
+            if sp_key == 'ni':
+                init_prof = ni56_0
+            else:
+                init_prof = np.zeros_like(ni56_0)
+            ax_top.plot(r_xni[r_xni_mask],
+                        np.maximum(init_prof[r_xni_mask], 1e-12),
+                        linewidth=2, color='gray', linestyle='--', alpha=0.8,
+                        label='Initial (.xni)')
+            ax_top.set_xscale('log')
+            ax_top.set_xlim(r_initial.min() * 0.7, r_initial.max() * 1.3)
+            ax_top.set_xlabel('Initial R (cm)', fontsize=9, color='gray')
+            ax_top.tick_params(axis='x', colors='gray', labelsize=8)
+
+            ax_bot.set_ylabel(f'{sp_label} mass fraction', fontsize=10)
+            ax_bot.grid(True, alpha=0.3, which='both')
+            ax_bot.set_title(sp_label, fontsize=12, fontweight='bold')
+            ax_bot.tick_params(labelsize=8)
+            if k == 0:
+                lines_b, labels_b = ax_bot.get_legend_handles_labels()
+                lines_t, labels_t = ax_top.get_legend_handles_labels()
+                ax_bot.legend(lines_b + lines_t, labels_b + labels_t,
+                              fontsize=7, loc='upper right')
+
     # Hide unused subplots
-    for i in range(n_elements, n_rows * n_cols):
+    for i in range(n_panels, n_rows * n_cols):
         row = i // n_cols
         col = i % n_cols
         axes[row, col].set_visible(False)
@@ -266,6 +351,9 @@ def main():
     parser.add_argument('abn_file', help='STELLA .abn file path')
     parser.add_argument('output_dir', nargs='?', default='.', help='Output directory for plots')
     parser.add_argument('--swd_file', help='Optional STELLA .swd file for time evolution')
+    parser.add_argument('--xni-file', help='Optional STELLA .xni file; if it (or the .abn Ni56 '
+                                         'column) contains non-zero Ni56, Ni56/Co56/Fe56 '
+                                         'decay-chain panels are appended to the figure')
     parser.add_argument('--elements', help='Comma-separated list of elements to plot (e.g., H,He,O,Si,Ca,Fe)')
     parser.add_argument('--n-epochs', type=int, default=10, help='Max number of .swd epochs to plot (default: 10)')
     
@@ -290,6 +378,21 @@ def main():
         print(f"  Found {len(swd_data)} epochs")
         print(f"  Epoch times: {sorted(swd_data.keys())}")
     
+    # Initial Ni56 distribution for the radioactive decay-chain panels.
+    # The .xni file is authoritative (it drives STELLA's radioactive
+    # heating); fall back to the .abn Ni56 column when no .xni exists.
+    ni56_0 = None
+    if HAVE_NI_TOOLS:
+        if args.xni_file and Path(args.xni_file).exists():
+            ni56_0 = read_xni(args.xni_file)
+            print(f"  .xni: {len(ni56_0)} zones, max X(Ni56) = {ni56_0.max():.4e}")
+        elif args.xni_file:
+            print(f"  .xni file not found: {args.xni_file} (no decay-chain panels)")
+        if (ni56_0 is None or ni56_0.max() <= 1e-30) \
+                and abn_data['Ni56'].max() > 1e-30:
+            ni56_0 = abn_data['Ni56']
+            print(f"  Ni56 taken from .abn column (max X={ni56_0.max():.4e})")
+
     # Create output directory if needed
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -302,7 +405,8 @@ def main():
         output_file = output_dir / f"{abn_name}_composition_profile.png"
     
     # Create plot
-    plot_composition_profile(abn_data, str(output_file), elements, swd_data, n_epochs_max=args.n_epochs)
+    plot_composition_profile(abn_data, str(output_file), elements, swd_data,
+                             n_epochs_max=args.n_epochs, ni56_0=ni56_0)
 
 
 if __name__ == '__main__':

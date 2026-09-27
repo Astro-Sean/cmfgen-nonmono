@@ -188,11 +188,10 @@ cmfgen:
     N_OB_INS: 0
     N_IB_INS: 0
     REV_RGRID: F
-    # FIX_NE=T test (19-Sep-2026): the unclipped run diverged at it9
-    # with var 194 (electron density) the worst residual at nearly
-    # every depth. Pin Ne to the hydro estimate to isolate whether the
-    # Ne/charge-conservation equation is the divergence driver.
-    FIX_NE: T
+    # FIX_NE=F (project default, 25-Sep-2026): Ne solved from charge
+    # conservation. The 19-Sep FIX_NE=T test pinned Ne to isolate the
+    # it9 divergence driver (var 194, electron density); test concluded.
+    FIX_NE: F
     # Stall fix (18-Sep-2026): FIX_BA=15 + N_FIX_BA=0 froze the Jacobian
     # permanently once MAXCH<15% -- the M15 runs plateaued at ~0.357.
     # N_FIX_BA=10 gave an 11-iteration stale-Jacobian window in which the
@@ -200,7 +199,7 @@ cmfgen:
     # next refresh. N_FIX_BA=2 refreshes every 3rd iteration (the manual's
     # recommended value); the BA build is cheap relative to the ~650 s
     # Knop I_NEXT refresh that dominates each iteration.
-    FIX_BA: 1.0D0
+    FIX_BA: 1.0D1
     N_FIX_BA: 2
     # ES stability test (22-Sep-2026): non-coherent electron scattering
     # during convergence. prepare_VADAT.py would otherwise stamp
@@ -232,7 +231,7 @@ cmfgen:
     # obs_template default of 2500 km/s would clip them. Matches the
     # raised value already in VADAT_INIT.
     ES_WING_EXT: 12000.0
-    R_CMF_WING_EXT: 4.0
+    R_CMF_WING_EXT: 3.0
   mem: 31G
   init_mem: 31G
   n_ob_ins: 0

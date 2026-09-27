@@ -82,15 +82,15 @@ def read_swd(swd_path: str) -> dict[float, dict]:
             except (ValueError, IndexError):
                 continue
 
-            # Only accept lines where the first column is a valid time stamp.
-            # In STELLA .swd, zone lines repeat the time in column 0;
-            # interior lines start with 0 or spaces. We skip those by requiring
-            # the time to change (new epoch) or stay the same (same epoch).
-            if current_t is None or abs(t_candidate - current_t) < 1e-6:
-                if current_t is None:
-                    current_t = t_candidate
-            else:
+            # In STELLA .swd, the first zone line of each epoch carries the
+            # time in column 0; continuation zone lines carry 0 there.
+            # Some .swd variants repeat the time on every line. Treat a
+            # nonzero time that differs from the current epoch as a new
+            # epoch, and 0 as a continuation line.
+            if t_candidate != 0.0 and (current_t is None or abs(t_candidate - current_t) > 1e-6):
                 _flush()
+                current_t = t_candidate
+            elif current_t is None:
                 current_t = t_candidate
 
             r_cm  = 10.0 ** log_r

@@ -98,7 +98,7 @@ def get_rel_config() -> dict:
     reversals where H=0 (N/J is well-defined since J>0 always). G_ONLY (N/H)
     crashes when H=0. N_ON_J is also required for OBS (cmf_flux.exe).
 
-    Line treatment: GLOBAL_LINE=BLANK (blanketing mode, set by enforce_sn_iin_physics).
+    Line treatment: GLOBAL_LINE=SOB (Sobolev approximation, set by enforce_sn_iin_physics).
     """
     return {
         "TS_NO": "1",               # First/static model
@@ -122,13 +122,315 @@ MSUN_CGS = 1.98847e33  # g
 DAY = 86400.0          # s
 LSUN_ERG_S = 3.828e33  # L_sun in erg/s (for LSTAR)
 
+# Keys that MUST be present in VADAT when either DO_NOMONO_KNOP=T or
+# DO_NOMONO_SOB=T.  Keep in sync with
+# run_model_grid.py:enforce_cmfgen_sn_iin_settings().
+#
+# Two non-monotonic modes are supported (selected by
+# cmfgen.non_mono_mode in the YAML config):
+#
+#   KNOP  — Knop et al. (2009) CMF formal solver (FG_J_CMF_NONMONO_V1).
+#           Uses BLANK line treatment (continuum + line transfer together).
+#           The non-monotonic velocity field is handled directly in the
+#           continuum radiation transfer.  This is the default.
+#           Maps to: DO_NOMONO_KNOP=T, DO_NOMONO_SOB=F, GLOBAL_LINE=BLANK
+#
+#   SOB   - Sobolev escape-probability line treatment (local |dv/dr|).
+#           Uses the standard CMF formal solver (FG_J_CMF_V13) with
+#           Sobolev line treatment (SOB).  The non-monotonicity is handled
+#           at the population-solver level via SIGMA_TRUE and the
+#           non-monotonic BA solver (SOLVEBA_NONMONO_V1).
+#           Maps to: DO_NOMONO_KNOP=F, DO_NOMONO_SOB=T, GLOBAL_LINE=SOB
+#
+# Both modes share the non-monotonic population solver infrastructure
+# (SOLVE_FOR_POPS_NONMONO_V1 / SOLVE_FOR_POPS_JFNK_V1,
+# CMF_BLKBAND_NONMONO_V1, RECOMPUTE_SIGMA_TRUE, EXTEND_SIGMA_TRUE).
+#
+# The line-treatment keys (GLOBAL_LINE, DO_SOB_LINES, SOB_FREQ_IN_OBS,
+# TRANS_*) differ between the two modes; all other forced keys are shared.
+# The mode-selection keys (DO_NOMONO_KNOP, DO_NOMONO_SOB) also differ.
+
+# Shared forced keys (identical for KNOP and SOB modes).
+_NON_MONO_FORCED_SHARED = {
+    'LAM_SET': 'F',
+    'USE_J_REL': 'F',
+    'USE_FRM_REL': 'F',
+    'USE_DJDT_RTE': 'F',
+    # USE_LAM_ES is NOT forced here.  For KNOP (BLANK) mode it stays
+    # user-overridable: USE_LAM_ES=F is a consistent alternative since
+    # COMP_J_BLANK calls MOM_J_CMF_NONMONO_V1 (SIGMA_TRUE, Knop
+    # chi_hat discretization) rather than the clamped-sigma
+    # MOM_J_CMF_V11.  For SOB mode it is forced to T in
+    # _NON_MONO_LINE_SOB because the SOB path still falls back to
+    # MOM_J_CMF_V11.  The Fortran reader enforces the same rule.
+    'INC_GRID': 'F',
+    'N_TYPE': 'N_ON_J',
+    'NEG_OPAC_OPT': 'SRCE_CHK',
+    'PURE_HUB': 'F',
+    'VEL_LAW': '11',
+    'RD_IN_R_GRID': 'T',
+    # VEL_LAW=11 + RD_IN_R_GRID=T reads the R grid verbatim from RDINR,
+    # so MODEL_SPEC ND must equal the RDINR point count exactly.
+    # Non-zero boundary insertion raises MODEL_SPEC ND to
+    # NHYDRO+N_OB_INS+N_IB_INS and the reader aborts with
+    # 'NDOLD and ND are not equal in RDINR'.
+    'N_OB_INS': '0',
+    'N_IB_INS': '0',
+    'FG_OPT': 'INT/INS',
+    'USE_FIXED_J': 'F',
+    'PP_MOD': 'F',
+    'PP_NOV': 'F',
+    'AUTO_SMOOTH': 'F',
+    # NON_MONO_SOLVER is kept for backwards compatibility with the Fortran
+    # code, which derives it from DO_NOMONO_KNOP .OR. DO_NOMONO_SOB.
+    # Setting it here ensures the VADAT has the keyword even if the
+    # Fortran reader encounters it before the new keywords.
+    'NON_MONO_SOLVER': 'T',
+    # 2026-09-13: MAX_CHNG removed from the forced set.  It is a run-abort
+    # safety cap, not a solver-routing requirement; with FIX_NE=F on a cold
+    # (~1500 K) snapshot the first damped corrections are ~1E+170% and a
+    # forced 1D100 aborts every iteration-1 (CMFGEN STOPs before writing
+    # RVTJ, the job exits, and the afterok OBS fires on missing input).
+    # The profile defaults still supply 1.0D150; a deliberate
+    # vadat_overrides MAX_CHNG now wins.
+    # 2026-09-14: LAM_SCALE_OPT was forced to LIMIT to prevent unbounded
+    # LAMBDA corrections at the optically thin inner boundary.
+    # 2026-09-14 (revised): LAM_SCALE_OPT removed from the forced set.
+    # The user can now control this via vadat_overrides.  With
+    # LAM_SCALE_OPT=NONE, MAX_LAM_COR (MAX_LAM in VADAT) is the sole
+    # limiter on LAMBDA iteration jumps.  Set MAX_LAM=1.0D10 in
+    # vadat_overrides to allow large jumps (LTE->NLTE transition).
+    # Set LAM_SCALE_OPT=LIMIT in vadat_overrides to re-enable the
+    # +-0.999 per-level clip if runaway corrections occur.
+}
+
+# Per-mode line-treatment keys.
+_NON_MONO_LINE_SOB = {
+    'DO_NOMONO_KNOP': 'F',
+    # dev7 spelling: V7 reads DO_NONMONO_KNOP (V6 reads the
+    # DO_NOMONO_KNOP above; each tree ignores the other's key).
+    'DO_NONMONO_KNOP': 'F',
+    'DO_NOMONO_SOB': 'T',
+    # dev7 spelling: the V7 Fortran reads DO_NONMONO_SOB (V6 reads the
+    # DO_NOMONO_SOB above; each tree ignores the other's key).
+    'DO_NONMONO_SOB': 'T',
+    # USE_LAM_ES=F in SOB mode falls back to MOM_J_CMF_V11 (clamped
+    # SIGMA), inconsistent with the non-monotonic formal solution --
+    # keep forcing T here.  KNOP mode leaves it user-overridable.
+    'USE_LAM_ES': 'T',
+    # SOL_METH=DIAG (NUM_BNDS=1) is required for SOB: the TRIDIAG path
+    # forces USE_SELECTIVE_JVAR -> VAR_MOM_J_CMF_NONMONO_V1, the Jacobian
+    # of the Knop generalized-opacity moment equations, which is
+    # inconsistent with the standard FG_J_CMF_V13 solver used here
+    # (do_var_cont_nonmono_v1.f).  DIAG uses the fixed-J path with the
+    # diagonal non-monotonic ALO.  NUM_BNDS follows SOL_METH via
+    # update_model_spec_nd().
+    'SOL_METH': 'DIAG',
+    'GLOBAL_LINE': 'SOB',
+    'DO_SOB_LINES': 'T',
+    'SOB_FREQ_IN_OBS': 'T',
+    'TRANS_HI': 'SOB',
+    'TRANS_HeI': 'SOB',
+    'TRANS_He2': 'SOB',
+    'TRANS_OI': 'SOB',
+    'TRANS_O2': 'SOB',
+    'TRANS_OIII': 'SOB',
+    'TRANS_SkI': 'SOB',
+    'TRANS_Sk2': 'SOB',
+    'TRANS_SkIII': 'SOB',
+    'TRANS_SkIV': 'SOB',
+    'TRANS_CaI': 'SOB',
+    'TRANS_Ca2': 'SOB',
+    'TRANS_CaIII': 'SOB',
+    'TRANS_FeI': 'SOB',
+    'TRANS_Fe2': 'SOB',
+    'TRANS_FeIII': 'SOB',
+    'TRANS_FeIV': 'SOB',
+    'TRANS_FeV': 'SOB',
+}
+
+_NON_MONO_LINE_BLANK = {
+    'DO_NOMONO_KNOP': 'T',
+    # dev7 spelling: V7 reads DO_NONMONO_KNOP (V6 reads the
+    # DO_NOMONO_KNOP above; each tree ignores the other's key).
+    'DO_NONMONO_KNOP': 'T',
+    'DO_NOMONO_SOB': 'F',
+    # Explicitly off in KNOP/BLANK mode so a stale DO_NONMONO_SOB=T in a
+    # VADAT_INIT template cannot leak into a non-SOB run.
+    'DO_NONMONO_SOB': 'F',
+    # USE_LAM_ES is deliberately NOT forced in KNOP mode.  The profile
+    # default is T (FG_J_CMF_NONMONO_V1 formal-solution J); an explicit
+    # USE_LAM_ES=F selects MOM_J_CMF_NONMONO_V1, the non-monotonic
+    # variable-Eddington moment solve (valid in V7 since 19-Sep-2026;
+    # V6 likewise).  run_model_grid.py's cmfgen.use_lam_es key pairs
+    # T with SOL_METH=DIAG and F with SOL_METH=TRI/NUM_BNDS=3 — the
+    # verified TypeIIn_10d setups.
+    'GLOBAL_LINE': 'BLANK',
+    'DO_SOB_LINES': 'F',
+    'SOB_FREQ_IN_OBS': 'F',
+    'TRANS_HI': 'BLANK',
+    'TRANS_HeI': 'BLANK',
+    'TRANS_He2': 'BLANK',
+    'TRANS_OI': 'BLANK',
+    'TRANS_O2': 'BLANK',
+    'TRANS_OIII': 'BLANK',
+    'TRANS_SkI': 'BLANK',
+    'TRANS_Sk2': 'BLANK',
+    'TRANS_SkIII': 'BLANK',
+    'TRANS_SkIV': 'BLANK',
+    'TRANS_CaI': 'BLANK',
+    'TRANS_Ca2': 'BLANK',
+    'TRANS_CaIII': 'BLANK',
+    'TRANS_FeI': 'BLANK',
+    'TRANS_Fe2': 'BLANK',
+    'TRANS_FeIII': 'BLANK',
+    'TRANS_FeIV': 'BLANK',
+    'TRANS_FeV': 'BLANK',
+}
+
+
+# SOB-mode recommended settings -- the Dessart, Audit & Hillier (2015,
+# arXiv:1503.05463 sec 3.1) recipe as run on the m15 model by L. Dessart
+# (converged VADAT extracted at cmfgen_validation/jnk_extracted/VADAT)
+# and validated on dev7 job 12001805 (27-Sep-2026): stable Lambda
+# contraction from a cold LTE start where the earlier stack diverged
+# from it1 (job 12000611).
+#
+# These are defaults, not requirements: an explicit vadat_overrides
+# value still wins (explicit_user_keys are popped before stamping,
+# the same mechanism the forced table uses).
+NON_MONO_SOB_RECOMMENDED = {
+    'ALLOW_OL': 'F',          # geometric line overlap off (Luc's setting)
+    'DC_METH': 'LTE',         # cold start from LTE pops; the non-monotonic
+                            # T check re-injects 'R' via vadat_overrides,
+                            # which beats this stamp
+    'THK_LINE': 'T',          # thick-line outer boundary condition
+    'DO_DIS': 'T',            # level dissolution (occupation probabilities)
+    'INC_PEN': 'T',           # Penning ionization
+    'LAM_VAL': '2.0D2',       # fall back to Lambda above 200% correction
+    'FIX_BA': '1.0D1',        # keep computing BA until MAXCH < 10%
+    'N_FIX_BA': '2',          # hold BA at most 2 iterations
+    'T_INIT_TAU': '1.5D0',
+    'SIG_GAU_KMS': '3.0D3',
+    # Local Dessart Sobolev treatment only; RH78 non-local coupling is a
+    # separate experiment and did not cure the TypeIIn divergence.
+    'DO_NONLOC_SOB': 'F',
+}
+
+
+def build_non_mono_forced_vadat(line_treatment='BLANK'):
+    """Build the NON_MONO_FORCED_VADAT dict for the given non-monotonic mode.
+
+    Parameters
+    ----------
+    line_treatment : str
+        'BLANK' for Knop et al. (2009) mode (default — the Knop formal
+        solver handles non-monotonic velocity fields directly in the
+        continuum, with BLANK line treatment) or 'SOB' for Sobolev line
+        treatment (standard CMF formal
+        solver with Sobolev line treatment, non-monotonicity handled at
+        the population-solver level).
+
+    Returns
+    -------
+    dict
+        The complete forced-key table for the selected non-monotonic mode.
+        Includes DO_NOMONO_KNOP/DO_NOMONO_SOB mode-selection keys.
+    """
+    lt = str(line_treatment).strip().upper()
+    if lt == 'SOB':
+        line_keys = _NON_MONO_LINE_SOB
+    elif lt == 'BLANK':
+        line_keys = _NON_MONO_LINE_BLANK
+    else:
+        raise ValueError(
+            f"non_mono_line_treatment='{line_treatment}' is not valid; "
+            f"must be 'SOB' or 'BLANK'")
+    return {**_NON_MONO_FORCED_SHARED, **line_keys}
+
+
+# Default forced table (SOB mode, for backwards compatibility with code
+# that imports NON_MONO_FORCED_VADAT directly).
+NON_MONO_FORCED_VADAT = build_non_mono_forced_vadat('BLANK')
+
+
+def _apply_forced_vadat_keys(out_lines, forced_settings, tag="NON_MONO",
+                             reason="required for non-monotonic static solver"):
+    """Replace or append VADAT keys. Any TRANS_* key is forced to the
+    line-treatment mode (SOB for Sobolev, BLANK for blanketing)."""
+    vadat_re = re.compile(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]')
+    found = set()
+    new_lines = []
+    force_trans_blank = any(k.startswith('TRANS_') for k in forced_settings)
+    # Determine the TRANS_* catch-all value from the first TRANS_* entry.
+    trans_default = 'SOB'
+    for k, v in forced_settings.items():
+        if k.startswith('TRANS_'):
+            trans_default = str(v)
+            break
+    for line in out_lines:
+        m = vadat_re.match(line)
+        if not m:
+            new_lines.append(line)
+            continue
+        key = m.group(2)
+        if key in forced_settings:
+            found.add(key)
+            forced_val = forced_settings[key]
+            current = m.group(1).strip()
+            if current.upper() != str(forced_val).upper():
+                print(f"  [{tag}] {key} forced: {current} -> {forced_val} "
+                      f"({reason})")
+            new_lines.append(f"{forced_val} [{key}]\n")
+        elif force_trans_blank and key.startswith('TRANS_'):
+            found.add(key)
+            current = m.group(1).strip()
+            if current.upper() != trans_default:
+                print(f"  [{tag}] {key} forced: {current} -> {trans_default} "
+                      f"({reason})")
+            new_lines.append(f"{trans_default} [{key}]\n")
+        else:
+            new_lines.append(line)
+    for key, val in forced_settings.items():
+        if key not in found:
+            new_lines.append(f"{val} [{key}]\n")
+            print(f"  [{tag}] {key} added: {val} "
+                  f"({reason})")
+    return new_lines
+
+
+def require_chg_exch_data(vadat_lines, wdir):
+    """Refuse INC_CHG=T when CHG_EXCH_DATA is absent from the run directory.
+
+    RD_CHG_EXCH_V3 opens CHG_EXCH_DATA with status='OLD' in the run CWD and
+    STOPs on failure, so a T setting without the file is a guaranteed crash.
+    Fail at VADAT-write time instead of inside the CMFGEN job.
+    """
+    tok = _get_key_token(vadat_lines, 'INC_CHG')
+    if tok is not None and tok.strip().upper() == 'T':
+        data = Path(wdir) / 'CHG_EXCH_DATA'
+        if not data.exists():
+            raise FileNotFoundError(
+                f"INC_CHG=T requested but CHG_EXCH_DATA is missing from "
+                f"{wdir}. Charge exchange needs that reaction file: copy it "
+                f"into the model directory or set INC_CHG=F in "
+                f"vadat_overrides.")
+
+
 # ==============================================================================
 # PHYSICS ENFORCER: Bulletproof settings for STELLA / SOB / Type IIn
 # ==============================================================================
-def enforce_sn_iin_physics(vadat_lines):
+def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
+                           user_overrides=None):
     """
     Overwrites or appends critical VADAT settings for STATIC STELLA snapshots
-    of interacting transients using the BLANKETING (BLANK) line treatment.
+    of interacting transients.
+
+    Line treatment is selected by ``line_treatment``:
+      'BLANK' — Blanketing / line-overlap mode (default — the Sobolev
+                approximation assumes monotonic velocity fields and is
+                invalid for non-monotonic flow).
+      'SOB'   - Sobolev line approximation (local |dv/dr|).
 
     This is a STATIC-ONLY model: no time-dependent radiative transfer,
     no time-dependent population terms, no old-time radiation-field terms.
@@ -136,7 +438,7 @@ def enforce_sn_iin_physics(vadat_lines):
     Configuration:
       - VEL_LAW=11 (SN hydrodynamic structure from SN_HYDRO_DATA/RDINR)
       - PURE_HUB=F (preserve non-monotonic velocity from STELLA)
-      - GLOBAL_LINE=BLANK (blanketing mode for line overlap)
+      - GLOBAL_LINE=SOB or BLANK (selected by line_treatment)
       - NON_MONO_SOLVER=T (Knop et al. 2009 formal solver for sigma < -1)
       - USE_LAM_ES=T (Lambda iteration; bypasses moment solver that clamps sigma)
       - FIX_T=T (hold temperature from hydrodynamic snapshot)
@@ -154,7 +456,20 @@ def enforce_sn_iin_physics(vadat_lines):
     AUTO_SMOOTH is NOT user-configurable — it is forced to F for all models
     (population smoothing can destabilize non-monotonic velocity models).
     """
-    # Default physics settings for STATIC SN models with BLANKETING.
+    lt = str(line_treatment).strip().upper()
+    if lt == 'SOB':
+        _line_defaults = _NON_MONO_LINE_SOB
+        _line_label = 'SOBOLEV (SOB)'
+    elif lt == 'BLANK':
+        _line_defaults = _NON_MONO_LINE_BLANK
+        _line_label = 'BLANKETING (BLANK)'
+    else:
+        raise ValueError(
+            f"line_treatment='{line_treatment}' is not valid; "
+            f"must be 'SOB' or 'BLANK'")
+
+    # Default physics settings for STATIC SN models.
+    # Line-treatment keys are mode-dependent; all others are shared.
     # These are applied UNLESS the user has explicitly set them via
     # vadat_overrides (in which case the value in the VADAT lines
     # already reflects the user's choice and should be preserved).
@@ -179,39 +494,13 @@ def enforce_sn_iin_physics(vadat_lines):
         'INCL_DJDT': 'F',
         'USE_DJDT_RTE': 'F',
         'USE_Dr4JDT': 'F',
-        # Line treatment: BLANKETING mode
-        'GLOBAL_LINE': 'BLANK',
-        'DO_SOB_LINES': 'F',          # BLANK mode includes lines in continuum
-        'SOB_FREQ_IN_OBS': 'F',       # No Sobolev frequencies in observed spectrum
-        'LAM_SET': 'F',              # Do not switch to SOB for long wavelengths
-        # Per-ion line treatment: BLANK (consistent with GLOBAL_LINE=BLANK).
-        # The VADAT_INIT template has TRANS_*=SOB, which would override
-        # GLOBAL_LINE=BLANK for individual ions and bypass the non-monotonic
-        # formal solver for those lines.  Setting them to BLANK ensures all
-        # lines are treated in blanketing mode.
-        'TRANS_HI': 'BLANK',
-        'TRANS_HeI': 'BLANK',
-        'TRANS_He2': 'BLANK',
-        'TRANS_OI': 'BLANK',
-        'TRANS_O2': 'BLANK',
-        'TRANS_OIII': 'BLANK',
-        'TRANS_SkI': 'BLANK',
-        'TRANS_Sk2': 'BLANK',
-        'TRANS_SkIII': 'BLANK',
-        'TRANS_SkIV': 'BLANK',
-        'TRANS_CaI': 'BLANK',
-        'TRANS_Ca2': 'BLANK',
-        'TRANS_CaIII': 'BLANK',
-        'TRANS_FeI': 'BLANK',
-        'TRANS_Fe2': 'BLANK',
-        'TRANS_FeIII': 'BLANK',
-        'TRANS_FeIV': 'BLANK',
-        'TRANS_FeV': 'BLANK',
+        # Line treatment: mode-dependent (SOB or BLANK).
+        'LAM_SET': 'F',              # Keep GLOBAL_LINE active; suppress overlap warning
         # Numerical stability
         'COH_ES': 'T',                # Coherent ES for convergence
         'CHK_L_POS': 'T',
         'NEG_OPAC_OPT': 'SRCE_CHK',
-        'METHOD': 'LOGMON',
+        'METHOD': 'ZERO',
         'THK_CONT': 'T',
         # SN line cooling / optical depth
         'SCL_SL_OPAC': 'T',
@@ -226,18 +515,20 @@ def enforce_sn_iin_physics(vadat_lines):
         'FIX_T_AUTO': 'F',            # Do not auto-adjust T (static initial)
         'DO_LAM_IT': 'T',
         'DO_LAM_AUTO': 'T',
-        'MAX_LAM': '1.0D5',           # Manual: "Typically adopt 10^5"; Knop solver is stable
+        'MAX_LAM': '1.0D10',  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
         'DO_NG': 'T',
-        'BEG_NG': '1.0D-01',
-        'MAX_LIN': '1.0D1',
+        'BEG_NG': '1.0D1',  # start Ng acceleration when max % change falls below this
+        'MAX_LIN': '5.0D0',  # max correction factor allowed per linearization step
         'AUTO_SMOOTH': 'F',          # Forced off — smoothing destabilizes non-monotonic velocity models
     }
+    # Merge mode-dependent line-treatment keys into defaults.
+    defaults.update(_line_defaults)
 
     # Keys that the user can override via vadat_overrides.
     # If these are already set in the VADAT lines (by the override step),
     # we preserve them instead of forcing the default.
     user_overridable = {
-        'DIF', 'IB_METH', 'IB_STAB', 'MAX_LAM', 'MAX_LIN',
+        'DIF', 'IB_METH', 'IB_STAB', 'MAX_LAM', 'MAX_LIN', 'MAX_dT',
         'BEG_NG', 'IBEG_NG', 'BW_NG', 'N_OB_INS', 'N_IB_INS',
         'INC_GRID', 'ALL_FREQ', 'SCL_LN', 'DO_AV', 'ITS/NG',
         'BA_CHK_FAC', 'T_INIT_TAU', 'MIN_CF', 'LAM_VAL', 'NUM_LAM',
@@ -250,10 +541,27 @@ def enforce_sn_iin_physics(vadat_lines):
         'SOL_METH', 'VEL_LAW',
         'VFRAC_MOM', 'VFRAC_FG',
         'LAM_SCALE_OPT',
+        # JFNK solver controls (V4, 2026-10)
+        'USE_JFNK', 'JFNK_NITS', 'JFNK_M', 'JFNK_MAXGMRES', 'JFNK_GTOL',
+        'JFNK_TOL', 'JFNK_DEL', 'JFNK_MNDL', 'JFNK_MXDL',
+        'JFNK_EPS', 'JFNK_FIXT', 'JFNK_VERB', 'JFNK_WARMUP', 'MAX_JFNK',
+        'JFNK_RIDGE', 'JFNK_REFINE', 'JFNK_LEFTPC', 'JFNK_PC_RF',
+        'JFNK_LAM_THRESH', 'JFNK_PRECOND', 'JFNK_RSCALE', 'JFNK_MAX_RESTART',
+        'JFNK_LS', 'JFNK_LS_MAX', 'JFNK_LS_BETA', 'JFNK_LS_C', 'JFNK_CAUCHY',
+        'JFNK_DIAG', 'JFNK_USE_BANDED', 'JFNK_SELECTIVE_JVAR',
         # NOTE: GLOBAL_LINE, DO_SOB_LINES, PURE_HUB are NOT user-overridable
         # when NON_MONO_SOLVER=T — they are forced by the non-monotonic
         # enforcement block below.
     }
+
+    # Keys the user set explicitly via vadat_overrides keep their value —
+    # even for keys outside user_overridable (e.g. DO_NOMONO_KNOP, REL_OBS).
+    # Needed to run the standard/reference solver stack on trees whose
+    # Fortran reads DO_NOMO_* (dev6), where the unconditional KNOP=T stamp
+    # would otherwise activate the non-monotonic solver path.
+    explicit_user_keys = set()
+    if user_overrides:
+        explicit_user_keys = {str(k).strip() for k in user_overrides}
 
     vadat_re = re.compile(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]')
     out_lines = []
@@ -264,13 +572,15 @@ def enforce_sn_iin_physics(vadat_lines):
         if m:
             key = m.group(2)
             found_keys.add(key)
-            if key in defaults and key not in user_overridable:
+            if (key in defaults and key not in user_overridable
+                    and key not in explicit_user_keys):
                 out_lines.append(f"{defaults[key]} [{key}]\n")
                 continue
         out_lines.append(line)
 
     for key, val in defaults.items():
-        if key not in found_keys and key not in user_overridable:
+        if (key not in found_keys and key not in user_overridable
+                and key not in explicit_user_keys):
             out_lines.append(f"{val} [{key}]\n")
 
     # ── Non-monotonic solver enforcement ───────────────────────────────
@@ -280,10 +590,11 @@ def enforce_sn_iin_physics(vadat_lines):
     # velocity fields where sigma < -1 (reverse shocks, compression regions,
     # cold dense shells).
     #
-    # The static BLANK configuration for non-monotonic models is:
-    #   GLOBAL_LINE=BLANK  (blanketing mode — lines in continuum frequency set)
-    #   DO_SOB_LINES=F     (no separate Sobolev treatment; BLANK handles lines)
-    #   NON_MONO_SOLVER=T  (continuum formal solver — Knop et al. 2009)
+    # The static SOB configuration for non-monotonic models is:
+    #   GLOBAL_LINE=SOB   (Sobolev line approximation)
+    #   DO_SOB_LINES=T    (Sobolev equivalent widths)
+    #   SOB_FREQ_IN_OBS=T (Sobolev nu in observed spectrum)
+    #   NON_MONO_SOLVER=T (continuum formal solver — Knop et al. 2009)
     #   USE_J_REL=F        (no relativistic moment solver)
     #   USE_LAM_ES=T       (Lambda iteration; bypasses MOM_J_CMF_V11 sigma clamp)
     #   PURE_HUB=F         (preserve non-monotonic velocity from STELLA)
@@ -312,89 +623,85 @@ def enforce_sn_iin_physics(vadat_lines):
         # These are not user-overridable when NON_MONO_SOLVER=T because
         # incorrect values cause crashes or physically inconsistent results.
         #
-        # The following are forced because they are required for the Knop
-        # et al. (2009) formal solver to function correctly:
-        #   GLOBAL_LINE=BLANK  — blanketing mode (lines in continuum freq set)
-        #   DO_SOB_LINES=F     — BLANK handles lines, no separate Sobolev
-        #   PURE_HUB=F         — preserve non-monotonic velocity from STELLA
-        #   USE_J_REL=F        — no relativistic moment solver
-        #   VEL_LAW=11         — SN hydrodynamic structure reader
-        #   NEG_OPAC_OPT=SRCE_CHK — handle negative opacity
-        #   All TRANS_*=BLANK  — all lines through blanketing frequency set
+        # Forced because they are required for the Knop et al. (2009) CMF
+        # formal solver AND for consistent line formation.  YAML / CLI
+        # cannot override these when NON_MONO_SOLVER=T:
+        #   GLOBAL_LINE=SOB/BLANK + LAM_SET=F + all TRANS_*=SOB/BLANK
+        #     — lines stay in the selected frequency set; LAM_SET=T would
+        #       rewrite long/short wavelengths even with SOB/BLANK.
+        #   DO_SOB_LINES / SOB_FREQ_IN_OBS — set per line_treatment mode
+        #   FG_OPT=INT/INS — DIFF path does not implement chi_hat
+        #   VEL_LAW=11 + RD_IN_R_GRID=T — SET_RV_HYDRO_MODEL_V3 reads the
+        #     conversion R grid; RD_IN_R_GRID=F would rebuild R and PCHIP-
+        #     smooth V, destroying sigma < -1 extrema
+        #   USE_LAM_ES=T / INC_GRID=F / N_TYPE=N_ON_J — Fortran STOP otherwise
+        #   USE_FIXED_J / USE_FRM_REL / PP_MOD / PP_NOV = F — those paths
+        #     bypass FG_J_CMF_NONMONO_V1
         #
-        # The following are NOT forced here because they are iteration-strategy
-        # choices, not solver-consistency requirements:
-        #   USE_LAM_ES  — user may choose T (bypass moments, recommended for
-        #                 sigma < -1) or F (dual-sigma with clamped SIGMA).
-        #   SOL_METH    — user may choose TRIDIAG (CMFGEN manual: "best
-        #                 compromise") or DIAG (slower but simpler).
-        #   N_TYPE      — user may choose N_ON_J (stable at H=0, recommended)
-        #                 or G_ONLY (singular at velocity reversals).
-        #   FIX_T, DO_LAM_IT, DO_LAM_AUTO — iteration sequence control.
-        #
-        # KNOWN ISSUE (BA_AUDIT_REPORT.txt): The BA variation operator
-        # (VAR_MOM_J_CMF_V12) uses clamped SIGMA but receives Eddington
-        # factors from the non-monotonic formal solve (GET_MOMS_NON_REL).
-        # This inconsistency can produce zero BA corrections in strongly
-        # reversing flows, regardless of SOL_METH.  The proper fix is to
-        # use consistent Eddington factors for the BA variation (audit
-        # option a), not to switch from TRIDIAG to DIAG.
-        forced_settings = {
-            'GLOBAL_LINE': 'BLANK',       # Blanketing mode for line overlap
-            'DO_SOB_LINES': 'F',          # BLANK includes lines in continuum
-            'SOB_FREQ_IN_OBS': 'F',       # No Sobolev frequencies in obs spectrum
-            'LAM_SET': 'F',              # Do not switch to SOB for long wavelengths
-            'USE_J_REL': 'F',             # No relativistic moment solver
-            'NEG_OPAC_OPT': 'SRCE_CHK',   # Handle negative opacity
-            'PURE_HUB': 'F',              # Preserve non-monotonic velocity
-            'VEL_LAW': '11',              # SN hydrodynamic structure reader
-            'DIF': 'T',                   # Diffusion BC (tau_inner >= 50)
-            'IB_METH': 'DIFFUSION',       # Consistent with DIF=T
-            # Per-ion TRANS_* must be BLANK (not SOB) to ensure all lines
-            # go through the blanketing frequency set and the non-monotonic
-            # formal solver.  SOB would bypass the formal solver for those ions.
-            'TRANS_HI': 'BLANK',
-            'TRANS_HeI': 'BLANK',
-            'TRANS_He2': 'BLANK',
-            'TRANS_OI': 'BLANK',
-            'TRANS_O2': 'BLANK',
-            'TRANS_OIII': 'BLANK',
-            'TRANS_SkI': 'BLANK',
-            'TRANS_Sk2': 'BLANK',
-            'TRANS_SkIII': 'BLANK',
-            'TRANS_SkIV': 'BLANK',
-            'TRANS_CaI': 'BLANK',
-            'TRANS_Ca2': 'BLANK',
-            'TRANS_CaIII': 'BLANK',
-            'TRANS_FeI': 'BLANK',
-            'TRANS_Fe2': 'BLANK',
-            'TRANS_FeIII': 'BLANK',
-            'TRANS_FeIV': 'BLANK',
-            'TRANS_FeV': 'BLANK',
-        }
+        # DIF and IB_METH are NOT forced — they depend on CMFGEN grey tau.
+        # FIX_T, DO_LAM_IT, DO_LAM_AUTO remain iteration choices.
+        # SOL_METH remains DIAG vs TRI unless USE_JFNK=T (forced DIAG below).
+        _forced = build_non_mono_forced_vadat(lt)
+        for _k in explicit_user_keys:
+            _forced.pop(_k, None)
+        out_lines = _apply_forced_vadat_keys(out_lines, _forced)
 
-        for key, forced_val in forced_settings.items():
-            current_val = None
-            for line in out_lines:
-                m = vadat_re.match(line)
-                if m and m.group(2) == key:
-                    current_val = m.group(1).strip().upper()
-                    break
+        if lt == 'SOB':
+            # Dessart+2015 recipe defaults (NON_MONO_SOB_RECOMMENDED):
+            # stamped unless the user set the key explicitly.
+            _rec = dict(NON_MONO_SOB_RECOMMENDED)
+            for _k in explicit_user_keys:
+                _rec.pop(_k, None)
+            out_lines = _apply_forced_vadat_keys(
+                out_lines, _rec, tag="NON_MONO_SOB",
+                reason="Dessart+2015 Sobolev recipe default")
 
-            if current_val != forced_val:
-                out_lines = [
-                    (f"{forced_val} [{key}]\n" if vadat_re.match(l) and
-                     vadat_re.match(l).group(2) == key
-                     else l)
-                    for l in out_lines
-                ]
-                print(f"  [NON_MONO] {key} forced: {current_val} -> {forced_val} "
-                      f"(required for non-monotonic static BLANK solver)")
+            # DIF=F + JBAR_W_EDD=T is a guaranteed STOP on the first BA
+            # iteration: SUB_SOB_LINE_V3 -> DO_VAR_CONT -> PERTJFEAU_IBC,
+            # which only has the diffusion inner BC installed (job
+            # 11988551).  Route the line dJ linearization through
+            # NEWPERTJD unless the user pinned JBAR_W_EDD.
+            _dif_tok = _get_key_token(out_lines, 'DIF')
+            if _dif_tok is None or not _dif_tok.strip().upper().startswith('T'):
+                _jb_tok = _get_key_token(out_lines, 'JBAR_W_EDD')
+                if 'JBAR_W_EDD' in explicit_user_keys:
+                    if _jb_tok is not None and _jb_tok.strip().upper().startswith('T'):
+                        print("  [NON_MONO_SOB] WARNING: JBAR_W_EDD=T with DIF=F --")
+                        print("    the line-section dJ linearization reaches")
+                        print("    PERTJFEAU_IBC, which STOPs under DIF=F")
+                        print("    (only diffusion approximation installed).")
+                else:
+                    out_lines = _apply_forced_vadat_keys(
+                        out_lines, {'JBAR_W_EDD': 'F'}, tag="NON_MONO_SOB",
+                        reason="DIF=F routes line dJ through NEWPERTJD; "
+                               "PERTJFEAU_IBC requires DIF=T")
 
-        print("  [NON_MONO] Static non-monotonic BLANK configuration:")
+            # LSTAR=0 leaves the inner boundary dead (DTDR=0): the m15
+            # model diverged from it1 under this setting (job 12000611).
+            # The header-LSTAR stamp in main() normally prevents this;
+            # warn if an explicit override still leaves it zero.
+            _lstar_tok = _get_key_token(out_lines, 'LSTAR')
+            _lstar_zero = False
+            if _lstar_tok is not None:
+                try:
+                    _lstar_zero = abs(float(
+                        _lstar_tok.replace('D', 'E').replace('d', 'e'))) < 1.0e-30
+                except ValueError:
+                    pass
+            if _lstar_zero:
+                print("  [NON_MONO_SOB] WARNING: LSTAR=0 -- dead inner boundary")
+                print("    (DTDR=0).  The m15 SOB run diverged from it1 under")
+                print("    this setting; use the SN_HYDRO_DATA 'Energy Lum'")
+                print("    value with DIF=T/IB_METH=DIFFUSION (Dessart+2015).")
+
+        print(f"  [NON_MONO] Static non-monotonic {lt} configuration:")
         print("    Formal solver: FG_J_CMF_NONMONO_V1 (Knop et al. 2009)")
-        print("    Line treatment: BLANK (blanketing mode, lines in continuum)")
-        print("    Velocity field: arbitrary / non-monotonic (PURE_HUB=F)")
+        if lt == 'SOB':
+            print("    Line treatment: SOB (Sobolev approximation)")
+        else:
+            print("    Line treatment: BLANK (blanketing mode, legacy)")
+        print("    FG_OPT: INT/INS (chi_hat short characteristics)")
+        print("    Velocity field: arbitrary / non-monotonic (PURE_HUB=F, VEL_LAW=11, RD_IN_R_GRID=T)")
         print("    Sigma handling: allow sigma < -1 (SIGMA_TRUE preserved)")
         # Show actual solver/iteration settings (user-overridable)
         use_lam_es_val = 'T'
@@ -431,6 +738,46 @@ def enforce_sn_iin_physics(vadat_lines):
             print("    Iteration: auto-switch Lambda->BA (DO_LAM_IT=F, DO_LAM_AUTO=T)")
         print("    Time evolution: disabled (static model)")
 
+    # JFNK GMRES preconditioner inverts the DIAG BA by default.  When
+    # JFNK_USE_BANDED=T, the preconditioner uses a banded LU that
+    # requires SOL_METH=TRI.  Force DIAG only when JFNK is active AND
+    # banded mode is NOT requested.
+    jfnk_active = False
+    jfnk_banded = False
+    for line in out_lines:
+        m = vadat_re.match(line)
+        if m and m.group(2) == 'USE_JFNK':
+            if m.group(1).strip().upper() == 'T':
+                jfnk_active = True
+        if m and m.group(2) == 'JFNK_USE_BANDED':
+            if m.group(1).strip().upper() == 'T':
+                jfnk_banded = True
+    if jfnk_active and not jfnk_banded:
+        out_lines = _apply_forced_vadat_keys(
+            out_lines, {'SOL_METH': 'DIAG'}, tag="JFNK"
+        )
+        print("  [JFNK] SOL_METH forced to DIAG (JFNK preconditioner is DIAG-only)")
+    elif jfnk_active and jfnk_banded:
+        out_lines = _apply_forced_vadat_keys(
+            out_lines, {'SOL_METH': 'TRI'}, tag="JFNK"
+        )
+        print("  [JFNK] SOL_METH forced to TRI (JFNK_USE_BANDED=T — banded LU)")
+
+    # Non-coherent ES companions: when the effective COH_ES=F survives to
+    # the written VADAT (explicit user override), the frequency grid must
+    # carry the extended e.s. wings and the linearization must not mix in a
+    # coherent fraction.
+    coh_es_tok = None
+    for line in out_lines:
+        m = vadat_re.match(line)
+        if m and m.group(2) == 'COH_ES':
+            coh_es_tok = m.group(1).strip()
+            break
+    if coh_es_tok is not None and coh_es_tok.upper() == 'F':
+        for _c in apply_noncoherent_es_companions(
+                out_lines, explicit_user_keys=explicit_user_keys):
+            print(f"  [ES_NONCOH] {_c}")
+
     return out_lines
 
 # Map human-readable element symbols to CMFGEN "DUM" labels.
@@ -439,8 +786,10 @@ def enforce_sn_iin_physics(vadat_lines):
 CMFGEN_LABELS = {
     "H": "HYD", "HE": "HE", "He": "HE",
     "C": "CARB", "N": "NIT", "O": "OXY", "Ne": "NEON",
-    "Mg": "MAG", "Si": "SIL", "S": "SUL", "Ar": "ARG", "Ca": "CAL",
-    "Ti": "TIT", "Cr": "CHRO", "Fe": "IRON", "Ni": "NICK", "Co": "COB",
+    "Mg": "MAG", "Al": "ALUM", "Si": "SIL", "S": "SUL", "Ar": "ARG",
+    "Ca": "CAL", "Sc": "SCAN", "Ti": "TIT", "Cr": "CHRO", "Mn": "MAN",
+    "Fe": "IRON", "Ni": "NICK", "Co": "COB", "Na": "SOD", "P": "PHOS",
+    "Cl": "CHL",
 }
 
 # (Z, mean atomic weight in amu) for DUM keys in SN_HYDRO_DATA mass-fraction headers.
@@ -454,13 +803,19 @@ DUM_ATOMIC: Dict[str, Tuple[int, float]] = {
     "NIT": (7, 14.007),
     "OXY": (8, 15.999),
     "NEON": (10, 20.180),
+    "SOD": (11, 22.990),
     "MAG": (12, 24.305),
+    "ALUM": (13, 26.982),
     "SIL": (14, 28.085),
+    "PHOS": (15, 30.974),
     "SUL": (16, 32.06),
+    "CHL": (17, 35.45),
     "ARG": (18, 39.948),
     "CAL": (20, 40.078),
+    "SCAN": (21, 44.956),
     "TIT": (22, 47.867),
     "CHRO": (24, 51.996),
+    "MAN": (25, 54.938),
     "IRON": (26, 55.845),
     "COB": (27, 58.933),
     "NICK": (28, 58.693),
@@ -612,6 +967,18 @@ def sn_hydro_header_num_isotopes(filepath: Path, max_lines: int = 400) -> int:
 
 
 def parse_sn_hydro(filepath: Path) -> HydroData:
+    from grid_mapping.sn_hydro_io import read_sn_hydro_data
+    _d = read_sn_hydro_data(filepath)
+    if (not np.all(np.isfinite(_d.r_1e10cm)) or np.any(_d.r_1e10cm <= 0)
+            or np.any(np.diff(_d.r_1e10cm) >= 0)):
+        raise ValueError("SN_HYDRO_DATA radius must be finite, positive, "
+                         "and strictly decreasing (outer->inner)")
+    for _name, _a in (("Temperature", _d.T_1e4K),
+                      ("Density", _d.density_gcm3),
+                      ("Electron density", _d.electron_density)):
+        if _a is not None and (not np.all(np.isfinite(_a)) or np.any(_a <= 0)):
+            raise ValueError(f"SN_HYDRO_DATA {_name} must be finite and positive")
+
     lines = filepath.read_text().splitlines()
 
     # Scan a fixed early prefix so we capture NDATA, time, and isotope count regardless
@@ -692,12 +1059,8 @@ def parse_sn_hydro(filepath: Path) -> HydroData:
         return None
 
     def parse_block(start_index: int) -> np.ndarray:
-        vals: List[str] = []
-        i = start_index
-        while i < len(lines) and re.search(r"[0-9]", lines[i]):
-            vals.extend(re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eEdD][-+]?\d+)?", lines[i]))
-            i += 1
-        return np.array([float(v.replace("D", "E").replace("d", "e")) for v in vals], dtype=float)
+        from grid_mapping.sn_hydro_io import _read_numeric_block
+        return _read_numeric_block(lines, start_index, ndata)[0]
 
     radius_start = find_start(["radius grid"])
     vel_start = find_start(["velocity", "km/s"])
@@ -831,7 +1194,7 @@ def parse_sn_hydro(filepath: Path) -> HydroData:
             vals.extend(re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eEdD][-+]?\d+)?", lines[j]))
             j += 1
 
-        arr = np.array([float(v.replace("D", "E").replace("d", "e")) for v in vals], dtype=float)[:N]
+        arr = parse_block(i + 1)[:N]
         if dum_label is not None and len(arr) == N:
             mass_fractions[dum_label] = arr[sort_idx]  # apply same inner->outer sort as radius/rho/vel
 
@@ -846,6 +1209,7 @@ def parse_sn_hydro(filepath: Path) -> HydroData:
         temp_104k=temp_104k,
         kappa_cgs=kappa_cgs,
         ed_cgs=ed_cgs,
+        na_cgs=na_cgs,
     )
 
 
@@ -869,7 +1233,7 @@ def print_hydro_summary(hydro: HydroData, prefix: str = "SN_HYDRO_DATA") -> None
     print()
 
 
-def recommended_t_exc(hydro: HydroData) -> Optional[float]:
+def recommended_t_exc(hydro: HydroData, t_exc_floor: float = 0.7) -> Optional[float]:
     """
     Recommend T_EXC (in 10^4 K) from the STELLA hydro snapshot.
 
@@ -887,9 +1251,13 @@ def recommended_t_exc(hydro: HydroData) -> Optional[float]:
     Rosseland tau=2/3 surface. This is the radiation field temperature that
     characterizes the outer optically thin regions.
 
-    A minimum floor of 0.5 (5000 K) is enforced to ensure high-n levels have
-    non-negligible LTE populations (e.g. He I n=5 at 23.97 eV has
-    exp(-24/k*5000) ~ 10^-25, still small but 15 orders better than at 3000K).
+    A minimum floor of ``t_exc_floor`` (default 0.7 = 7000 K) is enforced to
+    ensure high-n levels have non-negligible LTE populations (e.g. He I n=5 at
+    23.97 eV has exp(-24/k*5000) ~ 10^-25, still small but 15 orders better
+    than at 3000K).  For cold systems (T_gas < 3000 K) where the proxy
+    departure coefficients already account for the T_exc/T_gas gap, a lower
+    floor (e.g. 0.3 = 3000 K) prevents the VADAT T_EXC from over-exciting
+    relative to the proxy's own excitation model.
     For very hot photospheres (>20000 K), we cap at 2.0 (20000 K) to avoid
     over-ionizing ground states of abundant species.
     """
@@ -911,20 +1279,22 @@ def recommended_t_exc(hydro: HydroData) -> Optional[float]:
     t_phot_K = t_phot_104k * 1e4
 
     # Enforce reasonable bounds:
-    #   Floor: 0.7 (7000 K) — per user request and VADAT_INIT template default.
-    #          T_EXC sets the minimum excitation temperature for LTE initial
-    #          populations. 7000K gives robust LTE populations in outer
-    #          optically thin regions where T_local << T_radiation.
+    #   Floor: t_exc_floor (default 0.7 = 7000 K) — per user request and
+    #          VADAT_INIT template default.  T_EXC sets the minimum excitation
+    #          temperature for LTE initial populations. 7000K gives robust LTE
+    #          populations in outer optically thin regions where
+    #          T_local << T_radiation.  For cold systems, lower this via the
+    #          YAML ``cmfgen.t_exc_floor`` key.
     #   Cap:   2.0 (20000 K) — avoids over-ionizing abundant ground states
-    t_exc = max(0.7, min(t_phot_104k, 2.0))
+    t_exc = max(float(t_exc_floor), min(t_phot_104k, 2.0))
 
     print(f"  [T_EXC] T_photosphere (tau=2/3) = {t_phot_K:.0f} K "
           f"(depth {i_phot}/{n}); T_EXC = {t_exc:.4f} (10^4 K) = {t_exc*1e4:.0f} K "
-          f"[floor=7000 K, cap=20000 K]")
+          f"[floor={t_exc_floor*1e4:.0f} K, cap=20000 K]")
     return t_exc
 
 
-def recommended_t_exc_init(hydro: HydroData) -> Optional[float]:
+def recommended_t_exc_init(hydro: HydroData, t_exc_floor: float = 0.7) -> Optional[float]:
     """
     Recommend T_EXC (in 10^4 K) for the *init* run.
     Same value as recommended_t_exc — T_EXC ≈ T_photosphere is the manual's
@@ -932,7 +1302,7 @@ def recommended_t_exc_init(hydro: HydroData) -> Optional[float]:
     the initial guess (iteration 0); once iterating, the real rate equations
     at T_local take over. A converged model is identical regardless of T_EXC.
     """
-    return recommended_t_exc(hydro)
+    return recommended_t_exc(hydro, t_exc_floor=t_exc_floor)
 
 
 # ---------- optical depth for FIX_INB_T / FIX_INB_NE / FIX_X_DPTH ----------
@@ -1180,12 +1550,81 @@ def _get_key_token(lines: List[str], key: str) -> Optional[str]:
     return m.group(2).strip() if m else None
 
 
+# Floors for the electron-scattering wing extents when COH_ES=F.  With
+# non-coherent ES, line photons are redistributed far into the red wing;
+# ins_line_v5.f extends the frequency grid to
+#   1 - (ES_WING_EXT + R_CMF_WING_EXT*VINF) / c  on the red side,
+# so ES_WING_EXT must exceed VINF or the down-scattered wing is truncated.
+ES_WING_EXT_FLOOR = 12000.0   # km/s; > VINF=10472 km/s for the IIn grid
+R_CMF_WING_FLOOR = 4.0        # in Vinf units; valid range is 2-20
+
+
+def _vadat_float_token(tok: Optional[str]) -> Optional[float]:
+    """Parse a Fortran-style numeric token (D exponent) or return None."""
+    if tok is None:
+        return None
+    try:
+        return float(str(tok).strip().upper().replace("D", "E"))
+    except ValueError:
+        return None
+
+
+def apply_noncoherent_es_companions(
+    lines: List[str],
+    explicit_user_keys: Optional[set] = None,
+) -> List[str]:
+    """Set the companion keys a COH_ES=F (non-coherent ES) model requires.
+
+    Call this only when the effective COH_ES value is F.  With COH_ES=F the
+    electron-scattering source term uses RJ_ES -- J convolved with the e.s.
+    redistribution kernel, stored in ES_J_CONV (cmfgen_sub.f,
+    comp_j_blank.f).  The companions:
+
+    - ES_WING_EXT / R_CMF_WING_EXT: floored so the frequency grid covers the
+      down-scattered wings (see ES_WING_EXT_FLOOR comment).
+    - MIX_COH=F: pure non-coherent ES in the linearization; ES_FAC mixing
+      only applies when MIX_COH=T.
+
+    OLD_J is deliberately not managed here: it reads a literal OLD_J_FILE
+    (comp_j_conv_v2.f STOPs when the file is missing or record-incompatible)
+    and nothing in the pipeline produces that file, so it stays a manual
+    user choice.
+
+    Keys listed in explicit_user_keys keep their value.
+    Returns a list of change-description strings.
+    """
+    explicit = {str(k).strip() for k in (explicit_user_keys or set())}
+    changes: List[str] = []
+
+    def _floor(key: str, floor: float, fmt: str) -> None:
+        if key in explicit:
+            return
+        cur = _get_key_token(lines, key)
+        cur_v = _vadat_float_token(cur)
+        if cur_v is None or cur_v < floor:
+            new = fmt.format(floor)
+            set_or_append_keyword(lines, key, new)
+            changes.append(f"{key}: {cur} -> {new} (COH_ES=F)")
+
+    _floor("ES_WING_EXT", ES_WING_EXT_FLOOR, "{:.1f}D0")
+    _floor("R_CMF_WING_EXT", R_CMF_WING_FLOOR, "{:.1f}D0")
+
+    if "MIX_COH" not in explicit:
+        cur = _get_key_token(lines, "MIX_COH")
+        if cur is None or cur.upper() != "F":
+            set_or_append_keyword(lines, "MIX_COH", "F")
+            changes.append(f"MIX_COH: {cur} -> F (pure non-coherent ES source)")
+
+    return changes
+
+
 # ---------- IN_ITS helpers ----------
-def update_in_its_for_profile(wdir: Path, profile: str) -> List[str]:
+def update_in_its_for_profile(wdir: Path, profile: str,
+                              iteration_strategy=None) -> List[str]:
     """
     Keep IN_ITS and VADAT consistent for LAMBDA control.
 
-    Policy (static BLANK model with FIX_T=T):
+    Policy (static SOB model with FIX_T=T):
       - All profiles:  DO_LAM_IT=T, DO_LAM_AUTO=T, D2_EQ_D1=T
       - DO_LAM_AUTO=T: auto-switch from LAMBDA to full iterations once corrections
         are small (MAXCH < 50%).
@@ -1245,24 +1684,37 @@ def update_in_its_for_profile(wdir: Path, profile: str) -> List[str]:
     want_lam = do_lam_val
     want_auto = do_auto_val
 
+    # If the existing IN_ITS already has DO_LAM_IT=F, the model has already
+    # transitioned from LAMBDA to FULL/BA mode (via DO_LAM_AUTO or explicit
+    # IT_SPECIFIER).  Preserve this across requeues — resetting to T would
+    # force the model back into LAMBDA mode with BA-mode populations, causing
+    # catastrophic divergence (MAXCH=1E+07).
+    existing_lam = _get_key_token(lines, "DO_LAM_IT")
+    if existing_lam is not None and existing_lam.upper() == "F":
+        want_lam = "F"
+
     # If an explicit IT_SPECIFIER iteration strategy is present and it
     # contains any FULL / FULL(FIXT) cycles, force DO_LAM_IT=F in IN_ITS.
     # Otherwise cmfgen_sub.f re-reads IN_ITS after SPECIFY_IT_CYCLE_V3 and
     # clobbers the FULL(FIXT) setting by setting LAMBDA_ITERATION=.TRUE.
-    it_spec_path = wdir / "IT_SPECIFIER"
-    if it_spec_path.is_file():
-        try:
-            it_text = it_spec_path.read_text()
-            if re.search(r"(?i)FULL(?:\s*\(|\b)", it_text) and want_lam == "T":
-                want_lam = "F"
-        except OSError:
-            pass
+    # Only apply this when iteration_strategy is specified in the YAML —
+    # when it is absent, DO_LAM_AUTO controls the transition and
+    # DO_LAM_IT should stay T (start in LAMBDA mode).
+    if iteration_strategy is not None:
+        it_spec_path = wdir / "IT_SPECIFIER"
+        if it_spec_path.is_file():
+            try:
+                it_text = it_spec_path.read_text()
+                if re.search(r"(?i)FULL(?:\s*\(|\b)", it_text) and want_lam == "T":
+                    want_lam = "F"
+            except OSError:
+                pass
     # DO_GT_AUTO: grey temperature iteration.  When FIX_T=T (static model with
     # temperature fixed to hydro), DO_GT_AUTO must be F — there is no need to
     # iterate the grey temperature since T is held fixed.
     want_gt = "F" if (not fix_t_is_f and not fix_t_auto) else "T"
     # DO_T_AUTO=T when FIX_T=F (T varies in BA matrix) OR FIX_T_AUTO=T (bootstrap:
-    # auto-release T once populations have stabilized, per Dessart+2015 SOB methodology)
+    # auto-release T once populations have stabilized)
     want_t = "T" if (fix_t_is_f or fix_t_auto) else "F"
     want_d2 = "T"  # Always enable D2_EQ_D1 for stability (tie depth-2 pops to depth-1)
     # NOTE: REVISE_R_GRID is a VADAT keyword (REV_RGRID), not an IN_ITS keyword
@@ -1311,7 +1763,7 @@ MIN_DR_RDINR_1E10CM = 1.0e-6
 
 
 def downsample_hydro_gradient_aware(
-    hydro: HydroData, target_nd: int
+    hydro: HydroData, target_nd: int, max_dv_kms: Optional[float] = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Regrid the hydro R/V profile to target_nd points using gradient-based AMR.
@@ -1435,6 +1887,17 @@ def downsample_hydro_gradient_aware(
             skip_points.add(worst)
             continue
 
+        # Don't remove if it creates a velocity jump CMFGEN cannot integrate.
+        # The gap test above is purely geometric, so on its own it allows a
+        # cell across which the velocity changes by many Doppler widths --
+        # which is what left a 2331 km/s jump (117 Doppler widths) in the
+        # SN_B_v2_M3_V5000 40 d grid. MOM_JREL_V9 compares V(I)-V(I+1)
+        # against VFRAC_MOM*VDOP_VEC, so respect the same budget here.
+        if max_dv_kms is not None:
+            if abs(v_oi[prev_idx] - v_oi[next_idx]) > max_dv_kms:
+                skip_points.add(worst)
+                continue
+
         keep[worst] = False
         n_current -= 1
 
@@ -1547,20 +2010,22 @@ def write_rdinr(hydro: HydroData, path: Path, target_nd: Optional[int] = None) -
             f"RDINR: need at least {nd_hydro} points, got radius_cm={len(hydro.radius_cm)}, vel_cms={len(hydro.vel_cms)}"
         )
 
-    if target_nd is not None:
-        # Always regrid to uniform-dV spacing, even when target_nd == nd_hydro.
-        # The SN_HYDRO_DATA may already have target_nd points but with non-uniform
-        # velocity spacing (e.g., from STELLA→CMFGEN tau-based conversion).
-        r_oi, v_oi, _ = downsample_hydro_velocity_aware(hydro, target_nd)
+    if target_nd is not None and int(target_nd) != nd_hydro:
+        # Only subset (never interpolate in V) when the hydro file is larger
+        # than the requested ND.  Uniform-dV interpolation destroys
+        # non-monotonic velocity profiles — R(V) is not single-valued at a
+        # reverse shock — so we keep original hydro (R,V) pairs.
+        r_oi, v_oi, _ = downsample_hydro_gradient_aware(hydro, int(target_nd))
         nd = len(r_oi)
-        if nd != nd_hydro:
-            print(f"[RDINR] Downsampled from {nd_hydro} to {nd} points (velocity-aware spacing)")
-        else:
-            print(f"[RDINR] Regridded {nd_hydro} points to uniform-dV spacing (ND unchanged)")
+        print(f"[RDINR] Subset SN_HYDRO_DATA {nd_hydro} -> {nd} points "
+              f"(original STELLA/hydro values, no V-interpolation)")
     else:
         r_oi = (hydro.radius_cm[::-1] / 1e10).astype(float, copy=True)
         v_oi = hydro.vel_cms[::-1] / 1e5  # preserve V sign (no abs)
         nd = nd_hydro
+        if target_nd is not None:
+            print(f"[RDINR] Using SN_HYDRO_DATA grid as-is (ND={nd}; "
+                  f"same mapping as the converter)")
 
     # Enforce minimum spacing (outer->inner: r_oi[i] > r_oi[i+1]); avoids velocity_law.f SIGFPE
     for i in range(nd - 1):
@@ -2271,7 +2736,7 @@ def write_input_hydro_dat_sniin(
     print(f"Wrote {path.name} (VEL_LAW=12 SNIIN format): ND={n}  R(1e10 cm) outer->inner, TAU outer={tau_oi[-1]:.4e} inner={tau_oi[0]:.4e}")
 
 
-def write_t_in_from_hydro(hydro: HydroData, path: Path, *, nold: int = 0, t_max_104: float = 1.0) -> None:
+def write_t_in_from_hydro(hydro: HydroData, path: Path, *, nold: int = 0, t_max_104: float = 1.0, t_min_104: float = 0.1) -> None:
     """
     Write T_IN from HydroData (format read by REGRID_T_ED / INIT_TEMP_V2).
     Format matches star_init/NT35000_logg425: leading blank, '!Format date' line,
@@ -2281,6 +2746,10 @@ def write_t_in_from_hydro(hydro: HydroData, path: Path, *, nold: int = 0, t_max_
 
     Args:
         t_max_104: Maximum temperature in units of 10^4 K (default: 1.0 = 10,000 K)
+        t_min_104: Minimum temperature in units of 10^4 K (default: 0.1 = 1000 K).
+            Must match the converter's t_floor_K so that proxy departure
+            coefficients (computed relative to LTE at the STELLA temperature)
+            are applied to LTE at the same temperature in CMFGEN.
     """
     n = len(hydro.radius_cm)
     if n == 0:
@@ -2306,7 +2775,7 @@ def write_t_in_from_hydro(hydro: HydroData, path: Path, *, nold: int = 0, t_max_
         for i in range(n - 1, -1, -1):
             r = max(r_1e10[i], 1e-30)
             e = max(ed[i], 1e-30)
-            t = min(max(t_104[i], 0.3), t_max_104)  # floor at 3000 K (0.3 x 10^4) for NLTE consistency with SEDONA
+            t = min(max(t_104[i], t_min_104), t_max_104)  # floor at t_min_104 (matches converter t_floor_K)
             v = v_kms[i]
             depth_idx = n - i
             f.write(
@@ -2555,28 +3024,13 @@ def ensure_die_keys_for_model_spec(lines: List[str], model_spec_path: Path) -> L
 
     text = model_spec_path.read_text(errors="ignore")
     changes: List[str] = []
-    ion_to_die = {
-        "CI_ISF": "DIE_CI",
-        "He2_ISF": "DIE_He2",
-        "SkI_ISF": "DIE_SkI",
-        "Sk2_ISF": "DIE_Sk2",
-        "SkIII_ISF": "DIE_SkIII",
-        "SkIV_ISF": "DIE_SkIV",
-        "O2_ISF": "DIE_O2",
-        "OIII_ISF": "DIE_OIII",
-        "CaIII_ISF": "DIE_CaIII",
-        "FeI_ISF": "DIE_FeI",
-        "Fe2_ISF": "DIE_Fe2",
-        "FeIII_ISF": "DIE_FeIII",
-        "FeIV_ISF": "DIE_FeIV",
-        "FeV_ISF": "DIE_FeV",
-        "Co2_ISF": "DIE_Co2",
-        "CoIII_ISF": "DIE_CoIII",
-        "Nk2_ISF": "DIE_Nk2",
-        "NkIII_ISF": "DIE_NkIII",
-    }
-    for ion_tag, die_key in ion_to_die.items():
-        if f"[{ion_tag}]" in text and _get_key_token(lines, die_key) is None:
+    # RD_CONTROL_VARIABLES requires DIE_<ion> for every ion present in
+    # MODEL_SPEC: TMP_KEY='DIE_'//ION_ID(ID) is read unconditionally for
+    # all IDs where XzV_PRES is true. Derive keys generically from every
+    # <prefix>_ISF tag rather than a fixed map so arbitrary ion sets work.
+    for ion_tag in sorted(set(re.findall(r"\[(\w+)_ISF\]", text))):
+        die_key = f"DIE_{ion_tag}"
+        if _get_key_token(lines, die_key) is None:
             set_or_append_keyword(lines, die_key, "F,F")
             changes.append(f"{die_key}: (added) -> F,F")
     return changes
@@ -2627,6 +3081,9 @@ def update_abundances_mass_fraction(lines: List[str], ave_mass_frac: Dict[str, f
         dum_to_isf_prefix = {
             "HYD": "HI", "HE": "HeI", "OXY": "OI", "SIL": "Sk", "CAL": "Ca",
             "IRON": "Fe", "NICK": "Nk", "COB": "Co", "CARB": "C", "NIT": "N",
+            "NEON": "Ne", "MAG": "Mg", "ALUM": "Al", "SUL": "S",
+            "ARG": "Ar", "TIT": "Tk", "CHRO": "Cr", "SCAN": "Sc",
+            "PHOS": "P", "CHL": "Cl", "MAN": "Mn", "SOD": "Na",
         }
         allowed_dums = set()
         for dum, prefix in dum_to_isf_prefix.items():
@@ -2707,7 +3164,7 @@ def renormalize_vadat_mass_fractions_to_unity(lines: List[str]) -> List[str]:
 # TRIDIAG solver (NUM_BNDS=3) re-enabled 2026-08-12: the previous revert was
 # because DO_LAM_IT=T (continuous LAMBDA) never did full BA solves, so TRIDIAG
 # couldn't couple depths. With alternating LAMBDA/linearization (the standard
-# CMFGEN approach, matching the Stockholm reference), TRIDIAG works correctly:
+# CMFGEN approach), TRIDIAG works correctly:
 # the BA solve couples adjacent depth points, stabilising ionisation fronts.
 # Reference: ttt.astro.su.se/~maer0651/M15-He-O-Ca-evo-new-4-all/1/ (converges
 # in ~40 iterations with TRIDIAG/N_ON_J/NUM_BNDS=3).
@@ -2733,6 +3190,7 @@ def apply_profile(
     convergence_mode: str = "default",
     num_isotopes: int = 0,
     depth_independent_solver: bool = True,
+    user_overrides: Optional[dict] = None,
 ) -> Tuple[List[str], int]:
     """
     Apply final VADAT profile for CMFGEN convergence run.
@@ -2776,27 +3234,27 @@ def apply_profile(
         # LTE_EST=T: forces DC_INTERP_METHOD='LTE' (rd_control_variables.f:847),
         # so DC_METH is irrelevant. With SN_HYDRO_MODEL=.FALSE. (VEL_LAW=12),
         # T/ED come from FIN_CAL_GRID (created by write_fin_cal_grid_from_hydro).
-        # Dessart+2015: pure Lambda iteration (no Non-Lambda auto-switch), non-coherent ES.
-        # Dessart+2015: T fixed to hydro, TRIDIAG solver (couples adjacent depths).
-        # Ng acceleration DISABLED: can cause population explosions with MAX_LAM=1.05; IBEG_NG=15
-        # Ng only activates after initial Lambda settling (was F — caused infinite Lambda loop).
+        # Pure Lambda iteration (no Non-Lambda auto-switch), non-coherent ES.
+        # T fixed to hydro, TRIDIAG solver (couples adjacent depths).
+        # Ng acceleration enabled: activates after IBEG_NG Lambda iterations once
+        # the max population change falls below BEG_NG (guards early blowups).
         desired = {
             "LTE_EST": "T",
             "DC_METH": "TR",
             "SN_T_OPT": "USE_HYDRO",
             "INC_RAD_DECAYS": inc_rad_decays,
-            "INC_SHOCK_POWER": "F",   # Dessart+2015: shock heating already in hydro T(r)
+            "INC_SHOCK_POWER": "F",  # add shock heating beyond hydro T (F = heating already in T(r))
             "INC_AD": "F",           # Static snapshot: no adiabatic cooling (DO_DDT=F, DO_HYDRO=F)
             "INC_ADV": "F",          # Static snapshot: no wind advection
-            "ALL_FREQ": "T",          # Apply enhanced grid (INC_GRID=T) to all frequencies
-            "LAM_SET": "F",           # Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
+            "ALL_FREQ": "F",  # apply the grid-accuracy test only where needed, not at all nu
+            "LAM_SET": "F",  # keep GLOBAL_LINE=SOB active; suppress overlap warning
 
             "RD_CF_FILE": "F",
-            "MIN_CF": "1.0D-2",        # Raised to 0.1 to avoid MOM_J_REL_V9 NaN errors at extreme far-IR
-            "MAX_CF": "25.0D0",
-            "FRAC_SP": "1.08D0",
-            "AMP_FAC": "1.04D0",
-            "MAX_BF": "0.05D0",
+            "MIN_CF": "3.0D-3",  # lowest continuum frequency in 1e15 Hz (far-IR edge)
+            "MAX_CF": "2.0D2",  # highest continuum frequency in 1e15 Hz (far-UV edge)
+            "FRAC_SP": "1.10D0",  # max ratio of adjacent continuum-grid frequencies
+            "AMP_FAC": "1.05D0",  # allowed growth of FRAC_SP toward high nu
+            "MAX_BF": "0.10D0",  # max grid spacing near bound-free edges (1e15 Hz)
             "CROSS": "F",
             "V_CROSS": "500.0D0",
             "SIG_GAU_KMS": "500.0D0",
@@ -2806,94 +3264,99 @@ def apply_profile(
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
+            "VTURB": "20.0D0",  # turbulent velocity (km/s); sets line Doppler width
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
             "JC_W_EDD": "T",         # MUST be T: opens EDDFACTOR file (unit 35) via OPEN_RW_EDDFACTOR.
-            "JBAR_W_EDD": "T",        # Use Eddington factors for line Jbar (ref: Stockholm M15; N_ON_J always defined)
+            "JBAR_W_EDD": "T",  # Eddington factors for line Jbar
                                      # Without this, cmfgen_sub.f:1348 condition (ACCURATE.OR.EDD_CONT.OR.EDD_LINECONT)
                                      # is FALSE (INC_GRID=F, JBAR_W_EDD=F), so unit 35 is never opened.
                                      # COMP_J_BLANK then WRITE(LU_EDD,REC=...) to unopened unit → fort.35 crash
                                      # (forrtl severe 37: inconsistent record length).
-            "THK_CONT": "T",            # Thick continuum BC (ref: Stockholm M15; improves inner boundary treatment)
+            "THK_CONT": "T",  # thick-continuum boundary condition at the inner edge
             "THK_LINE": "F",            # No thick line BC — inner boundary is optically thin
             "DIF": "F",               # No diffusion approximation — ZERO_FLUX inner boundary (avoids negative DBB from non-monotonic T)
             "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: I_CORE=I_M(NI); LSTAR still seeds J via LTE estimate
             "IB_STAB": "0.1D0",       # Inner boundary stabilization
             "STOP_IF_MW": "F",        # Don't halt on "poor flux" warnings
-            "COH_ES": "T",            # Coherent ES for convergence (manual: "For best convergence set key to TRUE"; use F for final flux per Dessart+2015)
+            "COH_ES": "T",  # electron-scattering source term (T = coherent, F = non-coherent)
             "MIX_COH": "F",
 
-            # Dessart+2015: T fixed to hydro; Ne free for NLTE self-consistency.
-            # STELLA's Saha Ne is approximate, especially in the optically thin CSM.
-            # FIX_INB_NE=T keeps the inner boundary Ne pinned to STELLA to avoid
-            # inner-boundary oscillations while the outer Ne adjusts.
-            "FIX_T": "F",            # T solved self-consistently (matches reference; enables GREY_SCL_FACOUT) — allows pops to converge without T oscillating
-            "FIX_T_AUTO": "T",       # Auto-release FIX_T once pops stabilize (bootstrap mode; enables DO_T_AUTO=T in IN_ITS)
-            "FIX_NE": "F",           # Ne free: self-consistent NLTE ionization
-            "FIX_IMP": "T",          # Impurity fixing enabled — Hillier's original for trace species
+            # Static snapshot: T fixed to hydro (FIX_T=T); Ne solved from
+            # charge conservation (FIX_NE=F is the project default for all
+            # runs, adopted 25-Sep-2026). The hydro Ne is a Saha/LTE guess,
+            # not the NLTE ionization balance. The user's vadat_overrides
+            # take precedence over these via the user_overrides parameter.
+            "FIX_T": "T",            # T fixed to hydro (static snapshot)
+            "FIX_T_AUTO": "F",       # No auto-release (static snapshot)
+            # Hydro Ne is a rough estimate (Saha/ LTE guess in the input
+            # file, not NLTE); holding it fixed propagates that error
+            # into every ionization balance.  Let CMFGEN solve Ne from
+            # charge conservation instead (user directive 18-Sep-2026).
+            "FIX_NE": "F",
+            "FIX_IMP": "F",  # impurity populations iterated like major species
             "FIX_INB_T": "F",
             "FIX_X_DPTH": "0",
-            "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=F; T solved self-consistently)
+            "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=T; T from hydro)
 
-            # TRIDIAG solver: NUM_BNDS=3 (couples adjacent depths; ref: Stockholm M15)
+            # TRIDIAG solver: NUM_BNDS=3 (couples adjacent depths)
             "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling; trace species frozen by FIX_IMP
             "LAM_SCALE_OPT": "NONE",  # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition in non-LTE systems
-            "MAX_LIN": "1.0D1",    # Manual: "Typically adopt 10"
-            "MAX_LAM": "1.0D5",    # Manual: "Typically adopt 10^5. For a new species, with very low abundance, this can be set as high as 10^20."
+            "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+            "MAX_LAM": "1.0D10",  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
                                      # SN snapshots have wildly wrong LTE initial populations — need large MAX_LAM to traverse the gap.
-            "MAX_CHNG": "1.0D100",  # abort threshold only; MAX_LAM controls actual corrections
+            "MAX_CHNG": "1.0D150",  # abort if a correction exceeds this % change; MAX_LAM is the real limiter
             "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
             "COMP_BA": "F",
-            "N_FIX_BA": "2",         # Manual: "recommended value is 2"
-            "BA_CHK_FAC": "5.0D-02", # Manual: "Typically adopt 5%"
-            "FIX_BA": "15.0D0",      # Keep computing BA until MAXCH<15%
-            "LAM_VAL": "4.0D2",     # Manual: "Typically do Lambda if % change > 400"
-            "NUM_LAM": "2",         # Manual: "Typically choose 2"
+            "N_FIX_BA": "2",  # recompute the BA matrix every N iterations
+            "BA_CHK_FAC": "1.0D-05",  # fractional accuracy demanded of the BA solution
+            "FIX_BA": "1.0D1",  # switch to BA solver once max % change falls below this
+            "LAM_VAL": "2.0D2",  # keep Lambda-iterating while max % change exceeds this
+            "NUM_LAM": "2",  # Lambda iterations between full linearizations
 
             "GLOBAL_LINE": "SOB",
-            "GF_CUT": "5.0D-3",
+            "GF_CUT": "2.0D-3",  # discard lines weaker than this normalized gf-cut
             "GF_LEV_CUT": "9",
-            "AT_CUT": "22",
-            "MIN_TRANS": "15",
+            "AT_CUT": "10",  # apply GF_CUT only to species with atomic number >= this
+            "MIN_TRANS": "9",  # discard levels with fewer bound-bound transitions than this
             "CHK_L_POS": "T",
             "NEG_OPAC_OPT": "SRCE_CHK",
             # SCL_SL_OPAC=T: scale SL line opacities/emissivities so line cooling from
             # a Super-Level is zero when the net rate is zero. Prevents artificial
-            # heating/cooling spikes at contact discontinuities (Dessart+2015 SOB).
+            # heating/cooling spikes at contact discontinuities (SOB line mode).
             # MUST set SCL_LN=F: source code (rd_control_variables.f:745) aborts if
             # both SCL_SL_OPAC and SCL_LN are T.
             "SCL_SL_OPAC": "T",
             "SCL_LN": "F",
             "SCL_LN_FAC": "0.5D0",           # Manual default (unused when SCL_LN=F; kept for reference)
-            "ES_FAC": "0.6D0",        # Only used when MIX_COH=T (which is F); manual recommends 0.1
+            "ES_FAC": "0.6D0",  # electron-scattering source weight (only used when MIX_COH=T)
 
             # T_ON_R=T: interpolate T on R grid (not spherical tau grid). Required for
-            # non-monotonic T profiles at shock density inversions (Dessart+2015 SOB).
+            # non-monotonic T profiles at shock density inversions (SOB line mode).
             # When DC_METH='TR', the source default is already T, but we set it explicitly.
             "T_ON_R": "T",
             # LTE cold start: LTE_EST=F (reads T_IN/GAMMAS_IN), DC_METH=LTE (LTE DCs)
             "LIN_INT": "F",           # DO NOT interpolate from old CMFGEN model — use STELLA snapshot T/pops
-            "IT_ON_T": "T",           # Iterate on initial T estimate before first iteration (Dessart+2015)
+            "IT_ON_T": "F",           # No initial T iteration — hydro T used as-is (user directive 18-Sep-2026)
             "POP_SCALE": "T",
             # T_EXC: set from SN_HYDRO_DATA photospheric temperature (computed below)
-            "T_MIN": "3.0D-01",
-            "GREY_TAU": "10.0D0",
-            "METHOD": "LOGMON",     # Log-monotonic interpolation (ref: Stockholm M15; more accurate opacity derivatives)
-            "INC_RAY": "F",
+            "T_MIN": "2.0D-01",  # temperature floor in 1e4 K units (2000 K)
+            "GREY_TAU": "0.5D0",  # tau depth anchoring the grey-T estimate
+            "METHOD": "ZERO",  # depth-correction interpolation (ZERO = constant between depths)
+            "INC_RAY": "T",  # include Rayleigh scattering opacity
             # Linear interpolation when reading SN_HYDRO_DATA; the manual recommends
             # this for shell/interacting profiles with rapid density/abundance changes.
             "LIN_RDSNDATA": "T",
 
-            "REV_RGRID": "T",       # Enabled: runtime tau-based R-grid refinement for ionization fronts (adjust_r_grid_v4.f patched with Dessart+2015 sigma guard)
+            "REV_RGRID": "F",       # Disabled: no runtime R-grid revision — SN_HYDRO_DATA arrives pre-optimized (user directive 18-Sep-2026)
             "RD_IN_R_GRID": "F",
             "N_IB_INS": "0",          # AMR handles boundary refinement
-            "N_OB_INS": "5",          # Fine grid at OB for low-density zones (VEL_LAW=12)
+            "N_OB_INS": "0",          # No boundary insertions — SN_HYDRO_DATA grid arrives pre-optimized (user directive 18-Sep-2026)
             "OB_RAT": "1.5D0",
             "IB_RAT": "2.0D0",
             # N_TYPE is set by get_rel_config() — do not override here
 
-            # INC_GRID=T: create enhanced spatial grid for solving the RTE.
-            # ALL_FREQ=T: apply the enhanced grid to all frequencies.
+            # INC_GRID=T would create an enhanced spatial grid for solving the RTE.
+            # ALL_FREQ=F: apply the enhanced spatial grid only where needed.
             # ST_INT/END_INT: bracket the forward/reverse shock region (depth indices,
             # CMFGEN outside-in convention). Defaults 40-55; override via vadat_overrides.
             # WARNING: with non-monotonic velocity, EXTEND_VTSIGMA interpolates sigma
@@ -2908,24 +3371,24 @@ def apply_profile(
             "END_INT": "55",         # Enhanced grid end depth (bracket forward/reverse shock)
             "ND_QUAD": "0",
             "INTERP_TYPE": "LOG",
-            "N_PAR": "150",
+            "N_PAR": "2000",  # frequency intervals between BA recomputations
 
-            "MAX_DOP": "8.0D0",
-            "FRAC_DOP": "1.5D0",
-            "dV_CMF_PROF": "80.0D0",
-            "dV_CMF_WING": "200.0D0",
-            "ES_WING_EXT": "12000.0D0",
-            "R_CMF_WING_EXT": "4.0D0",
+            "MAX_DOP": "6.0D0",  # resonance-zone half-width in Doppler units
+            "FRAC_DOP": "1.0D0",  # frequency spacing inside resonance zone (Doppler units)
+            "dV_CMF_PROF": "200.0D0",  # comoving spacing in line cores (km/s)
+            "dV_CMF_WING": "300.0D0",  # comoving spacing in line wings (km/s)
+            "ES_WING_EXT": "12000.0D0",  # Keep 12000: wide e.s. wings for IIn-like models
+            "R_CMF_WING_EXT": "3.0D0",  # coherent-ES wing extent in VINF units; pipeline floors 4.0 when COH_ES=F
 
-            "OBS_EXT_RAT": "1.3D0",
-            "dV_OBS_PROF": "40.0D0",
-            "dV_OBS_WING": "150.0D0",
-            "dV_OBS_BIG": "800.0D0",
+            "OBS_EXT_RAT": "1.1D0",  # extend obs grid this factor beyond the bluest line edge
+            "dV_OBS_PROF": "100.0D0",  # observer spacing in line cores (km/s)
+            "dV_OBS_WING": "400.0D0",  # observer spacing in line wings (km/s)
+            "dV_OBS_BIG": "2000.0D0",  # observer spacing in line-free regions (km/s)
 
-            "EPS_TERM": "1.0D-02",    # Convergence threshold (ref: Stockholm M15; was 5e-2 with DIAG)
-            "ACC_F": "1.0D-04",       # Tight Eddington accuracy (ref: Stockholm M15; was 1e-2)
+            "EPS_TERM": "5.0D-02",  # iterate until the max % population change falls below this
+            "ACC_F": "1.0D-04",  # accuracy demanded of the Eddington-factor solve
 
-            # Alternating LAMBDA/linearization (standard CMFGEN approach, ref: Stockholm M15).
+            # Alternating LAMBDA/linearization (standard CMFGEN approach).
             # Pure LAMBDA mode: DO_LAM_IT=T, DO_LAM_AUTO=F.
             # With FIX_IMP=T (source fix applied), FIXPOP_IN_BA_V3 freezes trace
             # species, preventing singular BA matrix columns.
@@ -2933,7 +3396,7 @@ def apply_profile(
             # handles non-monotonic velocity. J is solved self-consistently.
             "USE_LAM_ES": "T",      # J=B(T) Lambda iteration — bypasses moment solver for non-monotonic velocity
             "DO_LAM_IT": "T",       # Start in LAMBDA mode (stable cold-start from LTE)
-            "DO_LAM_AUTO": "T",    # Auto-switch from LAMBDA to full iterations once corrections are small (Dessart+2015 SOB)
+            "DO_LAM_AUTO": "T",  # auto-switch from Lambda to full iterations once corrections shrink
             # Ng acceleration ENABLED: do_ng_accel_band_v4.f has robust safety mechanisms:
             #   (1) Per-depth rejection if any pop changes >10.1x or <0.09x (line 266)
             #   (2) Global cancellation if >3 depths fail (line 290)
@@ -2950,10 +3413,10 @@ def apply_profile(
                                         # post-Ng LAMBDA fallback. IBEG_NG=50 delays start until
                                         # populations have settled past the initial transient.
             "CHK_NG": "T",            # Check NG acceleration validity
-            "BEG_NG": "1.0D-01",       # Start Ng when MAXCH < 10% — manual: "Typically choose 5% to 10%"
-            "IBEG_NG": "50",          # At least 50 iterations before first Ng
-            "BW_NG": "60",            # Band width for DIAG
-            "ITS/NG": "8",            # Manual: "We typically adopt 8"
+            "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
+            "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+            "BW_NG": "40",  # depths per Ng acceleration band
+            "ITS/NG": "8",  # run Ng every N-th iteration
 
             # DO_AV is NOT set: with alternating LAMBDA/linearization, population
             # averaging is not needed (the BA solve couples depths and prevents
@@ -2971,16 +3434,16 @@ def apply_profile(
             "INC_SHOCK_POWER": "F",
             "INC_AD": "F",           # Static snapshot: no adiabatic cooling (DO_DDT=F, DO_HYDRO=F)
             "INC_ADV": "F",          # Static snapshot: no wind advection
-            "ALL_FREQ": "T",          # Apply enhanced grid (INC_GRID=T) to all frequencies
-            "LAM_SET": "F",           # Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
+            "ALL_FREQ": "F",  # apply the grid-accuracy test only where needed, not at all nu
+            "LAM_SET": "F",  # keep GLOBAL_LINE=SOB active; suppress overlap warning
 
-            # [OPT] Continuum frequency grid for IIn models
+            # Continuum frequency grid limits and spacing
             "RD_CF_FILE": "F",      # Build frequency grid internally
-            "MIN_CF": "1.0D-2",        # Raised to avoid far-IR issues
-            "MAX_CF": "25.0D0",
-            "FRAC_SP": "1.08D0",    # [OPT] was 1.10; smoother low-nu spacing
-            "AMP_FAC": "1.04D0",    # [OPT] was 1.05; smoother high-nu spacing
-            "MAX_BF": "0.05D0",     # [OPT] was 0.10; tighter BF edge resolution
+            "MIN_CF": "3.0D-3",  # lowest continuum frequency in 1e15 Hz (far-IR edge)
+            "MAX_CF": "2.0D2",  # highest continuum frequency in 1e15 Hz (far-UV edge)
+            "FRAC_SP": "1.10D0",  # max ratio of adjacent continuum-grid frequencies
+            "AMP_FAC": "1.05D0",  # allowed growth of FRAC_SP toward high nu
+            "MAX_BF": "0.10D0",  # max grid spacing near bound-free edges (1e15 Hz)
             "CROSS": "F",          # Sparse chi/eta with interpolation
             "V_CROSS": "500.0D0",   # 500 km/s for 500 km/s feature resolution
             "SIG_GAU_KMS": "500.0D0",  # match V_CROSS for consistency
@@ -2988,51 +3451,57 @@ def apply_profile(
             # Relativistic configuration (all models are static snapshots)
             **get_rel_config(),
             "JC_W_EDD": "T",         # MUST be T: opens EDDFACTOR file (unit 35) — see init profile comment
-            "JBAR_W_EDD": "T",        # Use Eddington factors for line Jbar (ref: Stockholm M15)
-            "THK_CONT": "T",            # Thick continuum BC (ref: Stockholm M15)
+            "JBAR_W_EDD": "T",  # Eddington factors for line Jbar
+            "THK_CONT": "T",  # thick-continuum boundary condition at the inner edge
             "THK_LINE": "F",            # No thick line BC at outer boundary
             "DIF": "F",               # No diffusion approximation — ZERO FLUX inner boundary for self-powered models
             "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: I+=I- (reflective); works for interacting SNe with FIX_T=T
             "IB_STAB": "0.1D0",       # Inner boundary stabilization (0.1 for ZERO_FLUX; manual default for non-diffusion)
             "STOP_IF_MW": "F",        # Don't halt on "poor flux" warnings (diagnostic with ZERO_FLUX + VEL_LAW=12; SN_MODEL=.FALSE. normalizes by L[ND])
-            "COH_ES": "T",             # Coherent ES for convergence (manual: "For best convergence set key to TRUE"; use F for final flux per Dessart+2015)
+            "COH_ES": "T",  # electron-scattering source term (T = coherent, F = non-coherent)
             "MIX_COH": "F",
             "ES_FAC": "0.6D0",
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
+            "VTURB": "20.0D0",  # turbulent velocity (km/s); sets line Doppler width
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
-            # Dessart+2015: T fixed to hydro initially; Ne free in final for NLTE self-consistency
-            "FIX_T": "F",            # T solved self-consistently (matches reference; enables GREY_SCL_FACOUT) — allows pops to converge without T oscillating
-            "FIX_T_AUTO": "T",       # Auto-release FIX_T once pops stabilize (bootstrap mode; enables DO_T_AUTO=T in IN_ITS)
-            "FIX_NE": "F",            # Ne free for NLTE self-consistency
-            "FIX_IMP": "T",          # Impurity fixing enabled — Hillier's original for trace species
+            # Static snapshot: T fixed to hydro (FIX_T=T); Ne solved from
+            # charge conservation (FIX_NE=F is the project default for all
+            # runs, adopted 25-Sep-2026). The user's vadat_overrides take
+            # precedence over these via the user_overrides parameter.
+            "FIX_T": "T",            # T fixed to hydro (static snapshot)
+            "FIX_T_AUTO": "F",       # No auto-release (static snapshot)
+            # Hydro Ne is a rough estimate; solve Ne from charge
+            # conservation (user directive 18-Sep-2026, same as
+            # single_final).
+            "FIX_NE": "F",
+            "FIX_IMP": "F",  # impurity populations iterated like major species
             "FIX_INB_T": "F",
             "FIX_INB_NE": "F",       # Ne free at all depths in final
             "FIX_X_DPTH": "0",        # T fixed at ALL depths
-            "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=F; T solved self-consistently)
+            "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=T; T from hydro)
 
             # DIAG solver: NUM_BNDS=1 (each depth independent; TRIDIAG reverted 2026-08-01)
             "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling; trace species frozen by FIX_IMP
             "LAM_SCALE_OPT": "NONE",  # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition
-            "MAX_LIN": "1.0D1",     # Manual: "Typically adopt 10"
-            "MAX_LAM": "1.0D5",    # Manual: "Typically adopt 10^5. For a new species, with very low abundance, this can be set as high as 10^20."
-            "MAX_CHNG": "1.0D100",  # abort threshold only; MAX_LAM controls actual corrections
+            "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+            "MAX_LAM": "1.0D10",  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
+            "MAX_CHNG": "1.0D150",  # abort if a correction exceeds this % change; MAX_LAM is the real limiter
             "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
             "COMP_BA": "F",
-            "N_FIX_BA": "2",        # Manual: "recommended value is 2"
-            "BA_CHK_FAC": "5.0D-02", # Manual: "Typically adopt 5%"
-            "FIX_BA": "15.0D0",     # Keep computing BA until MAXCH<15%
-            "LAM_VAL": "4.0D2",     # Manual: "Typically do Lambda if % change > 400"
-            "NUM_LAM": "2",         # Manual: "Typically choose 2"
+            "N_FIX_BA": "2",  # recompute the BA matrix every N iterations
+            "BA_CHK_FAC": "1.0D-05",  # fractional accuracy demanded of the BA solution
+            "FIX_BA": "1.0D1",  # switch to BA solver once max % change falls below this
+            "LAM_VAL": "2.0D2",  # keep Lambda-iterating while max % change exceeds this
+            "NUM_LAM": "2",  # Lambda iterations between full linearizations
 
             "GLOBAL_LINE": "SOB",
-            "GF_CUT": "5.0D-3",
+            "GF_CUT": "2.0D-3",  # discard lines weaker than this normalized gf-cut
             "GF_LEV_CUT": "9",
-            "AT_CUT": "22",
-            "MIN_TRANS": "15",
+            "AT_CUT": "10",  # apply GF_CUT only to species with atomic number >= this
+            "MIN_TRANS": "9",  # discard levels with fewer bound-bound transitions than this
             "THK_LINE": "F",            # No thick line BC at outer boundary
             "CHK_L_POS": "T",
             "NEG_OPAC_OPT": "SRCE_CHK",
@@ -3042,30 +3511,30 @@ def apply_profile(
             "SCL_LN": "F",
             "SCL_LN_FAC": "0.5D0",           # Manual default (unused when SCL_LN=F; kept for reference)
             "MIX_COH": "F",
-            "ES_FAC": "0.6D0",        # Only used when MIX_COH=T (which is F); manual recommends 0.1
+            "ES_FAC": "0.6D0",  # electron-scattering source weight (only used when MIX_COH=T)
 
             # [OPT] IIn CSM interaction settings (critical even with FIX_T from STELLA)
             "INC_CHG": "F",          # [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
-            "VTURB": "20.0D0",      # Dessart+2015: 20 km/s turbulent velocity
+            "VTURB": "20.0D0",  # turbulent velocity (km/s); sets line Doppler width
             "ALLOW_OL": "T",         # [OPT] Line overlap for dense CSM (geometric, not thermal)
 
             # T_ON_R=T: interpolate T on R grid (not spherical tau grid). Required for
-            # non-monotonic T profiles at shock density inversions (Dessart+2015 SOB).
+            # non-monotonic T profiles at shock density inversions (SOB line mode).
             "T_ON_R": "T",
             "LTE_EST": "F",           # read population levels from *_IN files
             "USE_FIXED_J": "F",     # Let J vary in FINAL — populations are settled, large MAX_LAM allows convergence
-            "IT_ON_T": "T",           # Iterate on initial T estimate before first iteration (Dessart+2015)
+            "IT_ON_T": "F",           # No initial T iteration — hydro T used as-is (user directive 18-Sep-2026)
             "POP_SCALE": "T",
-            "T_MIN": "3.0D-01",
+            "T_MIN": "2.0D-01",  # temperature floor in 1e4 K units (2000 K)
             # T_EXC: set from SN_HYDRO_DATA photospheric temperature (computed below)
-            "GREY_TAU": "10.0D0",
-            "METHOD": "LOGMON",     # Log-monotonic interpolation (ref: Stockholm M15)
-            "INC_RAY": "F",
+            "GREY_TAU": "0.5D0",  # tau depth anchoring the grey-T estimate
+            "METHOD": "ZERO",  # depth-correction interpolation (ZERO = constant between depths)
+            "INC_RAY": "T",  # include Rayleigh scattering opacity
 
-            "REV_RGRID": "T",       # Enabled: runtime tau-based R-grid refinement for ionization fronts (adjust_r_grid_v4.f patched with Dessart+2015 sigma guard)
+            "REV_RGRID": "F",       # Disabled: no runtime R-grid revision — SN_HYDRO_DATA arrives pre-optimized (user directive 18-Sep-2026)
             "RD_IN_R_GRID": "F",
             "N_IB_INS": "0",          # AMR handles boundary refinement
-            "N_OB_INS": "5",          # Fine grid at OB for low-density zones (VEL_LAW=12)
+            "N_OB_INS": "0",          # No boundary insertions — SN_HYDRO_DATA grid arrives pre-optimized (user directive 18-Sep-2026)
             "OB_RAT": "1.5D0",
             "IB_RAT": "2.0D0",
             # N_TYPE is set by get_rel_config() — do not override here
@@ -3077,32 +3546,32 @@ def apply_profile(
             "VFRAC_FG": "20000.0D0", # Max velocity spacing along ray in km/s (formal-solution path)
             "OB_METH": "HONJ",
 
-            "ALL_FREQ": "T",          # Apply enhanced grid to all frequencies
+            "ALL_FREQ": "F",  # apply the grid-accuracy test only where needed, not at all nu
             "ACC_END": "5.0D0",
             "N_INS": "0",            # No grid insertion
             "ST_INT": "40",          # Enhanced grid start depth (bracket forward/reverse shock)
             "END_INT": "55",         # Enhanced grid end depth (bracket forward/reverse shock)
             "ND_QUAD": "0",
             "INTERP_TYPE": "LOG",
-            "N_PAR": "150",
+            "N_PAR": "2000",  # frequency intervals between BA recomputations
 
-            "MAX_DOP": "8.0D0",
-            "FRAC_DOP": "1.5D0",
-            "dV_CMF_PROF": "80.0D0",
-            "dV_CMF_WING": "200.0D0",
-            "ES_WING_EXT": "12000.0D0",
-            "R_CMF_WING_EXT": "4.0D0",
+            "MAX_DOP": "6.0D0",  # resonance-zone half-width in Doppler units
+            "FRAC_DOP": "1.0D0",  # frequency spacing inside resonance zone (Doppler units)
+            "dV_CMF_PROF": "200.0D0",  # comoving spacing in line cores (km/s)
+            "dV_CMF_WING": "300.0D0",  # comoving spacing in line wings (km/s)
+            "ES_WING_EXT": "12000.0D0",  # Keep 12000: wide e.s. wings for IIn-like models
+            "R_CMF_WING_EXT": "3.0D0",  # coherent-ES wing extent in VINF units; pipeline floors 4.0 when COH_ES=F
 
-            "OBS_EXT_RAT": "1.3D0",
-            "dV_OBS_PROF": "40.0D0",
-            "dV_OBS_WING": "150.0D0",
-            "dV_OBS_BIG": "800.0D0",
+            "OBS_EXT_RAT": "1.1D0",  # extend obs grid this factor beyond the bluest line edge
+            "dV_OBS_PROF": "100.0D0",  # observer spacing in line cores (km/s)
+            "dV_OBS_WING": "400.0D0",  # observer spacing in line wings (km/s)
+            "dV_OBS_BIG": "2000.0D0",  # observer spacing in line-free regions (km/s)
 
-            "EPS_TERM": "1.0D-02",    # tightest criterion for final convergence
-            "ACC_F": "1.0D-04",       # Tight Eddington accuracy (ref: Stockholm M15; was 1e-2)
+            "EPS_TERM": "5.0D-02",  # iterate until the max % population change falls below this
+            "ACC_F": "1.0D-04",  # accuracy demanded of the Eddington-factor solve
 
             "DO_LAM_IT": "T",
-            "DO_LAM_AUTO": "T",    # Auto-switch from LAMBDA to full iterations once corrections are small (Dessart+2015 SOB)
+            "DO_LAM_AUTO": "T",  # auto-switch from Lambda to full iterations once corrections shrink
 
             # Ng acceleration ENABLED for FINAL: same robust settings as single_final.
             # Safety: per-depth 10x/0.09x rejection, global cancellation if >3 depths fail,
@@ -3113,18 +3582,18 @@ def apply_profile(
             # especially with NUM_BNDS=1/DIAG.
             "DO_NG": "T",             # Enabled: Ng acceleration needed for DIAG convergence
             "CHK_NG": "T",            # Check NG acceleration validity
-            "BEG_NG": "1.0D-01",        # Start Ng when MAXCH < 10% — manual: "Typically choose 5% to 10%"
-            "IBEG_NG": "50",          # At least 50 iterations before first Ng
-            "BW_NG": "60",            # Band width for DIAG
-            "ITS/NG": "8",            # Manual: "We typically adopt 8"
-            "DO_AV": "F",            # Manual default: FALSE — divergence issue, not oscillation
+            "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
+            "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+            "BW_NG": "40",  # depths per Ng acceleration band
+            "ITS/NG": "8",  # run Ng every N-th iteration
+            "DO_AV": "F",  # population averaging between iterations
             "NOSC_AV": "4",          # Manual default: 4 consecutive oscillations before averaging
             "ITS/AV": "8",           # Manual default: 8 iterations between averaging attempts
         }
 
     if convergence_mode == "stable":
         # Conservative damping for NLTE-heavy IIn models where LIMIT clipping repeats
-        # and lambda corrections remain large for many iterations (Dessart+2015 style).
+        # and lambda corrections remain large for many iterations.
         # These overrides apply on top of the profile defaults for extra damping.
         # Stable-mode overrides: aligned with CMFGEN manual (full_descr.pdf) recommendations.
         # These overrides apply on top of the profile defaults for both final and single_final
@@ -3181,22 +3650,24 @@ def apply_profile(
                 #   MAX_LIN=1D1: "Typically adopt 10" — 10x max correction for BA mode.
                 #   LAM_VAL=4D2: "Typically do a Lambda-iteration if % change > 400"
                 #   NUM_LAM=2:   "Typically choose 2" — frequent BA coupling for stability.
-                #   N_FIX_BA=2:  "recommended value is 2"
+                #   N_FIX_BA=0:  Disabled for non-monotonic models — BA fixing
+                #                causes divergence when BA matrix is reused with
+                #                rapidly changing populations (MAXCH=1E+07 at iter 65).
                 #   AUTO_SMOOTH=F: Manual warns "in some cases it can make convergence worse"
                 #   DO_AV=F:     Manual default is FALSE — our issue is divergence, not oscillation.
                 #   DO_NG=F:     Ng polynomial extrapolation destabilizes non-monotonic velocity zones.
-                "MAX_LIN": "1.0D1",     # Manual: "Typically adopt 10"
-                "MAX_LAM": "1.0D5",    # Large jumps for LTE→NLTE transition (manual: "Typically adopt 10^5; up to 10^20 for new species")
-                "LAM_VAL": "4.0D2",     # Manual: "Typically do Lambda if % change > 400"
-                "NUM_LAM": "2",         # Manual: "Typically choose 2"
-                "N_FIX_BA": "2",        # Manual: "recommended value is 2"
-                "BA_CHK_FAC": "5.0D-02", # Manual: "Typically adopt 5%"
-                "FIX_BA": "15.0D0",     # Keep computing BA until MAXCH<15%
+                "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+                "MAX_LAM": "1.0D10",   # raised to 1e10 per user directive 15-Sep-2026; large jumps for LTE→NLTE transition
+                "LAM_VAL": "2.0D2",  # keep Lambda-iterating while max % change exceeds this
+                "NUM_LAM": "2",  # Lambda iterations between full linearizations
+                "N_FIX_BA": "2",  # recompute the BA matrix every N iterations
+                "BA_CHK_FAC": "1.0D-05",  # fractional accuracy demanded of the BA solution
+                "FIX_BA": "1.0D1",  # switch to BA solver once max % change falls below this
 
-                "MAX_CHNG": "1.0D100",  # Abort threshold only
+                "MAX_CHNG": "1.0D150",  # abort if a correction exceeds this % change; MAX_LAM is the real limiter
                 "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
                 "FIX_NE": "F",          # Ne free — STELLA Saha Ne is unreliable
-                "FIX_IMP": "T",         # Impurity fixing enabled — Hillier's original for trace species
+                "FIX_IMP": "F",  # impurity populations iterated like major species
                 "FIX_T": "F",            # T solved self-consistently (matches reference; enables GREY_SCL_FACOUT) (USE_LAM_ES=F → J=B(T), breaks feedback loop)
                 "FIX_T_AUTO": "T",       # Auto-release T once pops stabilize (bootstrap; enables DO_T_AUTO=T in IN_ITS)
                 "TAU_SCL_T": "0.0D0",     # No tau-scaling for T (FIX_T=F; T solved self-consistently)
@@ -3205,43 +3676,43 @@ def apply_profile(
                                         # Pure Lambda stalls at ~1E+10 after 100+ iterations.
                                         # Safety: per-depth 10x rejection, CHK_NG=T, post-Ng LAMBDA fallback.
                 "CHK_NG": "T",          # Check NG acceleration validity
-                "BEG_NG": "1.0D15",     # High threshold — Ng starts at IBEG_NG=50 regardless
-                "IBEG_NG": "50",        # At least 50 iterations before first Ng
-                "BW_NG": "60",          # Band width for DIAG
-                "ITS/NG": "8",          # Manual: "We typically adopt 8"
+                "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
+                "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+                "BW_NG": "40",  # depths per Ng acceleration band
+                "ITS/NG": "8",  # run Ng every N-th iteration
                 "DO_LAM_IT": "T",       # Start in LAMBDA mode (stable cold-start from LTE)
                 "DO_LAM_AUTO": "T",    # Auto-switch from LAMBDA to full iterations once corrections are small
-                "DO_AV": "F",           # Manual default: FALSE — divergence issue, not oscillation
-                "METHOD": "LOGMON",       # Log-monotonic interpolation (ref: Stockholm M15)
+                "DO_AV": "F",  # population averaging between iterations
+                "METHOD": "ZERO",  # depth-correction interpolation (ZERO = constant between depths)
                 "SCALE_OPT": "MAJOR",   # Manual: "Preferred option is MAJOR"
                 "LAM_SCALE_OPT": "NONE", # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition
-                "REV_RGRID": "T",       # Enabled: tau-based regridding at ionization fronts (adjust_r_grid_v4.f patched with Dessart+2015 sigma guard)
+                "REV_RGRID": "F",       # Disabled: no runtime R-grid revision — SN_HYDRO_DATA arrives pre-optimized (user directive 18-Sep-2026)
             },
             "final": {
-                "MAX_LIN": "1.0D1",     # Manual: "Typically adopt 10"
-                "MAX_LAM": "1.0D5",    # Large jumps for LTE→NLTE transition (manual: "Typically adopt 10^5; up to 10^20 for new species")
-                "LAM_VAL": "4.0D2",     # Manual: "Typically do Lambda if % change > 400"
-                "NUM_LAM": "2",         # Manual: "Typically choose 2"
-                "N_FIX_BA": "2",        # Manual: "recommended value is 2"
-                "BA_CHK_FAC": "5.0D-02", # Manual: "Typically adopt 5%"
+                "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+                "MAX_LAM": "1.0D10",   # raised to 1e10 per user directive 15-Sep-2026; large jumps for LTE→NLTE transition
+                "LAM_VAL": "2.0D2",  # keep Lambda-iterating while max % change exceeds this
+                "NUM_LAM": "2",  # Lambda iterations between full linearizations
+                "N_FIX_BA": "2",  # recompute the BA matrix every N iterations
+                "BA_CHK_FAC": "1.0D-05",  # fractional accuracy demanded of the BA solution
 
-                "FIX_BA": "15.0D0",     # Keep computing BA until MAXCH<15%
-                "MAX_CHNG": "1.0D100",  # Abort threshold only
+                "FIX_BA": "1.0D1",  # switch to BA solver once max % change falls below this
+                "MAX_CHNG": "1.0D150",  # abort if a correction exceeds this % change; MAX_LAM is the real limiter
                 "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
                 "FIX_NE": "F",          # Ne free — STELLA Saha Ne unreliable
-                "FIX_IMP": "T",         # Impurity fixing enabled — Hillier's original for trace species
+                "FIX_IMP": "F",  # impurity populations iterated like major species
                 "FIX_T": "F",            # T solved self-consistently (matches reference; enables GREY_SCL_FACOUT)
                 "FIX_T_AUTO": "T",       # Auto-release T once pops stabilize (bootstrap mode)
                 "TAU_SCL_T": "0.0D0",     # No tau-scaling for T (FIX_T=F)
                 "FIX_INB_T": "F",        # Don't fix T at inner boundary separately
                 "DO_NG": "T",           # Enabled: Ng acceleration needed for DIAG convergence
                 "CHK_NG": "T",          # Check NG acceleration validity
-                "BEG_NG": "1.0D15",     # High threshold — Ng starts at IBEG_NG=50 regardless
-                "IBEG_NG": "50",        # At least 50 iterations before first Ng
-                "BW_NG": "60",          # Band width for DIAG
-                "ITS/NG": "8",          # Manual: "We typically adopt 8"
-                "DO_AV": "F",           # Manual default: FALSE
-                "METHOD": "LOGMON",       # Log-monotonic interpolation (ref: Stockholm M15)
+                "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
+                "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+                "BW_NG": "40",  # depths per Ng acceleration band
+                "ITS/NG": "8",  # run Ng every N-th iteration
+                "DO_AV": "F",  # population averaging between iterations
+                "METHOD": "ZERO",  # depth-correction interpolation (ZERO = constant between depths)
                 "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling; trace species frozen by FIX_IMP
                 "LAM_SCALE_OPT": "NONE", # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition
             },
@@ -3257,7 +3728,7 @@ def apply_profile(
     #   N_ON_J (N/J) is stable since J > 0 always (from formal solution).
     #   Required for OBS (cmf_flux.exe) which crashes with G_ONLY.
     #   Ref: CMFGEN manual (full_descr.txt): N_ON_J is "preferred option".
-    #   Ref: Dessart+2015 (1503.05463): uses N_ON_J for non-monotonic flows.
+    #   N_ON_J remains well-defined where the flux H changes sign.
     #
     # SOL_METH is controlled by depth_independent_solver:
     #   True  -> DIAG (NUM_BNDS=1): each depth solved independently.
@@ -3287,15 +3758,37 @@ def apply_profile(
             before[k] = m.group(2).strip() if m else None
 
     for k, v in desired.items():
+        if user_overrides and k in user_overrides:
+            continue
         set_or_append_keyword(lines, k, v)
 
     changes: List[str] = []
     for k, v in desired.items():
+        if user_overrides and k in user_overrides:
+            changes.append(f"{k}: preserved (user override = {user_overrides[k]})")
+            continue
         old = before[k]
         if old is None:
             changes.append(f"{k}: (added) -> {v}")
         elif old != v:
             changes.append(f"{k}: {old} -> {v}")
+
+    # Non-coherent electron scattering companions.  The effective COH_ES is
+    # the user override when present, else the profile default.  With
+    # COH_ES=F the ES source term uses RJ_ES (J convolved with the e.s.
+    # kernel, ES_J_CONV), so the frequency grid must carry the extended
+    # scattering wings and the linearization must not mix in a coherent
+    # fraction.
+    coh_es_eff = desired.get("COH_ES", "T")
+    if user_overrides and "COH_ES" in user_overrides:
+        coh_es_eff = str(user_overrides["COH_ES"])
+    if coh_es_eff.strip().upper() == "F":
+        es_changes = apply_noncoherent_es_companions(
+            lines,
+            explicit_user_keys=set(user_overrides) if user_overrides else set(),
+        )
+        changes.extend(f"[ES_NONCOH] {c}" for c in es_changes)
+
     if convergence_mode == "stable":
         changes.append("Convergence mode: stable (extra damping and longer lambda-phase enabled)")
     return changes, num_bnds
@@ -3304,10 +3797,14 @@ def apply_profile(
 # ---------- OUT to IN (same as cur_cmf/com/out2in.sh) ----------
 def out2in(wdir: Path) -> List[Tuple[str, str]]:
     """
-    Rename *OUT files to *_IN in wdir (population levels from converged run).
+    Copy *OUT files to *_IN in wdir (population levels from converged run).
     Matches cur_cmf/com/out2in.sh: each name ending with OUT becomes *_IN.
+    Preserves previous *_IN files by backing them up to *_IN.bak.
+    Uses copy instead of rename so *OUT files are also preserved
+    (like cpmod behaviour).
     Returns list of (old_name, new_name) for reporting.
     """
+    import shutil
     renames: List[Tuple[str, str]] = []
     for f in sorted(wdir.iterdir()):
         if not f.is_file():
@@ -3325,7 +3822,12 @@ def out2in(wdir: Path) -> List[Tuple[str, str]]:
             in_name = name[:-3] + "_IN"
         dest = wdir / in_name
         try:
-            f.rename(dest)
+            # Backup existing *_IN file if it exists
+            if dest.exists():
+                backup = wdir / (in_name + ".bak")
+                shutil.copy2(str(dest), str(backup))
+            # Copy (not move) so *OUT is preserved
+            shutil.copy2(str(f), str(dest))
             renames.append((f.name, in_name))
         except OSError:
             pass
@@ -3562,6 +4064,15 @@ def main() -> int:
              "Example: --vel-law 11 --target-nd 150",
     )
     p.add_argument(
+        "--t-exc-floor",
+        type=float,
+        default=0.7,
+        help="Minimum T_EXC (10^4 K) for the VADAT LTE excitation floor (default: 0.7 = 7000 K). "
+             "For cold systems (T_gas < 3000 K) where the proxy departure coefficients already "
+             "model the T_exc/T_gas gap, lower this (e.g. 0.3 = 3000 K) to prevent the VADAT "
+             "T_EXC from over-exciting relative to the proxy's own excitation model.",
+    )
+    p.add_argument(
         "--use-hydro-grid",
         action="store_true",
         default=False,
@@ -3695,6 +4206,7 @@ def main() -> int:
     depth_independent_solver = True  # default: DIAG (depth-independent)
     iteration_strategy = None  # IT_SPECIFIER content from YAML
     adjust_corrections = None  # ADJUST_CORRECTIONS content from YAML
+    non_mono_line_treatment = 'BLANK'  # default: blanketing (Sobolev invalid for non-monotonic flow)
     if args.vadat_overrides:
         try:
             import yaml
@@ -3720,6 +4232,10 @@ def main() -> int:
                 # sections "IT SPECIFIER" and "ADJUST CORRECTIONS".
                 iteration_strategy = cmfgen_cfg.get('iteration_strategy')
                 adjust_corrections = cmfgen_cfg.get('adjust_corrections')
+                _nms = str(vadat_overrides.get('NON_MONO_SOLVER', '')).strip().upper()
+                if _nms.startswith('T') and iteration_strategy is not None:
+                    print("  [NON_MONO] keeping iteration_strategy "
+                          "(explicit IT_SPECIFIER controls Lambda→JFNK switch)")
                 if 'remove_species' in cmfgen_cfg and not args.remove_species:
                     sp_list = cmfgen_cfg['remove_species']
                     if isinstance(sp_list, list):
@@ -3727,6 +4243,38 @@ def main() -> int:
                     else:
                         args.remove_species = str(sp_list)
                     print(f"  remove_species from config: {args.remove_species}")
+                # Non-monotonic solver mode selection.
+                # Primary key: non_mono_mode ('KNOP' or 'SOB')
+                # Legacy key: non_mono_line_treatment ('BLANK' or 'SOB')
+                # BLANK maps to KNOP mode, SOB maps to SOB mode.
+                # Default: KNOP (Knop et al. 2009 formal solver + BLANK).
+                non_mono_mode = cmfgen_cfg.get('non_mono_mode', None)
+                if non_mono_mode is not None:
+                    _nm = str(non_mono_mode).strip().upper()
+                    if _nm not in ('KNOP', 'SOB'):
+                        print(f"  WARNING: non_mono_mode="
+                              f"'{non_mono_mode}' is not KNOP or SOB; "
+                              f"defaulting to KNOP")
+                        _nm = 'KNOP'
+                    non_mono_mode = _nm
+                    # Derive line_treatment from mode
+                    non_mono_line_treatment = 'BLANK' if non_mono_mode == 'KNOP' else 'SOB'
+                    print(f"  non_mono_mode={non_mono_mode} "
+                          f"(line_treatment={non_mono_line_treatment})")
+                else:
+                    # Legacy: use non_mono_line_treatment directly
+                    non_mono_line_treatment = cmfgen_cfg.get(
+                        'non_mono_line_treatment', 'BLANK')
+                    _lt = str(non_mono_line_treatment).strip().upper()
+                    if _lt not in ('SOB', 'BLANK'):
+                        print(f"  WARNING: non_mono_line_treatment="
+                              f"'{non_mono_line_treatment}' is not SOB or BLANK; "
+                              f"defaulting to BLANK")
+                        _lt = 'BLANK'
+                    non_mono_line_treatment = _lt
+                    non_mono_mode = 'KNOP' if _lt == 'BLANK' else 'SOB'
+                    print(f"  non_mono_line_treatment={non_mono_line_treatment} "
+                          f"(mode={non_mono_mode})")
             else:
                 print(f"  WARNING: No cmfgen section found in {config_path}")
         except SystemExit:
@@ -3900,7 +4448,7 @@ def main() -> int:
             "BETA1": 1.0,                                    # homologous flow; required for VEL_LAW=12
         }
         # single_final: use T at mid-depth so outer (NLTE) half gets excitation floor, not full LTE.
-        t_exc = recommended_t_exc_init(hydro) if profile == "single_final" else recommended_t_exc(hydro)
+        t_exc = recommended_t_exc_init(hydro, t_exc_floor=args.t_exc_floor) if profile == "single_final" else recommended_t_exc(hydro, t_exc_floor=args.t_exc_floor)
         if t_exc is not None:
             scalar_map["T_EXC"] = t_exc
         scalar_changes = update_keywords_in_lines(lines, scalar_map, numeric_format_like_old=True)
@@ -3925,6 +4473,7 @@ def main() -> int:
         profile_changes, num_bnds = apply_profile(
             lines, profile, convergence_mode=args.convergence_mode, num_isotopes=n_iso,
             depth_independent_solver=depth_independent_solver,
+            user_overrides=vadat_overrides if vadat_overrides else None,
         )
         
         # Set VFRAC_MOM after apply_profile (single source — not in profile dicts).
@@ -4004,16 +4553,84 @@ def main() -> int:
         # VFRAC_FG: the non-monotonic formal-solution solver
         # (FG_J_CMF_NONMONO_V1) needs fine ray resolution to handle velocity
         # reversals; a coarse VFRAC_FG (e.g. 20000) causes J to blow up.
+        # Check for DO_NOMONO_KNOP, DO_NOMONO_SOB, or legacy NON_MONO_SOLVER.
         non_mono_solver = False
-        if vadat_overrides and vadat_overrides.get("NON_MONO_SOLVER", "").upper().startswith("T"):
-            non_mono_solver = True
-        else:
-            for _l in lines:
-                if "[NON_MONO_SOLVER]" in _l:
-                    _val = _l.split("[")[0].strip().upper()
-                    if _val.startswith("T"):
-                        non_mono_solver = True
+        do_nomono_knop = False
+        if vadat_overrides:
+            for _key in ("DO_NOMONO_KNOP", "DO_NOMONO_SOB", "NON_MONO_SOLVER"):
+                _val = str(vadat_overrides.get(_key, "")).upper()
+                if _val.startswith("T"):
+                    non_mono_solver = True
+                    if _key == "DO_NOMONO_KNOP":
+                        do_nomono_knop = True
                     break
+        if not non_mono_solver:
+            for _l in lines:
+                for _key in ("DO_NOMONO_KNOP", "DO_NOMONO_SOB", "NON_MONO_SOLVER"):
+                    if f"[{_key}]" in _l:
+                        _val = _l.split("[")[0].strip().upper()
+                        if _val.startswith("T"):
+                            non_mono_solver = True
+                            if _key == "DO_NOMONO_KNOP":
+                                do_nomono_knop = True
+                        break
+                if non_mono_solver:
+                    break
+        # Legacy compatibility: NON_MONO_SOLVER=T without DO_NOMONO_KNOP
+        # maps to DO_NOMONO_KNOP=T in the Fortran code.
+        if non_mono_solver and not do_nomono_knop:
+            # Check if legacy NON_MONO_SOLVER is the one that's set
+            _legacy = False
+            if vadat_overrides:
+                _val = str(vadat_overrides.get("NON_MONO_SOLVER", "")).upper()
+                if _val.startswith("T") and not str(vadat_overrides.get("DO_NOMONO_KNOP", "")).upper().startswith("T") and not str(vadat_overrides.get("DO_NOMONO_SOB", "")).upper().startswith("T"):
+                    _legacy = True
+            if not _legacy:
+                for _l in lines:
+                    if "[NON_MONO_SOLVER]" in _l:
+                        _val = _l.split("[")[0].strip().upper()
+                        if _val.startswith("T"):
+                            _has_knop = any(f"[DO_NOMONO_KNOP]" in _l2 and _l2.split("[")[0].strip().upper().startswith("T") for _l2 in lines)
+                            _has_sob = any(f"[DO_NOMONO_SOB]" in _l2 and _l2.split("[")[0].strip().upper().startswith("T") for _l2 in lines)
+                            if not _has_knop and not _has_sob:
+                                _legacy = True
+                        break
+            if _legacy:
+                do_nomono_knop = True
+
+        # enforce_sn_iin_physics() stamps DO_NOMONO_KNOP=T (BLANK mode) or
+        # DO_NOMONO_SOB=T (SOB mode) into every generated VADAT just before
+        # it is written, so a non-monotonic solver mode is always active —
+        # even when neither the YAML overrides nor the incoming template
+        # requests one. The fine VFRAC_FG is therefore unconditional; the
+        # detection above still determines do_nomono_knop for the legacy
+        # NON_MONO_SOLVER mapping and for diagnostics.
+        non_mono_solver = True
+
+        # VFRAC_FG: maximum projected-velocity spacing along each ray in the
+        # formal solution (FG_J_CMF_*/FG_J_CMF_NONMONO_V1), in units of the
+        # minimum Doppler width. The solvers insert extra ray points wherever
+        # |d(V*mu)| > VFRAC_FG*min(VDOP) — on BOTH signs of the velocity step
+        # (ABS difference since 2026-09-18), so velocity reversals are refined
+        # rather than skipped.
+        #
+        # Fine value (0.5) is required for ANY non-monotonic solver mode:
+        #   - DO_NOMONO_KNOP -> FG_J_CMF_NONMONO_V1 (multi-root resonance solver)
+        #   - DO_NOMONO_SOB  -> FG_J_CMF_V13 running on a non-monotonic V field
+        # A coarse value (e.g. 20000, the manual's "omit" setting for monotonic
+        # winds) leaves the reversal under-resolved and J can blow up at
+        # non-monotonic depths — v7_bench VADATs show KNOP=T + VFRAC_FG=20000
+        # reached production this way. The manual's 20000 no-refinement
+        # setting (full_descr.txt:4114-4129) is only safe for a genuinely
+        # standard-solver VADAT, which this pipeline no longer emits.
+        # An explicit vadat_overrides VFRAC_FG always wins.
+        _vfrac_fg_override = vadat_overrides.get("VFRAC_FG") if vadat_overrides else None
+        if _vfrac_fg_override is not None:
+            vfrac_fg_token = str(_vfrac_fg_override)
+            print(f"  [VFRAC_FG] Using explicit override from YAML: {vfrac_fg_token}")
+        else:
+            vfrac_fg_token = "0.50D0" if non_mono_solver else "20000.0D0"
+        set_or_append_keyword(lines, "VFRAC_FG", vfrac_fg_token)
 
         # Set VEL_LAW from CLI argument (default: 12 for IIn models with tau-based grid)
         # VEL_LAW=12 (RV_SN_MODEL_SNIIN) is designed for non-monotonic velocity flows
@@ -4028,13 +4645,16 @@ def main() -> int:
             effective_vel_law = 11
             set_or_append_keyword(lines, "VEL_LAW", "11")
             set_or_append_keyword(lines, "RD_IN_R_GRID", "T")
-            set_or_append_keyword(lines, "VFRAC_MOM", "1.0D0")
+            # vfrac_mom_token already resolves to the explicit
+            # vadat_overrides value when the user set one, else "1.0D0"
+            # for this branch. Do not stomp the override here.
+            set_or_append_keyword(lines, "VFRAC_MOM", vfrac_mom_token)
             profile_changes.append(
-                f"VEL_LAW=11, RD_IN_R_GRID=T, VFRAC_MOM=1.0D0 (--target-nd={args.target_nd}: "
+                f"VEL_LAW=11, RD_IN_R_GRID=T, VFRAC_MOM={vfrac_mom_token} (--target-nd={args.target_nd}: "
                 f"VEL_LAW=11 reads R grid from RDINR; velocity-aware {args.target_nd}-point grid "
                 f"has dV << VDOP_MIN, preventing CMFGEN ND adjustment)"
             )
-            print(f"  [target-nd={args.target_nd}] VEL_LAW=11, RD_IN_R_GRID=T, VFRAC_MOM=1.0D0")
+            print(f"  [target-nd={args.target_nd}] VEL_LAW=11, RD_IN_R_GRID=T, VFRAC_MOM={vfrac_mom_token}")
         elif effective_vel_law == 11:
             # VEL_LAW=11 without target_nd: use the full SN_HYDRO_DATA grid as RDINR.
             # SET_RV_HYDRO_MODEL_V3 reads R from RDINR and interpolates V from SN_HYDRO_DATA.
@@ -4045,56 +4665,38 @@ def main() -> int:
             # VFRAC_MOM: with the full hydro grid, velocity jumps are small (set by conversion).
             # Use the optimized value to prevent ND expansion if any jumps exceed VDOP_MIN.
             set_or_append_keyword(lines, "VFRAC_MOM", vfrac_mom_token)
-            _override_vfrac_fg = vadat_overrides.get("VFRAC_FG") if vadat_overrides else None
-            if _override_vfrac_fg:
-                _vfrac_fg_11 = str(_override_vfrac_fg)
-                print(f"  [VFRAC_FG] Using explicit override from YAML: {_vfrac_fg_11}")
-            else:
-                _vfrac_fg_11 = "0.50D0" if non_mono_solver else "20000.0D0"
-            set_or_append_keyword(lines, "VFRAC_FG", _vfrac_fg_11)
             profile_changes.append(
                 f"VEL_LAW=11, RD_IN_R_GRID=T (SET_RV_HYDRO_MODEL_V3: reads R grid from RDINR, "
                 f"interpolates V from SN_HYDRO_DATA; non-monotonic V is OK — only R must be monotonic). "
                 f"Full {hydro.params['ND']}-point grid used (no CMFGEN regridding)."
             )
             print(f"  [VEL_LAW=11] RD_IN_R_GRID=T, full grid ND={hydro.params['ND']}, "
-                  f"VFRAC_MOM={vfrac_mom_token}, VFRAC_FG={_vfrac_fg_11}")
+                  f"VFRAC_MOM={vfrac_mom_token}, VFRAC_FG={vfrac_fg_token}")
         elif effective_vel_law == 12:
             # VEL_LAW=12: RV_SN_MODEL_SNIIN for non-monotonic flows (IIn/interacting SNe)
             set_or_append_keyword(lines, "VEL_LAW", "12")
             set_or_append_keyword(lines, "RD_IN_R_GRID", "F")
             # Accuracy options for VEL_LAW=12 tau-based grid with non-monotonic velocity:
-            #   METHOD: set by stable_overrides (ZERO for ionization front stability, or LOGMON).
-            #     Do NOT override here — the stable_overrides for convergence_mode=stable set
-            #     METHOD=ZERO (manual p.83: "useful for ionization front convergence difficulties").
-            #     LOGMON uses log-log derivative corrections that are unstable at ionization fronts
-            #     where populations change by orders of magnitude across a few depth points.
+            #   METHOD: ZERO for all modes (zero-order depth interpolation; manual
+            #     p.83 also recommends ZERO for ionization-front convergence).
+            #     Do NOT override here — stable_overrides set METHOD=ZERO.
             #   VFRAC_MOM: grid-adaptive value from optimal_vfrac_mom so the moment
             #     solver inserts extra RT grid points only where the velocity jump
             #     actually requires it (VFRAC_MOM * min(VDOP_VEC) threshold).
-            #   VFRAC_FG: controls ray grid resolution for the formal solution.
-            #     With NON_MONO_SOLVER=T, the multi-root resonance solver
-            #     (FG_J_CMF_NONMONO_V1) needs sufficient velocity resolution
-            #     to handle velocity reversals. A very large VFRAC_FG (e.g.
-            #     20000) gives too few ray points and causes the mean
-            #     intensity to blow up at non-monotonic depths.
-            #     VFRAC_FG=0.50: ~1163 ray points for 222 depth points —
-            #     fine enough to resolve velocity reversals. Coarser values
-            #     (e.g. 2.0) destabilize the non-monotonic formal solver.
-            #     For standard (monotonic) models, VFRAC_FG=20000 is fine.
+            #   VFRAC_FG: set above (shared with all VEL_LAW paths): 0.50 for
+            #     any non-monotonic solver mode, 20000 otherwise, YAML
+            #     vadat_overrides:VFRAC_FG always wins.
             #   TRAP_J=T: trapezoidal weights for J integration (already set in profiles)
-            _vfrac_fg = "0.50D0" if non_mono_solver else "20000.0D0"
-            set_or_append_keyword(lines, "VFRAC_FG", _vfrac_fg)
             set_or_append_keyword(lines, "VFRAC_MOM", vfrac_mom_token)
             set_or_append_keyword(lines, "TRAP_J", "T")
             profile_changes.append(
                 f"VEL_LAW=12, RD_IN_R_GRID=F (RV_SN_MODEL_SNIIN: tau-based grid from input_hydro.dat, "
                 f"designed for non-monotonic velocity flows)"
             )
-            _method_val = "ZERO" if args.convergence_mode == "stable" else "LOGMON"
+            _method_val = "ZERO"
             profile_changes.append(
                 f"  Accuracy: METHOD={_method_val}, VFRAC_MOM={vfrac_mom_token} (grid-adaptive), "
-                f"VFRAC_FG={_vfrac_fg} (formal-solution path), TRAP_J=T"
+                f"VFRAC_FG={vfrac_fg_token} (formal-solution path), TRAP_J=T"
             )
             if args.target_nd is not None:
                 profile_changes.append(
@@ -4103,8 +4705,8 @@ def main() -> int:
                 )
                 print(f"  [target-nd={args.target_nd}] VEL_LAW=12: target_nd affects RDINR only (ignored by CMFGEN)")
             print(f"  VEL_LAW=12, RD_IN_R_GRID=F (non-monotonic flow support)")
-            _method_print = "ZERO" if args.convergence_mode == "stable" else "LOGMON"
-            print(f"  Accuracy: METHOD={_method_print}, VFRAC_MOM={vfrac_mom_token}, VFRAC_FG={_vfrac_fg}, TRAP_J=T")
+            _method_print = "ZERO"
+            print(f"  Accuracy: METHOD={_method_print}, VFRAC_MOM={vfrac_mom_token}, VFRAC_FG={vfrac_fg_token}, TRAP_J=T")
         else:
             set_or_append_keyword(lines, "VEL_LAW", str(effective_vel_law))
             # VEL_LAW=11 reads R/V directly from RDINR (RD_IN_R_GRID=T)
@@ -4154,16 +4756,14 @@ def main() -> int:
         # DO_LAM_AUTO is conditional on solver type (controlled in IN_ITS):
         #   DIAG (NUM_BNDS=1): F — pure LAMBDA (block-diagonal BA adds no inter-depth info)
         #   TRIDIAG (NUM_BNDS=3): T — auto-switch to BA solve when MAXCH < LAM_VAL
-        # MAX_LAM=1.5D0 (1.5x) for all profiles — slow LTE→NLTE transition.
+        # MAX_LAM=1.0D10 for all profiles per user directive 15-Sep-2026 (was 1.5).
+        # NOTE — superseded cascade history, watch for recurrence on X_1 restarts:
         # MAX_LAM=100 caused trace species explosion (100x/iter → 1e100 in 50 iters).
         # MAX_LAM=3 caused J-population cascade: trace species grew 3^20=3.5e9x in 20
         # iters, their opacity change destabilized J at other depths (iter 22 explosion
         # at depth 139, 6.4e19 → BA matrix singular at iter 119).
         # With MAX_LAM=1.5: LIT_LIM=-0.5 → 1.5x increase max; 1.5^20=3325x in 20 iters
         # — 1e6x slower than MAX_LAM=3, J has time to adjust smoothly.
-        #   init / single_final:          1.5 (slow LTE→NLTE from cold start)
-        #   stable:                       1.5 (slow convergence through transients)
-        #   final:                        1.5 (conservative final convergence)
         # Radiation solver: USE_LAM_ES=F (standard moment solver with SIGMA clamp) bypasses MOM_JREL_V9,
         #   which causes instabilities with negative sigma at velocity reversals.
         # MAX_CHNG: 1e50 to prevent convergence aborts due to large population changes
@@ -4207,8 +4807,11 @@ def main() -> int:
                 profile_changes.append(f"FIX_NE={ne_val} (vadat_overrides)")
             print(f"  Ne control [{profile}]: FIX_NE={ne_val} (vadat_overrides)")
         else:
-            ne_val = "T"  # Default: FIX_NE=T (prevent inner-boundary opacity runaway)
+            # Ne free at all depths: CMFGEN solves Ne from charge
+            # conservation rather than trusting the hydro Saha estimate.
+            ne_val = "F"
             set_or_append_keyword(lines, "FIX_NE", ne_val)
+            set_or_append_keyword(lines, "FIX_INB_NE", "F")
             print(f"  Ne control [{profile}]: FIX_NE={ne_val} (set in VADAT)")
 
         print()
@@ -4277,8 +4880,12 @@ def main() -> int:
             # depth. With low Rosseland tau, DIF=T causes the grey
             # temperature solver to flatten dT/dR (DTDR → 0), which
             # eventually destabilizes the formal solution (J blows up).
-            if dif_val.upper().startswith("T") and _tau_at_ib < 50:
-                print(f"  WARNING: DIF=T with tau_inner={_tau_at_ib:.1f} < 50.")
+            # SOB mode relaxes the cutoff: Dessart+2015 (arXiv:1503.05463)
+            # truncates at Rosseland tau~30 with a diffusion boundary, so
+            # only warn below ~20 there.
+            _dif_warn_tau = 20.0 if non_mono_line_treatment == 'SOB' else 50.0
+            if dif_val.upper().startswith("T") and _tau_at_ib < _dif_warn_tau:
+                print(f"  WARNING: DIF=T with tau_inner={_tau_at_ib:.1f} < {_dif_warn_tau:.0f}.")
                 print(f"           The diffusion approximation requires Rosseland optical depth >> 1.")
                 print(f"           The SN_HYDRO_DATA tau is electron scattering; the actual Rosseland")
                 print(f"           optical depth may be much lower (CMFGEN reports it in OUTGEN).")
@@ -4287,14 +4894,41 @@ def main() -> int:
                 print(f"             IB_METH: ZERO_FLUX")
                 print(f"             IB_STAB: 0.1D0")
         elif lstar_token is not None:
-            ib_changes = update_keywords_in_lines(lines, {
-                "DIF": "F",
-                "IB_METH": "ZERO_FLUX",
-            })
-            if ib_changes:
-                profile_changes.extend(ib_changes)
-            print(f"  [IB] ZERO_FLUX boundary (tau_inner={_tau_at_ib:.1f}, LSTAR={lstar_token})")
-            print(f"       No incoming flux at inner boundary — avoids negative DBB from non-monotonic T.")
+            # Auto-decide DIF/IB_METH based on the inner boundary optical depth.
+            # DIF=T/IB_METH=DIFFUSION is the physically correct choice when
+            # tau_inner >= 50 (deep in the diffusion regime).  The previous
+            # default of always using DIF=F/ZERO_FLUX was a workaround for
+            # non-monotonic T causing negative DBB, but with the e-scattering
+            # tau now correctly reported in the header (>= 50 for optically
+            # thick boundaries), DIF=T is both physically correct and
+            # numerically stable (the converged X model used DIF=T with
+            # tau_inner=67).  DIF=F/ZERO_FLUX is reserved for genuinely
+            # optically thin inner boundaries.
+            #
+            # SOB mode uses a lower cutoff (tau >= 25): Dessart+2015
+            # (arXiv:1503.05463 sec 3.1) truncates at Rosseland tau~30 with
+            # a diffusion boundary.  The tau>=50 rule left the m15 model
+            # (tau_es~37) on ZERO_FLUX which diverged from it1; with
+            # DIFFUSION + header LSTAR it converged (job 12001805).
+            _dif_tau_thresh = 25.0 if non_mono_line_treatment == 'SOB' else 50.0
+            if _tau_at_ib >= _dif_tau_thresh:
+                ib_changes = update_keywords_in_lines(lines, {
+                    "DIF": "T",
+                    "IB_METH": "DIFFUSION",
+                })
+                if ib_changes:
+                    profile_changes.extend(ib_changes)
+                print(f"  [IB] DIFFUSION boundary (tau_inner={_tau_at_ib:.1f} >= {_dif_tau_thresh:.0f}, LSTAR={lstar_token})")
+                print(f"       Inner boundary is optically thick — diffusion approximation is valid.")
+            else:
+                ib_changes = update_keywords_in_lines(lines, {
+                    "DIF": "F",
+                    "IB_METH": "ZERO_FLUX",
+                })
+                if ib_changes:
+                    profile_changes.extend(ib_changes)
+                print(f"  [IB] ZERO_FLUX boundary (tau_inner={_tau_at_ib:.1f} < {_dif_tau_thresh:.0f}, LSTAR={lstar_token})")
+                print(f"       Inner boundary is optically thin — zero-flux BC (no diffusion approximation).")
 
         # Build all CMFGEN inputs from SN_HYDRO_DATA (only input file needed)
         vel_law_tok = _get_key_token(lines, "VEL_LAW")
@@ -4385,17 +5019,30 @@ def main() -> int:
             if n_ob_ins_tok is not None:
                 try:
                     nbnd_ins_sniin = int(float(n_ob_ins_tok))
-                    if nbnd_ins_sniin < 1:
-                        nbnd_ins_sniin = 3  # fallback to default
+                    # Honour an explicit 0: USE_HYDRO_GRID / stella_subset
+                    # grids must not be silently shortened by 2*NBND_INS.
                 except (ValueError, TypeError):
                     pass
             if args.target_nd is not None:
-                mnd = int(args.target_nd) - 2 * nbnd_ins_sniin
-                if mnd > 10 and mnd < len(hydro.radius_cm):
+                n_hydro = len(hydro.radius_cm)
+                if nbnd_ins_sniin < 1:
+                    mnd = int(args.target_nd)
+                else:
+                    mnd = int(args.target_nd) - 2 * nbnd_ins_sniin
+                if mnd > 10 and mnd < n_hydro:
                     # Use gradient-aware downsampling for non-monotonic velocity.
                     # Uniform-V spacing fails when R(V) is not single-valued
                     # (velocity plateaus, reverse shocks).
-                    r_oi, v_oi, indices = downsample_hydro_gradient_aware(hydro, mnd)
+                    # Budget the velocity jump so downsampling cannot create a
+                    # cell CMFGEN's comoving-frame discretisation can't
+                    # integrate.  Computed locally rather than reusing
+                    # vdop_min_est, which is only defined in the
+                    # "not args.no_write_rdinr" branch above.
+                    # VDOP_VEC is VTURB-dominated (AMASS_DOP=1e40), and this
+                    # branch always has args.target_nd set, so VFRAC_MOM=1.
+                    hydro_max_dv_kms = 1.0 * 20.0
+                    r_oi, v_oi, indices = downsample_hydro_gradient_aware(
+                        hydro, mnd, max_dv_kms=hydro_max_dv_kms)
                     # r_oi is in 1e10 cm units (outer->inner), v_oi is in km/s (outer->inner)
                     r_new = r_oi[::-1]  # inner->outer, 1e10 cm
                     v_new = v_oi[::-1]  # inner->outer, km/s
@@ -4483,7 +5130,8 @@ def main() -> int:
                 # Use actual max T from hydro (no artificial 10000 K cap);
                 # the cap was causing bad LTE populations at inner depths where T > 10000 K.
                 hydro_t_max_104 = float(np.max(hydro.temp_104k))
-                write_t_in_from_hydro(hydro, wdir / "T_IN", t_max_104=hydro_t_max_104)
+                hydro_t_min_104 = float(np.min(hydro.temp_104k))
+                write_t_in_from_hydro(hydro, wdir / "T_IN", t_max_104=hydro_t_max_104, t_min_104=hydro_t_min_104)
                 write_gammas_in_from_hydro(hydro, wdir / "GAMMAS_IN")
                 write_fin_cal_grid_from_hydro(hydro, wdir / "FIN_CAL_GRID")
                 profile_changes.append("Wrote T_IN, GAMMAS_IN, and FIN_CAL_GRID (LTE initial T/ED from SN_HYDRO_DATA)")
@@ -4586,6 +5234,21 @@ def main() -> int:
                     print(f"    {change}")
                 profile_changes.extend(final_overrides)
 
+            # Align JFNK_FIXT with FIX_T so T is a Newton unknown iff FIX_T=F.
+            # CMFGEN also enforces this at VADAT read time; keep the written
+            # VADAT consistent for provenance.
+            fix_t_tok = _get_key_token(lines, "FIX_T")
+            if fix_t_tok is not None:
+                fix_t_val = fix_t_tok.strip().upper()
+                if fix_t_val in ("T", "TRUE", "F", "FALSE"):
+                    jfnk_fixt_want = "T" if fix_t_val in ("T", "TRUE") else "F"
+                    jfnk_fixt_now = _get_key_token(lines, "JFNK_FIXT")
+                    if jfnk_fixt_now is None or jfnk_fixt_now.strip().upper() != jfnk_fixt_want:
+                        set_or_append_keyword(lines, "JFNK_FIXT", jfnk_fixt_want)
+                        msg = f"JFNK_FIXT={jfnk_fixt_want} (aligned to FIX_T={jfnk_fixt_want})"
+                        print(f"  [Consistency] {msg}")
+                        profile_changes.append(msg)
+
         # NUM_BNDS/SOL_METH set by apply_profile (N_ON_J always; DIAG or
         # TRIDIAG per depth_independent_solver).  TRIDIAG is the CMFGEN-
         # recommended setting (manual: "best compromise between convergence
@@ -4610,12 +5273,60 @@ def main() -> int:
         # if bak:
         #     print(f"Backed up existing {vadat_out_path.name} -> {bak.name}")
 
+        # ======================================================================
+        # RE-APPLY NON-MONOTONIC FORCED SETTINGS (post-override)
+        # The non-monotonic forced settings (MAX_CHNG, LAM_SCALE_OPT, etc.)
+        # are applied earlier, but user vadat_overrides can overwrite them
+        # or add NON_MONO_SOLVER=T after the initial check. Re-check and
+        # re-apply the critical non-monotonic settings here so they always
+        # take precedence, preventing accidental misconfiguration.
+        # ======================================================================
+        _non_mono_post = False
+        for line in lines:
+            m = re.match(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]', line)
+            if m and m.group(2) == 'NON_MONO_SOLVER':
+                if m.group(1).strip().upper() == 'T':
+                    _non_mono_post = True
+                break
+        if _non_mono_post:
+            _reapply_keys = build_non_mono_forced_vadat(non_mono_line_treatment)
+            for _key, _forced_val in _reapply_keys.items():
+                _current = _get_key_token(lines, _key)
+                if _current is not None and _current.strip().upper() != _forced_val.upper():
+                    update_keywords_in_lines(lines, {_key: _forced_val}, numeric_format_like_old=True)
+                    print(f"  [NON_MONO] {_key} re-forced post-override: {_current} -> {_forced_val}")
+                elif _current is None:
+                    set_or_append_keyword(lines, _key, _forced_val)
+                    print(f"  [NON_MONO] {_key} added post-override: {_forced_val}")
+
+        _jfnk_post = False
+        _jfnk_banded_post = False
+        for line in lines:
+            m = re.match(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]', line)
+            if m and m.group(2) == 'USE_JFNK':
+                if m.group(1).strip().upper() == 'T':
+                    _jfnk_post = True
+            if m and m.group(2) == 'JFNK_USE_BANDED':
+                if m.group(1).strip().upper() == 'T':
+                    _jfnk_banded_post = True
+        if _jfnk_post:
+            _current = _get_key_token(lines, 'SOL_METH')
+            _target = 'TRI' if _jfnk_banded_post else 'DIAG'
+            if _current is None:
+                set_or_append_keyword(lines, 'SOL_METH', _target)
+                print(f"  [JFNK] SOL_METH added post-override: {_target}")
+            elif _current.strip().upper() != _target:
+                update_keywords_in_lines(lines, {'SOL_METH': _target}, numeric_format_like_old=True)
+                print(f"  [JFNK] SOL_METH re-forced post-override: {_current} -> {_target}")
+
         clean = clean_vadat_lines(lines)
         # ======================================================================
         # ENFORCE PHYSICS BEFORE WRITING
         # This neutralizes any contradictory CLI flags or YAML overrides.
         # ======================================================================
-        clean = enforce_sn_iin_physics(clean)
+        clean = enforce_sn_iin_physics(clean, line_treatment=non_mono_line_treatment,
+                                       user_overrides=vadat_overrides)
+        require_chg_exch_data(clean, wdir)
         write_lines(vadat_out_path, clean)
 
         # ── NUM_BNDS / SOL_METH reconciliation ──────────────────────────
@@ -4634,7 +5345,8 @@ def main() -> int:
                 num_bnds = expected_num_bnds
 
         # Keep IN_ITS consistent with VADAT for lambda control.
-        in_its_changes = update_in_its_for_profile(wdir, profile)
+        in_its_changes = update_in_its_for_profile(wdir, profile,
+                                                     iteration_strategy=iteration_strategy)
         if in_its_changes:
             print(f"IN_ITS updates (IN_ITS):")
             for c in in_its_changes:
@@ -4642,12 +5354,12 @@ def main() -> int:
             print()
 
         # Create ADJUST_R_DEFAULTS. Runtime R-grid refinement enabled.
-        # adjust_r_grid_v4.f has been patched with a Dessart+2015 sigma guard
+        # adjust_r_grid_v4.f has been patched with a sigma guard
         # (warn + clamp to -0.999 instead of STOP) so non-monotonic velocity
         # models can safely use runtime regridding at ionization fronts.
         adjust_r_path = wdir / "ADJUST_R_DEFAULTS"
         adjust_r_content = """! ADJUST_R_DEFAULTS - Runtime R-grid refinement enabled
-! Tau-based regridding at ionization fronts (Dessart+2015 sigma guard patched).
+! Tau-based regridding at ionization fronts (sigma guard patched).
 ! Format: value BEFORE [KEY] (same as VADAT). No leading spaces for character values.
 !
 ! Conservative parameters for non-monotonic velocity:
@@ -4778,6 +5490,35 @@ DEFAULT [IB_OPT]
                 }
                 for ykey, (ckey, default, desc) in ac_key_map.items():
                     val = adjust_corrections.get(ykey, default)
+                    # Validate numeric parameters against CMFGEN's own validity checks
+                    # (see fiddle_pop_corrections_v2.f lines 84-87, 112-140).
+                    # CMFGEN silently resets invalid values to defaults, but we warn
+                    # loudly here so the user fixes the YAML config instead of
+                    # getting silent behaviour changes mid-run.
+                    if ckey in ("RELAX", "T_LIM", "MAX_CHNG"):
+                        try:
+                            fv = float(val)
+                        except (ValueError, TypeError):
+                            fv = None
+                        if fv is not None:
+                            if ckey == "RELAX" and not (0.0 < fv < 2.0):
+                                print(f"  WARNING: adjust_corrections.relax={val} is "
+                                      f"out of range (0 < Z < 2). Clamping to 1.0.")
+                                val = 1.0
+                            elif ckey == "T_LIM" and not (0.0 <= fv <= 0.2):
+                                print(f"  WARNING: adjust_corrections.t_lim={val} is "
+                                      f"out of range (0 <= Z <= 0.2). Clamping to 0.2.")
+                                val = 0.2
+                            elif ckey == "MAX_CHNG" and fv <= 1.0:
+                                # CMFGEN check: POP_LIM_VARIABLE .LE. 1.0 => error.
+                                # max_chng=1.0 means "0x population increase allowed"
+                                # which is physically nonsensical. The likely intent
+                                # was "limit changes" — use 3.0 (allow 3x increase)
+                                # as a safe conservative default.
+                                print(f"  WARNING: adjust_corrections.max_chng={val} is "
+                                      f"invalid (must be > 1.0; CMFGEN rejects <= 1.0). "
+                                      f"Clamping to 3.0.")
+                                val = 3.0
                     if ckey in ("L_ST", "L_END") and n_points > 0:
                         try:
                             if isinstance(val, str) and val.upper() in ("ND", "NDMAX", ""):
@@ -4807,20 +5548,18 @@ DEFAULT [IB_OPT]
                 print(f"  WARNING: adjust_corrections has unexpected type "
                       f"({type(adjust_corrections).__name__}), ignoring")
         else:
-            # Ensure default file exists (no scaling effect)
-            if not ac_path.exists():
-                ac_path.write_text(
-                    "! ADJUST_CORRECTIONS - Default (no scaling)\n"
-                    "! Set cmfgen.adjust_corrections in YAML to customize.\n"
-                    "1 [L_ST]\n"
-                    f"{n_points} [L_END]\n"
-                    "1.0D0 [RELAX]\n"
-                    "0.2D0 [T_LIM]\n"
-                    "1.0D3 [MAX_CHNG]\n"
-                    "0 [CONSIS_CNT]\n"
-                )
-                print(f"Wrote default ADJUST_CORRECTIONS (no scaling)")
-                print()
+            # No adjust_corrections in YAML: do not write the file at all.
+            # fiddle_pop_corrections_v2.f treats a missing file as "no
+            # fiddling" — the old default block (T_LIM=0.2) was NOT inert.
+            # Per user directive 18-Sep-2026, ADJUST_CORRECTIONS is excluded
+            # by default; set cmfgen.adjust_corrections in YAML to enable.
+            # Remove a stale copy if one was carried over from base files.
+            if ac_path.exists():
+                ac_path.unlink()
+                print("Removed ADJUST_CORRECTIONS (not configured; corrections unclamped)")
+            else:
+                print("No ADJUST_CORRECTIONS (default: corrections unclamped)")
+            print()
 
         # init-profile requested rename
         # renamed = maybe_rename_vadat_inint_to_init_bak(wdir, profile, vadat_init_path)

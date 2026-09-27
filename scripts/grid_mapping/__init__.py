@@ -19,7 +19,7 @@ Modules:
     cmfgen_writer      - Atomic, validated SN_HYDRO_DATA output
     reporting          - JSON, text, and plot diagnostics
 
-See docs/grid_mapping_audit/ for the source audit and code audit that motivated
+See audits/grid_mapping_audit/ for the source audit and code audit that motivated
 this refactor.
 """
 

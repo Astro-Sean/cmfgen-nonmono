@@ -6,14 +6,32 @@
 #SBATCH --partition={PARTITION}
 #SBATCH --qos=a0008
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task={CPUS_PER_TASK}
 #SBATCH --mem={MEMORY}
 #SBATCH --chdir={STELLA_RUN_DIR}
 
 set -euo pipefail
 
-# Use astro conda environment with numpy
-source /mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/activate /ptmp/sbrennan/conda-envs/astro
+# Use astro conda environment with numpy.  Paths differ between clusters:
+# viper has waterboa under RHEL_9 and the env at /ptmp/sbrennan/conda-envs;
+# raven has waterboa under SLE_15 and the env on the /viper mount.
+if [ -f /mpcdf/soft/SLE_15/packages/x86_64/python-waterboa/2024.06/bin/activate ]; then
+    WATERBOA_ROOT=/mpcdf/soft/SLE_15/packages/x86_64/python-waterboa/2024.06
+else
+    WATERBOA_ROOT=/mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06
+fi
+for _env in /viper/ptmp1/sbrennan/conda-envs/astro \
+            /ptmp/sbrennan/conda-envs/astro \
+            /raven/ptmp/sbrennan/conda-envs/astro; do
+    if [ -d "$_env" ]; then ASTRO_ENV="$_env"; break; fi
+done
+if [ -n "${ASTRO_ENV:-}" ]; then
+    source "$WATERBOA_ROOT/bin/activate" "$ASTRO_ENV"
+else
+    # No conda env on this cluster — the python-waterboa module (loaded
+    # below) provides numpy/scipy/yaml directly.
+    source "$WATERBOA_ROOT/bin/activate"
+fi
 unset PYTHONPATH PYTHONHOME
 
 echo "======================================"
@@ -41,10 +59,33 @@ INPUT_PROFILE="{INPUT_PROFILE}"
 
 module purge
 module load intel/2024.0
+# intel/2024.0 does not set MKLROOT; the PARDISO build needs the mkl module.
+# Must be 2026.0: xstella.exe links libmkl_rt.so.3 (2024.x only has .so.2).
+module load mkl/2026.0
 module load python-waterboa/2024.06
 export SYSTYPE="ifort"
 export HOMEStella="$STELLA_ROOT"
 export PATH="$STELLA_ROOT/bin:$PATH"
+export OMP_NUM_THREADS={OMP_NUM_THREADS}
+export MKL_NUM_THREADS={OMP_NUM_THREADS}
+export MKL_THREADING_LAYER=intel
+# Bitwise reproducibility of the PARDISO solves: MKL_DYNAMIC=TRUE (default)
+# lets MKL shrink the thread count under node load, and threaded PARDISO then
+# returns different results run to run (verified: identical inputs diverged at
+# ~1e-15 within ~45 steps). CBWR selects a deterministic code path.
+export MKL_DYNAMIC=FALSE
+export MKL_CBWR=AUTO
+# Ensure MKL runtime library path is available for PARDISO-linked builds
+# (module purge may clear LD_LIBRARY_PATH before module load can restore it)
+for _mklpath in \
+    "${MKLROOT:-}/lib/intel64" \
+    "/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64" \
+    "/mpcdf/soft/RHEL_9/packages/x86_64/intel_oneapi/2024.0/mkl/latest/lib/intel64"; do
+    if [[ -d "$_mklpath" ]]; then
+        export LD_LIBRARY_PATH="$_mklpath:${LD_LIBRARY_PATH:-}"
+        break
+    fi
+done
 
 # -------------------------------------------------------
 # Step 1: Build STELLA if needed (only done once per NZON)
@@ -53,6 +94,10 @@ BUILD_STAMP="$STELLA_ROOT/.built_nzon{NZON}"
 if [[ ! -f "$BUILD_STAMP" ]]; then
     echo "Building OpenStella for NZON=$NZON..."
     BUILD_SCRIPT="$(dirname "$STELLA_ROOT")/build_stella.sh"
+    # Use parallel build script if STELLA_ROOT is the parallel variant
+    if [[ "$STELLA_ROOT" == *"_parallel" ]]; then
+        BUILD_SCRIPT="$(dirname "$STELLA_ROOT")/build_stella_parallel.sh"
+    fi
     bash "$BUILD_SCRIPT" "$NZON" 2>&1 | tee stella_build.log
     touch "$BUILD_STAMP"
     echo "Build complete."
@@ -93,12 +138,19 @@ KEPLER_MODE="{KEPLER_MODE}"
 if [[ "$KEPLER_MODE" == "true" && -f "$HYD_PREGEN" && -f "$ABN_PREGEN" ]]; then
     echo "Using pre-generated .hyd and .abn files"
     DAT_PREGEN="$MODMAKE_DIR/{MODEL_NAME}.dat"
-    if [[ -f "$DAT_PREGEN" ]]; then
-        echo "  Pre-generated .dat found — skipping convert_profile_to_stella.py"
-    else
-    # Back up the KEPLER .hyd, .abn (convert_profile_to_stella.py will overwrite them)
+    # Always regenerate the .dat via convert_profile_to_stella.py: the KEPLER
+    # write_dat only carries a reduced parameter set (hardcoded FitTau/AQ and
+    # default hmax/iout), so a stale pre-generated .dat would silently override
+    # the resolved YAML stella: parameters.  Regenerating here guarantees the
+    # .dat matches the resolved config.  A pre-existing .dat is preserved as
+    # .kepler_bak for provenance but is NOT restored.
+    # Back up the KEPLER .hyd, .abn, .dat (convert_profile_to_stella.py will
+    # overwrite them; only .hyd/.abn are restored afterwards).
     cp "$HYD_PREGEN" "${HYD_PREGEN}.kepler_bak"
     cp "$ABN_PREGEN" "${ABN_PREGEN}.kepler_bak"
+    if [[ -f "$DAT_PREGEN" ]]; then
+        cp "$DAT_PREGEN" "${DAT_PREGEN}.kepler_bak"
+    fi
     # Run convert_profile_to_stella.py to generate .dat with all correct parameters
     # (the KEPLER write_dat has fewer parameters; this ensures full parameter coverage)
     python "$SCRIPTS_DIR/convert_profile_to_stella.py" \
@@ -144,18 +196,22 @@ if [[ "$KEPLER_MODE" == "true" && -f "$HYD_PREGEN" && -f "$ABN_PREGEN" ]]; then
         --min-dr-r="{MIN_DR_R}" \
         --amni="{NI56_DIST_MASS}" \
         --xmni="{NI56_TOTAL_MASS}" \
+        --tcura-days="{TCURA_DAYS}" \
         2>&1 | tee -a stella_build.log
+    # If the conversion left a missing/empty .dat, restore the pre-generated
+    # one so the run can still proceed (with a loud warning).
+    if [[ ! -s "$DAT_PREGEN" && -f "${DAT_PREGEN}.kepler_bak" ]]; then
+        echo "WARNING: .dat regeneration failed — restoring pre-generated .dat" >&2
+        cp "${DAT_PREGEN}.kepler_bak" "$DAT_PREGEN"
     fi
-    # Restore the pre-generated .hyd, .abn, and .dat if backups exist
-    # (SWD snapshot mode skips conversion, so no backups to restore)
+    # Restore the pre-generated .hyd/.abn only.  The freshly generated .dat
+    # (full resolved-config parameters) is kept; the pre-generated .dat is
+    # deliberately NOT restored.  Backups are removed.
     if [[ -f "${HYD_PREGEN}.kepler_bak" ]]; then
         cp "${HYD_PREGEN}.kepler_bak" "$HYD_PREGEN"
         cp "${ABN_PREGEN}.kepler_bak" "$ABN_PREGEN"
-        if [[ -f "${DAT_PREGEN}.kepler_bak" ]]; then
-            cp "${DAT_PREGEN}.kepler_bak" "$DAT_PREGEN"
-        fi
         rm -f "${HYD_PREGEN}.kepler_bak" "${ABN_PREGEN}.kepler_bak" "${DAT_PREGEN}.kepler_bak"
-        echo "Pre-generated .hyd/.abn/.dat restored"
+        echo "Pre-generated .hyd/.abn restored (.dat regenerated from resolved config)"
     fi
 else
     # Standard mode: convert input_profile -> .hyd + .abn + .dat
@@ -202,6 +258,7 @@ else
         --min-dr-r="{MIN_DR_R}" \
         --amni="{NI56_DIST_MASS}" \
         --xmni="{NI56_TOTAL_MASS}" \
+        --tcura-days="{TCURA_DAYS}" \
         2>&1 | tee -a stella_build.log
 fi
 
@@ -246,9 +303,13 @@ else
 fi
 
 # Prepare vladsf directory and link lineatom.dat (needed by both grey and ronfict paths)
+# LINEATOM_FILE (stella.line_list in YAML) overrides the default VVF/Kurucz list.
 mkdir -p "$MODEL_WORK_DIR/vladsf"
 cd "$MODEL_WORK_DIR/vladsf"
-if [[ -f "$STELLA_ROOT/vladsf/lineatom.dat" ]]; then
+if [[ -n "{LINEATOM_FILE}" && -f "{LINEATOM_FILE}" ]]; then
+    ln -sf "{LINEATOM_FILE}" lineatom.dat
+    echo "  Using custom line list: {LINEATOM_FILE}"
+elif [[ -f "$STELLA_ROOT/vladsf/lineatom.dat" ]]; then
     ln -sf "$STELLA_ROOT/vladsf/lineatom.dat" lineatom.dat
 elif [[ -f "$STELLA_ROOT/run/vladsf/lineatom.dat" ]]; then
     ln -sf "$STELLA_ROOT/run/vladsf/lineatom.dat" lineatom.dat
@@ -420,10 +481,17 @@ if [[ "$USE_RONFICT" == "true" ]]; then
     fi
 
     # Prefer pre-compiled linedata.dump if available (much faster than lineatom.dat)
-    LINEDATA_DUMP="$STELLA_ROOT/models/X_STELA/vladsf/linedata.dump"
-    if [[ -f "$LINEDATA_DUMP" ]]; then
-        ln -sf "$LINEDATA_DUMP" linedata.dump
-        echo "  Using pre-compiled linedata.dump"
+    # SKIP_LINEDATA_DUMP=true when a custom line list is in use: the shared
+    # dump is a binary image of the DEFAULT list and would silently shadow it.
+    if [[ "{SKIP_LINEDATA_DUMP}" == "true" ]]; then
+        rm -f linedata.dump
+        echo "  Custom line list in use: skipping shared linedata.dump (fresh dump will be built from lineatom.dat)"
+    else
+        LINEDATA_DUMP="$STELLA_ROOT/models/X_STELA/vladsf/linedata.dump"
+        if [[ -f "$LINEDATA_DUMP" ]]; then
+            ln -sf "$LINEDATA_DUMP" linedata.dump
+            echo "  Using pre-compiled linedata.dump"
+        fi
     fi
 
     # Remove stale opacity files
@@ -476,7 +544,7 @@ else
     echo "--- Generating vladsf opacity tables via generate_stella_opacity_tables.py (Mzon=$BINARY_NZON, kappa={KAPPA}) ---"
     cd "$MODEL_WORK_DIR/vladsf"
     rm -f "{MODEL_NAME}."{1,2,3,4,5,6} "{MODEL_NAME}.ab" 2>/dev/null || true
-    /mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/python3.12 "$SCRIPTS_DIR/generate_stella_opacity_tables.py" \
+    "$WATERBOA_ROOT/bin/python3.12" "$SCRIPTS_DIR/generate_stella_opacity_tables.py" \
         "$MODEL_WORK_DIR/vladsf" "{MODEL_NAME}" \
         --nzon "$BINARY_NZON" --kappa {KAPPA} \
         --fh {FH} --fhe {FHE} --abs-fraction-floor {ABS_FRACTION_FLOOR} \
@@ -718,6 +786,8 @@ python "$SCRIPTS_DIR/convert_stella_swd_to_cmfgen.py" \
     --sigma-threshold="{SIGMA_THRESHOLD}" \
     --smooth-width="{SMOOTH_WIDTH}" \
     {COARSEN_NEGATIVE_SIGMA_ARG} \
+    {XNI_ARG} \
+    {INC_RAD_DECAYS_ARG} \
     2>&1 | tee -a stella_build.log
 
 echo ""
@@ -744,14 +814,25 @@ mkdir -p "$OUTPUT_DIR"
 PLOTS_DIR="$MODEL_DIR/plots"
 mkdir -p "$PLOTS_DIR"
 
-# Remove stale plots from previous runs
-rm -f "$PLOTS_DIR"/*.png "$PLOTS_DIR"/*.csv 2>/dev/null || true
+# Remove only the stale plots this stage regenerates; leave plots owned by
+# other stages (presn/stella_input, sedona_*, superlite_*, cmfgen, etc.) intact
+rm -f "$PLOTS_DIR/{MODEL_NAME}_"*evolution*.png \
+      "$PLOTS_DIR/{MODEL_NAME}_"*radial_profiles*.png \
+      "$PLOTS_DIR/{MODEL_NAME}_composition_evolution.png" \
+      "$PLOTS_DIR/{MODEL_NAME}_composition_profile.png" \
+      "$PLOTS_DIR/{MODEL_NAME}_stella_lightcurve.png" \
+      "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
+      "$PLOTS_DIR/stella_output_multiband.png" \
+      "$PLOTS_DIR/nickel_evolution.png" \
+      "$PLOTS_DIR/opacity_heatmap.png" "$PLOTS_DIR/opacity_vs_T.png" \
+      "$PLOTS_DIR/opacity_vs_rho.png" "$PLOTS_DIR/opacity_ratio.png" \
+      2>/dev/null || true
 
 # Plot evolution (density, temperature, pressure, etc.) from .swd snapshots
 python "$SCRIPTS_DIR/plot_stella_evolution.py" \
     "$SWD_FILE" \
     "$PLOTS_DIR" \
-    --n-epochs 10 \
+    --n-epochs 8 \
     2>&1 | tee -a stella_build.log || echo "WARNING: evolution plotting failed (non-fatal)"
 echo "Evolution plots: $PLOTS_DIR/{MODEL_NAME}_evolution.png, $PLOTS_DIR/{MODEL_NAME}_radial_profiles.png"
 
@@ -762,6 +843,7 @@ if [[ -f "$SWD_FILE" && -f "$SCRIPTS_DIR/plot_composition_evolution.py" ]]; then
         "$ABN_FILE" \
         "$PLOTS_DIR" \
         --swd_file "$SWD_FILE" \
+        --xni-file "$MODEL_WORK_DIR/eve/{MODEL_NAME}.xni" \
         --n-epochs 10 \
         2>&1 | tee -a stella_build.log || echo "WARNING: composition evolution plotting failed (non-fatal)"
     echo "Composition evolution plot: $PLOTS_DIR/{MODEL_NAME}_composition_evolution.png"
@@ -823,7 +905,6 @@ if [[ ! -s "$FLX_FILE" ]]; then
         PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" python "$SCRIPTS_DIR/extract_lightcurve_from_lbol.py" \
             "$LBOL_FILE" \
             --output "$OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv" \
-            --plot "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
             2>&1 | tee -a stella_build.log || echo "WARNING: .lbol extraction failed"
         echo "Complete lightcurve CSV (from .lbol): $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
     else
@@ -833,13 +914,12 @@ if [[ ! -s "$FLX_FILE" ]]; then
 else
 # Use waterboa python (has pysynphot in user .local); conda env may lack it
 PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" \
-/mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/python3.12 \
+"$WATERBOA_ROOT/bin/python3.12" \
     "$SCRIPTS_DIR/extract_lightcurve_pysynphot.py" \
     "$SWD_FILE" \
     "$FLX_FILE" \
     --tt-file "$TT_FILE" \
     --output "$OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv" \
-    --plot "$PLOTS_DIR/{MODEL_NAME}_lightcurve_pysynphot.png" \
     2>&1 | tee -a stella_build.log || echo "WARNING: pysynphot lightcurve extraction failed (non-fatal; NumPy 2.0 incompatibility in pysynphot)"
 echo "Complete lightcurve CSV: $OUTPUT_DIR/{MODEL_NAME}_lightcurve_complete.csv"
 fi
@@ -1054,7 +1134,25 @@ ABN_DIR="$MODEL_WORK_DIR/modmake"
 SWD_FILE="$MODEL_WORK_DIR/{MODEL_NAME}.swd"
 NICKEL_PLOT="$PLOTS_DIR/nickel_evolution.png"
 
-if [[ -f "$XNI_FILE" ]] && [[ -d "$ABN_DIR" ]]; then
+# When Ni56 is present, the decay-chain panels are merged into
+# {MODEL_NAME}_composition_evolution.png by plot_composition_evolution.py
+# (--xni-file), so the standalone nickel plot is skipped.  The standalone
+# plot is still produced when Ni56 was not detected (uniform all-zero .xni)
+# or when the composition script is unavailable.
+NI56_DETECTED=0
+if [[ -f "$XNI_FILE" ]]; then
+    NI56_DETECTED=$(python - "$XNI_FILE" "$SCRIPTS_DIR" <<'PY' 2>/dev/null || echo 0
+import sys
+sys.path.insert(0, sys.argv[2])
+from plot_nickel_evolution import read_xni
+print(1 if read_xni(sys.argv[1]).max() > 1e-30 else 0)
+PY
+)
+fi
+
+if [[ "$NI56_DETECTED" == "1" ]]; then
+    echo "Ni56 detected: decay-chain panels merged into composition_evolution.png; skipping standalone nickel plot"
+elif [[ -f "$XNI_FILE" ]] && [[ -d "$ABN_DIR" ]]; then
     echo "Found .xni file and .abn directory, generating nickel evolution plot..."
     python "$SCRIPTS_DIR/plot_nickel_evolution.py" \
         "$MODEL_DIR" \

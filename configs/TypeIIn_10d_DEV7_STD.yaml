@@ -1,0 +1,190 @@
+# TypeIIn CMFGEN at ~10 days post-SBO — dev7 non-monotonic Sobolev test
+# (18-Sep-2026).
+#
+# Model: TypeIIn shell+CSM interaction (H/He shell, solar comp, Mdot=1e-2
+# Msun/yr wind) from the existing STELLA run TypeIIn/stella/TypeIIn.swd.
+# The snapshot is strongly non-monotonic: sigma=dlnV/dlnr-1 reaches
+# -72.7 with ~85% of depths below -1 (decelerating shocked shell).
+# Standard Sobolev tau diverges there, so this is the intended test
+# case for the dev7 DO_NONMONO_SOB (Dessart) path.
+#
+# non_mono_mode: SOB selects the SOB forced-key table; the
+# DO_NOMONO_SOB=T + DO_NONMONO_SOB=T entries in vadat_overrides below
+# are what actually activate the orchestrator's non-monotonic block
+# (which then stamps GLOBAL_LINE=SOB, USE_LAM_ES=T, SOL_METH=DIAG,
+# NUM_BNDS=1 and forces n_ob_ins=0 for the VEL_LAW=11 RDINR grid).
+#
+# skip_stella: reuses the existing TypeIIn.swd; only the SN_HYDRO_DATA
+# conversion at snapshot_days=10.0 runs, then CMFGEN.
+
+model_name: TypeIIn_10d_DEV7_STD
+description: 'CONTROL: TypeIIn at ~10 d post-SBO, standard solver (no
+  non-mono, GLOBAL_LINE=BLANK). Isolates whether the SOB escape path
+  drives the Lambda divergence vs a general model problem.'
+run_cmfgen: true
+run_sirocco: false
+run_sedona: false
+run_superlite: false
+skip_stella: true
+cancel_jobs: true
+force_cancel: true
+plot_lightcurve: false
+submission: debug
+hydro_backend: stella
+
+cmfgen_conversion:
+  heracles_dir: heracles
+  snapshot_days:
+  - 10.0
+  epoch_tolerance: 2.0
+  stella_extra_days: 0
+  output_file: cmfgen/SN_HYDRO_DATA
+  cmfgen_tau_max: 30
+  cmfgen_tau_min: 0.01
+  n_grid: 100
+  adaptive_grid: true
+  gradient_threshold: 0.5
+  velocity_max_kms: 10000
+  v_min_km_s: 2500.0
+  opacity_model: stella_nlte
+  kappa_constant: 0.34
+  enable_grid_thinning: false
+  grid_thinning_threshold: 0.005
+  enable_adaptive_grid: true
+  use_tau_amr: true
+  base_grid_method: log_tau
+  tau_spacing: auto
+  composition_aware: true
+  composition_grid_insertion: false
+  composition_gradient_threshold: 0.5
+  base_grid_target: 100
+  max_points: 150
+  max_thin_zones: 0
+  max_thick_tau: 10000000000.0
+  min_points: 80
+  min_nd: 80
+  sigma_conformance_headroom: 30
+  max_radius_jump: 0.05
+  max_temp_jump: 0.1
+  max_density_jump: 0.15
+  smooth_velocity: false
+  no_velocity_smoothing: true
+  smooth_wiggles: false
+  wiggle_window: 5
+  velocity_smooth_window_kms: 50.0
+  enable_velocity_spacing_optimization: false
+  include_ne_amr: false
+  max_ne_jump: 0.1
+  ionization_front_aware: true
+  ionization_front_threshold: 0.5
+  ionization_front_min_points: 5
+  ionization_front_width: 3
+  ionization_front_cap: 0.15
+  resolve_recombination_fronts: true
+  recombination_t_jump: 0.3
+  recombination_front_width: 5
+  max_logtau_jump: 0.25
+  max_velocity_jump: 0.3
+  max_sigma_jump: 2.0
+  max_cell_ratio: 2.0
+  thin_grid_tau: 1.0
+  thin_grid_priority: 1.0
+  outer_boundary_extra_points: 5
+  outer_boundary_ratio: 1.5
+  min_dr_r: 0.0001
+  max_dr_r: 0.15
+  sigma_priority_threshold: 1.0
+  sigma_priority: 2.0
+  dsigma_priority_threshold: 0.3
+  dsigma_priority: 2.0
+  smooth_sigma: false
+  smooth_sigma_scatter: false
+  max_dsigma: 1.0
+  sigma_smooth_passes: 10
+  sigma_smooth_window: 0.3
+  smooth_sigma_global: false
+  sigma_global_window: 7
+  sigma_global_max_rel_change: 0.05
+  trace_threshold: 1.0e-06
+
+cmfgen:
+  base_dir: ./cmfgen_base
+  model_type: static_snapshot
+  init_num_its: 1000
+  single_final: true
+  target_nd: 150
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V7
+  inc_rad_decays: true
+  vturb: 20.0
+  incl_rel: false
+  # VEL_LAW=11 (SET_RV_HYDRO_MODEL_V3): reads R from RDINR and interpolates
+  # V directly from SN_HYDRO_DATA — required for the non-monotonic
+  # velocity field (VEL_LAW=12 is homologous and cannot represent it).
+  vel_law: 11
+  depth_independent_solver: true
+  # Standard-solver CONTROL (19-Sep-2026): no non-mono block. The
+  # orchestrator stamps GLOBAL_LINE=BLANK and the standard moment
+  # solver; sigma is clamped internally. If this converges, the
+  # Lambda divergence in the SOB run is specific to the Sobolev
+  # escape-probability treatment at sigma ~ -1, not the model.
+  # non_mono_mode intentionally absent.
+  do_gt_auto: false
+  proxy_populations: true
+  vadat_overrides:
+    LSTAR: 0.0D0
+    VTURB: 20.0D0
+    # Ejecta-only boundary (19-Sep-2026): tau_inner=28.6 < 50 so the
+    # DIFFUSION BC is outside its validity range -- the pipeline warns it
+    # can produce a negative or blown-up inner-boundary J, and OUTGEN
+    # showed DTDR=0 at the boundary on it1. ZERO_FLUX matches LSTAR=0.
+    DIF: F
+    IB_METH: ZERO_FLUX
+    STOP_IF_BP: F
+    # T structure comes from the shocked hydro — hold it fixed.
+    FIX_T: T
+    FIX_T_AUTO: F
+    FIX_IMP: T
+    # Start in Lambda mode, auto-switch to BA at MAXCH<50% (verified
+    # non-mono default). DO_LAM_AUTO=F would stay Lambda forever and the
+    # BA-mode FIX_BA/N_FIX_BA controls would never be exercised.
+    DO_LAM_IT: T
+    DO_LAM_AUTO: T
+    # Non-mono activation keys deliberately absent (standard control).
+    # VEL_LAW=11 + RD_IN_R_GRID=T: MODEL_SPEC ND must equal the RDINR
+    # point count, so no boundary insertions are allowed.
+    N_OB_INS: 0
+    N_IB_INS: 0
+    REV_RGRID: F
+    # FIX_NE=F (project default, 25-Sep-2026): Ne solved from charge
+    # conservation. The 19-Sep FIX_NE=T test pinned Ne to isolate the
+    # it9 divergence driver (var 194, electron density); test concluded.
+    FIX_NE: F
+    # Stall fix (18-Sep-2026): FIX_BA=15 + N_FIX_BA=0 froze the Jacobian
+    # permanently once MAXCH<15% — the M15 runs plateaued at ~0.357.
+    # N_FIX_BA=10 gives periodic BA refreshes; FIX_BA=1 delays freezing.
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+    # Deliberately NO LAM_SCALE_OPT=LIMIT (user directive 18-Sep-2026):
+    # the correction clip only masks divergence. If the model diverges,
+    # the cause is elsewhere (J at reversal depths, boundary sigma,
+    # initial populations) and must surface, not be damped away.
+  mem: 31G
+  init_mem: 31G
+  n_ob_ins: 0
+  final_requeue_when: wall
+  final_requeue_max: 500
+  auto_set_rstar: false
+  auto_set_lstar: false
+  phot_tau: 0.6666667
+  bb_teff_k: 9100
+  lstar_radius_mode: RMAX
+  notification_email: sbrennan@mpe.mpg.de
+
+output:
+  model_dir: ./TypeIIn
+  stella_output: stella
+  cmfgen_output: cmfgen
+  sedona_output: sedona
+  superlite_output: superlite
+  plots: plots
+  outputs: output

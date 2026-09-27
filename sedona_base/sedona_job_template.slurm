@@ -12,20 +12,16 @@
 
 set -euo pipefail
 
-# Use astro conda environment with numpy
-source /mpcdf/soft/RHEL_9/packages/x86_64/python-waterboa/2024.06/bin/activate /ptmp/sbrennan/conda-envs/astro
+# Use system python (numpy available via waterboa module)
 unset PYTHONPATH PYTHONHOME
 
 # Load required modules for SEDONA
-module use /mpcdf/soft/RHEL_9/sub/intel_2024_0/modules/mpi
-module use /mpcdf/soft/RHEL_9/modules/compilers
-module use /mpcdf/soft/RHEL_9/modules/third-party-compilers
-
 module purge
 module load intel/2024.0
 module load openmpi/4.1
 module load gsl/2.6
 module load hdf5-serial/1.14.1
+module load python-waterboa/2025.06
 
 export SEDONA_HOME=/ptmp/sbrennan/sedona
 

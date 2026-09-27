@@ -24,7 +24,7 @@ F               [PURE_HUB]     ! Keep exact V(r) from hydro
 T               [SN_DEBUG_LUM] ! RLUMST, OBSFLUX writes
 LOCAL           [GAMRAY_TRANS] ! Local gamma-ray deposition
 F               [TRT_NON_TE]   ! Non-thermal electrons off
-F               [INC_SHOCK_POWER] ! [OPT] was T; shock power from hydro off (Dessart+2015: T fixed to hydro; shock heating already in T(r))
+F               [INC_SHOCK_POWER] ! add shock heating beyond hydro T (F = heating already in T(r))
 F               [SCL_PWR_BY_FCL] ! Scale shock power by CLUMP_FAC
 F               [ADD_SHOCK_POWER_SLOWLY] ! Introduce shock power slowly
 F               [DO_HYDRO]     ! Not running CMFGEN hydro
@@ -38,22 +38,16 @@ F               [INC_RAD_DECAYS] ! Ni/Co decay (DISABLED to avoid isotope data c
 F               [INS_DEP]      ! Instantaneous decay at SN_AGE
 
 !--- 3. Continuum frequency grid ---
-! [OPT] MIN_CF raised: avoids sparse low-nu grid points that slow BA assembly
-!        with minimal impact on IIn emission (peak flux well above 0.003x10^15 Hz)
-! [OPT] MAX_CF raised to 25.0: covers Fe IV (73.9 eV) and Fe V (97.1 eV) edges
-! [OPT] FRAC_SP / AMP_FAC tightened: smoother geometric spacing reduces
-!        interpolation error in the Eddington factor iteration
-! [OPT] MAX_BF tightened: better-resolved bound-free edges improve
-!        the photoionization rates for the dominant O/Ne/Si species
+! Continuum frequency grid limits and spacing (1e15 Hz units)
 ! [OPT] V_CROSS / SIG_GAU_KMS: 500 km/s for 500 km/s feature resolution
 !        line profiles while halving the number of explicit chi/eta points
 F               [RD_CF_FILE]   ! Build frequency grid internally
-1.0D-2         [MIN_CF]       ! [OPT] 0.01 (was 0.1 for MOM_J_REL_V9; VEL_LAW=11 doesn't need high MIN_CF)
-25.0D0          [MAX_CF]       ! Covers Fe V ionization edge (~23.45e15 Hz = 97.1 eV); was 13.5 (Fe I-III only)
-1.08D0          [FRAC_SP]      ! [OPT] was 1.10; smoother low-nu spacing
-1.04D0          [AMP_FAC]      ! [OPT] was 1.05; smoother high-nu spacing
-0.05D0          [MAX_BF]       ! [OPT] was 0.10; tighter BF edge resolution
-F               [DO_DIS]       ! Level dissolution off
+3.0D-3          [MIN_CF] ! lowest continuum frequency in 1e15 Hz (far-IR edge)
+2.0D2           [MAX_CF] ! highest continuum frequency in 1e15 Hz (far-UV edge)
+1.10D0          [FRAC_SP] ! max ratio of adjacent continuum-grid frequencies
+1.05D0          [AMP_FAC] ! allowed growth of FRAC_SP toward high nu
+0.10D0          [MAX_BF] ! max grid spacing near bound-free edges (1e15 Hz)
+T               [DO_DIS] ! include level dissolution (occupation probabilities)
 200.0D0         [dV_LEV]       ! Velocity spacing below BF edge (km/s)
 1.4D0           [AMP_DIS]      ! Spacing growth away from edge
 0.1D0           [MIN_DIS]      ! Min freq for dissolution (10^15 Hz)
@@ -74,10 +68,10 @@ T               [WNET]         ! Net-rate for weak lines
 ! INCL_REL=F: required when USE_J_REL=F (CMFGEN check_param_consistency.f).
 ! N_TYPE=N_ON_J: N/J Eddington factor. J is always > 0 from the formal solution,
 ! so N/J is well-defined even at velocity reversals where H=0.
-! G_ONLY (N/H) is undefined when H=0 at velocity reversals — unstable.
+! G_ONLY (N/H) is undefined when H=0 at velocity reversals - unstable.
 ! CHK_J=ABS_VAL patches negative J at shock fronts.
-! Non-monotonic velocity handled by Sobolev line code (Dessart+2015
-! prescription: max(|1+sigma*mu^2|, -0.2*(1+sigma)) for sigma < 0).
+! Non-monotonic velocity handled by the Sobolev line code: the profile
+! factor is floored at max(|1+sigma*mu^2|, -0.2*(1+sigma)) for sigma < 0.
 F               [USE_J_REL]    ! Off: MOM_JREL_V9 disabled (sigma cap causes instabilities for non-monotonic V)
 F               [USE_JREL]     ! Stale keyword (not read by CMFGEN)
 T               [USE_LAM_ES]   ! On: J=TC formal solution (bypasses moment equations for non-monotonic V)
@@ -90,7 +84,7 @@ F               [JC_W_EDD]     ! EDDFACTOR ACCESS=DIRECT (off for init; T in fin
 F               [JBAR_W_EDD]   ! Line continuum J from Eddington factors off
 T               [DIF]          ! Diffusion at inner boundary
 DIFFUSION       [IB_METH]      ! Inner boundary method
-F               [COH_ES]       ! Non-coherent electron scattering (Dessart+2015: incoherent Thomson for line wings)
+F               [COH_ES] ! electron-scattering source term (T = coherent, F = non-coherent)
 N_ON_J           [N_TYPE]       ! N/J Eddington factor (J>0 always; stable at velocity reversals where H=0)
 INT/INS         [FG_OPT]       ! Integral short characteristics
 ABS_VAL         [CHK_J]        ! Patch negative J at shock fronts (|J|/10); fixes NaN from FORM_VAL cold-start
@@ -118,82 +112,52 @@ ZERO            [LUM_METH]     ! L from ETA
 0.50D0          [VFRAC_MOM]    ! [OPT] was 0.4; coarser RT grid for SN (prevents ND adjustment)
 F               [THK_CONT]     ! No incident radiation at outer boundary
 T               [TRAP_J]       ! Trapezoidal weights for J,H,K,N
-T               [COMP_F]       ! Compute Eddington factors at start
+F               [COMP_F] ! skip initial Eddington-factor solve (J-release phase forces T)
 1.0D-02         [ACC_F]        ! [OPT] was 5e-3; relaxed Eddington convergence for DIAG stability
 15              [N_IB_INS]     ! More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
 15              [N_OB_INS]     ! More boundary points for DIAG solver stability (was 10; CMFGEN limit is 16)
 0.0D0           [REXT_FAC]     ! No R-grid extension
 
 !--- 6. Line broadening ---
-! [OPT] MAX_DOP raised 6->8:
-!   At VINF=10472 km/s lines overlap strongly; a wider resonance zone
-!   prevents opacity gaps between adjacent lines during the line-transfer step.
-! [OPT] FRAC_DOP raised 1.0->1.5:
-!   Coarser in-resonance sampling is consistent with the larger Doppler
-!   widths and reduces the total number of frequency quadrature points.
-! [OPT] dV_CMF_PROF coarsened 200->500 km/s:
-!   VINF=10472 means line cores span ~20000 km/s; 500 km/s still gives
-!   ~40 points across the profile while cutting the CMF frequency array
-!   by 2.5x, directly reducing BA matrix assembly time.
-! [OPT] dV_CMF_WING coarsened 300->800 km/s:
-!   Wing regions need less resolution; 800 km/s matches the coarser
-!   profile sampling and avoids redundant frequency points.
-! [OPT] ES_WING_EXT raised 2500->12000 km/s:
+! TDOP/AMASS_DOP set the line Doppler width; MAX_DOP/FRAC_DOP cap the
+! frequency extent of line profiles. dV_CMF_* and R_CMF_WING_EXT set
+! the CMF-frame velocity sampling in line cores and wings.
+! [OPT] ES_WING_EXT kept at 12000 km/s:
 !   Non-coherent ES wings must extend beyond VINF=10472 km/s.
-!   The previous value of 2500 km/s truncated the wings far inside VINF,
-!   causing missing flux in the ES redistribution and forcing extra
-!   Lambda iterations to compensate.  12000 km/s provides safe margin.
-! [OPT] R_CMF_WING_EXT raised 3.0->4.0:
-!   Coherent ES wing in VINF units; larger VINF requires wider coverage.
+!   2500 km/s truncated the wings far inside VINF, causing missing
+!   flux in the ES redistribution.  12000 km/s provides safe margin.
 T               [FIX_DOP]      ! Fixed Doppler width
-4.0D0           [TDOP]         ! Doppler T (10^4 K) — irrelevant when AMASS_DOP=1e40
-1.0D+40         [AMASS_DOP]    ! Manual: "set AMASS_DOP=1.0D+40, use VTURB to control width"
-20.0D0          [VTURB]        ! Dessart+2015: 20 km/s turbulent velocity (controls line width)
-8.0D0           [MAX_DOP]      ! [OPT] was 6.0; wider resonance zone
-1.5D0           [FRAC_DOP]     ! [OPT] was 1.0; coarser in-resonance sampling
-80.0D0          [dV_CMF_PROF]  ! [OPT] was 200; resolve 100 km/s features
-200.0D0         [dV_CMF_WING]  ! [OPT] was 300; resolve 100 km/s features
+1.0D0           [TDOP]   ! Doppler temperature for line widths (1e4 K units)
+4.0D+10         [AMASS_DOP] ! huge Doppler mass so VTURB alone sets line width
+20.0D0          [VTURB]  ! turbulent velocity (km/s); sets line Doppler width
+6.0D0           [MAX_DOP] ! resonance-zone half-width in Doppler units
+1.0D0           [FRAC_DOP] ! frequency spacing inside resonance zone (Doppler units)
+200.0D0         [dV_CMF_PROF] ! comoving spacing in line cores (km/s)
+300.0D0         [dV_CMF_WING] ! comoving spacing in line wings (km/s)
 12000.0D0       [ES_WING_EXT]  ! [OPT] was 2500; MUST exceed VINF=10472 km/s
-4.0D0           [R_CMF_WING_EXT] ! [OPT] was 3.0; wider coherent ES wing
+3.0D0           [R_CMF_WING_EXT] ! coherent-ES wing extent in VINF units; pipeline floors 4.0 when COH_ES=F
 
 !--- 7. Observed-frame spectrum ---
-! [OPT] OBS_EXT_RAT raised 1.1->1.3:
-!   Ensures the observed-frame line grid extends beyond the blueshifted
-!   absorption trough at ~VINF, which is critical for P-Cygni profiles
-!   at this high velocity.
-! [OPT] dV_OBS_PROF coarsened 100->300 km/s:
-!   At VINF=10472 km/s the line profiles are intrinsically broad;
-!   300 km/s still gives adequate sampling while reducing the observer
-!   frequency array by 3x.
-! [OPT] dV_OBS_WING coarsened 400->1000 km/s:
-!   Consistent with the coarser profile sampling.
-! [OPT] dV_OBS_BIG raised 2000->4000 km/s:
-!   Wider inter-line spacing avoids unnecessary frequency points in
-!   continuum regions where no lines exist.
-1.3D0           [OBS_EXT_RAT]  ! [OPT] was 1.1; wider observed-frame coverage
-40.0D0          [dV_OBS_PROF]  ! [OPT] was 100; resolve 100 km/s features
-150.0D0         [dV_OBS_WING]  ! [OPT] was 400; resolve 100 km/s features
-800.0D0         [dV_OBS_BIG]   ! [OPT] was 2000; resolve 100 km/s features
+! OBS_EXT_RAT extends the observed-frame wavelength range; dV_OBS_*
+! set the observed-frame velocity sampling in cores, wings and continuum.
+! F_LAM_END=25000 A (2.5 um) per user directive; F_LAM_BEG=0 covers the UV.
+1.1D0           [OBS_EXT_RAT] ! extend obs grid this factor beyond the bluest line edge
+100.0D0         [dV_OBS_PROF] ! observer spacing in line cores (km/s)
+400.0D0         [dV_OBS_WING] ! observer spacing in line wings (km/s)
+2.0D3           [dV_OBS_BIG] ! observer spacing in line-free regions (km/s)
 F               [FLUX_CAL_ONLY] ! Iterate (not flux-only)
 F               [EXT_FRM_SOL]  ! No formal solution beyond RMAX
 T               [INS_F_FRM_SOL] ! Extra nu in formal solution
 INT             [FRM_OPT]      ! Integral short-char formal solver
 T               [DO_SOB_LINES] ! Sobolev equivalent widths
 T               [SOB_FREQ_IN_OBS] ! Sobolev nu in observed grid
-F               [LAM_SET]      ! Dessart+2015: keep GLOBAL_LINE=SOB active, suppress overlap warning
-50.0D0          [F_LAM_BEG]    ! Shortest wavelength (A)
-5.0D4           [F_LAM_END]    ! Longest wavelength (A)
+F               [LAM_SET] ! keep GLOBAL_LINE=SOB active; suppress overlap warning
+0.0D0           [F_LAM_BEG] ! shortest output wavelength (A; 0 = from grid start)
+2.5D4           [F_LAM_END]    ! Longest wavelength: 2.5 um (user directive)
 
 !--- 8. Bound-bound & blanketing ---
-! [OPT] GF_CUT raised 1e-3->5e-3:
-!   For an O/Ne/Si-rich IIn ejecta the weak-line forest from Fe/Ni/Co
-!   is dense but most contribute negligibly to the opacity budget.
-!   Raising GF_CUT by 5x removes ~30-40% of the line list, cutting
-!   the frequency array size and BA assembly time substantially.
-! [OPT] MIN_TRANS raised 10->15:
-!   Levels with fewer than 15 bound-bound transitions rarely affect
-!   the level population solution; removing them reduces the NLTE
-!   rate matrix without significant physical impact.
+! Line-list filters: GF_CUT drops weak lines; AT_CUT and MIN_TRANS
+! trim the number of transitions retained per ion.
 ! [OPT] MIX_COH changed T->F:
 !   Mixed coherent scattering adds off-diagonal coupling in the
 !   electron scattering redistribution.  For a first convergence pass
@@ -205,10 +169,10 @@ F               [LAM_SET]      ! Dessart+2015: keep GLOBAL_LINE=SOB active, supp
 !   damps the coherent-scattering oscillation that commonly stalls
 !   convergence in high-VINF models.  Return to 1.0 for final run.
 SOB             [GLOBAL_LINE]  ! Sobolev rates
-5.0D-3          [GF_CUT]       ! [OPT] was 1e-3; remove weaker lines
+2.0D-3          [GF_CUT] ! discard lines weaker than this normalized gf-cut
 9               [GF_LEV_CUT]   ! Apply GF_CUT above this level
-22              [AT_CUT]       ! Min atomic number for GF cut
-15              [MIN_TRANS]    ! [OPT] was 10; fewer marginal levels
+10              [AT_CUT] ! apply GF_CUT only to species with atomic number >= this
+9               [MIN_TRANS] ! discard levels with fewer bound-bound transitions than this
 F               [THK_LINE]     ! Thick-line outer BC off
 T               [CHK_L_POS]    ! Prevent negative total opacity
 SRCE_CHK        [NEG_OPAC_OPT] ! Limit source when chi negative
@@ -220,13 +184,13 @@ T               [SCL_LN]       ! Ignore lines in continuum opacity
 F               [SCL_SL_OPAC]  ! No separate SL opacity scaling
 F               [OLD_J]        ! Old J option off
 F               [MIX_COH]      ! [OPT] was T; disable for convergence phase (simpler ES source fn)
-0.6D0           [ES_FAC]       ! [OPT] was 0.8; further damp ES oscillation in init (Dessart+2015 uses 0.6 for IIn)
+0.6D0           [ES_FAC] ! electron-scattering source weight (only used when MIX_COH=T)
 
 !--- 9. Physical process switches ---
 F               [INC_CHG]      ! [OPT] was T; charge exchange disabled (CHG_EXCH_DATA not available)
 T               [INC_TWO]      ! Two-photon on
-F               [INC_PEN]      ! Penning off
-F               [INC_RAY]      ! Rayleigh off
+T               [INC_PEN] ! include Penning ionization
+T               [INC_RAY] ! include Rayleigh scattering opacity
 F               [INC_XRAYS]    ! Shock X-rays off
 
 !--- 10. Grid / initial model ---
@@ -234,8 +198,8 @@ T               [RD_IN_R_GRID] ! T: use RDINR R grid directly (VEL_LAW=11)
 F               [LIN_INT]      ! No interpolation from previous model
 T               [POP_SCALE]    ! SNA stable setting
 F               [IT_ON_T]      ! Hydro T; no grey iteration
-20.0D0          [T_INIT_TAU]   ! Tau for T re-estimate (if IT_ON_T=T)
-10.0D0          [GREY_TAU]     ! SNA stable setting
+1.5D0           [T_INIT_TAU] ! tau depth for initial T estimate (only used if IT_ON_T=T)
+0.5D0           [GREY_TAU] ! tau depth anchoring the grey-T estimate
 T               [LTE_EST]      ! LTE initial populations on (bootstrap)
 7.00D-1         [T_EXC]        ! 7000 K fallback min excitation T (overridden by
                                 ! T_photosphere from STELLA hydro; per full_descr.pdf:
@@ -243,11 +207,11 @@ T               [LTE_EST]      ! LTE initial populations on (bootstrap)
                                 ! temperature can prevent overflows. Populations in
                                 ! the outer optically thin regions are more closely
                                 ! related to the radiation field (T_EXC) than T_local."
-! All transitions use SOB (Sobolev) — from Luc's work on non-monotonic solvers
-! where lines are formed using the SOB approximation. CMF line treatment is
+! All transitions use SOB (Sobolev): line transfer uses the local |dv/dr|
+! escape probability instead of CMF ray integration. CMF line treatment is
 ! unstable with non-monotonic velocity (sigma < -1) because the CMF ray
 ! integration (FG_J_CMF_V13) produces warnings and numerical issues at
-! velocity reversals. SOB uses local |dv/dr| only and is robust.
+! velocity reversals. SOB uses local |dv/dr| only and is stable there.
 SOB             [TRANS_HI]
 SOB             [TRANS_HeI]
 SOB             [TRANS_He2]
@@ -266,7 +230,7 @@ SOB             [TRANS_Fe2]
 SOB             [TRANS_FeIII]
 SOB             [TRANS_FeIV]
 SOB             [TRANS_FeV]
-3.0D-01         [T_MIN]        ! 3000 K floor to prevent PREVENT_LOW_T overflow
+2.0D-01         [T_MIN]  ! temperature floor in 1e4 K units (2000 K)
 
 !--- 11. Abundances (log mass fractions; negative sign convention) ---
 !--- 5-element composition: H, He, O, Si, Ca, Fe + radioactive Ni ---
@@ -275,7 +239,7 @@ SOB             [TRANS_FeV]
 -4.23D-01       [OXY/X]        ! O (2 ionization stages)
 -1.6312100D-01  [SIL/X]        ! Si (2 ionization stages)
 -1.21D-02       [CAL/X]        ! Ca (2 ionization stages)
--2.64712042D-02 [IRON/X]       ! Fe (5 ionization stages: I-V, Dessart+2015)
+-2.64712042D-02 [IRON/X] ! Fe (5 ionization stages: I-V)
 -5.38504702D-03 [NICK/X]       ! Ni (radioactive 56Ni from STELLA)
 -1.0034969D-12  [COB/X]        ! Co (from Ni56 decay)
 
@@ -329,13 +293,13 @@ F,F             [DIE_FeV]
 0               [FIX_IRON]
 
 !--- 14. Convergence: T / Ne / impurities ---
-! Dessart+2015: temperature fixed to hydro at all depths (FIX_T=T, FIX_X_DPTH=0).
+! FIX_T=T / FIX_X_DPTH=0: temperature held on the hydro profile at all depths.
 ! This is the correct approach when T(r) comes from HERACLES/STELLA hydro output.
 ! Ne allowed to vary (FIX_NE=F) so electron density converges self-consistently in NLTE.
-! FIX_NE=T only used in init (prepare_VADAT --init) to stabilise first-iteration populations.
-T               [FIX_NE]       ! [OPT] was F; fix Ne during init for stability (overridden to F in final by prepare_VADAT)
+! FIX_NE=T is available via --fix_ne / vadat_overrides to stabilise first-iteration populations.
+F               [FIX_NE] ! Ne free - CMFGEN solves Ne from charge conservation
 F               [FIX_IMP]      ! Impurity populations free (init profile: F; was T)
-T               [FIX_T]        ! Dessart+2015: T fixed to hydro at all depths
+T               [FIX_T]  ! hold T at the hydro profile at all depths
 F               [FIX_T_AUTO]   ! No auto-release of T
 F               [FIX_INB_T]    ! Inner boundary T from hydro (FIX_T=T covers all depths)
 0               [FIX_X_DPTH]   ! T fixed at ALL depths (0 = all; consistent with FIX_T=T)
@@ -344,22 +308,22 @@ F               [FIX_INB_T]    ! Inner boundary T from hydro (FIX_T=T covers all
 !--- 15. Linearisation & BA ---
 ! SOL_METH=DIAG: consistent with N_TYPE=N_ON_J (NUM_BNDS=1).
 ! Each depth solved independently (DGETRF/DGETRS). No inter-depth coupling.
-! Slower convergence but more stable — no error propagation across shock regions.
-DIAG            [SOL_METH]     ! Diagonal solver (depth-independent, Dessart+2015)
+! Slower convergence but more stable - no error propagation across shock regions.
+DIAG            [SOL_METH] ! depth-independent diagonal linearization solver
 MAJOR           [SCALE_OPT]    ! Limit per-depth max change
-5.0D-02         [EPS_TERM]     ! Manual: "Typically choose 0.01 to 0.1"; 5% for init, tightened to 1% in final
-1.05D0          [MAX_LIN]      ! 1.05x — consistent with MAX_LAM=1.05 (5% max change)
-1.05D0          [MAX_LAM]      ! 1.05x — 5% max change per iteration (was 1.01x; safe after convergence confirmed)
-1.0D100         [MAX_CHNG]     ! Abort threshold only (cmfgen_sub.f:4383); MAX_LAM controls actual corrections
+5.0D-02         [EPS_TERM] ! iterate until the max % population change falls below this
+5.0D0           [MAX_LIN] ! max correction factor allowed per linearization step
+1.0D10          [MAX_LAM]      ! 1e10 - user directive 15-Sep-2026 (was 1.05); effectively unclamped Lambda steps
+1.0D150         [MAX_CHNG] ! abort if a correction exceeds this % change; MAX_LAM is the real limiter
 T               [COMP_BA]      ! Recompute BA each time
-T               [STORE_BA_INV] ! Store BA inverse on disk
-T               [WR_PRT_INV]   ! Write part of inverse (reduce memory)
+F               [STORE_BA_INV] ! do not store the BA inverse on disk
+F               [WR_PRT_INV] ! do not write the partial BA inverse
 T               [STORE_BA]     ! Store BA on disk (BAMAT)
-5               [N_FIX_BA]     ! Manual: "recommended value is 2"; 5 allows some BA reuse
-5.0D-02         [BA_CHK_FAC]   ! Manual: "Typically we adopt 5%" (was 1e-5 — BA never recomputed)
-1.0D-02         [FIX_BA]       ! Switch to BA when max change < 1%
-4.0D2           [LAM_VAL]      ! Manual: "Typically do Lambda if % change > 400"
-2               [NUM_LAM]      ! Manual: "Typically choose 2"
+2               [N_FIX_BA] ! recompute the BA matrix every N iterations
+1.0D-05         [BA_CHK_FAC] ! fractional accuracy demanded of the BA solution
+1.0D1           [FIX_BA] ! switch to BA solver once max % change falls below this
+2.0D2           [LAM_VAL] ! keep Lambda-iterating while max % change exceeds this
+2               [NUM_LAM] ! Lambda iterations between full linearizations
 F               [RD_SOL]       ! Do not read external solution
 
 !--- 16. Spatial grid ---
@@ -375,35 +339,27 @@ F               [RD_SOL]       ! Do not read external solution
 !   Fewer quadrature depths at the inner boundary reduces the cost of
 !   the formal solution without affecting the accuracy of the Eddington
 !   factors, which are dominated by the outer region.
-! [OPT] N_PAR reduced 300->150:
-!   Halving the BA update frequency reduces I/O and assembly overhead;
-!   150 frequency intervals between updates is still safe at this grid size.
+! N_PAR=2000: frequencies solved between BA matrix rebuilds.
 F               [INC_GRID]     ! SNA stable setting
-T               [ALL_FREQ]     ! Apply accuracy at all nu
+F               [ALL_FREQ] ! apply the grid-accuracy test only where needed, not at all nu
 2.0D0           [ACC_END]      ! Min nu for enhanced grid (10^15 Hz)
 2               [N_INS]        ! Extra depths (if INC_GRID=T)
 1               [ST_INT]       ! First depth for insertion
 30              [END_INT]      ! Last depth for insertion
 30              [ND_QUAD]      ! [OPT] was 50; fewer inner quadrature depths
 LOG             [INTERP_TYPE]  ! Log R interpolation
-150             [N_PAR]        ! [OPT] was 300; fewer BA update intervals
+2000            [N_PAR]  ! frequency intervals between BA recomputations
 
 !--- 17. Ng acceleration ---
-! DISABLED: With MAX_LAM=1.05, Ng acceleration can extrapolate the slow
-! convergence sequence and trigger the J-population cascade (trace species
-! growth ~1e10x). Pure Lambda with MAX_LAM=1.05 converges safely in ~250
-! iterations (linearly, but each step bounded to 1% change).
-! Previous DO_NG=F with MAX_LAM=1.1 caused infinite Lambda loop, but with
-! MAX_LAM=1.05 the moderate convergence rate prevents the cascade.
-! Manual recommendations (kept for reference, inactive when DO_NG=F):
-!   IBEG_NG: "at least 15 (or more) iterations have been completed"
-!   BEG_NG: "Typically choose 5% to 10%"
-!   ITS/NG: "We typically adopt 8"
-F               [DO_NG]        ! Disabled: can cause population explosions with MAX_LAM=1.05
-1.0D1           [BEG_NG]       ! Manual: "Typically choose 5% to 10%" — start Ng when max change < 10%
-15              [IBEG_NG]      ! Manual: "at least 15 iterations" before first Ng
-30              [BW_NG]        ! Manual: "a value of ND may be better" for DIAG; 30 is a good band
-8               [ITS/NG]       ! Manual: "We typically adopt 8"
+! Ng extrapolates the convergence sequence to accelerate Lambda
+! iterations. It only activates after IBEG_NG iterations and once the
+! maximum population change falls below BEG_NG percent, so it cannot
+! amplify the large early-iteration corrections.
+T               [DO_NG]        ! enable Ng acceleration of the Lambda iteration
+1.0D1           [BEG_NG] ! start Ng acceleration when max % change falls below this
+20              [IBEG_NG] ! minimum iterations before first Ng acceleration
+40              [BW_NG]  ! depths per Ng acceleration band
+8               [ITS/NG] ! run Ng every N-th iteration
 
 !--- 18. Relativistic observer ---
 T               [REL_OBS]      ! Relativistic observed spectrum (required for SN models with V>1000 km/s)

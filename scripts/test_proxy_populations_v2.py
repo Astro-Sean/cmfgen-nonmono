@@ -81,7 +81,7 @@ def _write_synth_hydro_file(path: str, nd: int = 6) -> str:
     lines = [
         f"Number of data points:       {nd}",
         "Number of mass fractions:         3",
-        "Number of isotopes:         1",
+        "Number of isotopes:         0",
         "Time(days) since explosion:      1.0000000",
         "Energy Lum [lsun]:       1.000000E+06",
         "Inner boundary radius [cm]:       1.000000E+14",
@@ -911,7 +911,7 @@ class TestEdgeCases:
         lines = [
             f"Number of data points:       {nd}",
             "Number of mass fractions:         3",
-            "Number of isotopes:         1",
+            "Number of isotopes:         0",
             "Time(days) since explosion:      1.0000000",
             "Energy Lum [lsun]:       1.000000E+06",
             "Inner boundary radius [cm]:       1.000000E+14",
@@ -941,11 +941,10 @@ class TestEdgeCases:
             f.write("\n".join(lines) + "\n")
             path = f.name
         try:
-            h = pp.parse_sn_hydro_data(path)
-            # The parser should detect that R is increasing (wrong order)
-            # and either reverse it or flag it.  Currently it just reads it
-            # as-is; the test verifies the parser doesn't crash.
-            assert h.nd == nd
+            # The parser must reject increasing R (wrong order) rather than
+            # silently accepting it.
+            with pytest.raises(ValueError):
+                pp.parse_sn_hydro_data(path)
         finally:
             os.unlink(path)
 
@@ -2583,6 +2582,453 @@ class TestStellaRadiationAdapter:
         assert stella.t_rad is not None
         assert stella.radius is not None
         assert np.isclose(stella.t_rad[0], 2.0)
+
+
+# ---------------------------------------------------------------------------
+# Mazzali-Lucy nebular ionisation + dilute-LTE + T_gas DC denominator
+# ---------------------------------------------------------------------------
+
+class TestNebularAndDiluteLTE:
+
+    def test_ml93_w1_te_eq_tr_is_lte(self):
+        """W=1 and T_e=T_R must recover LTE Saha fractions (VERIFIED identity)."""
+        T = np.array([8.0e3, 1.5e4, 3.0e4])
+        ne = np.array([1e8, 1e10, 1e12])
+        W = np.ones(3)
+        chi = [109678.0]
+        gratio = [0.5]
+        lte = pp.solve_saha_chain(chi, gratio, T, ne)
+        neb = pp.solve_saha_chain(
+            chi, gratio, T, ne, w_dilute=W, ionization_mode="nebular",
+            t_e_K=T, zeta=1.0, chi0_cm=pp.CHI0_HYD_CM,
+        )
+        assert np.allclose(neb.fracs, lte.fracs, rtol=1e-10, atol=1e-12)
+
+    def test_ml93_phi_factor_unity_at_lte(self):
+        w = np.array([1.0])
+        t = np.array([1.0e4])
+        fac = pp.ml93_phi_factor(w, t, t, 109678.0, zeta=1.0, chi0_cm=pp.CHI0_HYD_CM)
+        assert np.isclose(fac[0], 1.0, rtol=1e-12)
+        fac_m = pp.ml93_phi_factor(w, t, t, 50000.0, zeta=0.5, chi0_cm=pp.CHI0_HYD_CM)
+        assert np.isclose(fac_m[0], 1.0, rtol=1e-12)
+
+    def test_ml93_small_w_reduces_ionization(self):
+        T = np.array([1.0e4])
+        ne = np.array([1e10])
+        chi = [109678.0]
+        gratio = [0.5]
+        lte = pp.solve_saha_chain(chi, gratio, T, ne)
+        neb = pp.solve_saha_chain(
+            chi, gratio, T, ne, w_dilute=np.array([0.01]),
+            ionization_mode="nebular", t_e_K=T, zeta=1.0,
+        )
+        # Dilution suppresses the next-higher ion.
+        assert neb.fracs[1, 0] < lte.fracs[1, 0]
+
+    def test_dilute_excitation_conserves_ion_density(self):
+        ad = _synth_atomic("HI", n_levels=5)
+        n_ion = np.full(4, 1e8)
+        t = np.full(4, 0.8)
+        w = np.array([1.0, 0.3, 0.05, 0.01])
+        pops = pp.dilute_lte_level_pops(ad, 5, n_ion, t, w, metastable_eV=2.0)
+        assert np.allclose(np.sum(pops, axis=0), n_ion, rtol=1e-10)
+
+    def test_dilute_excitation_w1_matches_boltzmann(self):
+        ad = _synth_atomic("HI", n_levels=4)
+        n_ion = np.array([1e9])
+        t = np.array([1.0])
+        w = np.array([1.0])
+        dilute = pp.dilute_lte_level_pops(ad, 4, n_ion, t, w)
+        dE = (ad.energy[:4] - ad.energy[0]) * pp.H_PLANCK * pp.SPEED_LIGHT
+        arg = -dE[:, None] / (pp.K_B * t[None, :] * 1.0e4)
+        Z = np.sum(ad.stat_wt[:4, None] * np.exp(arg), axis=0)
+        boltz = n_ion[None, :] * ad.stat_wt[:4, None] * np.exp(arg) / Z[None, :]
+        assert np.allclose(dilute, boltz, rtol=1e-10)
+
+    def test_dc_denominator_is_t_gas_even_with_write_t_ion(self):
+        hydro, ad, conv, rad, chi, gratio, gion, abund, sp = (
+            TestUseTIonForLevels()._setup_grey(write_t_ion=True)
+        )
+        conv.ionization_mode = "lte"
+        conv.dilute_excitation = False
+        conv.validate()
+        pop = pp.build_species(sp, ad, hydro, chi, gratio, gion, abund, conv,
+                               rad=rad, smooth_di=False)
+        gion_next = 1.0
+        lte_gas = pp.ltepop_wld_v2(ad, pop.nlev, hydro.nd, hydro.temperature,
+                                   hydro.ed, pop.di, gion_next)
+        assert np.allclose(pop.lte_pop, lte_gas, rtol=1e-10)
+        # CMFGEN reconstruction uses T_gas, not the *_IN T column.
+        recon = pp.emulate_regrid_ltepop(pop, ad, hydro, gion_next)
+        pp.enforce_closure(pop, hydro, abund)
+        # After closure, DC is recomputed in generate(); here check finite DC.
+        assert np.all(np.isfinite(pop.dc))
+        assert np.all(np.isfinite(recon))
+
+    def test_t_ion_floor_does_not_use_t_exc_min(self):
+        hydro = _synth_hydro(nd=4)
+        hydro.temperature = np.full(4, 0.2)  # 2000 K
+        ad = _synth_atomic("HI", n_levels=2)
+        stages = {1: pp.SpeciesRow(name="HI", n_f=2, n_s=2, z=1.0, gion=1.0,
+                                   mass=1.008, at_no=1.0)}
+        chi = {'HYD': [109678.0]}
+        gratio = {'HYD': [0.5]}
+        gion = {'HYD': {1: 1.0}}
+        abund = {'HYD': hydro.mass_fracs['HYD']}
+        atom = {"HI": ad}
+        sol_low = pp.compute_element_ionization(
+            "HYD", stages, atom, hydro, chi, gratio, gion, abund,
+            t_floor_min=1.0, t_ion_floor=0.05, ionization_mode="lte",
+        )
+        hydro_hot = _synth_hydro(nd=4)
+        hydro_hot.temperature = np.full(4, 1.0)
+        hydro_hot.density = hydro.density
+        hydro_hot.ed = hydro.ed
+        hydro_hot.mass_fracs = hydro.mass_fracs
+        sol_hot = pp.compute_element_ionization(
+            "HYD", stages, atom, hydro_hot, chi, gratio, gion, abund,
+            t_floor_min=1.0, t_ion_floor=0.05, ionization_mode="lte",
+        )
+        # 2000 K must NOT be treated as 10000 K.
+        assert not np.allclose(sol_low.fracs, sol_hot.fracs, rtol=0.05)
+
+
+# ===========================================================================
+# TRANSITION PARSING + NLTE_SE / CONTINUATION / STELLA TESTS
+# ===========================================================================
+
+def _write_synth_foscdat_trans(path: str, n_levels: int = 3,
+                               ionization_en: float = 109678.764) -> str:
+    """Minimal F_OSCDAT including an 'Oscillator strengths' section."""
+    lines = [
+        "********************************************************************************",
+        "  Energy Levels and statistical weights for HYD",
+        "********************************************************************************",
+        "",
+        "12-OCT-1995                                      !Date",
+        f"{n_levels}                                               !Number of energy levels",
+        f"{ionization_en:.4f}                                      !Ionization energy",
+        "1.0                                              !Screened nuclear charge",
+        "4                                                !Number of transitions",
+        "",
+    ]
+    for i in range(n_levels):
+        g = 2.0 * (i + 1) ** 2
+        e_cm = ionization_en * (1.0 - 1.0 / (i + 1) ** 2) if i > 0 else 0.0
+        lines.append(f"lev{i+1:02d}      {g:10.4f}      {e_cm:14.8f}     {i+1}")
+    lines += [
+        "",
+        "********************************************************************************",
+        "                        Oscillator strengths for HYD",
+        "********************************************************************************",
+        "",
+        "  Transition            f           A          Lam(A)      i-j    Trans. #",
+        "",
+        "1___ -2___      4.162E-01   4.696E+08     1215.67      1-  2      1",
+        "1___ -3___      7.910E-02   5.572E+07     1025.72      1-  3      2",
+        "2___ -3___      6.407E-01   4.410E+07     6564.60      2-3        3",
+        "1___ -99___     1.000E-01   1.000E+08     1000.00      1- 99      4",
+    ]
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return path
+
+
+def _synth_atomic_with_trans(n_levels: int = 3,
+                             ionization_en: float = 109678.764) -> pp.AtomicData:
+    """AtomicData with bound-bound transitions 1-2, 1-3, 2-3 (H-like)."""
+    ad = _synth_atomic("HI", n_levels=n_levels, ionization_en=ionization_en)
+    ad.tr_lower = np.array([0, 0, 1])
+    ad.tr_upper = np.array([1, 2, 2])
+    ad.tr_f = np.array([0.4162, 0.0791, 0.6407])
+    ad.tr_a = np.array([4.696e8, 5.572e7, 4.410e7])
+    ad.tr_lam_A = np.array([1215.67, 1025.72, 6564.6])
+    return ad
+
+
+class TestTransitionParsing:
+
+    def test_parses_both_ij_formats(self, tmp_path):
+        """Both 'i-  j' (two tokens) and 'i-j' (one token) must parse."""
+        p = _write_synth_foscdat_trans(str(tmp_path / "HI_F_OSCDAT"))
+        lo, up, f, a, lam = pp.parse_f_oscdat_transitions(p, 3)
+        assert lo.tolist() == [0, 0, 1]
+        assert up.tolist() == [1, 2, 2]
+        assert np.allclose(f, [0.4162, 0.0791, 0.6407])
+        assert np.allclose(a, [4.696e8, 5.572e7, 4.410e7])
+
+    def test_filters_max_level(self, tmp_path):
+        p = _write_synth_foscdat_trans(str(tmp_path / "HI_F_OSCDAT"))
+        lo, up, f, a, lam = pp.parse_f_oscdat_transitions(p, 2)
+        assert lo.tolist() == [0]
+        assert up.tolist() == [1]
+
+    def test_no_section_returns_empty(self, tmp_path):
+        p = _write_synth_foscdat(str(tmp_path / "HI_F_OSCDAT"))
+        lo, up, f, a, lam = pp.parse_f_oscdat_transitions(p, 5)
+        assert lo.size == 0 and up.size == 0
+
+
+class TestNlteSE:
+    """Statistical-equilibrium excitation: limiting cases and closure."""
+
+    def test_lte_limit_dense(self):
+        """Collision-dominated (n_e huge): ratios -> Boltzmann at T_gas."""
+        ad = _synth_atomic_with_trans()
+        nd = 4
+        n_ion = np.full(nd, 1e10)
+        pops, diag = pp.nlte_se_level_pops(
+            ad, 3, n_ion, np.full(nd, 1.0), np.full(nd, 1.0),
+            np.ones(nd), np.full(nd, 1e18))
+        assert diag["n_depth_fallback"] == 0
+        dE01 = (ad.energy[1] - ad.energy[0]) * pp.H_PLANCK * pp.SPEED_LIGHT
+        expect = (ad.stat_wt[1] / ad.stat_wt[0]) * np.exp(-dE01 / (pp.K_B * 1e4))
+        assert np.allclose(pops[1] / pops[0], expect, rtol=0.05)
+
+    def test_dilute_limit_suppression(self):
+        """Radiation-dominated dilute limit: n_u/n_l -> (g_u/g_l) W nbar,
+        i.e. upper levels are suppressed far below LTE(T_gas)."""
+        ad = _synth_atomic_with_trans()
+        nd = 3
+        n_ion = np.full(nd, 1e8)
+        w = np.full(nd, 1e-6)
+        t_rad = np.full(nd, 1.0)
+        pops, diag = pp.nlte_se_level_pops(
+            ad, 3, n_ion, np.full(nd, 0.2), t_rad, w, np.full(nd, 1e-3))
+        assert diag["n_depth_fallback"] == 0
+        dE01 = (ad.energy[1] - ad.energy[0]) * pp.H_PLANCK * pp.SPEED_LIGHT
+        nbar = 1.0 / np.expm1(dE01 / (pp.K_B * 1e4))
+        expect = (ad.stat_wt[1] / ad.stat_wt[0]) * w[0] * nbar
+        ratio = pops[1] / pops[0]
+        assert np.all(ratio > 0.3 * expect)
+        assert np.all(ratio < 3.0 * expect)
+        # and far below the LTE(T_gas=0.2e4 K) value would be wrong here;
+        # check the physical ordering: dilute < LTE(T_rad)
+        lte_rad = (ad.stat_wt[1] / ad.stat_wt[0]) * np.exp(-dE01 / (pp.K_B * 1e4))
+        assert np.all(ratio < lte_rad)
+
+    def test_closure(self):
+        """Sum of SE populations over connected levels equals the ion density
+        (up to the disconnected-level share)."""
+        ad = _synth_atomic_with_trans()
+        nd = 5
+        n_ion = np.linspace(1e8, 1e12, nd)
+        pops, diag = pp.nlte_se_level_pops(
+            ad, 3, n_ion, np.full(nd, 0.8), np.full(nd, 1.2),
+            np.full(nd, 0.3), np.full(nd, 1e11))
+        assert np.allclose(np.sum(pops, axis=0), n_ion, rtol=1e-6)
+        assert np.all(pops >= 0)
+
+    def test_disconnected_level_keeps_dilute_share(self):
+        """A level with no transitions is not in the rate solve but keeps
+        its dilute-LTE estimate."""
+        ad = _synth_atomic("HI", n_levels=4, ionization_en=109678.764)
+        ad.tr_lower = np.array([0, 0, 1])
+        ad.tr_upper = np.array([1, 2, 2])
+        ad.tr_f = np.array([0.4, 0.08, 0.6])
+        ad.tr_a = np.array([4.7e8, 5.6e7, 4.4e7])
+        ad.tr_lam_A = np.array([1215.7, 1025.7, 6564.6])
+        nd = 2
+        n_ion = np.full(nd, 1e9)
+        t_rad = np.full(nd, 1.0)
+        w = np.full(nd, 0.1)
+        pops, diag = pp.nlte_se_level_pops(
+            ad, 4, n_ion, np.full(nd, 1.0), t_rad, w, np.full(nd, 1e10))
+        dil = pp.dilute_lte_level_pops(ad, 4, n_ion, t_rad, w)
+        # level 3 (index 3) has no transitions -> dilute-LTE value
+        assert np.allclose(pops[3], dil[3], rtol=1e-10)
+        assert diag["n_levels_se"] == 3
+
+    def test_no_transitions_falls_back(self):
+        """Species without parsed transitions -> pure dilute-LTE."""
+        ad = _synth_atomic("HI", n_levels=3)
+        nd = 3
+        n_ion = np.full(nd, 1e9)
+        t_rad = np.full(nd, 1.0)
+        w = np.full(nd, 0.2)
+        pops, diag = pp.nlte_se_level_pops(
+            ad, 3, n_ion, np.full(nd, 1.0), t_rad, w, np.full(nd, 1e10))
+        dil = pp.dilute_lte_level_pops(ad, 3, n_ion, t_rad, w)
+        assert np.allclose(pops, dil)
+        assert diag["n_depth_fallback"] == nd
+
+    def test_dc_log_cap_symmetric(self):
+        """|log10 DC| <= cap: both huge and tiny DCs are clipped."""
+        target = np.array([[1e20, 1e-20, 5.0]])
+        lte = np.array([[1.0, 1.0, 1.0]])
+        dc, capped, _ = pp.dc_from_target(target, lte, dc_log_cap=3.0)
+        assert dc[0, 0] == pytest.approx(1e3)
+        assert dc[0, 1] == pytest.approx(1e-3)
+        assert dc[0, 2] == pytest.approx(5.0)
+        assert capped[0, 0] and capped[0, 1] and not capped[0, 2]
+
+    def test_build_species_uses_nlte_se(self):
+        """build_species with excitation_mode='nlte_se' produces finite DCs
+        and records the SE diagnostic."""
+        hydro = _synth_hydro(nd=5)
+        ad = _synth_atomic_with_trans()
+        conv = pp.CmfgenConventions(strategy="GREY", excitation_mode="nlte_se")
+        abundances = {'HYD': np.full(5, 0.7)}
+        chi = {'HYD': [109678.0]}
+        gratio = {'HYD': [0.5]}
+        gion = {'HYD': {1: 1.0}}
+        rad = {'t_rad': np.full(5, 1.0), 'w': np.full(5, 0.1),
+               't_ion': np.full(5, 1.0), 'tau': np.linspace(10.0, 0.01, 5)}
+        sp = pp.SpeciesRow(name="HI", n_f=3, n_s=3, z=1.0, gion=1.0,
+                           mass=1.008, at_no=1.0)
+        pop = pp.build_species(sp, ad, hydro, chi, gratio, gion,
+                               abundances, conv, rad=rad)
+        assert np.all(np.isfinite(pop.dc))
+        assert np.all(pop.dc > 0)
+        assert pop.smooth_diag is not None and "nlte_se" in pop.smooth_diag
+
+
+# ---------------------------------------------------------------------------
+# End-to-end synthetic model directory
+# ---------------------------------------------------------------------------
+
+_SYNTH_SPECIES = ["HI", "HeI", "OI", "SkI", "Sk2", "CaI", "Ca2",
+                  "FeI", "Fe2", "FeIII"]
+
+
+def _make_synth_model_dir(root: Path, with_transitions: bool = True) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    _write_synth_hydro_file(str(root / "SN_HYDRO_DATA"), nd=6)
+    _write_synth_model_spec(str(root / "MODEL_SPEC"))
+    # Minimal VADAT: require_vadat_for_nlte defaults to True for non-LTE.
+    (root / "VADAT").write_text(
+        "T [LTE_EST]\nF [LIN_INT]\nTR [DC_METH]\n"
+        "-7.0D-01 [HYD/X]\n-2.5D-01 [HE/X]\n-2.0D-02 [OXY/X]\n"
+        "-1.0D-02 [SIL/X]\n-1.0D-02 [CAL/X]\n-5.0D-03 [IRON/X]\n")
+    for name in _SYNTH_SPECIES:
+        if with_transitions:
+            _write_synth_foscdat_trans(str(root / f"{name}_F_OSCDAT"),
+                                       n_levels=4, ionization_en=1.0e5)
+        else:
+            _write_synth_foscdat(str(root / f"{name}_F_OSCDAT"),
+                                 n_levels=4, ionization_en=1.0e5)
+    return root
+
+
+class TestEndToEndSynthetic:
+
+    def test_grey_default_unchanged(self, tmp_path):
+        mdir = _make_synth_model_dir(tmp_path / "model")
+        out = str(tmp_path / "out")
+        rc = pp.main([str(mdir), "--output-dir", out, "--strategy", "GREY"])
+        assert rc == 0
+        ins = sorted(Path(out).glob("*_IN"))
+        assert len(ins) >= 5
+        txt = (Path(out) / "proxy_validation.txt").read_text()
+        assert "dilute_lte" in txt
+
+    def test_nlte_se_end_to_end(self, tmp_path):
+        mdir = _make_synth_model_dir(tmp_path / "model")
+        out = str(tmp_path / "out_se")
+        rc = pp.main([str(mdir), "--output-dir", out, "--strategy", "GREY",
+                      "--excitation-mode", "nlte_se", "--dc-log-cap", "6"])
+        assert rc == 0
+        assert (Path(out) / "HI_IN").exists()
+        txt = (Path(out) / "proxy_validation.txt").read_text()
+        assert "nlte_se" in txt
+        # DCs must obey the log cap
+        hi = pp.read_in_file(str(Path(out) / "HI_IN"))
+        assert hi is not None
+        assert np.all(np.abs(np.log10(np.maximum(hi.dc, 1e-300))) <= 6.0 + 1e-9)
+
+    def test_nlte_se_no_transitions_falls_back(self, tmp_path):
+        """With excitation_mode=nlte_se but no transition sections, every
+        species falls back to dilute-LTE and still writes files."""
+        mdir = _make_synth_model_dir(tmp_path / "model", with_transitions=False)
+        out = str(tmp_path / "out_notrans")
+        rc = pp.main([str(mdir), "--output-dir", out, "--strategy", "GREY",
+                      "--excitation-mode", "nlte_se"])
+        assert rc == 0
+        assert (Path(out) / "HI_IN").exists()
+
+    def test_continuation_regrids_prev(self, tmp_path):
+        """CONTINUATION from a previous proxy output on the same grid must
+        reproduce its departure coefficients (identity regrid)."""
+        mdir = _make_synth_model_dir(tmp_path / "model")
+        prev = str(tmp_path / "prev_out")
+        rc = pp.main([str(mdir), "--output-dir", prev, "--strategy", "GREY"])
+        assert rc == 0
+        out = str(tmp_path / "cont_out")
+        rc = pp.main([str(mdir), "--output-dir", out,
+                      "--strategy", "CONTINUATION", "--prev-model", prev])
+        assert rc == 0
+        prev_hi = pp.read_in_file(str(Path(prev) / "HI_IN"))
+        new_hi = pp.read_in_file(str(Path(out) / "HI_IN"))
+        assert prev_hi is not None and new_hi is not None
+        assert prev_hi.dc.shape == new_hi.dc.shape
+        assert np.allclose(prev_hi.dc, new_hi.dc, rtol=1e-5)
+
+    def test_continuation_without_prev_warns_but_runs(self, tmp_path):
+        mdir = _make_synth_model_dir(tmp_path / "model")
+        out = str(tmp_path / "cont_noprev")
+        rc = pp.main([str(mdir), "--output-dir", out,
+                      "--strategy", "CONTINUATION"])
+        assert rc == 0
+        assert (Path(out) / "HI_IN").exists()
+
+    def test_stella_field_overlay(self, tmp_path):
+        """--stella-file overrides the grey T_rad/tau with STELLA columns."""
+        mdir = _make_synth_model_dir(tmp_path / "model")
+        hydro = pp.parse_sn_hydro_data(str(mdir / "SN_HYDRO_DATA"))
+        stella_file = tmp_path / "stella_rad.txt"
+        with open(stella_file, "w") as f:
+            f.write("radius t_rad tau\n")
+            for r in hydro.radius:
+                f.write(f"{r * 1e10:.6e} 8000.0 0.5\n")
+        out = str(tmp_path / "stella_out")
+        rc = pp.main([str(mdir), "--output-dir", out, "--strategy", "GREY",
+                      "--stella-file", str(stella_file),
+                      "--stella-radius-column", "radius",
+                      "--stella-trad-column", "t_rad",
+                      "--stella-tau-column", "tau"])
+        assert rc == 0
+        assert (Path(out) / "HI_IN").exists()
+
+    def test_stella_ev_temperature_conversion(self, tmp_path):
+        """eV temperatures must actually be converted (local-rebind bug)."""
+        fp = tmp_path / "stella_ev.txt"
+        fp.write_text("R Trad\n1.0e11 1.0\n0.9e11 0.5\n")
+        stella = pp.parse_stella_radiation_file(
+            str(fp), radius_column="R", t_rad_column="Trad",
+            radius_unit="cm", temperature_unit="eV")
+        # 1 eV = 11604.5 K = 1.16045 (1e4 K)
+        assert np.isclose(stella.t_rad[0], 1.16045, rtol=1e-4)
+        assert np.isclose(stella.t_rad[1], 0.58023, rtol=1e-4)
+
+    def test_stella_w_from_energy_density(self, tmp_path):
+        """With a t_rad column + U_rad, W must come from J/B(T_rad) = U/(a T^4),
+        not the geometric grey dilution."""
+        mdir = _make_synth_model_dir(tmp_path / "model")
+        hydro = pp.parse_sn_hydro_data(str(mdir / "SN_HYDRO_DATA"))
+        t_rad_K = 8000.0
+        w_true = 0.4
+        u_rad = w_true * pp.A_RAD * t_rad_K ** 4
+        stella_file = tmp_path / "stella_u.txt"
+        with open(stella_file, "w") as f:
+            f.write("radius t_rad erad\n")
+            for r in hydro.radius:
+                f.write(f"{r * 1e10:.6e} {t_rad_K} {u_rad:.6e}\n")
+        out = str(tmp_path / "stella_w_out")
+        rc = pp.main([str(mdir), "--output-dir", out, "--strategy", "GREY",
+                      "--stella-file", str(stella_file),
+                      "--stella-radius-column", "radius",
+                      "--stella-trad-column", "t_rad",
+                      "--stella-energy-density-column", "erad"])
+        assert rc == 0
+        txt = (Path(out) / "proxy_validation.txt").read_text()
+        assert '"w_source": "stella_energy_density"' in txt
+        assert '"t_rad_source": "stella_t_rad_column"' in txt
+
+    def test_tau_mode_default_is_plane(self):
+        """Non-monotonic tau trapping (x5 in reversal zones) is a heuristic,
+        not a physical treatment — it must be opt-in, not the default."""
+        conv = pp.CmfgenConventions()
+        assert conv.tau_mode == "plane"
 
 
 # ---------------------------------------------------------------------------

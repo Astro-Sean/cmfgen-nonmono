@@ -31,16 +31,31 @@ def read_sn_hydro_data(filename):
     with open(filename, 'r') as f:
         lines = f.readlines()
     
-    # Parse header
-    n_points = int(lines[0].split(':')[1].strip())
-    n_mass_fractions = int(lines[1].split(':')[1].strip())
-    n_isotopes = int(lines[2].split(':')[1].strip())
-    time_days = float(lines[3].split(':')[1].strip())
-    energy_lum = float(lines[4].split(':')[1].strip())
-    
-    # Read data sections (data spans multiple lines until empty line or next section)
-    i = 6  # Skip header and empty line
-    
+    # Parse header lines up to the first data section. Ejecta-only files
+    # (e.g. Stockholm grids) omit the Energy Lum header entirely.
+    n_points = n_mass_fractions = n_isotopes = None
+    time_days = energy_lum = None
+    i = 0
+    while i < len(lines):
+        s = lines[i].strip()
+        if s.startswith('Radius grid'):
+            break
+        if s.startswith('Number of data points'):
+            n_points = int(s.split(':')[1].strip())
+        elif s.startswith('Number of mass fractions'):
+            n_mass_fractions = int(s.split(':')[1].strip())
+        elif s.startswith('Number of isotopes'):
+            n_isotopes = int(s.split(':')[1].strip())
+        elif s.startswith('Time(days) since explosion'):
+            time_days = float(s.split(':')[1].strip())
+        elif s.startswith('Energy Lum'):
+            energy_lum = float(s.split(':')[1].strip())
+        i += 1
+    assert n_points is not None, "Missing 'Number of data points' header"
+    assert n_mass_fractions is not None, "Missing 'Number of mass fractions' header"
+    assert n_isotopes is not None, "Missing 'Number of isotopes' header"
+    assert time_days is not None, "Missing 'Time(days) since explosion' header"
+
     # Read radius
     assert 'Radius grid' in lines[i], f"Expected 'Radius grid' at line {i}"
     i += 1
@@ -49,7 +64,8 @@ def read_sn_hydro_data(filename):
         radius_data.extend([float(x) for x in lines[i].split()])
         i += 1
     radius = np.array(radius_data)
-    i += 1  # Skip empty line
+    while i < len(lines) and not lines[i].strip():
+        i += 1  # skip blank separators
     
     # Read velocity
     assert 'Velocity' in lines[i], f"Expected 'Velocity' at line {i}"
@@ -59,7 +75,8 @@ def read_sn_hydro_data(filename):
         velocity_data.extend([float(x) for x in lines[i].split()])
         i += 1
     velocity = np.array(velocity_data)
-    i += 1  # Skip empty line
+    while i < len(lines) and not lines[i].strip():
+        i += 1  # skip blank separators
     
     # Read sigma
     assert 'Sigma' in lines[i], f"Expected 'Sigma' at line {i}"
@@ -69,7 +86,8 @@ def read_sn_hydro_data(filename):
         sigma_data.extend([float(x) for x in lines[i].split()])
         i += 1
     sigma = np.array(sigma_data)
-    i += 1  # Skip empty line
+    while i < len(lines) and not lines[i].strip():
+        i += 1  # skip blank separators
     
     # Read temperature
     assert 'Temperature' in lines[i], f"Expected 'Temperature' at line {i}"
@@ -79,7 +97,8 @@ def read_sn_hydro_data(filename):
         temperature_data.extend([float(x) for x in lines[i].split()])
         i += 1
     temperature = np.array(temperature_data)
-    i += 1  # Skip empty line
+    while i < len(lines) and not lines[i].strip():
+        i += 1  # skip blank separators
     
     # Read density
     assert 'Density' in lines[i], f"Expected 'Density' at line {i}"
@@ -91,7 +110,8 @@ def read_sn_hydro_data(filename):
         density_data.extend([float(x) for x in lines[i].split()])
         i += 1
     density = np.array(density_data)
-    i += 1  # Skip empty line or move to next section
+    while i < len(lines) and not lines[i].strip():
+        i += 1  # skip blank separators
 
     # Skip atom density section (comes before electron density in Dessart format)
     if i < len(lines) and 'Atom' in lines[i]:
@@ -100,7 +120,8 @@ def read_sn_hydro_data(filename):
                 and not lines[i].strip().startswith('Rosseland') and not lines[i].strip().startswith('Kappa') \
                 and not ('mass fraction' in lines[i].lower()):
             i += 1
-        i += 1  # Skip empty line or move to next section
+        while i < len(lines) and not lines[i].strip():
+            i += 1  # skip blank separators
 
     # Skip electron density section
     if i < len(lines) and 'Electron' in lines[i]:
@@ -108,7 +129,8 @@ def read_sn_hydro_data(filename):
         while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Rosseland') \
                 and not lines[i].strip().startswith('Kappa') and not ('mass fraction' in lines[i].lower()):
             i += 1
-        i += 1  # Skip empty line or move to next section
+        while i < len(lines) and not lines[i].strip():
+            i += 1  # skip blank separators
 
     # Skip Rosseland mean opacity section
     if i < len(lines) and 'Rosseland' in lines[i]:
@@ -116,14 +138,16 @@ def read_sn_hydro_data(filename):
         while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith('Kappa') \
                 and not ('mass fraction' in lines[i].lower()):
             i += 1
-        i += 1  # Skip empty line or move to next section
+        while i < len(lines) and not lines[i].strip():
+            i += 1  # skip blank separators
 
     # Skip kappa section
     if i < len(lines) and 'Kappa' in lines[i]:
         i += 1
         while i < len(lines) and lines[i].strip() and not ('mass fraction' in lines[i].lower()):
             i += 1
-        i += 1  # Skip empty line or move to next section
+        while i < len(lines) and not lines[i].strip():
+            i += 1  # skip blank separators
     
     # Read mass fractions (individual sections like "HYD mass fraction")
     mass_fractions = {}
@@ -173,7 +197,7 @@ def read_sn_hydro_data(filename):
 def write_sn_hydro_data(filename, data):
     """
     Write SN_HYDRO_DATA file with smoothed Sigma values.
-    Uses Dessart reference header titles and data format.
+    Uses the SN_HYDRO_DATA header titles and data format.
     """
     def write_block(f, label, values, per_line=8):
         f.write(f"{label}\n")
@@ -183,7 +207,7 @@ def write_sn_hydro_data(filename, data):
         f.write('\n')
 
     with open(filename, 'w') as f:
-        # Header (matching Dessart reference format)
+        # Header (SN_HYDRO_DATA format)
         f.write(f"Number of data points:{data['n_points']:>10d}\n")
         f.write(f"Number of mass fractions:{data['n_mass_fractions']:>10d}\n")
         f.write(f"Number of isotopes:{data['n_isotopes']:>10d}\n")
@@ -192,7 +216,7 @@ def write_sn_hydro_data(filename, data):
             f.write(f"Energy Lum [lsun]:{data['energy_lum']:>19.6E}\n")
         f.write("\n")
 
-        # Data blocks (order and titles match Dessart reference)
+        # Data blocks (SN_HYDRO_DATA order and titles)
         write_block(f, "Radius grid (10^10cm)", data['radius'])
         write_block(f, "Velocity (km/s)",       data['velocity'])
         write_block(f, "Sigma (dlnV/dlnr-1)",   data['sigma'])

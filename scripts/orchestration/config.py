@@ -262,12 +262,14 @@ def validate_yaml(raw: dict[str, Any]) -> list[str]:
                     f"cmfgen_conversion.min_nd ({min_nd}) > max_points ({max_points})"
                 )
 
-    # cmfgen.target_nd must be positive
+    # cmfgen.target_nd must be positive int or 'auto'
     cmfgen_cfg = raw.get("cmfgen", {})
     if "target_nd" in cmfgen_cfg:
         tnd = cmfgen_cfg["target_nd"]
-        if not isinstance(tnd, int) or tnd <= 0:
-            errors.append(f"cmfgen.target_nd must be positive int, got {tnd!r}")
+        if isinstance(tnd, str) and tnd.strip().lower() == 'auto':
+            pass  # V3 auto mode: grid size determined by converter refinement
+        elif not isinstance(tnd, int) or tnd <= 0:
+            errors.append(f"cmfgen.target_nd must be positive int or 'auto', got {tnd!r}")
 
     # vel_law 11 (SN hydrodynamic, SET_RV_HYDRO_MODEL_V3) and 12 (SNIIN)
     # both support non-monotonic velocity via NON_MONO_SOLVER=T.
@@ -435,18 +437,26 @@ def resolve_config(
     except SiteConfigError as e:
         raise ConfigError(f"Site configuration error: {e}")
 
-    # STELLA partition/memory/time
+    # STELLA / CMFGEN partition/memory/time
+    # Honour top-level ``submission: normal|debug`` the same way
+    # run_model_grid.resolve_submission does (interactive for debug,
+    # small/general for normal).  Legacy ``debug:`` boolean remains a
+    # fallback when ``submission`` is absent.
     stella_cfg = raw.get("stella", {})
-    debug = raw.get("debug", False)
+    cmfgen_cfg = raw.get("cmfgen", {})
+    submission = str(raw.get("submission", "") or "").strip().lower()
+    if submission == "debug":
+        debug = True
+    elif submission == "normal":
+        debug = False
+    else:
+        debug = bool(raw.get("debug", False))
     stella_partition = "interactive" if debug else stella_cfg.get("partition", "general")
     stella_memory = "8G" if debug else stella_cfg.get("memory", "16G")
-    stella_time = "01:30:00" if debug else stella_cfg.get("time", "23:59:00")
-
-    # CMFGEN partition/memory/time
-    cmfgen_cfg = raw.get("cmfgen", {})
+    stella_time = "01:59:00" if debug else stella_cfg.get("time", "23:59:00")
     cmfgen_partition = "interactive" if debug else cmfgen_cfg.get("partition", "general")
     cmfgen_memory = cmfgen_cfg.get("mem", "16G")
-    cmfgen_time = "01:30:00" if debug else cmfgen_cfg.get("time", "23:59:00")
+    cmfgen_time = "01:59:00" if debug else cmfgen_cfg.get("time", "23:59:00")
 
     return ResolvedConfig(
         model_name=model_name,

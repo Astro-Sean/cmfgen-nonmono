@@ -53,25 +53,24 @@ class SnHydroData:
 
 def _read_numeric_block(lines: list[str], idx: int, n: int) -> tuple[np.ndarray, int]:
     """Read n free-format floats starting after line idx. Returns (values, next_idx)."""
-    vals: list[float] = []
+    vals = []
     i = idx
-    while len(vals) < n and i < len(lines):
-        s = lines[i].strip()
+    while i < len(lines):
+        s = lines[i].split('!', 1)[0].strip()
+        if not s or s.startswith('#'):
+            i += 1
+            continue
+        tokens = s.split()
+        try:
+            row = [float(t.replace('D', 'E').replace('d', 'e')) for t in tokens]
+        except ValueError:
+            # Stop if we hit a non-numeric (next section label)
+            break
+        vals.extend(row)
         i += 1
-        if not s or s.startswith('!'):
-            continue
-        for tok in s.split():
-            try:
-                vals.append(float(tok))
-            except ValueError:
-                # Stop if we hit a non-numeric (next section label)
-                break
-        else:
-            continue
-        break
-    if len(vals) < n:
-        raise ValueError(f"Expected {n} values, got {len(vals)}")
-    return np.array(vals[:n]), i
+    if len(vals) != n:
+        raise ValueError(f"Expected exactly {n} values, got {len(vals)}")
+    return np.asarray(vals, dtype=float), i
 
 
 def read_sn_hydro_data(path: str | Path) -> SnHydroData:
@@ -98,7 +97,8 @@ def read_sn_hydro_data(path: str | Path) -> SnHydroData:
         elif 'Number of isotopes:' in s:
             niso = int(s.split('isotopes:')[1].split()[0])
         elif 'Time(days) since explosion:' in s:
-            old_age = float(s.split('explosion:')[1].split()[0])
+            old_age = float(s.split('explosion:')[1].split()[0]
+                            .replace('D', 'E').replace('d', 'e'))
         elif 'Radius grid' in s:
             if nx == 0 or nsp == 0 or old_age == 0.0:
                 raise ValueError("Radius grid reached before NX/NSP/time defined")
@@ -111,8 +111,14 @@ def read_sn_hydro_data(path: str | Path) -> SnHydroData:
                 extra_headers[key.strip()] = val.strip()
         # continue scanning
 
-    if nx == 0:
-        raise ValueError("Number of data points not found")
+    if nx < 2:
+        raise ValueError(f"Number of data points must be >= 2, got {nx}")
+    if nsp < 1:
+        raise ValueError(f"Number of mass fractions must be >= 1, got {nsp}")
+    if niso < 0:
+        raise ValueError(f"Number of isotopes must be >= 0, got {niso}")
+    if not np.isfinite(old_age) or old_age <= 0.0:
+        raise ValueError(f"Time(days) since explosion must be positive and finite, got {old_age}")
 
     # Block scan (mirrors rd_sn_data.f L156-218): read labelled blocks until
     # mass fractions begin. Order is not strictly guaranteed by the reader.
@@ -122,30 +128,47 @@ def read_sn_hydro_data(path: str | Path) -> SnHydroData:
     iso: dict[tuple[str, int], np.ndarray] = {}
 
     # We re-scan from the 'Radius grid' line forward.
+    seen_sections: set[str] = set()
+
+    def _claim(label: str) -> None:
+        if label in seen_sections:
+            raise ValueError(f"Duplicate section: {label}")
+        seen_sections.add(label)
+
     while i < len(lines):
         s = lines[i].strip()
         i += 1
         if not s or s.startswith('!'):
             continue
         if s.startswith('Radius grid'):
+            _claim('Radius grid')
             r, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Velocity'):
+            _claim('Velocity')
             v, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Sigma'):
+            _claim('Sigma')
             sigma, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Temperature'):
+            _claim('Temperature')
             T, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Density'):
+            _claim('Density')
             rho, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Electron density'):
+            _claim('Electron density')
             elec_den, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Clumping factor'):
+            _claim('Clumping factor')
             clump, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Atom density'):
+            _claim('Atom density')
             atom_den, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Rosseland'):
+            _claim('Rosseland')
             chi, i = _read_numeric_block(lines, i, nx)
         elif s.startswith('Kappa'):
+            _claim('Kappa')
             kappa, i = _read_numeric_block(lines, i, nx)
         elif 'mass fraction' in s:
             # Distinguish isotope blocks ("<SPECIES> <baryon> mass fraction")
@@ -160,12 +183,29 @@ def read_sn_hydro_data(path: str | Path) -> SnHydroData:
                 except ValueError:
                     pass
             if is_isotope:
+                if (spec, baryon) in iso:
+                    raise ValueError(f"Duplicate isotope block: {spec} {baryon}")
                 vals, i = _read_numeric_block(lines, i, nx)
                 iso[(spec, baryon)] = vals
             else:
                 spec = s.split('mass fraction')[0].strip()
+                if spec in mf:
+                    raise ValueError(f"Duplicate mass-fraction block: {spec}")
                 vals, i = _read_numeric_block(lines, i, nx)
                 mf[spec] = vals
+        else:
+            tokens = s.split('!', 1)[0].split()
+            if tokens:
+                numeric = True
+                for tok in tokens:
+                    try:
+                        float(tok.replace('D', 'E').replace('d', 'e'))
+                    except ValueError:
+                        numeric = False
+                        break
+                if numeric:
+                    raise ValueError(
+                        f"Unexpected numeric data outside a section: {s!r}")
 
     if r is None or v is None or sigma is None or T is None or rho is None:
         raise ValueError("Missing required block (R/V/Sigma/T/Density)")
@@ -225,8 +265,17 @@ def validate_sn_hydro_data(path: str | Path,
             rep.passed = False
 
     for name, arr in [('R', d.r_1e10cm), ('V', d.v_kms), ('Sigma', d.sigma),
-                      ('T', d.T_1e4K), ('Density', d.density_gcm3)]:
+                      ('T', d.T_1e4K), ('Density', d.density_gcm3),
+                      ('Atom density', d.atom_density),
+                      ('Electron density', d.electron_density),
+                      ('Rosseland chi', d.rosseland_chi),
+                      ('Kappa', d.kappa),
+                      ('Clumping factor', d.clumping_factor)]:
         _check_finite(name, arr)
+    for elem, arr in d.mass_fractions.items():
+        _check_finite(f'{elem} mass fraction', arr)
+    for (iso_name, baryon), arr in d.isotopes.items():
+        _check_finite(f'{iso_name} {baryon} isotope', arr)
     if len(d.r_1e10cm) != n:
         rep.errors.append(f"R has {len(d.r_1e10cm)} rows, header says {n}")
         rep.passed = False
@@ -249,6 +298,29 @@ def validate_sn_hydro_data(path: str | Path,
             rep.passed = False
 
     # Physical signs
+    if np.any(d.r_1e10cm <= 0):
+        rep.errors.append(f"R has {int(np.sum(d.r_1e10cm<=0))} non-positive")
+        rep.passed = False
+    if d.atom_density is not None and np.any(d.atom_density <= 0):
+        rep.errors.append(f"atom density has {int(np.sum(d.atom_density<=0))} non-positive")
+        rep.passed = False
+    if d.electron_density is not None and np.any(d.electron_density <= 0):
+        rep.errors.append(f"electron density has {int(np.sum(d.electron_density<=0))} non-positive")
+        rep.passed = False
+    if d.kappa is not None and np.any(d.kappa < 0):
+        rep.errors.append(f"kappa has {int(np.sum(d.kappa<0))} negative")
+        rep.passed = False
+    if d.rosseland_chi is not None and np.any(d.rosseland_chi < 0):
+        rep.errors.append(f"Rosseland chi has {int(np.sum(d.rosseland_chi<0))} negative")
+        rep.passed = False
+    for elem, arr in d.mass_fractions.items():
+        if np.any((arr < 0) | (arr > 1)):
+            rep.errors.append(f"{elem} mass fraction outside [0,1]")
+            rep.passed = False
+    for (iso_name, baryon), arr in d.isotopes.items():
+        if np.any((arr < 0) | (arr > 1)):
+            rep.errors.append(f"{iso_name} {baryon} isotope fraction outside [0,1]")
+            rep.passed = False
     if d.density_gcm3 is not None and np.any(d.density_gcm3 <= 0):
         rep.errors.append(f"density has {int(np.sum(d.density_gcm3<=0))} non-positive")
         rep.passed = False

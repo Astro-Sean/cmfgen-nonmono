@@ -1,0 +1,84 @@
+# dev7 Knop moment-solver test (19-Sep-2026): identical setup to
+# M15_HeOCa_25d_DEV7_knop.yaml but with USE_LAM_ES: F in vadat_overrides.
+#
+# Expected result (post-19-Sep): RUN.  MOM_J_CMF_NONMONO_V1 is now
+# ported, so DO_NONMONO_KNOP=T + USE_LAM_ES=F selects the non-monotonic
+# variable-Eddington-factor moment solve (chi_hat = chi+|GAM|/dlnnu,
+# sign-dependent frequency upwind, J_NEXT Gauss-Seidel) instead of
+# Lambda-iteration J.  On this monotonic model sigma=0 so Q>=0
+# everywhere and only the J_PREV branch is exercised; the TypeIIn
+# snapshot is needed to exercise the compressing-zone J_NEXT branch.
+#
+# History: before 19-Sep-2026 this config was a guard test that
+# verified the hard STOP 'DO_NONMONO_KNOP=T requires USE_LAM_ES=T'
+# (job 11818525, exit 6).  The stop was replaced by an informational
+# message when the solver was ported.
+
+model_name: M15_HeOCa_25d_DEV7_knop_MOM
+description: 'dev7 knop guard test: M15-He-O-Ca-evo snapshot at 25.10 d
+  with DO_NONMONO_KNOP=T and USE_LAM_ES=F — expected Fortran STOP in
+  rd_control_variables (no non-monotonic moment solver in dev7).'
+run_cmfgen: true
+run_sirocco: false
+run_sedona: false
+run_superlite: false
+skip_stella: true
+cancel_jobs: true
+force_cancel: true
+plot_lightcurve: false
+submission: debug
+hydro_backend: stella
+
+cmfgen_conversion:
+  snapshot_days:
+  - 25.1
+  use_existing_sn_hydro: true
+
+cmfgen:
+  base_dir: ./cmfgen_base
+  model_type: static_snapshot
+  init_num_its: 1000
+  single_final: true
+  target_nd: 150
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V7
+  inc_rad_decays: false
+  vturb: 50.0
+  incl_rel: false
+  vel_law: 11
+  depth_independent_solver: true
+  do_gt_auto: false
+  non_mono_mode: KNOP
+  vadat_overrides:
+    DO_NONMONO_KNOP: T
+    # GUARD TEST: request the moment-solver path — Fortran must STOP.
+    USE_LAM_ES: F
+    LSTAR: 0.0D0
+    VTURB: 50.0D0
+    DIF: F
+    IB_METH: ZERO_FLUX
+    STOP_IF_BP: F
+    REV_RGRID: F
+    N_OB_INS: 0
+    FIX_NE: F
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+  mem: 31G
+  init_mem: 31G
+  n_ob_ins: 0
+  final_requeue_when: wall
+  final_requeue_max: 500
+  auto_set_rstar: false
+  auto_set_lstar: false
+  phot_tau: 0.6666667
+  bb_teff_k: 9100
+  lstar_radius_mode: RMAX
+  notification_email: sbrennan@mpe.mpg.de
+
+output:
+  model_dir: ./dev7_knop_MOM/M15_HeOCa_25d_DEV7_knop_MOM
+  stella_output: stella
+  cmfgen_output: cmfgen
+  sedona_output: sedona
+  superlite_output: superlite
+  plots: plots
+  outputs: output

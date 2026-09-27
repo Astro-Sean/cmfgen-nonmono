@@ -41,15 +41,17 @@ def write_stella_hyd(output_path: str, t_start_s: float, nzon: int,
     T_arr = T[::-1]
     v_arr = v[::-1] * 1.0e5  # km/s → cm/s
 
-    # Compute enclosed mass via cumulative trapezoid
-    Mr = np.zeros(nzon)
-    for i in range(1, nzon):
-        dr = r_arr[i] - r_arr[i-1]
-        Mr[i] = Mr[i-1] + 4.0 * np.pi * r_arr[i-1]**2 * rho_arr[i-1] * dr
+    # Zone masses from cell-edge volumes: geometric-midpoint edges,
+    # inner/outer edges extrapolated at the local spacing.  A plain
+    # trapezoid leaves zone 1 at zero mass, which strad rejects.
+    r_edge = np.empty(nzon + 1)
+    r_edge[1:-1] = np.sqrt(r_arr[:-1] * r_arr[1:])
+    r_edge[0] = r_arr[0] * (r_arr[0] / r_arr[1]) ** 0.5
+    r_edge[-1] = r_arr[-1] * (r_arr[-1] / r_arr[-2]) ** 0.5
+    dm_g = (4.0 / 3.0) * np.pi * (r_edge[1:]**3 - r_edge[:-1]**3) * rho_arr
 
-    # Shell masses (dMr) in Msun
-    Mr_msun = Mr / 1.989e33
-    dMr = np.diff(np.concatenate([[0.0], Mr_msun]))
+    dMr = dm_g / 1.989e33
+    Mr_msun = np.cumsum(dMr)
 
     # Central values
     r_cen = r_arr[0]
@@ -82,8 +84,8 @@ def write_stella_abn(output_path: str, nzon: int, km: np.ndarray,
             vals = [f"{km_arr[i]:.6e}", "0", "0", "0"]
             for j in range(comp_arr.shape[1]):
                 vals.append(f"{comp_arr[i, j]:.6e}")
-            # Ni58, Ni56 (not in standard composition array)
-            vals.append("0.000000e+00")  # Ni58
+            # .swd composition (15 cols) ends with stable Ni, which occupies
+            # the .abn Ni58 slot. Only Ni56 (radioactive) is missing.
             vals.append("0.000000e+00")  # Ni56
             f.write("  ".join(vals) + "\n")
 
@@ -135,7 +137,13 @@ def main():
     hyd_path = output_dir / f"{model_name}.hyd"
     abn_path = output_dir / f"{model_name}.abn"
 
-    t_start_s = t_selected * 86400.0
+    # .swd epoch times are observer-frame (model time minus the light-
+    # travel time across r_max); .hyd timeStart is model-frame.  Add the
+    # light-travel time back so the restart begins at the right epoch -
+    # the initial-condition epoch (-14 d obs) maps to ~0 model time,
+    # matching the +5 s timeStart the original runs used.
+    t_lt_s = float(epoch['r'].max()) / 2.998e10
+    t_start_s = t_selected * 86400.0 + t_lt_s
 
     print(f"Writing {hyd_path}...")
     write_stella_hyd(str(hyd_path), t_start_s, nzon,

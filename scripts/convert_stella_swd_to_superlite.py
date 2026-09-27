@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -459,7 +460,8 @@ def write_input_par(path, model_name, t_days, ndim, lum_erg, r_phot, nomp,
                     nlte=True, nlte_nelem=1, niter=3,
                     nebular=True, opacmixrossel='0d0',
                     nobbopac=False, nobfopac=False,
-                    noffopac=False, nothmson=False):
+                    noffopac=False, nothmson=False,
+                    l_inner=0.0, srcmax=0.0):
     """Write input.par from the reference template with MC-aware settings.
 
     All SuperLite numerical parameters are exposed as kwargs with defaults
@@ -484,6 +486,12 @@ def write_input_par(path, model_name, t_days, ndim, lum_erg, r_phot, nomp,
         opacmixrossel: Rosseland/Planck opacity mixing fraction (default 0).
         nobbopac, nobfopac, noffopac, nothmson: disable opacity sources.
     """
+    # When boundary source is active (l_inner > 0), set in_L_bol = 0 to
+    # avoid double-counting.  All radiation comes from the inner boundary
+    # blackbody at srcmax temperature.  The interior thermal emission is
+    # implicitly included through absorption/re-emission of boundary photons.
+    l_bol_eff = 0.0 if l_inner > 0 else lum_erg
+
     ref_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             'superlite_base', 'input_parameters_reference.par')
     if os.path.exists(ref_path):
@@ -494,9 +502,19 @@ def write_input_par(path, model_name, t_days, ndim, lum_erg, r_phot, nomp,
         par = (par.replace('{MODEL_NAME}', model_name)
                   .replace('{EPOCH}', f'{t_days:.1f}d')
                   .replace('{NDIM}', str(ndim))
-                  .replace('{L_BOL}', f'{lum_erg:.4e}')
+                  .replace('{L_BOL}', f'{l_bol_eff:.4e}')
                   .replace('{R_PHOT}', f'{r_phot:.4e}')
-                  .replace('{NOMP}', str(nomp)))
+                  .replace('{NOMP}', str(nomp))
+                  .replace('{L_INNER}', f'{l_inner:.4e}')
+                  .replace('{SRCMAX}', f'{srcmax:.4e}'))
+        # Override nebular/NLTE settings from parameters (the template
+        # has these hardcoded as 't'; replace with the actual values).
+        nebular_str = 't' if nebular else 'f'
+        nlte_str = 't' if nlte else 'f'
+        par = re.sub(r'in_nebular\s*=\s*[tf]', f'in_nebular = {nebular_str}', par)
+        par = re.sub(r'in_nlte\s*=\s*[tf]', f'in_nlte = {nlte_str}', par)
+        par = re.sub(r'in_nlte_nelem\s*=\s*\d+', f'in_nlte_nelem = {nlte_nelem}', par)
+        par = re.sub(r'in_niter\s*=\s*\d+', f'in_niter = {niter}', par)
         if quick_test:
             # Override for quick interactive testing:
             # - 2^20 = 1M particles (vs 2^25 = 33M production)
@@ -547,7 +565,9 @@ def write_input_par(path, model_name, t_days, ndim, lum_erg, r_phot, nomp,
             f" in_flx_wlmin = {flx_wlmin}\n"
             f" in_flx_wlmax = {flx_wlmax}\n"
             f" in_src_n2s = {n2s}\n"
-            f" in_L_bol = {lum_erg:.4e}\n"
+            f" in_L_bol = {l_bol_eff:.4e}\n"
+            f" in_L_inner = {l_inner:.4e}\n"
+            f" in_srcmax = {srcmax:.4e}\n"
             f" in_trn_tauddmc = {tauddmc}\n"
             f" in_taulump = {taulump_val}\n"
             f" in_nebular = {nebular_str}\n"
@@ -575,7 +595,6 @@ def write_input_par(path, model_name, t_days, ndim, lum_erg, r_phot, nomp,
     # Structure-dependent values (ndim, L_bol, nomp, R_phot) are always
     # recomputed by the converter.
     if os.path.exists(path) and not quick_test:
-        import re
         with open(path) as f:
             existing = f.read()
         # Extract user-tunable performance parameters from the existing file
@@ -591,8 +610,10 @@ def write_input_par(path, model_name, t_days, ndim, lum_erg, r_phot, nomp,
 
     with open(path, 'w') as f:
         f.write(par)
-    print(f"Wrote {path} (ndim={ndim}, L_bol={lum_erg:.3e} erg/s, "
-          f"R_phot={r_phot:.3e} cm)")
+    src_mode = (f"L_inner={l_inner:.3e}, srcmax={srcmax:.1f} K"
+                if l_inner > 0 else "none")
+    print(f"Wrote {path} (ndim={ndim}, L_bol={l_bol_eff:.3e} erg/s, "
+          f"R_phot={r_phot:.3e} cm, boundary_source={src_mode})")
 
 
 def plot_superlite_input_structure(output_dir, r_sl, v_sl, T_sl, rho_sl,
@@ -833,6 +854,38 @@ def convert_swd_to_superlite(swd_path, output_dir, target_days=None,
             print(f"  [T-floor] Clamping {n_clamped_rad} T_rad zones from "
                   f"T_rad_min={T_rad.min():.1f} K to t_floor={t_floor:.1f} K")
             T_rad = np.maximum(T_rad, t_floor)
+
+    # --- Free-streaming radiation temperature ---
+    # STELLA's T_rad in the .swd is the radiation energy density temperature
+    # (T_rad = (u/a)^(1/4)), which in optically thin regions is much lower
+    # than the color temperature of the radiation field.  This causes
+    # SuperLite to compute essentially zero opacity (neutral gas) and produce
+    # a blank continuum.
+    #
+    # The free-streaming radiation temperature at radius r for a luminosity L
+    # is T_fs(r) = (L / (4*pi*r^2*c*a))^(1/4), where a is the radiation
+    # constant.  This represents the radiation energy density of a radial
+    # photon flow and gives the correct ionization state for the nebular
+    # approximation.  We use max(T_rad_stella, T_fs) to preserve the STELLA
+    # value in optically thick regions while boosting it in thin regions.
+    #
+    # We need the total luminosity first.  Use the outer boundary flux
+    # (zone 0 in outer->inner order) as the best estimate.
+    _lum_for_fs = float(abs(flux[0])) if flux[0] != 0 else 1e43
+    _c_cgs = 2.99792458e10
+    _a_rad = 7.5657e-15
+    T_fs = (_lum_for_fs / (4.0 * np.pi * r**2 * _c_cgs * _a_rad))**0.25
+    n_boosted = int(np.sum(T_fs > T_rad))
+    if n_boosted > 0:
+        print(f"  [T_rad] Boosting {n_boosted} zones to free-streaming T_rad")
+        print(f"    T_rad_stella: {T_rad.min():.1f} - {T_rad.max():.1f} K")
+        print(f"    T_freestream: {T_fs.min():.1f} - {T_fs.max():.1f} K")
+        T_rad = np.maximum(T_rad, T_fs)
+        print(f"    T_rad_final:  {T_rad.min():.1f} - {T_rad.max():.1f} K")
+    # Apply t_floor to the boosted T_rad as well
+    if t_floor > 0:
+        T_rad = np.maximum(T_rad, t_floor)
+
     if kappa is not None:
         print(f"  kappa_Ross: {kappa.min():.3e} - {kappa.max():.3e} cm^2/g (native STELLA)")
     else:
@@ -1042,6 +1095,32 @@ def convert_swd_to_superlite(swd_path, output_dir, target_days=None,
     r_phot = float(r_desc[phot_i])
     print(f"R_phot (grey tau=2/3, hybrid kappa): {r_phot:.3e} cm")
 
+    # --- Color temperature (Tbb) for the inner boundary source ---
+    # STELLA's Tbb is the color temperature of the radiation field at the
+    # photosphere: Tbb = (L / (4*pi*R_phot^2*sigma))^(1/4).  This is much
+    # higher than the gas temperature in cool ejecta, and determines the
+    # spectral shape of the emergent radiation.
+    #
+    # SuperLite's boundary_source.f90 injects a blackbody at in_srcmax
+    # from the inner boundary with luminosity in_L_inner.  We set:
+    #   in_L_inner = L_bol  (all radiation from below the grid)
+    #   in_L_bol   = 0      (no interior thermal source)
+    #   in_srcmax  = Tbb    (color temperature for boundary spectrum)
+    #
+    # The interior thermal emission at T_gas=2000-8000K produces a cool
+    # Rayleigh-Jeans continuum.  The boundary source at Tbb~20000K produces
+    # the correct hot continuum that, after absorption by the ejecta,
+    # creates P-Cygni line profiles.
+    _sigma_sb = 5.670374419e-5
+    tbb = (lum_erg / (4.0 * np.pi * r_phot**2 * _sigma_sb))**0.25
+    # Also compute the color temperature at the inner boundary radius
+    r_inner = float(r_sl[0])
+    t_inner = (lum_erg / (4.0 * np.pi * r_inner**2 * _sigma_sb))**0.25
+    print(f"Tbb (color temp at R_phot): {tbb:.1f} K")
+    print(f"T_inner (color temp at R_inner): {t_inner:.1f} K")
+    print(f"  -> Setting in_L_inner={lum_erg:.3e}, in_srcmax={tbb:.1f} K, "
+          f"in_L_bol=0 (boundary source mode)")
+
     # --- Physics validation checks ---
     validation_errors = []
 
@@ -1050,10 +1129,10 @@ def convert_swd_to_superlite(swd_path, output_dir, target_days=None,
         validation_errors.append(
             f"L_bol is non-positive or non-finite: {lum_erg}")
 
-    # 2. L_bol must be in a physically reasonable range (1e38 - 1e44 erg/s)
-    if lum_erg < 1e38 or lum_erg > 1e44:
+    # 2. L_bol must be in a physically reasonable range (1e38 - 1e46 erg/s)
+    if lum_erg < 1e38 or lum_erg > 1e46:
         validation_errors.append(
-            f"L_bol outside physical range [1e38, 1e44]: {lum_erg:.3e}")
+            f"L_bol outside physical range [1e38, 1e46]: {lum_erg:.3e}")
 
     # 3. R_phot must be within the model radial extent
     if r_phot < r_sl.min() or r_phot > r_sl.max():
@@ -1132,7 +1211,8 @@ def convert_swd_to_superlite(swd_path, output_dir, target_days=None,
                     nlte=sl_nlte, nlte_nelem=sl_nlte_nelem, niter=sl_niter,
                     nebular=sl_nebular, opacmixrossel=sl_opacmixrossel,
                     nobbopac=sl_nobbopac, nobfopac=sl_nobfopac,
-                    noffopac=sl_noffopac, nothmson=sl_nothmson)
+                    noffopac=sl_noffopac, nothmson=sl_nothmson,
+                    l_inner=lum_erg, srcmax=tbb)
 
     # --- Generate input structure diagnostic plots ---
     print(f"\nGenerating input structure plots...")
@@ -1159,6 +1239,21 @@ def convert_swd_to_superlite(swd_path, output_dir, target_days=None,
     print(f"{'='*70}")
     print(f"\nConversion complete: {output_dir}/")
     return n_final
+
+
+def str2bool(v):
+    """Parse a string as a boolean, handling argparse type=bool correctly.
+
+    Python's bool() returns True for any non-empty string, including 'false'.
+    This function properly interprets common false values.
+    """
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('true', 't', 'yes', 'y', '1'):
+        return True
+    if v.lower() in ('false', 'f', 'no', 'n', '0'):
+        return False
+    raise argparse.ArgumentTypeError(f'Boolean value expected, got {v!r}')
 
 
 def main():
@@ -1226,13 +1321,13 @@ def main():
                         help='DDMC transition threshold in mfp (default 3d0)')
     parser.add_argument('--sl-taulump', default='3d0',
                         help='DDMC group lumping threshold in mfp (default 3d0)')
-    parser.add_argument('--sl-nlte', type=bool, default=True,
+    parser.add_argument('--sl-nlte', type=str2bool, default=True,
                         help='Enable NLTE for H (default True)')
     parser.add_argument('--sl-nlte-nelem', type=int, default=1,
                         help='Number of NLTE elements (must be 1, H only)')
     parser.add_argument('--sl-niter', type=int, default=3,
                         help='Radiation temperature feedback iterations (default 3)')
-    parser.add_argument('--sl-nebular', type=bool, default=True,
+    parser.add_argument('--sl-nebular', type=str2bool, default=True,
                         help='Enable nebular approximation (default True)')
     args = parser.parse_args()
 

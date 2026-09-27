@@ -21,8 +21,15 @@ module use /mpcdf/soft/RHEL_9/modules/compilers
 module purge
 module load gcc/14
 
-# Set OpenMP threads to match in_nomp parameter
-export OMP_NUM_THREADS={CPUS_PER_TASK}
+# Set OpenMP threads to match in_nomp parameter.
+# Use actually-allocated CPUs (SLURM_CPUS_ON_NODE / SLURM_NTASKS) instead of
+# the requested count (SLURM_CPUS_PER_TASK), since SLURM may allocate more
+# than requested (e.g. whole-node allocation on the interactive partition).
+EFFECTIVE_CPUS=${SLURM_CPUS_ON_NODE:-${SLURM_CPUS_PER_TASK:-{CPUS_PER_TASK}}}
+EFFECTIVE_CPUS=$(( EFFECTIVE_CPUS / ${SLURM_NTASKS:-1} ))
+[[ $EFFECTIVE_CPUS -lt 1 ]] && EFFECTIVE_CPUS={CPUS_PER_TASK}
+export OMP_NUM_THREADS=$EFFECTIVE_CPUS
+echo "CPUs: requested=${SLURM_CPUS_PER_TASK:-?} allocated=${SLURM_CPUS_ON_NODE:-?} effective=$EFFECTIVE_CPUS"
 
 echo "Running SuperLite for {MODEL_NAME} model"
 echo "Working directory: $(pwd)"
@@ -91,6 +98,13 @@ for f in input.fluxwl input.wlgrid; do
 done
 
 # Run SuperLite
+# Update in_nomp in input.str to match the effective CPU count (SuperLite
+# reads in_nomp from the file, not from the environment, so we must keep
+# them in sync when SLURM allocated more CPUs than requested).
+if [[ -f input.str ]]; then
+  sed -i "s/^ in_nomp = [0-9]*/ in_nomp = $EFFECTIVE_CPUS/" input.str
+  echo "Updated input.str: in_nomp = $EFFECTIVE_CPUS"
+fi
 SUPERLITE_EXIT=0
 $SUPERLITE_EXE || SUPERLITE_EXIT=$?
 echo "SuperLite completed (exit=$SUPERLITE_EXIT)"

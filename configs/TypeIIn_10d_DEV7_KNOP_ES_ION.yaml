@@ -1,18 +1,12 @@
-# TypeIIn CMFGEN at ~10 days post-SBO — dev7 KNOP + full 18-species
-# ionisation chain (23-Oct-2026).
+# TypeIIn CMFGEN at ~10 days post-SBO — dev7 KNOP (24-Oct-2026,
+# reverted to the 12-species atomic model).
 #
-# Clone of TypeIIn_10d_DEV7_KNOP_ES with the atomic model completed:
-# cmfgen_base/MODEL_SPEC now lists all 18 stages in the atomic table
-# (adds He2, OIII, SkIII, SkIV, CaIII, FeV) using the optimiser's
-# F_TO_S-checked ISF values.  The stopped KNOP_ES run had CMFGEN's own
-# ion check flag SkIII missing at the hot CSM/ejecta interface
-# (IF ~0.51 at depth 50) where MAXCH was pinned.
-#
-# AUTO_ADD=T enables AUTO_ADD_ION_STAGES as a safety net for any XzV_IN
-# proxy_populations does not produce (requires RVTJ/EDDFACTOR; a no-op
-# when every species already has an _IN file).  The stale-index bug in
-# AUTO_ADD_ION (ATM(ID)%NXzV_F for the generated stage) was fixed in
-# dev7 commit b4562f4 before enabling it.
+# Clone of TypeIIn_10d_DEV7_KNOP_ES. The full 18-species MODEL_SPEC
+# (He2/OIII/SkIII/SkIV/CaIII/FeV added 23-Oct-2026) diverged from the
+# cold start (MAXCH ~1e102 at it3-4, job 11960119 cancelled), so
+# cmfgen_base/MODEL_SPEC is restored to the 12-species set that
+# converged to ~2.5% in the KNOP_ES run; AUTO_ADD and the raised
+# MAX_CHNG guard are removed with it.
 #
 # reuse_stella: stella/ holds symlinks to the TypeIIn_KNOP2
 # input_profile and TypeIIn.swd; only the SN_HYDRO_DATA conversion at
@@ -20,9 +14,9 @@
 
 model_name: TypeIIn_10d_DEV7_KNOP_ES_ION
 description: 'TypeIIn at ~10 d post-SBO: dev7 Knop non-monotonic solver
-  (DO_NONMONO_KNOP, FG_J_CMF_NONMONO_V1) + BLANK lines. Full 18-species
-  MODEL_SPEC (He2/OIII/SkIII/SkIV/CaIII/FeV added), AUTO_ADD=T,
-  COH_ES=F, fresh TypeIIn_KNOP_ES_ION directory (normal submission).'
+  (DO_NONMONO_KNOP, FG_J_CMF_NONMONO_V1) + BLANK lines. 12-species
+  MODEL_SPEC (18-species run reverted after divergence), COH_ES=F,
+  TypeIIn_KNOP_ES_ION directory (normal submission).'
 run_cmfgen: true
 run_sirocco: false
 run_sedona: false
@@ -170,11 +164,10 @@ cmfgen:
     N_OB_INS: 0
     N_IB_INS: 0
     REV_RGRID: F
-    # FIX_NE=T test (19-Sep-2026): the unclipped run diverged at it9
-    # with var 194 (electron density) the worst residual at nearly
-    # every depth. Pin Ne to the hydro estimate to isolate whether the
-    # Ne/charge-conservation equation is the divergence driver.
-    FIX_NE: T
+    # FIX_NE=F (project default, 25-Sep-2026): Ne solved from charge
+    # conservation. The 19-Sep FIX_NE=T test pinned Ne to isolate the
+    # it9 divergence driver (var 194, electron density); test concluded.
+    FIX_NE: F
     # Stall fix (18-Sep-2026): FIX_BA=15 + N_FIX_BA=0 froze the Jacobian
     # permanently once MAXCH<15% -- the M15 runs plateaued at ~0.357.
     # N_FIX_BA=10 gave an 11-iteration stale-Jacobian window in which the
@@ -182,7 +175,7 @@ cmfgen:
     # next refresh. N_FIX_BA=2 refreshes every 3rd iteration (the manual's
     # recommended value); the BA build is cheap relative to the ~650 s
     # Knop I_NEXT refresh that dominates each iteration.
-    FIX_BA: 1.0D0
+    FIX_BA: 1.0D1
     N_FIX_BA: 2
     # ES stability test (22-Sep-2026): non-coherent electron scattering
     # during convergence. prepare_VADAT.py would otherwise stamp
@@ -206,12 +199,10 @@ cmfgen:
     # the correction clip only masks divergence. If the model diverges,
     # the cause is elsewhere (J at reversal depths, boundary sigma,
     # initial populations) and must surface, not be damped away.
-    # AUTO_ADD=T (23-Oct-2026): safety net that generates any missing
-    # XzV_IN from RVTJ/EDDFACTOR via SUB_GUESS_DC_V2. With the full
-    # 18-species MODEL_SPEC, proxy_populations should cover every
-    # species and this should never fire; enabled so a species the
-    # proxy cannot handle fails over instead of missing silently.
-    AUTO_ADD: T
+    # AUTO_ADD and MAX_CHNG=1e300 removed (24-Oct-2026): both were
+    # added for the 18-species run, which diverged. Back to the
+    # KNOP_ES behaviour -- no AUTO_ADD, MAX_CHNG stays at the 1e100
+    # abort guard from VADAT_INIT.
   # Diagnostic: dump per-radius flux contributions (dFR_DATA) and
   # emergent intensity per impact parameter (IP_DATA) so the spurious
   # blue-wing emission on non-monotonic rays can be localized to a
@@ -223,7 +214,7 @@ cmfgen:
     # obs_template default of 2500 km/s would clip them. Matches the
     # raised value already in VADAT_INIT.
     ES_WING_EXT: 12000.0
-    R_CMF_WING_EXT: 4.0
+    R_CMF_WING_EXT: 3.0
   mem: 31G
   init_mem: 31G
   n_ob_ins: 0
