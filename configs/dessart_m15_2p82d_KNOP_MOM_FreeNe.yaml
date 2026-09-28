@@ -16,6 +16,7 @@ cmfgen_conversion:
     - 2.82
   use_existing_sn_hydro: true
 cmfgen:
+  ncf_estimate: 56119  # measured NCF (prior OUTGEN); caps the I_NEXT memory estimate at real size instead of NCF_MAX=300000
   base_dir: cmfgen_base_dessart
   model_type: static_snapshot
   single_final: true
