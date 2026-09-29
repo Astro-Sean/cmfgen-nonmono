@@ -1,0 +1,163 @@
+model_name: dessart_m15_2p82d_KNOP_MOM_fm
+description: "Interactive cold-start test of the frequency-matched stencil
+  (DO_NONMONO_FREQ_MATCH=T), residual-accepted BA (DO_BA_RES_ACC=T,
+  BA_RES_GROW=1.5, BA_TRUST=1e4) and the VADAT-exposed MOM refresh
+  Anderson acceleration (MOM_RF_AA=T). Fresh model, no checkpoint
+  handoff -- validates that the new code paths cold-start cleanly
+  with LAM_SCALE_OPT=NONE."
+submission: debug
+hydro_backend: stella
+skip_stella: true
+run_cmfgen: true
+run_sedona: false
+run_sirocco: false
+run_superlite: false
+output:
+  model_dir: cmfgen_validation/m15_2p82d_knop_MOM_fm
+cmfgen_conversion:
+  snapshot_days:
+    - 2.82
+  use_existing_sn_hydro: true
+cmfgen:
+  ncf_estimate: 56119  # measured NCF (prior OUTGEN); caps the I_NEXT memory estimate at real size instead of NCF_MAX=300000
+  base_dir: cmfgen_base_dessart
+  model_type: static_snapshot
+  single_final: true
+  target_nd: 70
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V7
+  inc_rad_decays: true
+  vturb: 50.0
+  incl_rel: false
+  vel_law: 11
+  non_mono_mode: KNOP
+  use_lam_es: false
+  depth_independent_solver: false
+  proxy_populations: false
+  cpus_per_task: 16
+  mem: 30G
+  vadat_overrides:
+    LSTAR: 0.0D0
+    VTURB: 50.0D0
+    MIN_CF: 3.0D-3
+    MAX_CF: 2.0D2
+    DIF: F
+    IB_METH: ZERO_FLUX
+    STOP_IF_BP: F
+    FIX_T: T
+    FIX_T_AUTO: F
+    FIX_IMP: T
+    DO_LAM_IT: T
+    DO_LAM_AUTO: T
+    USE_LAM_ES: F
+    SOL_METH: TRI
+    DO_NOMONO_KNOP: T
+    DO_NONMONO_KNOP: T
+    MOM_GATE_BULK: T
+    MOM_RF_KEEPNEG: T
+    DO_NONMONO_FREQ_MATCH: T
+    MOM_RF_AA: T
+    MOM_RF_ACTIVE: T
+    DO_BA_RES_ACC: T
+    BA_RES_GROW: 1.5D0
+    BA_TRUST: 1.0D4
+    N_OB_INS: '0'
+    N_IB_INS: '0'
+    REV_RGRID: F
+    FIX_NE: F
+    FIX_BA: 1.0D0
+    N_FIX_BA: 10
+    LAM_SET: F
+    USE_J_REL: F
+    USE_FRM_REL: F
+    USE_DJDT_RTE: F
+    INC_GRID: F
+    N_TYPE: N_ON_J
+    NEG_OPAC_OPT: SRCE_CHK
+    PURE_HUB: F
+    VEL_LAW: '11'
+    RD_IN_R_GRID: T
+    FG_OPT: INT/INS
+    USE_FIXED_J: F
+    PP_MOD: F
+    PP_NOV: F
+    AUTO_SMOOTH: F
+    NON_MONO_SOLVER: T
+    DO_NOMONO_SOB: F
+    DO_NONMONO_SOB: F
+    GLOBAL_LINE: BLANK
+    DO_SOB_LINES: F
+    SOB_FREQ_IN_OBS: F
+    DO_NG: T
+    COMP_BA: T
+    NUM_LAM: '2'
+    LAM_VAL: 4.0D2
+    BEG_NG: 1.0D1
+    IBEG_NG: '15'
+    BA_MAXCH_FAIL: 1.0D30
+    REL_OBS: F
+    REL_CMF: F
+    DO_DDT: F
+    INC_ADV: F
+    INC_AD: F
+    INCL_DJDT: F
+    CHK_L_POS: T
+    LIN_INT: F
+    DO_DIS: F
+    INC_PEN: F
+    INC_RAY: T
+    MAX_LIN: 5.0D0
+    BA_CHK_FAC: 1.0D-05
+    EPS_TERM: 5.0D-02
+    BW_NG: '40'
+    TRANS_HI: BLANK
+    TRANS_HeI: BLANK
+    TRANS_He2: BLANK
+    TRANS_CIII: BLANK
+    TRANS_CIV: BLANK
+    TRANS_CV: BLANK
+    TRANS_NIII: BLANK
+    TRANS_NIV: BLANK
+    TRANS_NV: BLANK
+    TRANS_O2: BLANK
+    TRANS_OIII: BLANK
+    TRANS_OIV: BLANK
+    TRANS_OV: BLANK
+    TRANS_OSIX: BLANK
+    TRANS_NeIII: BLANK
+    TRANS_NeIV: BLANK
+    TRANS_NeV: BLANK
+    TRANS_MgIII: BLANK
+    TRANS_MgIV: BLANK
+    TRANS_MgV: BLANK
+    TRANS_AlIII: BLANK
+    TRANS_AlIV: BLANK
+    TRANS_AlV: BLANK
+    TRANS_SkIII: BLANK
+    TRANS_SkIV: BLANK
+    TRANS_SkV: BLANK
+    TRANS_SIII: BLANK
+    TRANS_SIV: BLANK
+    TRANS_SV: BLANK
+    TRANS_ArIII: BLANK
+    TRANS_ArIV: BLANK
+    TRANS_ArV: BLANK
+    TRANS_ArSIX: BLANK
+    TRANS_CaIII: BLANK
+    TRANS_CaIV: BLANK
+    TRANS_CaV: BLANK
+    TRANS_CaSIX: BLANK
+    TRANS_TkIII: BLANK
+    TRANS_TkIV: BLANK
+    TRANS_CrIII: BLANK
+    TRANS_CrIV: BLANK
+    TRANS_CrV: BLANK
+    TRANS_CrSIX: BLANK
+    TRANS_FeIII: BLANK
+    TRANS_FeIV: BLANK
+    TRANS_FeV: BLANK
+    TRANS_FeSIX: BLANK
+    TRANS_FeSEV: BLANK
+  cmf_flux_param_overrides:
+    WR_dFR: true
+    WR_IP: true
+  notification_email: sbrennan@mpe.mpg.de

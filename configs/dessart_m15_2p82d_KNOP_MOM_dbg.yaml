@@ -53,6 +53,7 @@ cmfgen:
     MOM_GATE_BULK: T
     MOM_RF_KEEPNEG: T
     MOM_RF_GS_DESC: T
+    DO_NONMONO_FREQ_MATCH: T
     N_OB_INS: '0'
     N_IB_INS: '0'
     REV_RGRID: F

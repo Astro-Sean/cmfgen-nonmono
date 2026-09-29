@@ -50,6 +50,7 @@ cmfgen:
     DO_NOMONO_KNOP: T
     DO_NONMONO_KNOP: T
     MOM_RF_GS_DESC: T
+    DO_NONMONO_FREQ_MATCH: T
     MOM_RF_KEEPNEG: T
     N_OB_INS: '0'
     N_IB_INS: '0'

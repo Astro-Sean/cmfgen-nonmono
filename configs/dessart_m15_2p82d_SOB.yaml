@@ -9,7 +9,7 @@ description: Dessart m15 step10 (2.824d) hydro snapshot run with the original
   DO_DIS=T, INC_PEN=T, ALLOW_OL=F, DC_METH=LTE, INC_CHG=F (no CHG_EXCH_DATA),
   NEG_OPAC_OPT stays forced SRCE_CHK. The prior ZERO_FLUX + LSTAR=0 setup diverged at
   it1 and crashed at it11 (GFF_VEC NaN T). Rebuilt cmfgen_nonmono_dev_V7.
-submission: debug
+submission: normal
 hydro_backend: stella
 skip_stella: true
 run_cmfgen: true

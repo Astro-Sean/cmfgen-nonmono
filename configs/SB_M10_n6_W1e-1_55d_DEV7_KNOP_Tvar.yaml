@@ -142,9 +142,9 @@ cmfgen:
   notification_email: sbrennan@mpe.mpg.de
 
 output:
-  # Write into the model's canonical directory: the new run lands at
-  # cmfgen/55.00days alongside the existing cmfgen/40.00days.
-  model_dir: ./SN_B_broad_grid/SB_M10_V10k_n6_W1e-1
+  # Keep the temperature variant separate from the fixed-T base run; both
+  # reuse the canonical STELLA directory through stella_source_swd.
+  model_dir: ./SN_B_broad_grid/SB_M10_V10k_n6_W1e-1_Tvar
   stella_output: stella
   cmfgen_output: cmfgen
   sedona_output: sedona
