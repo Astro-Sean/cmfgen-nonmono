@@ -875,6 +875,13 @@ if [[ -n "$TT_FILE" ]]; then
         "$MODEL_DIR" --step multiband \
         2>&1 | tee -a stella_build.log || echo "WARNING: multiband plot failed (non-fatal)"
     echo "Multiband plot: $PLOTS_DIR/stella_output_multiband.png"
+
+    # Two-event comparison plots: model vs SN_A obs (absolute timeline)
+    # and vs SN_B obs (peak-aligned window)
+    PYTHONPATH="$SCRIPTS_DIR:${PYTHONPATH:-}" python "$SCRIPTS_DIR/plot_model_vs_sn_ab.py" \
+        "$MODEL_DIR" \
+        2>&1 | tee -a stella_build.log || echo "WARNING: SN_A/SN_B comparison plots failed (non-fatal)"
+    echo "Two-event plots: $PLOTS_DIR/{MODEL_NAME}_vs_sn_a.png, $PLOTS_DIR/{MODEL_NAME}_vs_sn_b.png"
 else
     echo "Note: No .tt lightcurve file found for {MODEL_NAME}"
 fi

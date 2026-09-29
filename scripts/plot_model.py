@@ -33,6 +33,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from pathlib import Path
 
 # Import read_swd from the conversion script
@@ -48,11 +49,14 @@ A_RAD = 7.5657e-15
 
 
 def plot_structure(r, rho, v, T, title, output_file, enclosed_mass=None,
-                   ref_profile=None, x_axis='radius'):
+                   ref_profile=None, x_axis='radius', top_x_mass=False):
     """Plot structure: density, velocity, temperature, enclosed mass (4 panels).
 
     x_axis: 'radius' (x-axis in cm, log scale) or 'mass' (x-axis in Msun).
             When x_axis='mass', enclosed_mass must be provided.
+
+    top_x_mass: when True and x_axis='radius', add a secondary top x-axis
+                on the top-row panels showing enclosed mass (Msun).
 
     ref_profile: optional dict with keys 'r', 'rho', 'T', 'v' for a reference
                  profile (e.g. pre-smoothing) to overlay as dashed lines.
@@ -140,6 +144,32 @@ def plot_structure(r, rho, v, T, title, output_file, enclosed_mass=None,
         ax.set_ylabel('Density (g/cm³)')
         ax.set_title('Density vs Velocity')
     ax.grid(True, alpha=0.3, which='both')
+
+    if top_x_mass and x_axis == 'radius' and enclosed_mass is not None:
+        r_arr = np.asarray(r)
+        m_arr = np.asarray(enclosed_mass) / MSUN
+        # Most of the mass sits in the compact shell, so evenly spaced
+        # mass ticks would cluster at one radius. Keep only ticks whose
+        # mapped radii are far enough apart to label without overlap.
+        m_ticks = MaxNLocator(nbins=10, prune='both').tick_values(
+            m_arr.min(), m_arr.max()
+        )
+        r_ticks = np.interp(m_ticks, m_arr, r_arr)
+        keep = np.concatenate(
+            ([True], np.diff(np.log10(r_ticks)) > 0.12)
+        )
+        m_ticks = m_ticks[keep]
+        for a in (axes[0, 0], axes[0, 1]):
+            sec = a.secondary_xaxis(
+                'top',
+                functions=(
+                    lambda rr: np.interp(rr, r_arr, m_arr),
+                    lambda mm: np.interp(mm, m_arr, r_arr),
+                ),
+            )
+            sec.set_xticks(m_ticks)
+            sec.set_xticklabels([f"{t:g}" for t in m_ticks])
+            sec.set_xlabel('Enclosed Mass (M$_\\odot$)', fontsize=10)
 
     plt.tight_layout()
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
@@ -991,14 +1021,12 @@ def plot_step(model_dir, step_name, plots_dir, swd_day=None):
         title = f'{model_dir.name} - STELLA Input (.hyd)'
         if ref_profile is not None:
             title += ' [pre/post-smoothing]'
-        # Plot 1: x-axis = radius (cm)
+        # Single structure plot: radius on the bottom axis, enclosed
+        # mass on a secondary top axis.
         plot_structure(r, rho, v, T, title,
-                       str(plots_dir / f'{step_name}_structure.png'),
-                       enclosed_mass=M_r, ref_profile=ref_profile, x_axis='radius')
-        # Plot 2: x-axis = enclosed mass (Msun)
-        plot_structure(r, rho, v, T, title + ' [vs Mass]',
                        str(plots_dir / f'{step_name}_structure_vs_mass.png'),
-                       enclosed_mass=M_r, ref_profile=ref_profile, x_axis='mass')
+                       enclosed_mass=M_r, ref_profile=ref_profile,
+                       x_axis='radius', top_x_mass=True)
         # Plot 3: CMFGEN sigma profile (velocity gradient exponent)
         plot_sigma(r, v, f'{model_dir.name} - CMFGEN Sigma Profile (STELLA Input)',
                    str(plots_dir / 'stella_sigma.png'),

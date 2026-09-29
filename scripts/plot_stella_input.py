@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 
 def read_hyd(fname: str) -> dict:
@@ -177,11 +178,32 @@ def plot_stella_input(hyd_file: str, abn_file: str, output_file: str = None):
     ax4.set_ylim(0, 1)
     ax4.legend(loc='upper right', ncol=2, fontsize=9)
     ax4.grid(True, alpha=0.3)
-    
+
+    # Secondary top x-axis: enclosed mass vs radius
+    r_arr = hyd['r']
+    m_arr = hyd['Mr']
+    m_ticks = MaxNLocator(nbins=10, prune='both').tick_values(
+        m_arr.min(), m_arr.max()
+    )
+    r_ticks = np.interp(m_ticks, m_arr, r_arr)
+    keep = np.concatenate(([True], np.diff(np.log10(r_ticks)) > 0.12))
+    m_ticks = m_ticks[keep]
+    for a in (ax1, ax2):
+        sec = a.secondary_xaxis(
+            'top',
+            functions=(
+                lambda rr: np.interp(rr, r_arr, m_arr),
+                lambda mm: np.interp(mm, m_arr, r_arr),
+            ),
+        )
+        sec.set_xticks(m_ticks)
+        sec.set_xticklabels([f"{t:g}" for t in m_ticks])
+        sec.set_xlabel('Enclosed Mass (M$_\\odot$)', fontsize=10)
+
     # Add overall title
-    fig.suptitle(f'STELLA Input Structure: {Path(hyd_file).stem}', 
+    fig.suptitle(f'STELLA Input Structure: {Path(hyd_file).stem}',
                  fontsize=14, fontweight='bold', y=0.98)
-    
+
     plt.tight_layout()
     
     # Save or show
