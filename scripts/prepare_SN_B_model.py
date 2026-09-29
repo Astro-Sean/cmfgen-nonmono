@@ -1,25 +1,49 @@
 #!/usr/bin/env python3
 """
-Prepare the SN_B initial model: H/He shell + connecting wind + old SN ejecta.
+Prepare the SN_B initial model: RSG shell + continuous wind + old SN_A ejecta.
 
-This script creates the initial conditions for the SN_B model, which represents
-a reverse-shock (RSH) H/He shell launched at 5000 km/s into a dense wind,
-which connects to a 400-day-old metal-rich supernova ejecta (the "CSM").
+Current setup (the SN_B_cocoon/RSG_* grid for SN 2024pba).
 
-The SN_B model consists of three components (inner to outer):
-  1. Inner zones: A new H/He shell (1.0 Msun, X=0.7, Y=0.3) at 5000 km/s
-  2. Middle zones: A 1/r^2 wind (Mdot=1e-3 Msun/yr, v_wind=600 km/s)
-     connecting the shell to the old ejecta
-  3. Outer zones: The 400-day homologously evolved SN_12C_CSM2 ejecta
-     (metal-rich, the "CSM" for the interaction)
+Structure (inner -> outer):
+  1. Compact RSG shell at ~t=0 size.  Broken power law: flat core below
+     --v0 (2100 km/s), outer density rho ~ v^-n_rho with n_rho=11
+     (canonical RSG ejecta, Matzner & McKee 1999; n=8 is BSG-like).
+     Solar composition (X=0.7381, Y=0.2485).  Homologous, v = r/t_start,
+     so the shell outer radius is r_out = V_shell * t_start:
+     ~8.5e13 cm (~1220 Rsun) for 7000 km/s at t_start=1.4 d.
+  2. Continuous steady wind attached directly at the shell surface:
+     rho ~ r^-2, constant v_wind (850 km/s), Mdot from --wind-mdot
+     (1e-4 to 1e-3 Msun/yr in the current grid).  The wind fills the
+     whole cavity from the shell edge to the SN_A ejecta inner edge.
+     The SN_B shock is confined to this shell-wind layer; no material
+     is placed outside the SN_A ejecta.
+  3. Old SN_A ejecta, read from a source STELLA .swd and homologously
+     evolved to effective_age = --source-age + --t-start at the STELLA
+     start time.  For SN 2024pba (SN_A explosion ~MJD 60489, SN_B onset
+     ~MJD 60810-832) the grid uses source_age 328.6-329.0 d with
+     t_start 1.0-1.4 d, i.e. ~330 d at model t=0: inner edge ~6.7e15 cm,
+     outer edge ~4.3e16 cm, velocities ~2200-14500 km/s.  The ejecta
+     keeps expanding during the run, reaching ~340-360 d at the
+     observed peak epochs, consistent with the observed SN_A explosion
+     date.
 
-STELLA starts at t=0 (the shell launch time). The old SN ejecta is already
-400 days old at this point — its structure represents the pre-existing CSM.
+Temperature prescription (physical, not a flat floor):
+  Shell: T ~ rho^n_T (n_T=0.4, Dessart-style), capped at --T-max
+  (50000 K) in the dense core and falling to --T-interface (4000 K) at
+  the surface.  Wind: --wind-T (4000 K).  SN_A ejecta floor:
+  --ejecta-T-floor (2000 K).  For a 7 Msun, 7000 km/s, 1.4 d shell the
+  seeded radiation reservoir is ~1e-4 of the shell kinetic energy
+  (~0.01%) and is diffusion-trapped (t_diff ~ years), so it does not
+  power the lightcurve.
+
+Interaction-only convention:
+  .xni is written with zero Ni56; the lightcurve is powered by the
+  shell-wind and shell-ejecta interaction only.
 
 Explosion convention (two-event workflow):
   This script builds the SN_B / embedded-shell setup, which is
   VELOCITY-DRIVEN.  The dynamics are carried entirely by the constructed
-  initial conditions — the shell's mass and launch velocity plus the
+  initial conditions -- the shell's mass and launch velocity plus the
   coasting old SN_A ejecta.  The .dat is therefore written with
   EBurst=0 (no thermal bomb may re-explode the structure) and EKO=0
   (EKO>0 would overwrite the .hyd velocity column with STELLA's
@@ -27,55 +51,59 @@ Explosion convention (two-event workflow):
   --explosion-energy exists only as an escape hatch and must stay 0.
 
   The SN_A setup is the opposite convention: a KEPLER pre-SN model is
-  blown up by the EBurst thermal bomb — see
+  blown up by the EBurst thermal bomb -- see
   convert_kepler_presn_to_stella.py.
 
-**Recommended configuration for a solar-composition shell + wind + old SN
-ejecta with maximum STELLA stability:**
-
-    python prepare_SN_B_model.py <source> <output> \\
-        --shell-composition solar --density-matched-wind
-
-Using ``--shell-composition solar`` together with ``--density-matched-wind``
-is the most stable setup for this scenario:
-
-  * ``--shell-composition solar`` gives the shell realistic metal content
-    (O, Si, Ca, Fe) matching the wind and ejecta, avoiding composition
-    discontinuities that can destabilise the STELLA opacity calculation.
-  * ``--density-matched-wind`` derives the wind Mdot so that
-    ``rho_wind(r_interface) = rho_ejecta(r_interface)``, eliminating the
-    density cliff at the wind-ejecta interface.  This is much more stable
-    for STELLA than a standard 1/r^2 wind, which can produce a >10 dex
-    density jump at the contact discontinuity.
+Paired wind-only control (--from-parent-hyd):
+  run_model_grid.py paired_wind_control: true auto-generates a sibling
+  <name>_windctl that rebuilds the profile from the parent's .hyd: all
+  zones interior to the wind-ejecta interface are copied verbatim and
+  the same 850 km/s wind is extended to the parent's outer radius.
+  The only physical difference between the pair is the fast SN_A
+  ejecta, so ejecta-interaction luminosity can be isolated directly.
 
 Outputs:
   - {model}.hyd: STELLA hydrodynamics input
   - {model}.abn: STELLA composition input
-  - {model}.xni: Ni56 distribution (zero — no radioactive decay in SN_B)
+  - {model}.xni: Ni56 distribution (zero -- no radioactive decay in SN_B)
   - {model}.dat: STELLA control file
   - input_profile: 12-column profile for convert_profile_to_stella.py
+  - plots/stella_input_structure.png: 4-panel initial model
+    (density, velocity with component boundaries, temperature,
+    composition vs radius)
+  - plots/stella_input_structure_vs_mass.png via plot_model.py:
+    .hyd structure vs radius with enclosed mass on a top axis
 
 Usage:
     python prepare_SN_B_model.py <source_dir> <output_dir> [options]
 
-    --shell-mass 1.0        H/He shell mass in Msun
-    --shell-velocity 5000   Shell launch velocity in km/s
-    --shell-xh 0.7          H mass fraction in shell
-    --shell-yhe 0.3         He mass fraction in shell
-    --wind-mdot 1e-3        Wind mass-loss rate in Msun/yr
-    --wind-velocity 600     Wind velocity in km/s
-    --wind-T 5000           Wind temperature in K
-    --target-days 45        STELLA simulation duration (days)
-    --snapshot-day 30       CMFGEN snapshot day after shell launch
+    --shell-mass 7.0        Shell mass in Msun
+    --shell-velocity 7000   Shell launch velocity in km/s
+    --shell-composition solar
+    --n-rho 11              Outer shell density slope (RSG: 10-12)
+    --v0 2100               Core/envelope break velocity in km/s
+    --t-start 1.4           Shell expansion age at STELLA start (days);
+                            sets the compact shell radius V_shell*t_start
+    --T-max 50000           Shell core temperature cap in K
+    --T-interface 4000      Shell surface / interface temperature in K
+    --wind-mdot 3e-4        Wind mass-loss rate in Msun/yr
+    --wind-velocity 850     Wind velocity in km/s
+    --wind-T 4000           Wind temperature in K
+    --ejecta-T-floor 2000   SN_A ejecta temperature floor in K
+    --target-days 150       STELLA simulation duration (days)
     --nzon 500              Number of STELLA zones
-    --source-age 400        Age of source ejecta at shell launch (days)
+    --source-age 328.6      SN_A ejecta age at SN_B t=0 (days); the .hyd
+                            ejecta is evolved to source_age + t_start
 """
 
 import argparse
-import sys
+import contextlib
+import io
 import struct
-import numpy as np
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Import shared utilities
 sys.path.insert(0, str(Path(__file__).parent))
@@ -380,64 +408,6 @@ def clean_ejecta_outer_boundary(ejecta, n_edge=20):
     return ejecta
 
 
-def plot_ejecta_smoothing(raw, smoothed, output_path, source_age=400):
-    """Generate a before/after smoothing comparison plot.
-
-    Shows the raw (noisy) and smoothed ejecta profiles for rho, T, and v
-    in a 3-panel figure with log-log axes.
-
-    Parameters:
-        raw:       dict with r, rho, v, T (before smoothing)
-        smoothed:  dict with r, rho, v, T (after smoothing)
-        output_path: path to save the plot
-        source_age: source age in days (for title)
-    """
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(3, 1, figsize=(14, 14), sharex=True)
-
-    r_raw = raw['r']
-    r_sm = smoothed['r']
-
-    # --- Density ---
-    ax = axes[0]
-    ax.plot(r_raw, raw['rho'], 'gray', linewidth=0.5, alpha=0.7, label='Raw (noisy)')
-    ax.plot(r_sm, smoothed['rho'], 'red', linewidth=1.5, label='Smoothed')
-    ax.set_ylabel('Density (g/cm$^3$)', fontsize=12)
-    ax.set_title(f'SN_A Ejecta Smoothing (Savitzky-Golay) — {source_age}d source', fontsize=14)
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.legend(fontsize=10, loc='best')
-    ax.grid(True, alpha=0.3)
-
-    # --- Temperature ---
-    ax = axes[1]
-    ax.plot(r_raw, raw['T'], 'gray', linewidth=0.5, alpha=0.7, label='Raw (noisy)')
-    ax.plot(r_sm, smoothed['T'], 'blue', linewidth=1.5, label='Smoothed')
-    ax.set_ylabel('Temperature (K)', fontsize=12)
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.legend(fontsize=10, loc='best')
-    ax.grid(True, alpha=0.3)
-
-    # --- Velocity ---
-    ax = axes[2]
-    ax.plot(r_raw, raw['v'], 'gray', linewidth=0.5, alpha=0.7, label='Raw (noisy)')
-    ax.plot(r_sm, smoothed['v'], 'green', linewidth=1.5, label='Smoothed')
-    ax.set_ylabel('Velocity (km/s)', fontsize=12)
-    ax.set_xlabel('Radius (cm)', fontsize=12)
-    ax.set_xscale('log')
-    ax.legend(fontsize=10, loc='best')
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  Ejecta smoothing plot saved: {output_path}")
-
-
 def read_source_ejecta(source_dir, source_age=400, tolerance=100, t_start_days=0.0,
                        force_homologous_velocity=False,
                        smooth_ejecta=True, smooth_window=15, smooth_polyorder=3,
@@ -583,6 +553,12 @@ def _shell_mass_factor(n_rho, frac_v0):
     return 1 + 3.0 * np.log(1.0 / frac_v0)
 
 
+def _zone_masses(r, rho, r_inner):
+    """Cell-interior masses for cell-centered outer radii."""
+    r_lo = np.concatenate([[r_inner], r[:-1]])
+    return np.maximum((4.0 / 3.0) * np.pi * (r**3 - r_lo**3) * rho, 0.0)
+
+
 def create_hhe_shell(shell_mass_msun, shell_velocity_kms, xh, yhe, nzon_shell=100,
                      r_inner_cm=1e8, T_shell_K=1e5,
                      n_rho=8.0, v0_kms=3000.0, n_T=0.4, T_interface_K=5000.0,
@@ -634,7 +610,13 @@ def create_hhe_shell(shell_mass_msun, shell_velocity_kms, xh, yhe, nzon_shell=10
     t_start_s = t_start_days * 86400.0  # seconds
     if r_outer_override is not None:
         r_outer = r_outer_override
-        print(f"  H/He shell: r_outer OVERRIDE = {r_outer:.3e} cm (immediate contact)")
+        # An overridden outer edge is reached by coasting at v_shell; the
+        # profile's homologous age is r_outer/v_shell, not the nominal
+        # t_start used when no override is supplied.
+        t_start_s = r_outer / v_shell
+        t_start_days = t_start_s / 86400.0
+        print(f"  H/He shell: r_outer OVERRIDE = {r_outer:.3e} cm "
+              f"(immediate contact, shell age={t_start_days:.3f} d)")
     else:
         r_outer = v_shell * t_start_s
 
@@ -715,6 +697,33 @@ def create_hhe_shell(shell_mass_msun, shell_velocity_kms, xh, yhe, nzon_shell=10
         'n_rho': n_rho, 'M_shell': M_shell,
         't_start_days': t_start_days,
     }
+
+
+def _renormalize_shell_grid(shell, shell_r, shell_rho):
+    """Normalize an interpolated shell grid to its analytic mass.
+
+    Returns the renormalized density and the actual edge values that any
+    adjoining buffer must use.  The supplied source dict is left unchanged.
+    """
+    if 'rho_0' in shell and 'r0' in shell:
+        n_rho_val = shell.get('n_rho', 8.0)
+        frac_v0 = shell['r0'] / shell['r_outer']
+        factor = _shell_mass_factor(n_rho_val, frac_v0)
+        m_shell_target = (4.0 / 3.0) * np.pi * shell['r0']**3 * shell['rho_0'] * factor
+    else:
+        m_shell_target = _zone_masses(shell['r'], shell['rho'],
+                                      shell['r_inner']).sum()
+
+    m_shell_interp = _zone_masses(shell_r, shell_rho,
+                                  shell_r[0] * 0.5).sum()
+    if not np.isfinite(m_shell_interp) or m_shell_interp <= 0:
+        raise ValueError('Interpolated shell grid has non-positive mass')
+    renorm = m_shell_target / m_shell_interp
+    shell_rho = shell_rho * renorm
+    print(f"  Shell mass conservation: target={m_shell_target/MSUN:.5f} Msun, "
+          f"interp={m_shell_interp/MSUN:.5f} Msun, "
+          f"renorm factor={renorm:.4f}")
+    return shell_rho, shell_rho[-1]
 
 
 def create_wind(mdot_msun_yr, v_wind_kms, T_wind_K, r_inner_cm, r_outer_cm,
@@ -825,6 +834,39 @@ def _interface_blend(n, val_inner, val_outer, transition_zones=4):
     """
     w = _interface_ramp_weights(n, transition_zones)
     return val_inner * (1.0 - w) + val_outer * w
+
+
+def _relax_density_gradient(r, rho, target=15.0, iterations=50):
+    """Relax unresolved local density oscillations without moving endpoints."""
+    rho = np.asarray(rho, dtype=float).copy()
+    if len(rho) < 3:
+        return rho, 0.0
+    log_r = np.log10(np.asarray(r, dtype=float))
+    log_rho = np.log10(np.maximum(rho, 1e-300))
+    for _ in range(iterations):
+        signed_grad = np.diff(log_rho) / np.maximum(np.diff(log_r), 1e-300)
+        grad = np.abs(signed_grad)
+        bad = np.where(grad > target)[0]
+        if len(bad) == 0:
+            break
+        for idx in bad:
+            if idx >= len(rho) - 1:
+                continue
+            excess = (grad[idx] - target) * np.diff(log_r)[idx]
+            direction = np.sign(signed_grad[idx])
+            can_left = idx > 0
+            can_right = idx + 1 < len(rho) - 1
+            scale = 0.5 if can_left and can_right else 1.0
+            step = scale * direction * excess
+            # Keep both endpoints fixed. Move the two neighboring zones
+            # toward one another so one-sided smoothing does not stall at
+            # a pinned interface.
+            if can_left:
+                log_rho[idx] += step
+            if can_right:
+                log_rho[idx + 1] -= step
+    grad = np.abs(np.diff(log_rho) / np.maximum(np.diff(log_r), 1e-300))
+    return 10.0 ** log_rho, np.max(grad)
 
 
 def clean_combined_outer_boundary(combined, n_edge=20, ej_start_idx=None):
@@ -1071,6 +1113,46 @@ def validate_stella_grid(r, min_dlogr=0.005, max_dlogr=0.15, strict=False):
     return ok
 
 
+def validate_combined_model(combined, expected_nzon, min_dlogr=0.005,
+                            max_dlogr=0.15, strict=False):
+    """Validate the combined profile before STELLA input files are written."""
+    r = np.asarray(combined['r'], dtype=float)
+    ok = validate_stella_grid(r, min_dlogr=min_dlogr,
+                              max_dlogr=max_dlogr, strict=strict)
+    if expected_nzon is not None and len(r) != expected_nzon:
+        raise ValueError(
+            f'Final combined grid has {len(r)} zones but the STELLA '
+            f'configuration expects {expected_nzon}.')
+    for key in ('rho', 'v', 'T'):
+        vals = np.asarray(combined[key], dtype=float)
+        if len(vals) != len(r):
+            raise ValueError(f'{key} has {len(vals)} values for {len(r)} radii')
+        if not np.all(np.isfinite(vals)):
+            raise ValueError(f'{key} contains NaN or Inf')
+        if np.any(vals <= 0):
+            raise ValueError(f'{key} contains non-positive values')
+    dm = _zone_masses(r, combined['rho'], r[0] * 0.5)
+    if not np.all(np.isfinite(dm)) or np.any(dm <= 0):
+        raise ValueError('Final grid contains a non-positive zone mass')
+    comp_keys = [k for k in ('fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe')
+                 if k in combined]
+    if comp_keys:
+        comp_sum = sum(np.asarray(combined[k], dtype=float) for k in comp_keys)
+        if not np.all(np.isfinite(comp_sum)):
+            raise ValueError('Composition fractions contain NaN or Inf')
+        if np.any(np.abs(comp_sum - 1.0) > 1e-6):
+            raise ValueError('Composition fractions do not sum to 1')
+    log_r = np.log10(r)
+    log_rho = np.log10(np.maximum(combined['rho'], 1e-300))
+    dlogr = np.diff(log_r)
+    max_grad = np.max(np.abs(np.diff(log_rho) / np.maximum(dlogr, 1e-300)))
+    if max_grad > 16.0:
+        raise ValueError(
+            f'Final grid has max |dlog rho/dlog r|={max_grad:.1f} > 16; '
+            'interface buffering is insufficient for a stable STELLA start.')
+    return ok
+
+
 def _cap_buffer_zones(nzon_buffer, span_dex, min_dlogr=0.005, max_dlogr=None,
                       label="buffer"):
     """Cap buffer zone count to respect dlog10(r) spacing constraints.
@@ -1172,10 +1254,15 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
     # Region boundaries
     r_min = shell['r_inner']
     r_shell_outer = shell['r_outer']
-    # When immediate_contact=True, the shell outer edge was set to
-    # ej_r_sorted[0] * 0.99 by the caller (r_outer_override).  The ejecta
-    # inner edge for the grid must therefore be ej_r_sorted[0] (without the
-    # 0.99 factor) so the 5-zone buffer has a non-zero radial extent.
+    # The first shell radius on the final grid is r_min, so its first cell
+    # lower edge is chosen to preserve the analytic mass convention used by
+    # the combiner.
+    r_min_lower = r_min * 0.5
+    # When immediate_contact=True, the shell outer edge was set just below
+    # ej_r_sorted[0] by the caller (r_outer_override = ej_min * 10^-gap_dex,
+    # gap_dex = 7*min_dlogr).  The ejecta inner edge for the grid must
+    # therefore be ej_r_sorted[0] itself so the 5-zone buffer has a radial
+    # extent that clears the min_dlogr grid floor.
     # Without this, r_shell_outer == r_ej_inner and the buffer zones all
     # have identical radius, producing zero-mass zones that STELLA rejects
     # with "Invalid .hyd mass or radial ordering".
@@ -1190,28 +1277,32 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
     log_r_ej = np.log10(r_ej_inner)
     log_r_max = np.log10(r_max)
 
+    # The buffer endpoints must come from the renormalized shell grid.  The
+    # zone allocation below is needed to build that grid, so defer printing
+    # the density contrast until after the shell grid is constructed.
+    rho_se_start = None
+    rho_se_end = ej_rho_sorted[0]
+    se_span_dex = log_r_ej - log_r_shell
+
     if immediate_contact:
-        # Immediate contact with a small smooth transition (5 zones).
-        # The shell outer edge is at ~99% of the ejecta inner edge (set by
-        # r_outer_override).  The 5-zone buffer spans the remaining 1% gap,
-        # providing a smooth density/velocity/composition blend to avoid a
-        # hard discontinuity that could stall STELLA.
-        nzon_se_buffer = 5
-        print(f"  Shell-ejecta: IMMEDIATE CONTACT (5-zone smooth transition)")
+        # The contact gap is sized upstream from the density contrast.  Use
+        # enough zones to satisfy the local spacing cap rather than forcing a
+        # fixed five-zone transition through an unresolved density jump.
+        nzon_se_buffer = max(5, int(np.ceil(se_span_dex / buffer_max_dlogr)))
+        nzon_se_buffer = _cap_buffer_zones(nzon_se_buffer, se_span_dex,
+                                           min_dlogr=min_dlogr,
+                                           max_dlogr=buffer_max_dlogr,
+                                           label="SE buffer")
+        print(f"  Shell-ejecta: IMMEDIATE CONTACT ({nzon_se_buffer}-zone "
+              f"smooth transition)")
         print(f"    r_shell_outer={r_shell_outer:.3e} cm, r_ej_inner={r_ej_inner:.3e} cm")
         print(f"    buffer width={r_ej_inner - r_shell_outer:.3e} cm "
               f"({(r_ej_inner - r_shell_outer)/r_ej_inner*100:.2f}% of r_ej_inner)")
-        rho_se_start = shell['rho'][-1]
-        rho_se_end = ej_rho_sorted[0]
-        se_contrast = abs(np.log10(max(rho_se_end, 1e-300) / max(rho_se_start, 1e-300)))
-        print(f"    rho: {rho_se_start:.3e} -> {rho_se_end:.3e} g/cc "
-              f"(contrast={se_contrast:.1f} dex, smooth over {nzon_se_buffer} zones)")
     else:
         # --- Buffer spans the full shell->ejecta gap ---
-        rho_se_start = shell['rho'][-1]  # shell density at outer edge
-        rho_se_end = ej_rho_sorted[0]    # ejecta density at inner edge
-        se_contrast = abs(np.log10(max(rho_se_end, 1e-300) / max(rho_se_start, 1e-300)))
-        se_span_dex = log_r_ej - log_r_shell  # full gap width in dex
+        rho_se_start = shell['rho'][-1]  # provisional; replaced after renormalization
+        se_contrast = abs(np.log10(max(rho_se_end, 1e-300) /
+                                  max(rho_se_start, 1e-300)))
 
         # Number of buffer zones: enough for density gradient < 16 and
         # composition resolution (~0.05 dex per zone minimum)
@@ -1265,8 +1356,10 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
             print(f"  Buffer max_dlogr enforcement grew buffers by {-n_freed} zones; "
                   f"reduced ejecta by {n_from_ej}, shell by {n_from_shell}")
         if n_excess > 0:
-            print(f"  WARNING: {n_excess} zones could not be removed without "
-                  f"violating minimums — total will be {nzon_total + n_excess}")
+            raise ValueError(
+                f'{n_excess} zones cannot be removed without violating '
+                f'region minimums; requested nzon_total={nzon_total}. '
+                'Increase --nzon or reduce interface resolution.')
         n_freed = 0
     if n_freed > 0:
         shell_span_dex = np.log10(r_shell_outer) - np.log10(r_min)
@@ -1277,8 +1370,10 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
             n_freed -= n_to_shell
             print(f"  Redistributed {n_to_shell} freed zones to shell")
         if n_freed > 0:
-            print(f"  WARNING: {n_freed} zones could not be placed without "
-                  f"violating min_dlogr — total will be {nzon_total - n_freed}")
+            raise ValueError(
+                f'{n_freed} zones cannot be placed without violating '
+                f'min_dlogr; requested nzon_total={nzon_total}. Increase '
+                '--nzon or increase --min-dlogr.')
     n_total = nzon_shell + nzon_se_buffer + nzon_ejecta
     print(f"  Zone allocation: {nzon_shell} shell + {nzon_se_buffer} SE buffer + "
           f"{nzon_ejecta} ejecta = {n_total} total")
@@ -1305,28 +1400,17 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
     shell_v = np.interp(np.log10(shell_r), log_r_src, shell['v'])
     shell_T = np.interp(np.log10(shell_r), log_r_src, shell['T'])
 
-    # Conserve shell mass: the log-space interpolation of a steep power-law
-    # (rho ∝ r^-8) onto fewer zones under-weights the dense core, and the
-    # original 100-zone discrete grid also loses mass vs the analytical
-    # formula. Renormalize to the analytical mass (exact by construction).
-    if 'rho_0' in shell and 'r0' in shell:
-        n_rho_val = shell.get('n_rho', 8.0)
-        frac_v0 = shell['r0'] / shell['r_outer']
-        factor = _shell_mass_factor(n_rho_val, frac_v0)
-        M_shell_target = (4/3) * np.pi * shell['r0']**3 * shell['rho_0'] * factor
-    else:
-        # Fallback: integrate the original discrete profile
-        r_lo_src = np.concatenate([[shell['r_inner']], shell['r'][:-1]])
-        M_shell_target = ((4/3) * np.pi *
-                          (shell['r']**3 - r_lo_src**3) * shell['rho']).sum()
-    r_lo_shell = np.concatenate([[shell_r[0] * 0.5], shell_r[:-1]])
-    M_shell_interp = ((4/3) * np.pi *
-                      (shell_r**3 - r_lo_shell**3) * shell_rho).sum()
-    if M_shell_interp > 0:
-        shell_rho *= M_shell_target / M_shell_interp
-        print(f"  Shell mass conservation: target={M_shell_target/MSUN:.5f} Msun, "
-              f"interp={M_shell_interp/MSUN:.5f} Msun, "
-              f"renorm factor={M_shell_target/M_shell_interp:.4f}")
+    # Conserve shell mass on the final grid.  The density used for any
+    # adjoining buffer must be the renormalized edge value, not the stale
+    # source-grid edge value.
+    shell_rho, rho_se_start = _renormalize_shell_grid(
+        shell, shell_r, shell_rho)
+    se_contrast = abs(np.log10(max(rho_se_end, 1e-300) /
+                              max(rho_se_start, 1e-300)))
+    se_grad = se_contrast / max(se_span_dex, 0.01)
+    print(f"    post-renormalization rho: {rho_se_start:.3e} -> "
+          f"{rho_se_end:.3e} g/cc (contrast={se_contrast:.1f} dex, "
+          f"est. gradient={se_grad:.1f})")
 
     if nzon_se_buffer > 0:
         # Buffer: log-spaced from shell outer edge to ejecta inner edge
@@ -1335,11 +1419,13 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
                                  np.log10(max(rho_se_end, 1e-300)),
                                  nzon_se_buffer)
         se_buf_rho = 10.0 ** se_log_rho
+        se_buf_rho[0] = rho_se_start
+        se_buf_rho[-1] = rho_se_end
         # Velocity: sharp linear-ramp transition from shell v to ejecta v.
         # The transition happens over ~4 zones at the buffer midpoint,
         # so most of the buffer has shell velocity (inner) or ejecta
         # velocity (outer) with a sharp interface.
-        v_shell_edge = shell['v'][-1]
+        v_shell_edge = shell_v[-1]
         v_ej_inner = ej_v_sorted[0]
         se_buf_v = _interface_blend(nzon_se_buffer, v_shell_edge, v_ej_inner,
                                     transition_zones=4)
@@ -1348,7 +1434,7 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
         # smooth temperature gradient at the contact discontinuity.
         # For the wide buffer case, the buffer is cold (ejecta T floor).
         if immediate_contact:
-            se_buf_T = _interface_blend(nzon_se_buffer, shell['T'][-1],
+            se_buf_T = _interface_blend(nzon_se_buffer, shell_T[-1],
                                         max(ej_T_sorted[0], ejecta_T_floor),
                                         transition_zones=4)
         else:
@@ -1399,18 +1485,23 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
         ej_T_smooth[-2:] = ej_T[-2:]
         ej_T = np.maximum(ej_T_smooth, ejecta_T_floor)
 
-    # Smooth ejecta interpolation artifacts
-    for _ in range(3):
-        log_ej_rho = np.log10(np.maximum(ej_rho, 1e-300))
-        log_ej_r = np.log10(ej_r_new)
-        grads = np.abs(np.diff(log_ej_rho) / np.diff(log_ej_r))
-        smoothed = ej_rho.copy()
-        for i in range(1, len(ej_rho) - 1):
-            g_left = grads[i - 1]
-            g_right = grads[i]
-            if g_left > 16 or g_right > 16:
-                smoothed[i] = np.sqrt(max(ej_rho[i - 1] * ej_rho[i + 1], 1e-300))
-        ej_rho = smoothed
+    # Relax residual source-density noise while preserving the interpolated
+    # ejecta mass and the buffer endpoint.
+    ej_rho_relaxed, ej_max_grad = _relax_density_gradient(
+        ej_r_new, ej_rho, target=14.0, iterations=500)
+    if ej_max_grad > 15.0:
+        raise ValueError(
+            f'Ejecta density profile remains under-resolved after relaxation: '
+            f'max |dlog rho/dlog r|={ej_max_grad:.1f} > 15.')
+    dm_ej = _zone_masses(ej_r_new, ej_rho, r_ej_inner)
+    dm_relax = _zone_masses(ej_r_new, ej_rho_relaxed, r_ej_inner)
+    m_fixed = dm_relax[0]
+    m_rest = dm_relax[1:].sum()
+    m_target_rest = dm_ej.sum() - m_fixed
+    if m_target_rest <= 0 or m_rest <= 0:
+        raise ValueError('Ejecta density relaxation produced an invalid mass')
+    ej_rho = ej_rho_relaxed
+    ej_rho[1:] *= m_target_rest / m_rest
 
     # --- Combine all segments ---
     r_combined = np.concatenate([shell_r, se_buf_r, ej_r_new])
@@ -1468,10 +1559,14 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
     for key in comp_combined:
         comp_combined[key] /= comp_sum
 
+    if len(r_combined) != nzon_total:
+        raise ValueError(
+            f'Final shell+ejecta grid has {len(r_combined)} zones but '
+            f'nzon_total={nzon_total}. Grid allocation must preserve the '
+            'STELLA zone count exactly.')
+
     # --- Compute masses ---
-    r_lo = np.concatenate([[r_combined[0] * 0.5], r_combined[:-1]])
-    dm = (4/3) * np.pi * (r_combined**3 - r_lo**3) * rho_combined
-    dm = np.maximum(dm, 0.0)
+    dm = _zone_masses(r_combined, rho_combined, r_min_lower)
     M_total = np.sum(dm)
 
     idx_shell = nzon_shell
@@ -1513,6 +1608,184 @@ def combine_shell_ejecta(shell, ejecta, nzon_total=500,
         'idx_ej': idx_se_buf,
         **comp_combined,
     }
+
+
+def outer_csm_gap_zones(r_ej_out, r_in, n_gap_max):
+    """Gap zone count scaled to the gap width so each zone clears the
+    strict-grid dlogr floor (~0.005 dex).  Must stay in sync with the
+    zone reservation in main() which calls this same function."""
+    gap_dex = np.log10(r_in) - np.log10(r_ej_out)
+    return min(n_gap_max, max(2, int(gap_dex / 0.0055)))
+
+
+def outer_csm_nzones(r_in, r_out, n_zones_max):
+    """CSM zone count scaled to the layer's log-span, same floor logic
+    as outer_csm_gap_zones.  main() reserves zones via this function so
+    the final .hyd stays at exactly nzon."""
+    span_dex = np.log10(r_out) - np.log10(r_in)
+    return min(n_zones_max, max(8, int(span_dex / 0.0055)))
+
+
+def append_outer_csm(combined, mdot_msun_yr, v_kms, r_inner_cm, r_outer_cm,
+                     T_K=2000.0, n_zones=40, rho_floor=1e-20, comp=None,
+                     n_gap_zones=12, mass_msun=0.0):
+    """Append a slow outer CSM wind above the combined shell+ejecta.
+
+    The dense slow CSM that produces the narrow P-Cygni absorption in
+    Type IIn spectra must sit outside the expanding ejecta.  With
+    r_inner_cm > r_ejecta_outer the CSM is a detached shell (e.g. a
+    pre-SN eruption years before the first event); the intervening gap
+    is filled with a rho_floor bath so the grid stays continuous.
+
+    Density ramping at the CSM inner edge is mandatory: a raw
+    floor-to-wind step is ~2+ dex per zone and stalls the solver
+    (|dlog rho/dlog r| > 16).  The ramp spreads the jump over
+    n_ramp_zones inside the CSM layer.
+
+    Parameters:
+        combined: dict from combine_* (inner->outer ordering)
+        mdot_msun_yr: CSM mass-loss rate (rho = Mdot/(4 pi r^2 v))
+        mass_msun: if >0, ignore mdot and normalize the r^-2 profile to
+            this total CSM shell mass (detached-eruption interpretation:
+            the column needed for tau~10-100 at 850 km/s corresponds to
+            ~Msun-scale shells, not steady winds)
+        v_kms: CSM velocity (km/s); flat profile
+        r_inner_cm: CSM inner edge; <=0 places it at the ejecta surface
+        r_outer_cm: CSM outer edge; <=0 defaults to 2 * r_inner
+        comp: dict of constant mass fractions (fH, fHe, fO, fSi, fCa, fFe)
+            for the gap+CSM zones; None reuses the outermost zone values
+    """
+    r = combined['r']
+    r_ej_out = r[-1]
+    v_cms = v_kms * 1e5
+
+    r_in = r_inner_cm if r_inner_cm > 0 else r_ej_out
+    if r_in <= r_ej_out:
+        r_in = r_ej_out
+    r_out = r_outer_cm if r_outer_cm > r_in else 2.0 * r_in
+
+    if mass_msun > 0:
+        # rho = rho_c / r^2 normalized to the requested shell mass
+        rho_csm = mass_msun * MSUN / (4.0 * np.pi * (r_out - r_in))
+    else:
+        rho_csm = (mdot_msun_yr * MSUN / YR_TO_S) / (4.0 * np.pi * v_cms)
+
+    r_in = r_inner_cm if r_inner_cm > 0 else r_ej_out
+    if r_in <= r_ej_out:
+        r_in = r_ej_out
+    r_out = r_outer_cm if r_outer_cm > r_in else 2.0 * r_in
+
+    gap_r = np.array([])
+    gap_rho = np.array([])
+    gap_v = np.array([])
+    gap_T = np.array([])
+    if r_in > r_ej_out * 1.001:
+        # Detached CSM: tenuous gap between the ejecta surface and the
+        # CSM inner edge.  Velocity ramps linearly (in r) from the ejecta
+        # surface speed to v_cms so the contact discontinuity is spread
+        # over the (nearly massless) gap instead of one zone.
+        # For narrow gaps the zone count must shrink so each gap zone
+        # still clears the strict-grid dlogr floor (~0.005 dex).
+        n_gap = outer_csm_gap_zones(r_ej_out, r_in, n_gap_zones)
+        gap_r = np.logspace(np.log10(r_ej_out), np.log10(r_in),
+                            n_gap + 1)[1:]
+        gap_rho = np.full(n_gap, rho_floor)
+        gap_v = combined['v'][-1] + (v_cms - combined['v'][-1]) * (
+            (gap_r - r_ej_out) / max(r_in - r_ej_out, 1.0))
+        gap_T = np.full(n_gap, T_K)
+
+    # Narrow layers need fewer zones: each zone must keep
+    # dlogr >= ~0.005 under strict-grid checking.
+    n_zones = outer_csm_nzones(r_in, r_out, n_zones)
+
+    r_csm = np.logspace(np.log10(r_in), np.log10(r_out), n_zones + 1)[1:]
+    rho = rho_csm / r_csm**2
+
+    # Density ramp at the CSM inner edge: blend rho_floor (or the ejecta
+    # surface density when attached) up to the wind-law value.  The ramp
+    # width adapts to the contrast so |dlog rho/dlog r| stays below ~12
+    # (the solver stalls near 16).
+    rho_below = rho_floor if len(gap_r) else combined['rho'][-1]
+    dex_contrast = abs(np.log10(max(rho[0], 1e-300) / max(rho_below, 1e-300)))
+    dlogr_csm = (np.log10(r_out) - np.log10(r_in)) / n_zones
+    n_ramp = int(np.ceil(dex_contrast / (12.0 * max(dlogr_csm, 1e-4)))) + 1
+    n_ramp = min(n_ramp, n_zones // 2)
+    if n_ramp > 1:
+        ramp = np.logspace(np.log10(max(rho_below, 1e-300)),
+                           np.log10(rho[0]), n_ramp + 1)[1:]
+        rho[:n_ramp] = ramp
+    rho[-1] = rho_csm / r_out**2
+
+    # Recompute the post-ramp maximum gradient.  If the zone cap made the
+    # ramp too short, the requested CSM is numerically unsupported.
+    if n_zones > 1:
+        _lr = np.diff(np.log10(np.maximum(r_csm, 1e-300)))
+        _gr = np.abs(np.diff(np.log10(np.maximum(rho, 1e-300))) /
+                     np.maximum(_lr, 1e-300))
+        max_csm_grad = np.max(_gr)
+        if max_csm_grad > 12.0:
+            raise ValueError(
+                f'Outer CSM density ramp is under-resolved: max |dlog rho/'
+                f'dlog r|={max_csm_grad:.1f} > 12. Increase '
+                '--outer-csm-zones or widen --outer-csm-r-outer.')
+
+    # Normalize only the fixed r^-2 segment so the requested shell mass is
+    # preserved without moving the ramp endpoint away from rho_below.
+    if mass_msun > 0:
+        m_target = mass_msun * MSUN
+        dm_csm = _zone_masses(r_csm, rho, r_in)
+        if n_ramp > 1 and n_ramp < n_zones:
+            m_fixed = dm_csm[:n_ramp].sum()
+            i0 = n_ramp
+        else:
+            m_fixed = 0.0
+            i0 = 0
+        norm_num = m_target - m_fixed
+        norm_den = ((4.0 / 3.0) * np.pi *
+                    (r_csm[i0:]**3 - np.concatenate(
+                        [[r_csm[i0] if i0 else r_in],
+                         r_csm[i0:-1]])**3) / r_csm[i0:]**2).sum()
+        if norm_num <= 0 or norm_den <= 0:
+            raise ValueError(
+                'Outer CSM mass cannot be preserved while anchoring the '
+                f'inner density ramp: requested={mass_msun:.4f} Msun, '
+                f'fixed ramp mass={m_fixed/MSUN:.4f} Msun. Reduce '
+                '--outer-csm-mass or increase --outer-csm-zones/r_outer.')
+        rho_csm = norm_num / norm_den
+        rho[i0:] = rho_csm / r_csm[i0:]**2
+        rho[-1] = rho_csm / r_out**2
+
+    v_new = np.full(n_zones, v_cms)
+    T_new = np.full(n_zones, T_K)
+
+    out = dict(combined)
+    out['r'] = np.concatenate([r, gap_r, r_csm])
+    out['rho'] = np.concatenate([combined['rho'], gap_rho, rho])
+    out['v'] = np.concatenate([combined['v'], gap_v, v_new])
+    out['T'] = np.concatenate([combined['T'], gap_T, T_new])
+
+    n_extra = len(gap_r) + n_zones
+    for key in ['fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe']:
+        if key in combined:
+            val = comp.get(key, combined[key][-1]) if comp else combined[key][-1]
+            out[key] = np.concatenate([combined[key], np.full(n_extra, val)])
+
+    comp_sum = sum(out[k] for k in ['fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe']
+                   if k in out)
+    comp_sum = np.maximum(comp_sum, 1e-10)
+    for key in ['fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe']:
+        if key in out:
+            out[key] = out[key] / comp_sum
+
+    r_lo = np.concatenate([[r_in], r_csm[:-1]])
+    m_csm = np.sum((4.0 / 3.0) * np.pi * (r_csm**3 - r_lo**3) * rho)
+    src = (f"M={mass_msun:.2f} Msun" if mass_msun > 0
+           else f"Mdot={mdot_msun_yr:.1e} Msun/yr")
+    print(f"  Outer CSM: r=[{r_in:.3e}, {r_out:.3e}] cm, {src}, "
+          f"v={v_kms:.0f} km/s, rho(r_in)={rho_csm / r_in**2:.2e} g/cc, "
+          f"M_CSM~{m_csm / MSUN:.2f} Msun, {n_zones} zones "
+          f"(+{len(gap_r)} gap)")
+    return out
 
 
 def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
@@ -1601,9 +1874,9 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
     we_transition_dex = min(we_transition_dex, max_buffer_dex)
 
     r_sw_buffer_end = r_shell_outer * (10 ** sw_transition_dex)
-    rho_sw_start = shell['rho'][-1]  # shell density at outer edge (power-law tail)
     rho_sw_end = wind_rho_at(r_sw_buffer_end)  # wind density at buffer end
-    sw_contrast = np.log10(max(rho_sw_start, 1e-300) / max(rho_sw_end, 1e-300))
+    sw_contrast = np.log10(max(shell['rho'][-1], 1e-300) /
+                           max(rho_sw_end, 1e-300))
 
     # Number of buffer zones: enough for gradient < 16
     # gradient = contrast / (n_buffer * dlog_r_per_zone)
@@ -1623,7 +1896,7 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
 
     print(f"  Shell-wind buffer: {nzon_sw_buffer} zones, "
           f"r=[{r_shell_outer:.3e}, {r_sw_buffer_end:.3e}] cm")
-    print(f"    rho: {rho_sw_start:.3e} -> {rho_sw_end:.3e} g/cc "
+    print(f"    rho: {shell['rho'][-1]:.3e} -> {rho_sw_end:.3e} g/cc "
           f"(contrast={sw_contrast:.1f} dex, est. gradient={sw_grad:.1f})")
 
     # Wind-ejecta buffer: ramps from rho_wind to rho_ejecta
@@ -1700,8 +1973,10 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
                   f"reduced ejecta by {n_from_ej}, wind by {n_from_wind}, "
                   f"shell by {n_from_shell}")
         if n_excess > 0:
-            print(f"  WARNING: {n_excess} zones could not be removed without "
-                  f"violating minimums — total will be {nzon_total + n_excess}")
+            raise ValueError(
+                f'{n_excess} zones cannot be removed without violating '
+                f'region minimums; requested nzon_total={nzon_total}. '
+                'Increase --nzon or reduce interface resolution.')
         n_freed = 0
     if n_freed > 0:
         # Cap shell zones: the shell envelope has a small span and is the
@@ -1716,8 +1991,10 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
             n_freed -= n_to_shell
             print(f"  Redistributed {n_to_shell} freed zones to shell")
         if n_freed > 0:
-            print(f"  WARNING: {n_freed} zones could not be placed without "
-                  f"violating min_dlogr — total will be {nzon_total - n_freed}")
+            raise ValueError(
+                f'{n_freed} zones cannot be placed without violating '
+                f'min_dlogr; requested nzon_total={nzon_total}. Increase '
+                '--nzon or increase --min-dlogr.')
 
     # Recalculate total
     n_total = nzon_shell + nzon_sw_buffer + nzon_wind + nzon_we_buffer + nzon_ejecta
@@ -1748,28 +2025,17 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
     shell_v = np.interp(np.log10(shell_r), log_r_src, shell['v'])
     shell_T = np.interp(np.log10(shell_r), log_r_src, shell['T'])
 
-    # Conserve shell mass: the log-space interpolation of a steep power-law
-    # (rho ∝ r^-8) onto fewer zones under-weights the dense core, and the
-    # original 100-zone discrete grid also loses mass vs the analytical
-    # formula. Renormalize to the analytical mass (exact by construction).
-    if 'rho_0' in shell and 'r0' in shell:
-        n_rho_val = shell.get('n_rho', 8.0)
-        frac_v0 = shell['r0'] / shell['r_outer']
-        factor = _shell_mass_factor(n_rho_val, frac_v0)
-        M_shell_target = (4/3) * np.pi * shell['r0']**3 * shell['rho_0'] * factor
-    else:
-        # Fallback: integrate the original discrete profile
-        r_lo_src = np.concatenate([[shell['r_inner']], shell['r'][:-1]])
-        M_shell_target = ((4/3) * np.pi *
-                          (shell['r']**3 - r_lo_src**3) * shell['rho']).sum()
-    r_lo_shell = np.concatenate([[shell_r[0] * 0.5], shell_r[:-1]])
-    M_shell_interp = ((4/3) * np.pi *
-                      (shell_r**3 - r_lo_shell**3) * shell_rho).sum()
-    if M_shell_interp > 0:
-        shell_rho *= M_shell_target / M_shell_interp
-        print(f"  Shell mass conservation: target={M_shell_target/MSUN:.5f} Msun, "
-              f"interp={M_shell_interp/MSUN:.5f} Msun, "
-              f"renorm factor={M_shell_target/M_shell_interp:.4f}")
+    # Conserve shell mass on the final grid.  Adjoining buffers must start
+    # from the renormalized edge density and temperature, not stale source
+    # values.
+    shell_rho, rho_sw_start = _renormalize_shell_grid(
+        shell, shell_r, shell_rho)
+    v_shell_edge = shell_v[-1]
+    T_shell_edge = shell_T[-1]
+    sw_contrast = np.log10(max(rho_sw_start, 1e-300) /
+                           max(rho_sw_end, 1e-300))
+    print(f"    post-renormalization rho: {rho_sw_start:.3e} -> "
+          f"{rho_sw_end:.3e} g/cc (contrast={sw_contrast:.1f} dex)")
 
     # Shell-wind buffer: log-spaced, log-linear density ramp
     sw_buf_r = np.logspace(log_r_shell, np.log10(r_sw_buffer_end), nzon_sw_buffer + 1)[1:]
@@ -1778,9 +2044,9 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
                              nzon_sw_buffer)
     sw_buf_rho = 10.0 ** sw_log_rho
     # Velocity: linear from shell v at outer edge to wind v
-    sw_buf_v = np.linspace(shell['v'][-1], v_wind, nzon_sw_buffer)
+    sw_buf_v = np.linspace(v_shell_edge, v_wind, nzon_sw_buffer)
     # Temperature: linear from shell T at outer edge to wind T
-    sw_buf_T = np.linspace(shell['T'][-1], T_wind, nzon_sw_buffer)
+    sw_buf_T = np.linspace(T_shell_edge, T_wind, nzon_sw_buffer)
 
     # Wind: log-spaced, density interpolated from the supplied profile
     # (steady 1/r^2 wind, or young wind + background for finite duration)
@@ -1789,11 +2055,15 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
     wind_v = np.full(nzon_wind, v_wind)
     wind_T = np.full(nzon_wind, T_wind)
 
-    # Wind-ejecta buffer: log-spaced, log-linear density ramp
+    # Wind-ejecta buffer: log-spaced, log-linear density ramp.  Keep the
+    # endpoints continuous; redistributing the ramp to a wind mass budget would
+    # reintroduce the contact discontinuity it is meant to resolve.
     we_buf_r = np.logspace(np.log10(r_we_buffer_start), log_r_ej, nzon_we_buffer + 1)[1:]
     we_log_rho = np.linspace(np.log10(max(rho_we_start, 1e-300)),
                              np.log10(max(rho_we_end, 1e-300)), nzon_we_buffer)
     we_buf_rho = 10.0 ** we_log_rho
+    we_buf_rho[0] = rho_we_start
+    we_buf_rho[-1] = rho_we_end
     we_buf_v = np.linspace(v_wind, ej_v_sorted[0], nzon_we_buffer)
     we_buf_T = np.linspace(T_wind, max(ej_T_sorted[0], ejecta_T_floor), nzon_we_buffer)
 
@@ -1835,28 +2105,37 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
         ej_T_smooth[-2:] = ej_T[-2:]
         ej_T = np.maximum(ej_T_smooth, ejecta_T_floor)
 
-    # Smooth ejecta interpolation artifacts: any zone where the gradient > 16
-    # gets replaced by the geometric mean of its neighbors. This removes sharp
-    # spikes from the source SN model interpolation without affecting the
-    # overall profile shape. Only applies to the low-density outer ejecta.
-    for _ in range(3):  # 3 smoothing passes
-        log_ej_rho = np.log10(np.maximum(ej_rho, 1e-300))
-        log_ej_r = np.log10(ej_r_new)
-        grads = np.abs(np.diff(log_ej_rho) / np.diff(log_ej_r))
-        smoothed = ej_rho.copy()
-        for i in range(1, len(ej_rho) - 1):
-            g_left = grads[i - 1]
-            g_right = grads[i]
-            if g_left > 16 or g_right > 16:
-                # Replace with geometric mean of neighbors
-                smoothed[i] = np.sqrt(max(ej_rho[i - 1] * ej_rho[i + 1], 1e-300))
-        ej_rho = smoothed
+    # Smooth residual ejecta density wiggles: the source .swd retains RHD
+    # noise even after the initial Savitzky-Golay pass.  Relax the profile
+    # iteratively, then restore the interpolated ejecta mass while keeping the
+    # wind-ejecta endpoint fixed.
+    ej_rho_relaxed, ej_max_grad = _relax_density_gradient(
+        ej_r_new, ej_rho, target=14.0, iterations=500)
+    if ej_max_grad > 15.0:
+        raise ValueError(
+            f'Ejecta density profile remains under-resolved after relaxation: '
+            f'max |dlog rho/dlog r|={ej_max_grad:.1f} > 15.')
+    dm_ej = _zone_masses(ej_r_new, ej_rho, r_ej_inner)
+    dm_relax = _zone_masses(ej_r_new, ej_rho_relaxed, r_ej_inner)
+    m_fixed = dm_relax[0]
+    m_rest = dm_relax[1:].sum()
+    m_target_rest = dm_ej.sum() - m_fixed
+    if m_target_rest <= 0 or m_rest <= 0:
+        raise ValueError('Ejecta density relaxation produced an invalid mass')
+    ej_rho = ej_rho_relaxed
+    ej_rho[1:] *= m_target_rest / m_rest
 
     # --- Combine all segments ---
     r_combined = np.concatenate([shell_r, sw_buf_r, wind_r, we_buf_r, ej_r_new])
     rho_combined = np.concatenate([shell_rho, sw_buf_rho, wind_rho, we_buf_rho, ej_rho])
     v_combined = np.concatenate([shell_v, sw_buf_v, wind_v, we_buf_v, ej_v])
     T_combined = np.concatenate([shell_T, sw_buf_T, wind_T, we_buf_T, ej_T])
+
+    if len(r_combined) != nzon_total:
+        raise ValueError(
+            f'Final shell+wind+ejecta grid has {len(r_combined)} zones but '
+            f'nzon_total={nzon_total}. Grid allocation must preserve the '
+            'STELLA zone count exactly.')
 
     # --- Composition ---
     shell_xh = shell.get('fH', [0.7])[0]
@@ -1941,9 +2220,7 @@ def combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=500,
         comp_combined[key] /= comp_sum
 
     # --- Compute masses ---
-    r_lo = np.concatenate([[r_combined[0] * 0.5], r_combined[:-1]])
-    dm = (4/3) * np.pi * (r_combined**3 - r_lo**3) * rho_combined
-    dm = np.maximum(dm, 0.0)
+    dm = _zone_masses(r_combined, rho_combined, shell_r[0] * 0.5)
     M_total = np.sum(dm)
 
     # Component masses by segment
@@ -2038,9 +2315,9 @@ def combine_shell_wind(shell, wind, nzon_total=500,
     sw_transition_dex = min(sw_transition_dex, max_buffer_dex)
 
     r_sw_buffer_end = r_shell_outer * (10 ** sw_transition_dex)
-    rho_sw_start = shell['rho'][-1]
     rho_sw_end = mdot / (4 * np.pi * r_sw_buffer_end**2 * v_wind)
-    sw_contrast = np.log10(max(rho_sw_start, 1e-300) / max(rho_sw_end, 1e-300))
+    sw_contrast = np.log10(max(shell['rho'][-1], 1e-300) /
+                           max(rho_sw_end, 1e-300))
 
     nzon_sw_buffer = max(20, int(sw_contrast / 16 * sw_transition_dex / 0.02))
     nzon_sw_buffer = min(nzon_sw_buffer, 60)
@@ -2051,7 +2328,7 @@ def combine_shell_wind(shell, wind, nzon_total=500,
 
     print(f"  Shell-wind buffer: {nzon_sw_buffer} zones, "
           f"r=[{r_shell_outer:.3e}, {r_sw_buffer_end:.3e}] cm")
-    print(f"    rho: {rho_sw_start:.3e} -> {rho_sw_end:.3e} g/cc "
+    print(f"    rho: {shell['rho'][-1]:.3e} -> {rho_sw_end:.3e} g/cc "
           f"(contrast={sw_contrast:.1f} dex)")
 
     # --- Zone allocation ---
@@ -2088,8 +2365,10 @@ def combine_shell_wind(shell, wind, nzon_total=500,
         nzon_wind -= n_from_wind
         n_excess -= n_from_wind
         if n_excess > 0:
-            print(f"  WARNING: {n_excess} zones could not be removed without "
-                  f"violating minimums — total will be {nzon_total + n_excess}")
+            raise ValueError(
+                f'{n_excess} zones cannot be removed without violating '
+                f'region minimums; requested nzon_total={nzon_total}. '
+                'Increase --nzon or reduce interface resolution.')
         n_freed = 0
     if n_freed > 0:
         shell_span_dex = log_r_shell - log_r_min
@@ -2100,8 +2379,10 @@ def combine_shell_wind(shell, wind, nzon_total=500,
             n_freed -= n_to_shell
             print(f"  Redistributed {n_to_shell} freed zones to shell")
         if n_freed > 0:
-            print(f"  WARNING: {n_freed} zones could not be placed without "
-                  f"violating min_dlogr — total will be {nzon_total - n_freed}")
+            raise ValueError(
+                f'{n_freed} zones cannot be placed without violating '
+                f'min_dlogr; requested nzon_total={nzon_total}. Increase '
+                '--nzon or increase --min-dlogr.')
 
     n_total = nzon_shell + nzon_sw_buffer + nzon_wind
     print(f"  Zone allocation: {nzon_shell} shell + {nzon_sw_buffer} SW buffer + "
@@ -2121,24 +2402,12 @@ def combine_shell_wind(shell, wind, nzon_total=500,
     shell_v = np.interp(np.log10(shell_r), log_r_src, shell['v'])
     shell_T = np.interp(np.log10(shell_r), log_r_src, shell['T'])
 
-    # Conserve shell mass (same renormalisation as the ejecta combiner)
-    if 'rho_0' in shell and 'r0' in shell:
-        n_rho_val = shell.get('n_rho', 8.0)
-        frac_v0 = shell['r0'] / shell['r_outer']
-        factor = _shell_mass_factor(n_rho_val, frac_v0)
-        M_shell_target = (4/3) * np.pi * shell['r0']**3 * shell['rho_0'] * factor
-    else:
-        r_lo_src = np.concatenate([[shell['r_inner']], shell['r'][:-1]])
-        M_shell_target = ((4/3) * np.pi *
-                          (shell['r']**3 - r_lo_src**3) * shell['rho']).sum()
-    r_lo_shell = np.concatenate([[shell_r[0] * 0.5], shell_r[:-1]])
-    M_shell_interp = ((4/3) * np.pi *
-                      (shell_r**3 - r_lo_shell**3) * shell_rho).sum()
-    if M_shell_interp > 0:
-        shell_rho *= M_shell_target / M_shell_interp
-        print(f"  Shell mass conservation: target={M_shell_target/MSUN:.5f} Msun, "
-              f"interp={M_shell_interp/MSUN:.5f} Msun, "
-              f"renorm factor={M_shell_target/M_shell_interp:.4f}")
+    # Conserve shell mass and use the renormalized edge values for the
+    # adjoining buffer.
+    shell_rho, rho_sw_start = _renormalize_shell_grid(
+        shell, shell_r, shell_rho)
+    v_shell_edge = shell_v[-1]
+    T_shell_edge = shell_T[-1]
 
     # Shell-wind buffer: log-spaced, log-linear density ramp
     sw_buf_r = np.logspace(log_r_shell, np.log10(r_sw_buffer_end), nzon_sw_buffer + 1)[1:]
@@ -2146,8 +2415,8 @@ def combine_shell_wind(shell, wind, nzon_total=500,
                              np.log10(max(rho_sw_end, 1e-300)),
                              nzon_sw_buffer)
     sw_buf_rho = 10.0 ** sw_log_rho
-    sw_buf_v = np.linspace(shell['v'][-1], v_wind, nzon_sw_buffer)
-    sw_buf_T = np.linspace(shell['T'][-1], T_wind, nzon_sw_buffer)
+    sw_buf_v = np.linspace(v_shell_edge, v_wind, nzon_sw_buffer)
+    sw_buf_T = np.linspace(T_shell_edge, T_wind, nzon_sw_buffer)
 
     # Wind: log-spaced, 1/r^2 density, constant velocity
     wind_r = np.logspace(np.log10(r_sw_buffer_end), log_r_max, nzon_wind + 1)[1:]
@@ -2160,6 +2429,12 @@ def combine_shell_wind(shell, wind, nzon_total=500,
     rho_combined = np.concatenate([shell_rho, sw_buf_rho, wind_rho])
     v_combined = np.concatenate([shell_v, sw_buf_v, wind_v])
     T_combined = np.concatenate([shell_T, sw_buf_T, wind_T])
+
+    if len(r_combined) != nzon_total:
+        raise ValueError(
+            f'Final shell+wind grid has {len(r_combined)} zones but '
+            f'nzon_total={nzon_total}. Grid allocation must preserve the '
+            'STELLA zone count exactly.')
 
     # --- Composition ---
     # Same smoothstep blend as combine_shell_wind_ejecta: a step in
@@ -2195,9 +2470,7 @@ def combine_shell_wind(shell, wind, nzon_total=500,
         comp_combined[key] /= comp_sum
 
     # --- Compute masses ---
-    r_lo = np.concatenate([[r_combined[0] * 0.5], r_combined[:-1]])
-    dm = (4/3) * np.pi * (r_combined**3 - r_lo**3) * rho_combined
-    dm = np.maximum(dm, 0.0)
+    dm = _zone_masses(r_combined, rho_combined, shell_r[0] * 0.5)
     M_total = np.sum(dm)
 
     idx_shell = nzon_shell
@@ -2349,9 +2622,9 @@ def combine_shell_wind_ejecta_density_matched(
     sw_transition_dex = min(sw_transition_dex, max_buffer_dex)
 
     r_sw_buffer_end = r_shell_outer * (10 ** sw_transition_dex)
-    rho_sw_start = shell['rho'][-1]
     rho_sw_end = mdot_matched / (4.0 * np.pi * r_sw_buffer_end**2 * v_wind)
-    sw_contrast = np.log10(max(rho_sw_start, 1e-300) / max(rho_sw_end, 1e-300))
+    sw_contrast = np.log10(max(shell['rho'][-1], 1e-300) /
+                           max(rho_sw_end, 1e-300))
     sw_grad = sw_contrast / sw_transition_dex
     nzon_sw_buffer = max(20, int(sw_contrast / 16 * sw_transition_dex / 0.02))
     nzon_sw_buffer = min(nzon_sw_buffer, 60)
@@ -2364,7 +2637,7 @@ def combine_shell_wind_ejecta_density_matched(
 
     print(f"    Shell-wind buffer: {nzon_sw_buffer} zones, "
           f"r=[{r_shell_outer:.3e}, {r_sw_buffer_end:.3e}] cm")
-    print(f"      rho: {rho_sw_start:.3e} -> {rho_sw_end:.3e} g/cc "
+    print(f"      rho: {shell['rho'][-1]:.3e} -> {rho_sw_end:.3e} g/cc "
           f"(contrast={sw_contrast:.1f} dex, est. gradient={sw_grad:.1f})")
 
     # --- Zone allocation ---
@@ -2415,8 +2688,10 @@ def combine_shell_wind_ejecta_density_matched(
                   f"reduced ejecta by {n_from_ej}, wind by {n_from_wind}, "
                   f"shell by {n_from_shell}")
         if n_excess > 0:
-            print(f"    WARNING: {n_excess} zones could not be removed without "
-                  f"violating minimums — total will be {nzon_total + n_excess}")
+            raise ValueError(
+                f'{n_excess} zones cannot be removed without violating '
+                f'region minimums; requested nzon_total={nzon_total}. '
+                'Increase --nzon or reduce interface resolution.')
         n_freed = 0
     if n_freed > 0:
         shell_span_dex = np.log10(r_shell_outer) - np.log10(r_min)
@@ -2427,8 +2702,10 @@ def combine_shell_wind_ejecta_density_matched(
             n_freed -= n_to_shell
             print(f"    Redistributed {n_to_shell} freed zones to shell")
         if n_freed > 0:
-            print(f"    WARNING: {n_freed} zones could not be placed without "
-                  f"violating min_dlogr — total will be {nzon_total - n_freed}")
+            raise ValueError(
+                f'{n_freed} zones cannot be placed without violating '
+                f'min_dlogr; requested nzon_total={nzon_total}. Increase '
+                '--nzon or increase --min-dlogr.')
 
     n_total = (nzon_shell + nzon_sw_buffer + nzon_wind
                + cd_transition_zones + nzon_ejecta)
@@ -2453,24 +2730,12 @@ def combine_shell_wind_ejecta_density_matched(
     shell_v = np.interp(np.log10(shell_r), log_r_src, shell['v'])
     shell_T = np.interp(np.log10(shell_r), log_r_src, shell['T'])
 
-    # Shell mass conservation (same as combine_shell_wind_ejecta)
-    if 'rho_0' in shell and 'r0' in shell:
-        n_rho_val = shell.get('n_rho', 8.0)
-        frac_v0 = shell['r0'] / shell['r_outer']
-        factor = _shell_mass_factor(n_rho_val, frac_v0)
-        M_shell_target = (4/3) * np.pi * shell['r0']**3 * shell['rho_0'] * factor
-    else:
-        r_lo_src = np.concatenate([[shell['r_inner']], shell['r'][:-1]])
-        M_shell_target = ((4/3) * np.pi *
-                          (shell['r']**3 - r_lo_src**3) * shell['rho']).sum()
-    r_lo_shell = np.concatenate([[shell_r[0] * 0.5], shell_r[:-1]])
-    M_shell_interp = ((4/3) * np.pi *
-                      (shell_r**3 - r_lo_shell**3) * shell_rho).sum()
-    if M_shell_interp > 0:
-        shell_rho *= M_shell_target / M_shell_interp
-        print(f"    Shell mass conservation: target={M_shell_target/MSUN:.5f} Msun, "
-              f"interp={M_shell_interp/MSUN:.5f} Msun, "
-              f"renorm factor={M_shell_target/M_shell_interp:.4f}")
+    # Shell mass conservation.  The density-matched wind boundary must use
+    # the renormalized shell edge, not the unrenormalized source grid.
+    shell_rho, rho_sw_start = _renormalize_shell_grid(
+        shell, shell_r, shell_rho)
+    v_shell_edge = shell_v[-1]
+    T_shell_edge = shell_T[-1]
 
     # --- Shell-wind buffer (log-linear density ramp) ---
     sw_buf_r = np.logspace(log_r_shell, np.log10(r_sw_buffer_end),
@@ -2479,8 +2744,8 @@ def combine_shell_wind_ejecta_density_matched(
                              np.log10(max(rho_sw_end, 1e-300)),
                              nzon_sw_buffer)
     sw_buf_rho = 10.0 ** sw_log_rho
-    sw_buf_v = np.linspace(shell['v'][-1], v_wind, nzon_sw_buffer)
-    sw_buf_T = np.linspace(shell['T'][-1], T_wind, nzon_sw_buffer)
+    sw_buf_v = np.linspace(v_shell_edge, v_wind, nzon_sw_buffer)
+    sw_buf_T = np.linspace(T_shell_edge, T_wind, nzon_sw_buffer)
 
     # --- Wind grid (1/r^2 with derived Mdot) ---
     # Wind spans from r_sw_buffer_end to r_ej_inner, with the last
@@ -2598,6 +2863,12 @@ def combine_shell_wind_ejecta_density_matched(
     v_combined = np.concatenate([shell_v, sw_buf_v, wind_v_pure, cd_v, ej_v])
     T_combined = np.concatenate([shell_T, sw_buf_T, wind_T_pure, cd_T, ej_T])
 
+    if len(r_combined) != nzon_total:
+        raise ValueError(
+            f'Final density-matched grid has {len(r_combined)} zones but '
+            f'nzon_total={nzon_total}. Grid allocation must preserve the '
+            'STELLA zone count exactly.')
+
     # --- Composition ---
     all_elem_keys = ['fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe']
     ej_comp = {}
@@ -2656,9 +2927,7 @@ def combine_shell_wind_ejecta_density_matched(
         comp_combined[key] /= comp_sum
 
     # --- Compute masses ---
-    r_lo = np.concatenate([[r_combined[0] * 0.5], r_combined[:-1]])
-    dm = (4/3) * np.pi * (r_combined**3 - r_lo**3) * rho_combined
-    dm = np.maximum(dm, 0.0)
+    dm = _zone_masses(r_combined, rho_combined, shell_r[0] * 0.5)
     M_total = np.sum(dm)
 
     idx_shell = nzon_shell
@@ -2741,6 +3010,95 @@ def write_x_hyd(fname, g, mass_cut_msun=0.0, t_start_days=0.0):
                     f"{v[km]:12.4E}{Mr:12.4E}{0.0:12.4E}\n")
     print(f"Written {fname}  ({nzon} zones, M_total={M_r[-1]/MSUN:.4f} Msun, "
           f"t_start={t_start_days}d)")
+
+
+def read_x_hyd(fname):
+    """Read a STELLA .hyd file written by write_x_hyd."""
+    lines = open(fname).read().splitlines()
+    n = int(lines[0].split()[1])
+    r = np.zeros(n); rho = np.zeros(n); T = np.zeros(n); v = np.zeros(n)
+    for i, ln in enumerate(lines[1:n + 1]):
+        p = ln.split()
+        r[i], rho[i], T[i], v[i] = (
+            float(p[2]), float(p[3]), float(p[4]), float(p[5]))
+    return {'r': r, 'rho': rho, 'T': T, 'v': v}
+
+
+# .abn column indices (after km + 3 zeros): H=4, He=5, O=8, Si=13,
+# Ca=16, Fe=17 -- mirrors write_x_abn.
+def read_x_abn(fname, n):
+    """Read the six tracked species fractions from a STELLA .abn file."""
+    out = {k: np.zeros(n) for k in
+           ('fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe')}
+    idx = {'fH': 4, 'fHe': 5, 'fO': 8, 'fSi': 13, 'fCa': 16, 'fFe': 17}
+    lines = open(fname).read().splitlines()
+    for i, ln in enumerate(lines[:n]):
+        p = ln.split()
+        for k, j in idx.items():
+            out[k][i] = float(p[j])
+    return out
+
+
+def build_windctl_from_parent(parent_hyd, wind_v_cms, nzon,
+                              parent_abn=None, min_dlogr=0.005):
+    """Build the paired wind-control profile from a parent .hyd.
+
+    Keeps every parent zone interior to the wind-ejecta interface
+    verbatim, then extends the same continuous r^-2 wind out to the
+    parent's outermost radius.  The result differs from the parent only
+    by the absence of the SN_A ejecta (its region is filled by wind).
+    """
+    g = read_x_hyd(parent_hyd)
+    r, v, rho, T = g['r'], g['v'], g['rho'], g['T']
+    n_par = len(r)
+    comp = (read_x_abn(parent_abn, n_par) if parent_abn
+            else {k: np.zeros(n_par) for k in
+                  ('fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe')})
+
+    # Locate the outermost contiguous block of wind zones (v ~ v_wind);
+    # the ejecta sits just beyond it, the SW buffer just inside.
+    is_wind = np.abs(v - wind_v_cms) < 0.15 * wind_v_cms
+    idx = np.where(is_wind)[0]
+    if len(idx) == 0:
+        raise ValueError(
+            f"No wind zones (v~{wind_v_cms / 1e5:.0f} km/s) found in "
+            f"{parent_hyd}; parent model must contain a wind layer.")
+    i_blk_end = idx[-1]
+    i_keep = i_blk_end  # keep zones 0..i_blk_end inclusive
+
+    n_keep = i_keep + 1
+    n_app = nzon - n_keep
+    if n_app < 10:
+        raise ValueError(
+            f"Parent wind ends at zone {n_keep}/{n_par}; only {n_app} "
+            f"zones left for the extended wind. Check nzon ({nzon}).")
+
+    r_max = r[-1]
+    r_app = np.logspace(np.log10(r[i_keep]), np.log10(r_max), n_app + 1)[1:]
+    # continue the parent wind's r^-2 density law and constant v, T
+    rho_app = rho[i_keep] * (r_app / r[i_keep]) ** (-2)
+    v_app = np.full(n_app, wind_v_cms)
+    T_app = np.full(n_app, T[i_keep])
+
+    out = {'r': np.concatenate([r[:n_keep], r_app]),
+           'v': np.concatenate([v[:n_keep], v_app]),
+           'rho': np.concatenate([rho[:n_keep], rho_app]),
+           'T': np.concatenate([T[:n_keep], T_app])}
+    for k in comp:
+        out[k] = np.concatenate(
+            [comp[k][:n_keep], np.full(n_app, comp[k][i_keep])])
+    comp_sum = sum(
+        out[k] for k in ('fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe'))
+    comp_sum = np.maximum(comp_sum, 1e-300)
+    for k in ('fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe'):
+        out[k] /= comp_sum
+
+    print(f"  Wind control built from {parent_hyd}:")
+    print(f"    kept {n_keep} parent zones (r < {r[i_keep]:.3e} cm)")
+    print(f"    extended wind: {n_app} zones, "
+          f"r=[{r_app[0]:.3e}, {r_app[-1]:.3e}] cm, "
+          f"v={wind_v_cms / 1e5:.0f} km/s")
+    return out
 
 
 def write_x_abn(fname, g):
@@ -2957,14 +3315,14 @@ def main():
                         choices=['hhe', 'solar'],
                         help='Shell composition: hhe (H/He only, uses --shell-xh/yhe) '
                              'or solar (Asplund+2009, X=0.738 Y=0.249 Z=0.013). '
-                             'For a solar-composition shell + wind + old SN ejecta '
-                             'scenario with maximum STELLA stability, use '
-                             '--shell-composition solar together with '
-                             '--density-matched-wind: this gives the shell realistic '
-                             'metal content matching the wind/ejecta and eliminates '
-                             'the density cliff at the wind-ejecta interface.')
+                             'The current RSG grid uses solar: the shell gets '
+                             'realistic metal content matching the wind and '
+                             'ejecta, avoiding composition discontinuities.')
     parser.add_argument('--n-rho', type=float, default=8.0,
-                        help='Shell density power-law exponent N_rho (Dessart 2010jl: 8)')
+                        help='Shell density power-law exponent N_rho. '
+                             'n_rho=11 is the canonical RSG value '
+                             '(Matzner & McKee 1999); ~8 is BSG/stripped-like '
+                             '(Dessart 2010jl uses 8).')
     parser.add_argument('--v0', type=float, default=3000.0,
                         help='Core/envelope transition velocity V0 in km/s (Dessart: 3000)')
     parser.add_argument('--n-T', type=float, default=0.4,
@@ -3011,7 +3369,12 @@ def main():
     parser.add_argument('--nzon', type=int, default=500,
                         help='Total number of STELLA zones (default: 500)')
     parser.add_argument('--source-age', type=float, default=400.0,
-                        help='Age of source ejecta at shell launch in days (default: 400)')
+                        help='Age of source ejecta at shell launch in days '
+                             '(default: 400). The .hyd ejecta is homologously '
+                             'evolved to source_age + t_start; for SN 2024pba '
+                             'use ~329 with t_start ~1.4 so the effective age '
+                             'is ~330 d at STELLA start (SN_A ~MJD 60489, '
+                             'SN_B onset ~MJD 60810-832).')
     parser.add_argument('--explosion-energy', type=float, default=0.0,
                         help='EBurst in 1e50 erg. KEEP 0 for SN_B: the model is '
                              'velocity-driven (shell mass+velocity in .hyd); a '
@@ -3101,6 +3464,30 @@ def main():
                         help='Shell and ejecta in direct contact (no buffer zone). '
                              'Computes self-consistent t_start so shell outer edge '
                              'meets ejecta inner edge. Requires --no-wind.')
+    parser.add_argument('--outer-csm-mdot', type=float, default=0.0,
+                        help='If >0, append a slow outer CSM wind above the ejecta '
+                             '(Msun/yr). Models the detached dense CSM required by '
+                             'the narrow P-Cygni absorption: the cocoon shock '
+                             'crosses the metal ejecta internally, then the '
+                             'accelerated ejecta runs into this CSM layer.')
+    parser.add_argument('--outer-csm-mass', type=float, default=0.0,
+                        help='If >0, normalize the outer CSM r^-2 profile to this '
+                             'shell mass in Msun instead of --outer-csm-mdot '
+                             '(detached-eruption interpretation)')
+    parser.add_argument('--outer-csm-velocity', type=float, default=850.0,
+                        help='Outer CSM velocity in km/s (default 850, matching the '
+                             'observed narrow P-Cygni speed)')
+    parser.add_argument('--outer-csm-r-inner', type=float, default=0.0,
+                        help='Outer CSM inner edge in cm. 0 = at the ejecta '
+                             'surface; > ejecta outer edge leaves a detached gap')
+    parser.add_argument('--outer-csm-r-outer', type=float, default=0.0,
+                        help='Outer CSM outer edge in cm (default 2*r_inner)')
+    parser.add_argument('--outer-csm-T', type=float, default=2000.0,
+                        help='Outer CSM temperature in K (default 2000)')
+    parser.add_argument('--outer-csm-zones', type=int, default=40,
+                        help='Number of outer CSM zones (default 40)')
+    parser.add_argument('--outer-csm-rho-floor', type=float, default=1e-20,
+                        help='Density floor for the detached gap (g/cc)')
     parser.add_argument('--se-transition-dex', type=float, default=0.5,
                         help='Shell-ejecta buffer width in dex of log10(r) (no-wind mode, default: 0.5)')
     parser.add_argument('--density-matched-wind', action='store_true',
@@ -3153,8 +3540,49 @@ def main():
                              'composition interfaces in the source ejecta '
                              '(default 7; 0 or 1 disables). Applied to each '
                              'species mass fraction, then renormalized.')
+    parser.add_argument('--from-parent-hyd', type=str, default='',
+                        help='Paired wind-control mode: build this model from an '
+                             'existing parent .hyd by keeping every zone interior '
+                             'to the wind-ejecta interface verbatim and extending '
+                             'the same continuous wind out to the parent outer '
+                             'radius.  Implies --no-ejecta; the resulting model '
+                             'differs from the parent only by the absence of the '
+                             'SN_A ejecta.')
     args = parser.parse_args()
 
+    positive = {
+        '--shell-mass': args.shell_mass,
+        '--shell-velocity': args.shell_velocity,
+        '--v0': args.v0,
+        '--T-interface': args.T_interface,
+        '--T-max': args.T_max,
+        '--t-start': args.t_start,
+        '--ejecta-T-floor': args.ejecta_T_floor,
+        '--wind-velocity': args.wind_velocity,
+        '--wind-T': args.wind_T,
+        '--target-days': args.target_days,
+        '--snapshot-day': args.snapshot_day,
+        '--source-age': args.source_age,
+        '--min-dlogr': args.min_dlogr,
+        '--max-dlogr': args.max_dlogr,
+    }
+    for name, value in positive.items():
+        if not np.isfinite(value) or value <= 0:
+            parser.error(f'{name} must be finite and > 0 (got {value})')
+    if args.wind_mdot <= 0 and not args.no_wind:
+        parser.error('--wind-mdot must be > 0 unless --no-wind is set')
+    if args.shell_composition == 'hhe':
+        if not (0.0 < args.shell_xh < 1.0 and 0.0 < args.shell_yhe < 1.0):
+            parser.error('--shell-xh and --shell-yhe must be in (0, 1)')
+        if abs(args.shell_xh + args.shell_yhe - 1.0) > 1e-6:
+            parser.error('--shell-xh + --shell-yhe must equal 1 for hhe')
+    if args.nzon < 100:
+        parser.error('--nzon must be >= 100 for the multi-component grid')
+    if args.snapshot_day > args.target_days:
+        parser.error('--snapshot-day must be <= --target-days')
+
+    if args.from_parent_hyd:
+        args.no_ejecta = True
     if not args.no_ejecta and not args.source_dir:
         parser.error('source_dir is required unless --no-ejecta is set')
     if args.no_ejecta and args.no_wind:
@@ -3193,8 +3621,117 @@ def main():
     print(f"  Source age: {args.source_age} days")
     print(f"  STELLA target: {args.target_days} days, CMFGEN snapshot: {args.snapshot_day} days")
 
+    if args.from_parent_hyd:
+        # Paired wind-control mode: rebuild the profile from the parent
+        # model's .hyd, replacing the SN_A ejecta region with the same
+        # continuous wind.  Everything interior to the wind-ejecta
+        # interface is copied verbatim, so the only difference between
+        # the two STELLA runs is the presence of the fast SN_A ejecta.
+        print(f"\n--- Paired wind control from {args.from_parent_hyd} ---")
+        parent_hyd = Path(args.from_parent_hyd)
+        parent_abn = parent_hyd.with_suffix('.abn')
+        combined = build_windctl_from_parent(
+            str(parent_hyd), args.wind_velocity * 1e5, args.nzon,
+            parent_abn=str(parent_abn) if parent_abn.exists() else None,
+            min_dlogr=args.min_dlogr)
+        validate_combined_model(combined, args.nzon,
+                                min_dlogr=args.min_dlogr,
+                                max_dlogr=args.max_dlogr,
+                                strict=args.strict_grid)
+        shell = {'r_inner': combined['r'][0],
+                 'r_outer': combined['r'][0]}
+        ejecta = None
+        _write_outputs_and_plots = True
+        hyd_path = modmake_dir / f'{model_name}.hyd'
+        abn_path = modmake_dir / f'{model_name}.abn'
+        xni_path = modmake_dir / f'{model_name}.xni'
+        dat_path = modmake_dir / f'{model_name}.dat'
+        ip_path = modmake_dir / 'input_profile'
+        write_x_hyd(str(hyd_path), combined, t_start_days=args.t_start)
+        write_x_abn(str(abn_path), combined)
+        write_x_xni(str(xni_path), len(combined['r']))
+        write_x_dat(str(dat_path), model_name, args.target_days,
+                    args.snapshot_day,
+                    explosion_energy=args.explosion_energy,
+                    nstmax=args.nstmax, aq=args.aq, fit_tau=args.fit_tau,
+                    meth=args.meth, temp_floor=args.temp_floor,
+                    floor_rad=args.floor_rad, hmin=args.hmin,
+                    hmax=args.hmax, t_start_days=args.t_start,
+                    tcura_days=args.tcura_days,
+                    r_max_cm=combined['r'].max(),
+                    v_max_cm_s=combined['v'].max(),
+                    wacc_r=args.wacc_r, wacc_v=args.wacc_v,
+                    wacc_t=args.wacc_t, wacc_rad=args.wacc_rad,
+                    tau_tol=args.tau_tol, iout=args.iout,
+                    disable_scattering=args.disable_scattering)
+        write_x_input_profile(str(ip_path), combined)
+        import shutil
+        shutil.copy2(str(ip_path), str(stella_dir / 'input_profile'))
+        print(f"\n=== Paired wind-control model written to "
+              f"{modmake_dir} ===")
+        return
+
     if args.no_ejecta:
         ejecta = None
+    elif args.no_wind:
+        # In immediate-contact mode the shell age is r_outer/v_shell.  The
+        # ejecta age is source_age + shell_age, so solve this fixed point by
+        # rereading the homologous source profile until both clocks agree.
+        shell_age_guess = args.t_start
+        immediate_shell_outer = None
+        immediate_gap_dex = None
+        v_shell_cms = args.shell_velocity * 1e5
+        for _ in range(10):
+            effective_age = args.source_age + shell_age_guess
+            print(f"\n--- Step 1: Reading source ejecta at {effective_age:.1f} days "
+                  f"({args.source_age}d at SN_B + {shell_age_guess:.3f}d shell age) ---")
+            ejecta = read_source_ejecta(
+                source_dir, source_age=args.source_age,
+                t_start_days=shell_age_guess,
+                force_homologous_velocity=args.force_homologous_velocity,
+                smooth_ejecta=not args.no_smooth_ejecta,
+                smooth_window=args.smooth_window,
+                smooth_polyorder=args.smooth_polyorder,
+                comp_window=args.comp_smooth_window)
+
+            i_inner = int(np.argmin(ejecta['r']))
+            r_ej_min = ejecta['r'][i_inner]
+            rho_ej_inner = ejecta['rho'][i_inner]
+            min_gap_dex = 7.0 * args.min_dlogr
+            probe_outer = r_ej_min * 10.0 ** (-min_gap_dex)
+            with contextlib.redirect_stdout(io.StringIO()):
+                shell_probe = create_hhe_shell(
+                    args.shell_mass, args.shell_velocity,
+                    args.shell_xh, args.shell_yhe,
+                    n_rho=args.n_rho, v0_kms=args.v0,
+                    n_T=args.n_T, T_interface_K=args.T_interface,
+                    T_max_K=args.T_max, t_start_days=shell_age_guess,
+                    r_outer_override=probe_outer,
+                    composition=args.shell_composition)
+            contrast = abs(np.log10(
+                max(rho_ej_inner, 1e-300) /
+                max(shell_probe['rho'][-1], 1e-300)))
+            gap_dex = max(min_gap_dex, contrast / 14.0)
+            next_shell_outer = r_ej_min * 10.0 ** (-gap_dex)
+            next_age = next_shell_outer / v_shell_cms / 86400.0
+            print(f"  Contact fixed point: shell age {shell_age_guess:.3f}d -> "
+                  f"{next_age:.3f}d, gap={gap_dex:.3f} dex "
+                  f"(density contrast={contrast:.2f} dex)")
+            immediate_shell_outer = next_shell_outer
+            immediate_gap_dex = gap_dex
+            if abs(next_age - shell_age_guess) < 1e-4 * max(1.0, next_age):
+                shell_age_guess = next_age
+                break
+            shell_age_guess = next_age
+        else:
+            raise ValueError('Immediate-contact ejecta/shell age did not converge')
+
+        print(f"  Ejecta: {len(ejecta['r'])} zones, "
+              f"r=[{ejecta['r'].min():.3e}, {ejecta['r'].max():.3e}] cm")
+        print(f"  Ejecta: v=[{ejecta['v'].min():.1f}, {ejecta['v'].max():.1f}] km/s")
+        print(f"  Ejecta: rho=[{ejecta['rho'].min():.3e}, {ejecta['rho'].max():.3e}] g/cc")
+        print(f"  Ejecta: T=[{ejecta['T'].min():.3e}, {ejecta['T'].max():.3e}] K")
+        ejecta['v'] = ejecta['v'] * 1e5  # km/s -> cm/s
     else:
         # Step 1: Read source ejecta and homologously evolve to source_age + t_start_days
         # The SN_A ejecta is source_age days old at SN_B explosion (t=0).
@@ -3302,10 +3839,23 @@ def main():
     # shell (launched at v_shell from center) hasn't physically reached the
     # ejecta inner edge at t_start days. Instead, we start the simulation at
     # the moment of contact, like Dessart+2015.
-    r_ej_inner = (ejecta['r'].min() * 0.99) if ejecta is not None else None
+    # Immediate-contact gap: the 5-zone SE buffer spans the gap between the
+    # shell outer edge and the ejecta inner edge.  A 1% gap gives
+    # dlog10(r)=0.00087 per zone, below the min_dlogr floor (0.005) and trips
+    # strict grid validation.  Size the gap so each buffer zone clears the
+    # floor with ~40% margin: gap_dex = 7 * min_dlogr -> dlogr/zone = 1.4*floor.
+    if args.no_wind and ejecta is not None:
+        gap_dex = immediate_gap_dex
+        r_ej_inner = immediate_shell_outer
+    elif ejecta is not None:
+        gap_dex = 7.0 * args.min_dlogr
+        r_ej_inner = ejecta['r'].min() * 10.0 ** (-gap_dex)
+    else:
+        r_ej_inner = None
     if args.no_wind:
         print(f"\n--- Step 2: Creating H/He shell (immediate contact with ejecta) ---")
-        print(f"  Shell outer edge set to ejecta inner edge: {r_ej_inner:.3e} cm")
+        print(f"  Shell outer edge set to ejecta inner edge * 10^-{gap_dex:.3f}: "
+              f"{r_ej_inner:.3e} cm")
         print(f"  (instead of v_shell * t_start = {args.shell_velocity*1e5*args.t_start*86400:.3e} cm)")
         shell = create_hhe_shell(args.shell_mass, args.shell_velocity,
                                  args.shell_xh, args.shell_yhe,
@@ -3314,6 +3864,11 @@ def main():
                                  T_max_K=args.T_max, t_start_days=args.t_start,
                                  r_outer_override=r_ej_inner,
                                  composition=args.shell_composition)
+        args.t_start = shell['t_start_days']
+        if args.tcura_days is not None:
+            args.tcura_days = args.t_start
+        print(f"  Immediate-contact clock reset: t_start=TcurA="
+              f"{args.t_start:.3f} d (r_outer/v_shell)")
     else:
         print(f"\n--- Step 2: Creating H/He shell (Dessart 2010jl structure) ---")
         shell = create_hhe_shell(args.shell_mass, args.shell_velocity,
@@ -3364,6 +3919,23 @@ def main():
               f"r_ejecta_inner = {r_ej_inner_check:.3e} cm "
               f"(gap = {gap_dex:.2f} dex)")
 
+    # An outer CSM layer appends zones after combining; reserve them from
+    # the nzon budget so the .hyd total stays at args.nzon (the SLURM
+    # validator and the per-nzon eve2 build require an exact match).
+    nzon_combine = args.nzon
+    if (args.outer_csm_mdot > 0 or args.outer_csm_mass > 0) and not args.no_ejecta:
+        r_ej_out0 = float(np.max(np.asarray(ejecta['r'])))
+        r_in0 = args.outer_csm_r_inner if args.outer_csm_r_inner > 0 else r_ej_out0
+        r_in0 = max(r_in0, r_ej_out0)
+        r_out0 = (args.outer_csm_r_outer if args.outer_csm_r_outer > r_in0
+                  else 2.0 * r_in0)
+        n_gap0 = (outer_csm_gap_zones(r_ej_out0, r_in0, 12)
+                  if r_in0 > r_ej_out0 * 1.001 else 0)
+        n_csm0 = outer_csm_nzones(r_in0, r_out0, args.outer_csm_zones)
+        nzon_combine = args.nzon - n_csm0 - n_gap0
+        print(f"  Reserved {n_csm0 + n_gap0} zones for "
+              f"outer CSM + gap ({nzon_combine} for the interior model)")
+
     # Step 3: Create connecting wind (or skip if --no-wind)
     if args.no_ejecta:
         print(f"\n--- Step 3: Creating CSM wind (shell + wind, no ejecta) ---")
@@ -3399,7 +3971,7 @@ def main():
                                       max_dlogr=args.max_dlogr)
     elif args.no_wind:
         print(f"\n--- Step 3: SKIPPING wind (--no-wind mode, immediate contact) ---")
-        combined = combine_shell_ejecta(shell, ejecta, nzon_total=args.nzon,
+        combined = combine_shell_ejecta(shell, ejecta, nzon_total=nzon_combine,
                                         se_transition_dex=args.se_transition_dex,
                                         immediate_contact=True,
                                         ejecta_T_floor=args.ejecta_T_floor,
@@ -3410,7 +3982,7 @@ def main():
         print(f"    (Mdot derived from rho_ejecta(r_interface), "
               f"CD ramp: {args.cd_transition_zones} zones)")
         combined = combine_shell_wind_ejecta_density_matched(
-            shell, ejecta, nzon_total=args.nzon,
+            shell, ejecta, nzon_total=nzon_combine,
             wind_velocity_kms=args.wind_velocity,
             wind_T_K=args.wind_T,
             composition=args.shell_composition,
@@ -3514,7 +4086,7 @@ def main():
 
         # Step 4: Combine shell + wind + ejecta
         print(f"\n--- Step 4: Combining shell + wind + ejecta ---")
-        combined = combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=args.nzon,
+        combined = combine_shell_wind_ejecta(shell, wind, ejecta, nzon_total=nzon_combine,
                                              sw_transition_dex=args.sw_transition_dex,
                                              sw_transition_k=args.sw_transition_k,
                                              we_transition_dex=args.we_transition_dex,
@@ -3541,12 +4113,26 @@ def main():
         combined = clean_combined_outer_boundary(
             combined, ej_start_idx=combined.get('idx_ej'))
 
-    # --- Grid validation (before writing STELLA input files) ---
-    # STELLA's implicit solver is sensitive to grid spacing: too-fine zones
-    # kill the radiation diffusion timestep, too-coarse zones under-resolve
-    # shocks.  Validate the final combined grid against min/max dlogr limits.
-    validate_stella_grid(combined['r'], min_dlogr=args.min_dlogr,
-                         max_dlogr=args.max_dlogr, strict=args.strict_grid)
+    if args.outer_csm_mdot > 0 or args.outer_csm_mass > 0:
+        if args.no_ejecta:
+            raise ValueError(
+                '--outer-csm is incompatible with --no-ejecta: in '
+                'no-ejecta mode the wind already defines the exterior.')
+        csm_comp = {k: float(shell[k][0]) for k in
+                    ['fH', 'fHe', 'fO', 'fSi', 'fCa', 'fFe']
+                    if k in shell}
+        combined = append_outer_csm(
+            combined, args.outer_csm_mdot, args.outer_csm_velocity,
+            args.outer_csm_r_inner, args.outer_csm_r_outer,
+            T_K=args.outer_csm_T, n_zones=args.outer_csm_zones,
+            rho_floor=args.outer_csm_rho_floor, comp=csm_comp,
+            mass_msun=args.outer_csm_mass)
+
+    # --- Grid and profile validation (before writing STELLA inputs) ---
+    validate_combined_model(combined, args.nzon,
+                            min_dlogr=args.min_dlogr,
+                            max_dlogr=args.max_dlogr,
+                            strict=args.strict_grid)
 
     # Step 5: Write STELLA input files
     print(f"\n--- Step 5: Writing STELLA input files ---")
@@ -3558,7 +4144,7 @@ def main():
 
     write_x_hyd(str(hyd_path), combined, t_start_days=args.t_start)
     write_x_abn(str(abn_path), combined)
-    write_x_xni(str(xni_path), args.nzon)
+    write_x_xni(str(xni_path), len(combined['r']))
     if args.explosion_energy > 0:
         print(f"  WARNING: --explosion-energy={args.explosion_energy} writes a "
               f"thermal bomb (EBurst) into the SN_B .dat.  The SN_B model is "
@@ -3584,21 +4170,6 @@ def main():
 
     # Step 6: Generate plots
     print(f"\n--- Step 6: Generating plots ---")
-
-    # --- Ejecta smoothing before/after plot ---
-    # Generated when smoothing was applied, showing the noise reduction
-    # in the raw SN_A ejecta profile.  Uses the pre-truncation smoothed
-    # copy so the plot shows the full 500-zone profile (not the truncated
-    # version used for STELLA input).
-    if ejecta is not None and 'raw_ejecta' in ejecta and 'smoothed_ejecta' in ejecta:
-        try:
-            smoothing_plot = plots_dir / 'ejecta_smoothing.png'
-            plot_ejecta_smoothing(ejecta['raw_ejecta'],
-                                  ejecta['smoothed_ejecta'],
-                                  str(smoothing_plot),
-                                  source_age=args.source_age)
-        except Exception as e:
-            print(f"  Ejecta smoothing plot failed: {e}")
 
     try:
         import matplotlib
@@ -3681,9 +4252,9 @@ def main():
         else:
             plt.suptitle(f'X Model Initial Conditions (shell + wind + {args.source_age}d ejecta)', fontsize=14)
         plt.tight_layout()
-        plt.savefig(str(plots_dir / 'x_model_initial.png'), dpi=150, bbox_inches='tight')
+        plt.savefig(str(plots_dir / 'stella_input_structure.png'), dpi=150, bbox_inches='tight')
         plt.close()
-        print(f"  Saved: {plots_dir}/x_model_initial.png")
+        print(f"  Saved: {plots_dir}/stella_input_structure.png")
     except Exception as e:
         print(f"  Plot generation failed: {e}")
 

@@ -42,6 +42,26 @@ Structure (inner -> outer):
 Velocity-driven convention identical to v1: EBurst=0 and EKO=0 are enforced
 in the .dat file so STELLA preserves the constructed velocity field.
 
+Shared conventions with prepare_SN_B_model.py (current SN_B_cocoon grid):
+  * Effective SN_A age at STELLA start is source_age + t_start.  For
+    SN 2024pba the grid uses ~330 d (SN_A explosion ~MJD 60489, SN_B
+    onset ~MJD 60810-832), so the ejecta sits at its observed radius
+    at model t=0 and continues to ~340-360 d during the run.
+  * Compact RSG shell at ~t=0 size (n_rho=11, solar composition,
+    r_out = V_shell * t_start ~ 8.5e13 cm) rather than a pre-expanded
+    shell filling the cavity.
+  * Temperature is physical: T ~ rho^n_T capped at T_max (50000 K)
+    in the shell core, 4000 K at the interface and in the CSM/wind,
+    2000 K ejecta floor.  No flat 2000 K everywhere.
+  * Interaction-only: .xni is written with zero Ni56.
+  * The paired wind-control (--from-parent-hyd) exists only in v1.
+
+Outputs: {model}.hyd, .abn, .xni, .dat, input_profile, and
+plots/stella_input_structure.png (4-panel initial model).  The
+plot_model.py stella_input step then adds
+stella_input_structure_vs_mass.png (radius + enclosed-mass top axis),
+composition, mass-fraction and sigma diagnostics.
+
 The CLI is drop-in compatible with prepare_SN_B_model.py: all v1 arguments
 are accepted.  Wind-specific arguments (--wind-mdot, --wind-velocity,
 --wind-duration-days, --wind-mdot-bg, --we-transition-*) are parsed but
@@ -87,13 +107,14 @@ from prepare_SN_B_model import (  # noqa: E402
     YR_TO_S,
     _build_optimized_shell_grid,
     _cap_buffer_zones,
+    _relax_density_gradient,
     _shell_mass_factor,
+    _zone_masses,
     clean_combined_outer_boundary,
     combine_shell_ejecta,
     create_hhe_shell,
-    plot_ejecta_smoothing,
     read_source_ejecta,
-    validate_stella_grid,
+    validate_combined_model,
     write_x_abn,
     write_x_dat,
     write_x_hyd,
@@ -829,22 +850,28 @@ def combine_shell_csm_ejecta(
         ej_T_smooth[-2:] = ej_T[-2:]
         ej_T = np.maximum(ej_T_smooth, ejecta_T_floor)
 
-    for _ in range(3):
-        log_ej_rho = np.log10(np.maximum(ej_rho, 1e-300))
-        log_ej_r = np.log10(ej_r_new)
-        grads = np.abs(np.diff(log_ej_rho) / np.diff(log_ej_r))
-        smoothed = ej_rho.copy()
-        for i in range(1, len(ej_rho) - 1):
-            if grads[i - 1] > 16 or grads[i] > 16:
-                smoothed[i] = np.sqrt(max(ej_rho[i - 1] * ej_rho[i + 1], 1e-300))
-        ej_rho = smoothed
-
     # Pin the first ejecta zone to the last CD-zone density for exact
-    # continuity (a 1-2% jump still triggers AQ oscillations in STELLA).
+    # continuity (a 1-2% jump still triggers AQ oscillations in STELLA),
+    # then relax residual source noise while preserving ejecta mass.
     if len(ej_rho) > 0 and len(cd_rho) > 0:
         ej_rho[0] = cd_rho[-1]
-        for i in range(1, min(5, len(ej_rho))):
-            ej_rho[i] = np.sqrt(max(ej_rho[i - 1] * ej_rho[i], 1e-300))
+    ej_rho_relaxed, ej_max_grad = _relax_density_gradient(
+        ej_r_new, ej_rho, target=14.0, iterations=20000
+    )
+    if ej_max_grad > 15.0:
+        raise ValueError(
+            "Ejecta density profile remains under-resolved after relaxation: "
+            f"max |dlog rho/dlog r|={ej_max_grad:.1f} > 15."
+        )
+    dm_ej = _zone_masses(ej_r_new, ej_rho, r_ej_inner)
+    dm_relax = _zone_masses(ej_r_new, ej_rho_relaxed, r_ej_inner)
+    m_fixed = dm_relax[0]
+    m_rest = dm_relax[1:].sum()
+    m_target_rest = dm_ej.sum() - m_fixed
+    if m_target_rest <= 0 or m_rest <= 0:
+        raise ValueError("Ejecta density relaxation produced an invalid mass")
+    ej_rho = ej_rho_relaxed
+    ej_rho[1:] *= m_target_rest / m_rest
 
     # --- Combine ---
     r_combined = np.concatenate([shell_r, sc_buf_r, csm_r_pure, cd_r, ej_r_new])
@@ -1961,9 +1988,10 @@ def main():
                     f"re-inflated edge zones at {args.ejecta_v_max_kms:.0f} km/s"
                 )
 
-    # --- Grid validation ---
-    validate_stella_grid(
-        combined["r"],
+    # --- Grid and profile validation ---
+    validate_combined_model(
+        combined,
+        args.nzon,
         min_dlogr=args.min_dlogr,
         max_dlogr=args.max_dlogr,
         strict=args.strict_grid,
@@ -2019,16 +2047,6 @@ def main():
 
     # --- Step 5: plots ---
     print(f"\n--- Step 5: Generating plots ---")
-    if ejecta is not None and "raw_ejecta" in ejecta and "smoothed_ejecta" in ejecta:
-        try:
-            plot_ejecta_smoothing(
-                ejecta["raw_ejecta"],
-                ejecta["smoothed_ejecta"],
-                str(plots_dir / "ejecta_smoothing.png"),
-                source_age=args.source_age,
-            )
-        except Exception as e:
-            print(f"  Ejecta smoothing plot failed: {e}")
 
     try:
         import matplotlib
@@ -2181,10 +2199,12 @@ def main():
 
         plt.tight_layout()
         plt.savefig(
-            str(plots_dir / "sn_b_v2_initial.png"), dpi=150, bbox_inches="tight"
+            str(plots_dir / "stella_input_structure.png"),
+            dpi=150,
+            bbox_inches="tight",
         )
         plt.close()
-        print(f"  Saved: {plots_dir}/sn_b_v2_initial.png")
+        print(f"  Saved: {plots_dir}/stella_input_structure.png")
     except Exception as e:
         print(f"  Plot generation failed: {e}")
 
