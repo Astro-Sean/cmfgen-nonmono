@@ -34,8 +34,6 @@ set -euo pipefail
 usage() { sed -n '1,23p' "$0"; }
 
 
-rm -f -- cmf_INIT_*.out cmf_INIT_*.err cmf_STABLE_*.out cmf_STABLE_*.err cmf_FINAL_*.out cmf_FINAL_*.err cmf_OBS_*.out cmf_OBS_*.err
-
 debug=0
 all_jobs=0
 single_final=1
@@ -44,6 +42,7 @@ no_submit=0
 restart=0
 VEL_LAW="12"
 TARGET_ND=""
+RDINR_MAX_DV_KMS=""
 MODEL_DIR=""
 DEPENDENCY_JOB=""
 MODEL_TYPE="supernova"
@@ -132,6 +131,7 @@ while [[ $# -gt 0 ]]; do
     --chemical-jump-threshold=*) CHEMICAL_JUMP_THRESHOLD="${1#*=}"; shift ;;
     --reversal-n-insert=*) REVERSAL_N_INSERT="${1#*=}"; shift ;;
     --target-nd=*) TARGET_ND="${1#*=}"; shift ;;
+    --rdinr-max-dv-kms=*) RDINR_MAX_DV_KMS="${1#*=}"; shift ;;
     --init-num-its=*) INIT_NUM_ITS="${1#*=}"; shift ;;
     --gt-auto=*) GT_AUTO="${1#*=}"; shift ;;
     --model-type=*) MODEL_TYPE="${1#*=}"; shift ;;
@@ -221,6 +221,16 @@ done
 
 MODEL_DIR="${MODEL_DIR:-$PWD}"
 MODEL_DIR="$(cd "$MODEL_DIR" && pwd)"
+
+# Fresh submission: drop stale SLURM stdout/stderr logs so the new
+# job's logs are not mixed with previous attempts. Restart and
+# warm-restart submissions keep theirs: those logs are the continuing
+# run's history. FINAL/SINGLE_FINAL write cmf_%j.* in MODEL_DIR and
+# OBS writes cmf_OBS_%j.* in MODEL_DIR/obs.
+if [[ $restart -eq 0 && $no_submit -eq 0 && "${CMFGEN_WARM_RESTART:-0}" != "1" ]]; then
+  rm -f -- "${MODEL_DIR}"/cmf_*.out "${MODEL_DIR}"/cmf_*.err \
+          "${MODEL_DIR}"/obs/cmf_OBS_*.out "${MODEL_DIR}"/obs/cmf_OBS_*.err
+fi
 
 # ---------------------------
 # CMFGEN environment paths (needed early for manual cleanup)
@@ -463,6 +473,10 @@ INC_RAD_DECAYS_FLAG="--inc-rad-decays=${INC_RAD_DECAYS}"
 TARGET_ND_FLAG=""
 if [[ -n "${TARGET_ND:-}" ]]; then
   TARGET_ND_FLAG="--target-nd=${TARGET_ND}"
+fi
+RDINR_DV_FLAG=""
+if [[ -n "${RDINR_MAX_DV_KMS:-}" ]]; then
+  RDINR_DV_FLAG="--rdinr-max-dv-kms=${RDINR_MAX_DV_KMS}"
 fi
 USE_HYDRO_GRID_FLAG=""
 if [[ "${USE_HYDRO_GRID:-0}" == "1" ]]; then
@@ -745,6 +759,9 @@ if [[ $restart -eq 0 && $no_submit -eq 0 ]]; then
     # A stale requeue count >0 makes the generated slurm take the requeue
     # branch (checkpoint restore, no VADAT prep) -- a silent continuation.
     rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_COUNT" 2>/dev/null || true
+    # KNOP stall state: a stale GS_STATE from a previous run would trip
+    # the watchdog for a model that does not write it (non-KNOP path).
+    rm -f "${MODEL_DIR}/GS_STATE" "${MODEL_DIR}/.CMFGEN_KNOP_STALLED" 2>/dev/null || true
   fi
 fi
 
@@ -755,6 +772,7 @@ if [[ $restart -eq 0 && "${CMFGEN_WARM_RESTART:-0}" != "1" ]]; then
   rm -f "${MODEL_DIR}/.CMFGEN_SINGLE_FINAL_PREPPED" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_JOB_START" "${MODEL_DIR}/.CMFGEN_EARLY_EXIT_COUNT" 2>/dev/null || true
   rm -f "${MODEL_DIR}/.CMFGEN_REQUEUE_STATE" "${MODEL_DIR}/.CMFGEN_REQUEUE_COUNT" 2>/dev/null || true
+  rm -f "${MODEL_DIR}/GS_STATE" "${MODEL_DIR}/.CMFGEN_KNOP_STALLED" 2>/dev/null || true
 fi
 
 # Always rewrite all scripts
@@ -1219,7 +1237,7 @@ echo "Running final Python scripts..."
 if [[ "${NO_RELATIVISTIC}" == "1" ]]; then
   echo "NO_RELATIVISTIC=1 (passed --no-relativistic to prepare_VADAT.py)"
 fi
-python "${VADAT_SCRIPT}" --final --convergence-mode stable --vel-law "${VEL_LAW}" ${MODEL_TYPE_FLAG} ${INC_RAD_DECAYS_FLAG} ${TARGET_ND_FLAG} ${USE_HYDRO_GRID_FLAG} ${SMOOTH_JUMPS_FLAG} ${BLEND_FLAG} ${MONOTONIZE_FLAG:-} ${CHEMICAL_FLAG:-} ${REVERSAL_FLAG:-} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+python "${VADAT_SCRIPT}" --final --convergence-mode stable --vel-law "${VEL_LAW}" ${MODEL_TYPE_FLAG} ${INC_RAD_DECAYS_FLAG} ${TARGET_ND_FLAG} ${RDINR_DV_FLAG} ${USE_HYDRO_GRID_FLAG} ${SMOOTH_JUMPS_FLAG} ${BLEND_FLAG} ${MONOTONIZE_FLAG:-} ${CHEMICAL_FLAG:-} ${REVERSAL_FLAG:-} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
 python "${INITS_SCRIPT}" --final --num-its ${FINAL_NUM_ITS} ${GT_AUTO:+--gt-auto ${GT_AUTO}} >> 'batch.log'
 export CMFGEN_AUTO_SET_RSTAR="${AUTO_SET_RSTAR}"
 export CMFGEN_AUTO_SET_LSTAR="${AUTO_SET_LSTAR}"
@@ -1377,6 +1395,26 @@ if [[ "\${requeue_ready}" != "1" ]]; then
     exit 6
   fi
   rm -f .CMFGEN_EARLY_EXIT_COUNT
+fi
+
+# KNOP stall watchdog (29-Sep-2026): with DO_NONMONO_KNOP, SOLVE_FOR_POPS
+# writes GS_STATE every great iteration.  A run ending a segment still
+# deep inside the forced-LAMBDA freeze (the lagged GS field never
+# matured) is non-convergent whether the wall fired (READY=1) or the
+# model completed (READY=0) -- it must not be requeued or reported as a
+# finished model.  KNOP_STALL_MAX (default 60) is the consecutive-frozen
+# limit; override via the job environment.
+if [[ -f GS_STATE ]]; then
+  gs_nfrozen=\$(grep -m1 '^n_frozen=' GS_STATE | cut -d= -f2 || echo 0)
+  if [[ "\${gs_nfrozen:-0}" -ge "\${KNOP_STALL_MAX:-60}" ]]; then
+    echo "ERROR: KNOP GS stall: \${gs_nfrozen} consecutive frozen" >&2
+    echo "  (forced-LAMBDA) iterations at job end; limit" >&2
+    echo "  KNOP_STALL_MAX=\${KNOP_STALL_MAX:-60}.  The lagged radiation" >&2
+    echo "  field never matured -- this run is non-convergent." >&2
+    echo "  See 'MOM bulk/sweep' lines in OUTGEN." >&2
+    touch .CMFGEN_KNOP_STALLED
+    exit 7
+  fi
 fi
 
 if [[ "\${requeue_ready}" == "1" ]]; then
@@ -1915,7 +1953,7 @@ if [[ "\${is_requeue}" -eq 0 ]]; then
   if [[ "${NO_RELATIVISTIC}" == "1" ]]; then
     echo "NO_RELATIVISTIC=1 (passed --no-relativistic to prepare_VADAT.py)"
   fi
-  python "${VADAT_SCRIPT}" --single-final --convergence-mode stable --vel-law "${VEL_LAW}" ${MODEL_TYPE_FLAG} ${INC_RAD_DECAYS_FLAG} ${TARGET_ND_FLAG} ${USE_HYDRO_GRID_FLAG} ${SMOOTH_JUMPS_FLAG} ${BLEND_FLAG} ${MONOTONIZE_FLAG:-} ${CHEMICAL_FLAG:-} ${REVERSAL_FLAG:-} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
+  python "${VADAT_SCRIPT}" --single-final --convergence-mode stable --vel-law "${VEL_LAW}" ${MODEL_TYPE_FLAG} ${INC_RAD_DECAYS_FLAG} ${TARGET_ND_FLAG} ${RDINR_DV_FLAG} ${USE_HYDRO_GRID_FLAG} ${SMOOTH_JUMPS_FLAG} ${BLEND_FLAG} ${MONOTONIZE_FLAG:-} ${CHEMICAL_FLAG:-} ${REVERSAL_FLAG:-} ${NO_REL_FLAG} --vadat-overrides "${CONFIG_FILE}" > 'batch.log'
   python "${INITS_SCRIPT}" --single-final --num-its ${FINAL_NUM_ITS} ${GT_AUTO:+--gt-auto ${GT_AUTO}} >> 'batch.log'
   if [[ "${PROXY_POPULATIONS}" == "1" || "${PROXY_POPULATIONS_V2}" == "1" ]]; then
     echo "PROXY_POPULATIONS: generating proxy dilute-LTE _IN files and overriding VADAT..."
@@ -2260,6 +2298,26 @@ if [[ "\${requeue_ready}" != "1" ]]; then
     exit 6
   fi
   rm -f .CMFGEN_EARLY_EXIT_COUNT
+fi
+
+# KNOP stall watchdog (29-Sep-2026): with DO_NONMONO_KNOP, SOLVE_FOR_POPS
+# writes GS_STATE every great iteration.  A run ending a segment still
+# deep inside the forced-LAMBDA freeze (the lagged GS field never
+# matured) is non-convergent whether the wall fired (READY=1) or the
+# model completed (READY=0) -- it must not be requeued or reported as a
+# finished model.  KNOP_STALL_MAX (default 60) is the consecutive-frozen
+# limit; override via the job environment.
+if [[ -f GS_STATE ]]; then
+  gs_nfrozen=\$(grep -m1 '^n_frozen=' GS_STATE | cut -d= -f2 || echo 0)
+  if [[ "\${gs_nfrozen:-0}" -ge "\${KNOP_STALL_MAX:-60}" ]]; then
+    echo "ERROR: KNOP GS stall: \${gs_nfrozen} consecutive frozen" >&2
+    echo "  (forced-LAMBDA) iterations at job end; limit" >&2
+    echo "  KNOP_STALL_MAX=\${KNOP_STALL_MAX:-60}.  The lagged radiation" >&2
+    echo "  field never matured -- this run is non-convergent." >&2
+    echo "  See 'MOM bulk/sweep' lines in OUTGEN." >&2
+    touch .CMFGEN_KNOP_STALLED
+    exit 7
+  fi
 fi
 
 if [[ "\${requeue_ready}" == "1" ]]; then
