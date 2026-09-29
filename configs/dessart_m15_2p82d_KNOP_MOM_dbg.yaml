@@ -20,6 +20,7 @@ cmfgen:
   base_dir: cmfgen_base_dessart
   model_type: static_snapshot
   single_final: true
+  skip_obs: true
   target_nd: 70
   install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V7
   inc_rad_decays: true
