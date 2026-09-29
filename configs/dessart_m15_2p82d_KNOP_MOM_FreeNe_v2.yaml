@@ -49,6 +49,8 @@ cmfgen:
     SOL_METH: TRI
     DO_NOMONO_KNOP: T
     DO_NONMONO_KNOP: T
+    MOM_RF_GS_DESC: T
+    MOM_RF_KEEPNEG: T
     N_OB_INS: '0'
     N_IB_INS: '0'
     REV_RGRID: F
@@ -94,7 +96,7 @@ cmfgen:
     DO_DIS: F
     INC_PEN: F
     INC_RAY: T
-    MAX_LIN: 5.0D0
+    MAX_LIN: 3.0D0
     BA_CHK_FAC: 1.0D-05
     EPS_TERM: 5.0D-02
     BW_NG: '40'
