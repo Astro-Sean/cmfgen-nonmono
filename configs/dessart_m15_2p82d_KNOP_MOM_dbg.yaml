@@ -99,6 +99,10 @@ cmfgen:
     INC_PEN: F
     INC_RAY: T
     MAX_LIN: 3.0D0
+    DO_BA_RES_ACC: T
+    BA_RES_GROW: 1.5D0
+    BA_RES_HARD: 1.0D2
+    BA_TRUST: 1.0D4
     BA_CHK_FAC: 1.0D-05
     EPS_TERM: 5.0D-02
     BW_NG: '40'
