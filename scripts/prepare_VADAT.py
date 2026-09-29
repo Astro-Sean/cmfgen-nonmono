@@ -1671,7 +1671,10 @@ def update_in_its_for_profile(wdir: Path, profile: str,
     # Read final VADAT values for LAMBDA control so IN_ITS matches
     # vadat_overrides (e.g. DO_LAM_IT=F for a BA start).
     do_lam_val = "T"
-    do_auto_val = "F"
+    # Default matches the policy above (all profiles DO_LAM_AUTO=T); the
+    # written VADAT normally supplies the key, this only covers a VADAT
+    # that lacks it entirely.
+    do_auto_val = "T"
     if vadat_path.is_file():
         for vline in read_lines(vadat_path):
             if "[DO_LAM_IT]" in vline:
@@ -1988,7 +1991,44 @@ def downsample_hydro_velocity_aware(
     return r_downsampled, v_downsampled, indices
 
 
-def write_rdinr(hydro: HydroData, path: Path, target_nd: Optional[int] = None) -> tuple[int, np.ndarray, np.ndarray]:
+def refine_rdinr_velocity_jumps(
+    r_oi: np.ndarray, v_oi: np.ndarray, max_dv_kms: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Insert R points so no cell of the written grid carries |dV| > max_dv_kms.
+
+    r_oi/v_oi are ordered outer->inner (r decreasing). Interior points are
+    placed at equal-V steps within each violating cell, i.e. the R position is
+    found by linear inverse interpolation of V(R) inside the cell. The
+    Fortran side re-derives V(I) and SIGMA(I) from the SN_HYDRO_DATA spline at
+    each R(I), so only the R placement controls the discretization; the
+    written V column is diagnostic.
+
+    Returns (r_new, v_new) outer->inner.
+    """
+    if max_dv_kms is None or max_dv_kms <= 0:
+        return r_oi, v_oi
+    r_out = [r_oi[0]]
+    v_out = [v_oi[0]]
+    n_added = 0
+    for i in range(len(r_oi) - 1):
+        dv = abs(v_oi[i + 1] - v_oi[i])
+        n_sub = int(np.ceil(dv / max_dv_kms)) if max_dv_kms > 0 else 1
+        for k in range(1, n_sub):
+            f = k / n_sub
+            r_out.append(r_oi[i] + (r_oi[i + 1] - r_oi[i]) * f)
+            v_out.append(v_oi[i] + (v_oi[i + 1] - v_oi[i]) * f)
+            n_added += 1
+        r_out.append(r_oi[i + 1])
+        v_out.append(v_oi[i + 1])
+    if n_added:
+        print(f"[RDINR refine] max_dV={max_dv_kms} km/s: inserted {n_added} "
+              f"points ({len(r_oi)} -> {len(r_out)})")
+    return np.asarray(r_out), np.asarray(v_out)
+
+
+def write_rdinr(hydro: HydroData, path: Path, target_nd: Optional[int] = None,
+                max_dv_kms: Optional[float] = None) -> tuple[int, np.ndarray, np.ndarray]:
     """
     Write RDINR for RD_IN_R_GRID=T (same format as departure coefficient files).
     SET_RV_HYDRO_MODEL_V3 reads: '!Format date' line, header (R_ND, LUM, NOLD, ND),
@@ -2026,6 +2066,12 @@ def write_rdinr(hydro: HydroData, path: Path, target_nd: Optional[int] = None) -
         if target_nd is not None:
             print(f"[RDINR] Using SN_HYDRO_DATA grid as-is (ND={nd}; "
                   f"same mapping as the converter)")
+
+    # Refine cells whose per-cell Doppler shift exceeds max_dv_kms.  The base
+    # grid carries the shock compression (sigma ~ -120) as a single ~1650 km/s
+    # cell, which is where the lagged CMF coupling goes non-contractive.
+    r_oi, v_oi = refine_rdinr_velocity_jumps(r_oi, v_oi, max_dv_kms)
+    nd = len(r_oi)
 
     # Enforce minimum spacing (outer->inner: r_oi[i] > r_oi[i+1]); avoids velocity_law.f SIGFPE
     for i in range(nd - 1):
@@ -4073,6 +4119,18 @@ def main() -> int:
              "T_EXC from over-exciting relative to the proxy's own excitation model.",
     )
     p.add_argument(
+        "--rdinr-max-dv-kms",
+        type=float,
+        default=None,
+        help="Refine the RDINR R grid so that no cell carries |dV| larger than this "
+             "(km/s). Interior points are placed at equal-V steps inside each "
+             "violating cell; CMFGEN recomputes V and SIGMA from the hydro spline "
+             "at the new radii, so the physical profile is unchanged. Targets the "
+             "comoving-frame discretization instability at strong compressions "
+             "(per-cell Doppler shift >> frequency spacing). Only meaningful with "
+             "VEL_LAW=11 / RD_IN_R_GRID=T.",
+    )
+    p.add_argument(
         "--use-hydro-grid",
         action="store_true",
         default=False,
@@ -4949,7 +5007,9 @@ def main() -> int:
             # For VEL_LAW=12: skip velocity-aware downsampling (RDINR is ignored,
             # RD_IN_R_GRID=F; input_hydro.dat is the actual grid source).
             rdinr_target_nd = args.target_nd if effective_vel_law != 12 else None
-            nd_written, r_oi, v_oi = write_rdinr(hydro, rdinr_path, target_nd=rdinr_target_nd)
+            nd_written, r_oi, v_oi = write_rdinr(
+                hydro, rdinr_path, target_nd=rdinr_target_nd,
+                max_dv_kms=args.rdinr_max_dv_kms)
             profile_changes.append(f"Wrote {rdinr_path.name} (R grid from SN_HYDRO_DATA, ND={nd_written})")
             print(f"RDINR written: ND={nd_written}  R(1)={r_oi[0]:.6e} R(ND)={r_oi[-1]:.6e} (1e10 cm)  "
                   f"V(1)={v_oi[0]:.2f} V(ND)={v_oi[-1]:.2f} (km/s)")
@@ -5290,6 +5350,12 @@ def main() -> int:
                 break
         if _non_mono_post:
             _reapply_keys = build_non_mono_forced_vadat(non_mono_line_treatment)
+            # Keys the user set explicitly in vadat_overrides keep their
+            # value — same explicit_user_keys semantics as
+            # enforce_sn_iin_physics(), which pops them from the forced
+            # table before stamping.
+            for _key in (vadat_overrides or {}):
+                _reapply_keys.pop(str(_key).strip(), None)
             for _key, _forced_val in _reapply_keys.items():
                 _current = _get_key_token(lines, _key)
                 if _current is not None and _current.strip().upper() != _forced_val.upper():
@@ -5662,7 +5728,10 @@ DEFAULT [IB_OPT]
                     else:
                         nd_for_model_spec = expected_nd
             else:
-                nd_for_model_spec = nd_written if args.target_nd is not None else nd_hydro
+                # nd_written already reflects target_nd downsampling and any
+                # --rdinr-max-dv-kms refinement; it equals nd_hydro when neither
+                # applied, so it is the correct VEL_LAW=11 count in all cases.
+                nd_for_model_spec = nd_written
             model_spec_changes = update_model_spec(model_spec_path, nd_for_model_spec, nc=None, num_bnds=num_bnds)
             if model_spec_changes:
                 print()

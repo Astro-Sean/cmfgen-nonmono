@@ -114,6 +114,7 @@ try:
         NON_MONO_FORCED_VADAT,
         NON_MONO_SOB_RECOMMENDED,
         build_non_mono_forced_vadat,
+        refine_rdinr_velocity_jumps,
     )
 except ImportError:
     try:
@@ -121,10 +122,12 @@ except ImportError:
             NON_MONO_FORCED_VADAT,
             NON_MONO_SOB_RECOMMENDED,
             build_non_mono_forced_vadat,
+            refine_rdinr_velocity_jumps,
         )
     except ImportError:
         NON_MONO_FORCED_VADAT = _NON_MONO_FORCED_VADAT_FALLBACK
         NON_MONO_SOB_RECOMMENDED = {}
+        refine_rdinr_velocity_jumps = None
 
         def build_non_mono_forced_vadat(line_treatment="BLANK"):
             """Fallback builder mirroring prepare_VADAT.build_non_mono_forced_vadat."""
@@ -529,15 +532,30 @@ def estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg):
     if r is None or v is None:
         return None, "could not parse Radius/Velocity sections"
     nd_file = min(len(r), len(v))
-    sigma = _sn_hydro_sigma(r[:nd_file], v[:nd_file])
+    r_use = np.asarray(r[:nd_file], dtype=float)
+    v_use = np.asarray(v[:nd_file], dtype=float)
+    # cmfgen.rdinr_max_dv_kms refines the solver grid beyond the hydro-file
+    # ND (prepare_VADAT.write_rdinr). The I_NEXT store scales with the
+    # post-refinement ND and its sigma<-1 dilation, so simulate the
+    # insertion here or the estimate undersizes the request.
+    rdinr_max_dv = cmfgen_cfg.get("rdinr_max_dv_kms", None)
+    if rdinr_max_dv and refine_rdinr_velocity_jumps is not None:
+        try:
+            r_use, v_use = refine_rdinr_velocity_jumps(
+                r_use, v_use, float(rdinr_max_dv)
+            )
+        except Exception:
+            pass
+    nd_eff = len(r_use)
+    sigma = _sn_hydro_sigma(r_use, v_use)
     comp_idx = np.where(sigma < -1.0)[0]
-    mask = np.zeros(nd_file, dtype=bool)
+    mask = np.zeros(nd_eff, dtype=bool)
     for i in comp_idx:
-        mask[max(0, i - 1) : min(nd_file, i + 2)] = True
+        mask[max(0, i - 1) : min(nd_eff, i + 2)] = True
     n_comp = int(mask.sum()) if comp_idx.size else 0
     model_spec = cmfgen_dir / "MODEL_SPEC"
     nc = _model_spec_int(model_spec, "NC") or 12
-    np_eff = nd_file + nc
+    np_eff = nd_eff + nc
     ncf = None
     ncf_src = None
     outgen = cmfgen_dir / "OUTGEN"
@@ -578,11 +596,11 @@ def estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg):
     ncf_eff = max(ncf, obs_ncf)
     i_next_gb = 2.0 * n_comp * np_eff * ncf_eff * 8 / 2**30
     remap_gb = n_comp * np_eff * ncf * 8 / 2**30 if obs_ncf > ncf else 0.0
-    jstore_gb = 3.0 * nd_file * ncf_eff * 8 / 2**30
+    jstore_gb = 3.0 * nd_eff * ncf_eff * 8 / 2**30
     base_gb = 12.0
     est = (i_next_gb + remap_gb + jstore_gb) * 1.15 + base_gb
     info = (
-        f"ND={nd_file} N_COMP={n_comp} NP={np_eff} NCF={ncf} [{ncf_src}] "
+        f"ND={nd_eff} (file {nd_file}) N_COMP={n_comp} NP={np_eff} NCF={ncf} [{ncf_src}] "
         f"OBS NCF={obs_ncf} [{obs_ncf_src}]: I_NEXT~{i_next_gb:.1f}G "
         f"+ remap~{remap_gb:.1f}G + base"
     )
@@ -1593,6 +1611,10 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     wind_T = x_cfg.get("wind_T_K", 5000)
     no_wind = x_cfg.get("no_wind", False)
     no_ejecta = x_cfg.get("no_ejecta", False)
+    # Paired wind-control sibling: rebuild the profile from a parent
+    # model's .hyd with the SN_A ejecta region replaced by continuous
+    # wind (see prepare_SN_B_model.py --from-parent-hyd).
+    from_parent_hyd = str(x_cfg.get("from_parent_hyd", "") or "")
     # float() guard: YAML parses 1.0e16 (no sign in exponent) as a string
     wind_r_outer_cm = float(x_cfg.get("wind_r_outer_cm", 0.0) or 0.0)
     wind_duration_days = float(x_cfg.get("wind_duration_days", 0.0) or 0.0)
@@ -1605,6 +1627,26 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     density_matched_wind = x_cfg.get("density_matched_wind", False)
     cd_transition_zones = x_cfg.get("cd_transition_zones", 5)
     v_blend_zones = x_cfg.get("v_blend_zones", 30)
+    # Detached slow CSM above the ejecta (cocoon-breakout models): the
+    # narrow-P-Cygni material sits outside the SN_A ejecta.
+    outer_csm_mdot = float(x_cfg.get("outer_csm_mdot_msun_yr", 0.0) or 0.0)
+    outer_csm_velocity = float(
+        x_cfg.get("outer_csm_velocity_kms", 850.0) or 850.0
+    )
+    outer_csm_r_inner = float(
+        x_cfg.get("outer_csm_r_inner_cm", 0.0) or 0.0
+    )
+    outer_csm_r_outer = float(
+        x_cfg.get("outer_csm_r_outer_cm", 0.0) or 0.0
+    )
+    outer_csm_T = float(x_cfg.get("outer_csm_T_K", 2000.0) or 2000.0)
+    outer_csm_zones = int(x_cfg.get("outer_csm_zones", 40) or 40)
+    outer_csm_rho_floor = float(
+        x_cfg.get("outer_csm_rho_floor_gcc", 1e-20) or 1e-20
+    )
+    outer_csm_mass = float(
+        x_cfg.get("outer_csm_mass_msun", 0.0) or 0.0
+    )
     force_homologous_velocity = x_cfg.get("force_homologous_velocity", False)
     # Analytical power-law CSM (prepare_SN_B_model_v2.py):
     # rho ~ r^-n homologous envelope (u = r/t_cs) replacing the
@@ -1840,6 +1882,8 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     if no_ejecta:
         cmd.append("--no-ejecta")
         cmd.extend(["--wind-r-outer-cm", str(wind_r_outer_cm)])
+    if from_parent_hyd:
+        cmd.extend(["--from-parent-hyd", from_parent_hyd])
     if density_matched_wind:
         cmd.append("--density-matched-wind")
         cmd.extend(
@@ -1852,6 +1896,33 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
         )
     if force_homologous_velocity:
         cmd.append("--force-homologous-velocity")
+    if outer_csm_mdot > 0 or outer_csm_mass > 0:
+        if powerlaw_csm:
+            print(
+                "  WARNING: outer_csm_* is only supported by "
+                "prepare_SN_B_model.py — ignored for powerlaw_csm configs."
+            )
+        else:
+            cmd.extend(
+                [
+                    "--outer-csm-mdot",
+                    str(outer_csm_mdot),
+                    "--outer-csm-mass",
+                    str(outer_csm_mass),
+                    "--outer-csm-velocity",
+                    str(outer_csm_velocity),
+                    "--outer-csm-r-inner",
+                    str(outer_csm_r_inner),
+                    "--outer-csm-r-outer",
+                    str(outer_csm_r_outer),
+                    "--outer-csm-T",
+                    str(outer_csm_T),
+                    "--outer-csm-zones",
+                    str(outer_csm_zones),
+                    "--outer-csm-rho-floor",
+                    str(outer_csm_rho_floor),
+                ]
+            )
     if powerlaw_csm:
         cmd.extend(
             [
@@ -2415,6 +2486,91 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         print(f"ERROR: Base directory not found: {base_dir}")
         return False
 
+    restart_backups = {}
+
+    # cmfgen.warm_restart_from: <path> -- deliberate continuation from a
+    # DIFFERENT model's checkpoint (e.g. SOB run -> KNOP run).  The
+    # named directory's POINT1/POINT2/SCRTEMP (+ Knop GS state, RVTJ,
+    # MODEL, CUR_MODEL_DATA when present) are injected into the refresh
+    # so the submitted run resumes from that population state.  The
+    # source MODEL file supplies the NT/ND fingerprint: ND must match
+    # the target grid exactly, and NT is compared against any existing
+    # target MODEL.  A SCR_READ_V2 record mismatch otherwise reads
+    # garbage rather than falling back to a cold start.
+    warm_restart_from = cmfgen.get("warm_restart_from", "") or os.environ.get(
+        "CMFGEN_WARM_RESTART_FROM", ""
+    )
+    if warm_restart_from:
+        wsrc = Path(warm_restart_from)
+        if not wsrc.is_absolute():
+            wsrc = (project_dir / wsrc).absolute()
+        # SCR_READ_V2 needs SCRTEMP plus at least one usable pointer
+        # (POINT1 is read first; POINT2 is only a fallback).
+        ok = wsrc.is_dir() and (wsrc / "SCRTEMP").is_file() and (
+            (wsrc / "POINT1").is_file() or (wsrc / "POINT2").is_file()
+        )
+        if not ok:
+            print(
+                f"ERROR: warm_restart_from source is missing the "
+                f"checkpoint files (SCRTEMP + POINT1/POINT2): {wsrc}"
+            )
+            return False
+        # ND/NT fingerprint from the source MODEL file.
+        src_nd = src_nt = None
+        src_model = wsrc / "MODEL"
+        if src_model.is_file():
+            for ln in src_model.read_text(errors="replace").splitlines()[:30]:
+                if "!Number of depth points" in ln:
+                    src_nd = int(ln.split()[0])
+                elif "!Total number of variables" in ln:
+                    src_nt = int(ln.split()[0])
+        tgt_nd = None
+        tgt_hydro = cmfgen_dir / "SN_HYDRO_DATA"
+        if tgt_hydro.is_file():
+            hdr = tgt_hydro.read_text(errors="replace").splitlines()[:5]
+            for ln in hdr:
+                if "Number of data points" in ln:
+                    tgt_nd = int(ln.split(":")[1])
+        if src_nd is not None and tgt_nd is not None and src_nd != tgt_nd:
+            print(
+                f"ERROR: warm_restart_from ND mismatch: source ND={src_nd} "
+                f"vs target SN_HYDRO_DATA ND={tgt_nd} -- refusing "
+                f"continuation (SCRTEMP records would misalign)"
+            )
+            return False
+        if src_nd is None or tgt_nd is None:
+            print(
+                f"  WARNING: warm_restart_from ND fingerprint incomplete "
+                f"(src ND={src_nd}, tgt ND={tgt_nd}); continuing on trust"
+            )
+        tgt_model = cmfgen_dir / "MODEL"
+        if src_nt is not None and tgt_model.is_file():
+            for ln in tgt_model.read_text(errors="replace").splitlines()[:30]:
+                if "!Total number of variables" in ln:
+                    if int(ln.split()[0]) != src_nt:
+                        print(
+                            f"ERROR: warm_restart_from NT mismatch: "
+                            f"source NT={src_nt}; refusing continuation"
+                        )
+                        return False
+                    break
+        print(
+            f"  warm_restart_from: injecting checkpoint from {wsrc} "
+            f"(NT={src_nt}, ND={src_nd})"
+        )
+        for p in (
+            "POINT1", "POINT2", "SCRTEMP",
+            "FGINEXT_GS", "MOMJNXT_GS",
+            "RVTJ", "MODEL", "CUR_MODEL_DATA",
+        ):
+            fpath = wsrc / p
+            if fpath.is_file():
+                tmpdir = Path(tempfile.mkdtemp())
+                backup = tmpdir / p
+                shutil.copy2(fpath, backup)
+                restart_backups[p] = (backup, tmpdir)
+                print(f"  warm_restart_from: staging {p}")
+
     if cmfgen_dir.exists():
         # Preserve existing SN_HYDRO_DATA if it exists (avoid race condition where
         # prepare wipes the file before the CMFGEN job can read it).
@@ -2530,8 +2686,16 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 for p in ("FGINEXT_GS", "MOMJNXT_GS")
                 if (cmfgen_dir / p).is_file()
             ]
-        restart_backups = {}
+            # SCRTEMP holds the actual population records that POINT1/POINT2
+            # index into -- a warm restart without it cold-starts anyway.
+            if (cmfgen_dir / "SCRTEMP").is_file():
+                restart_files.append("SCRTEMP")
+
         for fname in restart_files:
+            # Staged warm_restart_from files take precedence over any
+            # same-dir remnants of the same name.
+            if fname in restart_backups:
+                continue
             fpath = cmfgen_dir / fname
             if fpath.exists():
                 tmpdir = Path(tempfile.mkdtemp())
@@ -2569,6 +2733,10 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
     else:
         print(f"Copying base directory from {base_dir} to {cmfgen_dir}...")
         shutil.copytree(base_dir, cmfgen_dir, ignore=_CMFGEN_BASE_IGNORE)
+        # Restore staged warm_restart_from checkpoint files into the fresh dir.
+        for fname, (backup, tmpdir) in restart_backups.items():
+            shutil.copy2(backup, cmfgen_dir / fname)
+            shutil.rmtree(tmpdir)
 
     # Ensure MODEL_SPEC has all default species (I+II for all elements, Fe I-IV)
     model_spec = cmfgen_dir / "MODEL_SPEC"
@@ -3626,6 +3794,25 @@ def prepare_sedona_directory(
     return True
 
 
+def purge_stale_slurm_logs(log_dir, *patterns):
+    """Remove SLURM .out/.err logs left by previous submissions.
+
+    A fresh submission should not leave old job logs next to the new
+    one; they are easy to misread as current. Missing dirs/files are
+    ignored.
+    """
+    removed = []
+    for pattern in patterns:
+        for path in Path(log_dir).glob(pattern):
+            try:
+                path.unlink()
+                removed.append(path.name)
+            except OSError:
+                pass
+    if removed:
+        print(f"  Removed stale SLURM logs: {', '.join(sorted(removed))}")
+
+
 def submit_heracles_job(
     config, scripts_dir, project_dir, debug=False, config_file=None
 ):
@@ -3723,6 +3910,9 @@ def submit_heracles_job(
         f.write(job_script)
 
     # Submit job
+    purge_stale_slurm_logs(
+        heracles_dir, f"heracles_{model_name}_*.out", f"heracles_{model_name}_*.err"
+    )
     result = subprocess.run(["sbatch", str(job_file)], capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -3807,6 +3997,9 @@ def submit_conversion_job(
         f.write(job_script)
 
     # Submit job
+    purge_stale_slurm_logs(
+        model_dir, f"convert_{model_name}_*.out", f"convert_{model_name}_*.err"
+    )
     result = subprocess.run(["sbatch", str(job_file)], capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -5275,6 +5468,9 @@ fi
         f.write(job_script)
 
     cmd = ["sbatch", str(job_file)]
+    purge_stale_slurm_logs(
+        logs_dir, "convert_all_*.out", "convert_all_*.err"
+    )
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"ERROR: Post-STELLA conversion job submission failed")
@@ -5392,6 +5588,11 @@ echo "Seed job complete for day {day}"
         f.write(job_script)
 
     cmd = ["sbatch", str(job_file)]
+    purge_stale_slurm_logs(
+        logs_dir,
+        f"seed_{model_name}_{day_label}.out",
+        f"seed_{model_name}_{day_label}.err",
+    )
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"ERROR: CMFGEN seed job submission failed for day {day}")
@@ -5965,6 +6166,7 @@ def generate_eddfactor_for_cmfgen(
     inc_rad_decays = cmfgen_cfg.get("inc_rad_decays", False)
     no_rel = not cmfgen_cfg.get("incl_rel", False)
     use_hydro_grid = cmfgen_cfg.get("use_hydro_grid", False)
+    rdinr_max_dv_kms = cmfgen_cfg.get("rdinr_max_dv_kms", None)
     smooth_velocity_jumps = cmfgen_cfg.get("smooth_velocity_jumps", False)
     smooth_max_dv_ratio = cmfgen_cfg.get("smooth_max_dv_ratio", 2.0)
     smooth_n_insert = cmfgen_cfg.get("smooth_n_insert", 8)
@@ -6000,6 +6202,8 @@ def generate_eddfactor_for_cmfgen(
         vadat_cmd.append("--no-relativistic")
     if use_hydro_grid:
         vadat_cmd.append("--use-hydro-grid")
+    if rdinr_max_dv_kms is not None:
+        vadat_cmd.extend(["--rdinr-max-dv-kms", str(rdinr_max_dv_kms)])
     if smooth_velocity_jumps:
         vadat_cmd.append("--smooth-velocity-jumps")
         vadat_cmd.extend(["--smooth-max-dv-ratio", str(smooth_max_dv_ratio)])
@@ -6310,6 +6514,7 @@ echo "EDDFACTOR init job finished on $(date)"
             f"  Submitting EDDFACTOR init job to partition={edd_partition}, time={edd_time}"
         )
     submit_cmd.append(str(edd_slurm))
+    purge_stale_slurm_logs(cmfgen_dir, "eddfactor_*.out", "eddfactor_*.err")
     submit_result = subprocess.run(submit_cmd, capture_output=True, text=True)
     if submit_result.returncode != 0:
         print(f"ERROR: sbatch failed for EDDFACTOR init job", file=sys.stderr)
@@ -6659,6 +6864,9 @@ echo "J-RELEASE job finished on $(date)"
         str(j_release_slurm),
     ]
     print(f"  Submitting J-RELEASE job: partition={partition}, time={time_limit}")
+    purge_stale_slurm_logs(
+        cmfgen_dir, "cmf_jrelease_*.out", "cmf_jrelease_*.err"
+    )
     submit_result = subprocess.run(submit_cmd, capture_output=True, text=True)
     if submit_result.returncode != 0:
         print(f"ERROR: sbatch failed for J-RELEASE job", file=sys.stderr)
@@ -7040,6 +7248,9 @@ def submit_cmfgen_jobs(
     do_gt_auto = cmfgen_cfg.get("do_gt_auto", None)
     if do_gt_auto is not None:
         cmd.append(f"--gt-auto={'T' if do_gt_auto else 'F'}")
+    rdinr_max_dv = cmfgen_cfg.get("rdinr_max_dv_kms", None)
+    if rdinr_max_dv is not None:
+        cmd.append(f"--rdinr-max-dv-kms={rdinr_max_dv}")
     # Pass complex model and mass frac floor as named CLI args
     if cmfgen_cfg.get("proxy_complex_model", False):
         cmd.append("--proxy-complex-model=1")
@@ -7119,7 +7330,11 @@ def submit_cmfgen_jobs(
     # Deliberate continuation: tells submit_cmfgen.sh to skip the fresh-start
     # cleanup and sentinel removal so the slurm takes its checkpoint-restore
     # branch (mirrors prepare_cmfgen_dir preserving the warm-start files).
-    if cmfgen_cfg.get("warm_restart", False):
+    # warm_restart_from (cross-directory checkpoint handoff, e.g. SOB->KNOP)
+    # needs the same in-job behaviour.
+    if cmfgen_cfg.get("warm_restart", False) or cmfgen_cfg.get(
+        "warm_restart_from", ""
+    ):
         env["CMFGEN_WARM_RESTART"] = "1"
     if debug:
         # The OBS (cmf_flux) grid is often much finer than the model grid.
@@ -7315,6 +7530,7 @@ def submit_sedona_job(
         cmd.append(dep_arg)
     cmd.append(str(job_file))
 
+    purge_stale_slurm_logs(sedona_dir, "sedona_*.out", "sedona_*.err")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -7803,6 +8019,7 @@ def submit_superlite_job(
         cmd.append(dep_arg)
     cmd.append(str(job_file))
 
+    purge_stale_slurm_logs(superlite_dir, "superlite_*.out", "superlite_*.err")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -8007,6 +8224,7 @@ def submit_sirocco_job(
         cmd.append(dep_arg)
     cmd.append(str(job_file))
 
+    purge_stale_slurm_logs(sirocco_dir, "sirocco_*.out", "sirocco_*.err")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"ERROR: SIROCCO job submission failed")
@@ -8599,7 +8817,16 @@ def submit_stella_job(
         print("nickel56 not enabled, generating ZERO .xni file (no radioactive decay)")
         xni_output = stella_run_dir / "eve" / f"{model_name}.xni"
         xni_output.parent.mkdir(parents=True, exist_ok=True)
+        # Size from the generated .hyd header, not the config: prep can
+        # append zones (e.g. outer_csm) beyond the stella:nzon budget.
+        hyd_for_nzon = stella_run_dir / "modmake" / f"{model_name}.hyd"
         nzon_for_xni = int(stella_cfg.get("nzon", 500))
+        if hyd_for_nzon.exists():
+            try:
+                with open(hyd_for_nzon) as _hf:
+                    nzon_for_xni = int(_hf.readline().split()[1])
+            except (IndexError, ValueError):
+                pass
         # .xni format: Fortran unformatted sequential record of nzon REAL*8 values.
         # STELLA reads: read(28) (XNifor(i), i=1, Nzon) where XNifor is REAL*8.
         # All Ni56 fractions = 0.0 means no radioactive decay.
@@ -8805,6 +9032,11 @@ def submit_stella_job(
         print(f"  STELLA job dependency: {dependency}")
     sbatch_cmd.append(str(job_file))
 
+    purge_stale_slurm_logs(
+        stella_run_dir,
+        f"stella_{model_name}_*.out",
+        f"stella_{model_name}_*.err",
+    )
     result = subprocess.run(sbatch_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"ERROR: STELLA job submission failed")
@@ -9685,6 +9917,39 @@ def plot_stella_lightcurve_if_available(config, scripts_dir, project_dir):
         print(f"WARNING: Lightcurve plotting failed")
         print(result.stderr)
         return False
+
+
+def plot_model_vs_sn_ab(config, scripts_dir, project_dir):
+    """Generate the two-event comparison plots for a model.
+
+    Writes <model_dir>/plots/<name>_vs_sn_a.png (absolute timeline vs the
+    SN_A and SN_B observations) and <name>_vs_sn_b.png (SN_B window,
+    peak-aligned) via scripts/plot_model_vs_sn_ab.py.  Non-fatal.
+    """
+    model_name = config.get("model_name", "unknown")
+    output = config.get("output", {})
+    model_dir = output.get("model_dir", "../models/${model_name}").replace(
+        "${model_name}", model_name
+    )
+    model_dir = (project_dir / model_dir).absolute()
+
+    plot_script = scripts_dir / "plot_model_vs_sn_ab.py"
+    if not plot_script.exists():
+        print("WARNING: plot_model_vs_sn_ab.py not found, skipping")
+        return False
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{scripts_dir}:{env.get('PYTHONPATH', '')}"
+    result = subprocess.run(
+        [sys.executable, str(plot_script), str(model_dir)],
+        capture_output=True, text=True, env=env,
+    )
+    if result.returncode == 0:
+        print(f"SN_A/SN_B comparison plots saved under {model_dir}/plots")
+        return True
+    print("WARNING: SN_A/SN_B comparison plotting failed (non-fatal)")
+    print(result.stderr[-2000:] if result.stderr else "")
+    return False
 
 
 def extract_stella_lightcurve_pysynphot(config, scripts_dir, project_dir):
@@ -10878,6 +11143,7 @@ def process_config(
                     # Generate output plots from .swd
                     plot_stella_evolution_if_available(config, scripts_dir, project_dir)
                     plot_stella_output_plots(config, scripts_dir, project_dir)
+                    plot_model_vs_sn_ab(config, scripts_dir, project_dir)
                     print(f"  Proceeding directly to CMFGEN/SEDONA")
                     hydro_job_id = ""
                 else:
@@ -10901,6 +11167,7 @@ def process_config(
                             config, scripts_dir, project_dir
                         )
                         plot_stella_output_plots(config, scripts_dir, project_dir)
+                        plot_model_vs_sn_ab(config, scripts_dir, project_dir)
                         hydro_job_id = ""
                     else:
                         print(f"Proceeding with new STELLA job submission...")
@@ -11542,6 +11809,53 @@ def process_config(
     }
 
 
+def _write_paired_wind_control_config(config_file, config, project_dir):
+    """Write the sibling shell+wind-only config for a paired model run.
+
+    Used when x_model_from_sn.paired_wind_control is true.  The sibling
+    model reuses the parent's .hyd verbatim interior to the wind-ejecta
+    interface and extends the same continuous wind to the parent outer
+    radius (prepare_SN_B_model.py --from-parent-hyd), so the two STELLA
+    runs differ only by the presence of the fast SN_A ejecta.
+    """
+    model_name = config.get("model_name", "model")
+    model_dir = config.get("output", {}).get("model_dir", "")
+    model_dir = model_dir.replace("${model_name}", model_name)
+    model_dir_abs = Path(model_dir)
+    if not model_dir_abs.is_absolute():
+        model_dir_abs = project_dir / model_dir_abs
+    hyd = model_dir_abs / "stella" / "modmake" / f"{model_name}.hyd"
+    if not hyd.exists():
+        print(f"  paired wind control: .hyd not found at {hyd}, skipped")
+        return None
+    sib_name = f"{model_name}_windctl"
+    sib_dir_rel = f"{model_dir.rstrip('/')}_windctl"
+    sib_dir_abs = Path(sib_dir_rel)
+    if not sib_dir_abs.is_absolute():
+        sib_dir_abs = project_dir / sib_dir_abs
+    sib_dir_abs.mkdir(parents=True, exist_ok=True)
+    sib = dict(config)
+    sib["model_name"] = sib_name
+    sib["description"] = (
+        f"{config.get('description', '')}  Paired wind-only control of "
+        f"{model_name}: the SN_A ejecta region is filled by the same "
+        f"continuous wind instead."
+    )
+    x = dict(config.get("x_model_from_sn", {}))
+    x.pop("paired_wind_control", None)
+    x["no_ejecta"] = True
+    x["from_parent_hyd"] = str(hyd)
+    sib["x_model_from_sn"] = x
+    out = dict(config.get("output", {}))
+    out["model_dir"] = sib_dir_rel
+    sib["output"] = out
+    sib_path = sib_dir_abs / "config.yaml"
+    with open(sib_path, "w") as f:
+        yaml.dump(sib, f, default_flow_style=False, sort_keys=False)
+    print(f"  Paired wind control: wrote {sib_path}")
+    return sib_path
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Master workflow script for automated supernova model grid. "
@@ -11982,6 +12296,32 @@ def main():
             _stella_jid = result.get("heracles_job_id")
             if _stella_jid:
                 submitted_stella_jobs.append(str(_stella_jid))
+            # Paired shell+wind control: a config with
+            # x_model_from_sn.paired_wind_control=true also submits a
+            # sibling model in which the SN_A ejecta region is filled by
+            # the same continuous wind, so the two runs differ only by
+            # the fast SN_A ejecta.
+            try:
+                _cfg_raw = load_yaml_config(config_file)
+                _x_cfg = _cfg_raw.get("x_model_from_sn", {})
+                if _x_cfg.get("paired_wind_control", False) and not _x_cfg.get(
+                    "no_ejecta", False
+                ):
+                    _sib_path = _write_paired_wind_control_config(
+                        config_file, _cfg_raw, project_dir
+                    )
+                    if _sib_path is not None:
+                        _sib_res = process_config(
+                            _sib_path, scripts_dir, project_dir,
+                            sdec_cli=sdec_cli,
+                        )
+                        if _sib_res:
+                            results.append(_sib_res)
+                            _sib_jid = _sib_res.get("heracles_job_id")
+                            if _sib_jid:
+                                submitted_stella_jobs.append(str(_sib_jid))
+            except Exception as e:
+                print(f"  WARNING: paired wind-control submission failed: {e}")
 
     # Summary
     print(f"\n{'='*70}")

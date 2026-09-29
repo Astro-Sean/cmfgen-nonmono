@@ -321,7 +321,7 @@ F               [WR_PRT_INV] ! do not write the partial BA inverse
 T               [STORE_BA]     ! Store BA on disk (BAMAT)
 2               [N_FIX_BA] ! recompute the BA matrix every N iterations
 1.0D-05         [BA_CHK_FAC] ! fractional accuracy demanded of the BA solution
-1.0D1           [FIX_BA] ! switch to BA solver once max % change falls below this
+1.0D1           [FIX_BA] ! stop recomputing the BA matrix once max % change falls below this (VAL_FIX_BA)
 2.0D2           [LAM_VAL] ! keep Lambda-iterating while max % change exceeds this
 2               [NUM_LAM] ! Lambda iterations between full linearizations
 F               [RD_SOL]       ! Do not read external solution

@@ -99,10 +99,12 @@ PROXY_NE_MAX_ITER=""
 PROXY_NE_TOL=""
 PROXY_TAU_TRANS=""
 PROXY_NO_NON_LOCAL_REVERSALS=""
+RDINR_MAX_DV_KMS=""
 GT_AUTO=""
 for _arg in "$@"; do
   case "${_arg}" in
     --gt-auto=*) GT_AUTO="${_arg#*=}" ;;
+    --rdinr-max-dv-kms=*) RDINR_MAX_DV_KMS="${_arg#*=}" ;;
     --proxy-ionization-mode=*) PROXY_IONIZATION_MODE="${_arg#*=}" ;;
     --proxy-t-exc-source=*) PROXY_T_EXC_SOURCE="${_arg#*=}" ;;
     --proxy-t-ion-floor=*) PROXY_T_ION_FLOOR="${_arg#*=}" ;;
@@ -261,6 +263,7 @@ export SKIP_FINAL="${SKIP_FINAL:-0}"
     --project-root="${PROJECT_ROOT}" \
     ${CONFIG_FILE:+--config-file="${CONFIG_FILE}"} \
     ${TARGET_ND:+--target-nd="${TARGET_ND}"} \
+    ${RDINR_MAX_DV_KMS:+--rdinr-max-dv-kms="${RDINR_MAX_DV_KMS}"} \
     --proxy-populations="${PROXY_POPULATIONS}" \
     ${PROXY_POPULATIONS_MIN_ION_FRAC:+--proxy-populations-min-ion-frac="${PROXY_POPULATIONS_MIN_ION_FRAC}"} \
     ${PROXY_POPULATIONS_NLTE_SOLVER:+--proxy-populations-nlte-solver="${PROXY_POPULATIONS_NLTE_SOLVER}"} \
