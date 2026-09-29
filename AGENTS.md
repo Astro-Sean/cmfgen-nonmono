@@ -370,6 +370,8 @@ The requeue state machine works as follows:
 
 The state file also records `TIMESTAMP` and `JOB_ID` for debugging. It is cleaned up on full resubmission (not requeue) via the cleanup block in `submit_cmfgen.sh`.
 
+**KNOP stall watchdog (2026-09-30).** Under `DO_NONMONO_KNOP`, `SOLVE_FOR_POPS` writes `GS_STATE` (`n_frozen=<consecutive forced-LAMBDA iterations>`) every great iteration. After `batch.sh` — on either the `READY=1` or `READY=0` path — the generated FINAL/SINGLE_FINAL slurms fail the job with exit code 7 and touch `.CMFGEN_KNOP_STALLED` when `n_frozen >= KNOP_STALL_MAX` (default 60, env-overridable). A run whose lagged radiation field never matured is thus flagged non-convergent instead of requeued indefinitely or reported as a finished model. `GS_STATE` and the marker are wiped on full resubmission. A deeper failure layer exists in the model itself: `GS_FREEZE_LIM` (VADAT, default off) stops CMFGEN mid-run, and `BA_NREJ_LIM` (VADAT, default 20) stops it on consecutive rejected BA steps.
+
 **Fresh start on resubmission (2026-09-26).** A new submission is a
 cold start, not a continuation. Both wipe paths now remove warm-start
 state: `POINT1`/`POINT2`/`SCRTEMP`/`SCRATCH/` (the `SCR_READ_V2`
