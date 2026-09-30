@@ -1114,7 +1114,8 @@ def validate_stella_grid(r, min_dlogr=0.005, max_dlogr=0.15, strict=False):
 
 
 def validate_combined_model(combined, expected_nzon, min_dlogr=0.005,
-                            max_dlogr=0.15, strict=False):
+                            max_dlogr=0.15, strict=False,
+                            allow_steep_interface=False):
     """Validate the combined profile before STELLA input files are written."""
     r = np.asarray(combined['r'], dtype=float)
     ok = validate_stella_grid(r, min_dlogr=min_dlogr,
@@ -1147,9 +1148,20 @@ def validate_combined_model(combined, expected_nzon, min_dlogr=0.005,
     dlogr = np.diff(log_r)
     max_grad = np.max(np.abs(np.diff(log_rho) / np.maximum(dlogr, 1e-300)))
     if max_grad > 16.0:
-        raise ValueError(
-            f'Final grid has max |dlog rho/dlog r|={max_grad:.1f} > 16; '
-            'interface buffering is insufficient for a stable STELLA start.')
+        if allow_steep_interface:
+            # Contact-discontinuity interfaces (e.g. narrow-gap wind-ejecta)
+            # cannot fit a 2-dex ramp inside the physical gap.  The SW batch
+            # ran stably with grad~211, so this opt-in only downgrades the
+            # hard failure to a warning; all other checks still apply.
+            print(f"  WARNING: max |dlog rho/dlog r|={max_grad:.1f} > 16 "
+                  f"allowed by --allow-steep-interface (contact "
+                  f"discontinuity, stability verified by SW batch)")
+        else:
+            raise ValueError(
+                f'Final grid has max |dlog rho/dlog r|={max_grad:.1f} > 16; '
+                'interface buffering is insufficient for a stable STELLA '
+                'start.  For a physical contact discontinuity (narrow-gap '
+                'wind-ejecta) set allow_steep_interface in the config.')
     return ok
 
 
@@ -3423,6 +3435,11 @@ def main():
     parser.add_argument('--strict-grid', action='store_true',
                         help='If set, raise ValueError and halt when min_dlogr '
                              'is violated, instead of printing a warning.')
+    parser.add_argument('--allow-steep-interface', action='store_true',
+                        help='Allow max |dlog rho/dlog r| > 16 at contact '
+                             'discontinuities (e.g. narrow-gap wind-ejecta). '
+                             'Use only when the interface is physical and the '
+                             'steep gradient is intentional.')
     parser.add_argument('--sw-transition-dex', type=float, default=0.5,
                         help='Shell-wind buffer width in dex of log10(r) (default: 0.5)')
     parser.add_argument('--sw-transition-k', type=float, default=3.0,
@@ -3637,7 +3654,8 @@ def main():
         validate_combined_model(combined, args.nzon,
                                 min_dlogr=args.min_dlogr,
                                 max_dlogr=args.max_dlogr,
-                                strict=args.strict_grid)
+                                strict=args.strict_grid,
+                                allow_steep_interface=args.allow_steep_interface)
         shell = {'r_inner': combined['r'][0],
                  'r_outer': combined['r'][0]}
         ejecta = None
@@ -4132,7 +4150,8 @@ def main():
     validate_combined_model(combined, args.nzon,
                             min_dlogr=args.min_dlogr,
                             max_dlogr=args.max_dlogr,
-                            strict=args.strict_grid)
+                            strict=args.strict_grid,
+                            allow_steep_interface=args.allow_steep_interface)
 
     # Step 5: Write STELLA input files
     print(f"\n--- Step 5: Writing STELLA input files ---")

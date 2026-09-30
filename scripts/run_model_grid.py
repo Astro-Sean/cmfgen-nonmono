@@ -1866,6 +1866,8 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
         cmd.extend(["--tcura-days", str(tcura_days_prep)])
     if strict_grid:
         cmd.append("--strict-grid")
+    if x_cfg.get("allow_steep_interface", False):
+        cmd.append("--allow-steep-interface")
     if disable_scattering:
         cmd.append("--disable-scattering")
     if no_wind:
