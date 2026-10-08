@@ -13,6 +13,8 @@ Only SN_HYDRO_DATA is copied to the HPC (STELLA-to-CMFGEN conversion runs off th
 SN_HYDRO_DATA only). This script does everything needed on the HPC:
   - Parse SN_HYDRO_DATA
   - Update VADAT (scalars, mass, abundances, profile, LSTAR)
+  - Diagnose the outer hydro tail (steady wind vs shell edge) and report
+    whether a wind extension is hydro-derivable; warn on IB_METH/tau mismatches
   - Write RDINR (R grid + V for RD_IN_R_GRID=T; use --no-write-rdinr to skip)
   - Write input_hydro.dat in SNIIN format (VEL_LAW=12)
   - Write T_IN and GAMMAS_IN from Temperature/Electron density when present (LTE initial)
@@ -105,7 +107,6 @@ def get_rel_config() -> dict:
         "USE_DJDT_RTE": "F",
         "DO_CO_MOV_DDT": "F",
         "DO_DDT": "F",
-        "USE_JREL": "F",
         "USE_J_REL": "F",           # No relativistic moment solver (static model)
         "INCL_REL": "F",            # No relativistic terms in transfer eq
         "INCL_ADV_TRANS": "F",      # No advection (static snapshot)
@@ -296,6 +297,9 @@ _NON_MONO_LINE_BLANK = {
 # contraction from a cold LTE start where the earlier stack diverged
 # from it1 (job 12000611).
 #
+# Use CMFGEN's stock Lambda-to-Newton schedule. Residual acceptance,
+# raw-demand probes and damped-full steps remain opt-in controls.
+#
 # These are defaults, not requirements: an explicit vadat_overrides
 # value still wins (explicit_user_keys are popped before stamping,
 # the same mechanism the forced table uses).
@@ -307,15 +311,61 @@ NON_MONO_SOB_RECOMMENDED = {
     'THK_LINE': 'T',          # thick-line outer boundary condition
     'DO_DIS': 'T',            # level dissolution (occupation probabilities)
     'INC_PEN': 'T',           # Penning ionization
-    'LAM_VAL': '2.0D2',       # fall back to Lambda above 200% correction
-    'FIX_BA': '1.0D1',        # keep computing BA until MAXCH < 10%
-    'N_FIX_BA': '2',          # hold BA at most 2 iterations
+    'INC_RAY': 'T',           # Rayleigh scattering
+    'FIX_T': 'T',             # static snapshot: hold hydro T while pops settle
+    'FIX_T_AUTO': 'F',
+    'FIX_NE': 'F',            # solve Ne from charge conservation
+    'FIX_IMP': 'F',           # iterate trace ions; freezing them zeroed BA corrections
+    'DO_LAM_IT': 'T',
+    'DO_LAM_AUTO': 'T',
+    'LAM_VAL': '2.0D2',       # stock Lambda-to-Newton change threshold
+    'NUM_LAM': '2',           # Lambda calls between local Newton attempts
+    'BA_PROBE_LAM': '0',      # use the stock NUM_LAM cadence
+    'FRESH_BA_EXIT': 'T',     # assemble a fresh matrix on return to Newton
+    'N_FULL_TREL': '0',
+    'T_REL_CHG': '3.0D0',
+    'COMP_BA': 'T',
+    'FIX_BA': '1.0D1',        # reuse the matrix only below 10% change
+    'N_FIX_BA': '2',          # refresh local Newton matrix every two calls
+    'MAX_LAM': '1.0D10',      # effectively unclamped Lambda correction factor
+    'MAX_LIN': '1.0D1',       # manual-typical 10x cap on ordinary full steps
+    'BA_CHK_FAC': '1.0D-05',
+    'EPS_TERM': '5.0D-02',
+    'BA_MAXCH_FAIL': '1.0D30',
+    'DO_BA_RES_ACC': 'F',
+    'BA_ENTER_RAW': '1.0D30',
+    'BA_DAMP_CAP': '0.0D0',
+    'DO_NG': 'T',
+    'CHK_NG': 'T',            # T-correction consistency check
+    'NG_ABSTAIN': 'T',        # per-component hold in NG_MIT_BAND_OPT_V1
+    'BEG_NG': '5.0D0',
+    'IBEG_NG': '15',
+    'BW_NG': '40',
+    'ITS/NG': '8',
     'T_INIT_TAU': '1.5D0',
     'SIG_GAU_KMS': '3.0D3',
     # Local Dessart Sobolev treatment only; RH78 non-local coupling is a
     # separate experiment and did not cure the TypeIIn divergence.
     'DO_NONLOC_SOB': 'F',
 }
+
+
+def _build_non_mono_sob_recommended(out_lines, explicit_user_keys):
+    explicit = set(explicit_user_keys)
+    recommended = dict(NON_MONO_SOB_RECOMMENDED)
+    for key in explicit:
+        recommended.pop(key, None)
+
+    lam_val = recommended.get('LAM_VAL')
+    if lam_val is None:
+        lam_val = _get_key_token(out_lines, 'LAM_VAL') or '2.0D2'
+    if 'LAM_ENTER' not in explicit:
+        recommended['LAM_ENTER'] = lam_val
+    if 'LAM_EXIT' not in explicit:
+        recommended['LAM_EXIT'] = lam_val
+    if 'LAM_N_STABLE' not in explicit:
+        recommended['LAM_N_STABLE'] = '1'
+    return recommended
 
 
 def build_non_mono_forced_vadat(line_treatment='BLANK'):
@@ -450,9 +500,15 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
     Settings that are user-configurable via vadat_overrides are respected:
     DIF, IB_METH, IB_STAB, MAX_LAM, MAX_LIN, BEG_NG, IBEG_NG, BW_NG,
     N_OB_INS, N_IB_INS, INC_GRID, ALL_FREQ, SCL_LN, DO_AV, ITS/NG,
-    BA_CHK_FAC, T_INIT_TAU, MIN_CF, LAM_VAL, NUM_LAM, N_FIX_BA,
+    BA_CHK_FAC, T_INIT_TAU, MIN_CF, LAM_VAL, NUM_LAM, N_FIX_BA, FIX_BA,
     NEW_LINE_BA, IND_BA_METH, ST_INT, END_INT, IT_ON_T,
-    T_ON_R, SCL_SL_OPAC, NON_MONO_SOLVER, FIX_NE, FIX_IMP.
+    T_ON_R, SCL_SL_OPAC, NON_MONO_SOLVER, FIX_IMP, NG_ABSTAIN,
+    DO_BA_RES_ACC, BA_RES_GROW, BA_TRUST, BA_REJ_FRAC, BA_NREJ_LIM,
+    BA_ENTER_RAW, BA_PROBE_LAM, BA_DAMP_CAP, BA_SAT_RAW, BA_SAT_LIM,
+    LAM_ENTER, LAM_EXIT, LAM_N_STABLE, FRESH_BA_EXIT, N_FULL_TREL,
+    T_REL_CHG.
+    FIX_NE is NOT user-configurable — it is forced to F for all models
+    (Ne solved from charge conservation; enforced in main()).
     AUTO_SMOOTH is NOT user-configurable — it is forced to F for all models
     (population smoothing can destabilize non-monotonic velocity models).
     """
@@ -501,7 +557,7 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'CHK_L_POS': 'T',
         'NEG_OPAC_OPT': 'SRCE_CHK',
         'METHOD': 'ZERO',
-        'THK_CONT': 'T',
+        'THK_CONT': 'F',              # Thin outer continuum BC — wind models are optically thin at R[ND]
         # SN line cooling / optical depth
         'SCL_SL_OPAC': 'T',
         'SCL_LN': 'F',
@@ -517,8 +573,13 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'DO_LAM_AUTO': 'T',
         'MAX_LAM': '1.0D10',  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
         'DO_NG': 'T',
-        'BEG_NG': '1.0D1',  # start Ng acceleration when max % change falls below this
-        'MAX_LIN': '5.0D0',  # max correction factor allowed per linearization step
+        'CHK_NG': 'T',
+        'NG_ABSTAIN': 'T',  # hold unsafe components rather than vetoing the depth
+        'BEG_NG': '5.0D0',  # start Ng acceleration when max % change falls below this
+        'IBEG_NG': '15',
+        'BW_NG': '40',
+        'ITS/NG': '8',
+        'MAX_LIN': '1.0D1',  # manual-typical 10x cap on ordinary full steps
         'AUTO_SMOOTH': 'F',          # Forced off — smoothing destabilizes non-monotonic velocity models
     }
     # Merge mode-dependent line-treatment keys into defaults.
@@ -532,23 +593,29 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'BEG_NG', 'IBEG_NG', 'BW_NG', 'N_OB_INS', 'N_IB_INS',
         'INC_GRID', 'ALL_FREQ', 'SCL_LN', 'DO_AV', 'ITS/NG',
         'BA_CHK_FAC', 'T_INIT_TAU', 'MIN_CF', 'LAM_VAL', 'NUM_LAM',
-        'N_FIX_BA', 'NEW_LINE_BA', 'IND_BA_METH', 'COMP_BA',
+        'N_FIX_BA', 'FIX_BA', 'NEW_LINE_BA', 'IND_BA_METH', 'COMP_BA',
         'ST_INT', 'END_INT', 'IT_ON_T', 'T_ON_R', 'SCL_SL_OPAC',
-        'NON_MONO_SOLVER', 'FIX_NE', 'FIX_IMP', 'DO_NG',
+        'NON_MONO_SOLVER', 'FIX_NE', 'FIX_IMP', 'DO_NG', 'NG_ABSTAIN',
         'DO_LAM_IT', 'DO_LAM_AUTO', 'USE_LAM_ES',
+        'DO_BA_RES_ACC', 'BA_RES_GROW', 'BA_TRUST', 'BA_REJ_FRAC',
+        'BA_NREJ_LIM', 'BA_ENTER_RAW', 'BA_PROBE_LAM', 'BA_DAMP_CAP',
+        'BA_SAT_RAW', 'BA_SAT_LIM', 'LAM_ENTER', 'LAM_EXIT',
+        'LAM_N_STABLE', 'FRESH_BA_EXIT', 'N_FULL_TREL', 'T_REL_CHG',
         'OB_RAT', 'THK_CONT', 'STOP_IF_BP', 'REV_RGRID',
         'LTE_EST', 'FIX_T', 'FIX_T_AUTO',
         'SOL_METH', 'VEL_LAW',
         'VFRAC_MOM', 'VFRAC_FG',
         'LAM_SCALE_OPT',
         # JFNK solver controls (V4, 2026-10)
-        'USE_JFNK', 'JFNK_NITS', 'JFNK_M', 'JFNK_MAXGMRES', 'JFNK_GTOL',
+        'DO_JFNK', 'USE_JFNK', 'JFNK_NITS', 'JFNK_M', 'JFNK_MAXGMRES',
+        'JFNK_GTOL',
         'JFNK_TOL', 'JFNK_DEL', 'JFNK_MNDL', 'JFNK_MXDL',
         'JFNK_EPS', 'JFNK_FIXT', 'JFNK_VERB', 'JFNK_WARMUP', 'MAX_JFNK',
         'JFNK_RIDGE', 'JFNK_REFINE', 'JFNK_LEFTPC', 'JFNK_PC_RF',
         'JFNK_LAM_THRESH', 'JFNK_PRECOND', 'JFNK_RSCALE', 'JFNK_MAX_RESTART',
         'JFNK_LS', 'JFNK_LS_MAX', 'JFNK_LS_BETA', 'JFNK_LS_C', 'JFNK_CAUCHY',
         'JFNK_DIAG', 'JFNK_USE_BANDED', 'JFNK_SELECTIVE_JVAR',
+        'JFNK_ROW_TINY',
         # NOTE: GLOBAL_LINE, DO_SOB_LINES, PURE_HUB are NOT user-overridable
         # when NON_MONO_SOLVER=T — they are forced by the non-monotonic
         # enforcement block below.
@@ -647,11 +714,10 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         out_lines = _apply_forced_vadat_keys(out_lines, _forced)
 
         if lt == 'SOB':
-            # Dessart+2015 recipe defaults (NON_MONO_SOB_RECOMMENDED):
-            # stamped unless the user set the key explicitly.
-            _rec = dict(NON_MONO_SOB_RECOMMENDED)
-            for _k in explicit_user_keys:
-                _rec.pop(_k, None)
+            # Keep the tested stock Lambda-to-Newton schedule unless the
+            # user explicitly selects an experimental BA control.
+            _rec = _build_non_mono_sob_recommended(
+                out_lines, explicit_user_keys)
             out_lines = _apply_forced_vadat_keys(
                 out_lines, _rec, tag="NON_MONO_SOB",
                 reason="Dessart+2015 Sobolev recipe default")
@@ -746,7 +812,7 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
     jfnk_banded = False
     for line in out_lines:
         m = vadat_re.match(line)
-        if m and m.group(2) == 'USE_JFNK':
+        if m and m.group(2) in ('DO_JFNK', 'USE_JFNK'):
             if m.group(1).strip().upper() == 'T':
                 jfnk_active = True
         if m and m.group(2) == 'JFNK_USE_BANDED':
@@ -1377,6 +1443,119 @@ def photospheric_radius_cm(
     return float(r_cm[-1])
 
 
+MSUN_YR_CGS = 6.3019e25  # 1 M_sun/yr in g/s (for outer-tail mdot diagnostic)
+
+
+def diagnose_outer_boundary(
+    hydro: HydroData,
+    tau_arr: Optional[np.ndarray] = None,
+    tail_frac: float = 0.15,
+    min_tail: int = 5,
+) -> Dict[str, float]:
+    """Diagnose the outer SN_HYDRO_DATA tail for grid-boundary decisions.
+
+    Two questions matter for the CMFGEN grid:
+
+    1. Is the outer tail a steady wind (rho ~ r^-2, Mdot = 4 pi r^2 rho v
+       roughly constant)?  Only then can a wind extension beyond the hydro
+       grid (a VEL_LAW=12-style RSTAR/RMAX/MDOT construction, e.g. the
+       Dessart .fl reference runs) be derived from the hydro alone.  A
+       shell edge (rho falling much faster than r^-2) is a truncation of
+       resolved structure — any continuation is an external model
+       prescription, not a hydro result.
+
+    2. How much optical depth does the outer tail carry?  With
+       VEL_LAW=11 + RD_IN_R_GRID=T (the non-monotonic solver path) the
+       CMFGEN grid IS the hydro grid, so the question is whether the grid
+       edge clips anything optically significant.
+
+    Returns a dict; printing is left to report_outer_boundary().
+    """
+    r = np.asarray(hydro.radius_cm, float)
+    v = np.asarray(hydro.vel_cms, float)
+    rho = np.asarray(hydro.rho_cgs, float)
+    n = r.size
+    diag: Dict[str, float] = {
+        'n_tail': 0, 'slope': np.nan, 'mdot_edge_msun_yr': np.nan,
+        'mdot_spread': np.nan, 'v_edge_kms': np.nan, 'tau_tail': np.nan,
+        'is_wind': False, 'is_shell_edge': False,
+    }
+    if n < 4:
+        return diag
+    nt = int(np.clip(int(round(tail_frac * n)), min_tail, n - 1))
+    r_t, v_t, rho_t = r[-nt:], v[-nt:], rho[-nt:]
+    diag['n_tail'] = nt
+
+    good = np.isfinite(r_t) & np.isfinite(rho_t) & (r_t > 0) & (rho_t > 0)
+    if int(good.sum()) >= 3:
+        diag['slope'] = float(np.polyfit(np.log(r_t[good]),
+                                         np.log(rho_t[good]), 1)[0])
+    if np.isfinite(v[-1]):
+        diag['v_edge_kms'] = float(abs(v[-1])) / 1e5
+    if np.isfinite(r[-1]) and np.isfinite(rho[-1]) and np.isfinite(v[-1]):
+        diag['mdot_edge_msun_yr'] = float(
+            4.0 * np.pi * r[-1] ** 2 * rho[-1] * abs(v[-1]) / MSUN_YR_CGS)
+    mdot_t = 4.0 * np.pi * r_t ** 2 * rho_t * np.abs(v_t) / MSUN_YR_CGS
+    mdot_t = mdot_t[np.isfinite(mdot_t) & (mdot_t > 0)]
+    if mdot_t.size >= 3:
+        diag['mdot_spread'] = float(mdot_t.max() / mdot_t.min())
+    if tau_arr is not None and np.asarray(tau_arr).size == n:
+        diag['tau_tail'] = float(np.asarray(tau_arr, float)[n - nt])
+
+    slope = diag['slope']
+    if np.isfinite(slope):
+        spread = diag['mdot_spread']
+        # steady wind: rho ~ r^-2 with a roughly constant mass-loss rate
+        diag['is_wind'] = bool(
+            -2.6 <= slope <= -1.4
+            and (not np.isfinite(spread) or spread <= 3.0))
+        # shell edge: density falls far faster than a wind continuation
+        diag['is_shell_edge'] = bool(slope < -3.0)
+    return diag
+
+
+def report_outer_boundary(diag: Dict[str, float]) -> None:
+    """Print the outer-boundary diagnostic and its VADAT implications."""
+    if not diag.get('n_tail'):
+        print("  [Outer boundary] insufficient grid points for tail analysis")
+        return
+    print("  [Outer boundary] SN_HYDRO_DATA tail analysis:")
+    slope = diag['slope']
+    slope_str = f"{slope:.2f}" if np.isfinite(slope) else "n/a"
+    spread = diag['mdot_spread']
+    spread_str = f", Mdot spread x{spread:.1f}" if np.isfinite(spread) else ""
+    print(f"    outer {diag['n_tail']} cells: dln(rho)/dln(r) = {slope_str} "
+          f"(steady wind = -2.0), v_edge = {diag['v_edge_kms']:.1f} km/s, "
+          f"Mdot_edge = {diag['mdot_edge_msun_yr']:.3e} Msun/yr{spread_str}")
+    if np.isfinite(diag['tau_tail']):
+        print(f"    optical depth contributed by the outer tail: "
+              f"tau ~ {diag['tau_tail']:.2e}")
+    if diag['is_wind']:
+        print("    -> tail IS a steady wind: a wind extension would be "
+              "hydro-derivable (MDOT=Mdot_edge, VCORE=v_edge, RSTAR=R_outer).")
+    elif diag['is_shell_edge']:
+        print("    -> tail is a SHELL EDGE (rho falls faster than r^-2): no "
+              "steady-wind continuation exists; grid-edge RMAX is self-consistent.")
+        print("       A dense CSM wind beyond the hydro grid (e.g. a reference-run"
+              " style atmosphere) is an external prescription, not a hydro result"
+              " -- supply MDOT/RSTAR/RMAX via vadat_overrides only if it is part"
+              " of the model definition.")
+    else:
+        print("    -> tail is neither a clean steady wind nor a sharp shell edge;"
+              " grid-edge RMAX kept (no hydro-derived extension).")
+    if np.isfinite(diag['tau_tail']) and diag['tau_tail'] > 1.0:
+        print(f"    WARNING: outer tail carries tau ~ {diag['tau_tail']:.1f} > 1 --")
+        print("             the grid edge may clip part of the line-formation"
+              "             region; check the hydro domain is adequate.")
+    # The non-monotonic solver path (VEL_LAW=11 + RD_IN_R_GRID=T) uses the
+    # hydro grid verbatim, so this diagnostic is informational there; a wind
+    # extension is only realizable in the VEL_LAW=12 construction.
+    print("    (VEL_LAW=11 + RD_IN_R_GRID=T -- forced by the non-monotonic solver --"
+          " keeps the hydro grid verbatim; a wind extension is only available"
+          " via the VEL_LAW=12 construction.)")
+    print()
+
+
 def maybe_set_rst_from_energy_lum(
     hydro: HydroData,
     tau_phot: float = TAU_PHOT,
@@ -1625,7 +1804,8 @@ def update_in_its_for_profile(wdir: Path, profile: str,
     Keep IN_ITS and VADAT consistent for LAMBDA control.
 
     Policy (static SOB model with FIX_T=T):
-      - All profiles:  DO_LAM_IT=T, DO_LAM_AUTO=T, D2_EQ_D1=T
+      - All profiles:  DO_LAM_IT=T, DO_LAM_AUTO=T, D2_EQ_D1=F
+      - D2_EQ_D1=F: depth-2 populations stay independent of depth 1.
       - DO_LAM_AUTO=T: auto-switch from LAMBDA to full iterations once corrections
         are small (MAXCH < 50%).
       - FIX_T=T + FIX_T_AUTO=F: T is fixed to the hydrodynamic snapshot for the
@@ -1719,7 +1899,9 @@ def update_in_its_for_profile(wdir: Path, profile: str,
     # DO_T_AUTO=T when FIX_T=F (T varies in BA matrix) OR FIX_T_AUTO=T (bootstrap:
     # auto-release T once populations have stabilized)
     want_t = "T" if (fix_t_is_f or fix_t_auto) else "F"
-    want_d2 = "T"  # Always enable D2_EQ_D1 for stability (tie depth-2 pops to depth-1)
+    # D2_EQ_D1=F: independent depth-2 populations (pipeline policy; pinning
+    # them to depth 1 masked genuine outer-boundary corrections).
+    want_d2 = "F"
     # NOTE: REVISE_R_GRID is a VADAT keyword (REV_RGRID), not an IN_ITS keyword
 
     before_lam = _get_key_token(lines, "DO_LAM_IT")
@@ -2027,8 +2209,73 @@ def refine_rdinr_velocity_jumps(
     return np.asarray(r_out), np.asarray(v_out)
 
 
+def refine_rdinr_boundaries(
+    r_oi: np.ndarray, v_oi: np.ndarray,
+    n_ib: int = 0, n_ob: int = 0, ratio: float = 2.5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Geometric boundary refinement inside the outermost and innermost cells,
+    mirroring SET_SN_R_GRID's N_OB_INS/N_IB_INS scheme (the boundary insertion
+    used in Luc's SN models, dead under RD_IN_R_GRID=T).  The outermost cell
+    is split into n_ob+1 sub-cells and the innermost into n_ib+1, with log-R
+    widths forming a geometric series (finest sub-cell against the boundary).
+    For n_ib=3, ratio=2.5 the inserted fractions are 0.039/0.137/0.381 of the
+    cell's log-width -- close to SET_SN_R_GRID's hardcoded 0.06/0.16/0.4.
+
+    Only the R placement controls the discretization: CMFGEN re-derives V and
+    SIGMA from the SN_HYDRO_DATA spline at each radius, and V here is
+    linear-interpolated inside the split cell purely as a diagnostic column.
+    r_oi/v_oi are outer->inner (r decreasing).  Returns (r_new, v_new).
+    """
+    n_ib = int(n_ib or 0)
+    n_ob = int(n_ob or 0)
+    if len(r_oi) < 3 or (n_ib <= 0 and n_ob <= 0):
+        return r_oi, v_oi
+
+    def _split(r_out, r_in, v_out, v_in, n, boundary):
+        # dlr is the log-width of the cell being split; w are the n+1
+        # sub-cell widths as fractions of dlr, ascending away from the
+        # boundary (finest at the boundary).
+        dlr = np.log(r_out) - np.log(r_in)
+        w = ratio ** np.arange(n + 1, dtype=float)
+        w = w / w.sum()
+        fracs = np.cumsum(w[:n])  # inserted points, fraction of dlr from boundary
+        if boundary == 'inner':
+            # Points sit above r_in in R; emit in outer->inner order.
+            r_new = np.exp(np.log(r_in) + fracs * dlr)[::-1]
+            f = 1.0 - fracs[::-1]  # interp fraction measured outer->inner
+        else:
+            r_new = np.exp(np.log(r_out) - fracs * dlr)
+            f = fracs
+        return r_new, v_out + (v_in - v_out) * f
+
+    r_out = [r_oi[0]]
+    v_out = [v_oi[0]]
+    if n_ob > 0:
+        ri, vi = _split(r_oi[0], r_oi[1], v_oi[0], v_oi[1], n_ob, 'outer')
+        r_out += list(ri)
+        v_out += list(vi)
+    r_out += list(r_oi[1:-1])
+    v_out += list(v_oi[1:-1])
+    if n_ib > 0:
+        ri, vi = _split(r_oi[-2], r_oi[-1], v_oi[-2], v_oi[-1], n_ib, 'inner')
+        r_out += list(ri)
+        v_out += list(vi)
+    r_out.append(r_oi[-1])
+    v_out.append(v_oi[-1])
+    r_new = np.asarray(r_out)
+    v_new = np.asarray(v_out)
+    print(f"[RDINR boundary] inserted {n_ob} outer + {n_ib} inner boundary "
+          f"points ({len(r_oi)} -> {len(r_new)}); outermost cell "
+          f"{r_oi[0]:.4e}->{r_new[1]:.4e}, innermost "
+          f"{r_new[-2]:.4e}->{r_oi[-1]:.4e} (1e10 cm)")
+    return r_new, v_new
+
+
 def write_rdinr(hydro: HydroData, path: Path, target_nd: Optional[int] = None,
-                max_dv_kms: Optional[float] = None) -> tuple[int, np.ndarray, np.ndarray]:
+                max_dv_kms: Optional[float] = None,
+                n_ib: int = 0, n_ob: int = 0,
+                bnd_ratio: float = 2.5) -> tuple[int, np.ndarray, np.ndarray]:
     """
     Write RDINR for RD_IN_R_GRID=T (same format as departure coefficient files).
     SET_RV_HYDRO_MODEL_V3 reads: '!Format date' line, header (R_ND, LUM, NOLD, ND),
@@ -2071,6 +2318,15 @@ def write_rdinr(hydro: HydroData, path: Path, target_nd: Optional[int] = None,
     # grid carries the shock compression (sigma ~ -120) as a single ~1650 km/s
     # cell, which is where the lagged CMF coupling goes non-contractive.
     r_oi, v_oi = refine_rdinr_velocity_jumps(r_oi, v_oi, max_dv_kms)
+
+    # Geometric boundary refinement: Luc's N_IB_INS/N_OB_INS scheme from
+    # SET_SN_R_GRID, applied RDINR-side because RD_IN_R_GRID=T bypasses the
+    # Fortran boundary insertion.  Extra inner points resolve the steep tau
+    # rise feeding the diffusion inner boundary (where the stiff depth-ND
+    # ionization residuals live); extra outer points resolve the
+    # free-streaming transition in the thin shell edge.
+    r_oi, v_oi = refine_rdinr_boundaries(r_oi, v_oi, n_ib=n_ib, n_ob=n_ob,
+                                         ratio=bnd_ratio)
     nd = len(r_oi)
 
     # Enforce minimum spacing (outer->inner: r_oi[i] > r_oi[i+1]); avoids velocity_law.f SIGFPE
@@ -3318,7 +3574,10 @@ def apply_profile(
                                      # is FALSE (INC_GRID=F, JBAR_W_EDD=F), so unit 35 is never opened.
                                      # COMP_J_BLANK then WRITE(LU_EDD,REC=...) to unopened unit → fort.35 crash
                                      # (forrtl severe 37: inconsistent record length).
-            "THK_CONT": "T",  # thick-continuum boundary condition at the inner edge
+            "THK_CONT": "F",  # Thin outer continuum boundary: wind/SN-ejecta models are
+                                     # optically thin at the outer grid edge.  A thick outer BC
+                                     # (free-streaming suppressed) is the wrong physics; set
+                                     # THK_CONT=T via vadat_overrides for optically thick models.
             "THK_LINE": "F",            # No thick line BC — inner boundary is optically thin
             "DIF": "F",               # No diffusion approximation — ZERO_FLUX inner boundary (avoids negative DBB from non-monotonic T)
             "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: I_CORE=I_M(NI); LSTAR still seeds J via LTE estimate
@@ -3345,9 +3604,9 @@ def apply_profile(
             "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=T; T from hydro)
 
             # TRIDIAG solver: NUM_BNDS=3 (couples adjacent depths)
-            "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling; trace species frozen by FIX_IMP
+            "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling
             "LAM_SCALE_OPT": "NONE",  # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition in non-LTE systems
-            "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+            "MAX_LIN": "1.0D1",  # max correction factor allowed per linearization step
             "MAX_LAM": "1.0D10",  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
                                      # SN snapshots have wildly wrong LTE initial populations — need large MAX_LAM to traverse the gap.
             "MAX_CHNG": "1.0D150",  # abort if a correction exceeds this % change; MAX_LAM is the real limiter
@@ -3391,7 +3650,7 @@ def apply_profile(
             "INC_RAY": "T",  # include Rayleigh scattering opacity
             # Linear interpolation when reading SN_HYDRO_DATA; the manual recommends
             # this for shell/interacting profiles with rapid density/abundance changes.
-            "LIN_RDSNDATA": "T",
+            "LIN_RD_SN_DATA": "T",
 
             "REV_RGRID": "F",       # Disabled: no runtime R-grid revision — SN_HYDRO_DATA arrives pre-optimized (user directive 18-Sep-2026)
             "RD_IN_R_GRID": "F",
@@ -3435,11 +3694,9 @@ def apply_profile(
             "ACC_F": "1.0D-04",  # accuracy demanded of the Eddington-factor solve
 
             # Alternating LAMBDA/linearization (standard CMFGEN approach).
-            # Pure LAMBDA mode: DO_LAM_IT=T, DO_LAM_AUTO=F.
-            # With FIX_IMP=T (source fix applied), FIXPOP_IN_BA_V3 freezes trace
-            # species, preventing singular BA matrix columns.
-            # USE_LAM_ES=F: Standard moment solver (MOM_J_CMF_V11) with SIGMA clamp
-            # handles non-monotonic velocity. J is solved self-consistently.
+            # Pure LAMBDA mode: DO_LAM_IT=T, DO_LAM_AUTO=F.  The generic
+            # profile leaves FIX_IMP=F; the SOB recipe also leaves it F so
+            # FIXPOP_IN_BA_V3 cannot zero trace-population corrections.
             "USE_LAM_ES": "T",      # J=B(T) Lambda iteration — bypasses moment solver for non-monotonic velocity
             "DO_LAM_IT": "T",       # Start in LAMBDA mode (stable cold-start from LTE)
             "DO_LAM_AUTO": "T",  # auto-switch from Lambda to full iterations once corrections shrink
@@ -3448,7 +3705,7 @@ def apply_profile(
             #   (2) Global cancellation if >3 depths fail (line 290)
             #   (3) Post-Ng LAMBDA fallback if MAXINC/MAXDEC > 50% (solve_for_pops.f:406-412)
             #   (4) CHK_NG=T: additional T-correction validity check
-            # Ng only fires when MAXCH < BEG_NG (5%) and MAIN_COUNTER >= IBEG_NG (30),
+            # Ng only fires when MAXCH < BEG_NG (5%) and MAIN_COUNTER >= IBEG_NG (15),
             # by which point BA mode is active and FIXPOP_IN_BA_V3 freezes trace species.
             # Manual: "Ng acceleration is an important tool for obtaining convergence"
             # especially with NUM_BNDS=1/DIAG. Without Ng, DIAG convergence is geometric
@@ -3456,11 +3713,14 @@ def apply_profile(
             "DO_NG": "T",             # Enabled: Ng acceleration needed for DIAG convergence.
                                         # Pure Lambda stalls at ~1E+10 after 100+ iterations.
                                         # Safety: per-depth rejection, CHK_NG=T validity check,
-                                        # post-Ng LAMBDA fallback. IBEG_NG=50 delays start until
+                                        # post-Ng LAMBDA fallback. IBEG_NG=15 delays start until
                                         # populations have settled past the initial transient.
+                                        # 05-Oct-2026 audit: non-monotonic SOB/KNOP attempts were
+                                        # vetoed by rollback-polluted history; NG_CLEAN>=4 and
+                                        # NG_ABSTAIN=T now repair that path.
             "CHK_NG": "T",            # Check NG acceleration validity
-            "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
-            "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+            "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
+            "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
             "BW_NG": "40",  # depths per Ng acceleration band
             "ITS/NG": "8",  # run Ng every N-th iteration
 
@@ -3498,7 +3758,8 @@ def apply_profile(
             **get_rel_config(),
             "JC_W_EDD": "T",         # MUST be T: opens EDDFACTOR file (unit 35) — see init profile comment
             "JBAR_W_EDD": "T",  # Eddington factors for line Jbar
-            "THK_CONT": "T",  # thick-continuum boundary condition at the inner edge
+            "THK_CONT": "F",  # Thin outer continuum boundary: wind/SN-ejecta models are
+                                     # optically thin at the outer grid edge (see single_final).
             "THK_LINE": "F",            # No thick line BC at outer boundary
             "DIF": "F",               # No diffusion approximation — ZERO FLUX inner boundary for self-powered models
             "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: I+=I- (reflective); works for interacting SNe with FIX_T=T
@@ -3530,9 +3791,9 @@ def apply_profile(
             "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=T; T from hydro)
 
             # DIAG solver: NUM_BNDS=1 (each depth independent; TRIDIAG reverted 2026-08-01)
-            "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling; trace species frozen by FIX_IMP
+            "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling
             "LAM_SCALE_OPT": "NONE",  # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition
-            "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+            "MAX_LIN": "1.0D1",  # max correction factor allowed per linearization step
             "MAX_LAM": "1.0D10",  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
             "MAX_CHNG": "1.0D150",  # abort if a correction exceeds this % change; MAX_LAM is the real limiter
             "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
@@ -3622,14 +3883,16 @@ def apply_profile(
             # Ng acceleration ENABLED for FINAL: same robust settings as single_final.
             # Safety: per-depth 10x/0.09x rejection, global cancellation if >3 depths fail,
             # post-Ng LAMBDA fallback (solve_for_pops.f:406-412), CHK_NG=T validity check.
-            # Ng only fires when MAXCH < 5% and 30+ iterations completed — by then
+            # Ng only fires when MAXCH < 5% and IBEG_NG=15 iterations completed -- by then
             # FIXPOP_IN_BA_V3 (with absolute abundance check) freezes trace species.
             # Manual: "Ng acceleration is an important tool for obtaining convergence"
             # especially with NUM_BNDS=1/DIAG.
-            "DO_NG": "T",             # Enabled: Ng acceleration needed for DIAG convergence
+            "DO_NG": "T",             # Enabled: Ng acceleration needed for DIAG convergence.
+                                        # Non-monotonic recipes keep T and add NG_CLEAN history
+                                        # gating plus NG_ABSTAIN=T for rollback-safe fits.
             "CHK_NG": "T",            # Check NG acceleration validity
-            "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
-            "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+            "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
+            "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
             "BW_NG": "40",  # depths per Ng acceleration band
             "ITS/NG": "8",  # run Ng every N-th iteration
             "DO_AV": "F",  # population averaging between iterations
@@ -3648,7 +3911,7 @@ def apply_profile(
         # Previous overrides (MAX_LAM=1.1D0, NUM_LAM=40) caused an infinite Lambda
         # loop: trace species needing 10000% correction could only change 10% per iteration,
         # and without Ng acceleration the model never converged (549 iterations, X_2 10d job).
-        # Ng is now enabled with robust safety (BEG_NG=5%, IBEG_NG=30, per-depth 10x rejection).
+        # Ng is now enabled with robust safety (BEG_NG=5%, IBEG_NG=15, per-depth 10x rejection).
         #
         # CMFGEN manual (full_descr.pdf) recommendations for slow convergence:
         #   MAX_LAM: "Typically adopt 10^5. For a new species with very low abundance,
@@ -3679,30 +3942,28 @@ def apply_profile(
         #   by LIT_LIM. MAJOR scaling excludes trace species from the scale factor.
         # AUTO_SMOOTH=T — enable population smoothing when STEQ<-1e5 or >0.998.
         # smooth_pops_as_we_iterate.f extrapolates from deeper zones for wild corrections.
-        # FIX_IMP=T for all profiles — FIXPOP_IN_BA_V3 (with source fix) freezes trace
-        # species with <1e-10 ion fraction or <1e-8 absolute abundance, preventing
-        # singular BA matrix columns. This is essential for convergence.
+        # FIX_IMP=F for all profiles — freezing trace species suppresses the
+        # BA corrections those populations need during the LTE-to-NLTE move.
         # FIX_NE=F for all profiles — STELLA Saha Ne is unreliable for X_1 (predates Yat*AZ fix).
         # FIX_T=T for all profiles — T fixed to hydro (moment solver + SIGMA clamp handles non-monotonic velocity).
         stable_overrides = {
             "single_final": {
-                # Pure LAMBDA mode: DO_LAM_IT=T, DO_LAM_AUTO=F (set in profile dict).
-                # FIX_IMP=T + source fix → FIXPOP_IN_BA_V3 active in all modes.
-                # USE_LAM_ES=F: Standard moment solver (MOM_J_CMF_V11) with SIGMA clamp.
+                # Generic stable profile: alternating Lambda/full with NG
+                # enabled.  SOB runs stamp the optimized
+                # NON_MONO_SOB_RECOMMENDED schedule after this block, so
+                # values such as FIX_IMP, NUM_LAM and the BA gates differ
+                # there by design.
                 #
                 # Settings follow CMFGEN manual (full_descr.pdf) defaults:
                 #   MAX_LAM=1D5: "Typically adopt 10^5" — allows fast population adjustment.
-                #     FIX_IMP=T (with source fix) freezes trace species, preventing explosions.
                 #   MAX_LIN=1D1: "Typically adopt 10" — 10x max correction for BA mode.
                 #   LAM_VAL=4D2: "Typically do a Lambda-iteration if % change > 400"
                 #   NUM_LAM=2:   "Typically choose 2" — frequent BA coupling for stability.
-                #   N_FIX_BA=0:  Disabled for non-monotonic models — BA fixing
-                #                causes divergence when BA matrix is reused with
-                #                rapidly changing populations (MAXCH=1E+07 at iter 65).
+                #   N_FIX_BA=2:  generic Jacobian-refresh interval; SOB uses 10.
                 #   AUTO_SMOOTH=F: Manual warns "in some cases it can make convergence worse"
                 #   DO_AV=F:     Manual default is FALSE — our issue is divergence, not oscillation.
-                #   DO_NG=F:     Ng polynomial extrapolation destabilizes non-monotonic velocity zones.
-                "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+                #   DO_NG=T:     Ng polynomial extrapolation after BEG_NG/IBEG_NG.
+                "MAX_LIN": "1.0D1",  # max correction factor allowed per linearization step
                 "MAX_LAM": "1.0D10",   # raised to 1e10 per user directive 15-Sep-2026; large jumps for LTE→NLTE transition
                 "LAM_VAL": "2.0D2",  # keep Lambda-iterating while max % change exceeds this
                 "NUM_LAM": "2",  # Lambda iterations between full linearizations
@@ -3719,11 +3980,12 @@ def apply_profile(
                 "TAU_SCL_T": "0.0D0",     # No tau-scaling for T (FIX_T=F; T solved self-consistently)
                 "FIX_INB_T": "F",        # Don't fix T at inner boundary separately
                 "DO_NG": "T",           # Enabled: Ng acceleration needed for DIAG convergence.
-                                        # Pure Lambda stalls at ~1E+10 after 100+ iterations.
-                                        # Safety: per-depth 10x rejection, CHK_NG=T, post-Ng LAMBDA fallback.
+                                        # Non-monotonic runs keep T with NG_ABSTAIN=T
+                                        # and the NG_CLEAN history gate; the SOB recipe
+                                        # supplies the optimized IBEG_NG=15 schedule.
                 "CHK_NG": "T",          # Check NG acceleration validity
-                "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
-                "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+                "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
+                "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
                 "BW_NG": "40",  # depths per Ng acceleration band
                 "ITS/NG": "8",  # run Ng every N-th iteration
                 "DO_LAM_IT": "T",       # Start in LAMBDA mode (stable cold-start from LTE)
@@ -3735,7 +3997,7 @@ def apply_profile(
                 "REV_RGRID": "F",       # Disabled: no runtime R-grid revision — SN_HYDRO_DATA arrives pre-optimized (user directive 18-Sep-2026)
             },
             "final": {
-                "MAX_LIN": "5.0D0",  # max correction factor allowed per linearization step
+                "MAX_LIN": "1.0D1",  # max correction factor allowed per linearization step
                 "MAX_LAM": "1.0D10",   # raised to 1e10 per user directive 15-Sep-2026; large jumps for LTE→NLTE transition
                 "LAM_VAL": "2.0D2",  # keep Lambda-iterating while max % change exceeds this
                 "NUM_LAM": "2",  # Lambda iterations between full linearizations
@@ -3752,14 +4014,16 @@ def apply_profile(
                 "TAU_SCL_T": "0.0D0",     # No tau-scaling for T (FIX_T=F)
                 "FIX_INB_T": "F",        # Don't fix T at inner boundary separately
                 "DO_NG": "T",           # Enabled: Ng acceleration needed for DIAG convergence
+                                        # (SOB mode stamps NG_ABSTAIN=T and the
+                                        # optimized NG schedule via NON_MONO_SOB_RECOMMENDED)
                 "CHK_NG": "T",          # Check NG acceleration validity
-                "BEG_NG": "1.0D1",  # start Ng acceleration when max % change falls below this
-                "IBEG_NG": "20",  # minimum iterations before first Ng acceleration
+                "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
+                "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
                 "BW_NG": "40",  # depths per Ng acceleration band
                 "ITS/NG": "8",  # run Ng every N-th iteration
                 "DO_AV": "F",  # population averaging between iterations
                 "METHOD": "ZERO",  # depth-correction interpolation (ZERO = constant between depths)
-                "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling; trace species frozen by FIX_IMP
+                "SCALE_OPT": "MAJOR",     # MAJOR: major species drive scaling
                 "LAM_SCALE_OPT": "NONE", # NONE: disable LIMIT clipping — allow large decreases for LTE→NLTE transition
             },
         }
@@ -4077,7 +4341,8 @@ def main() -> int:
     p.add_argument(
         "--fix_ne",
         action="store_true",
-        help="Fix electron density (Ne) for all profiles (including single_final). Default: allow Ne to vary.",
+        help="DEPRECATED, ignored: FIX_NE is always F -- CMFGEN solves Ne from "
+             "charge conservation. Accepted for backward compatibility only.",
     )
     p.add_argument(
         "--vadat-overrides",
@@ -4129,6 +4394,30 @@ def main() -> int:
              "comoving-frame discretization instability at strong compressions "
              "(per-cell Doppler shift >> frequency spacing). Only meaningful with "
              "VEL_LAW=11 / RD_IN_R_GRID=T.",
+    )
+    p.add_argument(
+        "--rdinr-ib-ins",
+        type=int,
+        default=0,
+        help="Split the innermost RDINR cell into this many geometric sub-cells "
+             "(log-R widths, finest at the boundary). Mirrors the N_IB_INS scheme "
+             "in SET_SN_R_GRID that RD_IN_R_GRID=T bypasses; resolves the steep "
+             "inner tau rise feeding the diffusion boundary. Only meaningful "
+             "with VEL_LAW=11 / RD_IN_R_GRID=T.",
+    )
+    p.add_argument(
+        "--rdinr-ob-ins",
+        type=int,
+        default=0,
+        help="Same geometric splitting applied to the outermost RDINR cell; "
+             "resolves the free-streaming transition at the thin outer edge.",
+    )
+    p.add_argument(
+        "--rdinr-bnd-ratio",
+        type=float,
+        default=2.5,
+        help="Geometric width ratio for --rdinr-ib-ins/--rdinr-ob-ins sub-cells "
+             "(default 2.5, close to SET_SN_R_GRID's 0.4/0.16/0.06 fractions).",
     )
     p.add_argument(
         "--use-hydro-grid",
@@ -4261,6 +4550,7 @@ def main() -> int:
 
     # Load VADAT overrides from YAML config if provided
     vadat_overrides = {}
+    cmfgen_cfg = {}
     depth_independent_solver = True  # default: DIAG (depth-independent)
     iteration_strategy = None  # IT_SPECIFIER content from YAML
     adjust_corrections = None  # ADJUST_CORRECTIONS content from YAML
@@ -4475,6 +4765,12 @@ def main() -> int:
             print(f"\n  *** NOTE: tau at inner boundary = {_tau_at_ib:.1f} < 50 ***")
             print(f"      DIFFUSION boundary with LSTAR — tau>50 recommended for LTE validity but not required.")
             print(f"      For LTE validity at the inner boundary, consider increasing cmfgen_tau_max.\n")
+
+        # Outer-boundary diagnostic: classify the hydro tail (steady wind vs
+        # shell edge) and report the optical depth it carries.  Determines
+        # whether a wind extension could be hydro-derived (VEL_LAW=12 path)
+        # or whether grid-edge RMAX is the only self-consistent choice.
+        report_outer_boundary(diagnose_outer_boundary(hydro, tau_arr=_tau_check))
 
         # Automatic VFRAC_MOM optimization: compute the RT grid resolution
         # parameter that prevents excessive ND expansion while resolving
@@ -4699,7 +4995,7 @@ def main() -> int:
         # RDINR grid is used directly. When vel_law=12 is explicitly requested, respect it
         # even with target_nd (target_nd only affects RDINR, which VEL_LAW=12 ignores).
         effective_vel_law = args.vel_law
-        if args.target_nd is not None and effective_vel_law != 12:
+        if args.target_nd is not None and effective_vel_law not in (12, 13, 14):
             effective_vel_law = 11
             set_or_append_keyword(lines, "VEL_LAW", "11")
             set_or_append_keyword(lines, "RD_IN_R_GRID", "T")
@@ -4765,6 +5061,29 @@ def main() -> int:
             print(f"  VEL_LAW=12, RD_IN_R_GRID=F (non-monotonic flow support)")
             _method_print = "ZERO"
             print(f"  Accuracy: METHOD={_method_print}, VFRAC_MOM={vfrac_mom_token}, VFRAC_FG={vfrac_fg_token}, TRAP_J=T")
+        elif effective_vel_law in (13, 14):
+            # VEL_LAW=13 (RV_SN_MODEL_SNHYD): same tau-uniform grid recipe as
+            # VEL_LAW=12, but sourced directly from SN_HYDRO_DATA so no
+            # input_hydro.dat is needed. V/SIGMA come from the monotone-cubic
+            # interpolation used by SET_RV_HYDRO_MODEL_V3, so non-monotonic
+            # sigma structure is preserved.
+            # VEL_LAW=14 is identical except the grid coordinate integrates
+            # the file's Kappa (Rosseland) column instead of a constant
+            # kappa_es -- composition/ionization-aware, for H-poor models.
+            tau_desc = "tau-ES" if effective_vel_law == 13 else "tau-Rosseland"
+            set_or_append_keyword(lines, "VEL_LAW", str(effective_vel_law))
+            set_or_append_keyword(lines, "RD_IN_R_GRID", "F")
+            set_or_append_keyword(lines, "VFRAC_MOM", vfrac_mom_token)
+            set_or_append_keyword(lines, "TRAP_J", "T")
+            profile_changes.append(
+                f"VEL_LAW={effective_vel_law}, RD_IN_R_GRID=F (RV_SN_MODEL_SNHYD: "
+                f"{tau_desc} grid from SN_HYDRO_DATA; monotone-cubic V/SIGMA; "
+                "no input_hydro.dat)"
+            )
+            print(
+                f"  VEL_LAW={effective_vel_law}, RD_IN_R_GRID=F "
+                f"({tau_desc} grid from SN_HYDRO_DATA)"
+            )
         else:
             set_or_append_keyword(lines, "VEL_LAW", str(effective_vel_law))
             # VEL_LAW=11 reads R/V directly from RDINR (RD_IN_R_GRID=T)
@@ -4827,7 +5146,7 @@ def main() -> int:
         # MAX_CHNG: 1e50 to prevent convergence aborts due to large population changes
         # FIX_NE control:
         # - All profiles: FIX_NE=F (STELLA Saha Ne unreliable for X_1; predates Yat*AZ fix)
-        # - FIX_IMP=T handles trace species stability without needing to freeze Ne
+        # - FIX_IMP=F keeps trace-population corrections active in BA solves
         force_fix_ne = args.fix_ne
 
         if profile == "final" and out2in_renames:
@@ -4845,32 +5164,30 @@ def main() -> int:
         tau_ob = float(tau_arr[-1]) if tau_arr.size else 0.0
         tau_phot_val = float(tau_arr[i_phot]) if tau_arr.size and 0 <= i_phot < tau_arr.size else 0.0
 
-        # --fix_ne CLI override: force FIX_NE=T (and FIX_INB_NE=T) regardless of profile
+        # FIX_NE is always F (user directive 04-Oct-2026): CMFGEN solves the
+        # electron density from charge conservation in every run.  The hydro
+        # Ne is a Saha/LTE guess, not the NLTE ionization balance; holding it
+        # fixed propagates that error into every ionization balance.  Any
+        # FIX_NE=T / FIX_INB_NE=T request (--fix_ne flag or vadat_overrides)
+        # is overridden here with a warning rather than silently ignored.
+        _ne_t_requests = []
         if force_fix_ne:
-            set_or_append_keyword(lines, "FIX_NE", "T")
-            set_or_append_keyword(lines, "FIX_INB_NE", "T")
-            profile_changes.append("FIX_NE=T, FIX_INB_NE=T (--fix_ne override)")
-            print(f"  Ne control [{profile}]: FIX_NE=T (--fix_ne override)")
-        elif "FIX_NE" in vadat_overrides:
-            # Respect the user's explicit FIX_NE setting from vadat_overrides.
-            # This allows FIX_NE=F (CMFGEN solves for electron density) when the
-            # STELLA Saha Ne is suspected to be incorrect.
-            ne_val = str(vadat_overrides["FIX_NE"]).strip().upper()
-            set_or_append_keyword(lines, "FIX_NE", ne_val)
-            # If FIX_NE=F, also set FIX_INB_NE=F unless the user explicitly set it
-            if ne_val == "F" and "FIX_INB_NE" not in vadat_overrides:
-                set_or_append_keyword(lines, "FIX_INB_NE", "F")
-                profile_changes.append("FIX_NE=F, FIX_INB_NE=F (vadat_overrides)")
-            else:
-                profile_changes.append(f"FIX_NE={ne_val} (vadat_overrides)")
-            print(f"  Ne control [{profile}]: FIX_NE={ne_val} (vadat_overrides)")
+            _ne_t_requests.append("--fix_ne")
+        if str(vadat_overrides.get("FIX_NE", "")).strip().upper() == "T":
+            _ne_t_requests.append("vadat_overrides FIX_NE=T")
+        if str(vadat_overrides.get("FIX_INB_NE", "")).strip().upper() == "T":
+            _ne_t_requests.append("vadat_overrides FIX_INB_NE=T")
+        set_or_append_keyword(lines, "FIX_NE", "F")
+        set_or_append_keyword(lines, "FIX_INB_NE", "F")
+        if _ne_t_requests:
+            _req = ", ".join(_ne_t_requests)
+            profile_changes.append(
+                f"FIX_NE=F, FIX_INB_NE=F (T requested via {_req} -- overridden; FIX_NE is always F)")
+            print(f"  Ne control [{profile}]: FIX_NE=F "
+                  f"(WARNING: {_req} overridden -- FIX_NE is always F)")
         else:
-            # Ne free at all depths: CMFGEN solves Ne from charge
-            # conservation rather than trusting the hydro Saha estimate.
-            ne_val = "F"
-            set_or_append_keyword(lines, "FIX_NE", ne_val)
-            set_or_append_keyword(lines, "FIX_INB_NE", "F")
-            print(f"  Ne control [{profile}]: FIX_NE={ne_val} (set in VADAT)")
+            profile_changes.append("FIX_NE=F, FIX_INB_NE=F (set in VADAT)")
+            print(f"  Ne control [{profile}]: FIX_NE=F (set in VADAT)")
 
         print()
 
@@ -4951,6 +5268,21 @@ def main() -> int:
                 print(f"             DIF: F")
                 print(f"             IB_METH: ZERO_FLUX")
                 print(f"             IB_STAB: 0.1D0")
+            # Warn the opposite mismatch too: an explicitly thin boundary
+            # (DIF=F / IB_METH=ZERO_FLUX) on an optically thick inner
+            # boundary discards the diffusion flux seed LSTAR is meant to
+            # supply (the m15 SOB run diverged on ZERO_FLUX at tau_es~37;
+            # job 12001805 converged with DIFFUSION + header LSTAR).
+            # Respect the override but flag it.
+            _dif_tau_thresh_ovr = 25.0 if non_mono_line_treatment == 'SOB' else 50.0
+            _thin_ib = (not dif_val.upper().startswith("T")) or ("ZERO" in ib_val.upper())
+            if _thin_ib and _tau_at_ib >= _dif_tau_thresh_ovr:
+                print(f"  WARNING: {dif_val}/{ib_val} override with "
+                      f"tau_inner={_tau_at_ib:.1f} >= {_dif_tau_thresh_ovr:.0f} --")
+                print(f"           the inner boundary is optically thick; DIFFUSION "
+                      f"(DIF=T, IB_METH=DIFFUSION)")
+                print(f"           is the standard choice for feeding the LSTAR flux "
+                      f"through the boundary. Override kept.")
         elif lstar_token is not None:
             # Auto-decide DIF/IB_METH based on the inner boundary optical depth.
             # DIF=T/IB_METH=DIFFUSION is the physically correct choice when
@@ -4998,8 +5330,8 @@ def main() -> int:
                 vel_law_int = None
         if vel_law_int is None:
             print("WARNING: could not parse VEL_LAW in VADAT; skipping strict hydro-input consistency checks.")
-        elif vel_law_int not in (11, 12):
-            print(f"WARNING: VEL_LAW={vel_law_int} is uncommon for SN_HYDRO_DATA-driven runs (expected 11 or 12).")
+        elif vel_law_int not in (11, 12, 13, 14):
+            print(f"WARNING: VEL_LAW={vel_law_int} is uncommon for SN_HYDRO_DATA-driven runs (expected 11, 12, 13 or 14).")
 
         nd_written = int(hydro.params["ND"])  # default; overwritten by write_rdinr if called
         if not args.no_write_rdinr:
@@ -5007,9 +5339,16 @@ def main() -> int:
             # For VEL_LAW=12: skip velocity-aware downsampling (RDINR is ignored,
             # RD_IN_R_GRID=F; input_hydro.dat is the actual grid source).
             rdinr_target_nd = args.target_nd if effective_vel_law != 12 else None
+            # CLI wins; fall back to cmfgen.rdinr_*_ins in the YAML so a
+            # pending/requeued job picks up config edits on regeneration.
+            rdinr_ib = args.rdinr_ib_ins or int(cmfgen_cfg.get('rdinr_ib_ins', 0) or 0)
+            rdinr_ob = args.rdinr_ob_ins or int(cmfgen_cfg.get('rdinr_ob_ins', 0) or 0)
+            rdinr_ratio = float(cmfgen_cfg.get('rdinr_bnd_ratio', args.rdinr_bnd_ratio))
             nd_written, r_oi, v_oi = write_rdinr(
                 hydro, rdinr_path, target_nd=rdinr_target_nd,
-                max_dv_kms=args.rdinr_max_dv_kms)
+                max_dv_kms=args.rdinr_max_dv_kms,
+                n_ib=rdinr_ib, n_ob=rdinr_ob,
+                bnd_ratio=rdinr_ratio)
             profile_changes.append(f"Wrote {rdinr_path.name} (R grid from SN_HYDRO_DATA, ND={nd_written})")
             print(f"RDINR written: ND={nd_written}  R(1)={r_oi[0]:.6e} R(ND)={r_oi[-1]:.6e} (1e10 cm)  "
                   f"V(1)={v_oi[0]:.2f} V(ND)={v_oi[-1]:.2f} (km/s)")
@@ -5260,6 +5599,21 @@ def main() -> int:
                 )
                 vadat_overrides = {k: v for k, v in vadat_overrides.items()
                                    if k not in _conflicting}
+            # FIX_NE / FIX_INB_NE are always F (Ne solved from charge
+            # conservation): the Ne-control block above already stamped F and
+            # warned on a T request.  Strip the keys here too so this late
+            # re-application cannot undo the stamp.
+            _ne_strip = {"FIX_NE", "FIX_INB_NE"} & set(vadat_overrides.keys())
+            if _ne_strip:
+                _ne_bad = sorted(k for k in _ne_strip
+                                 if str(vadat_overrides.get(k, "")).strip().upper() != "F")
+                if _ne_bad:
+                    print(
+                        f"  WARNING: vadat_overrides {', '.join(_ne_bad)} "
+                        f"rejected -- FIX_NE is always F."
+                    )
+                vadat_overrides = {k: v for k, v in vadat_overrides.items()
+                                   if k not in _ne_strip}
             final_overrides = update_keywords_in_lines(lines, vadat_overrides, numeric_format_like_old=True)
             # Also append any override keys that don't exist in the VADAT template
             existing = find_existing_keys(lines)
@@ -5369,7 +5723,7 @@ def main() -> int:
         _jfnk_banded_post = False
         for line in lines:
             m = re.match(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]', line)
-            if m and m.group(2) == 'USE_JFNK':
+            if m and m.group(2) in ('DO_JFNK', 'USE_JFNK'):
                 if m.group(1).strip().upper() == 'T':
                     _jfnk_post = True
             if m and m.group(2) == 'JFNK_USE_BANDED':
