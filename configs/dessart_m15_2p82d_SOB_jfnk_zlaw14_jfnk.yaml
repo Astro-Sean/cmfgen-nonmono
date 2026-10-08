@@ -114,16 +114,24 @@ cmfgen:
     # JFNK_PTC/LOGX/LS stay at their T defaults.
     DO_JFNK: T
     JFNK_WARMUP: '6'
-    JFNK_FRZ_GATE: 0.0D0
-    JFNK_COR_GATE: 0.0D0
+    # 08-Oct-2026: admit JFNK only once the demanded MAXCH (%) stays
+    # below the gate; gate=0 fired it inside the demand-200..700
+    # Lambda recovery transient where frozen-J cannot help.
+    JFNK_FRZ_GATE: 1.0D1
+    JFNK_COR_GATE: 5.0D0
     JFNK_MAX_EVALS: '200'
     JFNK_MAX_RESTART: '2'
     JFNK_DEEPDIAG: F
-    # 08-Oct-2026: rows with rowmax below ~1e-10*blockmax carry no
-    # information but survive the 1e-30 default, equilibrate to ~1e22
-    # scales, and return |z|>1e8 -> precond clip -> GMRES abort.
-    # Regularizing them sweeps them into the JFNK_ROW_REG projection.
-    JFNK_ROW_TINY: 1.0D-10
+    # 08-Oct-2026: keep at 1e-30.  BA rows are population-scaled, so
+    # 1e-10 flagged ~68% of every depth block (all trace-ion rows,
+    # ~1260/1839 per depth) as null and projected away their Newton
+    # updates.  Only structurally-null rows (NaN-zeroed compression
+    # rows, exact-zero constraints) belong in JFNK_ROW_REG.
+    JFNK_ROW_TINY: 1.0D-30
+    # 08-Oct-2026: unconditional per-row LM ridge alpha*|A_ii| now
+    # wired (was a dead knob).  Conservative 1e-8 to bound the
+    # huge-z directions the unmasked near-singular rows produce.
+    JFNK_RIDGE: 1.0D-8
     LAM_VAL: 2.0D2
     BEG_NG: 1.0D1
     IBEG_NG: '15'

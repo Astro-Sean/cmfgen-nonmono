@@ -615,7 +615,7 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'JFNK_LAM_THRESH', 'JFNK_PRECOND', 'JFNK_RSCALE', 'JFNK_MAX_RESTART',
         'JFNK_LS', 'JFNK_LS_MAX', 'JFNK_LS_BETA', 'JFNK_LS_C', 'JFNK_CAUCHY',
         'JFNK_DIAG', 'JFNK_USE_BANDED', 'JFNK_SELECTIVE_JVAR',
-        'JFNK_ROW_TINY',
+        'JFNK_ROW_TINY', 'JFNK_FRZ_GATE', 'JFNK_COR_GATE',
         # NOTE: GLOBAL_LINE, DO_SOB_LINES, PURE_HUB are NOT user-overridable
         # when NON_MONO_SOLVER=T — they are forced by the non-monotonic
         # enforcement block below.
