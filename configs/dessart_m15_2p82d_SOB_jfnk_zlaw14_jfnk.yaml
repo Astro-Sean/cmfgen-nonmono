@@ -90,8 +90,8 @@ cmfgen:
     COMP_BA: T
     NUM_LAM: '2'
     LAM_ENTER: 4.0D2
-    LAM_EXIT: 2.0D1
-    LAM_N_STABLE: '3'
+    LAM_EXIT: 5.0D0
+    LAM_N_STABLE: '5'
     # 08-Oct-2026: all fork guard layers disabled at user request --
     # restores stock mode switching (MAXCH<50 hands off to full
     # iterations; no resacc rollback, probes, demand gates, demotions).
@@ -117,6 +117,11 @@ cmfgen:
     # 08-Oct-2026: admit JFNK only once the demanded MAXCH (%) stays
     # below the gate; gate=0 fired it inside the demand-200..700
     # Lambda recovery transient where frozen-J cannot help.
+    # 09-Oct-2026: Jacobi test proved J~BA to 5.6% yet GMRES still
+    # stalls -- the frozen-J residual is radiation-pinned and
+    # Krylov-unreachable during the outer limit cycle.  Gate at 10%
+    # so Newton acts as terminal polish, not a 10-min wasted admission
+    # plus a 1e7-demand fallback step each cycle.
     JFNK_FRZ_GATE: 1.0D1
     JFNK_COR_GATE: 5.0D0
     JFNK_MAX_EVALS: '200'
@@ -132,6 +137,24 @@ cmfgen:
     # wired (was a dead knob).  Conservative 1e-8 to bound the
     # huge-z directions the unmasked near-singular rows produce.
     JFNK_RIDGE: 1.0D-8
+    # 09-Oct-2026: m=10 GMRES produced anti-descent directions
+    # (<F,Js><0) on the outer-depth H residual block -- the Krylov
+    # space saturates before restart.  m=30 with a 90-iter cap per
+    # Newton step gives the minimization room for a physical descent
+    # direction while staying inside the 200-eval budget.
+    JFNK_M: '30'
+    JFNK_MAXGMRES: '90'
+    # 09-Oct-2026: right-preconditioned GMRES.  Left-PC minimizes
+    # ||M^-1(F-Js)|| which at row/col scales ~1e24-1e30 bears no
+    # relation to the physical residual -- live solves converged the
+    # preconditioned metric 58% while <F,Js><0 (ascent direction).
+    # Right-PC minimizes ||F-Js|| directly, so any Krylov progress
+    # yields a guaranteed descent direction.
+    JFNK_LEFTPC: F
+    # 09-Oct-2026: LU(BA) is a wrong-operator PC under right-PC (FD J*v
+    # vs BA*v = 100% directional mismatch; GMRES stagnates ~4 its).
+    # Jacobi column-scales J instead of inverting the wrong operator.
+    JFNK_PRECOND: JACOBI
     LAM_VAL: 2.0D2
     BEG_NG: 1.0D1
     IBEG_NG: '15'
@@ -153,6 +176,12 @@ cmfgen:
     SIG_GAU_KMS: 3.0D3
     INC_RAY: T
     MAX_LIN: 5.0D0
+    # Asymmetric cap: decreases may step by up to a factor 1e4 per
+    # non-LAMBDA solve (increases stay at MAX_LIN).  Breaks the
+    # CV:1s_2p_1Po depth-10 limit cycle where a drain-pinned level
+    # demanded ~1e5x every FULL solve but the symmetric cap only
+    # allowed 5x, so the cell could never reach its asymptote.
+    MAX_DEC: 1.0D4
     BA_CHK_FAC: 1.0D-05
     EPS_TERM: 5.0D-02
     BW_NG: '40'

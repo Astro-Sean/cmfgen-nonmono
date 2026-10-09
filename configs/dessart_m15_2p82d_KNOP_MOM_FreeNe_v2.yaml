@@ -103,6 +103,20 @@ cmfgen:
     BA_RES_HARD: 1.0D2
     BA_TRUST: 1.0D4
     BA_CHK_FAC: 1.0D-05
+    GS_HOLD_POPS: T
+    FRESH_BA_EXIT: T
+    LAM_ENTER: 4.0D2
+    LAM_EXIT: 1.0D2
+    LAM_N_STABLE: '2'
+    N_FULL_TREL: '2'
+    T_REL_CHG: 3.0D0
+    CONV_DIAG_LVL: '1'
+    MOM_TRIAL_MIN: '30'
+    GS_FREEZE_LIM: '60'
+    GS_REL_STABLE: '2'
+    GS_REL_N: '1000000'
+    BA_NREJ_LIM: '20'
+    N_LAM_RWARM: '4'
     EPS_TERM: 5.0D-02
     BW_NG: '40'
     TRANS_HI: BLANK
