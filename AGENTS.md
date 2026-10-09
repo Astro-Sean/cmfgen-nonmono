@@ -372,6 +372,8 @@ The state file also records `TIMESTAMP` and `JOB_ID` for debugging. It is cleane
 
 **KNOP stall watchdog (2026-09-30).** Under `DO_NONMONO_KNOP`, `SOLVE_FOR_POPS` writes `GS_STATE` (`n_frozen=<consecutive forced-LAMBDA iterations>`) every great iteration. After `batch.sh` — on either the `READY=1` or `READY=0` path — the generated FINAL/SINGLE_FINAL slurms fail the job with exit code 7 and touch `.CMFGEN_KNOP_STALLED` when `n_frozen >= KNOP_STALL_MAX` (default 60, env-overridable). A run whose lagged radiation field never matured is thus flagged non-convergent instead of requeued indefinitely or reported as a finished model. `GS_STATE` and the marker are wiped on full resubmission. A deeper failure layer exists in the model itself: `GS_FREEZE_LIM` (VADAT, default off) stops CMFGEN mid-run, and `BA_NREJ_LIM` (VADAT, default 20) stops it on consecutive rejected BA steps.
 
+**Accepted-trial refund (2026-09-30, later).** The marginal-release BA trial (`MOM_TRIAL_MIN`) originally let `n_frozen` keep counting through accepted releases, so a run whose trials were working could still die at `GS_FREEZE_LIM`/`KNOP_STALL_MAX` (demonstrated live by jobs 12040589/12040591, both stopped at 60). Now an *accepted* trial (resacc did not reject the step) refunds `n_frozen` back to `MOM_TRIAL_MIN` and increments `n_trial_acc`; rejected trials keep counting. `GS_TRIAL_LIM` (VADAT, default 15, <=0 restores the old count-forever behavior) bounds consecutive accepted trials between raw-mature sweeps so a pulsing-forever run remains bounded. `n_trial_acc` persists through `GS_STATE` across requeues and resets on a genuine two-sweep mature release.
+
 **Fresh start on resubmission (2026-09-26).** A new submission is a
 cold start, not a continuation. Both wipe paths now remove warm-start
 state: `POINT1`/`POINT2`/`SCRTEMP`/`SCRATCH/` (the `SCR_READ_V2`
@@ -681,6 +683,17 @@ Do not silently equate:
 * shock breakout.
 
 The actual definitions must be stored in YAML configuration and run metadata.
+
+**Observed SN_B timing for the Dessart grid:** assume SN_A ejecta launch at
+MJD 60490 and SN_B t=0 at MJD 60824. The observation-anchored
+`source_age_days` is therefore 334 d. `source_age_days` is the SN_A age at
+SN_B t=0; STELLA initializes the input profile at `source_age_days +
+t_start_days`. For the current t_start=2 d models, the profile is at age
+336 d and MJD 60826. The generator records this timing in
+`observational_timing`. New DX25+ Dessart models must use the observed
+334 d source age; `run_model_grid.py` rejects off-epoch values unless a
+sensitivity policy and reason are explicit. Do not interpret an
+age-sensitivity model as observation-anchored.
 
 ---
 
@@ -2915,3 +2928,70 @@ Enforced centrally in `scripts/run_model_grid.py`:
 The parallel build was validated by `parallel_test_p1/p2/p3`
 (configs in `configs/parallel_test/`); the serial baseline run is
 `parallel_test_baseline`.
+
+# Appendix C — SEDONA Source Unification and Compression-Zone Setup (2026-09-30)
+
+## C.1 Single source of truth
+
+`SEDONA_HOME` in both `sedona_base/sedona_job_template.slurm` (this repo and
+`jwst_cycle6`) now points to `sedona_source/` inside this repository. The old
+`/ptmp/sbrennan/sedona` tree is deprecated — do not build or run from it.
+`convert_cmfgen_to_sedona_v2.py` was copied into `sedona_source/` and all
+references (`run_model_grid.py`, both job templates) use `$SEDONA_HOME` /
+`project_dir / "sedona_source"`.
+
+Unified binary (rebuilt 2026-09-30, target `raven`):
+`src/sedona6.ex`, md5 `8d5501ea2b85d41b6d2907ad6f893c72`,
+git describe `eb32654a8484-dirty` (repo commit + uncommitted port).
+
+IMPORTANT BUILD NOTE: `src/install.sh` copies sources into `src/build/` with
+`cp -p` (preserves mtimes) and the Makefile has no header dependency tracking.
+After editing any header (e.g. `GasState.h`), run `./install.sh clean` before
+`./install.sh raven`, or stale objects with the old class layout get relinked
+(seen: segfault at runtime from a partial rebuild).
+
+## C.2 Deployed-only patches ported into sedona_source
+
+- `GasState::sobolev_dvds_`: per-zone local |dv/dr| for Sobolev line opacity
+  (set in `transport_opacity.cpp`, used in
+  `AtomicSpecies::line_expansion_opacity`, falls back to 1/t_exp at velocity
+  extrema). Fallback/compatibility only — direct Voigt is the safe path.
+- `opacity_nlte_dens_min` (default 1e-15 g/cm^3 in
+  `defaults/sedona_defaults.lua`): zones below this density are solved LTE to
+  avoid a singular NLTE rate matrix.
+- GSL error handler in `AtomicSpecies_state.cpp`: singular/divergent LU solves
+  fall back to LTE instead of aborting (thread-local flag).
+- `relativity.cpp`: `assert(p->ind >= 0)` replaced by early return (particles
+  between zones during propagation).
+
+## C.3 Non-monotonic / compression-zone recipe
+
+For static (non-homologous) snapshots with compression zones (dv/dr < 0):
+
+```yaml
+sedona:
+  use_homologous_expansion: false   # hydro_module="none"
+  opacity_bound_bound: 1            # direct per-cell Voigt opacity (safe)
+  opacity_line_expansion: 0         # Sobolev OFF
+  opacity_fuzz_expansion: 0         # fuzz uses 1/t_exp — wrong here
+  transport_use_ddmc: 2             # DDMC required: Voigt peaks trap photons
+  transport_ddmc_tau_threshold: 10.0
+  transport_nu_grid_spacing: 0.001  # ~300 km/s bins ~ 1.5x line_velocity_width
+  nzon_target: 0                    # native grid; downsampling smears the dip
+  use_nlte: false
+```
+
+`transport_nu_grid_spacing` is now wired through `run_model_grid.py` into
+`param.lua` (previously a literal replace never matched the template, so the
+YAML value was silently ignored — fixed 2026-09-30).
+
+`v_inner_` is now the innermost zone velocity (flat extrapolation) instead of
+hardcoded 0, removing a spurious 0 -> v[0] gradient in zone 0 when the model
+is truncated in fast gas (grid_1D_sphere.cpp, both ASCII and HDF5 readers).
+
+## C.4 Verified
+
+Smoke test `configs/SN_B_v2_94W_sedona_smoke.yaml` (80 d snapshot, 500 zones,
+native grid, 18 zones with dv<0 incl. 3441->886 km/s dip): .mod preserves the
+velocity reversal, param.lua carries the recipe above, and the rebuilt binary
+(git eb32654a8484-dirty) runs the compression zones under DDMC without crash.

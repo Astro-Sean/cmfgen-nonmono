@@ -15,6 +15,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # Add scripts dir to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,6 +31,16 @@ from orchestration.manifests import ManifestWriter
 from orchestration.site import (
     SiteConfig, get_site_config, SiteConfigError,
     _time_to_seconds, _time_leq,
+)
+from generate_sn_b_dessart_grid import make_observational_timing
+from run_model_grid import (
+    apply_nonmono_mem_floor,
+    estimate_nonmono_mem_gb,
+    check_existing_jobs,
+    get_job_resources,
+    get_time_limit,
+    load_yaml_config,
+    resolve_submission,
 )
 
 
@@ -139,6 +150,96 @@ class TestConfigValidation(unittest.TestCase):
         }
         errors = validate_yaml(raw)
         self.assertTrue(any("min_nd" in e and "max_points" in e for e in errors))
+
+    def _dessart_timing_config(self, source_age, timing=None):
+        raw = {
+            "model_name": "DX26_timing_test",
+            "output": {"model_dir": "./SN_B_dessart_grid/DX26_timing_test"},
+            "x_model_from_sn": {
+                "source_age_days": source_age,
+                "t_start_days": 2.0,
+            },
+        }
+        if timing is not None:
+            raw["observational_timing"] = timing
+        return raw
+
+    def test_future_dessart_accepts_observed_age_without_metadata(self):
+        errors = validate_yaml(self._dessart_timing_config(334.0))
+        self.assertEqual(errors, [])
+
+    def test_future_dessart_rejects_unmarked_age_mismatch(self):
+        errors = validate_yaml(self._dessart_timing_config(350.0))
+        self.assertTrue(any("differs from the observed SN_A age" in e for e in errors))
+
+    def test_future_dessart_accepts_observed_timing(self):
+        timing = {
+            "sn_a_launch_mjd": 60490.0,
+            "sn_b_t0_mjd": 60824.0,
+            "observed_source_age_days": 334.0,
+            "configured_source_age_days": 334.0,
+            "profile_age_days": 336.0,
+            "source_age_policy": "observed",
+        }
+        errors = validate_yaml(self._dessart_timing_config(334.0, timing))
+        self.assertEqual(errors, [])
+
+    def test_future_dessart_sensitivity_requires_reason(self):
+        timing = {
+            "sn_a_launch_mjd": 60490.0,
+            "sn_b_t0_mjd": 60824.0,
+            "observed_source_age_days": 334.0,
+            "configured_source_age_days": 350.0,
+            "profile_age_days": 352.0,
+            "source_age_policy": "sensitivity",
+        }
+        errors = validate_yaml(self._dessart_timing_config(350.0, timing))
+        self.assertTrue(any("sensitivity_reason is required" in e for e in errors))
+        timing["sensitivity_reason"] = "Intentional age scan"
+        self.assertEqual(validate_yaml(self._dessart_timing_config(350.0, timing)), [])
+
+    def test_future_dessart_rejects_changed_observation_mjd(self):
+        timing = {
+            "sn_a_launch_mjd": 60491.0,
+            "sn_b_t0_mjd": 60824.0,
+            "observed_source_age_days": 333.0,
+            "configured_source_age_days": 333.0,
+            "profile_age_days": 335.0,
+            "source_age_policy": "observed",
+        }
+        errors = validate_yaml(self._dessart_timing_config(333.0, timing))
+        self.assertTrue(any("sn_a_launch_mjd" in e for e in errors))
+
+    def test_runtime_yaml_loader_rejects_off_epoch_future_model(self):
+        raw = self._dessart_timing_config(350.0)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as handle:
+            handle.write(json.dumps(raw))
+            handle.flush()
+            with self.assertRaisesRegex(ValueError, "observed SN_A age"):
+                load_yaml_config(handle.name)
+
+
+class TestDessartTimingGeneration(unittest.TestCase):
+    def test_observation_age_is_the_default(self):
+        timing = make_observational_timing("DX26_default", 334.0, {})
+        self.assertEqual(timing["source_age_policy"], "observed")
+        self.assertEqual(timing["observed_source_age_days"], 334.0)
+
+    def test_future_off_epoch_point_requires_explicit_policy(self):
+        with self.assertRaises(ValueError):
+            make_observational_timing("DX26_off_epoch", 350.0, {})
+
+    def test_age_sensitivity_requires_a_reason(self):
+        timing = make_observational_timing(
+            "DX26_age_scan",
+            350.0,
+            {
+                "source_age_policy": "sensitivity",
+                "source_age_reason": "Check sensitivity to the event separation.",
+            },
+        )
+        self.assertEqual(timing["source_age_policy"], "sensitivity")
+        self.assertIn("sensitivity_reason", timing)
 
 
 class TestEpochMapping(unittest.TestCase):
@@ -274,6 +375,56 @@ class TestStateMachine(unittest.TestCase):
         sm = StateMachine("run1", "model1", "hash1", self.state_file)
         sm.record_epoch_status(30.0, "converted")
         self.assertEqual(sm.state.epoch_status.get("30.0days"), "converted")
+
+
+class TestRunModelGridPartitionPolicy(unittest.TestCase):
+    def test_interactive_partition_sets_interactive_resources_and_walltime(self):
+        resources = get_job_resources(
+            False,
+            config_partition="interactive",
+            config_mem="40G",
+            config_cpus=8,
+        )
+        self.assertEqual(resources, ("interactive", 8, "30G"))
+        self.assertEqual(
+            get_time_limit(False, partition="interactive"), "01:59:00"
+        )
+
+    def test_small_partition_sets_production_walltime(self):
+        self.assertEqual(get_time_limit(False, partition="small"), "23:59:00")
+
+    def test_debug_submission_resolves_to_interactive(self):
+        config = {"submission": "debug", "cmfgen": {"partition": "small"}}
+        debug, partition = resolve_submission(config)
+        self.assertTrue(debug)
+        self.assertEqual(partition, "interactive")
+        self.assertEqual(config["cmfgen"], {})
+        self.assertEqual(get_time_limit(debug, partition=partition), "01:59:00")
+
+    def test_sob_skips_knop_memory_estimate(self):
+        cmfgen_cfg = {"non_mono_mode": "SOB"}
+        estimate, reason = estimate_nonmono_mem_gb(
+            Path("/missing"), cmfgen_cfg
+        )
+        self.assertIsNone(estimate)
+        self.assertIn("KNOP", reason.upper())
+        self.assertEqual(
+            apply_nonmono_mem_floor(
+                "30G", Path("/missing"), cmfgen_cfg, debug=True
+            ),
+            "30G",
+        )
+
+    def test_convergence_monitor_matches_model_cancellation(self):
+        result = type("SqueueResult", (), {
+            "returncode": 0,
+            "stdout": "12112714 dessart_2.82days_convergence\n",
+        })()
+        with patch("run_model_grid.subprocess.run", return_value=result):
+            jobs = check_existing_jobs("dessart")
+        self.assertEqual(
+            jobs, [("12112714", "dessart_2.82days_convergence")]
+        )
 
 
 class TestSiteConfig(unittest.TestCase):

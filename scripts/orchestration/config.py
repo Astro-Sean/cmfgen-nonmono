@@ -13,14 +13,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
-from dataclasses import dataclass, field, asdict
+import re
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
 
 import yaml
 
-from .site import SiteConfig, get_site_config, SiteConfigError
+from .site import SiteConfig, SiteConfigError, get_site_config
+
+
+SN_A_LAUNCH_MJD = 60490.0
+SN_B_T0_MJD = 60824.0
+OBSERVED_SN_A_AGE_DAYS = SN_B_T0_MJD - SN_A_LAUNCH_MJD
+SN_B_DESSART_TIMING_FAMILY_START = 25
 
 
 class ConfigError(Exception):
@@ -176,9 +184,115 @@ MUTUALLY_EXCLUSIVE = [
 ]
 
 
+def validate_observational_timing(raw: dict[str, Any]) -> list[str]:
+    """Validate observation-anchored source ages for Dessart grid models."""
+    x_cfg = raw.get("x_model_from_sn")
+    if not isinstance(x_cfg, dict):
+        return []
+
+    family = re.match(r"DX(\d+)_", str(raw.get("model_name", "")))
+    enforce_observed_age = (
+        family is not None
+        and int(family.group(1)) >= SN_B_DESSART_TIMING_FAMILY_START
+    )
+    errors = []
+    source_age = x_cfg.get("source_age_days")
+    timing = raw.get("observational_timing")
+
+    if enforce_observed_age and not isinstance(source_age, (int, float)):
+        errors.append(
+            "x_model_from_sn.source_age_days is required for observation-timed "
+            "SN_B_dessart_grid models"
+        )
+
+    if timing is None:
+        age_matches_observation = (
+            isinstance(source_age, (int, float))
+            and math.isclose(
+                float(source_age), OBSERVED_SN_A_AGE_DAYS, abs_tol=1e-6
+            )
+        )
+        if (
+            enforce_observed_age
+            and isinstance(source_age, (int, float))
+            and not age_matches_observation
+        ):
+            errors.append(
+                f"source_age_days={source_age:g} differs from the observed "
+                f"SN_A age {OBSERVED_SN_A_AGE_DAYS:g} d at SN_B t=0 "
+                f"(MJD {SN_B_T0_MJD:g} - {SN_A_LAUNCH_MJD:g}); add an explicit "
+                "observational_timing sensitivity policy and reason only for a "
+                "diagnostic age scan"
+            )
+        return errors
+
+    if not isinstance(timing, dict):
+        return ["observational_timing must be a mapping"]
+
+    for key, expected in (
+        ("sn_a_launch_mjd", SN_A_LAUNCH_MJD),
+        ("sn_b_t0_mjd", SN_B_T0_MJD),
+        ("observed_source_age_days", OBSERVED_SN_A_AGE_DAYS),
+    ):
+        value = timing.get(key)
+        if not isinstance(value, (int, float)) or not math.isclose(
+            float(value), expected, abs_tol=1e-6
+        ):
+            errors.append(
+                f"observational_timing.{key} must match the adopted observation "
+                f"value {expected:g}"
+            )
+
+    policy = timing.get("source_age_policy", "observed")
+    if policy not in ("observed", "sensitivity"):
+        errors.append(
+            "observational_timing.source_age_policy must be 'observed' or "
+            "'sensitivity'"
+        )
+    elif isinstance(source_age, (int, float)):
+        configured_age = timing.get("configured_source_age_days")
+        if not isinstance(configured_age, (int, float)) or not math.isclose(
+            float(configured_age), float(source_age), abs_tol=1e-6
+        ):
+            errors.append(
+                "observational_timing.configured_source_age_days must match "
+                "x_model_from_sn.source_age_days"
+            )
+        if policy == "observed" and not math.isclose(
+            float(source_age), OBSERVED_SN_A_AGE_DAYS, abs_tol=1e-6
+        ):
+            errors.append(
+                f"observed source_age_days must be {OBSERVED_SN_A_AGE_DAYS:g} d, "
+                f"got {source_age:g}"
+            )
+        if policy == "sensitivity" and not str(
+            timing.get("sensitivity_reason", "")
+        ).strip():
+            errors.append(
+                "observational_timing.sensitivity_reason is required for an "
+                "off-epoch source-age scan"
+            )
+        profile_age = timing.get("profile_age_days")
+        t_start = x_cfg.get("t_start_days", 0.0)
+        if profile_age is not None and (
+            not isinstance(profile_age, (int, float))
+            or not isinstance(t_start, (int, float))
+            or not math.isclose(
+                float(profile_age), float(source_age) + float(t_start), abs_tol=1e-6
+            )
+        ):
+            errors.append(
+                "observational_timing.profile_age_days must equal "
+                "source_age_days + t_start_days"
+            )
+
+    return errors
+
+
 def validate_yaml(raw: dict[str, Any]) -> list[str]:
     """Validate raw YAML dict. Returns list of error messages (empty = valid)."""
     errors = []
+    errors.extend(validate_observational_timing(raw))
 
     # Required fields
     for fname, ftype in REQUIRED_FIELDS.items():

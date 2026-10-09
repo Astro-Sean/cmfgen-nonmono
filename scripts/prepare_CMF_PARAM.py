@@ -45,6 +45,14 @@ restricted to keys that cmf_flux.exe actually reads (rd_cmf_flux_controls.f).
 Main-run-only keys (VEL_LAW, RD_IN_R_GRID, PURE_HUB, AUTO_SMOOTH,
 MAX_CHNG, LAM_SCALE_OPT, etc.) are not applicable to the OBS stage.
 
+The BLANK set is for Knop populations (DO_NONMONO_KNOP). For SOB
+populations (non_mono_mode='SOB' / DO_NONMONO_SOB=T), the OBS step
+combines DO_NONMONO_KNOP=T for formal J with DO_NONMONO_SOB=T and
+GLOBAL_LINE=SOB, TRANS_*=SOB, DO_SOB_LINES=T, SOB_FREQ_IN_OBS=T. This
+keeps the Knop non-monotonic J and electron-scattering source while
+retaining the population run's Sobolev line frequencies and SIGMA_TRUE
+EW estimator. The OBS reader validates this combined mode.
+
 Usage:
   # Default: read CMF_FLUX_PARAM_INIT in cwd, enforce, overwrite in-place
   python prepare_CMF_PARAM.py
@@ -189,22 +197,42 @@ NON_MONO_FORCED_CMF_PARAM = {
     'TRANS_NkX': 'BLANK',
 }
 
+# SOB populations keep Sobolev line frequencies and the SIGMA_TRUE EW
+# estimator, while the OBS continuum and electron-scattering source use
+# the Knop formal solution for arbitrary velocity fields.
+NON_MONO_SOB_CMF_PARAM = {
+    **NON_MONO_FORCED_CMF_PARAM,
+    'DO_NONMONO_KNOP': 'T',
+    'DO_NONMONO_SOB': 'T',
+    'GLOBAL_LINE': 'SOB',
+    'DO_SOB_LINES': 'T',
+    'SOB_FREQ_IN_OBS': 'T',
+    **{k: 'SOB' for k in NON_MONO_FORCED_CMF_PARAM
+       if k.startswith('TRANS_')},
+}
+
 # Keys that are forced and cannot be overridden by YAML.
 # OBS-specific settings (frequency range, velocity spacing, profiles,
 # Eddington factors, etc.) remain in the template and are NOT forced.
-NON_OVERRIDABLE = set(NON_MONO_FORCED_CMF_PARAM.keys())
+NON_OVERRIDABLE = set(NON_MONO_FORCED_CMF_PARAM.keys()) | {
+    'DO_NONMONO_KNOP', 'DO_NONMONO_SOB'
+}
 
 
-def _apply_forced_keys(lines, forced, tag="NON_MONO"):
+def _apply_forced_keys(lines, forced, tag="NON_MONO", trans_default=None):
     """Replace or append CMF_FLUX_PARAM keys.
 
     Mirrors prepare_VADAT.py:_apply_forced_vadat_keys.  Any TRANS_* key
-    not explicitly listed in *forced* is still forced to BLANK.
+    not explicitly listed in *forced* is forced to *trans_default*;
+    when trans_default is None it defaults to 'BLANK' if *forced*
+    contains any TRANS_* key (the original blanketing behaviour), so
+    SOB mode passes trans_default='SOB' to catch unlisted species.
     """
     key_re = re.compile(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]')
     found = set()
     new_lines = []
-    force_trans_blank = any(k.startswith('TRANS_') for k in forced)
+    if trans_default is None and any(k.startswith('TRANS_') for k in forced):
+        trans_default = 'BLANK'
     for line in lines:
         m = key_re.match(line)
         if not m:
@@ -218,12 +246,12 @@ def _apply_forced_keys(lines, forced, tag="NON_MONO"):
             if current.upper() != str(forced_val).upper():
                 print(f"  [{tag}] {key} forced: {current} -> {forced_val}")
             new_lines.append(f"{forced_val} [{key}]\n")
-        elif force_trans_blank and key.startswith('TRANS_'):
+        elif trans_default is not None and key.startswith('TRANS_'):
             found.add(key)
             current = m.group(1).strip()
-            if current.upper() != 'BLANK':
-                print(f"  [{tag}] {key} forced: {current} -> BLANK")
-            new_lines.append(f"BLANK [{key}]\n")
+            if current.upper() != trans_default:
+                print(f"  [{tag}] {key} forced: {current} -> {trans_default}")
+            new_lines.append(f"{trans_default} [{key}]\n")
         else:
             new_lines.append(line)
     # Append any forced keys that were not already present
@@ -437,8 +465,9 @@ def load_yaml_overrides(config_path):
     clean = {}
     for k, v in overrides.items():
         if k in NON_OVERRIDABLE:
+            forced = NON_MONO_FORCED_CMF_PARAM.get(k, 'mode-selected')
             print(f"  WARNING: '{k}' is non-overridable (forced to "
-                  f"{NON_MONO_FORCED_CMF_PARAM[k]}); ignoring YAML value {v}")
+                  f"{forced}); ignoring YAML value {v}")
             continue
         clean[k] = str(v)
     return clean
@@ -473,11 +502,14 @@ def apply_overrides(lines, overrides):
     return new_lines
 
 
-def verify_consistency(lines):
+def verify_consistency(lines, forced=None):
     """Verify that forced keys have correct values after enforcement.
 
+    *forced* is the dict that was applied (Knop or SOB variant).
     Returns list of error messages (empty if all correct).
     """
+    if forced is None:
+        forced = NON_MONO_FORCED_CMF_PARAM
     key_re = re.compile(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]')
     values = {}
     for line in lines:
@@ -486,7 +518,7 @@ def verify_consistency(lines):
             values[m.group(2)] = m.group(1).strip()
 
     errors = []
-    for key, expected in NON_MONO_FORCED_CMF_PARAM.items():
+    for key, expected in forced.items():
         actual = values.get(key, "")
         if actual.upper() != str(expected).upper():
             errors.append(f"  {key}: expected {expected}, got '{actual}'")
@@ -538,17 +570,18 @@ def main():
     with open(template_path) as f:
         lines = f.readlines()
 
-    # 1. Apply forced non-monotonic settings (non-overridable)
-    lines = _apply_forced_keys(lines, NON_MONO_FORCED_CMF_PARAM)
-
-    # 1b. dev7 Sobolev flag: T only when the main run used DO_NONMONO_SOB.
-    # The flag must NOT be stamped unconditionally — flag-off runs must
-    # remain bit-identical to the monotonic path.
-    if sob_mode_active(args.vadat_overrides):
-        lines = _apply_forced_keys(
-            lines, {'DO_NONMONO_SOB': 'T'}, tag="NON_MONO_SOB")
-        print("  non-mono SOB mode: DO_NONMONO_SOB=T stamped "
-              "(EW estimators use SIGMA_TRUE)")
+    # 1. Apply forced non-monotonic settings (non-overridable). SOB
+    # populations use the OBS-only combination: Knop formal J with SOB
+    # line frequencies and SIGMA_TRUE EW estimators. Knop populations
+    # keep the blanketing treatment. The OBS reader validates the pair.
+    sob_mode = sob_mode_active(args.vadat_overrides)
+    if sob_mode:
+        lines = _apply_forced_keys(lines, NON_MONO_SOB_CMF_PARAM,
+                                   trans_default='SOB')
+        print("  non-mono SOB mode: Knop formal J plus DO_NONMONO_SOB=T, "
+              "GLOBAL_LINE=SOB, TRANS_*=SOB (SIGMA_TRUE EW)")
+    else:
+        lines = _apply_forced_keys(lines, NON_MONO_FORCED_CMF_PARAM)
 
     # dev7 Knop flag: T only when the main run used FG_J_CMF_NONMONO_V1.
     # Must not be stamped unconditionally — monotonic OBS runs must keep
@@ -615,8 +648,9 @@ def main():
             lines = _apply_forced_keys(lines, split_fix, tag="H_SPLIT")
             print(f"  H atom has split n=2 levels: {split_fix}")
 
-    # 3. Verify consistency
-    errors = verify_consistency(lines)
+    # 3. Verify consistency against the mode that was applied
+    errors = verify_consistency(
+        lines, NON_MONO_SOB_CMF_PARAM if sob_mode else None)
     if errors:
         print("ERROR: consistency check failed:", file=sys.stderr)
         for e in errors:
@@ -628,8 +662,12 @@ def main():
         f.writelines(lines)
 
     print(f"  CMF_FLUX_PARAM written: {output_path}")
-    print(f"  Non-monotonic OBS settings verified: "
-          f"N_ON_J, BLANK, FG_J_CMF_NONMONO_V1")
+    if sob_mode:
+        print(f"  Non-monotonic OBS settings verified: "
+              f"Knop J, SOB lines, SIGMA_TRUE EW estimators")
+    else:
+        print(f"  Non-monotonic OBS settings verified: "
+              f"N_ON_J, BLANK, FG_J_CMF_NONMONO_V1")
     return 0
 
 

@@ -183,11 +183,11 @@ sedona:
   time: '23:59:00'
   use_homologous_expansion: false
   use_nlte: false
-  opacity_line_expansion: 1
-  opacity_bound_bound: 0
+  opacity_line_expansion: 0
+  opacity_bound_bound: 1
   opacity_fuzz_expansion: 0
   line_velocity_width_kms: 200
-  nzon_target: 300
+  nzon_target: 0
   transport_steady_iterate: 30
   ntasks: 4
   core_n_emit: 5e5
@@ -195,13 +195,13 @@ sedona:
   particles_n_emit_radioactive: 5e4
   particles_max_total: 2e8
   particles_last_iter_pump: 10
-  transport_nu_grid_spacing: 0.005
+  transport_nu_grid_spacing: 0.001
   transport_nu_min: 2.5e14
   transport_nu_max: 1.2e15
   spectrum_nu_grid_spacing: 0.0005
   transport_radiative_equilibrium: 1
-  transport_use_ddmc: 0
-  transport_ddmc_tau_threshold: 1000.0
+  transport_use_ddmc: 2
+  transport_ddmc_tau_threshold: 10.0
 superlite:
   partition: general
   ntasks: 1

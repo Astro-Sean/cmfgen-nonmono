@@ -246,7 +246,14 @@ case "$_host" in
                _project_dir_default="/viper/ptmp1/sbrennan/SN2024pba" ;;
 esac
 CMFDIST="${CMFDIST:-$_cmfdist_default}"
-ATOMIC="${ATOMIC:-$_atomic_default}"
+# Canonical atomic DB: prefer the repository-populated database when present
+# (user directive 30-Sep-2026 -- /u/sbrennan/atomic went missing and broke runs).
+_repo_atomic="/ptmp/sbrennan/SN2024pba/atomic"
+if [ -d "${_repo_atomic}/HYD" ]; then
+  ATOMIC="${_repo_atomic}"
+else
+  ATOMIC="${ATOMIC:-$_atomic_default}"
+fi
 PROJECT_DIR="${PROJECT_DIR:-$_project_dir_default}"
 
 # ---------------------------
@@ -368,7 +375,14 @@ echo "======================================================"
 # was skipped (e.g. when this script is sourced partially).
 # ---------------------------
 CMFDIST="${CMFDIST:-$_cmfdist_default}"
-ATOMIC="${ATOMIC:-$_atomic_default}"
+# Canonical atomic DB: prefer the repository-populated database when present
+# (user directive 30-Sep-2026 -- /u/sbrennan/atomic went missing and broke runs).
+_repo_atomic="/ptmp/sbrennan/SN2024pba/atomic"
+if [ -d "${_repo_atomic}/HYD" ]; then
+  ATOMIC="${_repo_atomic}"
+else
+  ATOMIC="${ATOMIC:-$_atomic_default}"
+fi
 PROJECT_DIR="${PROJECT_DIR:-$_project_dir_default}"
 
 # ---------------------------
@@ -388,8 +402,9 @@ case "$_host" in
     INTEL_MODULE="intel/2024.0"
     MKL_MODULE="mkl/2026.0"
     PYTHON_MODULE="python-waterboa/2024.06"
-    MKL_LIB_PATH="/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64"
-    COMPILER_LIB_PATH="/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/compiler/2026.0/lib"
+    # /mpcdf/soft resolves via /viper/u2 which apu nodes mount; /viper/u1 does not.
+    MKL_LIB_PATH="/mpcdf/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/latest/lib:/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/mkl/2026.0/lib/intel64"
+    COMPILER_LIB_PATH="/mpcdf/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/compiler/latest/lib:/viper/u1/system/soft/RHEL_9/packages/x86_64/intel_oneapi/2026.0/compiler/2026.0/lib"
     ;;
 esac
 
@@ -802,7 +817,7 @@ cat > "${MODEL_DIR}/${FINAL_SLURM}" <<EOF
 #SBATCH --error=cmf_%j.err
 #SBATCH --time=${timelimit}
 #SBATCH --partition=${part}
-$([ "${part}" != "interactive" ] && echo "#SBATCH --qos=n0004")
+$(if [[ "${part}" == apu* ]]; then printf '#SBATCH --qos=a0004\n#SBATCH --account=mpe_apu\n#SBATCH --gres=gpu:2\n'; elif [[ "${part}" != "interactive" ]]; then echo "#SBATCH --qos=n0004"; fi)
 
 $([ "${FINAL_WALL_GRACEFUL}" != "0" ] && echo "#SBATCH --signal=B:USR1@${FINAL_SIGNAL_BEFORE_SEC}")
 #SBATCH --requeue
@@ -1358,8 +1373,36 @@ touch .CMFGEN_JOB_START
 # the graceful stop fires.  After batch.sh, the post-run logic reads
 # this file to decide whether to requeue.
 write_requeue_state 0
+
+# 2026-10-09: in-job convergence monitor (replaces the separate
+# CONVERGENCE monitor job).  check_convergence.py polls ITER_HISTORY in
+# the background, prints a report and refreshes CONVERGENCE_HISTORY.PNG
+# every 30 s.  Observational only: it reads CMFGEN outputs but writes
+# nothing CMFGEN reads, and a watcher failure is non-fatal.  --stale 0
+# disables the watcher's own auto-stop so a quiet stretch between great
+# iterations cannot kill it; it exits on its own when the model
+# converges, and is killed explicitly after batch.sh so it cannot leak
+# into the requeue post-run logic.
+conv_watch_pid=""
+check_conv="${PROJECT_ROOT}/scripts/check_convergence.py"
+if [ -f "\${check_conv}" ]; then
+  python "\${check_conv}" . --watch 30 --stale 0 --plot \
+    >>CONVERGENCE_WATCH.LOG 2>&1 &
+  conv_watch_pid=\$!
+  # set -e exits the script if batch.sh crashes; reap the watcher there too
+  trap 'kill "\${conv_watch_pid}" 2>/dev/null || true' EXIT
+  echo "Convergence watcher started (pid \${conv_watch_pid}); updates every 30 s."
+else
+  echo "WARNING: \${check_conv} not found; live convergence monitor disabled." >&2
+fi
+
 tcsh -f ./batch.sh
 stop_graceful_timer
+trap - EXIT
+if [ -n "\${conv_watch_pid}" ]; then
+  kill "\${conv_watch_pid}" 2>/dev/null || true
+  wait "\${conv_watch_pid}" 2>/dev/null || true
+fi
 
 # Track convergence: extract last max % change from OUTGEN and append to
 # CONVERGENCE_HISTORY. This small file persists across requeues and is
@@ -1475,7 +1518,7 @@ cat > "${MODEL_DIR}/${OBS_SLURM}" <<EOF
 #SBATCH --error=cmf_OBS_%j.err
 #SBATCH --time=${obs_timelimit}
 #SBATCH --partition=${obs_part}
-$([ "${obs_part}" != "interactive" ] && echo "#SBATCH --qos=n0004")
+$(if [[ "${obs_part}" == apu* ]]; then printf '#SBATCH --qos=a0004\n#SBATCH --account=mpe_apu\n#SBATCH --gres=gpu:2\n'; elif [[ "${obs_part}" != "interactive" ]]; then echo "#SBATCH --qos=n0004"; fi)
 
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${cpus}
@@ -1700,7 +1743,7 @@ cat > "${MODEL_DIR}/${SINGLE_FINAL_SLURM}" <<EOF
 #SBATCH --error=cmf_%j.err
 #SBATCH --time=${timelimit}
 #SBATCH --partition=${part}
-$([ "${part}" != "interactive" ] && echo "#SBATCH --qos=n0004")
+$(if [[ "${part}" == apu* ]]; then printf '#SBATCH --qos=a0004\n#SBATCH --account=mpe_apu\n#SBATCH --gres=gpu:2\n'; elif [[ "${part}" != "interactive" ]]; then echo "#SBATCH --qos=n0004"; fi)
 
 $([ "${FINAL_WALL_GRACEFUL}" != "0" ] && echo "#SBATCH --signal=B:USR1@${FINAL_SIGNAL_BEFORE_SEC}")
 #SBATCH --requeue
@@ -2261,8 +2304,36 @@ touch .CMFGEN_JOB_START
 # the graceful stop fires.  After batch.sh, the post-run logic reads
 # this file to decide whether to requeue.
 write_requeue_state 0
+
+# 2026-10-09: in-job convergence monitor (replaces the separate
+# CONVERGENCE monitor job).  check_convergence.py polls ITER_HISTORY in
+# the background, prints a report and refreshes CONVERGENCE_HISTORY.PNG
+# every 30 s.  Observational only: it reads CMFGEN outputs but writes
+# nothing CMFGEN reads, and a watcher failure is non-fatal.  --stale 0
+# disables the watcher's own auto-stop so a quiet stretch between great
+# iterations cannot kill it; it exits on its own when the model
+# converges, and is killed explicitly after batch.sh so it cannot leak
+# into the requeue post-run logic.
+conv_watch_pid=""
+check_conv="${PROJECT_ROOT}/scripts/check_convergence.py"
+if [ -f "\${check_conv}" ]; then
+  python "\${check_conv}" . --watch 30 --stale 0 --plot \
+    >>CONVERGENCE_WATCH.LOG 2>&1 &
+  conv_watch_pid=\$!
+  # set -e exits the script if batch.sh crashes; reap the watcher there too
+  trap 'kill "\${conv_watch_pid}" 2>/dev/null || true' EXIT
+  echo "Convergence watcher started (pid \${conv_watch_pid}); updates every 30 s."
+else
+  echo "WARNING: \${check_conv} not found; live convergence monitor disabled." >&2
+fi
+
 tcsh -f ./batch.sh
 stop_graceful_timer
+trap - EXIT
+if [ -n "\${conv_watch_pid}" ]; then
+  kill "\${conv_watch_pid}" 2>/dev/null || true
+  wait "\${conv_watch_pid}" 2>/dev/null || true
+fi
 
 # Track convergence: extract last max % change from OUTGEN and append to
 # CONVERGENCE_HISTORY. This small file persists across requeues and is

@@ -157,7 +157,7 @@ def _smooth_flux(flux, window=11):
     return smoothed
 
 
-def _ylimits_from_smoothed(flux, smooth_window=11, pad_frac=0.05):
+def _ylimits_from_smoothed(flux, smooth_window=11, pad_frac=0.05, log=False):
     """Compute robust y-axis limits from a smoothed spectrum.
 
     Smoothing suppresses per-bin noise and residual borderline-divergent
@@ -176,7 +176,10 @@ def _ylimits_from_smoothed(flux, smooth_window=11, pad_frac=0.05):
         Median-filter window for the smoothing.
     pad_frac : float
         Fraction of the smoothed percentile range to add as padding
-        above/below.
+        above/below (fraction of the log span when log=True).
+    log : bool
+        If True, compute limits in log space: only positive values are
+        used and padding is multiplicative.
 
     Returns
     -------
@@ -184,10 +187,20 @@ def _ylimits_from_smoothed(flux, smooth_window=11, pad_frac=0.05):
     """
     smoothed = _smooth_flux(flux, window=smooth_window)
     finite = smoothed[np.isfinite(smoothed)]
+    if log:
+        finite = finite[finite > 0]
     if finite.size == 0:
         return None
     lo = np.percentile(finite, 1)
     hi = np.percentile(finite, 99)
+    if log:
+        if lo <= 0:
+            lo = np.min(finite)
+        log_lo, log_hi = np.log10(lo), np.log10(hi)
+        span = log_hi - log_lo
+        if span == 0:
+            span = 0.5
+        return 10 ** (log_lo - pad_frac * span), 10 ** (log_hi + pad_frac * span)
     span = hi - lo
     if span == 0:
         span = abs(hi) * 0.1 or 1.0
@@ -196,11 +209,11 @@ def _ylimits_from_smoothed(flux, smooth_window=11, pad_frac=0.05):
 
 def plot_spectrum(wavelength, flux, output_file):
     """
-    Plot F_lambda vs wavelength with linear scale and line markers.
+    Plot F_lambda vs wavelength with log y-scale and line markers.
 
-    Uses LINEAR y-scale (not log) because SN P-Cygni line profiles span
-    200-300 Å and have 15-25% absorption depth — log scale compresses
-    these broad features into invisible wiggles on the continuum.
+    Uses a LOG y-scale so the continuum shape remains visible across the
+    ~2 orders of magnitude between continuum and emission peaks.
+    Non-positive flux points are masked to NaN (log cannot show them).
 
     Y-axis limits are derived from a median-smoothed copy of the spectrum
     so that residual per-bin noise / borderline-divergent BATOBS points
@@ -215,12 +228,13 @@ def plot_spectrum(wavelength, flux, output_file):
     output_file : str
         Output PNG file path
     """
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={'height_ratios': [2, 1]})
+    fig, ax = plt.subplots(figsize=(14, 7))
 
     # Restrict to optical range
     mask = (wavelength >= 3500) & (wavelength <= 9000)
     wl_plot = wavelength[mask]
-    flux_plot = flux[mask]
+    # Mask non-positive flux — unrepresentable on a log axis
+    flux_plot = np.where(flux[mask] > 0, flux[mask], np.nan)
 
     # Major SN lines to mark — only lines with detectable features at
     # this epoch. Verified against the X/20d spectrum: Hγ 4340, He I 5876,
@@ -233,41 +247,23 @@ def plot_spectrum(wavelength, flux, output_file):
         7774: 'O I', 8446: 'O I', 8542: 'Ca II',
     }
 
-    # Top panel: full optical range, LINEAR scale
-    ax = axes[0]
     ax.plot(wl_plot, flux_plot, linewidth=0.3, color='black')
-    ax.set_yscale('linear')
+    ax.set_yscale('log')
     ax.set_xlim(3500, 9000)
-    ax.set_title('CMFGEN Observed Spectrum (linear scale)', fontsize=14)
+    ax.set_title('CMFGEN Observed Spectrum (log scale)', fontsize=14)
+    ax.set_xlabel('Wavelength (Å)', fontsize=11)
     ax.set_ylabel(r'$F_\lambda$ (erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)', fontsize=11)
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, which='both')
     # Y-limits from smoothed spectrum so residual noise / borderline
     # divergent points don't stretch the axis.
-    ylim_top = _ylimits_from_smoothed(flux_plot)
-    if ylim_top:
-        ax.set_ylim(*ylim_top)
+    ylim = _ylimits_from_smoothed(flux_plot, pad_frac=0.15, log=True)
+    if ylim:
+        ax.set_ylim(*ylim)
     for wl, name in line_labels.items():
         ax.axvline(wl, color='blue', alpha=0.25, linestyle='--')
-        ax.text(wl, ax.get_ylim()[1] * 0.92, name, fontsize=7,
-                ha='center', color='blue', rotation=90)
-
-    # Bottom panel: zoomed on H-alpha region (6200-6900 Å) to show P-Cygni
-    ax2 = axes[1]
-    mask_ha = (wavelength >= 6200) & (wavelength <= 6900)
-    wl_ha = wavelength[mask_ha]
-    flux_ha = flux[mask_ha]
-    ax2.plot(wl_ha, flux_ha, linewidth=0.5, color='black')
-    ax2.set_yscale('linear')
-    ax2.set_xlim(6200, 6900)
-    ax2.set_title('Hα region zoom (P-Cygni profile)', fontsize=12)
-    ax2.set_xlabel('Wavelength (Å)', fontsize=11)
-    ax2.set_ylabel(r'$F_\lambda$', fontsize=11)
-    ax2.grid(True, alpha=0.3)
-    ylim_ha = _ylimits_from_smoothed(flux_ha)
-    if ylim_ha:
-        ax2.set_ylim(*ylim_ha)
-    ax2.axvline(6563, color='red', alpha=0.3, linestyle='--', label='Hα 6563Å')
-    ax2.legend(fontsize=9)
+        ax.text(wl, 0.97, name, fontsize=7, ha='center', va='top',
+                color='blue', rotation=90,
+                transform=ax.get_xaxis_transform())
 
     plt.tight_layout()
     plt.savefig(output_file, dpi=150, bbox_inches='tight')

@@ -33,6 +33,60 @@ from grid_mapping.sn_hydro_io import (
 SCRIPTS = Path(os.path.dirname(os.path.abspath(__file__)))
 REPO = SCRIPTS.parent
 
+
+class TestSobLambdaNewtonProfile:
+    def test_default_schedule_and_local_ba_controls(self):
+        lines = [
+            '2.0D2 [LAM_VAL]\n',
+            '4.0D2 [LAM_ENTER]\n',
+            '2.0D1 [LAM_EXIT]\n',
+            '3 [LAM_N_STABLE]\n',
+            '20 [NUM_LAM]\n',
+            'T [DO_BA_RES_ACC]\n',
+            '1.0D4 [BA_ENTER_RAW]\n',
+            '20 [BA_PROBE_LAM]\n',
+            '1.3D0 [BA_DAMP_CAP]\n',
+        ]
+        recommended = pv._build_non_mono_sob_recommended(lines, set())
+        generated = pv._apply_forced_vadat_keys(lines, recommended)
+
+        expected = {
+            'LAM_VAL': '2.0D2',
+            'LAM_ENTER': '2.0D2',
+            'LAM_EXIT': '2.0D2',
+            'LAM_N_STABLE': '1',
+            'NUM_LAM': '2',
+            'DO_BA_RES_ACC': 'F',
+            'BA_ENTER_RAW': '1.0D30',
+            'BA_PROBE_LAM': '0',
+            'BA_DAMP_CAP': '0.0D0',
+            'FRESH_BA_EXIT': 'T',
+            'N_FULL_TREL': '0',
+            'COMP_BA': 'T',
+            'FIX_BA': '1.0D1',
+            'N_FIX_BA': '2',
+        }
+        for key, value in expected.items():
+            assert pv._get_key_token(generated, key) == value
+
+    def test_explicit_ba_controls_are_preserved(self):
+        lines = [
+            '7.5D1 [LAM_VAL]\n',
+            '3.0D2 [LAM_ENTER]\n',
+            'T [DO_BA_RES_ACC]\n',
+            '5 [NUM_LAM]\n',
+        ]
+        explicit = {'LAM_VAL', 'LAM_ENTER', 'DO_BA_RES_ACC', 'NUM_LAM'}
+        recommended = pv._build_non_mono_sob_recommended(lines, explicit)
+        generated = pv._apply_forced_vadat_keys(lines, recommended)
+
+        assert pv._get_key_token(generated, 'LAM_VAL') == '7.5D1'
+        assert pv._get_key_token(generated, 'LAM_ENTER') == '3.0D2'
+        assert pv._get_key_token(generated, 'LAM_EXIT') == '7.5D1'
+        assert pv._get_key_token(generated, 'DO_BA_RES_ACC') == 'T'
+        assert pv._get_key_token(generated, 'NUM_LAM') == '5'
+
+
 def _fmt(v, exp='E'):
     return f'{v:.6E}' if exp == 'E' else f'{v:.6E}'.replace('E', 'D')
 

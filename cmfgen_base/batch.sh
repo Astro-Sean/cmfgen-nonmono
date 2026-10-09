@@ -18,7 +18,13 @@ if ( ! $?cmfdist ) then
     setenv cmfdist /viper/ptmp1/sbrennan/SN2024pba/cmfgen_nonmono_dev_V4
   endif
 endif
-if ( ! $?ATOMIC ) then
+# Canonical atomic DB for this project: always prefer the repository
+# database at /ptmp/sbrennan/SN2024pba/atomic so an inherited ATOMIC
+# cannot silently pick a stale or missing database (user directive
+# 30-Sep-2026; /u/sbrennan/atomic went missing and broke HI_COL_DATA).
+if ( -d /ptmp/sbrennan/SN2024pba/atomic/HYD ) then
+  setenv ATOMIC /ptmp/sbrennan/SN2024pba/atomic
+else if ( ! $?ATOMIC ) then
   set _hn = `hostname`
   if ( "$_hn" =~ raven* || "$_hn" =~ rav* ) then
     setenv ATOMIC /raven/ptmp/sbrennan/atomic

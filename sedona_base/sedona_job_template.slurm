@@ -23,7 +23,7 @@ module load gsl/2.6
 module load hdf5-serial/1.14.1
 module load python-waterboa/2025.06
 
-export SEDONA_HOME=/ptmp/sbrennan/sedona
+export SEDONA_HOME=/viper/ptmp1/sbrennan/SN2024pba/sedona_source
 
 # Set library paths using loaded modules
 export LD_LIBRARY_PATH=$(gsl-config --prefix)/lib:$(dirname $(dirname $(which h5cc)))/lib:$(pwd):$LD_LIBRARY_PATH
@@ -64,7 +64,7 @@ if [ ! -f "$mod_file" ]; then
             # 3) Fallback: CMFGEN SN_HYDRO_DATA -> .mod (v2, correct rmin/texp header)
             if [ -f "$cmfgen_data" ]; then
                 echo "Converting CMFGEN SN_HYDRO_DATA to SEDONA .mod format..."
-                python3 /ptmp/sbrennan/sedona/convert_cmfgen_to_sedona_v2.py "$cmfgen_data" "$mod_file"
+                python3 $SEDONA_HOME/convert_cmfgen_to_sedona_v2.py "$cmfgen_data" "$mod_file"
                 if [ $? -eq 0 ]; then
                     echo "CMFGEN conversion complete"
                 else
@@ -80,7 +80,7 @@ if [ ! -f "$mod_file" ]; then
     # 3) CMFGEN SN_HYDRO_DATA -> .mod (when no .swd available)
     elif [ -f "$cmfgen_data" ]; then
         echo "Converting CMFGEN SN_HYDRO_DATA to SEDONA .mod format..."
-        python3 /ptmp/sbrennan/sedona/convert_cmfgen_to_sedona_v2.py "$cmfgen_data" "$mod_file"
+        python3 $SEDONA_HOME/convert_cmfgen_to_sedona_v2.py "$cmfgen_data" "$mod_file"
         if [ $? -eq 0 ]; then
             echo "CMFGEN conversion complete"
         else

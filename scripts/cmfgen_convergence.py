@@ -93,6 +93,15 @@ DEC_VEC_RE = re.compile(r'DEC_VEC:\s+(.+)')
 INC_VEC_RE = re.compile(r'INC_VEC:\s+(.+)')
 # CORRECTION_SUM header
 NT_RE = re.compile(r'NT=\s+(\d+)')
+# BA_RES_ACC rejection markers.  A masked/vetoed BA step zeroes every
+# depth correction, so the reported "Maximum % increase/decrease" is
+# exactly 0.0 for that iteration — a rejected step, NOT convergence.
+# ("BA_RES_ACC PARTIAL REJ it  N" header, and "ITER_SUM: it=N ... ba=MASKED".)
+BA_REJ_RE = re.compile(r'BA_RES_ACC\s+\S+\s+REJ\s+it\s+(\d+)')
+ITERSUM_RE = re.compile(r'ITER_SUM:\s+it=\s*(\d+)\s+.*?ba=(\S+)')
+# Reported corrections at/below this floor mean the solver applied zero
+# update (a vetoed/masked step); they must not count as convergence.
+ZERO_CORR_TOL = 1.0e-12
 
 
 @dataclass
@@ -108,6 +117,7 @@ class IterationRecord:
     lum_outer: float
     major_scale: Optional[float] = None
     ng_used: bool = False
+    rejected: bool = False  # BA_RES_ACC masked/vetoed step (ba=MASKED)
 
 
 @dataclass
@@ -467,6 +477,8 @@ def parse_outgen(outgen_path: Path) -> ConvergenceHistory:
     maxch_matches = list(MAXCH_RE.finditer(text))
     scale_matches = list(SCALE_RE.finditer(text))
     ng_matches = list(NG_RE.finditer(text))
+    rej_matches = list(BA_REJ_RE.finditer(text))
+    itersum_matches = list(ITERSUM_RE.finditer(text))
 
     # Build iteration -> data mapping
     # Luminosity lines have the iteration number explicitly.
@@ -543,6 +555,20 @@ def parse_outgen(outgen_path: Path) -> ConvergenceHistory:
                 iter_data[it] = {}
             iter_data[it]['ng_used'] = True
 
+    # Rejection markers carry an explicit iteration number.
+    for m in rej_matches:
+        it = int(m.group(1))
+        if it not in iter_data:
+            iter_data[it] = {}
+        iter_data[it]['rejected'] = True
+
+    for m in itersum_matches:
+        if m.group(2).upper() == 'MASKED':
+            it = int(m.group(1))
+            if it not in iter_data:
+                iter_data[it] = {}
+            iter_data[it]['rejected'] = True
+
     # Build sorted iteration list
     for it_num in sorted(iter_data.keys()):
         d = iter_data[it_num]
@@ -557,6 +583,7 @@ def parse_outgen(outgen_path: Path) -> ConvergenceHistory:
             lum_outer=d.get('lum_outer', 0.0),
             major_scale=d.get('major_scale'),
             ng_used=d.get('ng_used', False),
+            rejected=d.get('rejected', False),
         )
         history.iterations.append(rec)
 
@@ -824,7 +851,20 @@ def assess_convergence(
         # For "completed" and "below tolerance" checks, use the recent
         # minimum (last few iterations), not the window max. A model that
         # started with 1e20 corrections but ended at 2% has converged.
-        recent_below_tol = recent_min < converged_tol
+        #
+        # False-convergence veto (m15_2p82d_jfnk_hyb, job 12073582): a
+        # reported max-% change of ~0 does NOT mean converged — it means
+        # the solver applied zero correction because the step was vetoed
+        # (BA_RES_ACC rejected the step and masked every depth
+        # correction).  A genuinely converged iteration still applies a
+        # nonzero correction (or the run converged earlier).  Only
+        # nonzero, non-rejected iterations count as below-tolerance
+        # evidence.
+        recent_recs = history.iterations[-3:]
+        real_recent = [r.maxch for r in recent_recs
+                       if not r.rejected and r.maxch > ZERO_CORR_TOL]
+        recent_below_tol = (bool(real_recent)
+                            and min(real_recent) < converged_tol)
 
         if history.completed and recent_below_tol:
             cls = "CONVERGED"
@@ -867,6 +907,12 @@ def assess_convergence(
                    f"Insufficient trend to classify definitively.")
 
         # Physical validity warnings
+        n_vetoed = sum(1 for r in recent_recs
+                       if r.rejected or r.maxch <= ZERO_CORR_TOL)
+        if n_vetoed:
+            msg += (f" NOTE: {n_vetoed} of the last {len(recent_recs)} "
+                    f"iterations applied zero correction (vetoed/masked "
+                    f"BA step) — not counted as convergence evidence.")
         if lum_outer_negative and abs(lum_outer) > 1e-3 * max(abs(lum_inner), 1.0):
             msg += f" WARNING: outer luminosity is negative ({lum_outer:.2e})."
         if lum_trend == "unstable":

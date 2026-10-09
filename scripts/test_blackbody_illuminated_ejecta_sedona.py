@@ -32,8 +32,8 @@ C_LIGHT = 2.998e10
 SN_A_SWD = '/viper/ptmp1/sbrennan/SN2024pba/SN_A/SN_A_g_T20k_Ni06/stella/SN_A_g_T20k_Ni06.swd'
 
 # SEDONA executable
-SEDONA_EXE = '/ptmp/sbrennan/sedona/src/sedona6.ex'
-SEDONA_HOME = '/ptmp/sbrennan/sedona'
+SEDONA_EXE = '/viper/ptmp1/sbrennan/SN2024pba/sedona_source/src/sedona6.ex'
+SEDONA_HOME = '/viper/ptmp1/sbrennan/SN2024pba/sedona_source'
 
 # Test parameters
 T_BB = 7000.0       # inner blackbody temperature [K]

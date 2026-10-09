@@ -414,14 +414,14 @@ sedona:
   # Sobolev assumes monotonic velocity (photon encounters each line once) — invalid for
   # interacting SNe with shock fronts. Direct Voigt is physically correct for any velocity
   # field and produces P-Cygni features via MC Doppler shifting through the velocity field.
-  opacity_line_expansion: 1    # Sobolev ON with local |dv/dr| (non-monotonic velocity safe)
-  opacity_bound_bound: 0       # Direct Voigt OFF (causes photon trapping in optically thick ejecta)
+  opacity_line_expansion: 0    # Sobolev OFF (radial |dv/dr| patch is only a fallback approx)
+  opacity_bound_bound: 1       # Direct Voigt ON (non-monotonic-safe; DDMC prevents trapping)
   opacity_fuzz_expansion: 0    # Fuzz OFF (uses 1/t_exp, wrong for non-monotonic velocity)
   line_velocity_width_kms: 200 # Turbulent broadening for Voigt lines (km/s). Reduces line trapping
                                # vs thermal Doppler width (~1-13 km/s) while preserving distinct P-Cygni features.
 
   # Resolution and convergence settings
-  nzon_target: 300                  # Target number of zones in .mod file (default: 200, higher = better resolution)
+  nzon_target: 0                  # 0 = keep native grid; downsampling smears the compression dip
   transport_steady_iterate: 30      # 30 iterations for validation (100 for production)
   ntasks: 4                          # MPI tasks for SEDONA parallelism (4x for interactive partition)
   core_n_emit: 5e5                  # Core photon emission (reduced for 150-zone validation)
@@ -429,7 +429,7 @@ sedona:
   particles_n_emit_radioactive: 5e4 # 5×10^4 photon packets (auto-disabled when no radioactive species)
   particles_max_total: 2e8          # Override SEDONA default max for high-photon runs
   particles_last_iter_pump: 10      # Average radiation field over last 10 iterations
-  transport_nu_grid_spacing: 0.005 # Transport grid: q=0.005 (~1060 bins, finer to reduce zero-bin fraction)
+  transport_nu_grid_spacing: 0.001 # Transport grid: q=0.001 (~300 km/s bins ~ 1.5x line width)
   transport_nu_min: 2.5e14         # Transport grid min: 2.5e14 Hz (12000 A) - narrowed to optical for validation
   transport_nu_max: 1.2e15         # Transport grid max: 1.2e15 Hz (2500 A) - narrowed to optical for validation
   spectrum_nu_grid_spacing: 0.0005  # Spectrum grid: q=0.0005 (~785 bins in optical, ~150 km/s resolution)
@@ -439,8 +439,8 @@ sedona:
   # Interacting SNe have tau_es ~ 150; standard MC gives <0.01% escape fraction.
   # DDMC uses diffusion approximation in optically thick zones, dramatically
   # improving photon escape rate. Method 2 = DDMC (Fleck & Canfield 1984).
-  transport_use_ddmc: 0              # 0=off (standard MC: stable escape fraction, no accumulation)
-  transport_ddmc_tau_threshold: 1000.0  # Effectively unused with DDMC off
+  transport_use_ddmc: 2              # 2=DDMC (Fleck & Canfield 1984); required with direct Voigt
+  transport_ddmc_tau_threshold: 10.0  # DDMC active in zones with tau > 10
   
   # SEDONA will use snapshot_days from cmfgen_conversion for tstep_time_start
   # Inner boundary source will be auto-configured from SN_HYDRO_DATA (core_radius, core_temperature, core_luminosity)

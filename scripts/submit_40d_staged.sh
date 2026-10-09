@@ -188,7 +188,7 @@ if [ "$S2_ONLY" = false ]; then
     # Stage 1: s1_init (LTE cold start, T+Ne fixed)
     # ---------------------------------------------------------------------------
     echo ""
-    echo "[Stage 1] s1_init: LTE cold start (FIX_T=T, FIX_NE=T)"
+    echo "[Stage 1] s1_init: LTE cold start (FIX_T=T, FIX_NE=F)"
     prepare_vadat "s1_init" "single-final" "${CONFIGS}/X1fix_40d_s1.yaml"
 
     S1_CMD="export cmfdist=\$(dirname \$(readlink -f batch.sh | xargs dirname)/..)/cmfgen_source && export ATOMIC=\${cmfdist}/AtomicData && ./batch.sh"
@@ -201,7 +201,7 @@ fi
 # Stage 2: s2_final (warm restart, T varies via radiative equilibrium)
 # ---------------------------------------------------------------------------
 echo ""
-echo "[Stage 2] s2_final: Warm restart (FIX_T=F, DO_T_AUTO=T, FIX_NE=T)"
+echo "[Stage 2] s2_final: Warm restart (FIX_T=F, DO_T_AUTO=T, FIX_NE=F)"
 
 # Create a wrapper script that does out2in + prepare VADAT + run
 S2_WRAPPER="${MODEL_DIR}/run_s2_final.sh"

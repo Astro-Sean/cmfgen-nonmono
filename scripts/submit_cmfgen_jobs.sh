@@ -1,10 +1,14 @@
 #!/bin/bash
-# Submit CMFGEN jobs (final + obs) with proper dependencies.
+# Submit CMFGEN jobs (final + obs) with dependencies.
 # INIT/STABLE stages have been removed — only single_final (LTE cold start)
-# or final (warm restart from previous day) are used.
+# or final (warm restart from previous day) are used.  The convergence
+# monitor runs inside the CMFGEN allocation itself (started by the
+# generated FINAL/SINGLE_FINAL slurm), so no separate monitor job exists.
 # All configuration is passed as positional arguments from run_model_grid.py (which reads YAML).
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse optional --debug flag
 DEBUG_FLAG=""
@@ -161,10 +165,12 @@ USE_PROXY_V2="${USE_PROXY_V2:-0}"
 
 # Derive BASE_DIR from MODEL_DIR (MODEL_DIR is <project>/models/<model>/cmfgen)
 # Cluster-aware: detect RAVEN vs VIPER from hostname to avoid hardcoded paths.
+# On viper the default resolves next to this script (project_root/cmfgen_base),
+# so the ptmp2 copy of the pipeline uses the ptmp2 base directory.
 _host="$(hostname 2>/dev/null || echo)"
 case "$_host" in
   raven*|rav*) BASE_DIR="/raven/ptmp/sbrennan/SN2024pba/cmfgen_base" ;;
-  *)            BASE_DIR="/viper/ptmp1/sbrennan/SN2024pba/cmfgen_base" ;;
+  *)            BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/cmfgen_base" ;;
 esac
 # Allow explicit override via environment
 BASE_DIR="${CMFGEN_BASE_DIR:-$BASE_DIR}"
@@ -314,13 +320,23 @@ if [[ "${OBS_JOB}" == "(skipped" || "${OBS_JOB}" == "" ]]; then
   OBS_JOB=""
 fi
 
+# 2026-10-09: the convergence monitor now runs inside the CMFGEN
+# allocation itself -- the generated FINAL/SINGLE_FINAL slurm starts
+# check_convergence.py as a background process next to batch.sh, so no
+# separate monitor job is submitted.  MONITOR_JOB stays empty; the
+# trailing field of the job-ID line below remains so run_model_grid.py
+# parsing (":FINAL:OBS:CONVERGENCE") is unchanged.
+MONITOR_JOB=""
+rm -f "${CMFGEN_DIR}/run_cmfgen_CONVERGENCE.slurm"
+
 echo ""
 echo "======================================================"
 echo "CMFGEN jobs submitted successfully"
 echo "======================================================"
-echo "CMFGEN: ${FINAL_JOB}"
-echo "OBS:    ${OBS_JOB}"
+echo "CMFGEN:      ${FINAL_JOB}"
+echo "OBS:         ${OBS_JOB}"
+echo "CONVERGENCE: ${MONITOR_JOB}"
 echo "======================================================"
 
-# Output job IDs for dependency tracking (INIT removed; format: :FINAL:OBS)
-echo ":${FINAL_JOB}:${OBS_JOB}"
+# Output job IDs for dependency tracking (INIT removed; format: :FINAL:OBS:CONVERGENCE)
+echo ":${FINAL_JOB}:${OBS_JOB}:${MONITOR_JOB}"

@@ -115,6 +115,7 @@ try:
         NON_MONO_SOB_RECOMMENDED,
         build_non_mono_forced_vadat,
         refine_rdinr_velocity_jumps,
+        refine_rdinr_boundaries,
     )
 except ImportError:
     try:
@@ -123,11 +124,13 @@ except ImportError:
             NON_MONO_SOB_RECOMMENDED,
             build_non_mono_forced_vadat,
             refine_rdinr_velocity_jumps,
+            refine_rdinr_boundaries,
         )
     except ImportError:
         NON_MONO_FORCED_VADAT = _NON_MONO_FORCED_VADAT_FALLBACK
         NON_MONO_SOB_RECOMMENDED = {}
         refine_rdinr_velocity_jumps = None
+        refine_rdinr_boundaries = None
 
         def build_non_mono_forced_vadat(line_treatment="BLANK"):
             """Fallback builder mirroring prepare_VADAT.build_non_mono_forced_vadat."""
@@ -220,8 +223,10 @@ _SUBMISSION_STRIP_KEYS = ("partition", "time", "init_partition", "init_time")
 # or find complete existing output do not consume a lane.  An explicit
 # --stella-dependency still applies to each lane head (the first
 # MAX_RUNNING_STELLA submitted jobs).  Overridable per invocation with
-# --max-running-stella (user directive 21-Sep-2026: cap SN_B grid at 4).
-MAX_RUNNING_STELLA = 4
+# --max-running-stella (user directive 30-Sep-2026: cap at 2 STELLA jobs
+# total; counts individual jobs, so a paired wind-control config consumes
+# both slots).
+MAX_RUNNING_STELLA = 2
 
 # Fallback ratio of the cmf_flux (OBS) CMF grid size to the model NCF when no
 # prior obs/OUT_FLUX exists to read it from. 3.0 is conservative against the
@@ -297,22 +302,17 @@ def _strip_legacy_partition_keys(config):
 
 
 # ── Resource presets ────────────────────────────────────────────────
-# Debug mode: interactive partition, 8 CPUs, 30G memory.
-# Production (submission: normal) mode: small partition, 4 CPUs, 32G memory.
-# 4 CPUs schedules sooner on small; jobs run longer but queue less.
+# Interactive jobs use the QOS CPU limit and the interactive memory cap.
+# Production (submission: normal) mode uses the small partition.
+# Generic default is 4 CPUs; CMFGEN production jobs use CMFGEN_PROD_CPUS.
 DEBUG_PARTITION = "interactive"
-# Interactive partition debug CPU count (user directive 18-Sep-2026: 8).
-# Note: the interactive QOS caps MaxTRESPerJob at cpu=16 (verified via
-# sbatch probes; >16 -> QOSMaxCpuPerJobLimit).
-DEBUG_CPUS = 8
+DEBUG_CPUS = 16
 DEBUG_MEM = "30G"
-# Hard ceiling for debug-mode requests: the interactive partition sets
-# MaxMemPerNode=32000M, so anything above ~31G pends forever on
-# MaxMemPerLimit (seen with a 48G OBS request, 21-Sep-2026).
 DEBUG_MEM_CAP_GB = 30.0
 PROD_PARTITION = "small"
 PROD_CPUS = 4
-PROD_MEM = "32G"
+PROD_MEM = "64G"
+CMFGEN_PROD_CPUS = 16
 
 # Files excluded when copying cmfgen_base/ into a run directory
 # (user directive 18-Sep-2026): convergence-fiddle and stale table files
@@ -436,26 +436,25 @@ def ensure_default_species_in_model_spec(model_spec_path):
 
 
 def get_job_resources(debug, config_partition=None, config_mem=None, config_cpus=None):
-    """Return (partition, cpus, memory) for SLURM job submission.
-
-    Debug mode (submission: debug) always uses the interactive preset
-    regardless of config, except that an explicit ``mem`` key is honoured —
-    large-ND grids can exceed the 30G debug preset, and silently ignoring
-    the config value causes an OOM loop on requeue.
-    Production mode (submission: normal) uses config
-    values if provided, else the production preset (small partition).
-    """
-    if debug:
+    """Return partition-aware CPU and memory settings for a SLURM job."""
+    partition = DEBUG_PARTITION if debug else (config_partition or PROD_PARTITION)
+    if partition == DEBUG_PARTITION:
         mem = config_mem if config_mem else DEBUG_MEM
         mem_gb = parse_mem_gb(mem)
         if mem_gb is not None and mem_gb > DEBUG_MEM_CAP_GB:
             print(
-                f"  [MEM] debug: requested {mem} exceeds interactive "
-                f"partition cap -- clamping to 30G"
+                f"  [MEM] interactive: requested {mem} exceeds partition "
+                f"cap -- clamping to 30G"
             )
             mem = "30G"
-        return DEBUG_PARTITION, DEBUG_CPUS, mem
-    partition = config_partition if config_partition else PROD_PARTITION
+        cpus = int(config_cpus) if config_cpus else DEBUG_CPUS
+        if cpus > DEBUG_CPUS:
+            print(
+                f"  [CPUS] interactive: requested {cpus} exceeds QOS cap "
+                f"of {DEBUG_CPUS} -- clamping"
+            )
+            cpus = DEBUG_CPUS
+        return partition, cpus, mem
     cpus = config_cpus if config_cpus else PROD_CPUS
     mem = config_mem if config_mem else PROD_MEM
     return partition, cpus, mem
@@ -515,7 +514,7 @@ def _model_spec_int(model_spec_path, key):
 
 
 def estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg):
-    """Estimate the CMFGEN non-mono solver's peak memory (GiB).
+    """Estimate peak memory for the KNOP solver's lagged-field storage.
 
     Dominant allocation is I_P/M_DEPTH_NEXT = 2*N_COMP*(ND+NC)*NCF*8 bytes
     (fg_j_cmf_nonmono_v1.f:1347). N_COMP is the +-1-cell dilation of the
@@ -523,6 +522,9 @@ def estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg):
     from a prior OUTGEN if present, else cfg 'ncf_estimate', else the
     NCF_MAX bound from MODEL_SPEC. Returns (est_gib, info) or (None, reason).
     """
+    mode = str(cmfgen_cfg.get("non_mono_mode", "") or "").strip().upper()
+    if mode != "KNOP":
+        return None, f"KNOP I_NEXT storage is not used for {mode or 'standard'} mode"
     cmfgen_dir = Path(cmfgen_dir)
     sn_hydro = cmfgen_dir / "SN_HYDRO_DATA"
     if not sn_hydro.exists():
@@ -544,6 +546,18 @@ def estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg):
             r_use, v_use = refine_rdinr_velocity_jumps(
                 r_use, v_use, float(rdinr_max_dv)
             )
+        except Exception:
+            pass
+    # Boundary insertion also grows ND; apply the same geometric split so
+    # the estimate matches the grid CMFGEN will actually run.
+    rdinr_ib_ins = int(cmfgen_cfg.get("rdinr_ib_ins", 0) or 0)
+    rdinr_ob_ins = int(cmfgen_cfg.get("rdinr_ob_ins", 0) or 0)
+    if (rdinr_ib_ins > 0 or rdinr_ob_ins > 0) and \
+            refine_rdinr_boundaries is not None:
+        try:
+            r_use, v_use = refine_rdinr_boundaries(
+                r_use, v_use, n_ib=rdinr_ib_ins, n_ob=rdinr_ob_ins,
+                ratio=float(cmfgen_cfg.get("rdinr_bnd_ratio", 2.5)))
         except Exception:
             pass
     nd_eff = len(r_use)
@@ -610,15 +624,13 @@ def estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg):
 def apply_nonmono_mem_floor(
     mem_str, cmfgen_dir, cmfgen_cfg, job_tag="CMFGEN", debug=False
 ):
-    """Raise a SLURM mem request to the estimated non-mono requirement.
+    """Raise a SLURM mem request to the estimated KNOP storage requirement.
 
-    Only acts when non_mono_mode is enabled; never lowers an explicit
-    request. If the estimate cannot be made, keeps the request and warns.
-    In debug mode the result is clamped to DEBUG_MEM_CAP_GB: larger
-    requests can never schedule on the interactive partition.
+    Never lowers an explicit request. Interactive requests are capped at
+    DEBUG_MEM_CAP_GB.
     """
     mode = str(cmfgen_cfg.get("non_mono_mode", "") or "").strip().upper()
-    if not mode or mode in ("NONE", "F", "FALSE", "OFF"):
+    if mode != "KNOP":
         return mem_str
     est_gb, info = estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg)
     if est_gb is None:
@@ -649,16 +661,11 @@ def apply_nonmono_mem_floor(
     return new_mem
 
 
-def get_time_limit(debug, config_value=None):
-    """Return the SLURM time limit.
-
-    **HARDCODED partition rules — config_value is IGNORED.**
-    - interactive partition (debug): 01:59:00
-    - any other partition (production): 23:59:00
-
-    These limits are enforced everywhere and must not be overridden.
-    """
-    if debug:
+def get_time_limit(debug, config_value=None, partition=None):
+    """Return the hardcoded SLURM time limit for the selected partition."""
+    if partition is None:
+        partition = DEBUG_PARTITION if debug else PROD_PARTITION
+    if partition == DEBUG_PARTITION:
         return INTERACTIVE_TIME_LIMIT
     return PRODUCTION_TIME_LIMIT
 
@@ -704,6 +711,14 @@ def load_yaml_config(config_file):
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
     config = _translate_config_paths(config)
+    from orchestration.config import validate_observational_timing
+
+    timing_errors = validate_observational_timing(config)
+    if timing_errors:
+        raise ValueError(
+            "Observational timing validation failed:\n  "
+            + "\n  ".join(timing_errors)
+        )
     return config
 
 
@@ -1672,6 +1687,15 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     csm_cutoff_n = x_cfg.get("csm_cutoff_n", 12.0)
     csm_T_gamma = x_cfg.get("csm_T_gamma", 0.3)
     csm_T_min = x_cfg.get("csm_T_min_K", None)
+    # Piecewise CSM: inner power law plus an outer segment joined at
+    # csm_r_split_cm (DX18+ reservoir models).  Without the pass-through
+    # below, configs carrying these keys silently build a single law.
+    csm_r_split = float(x_cfg.get("csm_r_split_cm", 0.0) or 0.0)
+    csm_outer_w = float(x_cfg.get("csm_outer_w_gcm", 0.0) or 0.0)
+    csm_outer_n = float(x_cfg.get("csm_outer_n", -1.0) or -1.0)
+    csm_split_blend_dex = float(
+        x_cfg.get("csm_split_blend_dex", 0.15) or 0.15
+    )
     ejecta_T_const = float(x_cfg.get("ejecta_T_const_K", 0.0) or 0.0)
     ejecta_r_inner_cm = float(x_cfg.get("ejecta_r_inner_cm", 0.0) or 0.0)
     # Explosion convention (two-event workflow):
@@ -1942,8 +1966,23 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
                 str(csm_cutoff_r),
                 "--csm-cutoff-n",
                 str(csm_cutoff_n),
+                "--cd-transition-zones",
+                str(cd_transition_zones),
             ]
         )
+        if csm_r_split > 0:
+            cmd.extend(
+                [
+                    "--csm-r-split-cm",
+                    str(csm_r_split),
+                    "--csm-outer-w",
+                    str(csm_outer_w),
+                    "--csm-outer-n",
+                    str(csm_outer_n),
+                    "--csm-split-blend-dex",
+                    str(csm_split_blend_dex),
+                ]
+            )
         if csm_T is not None:
             cmd.extend(["--csm-T", str(csm_T)])
         cmd.extend(["--csm-T-gamma", str(csm_T_gamma)])
@@ -2092,11 +2131,11 @@ def check_existing_jobs(model_name):
 
 # Tokens that may follow "{model_name}_" in a pipeline job name: an optional
 # day label ("25.00days") then a stage name (stella/cmfgen/sedona/superlite/
-# eddfactor/j_release/heracles/conversion), with optional further suffixes
-# (e.g. "_cmfgen_OBS", "_cmfgen_N3", "_eddfactor_init").
+# eddfactor/j_release/heracles/conversion/convergence), with optional further
+# suffixes (e.g. "_cmfgen_OBS", "_cmfgen_N3", "_eddfactor_init").
 _PIPELINE_JOB_SUFFIX_RE = re.compile(
     r"^(?:[0-9]+(?:\.[0-9]+)?days_)?"
-    r"(?:stella|cmfgen|sedona|superlite|eddfactor|j_release|heracles|conversion)(?:_|$)"
+    r"(?:stella|cmfgen|sedona|superlite|eddfactor|j_release|heracles|conversion|convergence)(?:_|$)"
 )
 
 
@@ -2502,6 +2541,12 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
     warm_restart_from = cmfgen.get("warm_restart_from", "") or os.environ.get(
         "CMFGEN_WARM_RESTART_FROM", ""
     )
+    warm_restart_population_only = bool(
+        cmfgen.get("warm_restart_population_only", False)
+    )
+    if warm_restart_population_only and not warm_restart_from:
+        print("ERROR: warm_restart_population_only requires warm_restart_from")
+        return False
     if warm_restart_from:
         wsrc = Path(warm_restart_from)
         if not wsrc.is_absolute():
@@ -2533,18 +2578,46 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
             for ln in hdr:
                 if "Number of data points" in ln:
                     tgt_nd = int(ln.split(":")[1])
-        if src_nd is not None and tgt_nd is not None and src_nd != tgt_nd:
+        # SN_HYDRO_DATA counts the raw hydro grid; rdinr_ib_ins/ob_ins
+        # split boundary cells on the RDINR side (prepare_VADAT), so the
+        # solver-grid ND the SCRTEMP records must match is the hydro
+        # count plus the inserted boundary points.
+        tgt_nd_solve = tgt_nd
+        if tgt_nd_solve is not None:
+            tgt_nd_solve += int(cmfgen.get("rdinr_ib_ins", 0) or 0) + int(
+                cmfgen.get("rdinr_ob_ins", 0) or 0
+            )
+        if (
+            src_nd is not None
+            and tgt_nd_solve is not None
+            and src_nd != tgt_nd_solve
+        ):
             print(
                 f"ERROR: warm_restart_from ND mismatch: source ND={src_nd} "
-                f"vs target SN_HYDRO_DATA ND={tgt_nd} -- refusing "
+                f"vs target solver ND={tgt_nd_solve} (SN_HYDRO_DATA "
+                f"ND={tgt_nd} + rdinr inserts) -- refusing "
                 f"continuation (SCRTEMP records would misalign)"
             )
             return False
-        if src_nd is None or tgt_nd is None:
+        if src_nd is None or tgt_nd_solve is None:
             print(
                 f"  WARNING: warm_restart_from ND fingerprint incomplete "
-                f"(src ND={src_nd}, tgt ND={tgt_nd}); continuing on trust"
+                f"(src ND={src_nd}, tgt ND={tgt_nd_solve}); continuing on trust"
             )
+        if warm_restart_population_only:
+            src_hydro = wsrc / "SN_HYDRO_DATA"
+            if not src_hydro.is_file() or not tgt_hydro.is_file():
+                print(
+                    "ERROR: population-only warm restart requires "
+                    "SN_HYDRO_DATA in both source and target directories"
+                )
+                return False
+            if src_hydro.read_bytes() != tgt_hydro.read_bytes():
+                print(
+                    "ERROR: population-only warm restart requires identical "
+                    "source and target SN_HYDRO_DATA files"
+                )
+                return False
         tgt_model = cmfgen_dir / "MODEL"
         if src_nt is not None and tgt_model.is_file():
             for ln in tgt_model.read_text(errors="replace").splitlines()[:30]:
@@ -2560,11 +2633,19 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
             f"  warm_restart_from: injecting checkpoint from {wsrc} "
             f"(NT={src_nt}, ND={src_nd})"
         )
-        for p in (
-            "POINT1", "POINT2", "SCRTEMP",
-            "FGINEXT_GS", "MOMJNXT_GS",
-            "RVTJ", "MODEL", "CUR_MODEL_DATA",
-        ):
+        if warm_restart_population_only:
+            restart_names = ("POINT1", "POINT2", "SCRTEMP", "MODEL")
+            print(
+                "  warm_restart_from: population-only handoff; radiation, "
+                "Eddington-factor, and Knop GS state will be rebuilt"
+            )
+        else:
+            restart_names = (
+                "POINT1", "POINT2", "SCRTEMP",
+                "FGINEXT_GS", "MOMJNXT_GS",
+                "RVTJ", "MODEL", "CUR_MODEL_DATA",
+            )
+        for p in restart_names:
             fpath = wsrc / p
             if fpath.is_file():
                 tmpdir = Path(tempfile.mkdtemp())
@@ -2948,8 +3029,10 @@ def prepare_sedona_directory(
     # Sobolev (line_expansion) uses tau = n_l * sigma * f * lambda * t_exp, which assumes
     # homologous expansion (t_exp = 1/(dv/dr) = const). WRONG for non-monotonic velocity:
     # the Sobolev length should be 1/|dv/dr_sob|, not t_exp * v. See AGENTS.md §40.
-    # VERIFIED (2026-09-10): line_expansion_opacity in AtomicSpecies_opacities.cpp uses
-    # `time` = t_now_ (global expansion time), NOT local dv/dr.
+    # VERIFIED (2026-09-30): line_expansion_opacity in AtomicSpecies_opacities.cpp now
+    # takes a local |dv/dr| (sobolev_dvds_) computed per zone in transport_opacity.cpp,
+    # falling back to 1/t_exp near velocity extrema. This is still a radial-gradient
+    # approximation — bound_bound remains the compression-safe path.
     # Direct Voigt (bound_bound) is NON-MONOTONIC-SAFE: opacity is per-cell in comoving
     # frame, handles multiple resonance points in velocity reversals. Requires DDMC
     # (transport_use_ddmc >= 1) to handle photon trapping in optically thick zones.
@@ -3127,7 +3210,7 @@ def prepare_sedona_directory(
 
             # Step 2: SN_HYDRO_DATA -> .mod via v2
             sedona_convert = (
-                project_dir.parent / "sedona" / "convert_cmfgen_to_sedona_v2.py"
+                project_dir / "sedona_source" / "convert_cmfgen_to_sedona_v2.py"
             )
             if not sedona_convert.exists():
                 print(f"  ERROR: Conversion script not found at {sedona_convert}")
@@ -3167,9 +3250,9 @@ def prepare_sedona_directory(
                 print(
                     f"  Homologous expansion enabled: correct time + radius in .mod header"
                 )
-            # Use the conversion script from sedona
+            # Use the conversion script from the unified sedona_source tree
             sedona_convert = (
-                project_dir.parent / "sedona" / "convert_cmfgen_to_sedona_v2.py"
+                project_dir / "sedona_source" / "convert_cmfgen_to_sedona_v2.py"
             )
             if sedona_convert.exists():
                 # Remove existing .mod file to ensure fresh conversion
@@ -3700,13 +3783,14 @@ def prepare_sedona_directory(
         #   — narrowed to optical range (spectrum_nu_min to spectrum_nu_max) to concentrate
         #     all bins where the science is. With q=0.0005 over 2.5e14-1.2e15 Hz (2500-12000 A),
         #     this gives ~3100 bins at ~3 A/bin (~150 km/s velocity resolution).
-        text = text.replace(
-            "transport_nu_grid  = {1.0e14, 2.0e16, 0.001, 1}",
-            f"transport_nu_grid  = {{{transport_nu_min:.1e}, {transport_nu_max:.1e}, {transport_nu_grid_spacing}, 1}}",
+        text = re.sub(
+            r"transport_nu_grid\s*=\s*\{[^}]*\}[^\n]*",
+            f"transport_nu_grid  = {{{transport_nu_min:.1e}, {transport_nu_max:.1e}, {transport_nu_grid_spacing}, 1}}  -- Transport grid: {transport_nu_min:.1e}-{transport_nu_max:.1e} Hz, q={transport_nu_grid_spacing}",
+            text,
         )
         # Replace spectrum grid: support both the template default and any pre-existing value
         text = re.sub(
-            r"spectrum_nu_grid\s*=\s*\{[^}]*\}",
+            r"spectrum_nu_grid\s*=\s*\{[^}]*\}[^\n]*",
             f"spectrum_nu_grid   = {{{spectrum_nu_min:.1e}, {spectrum_nu_max:.1e}, {spectrum_nu_grid_spacing}, 1}}  -- Spectrum grid: {spectrum_nu_min:.1e}-{spectrum_nu_max:.1e} Hz, q={spectrum_nu_grid_spacing}",
             text,
         )
@@ -3855,7 +3939,7 @@ def submit_heracles_job(
         config_mem=heracles.get("memory"),
         config_cpus=heracles.get("cpus"),
     )
-    time = get_time_limit(debug, heracles.get("time"))
+    time = get_time_limit(debug, heracles.get("time"), partition=partition)
 
     if debug:
         print(
@@ -3962,7 +4046,7 @@ def submit_conversion_job(
         config_mem=heracles.get("memory"),
         config_cpus=heracles.get("cpus"),
     )
-    time = get_time_limit(debug, heracles.get("time"))
+    time = get_time_limit(debug, heracles.get("time"), partition=partition)
 
     # [DEPRECATED] HERACLES root
     heracles_root = os.environ.get("HERACLES_ROOT", "/ptmp/sbrennan/heracles")
@@ -5302,7 +5386,7 @@ def submit_stella_post_conversion_job(
     )
 
     partition, _, memory = get_job_resources(debug)
-    time = get_time_limit(debug, config_value="01:00:00")
+    time = get_time_limit(debug, config_value="01:00:00", partition=partition)
 
     # Build per-day conversion commands
     cmfgen_cmds = []
@@ -5318,7 +5402,7 @@ def submit_stella_post_conversion_job(
         # SEDONA .mod via v2: convert SN_HYDRO_DATA (already produced by cmfgen_cmd above)
         # to SEDONA format. Uses convert_cmfgen_to_sedona_v2.py which writes correct
         # rmin/texp header (the old convert_stella_swd_to_sedona.py is deprecated).
-        sedona_v2 = project_dir.parent / "sedona" / "convert_cmfgen_to_sedona_v2.py"
+        sedona_v2 = project_dir / "sedona_source" / "convert_cmfgen_to_sedona_v2.py"
         sedona_cmd = (
             f"mkdir -p '{sedona_day_dir}'; "
             f"if [[ -f '{cmfgen_out}' ]]; then "
@@ -6206,6 +6290,18 @@ def generate_eddfactor_for_cmfgen(
         vadat_cmd.append("--use-hydro-grid")
     if rdinr_max_dv_kms is not None:
         vadat_cmd.extend(["--rdinr-max-dv-kms", str(rdinr_max_dv_kms)])
+    # cmfgen.rdinr_ib_ins / rdinr_ob_ins: geometric boundary-cell splitting
+    # applied RDINR-side (prepare_VADAT.write_rdinr), mirroring the
+    # N_IB_INS/N_OB_INS insertion that RD_IN_R_GRID=T bypasses.
+    rdinr_ib_ins = int(cmfgen_cfg.get("rdinr_ib_ins", 0) or 0)
+    rdinr_ob_ins = int(cmfgen_cfg.get("rdinr_ob_ins", 0) or 0)
+    if rdinr_ib_ins > 0:
+        vadat_cmd.extend(["--rdinr-ib-ins", str(rdinr_ib_ins)])
+    if rdinr_ob_ins > 0:
+        vadat_cmd.extend(["--rdinr-ob-ins", str(rdinr_ob_ins)])
+    rdinr_bnd_ratio = cmfgen_cfg.get("rdinr_bnd_ratio", None)
+    if rdinr_bnd_ratio is not None:
+        vadat_cmd.extend(["--rdinr-bnd-ratio", str(rdinr_bnd_ratio)])
     if smooth_velocity_jumps:
         vadat_cmd.append("--smooth-velocity-jumps")
         vadat_cmd.extend(["--smooth-max-dv-ratio", str(smooth_max_dv_ratio)])
@@ -6477,7 +6573,7 @@ def generate_eddfactor_for_cmfgen(
         debug,
         config_partition=cmfgen_cfg.get("init_partition", cmfgen_cfg.get("partition")),
         config_mem=cmfgen_cfg.get("init_mem"),
-        config_cpus=cmfgen_cfg.get("cpus_per_task"),
+        config_cpus=cmfgen_cfg.get("cpus_per_task") or CMFGEN_PROD_CPUS,
     )
     model_name = config.get("model_name", "model")
     edd_slurm.write_text(
@@ -6773,21 +6869,27 @@ def submit_j_release_job(
         debug,
         config_partition=cmfgen_cfg.get("partition"),
         config_mem=cmfgen_cfg.get("mem"),
-        config_cpus=cmfgen_cfg.get("cpus_per_task"),
+        config_cpus=cmfgen_cfg.get("cpus_per_task") or CMFGEN_PROD_CPUS,
     )
-    mem = apply_nonmono_mem_floor(mem, cmfgen_dir, cmfgen_cfg, "J-RELEASE", debug=debug)
+    mem = apply_nonmono_mem_floor(
+        mem,
+        cmfgen_dir,
+        cmfgen_cfg,
+        "J-RELEASE",
+        debug=partition == DEBUG_PARTITION,
+    )
     # HARDCODED time limit per partition (config 'time' is IGNORED)
-    time_limit = get_time_limit(debug)
+    time_limit = get_time_limit(debug, partition=partition)
     obs_time = time_limit
     obs_partition, obs_mem = partition, mem
-    if debug:
+    if partition == DEBUG_PARTITION:
         # cmf_flux needs more memory than the interactive cap allows on
         # fine grids; run the OBS job on the normal partition instead.
         obs_est_gb, _ = estimate_nonmono_mem_gb(cmfgen_dir, cmfgen_cfg)
         if obs_est_gb is not None and obs_est_gb > DEBUG_MEM_CAP_GB:
             obs_partition = PROD_PARTITION
             obs_mem = f"{int(np.ceil(obs_est_gb / 5.0) * 5)}G"
-            obs_time = get_time_limit(False)
+            obs_time = get_time_limit(False, partition=obs_partition)
             print(
                 f"  [MEM] J-RELEASE OBS needs ~{obs_est_gb:.0f}G > "
                 f"{DEBUG_MEM_CAP_GB:.0f}G interactive cap -- OBS job goes "
@@ -7101,30 +7203,28 @@ def submit_cmfgen_jobs(
             f"refinement (max_points={_auto_max}); prepare_VADAT.py will "
             f"auto-detect MODEL_SPEC ND from SN_HYDRO_DATA."
         )
-    # SLURM resources
-    # Debug mode: interactive partition, 8 CPUs, 30G memory.
-    # Production mode: small partition, 4 CPUs, 32G memory.
-    # cmfgen.cpus_per_task overrides the production default. It is passed
-    # as --cpus-per-task. batch.sh must thread from SLURM_CPUS_PER_TASK.
+    # SLURM resources follow the resolved partition. CMFGEN production
+    # jobs use cmfgen.cpus_per_task when set; interactive jobs use the
+    # interactive QOS CPU and memory limits.
     cmfgen_cpus = cmfgen_cfg.get("cpus_per_task", None)
     partition, cmfgen_cpus, slurm_mem = get_job_resources(
         debug,
         config_partition=cmfgen_cfg.get("partition"),
         config_mem=cmfgen_cfg.get("mem"),
-        config_cpus=cmfgen_cpus if cmfgen_cpus else None,
+        config_cpus=cmfgen_cpus if cmfgen_cpus else CMFGEN_PROD_CPUS,
     )
-    is_interactive = debug or partition == "interactive"
-    if is_interactive:
-        partition = "interactive"
-    time_limit = get_time_limit(debug, cmfgen_cfg.get("time"))
+    is_interactive = partition == DEBUG_PARTITION
+    time_limit = get_time_limit(
+        debug, cmfgen_cfg.get("time"), partition=partition
+    )
     init_slurm_mem = cmfgen_cfg.get("init_mem", slurm_mem)
     # Non-mono I_NEXT scales with the actual SN_HYDRO_DATA grid; ensure the
     # request covers it (floor only, never lowers an explicit request).
     slurm_mem = apply_nonmono_mem_floor(
-        slurm_mem, cmfgen_dir, cmfgen_cfg, "FINAL", debug=debug
+        slurm_mem, cmfgen_dir, cmfgen_cfg, "FINAL", debug=is_interactive
     )
     init_slurm_mem = apply_nonmono_mem_floor(
-        init_slurm_mem, cmfgen_dir, cmfgen_cfg, "INIT", debug=debug
+        init_slurm_mem, cmfgen_dir, cmfgen_cfg, "INIT", debug=is_interactive
     )
     # Grid/solver
     n_ob_ins = cmfgen_cfg.get("n_ob_ins", 30)
@@ -7253,6 +7353,14 @@ def submit_cmfgen_jobs(
     rdinr_max_dv = cmfgen_cfg.get("rdinr_max_dv_kms", None)
     if rdinr_max_dv is not None:
         cmd.append(f"--rdinr-max-dv-kms={rdinr_max_dv}")
+    rdinr_ib_ins = int(cmfgen_cfg.get("rdinr_ib_ins", 0) or 0)
+    rdinr_ob_ins = int(cmfgen_cfg.get("rdinr_ob_ins", 0) or 0)
+    if rdinr_ib_ins > 0:
+        cmd.append(f"--rdinr-ib-ins={rdinr_ib_ins}")
+    if rdinr_ob_ins > 0:
+        cmd.append(f"--rdinr-ob-ins={rdinr_ob_ins}")
+    if cmfgen_cfg.get("rdinr_bnd_ratio") is not None:
+        cmd.append(f"--rdinr-bnd-ratio={cmfgen_cfg['rdinr_bnd_ratio']}")
     # Pass complex model and mass frac floor as named CLI args
     if cmfgen_cfg.get("proxy_complex_model", False):
         cmd.append("--proxy-complex-model=1")
@@ -7338,7 +7446,7 @@ def submit_cmfgen_jobs(
         "warm_restart_from", ""
     ):
         env["CMFGEN_WARM_RESTART"] = "1"
-    if debug:
+    if is_interactive:
         # The OBS (cmf_flux) grid is often much finer than the model grid.
         # If its estimate tops the interactive MaxMemPerNode cap, the OBS
         # job would be clamped to 30G and OOM -- route it to the normal
@@ -7370,18 +7478,19 @@ def submit_cmfgen_jobs(
         print(result.stderr)
         return None
 
-    # Parse job IDs from output (format: ":FINAL:OBS" — INIT removed)
+    # Parse job IDs from output (format: ":FINAL:OBS:CONVERGENCE" — INIT removed)
     job_ids_str = result.stdout.strip().split("\n")[-1]
     parts = job_ids_str.split(":")
-    # Format is now ":FINAL:OBS" (empty first field since INIT stage removed)
     final_job = parts[1] if len(parts) > 1 else None
     obs_job = parts[2] if len(parts) > 2 else None
+    monitor_job = parts[3] if len(parts) > 3 else None
 
     print(f"CMFGEN jobs submitted:")
-    print(f"  FINAL: {final_job}")
-    print(f"  OBS:   {obs_job}")
+    print(f"  FINAL:       {final_job}")
+    print(f"  OBS:         {obs_job}")
+    print(f"  CONVERGENCE: {monitor_job}")
 
-    return {"final": final_job, "obs": obs_job}
+    return {"final": final_job, "obs": obs_job, "monitor": monitor_job}
 
 
 def submit_sedona_job(
@@ -7422,7 +7531,7 @@ def submit_sedona_job(
         config_mem=sedona_cfg.get("memory", "128G"),
     )
     ntasks = sedona_cfg.get("ntasks", 8)
-    time_limit = get_time_limit(debug, sedona_cfg.get("time"))
+    time_limit = get_time_limit(debug, sedona_cfg.get("time"), partition=partition)
 
     # Check for required files (warn only - .mod will be created by STELLA/[DEPRECATED] HERACLES conversion)
     mod_file = sedona_dir / f"{model_name}.mod"
@@ -7924,7 +8033,7 @@ def submit_superlite_job(
     )
     ntasks = sl_cfg.get("ntasks", 1)
     cpus_per_task = sl_cpus
-    time_limit = get_time_limit(debug, sl_cfg.get("time"))
+    time_limit = get_time_limit(debug, sl_cfg.get("time"), partition=partition)
 
     # SuperLite paths
     superlite_install = sl_cfg.get("install_dir", "/ptmp/sbrennan/superlite")
@@ -8183,7 +8292,7 @@ def submit_sirocco_job(
         config_mem=sirocco_cfg.get("memory", "16G"),
         config_cpus=sirocco_cfg.get("cpus"),
     )
-    time_limit = get_time_limit(debug, sirocco_cfg.get("time"))
+    time_limit = get_time_limit(debug, sirocco_cfg.get("time"), partition=partition)
 
     import_file = sirocco_dir / f"{model_name}.import.txt"
     if not import_file.exists():
@@ -8626,7 +8735,7 @@ def submit_stella_job(
         config_partition=stella_cfg.get("partition", heracles_cfg.get("partition")),
         config_mem=stella_cfg.get("memory", heracles_cfg.get("memory")),
     )
-    time_limit = get_time_limit(debug, stella_cfg.get("time"))
+    time_limit = get_time_limit(debug, stella_cfg.get("time"), partition=partition)
 
     # stella_root already resolved above via resolve_stella_root()
     input_profile = stella_cfg.get(
@@ -10158,18 +10267,31 @@ def enforce_cmfgen_sn_iin_settings(config):
 
         # Required keys (mode-specific table from prepare_VADAT.py).
         # CMFGEN STOPs if e.g. INC_GRID=T or FG_OPT=DIFF.
+        # An explicit YAML vadat_overrides value wins, matching the
+        # explicit_user_keys exemption prepare_VADAT applies at
+        # VADAT-write time (e.g. VEL_LAW=13 + RD_IN_R_GRID=F selects the
+        # SN_HYDRO_DATA tau-ES grid path instead of the RDINR grid).
         for _key, _val in _forced_vadat.items():
+            if _key in user_vadat_keys:
+                continue
             _force(_key, _val, "NON_MONO")
         # Any leftover TRANS_* key must match the selected line treatment.
         for _key in list(v):
             if str(_key).startswith("TRANS_"):
                 _force(_key, _line_val, "NON_MONO")
         # vel_law is rewritten 12 -> 11 in VADAT; explain the split once.
-        print(
-            "  [NON_MONO] VADAT VEL_LAW forced 12 -> 11 (non-monotonic solver "
-            "runs on the VEL_LAW=11 path); YAML vel_law="
-            f"{cmfgen['vel_law']} retained for the converter SIGMA formula"
-        )
+        if "VEL_LAW" in user_vadat_keys:
+            print(
+                f"  [NON_MONO] VADAT VEL_LAW={v['VEL_LAW']} preserved "
+                "(explicit vadat_overrides); YAML vel_law="
+                f"{cmfgen['vel_law']} retained for the converter SIGMA formula"
+            )
+        else:
+            print(
+                "  [NON_MONO] VADAT VEL_LAW forced 12 -> 11 (non-monotonic solver "
+                "runs on the VEL_LAW=11 path); YAML vel_law="
+                f"{cmfgen['vel_law']} retained for the converter SIGMA formula"
+            )
 
         # ── use_lam_es setup pairing (KNOP only) ───────────────────
         # Runs after the mode-forced table so SOB's USE_LAM_ES=T lands
@@ -10300,32 +10422,53 @@ def enforce_cmfgen_sn_iin_settings(config):
             )
             cmfgen["n_ob_ins"] = 0
 
-        # Verified non-monotonic iteration defaults (AGENTS.md §43.5) —
-        # filled only when the user has not chosen a value.
-        # Damping / convergence values: Ne free (charge conservation),
-        # impurities iterated, tighter BA damping, earlier Lambda
-        # fallback, level dissolution + Rayleigh + Penning on.
+        # Verified non-monotonic iteration defaults (AGENTS.md §43.5) --
+        # generic fallbacks filled only when the user has not chosen a
+        # value.  The SOB recipe imported from prepare_VADAT.py runs first
+        # and supplies the optimized masked-resacc schedule for SOB runs
+        # (including FIX_IMP=F, NUM_LAM=20, BA_PROBE_LAM=20,
+        # BA_SAT_RAW=2D3, FIX_BA=1, and N_FIX_BA=10).
         _nm_defaults = {
             "DO_LAM_IT": "T",  # start in Lambda mode
             "DO_LAM_AUTO": "T",  # auto-switch Lambda -> BA/JFNK at MAXCH<50%
-            "DO_NG": "T",  # Ng acceleration (essential for DIAG)
+            # Ng acceleration (05-Oct-2026 audit of m15_2p82d SOB_mask/v2):
+            # v2 fired NG 53x with 14 successes; every veto traced to
+            # (a) resacc-tainted SCRTEMP records (rejected states are
+            # appended before judgment, restored duplicates after), and
+            # (b) per-component extrapolations crossing zero vetoing the
+            # whole depth.  cmfgen_jfnk now gates firing on NG_CLEAN>=4
+            # (window free of rejected/unjudged records) and NG_ABSTAIN
+            # holds non-physical/zero-delta components per-component
+            # instead of vetoing the depth.  Cancel costs no iteration.
+            "DO_NG": "T",
+            "CHK_NG": "T",  # T-correction consistency check
+            "NG_ABSTAIN": "T",  # per-component hold in NG_MIT_BAND_OPT_V1
+            "ITS/NG": "8",  # clean-record cadence after an accepted Ng
             "COMP_BA": "T",  # recompute BA each iteration
-            "NUM_LAM": "2",  # post-switch Lambda fallback count
+            "NUM_LAM": "2",  # generic fallback; SOB recipe supplies 20
             "LAM_VAL": "2.0D2",  # fall back to Lambda if MAXCH > 200%
-            "BEG_NG": "1.0D1",  # start Ng when max change < 10%
-            "IBEG_NG": "20",  # at least 20 iterations before first Ng
+            "BEG_NG": "5.0D0",  # start Ng when max change < 5%
+            "IBEG_NG": "15",  # minimum-history bound; SOB recipe supplies the same value
             "BW_NG": "40",  # depths per Ng acceleration band
             "FIX_T_AUTO": "F",  # static snapshot: T fixed to hydro
             "FIX_NE": "F",  # Ne solved from charge conservation
-            "FIX_IMP": "F",  # impurity populations iterated like majors
-            "MAX_LIN": "5.0D0",  # 5x BA correction cap (tighter damping)
-            "FIX_BA": "1.0D1",  # keep computing BA until MAXCH < 10%
-            "N_FIX_BA": "2",  # hold BA at most 2 iterations
+            "FIX_IMP": "F",  # generic fallback; SOB recipe also leaves it F
+            "MAX_LIN": "1.0D1",  # manual-typical 10x cap on ordinary BA steps
+            "FIX_BA": "1.0D1",  # generic fallback; SOB recipe supplies 1.0
+            "N_FIX_BA": "2",  # generic fallback; SOB recipe supplies 10
             "BA_CHK_FAC": "1.0D-05",  # tight BA accuracy check
             "EPS_TERM": "5.0D-02",  # iteration convergence threshold
             "DO_DIS": "T",  # level dissolution
             "INC_PEN": "T",  # Penning ionization
             "INC_RAY": "T",  # Rayleigh scattering
+            # Masked acceptance (BA_REJ_FRAC) and soft rejects on LAMBDA
+            # follow-ups both count toward BA_NREJ_CONSEC, so one failed
+            # episode costs ~4-7 counts vs ~1 with whole-state rollback.
+            # The Fortran default 20 kills a masked run after ~5 episodes;
+            # the v2 model needed ~8 episodes to converge.  100 bounds the
+            # run without re-arming the death spiral (m15 SOB_mask-1 died
+            # at it 305 on the default).
+            "BA_NREJ_LIM": "100",
             "BA_MAXCH_FAIL": "1.0D30",  # always accept BA step (rejection disabled; user directive 16-Sep-2026)
         }
         _filled = []
@@ -10420,11 +10563,11 @@ def enforce_cmfgen_sn_iin_settings(config):
             _vl = int(float(cmfgen.get("vel_law", 12)))
         except (TypeError, ValueError):
             _vl = 12
-        if _vl != 12:
+        if _vl not in (12, 13):
             print(
                 f"  [NON_MONO] WARNING: cmfgen.vel_law={cmfgen['vel_law']} — "
                 "the verified path uses vel_law=12 (converter SIGMA "
-                "formula); VADAT is forced to 11 either way"
+                "formula); VADAT is forced to 11 for other values"
             )
         if cmfgen.get("target_nd") is None:
             # Mirrors the prepare_VADAT non-monotonic branch: the hydro grid
@@ -10466,8 +10609,10 @@ def enforce_cmfgen_sn_iin_settings(config):
     _force_unless_user("REL_CMF", "F", "SN_IIN")
     # Ne is solved from charge conservation, not held at the hydro Saha
     # estimate (an LTE guess, not the NLTE ionization balance).  Applies to
-    # every model, not only non-monotonic ones (default adopted 25-Sep-2026).
-    _force_unless_user("FIX_NE", "F", "SN_IIN")
+    # every model, not only non-monotonic ones (default adopted 25-Sep-2026;
+    # made non-overridable 04-Oct-2026 -- FIX_NE is always F).
+    _force("FIX_NE", "F", "SN_IIN")
+    _force("FIX_INB_NE", "F", "SN_IIN")
     # Population smoothing destabilizes non-monotonic velocity models.
     _force("AUTO_SMOOTH", "F", "SN_IIN")
     # Static snapshot: no time-derivative terms.
@@ -10492,46 +10637,28 @@ def enforce_cmfgen_sn_iin_settings(config):
     # SOL_METH follows the solver configuration (non-overridable):
     #   depth_independent_solver=True  -> DIAG   (NUM_BNDS=1)
     #   depth_independent_solver=False -> TRI    (NUM_BNDS=3)
-    #   USE_JFNK=T                     -> DIAG   (preconditioner is DIAG-only)
-    #   USE_JFNK=T + JFNK_USE_BANDED=T -> TRI    (banded LU needs NUM_BNDS=3)
+    #   DO_JFNK=T                     -> DIAG   (preconditioner is DIAG-only)
+    #   DO_JFNK=T + JFNK_USE_BANDED=T -> TRI    (banded LU needs NUM_BNDS=3)
     depth_indep = cmfgen.get("depth_independent_solver", True)
     _sol = "DIAG" if depth_indep else "TRI"
-    _jfnk = _vadat_true(v.get("USE_JFNK", "F"))
+    _jfnk = (_vadat_true(v.get("DO_JFNK", "F"))
+             or _vadat_true(v.get("USE_JFNK", "F")))
     _jfnk_banded = _vadat_true(v.get("JFNK_USE_BANDED", "F"))
     if _jfnk:
         _sol = "TRI" if _jfnk_banded else "DIAG"
     _force("SOL_METH", _sol, "JFNK" if _jfnk else "SN_IIN")
 
-    # JFNK requires Lambda warm-up iterations before the Newton solve.
-    # DO_LAM_IT=F sets RD_LAMBDA=.FALSE. in cmfgen_sub.f (line 616:
-    # LAMBDA_ITERATION=RD_LAMBDA), so LAMBDA_ITERATION starts .FALSE.
-    # and the DO_LAM_AUTO switch (line 4864, requires RD_LAMBDA=.TRUE.)
-    # never fires.  JFNK is then called on iteration 1 with un-converged
-    # LTE populations, fails (info=-1), and the BA fallback produces
-    # singular depths (DGEEQU/DGETRF failures at every depth).
-    #
-    # DO_LAM_IT=T starts in Lambda mode; DO_LAM_AUTO=T switches to JFNK
-    # once MAXCH < JFNK_LAM_THRESH.  JFNK_WARMUP=0 is correct here — the
-    # source comment says "set to 0 when DO_LAM_AUTO owns the switch."
-    # This is enforced, not defaulted: a user who sets DO_LAM_IT=F with
-    # USE_JFNK=T is overridden, because the resulting JFNK cold-start is
-    # always wrong for a static snapshot with non-monotonic velocity.
+    # An explicit DO_LAM_IT=F is the stock cycle: iteration 1 is a full
+    # BA step (SOLVEBA, while ITS_SINCE_START <= JFNK_WARMUP), a large
+    # correction is kept, and NUM_LAM Lambda steps follow while MAXCH
+    # exceeds LAM_VAL.  Forcing DO_LAM_IT=T skipped that first BA step
+    # and left the Knop model in the Lambda march whose continuum
+    # luminosity climbed by orders of magnitude.  JFNK_WARMUP, not
+    # DO_LAM_AUTO, holds Newton off until several full steps exist.
     if _jfnk and not _vadat_true(v.get("DO_LAM_IT", "T")):
-        _force(
-            "DO_LAM_IT",
-            "T",
-            "JFNK",
-            note="USE_JFNK=T requires Lambda warm-up before Newton; "
-            "DO_LAM_IT=F skips Lambda, JFNK cold-starts and fails",
-        )
-    # DO_LAM_AUTO must also be T so the Lambda->JFNK switch fires.
-    if _jfnk and not _vadat_true(v.get("DO_LAM_AUTO", "T")):
-        _force(
-            "DO_LAM_AUTO",
-            "T",
-            "JFNK",
-            note="USE_JFNK=T requires DO_LAM_AUTO=T to switch "
-            "Lambda->JFNK at MAXCH < JFNK_LAM_THRESH",
+        print(
+            "  [JFNK] DO_LAM_IT=F kept: stock BA step first, "
+            "then NUM_LAM Lambda steps; JFNK waits for JFNK_WARMUP"
         )
 
     # SEDONA defaults (setdefault: YAML sedona: section takes precedence).

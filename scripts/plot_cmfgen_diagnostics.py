@@ -6,6 +6,8 @@ SINGLE_FINAL job completes and produces a small set of sanity-check
 figures in <run_dir>/plots/:
 
   diag_structure.png    -- V, density, T, Ne: converged model vs hydro input
+  diag_regrid.png       -- regridded profile (grid points as markers) with the
+                           depth index on the top axis
   diag_convergence.png  -- max population corrections and luminosity vs iteration
   diag_opacity.png      -- mean opacities, radioactive heating, clumping
   diag_radiation.png    -- J/H/K moments and Eddington factor f = K/J
@@ -361,6 +363,213 @@ def plot_structure(sec_rvtj, sec_hydro, outdir, label):
     return out
 
 
+def _add_depth_axis(ax, r_cm):
+    """Twin x-axis showing the depth index.
+
+    r_cm is the model radius in cm, ordered outer -> inner (decreasing).
+    The lower axis is log(R) increasing left to right, so depth 1 (outer
+    boundary) sits at the right and ND (inner boundary) at the left.
+    Ticks are placed at the actual radius of each labeled depth, so the
+    axis is a true 1:1 lookup -- tick crowding reflects grid packing.
+    """
+    nd = len(r_cm)
+    sec = ax.twiny()
+    sec.set_xscale("log")
+    sec.set_xlim(ax.get_xlim())
+
+    # All depths get a tick.  Labels are placed at evenly spaced
+    # target radii snapped to the nearest real depth, so they never
+    # overlap regardless of grid packing.  Interior labels prefer
+    # multiples of 5 when the rounded index keeps half the target
+    # spacing; both endpoints are always shown.
+    lgr = np.log10(r_cm)
+    n_lab = max(2, min(12, nd))
+    targets = np.linspace(lgr[0], lgr[-1], n_lab)
+    labeled = []
+    for k, t in enumerate(targets):
+        d = int(np.argmin(np.abs(lgr - t))) + 1
+        if k == 0:
+            d = 1
+        elif k == n_lab - 1:
+            d = nd
+        elif labeled:
+            d5 = int(round(d / 5.0)) * 5
+            if (
+                1 < d5 < nd
+                and abs(lgr[d5 - 1] - lgr[labeled[-1] - 1])
+                >= 0.5 * abs(lgr[-1] - lgr[0]) / n_lab
+            ):
+                d = d5
+        if d not in labeled:
+            labeled.append(d)
+    labeled = np.array(sorted(labeled))
+
+    minor = np.setdiff1d(np.arange(1, nd + 1), labeled)
+    sec.set_xticks(r_cm[labeled - 1])
+    sec.set_xticklabels([str(d) for d in labeled])
+    sec.set_xticks(r_cm[minor - 1], minor=True)
+    sec.xaxis.set_minor_formatter(plt.NullFormatter())
+    sec.set_xlabel("Depth index (1 = outer)", fontsize=9)
+    sec.tick_params(which="major", labelsize=7)
+    sec.tick_params(which="minor", length=2)
+    return sec
+
+
+def _read_new_sn_r_grid(path):
+    """Parse NEW_SN_R_GRID (I, R[10^10 cm], V[km/s], SIGMA, ...).
+
+    Written by the structure readers at grid construction, so it carries
+    the true (unclamped) SIGMA; RVTJ stores the working sigma, which the
+    non-monotonic solver clamps at -0.999.
+    """
+    if not path.exists():
+        return None
+    rows = []
+    for line in path.read_text(errors="replace").splitlines():
+        toks = line.split()
+        if len(toks) >= 4 and all(_is_float(t) for t in toks[:4]):
+            row = [_to_float(t) for t in toks[:7]]
+            row += [np.nan] * (7 - len(row))
+            rows.append(row)
+    if not rows:
+        return None
+    a = np.asarray(rows, dtype=np.float64)
+    out = {"r": a[:, 1] * 1e10, "v": a[:, 2], "sigma": a[:, 3]}
+    if np.isfinite(a[:, 4]).all() and np.isfinite(a[:-1, 6]).all():
+        # Diagnostic tau and per-cell log10 increment written by
+        # RV_SN_MODEL_SNHYD / RV_SN_MODEL_SNIIN; the increment row is
+        # blank on the last depth.
+        out["tau"] = a[:, 4]
+        out["dlogtau"] = a[:-1, 6]
+    return out
+
+
+def plot_regrid(cdir, sec_rvtj, sec_hydro, outdir, label):
+    """The grid CMFGEN actually solved on (RVTJ) vs the hydro input.
+
+    Markers are at every depth so the regridded point distribution is
+    visible; the top axis labels depth index for each panel.  Velocity
+    and sigma prefer NEW_SN_R_GRID when present, since it holds the
+    unclamped sigma the structure reader produced.
+    """
+    need = ["Radius (10^10 cm)", "Velocity (km/s)", "dlnV/dlnr-1",
+            "Mass Density (gm/cm^3)", "Temperature (10^4K)"]
+    if not all(k in sec_rvtj for k in need):
+        print("  skip regrid: RVTJ sections missing")
+        return None
+
+    r = sec_rvtj["Radius (10^10 cm)"] * 1e10
+    v = sec_rvtj["Velocity (km/s)"]
+    sig = sec_rvtj["dlnV/dlnr-1"]
+    rho = sec_rvtj["Mass Density (gm/cm^3)"]
+    t = sec_rvtj["Temperature (10^4K)"] * 1e4
+
+    grid = _read_new_sn_r_grid(cdir / "NEW_SN_R_GRID")
+    if grid is not None and len(grid["r"]) == len(r):
+        r_g, v_g, sig_g = grid["r"], grid["v"], grid["sigma"]
+    else:
+        r_g, v_g, sig_g = r, v, sig
+
+    r_h = sec_hydro.get("Radius grid (10^10cm)")
+    if r_h is not None:
+        r_h = r_h * 1e10
+    v_h = sec_hydro.get("Velocity (km/s)")
+    sig_h = sec_hydro.get("Sigma (dlnV/dlnr-1)")
+    rho_h = sec_hydro.get("Density (gm/cm^3)")
+    t_h = sec_hydro.get("Temperature (10^4 K)")
+
+    # Rosseland tau on the hydro grid (trapezoid inward from the edge),
+    # used for the tau overlay and the tau=2/3 photosphere marker.
+    tau_h = None
+    r_phot = None
+    if (
+        r_h is not None
+        and rho_h is not None
+        and "Kappa (cm^2/gm)" in sec_hydro
+    ):
+        kap_h = sec_hydro["Kappa (cm^2/gm)"]
+        tau_h = np.concatenate(
+            ([0.0],
+             np.cumsum(0.5 * (kap_h[:-1] * rho_h[:-1]
+                              + kap_h[1:] * rho_h[1:])
+                       * np.diff(-r_h))))
+        if tau_h[-1] > 2.0 / 3.0:
+            r_phot = np.exp(
+                np.interp(np.log(2.0 / 3.0), np.log(tau_h[1:]),
+                          np.log(r_h[1:])))
+
+    fig, axes = plt.subplots(2, 3, figsize=(20, 10))
+
+    def panel(ax, x, y, y_h, ylabel, title, logy=False):
+        show = ax.loglog if logy else ax.semilogx
+        if r_h is not None and y_h is not None:
+            show(r_h, y_h, "b--", lw=1.0, alpha=0.7, label="Hydro input")
+        show(x, y, "r-o", ms=3.5, lw=1.0, label="CMFGEN grid")
+        if r_phot is not None:
+            ax.axvline(r_phot, color="g", ls="-.", lw=1.2,
+                       label=r"$\tau_{Ross}=2/3$")
+        ax.legend(fontsize=8)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(alpha=0.25, which="both")
+        _add_depth_axis(ax, r)
+
+    panel(axes[0, 0], r_g, v_g, v_h, "Velocity (km/s)", "Velocity", logy=True)
+    panel(axes[0, 1], r_g, sig_g, sig_h, r"$d\ln V/d\ln R - 1$", "Sigma")
+    panel(axes[1, 0], r, rho, rho_h, r"Density (g cm$^{-3}$)",
+          "Mass density", logy=True)
+    panel(axes[1, 1], r, t, (t_h * 1e4) if t_h is not None else None,
+          "Temperature (K)", "Temperature", logy=True)
+
+    # Optical-depth panels: cumulative tau shows where the points sit in
+    # the transfer coordinate; the per-cell increment should be flat in
+    # the interior (uniform log-tau grid) and is expected to differ in a
+    # bounded outer zone, which for VEL_LAW=14 is deliberately log-R.
+    if grid is not None and "tau" in grid:
+        tau_g = grid["tau"]
+        axes[0, 2].loglog(r_g, tau_g, "r-o", ms=3.5, lw=1.0,
+                          label="CMFGEN grid")
+        if tau_h is not None:
+            axes[0, 2].loglog(r_h, tau_h, "b--", lw=1.0, alpha=0.7,
+                              label="Hydro input")
+        if r_phot is not None:
+            axes[0, 2].axvline(r_phot, color="g", ls="-.", lw=1.2,
+                               label=r"$\tau_{Ross}=2/3$")
+        axes[0, 2].legend(fontsize=8)
+        axes[0, 2].set_ylabel(r"$\tau$")
+        axes[0, 2].set_title("Optical depth")
+        axes[0, 2].grid(alpha=0.25, which="both")
+        _add_depth_axis(axes[0, 2], r)
+
+        axes[1, 2].semilogx(r_g[:-1], grid["dlogtau"], "r-o", ms=3.5,
+                            lw=1.0)
+        axes[1, 2].axhline(np.median(grid["dlogtau"]), color="k",
+                           ls=":", lw=1.0, label="median spacing")
+        if r_phot is not None:
+            axes[1, 2].axvline(r_phot, color="g", ls="-.", lw=1.2,
+                               label=r"$\tau_{Ross}=2/3$")
+        axes[1, 2].legend(fontsize=8)
+        axes[1, 2].set_ylabel(r"$\Delta\log_{10}\tau$ per cell")
+        axes[1, 2].set_title("Tau spacing (flat = uniform log-tau grid)")
+        axes[1, 2].grid(alpha=0.25, which="both")
+        _add_depth_axis(axes[1, 2], r)
+    else:
+        axes[0, 2].axis("off")
+        axes[1, 2].axis("off")
+
+    for ax in axes.flat:
+        ax.set_xlabel("Radius (cm)  [outer layers at right]")
+
+    fig.suptitle(
+        f"{label}: regridded profile (markers = grid points, ND={len(r)})",
+        fontsize=13)
+    fig.tight_layout()
+    out = outdir / "diag_regrid.png"
+    fig.savefig(out, dpi=140)
+    plt.close(fig)
+    return out
+
+
 def plot_convergence(iters, truncated, outdir, label):
     if not iters:
         print("  skip convergence: no iteration records in OUTGEN")
@@ -690,6 +899,7 @@ def main():
     made = []
     for fn in (
         lambda: plot_structure(sec_rvtj, sec_hydro, outdir, label),
+        lambda: plot_regrid(cdir, sec_rvtj, sec_hydro, outdir, label),
         lambda: plot_convergence(iters, truncated, outdir, label),
         lambda: plot_opacity(sec_rvtj, outdir, label),
         lambda: plot_radiation(sec_rvtj, outdir, label),

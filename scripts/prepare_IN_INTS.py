@@ -211,7 +211,7 @@ def write_init_in_its(
     directory: Path,
     template: Dict[str, str],
     num_its: int | None,
-    d2_eq_d1: bool = True,
+    d2_eq_d1: bool = False,
     gt_auto: str | None = None,
 ):
     """
@@ -257,7 +257,7 @@ def write_stable_in_its(
     directory: Path,
     template: Dict[str, str],
     num_its: int | None,
-    d2_eq_d1: bool = True,
+    d2_eq_d1: bool = False,
     gt_auto: str | None = None,
 ):
     """
@@ -304,7 +304,7 @@ def write_final_in_its(
     directory: Path,
     template: Dict[str, str],
     num_its: int | None,
-    d2_eq_d1: bool = True,
+    d2_eq_d1: bool = False,
     gt_auto: str | None = None,
 ):
     """
@@ -359,7 +359,7 @@ def write_single_final_in_its(
     directory: Path,
     template: Dict[str, str],
     num_its: int | None,
-    d2_eq_d1: bool = True,
+    d2_eq_d1: bool = False,
     gt_auto: str | None = None,
 ):
     """
@@ -443,10 +443,16 @@ def main():
         default=None,
         help="Override NUM_ITS (default: 500 for final, 10000 for single-final).",
     )
-    parser.add_argument(
+    d2_group = parser.add_mutually_exclusive_group()
+    d2_group.add_argument(
+        "--d2-eq-d1",
+        action="store_true",
+        help="Set D2_EQ_D1=T (tie depth-2 populations to depth-1). Default is F (independent depth-2 populations).",
+    )
+    d2_group.add_argument(
         "--no-d2-eq-d1",
         action="store_true",
-        help="Set D2_EQ_D1=F (independent depth-2 populations). Default is T (tied to depth-1 for stability).",
+        help="Deprecated no-op; D2_EQ_D1=F is now the default. Kept for backward compatibility.",
     )
     parser.add_argument(
         "--gt-auto",
@@ -467,7 +473,7 @@ def main():
     # When FIX_T=T (default for static snapshots), DO_T_AUTO=F keeps T fixed
     # to SN_HYDRO_DATA. FIX_T_AUTO=T alone does NOT release T — it only
     # signals DO_LAM_AUTO=T (exit Lambda mode for BA convergence).
-    d2 = not bool(args.no_d2_eq_d1)
+    d2 = bool(args.d2_eq_d1)
     if args.single_final:
         write_single_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto)
     else:  # args.final

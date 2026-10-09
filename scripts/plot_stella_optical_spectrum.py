@@ -33,32 +33,55 @@ CS        = 2.99792458e10   # cm/s
 HPLANC    = 1.054571628e-27 # erg·s  (h-bar in STELLA)
 CLUMNU    = np.log10(8.0 * UR**2 * (BOLTZK * UTP)**3 / (CS * HPLANC)**2)
 UFREQ     = 2.08366e15      # Hz
-NFREQ     = 100
-MFREQ     = 130
 WLMAX     = 50000.0         # Angstroms
 WLMIN     = 1.0
 
-# Frequency grid (dimensionless, same as STELLA)
-freq = np.zeros(NFREQ + 1)
-freq[0]    = CS * 1.0e8 / (WLMAX * UFREQ)
-freq[NFREQ] = CS * 1.0e8 / (WLMIN  * UFREQ)
-Basis = (WLMAX / WLMIN) ** (1.0 / NFREQ)
-for i in range(1, NFREQ):
-    freq[i] = freq[0] * Basis**i
-
-freqmn = np.sqrt(freq[:-1] * freq[1:])           # bin centres (dimensionless)
-
-freqob = np.zeros(MFREQ)
-freqob[:NFREQ] = freqmn
-DLOGNU1 = 1.0 / np.log(freqmn[0] / freqmn[1])
-for L in range(NFREQ, MFREQ):
-    freqob[L] = freqmn[NFREQ - 1] * np.exp(-(L - NFREQ + 1) / DLOGNU1)
-
-nu_hz = freqob * UFREQ                            # physical frequency [Hz]
-wl_A  = 1.0e8 * CS / nu_hz                        # wavelength [Angstrom]
+# Grid dimensions are set by set_grid() after the .flx record size is known.
+# STELLA convention: MFREQ = NFREQ + 30 observer-frame extension bins.
+NFREQ = None
+MFREQ = None
+freqob = None
+nu_hz = None
+wl_A = None
 
 
-def read_flx(flx_path: str):
+def detect_mfreq(flx_path: str) -> int:
+    """Infer MFREQ from the .flx record layout: 8-byte header, then Lsave
+    records of f4+i4+MFREQ*f8, plus a 4-byte trailer."""
+    size = Path(flx_path).stat().st_size
+    with open(flx_path, 'rb') as f:
+        nrec, lsave = struct.unpack('ii', f.read(8))
+    body = size - 8 - 4
+    if body % lsave != 0:
+        raise ValueError(
+            f"{flx_path}: body {body} B not divisible by Lsave={lsave}")
+    mfreq = (body // lsave - 8) // 8
+    if mfreq <= 0 or (8 + 8 * mfreq) * lsave != body:
+        raise ValueError(f"{flx_path}: cannot infer MFREQ (got {mfreq})")
+    return mfreq
+
+
+def set_grid(nfreq: int, mfreq: int):
+    """Build the STELLA observer-frequency grid for the given dimensions."""
+    global NFREQ, MFREQ, freqob, nu_hz, wl_A
+    NFREQ, MFREQ = nfreq, mfreq
+    freq = np.zeros(NFREQ + 1)
+    freq[0] = CS * 1.0e8 / (WLMAX * UFREQ)
+    freq[NFREQ] = CS * 1.0e8 / (WLMIN * UFREQ)
+    Basis = (WLMAX / WLMIN) ** (1.0 / NFREQ)
+    for i in range(1, NFREQ):
+        freq[i] = freq[0] * Basis**i
+    freqmn = np.sqrt(freq[:-1] * freq[1:])        # bin centres (dimensionless)
+    freqob = np.zeros(MFREQ)
+    freqob[:NFREQ] = freqmn
+    DLOGNU1 = 1.0 / np.log(freqmn[0] / freqmn[1])
+    for L in range(NFREQ, MFREQ):
+        freqob[L] = freqmn[NFREQ - 1] * np.exp(-(L - NFREQ + 1) / DLOGNU1)
+    nu_hz = freqob * UFREQ                        # physical frequency [Hz]
+    wl_A = 1.0e8 * CS / nu_hz                     # wavelength [Angstrom]
+
+
+def read_flx(flx_path: str, mfreq: int = None):
     """Parse STELLA binary *.flx file.
 
     Returns:
@@ -66,18 +89,20 @@ def read_flx(flx_path: str):
       nfrus  : np.ndarray (int),  shape (Lsave,)
       flsave : np.ndarray shape (MFREQ, Lsave)  -- raw STELLA flux variable F
     """
+    if mfreq is None:
+        mfreq = detect_mfreq(flx_path)
     with open(flx_path, 'rb') as f:
         Nrec  = struct.unpack('i', f.read(4))[0]
         Lsave = struct.unpack('i', f.read(4))[0]
 
         times  = np.zeros(Lsave)
         nfrus  = np.zeros(Lsave, dtype=int)
-        flsave = np.zeros((MFREQ, Lsave))
+        flsave = np.zeros((mfreq, Lsave))
 
         for i in range(Lsave):
             times[i]        = struct.unpack('f', f.read(4))[0]
             nfrus[i]        = struct.unpack('i', f.read(4))[0]
-            flsave[:, i]    = np.array(struct.unpack(f'{MFREQ}d', f.read(8 * MFREQ)))
+            flsave[:, i]    = np.array(struct.unpack(f'{mfreq}d', f.read(8 * mfreq)))
 
         end_marker = struct.unpack('i', f.read(4))[0]
         if end_marker != Nrec:
@@ -128,7 +153,10 @@ def main():
         print(f"ERROR: {flx} not found")
         sys.exit(1)
 
-    times, nfrus, flsave = read_flx(str(flx))
+    mfreq = detect_mfreq(str(flx))
+    set_grid(mfreq - 30, mfreq)
+    print(f"[flx] MFREQ={mfreq} (NFREQ={mfreq - 30})")
+    times, nfrus, flsave = read_flx(str(flx), mfreq)
     n_epochs = len(times)
     print(f"[flx] Read {n_epochs} epochs, t in [{times.min():.2f}, {times.max():.2f}] d")
 

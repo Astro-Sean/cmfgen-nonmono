@@ -151,6 +151,25 @@ def _csm_rho(csm, r):
         rho = rho * csm.get("clumping_D", 1.0)
     else:
         rho = csm["rho15"] * (r / R_REF_1E15) ** csm["slope"]
+        r_split = csm.get("r_split_cm", 0.0)
+        if r_split > 0:
+            # Piecewise CSM: past r_split follow the outer segment,
+            # blended across split_blend_dex in log-r so the density
+            # stays continuous even when the laws jump (detached
+            # outer shell).  outer_w_gcm=0 means the outer law matches
+            # the inner law at r_split (continuous).
+            outer_rho15 = csm.get("outer_rho15", 0.0)
+            if outer_rho15 <= 0:
+                rho_i_split = (
+                    csm["rho15"] * (r_split / R_REF_1E15) ** csm["slope"]
+                )
+                outer_rho15 = rho_i_split / (
+                    r_split / R_REF_1E15
+                ) ** csm["outer_slope"]
+            rho_o = outer_rho15 * (r / R_REF_1E15) ** csm["outer_slope"]
+            half = 0.5 * csm["split_blend_dex"]
+            w_o = 0.5 * (1.0 + np.tanh(np.log10(r / r_split) / half))
+            rho = rho ** (1.0 - w_o) * rho_o ** w_o
     return rho * _csm_cutoff_factor(csm, r)
 
 
@@ -283,6 +302,10 @@ def create_powerlaw_csm(
     rstar_cm=0.0,
     beta=1.0,
     clumping_D=1.0,
+    r_split_cm=0.0,
+    outer_slope=None,
+    outer_w_gcm=None,
+    split_blend_dex=0.15,
 ):
     """Create the power-law CSM profile.
 
@@ -335,6 +358,14 @@ def create_powerlaw_csm(
         "rstar_cm": rstar_cm if rstar_cm > 0 else r_inner_cm,
         "beta": beta,
         "clumping_D": clumping_D,
+        "r_split_cm": r_split_cm,
+        "split_blend_dex": split_blend_dex,
+        "outer_slope": outer_slope if outer_slope is not None else slope,
+        "outer_rho15": (
+            outer_w_gcm / (4.0 * np.pi * R_REF_1E15**2)
+            if (outer_w_gcm is not None and outer_w_gcm > 0)
+            else 0.0
+        ),
     }
 
     # Normalisation
@@ -1547,8 +1578,40 @@ def main():
         default=12.0,
         help="Cutoff steepness n",
     )
+    parser.add_argument(
+        "--csm-r-split-cm",
+        type=float,
+        default=0.0,
+        help="Split the power-law CSM at this radius into inner and "
+        "outer segments blended over --csm-split-blend-dex (0 = off)",
+    )
+    parser.add_argument(
+        "--csm-outer-n",
+        type=float,
+        default=-1.0,
+        help="Outer-segment density slope n (rho ~ r^-n; "
+        "<0 = same as --csm-powerlaw-n)",
+    )
+    parser.add_argument(
+        "--csm-outer-w",
+        type=float,
+        default=0.0,
+        help="Outer-segment normalisation w = 4 pi r^2 rho at 1e15 cm "
+        "in g/cm (0 = continuous: match the inner law at r_split). "
+        "A value larger than --csm-w makes a detached outer shell",
+    )
+    parser.add_argument(
+        "--csm-split-blend-dex",
+        type=float,
+        default=0.15,
+        help="Blend width in dex across the inner/outer junction",
+    )
 
     args = parser.parse_args()
+
+    if args.csm_r_split_cm > 0 and args.beta_wind:
+        parser.error("--csm-r-split-cm requires the power-law CSM "
+                     "(not --beta-wind)")
 
     if args.immediate_contact:
         args.no_wind = True
@@ -1862,6 +1925,12 @@ def main():
             T_gamma=args.csm_T_gamma,
             T_min=csm_T_min,
             match_shell=args.csm_match_shell,
+            r_split_cm=args.csm_r_split_cm,
+            outer_slope=(
+                -args.csm_outer_n if args.csm_outer_n >= 0 else None
+            ),
+            outer_w_gcm=args.csm_outer_w if args.csm_outer_w > 0 else None,
+            split_blend_dex=args.csm_split_blend_dex,
         )
         print_csm_diagnostics(csm, csm_r_inner, r_csm_outer)
         combined = combine_shell_csm(
@@ -1941,6 +2010,12 @@ def main():
             rstar_cm=args.wind_rstar_cm,
             beta=args.wind_beta,
             clumping_D=args.wind_clumping,
+            r_split_cm=args.csm_r_split_cm,
+            outer_slope=(
+                -args.csm_outer_n if args.csm_outer_n >= 0 else None
+            ),
+            outer_w_gcm=args.csm_outer_w if args.csm_outer_w > 0 else None,
+            split_blend_dex=args.csm_split_blend_dex,
         )
         combined = combine_shell_csm_ejecta(
             shell,

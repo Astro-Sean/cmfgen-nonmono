@@ -959,7 +959,7 @@ fi
 MOD_FILE="$SEDONA_DIR/{MODEL_NAME}.mod"
 if [[ -f "$OUTPUT_HYDRO" ]]; then
     echo "Converting CMFGEN SN_HYDRO_DATA to SEDONA .mod format..."
-    python /ptmp/sbrennan/sedona/convert_cmfgen_to_sedona_v2.py "$OUTPUT_HYDRO" "$MOD_FILE" 2>&1 | tee -a stella_build.log
+    python $SEDONA_HOME/convert_cmfgen_to_sedona_v2.py "$OUTPUT_HYDRO" "$MOD_FILE" 2>&1 | tee -a stella_build.log
     if [[ $? -eq 0 ]]; then
         echo "Successfully created $MOD_FILE"
     else
