@@ -2247,3 +2247,32 @@ JFNK OUTGEN prints are now one value per line with expanded labels
 (`res` -> `residual`, `it` -> `iteration`, `dtau` ->
 `pseudo-timestep`, etc.; commits `9131049`, `ffc18ce`).  Binary
 relinked 16:51; 34/34 JFNK tests pass.
+
+### Status update (2026-10-10): SCHUR preconditioner option + git re-init
+
+Research-plan integration: `JFNK_PRECOND=SCHUR` adds a two-level
+(n,T) Schur-complement preconditioner.  Routines
+`jfnk_schur_form_v1` / `jfnk_schur_apply_v1` live in
+`jfnk_solver_v1.f90` so the unit-test driver (`se_driver`) calls the
+identical production code via `external` declarations - satisfies the
+"exact Fortran in unit tests" requirement.  Per-depth pop blocks use
+normal-equation LSQ (Tikhonov `lambda^2 I`, ridge rows, reg-row
+normalization) WITHOUT row equilibration: measured bisection on the
+shock surrogate shows the `rsf^2` reweighting corrupts `J_nn^-1`
+(MZDIFF 0.25 vs 0.0075 raw).  Dense NDxND Schur complement via
+DGETRF/DGETRS.
+
+Surrogate verdict (se_driver, systems/shock): SCHUR INFO 3 vs LSQ
+INFO 0 NITS 25 - the pop-only elimination drops the dominant T-row
+regularization on masked-T specs.  LSQ remains the production
+default; SCHUR is an opt-in VADAT value pending a cross-depth-T
+surrogate (`tcoup` knob planned for gen_se_system.py).
+
+Git: the worktree parent `cmfgen_nonmono_dev_V7_OLD/.git` is gone
+(tree deleted; only a dangling `.git` pointer file remained).  The
+tree was re-initialized in place; baseline commit `a15dba1` covers
+all session solver work.  Prior history is lost with the parent.
+Fresh run submitted against this state: job 12151424
+(`m15_2p82d_SOB_jfnk_zlaw14_fresh`, cold start, JFNK_TAUTO=T,
+JFNK_PRECOND=LSQ).  Binary relinked 23:07; unit tests pass except
+the documented LU-on-shock rank-deficiency blowup (pre-existing).

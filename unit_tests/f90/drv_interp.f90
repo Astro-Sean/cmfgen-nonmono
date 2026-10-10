@@ -28,7 +28,7 @@
       INTEGER, PARAMETER :: LDP=KIND(1.0D0)
       INTEGER, PARAMETER :: MX=64
 !
-      CHARACTER(LEN=32) :: RTN, CASE
+      CHARACTER(LEN=32) :: RTN, CNAME
       INTEGER ND, NIN, NX, LIN_END, NQ, NV
       REAL(KIND=LDP) R(MX), V(MX), U(MX), W(MX)
       REAL(KIND=LDP) QZR(MX), QZ(MX,4), VARRAY(MX,4)
@@ -43,18 +43,18 @@
         STOP
       END IF
       CALL GET_COMMAND_ARGUMENT(1,RTN)
-      CALL GET_COMMAND_ARGUMENT(2,CASE)
+      CALL GET_COMMAND_ARGUMENT(2,CNAME)
 !
-      DEC=(CASE .EQ. 'valid_dec' .OR. CASE .EQ. 'rnonmono' .OR.
-     1     CASE .EQ. 'rrepeat' .OR. CASE .EQ. 'ureverse' .OR.
-     2     CASE .EQ. 'unonmono' .OR. CASE .EQ. 'urange' .OR.
-     3     CASE .EQ. 'qzrreverse' .OR. CASE .EQ. 'qzrrepeat')
+      DEC=(CNAME .EQ. 'valid_dec' .OR. CNAME .EQ. 'rnonmono' .OR. &
+        CNAME .EQ. 'rrepeat' .OR. CNAME .EQ. 'ureverse' .OR. &
+        CNAME .EQ. 'unonmono' .OR. CNAME .EQ. 'urange' .OR. &
+        CNAME .EQ. 'qzrreverse' .OR. CNAME .EQ. 'qzrrepeat')
 !
       ND=20
       NIN=30
       NX=30
-      IF(CASE .EQ. 'ndsmall') ND=1
-      IF(CASE .EQ. 'ninsmall')THEN
+      IF(CNAME .EQ. 'ndsmall') ND=1
+      IF(CNAME .EQ. 'ninsmall')THEN
         NIN=1
         NX=0
       END IF
@@ -99,30 +99,30 @@
 ! QZR must lie inside R, so shrink it slightly at both ends.
 !
       DO I=1,NX
-        QZR(I)=R(1)+(R(ND)-R(1))*(0.02_LDP+0.96_LDP*
-     1         REAL(I-1,LDP)/MAX(NX-1,1))
+        QZR(I)=R(1)+(R(ND)-R(1))*(0.02_LDP+0.96_LDP* &
+        REAL(I-1,LDP)/MAX(NX-1,1))
       END DO
 !
 ! Case perturbations.
 !
-      IF(CASE .EQ. 'rnonmono' .AND. ND .GT. 10)
-     1  R(10)=R(8)                        ! reversal at depth 10
-      IF(CASE .EQ. 'rrepeat' .AND. ND .GT. 6)
-     1  R(6)=R(5)
-      IF(CASE .EQ. 'ureverse' .OR. CASE .EQ. 'qzrreverse')THEN
+      IF(CNAME .EQ. 'rnonmono' .AND. ND .GT. 10) &
+        R(10)=R(8)                        ! reversal at depth 10
+      IF(CNAME .EQ. 'rrepeat' .AND. ND .GT. 6) &
+        R(6)=R(5)
+      IF(CNAME .EQ. 'ureverse' .OR. CNAME .EQ. 'qzrreverse')THEN
         DO I=1,NIN
           U(I)=U(NIN+1-I)                 ! flip direction
           QZR(I)=QZR(NIN+1-I)
         END DO
       END IF
-      IF(CASE .EQ. 'unonmono')THEN
+      IF(CNAME .EQ. 'unonmono')THEN
         U(8)=U(7)
         QZR(8)=QZR(7)
       END IF
-      IF(CASE .EQ. 'qzrrepeat')THEN
+      IF(CNAME .EQ. 'qzrrepeat')THEN
         QZR(8)=QZR(7)                     ! allowed by MON_INTERP only
       END IF
-      IF(CASE .EQ. 'urange')THEN
+      IF(CNAME .EQ. 'urange')THEN
         U(1)=R(1)*0.5_LDP                 ! no longer covers R(1)
         QZR(1)=R(1)*1.5_LDP               ! outside R for MON*
       END IF
@@ -150,8 +150,8 @@
           WRITE(*,'(i6,3(1x,es24.16e3))') I,QZR(I),QZ(I,1),QZ(I,2)
         END DO
       ELSE IF(RTN .EQ. 'monf2')THEN
-        CALL MON_INTERP_FAST_V2(QZ,NQ,LIN_END,QZR,NX,VARRAY,NV,
-     1                          R,ND,'drv_interp')
+        CALL MON_INTERP_FAST_V2(QZ,NQ,LIN_END,QZR,NX,VARRAY,NV, &
+        R,ND,'drv_interp')
         WRITE(*,'(a)')'RESULT_OK'
         DO I=1,NX
           WRITE(*,'(i6,3(1x,es24.16e3))') I,QZR(I),QZ(I,1),QZ(I,2)
@@ -163,8 +163,8 @@
           DO J=0,4
             XX=R(I)+(R(I+1)-R(I))*REAL(J,LDP)/4.0_LDP
             T1=XX-R(I)
-            YY=COEF(I,1)*T1*T1*T1+COEF(I,2)*T1*T1+
-     1         COEF(I,3)*T1+COEF(I,4)
+            YY=COEF(I,1)*T1*T1*T1+COEF(I,2)*T1*T1+ &
+        COEF(I,3)*T1+COEF(I,4)
             WRITE(*,'(2(1x,es24.16e3))') XX,YY
           END DO
         END DO

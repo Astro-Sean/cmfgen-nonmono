@@ -179,6 +179,23 @@ Janett et al. 2024 (A&A 682, A68,
 cross-depth radiative coupling is dropped self-consistently from both
 the frozen matvec and the PC).
 
+`JFNK_PRECOND=SCHUR` (10-Oct-2026): two-level (n,T) Schur
+preconditioner, routines `jfnk_schur_form_v1` / `jfnk_schur_apply_v1`
+in `jfnk_solver_v1.f90` (free-form module, shared with the unit-test
+driver so tests run the identical code). Factor phase stores the
+per-depth population block `J_nn` normal equations (ridge + reg-row
+normalization + `lambda^2 I`, NO row equilibration - the `rsf^2`
+reweighting corrupts the effective `J_nn^-1` the Schur elimination
+needs; measured MZDIFF 0.25 vs 0.0075 on the shock surrogate),
+the `J_nT`/`J_Tn` couplings, and the dense NDxND Schur complement
+`S = J_TT - J_Tn J_nn^-1 J_nT` (DGETRF/DGETRS). Apply: pop LSQ solve,
+eliminate to T, Schur solve, back-substitute. Default remains `LSQ`:
+on the masked-T surrogate specs (shock/std) the pop-only elimination
+loses the dominant T-row regularization and Schur underperformed LSQ
+(surrogate senewton: LSQ INFO 0 NITS 25 vs SCHUR INFO 3 on shock).
+Revisit when a cross-depth-T surrogate exists (`tcoup` knob in
+`gen_se_system.py` is the planned extension).
+
 ### `JFNK_TAUTO` (default = `VARFIXT` at VADAT read) - adaptive damped T
 
 13-Oct-2026. Replaces the hard T mask inside the JFNK solve with a
