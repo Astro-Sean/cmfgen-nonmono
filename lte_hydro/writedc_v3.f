@@ -1,0 +1,105 @@
+	SUBROUTINE WRITEDC_V3(HYD,HYDLTE,NHYD,DHYD,NION,R,T,ED,V,CLUMP_FAC,
+	1               LUM,ND,FILENAME,OPTION,FORM)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+! Created 28-May-2025:  Designed to handle caseis where some populations may be zero.
+!                       For use in computing LTE Rosseland mean opacities.
+
+	INTEGER NHYD,NION,ND,FORM,I,J,IOS
+	INTEGER, PARAMETER :: IZERO=0
+	REAL(KIND=LDP) HYD(NHYD,ND),HYDLTE(NHYD,ND),DHYD(NION,ND)
+	REAL(KIND=LDP) R(ND),T(ND),ED(ND),V(ND),CLUMP_FAC(ND)
+	REAL(KIND=LDP) LUM
+	CHARACTER*(*)FILENAME,OPTION
+	CHARACTER*30 NEWNAME
+	CHARACTER*90 FMT
+!
+	REAL(KIND=LDP) TA(NHYD)
+	REAL(KIND=LDP) T1,T2
+	INTEGER ERROR_LU,LUER
+	EXTERNAL ERROR_LU
+!
+!	NEWNAME=FILENAME//'.'//OPTION
+	NEWNAME=FILENAME
+!
+! 1 = H, HeII
+! 2 = HeI Sing
+! 3 = HeI triplets, CIV,NV
+! 4 = CIII,NIV
+! 5 = HeI (Singlets and Triplets)
+!
+	IF(FORM .EQ. 1)FMT='(5ES17.7E3)'
+	IF(FORM .EQ. 2)FMT='(1X,1P,1E15.5,:/,1X,2E15.5,:/,1X,3E15.5,
+	1                        :/,(1X,4E15.5_LDP))'
+	IF(FORM .EQ. 3)FMT='(1X,1P,2E15.5,:/,1X,3E15.5,:/,(1X,4E15.5))'
+	IF(FORM .EQ. 4)FMT='(1X,1P,1E15.5,:/,1X,2E15.5,:/,1X,3E15.5,
+	1                        :/,(1X,6E15.5_LDP))'
+	IF(FORM .EQ. 5)FMT='(1X,1P,1E15.5,:/,1X,2E15.5,:/,1X,2E15.5,:/,1X,
+	1            3E15.5_LDP,:/,1X,3E15.5_LDP,/:,(1X,6E15.5_LDP))'
+!
+	I=9
+	CALL GEN_ASCI_OPEN(I,NEWNAME,'REPLACE',' ',' ',IZERO,IOS)
+	IF(IOS .NE. 0)THEN
+	  LUER=ERROR_LU()
+	  WRITE(LUER,*)'Error opening D.C, file',NEWNAME
+	  WRITE(LUER,*)'IOSTAT=',IOS
+	  RETURN
+	END IF
+!
+	WRITE(9,'(/,1X,A,T40,A)')'28-May-2025','!Format date'
+	WRITE(9,2120)R(ND),LUM,NHYD,ND
+	FLUSH(UNIT=9)
+!
+	IF(OPTION(1:2) .EQ. 'DC')THEN
+	  DO I=1,ND
+	    IF(DHYD(1,I) .GT. 0.0_LDP)THEN
+	      T1=0.0_LDP
+	      T2=0.0_LDP
+	      DO J=1,NHYD
+	        T1=T1+HYD(J,I)
+	      END DO
+	      DO J=1,NION
+	        T2=T2+DHYD(J,I)
+	      END DO
+	      T1=T1/T2
+	      WRITE(9,2122)R(I),DHYD(1,I),ED(I),T(I),T1,V(I),CLUMP_FAC(I),I,' '
+	      FLUSH(UNIT=9)
+	      DO J=1,NHYD
+	        IF(HYDLTE(J,I) .GT. 0.0_LDP .AND. HYD(J,I) .GT. 0.0_LDP)THEN
+	          TA(J)=EXP( LOG(HYD(J,I))-LOG(HYDLTE(J,I)) )
+	        ELSE
+	          TA(J)=0.0_LDP
+	        END IF
+	      END DO
+	      WRITE(9,FMT)(TA(J),J=1,NHYD)
+	    ELSE
+	      T1=0.0D0
+	      WRITE(9,2122)R(I),DHYD(1,I),ED(I),T(I),T1,V(I),CLUMP_FAC(I),I,' '
+	      WRITE(9,FMT)(0.0D0,J=1,NHYD)
+	    END IF
+	  END DO
+!	   
+	ELSE
+	  DO I=1,ND
+	    T1=0.0_LDP
+	    T2=0.0_LDP
+	    DO J=1,NHYD
+	      T1=T1+HYD(J,I)
+	    END DO
+	    DO J=1,NION
+	      T2=T2+DHYD(J,I)
+	    END DO
+	    T1=0.0_LDP
+	    IF(T2 .NE. 0)T1=T1/T2
+	    WRITE(9,2122)R(I),DHYD(1,I),ED(I),T(I),T1,V(I),CLUMP_FAC(I),I,' '
+	    WRITE(9,FMT)(HYD(J,I),J=1,NHYD)
+	  END DO
+	END IF
+	CLOSE(UNIT=9)
+!
+2120	FORMAT(/,1X,ES15.7,4X,1PE11.4,5X,0P,I4,5X,I4)
+2122	FORMAT(/,1X,ES15.7,6ES17.7E3,2X,I4,A1)
+!
+	RETURN
+	END

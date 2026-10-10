@@ -1,0 +1,146 @@
+C
+C Program to output BA matrices to scratch files. When a CMFGEN model
+C is nearing convergence, the BA matrix does not need to be recomputed.
+C Instead it is read in from disk, when needed.
+C
+	SUBROUTINE STORE_BA_DATA_V3(LU,NION,NUM_BANDS,ND,COMPUTE_BA,FIXED_T,DESC)
+	USE SET_KIND_MODULE
+	USE STEQ_DATA_MOD
+	IMPLICIT NONE
+!
+! Altered 29-Jul-2024 - Added ability to BA to be output to SCRATCH directory.
+! Altered 15-Jul-2019 - BA_T_EHB now output.
+! Altered 04-Oct-2016 - Added FIXED_T to call. Changed to V3.
+!                          FIXED_T output to BAMATPNT.
+! Created 05-Apr-2001 - Based on STOREBA
+!                       Designed to use TSEQ_DATAMOD.
+!                       See REABA for earlier changes.
+!
+	INTEGER NION  	!Number of ions treated
+	INTEGER NUM_BANDS  	!Number of bands in matrix
+	INTEGER ND  		!Number of depth points
+	INTEGER LU		!Logical unit for BA output.
+        INTEGER LU1		!LU+1 is used for BAPNT1
+C
+C COMPUTE_BA is used to indicate whether BA been computed. This must be
+C included since it changes during program execution, and hence is not
+C the same as in VADAT file.
+C
+	LOGICAL COMPUTE_BA
+	LOGICAL FIXED_T
+	CHARACTER DESC*(*)		!File name for BA &STEQ output.
+C
+	LOGICAL FILE_OPEN
+	INTEGER IOS,ID,LUER,ERROR_LU
+	INTEGER, PARAMETER :: IZERO=0
+	EXTERNAL ERROR_LU
+	CHARACTER(LEN=200), SAVE ::  FILE_NAME
+	CHARACTER(LEN=200), SAVE :: SCRATCH_DIR='GARBAGE'
+C
+	LUER=ERROR_LU()
+	IF(SCRATCH_DIR .EQ. 'GARBAGE')THEN
+	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',SCRATCH_DIR)
+	  IF(SCRATCH_DIR .NE. ' ')WRITE(LUER,*)'Scratch directory is: ',TRIM(SCRATCH_DIR)
+	END IF
+C
+C Indicate in pointer file that BA and STEQ are currently being written.
+C
+	FILE_NAME=TRIM(SCRATCH_DIR)//TRIM(DESC)//'PNT'
+	LU1=LU+1
+	CALL GEN_ASCI_OPEN(LU1,TRIM(FILE_NAME),'UNKNOWN',' ',' ',IZERO,IOS)
+	IF(IOS .NE. 0)GOTO 300
+	WRITE(LU1,*,ERR=400,IOSTAT=IOS).FALSE.,'!Bad Write'
+C
+C Store BA and STEQ Matrices.
+C
+	FILE_NAME=TRIM(SCRATCH_DIR)//TRIM(DESC)
+	OPEN(UNIT=LU,FORM='UNFORMATTED',FILE=TRIM(FILE_NAME),
+	1     ACCESS='SEQUENTIAL',STATUS='UNKNOWN',IOSTAT=IOS,ERR=500)
+	  DO ID=1,NION
+	    WRITE(LU,ERR=600,IOSTAT=IOS)SE(ID)%BA
+	  END DO
+	  WRITE(LU,ERR=600,IOSTAT=IOS)BA_ED
+	  WRITE(LU,ERR=600,IOSTAT=IOS)BA_T
+	  WRITE(LU,ERR=600,IOSTAT=IOS)BA_T_EHB
+	CLOSE(UNIT=LU)
+C
+C Output to BAPNT file that write of BA and STEQ was successful.
+C
+	ENTRY INIT_BA_DATA_PNT_V3(LU,NION,NUM_BANDS,ND,COMPUTE_BA,FIXED_T,DESC)
+C
+	  IF(SCRATCH_DIR .EQ. 'GARBAGE')CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',SCRATCH_DIR)
+	   FILE_NAME=TRIM(SCRATCH_DIR)//TRIM(DESC)//'PNT'
+	  LU1=LU+1
+	  LUER=ERROR_LU()
+          INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	  IF(FILE_OPEN)THEN
+	    BACKSPACE(LU1)
+	  ELSE
+	    CALL GEN_ASCI_OPEN(LU1,TRIM(FILE_NAME),'UNKNOWN',' ',' ',IZERO,IOS)
+	    IF(IOS .NE. 0)GOTO 400
+	  END IF
+	  WRITE(LU1,'(10X,L1,T20,A)',ERR=800,IOSTAT=IOS)
+	1            .TRUE.,'BA structure successfully output'
+	  WRITE(LU1,'(10X,L1,T20,A)',ERR=800,IOSTAT=IOS)
+	1            FIXED_T,'Temperature was held fixed'
+	  WRITE(LU1,'(10X,L1,T20,A)',ERR=800,IOSTAT=IOS)
+	1            COMPUTE_BA,'BA is currently being computed'
+	  WRITE(LU1,'(1X,I10,T20,A)',ERR=800,IOSTAT=IOS)
+	1            NION,'Total # of ionization stages'
+	  WRITE(LU1,'(1X,I10,T20,A)',ERR=800,IOSTAT=IOS)
+	1            NUM_BANDS,'# of bands'
+	  WRITE(LU1,'(1X,I10,T20,A)',ERR=800,IOSTAT=IOS)
+	1            ND,'# of depth points'
+!
+! Ouut dimesnions of each structure.
+!
+	  DO ID=1,NION
+	    WRITE(LU1,*)SE(ID)%N_SE,SE(ID)%N_IV
+	  END DO
+	CLOSE(UNIT=LU1)
+	RETURN
+C
+300	WRITE(LUER,*)'Error opening BA pnter file : ',TRIM(FILE_NAME)
+        WRITE(LUER,*)'IOSTAT=',IOS
+	INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU)
+	INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU1)
+	RETURN
+400	WRITE(LUER,*)'Error opening BA pnter file : ',TRIM(FILE_NAME)
+        WRITE(LUER,*)'IOSTAT=',IOS
+	INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU)
+	INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU1)
+	RETURN
+500	WRITE(LUER,*)'Error outputing .FALSE. to : ',TRIM(FILE_NAME)
+        WRITE(LUER,*)'IOSTAT=',IOS
+	INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU)
+	INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU1)
+	RETURN
+600	WRITE(LUER,*)'Error on outputing BA : ',TRIM(FILE_NAME)
+        WRITE(LUER,*)'IOSTAT=',IOS
+	INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU)
+	INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU1)
+	RETURN
+700	WRITE(LUER,*)'Error on outputing STEQ : ',TRIM(FILE_NAME)
+        WRITE(LUER,*)'IOSTAT=',IOS
+	INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU)
+	INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU1)
+	RETURN
+800	WRITE(LUER,*)'Error on finalizing pointer file : ',TRIM(FILE_NAME)
+        WRITE(LUER,*)'IOSTAT=',IOS
+	INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU)
+	INQUIRE(UNIT=LU1,OPENED=FILE_OPEN)
+	IF(FILE_OPEN)CLOSE(UNIT=LU1)
+	RETURN
+C
+	END

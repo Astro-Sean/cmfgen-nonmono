@@ -1,0 +1,181 @@
+	SUBROUTINE WRITE_NON_THERM_V1(dE_RAD_DECAY,NT,ND,DEC_NRG_SCL_FAC)
+	USE SET_KIND_MODULE
+	USE MOD_CMFGEN
+        USE MOD_NON_THERM
+	USE NUC_ISO_MOD
+	IMPLICIT NONE
+!
+! Created 16-Jun-2020 - Based on SE_BA_NON_THERM_V2
+!
+        INTEGER NT
+        INTEGER ND
+!
+! Output: STEQ_T in MOD_CMFGEN is modified.
+!
+        REAL(KIND=LDP) dE_RAD_DECAY(ND)
+	REAL(KIND=LDP) RADIOACTIVE_DECAY_ENERGY_eV(ND)
+!
+	REAL(KIND=LDP) MOD_YE(NKT,ND)
+	REAL(KIND=LDP) PI
+	REAL(KIND=LDP) ELECTRON_VOLT
+	INTEGER GET_INDX_DP
+	EXTERNAL GET_INDX_DP, ELECTRON_VOLT
+!
+	REAL(KIND=LDP) RATE
+	REAL(KIND=LDP) T1,T2,T3
+	REAL(KIND=LDP) ION_EXC_EN
+	REAL(KIND=LDP) SCALE
+	REAL(KIND=LDP) GUPPER
+	REAL(KIND=LDP), ALLOCATABLE :: RATES(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: ION_RATES(:,:,:)
+!
+	INTEGER ID
+	INTEGER ISPEC
+	INTEGER IT
+	INTEGER IKT
+	INTEGER IKT_ST
+	INTEGER DPTH_INDX
+	INTEGER SE_ION_LEV
+	INTEGER I,J
+        INTEGER LU
+!
+	INTEGER NL
+	INTEGER NUP
+	INTEGER NL_F
+	INTEGER NUP_F
+!
+	INTEGER, PARAMETER :: LU_TH=8
+	INTEGER, PARAMETER :: LU_ER=6
+	REAL(KIND=LDP) DEC_NRG_SCL_FAC
+	REAL(KIND=LDP), PARAMETER :: Hz_to_eV=13.60_LDP/3.2897_LDP
+	REAL(KIND=LDP), PARAMETER :: Hz_to_erg=6.6261965E-12_LDP
+!
+	CHARACTER(LEN=50) ION_NAME
+!
+        PI=ACOS(-1.0_LDP)
+        SCALE=1.0E+10_LDP/4.0_LDP/PI
+        dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
+	RADIOACTIVE_DECAY_ENERGY_eV=DEC_NRG_SCL_FAC*RADIOACTIVE_DECAY_ENERGY/ELECTRON_VOLT()
+!
+	CALL GET_LU(LU,'WRITE_NT_RATES')
+	OPEN(UNIT=LU,FILE='NON_TH_RATES',STATUS='UNKNOWN',ACTION='WRITE')
+
+!
+! Compute the ionization contribution
+!
+	IF(INCLUDE_NON_THERM_IONIZATION) THEN
+!
+! Loop over different ionization routes.
+!
+	  DO IT=1,NUM_THD
+	    ID=THD(IT)%LNK_TO_ION
+	    ISPEC=THD(IT)%LNK_TO_SPECIES
+	    IKT_ST=GET_INDX_DP(THD(IT)%ION_POT,XKT,NKT)
+	    IF(ALLOCATED(ION_RATES))DEALLOCATE(ION_RATES)
+	    ALLOCATE(ION_RATES(THD(IT)%N_STATES,THD(IT)%N_ION_ROUTES,ND))
+!
+!$OMP PARALLEL DO PRIVATE(DPTH_INDX,IKT,RATE,SE_ION_LEV,GUPPER,ION_EXC_EN,NL_F,NUP_F,NL,NUP,T1,I,J)
+	    DO DPTH_INDX=1,ND
+!
+! Get the total excitation route. We ignore slight differences in IP.
+!
+	      RATE = 0.0_LDP
+	      DO IKT=IKT_ST,NKT
+	        RATE = RATE + YE(IKT,DPTH_INDX)*dXKT(IKT)*THD(IT)%CROSS_SEC(IKT)
+	      END DO
+	      RATE=RATE*RADIOACTIVE_DECAY_ENERGY_eV(DPTH_INDX)
+!
+	      DO J=1,THD(IT)%N_ION_ROUTES
+	        IF(ID .EQ. SPECIES_END_ID(ISPEC)-1)THEN
+                  SE_ION_LEV=ATM(ID)%NXzV+1
+	          GUPPER=THD(IT)%SUM_GION
+	          ION_EXC_EN=0.0_LDP
+	        ELSE
+	          NUP_F=THD(IT)%ION_LEV(J); NUP=ATM(ID+1)%F_TO_S_XzV(NUP_F)
+!                  SE_ION_LEV=SE(ID)%ION_LEV_TO_EQ_PNT(NUP)
+	          GUPPER=ATM(ID+1)%GXzV_F(NUP_F)
+                  SE_ION_LEV=ATM(ID)%NXzV+1               !NUP -- assume all to ground state at  present.
+	          ION_EXC_EN=0.0_LDP                        !=ATM(ID+1)%EDGEXzV_F(1)-ATM(ID+1)%EDGEXzV_F(NUP_F)
+	        END IF
+	        DO I=1,THD(IT)%N_STATES
+	          NL_F=THD(IT)%ATOM_STATES(I); NL=ATM(ID)%F_TO_S_XzV(NL_F)
+	          T1=RATE*ATM(ID)%XzV_F(NL_F,DPTH_INDX)*GUPPER/THD(IT)%SUM_GION
+	          ION_RATES(I,J,DPTH_INDX)=T1
+	        END DO	
+	      END DO
+!
+	    END DO   		!Loop over depth
+!$OMP END PARALLEL DO
+!
+!Write out the rates.
+!
+	    DO J=1,THD(IT)%N_ION_ROUTES
+               IF(ID .EQ. SPECIES_END_ID(ISPEC)-1)THEN
+	         ION_NAME=')-('//TRIM(ION_ID(ID+1))//')'
+	       ELSE
+	         NUP_F=THD(IT)%ION_LEV(J)
+	         ION_NAME=')-'//TRIM(ION_ID(ID+1))//'('//TRIM(ATM(ID+1)%XzVLEVNAME_F(NUP_F))//')'
+	       END IF
+	       DO I=1,THD(IT)%N_STATES
+	         NL_F=THD(IT)%ATOM_STATES(I)
+	         WRITE(LU,'(2A,T60,A)')TRIM(ION_ID(ID))//'('//TRIM(ATM(ID)%XzVLEVNAME_F(NL_F)),   &
+	                   TRIM(ION_NAME),'!Ionization'
+	         WRITE(LU,'(10ES14.4)')(ION_RATES(I,J,DPTH_INDX), DPTH_INDX=1,ND)
+	       END DO
+	    END DO
+	  END DO		!Ionization species/route
+	END IF			!Include ionizations?
+!
+!
+!$OMP PARALLEL DO PRIVATE (DPTH_INDX,I)
+	DO DPTH_INDX=1,ND
+	  DO I=1,NKT
+	    MOD_YE(I,DPTH_INDX)=YE(I,DPTH_INDX)*dXKT(I)/XKT(I)
+	  END DO
+	END DO
+!
+	IF(INCLUDE_NON_THERM_EXCITATION)THEN
+	  DO ID=1,NUM_IONS
+	    IF(ATM(ID)%XzV_PRES)THEN
+	      IF(ALLOCATED(RATES))DEALLOCATE(RATES)
+	      ALLOCATE(RATES(20,ATM(ID)%NXZV_F,ND))
+!$OMP PARALLEL DO PRIVATE (DPTH_INDX,I,J,NL_F,NUP_F,NL,NUP,RATE,T1,T2)
+	      DO DPTH_INDX=1,ND
+	        DO J=2,ATM(ID)%NXzV_F
+	          DO I=1,MIN(20,J-1)
+	            NL_F=I; NUP_F=J
+	            CALL TOTAL_BETHE_RATE_V4(RATE,NL_F,NUP_F,MOD_YE,XKT,NKT,ID,DPTH_INDX,ND)
+	            NUP=ATM(ID)%F_TO_S_XzV(NUP_F)
+!
+! NB:  XzV_F= XzV  (XzVLTE_F/XzVLTE)
+!
+	            NL=ATM(ID)%F_TO_S_XzV(NL_F)
+	            T1=RATE*RADIOACTIVE_DECAY_ENERGY_eV(DPTH_INDX)
+	            T1=T1*ATM(ID)%XzV_F(NL_F,DPTH_INDX)
+	            RATES(NL_F,NUP_F,DPTH_INDX)=-T1
+	          END DO
+	        END DO
+	      END DO 		!Loop over depth
+!$OMP END PARALLEL DO
+!
+! Write out the rates.
+!
+	      DO J=2,ATM(ID)%NXzV_F
+	        NUP_F=J; NUP=ATM(ID)%F_TO_S_XzV(NUP_F)
+	        DO I=1,MIN(20,J-1)
+	          NL_F=I; NL=ATM(ID)%F_TO_S_XzV(NL_F)
+	            WRITE(LU,'(/,A,A,10X,F10.6,4(2X,I6))')TRIM(ION_ID(ID)),    &
+	             '('//TRIM(ATM(ID)%XzVLEVNAME_F(NUP_F))//'-'//TRIM(ATM(ID)%XzVLEVNAME_F(NL_F))//')', &
+	              ATM(ID)%EDGEXzV_F(NL_F)-ATM(ID)%EDGEXzV_F(NUP_F), &
+	              NL,NUP,NL_F,NUP_F
+	          WRITE(LU,'(10ES12.4)')(RATES(I,J,DPTH_INDX),DPTH_INDX=1,ND)
+	        END DO
+	      END DO
+	    END IF		!Is ionization stage present
+	  END DO		!Loop over ionization stage
+	END IF			!Include excitations?
+	CLOSE(LU)
+!
+
+	RETURN
+	END

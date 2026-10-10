@@ -1,0 +1,2776 @@
+!----------------------------------------------------------------------
+! JFNK_SOLVER_V1: Jacobian-Free Newton-Krylov solver with GMRES(m)
+! and Hookstep/trust-region globalization.
+!
+! Based on the methodology of:
+!   Arramy, de la Cruz Rodriguez & Leenaarts (2024), A&A 690, A12
+!   https://doi.org/10.1051/0004-6361/202449963
+! and the reference implementation:
+!   apwillis1/JFNK-Hookstep (https://github.com/apwillis1/JFNK-Hookstep)
+!
+! This module provides:
+!   - GMRES(m) with LEFT preconditioning (default) and restart
+!   - Hookstep (dogleg trust-region) globalization
+!   - Finite-difference Jacobian-vector products (forward difference)
+!   - Newton iteration with convergence diagnostics
+!   - Eisenstat-Walker forcing terms for adaptive GMRES tolerance
+!
+! The solver is Jacobian-free: it never constructs the full Jacobian
+! matrix.  The Jacobian-vector product J*v is approximated by:
+!   J*v ≈ [F(x + eps*v) - F(x)] / eps
+! where F is the residual function and eps is a finite-difference step.
+!
+! NOTE (review §5): the JVP captures the exact directional derivative
+! of the implemented frozen-J residual, including nonlinear collisional,
+! electron-density and temperature dependencies where those dependencies
+! are explicitly evaluated by the residual.  It does NOT capture
+! dF_rad/dT or other radiation-dependent nonlinearities because those
+! have been replaced by the frozen linear CMAT_RAD representation.
+! For fixed J, fixed T, this is the correct Jacobian.  For free T,
+! the Jacobian is approximate (see review §4).
+!
+! The preconditioner M is applied as z = M^{-1} * v.
+! Both LEFT and RIGHT preconditioning are supported; the default is
+! LEFT (jfnk_use_left_pc = .true.), following Arramy et al. (2024).
+!   LEFT:  Krylov subspace K(M^{-1}A, M^{-1}r), initial residual IS
+!          preconditioned.  The GMRES stopping tolerance must be
+!          measured in ||M^{-1}r|| units (see EW forcing-term fix in
+!          newton_hook_v1).
+!   RIGHT: Krylov subspace K(A*M^{-1}, r), initial residual is NOT
+!          preconditioned.  The preconditioner is applied to each
+!          Arnoldi basis vector before the matvec, and to the Krylov
+!          solution before adding to x.
+! For CMFGEN non-monotonic V4, M is the fixed-J BA matrix
+! (equilibrated depth-block LU with local adaptive ridge).
+! Fix #9 (review 2026-09-11): the default is LEFT preconditioning
+! (jfnk_use_left_pc = .true.).  The production V1 configuration is:
+!   GMRES:
+!     preconditioning = LEFT
+!     inner product    = EUCLIDEAN (RSCALE-weighted via JFNK_DOT_V1)
+!     operator         = J (frozen, finite-difference JVP)
+!     preconditioner   = M^{-1} (equilibrated depth-block BA LU)
+!
+! editted by Sean Brennan (V4, 2026-09)
+!----------------------------------------------------------------------
+module jfnk_solver_v1_mod
+   implicit none
+   save
+   !
+   ! Module-level state (mirrors the `newton` module in the reference)
+   !
+   double precision, allocatable :: jfnk_x(:)       ! current solution vector
+   double precision, allocatable :: jfnk_fx(:)      ! current residual F(x)
+   double precision              :: jfnk_tol        ! current |F(x)|
+   double precision              :: jfnk_del        ! trust-region radius
+   integer                       :: jfnk_nits       ! Newton iterations done
+   integer                       :: jfnk_gits       ! GMRES iterations (last)
+   !
+   ! Eisenstat-Walker forcing term state (added 2026-09-07):
+   ! The forcing term eta_k controls how accurately GMRES solves the
+   ! inner linear system J*s = -F at each Newton step.  Instead of a
+   ! fixed tolerance, eta_k adapts based on the Newton convergence rate:
+   !
+   !   eta_k = gamma * (|F_k| / |F_{k-1}|)^alpha
+   !
+   ! with safeguards:
+   !   eta_k = max(eta_k, 0.5 * |F_k| / |F_{k-1}|)   (prevent over-solving)
+   !   eta_k = min(eta_k, eta_max)                    (cap at user max)
+   !   eta_k = max(eta_k, eta_min)                    (floor for stability)
+   !
+   ! When |F| is decreasing rapidly (far from root), eta_k is large and
+   ! GMRES stops early (inexact Newton is fine).  When |F| is decreasing
+   ! slowly (near root), eta_k is small and GMRES solves more accurately.
+   !
+   ! References:
+   !   Eisenstat & Walker (1994), SIAM J. Optim. 4, 393
+   !   Kelley (2003), "Solving Nonlinear Equations with Newton's Method"
+   !
+   ! Note: the module already has a blanket SAVE statement (line above),
+   ! so module variables are implicitly saved.  The per-variable SAVE
+   ! attributes that were here are redundant and rejected by
+   ! gfortran -std=f2008; removed per ChatGPT audit fix #3 (2026-09-09).
+   double precision :: jfnk_tol_prev = 0d0    ! |F| at previous Newton step
+   double precision :: jfnk_eta = 0d0          ! current Eisenstat-Walker eta
+   double precision :: jfnk_eta_gamma = 0.9d0  ! EW gamma parameter
+   double precision :: jfnk_eta_alpha = 0.5d0  ! EW alpha (exponent)
+   ! Floor matches the bottom of the range Arramy et al. (2024,
+   ! A&A 690, A12) found useful for multilevel NLTE.  Below this,
+   ! GMRES spends formal solutions without improving the Newton step.
+   ! eta_max stays loose so a distant residual is not over-solved.
+   double precision :: jfnk_eta_min = 3.0d-4   ! minimum forcing term
+   double precision :: jfnk_eta_max = 0.1d0    ! maximum forcing term
+   !
+   ! Diagnostics counters
+   !
+   integer :: jfnk_total_f_evals = 0   ! total residual evaluations
+   integer :: jfnk_total_jvp_evals = 0 ! total JVP evaluations
+   ! jfnk_fx_fresh (03-Oct-2026): set by the driver/baseline rebuild
+   ! when jfnk_fx already equals F(jfnk_x) -- lets newton_hook skip
+   ! the entry residual re-eval (a full formal sweep in coupled mode).
+   logical :: jfnk_fx_fresh = .false.
+   integer :: jfnk_precond_calls = 0   ! total preconditioner applications
+   integer :: jfnk_precond_fails = 0   ! preconditioner failures
+   integer :: jfnk_nan_rejects = 0     ! NaN/Inf rejected steps
+   !
+   ! Stabilization usage counters (review §6, 2026-09-10):
+   ! Track how often each artificial safeguard fires.
+   !
+   integer :: jfnk_n_step_scaled = 0      ! |s|_inf > 10 scaling triggered
+   integer :: jfnk_n_zmax_hit = 0         ! preconditioner |z| > ZMAX clamped
+   integer :: jfnk_n_reg_proj = 0         ! regularized null rows projected to 0
+   integer :: jfnk_n_cauchy_used = 0      ! Cauchy fallback accepted
+   integer :: jfnk_n_ls_used = 0          ! line search accepted
+   integer :: jfnk_n_tr_rejected = 0       ! trust-region rejected step
+   integer :: jfnk_n_descent_retry = 0     ! non-descent direction retry
+   !
+   ! Maximum GMRES iterations per Newton step (added 2026-09-07).
+   ! When > 0, overrides the default limit of m (one restart cycle).
+   ! When 0, the default is used (jfnk_gits = m, or 9999 if del == 0).
+   ! Set from JFNK_MAX_GMRES control variable via solve_for_pops_jfnk_v1.f.
+   !
+   integer :: jfnk_max_gmres_its = 0
+   !
+   ! Left vs right GMRES preconditioning (Arramy 2024 prefers left).
+   ! Set from JFNK_LEFT_PRECOND before NEWTON_HOOK_V1.
+   ! editted by Sean Brennan (08-Sep-2026)
+   !
+   logical :: jfnk_use_left_pc = .true.
+   !
+   ! Preconditioner refresh bookkeeping (Issue 3).
+   !
+   integer :: jfnk_last_gmres_its = 0
+   ! 2026-09-13 TR-units fix: Krylov-coefficient norm ||y|| of the step
+   ! returned by the last gmres_m_v1 call.  With right preconditioning
+   ! (jfnk_use_left_pc=F) hook_step_v1 bounds ||y|| (= ||M*s||_w), so the
+   ! trust-region radius must be updated from this norm, not from ||s||_w.
+   double precision :: jfnk_last_ynrm = 0d0
+   integer :: jfnk_need_precond_refresh = 0
+   integer :: jfnk_gmres_m_dim = 10
+   double precision :: jfnk_pc_ref_frac = 0.8d0
+   !
+   ! Ridge floor: the relaxation path in jfnk_cmfgen_interface_v1.f will
+   ! not relax JFNK_BA_RIDGE_FAC below this value.  Captured at first
+   ! factorization so a user-supplied ridge (e.g. 0.1) is preserved
+   ! instead of being relaxed back to the historical 1e-2 floor.
+   ! Added 2026-09-10.
+   !
+   double precision :: jfnk_ridge_floor = 1.0d-2
+   logical :: jfnk_ridge_floor_set = .false.
+   !
+   ! Persistent workspace for newton_hook_v1 and gmres_m_v1 (audit §3,
+   ! 09-Sep-2026): replaces large automatic arrays that were on the stack.
+   ! For N=40000 (NT=200, ND=200), these accounted for ~2.5MB of stack.
+   ! Allocated on first call and resized if N changes.
+   !
+   double precision, allocatable :: jfnk_w_x(:)       ! x_ in Newton
+   double precision, allocatable :: jfnk_w_fx(:)      ! fx_ in Newton
+   double precision, allocatable :: jfnk_w_x2(:)      ! x__ in Newton
+   double precision, allocatable :: jfnk_w_fx2(:)     ! fx__ in Newton
+   double precision, allocatable :: jfnk_w_s(:)       ! s in Newton
+   double precision, allocatable :: jfnk_w_fxpc(:)    ! fx_pc in Newton
+   double precision, allocatable :: jfnk_w_gmres_w(:) ! w in GMRES
+   double precision, allocatable :: jfnk_w_gmres_z(:) ! z in GMRES
+   integer :: jfnk_w_alloc_n = 0                       ! current allocation size
+   !
+   ! Line-search globalization control (added 2026-09-10, review §3):
+   ! When the full Newton step (α=1) increases the residual, backtrack
+   ! with α = β, β^2, β^3, ... until the Armijo sufficient-decrease
+   ! condition is met.  This avoids re-solving GMRES when the Newton
+   ! direction is good but the step is too large.
+   !
+   ! References:
+   !   Nocedal & Wright (2006), Numerical Optimization, ch.3.1–3.2
+   !   Eisenstat & Walker (1994), SIAM J. Optim. 4, 393
+   !
+   logical          :: jfnk_do_line_search = .true.   ! enable line search
+   integer          :: jfnk_ls_max_steps = 20          ! max backtracking steps
+   double precision :: jfnk_ls_beta_fac = 0.5d0      ! backtracking factor
+   double precision :: jfnk_ls_armijo_c = 1.0d-4      ! Armijo parameter
+   !
+   ! Cauchy (preconditioned-residual) fallback direction (review §3):
+   ! When the Newton line search fails, try d_C = M^{-1}*F as a
+   ! fallback direction with its own simple sufficient-decrease line
+   ! search.  This gives "Newton when Newton works; stabilized
+   ! residual correction when it doesn't."
+   !
+   logical          :: jfnk_do_cauchy = .true.  ! enable Cauchy fallback
+   !
+   ! Step-safeguard caps (parameterized 2026-10 for unit testing):
+   ! jfnk_step_inf_cap is the maximum allowed |s|_inf per Newton step
+   ! (= MAX_JFNK_COR semantics: factor-10 fractional population change);
+   ! jfnk_runaway_nrm is the catastrophic weighted-step norm above which
+   ! the step is rejected and the trust radius shrunk.  Defaults preserve
+   ! the previously hardcoded production values.
+   !
+   double precision :: jfnk_step_inf_cap = 10d0
+   double precision :: jfnk_runaway_nrm  = 1.0d2
+   !
+   ! Logarithmic unknown and pseudo-transient continuation.
+   ! Set from VADAT [JFNK_LOGX] and [JFNK_PTC] in RD_CONTROL_VARIABLES
+   ! (both default T).  See cmfgen_obsidian/solvers/JFNK_SOLVER.md.
+   !
+   ! jfnk_log_unknown: x = ln(n/n0).  The step cap is then ln(MAX_JFNK),
+   ! written into jfnk_step_inf_cap by the driver.
+   ! jfnk_ptc_active: G(x) = F(x) + (x - x0)*s/dtau, s_i =
+   ! jfnk_ptc_scale(i).  dtau grows when |F| falls and shrinks when it
+   ! does not.
+   !
+   ! edited by Devin, 06-Oct-2026 (SER anchor fix): the pseudo-time term
+   ! is now anchored at jfnk_ptc_x0 = x_k, the current Newton iterate --
+   ! switched evolution relaxation, Kelley & Keyes (1998, SIAM J. Numer.
+   ! Anal. 35, 508) and Knoll & Keyes (2004, JCP 193, 357 Sec 4.2).  The
+   ! previous form anchored at the solve baseline x0 = 0, so the term
+   ! pulled later iterates back toward x = 0 and a converged |G| could
+   ! hide F(x) = -(x)*s/dtau /= 0.  newton_hook_v1 re-anchors x0 at each
+   ! accepted iterate and strips the term from every residual it reads,
+   ! so jfnk_fx/jfnk_tol and all Newton logic see F and |F|.
+   !
+   logical :: jfnk_log_unknown = .true.
+   logical :: jfnk_ptc_active = .true.
+   double precision :: jfnk_ptc_dtau = 1d0
+   double precision :: jfnk_ptc_dtau_max = 1d8
+   !
+   ! FIX_T_AUTO adaptive damped-T step guard (generic: the driver names
+   ! a variable block [dst,dend] of the row index jt inside a repeating
+   ! record of length nt).  When on, every Newton direction leaving
+   ! GMRES and every Cauchy direction has its T components scaled by
+   ! jfnk_tauto_alpha and capped at +-jfnk_tauto_dmax.  The damping acts
+   ! on the step only; the residual, JVP and preconditioner still see
+   ! the live T columns, so the Krylov operator keeps the true
+   ! temperature subspace (directive: never zero the T columns when T
+   ! is merely damped).
+   !
+   logical          :: jfnk_tauto_on   = .false.
+   double precision :: jfnk_tauto_alpha = 1d0
+   double precision :: jfnk_tauto_dmax  = 0.5d0
+   integer          :: jfnk_tauto_nt    = 0
+   integer          :: jfnk_tauto_jt    = 0
+   integer          :: jfnk_tauto_dst   = 0
+   integer          :: jfnk_tauto_dend  = 0
+   double precision, allocatable :: jfnk_ptc_scale(:)
+   logical :: jfnk_ptc_scale_ready = .false.
+   ! Anchor x_k for the pseudo-time term (above).  JFNK_SET_PTC_SCALE_V1
+   ! allocates it at 0 (the baseline x = 0 is the first anchor);
+   ! newton_hook_v1 re-anchors at each accepted iterate via
+   ! jfnk_ptc_set_anchor_v1.
+   double precision, allocatable :: jfnk_ptc_x0(:)
+   logical :: jfnk_ptc_anchor_ready = .false.
+   !
+   ! Set by JFNK_RESIDUAL_V1 on every call: number of residual
+   ! components that were NaN or |F|>1D30 before capping.  The F(0)
+   ! identity test in JFNK_SOLVE_CORR_V1 uses it to tell a broken
+   ! eval (non-finite entries) from an honest lagged-field offset,
+   ! which the uniform |F|>magnitude comparison cannot do.
+   !
+   integer :: jfnk_resid_nbad = 0
+   !
+   ! Explicit Krylov-failure signalling (audit 17-Sep-2026).
+   ! jfnk_jvp_failed    : set by JFNK_JVP_V1 when the finite-difference
+   !                      JVP produced too many NaN/Inf entries to trust.
+   !                      Replaces the old "JV=0" convention, which GMRES
+   !                      misread as a genuine zero-action direction
+   !                      (artificial happy breakdown / stagnation).
+   ! jfnk_pc_clip_event : set by JFNK_PRECOND_V1 when the |z|>1D8 hard
+   !                      clip or a NaN->0 write fires.  Clipping makes
+   !                      M^{-1} nonlinear, which invalidates the GMRES
+   !                      Krylov construction -- the solve is aborted
+   !                      (info=3) and a preconditioner refresh requested
+   !                      instead of silently solving a different problem.
+   ! Both are reset at the top of each Newton iteration and checked
+   ! after every matvec/psolve call inside GMRES.
+   !
+   logical :: jfnk_jvp_failed = .false.
+   logical :: jfnk_pc_clip_event = .false.
+   !
+   ! GMRES hookstep-recalculation flag (edited by Devin, 05-Oct-2026,
+   ! recompute-pass descent-skip fix): set by gmres_m_v1 when it returns
+   ! from its info==2 path, where hook_step_v1 recalculated the Krylov
+   ! coefficients for a new trust radius on the unchanged Arnoldi basis.
+   ! newton_hook_v1 tests this flag -- not ginfo -- to skip the descent
+   ! check on recompute passes, because gmres_m_v1 resets info=0 before
+   ! returning so ginfo==2 never survives to the check.  Cleared at the
+   ! top of each Newton iteration, like the failure flags above.
+   !
+   logical :: jfnk_gmres_recomputed = .false.
+   !
+   ! Last completed Arnoldi cycle of gmres_m_v1 (basis dimension jj and
+   ! residual norm beta).  The info==2 hookstep recompute combines these
+   ! with the caller's h/v arrays, so they must describe that caller's
+   ! basis.  They live at module scope -- not as gmres_m_v1 SAVE
+   ! variables -- because diagnostic callers
+   ! (jfnk_gmres_dim_experiment_v1 runs gmres_m_v1 with m_test up to
+   ! 40 > production m) would otherwise leave a stale pair behind: a
+   ! recompute pass would then index y(1:jj), h(1:jj+1,1:jj) and
+   ! v(:,1:jj) past the caller's m-sized arrays.  Any external
+   ! gmres_m_v1 caller must save and restore this pair.
+   ! (numerical audit fix, 2026-10)
+   !
+   integer          :: jfnk_gmres_jj    = 0
+   double precision :: jfnk_gmres_beta  = 0d0
+   !
+   ! GMRES stagnation criterion (audit 17-Sep-2026): an iteration counts
+   ! as non-improving unless it reduces the residual by more than this
+   ! relative factor.  The previous 1D-14 threshold only fired on
+   ! machine-level stalls; with finite-difference JVP noise, gains
+   ! below ~1D-3 are within the noise floor and not worth continuing
+   ! for (3 consecutive non-improving iterations still trigger the
+   ! stagnation exit).
+   !
+   double precision :: jfnk_gmres_stag_tol = 1.0d-3
+   !
+   ! One-shot diagnostic flag (Finding 3, review 2026-09-10):
+   ! When .true., jfnk_newton_diagnostic_v1 and jfnk_gmres_dim_experiment_v1
+   ! are called on the first Newton step.  Set from JFNK_DIAGNOSTIC VADAT
+   ! key via solve_for_pops_jfnk_v1.f.  Default .false. for production.
+   !
+   logical          :: jfnk_diagnostic_flag = .false.
+   !
+   ! Persistent workspace for Cauchy direction (avoids stack allocation)
+   !
+   double precision, allocatable :: jfnk_w_cauchy(:)  ! M^{-1}*F direction
+   !
+end module jfnk_solver_v1_mod
+
+
+!----------------------------------------------------------------------
+! JFNK_PTC_SET_ANCHOR_V1: re-anchor the pseudo-time term at x (the
+! current Newton iterate x_k).  SER form (Kelley & Keyes 1998; Knoll &
+! Keyes 2004 Sec 4.2): G(x) = F(x) + (x - x_k)*s/dtau vanishes at the
+! anchor, so the stored residual at the linearization point is F, not
+! G -- all Newton norms, ared/pred, EW forcing and the SER dtau update
+! then act on |F|.  No-op unless the PTC machinery is armed
+! ([JFNK_PTC], default T; USE_JFNK=F never reaches this).
+! edited by Devin, 06-Oct-2026
+!----------------------------------------------------------------------
+subroutine jfnk_ptc_set_anchor_v1(n, x)
+   use jfnk_solver_v1_mod
+   implicit none
+   integer,          intent(in) :: n
+   double precision, intent(in) :: x(n)
+   integer :: ios
+   !
+   if(.not. (jfnk_ptc_active .and. jfnk_ptc_scale_ready)) return
+   if(allocated(jfnk_ptc_x0)) then
+      if(size(jfnk_ptc_x0) /= n) deallocate(jfnk_ptc_x0)
+   end if
+   if(.not. allocated(jfnk_ptc_x0)) then
+      allocate(jfnk_ptc_x0(n), stat=ios)
+      if(ios /= 0) then
+         jfnk_ptc_anchor_ready = .false.
+         return
+      end if
+   end if
+   jfnk_ptc_x0 = x
+   jfnk_ptc_anchor_ready = .true.
+end subroutine jfnk_ptc_set_anchor_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_PTC_STRIP_V1: g := g - (x - x0)*s/dtau, so that g = F(x) when the
+! residual callback returned g = G(x).  newton_hook_v1 calls it after
+! every residual evaluation so jfnk_fx/jfnk_tol are F and |F|.  No-op
+! unless the PTC term was actually included (same readiness gate as
+! JFNK_RESIDUAL_V1, plus a matching anchor and sizes).
+! edited by Devin, 06-Oct-2026
+!----------------------------------------------------------------------
+subroutine jfnk_ptc_strip_v1(n, x, g)
+   use jfnk_solver_v1_mod
+   implicit none
+   integer,          intent(in)    :: n
+   double precision, intent(in)    :: x(n)
+   double precision, intent(inout) :: g(n)
+   integer :: i
+   !
+   if(.not. (jfnk_ptc_active .and. jfnk_ptc_scale_ready .and. &
+             jfnk_ptc_anchor_ready)) return
+   if(.not. (allocated(jfnk_ptc_scale) .and. allocated(jfnk_ptc_x0))) &
+      return
+   if(size(jfnk_ptc_scale) /= n .or. size(jfnk_ptc_x0) /= n) return
+   do i = 1, n
+      g(i) = g(i) - (x(i) - jfnk_ptc_x0(i)) * jfnk_ptc_scale(i) / &
+         max(jfnk_ptc_dtau, 1d-8)
+   end do
+end subroutine jfnk_ptc_strip_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_PTC_STRIP_DIR_V1: js := js - s*scale/dtau.  The finite-difference
+! JVP of G is J_F*s + s*scale/dtau (the anchor offset cancels in the
+! difference); stripping recovers the F-Jacobian action so the physical
+! predicted residual ||F - J_F*s|| and the descent test <F, J_F*s> are
+! consistent with the stripped ared.  The GMRES operator itself keeps
+! the diagonal -- it correctly solves (J_F + D/dtau) s = F(x_k).
+! Same readiness gate as jfnk_ptc_strip_v1.
+! edited by Devin, 06-Oct-2026
+!----------------------------------------------------------------------
+subroutine jfnk_ptc_strip_dir_v1(n, s, js)
+   use jfnk_solver_v1_mod
+   implicit none
+   integer,          intent(in)    :: n
+   double precision, intent(in)    :: s(n)
+   double precision, intent(inout) :: js(n)
+   integer :: i
+   !
+   if(.not. (jfnk_ptc_active .and. jfnk_ptc_scale_ready .and. &
+             jfnk_ptc_anchor_ready)) return
+   if(.not. allocated(jfnk_ptc_scale)) return
+   if(size(jfnk_ptc_scale) /= n) return
+   do i = 1, n
+      js(i) = js(i) - s(i) * jfnk_ptc_scale(i) / &
+         max(jfnk_ptc_dtau, 1d-8)
+   end do
+end subroutine jfnk_ptc_strip_dir_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_ALLOC_WORKSPACE: Allocate or resize persistent workspace arrays
+! for newton_hook_v1 and gmres_m_v1.  Called at the start of
+! newton_hook_v1 to ensure workspace is available.
+! audit §3, 09-Sep-2026
+!----------------------------------------------------------------------
+subroutine jfnk_alloc_workspace(n, luer)
+   use jfnk_solver_v1_mod
+   implicit none
+   integer, intent(in) :: n, luer
+   integer :: ios
+   !
+   if(jfnk_w_alloc_n == n) return  ! already allocated at this size
+   !
+   if(allocated(jfnk_w_x)) deallocate(jfnk_w_x, jfnk_w_fx, jfnk_w_x2, &
+      jfnk_w_fx2, jfnk_w_s, jfnk_w_fxpc, jfnk_w_gmres_w, jfnk_w_gmres_z, &
+      jfnk_w_cauchy)
+   !
+   allocate(jfnk_w_x(n), jfnk_w_fx(n), jfnk_w_x2(n), jfnk_w_fx2(n), &
+      jfnk_w_s(n), jfnk_w_fxpc(n), jfnk_w_gmres_w(n), jfnk_w_gmres_z(n), &
+      jfnk_w_cauchy(n), stat=ios)
+   if(ios /= 0) then
+      if(luer > 0) write(luer,*) 'jfnk_alloc_workspace: allocation failed'
+      stop 'jfnk_alloc_workspace: alloc failed'
+   end if
+   jfnk_w_alloc_n = n
+end subroutine jfnk_alloc_workspace
+
+
+!----------------------------------------------------------------------
+! NEWTON_HOOK_V1: Newton iteration with GMRES-hookstep globalization.
+!
+! Solves F(x) = 0 using:
+!   - GMRES(m) for the Krylov inner solve
+!   - Hookstep (trust-region) for globalization
+!   - Finite-difference Jacobian-vector products
+!
+! Interface (matches the JFNK-Hookstep reference pattern):
+!   f(n,x, y)       — residual: y = F(x)
+!   df(n,x, y)      — JVP: y = J(x)*x_vec  (finite difference internally)
+!   dfp(n, x)       — preconditioner: x = M^{-1} * x  (in-place)
+!   sub()           — called at end of each Newton iteration (diagnostics)
+!   dp(n,a,b)       — dot product: d = a.b
+!
+! editted by Sean Brennan (V4, 2026-09)
+!----------------------------------------------------------------------
+subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
+                            tol, del, mndl, mxdl, nits, info, luer)
+   use jfnk_solver_v1_mod
+   use jfnk_cmfgen_int_mod, only: JFNK_NT
+   implicit none
+   external                        :: f, df, dfp, sub
+   double precision, external      :: dp
+   integer,          intent(in)    :: m, n
+   double precision, intent(in)    :: gtol, tol, del, mndl, mxdl
+   integer,          intent(in)    :: nits
+   integer,          intent(inout) :: info
+   integer,          intent(in)    :: luer
+   !
+   double precision, allocatable :: v(:,:)
+   double precision :: tol_, del__, tol__
+   double precision :: mxdl_, ared, pred, snrm, s_inf
+   double precision :: snrm_tr   ! 2026-09-13 TR-units fix: ||y|| norm the hookstep constrains
+   double precision :: gres, gdel, h((m+1)*m)
+   double precision :: del_try, scale_fac, s_inf_orig
+   double precision :: ref_norm
+   double precision :: pred_res
+   double precision :: pred_res_physical  ! ||F - J*s||_w (physical norm)
+   double precision :: pred_res_gmres      ! ||M^{-1}(F-J*s)|| (preconditioned, diag only)
+   double precision :: pred_floor          ! floor for safe ared/pred division
+   double precision :: rho                 ! ared/pred ratio (dimensionless)
+   logical          :: pred_negligible     ! |pred| <= pred_floor
+   integer :: ginfo, n_reject, ios_nw, i
+   integer, parameter :: n_reject_max = 8
+   !
+   ! Line-search and Cauchy fallback variables (review §3, 2026-09-10)
+   !
+   logical          :: ls_accepted
+   double precision :: phi_0, dphi_0, phi_alpha, alpha_ls, dtau_was
+   integer          :: ls_step
+   !
+   ! Cauchy direction safeguards (audit 17-Sep-2026): the
+   ! preconditioned-residual direction d_C = M^{-1}F now gets the same
+   ! finiteness / inf-norm / runaway checks as the Newton direction.
+   !
+   logical          :: cauchy_ok
+   double precision :: cauchy_nrm, s_inf_c
+   !
+   ! V4 A/B production diagnostic variables (2026-09-09)
+   !
+   double precision :: dir_deriv, cos_angle, norm_Js
+   double precision :: max_pop_corr, max_t_corr
+   integer :: n_gmres_restarts
+   character(len=30) :: step_status
+   !
+   ! V4 descent check (2026-09-09):
+   ! If the GMRES direction is not a descent direction (<F,Js>_w <= 0),
+   ! tighten the forcing term and re-solve.  This prevents the
+   ! Eisenstat-Walker formula from producing too-loose tolerances
+   ! (eta ~ 0.9) that yield non-descent directions with poor
+   ! preconditioners.
+   !
+   integer :: descent_retry_count
+   integer, parameter :: descent_retry_max = 3
+   !
+   ! Heap-allocated workspace (audit §3, 09-Sep-2026):
+   ! x_, fx_, x__, fx__, s, fx_pc were automatic arrays of size N,
+   ! contributing ~480KB (N=10000) to ~1.9MB (N=40000) of stack.
+   ! Making them ALLOCATABLE,SAVE moves them to the heap.
+   !
+   double precision, allocatable, save :: x_(:), fx_(:)
+   double precision, allocatable, save :: x__(:), fx__(:)
+   double precision, allocatable, save :: s(:), fx_pc(:)
+   !
+   ! V4 audit fix (2026-09-09): Physical predicted residual workspace.
+   ! J_s = J*s (one extra JVP per candidate step), F_pred = F(x) - J*s.
+   ! Used to compute pred_res_physical = ||F - J*s||_w in the SAME
+   ! weighted physical norm as tol_ = ||F||_w, so that ared/pred is
+   ! dimensionally consistent.  The Hessenberg least-squares residual
+   ! from GMRES (pred_res) lives in the preconditioned space
+   ! ||M^{-1}(F - J*s)|| and must NOT be used in ared/pred.
+   !
+   double precision, allocatable, save :: J_s(:), F_pred(:)
+   !
+   ! (Re)allocate if N changed
+   if(allocated(x_)) then
+      if(size(x_) .ne. n) deallocate(x_, fx_, x__, fx__, s, fx_pc, J_s, F_pred)
+   end if
+   if(.not. allocated(x_)) then
+      allocate(x_(n), fx_(n), x__(n), fx__(n), s(n), fx_pc(n), &
+               J_s(n), F_pred(n), stat=ios_nw)
+      if(ios_nw /= 0) then
+         if(info == 1) write(luer,*) 'newton_hook_v1: workspace alloc failed'
+         info = 4
+         return
+      end if
+   end if
+   !
+   allocate(v(n,m+1), stat=ginfo)
+   if(ginfo /= 0) then
+      if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
+      info = 4
+      return
+   end if
+   !
+   jfnk_nits = 0
+   jfnk_gits = 0
+   jfnk_del  = del
+   mxdl_     = mxdl
+   ginfo     = info
+   n_reject  = 0
+   !
+   ! Audit 17-Sep-2026 (issue 16): force LEFT preconditioning in the
+   ! production Newton solve.  Under right preconditioning the hookstep
+   ! constrains ||y|| = ||M*s||_w, which is NOT the physical step norm
+   ! ||s||_w -- the trust-region radius is then in the wrong units.
+   ! Until the TR norm is reformulated for the right-preconditioned
+   ! problem, RIGHT mode is disabled here (the standalone RSCALE
+   ! diagnostic in the interface still exercises it deliberately).
+   !
+   if(.not. jfnk_use_left_pc) then
+      if(info == 1) write(luer,'(A)') &
+         '  JFNK: RIGHT preconditioning requested but disabled &
+         &(TR norm invalid); using LEFT'
+      jfnk_use_left_pc = .true.
+   end if
+   !
+   ! Initial residual.  The driver's F(0) test and the baseline
+   ! rebuild both leave jfnk_fx = F(jfnk_x) already -- when they did,
+   ! skip the re-eval (a full formal sweep in coupled mode).
+   !
+   if(jfnk_fx_fresh) then
+      jfnk_fx_fresh = .false.
+   else
+      call f(n, jfnk_x, jfnk_fx)
+      jfnk_total_f_evals = jfnk_total_f_evals + 1
+      ! edited by Devin, 06-Oct-2026 (SER anchor fix): the entry eval
+      ! carries the pseudo-time term whenever it was added by the
+      ! residual (anchor = 0 from JFNK_SET_PTC_SCALE_V1); strip it so
+      ! jfnk_fx/jfnk_tol are F and |F|.  No-op when PTC is off.
+      call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+   end if
+   jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
+   !
+   ! 2026-09-13 TR-units fix: for M≈J the full Newton step has
+   ! ||y|| ≈ ||F||_w, so |F|/10 capped every first step to a 10%
+   ! residual reduction.  Start at 2*|F| instead.
+   if(del < 0d0)  jfnk_del = 2d0 * jfnk_tol
+   if(del < 0d0)  mxdl_    = 1d99
+   !
+   if(info == 1) write(luer,'(A,I3,A,ES12.4)') &
+      '  JFNK: nits=', jfnk_nits, ' res=', real(jfnk_tol)
+   if(info == 1) flush(luer)
+   !
+   call sub()
+   x_    = jfnk_x
+   fx_   = jfnk_fx
+   tol_  = jfnk_tol
+   tol__ = 1d99
+   !
+   ! edited by Devin, 06-Oct-2026 (SER anchor fix): anchor the
+   ! pseudo-time term at the entry iterate x_k.  The entry eval above
+   ! already ran with anchor 0 (jfnk_x = 0 there in production, so
+   ! G = F anyway); this makes the anchor explicit for later evals.
+   call jfnk_ptc_set_anchor_v1(n, x_)
+   !
+   if(jfnk_tol < tol) then
+      if(info == 1) write(luer,*) '  JFNK: input already converged'
+      info = 0
+      deallocate(v)
+      return
+   end if
+   !
+   ! --- Main Newton loop ---
+   !
+   ! All loops in this subroutine are explicitly named to prevent
+   ! bare cycle/exit from binding to the wrong DO construct.
+   ! (Finding 1, review 2026-09-10: a bare `cycle` inside descent_retry
+   !  was silently binding to the inner loop instead of the outer
+   !  Newton loop, causing stale trust-region radii to be reused.)
+   newton_loop: do while(.true.)
+      !
+      ! V4 descent check: reset retry counter at the start of each
+      ! Newton iteration.
+      !
+      descent_retry_count = 0
+      !
+      ! Audit 17-Sep-2026: per-iteration failure flags.  Any matvec
+      ! (JVP) or psolve (preconditioner) call below can set these;
+      ! GMRES aborts with info=3 on either, and the post-solve handler
+      ! rejects the direction and requests a preconditioner refresh.
+      !
+      jfnk_jvp_failed    = .false.
+      jfnk_pc_clip_event = .false.
+      ! edited by Devin, 05-Oct-2026: same per-iteration reset for the
+      ! hookstep-recalculation flag consumed by the descent check below.
+      jfnk_gmres_recomputed = .false.
+      !
+      ! editted by Devin, 04-Oct-2026: also catch jfnk_del == 0.  The
+      ! shrink producers (0.5*min(del_try, snrm_tr)) yield exactly 0
+      ! whenever GMRES returned no step (snrm_tr = 0), and a zero
+      ! radius slipped the old jfnk_del > 0 test: hookstep then saw
+      ! del == 0 (the no-trust-region sentinel), produced s = 0, and
+      ! the pred_negligible branch looped with no reject counter.
+      ! del /= 0 keeps the (unreachable) explicit no-TR input mode.
+      if(del /= 0d0 .and. jfnk_del < mndl) then
+         if(info == 1) write(luer,*) '  JFNK: trust region too small'
+         info = 3
+         deallocate(v)
+         return
+      end if
+      !
+      ! Solve for hookstep s subject to |s| < del
+      !
+      ! Eisenstat-Walker forcing term (added 2026-09-07):
+      ! Instead of a fixed GMRES tolerance gres = gtol * |F|, we compute
+      ! an adaptive forcing term eta_k that prevents over-solving the
+      ! inner GMRES system when the Newton iteration is far from the root.
+      !
+      ! On the first Newton step (jfnk_nits == 0), we use the user-specified
+      ! gtol as the initial forcing term.  On subsequent steps, we compute:
+      !
+      !   eta_k = gamma * (|F_k| / |F_{k-1}|)^alpha
+      !
+      ! with the safeguard eta_k = max(eta_k, 0.5 * |F_k| / |F_{k-1}|)
+      ! to prevent the "oversolving" phenomenon where GMRES solves too
+      ! accurately relative to the Newton convergence rate.
+      !
+      ! The forcing term is clamped to [eta_min, eta_max] for stability.
+      ! When del == 0 (no trust region, pure Newton), we use a very loose
+      ! tolerance to take as many GMRES iterations as needed.
+      !
+      s        = 0d0
+      del_try  = jfnk_del
+      if(jfnk_nits == 0 .or. jfnk_tol_prev .le. 0d0) then
+         ! First Newton step: user-specified gtol as initial eta, but
+         ! clamped to [eta_min, eta_max] like every later step
+         ! (audit 17-Sep-2026 -- an unclamped gtol could bypass the
+         ! forcing-term bounds entirely).
+         jfnk_eta = min(max(gtol, jfnk_eta_min), jfnk_eta_max)
+      else
+         ! Eisenstat-Walker formula (Choice 2 from Eisenstat & Walker 1994):
+         !   eta_k = gamma * (|F_k| / |F_{k-1}|)^alpha
+         jfnk_eta = jfnk_eta_gamma * &
+            (jfnk_tol / jfnk_tol_prev)**jfnk_eta_alpha
+         ! Safeguard: prevent over-solving by ensuring eta is not too
+         ! small relative to the Newton convergence rate
+         jfnk_eta = max(jfnk_eta, 0.5d0 * jfnk_tol / jfnk_tol_prev)
+         ! Clamp to [eta_min, eta_max] for numerical stability
+         jfnk_eta = max(jfnk_eta, jfnk_eta_min)
+         jfnk_eta = min(jfnk_eta, jfnk_eta_max)
+      end if
+      !
+      ! Bug fix (09-Sep-2026): EW forcing-term tolerance must be in the
+      ! same units as the GMRES residual.  Under left preconditioning
+      ! (the default, jfnk_use_left_pc=.true.), GMRES measures
+      ! ||M^{-1}(b - Ax)||, not ||b - Ax||.  Using jfnk_tol (=||F||,
+      ! physical units) as the reference makes gres off by the
+      ! conditioning of M, so GMRES can quit far too early or grind
+      ! far too long relative to the intended inexact-Newton accuracy.
+      !
+      ! Fix: compute ref_norm = ||M^{-1} F(x)|| via one extra psolve
+      ! call when left-pc is active.  This is cheap (one preconditioner
+      ! application per Newton step, vs m applications per GMRES cycle).
+      !
+      if(jfnk_use_left_pc) then
+         fx_pc = fx_
+         call dfp(n, fx_pc)
+         !
+         ! Audit 17-Sep-2026: if the preconditioner clipped during this
+         ! forcing-norm evaluation, M^{-1} is nonlinear this step.
+         ! Reject the step, shrink the trust region, request a refresh.
+         !
+         if(jfnk_pc_clip_event) then
+            ! editted by Devin, 04-Oct-2026: abort instead of retry.
+            ! The clip is a pure function of the (unchanged) LU factors
+            ! and the input vector; shrinking del cannot change it
+            ! (del is only consulted after GMRES completes), and the
+            ! refresh flag is only consumed via sub() on accepted
+            ! steps, so every "refresh + retry" replayed a bit-
+            ! identical psolve and burned n_reject_max for nothing.
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: preconditioner clip in forcing norm -- &
+               &deterministic, aborting Newton'
+            jfnk_x   = x_
+            jfnk_fx  = fx_
+            jfnk_tol = tol_
+            info = 3
+            deallocate(v)
+            return
+         end if
+         ref_norm = dsqrt(dp(n, fx_pc, fx_pc))
+      else
+         ref_norm = jfnk_tol
+      end if
+      gres     = jfnk_eta * ref_norm
+      gdel     = jfnk_del
+      if(ginfo /= 2) jfnk_gits = m
+      if(del == 0d0) jfnk_gits = 9999
+      !
+      ! Override with user-specified max GMRES iterations if set
+      ! (added 2026-09-07: JFNK_MAX_GMRES control variable).
+      ! When jfnk_max_gmres_its > 0, it caps the total GMRES iterations
+      ! per Newton step, allowing multiple restart cycles up to the limit.
+      !
+      if(jfnk_max_gmres_its > 0 .and. ginfo /= 2) jfnk_gits = jfnk_max_gmres_its
+      !
+      if(info == 1 .and. ginfo /= 2) then
+         if(jfnk_ptc_active) then
+            write(luer,'(A)') ' '
+            write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
+               '  JFNK: eta=', real(jfnk_eta), &
+               '   gres=', real(gres), &
+               '   dtau=', real(jfnk_ptc_dtau)
+         else
+            write(luer,'(A)') ' '
+            write(luer,'(A,ES10.3,A,ES10.3)') &
+               '  JFNK: eta=', real(jfnk_eta), '   gres=', real(gres)
+         end if
+      end if
+      !
+      ! V4 descent check (2026-09-09):
+      ! Wrap the GMRES solve in a retry loop.  If the resulting direction
+      ! is not a descent direction (<F,Js>_w <= 0), tighten the forcing
+      ! term and re-solve.  This prevents the Eisenstat-Walker formula
+      ! from producing too-loose tolerances (eta ~ 0.9) that yield
+      ! non-descent directions with poor preconditioners.
+      !
+      descent_retry: do
+      !
+      jfnk_gmres_m_dim = m
+      call gmres_m_v1(m, n, s, fx_, df, dfp, dp, h, v, gres, gdel, &
+                       pred_res, jfnk_gits, ginfo, luer)
+      !
+      ! Issue 3: request LU refresh when GMRES used most of its budget.
+      !
+      jfnk_last_gmres_its = jfnk_gits
+      if(jfnk_gmres_m_dim > 0 .and. &
+         dble(jfnk_last_gmres_its) >= &
+         jfnk_pc_ref_frac * dble(jfnk_gmres_m_dim)) then
+         jfnk_need_precond_refresh = 1
+      end if
+      !
+      ! Audit 17-Sep-2026: Krylov-solve failure (info=3 from gmres_m_v1).
+      ! A matvec produced a non-finite JVP action, or the preconditioner
+      ! clipped mid-solve making M^{-1} nonlinear.  The partially built
+      ! Krylov space (and any step s derived from it) is unusable -- do
+      ! NOT let it reach the step-cap/runaway/hookstep code, and do NOT
+      ! reuse the space (ginfo=1 forces a fresh GMRES next pass).
+      !
+      if(ginfo == 3) then
+         ! editted by Devin, 04-Oct-2026: abort instead of retry.  The
+         ! failure (JVP non-finite or precond clip) is a deterministic
+         ! function of x_, fx_ and the unchanged preconditioner --
+         ! neither a halved del (only consulted inside the completed
+         ! GMRES) nor the refresh flag (never consumed on reject
+         ! paths) can alter the next GMRES pass, so the old loop
+         ! replayed an identical abort n_reject_max times per solve.
+         if(info == 1) write(luer,'(A)') &
+            '  JFNK: Krylov solve failed (JVP/preconditioner) -- &
+            &deterministic, aborting Newton'
+         jfnk_x   = x_
+         jfnk_fx  = fx_
+         jfnk_tol = tol_
+         info = 3
+         deallocate(v)
+         return
+      end if
+      !
+      ! Bug fix: do NOT overwrite ginfo (GMRES return status) with info
+      ! (Newton verbose flag).  ginfo must retain the GMRES status (0,
+      ! 1, or 2) for the hookstep recalculation logic at the top of the
+      ! next Newton iteration.  The old code had "ginfo = info" which
+      ! always set ginfo=1, preventing the hookstep recalculation path
+      ! (ginfo=2) from ever being taken.
+      !
+      ! |s| in the RSCALE-weighted inner product.  The hookstep bounds
+      ! Krylov coefficients, not the physical step after M^{-1}.  A
+      ! singular DIAG BA inverse can yield |s| ~ 1e31 with pred = 0,
+      ! which previously set del = |s|/2 and looped forever (nits stuck
+      ! at 0, F evaluated at POPS*(1+1e31)).
+      ! editted by Sean Brennan (08-Sep-2026)
+      snrm = dsqrt(dp(n, s, s))
+      s_inf = maxval(abs(s))
+      ! 2026-09-13 TR-units fix: the trust-region radius must be updated
+      ! in the norm hook_step_v1 actually constrains — the Krylov
+      ! coefficient norm ||y|| (= ||M*s||_w under right preconditioning),
+      ! not the physical step norm ||s||_w.
+      snrm_tr = jfnk_last_ynrm
+      !
+      ! One-time step diagnostic (09-Sep-2026)
+      if(jfnk_nits == 0 .and. info == 1) then
+         write(luer,'(A,ES14.6,A,ES14.6,A,ES14.6)') &
+            '  JFNK STEP DIAG: |s|_w=', real(snrm), &
+            ' |s|_inf=', real(s_inf), ' |s|_max=', real(maxval(s))
+         write(luer,'(A,ES14.6,A,ES14.6)') &
+            '    s_min=', real(minval(s)), ' s_max=', real(maxval(s))
+      end if
+      !
+      ! 2026-09-13 TR-units fix: GMRES stagnation (info=1) after a large
+      ! linear-residual reduction is usually FD noise, not failure.
+      ! If the predicted residual still beats 90% of the RHS norm, keep
+      ! the inexact direction instead of aborting the whole Newton solve.
+      ! edited by Devin, 05-Oct-2026 (stagnation-gate norm fix):
+      ! pred_res is the Hessenberg least-squares residual in the units
+      ! GMRES actually solves -- ||M^{-1}(F - J*s)|| under the forced
+      ! left preconditioning -- so it must be compared against
+      ! ref_norm = ||M^{-1}F||, not tol_ = ||F||_w.  The two differ by
+      ! the conditioning of M, which made the old gate fire (or not
+      ! fire) on the wrong threshold.
+      if(ginfo == 1 .and. pred_res < 0.9d0 * ref_norm) then
+         if(info == 1) write(luer,'(A,ES12.4)') &
+            '  JFNK: GMRES stagnated; using inexact direction &
+            &(pred_res/ref=', real(pred_res / max(ref_norm, 1d-30))
+         ginfo = 0
+      else if(ginfo == 1) then
+         if(info == 1) write(luer,'(A)') &
+            '  JFNK: GMRES stagnated — aborting Newton (Lambda fallback)'
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         info = 3
+         deallocate(v)
+         return
+      end if
+      !
+      ! Direction-preserving inf-norm scaling (09-Sep-2026):
+      ! The DIAG BA preconditioner with ridge produces Newton steps with
+      ! huge |s_inf| (up to 400+) for species with small BA diagonal.
+      ! The RSCALE-weighted trust region doesn't penalize these because
+      ! RSCALE is small for trace species.  Previously the runaway check
+      ! rejected the ENTIRE step, causing trust-region collapse.
+      !
+      ! Fix: scale the ENTIRE step by min(1, S_MAX_SCALE/s_inf) instead
+      ! of rejecting it.  This preserves the Newton direction (unlike
+      ! per-element clipping which changes the direction) while limiting
+      ! the maximum fractional change to S_MAX_SCALE per component.
+      ! A small step in an approximately-correct direction can still
+      ! reduce the residual (damped Newton principle).
+      !
+      s_inf_orig = s_inf
+      if(s_inf > jfnk_step_inf_cap) then
+! jfnk_step_inf_cap (default 10.0d0 = MAX_JFNK_COR, 1.0D1): steps larger
+! than a factor-of-10 population correction are unphysical for the
+! clipping that is applied after the Newton update.  Scale the whole
+! step back so the inf-norm equals the maximum allowed correction
+! (audit 2026-09-10).
+         scale_fac = jfnk_step_inf_cap / s_inf
+         s = s * scale_fac
+         snrm = dsqrt(dp(n, s, s))
+         snrm_tr = snrm_tr * scale_fac   ! 2026-09-13 TR-units fix
+         s_inf = jfnk_step_inf_cap
+         jfnk_n_step_scaled = jfnk_n_step_scaled + 1
+         if(info == 1) write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
+            '  JFNK: scaled step by ', real(scale_fac), &
+            ' |s|=', real(snrm), ' |s|_inf=', real(s_inf)
+      end if
+      !
+      ! FIX_T_AUTO: damp/cap the T components of the finished Newton
+      ! step BEFORE the JVP prediction and the trial eval, so every
+      ! candidate state the line search sees is already bounded.
+      !
+      call jfnk_tauto_damp_v1(n, s)
+      !
+      ! Weighted |s| can still explode if RSCALE is large.  Reject if
+      ! the overall weighted norm is truly catastrophic.
+      if(snrm > jfnk_runaway_nrm) then
+         !
+         ! Fix (2026-09-11): the retry must produce a DIFFERENT, smaller
+         ! trial step.  Previously this halved del_try — the trust-region
+         ! radius, initialised to ~|F|/10 — which is typically orders of
+         ! magnitude larger than |s|.  The hookstep constraint in
+         ! gmres_m_v1/hook_step_v1 only binds when del < |s|, so halving
+         ! del_try changed nothing; and with ginfo=1 the next pass
+         ! re-solved the SAME unconstrained GMRES system, returning a
+         ! bit-identical step that was rejected again.  The loop was
+         ! therefore guaranteed to burn all n_reject_max retries and
+         ! abort without ever testing a constrained step.
+         !
+         ! Now: shrink the trust radius BELOW the rejected step norm
+         ! (same convention as the ared<0 branch: del = 0.5*|s|) and set
+         ! ginfo=2 to request a hookstep recalculation, which reuses the
+         ! existing Krylov space (h, v, jj, beta) to solve the
+         ! trust-region-constrained least-squares problem |s| <= del
+         ! at no extra JVP cost.
+         !
+         jfnk_del = 0.5d0 * min(del_try, snrm_tr)   ! 2026-09-13 TR-units fix
+         if(info == 1) write(luer,'(A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)') &
+            '  JFNK: runaway |s|=', real(snrm), ' |s|_inf=', real(s_inf), &
+            ' del=', real(del_try), ' -> hookstep del=', real(jfnk_del)
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         n_reject = n_reject + 1
+         if(n_reject >= n_reject_max .or. jfnk_del < mndl) then
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: too many rejected steps — aborting Newton'
+            info = 3
+            deallocate(v)
+            return
+         end if
+         ginfo = 2
+         cycle newton_loop
+      end if
+      !
+      ! V4 audit fix (2026-09-09): Compute the PHYSICAL predicted residual
+      ! ||F - J*s||_w using one extra JVP, instead of using the Hessenberg
+      ! least-squares residual from GMRES.  Under left preconditioning, the
+      ! Hessenberg residual is ||M^{-1}(F - J*s)||, which is in a different
+      ! norm/space than ||F||_w.  Using it as pred_res in ared/pred mixes
+      ! physical and preconditioned norms, causing the trust region to
+      ! collapse even when the Newton direction is good.
+      !
+      ! The linearized model for x_new = x - s is:
+      !   F(x - s) ≈ F(x) - J*s
+      ! so the predicted residual is ||F(x) - J*s||_w in the same weighted
+      ! physical norm as ||F(x)||_w = tol_.
+      !
+      ! jfnk_x and jfnk_fx are still x_ and fx_ at this point (GMRES does
+      ! not modify them), so the JVP evaluates J at the correct point.
+      !
+      call df(n, s, J_s)
+      jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+      !
+      ! Audit 17-Sep-2026: if this JVP failed, J_s is unreliable and so
+      ! is pred_res_physical / dir_deriv.  Same failure path as a
+      ! Krylov abort: reject, shrink, fresh GMRES next pass.
+      !
+      if(jfnk_jvp_failed) then
+         ! editted by Devin, 04-Oct-2026: abort instead of retry --
+         ! same determinism argument as the ginfo==3 path above.
+         if(info == 1) write(luer,'(A)') &
+            '  JFNK: JVP failure in pred-residual eval -- &
+            &deterministic, aborting Newton'
+         jfnk_x   = x_
+         jfnk_fx  = fx_
+         jfnk_tol = tol_
+         info = 3
+         deallocate(v)
+         return
+      end if
+      ! edited by Devin, 06-Oct-2026 (SER anchor fix): df returns the
+      ! FD action of G, J_G*s = J_F*s + s*scale/dtau.  Strip the
+      ! diagonal so F_pred, pred_res_physical, norm_Js and dir_deriv
+      ! are in F terms, consistent with the stripped ared.
+      call jfnk_ptc_strip_dir_v1(n, s, J_s)
+      do i = 1, n
+         F_pred(i) = fx_(i) - J_s(i)
+      end do
+      pred_res_physical = dsqrt(dp(n, F_pred, F_pred))
+      !
+      ! Keep the GMRES Hessenberg residual for diagnostics only.
+      !
+      pred_res_gmres = pred_res
+      !
+      ! V4 A/B diagnostic: compute ||J*s||_w and GMRES restart count
+      !
+      norm_Js = dsqrt(dp(n, J_s, J_s))
+      n_gmres_restarts = jfnk_gits / max(m, 1)
+      if(mod(jfnk_gits, max(m,1)) > 0) n_gmres_restarts = n_gmres_restarts + 1
+      n_gmres_restarts = max(0, n_gmres_restarts - 1)
+      !
+      ! V4 descent check (2026-09-09):
+      ! If the GMRES direction is not a descent direction (<F,Js>_w <= 0),
+      ! tighten the forcing term and re-solve.  This is a standard
+      ! inexact-Newton technique that prevents the Eisenstat-Walker
+      ! formula from producing too-loose tolerances (eta ~ 0.9) that
+      ! yield non-descent directions with poor preconditioners.
+      !
+      ! The descent check uses the PHYSICAL inner product <F, J*s>_w,
+      ! not the preconditioned one.  A direction can be a descent
+      ! direction in the preconditioned norm but not in the physical
+      ! norm when M is a poor approximation of J.
+      !
+      ! Skip the check for hookstep recalculations because the Krylov
+      ! basis is fixed: tightening eta would discard the recalculated
+      ! step and force a full fresh solve for no gain.
+      ! edited by Devin, 05-Oct-2026 (recompute-pass descent-skip fix):
+      ! ginfo cannot identify those passes -- gmres_m_v1 resets info=0
+      ! before returning from its info==2 recompute path, so the old
+      ! ginfo /= 2 test never fired and recompute passes were needlessly
+      ! re-solved.  The module flag jfnk_gmres_recomputed survives the
+      ! return and is used instead.
+      !
+      dir_deriv = dp(n, fx_, J_s)
+      !
+      if(dir_deriv <= 0d0 .and. .not. jfnk_gmres_recomputed .and. &
+         jfnk_eta > jfnk_eta_min .and. &
+         descent_retry_count < descent_retry_max) then
+         !
+         descent_retry_count = descent_retry_count + 1
+         jfnk_n_descent_retry = jfnk_n_descent_retry + 1
+         jfnk_eta = max(jfnk_eta_min, jfnk_eta * 0.1d0)
+         gres = jfnk_eta * ref_norm
+         ginfo = 0  ! silent fresh re-solve
+         if(jfnk_max_gmres_its > 0) then
+            jfnk_gits = jfnk_max_gmres_its
+         else
+            jfnk_gits = m
+         end if
+         if(info == 1) write(luer,'(A,ES10.3,A,I2,A,ES12.4)') &
+            '  JFNK: non-descent dir (<F,Js>=', real(dir_deriv), &
+            '), tightening eta to ', descent_retry_count, &
+            ' eta=', real(jfnk_eta)
+         cycle descent_retry
+      end if
+      !
+      ! Exit the descent_retry loop — the direction is accepted.
+      ! Without this exit, the do loop is infinite and the trust-region
+      ! logic below is unreachable.
+      exit descent_retry
+      !
+      end do descent_retry
+      !
+      ! V4 diagnostic (2026-09-09): Comprehensive Newton direction diagnosis.
+      ! Printed once on the first Newton step to understand why the
+      ! computed direction does not provide a useful physical reduction.
+      ! Covers: sign verification, directional derivative, component-wise
+      ! analysis, alpha-sweep, RSCALE audit, JVP-vs-BA comparison.
+      !
+      ! DISABLED for clean A/B production test (2026-09-09).
+      ! The GMRES dimension experiment and Newton direction diagnostic
+      ! are diagnostic-only and must not run in production comparisons.
+      ! Re-enable by setting JFNK_DIAGNOSTIC = T in VADAT.
+      ! (Finding 3, review 2026-09-10: implemented as a real runtime
+      !  flag read from JFNK_DIAG VADAT key, not a source-level comment.)
+      !
+      if(jfnk_diagnostic_flag .and. jfnk_nits == 0 .and. info == 1) then
+         call jfnk_newton_diagnostic_v1(n, s, fx_, J_s, F_pred, &
+              dp, df, luer)
+         call jfnk_gmres_dim_experiment_v1(n, x_, fx_, df, dfp, dp, &
+              gres, jfnk_del, luer)
+      end if
+      !
+      jfnk_x = x_ - s
+      !
+      ! Evaluate new residual
+      !
+      call f(n, jfnk_x, jfnk_fx)
+      jfnk_total_f_evals = jfnk_total_f_evals + 1
+      ! edited by Devin, 06-Oct-2026 (SER anchor fix): strip the
+      ! pseudo-time term so jfnk_fx/jfnk_tol are F and |F|.
+      call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+      !
+      jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
+      ared = tol_ - jfnk_tol
+      pred = tol_ - pred_res_physical
+      !
+      ! V4 audit fix (2026-09-09): Safe ared/pred ratio.  If pred is
+      ! negligibly small (|pred| <= pred_floor), the linearized model
+      ! predicts essentially zero reduction.  Do NOT invent a large
+      ! rho — instead classify as "negligible predicted reduction" and
+      ! use a conservative trust-region response (reject step, shrink
+      ! trust radius, reuse Krylov space via ginfo=2).
+      !
+      pred_floor = 1.0d-12 * max(tol_, 1.0d0)
+      pred_negligible = (abs(pred) <= pred_floor)
+      if(.not. pred_negligible) then
+         rho = ared / pred
+      else
+         rho = 0.0d0   ! forces conservative trust-region response below
+      end if
+      !
+      if(info == 1) then
+         !
+         ! V4 A/B production diagnostic (2026-09-09):
+         ! Comprehensive per-Newton-iteration output for clean m=10 vs
+         ! m=20 comparison.  Reports all quantities needed to determine
+         ! whether the nonlinear solve progresses or stalls.
+         !
+         dir_deriv = dp(n, fx_, J_s)
+         cos_angle = dir_deriv / max(tol_ * norm_Js, 1.0d-30)
+         !
+         ! Max population and temperature corrections from s
+         ! JFNK_NT = unknowns per depth point; last 2 are Ne, T
+         !
+         if(JFNK_NT > 2) then
+            max_pop_corr = 0.0d0
+            max_t_corr = 0.0d0
+            do i = 1, n
+               if(mod(i-1, JFNK_NT) <= JFNK_NT - 3) then
+                  max_pop_corr = max(max_pop_corr, abs(s(i)))
+               else if(mod(i-1, JFNK_NT) == JFNK_NT - 1) then
+                  max_t_corr = max(max_t_corr, abs(s(i)))
+               end if
+            end do
+         else
+            max_pop_corr = s_inf
+            max_t_corr = 0.0d0
+         end if
+         !
+         write(luer,'(A,I4,A)') '  --------- JFNK ITER ', jfnk_nits, &
+            ' -----'
+         write(luer,'(A,ES12.4)') '    weighted residual norm       :', &
+            tol_
+         write(luer,'(A,ES12.4)') '    weighted Newton step norm    :', &
+            snrm
+         write(luer,'(A,ES12.4)') '    linear model residual |F-Js| :', &
+            pred_res_physical
+         write(luer,'(A,ES12.4)') '    weighted |Js|                :', &
+            norm_Js
+         write(luer,'(A,ES12.4)') '    directional derivative <F,Js>:', &
+            dir_deriv
+         write(luer,'(A,ES12.4)') '    cos(F,Js), -1 is descent     :', &
+            cos_angle
+         if(pred_negligible) then
+            write(luer,'(A)') '    acceptance ratio : predicted'// &
+               ' decrease negligible'
+         else
+            write(luer,'(A,ES12.4)') '    actual residual decrease     :', &
+               ared
+            write(luer,'(A,ES12.4)') '    model-predicted decrease     :', &
+               pred
+            write(luer,'(A,ES12.4)') '    acceptance ratio ared/pred   :', &
+               rho
+         end if
+         write(luer,'(A,ES12.4)') '    trust-region radius          :', &
+            jfnk_del
+         write(luer,'(A,I4)')    '    GMRES iterations             :', &
+            jfnk_gits
+         write(luer,'(A,I3)')    '    GMRES restarts               :', &
+            n_gmres_restarts
+         write(luer,'(A,ES12.4)') '    largest pop correction       :', &
+            max_pop_corr
+         write(luer,'(A,ES12.4)') '    largest T correction         :', &
+            max_t_corr
+         !
+         ! Step disposition
+         !
+         if(jfnk_tol < tol_) then
+            step_status = 'ACCEPTED'
+         else if(del == 0d0) then
+            step_status = 'ACCEPTED (full Newton)'
+         else if(jfnk_tol > tol__) then
+            step_status = 'ACCEPTED (previous)'
+         else if(pred_negligible) then
+            step_status = 'REJECTED (pred negligible)'
+         else if(ared < 0d0) then
+            step_status = 'REJECTED (norm increased)'
+         else if(rho < 0.75d0) then
+            step_status = 'ACCEPTED (rho<0.75)'
+         else if(snrm_tr < jfnk_del * 0.9d0) then   ! 2026-09-13 TR-units fix
+            step_status = 'ACCEPTED (full Newton)'
+         else
+            step_status = 'ACCEPTED (enlarge TR)'
+         end if
+         write(luer,'(A,A)') '    step disposition              : ', &
+            trim(step_status)
+         flush(luer)
+      end if
+      !
+      ! NaN/Inf guard (moved before descent check, 09-Sep-2026):
+      ! If the residual is NaN/Inf, the descent check (pred <= 0) may
+      ! fire first (when pred is finite but <= 0), taking the generic
+      ! "shrink and retry" path without ever reaching the explicit NaN
+      ! branch below.  This undercounts jfnk_nan_rejects.  Fix: check
+      ! for NaN/Inf here, ahead of the descent check.
+      !
+      if(jfnk_tol /= jfnk_tol .or. jfnk_tol > 1d30) then
+         jfnk_nan_rejects = jfnk_nan_rejects + 1
+         if(info == 1) write(luer,*) '  JFNK: NaN/Inf in residual, &
+            &rejecting step'
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         ! Constrain below the rejected step (same fix as the runaway
+         ! branch, 2026-09-11): halving del_try does not bind when
+         ! del >> |s|, and ginfo=1 re-solved the identical unconstrained
+         ! step.  ginfo=2 recomputes a constrained hookstep from the
+         ! existing Krylov space.
+         jfnk_del = 0.5d0 * min(del_try, snrm_tr)   ! 2026-09-13 TR-units fix
+         n_reject = n_reject + 1
+         if(n_reject >= n_reject_max .or. jfnk_del < mndl) then
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: too many rejected steps — aborting Newton'
+            info = 3
+            deallocate(v)
+            return
+         end if
+         ginfo = 2
+         cycle newton_loop
+      end if
+      !
+      ! V4 audit fix (2026-09-09): The `pred <= 0` descent test was
+      ! removed earlier because it was based on the (wrong) preconditioned
+      ! Hessenberg residual.  Now that pred uses the physical predicted
+      ! residual, pred <= 0 has real mathematical meaning: the linearized
+      ! model does not predict a reduction in the physical residual norm.
+      ! However, we let the standard trust-region ratio logic (ared < 0
+      ! branch below) handle this case, because it uses ginfo=2 (hookstep
+      ! recalculation, reusing the Krylov space) which is more efficient
+      ! than a dedicated pred<=0 branch with ginfo=1 (full GMRES restart).
+      !
+      ! V4 audit fix (2026-09-09): Removed the duplicated NaN/Inf check
+      ! that was here.  The primary NaN check above (before the descent
+      ! comment block) is sufficient.  The second copy was a stale
+      ! leftover from before the descent test was removed.
+      !
+      !================================================================
+      ! Line-search globalization (review §3, 2026-09-10)
+      !================================================================
+      ! When the full Newton step (α=1) increases the residual (ared < 0)
+      ! and the direction is a descent direction (dir_deriv > 0), try
+      ! Armijo backtracking: α = β, β^2, β^3, ... before falling through
+      ! to the trust-region rejection logic.
+      !
+      ! The Armijo condition for φ(α) = ½||F(x − αs)||_w² is:
+      !   φ(α) ≤ φ(0) + c·α·φ'(0)
+      ! where φ(0) = ½·tol_² and φ'(0) = −<F, Js>_w = −dir_deriv.
+      !
+      ! This avoids re-solving GMRES when the Newton direction is good
+      ! but the full step is too large — exactly the situation observed
+      ! in the A/B tests (optimal α ~ 10⁻³, full step increases ||F||
+      ! by 26×).  Each backtracking step costs one residual evaluation,
+      ! vs m JVPs for a GMRES re-solve.
+      !
+      ! If the line search fails, try the Cauchy (preconditioned-residual)
+      ! direction d_C = M⁻¹F as a fallback (review §3, item 3).
+      !
+      ls_accepted = .false.
+      !
+      if(jfnk_do_line_search .and. ared < 0d0 .and. dir_deriv > 0d0) then
+         !
+         phi_0  = 0.5d0 * tol_ * tol_
+         dphi_0 = -dir_deriv           ! < 0 for descent direction
+         !
+         ls_loop: do ls_step = 1, jfnk_ls_max_steps
+            alpha_ls = jfnk_ls_beta_fac ** dble(ls_step)
+            jfnk_x = x_ - alpha_ls * s
+            call f(n, jfnk_x, jfnk_fx)
+            jfnk_total_f_evals = jfnk_total_f_evals + 1
+            ! SER anchor fix (06-Oct-2026): strip to F before |F|.
+            call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+            jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
+            phi_alpha = 0.5d0 * jfnk_tol * jfnk_tol
+            if(phi_alpha <= phi_0 + jfnk_ls_armijo_c * alpha_ls * dphi_0) then
+               ! Armijo sufficient decrease satisfied
+               ls_accepted = .true.
+               s    = alpha_ls * s          ! scale the step
+               snrm = dsqrt(dp(n, s, s))     ! update weighted norm
+               s_inf = maxval(abs(s))        ! update inf norm
+               snrm_tr = alpha_ls * snrm_tr  ! 2026-09-13 TR-units fix
+               if(jfnk_del > 0d0) jfnk_del = min(mxdl_, snrm_tr * 2d0)
+               ared = tol_ - jfnk_tol
+               if(info == 1) write(luer,'(A,ES10.3,A,ES14.4,A,ES14.4)') &
+                  '  JFNK: line search accepted α=', real(alpha_ls), &
+                  ' ||F||=', real(jfnk_tol), ' ||s||=', real(snrm)
+               jfnk_n_ls_used = jfnk_n_ls_used + 1
+               exit ls_loop
+            end if
+         end do ls_loop
+         !
+         ! Audit 17-Sep-2026 (critical): a failed line search left
+         ! jfnk_x/jfnk_fx/jfnk_tol holding the LAST failed Armijo trial.
+         ! The Cauchy fallback and the trust-region acceptance tests
+         ! below would then evaluate that stale trial state instead of
+         ! the Newton point.  Restore the Newton state unconditionally.
+         !
+         if(.not. ls_accepted) then
+            jfnk_x   = x_
+            jfnk_fx  = fx_
+            jfnk_tol = tol_
+            if(info == 1) write(luer,'(A,I3)') &
+               '  JFNK: line search failed (', jfnk_ls_max_steps, &
+               ' steps) -- restored Newton state'
+         end if
+      end if
+      !
+      !================================================================
+      ! Cauchy (preconditioned-residual) fallback (review §3, item 3)
+      !================================================================
+      ! When the Newton line search fails (or the Newton direction is
+      ! not a descent direction), try d_C = M⁻¹F as a fallback.  This
+      ! is a damped Jacobi / preconditioned steepest-descent step that
+      ! uses the existing preconditioner and does NOT require GMRES.
+      !
+      ! The step is x_new = x − α·d_C where d_C = M⁻¹F.  We use a simple
+      ! sufficient-decrease test ||F(x−α·d_C)|| < ||F(x)|| (no Armijo,
+      ! since computing <F, J·d_C> would need an extra JVP).
+      !
+      if(jfnk_do_cauchy .and. .not. ls_accepted .and. ared < 0d0) then
+         !
+         ! Compute Cauchy direction: d_C = M⁻¹ * F(x)
+         !
+         ! edited by Devin, 05-Oct-2026 (Cauchy workspace fix):
+         ! jfnk_alloc_workspace is never called, so jfnk_w_cauchy was
+         ! only sized implicitly by Fortran 2003 realloc-on-assignment.
+         ! Allocate it explicitly instead -- the implicit form also
+         ! silently kept a wrong-length array if N ever shrank.
+         if(allocated(jfnk_w_cauchy)) then
+            if(size(jfnk_w_cauchy) /= n) deallocate(jfnk_w_cauchy)
+         end if
+         if(.not. allocated(jfnk_w_cauchy)) allocate(jfnk_w_cauchy(n))
+         jfnk_w_cauchy = fx_          ! start from F(x)
+         call dfp(n, jfnk_w_cauchy)   ! d_C = M⁻¹ * F
+         !
+         ! FIX_T_AUTO: the Cauchy direction is a step candidate too --
+         ! its T components get the same damping as the Newton step.
+         !
+         call jfnk_tauto_damp_v1(n, jfnk_w_cauchy)
+         !
+         ! Audit 17-Sep-2026 (critical #2): the Cauchy direction must
+         ! pass the SAME safeguards as the Newton direction -- it comes
+         ! straight from the (possibly poorly conditioned) BA
+         ! preconditioner, and previously bypassed the finiteness,
+         ! inf-norm-cap, and runaway-norm checks entirely.
+         !
+         cauchy_ok = .true.
+         if(jfnk_pc_clip_event) then
+            ! M^{-1} clipped during this evaluation -- nonlinear operator.
+            cauchy_ok = .false.
+            jfnk_need_precond_refresh = 1
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: preconditioner clipped in Cauchy direction -- &
+               &skipped'
+         else if(any(jfnk_w_cauchy /= jfnk_w_cauchy) .or. &
+                 any(abs(jfnk_w_cauchy) > huge(1d0))) then
+            cauchy_ok = .false.
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: non-finite Cauchy direction -- skipped'
+         end if
+         if(cauchy_ok) then
+            cauchy_nrm = dsqrt(dp(n, jfnk_w_cauchy, jfnk_w_cauchy))
+            if(cauchy_nrm > jfnk_runaway_nrm) then
+               cauchy_ok = .false.
+               if(info == 1) write(luer,'(A,ES12.4)') &
+                  '  JFNK: runaway Cauchy norm ', real(cauchy_nrm), &
+                  ' -- skipped'
+            else
+               ! Same direction-preserving inf-norm cap as the Newton step.
+               s_inf_c = maxval(abs(jfnk_w_cauchy))
+               if(s_inf_c > jfnk_step_inf_cap) then
+                  jfnk_w_cauchy = jfnk_w_cauchy * &
+                     (jfnk_step_inf_cap / s_inf_c)
+                  cauchy_nrm    = cauchy_nrm * (jfnk_step_inf_cap / s_inf_c)
+                  if(info == 1) write(luer,'(A,ES10.3)') &
+                     '  JFNK: Cauchy direction scaled by ', &
+                     real(jfnk_step_inf_cap / s_inf_c)
+               end if
+            end if
+         end if
+         !
+         ! Backtracking line search on Cauchy direction
+         ! (start at α=1 and backtrack)
+         !
+         if(cauchy_ok) then
+         cauchy_loop: do ls_step = 0, jfnk_ls_max_steps
+            if(ls_step == 0) then
+               alpha_ls = 1.0d0
+            else
+               alpha_ls = jfnk_ls_beta_fac ** dble(ls_step)
+            end if
+            jfnk_x = x_ - alpha_ls * jfnk_w_cauchy
+            call f(n, jfnk_x, jfnk_fx)
+            jfnk_total_f_evals = jfnk_total_f_evals + 1
+            ! SER anchor fix (06-Oct-2026): strip to F before |F|.
+            call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+            jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
+            if(jfnk_tol < tol_) then
+               ! Simple sufficient decrease
+               ls_accepted = .true.
+               s    = alpha_ls * jfnk_w_cauchy  ! step in Newton convention
+               snrm = dsqrt(dp(n, s, s))
+               s_inf = maxval(abs(s))
+               ! Audit 17-Sep-2026 (critical #18): the trust-region
+               ! radius must be the PHYSICAL weighted step norm
+               ! alpha*||d_C||_w, not alpha*||F||_w -- ||M^{-1}F||_w is
+               ! generally not equal to ||F||_w.
+               snrm_tr = alpha_ls * cauchy_nrm
+               if(jfnk_del > 0d0) jfnk_del = min(mxdl_, snrm_tr * 2d0)
+               ared = tol_ - jfnk_tol
+               if(info == 1) write(luer,'(A,ES10.3,A,ES14.4)') &
+                  '  JFNK: Cauchy step accepted α=', real(alpha_ls), &
+                  ' ||F||=', real(jfnk_tol)
+               jfnk_n_cauchy_used = jfnk_n_cauchy_used + 1
+               exit cauchy_loop
+            end if
+         end do cauchy_loop
+         end if
+         !
+         ! Audit 17-Sep-2026 (critical #1): a failed Cauchy search left
+         ! jfnk_x/jfnk_fx/jfnk_tol holding the LAST failed trial.  The
+         ! trust-region tests below would then evaluate that stale
+         ! state instead of the Newton point -- restore it and report
+         ! ared=0 so the rejection logic sees the true situation.
+         !
+         if(.not. ls_accepted) then
+            jfnk_x   = x_
+            jfnk_fx  = fx_
+            jfnk_tol = tol_
+            ared     = 0d0
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: Cauchy fallback also failed -- &
+               &restored Newton state'
+         end if
+      end if
+      !
+      !================================================================
+      ! Trust-region acceptance / rejection (existing logic)
+      !================================================================
+      ! If the line search or Cauchy fallback accepted a step, skip
+      ! the trust-region rejection branches and go straight to the
+      ! step-accepted path (ginfo = 0).
+      !
+      if(ls_accepted) then
+         ginfo = 0  ! step accepted
+      else if(del == 0d0) then
+         if(info == 1) write(luer,*) '  JFNK: took full newton step'
+         ginfo = 0  ! step accepted, clear hookstep flag
+      else if(jfnk_tol > tol__) then
+         if(info == 1) write(luer,*) '  JFNK: accepting previous step'
+         jfnk_x   = x__
+         jfnk_fx  = fx__
+         jfnk_tol = tol__
+         jfnk_del = del__
+         ginfo = 0  ! step accepted, clear hookstep flag
+      else if(pred_negligible) then
+         ! V4 audit fix (2026-09-09): Predicted reduction is negligible.
+         ! The linearized model does not predict a reduction in the
+         ! physical residual norm.  Reject the step and shrink the trust
+         ! radius.  Reuse the Krylov space (ginfo=2) for efficiency.
+         if(info == 1) write(luer,*) '  JFNK: pred negligible, &
+            &shrinking trust region'
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         ! Shrink below the rejected step (2026-09-11): halving del_try
+         ! alone does not bind when del >> |s|, so the hookstep would
+         ! return the identical step and loop.
+         jfnk_del = 0.5d0 * min(del_try, snrm_tr)   ! 2026-09-13 TR-units fix
+         ginfo   = 2
+      else if(ared < 0d0) then
+         if(info == 1) write(luer,*) '  JFNK: norm increased, try &
+            &smaller step'
+         jfnk_n_tr_rejected = jfnk_n_tr_rejected + 1
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         jfnk_del = 0.5d0 * snrm_tr   ! 2026-09-13 TR-units fix
+         ginfo   = 2
+      else if(rho < 0.75d0) then
+         if(info == 1) write(luer,*) '  JFNK: step ok, trying smaller &
+            &step'
+         x__     = jfnk_x
+         fx__    = jfnk_fx
+         tol__   = jfnk_tol
+         ! 2026-09-13 TR-units fix: radii in hookstep (||y||) units
+         if(rho > 0.1d0)  del__ = snrm_tr
+         if(rho <= 0.1d0) del__ = 0.5d0 * snrm_tr
+         jfnk_del = 0.7d0 * snrm_tr
+         ! edited by Devin, 05-Oct-2026 (retry-pass base-point fix):
+         ! restore the module state to the linearization point before
+         ! the recompute pass.  JFNK_JVP_V1 differentiates F at jfnk_x
+         ! against jfnk_fx; leaving the trial here made the next pass's
+         ! pred-residual JVP (and any descent-retry GMRES) evaluate J at
+         ! the wrong base point against b = fx_.  The trial itself is
+         ! kept in x__/fx__/tol__/del__ for the "accept previous" branch.
+         jfnk_x   = x_
+         jfnk_fx  = fx_
+         jfnk_tol = tol_
+         ginfo   = 2
+      else if(snrm_tr < jfnk_del * 0.9d0) then
+         if(info == 1) write(luer,*) '  JFNK: step good, took full &
+            &newton step'
+         if(snrm < 1d2) jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
+         ginfo = 0  ! step accepted, clear hookstep flag
+      else if(jfnk_del < mxdl_ * 0.9d0) then
+         if(info == 1) write(luer,*) '  JFNK: step good, trying larger &
+            &step'
+         x__     = jfnk_x
+         fx__    = jfnk_fx
+         tol__   = jfnk_tol
+         del__   = jfnk_del
+         if(snrm < 1d2) jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
+         ! edited by Devin, 05-Oct-2026 (retry-pass base-point fix):
+         ! same restore as the rho<0.75 branch above -- the module
+         ! state must sit at the linearization point (x_, fx_) because
+         ! JFNK_JVP_V1 differentiates F at jfnk_x against jfnk_fx.
+         jfnk_x   = x_
+         jfnk_fx  = fx_
+         jfnk_tol = tol_
+         ginfo   = 2
+      end if
+      !
+      ! Check if need to try another s
+      !
+      if(ginfo == 1 .or. ginfo == 2) then
+         cycle newton_loop
+      end if
+      !
+      ! End of iteration
+      !
+      ! Save |F| for the next Eisenstat-Walker forcing term computation.
+      ! jfnk_tol_prev is used at the top of the next Newton step to compute
+      ! eta_{k+1} = gamma * (|F_{k+1}| / |F_k|)^alpha.
+      jfnk_tol_prev = tol_
+      !
+      ! Pseudo-time (Knoll & Keyes 2004; SER update of Kelley & Keyes
+      ! 1998).  Grow dtau when |F| fell, so the added term
+      ! (x - x_k)*s/dtau fades and the iteration becomes Newton.
+      ! Shrink it when |F| did not fall.  jfnk_tol/jfnk_tol_prev are
+      ! |F| -- the strip above removed the pseudo-time term from every
+      ! residual this routine reads.  One line per accepted iteration;
+      ! the sweep chatter stays in JFNK_EVAL.log.
+      !
+      if(jfnk_ptc_active) then
+         dtau_was = jfnk_ptc_dtau
+         if(jfnk_tol < jfnk_tol_prev) then
+            jfnk_ptc_dtau = min(jfnk_ptc_dtau_max, &
+               jfnk_ptc_dtau * jfnk_tol_prev / max(jfnk_tol, 1d-30))
+         else
+            jfnk_ptc_dtau = max(1d-2, 0.5d0 * jfnk_ptc_dtau)
+         end if
+         if(info == 1) then
+            write(luer,'(A)') ' '
+            write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3,A,ES10.3)') &
+               '  JFNK: dtau ', real(dtau_was), ' -> ', &
+               real(jfnk_ptc_dtau), &
+               '    |F| ', real(jfnk_tol_prev), ' -> ', real(jfnk_tol)
+         end if
+      end if
+      !
+      jfnk_nits = jfnk_nits + 1
+      n_reject = 0
+      call sub()
+      x_    = jfnk_x
+      fx_   = jfnk_fx
+      tol_  = jfnk_tol
+      tol__ = 1d99
+      !
+      ! edited by Devin, 06-Oct-2026 (SER anchor fix): the accepted
+      ! iterate is the new anchor x_k for the pseudo-time term, so the
+      ! next GMRES solves (J_F + D/dtau) s = F(x_k) with the
+      ! linearization-point residual equal to F.
+      call jfnk_ptc_set_anchor_v1(n, x_)
+      !
+      if(jfnk_tol < tol) then
+         if(info == 1) write(luer,*) '  JFNK: NONLINEAR CONVERGED'
+         info = 0
+         deallocate(v)
+         return
+      else if(jfnk_nits == nits) then
+         if(info == 1) write(luer,*) '  JFNK: MAXIMUM NONLINEAR ITERATIONS REACHED'
+         if(info == 1) write(luer,*) '  JFNK: NONLINEAR SOLVE NOT YET CONVERGED'
+         info = 2
+         deallocate(v)
+         return
+      end if
+      !
+   end do newton_loop
+   !
+end subroutine newton_hook_v1
+
+
+!----------------------------------------------------------------------
+! GMRES_M_V1: GMRES(m) with left or right preconditioning and hookstep.
+!
+! Solves A*x = b for x, subject to |x| < delta (hookstep).
+!
+! Right preconditioning (legacy): A*M^{-1}*u = b, x = M^{-1}*u
+!   - Initial residual: r = b - A*x  (not preconditioned)
+!   - Arnoldi: z = M^{-1}*v_j, w = A*z
+!   - Update: x += M^{-1}*V*y
+!
+! Left preconditioning (Arramy 2024 default, Issue 6):
+!   M^{-1}*A*x = M^{-1}*b
+!   - Initial residual: r = M^{-1}*(b - A*x)
+!   - Arnoldi: w = A*v_j, w = M^{-1}*w
+!   - Update: x += V*y  (no final psolve)
+!
+! Bug fix (09-Sep-2026): del (trust radius) is now INTENT(IN) and the
+! predicted residual norm is returned separately as pred_res.  Previously
+! del was INTENT(INOUT) and was overwritten by hook_step_v1 with the
+! predicted residual, which:
+!   (a) corrupted the trust radius on GMRES restart (goto 1)
+!   (b) gave wrong pred = tol_ - 0 = tol_ when del==0 (no trust region)
+!       instead of pred = tol_ - res (the GMRES residual)
+!
+! editted by Sean Brennan (08-Sep-2026)
+!----------------------------------------------------------------------
+subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
+                       res, del, pred_res, its, info, luer)
+   use jfnk_solver_v1_mod, only: jfnk_precond_fails, &
+                                  jfnk_total_jvp_evals, jfnk_use_left_pc, &
+                                  jfnk_last_ynrm, jfnk_jvp_failed, &
+                                  jfnk_pc_clip_event, jfnk_gmres_stag_tol, &
+                                  jfnk_gmres_recomputed, &
+                                  jfnk_gmres_jj, jfnk_gmres_beta
+   ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
+   ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
+   ! (JFNK_N_PRECOND_APPLIES).  Incrementing here double-counted every
+   ! psolve call.
+   implicit none
+   integer,          intent(in)    :: m, n
+   double precision, intent(inout) :: x(n)
+   double precision, intent(in)    :: b(n)
+   external                        :: matvec, psolve
+   double precision, external      :: dotprd
+   double precision, intent(inout) :: h(m+1, m)
+   double precision, intent(inout) :: v(n, m+1)
+   double precision, intent(inout) :: res
+   double precision, intent(in)    :: del
+   double precision, intent(out)   :: pred_res
+   integer,          intent(inout) :: its, info
+   integer,          intent(in)    :: luer
+   !
+   double precision :: tol
+   double precision :: res_best   ! 2026-09-13 TR-units fix: best LS residual this restart cycle
+   integer :: n_stag              ! 2026-09-13 TR-units fix: consecutive non-improving residuals
+   double precision :: h_(m+1, m), y(m+1), p(m+1), work(6*m+16)
+   double precision :: s_tmp  ! re-orthogonalization scratch
+   double precision :: true_res  ! V4 audit: true residual at restart
+   integer :: imx, piv(m), rank, i, j, ios_gm
+   ! beta and jj are no longer SAVE variables: the cross-call basis
+   ! state the info==2 hookstep recompute needs lives in the module
+   ! pair jfnk_gmres_jj / jfnk_gmres_beta (which external diagnostic
+   ! callers can save/restore), synced at the cycle checkpoint below.
+   ! (numerical audit fix, 2026-10)
+   double precision :: beta
+   integer :: jj
+   logical :: done, left_pc
+   !
+   !
+   ! Heap-allocated workspace (audit §3, 09-Sep-2026):
+   ! w, z were automatic arrays of size N (~160KB for N=10000).
+   !
+   double precision, allocatable, save :: w(:), z(:)
+   ! edited by Devin, 05-Oct-2026 (alloc-failure stale-output fix):
+   ! initialize the outputs before the workspace allocation below -- an
+   ! alloc failure returns early, and newton_hook_v1 reads pred_res
+   ! (stagnation gate) and jfnk_last_ynrm (snrm_tr) unconditionally.
+   pred_res = 0d0
+   jfnk_last_ynrm = 0d0
+   if(allocated(w)) then
+      if(size(w) .ne. n) deallocate(w, z)
+   end if
+   if(.not. allocated(w)) then
+      allocate(w(n), z(n), stat=ios_gm)
+      if(ios_gm /= 0) then
+         if(info == 1) write(luer,*) 'gmres_m_v1: workspace alloc failed'
+         info = 1
+         return
+      end if
+   end if
+   !
+   left_pc = jfnk_use_left_pc
+   pred_res = 0d0
+   !
+   ! Hookstep recalculation with new del
+   !
+   ! editted by Devin, 04-Oct-2026: only valid when a completed Arnoldi
+   ! cycle left a basis (jj > 0).  Early returns that never reach the
+   ! jj assignment -- DGELSY error, near-zero beta, JVP/clip abort --
+   ! used to reach this branch with a stale or uninitialized jj and
+   ! index h(1:j+1,1:j) over a Krylov space that does not belong to
+   ! this point; jj = 0 on every fresh-solve entry invalidates it.
+   if(info == 2 .and. jfnk_gmres_jj > 0 .and. &
+      jfnk_gmres_jj <= m) then
+      jj   = jfnk_gmres_jj
+      beta = jfnk_gmres_beta
+      call hook_step_v1(jj, h, m, beta, del, y, pred_res)
+      ! 2026-09-13 TR-units fix: record ||y|| (norm the hookstep constrains)
+      jfnk_last_ynrm = dsqrt(dot_product(y(1:jj), y(1:jj)))
+      z = matmul(v(:,1:jj), y(1:jj))
+      if(.not. left_pc) then
+         call psolve(n, z)
+      end if
+      x = z
+      info = 0
+      ! edited by Devin, 05-Oct-2026 (recompute-pass descent-skip fix):
+      ! tell newton_hook_v1 this step came from a recalculation on the
+      ! unchanged Krylov basis, so its descent check skips the pass --
+      ! info=0 above hides that fact from the caller.
+      jfnk_gmres_recomputed = .true.
+      return
+   end if
+   jj = 0
+   jfnk_gmres_jj = 0   ! fresh solve: no basis survives for recompute
+   !
+   tol = res
+   imx = its
+   its = 0
+   v   = 0d0
+   jfnk_last_ynrm = 0d0   ! 2026-09-13 TR-units fix: fresh GMRES solve
+   !
+1 continue
+   n_stag = 0
+   res_best = 1d99
+   !
+   ! Initial residual: r = b - A*x  (then left-precondition if requested)
+   !
+   beta = dsqrt(dotprd(n, x, x))
+   if(beta == 0d0)  w = 0d0
+   if(beta /= 0d0) then
+      call matvec(n, x, w)
+      jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+      ! Audit 17-Sep-2026: abort the Krylov solve on an explicit JVP
+      ! failure instead of interpreting a zeroed JV as zero action.
+      if(jfnk_jvp_failed) then
+         if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
+         info = 3
+         return
+      end if
+   end if
+   w = b - w
+   !
+   if(left_pc) then
+      call psolve(n, w)
+      ! Audit 17-Sep-2026: a clip during psolve makes M^{-1} nonlinear.
+      if(jfnk_pc_clip_event) then
+         if(info == 1) write(luer,*) '  GMRES: precond clip -- aborting'
+         info = 3
+         return
+      end if
+   end if
+   !
+   beta = dsqrt(dotprd(n, w, w))
+   if(beta < 1d-30) then
+      ! Bug fix (09-Sep-2026): beta near zero means the current x (or s)
+      ! already solves the system — that's convergence, not a
+      ! preconditioner failure.  Previously this incremented
+      ! jfnk_precond_fails, polluting diagnostics every time GMRES got
+      ! a trivially-easy solve.
+      if(info == 1) write(luer,*) &
+         '  GMRES: near-zero initial residual (converged)'
+      info = 0
+      pred_res = 0d0
+      return
+   end if
+   v(:,1) = w / beta
+   !
+   h = 0d0
+   do j = 1, m
+      its = its + 1
+      !
+      if(left_pc) then
+         ! Left: w = M^{-1} * A * v_j
+         call matvec(n, v(:,j), w)
+         jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+         ! Audit 17-Sep-2026: explicit JVP failure aborts the solve.
+         if(jfnk_jvp_failed) then
+            if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
+            info = 3
+            return
+         end if
+         call psolve(n, w)
+         if(jfnk_pc_clip_event) then
+            if(info == 1) write(luer,*) '  GMRES: precond clip -- aborting'
+            info = 3
+            return
+         end if
+      else
+         ! Right: w = A * M^{-1} * v_j
+         z = v(:,j)
+         call psolve(n, z)
+         if(jfnk_pc_clip_event) then
+            if(info == 1) write(luer,*) '  GMRES: precond clip -- aborting'
+            info = 3
+            return
+         end if
+         call matvec(n, z, w)
+         jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+         if(jfnk_jvp_failed) then
+            if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
+            info = 3
+            return
+         end if
+      end if
+      !
+      ! Modified Gram-Schmidt with re-orthogonalization (twice MGS)
+      ! Re-orthogonalization prevents loss of orthogonality in the
+      ! Krylov basis for ill-conditioned problems, which causes the
+      ! least-squares residual to underestimate the true residual
+      ! and leads to poor GMRES restart behaviour.
+      !
+      do i = 1, j
+         h(i,j) = dotprd(n, w, v(1,i))
+         w = w - h(i,j) * v(:,i)
+      end do
+      ! Second MGS pass (re-orthogonalization)
+      do i = 1, j
+         s_tmp = dotprd(n, w, v(1,i))
+         h(i,j) = h(i,j) + s_tmp
+         w = w - s_tmp * v(:,i)
+      end do
+      h(j+1,j) = dsqrt(dotprd(n, w, w))
+      !
+      ! Lucky-breakdown guard (09-Sep-2026): if h(j+1,j) is numerically
+      ! zero, the exact solution already lies in the current Krylov
+      ! subspace (a "happy breakdown").  Dividing by zero injects NaNs
+      ! into v(:,j+1), silently corrupting the rest of the solve.
+      ! Fix: skip the divide, set v(:,j+1)=0, and let the least-squares
+      ! residual (res) naturally collapse to ~0, triggering done.
+      !
+      if(h(j+1,j) < 1d-14 * beta) then
+         if(info == 1) write(luer,'(A,I3,A,ES12.4)') &
+            '  GMRES: lucky breakdown at it=', its, &
+            ' h(j+1,j)=', real(h(j+1,j))
+         v(:,j+1) = 0d0
+      else
+         v(:,j+1) = w / h(j+1,j)
+      end if
+      !
+      ! Solve least-squares for y
+      !
+      p(1) = beta
+      p(2:j+1) = 0d0
+      h_(1:j+1,1:j) = h(1:j+1,1:j)
+      piv = 0
+      !
+      ! DGELSY workspace (ChatGPT audit fix #1, 2026-09-09): the
+      ! least-squares solve for the GMRES y-coefficients needs ~5*M
+      ! workspace for this rank-deficient Hessenberg problem.  The
+      ! original 4*M+1 was undersized and could overwrite adjacent
+      ! stack memory inside GMRES, producing otherwise-inexplicable
+      ! crashes around the Newton-loop return/deallocation.  Use a
+      ! generous 6*M+16 (matches the declaration above).
+      !
+      call dgelsy(j+1, j, 1, h_, m+1, p, m+1, piv, 1.0d-14, rank, work, &
+                   6*m+16, i)
+      if(i /= 0) then
+         if(info == 1) write(luer,*) '  GMRES: dgelsy error ', i
+         info = 1
+         return
+      end if
+      y = p
+      !
+      ! Residual of the (preconditioned) least-squares problem
+      !
+      p(1:j+1) = -matmul(h(1:j+1,1:j), y(1:j))
+      p(1) = p(1) + beta
+      res = dsqrt(dot_product(p(1:j+1), p(1:j+1)))
+      ! 2026-09-13 TR-units fix: tolerate small FD-noise residual rises.
+      ! The old `res > res_` test aborted the whole Newton solve on any
+      ! non-monotone wiggle; now require 3 consecutive non-improvements.
+      ! Audit 17-Sep-2026: the improvement threshold is jfnk_gmres_stag_tol
+      ! (default 1D-3), tied to the finite-difference JVP noise floor --
+      ! the previous 1D-14 value let GMRES grind out sub-noise gains for
+      ! many iterations before declaring stagnation.
+      if(res > res_best*(1d0 - jfnk_gmres_stag_tol)) then
+         n_stag = n_stag + 1
+      else
+         n_stag = 0
+         res_best = min(res_best, res)
+      end if
+      done = (res <= tol .or. its == imx .or. n_stag >= 3)
+      ! Throttled: print first it, every 5th, and on completion —
+      ! not every GMRES iteration (was flooding OUTGEN). 2026-09-11
+      if(info == 1 .and. (its == 1 .or. mod(its,5) == 0 .or. done)) &
+         write(luer,'(A,I3,A,ES12.4)') &
+         '    GMRES: it=', its, ' res=', real(res)
+      !
+      if(done .or. j == m) then
+         if(del > 0d0) then
+            call hook_step_v1(j, h, m, beta, del, y, pred_res)
+         else
+            ! No trust region (del==0): use the unconstrained
+            ! least-squares residual as the predicted residual.
+            pred_res = res
+         end if
+         ! 2026-09-13 TR-units fix: the Newton trust radius is set in
+         ! the units hookstep bounds.  edited by Devin, 05-Oct-2026
+         ! (||y|| restart fix): keep only the LAST cycle's ||y||.  The
+         ! total step is s = sum_k V_k y_k over different orthonormal
+         ! bases, so the old quadrature sum of ||y_k|| was neither
+         ! ||s||_w nor a bound on it.  The info==2 recompute path above
+         ! reuses only the last cycle's (jj, h, beta), so the trust
+         ! radius must match that basis.  Under left preconditioning
+         ! the update is s = s + V*y with V orthonormal in the dotprd
+         ! inner product, so ||y||_2 is exactly this cycle's
+         ! contribution to ||s||_w.
+         jfnk_last_ynrm = dsqrt(dot_product(y(1:j), y(1:j)))
+         !
+         z = matmul(v(:,1:j), y(1:j))
+         if(.not. left_pc) then
+            call psolve(n, z)
+         end if
+         x = x + z
+         if(its == imx) info = 2
+         if(n_stag >= 3) info = 1   ! 2026-09-13 TR-units fix: stagnation, not any rise
+         if(res <= tol) info = 0
+         jj = j
+         ! Checkpoint the completed cycle for the info==2 hookstep
+         ! recompute: caller's h/v hold this basis and beta is this
+         ! cycle's starting residual norm.  (2026-10 audit fix)
+         jfnk_gmres_jj   = j
+         jfnk_gmres_beta = beta
+         if(done) then
+            if(luer > 0) then
+               if(info == 0) then
+                  write(luer,'(A,I4,A,ES12.4)') &
+                     '  GMRES: CONVERGED  its=', its, ' res=', real(res)
+               else if(its == imx) then
+                  write(luer,'(A,I4,A,ES12.4)') &
+                     '  GMRES: MAXIMUM ITERATIONS REACHED  its=', its, &
+                     ' res=', real(res)
+               end if
+            end if
+            return
+         end if
+         !
+         ! V4 audit (2026-10): True residual at restart.
+         ! The Hessenberg least-squares residual `res` is computed with
+         ! dot_product (Euclidean) on the coefficient vector, while the
+         ! Arnoldi basis V is orthonormal in the weighted (dotprd) inner
+         ! product.  If V loses orthogonality, res underestimates the
+         ! true weighted physical residual ||F - J*s||_w.
+         !
+         ! Compute the true residual explicitly and compare.
+         !
+         if(info == 1) then
+            w = b
+            call matvec(n, x, z)
+            jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+            if(jfnk_jvp_failed) then
+               write(luer,*) '  GMRES: JVP failure in restart diag -- aborting'
+               info = 3
+               return
+            end if
+            w = b - z
+            if(left_pc) then
+               call psolve(n, w)
+               if(jfnk_pc_clip_event) then
+                  write(luer,*) '  GMRES: precond clip in restart diag -- aborting'
+                  info = 3
+                  return
+               end if
+            end if
+            true_res = dsqrt(dotprd(n, w, w))
+            write(luer,'(A,I3,A,ES12.4,A,ES12.4,A,ES12.4)') &
+               '  GMRES RESTART DIAG: it=', its, &
+               ' hess_res=', real(res), &
+               ' true_res=', real(true_res), &
+               ' ratio=', real(true_res / max(res, 1d-30))
+         end if
+         !
+         ! edited by Devin, 05-Oct-2026: luer>0 guard, same convention
+         ! as every other write in this routine.
+         if(del > 0d0 .and. luer > 0)  write(luer,*) '  GMRES: warning! &
+            &restart affects hookstep'
+         goto 1       ! (j==m) restart
+      end if
+      !
+   end do
+   !
+end subroutine gmres_m_v1
+
+
+!----------------------------------------------------------------------
+! HOOK_STEP_V1: Compute the hookstep (trust-region constrained step)
+! using SVD of the upper Hessenberg matrix.
+!
+! Based on Viswanath (2008) arXiv:0809.1498 and the JFNK-Hookstep
+! reference implementation.
+!
+! Bug fix (09-Sep-2026): del (trust radius) is now INTENT(IN) and
+! the predicted residual norm is returned separately as pred_res.
+! Previously del was INTENT(INOUT) and was overwritten with the
+! predicted residual, which corrupted the trust radius on GMRES
+! restart and gave wrong pred when del==0 (no trust region).
+!
+! editted by Sean Brennan (V4, 2026-09)
+!----------------------------------------------------------------------
+subroutine hook_step_v1(j, h, m, beta, del, y, pred_res)
+   implicit none
+   integer,          intent(in)    :: j, m
+   double precision, intent(in)    :: h(m+1, j)
+   double precision, intent(in)    :: beta
+   double precision, intent(in)    :: del
+   double precision, intent(out)   :: y(j)
+   double precision, intent(out)   :: pred_res
+   !
+   double precision :: a(j+1, j), s(j), u(j+1, j+1), vt(j, j)
+   double precision :: work(8*(j+1)+16)
+   double precision :: p(j+1), q(j), mu, qn, s_tol
+   double precision :: dq_dmu, dmu
+   integer :: info, i, i_ms
+   !
+   ! Guard: j=0 means no GMRES iterations were done.  There is no
+   ! least-squares problem to solve.  Return a zero step to let the
+   ! Newton loop evaluate the residual and decide what to do next.
+   ! Without this guard, DGESVD is called with LDVT=0 < max(1,N)=1,
+   ! causing "Intel MKL ERROR: Parameter 11 was incorrect on entry
+   ! to DGESVD."
+   !
+   if(j < 1) then
+      y = 0d0
+      pred_res = beta   ! zero step → predicted residual = beta (no improvement)
+      return
+   end if
+   !
+   a = h(1:j+1, 1:j)
+   !
+   call dgesvd('A', 'A', j+1, j, a, j+1, s, u, j+1, vt, j, work, &
+                8*(j+1)+16, info)
+   if(info /= 0) then
+      ! SVD failed — fall back to zero step.
+      y = 0d0
+      pred_res = beta
+      return
+   end if
+   !
+   p(1:j) = beta * u(1, 1:j)
+   !
+   ! Singular-value threshold (ChatGPT audit fix #2, 2026-09-09):
+   ! The Hessenberg least-squares system can be rank-deficient when
+   ! fixed T/Ne variables and masked equations remove unknowns.  A zero
+   ! (or near-zero) singular value makes q = p/s inject Inf/NaN, which
+   ! then corrupts the trust-region step and the predicted residual.
+   ! DGESVD returns singular values in descending order, so s(1) is the
+   ! largest; threshold relative to it and explicitly remove null
+   ! directions instead of dividing by them.
+   !
+   s_tol = max(s(1) * 1.0d-14, 1.0d-300)
+   q = 0d0
+   do i = 1, j
+      if(s(i) > s_tol) q(i) = p(i) / s(i)
+   end do
+   qn = dsqrt(dot_product(q, q))
+   if(qn <= del) then
+      mu = 0d0
+   else
+      ! Moré-Sorensen (1983): Newton iteration on the secular equation
+      !   phi(mu) = 1/||q(mu)|| - 1/del = 0,   q_i = s_i p_i/(mu + s_i^2)
+      ! with
+      !   d||q||/dmu = -(1/||q||) * sum_i q_i^2 / (mu + s_i^2)
+      !   mu_new = mu + ||q||*(1 - ||q||/del) / (d||q||/dmu)
+      ! Both factors are negative while ||q|| > del, so mu strictly
+      ! increases and the iteration converges quadratically (the
+      ! previous mu <- 1.1*mu search converged only linearly and
+      ! could overshoot the required trust-region radius).
+      !
+      mu = max(s(j)*s(j)*1d-6, 1d-99)
+      do i_ms = 1, 50
+         qn = 0d0
+         dq_dmu = 0d0
+         do i = 1, j
+            if(s(i) > s_tol) then
+               q(i) = p(i) * s(i) / (mu + s(i)*s(i))
+               qn = qn + q(i)*q(i)
+               dq_dmu = dq_dmu + q(i)*q(i) / (mu + s(i)*s(i))
+            else
+               q(i) = 0d0
+            end if
+         end do
+         qn = dsqrt(qn)
+         if(qn <= del) exit
+         dq_dmu = -dq_dmu / qn
+         if(dq_dmu == 0d0) exit
+         dmu = qn * (1.0d0 - qn/del) / dq_dmu
+         mu = mu + dmu
+         if(mu <= 0d0) mu = 1.0d-99
+         if(abs(dmu) <= 1.0d-12 * mu) exit
+      end do
+      qn = dsqrt(dot_product(q, q))
+      if(qn > del .and. qn > 0d0) q = q * (del / qn)
+   end if
+   !
+   y = matmul(q, vt)
+   !
+   ! Predicted residual for the hookstep
+   !
+   p = -matmul(h(1:j+1, 1:j), y(1:j))
+   p(1) = p(1) + beta
+   pred_res = dsqrt(dot_product(p, p))
+   !
+end subroutine hook_step_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_NEWTON_DIAGNOSTIC_V1: Comprehensive Newton direction diagnosis.
+!
+! Printed once on the first Newton step to understand why the computed
+! direction does not provide a useful physical reduction.
+!
+! Diagnostics:
+!   1. Sign verification: ||F - J*s|| vs ||F + J*s||
+!   2. Directional derivative: <F, J*s>_w (descent direction test)
+!   3. Component-wise top-20 analysis of |s(i)|
+!   4. Alpha-sweep of linearized model ||F - alpha*J*s||_w
+!   5. RSCALE audit (min/max/ratio)
+!   6. GMRES convergence in both norms
+!   7. JVP-vs-BA comparison for the actual Newton direction
+!
+! editted by Sean Brennan (V4, 2026-09)
+!----------------------------------------------------------------------
+subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
+                                      dp, df, luer)
+   use jfnk_solver_v1_mod, only: jfnk_total_jvp_evals
+   use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_ND, JFNK_RSCALE, &
+                                  JFNK_RSCALE_READY, JFNK_BA_DIAG, &
+                                  JFNK_BA_DIAG_READY, JFNK_BA_A, &
+                                  JFNK_LU_READY, JFNK_BA_RIDGE_ADD
+   implicit none
+   integer,          intent(in) :: n, luer
+   double precision, intent(in) :: s(n), fx(n), J_s(n), F_pred(n)
+   double precision, external   :: dp
+   external                      :: df
+   !
+   double precision :: Fp_minus(n), Fp_plus(n)
+   double precision :: norm_F, norm_Js, norm_Fp_minus, norm_Fp_plus
+   double precision :: directional_deriv
+   double precision :: alpha_list(6), alpha, norm_model
+   double precision :: rs_min, rs_max, rs_ratio
+   double precision :: BA_s(n), diff(n), diff_norm, ba_norm
+   double precision :: s_arr(n), s_temp(n)
+   integer :: i, k, kk, ii, jj, irow, icol, ntop, ntop_actual
+   integer, allocatable :: idx_sorted(:)
+   double precision, allocatable :: s_abs(:)
+   !
+   ! Index mapping: i = (k-1)*JFNK_NT + j, where k=depth, j=level
+   ! j=1..NT-2: populations, j=NT-1: electron density, j=NT: temperature
+   !
+   integer :: depth, level
+   character(len=20) :: var_name
+   !
+   if(luer <= 0) return
+   !
+   write(luer,'(A)') ' '
+   write(luer,'(A)') '=== JFNK Newton Direction Diagnostic ==='
+   write(luer,'(A)') ' '
+   !
+   ! --- 1. Sign verification ---
+   !
+   ! The code uses: jfnk_x = x_ - s, F_pred = fx - J_s
+   ! If GMRES solves J*s = F, then F_pred = F - J*s should be small.
+   ! If GMRES solves J*s = -F, then F + J*s should be small.
+   !
+   norm_F = dsqrt(dp(n, fx, fx))
+   norm_Js = dsqrt(dp(n, J_s, J_s))
+   !
+   Fp_minus = fx - J_s   ! F - J*s (current convention)
+   Fp_plus = fx + J_s    ! F + J*s (opposite sign)
+   norm_Fp_minus = dsqrt(dp(n, Fp_minus, Fp_minus))
+   norm_Fp_plus = dsqrt(dp(n, Fp_plus, Fp_plus))
+   !
+   write(luer,'(A)') '--- 1. Sign Verification ---'
+   write(luer,'(A,ES14.4)') '  ||F||_w           = ', norm_F
+   write(luer,'(A,ES14.4)') '  ||J*s||_w         = ', norm_Js
+   write(luer,'(A,ES14.4)') '  ||F - J*s||_w     = ', norm_Fp_minus
+   write(luer,'(A,ES14.4)') '  ||F + J*s||_w     = ', norm_Fp_plus
+   write(luer,'(A,ES14.4)') '  ||F-J*s||/||F||   = ', norm_Fp_minus / max(norm_F, 1.0d-30)
+   write(luer,'(A,ES14.4)') '  ||F+J*s||/||F||   = ', norm_Fp_plus / max(norm_F, 1.0d-30)
+   if(norm_Fp_minus < norm_Fp_plus) then
+      write(luer,'(A)') '  => F - J*s is smaller: GMRES solves J*s = F (sign correct)'
+   else
+      write(luer,'(A)') '  => F + J*s is smaller: GMRES may solve J*s = -F (sign WRONG?)'
+   end if
+   write(luer,'(A)') ' '
+   !
+   ! --- 2. Directional derivative <F, J*s>_w ---
+   !
+   ! For phi = 0.5*||F||_w^2, the derivative along x(alpha) = x - alpha*s is:
+   !   dphi/dalpha = -<F, J*s>_w
+   ! A descent direction requires <F, J*s>_w > 0.
+   !
+   directional_deriv = dp(n, fx, J_s)
+   write(luer,'(A)') '--- 2. Directional Derivative ---'
+   write(luer,'(A,ES14.4)') '  <F, J*s>_w        = ', directional_deriv
+   write(luer,'(A,ES14.4)') '  ||F||_w           = ', norm_F
+   write(luer,'(A,ES14.4)') '  ||J*s||_w         = ', norm_Js
+   write(luer,'(A,ES14.4)') '  cos(F, J*s)_w     = ', &
+      directional_deriv / max(norm_F * norm_Js, 1.0d-30)
+   if(directional_deriv > 0.0d0) then
+      write(luer,'(A)') '  => <F,J*s>_w > 0: descent direction (good)'
+   else if(directional_deriv < 0.0d0) then
+      write(luer,'(A)') '  => <F,J*s>_w < 0: NOT a descent direction (bad)'
+   else
+      write(luer,'(A)') '  => <F,J*s>_w ~ 0: direction is orthogonal to F'
+   end if
+   write(luer,'(A)') ' '
+   !
+   ! --- 3. Component-wise top-20 analysis ---
+   !
+   write(luer,'(A)') '--- 3. Top-20 Components of |s(i)| ---'
+   allocate(s_abs(n), idx_sorted(n))
+   do i = 1, n
+      s_abs(i) = abs(s(i))
+      idx_sorted(i) = i
+   end do
+   ! Simple selection sort for top 20 (n can be large, but 20 is small)
+   ntop = min(20, n)
+   do i = 1, ntop
+      do k = i+1, n
+         if(s_abs(k) > s_abs(i)) then
+            ! Swap
+            alpha = s_abs(i); s_abs(i) = s_abs(k); s_abs(k) = alpha
+            jj = idx_sorted(i); idx_sorted(i) = idx_sorted(k); idx_sorted(k) = jj
+         end if
+      end do
+   end do
+   write(luer,'(A)') '  rank  idx    depth  level  var          s(i)         F(i)        J*s(i)      F-J*s(i)    RSCALE(i)   BA_diag(i)  |Js|/|F|'
+   ntop_actual = min(ntop, n)
+   do i = 1, ntop_actual
+      ii = idx_sorted(i)
+      if(JFNK_NT > 0 .and. JFNK_ND > 0) then
+         depth = (ii - 1) / JFNK_NT + 1
+         level = mod(ii - 1, JFNK_NT) + 1
+         if(level <= JFNK_NT - 2) then
+            write(var_name,'(A,I3)') 'pop_l', level
+         else if(level == JFNK_NT - 1) then
+            var_name = 'Ne'
+         else
+            var_name = 'T'
+         end if
+      else
+         depth = 0
+         level = 0
+         write(var_name,'(A)') 'unknown'
+      end if
+      if(JFNK_RSCALE_READY .and. allocated(JFNK_RSCALE)) then
+         write(luer,'(I4,I8,I6,I5,2X,A8,5ES12.3,2ES10.2,ES10.2)') &
+            i, ii, depth, level, var_name, &
+            s(ii), fx(ii), J_s(ii), F_pred(ii), &
+            DBLE(JFNK_RSCALE(ii)), &
+            merge(DBLE(JFNK_BA_DIAG(level, depth)), 0.0d0, &
+                  JFNK_BA_DIAG_READY .and. allocated(JFNK_BA_DIAG)), &
+            abs(J_s(ii)) / max(abs(fx(ii)), 1.0d-30)
+      else
+         write(luer,'(I4,I8,I6,I5,2X,A8,4ES12.3,ES10.2)') &
+            i, ii, depth, level, var_name, &
+            s(ii), fx(ii), J_s(ii), F_pred(ii), &
+            abs(J_s(ii)) / max(abs(fx(ii)), 1.0d-30)
+      end if
+   end do
+   deallocate(s_abs, idx_sorted)
+   write(luer,'(A)') ' '
+   !
+   ! --- 4. Alpha-sweep of linearized model ---
+   !
+   write(luer,'(A)') '--- 4. Linearized Model Alpha-Sweep ---'
+   write(luer,'(A)') '  alpha      ||F - alpha*J*s||_w   ||F-alpha*J*s||/||F||'
+   alpha_list = (/1.0d0, 0.5d0, 0.25d0, 0.1d0, 0.01d0, 0.001d0/)
+   do i = 1, 6
+      alpha = alpha_list(i)
+      do k = 1, n
+         Fp_minus(k) = fx(k) - alpha * J_s(k)
+      end do
+      norm_model = dsqrt(dp(n, Fp_minus, Fp_minus))
+      write(luer,'(ES10.3,2ES20.4)') alpha, norm_model, &
+         norm_model / max(norm_F, 1.0d-30)
+   end do
+   write(luer,'(A)') ' '
+   !
+   ! --- 5. RSCALE audit ---
+   !
+   if(JFNK_RSCALE_READY .and. allocated(JFNK_RSCALE)) then
+      rs_min = JFNK_RSCALE(1)
+      rs_max = JFNK_RSCALE(1)
+      do i = 2, n
+         if(JFNK_RSCALE(i) < rs_min) rs_min = JFNK_RSCALE(i)
+         if(JFNK_RSCALE(i) > rs_max) rs_max = JFNK_RSCALE(i)
+      end do
+      rs_ratio = rs_max / max(rs_min, 1.0d-30)
+      write(luer,'(A)') '--- 5. RSCALE Audit ---'
+      write(luer,'(A,ES14.4)') '  min RSCALE  = ', rs_min
+      write(luer,'(A,ES14.4)') '  max RSCALE  = ', rs_max
+      write(luer,'(A,ES14.4)') '  max/min     = ', rs_ratio
+      write(luer,'(A)') ' '
+   end if
+   !
+   ! --- 6. JVP-vs-BA comparison for actual Newton direction ---
+   !
+   if(JFNK_LU_READY .and. allocated(JFNK_BA_A)) then
+      write(luer,'(A)') '--- 6. JVP vs BA_full*s (actual Newton direction) ---'
+      BA_s = 0.0d0
+      do kk = 1, JFNK_ND
+         do ii = 1, JFNK_NT
+            do jj = 1, JFNK_NT
+               BA_s((kk-1)*JFNK_NT + ii) = &
+                  BA_s((kk-1)*JFNK_NT + ii) + &
+                  DBLE(JFNK_BA_A(ii, jj, kk)) * s((kk-1)*JFNK_NT + jj)
+            end do
+         end do
+      end do
+      ! Subtract ridge (BA_A includes ridge on diagonal)
+      do kk = 1, JFNK_ND
+         do ii = 1, JFNK_NT
+            BA_s((kk-1)*JFNK_NT + ii) = BA_s((kk-1)*JFNK_NT + ii) - &
+               DBLE(JFNK_BA_RIDGE_ADD(ii, kk)) * s((kk-1)*JFNK_NT + ii)
+         end do
+      end do
+      diff = J_s - BA_s
+      diff_norm = 0.0d0
+      ba_norm = 0.0d0
+      do i = 1, n
+         diff_norm = max(diff_norm, abs(diff(i)))
+         ba_norm = max(ba_norm, abs(BA_s(i)))
+      end do
+      write(luer,'(A,ES14.4)') '  ||JFD*s||_inf     = ', maxval(abs(J_s))
+      write(luer,'(A,ES14.4)') '  ||BA*s||_inf      = ', ba_norm
+      write(luer,'(A,ES14.4)') '  ||JFD*s - BA*s||  = ', diff_norm
+      write(luer,'(A,ES14.4)') '  diff/||BA*s||     = ', &
+         diff_norm / max(ba_norm, 1.0d-30)
+      write(luer,'(A)') ' '
+   end if
+   !
+   write(luer,'(A)') '=== End Newton Direction Diagnostic ==='
+   write(luer,'(A)') ' '
+   flush(luer)
+   !
+end subroutine jfnk_newton_diagnostic_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_GMRES_DIM_EXPERIMENT_V1: Controlled GMRES dimension experiment.
+!
+! Runs GMRES with m = 5, 10, 20, 40 on the SAME physical state
+! (same F, JVP, preconditioner, RSCALE, trust-region radius).
+! For each m, reports:
+!   - GMRES iterations and restart status
+!   - ||s||_w, ||s||_inf
+!   - ||F-Js||_w (physical linear residual)
+!   - ||M^{-1}(F-Js)|| (preconditioned residual)
+!   - <F,Js>_w (directional derivative)
+!   - cos(F,Js) (alignment with residual)
+!   - alpha_opt (optimal step length from linearized model)
+!   - Trust-region scaling info
+!   - Alpha sweep for m=5 and m=40
+!
+! The experiment uses 40 total GMRES iterations for all m values
+! (fair comparison: same total work, different subspace sizes).
+!
+! editted by Sean Brennan (V4, 2026-09)
+!----------------------------------------------------------------------
+subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
+                                          gres, del, luer)
+   use jfnk_solver_v1_mod, only: jfnk_x, jfnk_fx, jfnk_total_jvp_evals, &
+                                  jfnk_max_gmres_its, jfnk_gmres_jj, &
+                                  jfnk_gmres_beta
+   use jfnk_cmfgen_int_mod, only: JFNK_RSCALE, JFNK_RSCALE_READY
+   implicit none
+   integer,          intent(in) :: n, luer
+   double precision, intent(in) :: x_cur(n), fx_cur(n), gres, del
+   external                      :: df, dfp
+   double precision, external   :: dp
+   !
+   integer, parameter :: n_tests = 4
+   integer :: m_tests(n_tests)
+   integer :: i_test, m_test, i, j, info_test, its_test, n_restarts
+   double precision, allocatable :: v_test(:,:), h_test(:)
+   double precision, allocatable :: s_test(:), J_s_test(:), F_pred_test(:)
+   double precision :: pred_res_test, res_test
+   double precision :: norm_F, norm_Js, norm_Fp, dir_deriv, cos_angle
+   double precision :: alpha_list(5), alpha, norm_model, alpha_opt
+   double precision :: snrm_test, s_inf_test, snrm_scaled, scale_fac_test
+   integer :: save_max_gmres, save_gmres_jj
+   double precision :: save_gmres_beta
+   double precision, allocatable :: save_jfnk_x(:), save_jfnk_fx(:)
+   double precision :: rs_min, rs_max, rs_ratio
+   character(len=12) :: status_str
+   !
+   if(luer <= 0) return
+   !
+   m_tests = (/5, 10, 20, 40/)
+   !
+   ! Save state that GMRES might modify.  The test solves below leave
+   ! jfnk_gmres_jj/jfnk_gmres_beta describing the LAST test's basis in
+   ! h_test/v_test (with m_test up to 40 > production m); without the
+   ! restore, a later info==2 hookstep recompute would read/write past
+   ! the caller's m-sized h/v/y arrays.  (2026-10 audit fix)
+   allocate(save_jfnk_x(n), save_jfnk_fx(n))
+   save_jfnk_x = jfnk_x
+   save_jfnk_fx = jfnk_fx
+   save_max_gmres = jfnk_max_gmres_its
+   save_gmres_jj   = jfnk_gmres_jj
+   save_gmres_beta = jfnk_gmres_beta
+   jfnk_max_gmres_its = 0   ! use default (m) for each test
+   !
+   allocate(s_test(n), J_s_test(n), F_pred_test(n))
+   !
+   norm_F = dsqrt(dp(n, fx_cur, fx_cur))
+   !
+   write(luer,'(A)') ' '
+   write(luer,'(A)') '=== GMRES Dimension Experiment ==='
+   write(luer,'(A)') ' '
+   write(luer,'(A,ES14.4)') '  ||F||_w  = ', norm_F
+   write(luer,'(A,ES14.4)') '  gres     = ', gres
+   write(luer,'(A,ES14.4)') '  del      = ', del
+   !
+   if(JFNK_RSCALE_READY .and. allocated(JFNK_RSCALE)) then
+      rs_min = JFNK_RSCALE(1)
+      rs_max = JFNK_RSCALE(1)
+      do i = 2, n
+         if(JFNK_RSCALE(i) < rs_min) rs_min = JFNK_RSCALE(i)
+         if(JFNK_RSCALE(i) > rs_max) rs_max = JFNK_RSCALE(i)
+      end do
+      rs_ratio = rs_max / max(rs_min, 1.0d-30)
+      write(luer,'(A,ES14.4,A,ES14.4,A,ES14.4)') &
+         '  RSCALE: min=', rs_min, ' max=', rs_max, ' ratio=', rs_ratio
+   end if
+   write(luer,'(A)') ' '
+   !
+   do i_test = 1, n_tests
+      m_test = m_tests(i_test)
+      !
+      allocate(v_test(n, m_test+1), h_test((m_test+1)*m_test))
+      !
+      ! Restore JVP state for each test
+      jfnk_x = x_cur
+      jfnk_fx = fx_cur
+      s_test = 0.0d0
+      !
+      ! Run GMRES: 40 total iterations for fair comparison
+      its_test = 40
+      info_test = 0    ! silent, fresh solve
+      res_test = gres
+      !
+      call gmres_m_v1(m_test, n, s_test, fx_cur, df, dfp, dp, &
+                       h_test, v_test, res_test, del, pred_res_test, &
+                       its_test, info_test, luer)
+      !
+      ! Compute J*s_test (restore JVP state first)
+      jfnk_x = x_cur
+      jfnk_fx = fx_cur
+      call df(n, s_test, J_s_test)
+      jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+      !
+      ! Diagnostics
+      norm_Js = dsqrt(dp(n, J_s_test, J_s_test))
+      dir_deriv = dp(n, fx_cur, J_s_test)
+      cos_angle = dir_deriv / max(norm_F * norm_Js, 1.0d-30)
+      F_pred_test = fx_cur - J_s_test
+      norm_Fp = dsqrt(dp(n, F_pred_test, F_pred_test))
+      snrm_test = dsqrt(dp(n, s_test, s_test))
+      s_inf_test = maxval(abs(s_test))
+      alpha_opt = dir_deriv / max(norm_Js * norm_Js, 1.0d-30)
+      !
+      n_restarts = its_test / m_test
+      if(mod(its_test, m_test) > 0) n_restarts = n_restarts + 1
+      n_restarts = max(0, n_restarts - 1)
+      !
+      if(info_test == 0) then
+         status_str = 'converged'
+      else if(info_test == 1) then
+         status_str = 'stagnated'
+      else if(info_test == 2) then
+         status_str = 'max_its'
+      else
+         status_str = 'unknown'
+      end if
+      !
+      write(luer,'(A)') ' '
+      write(luer,'(A,I3)') '  --- m = ', m_test
+      write(luer,'(A,I4,A,A,A,I3)') '  GMRES its=', its_test, &
+         '  status=', trim(status_str), '  restarts=', n_restarts
+      write(luer,'(A,ES14.4,A,ES14.4)') '  ||s||_w=', snrm_test, &
+         '  ||s||_inf=', s_inf_test
+      write(luer,'(A,ES14.4,A,ES14.4)') '  ||F-Js||_w=', norm_Fp, &
+         '  ||M^-1(F-Js)||=', pred_res_test
+      write(luer,'(A,ES14.4,A,ES14.4)') '  <F,Js>_w=', dir_deriv, &
+         '  cos(F,Js)=', cos_angle
+      write(luer,'(A,ES14.4)') '  alpha_opt=', alpha_opt
+      !
+      ! Trust-region scaling info
+      if(s_inf_test > 1.0d0) then
+         scale_fac_test = 1.0d0 / s_inf_test
+         snrm_scaled = snrm_test * scale_fac_test
+      else
+         scale_fac_test = 1.0d0
+         snrm_scaled = snrm_test
+      end if
+      write(luer,'(A,ES14.4,A,ES14.4)') '  del=', del, &
+         '  ||s||_w/del=', snrm_test / max(del, 1.0d-30)
+      write(luer,'(A,ES14.4,A,ES14.4)') '  inf_scale_fac=', scale_fac_test, &
+         '  ||s_scaled||_w=', snrm_scaled
+      if(snrm_test < del * 0.9d0) then
+         write(luer,'(A)') '  => Trust region NOT active (full Newton step)'
+      else
+         write(luer,'(A)') '  => Trust region ACTIVE (step constrained)'
+      end if
+      !
+      ! Alpha sweep for m=5 (worst) and m=40 (best)
+      if(m_test == 5 .or. m_test == 40) then
+         write(luer,'(A)') '  Alpha sweep:'
+         alpha_list = (/1.0d0, 0.1d0, 0.01d0, 0.001d0, 0.0001d0/)
+         do i = 1, 5
+            alpha = alpha_list(i)
+            do j = 1, n
+               F_pred_test(j) = fx_cur(j) - alpha * J_s_test(j)
+            end do
+            norm_model = dsqrt(dp(n, F_pred_test, F_pred_test))
+            write(luer,'(A,ES10.3,A,ES14.4,A,ES10.3)') &
+               '    alpha=', alpha, ' ||F-aJs||=', norm_model, &
+               ' ratio=', norm_model / max(norm_F, 1.0d-30)
+         end do
+      end if
+      !
+      deallocate(v_test, h_test)
+   end do
+   !
+   ! Restore state (see entry: the gmres basis pair must describe the
+   ! caller's h/v again, not the last test solve's h_test/v_test)
+   jfnk_x = save_jfnk_x
+   jfnk_fx = save_jfnk_fx
+   jfnk_max_gmres_its = save_max_gmres
+   jfnk_gmres_jj      = save_gmres_jj
+   jfnk_gmres_beta    = save_gmres_beta
+   !
+   deallocate(save_jfnk_x, save_jfnk_fx, s_test, J_s_test, F_pred_test)
+   !
+   write(luer,'(A)') ' '
+   write(luer,'(A)') '=== End GMRES Dimension Experiment ==='
+   write(luer,'(A)') ' '
+   flush(luer)
+   !
+end subroutine jfnk_gmres_dim_experiment_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_TAUTO_DAMP_V1: FIX_T_AUTO step guard.  Scales the temperature
+! components of a Newton/Cauchy direction by jfnk_tauto_alpha and caps
+! each at +-jfnk_tauto_dmax.  T components sit at flat index
+! i = (k-1)*jfnk_tauto_nt + jfnk_tauto_jt for k in [dst,dend]; all
+! other components (populations, Ne) pass through unchanged.  Called
+! on the finished physical step AFTER the Krylov solve and before the
+! trial eval, so the line search, JVP prediction and commit all see
+! the same bounded candidate.
+!----------------------------------------------------------------------
+subroutine jfnk_tauto_damp_v1(n, s)
+   use jfnk_solver_v1_mod
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(inout) :: s(n)
+   integer :: k, i
+   !
+   if(.not. jfnk_tauto_on) return
+   if(jfnk_tauto_nt <= 0 .or. jfnk_tauto_jt <= 0) return
+   if(jfnk_tauto_dst <= 0 .or. jfnk_tauto_dend < jfnk_tauto_dst) return
+   !
+   do k = jfnk_tauto_dst, jfnk_tauto_dend
+      i = (k-1)*jfnk_tauto_nt + jfnk_tauto_jt
+      if(i >= 1 .and. i <= n) then
+         s(i) = s(i) * jfnk_tauto_alpha
+         if(s(i) >  jfnk_tauto_dmax) s(i) =  jfnk_tauto_dmax
+         if(s(i) < -jfnk_tauto_dmax) s(i) = -jfnk_tauto_dmax
+      end if
+   end do
+   return
+end subroutine jfnk_tauto_damp_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_BLK_LSQ_SOLVE: apply one LSQ-factored block to an np-vector.
+! Replicates the JFNK_PRECOND_V1 'LSQ' apply on a single np x np block:
+!   w = rsf^2 * b
+!   u = csf * (B_raw^T w + ridge*w + reg-row substitution correction)
+!   solve (B_eq^T B_eq + lam^2 I) u = rhs via the DPOTRF factor chol
+!   z = csf * u
+! Shared by the production SCHUR preconditioner and the unit-test
+! driver so both exercise identical arithmetic.
+! info_out: 0 on success, LAPACK info otherwise.
+!----------------------------------------------------------------------
+subroutine jfnk_blk_lsq_solve(np, chol, braw, ridge, reg, rsf, csf, &
+     b, z, info_out)
+   implicit none
+   integer, intent(in) :: np
+   double precision, intent(in) :: chol(np,np), braw(np,np)
+   double precision, intent(in) :: ridge(np), rsf(np), csf(np), b(np)
+   logical, intent(in) :: reg(np)
+   double precision, intent(out) :: z(np)
+   integer, intent(out) :: info_out
+   integer :: i, j
+   double precision :: w(np), u(np)
+   !
+   do i = 1, np
+      w(i) = b(i) * rsf(i) * rsf(i)
+   end do
+   do j = 1, np
+      u(j) = 0d0
+      do i = 1, np
+         u(j) = u(j) + braw(i,j) * w(i)
+      end do
+      u(j) = u(j) + ridge(j) * w(j)
+   end do
+   do i = 1, np
+      if(reg(i)) then
+         do j = 1, np
+            u(j) = u(j) - w(i) * braw(i,j)
+         end do
+         u(i) = u(i) + w(i) - w(i) * ridge(i)
+      end if
+   end do
+   do j = 1, np
+      u(j) = u(j) * csf(j)
+   end do
+   call dpotrs('L', np, 1, chol, np, u, np, info_out)
+   if(info_out /= 0) then
+      z = 0d0
+      return
+   end if
+   do j = 1, np
+      z(j) = u(j) * csf(j)
+   end do
+   return
+end subroutine jfnk_blk_lsq_solve
+
+
+!----------------------------------------------------------------------
+! JFNK_SCHUR_FORM_V1: assemble and factor the dense temperature Schur
+! complement
+!   S(k,k) = JTT(k) - JTn(k) . Jnn(k)^{-1} JnT(k)
+! where Jnn^{-1} JnT is evaluated with the same per-depth LSQ block
+! solve used at apply time (chol/braw/ridge/reg/rsf/csf as above).
+! np_ = nt-2 population rows per depth; T sits at flat row nt,
+! Ne at nt-1.  S is nd x nd; factored in place by DGETRF.
+!----------------------------------------------------------------------
+subroutine jfnk_schur_form_v1(nd, nt, np_, jt, chol, braw, ridge, &
+     reg, rsf, csf, s, sipiv, info)
+   implicit none
+   integer, intent(in) :: nd, nt, np_, jt
+   double precision, intent(in) :: chol(nt,nt,nd), braw(nt,nt,nd)
+   double precision, intent(in) :: ridge(nt,nd), rsf(nt,nd), csf(nt,nd)
+   logical, intent(in) :: reg(nt,nd)
+   double precision, intent(out) :: s(nd,nd)
+   integer, intent(out) :: sipiv(nd), info
+   integer :: k, i, ierr
+   double precision :: w(np_), b(np_), jtt, chl(np_,np_)
+   !
+   s = 0d0
+   info = 0
+   do k = 1, nd
+      do i = 1, np_
+         b(i) = braw(i,jt,k)
+      end do
+      chl = chol(1:np_,1:np_,k)
+      call jfnk_blk_lsq_solve(np_, chl, braw(1:np_,1:np_,k), &
+           ridge(1:np_,k), reg(1:np_,k), rsf(1:np_,k), csf(1:np_,k), &
+           b, w, ierr)
+      if(ierr /= 0) w = 0d0
+      jtt = braw(jt,jt,k)
+      s(k,k) = jtt
+      do i = 1, np_
+         s(k,k) = s(k,k) - braw(jt,i,k) * w(i)
+      end do
+   end do
+   call dgetrf(nd, nd, s, nd, sipiv, info)
+   return
+end subroutine jfnk_schur_form_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_SCHUR_APPLY_V1: two-level (n,T) Schur-complement preconditioner
+! apply z = M^{-1} v on the flat state vector v(nd*nt).
+!
+!   z_n(k) = Jnn(k)^{-1} v_n(k)          (LSQ block solve, pops only)
+!   t(k)   = v_T(k) - JTn(k) . z_n(k)
+!   z_T    = S^{-1} t                    (dense nd x nd DGETRS)
+!   z_n(k) = z_n(k) - Jnn(k)^{-1} (JnT(k) z_T(k))
+!
+! T is written to row nt of each depth block, Ne (nt-1) zeroed; reg
+! population rows are not projected here -- the caller's post-chain
+! does that, exactly as for the LU/LSQ paths.
+!----------------------------------------------------------------------
+subroutine jfnk_schur_apply_v1(nd, nt, np_, jt, jne, chol, braw, &
+     ridge, reg, rsf, csf, s, sipiv, v, info)
+   implicit none
+   integer, intent(in) :: nd, nt, np_, jt, jne
+   double precision, intent(in) :: chol(nt,nt,nd), braw(nt,nt,nd)
+   double precision, intent(in) :: ridge(nt,nd), rsf(nt,nd), csf(nt,nd)
+   logical, intent(in) :: reg(nt,nd)
+   double precision, intent(in) :: s(nd,nd)
+   integer, intent(in) :: sipiv(nd)
+   double precision, intent(inout) :: v(nd*nt)
+   integer, intent(out) :: info
+   integer :: k, i, b, ierr
+   double precision :: zn(np_,nd), cc(np_), trhs(nd), zt(nd), bb(np_)
+   double precision :: chl(np_,np_)
+   !
+   info = 0
+   do k = 1, nd
+      b = (k-1) * nt
+      chl = chol(1:np_,1:np_,k)
+      call jfnk_blk_lsq_solve(np_, chl, braw(1:np_,1:np_,k), &
+           ridge(1:np_,k), reg(1:np_,k), rsf(1:np_,k), csf(1:np_,k), &
+           v(b+1:b+np_), zn(1,k), ierr)
+      if(ierr /= 0) then
+         info = ierr
+         return
+      end if
+      trhs(k) = v(b+jt)
+      do i = 1, np_
+         trhs(k) = trhs(k) - braw(jt,i,k) * zn(i,k)
+      end do
+   end do
+   zt = trhs
+   call dgetrs('N', nd, 1, s, nd, sipiv, zt, nd, ierr)
+   if(ierr /= 0) then
+      info = ierr
+      return
+   end if
+   do k = 1, nd
+      b = (k-1) * nt
+      do i = 1, np_
+         bb(i) = braw(i,jt,k) * zt(k)
+      end do
+      chl = chol(1:np_,1:np_,k)
+      call jfnk_blk_lsq_solve(np_, chl, braw(1:np_,1:np_,k), &
+           ridge(1:np_,k), reg(1:np_,k), rsf(1:np_,k), csf(1:np_,k), &
+           bb, cc, ierr)
+      if(ierr /= 0) then
+         info = ierr
+         return
+      end if
+      do i = 1, np_
+         v(b+i) = zn(i,k) - cc(i)
+      end do
+      if(jne >= 1 .and. jne <= nt) v(b+jne) = 0d0
+      v(b+jt) = zt(k)
+   end do
+   return
+end subroutine jfnk_schur_apply_v1

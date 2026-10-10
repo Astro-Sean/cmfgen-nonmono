@@ -1,0 +1,324 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2709
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;\red127\green0\blue128;\red0\green0\blue255;\red251\green2\blue7;
+\red0\green0\blue0;\red1\green20\blue69;\red25\green25\blue25;\red251\green2\blue255;}
+{\*\expandedcolortbl;;\cssrgb\c57919\c12801\c57269;\cssrgb\c1680\c19835\c100000;\cssrgb\c100000\c14913\c0;
+\cssrgb\c0\c0\c0;\cssrgb\c0\c11664\c34131;\cssrgb\c12941\c12941\c12941;\cssrgb\c100000\c25279\c100000;}
+\margl1440\margr1440\vieww24940\viewh16440\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\f0\fs48 \cf0 Release Notes (18-Jun-2025)\
+\
+
+\fs28 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 Very brief summary of changes in CMFGEN and associated programs compared to the older web version. Changes are mostly minor.\
+\
+Makefile_definitions has been modified, and there are now two versions that can bet contained in $cmfdist \'97 a debug and a non-debug versions.\
+\
+\cf2 make clean\cf0  \
+         will clean all  the mod, exe, and lib  directories, and removes all .o files\
+\
+\cf2 make dbg_clean \cf0 \
+     will clean all  the   mod_dbg, exe_dbg, and lib_dbg  directories, and removes all .o files.\
+\
+The one caveat at present is that some .o files are not deleted. This will cause problems\
+of you continually switch back and forth while trying to do partial makes.\
+\
+All .mod file (created from compilations) are now stored in the appropiate mod directory (i.e.,\
+\cf3 $cmfdist/mod\cf0  of \cf3 $cmfdist/mod_dbg\cf0 ).\
+\
+An update to the lte routines in lte_hydro was done to reduce crashes at low temperatures\
+(new files in lte_hydro: det_ed_v2.f, genopaeta_v10.f, writedc_v3.f). Note: Another\
+version of  genopaeta_v10.f eists in another directory. \
+\
+misc/create_mod_sum.f  was altered  to allow abundances on a log H=12 scale to be printed.\
+\
+A listing of all changes can be seen (except for the Makefile and Makefile_definitions in the main directory) can be obtained by\
+doing the following in the main directory of the new distribution:\
+\
+\cf4 $cmfdist    (old cmfdist) > RUB\cf0 \
+\
+The RUB file will simply contain a list of the commands that are executed. Look at \cf2 Diff_sum \cf0 to see a list of changes,\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\fs48 \cf0 \
+Release Notes (17\'96Feb-2025)\
+
+\fs28 \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 Very brief summary of changes in CMFGEN and associated programs compared to the older web version. There were changes to ALL files.\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\fs36 \cf4 Major Changes
+\fs28 \cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+Double precision variables in CMFGEN are now specified in as REAL(KIND=LDP) where the kind variable is set in cur_cmf/tools/set_kind_module.f.\
+The allows CMFGEN to be compiled us INTEL 80 bit arithmetic which can be useful in some SN models with molecules. On INTEL machines\
+the code will run slower when this option is on. In principal, CMFGEN could also be run using 128 precision, but this will be very slow as such an\
+extension is usually implemented via software. For both these case, the supplied blas and lpack routines need to be used (i.e., not those\
+supplied by the INTEL math libraries).\
+\
+A initialization issued was fixed which occasionally caused CMF_FLUX to require way too much memory.\
+\
+Handling of photoionization to excited levels was changed. This affects cases where lower levels belong to the same term are not in a\
+single level, and when the densities are low. Primarily effects nebular epoch supernovae models.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+\cf0 \
+\
+
+\fs48 Release Notes (28-June-2023
+\fs28 )\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+Brief summary of changes in CMFGEN and associated programs compared to the older web version. In this CMFGEN release, there are over 150 files  that were not in the previous release.\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\qc\partightenfactor0
+
+\fs36 \cf4 Compilation issues
+\fs28 \cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+	There have been some reports of compilation issues. These issues depend on the Fortran compiler, the version of the Fortran compiler, and the operating system. CMFGEN and associated routines have been successfully compiled using different versions of gfortran (including the new macbook pros with the M2 chip), pgf95, and the INTEL compiler.\
+\
+Note: For \cf4 cmfgen_dev.exe\cf0  and \cf4 cmf_flux.exe\cf0  it is highly recommended that you use the parallel versions \'97 they are much faster than the sequential version.\
+     \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs36 \cf4 Intel compiler\
+\
+
+\fs28 \cf5 Use (following advice from \expnd0\expndtw0\kerning0
+J\cf6 oachim Bestenlehner who did have success):\cf0 \kerning1\expnd0\expndtw0 \
+     \
+\pard\pardeftab720\partightenfactor0
+\cf0 \expnd0\expndtw0\kerning0
+F90 = ifort -qmkl=sequential\
+FG =\'a0 -extend-source -nbs -O3 -I$(MOD_DIR) -I$(INSTALL_DIR)obs/ -I$\{MKLROOT\}/include/intel64/lp64\
+BLAS\'a0 =$\{MKLROOT\}/lib/intel64/libmkl_blas95_lp64.a -L$\{MKLROOT\}/lib/intel64 -lpthread -lm -ldl -liomp5\
+LAPACK=$\{MKLROOT\}/lib/intel64/libmkl_lapack95_lp64.a -L$\{MKLROOT\}/lib/intel64 -lpthread -lm -ldl -liomp5\
+\
+and parallel\
+\
+F90 = ifort -qopenmp -qmkl=parallel\
+FG =\'a0 -extend-source -nbs -O2 -I$(MOD_DIR) -I$(INSTALL_DIR)obs/ -I$\{MKLROOT\}/include/intel64/lp64\
+FH =\'a0 -extend-source -nbs -O2 -I$(MOD_DIR) -I$(INSTALL_DIR)obs/ -I$\{MKLROOT\}/include/intel64/lp64\
+FD =\'a0 -extend-source -nbs -O2 -I$(MOD_DIR) -I$(INSTALL_DIR)obs/ -I$\{MKLROOT\}/include/intel64/lp64\
+\
+BLAS\'a0 =$\{MKLROOT\}/lib/intel64/libmkl_blas95_lp64.a -L$\{MKLROOT\}/lib/intel64 -lpthread -lm -ldl -liomp5\
+LAPACK=$\{MKLROOT\}/lib/intel64/libmkl_lapack95_lp64.a -L$\{MKLROOT\}/lib/intel64 -lpthread -lm -ldl -liomp5\
+\
+Apparently cmf_flux has an issue with the linux compiler, which is why the -O2 option is used.\kerning1\expnd0\expndtw0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardeftab720\pardirnatural\partightenfactor0
+\cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs36 \cf4 gfortran\
+    
+\fs28 \cf5 There are successful links in the supplied Makefile_definitions file.\cf0  Some versions  of gfortran implement checks on argument consistency. There are three  routines where this is a problem. In one case, I pass a scaler as a vector which is computationally okay since in this case a vector length of 1 is passed. I will try to rectify these in the near future. If there is a problem, add  \
+     -fallow-argument-mismatch\
+to the definition of F90 in $cmfdist/Makefile_definitions. \
+\
+
+\fs36 \cf4 gfortran (Macbook Pro, M2 chip)
+\fs28 \cf0 \
+\
+I did have some issues with libraries, but the following worked.\
+\
+ F90 = gfortran -fallow-argument-mismatch  -L/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib -O -fopenmp -m64\
+ F90nomp = gfortran -L/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib -O\
+ FG  =  -ffixed-line-length-0 -fno-backslash -fd-lines-as-comments -I$(MOD_DIR) -J$(MOD_DIR)\
+ FD  = -g  -ffixed-line-length-0 -fno-backslash -fbounds-check -fd-lines-as-comments -ffpe-trap=invalid,zero,overflow -I$(MOD_DIR) -J$(MOD_DIR)\
+ FFREE  = -fno-backslash -I$(MOD_DIR) -J$(MOD_DIR)\
+ FFRED  = -fno-backslash -g -I$(MOD_DIR) -J$(MOD_DIR)\
+\
+I linked the supplied blas/lapack routines, but in general the routines supplied with XCODE should be linked.\
+\
+
+\fs36 \cf4 pgf95
+\fs28 \cf0 \
+\
+There were issues with \cf7 \expnd0\expndtw0\kerning0
+the V18.3 of the PGF95 complier which were solved with the V19.7. The issues\
+were related to both compilation and running. When running with 18.2 you get an error:\
+\
+\pard\pardeftab720\partightenfactor0
+\cf7 dyld: __dyld section not supported in /Volumes/strax/cmfgen/cur_cmf/exe/cmfgen_dev.exe\cf0 \kerning1\expnd0\expndtw0 \
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\
+If you have compilation issues, please let me know.\
+\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs36 \cf4 Running cmf_flux.exe
+\fs28 \cf0 \
+\
+      The newest version of\cf3  batobs.sh\cf0  calls \cf3 bat_ins.sh \cf0 which is created by \cf4 create_batobs_ins.exe\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 using a file BAT_PARAMS. With this method it is easier to run multiple flux calculations,\
+and the formatting of the key words and their input is not critical.\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs36 \cf4 Running cmfgen_dev.exe
+\fs28 \cf0 \
+\
+     A program \cf4 create_batch_ins.exe\cf0  has been created to facilitate the use of the latest atomic data.\
+It use the \cf3 batch.sh\cf0  file from a previous model and creates a  file \cf3 batch_ins.sh\cf0  with all the\
+atomic data links for species other than H and He. This can then be inserted (or called) from\
+\pard\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 batch.sh. The F_TO_S links may need to be edited.\
+\
+\
+
+\fs36 \cf4 CMFGEN changes
+\fs28 \cf0  	This is just a brief summary of some of the changes that may have a more direct\
+	affect on users. \
+ \
+	Automatic means of adding additional species and ionization stages.\
+	Requires \cf8 RVTJ, EDDFACTOR,\cf0  and \cf8 EDDFACTOR_INFO\cf0  files from exiting model.\
+\
+	New routines for SN gamma-ray transport.\
+	Method for adding shock power (SN)\
+	\
+	ABS_MEAN and PLANCK_MEAN output to \cf5 RVTJ. As a consequence the new RVTJ file cannot\
+	be read by older versions of CMFGEN. Future changes to RVTJ should not have this\
+	effect. Older versions could be updated by implementing calls to $cmfdist/tools/rd_rvtj_v5.f\cf0 \
+\
+	H- ionization now referred to as H0 (not HM1) \'97 done to facilitate adding molecules.\
+	\
+	New routines are now utilized to compute quadrature designed  to compute moments of\
+	the radiation field. This was done to overcome an accuracy issue when R(nmax) >>> R*.\
+	Also affects \cf4 cmf_flux.exe\cf0 . Should be transparent to users, but this was a late change\
+	to nearly a dozen routines in the current release.\
+\
+\
+\
+
+\fs36 CMFGEN options
+\fs28 \
+\
+More details on these options will be provided in the CMFGEN documentation.\
+     For associated keyword, look at \cf4 $cmfdist/new_main/mod_sums/rd_control_variables.f\cf0 \
+\
+     [CHK_NG]	Add to the VADAT file (in NG section) and set to F(alse)\
+	Still working on a robust procedure to switch this option on.\
+\
+     [DC_METH]	Used when reading departure coefficients from an old model.\
+	New option TR added, and is now the preferred option.\
+                        	Gives better estimates due to changes in T at a given depth.\
+\
+     [PNT_SRCE]	Allow point source to be added (limited applications).\
+     [TEFF_PNT_SRCE]     \
+\
+     [INC_SHOCK_POWER] 	For SN models (& several associated keywords)\
+\
+     [RD_NT-THERM_SPEC] 	Reads in non-thermal electron spectrum.\
+	Set to T(rue) when debugging code. As a consequence,  the\
+	non-thermal spectrum will not be recomputed every time you restart the code. \
+\
+    [CHK_J] 	Options designed to improve stability of radiation transfer. Can use defaults.\
+    [CHK_H]\
+    [CHK_XM]\
+\
+    [AUTO_ADD]              	Allows new DC files to be created for species without XzV_IN files. Requires \cf8 RVTJ, \
+	EDDFACTOR,\cf0  and \cf8 EDDFACTOR_INFO\cf0  files from existing model, and should be\
+	used with the FIXED_J=T(rue) option in VADAT. Note: Initially the changes can be huge\
+	and quite a few iterations may be needed before convergence is achieved.\
+\
+    [AUTO_SMOOTH]	Automatically smooths populations as we iterate (primally of use when adding species\
+		and ionization stages). Set to T(rue) for stellar work, may need to be F(alse) for SN work,\
+		especially shell models. Note: You can use\cf4  plt_scr.exe \cf0 to fudge individual populations in \
+		a CMFGEN model (you need to halt the model, use \cf4 plt_scr.exe,\cf0  and then restart). This can 	          be necessary since occasionally a few populations will go to ridiculously small values.\
+\
+   [USE_EHB]	Use electron heating/cooling balance as T constraint (set to F)\
+   [COMP_EHB]	Compute electron heating/cooling balance as T constraint check (default is [USE_EHB]\
+\
+\
+
+\fs36 \cf4 Major CMF_FLUX changes.
+\fs28 \cf0 \
+	To save time, the emissivity and line opacity are only computed in the first iteration.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\fs36 \cf4 CMF_FLUX controls (in CMF_FLUX_PARAM_INIT)
+\fs28 \cf0 \
+\
+\pard\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0     [CHK_J] 	Options designed to improve stability of radiation transfer. Can use defaults.\
+    [CHK_H]\
+    [CHK_XM]\
+\
+    [OBS_LAM_MIN]	Restricts range at which observed spectrum is computed (not required).\
+    [OBS_MAM_MAX]\
+\
+    [DO_CMF_EW]	Using a comoving-frame calculation to compute EWs. Slow \'97 generally set to F (default)\
+    [DO_ALL_SOB]                                   Compute all Sobolev line EWs (default is F).\
+    [SOB_EW_LAM_BEG]	Start wavelength to compute line EWs (def is 900 Ang)\
+    [SOB_EW_LAM_END]	End  wavelength to compute line EWs (def is 5.0E+04 Ang)\
+\
+    [WR_TRANS] 	Write out TRANS_INFO (long list of lines in lambda order). Default is F.\
+\
+\
+
+\fs36 \cf4 GRAMON/PGPLT package
+\fs28 \cf0 	A lot of new options, which can be listed using the 'H' option in the plot package.\
+	Read documentation and/or \cf4 $cmfdist/pgplt/pgplot.f \cf0 to see all options. Some major\
+	changes are 'CEW' and 'FEW'. The former allows line EWs to be measured using \
+	cursors. The latter can use the bounds defined by CEW to measure EWs in a large 	set of model spectra (together with a box file). There is a similar (modifed) Gaussian \
+	fitting option - CGF and FGF.\
+\
+	Options were added to the \cf4 dp_curve (curve.f) \cf0 routine to pass  curve labels directly to pgplot.\
+	Call \cf4 dp_curve_lab.f.\cf0  The calls have been implemented in some options in some routines.\
+\
+	Options related to line ids (RID and REW) have been improved. RID reads line IDs from a\
+	file created by \cf4 dispgen.exe\cf0 , and is most useful for photospheric lines.\
+	REW is the EW_DATA file created by \cf4 cmf_flux.exe,\cf0  and is most useful for emission line stars	(i.e., WR stars and LBVs). Line IDs are now modified so that Sk2 becomes Si II.\
+\
+
+\fs36 \cf4 Files in $cmfdist/misc
+\fs28 \cf0 \
+	Improved version of \cf4 create_mod_sum.exe.\cf0 \
+	Use to create a summary file for a set of stellar models.\
+	\
+	Improved version of\cf4  mod_cool.exe\cf0 	Designed to look at and study cooling (from the electron point of view).\
+\
+	Improved version of \cf4 mod_prrr.exe\cf0 \
+	Designed to study recombination balance of an ion (and hence uses XzVPRRR).\
+\
+	Improved version of plt_perr.exe	Designed to plot XzVPRRR file.\
+\
+	Improvements to \cf4 rev_rvsig.exe\cf0 \
+	Designed to update a RVSIG_COL input for a new model (e.g., a change in mass loss rate,\
+	velocity law, number of depth points etc). New velocity law options added including an option to\
+	simply copy the velocity law from the input file.\
+\
+\
+\cf4 DISPGEN\cf0 	\
+	Many new options added and others changed.\
+	You always look at $cmfdist/com/maingen.f to see/add options.\
+	maingen.f has a relatively simple structure.\
+\
+	With \cf4 dispgen.exe \cf0 you do not need to read in all the atomic data files. If you are only\
+	interested in structure plots, or CNO, you can simply read in RVTJ, and for example, CNO. The\
+	elements are read in atomic number order. For this option, enter RVTJ(ask), and enter\
+	"" (i.e., two double quotes) when you have read in all the needed atomic data files.\
+\
+\
+\
+\
+\
+\
+}

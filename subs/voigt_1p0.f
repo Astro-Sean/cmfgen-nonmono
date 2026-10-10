@@ -1,0 +1,96 @@
+C
+C***************************************************************
+C
+	FUNCTION VOIGT(A,V)
+	USE SET_KIND_MODULE
+C
+C Subroutine to evaluate a VOIGT profile, normalized so that the integral
+C over V is unity.
+C
+C Routine is designed for speed.
+C
+C Adapted from a Midas which was based on a routined obtained from
+C  S L Wright /UCL/ and a routine from Peter Hofflich which inturn
+C was based on HUI,A.K.,ARMSTRONG,E.H.,WRAY,A.A. 1978,JQSRT 19,P.509
+C
+C Accuracy:
+C         < 0.1% for 0.1 < a
+C         < 0.5% for a < 0.1
+C         < 0.3% for a < 0.05
+C
+	IMPLICIT NONE
+C
+	REAL(KIND=LDP)  VOIGT,V,A
+C
+C Variables for interpolation (a < 0.1).
+C
+	INTEGER N,N1
+	REAL(KIND=LDP)  V0,V2
+	REAL(KIND=LDP)  H1(81)
+C
+C variables for functional form (a > 0.1)
+C
+	COMPLEX ZH,F
+	REAL(KIND=LDP) C(7),D(7)
+C
+C Interpolation constants.
+C
+	DATA H1/
+	1  -1.1283800_LDP,-1.1059600_LDP,-1.0404800_LDP,-0.9370300_LDP,-0.8034600_LDP,-0.6494500_LDP,
+	1  -0.4855200_LDP,-0.3219200_LDP,-0.1677200_LDP,-0.0301200_LDP, 0.0859400_LDP, 0.1778900_LDP,
+	1   0.2453700_LDP, 0.2898100_LDP, 0.3139400_LDP, 0.3213000_LDP, 0.3157300_LDP, 0.3009400_LDP,
+	1   0.2802700_LDP, 0.2564800_LDP, 0.2317260_LDP, 0.2075280_LDP, 0.1848820_LDP, 0.1643410_LDP,
+	1   0.1461280_LDP, 0.1302360_LDP, 0.1165150_LDP, 0.1047390_LDP, 0.0946530_LDP, 0.0860050_LDP,
+	1   0.0785650_LDP, 0.0721290_LDP, 0.0665260_LDP, 0.0616150_LDP, 0.0572810_LDP, 0.0534300_LDP,
+	1   0.0499880_LDP, 0.0468940_LDP, 0.0440980_LDP, 0.0415610_LDP, 0.0392500_LDP, 0.0351950_LDP,
+	1   0.0317620_LDP, 0.0288240_LDP, 0.0262880_LDP, 0.0240810_LDP, 0.0221460_LDP, 0.0204410_LDP,
+	1   0.0189290_LDP, 0.0175820_LDP, 0.0163750_LDP, 0.0152910_LDP, 0.0143120_LDP, 0.0134260_LDP,
+	1   0.0126200_LDP, 0.0118860_LDP, 0.0112145_LDP, 0.0105990_LDP, 0.0100332_LDP, 0.0095119_LDP,
+	1   0.0090306_LDP, 0.0085852_LDP, 0.0081722_LDP, 0.0077885_LDP, 0.0074314_LDP, 0.0070985_LDP,
+	1   0.0067875_LDP, 0.0064967_LDP, 0.0062243_LDP, 0.0059688_LDP, 0.0057287_LDP, 0.0055030_LDP,
+	1   0.0052903_LDP, 0.0050898_LDP, 0.0049006_LDP, 0.0047217_LDP, 0.0045526_LDP, 0.0043924_LDP,
+	1   0.0042405_LDP, 0.0040964_LDP, 0.0039595_LDP/
+C
+C Functional constants.
+C
+	DATA C/122.6079_LDP,214.3823_LDP,181.9285_LDP,93.15558_LDP,30.18014_LDP,5.912626_LDP,5.641896E-01_LDP/
+	DATA D/122.6079_LDP,352.7306_LDP,457.3344_LDP,348.7039_LDP,170.3540_LDP,53.99291_LDP,10.47986_LDP/
+C
+	IF(A .GT. 0.1_LDP)THEN
+          ZH = CMPLX(A,(-ABS(V)))
+          F = ((((((C(7)*ZH+C(6))*ZH+C(5))*ZH+C(4))*ZH+C(3))*ZH+C(2))
+	1      *ZH+C(1))
+	1      /(((((((ZH+D(7))*ZH+D(6))*ZH+D(5))*ZH+D(4))*ZH+D(3))*ZH+D(2)
+	1      )*ZH+D(1))
+	  VOIGT = REAL(F)
+	ELSE IF(A .EQ. 0.0_LDP)THEN
+	  VOIGT=EXP(-V*V)
+	ELSE
+C
+C In original UCL routine, H0 and H2 were interpolated. Better to compute ---
+C not much slower and improves accuracy from 3% to beter than 0.5% for
+C a=0.001.
+C
+	  V0=ABS(V)*10._LDP
+	  N=V0
+          IF(N.LT.40)THEN
+	    V2=V0-N
+	    N=N+1
+	    N1=N+1
+	    VOIGT=(1.0_LDP+A*A*(1.0_LDP-2*V*V))*EXP(-V*V) +
+	1            A*(H1(N)+V2*(H1(N1)-H1(N)) )
+	  ELSE IF(N.LT.120)THEN
+	    N=N/2+20
+     	    V2=20.0_LDP+0.5_LDP*V0-N
+	    N=N+1
+	    N1=N+1
+	    VOIGT=A*((H1(N1)-H1(N))*V2+H1(N))
+	    IF(V0 .LT. 50.0_LDP)VOIGT=VOIGT+EXP(-V*V)
+	  ELSE
+            VOIGT=(0.56419_LDP+0.846_LDP/(V*V))/(V*V)*A
+	  END IF
+	END IF
+	VOIGT=VOIGT/1.772453851_LDP	  	!SQRT(PI)
+C
+	RETURN
+	END

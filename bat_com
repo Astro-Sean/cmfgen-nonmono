@@ -1,0 +1,15 @@
+rm -f batch.log
+
+echo " " > 'batch.log'
+echo "Model started at:" `date` >> 'batch.log'
+echo "Machine name is" `uname -n`  >> 'batch.log'
+echo " " >> 'batch.log'
+echo "PID of batch.sh is:" $$ >> 'batch.log'
+
+(exec nice -19 $CMFGEN_PROG  >>& 'batch.log')&
+echo " " >> 'batch.log'
+echo "PID of cmfgen.exe is:" $! >> 'batch.log'
+wait
+
+echo " " >> 'batch.log'
+echo "Program finished on:" `date` >> 'batch.log'

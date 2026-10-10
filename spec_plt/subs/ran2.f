@@ -1,0 +1,122 @@
+!
+! Subroutine to generate a random number. Routine is from Numerical Recipes,
+! and is supposed to be excellent, although a little slower than some other
+! routines. Newer routines are available.
+!
+	FUNCTION RAN2_SP(IDUM)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	REAL*4 RAN2_SP
+	INTEGER IDUM
+!
+	INTEGER, PARAMETER ::  IM1=2147483563
+	INTEGER, PARAMETER ::  IM2=2147483399
+	INTEGER, PARAMETER ::  IA1=40014,IQ1=53688,IR1=12211
+	INTEGER, PARAMETER ::  IA2=40692,IQ2=52774,IR2=3791
+	INTEGER, PARAMETER ::  IMM1=IM1-1
+	INTEGER, PARAMETER ::  NTAB=32
+	INTEGER, PARAMETER ::  NDIV=1+IMM1/NTAB
+!
+	REAL*4, PARAMETER :: AM=1._LDP/IM1
+	REAL*4, PARAMETER :: EPS=1.2E-07_LDP
+	REAL*4, PARAMETER :: RNMX=1._LDP-EPS
+!
+	INTEGER, SAVE :: IDUM2=123456789
+	INTEGER, SAVE :: IV(NTAB);  DATA IV/NTAB*0/
+	INTEGER, SAVE :: IY=0
+!
+	INTEGER J,K
+!
+! To initialize, set IDUM < 0 to iniitialize, or reinitialize the
+! sequence.
+!
+	IF(IDUM .LE. 0)THEN
+	  IDUM=MAX(-IDUM,1)
+	  IDUM2=IDUM
+	  DO J=NTAB+8,1,-1
+	    K=IDUM/IQ1
+	    IDUM=IA1*(IDUM-K*IQ1)-K*IR1
+	    IF(IDUM .LT. 0)IDUM=IDUM+IM1
+	    if(j .le. NTAB)IV(J)=IDUM
+	  END DO
+	  IY=IV(1)
+	END IF
+!
+! Program starts here when not initiallizing.
+!
+	K=IDUM/IQ1
+	IDUM=IA1*(IDUM-k*iq1)-K*IR1
+	IF(IDUM .LT. 0)IDUM=IDUM+IM1
+	K=IDUM2/IQ2
+	IDUM2=IA2*(IDUM2-K*IQ2)-K*IR2
+	IF(IDUM2 .LT. 0)IDUM2=IDUM2+IM2
+	J=1+IY/NDIV
+	IY=IV(J)-IDUM2
+	IV(J)=IDUM
+	IF(IY .LT. 1)IY=IY+IMM1
+	RAN2_SP=MIN(AM*IY,RNMX)
+!
+	RETURN
+	END FUNCTION RAN2_SP
+!
+! Subroutine to generate a random number. Routine is from Numerical Recipes,
+! and is supposed to be excellent, although a little slower than some other
+! routines.
+!
+	FUNCTION RAN2_DP(IDUM)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	REAL(KIND=LDP) RAN2_DP
+	INTEGER IDUM
+!
+	INTEGER, PARAMETER ::  IM1=2147483563
+	INTEGER, PARAMETER ::  IM2=2147483399
+	INTEGER, PARAMETER ::  IA1=40014,IQ1=53688,IR1=12211
+	INTEGER, PARAMETER ::  IA2=40692,IQ2=52774,IR2=3791
+	INTEGER, PARAMETER ::  IMM1=IM1-1
+	INTEGER, PARAMETER ::  NTAB=32
+	INTEGER, PARAMETER ::  NDIV=1+IMM1/NTAB
+!
+	REAL(KIND=LDP), PARAMETER :: AM=1.0_LDP/IM1
+	REAL(KIND=LDP), PARAMETER :: EPS=1.2E-12_LDP
+	REAL(KIND=LDP), PARAMETER :: RNMX=1.0_LDP-EPS
+!
+	INTEGER, SAVE :: IDUM2=123456789
+	INTEGER, SAVE :: IV(NTAB);  DATA IV/NTAB*0/
+	INTEGER, SAVE :: IY=0
+!
+	INTEGER J,K
+!
+! To initialize, set IDUM < 0 to iniitialize, or reinitialize the
+! sequence.
+!
+	IF(IDUM .LE. 0)THEN
+	  IDUM=MAX(-IDUM,1)
+	  IDUM2=IDUM
+	  DO J=NTAB+8,1,-1
+	    K=IDUM/IQ1
+	    IDUM=IA1*(IDUM-K*IQ1)-K*IR1
+	    IF(IDUM .LT. 0)IDUM=IDUM+IM1
+	    if(j .le. NTAB)IV(J)=IDUM
+	  END DO
+	  IY=IV(1)
+	END IF
+!
+! Program starts here when not initiallizing.
+!
+	K=IDUM/IQ1
+	IDUM=IA1*(IDUM-k*iq1)-K*IR1
+	IF(IDUM .LT. 0)IDUM=IDUM+IM1
+	K=IDUM2/IQ2
+	IDUM2=IA2*(IDUM2-K*IQ2)-K*IR2
+	IF(IDUM2 .LT. 0)IDUM2=IDUM2+IM2
+	J=1+IY/NDIV
+	IY=IV(J)-IDUM2
+	IV(J)=IDUM
+	IF(IY .LT. 1)IY=IY+IMM1
+	RAN2_DP=MIN(AM*IY,RNMX)
+!
+	RETURN
+	END FUNCTION RAN2_DP

@@ -1,0 +1,40 @@
+!
+! Simple program to tst GET_IBOUND which is to be used to read in
+! incident intesnities on a plane parallel atmosphere.
+!
+	PROGRAM TST_GET_IB
+	USE SET_KIND_MODULE
+	USE GEN_IN_INTERFACE
+	IMPLICIT NONE
+!
+	REAL(KIND=LDP), ALLOCATABLE :: MU(:)
+	REAL(KIND=LDP), ALLOCATABLE :: IBOUND(:)
+	REAL(KIND=LDP) FREQ
+	INTEGER NP,LS
+	LOGICAL INIT
+!
+	NP=5
+	CALL GEN_IN(NP,'Number of angles')
+	ALLOCATE (MU(NP))
+	ALLOCATE (IBOUND(NP))
+!
+	MU(1)=0.0_LDP; MU(NP)=1.0_LDP
+	DO LS=2,NP-1
+	  MU(LS)=(LS-1.0_LDP)/(NP-1.0_LDP)
+	END DO
+!
+	FREQ=20.0_LDP
+	INIT=.TRUE.
+	DO WHILE(1 .EQ. 1)
+	  FREQ=FREQ/2.0_LDP
+	  CALL GEN_IN(FREQ,'Next frequency (<0 to exit)')
+	  IF(FREQ .LE. 0)EXIT
+	  CALL GET_IBOUND(IBOUND,MU,NP,FREQ,INIT)
+	  INIT=.FALSE.
+	  WRITE(20,*)' '
+	  WRITE(20,'(A,ES14.6)')'Freq=',FREQ
+	  WRITE(20,'(5ES14.6)')(IBOUND(LS),LS=1,NP)
+	END DO
+!
+	STOP
+	END

@@ -1,0 +1,146 @@
+	SUBROUTINE CREATE_R_SHIFT(R,
+	1     R_SHIFT,SHELL_LOC,HALF_SH_LEN,HALF_SH_LEN_SCL_FAC,
+	1     RD_IN_SHIFTS, D_SH_INDX, NBETA, NCLUMPS, ND, DEBUG )
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER ND
+	INTEGER NBETA
+	INTEGER NCLUMPS
+	INTEGER D_SH_INDX
+	LOGICAL RD_IN_SHIFTS 
+	LOGICAL DEBUG
+!
+	REAL(KIND=LDP) R(ND)
+	REAL(KIND=LDP) R_SHIFT(ND,NBETA)
+	REAL(KIND=LDP) HALF_SH_LEN(NCLUMPS)
+	REAL(KIND=LDP) HALF_SH_LEN_SCL_FAC
+!
+! Local variabls and vectors
+!
+	INTEGER SHELL_LOC(NCLUMPS)
+	REAL(KIND=LDP) SHELL_SHIFT(NBETA)
+	REAL(KIND=LDP) RAND_NUM
+	REAL(KIND=LDP) T1,T3
+	INTEGER LU,IOS
+	INTEGER I,J,K,L
+	INTEGER LOW_INDX,UP_INDX
+!
+	CALL GET_LU(LU,'CREATE')
+!
+!
+! For each angle, we shift the shift using RNG 
+!
+!
+	IF(RD_IN_SHIFTS)THEN
+          OPEN(UNIT=LU,FILE='SHELL_SHIFTS',ACTION='READ',STATUS='OLD')
+            READ(LU,*)J,T1
+            IF(J .NE. NBETA .OR. ABS(HALF_SH_LEN_SCL_FAC/T1-1.0D0) .GT. 1.0D-08)THEN
+              WRITE(6,*)'Error: NBETA of HALF_SH_LEN_SCL_FAC inconsistent'
+              WRITE(6,*)'Program values are',NBETA,HALF_SH_LEN_SCL_FAC
+              WRITE(6,*)'   Read values are',J,T1
+              CLOSE(LU)
+	      IOS=100
+	      RETURN
+            END IF
+	    DO J=1,NBETA
+	      READ(LU,*)K,SHELL_SHIFT(J)
+	     END DO
+	  CLOSE(LU)
+	ELSE 
+          OPEN(UNIT=LU,FILE='SHELL_SHIFTS',STATUS='UNKNOWN',ACTION='WRITE')
+          WRITE(LU,'(I6,3X,ES20.10,3X,A)')NBETA,HALF_SH_LEN_SCL_FAC,'!NBETA,HALF_SH_LEN_SCL_FAC'
+	  DO J=1,NBETA
+	    CALL RANDOM_NUMBER(RAND_NUM)
+            T1=2.0D0*RAND_NUM-1.0D0
+	    IF(J .EQ. 1)T1 = 0.0
+	    IF(J .EQ. 2)T1=0.5
+	    IF(J .EQ. 3)T1=-0.25
+	    IF(J .EQ. 4)T1=-0.75
+	    IF(J .EQ. 5)T1=0.7
+	    T1 = T1*HALF_SH_LEN_SCL_FAC
+	    IF(J .EQ. 1)THEN
+	      WRITE(LU,'(I6,3X,ES20.10,3X,A)')J,T1,'!Shell index and shift'
+	    ELSE
+	      WRITE(LU,'(I6,3X,ES20.10,3X,A)')J,T1
+	    END IF
+	    SHELL_SHIFT(J)=T1
+	    FLUSH(UNIT=LU)
+	  END DO
+	END IF
+!
+	DO J=1,NBETA
+!
+! OLD_R_SHIFT will carry the shifted shell in the old grid
+!
+	  T1=SHELL_SHIFT(J)
+	  R_SHIFT(1:ND,J)=R(1:ND)
+	  LOW_INDX = SHELL_LOC(NCLUMPS)-D_SH_INDX
+	  T3 = R_SHIFT(LOW_INDX,J) + T1*HALF_SH_LEN(1)
+	  IF(J .NE. 1 .AND. T3 .GT. R(1) )T1 = 0.5*T1
+
+	  LOW_INDX = SHELL_LOC(NCLUMPS)+D_SH_INDX
+	  T3 = R_SHIFT(LOW_INDX,J) + T1*HALF_SH_LEN(NCLUMPS)
+	  IF(J .NE. 1 .AND. T3 .LT. R(ND-10) )T1 = 0.5*T1
+!
+	  T3=T1 
+	  DO I = 1,NCLUMPS
+	    UP_INDX  = SHELL_LOC(I)+D_SH_INDX 
+	    LOW_INDX = SHELL_LOC(I)-D_SH_INDX
+
+	    DO L = LOW_INDX,UP_INDX
+	      R_SHIFT(L,J) = R_SHIFT(L,J) + T3*HALF_SH_LEN(I)
+	    END DO
+!
+	    K=LOW_INDX
+	    DO L=LOW_INDX-1,1,-1
+	      IF(R_SHIFT(LOW_INDX,J) .LT. R_SHIFT(L,J))THEN
+	        K=L
+	        IF(R_SHIFT(LOW_INDX,J) .EQ. R_SHIFT(L,J))K=K-1
+	        EXIT
+	      END IF
+	    END DO
+!
+	    T1=(R_SHIFT(K,J)- R_SHIFT(LOW_INDX,J))/MAX(1,LOW_INDX-K)
+	    DO  L=LOW_INDX-1,K+1,-1
+	      R_SHIFT(L,J)=R_SHIFT(L+1,J)+T1
+	    END DO
+!	
+	    K=UP_INDX
+	    DO L=UP_INDX+1,ND
+	      IF(R_SHIFT(UP_INDX,J) .GT. R_SHIFT(L,J))THEN
+	        K=L
+	        IF(R_SHIFT(UP_INDX,J) .EQ. R_SHIFT(L,J))K=K+1
+	        EXIT
+	      END IF
+	    END DO
+	    T1=(R_SHIFT(UP_INDX,J)- R_SHIFT(K,J))/MAX(1,K-UP_INDX)
+	    DO  L=UP_INDX+1,K-1
+	      R_SHIFT(L,J)=R_SHIFT(L-1,J)-T1
+	    END DO
+!
+	    DO L=1,ND-1
+	      IF(R_SHIFT(L,J) .LT. R_SHIFT(L+1,J))THEN
+	        WRITE(6,*)'OLD R shifted scale not monotonic'
+	        WRITE(6,*)'J=',J,L
+	        DO K=1,ND
+	          WRITE(100,*)K,R_SHIFT(K,J)
+	        END DO
+	        STOP
+	      END IF
+	    END DO
+	  END DO
+	END DO
+!
+	IF(DEBUG)THEN
+	  CALL GET_LU(LU,'In create_r_shift')
+	  OPEN(UNIT=LU,FILE='R_SHIFT_OUT',STATUS='UNKNOWN',ACTION='WRITE')
+	  WRITE(LU,'(2I7,10X,A)')NBETA, ND, '!NBETA, ND'
+	  WRITE(LU,'(I4,51I14)')(J, J=1,NBETA)
+	  DO L=1,ND
+	    WRITE(LU,'(I4,51ES14.4)')L,(R_SHIFT(L,J),J=1,NBETA)
+	  END DO
+	END IF
+!
+	RETURN 
+	END 

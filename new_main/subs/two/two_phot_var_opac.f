@@ -1,0 +1,89 @@
+!
+! Routine to compute the variation of CHI and ETA due to 2-photon
+! processes. We ignore any temperature dependence (which may arise
+! from the use of super levels).
+!
+	SUBROUTINE TWO_PHOT_VAR_OPAC(VETA,VCHI,POPS,T,FREQ,ND,NT)
+	USE SET_KIND_MODULE
+	USE TWO_PHOT_MOD
+	IMPLICIT NONE
+!
+! Altered 24-Sep-2023: Updated to use consistent physical constants (24-Sep-223).
+! Altered 01-Oct-2015 : Added TWO_METHOD option (passed by module). i
+! Created 26-Jun-1998
+!
+	INTEGER NT,ND
+	REAL(KIND=LDP) VETA(NT,ND)
+	REAL(KIND=LDP) VCHI(NT,ND)
+	REAL(KIND=LDP) POPS(NT,ND)
+	REAL(KIND=LDP) T(ND)
+!
+	REAL(KIND=LDP) FREQ
+!
+	COMMON/CONSTANTS/ CHIBF,CHIFF,HDKT,TWOHCSQ
+	REAL(KIND=LDP) CHIBF,CHIFF,HDKT,TWOHCSQ
+!
+! Local constants.
+!
+	REAL(KIND=LDP) h
+	REAL(KIND=LDP) PI
+	REAL(KIND=LDP) CONST
+	REAL(KIND=LDP) ETA_CONST
+	REAL(KIND=LDP) CHI_CONST
+	REAL(KIND=LDP) T1
+	REAL(KIND=LDP) FREQ_B
+	REAL(KIND=LDP) PLANCKS_CONSTANT
+	EXTERNAL PLANCKS_CONSTANT
+!
+! See TWO_PHOT_OPAC for definitions
+!
+	REAL(KIND=LDP) AY,Y,U,FU
+!
+	INTEGER LUER,ERROR_LU
+	EXTERNAL ERROR_LU
+!
+	INTEGER J,L
+	INTEGER NL,NUP
+	
+	h=PLANCKS_CONSTANT()			!cgs units
+	PI=4.0_LDP*ATAN(1.0_LDP)
+	CONST=1.0E+10_LDP*H/4.0_LDP/PI
+!
+	DO J=1,N_TWO
+	  IF(TWO_PHOT_AVAILABLE(J) .AND. FREQ .LT. FREQ_TWO(J))THEN
+!
+	    FREQ_B=FREQ_TWO(J)-FREQ
+	    NL=LOW_LEV_TWO(J)
+	    NUP=UP_LEV_TWO(J)
+	    IF(TYPE_TWO(J) .EQ. 1)THEN
+	      Y=FREQ/FREQ_TWO(J)
+	      U=Y*(1.0_LDP-Y)
+	      FU=4.0_LDP*U
+	      AY=24.56_LDP*COEF_TWO(J,1)*( U*(1.0_LDP-FU**0.8_LDP) +
+	1                 0.88_LDP*(U**1.53_LDP)*(FU**0.8_LDP) )
+	    ELSE
+	      WRITE(6,'(/,1X,A)')'Error in TWO_PHOT_VAR_OPAC -- unrecognized type for TWO_PHOTON transition'
+	      STOP
+	    END IF
+!
+	    ETA_CONST=CONST*FREQ/FREQ_TWO(J)
+	    CHI_CONST=G_UP_TWO(J)*ETA_CONST/TWOHCSQ/FREQ**3
+	    IF(TWO_METHOD .EQ. 'OLD_DEFAULT')THEN
+	      DO L=1,ND
+	        VETA(NUP,L)=VETA(NUP,L) + ETA_CONST*AY*FS_RAT_UP(L,J)
+	        T1=EXP(-HDKT*FREQ_B/T(L))
+	        VCHI(NL,L)=VCHI(NL,L)   + CHI_CONST*AY*FS_RAT_LOW(L,J)*T1/G_LOW_TWO(J)
+	        VCHI(NUP,L)=VCHI(NUP,L) - CHI_CONST*AY*FS_RAT_UP(L,J)/G_UP_TWO(J)
+	      END DO
+	    ELSE
+	      DO L=1,ND
+	        VETA(NUP,L)=VETA(NUP,L) + ETA_CONST*AY*FS_RAT_UP(L,J)*(1.0_LDP+PHOT_OC_TWO(L,J))
+	        VCHI(NL,L)=VCHI(NL,L)   + CHI_CONST*AY*FS_RAT_LOW(L,J)*PHOT_OC_TWO(L,J)/G_LOW_TWO(J)
+	        VCHI(NUP,L)=VCHI(NUP,L) - CHI_CONST*AY*FS_RAT_UP(L,J)/G_UP_TWO(J)*(1.0_LDP+PHOT_OC_TWO(L,J))
+	      END DO
+	    END IF
+	  END IF
+	END DO
+!
+	RETURN
+	END
