@@ -16,8 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
-UT = Path(__file__).resolve().parent          # unit_tests/
-TREE = UT.parent                              # cmfgen_jfnk/
+UT = Path(__file__).resolve().parent  # unit_tests/
+TREE = UT.parent  # cmfgen_jfnk/
 REF = TREE.parent / "cmfgen_reference" / "cur_cmf"
 BINDIR = UT / "bin"
 PLOTDIR = UT / "plots"
@@ -37,9 +37,13 @@ GFORT = shutil.which("gfortran")
 if IFORT:
     FC = IFORT
     FFLAGS = [
-        "-O0", "-g", "-traceback", "-extend-source",
+        "-O0",
+        "-g",
+        "-traceback",
+        "-extend-source",
         "-diag-disable=10448,10412,10434,5462,5199,7712,7346",
-        "-warn", "none",
+        "-warn",
+        "none",
     ]
     OMP = ["-qopenmp"]
     MODFLAG = "-module"
@@ -47,8 +51,13 @@ if IFORT:
 elif GFORT:
     FC = GFORT
     FFLAGS = [
-        "-O0", "-g", "-fbacktrace", "-ffixed-line-length-132",
-        "-w", "-fallow-argument-mismatch", "-std=legacy",
+        "-O0",
+        "-g",
+        "-fbacktrace",
+        "-ffixed-line-length-132",
+        "-w",
+        "-fallow-argument-mismatch",
+        "-std=legacy",
     ]
     OMP = ["-fopenmp"]
     MODFLAG = "-J"
@@ -98,8 +107,7 @@ def compile_objs(name, sources, moddir=None):
         src = Path(src)
         obj = objdir / (src.stem + ".o")
         if not obj.exists() or obj.stat().st_mtime <= src.stat().st_mtime:
-            cmd = [FC, *FFLAGS, *OMP, MODFLAG, str(md), "-c",
-                   str(src), "-o", str(obj)]
+            cmd = [FC, *FFLAGS, *OMP, MODFLAG, str(md), "-c", str(src), "-o", str(obj)]
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode != 0:
                 print(f"  compile {src} failed:")
@@ -133,12 +141,26 @@ def run(binary, *args, cwd=None, check=True, timeout=300):
     caller inspects returncode (used for expected-STOP tests)."""
     r = subprocess.run(
         [str(binary)] + [str(a) for a in args],
-        capture_output=True, text=True, cwd=cwd, timeout=timeout)
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        timeout=timeout,
+    )
     if check and r.returncode != 0:
         print(r.stdout[-4000:])
         print(r.stderr[-4000:])
         raise SystemExit(f"{binary} {args} failed rc={r.returncode}")
     return r
+
+
+def max_meaningful_diff(a, b):
+    """Largest |a-b| ignoring denormal garbage from uninit memory.
+
+    Some production routines leave an occasional output cell
+    uninitialized; it prints as a denormal that jitters run to run.
+    Anything below ~1e-290 cannot carry physical information."""
+    m = (np.abs(a) > 1e-290) | (np.abs(b) > 1e-290)
+    return np.abs(a[m] - b[m]).max() if m.any() else 0.0
 
 
 def read_vec(path):
@@ -165,6 +187,5 @@ class Report:
     def summary(self):
         nfail = sum(1 for _, ok in self.rows if not ok)
         print(f"{'-' * 60}")
-        print(f"{self.title}: {len(self.rows) - nfail} passed, "
-              f"{nfail} failed")
+        print(f"{self.title}: {len(self.rows) - nfail} passed, " f"{nfail} failed")
         return nfail

@@ -26,8 +26,19 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import BINDIR, F90DIR, PLOTDIR, REF, TREE, WORKDIR, \
-    Report, compile_objs, link, run
+from common import (
+    BINDIR,
+    F90DIR,
+    PLOTDIR,
+    REF,
+    TREE,
+    WORKDIR,
+    Report,
+    compile_objs,
+    link,
+    max_meaningful_diff,
+    run,
+)
 
 HELPERS = [
     TREE / "tools" / "set_kind_module.f",
@@ -42,8 +53,12 @@ HELPERS = [
     TREE / "subs" / "exponx.f",
 ]
 
-ROUTINES = {"sobjsim": "sobjbar_sim.f", "sobew": "sobew.f",
-            "sobewg2": "sobew_grad_v2.f", "sobewg3": "sobew_grad_v3.f"}
+ROUTINES = {
+    "sobjsim": "sobjbar_sim.f",
+    "sobew": "sobew.f",
+    "sobewg2": "sobew_grad_v2.f",
+    "sobewg3": "sobew_grad_v3.f",
+}
 
 ND, NC, NP, NSIM = 25, 4, 4, 1
 
@@ -63,26 +78,30 @@ def exponx(x):
 def build():
     """Compile helpers + driver once, each sob file twice (new/ref)."""
     help_objs = compile_objs("sob_help", HELPERS)
-    drv_obj = compile_objs("sob_drv", [F90DIR / "drv_sob_floor.f90"],
-                           moddir=BINDIR / "obj_sob_help")
+    drv_obj = compile_objs(
+        "sob_drv", [F90DIR / "drv_sob_floor.f90"], moddir=BINDIR / "obj_sob_help"
+    )
     bins = {}
     for tag, root in (("new", TREE), ("ref", REF)):
         sob = []
         for key, fname in ROUTINES.items():
-            sob += compile_objs(f"sob_{tag}_{key}",
-                                [root / "subs" / fname],
-                                moddir=BINDIR / "obj_sob_help")
+            sob += compile_objs(
+                f"sob_{tag}_{key}",
+                [root / "subs" / fname],
+                moddir=BINDIR / "obj_sob_help",
+            )
         for key in ROUTINES:
             bins[(key, tag)] = link(
                 f"sobfloor_{tag}",
                 help_objs + drv_obj + sob,
-                moddir=BINDIR / "obj_sob_help")
+                moddir=BINDIR / "obj_sob_help",
+            )
     return bins
 
 
 def write_case(name, sigma, p_frac=None, chil0=1.0e6):
     """Write a case file; returns (path, gamh, p, w)."""
-    r = np.geomspace(1.0e5, 1.0e3, ND)      # outer -> inner
+    r = np.geomspace(1.0e5, 1.0e3, ND)  # outer -> inner
     v = np.linspace(8.0e3, 1.0e3, ND)
     sig = np.full(ND, sigma)
     if p_frac is None:
@@ -92,7 +111,7 @@ def write_case(name, sigma, p_frac=None, chil0=1.0e6):
     chi = np.full(ND, 1.0e-8)
     esec = np.full(ND, 1.0e-9)
     chil = np.full(ND, chil0)
-    etal = chil * 2.0                     # S = ETAL/CHIL = 2
+    etal = chil * 2.0  # S = ETAL/CHIL = 2
     src = np.full(ND, 2.0)
     path = WORKDIR / name
     with open(path, "w") as f:
@@ -100,14 +119,16 @@ def write_case(name, sigma, p_frac=None, chil0=1.0e6):
         f.write("1.0 F T F 0.0 0.0 1.0e40\n")
         f.write("LINEAR ZERO_FLUX\n")
         for i in range(ND):
-            f.write(f"{r[i]:.10e} {v[i]:.10e} {sig[i]:.10e} "
-                    f"{chi[i]:.4e} {esec[i]:.4e} {chil[i]:.6e} "
-                    f"{etal[i]:.6e} {src[i]:.6e}\n")
+            f.write(
+                f"{r[i]:.10e} {v[i]:.10e} {sig[i]:.10e} "
+                f"{chi[i]:.4e} {esec[i]:.4e} {chil[i]:.6e} "
+                f"{etal[i]:.6e} {src[i]:.6e}\n"
+            )
         for j in range(NP):
             f.write(f"{p[j]:.10e} {w[j]:.6e} {w[j]:.6e}\n")
         for _ in range(NSIM):
             f.write(f"{chil0:.6e} {2.0*chil0:.6e} 1.0\n")
-    gamh = chil0 * 3.0e-10 * r / v / 1.0   # FL=1
+    gamh = chil0 * 3.0e-10 * r / v / 1.0  # FL=1
     return path, r, p, w, gamh
 
 
@@ -118,12 +139,6 @@ def beta_predict(sig, r, p, w, gamh, floor=True):
         t1 = np.maximum(t1, max(-0.2 * (1.0 + sig), 1.0e-4))
     gam = gamh[:, None] / t1
     return (exponx(gam) * w[None, :]).sum(axis=1)
-
-
-def max_meaningful_diff(a, b):
-    """Largest |a-b| ignoring denormal garbage from uninit memory."""
-    m = (np.abs(a) > 1e-290) | (np.abs(b) > 1e-290)
-    return np.abs(a[m] - b[m]).max() if m.any() else 0.0
 
 
 def parse_rows(out):
@@ -151,8 +166,11 @@ def main():
         a, _ = parse_rows(run(bins[(key, "new")], key, case).stdout)
         b, _ = parse_rows(run(bins[(key, "ref")], key, case).stdout)
         ok = np.array_equal(a, b) or max_meaningful_diff(a, b) == 0.0
-        rep.check(f"T1 {key}: sigma=+2 identical to upstream", ok,
-                  f"maxdiff={np.abs(a - b).max():.2e}")
+        rep.check(
+            f"T1 {key}: sigma=+2 identical to upstream",
+            ok,
+            f"maxdiff={np.abs(a - b).max():.2e}",
+        )
 
     # -- T2: sigma=-0.5 (> -1): floor can never engage, still identical.
     for key in ROUTINES:
@@ -160,60 +178,70 @@ def main():
         a, _ = parse_rows(run(bins[(key, "new")], key, case).stdout)
         b, _ = parse_rows(run(bins[(key, "ref")], key, case).stdout)
         ok = np.array_equal(a, b) or max_meaningful_diff(a, b) == 0.0
-        rep.check(f"T2 {key}: sigma=-0.5 identical to upstream", ok,
-                  f"maxdiff={np.abs(a - b).max():.2e}")
+        rep.check(
+            f"T2 {key}: sigma=-0.5 identical to upstream",
+            ok,
+            f"maxdiff={np.abs(a - b).max():.2e}",
+        )
 
     # -- T3: sigma=-2 (< -1): new BETA matches the floored formula
     # exactly, and differs from the unclamped reference.
     # CHIL=1e9 puts GAMH ~ 0.3-4, large enough that EXF(GAM) is
     # sensitive to the floor.
-    case, r, p, w, gamh = write_case("case_sim_m2.txt", -2.0,
-                                     chil0=1.0e9)
-    a, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim",
-                          case).stdout)
-    b, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim",
-                          case).stdout)
+    case, r, p, w, gamh = write_case("case_sim_m2.txt", -2.0, chil0=1.0e9)
+    a, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case).stdout)
+    b, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim", case).stdout)
     beta_pred = beta_predict(-2.0, r, p, w, gamh, floor=True)
     beta_ref_pred = beta_predict(-2.0, r, p, w, gamh, floor=False)
     err_new = np.abs(a[:, 0] - beta_pred).max()
     err_ref = np.abs(b[:, 0] - beta_ref_pred).max()
-    ok = err_new < 1e-9 and err_ref < 1e-9 and \
-        np.abs(a[:, 0] - b[:, 0]).max() > 1e-3
-    rep.check("T3 sobjsim sigma=-2: BETA == floored formula, "
-              "ref == unclamped formula", ok,
-              f"err_new={err_new:.2e} err_ref={err_ref:.2e} "
-              f"diff={np.abs(a[:,0]-b[:,0]).max():.2e}")
+    ok = err_new < 1e-9 and err_ref < 1e-9 and np.abs(a[:, 0] - b[:, 0]).max() > 1e-3
+    rep.check(
+        "T3 sobjsim sigma=-2: BETA == floored formula, " "ref == unclamped formula",
+        ok,
+        f"err_new={err_new:.2e} err_ref={err_ref:.2e} "
+        f"diff={np.abs(a[:,0]-b[:,0]).max():.2e}",
+    )
 
     # -- T4: at sigma=-2 the new BETA is bounded and finite at every
     # depth; the reference drives (1-e^-GAM)/GAM -> 0 along rays whose
     # mu^2 hits the pole (BETA undercounted).
-    ok = np.all(np.isfinite(a[:, 0])) and np.all(a[:, 0] > 0.0) and \
-        np.all(a[:, 0] >= b[:, 0] - 1e-15)
-    rep.check("T4 sobjsim sigma=-2: floored BETA bounded, "
-              ">= reference", ok,
-              f"new min {a[:,0].min():.3f} ref min {b[:,0].min():.3f}")
+    ok = (
+        np.all(np.isfinite(a[:, 0]))
+        and np.all(a[:, 0] > 0.0)
+        and np.all(a[:, 0] >= b[:, 0] - 1e-15)
+    )
+    rep.check(
+        "T4 sobjsim sigma=-2: floored BETA bounded, " ">= reference",
+        ok,
+        f"new min {a[:,0].min():.3f} ref min {b[:,0].min():.3f}",
+    )
 
     # -- T5: same behaviour in the EW/force routines: sigma=-2 gives
     # different-but-finite output vs reference.
     for key in ("sobew", "sobewg2", "sobewg3"):
-        case, r, p, w, gamh = write_case(f"case_{key}_m2.txt", -2.0,
-                                         chil0=1.0e9)
+        case, r, p, w, gamh = write_case(f"case_{key}_m2.txt", -2.0, chil0=1.0e9)
         a, ha = parse_rows(run(bins[(key, "new")], key, case).stdout)
         b, hb = parse_rows(run(bins[(key, "ref")], key, case).stdout)
-        ok = np.all(np.isfinite(a)) and \
-            max_meaningful_diff(a, b) > 0.0 and ha["EW"] != hb["EW"]
-        rep.check(f"T5 {key}: sigma=-2 outputs differ, stay finite",
-                  ok, f"dEW={ha['EW']-hb['EW']:.3e} "
-                  f"maxdiff={np.abs(a-b).max():.2e}")
+        ok = (
+            np.all(np.isfinite(a))
+            and max_meaningful_diff(a, b) > 0.0
+            and ha["EW"] != hb["EW"]
+        )
+        rep.check(
+            f"T5 {key}: sigma=-2 outputs differ, stay finite",
+            ok,
+            f"dEW={ha['EW']-hb['EW']:.3e} " f"maxdiff={np.abs(a-b).max():.2e}",
+        )
 
     # -- T6: sigma=-1 edge case: the 1e-4 term bounds the mu->1 rays.
     case, r, p, w, gamh = write_case("case_sim_m1.txt", -1.0)
-    a, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim",
-                          case).stdout)
+    a, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case).stdout)
     beta_pred = beta_predict(-1.0, r, p, w, gamh, floor=True)
     err = np.abs(a[:, 0] - beta_pred).max()
-    rep.check("T6 sobjsim sigma=-1: 1e-4 bound matches formula",
-              err < 1e-9, f"err={err:.2e}")
+    rep.check(
+        "T6 sobjsim sigma=-1: 1e-4 bound matches formula", err < 1e-9, f"err={err:.2e}"
+    )
 
     # -- Plot: BETA(I) new vs ref vs analytic for sigma=-2.
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
@@ -227,10 +255,10 @@ def main():
     ax[0].set_title(r"$\sigma=-2$: escape probability per depth")
     ax[0].legend()
     mu2 = 1.0 - (p[None, :] / r[:, None]) ** 2
-    t1n = np.maximum(np.abs(1.0 - 2.0 * mu2),
-                     max(-0.2 * (1.0 - 2.0), 1e-4))
-    ax[1].pcolormesh(r, p, np.log10((gamh[:, None] / t1n).T),
-                     shading="nearest", cmap="viridis")
+    t1n = np.maximum(np.abs(1.0 - 2.0 * mu2), max(-0.2 * (1.0 - 2.0), 1e-4))
+    ax[1].pcolormesh(
+        r, p, np.log10((gamh[:, None] / t1n).T), shading="nearest", cmap="viridis"
+    )
     ax[1].set_xscale("log")
     ax[1].set_xlabel("R [1e10 cm]")
     ax[1].set_ylabel("P [1e10 cm]")

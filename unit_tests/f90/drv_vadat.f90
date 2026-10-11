@@ -1,0 +1,41 @@
+! Driver for RD_CONTROL_VARIABLES.  Runs the real VADAT parser on the
+! VADAT file in the cwd and prints the parsed values of the keys under
+! test, so the Python harness can verify each new key landed in the
+! control-variable store.
+!
+      PROGRAM DRV_VADAT
+      USE SET_KIND_MODULE
+      USE CONTROL_VARIABLE_MOD
+      USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ptc_active, jfnk_ptc_dtau
+      IMPLICIT NONE
+!
+      INTEGER :: LUIN=20, LUSCR=26, LUER=6, NUM_BNDS
+!
+      NUM_BNDS=30
+      OPEN(LUSCR,FILE='MODEL_SCR',STATUS='UNKNOWN')
+      CALL RD_CONTROL_VARIABLES(LUIN,LUSCR,LUER,NUM_BNDS)
+!
+      WRITE(*,'(A)')'RESULT_OK'
+      WRITE(*,'(A,L2)')'DO_NONMONO_SOB=',DO_NONMONO_SOB
+      WRITE(*,'(A,L2)')'DO_NONMONO_KNOP=',DO_NONMONO_KNOP
+      WRITE(*,'(A,L2)')'DO_NONLOC_SOB=',DO_NONLOC_SOB
+      WRITE(*,'(A,L2)')'USE_JFNK_SOLVER=',USE_JFNK_SOLVER
+      WRITE(*,'(A,L2)')'JFNK_COUPLED=',JFNK_COUPLED
+      WRITE(*,'(A,L2)')'USE_LAM_ES=',USE_LAM_ES
+      WRITE(*,'(A,L2)')'SET_TRANS_TYPE_BY_LAM=',SET_TRANS_TYPE_BY_LAM
+      WRITE(*,'(A,L2)')'SN_MODEL=',SN_MODEL
+      WRITE(*,'(A,L2)')'SN_HYDRO_MODEL=',SN_HYDRO_MODEL
+      WRITE(*,'(A,L2)')'DO_BA_RES_ACC=',DO_BA_RES_ACC
+      WRITE(*,'(A,L2)')'DO_CLUMP_MODEL=',DO_CLUMP_MODEL
+      WRITE(*,'(A,A)')'GLOBAL_LINE_SWITCH=',GLOBAL_LINE_SWITCH
+      WRITE(*,'(A,A)')'INNER_BND_METH=',INNER_BND_METH
+      WRITE(*,'(A,A)')'GAMRAY_TRANS=',GAMRAY_TRANS
+      WRITE(*,'(A,I5)')'VELTYPE=',VELTYPE
+      WRITE(*,'(A,L2)')'JFNK_PTC_ACTIVE=',jfnk_ptc_active
+      WRITE(*,'(A,ES12.5)')'JFNK_PTC_DTAU=',jfnk_ptc_dtau
+      WRITE(*,'(A,L2)')'SCL_PWR_BY_FCL=',SCL_PWR_BY_FCL
+      WRITE(*,'(A,ES12.5)')'VLOC_SHOCK_POWER=',VLOC_SHOCK_POWER
+      WRITE(*,'(A,ES12.5)')'DVLOC_SHOCK_POWER=',DVLOC_SHOCK_POWER
+      WRITE(*,'(A,ES12.5)')'PRESCRIBED_SHOCK_POWER=', &
+            PRESCRIBED_SHOCK_POWER
+      END
