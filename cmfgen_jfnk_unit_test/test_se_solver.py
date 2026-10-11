@@ -33,6 +33,8 @@ Tests:
       the baseline BA derivative without its live low-rank term
   T19 fallback dispatch: preserve a defined caller cap and mode on
       cooldown and finite stagnation
+  T20 evaluation telemetry: report residual callbacks made inside JVPs
+      separately from Newton-level residual calls
 
 Usage:  python3 test_se_solver.py [--quick]
 Exit status: number of failed tests.
@@ -834,6 +836,21 @@ def t19_fallback_dispatch():
     return ok, "caller cap/mode initialized and restored", {}
 
 
+def t20_eval_count_source():
+    """The OUTGEN counters must distinguish direct Newton F calls from
+    all residual callbacks, including those issued inside FD JVPs."""
+    root = TD.parent / "new_main/mod_subs"
+    files = (root / "jfnk_solve_corr_v1.f", root / "jfnk_cmfgen_interface_v1.f")
+    out = [path.read_text() for path in files]
+    ok = all(
+        "Newton-level F evaluations:" in text
+        and "Residual evals incl JVPs:" in text
+        and "JFNK_N_RESIDUAL_EVALS" in text
+        for text in out
+    )
+    return ok, "both JFNK reports expose callback and Newton F counts", {}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
@@ -915,6 +932,10 @@ def main():
         print(f"  [T19 fallback dispatch] {'PASS' if ok else 'FAIL'}  ({msg})")
         if not ok:
             nfail += 1
+    ok, msg, _ = t20_eval_count_source()
+    print(f"  [T20 eval telemetry] {'PASS' if ok else 'FAIL'}  ({msg})")
+    if not ok:
+        nfail += 1
     print(f"\n{nfail} test(s) failed")
     return nfail
 

@@ -5075,8 +5075,10 @@
 	END IF
 !
 	WRITE(JFNK_LUER,'(A)')'  JFNK diagnostics:'
-	WRITE(JFNK_LUER,'(A,I6)')'    Total F evaluations:  ',
+	WRITE(JFNK_LUER,'(A,I6)')'    Newton-level F evaluations:',
 	1     jfnk_total_f_evals
+	WRITE(JFNK_LUER,'(A,I6)')'    Residual evals incl JVPs: ',
+	1     JFNK_N_RESIDUAL_EVALS
 	WRITE(JFNK_LUER,'(A,I6)')'    Total JVP evaluations:',
 	1     jfnk_total_jvp_evals
 	WRITE(JFNK_LUER,'(A,I6)')'    Preconditioner calls: ',

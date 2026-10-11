@@ -517,6 +517,13 @@ evaluating a collisional-only residual.
 
 Before Newton runs, one eval at x=0 validates the residual plumbing:
 
+The OUTGEN counter `jfnk_total_f_evals` counts residual calls made
+explicitly by the Newton core, not residual evaluations inside
+`JFNK_JVP_V1`. The driver now prints that count separately from
+`JFNK_N_RESIDUAL_EVALS`, which counts all residual callbacks in the
+activation. This avoids interpreting a zero core-F count with nonzero
+JVPs as zero evaluation cost.
+
 - Frozen mode must reproduce the outer `STEQ` (stored-term split must
   satisfy `F(0) = STEQ_full`); mismatch -> abort.
 - Both modes **adopt the eval residual as the Newton baseline** on the

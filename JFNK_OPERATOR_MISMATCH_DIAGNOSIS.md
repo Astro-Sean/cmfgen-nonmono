@@ -373,10 +373,11 @@ ladder. The prepared YAML now sets `FIX_T_AUTO=T`, `DO_T_AUTO=T`,
 `JFNK_LAG_FACTORS=T`. These are proposed next-run settings, not values
 used by the failed job.
 
-Status: production build succeeded after the cap fix; solver tests passed
-21/21, interface tests 9/9, and surrogate T15-T19 passed. The full
-surrogate suite retains four pre-existing T3/T4 failures. Config
-resolution passed through `run_model_grid.py --print-resolved-config`.
+Status: production build succeeded after the cap and telemetry fixes;
+solver tests passed 21/21, interface tests 9/9, surrogate T15-T20 passed,
+and the separate production-file suite passed 11/11. The full surrogate
+suite retains four pre-existing T3/T4 failures. Config resolution passed
+through `run_model_grid.py --print-resolved-config`.
 No new production run has been submitted; fallback behavior and
 `JFNK_LAG_FACTORS` remain UNVERIFIED in CMFGEN, and no spectrum was
 produced by the failed job.

@@ -131,9 +131,16 @@ suite committed as `8e16f96`; the prepared YAML committed in the parent
 repository as `a7696c68`. No redeployment has occurred.
 Re-run via `scripts/run_model_grid.py` only after explicit confirmation.
 
-Verification: production `./build.sh` succeeded after the cap fix;
-standalone solver tests 21/21, interface tests 9/9, and harness T15-T19
-passed. Full surrogate suite still reports the existing T3-mild demand
+Iteration 407 exposed a telemetry defect: `jfnk_total_f_evals` counts
+Newton-core calls but omits residual callbacks inside `JFNK_JVP_V1`, so
+OUTGEN said F evaluations=0 with 12 JVPs. The reports now print both
+core F calls and `JFNK_N_RESIDUAL_EVALS` (all residual callbacks); T20
+guards the log fields.
+
+Verification: production `./build.sh` succeeded after the cap and
+telemetry fixes; standalone solver tests 21/21, interface tests 9/9,
+harness T15-T20 passed, and the separate production-file suite passed
+11/11. Full surrogate suite still reports the existing T3-mild demand
 threshold failure and three T4 LU-accuracy failures; these do not touch
 the new factor path. Config resolution via `--print-resolved-config`
 passed. Runtime behavior of the new fallback and factor mode remains
