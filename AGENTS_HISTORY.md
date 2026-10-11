@@ -126,9 +126,10 @@ The prepared YAML uses `JFNK_FRZ_GATE=3%`, two contracting solves, and
 user choice. `DO_T_AUTO` releases global FIX_T at `MAXCH_CTRL<50%`, so
 this is an early temperature release at current population demand;
 `JFNK_TAUTO` only damps T corrections during JFNK, not ordinary FULL-BA.
-Source snapshot committed as `b063fb7`; the production-file regression
-suite committed as `8e16f96`; the prepared YAML committed in the parent
-repository as `a7696c68`. No redeployment has occurred.
+Source snapshot committed as `b063fb7`; residual-count telemetry committed
+as `8380f24`; the production-file regression suite committed as `8e16f96`;
+the prepared YAML committed in the parent repository as `a7696c68`. No
+redeployment has occurred.
 Re-run via `scripts/run_model_grid.py` only after explicit confirmation.
 
 Iteration 407 exposed a telemetry defect: `jfnk_total_f_evals` counts
