@@ -30,7 +30,7 @@ the whole terrain.
 
 ## Files
 
-```
+```text
 new_main/mod_subs/jfnk_cmfgen_int_mod.f      module: state, VADAT keys,
                                            JFNK_SWEEP_CB callback type
 new_main/mod_subs/jfnk_cmfgen_interface_v1.f residual/JVP/preconditioner:
@@ -89,6 +89,15 @@ radiation field as a valid Knop fixed point. For the STELLA-seeded
 path the zlaw14 yamls now set `JFNK_TAUTO=T` (see below): T stays
 live but damped inside JFNK while the caller's `FIX_T`/`FIX_T_AUTO`
 mode is unchanged outside JFNK admissions.
+
+Temperature release is controlled separately from `FIX_T_AUTO`. With
+`FIX_T=T`, `FIX_T_AUTO=T` does not release the global hold; it controls
+the `VARFIXT` depth mask when T is otherwise free. `DO_T_AUTO=T` is the
+native global release, and this tree releases `FIX_T` when
+`MAXCH_CTRL<50%` (unless the JFNK commit guard blocks it). That threshold
+can release T well before population convergence. `N_FULL_TREL>0` is
+the phased FULL-step alternative; `N_FULL_TREL=0` disables that path.
+`JFNK_TAUTO` only damps T corrections made inside an active JFNK solve.
 
 ## Newton formulation (all on by default for a JFNK solve)
 
@@ -470,9 +479,12 @@ baseline rebuild.
   CMFGEN_SUB's MAXCH-based temperature release, staged source/solver
   ramps, and final-iteration exit from treating it as one. Only an
   unclipped `JFNK_INFO=0` commit may satisfy those outer gates.
-- If JFNK is disabled after stagnation, the SOLVEBA fallback keeps the
-  caller's correction cap, bounded by `MAX_LIN_COR`; it does not reset
-  the cap to `MAX_LAM_COR`.
+- On a finite stagnation or cooldown, `JFNK_SOLVE_CORR_V1` now restores
+  the caller's FULL/Lambda flags and cap; only catastrophic eval failures
+  force the conservative Lambda rebuild.  A live it408 STOP exposed an
+  uninitialized local cap in the first pass-through build; it is now
+  initialized from `COR_LIM_IN`. The corrected cap path still needs a
+  controlled model-run check.
 - A successful JFNK call returns applied correction in MAXCH; it no
   longer writes into `BA_LAST_RAW` (a raw-demand slot) in
   `SOLVE_FOR_POPS` - the last BA-measured demand is kept until a real
@@ -507,9 +519,15 @@ Before Newton runs, one eval at x=0 validates the residual plumbing:
 
 - Frozen mode must reproduce the outer `STEQ` (stored-term split must
   satisfy `F(0) = STEQ_full`); mismatch -> abort.
-- Coupled mode **adopts the eval residual as the Newton baseline** -
-  the lagged-store offset is real physics (the store moved during the
-  sweep), not a bug. Guarded by a >N/2 spread check.
+- Both modes **adopt the eval residual as the Newton baseline** on the
+  pass path. The FD JVP subtracts `jfnk_fx` from `F_eval(x+h*v)`, so a
+  baseline of `F_outer` leaves `(F_eval(0)-F_outer)/h` inside every
+  matvec - a constant vector amplified ~1/h (~7e7). Found 11-Oct-2026
+  at it354: COLPROBE single-column probes showed ~8e3 entries at
+  deep-boundary rows where BA is exactly zero, quantitatively matching
+  `max|F_eval-F_outer|=1.18e-4 / h=1.49e-8 = 7.9e3`. Coupled mode
+  already adopted the eval residual (lagged-store offset is real
+  physics, not a bug; guarded by a >N/2 spread check).
 - Aborts on NaN or `jfnk_resid_nbad > 0` (components capped at 1e20,
   not zeroed - the earlier guard overwrote the whole vector with 1e20
   and masked divergence).
@@ -536,8 +554,82 @@ fixed 04-Oct-2026, now `BA_LAST_RAW`). 13,826/128,730 near-null BA
 rows regularized; surviving degenerate rows clipped on every retry.
 ~1.5 h burned before the cancel.
 
+## FD-JVP vs stored BA: the operator gap (11-Oct-2026)
+
+After the F(0) baseline fix, single-column probes compare the true
+finite-difference column `JVP(e_i)` against stored `BA(:,i)`:
+
+- Stiff columns (top-|F| rows, HI Rydberg at K64-70): agree to ~6%.
+- Soft columns (where `z = M^-1 F` parks large components): the
+  diagonal differs structurally - `FD = 0.04` vs `BA = -1104` at
+  NIV J=316 K60. The true row barely responds to that level's own
+  population (inflow and outflow both track n_i), while BA stores the
+  explicit outflow-rate diagonal.
+- All diffs confined to the perturbed depth; repeat probes are
+  bit-identical; linear at FD step scales.
+
+The residual eval calls `JFNK_SYNC_ATM_FROM_POPS`, which refreshes
+`POPION` and the level-dissolution coefficients before `SUP_TO_FULL_V4`
+rebuilds full-atom populations. `STEQ_MULTI_V10` does have explicit BA
+columns for direct electron-density and ion-density effects (`VED` and
+`VION`), so the earlier blanket claim that BA omits all `n_e`/`N_ion`
+derivatives was too broad. The clearest candidate gap is the derivative
+through aggregate `POPION` and the occupation-probability coefficients;
+any residual derivative through the nonlinear super-to-full population
+map still needs to be measured against BA. The missing terms may be
+low-rank per depth, but the rank and their contribution have not been
+established well enough to justify an SMW correction.
+
+Measured consequence (job 12153985, it384): `|A_FD z|/|F|=3.40` and
+`cos(F,A_FD z)=0.0405`; the soft topZ column differed from BA by 83.1%,
+while the stiff topF column differed by 6.4%. GMRES stagnated after
+low-dimensional Arnoldi breakdown. FULL-BA iterations later resumed at
+it399 and reduced demand from 32.5% to 1.35% by it402, then plateaued
+around 1.4-1.5%. This demonstrates an endgame plateau, not a permanent
+Lambda lockout or a proof that every frozen-J Newton step is impossible.
+
+### Lagged factor experiment (11-Oct-2026)
+
+New opt-in VADAT key `JFNK_LAG_FACTORS` snapshots `POPION` and
+`B_LEV_DIS/A_LEV_DIS/X_LEV_DIS` at the activation baseline. During
+frozen-J evals, `SUP_TO_FULL_V4` skips refreshing those factors while
+still rebuilding the full populations from the trial superlevels; direct
+ED, T, and ion-density effects remain live. The option is disabled by
+default and changes the residual being solved. It is a test of whether
+the missing factor derivative explains the soft-column gap, not a
+claim that BA is now the exact Jacobian of the physical problem.
+
+Surrogate T18 verifies the low-rank analogue only: live FD matches its
+exact Jacobian, the live direction differs from the baseline BA by
+`2.11e4`, and lagged FD matches BA to `5.0e-7`. T19 guards the fallback
+cap/mode wiring in source. CMFGEN production validation is still
+required.
+
+## Equation-structure freeze (`USE_PASSED_REP`, 11-Oct-2026)
+
+`GENERATE_FULL_MATRIX_V3` recomputes `REPLACE` (ground-state row swaps
+to the ionization-conservation equation, FAC test) and `ZERO_STEQ`
+(FIXPOP zeroing) from the current state on every call. Inside a JVP
+finite difference, a state near the FAC threshold can flip a row's
+algebraic structure, so the FD measures an O(1/h) structural artifact
+rather than a derivative.
+
+`JFNK_ASSEMBLE_STEQ_V1` now harvests `REPLACE`/`ZERO_STEQ` per depth
+into `JFNK_REPLACE_SAV`/`JFNK_ZSTEQ_SAV` at the first baseline eval
+after each reset, then replays them via `USE_PASSED_REP=T` on all
+perturbed evals. Resets: JFNK admission entry, baseline rebuild
+(`JFNK_REBUILD_BASELINE_V1`), and mid-Newton preconditioner refactor -
+each keeps the residual's equation set identical to the BA currently
+factored. This removes a real residual non-smoothness; it does not
+close the dominant implicit-factor gap above.
+
 ## Deliberately not implemented
 
+- Sherman-Morrison-Woodbury low-rank preconditioner update for the
+  implicit-factor derivative gap (`dF/d n_e`, `dF/d N_ion` per depth
+  block; U = FD probes, V = aggregate maps). Deferred - the frozen-J
+  Jacobian stays near-singular at `coll ~ -rad` cancellation rows
+  regardless, so Lambda remains the robust solver for this tier.
 - Full Chen & Shen (2006) preconditioner update from Krylov products.
 - Larger `JFNK_M` by default (m=10; hybrid config uses 30 for coupled).
 - Differentiating through `I_NEXT`; Anderson acceleration of the outer

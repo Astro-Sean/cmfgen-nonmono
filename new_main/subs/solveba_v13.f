@@ -16,7 +16,7 @@
 	9     BA_PART_THIS,BA_REJ_FRAC,BA_NREJ_SOFT,BA_SOFT_THIS,
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
-	1     BA_QUAR_COUNT
+	1     BA_QUAR_COUNT,BA_DEM_PFLOOR
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -1090,6 +1090,19 @@
 	DO I=1,ND
 	  COUNT(:)=0
 	  DO J=1,NT
+!
+! edited by Devin, 11-Oct-2026: [BA_DEM_PFLOOR] skip floor-level rows
+! in the demanded-correction metric.  A population already below the
+! floor demands relative corrections that carry no physical
+! information (its rates/opacities are all negligible), yet an
+! unsatisfiable re-fed demand pins MAXCH at the 1E7 sentinel every
+! call -- m15 fresh run: CV:1s_4p_1Po at depth 16, n~1E-55, demanded
+! decrease 1E7% on every non-LAMBDA call because cascade coupling
+! refills it between BA solves.  ED/T rows (J=NT-1,NT) are exempt;
+! corrections on skipped rows still commit normally.
+!
+	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
+	1     POPS(J,I) .LT. BA_DEM_PFLOOR)CYCLE
 	    IF(STEQ(J,I) .GT. DECREASE)THEN
 	      DECREASE=STEQ(J,I)
 	      IDEC=I
@@ -1434,6 +1447,13 @@
 	  DECREASE=0.0_LDP
 	  DO I=1,ND
 	    DO J=1,NT
+!
+! edited by Devin, 11-Oct-2026: same [BA_DEM_PFLOOR] exemption as the
+! demand scan above -- a committed change on a floor-level row is
+! equally uninformative for the mode decision.
+!
+	      IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
+	1     POPS_OLD(J,I) .LT. BA_DEM_PFLOOR)CYCLE
 	      IF(POPS_OLD(J,I) .LE. 0.0_LDP)THEN
 	        IF(POPS(J,I) .GT. 0.0_LDP)INCREASE=1.0E+07_LDP
 	      ELSE IF(POPS(J,I) .LE. 0.0_LDP)THEN

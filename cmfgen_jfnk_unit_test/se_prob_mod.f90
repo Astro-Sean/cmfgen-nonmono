@@ -46,6 +46,28 @@ module se_prob_mod
    logical          :: se_wscale_on = .false.
    double precision, allocatable :: se_wscale(:)
 
+   ! structure-flip row: surrogate for GENERATE_FULL_MATRIX_V3's
+   ! REPLACE decision.  Row se_flip_row carries the rate equation
+   ! while x(se_flip_col) <= se_flip_thr and a conservation form
+   ! sum(w_j n_j) - tgt above it.  se_flip_freeze pins the branch to
+   ! se_flip_branch0, captured at the baseline x: perturbed evals
+   ! replay the baseline equation set, the USE_PASSED_REP=T analogue,
+   ! so an FD step cannot cross the flip.
+   logical :: se_flip_on = .false., se_flip_freeze = .false.
+   logical :: se_flip_branch0 = .false.
+   integer :: se_flip_row = 0, se_flip_col = 0, se_flip_ng = 0
+   double precision :: se_flip_thr = 0d0, se_flip_tgt = 0d0
+   integer, allocatable :: se_flip_grp(:)
+   double precision, allocatable :: se_flip_w(:)
+
+   ! Aggregate-factor analogue: live mode multiplies the rate residual
+   ! by a factor of the group population sum; lag mode pins that factor
+   ! at its baseline value so its Jacobian matches the stored BA.
+   logical :: se_factor_on = .false., se_factor_lag = .false.
+   integer :: se_factor_ng = 0
+   double precision :: se_factor_alpha = 0d0, se_factor_target = 0d0
+   integer, allocatable :: se_factor_grp(:)
+
    ! preconditioner state (per-depth LU, production replica)
    double precision, allocatable :: lu_fac(:,:,:), row_sf(:,:), col_sf(:,:)
    double precision, allocatable :: ba_diag(:,:), pc_diag(:,:), m0_blk(:,:,:)
@@ -148,6 +170,37 @@ subroutine se_load(dir, stat)
       end if
    end if
 
+   se_flip_on = .false.
+   se_factor_on = .false.
+   se_factor_lag = .false.
+
+   ! optional structure-flip row spec, emitted only by the 'flip'
+   ! system spec; absent elsewhere so the residual stays branch-A.
+   fn = trim(dir) // '/flip.txt'
+   open(newunit=lu, file=trim(fn), status='old', iostat=ios)
+   if (ios == 0) then
+      read(lu, *) se_flip_row, se_flip_col, se_flip_thr, se_flip_tgt
+      read(lu, *) se_flip_ng
+      if (allocated(se_flip_grp)) deallocate(se_flip_grp, se_flip_w)
+      allocate(se_flip_grp(se_flip_ng), se_flip_w(se_flip_ng))
+      do i = 1, se_flip_ng
+         read(lu, *) se_flip_grp(i), se_flip_w(i)
+      end do
+      close(lu)
+      se_flip_on = .true.
+   end if
+
+   fn = trim(dir) // '/factor.txt'
+   open(newunit=lu, file=trim(fn), status='old', iostat=ios)
+   if (ios == 0) then
+      read(lu, *) se_factor_alpha, se_factor_target, se_factor_ng
+      if (allocated(se_factor_grp)) deallocate(se_factor_grp)
+      allocate(se_factor_grp(se_factor_ng))
+      read(lu, *) se_factor_grp
+      close(lu)
+      se_factor_on = .true.
+   end if
+
    if (allocated(jfnk_x)) deallocate(jfnk_x)
    if (allocated(jfnk_fx)) deallocate(jfnk_fx)
    allocate(jfnk_x(se_n), jfnk_fx(se_n))
@@ -166,10 +219,29 @@ subroutine se_f_raw(n, x, fx)
    integer, intent(in) :: n
    double precision, intent(in) :: x(n)
    double precision, intent(out) :: fx(n)
-   double precision :: npop(n)
+   double precision :: npop(n), an(n), factor
    integer :: i
+   logical :: fb
    npop = n0_se * exp(min(80d0, max(-80d0, x)))
-   fx = matmul(a_se, npop) + matmul(c_se, x) + r_se
+   an = matmul(a_se, npop)
+   factor = 1d0
+   if (se_factor_on .and. .not. se_factor_lag) then
+      factor = 1d0 + se_factor_alpha * &
+         (sum(npop(se_factor_grp)) - se_factor_target)
+   end if
+   fx = factor * an + matmul(c_se, x) + r_se
+   if (se_flip_on .and. se_flip_row > 0) then
+      ! branch B is the conservation equation; it need not share the
+      ! rate equation's value at the flip point, which is what makes
+      ! a live (unfrozen) branch discontinuous in the FD sense.
+      if (se_flip_freeze) then
+         fb = se_flip_branch0
+      else
+         fb = (x(se_flip_col) > se_flip_thr)
+      end if
+      if (fb) fx(se_flip_row) = sum(se_flip_w * npop(se_flip_grp)) &
+                              - se_flip_tgt
+   end if
    do i = 1, n
       if (mask_se(i) == 1 .and. .not. se_t_live(i)) fx(i) = 0d0
       if (fx(i) /= fx(i)) then
@@ -220,9 +292,34 @@ subroutine se_jexact(n, x, v, jv)
    integer, intent(in) :: n
    double precision, intent(in) :: x(n), v(n)
    double precision, intent(out) :: jv(n)
+   double precision :: npop(n), an(n), factor, dfactor
    integer :: i
-   jv = matmul(a_se, n0_se * exp(min(80d0, max(-80d0, x))) * v) &
-      + matmul(c_se, v)
+   logical :: fb
+   npop = n0_se * exp(min(80d0, max(-80d0, x)))
+   an = matmul(a_se, npop)
+   factor = 1d0
+   dfactor = 0d0
+   if (se_factor_on .and. .not. se_factor_lag) then
+      factor = 1d0 + se_factor_alpha * &
+         (sum(npop(se_factor_grp)) - se_factor_target)
+      dfactor = se_factor_alpha * &
+         sum(npop(se_factor_grp) * v(se_factor_grp))
+   end if
+   jv = factor * matmul(a_se, npop * v) + matmul(c_se, v) &
+      + dfactor * an
+   if (se_flip_on .and. se_flip_row > 0) then
+      ! the exact J is taken w.r.t. whichever branch the residual is
+      ! actually evaluating, so live-vs-frozen comparisons measure
+      ! the FD artifact, not a model mismatch.
+      if (se_flip_freeze) then
+         fb = se_flip_branch0
+      else
+         fb = (x(se_flip_col) > se_flip_thr)
+      end if
+      if (fb) jv(se_flip_row) = sum(se_flip_w * n0_se(se_flip_grp) * &
+         exp(min(80d0, max(-80d0, x(se_flip_grp)))) * &
+         v(se_flip_grp))
+   end if
    if (jfnk_ptc_active .and. jfnk_ptc_scale_ready) then
       jv = jv + jfnk_ptc_scale * v / max(jfnk_ptc_dtau, 1d-8)
    end if
@@ -252,6 +349,29 @@ subroutine se_jvp_fd(n, v, jv)
    call se_f(n, xp, fp)
    jv = (fp - f0) / h
 end subroutine se_jvp_fd
+
+
+subroutine se_jvp_fd_stale(n, v, jv)
+   ! Pre-fix production semantics for the regression test: the FD
+   ! subtracts the stored baseline jfnk_fx instead of a fresh eval at
+   ! jfnk_x, so any offset between the stored and evaluated residual
+   ! enters every matvec amplified by 1/h.  Kept deliberately wrong.
+   use se_prob_mod
+   use jfnk_solver_v1_mod, only: jfnk_x, jfnk_fx
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(in) :: v(n)
+   double precision, intent(out) :: jv(n)
+   double precision :: h, xp(n), fp(n)
+   if (maxval(abs(v)) < 1d-300) then
+      jv = 0d0
+      return
+   end if
+   h = se_eps * max(1d0, maxval(abs(jfnk_x))) / maxval(abs(v))
+   xp = jfnk_x + h * v
+   call se_f(n, xp, fp)
+   jv = (fp - jfnk_fx) / h
+end subroutine se_jvp_fd_stale
 
 
 subroutine se_factor_lu()

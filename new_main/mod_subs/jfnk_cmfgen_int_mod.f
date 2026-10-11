@@ -47,6 +47,15 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_Z_POP(:)
 	LOGICAL, SAVE :: JFNK_DO_LEV_DISSOL=.FALSE.
 !
+! Baseline copies used only when JFNK_LAG_FACTORS is enabled.
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_POPION_LAG(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_B_LEV_DIS_LAG(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_A_LEV_DIS_LAG(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_X_LEV_DIS_LAG(:)
+	LOGICAL, SAVE :: JFNK_LAG_DO_LEV_DIS=.FALSE.
+	LOGICAL, SAVE :: JFNK_LAG_FACTORS_READY=.FALSE.
+	LOGICAL, SAVE :: JFNK_LAG_FACTORS_ACTIVE=.FALSE.
+!
 ! STEQ save/restore arrays (added 2026-09-07):
 ! JFNK_RESIDUAL_V1 modifies SE(ID)%STEQ, STEQ_T, STEQ_ED, and STEQ_T_EHB
 ! via JFNK_COMPUTE_STEQ_V1.  These arrays are module-level state in
@@ -459,5 +468,21 @@
 	INTEGER, SAVE :: JFNK_N_JVP_HRETRY=0      ! JVP calls needing h-reduction
 	INTEGER, SAVE :: JFNK_N_PRECOND_APPLIES=0
 	INTEGER, SAVE :: JFNK_N_PRECOND_FAILURES=0
+!
+! Frozen equation-structure flags for JFNK_ASSEMBLE_STEQ_V1.
+! GENERATE_FULL_MATRIX_V3 recomputes REPLACE (ground-state row swaps
+! to the ionization-conservation equation) and ZERO_STEQ (FIXPOP
+! zeroing) from the CURRENT state on every call.  A finite-difference
+! perturbation near the FAC threshold can therefore flip a row's
+! algebraic structure inside a JVP step, so the FD measures an O(1/h)
+! structural artifact rather than a derivative.  The admission and
+! baseline-rebuild drivers reset JFNK_EQ_STRUCT_READY; the first
+! baseline eval then harvests both flag sets, and all perturbed evals
+! replay them through USE_PASSED_REP=T so the JVP differentiates a
+! fixed equation set identical to the stored BA's.
+!
+	LOGICAL, ALLOCATABLE, SAVE :: JFNK_REPLACE_SAV(:,:)
+	LOGICAL, ALLOCATABLE, SAVE :: JFNK_ZSTEQ_SAV(:,:)
+	LOGICAL, SAVE :: JFNK_EQ_STRUCT_READY=.FALSE.
 !
 	END MODULE JFNK_CMFGEN_INT_MOD

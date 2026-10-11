@@ -1187,6 +1187,18 @@
 	REAL(KIND=LDP) BA_SAT_RAW
 	INTEGER BA_SAT_CNT
 !
+! BA_DEM_PFLOOR (VADAT [BA_DEM_PFLOOR], default 0=off): population
+! floor for the demanded-correction metric in SOLVEBA_V13.  Rows
+! whose current population sits below the floor are skipped in the
+! DECREASE/INCREASE scan and the MAXCH_APP committed scan -- their
+! corrections still commit normally, but a floor-level demanding a
+! relative change of order 1E5 (e.g. an inner-shell CV level at
+! 1E-55 fed back to the same value every call by cascade couplings
+! DIAG BA cannot see) can no longer pin MAXCH at the 1E7 sentinel
+! and hold JFNK admission / NG scheduling hostage to floor noise.
+!
+	REAL(KIND=LDP) BA_DEM_PFLOOR
+!
 ! BA_LUM_GATE and BA_LUM_DCHG are retained as accepted VADAT keys for
 ! restart compatibility.  They no longer affect convergence: shocks
 ! permit physical luminosity deposition between the inner and outer
@@ -1361,6 +1373,11 @@
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	INTEGER JFNK_REARM_EVERY
 	INTEGER JFNK_ROW_DIAG
+! JFNK_LAG_FACTORS (VADAT, default F) holds POPION and the level-
+! dissolution coefficients at the activation baseline during frozen-J
+! residual evaluations.  The default residual and all coupled evals
+! keep the existing factor refresh behavior.
+	LOGICAL JFNK_LAG_FACTORS
 !
 ! JFNK_TAUTO: adaptive damped-T domain inside the JFNK solve.  When
 ! active the VARFIXT depth range is not hard-masked: the T rows of F

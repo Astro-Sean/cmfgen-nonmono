@@ -25,9 +25,9 @@
 ! JFNK_COUPLED=F: V6 semantics -- STEQ_coll(n) + stored radiative term
 ! + CMAT_RAD linearization.  Retained as a debugging/fallback mode.
 !
-! On unrecoverable failure (NaN/Inf, F(0) identity failure, alloc
-! failure) or stagnation this routine falls back to a LAMBDA-mode
-! SOLVEBA_V13 call so the outer iteration always makes progress.
+! On non-catastrophic stagnation this routine returns to the caller's
+! SOLVEBA_V13 mode.  Only an unrecoverable eval failure forces the
+! conservative Lambda safety path.
 !
 ! editted by Devin (V7-JFNK port, 02-Oct-2026)
 ! Altered 05-Oct-2026 : Demoted JFNK banners to iteration subheaders.
@@ -87,15 +87,22 @@
 	INTEGER JFNK_N,JFNK_INFO,JFNK_ATTEMPT,II_F
 	LOGICAL APPLY_JFNK_UPDATE,JFNK_CATASTROPHIC
 	LOGICAL BASELINE_REBUILT,F0_OK,DO_JFNK_NOW
-	LOGICAL JFNK_DISABLED_FALLBACK
 	LOGICAL COMMITTED_BASELINE
+	LOGICAL LAMBDA_SAVE,FIXED_T_SAVE,COMPUTE_BA_SAVE
+	LOGICAL WR_BA_INV_SAVE,WR_PRT_INV_SAVE
+	LOGICAL JFNK_LAG_FACTORS_OK
+	CHARACTER*20 TEMP_CHAR_SAVE
 	DOUBLE PRECISION F_INF,F_INF_INIT,F_W,F_W_INIT
 	DOUBLE PRECISION JFNK_TOL_ABS
 	DOUBLE PRECISION, ALLOCATABLE :: BEST_X(:)
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
 	LOGICAL JFNK_REACH_OK
 	DOUBLE PRECISION REACH_VAL,FF2_DP,FJZ_DP,JJZ_DP
-	DOUBLE PRECISION, ALLOCATABLE :: Z_CHK(:),JZ_VEC(:)
+	DOUBLE PRECISION FJZ_FD,JJZ_FD,BAFD_DP
+	DOUBLE PRECISION, ALLOCATABLE :: Z_CHK(:),JZ_VEC(:),JV_FD(:)
+	DOUBLE PRECISION, ALLOCATABLE :: JV_FD2(:),Z_BLK(:),JV_SAV(:)
+	INTEGER K_TOPF,I_TOPF,I_ZMAX,II_PROBE
+	DOUBLE PRECISION FMAX_LOC
 !
 ! Correction clipping state
 !
@@ -114,10 +121,10 @@
 !
 ! Cooldown re-arm: JFNK is never permanently disabled.  After
 ! JFNK_MAX_STAGNATE consecutive failures it pauses for
-! JFNK_REARM_WAIT admitted calls (Lambda iterations advance the
-! radiation field in between), then retries.  The wait doubles each
-! failure cycle up to x8 so a persistently failing Newton is retried
-! rarely; it resets on any committed JFNK update.
+! JFNK_REARM_WAIT eligible calls, which use the outer SOLVEBA mode,
+! then retries.  The wait doubles each failure cycle up to x8 so a
+! persistently failing Newton is retried rarely; it resets on any
+! committed JFNK update.
 !
 	INTEGER, SAVE :: JFNK_REARM_COUNT=0
 	INTEGER, SAVE :: JFNK_REARM_CYCLE=0
@@ -133,6 +140,7 @@
 	EXTERNAL JFNK_DIAGNOSTIC_V1
 	EXTERNAL JFNK_ASSEMBLE_STEQ_V1,JFNK_COMPUTE_STEQ_V1
 	EXTERNAL JFNK_SYNC_ATM_FROM_POPS
+	EXTERNAL JFNK_CAPTURE_LAG_FACTORS_V1
 	EXTERNAL JFNK_MASK_FIXED_UNKNOWNS,JFNK_COMPUTE_RSCALE_V1
 	EXTERNAL JFNK_BUILD_BA_RAD_V1,JFNK_FACTOR_PRECOND_V1
 	EXTERNAL JFNK_REBUILD_BASELINE_V1
@@ -143,12 +151,21 @@
 	EXTERNAL JFNK_DOT_V1
 !
 	LUER=ERROR_LU()
+	JFNK_LAG_FACTORS_ACTIVE=.FALSE.
+	JFNK_LAG_FACTORS_READY=.FALSE.
+	LAMBDA_SAVE=LAMBDA_A
+	FIXED_T_SAVE=FIXED_T
+	COMPUTE_BA_SAVE=COMPUTE_BA_A
+	WR_BA_INV_SAVE=WR_BA_INV_A
+	WR_PRT_INV_SAVE=WR_PRT_INV_A
+	TEMP_CHAR_SAVE=TEMP_CHAR
+	T1=COR_LIM_IN
 !
 ! -----------------------------------------------------------------------
-! Entry gating: if JFNK stagnated JFNK_MAX_STAGNATE times in a row it
-! pauses for JFNK_REARM_WAIT admitted calls (Lambda fallback keeps the
-! model advancing), then re-arms.  A per-call failure just costs one
-! LAMBDA fallback solve.
+! Entry gating: after repeated stagnation JFNK pauses for
+! JFNK_REARM_WAIT admitted calls, then re-arms.  Paused and failed
+! non-catastrophic calls retain the caller's SOLVEBA mode; only a
+! catastrophic eval uses the conservative Lambda safety solve.
 ! -----------------------------------------------------------------------
 !
 ! JFNK_ANY_ITER (VADAT [JFNK_ANYITER], default F): bring-up flag --
@@ -157,7 +174,6 @@
 ! update still passes through solve_for_pops' hold/reject logic.
 !
 	DO_JFNK_NOW=(.NOT. LAMBDA_A) .OR. JFNK_ANY_ITER
-	JFNK_DISABLED_FALLBACK=.FALSE.
 !
 	IF(JFNK_DISABLED .AND. DO_JFNK_NOW)THEN
 	  JFNK_REARM_COUNT=JFNK_REARM_COUNT+1
@@ -178,25 +194,9 @@
 	IF(JFNK_DISABLED .AND. DO_JFNK_NOW)THEN
 	  WRITE(LUER,'(A,I3,A,I3,A)')
 	1   'JFNK paused (cooldown ',JFNK_REARM_COUNT,' of ',
-	2   JFNK_REARM_WAIT,'); using SOLVEBA'
-	  LAMBDA_ITERATION=.TRUE.
-	  FIXED_T=.TRUE.
-	  COMPUTE_BA=.TRUE.
-	  TEMP_CHAR='DIAG'
-! [DO_JFNK]=T (default F; [USE_JFNK] alias) can reach this only on
-! the KNOP or SOB paths. Keep
-! the caller's cap, including BA_DAMP_CAP, and never exceed the
-! MAX_LIN_COR cap used by ordinary Newton-failure fallbacks.
-	  T1=MIN(COR_LIM_IN,MAX_LIN_COR)
-	  JFNK_DISABLED_FALLBACK=.TRUE.
-!
-! Order-of-operations audit (03-Oct-2026): DO_JFNK_NOW must be cleared
-! here -- previously it stayed .TRUE., so the JFNK branch below ran
-! the full Newton solve anyway under the LAMBDA-mode flags set above
-! (a different residual operator than the gates admitted), on every
-! call for the rest of the run.  Clearing it routes to the same
-! LAMBDA-mode SOLVEBA_V13 call the ELSE branch performs.
-!
+	2   JFNK_REARM_WAIT,'); using caller SOLVEBA mode'
+! The paused path has not changed POPS or the stored BA.  Skip Newton
+! while preserving the outer solver's mode, matrix and correction cap.
 	  DO_JFNK_NOW=.FALSE.
 	END IF
 !
@@ -246,6 +246,8 @@
 	1   '    Ne free to vary                 :',.NOT. FIXED_NE
 	  WRITE(LUER,'(A,L2)')
 	1   '    FIX_T set in VADAT              :',RD_FIX_T
+	  WRITE(LUER,'(A,L2)')
+	1   '    lag dissolution factors         :',JFNK_LAG_FACTORS
 	  WRITE(LUER,'(A,ES10.3)')
 	1   '    population change clip          :',MAX_JFNK_COR
 	  WRITE(LUER,'(A,ES10.3)')
@@ -386,6 +388,12 @@
 	  IF(.NOT. ALLOCATED(jfnk_fx))ALLOCATE(jfnk_fx(JFNK_N))
 	  jfnk_x=0.0D0
 !
+! New admission baseline: the first ASSEMBLE below re-harvests the
+! REPLACE/ZERO_STEQ equation structure at this state; every perturbed
+! residual eval in this Newton solve replays it frozen.
+!
+	  JFNK_EQ_STRUCT_READY=.FALSE.
+!
 	  CALL JFNK_ASSEMBLE_STEQ_V1(SOL,NT,ND,NION,NUM_BNDS,
 	1     DIAG_INDX,POPS)
 	  DO K=1,ND
@@ -401,6 +409,17 @@
 !
 	  IF(.NOT. JFNK_COUPLED_LOC)THEN
 	    CALL JFNK_SYNC_ATM_FROM_POPS(POPS)
+	    IF(JFNK_LAG_FACTORS)THEN
+	      CALL JFNK_CAPTURE_LAG_FACTORS_V1(JFNK_LAG_FACTORS_OK)
+	      IF(JFNK_LAG_FACTORS_OK)THEN
+	        JFNK_LAG_FACTORS_ACTIVE=.TRUE.
+	        WRITE(LUER,'(A)')
+	1         '  JFNK: POPION/dissolution factors held at activation baseline'
+	      ELSE
+	        WRITE(LUER,'(A)')
+	1         '  JFNK: lag-factor snapshot unavailable; using refreshed factors'
+	      END IF
+	    END IF
 !
 ! Order-of-operations audit (03-Oct-2026): compute_steq rewrites the
 ! module STEQ arrays with collisional-only values, and nothing
@@ -441,9 +460,10 @@
 ! residual is solving a different problem than the model state.  In
 ! coupled mode the eval re-solves J with the I_NEXT store frozen, so
 ! F_eval(0) legitimately differs from outer STEQ (which accumulated
-! radiative terms with the store evolving mid-sweep).  There the eval
-! residual is adopted as the Newton baseline and the discrepancy is a
-! diagnostic; only NaN or rel>0.5 aborts.
+! radiative terms with the store evolving mid-sweep).  The eval
+! residual is adopted as the Newton baseline in both modes on the
+! F0_OK path (see below); the mismatch diagnostics stay informative
+! either way.
 !
 	  F0_OK=.TRUE.
 	  BLOCK
@@ -563,12 +583,27 @@
 	      WRITE(LUER,'(A)')
 	1   '  Skipping Newton solve -- falling back to LAMBDA/BA.'
 	    END IF
+!
+! Adopt the eval residual as the Newton baseline whenever it is
+! finite.  The FD JVP subtracts jfnk_fx from F_eval(x+h*v), so a
+! baseline of F_outer leaves (F_eval(0)-F_outer)/h inside every
+! matvec: a constant vector amplified ~1/h (~7e7) that appeared as
+! ~8e3 cross-depth entries in the COLPROBE single-column probes at
+! it354.  The evals are bitwise deterministic (repeat-vs-pristine
+! |diff|=0), so adopting F_eval(0) removes the offset exactly while
+! changing the Newton RHS by at most the 1e-4 eval/outer discrepancy.
+!
+	    IF(F0_OK)THEN
+	      jfnk_fx=F0_Y
+	      CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,jfnk_fx)
+	      CALL JFNK_COMPUTE_RSCALE_V1(JFNK_N,jfnk_fx)
+	    END IF
 	    FLUSH(LUER)
 	  END BLOCK
 !
-! jfnk_fx now holds F at jfnk_x=0 (either the adopted eval residual
-! in coupled mode, or the outer STEQ that just passed the identity
-! test in frozen mode).  NEWTON_HOOK_V1 can skip its entry re-eval.
+! jfnk_fx now holds F_eval at jfnk_x=0 (adopted in both modes on the
+! F0_OK path so the FD JVP baseline is bitwise-consistent with the
+! operator being solved).  NEWTON_HOOK_V1 can skip its entry re-eval.
 ! Only mark it fresh on the F0_OK path -- Newton is skipped otherwise
 ! and a stale TRUE could leak into the next activation.
 !
@@ -728,6 +763,221 @@
 	2        ' |Jz|/|F|=',REAL(SQRT(JJZ_DP)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
 	3        ' cos(F,Jz)=',REAL(FJZ_DP/SQRT(MAX(FF2_DP*JJZ_DP,1.0E-300_LDP)))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JZ_VEC,JFNK_N)
+!
+! Pristine-vs-repeat column probe (11-Oct-2026): the residual is
+! formally block-separable (no routine reads pops at other depths),
+! yet a single-column FD probe produced nonzero entries at distant
+! depths when measured AFTER a full-vector JVP had perturbed every
+! depth.  If module state leaks across evals, later JVPs inherit
+! residue from earlier perturbations and the FD operator looks
+! dense.  Measure the top-|z| column FIRST (before any full-vector
+! JVP in this block), then repeat it at the end: equal outputs mean
+! pure evals and real global coupling; different outputs prove
+! eval-order contamination.
+!
+	      ALLOCATE(JV_FD(JFNK_N), JV_FD2(JFNK_N), Z_BLK(JFNK_N))
+	      ALLOCATE(JV_SAV(JFNK_N))
+	      FMAX_LOC = 0.0_LDP
+	      I_ZMAX = 1
+	      DO I = 1, JFNK_N
+	        IF(ABS(Z_CHK(I)) .GT. FMAX_LOC)THEN
+	          FMAX_LOC = ABS(Z_CHK(I))
+	          I_ZMAX = I
+	        END IF
+	      END DO
+	      Z_BLK = 0.0_LDP
+	      Z_BLK(I_ZMAX) = 1.0_LDP
+	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_SAV)
+	      WRITE(LUER,'(A,I8,A,ES12.4)')
+	1        '  COLPROBE pristine topZ idx=',I_ZMAX,
+	2        ' |FDcol|=',
+	3        REAL(SQRT(JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV)))
+!
+! FD-vs-stored operator check (11-Oct-2026): the stored-BA REACH can
+! report frac~1 while the finite-difference operator maps the same
+! z orthogonally (LU admission at it297: REACH=0.99998, GMRES flat).
+! One extra residual eval prices A_FD*z directly; the anatomy names
+! the rows where stored BA and true dF/dx diverge.
+!
+	      CALL JFNK_JVP_V1(JFNK_N, Z_CHK, JV_FD)
+	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD)
+	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
+	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD)
+	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
+	1        '  JFNK REACH-FD: |A_FD z|/|F|=',
+	2        REAL(SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
+	3        ' cos(F,A_FDz)=',
+	4        REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
+	5        ' cos(BAz,A_FDz)=',
+	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
+	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD,JFNK_N)
+!
+! Isolation probes (11-Oct-2026): A_FD*z returned ~60x|F| with
+! cos(BAz,A_FDz)~0.2 -- the stored BA misses large true-J action
+! excited by z's ~50-magnitude components.  JVP step h scales with
+! 1/||v||_inf so scaling v does NOT shrink the perturbation; the
+! informative restrictions are structural:
+!   (a) z|_(K_TOPF-1): response on the top-F row (K_TOPF) prices the
+!       cross-depth derivative the DIAG BA cannot store;
+!   (b) z with |z_i|>1 zeroed: does the mystery response vanish when
+!       the soft huge components are removed (they sit in stored-BA's
+!       near-null space but may be non-null under true J);
+!   (c) print top-|z| rows so the offending components are named.
+!
+	      FMAX_LOC = 0.0_LDP
+	      I_TOPF = 1
+	      DO I = 1, JFNK_N
+	        IF(ABS(jfnk_fx(I)) .GT. FMAX_LOC)THEN
+	          FMAX_LOC = ABS(jfnk_fx(I))
+	          I_TOPF = I
+	        END IF
+	      END DO
+	      K_TOPF = (I_TOPF-1)/JFNK_NT + 1
+!
+! Top-|z| components: name the rows carrying the large corrections.
+!
+	      WRITE(LUER,'(A)')'  REACH-FD top |z| rows:'
+	      Z_BLK = 0.0_LDP
+	      DO K = 1, 10
+	        FMAX_LOC = 0.0_LDP
+	        I_ZMAX = 0
+	        DO I = 1, JFNK_N
+	          IF(ABS(Z_CHK(I)) .GT. FMAX_LOC .AND.
+	1             Z_BLK(I) .EQ. 0.0_LDP)THEN
+	            FMAX_LOC = ABS(Z_CHK(I))
+	            I_ZMAX = I
+	          END IF
+	        END DO
+	        IF(I_ZMAX .EQ. 0)EXIT
+	        Z_BLK(I_ZMAX) = 1.0_LDP
+	        WRITE(LUER,'(A,I8,A,I4,A,I6,A,ES12.4)')
+	1          '    z_i: idx=',I_ZMAX,' K=',(I_ZMAX-1)/JFNK_NT+1,
+	2          ' J=',MOD(I_ZMAX-1,JFNK_NT)+1,' z=',Z_CHK(I_ZMAX)
+	      END DO
+!
+! (a) column probe: JVP(e_i) returns column i of the true J
+! (block-separable residual -- K69-only restriction gave zero response
+! at the K70 top row, so all action is within-block).  Compare
+! elementwise against the stored BA column for the top-F row and the
+! top-|z| row: names the entries where stored BA and true dF/dx
+! differ.  The BA column lives in block K_TOPF of JFNK_BA_A.
+!
+	      Z_BLK = 0.0_LDP
+	      Z_BLK(I_TOPF) = 1.0_LDP
+	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	      JV_FD = 0.0_LDP
+	      DO I = (K_TOPF-1)*JFNK_NT+1, K_TOPF*JFNK_NT
+	        JV_FD(I) = JFNK_BA_A(MOD(I-1,JFNK_NT)+1,
+	1             MOD(I_TOPF-1,JFNK_NT)+1, K_TOPF)
+	      END DO
+	      CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N, JV_FD)
+	      FJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
+	      JJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
+	      BAFD_DP = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD2)
+	      WRITE(LUER,'(A,I8,A,ES12.4,A,ES12.4,A,ES12.4)')
+	1        '  COLPROBE topF idx=',I_TOPF,' |FDcol|=',
+	2        REAL(SQRT(FJZ_FD)),
+	3        ' |BAcol|=',REAL(SQRT(JJZ_FD)),
+	4        ' |diff|/|BA|=',
+	5        REAL(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
+	1             0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP))
+	      DO K = 1, 8
+	        FMAX_LOC = 0.0_LDP
+	        I_ZMAX = 0
+	        DO I = 1, JFNK_N
+	          IF(ABS(JV_FD2(I)-JV_FD(I)) .GT. FMAX_LOC)THEN
+	            FMAX_LOC = ABS(JV_FD2(I)-JV_FD(I))
+	            I_ZMAX = I
+	          END IF
+	        END DO
+	        IF(I_ZMAX .EQ. 0)EXIT
+	        WRITE(LUER,'(A,I8,A,I4,A,I6,A,ES12.4,A,ES12.4)')
+	1          '    col: idx=',I_ZMAX,' K=',(I_ZMAX-1)/JFNK_NT+1,
+	2          ' J=',MOD(I_ZMAX-1,JFNK_NT)+1,
+	3          ' FD=',JV_FD2(I_ZMAX),' BA=',JV_FD(I_ZMAX)
+	        JV_FD(I_ZMAX) = JV_FD2(I_ZMAX)
+	      END DO
+!
+! (b) same column probe for the top-|z| row (the ~147 component).
+!
+	      FMAX_LOC = 0.0_LDP
+	      I_ZMAX = 1
+	      DO I = 1, JFNK_N
+	        IF(ABS(Z_CHK(I)) .GT. FMAX_LOC)THEN
+	          FMAX_LOC = ABS(Z_CHK(I))
+	          I_ZMAX = I
+	        END IF
+	      END DO
+	      J = (I_ZMAX-1)/JFNK_NT + 1
+	      Z_BLK = 0.0_LDP
+	      Z_BLK(I_ZMAX) = 1.0_LDP
+	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	      JV_FD = 0.0_LDP
+	      DO I = (J-1)*JFNK_NT+1, J*JFNK_NT
+	        JV_FD(I) = JFNK_BA_A(MOD(I-1,JFNK_NT)+1,
+	1             MOD(I_ZMAX-1,JFNK_NT)+1, J)
+	      END DO
+	      CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N, JV_FD)
+	      FJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
+	      JJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
+	      BAFD_DP = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD2)
+	      WRITE(LUER,'(A,I8,A,ES12.4,A,ES12.4,A,ES12.4)')
+	1        '  COLPROBE topZ idx=',I_ZMAX,' |FDcol|=',
+	2        REAL(SQRT(FJZ_FD)),
+	3        ' |BAcol|=',REAL(SQRT(JJZ_FD)),
+	4        ' |diff|/|BA|=',
+	5        REAL(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
+	1             0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP))
+	      DO K = 1, 8
+	        FMAX_LOC = 0.0_LDP
+	        I_TOPF = 0
+	        DO II_PROBE = 1, JFNK_N
+	          IF(ABS(JV_FD2(II_PROBE)-JV_FD(II_PROBE)) .GT. FMAX_LOC)THEN
+	            FMAX_LOC = ABS(JV_FD2(II_PROBE)-JV_FD(II_PROBE))
+	            I_TOPF = II_PROBE
+	          END IF
+	        END DO
+	        IF(I_TOPF .EQ. 0)EXIT
+	        WRITE(LUER,'(A,I8,A,I4,A,I6,A,ES12.4,A,ES12.4)')
+	1          '    col: idx=',I_TOPF,' K=',(I_TOPF-1)/JFNK_NT+1,
+	2          ' J=',MOD(I_TOPF-1,JFNK_NT)+1,
+	3          ' FD=',JV_FD2(I_TOPF),' BA=',JV_FD(I_TOPF)
+	        JV_FD(I_TOPF) = JV_FD2(I_TOPF)
+	      END DO
+!
+! Pristine-vs-repeat: JV_SAV holds the topZ column measured before any
+! full-vector JVP in this block; JV_FD2 holds the same column measured
+! after several full-vector evals.  |repeat-pristine|/|pristine| near
+! zero means the evals are pure and the cross-depth entries are real
+! Jacobian structure; a large value proves eval-order contamination.
+!
+	      JV_FD = JV_FD2 - JV_SAV
+	      FJZ_FD = SQRT(JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD))
+	      JJZ_DP = SQRT(JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV))
+	      WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1        '  COLPROBE repeat-vs-pristine: |diff|=',
+	2        REAL(FJZ_FD),
+	3        ' rel=',REAL(FJZ_FD/MAX(JJZ_DP,1.0E-300_LDP))
+!
+! (b) soft-component removal: zero every |z_i|>1 and re-price.
+!
+	      Z_BLK = Z_CHK
+	      DO I = 1, JFNK_N
+	        IF(ABS(Z_BLK(I)) .GT. 1.0_LDP) Z_BLK(I) = 0.0_LDP
+	      END DO
+	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD2)
+	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
+	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD2)
+	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
+	1        '  JFNK REACH-FD (|z|<1): |A_FD z|/|F|=',
+	2        REAL(SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
+	3        ' cos(F,A_FDz)=',
+	4        REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
+	5        ' cos(BAz,A_FDz)=',
+	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
+	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD2,JFNK_N)
+	      DEALLOCATE(JV_FD, JV_FD2, Z_BLK, JV_SAV)
 	      IF(REACH_VAL .LT. JFNK_REACH_GATE)THEN
 	        JFNK_REACH_OK=.FALSE.
 	        WRITE(LUER,'(A,ES10.2,A)')
@@ -768,6 +1018,12 @@
 	1           '  JFNK: REBUILDING PRECONDITIONER (attempt ',
 	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART,')'
 	          CALL JFNK_FACTOR_PRECOND_V1()
+!
+! The rebuilt BA was assembled at the current state; let the next
+! eval re-harvest its equation structure so the residual and the
+! preconditioner stay on the same REPLACE/ZERO_STEQ set.
+!
+	          JFNK_EQ_STRUCT_READY=.FALSE.
 	          FLUSH(LUER)
 	        END IF
 	      END IF
@@ -1157,14 +1413,12 @@
 	4       MAIN_COUNTER,SET_D2_A)
 	  ELSE
 ! info=-2 is the reachability precheck skip: Newton never ran, so the
-! admission cost ~one matvec rather than a failed solve.  Counting it
-! toward JFNK_MAX_STAGNATE would permanently disable JFNK on a run
-! whose residual stays radiation-pinned, even though a later iterate
-! can become reachable.  Take the Lambda step but keep JFNK armed.
+! admission cost ~one matvec.  Do not count it toward stagnation; the
+! residual may become reachable at a later outer iterate.
 	    IF(JFNK_INFO .EQ. -2)THEN
 	      WRITE(LUER,'(A)')
-	1       '  JFNK: admission gated by reachability check;'//
-	2       ' Lambda fallback (not counted as stagnation)'
+	1       '  JFNK: reachability gate skipped Newton;'//
+	2       ' retaining caller mode (not counted as stagnation)'
 	    ELSE
 	      JFNK_STAGNATION_COUNT=JFNK_STAGNATION_COUNT+1
 	      IF(JFNK_STAGNATION_COUNT .GE. JFNK_MAX_STAGNATE)THEN
@@ -1176,24 +1430,28 @@
 	        JFNK_REARM_CYCLE=JFNK_REARM_CYCLE+1
 	      ELSE
 	        WRITE(LUER,'(A,I3,A,I3)')
-	1         '  JFNK: NOT CONVERGED - Lambda fallback, stagnation ',
+	1         '  JFNK: finite stagnation; retaining caller mode, count ',
 	2         JFNK_STAGNATION_COUNT,' of ',JFNK_MAX_STAGNATE
 	      END IF
 	    END IF
-	    LAMBDA_ITERATION=.TRUE.
-	    FIXED_T=.TRUE.
-	    COMPUTE_BA=.TRUE.
-	    TEMP_CHAR='DIAG'
-! editted by Devin, 04-Oct-2026: the stagnation fallback had the cap
-! inverted -- the routine failure path (the one seen in practice)
-! carried MAX_LAM_COR (~1e5 factor) while the rarer catastrophic
-! path had the safe MAX_LIN_COR.  A Newton failure must not apply a
-! near-unbounded Lambda step on the state it just failed on.
-	    T1=MAX_LIN_COR
+! Residual callbacks restore POPS, ED, T and STEQ.  The Newton
+! preconditioner is local, so a clean FULL fallback can reuse the outer
+! BA.  Restore the entry flags because called routines may update them.
+	    LAMBDA_A=LAMBDA_SAVE
+	    FIXED_T=FIXED_T_SAVE
+	    COMPUTE_BA_A=COMPUTE_BA_SAVE
+	    WR_BA_INV_A=WR_BA_INV_SAVE
+	    WR_PRT_INV_A=WR_PRT_INV_SAVE
+	    TEMP_CHAR=TEMP_CHAR_SAVE
+	    IF(LAMBDA_A)THEN
+	      T1=MAX_LAM_COR
+	    ELSE
+	      T1=MIN(COR_LIM_IN,MAX_LIN_COR)
+	    END IF
 	    CALL SOLVEBA_V13(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,NION,
 	1       NUM_BNDS,ND,MAXCH,MAXCH_APP,TEMP_CHAR,SUCCESS,SCALE_OPT_A,
 	2       LAM_SC_OPT_A,T1,MDT_A,TMIN_A,
-	3       COMPUTE_BA,WR_BA_INV_A,WR_PRT_INV_A,LAMBDA_ITERATION,
+	3       COMPUTE_BA_A,WR_BA_INV_A,WR_PRT_INV_A,LAMBDA_A,
 	4       MAIN_COUNTER,SET_D2_A)
 	  END IF
 !
@@ -1264,7 +1522,7 @@
 !
 ! LAMBDA mode: standard direct solve (same as the default path).
 !
-	  IF(.NOT. JFNK_DISABLED_FALLBACK)T1=MAX_LAM_COR
+	  IF(LAMBDA_A)T1=MAX_LAM_COR
 	  CALL SOLVEBA_V13(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,NION,
 	1     NUM_BNDS,ND,MAXCH,MAXCH_APP,TEMP_CHAR,SUCCESS,SCALE_OPT_A,
 	2     LAM_SC_OPT_A,T1,MDT_A,TMIN_A,
@@ -1272,6 +1530,11 @@
 	4     MAIN_COUNTER,SET_D2_A)
 !
 	END IF
+	IF(JFNK_LAG_FACTORS_ACTIVE)THEN
+	  JFNK_LAG_FACTORS_ACTIVE=.FALSE.
+	  CALL JFNK_SYNC_ATM_FROM_POPS(POPS)
+	END IF
+	JFNK_LAG_FACTORS_READY=.FALSE.
 !
 	RETURN
 	END

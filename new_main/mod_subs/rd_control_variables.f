@@ -1359,6 +1359,13 @@
 	  IF(JFNK_ROW_DIAG .LT. 0)JFNK_ROW_DIAG=10
 	  IF(JFNK_ROW_DIAG .GT. 50)JFNK_ROW_DIAG=50
 !
+! Freeze population-dependent occupation-probability inputs during a
+! frozen-J activation.  This changes the residual operator, so keep it
+! opt-in and report its status in the JFNK context.
+	  JFNK_LAG_FACTORS=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_LAG_FACTORS,'JFNK_LAG_FACTORS',L_FALSE,
+	1     'Hold POPION and dissolution factors during frozen-J evals?')
+!
 ! FIX_T_AUTO damping ladder: the VARFIXT depth range becomes a
 ! damped-T domain instead of a hard mask.  RE is the T-row residual
 ! norm at admission; the rung advances when RE falls below
@@ -1531,6 +1538,10 @@
 	  CALL RD_STORE_DBLE(BA_SAT_RAW,'BA_SAT_RAW',L_FALSE,
 	1     'Raw MAXCH level counted as a saturated BA demand')
 	  BA_SAT_CNT=0
+!
+	  BA_DEM_PFLOOR=0.0_LDP
+	  CALL RD_STORE_DBLE(BA_DEM_PFLOOR,'BA_DEM_PFLOOR',L_FALSE,
+	1     'Population floor for the BA demanded-correction metric')
 !
 ! Legacy keys retained so existing VADAT files remain readable.  Shock
 ! deposition makes inner/outer luminosity agreement unsuitable for

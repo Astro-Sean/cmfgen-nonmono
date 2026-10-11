@@ -139,10 +139,11 @@ module jfnk_solver_v1_mod
    ! Preconditioner refresh bookkeeping (Issue 3).
    !
    integer :: jfnk_last_gmres_its = 0
-   ! 2026-09-13 TR-units fix: Krylov-coefficient norm ||y|| of the step
-   ! returned by the last gmres_m_v1 call.  With right preconditioning
-   ! (jfnk_use_left_pc=F) hook_step_v1 bounds ||y|| (= ||M*s||_w), so the
-   ! trust-region radius must be updated from this norm, not from ||s||_w.
+   ! 2026-09-13 TR-units fix: norm of the step returned by the last
+   ! gmres_m_v1 call in the units the hookstep constrains.  Under left
+   ! PC that is ||y|| = ||s||_w (V orthonormal in dotprd); under right
+   ! PC it is sqrt(y' G y) = ||s||_w with G = Z' W Z, so the
+   ! trust-region radius is in physical-step units either way.
    double precision :: jfnk_last_ynrm = 0d0
    integer :: jfnk_need_precond_refresh = 0
    integer :: jfnk_gmres_m_dim = 10
@@ -307,6 +308,18 @@ module jfnk_solver_v1_mod
    !
    integer          :: jfnk_gmres_jj    = 0
    double precision :: jfnk_gmres_beta  = 0d0
+   !
+   ! Right-preconditioning step map (edited by Devin, 2026-10,
+   ! right-PC TR-units fix): under right PC the GMRES iterate y maps
+   ! to the physical step via s = Z y with Z = M^{-1} V, so
+   ! ||s||_w^2 = y' G y with G = Z' W Z (dotprd inner product).
+   ! hook_step_g_v1 constrains this G-norm instead of ||y||, keeping
+   ! the trust radius in physical-step units.  Stored per completed
+   ! Arnoldi cycle like the jj/beta pair above -- any external
+   ! gmres_m_v1 caller must save/restore them the same way.
+   !
+   double precision, allocatable :: jfnk_gmres_z(:,:)   ! M^{-1} V basis
+   double precision, allocatable :: jfnk_gmres_g(:,:)   ! Z' W Z Gram
    !
    ! GMRES stagnation criterion (audit 17-Sep-2026): an iteration counts
    ! as non-improving unless it reduces the residual by more than this
@@ -574,20 +587,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ginfo     = info
    n_reject  = 0
    !
-   ! Audit 17-Sep-2026 (issue 16): force LEFT preconditioning in the
-   ! production Newton solve.  Under right preconditioning the hookstep
-   ! constrains ||y|| = ||M*s||_w, which is NOT the physical step norm
-   ! ||s||_w -- the trust-region radius is then in the wrong units.
-   ! Until the TR norm is reformulated for the right-preconditioned
-   ! problem, RIGHT mode is disabled here (the standalone RSCALE
-   ! diagnostic in the interface still exercises it deliberately).
+   ! Right preconditioning is supported (2026-10, right-PC TR-units
+   ! fix): gmres_m_v1 stores the preconditioned basis Z = M^{-1} V and
+   ! its Gram G = Z' W Z, and hook_step_g_v1 constrains ||s||_w =
+   ! sqrt(y' G y).  This supersedes the 17-Sep-2026 audit disable
+   ! (issue 16), which forced LEFT because the hookstep then bounded
+   ! ||y|| = ||M s||_w instead of the physical step norm.
    !
-   if(.not. jfnk_use_left_pc) then
-      if(info == 1) write(luer,'(A)') &
-         '  JFNK: RIGHT preconditioning requested but disabled &
-         &(TR norm invalid); using LEFT'
-      jfnk_use_left_pc = .true.
-   end if
    !
    ! Initial residual.  The driver's F(0) test and the baseline
    ! rebuild both leave jfnk_fx = F(jfnk_x) already -- when they did,
@@ -1649,7 +1655,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_last_ynrm, jfnk_jvp_failed, &
                                   jfnk_pc_clip_event, jfnk_gmres_stag_tol, &
                                   jfnk_gmres_recomputed, &
-                                  jfnk_gmres_jj, jfnk_gmres_beta
+                                  jfnk_gmres_jj, jfnk_gmres_beta, &
+                                  jfnk_gmres_z, jfnk_gmres_g
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
    ! (JFNK_N_PRECOND_APPLIES).  Incrementing here double-counted every
@@ -1710,6 +1717,31 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    left_pc = jfnk_use_left_pc
    pred_res = 0d0
    !
+   ! Right-PC step map (2026-10 TR-units fix): Z = M^{-1} V and its
+   ! Gram G = Z' W Z are stored so the hookstep constrains ||s||_w
+   ! and s = Z y is recovered without a second (possibly nonlinear)
+   ! psolve application.
+   !
+   if(.not. left_pc) then
+      if(allocated(jfnk_gmres_z)) then
+         done = allocated(jfnk_gmres_g)
+         if(done) done = (size(jfnk_gmres_g,1) >= m)
+         if(size(jfnk_gmres_z,1) /= n .or. size(jfnk_gmres_z,2) < m &
+            .or. .not. done) then
+            if(allocated(jfnk_gmres_g)) deallocate(jfnk_gmres_g)
+            deallocate(jfnk_gmres_z)
+         end if
+      end if
+      if(.not. allocated(jfnk_gmres_z)) then
+         allocate(jfnk_gmres_z(n,m), jfnk_gmres_g(m,m), stat=ios_gm)
+         if(ios_gm /= 0) then
+            if(info == 1) write(luer,*) 'gmres_m_v1: z/g alloc failed'
+            info = 1
+            return
+         end if
+      end if
+   end if
+   !
    ! Hookstep recalculation with new del
    !
    ! editted by Devin, 04-Oct-2026: only valid when a completed Arnoldi
@@ -1722,12 +1754,19 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       jfnk_gmres_jj <= m) then
       jj   = jfnk_gmres_jj
       beta = jfnk_gmres_beta
-      call hook_step_v1(jj, h, m, beta, del, y, pred_res)
-      ! 2026-09-13 TR-units fix: record ||y|| (norm the hookstep constrains)
-      jfnk_last_ynrm = dsqrt(dot_product(y(1:jj), y(1:jj)))
-      z = matmul(v(:,1:jj), y(1:jj))
-      if(.not. left_pc) then
-         call psolve(n, z)
+      if(left_pc) then
+         call hook_step_v1(jj, h, m, beta, del, y, pred_res)
+         ! 2026-09-13 TR-units fix: record the norm the hookstep bounds
+         jfnk_last_ynrm = dsqrt(dot_product(y(1:jj), y(1:jj)))
+         z = matmul(v(:,1:jj), y(1:jj))
+      else
+         ! Right-PC: constrain ||s||_w = sqrt(y' G y), recover s = Z y
+         ! from the stored preconditioned basis.
+         call hook_step_g_v1(jj, h, m, beta, del, &
+              jfnk_gmres_g, size(jfnk_gmres_g,1), y, pred_res)
+         jfnk_last_ynrm = dsqrt(max(0d0, dot_product(y(1:jj), &
+              matmul(jfnk_gmres_g(1:jj,1:jj), y(1:jj)))))
+         z = matmul(jfnk_gmres_z(:,1:jj), y(1:jj))
       end if
       x = z
       info = 0
@@ -1814,7 +1853,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             return
          end if
       else
-         ! Right: w = A * M^{-1} * v_j
+         ! Right: w = A * M^{-1} * v_j.  Keep z_j = M^{-1} v_j and the
+         ! j-th Gram column G(:,j) = Z' W z_j -- the hookstep bounds
+         ! ||s||_w = sqrt(y' G y) and the step is s = Z y, so no second
+         ! psolve is needed at step formation.
          z = v(:,j)
          call psolve(n, z)
          if(jfnk_pc_clip_event) then
@@ -1822,6 +1864,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             info = 3
             return
          end if
+         jfnk_gmres_z(:,j) = z
+         do i = 1, j
+            jfnk_gmres_g(i,j) = dotprd(n, jfnk_gmres_z(:,i), z)
+            jfnk_gmres_g(j,i) = jfnk_gmres_g(i,j)
+         end do
          call matvec(n, z, w)
          jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
          if(jfnk_jvp_failed) then
@@ -1916,28 +1963,34 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       !
       if(done .or. j == m) then
          if(del > 0d0) then
-            call hook_step_v1(j, h, m, beta, del, y, pred_res)
+            if(left_pc) then
+               call hook_step_v1(j, h, m, beta, del, y, pred_res)
+            else
+               call hook_step_g_v1(j, h, m, beta, del, &
+                    jfnk_gmres_g, size(jfnk_gmres_g,1), y, pred_res)
+            end if
          else
             ! No trust region (del==0): use the unconstrained
             ! least-squares residual as the predicted residual.
             pred_res = res
          end if
          ! 2026-09-13 TR-units fix: the Newton trust radius is set in
-         ! the units hookstep bounds.  edited by Devin, 05-Oct-2026
-         ! (||y|| restart fix): keep only the LAST cycle's ||y||.  The
-         ! total step is s = sum_k V_k y_k over different orthonormal
-         ! bases, so the old quadrature sum of ||y_k|| was neither
-         ! ||s||_w nor a bound on it.  The info==2 recompute path above
-         ! reuses only the last cycle's (jj, h, beta), so the trust
-         ! radius must match that basis.  Under left preconditioning
-         ! the update is s = s + V*y with V orthonormal in the dotprd
-         ! inner product, so ||y||_2 is exactly this cycle's
-         ! contribution to ||s||_w.
-         jfnk_last_ynrm = dsqrt(dot_product(y(1:j), y(1:j)))
-         !
-         z = matmul(v(:,1:j), y(1:j))
-         if(.not. left_pc) then
-            call psolve(n, z)
+         ! the units the hookstep bounds.  edited by Devin, 05-Oct-2026
+         ! (||y|| restart fix): keep only the LAST cycle's step norm.
+         ! The total step is s = sum_k V_k y_k over different bases, so
+         ! the old quadrature sum of ||y_k|| was neither ||s||_w nor a
+         ! bound on it.  The info==2 recompute path above reuses only
+         ! the last cycle's (jj, h, beta), so the trust radius must
+         ! match that basis.  Under left preconditioning ||y||_2 is
+         ! exactly this cycle's contribution to ||s||_w; under right
+         ! preconditioning the contribution is sqrt(y' G y).
+         if(left_pc) then
+            jfnk_last_ynrm = dsqrt(dot_product(y(1:j), y(1:j)))
+            z = matmul(v(:,1:j), y(1:j))
+         else
+            jfnk_last_ynrm = dsqrt(max(0d0, dot_product(y(1:j), &
+                 matmul(jfnk_gmres_g(1:j,1:j), y(1:j)))))
+            z = matmul(jfnk_gmres_z(:,1:j), y(1:j))
          end if
          x = x + z
          if(its == imx) info = 2
@@ -2129,6 +2182,61 @@ subroutine hook_step_v1(j, h, m, beta, del, y, pred_res)
    pred_res = dsqrt(dot_product(p, p))
    !
 end subroutine hook_step_v1
+
+
+!----------------------------------------------------------------------
+! HOOK_STEP_G_V1: hookstep under a general G-norm trust constraint
+!   y' G y <= del^2.
+!
+! Used under right preconditioning: the physical step is s = Z y with
+! Z = M^{-1} V, and G = Z' W Z makes the constraint ||s||_w rather
+! than ||y|| = ||M s||_w (the "TR norm invalid" issue noted in the
+! 17-Sep-2026 audit).  Cholesky G = R' R maps to the Euclidean
+! problem in yhat = R y:
+!   min ||beta e1 - H R^{-1} yhat||   s.t.  ||yhat|| <= del,
+! solved by the standard hook_step_v1, then y = R^{-1} yhat.
+!
+! A numerically singular G (preconditioner collapse, e.g. a psolve
+! that maps a basis vector to ~0) falls back to the Euclidean
+! hookstep -- the radius is then in ||y|| units, which is wrong but
+! still bounded.
+!
+! edited by Devin, 2026-10
+!----------------------------------------------------------------------
+subroutine hook_step_g_v1(j, h, m, beta, del, g, ldg, y, pred_res)
+   implicit none
+   integer,          intent(in)  :: j, m, ldg
+   double precision, intent(in)  :: h(m+1,j), beta, del, g(ldg,m)
+   double precision, intent(out) :: y(j), pred_res
+   !
+   double precision :: r(j,j), ht(m+1,j), gmax
+   integer :: i, info
+   !
+   if(j < 1) then
+      y = 0d0
+      pred_res = beta
+      return
+   end if
+   !
+   r = g(1:j,1:j)
+   ! Ridge relative to the Gram scale: psolve output can make Z
+   ! columns nearly dependent without being exactly singular.
+   gmax = max(maxval(abs(r)), 1d-300)
+   do i = 1, j
+      r(i,i) = r(i,i) + 1.0d-12 * gmax
+   end do
+   call dpotrf('U', j, r, j, info)
+   if(info /= 0) then
+      call hook_step_v1(j, h, m, beta, del, y, pred_res)
+      return
+   end if
+   ! Ht = H R^{-1} via a right-side triangular solve Ht * R = H.
+   ht(1:j+1,1:j) = h(1:j+1,1:j)
+   call dtrsm('R', 'U', 'N', 'N', j+1, j, 1.0d0, r, j, ht, m+1)
+   call hook_step_v1(j, ht, m, beta, del, y, pred_res)
+   ! y currently holds yhat; overwrite with R^{-1} yhat.
+   call dtrsv('U', 'N', 'N', j, r, j, y, 1)
+end subroutine hook_step_g_v1
 
 
 !----------------------------------------------------------------------
@@ -2391,7 +2499,8 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
                                           gres, del, luer)
    use jfnk_solver_v1_mod, only: jfnk_x, jfnk_fx, jfnk_total_jvp_evals, &
                                   jfnk_max_gmres_its, jfnk_gmres_jj, &
-                                  jfnk_gmres_beta
+                                  jfnk_gmres_beta, jfnk_gmres_z, &
+                                  jfnk_gmres_g
    use jfnk_cmfgen_int_mod, only: JFNK_RSCALE, JFNK_RSCALE_READY
    implicit none
    integer,          intent(in) :: n, luer
@@ -2411,6 +2520,10 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    integer :: save_max_gmres, save_gmres_jj
    double precision :: save_gmres_beta
    double precision, allocatable :: save_jfnk_x(:), save_jfnk_fx(:)
+   ! Right-PC basis/Gram checkpoint: the test solves below clobber
+   ! jfnk_gmres_z/g, so save/restore them with the jj/beta pair.
+   double precision, allocatable :: save_gmres_z(:,:), save_gmres_g(:,:)
+   logical :: have_gmres_zg
    double precision :: rs_min, rs_max, rs_ratio
    character(len=12) :: status_str
    !
@@ -2429,6 +2542,14 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    save_max_gmres = jfnk_max_gmres_its
    save_gmres_jj   = jfnk_gmres_jj
    save_gmres_beta = jfnk_gmres_beta
+   have_gmres_zg = allocated(jfnk_gmres_z)
+   if(have_gmres_zg) then
+      allocate(save_gmres_z(size(jfnk_gmres_z,1), &
+         size(jfnk_gmres_z,2)), save_gmres_g(size(jfnk_gmres_g,1), &
+         size(jfnk_gmres_g,2)))
+      save_gmres_z = jfnk_gmres_z
+      save_gmres_g = jfnk_gmres_g
+   end if
    jfnk_max_gmres_its = 0   ! use default (m) for each test
    !
    allocate(s_test(n), J_s_test(n), F_pred_test(n))
@@ -2560,6 +2681,15 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    jfnk_max_gmres_its = save_max_gmres
    jfnk_gmres_jj      = save_gmres_jj
    jfnk_gmres_beta    = save_gmres_beta
+   if(have_gmres_zg) then
+      if(allocated(jfnk_gmres_z)) deallocate(jfnk_gmres_z, jfnk_gmres_g)
+      allocate(jfnk_gmres_z(size(save_gmres_z,1), &
+         size(save_gmres_z,2)), jfnk_gmres_g(size(save_gmres_g,1), &
+         size(save_gmres_g,2)))
+      jfnk_gmres_z = save_gmres_z
+      jfnk_gmres_g = save_gmres_g
+      deallocate(save_gmres_z, save_gmres_g)
+   end if
    !
    deallocate(save_jfnk_x, save_jfnk_fx, s_test, J_s_test, F_pred_test)
    !

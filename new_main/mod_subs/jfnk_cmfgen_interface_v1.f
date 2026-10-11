@@ -516,7 +516,8 @@
 	USE MOD_CMFGEN
 	USE STEQ_DATA_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: LTE_MODEL, USE_ELEC_HEAT_BAL
-	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_C_MAT, JFNK_D_MAT
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_C_MAT, JFNK_D_MAT,
+	1     JFNK_REPLACE_SAV, JFNK_ZSTEQ_SAV, JFNK_EQ_STRUCT_READY
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: NT, ND, NION, NUM_BNDS, DIAG_INDX
@@ -535,19 +536,46 @@
 	REPLACE = .FALSE.
 	FIRST_MATRIX = .TRUE.
 	LAST_MATRIX = .FALSE.
-	USE_PASSED_REP = .FALSE.
+!
+! When JFNK_EQ_STRUCT_READY=F (baseline eval after an admission or
+! rebuild reset) harvest the REPLACE/ZERO_STEQ decisions GENERATE
+! makes per depth; perturbed evals replay the frozen set so the FD
+! JVP differentiates a fixed equation structure.  Freezing at the
+! baseline is also the equation structure the stored BA was built
+! with, keeping M and the FD operator structurally consistent.
+!
+	IF(.NOT. ALLOCATED(JFNK_REPLACE_SAV))THEN
+	  ALLOCATE(JFNK_REPLACE_SAV(NION,ND),JFNK_ZSTEQ_SAV(NT,ND))
+	ELSE IF(SIZE(JFNK_REPLACE_SAV,1).NE.NION .OR.
+	1        SIZE(JFNK_REPLACE_SAV,2).NE.ND .OR.
+	2        SIZE(JFNK_ZSTEQ_SAV,1).NE.NT .OR.
+	3        SIZE(JFNK_ZSTEQ_SAV,2).NE.ND)THEN
+	  DEALLOCATE(JFNK_REPLACE_SAV,JFNK_ZSTEQ_SAV)
+	  ALLOCATE(JFNK_REPLACE_SAV(NION,ND),JFNK_ZSTEQ_SAV(NT,ND))
+	END IF
+	USE_PASSED_REP = JFNK_EQ_STRUCT_READY
+!
 	DEPTH_INDX = 1
 	BAND_INDX = DIAG_INDX
 !
 	DO K = 1, ND
 	  DEPTH_INDX = K
 	  IF(K .EQ. ND) LAST_MATRIX = .TRUE.
+	  IF(USE_PASSED_REP)THEN
+	    REPLACE(1:NION) = JFNK_REPLACE_SAV(1:NION,K)
+	    ZERO_STEQ(1:NT) = JFNK_ZSTEQ_SAV(1:NT,K)
+	  END IF
 	  CALL GENERATE_FULL_MATRIX_V3(
 	1       JFNK_D_MAT, STEQ_OUT(1,K), POPS, REPLACE, ZERO_STEQ,
 	1       NT, ND, NION, NUM_BNDS, BAND_INDX, DIAG_INDX, DEPTH_INDX,
 	1       FIRST_MATRIX, LAST_MATRIX, USE_PASSED_REP)
+	  IF(.NOT. USE_PASSED_REP)THEN
+	    JFNK_REPLACE_SAV(1:NION,K) = REPLACE(1:NION)
+	    JFNK_ZSTEQ_SAV(1:NT,K) = ZERO_STEQ(1:NT)
+	  END IF
 	  FIRST_MATRIX = .FALSE.
 	END DO
+	IF(.NOT. USE_PASSED_REP)JFNK_EQ_STRUCT_READY = .TRUE.
 !
 ! GENERATE_FULL_MATRIX_V3 already writes the charge and energy equations:
 !   STEQ_VEC(NT-1) = STEQ_ED(K)
@@ -572,6 +600,8 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS, ED, T, POPION
+	USE MOD_LEV_DIS_BLK, ONLY: B_LEV_DIS, A_LEV_DIS, X_LEV_DIS,
+	1   MOD_DO_LEV_DIS, MOD_HOLD_LEV_DIS
 	IMPLICIT NONE
 	REAL(KIND=LDP), INTENT(IN) :: POPS_IN(JFNK_NT, JFNK_ND)
 	INTEGER ID, I, J
@@ -585,19 +615,79 @@
 ! Occupation-probability constants depend on ED, T and the ion density.
 ! Recompute them before expanding super-levels, matching cmfgen_sub.f.
 !
-	DO J = 1, JFNK_ND
-	  POPION(J) = 0.0_LDP
-	  DO I = 1, JFNK_NT
-	    IF(JFNK_Z_POP(I) .GT. 0.01_LDP)
-	1       POPION(J) = POPION(J) + POPS_IN(I, J)
+	IF(JFNK_LAG_FACTORS_ACTIVE .AND. JFNK_LAG_FACTORS_READY)THEN
+	  POPION = JFNK_POPION_LAG
+	  B_LEV_DIS = JFNK_B_LEV_DIS_LAG
+	  A_LEV_DIS = JFNK_A_LEV_DIS_LAG
+	  X_LEV_DIS = JFNK_X_LEV_DIS_LAG
+	  MOD_DO_LEV_DIS = JFNK_LAG_DO_LEV_DIS
+	  MOD_HOLD_LEV_DIS = .TRUE.
+	ELSE
+	  MOD_HOLD_LEV_DIS = .FALSE.
+	  DO J = 1, JFNK_ND
+	    POPION(J) = 0.0_LDP
+	    DO I = 1, JFNK_NT
+	      IF(JFNK_Z_POP(I) .GT. 0.01_LDP)
+	1         POPION(J) = POPION(J) + POPS_IN(I, J)
+	    END DO
 	  END DO
-	END DO
-	CALL COMP_LEV_DIS_BLK(ED, POPION, T, JFNK_DO_LEV_DISSOL,
-	1   JFNK_ND)
+	  CALL COMP_LEV_DIS_BLK(ED, POPION, T, JFNK_DO_LEV_DISSOL,
+	1     JFNK_ND)
+	END IF
 	CALL SUP_TO_FULL_V4(POPS_IN, JFNK_Z_POP, JFNK_DO_LEV_DISSOL,
 	1   JFNK_ND, JFNK_NT)
+	MOD_HOLD_LEV_DIS = .FALSE.
 !
 	END SUBROUTINE JFNK_SYNC_ATM_FROM_POPS
+!
+!
+!
+! Copy the occupation-probability inputs after the baseline sync.  The
+! BA includes direct ED and ion-density columns, but not derivatives of
+! these aggregate dissolution factors.
+	SUBROUTINE JFNK_CAPTURE_LAG_FACTORS_V1(OK)
+	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD
+	USE MOD_CMFGEN, ONLY: POPION
+	USE MOD_LEV_DIS_BLK, ONLY: B_LEV_DIS, A_LEV_DIS, X_LEV_DIS,
+	1   MOD_DO_LEV_DIS
+	IMPLICIT NONE
+	LOGICAL, INTENT(OUT) :: OK
+	INTEGER IOS
+!
+	OK=.FALSE.
+	JFNK_LAG_FACTORS_READY=.FALSE.
+	IF(.NOT. ALLOCATED(B_LEV_DIS) .OR.
+	1   .NOT. ALLOCATED(A_LEV_DIS) .OR.
+	2   .NOT. ALLOCATED(X_LEV_DIS) .OR.
+	3   .NOT. ALLOCATED(POPION))RETURN
+	IF(SIZE(B_LEV_DIS) .NE. JFNK_ND .OR.
+	1   SIZE(A_LEV_DIS) .NE. JFNK_ND .OR.
+	2   SIZE(X_LEV_DIS) .NE. JFNK_ND .OR.
+	3   SIZE(POPION) .NE. JFNK_ND)RETURN
+	IF(ALLOCATED(JFNK_POPION_LAG))DEALLOCATE(JFNK_POPION_LAG)
+	IF(ALLOCATED(JFNK_B_LEV_DIS_LAG))DEALLOCATE(JFNK_B_LEV_DIS_LAG)
+	IF(ALLOCATED(JFNK_A_LEV_DIS_LAG))DEALLOCATE(JFNK_A_LEV_DIS_LAG)
+	IF(ALLOCATED(JFNK_X_LEV_DIS_LAG))DEALLOCATE(JFNK_X_LEV_DIS_LAG)
+	ALLOCATE(JFNK_POPION_LAG(JFNK_ND),
+	1        JFNK_B_LEV_DIS_LAG(JFNK_ND),
+	2        JFNK_A_LEV_DIS_LAG(JFNK_ND),
+	3        JFNK_X_LEV_DIS_LAG(JFNK_ND),STAT=IOS)
+	IF(IOS .NE. 0)THEN
+	  IF(ALLOCATED(JFNK_POPION_LAG))DEALLOCATE(JFNK_POPION_LAG)
+	  IF(ALLOCATED(JFNK_B_LEV_DIS_LAG))DEALLOCATE(JFNK_B_LEV_DIS_LAG)
+	  IF(ALLOCATED(JFNK_A_LEV_DIS_LAG))DEALLOCATE(JFNK_A_LEV_DIS_LAG)
+	  IF(ALLOCATED(JFNK_X_LEV_DIS_LAG))DEALLOCATE(JFNK_X_LEV_DIS_LAG)
+	  RETURN
+	END IF
+	JFNK_POPION_LAG=POPION
+	JFNK_B_LEV_DIS_LAG=B_LEV_DIS
+	JFNK_A_LEV_DIS_LAG=A_LEV_DIS
+	JFNK_X_LEV_DIS_LAG=X_LEV_DIS
+	JFNK_LAG_DO_LEV_DIS=MOD_DO_LEV_DIS
+	JFNK_LAG_FACTORS_READY=.TRUE.
+	OK=.TRUE.
+	END SUBROUTINE JFNK_CAPTURE_LAG_FACTORS_V1
 !
 !
 !
@@ -1902,6 +1992,12 @@
 	INTEGER K, J, IDX
 	INTEGER ID_ION, OFF
 	DOUBLE PRECISION, EXTERNAL :: JFNK_DOT_V1
+!
+! The baseline populations are about to move: the next baseline eval
+! re-harvests the equation structure for the new state (see
+! JFNK_ASSEMBLE_STEQ_V1).
+!
+	JFNK_EQ_STRUCT_READY=.FALSE.
 !
 ! Clipping parameters (must match the final update in
 ! solve_for_pops_jfnk_v1.f)
@@ -4689,6 +4785,7 @@
 	REAL(KIND=LDP) S_W, S_INF, S_MAXPOP
 	REAL(KIND=LDP) FS_W, FS_INF, FS_L2
 	REAL(KIND=LDP) T1, T2
+	LOGICAL SAVE_LEFT_PC
 	REAL(KIND=LDP), ALLOCATABLE :: S_VEC(:), F_AFTER(:)
 	REAL(KIND=LDP), ALLOCATABLE :: H_WORK(:), V_WORK(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: RSCALE_SAVE(:)
@@ -4762,11 +4859,13 @@
 	1   ' ||F(0)||_inf=', F0_INF, ' ||F(0)||_2  =', F0_L2
 	FLUSH(LUER)
 !
-! Save left_pc setting and force right preconditioning (diagnostic only;
-! production solver uses LEFT — see fix #9, review 2026-09-11)
+! Save left_pc setting and force right preconditioning for the RSCALE
+! comparison below.  T1/T2 are reused as RSCALE scratch inside the
+! loop, so the flag must live in its own logical -- the old real
+! save was clobbered by the min() pass and the restore read the
+! RSCALE minimum instead of the saved state.
 !
-	T1 = 0.0_LDP  ! save left_pc as real (can't save logical easily)
-	IF(jfnk_use_left_pc) T1 = 1.0_LDP
+	SAVE_LEFT_PC = jfnk_use_left_pc
 	jfnk_use_left_pc = .FALSE.
 !
 	DO R_CASE = 1, 3
@@ -4872,7 +4971,7 @@
 !
 	JFNK_RSCALE(1:N) = RSCALE_SAVE(1:N)
 	JFNK_RSCALE_READY = .TRUE.
-	IF(T1 .GT. 0.5_LDP) jfnk_use_left_pc = .TRUE.
+	jfnk_use_left_pc = SAVE_LEFT_PC
 !
 ! Report 20 smallest-RSCALE components for proposed case
 !

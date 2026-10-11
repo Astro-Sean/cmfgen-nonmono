@@ -96,6 +96,47 @@ Also built by `./build.sh`: `exe/cmf_flux.exe`, `exe/obs_frame.exe`
 
 ## 8. Status
 
+### JFNK frozen-tier endgame review (11-Oct-2026)
+
+OUTGEN for `m15_2p82d_SOB_jfnk_zlaw14_fresh` (job 12153985) confirmed
+repeated frozen-J GMRES stagnation and a soft-column gap (`|diff|/|BA|`
+about 0.83 at it384; stiff top-F column about 0.064). The initial
+interpretation that fallback permanently prevented FULL-BA was too
+strong: FULL-BA resumed at it399 after the cooldown and reduced demanded
+MAXCH from 32.5% to 1.35% by it402, then plateaued around 1.4-1.5%.
+
+The prior fallback forced Lambda and a fresh BA build for finite
+stagnation/cooldown; observed cooldown calls took about 366 s versus
+about 70 s for most FULL calls. A caller-mode pass-through build reached
+the it408 cooldown path but passed an uninitialized `T1` to SOLVEBA and
+stopped (job exit 6). The cap is now initialized from `COR_LIM_IN` at
+entry. Job 12153986 was canceled by its failed dependency. The corrected
+binary has not been exercised in a model run.
+
+Source review found that `STEQ_MULTI_V10` includes direct ED and ion
+density BA columns. The opt-in `JFNK_LAG_FACTORS` prototype therefore
+freezes `POPION` and `MOD_LEV_DIS_BLK` factors only; it does not freeze
+ED/T or direct ion-density columns. It is an experimental residual
+change, not verified as the physical Jacobian. Surrogate T18 passes with
+live/BA gap 2.11e4 and lagged FD-vs-BA error 5.0e-7; this does not
+establish CMFGEN production behavior.
+
+The prepared YAML uses `JFNK_FRZ_GATE=3%`, two contracting solves, and
+`JFNK_LAG_FACTORS=T`. It also sets `FIX_T_AUTO=T` and `DO_T_AUTO=T` per
+user choice. `DO_T_AUTO` releases global FIX_T at `MAXCH_CTRL<50%`, so
+this is an early temperature release at current population demand;
+`JFNK_TAUTO` only damps T corrections during JFNK, not ordinary FULL-BA.
+No redeployment has occurred. Re-run via `scripts/run_model_grid.py`
+after source/config commit and explicit confirmation.
+
+Verification: production `./build.sh` succeeded after the cap fix;
+standalone solver tests 21/21, interface tests 9/9, and harness T15-T19
+passed. Full surrogate suite still reports the existing T3-mild demand
+threshold failure and three T4 LU-accuracy failures; these do not touch
+the new factor path. Config resolution via `--print-resolved-config`
+passed. Runtime behavior of the new fallback and factor mode remains
+UNVERIFIED.
+
 - Builds clean; `DO_NONMONO_SOB` live in binary: VERIFIED.
 - Optimized and debug builds both complete from a clean tree
   (29-Sep-2026; `exe/` 13:25, `exe_dbg/` 13:22). See the

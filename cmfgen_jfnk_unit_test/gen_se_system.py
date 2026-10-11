@@ -62,7 +62,8 @@ X_FLOOR_DEMAND = np.log(1e-10 / 1e-30)  # ~46.05
 
 def build_spec(nd, seed, hard, demand_scale=1.0, ryd_eps=1e-9,
                radpin_frac=0.0, radpin_jfac=1e-6, radpin_fmag=1e2,
-               tstar=0.0, lam_max=9.0, n0_hi=6.0, ryd_hi=9.0):
+               tstar=0.0, lam_max=9.0, n0_hi=6.0, ryd_hi=9.0,
+               flip=False, macro=False):
     rng = np.random.default_rng(seed)
     n = NT * nd
     a = np.zeros((n, n))
@@ -205,10 +206,39 @@ def build_spec(nd, seed, hard, demand_scale=1.0, ryd_eps=1e-9,
     escale = np.abs(j0).max(axis=1)
     escale[escale == 0.0] = 1.0
 
+    flip_spec = None
+    if flip:
+        # REPLACE analogue: row irow carries its normal rate equation
+        # while x[icol] <= thr, and a conservation form
+        # sum(w n) - tgt above it.  thr sits just above x[icol]=0 so
+        # a single FD step on icol crosses the flip; tgt is offset
+        # from the baseline-consistent value by a fraction of the
+        # row scale so the two branches disagree by O(F_row) at the
+        # crossing, like a conservation-vs-rate residual swap.
+        irow, icol = 7, 5
+        grp = np.array([5, 6, 7])
+        w = np.ones(len(grp))
+        gap = 1e-3 * escale[irow]
+        flip_spec = dict(
+            irow=irow, icol=icol, thr=1e-9,
+            tgt=float((w * n0[grp]).sum() + gap),
+            grp=grp.tolist(), w=w.tolist(),
+        )
+
+    factor_spec = None
+    if macro:
+        grp = np.array([5, 6, 7])
+        target = float(n0[grp].sum())
+        factor_spec = dict(
+            alpha=0.5 / target, target=target,
+            grp=(grp + 1).tolist(),
+        )
+
     return dict(
         a=a, c=c, r=r, n0=n0, xstar=xstar, mask=mask,
         row_class=row_class, nt=NT, nd=nd, n=n,
-        seed=seed, hard=hard, escale=escale,
+        seed=seed, hard=hard, escale=escale, flip=flip_spec,
+        factor=factor_spec,
     )
 
 
@@ -225,6 +255,24 @@ def write_spec(spec, outdir):
     np.savetxt(outdir / "xstar.txt", spec["xstar"], fmt="%.16e")
     np.savetxt(outdir / "mask.txt", spec["mask"], fmt="%d")
     np.savetxt(outdir / "escale.txt", spec["escale"], fmt="%.16e")
+    if spec.get("flip") is not None:
+        fl = spec["flip"]
+        with open(outdir / "flip.txt", "w") as fh:
+            fh.write(
+                f"{fl['irow'] + 1} {fl['icol'] + 1} "
+                f"{fl['thr']:.16e} {fl['tgt']:.16e}\n"
+            )
+            fh.write(f"{len(fl['grp'])}\n")
+            for j, w in zip(fl["grp"], fl["w"]):
+                fh.write(f"{j + 1} {w:.16e}\n")
+    if spec.get("factor") is not None:
+        fac = spec["factor"]
+        with open(outdir / "factor.txt", "w") as fh:
+            fh.write(
+                f"{fac['alpha']:.16e} {fac['target']:.16e} "
+                f"{len(fac['grp'])}\n"
+            )
+            fh.write(" ".join(str(j) for j in fac["grp"]) + "\n")
     meta = dict(
         nt=nt, nd=nd, n=n, seed=spec["seed"], hard=spec["hard"],
         row_class=spec["row_class"],
@@ -257,7 +305,15 @@ def main():
              # damping must keep the step bounded.
              "shock": dict(nd=4, seed=13, hard=False, demand_scale=0.3,
                            ryd_eps=1e-1, tstar=3.0, lam_max=2.0,
-                           n0_hi=2.0, ryd_hi=3.0)}
+                           n0_hi=2.0, ryd_hi=3.0),
+             # 'std' matrices plus a structure-flip row (REPLACE
+             # analogue) for the equation-freeze regression test
+             "flip": dict(nd=4, seed=7, hard=False, demand_scale=1.0,
+                          ryd_eps=1e-6, flip=True),
+             # Factor-dependent residual for the lagged implicit-factor
+             # test; the baseline BA omits the aggregate-factor derivative.
+             "lag": dict(nd=4, seed=7, hard=False, demand_scale=1.0,
+                         ryd_eps=1e-6, macro=True)}
     for name, kw in build.items():
         write_spec(build_spec(**kw), outroot / name)
         print("wrote", outroot / name)

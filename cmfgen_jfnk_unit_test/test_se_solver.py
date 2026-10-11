@@ -21,6 +21,18 @@ Tests:
   T6  production newton_hook_v1 end-to-end: mild should converge,
       hard reproduces the production stall; variant table
   T7  reachable residual floor on the const rows (unsolvable mass)
+  ...
+  T15 stale-baseline JVP: offset between the stored and evaluated
+      residual must appear as delta/h on the offset row only (the
+      F_outer-vs-F_eval(0) bug signature)
+  T16 structure-flip freeze (systems/flip): a live equation branch
+      corrupts the FD column by O(gap/h); replaying the baseline
+      branch restores FD-vs-exact agreement (USE_PASSED_REP=T)
+  T17 repeat determinism: identical JVP probes are byte-identical
+  T18 lagged factor: freeze the synthetic aggregate factor and recover
+      the baseline BA derivative without its live low-rank term
+  T19 fallback dispatch: preserve a defined caller cap and mode on
+      cooldown and finite stagnation
 
 Usage:  python3 test_se_solver.py [--quick]
 Exit status: number of failed tests.
@@ -713,6 +725,115 @@ def t14_jvp_tauto(spec):
     return ok, "; ".join(notes), {}
 
 
+def t15_stale_baseline(spec):
+    """Stale subtraction baseline: sejvpst shifts jfnk_fx by delta on
+    one row, reproducing the production F_outer-vs-F_eval(0) bug.
+    The artifact must equal delta/h, land only on the offset row, and
+    dominate the stale JVP error -- the pre-fix colprobe signature."""
+    n = spec["n"]
+    v = np.zeros(n)
+    v[5] = 1.0
+    vf = TD / "systems" / "_vstale.txt"
+    _write_vec(vf, v)
+    eps, delta, krow = 1e-6, 1e-2, 10
+    out = run_cli("sejvpst", spec["dir"], vf, eps, 0, delta, krow)
+    kv = parse_keyvals(out)
+    jv = parse_vec(out, "JV")
+    h = kv["H"]
+    exp_art = delta / h
+    art = np.array([jv[i][0] - jv[i][1] for i in range(n)])
+    hot = np.where(np.abs(art) > 1e-3 * exp_art)[0]
+    ok_mag = abs(kv["STALEDIFF"] - exp_art) < 2e-2 * exp_art
+    ok_loc = list(hot) == [krow - 1]
+    ok_dom = kv["STALEEXD"] > 0.9 * exp_art
+    ok_sane = kv["CLEANEXD"] < 1e-3 * kv["JVEX"]
+    ok = ok_mag and ok_loc and ok_dom and ok_sane
+    msg = (f"artifact {kv['STALEDIFF']:.2e} vs d/h {exp_art:.2e}; "
+           f"hot rows {[i + 1 for i in hot]}; "
+           f"stale-exact {kv['STALEEXD']:.1e}, "
+           f"clean-exact {kv['CLEANEXD']:.1e}")
+    return ok, msg, {}
+
+
+def t16_structure_freeze(spec):
+    """REPLACE-freeze analogue on systems/flip: a row whose equation
+    branch flips when x[icol] crosses a threshold.  A live branch
+    corrupts the FD column by O(gap/h); freezing the baseline branch
+    (USE_PASSED_REP=T) restores FD-vs-exact agreement."""
+    specf = load_spec("flip")
+    eps = 1e-6
+    live = run_cli("seflip", specf["dir"], 0, 0, eps)
+    frz = run_cli("seflip", specf["dir"], 0, 1, eps)
+    kvl, kvf = parse_keyvals(live), parse_keyvals(frz)
+    rows = parse_vec(live, "JV")
+    n = specf["n"]
+    diff = np.array([abs(rows[i][0] - rows[i][1]) for i in range(n)])
+    irow = int(kvl["FLIPROW"])
+    hot = np.where(diff > 1e-3 * diff.max())[0]
+    ok_live = kvl["RELDIFF"] > 1.0
+    ok_frz = kvf["RELDIFF"] < 1e-3
+    ok_loc = list(hot) == [irow - 1]
+    ok = ok_live and ok_frz and ok_loc
+    msg = (f"live reldiff {kvl['RELDIFF']:.1e} (row {irow}), "
+           f"frozen {kvf['RELDIFF']:.1e}; "
+           f"hot rows {[i + 1 for i in hot]}")
+    return ok, msg, {}
+
+
+def t17_repeat_determinism(spec):
+    """Pristine-vs-repeat identity: the same JVP probe twice must be
+    bit-identical (no eval-state contamination between calls)."""
+    n = spec["n"]
+    v = np.zeros(n)
+    v[5] = 1.0
+    v[7] = -0.5
+    vf = TD / "systems" / "_vrep.txt"
+    _write_vec(vf, v)
+    a = run_cli("sejvp", spec["dir"], vf, 1e-6, 0)
+    b = run_cli("sejvp", spec["dir"], vf, 1e-6, 0)
+    ok = (a == b)
+    return ok, "byte-identical" if ok else "output drifted", {}
+
+
+def t18_lagged_factor(spec):
+    """A synthetic density factor adds the low-rank derivative omitted
+    by the stored BA.  Pinning the factor at baseline must make its FD
+    JVP agree with the BA, while the live-factor Jacobian differs."""
+    out = run_cli("sefactor", spec["dir"], 1e-6)
+    kv = parse_keyvals(out)
+    ok_live = kv["LIVE_RELFD"] < 1e-4
+    ok_lag = kv["LAG_RELFD"] < 1e-4
+    ok_gap = kv["J_GAP"] > 0.1
+    ok = ok_live and ok_lag and ok_gap
+    msg = (f"live FD err {kv['LIVE_RELFD']:.2e}; "
+           f"lagged FD-vs-BA {kv['LAG_RELFD']:.2e}; "
+           f"live/BA gap {kv['J_GAP']:.2e}")
+    return ok, msg, {}
+
+
+def t19_fallback_dispatch():
+    """Guard the dispatch invariant that cooldown/stagnation fallback
+    starts from a defined caller cap and preserves the FULL/Lambda flags
+    unless the eval is catastrophic."""
+    source = (TD.parent / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
+    init_at = source.index("T1=COR_LIM_IN")
+    pause_at = source.index("JFNK paused (cooldown")
+    pause_end = source.index("IF(DO_JFNK_NOW)THEN", pause_at)
+    pause_block = source[pause_at:pause_end]
+    failure_at = source.index("! info=-2 is the reachability precheck skip")
+    failure_end = source.index("FIX_T_AUTO ladder", failure_at)
+    failure_block = source[failure_at:failure_end]
+    ok = (
+        init_at < pause_at
+        and "LAMBDA_ITERATION=.TRUE." not in pause_block
+        and "COMPUTE_BA=.TRUE." not in pause_block
+        and "LAMBDA_A=LAMBDA_SAVE" in failure_block
+        and "COMPUTE_BA_A=COMPUTE_BA_SAVE" in failure_block
+        and "T1=MIN(COR_LIM_IN,MAX_LIN_COR)" in failure_block
+    )
+    return ok, "caller cap/mode initialized and restored", {}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
@@ -737,14 +858,19 @@ def main():
                         ("T11", t11_strike if spec["meta"]["hard"]
                          else None),
                         ("T12", t12_shock), ("T13", t13_tauto_fsm),
-                        ("T14", t14_jvp_tauto)):
+                        ("T14", t14_jvp_tauto),
+                        ("T15", t15_stale_baseline),
+                        ("T16", t16_structure_freeze),
+                        ("T17", t17_repeat_determinism)):
             label = {"T0": "identity", "T1": "anatomy", "T2": "FD JVP",
                      "T3": "demanded step", "T4": "preconditioner",
                      "T5": "GMRES", "T6": "Newton end-to-end",
                      "T7": "residual floor", "T8": "masked-T",
                      "T9": "JVP stiff", "T10": "LSQ grid",
                      "T11": "strike/cooldown", "T12": "STELLA shock",
-                     "T13": "tauto ladder", "T14": "JVP tauto"}[tag]
+                     "T13": "tauto ladder", "T14": "JVP tauto",
+                     "T15": "stale baseline", "T16": "struct freeze",
+                     "T17": "repeat determinism"}[tag]
             print(f"  [{tag} {label}]")
             try:
                 if tag == "T0":
@@ -772,6 +898,23 @@ def main():
                 nfail += 1
             if args.quick and tag in ("T4", "T5"):
                 pass
+    if args.spec is None or args.spec == "lag":
+        spec = load_spec("lag")
+        print("\n================= spec 'lag' (factor derivative) "
+              "=================")
+        try:
+            ok, msg, _ = t18_lagged_factor(spec)
+        except subprocess.CalledProcessError as e:
+            print("    driver crashed:", e.stdout[-500:], e.stderr[-500:])
+            ok, msg = False, "driver crashed"
+        print(f"  [T18 lagged factor] {'PASS' if ok else 'FAIL'}  ({msg})")
+        if not ok:
+            nfail += 1
+    if args.spec is None or args.spec == "lag":
+        ok, msg, _ = t19_fallback_dispatch()
+        print(f"  [T19 fallback dispatch] {'PASS' if ok else 'FAIL'}  ({msg})")
+        if not ok:
+            nfail += 1
     print(f"\n{nfail} test(s) failed")
     return nfail
 

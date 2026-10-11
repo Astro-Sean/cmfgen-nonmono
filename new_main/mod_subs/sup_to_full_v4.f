@@ -5,6 +5,7 @@
 	SUBROUTINE SUP_TO_FULL_V4(POPS,Z_POP,DO_LEV_DISSOLUTION,ND,NT)
 	USE SET_KIND_MODULE
 	USE MOD_CMFGEN
+	USE MOD_LEV_DIS_BLK, ONLY: MOD_HOLD_LEV_DIS
 	IMPLICIT NONE
 !
 ! Altered 05-Apr-2011 : Now call SUP_TO_FULL_V3b (28-Nov-2010).
@@ -35,14 +36,17 @@
 ! constants are the same for all species. These are stored in a module,
 ! and are required by SUP_TO_FULL. We first need to revise POPION.
 !
-	  DO J=1,ND
-	    POPION(J)=0.0_LDP
-	    DO I=1,NT
-	      IF(Z_POP(I) .GT. 0.01_LDP)POPION(J)=POPION(J)+POPS(I,J)
+	  IF(.NOT. MOD_HOLD_LEV_DIS)THEN
+	    DO J=1,ND
+	      POPION(J)=0.0_LDP
+	      DO I=1,NT
+	        IF(Z_POP(I) .GT. 0.01_LDP)
+	1         POPION(J)=POPION(J)+POPS(I,J)
+	      END DO
 	    END DO
-	  END DO
 !
-	  CALL COMP_LEV_DIS_BLK(ED,POPION,T,DO_LEV_DISSOLUTION,ND)
+	    CALL COMP_LEV_DIS_BLK(ED,POPION,T,DO_LEV_DISSOLUTION,ND)
+	  END IF
 !
 	  DO ID=1,NUM_IONS-1
 	    CALL SUP_TO_FULL_V3b(

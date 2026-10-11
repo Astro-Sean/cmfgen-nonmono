@@ -6,6 +6,13 @@
 ! Commands:
 !   sef      <dir> [xfile]                       F(x) per row + norms
 !   sejvp    <dir> <vfile> <eps>                 FD vs exact J*v
+!   sejvpst  <dir> <vfile> <eps> <xfile> <delta> <krow>
+!                                              stale-baseline JVP: jfnk_fx
+!                                              shifted by delta on row krow
+!   seflip   <dir> <xfile> <mode> <eps>          structure-flip row probe,
+!                                              mode 0=live 1=frozen branch
+!   sefactor <dir> <eps>                        FD vs exact J*v with a
+!                                              live vs baseline-lagged factor
 !   sestats  <dir>                               J0/F anatomy + demanded step
 !   sepc     <dir> <pc> <expneg> <ptc> <ptcfix> <xfile>
 !                                              factor + apply M^-1 to F(x)
@@ -30,18 +37,21 @@ program se_driver
    character(len=1024) :: dir, xfile, vfile
    integer :: n, m, itmax, pc, expneg, ptc, ptcfix, eqscale
    integer :: k, i, idx, info, its, lu, nits, stat, im(10), kk, ios
+   integer :: krow
    integer :: stag, cool, cyc, wait_i, rearm_every
    integer :: ta_nlock, rung, ncom
    logical :: disarm
    double precision :: eps, rowtiny, ridge, cap, gtolfac
    double precision :: re0, re_n, eps_t, alpha_l, pert
    double precision :: res, del, pred_res, f0nrm, vals(10)
-   double precision, allocatable :: x(:), f(:), v(:), jv1(:), jv2(:)
+   double precision, allocatable :: x(:), f(:), v(:), jv1(:), jv2(:), &
+      jv3(:), jv4(:)
    double precision, allocatable :: h(:,:), vv(:,:), z(:), mz(:), s(:)
    double precision :: gtol, tol, mndl, mxdl
    double precision :: gtmp, rr
    logical :: reach_ok
-   external :: se_f, se_jvp_fd, se_psolve, se_psolve_jacobi, &
+   external :: se_f, se_jvp_fd, se_jvp_fd_stale, se_psolve, &
+               se_psolve_jacobi, &
                se_psolve_ident, se_psolve_tsvd, se_psolve_ptclu, &
                se_psolve_lsq, se_psolve_lsq2, se_psolve_schur, se_sub
    double precision, external :: se_dp
@@ -112,6 +122,127 @@ program se_driver
       do i = 1, n
          write(*, '(A,I0,1X,2(ES24.16,1X))') 'JV ', i, jv1(i), jv2(i)
       end do
+
+   case ('sejvpst')
+      ! stale-baseline regression: jfnk_fx is shifted by delta on row
+      ! krow before the subtraction, mimicking the F_outer-vs-F_eval(0)
+      ! offset that entered every matvec pre-fix.
+      call get_command_argument(2, dir)
+      call get_command_argument(3, vfile)
+      call get_command_argument(4, arg); read(arg, *) eps
+      call get_command_argument(5, xfile)
+      call get_command_argument(6, arg); read(arg, *) gtmp
+      call get_command_argument(7, arg); read(arg, *) krow
+      call se_load(dir, stat)
+      if (stat /= 0) stop 2
+      n = se_n
+      allocate(x(n), v(n), jv1(n), jv2(n), jv3(n), f(n))
+      x = 0d0
+      if (len_trim(xfile) > 0 .and. trim(xfile) /= '0') then
+         open(newunit=lu, file=trim(xfile), status='old')
+         read(lu, *) x
+         close(lu)
+      end if
+      open(newunit=lu, file=trim(vfile), status='old')
+      read(lu, *) v
+      close(lu)
+      jfnk_x = x
+      jfnk_ptc_active = .false.
+      se_eps = eps
+      call se_f(n, x, f)
+      jfnk_fx = f
+      jfnk_fx(krow) = jfnk_fx(krow) - gtmp
+      call se_jvp_fd_stale(n, v, jv1)
+      call se_jvp_fd(n, v, jv2)
+      call se_jexact(n, x, v, jv3)
+      f0nrm = se_eps * max(1d0, maxval(abs(jfnk_x))) / maxval(abs(v))
+      write(*, '(A,ES24.16)') 'H        ', f0nrm
+      write(*, '(A,ES24.16)') 'DELTA    ', gtmp
+      write(*, '(A,ES24.16)') 'DELTAH   ', gtmp / f0nrm
+      write(*, '(A,ES24.16)') 'JVSTALE  ', sqrt(sum(jv1*jv1))
+      write(*, '(A,ES24.16)') 'JVCLEAN  ', sqrt(sum(jv2*jv2))
+      write(*, '(A,ES24.16)') 'JVEX     ', sqrt(sum(jv3*jv3))
+      write(*, '(A,ES24.16)') 'STALEDIFF', sqrt(sum((jv1-jv2)**2))
+      write(*, '(A,ES24.16)') 'STALEEXD ', sqrt(sum((jv1-jv3)**2))
+      write(*, '(A,ES24.16)') 'CLEANEXD ', sqrt(sum((jv2-jv3)**2))
+      do i = 1, n
+         write(*, '(A,I0,1X,3(ES24.16,1X))') 'JV ', i, jv1(i), jv2(i), &
+            jv3(i)
+      end do
+
+   case ('seflip')
+      ! equation-structure freeze regression: row se_flip_row swaps
+      ! from the rate equation to a conservation form when
+      ! x(se_flip_col) crosses se_flip_thr.  mode 0 = live branch
+      ! (pre-freeze), 1 = frozen to the baseline branch
+      ! (USE_PASSED_REP=T analogue).  Probes the FD column of the
+      ! flipping unknown.
+      call get_command_argument(2, dir)
+      call get_command_argument(3, xfile)
+      call get_command_argument(4, arg); read(arg, *) its
+      call get_command_argument(5, arg); read(arg, *) eps
+      call se_load(dir, stat)
+      if (stat /= 0) stop 2
+      n = se_n
+      allocate(x(n), v(n), jv1(n), jv2(n), f(n))
+      x = 0d0
+      if (len_trim(xfile) > 0 .and. trim(xfile) /= '0') then
+         open(newunit=lu, file=trim(xfile), status='old')
+         read(lu, *) x
+         close(lu)
+      end if
+      jfnk_x = x
+      jfnk_ptc_active = .false.
+      se_eps = eps
+      se_flip_freeze = (its /= 0)
+      if (se_flip_freeze) &
+         se_flip_branch0 = (x(se_flip_col) > se_flip_thr)
+      call se_f(n, x, f)
+      write(*, '(A,I0)')      'FLIPROW ', se_flip_row
+      write(*, '(A,I0)')      'FLIPCOL ', se_flip_col
+      write(*, '(A,ES24.16)') 'FROW    ', f(se_flip_row)
+      v = 0d0
+      v(se_flip_col) = 1d0
+      call se_jvp_fd(n, v, jv1)
+      call se_jexact(n, x, v, jv2)
+      write(*, '(A,ES24.16)') 'JVFDNORM ', sqrt(sum(jv1*jv1))
+      write(*, '(A,ES24.16)') 'JVEXNORM ', sqrt(sum(jv2*jv2))
+      write(*, '(A,ES24.16)') 'DIFFNORM ', sqrt(sum((jv1-jv2)**2))
+      write(*, '(A,ES24.16)') 'RELDIFF  ', &
+         sqrt(sum((jv1-jv2)**2)) / max(sqrt(sum(jv2*jv2)), 1d-300)
+      do i = 1, n
+         write(*, '(A,I0,1X,2(ES24.16,1X))') 'JV ', i, jv1(i), jv2(i)
+      end do
+
+   case ('sefactor')
+      ! The live residual differentiates a macro factor of the group
+      ! population sum; the lagged form holds that factor at baseline.
+      call get_command_argument(2, dir)
+      call get_command_argument(3, arg); read(arg, *) eps
+      call se_load(dir, stat)
+      if (stat /= 0 .or. .not. se_factor_on) stop 2
+      n = se_n
+      allocate(x(n), v(n), jv1(n), jv2(n), jv3(n), jv4(n))
+      x = 0d0
+      v = 0d0
+      v(se_factor_grp) = 1d0
+      jfnk_x = x
+      jfnk_ptc_active = .false.
+      se_eps = eps
+      se_factor_lag = .false.
+      call se_jvp_fd(n, v, jv1)
+      call se_jexact(n, x, v, jv2)
+      se_factor_lag = .true.
+      call se_jvp_fd(n, v, jv3)
+      call se_jexact(n, x, v, jv4)
+      write(*, '(A,ES24.16)') 'LIVE_RELFD ', &
+         sqrt(sum((jv1-jv2)**2)) / max(sqrt(sum(jv2*jv2)), 1d-300)
+      write(*, '(A,ES24.16)') 'LAG_RELFD  ', &
+         sqrt(sum((jv3-jv4)**2)) / max(sqrt(sum(jv4*jv4)), 1d-300)
+      write(*, '(A,ES24.16)') 'J_GAP      ', &
+         sqrt(sum((jv2-jv4)**2)) / max(sqrt(sum(jv4*jv4)), 1d-300)
+      write(*, '(A,ES24.16)') 'BA_RELFD   ', &
+         sqrt(sum((jv3-jv4)**2)) / max(sqrt(sum(jv4*jv4)), 1d-300)
 
    case ('sestats')
       call get_command_argument(2, dir)
