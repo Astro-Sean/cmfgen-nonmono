@@ -126,10 +126,9 @@ The prepared YAML uses `JFNK_FRZ_GATE=3%`, two contracting solves, and
 user choice. `DO_T_AUTO` releases global FIX_T at `MAXCH_CTRL<50%`, so
 this is an early temperature release at current population demand;
 `JFNK_TAUTO` only damps T corrections during JFNK, not ordinary FULL-BA.
-Source snapshot committed as `b063fb7`; the prepared YAML remains a
-separate parent-repository change. No redeployment has occurred. Re-run
-via `scripts/run_model_grid.py` after both commits and explicit
-confirmation.
+Source snapshot committed as `b063fb7`; the prepared YAML committed in
+the parent repository as `a7696c68`. No redeployment has occurred.
+Re-run via `scripts/run_model_grid.py` only after explicit confirmation.
 
 Verification: production `./build.sh` succeeded after the cap fix;
 standalone solver tests 21/21, interface tests 9/9, and harness T15-T19
