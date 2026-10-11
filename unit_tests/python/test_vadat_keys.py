@@ -330,6 +330,26 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    d = write_vadat(
+        WORKDIR / "vadat_jfnk_lag_factors",
+        {
+            "JFNK_LAG_FACTORS": "T",
+            "JFNK_FRZ_GATE": "3.0D0",
+            "JFNK_GATE_NREQ": "2",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "JFNK lag-factor and admission keys parse",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_LAG_FACTORS") == "T"
+        and abs(float(v.get("JFNK_FRZ_GATE", "nan").replace("D", "E")) - 3.0)
+        < 1e-9
+        and v.get("JFNK_GATE_NREQ") == "2",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
