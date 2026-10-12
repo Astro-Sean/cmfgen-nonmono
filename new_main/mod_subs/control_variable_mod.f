@@ -911,6 +911,17 @@
 !
 	REAL(KIND=LDP) MOM_ABS_FLR
 !
+! MOM_H_IMPL (default FALSE): add |VB|+|VC| -- the magnitude of the
+! lagged upwind-H midpoint couplings -- to the MOM_J_CMF_NONMONO_V1
+! diagonal.  The H channel is then paid for as implicit weight: the
+! row is damped against neighbour and lagged reads, and the
+! MOM_LAG_BND excess grows by the same amount so less of the lagged
+! source is clipped.  Targets the KNOP shock-cell stall where
+! clipped rows (zero diagonal excess) oscillate between their
+! clipped and unclipped fixed points.  VADAT keyword [MOM_H_IMPL].
+!
+	LOGICAL MOM_H_IMPL
+!
 ! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the

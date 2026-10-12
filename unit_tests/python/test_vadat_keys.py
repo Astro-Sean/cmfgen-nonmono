@@ -351,6 +351,22 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # MOM_H_IMPL / MOM_ABS_FLR opt-in keys parse and land.
+    d = write_vadat(
+        WORKDIR / "vadat_mom_himpl",
+        {"MOM_H_IMPL": "T", "MOM_ABS_FLR": "1.0D-3"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_H_IMPL/MOM_ABS_FLR keys parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_H_IMPL") == "T"
+        and abs(float(v.get("MOM_ABS_FLR", "nan").replace("D", "E")) - 1.0e-3)
+        < 1e-12,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 

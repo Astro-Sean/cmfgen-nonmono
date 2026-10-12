@@ -1067,7 +1067,19 @@
 	  MOM_ABS_FLR=0.0_LDP
 	  CALL RD_STORE_DBLE(MOM_ABS_FLR,'MOM_ABS_FLR',L_FALSE,
 	1     'Absorption-fraction floor in non-mono MOM diagonal')
-	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR)
+!
+! MOM_H_IMPL (default FALSE): add the lagged upwind-H coupling
+! magnitude |VB|+|VC| to the MOM_J_CMF_NONMONO_V1 diagonal.  The
+! lagged H divergence is then paid for as implicit weight -- the
+! row is damped against both neighbour and lagged reads, and the
+! MOM_LAG_BND excess grows by the same amount, so clipped shock
+! rows stop cycling between clipped and unclipped fixed points.
+!
+	  MOM_H_IMPL=.FALSE.
+	  CALL RD_STORE_LOG(MOM_H_IMPL,'MOM_H_IMPL',L_FALSE,
+	1     'Implicit weight for lagged H coupling in MOM diagonal?')
+	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,
+	1     MOM_H_IMPL)
 !
 ! Refresh tuning knobs, previously compile-time parameters.  The
 ! defaults match the built-in values, so an unchanged VADAT is

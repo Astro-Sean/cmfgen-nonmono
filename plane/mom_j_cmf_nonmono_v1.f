@@ -655,6 +655,26 @@
 !
 	REAL(KIND=LDP) MOM_ABS_FLR
 !
+! MOM_H_IMPL (VADAT key, default FALSE): implicitize the lagged
+! upwind-H divergence in the J row by adding |VB|+|VC| (the
+! magnitude of the HS*H_up midpoint couplings) to the diagonal.
+! At shock cells the MOM_LAG_BND excess TB-|TA|-|TC| is ~0, so
+! the lagged source is nulled and the row oscillates between its
+! clipped local solution and the lagged field -- the seed delta
+! (~1E1 at the retained-vs-sweep metric) and the ~150 capped
+! writes per refresh pass both live on these rows.  Adding the
+! coupling magnitude to the diagonal damps the row's response to
+! both neighbours and lagged terms, and inside MOM_LAG_BND it
+! raises the excess by the H weight so less of the lagged source
+! is clipped.  Consistency cost: the signed lagged term
+! -HS(I-1)*H(I-1)+HS(I)*H(I) is a difference, while the added
+! diagonal is a sum, so smooth rows carry a bounded extra
+! diagonal mass (~2*HS <= 2).  Default F keeps the proven
+! (a)+(c) behaviour; enable only for the KNOP stall test.
+! edited by Devin, 13-Oct-2026.
+!
+	LOGICAL MOM_H_IMPL
+!
 ! LAGB diagnostics: rows scaled this sweep, and the smallest scale
 ! applied (1.0 = the bound was inactive everywhere).
 !
@@ -769,6 +789,7 @@
 	DATA MOM_GAM_PIN /.TRUE./
 	DATA MOM_LAG_BND /.TRUE./
 	DATA MOM_ABS_FLR /0.0_LDP/
+	DATA MOM_H_IMPL /.FALSE./
 	DATA KN_M_READY /.FALSE./
 	DATA KN_M_RF_WARNED /.FALSE./
 	DATA KN_M_ANYCMP /.FALSE./
@@ -2239,6 +2260,21 @@
 	    VB_NM(I)=-HS_NM(I-1)
 	    VC_NM(I)=HS_NM(I)
 	    XM_NM(I)=DTAUONQ_NM(I)*SOURCE_NM(I)*R_NM(I)*R_NM(I)
+	  END DO
+	END IF
+!
+! MOM_H_IMPL: pay for the lagged upwind-H divergence with its own
+! coupling magnitude on the diagonal.  The row keeps the same RHS
+! (the signed -HS(I-1)*H_up(I-1)+HS(I)*H_up(I) stays in XLAG_NM),
+! but the solve sees the H channel's weight as diagonal mass: a
+! clipped shock row stops oscillating between its clipped and
+! unclipped states, and the MOM_LAG_BND excess below grows by the
+! same |VB|+|VC| so less of the lagged source is scaled away.
+! Boundary row 1 assembles its own bound and is unchanged.
+!
+	IF(MOM_H_IMPL)THEN
+	  DO I=2,ND_NM-1
+	    TB_NM(I)=TB_NM(I)+ABS(VB_NM(I))+ABS(VC_NM(I))
 	  END DO
 	END IF
 !
@@ -4153,16 +4189,17 @@
 ! MOM_ABS_FLR, called once from RD_CONTROL_VARIABLES after the VADAT
 ! keys are read.
 !
-	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND,ABSFLR)
+	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND,ABSFLR,HIMPL)
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1, ONLY:
-	1     MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR
+	1     MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,MOM_H_IMPL
 	IMPLICIT NONE
-	LOGICAL GAMPIN,LAGBND
+	LOGICAL GAMPIN,LAGBND,HIMPL
 	REAL(KIND=LDP) ABSFLR
 	MOM_GAM_PIN=GAMPIN
 	MOM_LAG_BND=LAGBND
 	MOM_ABS_FLR=MAX(ABSFLR,0.0_LDP)
+	MOM_H_IMPL=HIMPL
 	RETURN
 	END
 !
