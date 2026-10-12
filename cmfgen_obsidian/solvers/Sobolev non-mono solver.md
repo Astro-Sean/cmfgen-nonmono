@@ -396,41 +396,73 @@ SOB default); `'sob_ew'` gives T/T flags with deposition off
 - [[BA matrix and SOLVEBA]] - `BA_ENTER_RAW`, resacc, trust radius
 - [[Run log highlights]]
 - [[Literature]] - Dessart+2015, RH78, Feldmeier & Nikutta 2006
-### Probe results, 12-Oct-2026 build (commit 06480eb + gate fix)
+### Probe results, 12-Oct-2026 build (commit 06480eb + gate fix 32b0d2a)
 
 Four-cell moment grid resubmitted with fixes (a)-(c) (jobs 12163155,
-12163156, 12163159, 12163169, interactive partition):
+12163156, 12163159, 12163169, interactive partition). CORRECTED
+READING: an earlier draft of this section misread the `lum diag`
+column (outer/inner ratio drift, ~1E-3) as evidence of a stable
+field. The actual outer luminosity tells the true story -- all four
+cells diverge:
 
-- **SOB warm** (it498, running): the field-level fixes worked.
-  `max|EPS|/HU` collapsed 9.1E6 -> ~96 (the dln floor removed the
-  doublet coupling) and the lagged-map refresh now converges most
-  iterations (`conv=T`, delta ~1E2-1E3). Luminosity drift ~1E-3,
-  no blowup. Population demand oscillates 7E5-5E10 at depths 21-40
-  in LAMBDA_TFIX -- a fixed-point mismatch, not the old field
-  runaway. Verdict: moment field stable; population convergence not
-  yet achieved.
-- **SOB cold** (it45, running): same healthy field signature
-  (`|EPS|/HU` ~93, refresh `conv=T`); demands churning 1E4-1E7 in
-  the cold-start transient.
-- **KNOP warm** (it448, running): `|EPS|/HU` ~14 unchanged (no
-  doublets on the line grid), but the refresh still fails
-  (`conv=F`, delta ~1E6-1E7) and the run sits held/frozen with
-  demand saturating. The eps_cap count is 19-30M/sweep vs SOB's
-  ~0.6M -- the conservative limiter fires continuously on the line
-  grid. Verdict: lagged map still not a contraction here.
-- **KNOP cold**: exited at it6 via a **false converged exit**, now
-  fixed. `GS_POPS_HELD` held populations while the field diverged
-  (refresh delta=3.1E10, 632k quarantined cells); `BA_RES_ACC`
-  masked all 70 depth columns, zeroing STEQ; `DO_LEVEL_CHK` read
-  the all-zero post-mask state as "all corrections <10%" and
-  overwrote MAXCH with 0 (discarding the STEQ_MASKED_MAX boost);
-  `MAXCH < EPS` then set `NUM_ITS_TO_DO=1` -> RVTJ + clean exit.
+- **SOB warm** (job 12163155): L_outer ramps ~x1.15/it for ~40 its
+  from ~1E7 (3 dex below physical ~1E10), crosses the physical level
+  WITHOUT pausing, then accelerates ~x2/it to 4E21 before T went NaN
+  and the run SIGSEGV'd (exit 174) at it550. The ramp restarted
+  identically after the requeue boundary (lagged J_NEXT/H_NEXT
+  stores are process-local) -- same growth law regardless of
+  restart. `max|EPS|/HU` did collapse 9.1E6 -> ~96 (the dln floor
+  works as designed) and the refresh reports `conv=T`, but the
+  converged map is expansive: `delta` (retained field vs the field
+  the populations saw) stays ~1E2 and L doubles anyway. The refresh
+  conv flag can come from the bulk exit (<0.1% cells moving >50%
+  per pass) -- it does not certify the map's fixed point.
+- **SOB cold** (it99+, running): identical signature --
+  L_outer 8E6 -> 3E13 over it1-47, reset to ~2E7 at the requeue,
+  ramping again. Same map, same gain, populations irrelevant.
+- **KNOP warm** (job 12163167): L_outer 4E8 -> 1.2E32 over
+  it441-454 (~x10-100/it, accelerating) with populations HELD the
+  whole time -- frozen matter, so the runaway is purely the
+  lagged-J map plus the coefficient-level feedback (Eddington
+  factors rebuilt each iteration on the growing J through the
+  formal solve). `refresh conv=F delta=1E6-1E7`, eps_cap ~40M/sweep
+  (~10x per cell). Exited "COMPLETED" via the false converged exit
+  below (old binary), n_frozen=14 < watchdog 60.
+- **KNOP cold** (job 12163169 then 12165640): first run false-exited
+  at it6; resubmitted on the gate-fixed binary -- now correctly
+  reports demand (pops 1E7 not 0), continues iterating, still
+  diverging (L 4E12 -> 7.8E17 by it6, refresh delta 1.2E15).
 
-Two gate fixes (this commit): `SOLVEBA_V13` no longer fires
-`DO_LEVEL_CHK` when any column was masked (new `L_ANY_MASK` flag,
-covers both the armed-step and Lambda-path masks), and the
-`MAXCH < EPS` converged-exit test in `CMFGEN_SUB` now requires
-`.NOT. GS_POPS_HELD` -- a held-population call can never satisfy
-the population-convergence test. A masked/held step now leaves
-demand visible (MAXCH ~ masked demand) and the run continues to the
-KNOP stall watchdog instead of reporting false convergence.
+Failure locus in both pathways is the frequency-advection chain at
+shock cells: refresh argmax sits at R~1.4-2.1E4, V~850-5000 km/s,
+sigma_t ~ -5 to -64 (cmp_frac ~0.8 = 80% of cells read a lagged
+frequency neighbour). The refresh's per-pass residuals floor at
+~1E4 with same-direction ratio ~1.0 under KNOP -- the map is
+non-contractive, and under SOB its "converged" iterate still grows.
+Also present under KNOP: ESEC/CHI-1 up to 15.6 (negative-absorption
+cells floored to pure scattering by MAX(0,1-COH)), and the formal
+I_NEXT/fg store churns (drift 5-11, cap count overflows) because
+the formal solve re-derives factors on the inflated J each
+iteration.
+
+False converged exit (now fixed, commit 32b0d2a): with
+GS_POPS_HELD the populations are frozen while the field is
+immature; BA_RES_ACC masked all 70 columns (|STEQ|>BA_TRUST),
+zeroed STEQ, and DO_LEVEL_CHK read the all-zero post-mask state as
+"all corrections <10%", overwriting MAXCH=0 -- discarding the
+STEQ_MASKED_MAX boost added 04-Oct. `MAXCH < EPS` in CMFGEN_SUB
+then set NUM_ITS_TO_DO=1 -> RVTJ + clean exit -> wrapper
+`READY=0 + valid RVTJ` marked it COMPLETED. Fixes: `L_ANY_MASK`
+disarms DO_LEVEL_CHK whenever any column was masked (armed-step and
+Lambda mask paths), and the MAXCH<EPS gate now requires
+`.NOT. GS_POPS_HELD`. Remaining gap: the wrapper's completion check
+never inspects GS_STATE (frozen=T, mom_refresh_conv=F, pops_held=T
+in a "completed" run is accepted); the n_frozen watchdog only fires
+at 60 consecutive frozen iterations.
+
+Conclusion: LAM_ES=F diverges on m15 under both pathways from both
+starts. The divergence is not population feedback (KNOP warm held
+populations throughout). It is the lagged frequency map's own
+spectral radius >1 at compressing shock cells, plus -- under KNOP --
+the J -> formal factors -> J coefficient-level coupling via the
+ES emissivity and Eddington stores.
