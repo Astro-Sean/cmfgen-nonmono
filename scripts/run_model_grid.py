@@ -10392,15 +10392,18 @@ def enforce_cmfgen_sn_iin_settings(config):
                 # DIAG — the TRIDIAG path selects the Knop-Jacobian
                 # solver that is inconsistent with FG_J_CMF_V13 used by
                 # SOB.  Since 12-Oct-2026 USE_LAM_ES=F is a permitted
-                # opt-in (Fortran warns, does not STOP): MOM_J_CMF_V11
-                # on clamped SIGMA plus the VAR_MOM_J_CMF_V12 continuum
-                # linearization the LAM_ES path leaves at zero.
+                # opt-in (Fortran warns, does not STOP): since
+                # 12-Oct-2026 the J solve is MOM_J_CMF_NONMONO_V1 with
+                # the fixed-J + GET_MOM_ALO_DIAG linearization - the
+                # same pairing as KNOP+LAM_ES=F.  The earlier
+                # MOM_J_CMF_V11 + VAR_MOM_J_CMF_V12 variant diverged
+                # on m15 (V11 assumes expanding flow).
                 # Selected by cmfgen.use_lam_es=F or an explicit
                 # vadat_overrides USE_LAM_ES key.
                 if _ule is False:
                     print(
                         "  [NON_MONO] use_lam_es=F under SOB: opt-in "
-                        "MOM_J_CMF_V11 + VAR_MOM_J_CMF_V12 "
+                        "MOM_J_CMF_NONMONO_V1 + fixed-J/MOM-ALO "
                         "linearization (SIGMA_TRUE still drives the "
                         "Sobolev lines)"
                     )
@@ -10671,8 +10674,9 @@ def enforce_cmfgen_sn_iin_settings(config):
     # CMFGEN actually runs.
     # N_TYPE became user-overridable 12-Oct-2026: the mom_probe run on
     # m15 SOB+USE_LAM_ES=F blew up in MOM_J_CMF_V11 at the bluest
-    # frequency with N_ON_J, and the solver error itself suggests
-    # trying a different N_TYPE.  N_ON_J remains the default.
+    # frequency under both N_ON_J and G_ONLY - the V11 discretization,
+    # not the boundary variable.  SOB+LAM_ES=F now runs
+    # MOM_J_CMF_NONMONO_V1.  N_ON_J remains the default.
     _force_unless_user("N_TYPE", "N_ON_J", "SN_IIN")
     _force_unless_user("REL_OBS", "F", "SN_IIN")
     _force_unless_user("REL_CMF", "F", "SN_IIN")
@@ -11607,7 +11611,7 @@ def process_config(
             )
             _ule_desc = (
                 (
-                    "F (MOM_J_CMF_V11 moment solve, clamped SIGMA)"
+                    "F (MOM_J_CMF_NONMONO_V1 moment solve, SIGMA_TRUE)"
                     if _ule_sob
                     else "F (MOM_J_CMF_NONMONO_V1 moment solve)"
                 )

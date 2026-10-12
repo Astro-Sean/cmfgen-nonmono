@@ -1,19 +1,20 @@
 model_name: dessart_m15_2p82d_SOB_jfnk_mom_probe
 description: Controlled endgame test for the m15 2.82d SOB plateau.
   Warm restarts from m15_2p82d_SOB_jfnk_zlaw14_fresh/probe_snap with
-  USE_LAM_ES=F (unlocked 12-Oct-2026, commit 7c9b727).  Continuum J is
-  solved by stock MOM_J_CMF_V11 on the clamped SIGMA and DO_VAR_CONT
-  falls through to VAR_MOM_J_CMF_V12, restoring the dJ/dn
-  linearization that the LAM_ES path leaves at zero.  The plateau at
-  depths 65-70 contracts at ~0.9986/iteration under LAM_ES (broad
-  Lambda-limited mode, ~850/1839 levels demand >1%); this probe
-  measures whether a real continuum Jacobian contracts it faster.
-  DO_JFNK=F - JFNK admission is gated on USE_LAM_ES anyway.  Sobolev
-  line physics (SIGMA_TRUE) unchanged.  Not a production run.
-# normal -> general partition (23:59 per segment): measuring a
-# contraction rate across a wall-limit requeue would contaminate the
-# measurement even with the COMP_F warm-restart fix.
-submission: normal
+  USE_LAM_ES=F.  Continuum J is now solved by MOM_J_CMF_NONMONO_V1
+  (12-Oct-2026), the sign-split upwind Knop moment solver, native to
+  this velocity field - stock MOM_J_CMF_V11 diverged at the bluest
+  frequency under both N_ON_J and G_ONLY (jobs 12158938/12159013).
+  DO_VAR_CONT uses the fixed-J + GET_MOM_ALO_DIAG pairing, mirroring
+  KNOP+LAM_ES=F.  N_ON_J factors come live from the FG_J_CMF_V13 ray
+  moments (GET_MOMS_NON_REL).  The plateau at depths 65-70 contracts
+  at ~0.9986/iteration under LAM_ES; this probe measures whether the
+  moment-solver path contracts it faster.  DO_JFNK=F - admission is
+  gated on USE_LAM_ES anyway.  Sobolev line physics (SIGMA_TRUE)
+  unchanged.  Not a production run.
+# debug -> interactive partition (1:59 per segment): fast queue
+# turnaround for the probe; warm-restart fixes keep requeues cheap.
+submission: debug
 hydro_backend: stella
 skip_stella: true
 run_cmfgen: true
@@ -68,8 +69,8 @@ cmfgen:
     FIX_IMP: F
     DO_LAM_IT: T
     DO_LAM_AUTO: T
-    # The test variable: moment-solver continuum J with full VAR_MOM
-    # linearization instead of J=TC Lambda iteration.
+    # The test variable: nonmono moment-solver continuum J with its
+    # own diagonal ALO instead of J=TC Lambda iteration.
     USE_LAM_ES: F
     SOL_METH: DIAG
     DO_NOMONO_KNOP: F
@@ -85,6 +86,10 @@ cmfgen:
     USE_FRM_REL: F
     USE_DJDT_RTE: F
     INC_GRID: F
+    # N_ON_J factors come live from FG_J_CMF_V13's ray moments via
+    # GET_MOMS_NON_REL inside the solver (same as KNOP+LAM_ES=F).
+    # The earlier V11 failures under N_ON_J and G_ONLY were the V11
+    # discretization, not the boundary variable.
     N_TYPE: N_ON_J
     PURE_HUB: F
     VEL_LAW: '14'

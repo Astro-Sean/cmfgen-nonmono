@@ -12,10 +12,11 @@ description: Controlled endgame test for the m15 2.82d SOB plateau.
   route (MOM_J_CMF_V11 diverged at the bluest frequency, jobs
   12158938/12159013).  DO_JFNK=F for a clean measurement.  Sobolev
   line physics (SIGMA_TRUE) unchanged.  Not a production run.
-# normal -> general partition (23:59 per segment): measuring a
-# contraction rate across a wall-limit requeue would contaminate the
-# measurement even with the COMP_F warm-restart fix.
-submission: normal
+# debug -> interactive partition (1:59 per segment): fast queue
+# turnaround for the probe; the COMP_F warm-restart fix keeps
+# requeue restarts warm enough not to contaminate the contraction
+# measurement.
+submission: debug
 hydro_backend: stella
 skip_stella: true
 run_cmfgen: true

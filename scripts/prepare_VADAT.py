@@ -164,9 +164,10 @@ _NON_MONO_FORCED_SHARED = {
     # MOM_J_CMF_V11.  For SOB mode it defaults to T in
     # _NON_MONO_LINE_SOB but is user-overridable since 12-Oct-2026:
     # with an explicit USE_LAM_ES=F override the Fortran warns instead
-    # of STOPping, and DO_VAR_CONT falls through to VAR_MOM_J_CMF_V12,
-    # restoring the continuum dJ/dn linearization (SOB+LAM_ES=T leaves
-    # it at zero).  SIGMA_TRUE still drives the Sobolev line path.
+    # of STOPping, runs MOM_J_CMF_NONMONO_V1 for the J update, and
+    # DO_VAR_CONT uses fixed-J + GET_MOM_ALO_DIAG (the KNOP+LAM_ES=F
+    # recipe) rather than the inconsistent V11/V12 pairing.
+    # SIGMA_TRUE still drives the Sobolev line path.
     'INC_GRID': 'F',
     'N_TYPE': 'N_ON_J',
     'NEG_OPAC_OPT': 'SRCE_CHK',
