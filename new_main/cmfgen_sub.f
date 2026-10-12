@@ -5001,9 +5001,18 @@
 	       FIXED_T=RD_FIX_T
                COMPUTE_BA=.TRUE.
 	       CALL UPDATE_KEYWORD(L_FALSE,'[FIX_T]','VADAT',L_TRUE,L_TRUE,LUIN)
+!
+! edited by Devin, 12-Oct-2026: GS_POPS_HELD means populations were
+! frozen while the lagged radiation field is immature, so MAXCH
+! measures a solve whose demand may be masked to zero rather than a
+! converged state -- a held call must never count as convergence
+! (KNOP_mom_cold wrote RVTJ and exited at it6 this way with the
+! moment sweep at refresh delta=3.1E10).
+!
 	  ELSE IF( ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR. (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	1      .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
-	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION)THEN
+	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
+	3      .NOT. GS_POPS_HELD)THEN
 	      IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
 	  ELSE
 !

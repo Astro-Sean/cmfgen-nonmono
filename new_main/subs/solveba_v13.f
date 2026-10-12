@@ -112,7 +112,7 @@
 	REAL(KIND=LDP) COL_RES_S(ND)
 	INTEGER NFAIL
 	INTEGER JK,NQUAR_NEW
-	LOGICAL LCOL_OK,LMASK_OK,LQUAR_OK,L_PROG
+	LOGICAL LCOL_OK,LMASK_OK,LQUAR_OK,L_PROG,L_ANY_MASK
 	REAL(KIND=LDP) STEQ_QMAX
 	LOGICAL REJ_BULK,REJ_MAX,REJ_STATE,REJ_PART,WLD_REJ
 	INTEGER, SAVE :: PV_JI=0,PV_II=0,PV_JD=0,PV_ID=0
@@ -924,6 +924,7 @@
 ! recovers 1.25x per accepted step, up to BA_TRUST.
 !
 	STEQ_MASKED_MAX=0.0_LDP
+	L_ANY_MASK=.FALSE.
 	IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN
 	  COUNT(2)=0
 	  COUNT(3)=0
@@ -962,6 +963,7 @@
 	      STEQ_MASKED_MAX=MAX(STEQ_MASKED_MAX,
 	1        MAXVAL(ABS(STEQ(1:NT,I))))
 	      STEQ(:,I)=0.0_LDP
+	      L_ANY_MASK=.TRUE.
 	      COUNT(3)=COUNT(3)+1
 	    ELSE IF(MAXVAL(ABS(STEQ(1:NT,I))) .GT. BA_TRUST_CUR)THEN
 	      STEQ_MASKED_MAX=MAX(STEQ_MASKED_MAX,
@@ -991,6 +993,7 @@
 	        END DO
 	      END IF
 	      STEQ(:,I)=0.0_LDP
+	      L_ANY_MASK=.TRUE.
 	      COUNT(2)=COUNT(2)+1
 	    END IF
 	  END DO
@@ -1035,6 +1038,7 @@
 	    DO I=1,ND
 	      IF(BA_RBK_MASK(I))THEN
 	        STEQ(:,I)=0.0_LDP
+	        L_ANY_MASK=.TRUE.
 	        COUNT(3)=COUNT(3)+1
 	      END IF
 	    END DO
@@ -1226,7 +1230,18 @@
 !     (b) Scale the corrections > 10% down by a factor of 3 (-ve relaxation).
 !
 	DO_LEVEL_CHK=.FALSE.
-	IF(MAX_INC_VEC(NV) .GT. -0.1_LDP .AND. MAX_DEC_VEC(NV) .LT. 0.1_LDP)DO_LEVEL_CHK=.TRUE.
+!
+! edited by Devin, 12-Oct-2026: a masked column contributes STEQ=0
+! here, so a fully masked step satisfies the "<10% nearly everywhere"
+! test and line ~1234 overwrites MAXCH with 0 -- discarding the
+! STEQ_MASKED_MAX boost above.  KNOP_mom_cold exited "converged" at
+! it6 this way with refresh delta=3.1E10.  Refused demand is not a
+! small correction: skip the level check when anything was masked,
+! on either the armed or the Lambda mask path.
+!
+	IF(.NOT. L_ANY_MASK .AND.
+	1   MAX_INC_VEC(NV) .GT. -1.0E-01_LDP .AND.
+	2   MAX_DEC_VEC(NV) .LT. 1.0E-01_LDP)DO_LEVEL_CHK=.TRUE.
 !
 ! Rather than return the largest change, return the max/min of the NV correction.
 !
