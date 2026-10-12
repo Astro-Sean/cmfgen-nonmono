@@ -138,17 +138,35 @@ GS-sweep diagnostics at the onset: `drift 4.2` (lagged map moving 4x
 per sweep), `cmp_frac=0.945` (94.5% of cells compressing - the whole
 field rides on the J_NEXT upwind), `max|EPS|/HU=5E6` with ~5M cap
 events, `max|sigT|=113`. The refresh delta oscillated 0-1E5 without
-converging: the composite map has a multiplier >1 on this field,
-which under-relaxation cannot fix (see the MOM_DAMP_NM comment in
-mom_j_cmf_nonmono_v1.f). All population steps stayed LAMBDA-mode
-(demands under LAM_ENTER=400), so the BA/ALO linearization never
-acted - the divergence is a pure J-field runaway, not a Jacobian
-failure. Open question: does the same happen under
-DO_NONMONO_KNOP+LAM_ES=F on this field - control probe
-`dessart_m15_2p82d_KNOP_MOM_probe` (job 12161004) tests exactly
-that; the remaining call-site differences are the ray-moment source
-(V13 vs the Knop formal solver), SOL_METH DIAG vs TRI, and the
-bluest-frequency dLOG_NU fix (still KNOP-gated, comp_j_blank.f:630).
+converging. All population steps stayed LAMBDA-mode (demands under
+LAM_ENTER=400), so the BA/ALO linearization never acted - the
+divergence is a pure J-field runaway, not a Jacobian failure.
+
+**KNOP control (job 12161004): the divergence is not SOB wiring.**
+The same probe under `DO_NONMONO_KNOP+LAM_ES=F` (BLANK lines, Knop
+formal ray moments, SOL_METH=TRI, same probe_snap warm restart)
+diverged identically: bounded ~5e9 for 4 iterations, then 7.7E10
+(it446) -> 9.6E12 (it448), steeper than the SOB run. Two differences
+are still worth noting: under KNOP `max|EPS|/HU` stays ~11 (vs 5E6
+under SOB - V13's ray-moment factors inflate the advection coupling
+at shock cells), and the KNOP refresh intermittently reached
+conv=T while the field still ran away, i.e. the map's fixed point
+itself is a runaway state on this field from this restart.
+
+**Warm restart vs cold start is the real divide.** The solver
+validation of 27-Sep (convergence_issues.md Sect. 8, jobs 11998572
+MOM / 11998353 LAM) ran the same m15_2p82d model from a cold LTE
+start and the MOM path contracted: L declined 2.64E10 -> 1.72E10
+over it1-3 with demands collapsing 4.2E14 -> 4.6E2. Both 12-Oct
+probes warm-restarted populations equilibrated to the formal-solve
+J; the moment J overshoots that fixed point, LAMBDA population steps
+chase it, opacity drops, J climbs - a feedback loop the lagged map
+cannot outrun once it engages. Candidate directions: cold-start
+moment run on the current build (regression check vs 27-Sep),
+population freeze during map warmup, or accept the moment path as
+cold-start-only on compression-dominated fields. The validated
+warm-restart-capable paths remain the formal-solve modes:
+SOB+LAM_ES=T (+DO_FG13_ALO) and KNOP+LAM_ES=T.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
