@@ -1555,6 +1555,9 @@
 	  BA_DEM_RELFRAC=0.0_LDP
 	  CALL RD_STORE_DBLE(BA_DEM_RELFRAC,'BA_DEM_RELFRAC',L_FALSE,
 	1     'Demand floor as fraction of max population at the depth')
+	  DO_FG13_ALO=.FALSE.
+	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
+	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')
 !
 ! Legacy keys retained so existing VADAT files remain readable.  Shock
 ! deposition makes inner/outer luminosity agreement unsuitable for

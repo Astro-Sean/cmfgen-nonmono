@@ -364,6 +364,7 @@
 	     dJ_DIF_d_dTdR(:)=0.0_LDP
 	     dRSQH_DIF_d_T(:)=0.0_LDP
 	     dRSQH_DIF_d_dTdR(:)=0.0_LDP
+	     ALO_OK=.FALSE.
 	     IF(DO_NONMONO_KNOP)THEN
 !
 ! USE_LAM_ES=T: J is the ray solution.  Its diagonal holds I_NEXT
@@ -378,30 +379,41 @@
 	       ELSE
 	         CALL GET_MOM_ALO_DIAG(TA,TB,ND,ALO_OK)
 	       END IF
-	       IF(ALO_OK)THEN
-	         DO K=1,ND
-	           TX(K,K,1)=TA(K)
-	           TX(K,K,2)=TB(K)
-	         END DO
+	     ELSE IF(DO_NONMONO_SOB .AND. DO_FG13_ALO)THEN
+!
+! DO_NONMONO_SOB + USE_LAM_ES (opt-in, 12-Oct-2026): the SOB formal
+! solver FG_J_CMF_V13 now stores the same diagonal ALO the Knop solver
+! uses -- the consistent linearization of the forward solve it just
+! performed, lifting the pure-Lambda continuum update.  DO_FG13_ALO
+! gates it so the validated all-zero default is unchanged.
+!
+	       CALL GET_FG13_ALO_DIAG(TA,TB,ND,ALO_OK)
+	     END IF
+	     IF(ALO_OK)THEN
+	       DO K=1,ND
+	         TX(K,K,1)=TA(K)
+	         TX(K,K,2)=TB(K)
+	       END DO
 ! Confirm the fill is active once per BA iteration (do_var_cont is
 ! called per frequency; FIRST_FREQ gives one line per sweep).
 ! dJ/dCHI<0 and dJ/dETA>0 are the expected signs.
-	         IF(FIRST_FREQ)THEN
-	           LUER=ERROR_LU()
-	           WRITE(LUER,'(A,2ES12.4,2A,2ES12.4,A)')
-	1           '  KNOP ALO ('//TRIM(MERGE('FG ','MOM',USE_LAM_ES))//
-	2           '): dJ/dCHI diag [',
-	2           MINVAL(TA(1:ND)),MAXVAL(TA(1:ND)),']',
-	3           ' dJ/dETA diag [',
-	4           MINVAL(TB(1:ND)),MAXVAL(TB(1:ND)),']'
-	         END IF
+	       IF(FIRST_FREQ)THEN
+	         LUER=ERROR_LU()
+	         WRITE(LUER,'(A,2ES12.4,2A,2ES12.4,A)')
+	1         '  '//TRIM(MERGE('KNOP','SOB ',DO_NONMONO_KNOP))//
+	2         ' ALO ('//TRIM(MERGE('FG ','MOM',USE_LAM_ES))//
+	3         '): dJ/dCHI diag [',
+	4         MINVAL(TA(1:ND)),MAXVAL(TA(1:ND)),']',
+	5         ' dJ/dETA diag [',
+	6         MINVAL(TB(1:ND)),MAXVAL(TB(1:ND)),']'
+	       END IF
 !
 ! USE_LAM_ES=F uses the moment diagonal, whose boundary rows are
 ! already zero (closures, not local-source rows).  Quarantined cells
 ! hold a frozen J, so their response is exactly zero.
 ! edited by Sean Brennan (25-Sep-2026)
 !
-	         IF(.NOT. USE_LAM_ES)THEN
+	       IF(DO_NONMONO_KNOP .AND. .NOT. USE_LAM_ES)THEN
 !
 ! Quarantined/rejected cells hold the previous iterate by
 ! construction (XM_FB restore in the moment solver), so their true
@@ -410,15 +422,14 @@
 ! phantom diagonal response stand on cells whose J was never
 ! actually solved.
 !
-	           CALL GET_MOM_CELL_QUAR(QMASK,ND,QOK)
-	           IF(QOK)THEN
-	             DO K=1,ND
-	               IF(QMASK(K))THEN
-	                 TX(K,K,1)=0.0_LDP
-	                 TX(K,K,2)=0.0_LDP
-	               END IF
-	             END DO
-	           END IF
+	         CALL GET_MOM_CELL_QUAR(QMASK,ND,QOK)
+	         IF(QOK)THEN
+	           DO K=1,ND
+	             IF(QMASK(K))THEN
+	               TX(K,K,1)=0.0_LDP
+	               TX(K,K,2)=0.0_LDP
+	             END IF
+	           END DO
 	         END IF
 	       END IF
 	     END IF

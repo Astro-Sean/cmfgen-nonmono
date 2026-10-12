@@ -1210,6 +1210,19 @@
 !
 	REAL(KIND=LDP) BA_DEM_RELFRAC
 !
+! DO_FG13_ALO (VADAT [DO_FG13_ALO], default F): use the diagonal
+! Olson-Auer-Buchler approximate Lambda operator that FG_J_CMF_V13
+! stores per frequency to restore continuum self-coupling (dJ/dCHI,
+! dJ/dETA diagonals in TX) on the DO_NONMONO_SOB + USE_LAM_ES path.
+! Without it that path runs a pure Lambda iteration for every
+! continuum term (m15 endgame contracts at ~0.9986/iteration).  The
+! diagonal is the consistent linearization of the forward solve V13
+! actually performs; off-diagonal propagation and the dS terms are
+! neglected, as in the Knop solver's FG ALO.  Opt-in: default F keeps
+! the validated all-zero continuum Jacobian.
+!
+	LOGICAL DO_FG13_ALO
+!
 ! BA_LUM_GATE and BA_LUM_DCHG are retained as accepted VADAT keys for
 ! restart compatibility.  They no longer affect convergence: shocks
 ! permit physical luminosity deposition between the inner and outer

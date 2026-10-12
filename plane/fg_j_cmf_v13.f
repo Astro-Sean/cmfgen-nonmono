@@ -150,6 +150,39 @@
 	LOGICAL WRITE_IP
 	LOGICAL DIF_OR_ZF
 !
+!
+! Diagonal approximate-Lambda-operator store (Olson-Auer-Buchler), the
+! same construction FG_J_CMF_NONMONO_V1 uses for the Knop solver: the
+! per-ray dAV/dS' response weights are accumulated in the serial J_LOOP
+! into the dJ/dETA and dJ/dCHI diagonals of the actual formal solution.
+! do_var_cont.f consumes them under DO_NONMONO_SOB (opt-in DO_FG13_ALO)
+! to give the SOB/Lambda path continuum self-coupling in the BA matrix.
+! Zeroed every call (each frequency); ALO_VALID is set only after a
+! completed INTEGRAL-method accumulation.
+!
+! ALO_DJDETA(K) = sum_rays JQW * dAV/dS' / chi_hat      (dJ/dETA diag)
+! ALO_DJDCHI(K) = sum_rays -JQW * dAV/dS' * S' / chi_hat (dJ/dCHI diag)
+! LAMSTAR_DIAG(K) = sum_rays JQW * dAV/dS'  (dimensionless Lambda* diag)
+!
+! edited by Devin, 12-Oct-2026
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDETA(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDCHI(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: LAMSTAR_DIAG(:)
+	LOGICAL, SAVE :: ALO_VALID=.FALSE.
+	INTEGER, SAVE :: ALO_ND=0
+!
+! Per-ray captures of OMP-PRIVATE quantities needed by the serial ALO
+! accumulation: chi_hat (CHI_RAY after the GAM/dLOG_NU update; plain
+! CHI under INIT) and the direction-dependent modified sources
+! S'_M = S + Q*I_M_PREV / S'_P = S + Q*I_P_PREV (SOURCE_PRIME in the
+! inward / outward sweeps).  Written inside the parallel ray loop
+! (each thread owns its LS column), read in the serial J_LOOP.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: ALO_CHIHAT_RAY(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: ALO_SPR_M_RAY(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: ALO_SPR_P_RAY(:,:)
+!
 	DATA VDOP_FRAC_SAV/-1001.0_LDP/ 	!Absurd value.
 	DATA FIRST_TIME/.TRUE./
 	DATA PREVIOUS_FREQ/0.0_LDP/
@@ -323,6 +356,12 @@
 	INTEGER NI
 	INTEGER NP_TMP
 !
+! Diagonal-ALO temporaries (see module comments near ALO_DJDETA).
+!
+	INTEGER NIR_ALO,N_OUT_LAMSTAR
+	REAL(KIND=LDP) ALO_DIM,ALO_DIP,ALO_DAV
+	REAL(KIND=LDP) LAMSTAR_MIN,LAMSTAR_MAX
+!
 	REAL(KIND=LDP) DBC
 	REAL(KIND=LDP) I_CORE
 	REAL(KIND=LDP) T1,T2
@@ -360,6 +399,44 @@
 	    WRITE(LUER,*)'Error allocating JNU_STORE block in FG_J_CMF_V13: Status=',IOS
 	    STOP	
           END IF
+	END IF
+!
+! Diagonal-ALO storage (see module comments).  Realloc-on-change gives
+! the same lifecycle as the JNU_STORE block; arrays are zeroed on
+! every call so a stale operator can never leak between frequencies
+! or iterations.  ALO_VALID is set .TRUE. only after a completed
+! INTEGRAL-method accumulation.
+!
+! edited by Devin, 12-Oct-2026
+!
+	IF(.NOT. ALLOCATED(ALO_DJDETA))THEN
+	  ALLOCATE(ALO_DJDETA(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(LAMSTAR_DIAG(ND),STAT=IOS)
+	  IF(IOS .NE. 0)THEN
+	    WRITE(LUER,*)'Error allocating ALO arrays in FG_J_CMF_V13: Status=',IOS
+	    STOP
+	  END IF
+	  ALO_ND=ND
+	ELSE IF(ALO_ND .NE. ND)THEN
+	  DEALLOCATE(ALO_DJDETA,ALO_DJDCHI,LAMSTAR_DIAG)
+	  ALLOCATE(ALO_DJDETA(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(LAMSTAR_DIAG(ND),STAT=IOS)
+	  IF(IOS .NE. 0)THEN
+	    WRITE(LUER,*)'Error re-allocating ALO arrays in FG_J_CMF_V13: Status=',IOS
+	    STOP
+	  END IF
+	  ALO_ND=ND
+	END IF
+	ALO_DJDETA(1:ND)=0.0_LDP
+	ALO_DJDCHI(1:ND)=0.0_LDP
+	LAMSTAR_DIAG(1:ND)=0.0_LDP
+	ALO_VALID=.FALSE.
+	IF(ALLOCATED(ALO_CHIHAT_RAY))THEN
+	  ALO_CHIHAT_RAY=0.0_LDP
+	  ALO_SPR_M_RAY=0.0_LDP
+	  ALO_SPR_P_RAY=0.0_LDP
 	END IF
 !
 	IF(INIT)THEN
@@ -481,6 +558,12 @@
 	    DEALLOCATE (SOURCE_PRIME)
 	    DEALLOCATE (S)
 	    DEALLOCATE (dS)
+!
+	    IF(ALLOCATED(ALO_CHIHAT_RAY))THEN
+	      DEALLOCATE ( ALO_CHIHAT_RAY )
+	      DEALLOCATE ( ALO_SPR_M_RAY )
+	      DEALLOCATE ( ALO_SPR_P_RAY )
+	    END IF
 	  END IF
 	END IF
 	VDOP_FRAC_SAV=VDOP_FRAC
@@ -874,6 +957,14 @@
 	    IF(IOS .EQ. 0)ALLOCATE (SOURCE_PRIME(NRAY_MAX),STAT=IOS )
 	    IF(IOS .EQ. 0)ALLOCATE (S(NRAY_MAX),STAT=IOS )
 	    IF(IOS .EQ. 0)ALLOCATE (dS(NRAY_MAX),STAT=IOS )
+!
+! Per-ray captures for the diagonal ALO (module comments near
+! ALO_DJDETA).  Same (NRAY_MAX,NP) layout as A2 so the serial J_LOOP
+! can read them by (K,LS).
+!
+	    IF(IOS .EQ. 0)ALLOCATE (ALO_CHIHAT_RAY(NRAY_MAX,NP),STAT=IOS )
+	    IF(IOS .EQ. 0)ALLOCATE (ALO_SPR_M_RAY(NRAY_MAX,NP),STAT=IOS )
+	    IF(IOS .EQ. 0)ALLOCATE (ALO_SPR_P_RAY(NRAY_MAX,NP),STAT=IOS )
 	    IF(IOS .NE. 0)THEN
 	      WRITE(LUER,*)'Error allocating INTEGRAL block in FG_J_CMF_V13: Status=',IOS
 	      STOP	
@@ -1411,6 +1502,12 @@ C
 	      Q(1:NI)=Q(1:NI)/CHI_RAY(1:NI)
 	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
 	    END IF
+!
+! edited by Devin, 12-Oct-2026: capture the opacity actually used to
+! build DTAU (chi_hat = CHI + GAM/dLOG_NU; plain CHI under INIT) for
+! the serial ALO diagonal below.
+!
+	    ALO_CHIHAT_RAY(1:NI,LS)=CHI_RAY(1:NI)
 !	    CALL TUNE(2,'FG_CHI_Q')
 !
 !
@@ -1508,6 +1605,7 @@ C
 !	    CALL TUNE(1,'FG_INT_INT')
 !
 	    SOURCE_PRIME(1:NI)=SOURCE_RAY(1:NI)+Q(1:NI)*I_M_PREV(1:NI,LS)
+	    ALO_SPR_M_RAY(1:NI,LS)=SOURCE_PRIME(1:NI)
 	    DO I=1,NI-1
 	      S(I)=(SOURCE_PRIME(I+1)-SOURCE_PRIME(I))/DTAU(I,LS)
 	    END DO
@@ -1560,6 +1658,7 @@ C
 ! monotonic interpolating polynomial.
 !
 	    SOURCE_PRIME(1:NI)=SOURCE_RAY(1:NI)+Q(1:NI)*I_P_PREV(1:NI,LS)
+	    ALO_SPR_P_RAY(1:NI,LS)=SOURCE_PRIME(1:NI)
 	    DO I=1,NI-1
 	      S(I)=(SOURCE_PRIME(I+1)-SOURCE_PRIME(I))/DTAU(I,LS)
 	    END DO
@@ -1695,6 +1794,89 @@ C
 	    KNU_STORE(I)=KNU_STORE(I)+KQW(I,LS)*AV(K,LS)
 	  END DO
 	END DO
+!
+! Diagonal Olson-Auer-Buchler approximate Lambda operator from the
+! actual formal solution, ported from FG_J_CMF_NONMONO_V1 (12-Oct-2026).
+! Loop bounds, weights JQW(I,LS) and the J_PNT depth->ray mapping are
+! IDENTICAL to the JNU_STORE accumulation above, so ALO_DJD* are
+! exactly dJ/dETA and dJ/dCHI diagonal sensitivities of the computed
+! JNU_STORE.
+!
+! For ray node K on ray LS:
+!   dI_M(K)/dS'(K) = A2(K-1,LS)  (K>=2; 0 at the outer boundary K=1)
+!   dI_P(K)/dS'(K) = A2(K,LS)    (K<=NI-1)
+!   at K=NI: non-core rays (LS>NC) have I_P(NI)=I_M(NI), and
+!     ZERO_FLUX/PNT_SRCE inner boundaries set I_CORE=I_M(NI), so
+!     dI_P/dS' = dI_M/dS' = A2(NI-1,LS); core rays with DIFFUSION (or
+!     the generic IC) inner boundary have I_P(NI)=I_CORE (independent
+!     of S'), so dI_P/dS' = 0.
+! AV(K,LS)=0.5*(I_P+I_M) => dAV/dS' = 0.5*(dI_P/dS' + dI_M/dS').
+! With S'_dir = ETA/chi_hat + Q_dir*I_prev,dir and Q_dir proportional
+! to 1/chi_hat: dS'_dir/dETA = 1/chi_hat and dS'_dir/dCHI = -S'_dir/
+! chi_hat (dir = M,P; the two modified sources differ because
+! I_M_PREV and I_P_PREV differ).
+!
+! chi_hat and S'_M/S'_P are OMP-PRIVATE inside the ray loop; the
+! per-ray captures ALO_CHIHAT_RAY / ALO_SPR_M_RAY / ALO_SPR_P_RAY are
+! written there (each thread owns its LS column) and read here.
+! Rows where chi_hat is not positive (possible where V13's unsigned
+! GAM term makes chi_hat <= 0 in compression zones) are skipped: a
+! nonsense operator entry is worse than no entry -- the BA step then
+! falls back to the plain Lambda update at that depth.
+!
+! This block runs in the serial J_LOOP, so no OpenMP race exists.
+! Only accumulated when the INTEGRAL sweep actually ran (AV valid).
+!
+	IF(SOLUTION_METHOD .EQ. 'INTEGRAL' .AND.
+	1   ALLOCATED(ALO_CHIHAT_RAY))THEN
+	  DO LS=1,NP
+	    NIR_ALO=NI_RAY(LS)
+	    DO I=1,MIN(ND,ND-(LS-NC-1))
+	      K=J_PNT(I,LS)
+	      IF(K .GE. 1 .AND. K .LE. NIR_ALO)THEN
+	        ALO_DIM=0.0_LDP
+	        IF(K .GE. 2)ALO_DIM=A2(K-1,LS)
+	        ALO_DIP=0.0_LDP
+	        IF(K .LE. NIR_ALO-1)THEN
+	          ALO_DIP=A2(K,LS)
+	        ELSE IF(K .EQ. NIR_ALO .AND.
+	1           (LS .GT. NC .OR.
+	1            INNER_BND_METH .EQ. 'ZERO_FLUX' .OR.
+	1            INNER_BND_METH .EQ. 'PNT_SRCE'))THEN
+	          ALO_DIP=ALO_DIM
+	        END IF
+	        ALO_DAV=0.5_LDP*(ALO_DIP+ALO_DIM)
+	        LAMSTAR_DIAG(I)=LAMSTAR_DIAG(I)+JQW(I,LS)*ALO_DAV
+	        IF(ALO_CHIHAT_RAY(K,LS) .GT. 0.0_LDP)THEN
+	          ALO_DJDETA(I)=ALO_DJDETA(I)+
+	1             JQW(I,LS)*ALO_DAV/ALO_CHIHAT_RAY(K,LS)
+	          ALO_DJDCHI(I)=ALO_DJDCHI(I)-
+	1             JQW(I,LS)*0.5_LDP*
+	1             (ALO_DIP*ALO_SPR_P_RAY(K,LS)+
+	1              ALO_DIM*ALO_SPR_M_RAY(K,LS))/ALO_CHIHAT_RAY(K,LS)
+	        END IF
+	      END IF
+	    END DO
+	  END DO
+	  ALO_VALID=.TRUE.
+!
+	  IF(INIT)THEN
+	    LAMSTAR_MIN=LAMSTAR_DIAG(1)
+	    LAMSTAR_MAX=LAMSTAR_DIAG(1)
+	    N_OUT_LAMSTAR=0
+	    DO I=1,ND
+	      LAMSTAR_MIN=MIN(LAMSTAR_MIN,LAMSTAR_DIAG(I))
+	      LAMSTAR_MAX=MAX(LAMSTAR_MAX,LAMSTAR_DIAG(I))
+	      IF(LAMSTAR_DIAG(I) .LE. 0.0_LDP .OR.
+	1         LAMSTAR_DIAG(I) .GT. 1.0_LDP)N_OUT_LAMSTAR=N_OUT_LAMSTAR+1
+	    END DO
+	    IF(N_OUT_LAMSTAR .GT. 0)THEN
+	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8)')
+	1     '  LAMSTAR_DIAG: min=',LAMSTAR_MIN,' max=',LAMSTAR_MAX,
+	1     ' outside (0,1]:',N_OUT_LAMSTAR
+	    END IF
+	  END IF
+	END IF
 !
 ! This procedure works for the INTEGRAL or DIFFERENCE approach.
 !
@@ -1892,5 +2074,30 @@ C
         END IF
 	CALL TUNE(2,'FG_BIG_SEC')
 !
+	RETURN
+	END
+!
+	SUBROUTINE GET_FG13_ALO_DIAG(DJDCHI,DJDETA,N,VALID)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_MOD_V13, ONLY:
+	1     ALO_DJDCHI,ALO_DJDETA,ALO_VALID,ALO_ND
+	IMPLICIT NONE
+	INTEGER N
+	REAL(KIND=LDP) DJDCHI(N),DJDETA(N)
+	LOGICAL VALID
+!
+! Accessor for the diagonal approximate-Lambda derivatives (dJ/dCHI,
+! dJ/dETA at same depth) stored by FG_J_CMF_V13 for the current
+! frequency.  Needed by DO_VAR_CONT's fixed-J branch in new_main, which
+! compiles before plane and so cannot USE the module directly.
+!
+	VALID=.FALSE.
+	IF(ALLOCATED(ALO_DJDCHI) .AND. ALLOCATED(ALO_DJDETA))THEN
+	  IF(ALO_VALID .AND. ALO_ND .EQ. N)THEN
+	    DJDCHI(1:N)=ALO_DJDCHI(1:N)
+	    DJDETA(1:N)=ALO_DJDETA(1:N)
+	    VALID=.TRUE.
+	  END IF
+	END IF
 	RETURN
 	END
