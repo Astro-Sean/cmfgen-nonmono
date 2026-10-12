@@ -110,6 +110,24 @@ so the JFNK tiers stay inactive in this mode - acceptable while JFNK is
 parked. SN-model consistency check in `check_param_consistency.f` prints
 a `USE_JREL or USE_DJDT_RTE` warning for `USE_LAM_ES=F`; benign.
 
+**Probe result (12-Oct-2026): not viable on m15 as written.** A warm
+restart from `probe_snap` with `USE_LAM_ES=F`, `DO_JFNK=F` dies in
+`comp_j_blank.f` after ~20 s: `MOM_J_CMF_V11` fails to converge f at
+the bluest frequencies (log nu ~ 11.4-11.6) where J ~ 1E-60, and the
+mean-intensity guard (`|RJ(1)| > 1E30` blow-up) trips the fatal
+"Mean intensity blowing up" exit. Both `N_TYPE=N_ON_J` (job 12158938)
+and `N_TYPE=G_ONLY` (job 12159013) fail identically, so the boundary
+variable is not the cause - the stock moment discretization itself is
+unstable on this non-monotonic velocity field (it assumes the
+expanding-flow upwind structure; compressing depths need the
+sign-split treatment). `MOM_J_CMF_NONMONO_V1` is not a drop-in either:
+its consistent linearization is the `GET_FG_ALO_DIAG` store that only
+`FG_J_CMF_NONMONO_V1` accumulates (the KNop path's formal solver), and
+pairing it with `VAR_MOM_J_CMF_V12` reproduces the inconsistency the
+V6 port notes warn against. A working SOB continuum Jacobian therefore
+needs the alternative audit route: accumulate an ALO diagonal in
+`FG_J_CMF_V13` and pass it to `do_var_cont.f`, not a moment solve.
+
 Companion pipeline defect found in the same audit: every SINGLE_FINAL
 requeue rewrote `VADAT` leaving `COMP_F=T`, so CMFGEN recomputed
 EDDFACTOR and zeroed `RJ` at the first frequency of each restarted

@@ -186,7 +186,14 @@ Sobolev treatment for non-monotonic velocity fields:
   the `VAR_MOM_J_CMF_V12` continuum linearization that the LAM_ES path
   leaves at zero. Warns, no longer STOPs. `SIGMA_TRUE` still drives the
   Sobolev lines. JFNK stays inactive in this mode (admission is gated
-  on `USE_LAM_ES`).
+  on `USE_LAM_ES`). DIAGNOSTIC ONLY on non-monotonic models: m15 probes
+  (jobs 12158938, 12159013) show `MOM_J_CMF_V11` diverging at the bluest
+  frequency under both `N_TYPE=N_ON_J` and `G_ONLY`.
+- `BA_DEM_RELFRAC` (VADAT key, default 0=off, 12-Oct-2026): relative
+  demand floor in `SOLVEBA_V13` - rows below `RELFRAC*max(POPS)` at a
+  depth are excluded from the MAXCH/MAXCH_APP metric (their corrections
+  still commit). Catches physically empty ions at populated depths that
+  `BA_DEM_PFLOOR` cannot reach.
 
 ## 4. Deliberately NOT ported from V6
 
