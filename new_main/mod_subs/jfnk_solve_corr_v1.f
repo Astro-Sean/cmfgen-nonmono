@@ -98,6 +98,7 @@
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
 	LOGICAL JFNK_REACH_OK
 	DOUBLE PRECISION REACH_VAL,FF2_DP,FJZ_DP,JJZ_DP
+	DOUBLE PRECISION JVP_N
 	DOUBLE PRECISION FJZ_FD,JJZ_FD,BAFD_DP
 	DOUBLE PRECISION, ALLOCATABLE :: Z_CHK(:),JZ_VEC(:),JV_FD(:)
 	DOUBLE PRECISION, ALLOCATABLE :: JV_FD2(:),Z_BLK(:),JV_SAV(:)
@@ -1048,11 +1049,11 @@
 !
 	      JV_FD = JV_FD2 - JV_SAV
 	      FJZ_FD = SQRT(JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD))
-	      JJZ_DP = SQRT(JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV))
+	      JVP_N = SQRT(JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV))
 	      WRITE(LUER,'(A,ES12.4,A,ES12.4)')
 	1        '  COLPROBE repeat-vs-pristine: |diff|=',
 	2        REAL(FJZ_FD),
-	3        ' rel=',REAL(FJZ_FD/MAX(JJZ_DP,1.0E-300_LDP))
+	3        ' rel=',REAL(FJZ_FD/MAX(JVP_N,1.0E-300_LDP))
 !
 ! h-scan on the topZ self element.  A derivative stable across
 ! decades of step size is real; one that drifts or flips is
