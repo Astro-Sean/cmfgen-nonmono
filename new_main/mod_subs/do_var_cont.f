@@ -334,7 +334,8 @@
 	1                  dTdR,DBB,dDBBdT,IC,
 	1                  INCL_ADVEC_TERMS_IN_TRANS_EQ,INCL_REL_TERMS,
 	1                  DO_THIS_TX_MATRIX,METHOD,ND,NM,NM_KI)
-	   ELSE IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
+	   ELSE IF(DO_NONMONO_KNOP .OR.
+	1           (DO_NONMONO_SOB .AND. USE_LAM_ES))THEN
 !
 ! Fixed-J variation for the non-monotonic solvers.  VAR_MOM_J_CMF_V12
 ! linearizes the monotonic moment equation with clamped SIGMA, which is
@@ -353,6 +354,10 @@
 ! DO_NONMONO_SOB gains nothing (no ALO store exists there); the
 ! explicit zeroing is equivalent to the stale-zero state it had.
 !
+! DO_NONMONO_SOB + USE_LAM_ES=F (opt-in, 12-Oct-2026) falls through to
+! VAR_MOM_J_CMF_V12: with the moment solve as the J update there is no
+! inconsistency to protect against, and the full dJ/dn linearization is
+! what makes this variant worth running at all.
 	     TX(:,:,:)=0.0_LDP
 	     TVX(:,:,:)=0.0_LDP
 	     dJ_DIF_d_T(:)=0.0_LDP

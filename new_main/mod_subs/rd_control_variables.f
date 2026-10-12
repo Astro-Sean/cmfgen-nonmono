@@ -2096,19 +2096,23 @@
 	    END IF
 !
 ! The verified non-monotonic SOB configuration takes J from the formal
-! ray solution.  USE_LAM_ES=F selects the MOM_J_CMF_V11 moment solve on
-! the clamped SIGMA - valid upstream, but not part of the validated
-! [DO_NONMONO_SOB] setup (the pipeline forces USE_LAM_ES=T), so it is
-! rejected rather than warned.
+! ray solution (USE_LAM_ES=T, the pipeline default).  USE_LAM_ES=F is
+! now permitted as an opt-in endgame variant: it selects the stock
+! MOM_J_CMF_V11 moment solve on the clamped SIGMA and restores the
+! VAR_MOM_J_CMF_V12 dJ/dCHI, dJ/dETA and dJ/dT linearization in the BA
+! matrix, which the LAM_ES path leaves at zero.  The continuum's only
+! SIGMA exposure is through O(V/c) comoving terms, so the -0.999 clamp
+! costs little there, while SIGMA_TRUE continues to drive the Sobolev
+! line treatment unchanged.  Warn rather than STOP so the default
+! (pipeline-forced LAM_ES=T) path is untouched.
 !
 	    IF(.NOT. USE_LAM_ES)THEN
-	      WRITE(LUER,*)'Error in RD_CONTROL_VARIABLES:'
-	      WRITE(LUER,*)'DO_NONMONO_SOB=T requires USE_LAM_ES=T.'
-	      WRITE(LUER,*)'USE_LAM_ES=F selects the clamped-sigma'
-	      WRITE(LUER,*)'MOM_J_CMF_V11 moment solve, which the'
-	      WRITE(LUER,*)'non-monotonic Sobolev configuration does not',
-	1        ' support.'
-	      STOP
+	      WRITE(LUSCR,'(A)')' DO_NONMONO_SOB=T with USE_LAM_ES=F:'//
+	1       ' continuum J from MOM_J_CMF_V11 (clamped SIGMA);'//
+	2       ' VAR_MOM_J_CMF_V12 linearization active'
+	      WRITE(LUER,*)'Warning: DO_NONMONO_SOB with USE_LAM_ES=F uses'
+	1       ,' the stock MOM_J_CMF_V11 moment solve on clamped SIGMA;'
+	2       ,' the Sobolev line path (SIGMA_TRUE) is unchanged.'
 	    END IF
 !
 ! LAM_SET is redundant with GLOBAL_LINE=SOB (every line is already SOB)

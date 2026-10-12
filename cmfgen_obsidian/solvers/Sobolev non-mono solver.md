@@ -7,9 +7,12 @@ Flag: `T [DO_NONMONO_SOB]` in VADAT (optional, default F). Requires
 (enforced 03-Oct-2026, previously a warning). The `GLOBAL_LINE=NONE`
 form is accepted only when every ion present has `TRANS_*=SOB` (note:
 NONE requires a `TRANS_*` key for every species slot - a missing key
-aborts in GET_KEY_STRING first). `USE_LAM_ES=F` is also rejected: it
-routes J through the clamped-sigma `MOM_J_CMF_V11`, outside the
-validated SOB setup. `LAM_SET=T` only warns (redundant; it resets
+aborts in GET_KEY_STRING first). `USE_LAM_ES=F` was hard-rejected
+until 12-Oct-2026; it is now an opt-in variant that routes the
+continuum J through the stock `MOM_J_CMF_V11` on clamped `SIGMA` and
+restores the `VAR_MOM_J_CMF_V12` dJ/dn, dJ/dT linearization in BA
+(see "J-update mode" below). The Sobolev line path is unchanged.
+`LAM_SET=T` only warns (redundant; it resets
 GLOBAL_LINE_SWITCH to NONE). The main VADAT reader keeps SOB and `DO_NONMONO_KNOP` mutually
 exclusive. In the OBS reader, both flags may be T: `DO_NONMONO_KNOP`
 selects Knop formal J while SOB lines and `SIGMA_TRUE` EW estimators
@@ -85,6 +88,36 @@ not possess).
 > no longer leave Inf in the table. Infall regions get no non-local
 > correction - a documented limitation, not the full non-monotonic
 > kernel.
+
+## J-update mode: USE_LAM_ES=T vs F (12-Oct-2026)
+
+Under `USE_LAM_ES=T` (pipeline default) the continuum J comes from the
+FG ray solve and `do_var_cont.f` zeroes `TX/TVX/dJ_DIF_d_T/dRSQH` for
+`DO_NONMONO_SOB` - no ALO store exists on that path, so the SE update
+is a pure Lambda iteration for every continuum term. Measured on
+`m15_2p82d_SOB_jfnk_zlaw14_fresh`: the endgame at depths 65-70 contracts
+at ~0.9986/iteration, with ~850 of 1839 levels at d65-66 still demanding
+>1% corrections - a broad optically-thick Lambda mode, not a trace-row
+artifact (`CORRECTION_SUM` histogram, it ~780).
+
+With `USE_LAM_ES=F` the J update runs stock `MOM_J_CMF_V11` (SIGMA keeps
+its -0.999 infrastructure clamp - the continuum sees SIGMA only through
+O(V/c) comoving terms, max ~0.024 at the 7000 km/s inner boundary) and
+`do_var_cont.f` falls through to `VAR_MOM_J_CMF_V12`, restoring full
+continuum dJ/dn linearization. The Sobolev line treatment still uses
+`SIGMA_TRUE`. JFNK admission is gated on `USE_LAM_ES` (`solve_for_pops.f`)
+so the JFNK tiers stay inactive in this mode - acceptable while JFNK is
+parked. SN-model consistency check in `check_param_consistency.f` prints
+a `USE_JREL or USE_DJDT_RTE` warning for `USE_LAM_ES=F`; benign.
+
+Companion pipeline defect found in the same audit: every SINGLE_FINAL
+requeue rewrote `VADAT` leaving `COMP_F=T`, so CMFGEN recomputed
+EDDFACTOR and zeroed `RJ` at the first frequency of each restarted
+segment - the first post-requeue iteration then demanded 100-300%
+corrections at depths 9-18 and ~30% of all iterations were spent
+re-converging. Fixed in `cmfgen_base/submit_cmfgen.sh` (requeue block
+now flips `COMP_F` T->F when EDDFACTOR/EDDFACTOR_INFO exist, matching
+the FINAL template); see [[Run log highlights]].
 
 ## Runtime record
 

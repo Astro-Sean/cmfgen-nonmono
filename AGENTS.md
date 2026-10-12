@@ -181,6 +181,12 @@ Sobolev treatment for non-monotonic velocity fields:
   `GLOBAL_LINE='SOB'` (or `NONE` with every present ion `TRANS_*=SOB`)
   and `USE_LAM_ES=T`; rd_control_variables.f STOPs otherwise
   (03-Oct-2026, was a warning). `LAM_SET=T` warns only.
+- `USE_LAM_ES=F` under `DO_NONMONO_SOB` (opt-in, 12-Oct-2026): runs
+  the stock `MOM_J_CMF_V11` moment solve on clamped `SIGMA` and restores
+  the `VAR_MOM_J_CMF_V12` continuum linearization that the LAM_ES path
+  leaves at zero. Warns, no longer STOPs. `SIGMA_TRUE` still drives the
+  Sobolev lines. JFNK stays inactive in this mode (admission is gated
+  on `USE_LAM_ES`).
 
 ## 4. Deliberately NOT ported from V6
 
