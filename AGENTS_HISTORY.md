@@ -2435,10 +2435,11 @@ Probes (all frozen `exe_frozen` = sha 98cc0b41fccec88c, git bdf2f10):
 
 | Job | Config | State |
 |-----|--------|-------|
-| 12167354 (+OBS 12167355) | SOB cold (`mom_cold`) | RUNNING |
-| 12167426 (+OBS 12167427) | KNOP cold (`KNOP_MOM_cold`, resubmit of diverged 12165640 on stale 32b0d2a binary) | RUNNING |
-| 12167431 (+OBS 12167432) | SOB warm probe | RUNNING |
-| 12167439 (+OBS 12167440) | KNOP warm probe | PENDING |
+| 12167354 (+OBS 12167355) | SOB cold (`mom_cold`) | RUNNING - converging (pops ~50, L~4.7E6) |
+| 12167426 (+OBS 12167427) | KNOP cold (`KNOP_MOM_cold`, resubmit of diverged 12165640 on stale 32b0d2a binary) | CANCELLED it19 - field never matured (mom floored ~3-8E3 at lagbnd-nulled pure-scattering rows) |
+| 12167431 (+OBS 12167432) | SOB warm probe | RUNNING - converging |
+| 12167439 (+OBS 12167440) | KNOP warm probe | RUNNING - freeze/release cycling productively (se_res 7.9E16 -> 1.2E16 on first live BA step) |
+| 12168927 (+OBS 12168928) | KNOP cold with MOM_ABS_FLR=1D-3 (fix d) | submitted on binary 964638e (sha c50238ef) |
 
 Old KNOP cold 12165640 (+dep 12165641) cancelled: its `exe_frozen`
 was pinned at 19:35 to pre-fix commit `32b0d2a` and could never pick
