@@ -11,7 +11,8 @@ New-key coverage:
     in CONTROL_VARIABLE_MOD.
   * Mutual exclusion: both non-mono flags T aborts.
   * Prerequisites enforced (previously warnings only):
-      DO_NONMONO_SOB  needs GLOBAL_LINE=SOB and USE_LAM_ES=T
+      DO_NONMONO_SOB  needs GLOBAL_LINE=SOB; USE_LAM_ES=F warns only
+      (opt-in MOM_J_CMF_NONMONO_V1 path, rewired 12-Oct-2026)
       DO_NONMONO_KNOP needs GLOBAL_LINE=BLANK and LAM_SET=F
   * DO_JFNK requires a non-mono mode; JFNK_COUPLED is KNOP-only;
     USE_JFNK is a deprecated alias that still arms the solver.
@@ -62,6 +63,7 @@ HELPERS = [
     "subs/integrate.f",
     "subs/write_vec.f",
     "unix/dir_acc_pars_gen.f",
+    "plane/mod_ray_mom_store.f",
     "plane/get_moms_non_rel.f",
     "new_main/mod_subs/mod_cmfgen.f",
     "new_main/mod_subs/control_variable_mod.f",
@@ -69,7 +71,6 @@ HELPERS = [
     "new_main/mod_subs/jfnk_solver_v1.f90",
     "new_main/mod_subs/check_param_consistency.f",
     "newsubs/rd_store_log.f",
-    "plane/mod_ray_mom_store.f",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
     "new_main/mod_subs/rd_control_variables.f",
@@ -171,10 +172,10 @@ def main():
             "requires GLOBAL_LINE=SOB",
         ),
         (
-            "DO_NONMONO_SOB + USE_LAM_ES=F aborts",
+            "DO_NONMONO_SOB + USE_LAM_ES=F warns but parses",
             {"USE_LAM_ES": "F"},
-            False,
-            "requires USE_LAM_ES=T",
+            True,
+            "USE_LAM_ES=F",
         ),
         (
             "DO_NONMONO_KNOP + GLOBAL_LINE=SOB aborts",
