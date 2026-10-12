@@ -2861,9 +2861,12 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         # every run_model_grid.py submission, so picking up a rebuild is
         # still a deliberate act, and the rename is atomic so a running
         # job keeps its inode if a resubmission overlaps it.
-        m_dist = re.search(r"(?m)^setenv\s+cmfdist\s+(\S+)", patched)
-        if m_dist:
-            src_exe = Path(m_dist.group(1)) / "exe" / exe_name
+        dist_dir = cmfgen_install_dir
+        if not dist_dir:
+            m_dist = re.search(r"(?m)^\s*setenv\s+cmfdist\s+(\S+)", patched)
+            dist_dir = m_dist.group(1) if m_dist else None
+        if dist_dir:
+            src_exe = Path(dist_dir) / "exe" / exe_name
             if src_exe.is_file():
                 import hashlib
                 import datetime
@@ -10374,19 +10377,24 @@ def enforce_cmfgen_sn_iin_settings(config):
                     f"{_j_desc}; SOL_METH={'DIAG' if _ule else 'TRI'}"
                 )
             else:
-                # SOB mode: USE_LAM_ES stays T (the forced table already
-                # stamped it; F would fall back to the clamped-sigma
-                # MOM_J_CMF_V11) and must stay paired with DIAG — the
-                # TRIDIAG path selects the Knop-Jacobian solver that is
-                # inconsistent with FG_J_CMF_V13 used by SOB.
-                if not _ule:
+                # SOB mode: USE_LAM_ES=T stays the default, paired with
+                # DIAG — the TRIDIAG path selects the Knop-Jacobian
+                # solver that is inconsistent with FG_J_CMF_V13 used by
+                # SOB.  Since 12-Oct-2026 USE_LAM_ES=F is a permitted
+                # opt-in (Fortran warns, does not STOP): MOM_J_CMF_V11
+                # on clamped SIGMA plus the VAR_MOM_J_CMF_V12 continuum
+                # linearization the LAM_ES path leaves at zero.
+                # Selected by cmfgen.use_lam_es=F or an explicit
+                # vadat_overrides USE_LAM_ES key.
+                if _ule is False:
                     print(
-                        "  [NON_MONO] WARNING: use_lam_es=F requested "
-                        "under SOB mode — J would come from the "
-                        "clamped-sigma MOM_J_CMF_V11, inconsistent with "
-                        "the non-monotonic formal solution; "
-                        "USE_LAM_ES=T forced"
+                        "  [NON_MONO] use_lam_es=F under SOB: opt-in "
+                        "MOM_J_CMF_V11 + VAR_MOM_J_CMF_V12 "
+                        "linearization (SIGMA_TRUE still drives the "
+                        "Sobolev lines)"
                     )
+                    _force("USE_LAM_ES", "F", "NON_MONO")
+                elif "USE_LAM_ES" not in user_vadat_keys:
                     _force("USE_LAM_ES", "T", "NON_MONO")
                 _di_cur = cmfgen.get("depth_independent_solver")
                 if _di_cur is not None and not _vadat_true(_di_cur):
@@ -11577,8 +11585,17 @@ def process_config(
                     "USE_LAM_ES", "T"
                 )
             ).strip().upper().lstrip(".")
+            _ule_sob = _vadat_true(
+                (cmfgen_config.get("vadat_overrides") or {}).get(
+                    "DO_NONMONO_SOB", "F"
+                )
+            )
             _ule_desc = (
-                "F (MOM_J_CMF_NONMONO_V1 moment solve)"
+                (
+                    "F (MOM_J_CMF_V11 moment solve, clamped SIGMA)"
+                    if _ule_sob
+                    else "F (MOM_J_CMF_NONMONO_V1 moment solve)"
+                )
                 if _ule_res.startswith("F")
                 else "T (J=TC formal solution)"
             )
