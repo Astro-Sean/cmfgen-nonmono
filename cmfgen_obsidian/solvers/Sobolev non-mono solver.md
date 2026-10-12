@@ -366,6 +366,38 @@ from the lagged *stores* (arm 2 of (d) -- stops an oscillating row
 from feeding its neighbours), or a larger ABS_FLR (~1D-1) at the
 cost of consistency on thin cells.
 
+**KNOP cold refresh anatomy (job 12168927, it6).** The refresh ran
+26 dir=D passes (dominant compression direction, cmp_frac 0.91):
+residual collapsed 1.3E3 -> ~1.6 then stalled (same-direction ratio
+>0.90), n50 pinned at exactly 11758 -- a hair under the bulk-exit
+bound NTOT/1000=11952, but `PASS_CAP=0` never held (~150 capped
+writes per pass at the clipped rows) so bulk-converged exit could
+not fire.  `conv=F` then routed the gate to the strict branch:
+sweep n50 262k vs 0.1% bound.  The retained-field delta 10.85 also
+sat just above the conv=T gate's 1E1.  Everything about the stall
+is marginal: the clipped cells' bare local solve ping-pongs against
+their neighbours through TA/TC.
+
+**Fix (b) implemented as `MOM_H_IMPL` (commit c6d5cc7, default F).**
+Adds |VB|+|VC| -- the magnitude of the lagged upwind-H midpoint
+couplings -- to the J-row diagonal.  Inside MOM_LAG_BND the excess
+grows by the same weight, so clipped shock rows keep more of their
+lagged source instead of cycling between clipped and unclipped
+fixed points, and the extra diagonal mass damps the row's response
+to neighbour drift.  Consistency cost: the signed lagged term is a
+difference while the added diagonal is a sum, so smooth rows carry
+bounded extra mass (~2*HS <= 2).  Interior rows only; the boundary
+row has its own bound.  KNOP cold resubmitted as job 12169558
+(binary c6d5cc7, MOM_H_IMPL=T, MOM_ABS_FLR=1D-3 kept).
+
+**SOB checkpoint-restore gap found (fixed same commit pair).**
+`SET_MOM_GS_TAG` was seeded only under DO_NONMONO_KNOP, so every
+SOB requeue hit `cold start (NITSF<=0): no GS restore` and paid the
+full lagged-field re-convergence transient (pops demand bounced
+~50 -> ~1E3 at the it499 requeue of job 12167431).  The
+MOMJNXT_GS dump was already written unconditionally; the tag now
+seeds under DO_NONMONO_SOB too.  SET_FG_GS_TAG stays KNOP-only.
+
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
 under `USE_LAM_ES=F`; a warm restart from `probe_snap` died in
@@ -482,6 +514,36 @@ lands on the continuum-spaced grid. `prepare_CMF_PARAM.py`
 stamps the combination from `cmfgen.obs_line_treatment='sob'` (the
 SOB default); `'sob_ew'` gives T/T flags with injection off
 (EWDATA diagnostic only).
+
+Population-state check (13-Oct-2026): rendering the it~514 (alo
+probe, ZERO_FLUX) and it~1180 (zlaw14_fresh, ZERO_FLUX) checkpoints
+gave nearly identical spectra - convergence is not the residual. The
+remaining gap to Luc's .fl is the model physics: all probe runs used
+`IB_METH=ZERO_FLUX`, which starves the photosphere at inner
+tau_es~37. Warm-restarting the alo checkpoint with
+`DIF=T`/`IB_METH=DIFFUSION`/`JBAR_W_EDD=T` (dif_probe, job 12168440)
+produced a checkpoint whose render (job 12169529) carries Luc-matched
+far-UV power: the integrated nuFnu fraction below 2000 A is ~0.94 vs
+Luc's ~0.91 (ZERO_FLUX state was ~0.94 but on a redder F_lambda SED;
+the UV forest now tracks Luc's band shape rather than sitting ~10-30x
+low). Optical line fluxes normalized at 5500 A are ~2-3x Luc's
+(He II 4686 2.9x, H alpha 2.2x) and the >1 um continuum is ~10-30x
+high; dif2 (job 12169581) continues the checkpoint under Luc's
+clumping (CL_LAW=EXPO, f=0.1, 200 km/s onset), DC_METH=LTE, THK_CONT,
+NOV_CONT, BETA1=0.1, TDOP=1.0 and dielectronic CIII/NIV/OV to test
+whether that closes the residual.
+
+OBS-only render gotcha: `cmf_flux` segfaults in INDEXX when the dir
+lacks the `POP*` species files (ATM%XzV_PRES all false ->
+N_LINE_FREQ=0 -> INDX(0) access). The orchestrator preserve-list only
+keeps files present at refresh time, so a dir copied while its source
+job was still mid-write must have POP*, SPECIES_MASSES, EDDFACTOR,
+HI_F_OSCDAT, RVTJ, MODEL, CUR_MODEL_DATA, POINT1/2 and SCRTEMP copied
+explicitly before the OBS resubmit. Without HI_F_OSCDAT the split-n2
+check in prepare_CMF_PARAM.py fails silently and GLOBAL_PROF stays
+LIST (jobs 12169283/12169382 segfaulted on this plus the missing
+POPs; override with cmf_flux_param_overrides GLOBAL_PROF=DOPPLER if
+the link cannot be restored).
 
 ## Runtime record
 
