@@ -57,4 +57,12 @@
 !
 	LOGICAL HN_DEF_ON_NODES
 !
+! Opt-in fill of NMID_ON_HMID under N_TYPE='N_ON_J' in
+! GET_MOMS_NON_REL.  The sign-split moment solver needs a real
+! midpoint Eddington g = N/H to orient the H equation's frequency
+! characteristic; historical callers (MOM_J_CMF_V8-V11) rely on the
+! zero fill, so the fill stays off unless the caller sets this.
+!
+	LOGICAL :: GMNR_NMJ_G=.FALSE.
+!
 	END MODULE MOD_RAY_MOM_STORE

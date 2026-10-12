@@ -823,8 +823,21 @@
 ! branch is unchanged away from the resonance.
 !
 	REAL(KIND=LDP), PARAMETER :: MOM_GAM_FAC_MIN=1.0E-2_LDP
+!
+! Minimum log-frequency step used in the advection coefficients.
+! The continuum grid inserts bound-free edge doublets at dLOG_NU =
+! 2E-11 (m15 SOB: 1774 of 9665 points); every frequency-advection
+! coefficient carries 1/DLN and reaches ~1E8x the physical terms
+! there.  V11 survives because its implicit and explicit terms
+! share coefficients and the row degenerates to J_k = J_{k-1}; the
+! sign-split discretization (lagged upwind stores, EPS limiter)
+! does not.  1E-6 bounds the coefficients while leaving every real
+! spacing (min ~1E-5) untouched.
+!
+	REAL(KIND=LDP), PARAMETER :: MOM_DLN_MIN=1.0E-6_LDP
 	REAL(KIND=LDP), ALLOCATABLE :: JUP_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: HUP_NM(:)
+	REAL(KIND=LDP), ALLOCATABLE :: EPS_SCL_NM(:)
 !
 ! Work arrays for the pivoted tridiagonal solve (DGTSV destroys its
 ! matrix arguments, so the coefficients are copied before each call).
@@ -1497,15 +1510,25 @@
 ! frequency of the main sweep.
 !
 	IF(.NOT. MOM_KN_REFRESHING)THEN
+!
+!	  Request the real midpoint g = N/H under N_ON_J: the compressing
+!	  branches of this routine key on GAMH_SIGNED = sign(1+sigma*g),
+!	  which is dead at g=0 (the historical fill).  Opt-in only; stock
+!	  callers keep the zero fill.
+!
+	  GMNR_NMJ_G=.TRUE.
 	  CALL GET_MOMS_NON_REL(R_NM, V_NM, FREQ, N_TYPE, ND_NM)
 !
 ! Sanitize the interpolated Eddington factors before they enter
 ! GAM/EPS/W.  GET_MOMS_NON_REL can return NaN or unphysical values
 ! at edges where the store is degenerate; a NaN K_ON_J or a
-! negative NMID_ON_HMID then poisons the tridiagonal coefficients.
-! Bounds: f=K/J in [1E-4,1] (isotropic 1/3 to free-streaming 1),
-! NMID_ON_HMID in [0,1]; NMID_ON_J keeps its sign (it is a signed
-! flux-like ratio) but non-finite is zeroed.
+! non-finite NMID_ON_HMID then poisons the tridiagonal coefficients.
+! Bounds: f=K/J in [1E-4,1] (isotropic 1/3 to free-streaming 1);
+! NMID_ON_J keeps its sign (it is a signed flux-like ratio) but
+! non-finite is zeroed.  NMID_ON_HMID is g=N/H -- genuinely signed
+! and unbounded now that N_ON_J fills it for the direction split;
+! only non-finite and |g|>1E12 are regularized, since this routine
+! always takes |1+sigma*g| rather than 1+sigma*g itself.
 !
 	  DO I=1,ND_NM
 	    IF(.NOT. (ABS(K_ON_J(I)) .LE. HUGE(K_ON_J(I))))
@@ -1517,7 +1540,8 @@
 	1      NMID_ON_J(I)=0.0_LDP
 	    IF(.NOT. (ABS(NMID_ON_HMID(I)) .LE. HUGE(NMID_ON_HMID(I))))
 	1      NMID_ON_HMID(I)=0.0_LDP
-	    NMID_ON_HMID(I)=MIN(1.0_LDP,MAX(0.0_LDP,NMID_ON_HMID(I)))
+	    NMID_ON_HMID(I)=SIGN(MIN(ABS(NMID_ON_HMID(I)),
+	1       1.0E+12_LDP),NMID_ON_HMID(I))
 	  END DO
 	END IF
 !
@@ -1888,7 +1912,7 @@
 	      END IF
 	    END IF
 	    CHI_HAT_NM(I)=CHI_NM(I)+GAM_MAG_NM(I)/
-	1       MAX(MOM_DLN_J(I),1.0E-30_LDP)
+	1       MAX(MOM_DLN_J(I),MOM_DLN_MIN)
 	    IF(CHI_HAT_NM(I) .LT. 1.0E-30_LDP)CHI_HAT_NM(I)=1.0E-30_LDP
 	  END DO
 !
@@ -1896,7 +1920,7 @@
 ! GAMH = CON_GAMH / dLOG_NU / (CHI_HAT + CHI_HAT+1)
 !
 	  DO I=1,ND_NM-1
-	    DLNM=MAX(MOM_DLN_H(I),1.0E-30_LDP)
+	    DLNM=MAX(MOM_DLN_H(I),MOM_DLN_MIN)
 	    GAMH_NM(I)=CON_GAMH_NM(I)/DLNM/
 	1       (CHI_HAT_NM(I)+CHI_HAT_NM(I+1))
 	  END DO
@@ -1915,7 +1939,7 @@
 ! GAM = CON_GAM / CHI_HAT / dLOG_NU
 !
 	  DO I=1,ND_NM
-	    DLNM=MAX(MOM_DLN_J(I),1.0E-30_LDP)
+	    DLNM=MAX(MOM_DLN_J(I),MOM_DLN_MIN)
 ! GAM_NM held the physical signed value above; it is deliberately
 ! overwritten here with the dimensionless matrix coefficient.  The
 ! signed copy lives in GAM_SIGNED_NM -- read that for the physics.
@@ -2026,20 +2050,26 @@
 	END DO
 !
 ! Compressing-midpoint fixup (the advected-frequency direction
-! reverses when GAMH_SIGNED < 0).  The explicit lagged terms of the
-! H equation then read the REDDER neighbour field, so their
-! coefficients must carry the current-frequency weights: HS becomes
-! W/(1+W) (the same convention PSI_NM uses for the J coupling) and
-! EPS_PREV takes the current NMID_ON_J.  Overwriting both here makes
-! the RHS assembly, the outer boundary row, the negative-J rebuild
-! and the H reconstruction take the consistent compressing form
-! without touching the expanding branch.
+! reverses when GAMH_SIGNED < 0).  The explicit lagged H term then
+! reads the REDDER neighbour field, so its coefficient must carry
+! the current-frequency weights: HS becomes W/(1+W) (the same
+! convention PSI_NM uses for the J coupling).  The sigma*n*J piece
+! is keyed on its own sign below.  Overwriting here makes the RHS
+! assembly, the outer boundary row, the negative-J rebuild and the
+! H reconstruction take the consistent compressing form without
+! touching the expanding branch.
 !
 	DO I=1,ND_NM-1
-	  IF(GAMH_SIGNED_NM(I) .LT. 0.0_LDP)THEN
-	    HS_NM(I)=W_NM(I)/(1.0_LDP+W_NM(I))
-	    EPS_PREV_NM(I)=EPS_NM(I)
-	  END IF
+	  IF(GAMH_SIGNED_NM(I) .LT. 0.0_LDP)
+	1    HS_NM(I)=W_NM(I)/(1.0_LDP+W_NM(I))
+!
+!	  The sigma*n*J piece carries its own direction (flux split): its
+!	  frequency upwind is sign(EPS) = sign(sigma*n), not the H-part
+!	  characteristic sign(1+sigma*g).  Where it reads the lagged
+!	  redder field the lagged coefficient takes the current weights,
+!	  matching the PSI_NM convention for the J coupling.
+!
+	  IF(EPS_NM(I) .LT. 0.0_LDP)EPS_PREV_NM(I)=EPS_NM(I)
 	END DO
 !
 !*****************************************************************************
@@ -2296,26 +2326,36 @@
 	  END DO
 !
 ! Lagged EPS*(sigma n J) midpoint terms.  The advected quantity uses
-! the same frequency upwind as the J and H couplings: an expanding
-! midpoint reads the bluer RSQJNU_PREV_NM, a compressing midpoint
-! the lagged redder JUP_NM.  The coefficient sign still selects the
-! depth-upwind node.  Scattered per midpoint: midpoint I contributes
-! +2E*J_up to row I and -2E*J_up to row I+1.  Row 1's share is added
-! by the boundary block below and row ND is replaced by the inner
-! BC, so neither is written here.
+! the term's own frequency direction (flux split): EPS >= 0 reads the
+! bluer RSQJNU_PREV_NM, EPS < 0 the lagged redder JUP_NM.  (Under
+! N_ON_J before the NMID_ON_HMID fill, GAMH_SIGNED was always >= 0,
+! so this term was read downwind wherever sigma*n < 0.)  The
+! coefficient sign still selects the depth-upwind node.  Scattered
+! per midpoint: midpoint I contributes +2E*J_up to row I and
+! -2E*J_up to row I+1.  Row 1's share is added by the boundary block
+! below and row ND is replaced by the inner BC, so neither is
+! written here.
 !
+	IF(.NOT. ALLOCATED(EPS_SCL_NM))THEN
+	  ALLOCATE(EPS_SCL_NM(ND_NM))
+	ELSE IF(SIZE(EPS_SCL_NM) .NE. ND_NM)THEN
+	  DEALLOCATE(EPS_SCL_NM)
+	  ALLOCATE(EPS_SCL_NM(ND_NM))
+	END IF
+	EPS_SCL_NM(1:ND_NM)=1.0_LDP
 	  DO I=1,ND_NM-1
 	    IF(EPS_PREV_NM(I) .GE. 0.0_LDP)THEN
 	      K=I
 	    ELSE
 	      K=I+1
 	    END IF
-	    IF(GAMH_SIGNED_NM(I) .LT. 0.0_LDP)THEN
+	    IF(EPS_PREV_NM(I) .LT. 0.0_LDP)THEN
 	      T4=JUP_NM(K)
 	    ELSE
 	      T4=RSQJNU_PREV_NM(K)
 	    END IF
-	    T5=2.0_LDP*EPS_PREV_NM(I)*T4
+	    T3=2.0_LDP*EPS_PREV_NM(I)*T4
+	    T5=T3
 	    IF(MOM_EPS_LIM)THEN
 !
 !	      Donor-cell positivity limiter on the lagged transfer (a
@@ -2345,9 +2385,45 @@
 	          MOM_EPS_CAP_SW=MOM_EPS_CAP_SW+1
 	        END IF
 	      END IF
+!
+!	      The implicit half of the same transfer sits uncapped in
+!	      TA/TB/TC: capping only this side turned a frequency
+!	      derivative into a net source/sink wherever |EPS| >> HU
+!	      (millions of events per sweep on m15).  Record the cap
+!	      factor so the implicit half is scaled to match below --
+!	      the pair stays a (smaller, consistent) derivative.
+!
+	      IF(T3 .NE. 0.0_LDP)EPS_SCL_NM(I)=T5/T3
 	    END IF
 	    IF(I .GT. 1)XM_NM(I)=XM_NM(I)+T5
 	    IF(I .LT. ND_NM-1)XM_NM(I+1)=XM_NM(I+1)-T5
+	  END DO
+!
+! Apply the cap factor to the implicit half: rows I and I+1 carry
+! (EPS_SCL-1)*2*EPS on the same depth-upwind stencil the assembly
+! used, then both EPS arrays are rescaled so the boundary row, the
+! negJ rebuild and the H reconstruction see the capped coefficient.
+!
+	  DO I=1,ND_NM-1
+	    IF(EPS_SCL_NM(I) .NE. 1.0_LDP)THEN
+	      T3=2.0_LDP*EPS_NM(I)*(EPS_SCL_NM(I)-1.0_LDP)
+	      IF(I .GT. 1)THEN
+	        IF(EPS_NM(I) .GE. 0.0_LDP)THEN
+	          TB_NM(I)=TB_NM(I)+T3
+	        ELSE
+	          TC_NM(I)=TC_NM(I)+T3
+	        END IF
+	      END IF
+	      IF(I .LT. ND_NM-1)THEN
+	        IF(EPS_NM(I) .GE. 0.0_LDP)THEN
+	          TA_NM(I+1)=TA_NM(I+1)-T3
+	        ELSE
+	          TB_NM(I+1)=TB_NM(I+1)-T3
+	        END IF
+	      END IF
+	      EPS_NM(I)=EPS_NM(I)*EPS_SCL_NM(I)
+	      EPS_PREV_NM(I)=EPS_PREV_NM(I)*EPS_SCL_NM(I)
+	    END IF
 	  END DO
 	END IF
 !
@@ -2504,7 +2580,7 @@
 	    ELSE
 	      K=2
 	    END IF
-	    IF(GAMH_SIGNED_NM(1) .LT. 0.0_LDP)THEN
+	    IF(EPS_PREV_NM(1) .LT. 0.0_LDP)THEN
 	      T4=JUP_NM(K)
 	    ELSE
 	      T4=RSQJNU_PREV_NM(K)
@@ -2677,7 +2753,7 @@
 	          ELSE
 	            K=J+1
 	          END IF
-	          IF(GAMH_SIGNED_NM(J) .LT. 0.0_LDP)THEN
+	          IF(EPS_PREV_NM(J) .LT. 0.0_LDP)THEN
 	            T4=JUP_NM(K)
 	          ELSE
 	            T4=RSQJNU_PREV_NM(K)
@@ -3180,7 +3256,7 @@
 	    ELSE
 	      K=I+1
 	    END IF
-	    IF(GAMH_SIGNED_NM(I) .LT. 0.0_LDP)THEN
+	    IF(EPS_PREV_NM(I) .LT. 0.0_LDP)THEN
 	      T4=JUP_NM(K)
 	    ELSE
 	      T4=RSQJNU_PREV_NM(K)

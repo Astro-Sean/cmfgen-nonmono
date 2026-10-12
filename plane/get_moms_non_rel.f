@@ -197,6 +197,26 @@
 	      NMID_ON_J(I)=0.0_LDP
 	    END IF
 	  END DO
+!
+! Opt-in midpoint g = N/H for the sign-split moment solver
+! (GMNR_NMJ_G).  With g=0 the factor 1+sigma*g is always positive,
+! so the compressing branches of MOM_J_CMF_NONMONO_V1 never engage
+! and the sigma*n*J term is differenced downwind wherever sigma*n<0.
+! Where |H| is resolvable use the measured ratio; where it is not
+! (|H| < 1E-3|N|), the sigma*n*J piece dominates the characteristic
+! and a large signed g gives 1+sigma*g the sign of sigma*N -- the
+! same direction the EPS term takes.
+!
+	  IF(GMNR_NMJ_G)THEN
+	    DO I=1,NDM1
+	      IF(ABS(RSQ_HNU_MID(I)) .GT. 1.0E-3_LDP*
+	1         MAX(ABS(RSQ_NNU_MID(I)),1.0E-290_LDP))THEN
+	        NMID_ON_HMID(I)=RSQ_NNU_MID(I)/RSQ_HNU_MID(I)
+	      ELSE
+	        NMID_ON_HMID(I)=SIGN(1.0E+10_LDP,RSQ_NNU_MID(I))
+	      END IF
+	    END DO
+	  END IF
 	ELSE IF(N_TYPE .EQ. 'MIXED')THEN
 	  NMID_ON_J(1:NDM1)=0.0_LDP
 	  DO I=1,NDM1
