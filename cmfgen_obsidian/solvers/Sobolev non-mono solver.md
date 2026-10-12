@@ -337,14 +337,34 @@ That is the fix-(d) regime, now implemented as `MOM_ABS_FLR`
 (VADAT real, default 0 = off): `MAX(0,1-COH)` becomes
 `MAX(fl,1-COH)` in both interior TB branches, and the negated
 outer-boundary row's `MIN(COH,1)-1` becomes `MIN(COH,1-fl)-1`.
-A ~1D-3 floor keeps a physical absorption anchor so the bound can
-leave a nonzero lagged weight.  Off by default so the running
-(a)+(c) probes remain a clean A/B control; enabled in the KNOP
-configs via `vadat_overrides` for the next resubmit if the current
-KNOP runs floor before maturing (n_frozen watchdog = 60).
 
-(b) implicit H coupling remains a candidate follow-up if the floor
-does not close the seed gap.
+**KNOP cold+FLR probe (job 12168927, binary 964638e,
+MOM_ABS_FLR=1D-3): floor is INERT.** it1-3 match the unfloored
+control (12167426) within noise: mom 1.4E5 -> 5.6E4 -> 1.2E4,
+n50 ~480k, lagbnd scaled ~9.2M, mins still 0.  The churning cells
+are optically thin, so flr*DTAUONQ << lagged weight and the bound
+still nulls the row.  Arm 1 of (d) fails at its designed strength.
+
+Re-read of the residual: the refresh itself converges internally
+(drift < 1, n5=n50=0 within passes), so the lagged map at fixed
+coefficients is now contractive.  What persists is the composite
+fixed-point iteration across great iterations -- the formal solve
+rebuilds Eddington factors on the updated J each iteration, which
+shifts the moment map's fixed point, so `mom_maxchg` measures the
+fixed-point drift under factor feedback, not map gain.  Adaptive
+damping already pulls ~4600 cells to relax 0.06-0.25 without
+closing the tail.  KNOP warm cycles productively through the
+freeze/release machinery (it455 released, took a capped 200% BA
+step, se_res 7.9E16 -> 1.2E16, re-froze at it456) -- the release
+cycles make SE progress; whether the cycle period shortens as pops
+settle is the open question.  KNOP cold never reached n_mature=1
+in 19 iterations on (a)+(c).
+
+Remaining candidate levers for the composite tail: (b) implicit H
+coupling (removes a whole lagged channel), excluding ESEC>CHI rows
+from the lagged *stores* (arm 2 of (d) -- stops an oscillating row
+from feeding its neighbours), or a larger ABS_FLR (~1D-1) at the
+cost of consistency on thin cells.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
