@@ -119,6 +119,37 @@ feeds the solver's GAM term. JFNK admission is gated on `USE_LAM_ES`
 SN-model consistency check in `check_param_consistency.f` prints a
 `USE_JREL or USE_DJDT_RTE` warning for `USE_LAM_ES=F`; benign.
 
+**Refresh is mandatory but not sufficient in this mode.** The first
+moment probe (job 12160057) ran without `MOM_KNOP_REFRESH_V1` - the
+refresh driver was gated on `DO_NONMONO_KNOP`, so the compressing-zone
+`J_NEXT`/`H_NEXT` map only matured one great iteration at a time.
+Result: emergent luminosity ran away 3.9E8 -> 2.2E11 over 12
+iterations with quarantined cells growing to ~7500/sweep.
+`DO_KNOP_REFRESH` now defaults on for `DO_NONMONO_SOB .OR.
+DO_NONMONO_KNOP` and `cmfgen_sub.f` calls both `FG_KNOP_REFRESH_V1`
+and `MOM_KNOP_REFRESH_V1` under either flag (each self-guards when
+its solver did not run).
+
+With refresh enabled (job 12160690, commit bfa3291) the field stayed
+bounded for ~5 iterations (~5-7E9 against a converged level ~1E10,
+demands down to ~200%), then diverged anyway once the lagged map
+matured: luminosity 1.7E10 (it446) -> 1.6E17 (it457), job cancelled.
+GS-sweep diagnostics at the onset: `drift 4.2` (lagged map moving 4x
+per sweep), `cmp_frac=0.945` (94.5% of cells compressing - the whole
+field rides on the J_NEXT upwind), `max|EPS|/HU=5E6` with ~5M cap
+events, `max|sigT|=113`. The refresh delta oscillated 0-1E5 without
+converging: the composite map has a multiplier >1 on this field,
+which under-relaxation cannot fix (see the MOM_DAMP_NM comment in
+mom_j_cmf_nonmono_v1.f). All population steps stayed LAMBDA-mode
+(demands under LAM_ENTER=400), so the BA/ALO linearization never
+acted - the divergence is a pure J-field runaway, not a Jacobian
+failure. Open question: does the same happen under
+DO_NONMONO_KNOP+LAM_ES=F on this field - control probe
+`dessart_m15_2p82d_KNOP_MOM_probe` (job 12161004) tests exactly
+that; the remaining call-site differences are the ray-moment source
+(V13 vs the Knop formal solver), SOL_METH DIAG vs TRI, and the
+bluest-frequency dLOG_NU fix (still KNOP-gated, comp_j_blank.f:630).
+
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
 under `USE_LAM_ES=F`; a warm restart from `probe_snap` died in

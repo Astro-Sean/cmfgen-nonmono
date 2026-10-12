@@ -190,9 +190,16 @@ Sobolev treatment for non-monotonic velocity fields:
   frequency, so `N_ON_J` factors come live from its ray moments via
   `GET_MOMS_NON_REL`; `SIGMA_TRUE` drives the Sobolev lines and the
   solver GAM term. Warns, no longer STOPs. JFNK stays inactive in
-  this mode (admission is gated on `USE_LAM_ES`). The earlier V11+V12
-  variant diverged on m15 (jobs 12158938, 12159013); do not restore
-  it - V11 assumes expanding flow and V12 linearizes the V11 system.
+  this mode (admission is gated on `USE_LAM_ES`). `DO_KNOP_REFRESH`
+  defaults on here as well as under KNOP (`MOM_KNOP_REFRESH_V1`
+  converges the lagged J_NEXT/H_NEXT map within each sweep). Status
+  on m15: refresh enabled is necessary but not sufficient - job
+  12160690 diverged 3.9E8->1.6E17 once the map matured (lagged-map
+  drift ~4x/sweep, 94.5% compressing cells, |EPS|/HU~5E6). Whether
+  the expansive map is model-inherent or SOB-specific is under test
+  in KNOP_MOM_probe (job 12161004). The earlier V11+V12 variant
+  diverged on m15 (jobs 12158938, 12159013); do not restore it -
+  V11 assumes expanding flow and V12 linearizes the V11 system.
 - `BA_DEM_RELFRAC` (VADAT key, default 0=off, 12-Oct-2026): relative
   demand floor in `SOLVEBA_V13` - rows below `RELFRAC*max(POPS)` at a
   depth are excluded from the MAXCH/MAXCH_APP metric (their corrections
