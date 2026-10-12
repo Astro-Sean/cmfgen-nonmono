@@ -52,18 +52,24 @@ cmfgen:
   init_num_its: 100
   cpus_per_task: 8
   mem: 30G
-  # 12-Oct-2026: 'sob' = resolved Sobolev render via the native
-  # deposition path (DO_SOB_FLUX_OBS=T): GLOBAL_LINE/TRANS_*=SOB
-  # mirrored from VADAT, DO_SOB_LINES=T computes each line's SIGMA_TRUE
-  # EW, SOB_FREQ_IN_OBS=T refines the observed grid across each
-  # resonance zone, and cmf_flux deposits the EW into OBS_FLUX over
-  # that zone weighted by the line's per-depth emissivity.  This is the
-  # only render consistent with the SOB populations: CMF/BLANK line
-  # transfer over-emits ~10x on the non-monotonic field.  'sob_ew'
+  # 12-Oct-2026: 'sob' = resolved Sobolev render via profile injection
+  # (DO_SOB_FLUX_OBS=T): GLOBAL_LINE/TRANS_*=SOB mirrored from VADAT,
+  # DO_SOB_LINES=T computes each line's SIGMA_TRUE opacity/emissivity,
+  # ADD_SOB_LINE_PROF writes them into the stored CMF arrays as Doppler
+  # cores, SOB_FREQ_IN_OBS=T refines the observed grid across each
+  # resonance zone, and a second OBS_FRAME_SUB_V9 pass renders the
+  # resolved profiles into OBSFRAME.  This is the only render
+  # consistent with the SOB populations: CMF/BLANK line transfer
+  # over-emits ~10x on the non-monotonic field.  'sob_ew'
   # keeps the EW diagnostic (deposition off, continuum-only spectrum);
   # 'blank' is the full CMF profile render used for KNOP runs and .fl
   # comparison.  Non-mono hardening still applies: DO_NONMONO_KNOP=T,
   # NON_MONO_SOLVER=T, N_ON_J, FG_OPT=INT/INS.
+  # 12-Oct-2026 control result: 'blank' render on the same checkpoint
+  # (job 12166771) peaks at 1.6e7 Jy -- the 1e18 Jy spikes in the first
+  # profile-injection render were an injection artifact (total CHI
+  # floored to 1e-30 at masering cells), fixed by dropping maser cells
+  # in ADD_SOB_LINE_PROF (cmfgen_jfnk commit 2db3338).
   obs_line_treatment: sob
   # Resolved-SOB render is much lighter than the blank render (no
   # per-line profile storage for SOB lines), so it fits the 30G
