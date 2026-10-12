@@ -630,6 +630,36 @@ each keeps the residual's equation set identical to the BA currently
 factored. This removes a real residual non-smoothness; it does not
 close the dominant implicit-factor gap above.
 
+## Review-branch keys and diagnostics (12-Oct-2026)
+
+Full writeup in `JFNK_REVIEW.md` (repo root).  New opt-in VADAT keys
+(all default off / unchanged behavior):
+
+- `JFNK_RSCALE=DIAG` - residual rows scaled by `1/|BA_ii|` (Ne row by
+  `1/ED`), so the weighted norm approximates the largest relative
+  correction rather than the raw Euclidean norm that converged HI rows
+  dominate.  `EUCLIDEAN` remains the default.
+- `JFNK_MXCH_TOL` (default 0) - second convergence test on
+  `jfnk_maxch_est` = `max_i |F_i|/|BA_ii|` over population rows,
+  computed on bare F before the PTC term and printed on the `nits=`
+  line and RESULT block.
+- `JFNK_POP_FL` (default 0) - rows with `n_i < JFNK_POP_FL*(ion total)`
+  get `ROW_REG` identity rows at factor time; `z_i=0` at apply so the
+  Newton step leaves near-empty trace levels to the outer iteration.
+- `JFNK_RIDGE_PIV` (default 0) - a DGETRF-successful factorization
+  whose equilibrated pivot ratio falls below the key is rejected so
+  the ITRY loop escalates the ridge.  Per-depth pivot ratio, DGECON
+  rcond, and accepted ITRY are printed per factorization.
+- `JFNK_MAX_RESTART` - cap on GMRES restarts after Arnoldi lucky
+  breakdown; RESTART DIAG prints hess vs true residual per cycle.
+
+Diagnostic changes: `jfnk_exit_reason` labels every solver return;
+REACH/REACH-FD price the commit-clipped step (`Z_CLIP`, prints
+`REACH clip: max|z| raw -> clipped, nclip=`); the restricted-step
+print is relabeled `(|z|>1 zeroed)`; `cos(BAz,A_FDz)` JJZ_DP
+corruption fixed (guarded by `verify_cosine_bounds.py`); COLPROBE
+gained a topF h-scan; top-|z| rows carry ion/level/n/nLTE labels.
+
 ## Deliberately not implemented
 
 - Sherman-Morrison-Woodbury low-rank preconditioner update for the

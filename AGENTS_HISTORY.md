@@ -96,6 +96,54 @@ Also built by `./build.sh`: `exe/cmf_flux.exe`, `exe/obs_frame.exe`
 
 ## 8. Status
 
+### JFNK review branch: restart cap, clipped reach, opt-in keys (12-Oct-2026)
+
+Commits aa69daa..b4a6fa2 on master implement the JFNK_REVIEW.md
+findings from probes 12155376/12155427 on
+`m15_2p82d_SOB_jfnk_probe` (same deterministic it444 admission as the
+failed production run 12153985).  Summary:
+
+- GMRES now restarts on Arnoldi lucky breakdown/stagnation with a cap
+  (JFNK_MAX_RESTART, probe used 2).  RESTART DIAG prints hess vs true
+  residual: cycle 1's apparent 37% drop was illusory (hess 5.67e13 vs
+  true 3.43e14, ratio 6.06) because the clipped FD JVP is not a fixed
+  operator.  Second admission fell back to the inexact direction
+  (pred_res/ref 0.87) instead of a blind Lambda abort.
+- Every JFNK bail-out prints `jfnk_exit_reason`; nits line now carries
+  maxch_est.
+- New opt-in VADAT keys: JFNK_RSCALE=DIAG (row scaling by BA diag,
+  Ne row by ED; EUCLIDEAN still default), JFNK_MXCH_TOL (max relative
+  correction convergence test, default 0=off), JFNK_POP_FL (freeze
+  near-empty levels via ROW_REG, default 0=off), JFNK_RIDGE_PIV
+  (escalate ridge on measured pivot ratio, default 0=off).
+- REACH/REACH-FD now price the commit-clipped step (Z_CLIP) and print
+  max|z| before/after plus nclip; the |z|<1 restricted print is
+  relabeled (|z|>1 zeroed).  cos(BAz,A_FDz) JJZ_DP corruption fixed;
+  verify_cosine_bounds.py guards it (still flags the pre-fix OUTGEN).
+- Per-depth LU pivot ratio + DGECON rcond printed per factorization;
+  ridged=70 traced to YAML JFNK_RIDGE=1e-4 (config, not a trigger
+  bug).
+- The 16% ||Mz-v||/||v|| preconditioner residual is genuine LU
+  backward error on blocks with equilibrated cond ~1e15 (pop rows
+  carry 4.7e12; T/Ne rows only 4.7e-2 of |v|).  Frozen-row reduction
+  is correct but changed nothing; the lever is row-space conditioning
+  (POP_FL / ROW_TINY), not ridge.
+- Issue 6: topF colprobe (HI J=23 K=70) FD-vs-BA |diff|/|BA|=14.6%
+  with sign-flipped downward couplings; consistent with FD
+  differentiating the dissolution factor w(n) that stored BA froze.
+  topF h-scan added.
+- Issue 10 report-only: V monotone-decreasing outward, sigma in
+  [-120,-1.05], 18 jumps >20 km/s; S IV f=11 oscillator warning real;
+  HeI 23/24 0.002 cm^-1 near-degeneracy benign.
+- prepare_VADAT.py (outer repo 964c2f92) now prints the parsed-back
+  final VADAT so the log cannot contradict the file.
+
+Build `make DEBUG=nodebug all` clean (0 errors; three exes fresh).
+Surrogate suite: only the four pre-existing T3/T4 failures.
+unit_tests: 10/11; test_interp_guards flaky on uninitialized output
+column jitter (routines untouched since baseline).  Opt-in probe with
+the new keys not yet submitted.
+
 ### JFNK frozen-tier endgame review (11-Oct-2026)
 
 OUTGEN for `m15_2p82d_SOB_jfnk_zlaw14_fresh` (job 12153985) confirmed
