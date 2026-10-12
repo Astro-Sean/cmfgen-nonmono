@@ -2824,7 +2824,10 @@
 	  END DO
 !
 ! Normalize the Gaussian by the local cell widths so the stored
-! profile integrates to unity over frequency.
+! profile integrates to unity over frequency.  NU is in units of
+! 10^15 Hz while CHIL_MAT/ETAL_MAT are per-Hz quantities (cf. the
+! 1.0D-15 factor in the LINE_PROF_SIM normalization in SET_PROF_V6),
+! so the weight carries an explicit 1.0D-15.
 !
 	  XNORM=0.0_LDP
 	  DO K=KA,KB
@@ -2841,7 +2844,7 @@
 	  IF(XNORM .LE. 0.0_LDP)CYCLE
 !
 	  DO K=KA,KB
-	    WT=EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
+	    WT=1.0E-15_LDP*EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
 	    DO I=1,ND
 	      IF(CHIL_MAT(I,S) .LE. 0.0_LDP)THEN
 	        N_DROP=N_DROP+1
