@@ -45,13 +45,33 @@ restricted to keys that cmf_flux.exe actually reads (rd_cmf_flux_controls.f).
 Main-run-only keys (VEL_LAW, RD_IN_R_GRID, PURE_HUB, AUTO_SMOOTH,
 MAX_CHNG, LAM_SCALE_OPT, etc.) are not applicable to the OBS stage.
 
-The BLANK set is for Knop populations (DO_NONMONO_KNOP). For SOB
-populations (non_mono_mode='SOB' / DO_NONMONO_SOB=T), the OBS step
-combines DO_NONMONO_KNOP=T for formal J with DO_NONMONO_SOB=T and
-GLOBAL_LINE=SOB, TRANS_*=SOB, DO_SOB_LINES=T, SOB_FREQ_IN_OBS=T. This
-keeps the Knop non-monotonic J and electron-scattering source while
-retaining the population run's Sobolev line frequencies and SIGMA_TRUE
-EW estimator. The OBS reader validates this combined mode.
+The BLANK set is for Knop populations (DO_NONMONO_KNOP). The line
+treatment applied to CMF_FLUX_PARAM is mirrored from ../VADAT — the
+config the population solver actually executed (fact, not YAML intent).
+GLOBAL_LINE, every TRANS_*, DO_SOB_LINES, SOB_FREQ_IN_OBS, DO_*SOB* and
+LAM_SET are copied over; TRANS_* keys absent from VADAT inherit VADAT's
+GLOBAL_LINE, matching solver semantics.  When VADAT is unreadable the
+YAML mode detection is the fallback.
+
+SOB population runs default to the resolved Sobolev render: VADAT's
+GLOBAL_LINE/TRANS_*/DO_*SOB* are mirrored so the OBS treats lines by
+the same Sobolev method the populations used, and the flux-mode keys
+are set for native deposition — DO_SOB_LINES=T computes each line's
+Sobolev EW (SIGMA_TRUE under DO_NONMONO_SOB), SOB_FREQ_IN_OBS=T refines
+the observed grid across each resonance zone, and DO_SOB_FLUX_OBS=T
+deposits each EW into OBS_FLUX over that zone weighted by the line's
+per-depth emissivity (DEP_SOB_OBS_FLUX in cmf_flux_sub_v5.f).  Without
+the deposit, TRANS_*=SOB lines never enter the formal transfer and the
+spectrum is continuum-only — verified empirically (the F/F combination
+Luc Dessart's VADAT carries produces 815 continuum frequencies and no
+lines in this cmf_flux version).
+cmfgen.obs_line_treatment selects: 'sob' (default for SOB models, the
+deposited render above), 'sob_ew' (EW diagnostic: same T/T flags but
+DO_SOB_FLUX_OBS=F, so EWDATA is produced but OBS_FLUX stays
+continuum-only), or 'blank' (NON_MONO_SOB_BLANK_CMF_PARAM: full CMF
+line profiles on the resolved grid — a different, more expensive line
+method than the populations used, and the render for KNOP runs).  The
+YAML-mode fallback maps 'sob' to NON_MONO_SOB_RESOLVED_CMF_PARAM.
 
 Usage:
   # Default: read CMF_FLUX_PARAM_INIT in cwd, enforce, overwrite in-place
@@ -197,9 +217,12 @@ NON_MONO_FORCED_CMF_PARAM = {
     'TRANS_NkX': 'BLANK',
 }
 
-# SOB populations keep Sobolev line frequencies and the SIGMA_TRUE EW
-# estimator, while the OBS continuum and electron-scattering source use
-# the Knop formal solution for arbitrary velocity fields.
+# EW diagnostic set: Sobolev EWs computed in flux mode and every SOB
+# line's resonance zone refines the observed grid.  With deposition off
+# (DO_SOB_FLUX_OBS=F) the observed spectrum stays continuum-only —
+# TRANS_*=SOB lines never enter the formal transfer in this cmf_flux
+# version.  Diagnostic only (EWDATA output); select with
+# cmfgen.obs_line_treatment='sob_ew'.
 NON_MONO_SOB_CMF_PARAM = {
     **NON_MONO_FORCED_CMF_PARAM,
     'DO_NONMONO_KNOP': 'T',
@@ -207,15 +230,75 @@ NON_MONO_SOB_CMF_PARAM = {
     'GLOBAL_LINE': 'SOB',
     'DO_SOB_LINES': 'T',
     'SOB_FREQ_IN_OBS': 'T',
+    'DO_SOB_FLUX_OBS': 'F',
     **{k: 'SOB' for k in NON_MONO_FORCED_CMF_PARAM
        if k.startswith('TRANS_')},
+}
+
+# Resolved Sobolev render: the same SOB line method as the population
+# solve, with each line's Sobolev EW deposited into OBS_FLUX over its
+# observed-frame resonance span (DEP_SOB_OBS_FLUX, weighted by the
+# line's per-depth emissivity).  This is the only render consistent
+# with SOB populations: CMF/BLANK line transfer over-emits by ~10x on
+# non-monotonic velocity fields.  Default OBS treatment for SOB
+# populations; the YAML-mode fallback when ../VADAT is unreadable.
+NON_MONO_SOB_RESOLVED_CMF_PARAM = {
+    **NON_MONO_SOB_CMF_PARAM,
+    'DO_SOB_FLUX_OBS': 'T',
+}
+
+# SOB populations can instead take the blanketed CMF line treatment.
+# The Knop formal J still handles the non-monotonic velocity field, but
+# lines enter the observed-frame grid with resolved profiles, giving a
+# spectrum directly comparable to reference CMF spectra (e.g. the
+# Dessart .fl files).  The Sobolev-rendered spectrum smears each line
+# over its resonance surfaces, which cannot match a CMF spectrum.
+# Select with cmfgen.obs_line_treatment='blank'.  DO_CMF_EW must stay
+# off: rd_cmf_flux_controls.f STOPs when the CMF EW estimator is asked
+# to clamp SIGMA on a non-monotonic field.
+NON_MONO_SOB_BLANK_CMF_PARAM = {
+    **NON_MONO_FORCED_CMF_PARAM,
+    'DO_NONMONO_KNOP': 'T',
+    'DO_NONMONO_SOB': 'F',
+    'DO_CMF_EW': 'F',
+}
+
+# Line-treatment keys: the subset describing how lines enter the
+# solution.  The OBS step must mirror these from ../VADAT (the executed
+# population-solver config) so the spectrum is rendered consistently
+# with the physics the populations converged under.  Everything else in
+# NON_MONO_FORCED_CMF_PARAM is an OBS formal-solve setting.
+LINE_TREATMENT_KEYS = {
+    'GLOBAL_LINE', 'DO_SOB_LINES', 'SOB_FREQ_IN_OBS',
+    'DO_NOMONO_SOB', 'DO_NONMONO_SOB', 'DO_NONLOC_SOB', 'LAM_SET',
+}
+
+# VADAT flags that mark the population run as non-monotonic.  When any
+# is T the OBS needs DO_NONMONO_KNOP=T so the formal J comes from
+# FG_J_CMF_NONMONO_V1 rather than the monotonic FG_J_CMF_V12.
+NON_MONO_FLAG_KEYS = {
+    'DO_NONMONO_KNOP', 'DO_NOMONO_KNOP',
+    'DO_NONMONO_SOB', 'DO_NOMONO_SOB', 'NON_MONO_SOLVER',
+}
+
+
+def _is_line_treatment_key(key):
+    return key in LINE_TREATMENT_KEYS or key.startswith('TRANS_')
+
+
+# Solver-only subset of the forced set: applied on every non-mono OBS
+# regardless of which line treatment the population run used.
+_SOLVER_ONLY_FORCED = {
+    k: v for k, v in NON_MONO_FORCED_CMF_PARAM.items()
+    if not _is_line_treatment_key(k)
 }
 
 # Keys that are forced and cannot be overridden by YAML.
 # OBS-specific settings (frequency range, velocity spacing, profiles,
 # Eddington factors, etc.) remain in the template and are NOT forced.
 NON_OVERRIDABLE = set(NON_MONO_FORCED_CMF_PARAM.keys()) | {
-    'DO_NONMONO_KNOP', 'DO_NONMONO_SOB'
+    'DO_NONMONO_KNOP', 'DO_NONMONO_SOB', 'DO_NOMONO_SOB', 'DO_NONLOC_SOB',
+    'DO_SOB_FLUX_OBS',
 }
 
 
@@ -291,6 +374,40 @@ def sob_mode_active(config_path):
         return mode == 'SOB'
     lt = str(cmfgen_cfg.get('non_mono_line_treatment', '')).strip().upper()
     return lt == 'SOB'
+
+
+def obs_line_treatment(config_path):
+    """Return the OBS line treatment requested for SOB populations.
+
+    'sob' (default): resolved Sobolev render — the OBS treats lines by
+    the same SOB method as the populations, with DO_SOB_LINES=T,
+    SOB_FREQ_IN_OBS=T and DO_SOB_FLUX_OBS=T so each line's Sobolev EW
+    is deposited into the observed spectrum over its resonance span.
+    'sob_ew' opts into the EW diagnostic: same T/T flux-mode keys but
+    DO_SOB_FLUX_OBS=F, so EWDATA is written while OBS_FLUX stays
+    continuum-only.  'blank' opts into full blanketed CMF line
+    profiles on the resolved grid — the render used for KNOP runs and
+    .fl comparison work (~tens of minutes).  Only read when the
+    population mode is SOB; monotonic and KNOP runs always use the
+    BLANK set.
+    """
+    try:
+        import yaml
+    except ImportError:
+        return 'sob'
+
+    config_path = Path(config_path) if config_path else None
+    if config_path is None or not config_path.is_file():
+        return 'sob'
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+
+    cmfgen_cfg = cfg.get('cmfgen', {}) or {}
+    lt = str(cmfgen_cfg.get('obs_line_treatment', '')).strip().lower()
+    if lt in ('blank', 'sob_ew'):
+        return lt
+    return 'sob'
 
 
 def knop_mode_active(config_path):
@@ -374,6 +491,45 @@ def main_run_es_settings(template_path, config_path=None, keys=None):
             if out:
                 out['_source'] = f'{config_path} (vadat_overrides)'
     return out
+
+
+def vadat_line_treatment(template_path):
+    """Read the population solver's line treatment from ../VADAT.
+
+    ../VADAT is the config the population run actually executed, so its
+    line-treatment keys are fact; YAML mode keys are intent that can
+    drift.  Returns (line_keys, nonmono_active); (None, False) when
+    VADAT is unreadable or carries no line-treatment keys.  line_keys
+    contains every GLOBAL_LINE/DO_*SOB*/LAM_SET/TRANS_* entry found plus
+    a '_source' record.
+    """
+    key_re = re.compile(r'^\s*([^\s]+)\s+\[([A-Za-z0-9_/]+)\]')
+    for cand in (Path(template_path).parent.parent / 'VADAT',
+                 Path('..') / 'VADAT'):
+        if not cand.is_file():
+            continue
+        line_keys = {}
+        nonmono = False
+        with open(cand) as f:
+            for line in f:
+                m = key_re.match(line)
+                if not m:
+                    continue
+                key, val = m.group(2), m.group(1).strip()
+                if key in NON_MONO_FLAG_KEYS and val.upper().startswith('T'):
+                    nonmono = True
+                if _is_line_treatment_key(key):
+                    line_keys[key] = val
+        if line_keys:
+            line_keys['_source'] = str(cand)
+            return line_keys, nonmono
+    return None, False
+
+
+def _vadat_sob(line_keys):
+    """True when the VADAT line treatment is Sobolev."""
+    return (line_keys.get('GLOBAL_LINE', '').strip().upper() == 'SOB'
+            or line_keys.get('DO_NONMONO_SOB', '').upper().startswith('T'))
 
 
 def _num_or_none(tok):
@@ -570,37 +726,109 @@ def main():
     with open(template_path) as f:
         lines = f.readlines()
 
-    # 1. Apply forced non-monotonic settings (non-overridable). SOB
-    # populations use the OBS-only combination: Knop formal J with SOB
-    # line frequencies and SIGMA_TRUE EW estimators. Knop populations
-    # keep the blanketing treatment. The OBS reader validates the pair.
+    # 1. Apply forced non-monotonic settings (non-overridable).
+    # Primary source of truth: ../VADAT — the config the population
+    # solver actually executed.  Its GLOBAL_LINE / TRANS_* / DO_*SOB* /
+    # LAM_SET values are mirrored so the spectrum renders lines the same
+    # way the converged run treated them.  YAML mode keys are the
+    # fallback when VADAT is unreadable.  For SOB populations the
+    # flux-mode keys are set by obs_line_treatment rather than mirrored:
+    # DO_SOB_LINES and SOB_FREQ_IN_OBS are inert in the SE solve, so
+    # VADAT's values do not constrain the OBS render.  'sob' turns on
+    # native EW deposition (DO_SOB_FLUX_OBS=T); 'sob_ew' keeps the EW
+    # diagnostic only (F).
     sob_mode = sob_mode_active(args.vadat_overrides)
-    if sob_mode:
-        lines = _apply_forced_keys(lines, NON_MONO_SOB_CMF_PARAM,
+    vadat_lt, nonmono_in_vadat = vadat_line_treatment(template_path)
+    obs_lt = obs_line_treatment(args.vadat_overrides)
+    obs_blank = ((sob_mode
+                  or (vadat_lt is not None and _vadat_sob(vadat_lt)))
+                 and obs_lt == 'blank')
+    vadat_applied = False
+    if obs_blank:
+        forced_set = NON_MONO_SOB_BLANK_CMF_PARAM
+        lines = _apply_forced_keys(lines, forced_set,
+                                   tag="NON_MONO_SOB_BLANK")
+        print("  non-mono SOB mode, blank OBS: Knop formal J with "
+              "GLOBAL_LINE=BLANK, TRANS_*=BLANK (resolved CMF profiles)")
+    elif vadat_lt is not None:
+        vadat_applied = True
+        source = vadat_lt.pop('_source')
+        if _vadat_sob(vadat_lt):
+            # DO_SOB_LINES and SOB_FREQ_IN_OBS only act in flux mode;
+            # VADAT's values are inert in the SE solve, so the OBS
+            # needs both T regardless — the EW block owns the EW and
+            # per-depth line emissivity the deposit uses, and the
+            # observed grid must be refined across each resonance zone
+            # for the deposited profile to land on it.
+            deposit = 'T' if obs_lt == 'sob' else 'F'
+            for key in ('DO_SOB_LINES', 'SOB_FREQ_IN_OBS'):
+                if not vadat_lt.get(key, '').upper().startswith('T'):
+                    vadat_lt[key] = 'T'
+                    print(f"  [NON_MONO_SOB_OBS] {key} forced T "
+                          f"(EW block + refined obs grid needed for "
+                          f"deposition)")
+            vadat_lt['DO_SOB_FLUX_OBS'] = deposit
+            print(f"  [NON_MONO_SOB_OBS] DO_SOB_FLUX_OBS={deposit} "
+                  f"({'deposited Sobolev render' if deposit == 'T' else 'EW diagnostic only'})")
+        forced_set = {**_SOLVER_ONLY_FORCED, **vadat_lt}
+        lines = _apply_forced_keys(
+            lines, forced_set, tag="NON_MONO_VADAT",
+            trans_default=vadat_lt.get('GLOBAL_LINE', 'BLANK'))
+        n_trans = sum(1 for k in vadat_lt if k.startswith('TRANS_'))
+        print(f"  OBS line treatment mirrored from {source}: "
+              f"GLOBAL_LINE={vadat_lt.get('GLOBAL_LINE', '(unset)')}, "
+              f"{n_trans} TRANS_* entries, "
+              f"DO_SOB_LINES={vadat_lt.get('DO_SOB_LINES', '(unset)')}, "
+              f"SOB_FREQ_IN_OBS="
+              f"{vadat_lt.get('SOB_FREQ_IN_OBS', '(unset)')}")
+        if nonmono_in_vadat:
+            lines = _apply_forced_keys(
+                lines, {'DO_NONMONO_KNOP': 'T', 'DO_CMF_EW': 'F'},
+                tag="NON_MONO_VADAT")
+            print("  non-monotonic population run: DO_NONMONO_KNOP=T "
+                  "(FG_J_CMF_NONMONO_V1 formal J), DO_CMF_EW=F")
+    elif sob_mode:
+        if obs_lt == 'sob_ew':
+            forced_set = NON_MONO_SOB_CMF_PARAM
+            print("  non-mono SOB mode, sob_ew OBS: Knop formal J plus "
+                  "DO_NONMONO_SOB=T, TRANS_*=SOB, EW diagnostic "
+                  "(SIGMA_TRUE EWs, continuum-only spectrum)")
+        else:
+            forced_set = NON_MONO_SOB_RESOLVED_CMF_PARAM
+            print("  non-mono SOB mode, resolved OBS: Knop formal J "
+                  "plus DO_NONMONO_SOB=T, TRANS_*=SOB, "
+                  "DO_SOB_FLUX_OBS=T (deposited Sobolev render)")
+        lines = _apply_forced_keys(lines, forced_set,
                                    trans_default='SOB')
-        print("  non-mono SOB mode: Knop formal J plus DO_NONMONO_SOB=T, "
-              "GLOBAL_LINE=SOB, TRANS_*=SOB (SIGMA_TRUE EW)")
     else:
-        lines = _apply_forced_keys(lines, NON_MONO_FORCED_CMF_PARAM)
+        forced_set = NON_MONO_FORCED_CMF_PARAM
+        lines = _apply_forced_keys(lines, forced_set)
 
     # dev7 Knop flag: T only when the main run used FG_J_CMF_NONMONO_V1.
     # Must not be stamped unconditionally — monotonic OBS runs must keep
-    # the standard FG_J_CMF_V12 path.
-    if knop_mode_active(args.vadat_overrides):
+    # the standard FG_J_CMF_V12 path.  Skipped on the VADAT-mirror path,
+    # which derives it from the population run's own non-mono flags.
+    if not vadat_applied and knop_mode_active(args.vadat_overrides):
         lines = _apply_forced_keys(
             lines, {'DO_NONMONO_KNOP': 'T'}, tag="NON_MONO_KNOP")
         print("  non-mono KNOP mode: DO_NONMONO_KNOP=T stamped "
               "(formal J uses FG_J_CMF_NONMONO_V1)")
 
-    # 1c. Non-coherent ES companions: when the converged model ran
-    # COH_ES=F (cmfgen_sub.f -- ES source term uses J convolved with the
-    # e.s. kernel), the formal solution needs matching physics.  Applied
-    # before user overrides so explicit cmf_flux_param_overrides still win.
+    # 1c. Non-coherent ES companions.  Gate on the OBS param's own
+    # COH_ES, not VADAT's: population runs commonly solve coherent ES
+    # for cost, but the formal spectrum still needs the non-coherent
+    # convolution (NUM_ES>=2, convolved J) to produce the Lorentzian
+    # e.s. wings.  The wing extents are propagated/floored from VADAT
+    # in both cases so the observed grid covers the wings the model
+    # needs.  Applied before user overrides so explicit
+    # cmf_flux_param_overrides still win.
     es_main = main_run_es_settings(template_path, args.vadat_overrides)
-    if str(es_main.get('COH_ES', '')).strip().upper() == 'F':
+    obs_coh = _param_value(lines, 'COH_ES')
+    if (es_main and obs_coh is not None
+            and obs_coh.strip().upper().startswith('F')):
         companions = build_noncoherent_es_companions(lines, es_main)
         lines = _apply_forced_keys(lines, companions, tag="ES_NONCOH")
-        print(f"  non-coherent ES model ({es_main.get('_source', '?')}): "
+        print(f"  non-coherent ES ({es_main.get('_source', '?')}): "
               f"OBS companions applied: {companions}")
 
     # 1d. The OBS continuum grid must contain the model's frequency range —
@@ -634,6 +862,17 @@ def main():
             print(f"  Applying {len(overrides)} user overrides from YAML")
             lines = apply_overrides(lines, overrides)
 
+    # 2a. DO_CMF_EW is not a forced key (it stays user-settable), but the
+    # OBS reader STOPs when it is T under any non-monotonic mode — and
+    # every path above stamps NON_MONO_SOLVER=T.  Clamp it after user
+    # overrides so a stale template or YAML value cannot crash the run.
+    ew = _param_value(lines, 'DO_CMF_EW')
+    if ew is not None and ew.strip().upper().startswith('T'):
+        lines = _apply_forced_keys(lines, {'DO_CMF_EW': 'F'},
+                                   tag='NON_MONO_EW')
+        print("  DO_CMF_EW forced to F: the CMF EW estimator cannot "
+              "clamp SIGMA on a non-monotonic field")
+
     # 2b. cmf_flux implements only Doppler profiles for split n=2 H atoms
     # (hard STOP in cmf_flux_sub_v5.f), so this wins over user overrides.
     # GLOBAL_PROF=LIST stamps PROF_TYPE='LIST' on every line, which also
@@ -648,9 +887,8 @@ def main():
             lines = _apply_forced_keys(lines, split_fix, tag="H_SPLIT")
             print(f"  H atom has split n=2 levels: {split_fix}")
 
-    # 3. Verify consistency against the mode that was applied
-    errors = verify_consistency(
-        lines, NON_MONO_SOB_CMF_PARAM if sob_mode else None)
+    # 3. Verify consistency against the forced set that was applied
+    errors = verify_consistency(lines, forced_set)
     if errors:
         print("ERROR: consistency check failed:", file=sys.stderr)
         for e in errors:
@@ -662,9 +900,18 @@ def main():
         f.writelines(lines)
 
     print(f"  CMF_FLUX_PARAM written: {output_path}")
-    if sob_mode:
+    if obs_blank:
         print(f"  Non-monotonic OBS settings verified: "
-              f"Knop J, SOB lines, SIGMA_TRUE EW estimators")
+              f"Knop J, BLANK lines, resolved CMF profiles")
+    elif vadat_applied:
+        print(f"  Non-monotonic OBS settings verified: line treatment "
+              f"mirrored from population VADAT "
+              f"({vadat_lt.get('GLOBAL_LINE', '?')} lines, "
+              f"DO_SOB_FLUX_OBS="
+              f"{vadat_lt.get('DO_SOB_FLUX_OBS', '(absent)')})")
+    elif sob_mode:
+        print(f"  Non-monotonic OBS settings verified: "
+              f"Knop J, SOB lines, {obs_lt} render")
     else:
         print(f"  Non-monotonic OBS settings verified: "
               f"N_ON_J, BLANK, FG_J_CMF_NONMONO_V1")

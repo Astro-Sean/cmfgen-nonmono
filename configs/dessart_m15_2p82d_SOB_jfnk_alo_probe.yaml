@@ -33,6 +33,10 @@ cmfgen:
   base_dir: cmfgen_base_dessart
   model_type: static_snapshot
   single_final: true
+  # 12-Oct-2026: OBS-only resubmit. The FINAL job was cancelled manually
+  # after writing RVTJ/POP*/checkpoint; SKIP_FINAL submits the spectrum
+  # job alone. Remove when the FINAL job next needs to run.
+  skip_final: true
   target_nd: 70
   # ptmp1 worktree build: the only tree carrying the LSQ source; the
   # ptmp2 install is on the stalled NFS gateway.
@@ -48,12 +52,33 @@ cmfgen:
   init_num_its: 100
   cpus_per_task: 8
   mem: 30G
+  # 12-Oct-2026: 'sob' = resolved Sobolev render via the native
+  # deposition path (DO_SOB_FLUX_OBS=T): GLOBAL_LINE/TRANS_*=SOB
+  # mirrored from VADAT, DO_SOB_LINES=T computes each line's SIGMA_TRUE
+  # EW, SOB_FREQ_IN_OBS=T refines the observed grid across each
+  # resonance zone, and cmf_flux deposits the EW into OBS_FLUX over
+  # that zone weighted by the line's per-depth emissivity.  This is the
+  # only render consistent with the SOB populations: CMF/BLANK line
+  # transfer over-emits ~10x on the non-monotonic field.  'sob_ew'
+  # keeps the EW diagnostic (deposition off, continuum-only spectrum);
+  # 'blank' is the full CMF profile render used for KNOP runs and .fl
+  # comparison.  Non-mono hardening still applies: DO_NONMONO_KNOP=T,
+  # NON_MONO_SOLVER=T, N_ON_J, FG_OPT=INT/INS.
+  obs_line_treatment: sob
+  # Resolved-SOB render is much lighter than the blank render (no
+  # per-line profile storage for SOB lines), so it fits the 30G
+  # interactive cap -- quick turnaround while validating the render.
+  obs_partition: interactive
+  obs_mem: 30G
   final_requeue_when: wall
   final_requeue_max: 500
   # Same warm-restart checkpoint as the JFNK probes: POINT1/POINT2/
   # SCRTEMP plus RVTJ/MODEL/CUR_MODEL_DATA injected into the fresh dir.
   warm_restart: true
-  warm_restart_from: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_SOB_jfnk_zlaw14_fresh/probe_snap
+  # 12-Oct-2026: warm_restart_from disabled for the OBS-only resubmit --
+  # staged probe_snap files take precedence in the dir refresh and would
+  # overwrite the current RVTJ the OBS step must read.
+  # warm_restart_from: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_SOB_jfnk_zlaw14_fresh/probe_snap
   vadat_overrides:
     LSTAR: 4.265857D8
     RSTAR: 1.454688D4
