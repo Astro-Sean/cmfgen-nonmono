@@ -2800,6 +2800,20 @@
 	    ALLOCATE(JFNK_DEPTH_RIDGE(JFNK_ND), STAT=IOS)
 	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc DEPTH_RIDGE failed'
 	  END IF
+!
+! Per-depth LU diagnostics (pivot ratio, DGECON rcond, accepted retry
+! index).  Written on every successful DGETRF -- missing the alloc here
+! segfaulted the first JFNK-CPL admission on the m15 KNOP probe.
+!
+	  IF(ALLOCATED(JFNK_LU_PIVRAT))THEN
+	    IF(SIZE(JFNK_LU_PIVRAT) .NE. JFNK_ND) DEALLOCATE(JFNK_LU_PIVRAT,
+	1       JFNK_LU_RCOND, JFNK_LU_ITRY)
+	  END IF
+	  IF(.NOT. ALLOCATED(JFNK_LU_PIVRAT))THEN
+	    ALLOCATE(JFNK_LU_PIVRAT(JFNK_ND), JFNK_LU_RCOND(JFNK_ND),
+	1       JFNK_LU_ITRY(JFNK_ND), STAT=IOS)
+	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc LU diag failed'
+	  END IF
 	  IF(JFNK_PRECOND_TYPE(1:5) .EQ. 'SCHUR')THEN
 	    IF(ALLOCATED(JFNK_SCHUR_S))THEN
 	      IF(SIZE(JFNK_SCHUR_S,1).NE.JFNK_ND)THEN
