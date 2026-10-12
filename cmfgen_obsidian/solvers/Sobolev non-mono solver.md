@@ -321,16 +321,30 @@ diverges:
   at it445; `lagbnd scaled` ~8.3M/sweep.
 
 Interpretation: the GAM pin killed the resonance-flip gain and the
-lag bound makes the map non-expansive; the remaining `mins=0`
-clipping (~zero diagonal excess rows, mostly KNOP pure-scattering
-cells) is where fix (d) would restore damping if `mom` floors
-instead of reaching convergence.  NOT yet classified converged:
-KNOP pops remain held (n_mature=0) and SOB pops demand is still
-~10^2; the test is whether both keep contracting through the
-requeue boundary.
+lag bound makes the map non-expansive.  Within each KNOP refresh
+the drift now collapses to <1 with n5=n50=0 -- the lagged map itself
+converges to a fixed point.  The residual KNOP `mom` (~4E3-1.2E4,
+oscillating rather than falling) is the great-iteration seed gap:
+the jump between the retained refresh field and the new sweep at
+cells where lagbnd nulled the whole lagged source (`mins=0`).
+Argmax cells wander the shock band (R~1.5-1.9E4, V~1400-6400,
+sigma_t~-5..-118, GAM~1E-4-1E-7); the refresh re-tames them every
+pass.  The row is locally undamped there: ESEC>=CHI clips its
+absorption to 0 and PSI~|GAM|~0, so TB has no J-independent
+weight.
 
-(b) implicit H coupling and (d) the
-KNOP `ESEC>CHI` pure-scattering channel remain candidate follow-ups.
+That is the fix-(d) regime, now implemented as `MOM_ABS_FLR`
+(VADAT real, default 0 = off): `MAX(0,1-COH)` becomes
+`MAX(fl,1-COH)` in both interior TB branches, and the negated
+outer-boundary row's `MIN(COH,1)-1` becomes `MIN(COH,1-fl)-1`.
+A ~1D-3 floor keeps a physical absorption anchor so the bound can
+leave a nonzero lagged weight.  Off by default so the running
+(a)+(c) probes remain a clean A/B control; enabled in the KNOP
+configs via `vadat_overrides` for the next resubmit if the current
+KNOP runs floor before maturing (n_frozen watchdog = 60).
+
+(b) implicit H coupling remains a candidate follow-up if the floor
+does not close the seed gap.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`

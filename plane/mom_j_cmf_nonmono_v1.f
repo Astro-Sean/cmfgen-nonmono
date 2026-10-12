@@ -640,6 +640,21 @@
 !
 	LOGICAL MOM_LAG_BND
 !
+! MOM_ABS_FLR (VADAT key, default 0.0 = off): lower bound on the
+! absorption fraction 1-COH in the tridiagonal diagonal.  At
+! ESEC>=CHI cells the MAX(0,1-COH) clip removes the only
+! J-independent diagonal weight; with PSI~0 near the 1+sigma*K=0
+! resonance such rows have no diagonal excess, so MOM_LAG_BND nulls
+! their entire lagged source and the row sloshes between its clipped
+! and unclipped states instead of converging (KNOP probes,
+! 13-Oct-2026: mom maxchg floored ~1E4 at sigma_t~-100 cells).  A
+! small positive floor keeps a physical absorption anchor in the row
+! so the bound can leave a nonzero lagged weight.  0.0 restores the
+! exact clip; ~1D-3 retains 0.1% absorption.  edited by Devin,
+! 13-Oct-2026.
+!
+	REAL(KIND=LDP) MOM_ABS_FLR
+!
 ! LAGB diagnostics: rows scaled this sweep, and the smallest scale
 ! applied (1.0 = the bound was inactive everywhere).
 !
@@ -753,6 +768,7 @@
 	DATA MOM_EPS_LIM /.TRUE./
 	DATA MOM_GAM_PIN /.TRUE./
 	DATA MOM_LAG_BND /.TRUE./
+	DATA MOM_ABS_FLR /0.0_LDP/
 	DATA KN_M_READY /.FALSE./
 	DATA KN_M_RF_WARNED /.FALSE./
 	DATA KN_M_ANYCMP /.FALSE./
@@ -2183,7 +2199,7 @@
 	    TA_NM(I)=-HL_NM(I-1)
 	    TC_NM(I)=-HU_NM(I)
 	    TB_NM(I)=DTAUONQ_NM(I)*
-	1           MAX(0.0_LDP,1.0_LDP-COH_VEC_NM(I)) + PSI_NM(I) +
+	1           MAX(MOM_ABS_FLR,1.0_LDP-COH_VEC_NM(I)) + PSI_NM(I) +
 	2           HL_NM(I) + HU_NM(I-1)
 	    VB_NM(I)=-HS_NM(I-1)
 	    VC_NM(I)=HS_NM(I)
@@ -2208,7 +2224,7 @@
 	    TA_NM(I)=-HL_NM(I-1)
 	    TC_NM(I)=-HU_NM(I)
 	    TB_NM(I)=DTAUONQ_NM(I)*
-	1           MAX(0.0_LDP,1.0_LDP-COH_VEC_NM(I)) + PSI_NM(I) +
+	1           MAX(MOM_ABS_FLR,1.0_LDP-COH_VEC_NM(I)) + PSI_NM(I) +
 	2           HL_NM(I) + HU_NM(I-1)
 	    IF(EPS_NM(I-1) .GE. 0.0_LDP)THEN
 	      TA_NM(I)=TA_NM(I)-2.0_LDP*EPS_NM(I-1)
@@ -2720,8 +2736,10 @@
 	  T1=0.25_LDP*(CHI_HAT_NM(2)+CHI_HAT_NM(1))*(R_NM(2)-R_NM(1))
 	  TC_NM(1)=HU_NM(1)/T1
 ! This row is the negated interior equation, so the same ESEC>CHI
-! defect enters as +(COH-1); MIN gives -(floored absorption).
-	  TB_NM(1)= (MIN(COH_VEC_NM(1),1.0_LDP)-1.0_LDP) -
+! defect enters as +(COH-1); MIN gives -(floored absorption).  The
+! MOM_ABS_FLR cap on the MIN argument keeps at least that fraction of
+! absorption in the row, matching the interior MAX floor.
+	  TB_NM(1)= (MIN(COH_VEC_NM(1),1.0_LDP-MOM_ABS_FLR)-1.0_LDP) -
 	1   (HL_NM(1)+HBC)/T1 - PSI_NM(1)
 ! Midpoint 1 sees row 1 as the outer node; this row is the negated
 ! interior row, so the depth-upwind EPS term lands negated on the
@@ -4131,16 +4149,20 @@
 	RETURN
 	END
 !
-! SET_MOM_LAG_OPTS: runtime wiring for MOM_GAM_PIN and MOM_LAG_BND,
-! called once from RD_CONTROL_VARIABLES after the VADAT keys are read.
+! SET_MOM_LAG_OPTS: runtime wiring for MOM_GAM_PIN, MOM_LAG_BND and
+! MOM_ABS_FLR, called once from RD_CONTROL_VARIABLES after the VADAT
+! keys are read.
 !
-	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND)
+	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND,ABSFLR)
 	USE SET_KIND_MODULE
-	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_GAM_PIN,MOM_LAG_BND
+	USE MOD_MOM_J_NONMONO_V1, ONLY:
+	1     MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR
 	IMPLICIT NONE
 	LOGICAL GAMPIN,LAGBND
+	REAL(KIND=LDP) ABSFLR
 	MOM_GAM_PIN=GAMPIN
 	MOM_LAG_BND=LAGBND
+	MOM_ABS_FLR=MAX(ABSFLR,0.0_LDP)
 	RETURN
 	END
 !

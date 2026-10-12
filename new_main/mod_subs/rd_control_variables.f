@@ -1053,7 +1053,21 @@
 	  MOM_LAG_BND=.TRUE.
 	  CALL RD_STORE_LOG(MOM_LAG_BND,'MOM_LAG_BND',L_FALSE,
 	1     'Bound lagged source by per-row diagonal excess?')
-	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND)
+!
+! MOM_ABS_FLR (default 0.0 = off): floor on the absorption fraction
+! 1-COH in the MOM_J_CMF_NONMONO_V1 tridiagonal diagonal.  At
+! ESEC>=CHI cells the clip at 0 removes the only J-independent
+! diagonal weight; with PSI~0 near the 1+sigma*K=0 resonance the row
+! then has no diagonal excess, MOM_LAG_BND nulls its whole lagged
+! source, and the row sloshes between clipped and unclipped states
+! rather than converging (KNOP probes, 13-Oct-2026).  A small floor
+! (~1D-3) restores a physical absorption anchor.  0.0 keeps the
+! exact clip for A/B tests.
+!
+	  MOM_ABS_FLR=0.0_LDP
+	  CALL RD_STORE_DBLE(MOM_ABS_FLR,'MOM_ABS_FLR',L_FALSE,
+	1     'Absorption-fraction floor in non-mono MOM diagonal')
+	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR)
 !
 ! Refresh tuning knobs, previously compile-time parameters.  The
 ! defaults match the built-in values, so an unchanged VADAT is

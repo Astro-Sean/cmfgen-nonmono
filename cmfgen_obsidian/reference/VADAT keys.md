@@ -51,6 +51,7 @@ line-treatment gates were warnings before):
 | `MOM_GATE_BULK` | F | gate on sweep-drift snapshot, not refresh residual |
 | `MOM_GAM_PIN` | T | lagged GAM factors evaluated at current-frequency Eddingtons (PSIPREV=PSI etc.) |
 | `MOM_LAG_BND` | T | lagged source weight bounded by row's diagonal excess |
+| `MOM_ABS_FLR` | 0.0 | absorption-fraction floor on 1-COH in the MOM diagonal; ~1D-3 anchors pure-scattering rows |
 | `MOM_TRIAL_MIN` | 30 | first frozen iter eligible for BA trial |
 
 ## Freeze / controller

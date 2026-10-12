@@ -901,6 +901,16 @@
 !
 	LOGICAL MOM_LAG_BND
 !
+! MOM_ABS_FLR (default 0.0 = off): lower bound on the absorption
+! fraction 1-COH in the MOM_J_CMF_NONMONO_V1 diagonal.  ESEC>=CHI
+! cells otherwise lose their only J-independent diagonal weight, so
+! MOM_LAG_BND nulls their lagged source entirely and the row can
+! slosh between clipped and unclipped states instead of converging.
+! A small floor (~1D-3) keeps a physical absorption anchor.
+! VADAT keyword [MOM_ABS_FLR].
+!
+	REAL(KIND=LDP) MOM_ABS_FLR
+!
 ! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the
