@@ -4,6 +4,9 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
+! Altered 12-Oct-2026 : Added DO_SOB_FLUX_OBS (default F): deposit the
+!                          Sobolev line EWs into OBS_FLUX so TRANS_TYPE
+!                          =SOB lines reach the observed spectrum.
 ! Altered 05-Oct-2026 : Reject non-monotonic CMF_FLUX combinations that
 !                          bypass the dedicated formal solver or use a
 !                          clamped-sigma EW estimate (Devin).
@@ -204,6 +207,9 @@
 	  DO_ALL_SOB_LINES=.FALSE.
 	  CALL RD_STORE_LOG(DO_ALL_SOB_LINES,'DO_ALL_SOB',L_FALSE,
 	1        'Compute ALL Sobolev lines EWs?')
+	  DO_SOB_FLUX_OBS=.FALSE.
+	  CALL RD_STORE_LOG(DO_SOB_FLUX_OBS,'DO_SOB_FLUX_OBS',L_FALSE,
+	1        'Deposit Sobolev line flux into OBS spectrum?')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
@@ -605,6 +611,20 @@
 	      WRITE(LUER,*)'FG_J_CMF_NONMONO_V1.'
 	      STOP
 	    END IF
+	  END IF
+!
+! DO_SOB_FLUX_OBS deposition runs inside the DO_SOBOLEV_LINES block,
+! which owns the EW, continuum intensity, and line opacity/emissivity
+! arrays the deposit needs. With DO_SOB_LINES=F the routine returns
+! before that block and the flag would silently produce a
+! continuum-only spectrum, so the combination is rejected outright.
+!
+	  IF(DO_SOB_FLUX_OBS .AND. .NOT. DO_SOBOLEV_LINES)THEN
+	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	    WRITE(LUER,*)'DO_SOB_FLUX_OBS=T requires DO_SOB_LINES=T.'
+	    WRITE(LUER,*)'The Sobolev EW block supplies the EW and line'
+	    WRITE(LUER,*)'emissivity the obs-frame deposit needs.'
+	    STOP
 	  END IF
 !
 ! PRINT_KNOP_DEBUG (default F): verbose Knop-solver diagnostics, same

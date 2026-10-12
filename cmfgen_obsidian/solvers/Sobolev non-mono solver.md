@@ -236,17 +236,39 @@ matures at it2-3, so it never tested the regime where today's runs
 diverge. Treat it as consistent with, not contrary to, these
 findings.
 
-Fix candidates, in order of expected leverage: (a) short-circuit
-doublet steps - for dLOG_NU below a floor (~1E-8) copy J, H and the
-stores from the previous frequency instead of solving; (b) make the
-limiter conservative by scaling EPS_NM and EPS_PREV_NM of a midpoint
-by the same factor so the implicit and explicit halves stay a
-derivative; (c) give N_ON_J a midpoint direction indicator (sign of
-1 + sigma*N/H from the stores where |H| is resolved, else sign of
-the adjacent depth-point Q) so the Sect. 7 compressing branches
-engage; (d) revisit the resonance floor so near-zero-GAM rows are
-treated as non-advective (coefficient -> 0) rather than floored to
-a direction. None implemented yet.
+Fixes implemented (13-Oct-2026, this commit):
+
+- (a) Spacing floor instead of a doublet short-circuit: MOM_DLN_J /
+  MOM_DLN_H are floored at MOM_DLN_MIN=1E-6 where they feed
+  CHI_HAT / GAMH / GAM.  The doublet rows then act as a small
+  physical step (bounded coefficients) rather than being skipped,
+  so all store/ALO/refresh bookkeeping is unchanged.  Real
+  spacings (min ~1.7E-5 on the KNOP grid, ~1E-5 on SOB) are
+  untouched.
+- (b) Conservative EPS limiter: the donor-cell cap now records a
+  per-midpoint factor EPS_SCL = capped/raw, applies (EPS_SCL-1)*2*EPS
+  to the implicit TA/TB/TC stencil, then rescales EPS_NM and
+  EPS_PREV_NM so the boundary row, negJ rebuild and H reconstruction
+  all see the capped coefficient.  Implicit and explicit halves stay
+  a derivative.  Inactive when MOM_EPS_LIM=F.
+- (c) N_ON_J midpoint direction: GET_MOMS_NON_REL fills
+  NMID_ON_HMID = N/H under N_ON_J where |H| resolves (|H| > 1E-3|N|),
+  else a signed 1E10 proxy giving 1+sigma*g the sign of sigma*N.
+  Opt-in via GMNR_NMJ_G in MOD_RAY_MOM_STORE (set by
+  MOM_J_CMF_NONMONO_V1; stock V8-V11 callers keep the zero fill).
+  The sigma*n*J frequency upwind is now keyed on sign(EPS) itself
+  (scatter, boundary row, negJ rebuild, H reconstruction) and
+  EPS_PREV takes the current weights at EPS<0 midpoints -- a flux
+  split with one direction per term.
+- (d) not implemented: the zero-GAM resonance (1+sigma*K ~ +-0.04
+  across depths 1-8) still floors GAM_FAC at 0.01; direction there
+  remains data-driven.
+
+Residual: the EPS magnitude still uses the H-part spacing
+MOM_DLN_H when its own direction is compressing while
+GAMH_SIGNED >= 0 (resolved-H mixed-direction midpoints) -- a
+second-order coefficient inconsistency, documented for the next
+iteration if needed.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
@@ -297,6 +319,50 @@ re-converging. Fixed in `cmfgen_base/submit_cmfgen.sh` (requeue block
 now flips `COMP_F` T->F when EDDFACTOR/EDDFACTOR_INFO exist, matching
 the FINAL template); see [[Run log highlights]].
 
+## OBS render: DO_SOB_FLUX_OBS (12-Oct-2026)
+
+`TRANS_TYPE='SOB'` lines are excluded from the cmf_flux formal
+transfer (`VEC_TRANS_TYPE .NE. 'BLAN'` skip in `cmf_flux_sub_v5.f`), so
+without a deposition path `obs_fin_10` contains continuum only - a
+`DO_SOB_LINES=F` + `SOB_FREQ_IN_OBS=F` OBS run produced 815
+continuum frequencies and no lines (job 12162809). `DO_SOB_LINES=T`
+alone only writes `EWDATA`; it never touches `OBS_FLUX`.
+
+New `CMF_FLUX_PARAM` key `DO_SOB_FLUX_OBS` (default F) enables the
+native render: inside the `DO_SOBOLEV_LINES` block, each line group's
+`SOBEW_GRAD_V2` EW (SIGMA_TRUE under `DO_NONMONO_SOB`) is deposited
+into `OBS_FLUX` by `DEP_SOB_OBS_FLUX`. The deposit is a flux density
+per Angstrom normalized to `EW*CONT_INT`, spread over the
+observed-frame span each depth's projected velocity can reach:
+
+- net emission: `ETAL*R^2` weights, flat box over
+  `LAM0*(1-|V|/c)` to `LAM0*(1+|V|/c)` - a shell presents every
+  line-of-sight velocity in `[-v, +v]`, so the profile peaks at rest
+  where slow dense gas dominates;
+- net absorption: `CHIL*R^2` weights, one-sided box - `[LAM0*(1-V/c),
+  LAM0]` for outflowing gas, `[LAM0, LAM0*(1+|V|/c)]` for infalling
+  gas, so velocity reversals produce redshifted absorption.
+
+A 100 km/s minimum half-width keeps depths at a reversal node
+depositing at line centre. After the line loop `OBS_FLUX` is floored
+at `1e-6` of its pre-deposit value (stacked absorption lobes can
+exceed the continuum) and `OBSFRAME`/`OBSFLUX` are rewritten - both
+were written before the EW block.
+
+Motivation: on the non-monotonic m15 field the CMF/BLANK render emits
+~8-19x the Sobolev line luminosity (He II 4686: 838 A vs 84 A EWDATA;
+Luc's .fl ~100 A), so BLANK is not a consistent render for SOB
+populations. BLANK remains the render for KNOP runs.
+
+Requirements and constraints: `DO_SOB_FLUX_OBS=T` requires
+`DO_SOB_LINES=T` (the EW block owns EW/CONT_INT/ETAL; the reader
+STOPs otherwise). `SOB_FREQ_IN_OBS=T` is needed so the obs grid is
+refined across each resonance zone - without it the deposited
+profile lands on the continuum-spaced grid. `prepare_CMF_PARAM.py`
+stamps the combination from `cmfgen.obs_line_treatment='sob'` (the
+SOB default); `'sob_ew'` gives T/T flags with deposition off
+(EWDATA diagnostic only).
+
 ## Runtime record
 
 - **m15 2.82d** (`dessart_m15_2p82d_SOB.yaml`, job 12001805): stable
@@ -330,3 +396,41 @@ the FINAL template); see [[Run log highlights]].
 - [[BA matrix and SOLVEBA]] - `BA_ENTER_RAW`, resacc, trust radius
 - [[Run log highlights]]
 - [[Literature]] - Dessart+2015, RH78, Feldmeier & Nikutta 2006
+### Probe results, 12-Oct-2026 build (commit 06480eb + gate fix)
+
+Four-cell moment grid resubmitted with fixes (a)-(c) (jobs 12163155,
+12163156, 12163159, 12163169, interactive partition):
+
+- **SOB warm** (it498, running): the field-level fixes worked.
+  `max|EPS|/HU` collapsed 9.1E6 -> ~96 (the dln floor removed the
+  doublet coupling) and the lagged-map refresh now converges most
+  iterations (`conv=T`, delta ~1E2-1E3). Luminosity drift ~1E-3,
+  no blowup. Population demand oscillates 7E5-5E10 at depths 21-40
+  in LAMBDA_TFIX -- a fixed-point mismatch, not the old field
+  runaway. Verdict: moment field stable; population convergence not
+  yet achieved.
+- **SOB cold** (it45, running): same healthy field signature
+  (`|EPS|/HU` ~93, refresh `conv=T`); demands churning 1E4-1E7 in
+  the cold-start transient.
+- **KNOP warm** (it448, running): `|EPS|/HU` ~14 unchanged (no
+  doublets on the line grid), but the refresh still fails
+  (`conv=F`, delta ~1E6-1E7) and the run sits held/frozen with
+  demand saturating. The eps_cap count is 19-30M/sweep vs SOB's
+  ~0.6M -- the conservative limiter fires continuously on the line
+  grid. Verdict: lagged map still not a contraction here.
+- **KNOP cold**: exited at it6 via a **false converged exit**, now
+  fixed. `GS_POPS_HELD` held populations while the field diverged
+  (refresh delta=3.1E10, 632k quarantined cells); `BA_RES_ACC`
+  masked all 70 depth columns, zeroing STEQ; `DO_LEVEL_CHK` read
+  the all-zero post-mask state as "all corrections <10%" and
+  overwrote MAXCH with 0 (discarding the STEQ_MASKED_MAX boost);
+  `MAXCH < EPS` then set `NUM_ITS_TO_DO=1` -> RVTJ + clean exit.
+
+Two gate fixes (this commit): `SOLVEBA_V13` no longer fires
+`DO_LEVEL_CHK` when any column was masked (new `L_ANY_MASK` flag,
+covers both the armed-step and Lambda-path masks), and the
+`MAXCH < EPS` converged-exit test in `CMFGEN_SUB` now requires
+`.NOT. GS_POPS_HELD` -- a held-population call can never satisfy
+the population-convergence test. A masked/held step now leaves
+demand visible (MAXCH ~ masked demand) and the run continues to the
+KNOP stall watchdog instead of reporting false convergence.

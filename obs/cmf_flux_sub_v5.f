@@ -17,6 +17,10 @@
 	USE EDDFAC_REC_DEFS_MOD
 	IMPLICIT NONE
 !
+! Altered: 12-Oct-2026 : Added DO_SOB_FLUX_OBS path: the Sobolev EWs
+!                          computed in the DO_SOBOLEV_LINES block are
+!                          deposited into OBS_FLUX (DEP_SOB_OBS_FLUX) so
+!                          SOB lines reach the observed spectrum.
 ! Altered: 05-Oct-2026 : Validate V ordering against the selected
 !                          non-monotonic mode before spectrum setup (Devin).
 ! Altered: 22-Jan-2024 : Fixed bug - dust and Rayleigh scattering were being treated like electron 
@@ -202,6 +206,11 @@
 	REAL(KIND=LDP) OVER_FREQ_DIF
 	REAL(KIND=LDP) EW,ABS_EW
 	REAL(KIND=LDP) CONT_INT
+!
+! Accumulates the Sobolev line flux deposited into the observed spectrum
+! when DO_SOB_FLUX_OBS is true (see DEP_SOB_OBS_FLUX).
+!
+	REAL(KIND=LDP), ALLOCATABLE :: SOB_DEP(:)
 	LOGICAL OVERLAP
 	LOGICAL SOBOLEV
 !
@@ -2337,6 +2346,15 @@
 !
 	CALL GEN_ASCI_OPEN(LU_EW,'EWDATA','UNKNOWN',' ',' ',IZERO,IOS)
 !
+! SOB_DEP collects each line's deposited EW (in Jy per obs frequency)
+! across the whole line loop. It is applied to OBS_FLUX after the loop,
+! so the deposited spectrum is written with the same OBS_FREQ grid.
+!
+	IF(DO_SOB_FLUX_OBS)THEN
+	  ALLOCATE(SOB_DEP(N_OBS))
+	  SOB_DEP(1:N_OBS)=0.0_LDP
+	END IF
+!
 ! Zero the vector that will be used to store the force-multiplier computed
 ! for all lines using the SOBOLEV approximation.
 !
@@ -2605,6 +2623,19 @@
 	  ABS_EW=EW
 	END IF
 !
+! Deposit the Sobolev EW into OBS_FLUX. TRANS_TYPE='SOB' lines are
+! excluded from the formal transfer above, so without this step the
+! observed spectrum contains no line flux from SOB lines at all. The
+! EW the populations converged under is spread over the observed-frame
+! resonance span defined by the local velocity field, which keeps the
+! render consistent with the population solve on a non-monotonic
+! velocity field (where CMF/BLANK line transfer over-emits).
+!
+	IF(DO_SOB_FLUX_OBS .AND. ABS(ABS_EW) .GE. EW_CUT_OFF)THEN
+	  CALL DEP_SOB_OBS_FLUX(SOB_DEP,OBS_FREQ,N_OBS,
+	1        EW,CONT_INT,FL,ETAL,CHIL,V,R,ND,C_KMS)
+	END IF
+!
 	IF(ABS(ABS_EW) .GE. EW_CUT_OFF)THEN
 	  T1=0.01_LDP*C_KMS/FL_SIM(1) 		!Wavelength(Angstroms)
 	  DO SIM_INDX=1,NUM_SIM_LINES
@@ -2626,6 +2657,40 @@
 !
 	END DO		!Line loop
 !
+! Apply the deposited Sobolev line flux and rewrite OBSFRAME/OBSFLUX.
+! Both files were written before the EW loop (OBS_FLUX then carried
+! continuum and BLANK lines only), so the deposit must be written out
+! again here. The floor prevents stacked absorption lobes from driving
+! a bin below zero.
+!
+	IF(DO_SOB_FLUX_OBS)THEN
+	  DO J=1,N_OBS
+	    OBS_FLUX(J)=MAX(OBS_FLUX(J)+SOB_DEP(J),
+	1                  1.0D-6*OBS_FLUX(J))
+	  END DO
+	  DEALLOCATE(SOB_DEP)
+!
+	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFLUX','UNKNOWN',' ',' ',IZERO,IOS)
+	    WRITE(STRING,'(I10)')N_OBS
+	    DO WHILE(STRING(1:1) .EQ. ' ')
+	      STRING(1:)=STRING(2:)
+	    END DO
+	    STRING='Continuum Frequencies ( '//TRIM(STRING)//' )'
+	    CALL WRITV_V2(OBS_FREQ,N_OBS,ISEV,TRIM(STRING),LU_FLUX)
+	    CALL WRITV_V2(OBS_FLUX,N_OBS,IFOUR,'Observed intensity (Janskys)',LU_FLUX)
+	  CLOSE(UNIT=LU_FLUX)
+!
+	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
+	    WRITE(STRING,'(I10)')N_OBS
+	    DO WHILE(STRING(1:1) .EQ. ' ')
+	      STRING(1:)=STRING(2:)
+	    END DO
+	    STRING='Continuum Frequencies ( '//TRIM(STRING)//' )'
+	    CALL WRITV_V2(OBS_FREQ,N_OBS,ISEV,TRIM(STRING),LU_FLUX)
+	    CALL WRITV_V2(OBS_FLUX,N_OBS,IFOUR,'Observed intensity (Janskys)',LU_FLUX)
+	  CLOSE(UNIT=LU_FLUX)
+	END IF
+!
 ! Outout the Sobolev Line-Force multiplier
 !
 	IF(WRITE_SOB_FORCE)THEN
@@ -2646,4 +2711,123 @@
 !
 	RETURN
 !
+	END
+!
+!
+!
+! Deposit the Sobolev EW of one line (or overlapping-line group) into
+! the observed-frame flux grid. TRANS_TYPE='SOB' lines are excluded
+! from the formal transfer in CMF_FLUX_SUB_V5, so this routine is the
+! only path for their flux into the observed spectrum.
+!
+! Each depth contributes its share of the line's net EW over the
+! observed-frame span its projected velocities can reach:
+!   - net emission (EW > 0): a shell at speed |V(I)| presents every
+!     line-of-sight velocity in [-|V|, +|V|], so its share spreads
+!     uniformly (flat box) over LAM0*(1-|V|/c) to LAM0*(1+|V|/c).
+!     Depths are weighted by the line emissivity ETAL*R^2 so the
+!     profile peaks where the line actually forms.
+!   - net absorption (EW < 0): only gas in front of the continuum
+!     photosphere absorbs, so the box is one-sided: [LAM0*(1-V/c),
+!     LAM0] for outflowing gas (V > 0, blueshifted trough) and
+!     [LAM0, LAM0*(1+|V|/c)] for infalling gas (V < 0), so velocity
+!     reversals produce redshifted absorption. Weighted by the line
+!     opacity CHIL*R^2.
+!
+! The deposited quantity is a flux density per Angstrom; its integral
+! over the full span is EW*CONT_INT, the same line strength the
+! population solve used (SIGMA_TRUE under DO_NONMONO_SOB). A minimum
+! half-width of 100 km/s keeps depths near a velocity-reversal node
+! depositing at line center instead of vanishing.
+!
+	SUBROUTINE DEP_SOB_OBS_FLUX(SOB_DEP,OBS_FREQ,N_OBS,
+	1         EW,CONT_INT,FL,ETAL,CHIL,V,R,ND,C_KMS)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER, INTENT(IN) :: N_OBS,ND
+	REAL(KIND=LDP), INTENT(INOUT) :: SOB_DEP(N_OBS)
+	REAL(KIND=LDP), INTENT(IN) :: OBS_FREQ(N_OBS)
+	REAL(KIND=LDP), INTENT(IN) :: EW,CONT_INT,FL,C_KMS
+	REAL(KIND=LDP), INTENT(IN) :: ETAL(ND),CHIL(ND),V(ND),R(ND)
+!
+	INTEGER I,M,M1,M2,LO,HI,MID
+	REAL(KIND=LDP) LAM0,LAM_LO,LAM_HI,NU_LO,NU_HI
+	REAL(KIND=LDP) WT(ND),WT_SUM,BETA,DEP_DENSITY
+	REAL(KIND=LDP), PARAMETER :: MIN_BETA=100.0_LDP/2.99792458D5
+!
+! Rest wavelength in Angstroms, matching the EWDATA convention.
+!
+	LAM0=0.01_LDP*C_KMS/FL
+!
+	IF(EW .GT. 0.0_LDP)THEN
+	  WT(1:ND)=MAX(ETAL(1:ND),0.0_LDP)*R(1:ND)*R(1:ND)
+	ELSE
+	  WT(1:ND)=MAX(CHIL(1:ND),0.0_LDP)*R(1:ND)*R(1:ND)
+	END IF
+	WT_SUM=SUM(WT(1:ND))
+	IF(WT_SUM .LE. 0.0_LDP)RETURN
+	WT(1:ND)=WT(1:ND)/WT_SUM
+!
+	DO I=1,ND
+	  IF(WT(I) .LE. 0.0_LDP)CYCLE
+	  BETA=MAX(ABS(V(I))/C_KMS,MIN_BETA)
+	  IF(EW .GT. 0.0_LDP)THEN
+	    LAM_LO=LAM0*(1.0_LDP-BETA)
+	    LAM_HI=LAM0*(1.0_LDP+BETA)
+	  ELSE IF(V(I) .GE. 0.0_LDP)THEN
+	    LAM_LO=LAM0*(1.0_LDP-BETA)
+	    LAM_HI=LAM0
+	  ELSE
+	    LAM_LO=LAM0
+	    LAM_HI=LAM0*(1.0_LDP+BETA)
+	  END IF
+	  IF(LAM_HI .LE. LAM_LO)CYCLE
+!
+! OBS_FREQ (1e15 Hz) is descending; NU_HI is the blue edge.
+!
+	  NU_HI=0.01_LDP*C_KMS/LAM_LO
+	  NU_LO=0.01_LDP*C_KMS/LAM_HI
+	  IF(NU_HI .LE. OBS_FREQ(N_OBS))CYCLE
+	  IF(NU_LO .GE. OBS_FREQ(1))CYCLE
+!
+! M1 = first index with OBS_FREQ <= NU_HI; M2 = last with >= NU_LO.
+!
+	  IF(OBS_FREQ(1) .LE. NU_HI)THEN
+	    M1=1
+	  ELSE
+	    LO=1; HI=N_OBS+1
+	    DO WHILE(HI-LO .GT. 1)
+	      MID=(LO+HI)/2
+	      IF(OBS_FREQ(MID) .GT. NU_HI)THEN
+	        LO=MID
+	      ELSE
+	        HI=MID
+	      END IF
+	    END DO
+	    M1=HI
+	  END IF
+	  IF(OBS_FREQ(N_OBS) .GE. NU_LO)THEN
+	    M2=N_OBS
+	  ELSE
+	    LO=0; HI=N_OBS
+	    DO WHILE(HI-LO .GT. 1)
+	      MID=(LO+HI)/2
+	      IF(OBS_FREQ(MID) .GE. NU_LO)THEN
+	        LO=MID
+	      ELSE
+	        HI=MID
+	      END IF
+	    END DO
+	    M2=LO
+	  END IF
+	  IF(M2 .LT. M1)CYCLE
+!
+	  DEP_DENSITY=WT(I)*EW*CONT_INT/(LAM_HI-LAM_LO)
+	  DO M=M1,M2
+	    SOB_DEP(M)=SOB_DEP(M)+DEP_DENSITY
+	  END DO
+	END DO
+!
+	RETURN
 	END
