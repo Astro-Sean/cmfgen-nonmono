@@ -1,0 +1,248 @@
+model_name: dessart_m15_2p82d_KNOP_MOM_cold
+description: KNOP moment-solver cold LTE start, regression check for the
+  m15 warm-restart divergence.  The 27-Sep validation of
+  MOM_J_CMF_NONMONO_V1 ran this model cold under KNOP+LAM_ES=F and
+  contracted (L 2.64E10 -> 1.72E10, demands 4.2E14 -> 4.6E2 over
+  it1-3, job 11998572).  The 12-Oct warm probes diverged identically
+  under both pathways (12160690 SOB, 12161004 KNOP).  This probe is
+  the direct cold-start control on the current build - if it
+  contracts like September the moment path is cold-start-only on
+  this field; if it diverges too, something since 27-Sep regressed
+  the solver (refresh driver, MOM_RF_*/MOM_DAMP_NM/AA changes).
+  DO_JFNK=F - admission is gated on USE_LAM_ES anyway.
+  Not a production run.
+# debug -> interactive partition (1:59 per segment): same testing policy
+# as the SOB probes.  Memory is the risk: the KNOP I_NEXT store put the
+# LAM probe at ~32G, over the 30G interactive cap; DO_JFNK=F drops the
+# JFNK eval machinery which may bring it under.  If submit refuses or
+# the job OOMs, resubmit with submission: normal.
+submission: debug
+hydro_backend: stella
+skip_stella: true
+run_cmfgen: true
+run_sedona: false
+run_sirocco: false
+run_superlite: false
+output:
+  model_dir: cmfgen_validation/m15_2p82d_KNOP_MOM_cold
+cmfgen_conversion:
+  snapshot_days:
+    - 2.82
+  use_existing_sn_hydro: true
+cmfgen:
+  base_dir: cmfgen_base_dessart
+  model_type: static_snapshot
+  single_final: true
+  target_nd: 70
+  ncf_estimate: 56119
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_jfnk
+  inc_rad_decays: true
+  vturb: 50.0
+  incl_rel: false
+  vel_law: 11
+  non_mono_mode: KNOP
+  use_lam_es: false
+  depth_independent_solver: true
+  proxy_populations: false
+  init_num_its: 60
+  cpus_per_task: 8
+  mem: 30G
+  final_requeue_when: wall
+  final_requeue_max: 500
+  # No warm_restart: cold LTE start is the test variable.  N_LAM_RWARM
+  # below still forces the early LAMBDA sweeps that build the lagged
+  # field, same as the September validation run.
+  vadat_overrides:
+    LSTAR: 4.265857D8
+    RSTAR: 1.454688D4
+    RMAX: 8.61436267
+    VTURB: 50.0D0
+    MIN_CF: 3.0D-3
+    MAX_CF: 2.0D2
+    DIF: F
+    IB_METH: ZERO_FLUX
+    THK_LINE: T
+    STOP_IF_BP: F
+    FIX_T: T
+    FIX_T_AUTO: T
+    DO_T_AUTO: T
+    FIX_IMP: F
+    DO_LAM_IT: T
+    DO_LAM_AUTO: T
+    USE_LAM_ES: F
+    # TRI + NUM_BNDS=3 is the validated KNOP moment pairing; the SOB
+    # probe ran DIAG, which is one of the two wiring differences under
+    # test.
+    SOL_METH: TRI
+    DO_NOMONO_KNOP: T
+    DO_NONMONO_KNOP: T
+    MOM_GATE_BULK: T
+    MOM_RF_KEEPNEG: T
+    N_OB_INS: '0'
+    N_IB_INS: '0'
+    REV_RGRID: F
+    FIX_NE: F
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+    LAM_SET: F
+    USE_J_REL: F
+    USE_FRM_REL: F
+    USE_DJDT_RTE: F
+    INC_GRID: F
+    N_TYPE: N_ON_J
+    PURE_HUB: F
+    RD_IN_R_GRID: T
+    FG_OPT: INT/INS
+    USE_FIXED_J: F
+    PP_MOD: F
+    PP_NOV: F
+    AUTO_SMOOTH: F
+    NON_MONO_SOLVER: T
+    DO_NOMONO_SOB: F
+    DO_NONMONO_SOB: F
+    DO_NONLOC_SOB: F
+    GLOBAL_LINE: BLANK
+    DO_SOB_LINES: F
+    SOB_FREQ_IN_OBS: F
+    JBAR_W_EDD: F
+    DO_NG: T
+    COMP_BA: T
+    NUM_LAM: '2'
+    LAM_ENTER: 4.0D2
+    LAM_EXIT: 5.0D0
+    LAM_N_STABLE: '5'
+    BA_PROBE_LAM: '0'
+    FRESH_BA_EXIT: T
+    N_FULL_TREL: '0'
+    DO_BA_RES_ACC: T
+    BA_RES_GROW: 1.5D0
+    BA_RES_HARD: 1.0D2
+    BA_TRUST: 1.0D4
+    BA_REJ_FRAC: 0.25D0
+    BA_NREJ_LIM: '20'
+    BA_ENTER_RAW: 1.0D30
+    BA_DAMP_CAP: 0.0D0
+    BA_SAT_RAW: 2.0D3
+    BA_SAT_LIM: '5'
+    N_LAM_RWARM: '4'
+    MOM_TRIAL_MIN: '30'
+    GS_FREEZE_LIM: '60'
+    GS_TRIAL_LIM: '15'
+    GS_REL_STABLE: '1'
+    GS_REL_N: '1000000'
+    GS_HOLD_POPS: T
+    CONV_DIAG_LVL: '1'
+    BA_DEM_PFLOOR: 1.0D-30
+    DO_JFNK: F
+    JFNK_WARMUP: '0'
+    JFNK_ANYITER: T
+    JFNK_COUPLED: F
+    JFNK_FRZ_GATE: 1.0D30
+    JFNK_GATE_NREQ: '1'
+    JFNK_LAG_FACTORS: T
+    JFNK_COR_GATE: 1.0D30
+    JFNK_MAX_EVALS: '60'
+    JFNK_MAX_RESTART: '2'
+    JFNK_DEEPDIAG: F
+    JFNK_ROW_TINY: 1.0D-30
+    JFNK_RIDGE: 1.0D-4
+    JFNK_REACH_GATE: 1.0D-3
+    JFNK_M: '30'
+    JFNK_MAXGMRES: '90'
+    JFNK_LEFTPC: F
+    JFNK_PRECOND: LU
+    JFNK_LSQ_LAM: 1.0D-2
+    JFNK_TAUTO: 'T'
+    LAM_VAL: 2.0D2
+    BEG_NG: 1.0D1
+    IBEG_NG: '15'
+    BA_MAXCH_FAIL: 1.0D30
+    REL_OBS: F
+    REL_CMF: F
+    DO_DDT: F
+    INC_ADV: F
+    INC_AD: F
+    INCL_DJDT: F
+    CHK_L_POS: T
+    LIN_INT: F
+    DO_DIS: T
+    INC_PEN: T
+    INC_CHG: F
+    ALLOW_OL: F
+    DC_METH: LTE
+    T_INIT_TAU: 1.5D0
+    SIG_GAU_KMS: 3.0D3
+    INC_RAY: T
+    MAX_LIN: 5.0D0
+    MAX_DEC: 1.0D4
+    BA_CHK_FAC: 1.0D-05
+    EPS_TERM: 5.0D-02
+    BW_NG: '40'
+    TRANS_HI: BLANK
+    TRANS_HeI: BLANK
+    TRANS_He2: BLANK
+    TRANS_CIII: BLANK
+    TRANS_CIV: BLANK
+    TRANS_CV: BLANK
+    TRANS_NIII: BLANK
+    TRANS_NIV: BLANK
+    TRANS_NV: BLANK
+    TRANS_O2: BLANK
+    TRANS_OIII: BLANK
+    TRANS_OIV: BLANK
+    TRANS_OV: BLANK
+    TRANS_OSIX: BLANK
+    TRANS_NeIII: BLANK
+    TRANS_NeIV: BLANK
+    TRANS_NeV: BLANK
+    TRANS_MgIII: BLANK
+    TRANS_MgIV: BLANK
+    TRANS_MgV: BLANK
+    TRANS_AlIII: BLANK
+    TRANS_AlIV: BLANK
+    TRANS_AlV: BLANK
+    TRANS_SkIII: BLANK
+    TRANS_SkIV: BLANK
+    TRANS_SkV: BLANK
+    TRANS_SIII: BLANK
+    TRANS_SIV: BLANK
+    TRANS_SV: BLANK
+    TRANS_ArIII: BLANK
+    TRANS_ArIV: BLANK
+    TRANS_ArV: BLANK
+    TRANS_ArSIX: BLANK
+    TRANS_CaIII: BLANK
+    TRANS_CaIV: BLANK
+    TRANS_CaV: BLANK
+    TRANS_CaSIX: BLANK
+    TRANS_TkIII: BLANK
+    TRANS_TkIV: BLANK
+    TRANS_TkV: BLANK
+    TRANS_CrIII: BLANK
+    TRANS_CrIV: BLANK
+    TRANS_CrV: BLANK
+    TRANS_CrSIX: BLANK
+    TRANS_FeIII: BLANK
+    TRANS_FeIV: BLANK
+    TRANS_FeV: BLANK
+    TRANS_FeSEV: BLANK
+    NEG_OPAC_OPT: SRCE_CHK
+    TRANS_OI: BLANK
+    TRANS_SkI: BLANK
+    TRANS_Sk2: BLANK
+    TRANS_CaI: BLANK
+    TRANS_Ca2: BLANK
+    TRANS_FeI: BLANK
+    TRANS_Fe2: BLANK
+    T_REL_CHG: 3.0D0
+    MAX_LAM: 1.0D10
+    CHK_NG: T
+    NG_ABSTAIN: T
+    ITS/NG: '8'
+    FIX_INB_NE: F
+  cmf_flux_param_overrides:
+    DO_CMF_EW: F
+    WR_dFR: true
+    WR_IP: true
+  notification_email: sbrennan@mpe.mpg.de
+  n_ob_ins: 0
