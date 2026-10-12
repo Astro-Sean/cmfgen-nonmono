@@ -161,9 +161,12 @@ _NON_MONO_FORCED_SHARED = {
     # user-overridable: USE_LAM_ES=F is a consistent alternative since
     # COMP_J_BLANK calls MOM_J_CMF_NONMONO_V1 (SIGMA_TRUE, Knop
     # chi_hat discretization) rather than the clamped-sigma
-    # MOM_J_CMF_V11.  For SOB mode it is forced to T in
-    # _NON_MONO_LINE_SOB because the SOB path still falls back to
-    # MOM_J_CMF_V11.  The Fortran reader enforces the same rule.
+    # MOM_J_CMF_V11.  For SOB mode it defaults to T in
+    # _NON_MONO_LINE_SOB but is user-overridable since 12-Oct-2026:
+    # with an explicit USE_LAM_ES=F override the Fortran warns instead
+    # of STOPping, and DO_VAR_CONT falls through to VAR_MOM_J_CMF_V12,
+    # restoring the continuum dJ/dn linearization (SOB+LAM_ES=T leaves
+    # it at zero).  SIGMA_TRUE still drives the Sobolev line path.
     'INC_GRID': 'F',
     'N_TYPE': 'N_ON_J',
     'NEG_OPAC_OPT': 'SRCE_CHK',
@@ -215,9 +218,10 @@ _NON_MONO_LINE_SOB = {
     # dev7 spelling: the V7 Fortran reads DO_NONMONO_SOB (V6 reads the
     # DO_NOMONO_SOB above; each tree ignores the other's key).
     'DO_NONMONO_SOB': 'T',
-    # USE_LAM_ES=F in SOB mode falls back to MOM_J_CMF_V11 (clamped
-    # SIGMA), inconsistent with the non-monotonic formal solution --
-    # keep forcing T here.  KNOP mode leaves it user-overridable.
+    # USE_LAM_ES=T is the validated default (J from the FG ray solve).
+    # USE_LAM_ES=F selects stock MOM_J_CMF_V11 on clamped SIGMA plus
+    # the VAR_MOM_J_CMF_V12 continuum linearization -- opt-in endgame
+    # variant (12-Oct-2026); an explicit vadat_overrides key wins.
     'USE_LAM_ES': 'T',
     # SOL_METH=DIAG (NUM_BNDS=1) is required for SOB: the TRIDIAG path
     # forces USE_SELECTIVE_JVAR -> VAR_MOM_J_CMF_NONMONO_V1, the Jacobian
@@ -701,7 +705,9 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         #   VEL_LAW=11 + RD_IN_R_GRID=T — SET_RV_HYDRO_MODEL_V3 reads the
         #     conversion R grid; RD_IN_R_GRID=F would rebuild R and PCHIP-
         #     smooth V, destroying sigma < -1 extrema
-        #   USE_LAM_ES=T / INC_GRID=F / N_TYPE=N_ON_J — Fortran STOP otherwise
+        #   INC_GRID=F / N_TYPE=N_ON_J — Fortran STOP otherwise.
+        #   USE_LAM_ES=T is the SOB default but user-overridable to F
+        #   (12-Oct-2026: Fortran warns, moment solver + VAR_MOM linearization)
         #   USE_FIXED_J / USE_FRM_REL / PP_MOD / PP_NOV = F — those paths
         #     bypass FG_J_CMF_NONMONO_V1
         #

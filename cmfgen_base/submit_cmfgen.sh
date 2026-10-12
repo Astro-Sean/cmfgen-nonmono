@@ -2225,6 +2225,14 @@ if hydro_path.exists():
     except Exception:
         pass
 lines = p.read_text().splitlines() if p.exists() else []
+# Requeue must not cold-start the radiation field: COMP_F=T (written by
+# prepare_VADAT.py at initial prep) makes CMFGEN recompute EDDFACTOR and
+# zero RJ at the first frequency, which blows up the first post-requeue
+# iteration (m15 SOB run: +100-300% at depths 9-18, ~30% of iterations
+# spent re-converging).  Reuse the stored Eddington factors when both
+# files are present.
+have_edd = Path("EDDFACTOR").exists() and Path("EDDFACTOR_INFO").exists()
+compf_flipped = False
 out = []
 for ln in lines:
     if "[LTE_EST]" in ln:
@@ -2233,10 +2241,19 @@ for ln in lines:
         out.append("T [LIN_INT]")
     elif "[DC_METH]" in ln:
         out.append(f"{dc_meth} [DC_METH]")
+    elif "[COMP_F]" in ln and have_edd and ln.lstrip().startswith("T"):
+        out.append("F [COMP_F]")
+        compf_flipped = True
     else:
         out.append(ln)
 p.write_text("\n".join(out) + "\n")
 print(f"  Requeue: LTE_EST=F, LIN_INT=T, DC_METH={dc_meth} (warm start from _IN files; MAX_LAM/MAX_LIN unchanged)")
+if compf_flipped:
+    print("  Requeue: COMP_F=F (reusing converged EDDFACTOR)")
+elif have_edd:
+    print("  Requeue: COMP_F already F or key absent; EDDFACTOR present")
+else:
+    print("  Requeue: no EDDFACTOR; COMP_F left as written (f will be recomputed)")
 PYREQUEUE
   # Restore NUM_ITS if a graceful stop set it to 0
   if [[ -f "\${NUM_ITS_RESET_SENTINEL}" ]]; then

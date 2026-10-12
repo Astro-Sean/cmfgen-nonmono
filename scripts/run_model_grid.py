@@ -1642,6 +1642,7 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     density_matched_wind = x_cfg.get("density_matched_wind", False)
     cd_transition_zones = x_cfg.get("cd_transition_zones", 5)
     v_blend_zones = x_cfg.get("v_blend_zones", 30)
+    csm_target_dlogr = float(x_cfg.get("csm_target_dlogr", 0.0) or 0.0)
     # Detached slow CSM above the ejecta (cocoon-breakout models): the
     # narrow-P-Cygni material sits outside the SN_A ejecta.
     outer_csm_mdot = float(x_cfg.get("outer_csm_mdot_msun_yr", 0.0) or 0.0)
@@ -1970,6 +1971,8 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
                 str(cd_transition_zones),
             ]
         )
+        if csm_target_dlogr > 0:
+            cmd.extend(["--csm-target-dlogr", str(csm_target_dlogr)])
         if csm_r_split > 0:
             cmd.extend(
                 [
@@ -2851,6 +2854,41 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 f"setenv cmfdist {cmfgen_install_dir}",
                 patched,
             )
+        # Freeze the solver binary into the model directory. The install
+        # tree is rebuilt often; without this a rebuild between requeues
+        # silently swaps the executable mid-run and the run can no longer
+        # be mapped to one code revision. The frozen copy is refreshed on
+        # every run_model_grid.py submission, so picking up a rebuild is
+        # still a deliberate act, and the rename is atomic so a running
+        # job keeps its inode if a resubmission overlaps it.
+        m_dist = re.search(r"(?m)^setenv\s+cmfdist\s+(\S+)", patched)
+        if m_dist:
+            src_exe = Path(m_dist.group(1)) / "exe" / exe_name
+            if src_exe.is_file():
+                import hashlib
+                import datetime
+                frozen_dir = cmfgen_dir / "exe_frozen"
+                frozen_dir.mkdir(exist_ok=True)
+                dst_exe = frozen_dir / exe_name
+                tmp_exe = frozen_dir / (exe_name + ".tmp")
+                shutil.copy2(src_exe, tmp_exe)
+                os.replace(tmp_exe, dst_exe)
+                git_rev = subprocess.run(
+                    ["git", "-C", str(src_exe.parents[1]), "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True,
+                ).stdout.strip()
+                (frozen_dir / "PROVENANCE.txt").write_text(
+                    f"source: {src_exe}\n"
+                    f"sha256[:16]: {hashlib.sha256(dst_exe.read_bytes()).hexdigest()[:16]}\n"
+                    f"git HEAD at freeze: {git_rev}\n"
+                    f"frozen at: {datetime.datetime.now().isoformat(timespec='seconds')}\n"
+                )
+                patched = re.sub(
+                    r"(?m)^setenv\s+CMFGEN_PROG\s+\S+\s*$",
+                    f"setenv CMFGEN_PROG {dst_exe}",
+                    patched,
+                )
+                print(f"  Froze solver binary: {dst_exe} (git {git_rev or 'n/a'})")
         if patched != text:
             batch_sh.write_text(patched)
             print(
@@ -7437,6 +7475,14 @@ def submit_cmfgen_jobs(
         env["SKIP_OBS"] = "1"
     if cmfgen_cfg.get("skip_final", False):
         env["SKIP_FINAL"] = "1"
+    # Optional OBS resource overrides.  submit_cmfgen.sh otherwise gives
+    # the OBS job the FINAL job's partition and mem, which clamps a
+    # debug submission to the interactive 30G cap; a blanketed
+    # (obs_line_treatment='blank') cmf_flux grid can exceed that.
+    if cmfgen_cfg.get("obs_partition"):
+        env["CMFGEN_OBS_PARTITION"] = str(cmfgen_cfg["obs_partition"])
+    if cmfgen_cfg.get("obs_mem"):
+        env["CMFGEN_OBS_MEM"] = str(cmfgen_cfg["obs_mem"])
     # Deliberate continuation: tells submit_cmfgen.sh to skip the fresh-start
     # cleanup and sentinel removal so the slurm takes its checkpoint-restore
     # branch (mirrors prepare_cmfgen_dir preserving the warm-start files).
