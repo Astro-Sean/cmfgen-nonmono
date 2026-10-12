@@ -404,7 +404,14 @@ maser cells entirely (2db3338). (b) The profile weight omitted the
 1.0D-15 Hz conversion, injecting 1e15x the correct opacity so every
 line saturated at its source function - a ~200x elevated
 pseudo-continuum remained after fix (a) (job 12167387); fixed in
-60c707d.
+60c707d.  A third, subtler source of over-emission: `CHECK_LINE_OPAC`
+resets `CHIL_MAT` to `1/NUM_SIM_LINES` at depths where the blend
+group's summed Sobolev optical depth masers, but leaves `ETAL_MAT`
+untouched - the `CHIL<=0` drop test missed those cells and injected
+their full spontaneous emissivity as thin emission with a fake
+opacity.  `NEG_OPACITY` still holds the group's flag at the injection
+call, so those cells are now dropped on the same footing (3e504dc);
+the run log prints the dropped vs injected clumped-emissivity budget.
 
 This replaces the first-cut EW deposition (`DEP_SOB_OBS_FLUX`,
 superseded 12-Oct-2026), which spread each line's `SOBEW_GRAD_V2` EW
