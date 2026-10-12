@@ -1174,6 +1174,9 @@
 	1       REAL(JFNK_TOL_ABS)
 	      WRITE(LUER,'(A,I3)')
 	1       '    solver info code                   :',JFNK_INFO
+	      WRITE(LUER,'(2A)')
+	1       '    solver exit reason                 : ',
+	2       TRIM(jfnk_exit_reason)
 	      IF(.NOT. JFNK_CATASTROPHIC .AND. F_W .LT. BEST_F_W)THEN
 	        BEST_F_W=F_W
 	        BEST_F_INF=F_INF

@@ -64,6 +64,7 @@ module jfnk_solver_v1_mod
    double precision              :: jfnk_del        ! trust-region radius
    integer                       :: jfnk_nits       ! Newton iterations done
    integer                       :: jfnk_gits       ! GMRES iterations (last)
+   character(len=96)             :: jfnk_exit_reason = 'not set'
    !
    ! Eisenstat-Walker forcing term state (added 2026-09-07):
    ! The forcing term eta_k controls how accurately GMRES solves the
@@ -569,6 +570,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(ios_nw /= 0) then
          if(info == 1) write(luer,*) 'newton_hook_v1: workspace alloc failed'
          info = 4
+         jfnk_exit_reason = 'alloc_fail_workspace'
          return
       end if
    end if
@@ -577,6 +579,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    if(ginfo /= 0) then
       if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
       info = 4
+      jfnk_exit_reason = 'alloc_fail_v'
       return
    end if
    !
@@ -637,6 +640,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    if(jfnk_tol < tol) then
       if(info == 1) write(luer,*) '  JFNK: input already converged'
       info = 0
+      jfnk_exit_reason = 'converged_at_entry'
       deallocate(v)
       return
    end if
@@ -676,6 +680,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(del /= 0d0 .and. jfnk_del < mndl) then
          if(info == 1) write(luer,*) '  JFNK: trust region too small'
          info = 3
+         jfnk_exit_reason = 'trust_region_too_small'
          deallocate(v)
          return
       end if
@@ -757,6 +762,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             jfnk_tol = tol_
             info = 3
             deallocate(v)
+         jfnk_exit_reason = 'precond_clip_forcing_norm'
             return
          end if
          ref_norm = dsqrt(dp(n, fx_pc, fx_pc))
@@ -834,6 +840,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          info = 3
          deallocate(v)
+         jfnk_exit_reason = 'krylov_jvp_or_pc_failure'
          return
       end if
       !
@@ -891,6 +898,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          info = 3
          deallocate(v)
+         jfnk_exit_reason = 'gmres_stagnation_abort'
          return
       end if
       !
@@ -967,6 +975,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                '  JFNK: too many rejected steps — aborting Newton'
             info = 3
             deallocate(v)
+         jfnk_exit_reason = 'too_many_rejected_steps'
             return
          end if
          ginfo = 2
@@ -1007,6 +1016,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          info = 3
          deallocate(v)
+         jfnk_exit_reason = 'jvp_failure_pred_eval'
          return
       end if
       ! edited by Devin, 06-Oct-2026 (SER anchor fix): df returns the
@@ -1245,6 +1255,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                '  JFNK: too many rejected steps — aborting Newton'
             info = 3
             deallocate(v)
+         jfnk_exit_reason = 'too_many_rejected_steps'
             return
          end if
          ginfo = 2
@@ -1607,12 +1618,14 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(jfnk_tol < tol) then
          if(info == 1) write(luer,*) '  JFNK: NONLINEAR CONVERGED'
          info = 0
+         jfnk_exit_reason = 'converged'
          deallocate(v)
          return
       else if(jfnk_nits == nits) then
          if(info == 1) write(luer,*) '  JFNK: MAXIMUM NONLINEAR ITERATIONS REACHED'
          if(info == 1) write(luer,*) '  JFNK: NONLINEAR SOLVE NOT YET CONVERGED'
          info = 2
+         jfnk_exit_reason = 'max_newton_iterations'
          deallocate(v)
          return
       end if
@@ -1656,7 +1669,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_pc_clip_event, jfnk_gmres_stag_tol, &
                                   jfnk_gmres_recomputed, &
                                   jfnk_gmres_jj, jfnk_gmres_beta, &
-                                  jfnk_gmres_z, jfnk_gmres_g
+                                  jfnk_gmres_z, jfnk_gmres_g, &
+                                  jfnk_exit_reason
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
    ! (JFNK_N_PRECOND_APPLIES).  Incrementing here double-counted every
@@ -1717,6 +1731,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(ios_gm /= 0) then
          if(info == 1) write(luer,*) 'gmres_m_v1: workspace alloc failed'
          info = 1
+         jfnk_exit_reason = 'gmres_alloc_fail'
          return
       end if
    end if
@@ -1744,6 +1759,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          if(ios_gm /= 0) then
             if(info == 1) write(luer,*) 'gmres_m_v1: z/g alloc failed'
             info = 1
+            jfnk_exit_reason = 'gmres_alloc_fail_zg'
             return
          end if
       end if
@@ -1782,6 +1798,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       ! unchanged Krylov basis, so its descent check skips the pass --
       ! info=0 above hides that fact from the caller.
       jfnk_gmres_recomputed = .true.
+      jfnk_exit_reason = 'gmres_recompute_pass'
       return
    end if
    jj = 0
@@ -1811,6 +1828,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(jfnk_jvp_failed) then
          if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
          info = 3
+         jfnk_exit_reason = 'gmres_jvp_failure'
          return
       end if
    end if
@@ -1822,6 +1840,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(jfnk_pc_clip_event) then
          if(info == 1) write(luer,*) '  GMRES: precond clip -- aborting'
          info = 3
+         jfnk_exit_reason = 'gmres_pc_clip'
          return
       end if
    end if
@@ -1837,6 +1856,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          '  GMRES: near-zero initial residual (converged)'
       info = 0
       pred_res = 0d0
+      jfnk_exit_reason = 'gmres_near_zero_rhs'
       return
    end if
    v(:,1) = w / beta
@@ -1853,12 +1873,14 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          if(jfnk_jvp_failed) then
             if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
             info = 3
+            jfnk_exit_reason = 'gmres_jvp_failure'
             return
          end if
          call psolve(n, w)
          if(jfnk_pc_clip_event) then
             if(info == 1) write(luer,*) '  GMRES: precond clip -- aborting'
             info = 3
+            jfnk_exit_reason = 'gmres_pc_clip'
             return
          end if
       else
@@ -1871,6 +1893,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          if(jfnk_pc_clip_event) then
             if(info == 1) write(luer,*) '  GMRES: precond clip -- aborting'
             info = 3
+            jfnk_exit_reason = 'gmres_pc_clip'
             return
          end if
          jfnk_gmres_z(:,j) = z
@@ -1883,6 +1906,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          if(jfnk_jvp_failed) then
             if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
             info = 3
+            jfnk_exit_reason = 'gmres_jvp_failure'
             return
          end if
       end if
@@ -1942,6 +1966,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(i /= 0) then
          if(info == 1) write(luer,*) '  GMRES: dgelsy error ', i
          info = 1
+         jfnk_exit_reason = 'gmres_dgelsy_error'
          return
       end if
       y = p
@@ -2019,6 +2044,13 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! space, not slow progress, so a fresh basis is worth it.
             ! Restarts are bounded by imx (its keeps accumulating).
             if(res <= tol .or. its == imx .or. .not. lb_hit) then
+               if(info == 0) then
+                  jfnk_exit_reason = 'gmres_converged'
+               else if(its == imx) then
+                  jfnk_exit_reason = 'gmres_max_iterations'
+               else
+                  jfnk_exit_reason = 'gmres_stagnation'
+               end if
                if(luer > 0) then
                   if(info == 0) then
                      write(luer,'(A,I4,A,ES12.4)') &
@@ -2049,6 +2081,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             if(jfnk_jvp_failed) then
                write(luer,*) '  GMRES: JVP failure in restart diag -- aborting'
                info = 3
+               jfnk_exit_reason = 'gmres_jvp_failure_restart_diag'
                return
             end if
             w = b - z
@@ -2057,6 +2090,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                if(jfnk_pc_clip_event) then
                   write(luer,*) '  GMRES: precond clip in restart diag -- aborting'
                   info = 3
+                  jfnk_exit_reason = 'gmres_pc_clip_restart_diag'
                   return
                end if
             end if
@@ -2080,6 +2114,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                '  GMRES: restart cap (', n_restart, &
                ') -- treating as stagnation'
             info = 1
+            jfnk_exit_reason = 'gmres_restart_cap_stagnation'
             return
          end if
          ! edited by Devin, 05-Oct-2026: luer>0 guard, same convention
