@@ -153,20 +153,38 @@ at shock cells), and the KNOP refresh intermittently reached
 conv=T while the field still ran away, i.e. the map's fixed point
 itself is a runaway state on this field from this restart.
 
-**Warm restart vs cold start is the real divide.** The solver
-validation of 27-Sep (convergence_issues.md Sect. 8, jobs 11998572
-MOM / 11998353 LAM) ran the same m15_2p82d model from a cold LTE
-start and the MOM path contracted: L declined 2.64E10 -> 1.72E10
-over it1-3 with demands collapsing 4.2E14 -> 4.6E2. Both 12-Oct
-probes warm-restarted populations equilibrated to the formal-solve
-J; the moment J overshoots that fixed point, LAMBDA population steps
-chase it, opacity drops, J climbs - a feedback loop the lagged map
-cannot outrun once it engages. Candidate directions: cold-start
-moment run on the current build (regression check vs 27-Sep),
-population freeze during map warmup, or accept the moment path as
-cold-start-only on compression-dominated fields. The validated
-warm-restart-capable paths remain the formal-solve modes:
-SOB+LAM_ES=T (+DO_FG13_ALO) and KNOP+LAM_ES=T.
+**Cold-start probes (jobs 12161660 SOB / 12161668 KNOP): both
+diverged.** SOB: bounded ~5E9 for ~3 iterations then 2.9E11 (it8)
+-> 1.4E13 (it11). KNOP: it1=2.79E10 (vs September's 2.64E10),
+then 3.1E10 -> 4.2E10 -> 4.95E11 (it4) with demands pinned at
+~9.5E5 - where the September cold run DECLINED 2.64E10 -> 1.72E10.
+So on the current build the moment path diverges on m15 from cold
+AND warm starts under BOTH pathways. `mom_j_cmf_nonmono_v1.f` is
+byte-identical to the stale pre-1ec74d5 snapshot, so there is no
+intra-tree regression to bisect; the September convergence ran on
+the `cmfgen_nonmono_dev_V7` worktree (gone), so config/tree
+differences cannot be ruled out, but the practical conclusion is
+unchanged: **the lagged-map moment solve is not a viable J-update
+on m15 in the current build**. The converging pathways are the
+formal-solve modes: SOB+LAM_ES=T (+DO_FG13_ALO) and KNOP+LAM_ES=T.
+
+**Structural cause identified (SUPPORTED): inconsistent Eddington
+factors.** `FG_J_CMF_V13` builds its ray-solve GAM from `SIGMA`
+(clamped >= -0.999 under SOB - deliberately, stock routines break
+on sigma < -1), while `MOM_J_CMF_NONMONO_V1` builds its advection/
+upwind coefficients from `SIGMA_TRUE` (reaches ~-112 at the m15
+shock). The K_ON_J / NMID_ON_J / NMID_ON_HMID / boundary N_ON_J
+factors the moment solver consumes via `GET_MOMS_NON_REL` therefore
+describe a ~100x weaker velocity gradient than the solver's own
+coupling assumes, at exactly the compressing cells where advection
+dominates. The measured signature: `max|EPS|/HU ~ 8.8E6` under SOB
+vs `~15` under KNOP (whose formal solver uses SIGMA_TRUE
+throughout, so factors and coupling are consistent). No refresh or
+damping policy repairs a coupling fed inconsistent factors - a SOB
+moment path would need sign-split ray moments, i.e. the Knop formal
+solver for the continuum, which is the KNOP architecture with
+Sobolev lines (the OBS-reader already allows both flags T in that
+combination).
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`

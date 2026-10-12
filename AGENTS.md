@@ -193,13 +193,15 @@ Sobolev treatment for non-monotonic velocity fields:
   this mode (admission is gated on `USE_LAM_ES`). `DO_KNOP_REFRESH`
   defaults on here as well as under KNOP (`MOM_KNOP_REFRESH_V1`
   converges the lagged J_NEXT/H_NEXT map within each sweep). Status
-  on m15: the moment path diverges on a WARM RESTART under both
-  pathways - SOB job 12160690 ran 3.9E8->1.6E17 and the KNOP control
-  job 12161004 ran 2.6E9->9.6E12, same bounded-then-runaway pattern.
-  The same solver converged on this model from a cold LTE start on
-  27-Sep (convergence_issues.md Sect. 8) - treat the moment path as
-  cold-start-only until a warm-restart stabilization exists (the
-  population-vs-J mismatch, not the map seed, drives the feedback).
+  on m15 (12-Oct probes): the moment path diverged under BOTH
+  pathways from BOTH warm restart and cold LTE start - jobs
+  12160690/12161004 (warm) and 12161660/12161668 (cold), all the
+  same bounded-then-runaway luminosity pattern. Under SOB there is
+  an additional structural inconsistency: V13's ray moments are
+  built on clamped SIGMA (~-1) while the moment solver couples with
+  SIGMA_TRUE (~-112 at the shock), giving |EPS|/HU ~ 8.8E6 vs ~15
+  under KNOP.  The moment path is diagnostic-only on this field
+  until further notice; the converging J-updates are LAM_ES=T.
   The earlier V11+V12 variant diverged on m15 (jobs 12158938,
   12159013); do not restore it - V11 assumes expanding flow and V12
   linearizes the V11 system.
