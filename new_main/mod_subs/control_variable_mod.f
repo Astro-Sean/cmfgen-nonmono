@@ -884,6 +884,15 @@
 !
 	LOGICAL DO_NONMONO_FREQ_MATCH
 !
+! MOM_GAM_PIN (default TRUE): in MOM_J_CMF_NONMONO_V1 the lagged
+! comoving-gradient factors (GAM_FAC_PREV, GAMH_FAC_PREV, boundary
+! PSIPREV, EPS_PREV) are evaluated with the current frequency's
+! Eddington factors, so the explicit upwind weight equals the
+! implicit diagonal weight and the lagged map cannot gain through a
+! PSIPREV/PSI ratio.  VADAT keyword [MOM_GAM_PIN].
+!
+	LOGICAL MOM_GAM_PIN
+!
 ! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the

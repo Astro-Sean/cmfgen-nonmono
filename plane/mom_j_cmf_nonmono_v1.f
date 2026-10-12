@@ -612,6 +612,21 @@
 	INTEGER*8, SAVE :: MOM_RF_NSUPP=0
 	INTEGER*8, SAVE :: MOM_SW_NSUPP=0
 !
+! MOM_GAM_PIN (VADAT key, default TRUE): evaluate the lagged
+! comoving-gradient factors (GAM_FAC_PREV, GAMH_FAC_PREV, the
+! Eddington boundary PSIPREV) at the CURRENT frequency's Eddington
+! factors instead of the bluer neighbour's.  With independent
+! evaluations a sign or magnitude drift across a frequency boundary
+! near the 1+sigma*K=0 resonance lets the explicit upwind weight
+! exceed the implicit diagonal (PSIPREV/PSI > 1), and the lagged
+! fixed-point map then amplifies the field it reads.  Pinning makes
+! the explicit weight identical to the implicit one -- the
+! compressing branch's existing PSI convention -- so neither upwind
+! channel is expansive by construction.  edited by Devin,
+! 12-Oct-2026.
+!
+	LOGICAL MOM_GAM_PIN
+!
 ! XM_FB_NM: previous valid R^2*J at the current frequency, assembled
 ! before DGTSV overwrites XM_NM.  It is the fallback target for a
 ! failed solve or a rejected cell: the lagged GS iterate
@@ -717,6 +732,7 @@
 	DATA MOM_DOM_EXP /.FALSE./
 	DATA MOM_RF_ENABLED /.FALSE./
 	DATA MOM_EPS_LIM /.TRUE./
+	DATA MOM_GAM_PIN /.TRUE./
 	DATA KN_M_READY /.FALSE./
 	DATA KN_M_RF_WARNED /.FALSE./
 	DATA KN_M_ANYCMP /.FALSE./
@@ -1766,9 +1782,19 @@
 	    GAMH_SIGNED_NM(I)=GAM_SIGNED_NM(I)
 	    GAM_MAG_NM(I)=ABS(GAM_SIGNED_NM(I))
 	    IF(GAM_SIGNED_NM(I) .LT. 0.0_LDP)HAS_COMPRESSING=.TRUE.
-	    T1=1.0_LDP+AV_SIGMA_TRUE_NM(I)*NMID_ON_HMID_PREV(I)
-	    GAMH_FAC_PREV_NM(I)=SIGN(MAX(ABS(T1),MOM_GAM_FAC_MIN),T1)
-	    IF(T1 .EQ. 0.0_LDP)GAMH_FAC_PREV_NM(I)=0.0_LDP
+	    IF(MOM_GAM_PIN)THEN
+!
+! Pin the lagged factor to the current-frequency evaluation: an
+! independent 1+sigma*g_prev can carry the opposite sign or a larger
+! magnitude near the zero-GAM resonance, which lets the lagged H
+! weight exceed the implicit (1+W) normalization.  [MOM_GAM_PIN]
+!
+	      GAMH_FAC_PREV_NM(I)=GAMH_FAC_NM(I)
+	    ELSE
+	      T1=1.0_LDP+AV_SIGMA_TRUE_NM(I)*NMID_ON_HMID_PREV(I)
+	      GAMH_FAC_PREV_NM(I)=SIGN(MAX(ABS(T1),MOM_GAM_FAC_MIN),T1)
+	      IF(T1 .EQ. 0.0_LDP)GAMH_FAC_PREV_NM(I)=0.0_LDP
+	    END IF
 	  END DO
 	  GAMH_FAC_NM(ND_NM)=1.0_LDP
 	  GAMH_FAC_PREV_NM(ND_NM)=1.0_LDP
@@ -1880,9 +1906,19 @@
 ! refresh gate must see it too -- the midpoint test above can stay
 ! positive when NMID_ON_HMID sits at its 0.01 floor.
 	    IF(GAM_SIGNED_NM(I) .LT. 0.0_LDP)HAS_COMPRESSING=.TRUE.
-	    T1=1.0_LDP+SIGMA_TRUE_NM(I)*K_ON_J_PREV(I)
-	    GAM_FAC_PREV_NM(I)=SIGN(MAX(ABS(T1),MOM_GAM_FAC_MIN),T1)
-	    IF(T1 .EQ. 0.0_LDP)GAM_FAC_PREV_NM(I)=0.0_LDP
+	    IF(MOM_GAM_PIN)THEN
+!
+! Same pin as the midpoint factor: PSIPREV = DTAUONQ*|GAM*GAM_FAC|
+! now equals PSI, so the expanding explicit upwind weight cannot
+! exceed the implicit diagonal (the compressing branch already uses
+! PSI as its coupling coefficient).  [MOM_GAM_PIN]
+!
+	      GAM_FAC_PREV_NM(I)=GAM_FAC_NM(I)
+	    ELSE
+	      T1=1.0_LDP+SIGMA_TRUE_NM(I)*K_ON_J_PREV(I)
+	      GAM_FAC_PREV_NM(I)=SIGN(MAX(ABS(T1),MOM_GAM_FAC_MIN),T1)
+	      IF(T1 .EQ. 0.0_LDP)GAM_FAC_PREV_NM(I)=0.0_LDP
+	    END IF
 	    IF(GAM_SIGNED_NM(I) .LT. 0.0_LDP .AND.
 	1       MOM_NU_NEXT .GT. 0.0_LDP .AND.
 	2       MOM_NU_NEXT .LT. FREQ)THEN
@@ -1981,10 +2017,12 @@
 ! row's own diagonal elimination, not from the lagged field.  So
 ! both EPS_NM and EPS_PREV_NM carry 1/(1+W_NM); WPREV_NM enters the
 ! row only as the numerator of the lagged-H coefficient
-! HS_NM = WPREV_NM/(1+W_NM) below.  The lagged quantities in
-! EPS_PREV_NM are NMID_ON_J_PREV and the field it multiplies
-! (RSQJNU_PREV_NM); GAMH and AV_SIGMA_TRUE are not lagged because
-! they carry no frequency index in this discretization.
+! HS_NM = WPREV_NM/(1+W_NM) below.  Under MOM_GAM_PIN the lagged
+! angle factor in EPS_PREV_NM is NMID_ON_J itself (pinned); with
+! the flag off it is NMID_ON_J_PREV -- in both cases the lagged
+! content is the field the term multiplies (RSQJNU_PREV_NM).  GAMH
+! and AV_SIGMA_TRUE are not lagged because they carry no frequency
+! index in this discretization.
 !
 !
 	  IF(N_TYPE .EQ. 'G_ONLY')THEN
@@ -1996,8 +2034,19 @@
 	    DO I=1,ND_NM-1
 	      EPS_NM(I)=GAMH_NM(I)*AV_SIGMA_TRUE_NM(I)*
 	1         NMID_ON_J(I)/(1.0_LDP+W_NM(I))
-	      EPS_PREV_NM(I)=GAMH_NM(I)*AV_SIGMA_TRUE_NM(I)*
-	1         NMID_ON_J_PREV(I)/(1.0_LDP+W_NM(I))
+	      IF(MOM_GAM_PIN)THEN
+!
+! Pin the lagged angle factor to the current-frequency NMID_ON_J:
+! same lagged/current mismatch class as GAM_FAC_PREV -- an
+! independent sigma*n_prev evaluation lets the explicit midpoint
+! transfer outweigh the implicit EPS in TA/TB/TC.  With the pin the
+! EPS_PREV<0 fixup below is already satisfied.  [MOM_GAM_PIN]
+!
+	        EPS_PREV_NM(I)=EPS_NM(I)
+	      ELSE
+	        EPS_PREV_NM(I)=GAMH_NM(I)*AV_SIGMA_TRUE_NM(I)*
+	1           NMID_ON_J_PREV(I)/(1.0_LDP+W_NM(I))
+	      END IF
 	    END DO
 	  END IF
 !
@@ -2021,7 +2070,9 @@
 	  DTAUONQ_NM(I)=0.5_LDP*(DTAU_NM(I)+DTAU_NM(I-1))/QF_NM(I)
 !
 ! PSI = DTAUONQ * |GAM * (1 + SIGMA_TRUE * K_ON_J)| (always >= 0, implicit)
-! PSIPREV = DTAUONQ * GAM * (1 + SIGMA_TRUE * K_ON_J_PREV) (signed, explicit)
+! PSIPREV = DTAUONQ * |GAM * GAM_FAC_PREV| (explicit); under
+!   MOM_GAM_PIN GAM_FAC_PREV = GAM_FAC so PSIPREV = PSI, with the
+!   flag off it uses K_ON_J_PREV (independent lagged evaluation).
 !
 ! V11: PSI = DTAUONQ * GAM * (1 + SIGMA * K_ON_J) (always positive in V11
 !   because SIGMA is clamped to >= -0.999 and K_ON_J ~ 1/3)
@@ -2512,8 +2563,19 @@
 	  END IF
 	  A_BND=GAM_NM(1)*(HBC_ROW+NBC_ROW*SIGMA_TRUE_NM(1))
 	  PSI_NM(1)=ABS(A_BND)
-	  PSIPREV_NM(1)=ABS(GAM_NM(1)*
-	1     (HBC_PREV_ROW+NBC_PREV_ROW*SIGMA_TRUE_NM(1)))
+	  IF(MOM_GAM_PIN)THEN
+!
+! Same pin as the interior PSIPREV: the boundary coupling weight is
+! this row's own A_bnd, not the bluer frequency's Eddington factors
+! (HBC_PREV/NBC_PREV), whose drift past the sign flip let the
+! explicit upwind source outweigh the implicit diagonal.
+! [MOM_GAM_PIN]
+!
+	    PSIPREV_NM(1)=PSI_NM(1)
+	  ELSE
+	    PSIPREV_NM(1)=ABS(GAM_NM(1)*
+	1       (HBC_PREV_ROW+NBC_PREV_ROW*SIGMA_TRUE_NM(1)))
+	  END IF
 	  IF(.NOT.(DTAU_NM(1) .GT. 0.0_LDP))THEN
 	    LUER=ERROR_LU()
 	    WRITE(LUER,*)'Invalid outer-boundary DTAU:',DTAU_NM(1),
@@ -3919,6 +3981,18 @@
 	MOM_EPS_LIM=EPSLIM
 	MOM_RF_ENABLED=RF_EN
 	MOM_RF_OWNW=OWNW
+	RETURN
+	END
+!
+! SET_MOM_LAG_OPTS: runtime wiring for MOM_GAM_PIN, called once
+! from RD_CONTROL_VARIABLES after the VADAT key is read.
+!
+	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_GAM_PIN
+	IMPLICIT NONE
+	LOGICAL GAMPIN
+	MOM_GAM_PIN=GAMPIN
 	RETURN
 	END
 !

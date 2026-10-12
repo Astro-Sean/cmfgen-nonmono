@@ -1029,6 +1029,21 @@
 	  CALL SET_MOM_RF_DIR_OPT(MOM_RF_DIR,MOM_EPS_LIM,
 	1     DO_KNOP_REFRESH,MOM_RF_OWNW)
 !
+! MOM_GAM_PIN (default TRUE): evaluate the lagged comoving-gradient
+! factors in MOM_J_CMF_NONMONO_V1 (GAM_FAC_PREV, GAMH_FAC_PREV, the
+! Eddington boundary PSIPREV, and the EPS_PREV angle factor) at the
+! current frequency's Eddington factors instead of the bluer
+! neighbour's.  Independent lagged evaluations let the explicit
+! upwind weight exceed the implicit diagonal where 1+sigma*K drifts
+! sign or magnitude across a frequency boundary -- the observed
+! m15 lagged-map gain channel (12-Oct-2026 probes).  FALSE restores
+! the independent lagged evaluation for A/B tests.
+!
+	  MOM_GAM_PIN=.TRUE.
+	  CALL RD_STORE_LOG(MOM_GAM_PIN,'MOM_GAM_PIN',L_FALSE,
+	1     'Pin lagged GAM factors to current-frequency values?')
+	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN)
+!
 ! Refresh tuning knobs, previously compile-time parameters.  The
 ! defaults match the built-in values, so an unchanged VADAT is
 ! bit-identical in behavior; the setters clamp to safe ranges.
