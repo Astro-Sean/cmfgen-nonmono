@@ -113,7 +113,9 @@
 ! a small real derivative (FD stable vs h) from cancellation noise.
 !
 	INTEGER, ALLOCATABLE :: J2ID_LOC(:)
+	INTEGER, ALLOCATABLE :: NZ_SP(:)
 	INTEGER JROW,KROW,LEV_LOC,IHS
+	DOUBLE PRECISION POP_LOC,NLTE_LOC,BADG_LOC
 	CHARACTER*14 LBL_LOC
 	LOGICAL REP_LOC
 	DOUBLE PRECISION CMR_LOC,COLL_LOC
@@ -793,6 +795,20 @@
 !
 	      ALLOCATE(JV_FD(JFNK_N), JV_FD2(JFNK_N), Z_BLK(JFNK_N))
 	      ALLOCATE(JV_SAV(JFNK_N))
+	      IF(ALLOCATED(J2ID_LOC))DEALLOCATE(J2ID_LOC)
+	      ALLOCATE(J2ID_LOC(JFNK_NT))
+	      J2ID_LOC=0
+	      DO ID=1,JFNK_NION
+	        IF(ATM(ID)%XzV_PRES)THEN
+	          DO J=ATM(ID)%EQXzV,
+	1            MIN(ATM(ID)%EQXzV+ATM(ID)%NXzV-1,JFNK_NT-2)
+	            IF(J .GE. 1)J2ID_LOC(J)=ID
+	          END DO
+	        ELSE IF(ATM(ID)%EQXzV .GE. 1 .AND.
+	1            ATM(ID)%EQXzV .LE. JFNK_NT-2)THEN
+	          J2ID_LOC(ATM(ID)%EQXzV)=ID
+	        END IF
+	      END DO
 	      FMAX_LOC = 0.0_LDP
 	      I_ZMAX = 1
 	      DO I = 1, JFNK_N
@@ -853,8 +869,11 @@
 ! Top-|z| components: name the rows carrying the large corrections.
 !
 	      WRITE(LUER,'(A)')'  REACH-FD top |z| rows:'
+	      WRITE(LUER,'(A)')'    rnk    idx     K     J  z'//
+	1      '            ion        lev   n'//
+	2      '          n/nLTE      F_i        rad_diag    BA_diag'
 	      Z_BLK = 0.0_LDP
-	      DO K = 1, 10
+	      DO K = 1, 50
 	        FMAX_LOC = 0.0_LDP
 	        I_ZMAX = 0
 	        DO I = 1, JFNK_N
@@ -866,9 +885,51 @@
 	        END DO
 	        IF(I_ZMAX .EQ. 0)EXIT
 	        Z_BLK(I_ZMAX) = 1.0_LDP
-	        WRITE(LUER,'(A,I8,A,I4,A,I6,A,ES12.4)')
-	1          '    z_i: idx=',I_ZMAX,' K=',(I_ZMAX-1)/JFNK_NT+1,
-	2          ' J=',MOD(I_ZMAX-1,JFNK_NT)+1,' z=',Z_CHK(I_ZMAX)
+	        JROW=MOD(I_ZMAX-1,JFNK_NT)+1
+	        KROW=(I_ZMAX-1)/JFNK_NT+1
+	        ID=0
+	        IF(JROW .LE. JFNK_NT-2)ID=J2ID_LOC(JROW)
+	        LBL_LOC='unlabeled'
+	        LEV_LOC=0
+	        POP_LOC=0.0_LDP
+	        NLTE_LOC=0.0_LDP
+	        IF(JROW .EQ. JFNK_NT)THEN
+	          LBL_LOC='T (energy)'
+	          POP_LOC=POPS(JROW,KROW)
+	        ELSE IF(JROW .EQ. JFNK_NT-1)THEN
+	          LBL_LOC='Ne (charge)'
+	          POP_LOC=POPS(JROW,KROW)
+	        ELSE IF(ID .GT. 0)THEN
+	          LBL_LOC=ION_ID(ID)
+	          LEV_LOC=JROW-ATM(ID)%EQXzV+1
+	          POP_LOC=POPS(JROW,KROW)
+	          IF(ALLOCATED(ATM(ID)%XzVLTE) .AND.
+	1            ABS(ATM(ID)%XzVLTE(LEV_LOC,KROW)) .GT. 0.0_LDP)
+	2            NLTE_LOC=POP_LOC/ATM(ID)%XzVLTE(LEV_LOC,KROW)
+	        END IF
+	        CMR_LOC=0.0_LDP
+	        IF(ALLOCATED(JFNK_CMAT_RAD))
+	1         CMR_LOC=DBLE(JFNK_CMAT_RAD(JROW,JROW,KROW))
+	        BADG_LOC=JFNK_BA_A(JROW,JROW,KROW)
+	        WRITE(LUER,'(I4,I9,I6,I6,ES12.4,2X,A12,I5,4ES12.4)')
+	1          K,I_ZMAX,KROW,JROW,Z_CHK(I_ZMAX),LBL_LOC,LEV_LOC,
+	2          POP_LOC,NLTE_LOC,jfnk_fx(I_ZMAX),CMR_LOC,BADG_LOC
+	      END DO
+	      IF(ALLOCATED(NZ_SP))DEALLOCATE(NZ_SP)
+	      ALLOCATE(NZ_SP(JFNK_NION))
+	      NZ_SP=0
+	      DO I = 1, JFNK_N
+	        JROW=MOD(I-1,JFNK_NT)+1
+	        IF(JROW .LE. JFNK_NT-2 .AND.
+	1          ABS(Z_CHK(I)) .GT. 1.0_LDP)THEN
+	          ID=J2ID_LOC(JROW)
+	          IF(ID .GT. 0)NZ_SP(ID)=NZ_SP(ID)+1
+	        END IF
+	      END DO
+	      WRITE(LUER,'(A)')'    |z|>1 census by species (all depths):'
+	      DO ID=1,JFNK_NION
+	        IF(NZ_SP(ID) .GT. 0)
+	1        WRITE(LUER,'(A,A12,I6)')'      ',ION_ID(ID),NZ_SP(ID)
 	      END DO
 !
 ! (a) column probe: JVP(e_i) returns column i of the true J
