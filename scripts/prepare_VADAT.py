@@ -5995,6 +5995,57 @@ DEFAULT [IB_OPT]
         if dup:
             print("WARNING: duplicate keys in clean VADAT:", ", ".join(dup))
 
+        # ── Final configuration, read back from the file just written ──
+        # Intermediate prints describe the branch that was active at that
+        # point in main(); later overrides (VEL_LAW selection, enforce_
+        # sn_iin_physics, vadat_overrides) can legitimately change the
+        # values again.  Only the file is fact, so the closing report is
+        # generated from the written VADAT itself and cannot disagree.
+        try:
+            _final_lines = vadat_out_path.read_text().splitlines()
+        except OSError:
+            _final_lines = clean
+        print("[Final configuration] values read back from written VADAT:")
+        _final_keys = [
+            "VEL_LAW", "RD_IN_R_GRID", "USE_LAM_ES", "DO_NONMONO_SOB",
+            "DO_NONMONO_KNOP", "SOL_METH", "DC_METH", "DIF", "IB_METH",
+            "VFRAC_MOM", "VFRAC_FG", "FIX_T", "FIX_T_AUTO", "LTE_EST",
+            "RSTAR", "RMAX", "VINF", "SN_AGE",
+        ]
+        for _k in _final_keys:
+            _tok = _get_key_token(_final_lines, _k)
+            print(f"    {_k:<16} = {_tok if _tok is not None else '(absent)'}")
+        # vadat_overrides win over hydro-derived scalars; say so where the
+        # file differs from the hydro computation rather than repeating the
+        # earlier message that implied the hydro value survived.
+        if vadat_overrides:
+            for _k in ("RSTAR", "RMAX", "VINF"):
+                if _k in vadat_overrides:
+                    _tok = _get_key_token(_final_lines, _k)
+                    _hv = hydro.params.get(_k)
+                    print(f"    NOTE: {_k}={_tok} comes from vadat_overrides; "
+                          f"the hydro-derived value was {_hv}")
+        # An RSTAR/RMAX override invalidates the tau=2/3 photosphere anchor
+        # computed from the hydro luminosity, so flag the conflict rather
+        # than letting the earlier photosphere print stand as the record.
+        _rstar_tok = _get_key_token(_final_lines, "RSTAR")
+        _rstar_fin = _vadat_float_token(_rstar_tok)
+        _rstar_hyd = hydro.params.get("RSTAR")
+        if (_rstar_fin is not None and _rstar_hyd is not None
+                and abs(_rstar_fin - _rstar_hyd) > 1e-6 * max(abs(_rstar_hyd), 1.0)):
+            print(f"    WARNING: final RSTAR={_rstar_fin:.6e} differs from the "
+                  f"hydro/photosphere value {_rstar_hyd:.6e}; the tau=2/3 "
+                  "photosphere anchoring printed earlier no longer applies.")
+        _rmax_tok = _get_key_token(_final_lines, "RMAX")
+        _rmax_fin = _vadat_float_token(_rmax_tok)
+        _rmax_hyd = hydro.params.get("RMAX")
+        if (_rmax_fin is not None and _rmax_hyd is not None
+                and abs(_rmax_fin - _rmax_hyd) > 1e-6 * max(abs(_rmax_hyd), 1.0)):
+            print(f"    WARNING: final RMAX={_rmax_fin:.6e} differs from the "
+                  f"hydro/photosphere value {_rmax_hyd:.6e}; the tau=2/3 "
+                  "photosphere anchoring printed earlier no longer applies.")
+        print()
+
         print()
         print(f"OK: base={base_vadat_path.name} -> wrote {vadat_out_path.name} (no comments).")
         if profile == "single_final":
