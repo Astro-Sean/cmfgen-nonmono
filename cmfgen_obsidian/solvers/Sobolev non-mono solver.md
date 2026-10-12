@@ -128,6 +128,32 @@ V6 port notes warn against. A working SOB continuum Jacobian therefore
 needs the alternative audit route: accumulate an ALO diagonal in
 `FG_J_CMF_V13` and pass it to `do_var_cont.f`, not a moment solve.
 
+## Opt-in DO_FG13_ALO (12-Oct-2026, commit 336e899)
+
+`FG_J_CMF_V13` now stores the same diagonal Olson-Auer-Buchler
+approximate Lambda operator `FG_J_CMF_NONMONO_V1` uses on the Knop
+path: per-ray captures of `chi_hat = CHI + GAM/dLOG_NU` and the
+direction-dependent modified sources `S'_M/S'_P`, accumulated in the
+serial J_LOOP into `dJ/dETA`, `dJ/dCHI` and `LAMSTAR` diagonals with
+the same `JQW` weights and `J_PNT` mapping as `JNU_STORE`. Exposed to
+`do_var_cont.f` via `GET_FG13_ALO_DIAG`; under `DO_NONMONO_SOB` +
+`DO_FG13_ALO=T` the continuum `TX(K,K,1:2)` diagonals are filled, so
+the BA step regains continuum self-coupling while J still comes from
+the formal solve (`USE_LAM_ES=T` unchanged). Default F keeps the
+validated all-zero continuum Jacobian. The construction assumes
+`dS'/dCHI = -S'/chi_hat` (Q and I_prev frozen), skips rows where
+`chi_hat <= 0` (possible in compression zones where the unsigned GAM
+term dominates), and runs only when `SOLUTION_METHOD='INTEGRAL'` -
+otherwise `ALO_VALID=F` and that frequency falls back to the plain
+Lambda update.
+
+Probe `dessart_m15_2p82d_SOB_jfnk_alo_probe` (job 12159725) warm
+restarts from `probe_snap` with `DO_JFNK=F` to measure whether the
+plateau contraction beats the ~0.9986/iteration Lambda limit. Note
+`probe_snap` predates the EDDFACTOR warm-restart fix, so the first
+iteration recomputes factors (one bounded cold start); the
+measurement window is the plateau after recovery.
+
 Companion pipeline defect found in the same audit: every SINGLE_FINAL
 requeue rewrote `VADAT` leaving `COMP_F=T`, so CMFGEN recomputed
 EDDFACTOR and zeroed `RJ` at the first frequency of each restarted

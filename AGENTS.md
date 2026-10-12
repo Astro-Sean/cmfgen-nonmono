@@ -178,9 +178,10 @@ Sobolev treatment for non-monotonic velocity fields:
   denominators (`POPS(NUP)`, `U_STAR_RATIO`) that can vanish on a bad
   Lambda iterate.  Identical results for valid iterates.
 - VADAT: `T [DO_NONMONO_SOB]` (optional, default F). Requires
-  `GLOBAL_LINE='SOB'` (or `NONE` with every present ion `TRANS_*=SOB`)
-  and `USE_LAM_ES=T`; rd_control_variables.f STOPs otherwise
-  (03-Oct-2026, was a warning). `LAM_SET=T` warns only.
+  `GLOBAL_LINE='SOB'` (or `NONE` with every present ion `TRANS_*=SOB`).
+  `USE_LAM_ES=T` remains the validated path; `=F` warns but is
+  permitted as an opt-in diagnostic (see next entry). `LAM_SET=T`
+  warns only.
 - `USE_LAM_ES=F` under `DO_NONMONO_SOB` (opt-in, 12-Oct-2026): runs
   the stock `MOM_J_CMF_V11` moment solve on clamped `SIGMA` and restores
   the `VAR_MOM_J_CMF_V12` continuum linearization that the LAM_ES path
@@ -194,6 +195,12 @@ Sobolev treatment for non-monotonic velocity fields:
   depth are excluded from the MAXCH/MAXCH_APP metric (their corrections
   still commit). Catches physically empty ions at populated depths that
   `BA_DEM_PFLOOR` cannot reach.
+- `DO_FG13_ALO` (VADAT key, default F, 12-Oct-2026): `FG_J_CMF_V13`
+  stores the same diagonal OAB approximate-Lambda operator the Knop
+  solver uses (`GET_FG13_ALO_DIAG`); `do_var_cont.f` fills the
+  continuum dJ/dCHI, dJ/dETA diagonals under `DO_NONMONO_SOB`. J
+  stays the `USE_LAM_ES=T` formal solution. Opt-in; under test in
+  `dessart_m15_2p82d_SOB_jfnk_alo_probe` (job 12159725).
 
 ## 4. Deliberately NOT ported from V6
 
