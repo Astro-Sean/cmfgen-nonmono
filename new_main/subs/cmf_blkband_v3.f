@@ -244,14 +244,59 @@
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
 !
+	LOGICAL BCD_OK,BCD_TRI_OK
+	CHARACTER(LEN=200) BCD_DIR,BCD_F1,BCD_F2
+!
 	LUER=ERROR_LU()
+!
+! The DIAG recall path reads the cached LU factors (CSCRATCH<depth>)
+! written by WRITE_BCD_MAT.  A stored BAMAT can outlive the cache:
+! warm-restart staging, directory refreshes, and solves that factor
+! via the JFNK path all write BAMAT/BAMATPNT without the BCD files.
+! READ_BCD_MAT STOPs on a missing file, so verify the boundary
+! depths first and fall through to the compute path, which rebuilds
+! the factors from the loaded SE%BA.  The check mirrors the startup
+! guard in cmfgen_sub.f but covers mid-run cache loss as well.
+!
+	BCD_OK=.FALSE.
+	IF(SOL_TYPE(1:4) .EQ. 'DIAG' .AND. .NOT. BA_COMPUTED .AND.
+	1   WR_BA_INV)THEN
+	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',BCD_DIR)
+	  IF(LEN_TRIM(BCD_DIR) .EQ. 0)BCD_DIR='SCRATCH/'
+	  WRITE(BCD_F1,'(A,A,I4.4)')TRIM(BCD_DIR),'CSCRATCH',1
+	  WRITE(BCD_F2,'(A,A,I4.4)')TRIM(BCD_DIR),'CSCRATCH',ND
+	  INQUIRE(FILE=TRIM(BCD_F1),EXIST=BCD_OK)
+	  IF(BCD_OK)INQUIRE(FILE=TRIM(BCD_F2),EXIST=BCD_OK)
+	  IF(.NOT. BCD_OK)THEN
+	    WRITE(LUER,*)'CMF_BLKBAND_V3: BAMAT recall requested but'//
+	1      ' CSCRATCH factor cache is absent; recomputing LU'//
+	2      ' from stored BA'
+	  END IF
+	END IF
+!
+	BCD_TRI_OK=.FALSE.
+	IF(SOL_TYPE(1:3) .EQ. 'TRI' .AND. .NOT. BA_COMPUTED .AND.
+	1   WR_BA_INV)THEN
+	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',BCD_DIR)
+	  IF(LEN_TRIM(BCD_DIR) .EQ. 0)BCD_DIR='SCRATCH/'
+	  WRITE(BCD_F1,'(A,A,I4.4)')TRIM(BCD_DIR),'BCSCRATCH',1
+	  WRITE(BCD_F2,'(A,A,I4.4)')TRIM(BCD_DIR),'DSCRATCH',ND
+	  INQUIRE(FILE=TRIM(BCD_F1),EXIST=BCD_TRI_OK)
+	  IF(BCD_TRI_OK)INQUIRE(FILE=TRIM(BCD_F2),EXIST=BCD_TRI_OK)
+	  IF(.NOT. BCD_TRI_OK)THEN
+	    WRITE(LUER,*)'CMF_BLKBAND_V3: BAMAT recall requested but'//
+	1      ' BCSCRATCH/DSCRATCH factor cache is absent;'//
+	2      ' recomputing LU from stored BA'
+	  END IF
+	END IF
 !
 !
 !
 ! If the BA matrix was not computed, it means that its inverse must have been previously
 ! computed. IF WR_BA_INV is true, we can use the previous inverse, which is stored on disk.
 !
-	IF(SOL_TYPE(1:4) .EQ. 'DIAG' .AND. .NOT. BA_COMPUTED .AND. WR_BA_INV)THEN
+	IF(SOL_TYPE(1:4) .EQ. 'DIAG' .AND. .NOT. BA_COMPUTED .AND.
+	1   WR_BA_INV .AND. BCD_OK)THEN
 	  FIRST_MATRIX=.TRUE.
 	  LAST_MATRIX=.FALSE.
 	  USE_PASSED_REP=.TRUE.
@@ -437,7 +482,8 @@
 ! Solve the TRIDIAGONAL system of equations assuming that we have already performed
 ! an LU decomposition on the BA matrix.
 !
-	IF(SOL_TYPE(1:3) .EQ. 'TRI' .AND. .NOT. BA_COMPUTED .AND. WR_BA_INV)THEN
+	IF(SOL_TYPE(1:3) .EQ. 'TRI' .AND. .NOT. BA_COMPUTED .AND.
+	1   WR_BA_INV .AND. BCD_TRI_OK)THEN
 !
 ! Allocate needed work arrays. These have been saved, 1 depth at a time.
 !
