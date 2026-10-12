@@ -2693,7 +2693,8 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
 	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM,
-	2                              JFNK_RIDGE_PIV
+	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR
+	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_fx
 	IMPLICIT NONE
@@ -2714,7 +2715,8 @@
 	INTEGER IROW, JCOL
 	INTEGER N_REG_ROWS
 	INTEGER II_REG, N_REG_TOP, K_REG_TOP
-	INTEGER NPB
+	INTEGER NPB, ID_ION, N_POP_FRZ
+	REAL(KIND=LDP) ION_TOT
 	INTEGER, ALLOCATABLE :: NREG_DEPTH(:)
 	REAL(KIND=LDP) ROWMAX_I, BLKMAX
 	REAL(KIND=LDP) BANDED_RIDGE, BANDED_MAX_DIAG
@@ -3016,6 +3018,7 @@
 	N_FAIL = 0
 	N_RIDGE = 0
 	N_REG_ROWS = 0
+	N_POP_FRZ = 0
 	ROW_SF_MIN = 1.0E99_LDP
 	ROW_SF_MAX = 0.0_LDP
 	COL_SF_MIN = 1.0E99_LDP
@@ -3115,6 +3118,44 @@
 	            JFNK_LU_FAC(I, I, K) = 1.0_LDP
 	            IF(ITRY .EQ. 0)N_REG_ROWS = N_REG_ROWS + 1
 	          END IF
+	        END DO
+	      END IF
+!
+! [JFNK_POP_FL] (default 0 = off): freeze the Newton correction on
+! near-empty levels.  Rows with n_i < JFNK_POP_FL * (ion total at this
+! depth) dominated the top-|z| list on the m15 probe (high-lying Fe/Ar/
+! Ca/Ne/O levels, rad/F ~ 1): their BA rows are near-null, the LU solve
+! returns |z|~hundreds of dex, and the commit clip flattens the answer
+! anyway.  Marking them regularized gives an identity row in the factor
+! and z_i = 0 at apply, so Newton leaves them on the outer iteration.
+! The residual row itself is unchanged -- this only bounds the step.
+! Recomputed each retry because ROW_REG resets with the matrix.
+!
+	      IF(JFNK_POP_FLOOR .GT. 0.0_LDP .AND.
+	1       ALLOCATED(POPS_BASE))THEN
+	        DO ID_ION = 1, NUM_IONS
+	          IF(.NOT. ATM(ID_ION)%XzV_PRES)CYCLE
+	          ION_TOT = 0.0_LDP
+	          DO J = ATM(ID_ION)%EQXzV,
+	1             MIN(ATM(ID_ION)%EQXzV+ATM(ID_ION)%NXzV-1, JFNK_NT-2)
+	            IF(J .GE. 1)ION_TOT = ION_TOT + POPS_BASE(J,K)
+	          END DO
+	          IF(ION_TOT .LE. 0.0_LDP)CYCLE
+	          DO J = ATM(ID_ION)%EQXzV,
+	1             MIN(ATM(ID_ION)%EQXzV+ATM(ID_ION)%NXzV-1, JFNK_NT-2)
+	            IF(J .GE. 1 .AND. .NOT. ROW_REG(J) .AND.
+	1             POPS_BASE(J,K) .LT. JFNK_POP_FLOOR*ION_TOT)THEN
+	              ROW_REG(J)=.TRUE.
+	              DO JJ = 1, JFNK_NT
+	                JFNK_LU_FAC(J, JJ, K) = 0.0_LDP
+	              END DO
+	              JFNK_LU_FAC(J, J, K) = 1.0_LDP
+	              IF(ITRY .EQ. 0)THEN
+	                N_REG_ROWS = N_REG_ROWS + 1
+	                N_POP_FRZ = N_POP_FRZ + 1
+	              END IF
+	            END IF
+	          END DO
 	        END DO
 	      END IF
 !
@@ -3252,6 +3293,11 @@
 	      WRITE(LUER,'(A,I5,A,ES10.2,A)')
 	1        '  JFNK: regularized', N_REG_ROWS,
 	1        ' near-null rows (JFNK_ROW_TINY=', JFNK_ROW_TINY, ')'
+	      IF(N_POP_FRZ .GT. 0)
+	1       WRITE(LUER,'(A,I5,A,ES10.2,A)')
+	2        '  JFNK: of which', N_POP_FRZ,
+	3        ' frozen on population floor (JFNK_POP_FL=',
+	4        JFNK_POP_FLOOR, ')'
 !
 ! editted by Devin, 08-Oct-2026: report the 5 depths carrying the
 ! most regularized rows.  A concentration at compression depths
