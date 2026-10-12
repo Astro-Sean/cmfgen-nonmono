@@ -380,17 +380,31 @@ loop, `ADD_SOB_LINE_PROF` writes each `TRANS_TYPE='SOB'` member's
 profile-integrated opacity/emissivity (`CHIL_MAT`/`ETAL_MAT`, scaled
 by `CLUMP_FAC`) into the stored `CHI_CMF_ST`/`ETA_CMF_ST` as a
 normalized Doppler core of width `FL*VDOP_MIN/C_KMS` at the line's own
-frequency. The core weights are normalized by local CMF cell width, so
-the stored opacity integrated over frequency equals
-`CHIL_MAT*CLUMP_FAC` regardless of how coarsely the CMF grid resolves
-the line. Masering cells (`CHIL_MAT<0`) contribute zero line opacity.
-After the line loop `OBS_FRAME_SUB_V9` is re-run on the augmented
+frequency. The core weights are normalized by local CMF cell width and
+carry the `1.0D-15` conversion the per-Hz `CHIL_MAT`/`ETAL_MAT` units
+require (same convention as `LINE_PROF_SIM` in `SET_PROF_V6`), so the
+stored opacity integrated over Hz equals `CHIL_MAT*CLUMP_FAC`
+regardless of how coarsely the CMF grid resolves the line. Masering
+cells (`CHIL_MAT<=0`) contribute neither opacity nor emissivity; the
+dropped-cell count is reported per blend group. After the line loop
+`OBS_FRAME_SUB_V9` is re-run on the augmented
 arrays, so the observer's-frame ray integral draws each profile from
 the isovelocity geometry (Dessart et al. 2015, Sec. 3.1) and
 `OBSFRAME` is rewritten; `OBSFLUX` keeps continuum+BLANK only as a
 comparison product. `ETA_DATA`/`CHI_DATA` on disk are written before
 the EW block, so a standalone `obs_frame.exe` render still lacks SOB
 lines.
+
+Two bugs were found by comparing against a BLANK control render on the
+same checkpoint (job 12166771, max 1.6e7 Jy - sane): (a) the first
+version floored the *total* `CHI_ST` at 1e-30 when a masering line's
+negative opacity overwhelmed the continuum, driving `S=ETA/CHI` to
+~1e30 and producing 1e18 Jy spikes (job 12166626); fixed by dropping
+maser cells entirely (2db3338). (b) The profile weight omitted the
+1.0D-15 Hz conversion, injecting 1e15x the correct opacity so every
+line saturated at its source function - a ~200x elevated
+pseudo-continuum remained after fix (a) (job 12167387); fixed in
+60c707d.
 
 This replaces the first-cut EW deposition (`DEP_SOB_OBS_FLUX`,
 superseded 12-Oct-2026), which spread each line's `SOBEW_GRAD_V2` EW
