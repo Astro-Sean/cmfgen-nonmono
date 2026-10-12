@@ -1258,13 +1258,14 @@ export CMFGEN_AUTO_SET_RSTAR="${AUTO_SET_RSTAR}"
 export CMFGEN_AUTO_SET_LSTAR="${AUTO_SET_LSTAR}"
 auto_set_rstar_lstar_from_hydro
 
-# On a requeue, reuse the converged Eddington factors from the previous
-# segment.  prepare_VADAT.py always writes "T [COMP_F]", which forces CMFGEN
-# to recompute EDDFACTOR from scratch; under USE_LAM_ES that zeroes J at the
-# first frequency of the first iteration of each restarted segment.
-# EDDFACTOR/EDDFACTOR_INFO persist across requeues, so when both exist we
-# flip COMP_F to F and let CMFGEN read them directly.
-if [[ "\${file_requeue_count:-0}" -gt 0 && -f EDDFACTOR && -f EDDFACTOR_INFO ]]; then
+# On a requeue (or a warm-restart resubmission, where run_model_grid.py
+# preserved the files), reuse the converged Eddington factors from the
+# previous segment.  prepare_VADAT.py always writes "T [COMP_F]", which
+# forces CMFGEN to recompute EDDFACTOR from scratch; under USE_LAM_ES that
+# zeroes J at the first frequency of the first iteration of each restarted
+# segment.  A fresh directory never contains EDDFACTOR, so existence alone
+# identifies a warm continuation.
+if [[ -f EDDFACTOR && -f EDDFACTOR_INFO ]]; then
   echo "Requeue detected with valid EDDFACTOR: setting COMP_F=F in VADAT (reuse converged Eddington factors)"
   python - <<'PY'
 from pathlib import Path
@@ -2124,6 +2125,12 @@ lte_est_is_t = any(
 )
 # Honour the proxy files whenever they exist, even if YAML asked for LTE_EST=T.
 use_proxy = proxy_ok
+# A resubmitted warm restart preserves EDDFACTOR/EDDFACTOR_INFO; reuse
+# them instead of recomputing f (COMP_F=T rebuilds the table and zeroes
+# RJ at the first frequency, producing the 100%+ first-iteration spikes
+# seen on every m15 resubmit).  If the file is missing or incomplete,
+# OPEN_RW_EDDFACTOR falls back to recomputing f on its own.
+have_edd = Path("EDDFACTOR").exists() and Path("EDDFACTOR_INFO").exists()
 out = []
 for ln in lines:
     if "[LTE_EST]" in ln:
@@ -2146,9 +2153,13 @@ for ln in lines:
         out.append("F [USE_DJDT_RTE]")
     elif "[DC_METH]" in ln:
         out.append(f"{dc_meth} [DC_METH]")
+    elif "[COMP_F]" in ln and have_edd and ln.lstrip().startswith("T"):
+        out.append("F [COMP_F]")
     else:
         out.append(ln)
 p.write_text("\n".join(out) + "\n")
+if have_edd:
+    print("  VADAT: COMP_F=F (preserved EDDFACTOR reused for warm start)")
 if use_proxy:
     print(f"  VADAT: LTE_EST=F, LIN_INT=T, DO_DDT=F, USE_DJDT_RTE=F, DC_METH={dc_meth} "
           f"({len(proxy_in_files)} proxy _IN files; MAX_LAM/MAX_LIN/DO_NG from prepare_VADAT.py)")

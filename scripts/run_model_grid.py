@@ -2776,6 +2776,17 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
             # index into -- a warm restart without it cold-starts anyway.
             if (cmfgen_dir / "SCRTEMP").is_file():
                 restart_files.append("SCRTEMP")
+            # EDDFACTOR/EDDFACTOR_INFO hold the converged Eddington
+            # factors -- the rest of the radiation-field state.  Without
+            # them a warm-restarted run still cold-starts J (COMP_F=T
+            # rebuilds the table and zeroes RJ at the first frequency,
+            # producing the 100%+ first-iteration spikes seen on every
+            # m15 resubmit).
+            restart_files += [
+                p
+                for p in ("EDDFACTOR", "EDDFACTOR_INFO")
+                if (cmfgen_dir / p).is_file()
+            ]
 
         for fname in restart_files:
             # Staged warm_restart_from files take precedence over any
@@ -10658,7 +10669,11 @@ def enforce_cmfgen_sn_iin_settings(config):
     # These match what prepare_VADAT.py forces; writing them into the
     # resolved config keeps the orchestrator's record equal to the VADAT
     # CMFGEN actually runs.
-    _force("N_TYPE", "N_ON_J", "SN_IIN")
+    # N_TYPE became user-overridable 12-Oct-2026: the mom_probe run on
+    # m15 SOB+USE_LAM_ES=F blew up in MOM_J_CMF_V11 at the bluest
+    # frequency with N_ON_J, and the solver error itself suggests
+    # trying a different N_TYPE.  N_ON_J remains the default.
+    _force_unless_user("N_TYPE", "N_ON_J", "SN_IIN")
     _force_unless_user("REL_OBS", "F", "SN_IIN")
     _force_unless_user("REL_CMF", "F", "SN_IIN")
     # Ne is solved from charge conservation, not held at the hydro Saha
