@@ -16,7 +16,7 @@
 	9     BA_PART_THIS,BA_REJ_FRAC,BA_NREJ_SOFT,BA_SOFT_THIS,
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
-	1     BA_QUAR_COUNT,BA_DEM_PFLOOR
+	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -1089,6 +1089,17 @@
 	JINC=0
 	DO I=1,ND
 	  COUNT(:)=0
+!
+! edited by Devin, 12-Oct-2026: [BA_DEM_RELFRAC] relative demand floor.
+! The absolute floor cannot reach a physically empty ion at a populated
+! depth (FeI/CVI at d65: n~1E-20 of the gas, above 1E-30), so the floor
+! is also expressed as a fraction of the largest row at this depth.
+! ED/T rows are excluded from the max (J.LE.NT-2 below) so T/ED cannot
+! set the scale.
+!
+	  T2=0.0_LDP
+	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,I))
 	  DO J=1,NT
 !
 ! edited by Devin, 11-Oct-2026: [BA_DEM_PFLOOR] skip floor-level rows
@@ -1103,6 +1114,7 @@
 !
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
 	1     POPS(J,I) .LT. BA_DEM_PFLOOR)CYCLE
+	    IF(J .LE. NT-2 .AND. POPS(J,I) .LT. T2)CYCLE
 	    IF(STEQ(J,I) .GT. DECREASE)THEN
 	      DECREASE=STEQ(J,I)
 	      IDEC=I
@@ -1446,14 +1458,19 @@
 	  INCREASE=0.0_LDP
 	  DECREASE=0.0_LDP
 	  DO I=1,ND
+	    T2=0.0_LDP
+	    IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_OLD(1:NT-2,I))
 	    DO J=1,NT
 !
 ! edited by Devin, 11-Oct-2026: same [BA_DEM_PFLOOR] exemption as the
 ! demand scan above -- a committed change on a floor-level row is
-! equally uninformative for the mode decision.
+! equally uninformative for the mode decision.  12-Oct-2026: the
+! [BA_DEM_RELFRAC] relative floor uses POPS_OLD consistently here.
 !
 	      IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
 	1     POPS_OLD(J,I) .LT. BA_DEM_PFLOOR)CYCLE
+	      IF(J .LE. NT-2 .AND. POPS_OLD(J,I) .LT. T2)CYCLE
 	      IF(POPS_OLD(J,I) .LE. 0.0_LDP)THEN
 	        IF(POPS(J,I) .GT. 0.0_LDP)INCREASE=1.0E+07_LDP
 	      ELSE IF(POPS(J,I) .LE. 0.0_LDP)THEN

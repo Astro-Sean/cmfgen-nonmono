@@ -1199,6 +1199,17 @@
 !
 	REAL(KIND=LDP) BA_DEM_PFLOOR
 !
+! BA_DEM_RELFRAC (VADAT [BA_DEM_RELFRAC], default 0=off): relative
+! demand floor, same skip mechanism as BA_DEM_PFLOOR but expressed as
+! a fraction of the largest population row at that depth.  The
+! absolute floor cannot catch a physically empty ion at a populated
+! depth -- e.g. FeI or CVI at d65 (T~60 kK) sit orders above 1E-30 yet
+! carry ~1E-20 of the gas -- so their unsatisfiable demands keep
+! pinning MAXCH above EPS_TERM.  The two floors combine as MAX;
+! skipped rows still commit corrections, and ED/T rows stay exempt.
+!
+	REAL(KIND=LDP) BA_DEM_RELFRAC
+!
 ! BA_LUM_GATE and BA_LUM_DCHG are retained as accepted VADAT keys for
 ! restart compatibility.  They no longer affect convergence: shocks
 ! permit physical luminosity deposition between the inner and outer

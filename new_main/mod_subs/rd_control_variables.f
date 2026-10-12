@@ -1552,6 +1552,9 @@
 	  BA_DEM_PFLOOR=0.0_LDP
 	  CALL RD_STORE_DBLE(BA_DEM_PFLOOR,'BA_DEM_PFLOOR',L_FALSE,
 	1     'Population floor for the BA demanded-correction metric')
+	  BA_DEM_RELFRAC=0.0_LDP
+	  CALL RD_STORE_DBLE(BA_DEM_RELFRAC,'BA_DEM_RELFRAC',L_FALSE,
+	1     'Demand floor as fraction of max population at the depth')
 !
 ! Legacy keys retained so existing VADAT files remain readable.  Shock
 ! deposition makes inner/outer luminosity agreement unsuitable for
