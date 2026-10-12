@@ -299,19 +299,35 @@ channels of the lagged map; both are VADAT-gated inside
   Diagnostics: `lagbnd scaled=<n> mins=<s>` line in the sweep
   report.
 
-Run-testing in progress (13-Oct-2026): four probes on binary frozen
-at `bdf2f10` (sha 98cc0b41fccec88c) -- SOB cold job 12167354, KNOP
+Run-test status (13-Oct-2026): four probes on binary frozen at
+`bdf2f10` (sha 98cc0b41fccec88c) -- SOB cold job 12167354, KNOP
 cold 12167426 (resubmit of diverged 12165640, which was pinned to
 pre-fix `32b0d2a` and cancelled), SOB warm 12167431, KNOP warm
-12167439.  Early SOB cold signal (it1-6): outer luminosity bounded
-and falling 8.3E6 -> 7.6E6 (previously ramped x1.15/it past
-physical to 4E21), zero negJ/quar repairs, refresh bulk-converged
-from it3.  `lagbnd scaled` ~1.4M entries/sweep with `mins=0` --
-rows with no diagonal excess get their whole lagged source nulled;
-whether the clip fraction contracts as the field settles is the key
-consistency question.  NOT yet classified converged: the unfixed
-SOB cold divergence was also slow over its first tens of
-iterations.
+12167439.  All four are on contraction trajectories, none
+diverges:
+
+- **SOB cold** it1-49: L_outer bounded and settling 8.3E6 ->
+  ~4.9E6 (0.2%/it drift, physical anchor ~1E10); pops demand fell
+  5.5E15 -> ~1.2E2 with demand=applied throughout; zero negJ/quar
+  repairs; `lagbnd scaled` ~1.3M/sweep slowly declining.
+- **SOB warm** it441-483: pops demand 3.2E13 -> ~65, monotone;
+  L_outer 8.8E6 -> 5.9E6 plateauing.
+- **KNOP cold** it1-7: `mom` max cell change 1.4E5 -> 3.7E3,
+  n50 (cells >50%) 20.8M -> 222k, quar/pquar halving, L_outer
+  pinned at 7.11E9 (~0.002%/it); pops still held pending field
+  maturity; `lagbnd scaled` ~9.3M/sweep.
+- **KNOP warm** it441-447: `mom` 1.75E4 -> 9.4E3, n50 22.4M ->
+  292k, L_outer 3.36E8 -> 3.05E8 flat; first `[OK]` sweep status
+  at it445; `lagbnd scaled` ~8.3M/sweep.
+
+Interpretation: the GAM pin killed the resonance-flip gain and the
+lag bound makes the map non-expansive; the remaining `mins=0`
+clipping (~zero diagonal excess rows, mostly KNOP pure-scattering
+cells) is where fix (d) would restore damping if `mom` floors
+instead of reaching convergence.  NOT yet classified converged:
+KNOP pops remain held (n_mature=0) and SOB pops demand is still
+~10^2; the test is whether both keep contracting through the
+requeue boundary.
 
 (b) implicit H coupling and (d) the
 KNOP `ESEC>CHI` pure-scattering channel remain candidate follow-ups.
