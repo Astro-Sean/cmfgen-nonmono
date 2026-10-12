@@ -656,6 +656,7 @@
 	1   '    residual evaluation  : frozen-J, stored rad terms'
 	2   //' + CMAT_RAD*x'
 	  END IF
+	  jfnk_maxch_tol=JFNK_MAXCH_CNV
 	  IF(jfnk_log_unknown)THEN
 	    WRITE(LUER,'(A)')'    unknown map          : ln(n/n0)'
 	    jfnk_step_inf_cap=LOG(MAX(MAX_JFNK_COR,1.01_LDP))
@@ -1229,6 +1230,9 @@
 	      WRITE(LUER,'(/,A)')' --------------------------------- JFNK RESULT ---------------------------------'
 	      WRITE(LUER,'(A,ES12.4)')
 	1       '    weighted residual norm after solve :',REAL(F_W)
+	      WRITE(LUER,'(A,ES12.4)')
+	1       '    est max relative pop correction    :',
+	2       REAL(jfnk_maxch_est)
 	      WRITE(LUER,'(A,ES12.4)')
 	1       '    largest residual component         :',REAL(F_INF)
 	      WRITE(LUER,'(A,ES12.4)')

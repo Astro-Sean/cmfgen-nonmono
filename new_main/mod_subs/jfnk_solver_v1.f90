@@ -61,6 +61,13 @@ module jfnk_solver_v1_mod
    double precision, allocatable :: jfnk_x(:)       ! current solution vector
    double precision, allocatable :: jfnk_fx(:)      ! current residual F(x)
    double precision              :: jfnk_tol        ! current |F(x)|
+   ! Estimated max relative population correction still required,
+   ! max_i |F_i|/|BA_ii| over population rows, refreshed by each
+   ! JFNK_RESIDUAL_V1 call.  JFNK_MAXCH_TOL>0 adds it as a second
+   ! convergence test so a residual norm dominated by already-
+   ! converged rows cannot stall an otherwise-finished solve.
+   double precision              :: jfnk_maxch_est = -1d0
+   double precision              :: jfnk_maxch_tol = 0d0
    double precision              :: jfnk_del        ! trust-region radius
    integer                       :: jfnk_nits       ! Newton iterations done
    integer                       :: jfnk_gits       ! GMRES iterations (last)
@@ -622,7 +629,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    if(del < 0d0)  mxdl_    = 1d99
    !
    if(info == 1) write(luer,'(A,I3,A,ES12.4)') &
-      '  JFNK: nits=', jfnk_nits, ' res=', real(jfnk_tol)
+      '  JFNK: nits=', jfnk_nits, ' res=', real(jfnk_tol), &
+      ' maxch_est=', real(jfnk_maxch_est)
    if(info == 1) flush(luer)
    !
    call sub()
@@ -1615,8 +1623,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! linearization-point residual equal to F.
       call jfnk_ptc_set_anchor_v1(n, x_)
       !
-      if(jfnk_tol < tol) then
-         if(info == 1) write(luer,*) '  JFNK: NONLINEAR CONVERGED'
+      if(jfnk_tol < tol .or. &
+         (jfnk_maxch_tol > 0d0 .and. &
+          jfnk_maxch_est >= 0d0 .and. jfnk_maxch_est < jfnk_maxch_tol)) then
+         if(info == 1) write(luer,*) '  JFNK: NONLINEAR CONVERGED', &
+            ' (res=', real(jfnk_tol), ' maxch_est=', real(jfnk_maxch_est), ')'
          info = 0
          jfnk_exit_reason = 'converged'
          deallocate(v)

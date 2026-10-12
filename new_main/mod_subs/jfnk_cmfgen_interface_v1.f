@@ -447,6 +447,7 @@
 	SUBROUTINE JFNK_COMPUTE_RSCALE_V1(N, F_BASE)
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
+	USE MOD_CMFGEN, ONLY: ED
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_RSCALE_MODE, JFNK_BA_RIDGE_FAC
 	IMPLICIT NONE
 !
@@ -479,6 +480,29 @@
 	    IF(ABS_FI .LT. FLOOR_USE) ABS_FI = FLOOR_USE
 	    JFNK_RSCALE(I) = 1.0_LDP / SQRT(ABS_FI)
 	  END DO
+	ELSE IF(JFNK_RSCALE_MODE(1:4) .EQ. 'DIAG')THEN
+	  IF(JFNK_BA_DIAG_READY)THEN
+	    DO K = 1, JFNK_ND
+	      DMAX_K = 0.0_LDP
+	      DO J = 1, JFNK_NT
+	        DMAX_K = MAX(DMAX_K, ABS(JFNK_BA_DIAG(J, K)))
+	      END DO
+	      DO J = 1, JFNK_NT
+	        I = (K-1)*JFNK_NT + J
+	        IF(I .GT. N) CYCLE
+	        IF(J .EQ. JFNK_NT-1)THEN
+	          JFNK_RSCALE(I) = 1.0_LDP/MAX(ED(K), 1.0E-30_LDP)
+	        ELSE
+	          JFNK_RSCALE(I) = 1.0_LDP/
+	1             MAX(ABS(JFNK_BA_DIAG(J, K)), 1.0E-30_LDP*DMAX_K)
+	        END IF
+	      END DO
+	    END DO
+	  ELSE
+	    IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK: RSCALE=DIAG requested but BA diagonal not yet'
+	2     //' available -- keeping EUCLIDEAN for this call'
+	  END IF
 	ELSE IF(JFNK_RSCALE_MODE(1:8) .EQ. 'DIAG_RDG')THEN
 	  RIDGE_FAC = JFNK_BA_RIDGE_FAC
 	  IF(RIDGE_FAC .LE. 0.0_LDP) RIDGE_FAC = 1.0E-3_LDP
@@ -1497,7 +1521,7 @@
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_log_unknown,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_ptc_scale,
 	2     jfnk_ptc_scale_ready, jfnk_ptc_x0, jfnk_ptc_anchor_ready,
-	3     jfnk_resid_nbad
+	3     jfnk_resid_nbad, jfnk_maxch_est
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS
@@ -1510,6 +1534,7 @@
 	INTEGER K, J, N_BAD, N_NAN_Y, N_INF_Y, IDX, ID_ION
 	INTEGER LUER
 	INTEGER, EXTERNAL :: ERROR_LU
+	REAL(KIND=LDP) MCE_DABS, MCE_DMAX
 !
 ! Audit 17-Sep-2026 (issue 4): count constraint crossings that are NEW
 ! relative to the baseline Newton point jfnk_x -- i.e. a clip that is
@@ -1856,6 +1881,34 @@
 	  END BLOCK
 	  DO IDX = 1, N
 	    Y(IDX) = Y(IDX) + JFNK_W_YRAD(IDX)
+	  END DO
+	END IF
+!
+! CMFGEN MAXCH analogue: the largest relative correction still
+! demanded by any population row.  |F_i|/|BA_ii| prices row i in
+! log-population units, so converged rows (the F-dominated HI levels
+! that carry the Euclidean norm) drop out of this metric.  Done here,
+! before the pseudo-time term is added, so the metric sees F rather
+! than G.  Non-finite entries are skipped; the NaN guard below caps
+! them for the solver.
+!
+	jfnk_maxch_est = -1.0_LDP
+	IF(JFNK_BA_DIAG_READY)THEN
+	  jfnk_maxch_est = 0.0_LDP
+	  DO K = 1, JFNK_ND
+	    MCE_DMAX = 0.0_LDP
+	    DO J = 1, JFNK_NT
+	      MCE_DMAX = MAX(MCE_DMAX, ABS(JFNK_BA_DIAG(J,K)))
+	    END DO
+	    DO J = 1, JFNK_NT-2
+	      IDX = (K-1)*JFNK_NT + J
+	      IF(IDX .GT. N) CYCLE
+	      IF(Y(IDX) .NE. Y(IDX)) CYCLE
+	      MCE_DABS = MAX(ABS(JFNK_BA_DIAG(J,K)),
+	1        1.0E-30_LDP*MCE_DMAX)
+	      jfnk_maxch_est = MAX(jfnk_maxch_est,
+	1        ABS(Y(IDX))/MCE_DABS)
+	    END DO
 	  END DO
 	END IF
 !
