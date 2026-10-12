@@ -2403,3 +2403,52 @@ and the `OBS_FRAME_SOB` TUNE label present in `exe/cmf_flux.exe`,
 `dep_sob_obs_flux_` gone.  Runtime verification pending: OBS-only
 resubmit of `dessart_m15_2p82d_SOB_jfnk_alo_probe.yaml`
 (`skip_final: true`, `obs_line_treatment: sob`).
+
+### Status update (2026-10-12): non-mono lagged-map fixes (a)+(c) probed
+
+Two flag-gated stabilizers for `MOM_J_CMF_NONMONO_V1`, targeting the
+observed LAM_ES=F gain channels (see `cmfgen_obsidian/audits/
+MOM_KNOP_STIFFNESS_AUDIT.md` and the Sobolev non-mono solver note):
+
+- `MOM_GAM_PIN` (commit `66756a3`): pins `GAM_FAC_PREV`/`GAMH_FAC_PREV`
+  /`EPS_PREV`/`PSIPREV(1)` to their current-frequency evaluations so
+  the explicit lagged weights can no longer exceed the implicit ones
+  near the `1 + sigma*K = 0` resonance flip.
+- `MOM_LAG_BND` (commit `6373327`): bounds the total lagged
+  frequency-source weight per row by the assembled diagonal excess
+  (per-row `LAG_SCL_NM`, applied to the interior assembly, both outer-
+  boundary branches, and the negative-J rebuild path).  Sweeps report
+  `lagbnd scaled=<n> mins=<min scale>` in OUTGEN.
+
+Both default TRUE inside the non-mono solver only (same precedent as
+`MOM_EPS_LIM`); the stock monotonic path is untouched.  VADAT keys
+added in `rd_control_variables.f`.  Also committed: `b533eee`
+(test_vadat_keys fix for module compile order + stale LAM_ES abort
+expectation) and `bdf2f10` (docs).  A pre-existing user OBS maser
+fix sits at `2db3338`, unrelated.
+
+Build: `./build.sh` clean; F90 harness T1-T3 pass; python suite
+10/11 files pass (`test_interp_guards.py` fails 3 checks, verified
+pre-existing against the unmodified reference routines).
+
+Probes (all frozen `exe_frozen` = sha 98cc0b41fccec88c, git bdf2f10):
+
+| Job | Config | State |
+|-----|--------|-------|
+| 12167354 (+OBS 12167355) | SOB cold (`mom_cold`) | RUNNING |
+| 12167426 (+OBS 12167427) | KNOP cold (`KNOP_MOM_cold`, resubmit of diverged 12165640 on stale 32b0d2a binary) | RUNNING |
+| 12167431 (+OBS 12167432) | SOB warm probe | RUNNING |
+| 12167439 (+OBS 12167440) | KNOP warm probe | PENDING |
+
+Old KNOP cold 12165640 (+dep 12165641) cancelled: its `exe_frozen`
+was pinned at 19:35 to pre-fix commit `32b0d2a` and could never pick
+up the fixes across requeues; it was already at `se_res=5E44`,
+`mom_maxchg=6E6`, `n_frozen=14` at it14.
+
+Early signal from SOB cold it1-6: luminosity bounded and slowly
+falling (8.3E6 -> 7.6E6; the unfixed runs grew 1E7 -> 1E21+), zero
+negJ/quarantine repairs, refresh bulk-converged by it3.  `lagbnd`
+clips ~1.4M entries/sweep with min scale 0 (some rows have zero
+diagonal excess, so their whole lagged source is nulled - watch
+whether clipping contracts as the field settles).  NOT converged -
+too early to classify; the prior SOB cold divergence was slow.

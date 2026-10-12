@@ -299,7 +299,21 @@ channels of the lagged map; both are VADAT-gated inside
   Diagnostics: `lagbnd scaled=<n> mins=<s>` line in the sweep
   report.
 
-Neither fix is yet run-tested; (b) implicit H coupling and (d) the
+Run-testing in progress (13-Oct-2026): four probes on binary frozen
+at `bdf2f10` (sha 98cc0b41fccec88c) -- SOB cold job 12167354, KNOP
+cold 12167426 (resubmit of diverged 12165640, which was pinned to
+pre-fix `32b0d2a` and cancelled), SOB warm 12167431, KNOP warm
+12167439.  Early SOB cold signal (it1-6): outer luminosity bounded
+and falling 8.3E6 -> 7.6E6 (previously ramped x1.15/it past
+physical to 4E21), zero negJ/quar repairs, refresh bulk-converged
+from it3.  `lagbnd scaled` ~1.4M entries/sweep with `mins=0` --
+rows with no diagonal excess get their whole lagged source nulled;
+whether the clip fraction contracts as the field settles is the key
+consistency question.  NOT yet classified converged: the unfixed
+SOB cold divergence was also slow over its first tens of
+iterations.
+
+(b) implicit H coupling and (d) the
 KNOP `ESEC>CHI` pure-scattering channel remain candidate follow-ups.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
