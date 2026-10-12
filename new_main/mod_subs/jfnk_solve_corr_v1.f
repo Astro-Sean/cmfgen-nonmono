@@ -98,9 +98,12 @@
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
 	LOGICAL JFNK_REACH_OK
 	DOUBLE PRECISION REACH_VAL,FF2_DP,FJZ_DP,JJZ_DP
+	DOUBLE PRECISION X_MAX_R,X_MIN_R,X_T_MAX_R,X_T_MIN_R
+	DOUBLE PRECISION ZMAX_RAW
+	INTEGER NCLIP_R
 	DOUBLE PRECISION JVP_N
 	DOUBLE PRECISION FJZ_FD,JJZ_FD,BAFD_DP
-	DOUBLE PRECISION, ALLOCATABLE :: Z_CHK(:),JZ_VEC(:),JV_FD(:)
+	DOUBLE PRECISION, ALLOCATABLE :: Z_CHK(:),JZ_VEC(:),JV_FD(:),Z_CLIP(:)
 	DOUBLE PRECISION, ALLOCATABLE :: JV_FD2(:),Z_BLK(:),JV_SAV(:)
 	INTEGER K_TOPF,I_TOPF,I_ZMAX,II_PROBE
 	DOUBLE PRECISION FMAX_LOC
@@ -760,15 +763,68 @@
 	    IF(JFNK_REACH_GATE .GT. 0.0_LDP .AND. JFNK_LU_READY .AND.
 	1       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
 	2        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
-	      ALLOCATE(Z_CHK(JFNK_N), JZ_VEC(JFNK_N))
+	      ALLOCATE(Z_CHK(JFNK_N), JZ_VEC(JFNK_N), Z_CLIP(JFNK_N))
 	      Z_CHK=jfnk_fx
 	      CALL JFNK_PRECOND_V1(JFNK_N, Z_CHK)
+!
+! The commit path clips each component of the accepted step to the
+! log-space bound [X_MIN,X_MAX] (population clip = MAX_JFNK_COR); the
+! unclipped direction can carry |z|~hundreds on near-null rows that the
+! commit would flatten.  Price the step the model would actually take:
+! Z_CLIP applies the same bounds here so the stored-BA and FD reach
+! numbers describe that step, not the raw M^-1 F.
+!
+	      X_MAX_R=MAX_JFNK_COR-1.0_LDP
+	      X_MIN_R=1.0_LDP/MAX_JFNK_COR-1.0_LDP
+	      IF(jfnk_log_unknown)THEN
+	        X_MAX_R=LOG(MAX_JFNK_COR)
+	        X_MIN_R=-X_MAX_R
+	      END IF
+	      X_T_MAX_R=LOG(MAX_JFNK_COR)
+	      X_T_MIN_R=-X_T_MAX_R
+	      IF(MDT_A .GT. 0.0_LDP .AND. MDT_A .LT. 1.0_LDP)THEN
+	        X_T_MAX_R=MIN(X_T_MAX_R,LOG(1.0_LDP+MDT_A))
+	        X_T_MIN_R=MAX(X_T_MIN_R,LOG(1.0_LDP-MDT_A))
+	      END IF
+	      Z_CLIP=Z_CHK
+	      NCLIP_R=0
+	      ZMAX_RAW=0.0_LDP
+	      DO I = 1, JFNK_N
+	        ZMAX_RAW=MAX(ZMAX_RAW,ABS(Z_CHK(I)))
+	        JROW=MOD(I-1,JFNK_NT)+1
+	        KROW=(I-1)/JFNK_NT+1
+	        IF(JROW .EQ. JFNK_NT)THEN
+	          IF(MOD_FIX_T_D_ST .GT. 0 .AND.
+	1          KROW .GE. MOD_FIX_T_D_ST .AND.
+	2          KROW .LE. MOD_FIX_T_D_END)THEN
+	          ELSE
+	            IF(Z_CLIP(I) .GT. X_T_MAX_R)THEN
+	              Z_CLIP(I)=X_T_MAX_R
+	              NCLIP_R=NCLIP_R+1
+	            ELSE IF(Z_CLIP(I) .LT. X_T_MIN_R)THEN
+	              Z_CLIP(I)=X_T_MIN_R
+	              NCLIP_R=NCLIP_R+1
+	            END IF
+	          END IF
+	        ELSE
+	          IF(Z_CLIP(I) .GT. X_MAX_R)THEN
+	            Z_CLIP(I)=X_MAX_R
+	            NCLIP_R=NCLIP_R+1
+	          ELSE IF(Z_CLIP(I) .LT. X_MIN_R)THEN
+	            Z_CLIP(I)=X_MIN_R
+	            NCLIP_R=NCLIP_R+1
+	          END IF
+	        END IF
+	      END DO
+	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8)')
+	1     '  REACH clip: max|z| ',REAL(ZMAX_RAW),' -> ',
+	2     REAL(MAXVAL(ABS(Z_CLIP))),', nclip=',NCLIP_R
 	      JZ_VEC=0.0_LDP
 	      DO K=1,JFNK_ND
 	        DO I=1,JFNK_NT
 	          DO J=1,JFNK_NT
 	            JZ_VEC((K-1)*JFNK_NT+I)=JZ_VEC((K-1)*JFNK_NT+I)+
-	1             JFNK_BA_A(I,J,K)*Z_CHK((K-1)*JFNK_NT+J)
+	1             JFNK_BA_A(I,J,K)*Z_CLIP((K-1)*JFNK_NT+J)
 	          END DO
 	        END DO
 	      END DO
@@ -832,12 +888,12 @@
 ! One extra residual eval prices A_FD*z directly; the anatomy names
 ! the rows where stored BA and true dF/dx diverge.
 !
-	      CALL JFNK_JVP_V1(JFNK_N, Z_CHK, JV_FD)
+	      CALL JFNK_JVP_V1(JFNK_N, Z_CLIP, JV_FD)
 	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD)
 	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
 	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD)
 	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  JFNK REACH-FD: |A_FD z|/|F|=',
+	1        '  JFNK REACH-FD (clipped): |A_FD z|/|F|=',
 	2        REAL(SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
 	3        ' cos(F,A_FDz)=',
 	4        REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
@@ -1025,6 +1081,22 @@
 	2          ' coll=',COLL_LOC,LBL_LOC,LEV_LOC,' rep=',REP_LOC
 	        JV_FD(I_ZMAX) = JV_FD2(I_ZMAX)
 	      END DO
+	!
+	! h-scan on the topF self element (Issue 6): the topF column shows
+	! sign-flipped off-diagonal FD-vs-BA entries (HI J=18-21 at K=70),
+	! which can be genuine w-dissolution physics the BA froze out or FD
+	! cancellation noise.  Stability across decades of h separates them.
+	!
+	      WRITE(LUER,'(A)')'  COLPROBE hscan (topF self):'
+	      DO IHS=1,3
+	        JFNK_PROBE_HSCALE=HS_ARR(IHS)
+	        Z_BLK=0.0_LDP
+	        Z_BLK(I_TOPF)=1.0_LDP
+	        CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
+	        WRITE(LUER,'(A,ES10.2,A,ES14.6)')
+	1          '    h x',HS_ARR(IHS),' FD=',JV_FD2(I_TOPF)
+	      END DO
+	      JFNK_PROBE_HSCALE=1.0_LDP
 !
 ! (b) same column probe for the top-|z| row (the ~147 component).
 !
@@ -1144,7 +1216,7 @@
 	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
 	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD2)
 	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  JFNK REACH-FD (|z|<1): |A_FD z|/|F|=',
+	1        '  JFNK REACH-FD (|z|>1 zeroed): |A_FD z|/|F|=',
 	2        REAL(SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
 	3        ' cos(F,A_FDz)=',
 	4        REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
@@ -1162,7 +1234,7 @@
 	2        //' advances the outer lag instead)'
 	        jfnk_fx_fresh=.FALSE.
 	      END IF
-	      DEALLOCATE(Z_CHK, JZ_VEC)
+	      DEALLOCATE(Z_CHK, JZ_VEC, Z_CLIP)
 	    ELSE
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,jfnk_fx,0)
 	    END IF
