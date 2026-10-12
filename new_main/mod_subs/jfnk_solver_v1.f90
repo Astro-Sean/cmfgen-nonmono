@@ -1690,6 +1690,13 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision :: beta
    integer :: jj
    logical :: done, left_pc
+   ! Lucky-breakdown cycle end: h(j+1,j)~0 means the Krylov space is
+   ! invariant, so every later Arnoldi step is built on the zeroed
+   ! v(:,j+1) and can only spin until n_stag aborts the solve.  End the
+   ! cycle, take the LSQ step, and let the j==m restart path re-seed
+   ! the basis from the true residual.
+   logical :: lb_hit
+   integer :: n_restart
    !
    !
    ! Heap-allocated workspace (audit §3, 09-Sep-2026):
@@ -1785,10 +1792,12 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    its = 0
    v   = 0d0
    jfnk_last_ynrm = 0d0   ! 2026-09-13 TR-units fix: fresh GMRES solve
+   n_restart = 0
    !
 1 continue
    n_stag = 0
    res_best = 1d99
+   lb_hit = .false.
    !
    ! Initial residual: r = b - A*x  (then left-precondition if requested)
    !
@@ -1906,8 +1915,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(h(j+1,j) < 1d-14 * beta) then
          if(info == 1) write(luer,'(A,I3,A,ES12.4)') &
             '  GMRES: lucky breakdown at it=', its, &
-            ' h(j+1,j)=', real(h(j+1,j))
+            ' h(j+1,j)=', real(h(j+1,j)), ' -- cycle end'
          v(:,j+1) = 0d0
+         lb_hit = .true.
       else
          v(:,j+1) = w / h(j+1,j)
       end if
@@ -1961,7 +1971,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          write(luer,'(A,I3,A,ES12.4)') &
          '    GMRES: it=', its, ' res=', real(res)
       !
-      if(done .or. j == m) then
+      if(done .or. j == m .or. lb_hit) then
          if(del > 0d0) then
             if(left_pc) then
                call hook_step_v1(j, h, m, beta, del, y, pred_res)
@@ -2003,17 +2013,24 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          jfnk_gmres_jj   = j
          jfnk_gmres_beta = beta
          if(done) then
-            if(luer > 0) then
-               if(info == 0) then
-                  write(luer,'(A,I4,A,ES12.4)') &
-                     '  GMRES: CONVERGED  its=', its, ' res=', real(res)
-               else if(its == imx) then
-                  write(luer,'(A,I4,A,ES12.4)') &
-                     '  GMRES: MAXIMUM ITERATIONS REACHED  its=', its, &
-                     ' res=', real(res)
+            ! Convergence and the total-iteration cap always exit.
+            ! Stagnation exit (n_stag>=3) is bypassed when lb_hit ended
+            ! the cycle: the stall was caused by the invariant Krylov
+            ! space, not slow progress, so a fresh basis is worth it.
+            ! Restarts are bounded by imx (its keeps accumulating).
+            if(res <= tol .or. its == imx .or. .not. lb_hit) then
+               if(luer > 0) then
+                  if(info == 0) then
+                     write(luer,'(A,I4,A,ES12.4)') &
+                        '  GMRES: CONVERGED  its=', its, ' res=', real(res)
+                  else if(its == imx) then
+                     write(luer,'(A,I4,A,ES12.4)') &
+                        '  GMRES: MAXIMUM ITERATIONS REACHED  its=', its, &
+                        ' res=', real(res)
+                  end if
                end if
+               return
             end if
-            return
          end if
          !
          ! V4 audit (2026-10): True residual at restart.
@@ -2051,6 +2068,20 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                ' ratio=', real(true_res / max(res, 1d-30))
          end if
          !
+         ! Restart cap: a Krylov space that goes invariant because the
+         ! preconditioned operator cannot reach the residual tail stays
+         ! invariant on restart.  Cycles then die in ~2 its and restart
+         ! storm accumulates bad LSQ steps until imx.  Allow one retry
+         ! (helps when the first basis was unlucky), then fall back to
+         ! the caller's inexact-direction path via info=1.
+         n_restart = n_restart + 1
+         if(n_restart > 1) then
+            if(luer > 0) write(luer,'(A,I3,A)') &
+               '  GMRES: restart cap (', n_restart, &
+               ') -- treating as stagnation'
+            info = 1
+            return
+         end if
          ! edited by Devin, 05-Oct-2026: luer>0 guard, same convention
          ! as every other write in this routine.
          if(del > 0d0 .and. luer > 0)  write(luer,*) '  GMRES: warning! &
