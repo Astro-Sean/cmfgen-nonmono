@@ -168,23 +168,85 @@ unchanged: **the lagged-map moment solve is not a viable J-update
 on m15 in the current build**. The converging pathways are the
 formal-solve modes: SOB+LAM_ES=T (+DO_FG13_ALO) and KNOP+LAM_ES=T.
 
-**Structural cause identified (SUPPORTED): inconsistent Eddington
-factors.** `FG_J_CMF_V13` builds its ray-solve GAM from `SIGMA`
-(clamped >= -0.999 under SOB - deliberately, stock routines break
-on sigma < -1), while `MOM_J_CMF_NONMONO_V1` builds its advection/
-upwind coefficients from `SIGMA_TRUE` (reaches ~-112 at the m15
-shock). The K_ON_J / NMID_ON_J / NMID_ON_HMID / boundary N_ON_J
-factors the moment solver consumes via `GET_MOMS_NON_REL` therefore
-describe a ~100x weaker velocity gradient than the solver's own
-coupling assumes, at exactly the compressing cells where advection
-dominates. The measured signature: `max|EPS|/HU ~ 8.8E6` under SOB
-vs `~15` under KNOP (whose formal solver uses SIGMA_TRUE
-throughout, so factors and coupling are consistent). No refresh or
-damping policy repairs a coupling fed inconsistent factors - a SOB
-moment path would need sign-split ray moments, i.e. the Knop formal
-solver for the continuum, which is the KNOP architecture with
-Sobolev lines (the OBS-reader already allows both flags T in that
-combination).
+**Code audit of the USE_LAM_ES=F blow-up (13-Oct-2026).** The
+earlier attribution of the SOB-vs-KNOP `max|EPS|/HU` gap (8.8E6 vs
+~15) to clamped-SIGMA Eddington factors is CONTRADICTED by the
+frequency grid: the ratio scales as 1/dLOG_NU, and the SOB
+continuum grid (9665 points, read back from the EDDFACTOR records
+of job 12161660) carries 1774 bound-free edge doublets at
+dLOG_NU = 2.0E-11 (18% of the grid), while the KNOP line grid's
+minimum spacing is 1.67E-5. 15 x (1.67E-5/2E-11) = 1.3E7 matches
+the observed 9.1E6. The clamped-SIGMA inconsistency in V13's
+factors is real but second order; it shows up as the sign
+classification of the near-resonant outer region (cmp_frac 0.94
+under SOB vs 0.71 under KNOP), not as the 1E6 coupling gap.
+
+Defects found in `plane/mom_j_cmf_nonmono_v1.f` (all VERIFIED by
+reading the executed path; their quantitative share of the runaway
+is SUPPORTED, not measured):
+
+1. *Edge doublets.* Every frequency-advection coefficient (GAM,
+   GAMH, CHI_HAT, PSI, EPS) carries 1/dLOG_NU. At a 2E-11 doublet
+   they are ~1E8x the physical terms. Stock V11 survives because
+   its implicit and explicit terms are built from the same
+   coefficients and the row degenerates to J_k = J_{k-1}. The
+   nonmono solver does not degenerate cleanly: at compressing rows
+   the J-equation reads the lagged J_{k+1} while the EPS term reads
+   the bluer J_{k-1}, and the limiter in (2) breaks the
+   implicit/explicit balance. A relative O(1) error on a term 1E7x
+   the physics is the SOB energy source. KNOP never saw doublets.
+2. *MOM_EPS_LIM is non-conservative.* The donor-cell limiter (lines
+   ~2319-2347) caps only the explicit lagged pair (+2E*J_up on row
+   m, -2E*J_up on row m+1); the implicit pair on TA/TB/TC (lines
+   ~2101-2110) is uncapped. The two pairs together are the
+   frequency derivative of sigma*n*J; capping one side turns a
+   derivative into a net source/sink on rows where |EPS| exceeds
+   the local RHS - 4.1M cap events per SOB sweep, 2.2M under KNOP.
+3. *N_ON_J disables the midpoint sign split.* `GET_MOMS_NON_REL`
+   sets NMID_ON_HMID = 0 under N_ON_J, so GAMH_FAC = 1 + sigma*0 = 1
+   and GAMH_SIGNED >= 0 at every midpoint. The compressing-midpoint
+   branches (H_NEXT_FRQ read, HS = W/(1+W), EPS_PREV = EPS, JUP read
+   for the EPS source) documented in convergence_issues Sect. 7 are
+   dead code in every N_ON_J run. The sigma*n*J term - the whole
+   velocity-gradient part of the H equation in this mode, and the
+   dominant term at shock cells (|EPS|/HU >> 1) - is always
+   differenced toward the bluer frequency, which is the downwind
+   direction wherever its coefficient sigma*n < 0 (negEPS = 1.85M of
+   1.95M midpoints under SOB). Downwind differencing of a dominant
+   advection term is anti-diffusive. Both pathways run N_ON_J.
+4. *Zero-GAM resonance over the outer envelope.* At depths 1-8
+   sigma_true ~ -1.04 and K_ON_J ~ 0.92, so 1 + sigma*K ~ +-0.04:
+   GAM_FAC sits at the 0.01 floor (max|GAM| = 1.00E2 exactly in
+   every sweep summary) and the upwind direction of these rows
+   flips with small changes in f between frequencies and
+   iterations. The negative-J dump (MOM_J_NONMONO_ERRORS) is
+   dominated by these rows, with TB ~ |TA|+|TC| (no diagonal
+   excess) so their J is set entirely by neighbours and lagged
+   terms.
+5. *Sweep J vs stored J.* The J returned to the population solver is
+   the raw solve, while J_NEXT_FRQ receives a relaxed, suppressed
+   (94% of rows on the SOB grid under MOM_DOM_CMP) or frozen value.
+   Until the refresh converges (it did not: delta 8.7E4) the
+   populations equilibrate to a field that is not the lagged map's
+   input.
+
+The September cold run (convergence_issues Sect. 8) ran 3
+iterations from zero lagged stores; the compressing coupling only
+matures at it2-3, so it never tested the regime where today's runs
+diverge. Treat it as consistent with, not contrary to, these
+findings.
+
+Fix candidates, in order of expected leverage: (a) short-circuit
+doublet steps - for dLOG_NU below a floor (~1E-8) copy J, H and the
+stores from the previous frequency instead of solving; (b) make the
+limiter conservative by scaling EPS_NM and EPS_PREV_NM of a midpoint
+by the same factor so the implicit and explicit halves stay a
+derivative; (c) give N_ON_J a midpoint direction indicator (sign of
+1 + sigma*N/H from the stores where |H| is resolved, else sign of
+the adjacent depth-point Q) so the Sect. 7 compressing branches
+engage; (d) revisit the resonance floor so near-zero-GAM rows are
+treated as non-advective (coefficient -> 0) rather than floored to
+a direction. None implemented yet.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
