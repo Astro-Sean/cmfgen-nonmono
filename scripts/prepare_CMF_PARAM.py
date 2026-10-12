@@ -56,15 +56,17 @@ YAML mode detection is the fallback.
 SOB population runs default to the resolved Sobolev render: VADAT's
 GLOBAL_LINE/TRANS_*/DO_*SOB* are mirrored so the OBS treats lines by
 the same Sobolev method the populations used, and the flux-mode keys
-are set for native deposition — DO_SOB_LINES=T computes each line's
-Sobolev EW (SIGMA_TRUE under DO_NONMONO_SOB), SOB_FREQ_IN_OBS=T refines
-the observed grid across each resonance zone, and DO_SOB_FLUX_OBS=T
-deposits each EW into OBS_FLUX over that zone weighted by the line's
-per-depth emissivity (DEP_SOB_OBS_FLUX in cmf_flux_sub_v5.f).  Without
-the deposit, TRANS_*=SOB lines never enter the formal transfer and the
-spectrum is continuum-only — verified empirically (the F/F combination
-Luc Dessart's VADAT carries produces 815 continuum frequencies and no
-lines in this cmf_flux version).
+are set for profile injection — DO_SOB_LINES=T computes each line's
+Sobolev opacity/emissivity and EW (SIGMA_TRUE under DO_NONMONO_SOB),
+SOB_FREQ_IN_OBS=T refines the observed grid across each resonance zone,
+and DO_SOB_FLUX_OBS=T writes each SOB line's opacity/emissivity into the
+stored CMF arrays with a Doppler core and re-runs OBS_FRAME_SUB_V9, so
+the observer's-frame formal integral renders resolved line profiles
+(ADD_SOB_LINE_PROF in cmf_flux_sub_v5.f; Dessart et al. 2015, Sec. 3.1).
+Without the injection, TRANS_*=SOB lines never enter the formal
+transfer and the spectrum is continuum-only — verified empirically (the
+F/F combination Luc Dessart's VADAT carries produces 815 continuum
+frequencies and no lines in this cmf_flux version).
 cmfgen.obs_line_treatment selects: 'sob' (default for SOB models, the
 deposited render above), 'sob_ew' (EW diagnostic: same T/T flags but
 DO_SOB_FLUX_OBS=F, so EWDATA is produced but OBS_FLUX stays
@@ -236,12 +238,13 @@ NON_MONO_SOB_CMF_PARAM = {
 }
 
 # Resolved Sobolev render: the same SOB line method as the population
-# solve, with each line's Sobolev EW deposited into OBS_FLUX over its
-# observed-frame resonance span (DEP_SOB_OBS_FLUX, weighted by the
-# line's per-depth emissivity).  This is the only render consistent
-# with SOB populations: CMF/BLANK line transfer over-emits by ~10x on
-# non-monotonic velocity fields.  Default OBS treatment for SOB
-# populations; the YAML-mode fallback when ../VADAT is unreadable.
+# solve.  Each SOB line's opacity/emissivity is injected into the stored
+# CMF arrays as a Doppler core (ADD_SOB_LINE_PROF) and OBS_FRAME_SUB_V9
+# is re-run, so the observed-frame ray integral draws the resolved
+# profile from the isovelocity geometry.  This is the only render
+# consistent with SOB populations: CMF/BLANK line transfer over-emits
+# by ~10x on non-monotonic velocity fields.  Default OBS treatment for
+# SOB populations; the YAML-mode fallback when ../VADAT is unreadable.
 NON_MONO_SOB_RESOLVED_CMF_PARAM = {
     **NON_MONO_SOB_CMF_PARAM,
     'DO_SOB_FLUX_OBS': 'T',
@@ -381,8 +384,9 @@ def obs_line_treatment(config_path):
 
     'sob' (default): resolved Sobolev render — the OBS treats lines by
     the same SOB method as the populations, with DO_SOB_LINES=T,
-    SOB_FREQ_IN_OBS=T and DO_SOB_FLUX_OBS=T so each line's Sobolev EW
-    is deposited into the observed spectrum over its resonance span.
+    SOB_FREQ_IN_OBS=T and DO_SOB_FLUX_OBS=T so each SOB line's
+    opacity/emissivity is injected into the stored CMF arrays and a
+    second OBS_FRAME_SUB_V9 pass renders resolved profiles.
     'sob_ew' opts into the EW diagnostic: same T/T flux-mode keys but
     DO_SOB_FLUX_OBS=F, so EWDATA is written while OBS_FLUX stays
     continuum-only.  'blank' opts into full blanketed CMF line
