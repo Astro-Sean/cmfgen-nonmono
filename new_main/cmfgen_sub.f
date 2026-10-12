@@ -3068,9 +3068,11 @@
 ! over its captured per-frequency store in alternating frequency
 ! order so the lagged J_NEXT_FRQ coupling converges within the sweep.
 ! Self-guards: no-op unless the MOM solver ran a complete sweep with
-! compressing depths.
+! compressing depths.  Gate covers DO_NONMONO_SOB (12-Oct-2026): the
+! moment solver now runs under SOB+LAM_ES=F and its lagged coupling
+! needs the same within-iteration refresh.
 !
-	IF(DO_NONMONO_KNOP .AND. DO_KNOP_REFRESH)
+	IF((DO_NONMONO_KNOP .OR. DO_NONMONO_SOB) .AND. DO_KNOP_REFRESH)
 	1    CALL MOM_KNOP_REFRESH_V1()
 !
 	WRITE(LUER,*)' '

@@ -908,14 +908,18 @@
 	  GS_POPS_HELD=.FALSE.
 	  GS_ATTEMPT_APP=0.0_LDP
 !
-! DO_KNOP_REFRESH (default DO_NONMONO_KNOP): per-ray re-solve of the
-! lagged compressing-branch coupling after each frequency sweep
-! (Knop Paper II Sect. 3.2 ordering), replacing the
-! one-bin-per-iteration lag that cannot mature on strongly
-! non-monotonic models.  Set FALSE for A/B comparison with the
-! original lagged scheme.
+! DO_KNOP_REFRESH (default DO_NONMONO_KNOP, or DO_NONMONO_SOB with
+! USE_LAM_ES=F): per-ray re-solve of the lagged compressing-branch
+! coupling after each frequency sweep (Knop Paper II Sect. 3.2
+! ordering), replacing the one-bin-per-iteration lag that cannot
+! mature on strongly non-monotonic models.  The SOB moment path needs
+! it for the same reason: without a within-iteration refresh the
+! lagged J_NEXT coupling injects a stale, dimmer upwind field and the
+! emergent luminosity diverges secularly (m15 mom_probe, it441-453).
+! Set FALSE for A/B comparison with the original lagged scheme.
 !
-	  DO_KNOP_REFRESH=DO_NONMONO_KNOP
+	  DO_KNOP_REFRESH=DO_NONMONO_KNOP .OR.
+	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)
 	  CALL RD_STORE_LOG(DO_KNOP_REFRESH,'DO_KNOP_REFRESH',L_FALSE,
 	1     'Per-ray converge of KNOP lagged I_NEXT coupling?')
 	  CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
