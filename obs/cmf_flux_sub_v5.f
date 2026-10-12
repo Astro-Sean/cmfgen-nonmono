@@ -210,6 +210,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: BB_COR(:,:)
 !
 	INTEGER NUM_SIM_LINES
+	INTEGER SOB_MASER_DROP	!masing (depth,line) cells dropped by ADD_SOB_LINE_PROF
 	INTEGER SIM_INDX
 	INTEGER TMP_MAX_SIM
 	REAL(KIND=LDP) OVER_FREQ_DIF
@@ -2377,6 +2378,7 @@
 	END IF
 !
 	OVERLAP=.FALSE.
+	SOB_MASER_DROP=0
 	CALL TUNE(1,'SOB_EW')
 	DO WHILE (LINE_INDX .LE. NUM_SOB_LINES)      !N_LINE_FREQ)
 !
@@ -2581,7 +2583,10 @@
 ! frequency and is therefore still valid on the non-monotonic grid;
 ! once the profiles are stored, a second OBS_FRAME pass (after the
 ! line loop below) renders resolved line profiles consistent with the
-! Sobolev populations, as in Dessart et al. (2015, Sec. 3.1).
+! Sobolev populations, as in Dessart et al. (2015, Sec. 3.1).  Depths
+! where a line masers (CHIL_MAT<=0) are dropped entirely -- the formal
+! integral cannot represent amplification and a floored opacity with
+! live emissivity produces unphysical narrow spikes.
 ! DO_SOB_FLUX_OBS defaults to F, which leaves the stored arrays and
 ! OBS_FLUX untouched.  CHIL_MAT/ETAL_MAT are per-line and unclumped at
 ! this point, so CLUMP_FAC is applied inside the routine, matching the
@@ -2592,7 +2597,7 @@
 	  CALL ADD_SOB_LINE_PROF(ETA_CMF_ST,CHI_CMF_ST,NU,NCF,
 	1        CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_LINE_POINTER,
 	2        VEC_VDOP_MIN,VEC_TRANS_TYPE,NUM_SIM_LINES,N_LINE_FREQ,
-	3        MAX_SIM,ND,C_KMS)
+	3        MAX_SIM,ND,C_KMS,SOB_MASER_DROP)
 	END IF
 !
 ! Estimate the line EW using a Modified Sobolev approximation.
@@ -2682,6 +2687,9 @@
 	  ELSE
 	     TA(1:ND)=V(1:ND)
 	  END IF
+	  WRITE(LUER,'(A,1X,I10)')
+	1     'SOB profile injection: masing (line,depth) cells dropped =',
+	2     SOB_MASER_DROP
 	  CALL TUNE(1,'OBS_FRAME_SOB')
 	  CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
@@ -2747,18 +2755,23 @@
 ! grid does not broaden the rendered line.
 !
 ! CHIL_MAT can be negative at depths where stimulated emission
-! dominates (masering lines).  The line contribution is floored at
-! zero per depth before it is added, so a masing cell cannot drag the
-! stored total opacity (continuum + other lines) negative or cancel
-! the continuum; ETAL_MAT is non-negative by construction.
+! dominates (masering lines).  A formal integral cannot represent
+! maser amplification (chi<0 grows the intensity exponentially and
+! chi->0+ leaves a pathologically large two-level source function),
+! so a depth where this line masers contributes neither opacity nor
+! emissivity: the cell stays transparent to the continuum and other
+! lines.  N_DROP accumulates the dropped-cell count for the caller's
+! diagnostic print.  ETAL_MAT is non-negative by construction.
 !
 	SUBROUTINE ADD_SOB_LINE_PROF(ETA_ST,CHI_ST,NU,NCF,
      1	      CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_POINTER,
-     2	      VDOP_MIN,TRANS_TYPE,NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS)
+     2	      VDOP_MIN,TRANS_TYPE,NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
+     3	      N_DROP)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: NCF,ND,NUM_SIM,N_LINES,MAX_SIM
+	INTEGER, INTENT(INOUT) :: N_DROP
 	REAL(KIND=LDP), INTENT(INOUT) :: ETA_ST(ND,NCF)
 	REAL(KIND=LDP), INTENT(INOUT) :: CHI_ST(ND,NCF)
 	REAL(KIND=LDP), INTENT(IN) :: NU(NCF)
@@ -2830,8 +2843,12 @@
 	  DO K=KA,KB
 	    WT=EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
 	    DO I=1,ND
+	      IF(CHIL_MAT(I,S) .LE. 0.0_LDP)THEN
+	        N_DROP=N_DROP+1
+	        CYCLE
+	      END IF
 	      CHI_ST(I,K)=CHI_ST(I,K)+
-     1	          MAX(CHIL_MAT(I,S),0.0_LDP)*CLUMP_FAC(I)*WT
+     1	          CHIL_MAT(I,S)*CLUMP_FAC(I)*WT
 	      ETA_ST(I,K)=ETA_ST(I,K)+
      1	          ETAL_MAT(I,S)*CLUMP_FAC(I)*WT
 	    END DO
