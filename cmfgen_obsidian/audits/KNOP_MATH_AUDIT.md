@@ -143,6 +143,14 @@ frequency coupling.  The Knop technique is applied per equation:
   sites; Knop I Eq. 9 requires that coefficient >= 0 by
   construction, so "signed" above was wrong -- the upwind weight is
   positive, the *sign choice* picks which neighbour it couples.
+  UPDATE (13-Oct-2026, `MOM_GAM_PIN` default T): `GAM_FAC_PREV`,
+  `GAMH_FAC_PREV`, boundary `PSIPREV` and `EPS_PREV` are now
+  evaluated at the CURRENT frequency's Eddington factors, so
+  `PSIPREV=PSI` etc. everywhere -- the earlier independent lagged
+  evaluation let `PSIPREV/PSI > 1` near the `1+sigma*K=0` sign
+  flip, an expansive channel in the lagged map.  `MOM_LAG_BND`
+  (same commit series) additionally bounds each row's total lagged
+  weight by `TB-|TA|-|TC|`.
 - Upwind fields `JUP_NM`/`HUP_NM`: expanding read the k-1 chain
   (live); compressing read lagged `J_NEXT_FRQ`/`H_NEXT_FRQ`.  All
   four read sites (interior RHS, `OUT_BC_TYPE>1` row, negative-J

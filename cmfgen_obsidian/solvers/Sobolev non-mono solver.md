@@ -270,6 +270,38 @@ GAMH_SIGNED >= 0 (resolved-H mixed-direction midpoints) -- a
 second-order coefficient inconsistency, documented for the next
 iteration if needed.
 
+**Lagged-map gain fixes (13-Oct-2026, commits 66756a3, 6373327)
+#status/unverified.** Two changes target the observed expansive
+channels of the lagged map; both are VADAT-gated inside
+`MOM_J_CMF_NONMONO_V1` only and leave the monotonic path untouched:
+
+- `MOM_GAM_PIN` (default T): the lagged comoving-gradient factors
+  `GAM_FAC_PREV`, `GAMH_FAC_PREV`, the Eddington boundary
+  `PSIPREV`, and the `EPS_PREV` angle factor are evaluated at the
+  CURRENT frequency's Eddington factors instead of the bluer
+  neighbour's.  Near the `1+sigma*K=0` resonance the two
+  evaluations drift in sign and magnitude, which let
+  `PSIPREV/PSI > 1` -- the explicit upwind weight then exceeds the
+  implicit diagonal and the lagged map amplifies.  With the pin
+  `PSIPREV=PSI`, `WPREV=W`, `EPS_PREV=EPS` at every point, the
+  compressing branch's existing convention extended to all
+  channels.  F restores the independent lagged evaluation.
+- `MOM_LAG_BND` (default T): per-row bound on the lagged frequency
+  source.  A row's lagged coupling weight (upwind-J coefficient +
+  `|VB|+|VC|` H terms + `2|EPS_PREV|` midpoint transfers) may not
+  exceed its diagonal excess `TB-|TA|-|TC|`; where it does, the
+  whole lagged contribution (accumulated in `XLAG_NM`) is scaled
+  by `min(1, excess/weight)`.  Applied to interior rows, both
+  outer-boundary branches, and the negative-J rebuild (via
+  `LAG_SCL_NM`).  Rows whose unbounded map was already contractive
+  keep factor 1.  The H reconstruction stays unscaled - it solves
+  the eliminated H equation, not the bounded J-row map.
+  Diagnostics: `lagbnd scaled=<n> mins=<s>` line in the sweep
+  report.
+
+Neither fix is yet run-tested; (b) implicit H coupling and (d) the
+KNOP `ESEC>CHI` pure-scattering channel remain candidate follow-ups.
+
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
 under `USE_LAM_ES=F`; a warm restart from `probe_snap` died in

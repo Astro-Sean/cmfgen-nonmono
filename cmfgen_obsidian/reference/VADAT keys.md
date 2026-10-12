@@ -49,6 +49,8 @@ line-treatment gates were warnings before):
 | `MOM_RF_KEEPNEG` | F | repaired cells keep prior iterate |
 | `MOM_RF_GS_DESC` | F | live descending reads (tested, neutral-to-worse) |
 | `MOM_GATE_BULK` | F | gate on sweep-drift snapshot, not refresh residual |
+| `MOM_GAM_PIN` | T | lagged GAM factors evaluated at current-frequency Eddingtons (PSIPREV=PSI etc.) |
+| `MOM_LAG_BND` | T | lagged source weight bounded by row's diagonal excess |
 | `MOM_TRIAL_MIN` | 30 | first frozen iter eligible for BA trial |
 
 ## Freeze / controller
