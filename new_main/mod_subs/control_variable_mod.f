@@ -893,6 +893,14 @@
 !
 	LOGICAL MOM_GAM_PIN
 !
+! MOM_LAG_BND (default TRUE): per-row bound on the lagged frequency
+! source in MOM_J_CMF_NONMONO_V1.  Where a row's lagged coupling
+! weight exceeds its diagonal excess TB-|TA|-|TC|, the lagged RHS
+! contribution is scaled down so the lagged fixed-point map stays
+! non-expansive row by row.  VADAT keyword [MOM_LAG_BND].
+!
+	LOGICAL MOM_LAG_BND
+!
 ! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the

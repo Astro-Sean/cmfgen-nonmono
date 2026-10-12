@@ -1042,7 +1042,18 @@
 	  MOM_GAM_PIN=.TRUE.
 	  CALL RD_STORE_LOG(MOM_GAM_PIN,'MOM_GAM_PIN',L_FALSE,
 	1     'Pin lagged GAM factors to current-frequency values?')
-	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN)
+!
+! MOM_LAG_BND (default TRUE): per-row bound on the lagged frequency
+! source in MOM_J_CMF_NONMONO_V1 -- where the row's lagged coupling
+! weight (upwind J, HS*H_up, EPS_PREV transfers) exceeds the
+! diagonal excess TB-|TA|-|TC|, the lagged contribution is scaled
+! down so the lagged fixed-point map cannot amplify there.  FALSE
+! restores the unbounded source for A/B tests.
+!
+	  MOM_LAG_BND=.TRUE.
+	  CALL RD_STORE_LOG(MOM_LAG_BND,'MOM_LAG_BND',L_FALSE,
+	1     'Bound lagged source by per-row diagonal excess?')
+	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND)
 !
 ! Refresh tuning knobs, previously compile-time parameters.  The
 ! defaults match the built-in values, so an unchanged VADAT is

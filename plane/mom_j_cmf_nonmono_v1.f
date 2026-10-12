@@ -627,6 +627,25 @@
 !
 	LOGICAL MOM_GAM_PIN
 !
+! MOM_LAG_BND (VADAT key, default TRUE): per-row bound on the
+! lagged frequency source.  The lagged fixed-point map amplifies
+! wherever a row's lagged coupling weight -- upwind J coefficient,
+! HS*H_up, and the two EPS_PREV midpoint transfers -- exceeds its
+! diagonal excess TB-|TA|-|TC|.  Shock cells violate this: PSI
+! collapses at the 1+sigma*K=0 resonance while the H and EPS
+! channels still feed the row (m15 probes, 12-Oct-2026).  The
+! row's whole lagged contribution is scaled by
+! min(1, excess/weight); rows whose unbounded map was already
+! contractive are untouched.  edited by Devin, 12-Oct-2026.
+!
+	LOGICAL MOM_LAG_BND
+!
+! LAGB diagnostics: rows scaled this sweep, and the smallest scale
+! applied (1.0 = the bound was inactive everywhere).
+!
+	INTEGER*8, SAVE :: MOM_LAGB_CNT=0
+	REAL(KIND=LDP), SAVE :: MOM_LAGB_MIN=1.0_LDP
+!
 ! XM_FB_NM: previous valid R^2*J at the current frequency, assembled
 ! before DGTSV overwrites XM_NM.  It is the fallback target for a
 ! failed solve or a rejected cell: the lagged GS iterate
@@ -733,6 +752,7 @@
 	DATA MOM_RF_ENABLED /.FALSE./
 	DATA MOM_EPS_LIM /.TRUE./
 	DATA MOM_GAM_PIN /.TRUE./
+	DATA MOM_LAG_BND /.TRUE./
 	DATA KN_M_READY /.FALSE./
 	DATA KN_M_RF_WARNED /.FALSE./
 	DATA KN_M_ANYCMP /.FALSE./
@@ -854,6 +874,15 @@
 	REAL(KIND=LDP), ALLOCATABLE :: JUP_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: HUP_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: EPS_SCL_NM(:)
+!
+! XLAG_NM: the lagged part of each row's assembled RHS (everything
+! except the DTAUONQ*SOURCE*R^2 local source).  LAG_SCL_NM: the
+! per-row bound factor applied under MOM_LAG_BND, reused by the
+! negative-J rebuild so the rebuild matches the equation that was
+! actually solved.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: XLAG_NM(:)
+	REAL(KIND=LDP), ALLOCATABLE :: LAG_SCL_NM(:)
 !
 ! Work arrays for the pivoted tridiagonal solve (DGTSV destroys its
 ! matrix arguments, so the coefficients are copied before each call).
@@ -1514,6 +1543,8 @@
 	  MOM_MAX_COH=0.0_LDP
 	  MOM_MAX_GAM=0.0_LDP
 	  MOM_MAX_SIGT=0.0_LDP
+	  MOM_LAGB_CNT=0
+	  MOM_LAGB_MIN=1.0_LDP
 	END IF
 !
 !
@@ -2274,6 +2305,19 @@
 	  ALLOCATE(JUP_NM(ND_NM))
 	END IF
 	JUP_NM(1:ND_NM)=0.0_LDP
+!
+! LAGB workspaces (MOM_LAG_BND): XLAG_NM accumulates the lagged part
+! of each row's RHS; LAG_SCL_NM holds the bound factor so the
+! negative-J rebuild scales the same terms.
+!
+	IF(.NOT. ALLOCATED(XLAG_NM))THEN
+	  ALLOCATE(XLAG_NM(ND_NM),LAG_SCL_NM(ND_NM))
+	ELSE IF(SIZE(XLAG_NM) .NE. ND_NM)THEN
+	  DEALLOCATE(XLAG_NM,LAG_SCL_NM)
+	  ALLOCATE(XLAG_NM(ND_NM),LAG_SCL_NM(ND_NM))
+	END IF
+	XLAG_NM(1:ND_NM)=0.0_LDP
+	LAG_SCL_NM(1:ND_NM)=1.0_LDP
 	IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)THEN
 !
 ! Per-point matched read: the compressing upwind is the bin
@@ -2352,28 +2396,30 @@
 !
 	IF(N_TYPE .EQ. 'G_ONLY')THEN
 	  DO I=2,ND_NM-1
-	    XM_NM(I)=XM_NM(I) + VB_NM(I)*HUP_NM(I-1) +
-	1       VC_NM(I)*HUP_NM(I)
+	    T3=VB_NM(I)*HUP_NM(I-1) + VC_NM(I)*HUP_NM(I)
 	    IF(Q_NM(I) .GE. 0.0_LDP)THEN
-	      XM_NM(I)=XM_NM(I) + PSIPREV_NM(I)*RSQJNU_PREV_NM(I)
+	      T3=T3 + PSIPREV_NM(I)*RSQJNU_PREV_NM(I)
 	    ELSE
 ! GAM<0: the explicit term on the LHS is GAM*J_{nu+1}/dlnnu, i.e.
 ! -|coeff|*J_next; moved to the RHS it enters with a POSITIVE sign,
 ! +PSI_NM*J_next (matching FG's SOURCE_PRIME = S + |Q_k|*I_NEXT).
-	      IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)XM_NM(I)=XM_NM(I) +
+	      IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)T3=T3 +
 	1         PSI_NM(I)*JUP_NM(I)
 	    END IF
+	    XM_NM(I)=XM_NM(I)+T3
+	    XLAG_NM(I)=XLAG_NM(I)+T3
 	  END DO
 	ELSE
 	  DO I=2,ND_NM-1
-	    XM_NM(I)=XM_NM(I) + VB_NM(I)*HUP_NM(I-1) +
-	1       VC_NM(I)*HUP_NM(I)
+	    T3=VB_NM(I)*HUP_NM(I-1) + VC_NM(I)*HUP_NM(I)
 	    IF(Q_NM(I) .GE. 0.0_LDP)THEN
-	      XM_NM(I)=XM_NM(I) + PSIPREV_NM(I)*RSQJNU_PREV_NM(I)
+	      T3=T3 + PSIPREV_NM(I)*RSQJNU_PREV_NM(I)
 	    ELSE
-	      IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)XM_NM(I)=XM_NM(I) +
+	      IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)T3=T3 +
 	1         PSI_NM(I)*JUP_NM(I)
 	    END IF
+	    XM_NM(I)=XM_NM(I)+T3
+	    XLAG_NM(I)=XLAG_NM(I)+T3
 	  END DO
 !
 ! Lagged EPS*(sigma n J) midpoint terms.  The advected quantity uses
@@ -2446,8 +2492,14 @@
 !
 	      IF(T3 .NE. 0.0_LDP)EPS_SCL_NM(I)=T5/T3
 	    END IF
-	    IF(I .GT. 1)XM_NM(I)=XM_NM(I)+T5
-	    IF(I .LT. ND_NM-1)XM_NM(I+1)=XM_NM(I+1)-T5
+	    IF(I .GT. 1)THEN
+	      XM_NM(I)=XM_NM(I)+T5
+	      XLAG_NM(I)=XLAG_NM(I)+T5
+	    END IF
+	    IF(I .LT. ND_NM-1)THEN
+	      XM_NM(I+1)=XM_NM(I+1)-T5
+	      XLAG_NM(I+1)=XLAG_NM(I+1)-T5
+	    END IF
 	  END DO
 !
 ! Apply the cap factor to the implicit half: rows I and I+1 carry
@@ -2474,6 +2526,49 @@
 	      END IF
 	      EPS_NM(I)=EPS_NM(I)*EPS_SCL_NM(I)
 	      EPS_PREV_NM(I)=EPS_PREV_NM(I)*EPS_SCL_NM(I)
+	    END IF
+	  END DO
+	END IF
+!
+! Per-row bound on the lagged frequency source [MOM_LAG_BND,
+! default T].  A lagged fixed-point map amplifies wherever a row's
+! lagged coupling weight exceeds the diagonal excess
+! TB-|TA|-|TC| (for an M-matrix row, |A^-1|_inf <= 1/excess).
+! Shock cells violate this: PSI collapses at the 1+sigma*K=0
+! resonance while the lagged H and EPS_PREV transfers still feed
+! the row, and the retained field then grows geometrically (m15
+! probes, 12-Oct-2026).  Scale the row's whole lagged contribution
+! (accumulated in XLAG_NM) by min(1, excess/weight); where the
+! unbounded map was already contractive the factor is 1 and the
+! fixed point is unchanged.  The implicit/explicit EPS pair match
+! of MOM_EPS_LIM becomes approximate on scaled rows -- that is the
+! documented consistency cost of this bound.  LAG_SCL_NM is kept
+! so the negative-J rebuild below applies the same factor to the
+! same terms; the H reconstruction is left unscaled, it solves the
+! eliminated H equation rather than the bounded J-row map.
+!
+	IF(MOM_LAG_BND)THEN
+	  DO I=2,ND_NM-1
+	    IF(Q_NM(I) .GE. 0.0_LDP)THEN
+	      T3=PSIPREV_NM(I)
+	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)THEN
+	      T3=PSI_NM(I)
+	    ELSE
+	      T3=0.0_LDP
+	    END IF
+	    T4=T3+ABS(VB_NM(I))+ABS(VC_NM(I))+
+	1      2.0_LDP*(ABS(EPS_PREV_NM(I-1))+ABS(EPS_PREV_NM(I)))
+	    IF(T4 .GT. 0.0_LDP)THEN
+	      T5=TB_NM(I)-ABS(TA_NM(I))-ABS(TC_NM(I))
+	      T3=MIN(1.0_LDP,MAX(T5,0.0_LDP)/T4)
+	    ELSE
+	      T3=1.0_LDP
+	    END IF
+	    LAG_SCL_NM(I)=T3
+	    IF(T3 .LT. 1.0_LDP)THEN
+	      XM_NM(I)=XM_NM(I)-(1.0_LDP-T3)*XLAG_NM(I)
+	      MOM_LAGB_CNT=MOM_LAGB_CNT+1
+	      MOM_LAGB_MIN=MIN(MOM_LAGB_MIN,T3)
 	    END IF
 	  END DO
 	END IF
@@ -2587,11 +2682,34 @@
 	  TA_NM(1)=0.0_LDP
 	  VB_NM(1)=0.0_LDP
 	  VC_NM(1)=0.0_LDP
+!
+! Same row bound as the interior [MOM_LAG_BND]: this row's lagged
+! weight is the upwind-J coefficient itself, its diagonal excess is
+! TB(1)-|TC(1)|.
+!
+	  LAG_SCL_NM(1)=1.0_LDP
+	  IF(MOM_LAG_BND)THEN
+	    IF(A_BND .GE. 0.0_LDP)THEN
+	      T3=PSIPREV_NM(1)
+	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)THEN
+	      T3=PSI_NM(1)
+	    ELSE
+	      T3=0.0_LDP
+	    END IF
+	    IF(T3 .GT. 0.0_LDP)THEN
+	      T4=TB_NM(1)-ABS(TC_NM(1))
+	      LAG_SCL_NM(1)=MIN(1.0_LDP,MAX(T4,0.0_LDP)/T3)
+	      IF(LAG_SCL_NM(1) .LT. 1.0_LDP)THEN
+	        MOM_LAGB_CNT=MOM_LAGB_CNT+1
+	        MOM_LAGB_MIN=MIN(MOM_LAGB_MIN,LAG_SCL_NM(1))
+	      END IF
+	    END IF
+	  END IF
 	  IF(A_BND .GE. 0.0_LDP)THEN
-	    XM_NM(1)=PSIPREV_NM(1)*RSQJNU_PREV_NM(1)
+	    XM_NM(1)=LAG_SCL_NM(1)*PSIPREV_NM(1)*RSQJNU_PREV_NM(1)
 	  ELSE
 	    IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)THEN
-	      XM_NM(1)=PSI_NM(1)*JUP_NM(1)
+	      XM_NM(1)=LAG_SCL_NM(1)*PSI_NM(1)*JUP_NM(1)
 	    ELSE
 	      XM_NM(1)=0.0_LDP
 	    END IF
@@ -2614,21 +2732,46 @@
 	  ELSE
 	    TC_NM(1)=TC_NM(1)-2.0_LDP*EPS_NM(1)/T1
 	  END IF
+!
+! Same row bound as the interior [MOM_LAG_BND].  This row is the
+! negated interior equation, so the implicit excess is
+! |TB(1)|-|TC(1)| and the lagged weight is the J-coupling
+! coefficient plus (HS + 2|EPS_PREV|)/|T1|.
+!
+	  LAG_SCL_NM(1)=1.0_LDP
+	  IF(MOM_LAG_BND)THEN
+	    IF(Q_NM(1) .GE. 0.0_LDP)THEN
+	      T3=PSIPREV_NM(1)
+	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)THEN
+	      T3=PSI_NM(1)
+	    ELSE
+	      T3=0.0_LDP
+	    END IF
+	    T4=T3+(HS_NM(1)+2.0_LDP*ABS(EPS_PREV_NM(1)))/ABS(T1)
+	    IF(T4 .GT. 0.0_LDP)THEN
+	      T5=ABS(TB_NM(1))-ABS(TC_NM(1))
+	      LAG_SCL_NM(1)=MIN(1.0_LDP,MAX(T5,0.0_LDP)/T4)
+	      IF(LAG_SCL_NM(1) .LT. 1.0_LDP)THEN
+	        MOM_LAGB_CNT=MOM_LAGB_CNT+1
+	        MOM_LAGB_MIN=MIN(MOM_LAGB_MIN,LAG_SCL_NM(1))
+	      END IF
+	    END IF
+	  END IF
 	  IF(Q_NM(1) .GE. 0.0_LDP)THEN
 	    XM_NM(1)=-SOURCE_NM(1)*R_NM(1)*R_NM(1) -
-	1     HS_NM(1)*HUP_NM(1)/T1 -
-	1     PSIPREV_NM(1)*RSQJNU_PREV_NM(1)
+	1     LAG_SCL_NM(1)*(HS_NM(1)*HUP_NM(1)/T1 +
+	2     PSIPREV_NM(1)*RSQJNU_PREV_NM(1))
 	  ELSE
 ! This boundary row is the negated interior equation (note -SOURCE and
 ! -PSIPREV*J_prev for expansion), so the compressing upwind term enters
 ! as -PSI_NM*J_next, with the same diagonal |Q_k| weight as interior.
 	    IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN)THEN
 	      XM_NM(1)=-SOURCE_NM(1)*R_NM(1)*R_NM(1) -
-	1       HS_NM(1)*HUP_NM(1)/T1 -
-	1       PSI_NM(1)*JUP_NM(1)
+	1       LAG_SCL_NM(1)*(HS_NM(1)*HUP_NM(1)/T1 +
+	2       PSI_NM(1)*JUP_NM(1))
 	    ELSE
 	      XM_NM(1)=-SOURCE_NM(1)*R_NM(1)*R_NM(1) -
-	1       HS_NM(1)*HUP_NM(1)/T1
+	1       LAG_SCL_NM(1)*HS_NM(1)*HUP_NM(1)/T1
 	    END IF
 	  END IF
 	  IF(N_TYPE .NE. 'G_ONLY')THEN
@@ -2652,6 +2795,7 @@
 !	    Same limiter as the interior scatter: the lagged debit may
 !	    not exceed row 1's accumulated positive RHS.  Row 1 is the
 !	    negated equation, so the transfer lands with opposite sign.
+!	    The LAG_SCL factor applies the row bound after the cap.
 !
 	    IF(MOM_EPS_LIM .AND. T5 .GT. 0.0_LDP)THEN
 	      T4=MAX(XM_NM(1),0.0_LDP)
@@ -2661,7 +2805,7 @@
 	        MOM_EPS_CAP_SW=MOM_EPS_CAP_SW+1
 	      END IF
 	    END IF
-	    XM_NM(1)=XM_NM(1)-T5
+	    XM_NM(1)=XM_NM(1)-LAG_SCL_NM(1)*T5
 	  END IF
 	END IF
 !
@@ -2802,8 +2946,8 @@
 	      END IF
 	      IF(N_TYPE .EQ. 'G_ONLY')THEN
 	        XM_NM(I)=DTAUONQ_NM(I)*SOURCE_NM(I)*R_NM(I)*R_NM(I) +
-	1          T2 +
-	1          T1*(VB_NM(I)*HUP_NM(I-1)+VC_NM(I)*HUP_NM(I))
+	1          LAG_SCL_NM(I)*(T2 +
+	2          T1*(VB_NM(I)*HUP_NM(I-1)+VC_NM(I)*HUP_NM(I)))
 	      ELSE
 ! Rebuild the lagged EPS coupling at the same depth-upwind nodes
 ! and the same frequency upwind as the main RHS (J_prev expanding,
@@ -2829,19 +2973,20 @@
 	        END DO
 !
 !	        Rejected-row rebuild mirrors the sweep's lagged-EPS
-!	        limiter: the lagged debit may not exceed the rebuilt
-!	        positive balance, or the fallback re-seeds the same
-!	        negative RHS that just failed.  [MOM_EPS_LIM]
+!	        limiter and the MOM_LAG_BND row bound: the scaled lagged
+!	        debit may not drive the rebuilt balance negative, or the
+!	        fallback re-seeds the same negative RHS that just failed.
+!	        [MOM_EPS_LIM, MOM_LAG_BND]
 !
-	        T4=DTAUONQ_NM(I)*SOURCE_NM(I)*R_NM(I)*R_NM(I) + T2 +
-	1          T1*(VB_NM(I)*HUP_NM(I-1)+VC_NM(I)*HUP_NM(I))
+	        T4=T2 + T1*(VB_NM(I)*HUP_NM(I-1)+VC_NM(I)*HUP_NM(I))
+	        T5=DTAUONQ_NM(I)*SOURCE_NM(I)*R_NM(I)*R_NM(I)
 	        IF(MOM_EPS_LIM .AND. T1*T3 .LT. 0.0_LDP .AND.
-	1           T4+T1*T3 .LT. 0.0_LDP)THEN
-	          T3=-T4/T1
+	1           T5+LAG_SCL_NM(I)*(T4+T1*T3) .LT. 0.0_LDP)THEN
+	          T3=-(T5+LAG_SCL_NM(I)*T4)/(LAG_SCL_NM(I)*T1)
 	          MOM_EPS_CAP=MOM_EPS_CAP+1
 	          MOM_EPS_CAP_SW=MOM_EPS_CAP_SW+1
 	        END IF
-	        XM_NM(I)=T4 + T1*T3
+	        XM_NM(I)=T5 + LAG_SCL_NM(I)*(T4+T1*T3)
 	      END IF
 	      ICNT=ICNT+1
 	    ELSE
@@ -3575,6 +3720,8 @@
 	1    'structure','nonMM=',MOM_NONMM_CNT,'negEPS=',
 	2    MOM_EPS_FWD,'max|EPS|/HU=',MOM_EPS_RAT,'eps_cap=',
 	3    MOM_EPS_CAP_SW
+	WRITE(LUER,'(4X,A10,1X,A,I10,1X,A,ES10.3)')
+	1    'lagbnd','scaled=',MOM_LAGB_CNT,'mins=',MOM_LAGB_MIN
 	WRITE(LUER,'(4X,A10,1X,A,ES10.3,A,I5,A,I5,A,1X,A,ES10.3,A,I5,A,I5,A)')
 	1    'matrix','minDR(s)=',MOM_MIN_DR,' at(',MOM_MIN_DR_I,',',
 	2    MOM_MIN_DR_L,')','minDR|a|=',MOM_MIN_DRA,' at(',
@@ -3984,15 +4131,16 @@
 	RETURN
 	END
 !
-! SET_MOM_LAG_OPTS: runtime wiring for MOM_GAM_PIN, called once
-! from RD_CONTROL_VARIABLES after the VADAT key is read.
+! SET_MOM_LAG_OPTS: runtime wiring for MOM_GAM_PIN and MOM_LAG_BND,
+! called once from RD_CONTROL_VARIABLES after the VADAT keys are read.
 !
-	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN)
+	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND)
 	USE SET_KIND_MODULE
-	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_GAM_PIN
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_GAM_PIN,MOM_LAG_BND
 	IMPLICIT NONE
-	LOGICAL GAMPIN
+	LOGICAL GAMPIN,LAGBND
 	MOM_GAM_PIN=GAMPIN
+	MOM_LAG_BND=LAGBND
 	RETURN
 	END
 !
@@ -4493,6 +4641,8 @@
 	  MOM_MAX_COH=0.0_LDP
 	  MOM_MAX_GAM=0.0_LDP
 	  MOM_MAX_SIGT=0.0_LDP
+	  MOM_LAGB_CNT=0
+	  MOM_LAGB_MIN=1.0_LDP
 !
 ! Jacobi update for the compressing upwind read: freeze the
 ! J_{k+1} field at pass start so descending passes do not consume
