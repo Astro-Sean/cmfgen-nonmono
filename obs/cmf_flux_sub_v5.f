@@ -211,6 +211,7 @@
 !
 	INTEGER NUM_SIM_LINES
 	INTEGER SOB_MASER_DROP	!masing (depth,line) cells dropped by ADD_SOB_LINE_PROF
+	REAL(KIND=LDP) SOB_DROP_EMIS,SOB_INJ_EMIS	!clumped emissivity dropped/injected
 	INTEGER SIM_INDX
 	INTEGER TMP_MAX_SIM
 	REAL(KIND=LDP) OVER_FREQ_DIF
@@ -2379,6 +2380,8 @@
 !
 	OVERLAP=.FALSE.
 	SOB_MASER_DROP=0
+	SOB_DROP_EMIS=0.0_LDP
+	SOB_INJ_EMIS=0.0_LDP
 	CALL TUNE(1,'SOB_EW')
 	DO WHILE (LINE_INDX .LE. NUM_SOB_LINES)      !N_LINE_FREQ)
 !
@@ -2596,8 +2599,9 @@
 	IF(DO_SOB_FLUX_OBS)THEN
 	  CALL ADD_SOB_LINE_PROF(ETA_CMF_ST,CHI_CMF_ST,NU,NCF,
 	1        CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_LINE_POINTER,
-	2        VEC_VDOP_MIN,VEC_TRANS_TYPE,NUM_SIM_LINES,N_LINE_FREQ,
-	3        MAX_SIM,ND,C_KMS,SOB_MASER_DROP)
+	2        VEC_VDOP_MIN,VEC_TRANS_TYPE,NEG_OPACITY,
+	3        NUM_SIM_LINES,N_LINE_FREQ,MAX_SIM,ND,C_KMS,
+	4        SOB_MASER_DROP,SOB_DROP_EMIS,SOB_INJ_EMIS)
 	END IF
 !
 ! Estimate the line EW using a Modified Sobolev approximation.
@@ -2690,6 +2694,9 @@
 	  WRITE(LUER,'(A,1X,I10)')
 	1     'SOB profile injection: masing (line,depth) cells dropped =',
 	2     SOB_MASER_DROP
+	  WRITE(LUER,'(A,1X,1P,2E12.4)')
+	1     'SOB profile injection: dropped / injected emissivity =',
+	2     SOB_DROP_EMIS,SOB_INJ_EMIS
 	  CALL TUNE(1,'OBS_FRAME_SOB')
 	  CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
@@ -2760,18 +2767,27 @@
 ! chi->0+ leaves a pathologically large two-level source function),
 ! so a depth where this line masers contributes neither opacity nor
 ! emissivity: the cell stays transparent to the continuum and other
-! lines.  N_DROP accumulates the dropped-cell count for the caller's
-! diagnostic print.  ETAL_MAT is non-negative by construction.
+! lines.  Depths flagged by NEG_OPACITY (the blend-group summed
+! Sobolev optical depth was strongly negative, so CHECK_LINE_OPAC
+! replaced each member's CHIL_MAT with 1/NUM_SIM_LINES) are dropped
+! on the same footing: their surviving ETAL_MAT is real spontaneous
+! emissivity, but the artificial opacity would inject it as pure
+! thin emission with no chance of self-absorption.  N_DROP
+! accumulates the dropped (line,depth) count and DROP_SUM the
+! dropped clumped emissivity for the caller's diagnostic print.
+! ETAL_MAT is non-negative by construction.
 !
 	SUBROUTINE ADD_SOB_LINE_PROF(ETA_ST,CHI_ST,NU,NCF,
      1	      CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_POINTER,
-     2	      VDOP_MIN,TRANS_TYPE,NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
-     3	      N_DROP)
+     2	      VDOP_MIN,TRANS_TYPE,NEG_OPACITY,
+     3	      NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
+     4	      N_DROP,DROP_SUM,INJ_SUM)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: NCF,ND,NUM_SIM,N_LINES,MAX_SIM
 	INTEGER, INTENT(INOUT) :: N_DROP
+	REAL(KIND=LDP), INTENT(INOUT) :: DROP_SUM,INJ_SUM
 	REAL(KIND=LDP), INTENT(INOUT) :: ETA_ST(ND,NCF)
 	REAL(KIND=LDP), INTENT(INOUT) :: CHI_ST(ND,NCF)
 	REAL(KIND=LDP), INTENT(IN) :: NU(NCF)
@@ -2781,6 +2797,7 @@
 	REAL(KIND=LDP), INTENT(IN) :: FL_SIM(MAX_SIM)
 	REAL(KIND=LDP), INTENT(IN) :: VDOP_MIN(N_LINES)
 	REAL(KIND=LDP), INTENT(IN) :: C_KMS
+	LOGICAL, INTENT(IN) :: NEG_OPACITY(ND)
 	INTEGER, INTENT(IN) :: SIM_POINTER(MAX_SIM)
 	CHARACTER(LEN=*), INTENT(IN) :: TRANS_TYPE(N_LINES)
 !
@@ -2843,13 +2860,20 @@
 	  END DO
 	  IF(XNORM .LE. 0.0_LDP)CYCLE
 !
-	  DO K=KA,KB
-	    WT=1.0E-15_LDP*EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
-	    DO I=1,ND
-	      IF(CHIL_MAT(I,S) .LE. 0.0_LDP)THEN
-	        N_DROP=N_DROP+1
-	        CYCLE
-	      END IF
+	  DO I=1,ND
+!
+! NEG_OPACITY cells had their CHIL_MAT crushed to 1/NUM_SIM_LINES by
+! the blend-group maser check above; the surviving ETAL_MAT would
+! otherwise be injected as thin emission with an artificial opacity.
+!
+	    IF(CHIL_MAT(I,S) .LE. 0.0_LDP .OR. NEG_OPACITY(I))THEN
+	      N_DROP=N_DROP+1
+	      DROP_SUM=DROP_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
+	      CYCLE
+	    END IF
+	    INJ_SUM=INJ_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
+	    DO K=KA,KB
+	      WT=1.0E-15_LDP*EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
 	      CHI_ST(I,K)=CHI_ST(I,K)+
      1	          CHIL_MAT(I,S)*CLUMP_FAC(I)*WT
 	      ETA_ST(I,K)=ETA_ST(I,K)+
