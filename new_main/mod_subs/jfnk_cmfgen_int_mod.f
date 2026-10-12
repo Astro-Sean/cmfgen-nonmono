@@ -466,6 +466,15 @@
 !                                           JVP retries with smaller h when
 !                                           this is nonzero.
 	INTEGER, SAVE :: JFNK_N_JVP_HRETRY=0      ! JVP calls needing h-reduction
+!
+! Diagnostic-only FD step multiplier for the COLPROBE h-scan.  The
+! nominal JVP step (~1.5D-8 in ln n) is below the cancellation floor
+! of rows whose partial terms reach 1D15-1D19, so a single-h probe
+! cannot separate a small true derivative from roundoff.  JVP_V1
+! multiplies H_STEP by this factor; the colprobe sweeps it over a
+! few decades and resets it to 1 afterward.
+!
+	REAL(KIND=LDP), SAVE :: JFNK_PROBE_HSCALE=1.0_LDP
 	INTEGER, SAVE :: JFNK_N_PRECOND_APPLIES=0
 	INTEGER, SAVE :: JFNK_N_PRECOND_FAILURES=0
 !
@@ -484,5 +493,17 @@
 	LOGICAL, ALLOCATABLE, SAVE :: JFNK_REPLACE_SAV(:,:)
 	LOGICAL, ALLOCATABLE, SAVE :: JFNK_ZSTEQ_SAV(:,:)
 	LOGICAL, SAVE :: JFNK_EQ_STRUCT_READY=.FALSE.
+!
+! JFNK_PTC_FOLDED: set by JFNK_FACTOR_PRECOND_V1 when the pseudo-time
+! diagonal s_i = max(|F_i|, 1e-8*|F|max) has been folded into the
+! factored BA blocks.  The FD JVP differentiates G = F + (x-x0)*s/dtau
+! so the operator GMRES sees is J + s*I/dtau; bare BA is nearly
+! singular on weak rows and the LU emits z ~ 1e2..1e5 along directions
+! where the true operator holds the s floor.  With s inside the
+! factored matrix the preconditioned direction matches the FD
+! operator, and the post-solve D/(D+sig) rescale in JFNK_PRECOND_V1
+! must be skipped to avoid applying the shift twice.
+!
+	LOGICAL, SAVE :: JFNK_PTC_FOLDED=.FALSE.
 !
 	END MODULE JFNK_CMFGEN_INT_MOD

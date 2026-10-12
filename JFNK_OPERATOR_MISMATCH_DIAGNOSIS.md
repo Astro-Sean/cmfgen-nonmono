@@ -381,3 +381,61 @@ through `run_model_grid.py --print-resolved-config`.
 No new production run has been submitted; fallback behavior and
 `JFNK_LAG_FACTORS` remain UNVERIFIED in CMFGEN, and no spectrum was
 produced by the failed job.
+
+### Update: root cause found and verified (probe jobs 12154437/12154572/12154588)
+
+The self-element FD-vs-BA gaps in the earlier probes are NOT a Jacobian
+defect.  They equal the pseudo-transient-continuation diagonal
+`s_i/dtau = max(|F_i|, 1e-8*|F|max)` exactly:
+
+| it | BA self | FD | implied s/dtau | 1e-8*Fmax |
+|----|---------|-----|----------------|-----------|
+| 444 | -2.9548e5 | +190 | 295669 | 2.96e5 |
+| 418 | -2.6148e4 | -5.4 | 26143 | 2.6e4 |
+| 419 | -1.1014e4 | -0.86 | 11013 | 1.1e4 |
+
+`JFNK_RESIDUAL_V1` returns G = F + (x-x0)*s/dtau, so the FD JVP
+differentiates J_F + s*I while the old colprobe compared against bare
+BA.  FD - s = BA to ~0.1%; the operator was consistent all along.
+
+Real defect: the preconditioner factored bare BA and patched the PTC
+diagonal only AFTER the LU solve (z -> z*D/(D+sigma)).  Bare BA is
+near-singular (~7200 ROW_TINY regularized rows), so z exploded to
+|z|~5e4 along near-null directions, A*z landed orthogonal to F
+(cos(F,A_FD z) ~ 0.25-0.35), and Arnoldi broke down at it=2-4.
+
+Fix (JFNK_PTC_FOLDED): JFNK_FACTOR_PRECOND_V1 folds s_i into the
+JFNK_BA_A diagonal (and the banded-LU diag block) before LU, and
+JFNK_PRECOND_V1 skips the post-hoc rescale.  Verified on the same
+deterministic admission (probe 12154572, it 444):
+
+- topZ colprobe column: |FD-BA|/|BA| = 1.28e-3 (was orders of magnitude
+  on the self element); hscan flat over 4 decades of h.
+- Reg-row projections: 0 (was ~7210); column scale max 1.5e30 -> 3.9e4.
+- cos(F, A_FD z) = 0.981 for |z|<1 (was 0.25-0.35); |z|_inf = 804
+  (was ~5e4).
+- GMRES iterates: 23 its, res 1.03e14 -> 6.47e13 (was flat breakdown).
+- Commit is bounded: 77.8% max pop change at depth 26 (was 1e7-capped
+  BA spikes); run stays in FULL mode.
+
+Second fix: BAMAT recall without factor cache.  The JFNK BA build writes
+BAMAT/BAMATPNT but not the legacy CSCRATCH/BCSCRATCH/DSCRATCH files; a
+later FULL recall entered READ_BCD_MAT and STOPped (probe 12154437,
+it 445).  The startup-only guard in cmfgen_sub.f could not see this
+mid-run transition.  CMF_BLKBAND_V3 now probes the boundary-depth cache
+files before the DIAG (CSCRATCH0001/ND) and TRI (BCSCRATCH0001,
+DSCRATCHND) recall branches and falls through to in-memory re-factor
+from stored SE%BA when absent.  Verified live on probe 12154588: the
+guard logged "CSCRATCH factor cache is absent; recomputing LU from
+stored BA" and the run continued past it 445.
+
+Open item: GMRES saturates at ~63% residual then hits an exact-zero
+Arnoldi breakdown (h(j+1,j)=0) at it=21-23.  ZMAX is a counter only,
+not a clip, so the operator is linear; the breakdown means the
+preconditioned Krylov space is an invariant subspace that cannot reach
+the remaining residual.  Precond accuracy on v=F is ||Mz-v||/||v||=0.16
+with row scales spanning 7e-20..1 (ill-scaled blocks survive the
+equilibration).  Levers: the existing SCHUR two-level (n,T) precond for
+the coupled tier, or a deflated/restarted GMRES.  System-level behavior
+is safe in the meantime: JFNK commits the best bounded correction and
+falls back to the caller's FULL/LAMBDA dispatch.

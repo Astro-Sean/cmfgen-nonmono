@@ -104,6 +104,21 @@
 	INTEGER K_TOPF,I_TOPF,I_ZMAX,II_PROBE
 	DOUBLE PRECISION FMAX_LOC
 !
+! COLPROBE decomposition (26-Oct-2026): for each worst element print
+! the row residual F_i (self-proportional equations have dF/dln n_i
+! = -F_i, i.e. FD~O(F) while BA shows the raw outflow), the CMAT_RAD
+! share of the BA element, the ion/level label, and the frozen
+! REPLACE flag.  A separate h-scan on the topZ self element separates
+! a small real derivative (FD stable vs h) from cancellation noise.
+!
+	INTEGER, ALLOCATABLE :: J2ID_LOC(:)
+	INTEGER JROW,KROW,LEV_LOC,IHS
+	CHARACTER*14 LBL_LOC
+	LOGICAL REP_LOC
+	DOUBLE PRECISION CMR_LOC,COLL_LOC
+	DOUBLE PRECISION HS_ARR(3)
+	DATA HS_ARR/1.0D2,1.0D4,1.0D6/
+!
 ! Correction clipping state
 !
 	INTEGER NCLIP_POP,NCLIP_T,NCLIP_ED
@@ -881,6 +896,25 @@
 	4        ' |diff|/|BA|=',
 	5        REAL(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
 	1             0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP))
+!
+! J->ion map for the per-element labels below; same layout as
+! JFNK_ROW_ANATOMY_V1 (levels EQXzV..EQXzV+NXzV-1 belong to ion ID;
+! J=NT-1 is the charge row, J=NT the energy row).
+!
+	      IF(ALLOCATED(J2ID_LOC))DEALLOCATE(J2ID_LOC)
+	      ALLOCATE(J2ID_LOC(JFNK_NT))
+	      J2ID_LOC=0
+	      DO ID=1,JFNK_NION
+	        IF(ATM(ID)%XzV_PRES)THEN
+	          DO J=ATM(ID)%EQXzV,
+	1            MIN(ATM(ID)%EQXzV+ATM(ID)%NXzV-1,JFNK_NT-2)
+	            IF(J .GE. 1)J2ID_LOC(J)=ID
+	          END DO
+	        ELSE IF(ATM(ID)%EQXzV .GE. 1 .AND.
+	1            ATM(ID)%EQXzV .LE. JFNK_NT-2)THEN
+	          J2ID_LOC(ATM(ID)%EQXzV)=ID
+	        END IF
+	      END DO
 	      DO K = 1, 8
 	        FMAX_LOC = 0.0_LDP
 	        I_ZMAX = 0
@@ -895,6 +929,37 @@
 	1          '    col: idx=',I_ZMAX,' K=',(I_ZMAX-1)/JFNK_NT+1,
 	2          ' J=',MOD(I_ZMAX-1,JFNK_NT)+1,
 	3          ' FD=',JV_FD2(I_ZMAX),' BA=',JV_FD(I_ZMAX)
+!
+! Row decomposition: F_i (a self-proportional equation gives
+! FD ~ -F_i rather than the raw BA outflow), the CMAT_RAD share of
+! the BA element (valid only for rows in the probed depth block),
+! ion/level label, and the frozen REPLACE flag of the owning ion.
+!
+	        JROW=MOD(I_ZMAX-1,JFNK_NT)+1
+	        KROW=(I_ZMAX-1)/JFNK_NT+1
+	        ID=0
+	        IF(JROW .LE. JFNK_NT-2)ID=J2ID_LOC(JROW)
+	        CMR_LOC=0.0_LDP
+	        IF(ALLOCATED(JFNK_CMAT_RAD) .AND. KROW .EQ. K_TOPF)
+	1           CMR_LOC=DBLE(JFNK_CMAT_RAD(JROW,
+	2             MOD(I_TOPF-1,JFNK_NT)+1,KROW))
+	        COLL_LOC=JV_FD(I_ZMAX)-CMR_LOC
+	        LBL_LOC='unlabeled'
+	        LEV_LOC=0
+	        REP_LOC=.FALSE.
+	        IF(JROW .EQ. JFNK_NT)THEN
+	          LBL_LOC='T (energy)'
+	        ELSE IF(JROW .EQ. JFNK_NT-1)THEN
+	          LBL_LOC='Ne (charge)'
+	        ELSE IF(ID .GT. 0)THEN
+	          LBL_LOC=ION_ID(ID)
+	          LEV_LOC=JROW-ATM(ID)%EQXzV+1
+	          IF(ALLOCATED(JFNK_REPLACE_SAV))
+	1             REP_LOC=JFNK_REPLACE_SAV(ID,KROW)
+	        END IF
+	        WRITE(LUER,'(3(A,ES12.4),2X,A12,I5,A,L1)')
+	1          '      F_i=',jfnk_fx(I_ZMAX),' rad=',CMR_LOC,
+	2          ' coll=',COLL_LOC,LBL_LOC,LEV_LOC,' rep=',REP_LOC
 	        JV_FD(I_ZMAX) = JV_FD2(I_ZMAX)
 	      END DO
 !
@@ -942,6 +1007,36 @@
 	1          '    col: idx=',I_TOPF,' K=',(I_TOPF-1)/JFNK_NT+1,
 	2          ' J=',MOD(I_TOPF-1,JFNK_NT)+1,
 	3          ' FD=',JV_FD2(I_TOPF),' BA=',JV_FD(I_TOPF)
+!
+! Same row decomposition as the topF block.  Here J holds the
+! probed depth and MOD(I_ZMAX-1,NT)+1 the probed column (I_ZMAX is
+! the top-|z| index selected above the loop).
+!
+	        JROW=MOD(I_TOPF-1,JFNK_NT)+1
+	        KROW=(I_TOPF-1)/JFNK_NT+1
+	        ID=0
+	        IF(JROW .LE. JFNK_NT-2)ID=J2ID_LOC(JROW)
+	        CMR_LOC=0.0_LDP
+	        IF(ALLOCATED(JFNK_CMAT_RAD) .AND. KROW .EQ. J)
+	1           CMR_LOC=DBLE(JFNK_CMAT_RAD(JROW,
+	2             MOD(I_ZMAX-1,JFNK_NT)+1,KROW))
+	        COLL_LOC=JV_FD(I_TOPF)-CMR_LOC
+	        LBL_LOC='unlabeled'
+	        LEV_LOC=0
+	        REP_LOC=.FALSE.
+	        IF(JROW .EQ. JFNK_NT)THEN
+	          LBL_LOC='T (energy)'
+	        ELSE IF(JROW .EQ. JFNK_NT-1)THEN
+	          LBL_LOC='Ne (charge)'
+	        ELSE IF(ID .GT. 0)THEN
+	          LBL_LOC=ION_ID(ID)
+	          LEV_LOC=JROW-ATM(ID)%EQXzV+1
+	          IF(ALLOCATED(JFNK_REPLACE_SAV))
+	1             REP_LOC=JFNK_REPLACE_SAV(ID,KROW)
+	        END IF
+	        WRITE(LUER,'(3(A,ES12.4),2X,A12,I5,A,L1)')
+	1          '      F_i=',jfnk_fx(I_TOPF),' rad=',CMR_LOC,
+	2          ' coll=',COLL_LOC,LBL_LOC,LEV_LOC,' rep=',REP_LOC
 	        JV_FD(I_TOPF) = JV_FD2(I_TOPF)
 	      END DO
 !
@@ -958,6 +1053,22 @@
 	1        '  COLPROBE repeat-vs-pristine: |diff|=',
 	2        REAL(FJZ_FD),
 	3        ' rel=',REAL(FJZ_FD/MAX(JJZ_DP,1.0E-300_LDP))
+!
+! h-scan on the topZ self element.  A derivative stable across
+! decades of step size is real; one that drifts or flips is
+! cancellation noise (row partial terms reach 1D15-1D19 against a
+! nominal 1.5D-8 perturbation).
+!
+	      WRITE(LUER,'(A)')'  COLPROBE hscan (topZ self):'
+	      DO IHS=1,3
+	        JFNK_PROBE_HSCALE=HS_ARR(IHS)
+	        Z_BLK=0.0_LDP
+	        Z_BLK(I_ZMAX)=1.0_LDP
+	        CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
+	        WRITE(LUER,'(A,ES10.2,A,ES14.6)')
+	1          '    h x',HS_ARR(IHS),' FD=',JV_FD2(I_ZMAX)
+	      END DO
+	      JFNK_PROBE_HSCALE=1.0_LDP
 !
 ! (b) soft-component removal: zero every |z_i|>1 and re-price.
 !

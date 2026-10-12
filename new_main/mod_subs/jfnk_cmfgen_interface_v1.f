@@ -2435,6 +2435,14 @@
 ! direction norm; frozen mode keeps its machine-eps step.
 	H_STEP = MIN(H_STEP, MAX(1.0D-4, EPS0) *
 	1       MAX(XNORM,1.0D0) / VNORM)
+!
+! COLPROBE h-scan hook (see JFNK_CMFGEN_INT_MOD): a diagnostic-only
+! multiplier applied after the safety cap so probes can step across
+! the FD cancellation floor.  The 0/Inf and ||h*v|| checks below
+! still apply to the scaled step.
+!
+	IF(JFNK_PROBE_HSCALE .NE. 1.0_LDP)
+	1   H_STEP = H_STEP * JFNK_PROBE_HSCALE
 	IF(.NOT. (H_STEP .GT. 0.0D0) .OR.
 	1     H_STEP * VNORM .GT. MAX(XNORM, 1.0D0))THEN
 	  JV = 0.0D0
@@ -2630,7 +2638,8 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
 	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM
-	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
+	1     jfnk_ptc_active, jfnk_fx
 	IMPLICIT NONE
 !
 	REAL(KIND=LDP) DUMMY_STEQ(JFNK_NT)
@@ -2657,6 +2666,8 @@
 	REAL(KIND=LDP), ALLOCATABLE :: GN_WORK(:,:)
 	LOGICAL, ALLOCATABLE :: REPLACE_SAVE(:,:)
 	INTEGER N_BANDED_RETRY
+	DOUBLE PRECISION FMAX_PTC, S_PTC
+	INTEGER IDX_PTC
 	EXTERNAL ERROR_LU
 !
 	LUER = ERROR_LU()
@@ -2824,6 +2835,24 @@
 	FIRST_MATRIX = .TRUE.
 	LAST_MATRIX = .FALSE.
 !
+! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
+! JFNK_SET_PTC_SCALE_V1.  Computed here because SET_PTC_SCALE arms
+! only after this routine returns on the admission path.  dtau is
+! 1 whenever this routine runs (reset on admission/rebuild before
+! any Newton step), so folding s directly matches the operator the
+! FD JVP differentiates.
+!
+	JFNK_PTC_FOLDED = .FALSE.
+	FMAX_PTC = 0.0D0
+	IF(jfnk_ptc_active .AND. ALLOCATED(jfnk_fx))THEN
+	  IF(SIZE(jfnk_fx) .EQ. JFNK_NT*JFNK_ND)THEN
+	    DO IDX_PTC = 1, JFNK_NT*JFNK_ND
+	      FMAX_PTC = MAX(FMAX_PTC, ABS(jfnk_fx(IDX_PTC)))
+	    END DO
+	    IF(FMAX_PTC .GT. 0.0D0)JFNK_PTC_FOLDED = .TRUE.
+	  END IF
+	END IF
+!
 	DO K = 1, JFNK_ND
 	  IF(K .EQ. JFNK_ND) LAST_MATRIX = .TRUE.
 	  CALL GENERATE_FULL_MATRIX_V3(
@@ -2847,6 +2876,59 @@
 	    JFNK_BA_RIDGE_ADD(I, K) = 0.0_LDP
 	  END DO
 	  JFNK_BA_A(:,:,K) = JFNK_C_MAT
+!
+! Fold s_i into the factored diagonal.  Bare BA is nearly singular
+! on thousands of weak rows; the LU then emits z ~ 1e2..1e5 along
+! directions where the FD operator holds the s floor, and the
+! post-solve D/(D+sig) rescale cannot repair an exploded LU
+! direction.  With s inside the matrix every block is diagonally
+! bounded, the ROW_TINY regularization mostly empties, and the
+! preconditioned step matches the FD operator.  If dtau later
+! grows, the shift retained here overestimates the live one --
+! over-damped on weak rows but bounded, which is the safe side.
+!
+	  IF(JFNK_PTC_FOLDED)THEN
+	    DO J = 1, JFNK_NT
+	      IDX_PTC = (K-1)*JFNK_NT + J
+	      S_PTC = MAX(ABS(jfnk_fx(IDX_PTC)), 1.0D-8*FMAX_PTC)
+	      JFNK_BA_A(J,J,K) = JFNK_BA_A(J,J,K) + S_PTC
+	      JFNK_BA_DIAG(J,K) = JFNK_BA_A(J,J,K)
+	      JFNK_PRECOND_DIAG(J,K) = JFNK_BA_A(J,J,K)
+	    END DO
+	  END IF
+!
+! Frozen-row reduction.  The apply solves the full NT block then
+! zeroes z on frozen components (T, or Ne when FIXED_NE), which
+! discards the column terms the LU solve already accounted for and
+! leaves ~16% residual on population rows.  Solve the reduced system
+! instead: zero the frozen row/column off-diagonals and set the
+! diagonal to 1, so z_p = A_pp^{-1} v_p (s_T=0 enforced) and the
+! post-solve projection is a no-op on the answer.
+!
+	  IF(JFNK_FIXED_T_LOC .OR.
+	1    (JFNK_FIX_T_D_ST .GT. 0 .AND.
+	2     K .GE. JFNK_FIX_T_D_ST .AND.
+	3     K .LE. JFNK_FIX_T_D_END .AND.
+	4     .NOT. JFNK_TAUTO_ACTIVE))THEN
+	    DO J = 1, JFNK_NT-1
+	      JFNK_BA_A(J, JFNK_NT, K) = 0.0_LDP
+	      JFNK_BA_A(JFNK_NT, J, K) = 0.0_LDP
+	    END DO
+	    JFNK_BA_A(JFNK_NT, JFNK_NT, K) = 1.0_LDP
+	    JFNK_BA_DIAG(JFNK_NT,K) = 1.0_LDP
+	    JFNK_PRECOND_DIAG(JFNK_NT,K) = 1.0_LDP
+	  END IF
+	  IF(JFNK_FIXED_NE_LOC)THEN
+	    DO J = 1, JFNK_NT
+	      IF(J .NE. JFNK_NT-1)THEN
+	        JFNK_BA_A(J, JFNK_NT-1, K) = 0.0_LDP
+	        JFNK_BA_A(JFNK_NT-1, J, K) = 0.0_LDP
+	      END IF
+	    END DO
+	    JFNK_BA_A(JFNK_NT-1, JFNK_NT-1, K) = 1.0_LDP
+	    JFNK_BA_DIAG(JFNK_NT-1,K) = 1.0_LDP
+	    JFNK_PRECOND_DIAG(JFNK_NT-1,K) = 1.0_LDP
+	  END IF
 	END DO
 !
 ! ── Equilibrated depth-block LU ────────────────────────────────────
@@ -3323,6 +3405,17 @@
 	1         IB, JFNK_DIAG_INDX, K,
 	1         .FALSE., (K .EQ. JFNK_ND .AND. IB .EQ. JFNK_NUM_BNDS),
 	2         .TRUE.)
+!
+! Same PTC fold as the block-LU path so the banded factorization
+! matches the FD operator's s-shifted diagonal.
+!
+	      IF(IB .EQ. JFNK_DIAG_INDX .AND. JFNK_PTC_FOLDED)THEN
+	        DO JJ = 1, JFNK_NT
+	          IDX_PTC = (K-1)*JFNK_NT + JJ
+	          JFNK_C_MAT(JJ,JJ) = JFNK_C_MAT(JJ,JJ) +
+	1           MAX(ABS(jfnk_fx(IDX_PTC)), 1.0D-8*FMAX_PTC)
+	        END DO
+	      END IF
 !
 ! Copy NT×NT block into LAPACK banded storage.
 ! Global row i = (K-1)*NT + II, global col j = (L-1)*NT + JJ.
@@ -4229,7 +4322,7 @@
 	      END IF
 	    END IF
 	    IF(jfnk_ptc_active .AND. jfnk_ptc_scale_ready .AND.
-	1       JFNK_BA_DIAG_READY)THEN
+	1       JFNK_BA_DIAG_READY .AND. .NOT. JFNK_PTC_FOLDED)THEN
 	      D_PC = DBLE(JFNK_PRECOND_DIAG(J_PC, K_PC))
 	      SIG_PC = DBLE(jfnk_ptc_scale(IDX_PC)) /
 	1       MAX(jfnk_ptc_dtau, 1.0D-8)
@@ -5163,6 +5256,8 @@
 	INTEGER IOS_A
 	REAL(KIND=LDP) V_NORM, R_NORM, REL_ERR, Z_NORM
 	REAL(KIND=LDP) JZ_NORM, JM_RATIO
+	REAL(KIND=LDP) R_NORM_P, V_NORM_T
+	INTEGER JR
 !
 	IF(AUDIT_DONE) RETURN
 	AUDIT_DONE = .TRUE.
@@ -5311,6 +5406,26 @@
 	1    ' ||v||_inf=', V_NORM,
 	1    ' ||z||_inf=', Z_NORM,
 	1    ' ||Mz-v||_inf=', R_NORM
+!
+! Row-resolved decomposition.  The apply projects frozen rows
+! (J=NT T, J=NT-1 Ne) out of z, so the full-space metric mixes the
+! intended projection with real LU error.  Report the residual on
+! population rows alone and the share of v carried by the frozen
+! rows to separate the two.
+!
+	R_NORM_P = 0.0_LDP
+	V_NORM_T = 0.0_LDP
+	DO I = 1, N
+	  JR = MOD(I-1, JFNK_NT) + 1
+	  IF(JR .LT. JFNK_NT-1)THEN
+	    R_NORM_P = MAX(R_NORM_P, ABS(R_TEST(I)))
+	  ELSE
+	    V_NORM_T = MAX(V_NORM_T, ABS(V_TEST(I)))
+	  END IF
+	END DO
+	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1    '  PC accuracy (v=F, pop rows): ||Mz-v||_inf=', R_NORM_P,
+	1    ' |v|_inf on T/Ne rows=', V_NORM_T
 !
 ! Test vector 2: unit vector in the first species at first depth
 !
