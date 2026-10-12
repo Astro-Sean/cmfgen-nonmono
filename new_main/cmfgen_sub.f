@@ -936,6 +936,15 @@
 !
 	IF(DO_NONMONO_KNOP)THEN
 	  CALL SET_FG_GS_TAG(NITSF)
+	END IF
+!
+! The MOM_J_CMF_NONMONO_V1 lagged-field checkpoint is shared by the
+! KNOP and SOB paths (both run the same solver under USE_LAM_ES=F),
+! so SOB needs the tag seeded too -- otherwise every requeue falls
+! back to a cold LAMBDA rebuild and re-pays the whole lagged-field
+! convergence transient (SOB warm probe, 13-Oct-2026).
+!
+	IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
 	  CALL SET_MOM_GS_TAG(NITSF)
 	END IF
 !
