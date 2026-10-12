@@ -182,14 +182,17 @@ Sobolev treatment for non-monotonic velocity fields:
   `USE_LAM_ES=T` remains the validated path; `=F` warns but is
   permitted as an opt-in diagnostic (see next entry). `LAM_SET=T`
   warns only.
-- `USE_LAM_ES=F` under `DO_NONMONO_SOB` (opt-in, 12-Oct-2026): runs
-  the stock `MOM_J_CMF_V11` moment solve on clamped `SIGMA` and restores
-  the `VAR_MOM_J_CMF_V12` continuum linearization that the LAM_ES path
-  leaves at zero. Warns, no longer STOPs. `SIGMA_TRUE` still drives the
-  Sobolev lines. JFNK stays inactive in this mode (admission is gated
-  on `USE_LAM_ES`). DIAGNOSTIC ONLY on non-monotonic models: m15 probes
-  (jobs 12158938, 12159013) show `MOM_J_CMF_V11` diverging at the bluest
-  frequency under both `N_TYPE=N_ON_J` and `G_ONLY`.
+- `USE_LAM_ES=F` under `DO_NONMONO_SOB` (opt-in, rewired 12-Oct-2026):
+  continuum J comes from `MOM_J_CMF_NONMONO_V1` (the Knop sign-split
+  moment solver native to non-monotonic fields), paired with fixed-J +
+  `GET_MOM_ALO_DIAG` + `GET_MOM_CELL_QUAR` in `do_var_cont.f` - the
+  same recipe as KNOP+LAM_ES=F. `FG_J_CMF_V13` still runs each
+  frequency, so `N_ON_J` factors come live from its ray moments via
+  `GET_MOMS_NON_REL`; `SIGMA_TRUE` drives the Sobolev lines and the
+  solver GAM term. Warns, no longer STOPs. JFNK stays inactive in
+  this mode (admission is gated on `USE_LAM_ES`). The earlier V11+V12
+  variant diverged on m15 (jobs 12158938, 12159013); do not restore
+  it - V11 assumes expanding flow and V12 linearizes the V11 system.
 - `BA_DEM_RELFRAC` (VADAT key, default 0=off, 12-Oct-2026): relative
   demand floor in `SOLVEBA_V13` - rows below `RELFRAC*max(POPS)` at a
   depth are excluded from the MAXCH/MAXCH_APP metric (their corrections

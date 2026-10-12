@@ -902,11 +902,16 @@ C
 	         CALL OUT_JH(TA,RSQHNU,T1,T2,FL,NCF,R,V,ND,FIRST_FREQ,'NORMAL')
 	       END IF
 	     ELSE
-	       IF(DO_NONMONO_KNOP)THEN
+	       IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
 !	        Non-monotonic moment solver (Knop et al. 2009 Paper I
 !	        generalized opacity split).  Uses SIGMA_TRUE (unclamped) and sign-
 !	        dependent upwind (J_PREV for GAM>=0, J_NEXT for GAM<0).
-!	        Only called in KNOP mode; SOB and default use MOM_J_CMF_V11.
+!	        Called under DO_NONMONO_KNOP, and under DO_NONMONO_SOB when
+!	        the opt-in USE_LAM_ES=F moment path is active (12-Oct-2026):
+!	        MOM_J_CMF_V11 assumes expanding flow and diverges on this
+!	        velocity field.  V13 still runs each frequency above, so
+!	        GET_MOMS_NON_REL inside the solver reads fresh N_ON_J ray
+!	        moments.  Default (no non-mono flag) keeps MOM_J_CMF_V11.
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)
 	1             WRITE(LUER,*)'Calling MOM_J_CMF_NONMONO_V1'
 !

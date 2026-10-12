@@ -100,33 +100,37 @@ at ~0.9986/iteration, with ~850 of 1839 levels at d65-66 still demanding
 >1% corrections - a broad optically-thick Lambda mode, not a trace-row
 artifact (`CORRECTION_SUM` histogram, it ~780).
 
-With `USE_LAM_ES=F` the J update runs stock `MOM_J_CMF_V11` (SIGMA keeps
-its -0.999 infrastructure clamp - the continuum sees SIGMA only through
-O(V/c) comoving terms, max ~0.024 at the 7000 km/s inner boundary) and
-`do_var_cont.f` falls through to `VAR_MOM_J_CMF_V12`, restoring full
-continuum dJ/dn linearization. The Sobolev line treatment still uses
-`SIGMA_TRUE`. JFNK admission is gated on `USE_LAM_ES` (`solve_for_pops.f`)
-so the JFNK tiers stay inactive in this mode - acceptable while JFNK is
-parked. SN-model consistency check in `check_param_consistency.f` prints
-a `USE_JREL or USE_DJDT_RTE` warning for `USE_LAM_ES=F`; benign.
+With `USE_LAM_ES=F` the J update now runs `MOM_J_CMF_NONMONO_V1`
+(12-Oct-2026 wiring), the Knop Paper II sign-split moment solver
+already used under `DO_NONMONO_KNOP`: `chi_hat = chi + |GAM|/dLOG_NU`
+stays positive in compression zones and the upwind direction follows
+the sign of GAM (`J_PREV` expanding, `J_NEXT` compressing). The GS
+lagged stores `J_NEXT_FRQ`/`H_NEXT_FRQ` are read only under
+`J_NEXT_VALID`, so a cold start simply runs expanding-coupled for the
+first sweep; `MOMJNXT_GS` checkpoints survive warm restarts.
+`do_var_cont.f` pairs it with fixed-J + `GET_MOM_ALO_DIAG` +
+`GET_MOM_CELL_QUAR` - identical to the KNOP+LAM_ES=F recipe. The
+Eddington factors (`N_ON_J` etc.) are computed live inside the solver
+by `GET_MOMS_NON_REL` from `MOD_RAY_MOM_STORE`, which `FG_J_CMF_V13`
+fills every frequency (all four moments, same accumulations as the
+Knop formal solver). `SIGMA_TRUE` still drives the Sobolev lines and
+feeds the solver's GAM term. JFNK admission is gated on `USE_LAM_ES`
+(`solve_for_pops.f`) so the JFNK tiers stay inactive in this mode.
+SN-model consistency check in `check_param_consistency.f` prints a
+`USE_JREL or USE_DJDT_RTE` warning for `USE_LAM_ES=F`; benign.
 
-**Probe result (12-Oct-2026): not viable on m15 as written.** A warm
-restart from `probe_snap` with `USE_LAM_ES=F`, `DO_JFNK=F` dies in
-`comp_j_blank.f` after ~20 s: `MOM_J_CMF_V11` fails to converge f at
-the bluest frequencies (log nu ~ 11.4-11.6) where J ~ 1E-60, and the
-mean-intensity guard (`|RJ(1)| > 1E30` blow-up) trips the fatal
-"Mean intensity blowing up" exit. Both `N_TYPE=N_ON_J` (job 12158938)
-and `N_TYPE=G_ONLY` (job 12159013) fail identically, so the boundary
-variable is not the cause - the stock moment discretization itself is
-unstable on this non-monotonic velocity field (it assumes the
-expanding-flow upwind structure; compressing depths need the
-sign-split treatment). `MOM_J_CMF_NONMONO_V1` is not a drop-in either:
-its consistent linearization is the `GET_FG_ALO_DIAG` store that only
-`FG_J_CMF_NONMONO_V1` accumulates (the KNop path's formal solver), and
-pairing it with `VAR_MOM_J_CMF_V12` reproduces the inconsistency the
-V6 port notes warn against. A working SOB continuum Jacobian therefore
-needs the alternative audit route: accumulate an ALO diagonal in
-`FG_J_CMF_V13` and pass it to `do_var_cont.f`, not a moment solve.
+**V11 probe result (12-Oct-2026): stock moment solver not viable on
+m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
+under `USE_LAM_ES=F`; a warm restart from `probe_snap` died in
+`comp_j_blank.f` after ~20 s - V11 fails to converge f at the bluest
+frequencies (log nu ~ 11.4-11.6, J ~ 1E-60) and the `|RJ(1)| > 1E30`
+guard trips. Both `N_TYPE=N_ON_J` (job 12158938) and `G_ONLY` (job
+12159013) failed identically: the stock discretization assumes
+expanding-flow upwind and is unstable on this field. That failure is
+what motivated routing `USE_LAM_ES=F` to the sign-split solver
+instead; pairing it with `VAR_MOM_J_CMF_V12` would also have been
+inconsistent (V12 linearizes the V11 system), so the fixed-J + MOM
+diagonal pairing is used, as under KNOP.
 
 ## Opt-in DO_FG13_ALO (12-Oct-2026, commit 336e899)
 
@@ -147,12 +151,13 @@ term dominates), and runs only when `SOLUTION_METHOD='INTEGRAL'` -
 otherwise `ALO_VALID=F` and that frequency falls back to the plain
 Lambda update.
 
-Probe `dessart_m15_2p82d_SOB_jfnk_alo_probe` (job 12159725) warm
-restarts from `probe_snap` with `DO_JFNK=F` to measure whether the
-plateau contraction beats the ~0.9986/iteration Lambda limit. Note
-`probe_snap` predates the EDDFACTOR warm-restart fix, so the first
-iteration recomputes factors (one bounded cold start); the
-measurement window is the plateau after recovery.
+Probe `dessart_m15_2p82d_SOB_jfnk_alo_probe` (job 12159823,
+interactive partition) warm restarts from `probe_snap` with
+`DO_JFNK=F`; `SOB ALO (FG)` activation confirmed at it444/446 with
+the expected signs (dJ/dCHI < 0, dJ/dETA > 0). Note `probe_snap`
+predates the EDDFACTOR warm-restart fix, so the first iteration
+recomputes factors (one bounded cold start); the measurement window
+is the plateau after recovery.
 
 Companion pipeline defect found in the same audit: every SINGLE_FINAL
 requeue rewrote `VADAT` leaving `COMP_F=T`, so CMFGEN recomputed

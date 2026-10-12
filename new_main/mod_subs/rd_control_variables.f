@@ -2103,22 +2103,23 @@
 !
 ! The verified non-monotonic SOB configuration takes J from the formal
 ! ray solution (USE_LAM_ES=T, the pipeline default).  USE_LAM_ES=F is
-! now permitted as an opt-in endgame variant: it selects the stock
-! MOM_J_CMF_V11 moment solve on the clamped SIGMA and restores the
-! VAR_MOM_J_CMF_V12 dJ/dCHI, dJ/dETA and dJ/dT linearization in the BA
-! matrix, which the LAM_ES path leaves at zero.  The continuum's only
-! SIGMA exposure is through O(V/c) comoving terms, so the -0.999 clamp
-! costs little there, while SIGMA_TRUE continues to drive the Sobolev
-! line treatment unchanged.  Warn rather than STOP so the default
+! permitted as an opt-in variant: continuum J then comes from
+! MOM_J_CMF_NONMONO_V1 (12-Oct-2026; the stock MOM_J_CMF_V11 assumes
+! expanding flow and diverges on this velocity field), with the
+! fixed-J + GET_MOM_ALO_DIAG linearization in the BA matrix - the same
+! pairing as KNOP+LAM_ES=F.  FG_J_CMF_V13 still runs each frequency,
+! so the Eddington factors (N_ON_J etc.) come from its ray moments via
+! GET_MOMS_NON_REL, and SIGMA_TRUE continues to drive the Sobolev
+! lines unchanged.  Warn rather than STOP so the default
 ! (pipeline-forced LAM_ES=T) path is untouched.
 !
 	    IF(.NOT. USE_LAM_ES)THEN
 	      WRITE(LUSCR,'(A)')' DO_NONMONO_SOB=T with USE_LAM_ES=F:'//
-	1       ' continuum J from MOM_J_CMF_V11 (clamped SIGMA);'//
-	2       ' VAR_MOM_J_CMF_V12 linearization active'
+	1       ' continuum J from MOM_J_CMF_NONMONO_V1 (SIGMA_TRUE);'//
+	2       ' fixed-J + MOM diagonal ALO linearization active'
 	      WRITE(LUER,*)'Warning: DO_NONMONO_SOB with USE_LAM_ES=F uses'
-	1       ,' the stock MOM_J_CMF_V11 moment solve on clamped SIGMA;'
-	2       ,' the Sobolev line path (SIGMA_TRUE) is unchanged.'
+	1       ,' the MOM_J_CMF_NONMONO_V1 moment solve (sign-split'
+	2       ,' upwind on SIGMA_TRUE); Sobolev lines unchanged.'
 	    END IF
 !
 ! LAM_SET is redundant with GLOBAL_LINE=SOB (every line is already SOB)

@@ -334,15 +334,14 @@
 	1                  dTdR,DBB,dDBBdT,IC,
 	1                  INCL_ADVEC_TERMS_IN_TRANS_EQ,INCL_REL_TERMS,
 	1                  DO_THIS_TX_MATRIX,METHOD,ND,NM,NM_KI)
-	   ELSE IF(DO_NONMONO_KNOP .OR.
-	1           (DO_NONMONO_SOB .AND. USE_LAM_ES))THEN
+	   ELSE IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
 !
 ! Fixed-J variation for the non-monotonic solvers.  VAR_MOM_J_CMF_V12
 ! linearizes the monotonic moment equation with clamped SIGMA, which is
 ! inconsistent with the non-monotonic forward solve; calling it here
 ! produced NaN throughout TX and hence the whole BA matrix.  J is held
 ! fixed in the linearization, as under USE_LAM_ES, except that the
-! diagonal self-coupling dJ/dCHI and dJ/dETA from the formal solver's
+! diagonal self-coupling dJ/dCHI and dJ/dETA from the forward solver's
 ! approximate-Lambda operator is restored when available.
 !
 ! This branch is deliberately ahead of the USE_LAM_ES test: under
@@ -351,13 +350,13 @@
 ! computes every call, leaving the SE update as a pure Lambda
 ! iteration.  With the reorder the KNOP+LAM_ES path gets the same
 ! diagonal self-coupling as the MOM path (ALI instead of Lambda).
-! DO_NONMONO_SOB gains nothing (no ALO store exists there); the
-! explicit zeroing is equivalent to the stale-zero state it had.
 !
-! DO_NONMONO_SOB + USE_LAM_ES=F (opt-in, 12-Oct-2026) falls through to
-! VAR_MOM_J_CMF_V12: with the moment solve as the J update there is no
-! inconsistency to protect against, and the full dJ/dn linearization is
-! what makes this variant worth running at all.
+! DO_NONMONO_SOB + USE_LAM_ES=F (opt-in, 12-Oct-2026) runs
+! MOM_J_CMF_NONMONO_V1 as the forward J solve, so it takes the same
+! fixed-J + MOM diagonal ALO pairing as KNOP+LAM_ES=F.  Routing it to
+! VAR_MOM_J_CMF_V12 would repeat the NaN inconsistency above: V12
+! linearizes the monotonic V11 system, not the sign-split solver.
+!
 	     TX(:,:,:)=0.0_LDP
 	     TVX(:,:,:)=0.0_LDP
 	     dJ_DIF_d_T(:)=0.0_LDP
@@ -379,15 +378,25 @@
 	       ELSE
 	         CALL GET_MOM_ALO_DIAG(TA,TB,ND,ALO_OK)
 	       END IF
-	     ELSE IF(DO_NONMONO_SOB .AND. DO_FG13_ALO)THEN
+	     ELSE IF(DO_NONMONO_SOB)THEN
+	       IF(USE_LAM_ES)THEN
 !
-! DO_NONMONO_SOB + USE_LAM_ES (opt-in, 12-Oct-2026): the SOB formal
-! solver FG_J_CMF_V13 now stores the same diagonal ALO the Knop solver
+! DO_NONMONO_SOB + USE_LAM_ES (opt-in DO_FG13_ALO, 12-Oct-2026):
+! FG_J_CMF_V13 stores the same diagonal ALO the Knop formal solver
 ! uses -- the consistent linearization of the forward solve it just
-! performed, lifting the pure-Lambda continuum update.  DO_FG13_ALO
+! performed, lifting the pure-Lambda continuum update.  The switch
 ! gates it so the validated all-zero default is unchanged.
 !
-	       CALL GET_FG13_ALO_DIAG(TA,TB,ND,ALO_OK)
+	         IF(DO_FG13_ALO)CALL GET_FG13_ALO_DIAG(TA,TB,ND,ALO_OK)
+	       ELSE
+!
+! DO_NONMONO_SOB + USE_LAM_ES=F: J comes from MOM_J_CMF_NONMONO_V1,
+! so its own stored diagonal is the consistent linearization (same
+! pairing as KNOP+LAM_ES=F).  DO_FG13_ALO only gates the LAM_ES=T
+! SOB variant above.
+!
+	         CALL GET_MOM_ALO_DIAG(TA,TB,ND,ALO_OK)
+	       END IF
 	     END IF
 	     IF(ALO_OK)THEN
 	       DO K=1,ND
@@ -413,7 +422,7 @@
 ! hold a frozen J, so their response is exactly zero.
 ! edited by Sean Brennan (25-Sep-2026)
 !
-	       IF(DO_NONMONO_KNOP .AND. .NOT. USE_LAM_ES)THEN
+	       IF(.NOT. USE_LAM_ES)THEN
 !
 ! Quarantined/rejected cells hold the previous iterate by
 ! construction (XM_FB restore in the moment solver), so their true
