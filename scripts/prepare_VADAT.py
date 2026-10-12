@@ -4052,9 +4052,11 @@ def apply_profile(
     #   False -> TRIDIAG (NUM_BNDS=3): couples adjacent depths in BA matrix.
     #            More physically accurate but unstable with non-monotonic velocity.
     #
-    # With USE_LAM_ES=F, N_TYPE has no effect on the main solver (MOM_JREL_V9
-    # is never called — comp_j_blank.f:718: RJ=TC). N_TYPE only affects the
-    # Eddington factor computation in FG_J_CMF (used by Sobolev Jbar).
+    # With the default USE_LAM_ES=T, N_TYPE has no effect on the main solver
+    # (RJ=TC in comp_j_blank.f); it only affects the Eddington factor
+    # computation in FG_J_CMF (used by Sobolev Jbar).  With the opt-in
+    # USE_LAM_ES=F path, MOM_J_CMF_V11 does run and N_TYPE selects its
+    # boundary variable (N_ON_J stable where H=0; G_ONLY is diagnostic-only).
     desired["N_TYPE"] = "N_ON_J"
     if depth_independent_solver:
         num_bnds = 1
