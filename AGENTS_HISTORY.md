@@ -2375,3 +2375,31 @@ Fresh run submitted against this state: job 12151424
 (`m15_2p82d_SOB_jfnk_zlaw14_fresh`, cold start, JFNK_TAUTO=T,
 JFNK_PRECOND=LSQ).  Binary relinked 23:07; unit tests pass except
 the documented LU-on-shock rank-deficiency blowup (pre-existing).
+
+### Status update (2026-10-12): DO_SOB_FLUX_OBS switched to profile injection
+
+The EW deposition render (`DEP_SOB_OBS_FLUX`, commit `7cbc53b`) was
+replaced before validation: it invented each line's profile shape
+(flat/one-sided box over the resonance span), and job 12165745
+(`m15_2p82d_SOB_jfnk_alo_probe`) showed the expected boxy emission
+bumps and comb-like UV artifacts.
+
+`ADD_SOB_LINE_PROF` (obs/cmf_flux_sub_v5.f, commit `eb3408a`) instead
+writes each `TRANS_TYPE='SOB'` blend member's profile-integrated
+opacity/emissivity (`CHIL_MAT`/`ETAL_MAT` x `CLUMP_FAC`) into the
+stored `ETA_CMF_ST`/`CHI_CMF_ST` as a normalized Doppler core at the
+line's own frequency, then re-runs `OBS_FRAME_SUB_V9` after the EW
+loop so the observer's-frame formal integral draws resolved profiles
+from the isovelocity geometry (Dessart et al. 2015, Sec. 3.1).  Core
+weights normalized by local cell width preserve the integrated line
+opacity on a coarse CMF grid; masering cells (`CHIL_MAT<0`)
+contribute zero line opacity.  `OBSFRAME` is rewritten with the SOB
+render; `OBSFLUX` keeps continuum+BLANK as a comparison product.
+`ETA_DATA`/`CHI_DATA` are written before the EW block, so a
+standalone `obs_frame.exe` render still lacks SOB lines.
+
+Verified so far: incremental `make -C obs` clean, `add_sob_line_prof_`
+and the `OBS_FRAME_SOB` TUNE label present in `exe/cmf_flux.exe`,
+`dep_sob_obs_flux_` gone.  Runtime verification pending: OBS-only
+resubmit of `dessart_m15_2p82d_SOB_jfnk_alo_probe.yaml`
+(`skip_final: true`, `obs_line_treatment: sob`).

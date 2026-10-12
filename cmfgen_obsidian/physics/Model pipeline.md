@@ -81,11 +81,11 @@ the non-coherent electron-scattering source.
 ## OBS render modes for SOB populations (`obs_line_treatment`)
 
 `prepare_CMF_PARAM.py` selects the OBS render. For SOB populations the
-default is the native deposited render:
+default is the resolved Sobolev render:
 
 | `obs_line_treatment` | `GLOBAL_LINE`/`TRANS_*` | `DO_SOB_LINES`/`SOB_FREQ_IN_OBS` | `DO_SOB_FLUX_OBS` | Product |
 |---|---|---|---|---|
-| `sob` (default) | `SOB` | `T`/`T` | `T` | resolved spectrum: each line's SIGMA_TRUE EW deposited over its observed-frame resonance span (`DEP_SOB_OBS_FLUX`) |
+| `sob` (default) | `SOB` | `T`/`T` | `T` | resolved spectrum: SOB line opacity/emissivity injected as Doppler cores into the stored CMF arrays (`ADD_SOB_LINE_PROF`), profiles rendered by a second `OBS_FRAME_SUB_V9` pass |
 | `sob_ew` | `SOB` | `T`/`T` | `F` | EWDATA diagnostic only; spectrum stays continuum-only |
 | `blank` | `BLANK` | `F`/`F` | - | full CMF line profiles (~tens of min); the render for KNOP runs |
 
@@ -93,7 +93,7 @@ The flux-mode keys are not mirrored from VADAT (they are inert in the
 SE solve); the line-treatment keys `GLOBAL_LINE`/`TRANS_*`/`DO_*SOB*`/
 `LAM_SET` are. `DO_SOB_FLUX_OBS=T` requires `DO_SOB_LINES=T` - the
 reader STOPs otherwise. See [[Sobolev non-mono solver]] for the
-deposition algorithm and why CMF line transfer is inconsistent for
+injection algorithm and why CMF line transfer is inconsistent for
 SOB populations on non-monotonic fields.
 
 ## Pipeline defaults (in scripts/, post-dev7)

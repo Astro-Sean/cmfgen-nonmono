@@ -328,26 +328,29 @@ without a deposition path `obs_fin_10` contains continuum only - a
 continuum frequencies and no lines (job 12162809). `DO_SOB_LINES=T`
 alone only writes `EWDATA`; it never touches `OBS_FLUX`.
 
-New `CMF_FLUX_PARAM` key `DO_SOB_FLUX_OBS` (default F) enables the
-native render: inside the `DO_SOBOLEV_LINES` block, each line group's
-`SOBEW_GRAD_V2` EW (SIGMA_TRUE under `DO_NONMONO_SOB`) is deposited
-into `OBS_FLUX` by `DEP_SOB_OBS_FLUX`. The deposit is a flux density
-per Angstrom normalized to `EW*CONT_INT`, spread over the
-observed-frame span each depth's projected velocity can reach:
+`CMF_FLUX_PARAM` key `DO_SOB_FLUX_OBS` (default F) enables the
+resolved Sobolev render. Inside the `DO_SOBOLEV_LINES` blend-group
+loop, `ADD_SOB_LINE_PROF` writes each `TRANS_TYPE='SOB'` member's
+profile-integrated opacity/emissivity (`CHIL_MAT`/`ETAL_MAT`, scaled
+by `CLUMP_FAC`) into the stored `CHI_CMF_ST`/`ETA_CMF_ST` as a
+normalized Doppler core of width `FL*VDOP_MIN/C_KMS` at the line's own
+frequency. The core weights are normalized by local CMF cell width, so
+the stored opacity integrated over frequency equals
+`CHIL_MAT*CLUMP_FAC` regardless of how coarsely the CMF grid resolves
+the line. Masering cells (`CHIL_MAT<0`) contribute zero line opacity.
+After the line loop `OBS_FRAME_SUB_V9` is re-run on the augmented
+arrays, so the observer's-frame ray integral draws each profile from
+the isovelocity geometry (Dessart et al. 2015, Sec. 3.1) and
+`OBSFRAME` is rewritten; `OBSFLUX` keeps continuum+BLANK only as a
+comparison product. `ETA_DATA`/`CHI_DATA` on disk are written before
+the EW block, so a standalone `obs_frame.exe` render still lacks SOB
+lines.
 
-- net emission: `ETAL*R^2` weights, flat box over
-  `LAM0*(1-|V|/c)` to `LAM0*(1+|V|/c)` - a shell presents every
-  line-of-sight velocity in `[-v, +v]`, so the profile peaks at rest
-  where slow dense gas dominates;
-- net absorption: `CHIL*R^2` weights, one-sided box - `[LAM0*(1-V/c),
-  LAM0]` for outflowing gas, `[LAM0, LAM0*(1+|V|/c)]` for infalling
-  gas, so velocity reversals produce redshifted absorption.
-
-A 100 km/s minimum half-width keeps depths at a reversal node
-depositing at line centre. After the line loop `OBS_FLUX` is floored
-at `1e-6` of its pre-deposit value (stacked absorption lobes can
-exceed the continuum) and `OBSFRAME`/`OBSFLUX` are rewritten - both
-were written before the EW block.
+This replaces the first-cut EW deposition (`DEP_SOB_OBS_FLUX`,
+superseded 12-Oct-2026), which spread each line's `SOBEW_GRAD_V2` EW
+over an invented flat/one-sided box in wavelength; it produced boxy
+emission and comb-like UV artifacts (job 12165745) because the
+profile shape was assumed, not computed by the formal integral.
 
 Motivation: on the non-monotonic m15 field the CMF/BLANK render emits
 ~8-19x the Sobolev line luminosity (He II 4686: 838 A vs 84 A EWDATA;
@@ -355,12 +358,12 @@ Luc's .fl ~100 A), so BLANK is not a consistent render for SOB
 populations. BLANK remains the render for KNOP runs.
 
 Requirements and constraints: `DO_SOB_FLUX_OBS=T` requires
-`DO_SOB_LINES=T` (the EW block owns EW/CONT_INT/ETAL; the reader
+`DO_SOB_LINES=T` (the EW block owns CHIL_MAT/ETAL_MAT; the reader
 STOPs otherwise). `SOB_FREQ_IN_OBS=T` is needed so the obs grid is
-refined across each resonance zone - without it the deposited
-profile lands on the continuum-spaced grid. `prepare_CMF_PARAM.py`
+refined across each resonance zone - without it the rendered profile
+lands on the continuum-spaced grid. `prepare_CMF_PARAM.py`
 stamps the combination from `cmfgen.obs_line_treatment='sob'` (the
-SOB default); `'sob_ew'` gives T/T flags with deposition off
+SOB default); `'sob_ew'` gives T/T flags with injection off
 (EWDATA diagnostic only).
 
 ## Runtime record
