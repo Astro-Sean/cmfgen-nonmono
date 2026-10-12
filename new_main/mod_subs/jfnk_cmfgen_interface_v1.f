@@ -138,6 +138,8 @@
 	    IF(ALLOCATED(JFNK_LU_OK))DEALLOCATE(JFNK_LU_OK)
 	    IF(ALLOCATED(JFNK_ROW_REG))DEALLOCATE(JFNK_ROW_REG)
 	    IF(ALLOCATED(JFNK_DEPTH_RIDGE))DEALLOCATE(JFNK_DEPTH_RIDGE)
+	    IF(ALLOCATED(JFNK_LU_PIVRAT))DEALLOCATE(JFNK_LU_PIVRAT,
+	1       JFNK_LU_RCOND, JFNK_LU_ITRY)
 	    IF(ALLOCATED(JFNK_C_MAT))DEALLOCATE(JFNK_C_MAT)
 	    IF(ALLOCATED(JFNK_D_MAT))DEALLOCATE(JFNK_D_MAT)
 	    IF(ALLOCATED(JFNK_W_FRAC))DEALLOCATE(JFNK_W_FRAC)
@@ -2637,7 +2639,8 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
-	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM
+	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM,
+	2                              JFNK_RIDGE_PIV
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_fx
 	IMPLICIT NONE
@@ -2668,6 +2671,10 @@
 	INTEGER N_BANDED_RETRY
 	DOUBLE PRECISION FMAX_PTC, S_PTC
 	INTEGER IDX_PTC
+	DOUBLE PRECISION ANORM_K, RCOND_K, PIV_MIN, PIV_MAX, S_TMP
+	DOUBLE PRECISION, ALLOCATABLE :: GECON_WORK(:)
+	INTEGER, ALLOCATABLE :: GECON_IWORK(:)
+	INTEGER LU_INFO_G
 	EXTERNAL ERROR_LU
 !
 	LUER = ERROR_LU()
@@ -3076,12 +3083,52 @@
         CALL DPOTRF('L', JFNK_NT, JFNK_LU_FAC(1,1,K),
 	1         JFNK_NT, LU_INFO_K)
       ELSE
+        ANORM_K = 0.0_LDP
+        DO J = 1, JFNK_NT
+          S_TMP = 0.0_LDP
+          DO I = 1, JFNK_NT
+            S_TMP = S_TMP + ABS(JFNK_LU_FAC(I,J,K))
+          END DO
+          ANORM_K = MAX(ANORM_K, S_TMP)
+        END DO
         CALL DGETRF(JFNK_NT, JFNK_NT, JFNK_LU_FAC(1,1,K),
 	1         JFNK_NT, JFNK_IPIV(1,K), LU_INFO_K)
       END IF
 	      IF(LU_INFO_K .EQ. 0)THEN
 	        JFNK_LU_OK(K) = .TRUE.
 	        JFNK_DEPTH_RIDGE(K) = RIDGE_ADD
+	        JFNK_LU_ITRY(K) = ITRY
+	        PIV_MIN = HUGE(1.0_LDP)
+	        PIV_MAX = 0.0_LDP
+	        DO I = 1, JFNK_NT
+	          PIV_MIN = MIN(PIV_MIN, ABS(JFNK_LU_FAC(I,I,K)))
+	          PIV_MAX = MAX(PIV_MAX, ABS(JFNK_LU_FAC(I,I,K)))
+	        END DO
+	        JFNK_LU_PIVRAT(K) = PIV_MIN/MAX(PIV_MAX,1.0E-300_LDP)
+	        JFNK_LU_RCOND(K) = -1.0_LDP
+	        IF(JFNK_PRECOND_TYPE(1:2) .EQ. 'LU')THEN
+	          IF(.NOT. ALLOCATED(GECON_WORK))THEN
+	            ALLOCATE(GECON_WORK(4*JFNK_NT),
+	1               GECON_IWORK(JFNK_NT), STAT=IOS)
+	            IF(IOS .NE. 0) STOP 'alloc GECON_WORK failed'
+	          END IF
+	          CALL DGECON('I', JFNK_NT, JFNK_LU_FAC(1,1,K), JFNK_NT,
+	1           ANORM_K, RCOND_K, GECON_WORK, GECON_IWORK, LU_INFO_G)
+	          IF(LU_INFO_G .EQ. 0)JFNK_LU_RCOND(K) = RCOND_K
+	        END IF
+	        IF(JFNK_PRECOND_TYPE(1:2) .EQ. 'LU' .AND.
+	1          JFNK_RIDGE_PIV .GT. 0.0_LDP .AND.
+	2          JFNK_LU_PIVRAT(K) .LT. JFNK_RIDGE_PIV)THEN
+! DGETRF can return INFO=0 on a near-singular block whose smallest
+! pivot is still large enough to avoid an exact zero; the solve then
+! inherits the full amplification.  When JFNK_RIDGE_PIV>0 the first
+! successful-but-ill-conditioned factorization is rejected so the
+! ITRY loop escalates the ridge instead.  Default 0 keeps the
+! previous accept-on-INFO=0 behaviour.
+	          JFNK_LU_OK(K) = .FALSE.
+	          JFNK_DEPTH_RIDGE(K) = 0.0_LDP
+	          CYCLE
+	        END IF
 	        DO I = 1, JFNK_NT
 	          JFNK_BA_RIDGE_ADD(I, K) = RIDGE_ADD *
 	1           MAX(ABS(JFNK_BA_A(I, I, K)), 1.0E-30_LDP*SCALE_K)
@@ -3167,8 +3214,11 @@
 	1        '  JFNK: depths requiring local ridge:'
 	      DO K = 1, JFNK_ND
 	        IF(JFNK_DEPTH_RIDGE(K) .GT. 0.0_LDP)THEN
-	          WRITE(LUER,'(A,I4,A,ES10.2)')
-	1            '    depth=', K, '  ridge=', JFNK_DEPTH_RIDGE(K)
+	          WRITE(LUER,'(A,I4,A,ES10.2,A,ES10.2,A,ES10.2,A,I3)')
+	1            '    depth=', K, '  ridge=', JFNK_DEPTH_RIDGE(K),
+	2            '  min/max piv=', JFNK_LU_PIVRAT(K),
+	3            '  rcond=', JFNK_LU_RCOND(K),
+	4            '  itry=', JFNK_LU_ITRY(K)
 	        END IF
 	      END DO
 	    END IF
