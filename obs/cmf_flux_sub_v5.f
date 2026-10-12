@@ -17,6 +17,15 @@
 	USE EDDFAC_REC_DEFS_MOD
 	IMPLICIT NONE
 !
+! Altered: 12-Oct-2026 : DO_SOB_FLUX_OBS now writes each SOB line's
+!                          opacity/emissivity into ETA_CMF_ST/CHI_CMF_ST
+!                          (ADD_SOB_LINE_PROF) and OBS_FRAME_SUB_V9 is
+!                          re-run, so the observed-frame formal integral
+!                          renders resolved SOB line profiles on a
+!                          non-monotonic velocity field (Dessart et al.
+!                          2015, Sec. 3.1).  Replaces the earlier EW
+!                          deposition, which cannot reproduce resolved
+!                          profile shapes.
 ! Altered: 12-Oct-2026 : Added DO_SOB_FLUX_OBS path: the Sobolev EWs
 !                          computed in the DO_SOBOLEV_LINES block are
 !                          deposited into OBS_FLUX (DEP_SOB_OBS_FLUX) so
@@ -207,10 +216,6 @@
 	REAL(KIND=LDP) EW,ABS_EW
 	REAL(KIND=LDP) CONT_INT
 !
-! Accumulates the Sobolev line flux deposited into the observed spectrum
-! when DO_SOB_FLUX_OBS is true (see DEP_SOB_OBS_FLUX).
-!
-	REAL(KIND=LDP), ALLOCATABLE :: SOB_DEP(:)
 	LOGICAL OVERLAP
 	LOGICAL SOBOLEV
 !
@@ -2346,15 +2351,6 @@
 !
 	CALL GEN_ASCI_OPEN(LU_EW,'EWDATA','UNKNOWN',' ',' ',IZERO,IOS)
 !
-! SOB_DEP collects each line's deposited EW (in Jy per obs frequency)
-! across the whole line loop. It is applied to OBS_FLUX after the loop,
-! so the deposited spectrum is written with the same OBS_FREQ grid.
-!
-	IF(DO_SOB_FLUX_OBS)THEN
-	  ALLOCATE(SOB_DEP(N_OBS))
-	  SOB_DEP(1:N_OBS)=0.0_LDP
-	END IF
-!
 ! Zero the vector that will be used to store the force-multiplier computed
 ! for all lines using the SOBOLEV approximation.
 !
@@ -2574,6 +2570,31 @@
 !
 	END IF
 !
+! With DO_SOB_FLUX_OBS the line opacity and emissivity of each SOB
+! member of this blend group are written into the stored CMF-frame
+! arrays at the line's own frequency with a local Doppler profile.
+! TRANS_TYPE='SOB' lines are skipped by the CMF blanketing solve above
+! because the comoving-frame transfer assumes a monotonic velocity
+! field, so without this call they contribute no flux to the observed
+! spectrum.  The observer's-frame formal integral OBS_FRAME_SUB_V9
+! samples ETA_CMF_ST/CHI_CMF_ST at each ray point's local comoving
+! frequency and is therefore still valid on the non-monotonic grid;
+! once the profiles are stored, a second OBS_FRAME pass (after the
+! line loop below) renders resolved line profiles consistent with the
+! Sobolev populations, as in Dessart et al. (2015, Sec. 3.1).
+! DO_SOB_FLUX_OBS defaults to F, which leaves the stored arrays and
+! OBS_FLUX untouched.  CHIL_MAT/ETAL_MAT are per-line and unclumped at
+! this point, so CLUMP_FAC is applied inside the routine, matching the
+! clumping applied to the stored continuum (see ETA_CMF_ST/CHI_CMF_ST
+! scaling above).
+!
+	IF(DO_SOB_FLUX_OBS)THEN
+	  CALL ADD_SOB_LINE_PROF(ETA_CMF_ST,CHI_CMF_ST,NU,NCF,
+	1        CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_LINE_POINTER,
+	2        VEC_VDOP_MIN,VEC_TRANS_TYPE,NUM_SIM_LINES,N_LINE_FREQ,
+	3        MAX_SIM,ND,C_KMS)
+	END IF
+!
 ! Estimate the line EW using a Modified Sobolev approximation.
 !
 	CHI_CLUMP(1:ND)=CHI(1:ND)*CLUMP_FAC(1:ND)
@@ -2623,19 +2644,6 @@
 	  ABS_EW=EW
 	END IF
 !
-! Deposit the Sobolev EW into OBS_FLUX. TRANS_TYPE='SOB' lines are
-! excluded from the formal transfer above, so without this step the
-! observed spectrum contains no line flux from SOB lines at all. The
-! EW the populations converged under is spread over the observed-frame
-! resonance span defined by the local velocity field, which keeps the
-! render consistent with the population solve on a non-monotonic
-! velocity field (where CMF/BLANK line transfer over-emits).
-!
-	IF(DO_SOB_FLUX_OBS .AND. ABS(ABS_EW) .GE. EW_CUT_OFF)THEN
-	  CALL DEP_SOB_OBS_FLUX(SOB_DEP,OBS_FREQ,N_OBS,
-	1        EW,CONT_INT,FL,ETAL,CHIL,V,R,ND,C_KMS)
-	END IF
-!
 	IF(ABS(ABS_EW) .GE. EW_CUT_OFF)THEN
 	  T1=0.01_LDP*C_KMS/FL_SIM(1) 		!Wavelength(Angstroms)
 	  DO SIM_INDX=1,NUM_SIM_LINES
@@ -2657,28 +2665,33 @@
 !
 	END DO		!Line loop
 !
-! Apply the deposited Sobolev line flux and rewrite OBSFRAME/OBSFLUX.
-! Both files were written before the EW loop (OBS_FLUX then carried
-! continuum and BLANK lines only), so the deposit must be written out
-! again here. The floor prevents stacked absorption lobes from driving
-! a bin below zero.
+! The line loop has now written every SOB line's Doppler-profile
+! opacity/emissivity into ETA_CMF_ST/CHI_CMF_ST.  Re-run the
+! observer's-frame formal integral so OBS_FLUX carries the resolved
+! Sobolev line profiles, then rewrite OBSFRAME.  OBSFLUX (the earlier
+! COMP_OBS_V3 product) is left unchanged: it deliberately contains
+! continuum plus BLANK lines only, which is useful as a continuum
+! comparison product.  The same TA/velocity setup as the first call is
+! required because TA was reused as scratch inside the EW block.
 !
 	IF(DO_SOB_FLUX_OBS)THEN
-	  DO J=1,N_OBS
-	    OBS_FLUX(J)=MAX(OBS_FLUX(J)+SOB_DEP(J),
-	1                  1.0D-6*OBS_FLUX(J))
-	  END DO
-	  DEALLOCATE(SOB_DEP)
-!
-	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFLUX','UNKNOWN',' ',' ',IZERO,IOS)
-	    WRITE(STRING,'(I10)')N_OBS
-	    DO WHILE(STRING(1:1) .EQ. ' ')
-	      STRING(1:)=STRING(2:)
-	    END DO
-	    STRING='Continuum Frequencies ( '//TRIM(STRING)//' )'
-	    CALL WRITV_V2(OBS_FREQ,N_OBS,ISEV,TRIM(STRING),LU_FLUX)
-	    CALL WRITV_V2(OBS_FLUX,N_OBS,IFOUR,'Observed intensity (Janskys)',LU_FLUX)
-	  CLOSE(UNIT=LU_FLUX)
+	  TMP_LOG=.FALSE.
+	  IF(PLANE_PARALLEL_NO_V .OR. PLANE_PARALLEL)TMP_LOG=.TRUE.
+	  IF(PLANE_PARALLEL_NO_V)THEN
+	     TA(1:ND)=0.0_LDP
+	  ELSE
+	     TA(1:ND)=V(1:ND)
+	  END IF
+	  CALL TUNE(1,'OBS_FRAME_SOB')
+	  CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
+	1            R,TA,T,ED,ND,NCF,
+	1            P_OBS,MU_AT_RMAX,HQW_AT_RMAX,NC_OBS,NP_OBS,
+	1            OBS_FREQ,OBS_FLUX,N_OBS,
+	1            MAX_DEL_V_RES_ZONE,OBS_TAU_MAX,OBS_ES_DTAU,
+	1            N_INS_OBS,OBS_INT_METHOD,
+	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
+	1            DO_REL_IN_OBSFRAME,TMP_LOG)
+	  CALL TUNE(2,'OBS_FRAME_SOB')
 !
 	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
 	    WRITE(STRING,'(I10)')N_OBS
@@ -2712,120 +2725,116 @@
 	RETURN
 !
 	END
+!!
+! Write the Doppler-profile opacity and emissivity of each
+! TRANS_TYPE='SOB' line of the current blend group into the stored
+! CMF-frame arrays ETA_ST/CHI_ST.  The CMF blanketing solve skips SOB
+! lines (comoving-frame line transfer is invalid on a non-monotonic
+! velocity field), so they reach the observed spectrum only through
+! the observer's-frame formal integral OBS_FRAME_SUB_V9, which samples
+! these arrays at each ray point's local comoving frequency.  Called
+! per blend group when DO_SOB_FLUX_OBS=T; with the default F the
+! stored arrays are left untouched.
 !
-!
+! The profile is a normalized Doppler core of width
+! FL_SIM*VDOP_MIN/C_KMS evaluated on the (descending) CMF grid NU.
+! Only grid cells inside +/-3 Doppler widths carry weight, and the
+! weights are normalized by the local cell width so the deposited
+! opacity integrated over frequency equals CHIL_MAT*CLUMP_FAC
+! independent of how coarsely the CMF grid resolves the line.  The
+! observed-frame profile shape comes from the ray geometry (the
+! isovelocity surfaces), not from this profile width, so a coarse CMF
+! grid does not broaden the rendered line.
 !
-! Deposit the Sobolev EW of one line (or overlapping-line group) into
-! the observed-frame flux grid. TRANS_TYPE='SOB' lines are excluded
-! from the formal transfer in CMF_FLUX_SUB_V5, so this routine is the
-! only path for their flux into the observed spectrum.
+! CHIL_MAT can be negative at depths where stimulated emission
+! dominates (masering lines).  The line contribution is floored at
+! zero per depth before it is added, so a masing cell cannot drag the
+! stored total opacity (continuum + other lines) negative or cancel
+! the continuum; ETAL_MAT is non-negative by construction.
 !
-! Each depth contributes its share of the line's net EW over the
-! observed-frame span its projected velocities can reach:
-!   - net emission (EW > 0): a shell at speed |V(I)| presents every
-!     line-of-sight velocity in [-|V|, +|V|], so its share spreads
-!     uniformly (flat box) over LAM0*(1-|V|/c) to LAM0*(1+|V|/c).
-!     Depths are weighted by the line emissivity ETAL*R^2 so the
-!     profile peaks where the line actually forms.
-!   - net absorption (EW < 0): only gas in front of the continuum
-!     photosphere absorbs, so the box is one-sided: [LAM0*(1-V/c),
-!     LAM0] for outflowing gas (V > 0, blueshifted trough) and
-!     [LAM0, LAM0*(1+|V|/c)] for infalling gas (V < 0), so velocity
-!     reversals produce redshifted absorption. Weighted by the line
-!     opacity CHIL*R^2.
-!
-! The deposited quantity is a flux density per Angstrom; its integral
-! over the full span is EW*CONT_INT, the same line strength the
-! population solve used (SIGMA_TRUE under DO_NONMONO_SOB). A minimum
-! half-width of 100 km/s keeps depths near a velocity-reversal node
-! depositing at line center instead of vanishing.
-!
-	SUBROUTINE DEP_SOB_OBS_FLUX(SOB_DEP,OBS_FREQ,N_OBS,
-	1         EW,CONT_INT,FL,ETAL,CHIL,V,R,ND,C_KMS)
+	SUBROUTINE ADD_SOB_LINE_PROF(ETA_ST,CHI_ST,NU,NCF,
+     1	      CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_POINTER,
+     2	      VDOP_MIN,TRANS_TYPE,NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
-	INTEGER, INTENT(IN) :: N_OBS,ND
-	REAL(KIND=LDP), INTENT(INOUT) :: SOB_DEP(N_OBS)
-	REAL(KIND=LDP), INTENT(IN) :: OBS_FREQ(N_OBS)
-	REAL(KIND=LDP), INTENT(IN) :: EW,CONT_INT,FL,C_KMS
-	REAL(KIND=LDP), INTENT(IN) :: ETAL(ND),CHIL(ND),V(ND),R(ND)
+	INTEGER, INTENT(IN) :: NCF,ND,NUM_SIM,N_LINES,MAX_SIM
+	REAL(KIND=LDP), INTENT(INOUT) :: ETA_ST(ND,NCF)
+	REAL(KIND=LDP), INTENT(INOUT) :: CHI_ST(ND,NCF)
+	REAL(KIND=LDP), INTENT(IN) :: NU(NCF)
+	REAL(KIND=LDP), INTENT(IN) :: CHIL_MAT(ND,MAX_SIM)
+	REAL(KIND=LDP), INTENT(IN) :: ETAL_MAT(ND,MAX_SIM)
+	REAL(KIND=LDP), INTENT(IN) :: CLUMP_FAC(ND)
+	REAL(KIND=LDP), INTENT(IN) :: FL_SIM(MAX_SIM)
+	REAL(KIND=LDP), INTENT(IN) :: VDOP_MIN(N_LINES)
+	REAL(KIND=LDP), INTENT(IN) :: C_KMS
+	INTEGER, INTENT(IN) :: SIM_POINTER(MAX_SIM)
+	CHARACTER(LEN=*), INTENT(IN) :: TRANS_TYPE(N_LINES)
 !
-	INTEGER I,M,M1,M2,LO,HI,MID
-	REAL(KIND=LDP) LAM0,LAM_LO,LAM_HI,NU_LO,NU_HI
-	REAL(KIND=LDP) WT(ND),WT_SUM,BETA,DEP_DENSITY
-	REAL(KIND=LDP), PARAMETER :: MIN_BETA=100.0_LDP/2.99792458D5
+	INTEGER I,K,S,LP,K0,KA,KB,LO,HI,MID
+	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K
 !
-! Rest wavelength in Angstroms, matching the EWDATA convention.
+	DO S=1,NUM_SIM
+	  LP=SIM_POINTER(S)
+	  IF(TRANS_TYPE(LP)(1:3) .NE. 'SOB')CYCLE
+	  F0=FL_SIM(S)
+	  DNU_D=F0*VDOP_MIN(LP)/C_KMS
+	  IF(DNU_D .LE. 0.0_LDP)CYCLE
+	  W=3.0_LDP*DNU_D
 !
-	LAM0=0.01_LDP*C_KMS/FL
+! NU decreases with index.  K0 is the last index with NU(K0) >= F0,
+! so F0 lies in [NU(K0+1),NU(K0)).  Lines outside the grid are skipped.
 !
-	IF(EW .GT. 0.0_LDP)THEN
-	  WT(1:ND)=MAX(ETAL(1:ND),0.0_LDP)*R(1:ND)*R(1:ND)
-	ELSE
-	  WT(1:ND)=MAX(CHIL(1:ND),0.0_LDP)*R(1:ND)*R(1:ND)
-	END IF
-	WT_SUM=SUM(WT(1:ND))
-	IF(WT_SUM .LE. 0.0_LDP)RETURN
-	WT(1:ND)=WT(1:ND)/WT_SUM
+	  IF(NU(1) .LT. F0)CYCLE
+	  IF(NU(NCF) .GE. F0)CYCLE
+	  LO=1
+	  HI=NCF
+	  DO WHILE(HI-LO .GT. 1)
+	    MID=(LO+HI)/2
+	    IF(NU(MID) .GE. F0)THEN
+	      LO=MID
+	    ELSE
+	      HI=MID
+	    END IF
+	  END DO
+	  K0=LO
 !
-	DO I=1,ND
-	  IF(WT(I) .LE. 0.0_LDP)CYCLE
-	  BETA=MAX(ABS(V(I))/C_KMS,MIN_BETA)
-	  IF(EW .GT. 0.0_LDP)THEN
-	    LAM_LO=LAM0*(1.0_LDP-BETA)
-	    LAM_HI=LAM0*(1.0_LDP+BETA)
-	  ELSE IF(V(I) .GE. 0.0_LDP)THEN
-	    LAM_LO=LAM0*(1.0_LDP-BETA)
-	    LAM_HI=LAM0
-	  ELSE
-	    LAM_LO=LAM0
-	    LAM_HI=LAM0*(1.0_LDP+BETA)
-	  END IF
-	  IF(LAM_HI .LE. LAM_LO)CYCLE
+! Expand to all cell centers inside F0 +/- W.
 !
-! OBS_FREQ (1e15 Hz) is descending; NU_HI is the blue edge.
+	  KA=K0
+	  DO WHILE(KA .GT. 1 .AND. NU(KA-1) .LE. F0+W)
+	    KA=KA-1
+	  END DO
+	  KB=K0+1
+	  DO WHILE(KB .LT. NCF .AND. NU(KB+1) .GE. F0-W)
+	    KB=KB+1
+	  END DO
 !
-	  NU_HI=0.01_LDP*C_KMS/LAM_LO
-	  NU_LO=0.01_LDP*C_KMS/LAM_HI
-	  IF(NU_HI .LE. OBS_FREQ(N_OBS))CYCLE
-	  IF(NU_LO .GE. OBS_FREQ(1))CYCLE
+! Normalize the Gaussian by the local cell widths so the stored
+! profile integrates to unity over frequency.
 !
-! M1 = first index with OBS_FREQ <= NU_HI; M2 = last with >= NU_LO.
+	  XNORM=0.0_LDP
+	  DO K=KA,KB
+	    WT=EXP(-((NU(K)-F0)/DNU_D)**2)
+	    IF(K .EQ. 1)THEN
+	      DN_K=NU(1)-NU(2)
+	    ELSE IF(K .EQ. NCF)THEN
+	      DN_K=NU(NCF-1)-NU(NCF)
+	    ELSE
+	      DN_K=0.5_LDP*(NU(K-1)-NU(K+1))
+	    END IF
+	    XNORM=XNORM+WT*DN_K
+	  END DO
+	  IF(XNORM .LE. 0.0_LDP)CYCLE
 !
-	  IF(OBS_FREQ(1) .LE. NU_HI)THEN
-	    M1=1
-	  ELSE
-	    LO=1; HI=N_OBS+1
-	    DO WHILE(HI-LO .GT. 1)
-	      MID=(LO+HI)/2
-	      IF(OBS_FREQ(MID) .GT. NU_HI)THEN
-	        LO=MID
-	      ELSE
-	        HI=MID
-	      END IF
+	  DO K=KA,KB
+	    WT=EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
+	    DO I=1,ND
+	      CHI_ST(I,K)=CHI_ST(I,K)+
+     1	          MAX(CHIL_MAT(I,S),0.0_LDP)*CLUMP_FAC(I)*WT
+	      ETA_ST(I,K)=ETA_ST(I,K)+
+     1	          ETAL_MAT(I,S)*CLUMP_FAC(I)*WT
 	    END DO
-	    M1=HI
-	  END IF
-	  IF(OBS_FREQ(N_OBS) .GE. NU_LO)THEN
-	    M2=N_OBS
-	  ELSE
-	    LO=0; HI=N_OBS
-	    DO WHILE(HI-LO .GT. 1)
-	      MID=(LO+HI)/2
-	      IF(OBS_FREQ(MID) .GE. NU_LO)THEN
-	        LO=MID
-	      ELSE
-	        HI=MID
-	      END IF
-	    END DO
-	    M2=LO
-	  END IF
-	  IF(M2 .LT. M1)CYCLE
-!
-	  DEP_DENSITY=WT(I)*EW*CONT_INT/(LAM_HI-LAM_LO)
-	  DO M=M1,M2
-	    SOB_DEP(M)=SOB_DEP(M)+DEP_DENSITY
 	  END DO
 	END DO
 !

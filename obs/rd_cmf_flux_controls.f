@@ -4,9 +4,11 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
-! Altered 12-Oct-2026 : Added DO_SOB_FLUX_OBS (default F): deposit the
-!                          Sobolev line EWs into OBS_FLUX so TRANS_TYPE
-!                          =SOB lines reach the observed spectrum.
+! Altered 12-Oct-2026 : Added DO_SOB_FLUX_OBS (default F): inject each
+!                          SOB line's opacity/emissivity into the stored
+!                          CMF arrays and re-run OBS_FRAME_SUB_V9 so
+!                          TRANS_TYPE=SOB lines reach the observed
+!                          spectrum as resolved profiles.
 ! Altered 05-Oct-2026 : Reject non-monotonic CMF_FLUX combinations that
 !                          bypass the dedicated formal solver or use a
 !                          clamped-sigma EW estimate (Devin).
@@ -613,11 +615,11 @@
 	    END IF
 	  END IF
 !
-! DO_SOB_FLUX_OBS deposition runs inside the DO_SOBOLEV_LINES block,
-! which owns the EW, continuum intensity, and line opacity/emissivity
-! arrays the deposit needs. With DO_SOB_LINES=F the routine returns
-! before that block and the flag would silently produce a
-! continuum-only spectrum, so the combination is rejected outright.
+! DO_SOB_FLUX_OBS profile injection runs inside the DO_SOBOLEV_LINES
+! block, which owns the line opacity/emissivity arrays the injected
+! Doppler cores need. With DO_SOB_LINES=F the routine returns before
+! that block and the flag would silently produce a continuum-only
+! spectrum, so the combination is rejected outright.
 !
 	  IF(DO_SOB_FLUX_OBS .AND. .NOT. DO_SOBOLEV_LINES)THEN
 	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
