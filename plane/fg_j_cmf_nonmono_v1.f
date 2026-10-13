@@ -6232,8 +6232,10 @@ C
 ! march; slot 1 is the newest pair.  Guards: residual-weighted
 ! Gram system, exclusion of cells outside the affine regime
 ! (weighted residual/secant > AA_GCAP), Tikhonov ridge,
-! ||corr||>||f|| veto, 10|r| per-cell step cap, positivity/cap
-! fallback.  If the pass after an applied mix does not improve,
+! ||corr||>1E3||f|| veto (garbage bound only -- a marginal mode's
+! correct step is ~||f||/(1-lambda)), 10|r| per-cell step cap,
+! positivity/cap fallback.  If the pass after an applied mix does
+! not improve,
 ! the pre-mix iterate is restored, the history cleared, and AA
 ! disabled for the rest of the solve.  Collection only starts at
 ! NPO>=4 (past the seed transient), so fast rays never pay the
@@ -6602,7 +6604,9 @@ C
 ! affine regime (weighted residual/secant > AA_GCAP) are excluded
 ! from the fit and keep the raw map output.  A small ridge keeps
 ! gamma bounded on near-dependent secants; the mixed correction is
-! vetoed when ||corr||>||f||; the per-cell step is capped at
+! vetoed when non-finite or >1E3||f|| (a marginal mode needs a step
+! of order ||f||/(1-lambda), so the MOM-style ||corr||>||f|| bound
+! would reject every useful mix); the per-cell step is capped at
 ! 10|r| and non-positive outputs fall back to the map output.
 ! An applied mix sets AA_PEND; the next pass either confirms it
 ! (RES<=AA_REF) or rolls back above.
@@ -6681,7 +6685,20 @@ C
 	      END DO
 	      FNRM=SQRT(FNRM)
 	      DNRM=SQRT(DNRM)
-	      IF(DNRM .GT. FNRM)THEN
+!
+! The MOM refresh vetoes ||corr||>||f||, but that bound is wrong for
+! the regime this accelerator targets here: on a cell contracting at
+! rate lambda the distance to the fixed point is |r|/(1-lambda), so
+! the correct AA step exceeds ||f|| by ~1/(1-lambda).  The marginal
+! KNOP rays measure lambda~0.98-0.99 (50-100x ||f||); the strict veto
+! rejected nearly every mix on arm 12186580 (vetoed ~3x applied) and
+! AA could never act on the modes it was built for.  The bound is
+! still needed against ill-conditioned gamma garbage, so veto only
+! non-finite or >1E3*||f|| corrections (lambda>0.999 -- beyond what
+! KN_RAY_MAXPASS could converge anyway).  The 10|r| per-cell cap and
+! the residual rollback remain the real safeguards.
+!
+	      IF(DNRM .NE. DNRM .OR. DNRM .GT. 1.0E+3_LDP*FNRM)THEN
 !$OMP CRITICAL (KN_AA_UPD)
 	        KN_AA_VETO=KN_AA_VETO+1
 !$OMP END CRITICAL (KN_AA_UPD)

@@ -2755,3 +2755,22 @@ closed for KNOP jobs.
 
 No patched-binary model run was submitted; the run-level effect of the
 corrected borderline bad-cell census remains unverified.
+
+## 13-Oct-2026 (evening, part 4) - KNOP AA veto rescaled for marginal modes
+
+Final stall-arm census (job 12186358, KN_RAY_STALL=0.98): bad-cell
+fraction oscillated 0.21-0.85% across it1-8, never crossing the ~0.1%
+maturity gate; ~8-10 stall rays held ~96% of the bad cells (worst ray
+12, residual 0.076, exited at pass 16). Those rays contract at
+lambda~0.98-0.99, so the correct type-II AA correction is
+||f||/(1-lambda) ~ 50-100x ||f|| - the inherited MOM veto
+(||corr||>||f||) rejected nearly every mix on arm 12186580
+(vetoed ~3x applied) exactly where AA is designed to help.
+
+SWEEP_FLD_ORD AA block: veto bound relaxed to non-finite or
+||corr||>1E3||f|| (covers lambda<=0.999; the 10|r| per-cell cap and
+the residual-rollback remain the real safeguards).  Opt-in behaviour
+unchanged (KN_ORD_AA=F default); no other exits or caps touched.
+
+Compile: production ifort flags, clean.  Runtime test pending on the
+warm-restart arm off the it8 stall checkpoint.

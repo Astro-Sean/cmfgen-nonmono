@@ -173,15 +173,25 @@ residual-acceptance rollback the MOM version lacks. History pairs are
 `(x_i, r_i=g(x_i)-x_i)` per relaxed march; `KN_ORD_AA_M` (default 2)
 secants are kept (M+1 pairs). Guards: residual-weighted Gram system,
 non-affine cell exclusion (weighted residual/secant >1 keeps the raw
-map output), Tikhonov ridge on the Gram diagonal, `||corr||>||f||`
-veto, `10|r|` per-cell step cap, positivity/`NONMONO_INEXT_CAP`
-fallback. If the pass after an applied mix does not improve, the
+map output), Tikhonov ridge on the Gram diagonal, a garbage veto on
+non-finite or `||corr||>1E3||f||` corrections, `10|r|` per-cell step
+cap, positivity/`NONMONO_INEXT_CAP` fallback. If the pass after an
+applied mix does not improve, the
 pre-mix iterate is restored, history cleared and AA disabled for the
 rest of that field solve. History collection starts at pass 4 so
 fast rays never allocate the (M+1)*2*NI*NCF pair store; stored
 residuals are rescaled when the adaptive omega changes the relaxed
 map (exact for the affine map). Per-refresh `AA: applied= vetoed=
 rejected= solve-fail=` counters print under the `ray exits` census.
+
+Veto bound (13-Oct-2026): the inherited MOM `||corr||>||f||` veto is
+mis-scaled for the marginal-mode regime this accelerator targets -
+a cell contracting at rate lambda sits |r|/(1-lambda) from its fixed
+point, so the correct AA step exceeds ||f|| by ~50-100x for the
+measured lambda~0.98-0.99 stall rays. The strict veto rejected ~3x
+more mixes than it applied on arm 12186580; the bound is now a
+garbage filter at 1E3*||f||, with the per-cell cap and the rollback
+remaining the real safeguards.
 #status/unverified (built; runtime arm pending)
 
 ### Stall threshold: `KN_RAY_STALL` (default 0.98)
