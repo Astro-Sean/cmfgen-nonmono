@@ -4687,6 +4687,34 @@
 	JNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 	HNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 !
+! Heal poisoned store slots once per refresh.  A non-finite entry
+! (a failed early sweep or a stale checkpoint) sits in a slot that
+! MOM_RF_OWNW write-suppression may never overwrite, so it zeroes
+! its own lagged read -- and every downwind reader's -- every pass
+! while being recounted in PASS_CAP.  A zeroed slot reads as a
+! dropped contribution exactly as the HUP guard already treats it,
+! and the write path's no-prior-value branch then seeds it with the
+! fresh solve, so the poisoned slot self-heals within one pass.
+! Non-finite J entries poison whole columns to fallback; zeroing
+! them is the same dropped-source semantics the H guard uses.
+!
+	NDMP=0_8;  NACC=0_8
+	DO L=1,KN_M_NCF
+	  DO I=1,ND_NM
+	    IF(.NOT. (ABS(J_NEXT_FRQ(I,L)) .LE.
+	1      HUGE(J_NEXT_FRQ)))THEN
+	      J_NEXT_FRQ(I,L)=0.0_LDP;  NDMP=NDMP+1
+	    END IF
+	    IF(.NOT. (ABS(H_NEXT_FRQ(I,L)) .LE.
+	1      HUGE(H_NEXT_FRQ)))THEN
+	      H_NEXT_FRQ(I,L)=0.0_LDP;  NACC=NACC+1
+	    END IF
+	  END DO
+	END DO
+	IF(NDMP+NACC .GT. 0_8)WRITE(LUER,'(A,2I12)')
+	1   ' MOM_KNOP_REFRESH: healed non-finite J/H store entries',
+	2   NDMP,NACC
+!
 ! The retained composite starts as the seed: under MOM_RF_OWNW each
 ! direction's best pass merges only its owned rows, so a direction
 ! that never improves contributes the seed values rather than
