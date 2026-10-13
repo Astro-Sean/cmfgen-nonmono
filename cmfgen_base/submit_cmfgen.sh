@@ -1564,9 +1564,11 @@ cp -f "${OBS_TEMPLATE_DIR}/batobs.sh" batobs.sh
 cp -f "${OBS_TEMPLATE_DIR}/CMF_FLUX_PARAM_INIT" CMF_FLUX_PARAM_INIT
 
 # Enforce non-monotonic OBS settings dynamically (analogue of
-# prepare_VADAT.py for the main VADAT).  This guarantees the OBS
-# formal solution uses FG_J_CMF_NONMONO_V1 with N_ON_J / BLANK,
-# matching the main CMFGEN run — regardless of template drift.
+# prepare_VADAT.py for the main VADAT).  This matches the OBS formal
+# J solver, line treatment, ES companions and boundary conditions to
+# the converged ../VADAT — Knop populations get FG_J_CMF_NONMONO_V1,
+# SOB populations stay on FG_J_CMF_V12 with clamped SIGMA —
+# regardless of template drift.
 echo "Enforcing non-monotonic OBS settings via prepare_CMF_PARAM.py..."
 python3 "${CMF_PARAM_SCRIPT}" \
   --template CMF_FLUX_PARAM_INIT \

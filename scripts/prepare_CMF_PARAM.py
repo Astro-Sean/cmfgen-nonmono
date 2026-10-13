@@ -104,6 +104,14 @@ win.
 Frequency range: MIN_CF/MAX_CF are propagated from ../VADAT (expand-only)
 because SET_CONT_FREQ_V4 STOPs when the OBS grid does not cover the
 model's NU range from RVTJ.
+
+Boundary conditions: DIF, IB_METH and THK_CONT are mirrored from
+../VADAT for the same reason — the population inner boundary is fact.
+The template's DIF=T diffusion seed I_CORE=(ETA+DBB*proj)/CHI is
+invalid when the populations ran a hollow/zero-flux inner boundary:
+DBB<0 in an optically thin inner cell makes the seed negative and it
+propagates through every core ray.  DIF=F seeds I_CORE=IC (the TSTAR
+blackbody, always positive), matching the population boundary.
 """
 
 import argparse
@@ -866,7 +874,46 @@ def main():
         print(f"  non-coherent ES ({es_main.get('_source', '?')}): "
               f"OBS companions applied: {companions}")
 
-    # 1d. The OBS continuum grid must contain the model's frequency range —
+    # 1d. Boundary controls are mirrored from ../VADAT — the executed
+    # population config is fact, as for the line treatment.  The template
+    # defaults to DIF=T, whose diffusion seed I_CORE=(ETA+DBB*proj)/CHI is
+    # invalid for models converged with a hollow/zero-flux inner boundary:
+    # DBB<0 in an optically thin inner cell produces a negative I_CORE
+    # that seeds every core ray (the FG_J_CMF_V12 "negative mean
+    # intensity" failures).  With DIF=F the formal solve seeds I_CORE=IC,
+    # the TSTAR blackbody, which is always positive.  DIF=T forces
+    # IB_METH=DIFFUSION because the OBS reader STOPs on an inconsistent
+    # pair.  Applied before user overrides so cmf_flux_param_overrides
+    # still win.
+    bnd_main = main_run_es_settings(
+        template_path, args.vadat_overrides,
+        keys=('DIF', 'IB_METH', 'THK_CONT'))
+    bnd_fix = {}
+    dif_tok = bnd_main.get('DIF', '').strip().upper()
+    if dif_tok.startswith('T') or dif_tok.startswith('F'):
+        dif_val = 'T' if dif_tok.startswith('T') else 'F'
+        bnd_fix['DIF'] = dif_val
+        if dif_val == 'T':
+            bnd_fix['IB_METH'] = 'DIFFUSION'
+        else:
+            # IB_METH is a required read when DIF=F; ZERO_FLUX is the
+            # hollow-core SN boundary used by the population runs.
+            ib = bnd_main.get('IB_METH', '').strip().upper()
+            valid = ('HOLLOW', 'ZERO_FLUX', 'SCHUSTER')
+            if ib not in valid:
+                print(f"  WARNING: VADAT IB_METH='{ib}' not recognized "
+                      f"for OBS; defaulting to ZERO_FLUX")
+                ib = 'ZERO_FLUX'
+            bnd_fix['IB_METH'] = ib
+    thk_tok = bnd_main.get('THK_CONT', '').strip().upper()
+    if thk_tok.startswith('T') or thk_tok.startswith('F'):
+        bnd_fix['THK_CONT'] = 'T' if thk_tok.startswith('T') else 'F'
+    if bnd_fix:
+        lines = _apply_forced_keys(lines, bnd_fix, tag="VADAT_BND")
+        print(f"  OBS boundary mirrored "
+              f"({bnd_main.get('_source', '?')}): {bnd_fix}")
+
+    # 1e. The OBS continuum grid must contain the model's frequency range —
     # SET_CONT_FREQ_V4 STOPs with "MAX_FREQ too small" when MAX_CF is below
     # the highest NU read from RVTJ.  Expand (never shrink) the template
     # MIN_CF/MAX_CF to the converged run's VADAT values so obs_fin_10 spans
