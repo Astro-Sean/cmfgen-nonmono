@@ -184,7 +184,15 @@ rebuilds the BA on exit; `N_FULL_TREL` phases the temperature release
   `MAXCH` is the 10th-largest raw STEQ value, and before the fix those
   vectors were built ungated - dead rows filling all 10 slots kept
   `MAXCH` pinned regardless of the floors. Both floors default to 0;
-  default path unchanged.
+  default path unchanged. **13-Oct-2026 diagnostic fix**:
+  `CORRECTION_SUM` now writes three groups per depth - cumulative
+  counts over ALL NT rows, the floor-kept counts (the old masked
+  view), and `N_SKIP` rows excluded by the floors. The floors made
+  the file read ~18 rows demanding >0.0001% while ~1800/1839 rows
+  actually demanded changes (m15 formal KNOP it1-2, raw
+  `STEQ SOLUTION ARRAY`). The MAXCH control scan still uses only
+  floor-passing rows; `cmfgen_convergence.py` reads columns 1-7,
+  which now hold the unmasked counts.
 
 ## SOLVEBA internals
 

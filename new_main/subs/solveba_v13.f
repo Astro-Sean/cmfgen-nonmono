@@ -121,7 +121,7 @@
 	LOGICAL REJ_BULK,REJ_MAX,REJ_STATE,REJ_PART,WLD_REJ
 	INTEGER, SAVE :: PV_JI=0,PV_II=0,PV_JD=0,PV_ID=0
 	LOGICAL OSC_FL
-	INTEGER COUNT(7)
+	INTEGER COUNT(7),COUNT_ALL(7),NSKIP
 	LOGICAL LOC_WR_BA_INV
 	LOGICAL DO_LEVEL_CHK
 !
@@ -1083,8 +1083,19 @@
 	WRITE(LU_SUM,'(A)')' Summary of changes at each depth '
 	WRITE(LU_SUM,'(A,I6)')' NT=',NT
 	WRITE(LU_SUM,'(A)')' '
-	WRITE(LU_SUM,'(3X,A,7(1X,A))')'Depth',' 100.0%','  10.0%','   1.0%',
-	1        '   0.1%','  0.01%',' 0.001%','0.0001%'
+! Two sets of cumulative counts per depth: the raw demanded-correction
+! histogram over all NT rows, then the same histogram restricted to rows
+! that pass the BA_DEM_PFLOOR/BA_DEM_RELFRAC demand floors, then N_SKIP
+! (rows excluded by the floors).  The floors exist so unsatisfiable
+! floor-level demands do not pin the MAXCH control metric, but masking
+! them out of this file made the diagnostic look converged while ~99% of
+! rows demanded large corrections (m15_2p82d formal KNOP it1-2, Oct-2026).
+!
+	WRITE(LU_SUM,'(3X,A,7(1X,A),A,7(1X,A),A)')'Depth',
+	1        ' 100.0%','  10.0%','   1.0%','   0.1%','  0.01%',
+	2        ' 0.001%','0.0001%','  kept:',
+	3        ' 100.0%','  10.0%','   1.0%','   0.1%','  0.01%',
+	4        ' 0.001%','0.0001%','  N_SKIP'
 !
 !   STEQ is +ve when the populations are to decrease.
 !   STEQ is -ve when the populations are to increase.
@@ -1097,6 +1108,8 @@
 	JINC=0
 	DO I=1,ND
 	  COUNT(:)=0
+	  COUNT_ALL(:)=0
+	  NSKIP=0
 !
 ! edited by Devin, 12-Oct-2026: [BA_DEM_RELFRAC] relative demand floor.
 ! The absolute floor cannot reach a physically empty ion at a populated
@@ -1109,6 +1122,9 @@
 	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
 	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,I))
 	  DO J=1,NT
+	    T1=1.0E+06_LDP*ABS(STEQ(J,I))+1.0E-31_LDP		!to ensure non-zero.
+	    K=LOG10(T1)+1; K=MIN(7,K)
+	    IF(K > 0)COUNT_ALL(1:K)=COUNT_ALL(1:K)+1
 !
 ! edited by Devin, 11-Oct-2026: [BA_DEM_PFLOOR] skip floor-level rows
 ! in the demanded-correction metric.  A population already below the
@@ -1121,8 +1137,14 @@
 ! corrections on skipped rows still commit normally.
 !
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
-	1     POPS(J,I) .LT. BA_DEM_PFLOOR)CYCLE
-	    IF(J .LE. NT-2 .AND. POPS(J,I) .LT. T2)CYCLE
+	1     POPS(J,I) .LT. BA_DEM_PFLOOR)THEN
+	      NSKIP=NSKIP+1
+	      CYCLE
+	    END IF
+	    IF(J .LE. NT-2 .AND. POPS(J,I) .LT. T2)THEN
+	      NSKIP=NSKIP+1
+	      CYCLE
+	    END IF
 	    IF(STEQ(J,I) .GT. DECREASE)THEN
 	      DECREASE=STEQ(J,I)
 	      IDEC=I
@@ -1132,11 +1154,9 @@
 	      IINC=I
 	      JINC=J
 	    END IF
-	    T1=1.0E+06_LDP*ABS(STEQ(J,I))+1.0E-31_LDP		!to ensure non-zero.
-	    K=LOG10(T1)+1; K=MIN(7,K)
 	    IF(K > 0)COUNT(1:K)=COUNT(1:K)+1
 	  END DO
-	  WRITE(LU_SUM,'(8I8)')I,COUNT(7:1:-1)
+	  WRITE(LU_SUM,'(16I8)')I,COUNT_ALL(7:1:-1),COUNT(7:1:-1),NSKIP
 	END DO
 	CLOSE(LU_SUM)
 !
