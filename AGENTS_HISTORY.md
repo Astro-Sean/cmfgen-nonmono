@@ -2453,3 +2453,60 @@ clips ~1.4M entries/sweep with min scale 0 (some rows have zero
 diagonal excess, so their whole lagged source is nulled - watch
 whether clipping contracts as the field settles).  NOT converged -
 too early to classify; the prior SOB cold divergence was slow.
+
+## 14-Oct-2026 (Devin session, cont.) - MOM_TRIAL_LAM Lambda-probe trial
+KNOP warm (12167439) diagnosed in a freeze->release->reject->refreeze
+limit cycle: every resacc-BA trial at demand ~1E7 applied a capped
+400% step, next-call SE residual ballooned ~37x (9.4E13 -> 3.5E15),
+resacc rolled it back.  LAMBDA-scheduled releases taking the damped
+GS_LAM_CAP step worked instead (it524: residual 4.97E14 -> 8.8E13,
+demand 2.2E8 -> 7.8E7 in one call).  New VADAT key MOM_TRIAL_LAM
+(default 0 = off): MAXCH above the key fires the trial as a damped
+GS_LAM_CAP LAMBDA step instead of the BA step.
+
+Concurrency note: a parallel session added RLOC_SHOCK_POWER to the
+same files (control_variable_mod.f, rd_control_variables.f,
+drv_vadat.f90, test_vadat_keys.py); an earlier overwrite ate the
+MOM_TRIAL_LAM edits once.  Re-applied on top; all 32 vadat tests pass.
+Left UNCOMMITTED to avoid racing the parallel session's RLOC commit.
+
+Probes on binary built 10:40 (pre-RLOC merge, has MOM_TRIAL_LAM):
+- KNOP cold resubmit 12175438: full flag stack (H_IMPL, ABS_FLR=1e-3,
+  RF_DIR=DESC, FAC_RLX=0.5) + TRIAL_LAM=1e3.  Fresh cold start.
+- KNOP warm resubmit 12175441: base stack + TRIAL_LAM=1e3.  Warm
+  restart lost MOMJNXT_GS (tag 532 vs NITSF 440, cancelled mid-it) ->
+  cold reseed + pops from it440 checkpoint.
+
+## 14-Oct-2026 (Devin session, cont.2) - SOB cold empty-ion fix + stall watchdog
+SOB cold demand oscillation (bounded ~200% with spikes to 1.7E4 across
+~400 its) traced to a single row: CSIX lev 1, row 246 in POPS, at the
+outer compression depths (I~3, sigma_true~-1.04).  Population ~4.6E-26
+vs depth max ~6.5E-4 (rel frac ~7E-23): above the 1E-30 absolute
+PFLOOR but far below any physical threshold -- classic empty-ion
+chatter, 65% of all 'largest' BA entries.  Runner-ups ~1-100% real
+ejecta ions plus similar empty trace levels (CV, MgIV, CaV).
+Enabled BA_DEM_RELFRAC=1.0D-6 in the cold config (drops rows below
+1E-6 x depth-max from the demand metric; corrections still commit)
+and resubmitted as 12176092 on binary 4f72887.
+
+KNOP stall watchdog gap found+fixed: the n_frozen>=KNOP_STALL_MAX(60)
+exit-7 block existed only in cmfgen_base/submit_cmfgen.sh, not the
+cmfgen_base_dessart/cmfgen_base_fullspec templates these m15 runs
+generate from -- a stalled KNOP run would have requeued forever.
+Ported the watchdog block + GS_STATE cleanup lines to both templates
+(bash -n clean).  Already-generated run slurms unaffected.
+
+## 13-Oct-2026 (Devin session) - X_SOB 40d OBS render: boundary mirror + V12 floors
+X_SOB OBS (DO_NONMONO_SOB populations, DO_NONMONO_KNOP=F ->
+FG_J_CMF_V12 on clamped SIGMA) failed on "negative mean intensities"
+at JNU_STORE(ND). Root cause: OBS template DIF=T while the population
+VADAT ran DIF=F/IB_METH=ZERO_FLUX/THK_CONT=F -- the diffusion seed
+I_CORE=(ETA+DBB*proj)/CHI went negative (DBB<0, optically thin inner
+cells) and poisoned every core-ray sweep. Fixes: prepare_CMF_PARAM.py
+mirrors DIF/IB_METH/THK_CONT from ../VADAT; fg_j_cmf_v12.f floors
+I_CORE and swept I_M/I_P at 1E-30 (commits 4f72887..b35513e) with
+large-value diagnostics capped at 3/ray. Job 12176536 (DIF=T + floor)
+completed in ~2 min with zero sweep diagnostics and produced
+obs_fin_10 with deposited Sobolev line structure. Resubmitted as
+12176788 under the mirrored DIF=F/ZERO_FLUX boundary (population
+consistency); compare spectra for boundary sensitivity.
