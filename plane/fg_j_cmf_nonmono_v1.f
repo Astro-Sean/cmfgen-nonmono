@@ -5438,7 +5438,7 @@ C
 	  WRITE(LUER,'(A,I5)')'    ray exits: unsolved=',NX_CNT(-1)
 	END IF
 	IF(FG_ORD_AA)THEN
-	  WRITE(LUER,'(A,4(A,I8))')
+	  WRITE(LUER,'(4(A,I8))')
 	1    '    AA: applied=',KN_AA_APP,' vetoed=',KN_AA_VETO,
 	2    ' rejected=',KN_AA_REJ,' solve-fail=',KN_AA_SNG
 	END IF
