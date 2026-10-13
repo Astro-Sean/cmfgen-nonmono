@@ -2510,3 +2510,19 @@ completed in ~2 min with zero sweep diagnostics and produced
 obs_fin_10 with deposited Sobolev line structure. Resubmitted as
 12176788 under the mirrored DIF=F/ZERO_FLUX boundary (population
 consistency); compare spectra for boundary sensitivity.
+
+## 13-Oct-2026 (Devin session, cont.) - X_SOB underluminosity + DIFFUSION repower
+12176788 completed the full deposited render (clean, zero intensity
+repairs) but the spectrum integrates to ~8.6e39 erg/s vs ~2e42
+observed at +25.1d. Root cause is the population model, not the
+render: DIF=F/IB_METH=ZERO_FLUX discarded the hydro inner-boundary
+luminosity (SN_HYDRO_DATA header Lum=2.29e8 Lsun at tau_ross~99),
+INC_SHOCK_POWER/INC_XRAYS/INC_RAD_DECAYS all F, and FIX_T=T -- the
+ejecta only re-radiated stored heat (OUTGEN: L(d=1,ND)=0 for all
+1692 its). X_SOB.yaml vadat_overrides changed to DIF=T +
+IB_METH=DIFFUSION (the tau>=25 SOB auto-select the override had
+blocked; m15 dif-probe and job-12001805 precedents). Resubmitted
+through run_model_grid.py as FINAL 12177191 (warm_restart=T reuses
+the converged starved checkpoint) + chained OBS 12177192. OBS will
+mirror DIF=T/DIFFUSION; the V12 I_CORE floor protects the negative-
+diffusion-seed case there.
