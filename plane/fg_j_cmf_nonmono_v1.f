@@ -1225,6 +1225,14 @@
 	  IF(ALLOCATED(dGAMdR))DEALLOCATE ( dGAMdR )
 	  IF(ALLOCATED(dCHIdR))DEALLOCATE ( dCHIdR )
 	  IF(ALLOCATED(Q))DEALLOCATE ( Q )
+!
+! NM_RAY/DLN_RAY (GS I_NEXT slot-match store) sit in the unconditional
+! allocation block but were missing here, so any grid rebuild died on
+! re-ALLOCATE with STAT=151 (already allocated).  Their contents index
+! the old ray grid, so they are invalid on rebuild regardless.
+!
+	  IF(ALLOCATED(NM_RAY))DEALLOCATE ( NM_RAY )
+	  IF(ALLOCATED(DLN_RAY))DEALLOCATE ( DLN_RAY )
 	  IF(ALLOCATED(MAX_LS))DEALLOCATE ( MAX_LS )
 	  IF(ALLOCATED(AV))DEALLOCATE ( AV )
 	  IF(ALLOCATED(CV))DEALLOCATE ( CV )

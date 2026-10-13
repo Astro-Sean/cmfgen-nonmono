@@ -149,6 +149,17 @@ compression set, so `GAM`, `chi_hat` and the ray insertion spacing
 were silently computed on the old field. Same check `V_SM_SV` does
 in `MOM_J_CMF_NONMONO_V1`.
 
+Rebuild must free **every** persistent ray array before the re-ALLOCATE
+or the run stops on STAT=151 (already allocated). `NM_RAY`/`DLN_RAY`
+(the GS `I_NEXT` slot-match store from the unconditional allocation
+block) were missing from the dealloc list, so the first rebuild after
+they were allocated crashed. Surfaced 13-Oct-2026 on X_SOB OBS: a
+compression-set membership change at depth 51 triggered a rebuild and
+`cmf_flux` died inside the first sweep. Fixed by deallocating both in
+the `NEW_R_GRID` block; their contents index the old ray grid and are
+invalid on rebuild anyway. #status/verified (build; X_SOB OBS resubmit
+is the runtime test)
+
 ### Ordered march: `KN_RAY_ORDERED` (default T)
 
 The legacy refresh did alternating **global** frequency passes -
