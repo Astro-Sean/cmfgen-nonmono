@@ -60,9 +60,10 @@
 	INTEGER ID
 !
 	INTEGER KN_M_MAXPASS_V,KN_RAY_MAXPASS_V,MOM_AA_M_V,
-	1     MOM_AA_OUT_M_V
+	1     MOM_AA_OUT_M_V,KN_ORD_AA_M_V
 	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
+	REAL(KIND=LDP) KN_RAY_STALL_V
 !
 	LOGICAL USE_JFNK_OLD
 !
@@ -367,6 +368,27 @@
 	     CALL RD_STORE_DBLE(PRESCRIBED_SHOCK_POWER,'PRESCRIBED_SHOCK_POWER',L_FALSE,'Luminosity for the shock')
 	     CALL RD_STORE_DBLE(VLOC_SHOCK_POWER,'VLOC_SHOCK_POWER',L_FALSE,'Velocity location for shock power')
 	     CALL RD_STORE_DBLE(DVLOC_SHOCK_POWER,'DVLOC_SHOCK_POWER',L_FALSE,'Gausian width for shock power')
+!
+! Radius-space deposition (dev7, 13-Oct-2026): on a non-monotonic V
+! field VLOC_SHOCK_POWER cannot identify a unique shock location, so
+! RLOC_SHOCK_POWER (internal R units, 10^10 cm) selects a Gaussian in
+! radius instead.  RLOC<=0 keeps the original V-space deposition.
+! The strictly-decreasing-V guard in GET_EDEP_SHOCK_POWER applies only
+! to the V-space path.
+!
+	     RLOC_SHOCK_POWER=0.0_LDP
+	     CALL RD_STORE_DBLE(RLOC_SHOCK_POWER,'RLOC_SHOCK_POWER',L_FALSE,
+	1        'Radius (1e10 cm) for shock power; <=0 uses VLOC')
+	     DRLOC_SHOCK_POWER=0.0_LDP
+	     CALL RD_STORE_DBLE(DRLOC_SHOCK_POWER,'DRLOC_SHOCK_POWER',L_FALSE,
+	1        'Gaussian width (1e10 cm) for radius deposition')
+	     IF(RLOC_SHOCK_POWER .GT. 0.0_LDP .AND.
+	1       DRLOC_SHOCK_POWER .LE. 0.0_LDP)THEN
+	       WRITE(LUER,*)'Error in RD_CONTROL_VARIABLES:'
+	       WRITE(LUER,*)'RLOC_SHOCK_POWER > 0 requires a positive',
+	1         ' DRLOC_SHOCK_POWER.'
+	       STOP
+	     END IF
 	     LIN_INTERP_RD_SN_DATA=.FALSE.
 	     CALL RD_STORE_LOG(LIN_INTERP_RD_SN_DATA,'LIN_RD_SN_DATA',L_FALSE,'Linear interpolaton in RD_SN_DATA?')
 	   ENDIF
@@ -853,6 +875,17 @@
 	  CALL RD_STORE_INT(MOM_TRIAL_MIN,'MOM_TRIAL_MIN',L_FALSE,
 	1     'KNOP: frozen iters before a resacc-gated BA trial?')
 	  IF(MOM_TRIAL_MIN .LT. 0)MOM_TRIAL_MIN=0
+!
+! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
+! marginal-release trial.  With MAXCH above it the trial takes the
+! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
+! 1E7-scale demand overshoots the BA linearization so far that the
+! resacc rejects every release (m15 KNOP warm, Oct-2026).
+!
+	  MOM_TRIAL_LAM=0.0_LDP
+	  CALL RD_STORE_DBLE(MOM_TRIAL_LAM,'MOM_TRIAL_LAM',L_FALSE,
+	1     'KNOP: MAXCH above which a trial releases a LAMBDA step?')
+	  IF(MOM_TRIAL_LAM .LT. 0.0_LDP)MOM_TRIAL_LAM=0.0_LDP
 !
 ! GS_FREEZE_LIM (default 0 = disabled): hard stop on consecutive
 ! forced-LAMBDA iterations while the KNOP lagged field stays
@@ -1537,6 +1570,30 @@
 	  CALL RD_STORE_LOG(KN_ORD_AITKEN,'KN_ORD_AITKEN',L_FALSE,
 	1     'Aitken-accelerate the ordered FG refresh march?')
 	  CALL SET_FG_AITKEN(KN_ORD_AITKEN)
+!
+! KN_ORD_AA (default FALSE): safeguarded Anderson acceleration of
+! the ordered refresh march, replacing the KN_ORD_AITKEN
+! experiment (depth-1 secants diverged on the seed transient).
+! KN_ORD_AA_M is the secant depth; pairs cost 2*NI*NCF*8 B per
+! slot and M+1 slots are kept per slow ray.
+!
+	  KN_ORD_AA=.FALSE.
+	  CALL RD_STORE_LOG(KN_ORD_AA,'KN_ORD_AA',L_FALSE,
+	1     'Anderson-accelerate the ordered FG refresh march?')
+	  KN_ORD_AA_M_V=2
+	  CALL RD_STORE_INT(KN_ORD_AA_M_V,'KN_ORD_AA_M',L_FALSE,
+	1     'Anderson secant depth for the ordered FG march')
+	  CALL SET_FG_ORD_AA(KN_ORD_AA,KN_ORD_AA_M_V)
+!
+! KN_RAY_STALL (default 0.90): same-direction residual ratio above
+! which a pass counts toward the NSTALL early exit.  Raised toward
+! 1.0 the stall exit fires only on nearly flat passes, letting
+! slowly contracting rays use more of KN_RAY_MAXPASS.
+!
+	  KN_RAY_STALL_V=0.90_LDP
+	  CALL RD_STORE_DBLE(KN_RAY_STALL_V,'KN_RAY_STALL',L_FALSE,
+	1     'Same-direction residual ratio counting as a stall pass')
+	  CALL SET_FG_STALL_LIM(KN_RAY_STALL_V)
 !
 ! Residual-accepted BA update (default FALSE).  The BA correction
 ! is committed only when the SE residual after the previous BA

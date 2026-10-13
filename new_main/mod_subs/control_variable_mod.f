@@ -107,6 +107,16 @@
 	REAL(KIND=LDP)  VLOC_SHOCK_POWER       !Velocity at which we dump the shock power
 	REAL(KIND=LDP)  DVLOC_SHOCK_POWER      !Gaussian width for the shock power deposition profile
 !
+! dev7, 13-Oct-2026: radius-space deposition alternative.  On a
+! non-monotonic V the velocity coordinate is multi-valued, so a shock
+! cannot be located unambiguously by VLOC_SHOCK_POWER.  RLOC > 0 (in
+! 10^10 cm, the internal R units) deposits a Gaussian centred on that
+! radius instead; the V-space path and its single-valued-V guard are
+! then bypassed.  RLOC<=0 selects the original V-space deposition.
+!
+	REAL(KIND=LDP)  RLOC_SHOCK_POWER       !Radius (1e10 cm) to dump shock power; <=0 = use VLOC
+	REAL(KIND=LDP)  DRLOC_SHOCK_POWER      !Gaussian width (1e10 cm) for radius deposition
+!
 ! Non thermal parameters
 !
 	LOGICAL TREAT_NON_THERMAL_ELECTRONS     !
@@ -930,6 +940,19 @@
 !
 	REAL(KIND=LDP) MOM_FAC_RLX
 !
+! MOM_TRIAL_LAM (default 0.0 = off): MAXCH demand above which a
+! fired MOM_TRIAL release in SOLVE_FOR_POPS takes a damped LAMBDA
+! step (cap GS_LAM_CAP) instead of the resacc-gated BA step.  At
+! demand ~1E7 the BA linearization is invalid: the observed m15
+! cycle was release -> capped BA step -> SE residual +37x -> resacc
+! rollback -> refreeze, net zero progress, while LAMBDA-scheduled
+! releases taking the factor-3 step improved the residual ~6x per
+! call.  Below the threshold the resacc-BA trial still gives the
+! quadratic near-solution step the gate was built for.  VADAT
+! keyword [MOM_TRIAL_LAM].
+!
+	REAL(KIND=LDP) MOM_TRIAL_LAM
+!
 ! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the
@@ -951,6 +974,26 @@
 ! march short of the bulk-maturity exit.  VADAT [KN_ORD_AITKEN].
 !
 	LOGICAL KN_ORD_AITKEN
+!
+! KN_ORD_AA (default FALSE): safeguarded type-II Anderson
+! acceleration on the ordered-march field iterate inside
+! SWEEP_FLD_ORD, using the same guarded mix as the MOM refresh AA
+! (mom_j_cmf_nonmono_v1.f) plus a residual-acceptance rollback.
+! Replaces the KN_ORD_AITKEN experiment, which depth-1 secant
+! divergence made unsafe on the seed transient.  KN_ORD_AA_M sets
+! the secant depth (pairs kept = M+1).  VADAT [KN_ORD_AA] and
+! [KN_ORD_AA_M].
+!
+	LOGICAL KN_ORD_AA
+!
+! KN_RAY_STALL (default 0.90): same-direction residual ratio above
+! which a refresh pass counts toward the NSTALL early exit in
+! SWEEP_FLD/SWEEP_FLD_ORD.  0.90 quits rays still contracting at
+! up to 10% per pass; closer to 1.0 lets slowly contracting rays
+! use more of KN_RAY_MAXPASS before the stall exit fires.  VADAT
+! [KN_RAY_STALL].
+!
+	REAL(KIND=LDP) KN_RAY_STALL
 !
 ! MOM_RF_AA (default TRUE): vector Anderson acceleration on the
 ! MOM refresh composite map, using the MOM_AA_M most recent

@@ -662,6 +662,30 @@
 ! the acceleration for that solve silently.
 !
 	LOGICAL FG_ORD_AITKEN
+!
+! FG_ORD_AA: VADAT [KN_ORD_AA] (default F, set by SET_FG_ORD_AA).
+! Safeguarded type-II Anderson acceleration of the ordered pass
+! iterate inside SWEEP_FLD_ORD, mirroring the runtime-tested MOM
+! refresh AA (mom_j_cmf_nonmono_v1.f): residual-weighted Gram
+! system, non-affine cell exclusion, Tikhonov ridge, ||corr||>||f||
+! veto, 10|f| per-cell cap, positivity fallback.  FG_ORD_AA_M is
+! the secant depth [KN_ORD_AA_M, default 2]; pairs kept = M+1.
+! On top of the MOM guards a residual-acceptance rollback restores
+! the pre-mix iterate when the next pass does not improve.
+!
+	LOGICAL FG_ORD_AA
+	INTEGER FG_ORD_AA_M
+!
+! KN_RAY_STALL: VADAT [KN_RAY_STALL] (default 0.90, set by
+! SET_FG_STALL_LIM).  Same-direction residual ratio above which a
+! pass counts toward the NSTALL early exit.
+!
+	REAL(KIND=LDP) KN_RAY_STALL
+!
+! Per-refresh AA counters, accumulated under OMP CRITICAL in
+! SWEEP_FLD_ORD and summarised by FG_KNOP_REFRESH_V1.
+!
+	INTEGER*8 KN_AA_APP,KN_AA_VETO,KN_AA_REJ,KN_AA_SNG
 ! Per-pass convergence history of the refresh (max over rays of the
 ! overwrite residual at each alternating-direction pass).  Diagnostic
 ! only; updated under OMP CRITICAL inside SWEEP_FLD.
@@ -688,6 +712,11 @@
 	DATA KN_RAY_OMEGA /1.0_LDP/
 	DATA FG_ORD_SWEEP /.TRUE./
 	DATA FG_ORD_AITKEN /.FALSE./
+	DATA FG_ORD_AA /.FALSE./
+	DATA FG_ORD_AA_M /2/
+	DATA KN_RAY_STALL /0.90_LDP/
+	DATA KN_AA_APP /0_8/,KN_AA_VETO /0_8/,KN_AA_REJ /0_8/,
+	1     KN_AA_SNG /0_8/
 	DATA KN_RAY_MAXPASS /60/
 	DATA KN_MAX_THREADS /16/
 	DATA KN_RAY_PACK_MB /2048.0_LDP/
@@ -5193,6 +5222,25 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_ORD_AA(DO_AA,AA_M)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AA,FG_ORD_AA_M
+	IMPLICIT NONE
+	LOGICAL DO_AA
+	INTEGER AA_M
+	FG_ORD_AA=DO_AA
+	FG_ORD_AA_M=MAX(1,MIN(AA_M,8))
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_STALL_LIM(T)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_STALL
+	IMPLICIT NONE
+	REAL(KIND=LDP) T
+	KN_RAY_STALL=MIN(MAX(T,0.5_LDP),0.999_LDP)
+	RETURN
+	END
+!
 ! SET_FG_KN_OPTS: runtime wiring for the previously compile-time
 ! FG refresh knobs KN_RAY_TOL, KN_RAY_MAXPASS and the lagged-store
 ! relaxation factor INEXT_RELAX.
@@ -5303,6 +5351,7 @@ C
 	RES_LS=0.0_LDP
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
 	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1
+	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
 	ALLOCATE(KN_RES_PASS(2*KN_RAY_MAXPASS),STAT=IOS)
@@ -5387,6 +5436,11 @@ C
 	END IF
 	IF(NX_CNT(-1) .GT. 0)THEN
 	  WRITE(LUER,'(A,I5)')'    ray exits: unsolved=',NX_CNT(-1)
+	END IF
+	IF(FG_ORD_AA)THEN
+	  WRITE(LUER,'(A,4(A,I8))')
+	1    '    AA: applied=',KN_AA_APP,' vetoed=',KN_AA_VETO,
+	2    ' rejected=',KN_AA_REJ,' solve-fail=',KN_AA_SNG
 	END IF
 !
 ! Temporary DO_NONMONO_KNOP diagnostic table.  The formal refresh can
@@ -5932,13 +5986,14 @@ C
 	    END IF
 !
 ! Stall detection: count consecutive same-direction comparisons with
-! <10% residual improvement.  The lagged field is rebuilt from fresh
-! opacities every great iteration, so polishing a slowly-contracting
-! fixed point buys little -- NSTALL>=2 (four straight passes of
+! residual ratio above KN_RAY_STALL (VADAT, default 0.90 = <10%
+! improvement).  The lagged field is rebuilt from fresh opacities
+! every great iteration, so polishing a slowly-contracting fixed
+! point buys little -- NSTALL>=2 (four straight passes of
 ! stagnation) exits below once past the initial transient (NPO>=8).
 !
 	    IF(NPO .GE. 8)THEN
-	      IF(RATIO_OM .GT. 0.90_LDP)THEN
+	      IF(RATIO_OM .GT. KN_RAY_STALL)THEN
 	        NSTALL=NSTALL+1
 	      ELSE
 	        NSTALL=0
@@ -6161,6 +6216,32 @@ C
 	REAL(KIND=LDP) DEL_CUR,DEL_OLD,XACC
 	LOGICAL DO_AIT
 !
+! FG_ORD_AA (VADAT [KN_ORD_AA], default F; secant depth
+! [KN_ORD_AA_M], default 2): type-II Anderson acceleration of the
+! pass iterate, mirroring the runtime-tested MOM refresh AA
+! (mom_j_cmf_nonmono_v1.f) plus a residual-acceptance rollback.
+! History pairs are (x_i, r_i=g(x_i)-x_i) where g is one relaxed
+! march; slot 1 is the newest pair.  Guards: residual-weighted
+! Gram system, exclusion of cells outside the affine regime
+! (weighted residual/secant > AA_GCAP), Tikhonov ridge,
+! ||corr||>||f|| veto, 10|r| per-cell step cap, positivity/cap
+! fallback.  If the pass after an applied mix does not improve,
+! the pre-mix iterate is restored, the history cleared, and AA
+! disabled for the rest of the solve.  Collection only starts at
+! NPO>=4 (past the seed transient), so fast rays never pay the
+! (M+1)-pair memory.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: AA_XH(:,:,:),AA_RH(:,:,:)
+	REAL(KIND=LDP) GRM_AA(8,8),WGR_AA(8,8),BRH_AA(8),WBR_AA(8)
+	REAL(KIND=LDP) GAM_AA(8)
+	REAL(KIND=LDP) AA_REF,FNRM,DNRM,DTR,TCOL,STEP,T3,T4
+	REAL(KIND=LDP) WV,SC,XV
+	INTEGER IPIV_AA(8),NH_AA,MP_AA,INFO_AA,JJ,KK
+	INTEGER*8 NAA_SKIP
+	REAL(KIND=LDP), PARAMETER :: AA_GCAP=1.0_LDP
+	LOGICAL DO_AA,AA_PEND,AA_OFF
+	EXTERNAL DGESV
+!
 	NPO=0
 	NSTALL=0
 	IXIT=-1
@@ -6187,9 +6268,34 @@ C
 	    DLT_PRV(1:NI,1:NCF)=0.0_LDP
 	  END IF
 	END IF
+	DO_AA=FG_ORD_AA
+	AA_PEND=.FALSE.
+	AA_OFF=.FALSE.
+	NH_AA=0
+	AA_REF=0.0_LDP
 !
 	DO
 	  NPO=NPO+1
+!
+! AA history: save the pre-march iterate as the newest pair input.
+! Lazy allocation at NPO>=4 keeps fast rays free of the
+! (M+1)*2*NI*NCF history memory.
+!
+	  IF(DO_AA .AND. .NOT. AA_OFF .AND. NPO .GE. 4)THEN
+	    IF(.NOT. ALLOCATED(AA_XH))THEN
+	      ALLOCATE(AA_XH(NI,NCF,FG_ORD_AA_M+1),
+	1        AA_RH(NI,NCF,FG_ORD_AA_M+1),STAT=IOS)
+	      IF(IOS .NE. 0)DO_AA=.FALSE.
+	    END IF
+	    IF(ALLOCATED(AA_XH))THEN
+	      DO JJ=MIN(NH_AA+1,FG_ORD_AA_M+1),2,-1
+	        AA_XH(1:NI,1:NCF,JJ)=AA_XH(1:NI,1:NCF,JJ-1)
+	        AA_RH(1:NI,1:NCF,JJ)=AA_RH(1:NI,1:NCF,JJ-1)
+	      END DO
+	      AA_XH(1:NI,1:NCF,1)=FLD(1:NI,1:NCF)
+	      NH_AA=MIN(NH_AA+1,FG_ORD_AA_M+1)
+	    END IF
+	  END IF
 	  RES=0.0_LDP
 	  RES_FREQ(1:NCF)=0.0_LDP
 	  NBAD_CUR=0
@@ -6341,6 +6447,32 @@ C
 !
 	  NB_O=NBAD_CUR
 	  NT_O=NTOT_CUR
+!
+! Newest history residual r_k = g(x_k)-x_k (the pass delta).  On a
+! rejected-mix pass the pair is discarded with the history below.
+!
+	  IF(DO_AA .AND. .NOT. AA_OFF .AND. ALLOCATED(AA_XH))
+	1    AA_RH(1:NI,1:NCF,1)=FLD(1:NI,1:NCF)-AA_XH(1:NI,1:NCF,1)
+!
+! Residual acceptance for the pending AA mix: if this pass did not
+! improve on the pre-mix residual, the accelerated iterate was
+! harmful.  Restore the pre-mix field (the slot-2 map output),
+! clear the history and stop mixing this solve.  Checked before
+! the divergence exit so a poisoned candidate is rejected instead
+! of marking the ray diverged.
+!
+	  IF(AA_PEND)THEN
+	    AA_PEND=.FALSE.
+	    IF(RES .NE. RES .OR. RES .GT. AA_REF)THEN
+	      FLD(1:NI,1:NCF)=AA_XH(1:NI,1:NCF,2)+AA_RH(1:NI,1:NCF,2)
+	      RES=AA_REF
+	      NH_AA=0
+	      AA_OFF=.TRUE.
+!$OMP CRITICAL (KN_AA_UPD)
+	      KN_AA_REJ=KN_AA_REJ+1
+!$OMP END CRITICAL (KN_AA_UPD)
+	    END IF
+	  END IF
 	  IF(ALLOCATED(KN_RES_PASS) .AND. NPO .LE. SIZE(KN_RES_PASS))THEN
 !$OMP CRITICAL (KN_RES_UPD)
 	    KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
@@ -6362,12 +6494,26 @@ C
 	  IF(RES_PREV(1) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(1)
 	    IF(RATIO_OM .GT. 1.05_LDP)THEN
+	      T4=OMEGA_RAY
 	      OMEGA_RAY=MAX(0.45_LDP,OMEGA_RAY*0.7_LDP)
 	    ELSE IF(RATIO_OM .LT. 0.5_LDP)THEN
+	      T4=OMEGA_RAY
 	      OMEGA_RAY=MIN(1.0_LDP,OMEGA_RAY*1.15_LDP)
+	    ELSE
+	      T4=0.0_LDP
 	    END IF
+!
+! An OMEGA_RAY change alters the relaxed map.  Stored pass deltas
+! are omega*(F(x)-x), so for the affine refresh map a rescale to
+! the new omega keeps the history pairs consistent instead of
+! restarting it.
+!
+	    IF(T4 .GT. 0.0_LDP .AND. NH_AA .GT. 0 .AND.
+	1       ALLOCATED(AA_XH))
+	2      AA_RH(1:NI,1:NCF,1:NH_AA)=
+	3      AA_RH(1:NI,1:NCF,1:NH_AA)*OMEGA_RAY/T4
 	    IF(NPO .GE. 8)THEN
-	      IF(RATIO_OM .GT. 0.90_LDP)THEN
+	      IF(RATIO_OM .GT. KN_RAY_STALL)THEN
 	        NSTALL=NSTALL+1
 	      ELSE
 	        NSTALL=0
@@ -6440,10 +6586,133 @@ C
 	      END DO
 	    END DO
 	  END IF
+!
+! Safeguarded type-II Anderson mix (KN_ORD_AA).  Design follows
+! the MOM refresh AA (mom_j_cmf_nonmono_v1.f): the Gram system is
+! built on residuals weighted by the same normalisation as the
+! march metric (1/MAX(|x|,1E-4*column peak)); cells outside the
+! affine regime (weighted residual/secant > AA_GCAP) are excluded
+! from the fit and keep the raw map output.  A small ridge keeps
+! gamma bounded on near-dependent secants; the mixed correction is
+! vetoed when ||corr||>||f||; the per-cell step is capped at
+! 10|r| and non-positive outputs fall back to the map output.
+! An applied mix sets AA_PEND; the next pass either confirms it
+! (RES<=AA_REF) or rolls back above.
+!
+	  IF(DO_AA .AND. .NOT. AA_OFF .AND. ALLOCATED(AA_XH) .AND.
+	1     NH_AA .GE. 2)THEN
+	    MP_AA=NH_AA-1
+	    GRM_AA=0.0_LDP
+	    BRH_AA=0.0_LDP
+	    NAA_SKIP=0_8
+	    DO L=1,NCF
+	      TCOL=MAX(MAXVAL(ABS(FLD(1:NI,L))),1.0E-28_LDP)
+	      DO J=1,NI
+	        WV=1.0_LDP/MAX(ABS(AA_XH(J,L,1)),1.0E-4_LDP*TCOL)
+	        SC=AA_RH(J,L,1)*WV
+	        T1=ABS(SC)
+	        DO JJ=1,MP_AA
+	          T1=MAX(T1,ABS(AA_RH(J,L,1)-AA_RH(J,L,JJ+1))*WV)
+	        END DO
+	        IF(T1 .GT. AA_GCAP)THEN
+	          NAA_SKIP=NAA_SKIP+1
+	          CYCLE
+	        END IF
+	        DO JJ=1,MP_AA
+	          XV=(AA_RH(J,L,1)-AA_RH(J,L,JJ+1))*WV
+	          BRH_AA(JJ)=BRH_AA(JJ)+XV*SC
+	          DO KK=1,JJ
+	            GRM_AA(KK,JJ)=GRM_AA(KK,JJ)+
+	1             XV*(AA_RH(J,L,1)-AA_RH(J,L,KK+1))*WV
+	          END DO
+	        END DO
+	      END DO
+	    END DO
+	    DO JJ=1,MP_AA
+	      DO KK=JJ+1,MP_AA
+	        GRM_AA(JJ,KK)=GRM_AA(KK,JJ)
+	      END DO
+	    END DO
+	    DTR=0.0_LDP
+	    DO JJ=1,MP_AA
+	      DTR=MAX(DTR,GRM_AA(JJ,JJ))
+	    END DO
+	    DTR=1.0E-8_LDP*MAX(DTR,1.0E-30_LDP)
+	    DO JJ=1,MP_AA
+	      GRM_AA(JJ,JJ)=GRM_AA(JJ,JJ)+DTR
+	    END DO
+	    WGR_AA(1:MP_AA,1:MP_AA)=GRM_AA(1:MP_AA,1:MP_AA)
+	    WBR_AA(1:MP_AA)=BRH_AA(1:MP_AA)
+	    IF(INT(NI,8)*INT(NCF,8)-NAA_SKIP .LT.
+	1       MAX(100_8,INT(NI,8)*INT(NCF,8)/1000))THEN
+	      INFO_AA=-999
+	    ELSE
+	      CALL DGESV(MP_AA,1,WGR_AA,8,IPIV_AA,WBR_AA,8,INFO_AA)
+	    END IF
+	    IF(INFO_AA .NE. 0)THEN
+!$OMP CRITICAL (KN_AA_UPD)
+	      KN_AA_SNG=KN_AA_SNG+1
+!$OMP END CRITICAL (KN_AA_UPD)
+	    ELSE
+	      GAM_AA(1:MP_AA)=WBR_AA(1:MP_AA)
+	      FNRM=0.0_LDP
+	      DNRM=0.0_LDP
+	      DO L=1,NCF
+	        TCOL=MAX(MAXVAL(ABS(FLD(1:NI,L))),1.0E-28_LDP)
+	        DO J=1,NI
+	          WV=1.0_LDP/MAX(ABS(AA_XH(J,L,1)),1.0E-4_LDP*TCOL)
+	          IF(ABS(AA_RH(J,L,1))*WV .GT. AA_GCAP)CYCLE
+	          FNRM=FNRM+(AA_RH(J,L,1)*WV)**2
+	          SC=0.0_LDP
+	          DO JJ=1,MP_AA
+	            SC=SC+GAM_AA(JJ)*(FLD(J,L)-AA_XH(J,L,JJ+1)-
+	1             AA_RH(J,L,JJ+1))*WV
+	          END DO
+	          DNRM=DNRM+SC*SC
+	        END DO
+	      END DO
+	      FNRM=SQRT(FNRM)
+	      DNRM=SQRT(DNRM)
+	      IF(DNRM .GT. FNRM)THEN
+!$OMP CRITICAL (KN_AA_UPD)
+	        KN_AA_VETO=KN_AA_VETO+1
+!$OMP END CRITICAL (KN_AA_UPD)
+	      ELSE
+	        DO L=1,NCF
+	          TCOL=MAX(MAXVAL(ABS(FLD(1:NI,L))),1.0E-28_LDP)
+	          DO J=1,NI
+	            WV=1.0_LDP/MAX(ABS(AA_XH(J,L,1)),1.0E-4_LDP*TCOL)
+	            IF(ABS(AA_RH(J,L,1))*WV .GT. AA_GCAP)CYCLE
+	            XV=0.0_LDP
+	            DO JJ=1,MP_AA
+	              XV=XV+GAM_AA(JJ)*(FLD(J,L)-AA_XH(J,L,JJ+1)-
+	1               AA_RH(J,L,JJ+1))
+	            END DO
+	            T4=FLD(J,L)
+	            XV=T4-XV
+	            T3=1.0E+1_LDP*MAX(ABS(AA_RH(J,L,1)),
+	1             1.0E-4_LDP*TCOL)
+	            STEP=T4-XV
+	            IF(ABS(STEP) .GT. T3)XV=T4-SIGN(T3,STEP)
+	            IF(XV .LE. 0.0_LDP .AND. T4 .GT. 0.0_LDP)XV=T4
+	            IF(XV .GT. NONMONO_INEXT_CAP)XV=NONMONO_INEXT_CAP
+	            FLD(J,L)=XV
+	          END DO
+	        END DO
+	        AA_PEND=.TRUE.
+	        AA_REF=RES
+!$OMP CRITICAL (KN_AA_UPD)
+	        KN_AA_APP=KN_AA_APP+1
+!$OMP END CRITICAL (KN_AA_UPD)
+	      END IF
+	    END IF
+	  END IF
 	END DO
 !
 	DEALLOCATE(VMAXF)
 	IF(DO_AIT)DEALLOCATE(FLD_PRV,DLT_PRV)
+	IF(ALLOCATED(AA_XH))DEALLOCATE(AA_XH)
+	IF(ALLOCATED(AA_RH))DEALLOCATE(AA_RH)
 	IF(CLEAN_EXIT)NB_O=0
 	RETURN
 	END
