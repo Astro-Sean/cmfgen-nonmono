@@ -528,10 +528,21 @@ Luc's ~0.91 (ZERO_FLUX state was ~0.94 but on a redder F_lambda SED;
 the UV forest now tracks Luc's band shape rather than sitting ~10-30x
 low). Optical line fluxes normalized at 5500 A are ~2-3x Luc's
 (He II 4686 2.9x, H alpha 2.2x) and the >1 um continuum is ~10-30x
-high; dif2 (job 12169581) continues the checkpoint under Luc's
-clumping (CL_LAW=EXPO, f=0.1, 200 km/s onset), DC_METH=LTE, THK_CONT,
-NOV_CONT, BETA1=0.1, TDOP=1.0 and dielectronic CIII/NIV/OV to test
-whether that closes the residual.
+high; dif2 (jobs 12169581/12169671, checkpoint it687, render job
+12169672) continued under Luc's clumping (CL_LAW=EXPO, f=0.1,
+200 km/s onset), THK_CONT, NOV_CONT, BETA1=0.1, TDOP=1.0. The
+dielectronic flags were dropped (no DIECIII/DIENIV data files in
+this tree) and prepare_VADAT.py forces DC_METH=R on the
+non-monotonic T grid, so Luc's DC_METH=LTE is not reachable.
+dif2 self-terminated at MAXCH 2.6% (EPS_TERM=5e-2). Its render:
+SED fractions uv/opt/nir = 0.83/0.13/0.04 vs Luc 0.80/0.19/0.01;
+line ratios vs Luc: He II 4686 1.33x, H alpha 1.96x, H beta 2.55x,
+He II 5412 2.14x, He I 5876 trough ~7.7x deeper. Residuals: narrow
+line cores vs Luc's broad bumps (morphology, not power), elevated
+NIR continuum, deeper He I absorption. dif3 continues from it687
+with EPS_TERM=1e-3, FIX_T_AUTO=F, DO_T_AUTO=F, NEG_OPAC_OPT=ESEC_CHK.
+INC_CHG=T and the DIE_* flags remain unreachable: no CHG_EXCH_DATA
+or DIE<ION> files exist in this tree.
 
 OBS-only render gotcha: `cmf_flux` segfaults in INDEXX when the dir
 lacks the `POP*` species files (ATM%XzV_PRES all false ->
