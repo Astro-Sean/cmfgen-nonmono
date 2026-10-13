@@ -643,6 +643,41 @@ LIST (jobs 12169283/12169382 segfaulted on this plus the missing
 POPs; override with cmf_flux_param_overrides GLOBAL_PROF=DOPPLER if
 the link cannot be restored).
 
+## OBS inner boundary and V12 sweep floors (13-Oct-2026)
+
+X_SOB 40d OBS renders (`DO_NONMONO_SOB=T`, `DO_NONMONO_KNOP=F`,
+`FG_J_CMF_V12` on clamped `SIGMA`) failed repeatedly with "negative
+mean intensities" at `JNU_STORE(ND)`. The negatives were not sweep
+undershoot: the diffusion inner-boundary seed
+`I_CORE=(ETA_RAY(NI)+DBB*proj)/CHI_RAY(NI)` in `fg_j_cmf_v12.f` went
+negative because `DBB=dB/dR<0` and the inner cells were optically
+thin at low frequency, so `|DBB*proj|` exceeded `ETA_RAY`. A negative
+`I_CORE` seeds the whole outward sweep of every core ray. Root cause:
+the OBS template defaulted `DIF=T`/`THK_CONT=T` while the population
+VADAT ran `DIF=F`/`IB_METH=ZERO_FLUX`/`THK_CONT=F` -- the diffusion
+seed was applied to a model whose inner boundary is a hollow core.
+
+Fixes: `prepare_CMF_PARAM.py` now mirrors `DIF`, `IB_METH` and
+`THK_CONT` from `../VADAT` (fact, not template), so the OBS boundary
+matches the populations and `I_CORE=IC` (TSTAR blackbody, positive).
+`fg_j_cmf_v12.f` additionally floors `I_CORE` at 1E-30 for `DIF=T`
+runs, floors negative swept `I_M`/`I_P` at 1E-30 with the large-value
+diagnostics capped at three per ray (commits 4f72887..b35513e), and
+still hard-stops on `JNU_STORE` negatives above the noise floor.
+`fqcomp_ibc_v2.f` has the same `DBB*sqrt(...)/CHI` diffusion branch
+for the moment-solver boundary: under `ZERO_FLUX` it takes the
+hollow-core branch instead. The sigma floors are unchanged: clamped
+`SIGMA >= -0.999` for V12 (accepted approximation of the paper's
+non-monotonic J routine) and `SIGMA_TRUE` with the
+`max(|1+s*mu^2|, -0.2*(1+s), 1e-4)` Sobolev denominator for lines/EWs.
+
+First completed X_SOB render: job 12176536 (DIF=T + I_CORE floor,
+binary b35513e) ran V12 to completion in ~2 min, no sweep
+diagnostics, and produced `obs_fin_10` with deposited line structure
+(features at H beta, Fe II 5169, H alpha, O I 7774/8446, Ca II
+triplet). Resubmitted under the mirrored `DIF=F`/`ZERO_FLUX`
+boundary for population consistency.
+
 ## Runtime record
 
 - **m15 2.82d** (`dessart_m15_2p82d_SOB.yaml`, job 12001805): stable

@@ -16,14 +16,14 @@ F            [CROSS]
 T            [INC_RAY]
 T            [DO_RELO]
 T            [DO_CMF_RELO]
-T            [DIF]              !Diffusion approx.
+T            [DIF]              !Diffusion approx. (mirrored from ../VADAT by prepare_CMF_PARAM.py; F seeds I_CORE=IC, T seeds the diffusion gradient)
 2            [NUM_ES]		!Number of electron scattering iterations (2 needed for BLANK mode; CMFGEN manual: generally adequate)
 F            [COH_ES]           !Assume coherent electron scattering?
 F            [OLD_J]            !Read old J to provide estiamte of J_ES
 LOGMON       [METHOD]           !Use log interp to compute chi.LOGLOG
 N_ON_J        [N_TYPE]           !How to handle N in MOM_J_CMF (N_ON_J stable at velocity reversals)
 INT/INS      [FG_OPT]
-T            [THK_CONT]         !Thick boundary condition for continuum ?
+T            [THK_CONT]         !Thick boundary condition for continuum ? (mirrored from ../VADAT)
 T            [TRAP_J]           !Use trapazoidal wights to compute J ?
  
 20.0D0       [VTURB_FIX]        !Turbulent Velocity if GLOBAL_PROF=FOP_FIX
