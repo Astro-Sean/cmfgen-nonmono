@@ -84,9 +84,12 @@ The `GS_*` / `MOM_SW_*` sweep-drift metrics (`GS_MAXCHG`,
 table in [[Field maturity and GS freeze]]. Two rules of thumb from
 the run log:
 
-- Refresh residual and `MOM sweep` numbers answer different
-  questions (map self-consistency vs stored-field drift). Do not mix
-  them in gate logic or reporting.
+- FG refresh residual and store churn answer different questions (map
+  self-consistency vs movement from the field populations saw). `GS_NBAD`
+  counts with the same normalized residual used by the ray solver;
+  `GS_NCONV` measures store churn. Do not mix them in gate logic or
+  reporting. MOM refresh and `MOM sweep` metrics likewise measure
+  different fields.
 - Quarantined cells are excluded from `nbad5/nbad50/maxchg` -
   otherwise the residual is pinned by cells that can never update.
 

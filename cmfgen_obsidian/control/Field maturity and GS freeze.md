@@ -31,9 +31,9 @@ Fed by `GET_FG_GS_MATURITY` / `GET_MOM_GS_MATURITY` each sweep:
 
 | Metric | Meaning |
 |---|---|
-| `GS_MAXCHG` | max relative change of the lagged `I_NEXT` store on the last FG refresh |
-| `GS_NBAD` | significant cells still above `KN_RAY_TOL` after refresh |
-| `GS_NCONV` | cells whose stored value moved >50% (store churn) |
+| `GS_MAXCHG` | max normalized FG refresh residual; in-sweep store change is retained only when refresh did not run |
+| `GS_NBAD` | significant cells whose same normalized refresh residual exceeds `KN_RAY_TOL` |
+| `GS_NCONV` | significant stored cells whose fresh value differs by >50% (store churn) |
 | `GS_CAPPED` | writes dropped as non-finite/exploding |
 | `MOM_SW_MAXCHG` | max drift, fresh J solve vs stored `J_NEXT` |
 | `MOM_SW_NBAD5/50` | cells drifting >5% / >50% |
@@ -47,9 +47,14 @@ Thresholds (`solve_for_pops.f`):
   cell is a maturity *candidate*.
 - `GS_UNSAFE_TOL = 0.5` - max change >50% is runaway regardless of
   bulk.
-- Bulk rule: mature when < ~0.1% of **significant** cells are still
-  above tolerance or churning. Significance floor: cells above 1e-4 of
-  the column peak - optically thin tail cells must not dominate.
+- The FG residual is `abs(F(I)-I)/max(I, 1e-4*column_peak)`. `GS_NBAD`
+  counts cells using that exact residual threshold; `GS_NTOT` counts
+  cells above the 1e-4 significance floor. This keeps the residual max,
+  per-ray bulk exit and population gate on the same tolerance measure.
+- Bulk rule: mature when fewer than ~0.1% of **significant** cells are
+  above tolerance or have >50% store churn. The two counts are checked
+  separately. Optically thin tail cells below 1e-4 of the column peak
+  do not dominate either fraction.
 - MOM two-tier gate: **unsafe** tier (veto on everything: >10% capped,
   >1% drifting >50%, >0.01% collapsed, one non-finite, >10%
   negJ/quar) vs **marginal** tier (blocks release, eligible for
@@ -101,9 +106,11 @@ GS_FREEZE       = GS_RAW_IMMATURE OR (N_MATURE < GS_REL_STABLE)
   re-zeroed on every requeue; the first N calls of every process are
   forced Lambda. A BA step against a zeroed store is the classic
   requeue wreck.
-- `GS_RWARM_SKIP`: a validated mature `FGINEXT_GS` checkpoint (store
-  restored, last sweep <5%, no capped writes) skips the warmup - the
-  field really is the fixed point already.
+- `GS_RWARM_SKIP`: a valid `FGINEXT_GS` checkpoint with saved max
+  residual <5% and no capped writes may skip the process warmup. The
+  checkpoint does not store the bulk census; the current iteration's
+  refresh recomputes it before `SOLVE_FOR_POPS` can take a live BA step,
+  so this optimization does not bypass the in-run population gate.
 - `ITS_SINCE_START` (not checkpointed `MAIN_COUNTER`) drives the
   warmup count, matching the process-local store lifetime.
 

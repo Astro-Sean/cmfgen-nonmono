@@ -154,9 +154,12 @@ Thresholds (`solve_for_pops.f`):
   cell is a maturity *candidate*.
 - `GS_UNSAFE_TOL = 0.5` -- a max change >50% is runaway regardless
   of the bulk.
+- FG residual: `abs(F(I)-I)/max(I, 1e-4*column_peak)` on significant
+  cells. `GS_NBAD` uses this same normalized residual and tolerance;
+  `GS_NCONV` separately counts >50% movement in the stored field.
 - Bulk rule: mature when fewer than ~0.1% of significant cells are
-  still above tolerance or churning (a handful of marginally
-  contractive cells must not pin the whole field immature).
+  above tolerance and fewer than ~0.1% have >50% store churn (a handful
+  of marginally contractive cells must not pin the whole field immature).
 - MOM two-tier gate: the **unsafe** tier (veto on everything -- >10%
   capped, >1% drifting >50%, >0.01% collapsed cells, one non-finite
   cell, >10% negJ/quar) vs the **marginal** tier (blocks release but

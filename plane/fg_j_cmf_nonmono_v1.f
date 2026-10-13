@@ -321,19 +321,20 @@
 !                  dump routine, called from SCR_RITE_V2, cannot see
 !                  the routine arguments).
 !
-! FG_GS_MAXCHG  : largest |new-old|/old relative change written into
-!                  I_NEXT during the current sweep (reset each INIT);
-!                  measures how converged the GS lagged field itself is.
+! FG_GS_MAXCHG  : in-sweep store drift until the per-ray refresh runs,
+!                  then the max unrelaxed refresh residual normalized by
+!                  max(old intensity, 1e-4 of the frequency-column peak).
+!                  Reset at INIT; when no refresh runs, the in-sweep
+!                  store-change metric remains as the fallback.
 ! FG_INEXT_CAPPED: count of I_NEXT writes this sweep that hit the
 !                  NONMONO_INEXT_CAP clamp or the non-finite floor.
-! FG_GS_CHG_FILE / FG_GS_CAP_FILE: the same two quantities as recorded
-!                  in the restored checkpoint file (-1 = no file).  The
-!                  warm-up gate in SOLVE_FOR_POPS requires a
-!                  checkpoint that is not merely complete but also
-!                  mature: FG_GS_CHG_FILE < 0.5 and FG_GS_CAP_FILE = 0.
-!                  This separates GS_CHECKPOINT_VALID from
-!                  GS_CHECKPOINT_CONVERGED so that a still-moving field
-!                  does not skip the LAMBDA rebuild.
+! FG_GS_CHG_FILE / FG_GS_CAP_FILE: the refresh max residual and capped
+!                  write count recorded in the restored checkpoint file
+!                  (-1 = no file).  SOLVE_FOR_POPS uses them only to
+!                  decide whether to skip the process warm-up; the fresh
+!                  bulk census still controls every live population step.
+!                  The saved max must be below GS_MATURE_TOL and the
+!                  saved cap count must be zero.
 !
 ! edited by Sean Brennan (16-Sep-2026)
 	LOGICAL, SAVE :: I_NEXT_GS_OK=.FALSE.
@@ -6367,8 +6368,7 @@ C
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
-	          IF(ABS(VNEW-VOLD) .GT. KN_RAY_TOL*
-	1           MAX(VOLD,ABS(VNEW)))NBAD_CUR=NBAD_CUR+1
+	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	        END IF
 	        FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	      END DO
@@ -6411,8 +6411,7 @@ C
 	      RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
-	        IF(ABS(VNEW-VOLD) .GT. KN_RAY_TOL*
-	1         MAX(VOLD,ABS(VNEW)))NBAD_CUR=NBAD_CUR+1
+	        IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	      END IF
 	      FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	    END DO
@@ -6447,8 +6446,7 @@ C
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
-	          IF(ABS(VNEW-VOLD) .GT. KN_RAY_TOL*
-	1           MAX(VOLD,ABS(VNEW)))NBAD_CUR=NBAD_CUR+1
+	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	        END IF
 	        FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	      END DO
@@ -7039,8 +7037,9 @@ C
 ! value and 1e-4 of the frequency-column peak: cells below ~0.01% of
 ! the column maximum carry no measurable flux and would otherwise pin
 ! the max-norm (and hence the maturity gate) at irrelevant floor
-! oscillations.  RESL mirrors the same max restricted to this
-! frequency, for the RES_FREQ block-GS diagnostic.
+! oscillations.  The bad-cell census uses this same normalized
+! residual, so its fraction matches the max-norm tolerance.  RESL
+! mirrors the max restricted to this frequency for block-GS diagnostics.
 	VMAX_L=MAX(MAXVAL(FLD(1:NI,L)),1.0E-25_LDP)
 	RESL=0.0_LDP
 	IF(INWARD)THEN
@@ -7067,8 +7066,8 @@ C
 	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
-	      IF(ABS(VNEW-VOLD) .GT. KN_RAY_TOL*
-	1       MAX(VOLD,ABS(VNEW)))NBAD_CUR=NBAD_CUR+1
+	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
 	    FLD(I+1,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  END DO
@@ -7103,8 +7102,8 @@ C
 	  RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
-	    IF(ABS(VNEW-VOLD) .GT. KN_RAY_TOL*
-	1      MAX(VOLD,ABS(VNEW)))NBAD_CUR=NBAD_CUR+1
+	    IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	1      .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	  END IF
 	  FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  DO I=NI-1,1,-1
@@ -7123,8 +7122,8 @@ C
 	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
-	      IF(ABS(VNEW-VOLD) .GT. KN_RAY_TOL*
-	1       MAX(VOLD,ABS(VNEW)))NBAD_CUR=NBAD_CUR+1
+	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
 	    FLD(I,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  END DO

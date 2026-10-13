@@ -2718,3 +2718,40 @@ Runtime state (commit c288d94, exe relinked 21:30):
 Verification: three files compile clean under viper_intel_nodebug
 flags; make DEBUG=nodebug cmfgen exit 0; 0.98 bit pattern present
 in exe/cmfgen_dev.exe.  Parallel-session edits left unstaged.
+
+## 13-Oct-2026 (evening, part 3) - KNOP field-maturity audit
+
+Audit of `FG_KNOP_REFRESH_V1` -> `GET_FG_GS_MATURITY` ->
+`SOLVE_FOR_POPS` -> `GS_STATE` / submit wrapper found that the ray
+bulk census used `abs(new-old)/max(old,abs(new))`, while the residual
+and tolerance use `abs(new-old)/max(old,1e-4*column_peak)`. The mismatch
+can omit cells just above `KN_RAY_TOL` from both the per-ray bulk-exit
+count and global `GS_NBAD`, allowing a slightly too-early maturity
+pass. Both ordered and legacy sweeps now count with the same normalized
+residual used by their residual metric.
+
+Validation:
+- Synthetic threshold case: for 101/100000 cells with normalized
+  residual 0.002003 at tolerance 0.002, the old count was 0 although
+  the exact count is 101 (> max(50,NTOT/1000)=100); the corrected
+  predicate flags all 101.
+- `plane/fg_j_cmf_nonmono_v1.f` compiles with production Intel flags.
+- `./build.sh` exit 0, including all compile checks and JFNK T1-T3.
+- `unit_tests/python/test_vadat_keys.py`: 32 passed, 0 failed.
+- Existing formal-stall VADAT confirms DO_NONMONO_KNOP=T,
+  KN_RAY_STALL=0.98, GS_REL_STABLE=2, GS_HOLD_POPS=T; its GS_STATE
+  shows frozen=T, held=T, n_mature=0 at it8, consistent with its
+  0.58% above-tolerance fraction still exceeding the 0.1% gate.
+
+Integration caveats: FGINEXT_GS stores only max residual and cap count,
+not the bulk census. This only controls skipping the process warm-up;
+the new sweep's bulk gate runs before SOLVE_FOR_POPS can take a live
+BA step. `GS_NCONV` counts stored compressing-depth cells but is
+thresholded against `GS_NTOT` (the full significant ray census); confirm
+whether that fraction is intentionally defined over the full field or
+should use a separate stored-cell denominator. The wrapper also skips
+its stall check when GS_STATE is absent; consider making that fail
+closed for KNOP jobs.
+
+No patched-binary model run was submitted; the run-level effect of the
+corrected borderline bad-cell census remains unverified.
