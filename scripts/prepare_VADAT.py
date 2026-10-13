@@ -123,6 +123,74 @@ MSUN_CGS = 1.98847e33  # g
 DAY = 86400.0          # s
 LSUN_ERG_S = 3.828e33  # L_sun in erg/s (for LSTAR)
 
+
+def _parse_lstar_lsun(token):
+    """Parse a VADAT-format LSTAR token into L_sun; None if not numeric."""
+    if token is None:
+        return None
+    try:
+        return float(str(token).replace("D", "E").replace("d", "e"))
+    except (TypeError, ValueError):
+        return None
+
+
+def is_luminous_inner_boundary(dif_val, ib_meth_val):
+    """True only when the inner boundary transports the LSTAR flux.
+
+    DIF=T + IB_METH=DIFFUSION is the only combination that injects the
+    hydro luminosity at the inner edge.  ZERO_FLUX, HOLLOW and SCHUSTER
+    carry no net flux, so a luminous model converges with no energy
+    input (X_SOB 40d radiated ~9e39 erg/s against a header LSTAR of
+    8.8e41 erg/s; L=0 at both boundaries all 1692 iterations).
+    """
+    return str(dif_val).strip().upper().startswith("T") and "DIFFUSION" in str(
+        ib_meth_val
+    ).strip().upper()
+
+
+def check_inner_boundary_luminosity(
+    dif_val,
+    ib_meth_val,
+    tau_inner,
+    lstar_lsun,
+    allow_dead=False,
+    line_treatment="BLANK",
+):
+    """Decide whether the inner boundary choice may discard LSTAR.
+
+    Returns (fatal, messages).  fatal is True when a luminous model
+    (lstar_lsun > 0) on an optically thick inner edge selects a
+    flux-discarding boundary without cmfgen.allow_dead_inner_boundary.
+    Callers print messages and abort when fatal is True.
+    """
+    if is_luminous_inner_boundary(dif_val, ib_meth_val):
+        return False, []
+    thresh = 25.0 if str(line_treatment).strip().upper() == "SOB" else 50.0
+    if tau_inner is None or tau_inner < thresh:
+        return False, []
+    msgs = [
+        f"  {dif_val}/{ib_meth_val} inner boundary with "
+        f"tau_inner={tau_inner:.1f} >= {thresh:.0f}: the inner edge is "
+        "optically thick but this boundary carries no flux.",
+        "  DIFFUSION (DIF=T, IB_METH=DIFFUSION) is the standard choice "
+        "for feeding the LSTAR flux through the boundary.",
+    ]
+    if lstar_lsun is not None and lstar_lsun > 0.0 and not allow_dead:
+        msgs.append(
+            f"  LSTAR={lstar_lsun:.3e} L_sun is nonzero: a "
+            "flux-discarding boundary leaves the model with no energy "
+            "source, and the populations converge to a dead solution "
+            "radiating only stored heat."
+        )
+        msgs.append(
+            "  Set DIF=T + IB_METH=DIFFUSION to feed the luminosity, or "
+            "cmfgen.allow_dead_inner_boundary: true to run the dead "
+            "model deliberately."
+        )
+        return True, msgs
+    return False, msgs
+
+
 # Keys that MUST be present in VADAT when either DO_NOMONO_KNOP=T or
 # DO_NOMONO_SOB=T.  Keep in sync with
 # run_model_grid.py:enforce_cmfgen_sn_iin_settings().
@@ -3701,7 +3769,7 @@ def apply_profile(
                                      # THK_CONT=T via vadat_overrides for optically thick models.
             "THK_LINE": "F",            # No thick line BC — inner boundary is optically thin
             "DIF": "F",               # No diffusion approximation — ZERO_FLUX inner boundary (avoids negative DBB from non-monotonic T)
-            "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: I_CORE=I_M(NI); LSTAR still seeds J via LTE estimate
+            "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: carries no LSTAR flux (dead boundary; X_SOB 40d converged to L=0)
             "IB_STAB": "0.1D0",       # Inner boundary stabilization
             "STOP_IF_MW": "F",        # Don't halt on "poor flux" warnings
             "COH_ES": "T",  # electron-scattering source term (T = coherent, F = non-coherent)
@@ -3883,7 +3951,7 @@ def apply_profile(
                                      # optically thin at the outer grid edge (see single_final).
             "THK_LINE": "F",            # No thick line BC at outer boundary
             "DIF": "F",               # No diffusion approximation — ZERO FLUX inner boundary for self-powered models
-            "IB_METH": "ZERO_FLUX",   # Zero flux at inner boundary: I+=I- (reflective); works for interacting SNe with FIX_T=T
+            "IB_METH": "ZERO_FLUX",   # Zero flux inner boundary (I+=I-); carries no LSTAR flux - dead boundary, needs LSTAR=0 or DIFFUSION
             "IB_STAB": "0.1D0",       # Inner boundary stabilization (0.1 for ZERO_FLUX; manual default for non-diffusion)
             "STOP_IF_MW": "F",        # Don't halt on "poor flux" warnings (diagnostic with ZERO_FLUX + VEL_LAW=12; SN_MODEL=.FALSE. normalizes by L[ND])
             "COH_ES": "T",  # electron-scattering source term (T = coherent, F = non-coherent)
@@ -5314,11 +5382,27 @@ def main() -> int:
 
         print()
 
-        # LSTAR: always set from SN_HYDRO_DATA (Energy Lum [lsun]).
-        # This is the blackbody luminosity at the inner boundary (zone behind tau_max=30),
-        # computed by convert_stella_swd_to_cmfgen.py. Not in profile dicts — set here as the single source.
+        # LSTAR: explicit cmfgen.inner_boundary_luminosity_lsun wins;
+        # otherwise take it from SN_HYDRO_DATA (Energy Lum [lsun]).
+        # The header value is the blackbody luminosity at the inner boundary
+        # (zone behind tau_max=30), computed by convert_stella_swd_to_cmfgen.py.
         lstar_token: Optional[str] = None
-        if "energy_lum_lsun" in hydro.params:
+        _lstar_cfg = cmfgen_cfg.get("inner_boundary_luminosity_lsun")
+        if _lstar_cfg is not None:
+            try:
+                val = float(_lstar_cfg)
+            except (TypeError, ValueError):
+                print(
+                    f"  ERROR: cmfgen.inner_boundary_luminosity_lsun="
+                    f"{_lstar_cfg!r} is not numeric",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            profile_changes = [c for c in profile_changes if not (c.strip().startswith("LSTAR:") and " -> " in c)]
+            lstar_token = f"{val:.6E}".replace("E", "D")
+            set_or_append_keyword(lines, "LSTAR", lstar_token)
+            profile_changes.append(f"LSTAR: from cmfgen.inner_boundary_luminosity_lsun = {val:.6e} L_sun (explicit)")
+        elif "energy_lum_lsun" in hydro.params:
             profile_changes = [c for c in profile_changes if not (c.strip().startswith("LSTAR:") and " -> " in c)]
             val = float(hydro.params["energy_lum_lsun"])
             lstar_token = f"{val:.6E}".replace("E", "D")
@@ -5345,12 +5429,11 @@ def main() -> int:
         # negative, producing negative mean intensities and halting CMFGEN.
         #
         # ZERO_FLUX (DIF=F, IB_METH=ZERO_FLUX) sets I_CORE = I_M(NI,LS),
-        # the local mean intensity — no DBB, no DTDR dependency. This is
-        # the correct physical choice when there is no net inward diffusive
-        # flux (i.e., the inner boundary is not deep in a hot region with
-        # T increasing inward). LSTAR still seeds the radiation field via
-        # the initial LTE estimate; ZERO_FLUX only changes the formal
-        # solution's inner ray boundary, not the luminosity normalization.
+        # the local mean intensity — no DBB, no DTDR dependency. It is
+        # only consistent for a genuinely dead inner boundary (LSTAR=0):
+        # the boundary carries no flux, so a nonzero LSTAR is discarded
+        # and the model converges with no energy input (X_SOB 40d: L=0
+        # at both boundaries for all 1692 iterations).
         #
         # However, the converged X model used DIF=T/DIFFUSION with tau_inner=67.
         # If the config explicitly sets DIF/IB_METH, respect those overrides.
@@ -5391,21 +5474,32 @@ def main() -> int:
                 print(f"             DIF: F")
                 print(f"             IB_METH: ZERO_FLUX")
                 print(f"             IB_STAB: 0.1D0")
-            # Warn the opposite mismatch too: an explicitly thin boundary
-            # (DIF=F / IB_METH=ZERO_FLUX) on an optically thick inner
-            # boundary discards the diffusion flux seed LSTAR is meant to
-            # supply (the m15 SOB run diverged on ZERO_FLUX at tau_es~37;
-            # job 12001805 converged with DIFFUSION + header LSTAR).
-            # Respect the override but flag it.
-            _dif_tau_thresh_ovr = 25.0 if non_mono_line_treatment == 'SOB' else 50.0
-            _thin_ib = (not dif_val.upper().startswith("T")) or ("ZERO" in ib_val.upper())
-            if _thin_ib and _tau_at_ib >= _dif_tau_thresh_ovr:
-                print(f"  WARNING: {dif_val}/{ib_val} override with "
-                      f"tau_inner={_tau_at_ib:.1f} >= {_dif_tau_thresh_ovr:.0f} --")
-                print(f"           the inner boundary is optically thick; DIFFUSION "
-                      f"(DIF=T, IB_METH=DIFFUSION)")
-                print(f"           is the standard choice for feeding the LSTAR flux "
-                      f"through the boundary. Override kept.")
+            # The opposite mismatch is now guarded, not just warned: an
+            # explicitly flux-discarding boundary on an optically thick
+            # inner edge leaves a luminous model with no energy source
+            # (the m15 SOB run diverged on ZERO_FLUX at tau_es~37, job
+            # 12001805 converged with DIFFUSION + header LSTAR; the X_SOB
+            # 40d ZERO_FLUX run converged with L=0 and rendered ~100x
+            # under-luminous).  A nonzero effective LSTAR refuses unless
+            # cmfgen.allow_dead_inner_boundary: true.
+            _lstar_eff = _parse_lstar_lsun(
+                vadat_overrides.get("LSTAR") or lstar_token
+            )
+            _ib_fatal, _ib_msgs = check_inner_boundary_luminosity(
+                dif_val,
+                ib_val,
+                _tau_at_ib,
+                _lstar_eff,
+                allow_dead=bool(cmfgen_cfg.get("allow_dead_inner_boundary", False)),
+                line_treatment=non_mono_line_treatment,
+            )
+            if _ib_msgs:
+                _sev = "ERROR" if _ib_fatal else "WARNING"
+                print(f"  {_sev}: {_ib_msgs[0].strip()}")
+                for _m in _ib_msgs[1:]:
+                    print(_m)
+            if _ib_fatal:
+                sys.exit(1)
         elif lstar_token is not None:
             # Auto-decide DIF/IB_METH based on the inner boundary optical depth.
             # DIF=T/IB_METH=DIFFUSION is the physically correct choice when

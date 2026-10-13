@@ -114,6 +114,7 @@ try:
         NON_MONO_FORCED_VADAT,
         NON_MONO_SOB_RECOMMENDED,
         build_non_mono_forced_vadat,
+        check_inner_boundary_luminosity,
         refine_rdinr_velocity_jumps,
         refine_rdinr_boundaries,
     )
@@ -123,12 +124,14 @@ except ImportError:
             NON_MONO_FORCED_VADAT,
             NON_MONO_SOB_RECOMMENDED,
             build_non_mono_forced_vadat,
+            check_inner_boundary_luminosity,
             refine_rdinr_velocity_jumps,
             refine_rdinr_boundaries,
         )
     except ImportError:
         NON_MONO_FORCED_VADAT = _NON_MONO_FORCED_VADAT_FALLBACK
         NON_MONO_SOB_RECOMMENDED = {}
+        check_inner_boundary_luminosity = None
         refine_rdinr_velocity_jumps = None
         refine_rdinr_boundaries = None
 
@@ -5242,6 +5245,79 @@ def build_cmfgen_conversion_cmd(config, scripts_dir, project_dir, day):
     )
 
     return cmd
+
+
+def guard_inner_boundary_luminosity(config, project_dir, day):
+    """Refuse submission of a luminous model with a flux-discarding inner
+    boundary.
+
+    Submit-time mirror of the prepare_VADAT enforcement, possible only
+    when SN_HYDRO_DATA already exists on disk (the header carries the
+    Energy Lum and inner-boundary tau).  The effective luminosity is
+    cmfgen.inner_boundary_luminosity_lsun, else vadat_overrides LSTAR,
+    else the SN_HYDRO_DATA header value.  Returns False when the
+    resolved config would converge a luminous model with zero boundary
+    flux; True when the boundary is luminous, the tau is thin, or the
+    inputs needed for the check are unavailable (the in-job
+    prepare_VADAT enforces the same rule once VADAT is written).
+    """
+    if check_inner_boundary_luminosity is None:
+        return True
+    cmfgen_cfg = config.get("cmfgen", {}) or {}
+    vadat_overrides = cmfgen_cfg.get("vadat_overrides", {}) or {}
+    dif_val = vadat_overrides.get("DIF")
+    ib_val = vadat_overrides.get("IB_METH")
+    if dif_val is None and ib_val is None:
+        return True  # prepare_VADAT auto-selects from tau_inner
+    model_name = config.get("model_name", "unknown")
+    model_dir = (
+        config.get("output", {})
+        .get("model_dir", "../models/${model_name}")
+        .replace("${model_name}", model_name)
+    )
+    sn_hydro = (
+        (project_dir / model_dir).absolute()
+        / "cmfgen"
+        / f"{day:.2f}days"
+        / "SN_HYDRO_DATA"
+    )
+    if not sn_hydro.exists():
+        return True  # in-job prepare_VADAT enforces once VADAT is written
+    lum_lsun = tau_inner = None
+    for line in sn_hydro.read_text().splitlines()[:40]:
+        s = line.strip()
+        if s.startswith("Energy Lum"):
+            try:
+                lum_lsun = float(s.split(":")[-1])
+            except ValueError:
+                pass
+        elif s.startswith("Inner boundary Rosseland tau"):
+            try:
+                tau_inner = float(s.split(":")[-1])
+            except ValueError:
+                pass
+    lstar_eff = cmfgen_cfg.get("inner_boundary_luminosity_lsun")
+    if lstar_eff is None:
+        lstar_eff = vadat_overrides.get("LSTAR")
+    if lstar_eff is not None:
+        try:
+            lum_lsun = float(str(lstar_eff).replace("D", "E").replace("d", "e"))
+        except (TypeError, ValueError):
+            pass
+    non_mono_lt = cmfgen_cfg.get("non_mono_mode") or cmfgen_cfg.get(
+        "non_mono_line_treatment", "BLANK"
+    )
+    fatal, msgs = check_inner_boundary_luminosity(
+        dif_val or "F",
+        ib_val or "ZERO_FLUX",
+        tau_inner,
+        lum_lsun,
+        allow_dead=bool(cmfgen_cfg.get("allow_dead_inner_boundary", False)),
+        line_treatment=non_mono_lt,
+    )
+    for m in msgs:
+        print(f"  {'ERROR' if fatal else 'WARNING'}: {m.strip()}")
+    return not fatal
 
 
 def optimize_model_spec_from_hydro(config, scripts_dir, project_dir, day):
@@ -11534,6 +11610,18 @@ def process_config(
         # ions are needed and why.
         if run_cmfgen and single_day is not None:
             optimize_model_spec_from_hydro(config, scripts_dir, project_dir, single_day)
+            # A non-DIFFUSION boundary on an optically thick edge
+            # discards the header LSTAR (the X_SOB 40d model converged
+            # with L=0 and rendered ~100x under-luminous).  Refuse the
+            # submission now rather than fail inside the queued job.
+            if not guard_inner_boundary_luminosity(
+                config, project_dir, single_day
+            ):
+                print(
+                    "  ERROR: refusing submission -- luminous model "
+                    "with a flux-discarding inner boundary"
+                )
+                return None
     else:
         single_day = None  # Set later in time-series loop
 
