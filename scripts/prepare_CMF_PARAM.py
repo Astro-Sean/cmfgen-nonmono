@@ -45,38 +45,27 @@ restricted to keys that cmf_flux.exe actually reads (rd_cmf_flux_controls.f).
 Main-run-only keys (VEL_LAW, RD_IN_R_GRID, PURE_HUB, AUTO_SMOOTH,
 MAX_CHNG, LAM_SCALE_OPT, etc.) are not applicable to the OBS stage.
 
-The BLANK set is for Knop populations (DO_NONMONO_KNOP). The line
-treatment applied to CMF_FLUX_PARAM is mirrored from ../VADAT — the
-config the population solver actually executed (fact, not YAML intent).
-GLOBAL_LINE, every TRANS_*, DO_SOB_LINES, SOB_FREQ_IN_OBS, DO_*SOB* and
-LAM_SET are copied over; TRANS_* keys absent from VADAT inherit VADAT's
-GLOBAL_LINE, matching solver semantics.  When VADAT is unreadable the
-YAML mode detection is the fallback.
+The line treatment applied to CMF_FLUX_PARAM is mirrored from ../VADAT,
+the config the population solver actually executed. GLOBAL_LINE, every
+TRANS_*, DO_SOB_LINES, SOB_FREQ_IN_OBS, DO_*SOB* and LAM_SET are copied
+over; TRANS_* keys absent from VADAT inherit VADAT's GLOBAL_LINE. When
+VADAT is unreadable, YAML mode detection is the fallback. CMF_FLUX Knop
+OBS is unsupported after the 13-Oct-2026 return to the stock formal
+solver; prepare_CMF_PARAM.py rejects Knop population snapshots.
 
-SOB population runs default to the resolved Sobolev render: VADAT's
-GLOBAL_LINE/TRANS_*/DO_*SOB* are mirrored so the OBS treats lines by
-the same Sobolev method the populations used, and DO_NONMONO_KNOP=F
-keeps the formal J on FG_J_CMF_V12 with the clamped SIGMA — the same
-solver and field the population continuum converged under (Dessart,
-Audit & Hillier 2015, Sec. 3.1).  The flux-mode keys are set for
-profile injection — DO_SOB_LINES=T computes each line's
-Sobolev opacity/emissivity and EW (SIGMA_TRUE under DO_NONMONO_SOB),
-SOB_FREQ_IN_OBS=T refines the observed grid across each resonance zone,
-and DO_SOB_FLUX_OBS=T writes each SOB line's opacity/emissivity into the
-stored CMF arrays with a Doppler core and re-runs OBS_FRAME_SUB_V9, so
-the observer's-frame formal integral renders resolved line profiles
-(ADD_SOB_LINE_PROF in cmf_flux_sub_v5.f; Dessart et al. 2015, Sec. 3.1).
-Without the injection, TRANS_*=SOB lines never enter the formal
-transfer and the spectrum is continuum-only — verified empirically (the
-F/F combination Luc Dessart's VADAT carries produces 815 continuum
-frequencies and no lines in this cmf_flux version).
-cmfgen.obs_line_treatment selects: 'sob' (default for SOB models, the
-deposited render above), 'sob_ew' (EW diagnostic: same T/T flags but
-DO_SOB_FLUX_OBS=F, so EWDATA is produced but OBS_FLUX stays
-continuum-only), or 'blank' (NON_MONO_SOB_BLANK_CMF_PARAM: full CMF
-line profiles on the resolved grid — a different, more expensive line
-method than the populations used, and the render for KNOP runs).  The
-YAML-mode fallback maps 'sob' to NON_MONO_SOB_RESOLVED_CMF_PARAM.
+SOB population runs default to the resolved Sobolev render. The flux-
+mode keys are set for profile injection: DO_SOB_LINES=T computes each
+line's Sobolev opacity/emissivity and EW, SOB_FREQ_IN_OBS=T refines the
+observed grid across resonance zones, and DO_SOB_FLUX_OBS=T writes each
+SOB line's opacity/emissivity into the stored CMF arrays with a Doppler
+core and re-runs OBS_FRAME_SUB_V9. This renders resolved profiles through
+the observer-frame integral (ADD_SOB_LINE_PROF in cmf_flux_sub_v5.f;
+Dessart et al. 2015, Sec. 3.1). Without injection, TRANS_*=SOB lines
+never enter the formal transfer and the spectrum is continuum-only.
+cmfgen.obs_line_treatment selects: 'sob' (default, deposited render),
+'sob_ew' (EWDATA diagnostic only), or 'blank' (stock CMF line profiles
+as a comparison render, without the Knop formal-J solver). The YAML
+fallback maps 'sob' to NON_MONO_SOB_RESOLVED_CMF_PARAM.
 
 Usage:
   # Default: read CMF_FLUX_PARAM_INIT in cwd, enforce, overwrite in-place
@@ -124,8 +113,7 @@ from pathlib import Path
 # for all keys that cmf_flux.exe reads (rd_cmf_flux_controls.f).
 # ==============================================================================
 NON_MONO_FORCED_CMF_PARAM = {
-    # ── Non-monotonic solver core ──────────────────────────────────
-    'NON_MONO_SOLVER': 'T',
+    # ── Continuum formal-solver controls ───────────────────────────
     'USE_LAM_ES': 'T',
     'N_TYPE': 'N_ON_J',
     'FG_OPT': 'INT/INS',
@@ -237,13 +225,11 @@ NON_MONO_FORCED_CMF_PARAM = {
 # version.  Diagnostic only (EWDATA output); select with
 # cmfgen.obs_line_treatment='sob_ew'.
 #
-# DO_NONMONO_KNOP stays F: SOB populations converge with the standard
-# formal solver on the clamped SIGMA (Dessart, Audit & Hillier 2015),
-# so the OBS J must come from FG_J_CMF_V12 on the same field.  Stamping
-# Knop here would render on a different J field than the populations.
+# SOB populations converge with the standard formal solver on clamped
+# SIGMA (Dessart, Audit & Hillier 2015). The stock OBS formal solver
+# stays on that same field; this CMF_FLUX tree has no Knop OBS path.
 NON_MONO_SOB_CMF_PARAM = {
     **NON_MONO_FORCED_CMF_PARAM,
-    'DO_NONMONO_KNOP': 'F',
     'DO_NONMONO_SOB': 'T',
     'GLOBAL_LINE': 'SOB',
     'DO_SOB_LINES': 'T',
@@ -266,18 +252,13 @@ NON_MONO_SOB_RESOLVED_CMF_PARAM = {
     'DO_SOB_FLUX_OBS': 'T',
 }
 
-# SOB populations can instead take the blanketed CMF line treatment.
-# The Knop formal J still handles the non-monotonic velocity field, but
-# lines enter the observed-frame grid with resolved profiles, giving a
-# spectrum directly comparable to reference CMF spectra (e.g. the
-# Dessart .fl files).  The Sobolev-rendered spectrum smears each line
-# over its resonance surfaces, which cannot match a CMF spectrum.
-# Select with cmfgen.obs_line_treatment='blank'.  DO_CMF_EW must stay
-# off: rd_cmf_flux_controls.f STOPs when the CMF EW estimator is asked
-# to clamp SIGMA on a non-monotonic field.
+# SOB populations can instead use stock CMF line profiles as a
+# comparison render. This mode does not enable a non-monotonic formal-J
+# solver; use it only when the clamped-SIGMA stock continuum path is
+# suitable for the snapshot. Select with
+# cmfgen.obs_line_treatment='blank'.
 NON_MONO_SOB_BLANK_CMF_PARAM = {
     **NON_MONO_FORCED_CMF_PARAM,
-    'DO_NONMONO_KNOP': 'T',
     'DO_NONMONO_SOB': 'F',
     'DO_CMF_EW': 'F',
 }
@@ -292,11 +273,9 @@ LINE_TREATMENT_KEYS = {
     'DO_NOMONO_SOB', 'DO_NONMONO_SOB', 'DO_NONLOC_SOB', 'LAM_SET',
 }
 
-# VADAT flags that mark the population run as non-monotonic.  The OBS
-# formal-J solver must match the mode the populations used: Knop runs
-# get DO_NONMONO_KNOP=T (FG_J_CMF_NONMONO_V1); SOB runs get
-# DO_NONMONO_KNOP=F so the J stays on the clamped SIGMA via
-# FG_J_CMF_V12, the solver the population continuum converged with.
+# VADAT flags used to identify non-monotonic population modes. Knop
+# populations are rejected by the OBS preparer because this CMF_FLUX
+# tree no longer includes the Knop formal-J extension.
 NON_MONO_FLAG_KEYS = {
     'DO_NONMONO_KNOP', 'DO_NOMONO_KNOP',
     'DO_NONMONO_SOB', 'DO_NOMONO_SOB', 'NON_MONO_SOLVER',
@@ -407,11 +386,10 @@ def obs_line_treatment(config_path):
     second OBS_FRAME_SUB_V9 pass renders resolved profiles.
     'sob_ew' opts into the EW diagnostic: same T/T flux-mode keys but
     DO_SOB_FLUX_OBS=F, so EWDATA is written while OBS_FLUX stays
-    continuum-only.  'blank' opts into full blanketed CMF line
-    profiles on the resolved grid — the render used for KNOP runs and
-    .fl comparison work (~tens of minutes).  Only read when the
-    population mode is SOB; monotonic and KNOP runs always use the
-    BLANK set.
+    continuum-only. 'blank' opts into stock CMF line profiles on the
+    resolved grid as a comparison render for SOB populations. This
+    option does not enable the removed Knop OBS formal solver. Only read
+    when the population mode is SOB; monotonic runs always use BLANK.
     """
     try:
         import yaml
@@ -433,12 +411,10 @@ def obs_line_treatment(config_path):
 
 
 def knop_mode_active(config_path):
-    """True when the config requests the dev7 Knop non-monotonic path.
+    """True when the config requests unsupported Knop CMF_FLUX OBS.
 
-    Mirrors sob_mode_active: cmfgen.non_mono_mode='KNOP' (primary), or
-    an explicit vadat_overrides DO_NONMONO_KNOP/DO_NOMONO_KNOP=T.  The
-    OBS flag switches the CMF formal J solve to FG_J_CMF_NONMONO_V1;
-    required when sigma < -1, where FG_J_CMF_V12 aborts.
+    The CMFGEN population solver can still use Knop. This function only
+    detects configs that the stock CMF_FLUX OBS stage must reject.
     """
     try:
         import yaml
@@ -771,7 +747,7 @@ def main():
         forced_set = NON_MONO_SOB_BLANK_CMF_PARAM
         lines = _apply_forced_keys(lines, forced_set,
                                    tag="NON_MONO_SOB_BLANK")
-        print("  non-mono SOB mode, blank OBS: Knop formal J with "
+        print("  non-mono SOB mode, blank OBS: stock formal J with "
               "GLOBAL_LINE=BLANK, TRANS_*=BLANK (resolved CMF profiles)")
     elif vadat_lt is not None:
         vadat_applied = True
@@ -805,29 +781,16 @@ def main():
               f"SOB_FREQ_IN_OBS="
               f"{vadat_lt.get('SOB_FREQ_IN_OBS', '(unset)')}")
         if nonmono_in_vadat:
-            # Match the OBS formal J to the population mode.  KNOP
-            # populations converged with FG_J_CMF_NONMONO_V1 on the
-            # unclamped field; SOB populations converged with the
-            # standard solver on clamped SIGMA, so the OBS render uses
-            # FG_J_CMF_V12 on that same field (Dessart et al. 2015).
-            # DO_CMF_EW=F in both cases: the CMF EW estimator divides
-            # by GAM and is not defined for non-monotonic fields.
-            if _vadat_sob(vadat_lt):
-                knop = 'F'
-            else:
-                knop = 'T'
+            if not _vadat_sob(vadat_lt or {}):
+                raise SystemExit(
+                    "CMF_FLUX Knop OBS support was removed when the flux "
+                    "solver was restored to stock. Use a SOB population "
+                    "model or select a compatible CMFGEN executable."
+                )
             lines = _apply_forced_keys(
-                lines, {'DO_NONMONO_KNOP': knop, 'DO_CMF_EW': 'F'},
-                tag="NON_MONO_VADAT")
-            if knop == 'T':
-                print("  non-monotonic KNOP population run: "
-                      "DO_NONMONO_KNOP=T (FG_J_CMF_NONMONO_V1 formal J), "
-                      "DO_CMF_EW=F")
-            else:
-                print("  non-monotonic SOB population run: "
-                      "DO_NONMONO_KNOP=F (FG_J_CMF_V12 formal J on "
-                      "clamped SIGMA, matching the populations), "
-                      "DO_CMF_EW=F")
+                lines, {'DO_CMF_EW': 'F'}, tag="NON_MONO_VADAT")
+            print("  non-monotonic SOB population run: "
+                  "stock FG_J_CMF_V12 on clamped SIGMA, DO_CMF_EW=F")
     elif sob_mode:
         if obs_lt == 'sob_ew':
             forced_set = NON_MONO_SOB_CMF_PARAM
@@ -847,15 +810,12 @@ def main():
         forced_set = NON_MONO_FORCED_CMF_PARAM
         lines = _apply_forced_keys(lines, forced_set)
 
-    # dev7 Knop flag: T only when the main run used FG_J_CMF_NONMONO_V1.
-    # Must not be stamped unconditionally — monotonic OBS runs must keep
-    # the standard FG_J_CMF_V12 path.  Skipped on the VADAT-mirror path,
-    # which derives it from the population run's own non-mono flags.
     if not vadat_applied and knop_mode_active(args.vadat_overrides):
-        lines = _apply_forced_keys(
-            lines, {'DO_NONMONO_KNOP': 'T'}, tag="NON_MONO_KNOP")
-        print("  non-mono KNOP mode: DO_NONMONO_KNOP=T stamped "
-              "(formal J uses FG_J_CMF_NONMONO_V1)")
+        raise SystemExit(
+            "CMF_FLUX Knop OBS support was removed when the flux solver "
+            "was restored to stock. Use a SOB population model or select "
+            "a compatible CMFGEN executable."
+        )
 
     # 1c. Non-coherent ES companions.  Gate on the OBS param's own
     # COH_ES, not VADAT's: population runs commonly solve coherent ES
