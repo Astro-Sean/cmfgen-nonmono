@@ -672,11 +672,22 @@ non-monotonic J routine) and `SIGMA_TRUE` with the
 `max(|1+s*mu^2|, -0.2*(1+s), 1e-4)` Sobolev denominator for lines/EWs.
 
 First completed X_SOB render: job 12176536 (DIF=T + I_CORE floor,
-binary b35513e) ran V12 to completion in ~2 min, no sweep
-diagnostics, and produced `obs_fin_10` with deposited line structure
-(features at H beta, Fe II 5169, H alpha, O I 7774/8446, Ca II
-triplet). Resubmitted under the mirrored `DIF=F`/`ZERO_FLUX`
-boundary for population consistency.
+binary b35513e) ran V12 to the observer-frame pass in ~2 min, no
+sweep diagnostics, but then STOPped in `FQCOM_IBC_V2` (-ve
+intensities, the same DBB diffusion branch) after writing OBSFRAME;
+its obs_fin_10 showed a mostly-smooth, ~1E-4 spectrum consistent
+with a pre-deposition or truncated render.
+
+Corrected render: job 12176788 under the mirrored
+`DIF=F`/`IB_METH=ZERO_FLUX`/`THK_CONT=F` boundary took the
+hollow-core path (`I_CORE=IC`), ran V12 plus both ES iterations and
+the SOB injection (26352 masing cells dropped, injected emissivity
+4.3E7) through all 111 OBS_FRAME passes to `CMF_FLUX has finished`
+in ~3 min. obs_fin_10 carries full deposited line structure (strong
+P-Cygni features across 3900-9000 A; plot:
+cmfgen/40.00days/plots/X_SOB_40.00days_obs_spectrum.png). The DIF=T
+spectrum was not preserved (outputs copy overwritten), so a direct
+boundary-sensitivity diff is not available.
 
 ## Runtime record
 
