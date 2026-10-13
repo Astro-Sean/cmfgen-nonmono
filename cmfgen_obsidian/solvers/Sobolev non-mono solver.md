@@ -420,6 +420,36 @@ discontinuity damping cannot smooth.  match=0/10.8M, off=0,
 nmax=1: every compressing upwind read is adjacent and matched --
 no frequency-matching defect remains.
 
+**FAC_RLX probe (job 12172504, commit d2f8d11).**  With pops held,
+`GET_MOMS_NON_REL` snapping `K_ON_J`/`NMID_ON_*` to the fresh
+formal field each great iteration was the only channel still moving
+the lagged map's fixed point; `MOM_FAC_RLX=0.5` blends the update
+into the prior factor store.  Effect was immediate: retained
+refresh delta fell ~1E4 -> 18-90 by it6-17, retained n50 settled
+1.4-4.4k (bound 11952), and sweep n50 fell 22.6M -> ~1.1E5 with
+`mom_bad5_frac` crossing under the 10% BROAD gate.  What did NOT
+clear: the per-pass n50 pinned at ~12.2k owned compressing cells
+(threshold 11952) and `cap` ~120-360/pass.
+
+**cap source corrected (14-Oct-2026).**  The per-pass `cap` is not
+stale store poison: it counts `MOM_INEXT_CAPPED`, which on this
+model is `N_QBND` -- fresh per-cell solve rejections (non-finite
+or >1E3x-fallback runaway XM) quarantined to `XM_FB` each pass.
+The write guards already keep non-finite values out of the store,
+so the refresh-start heal added in 6ce1440 finds zero entries on a
+clean run; it only matters for externally-poisoned checkpoints.
+~120 cells produce rejected solves every pass and block the
+bulk-exit's `PASS_CAP==0` clause; on this field they are likely
+irreducible (marginal `1+sigma*K ~ 0` rows), so refresh `conv=T`
+may be unreachable -- the designed exit is the `MOM_TRIAL`
+marginal-release gate: at `n_frozen>=MOM_TRIAL_MIN(30)` with
+UNSAFE/BROAD/FG_IMMATURE/LUM all clear it takes a resacc-gated BA
+step.  n_frozen survives requeue via GS_STATE (adopted on the
+first call of a restarted segment).  The FAC_RLX factor store
+itself is NOT checkpointed -- a requeue re-seeds it from the snap,
+costing one iteration of transient (observed it13 post-requeue
+retained n50 20770 vs ~4k baseline) but not resetting n_frozen.
+
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
 under `USE_LAM_ES=F`; a warm restart from `probe_snap` died in
