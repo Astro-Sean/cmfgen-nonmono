@@ -2526,3 +2526,15 @@ through run_model_grid.py as FINAL 12177191 (warm_restart=T reuses
 the converged starved checkpoint) + chained OBS 12177192. OBS will
 mirror DIF=T/DIFFUSION; the V12 I_CORE floor protects the negative-
 diffusion-seed case there.
+
+Same session: pipeline luminosity guard (commit 4543df3d).
+prepare_VADAT stamps LSTAR with precedence
+cmfgen.inner_boundary_luminosity_lsun > SN_HYDRO_DATA header >
+lum.xg, and check_inner_boundary_luminosity() refuses a
+non-DIFFUSION boundary when LSTAR>0 and tau_inner>=thresh (25 SOB /
+50 otherwise) unless cmfgen.allow_dead_inner_boundary: true.
+run_model_grid.guard_inner_boundary_luminosity runs the same check
+at submit when SN_HYDRO_DATA exists, so contradictory configs fail
+before queueing. Sibling SN_B_X_grid yamls still carry
+DIF=F/IB_METH=ZERO_FLUX and will now refuse until repowered or
+acknowledged.
