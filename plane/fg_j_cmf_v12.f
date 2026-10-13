@@ -1377,6 +1377,17 @@ C
 	    IF(DIF .AND. LS .LE. NC)THEN
 	      I_CORE=( ETA_RAY(NI)+
 	1         DBB*SQRT(R(ND)*R(ND)-P(LS)*P(LS))/R(ND) )/CHI_RAY(NI)
+!
+! The DBB term is the diffusion correction to the boundary
+! intensity; it scales with the T gradient, not the opacity, so
+! where the inner boundary is optically thin (e.g. the hollow
+! core of a non-monotonic SN model at low frequency) |DBB| can
+! exceed ETA_RAY and I_CORE comes out negative.  That seeds the
+! whole outward sweep with an unphysical intensity, which then
+! dominates JNU at the deepest depths.  Floor it at zero - the
+! hollow-core (DIF off) limit this model tends to.
+!
+	      I_CORE=MAX(I_CORE,1.0E-30_LDP)
 	    ELSE
 	      I_CORE=IC
 	    END IF
@@ -1532,15 +1543,18 @@ C
 ! boundary value is ~0 and the -dS terms dominate.  Intensity is
 ! bounded below by 0, so every negative is repaired to a small
 ! positive floor and counted, as in FG_J_CMF_NONMONO_V1 (N_NEG_INT).
-! Negatives larger than the underflow scale keep their diagnostic
-! output so a genuine solver failure remains visible in OUT_FLUX.
+! Negatives larger than the underflow scale print their diagnostic
+! block for the first few ray points, so a genuine solver failure
+! stays visible in OUT_FLUX without flooding it.
 !
 	    N_NEG_INT_RAY=0
 	    NEG_INT_LIM=MAX(1.0E-28_LDP,
 	1                  0.25_LDP*MAXVAL(ABS(SOURCE_PRIME(1:NI))))
 	    DO I=1,NI-1
 	      IF(I_M(I+1,LS) .LT. 0)THEN
-	        IF(ABS(I_M(I+1,LS)) .GT. NEG_INT_LIM)THEN
+	        N_NEG_INT_RAY=N_NEG_INT_RAY+1
+	        IF(ABS(I_M(I+1,LS)) .GT. NEG_INT_LIM .AND.
+	1             N_NEG_INT_RAY .LE. 3)THEN
 	          WRITE(6,*)'Error for I_M, LS=',LS,ND,NI,FREQ
 	          WRITE(6,'(2X,A,13(8X,A))')'I','IMP1','IMPR','DTAU','   Q',
 	1                     '  SI','SIP1',' dSI','dSIP',
@@ -1550,7 +1564,6 @@ C
 	1                   A0(I,LS),A1(I,LS),A2(I,LS),A3(I,LS),A4(I,LS)
 	        END IF
 	        I_M(I+1,LS)=1.0E-30_LDP
-	        N_NEG_INT_RAY=N_NEG_INT_RAY+1
 	      END IF
 	    END DO
 	    IF(N_NEG_INT_RAY .GT. 0)WRITE(6,'(A,I5,A,I4)')
@@ -1606,7 +1619,9 @@ C
 	1                  0.25_LDP*MAXVAL(ABS(SOURCE_PRIME(1:NI))))
 	    DO I=1,NI
 	      IF(I_P(I,LS) .LT. 0)THEN
-	        IF(ABS(I_P(I,LS)) .GT. NEG_INT_LIM)THEN
+	        N_NEG_INT_RAY=N_NEG_INT_RAY+1
+	        IF(ABS(I_P(I,LS)) .GT. NEG_INT_LIM .AND.
+	1             N_NEG_INT_RAY .LE. 3)THEN
 	          WRITE(6,*)'Error for I_P, LS=',LS,ND,NI
 	          WRITE(6,'(2X,A,11(7X,A))')'I','  IM',' IMP','DTAU','   Q','   S','  dS',
 	1                     '  A0','  A1','  A2','  A3','  A4'
@@ -1615,7 +1630,6 @@ C
 	1                   A0(I,LS),A1(I,LS),A2(I,LS),A3(I,LS),A3(I,LS)
 	        END IF
 	        I_P(I,LS)=1.0E-30_LDP
-	        N_NEG_INT_RAY=N_NEG_INT_RAY+1
 	      END IF
 	    END DO
 	    IF(N_NEG_INT_RAY .GT. 0)WRITE(6,'(A,I5,A,I4)')
