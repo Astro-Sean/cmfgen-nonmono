@@ -1666,6 +1666,25 @@ C
 	  END DO
 	END DO
 !
+! The swept integration can carry J slightly below zero where the
+! transported intensity sits at the underflow floor - e.g. the opaque
+! inner boundary of a non-monotonic model, where the true J is ~0 and
+! the quadrature residual is orders of magnitude below the field
+! maximum.  Repair those points in place before the boundary moments
+! and FEDD divide by JNU.  A negative J comparable to the sweep
+! maximum is a genuine failure and still halts at the check below.
+!
+	DO I=1,ND
+	  IF(JNU_STORE(I) .LT. 0.0_LDP)THEN
+	    IF(ABS(JNU_STORE(I)) .LE.
+	1         1.0E-10_LDP*MAXVAL(ABS(JNU_STORE(1:ND))))THEN
+	      WRITE(6,'(A,I5,A,ES12.4)')' FG_J_CMF_V12: negative JNU at'//
+	1      ' noise floor repaired at depth',I,' JNU=',JNU_STORE(I)
+	      JNU_STORE(I)=ABS(JNU_STORE(I))
+	    END IF
+	  END IF
+	END DO
+!
 ! This procedure works for the INTEGRAL or DIFFERENCE approach.
 !
 	DO LS=1,NP
