@@ -55,8 +55,11 @@ YAML mode detection is the fallback.
 
 SOB population runs default to the resolved Sobolev render: VADAT's
 GLOBAL_LINE/TRANS_*/DO_*SOB* are mirrored so the OBS treats lines by
-the same Sobolev method the populations used, and the flux-mode keys
-are set for profile injection — DO_SOB_LINES=T computes each line's
+the same Sobolev method the populations used, and DO_NONMONO_KNOP=F
+keeps the formal J on FG_J_CMF_V12 with the clamped SIGMA — the same
+solver and field the population continuum converged under (Dessart,
+Audit & Hillier 2015, Sec. 3.1).  The flux-mode keys are set for
+profile injection — DO_SOB_LINES=T computes each line's
 Sobolev opacity/emissivity and EW (SIGMA_TRUE under DO_NONMONO_SOB),
 SOB_FREQ_IN_OBS=T refines the observed grid across each resonance zone,
 and DO_SOB_FLUX_OBS=T writes each SOB line's opacity/emissivity into the
@@ -225,9 +228,14 @@ NON_MONO_FORCED_CMF_PARAM = {
 # TRANS_*=SOB lines never enter the formal transfer in this cmf_flux
 # version.  Diagnostic only (EWDATA output); select with
 # cmfgen.obs_line_treatment='sob_ew'.
+#
+# DO_NONMONO_KNOP stays F: SOB populations converge with the standard
+# formal solver on the clamped SIGMA (Dessart, Audit & Hillier 2015),
+# so the OBS J must come from FG_J_CMF_V12 on the same field.  Stamping
+# Knop here would render on a different J field than the populations.
 NON_MONO_SOB_CMF_PARAM = {
     **NON_MONO_FORCED_CMF_PARAM,
-    'DO_NONMONO_KNOP': 'T',
+    'DO_NONMONO_KNOP': 'F',
     'DO_NONMONO_SOB': 'T',
     'GLOBAL_LINE': 'SOB',
     'DO_SOB_LINES': 'T',
@@ -276,9 +284,11 @@ LINE_TREATMENT_KEYS = {
     'DO_NOMONO_SOB', 'DO_NONMONO_SOB', 'DO_NONLOC_SOB', 'LAM_SET',
 }
 
-# VADAT flags that mark the population run as non-monotonic.  When any
-# is T the OBS needs DO_NONMONO_KNOP=T so the formal J comes from
-# FG_J_CMF_NONMONO_V1 rather than the monotonic FG_J_CMF_V12.
+# VADAT flags that mark the population run as non-monotonic.  The OBS
+# formal-J solver must match the mode the populations used: Knop runs
+# get DO_NONMONO_KNOP=T (FG_J_CMF_NONMONO_V1); SOB runs get
+# DO_NONMONO_KNOP=F so the J stays on the clamped SIGMA via
+# FG_J_CMF_V12, the solver the population continuum converged with.
 NON_MONO_FLAG_KEYS = {
     'DO_NONMONO_KNOP', 'DO_NOMONO_KNOP',
     'DO_NONMONO_SOB', 'DO_NOMONO_SOB', 'NON_MONO_SOLVER',
@@ -787,22 +797,42 @@ def main():
               f"SOB_FREQ_IN_OBS="
               f"{vadat_lt.get('SOB_FREQ_IN_OBS', '(unset)')}")
         if nonmono_in_vadat:
+            # Match the OBS formal J to the population mode.  KNOP
+            # populations converged with FG_J_CMF_NONMONO_V1 on the
+            # unclamped field; SOB populations converged with the
+            # standard solver on clamped SIGMA, so the OBS render uses
+            # FG_J_CMF_V12 on that same field (Dessart et al. 2015).
+            # DO_CMF_EW=F in both cases: the CMF EW estimator divides
+            # by GAM and is not defined for non-monotonic fields.
+            if _vadat_sob(vadat_lt):
+                knop = 'F'
+            else:
+                knop = 'T'
             lines = _apply_forced_keys(
-                lines, {'DO_NONMONO_KNOP': 'T', 'DO_CMF_EW': 'F'},
+                lines, {'DO_NONMONO_KNOP': knop, 'DO_CMF_EW': 'F'},
                 tag="NON_MONO_VADAT")
-            print("  non-monotonic population run: DO_NONMONO_KNOP=T "
-                  "(FG_J_CMF_NONMONO_V1 formal J), DO_CMF_EW=F")
+            if knop == 'T':
+                print("  non-monotonic KNOP population run: "
+                      "DO_NONMONO_KNOP=T (FG_J_CMF_NONMONO_V1 formal J), "
+                      "DO_CMF_EW=F")
+            else:
+                print("  non-monotonic SOB population run: "
+                      "DO_NONMONO_KNOP=F (FG_J_CMF_V12 formal J on "
+                      "clamped SIGMA, matching the populations), "
+                      "DO_CMF_EW=F")
     elif sob_mode:
         if obs_lt == 'sob_ew':
             forced_set = NON_MONO_SOB_CMF_PARAM
-            print("  non-mono SOB mode, sob_ew OBS: Knop formal J plus "
-                  "DO_NONMONO_SOB=T, TRANS_*=SOB, EW diagnostic "
-                  "(SIGMA_TRUE EWs, continuum-only spectrum)")
+            print("  non-mono SOB mode, sob_ew OBS: FG_J_CMF_V12 formal "
+                  "J on clamped SIGMA plus DO_NONMONO_SOB=T, "
+                  "TRANS_*=SOB, EW diagnostic (SIGMA_TRUE EWs, "
+                  "continuum-only spectrum)")
         else:
             forced_set = NON_MONO_SOB_RESOLVED_CMF_PARAM
-            print("  non-mono SOB mode, resolved OBS: Knop formal J "
-                  "plus DO_NONMONO_SOB=T, TRANS_*=SOB, "
-                  "DO_SOB_FLUX_OBS=T (deposited Sobolev render)")
+            print("  non-mono SOB mode, resolved OBS: FG_J_CMF_V12 "
+                  "formal J on clamped SIGMA plus DO_NONMONO_SOB=T, "
+                  "TRANS_*=SOB, DO_SOB_FLUX_OBS=T (deposited Sobolev "
+                  "render)")
         lines = _apply_forced_keys(lines, forced_set,
                                    trans_default='SOB')
     else:
