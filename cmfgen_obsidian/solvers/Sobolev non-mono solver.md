@@ -16,7 +16,13 @@ restores the `VAR_MOM_J_CMF_V12` dJ/dn, dJ/dT linearization in BA
 GLOBAL_LINE_SWITCH to NONE). The main VADAT reader keeps SOB and `DO_NONMONO_KNOP` mutually
 exclusive. In the OBS reader, both flags may be T: `DO_NONMONO_KNOP`
 selects Knop formal J while SOB lines and `SIGMA_TRUE` EW estimators
-preserve the population line treatment. `prepare_CMF_PARAM.py` carries
+preserve the population line treatment. Since 13-Oct-2026,
+`prepare_CMF_PARAM.py` stamps `DO_NONMONO_KNOP=F` for SOB populations:
+the OBS formal J then comes from `FG_J_CMF_V12` on the clamped `SIGMA` -
+the same solver and field the population continuum converged under
+(Dessart et al. 2015). The both-T combination remains reader-legal and
+is still stamped for `obs_line_treatment='blank'` renders and for KNOP
+population runs. `prepare_CMF_PARAM.py` carries
 `COH_ES=F` into OBS when requested, so non-coherent electron-scattering
 wings are iterated.
 `GRID_METH='VEL_SPACE'` is rejected inside `ADJUST_R_GRID_V4`
@@ -47,8 +53,8 @@ stale matrix is wrong on every path that revises the grid.
   the model readers leave `SIGMA` unclamped and `sigma < -1` reaching
   stock routines (e.g. `MOM_J_CMF_V11` `W`/`EPS`) breaks them. Not
   applied under `DO_NONMONO_KNOP` (commit `5c85085`).
-- **Tau floor** in `sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`,
-  `sobew_grad_v3.f`: for sigma < 0,
+- **Tau floor** in `sobjbar_sim.f`, `sobew.f`, `sobew_grad.f`,
+  `sobew_grad_v2.f`, `sobew_grad_v3.f`: for sigma < 0,
 
   $$ |1+\sigma\mu^2| \to \max\left(|1+\sigma\mu^2|,\; -0.2(1+\sigma),\; 10^{-4}\right) $$
 
@@ -449,6 +455,23 @@ first call of a restarted segment).  The FAC_RLX factor store
 itself is NOT checkpointed -- a requeue re-seeds it from the snap,
 costing one iteration of transient (observed it13 post-requeue
 retained n50 20770 vs ~4k baseline) but not resetting n_frozen.
+
+**KNOP warm freeze/release/reject cycle (14-Oct-2026, probe
+12167439).**  With `MOM_GATE_BULK` the warm run matured the field
+repeatedly (refresh conv=T, delta ~10-30) and released populations
+-- but every release that took the resacc-BA step failed the same
+way: demand ~1E7, applied capped at 400%, next call's SE residual
+up ~37x (9.4E13 -> 3.5E15), resacc rolled the step back, field
+re-froze.  Net: zero progress per ~5-iteration cycle.  Meanwhile
+the releases that happened to land on LAMBDA-scheduled calls took
+the damped GS_LAM_CAP step and worked: it524 applied factor-3 and
+the residual IMPROVED 4.97E14 -> 8.8E13 while demand fell 2.2E8
+-> 7.8E7.  The BA step is simply invalid at 1E7-scale demand; the
+Lambda fixed-point step is contractive by construction.  Fix:
+`MOM_TRIAL_LAM` (VADAT real, default 0 = always-BA trial).  With
+MAXCH above the key the fired trial takes the damped Lambda probe
+(T1=GS_LAM_CAP, ITER_REASON `mom_trial_lam`); below it the
+resacc-BA path is unchanged for the near-solution grind.
 
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`

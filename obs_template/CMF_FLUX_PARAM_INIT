@@ -259,15 +259,16 @@ F            [COMP_F]           !Compute new Continuum f values ?
 ! Non-monotonic OBS transfer. DO_NONMONO_KNOP selects Knop et al. (2009)
 ! formal J and requires USE_LAM_ES=T, INC_GRID=F, FG_OPT=INT/INS,
 ! N_TYPE=N_ON_J, LAM_SET=F, and no USE_FIXED_J/relativistic/plane modes.
-! Knop-only OBS uses GLOBAL_LINE=BLANK and all TRANS_*=BLANK. For a SOB
-! population run, both non-mono flags are T: Knop formal J is used for
-! the continuum and electron-scattering source, while SOB line frequencies
-! and SIGMA_TRUE EW estimates match the populations.
+! Knop OBS uses GLOBAL_LINE=BLANK and all TRANS_*=BLANK. For a SOB
+! population run, DO_NONMONO_SOB=T alone: the formal J stays on
+! FG_J_CMF_V12 with clamped SIGMA, the same solver and field the
+! population continuum converged under (Dessart et al. 2015), while
+! SOB line frequencies and SIGMA_TRUE EW estimates match the populations.
 ! The main VADAT population flags remain mutually exclusive. Both OBS
 ! flags default F and preserve the stock path when both are F.
 ! A NON_MONO_SOLVER key from older configs has no effect in this version.
-! DO_NONMONO_KNOP is stamped for Knop populations and for SOB OBS transfer.
-! DO_NONMONO_SOB preserves Sobolev lines/EW handling for SOB populations.
+! DO_NONMONO_KNOP is stamped only for Knop populations; it stays F for
+! SOB populations. DO_NONMONO_SOB preserves Sobolev lines/EW handling.
 F            [DO_NONMONO_KNOP]  !Use Knop et al. (2009) solver for CMF formal J?
 F            [DO_NONMONO_SOB]   !Use unclamped dlnV/dlnR-1 in Sobolev EW estimators?
 F            [PRINT_KNOP_DEBUG] !Print verbose KNOP solver diagnostics (I_NEXT depth map etc)?

@@ -10,6 +10,13 @@ Flag: `DO_NONMONO_KNOP` (CMF_FLUX_PARAM + VADAT). The main VADAT
 population modes are mutually exclusive with `DO_NONMONO_SOB`. In the
 OBS calculation only, both flags may be T to combine Knop formal J
 with Sobolev line frequencies/EW estimators from a SOB population run.
+Since 13-Oct-2026 the pipeline no longer uses that combination for the
+default 'sob' render: `prepare_CMF_PARAM.py` stamps
+`DO_NONMONO_KNOP=F` for SOB populations so the OBS J comes from
+`FG_J_CMF_V12` on the clamped `SIGMA`, matching the population
+continuum (Dessart et al. 2015). Both-T remains only for
+`obs_line_treatment='blank'` comparison renders; KNOP population runs
+still stamp T.
 
 ## Prerequisites (hard-enforced in both readers, 03-Oct-2026)
 
