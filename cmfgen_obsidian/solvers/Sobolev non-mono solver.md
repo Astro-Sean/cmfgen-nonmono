@@ -14,17 +14,13 @@ restores the `VAR_MOM_J_CMF_V12` dJ/dn, dJ/dT linearization in BA
 (see "J-update mode" below). The Sobolev line path is unchanged.
 `LAM_SET=T` only warns (redundant; it resets
 GLOBAL_LINE_SWITCH to NONE). The main VADAT reader keeps SOB and `DO_NONMONO_KNOP` mutually
-exclusive. In the OBS reader, both flags may be T: `DO_NONMONO_KNOP`
-selects Knop formal J while SOB lines and `SIGMA_TRUE` EW estimators
-preserve the population line treatment. Since 13-Oct-2026,
-`prepare_CMF_PARAM.py` stamps `DO_NONMONO_KNOP=F` for SOB populations:
-the OBS formal J then comes from `FG_J_CMF_V12` on the clamped `SIGMA` -
-the same solver and field the population continuum converged under
-(Dessart et al. 2015). The both-T combination remains reader-legal and
-is still stamped for `obs_line_treatment='blank'` renders and for KNOP
-population runs. `prepare_CMF_PARAM.py` carries
-`COH_ES=F` into OBS when requested, so non-coherent electron-scattering
-wings are iterated.
+exclusive. For SOB populations, `prepare_CMF_PARAM.py` keeps the stock
+OBS formal solver on clamped `SIGMA` and sets `DO_NONMONO_SOB=T` for the
+Sobolev EW estimator, matching the population continuum treatment
+(Dessart et al. 2015). The CMF_FLUX Knop OBS formal-J path was removed
+on 13-Oct-2026 and the preparer now rejects Knop population snapshots
+for OBS. `prepare_CMF_PARAM.py` carries `COH_ES=F` into OBS when
+requested, so non-coherent electron-scattering wings are iterated.
 `GRID_METH='VEL_SPACE'` is rejected inside `ADJUST_R_GRID_V4`
 (05-Oct-2026): `DO_VEL_REGRID_V2` interpolates R(V), which assumes a
 monotonic velocity field. TAU_SPACE, FULL_R and OB_ONLY remain
@@ -522,7 +518,35 @@ re-converging. Fixed in `cmfgen_base/submit_cmfgen.sh` (requeue block
 now flips `COMP_F` T->F when EDDFACTOR/EDDFACTOR_INFO exist, matching
 the FINAL template); see [[Run log highlights]].
 
-## OBS render: DO_SOB_FLUX_OBS (12-Oct-2026)
+## OBS render: DO_SOB_FLUX_OBS (13-Oct-2026)
+
+#status/partial
+
+On 13-Oct-2026 the CMF_FLUX OBS implementation was reset to the pristine
+`cmfgen_reference/cur_cmf` behavior, then given a narrow SOB-only extension.
+`cmf_flux_v5.f` and `COMP_JCONT_V4.INC` are back to reference; the default
+formal-solver path in `cmf_flux_sub_v5.f` is also restored. With
+`DO_NONMONO_SOB=T`, `SIGMA_TRUE_CORE` supplies the unclamped gradient for
+`SOBEW_GRAD_V2`; `VINF` uses the full speed range for the observer line grid.
+`DO_SOB_FLUX_OBS=T` adds the Sobolev line profiles through
+`ADD_SOB_LINE_PROF` and a second `OBS_FRAME_SUB_V9` pass. This path requires
+`DO_NONMONO_SOB=T`, `DO_SOB_LINES=T`, and `SOB_FREQ_IN_OBS=T`. The three
+flags default off, leaving stock CMF_FLUX behavior unchanged.
+
+The CMF_FLUX Knop formal-J extension was removed as part of this reset.
+`prepare_CMF_PARAM.py` now rejects a Knop population snapshot for the OBS
+stage. The CMFGEN population solver's Knop mode is separate and remains in
+the main model pipeline.
+
+The prior X_SOB OBS job 12177192 is not a valid spectrum: `OUT_FLUX` records
+`FQCOMP_IBC_V2-- -ve intensities` before `EWDATA` was written. The wrapper
+still copied `obs_fin_10`, so its presence and plot do not show that
+`cmf_flux` completed. `./build.sh` passed and the focused `test_prepare_cmf_param.py` tests
+pass (8 tests). The X_SOB YAML dry-run plans only SEDONA because
+`run_cmfgen` is false. The reset code has not yet been run on X_SOB;
+this path is unverified until a controlled run through
+`run_model_grid.py` completes without the stop and writes Sobolev EWs
+and resolved profiles.
 
 `TRANS_TYPE='SOB'` lines are excluded from the cmf_flux formal
 transfer (`VEC_TRANS_TYPE .NE. 'BLAN'` skip in `cmf_flux_sub_v5.f`), so
@@ -579,16 +603,16 @@ profile shape was assumed, not computed by the formal integral.
 Motivation: on the non-monotonic m15 field the CMF/BLANK render emits
 ~8-19x the Sobolev line luminosity (He II 4686: 838 A vs 84 A EWDATA;
 Luc's .fl ~100 A), so BLANK is not a consistent render for SOB
-populations. BLANK remains the render for KNOP runs.
+populations. BLANK remains an optional stock-CMF comparison for SOB
+populations; CMF_FLUX Knop OBS is unsupported after the stock reset.
 
 Requirements and constraints: `DO_SOB_FLUX_OBS=T` requires
-`DO_SOB_LINES=T` (the EW block owns CHIL_MAT/ETAL_MAT; the reader
-STOPs otherwise). `SOB_FREQ_IN_OBS=T` is needed so the obs grid is
-refined across each resonance zone - without it the rendered profile
-lands on the continuum-spaced grid. `prepare_CMF_PARAM.py`
-stamps the combination from `cmfgen.obs_line_treatment='sob'` (the
-SOB default); `'sob_ew'` gives T/T flags with injection off
-(EWDATA diagnostic only).
+`DO_NONMONO_SOB=T`, `DO_SOB_LINES=T`, and `SOB_FREQ_IN_OBS=T`.
+`DO_NONMONO_SOB` selects `SIGMA_TRUE` for the EW estimator. The other
+keys provide line emissivity and refine the observer grid across each
+resonance zone. `prepare_CMF_PARAM.py` stamps the combination from
+`cmfgen.obs_line_treatment='sob'` (the SOB default); `'sob_ew'` keeps
+EW output on and profile injection off.
 
 Population-state check (13-Oct-2026): rendering the it~514 (alo
 probe, ZERO_FLUX) and it~1180 (zlaw14_fresh, ZERO_FLUX) checkpoints

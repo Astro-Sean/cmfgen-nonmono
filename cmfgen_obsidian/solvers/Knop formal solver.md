@@ -6,17 +6,13 @@ term-by-term against Papers I+II in [[KNOP_MATH_AUDIT]];
 convergence strategy vs the literature in
 [[KNOP_CONVERGENCE_STRATEGY]].
 
-Flag: `DO_NONMONO_KNOP` (CMF_FLUX_PARAM + VADAT). The main VADAT
-population modes are mutually exclusive with `DO_NONMONO_SOB`. In the
-OBS calculation only, both flags may be T to combine Knop formal J
-with Sobolev line frequencies/EW estimators from a SOB population run.
-Since 13-Oct-2026 the pipeline no longer uses that combination for the
-default 'sob' render: `prepare_CMF_PARAM.py` stamps
-`DO_NONMONO_KNOP=F` for SOB populations so the OBS J comes from
-`FG_J_CMF_V12` on the clamped `SIGMA`, matching the population
-continuum (Dessart et al. 2015). Both-T remains only for
-`obs_line_treatment='blank'` comparison renders; KNOP population runs
-still stamp T.
+Flag: `DO_NONMONO_KNOP` selects the Knop population solver in VADAT.
+The main VADAT population modes remain mutually exclusive with
+`DO_NONMONO_SOB`. As of 13-Oct-2026, the CMF_FLUX OBS Knop formal-J path
+has been removed while that code was restored to the stock CMFGEN
+reference. `prepare_CMF_PARAM.py` rejects Knop population snapshots for
+OBS rather than emitting a spectrum with a different formal J. This does
+not remove the Knop population solver from the main CMFGEN run.
 
 ## Prerequisites (hard-enforced in both readers, 03-Oct-2026)
 
@@ -48,10 +44,11 @@ still stamp T.
 - `DO_BA_RES_ACC=F` warns only: the verified config uses
   residual-accepted BA steps.
 
-`rd_cmf_flux_controls.f` (CMF_FLUX_PARAM) validates the OBS line
-handling. Knop-only OBS requires BLANK lines; the deliberate SOB+KNOP
-OBS combination requires SOB lines and LAM_SET=F. The main VADAT still
-rejects both population flags set together.
+`rd_cmf_flux_controls.f` no longer reads or dispatches
+`DO_NONMONO_KNOP` in CMF_FLUX. The OBS stage is stock for monotonic
+models and supports the separate `DO_NONMONO_SOB` line-render branch.
+Knop population models need a separately validated OBS solver before
+they can be reported as complete spectral models.
 
 ## The chi_hat discretization (Paper I, nu-form)
 
@@ -161,9 +158,40 @@ applied per cell only when the cell still moved by more than
 positive and below `NONMONO_INEXT_CAP`. Passes 1-2 build the delta
 history. Aimed at the marginally contractive `|Q| -> 1` compression
 cells that drive the same-direction stall exit; preserves the fixed
-point if it converges. Under A/B test vs the `KN_ORD_AITKEN=F` cold
-arm (m15 2.82d, Oct-2026) - see `dessart_m15_2p82d_KNOP_FORMAL_aitken`.
-#status/unverified
+point if it converges. A/B test vs the `KN_ORD_AITKEN=F` control
+(m15 2.82d, 13-Oct-2026): the per-cell depth-1 secant amplified the
+seed transient - 25-26 diverged rays per iteration vs 0 in the
+control, residual max 10.5->853 vs 1.0->0.17. Rejected as a
+production path; superseded by `KN_ORD_AA`.
+#status/failed
+
+### Safeguarded Anderson: `KN_ORD_AA` (default F)
+
+Type-II Anderson acceleration of the ordered pass iterate, mirroring
+the runtime-tested MOM refresh AA (`mom_j_cmf_nonmono_v1.f`) plus a
+residual-acceptance rollback the MOM version lacks. History pairs are
+`(x_i, r_i=g(x_i)-x_i)` per relaxed march; `KN_ORD_AA_M` (default 2)
+secants are kept (M+1 pairs). Guards: residual-weighted Gram system,
+non-affine cell exclusion (weighted residual/secant >1 keeps the raw
+map output), Tikhonov ridge on the Gram diagonal, `||corr||>||f||`
+veto, `10|r|` per-cell step cap, positivity/`NONMONO_INEXT_CAP`
+fallback. If the pass after an applied mix does not improve, the
+pre-mix iterate is restored, history cleared and AA disabled for the
+rest of that field solve. History collection starts at pass 4 so
+fast rays never allocate the (M+1)*2*NI*NCF pair store; stored
+residuals are rescaled when the adaptive omega changes the relaxed
+map (exact for the affine map). Per-refresh `AA: applied= vetoed=
+rejected= solve-fail=` counters print under the `ray exits` census.
+#status/unverified (built; runtime arm pending)
+
+### Stall threshold: `KN_RAY_STALL` (default 0.90)
+
+Same-direction residual ratio above which a pass counts toward the
+`NSTALL>=2` early exit in `SWEEP_FLD`/`SWEEP_FLD_ORD`. The control
+arm's exit census (m15 2.82d it1-3) showed ~12 stall rays hold
+essentially all unconverged cells; raising toward 1 lets still-
+contracting rays use more of `KN_RAY_MAXPASS` instead of quitting
+at <10%/pass. Default preserves the 13-Oct-2026 behaviour.
 
 **Ray-grid rebuild triggers** (`NEW_R_GRID`, evaluated on each INIT):
 relative R drift >1E-8, `VDOP_FRAC`/`SOLUTION_OPTIONS` change,

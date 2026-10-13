@@ -2576,6 +2576,35 @@ exercised for the first time at runtime. Surface L still starved-era
 repowered field equilibrates upward -- watch it as the convergence
 metric alongside MAXCH.
 
+## 13-Oct-2026 (Devin session, correction) - CMF_FLUX reset for SOB OBS
+
+The earlier statement that OBS job 12177192 produced a completed
+resolved Sobolev render is retracted. The earlier attribution of the
+failure to the diffusion boundary and the claim that its floor fix made
+the spectrum valid are also retracted. `obs/OUT_FLUX` ends with
+`FQCOM_IBC_V2-- -ve intensities`; `SCRATCH/EWDATA` is empty, so the
+Sobolev EW and profile-injection sections did not complete. The wrapper
+still moved an `OBSFRAME` file to `obs_fin_10`; that file is not a valid
+CMF_FLUX result for this job.
+
+The CMF_FLUX sources were reset against
+`cmfgen_reference/cur_cmf/obs`. The population-independent CMF_FLUX
+path and `COMP_JCONT_V4.INC` are stock again. The only new spectral
+behavior is gated by `DO_NONMONO_SOB` / `DO_SOB_FLUX_OBS`: use
+`SIGMA_TRUE` for Sobolev EW estimates, set VINF from the full speed
+range, and optionally inject Sobolev profiles for a second observer-frame
+pass. Knop formal-J support was removed from CMF_FLUX; the config
+preparer rejects Knop OBS rather than emitting an unverified spectrum.
+`./build.sh` completed successfully and the changed CMF_FLUX objects
+were rebuilt. `tests/test_prepare_cmf_param.py` passes (8 tests). The
+broader `test_nonmono_vadat_enforcement.py` selection has five existing
+failures in the already-dirty `run_model_grid.py` / `prepare_VADAT.py`
+worktree, outside this CMF_FLUX change. The X_SOB `--dry-run` graph
+contains only SEDONA because its YAML has `run_cmfgen: false`; no CMFGEN
+job was submitted. The spectrum remains UNVERIFIED until an orchestrated
+CMFGEN/OBS run passes the negative-intensity check and writes non-empty
+EWDATA plus the final profile render.
+
 ## 13-Oct-2026 - KNOP held-population handoff guard (commit d1c51fa)
 
 `new_main/cmfgen_sub.f` now defers the initial `DO_LAM_AUTO` transition
@@ -2624,3 +2653,42 @@ present in the rebuilt exe/cmfgen_dev.exe. Runtime check is the next
 KNOP refresh block in any running job; the Aitken A/B arm
 (dessart_m15_2p82d_KNOP_FORMAL_aitken) exercises KN_ORD_AITKEN=T
 against the running cold arm.
+
+### 13-Oct-2026 (cont.2) - KN_ORD_AA + KN_RAY_STALL + CORRECTION_SUM revert
+
+`plane/fg_j_cmf_nonmono_v1.f`: three changes in the FG refresh.
+
+1. `KN_ORD_AA` (VADAT, default F) + `KN_ORD_AA_M` (default 2):
+   safeguarded type-II Anderson acceleration of the ordered pass
+   iterate in SWEEP_FLD_ORD, mirroring the runtime-tested MOM
+   refresh AA (weighted Gram, non-affine cell exclusion at AA_GCAP,
+   Tikhonov ridge, DGESV, ||corr||>||f|| veto, 10|r| per-cell cap,
+   positivity/cap fallback) plus a residual-acceptance rollback:
+   if the pass after an applied mix does not improve, the pre-mix
+   iterate is restored, history cleared and AA disabled for that
+   solve.  History collection starts at pass 4 (lazy allocate);
+   stored residuals are rescaled on OMEGA_RAY changes (exact for
+   the affine map).  Per-refresh `AA: applied= vetoed= rejected=
+   solve-fail=` counters print under the `ray exits` census.
+
+2. `KN_RAY_STALL` (VADAT, default 0.90): the same-direction ratio
+   threshold for the NSTALL early exit is now configurable in both
+   sweeps; default preserves prior behaviour.
+
+3. Aitken A/B verdict: KN_ORD_AITKEN=T produced 25-26 diverged
+   rays/iteration vs 0 in control (residual 10.5->853 vs 1.0->0.17
+   at matched iterations).  Failed arm; not for production.
+
+`new_main/mod_subs/{control_variable_mod,rd_control_variables}.f`:
+declarations + VADAT readers for KN_ORD_AA, KN_ORD_AA_M,
+KN_RAY_STALL (setters SET_FG_ORD_AA, SET_FG_STALL_LIM).
+
+`new_main/subs/solveba_v13.f`: CORRECTION_SUM reverted to the
+original 8-column per-depth format but counts ALL rows (unmasked);
+floor gating kept only on the DECREASE/INCREASE MAXCH scan.
+
+Verification: ifort -syntax-only clean on all four files;
+`make DEBUG=nodebug cmfgen` exit 0; KN_ORD_AA/KN_RAY_STALL/
+`AA: applied` strings present in exe/cmfgen_dev.exe (relinked
+20:31).  Runtime arms pending: freqmatch (DO_NONMONO_FREQ_MATCH=T,
+job 12185982) plus AA/stall arms to be submitted.

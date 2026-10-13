@@ -52,31 +52,16 @@ vadat_overrides:
 does not open, `GLOBAL_LINE` gets stamped `BLANK` and the forced key
 table never lands - check `config_resolved.yaml` / the written VADAT.
 
-## Required CMF_FLUX_PARAM set for Knop runs
+## CMF_FLUX OBS status for Knop populations
 
-| Key | Value |
-|---|---|
-| `DO_NONMONO_KNOP` | `T` |
-| `N_TYPE` | `N_ON_J` |
-| `GLOBAL_LINE` | `BLANK` (all `TRANS_* = BLANK`) |
-| `FG_OPT` | `INT` or `INS` |
-| `USE_LAM_ES` | `T` |
-| `LAM_SET` | `F` |
-| `DO_SOB_LINES` | `F` |
-| `SOB_FREQ_IN_OBS` | `F` |
-
-`rd_control_variables.f` enforces (hard STOP since 03-Oct-2026, was
-warning-only for the line keys): mutually exclusive with
-`DO_NONMONO_SOB`, `GLOBAL_LINE=BLANK` (or `NONE` with all present
-`TRANS_*=BLANK`), `LAM_SET=F`, `INC_GRID=F`, `FG_OPT=INT/INS`, no
-`FIXED_J`/relativistic/plane-parallel modes. `DO_BA_RES_ACC=F` warns.
-The OBS reader `rd_cmf_flux_controls.f` applies line-treatment,
-LAM_SET and solver-exclusion gates to CMF_FLUX_PARAM. It permits the
-OBS-only combination `DO_NONMONO_KNOP=T` + `DO_NONMONO_SOB=T`: Knop
-formal J, SOB line frequencies and the SIGMA_TRUE EW estimator. The
-main VADAT population flags remain mutually exclusive. The pipeline
-also sets `COH_ES=F` for the matched interacting-SN test so OBS iterates
-the non-coherent electron-scattering source.
+The Knop population solver remains available in the CMFGEN pipeline, but
+this tree's `cmf_flux` OBS executable was returned to the stock CMFGEN
+formal-solver path on 13-Oct-2026. It no longer has the non-monotonic
+Knop OBS formal-J branch. `prepare_CMF_PARAM.py` rejects a Knop population
+snapshot at OBS preparation rather than silently making a spectrum with
+a mismatched continuum solution. Do not treat a Knop population run as a
+complete spectral product until that OBS path is deliberately restored
+and validated.
 
 ## OBS render modes for SOB populations (`obs_line_treatment`)
 
@@ -85,16 +70,16 @@ default is the resolved Sobolev render:
 
 | `obs_line_treatment` | `GLOBAL_LINE`/`TRANS_*` | `DO_SOB_LINES`/`SOB_FREQ_IN_OBS` | `DO_SOB_FLUX_OBS` | Product |
 |---|---|---|---|---|
-| `sob` (default) | `SOB` | `T`/`T` | `T` | resolved spectrum: SOB line opacity/emissivity injected as Doppler cores into the stored CMF arrays (`ADD_SOB_LINE_PROF`), profiles rendered by a second `OBS_FRAME_SUB_V9` pass |
+| `sob` (default) | `SOB` | `T`/`T` | `T` | resolved profile: inject Sobolev line opacity/emissivity as Doppler cores into the stored CMF arrays (`ADD_SOB_LINE_PROF`), then render with a second `OBS_FRAME_SUB_V9` pass |
 | `sob_ew` | `SOB` | `T`/`T` | `F` | EWDATA diagnostic only; spectrum stays continuum-only |
-| `blank` | `BLANK` | `F`/`F` | - | full CMF line profiles (~tens of min); the render for KNOP runs |
+| `blank` | `BLANK` | `F`/`F` | - | stock CMF line profiles as a comparison render for SOB populations; it does not select a non-monotonic formal-J solver |
 
 The flux-mode keys are not mirrored from VADAT (they are inert in the
 SE solve); the line-treatment keys `GLOBAL_LINE`/`TRANS_*`/`DO_*SOB*`/
-`LAM_SET` are. `DO_SOB_FLUX_OBS=T` requires `DO_SOB_LINES=T` - the
-reader STOPs otherwise. See [[Sobolev non-mono solver]] for the
-injection algorithm and why CMF line transfer is inconsistent for
-SOB populations on non-monotonic fields.
+`LAM_SET` are. `DO_SOB_FLUX_OBS=T` requires `DO_NONMONO_SOB=T`,
+`DO_SOB_LINES=T`, and `SOB_FREQ_IN_OBS=T`; the reader STOPs otherwise.
+See [[Sobolev non-mono solver]] for the injection algorithm and its
+limits on non-monotonic fields.
 
 ## Pipeline defaults (in scripts/, post-dev7)
 

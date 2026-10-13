@@ -23,15 +23,15 @@ line-treatment gates were warnings before):
   every present ion at `TRANS_*=BLANK`), `LAM_SET=F`, `INC_GRID=F`,
   and no `USE_FIXED_J`/relativistic/plane-parallel modes.
   `DO_BA_RES_ACC=F` warns.
-- Both flags `T` STOP in the main VADAT population solver. The OBS
-  CMF_FLUX_PARAM may set both `T` to combine Knop formal J with SOB
-  line frequencies/EW estimators; `prepare_CMF_PARAM.py` stamps this
-  combination for SOB workflows. Both `F` is the unchanged upstream
-  path.
+- Both flags `T` STOP in the main VADAT population solver. CMF_FLUX
+  OBS no longer supports the Knop formal-J extension; `prepare_CMF_PARAM.py`
+  rejects Knop population snapshots at OBS preparation. SOB OBS uses the
+  stock formal solver on clamped SIGMA with `DO_NONMONO_SOB=T` only for
+  Sobolev EW estimation and profile rendering.
 - `GLOBAL_LINE=NONE` needs a `TRANS_*` key for every species slot in
   VADAT; a missing key aborts in GET_KEY_STRING before these checks.
-- The OBS reader `rd_cmf_flux_controls.f` validates the combined
-  transfer/line-treatment mode, `LAM_SET` and solver exclusions.
+- The OBS reader `rd_cmf_flux_controls.f` validates the SOB line mode
+  and the `DO_SOB_FLUX_OBS` prerequisites.
 
 ## Knop field solve
 
@@ -40,7 +40,10 @@ line-treatment gates were warnings before):
 | `USE_LAM_ES` | -- | T: J from FG ray formal solve; F: MOM moment solver |
 | `DO_KNOP_REFRESH` | =KNOP | post-sweep lagged-store convergence pass |
 | `KN_RAY_ORDERED` | T | ordered-march refresh (SWEEP_FLD_ORD) |
-| `KN_ORD_AITKEN` | F | guarded Aitken delta-squared on the ordered pass iterate |
+| `KN_ORD_AITKEN` | F | guarded Aitken delta-squared on the ordered pass iterate (failed m15 A/B; superseded by KN_ORD_AA) |
+| `KN_ORD_AA` | F | safeguarded Anderson acceleration of the ordered pass iterate |
+| `KN_ORD_AA_M` | 2 | AA secant depth; pairs kept = M+1 (2*NI*NCF*8 B each) |
+| `KN_RAY_STALL` | 0.90 | same-direction residual ratio counting as a stall pass |
 | `KN_RAY_MAXPASS` | 60 | refresh pass cap per ray |
 | `KN_RAY_TOL` | 2e-3 | refresh convergence tolerance |
 | `DO_NONMONO_FREQ_MATCH` | F | Ceulemans frequency matching (recommend T on compressing models) |
