@@ -455,21 +455,36 @@ def _apply_forced_vadat_keys(out_lines, forced_settings, tag="NON_MONO",
 
 
 def require_chg_exch_data(vadat_lines, wdir):
-    """Refuse INC_CHG=T when CHG_EXCH_DATA is absent from the run directory.
+    """Require CHG_EXCH_DATA in the run directory when INC_CHG=T.
 
     RD_CHG_EXCH_V3 opens CHG_EXCH_DATA with status='OLD' in the run CWD and
     STOPs on failure, so a T setting without the file is a guaranteed crash.
-    Fail at VADAT-write time instead of inside the CMFGEN job.
+    When the run dir lacks the file, stage it from the atomic tree
+    ($ATOMIC/misc/chg_exch_data.*, newest dated copy); refuse only when no
+    source file exists.
     """
     tok = _get_key_token(vadat_lines, 'INC_CHG')
-    if tok is not None and tok.strip().upper() == 'T':
-        data = Path(wdir) / 'CHG_EXCH_DATA'
-        if not data.exists():
-            raise FileNotFoundError(
-                f"INC_CHG=T requested but CHG_EXCH_DATA is missing from "
-                f"{wdir}. Charge exchange needs that reaction file: copy it "
-                f"into the model directory or set INC_CHG=F in "
-                f"vadat_overrides.")
+    if tok is None or tok.strip().upper() != 'T':
+        return
+    data = Path(wdir) / 'CHG_EXCH_DATA'
+    if data.exists():
+        return
+    atomic_dir = Path(os.environ.get('ATOMIC', '/u/sbrennan/atomic'))
+    candidates = sorted(
+        (atomic_dir / 'misc').glob('chg_exch_data.*'),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for src in candidates:
+        if src.is_file():
+            os.symlink(src, data)
+            print(f"  [INC_CHG] linked {data.name} -> {src}")
+            return
+    raise FileNotFoundError(
+        f"INC_CHG=T requested but CHG_EXCH_DATA is missing from {wdir} "
+        f"and no chg_exch_data.* exists under {atomic_dir}/misc. Charge "
+        f"exchange needs that reaction file: stage it into the atomic "
+        f"tree or set INC_CHG=F in vadat_overrides.")
 
 
 # ==============================================================================
