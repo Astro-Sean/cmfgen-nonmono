@@ -1526,24 +1526,21 @@ C
 	    END DO
 !
 !
-! The swept recursion can undershoot I below zero where the
-! transported intensity is ~0 - on non-monotonic models this shows up
-! along rays ending at the optically thin inner boundary.  Intensity
-! is bounded below by 0, so undershoot up to a fraction of the ray's
-! source scale is repaired to a small positive floor and counted;
-! larger negative values are genuine failures, keep their diagnostic
-! output, and still reach the JNU halt downstream.  Mirrors the
-! N_NEG_INT clamp in FG_J_CMF_NONMONO_V1.
+! The swept recursion can undershoot I below zero where DTAU->0 next
+! to a steep source jump - on non-monotonic models this shows up along
+! rays ending at the optically thin inner boundary, where the seeded
+! boundary value is ~0 and the -dS terms dominate.  Intensity is
+! bounded below by 0, so every negative is repaired to a small
+! positive floor and counted, as in FG_J_CMF_NONMONO_V1 (N_NEG_INT).
+! Negatives larger than the underflow scale keep their diagnostic
+! output so a genuine solver failure remains visible in OUT_FLUX.
 !
 	    N_NEG_INT_RAY=0
 	    NEG_INT_LIM=MAX(1.0E-28_LDP,
 	1                  0.25_LDP*MAXVAL(ABS(SOURCE_PRIME(1:NI))))
 	    DO I=1,NI-1
 	      IF(I_M(I+1,LS) .LT. 0)THEN
-	        IF(ABS(I_M(I+1,LS)) .LE. NEG_INT_LIM)THEN
-	          I_M(I+1,LS)=1.0E-30_LDP
-	          N_NEG_INT_RAY=N_NEG_INT_RAY+1
-	        ELSE
+	        IF(ABS(I_M(I+1,LS)) .GT. NEG_INT_LIM)THEN
 	          WRITE(6,*)'Error for I_M, LS=',LS,ND,NI,FREQ
 	          WRITE(6,'(2X,A,13(8X,A))')'I','IMP1','IMPR','DTAU','   Q',
 	1                     '  SI','SIP1',' dSI','dSIP',
@@ -1552,6 +1549,8 @@ C
 	1                   SOURCE_PRIME(I),SOURCE_PRIME(I+1),dS(I),dS(I+1),
 	1                   A0(I,LS),A1(I,LS),A2(I,LS),A3(I,LS),A4(I,LS)
 	        END IF
+	        I_M(I+1,LS)=1.0E-30_LDP
+	        N_NEG_INT_RAY=N_NEG_INT_RAY+1
 	      END IF
 	    END DO
 	    IF(N_NEG_INT_RAY .GT. 0)WRITE(6,'(A,I5,A,I4)')
@@ -1607,10 +1606,7 @@ C
 	1                  0.25_LDP*MAXVAL(ABS(SOURCE_PRIME(1:NI))))
 	    DO I=1,NI
 	      IF(I_P(I,LS) .LT. 0)THEN
-	        IF(ABS(I_P(I,LS)) .LE. NEG_INT_LIM)THEN
-	          I_P(I,LS)=1.0E-30_LDP
-	          N_NEG_INT_RAY=N_NEG_INT_RAY+1
-	        ELSE
+	        IF(ABS(I_P(I,LS)) .GT. NEG_INT_LIM)THEN
 	          WRITE(6,*)'Error for I_P, LS=',LS,ND,NI
 	          WRITE(6,'(2X,A,11(7X,A))')'I','  IM',' IMP','DTAU','   Q','   S','  dS',
 	1                     '  A0','  A1','  A2','  A3','  A4'
@@ -1618,6 +1614,8 @@ C
 	1                   Q(I),SOURCE_PRIME(I),dS(I),
 	1                   A0(I,LS),A1(I,LS),A2(I,LS),A3(I,LS),A3(I,LS)
 	        END IF
+	        I_P(I,LS)=1.0E-30_LDP
+	        N_NEG_INT_RAY=N_NEG_INT_RAY+1
 	      END IF
 	    END DO
 	    IF(N_NEG_INT_RAY .GT. 0)WRITE(6,'(A,I5,A,I4)')
