@@ -398,6 +398,28 @@ full lagged-field re-convergence transient (pops demand bounced
 MOMJNXT_GS dump was already written unconditionally; the tag now
 seeds under DO_NONMONO_SOB too.  SET_FG_GS_TAG stays KNOP-only.
 
+**H_IMPL probe (job 12169558, then 12169939).** First submission
+(12169558) hit a measurement confound: the augmented diagonal
+shifted the sweep census cmp_frac to 0.891, just under the 0.9
+dominance bound, so AUTO flipped the refresh to alternating D/A
+passes whose minority-direction Jacobi step re-injected a full pass
+of error each alternating pass (residual floor ~25 vs DESC's ~1.6).
+Resubmitted with `MOM_RF_DIR=DESC` pinned (12169939) for a clean
+same-ordering comparison.  H_IMPL is active (lagbnd scaled 7.2M vs
+control 9.2M -- fewer rows need clipping because the H weight is
+now inside the excess) but the in-refresh n50 asymptote is
+unchanged (~12.2k owned compressing cells solving >50% off their
+stored value every pass).  What DOES converge is the retained
+field across great iterations: refresh n50 4.2E5 -> 4.5E4 over
+it1-4 (best-pass composite improving ~3x/it), so the failure mode
+is single-refresh stall + inter-iteration grind, not divergence.
+The ~4856 damped cells at min relax 0.04 still read a >10x
+solve-vs-store gap: those rows' map outputs toggle between regimes
+(negJ repair ~2.8k/pass, quarantine ~1.4k, capped writes ~160), a
+discontinuity damping cannot smooth.  match=0/10.8M, off=0,
+nmax=1: every compressing upwind read is adjacent and matched --
+no frequency-matching defect remains.
+
 **V11 probe result (12-Oct-2026): stock moment solver not viable on
 m15.** The earlier wiring ran `MOM_J_CMF_V11` + `VAR_MOM_J_CMF_V12`
 under `USE_LAM_ES=F`; a warm restart from `probe_snap` died in
