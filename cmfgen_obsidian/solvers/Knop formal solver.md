@@ -140,10 +140,30 @@ store reaches its fixed point:
   INTEGRAL method only (TRIDIAG formal path not refreshed).
 - Convergence machinery: adaptive per-ray omega (~0.5 damp ->
   ~1.45 over-relax, keyed on same-direction residual history),
-  divergence abort (`1E3*MIN_RES`), `1E40` retention scan, stall exit
-  at `KN_RAY_MAXPASS`.
+  divergence abort (`1E3*MIN_RES`), `1E40` retention scan.
+- Per-sweep exits (13-Oct-2026 census): `0` exact (no compressing
+  cells), `1` residual < `KN_RAY_TOL`, `2` bulk bad-fraction
+  (<=50 cells or <=0.1% of significant cells, after pass 6), `3`
+  same-direction stall (two consecutive same-direction ratios >0.9
+  after pass 8), `4` pass cap `KN_RAY_MAXPASS`, `5` diverged. The
+  summary prints a `ray exits` count per class plus the stall/cap
+  classes' max residual and bad-cell share, so the refresh log shows
+  which stop rule leaves above-tolerance cells on the release gate.
 - Store write-back uses `INEXT_RELAX=0.5` under-relaxation and the
   `NONMONO_INEXT_CAP=1e20` overflow guard.
+
+### Guarded Aitken: `KN_ORD_AITKEN` (default F)
+
+Aitken delta-squared extrapolation of the ordered pass iterate,
+applied per cell only when the cell still moved by more than
+`KN_RAY_TOL`, its two consecutive pass deltas contract
+(`|d_n| < |d_{n-1}|`), and the extrapolated value is finite,
+positive and below `NONMONO_INEXT_CAP`. Passes 1-2 build the delta
+history. Aimed at the marginally contractive `|Q| -> 1` compression
+cells that drive the same-direction stall exit; preserves the fixed
+point if it converges. Under A/B test vs the `KN_ORD_AITKEN=F` cold
+arm (m15 2.82d, Oct-2026) - see `dessart_m15_2p82d_KNOP_FORMAL_aitken`.
+#status/unverified
 
 **Ray-grid rebuild triggers** (`NEW_R_GRID`, evaluated on each INIT):
 relative R drift >1E-8, `VDOP_FRAC`/`SOLUTION_OPTIONS` change,

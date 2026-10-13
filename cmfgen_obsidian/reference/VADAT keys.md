@@ -40,6 +40,7 @@ line-treatment gates were warnings before):
 | `USE_LAM_ES` | -- | T: J from FG ray formal solve; F: MOM moment solver |
 | `DO_KNOP_REFRESH` | =KNOP | post-sweep lagged-store convergence pass |
 | `KN_RAY_ORDERED` | T | ordered-march refresh (SWEEP_FLD_ORD) |
+| `KN_ORD_AITKEN` | F | guarded Aitken delta-squared on the ordered pass iterate |
 | `KN_RAY_MAXPASS` | 60 | refresh pass cap per ray |
 | `KN_RAY_TOL` | 2e-3 | refresh convergence tolerance |
 | `DO_NONMONO_FREQ_MATCH` | F | Ceulemans frequency matching (recommend T on compressing models) |

@@ -5226,8 +5226,20 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
 	INTEGER, ALLOCATABLE :: NST_LS(:),NPS_LS(:),NCP_LS(:)
 	INTEGER, ALLOCATABLE :: NNG_LS(:),NDV_LS(:),NMX_LS(:)
+	INTEGER, ALLOCATABLE :: NXT_LS(:)
 	INTEGER*8, ALLOCATABLE :: NBD_LS(:),NTT_LS(:),NMT_LS(:),NCM_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
+!
+! Per-exit-class census of the ray solves (-1 = unsolved early
+! return, 0-5 as coded in KNOP_RAY_SOLVE_V1).  The residual max
+! alone cannot say WHY rays stop short of KN_RAY_TOL: the bulk and
+! stall exits both stop above tolerance while the population-release
+! gate still counts their leftover bad cells, so the census shows
+! which stop rule actually limits refresh maturity.
+!
+	INTEGER NX_CNT(-1:5)
+	INTEGER*8 NX_BAD(-1:5)
+	REAL(KIND=LDP) NX_RMX(-1:5)
 !
 	LUER=ERROR_LU()
 	IF(.NOT. DO_KNOP_REFRESH)RETURN
@@ -5286,11 +5298,11 @@ C
 	ALLOCATE(RES_LS(KN_NP),NST_LS(KN_NP),NPS_LS(KN_NP),
 	1   NCP_LS(KN_NP),NNG_LS(KN_NP),NBD_LS(KN_NP),NTT_LS(KN_NP),
 	2   NDV_LS(KN_NP),NMX_LS(KN_NP),NMT_LS(KN_NP),NCM_LS(KN_NP),
-	3   STAT=IOS)
+	3   NXT_LS(KN_NP),STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 	RES_LS=0.0_LDP
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
-	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0
+	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
 	ALLOCATE(KN_RES_PASS(2*KN_RAY_MAXPASS),STAT=IOS)
@@ -5322,7 +5334,7 @@ C
 	DO LS=1,KN_NP
 	  CALL KNOP_RAY_SOLVE_V1(LS,RES_LS(LS),NST_LS(LS),
 	1    NPS_LS(LS),NCP_LS(LS),NNG_LS(LS),NBD_LS(LS),NTT_LS(LS),
-	2    NDV_LS(LS),NMT_LS(LS),NCM_LS(LS),NMX_LS(LS))
+	2    NDV_LS(LS),NMT_LS(LS),NCM_LS(LS),NMX_LS(LS),NXT_LS(LS))
 	END DO
 !$OMP END PARALLEL DO
 	T1_W=OMP_GET_WTIME()-T0
@@ -5351,6 +5363,31 @@ C
 	2  '   frac=',DBLE(FG_GS_NBAD)/MAX(1_8,FG_GS_NTOT)
 	WRITE(LUER,'(A,I14)')'    store cells>50%=',FG_GS_NCONV
 	WRITE(LUER,'(A,F9.1,A)')'    t=',T1_W,' s'
+!
+! Ray exit census: which stop rule ended each field solve (codes in
+! KNOP_RAY_SOLVE_V1).  Stall and cap exits leave above-tolerance
+! cells that the release gate still reads as immature, so their
+! counts and bad-cell share decide whether the stall criterion or
+! the pass cap is the refresh bottleneck.
+!
+	NX_CNT=0; NX_BAD=0; NX_RMX=0.0_LDP
+	DO LS=1,KN_NP
+	  NX_CNT(NXT_LS(LS))=NX_CNT(NXT_LS(LS))+1
+	  NX_BAD(NXT_LS(LS))=NX_BAD(NXT_LS(LS))+NBD_LS(LS)
+	  NX_RMX(NXT_LS(LS))=MAX(NX_RMX(NXT_LS(LS)),RES_LS(LS))
+	END DO
+	WRITE(LUER,'(A,I5,5(A,I5))')
+	1  '    ray exits: exact=',NX_CNT(0),' tol=',NX_CNT(1),
+	2  ' bulk=',NX_CNT(2),' stall=',NX_CNT(3),' cap=',NX_CNT(4),
+	3  ' div=',NX_CNT(5)
+	IF(NX_CNT(3)+NX_CNT(4) .GT. 0)THEN
+	  WRITE(LUER,'(A,ES10.3,A,I14)')
+	1    '    stall/cap rays: maxres=',MAX(NX_RMX(3),NX_RMX(4)),
+	2    ' bad cells=',NX_BAD(3)+NX_BAD(4)
+	END IF
+	IF(NX_CNT(-1) .GT. 0)THEN
+	  WRITE(LUER,'(A,I5)')'    ray exits: unsolved=',NX_CNT(-1)
+	END IF
 !
 ! Temporary DO_NONMONO_KNOP diagnostic table.  The formal refresh can
 ! appear converged in aggregate while one ray remains tied to a long
@@ -5422,7 +5459,7 @@ C
 	  DEALLOCATE(KN_HOT_CNT)
 	END IF
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
-	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS)
+	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS)
 	RETURN
 	END
 !
@@ -5437,12 +5474,12 @@ C
 ! ==============================================================================
 !
 	SUBROUTINE KNOP_RAY_SOLVE_V1(LS,RESID,NSTORE,NPASS,NCAP,NNEG,
-	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX)
+	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
 	IMPLICIT NONE
 !
-	INTEGER LS,NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX
+	INTEGER LS,NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
 	INTEGER*8 NBAD,NTOT,NMATCH,NCOMP
 	REAL(KIND=LDP) RESID
 !
@@ -5502,12 +5539,21 @@ C
 	INTEGER*8 NBAD_CUR,NTOT_CUR,NB_M,NB_P,NT_M,NT_P
 	INTEGER IDIR
 	INTEGER NP_M,NP_P
+! Exit census of the two field solves: 0 exact (no compressing
+! cells), 1 residual tol, 2 bulk bad-fraction, 3 same-direction
+! stall, 4 pass cap, 5 diverged.  NXIT reports the field that sets
+! the ray residual, so the summary shows which stop rule limits the
+! refresh -- the stall and cap exits leave cells above KN_RAY_TOL
+! that the population-release gate still counts as immature.
+!
+	INTEGER IXIT_M,IXIT_P
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
 !
 	RESID=0.0_LDP
 	NSTORE=0; NPASS=0; NCAP=0; NNEG=0; NDIV=0; NMAX=1
 	NBAD=0; NTOT=0; NB_M=0; NB_P=0; NT_M=0; NT_P=0
 	NMATCH=0; NCOMP=0
+	NXIT=-1; IXIT_M=-1; IXIT_P=-1
 	RES_M=0.0_LDP; RES_P=0.0_LDP; NP_M=0; NP_P=0
 	DIVERGED=.FALSE.
 	NI=NI_RAY(LS)
@@ -5652,9 +5698,9 @@ C
 	FLD(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD,I_M_DEPTH_NEXT)
 	IF(ORD_SWEEP)THEN
-	  CALL SWEEP_FLD_ORD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M)
+	  CALL SWEEP_FLD_ORD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M)
 	ELSE
-	  CALL SWEEP_FLD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M)
+	  CALL SWEEP_FLD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M)
 	END IF
 	IF(DIVERGED)THEN
 !
@@ -5696,9 +5742,9 @@ C
 	FLD_P(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD_P,I_P_DEPTH_NEXT)
 	IF(ORD_SWEEP)THEN
-	  CALL SWEEP_FLD_ORD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P)
+	  CALL SWEEP_FLD_ORD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P)
 	ELSE
-	  CALL SWEEP_FLD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P)
+	  CALL SWEEP_FLD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P)
 	END IF
 	IF(DIVERGED)THEN
 	  NDIV=1
@@ -5723,8 +5769,14 @@ C
 !
 	IF(NDIV .EQ. 1)THEN
 	  RESID=1.0_LDP
+	  NXIT=5
 	ELSE
 	  RESID=MAX(RES_M,RES_P)
+	  IF(RES_M .GE. RES_P)THEN
+	    NXIT=IXIT_M
+	  ELSE
+	    NXIT=IXIT_P
+	  END IF
 	END IF
 	NPASS=MAX(NP_M,NP_P)
 	NBAD=NB_M+NB_P
@@ -5782,16 +5834,17 @@ C
 ! even passes descend (fresh upwind for compressing cells).  A ray
 ! with no usable compressing slots is exact after the first pass.
 ! ----------------------------------------------------------------
-	SUBROUTINE SWEEP_FLD(FLD,INWARD,RES,NPO,NB_O,NT_O)
+	SUBROUTINE SWEEP_FLD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT)
 	REAL(KIND=LDP) FLD(NI,NCF),RES
 	LOGICAL INWARD
-	INTEGER NPO,LB,LE,LDI
+	INTEGER NPO,LB,LE,LDI,IXIT
 	INTEGER*8 NB_O,NT_O
 	INTEGER NSTALL
 	REAL(KIND=LDP) BEST_RES
 	LOGICAL ASC
 	NPO=0
 	NSTALL=0
+	IXIT=-1
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
 	RES=1.0E+30_LDP
@@ -5851,6 +5904,7 @@ C
 	  IF(RES .NE. RES .OR. RES .GT. HUGE(RES) .OR.
 	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
 	    DIVERGED=.TRUE.
+	    IXIT=5
 	    EXIT
 	  END IF
 	  BEST_RES=MIN(BEST_RES,RES)
@@ -5901,12 +5955,14 @@ C
 !	    inflate KN_HOT_CNT.
 !
 	    CLEAN_EXIT=.TRUE.
+	    IXIT=0
 	    RES=0.0_LDP
 	    RES_FREQ(1:NCF)=0.0_LDP
 	    EXIT
 	  END IF
 	  IF(RES .LT. KN_RAY_TOL)THEN
 	    CLEAN_EXIT=.TRUE.
+	    IXIT=1
 	    EXIT
 	  END IF
 !
@@ -5916,9 +5972,18 @@ C
 ! sweep directions cannot exit on a partially-propagated field.
 !
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
-	1     NB_O .LE. MAX(50_8,NT_O/1000))EXIT
-	  IF(NSTALL .GE. 2)EXIT
-	  IF(NPO .GE. KN_RAY_MAXPASS)EXIT
+	1     NB_O .LE. MAX(50_8,NT_O/1000))THEN
+	    IXIT=2
+	    EXIT
+	  END IF
+	  IF(NSTALL .GE. 2)THEN
+	    IXIT=3
+	    EXIT
+	  END IF
+	  IF(NPO .GE. KN_RAY_MAXPASS)THEN
+	    IXIT=4
+	    EXIT
+	  END IF
 	END DO
 !
 ! A ray that exited cleanly (RES<TOL, or the exact single pass of a
@@ -6073,10 +6138,10 @@ C
 ! SWEEP_FLD; the pass-order alternation is dropped because the
 ! ordering is fixed by the characteristic, not by pass parity.
 ! ----------------------------------------------------------------
-	SUBROUTINE SWEEP_FLD_ORD(FLD,INWARD,RES,NPO,NB_O,NT_O)
+	SUBROUTINE SWEEP_FLD_ORD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT)
 	REAL(KIND=LDP) FLD(NI,NCF),RES
 	LOGICAL INWARD
-	INTEGER NPO
+	INTEGER NPO,IXIT
 	INTEGER*8 NB_O,NT_O
 	INTEGER NSTALL,J,L,LB,LE,LDI
 	REAL(KIND=LDP) BEST_RES
@@ -6098,6 +6163,7 @@ C
 !
 	NPO=0
 	NSTALL=0
+	IXIT=-1
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
 	RES=1.0E+30_LDP
@@ -6108,6 +6174,7 @@ C
 	ALLOCATE(VMAXF(NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
 	  DIVERGED=.TRUE.
+	  IXIT=5
 	  RETURN
 	END IF
 	DO_AIT=FG_ORD_AITKEN
@@ -6288,6 +6355,7 @@ C
 	  IF(RES .NE. RES .OR. RES .GT. HUGE(RES) .OR.
 	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
 	    DIVERGED=.TRUE.
+	    IXIT=5
 	    EXIT
 	  END IF
 	  BEST_RES=MIN(BEST_RES,RES)
@@ -6315,6 +6383,7 @@ C
 !
 	    IF(NPO .GE. 2)THEN
 	      CLEAN_EXIT=.TRUE.
+	      IXIT=0
 	      RES=0.0_LDP
 	      RES_FREQ(1:NCF)=0.0_LDP
 	      EXIT
@@ -6322,12 +6391,22 @@ C
 	  END IF
 	  IF(RES .LT. KN_RAY_TOL)THEN
 	    CLEAN_EXIT=.TRUE.
+	    IXIT=1
 	    EXIT
 	  END IF
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
-	1     NB_O .LE. MAX(50_8,NT_O/1000))EXIT
-	  IF(NSTALL .GE. 2)EXIT
-	  IF(NPO .GE. KN_RAY_MAXPASS)EXIT
+	1     NB_O .LE. MAX(50_8,NT_O/1000))THEN
+	    IXIT=2
+	    EXIT
+	  END IF
+	  IF(NSTALL .GE. 2)THEN
+	    IXIT=3
+	    EXIT
+	  END IF
+	  IF(NPO .GE. KN_RAY_MAXPASS)THEN
+	    IXIT=4
+	    EXIT
+	  END IF
 !
 ! Aitken delta-squared on the pass iterate (KN_ORD_AITKEN).  Applied
 ! only to cells whose last pass still moved by more than the march

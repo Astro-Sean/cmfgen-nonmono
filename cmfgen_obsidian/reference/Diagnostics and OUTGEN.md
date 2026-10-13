@@ -101,6 +101,8 @@ JFNK re-armed                          - stagnation disable cooldown expired
 BA_RES_ACC              - acceptance / rejection events
 SOLVEBA POPULATION UPDATE - held variables, max corrections, DEC_VEC/INC_VEC, scale
 FG_KNOP_REFRESH: pass   - per-pass residual history
+ray exits: exact= tol= bulk= stall= cap= div=  - per-ray stop-rule census
+stall/cap rays: maxres= bad cells=  - share of unconverged cells left by early exits
 MOM_KNOP_REFRESH guard  - why the MOM refresh skipped
 MOM field marginal      - trial machinery arming
 Calling FG_J_CMF_NONMONO_V1 / MOM_J_CMF_NONMONO_V1 / MOM_JREL_V9

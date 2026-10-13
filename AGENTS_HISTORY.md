@@ -2538,3 +2538,89 @@ at submit when SN_HYDRO_DATA exists, so contradictory configs fail
 before queueing. Sibling SN_B_X_grid yamls still carry
 DIF=F/IB_METH=ZERO_FLUX and will now refuse until repowered or
 acknowledged.
+
+## 13-Oct-2026 (Devin session, cont.) - m15 2.82d MOM probes repowered to DIFFUSION
+
+Boundary audit confirmed all four MOM probes ran
+DIF=F/IB_METH=ZERO_FLUX on a luminous model (LSTAR=4.27e8 Lsun,
+tau_ross=39.3) with no internal deposition (INC_SHOCK_POWER=F,
+INC_RAD_DECAYS=F) -- the starved-boundary failure the new guard was
+built for. Runtime evidence: RLUMST(ND)=0 exactly in every run; SOB
+warm had converged to L(d=1)=3.7e6 (~115x under header), SOB cold
+4.8e6; KNOP warm 2.9e8 was the FIX_T thermostat, not the true flow.
+ZERO_FLUX had been inherited from the convergence-era recipe
+("avoids negative DBB from non-monotonic T"), but T at the boundary
+is smooth and monotonic (8.39->8.67e4 K inward) so DTDR>0 and DBB>0
+-- DIFFUSION is safe, and dif_probe/dif2-4 proved it on this model
+(715+ its, RLUMST(ND)=4.27e8).
+
+Changes: all four configs now DIF=T + IB_METH=DIFFUSION; SOB pair
+also JBAR_W_EDD=T (legal under DIF=T; dif_probe recipe), KNOP pair
+keep JBAR_W_EDD=F (BLANK mode does not take the Jbar path). KNOP
+BLANK-mode tau threshold is 50 vs SOB 25, so KNOP's tau=39.3 prints
+the <50 warning but preserves the user override -- verified
+"IB_METH: preserved (user override = DIFFUSION)" in OUTGEN.
+warm_restart_from dropped from both probe configs so the preserve
+list carries each run's own checkpoint; GS_STATE added to that
+preserve list in run_model_grid.py so n_frozen/trial state survives
+resubmission.
+
+Resubmitted: SOB cold 12177450, SOB warm 12177452 (resumed it684,
+own checkpoint), KNOP cold 12177454, KNOP warm 12177456 (resumed
+it458, own checkpoint, GS_STATE intact). All report
+RLUMST(ND)=4.265858E8 -- the boundary now carries the hydro
+luminosity. No -ve-intensity stops; the KNOP nonmono DIFFUSION
+branch (fg_j_cmf_nonmono_v1.f:2366, mom_j_cmf_nonmono_v1.f:2378) is
+exercised for the first time at runtime. Surface L still starved-era
+(SOB 3.7e6, KNOP warm 2.9e8); it must climb toward ~4.3e8 as the
+repowered field equilibrates upward -- watch it as the convergence
+metric alongside MAXCH.
+
+## 13-Oct-2026 - KNOP held-population handoff guard (commit d1c51fa)
+
+`new_main/cmfgen_sub.f` now defers the initial `DO_LAM_AUTO` transition
+under `DO_NONMONO_KNOP` while `GS_POPS_HELD=T`. A held population step is
+rolled back, so its `MAXCH_CTRL=0` must not signal convergence. The
+monotonic path and SOB handoff are unchanged.
+
+Verification: `./build.sh` passed, including 21 solver tests, 9
+interface tests, and the analytical harness. Jobs 12179164 (cold) and
+12179160 (resumed probe) were submitted through `run_model_grid.py`.
+Cold it1 and probe it472-474 stayed `LAMBDA_GS -> LAMBDA_TFIX` with
+`IN_ITS DO_LAM_IT=T`; the prior cold run had switched to full iterations
+at it1 with `MAXCH_CTRL=0`. This verifies the handoff guard, not full
+model convergence. The MOM path remains diagnostic-only on this field.
+
+The frozen binaries report base HEAD 82b0e23. The source worktree was
+dirty at build and submission, so that hash alone does not identify all
+source included in those binaries. The new guard is recorded in commit
+d1c51fa; other pre-existing worktree edits were left untouched.
+
+## 13-Oct-2026 - KNOP refresh exit census + unmasked CORRECTION_SUM
+
+Two diagnostic changes motivated by the m15 2.82d formal-J cold run
+(interactive, job 12181576): the refresh residual plateaued at ~0.08
+against KN_RAY_TOL=2e-3 with ~5.4% of significant cells still above
+tolerance at it13, and CORRECTION_SUM read ~18 rows/depth demanding
+corrections while the raw STEQ SOLUTION ARRAY showed ~1800/1839 rows
+demanding changes.
+
+`plane/fg_j_cmf_nonmono_v1.f`: per-sweep exit code (0 exact /
+1 tol / 2 bulk / 3 same-direction stall / 4 pass cap / 5 diverged)
+threaded out of SWEEP_FLD and SWEEP_FLD_ORD through
+KNOP_RAY_SOLVE_V1; the refresh summary now prints a `ray exits`
+count per class and, when stall/cap exits occur, their max residual
+and bad-cell share. Output-only change; no solver behaviour touched.
+
+`new_main/subs/solveba_v13.f`: CORRECTION_SUM now writes, per depth,
+the all-row cumulative demand counts, then the floor-kept counts
+(old masked view), then N_SKIP rows excluded by BA_DEM_PFLOOR /
+BA_DEM_RELFRAC. The MAXCH control path still reads floor-passing
+rows only; cmfgen_convergence.py reads columns 1-7 which now hold
+the unmasked counts.
+
+Verification: `make DEBUG=nodebug all` exit 0; `ray exits` strings
+present in the rebuilt exe/cmfgen_dev.exe. Runtime check is the next
+KNOP refresh block in any running job; the Aitken A/B arm
+(dessart_m15_2p82d_KNOP_FORMAL_aitken) exercises KN_ORD_AITKEN=T
+against the running cold arm.
