@@ -561,10 +561,22 @@ SED fractions uv/opt/nir = 0.83/0.13/0.04 vs Luc 0.80/0.19/0.01;
 line ratios vs Luc: He II 4686 1.33x, H alpha 1.96x, H beta 2.55x,
 He II 5412 2.14x, He I 5876 trough ~7.7x deeper. Residuals: narrow
 line cores vs Luc's broad bumps (morphology, not power), elevated
-NIR continuum, deeper He I absorption. dif3 continues from it687
-with EPS_TERM=1e-3, FIX_T_AUTO=F, DO_T_AUTO=F, NEG_OPAC_OPT=ESEC_CHK.
-INC_CHG=T and the DIE_* flags remain unreachable: no CHG_EXCH_DATA
-or DIE<ION> files exist in this tree.
+NIR continuum, deeper He I absorption.
+
+dif3 (it699, EPS_TERM=1e-3 + FIX_T_AUTO=F, DO_T_AUTO=F,
+NEG_OPAC_OPT=ESEC_CHK) and dif4 (it723, +INC_CHG=T with
+CHG_EXCH_DATA staged by prepare_VADAT, +DIE_CIII/NIV/OV with
+die_data links added to cmfgen_base_dessart/batch.sh) both
+re-converged and rendered IDENTICAL spectra to dif2 -- the clumped
+DIFFUSION state is the converged answer under all reachable physics
+deltas. The residual vs Luc is therefore attributed to: (1) the
+model atom -- ours carries OI/SkI/Sk2/CaI/Ca2/FeI/Fe2 low-ionization
+species that Luc's MODEL_SPEC lacks (pipeline-mandated for SN
+ejecta; matching needs a stripped-atom cold restart since NION
+changes break the checkpoint), and (2) render physics -- the SOB
+injection writes Doppler cores only, so Luc's e.s.-broadened
+emission pedestals are absent by construction. DC_METH=LTE vs R
+only affects population regridding and is irrelevant at FIX_T=T.
 
 OBS-only render gotcha: `cmf_flux` segfaults in INDEXX when the dir
 lacks the `POP*` species files (ATM%XzV_PRES all false ->
