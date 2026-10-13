@@ -321,7 +321,9 @@
 	INTEGER I,J,K,LS
 	INTEGER NI
 	INTEGER NP_TMP
+	INTEGER N_NEG_INT_RAY
 !
+	REAL(KIND=LDP) NEG_INT_LIM
 	REAL(KIND=LDP) DBC
 	REAL(KIND=LDP) I_CORE
 	REAL(KIND=LDP) T1,T2
@@ -1339,7 +1341,8 @@ C
 ! Enter loop to perform integration along each ray.
 !
 !$OMP PARALLEL DO SCHEDULE(DYNAMIC)
-!$OMP1 PRIVATE(SOURCE_PRIME,SOURCE_RAY,CHI_RAY,ETA_RAY,dCHIdR_RAY,Q,EE,E0,E1,E2,E3,S,dS,T1,T2,I_CORE,dZ,NI,I,K)
+!$OMP1 PRIVATE(SOURCE_PRIME,SOURCE_RAY,CHI_RAY,ETA_RAY,dCHIdR_RAY,Q,EE,E0,E1,E2,E3,S,dS,T1,T2,I_CORE,dZ,NI,I,K,
+!$OMP2 N_NEG_INT_RAY,NEG_INT_LIM)
 !
 	  DO LS=1,NP
 !
@@ -1522,17 +1525,38 @@ C
 	1        +    dS(I+1)*A4(I,LS) )
 	    END DO
 !
+!
+! The swept recursion can undershoot I below zero where the
+! transported intensity is ~0 - on non-monotonic models this shows up
+! along rays ending at the optically thin inner boundary.  Intensity
+! is bounded below by 0, so undershoot up to a fraction of the ray's
+! source scale is repaired to a small positive floor and counted;
+! larger negative values are genuine failures, keep their diagnostic
+! output, and still reach the JNU halt downstream.  Mirrors the
+! N_NEG_INT clamp in FG_J_CMF_NONMONO_V1.
+!
+	    N_NEG_INT_RAY=0
+	    NEG_INT_LIM=MAX(1.0E-28_LDP,
+	1                  0.25_LDP*MAXVAL(ABS(SOURCE_PRIME(1:NI))))
 	    DO I=1,NI-1
 	      IF(I_M(I+1,LS) .LT. 0)THEN
-	        WRITE(6,*)'Error for I_M, LS=',LS,ND,NI,FREQ
-	        WRITE(6,'(2X,A,13(8X,A))')'I','IMP1','IMPR','DTAU','   Q',
+	        IF(ABS(I_M(I+1,LS)) .LE. NEG_INT_LIM)THEN
+	          I_M(I+1,LS)=1.0E-30_LDP
+	          N_NEG_INT_RAY=N_NEG_INT_RAY+1
+	        ELSE
+	          WRITE(6,*)'Error for I_M, LS=',LS,ND,NI,FREQ
+	          WRITE(6,'(2X,A,13(8X,A))')'I','IMP1','IMPR','DTAU','   Q',
 	1                     '  SI','SIP1',' dSI','dSIP',
 	1                     '  A0','  A1','  A2','  A3','  A4'
-	        WRITE(6,'(I3,13ES12.4)')I,I_M(I+1,LS),I_M_PREV(I+1,LS),DTAU(I,LS),Q(I),
+	          WRITE(6,'(I3,13ES12.4)')I,I_M(I+1,LS),I_M_PREV(I+1,LS),DTAU(I,LS),Q(I),
 	1                   SOURCE_PRIME(I),SOURCE_PRIME(I+1),dS(I),dS(I+1),
 	1                   A0(I,LS),A1(I,LS),A2(I,LS),A3(I,LS),A4(I,LS)
+	        END IF
 	      END IF
 	    END DO
+	    IF(N_NEG_INT_RAY .GT. 0)WRITE(6,'(A,I5,A,I4)')
+	1      ' FG_J_CMF_V12:',N_NEG_INT_RAY,
+	1      ' negative I_M repaired on ray',LS
 !
 ! ******************* OUTWARD DIRECTED RAYS *********************************
 !
@@ -1578,16 +1602,27 @@ C
 	1        -    dS(I)*A4(I,LS) )
 	    END DO
 !
+	    N_NEG_INT_RAY=0
+	    NEG_INT_LIM=MAX(1.0E-28_LDP,
+	1                  0.25_LDP*MAXVAL(ABS(SOURCE_PRIME(1:NI))))
 	    DO I=1,NI
 	      IF(I_P(I,LS) .LT. 0)THEN
-	        WRITE(6,*)'Error for I_P, LS=',LS,ND,NI
-	        WRITE(6,'(2X,A,11(7X,A))')'I','  IM',' IMP','DTAU','   Q','   S','  dS',
+	        IF(ABS(I_P(I,LS)) .LE. NEG_INT_LIM)THEN
+	          I_P(I,LS)=1.0E-30_LDP
+	          N_NEG_INT_RAY=N_NEG_INT_RAY+1
+	        ELSE
+	          WRITE(6,*)'Error for I_P, LS=',LS,ND,NI
+	          WRITE(6,'(2X,A,11(7X,A))')'I','  IM',' IMP','DTAU','   Q','   S','  dS',
 	1                     '  A0','  A1','  A2','  A3','  A4'
-	        WRITE(6,'(I3,11ES12.4)')I,I_P(I,LS),I_P_PREV(I,LS),DTAU(I,LS),
+	          WRITE(6,'(I3,11ES12.4)')I,I_P(I,LS),I_P_PREV(I,LS),DTAU(I,LS),
 	1                   Q(I),SOURCE_PRIME(I),dS(I),
 	1                   A0(I,LS),A1(I,LS),A2(I,LS),A3(I,LS),A3(I,LS)
+	        END IF
 	      END IF
 	    END DO
+	    IF(N_NEG_INT_RAY .GT. 0)WRITE(6,'(A,I5,A,I4)')
+	1      ' FG_J_CMF_V12:',N_NEG_INT_RAY,
+	1      ' negative I_P repaired on ray',LS
 C
 C Note that V=AV(1)-IBOUND.
 C
