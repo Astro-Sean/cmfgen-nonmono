@@ -72,6 +72,23 @@
 	BNUE=TWOHCSQ*( FL**3 )*EMHNUKT(ND)/T2
 	DBB=TWOHCSQ*( FL**3 )*T1*DTDR/T(ND)*EMHNUKT(ND)/(T2**2)
 	DDBBDT=DBB*(T1*(1.0_LDP+EMHNUKT(ND))/T2-2.0_LDP)/T(ND)
+!
+! With DO_NONMONO_SOB the interacting-SN temperature can decrease
+! inwards at the base (cool inner ejecta below the shocked shell
+! gives DTDR<0 above), so DBB=dB/dR<0.  The DIFFUSION inner
+! boundary then returns XM(NI)=DBC<0 in FQCOMP_IBC_V2 and RJ(ND)<0
+! in JFEAU_IBC_V2, stopping the run on the -ve intensity guards.
+! The physical limit of an inwards-decreasing Planck gradient is no
+! diffusion flux through the boundary, so floor DBB at a small
+! positive value -- numerically zero-flux, but strictly positive
+! because JFEAU_IBC_V2 rejects RJ(ND)<=0.  Only under
+! DO_NONMONO_SOB, and only for DBB<0, so the hollow-core DBB=0
+! case below and all default runs are unchanged.
+!
+	IF(DO_NONMONO_SOB .AND. DBB .LT. 0.0_LDP)THEN
+	  DBB=1.0D-99
+	  DDBBDT=0.0_LDP
+	END IF
         HFLUX_AT_IB=DBB/CHI(ND)/3.0_LDP
 	IF(SN_MODEL .AND. .NOT. DIF)THEN
 	  BNUE=0.0_LDP; DBB=0.0_LDP; DDBBDT=0.0_LDP
