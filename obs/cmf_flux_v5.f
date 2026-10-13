@@ -45,7 +45,6 @@
 	LOGICAL SCRAT
 	LOGICAL F_TO_S_RD_ERROR
 	INTEGER I,J,NT,SCRATREC
-	INTEGER N_SIG_UNDEF
 	INTEGER LEN_DIR
 	INTEGER EQ_TEMP
 	REAL(KIND=LDP) T1,T2
@@ -350,7 +349,6 @@
 	ALLOCATE (R(ND),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (V(ND),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (SIGMA(ND),STAT=IOS)
-	IF(IOS .EQ. 0)ALLOCATE (SIGMA_TRUE(ND),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (T(ND),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (ED(ND),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (LANG_COORD(ND),STAT=IOS)
@@ -372,24 +370,6 @@
 	CALL RD_RVTJ_VEC_V4(R,V,SIGMA,ED,T,CMFGEN_TGREY,dE_RAD_DECAY,
 	1       ROSS_MEAN,FLUX_MEAN,PLANCK_MEAN,
 	1       POP_ATOM,POPION,DENSITY,CLUMP_FAC,FORMAT_DATE,ND,LUIN)
-!
-! RVTJ stores the infrastructure-clamped SIGMA (>= -0.999).  Re-derive
-! the unclamped SIGMA_TRUE through the shared worker (SIGMA_TRUE_CORE,
-! new_main/subs/recompute_sigma_true.f) so the EW estimators see the
-! same gradient -- including the stagnation-cell regularization and
-! degenerate-cell count -- as the transfer solve.  Called
-! unconditionally: CONTROL_VARIABLE_MOD's nonmono flags are not set in
-! this executable, only the CMF_FLUX_CNTRL_VAR_MOD copies are.
-!
-	CALL SIGMA_TRUE_CORE(SIGMA_TRUE,R,V,ND,N_SIG_UNDEF)
-	IF(DO_NONMONO_SOB)THEN
-	  WRITE(T_OUT,'(A,2ES12.4)')
-	1    'SIGMA_TRUE range:',MINVAL(SIGMA_TRUE(1:ND)),
-	2                        MAXVAL(SIGMA_TRUE(1:ND))
-	  IF(N_SIG_UNDEF .GT. 0)WRITE(T_OUT,'(A,I6,A)')
-	1    '  SIGMA_TRUE undefined at',N_SIG_UNDEF,' cells (set to 0)'
-	END IF
-!
 	SN_MODEL=.FALSE.
 	IF(V(ND) .GT. 100.0_LDP)SN_MODEL=.TRUE.
 !

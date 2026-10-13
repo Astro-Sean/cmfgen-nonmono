@@ -59,6 +59,16 @@ if ( -d SCRATCH ) find SCRATCH -maxdepth 1 -type f -delete
 # ***********************************************************************
 ../batch.sh assign
 
+# Dielectronic and charge-exchange inputs are staged in the run dir by
+# prepare_VADAT.py when VADAT enables them (DIE_*/INC_CHG); ../batch.sh
+# assign does not know them, so forward the links or cmf_flux stops in
+# RD_XzV_PHOT_DIE / RD_CHG_EXCH_V2 with "cant open".
+set nonomatch
+foreach f ( ../DIE* ../CHG_EXCH_DATA )
+  if ( -e $f || -l $f ) ln -sf $f .
+end
+unset nonomatch
+
 ln -sf $ATOMIC/misc/strk_list_lemke_3jan01.dat   FULL_STRK_LIST
 ln -sf $ATOMIC/misc/lemke_hi.dat                 LEMKE_HI
 ln -sf $ATOMIC/misc/hei_ir_strk.dat              HeI_IR_STRK

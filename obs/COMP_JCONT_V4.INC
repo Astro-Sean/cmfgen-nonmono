@@ -2,7 +2,6 @@
 ! Program section to compute the continuum intensity. Opacities must have
 ! previuosly been evaluated.
 !
-! Altered 05-Oct-2026 - Keep stock CMF_FORM_SOL off the Knop path (Devin).
 ! Altered 01-Jul-2024 - Fixed bug related to J computation with dust.
 ! Altered 19-Mar-2024 - Added dust opacity and emissivity.
 ! Altered 30-Apr-2019 - Now call MOM_JREL_V9
@@ -355,15 +354,6 @@
 	1               VDOP_VEC_EXT,DELV_FRAC_FG,REXT_FAC,
 	1               METHOD,FIRST_FREQ,NEW_FREQ,NCEXT,NPEXT,NDEXT)
 	     ELSE
-	       IF(DO_NONMONO_KNOP)THEN
-!	         The Knop solver needs an extended-grid SIGMA_TRUE, which is
-!	         not implemented.  Fail loudly rather than let V12 abort on
-!	         sigma < -1 with a misleading message.
-	         WRITE(LUER,*)'Error: DO_NONMONO_KNOP requires INC_GRID=F;'
-	         WRITE(LUER,*)'extended-grid Knop formal solution'//
-	1          ' is not implemented.'
-	         STOP
-	       END IF
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12 with accurate grid'
 	       CALL FG_J_CMF_V12(TA,CHIEXT,CHI_SCAT_EXT,
 	1              VEXT,SIGMAEXT,REXT,PEXT,TC,FEDD,
@@ -573,8 +563,7 @@
 	        IF(PLANE_PARALLEL_NO_V)V_AT_RMAX=0.0_LDP
 	      END IF
 	    ELSE IF( (LST_ITERATION .AND. .NOT. LAMBDA_ITERATION .AND.
-	1         MAXCH .LT. VAL_DO_NG .AND. .NOT. DO_NONMONO_KNOP .AND.
-	1         .NOT. USE_FORMAL_REL)  )THEN
+	1         MAXCH .LT. VAL_DO_NG .AND. .NOT. USE_FORMAL_REL)  )THEN
 !
 ! Quick and dirty method to ge an extended DENSITY vector. Will use TB in
 ! the call to CMF_FORM_SOL.
@@ -742,30 +731,13 @@
 	1                  METHOD,FIRST_FREQ,NEW_FREQ,NC,NP,ND)
 	       INBC=0.0_LDP
 	     ELSE
-	        IF(DO_NONMONO_KNOP)THEN
-!	          Knop et al. (2009) CMF formal solver for non-monotonic
-!	          velocity fields: required when sigma < -1, where V12
-!	          aborts.  Uses the unclamped SIGMA_TRUE; SIGMA stays
-!	          clamped for the moment equations and infrastructure.
-	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
-	1               'Calling FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
-	          CALL SET_FG_NU_NEXT(NU(MIN(ML+1,NCF)))
-	          CALL FG_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
-	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
-	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,
-	1                  INNER_BND_METH,DBB,IC,
-	1                  VDOP_VEC,DELV_FRAC_FG,REXT_FAC,
-	1                  METHOD,FG_SOL_OPTIONS,THK_CONT,
-	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND,SIGMA_TRUE,NCF)
-	        ELSE
-	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12'
-	          CALL FG_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
+	        IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12'
+	        CALL FG_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
 	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,DIF,DBB,IC,
 	1                  VDOP_VEC,DELV_FRAC_FG,REXT_FAC,
 	1                  METHOD,FG_SOL_OPTIONS,THK_CONT,
 	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND)
-	        END IF
 	     END IF
 !
 	     CALL TUNE(ITWO,'FG_J_CMF')

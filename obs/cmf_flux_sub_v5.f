@@ -17,21 +17,9 @@
 	USE EDDFAC_REC_DEFS_MOD
 	IMPLICIT NONE
 !
-! Altered: 12-Oct-2026 : DO_SOB_FLUX_OBS now writes each SOB line's
-!                          opacity/emissivity into ETA_CMF_ST/CHI_CMF_ST
-!                          (ADD_SOB_LINE_PROF) and OBS_FRAME_SUB_V9 is
-!                          re-run, so the observed-frame formal integral
-!                          renders resolved SOB line profiles on a
-!                          non-monotonic velocity field (Dessart et al.
-!                          2015, Sec. 3.1).  Replaces the earlier EW
-!                          deposition, which cannot reproduce resolved
-!                          profile shapes.
-! Altered: 12-Oct-2026 : Added DO_SOB_FLUX_OBS path: the Sobolev EWs
-!                          computed in the DO_SOBOLEV_LINES block are
-!                          deposited into OBS_FLUX (DEP_SOB_OBS_FLUX) so
-!                          SOB lines reach the observed spectrum.
-! Altered: 05-Oct-2026 : Validate V ordering against the selected
-!                          non-monotonic mode before spectrum setup (Devin).
+! Altered: 13-Oct-2026 : Add a flag-gated OBS_FRAME render for lines
+!                          whose populations were computed with the
+!                          non-monotonic Sobolev approximation.
 ! Altered: 22-Jan-2024 : Fixed bug - dust and Rayleigh scattering were being treated like electron 
 !                          scattering in the observer's frame calcualtion.
 ! Altered: 19-Mar-2024 : Added routines for dust treatment. All routines will treat isotropic 
@@ -127,7 +115,6 @@
 	REAL(KIND=LDP) TSTAR,S1,IC,MAXCH
 	REAL(KIND=LDP) C_KMS
 	REAL(KIND=LDP) T1,T2,T3,T4
-	REAL(KIND=LDP) CHI_FLR		!positive opacity floor for guarded divisions
 	REAL(KIND=LDP) FL,FL_OLD
 	REAL(KIND=LDP) FG_COUNT
 !
@@ -170,7 +157,7 @@
 	INTEGER MNL_F,MNUP_F
 	INTEGER I,J,K,L,ML,LS,LINE_INDX
 	INTEGER ID,ID_SAV,ISPEC
-	INTEGER ES_COUNTER
+	INTEGER ES_COUNTER,N_SIG_UNDEF
 !
 ! Functions called
 !
@@ -564,48 +551,26 @@
 !
 	  CALL RD_CMF_FLUX_CONTROLS(ND,LUMOD,LUER)
 !
-! The stock CMF solvers are only validated for the legacy positive,
-! decreasing V(R).  A dedicated non-monotonic flag selects the guarded
-! path; without one, reject a repeated or reversed moving atmosphere
-! rather than silently taking the wrong formal solution.  Static
-! atmospheres remain allowed.
+! Under DO_NONMONO_SOB only, match the EW estimator's velocity gradient
+! to the unclamped gradient used for the populations (Dessart et al.
+! 2015, Sec. 3.1). The default F leaves the stock path unchanged.
 !
-	  IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
-	    DO I=1,ND
-	      IF(V(I) .LE. 0.0_LDP)THEN
-	        WRITE(LUER,*)'Error in CMF_FLUX_SUB_V5:'
-	        WRITE(LUER,*)'Non-monotonic modes require positive V.'
-	        WRITE(LUER,*)'Depth, V=',I,V(I)
-	        STOP
-	      END IF
-	    END DO
-	  ELSE IF(MAXVAL(ABS(V(1:ND))) .GT. 0.0_LDP)THEN
-	    DO I=1,ND-1
-	      IF(V(I+1) .GE. V(I))THEN
-	        WRITE(LUER,*)'Error in CMF_FLUX_SUB_V5:'
-	        WRITE(LUER,*)'Non-monotonic V requires DO_NONMONO_SOB or'
-	        WRITE(LUER,*)'DO_NONMONO_KNOP in CMF_FLUX_INPUT.'
-	        WRITE(LUER,*)'Depth, V=',I,V(I),V(I+1)
-	        STOP
-	      END IF
-	    END DO
+	IF(DO_NONMONO_SOB)THEN
+	  IOS=0
+	  IF(.NOT. ALLOCATED(SIGMA_TRUE))ALLOCATE(SIGMA_TRUE(ND),STAT=IOS)
+	  IF(IOS .NE. 0)THEN
+	    WRITE(LUER,*)'Unable to allocate SIGMA_TRUE in CMF_FLUX_SUB_V5'
+	    STOP
 	  END IF
-!
-! Stock CMFGEN assumes V(1) is the fastest material.  In a shocked
-! CSM model V(1) is the slow outer CSM (~100 km/s) while the shell and
-! ejecta interior move at several 1000 km/s.  VINF sets the CMF-to-
-! observer frequency coverage margins (NU_MAX_OBS/NU_MIN_OBS) and the
-! e.s. wing extents in INS_LINE_V5/INS_LINE_OBS_V4, so an undersized
-! VINF leaves Doppler-shifted opacity outside the refined grid
-! regions.  Use the full velocity-magnitude range on the non-monotonic paths only.
-! Must sit after RD_CMF_FLUX_CONTROLS, which sets the DO_NONMONO flags.
-!
-	IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
-	  VINF=MAXVAL(ABS(V(1:ND)))
-	  WRITE(LUER,'(A,F10.2,A,F10.2,A)')
-	1   ' Non-monotonic V: VINF set to MAXVAL(ABS(V))=',VINF,
-	2   ' km/s (V(1)=',V(1),')'
+	  CALL SIGMA_TRUE_CORE(SIGMA_TRUE,R,V,ND,N_SIG_UNDEF)
 	END IF
+!
+! VINF sets the frequency margins used by the observer-frame line
+! grid.  For non-monotonic Sobolev populations, use the full speed
+! range so shell and ejecta lines stay inside those margins.  The flag
+! defaults to F; the stock CMF_FLUX path is otherwise unchanged.
+!
+	IF(DO_NONMONO_SOB) VINF=MAXVAL(ABS(V(1:ND)))
 !
 ! 
 !
@@ -693,44 +658,15 @@
 ! Compute the turbulent velocity and MINIMUM Doppler velocity as a function of depth.
 ! For the later, the iron mas of 55.8amu is assumed.
 !
-!
-! Bug fixes, not flag-gated (upstream code, 30-Sep-2026):
-! LAW_V1 divided by V(1), which is zero for a finite base velocity
-! offset, small at a resolved shock, or negative under infall -- any
-! of these poisons VTURB_VEC (and hence VDOP_VEC).  Normalize by
-! max|V| and use |V|, which reduces to the old law for monotonic
-! outflow but stays defined for non-monotonic fields.
-!
 	IF(TURB_LAW .EQ. 'LAW_V1')THEN
-	  T1=MAXVAL(ABS(V(1:ND)))
-	  IF(T1 .GT. 1.0E-12_LDP)THEN
-	    VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)*
-	1       MIN(1.0_LDP,ABS(V(1:ND))/T1)
-	  ELSE
-	    VTURB_VEC(1:ND)=VTURB_MIN
-	  END IF
-!
-! Bug fix, not flag-gated (upstream code): the old loop read
-! R(I+1)/ESEC(I+1) at I=ND (out of bounds) and built every TA(I)
-! relative to TA(1) instead of accumulating, so the optical-depth
-! weighting was wrong at all depths.  TA is now the cumulative
-! electron-scattering depth integral inward from the outer boundary;
-! the trapezoid assumes the CMFGEN convention R(1) > ... > R(ND).
-!
+	  VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)*V(1:ND)/V(1)
 	ELSE IF(TURB_LAW .EQ. 'LAW_TAU1')THEN
-	  IF(ANY(R(1:ND-1) .LE. R(2:ND)))THEN
-	    WRITE(LUER,*)'Error in CMF_FLUX_SUB_V5: LAW_TAU1 requires'
-	    WRITE(LUER,*)'  R decreasing with depth index'
-	    STOP
-	  END IF
-	  ESEC(1:ND)=6.65E-15_LDP*MAX(ED(1:ND),0.0_LDP)*
-	1       MAX(CLUMP_FAC(1:ND),0.0_LDP)
+	  ESEC(1:ND)=6.65E-15_LDP*ED(1:ND)*CLUMP_FAC(1:ND)
 	  TA(1)=1.0_LDP
-	  DO I=2,ND
-	    TA(I)=TA(I-1)+0.5_LDP*(R(I-1)-R(I))*(ESEC(I-1)+ESEC(I))
+	  DO I=1,ND
+	    TA(I)=TA(1)+0.5_LDP*(R(I)-R(I+1))*(ESEC(I)+ESEC(I+1))
 	  END DO
-	  VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)/
-	1       (1.0_LDP+MAX(TA(1:ND),0.0_LDP))
+	  VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)/(1.0_LDP+TA(1:ND))
 	ELSE
 	  WRITE(LUER,'(A)')' Error --- TURBULENT velocity law not recognized'
 	  WRITE(LUER,'(A)')TRIM(TURB_LAW)
@@ -1220,20 +1156,15 @@
 ! Used when computing the observed fluxes. These will get overwritten
 ! if we do an accurate comoving frame soluton using CMF_FORM_SOL.
 !
-! MAX() on the radicand guards the sqrt against a P exceeding R by a
-! few ulps after P-grid interpolation or revision (tangential ray).
-!
 	IF(ACCURATE)THEN
 	  DO LS=1,NPEXT
-	    MU_AT_RMAX(LS)=SQRT( MAX(0.0_LDP,
-	1        1.0_LDP -(PEXT(LS)/REXT(1))**2 ) )
+	    MU_AT_RMAX(LS)=SQRT( 1.0_LDP -(PEXT(LS)/REXT(1))**2 )
 	    HQW_AT_RMAX(LS)=HQWEXT(1,LS)
 	  END DO
 	  IF(PEXT(NPEXT) .EQ. REXT(1))MU_AT_RMAX(NPEXT)=0.0_LDP
 	ELSE
 	  DO LS=1,NP
-	    MU_AT_RMAX(LS)=SQRT( MAX(0.0_LDP,
-	1        1.0_LDP -(P(LS)/R(1))**2 ) )
+	    MU_AT_RMAX(LS)=SQRT( 1.0_LDP -(P(LS)/R(1))**2 )
 	    HQW_AT_RMAX(LS)=HQW(1,LS)
 	  END DO
 	  IF(P(NP) .EQ. R(1))MU_AT_RMAX(NP)=0.0_LDP
@@ -1364,16 +1295,6 @@
 ! Enter loop for each continuum frequency.
 !
 	CALL TUNE(IONE,'MLCF')
-!
-! DO_NONMONO_KNOP (Knop et al. 2009, Papers I/II): register the OBS
-! frequency grid with the formal solver before the first call below.
-! The FGINEXT_GS checkpoint was written on the model frequency grid
-! (different NCF and spacing), so the solver init remaps the lagged
-! I_NEXT coupling in frequency instead of restoring by position or
-! cold-starting it.
-!
-	IF(DO_NONMONO_KNOP)CALL SET_FG_GS_OBS_GRID(NU,NCF)
-!
 	DO 10000 ML=1,NCF
 	  FREQ_INDX=ML
 	  FL=NU(ML)
@@ -1655,23 +1576,10 @@
 	  NEG_OPACITY(1:ND)=.FALSE.
 	  IF(NEG_OPAC_OPTION .EQ. 'SRCE_CHK')THEN
 	    DO I=1,ND
-!
-! Bug fix, not flag-gated (upstream code): the SRCE_CHK target
-! divides by ETA_CONT, which is zero or subnormal at frequencies
-! with negligible continuum emission, producing Inf/NaN CHI that
-! then poisons ZETA=ETA/CHI.  The target now falls back to the
-! scattering floor, which itself takes a 1E-30 floor so the opacity
-! cannot reach zero in electron-free zones.
-!
-	      T1=0.1_LDP*MAX(ESEC(I),CHI_SCAT(I),1.0E-30_LDP)
-	      IF(ABS(ETA_CONT(I)) .GT. 1.0E-30_LDP)THEN
-	        T2=0.1_LDP*ETA(I)*MAX(CHI_CONT(I)-ESEC(I),0.0_LDP)/
-	1           ETA_CONT(I)
-	      ELSE
-	        T2=T1
-	      END IF
-	      IF(CHI(I) .LT. 0.1_LDP*CHI_CONT(I) .AND. CHI(I) .LT. T2)THEN
-	        CHI(I)=T2
+!	      IF(CHI(I) .LT. CHI_CONT(I) .AND.
+	      IF(CHI(I) .LT. 0.1*CHI_CONT(I) .AND.
+	1            CHI(I) .LT. 0.1_LDP*ETA(I)*(CHI_CONT(I)-ESEC(I))/ETA_CONT(I) )THEN
+	        CHI(I)=0.1_LDP*ETA(I)*(CHI_CONT(I)-ESEC(I))/ETA_CONT(I)
 	        NEG_OPACITY(I)=.TRUE.
 	        AT_LEAST_ONE_NEG_OPAC=.TRUE.
 	        IF(CHI(I) .LE. 0.0_LDP)THEN
@@ -1679,19 +1587,19 @@
 	          WRITE(6,'(A,I4,5X,A,ES16.10)')'Depth=',I,'Freq=',FL
 	          WRITE(6,'(5(8X,A))')'   ETA','ETA_CONT','    CHI','CHI_CONT','   ESEC'
 	          WRITE(6,'(5ES16.10)')ETA(I),ETA_CONT(I),CHI(I),CHI_CONT(I),ESEC(I)
-	          CHI(I)=T1
+	          CHI(I)=0.1_LDP*ESEC(I)
 	         END IF
-	      ELSE IF(CHI(I) .LT. T1)THEN
-	        CHI(I)=T1
+	      ELSE IF(CHI(I) .LT. 0.1_LDP*ESEC(I))THEN
+	        CHI(I)=0.1_LDP*ESEC(I)
 	        NEG_OPACITY(I)=.TRUE.
 	        AT_LEAST_ONE_NEG_OPAC=.TRUE.
 	      END IF
 	    END DO
 	  ELSE IF(NEG_OPAC_OPTION .EQ. 'ESEC_CHK')THEN
 	    DO I=1,ND
-	      T1=0.1_LDP*MAX(ESEC(I),CHI_SCAT(I),1.0E-30_LDP)
-	      IF(CHI(I) .LT. T1)THEN
-	        CHI(I)=T1
+	      IF(CHI(I) .LT. 0.1_LDP*ESEC(I))THEN
+	        T1=CHI(I)
+	        CHI(I)=0.1_LDP*ESEC(I)
 	        NEG_OPACITY(I)=.TRUE.
 	        AT_LEAST_ONE_NEG_OPAC=.TRUE.
 	      END IF
@@ -1716,18 +1624,9 @@
 	  END IF
 	END IF
 !
-!
-! Bug fix, not flag-gated: a NEG_OPAC_OPTION of neither SRCE_CHK nor
-! ESEC_CHK, or a zero scattering floor, could leave CHI <= 0 here, so
-! ZETA/THETA took 0/0 or x/0.  Divide by a floored CHI instead; the
-! floor tracks the continuum opacity scale so transparent zones get
-! a large-but-finite source term rather than Inf.
-!
-	  CHI_FLR=MAX(1.0E-30_LDP,1.0E-12_LDP*MAXVAL(ABS(CHI_CONT(1:ND))))
 	  DO I=1,ND
-	    T2=MAX(CHI(I),CHI_FLR)
-	    ZETA(I)=ETA(I)/T2
-	    THETA(I)=CHI_SCAT(I)/T2
+	    ZETA(I)=ETA(I)/CHI(I)
+	    THETA(I)=CHI_SCAT(I)/CHI(I)
 	  END DO
 !
 	  IF(LST_ITERATION .AND. ML .NE. NCF)THEN
@@ -1889,13 +1788,6 @@
 !
 	IF(COMPUTE_J)THEN
 	  T1=TWOHCSQ*HDKT*FQW(ML)*(NU(ML)**4)
-!
-! dev7, not flag-gated: for x=HDKT*FL/T << 1 (IR/radio tail) the
-! literal 1-EMHNUKT loses almost all digits to cancellation; the
-! series x*(1 - x/2 + x^2/6) is accurate to ~1E-13 relative at the
-! 1E-4 switchover.  The 1/CHI in the Rosseland weight is floored so
-! a repaired-but-tiny opacity cannot inject Inf into the mean.
-!
 	  DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	    T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
 	    RLUMST(I)=RLUMST(I)+T2
@@ -1903,23 +1795,15 @@
 	    K_INT(I)=K_INT(I)+K_MOM(I)*FQW(ML)*4.1274E-12_LDP
 	    FLUXMEAN(I)=FLUXMEAN(I)+T2*CHI(I)
 	    LINE_FLUXMEAN(I)=LINE_FLUXMEAN(I)+T2*(CHI(I)-CHI_CONT(I))
-	    T3=HDKT*FL/T(I)
-	    T4=1.0_LDP-EMHNUKT(I)
-	    IF(T3 .LT. 1.0E-4_LDP)
-	1      T4=T3*(1.0_LDP-0.5_LDP*T3*(1.0_LDP-T3/3.0_LDP))
-	    T2=T1*EMHNUKT(I)/(  ( T4*T(I) )**2  )
+	    T2=T1*EMHNUKT(I)/(  ( (1.0_LDP-EMHNUKT(I))*T(I) )**2  )
 	    INT_dBdT(I)=INT_dBdT(I)+T2
-	    ROSSMEAN(I)=ROSSMEAN(I)+T2/MAX(CHI(I),CHI_FLR)
+	    ROSSMEAN(I)=ROSSMEAN(I)+T2/CHI(I)
 	  END DO
 	END IF
 !
 	T1=TWOHCSQ*FQW(ML)*(NU(ML)**3)
 	DO I=1,ND
-	  T3=HDKT*FL/T(I)
-	  T4=1.0_LDP-EMHNUKT(I)
-	  IF(T3 .LT. 1.0E-4_LDP)
-	1    T4=T3*(1.0_LDP-0.5_LDP*T3*(1.0_LDP-T3/3.0_LDP))
-	  T2=T1*EMHNUKT(I)/T4
+	  T2=T1*EMHNUKT(I)/(1.0_LDP-EMHNUKT(I))
 	  PLANCKMEAN(I)=PLANCKMEAN(I)+T2*CHI(I)
 	END DO
 !
@@ -2084,21 +1968,8 @@
 	DO I=1,ND
 	  IF(ABS(RLUMST(I)) .LE. 1.0E-20_LDP)RLUMST(I)=1.0E-20_LDP
 	  FLUXMEAN(I)=FLUXMEAN(I)/RLUMST(I)
-!
-! Bug fix, not flag-gated: ROSSMEAN is an accumulated 1/CHI-weighted
-! integral that can vanish when every frequency's Planck weight
-! underflows.  A zero denominator made both outputs Inf/NaN, and
-! ROSSMEAN feeds TCHI and the derived tau scales below.  A dead cell
-! now gets ROSSMEAN=0, which the existing MINVAL(TCHI)>0 test already
-! traps as a diagnostic instead of propagating NaN.
-!
-	  IF(ROSSMEAN(I) .GT. 1.0E-30_LDP)THEN
-	    INT_dBdT(I)=INT_dBdT(I)/ROSSMEAN(I)		!Program rosseland opac.
-	    ROSSMEAN(I)=T1*( T(I)**3 )/ROSSMEAN(I)
-	  ELSE
-	    INT_dBdT(I)=0.0_LDP
-	    ROSSMEAN(I)=0.0_LDP
-	  END IF
+	  INT_dBdT(I)=INT_dBdT(I)/ROSSMEAN(I)		!Program rosseland opac.
+	  ROSSMEAN(I)=T1*( T(I)**3 )/ROSSMEAN(I)
 	  PLANCKMEAN(I)=4.0_LDP*PLANCKMEAN(I)/T1/( T(I)**4 )
 	END DO
 !
@@ -2261,16 +2132,14 @@
 	    STOP
 	  END IF
 	  DO LS=1,NP_OBS
-	    MU_AT_RMAX(LS)=SQRT( MAX(0.0_LDP,
-	1        (R(1)-P_OBS(LS))*(R(1)+P_OBS(LS))) )/R(1)
+	    MU_AT_RMAX(LS)=SQRT((R(1)-P_OBS(LS))*(R(1)+P_OBS(LS)))/R(1)
 	  END DO
 	  CALL SET_ACC_dMU(MU_AT_RMAX,dMU_AT_RMAX,P_OBS,R(1),NP_OBS)
 	  CALL HWEIGHT_V2(MU_AT_RMAX,dMU_AT_RMAX,HQW_AT_RMAX,NP_OBS)
 !
 	ELSE
 	  DO LS=1,NP
-	    MU_AT_RMAX(LS)=SQRT( MAX(0.0_LDP,
-	1        (R(1)-P(LS))*(R(1)+P(LS))) )/R(1)
+	    MU_AT_RMAX(LS)=SQRT((R(1)-P(LS))*(R(1)+P(LS)))/R(1)
 	  END DO
 	  CALL SET_ACC_dMU(MU_AT_RMAX,dMU_AT_RMAX,P,R(1),NP)
 	  CALL HWEIGHT_V2(MU_AT_RMAX,dMU_AT_RMAX,HQW_AT_RMAX,NP)
