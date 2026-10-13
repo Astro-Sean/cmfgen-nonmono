@@ -922,6 +922,14 @@
 !
 	LOGICAL MOM_H_IMPL
 !
+! MOM_FAC_RLX (default 1.0 = off): under-relaxation weight for the
+! Eddington-factor update between great iterations in
+! MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
+! snap is the only channel moving the lagged map's fixed point per
+! iteration.  1.0 keeps the raw snap.  VADAT keyword [MOM_FAC_RLX].
+!
+	REAL(KIND=LDP) MOM_FAC_RLX
+!
 ! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the

@@ -43,4 +43,5 @@
             PRESCRIBED_SHOCK_POWER
       WRITE(*,'(A,L2)')'MOM_H_IMPL=',MOM_H_IMPL
       WRITE(*,'(A,ES12.5)')'MOM_ABS_FLR=',MOM_ABS_FLR
+      WRITE(*,'(A,ES12.5)')'MOM_FAC_RLX=',MOM_FAC_RLX
       END

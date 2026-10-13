@@ -367,6 +367,21 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # MOM_FAC_RLX opt-in key parses and lands.
+    d = write_vadat(
+        WORKDIR / "vadat_mom_facrlx",
+        {"MOM_FAC_RLX": "5.0D-1"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_FAC_RLX key parses and lands",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("MOM_FAC_RLX", "nan").replace("D", "E")) - 0.5)
+        < 1e-12,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 

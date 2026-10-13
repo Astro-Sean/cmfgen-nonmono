@@ -1081,6 +1081,19 @@
 	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,
 	1     MOM_H_IMPL)
 !
+! MOM_FAC_RLX (default 1.0 = off): under-relax the Eddington-factor
+! update between great iterations in MOM_J_CMF_NONMONO_V1.  With
+! pops held the formal-solve factor snap is the only channel that
+! moves the lagged map's fixed point between iterations; on this
+! model the snap displaces the map by >50% at ~2E5 cells per sweep
+! while the refresh already converges at the old factors (KNOP cold
+! probes, 13-Oct-2026).  1.0 keeps the raw snap for A/B tests.
+!
+	  MOM_FAC_RLX=1.0_LDP
+	  CALL RD_STORE_DBLE(MOM_FAC_RLX,'MOM_FAC_RLX',L_FALSE,
+	1     'Eddington-factor under-relaxation between MOM sweeps')
+	  CALL SET_MOM_FAC_RLX(MOM_FAC_RLX)
+!
 ! Refresh tuning knobs, previously compile-time parameters.  The
 ! defaults match the built-in values, so an unchanged VADAT is
 ! bit-identical in behavior; the setters clamp to safe ranges.

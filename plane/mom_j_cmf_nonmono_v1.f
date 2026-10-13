@@ -374,6 +374,24 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: XHIST_OUT(:,:,:),
 	1    FHIST_OUT(:,:,:),RETJ_PREV(:,:),RETH_PREV(:,:)
 !
+! MOM_FAC_RLX (VADAT real, default 1.0 = off): under-relax the
+! Eddington-factor update between great iterations.  With pops held,
+! J -> formal solve -> K_ON_J/NMID factors -> coefficients is the
+! only channel that moves the lagged map's fixed point between
+! iterations, and on this model the unrelaxed snap displaces the map
+! by >50% at ~2E5 cells per sweep while the refresh already reaches
+! a fixed point at the old coefficients.  Blending the update into
+! the previous factor store damps that composite map; the fixed
+! point itself is unchanged.  The store is per-frequency, seeded
+! with the first call's factors and not checkpointed -- a requeue
+! re-seeds from the snap and re-relaxes.  1.0 keeps the raw formal
+! snap (all prior behavior).
+!
+	REAL(KIND=LDP), SAVE :: MOM_FAC_RLX=1.0_LDP
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FACR_KONJ(:,:),
+	1    FACR_NMJ(:,:),FACR_NMH(:,:)
+	LOGICAL, ALLOCATABLE, SAVE :: FACR_SEED(:)
+!
 ! MOM_FREQ_MATCH (VADAT key DO_NONMONO_FREQ_MATCH, default FALSE;
 ! set by SET_MOM_FREQ_MATCH): at compressing cells the lagged
 ! upwind frequency index is rematched to the bin containing the
@@ -1627,6 +1645,55 @@
 	    NMID_ON_HMID(I)=SIGN(MIN(ABS(NMID_ON_HMID(I)),
 	1       1.0E+12_LDP),NMID_ON_HMID(I))
 	  END DO
+!
+! MOM_FAC_RLX blend: this call's sanitized factors are folded into
+! the per-frequency relaxed store and the store is fed back, so the
+! coefficients below see a damped factor trajectory.  First call per
+! slot seeds directly.  Runs on the main sweep only -- refresh
+! re-calls read the captured KN_M factor state (already relaxed) and
+! skip the GET_MOMS_NON_REL block entirely.
+!
+	  IF(MOM_FAC_RLX .LT. 1.0_LDP .AND. FREQ_INDX .GE. 1 .AND.
+	1     FREQ_INDX .LE. NCF_IN)THEN
+	    IF(.NOT. ALLOCATED(FACR_KONJ) .OR.
+	1       SIZE(FACR_KONJ,1) .NE. ND_NM .OR.
+	2       SIZE(FACR_KONJ,2) .NE. NCF_IN)THEN
+	      IF(ALLOCATED(FACR_KONJ))DEALLOCATE(FACR_KONJ,FACR_NMJ,
+	1        FACR_NMH,FACR_SEED)
+	      ALLOCATE(FACR_KONJ(ND_NM,NCF_IN),FACR_NMJ(ND_NM,NCF_IN),
+	1        FACR_NMH(ND_NM,NCF_IN),FACR_SEED(NCF_IN),STAT=IOS)
+	      IF(IOS .NE. 0)THEN
+	        LUER=ERROR_LU()
+	        WRITE(LUER,*)'MOM_FAC_RLX: factor store alloc failed;',
+	1        ' relax disabled'
+	        MOM_FAC_RLX=1.0_LDP
+	      ELSE
+	        FACR_SEED=.FALSE.
+	      END IF
+	    END IF
+	    IF(MOM_FAC_RLX .LT. 1.0_LDP)THEN
+	      IF(FACR_SEED(FREQ_INDX))THEN
+	        DO I=1,ND_NM
+	          FACR_KONJ(I,FREQ_INDX)=FACR_KONJ(I,FREQ_INDX)+
+	1            MOM_FAC_RLX*(K_ON_J(I)-FACR_KONJ(I,FREQ_INDX))
+	          K_ON_J(I)=FACR_KONJ(I,FREQ_INDX)
+	        END DO
+	        DO I=1,ND_NM-1
+	          FACR_NMJ(I,FREQ_INDX)=FACR_NMJ(I,FREQ_INDX)+
+	1            MOM_FAC_RLX*(NMID_ON_J(I)-FACR_NMJ(I,FREQ_INDX))
+	          NMID_ON_J(I)=FACR_NMJ(I,FREQ_INDX)
+	          FACR_NMH(I,FREQ_INDX)=FACR_NMH(I,FREQ_INDX)+
+	1            MOM_FAC_RLX*(NMID_ON_HMID(I)-FACR_NMH(I,FREQ_INDX))
+	          NMID_ON_HMID(I)=FACR_NMH(I,FREQ_INDX)
+	        END DO
+	      ELSE
+	        FACR_KONJ(1:ND_NM,FREQ_INDX)=K_ON_J(1:ND_NM)
+	        FACR_NMJ(1:ND_NM,FREQ_INDX)=NMID_ON_J(1:ND_NM)
+	        FACR_NMH(1:ND_NM,FREQ_INDX)=NMID_ON_HMID(1:ND_NM)
+	        FACR_SEED(FREQ_INDX)=.TRUE.
+	      END IF
+	    END IF
+	  END IF
 	END IF
 !
 	IF(ND_NM .GT. ND_SM)THEN
@@ -4200,6 +4267,19 @@
 	MOM_LAG_BND=LAGBND
 	MOM_ABS_FLR=MAX(ABSFLR,0.0_LDP)
 	MOM_H_IMPL=HIMPL
+	RETURN
+	END
+!
+! SET_MOM_FAC_RLX: Eddington-factor under-relaxation between great
+! iterations (VADAT MOM_FAC_RLX, default 1.0 = raw formal snap).
+! Bounds mirror JNEXT_RELAX.
+!
+	SUBROUTINE SET_MOM_FAC_RLX(RLX)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_FAC_RLX
+	IMPLICIT NONE
+	REAL(KIND=LDP) RLX
+	MOM_FAC_RLX=MIN(MAX(RLX,1.0E-3_LDP),1.0_LDP)
 	RETURN
 	END
 !
