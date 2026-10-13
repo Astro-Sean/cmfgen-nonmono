@@ -43,20 +43,29 @@ Lambda iteration -> BA (SOLVEBA) -> JFNK (frozen -> coupled)
 
 ## Initial LAMBDA handoff
 
-For non-monotonic SOB and Knop runs, `DO_LAM_AUTO` no longer releases
-full iterations on one `MAXCH < 50` call alone. `SOLVE_FOR_POPS` counts
-consecutive calls below `LAM_EXIT`, using applied `MAXCH_CTRL`; forced
-LAMBDA calls reset the count. Luminosity ratio and drift do not enter
-this decision because shocks permit physical deposition between the
-boundaries. The handoff occurs after `LAM_N_STABLE` qualifying calls. The stock
-50% handoff remains unchanged when both non-monotonic flags are off.
-This prevents the initial handoff from bypassing the same stability
-controls used by later LAMBDA exits. After handoff, a raw BA demand
-cannot reopen the LAMBDA or JFNK gate while its residual check is
-pending or after the trial was rejected, masked, or soft-rejected; a
-periodic probe must pass residual acceptance first. These changes do
-not prove the BA direction converges. Runtime/model validation is
-pending.
+`DO_LAM_AUTO` keeps its existing 50% threshold for the initial handoff.
+Under `DO_NONMONO_KNOP`, `CMFGEN_SUB` now defers that handoff while
+`GS_POPS_HELD` is true. A held population update reports zero applied
+change because the update was rolled back; that value is not evidence
+of convergence. Once populations are released, the existing threshold
+applies. `DO_NONMONO_KNOP` defaults F, so the stock path is unchanged.
+Luminosity ratio and drift remain diagnostic because shocks permit
+physical deposition between the boundaries.
+
+Runtime guard check (13-Oct-2026): cold job 12179164 at it1 and resumed
+probe job 12179160 at it472-474 stayed in `LAMBDA_GS -> LAMBDA_TFIX`
+with populations held; `IN_ITS` kept `DO_LAM_IT=T`. Before the guard,
+the same cold-start configuration switched to full iterations at it1
+with `MAXCH_CTRL=0`. These runs verify the handoff guard only; neither
+model is converged. The rebuilt executable reports HEAD 82b0e23, but the
+source worktree was dirty at build and submission, so that hash does not
+fully identify the binary.
+
+After handoff, a raw BA demand cannot reopen the LAMBDA or JFNK gate
+while its residual check is pending or after the trial was rejected,
+masked, or soft-rejected; a periodic probe must pass residual acceptance
+first. These changes do not prove the BA direction converges.
+#status/partial
 
 The gate alone has no escape when the LAMBDA attractor floors above
 `LAM_EXIT` (m15 SOB: demand parked ~45-49% with `stable=0/3`). The

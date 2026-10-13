@@ -5063,15 +5063,16 @@
 ! If RD_LABDA is TRUE., switch to full iteration when convergence has been achieved.
 ! We switch when the convergence is 20%.
 !
+! A held KNOP population correction is rolled back, so MAXCH_CTRL=0 is
+! not evidence that the field or populations converged. Knop et al.
+! (2009, Paper II, Sec. 3.2) solves the wavelength field before updating
+! populations. Defer this handoff while GS_POPS_HELD is true. The guard
+! is gated by DO_NONMONO_KNOP, which defaults F, so the stock path stays
+! unchanged.
 	    ELSE IF(DO_LAMBDA_AUTO .AND. RD_LAMBDA .AND.
 	1           MAXCH_CTRL .LT. 50.0_LDP .AND.
-	2           .NOT. JFNK_UNCONVERGED_COMMIT)THEN
-! Reverted 08-Oct-2026 per user request: the non-mono stable-count
-! guard parked the run in LAMBDA at ~45% demand (LAM_EXIT=20 is
-! unreachable when the LAMBDA attractor floors higher).  Restore the
-! stock switch: MAXCH<50 hands off to full iterations directly.
-! Residual acceptance (DO_BA_RES_ACC) and BA_DAMP_CAP still bound the
-! full steps themselves.
+	2           .NOT. JFNK_UNCONVERGED_COMMIT .AND.
+	3           (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_POPS_HELD))THEN
 ! edited by Devin, 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
 ! the start of full iterations is visible in OUTGEN.
 	       WRITE(LUER,'(A,I5,A,ES12.4)')

@@ -49,13 +49,12 @@ since 30-Sep-2026:
 ## Auto-transitions out of Lambda
 
 - `DO_LAM_AUTO` (IN_ITS, default T): the stock path flips
-  `RD_LAMBDA` to F at `MAXCH_CTRL < 50`. With `DO_NONMONO_SOB` or
-  `DO_NONMONO_KNOP`, the initial flip also requires `LAM_N_STABLE`
-  consecutive calls with applied `MAXCH_CTRL < LAM_EXIT`; forced
-  LAMBDA calls do not count. Luminosity ratio and drift are diagnostic
-  only because shock deposition invalidates boundary agreement. The
-  stable-wait and handoff are logged in OUTGEN. The stock behavior is unchanged when
-  both non-monotonic flags are off.
+  `RD_LAMBDA` to F at `MAXCH_CTRL < 50`. Under `DO_NONMONO_KNOP`, the
+  initial handoff is deferred while `GS_POPS_HELD` is true. A held
+  update is rolled back, so its zero `MAXCH_CTRL` is not evidence of
+  convergence. Once populations are released, the existing 50% handoff
+  applies. `DO_NONMONO_KNOP` defaults F, so the stock path is unchanged.
+  Luminosity ratio and drift remain diagnostic for shocks.
 - `BA_PROBE_LAM` rd_lam probe (11-Oct-2026): the stable-exit gate has
   no escape when the LAMBDA attractor floors above `LAM_EXIT` -- the
   m15 SOB run parked at ~45% demand with `stable=0/3` because every
