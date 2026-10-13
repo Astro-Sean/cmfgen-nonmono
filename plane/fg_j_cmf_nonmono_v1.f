@@ -5991,11 +5991,13 @@ C
 	    END IF
 !
 ! Stall detection: count consecutive same-direction comparisons with
-! residual ratio above KN_RAY_STALL (VADAT, default 0.90 = <10%
+! residual ratio above KN_RAY_STALL (VADAT, default 0.98 = <2%
 ! improvement).  The lagged field is rebuilt from fresh opacities
 ! every great iteration, so polishing a slowly-contracting fixed
 ! point buys little -- NSTALL>=2 (four straight passes of
 ! stagnation) exits below once past the initial transient (NPO>=8).
+! The 0.98 default keeps rays contracting at >=2%/pass alive; at
+! 0.90 those rays held nearly all unconverged cells on this model.
 !
 	    IF(NPO .GE. 8)THEN
 	      IF(RATIO_OM .GT. KN_RAY_STALL)THEN
