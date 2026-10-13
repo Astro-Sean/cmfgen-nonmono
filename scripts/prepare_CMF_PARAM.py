@@ -553,7 +553,8 @@ def h_atom_split_n2(template_path):
     batch.sh assign): the row whose last field is the level index 2 is
     named '2___' for combined atoms and e.g. '2s_2Se' when n=2 is split.
     cmf_flux_sub_v5.f STOPs unless PROF_HI is DOPPLER for split atoms.
-    Returns False when the atom file cannot be read or parsed.
+    Returns None when the atom file cannot be read or parsed, so the
+    caller can distinguish 'not split' from 'unknown'.
     """
     for cand in (Path(template_path).parent.parent / 'HI_F_OSCDAT',
                  Path('..') / 'HI_F_OSCDAT'):
@@ -568,7 +569,7 @@ def h_atom_split_n2(template_path):
             parts = l.split()
             if len(parts) >= 6 and parts[-1] == '2':
                 return parts[0] != '2___'
-    return False
+    return None
 
 
 def build_noncoherent_es_companions(lines, es_main):
@@ -881,7 +882,17 @@ def main():
     # (hard STOP in cmf_flux_sub_v5.f), so this wins over user overrides.
     # GLOBAL_PROF=LIST stamps PROF_TYPE='LIST' on every line, which also
     # fails the 'DOP' check — GLOBAL_PROF itself must be DOPPLER.
-    if h_atom_split_n2(template_path):
+    split_n2 = h_atom_split_n2(template_path)
+    if split_n2 is None:
+        # HI_F_OSCDAT missing/unparseable -- OBS-only runs can reach this
+        # when the assign link was never created. LIST-stamped profiles
+        # read stored data that may not exist in a copied checkpoint, and
+        # a split atom would abort on non-DOPPLER profiles anyway, so
+        # DOPPLER is the safe value in both cases.
+        print("  WARNING: could not read ../HI_F_OSCDAT -- H I level "
+              "structure unknown; falling back to DOPPLER profiles",
+              file=sys.stderr)
+    if split_n2 is not False:
         split_fix = {}
         for key in ('PROF_HI', 'GLOBAL_PROF'):
             cur = _param_value(lines, key)
@@ -889,7 +900,8 @@ def main():
                 split_fix[key] = 'DOPPLER'
         if split_fix:
             lines = _apply_forced_keys(lines, split_fix, tag="H_SPLIT")
-            print(f"  H atom has split n=2 levels: {split_fix}")
+            if split_n2:
+                print(f"  H atom has split n=2 levels: {split_fix}")
 
     # 3. Verify consistency against the forced set that was applied
     errors = verify_consistency(lines, forced_set)

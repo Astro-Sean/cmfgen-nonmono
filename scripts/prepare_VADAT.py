@@ -487,6 +487,105 @@ def require_chg_exch_data(vadat_lines, wdir):
         f"tree or set INC_CHG=F in vadat_overrides.")
 
 
+# MODEL_SPEC / VADAT ion-tag prefixes -> atomic-tree element directories.
+# ION_ID tags do not all use chemical symbols: Sk=Si, Tk=Ti, Nk=Ni, and
+# stage suffixes mix roman (III), digit (2 -> II) and spelled (SIX -> VI)
+# forms. Longest prefix wins (SkIII -> Si III, not S + kIII).
+_ION_TAG_ELEM_DIR = {
+    "H": "HYD", "He": "HE", "C": "CARB", "N": "NIT", "O": "OXY",
+    "F": "FLU", "Ne": "NEON", "Na": "NA", "Mg": "MG", "Al": "AL",
+    "Si": "SIL", "Sk": "SIL", "P": "PHOS", "S": "SUL", "Cl": "CHL",
+    "Ar": "ARG", "K": "POT", "Ca": "CA", "Sc": "SCAN", "Ti": "TIT",
+    "Tk": "TIT", "V": "VAN", "Cr": "CHRO", "Mn": "MAN", "Fe": "FE",
+    "Co": "COB", "Ni": "NICK", "Nk": "NICK", "Ba": "BAR",
+}
+
+_DIE_SPELLED_STAGE = {
+    "FOUR": "IV", "FIVE": "V", "SIX": "VI", "SEV": "VII",
+    "EIGHT": "VIII", "NINE": "IX", "TEN": "X",
+}
+_ROMAN_STAGES = {
+    "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+}
+_DIGIT_TO_ROMAN = {
+    "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI",
+    "7": "VII", "8": "VIII", "9": "IX",
+}
+
+
+def _ion_tag_to_atomic_stage(tag):
+    """Map a CMFGEN ion tag to (atomic element dir, roman stage dir).
+
+    Handles the ION_ID suffix conventions: roman (CIII -> CARB/III),
+    digit (Sk2 -> SIL/II) and spelled (OSIX -> OXY/VI, FeSEV -> FE/VII).
+    Returns None when the tag cannot be resolved.
+    """
+    for prefix in sorted(_ION_TAG_ELEM_DIR, key=len, reverse=True):
+        if not tag.startswith(prefix):
+            continue
+        suffix = tag[len(prefix):]
+        if not suffix:
+            continue
+        stage = suffix.upper()
+        if stage.isdigit():
+            stage = _DIGIT_TO_ROMAN.get(stage)
+        else:
+            stage = _DIE_SPELLED_STAGE.get(stage, stage)
+        if stage in _ROMAN_STAGES:
+            return _ION_TAG_ELEM_DIR[prefix], stage
+    return None
+
+
+def require_die_data(vadat_lines, wdir):
+    """Require DIE<tag> files for every enabled DIE_<tag> in VADAT.
+
+    When a DIE_<ion> flag carries a T in either position, the ion's
+    dielectronic reader opens 'DIE'//ION_ID with status='OLD' in the run
+    CWD, so an enabled flag without the file is a guaranteed crash. Stage
+    missing files from the atomic tree
+    ($ATOMIC/<elem>/<stage>/<vintage>/die_data, newest dated copy);
+    refuse only when no source file exists or the tag is unknown.
+    """
+    requested = []
+    for line in vadat_lines:
+        m = re.match(r"^\s*([^\s]+)\s+\[DIE_(\w+)\]", line)
+        if not m or m.group(2) == "AS_LINE":
+            continue
+        if "T" in m.group(1).upper():
+            requested.append(m.group(2))
+    if not requested:
+        return
+    atomic_dir = Path(os.environ.get("ATOMIC", "/u/sbrennan/atomic"))
+    for tag in sorted(set(requested)):
+        data = Path(wdir) / f"DIE{tag}"
+        if data.exists():
+            continue
+        resolved = _ion_tag_to_atomic_stage(tag)
+        if resolved is None:
+            raise ValueError(
+                f"DIE_{tag} is enabled in VADAT but the ion tag '{tag}' "
+                f"does not map to an atomic <elem>/<stage> directory. "
+                f"Disable the flag or stage DIE{tag} into {wdir} manually.")
+        elem_dir, stage_dir = resolved
+        candidates = sorted(
+            atomic_dir.glob(f"{elem_dir}/{stage_dir}/*/die_data"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for src in candidates:
+            if src.is_file():
+                os.symlink(src, data)
+                print(f"  [DIE_{tag}] linked {data.name} -> {src}")
+                break
+        else:
+            raise FileNotFoundError(
+                f"DIE_{tag} is enabled in VADAT but DIE{tag} is missing "
+                f"from {wdir} and no {elem_dir}/{stage_dir}/*/die_data "
+                f"exists under {atomic_dir}. Dielectronic data for that "
+                f"ion are unavailable: set DIE_{tag}=F,F or stage the "
+                f"file into the atomic tree.")
+
+
 # ==============================================================================
 # PHYSICS ENFORCER: Bulletproof settings for STELLA / SOB / Type IIn
 # ==============================================================================
@@ -5771,6 +5870,7 @@ def main() -> int:
         clean = enforce_sn_iin_physics(clean, line_treatment=non_mono_line_treatment,
                                        user_overrides=vadat_overrides)
         require_chg_exch_data(clean, wdir)
+        require_die_data(clean, wdir)
         write_lines(vadat_out_path, clean)
 
         # ── NUM_BNDS / SOL_METH reconciliation ──────────────────────────

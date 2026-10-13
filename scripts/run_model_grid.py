@@ -7218,6 +7218,37 @@ def submit_cmfgen_jobs(
 
     # Read all CMFGEN config from YAML (no env vars)
     cmfgen_cfg = config.get("cmfgen", {})
+
+    # OBS-only submission pre-flight: a skip_final run renders the OBS
+    # spectrum from FINAL-run outputs that must already be on disk. With
+    # missing pieces cmf_flux dies deep inside Fortran (e.g. no POP* files
+    # leaves zero species and segfaults in INDEXX) -- catch that here with
+    # an actionable message instead of burning a queued job on a crash.
+    if cmfgen_cfg.get("skip_final", False) or os.environ.get("SKIP_FINAL") == "1":
+        obs_required = ["VADAT", "RVTJ", "MODEL", "CUR_MODEL_DATA"]
+        missing = [f for f in obs_required if not (cmfgen_dir / f).exists()]
+        if not any(p.is_file() for p in cmfgen_dir.glob("POP*")):
+            missing.append("POP* (species population files)")
+        # HI_F_OSCDAT feeds prepare_CMF_PARAM's split-H check; without it
+        # PROF_HI stays HZ_STARK and cmf_flux aborts on split n=2 atoms.
+        if not (cmfgen_dir / "HI_F_OSCDAT").exists():
+            missing.append("HI_F_OSCDAT")
+        if missing:
+            raise FileNotFoundError(
+                f"skip_final OBS submission for {cmfgen_dir} lacks inputs "
+                f"produced only by a completed FINAL run: {missing}. "
+                f"Run FINAL first, or stage the checkpoint files "
+                f"(VADAT, RVTJ, MODEL, CUR_MODEL_DATA, POP*, HI_F_OSCDAT, "
+                f"POINT1/POINT2, SCRTEMP) into the directory and resubmit."
+            )
+        for chk in ("POINT1", "POINT2", "SCRTEMP"):
+            if not (cmfgen_dir / chk).exists():
+                print(
+                    f"  WARNING: {chk} absent -- OBS reads POP*/RVTJ so the "
+                    f"render may still run, but no checkpoint state exists "
+                    f"for any follow-up warm restart."
+                )
+
     init_num_its = cmfgen_cfg.get("init_num_its", 3)
     # single_final is always True now — INIT/STABLE stages removed.
     # The only distinction is cold start (single_final) vs warm restart (prev_cmfgen_dir set).
