@@ -24,7 +24,14 @@ iteration that just moved it.
 
 - `DO_LEVEL_CHK` reports the 10th-largest change, so up to ~10 levels
   can still move >10% while `MAXCH` reads <1% ([[The great
-  iteration]]).
+  iteration]]). The top-10 vectors now respect `BA_DEM_PFLOOR` /
+  `BA_DEM_RELFRAC` (13-Oct-2026): before that, dead levels exempted
+  from the demand scan could still fill all 10 slots and pin `MAXCH`
+  (X_SOB 40d: HeI singlet dead levels at depth 73, `MAXCH` ~9%).
+- `BA_DEM_PFLOOR` / `BA_DEM_RELFRAC` (default 0 = off) exempt
+  floor-level population rows from the demanded-correction metric;
+  their corrections still commit. Use only where the exempted rows
+  are demonstrably opacity-inert (see [[BA matrix and SOLVEBA]]).
 - Masked-demand false convergence (fixed 04-Oct-2026): the resacc
   trust mask used to erase failed columns' demand from `MAXCH`, so a
   fully masked step reported demand 0 - jfnk_hyb exited "converged"

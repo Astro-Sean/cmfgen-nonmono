@@ -169,6 +169,22 @@ rebuilds the BA on exit; `N_FULL_TREL` phases the temperature release
   pipeline profiles keep `FIX_IMP=F`: freezing the rows suppresses the
   population corrections needed to relax trace stages and leaves large
   CORRECTION_SUM bands at zero.
+- **Dead-level demand floors** (`BA_DEM_PFLOOR`/`BA_DEM_RELFRAC`,
+  11/12-Oct-2026): rows whose population is below an absolute floor,
+  or below `BA_DEM_RELFRAC` times the largest population row at that
+  depth, are skipped by the demanded-correction metric and by
+  `MAXCH_APP`. Corrections on skipped rows still commit; ED (NT-1)
+  and T (NT) rows are exempt. Motivation: SCALE-capped collapse of a
+  Boltzmann-dead level is an unsatisfiable demand that pins MAXCH
+  forever - the same mode for which the O II 2s2p4 superlevels were
+  pruned (TypeIIn_KNOP2) and the X_SOB 40d run stalls at ~9% on HeI
+  singlet levels at depth 73. **13-Oct-2026 fix**: the floors now
+  also gate the `MAX_INC_VEC`/`MAX_DEC_VEC` accumulation. Under
+  `DO_LEVEL_CHK` (all corrections <10%, the normal late-stage regime)
+  `MAXCH` is the 10th-largest raw STEQ value, and before the fix those
+  vectors were built ungated - dead rows filling all 10 slots kept
+  `MAXCH` pinned regardless of the floors. Both floors default to 0;
+  default path unchanged.
 
 ## SOLVEBA internals
 

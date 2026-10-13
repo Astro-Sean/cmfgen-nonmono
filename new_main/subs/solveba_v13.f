@@ -43,6 +43,10 @@
 ! Altered 08-Nov-2011 : Updated maximum correction output with info on whether BA was computed.
 ! Altered 15-Nov-2010 : FIDDLE_POP_CORRECTIONS added to assist convergence. This allows
 !                         -ver relaxation to be used at some depths.
+! Altered 13-Oct-2026 : BA_DEM_PFLOOR / BA_DEM_RELFRAC now also gate the
+!                          MAX_INC_VEC / MAX_DEC_VEC accumulation, so the
+!                          DO_LEVEL_CHK NV-th-largest MAXCH respects the
+!                          dead-level floors (previously bypassed them).
 ! Altered 23-Apr-2010 : DO_LEVEL_CHECK, MAX_INC_VEC, & MAX_DEC_VEC variables installed.
 !                         Return 10th maximum value, rather than biggest correction.
 !                         Done to help with a few non-converging levels.
@@ -1189,7 +1193,22 @@
 	MAX_INC_VEC=0.0_LDP
 	MAX_DEC_VEC=0.0_LDP
 	DO J=1,ND
+!
+! edited by Devin, 13-Oct-2026: [BA_DEM_PFLOOR]/[BA_DEM_RELFRAC] must gate
+! this scan too.  When DO_LEVEL_CHK is true the NV-th largest STEQ value
+! replaces MAXCH below, so floor-level rows skipped by the demand scan
+! would still pin the metric whenever they fill all NV slots (the X_SOB
+! 40d run: HeI singlet dead levels at depth 73 hold MAXCH ~9% while the
+! spectrum is converged).  ED/T rows (I>NT-2) stay exempt; both floors
+! default to 0, which leaves this scan unchanged.
+!
+	  T2=0.0_LDP
+	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,J))
 	  DO I=1,NT
+	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. I .LE. NT-2 .AND.
+	1     POPS(I,J) .LT. BA_DEM_PFLOOR)CYCLE
+	    IF(I .LE. NT-2 .AND. POPS(I,J) .LT. T2)CYCLE
 	    T1=STEQ(I,J)
 	    IF(T1 .LE. 0.0_LDP)THEN
 	      IF(T1 .LT. MAX_INC_VEC(NV))THEN
