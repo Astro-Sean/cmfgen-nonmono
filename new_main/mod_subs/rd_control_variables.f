@@ -1585,12 +1585,13 @@
 	1     'Anderson secant depth for the ordered FG march')
 	  CALL SET_FG_ORD_AA(KN_ORD_AA,KN_ORD_AA_M_V)
 !
-! KN_RAY_STALL (default 0.90): same-direction residual ratio above
-! which a pass counts toward the NSTALL early exit.  Raised toward
-! 1.0 the stall exit fires only on nearly flat passes, letting
-! slowly contracting rays use more of KN_RAY_MAXPASS.
+! KN_RAY_STALL (default 0.98): same-direction residual ratio above
+! which a pass counts toward the NSTALL early exit.  Fires only on
+! nearly flat passes so slowly contracting rays use more of
+! KN_RAY_MAXPASS; 0.90 quit rays that were still contracting and
+! held nearly all unconverged cells in the m15 2.82d validation.
 !
-	  KN_RAY_STALL_V=0.90_LDP
+	  KN_RAY_STALL_V=0.98_LDP
 	  CALL RD_STORE_DBLE(KN_RAY_STALL_V,'KN_RAY_STALL',L_FALSE,
 	1     'Same-direction residual ratio counting as a stall pass')
 	  CALL SET_FG_STALL_LIM(KN_RAY_STALL_V)

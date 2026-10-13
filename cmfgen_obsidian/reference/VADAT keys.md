@@ -43,7 +43,7 @@ line-treatment gates were warnings before):
 | `KN_ORD_AITKEN` | F | guarded Aitken delta-squared on the ordered pass iterate (failed m15 A/B; superseded by KN_ORD_AA) |
 | `KN_ORD_AA` | F | safeguarded Anderson acceleration of the ordered pass iterate |
 | `KN_ORD_AA_M` | 2 | AA secant depth; pairs kept = M+1 (2*NI*NCF*8 B each) |
-| `KN_RAY_STALL` | 0.90 | same-direction residual ratio counting as a stall pass |
+| `KN_RAY_STALL` | 0.98 | same-direction residual ratio counting as a stall pass |
 | `KN_RAY_MAXPASS` | 60 | refresh pass cap per ray |
 | `KN_RAY_TOL` | 2e-3 | refresh convergence tolerance |
 | `DO_NONMONO_FREQ_MATCH` | F | Ceulemans frequency matching (recommend T on compressing models) |

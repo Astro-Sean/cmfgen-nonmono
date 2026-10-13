@@ -676,9 +676,14 @@
 	LOGICAL FG_ORD_AA
 	INTEGER FG_ORD_AA_M
 !
-! KN_RAY_STALL: VADAT [KN_RAY_STALL] (default 0.90, set by
+! KN_RAY_STALL: VADAT [KN_RAY_STALL] (default 0.98, set by
 ! SET_FG_STALL_LIM).  Same-direction residual ratio above which a
-! pass counts toward the NSTALL early exit.
+! pass counts toward the NSTALL early exit.  The 0.90 setting
+! quit rays still contracting at up to 10% per pass; those rays
+! held nearly all the unconverged cells in the m15 2.82d cold
+! validation (exit census), so the default was raised toward the
+! flat-pass limit after the KN_RAY_STALL=0.98 arm cut the
+! unconverged fraction ~40x at matched iterations.
 !
 	REAL(KIND=LDP) KN_RAY_STALL
 !
@@ -714,7 +719,7 @@
 	DATA FG_ORD_AITKEN /.FALSE./
 	DATA FG_ORD_AA /.FALSE./
 	DATA FG_ORD_AA_M /2/
-	DATA KN_RAY_STALL /0.90_LDP/
+	DATA KN_RAY_STALL /0.98_LDP/
 	DATA KN_AA_APP /0_8/,KN_AA_VETO /0_8/,KN_AA_REJ /0_8/,
 	1     KN_AA_SNG /0_8/
 	DATA KN_RAY_MAXPASS /60/
@@ -6258,7 +6263,10 @@ C
 	  IXIT=5
 	  RETURN
 	END IF
-	DO_AIT=FG_ORD_AITKEN
+! AA supersedes the per-cell secant step; running both on the
+! same iterate lets a bad Aitken jump corrupt the AA history.
+!
+	DO_AIT=FG_ORD_AITKEN .AND. .NOT. FG_ORD_AA
 	IF(DO_AIT)THEN
 	  ALLOCATE(FLD_PRV(NI,NCF),DLT_PRV(NI,NCF),STAT=IOS)
 	  IF(IOS .NE. 0)THEN

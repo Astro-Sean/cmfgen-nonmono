@@ -986,12 +986,13 @@
 !
 	LOGICAL KN_ORD_AA
 !
-! KN_RAY_STALL (default 0.90): same-direction residual ratio above
+! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
-! SWEEP_FLD/SWEEP_FLD_ORD.  0.90 quits rays still contracting at
-! up to 10% per pass; closer to 1.0 lets slowly contracting rays
-! use more of KN_RAY_MAXPASS before the stall exit fires.  VADAT
-! [KN_RAY_STALL].
+! SWEEP_FLD/SWEEP_FLD_ORD.  0.90 quit rays still contracting at up
+! to 10% per pass; the exit census showed those rays held nearly
+! all unconverged cells, so the default now fires only on nearly
+! flat passes (KN_RAY_STALL=0.98 arm cut the unconverged fraction
+! ~40x at matched iterations).  VADAT [KN_RAY_STALL].
 !
 	REAL(KIND=LDP) KN_RAY_STALL
 !

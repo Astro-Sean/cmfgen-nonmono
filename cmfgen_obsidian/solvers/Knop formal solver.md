@@ -184,14 +184,18 @@ map (exact for the affine map). Per-refresh `AA: applied= vetoed=
 rejected= solve-fail=` counters print under the `ray exits` census.
 #status/unverified (built; runtime arm pending)
 
-### Stall threshold: `KN_RAY_STALL` (default 0.90)
+### Stall threshold: `KN_RAY_STALL` (default 0.98)
 
 Same-direction residual ratio above which a pass counts toward the
 `NSTALL>=2` early exit in `SWEEP_FLD`/`SWEEP_FLD_ORD`. The control
 arm's exit census (m15 2.82d it1-3) showed ~12 stall rays hold
 essentially all unconverged cells; raising toward 1 lets still-
 contracting rays use more of `KN_RAY_MAXPASS` instead of quitting
-at <10%/pass. Default preserves the 13-Oct-2026 behaviour.
+at <10%/pass. The `KN_RAY_STALL=0.98` arm (13-Oct-2026) cut the
+unconverged-cell fraction ~40x vs control at matched iterations
+(0.21-0.29% vs 11-13%) and cleared its two `KN_RAY_MAXPASS` cap
+hits on the it2 restart, so 0.98 is now the default. Set 0.90 in
+VADAT to restore the pre-change behaviour.
 
 **Ray-grid rebuild triggers** (`NEW_R_GRID`, evaluated on each INIT):
 relative R drift >1E-8, `VDOP_FRAC`/`SOLUTION_OPTIONS` change,
