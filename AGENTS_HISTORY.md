@@ -2692,3 +2692,29 @@ Verification: ifort -syntax-only clean on all four files;
 `AA: applied` strings present in exe/cmfgen_dev.exe (relinked
 20:31).  Runtime arms pending: freqmatch (DO_NONMONO_FREQ_MATCH=T,
 job 12185982) plus AA/stall arms to be submitted.
+
+## 13-Oct-2026 (evening, part 2) - KNOP stall default raised to 0.98
+
+`plane/fg_j_cmf_nonmono_v1.f`,
+`new_main/mod_subs/{control_variable_mod,rd_control_variables}.f`:
+KN_RAY_STALL default 0.90 -> 0.98 in DATA init, VADAT reader
+default, and all doc comments.  Evidence: the stall-relax arm cut
+the unconverged fraction ~40x vs control at matched iterations
+(0.2-0.3% vs 11-13%); the exit census had shown the ~12 stall
+rays held nearly all bad cells while still contracting.
+
+DO_AIT in SWEEP_FLD_ORD is now gated on .NOT. FG_ORD_AA so the
+per-cell secant and the vector mix cannot compound on one iterate.
+
+Runtime state (commit c288d94, exe relinked 21:30):
+- stall arm 12186358 (KN_RAY_STALL=0.98): it4 residual 0.094,
+  bad frac 0.68%, 9 stallers, cap=0 after it2 restart cleared.
+- AA arm 12186580 (KN_ORD_AA=T, M=2): it4 residual 0.35,
+  applied=69 vetoed=147 rejected=9; mixes largely vetoed, not
+  beating stall-relax yet; opt-in stays.
+- freqmatch arm 12185982: it7 residual 0.081, bad 7.5% -
+  tracks control, mild benefit only.
+
+Verification: three files compile clean under viper_intel_nodebug
+flags; make DEBUG=nodebug cmfgen exit 0; 0.98 bit pattern present
+in exe/cmfgen_dev.exe.  Parallel-session edits left unstaged.
