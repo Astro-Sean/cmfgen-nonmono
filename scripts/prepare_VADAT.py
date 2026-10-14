@@ -80,6 +80,33 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+try:
+    from log_format import Tee, print_header, print_subheader
+except ImportError:
+    try:
+        from scripts.log_format import Tee, print_header, print_subheader
+    except ImportError:
+        # Fallback: keep the script usable if log_format is not importable.
+        def print_header(title: str = "") -> None:
+            print(f"\n=== {title} ===")
+
+        def print_subheader(title: str = "") -> None:
+            print(f"\n--- {title} ---")
+
+        class Tee:
+            def __init__(self, stdout, f):
+                self._stdout = stdout
+                self._file = f
+
+            def write(self, s):
+                self._stdout.write(s)
+                self._file.write(s)
+                self._file.flush()
+
+            def flush(self):
+                self._stdout.flush()
+                self._file.flush()
+
 # ---------------- relativistic config helper ----------------
 def get_rel_config() -> dict:
     """Return static-only solver config for static_snapshot models.
@@ -408,7 +435,12 @@ NON_MONO_SOB_RECOMMENDED = {
     'DO_BA_RES_ACC': 'F',
     'BA_ENTER_RAW': '1.0D30',
     'BA_DAMP_CAP': '0.0D0',
-    'DO_NG': 'T',
+    # DO_NG off by default (13-Oct-2026, X_SOB 40d): scheduled NG kicks at
+    # the T-peak/interaction depth overshot by up to ~30% every ITS/NG
+    # iterations, pinning MAXCH at ~0.5% above EPS_TERM once the dead-level
+    # metric noise was gated. The map already contracts ~0.65x/iter without
+    # acceleration. Explicit vadat_overrides DO_NG=T still enables it.
+    'DO_NG': 'F',
     'CHK_NG': 'T',            # T-correction consistency check
     'NG_ABSTAIN': 'T',        # per-component hold in NG_MIT_BAND_OPT_V1
     'BEG_NG': '5.0D0',
@@ -759,7 +791,11 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'DO_LAM_IT': 'T',
         'DO_LAM_AUTO': 'T',
         'MAX_LAM': '1.0D10',  # max Lambda-iteration correction factor (1e10 = effectively unclamped)
-        'DO_NG': 'T',
+        # DO_NG off by default (13-Oct-2026, X_SOB 40d): scheduled NG kicks
+        # overshot at the interaction depth and pinned MAXCH above EPS_TERM
+        # once the dead-level demand was gated. Opt back in via
+        # vadat_overrides DO_NG=T.
+        'DO_NG': 'F',
         'CHK_NG': 'T',
         'NG_ABSTAIN': 'T',  # hold unsafe components rather than vetoing the depth
         'BEG_NG': '5.0D0',  # start Ng acceleration when max % change falls below this
@@ -768,6 +804,9 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'ITS/NG': '8',
         'MAX_LIN': '1.0D1',  # manual-typical 10x cap on ordinary full steps
         'AUTO_SMOOTH': 'F',          # Forced off — smoothing destabilizes non-monotonic velocity models
+        # Required by the solver (GET_KEY_STRING aborts without it); 0
+        # matches the running MOM/SOB configs and the recommended default.
+        'N_FULL_TREL': '0',
     }
     # Merge mode-dependent line-treatment keys into defaults.
     defaults.update(_line_defaults)
@@ -3889,24 +3928,16 @@ def apply_profile(
             "USE_LAM_ES": "T",      # J=B(T) Lambda iteration — bypasses moment solver for non-monotonic velocity
             "DO_LAM_IT": "T",       # Start in LAMBDA mode (stable cold-start from LTE)
             "DO_LAM_AUTO": "T",  # auto-switch from Lambda to full iterations once corrections shrink
-            # Ng acceleration ENABLED: do_ng_accel_band_v4.f has robust safety mechanisms:
-            #   (1) Per-depth rejection if any pop changes >10.1x or <0.09x (line 266)
-            #   (2) Global cancellation if >3 depths fail (line 290)
-            #   (3) Post-Ng LAMBDA fallback if MAXINC/MAXDEC > 50% (solve_for_pops.f:406-412)
-            #   (4) CHK_NG=T: additional T-correction validity check
-            # Ng only fires when MAXCH < BEG_NG (5%) and MAIN_COUNTER >= IBEG_NG (15),
-            # by which point BA mode is active and FIXPOP_IN_BA_V3 freezes trace species.
-            # Manual: "Ng acceleration is an important tool for obtaining convergence"
-            # especially with NUM_BNDS=1/DIAG. Without Ng, DIAG convergence is geometric
-            # and requires hundreds of iterations for the final factor of 10.
-            "DO_NG": "T",             # Enabled: Ng acceleration needed for DIAG convergence.
-                                        # Pure Lambda stalls at ~1E+10 after 100+ iterations.
-                                        # Safety: per-depth rejection, CHK_NG=T validity check,
-                                        # post-Ng LAMBDA fallback. IBEG_NG=15 delays start until
-                                        # populations have settled past the initial transient.
-                                        # 05-Oct-2026 audit: non-monotonic SOB/KNOP attempts were
-                                        # vetoed by rollback-polluted history; NG_CLEAN>=4 and
-                                        # NG_ABSTAIN=T now repair that path.
+            # Ng acceleration DISABLED by default (13-Oct-2026, X_SOB 40d):
+            # scheduled kicks fired every ITS/NG iterations regardless of
+            # residual size and overshot at the interaction depth by up to
+            # ~30%, pinning MAXCH near 0.5% above EPS_TERM once dead-level
+            # demand was gated. The unaccelerated map contracted ~0.65x/iter.
+            # Re-enable per-model via vadat_overrides DO_NG=T; the safety
+            # mechanisms remain: per-depth rejection, global cancellation,
+            # post-Ng LAMBDA fallback, CHK_NG=T, NG_CLEAN>=4, NG_ABSTAIN=T.
+            "DO_NG": "F",             # Disabled: NG kicks pinned the near-convergence
+                                        # residual floor on X_SOB; opt in via overrides.
             "CHK_NG": "T",            # Check NG acceleration validity
             "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
             "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
@@ -4069,16 +4100,14 @@ def apply_profile(
             "DO_LAM_IT": "T",
             "DO_LAM_AUTO": "T",  # auto-switch from Lambda to full iterations once corrections shrink
 
-            # Ng acceleration ENABLED for FINAL: same robust settings as single_final.
-            # Safety: per-depth 10x/0.09x rejection, global cancellation if >3 depths fail,
-            # post-Ng LAMBDA fallback (solve_for_pops.f:406-412), CHK_NG=T validity check.
-            # Ng only fires when MAXCH < 5% and IBEG_NG=15 iterations completed -- by then
-            # FIXPOP_IN_BA_V3 (with absolute abundance check) freezes trace species.
-            # Manual: "Ng acceleration is an important tool for obtaining convergence"
-            # especially with NUM_BNDS=1/DIAG.
-            "DO_NG": "T",             # Enabled: Ng acceleration needed for DIAG convergence.
-                                        # Non-monotonic recipes keep T and add NG_CLEAN history
-                                        # gating plus NG_ABSTAIN=T for rollback-safe fits.
+            # Ng acceleration DISABLED for FINAL (13-Oct-2026): same default
+            # as single_final -- scheduled kicks overshot near convergence on
+            # X_SOB and pinned MAXCH above EPS_TERM. Safety machinery
+            # (per-depth rejection, global cancellation, post-Ng LAMBDA
+            # fallback, CHK_NG=T, NG_CLEAN, NG_ABSTAIN=T) stays armed for
+            # models that opt back in via vadat_overrides DO_NG=T.
+            "DO_NG": "F",             # Disabled: NG kick overshoot pinned the X_SOB
+                                        # residual floor near convergence; opt in via overrides.
             "CHK_NG": "T",            # Check NG acceleration validity
             "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
             "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
@@ -4164,14 +4193,14 @@ def apply_profile(
                 "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
                 "FIX_NE": "F",          # Ne free — STELLA Saha Ne is unreliable
                 "FIX_IMP": "F",  # impurity populations iterated like major species
-                "FIX_T": "F",            # T solved self-consistently (matches reference; enables GREY_SCL_FACOUT) (USE_LAM_ES=F → J=B(T), breaks feedback loop)
-                "FIX_T_AUTO": "T",       # Auto-release T once pops stabilize (bootstrap; enables DO_T_AUTO=T in IN_ITS)
-                "TAU_SCL_T": "0.0D0",     # No tau-scaling for T (FIX_T=F; T solved self-consistently)
+                "FIX_T": "T",            # T pinned to the hydro profile for all runs (14-Oct-2026 policy)
+                "FIX_T_AUTO": "F",       # No T auto-release
+                "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=T)
                 "FIX_INB_T": "F",        # Don't fix T at inner boundary separately
-                "DO_NG": "T",           # Enabled: Ng acceleration needed for DIAG convergence.
-                                        # Non-monotonic runs keep T with NG_ABSTAIN=T
-                                        # and the NG_CLEAN history gate; the SOB recipe
-                                        # supplies the optimized IBEG_NG=15 schedule.
+                "DO_NG": "F",           # Disabled by default (13-Oct-2026): NG kicks
+                                        # overshot near convergence on X_SOB and held
+                                        # MAXCH above EPS_TERM. Opt in via
+                                        # vadat_overrides DO_NG=T.
                 "CHK_NG": "T",          # Check NG acceleration validity
                 "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
                 "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
@@ -4198,13 +4227,13 @@ def apply_profile(
                 "AUTO_SMOOTH": "F",     # Disable population smoothing for zones with STEQ>0.998 or <-1e5
                 "FIX_NE": "F",          # Ne free — STELLA Saha Ne unreliable
                 "FIX_IMP": "F",  # impurity populations iterated like major species
-                "FIX_T": "F",            # T solved self-consistently (matches reference; enables GREY_SCL_FACOUT)
-                "FIX_T_AUTO": "T",       # Auto-release T once pops stabilize (bootstrap mode)
-                "TAU_SCL_T": "0.0D0",     # No tau-scaling for T (FIX_T=F)
+                "FIX_T": "T",            # T pinned to the hydro profile for all runs (14-Oct-2026 policy)
+                "FIX_T_AUTO": "F",       # No T auto-release
+                "TAU_SCL_T": "0.0D0",    # No tau-scaling for T (FIX_T=T)
                 "FIX_INB_T": "F",        # Don't fix T at inner boundary separately
-                "DO_NG": "T",           # Enabled: Ng acceleration needed for DIAG convergence
-                                        # (SOB mode stamps NG_ABSTAIN=T and the
-                                        # optimized NG schedule via NON_MONO_SOB_RECOMMENDED)
+                "DO_NG": "F",           # Disabled by default (13-Oct-2026): NG kick
+                                        # overshoot pinned the X_SOB residual floor
+                                        # near convergence; opt in via DO_NG=T.
                 "CHK_NG": "T",          # Check NG acceleration validity
                 "BEG_NG": "5.0D0",  # start Ng acceleration when max % change falls below this
                 "IBEG_NG": "15",  # minimum iterations before first Ng acceleration
@@ -4273,6 +4302,22 @@ def apply_profile(
             changes.append(f"{k}: (added) -> {v}")
         elif old != v:
             changes.append(f"{k}: {old} -> {v}")
+
+    # T stays fixed to the SN_HYDRO_DATA profile on every run: these models
+    # rely on the hydrodynamic temperature, and a CMFGEN T iteration or the
+    # FIX_T_AUTO release would replace it with a radiative-equilibrium T.
+    # This stamps over user_overrides, so vadat_overrides cannot release T.
+    for k, v in (("FIX_T", "T"), ("FIX_T_AUTO", "F")):
+        set_or_append_keyword(lines, k, v)
+        if user_overrides and k in user_overrides:
+            ov = str(user_overrides[k]).strip().upper()
+            if ov != v:
+                print(
+                    f"  WARNING: vadat_overrides {k}={user_overrides[k]} "
+                    f"ignored -- T is pinned to the hydro profile "
+                    f"({k}={v})"
+                )
+                changes.append(f"{k}: override {user_overrides[k]} rejected -> {v}")
 
     # Non-coherent electron scattering companions.  The effective COH_ES is
     # the user override when present, else the profile default.  With
@@ -4829,28 +4874,9 @@ def main() -> int:
     if not args.no_outgen:
         try:
             outgen_file = open(outgen_path, "a")
-            outgen_file.write(
-                f"\n=== prepare_VADAT.py ({profile}) {datetime.now().isoformat()} ===\n\n"
-            )
-            outgen_file.flush()
-
-            class _Tee:
-                def __init__(self, stdout, f):
-                    self._stdout = stdout
-                    self._file = f
-
-                def write(self, s):
-                    self._stdout.write(s)
-                    self._file.write(s)
-                    self._file.flush()
-
-                def flush(self):
-                    self._stdout.flush()
-                    self._file.flush()
-
-            sys.stdout = _Tee(old_stdout, outgen_file)
+            sys.stdout = Tee(old_stdout, outgen_file)
         except OSError:
-            pass
+            outgen_file = None
 
     def _restore_stdout():
         if outgen_file is not None:
@@ -4858,6 +4884,10 @@ def main() -> int:
             outgen_file.close()
 
     try:
+        print_header(f"prepare_VADAT.py [{profile}]")
+        print(f"  started:   {datetime.now().isoformat()}")
+        print(f"  directory: {wdir.resolve()}")
+
         hydro_path = wdir / args.hydro
         vadat_init_path = wdir / args.vadat_init
         vadat_out_path = wdir / args.vadat_out
@@ -4872,18 +4902,30 @@ def main() -> int:
             print(f"ERROR: {e}")
             return 1
 
+        print_subheader("Input files")
+        print(f"  hydro:     {hydro_path.name}")
+        print(f"  base VADAT: {base_vadat_path.name} -> {vadat_out_path.name}")
+
         # For final (warm restart): rename *OUT -> *_IN (previous run populations become IN)
         # single_final starts from LTE so no *OUT files exist yet; skip out2in.
         out2in_renames: List[Tuple[str, str]] = []
         if profile == "final" and not args.no_out2in:
             out2in_renames = out2in(wdir)
             if out2in_renames:
-                print(f"OUT -> IN (population files from previous run):")
+                print(f"  OUT -> IN (population files from previous run):")
                 for old, new in out2in_renames:
-                    print(f"  {old} -> {new}")
-                print()
+                    print(f"    {old} -> {new}")
 
         hydro = parse_sn_hydro(hydro_path)
+
+        if (
+            args.smooth_velocity_jumps
+            or args.monotonize_velocity
+            or args.reversal_n_insert > 0
+            or args.chemical_n_insert > 0
+            or args.blend_composition
+        ):
+            print_subheader("Hydro grid processing")
 
         # Smooth velocity discontinuities by inserting intermediate zones.
         # This must happen BEFORE any file writing (RDINR, T_IN, GAMMAS_IN,
@@ -4932,6 +4974,8 @@ def main() -> int:
                 min_mass_fraction=args.min_mass_fraction,
             )
 
+        print_subheader("Boundary optical depth diagnostics")
+
         # Validate inner boundary optical depth for diffusion approximation
         # CMFGEN manual: "Rosseland optical depth at the inner boundary > 50 (ideally close to 100)"
         #
@@ -4963,6 +5007,8 @@ def main() -> int:
         # or whether grid-edge RMAX is the only self-consistent choice.
         report_outer_boundary(diagnose_outer_boundary(hydro, tau_arr=_tau_check))
 
+        print_subheader("RT grid resolution estimate (VFRAC_MOM)")
+
         # Automatic VFRAC_MOM optimization: compute the RT grid resolution
         # parameter that prevents excessive ND expansion while resolving
         # velocity reversals. VFRAC_MOM does NOT modify the velocity field;
@@ -4977,6 +5023,7 @@ def main() -> int:
         if not args.no_lum_rst_geometry:
             maybe_set_rst_from_energy_lum(hydro, tau_phot=TAU_PHOT)
 
+        print_subheader("SN_HYDRO_DATA summary")
         print("Data read from SN_HYDRO_DATA (verify correct file/epoch):")
         print_hydro_summary(hydro, "read")
 
@@ -5021,6 +5068,8 @@ def main() -> int:
             user_overrides=vadat_overrides if vadat_overrides else None,
         )
         
+        print_subheader("VADAT keywords: RT grid and velocity law")
+
         # Set VFRAC_MOM after apply_profile (single source — not in profile dicts).
         #
         # VFRAC_MOM (DELV_FRAC_MOM) is a RADIATIVE TRANSFER GRID RESOLUTION parameter
@@ -5382,6 +5431,8 @@ def main() -> int:
 
         print()
 
+        print_subheader("Inner boundary (LSTAR / DIF / IB_METH)")
+
         # LSTAR: explicit cmfgen.inner_boundary_luminosity_lsun wins;
         # otherwise take it from SN_HYDRO_DATA (Energy Lum [lsun]).
         # The header value is the blackbody luminosity at the inner boundary
@@ -5536,6 +5587,8 @@ def main() -> int:
                     profile_changes.extend(ib_changes)
                 print(f"  [IB] ZERO_FLUX boundary (tau_inner={_tau_at_ib:.1f} < {_dif_tau_thresh:.0f}, LSTAR={lstar_token})")
                 print(f"       Inner boundary is optically thin — zero-flux BC (no diffusion approximation).")
+
+        print_subheader("CMFGEN grid files (RDINR / input_hydro.dat)")
 
         # Build all CMFGEN inputs from SN_HYDRO_DATA (only input file needed)
         vel_law_tok = _get_key_token(lines, "VEL_LAW")
@@ -5737,6 +5790,8 @@ def main() -> int:
                 f"Skipped input_hydro.dat write (VEL_LAW={vel_law_int}; SNIIN format is for VEL_LAW=12)"
             )
 
+        print_subheader("Initial-condition files (T_IN / GAMMAS_IN / FIN_CAL_GRID)")
+
         # T_IN, GAMMAS_IN, and FIN_CAL_GRID for LTE initial conditions
         # (VEL_LAW=12 + LTE_EST=T + SN_HYDRO_MODEL=.FALSE. requires FIN_CAL_GRID for T/ED)
         if args.no_tin_gammas:
@@ -5754,6 +5809,8 @@ def main() -> int:
             else:
                 print("  (T_IN/GAMMAS_IN skipped: SN_HYDRO_DATA needs Temperature and Electron density sections)")
         print()
+
+        print_subheader("Consistency enforcement and vadat_overrides")
 
         # Enforce DC_METH=R when temperature is non-monotonic.
         # REGRID_LOG_DC_V1 with option TR interpolates in T space, but has a
@@ -5831,6 +5888,26 @@ def main() -> int:
                     )
                 vadat_overrides = {k: v for k, v in vadat_overrides.items()
                                    if k not in _ne_strip}
+            # T is always fixed to the SN_HYDRO_DATA profile: these input
+            # models rely on the hydrodynamic temperature, and a T release
+            # (FIX_T=F, FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=T) would replace it
+            # with a radiative-equilibrium T.  Strip any request for a
+            # non-fixed value so this late re-application cannot undo the
+            # apply_profile stamp.
+            _t_pinned = {"FIX_T": "T", "FIX_T_AUTO": "F",
+                         "DO_T_AUTO": "F", "DO_GT_AUTO": "F"}
+            _t_strip = sorted(k for k in _t_pinned
+                              if k in vadat_overrides
+                              and str(vadat_overrides[k]).strip().upper()
+                                  != _t_pinned[k])
+            if _t_strip:
+                print(
+                    f"  WARNING: vadat_overrides {', '.join(_t_strip)} "
+                    f"rejected -- T is pinned to the hydro profile "
+                    f"(FIX_T=T, FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=F)."
+                )
+                vadat_overrides = {k: v for k, v in vadat_overrides.items()
+                                   if k not in _t_strip}
             final_overrides = update_keywords_in_lines(lines, vadat_overrides, numeric_format_like_old=True)
             # Also append any override keys that don't exist in the VADAT template
             existing = find_existing_keys(lines)
@@ -5903,6 +5980,8 @@ def main() -> int:
         # bak = backup_if_exists(vadat_out_path, f"pre_{profile}")
         # if bak:
         #     print(f"Backed up existing {vadat_out_path.name} -> {bak.name}")
+
+        print_subheader("Physics enforcement and VADAT write")
 
         # ======================================================================
         # RE-APPLY NON-MONOTONIC FORCED SETTINGS (post-override)
@@ -5982,6 +6061,8 @@ def main() -> int:
                       f"Adjusting num_bnds -> {expected_num_bnds} for MODEL_SPEC consistency.")
                 num_bnds = expected_num_bnds
 
+        print_subheader("Iteration control (IN_ITS / IT_SPECIFIER / ADJUST_*)")
+
         # Keep IN_ITS consistent with VADAT for lambda control.
         in_its_changes = update_in_its_for_profile(wdir, profile,
                                                      iteration_strategy=iteration_strategy)
@@ -6059,6 +6140,29 @@ DEFAULT [IB_OPT]
             for line in it_lines:
                 stripped = line.strip()
                 if stripped and not stripped.startswith("!"):
+                    # A bare FULL cycle sets FIXED_T=.FALSE. in
+                    # SPECIFY_IT_CYCLE_V3, releasing T at runtime.  T is
+                    # pinned to the hydro profile for all runs, so rewrite
+                    # bare FULL to FULL(FIXT); FULL(...FIXT...) and
+                    # FULL(FIXBA) already keep T fixed and pass through.
+                    opt = stripped.split()[0].upper()
+                    if opt == "FULL":
+                        stripped = stripped.replace(
+                            "FULL", "FULL(FIXT)", 1)
+                        print(
+                            "  WARNING: IT_SPECIFIER 'FULL' rewritten to "
+                            "'FULL(FIXT)' -- T is pinned to the hydro "
+                            "profile."
+                        )
+                    elif opt.startswith("FULL(") and "FIXT" not in opt:
+                        stripped = re.sub(
+                            r"FULL\(", "FULL(FIXT,", stripped,
+                            count=1, flags=re.IGNORECASE)
+                        print(
+                            "  WARNING: IT_SPECIFIER 'FULL(...)' without "
+                            "FIXT rewritten to FULL(FIXT,...) -- T is "
+                            "pinned to the hydro profile."
+                        )
                     it_content += f"{stripped}\n"
                 else:
                     it_content += f"{line}\n"
@@ -6213,6 +6317,8 @@ DEFAULT [IB_OPT]
         if dup:
             print("WARNING: duplicate keys in clean VADAT:", ", ".join(dup))
 
+        print_subheader("Final VADAT readback")
+
         # ── Final configuration, read back from the file just written ──
         # Intermediate prints describe the branch that was active at that
         # point in main(); later overrides (VEL_LAW selection, enforce_
@@ -6296,6 +6402,8 @@ DEFAULT [IB_OPT]
             for c in profile_changes:
                 print("  -", c)
             print()
+
+        print_subheader("MODEL_SPEC")
 
         # Update MODEL_SPEC so ND (and NP = ND+NC) match the grid size.
         # When --target-nd is specified, ND = target_nd (the downsampled grid size).
@@ -6383,6 +6491,7 @@ DEFAULT [IB_OPT]
         elif not model_spec_path.exists():
             print(f"MODEL_SPEC: {model_spec_path.name} not found; skipping.")
 
+        print_subheader(f"prepare_VADAT.py [{profile}] complete")
         return 0
     finally:
         _restore_stdout()

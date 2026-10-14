@@ -180,6 +180,35 @@ except ImportError:
             )
 
 
+# --- Log formatting --------------------------------------------------
+# Shared section banners (======= TITLE ======= / ------- TITLE -------)
+# so orchestrator, prepare_VADAT and prepare_IN_INTS output (submit.log,
+# batch.log, OUTGEN) has one consistent structure.
+try:
+    from log_format import header, print_header, print_subheader, subheader
+except ImportError:
+    try:
+        from scripts.log_format import (
+            header,
+            print_header,
+            print_subheader,
+            subheader,
+        )
+    except ImportError:
+        # Fallback: keep the orchestrator usable if log_format is missing.
+        def header(title):
+            return f"=== {title} ==="
+
+        def subheader(title):
+            return f"--- {title} ---"
+
+        def print_header(title=""):
+            print(f"\n{header(title)}")
+
+        def print_subheader(title=""):
+            print(f"\n{subheader(title)}")
+
+
 # ── Partition-based time / graceful-stop rules (HARDCODED) ──────────
 # These values are enforced everywhere and must NOT be overridden by YAML
 # config or CLI flags.  The graceful-stop second count is when the in-job
@@ -206,12 +235,16 @@ DEFAULT_TIME_LIMIT = PRODUCTION_TIME_LIMIT
 #
 #   submission: normal  -> small partition,      23:59:00 wall (production)
 #   submission: debug   -> interactive partition, 01:59:00 wall (debug)
+#   submission: gpu     -> apu partition,        23:59:00 wall (Viper GPU
+#                          nodes; jobs get --account=mpe_apu, --qos=a0004
+#                          and a GPU gres from submit_cmfgen.sh)
 #
 # ``submission`` takes precedence over the legacy ``debug:`` boolean and
 # over per-section ``partition:`` keys.  When ``submission`` is absent the
 # legacy behaviour (``debug:`` + per-section ``partition:``) is preserved.
 SUBMISSION_NORMAL_PARTITION = "small"
 SUBMISSION_DEBUG_PARTITION = "interactive"
+SUBMISSION_GPU_PARTITION = "apu"
 _SUBMISSION_SECTIONS = ("stella", "cmfgen", "sedona", "superlite", "sirocco")
 _SUBMISSION_STRIP_KEYS = ("partition", "time", "init_partition", "init_time")
 
@@ -291,6 +324,12 @@ def resolve_submission(config):
     if submission == "debug":
         _strip_legacy_partition_keys(config)
         return True, SUBMISSION_DEBUG_PARTITION
+    if submission == "gpu":
+        _strip_legacy_partition_keys(config)
+        # get_job_resources resolves the partition per section, so the
+        # apu value must be injected where the stripped keys lived.
+        _inject_submission_partition(config, SUBMISSION_GPU_PARTITION)
+        return False, SUBMISSION_GPU_PARTITION
     # Legacy fallback: debug: boolean (partition resolved per-section later).
     return bool(config.get("debug", False)), None
 
@@ -302,6 +341,19 @@ def _strip_legacy_partition_keys(config):
         if isinstance(sec_cfg, dict):
             for key in _SUBMISSION_STRIP_KEYS:
                 sec_cfg.pop(key, None)
+
+
+def _inject_submission_partition(config, partition):
+    """Write the resolved partition into each code section's ``partition:`` key.
+
+    Needed for ``submission`` modes whose partition differs from the
+    PROD/DEBUG fallbacks in ``get_job_resources`` (currently ``gpu`` -> apu).
+    Sections that do not consume a ``partition:`` key are unaffected.
+    """
+    for sec in _SUBMISSION_SECTIONS:
+        sec_cfg = config.get(sec)
+        if isinstance(sec_cfg, dict):
+            sec_cfg["partition"] = partition
 
 
 # ── Resource presets ────────────────────────────────────────────────
@@ -950,9 +1002,7 @@ def generate_profile(
     instead of generate_profile_from_yaml.py.
     """
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Generating profile for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Generating profile for model: {model_name}")
 
     # Check for KEPLER pre-SN mode
     kepler_cfg = config.get("kepler_presn", None)
@@ -1700,6 +1750,15 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     csm_split_blend_dex = float(
         x_cfg.get("csm_split_blend_dex", 0.15) or 0.15
     )
+    # Slow shell overlaid on the ejecta (v2 only): a detached dense
+    # slow eruption embedded in the SN_A ejecta radial range, giving
+    # the forward shock a slow target at late times.
+    slow_shell_w = float(x_cfg.get("slow_shell_w_gcm", 0.0) or 0.0)
+    slow_shell_r_inner = float(x_cfg.get("slow_shell_r_inner_cm", 0.0) or 0.0)
+    slow_shell_r_outer = float(x_cfg.get("slow_shell_r_outer_cm", 0.0) or 0.0)
+    slow_shell_v = float(x_cfg.get("slow_shell_v_kms", 150.0) or 150.0)
+    slow_shell_T = float(x_cfg.get("slow_shell_T_K", 2000.0) or 2000.0)
+    slow_shell_comp = x_cfg.get("slow_shell_composition", None)
     ejecta_T_const = float(x_cfg.get("ejecta_T_const_K", 0.0) or 0.0)
     ejecta_r_inner_cm = float(x_cfg.get("ejecta_r_inner_cm", 0.0) or 0.0)
     # Explosion convention (two-event workflow):
@@ -2025,6 +2084,29 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
             cmd.extend(
                 ["--csm-r-outer-cm", str(csm_r_outer_cm or wind_r_outer_cm)]
             )
+    if slow_shell_w > 0:
+        if powerlaw_csm:
+            cmd.extend(
+                [
+                    "--slow-shell-w",
+                    str(slow_shell_w),
+                    "--slow-shell-r-inner",
+                    str(slow_shell_r_inner),
+                    "--slow-shell-r-outer",
+                    str(slow_shell_r_outer),
+                    "--slow-shell-v",
+                    str(slow_shell_v),
+                    "--slow-shell-T",
+                    str(slow_shell_T),
+                ]
+            )
+            if slow_shell_comp:
+                cmd.extend(["--slow-shell-composition", slow_shell_comp])
+        else:
+            print(
+                "  WARNING: slow_shell_* is only supported by "
+                "prepare_SN_B_model_v2.py — ignored without powerlaw_csm."
+            )
     if no_smooth_ejecta:
         cmd.append("--no-smooth-ejecta")
     cmd.extend(
@@ -2057,9 +2139,7 @@ def generate_namelist(config, scripts_dir, project_dir, config_path, debug=False
     Note: generate_heracles_namelist.py has been moved to scripts/deprecated/.
     """
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Generating [DEPRECATED] HERACLES namelist for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Generating [DEPRECATED] HERACLES namelist for model: {model_name}")
 
     script = scripts_dir / "deprecated" / "generate_heracles_namelist.py"
     config_file = config_path
@@ -2495,12 +2575,10 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
     """
     model_name = config.get("model_name", "unknown")
     day_label = f"{day:.2f}days" if day is not None else None
-    print(f"\n{'='*60}")
+    _title = f"Preparing CMFGEN directory for model: {model_name}"
     if day_label:
-        print(f"Preparing CMFGEN directory for model: {model_name} day {day}")
-    else:
-        print(f"Preparing CMFGEN directory for model: {model_name}")
-    print(f"{'='*60}")
+        _title += f" day {day}"
+    print_header(_title)
 
     # Extract paths
     output = config.get("output", {})
@@ -2742,6 +2820,13 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         # ../VADAT — preserve it so SKIP_FINAL resubmits can run OBS.
         if skip_final:
             restart_files.append("VADAT")
+            # prepare_CMF_PARAM's split-H check reads ../HI_F_OSCDAT (a
+            # batch.sh-assign symlink); without it the check fails and
+            # PROF_HI stays HZ_STARK, which aborts cmf_flux on split n=2
+            # H atoms. A FINAL job recreates the link, but skip_final
+            # submits no FINAL job.
+            if (cmfgen_dir / "HI_F_OSCDAT").exists():
+                restart_files.append("HI_F_OSCDAT")
         if skip_final or warm_restart:
             # RVTJ/MODEL/CUR_MODEL_DATA are required by OBS (cmf_flux reads
             # RVTJ and VADAT) and by a deliberate warm restart.
@@ -2775,6 +2860,13 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 for p in ("FGINEXT_GS", "MOMJNXT_GS")
                 if (cmfgen_dir / p).is_file()
             ]
+            # GS_STATE carries the KNOP freeze/trial clock (n_frozen,
+            # n_trial_acc) that SOLVE_FOR_POPS adopts on restart when its
+            # iter tag matches NITSF-1.  Without it a warm resubmit resets
+            # the MOM_TRIAL_MIN countdown to zero -- a run ~eligible for
+            # trial release is thrown back into the full freeze.
+            if (cmfgen_dir / "GS_STATE").is_file():
+                restart_files.append("GS_STATE")
             # SCRTEMP holds the actual population records that POINT1/POINT2
             # index into -- a warm restart without it cold-starts anyway.
             if (cmfgen_dir / "SCRTEMP").is_file():
@@ -2790,6 +2882,18 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 for p in ("EDDFACTOR", "EDDFACTOR_INFO")
                 if (cmfgen_dir / p).is_file()
             ]
+            # DIE<ion> dielectronic data and CHG_EXCH_DATA are links staged
+            # by prepare_VADAT.py's data guards when VADAT enables them.
+            # cmf_flux opens the same names in obs/ (batobs.sh forwards the
+            # parent's links), so an OBS-only resubmit that wipes them stops
+            # in RD_XzV_PHOT_DIE / the charge-exchange reader.
+            restart_files += [
+                p.name
+                for p in sorted(cmfgen_dir.glob("DIE*"))
+                if p.is_file()
+            ]
+            if (cmfgen_dir / "CHG_EXCH_DATA").is_file():
+                restart_files.append("CHG_EXCH_DATA")
 
         for fname in restart_files:
             # Staged warm_restart_from files take precedence over any
@@ -2988,12 +3092,10 @@ def prepare_sedona_directory(
     """
     model_name = config.get("model_name", "unknown")
     day_label = f"{day:.2f}days" if day is not None else None
-    print(f"\n{'='*60}")
+    _title = f"Preparing SEDONA directory for model: {model_name}"
     if day_label:
-        print(f"Preparing SEDONA directory for model: {model_name} day {day}")
-    else:
-        print(f"Preparing SEDONA directory for model: {model_name}")
-    print(f"{'='*60}")
+        _title += f" day {day}"
+    print_header(_title)
 
     # Extract paths
     output = config.get("output", {})
@@ -3326,6 +3428,12 @@ def prepare_sedona_directory(
                 convert_day = day if day is not None else target_days
                 if use_homologous:
                     cmd.extend(["--homologous", "--time-days", str(convert_day)])
+                sedona_species = sedona_cfg.get("species", None)
+                if sedona_species:
+                    cmd.extend(["--species", str(sedona_species)])
+                sedona_tau_max = sedona_cfg.get("tau_max", None)
+                if sedona_tau_max is not None:
+                    cmd.extend(["--tau-max", str(sedona_tau_max)])
 
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
@@ -3962,9 +4070,7 @@ def submit_heracles_job(
     HERACLES is deprecated; use the STELLA -> CMFGEN pipeline instead.
     """
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Submitting [DEPRECATED] HERACLES job for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Submitting [DEPRECATED] HERACLES job for model: {model_name}")
 
     # Extract paths
     output = config.get("output", {})
@@ -4080,9 +4186,7 @@ def submit_conversion_job(
     conversion job. HERACLES is deprecated; use the STELLA -> CMFGEN pipeline instead.
     """
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Submitting CMFGEN conversion job for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Submitting CMFGEN conversion job for model: {model_name}")
 
     # Extract paths
     output = config.get("output", {})
@@ -5487,10 +5591,8 @@ def submit_stella_post_conversion_job(
     ─────────────────────────────────────────────────────────────────────
     """
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Submitting post-STELLA conversion job for model: {model_name}")
+    print_header(f"Submitting post-STELLA conversion job for model: {model_name}")
     print(f"  Snapshots: {snapshot_days}")
-    print(f"{'='*60}")
 
     output = config.get("output", {})
     model_dir = output.get("model_dir", "../models/${model_name}").replace(
@@ -5704,11 +5806,9 @@ def submit_cmfgen_seed_job(
     model_name = config.get("model_name", "unknown")
     day_label = f"{day:.2f}days"
     prev_label = f"{prev_day:.2f}days"
-    print(f"\n{'='*60}")
-    print(
+    print_header(
         f"Submitting CMFGEN seed job for model: {model_name} day {day} (from {prev_label})"
     )
-    print(f"{'='*60}")
 
     output = config.get("output", {})
     model_dir = output.get("model_dir", "../models/${model_name}").replace(
@@ -6323,14 +6423,12 @@ def generate_eddfactor_for_cmfgen(
     edd_slurm_time_min = fjw.get("init_slurm_time_minutes", 15)
     plot_comparison = fjw.get("plot_j_comparison", True)
 
-    print(f"\n{'='*60}")
-    print(f"Fixed-J workflow: EDDFACTOR generation")
+    print_header("Fixed-J workflow: EDDFACTOR generation")
     print(f"  CMFGEN dir: {cmfgen_dir}")
     print(f"  J source: {j_source}")
     if j_source != "stella_edd":
         print(f"  Init timeout: {timeout_min} min (orchestrator wait)")
         print(f"  SLURM time: {edd_slurm_time_min} min (job runtime limit)")
-    print(f"{'='*60}")
 
     # ── STELLA .edd source: convert STELLA radiation field to EDDFACTOR ──
     # This bypasses the 1-iteration CMFGEN run entirely. Instead, we use
@@ -6456,6 +6554,10 @@ def generate_eddfactor_for_cmfgen(
     vadat_result = subprocess.run(
         vadat_cmd, capture_output=True, text=True, cwd=str(cmfgen_dir)
     )
+    # Echo the prep log: the same text is teed into the run directory's
+    # OUTGEN by prepare_VADAT itself, so submit.log and OUTGEN agree.
+    if vadat_result.stdout:
+        print(vadat_result.stdout, end="")
     if vadat_result.returncode != 0:
         print(f"ERROR: prepare_VADAT.py failed", file=sys.stderr)
         if vadat_result.stderr:
@@ -6474,10 +6576,17 @@ def generate_eddfactor_for_cmfgen(
     ]
     _gt_auto = cmfgen_cfg.get("do_gt_auto", None)
     if _gt_auto is not None:
+        if _gt_auto:
+            print(
+                "  WARNING: cmfgen.do_gt_auto=true ignored -- T is pinned "
+                "to the hydro profile (FIX_T=T), so DO_GT_AUTO stays F."
+            )
         inits_cmd.extend(["--gt-auto", "T" if _gt_auto else "F"])
     inits_result = subprocess.run(
         inits_cmd, capture_output=True, text=True, cwd=str(cmfgen_dir)
     )
+    if inits_result.stdout:
+        print(inits_result.stdout, end="")
     if inits_result.returncode != 0:
         print(f"ERROR: prepare_IN_INTS.py failed", file=sys.stderr)
         return False
@@ -6901,8 +7010,10 @@ def apply_fixed_j_workflow_overrides(config, j_release=False):
     For 'j_release' phase (j_release=True):
       - USE_FIXED_J=F, COMP_F=T (compute J self-consistently)
       - DO_LAM_AUTO=T (allow BA/full linearization now that populations are converged)
-      - FIX_T=F, FIX_T_AUTO=T (allow T to vary for final convergence)
       - DO_NG=T (enable Ng acceleration for faster final convergence)
+      - T stays fixed to the hydro profile (project policy: these models
+        rely on the hydrodynamic temperature; FIX_T=F requests are
+        rejected by prepare_VADAT)
 
     Modifies config in-place.
     """
@@ -6934,13 +7045,11 @@ def apply_fixed_j_workflow_overrides(config, j_release=False):
         print(f"\n  Fixed-J workflow: J-RELEASE phase")
         print(f"    USE_FIXED_J=F, COMP_F=T (J solved self-consistently)")
         print(f"    DO_LAM_AUTO=T (allow BA/full linearization)")
-        print(f"    FIX_T=F, FIX_T_AUTO=T (T can vary for final convergence)")
         print(f"    DO_NG=T (Ng acceleration enabled)")
+        print(f"    FIX_T=T held (T pinned to hydro profile)")
         overrides["USE_FIXED_J"] = "F"
         overrides["COMP_F"] = "T"
         overrides["DO_LAM_AUTO"] = "T"
-        overrides["FIX_T"] = "F"
-        overrides["FIX_T_AUTO"] = "T"
         overrides["DO_NG"] = "T"
     else:
         # Setup phase: fixed J from EDDFACTOR
@@ -6971,7 +7080,7 @@ def submit_j_release_job(
 
     This runs AFTER the fixed-J job has converged populations. It:
     - Modifies VADAT in-place ON THE COMPUTE NODE: USE_FIXED_J=F, COMP_F=T,
-      DO_LAM_AUTO=T, FIX_T=F, FIX_T_AUTO=T, DO_NG=T
+      DO_LAM_AUTO=T, DO_NG=T (T stays fixed to the hydro profile)
     - Preserves converged populations (does NOT regenerate proxy _IN files)
     - Submits with --dependency=afterok:<fixed_j_job_id>
     - Also submits the OBS job depending on the J-release job
@@ -6983,12 +7092,10 @@ def submit_j_release_job(
     debug, _ = resolve_submission(config)
     day_label = f"{day:.2f}days" if day is not None else None
 
-    print(f"\n{'='*60}")
-    print(f"Submitting J-RELEASE CMFGEN job (stage 3)")
+    print_header("Submitting J-RELEASE CMFGEN job (stage 3)")
     print(f"  Model: {model_name}, Day: {day}")
     print(f"  CMFGEN dir: {cmfgen_dir}")
     print(f"  Dependency: afterok:{fixed_j_job_id}")
-    print(f"{'='*60}")
 
     # Create SLURM script for the J-release run.
     # The VADAT modification happens ON THE COMPUTE NODE (after the fixed-J
@@ -7067,8 +7174,6 @@ for line in lines:
     if '[USE_FIXED_J]' in line: out.append('F [USE_FIXED_J]')
     elif '[COMP_F]' in line: out.append('T [COMP_F]')
     elif '[DO_LAM_AUTO]' in line: out.append('T [DO_LAM_AUTO]')
-    elif '[FIX_T]' in line: out.append('F [FIX_T]')
-    elif '[FIX_T_AUTO]' in line: out.append('T [FIX_T_AUTO]')
     elif '[DO_NG]' in line: out.append('T [DO_NG]')
     elif '[MAX_LAM]' in line: out.append('1.0D10 [MAX_LAM]')
     elif '[LAM_SCALE_OPT]' in line: out.append('NONE [LAM_SCALE_OPT]')
@@ -7277,12 +7382,10 @@ def submit_cmfgen_jobs(
     """
     model_name = config.get("model_name", "unknown")
     day_label = f"{day:.2f}days" if day is not None else None
-    print(f"\n{'='*60}")
+    _title = f"Submitting CMFGEN jobs for model: {model_name}"
     if day_label:
-        print(f"Submitting CMFGEN jobs for model: {model_name} day {day}")
-    else:
-        print(f"Submitting CMFGEN jobs for model: {model_name}")
-    print(f"{'='*60}")
+        _title += f" day {day}"
+    print_header(_title)
 
     # Extract paths
     output = config.get("output", {})
@@ -7508,6 +7611,11 @@ def submit_cmfgen_jobs(
     # submit_cmfgen_jobs.sh -> submit_cmfgen.sh -> prepare_IN_INTS.py.
     do_gt_auto = cmfgen_cfg.get("do_gt_auto", None)
     if do_gt_auto is not None:
+        if do_gt_auto:
+            print(
+                "  WARNING: cmfgen.do_gt_auto=true ignored -- T is pinned "
+                "to the hydro profile (FIX_T=T), so DO_GT_AUTO stays F."
+            )
         cmd.append(f"--gt-auto={'T' if do_gt_auto else 'F'}")
     rdinr_max_dv = cmfgen_cfg.get("rdinr_max_dv_kms", None)
     if rdinr_max_dv is not None:
@@ -7604,6 +7712,13 @@ def submit_cmfgen_jobs(
         env["CMFGEN_OBS_PARTITION"] = str(cmfgen_cfg["obs_partition"])
     if cmfgen_cfg.get("obs_mem"):
         env["CMFGEN_OBS_MEM"] = str(cmfgen_cfg["obs_mem"])
+    # GPU gres for apu* partitions.  submit_cmfgen.sh emits
+    # --gres=gpu:${CMFGEN_SLURM_GPUS:-2} for the FINAL/SINGLE_FINAL jobs
+    # and --gres=gpu:${CMFGEN_OBS_GPUS:-${CMFGEN_SLURM_GPUS:-2}} for OBS.
+    if cmfgen_cfg.get("gpus"):
+        env["CMFGEN_SLURM_GPUS"] = str(cmfgen_cfg["gpus"])
+    if cmfgen_cfg.get("obs_gpus"):
+        env["CMFGEN_OBS_GPUS"] = str(cmfgen_cfg["obs_gpus"])
     # Deliberate continuation: tells submit_cmfgen.sh to skip the fresh-start
     # cleanup and sentinel removal so the slurm takes its checkpoint-restore
     # branch (mirrors prepare_cmfgen_dir preserving the warm-start files).
@@ -7670,12 +7785,10 @@ def submit_sedona_job(
     """
     model_name = config.get("model_name", "unknown")
     day_label = f"{day:.2f}days" if day is not None else None
-    print(f"\n{'='*60}")
+    _title = f"Submitting SEDONA job for model: {model_name}"
     if day_label:
-        print(f"Submitting SEDONA job for model: {model_name} day {day}")
-    else:
-        print(f"Submitting SEDONA job for model: {model_name}")
-    print(f"{'='*60}")
+        _title += f" day {day}"
+    print_header(_title)
 
     # Extract paths
     output_cfg = config.get("output", {})
@@ -7924,12 +8037,10 @@ def prepare_superlite_directory(config, scripts_dir, project_dir, day=None):
     model_name = config.get("model_name", "unknown")
     debug, _ = resolve_submission(config)
     day_label = f"{day:.2f}days" if day is not None else None
-    print(f"\n{'='*60}")
+    _title = f"Preparing SuperLite directory for model: {model_name}"
     if day_label:
-        print(f"Preparing SuperLite directory for model: {model_name} day {day}")
-    else:
-        print(f"Preparing SuperLite directory for model: {model_name}")
-    print(f"{'='*60}")
+        _title += f" day {day}"
+    print_header(_title)
 
     output = config.get("output", {})
     model_dir = output.get("model_dir", "../models/${model_name}").replace(
@@ -8173,12 +8284,10 @@ def submit_superlite_job(
     """
     model_name = config.get("model_name", "unknown")
     day_label = f"{day:.2f}days" if day is not None else None
-    print(f"\n{'='*60}")
+    _title = f"Submitting SuperLite job for model: {model_name}"
     if day_label:
-        print(f"Submitting SuperLite job for model: {model_name} day {day}")
-    else:
-        print(f"Submitting SuperLite job for model: {model_name}")
-    print(f"{'='*60}")
+        _title += f" day {day}"
+    print_header(_title)
 
     output_cfg = config.get("output", {})
     model_dir = output_cfg.get("model_dir", "../models/${model_name}").replace(
@@ -8314,9 +8423,7 @@ def submit_superlite_job(
 def prepare_sirocco_directory(config, scripts_dir, project_dir):
     """Prepare SIROCCO directory by copying base files and creating the .pf parameter file."""
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Preparing SIROCCO directory for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Preparing SIROCCO directory for model: {model_name}")
 
     output = config.get("output", {})
     model_dir = output.get("model_dir", "../models/${model_name}").replace(
@@ -8437,9 +8544,7 @@ def submit_sirocco_job(
 ):
     """Submit SIROCCO job to produce spectrum from existing hydro data."""
     model_name = config.get("model_name", "unknown")
-    print(f"\n{'='*60}")
-    print(f"Submitting SIROCCO job for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Submitting SIROCCO job for model: {model_name}")
 
     output_cfg = config.get("output", {})
     model_dir = output_cfg.get("model_dir", "../models/${model_name}").replace(
@@ -8831,9 +8936,7 @@ def submit_stella_job(
         stella_cfg.get("floor_rad", 0.01)
     )  # Default 0.01 = 1000 K (STELLA UTP=1e5 K)
 
-    print(f"\n{'='*60}")
-    print(f"Submitting STELLA job for model: {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Submitting STELLA job for model: {model_name}")
 
     # Show simulation parameters
     print(f"Simulation parameters:")
@@ -10042,9 +10145,7 @@ def generate_initial_plots(config, scripts_dir, project_dir):
         print(f"WARNING: .hyd file not found ({hyd_file}), skipping initial plots")
         return False
 
-    print(f"\n{'='*60}")
-    print(f"Generating initial diagnostic plots for {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Generating initial diagnostic plots for {model_name}")
 
     plots_dir = model_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
@@ -10090,9 +10191,7 @@ def plot_stella_evolution_if_available(config, scripts_dir, project_dir):
         print(f"WARNING: plot_stella_evolution.py not found, skipping evolution plot")
         return False
 
-    print(f"\n{'='*60}")
-    print(f"Plotting STELLA evolution for {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Plotting STELLA evolution for {model_name}")
     result = subprocess.run(
         [sys.executable, str(plot_script), str(swd_file), str(plots_dir)],
         capture_output=True,
@@ -10172,9 +10271,7 @@ def plot_stella_lightcurve_if_available(config, scripts_dir, project_dir):
         "target_days", config.get("heracles", {}).get("target_days", 40)
     )  # DEPRECATED: HERACLES fallback
 
-    print(f"\n{'='*60}")
-    print(f"Plotting STELLA lightcurve for {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Plotting STELLA lightcurve for {model_name}")
     result = subprocess.run(
         [
             sys.executable,
@@ -10271,9 +10368,7 @@ def extract_stella_lightcurve_pysynphot(config, scripts_dir, project_dir):
         print(f"WARNING: extract_lightcurve_pysynphot.py not found, skipping")
         return False
 
-    print(f"\n{'='*60}")
-    print(f"Extracting pysynphot lightcurve for {model_name}")
-    print(f"{'='*60}")
+    print_header(f"Extracting pysynphot lightcurve for {model_name}")
 
     cmd = [
         sys.executable,
@@ -10615,7 +10710,13 @@ def enforce_cmfgen_sn_iin_settings(config):
             # (window free of rejected/unjudged records) and NG_ABSTAIN
             # holds non-physical/zero-delta components per-component
             # instead of vetoing the depth.  Cancel costs no iteration.
-            "DO_NG": "T",
+            # 13-Oct-2026: default flipped to F (X_SOB 40d). Even with the
+            # veto guards, each accepted kick overshot the interaction-depth
+            # populations by up to ~30%, so MAXCH oscillated near ~0.5% and
+            # never crossed EPS_TERM once dead-level demand was gated by
+            # BA_DEM_RELFRAC. The map contracts ~0.65x/iter unaccelerated.
+            # Models wanting NG still opt in via vadat_overrides DO_NG=T.
+            "DO_NG": "F",
             "CHK_NG": "T",  # T-correction consistency check
             "NG_ABSTAIN": "T",  # per-component hold in NG_MIT_BAND_OPT_V1
             "ITS/NG": "8",  # clean-record cadence after an accepted Ng
@@ -10978,10 +11079,9 @@ def process_config(
     use_stella = config.get("hydro_backend", "heracles").lower() == "stella"
     hydro_code = "STELLA" if use_stella else "[DEPRECATED] HERACLES"
 
-    print(f"\n{'='*70}")
-    print(f"Processing model: {model_name}")
-    print(f"Config file: {config_file}")
-    print(f"Hydro code: {hydro_code} (hydrodynamic radiation modeling)")
+    print_header(f"Processing model: {model_name}")
+    print(f"  Config file: {config_file}")
+    print(f"  Hydro code: {hydro_code} (hydrodynamic radiation modeling)")
     active_codes = [
         c
         for c, flag in [
@@ -10994,15 +11094,14 @@ def process_config(
     ]
     if active_codes:
         print(
-            f"Spectrum codes: {' + '.join(active_codes)} (independent spectrum generation)"
+            f"  Spectrum codes: {' + '.join(active_codes)} (independent spectrum generation)"
         )
     else:
-        print(f"Spectrum code: None (all spectrum codes disabled)")
+        print(f"  Spectrum code: None (all spectrum codes disabled)")
     if legacy_debug:
-        print(f"DEBUG MODE ENABLED (legacy debug: true — -debug model suffix)")
+        print(f"  DEBUG MODE ENABLED (legacy debug: true — -debug model suffix)")
     elif debug:
-        print(f"DEBUG SUBMISSION: interactive partition (model name unchanged)")
-    print(f"{'='*70}")
+        print(f"  DEBUG SUBMISSION: interactive partition (model name unchanged)")
 
     # Enforce static-snapshot / non-monotonic CMFGEN settings before any
     # downstream consumer reads the config (prints appear under the banner).
@@ -11590,11 +11689,9 @@ def process_config(
                             f"  CMFGEN not requested — skipping inline conversion (using existing data)"
                         )
                 else:
-                    print(f"\n{'='*60}")
-                    print(
-                        f"Inline STELLA -> CMFGEN conversion (reuse_stella/skip_stella, no hydro job)"
+                    print_header(
+                        "Inline STELLA -> CMFGEN conversion (reuse_stella/skip_stella, no hydro job)"
                     )
-                    print(f"{'='*60}")
                     if not run_inline_cmfgen_conversion(
                         config, scripts_dir, project_dir, single_day
                     ):
@@ -11630,11 +11727,9 @@ def process_config(
         # Clean up previous SEDONA runs: delete all previous SEDONA output for a fresh start.
         # Running SEDONA jobs are cancelled only if cancel_jobs is True (--keep-jobs preserves them).
         # CMFGEN/STELLA jobs are NEVER cancelled or touched.
-        print(f"\n{'='*60}")
-        print(
+        print_header(
             f"Cleaning previous SEDONA runs for {model_name} (CMFGEN/STELLA untouched)"
         )
-        print(f"{'='*60}")
         clean_previous_sedona_runs(
             config, project_dir, force_cancel=cancel_jobs, verbose=True
         )
@@ -11660,11 +11755,9 @@ def process_config(
 
     # Step 4d: Prepare SuperLite directory if SuperLite will be run
     if run_superlite:
-        print(f"\n{'='*60}")
-        print(
+        print_header(
             f"Cleaning previous SuperLite runs for {model_name} (CMFGEN/STELLA untouched)"
         )
-        print(f"{'='*60}")
         clean_previous_superlite_runs(
             config, project_dir, force_cancel=cancel_jobs, verbose=True
         )
@@ -11840,10 +11933,8 @@ def process_config(
                         and cmfgen_job_ids.get("final")
                     ):
                         fixed_j_job_id = cmfgen_job_ids["final"]
-                        print(f"\n{'='*60}")
-                        print(f"Auto-chain: submitting J-RELEASE job (stage 3)")
+                        print_header("Auto-chain: submitting J-RELEASE job (stage 3)")
                         print(f"  Fixed-J job: {fixed_j_job_id}")
-                        print(f"{'='*60}")
                         j_release_ids = submit_j_release_job(
                             config,
                             scripts_dir,
@@ -11961,9 +12052,7 @@ def process_config(
                 return None
 
         for day in snapshot_days:
-            print(f"\n{'='*60}")
-            print(f"Submitting day {day} snapshot workflow")
-            print(f"{'='*60}")
+            print_header(f"Submitting day {day} snapshot workflow")
 
             # CMFGEN job for this day (SN_HYDRO_DATA already created by post-STELLA conversion)
             if run_cmfgen:
@@ -12106,8 +12195,7 @@ def process_config(
                 print(f"ERROR: SIROCCO job submission failed for {model_name}")
 
     hydro_label = "STELLA" if use_stella else "HERACLES"
-    print(f"\n{'='*70}")
-    print(f"Model {model_name} job chain submitted successfully")
+    print_header(f"Model {model_name} job chain submitted successfully")
     print(
         f"  Hydro ({hydro_label}): {heracles_job_id if heracles_job_id else '(skipped - existing data)'}"
     )
@@ -12126,7 +12214,6 @@ def process_config(
         print(f"  SIROCCO:      {sirocco_job_id}")
     if superlite_job_id:
         print(f"  SuperLite:    {superlite_job_id}")
-    print(f"{'='*70}")
 
     return {
         "model_name": model_name,
@@ -12360,23 +12447,20 @@ def main():
             sys.exit(1)
         config_files = [Path(f) for f in args.configs]
 
-    print(f"{'='*70}")
-    print(f"SN2024pba Model Grid Workflow")
-    print(f"{'='*70}")
-    print(f"Project directory: {project_dir}")
-    print(f"Scripts directory: {scripts_dir}")
-    print(f"Number of configs: {len(config_files)}")
+    print_header("SN2024pba Model Grid Workflow")
+    print(f"  Project directory: {project_dir}")
+    print(f"  Scripts directory: {scripts_dir}")
+    print(f"  Number of configs: {len(config_files)}")
     if args.dry_run:
-        print(f"Mode: DRY RUN (no submission)")
+        print(f"  Mode: DRY RUN (no submission)")
     elif args.validate_only:
-        print(f"Mode: VALIDATE ONLY")
+        print(f"  Mode: VALIDATE ONLY")
     elif args.interactive_test:
-        print(f"Mode: MPC INTERACTIVE TEST")
+        print(f"  Mode: MPC INTERACTIVE TEST")
     elif args.no_submit:
-        print(f"Mode: NO SUBMIT (prepare only)")
+        print(f"  Mode: NO SUBMIT (prepare only)")
     else:
-        print(f"Mode: PRODUCTION")
-    print(f"{'='*70}")
+        print(f"  Mode: PRODUCTION")
 
     # ── Handle --validate-only ─────────────────────────────────────────
     if args.validate_only:
@@ -12426,9 +12510,7 @@ def main():
     # ── Handle --dry-run ───────────────────────────────────────────────
     if args.dry_run:
         for config_file in config_files:
-            print(f"\n{'='*60}")
-            print(f"Dry run: {config_file}")
-            print(f"{'='*60}")
+            print_header(f"Dry run: {config_file}")
             if HAS_ORCHESTRATION:
                 try:
                     cfg = resolve_config(
@@ -12481,9 +12563,7 @@ def main():
             sys.exit(1)
         all_passed = True
         for config_file in config_files:
-            print(f"\n{'='*60}")
-            print(f"MPC Interactive Test: {config_file}")
-            print(f"{'='*60}")
+            print_header(f"MPC Interactive Test: {config_file}")
             try:
                 cfg = resolve_config(
                     str(config_file), str(project_dir), str(scripts_dir)
@@ -12525,14 +12605,10 @@ def main():
                 all_passed = False
 
         if all_passed:
-            print(f"\n{'='*70}")
-            print(f"All interactive tests PASSED — production submission allowed")
-            print(f"{'='*70}")
+            print_header("All interactive tests PASSED — production submission allowed")
         else:
-            print(f"\n{'='*70}")
-            print(f"Interactive test FAILED — production submission BLOCKED")
-            print(f"Fix the issues above before submitting production jobs")
-            print(f"{'='*70}")
+            print_header("Interactive test FAILED — production submission BLOCKED")
+            print(f"  Fix the issues above before submitting production jobs")
             sys.exit(1)
         return
 
@@ -12654,10 +12730,8 @@ def main():
                 print(f"  WARNING: paired wind-control submission failed: {e}")
 
     # Summary
-    print(f"\n{'='*70}")
-    print(f"Workflow Summary")
-    print(f"{'='*70}")
-    print(f"Total models: {len(results)}")
+    print_header("Workflow Summary")
+    print(f"  Total models: {len(results)}")
     print(f"\nJob IDs:")
     for result in results:
         print(f"  {result['model_name']}:")
@@ -12685,8 +12759,7 @@ def main():
             print(f"    SIROCCO:    {result['sirocco_job_id']}")
         if result.get("superlite_job_id"):
             print(f"    SuperLite:  {result['superlite_job_id']}")
-    print(f"\nMonitor with: squeue -u $USER")
-    print(f"{'='*70}")
+    print(f"\n  Monitor with: squeue -u $USER")
 
 
 def _build_job_graph(cfg):

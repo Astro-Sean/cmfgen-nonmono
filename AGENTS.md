@@ -396,6 +396,21 @@ hardcoded time limit / graceful stop) for the **whole model**:
 |--------------|-----------|------------|---------------|
 | `normal` | `small` | `23:59:00` | `79200s` (22 h) |
 | `debug` | `interactive` | `01:59:00` | `5400s` (1 h 30 m) |
+| `gpu` | `apu` (Viper GPU nodes) | `23:59:00` | `79200s` (22 h) |
+
+`submission: gpu` injects `partition: apu` into every code section and is
+handled like `normal` everywhere else (production wall/graceful rules).
+For `apu*` partitions `submit_cmfgen.sh` additionally emits
+`--qos=a0004 --account=mpe_apu --gres=gpu:N` in the FINAL, SINGLE_FINAL
+and OBS slurms; `N` defaults to 2 and is set per model by the YAML keys
+`cmfgen.gpus` (FINAL/SINGLE_FINAL) and `cmfgen.obs_gpus` (OBS, defaults
+to `cmfgen.gpus`). CMFGEN itself is CPU-only — the GPU request is a node
+placement constraint on the `vipa*` nodes, which have 96 cores and 220 GB.
+A `gpu:1` request caps the allocation at 24 cores (verified 12-Oct-2026),
+so `cpus_per_task` above 24 requires `gpus: 2`; jobs above 24 cores take
+the whole node anyway. `apu` submissions are only accepted from the
+Viper-GPU login nodes `viper11i`/`viper12i`/`viper13i` (the partition's
+`AllocNodes=viper[11-13]` ACL), not from `viper01`.
 
 `submission` takes precedence over the legacy `debug:` boolean and over
 per-section `partition:` / `time:` keys. When `submission` is set, the
@@ -1406,6 +1421,27 @@ CMFGEN solved temperature
 
 where available.
 
+**Policy (14-Oct-2026): `FIX_T=T` is enforced for every run.** The input
+`SN_HYDRO_DATA` temperature profiles come from the hydrodynamic
+simulation and are authoritative; a CMFGEN temperature iteration would
+replace them with a radiative-equilibrium T that breaks the
+STELLA → CMFGEN division of labour. The enforcement lives in
+`scripts/prepare_VADAT.py` and `scripts/run_model_grid.py`:
+
+- `apply_profile()` stamps `FIX_T=T` and `FIX_T_AUTO=F` after
+  `vadat_overrides`, warning when an override requests otherwise;
+- the final override pass strips `FIX_T`, `FIX_T_AUTO`, `DO_T_AUTO` and
+  `DO_GT_AUTO` requests for a non-fixed value;
+- `IT_SPECIFIER` `FULL` cycles are rewritten to `FULL(FIXT)` (a bare
+  `FULL` sets `FIXED_T=.FALSE.` at runtime);
+- the `fixed_j_workflow` J-release phase no longer requests `FIX_T=F`;
+- `cmfgen.do_gt_auto` in YAML is ignored under `FIX_T=T`
+  (`DO_GT_AUTO=F` always reaches `IN_ITS`);
+- `JFNK_FIXT` auto-aligns to `FIX_T` and therefore stays `T`.
+
+A run that needs a CMFGEN-solved temperature must relax this policy
+explicitly in code, not just in YAML.
+
 ---
 
 # 24. Initial Population Strategy
@@ -1991,7 +2027,10 @@ Consequences that must be accounted for:
 `NON_MONO_SOLVER=T` in `enforce_cmfgen_sn_iin_settings()`, which applies
 the same forced-key table as `prepare_VADAT.NON_MONO_FORCED_VADAT`
 (imported, single source of truth), fills the verified non-monotonic
-iteration defaults (`DO_NG=T`, `NUM_LAM=2`, `LAM_VAL=2.0D2`,
+iteration defaults (`DO_NG=F` (changed 13-Oct-2026: scheduled NG kicks
+overshot the interaction-depth populations near convergence on X_SOB
+and pinned MAXCH above EPS_TERM; opt back in via vadat_overrides),
+`NUM_LAM=2`, `LAM_VAL=2.0D2`,
 `BEG_NG=1.0D1`, `IBEG_NG=20`, `COMP_BA=T`, `FIX_T_AUTO=F`,
 `FIX_NE=F`, `FIX_IMP=F`, `MAX_LIN=5.0D0`, `FIX_BA=1.0D1`,
 `N_FIX_BA=2`, `BA_CHK_FAC=1.0D-05`, `EPS_TERM=5.0D-02`,
@@ -2253,7 +2292,7 @@ vadat_overrides:
   FIX_T_AUTO: F       # Static snapshot: T fixed to hydro
   DO_LAM_AUTO: T      # Auto-switch Lambda→BA when MAXCH < 50%
   DO_LAM_IT: T        # Start in Lambda mode (auto-switched by DO_LAM_AUTO)
-  DO_NG: T            # Ng acceleration essential for DIAG solver
+  DO_NG: F            # NG off by default since 13-Oct-2026 (kick overshoot pinned X_SOB residual); enable only deliberately
   COMP_BA: T          # BA corrections enabled
   SOL_METH: DIAG      # Depth-independent solver
   NUM_LAM: '2'        # Manual: "Typically choose 2"

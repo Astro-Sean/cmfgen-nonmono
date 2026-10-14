@@ -1,7 +1,36 @@
 #!/usr/bin/env python3
 import argparse
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict
+
+try:
+    from log_format import Tee, print_header, print_subheader
+except ImportError:
+    try:
+        from scripts.log_format import Tee, print_header, print_subheader
+    except ImportError:
+        # Fallback: keep the script usable if log_format is not importable.
+        def print_header(title: str = "") -> None:
+            print(f"\n=== {title} ===")
+
+        def print_subheader(title: str = "") -> None:
+            print(f"\n--- {title} ---")
+
+        class Tee:
+            def __init__(self, stdout, f):
+                self._stdout = stdout
+                self._file = f
+
+            def write(self, s):
+                self._stdout.write(s)
+                self._file.write(s)
+                self._file.flush()
+
+            def flush(self):
+                self._stdout.flush()
+                self._file.flush()
 
 # IN_ITS iteration controls for CMFGEN. D2_EQ_D1: when T, depth-2 populations are replaced
 # by depth-1 in non-LAMBDA iterations. Default F (independent depth 2); use --d2-eq-d1 to enable T.
@@ -243,7 +272,7 @@ def write_init_in_its(
     # keeping T fixed during BA iterations is the physically consistent choice
     # for a static hydro snapshot.
     cfg["DO_T_AUTO"] = "T" if t_varies else "F"
-    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
+    cfg["DO_GT_AUTO"] = (gt_auto or "T") if t_varies else "F"  # grey-T iteration only when T varies; gt_auto cannot unpin FIX_T
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -290,7 +319,7 @@ def write_stable_in_its(
     # keeping T fixed during BA iterations is the physically consistent choice
     # for a static hydro snapshot.
     cfg["DO_T_AUTO"] = "T" if t_varies else "F"
-    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
+    cfg["DO_GT_AUTO"] = (gt_auto or "T") if t_varies else "F"  # grey-T iteration only when T varies; gt_auto cannot unpin FIX_T
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -343,7 +372,7 @@ def write_final_in_its(
     # keeping T fixed during BA iterations is the physically consistent choice
     # for a static hydro snapshot.
     cfg["DO_T_AUTO"] = "T" if t_varies else "F"
-    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
+    cfg["DO_GT_AUTO"] = (gt_auto or "T") if t_varies else "F"  # grey-T iteration only when T varies; gt_auto cannot unpin FIX_T
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -401,7 +430,7 @@ def write_single_final_in_its(
     # DO_GT_AUTO: only relevant when T is being released (FIX_T=F).
     # When T is fixed to the hydro snapshot, grey-T iteration is unnecessary
     # and can destabilise the non-monotonic formal solver.
-    cfg["DO_GT_AUTO"] = gt_auto if gt_auto is not None else ("T" if t_varies else "F")
+    cfg["DO_GT_AUTO"] = (gt_auto or "T") if t_varies else "F"  # grey-T iteration only when T varies; gt_auto cannot unpin FIX_T
     cfg["D2_EQ_D1"] = "T" if d2_eq_d1 else "F"
 
     (directory / "IN_ITS").write_text(format_in_its(cfg))
@@ -460,24 +489,65 @@ def main():
         default=None,
         help="Override DO_GT_AUTO (grey-T update). Default: T when VADAT has FIX_T=F, else F.",
     )
+    parser.add_argument(
+        "--no-outgen",
+        action="store_true",
+        help="Do not append output to OUTGEN (default: append to OUTGEN).",
+    )
 
     args = parser.parse_args()
     directory = Path(args.directory)
     directory.mkdir(parents=True, exist_ok=True)
 
-    # Use existing IN_ITS as a template if present
-    template_cfg = parse_in_its(directory / "IN_ITS")
+    profile = "single_final" if args.single_final else "final"
 
-    # Temperature control: DO_T_AUTO is set based on FIX_T in VADAT.
-    # When FIX_T=F (set via vadat_overrides), DO_T_AUTO=T allows T to vary.
-    # When FIX_T=T (default for static snapshots), DO_T_AUTO=F keeps T fixed
-    # to SN_HYDRO_DATA. FIX_T_AUTO=T alone does NOT release T — it only
-    # signals DO_LAM_AUTO=T (exit Lambda mode for BA convergence).
-    d2 = bool(args.d2_eq_d1)
-    if args.single_final:
-        write_single_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto)
-    else:  # args.final
-        write_final_in_its(directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto)
+    # Tee stdout to OUTGEN so the IN_ITS settings land in the same log as
+    # CMFGEN (same mechanism as prepare_VADAT.py).
+    outgen_file = None
+    old_stdout = sys.stdout
+    if not args.no_outgen:
+        try:
+            outgen_file = open(directory / "OUTGEN", "a")
+            sys.stdout = Tee(old_stdout, outgen_file)
+        except OSError:
+            outgen_file = None
+
+    try:
+        print_header(f"prepare_IN_INTS.py [{profile}]")
+        print(f"  started:   {datetime.now().isoformat()}")
+        print(f"  directory: {directory.resolve()}")
+
+        # Use existing IN_ITS as a template if present
+        template_cfg = parse_in_its(directory / "IN_ITS")
+
+        # Temperature control: DO_T_AUTO is set based on FIX_T in VADAT.
+        # When FIX_T=F (set via vadat_overrides), DO_T_AUTO=T allows T to vary.
+        # When FIX_T=T (default for static snapshots), DO_T_AUTO=F keeps T fixed
+        # to SN_HYDRO_DATA. FIX_T_AUTO=T alone does NOT release T — it only
+        # signals DO_LAM_AUTO=T (exit Lambda mode for BA convergence).
+        d2 = bool(args.d2_eq_d1)
+        if args.single_final:
+            write_single_final_in_its(
+                directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto
+            )
+        else:  # args.final
+            write_final_in_its(
+                directory, template_cfg, args.num_its, d2_eq_d1=d2, gt_auto=args.gt_auto
+            )
+
+        # Echo the written file so OUTGEN records the actual IN_ITS keys.
+        print_subheader("IN_ITS written")
+        in_its_path = directory / "IN_ITS"
+        if in_its_path.is_file():
+            for line in in_its_path.read_text().splitlines():
+                if line.strip():
+                    print(f"    {line.strip()}")
+        else:
+            print("    (IN_ITS not found)")
+    finally:
+        if outgen_file is not None:
+            sys.stdout = old_stdout
+            outgen_file.close()
 
 
 if __name__ == "__main__":
