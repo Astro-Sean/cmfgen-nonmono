@@ -2840,3 +2840,17 @@ removes FIX_T/FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=T requests while letting
 benign FIX_T=T through; IT_SPECIFIER rewrite covers FULL and
 FULL(FIXBA). Vault note added in 'VADAT keys.md'; policy documented in
 top-level AGENTS.md section 23.
+
+Addendum: two residual FIX_T_AUTO=T surfaces closed after the above:
+- run_model_grid.py preserves VADAT verbatim on skip_final (OBS-only)
+  resubmits; _pin_vadat_fixed_t() now rewrites FIX_T/FIX_T_AUTO/
+  DO_T_AUTO/DO_GT_AUTO to T/F/F/F in any preserved VADAT, so a VADAT
+  written before this policy cannot carry a stale auto-release flag.
+  Verified on the live X_SOB 40d VADAT (FIX_T_AUTO T->F, DO_T_AUTO
+  T->F, idempotent on second pass).
+- scripts/submit_40d_staged.sh stage labels still claimed FIX_T=F for
+  s2/s3; prepare_VADAT stamps FIX_T=T there anyway, so the labels were
+  corrected rather than the behaviour.
+- The dessart_m15_* validation configs still request FIX_T_AUTO=T/
+  DO_T_AUTO=T in vadat_overrides; the strip pass removes them with a
+  WARNING on every run (left in place, intent-vs-fact documented).
