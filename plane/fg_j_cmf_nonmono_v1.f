@@ -6240,6 +6240,8 @@ C
 	INTEGER NPO,IXIT
 	INTEGER*8 NB_O,NT_O
 	INTEGER NSTALL,J,L,LB,LE,LDI
+	INTEGER NOSC
+	REAL(KIND=LDP) KN_SGN_SUM,KN_SGN_PREV
 	REAL(KIND=LDP) BEST_RES
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
@@ -6287,12 +6289,15 @@ C
 !
 	NPO=0
 	NSTALL=0
+	NOSC=0
 	IXIT=-1
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
 	RES=1.0E+30_LDP
 	RES_PREV(1)=0.0_LDP
 	RES_PREV(2)=0.0_LDP
+	KN_SGN_SUM=0.0_LDP
+	KN_SGN_PREV=0.0_LDP
 	OMEGA_RAY=KN_RAY_OMEGA
 	BEST_RES=HUGE(RES)
 	ALLOCATE(VMAXF(NCF),STAT=IOS)
@@ -6346,6 +6351,7 @@ C
 	  RES_FREQ(1:NCF)=0.0_LDP
 	  NBAD_CUR=0
 	  NTOT_CUR=0
+	  KN_SGN_SUM=0.0_LDP
 !
 ! Column peaks at pass start for the significance floor, same role
 ! as VMAX_L in MARCH.
@@ -6403,6 +6409,8 @@ C
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
+	          KN_SGN_SUM=KN_SGN_SUM+
+	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 !
 ! KN_DUMP: per-cell record of late-pass residual outliers.  Cells
@@ -6498,6 +6506,8 @@ C
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
+	          KN_SGN_SUM=KN_SGN_SUM+
+	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	          IF(PRINT_KNOP_DEBUG .AND. T1 .GT. 0.2_LDP .AND.
 	1           NPO .GE. 8 .AND. KN_DUMP_N .LT. 2000)THEN
@@ -6562,12 +6572,35 @@ C
 	  BEST_RES=MIN(BEST_RES,RES)
 	  IF(RES_PREV(1) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(1)
+!
+! Oscillation detector: on a period-2 limit cycle (lambda ~ -1,
+! observed on the compressing hot blocks at a fluctuating ~0.4
+! residual plateau) the signed per-cell residual sum flips sign
+! every pass.  A monotone marginal mode (lambda ~ +0.99) keeps its
+! sign and is left to the stall/patience exits -- damping it would
+! only slow a contracting tail.
+!
+	    IF(KN_SGN_PREV .NE. 0.0_LDP .AND.
+	1     KN_SGN_SUM*KN_SGN_PREV .LT. 0.0_LDP)THEN
+	      NOSC=NOSC+1
+	    ELSE
+	      NOSC=0
+	    END IF
+	    KN_SGN_PREV=KN_SGN_SUM
 	    IF(RATIO_OM .GT. 1.05_LDP)THEN
 	      T4=OMEGA_RAY
 	      OMEGA_RAY=MAX(0.45_LDP,OMEGA_RAY*0.7_LDP)
 	    ELSE IF(RATIO_OM .LT. 0.5_LDP)THEN
 	      T4=OMEGA_RAY
 	      OMEGA_RAY=MIN(1.0_LDP,OMEGA_RAY*1.15_LDP)
+	    ELSE IF(NOSC .GE. 2 .AND. OMEGA_RAY .GT. 0.45_LDP)THEN
+!
+! Consecutive sign flips in the flat band: a -1 mode under an
+! under-relaxed update has |1-2*OMEGA|<1, so decaying OMEGA
+! converges it to the same fixed point -- no clamping involved.
+!
+	      T4=OMEGA_RAY
+	      OMEGA_RAY=MAX(0.45_LDP,OMEGA_RAY*0.7_LDP)
 	    ELSE
 	      T4=0.0_LDP
 	    END IF
