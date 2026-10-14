@@ -3,7 +3,7 @@ description: Short JFNK probe run. Restarts from a snapshot of the
   live recovery checkpoint and forces one frozen-tier admission so the
   enhanced COLPROBE (F_i / rad / coll / ion / REPLACE / h-scan) can
   decompose the FD-vs-BA mismatch. Not a production run.
-submission: debug
+submission: normal
 hydro_backend: stella
 skip_stella: true
 run_cmfgen: true
