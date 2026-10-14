@@ -574,8 +574,8 @@
 	REAL, ALLOCATABLE :: KN_CHI_EXT(:,:)
 	REAL, ALLOCATABLE :: KN_ETA_EXT(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: KN_FREQ(:)
-	REAL(KIND=LDP), ALLOCATABLE :: KN_DLN_P(:)  !ln(nu_l/nu_{l-1}) expanding
-	REAL(KIND=LDP), ALLOCATABLE :: KN_DLN_N(:)  !ln(nu_l/nu_{l+1}) compressing
+	REAL(KIND=LDP), ALLOCATABLE :: KN_DLN_P(:)  !ln(nu_{l-1}/nu_l) expanding (backward span)
+	REAL(KIND=LDP), ALLOCATABLE :: KN_DLN_N(:)  !ln(nu_l/nu_{l+1}) compressing (forward span)
 	REAL(KIND=LDP), ALLOCATABLE :: KN_DBB(:)
 	REAL(KIND=LDP), ALLOCATABLE :: KN_IC(:)
 !
@@ -7207,10 +7207,11 @@ C
 	END
 !
 ! ----------------------------------------------------------------
-! Modified source function S' for frequency L.  Expanding cells
-! (GAM>=0) take the upwind at L-1 (fresh on ascending passes),
-! compressing cells take the spatially-interpolated upwind at L+1
-! (fresh on descending passes), matching the in-sweep I_NEXT read.
+! Per-point frequency-derivative spans for frequency L.  Expanding
+! cells get the backward span KN_DLN_P(L) = ln(nu_{L-1}/nu_L), the
+! same dLOG_NU the in-sweep solve uses for GAM>=0, so the refresh
+! coefficients reproduce the sweep exactly; compressing cells get
+! the forward span (matched, or +1 bin) below.
 ! ----------------------------------------------------------------
 	SUBROUTINE MATCH_FREQ(L)
 !
@@ -7219,9 +7220,8 @@ C
 ! widen the frequency-derivative span accordingly (Ceulemans et
 ! al. 2025).  NFM_L = slot offset (capped on-grid, >=1);
 ! DLNM_L = span ln(nu_L/nu_{L+NFM}) via the captured KN_FREQ grid,
-! falling back to NFM*KN_DLN_N(L).  Expanding points take
-! KN_DLN_P(L); with the flag off compressing points keep the
-! original +1 / KN_DLN_N(L) treatment.
+! falling back to NFM*KN_DLN_N(L).  With the flag off compressing
+! points keep the original +1 / KN_DLN_N(L) treatment.
 !
 	INTEGER L,NNF
 	DO I=1,NI

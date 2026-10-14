@@ -106,6 +106,10 @@ C
 	  IF(LS .LE. NC)NI=ND
 C
 C Initialize AV vector. GAM is the ANGLE DEPENDENT Sobolev optical depth.
+C The LOS velocity gradient dv_los/ds = (V/R)(1+sigma*mu^2) already
+C carries the full angle dependence -- tau_S = CHIL*c/(FL*|dv_los/ds|)
+C = GAMH/|1+sigma*mu^2| is the standard form (e.g. Lamers, Cerruti-Sola
+C & Perinotto 1987); no separate 1/mu path-length factor applies.
 C
 	  AV(1:NI)=0.0_LDP
 	  CALL ZALONGP(R,Z,P(LS),NI)
