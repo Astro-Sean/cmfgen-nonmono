@@ -77,11 +77,16 @@
 !      b) structure-aware insertion: nearest uniform targets are moved
 !         onto velocity-reversal entries/extrema (sigma<-1) and density
 !         spikes, concentrating resolution where the solver is stiff.
+!         A U_GAP_FAC floor rejects insertions that would leave the
+!         cell under 5% of a uniform-cell width (adjacent features
+!         bracketing a cell boundary); the output grid is then checked
+!         to be strictly decreasing and the tightest cell reported.
 !
 	REAL(KIND=LDP), PARAMETER :: KAPPA_ES=0.34_LDP
 	REAL(KIND=LDP), PARAMETER :: LOG_DEC_CAP=4.0_LDP
 	REAL(KIND=LDP), PARAMETER :: RHO_SPIKE_FAC=1.5_LDP
 	REAL(KIND=LDP), PARAMETER :: ALPHA_R=1.5_LDP
+	REAL(KIND=LDP), PARAMETER :: U_GAP_FAC=5.0E-2_LDP
 	INTEGER, PARAMETER :: NBND_INS=3
 !
 	INTEGER NX,NSP,MND
@@ -312,9 +317,16 @@
 	      I0=MAX(2,MIN(MND-1,I0))
 ! The strictness check guards the rare case where an adjacent cell
 ! was already overwritten with a nearly equal feature coordinate.
+! The U_GAP_FAC floor bounds the collapse the ordering check alone
+! allows: two features bracketing the same uniform-cell boundary
+! could otherwise sit arbitrarily close, leaving a near-zero
+! dlogR cell whose centred-difference denominators
+! (R(I-1)-R(I+1), Euler-Maclaurin DTAU corrections) stiffen the
+! exact shock feature the insertion exists to resolve.  A rejected
+! feature keeps the uniform target; the cell stays ~1 cell wide.
 	      IF(.NOT. USED(I0) .AND.
-	1        U_HYDRO(J) .GT. NEW_TAU(I0-1) .AND.
-	2        U_HYDRO(J) .LT. NEW_TAU(I0+1))THEN
+	1        U_HYDRO(J)-NEW_TAU(I0-1) .GT. U_GAP_FAC*DLOG_U .AND.
+	2        NEW_TAU(I0+1)-U_HYDRO(J) .GT. U_GAP_FAC*DLOG_U)THEN
 	        NEW_TAU(I0)=U_HYDRO(J)
 	        USED(I0)=.TRUE.
 	      END IF
@@ -358,6 +370,34 @@
 	R(ND-2)=R(ND)+(TA(MND-1)-TA(MND))/8.0_LDP
 	R(4)=TA(1)-(TA(1)-TA(2))/3.0_LDP
 	R(ND-3)=R(ND)+(TA(MND-1)-TA(MND))/3.0_LDP
+!
+! Grid integrity check.  LIN_INTERP is monotone in its coordinate,
+! so a flat U(logR) shelf or a boundary cell degenerate in TA can
+! still collapse an output spacing; centred-difference denominators
+! further down (SIGMA stencil, DTAU corrections) assume strict
+! ordering.  Refuse a non-decreasing grid outright and report the
+! tightest surviving cell so stiff regions are visible in the log.
+!
+	T1=HUGE(T1)
+	I0=0
+	DO I=1,ND-1
+	  IF(R(I) .LE. R(I+1))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Output R grid is not strictly decreasing'
+	    WRITE(LUER,*)'I,R(I),R(I+1)=',I,R(I),R(I+1)
+	    STOP
+	  END IF
+	  IF(R(I)/R(I+1)-1.0_LDP .LT. T1)THEN
+	    T1=R(I)/R(I+1)-1.0_LDP
+	    I0=I
+	  END IF
+	END DO
+	IF(T1 .LT. 1.0E-4_LDP)THEN
+	  WRITE(LUER,'(A,ES12.4,A,I6,A,ES12.4)')
+	1   'RV_SN_MODEL_SNHYD: tightest cell dR/R-1=',T1,
+	2   ' at I=',I0,' (feature insertion floor is',
+	3   U_GAP_FAC,' of a uniform cell)'
+	END IF
 !
 ! Monotone-cubic interpolation of V in R with SIGMA from the cubic
 ! derivative (same evaluation as SET_RV_HYDRO_MODEL_V3).  Both

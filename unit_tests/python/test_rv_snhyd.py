@@ -76,7 +76,7 @@ def write_snhyd(d, r, v, sig, dens, kap, temp=None, age=OLD_AGE, mass_frac=True)
     def put_block(f, name, arr):
         f.write(f"{name}\n")
         for i in range(0, n, 4):
-            f.write(" ".join(f"{x:16.8e}" for x in arr[i : i + 4]) + "\n")
+            f.write(" ".join(f"{x:20.12e}" for x in arr[i : i + 4]) + "\n")
 
     with open(d / "SN_HYDRO_DATA", "w") as f:
         f.write(f"Number of data points:    {n}\n")
@@ -140,6 +140,163 @@ def parse(out):
 
 def run_case(exe, d, age, nd=ND, tau_opt=0):
     return run(exe, age, nd, tau_opt, cwd=d, check=False, timeout=30)
+
+
+# ----------------------------------------------------------------------
+# Python replica of the TAU_OPT=1 grid construction in
+# RV_SN_MODEL_SNHYD.  Constants must mirror the PARAMETER block of the
+# production routine; the replica covers the blended U coordinate,
+# structure-aware insertion with the U_GAP_FAC floor, the linear
+# U->logR map, and boundary packing.  _eval_v_sigma additionally
+# reproduces the Steffen cubic V/SIGMA evaluation.
+
+NBND_INS = 3
+ALPHA_R = 1.5
+LOG_DEC_CAP = 4.0
+RHO_SPIKE_FAC = 1.5
+U_GAP_FAC = 5.0e-2
+
+
+def _sig_grad(r, v):
+    return np.gradient(np.log(v), np.log(r)) - 1.0
+
+
+def double_shock(nx=200):
+    """Two fast shells (sigma < -1 dips) plus a detached dense shell and
+    an inner density step: multiple insertion features spread over U."""
+    r = np.geomspace(1.0e5, 1.0e3, nx)
+    v = 4000.0 + 5000.0 * r / r[0]
+    v = v + 7000.0 * np.exp(-(((r - 0.31 * r[0]) / (0.02 * r[0])) ** 2))
+    v = v + 5000.0 * np.exp(-(((r - 0.60 * r[0]) / (0.025 * r[0])) ** 2))
+    dens = 1.0e-12 * (r / r[0]) ** -3.0
+    dens = dens * (1.0 + 30.0 * np.exp(-(((r - 0.50 * r[0]) / (0.01 * r[0])) ** 2)))
+    dens = dens * np.where(r < 0.62 * r[0], 8.0, 1.0)
+    kap = np.full(nx, 0.34)
+    return r, v, _sig_grad(r, v), dens, kap
+
+
+def sharp_shell(nx=400):
+    """Single narrow fast shell whose sigma entry and sigma minimum
+    land on adjacent uniform cells bracketing a shared cell boundary:
+    the pair collapses the U spacing to ~0.04 of a cell without the
+    U_GAP_FAC floor."""
+    r = np.geomspace(1.0e5, 1.0e3, nx)
+    v = 4000.0 + 5000.0 * r / r[0]
+    v = v + 8000.0 * np.exp(-(((r - 0.610 * r[0]) / (0.004 * r[0])) ** 2))
+    dens = 1.0e-12 * (r / r[0]) ** -3.0
+    kap = np.full(nx, 0.34)
+    return r, v, _sig_grad(r, v), dens, kap
+
+
+def _predict_ugrid(r, v, sig, dens, kap, nd=ND, gap_fac=U_GAP_FAC):
+    """Replica of the TAU_OPT=1 coordinate path.  Returns the packed
+    output R grid and the uniform-U targets actually used."""
+    n = len(r)
+    kap_eff = np.maximum(kap, 1.0e-6 * kap.max()) * dens * 1.0e10
+    tau = np.zeros(n)
+    for i in range(1, n):
+        tau[i] = tau[i - 1] + 0.5 * (kap_eff[i - 1] + kap_eff[i]) * (r[i - 1] - r[i])
+    tau[0] = 0.01 * tau[1]
+    ltau = np.log(tau)
+    logr = np.log(r)
+    tau_lo = max(ltau[1], ltau[-1] - LOG_DEC_CAP)
+    u = np.zeros(n)
+    for i in range(1, n):
+        u[i] = (
+            u[i - 1]
+            + max(ltau[i], tau_lo)
+            - max(ltau[i - 1], tau_lo)
+            + ALPHA_R * (logr[i - 1] - logr[i])
+        )
+    mnd = nd - 2 * NBND_INS
+    dlog_u = u[-1] / (mnd - 1)
+    nt = dlog_u * np.arange(mnd)
+    used = np.zeros(mnd, bool)
+    for j in range(1, n - 1):
+        ins = (
+            (sig[j] < -1.0 and sig[j - 1] >= -1.0)
+            or (sig[j] < -1.0 and sig[j] <= sig[j - 1] and sig[j] <= sig[j + 1])
+            or (
+                dens[j] > RHO_SPIKE_FAC * dens[j - 1]
+                and dens[j] > RHO_SPIKE_FAC * dens[j + 1]
+            )
+        )
+        if ins and 0.0 < u[j] < u[-1]:
+            i0 = int(np.floor(u[j] / dlog_u + 0.5)) + 1
+            i0 = max(2, min(mnd - 1, i0)) - 1
+            if gap_fac == 0.0:
+                ok = not used[i0] and nt[i0 - 1] < u[j] < nt[i0 + 1]
+            else:
+                ok = (
+                    not used[i0]
+                    and u[j] - nt[i0 - 1] > gap_fac * dlog_u
+                    and nt[i0 + 1] - u[j] > gap_fac * dlog_u
+                )
+            if ok:
+                nt[i0] = u[j]
+                used[i0] = True
+    ta = np.exp(np.interp(nt, u, logr))
+    ta[0] = r[0]
+    ta[-1] = r[-1]
+    rout = np.zeros(nd)
+    rout[0] = ta[0]
+    rout[-1] = ta[-1]
+    for i in range(2, mnd):
+        rout[i + 2] = ta[i - 1]
+    rout[1] = ta[0] - (ta[0] - ta[1]) / 20.0
+    rout[2] = ta[0] - (ta[0] - ta[1]) / 8.0
+    rout[3] = ta[0] - (ta[0] - ta[1]) / 3.0
+    rout[-2] = rout[-1] + (ta[-2] - ta[-1]) / 20.0
+    rout[-3] = rout[-1] + (ta[-2] - ta[-1]) / 8.0
+    rout[-4] = rout[-1] + (ta[-2] - ta[-1]) / 3.0
+    return rout, nt, dlog_u
+
+
+def _mon_cubic_coefs(y, x):
+    """Steffen (1990) monotone cubic, replicating MON_INT_FUNS_V2."""
+    n = len(x)
+    h = np.diff(x)
+    s = np.diff(y) / h
+    d = np.zeros(n)
+    d[0] = s[0] + (s[0] - s[1]) * h[0] / (h[0] + h[1])
+    d[1:-1] = (s[:-1] * h[1:] + s[1:] * h[:-1]) / (h[:-1] + h[1:])
+    d[-1] = s[-1] + (s[-1] - s[-2]) * h[-1] / (h[-2] + h[-1])
+    d[0] = (np.sign(s[0]) + np.sign(d[0])) * min(abs(s[0]), 0.5 * abs(d[0]))
+    for i in range(1, n - 1):
+        d[i] = (np.sign(s[i - 1]) + np.sign(s[i])) * min(
+            abs(s[i - 1]), abs(s[i]), 0.5 * abs(d[i])
+        )
+    d[-1] = (np.sign(s[-1]) + np.sign(d[-1])) * min(abs(s[-1]), 0.5 * abs(d[-1]))
+    c = np.zeros((n, 4))
+    c[:-1, 0] = (d[:-1] + d[1:] - 2.0 * s) / h**2
+    c[:-1, 1] = (3.0 * s - 2.0 * d[:-1] - d[1:]) / h
+    c[:-1, 2] = d[:-1]
+    c[:-1, 3] = y[:-1]
+    c[-1, 2] = d[-1]
+    c[-1, 3] = y[-1]
+    return c
+
+
+def _eval_v_sigma(rout, r, v):
+    """Cubic V and SIGMA=cubic'(R)*R/V-1 on the output grid, replicating
+    the production evaluation loop (segment search marches inward)."""
+    n = len(r)
+    c = _mon_cubic_coefs(v, r)
+    vout = np.zeros(len(rout))
+    sout = np.zeros(len(rout))
+    j = 0
+    for i in range(len(rout)):
+        while rout[i] < r[j + 1] and j < n - 2:
+            j += 1
+        t = rout[i] - r[j]
+        vout[i] = ((c[j, 0] * t + c[j, 1]) * t + c[j, 2]) * t + c[j, 3]
+        sout[i] = (
+            ((3.0 * c[j, 0] * t + 2.0 * c[j, 1]) * t + c[j, 2])
+            * rout[i]
+            / vout[i]
+            - 1.0
+        )
+    return vout, sout
 
 
 def main():
@@ -325,6 +482,72 @@ def main():
                 f"reversal TAU_OPT={opt}: R strictly decreasing",
                 np.all(np.diff(a[:, 0]) < 0),
             )
+
+    # ---------------- TAU_OPT=1 grid construction -------------------
+    # Double shock + detached dense shell: multiple insertion features
+    # (sigma<-1 entries/minima, density spike, density step).  The
+    # output grid must equal the U-coordinate replica node for node.
+    d = WORKDIR / "snhyd_dblshock"
+    r, v, sig, dens, kap = double_shock()
+    write_snhyd(d, r, v, sig, dens, kap)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    ok = "RESULT_OK" in p.stdout
+    rep.check(
+        "double-shock TAU_OPT=1: completes", ok, p.stdout[-200:] if not ok else ""
+    )
+    if ok:
+        _, _, a = parse(p.stdout)
+        rexp, nt, _ = _predict_ugrid(r, v, sig, dens, kap)
+        rep.check(
+            "double-shock: R matches U-coordinate replica",
+            np.allclose(a[:, 0], rexp, rtol=1e-9, atol=0.0),
+            f"max rel err={np.abs(a[:, 0] - rexp).max() / rexp.min():.2e}",
+        )
+        rep.check(
+            "double-shock: R strictly decreasing", np.all(np.diff(a[:, 0]) < 0)
+        )
+        rep.check(
+            "double-shock: >=2 cells with SIGMA < -1 resolved",
+            np.sum(a[:, 2] < -1.0) >= 2,
+            f"n={np.sum(a[:, 2] < -1.0)} min={a[:, 2].min():.2f}",
+        )
+        vexp, sexp = _eval_v_sigma(rexp, r, v)
+        rep.check(
+            "double-shock: V,SIGMA match Steffen-cubic replica",
+            np.allclose(a[:, 1], vexp, rtol=1e-9, atol=0.0)
+            and np.allclose(a[:, 2], sexp, rtol=1e-8, atol=1e-8),
+            f"maxVerr={np.abs(a[:, 1] - vexp).max():.2e} "
+            f"maxSerr={np.abs(a[:, 2] - sexp).max():.2e}",
+        )
+
+    # Sharp shell tuned so the sigma entry and sigma minimum map to
+    # adjacent uniform cells bracketing the shared boundary.  Without
+    # the U_GAP_FAC floor the pair collapses the cell to ~0.04 of a
+    # uniform cell; with it the second insertion is rejected and the
+    # uniform target survives.
+    d = WORKDIR / "snhyd_gapfloor"
+    r, v, sig, dens, kap = sharp_shell()
+    write_snhyd(d, r, v, sig, dens, kap)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    ok = "RESULT_OK" in p.stdout
+    rep.check(
+        "gap-floor TAU_OPT=1: completes", ok, p.stdout[-200:] if not ok else ""
+    )
+    if ok:
+        _, _, a = parse(p.stdout)
+        rfloor, _, _ = _predict_ugrid(r, v, sig, dens, kap, gap_fac=U_GAP_FAC)
+        rnofloor, _, _ = _predict_ugrid(r, v, sig, dens, kap, gap_fac=0.0)
+        rep.check(
+            "gap-floor: R matches floored replica",
+            np.allclose(a[:, 0], rfloor, rtol=1e-9, atol=0.0),
+            f"max rel err={np.abs(a[:, 0] - rfloor).max() / rfloor.min():.2e}",
+        )
+        rep.check(
+            "gap-floor: rejected insertion leaves uniform cell",
+            not np.allclose(a[:, 0], rnofloor, rtol=1e-9, atol=0.0),
+            "max rel diff vs no-floor="
+            f"{np.abs(a[:, 0] - rnofloor).max() / rnofloor.min():.2e}",
+        )
 
     # ---------------- plot ---------------------------------------
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
