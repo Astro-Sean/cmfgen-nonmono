@@ -1448,6 +1448,37 @@
 	  IF(JFNK_REACH_GATE .LT. 0.0_LDP)JFNK_REACH_GATE=0.0_LDP
 	  IF(JFNK_REACH_GATE .GT. 1.0_LDP)JFNK_REACH_GATE=1.0_LDP
 !
+! JFNK direction gates (defaults 0 = off): admission defers to the
+! caller's SOLVEBA mode when the preconditioned direction is not a
+! usable descent direction.  All three metrics are computed in the
+! reachability precheck from z=M^-1 F clipped to the commit bounds:
+!   JFNK_COS_MIN       - reject cos(F,A z) below this.  Tested against
+!                        both the stored-BA image (free) and the FD
+!                        image (one extra residual eval); the FD test
+!                        catches a stored operator that reports a
+!                        descent the true Jacobian does not share.
+!   JFNK_JZ_F_MAX      - reject |A z|/|F| above this (stored and FD).
+!   JFNK_CLIP_FRAC_MAX - reject when the fraction of unknowns at the
+!                        commit clip bound exceeds this (denominator
+!                        JFNK_N, which includes regularized rows).
+! A defer uses the same path as the reach gate: caller-mode BA runs
+! once and the admission is not counted as stagnation.
+!
+	  JFNK_COS_MIN=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_COS_MIN,'JFNK_COS_MIN',L_FALSE,
+	1     'Defer Newton when cos(F,Jz) below this (0=off)')
+	  IF(JFNK_COS_MIN .LE. 0.0_LDP)JFNK_COS_MIN=0.0_LDP
+	  IF(JFNK_COS_MIN .GT. 1.0_LDP)JFNK_COS_MIN=1.0_LDP
+	  JFNK_JZ_F_MAX=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_JZ_F_MAX,'JFNK_JZ_F_MAX',L_FALSE,
+	1     'Defer Newton when |Jz|/|F| exceeds this (0=off)')
+	  IF(JFNK_JZ_F_MAX .LT. 0.0_LDP)JFNK_JZ_F_MAX=0.0_LDP
+	  JFNK_CLIP_FRAC_MAX=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_CLIP_FRAC_MAX,'JFNK_CLIP_FRAC_MAX',
+	1     L_FALSE,'Defer Newton when clipped-step fraction exceeds this')
+	  IF(JFNK_CLIP_FRAC_MAX .LE. 0.0_LDP)JFNK_CLIP_FRAC_MAX=0.0_LDP
+	  IF(JFNK_CLIP_FRAC_MAX .GT. 1.0_LDP)JFNK_CLIP_FRAC_MAX=1.0_LDP
+!
 ! JFNK_REARM_EVERY (default 10): admitted calls skipped before a
 ! stagnated JFNK is retried.  Each failure cycle doubles the wait
 ! (cap x8), so a persistently failing Newton costs few retries while

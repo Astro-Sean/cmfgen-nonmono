@@ -98,6 +98,7 @@
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
 	LOGICAL JFNK_REACH_OK
 	DOUBLE PRECISION REACH_VAL,FF2_DP,FJZ_DP,JJZ_DP
+	DOUBLE PRECISION COS_BA,JZF_BA,CLIP_FR,COS_FD,JZF_FD
 	DOUBLE PRECISION X_MAX_R,X_MIN_R,X_T_MAX_R,X_T_MIN_R
 	DOUBLE PRECISION ZMAX_RAW
 	INTEGER NCLIP_R
@@ -759,11 +760,22 @@
 ! costs one apply plus one block matvec instead of tens of SE evals.
 ! JACOBI is skipped: its diagonal z underestimates reachability and
 ! would gate out solvable admissions.
+! The same block also hosts the direction gates (JFNK_COS_MIN,
+! JFNK_JZ_F_MAX, JFNK_CLIP_FRAC_MAX; defaults 0 = off), which reuse
+! the same z/Jz metrics plus one FD matvec: a preconditioned step
+! that is non-descent, outsized vs |F|, or mostly clip bounds cannot
+! produce a useful Newton correction, so the admission defers to the
+! caller's SOLVEBA mode before GMRES/JVP evals are spent.  The block
+! runs when any of the four gates is armed.
 !
 	    JFNK_REACH_OK=.TRUE.
-	    IF(JFNK_REACH_GATE .GT. 0.0_LDP .AND. JFNK_LU_READY .AND.
-	1       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
-	2        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
+	    IF((JFNK_REACH_GATE .GT. 0.0_LDP .OR.
+	1       JFNK_COS_MIN .GT. 0.0_LDP .OR.
+	2       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
+	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP) .AND.
+	4       JFNK_LU_READY .AND.
+	5       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
+	6        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
 	      ALLOCATE(Z_CHK(JFNK_N), JZ_VEC(JFNK_N), Z_CLIP(JFNK_N))
 	      Z_CHK=jfnk_fx
 	      CALL JFNK_PRECOND_V1(JFNK_N, Z_CHK)
@@ -841,6 +853,43 @@
 	3        ' cos(F,Jz)=',REAL(FJZ_DP/SQRT(MAX(FF2_DP*JJZ_DP,1.0E-300_LDP)))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JZ_VEC,JFNK_N)
 !
+! Direction gates on the stored-BA metrics (defaults 0 = off): these
+! cost nothing extra -- z, the clip count, and Jz=BA*z are already
+! computed above.  cos(F,Jz)<COS_MIN means even the stored operator
+! reports a non-descent direction; |Jz|/|F|>JZ_F_MAX means the linear
+! response dwarfs the residual; a clip fraction above CLIP_FRAC_MAX
+! means the step the commit would take is mostly the clip bounds, not
+! the linearization.  Deferring here avoids the COLPROBE/isolation
+! JVP evals below as well as the whole Newton attempt; the admission
+! is charged like a reach-gate skip (fallback, not stagnation).
+!
+	      COS_BA=FJZ_DP/SQRT(MAX(FF2_DP*JJZ_DP,1.0E-300_LDP))
+	      JZF_BA=SQRT(JJZ_DP)/SQRT(MAX(FF2_DP,1.0E-300_LDP))
+	      CLIP_FR=DBLE(NCLIP_R)/DBLE(JFNK_N)
+	      IF(JFNK_COS_MIN .GT. 0.0_LDP .AND.
+	1        COS_BA .LT. JFNK_COS_MIN)THEN
+	        JFNK_REACH_OK=.FALSE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,ES10.2,A,ES10.2)')
+	1        '  JFNK GUARD DEFER: stored-BA non-descent cos(F,Jz)=',
+	2        REAL(COS_BA),' < cos_min=',REAL(JFNK_COS_MIN)
+	      ELSE IF(JFNK_JZ_F_MAX .GT. 0.0_LDP .AND.
+	1        JZF_BA .GT. JFNK_JZ_F_MAX)THEN
+	        JFNK_REACH_OK=.FALSE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,ES10.2,A,ES10.2)')
+	1        '  JFNK GUARD DEFER: stored-BA |Jz|/|F|=',
+	2        REAL(JZF_BA),' > jz_f_max=',REAL(JFNK_JZ_F_MAX)
+	      ELSE IF(JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .AND.
+	1        CLIP_FR .GT. JFNK_CLIP_FRAC_MAX)THEN
+	        JFNK_REACH_OK=.FALSE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,ES10.2,A,ES10.2,A,I8)')
+	1        '  JFNK GUARD DEFER: clip fraction=',
+	2        REAL(CLIP_FR),' > clip_frac_max=',REAL(JFNK_CLIP_FRAC_MAX),
+	3        ' nclip=',NCLIP_R
+	      END IF
+!
 ! Pristine-vs-repeat column probe (11-Oct-2026): the residual is
 ! formally block-separable (no routine reads pops at other depths),
 ! yet a single-column FD probe produced nonzero entries at distant
@@ -852,6 +901,7 @@
 ! pure evals and real global coupling; different outputs prove
 ! eval-order contamination.
 !
+	    IF(JFNK_REACH_OK)THEN
 	      ALLOCATE(JV_FD(JFNK_N), JV_FD2(JFNK_N), Z_BLK(JFNK_N))
 	      ALLOCATE(JV_SAV(JFNK_N))
 	      IF(ALLOCATED(J2ID_LOC))DEALLOCATE(J2ID_LOC)
@@ -903,6 +953,33 @@
 	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD,JFNK_N)
 !
+! Direction gates on the FD image (defaults 0 = off): the stored-BA
+! stage-A tests can pass on states where the true Jacobian maps z
+! almost orthogonally to F (the stored operator and dF/dx disagree).
+! cos(F,A_FDz) and |A_FDz|/|F| are the same two metrics on the FD
+! image of the clipped step -- the direction the nonlinear residual
+! actually sees.  Deferring here still costs only the evals already
+! spent above; the remaining isolation probes are skipped.
+!
+	      COS_FD=FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))
+	      JZF_FD=SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))
+	      IF(JFNK_COS_MIN .GT. 0.0_LDP .AND.
+	1        COS_FD .LT. JFNK_COS_MIN)THEN
+	        JFNK_REACH_OK=.FALSE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,ES10.2,A,ES10.2)')
+	1        '  JFNK GUARD DEFER: FD non-descent cos(F,Az)=',
+	2        REAL(COS_FD),' < cos_min=',REAL(JFNK_COS_MIN)
+	      ELSE IF(JFNK_JZ_F_MAX .GT. 0.0_LDP .AND.
+	1        JZF_FD .GT. JFNK_JZ_F_MAX)THEN
+	        JFNK_REACH_OK=.FALSE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,ES10.2,A,ES10.2)')
+	1        '  JFNK GUARD DEFER: FD |Az|/|F|=',
+	2        REAL(JZF_FD),' > jz_f_max=',REAL(JFNK_JZ_F_MAX)
+	      END IF
+!
+	    IF(JFNK_REACH_OK)THEN
 ! Isolation probes (11-Oct-2026): A_FD*z returned ~60x|F| with
 ! cos(BAz,A_FDz)~0.2 -- the stored BA misses large true-J action
 ! excited by z's ~50-magnitude components.  JVP step h scales with
@@ -1225,8 +1302,11 @@
 	5        ' cos(BAz,A_FDz)=',
 	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD2,JFNK_N)
+	    END IF
 	      DEALLOCATE(JV_FD, JV_FD2, Z_BLK, JV_SAV)
-	      IF(REACH_VAL .LT. JFNK_REACH_GATE)THEN
+	    END IF
+	      IF(JFNK_REACH_GATE .GT. 0.0_LDP .AND.
+	1        REACH_VAL .LT. JFNK_REACH_GATE)THEN
 	        JFNK_REACH_OK=.FALSE.
 	        WRITE(LUER,'(A,ES10.2,A)')
 	1        '  JFNK: residual unreachable by population step',
@@ -1745,7 +1825,7 @@
 	    END IF
 	    IF(JFNK_INFO .EQ. -2)THEN
 	      WRITE(LUER,'(A)')
-	1       '  JFNK: reachability gate skipped Newton;'//
+	1       '  JFNK: admission gate skipped Newton;'//
 	2       ' retaining caller mode (not counted as stagnation)'
 	    ELSE
 	      JFNK_STAGNATION_COUNT=JFNK_STAGNATION_COUNT+1
