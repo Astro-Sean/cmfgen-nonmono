@@ -93,9 +93,9 @@ cmfgen:
     NOV_CONT: T
     TDOP: 1.0D0
     V_CROSS: 7.5D2
-    DIE_OV: 'T,T'
-    DIE_CIII: 'F,T'
-    DIE_NIV: 'T,F'
+    # DIE_* stays off: enabling dielectronic recombination needs
+    # DIE<ION> data files that are not in this tree (job 12169581
+    # failed on 'cant open DIECIII').
     THK_LINE: T
     STOP_IF_BP: F
     FIX_T: T

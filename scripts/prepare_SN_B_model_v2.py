@@ -471,6 +471,95 @@ def print_csm_diagnostics(csm, r_lo_cm, r_hi_cm):
     print(f"    equivalent steady-wind Mdot at r_inner = {mdot_equiv:.3e} " f"Msun/yr")
 
 
+def overlay_slow_shell(
+    combined,
+    r_in,
+    r_out,
+    w_gcm,
+    v_cms,
+    T_K=2000.0,
+    comp=None,
+    edge_blend_dex=0.20,
+):
+    """Superpose a slow dense shell on the combined profile.
+
+    Models a massive slow eruption embedded inside the SN_A ejecta's
+    radial range.  SN_A's fast ejecta has already overrun the shell, so
+    each zone takes the momentum-weighted velocity of ejecta + shell:
+    rho adds, rho v adds.  Composition and T are mass-weighted.  Where
+    the shell dominates the local mass the merged zone is effectively
+    the slow shell, giving the SN_B forward shock a slow dense target.
+
+    rho_shell(r) = w_gcm / (4 pi r^2) inside [r_in, r_out], with tanh
+    edges over edge_blend_dex in log-r so the added density gradient
+    stays solver-safe.
+
+    The shell is not appended beyond the profile edge: r_in/r_out must
+    lie inside combined['r'].
+    """
+    r = combined["r"]
+    rho0 = combined["rho"]
+    v0 = combined["v"]
+    if not (r.min() < r_in < r_out < r.max()):
+        raise ValueError(
+            f"--slow-shell needs r.min() < r_in < r_out < r.max(); "
+            f"got r_in={r_in:.3e}, r_out={r_out:.3e}, "
+            f"grid=[{r.min():.3e}, {r.max():.3e}]"
+        )
+
+    lr = np.log10(r)
+    half = 0.5 * edge_blend_dex
+    w_in = 0.5 * (1.0 + np.tanh((lr - np.log10(r_in)) / half))
+    w_out = 0.5 * (1.0 - np.tanh((lr - np.log10(r_out)) / half))
+    rho_sh = w_gcm / (4.0 * np.pi * r**2) * w_in * w_out
+    f_sh = rho_sh / (rho0 + rho_sh)
+
+    combined["rho"] = rho0 + rho_sh
+    combined["v"] = v0 * (1.0 - f_sh) + v_cms * f_sh
+    if T_K > 0:
+        combined["T"] = combined["T"] * (1.0 - f_sh) + T_K * f_sh
+    if comp:
+        keys = [
+            k
+            for k in ("fH", "fHe", "fO", "fSi", "fCa", "fFe")
+            if k in combined and k in comp
+        ]
+        # Renormalise so each zone keeps its original fraction sum:
+        # SOLAR_COMPOSITION sums to 0.994, not 1.
+        sum0 = sum(np.asarray(combined[k], dtype=float) for k in keys)
+        for k in keys:
+            combined[k] = combined[k] * (1.0 - f_sh) + comp[k] * f_sh
+        sum1 = sum(np.asarray(combined[k], dtype=float) for k in keys)
+        for k in keys:
+            combined[k] = combined[k] * sum0 / np.maximum(sum1, 1e-300)
+
+    m_add = np.trapezoid(4.0 * np.pi * r**2 * rho_sh, r)
+    band = (r > r_in) & (r < r_out)
+    print(
+        f"  Slow shell overlay: r={r_in:.3e}-{r_out:.3e} cm, "
+        f"w={w_gcm:.2e} g/cm, u={v_cms/1e5:.0f} km/s, "
+        f"added {m_add/MSUN:.3f} Msun over {int(band.sum())} zones"
+    )
+    if np.any(band):
+        print(
+            f"    merged zone v: {combined['v'][band].min()/1e5:.0f} .. "
+            f"{combined['v'][band].max()/1e5:.0f} km/s "
+            f"(was {v0[band].min()/1e5:.0f} .. {v0[band].max()/1e5:.0f})"
+        )
+    dlogr = np.diff(lr)
+    log_rho = np.log10(np.maximum(combined["rho"], 1e-300))
+    max_grad = np.max(
+        np.abs(np.diff(log_rho) / np.maximum(dlogr, 1e-300))[band[:-1] | band[1:]]
+    )
+    print(f"    max |dlog rho/dlog r| near shell edges: {max_grad:.1f}")
+    if max_grad > 16.0:
+        print(
+            "    WARNING: density gradient may stall the solver; "
+            "widen edge_blend_dex or lower w"
+        )
+    return combined
+
+
 # ----------------------------------------------------------------------
 # Combiners
 # ----------------------------------------------------------------------
@@ -491,6 +580,7 @@ def combine_shell_csm_ejecta(
     min_dlogr=0.005,
     max_dlogr=None,
     density_matched=True,
+    csm_target_dlogr=0.0,
 ):
     """Combine shell + power-law CSM + ejecta.
 
@@ -671,6 +761,18 @@ def combine_shell_csm_ejecta(
             )
         n_freed = 0
     if n_freed > 0:
+        if csm_target_dlogr > 0:
+            # The radiative-collapse layer forms in the CSM/CD ramp; offer
+            # freed zones there up to the requested spacing before
+            # padding the shell interior.
+            csm_cd_cap = int(csm_span_dex / csm_target_dlogr)
+            n_to_csm = min(
+                n_freed, csm_cd_cap - (nzon_csm + cd_transition_zones)
+            )
+            if n_to_csm > 0:
+                nzon_csm += n_to_csm
+                n_freed -= n_to_csm
+                print(f"  Redistributed {n_to_csm} freed zones to CSM")
         shell_span_dex = log_r_shell - log_r_min
         max_shell = max(int(shell_span_dex / min_dlogr), nzon_shell)
         n_to_shell = min(n_freed, max_shell - nzon_shell)
@@ -1008,6 +1110,7 @@ def combine_shell_csm(
     sc_v_sharp_zones=0,
     min_dlogr=0.005,
     max_dlogr=None,
+    csm_target_dlogr=0.0,
 ):
     """Combine shell + power-law CSM only (--no-ejecta mode).
 
@@ -1088,6 +1191,14 @@ def combine_shell_csm(
             )
         n_freed = 0
     if n_freed > 0:
+        if csm_target_dlogr > 0:
+            # Same collapse-layer resolution need as the ejecta variant.
+            csm_cap = int(csm_span_dex / csm_target_dlogr)
+            n_to_csm = min(n_freed, csm_cap - nzon_csm)
+            if n_to_csm > 0:
+                nzon_csm += n_to_csm
+                n_freed -= n_to_csm
+                print(f"  Redistributed {n_to_csm} freed zones to CSM")
         shell_span_dex = log_r_shell - log_r_min
         max_shell = max(int(shell_span_dex / min_dlogr), nzon_shell)
         n_to_shell = min(n_freed, max_shell - nzon_shell)
@@ -1427,6 +1538,17 @@ def main():
         "ejecta inner-edge velocity (0 = off)",
     )
     parser.add_argument("--v-blend-zones", type=int, default=0)
+    parser.add_argument(
+        "--csm-target-dlogr",
+        type=float,
+        default=0.0,
+        help="Target dlog10(r) spacing for the CSM+CD region.  Zones "
+        "freed by ejecta min_dlogr enforcement refine the CSM down to "
+        "this spacing before the remainder pads the shell.  The "
+        "radiative-collapse layer forms in the CSM; extra resolution "
+        "there resists zone crossing (BADSTE) at breakout.  "
+        "0 = off (default, all freed zones go to the shell).",
+    )
     parser.add_argument("--force-homologous-velocity", action="store_true")
     parser.add_argument("--no-smooth-ejecta", action="store_true")
     parser.add_argument("--smooth-window", type=int, default=15)
@@ -1605,6 +1727,46 @@ def main():
         type=float,
         default=0.15,
         help="Blend width in dex across the inner/outer junction",
+    )
+
+    # Slow shell overlaid on the ejecta (late-tail experiments)
+    parser.add_argument(
+        "--slow-shell-w",
+        type=float,
+        default=0.0,
+        help="w = 4 pi r^2 rho (g/cm) of a slow shell superposed on "
+        "the ejecta between --slow-shell-r-inner/outer (0 = off)",
+    )
+    parser.add_argument(
+        "--slow-shell-r-inner",
+        type=float,
+        default=0.0,
+        help="Slow-shell inner radius in cm",
+    )
+    parser.add_argument(
+        "--slow-shell-r-outer",
+        type=float,
+        default=0.0,
+        help="Slow-shell outer radius in cm (must be inside the grid)",
+    )
+    parser.add_argument(
+        "--slow-shell-v",
+        type=float,
+        default=150.0,
+        help="Slow-shell velocity in km/s; zones merge momentum-wise",
+    )
+    parser.add_argument(
+        "--slow-shell-T",
+        type=float,
+        default=2000.0,
+        help="Slow-shell temperature in K (mass-weighted blend)",
+    )
+    parser.add_argument(
+        "--slow-shell-composition",
+        type=str,
+        default=None,
+        choices=["hhe", "solar"],
+        help="Slow-shell composition (default: CSM composition)",
     )
 
     args = parser.parse_args()
@@ -1941,6 +2103,7 @@ def main():
             sc_v_sharp_zones=args.sc_v_sharp_zones,
             min_dlogr=args.min_dlogr,
             max_dlogr=args.max_dlogr,
+            csm_target_dlogr=args.csm_target_dlogr,
         )
     else:
         print(f"\n--- Step 3: Creating power-law CSM + combining ---")
@@ -2032,6 +2195,7 @@ def main():
             min_dlogr=args.min_dlogr,
             max_dlogr=args.max_dlogr,
             density_matched=density_matched,
+            csm_target_dlogr=args.csm_target_dlogr,
         )
         print_csm_diagnostics(csm, csm_r_inner, csm_r_outer)
 
@@ -2062,6 +2226,31 @@ def main():
                     f"  Re-applied ejecta v_max clip: capped {len(over)} "
                     f"re-inflated edge zones at {args.ejecta_v_max_kms:.0f} km/s"
                 )
+
+    # --- Slow-shell overlay (embedded pre-eruption shell) ---
+    if args.slow_shell_w > 0:
+        ss_comp = args.slow_shell_composition or csm_comp
+        comp = (
+            SOLAR_COMPOSITION
+            if ss_comp == "solar"
+            else {
+                "fH": args.shell_xh,
+                "fHe": args.shell_yhe,
+                "fO": 0.0,
+                "fSi": 0.0,
+                "fCa": 0.0,
+                "fFe": 0.0,
+            }
+        )
+        combined = overlay_slow_shell(
+            combined,
+            r_in=args.slow_shell_r_inner,
+            r_out=args.slow_shell_r_outer,
+            w_gcm=args.slow_shell_w,
+            v_cms=args.slow_shell_v * 1e5,
+            T_K=args.slow_shell_T,
+            comp=comp,
+        )
 
     # --- Grid and profile validation ---
     validate_combined_model(

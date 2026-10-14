@@ -1,19 +1,9 @@
 model_name: dessart_m15_2p82d_SOB_jfnk_mom_cold
-description: Cold LTE start of the m15 2.82d SOB moment-solver path.
-  USE_LAM_ES=F -> MOM_J_CMF_NONMONO_V1 with the fixed-J +
-  GET_MOM_ALO_DIAG pairing (same recipe as KNOP+LAM_ES=F).  The warm
-  probes (jobs 12160690 SOB / 12161004 KNOP) diverged identically -
-  bounded ~5e9 for ~5 iterations then a super-exponential luminosity
-  runaway - while the 27-Sep validation ran this same model from a
-  cold LTE start and contracted (L 2.64E10 -> 1.72E10, demands
-  4.2E14 -> 4.6E2 over it1-3, job 11998572).  This probe tests
-  whether the divergence is the warm-restart population-vs-J
-  mismatch (cold start co-adapts populations and the lagged J_NEXT
-  map) or a solver regression since 27-Sep.  The it1-3 luminosity
-  trend is decisive within one interactive segment.  DO_JFNK=F -
-  admission is gated on USE_LAM_ES anyway.  Not a production run.
-# debug -> interactive partition (1:59 per segment): fast queue
-# turnaround for the probe; warm-restart fixes keep requeues cheap.
+description: Cold LTE start of the m15 2.82d validated Dessart Sobolev path.
+  Uses the hydro radius grid and formal-solution Lambda transport required by
+  the non-monotonic SOB setup. The earlier moment-solver probe converged, but
+  its VEL_LAW=14 tau grid and USE_LAM_ES=F setup was not the validated model.
+# debug -> interactive partition (1:59 per segment) for fast queue turnaround.
 submission: debug
 hydro_backend: stella
 skip_stella: true
@@ -38,9 +28,9 @@ cmfgen:
   inc_rad_decays: true
   vturb: 50.0
   incl_rel: false
-  vel_law: 14
+  vel_law: 12
   non_mono_mode: SOB
-  use_lam_es: false
+  use_lam_es: true
   depth_independent_solver: true
   proxy_populations: false
   init_num_its: 100
@@ -48,7 +38,9 @@ cmfgen:
   mem: 30G
   final_requeue_when: wall
   final_requeue_max: 500
-  # No warm_restart: cold LTE start is the test variable.
+  # The existing checkpoint used a different radius grid and radiation solver.
+  # Reusing it would mix populations with an incompatible transfer setup.
+  warm_restart: false
   vadat_overrides:
     LSTAR: 4.265857D8
     RSTAR: 1.454688D4
@@ -56,19 +48,17 @@ cmfgen:
     VTURB: 50.0D0
     MIN_CF: 3.0D-3
     MAX_CF: 2.0D2
-    DIF: F
-    IB_METH: ZERO_FLUX
+    DIF: T
+    IB_METH: DIFFUSION
     THK_LINE: T
     STOP_IF_BP: F
     FIX_T: T
-    FIX_T_AUTO: T
+    FIX_T_AUTO: F
     DO_T_AUTO: T
     FIX_IMP: F
     DO_LAM_IT: T
     DO_LAM_AUTO: T
-    # The test variable: nonmono moment-solver continuum J with its
-    # own diagonal ALO instead of J=TC Lambda iteration.
-    USE_LAM_ES: F
+    USE_LAM_ES: T
     SOL_METH: DIAG
     DO_NOMONO_KNOP: F
     DO_NONMONO_KNOP: F
@@ -83,14 +73,10 @@ cmfgen:
     USE_FRM_REL: F
     USE_DJDT_RTE: F
     INC_GRID: F
-    # N_ON_J factors come live from FG_J_CMF_V13's ray moments via
-    # GET_MOMS_NON_REL inside the solver (same as KNOP+LAM_ES=F).
-    # The earlier V11 failures under N_ON_J and G_ONLY were the V11
-    # discretization, not the boundary variable.
     N_TYPE: N_ON_J
     PURE_HUB: F
-    VEL_LAW: '14'
-    RD_IN_R_GRID: F
+    VEL_LAW: '11'
+    RD_IN_R_GRID: T
     FG_OPT: INT/INS
     USE_FIXED_J: F
     PP_MOD: F
@@ -103,7 +89,7 @@ cmfgen:
     GLOBAL_LINE: SOB
     DO_SOB_LINES: T
     SOB_FREQ_IN_OBS: T
-    JBAR_W_EDD: F
+    JBAR_W_EDD: T
     DO_NG: T
     NG_ABSTAIN: T
     COMP_BA: T
@@ -124,7 +110,10 @@ cmfgen:
     BA_SAT_RAW: 2.0D3
     BA_SAT_LIM: '0'
     BA_DEM_PFLOOR: 1.0D-30
-    # JFNK parked: admission is gated on USE_LAM_ES, which is F here.
+    # Empty-ion rows (CSIX lev 1 ~4.6e-26 at surface) oscillated the
+    # demand metric 1e4% for 400+ iterations without blocking physics.
+    BA_DEM_RELFRAC: 1.0D-6
+    # Keep JFNK off so this run tests the validated Lambda path directly.
     DO_JFNK: F
     JFNK_WARMUP: '6'
     JFNK_FRZ_GATE: 3.0D0
@@ -218,6 +207,10 @@ cmfgen:
     TRANS_FeSEV: SOB
   cmf_flux_param_overrides:
     DO_CMF_EW: F
+    VTURB_FIX: 50.0D0
+    VTURB_MIN: 50.0D0
+    VTURB_MAX: 50.0D0
+    dV_OBS_PROF: 100.0D0
     WR_dFR: true
     WR_IP: true
   notification_email: sbrennan@mpe.mpg.de

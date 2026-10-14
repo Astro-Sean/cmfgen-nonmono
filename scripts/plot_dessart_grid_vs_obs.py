@@ -33,20 +33,22 @@ SNB_EXP_MJD = 60805.0
 SNB_EXP_PHASE = SNB_EXP_MJD - PEAK_MJD
 # Extinction coefficients: Gordon et al. 2023 MW curve (Rv=3.1),
 # band-averaged over the SVO filter transmissions (g 4719 A,
-# r 6185 A, ATLAS o 6866 A).  These replace the old Schlafly &
+# r 6185 A, i 7480 A, ATLAS o 6866 A).  These replace the old Schlafly &
 # Finkbeiner 2011 values (3.303/2.285); the E(B-V) map value is
 # unchanged - only the per-band curve is updated.
 A_G = 3.776 * EBV
 A_R = 2.695 * EBV
+A_I = 2.04 * EBV
 A_O = 2.350 * EBV
 
 
 def set_ebv(ebv):
     """Rescale the band extinctions for a different total E(B-V)."""
-    global EBV, A_G, A_R, A_O
+    global EBV, A_G, A_R, A_I, A_O
     EBV = ebv
     A_G = 3.776 * EBV
     A_R = 2.695 * EBV
+    A_I = 2.04 * EBV
     A_O = 2.350 * EBV
 
 
@@ -77,11 +79,12 @@ def load_tt(path):
     if not rows:
         return None
     arr = np.array(rows)
-    # tt columns: 6=Mbol, 9=MV, 11=MR(Johnson); 13/14=Mg/Mr(SDSS),
+    # tt columns: 6=Mbol, 9=MV, 11=MR(Johnson); 13/14/15=Mg/Mr/Mi(SDSS),
     # 20/21=Mc/Mo(ATLAS).  The obs r/g are SDSS-like, so score on Mr.
     df = pd.DataFrame({
         'time': arr[:, 0], 'V': arr[:, 9],
-        'R': arr[:, 14], 'g': arr[:, 13], 'o': arr[:, 21],
+        'R': arr[:, 14], 'g': arr[:, 13], 'i': arr[:, 15],
+        'o': arr[:, 21],
     })
     return df[df['time'] >= 0].copy()
 
@@ -89,7 +92,7 @@ def load_tt(path):
 def load_obs():
     raw = pd.read_csv(OBS_FILE)
     obs = {}
-    for band, A in (('g', A_G), ('r', A_R)):
+    for band, A in (('g', A_G), ('r', A_R), ('i', A_I)):
         sub = raw[raw['Filter'] == band].copy()
         det = sub[sub['Mag'].apply(lambda x: x != '-' and not pd.isna(x))]
         det = det.copy()
@@ -183,7 +186,7 @@ def model_R_at(df, t):
 
 
 # Obs band letter -> model .tt column (SDSS Mg/Mr, ATLAS Mo).
-OBS2MOD = {'g': 'g', 'r': 'R', 'o': 'o'}
+OBS2MOD = {'g': 'g', 'r': 'R', 'i': 'i', 'o': 'o'}
 
 
 def obs_color_pairs(obs, b1, b2, max_sep=0.75):
@@ -193,8 +196,8 @@ def obs_color_pairs(obs, b1, b2, max_sep=0.75):
     same pairing rule feeds the score and the colour panels so both
     show the same quantity.
     """
-    err1 = 'Error' if b1 in 'gr' else 'Mabs_err'
-    err2 = 'Error' if b2 in 'gr' else 'Mabs_err'
+    err1 = 'Error' if b1 in 'gri' else 'Mabs_err'
+    err2 = 'Error' if b2 in 'gri' else 'Mabs_err'
     rows = []
     for _, row1 in obs[b1].iterrows():
         ref = obs[b2]

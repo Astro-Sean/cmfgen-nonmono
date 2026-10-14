@@ -2406,6 +2406,190 @@ def _read_hydro_section(hydro_path, section_name):
     return np.array(data)
 
 
+def _scr_checkpoint_metadata(path):
+    """Read the SCR_READ_V2 checkpoint pointer tuple from POINT1/POINT2."""
+    for line in Path(path).read_text(errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) < 5 or fields[0].lstrip("+-").isdigit() is False:
+            continue
+        if fields[4].upper() not in {"T", "F"}:
+            continue
+        iteration = int(fields[0])
+        if iteration > 0:
+            return iteration, fields[4].upper() == "T"
+    raise ValueError(f"No valid SCR_READ_V2 pointer found in {path}")
+
+
+def _model_dimension(model_path, label):
+    marker = f"!{label}"
+    for line in Path(model_path).read_text(errors="replace").splitlines()[:40]:
+        if marker in line:
+            try:
+                return int(line.split()[0])
+            except (IndexError, ValueError):
+                break
+    raise ValueError(f"Could not read {label} from {model_path}")
+
+
+def _scr_checkpoint_radius(scrtemp, iteration, write_rvsig, nd, num_records, num_rv_records, recs_for_rv, n_per_record, record_bytes):
+    if write_rvsig:
+        first_record = (iteration - 1) * (num_records + num_rv_records) + recs_for_rv + 1
+    else:
+        first_record = 1
+    count = 3 * nd
+    values = np.empty(count, dtype=np.float64)
+    with open(scrtemp, "rb") as stream:
+        for block in range(num_rv_records):
+            record = first_record + block
+            stream.seek((record - 1) * record_bytes)
+            chunk = np.frombuffer(stream.read(record_bytes), dtype=np.dtype("=f8"))
+            start = block * n_per_record
+            stop = min(start + n_per_record, count)
+            if chunk.size < stop - start:
+                raise ValueError(f"Incomplete R/V/SIGMA record {record} in {scrtemp}")
+            values[start:stop] = chunk[: stop - start]
+    radius = values[:nd]
+    if not np.all(np.isfinite(radius)) or np.any(radius <= 0.0):
+        raise ValueError(f"Invalid checkpoint radius grid in {scrtemp}")
+    delta = np.diff(radius)
+    if not (np.all(delta < 0.0) or np.all(delta > 0.0)):
+        raise ValueError(f"Non-monotonic checkpoint radius grid in {scrtemp}")
+    return radius
+
+
+def _reset_population_checkpoint_temperature(cmfgen_dir):
+    """Replace checkpoint T values with hydro T before a population-only restart.
+
+    SCRTEMP stores POPS(NT,ND), with temperature in the NT slot. Pointing at
+    that checkpoint under FIX_T would otherwise freeze the source run's T.
+    """
+    cmfgen_dir = Path(cmfgen_dir)
+    model_path = cmfgen_dir / "MODEL"
+    hydro_path = cmfgen_dir / "SN_HYDRO_DATA"
+    scrtemp = cmfgen_dir / "SCRTEMP"
+    nd = _model_dimension(model_path, "Number of depth points")
+    nt = _model_dimension(model_path, "Total number of variables")
+    hydro_nd = None
+    for line in hydro_path.read_text(errors="replace").splitlines()[:5]:
+        if "Number of data points" in line:
+            hydro_nd = int(line.split(":", 1)[1])
+            break
+    if hydro_nd != nd:
+        raise ValueError(
+            f"Cannot reset checkpoint T: MODEL ND={nd}, SN_HYDRO_DATA ND={hydro_nd}"
+        )
+    radius_hydro = _read_hydro_section(hydro_path, "Radius grid")
+    temperature_hydro = _read_hydro_section(hydro_path, "Temperature (10^4 K)")
+    if (
+        radius_hydro is None
+        or temperature_hydro is None
+        or radius_hydro.size != nd
+        or temperature_hydro.size != nd
+    ):
+        raise ValueError("SN_HYDRO_DATA needs ND radius and 10^4-K temperature values")
+    if (
+        not np.all(np.isfinite(radius_hydro))
+        or not np.all(np.isfinite(temperature_hydro))
+        or np.any(radius_hydro <= 0.0)
+        or np.any(temperature_hydro <= 0.0)
+    ):
+        raise ValueError("SN_HYDRO_DATA radius/temperature contains invalid values")
+
+    pointers = []
+    for name in ("POINT1", "POINT2"):
+        pointer_path = cmfgen_dir / name
+        if pointer_path.is_file():
+            pointers.append((name, *_scr_checkpoint_metadata(pointer_path)))
+    if not pointers:
+        raise ValueError("Population-only restart has no valid POINT1/POINT2 pointer")
+    if len({write_rvsig for _, _, write_rvsig in pointers}) != 1:
+        raise ValueError("POINT1/POINT2 disagree about SCRTEMP R/V/SIGMA layout")
+
+    record_bytes = 4094 * 4
+    word_bytes = np.dtype("=f8").itemsize
+    n_per_record = record_bytes // word_bytes
+    num_records = (nt * nd + n_per_record - 1) // n_per_record
+    num_rv_records = (3 * nd + n_per_record - 1) // n_per_record
+    recs_for_rv = 2 if num_rv_records == 1 else num_rv_records
+    file_size = scrtemp.stat().st_size
+    if file_size % record_bytes:
+        raise ValueError(f"SCRTEMP size is not a whole number of direct records: {scrtemp}")
+    total_records = file_size // record_bytes
+    write_rvsig = pointers[0][2]
+    hydro_order = np.argsort(radius_hydro)
+    radius_ascending = radius_hydro[hydro_order]
+    temperature_ascending = temperature_hydro[hydro_order]
+
+    patches = []
+    patched_iterations = set()
+    for pointer_name, iteration, pointer_write_rvsig in pointers:
+        if iteration in patched_iterations:
+            continue
+        patched_iterations.add(iteration)
+        if pointer_write_rvsig != write_rvsig:
+            raise ValueError(f"{pointer_name} SCRTEMP layout mismatch")
+        if write_rvsig:
+            rv_first = (iteration - 1) * (num_records + num_rv_records) + recs_for_rv + 1
+        else:
+            rv_first = 1
+        pop_first = (
+            (iteration - 1) * (num_records + num_rv_records)
+            + recs_for_rv
+            + num_rv_records
+            + 1
+            if write_rvsig
+            else (iteration - 1) * num_records + recs_for_rv + 1
+        )
+        last_pop = pop_first + num_records - 1
+        if rv_first + num_rv_records - 1 > total_records or last_pop > total_records:
+            raise ValueError(f"POINT iteration {iteration} exceeds SCRTEMP records")
+        radius_checkpoint = _scr_checkpoint_radius(
+            scrtemp,
+            iteration,
+            write_rvsig,
+            nd,
+            num_records,
+            num_rv_records,
+            recs_for_rv,
+            n_per_record,
+            record_bytes,
+        )
+        if radius_checkpoint[0] > radius_checkpoint[-1]:
+            radius_target = radius_checkpoint[::-1]
+        else:
+            radius_target = radius_checkpoint
+        if radius_target[0] < radius_ascending[0] or radius_target[-1] > radius_ascending[-1]:
+            raise ValueError("Checkpoint radius range extends beyond SN_HYDRO_DATA")
+        t_target = np.interp(
+            np.log(radius_target), np.log(radius_ascending), temperature_ascending
+        )
+        if radius_checkpoint[0] > radius_checkpoint[-1]:
+            t_target = t_target[::-1]
+        for depth, value in enumerate(t_target):
+            linear_index = (depth + 1) * nt - 1
+            record = pop_first + linear_index // n_per_record
+            offset = (record - 1) * record_bytes + (linear_index % n_per_record) * word_bytes
+            patches.append((offset, float(value)))
+
+    old_temperatures = []
+    new_temperatures = []
+    with open(scrtemp, "r+b") as stream:
+        for offset, value in patches:
+            stream.seek(offset)
+            old = stream.read(word_bytes)
+            if len(old) != word_bytes:
+                raise ValueError(f"Cannot read checkpoint T slot at byte {offset}")
+            old_temperature = float(np.frombuffer(old, dtype=np.dtype("=f8"))[0])
+            if not np.isfinite(old_temperature) or old_temperature <= 0.0:
+                raise ValueError(f"Invalid checkpoint T value {old_temperature}")
+            old_temperatures.append(old_temperature)
+            new_temperatures.append(value)
+            stream.seek(offset)
+            stream.write(np.asarray(value, dtype=np.dtype("=f8")).tobytes())
+    max_delta = float(np.max(np.abs(np.asarray(old_temperatures) - new_temperatures)))
+    return len(patches), max_delta
+
+
 def generate_grey_scl_fac_in(sn_hydro_path):
     """Generate GREY_SCL_FAC_IN from SN_HYDRO_DATA.
 
@@ -2614,14 +2798,11 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
     restart_backups = {}
 
     # cmfgen.warm_restart_from: <path> -- deliberate continuation from a
-    # DIFFERENT model's checkpoint (e.g. SOB run -> KNOP run).  The
-    # named directory's POINT1/POINT2/SCRTEMP (+ Knop GS state, RVTJ,
-    # MODEL, CUR_MODEL_DATA when present) are injected into the refresh
-    # so the submitted run resumes from that population state.  The
-    # source MODEL file supplies the NT/ND fingerprint: ND must match
-    # the target grid exactly, and NT is compared against any existing
-    # target MODEL.  A SCR_READ_V2 record mismatch otherwise reads
-    # garbage rather than falling back to a cold start.
+    # different checkpoint. Population-only handoff copies POINT1/POINT2,
+    # SCRTEMP, and MODEL, but replaces each pointed temperature row in the
+    # staged SCRTEMP with SN_HYDRO_DATA T before CMFGEN reads the restart.
+    # The source MODEL supplies the NT/ND fingerprint; mismatches are
+    # rejected because SCR_READ_V2 would otherwise read misaligned records.
     warm_restart_from = cmfgen.get("warm_restart_from", "") or os.environ.get(
         "CMFGEN_WARM_RESTART_FROM", ""
     )
@@ -2720,8 +2901,8 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         if warm_restart_population_only:
             restart_names = ("POINT1", "POINT2", "SCRTEMP", "MODEL")
             print(
-                "  warm_restart_from: population-only handoff; radiation, "
-                "Eddington-factor, and Knop GS state will be rebuilt"
+                "  warm_restart_from: population-only handoff; hydro T will "
+                "replace checkpoint T, and radiation/Eddington state rebuilds"
             )
         else:
             restart_names = (
@@ -2947,6 +3128,14 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         for fname, (backup, tmpdir) in restart_backups.items():
             shutil.copy2(backup, cmfgen_dir / fname)
             shutil.rmtree(tmpdir)
+
+    if warm_restart_population_only:
+        patched_values, max_delta = _reset_population_checkpoint_temperature(cmfgen_dir)
+        print(
+            "  warm_restart_population_only: restored hydro T in "
+            f"{patched_values} checkpoint values; max |dT|="
+            f"{max_delta:.3e} (10^4 K)"
+        )
 
     # Ensure MODEL_SPEC has all default species (I+II for all elements, Fe I-IV)
     model_spec = cmfgen_dir / "MODEL_SPEC"

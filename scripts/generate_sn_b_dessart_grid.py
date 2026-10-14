@@ -857,6 +857,29 @@ GRID_POINTS = [
       "powerlaw_csm": True, "csm_powerlaw_n": 0.65,
       "csm_density_match": False, "csm_w_gcm": 1.5e17,
       "cd_transition_zones": 15}),
+    ("DX26_V7000_p075w2_sa334", 7.0, 7000, 2.0, 0.0,
+     {"source_age_days": 334.0, "target_days": 200.0,
+      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_grid/"
+                    "SN_A_g_T20k_Ni075",
+      "powerlaw_csm": True, "csm_powerlaw_n": 0.75,
+      "csm_density_match": False, "csm_w_gcm": 2e17,
+      "cd_transition_zones": 15}),
+    ("DX26_V7000_b025_r35_sa334", 7.0, 7000, 2.0, 0.0,
+     {"source_age_days": 334.0, "target_days": 200.0,
+      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_grid/"
+                    "SN_A_g_T20k_Ni075",
+      "powerlaw_csm": True, "csm_powerlaw_n": 0.75,
+      "csm_density_match": False, "csm_w_gcm": 1.5e17,
+      "csm_r_split_cm": 3.5e15, "csm_outer_w_gcm": 0.0,
+      "csm_outer_n": 0.25, "cd_transition_zones": 15}),
+    ("DX26_V7000_b025_r50_sa334", 7.0, 7000, 2.0, 0.0,
+     {"source_age_days": 334.0, "target_days": 200.0,
+      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_grid/"
+                    "SN_A_g_T20k_Ni075",
+      "powerlaw_csm": True, "csm_powerlaw_n": 0.75,
+      "csm_density_match": False, "csm_w_gcm": 1.5e17,
+      "csm_r_split_cm": 5.0e15, "csm_outer_w_gcm": 0.0,
+      "csm_outer_n": 0.25, "cd_transition_zones": 15}),
 ]
 
 TARGET_DAYS = 100.0
@@ -943,6 +966,14 @@ def main():
                 f"homologous CSM rho~r^-{extras['csm_powerlaw_n']:g}, "
                 f"w={extras['csm_w_gcm']:.3g} g/cm"
             )
+            if extras.get("csm_r_split_cm", 0.0) > 0:
+                csm_setup = (
+                    f"continuous broken-slope CSM: inner rho~r^-"
+                    f"{extras['csm_powerlaw_n']:g}, "
+                    f"w={extras['csm_w_gcm']:.3g} g/cm; outer rho~r^-"
+                    f"{extras['csm_outer_n']:g} beyond "
+                    f"{extras['csm_r_split_cm']:.2e} cm"
+                )
         else:
             csm_setup = f"steady wind Mdot={mdot} Msun/yr at v=100 km/s"
         cfg["description"] = (

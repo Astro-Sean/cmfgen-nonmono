@@ -12,8 +12,11 @@ Tests cover:
 import sys
 import os
 import json
+import struct
 import tempfile
 import unittest
+
+import numpy as np
 from pathlib import Path
 from unittest.mock import patch
 
@@ -41,6 +44,7 @@ from run_model_grid import (
     get_time_limit,
     load_yaml_config,
     resolve_submission,
+    _reset_population_checkpoint_temperature,
 )
 
 
@@ -516,6 +520,146 @@ class TestManifests(unittest.TestCase):
         self.assertTrue(graph_path.exists())
         data = json.loads(graph_path.read_text())
         self.assertEqual(len(data["jobs"]), 1)
+
+
+class TestPopulationRestartTemperature(unittest.TestCase):
+    """Population-only SCRTEMP handoffs must start at the hydro T profile."""
+
+    ND = 70
+    NT = 31
+    RECORD_BYTES = 4094 * 4
+
+    def _make_checkpoint(self, root, write_rvsig, checkpoint_radius=None):
+        (root / "MODEL").write_text(
+            f"{self.ND} !Number of depth points\n"
+            f"{self.NT} !Total number of variables\n"
+        )
+        radius = np.linspace(1000.0, 100.0, self.ND)
+        temperature = np.linspace(0.8, 1.5, self.ND)
+        if checkpoint_radius is None:
+            checkpoint_radius = radius.copy()
+        hydro_lines = [
+            f"Number of data points: {self.ND}\n",
+            "Radius grid (10^10cm)\n",
+            " ".join(f"{value:.16e}" for value in radius) + "\n",
+            "Temperature (10^4 K)\n",
+            " ".join(f"{value:.16e}" for value in temperature) + "\n",
+            "Density (gm/cm^3)\n",
+            " ".join("1.0e-12" for _ in range(self.ND)) + "\n",
+        ]
+        (root / "SN_HYDRO_DATA").write_text("".join(hydro_lines))
+
+        n_per_record = self.RECORD_BYTES // 8
+        num_records = (self.NT * self.ND + n_per_record - 1) // n_per_record
+        num_rv_records = (3 * self.ND + n_per_record - 1) // n_per_record
+        recs_for_rv = 2 if num_rv_records == 1 else num_rv_records
+        iterations = (1, 2)
+        total_records = recs_for_rv + len(iterations) * (
+            num_records + (num_rv_records if write_rvsig else 0)
+        )
+        records = [bytearray(self.RECORD_BYTES) for _ in range(total_records)]
+        rv = np.concatenate(
+            (checkpoint_radius, np.full(self.ND, 50.0), np.zeros(self.ND))
+        )
+
+        for record in range(num_rv_records):
+            start = record * n_per_record
+            stop = min(start + n_per_record, rv.size)
+            chunk = rv[start:stop]
+            records[record][: len(chunk) * 8] = struct.pack(
+                f"<{len(chunk)}d", *chunk
+            )
+        if num_rv_records == 1:
+            records[1][: self.RECORD_BYTES] = records[0]
+
+        for iteration in iterations:
+            populations = np.arange(self.NT * self.ND, dtype=float)
+            populations += iteration * 1000.0
+            populations[np.arange(self.ND) * self.NT + self.NT - 1] = (
+                90.0 + iteration
+            )
+            if write_rvsig:
+                stride = num_records + num_rv_records
+                rv_first = (iteration - 1) * stride + recs_for_rv
+                for block in range(num_rv_records):
+                    start = block * n_per_record
+                    stop = min(start + n_per_record, rv.size)
+                    chunk = rv[start:stop]
+                    records[rv_first + block][: len(chunk) * 8] = struct.pack(
+                        f"<{len(chunk)}d", *chunk
+                    )
+                pop_first = (iteration - 1) * stride + recs_for_rv + num_rv_records
+            else:
+                pop_first = (iteration - 1) * num_records + recs_for_rv
+            for block in range(num_records):
+                start = block * n_per_record
+                stop = min(start + n_per_record, populations.size)
+                chunk = populations[start:stop]
+                records[pop_first + block][: len(chunk) * 8] = struct.pack(
+                    f"<{len(chunk)}d", *chunk
+                )
+
+        (root / "SCRTEMP").write_bytes(b"".join(records))
+        flag = "T" if write_rvsig else "F"
+        (root / "POINT1").write_text(
+            f"28-Feb-2004 !Format date\n2 2 1 -1000 {flag}\n"
+        )
+        (root / "POINT2").write_text(
+            f"28-Feb-2004 !Format date\n1 1 1 -1000 {flag}\n"
+        )
+        return radius, temperature, checkpoint_radius, records, num_records, recs_for_rv, num_rv_records
+
+    def test_population_only_restart_resets_temperature_and_preserves_other_populations(self):
+        for write_rvsig in (False, True):
+            with self.subTest(write_rvsig=write_rvsig), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (
+                    radius,
+                    temperature,
+                    checkpoint_radius,
+                    original_records,
+                    num_records,
+                    recs_for_rv,
+                    num_rv_records,
+                ) = self._make_checkpoint(
+                    root,
+                    write_rvsig,
+                    checkpoint_radius=np.linspace(950.0, 150.0, self.ND),
+                )
+                expected_temperature = np.interp(
+                    np.log(checkpoint_radius[::-1]),
+                    np.log(radius[::-1]),
+                    temperature[::-1],
+                )[::-1]
+                patched_count, max_delta = _reset_population_checkpoint_temperature(root)
+                self.assertEqual(patched_count, self.ND * 2)
+                self.assertGreater(max_delta, 0.0)
+
+                new_records = (root / "SCRTEMP").read_bytes()
+                original = np.frombuffer(b"".join(original_records), dtype="<f8")
+                updated = np.frombuffer(new_records, dtype="<f8")
+                changed = np.zeros(updated.size, dtype=bool)
+                for iteration in (1, 2):
+                    if write_rvsig:
+                        pop_first = (
+                            (iteration - 1) * (num_records + num_rv_records)
+                            + recs_for_rv
+                            + num_rv_records
+                        )
+                    else:
+                        pop_first = (iteration - 1) * num_records + recs_for_rv
+                    population_start = (pop_first) * (self.RECORD_BYTES // 8)
+                    population = updated[
+                        population_start : population_start + self.NT * self.ND
+                    ]
+                    for depth in range(self.ND):
+                        t_index = population_start + depth * self.NT + self.NT - 1
+                        changed[t_index] = True
+                        self.assertAlmostEqual(
+                            population[depth * self.NT + self.NT - 1],
+                            expected_temperature[depth],
+                        )
+                np.testing.assert_array_equal(updated[~changed], original[~changed])
 
 
 class TestFullConfigResolution(unittest.TestCase):

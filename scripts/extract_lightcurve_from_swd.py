@@ -35,6 +35,10 @@ def read_swd(swd_path: str) -> dict[float, dict]:
     """Parse a STELLA *.swd file.
 
     Returns a dict keyed by t_day -> {'r': [], 'v_kms': [], 'rho': [], 'T': [], 'flux': [], 'km': []}.
+
+    'flux' is the STELLA Flum column (swd col index 11, written as
+    Flum*1e-40 in lbalsw.f) -- the local luminosity in erg/s, NOT a
+    flux per unit area.  Col 12 is WRKX (Rosseland opacity), not flux.
     All values are numpy arrays sorted outer->inner (decreasing r).
     """
     epochs: dict[float, dict] = {}
@@ -78,7 +82,7 @@ def read_swd(swd_path: str) -> dict[float, dict]:
                 v_kms       = float(cols[4]) * 1000.0  # .swd unit: 1e8 cm/s -> km/s
                 log_T       = float(cols[5])
                 log_rho     = float(cols[7])
-                flux_1e40   = float(cols[12])  # Flux in units of 1e40 erg/s/cm^2
+                flux_1e40   = float(cols[11])  # Flum: luminosity in units of 1e40 erg/s
             except (ValueError, IndexError):
                 continue
 
@@ -98,7 +102,7 @@ def read_swd(swd_path: str) -> dict[float, dict]:
             # STELLA SWD uses internal units: rho is log10(rho / 1e-6 g/cc)
             # Convert to cgs: rho_cgs = 10^log_rho * 1e-6
             rho   = (10.0 ** log_rho) * 1e-6
-            flux  = flux_1e40 * 1e40  # Convert to cgs: erg/s/cm^2
+            flux  = flux_1e40 * 1e40  # luminosity L(r) in erg/s
 
             buf_km.append(km)
             buf_r.append(r_cm)
@@ -188,12 +192,12 @@ def extract_lightcurve(swd_path: str, kappa: float = 0.34, tau_min: float = None
         # For simplicity, use the outermost zone radius
         r_last_sc = r[0]
 
-        # Teff: effective temperature from bolometric flux at surface
-        # Use the flux at the outermost zone
-        f_surf = flux[0]
-        # L = 4*pi*r^2*F => T_eff = (F/sigma)^0.25
-        if f_surf > 0:
-            teff = (f_surf / SIGMA_SB) ** 0.25
+        # Teff: effective temperature from the emergent luminosity at
+        # the outer boundary: F_surf = L_out / (4*pi*r_out^2),
+        # T_eff = (F_surf/sigma)^0.25
+        l_surf = flux[0]
+        if l_surf > 0:
+            teff = (l_surf / (4.0 * np.pi * r[0] ** 2 * SIGMA_SB)) ** 0.25
         else:
             teff = T[0]
 

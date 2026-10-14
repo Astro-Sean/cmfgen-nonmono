@@ -72,9 +72,10 @@ cmfgen:
   # in ADD_SOB_LINE_PROF (cmfgen_jfnk commit 2db3338).
   obs_line_treatment: sob
   # Resolved-SOB render is much lighter than the blank render (no
-  # per-line profile storage for SOB lines), so it fits the 30G
-  # interactive cap -- quick turnaround while validating the render.
-  obs_partition: interactive
+  # per-line profile storage for SOB lines); 30G is comfortable.
+  # general over interactive: the interactive AssocMaxJobsLimit is
+  # saturated by the SOB/KNOP probe fleet (12-Oct-2026).
+  obs_partition: general
   obs_mem: 30G
   final_requeue_when: wall
   final_requeue_max: 500

@@ -52,7 +52,6 @@ cmfgen:
   final_requeue_when: wall
   final_requeue_max: 500
   warm_restart: true
-  warm_restart_from: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_SOB_jfnk_zlaw14_fresh/probe_snap
   vadat_overrides:
     LSTAR: 4.265857D8
     RSTAR: 1.454688D4
@@ -60,8 +59,8 @@ cmfgen:
     VTURB: 50.0D0
     MIN_CF: 3.0D-3
     MAX_CF: 2.0D2
-    DIF: F
-    IB_METH: ZERO_FLUX
+    DIF: T
+    IB_METH: DIFFUSION
     THK_LINE: T
     STOP_IF_BP: F
     FIX_T: T
@@ -79,6 +78,10 @@ cmfgen:
     DO_NONMONO_KNOP: T
     MOM_GATE_BULK: T
     MOM_RF_KEEPNEG: T
+    # Absorption-fraction floor in the non-mono MOM diagonal: keeps a
+    # J-independent anchor on pure-scattering (ESEC>=CHI) rows so the
+    # MOM_LAG_BND clip cannot null their whole lagged source.
+    MOM_ABS_FLR: 1.0D-3
     N_OB_INS: '0'
     N_IB_INS: '0'
     REV_RGRID: F
@@ -127,6 +130,10 @@ cmfgen:
     BA_SAT_LIM: '5'
     N_LAM_RWARM: '4'
     MOM_TRIAL_MIN: '30'
+    # Demand ceiling for the marginal-release trial: beyond BA
+    # linearization validity (~1e7 observed) the resacc-BA step is
+    # rejected every cycle; take the damped GS_LAM_CAP Lambda probe.
+    MOM_TRIAL_LAM: 1.0D3
     GS_FREEZE_LIM: '60'
     GS_TRIAL_LIM: '15'
     GS_REL_STABLE: '1'
@@ -134,6 +141,10 @@ cmfgen:
     GS_HOLD_POPS: T
     CONV_DIAG_LVL: '1'
     BA_DEM_PFLOOR: 1.0D-30
+    # Empty-ion demand rows (depth-62 ~1.6e11% re-fed chatter) pin
+    # MAXCH and block the convergence exit; drop rows <1e-6 of
+    # depth-max from the metric.  Corrections still commit.
+    BA_DEM_RELFRAC: 1.0D-6
     DO_JFNK: F
     JFNK_WARMUP: '0'
     JFNK_ANYITER: T

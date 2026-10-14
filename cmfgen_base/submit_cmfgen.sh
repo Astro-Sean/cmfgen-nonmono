@@ -2010,7 +2010,7 @@ if [[ "\${is_requeue}" -eq 0 ]]; then
     # Create atomic data symlinks needed by proxy_populations (normally done by batch.sh)
     if [[ ! -e HI_F_OSCDAT ]]; then
       echo "  Creating atomic data symlinks for proxy_populations..."
-      ln -sf "\$ATOMIC/HYD/I/5dec96/hi_osc.dat"              HI_F_OSCDAT
+      ln -sf "\$ATOMIC/HYD/I/18oct00/hiosc_a4.dat"           HI_F_OSCDAT
       ln -sf "\$ATOMIC/HE/I/5dec96/heioscdat_a7.dat"         HeI_F_OSCDAT
       ln -sf "\$ATOMIC/HE/II/5dec96/he2_osc.dat"             He2_F_OSCDAT
       ln -sf "\$ATOMIC/OXY/I/19apr23/osc_data"               OI_F_OSCDAT
@@ -2025,18 +2025,57 @@ if [[ "\${is_requeue}" -eq 0 ]]; then
       ln -sf "\$ATOMIC/CA/III/19apr23/osc_data"              CaIII_F_OSCDAT
       ln -sf "\$ATOMIC/FE/I/19apr23/osc_data"                FeI_F_OSCDAT
       ln -sf "\$ATOMIC/FE/II/19apr23/osc_data"               Fe2_F_OSCDAT
-      ln -sf "\$ATOMIC/FE/III/7feb05/FeIII_OSC"              FeIII_F_OSCDAT
-      ln -sf "\$ATOMIC/FE/IV/19apr23/feiv_osc"               FeIV_F_OSCDAT
+      ln -sf "\$ATOMIC/FE/III/19apr23/osc_data"              FeIII_F_OSCDAT
+      ln -sf "\$ATOMIC/FE/IV/19apr23/osc_data"               FeIV_F_OSCDAT
       ln -sf "\$ATOMIC/FE/V/19apr23/osc_data"                FeV_F_OSCDAT
       ln -sf "\$ATOMIC/CARB/I/19apr23/osc_data"              CI_F_OSCDAT
       ln -sf "\$ATOMIC/CARB/II/19apr23/osc_data"             C2_F_OSCDAT
+      # Remaining MODEL_SPEC species (same targets as batch.sh; proxy needs
+      # *_F_OSCDAT for every species with n_f>0 before batch.sh links them)
+      ln -sf "\$ATOMIC/CARB/III/19apr23/osc_data"            CIII_F_OSCDAT
+      ln -sf "\$ATOMIC/CARB/IV/19apr23/osc_data"             CIV_F_OSCDAT
+      ln -sf "\$ATOMIC/CARB/V/19apr23/osc_data"              CV_F_OSCDAT
+      ln -sf "\$ATOMIC/NIT/III/19apr23/osc_data"             NIII_F_OSCDAT
+      ln -sf "\$ATOMIC/NIT/IV/19apr23/osc_data"              NIV_F_OSCDAT
+      ln -sf "\$ATOMIC/NIT/V/19apr23/osc_data"               NV_F_OSCDAT
+      ln -sf "\$ATOMIC/OXY/IV/19apr23/osc_data"              OIV_F_OSCDAT
+      ln -sf "\$ATOMIC/OXY/V/19apr23/osc_data"               OV_F_OSCDAT
+      ln -sf "\$ATOMIC/OXY/VI/19apr23/osc_data"              OSIX_F_OSCDAT
+      ln -sf "\$ATOMIC/NEON/III/19apr23/osc_data"            NeIII_F_OSCDAT
+      ln -sf "\$ATOMIC/NEON/IV/19apr23/osc_data"             NeIV_F_OSCDAT
+      ln -sf "\$ATOMIC/NEON/V/19apr23/osc_data"              NeV_F_OSCDAT
+      ln -sf "\$ATOMIC/MG/III/19apr23/osc_data"              MgIII_F_OSCDAT
+      ln -sf "\$ATOMIC/MG/IV/19apr23/osc_data"               MgIV_F_OSCDAT
+      ln -sf "\$ATOMIC/MG/V/19apr23/osc_data"                MgV_F_OSCDAT
+      ln -sf "\$ATOMIC/AL/III/19apr23/osc_data"              AlIII_F_OSCDAT
+      ln -sf "\$ATOMIC/AL/IV/19apr23/osc_data"               AlIV_F_OSCDAT
+      ln -sf "\$ATOMIC/AL/V/19apr23/osc_data"                AlV_F_OSCDAT
+      ln -sf "\$ATOMIC/SIL/V/19apr23/osc_data"               SkV_F_OSCDAT
+      ln -sf "\$ATOMIC/SUL/III/19apr23/osc_data"             SIII_F_OSCDAT
+      ln -sf "\$ATOMIC/SUL/IV/19apr23/osc_data"              SIV_F_OSCDAT
+      ln -sf "\$ATOMIC/SUL/V/19apr23/osc_data"               SV_F_OSCDAT
+      ln -sf "\$ATOMIC/ARG/III/19apr23/osc_data"             ArIII_F_OSCDAT
+      ln -sf "\$ATOMIC/ARG/IV/19apr23/osc_data"              ArIV_F_OSCDAT
+      ln -sf "\$ATOMIC/ARG/V/19apr23/osc_data"               ArV_F_OSCDAT
+      ln -sf "\$ATOMIC/ARG/VI/19apr23/osc_data"              ArSIX_F_OSCDAT
+      ln -sf "\$ATOMIC/CA/IV/19apr23/osc_data"               CaIV_F_OSCDAT
+      ln -sf "\$ATOMIC/CA/V/19apr23/osc_data"                CaV_F_OSCDAT
+      ln -sf "\$ATOMIC/CA/VI/19apr23/osc_data"               CaSIX_F_OSCDAT
+      ln -sf "\$ATOMIC/TIT/III/19apr23/osc_data"             TkIII_F_OSCDAT
+      ln -sf "\$ATOMIC/TIT/IV/19apr23/osc_data"              TkIV_F_OSCDAT
+      ln -sf "\$ATOMIC/CHRO/III/19apr23/osc_data"            CrIII_F_OSCDAT
+      ln -sf "\$ATOMIC/CHRO/IV/19apr23/osc_data"             CrIV_F_OSCDAT
+      ln -sf "\$ATOMIC/CHRO/V/19apr23/osc_data"              CrV_F_OSCDAT
+      ln -sf "\$ATOMIC/CHRO/VI/19apr23/osc_data"             CrSIX_F_OSCDAT
+      ln -sf "\$ATOMIC/FE/VI/19apr23/osc_data"               FeSIX_F_OSCDAT
+      ln -sf "\$ATOMIC/FE/VII/19apr23/osc_data"              FeSEV_F_OSCDAT
       # F_TO_S symlinks for proxy_populations (needed before batch.sh runs)
-      ln -sf "\$ATOMIC/HYD/I/5dec96/hi_f_to_s_15.dat"        HI_F_TO_S
-      ln -sf "\$ATOMIC/HE/I/5dec96/hei_f_to_s_a7_ext.dat"    HeI_F_TO_S
+      ln -sf "\$ATOMIC/HYD/I/18oct00/f_to_s_26.dat"          HI_F_TO_S
+      ln -sf "\$ATOMIC/HE/I/5dec96/hei_f_to_s_a7.dat"        HeI_F_TO_S
       ln -sf "\$ATOMIC/HE/II/5dec96/he2_f_to_s_10.dat"       He2_F_TO_S
       ln -sf "\$ATOMIC/OXY/I/19apr23/f_to_s_58"              OI_F_TO_S
       ln -sf "\$ATOMIC/OXY/II/19apr23/f_to_s_137"            O2_F_TO_S
-      ln -sf "\$ATOMIC/OXY/III/19apr23/f_to_s_107"           OIII_F_TO_S
+      ln -sf "\$ATOMIC/OXY/III/19apr23/f_to_s_165"           OIII_F_TO_S
       ln -sf "\$ATOMIC/SIL/I/19apr23/f_to_s_ls"              SkI_F_TO_S
       ln -sf "\$PROJECT_DIR/atomic/Sk2_f_to_s_no_3s3p2"  Sk2_F_TO_S
       ln -sf "\$ATOMIC/SIL/III/19apr23/f_to_s_split"         SkIII_F_TO_S
@@ -2047,7 +2086,46 @@ if [[ "\${is_requeue}" -eq 0 ]]; then
       ln -sf "\$ATOMIC/FE/I/19apr23/f_to_s_181"              FeI_F_TO_S
       ln -sf "\$ATOMIC/FE/II/19apr23/f_to_s_135"             Fe2_F_TO_S
       ln -sf "\$ATOMIC/FE/III/19apr23/f_to_s_105"            FeIII_F_TO_S
-      ln -sf "\$ATOMIC/FE/IV/19apr23/f_to_s_110"             FeIV_F_TO_S
+      ln -sf "\$ATOMIC/FE/IV/19apr23/f_to_s_100"             FeIV_F_TO_S
+      # F_TO_S for the remaining MODEL_SPEC species (batch.sh targets)
+      ln -sf "\$ATOMIC/CARB/III/19apr23/f_to_s_split_big"    CIII_F_TO_S
+      ln -sf "\$ATOMIC/CARB/IV/19apr23/f_to_s_split"         CIV_F_TO_S
+      ln -sf "\$ATOMIC/CARB/V/19apr23/f_to_s_nosplit_43"     CV_F_TO_S
+      ln -sf "\$ATOMIC/NIT/III/19apr23/f_to_s_156"           NIII_F_TO_S
+      ln -sf "\$ATOMIC/NIT/IV/19apr23/f_to_s_139"            NIV_F_TO_S
+      ln -sf "\$ATOMIC/NIT/V/19apr23/f_to_s_split_sm"        NV_F_TO_S
+      ln -sf "\$ATOMIC/OXY/IV/19apr23/f_to_s_220"            OIV_F_TO_S
+      ln -sf "\$ATOMIC/OXY/V/19apr23/f_to_s_101_noint"       OV_F_TO_S
+      ln -sf "\$ATOMIC/OXY/VI/19apr23/f_to_s_split"          OSIX_F_TO_S
+      ln -sf "\$ATOMIC/NEON/III/19apr23/f_to_s_57"           NeIII_F_TO_S
+      ln -sf "\$ATOMIC/NEON/IV/19apr23/f_to_s_53"            NeIV_F_TO_S
+      ln -sf "\$ATOMIC/NEON/V/19apr23/f_to_s_60"             NeV_F_TO_S
+      ln -sf "\$ATOMIC/MG/III/19apr23/f_to_s_41"             MgIII_F_TO_S
+      ln -sf "\$ATOMIC/MG/IV/19apr23/f_to_s_27"              MgIV_F_TO_S
+      ln -sf "\$ATOMIC/MG/V/19apr23/f_to_s_43"               MgV_F_TO_S
+      ln -sf "\$ATOMIC/AL/III/19apr23/f_to_s_31"             AlIII_F_TO_S
+      ln -sf "\$ATOMIC/AL/IV/19apr23/f_to_s_62"              AlIV_F_TO_S
+      ln -sf "\$ATOMIC/AL/V/19apr23/f_to_s_62"               AlV_F_TO_S
+      ln -sf "\$ATOMIC/SIL/V/19apr23/f_to_s_52"              SkV_F_TO_S
+      ln -sf "\$ATOMIC/SUL/III/19apr23/f_to_s_127"           SIII_F_TO_S
+      ln -sf "\$ATOMIC/SUL/IV/19apr23/f_to_s_69"             SIV_F_TO_S
+      ln -sf "\$ATOMIC/SUL/V/19apr23/f_to_s_76"              SV_F_TO_S
+      ln -sf "\$ATOMIC/ARG/III/19apr23/f_to_s_32"            ArIII_F_TO_S
+      ln -sf "\$ATOMIC/ARG/IV/19apr23/f_to_s_50"             ArIV_F_TO_S
+      ln -sf "\$ATOMIC/ARG/V/19apr23/f_to_s_64"              ArV_F_TO_S
+      ln -sf "\$ATOMIC/ARG/VI/19apr23/f_to_s_30"             ArSIX_F_TO_S
+      ln -sf "\$ATOMIC/CA/IV/19apr23/f_to_s"                 CaIV_F_TO_S
+      ln -sf "\$ATOMIC/CA/V/19apr23/f_to_s"                  CaV_F_TO_S
+      ln -sf "\$ATOMIC/CA/VI/19apr23/f_to_s"                 CaSIX_F_TO_S
+      ln -sf "\$ATOMIC/TIT/III/19apr23/f_to_s_49"            TkIII_F_TO_S
+      ln -sf "\$ATOMIC/TIT/IV/19apr23/f_to_s_18"             TkIV_F_TO_S
+      ln -sf "\$ATOMIC/CHRO/III/19apr23/f_to_s_68"           CrIII_F_TO_S
+      ln -sf "\$ATOMIC/CHRO/IV/19apr23/f_to_s_48"            CrIV_F_TO_S
+      ln -sf "\$ATOMIC/CHRO/V/19apr23/f_to_s_51"             CrV_F_TO_S
+      ln -sf "\$ATOMIC/CHRO/VI/19apr23/f_to_s_30"            CrSIX_F_TO_S
+      ln -sf "\$ATOMIC/FE/V/19apr23/f_to_s_139"              FeV_F_TO_S
+      ln -sf "\$ATOMIC/FE/VI/19apr23/f_to_s_67"              FeSIX_F_TO_S
+      ln -sf "\$ATOMIC/FE/VII/19apr23/f_to_s_69"             FeSEV_F_TO_S
     fi
     if [[ -f ./SN_HYDRO_DATA ]]; then
       PROXY_HYDRO="./SN_HYDRO_DATA"
