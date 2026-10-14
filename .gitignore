@@ -35,6 +35,7 @@ mod_dbg/
 lib/
 lib_dbg/
 exe_dbg/
+exe_frozen/
 build_*.out
 build_*.err
 build*.log
