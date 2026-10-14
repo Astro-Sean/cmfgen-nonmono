@@ -2854,3 +2854,55 @@ Addendum: two residual FIX_T_AUTO=T surfaces closed after the above:
 - The dessart_m15_* validation configs still request FIX_T_AUTO=T/
   DO_T_AUTO=T in vadat_overrides; the strip pass removes them with a
   WARNING on every run (left in place, intent-vs-fact documented).
+
+## 14-Oct-2026 (part 3) - Sobolev OBS provenance and post-line ES update
+
+Source commit: `26dac94` (`agent/sob-es-broadening`).
+
+Run provenance first: the submitted m15 OBS job now resolves
+`../exe_frozen/cmf_flux.exe` when present, and future
+`run_model_grid.py` submissions freeze `cmf_flux.exe` beside
+`cmfgen_dev.exe` and write both hashes to `exe_frozen/PROVENANCE.txt`.
+The active m15 run has OBS sha256
+`5610e11e16e92aa64102a864f30195f486c4b038caa69fcceb1c59954cc7316b`; the
+pending OBS job therefore remains on the audited binary and does not
+see the experimental update.
+
+Focused OBS verification added:
+
+- `ADD_SOB_LINE_PROF` was moved to `obs/ADD_SOB_LINE_PROF.INC` so the
+  exact production routine can be compiled without linking all of
+  `CMF_FLUX`. `test_sob_flux_obs.py`: 8/8 checks for nonuniform-grid
+  normalization, the `1e-15` per-Hz factor, clump factors, maser and
+  blend-cell drops, off-grid/non-SOB skips, diagnostics, and exact
+  zero-SOB no-op behaviour.
+- `test_obs_frame_ib.py`: 4/4 checks on the exact
+  `OBS_FRAME_SUB_V9`; a zero-emissivity optically thin core gives zero
+  flux on the stock hollow-core path, positive flux with the
+  `I(mu)=J+3muH` diffusion seed, exact scaling when boundary `J,H`
+  double, and finite output on a reversing velocity field.
+- `test_sob_line_es.py`: 9/9 checks on
+  `obs/sob_line_es_update.f`; old electron/Rayleigh/dust sources are
+  removed once, updated `J`/`J_ES` and diffusion-boundary `J,H` are
+  installed once, `INC_GRID=F` works, and production
+  `COMP_J_CONV_V2` redistributes a localized `J` peak.
+
+`DO_SOB_LINE_ES` (default F) is the experimental correction for the
+remaining line-wing limitation. After Sobolev deposition it removes
+the stored continuum scattering source, repeats the `FG_J_CMF_V12`
+formal-J Lambda passes on the line-containing opacity, calls
+`COMP_J_CONV_V2` after each pass, refreshes `IB_J_CMF_ST` and
+`IB_H_CMF_ST`, and installs the updated scattering source before the
+second `OBS_FRAME_SUB_V9` pass. It requires `DO_SOB_FLUX_OBS=T` and
+`USE_LAM_ES=T`; both `INC_GRID=T` and `INC_GRID=F` are supported.
+The flag does not alter populations, `OBSFLUX`, or the default OBS
+path. It remains unverified at model scale and must not be used for a
+submitted spectrum until a controlled OBS run checks the
+`SOB_LINE_ES iteration` diagnostics, finite emissivity, and integrated
+`obs_fin_10` luminosity against `OBSFLUX`/`STARS_LUM`.
+
+Verification: `./build.sh` completed cleanly; `cmfgen_dev.exe`,
+`cmf_flux.exe`, and `obs_frame.exe` were produced; `cmf_flux.exe`
+contains `DO_SOB_LINE_ES`, `SOB_LINE_ES iteration`, `DO_SOB_FLUX_OBS`,
+and `OBS_FRAME_SOB` strings. The frozen pending-job binary is
+unchanged.
