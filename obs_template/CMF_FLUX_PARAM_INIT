@@ -259,6 +259,8 @@ F            [COMP_F]           !Compute new Continuum f values ?
 ! Non-monotonic Sobolev support leaves the stock formal-J solver intact.
 ! DO_NONMONO_SOB selects SIGMA_TRUE for the Sobolev EW estimator;
 ! DO_SOB_FLUX_OBS is added by prepare_CMF_PARAM.py when resolved line
-! profiles are requested. Both options default off.
+! profiles are requested. DO_SOB_LINE_ES is an optional post-deposition
+! electron-scattering update. Both options default off.
 F            [DO_NONMONO_SOB]   !Use unclamped dlnV/dlnR-1 in Sobolev EW estimators?
+F            [DO_SOB_LINE_ES]   !Recompute electron scattering after SOB line deposition?
 T            [USE_LAM_ES]       !Lambda iteration (bypasses moment solver for non-monotonic velocity)

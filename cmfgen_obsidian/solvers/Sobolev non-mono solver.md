@@ -655,6 +655,41 @@ injection writes Doppler cores only, so Luc's e.s.-broadened
 emission pedestals are absent by construction. DC_METH=LTE vs R
 only affects population regridding and is irrelevant at FIX_T=T.
 
+## OBS post-line electron scattering (14-Oct-2026)
+
+#status/experimental
+
+`DO_SOB_LINE_ES` (default F) addresses the remaining render limitation
+above: the normal non-coherent ES iterations finish before
+`ADD_SOB_LINE_PROF` exists, so the injected line photons previously
+reached `OBS_FRAME_SUB_V9` without a fresh `J -> J_ES` redistribution.
+When the flag is enabled, `SOB_LINE_ES_UPDATE` removes the stored
+continuum scattering source once, repeats the `FG_J_CMF_V12` formal-J
+Lambda passes on the line-containing `CHI_CMF_ST` opacity and fixed
+continuum+line emissivity, calls `COMP_J_CONV_V2` after each pass, and
+then installs the updated `J_ES` electron source plus Rayleigh/dust
+terms once. `IB_J_CMF_ST` and `IB_H_CMF_ST` are refreshed from the new
+boundary `J` and diffusion flux before the second `OBS_FRAME_SUB_V9`
+call renders the updated emissivity. The flag requires `DO_SOB_FLUX_OBS=T` and `USE_LAM_ES=T`;
+it supports both `INC_GRID=T` (extended-grid interpolation) and
+`INC_GRID=F` (direct original-grid update).
+
+This is still an experiment, not a production default. It does not
+recompute populations, does not change `OBSFLUX`, and should not be used
+for a submitted spectrum until a controlled OBS run has checked the
+`SOB_LINE_ES iteration` diagnostics, finite emissivity, and integrated
+`obs_fin_10` luminosity against `OBSFLUX`/`STARS_LUM`.
+
+Focused tests now cover the pieces that previously had only model-run
+evidence: `test_sob_flux_obs.py` checks deposition shape, local-cell
+normalization, the `1e-15` per-Hz factor, clump factors, maser and
+blend-cell drops, off-grid/non-SOB skips, and an exact zero-SOB no-op;
+`test_obs_frame_ib.py` checks the diffusion `I(mu)=J+3muH` seed and a
+reversing-velocity ray; `test_sob_line_es.py` checks that the old
+scattering source is removed once, the updated `J/J_ES` source is
+installed once, `INC_GRID=F` works, and the production convolution
+redistributes a localized `J` peak.
+
 OBS-only render gotcha: `cmf_flux` segfaults in INDEXX when the dir
 lacks the `POP*` species files (ATM%XzV_PRES all false ->
 N_LINE_FREQ=0 -> INDX(0) access). The orchestrator preserve-list only

@@ -200,6 +200,9 @@
 	  DO_SOB_FLUX_OBS=.FALSE.
 	  CALL RD_STORE_LOG(DO_SOB_FLUX_OBS,'DO_SOB_FLUX_OBS',L_FALSE,
 	1        'Deposit Sobolev line flux into OBS spectrum?')
+	  DO_SOB_LINE_ES=.FALSE.
+	  CALL RD_STORE_LOG(DO_SOB_LINE_ES,'DO_SOB_LINE_ES',L_FALSE,
+	1        'Recompute electron scattering after Sobolev line deposition?')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
@@ -526,9 +529,20 @@
 	    WRITE(LUER,*)'DO_SOB_LINES=T, and SOB_FREQ_IN_OBS=T.'
 	    STOP
 	  END IF
+	  IF(DO_SOB_LINE_ES .AND. .NOT. DO_SOB_FLUX_OBS)THEN
+	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	    WRITE(LUER,*)'DO_SOB_LINE_ES=T requires DO_SOB_FLUX_OBS=T.'
+	    STOP
+	  END IF
 
 	  WRITE(LUMOD,'()')
 	  CALL RD_STORE_LOG(ACCURATE,'INC_GRID',L_TRUE,'Increase grid size to improve accuracy? ')
+	  IF(DO_SOB_LINE_ES .AND. .NOT. USE_LAM_ES)THEN
+	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	    WRITE(LUER,*)'DO_SOB_LINE_ES=T requires USE_LAM_ES=T so the'
+	    WRITE(LUER,*)'same formal-J solver is used.'
+	    STOP
+	  END IF
 	  CALL RD_STORE_LOG(ALL_FREQ,'ALL_FREQ',L_TRUE,'Increase accuracy for all frequencies?')
 	  CALL RD_STORE_DBLE(ACC_FREQ_END,'ACC_END',L_TRUE,'Increase accuracy for all frequencies > ACC_END?')
 	  CALL RD_STORE_INT(NPINS,'N_INS',L_TRUE,'Number of points to be inserted in higher'//

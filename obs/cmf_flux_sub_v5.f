@@ -216,6 +216,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: ETA_CMF_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: CHI_CMF_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: RJ_CMF_ST(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: RJ_CMF_ES_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: IB_J_CMF_ST(:)	!J at inner boundary
 	REAL(KIND=LDP), ALLOCATABLE :: IB_H_CMF_ST(:)	!H at inner boundary
 	REAL(KIND=LDP), ALLOCATABLE :: RAY_CMF_ST(:,:)			!Rayleigh scattering opacity
@@ -1132,6 +1133,31 @@
 	ELSE
 	  NDEXT=ND ; NCEXT=NC; NPEXT=NP
 	  TEXT(1:ND)=T(1:ND)
+	  IF(DO_SOB_LINE_ES)THEN
+	    REXT(1:ND)=R(1:ND)
+	    PEXT(1:NP)=P(1:NP)
+	    VEXT(1:ND)=V(1:ND)
+	    SIGMAEXT(1:ND)=SIGMA(1:ND)
+	    VDOP_VEC_EXT(1:ND)=VDOP_VEC(1:ND)
+	    ALLOCATE (AQWEXT(NDEXT,NPEXT),STAT=IOS)
+	    IF(IOS .EQ. 0)ALLOCATE (HQWEXT(NDEXT,NPEXT),STAT=IOS)
+	    IF(IOS .EQ. 0)ALLOCATE (KQWEXT(NDEXT,NPEXT),STAT=IOS)
+	    IF(IOS .EQ. 0)ALLOCATE (NQWEXT(NDEXT,NPEXT),STAT=IOS)
+	    IF(IOS .EQ. 0)ALLOCATE (HMIDQWEXT(NDEXT,NPEXT),STAT=IOS)
+	    IF(IOS .EQ. 0)ALLOCATE (NMIDQWEXT(NDEXT,NPEXT),STAT=IOS)
+	    IF(IOS .NE. 0)THEN
+	      WRITE(LUER,*)'Error in CMF_FLUX_SUB'
+	      WRITE(LUER,*)'Unable to allocate SOB_LINE_ES quadrature arrays'
+	      WRITE(LUER,*)'STATUS=',IOS
+	      STOP
+	    END IF
+	    AQWEXT(:,:)=AQW(:,:)
+	    HQWEXT(:,:)=HQW(:,:)
+	    KQWEXT(:,:)=KQW(:,:)
+	    NQWEXT(:,:)=NQW(:,:)
+	    HMIDQWEXT(:,:)=HMIDQW(:,:)
+	    NMIDQWEXT(:,:)=NMIDQW(:,:)
+	  END IF
 	END IF
         CALL SET_POP_FOR_TWOJ(POS_IN_NEW_GRID,EDD_CONT_REC,LU_EDD,NDEXT)
 !
@@ -1175,15 +1201,23 @@
 	ALLOCATE (ETA_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (CHI_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (RJ_CMF_ST(ND,NCF),STAT=IOS)
+	IF(IOS .EQ. 0 .AND. DO_SOB_LINE_ES)
+	1    ALLOCATE (RJ_CMF_ES_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (IB_J_CMF_ST(NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (IB_H_CMF_ST(NCF),STAT=IOS)
-	IF(IOS .EQ. 0 .AND. INCL_RAY_SCAT)ALLOCATE(RAY_CMF_ST(ND,NCF),STAT=IOS)
-	IF(IOS .EQ. 0 .AND. INCL_DUST)ALLOCATE(DUST_CMF_ST(ND,NCF),STAT=IOS)
+	IF(IOS .EQ. 0 .AND. (INCL_RAY_SCAT .OR. DO_SOB_LINE_ES))
+	1    ALLOCATE(RAY_CMF_ST(ND,NCF),STAT=IOS)
+	IF(IOS .EQ. 0 .AND. (INCL_DUST .OR. DO_SOB_LINE_ES))
+	1    ALLOCATE(DUST_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,*)'Error in CMF_FLUX_SUB'
 	  WRITE(LUER,*)'Unable to allocate memory for IPLUS_STORE'
 	  WRITE(LUER,*)'STATUS=',IOS
 	  STOP
+	END IF
+	IF(DO_SOB_LINE_ES)THEN
+	  IF(.NOT. INCL_RAY_SCAT)RAY_CMF_ST(:,:)=0.0_LDP
+	  IF(.NOT. INCL_DUST)DUST_CMF_ST(:,:)=0.0_LDP
 	END IF
 ! 
 !
@@ -2097,7 +2131,15 @@
 ! If requested, convolve J with the electron-scattering redistribution
 ! funtion. K is used for LUIN, and LUOUIT but is not accessed.
 !
-	IF(.NOT. COHERENT_ES)THEN
+	IF(DO_SOB_LINE_ES)THEN
+	  RJ_CMF_ES_ST(:,:)=RJ_CMF_ST(:,:)
+	  IF(.NOT. COHERENT_ES)THEN
+	    I=ND*NCF
+	    CALL COMP_J_CONV_V2(RJ_CMF_ES_ST,I,NU,T,ND,NCF,
+	1           K,'J PASSED VIA CALL',EDD_CONT_REC,L_FALSE,L_FALSE,
+	1           K,'RETURN J VIA CALL')
+	  END IF
+	ELSE IF(.NOT. COHERENT_ES)THEN
 	  I=ND*NCF
 	  CALL COMP_J_CONV_V2(RJ_CMF_ST,I,NU,T,ND,NCF,
 	1         K,'J PASSED VIA CALL',EDD_CONT_REC,L_FALSE,L_FALSE,
@@ -2105,12 +2147,18 @@
 	END IF
 !
 	ESEC(1:ND)=6.65E-15_LDP*ED(1:ND)
-	DO ML=1,NCF
-	  ETA_CMF_ST(1:ND,ML)=ETA_CMF_ST(1:ND,ML) +
-	1                        RJ_CMF_ST(1:ND,ML)*ESEC(1:ND)
-	END DO
-!
-	DEALLOCATE (RJ_CMF_ST)
+	IF(DO_SOB_LINE_ES)THEN
+	  DO ML=1,NCF
+	    ETA_CMF_ST(1:ND,ML)=ETA_CMF_ST(1:ND,ML) +
+	1                          RJ_CMF_ES_ST(1:ND,ML)*ESEC(1:ND)
+	  END DO
+	ELSE
+	  DO ML=1,NCF
+	    ETA_CMF_ST(1:ND,ML)=ETA_CMF_ST(1:ND,ML) +
+	1                          RJ_CMF_ST(1:ND,ML)*ESEC(1:ND)
+	  END DO
+	  DEALLOCATE (RJ_CMF_ST)
+	END IF
 !
 ! 
 ! ***************************************************************************
@@ -2572,8 +2620,11 @@
 	END DO		!Line loop
 !
 ! The line loop has now written every SOB line's Doppler-profile
-! opacity/emissivity into ETA_CMF_ST/CHI_CMF_ST.  Re-run the
-! observer's-frame formal integral so OBS_FLUX carries the resolved
+! opacity/emissivity into ETA_CMF_ST/CHI_CMF_ST.  DO_SOB_LINE_ES
+! optionally recomputes the formal J/J_ES source on this opacity and
+! refreshes the diffusion inner-boundary moments before the second
+! observer-frame pass.  Re-run the observer's-frame formal
+! integral so OBS_FLUX carries the resolved
 ! Sobolev line profiles, then rewrite OBSFRAME.  OBSFLUX (the earlier
 ! COMP_OBS_V3 product) is left unchanged: it deliberately contains
 ! continuum plus BLANK lines only, which is useful as a continuum
@@ -2581,6 +2632,28 @@
 ! required because TA was reused as scratch inside the EW block.
 !
 	IF(DO_SOB_FLUX_OBS)THEN
+	  IF(DO_SOB_LINE_ES)THEN
+	    IF(ATM(1)%XzV_PRES)THEN
+	      T1=ATM(1)%EDGEXzV_F(1)
+	    ELSE IF(ATM(4)%XzV_PRES)THEN
+	      T1=ATM(4)%EDGEXzV_F(2)
+	    ELSE
+	      T1=ATM(3)%EDGEXzV_F(5)
+	    END IF
+	    CALL TUNE(1,'SOB_LINE_ES')
+	    CALL SOB_LINE_ES_UPDATE(ETA_CMF_ST,CHI_CMF_ST,
+	1        RJ_CMF_ST,RJ_CMF_ES_ST,IB_J_CMF_ST,IB_H_CMF_ST,
+	2        RAY_CMF_ST,DUST_CMF_ST,
+	2        ESEC,CLUMP_FAC,NU,T,DTDR,COEF,INDX,
+	3        POS_IN_NEW_GRID,REXT,PEXT,VEXT,TEXT,SIGMAEXT,
+	4        VDOP_VEC_EXT,AQWEXT,HQWEXT,KQWEXT,NQWEXT,
+	5        HMIDQWEXT,NMIDQWEXT,ND,NCF,NDEXT,NCEXT,NPEXT,
+	6        NUM_ES_ITERATIONS,INCL_RAY_SCAT,INCL_DUST,COHERENT_ES,
+	7        ACCURATE,DIF,RDTHK_CONT,SN_MODEL,T1,DO_NONMONO_SOB,IC,
+	8        REXT_FAC,DELV_FRAC_FG,METHOD,FG_SOL_OPTIONS,LUER,
+	9        EDD_CONT_REC,MAXCH)
+	    CALL TUNE(2,'SOB_LINE_ES')
+	  END IF
 	  TMP_LOG=.FALSE.
 	  IF(PLANE_PARALLEL_NO_V .OR. PLANE_PARALLEL)TMP_LOG=.TRUE.
 	  IF(PLANE_PARALLEL_NO_V)THEN
@@ -2639,146 +2712,7 @@
 !
 	END
 !!
-! Write the Doppler-profile opacity and emissivity of each
-! TRANS_TYPE='SOB' line of the current blend group into the stored
-! CMF-frame arrays ETA_ST/CHI_ST.  The CMF blanketing solve skips SOB
-! lines (comoving-frame line transfer is invalid on a non-monotonic
-! velocity field), so they reach the observed spectrum only through
-! the observer's-frame formal integral OBS_FRAME_SUB_V9, which samples
-! these arrays at each ray point's local comoving frequency.  Called
-! per blend group when DO_SOB_FLUX_OBS=T; with the default F the
-! stored arrays are left untouched.
+! Keep the deposition routine in an INCLUDE so the unit tests can compile
+! the production code without linking the full CMF_FLUX driver.
 !
-! The profile is a normalized Doppler core of width
-! FL_SIM*VDOP_MIN/C_KMS evaluated on the (descending) CMF grid NU.
-! Only grid cells inside +/-3 Doppler widths carry weight, and the
-! weights are normalized by the local cell width so the deposited
-! opacity integrated over frequency equals CHIL_MAT*CLUMP_FAC
-! independent of how coarsely the CMF grid resolves the line.  The
-! observed-frame profile shape comes from the ray geometry (the
-! isovelocity surfaces), not from this profile width, so a coarse CMF
-! grid does not broaden the rendered line.
-!
-! CHIL_MAT can be negative at depths where stimulated emission
-! dominates (masering lines).  A formal integral cannot represent
-! maser amplification (chi<0 grows the intensity exponentially and
-! chi->0+ leaves a pathologically large two-level source function),
-! so a depth where this line masers contributes neither opacity nor
-! emissivity: the cell stays transparent to the continuum and other
-! lines.  Depths flagged by NEG_OPACITY (the blend-group summed
-! Sobolev optical depth was strongly negative, so CHECK_LINE_OPAC
-! replaced each member's CHIL_MAT with 1/NUM_SIM_LINES) are dropped
-! on the same footing: their surviving ETAL_MAT is real spontaneous
-! emissivity, but the artificial opacity would inject it as pure
-! thin emission with no chance of self-absorption.  N_DROP
-! accumulates the dropped (line,depth) count and DROP_SUM the
-! dropped clumped emissivity for the caller's diagnostic print.
-! ETAL_MAT is non-negative by construction.
-!
-	SUBROUTINE ADD_SOB_LINE_PROF(ETA_ST,CHI_ST,NU,NCF,
-     1	      CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_POINTER,
-     2	      VDOP_MIN,TRANS_TYPE,NEG_OPACITY,
-     3	      NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
-     4	      N_DROP,DROP_SUM,INJ_SUM)
-	USE SET_KIND_MODULE
-	IMPLICIT NONE
-!
-	INTEGER, INTENT(IN) :: NCF,ND,NUM_SIM,N_LINES,MAX_SIM
-	INTEGER, INTENT(INOUT) :: N_DROP
-	REAL(KIND=LDP), INTENT(INOUT) :: DROP_SUM,INJ_SUM
-	REAL(KIND=LDP), INTENT(INOUT) :: ETA_ST(ND,NCF)
-	REAL(KIND=LDP), INTENT(INOUT) :: CHI_ST(ND,NCF)
-	REAL(KIND=LDP), INTENT(IN) :: NU(NCF)
-	REAL(KIND=LDP), INTENT(IN) :: CHIL_MAT(ND,MAX_SIM)
-	REAL(KIND=LDP), INTENT(IN) :: ETAL_MAT(ND,MAX_SIM)
-	REAL(KIND=LDP), INTENT(IN) :: CLUMP_FAC(ND)
-	REAL(KIND=LDP), INTENT(IN) :: FL_SIM(MAX_SIM)
-	REAL(KIND=LDP), INTENT(IN) :: VDOP_MIN(N_LINES)
-	REAL(KIND=LDP), INTENT(IN) :: C_KMS
-	LOGICAL, INTENT(IN) :: NEG_OPACITY(ND)
-	INTEGER, INTENT(IN) :: SIM_POINTER(MAX_SIM)
-	CHARACTER(LEN=*), INTENT(IN) :: TRANS_TYPE(N_LINES)
-!
-	INTEGER I,K,S,LP,K0,KA,KB,LO,HI,MID
-	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K
-!
-	DO S=1,NUM_SIM
-	  LP=SIM_POINTER(S)
-	  IF(TRANS_TYPE(LP)(1:3) .NE. 'SOB')CYCLE
-	  F0=FL_SIM(S)
-	  DNU_D=F0*VDOP_MIN(LP)/C_KMS
-	  IF(DNU_D .LE. 0.0_LDP)CYCLE
-	  W=3.0_LDP*DNU_D
-!
-! NU decreases with index.  K0 is the last index with NU(K0) >= F0,
-! so F0 lies in [NU(K0+1),NU(K0)).  Lines outside the grid are skipped.
-!
-	  IF(NU(1) .LT. F0)CYCLE
-	  IF(NU(NCF) .GE. F0)CYCLE
-	  LO=1
-	  HI=NCF
-	  DO WHILE(HI-LO .GT. 1)
-	    MID=(LO+HI)/2
-	    IF(NU(MID) .GE. F0)THEN
-	      LO=MID
-	    ELSE
-	      HI=MID
-	    END IF
-	  END DO
-	  K0=LO
-!
-! Expand to all cell centers inside F0 +/- W.
-!
-	  KA=K0
-	  DO WHILE(KA .GT. 1 .AND. NU(KA-1) .LE. F0+W)
-	    KA=KA-1
-	  END DO
-	  KB=K0+1
-	  DO WHILE(KB .LT. NCF .AND. NU(KB+1) .GE. F0-W)
-	    KB=KB+1
-	  END DO
-!
-! Normalize the Gaussian by the local cell widths so the stored
-! profile integrates to unity over frequency.  NU is in units of
-! 10^15 Hz while CHIL_MAT/ETAL_MAT are per-Hz quantities (cf. the
-! 1.0D-15 factor in the LINE_PROF_SIM normalization in SET_PROF_V6),
-! so the weight carries an explicit 1.0D-15.
-!
-	  XNORM=0.0_LDP
-	  DO K=KA,KB
-	    WT=EXP(-((NU(K)-F0)/DNU_D)**2)
-	    IF(K .EQ. 1)THEN
-	      DN_K=NU(1)-NU(2)
-	    ELSE IF(K .EQ. NCF)THEN
-	      DN_K=NU(NCF-1)-NU(NCF)
-	    ELSE
-	      DN_K=0.5_LDP*(NU(K-1)-NU(K+1))
-	    END IF
-	    XNORM=XNORM+WT*DN_K
-	  END DO
-	  IF(XNORM .LE. 0.0_LDP)CYCLE
-!
-	  DO I=1,ND
-!
-! NEG_OPACITY cells had their CHIL_MAT crushed to 1/NUM_SIM_LINES by
-! the blend-group maser check above; the surviving ETAL_MAT would
-! otherwise be injected as thin emission with an artificial opacity.
-!
-	    IF(CHIL_MAT(I,S) .LE. 0.0_LDP .OR. NEG_OPACITY(I))THEN
-	      N_DROP=N_DROP+1
-	      DROP_SUM=DROP_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
-	      CYCLE
-	    END IF
-	    INJ_SUM=INJ_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
-	    DO K=KA,KB
-	      WT=1.0E-15_LDP*EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
-	      CHI_ST(I,K)=CHI_ST(I,K)+
-     1	          CHIL_MAT(I,S)*CLUMP_FAC(I)*WT
-	      ETA_ST(I,K)=ETA_ST(I,K)+
-     1	          ETAL_MAT(I,S)*CLUMP_FAC(I)*WT
-	    END DO
-	  END DO
-	END DO
-!
-	RETURN
-	END
+	INCLUDE 'ADD_SOB_LINE_PROF.INC'

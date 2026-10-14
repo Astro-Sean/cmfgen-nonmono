@@ -33,13 +33,16 @@ error text.
 | `test_edep_shock.py` | `new_main/subs/get_edep_shock_power.f` | flags-off path bit-identical to reference including non-monotonic V (legacy tolerance); `DO_NONMONO_SOB`/`DO_NONMONO_KNOP`/`both` abort on non-positive or non-decreasing V and accept monotone V; Gaussian deposition profile shape/location; 4*pi normalization vs prescribed power; upstream `clump_fac=0` and `sum(wrk)=0` guards |
 | `test_vadat_keys.py` | `new_main/mod_subs/rd_control_variables.f` (+ real `rd_store_log.f`, `control_variable_mod.f`, `jfnk_solver_v1.f90`, `check_param_consistency.f`, `fg_j_cmf_nonmono_v1.f`, `mom_j_cmf_nonmono_v1.f`) | a production VADAT parses; every new non-mono/LAM/BA/JFNK key round-trips into the module store; mutual exclusion; GLOBAL_LINE/USE_LAM_ES/LAM_SET prerequisites abort; DO_JFNK non-mono gate; JFNK_COUPLED KNOP-only; USE_JFNK deprecated alias; JFNK_LAG_FACTORS/JFNK_FRZ_GATE/JFNK_GATE_NREQ round-trip; DO_NONLOC_SOB auto-off; DO_CL/GAMRAY_TRANS legacy-coordinate rejections; IB_METH whitelist + case normalization; VEL_LAW=13 -> SN_HYDRO_MODEL |
 | `test_jfnk_solver.py` | `new_main/mod_subs/jfnk_solver_v1.f90` (via `tests/jfnk_core` and `cmfgen_jfnk_unit_test`) | Newton/GMRES/hookstep core T1-T3 on an analytic stiff problem (PTC off, SER anchor, far-start trust region); surrogate-SE systems T0-T14: FD-JVP error curve, demanded-step SVD, PC variants, GMRES, end-to-end Newton, masked-T rows, tauto ladder/FSM.  Known author-flagged diagnostics are XFAIL |
+| `test_sob_flux_obs.py` | `obs/ADD_SOB_LINE_PROF.INC` included by `obs/cmf_flux_sub_v5.f` | resolved Sobolev deposition on a nonuniform frequency grid: profile shape and normalization, `1e-15` per-Hz conversion, maser/blend-cell suppression, clump factors, off-grid and non-SOB skips, and drop/injection diagnostics |
+| `test_sob_line_es.py` | `obs/sob_line_es_update.f` plus production `extend3opac.f`/`ungrid.f` and `comp_j_conv_v2.f` (bookkeeping uses controlled transport stubs) | old electron/Rayleigh/dust scattering source removal occurs once; updated `J` and convolved `J_ES` are installed once; coherent unchanged-J case reproduces input exactly; `INC_GRID=F` branch; diffusion-boundary `J,H` refresh; production convolution redistributes a localized `J` peak |
+| `test_obs_frame_ib.py` | `obs/obs_frame_sub_v9.f` with production interpolation/file helpers | `DO_IB_DIFF_FLUX` turns a zero-emissivity electron-thin core from zero flux into positive `J+3muH`-seeded flux; doubling boundary `J,H` doubles the result; reversing velocity completes with finite flux |
 
 ## Supporting files
 
 - `common.py` -- compiler discovery (ifort preferred, gfortran
   fallback), per-test object/link caching, process runner,
   denormal-tolerant comparison, `Report` pass/fail collector.
-- `f90/drv_*.f90` -- one CLI driver per test (read fixtures, call the
+- `f90/drv_*.f*` -- one CLI driver per test (read fixtures, call the
   production routine, print machine-parseable output).
 - `f90/adapt_*.f` -- signature adapters where new and reference
   routines differ (`rd_rv_file_v2` `NONMONO_V`, `do_ng_accel_band_v4`
@@ -54,7 +57,7 @@ error text.
 
 `sigma_true_nonmono.png`, `sob_tau_floor.png`, `interp_guards.png`,
 `rd_rv_vinf_profiles.png`, `sob_rh_couple.png`, `ng_abstain.png`,
-`rv_sniin.png`, `rv_snhyd.png`, `edep_shock.png`
+`rv_sniin.png`, `rv_snhyd.png`, `edep_shock.png`, `sob_flux_obs.png`, `sob_line_es.png`, `obs_frame_ib.png`
 
 Plots are diagnostics only -- every assertion is numeric.
 
