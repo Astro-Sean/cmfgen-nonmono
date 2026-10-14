@@ -45,6 +45,10 @@ knop_solver_files/
 *_solver_files/
 cmfgen_obsidian/
 
+# Root .md docs are local-only (agent rules, history, audit notes)
+/*.md
+!/README.md
+
 # Python caches and test artifacts
 __pycache__/
 *.pyc
