@@ -130,6 +130,13 @@ kinetic energy, abundance normalisation, radius/velocity orientation
 and time definitions (`t_A` vs `t_B_SBO` vs snapshot age). A unit
 error is a wrong model, not a plotting issue.
 
+**Shocked-system luminosity is diagnostic.** Do not require inner and
+outer luminosities to match in interacting-SN models. Shock and decay
+deposition, stored energy release, cooling, time dependence, and
+fixed-T approximations make luminosity nonconservative with radius.
+Compare `RLUMST`, `LSTAR`, deposition terms and cooling as an energy
+budget, not an equality test.
+
 **Initial populations are guesses.** LTE, nebular (Mazzali & Lucy),
 dilute-LTE and proxy `*_IN` files are starting estimates. CMFGEN’s
 converged populations are the solution. Do not treat the guess as the
