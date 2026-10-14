@@ -911,6 +911,7 @@
 	1                    FG_ERR_TYPE(N_ERR_MAX),FG_ERR_CNT
 	LOGICAL NEG_AV_VALUE
 	LOGICAL COMP_REQUIRED
+	LOGICAL L_IN_SET
 !
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
@@ -1216,8 +1217,11 @@
 ! perturbs V; each flap rebuilt the ray geometry and re-zeroed
 ! I_P/I_M_DEPTH_NEXT, so the GS field could never mature.
 !
-	        IF(ALLOCATED(COMP_DEPTH_IDX) .AND.
-	1            COMP_DEPTH_IDX(J) .GT. 0)THEN
+	        L_IN_SET=.FALSE.
+	        IF(ALLOCATED(COMP_DEPTH_IDX))THEN
+	          IF(COMP_DEPTH_IDX(J) .GT. 0)L_IN_SET=.TRUE.
+	        END IF
+	        IF(L_IN_SET)THEN
 	          IF(SIGMA_TRUE_IN(J) .LT. -1.0_LDP+COMP_SIG_HYST .OR.
 	1            V(J) .LT. COMP_V_HYST)COMP_REQUIRED=.TRUE.
 	        ELSE
@@ -4824,6 +4828,7 @@ C
 	IMPLICIT NONE
 	LOGICAL OK
 	INTEGER IOS,LUER,ERROR_LU
+	LOGICAL LFRQ_OK
 	INTEGER MAG,VER,TAG
 	INTEGER N_COMP_F,NP_F,NCF_F,ND_F,ENDM
 	INTEGER, PARAMETER :: MAGIC=20260916, VER_MIN=2, VER_MAX=3
@@ -4892,8 +4897,10 @@ C
 	    DEALLOCATE(WRK)
 	    GOTO 900
 	  END IF
-	  IF(.NOT. ALLOCATED(KN_FREQ) .OR. SIZE(KN_FREQ) .NE. NCF_F .OR.
-	1     ANY(WRK .NE. KN_FREQ))THEN
+	  LFRQ_OK=ALLOCATED(KN_FREQ)
+	  IF(LFRQ_OK)LFRQ_OK=(SIZE(KN_FREQ) .EQ. NCF_F)
+	  IF(LFRQ_OK)LFRQ_OK=.NOT. ANY(WRK .NE. KN_FREQ)
+	  IF(.NOT. LFRQ_OK)THEN
 	    DEALLOCATE(WRK)
 	    GOTO 920
 	  END IF
@@ -5106,7 +5113,8 @@ C
 	        IF(TGT .GE. NU_F(1))THEN
 	          I_P_DEPTH_NEXT(KC,LS,IS)=I_F(KC,LS,1)
 	        ELSE
-	          DO WHILE(JF .LT. NCF_F .AND. NU_F(JF+1) .GT. TGT)
+	          DO WHILE(JF .LT. NCF_F)
+	            IF(NU_F(JF+1) .LE. TGT)EXIT
 	            JF=JF+1
 	          END DO
 	          IF(JF .GE. NCF_F)THEN
@@ -5137,7 +5145,8 @@ C
 	        IF(TGT .GE. NU_F(1))THEN
 	          I_M_DEPTH_NEXT(KC,LS,IS)=I_F(KC,LS,1)
 	        ELSE
-	          DO WHILE(JF .LT. NCF_F .AND. NU_F(JF+1) .GT. TGT)
+	          DO WHILE(JF .LT. NCF_F)
+	            IF(NU_F(JF+1) .LE. TGT)EXIT
 	            JF=JF+1
 	          END DO
 	          IF(JF .GE. NCF_F)THEN
@@ -5537,7 +5546,8 @@ C
 !
 	IF(ALLOCATED(KN_RES_PASS))THEN
 	  J=SIZE(KN_RES_PASS)
-	  DO WHILE(J .GT. 0 .AND. KN_RES_PASS(J) .LE. 0.0_LDP)
+	  DO WHILE(J .GT. 0)
+	    IF(KN_RES_PASS(J) .GT. 0.0_LDP)EXIT
 	    J=J-1
 	  END DO
 	  IF(J .GT. 0 .AND. PRINT_KNOP_DEBUG)THEN
@@ -5566,7 +5576,8 @@ C
 	    IF(KN_HOT_CNT(I) .GT. 0)THEN
 	      J=J+1
 	      LS=I
-	      DO WHILE(I .LT. KN_NCF .AND. KN_HOT_CNT(I+1) .GT. 0)
+	      DO WHILE(I .LT. KN_NCF)
+	        IF(KN_HOT_CNT(I+1) .LE. 0)EXIT
 	        I=I+1
 	      END DO
 	      IF(J .LE. 12 .AND. PRINT_KNOP_DEBUG)THEN
@@ -6023,10 +6034,12 @@ C
 	    CALL MARCH(FLD,L,INWARD,RES)
 	  END DO
 	  NB_O=NBAD_CUR; NT_O=NTOT_CUR
-	  IF(ALLOCATED(KN_RES_PASS) .AND. NPO .LE. SIZE(KN_RES_PASS))THEN
+	  IF(ALLOCATED(KN_RES_PASS))THEN
+	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
 !$OMP CRITICAL (KN_RES_UPD)
-	    KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
+	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
 !$OMP END CRITICAL (KN_RES_UPD)
+	    END IF
 	  END IF
 !
 ! Divergence containment: a non-finite residual, or a same-direction
@@ -6745,10 +6758,12 @@ C
 !$OMP END CRITICAL (KN_AA_UPD)
 	    END IF
 	  END IF
-	  IF(ALLOCATED(KN_RES_PASS) .AND. NPO .LE. SIZE(KN_RES_PASS))THEN
+	  IF(ALLOCATED(KN_RES_PASS))THEN
+	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
 !$OMP CRITICAL (KN_RES_UPD)
-	    KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
+	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
 !$OMP END CRITICAL (KN_RES_UPD)
+	    END IF
 	  END IF
 !
 ! Same divergence containment, relaxation adaptation and exits as
@@ -7240,10 +7255,11 @@ C
 	      END IF
 	      NFM_L(I)=NNF
 	      DLNM_L(I)=NNF*KN_DLN_N(L)
-	      IF(ALLOCATED(KN_FREQ) .AND.
-	1         KN_FREQ(L+NNF) .GT. 0.0_LDP .AND.
-	2         KN_FREQ(L+NNF) .LT. KN_FREQ(L))
-	1        DLNM_L(I)=LOG(KN_FREQ(L)/KN_FREQ(L+NNF))
+	      IF(ALLOCATED(KN_FREQ))THEN
+	        IF(KN_FREQ(L+NNF) .GT. 0.0_LDP .AND.
+	1           KN_FREQ(L+NNF) .LT. KN_FREQ(L))
+	2          DLNM_L(I)=LOG(KN_FREQ(L)/KN_FREQ(L+NNF))
+	      END IF
 	    END IF
 	  END DO
 	ELSE

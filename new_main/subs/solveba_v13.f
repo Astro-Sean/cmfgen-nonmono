@@ -116,7 +116,8 @@
 	REAL(KIND=LDP) COL_RES_S(ND)
 	INTEGER NFAIL
 	INTEGER JK,NQUAR_NEW
-	LOGICAL LCOL_OK,LMASK_OK,LQUAR_OK,L_PROG,L_ANY_MASK
+	LOGICAL LCOL_OK,LMASK_OK,LQUAR_OK,L_PROG,L_ANY_MASK,
+	1    LADV_OK
 	REAL(KIND=LDP) STEQ_QMAX
 	LOGICAL REJ_BULK,REJ_MAX,REJ_STATE,REJ_PART,WLD_REJ
 	INTEGER, SAVE :: PV_JI=0,PV_II=0,PV_JD=0,PV_ID=0
@@ -285,7 +286,14 @@
 	          IF(ASSOCIATED(SE(ID)%STEQ_ADV))THEN
 	            JK=ATM(ID)%EQXzV
 	            IF(JK .LT. 1 .OR. JK .GT. NT-2)JK=0
-	            IF(JK .EQ. 0 .OR. .NOT. BA_QUAR_MASK(JK,I))THEN
+! Fortran does not promise short-circuit .OR. evaluation, so
+! the BA_QUAR_MASK index must be staged behind the JK=0 test:
+! row 0 does not exist.
+!
+	            LADV_OK=(JK .EQ. 0)
+	            IF(.NOT. LADV_OK)
+	1          LADV_OK=.NOT. BA_QUAR_MASK(JK,I)
+	            IF(LADV_OK)THEN
 	              IF(ABS(SE(ID)%STEQ_ADV(I)) .GT. T1)THEN
 	                T1=ABS(SE(ID)%STEQ_ADV(I))
 	                JJ=ATM(ID)%EQXzV
