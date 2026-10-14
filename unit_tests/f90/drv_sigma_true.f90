@@ -3,15 +3,18 @@
 !
 ! Usage:
 !   drv_sigma_true core   <rvfile>
-!   drv_sigma_true recomp <rvfile> <off|sob|knop>
+!   drv_sigma_true recomp <rvfile> <off|sob|knop> [allow]
 !
 ! rvfile: first line ND, then ND rows "R V SIGMA" (R outer -> inner).
 ! For "recomp" the SIGMA column seeds the work array that the SOB path
 ! re-clamps; for "core" the column is ignored but must be present.
+! The optional 4th arg "allow" sets ALLOW_SIGMA_UNDEF=T, downgrading
+! the N_UNDEF>0 abort to a warning.
 !
 program drv_sigma_true
   use set_kind_module
-  use control_variable_mod, only: do_nonmono_sob, do_nonmono_knop
+  use control_variable_mod, only: do_nonmono_sob, do_nonmono_knop, &
+                                allow_sigma_undef
   implicit none
 
   character(len=64)  :: cmd, mode
@@ -48,6 +51,11 @@ program drv_sigma_true
      call get_command_argument(3, mode)
      do_nonmono_sob  = (mode == 'sob')
      do_nonmono_knop = (mode == 'knop')
+     allow_sigma_undef = .false.
+     if (command_argument_count() >= 4) then
+        call get_command_argument(4, mode)
+        allow_sigma_undef = (mode == 'allow')
+     end if
      call recompute_sigma_true(st, sig, r, v, nd)
      do i = 1, nd
         write(*,'(i6,4(1x,es24.16e3))') i, r(i), v(i), sig(i), st(i)

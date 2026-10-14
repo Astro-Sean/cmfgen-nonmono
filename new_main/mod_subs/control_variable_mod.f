@@ -744,6 +744,19 @@
 !
 	LOGICAL DO_NONLOC_SOB
 !
+! ALLOW_SIGMA_UNDEF (dev audit F4, Oct-2026).  When FALSE (default),
+! RECOMPUTE_SIGMA_TRUE aborts if SIGMA_TRUE_CORE leaves any cell
+! undefined (degenerate R spacing or a fully stagnant neighbourhood
+! both return sigma=0, which silently marks the cell
+! non-compressing and removes it from the compressing census).  On
+! a LAW-14 hydro grid an undefined cell signals a collapsed grid
+! spacing, so the default is fail-closed.  Set TRUE to downgrade
+! the abort to the previous warning-only behaviour.  VADAT keyword
+! [ALLOW_SIGMA_UNDEF]; optional, and has effect only under
+! DO_NONMONO_SOB or DO_NONMONO_KNOP.
+!
+	LOGICAL ALLOW_SIGMA_UNDEF
+!
 ! Non-monotonic velocity-field option (dev7).  When TRUE, COMP_J_BLANK
 ! calls FG_J_CMF_NONMONO_V1, the Knop et al. (2009) formal solver for
 ! non-monotonic velocity fields, in place of FG_J_CMF_V13.  The solver

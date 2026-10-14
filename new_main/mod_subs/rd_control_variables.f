@@ -802,6 +802,16 @@
 	  CALL RD_STORE_LOG(DO_NONLOC_SOB,'DO_NONLOC_SOB',L_FALSE,
 	1     'Use Rybicki-Hummer non-local Sobolev coupling?')
 !
+! ALLOW_SIGMA_UNDEF (default FALSE): RECOMPUTE_SIGMA_TRUE aborts
+! when a cell has no usable velocity gradient -- on a LAW-14 grid
+! that means a collapsed spacing, and continuing would mark the
+! cell non-compressing without notice.  TRUE restores the
+! warning-only behaviour for diagnosis.
+!
+	  ALLOW_SIGMA_UNDEF=.FALSE.
+	  CALL RD_STORE_LOG(ALLOW_SIGMA_UNDEF,'ALLOW_SIGMA_UNDEF',L_FALSE,
+	1     'Warn instead of abort on undefined SIGMA_TRUE cells?')
+!
 	  IF(DO_NONLOC_SOB .AND. .NOT. DO_NONMONO_SOB)THEN
 	    WRITE(LUER,*)'Warning: DO_NONLOC_SOB=T but DO_NONMONO_SOB=F'
 	    WRITE(LUER,*)'The non-local coupling uses SIGMA_TRUE and only'

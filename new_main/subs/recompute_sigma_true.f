@@ -1,6 +1,7 @@
 	SUBROUTINE RECOMPUTE_SIGMA_TRUE(SIGMA_TRUE,SIGMA,R,V,ND)
 	USE SET_KIND_MODULE
-	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
+	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP,
+	1                              ALLOW_SIGMA_UNDEF
 	IMPLICIT NONE
 !
 ! Created 18-Sep-2026 (dev7) : Fill SIGMA_TRUE with the unclamped
@@ -57,6 +58,18 @@
 	  WRITE(LUER,*)'RECOMPUTE_SIGMA_TRUE:',N_UNDEF,
 	1   ' of',ND,'cells have no usable velocity gradient;',
 	2   ' SIGMA_TRUE=0 marks them non-compressing'
+!
+! Fail closed by default (Oct-2026 audit): an undefined cell on a
+! hydro-driven grid means a collapsed spacing, and continuing would
+! drop it from the compressing census silently.  VADAT key
+! ALLOW_SIGMA_UNDEF=T downgrades to the former warning-only path.
+!
+	  IF(.NOT. ALLOW_SIGMA_UNDEF)THEN
+	    WRITE(LUER,*)'Aborting: undefined SIGMA_TRUE cells make the'
+	1   //' compressing census unreliable.  Set ALLOW_SIGMA_UNDEF=T'
+	2   //' in VADAT to downgrade this to a warning.'
+	    STOP
+	  END IF
 	END IF
 !
 	RETURN

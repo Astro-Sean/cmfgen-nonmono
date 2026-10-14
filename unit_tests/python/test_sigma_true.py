@@ -63,6 +63,15 @@ def parse_sigma(out):
     return arr, n_undef
 
 
+def parse_rows_present(out):
+    """True when the driver printed at least one numeric result row."""
+    for ln in out.splitlines():
+        t = ln.split()
+        if t and t[0].isdigit():
+            return True
+    return False
+
+
 def sigma_analytic(r, v):
     """Centred-difference sigma = (R/V)dV/dR - 1, one-sided at ends,
     matching the production stencil."""
@@ -190,6 +199,26 @@ def main():
         arr[:, 2], ref, rtol=0, atol=1e-12
     )
     rep.check("T11 negative V (infall) finite, consistent sign", ok)
+
+    # -- T12: N_UNDEF>0 under a non-mono flag aborts by default.
+    # Three equal consecutive radii make the centred denominator of
+    # the middle-neighbour cell vanish -> N_UNDEF=1.
+    r12 = r.copy()
+    r12[9] = r12[10] = r12[11] = r[9]
+    f = write_rv("rv_undef.txt", r12, v)
+    p = run(bin_, "recomp", f, "sob", check=False)
+    rep.check(
+        "T12 N_UNDEF>0 aborts under DO_NONMONO_SOB",
+        "ALLOW_SIGMA_UNDEF" in p.stdout and not parse_rows_present(p.stdout),
+    )
+
+    # -- T13: ALLOW_SIGMA_UNDEF=T downgrades the abort to a warning.
+    p = run(bin_, "recomp", f, "sob", "allow", check=False)
+    arr, _ = parse_sigma(p.stdout)
+    rep.check(
+        "T13 ALLOW_SIGMA_UNDEF warns and completes",
+        "no usable velocity gradient" in p.stdout and arr[10, 3] == 0.0,
+    )
 
     # -- Plot: sigma_true across a non-monotonic profile with a shock
     # plus a stagnation cell -- the regimes the flag was built for.

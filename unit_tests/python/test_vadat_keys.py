@@ -45,7 +45,7 @@ from common import (
 
 VADAT_SRC = Path(
     "/viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/"
-    "m15_2p82d_SOB_jfnk_zlaw14_fresh/cmfgen/2.82days/VADAT"
+    "m15_2p82d_SOB_jfnk_probe/cmfgen/2.82days/VADAT"
 )
 
 HELPERS = [
@@ -155,6 +155,10 @@ def main():
         rep.check(
             "baseline: shock-power controls round-trip",
             abs(float(v.get("VLOC_SHOCK_POWER", "nan"))) >= 0,
+        )
+        rep.check(
+            "baseline: ALLOW_SIGMA_UNDEF defaults F",
+            v.get("ALLOW_SIGMA_UNDEF") == "F",
         )
 
     cases = [
@@ -415,6 +419,19 @@ def main():
         < 1e-9
         and abs(float(v.get("DRLOC_SHOCK_POWER", "nan").replace("D", "E")) - 5.0e4)
         < 1e-9,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # ALLOW_SIGMA_UNDEF opt-in diagnostic key parses and lands.
+    d = write_vadat(
+        WORKDIR / "vadat_allow_undef",
+        {"ALLOW_SIGMA_UNDEF": "T"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "ALLOW_SIGMA_UNDEF=T parses and lands",
+        "RESULT_OK" in p.stdout and v.get("ALLOW_SIGMA_UNDEF") == "T",
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
