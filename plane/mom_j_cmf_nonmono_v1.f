@@ -474,6 +474,13 @@
 	REAL(KIND=LDP), ALLOCATABLE :: GAMH_FAC_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: GAM_FAC_PREV_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: GAMH_FAC_PREV_NM(:)
+!
+! MOM_GAM_FAC_MIN: floor on |1 + sigma*K| in the factors above --
+! the zero-GAM resonance where the implicit diagonal collapses.
+! Module scope (promoted 14-Oct-2026) so MOM_KNOP_REFRESH_V1 can
+! count cells sitting on the floor for its per-pass diagnostics.
+!
+	REAL(KIND=LDP), PARAMETER :: MOM_GAM_FAC_MIN=1.0E-2_LDP
 	REAL(KIND=LDP), ALLOCATABLE :: W_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: WPREV_NM(:)
 	REAL(KIND=LDP), ALLOCATABLE :: PSI_NM(:)
@@ -911,9 +918,8 @@
 ! at the zero-GAM resonance 1 + sigma*K_on_J = 0, where the implicit
 ! diagonal PSI collapses and the fixed-point map stops contracting.
 ! The limit is dimensionless; the sign is preserved so the upwind
-! branch is unchanged away from the resonance.
-!
-	REAL(KIND=LDP), PARAMETER :: MOM_GAM_FAC_MIN=1.0E-2_LDP
+! branch is unchanged away from the resonance.  MOM_GAM_FAC_MIN
+! moved to module scope 14-Oct-2026 (refresh diagnostics).
 !
 ! Minimum log-frequency step used in the advection coefficients.
 ! The continuum grid inserts bound-free edge doublets at dLOG_NU =
@@ -4402,6 +4408,7 @@
 	INTEGER IT1,J,PASS_ARGI,PASS_ARGL
 	INTEGER*8 PASS_CAP,PASS_NEG
 	INTEGER*8 PASS_N5,PASS_N50,PASS_NQ,N5_SV,N50_SV,NQ_SV
+	INTEGER*8 PASS_NHUGE,PASS_NRES
 	INTEGER*8 PASS_NCMP,PASS_NMATCH,PASS_NOFF
 	INTEGER*8 BEST_N5,BEST_N50
 	INTEGER*8 BEST_N5_D(2),BEST_N50_D(2),LAST_N50(2)
@@ -4776,6 +4783,7 @@
 	  PASS_CAP=0
 	  PASS_NEG=0
 	  PASS_N5=0;  PASS_N50=0;  PASS_NQ=0
+	  PASS_NHUGE=0;  PASS_NRES=0
 	  PASS_NCMP=0;  PASS_NMATCH=0;  PASS_NOFF=0
 	  PASS_ARGI=0;  PASS_ARGL=0;  PASS_NMAX=1
 	  PASS_NU=0.0_LDP;  PASS_R=0.0_LDP;  PASS_V=0.0_LDP
@@ -4949,6 +4957,16 @@
 	1    .GT. 1),8)
 	    PASS_NOFF=PASS_NOFF+INT(COUNT(MOM_NM_J(1:ND_NM)
 	1    .EQ. 0),8)
+!
+! edited by Devin, 14-Oct-2026: count cells whose |1+sigma*K_on_J|
+! sits at the MOM_GAM_FAC_MIN floor (the zero-GAM resonance, where
+! the implicit diagonal collapses and the map stops contracting).
+! Without this a refresh stall is unattributable: marginal stiffness
+! and resonance ill-conditioning look identical in the max-norm
+! drift alone.
+!
+	    PASS_NRES=PASS_NRES+INT(COUNT(ABS(GAM_FAC_NM(1:ND_NM))
+	1    .LE. MOM_GAM_FAC_MIN),8)
 	    PASS_NMAX=MAX(PASS_NMAX,MAXVAL(MOM_NM_J(1:ND_NM)))
 	    IF(DO_ACT)THEN
 	      RES_L(L)=MOM_GS_MAXCHG
@@ -4973,6 +4991,7 @@
 	    PASS_N5=PASS_N5+MOM_GS_NBAD5
 	    PASS_N50=PASS_N50+MOM_GS_NBAD50
 	    PASS_NQ=PASS_NQ+MOM_GS_NQUAR
+	    PASS_NHUGE=PASS_NHUGE+MOM_GS_NHUGE
 	  END DO
 !
 ! Active-set update: keep L active next pass when its own residual
@@ -5397,6 +5416,10 @@
 	1    'eps-limit','capped=',MOM_EPS_CAP
 	  IF(MOM_RF_NSUPP .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
 	1    'owned-skip','suppressed=',MOM_RF_NSUPP
+	  IF(PASS_NHUGE .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
+	1    'huge-drift','cells=',PASS_NHUGE
+	  IF(PASS_NRES .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
+	1    'gam-floor','cells=',PASS_NRES
 	  IF(ALLOCATED(MOM_DAMP_NM))THEN
 	    NDMP=COUNT(MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF) .LT.
 	1      0.99_LDP*JNEXT_RELAX)
@@ -5424,12 +5447,20 @@
 !	  the retained-vs-sweep delta, which still rejects a fixed point
 !	  sitting far from the field the populations saw.
 !
+!	  edited by Devin, 14-Oct-2026: the PASS_NHUGE bound mirrors the
+!	  sweep gate's unsafe tier (MOM_SW_NHUGE > MAX(50,NTOT/10000)
+!	  vetoes in SOLVE_FOR_POPS).  MOM_GS_NHUGE is reset per frequency
+!	  in the pass loop, so without an accumulator a handful of cells
+!	  drifting >1E6 could sit under a "bulk-converged" exit and have
+!	  the locally exploded field retained.
+!
 	  IF(MOM_RF_BULK_EXIT .AND. IPASS .GE. 4 .AND.
 	1     PASS_CAP .EQ. 0_8 .AND.
 	2     LAST_N50(1)+LAST_N50(2) .LE.
 	3     MAX(50_8,MOM_SW_NTOT/1000) .AND.
 	4     PASS_NEG .LE. MOM_SW_NTOT/10 .AND.
-	5     PASS_NQ .LE. MOM_SW_NTOT/10)THEN
+	5     PASS_NHUGE .LE. MAX(50_8,MOM_SW_NTOT/10000) .AND.
+	6     PASS_NQ .LE. MOM_SW_NTOT/10)THEN
 	    CONVERGED=.TRUE.
 	    WRITE(LUER,'(A,I4,A,I12,A)')
 	1      ' MOM_KNOP_REFRESH: bulk-converged at pass',IPASS,
@@ -5861,14 +5892,29 @@
 	DO L=1,KN_M_NCF
 	  T3=MAX(MAXVAL(ABS(JNEXT_SAVE(1:ND_NM,L))),1.0E-28_LDP)
 	  DO I=1,ND_NM
+	    IF(.NOT. (ABS(JNEXT_SAVE(I,L)) .LE. HUGE(JNEXT_SAVE)) .OR.
+	1       .NOT. (ABS(J_NEXT_FRQ(I,L)) .LE. HUGE(J_NEXT_FRQ)))THEN
+!
+!	      edited by Devin, 14-Oct-2026: a non-finite entry on either
+!	      side must flag the delta as fully unconverged -- without
+!	      this branch a NaN produced T4=NaN, which fails the floor
+!	      test (or silently poisons the MAX) while the gate reads
+!	      MOM_RF_DCHG as converged.  JNEXT_SAVE still holds any
+!	      poisoned pre-refresh slot the heal above zeroed in the
+!	      working field, so this also records healed cells as real
+!	      deltas.  Same pattern as the sweep drift loop.
+!
+	      MOM_RF_N5=MOM_RF_N5+1
+	      MOM_RF_N50=MOM_RF_N50+1
+	      MOM_RF_DCHG=1.0E+30_LDP
+	    ELSE IF(MAX(ABS(JNEXT_SAVE(I,L)),ABS(J_NEXT_FRQ(I,L))) .GT.
+	1       1.0E-4_LDP*T3)THEN
 !
 ! edited by Devin, 28-Sep-2026: the floor test must see the field on
 ! both sides of the delta -- a cell tiny in JNEXT_SAVE but grown
 ! orders of magnitude in the retained field was skipped entirely,
 ! hiding exactly the blow-up this metric is meant to expose.
 !
-	    IF(MAX(ABS(JNEXT_SAVE(I,L)),ABS(J_NEXT_FRQ(I,L))) .GT.
-	1       1.0E-4_LDP*T3)THEN
 	      T4=ABS(J_NEXT_FRQ(I,L)-JNEXT_SAVE(I,L))/
 	1         MAX(ABS(JNEXT_SAVE(I,L)),1.0E-4_LDP*T3)
 	      IF(T4 .GT. 0.05_LDP)MOM_RF_N5=MOM_RF_N5+1

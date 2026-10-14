@@ -52,6 +52,7 @@ line-treatment gates were warnings before):
 | `KN_RAY_PACK_MB` | 2GB/thr | coefficient-pack memory cap |
 | `MOM_RF_KEEPNEG` | F | repaired cells keep prior iterate |
 | `MOM_RF_GS_DESC` | F | live descending reads (tested, neutral-to-worse) |
+| `MOM_RF_BULK_EXIT` | T | MOM refresh bulk-converged exit at pass>=4 on sweep-maturity bounds (cap=0, n50<=0.1%, neg/quar<=10%, huge-drift<=max(50,NTOT/10000)) |
 | `MOM_GATE_BULK` | F | gate on sweep-drift snapshot, not refresh residual |
 | `MOM_GAM_PIN` | T | lagged GAM factors evaluated at current-frequency Eddingtons (PSIPREV=PSI etc.) |
 | `MOM_LAG_BND` | T | lagged source weight bounded by row's diagonal excess |

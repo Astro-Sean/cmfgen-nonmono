@@ -104,6 +104,8 @@ FG_KNOP_REFRESH: pass   - per-pass residual history
 ray exits: exact= tol= bulk= stall= cap= div=  - per-ray stop-rule census
 stall/cap rays: maxres= bad cells=  - share of unconverged cells left by early exits
 MOM_KNOP_REFRESH guard  - why the MOM refresh skipped
+huge-drift              - conditional MOM refresh pass row: cells drifting >1e6 this pass
+gam-floor               - conditional MOM refresh pass row: cells at the |1+sigma*K| floor
 MOM field marginal      - trial machinery arming
 Calling FG_J_CMF_NONMONO_V1 / MOM_J_CMF_NONMONO_V1 / MOM_JREL_V9
 no compressing points - GS storage skipped

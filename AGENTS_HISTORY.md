@@ -2854,3 +2854,44 @@ Addendum: two residual FIX_T_AUTO=T surfaces closed after the above:
 - The dessart_m15_* validation configs still request FIX_T_AUTO=T/
   DO_T_AUTO=T in vadat_overrides; the strip pass removes them with a
   WARNING on every run (left in place, intent-vs-fact documented).
+
+## 14-Oct-2026 - Knop solver stability-audit fixes (code only)
+
+Applied the outstanding items from the Knop-solver stability audit.
+All changes sit inside DO_NONMONO_KNOP machinery; the stock path is
+untouched.
+
+- MOM refresh bulk exit (`MOM_RF_BULK_EXIT`, mom_j_cmf_nonmono_v1.f):
+  per-frequency `MOM_GS_NHUGE` is now accumulated into `PASS_NHUGE`
+  and the exit requires `PASS_NHUGE <= MAX(50,MOM_SW_NTOT/10000)` --
+  the same bound the sweep gate's unsafe tier applies in
+  SOLVE_FOR_POPS.  Previously a handful of cells drifting >1E6 could
+  sit under a "bulk-converged" exit and have the locally exploded
+  field retained.
+- Retained-field delta loop: a non-finite entry on either side
+  (JNEXT_SAVE still holds pre-heal poisoned slots) now sets
+  `MOM_RF_DCHG=1E30` and counts as n5/n50, matching the sweep drift
+  loop; before, a NaN silently slipped the significance floor or
+  poisoned the MAX while the gate read the field as converged.
+- New conditional pass-table rows: `huge-drift` (PASS_NHUGE) and
+  `gam-floor` (cells at the `|1+sigma*K| <= MOM_GAM_FAC_MIN`
+  resonance floor) so a refresh stall is attributable to resonance
+  ill-conditioning vs marginal stiffness.  `MOM_GAM_FAC_MIN` moved
+  to module scope for the count.
+- Ray-side omega adaptation (SWEEP_FLD alternating, SWEEP_FLD_ORD
+  ordered) no longer damps on a baseline pass still inside the
+  warm-start seed transient: floors NPO>=5 (baseline NPO-2>=3) and
+  NPO>=4 (baseline NPO-1>=3) respectively.  Recovery unfloored; the
+  ORD sign-flip (NOSC) damping branch is floored too.
+- SWEEP_FLD_ORD rescales the Aitken delta history `DLT_PRV` by
+  OMEGA_RAY/T4 on an omega change, same as the existing AA_RH
+  rescale -- the DEL_OLD/DEL_CUR pair no longer mixes two maps.
+
+`reference/VADAT keys.md` gained the missing `MOM_RF_BULK_EXIT` row
+and `reference/Diagnostics and OUTGEN.md` the two new grep targets.
+Stock-path equivalence holds by construction: every changed line is
+inside KNOP-gated refresh/ray-solve routines the stock path never
+reaches.  `ifort -c` clean on both edited files and `./build.sh` succeeded
+with the JFNK harness tests passing.  A `run_model_grid.py`
+validation run is still required before this counts as validated
+(per AGENTS.md section 6/7).
