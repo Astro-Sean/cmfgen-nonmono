@@ -3175,7 +3175,7 @@
 ! J_eq is the same ridged, reg-substituted, equilibrated block the LU
 ! path factors.  The LU solve amplifies the near-null singular
 ! directions of the population Jacobian into corrections of 1e24+ in
-! log space that GMRES cannot use (cmfgen_jfnk_unit_test T4/T5); the
+! log space that GMRES cannot use (unit_tests T4/T5); the
 ! Tikhonov normal equations bound |y| <= |v'|/(2 lam) instead, so the
 ! preconditioned operator stays finite and Krylov-consistent.
 ! lam = JFNK_LSQ_LAM * max|J_eq|; max|J_eq| ~ 1 after DGEEQU.
@@ -4185,7 +4185,7 @@
 ! where B is the ridged, reg-substituted block before equilibration.
 ! B is never rebuilt: B^T w is accumulated from the stored raw block
 ! JFNK_BA_A plus the ridge diagonal and the reg-row corrections
-! (verified against the direct solve in cmfgen_jfnk_unit_test lsqchk).
+! (verified against the direct solve in unit_tests lsqchk).
 !
 	IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
 	  ALLOCATE(W_LSQ(JFNK_NT, JFNK_ND), STAT=IOS)

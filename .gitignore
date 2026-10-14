@@ -48,7 +48,6 @@ cmfgen_obsidian/
 # Python caches and test artifacts
 __pycache__/
 *.pyc
-unit_test/bin/
 unit_tests/bin/
 unit_tests/plots/
 unit_tests/work/

@@ -1416,7 +1416,7 @@
 ! unsolvable directions are damped to ~0 rather than amplified.
 ! lam is relative to max|J_eq| (which is ~1 after DGEEQU
 ! equilibration).  Verified against the algebraic B^T w apply in
-! cmfgen_jfnk_unit_test (rel diff < 1D-13 vs the direct solve).
+! unit_tests (rel diff < 1D-13 vs the direct solve).
 !
 	  JFNK_LSQ_LAM=1.0D-2
 	  CALL RD_STORE_DBLE(JFNK_LSQ_LAM,'JFNK_LSQ_LAM',L_FALSE,
