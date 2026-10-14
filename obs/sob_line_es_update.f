@@ -93,6 +93,12 @@ C
      1	      RJ_ST(:,ML)*DUST_ST(:,ML)*CLUMP_FAC(:)
 	  END IF
 	END DO
+! Cancellation against the much larger stored scattering source can leave
+! a roundoff-sized negative fixed emissivity. The physical source should
+! be positive; floor that residue before log interpolation while keeping
+! genuinely bad opacity/radiation fields fatal.
+!
+	ETA_FIXED(:,:)=MAX(ETA_FIXED(:,:),1.0D-99)
 	IF(MINVAL(ETA_FIXED) .LE. 0.0_LDP .OR.
      1	    MINVAL(CHI_ST) .LE. 0.0_LDP .OR.
      2	    MINVAL(RJ_ST) .LE. 0.0_LDP .OR.
