@@ -1,6 +1,6 @@
 # CMFGEN jfnk: non-monotonic velocity fields + JFNK populations
 
-Development branch of [CMFGEN](https://knowledge.ufa.international/hillier/cmfgen.html)
+Development branch of [CMFGEN](https://sites.pitt.edu/~hillier/web/CMFGEN.html)
 (baseline `cur_cmf_18jun25`, `pitt-phyast/cmfsource`) for supernova
 ejecta where the velocity law `V(R)` is not monotonic. The case we
 care about is a Type IIn: a fast ejecta shell hits slow, dense CSM,
@@ -22,9 +22,9 @@ pushes to `origin/main`. `upstream` is the pristine
 
 ## What the solver does
 
-![Sobolev vs non-monotonic transfer](cmfgen_obsidian/attachments/knop_solver.png)
+![Sobolev vs non-monotonic transfer](docs/knop_solver.png)
 
-Regenerate with `python3 cmfgen_obsidian/plot_knop_solver.py`.
+Regenerate with `python3 docs/plot_knop_solver.py`.
 
 In a homologous flow each line meets a photon at exactly one point
 per ray - the Sobolev point. When the velocity turns over, the same
@@ -42,9 +42,9 @@ and removes the negative intensities.
 
 ## Iteration cycle
 
-![KNOP population-solver cycle](cmfgen_obsidian/attachments/iteration_cycle.png)
+![KNOP population-solver cycle](docs/iteration_cycle.png)
 
-Regenerate with `python3 cmfgen_obsidian/plot_iteration_cycle.py`.
+Regenerate with `python3 docs/plot_iteration_cycle.py`.
 
 Each pass through the diagram is one CMFGEN iteration in a KNOP run
 (`DO_NONMONO_KNOP=T`): solve the radiation field, update the
@@ -95,6 +95,8 @@ Jacobian-vector products, the BA matrix as preconditioner only
 Details and failure modes: `cmfgen_obsidian/solvers/JFNK_SOLVER.md`.
 Combined-solver architecture: `cmfgen_obsidian/solvers/KNOP_JFNK.md`.
 Audit: `cmfgen_obsidian/audits/JFNK_SOLVER_AUDIT.md`.
+(`cmfgen_obsidian/` is a local notes vault and is not tracked by git,
+so these paths resolve only in a checkout that has it.)
 
 ## Validation status
 
