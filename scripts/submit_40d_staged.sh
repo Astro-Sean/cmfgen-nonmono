@@ -198,10 +198,11 @@ if [ "$S2_ONLY" = false ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Stage 2: s2_final (warm restart, T varies via radiative equilibrium)
+# Stage 2: s2_final (warm restart; T stays pinned to hydro under the
+# 14-Oct-2026 fixed-T policy -- prepare_VADAT stamps FIX_T=T)
 # ---------------------------------------------------------------------------
 echo ""
-echo "[Stage 2] s2_final: Warm restart (FIX_T=F, DO_T_AUTO=T, FIX_NE=F)"
+echo "[Stage 2] s2_final: Warm restart (FIX_T=T enforced, FIX_NE=F)"
 
 # Create a wrapper script that does out2in + prepare VADAT + run
 S2_WRAPPER="${MODEL_DIR}/run_s2_final.sh"
@@ -219,7 +220,7 @@ for f in *OUT *_OUT; do
     echo "  $f -> ${base}_IN"
 done
 
-echo "[s2_final] Step 2: Prepare VADAT (final profile, FIX_T=F)"
+echo "[s2_final] Step 2: Prepare VADAT (final profile, FIX_T=T enforced)"
 python3 /viper/ptmp1/sbrennan/SN2024pba/scripts/prepare_VADAT.py \
     --final \
     --vadat-overrides /viper/ptmp1/sbrennan/SN2024pba/configs/X1fix_40d_s2.yaml \
@@ -237,11 +238,11 @@ S2_CMD="./run_s2_final.sh"
 LAST_JOB_ID=$(submit_job "s2_final" "${MODEL_DIR}" "${S2_CMD}" "${LAST_JOB_ID}")
 
 # ---------------------------------------------------------------------------
-# Stage 3: s3_nlte (optional - full NLTE, T+Ne vary)
+# Stage 3: s3_nlte (optional - full NLTE, Ne varies; T stays pinned)
 # ---------------------------------------------------------------------------
 if [ "$WITH_S3" = true ]; then
     echo ""
-    echo "[Stage 3] s3_nlte: Full NLTE (FIX_T=F, FIX_NE=F)"
+    echo "[Stage 3] s3_nlte: Full NLTE (FIX_T=T enforced, FIX_NE=F)"
 
     S3_WRAPPER="${MODEL_DIR}/run_s3_nlte.sh"
     cat > "$S3_WRAPPER" << 'SCRIPT'
@@ -258,7 +259,7 @@ for f in *OUT *_OUT; do
     echo "  $f -> ${base}_IN"
 done
 
-echo "[s3_nlte] Step 2: Prepare VADAT (final profile, FIX_T=F, FIX_NE=F)"
+echo "[s3_nlte] Step 2: Prepare VADAT (final profile, FIX_T=T enforced, FIX_NE=F)"
 python3 /viper/ptmp1/sbrennan/SN2024pba/scripts/prepare_VADAT.py \
     --final \
     --vadat-overrides /viper/ptmp1/sbrennan/SN2024pba/configs/X1fix_40d_s3.yaml \

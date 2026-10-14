@@ -2933,6 +2933,12 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         # Restore restart/output files
         for fname, (backup, tmpdir) in restart_backups.items():
             shutil.copy2(backup, cmfgen_dir / fname)
+            if fname == "VADAT":
+                # skip_final resubmits reuse the previous VADAT without
+                # re-running prepare_VADAT, so the fixed-T stamps would not
+                # be re-applied. Pin them here so a VADAT written before the
+                # 14-Oct-2026 policy cannot keep FIX_T=F / FIX_T_AUTO=T.
+                _pin_vadat_fixed_t(cmfgen_dir / fname)
             shutil.rmtree(tmpdir)
     else:
         print(f"Copying base directory from {base_dir} to {cmfgen_dir}...")
@@ -10395,6 +10401,45 @@ def extract_stella_lightcurve_pysynphot(config, scripts_dir, project_dir):
 def _vadat_true(val):
     """True if a VADAT-style value means true (T / TRUE / .TRUE. / bool)."""
     return str(val).strip().upper().lstrip(".").startswith("T")
+
+
+# VADAT keys the fixed-T policy (14-Oct-2026) pins, in the order they are
+# rewritten: FIX_T/FIX_T_AUTO pin the hydro T in the population solve;
+# DO_T_AUTO/DO_GT_AUTO pin IN_ITS so a stale VADAT cannot seed an auto
+# T update. prepare_VADAT.py applies the same pins on regenerated VADATs.
+_FIXED_T_VADAT_PINS = {
+    "FIX_T": "T",
+    "FIX_T_AUTO": "F",
+    "DO_T_AUTO": "F",
+    "DO_GT_AUTO": "F",
+}
+
+
+def _pin_vadat_fixed_t(vadat_path):
+    """Rewrite the T-release keys of a preserved VADAT to the fixed-T values.
+
+    Only lines carrying a ``[KEY]`` tag are touched; a key absent from the
+    file is left absent (the regenerated-template defaults already apply).
+    Returns the list of ``(key, old, new)`` replacements actually made.
+    """
+    changed = []
+    out_lines = []
+    with open(vadat_path) as fh:
+        for line in fh:
+            m = re.match(r"^(\s*)(\S+)(\s*\[([A-Z_]+)\].*)$", line)
+            if m and m.group(4) in _FIXED_T_VADAT_PINS:
+                key = m.group(4)
+                new_val = _FIXED_T_VADAT_PINS[key]
+                if m.group(2).upper() != new_val:
+                    changed.append((key, m.group(2), new_val))
+                    line = f"{m.group(1)}{new_val}{m.group(3)}\n"
+            out_lines.append(line)
+    if changed:
+        with open(vadat_path, "w") as fh:
+            fh.writelines(out_lines)
+        for key, old, new in changed:
+            print(f"  VADAT preserved: {key} {old} -> {new} (fixed-T policy)")
+    return changed
 
 
 def _resolve_model_dir(
