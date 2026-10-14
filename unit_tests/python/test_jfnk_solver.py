@@ -6,10 +6,10 @@ jfnk_solver_v1.f90 unchanged:
   * tests/jfnk_core/test_newton_core.f90 -- Newton/GMRES/hookstep core
     on a stiff analytic problem with a known root (T1 PTC off, T2 PTC
     SER anchor, T3 far-start trust region/line search).
-  * cmfgen_jfnk_unit_test/test_se_solver.py -- surrogate statistical-
-    equilibrium systems (mild/std/hard/shock) covering the FD JVP
-    error curve, demanded-step SVD, preconditioner variants, GMRES
-    with/without preconditioning, and end-to-end Newton.
+  * unit_tests/test_se_solver.py -- surrogate statistical-equilibrium
+    systems (mild/std/hard/shock) covering the FD JVP error curve,
+    demanded-step SVD, preconditioner variants, GMRES with/without
+    preconditioning, and end-to-end Newton.
 
 The SE harness encodes some diagnostic checks the author knows to be
 outstanding rather than correctness gates; those are reported as
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common import TREE, Report
 
 CORE_DIR = TREE / "tests" / "jfnk_core"
-SE_DIR = TREE / "cmfgen_jfnk_unit_test"
+SE_DIR = TREE / "unit_tests"
 
 # Diagnostic checks the author flagged as outstanding, not correctness
 # gates.  (spec, tag):
