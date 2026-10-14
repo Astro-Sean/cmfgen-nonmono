@@ -6059,7 +6059,16 @@ C
 	  IF(.NOT. ASC)IDIR=2
 	  IF(RES_PREV(IDIR) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(IDIR)
-	    IF(RATIO_OM .GT. 1.05_LDP)THEN
+!
+! edited by Devin, 14-Oct-2026: suppress damping while the
+! same-direction baseline (pass NPO-2) is still inside the
+! warm-start seed transient (passes 1-2).  A transient baseline
+! reads a spurious growth ratio and can drive OMEGA_RAY to the
+! 0.45 floor on seeding artifacts alone, over-damping the ray for
+! the whole refresh.  Recovery toward 1 is left unfloored: it only
+! undoes earlier damping.
+!
+	    IF(RATIO_OM .GT. 1.05_LDP .AND. NPO .GE. 5)THEN
 	      OMEGA_RAY=MAX(0.45_LDP,OMEGA_RAY*0.7_LDP)
 	    ELSE IF(RATIO_OM .LT. 0.5_LDP)THEN
 	      OMEGA_RAY=MIN(1.0_LDP,OMEGA_RAY*1.15_LDP)
@@ -6771,13 +6780,21 @@ C
 	      NOSC=0
 	    END IF
 	    KN_SGN_PREV=KN_SGN_SUM
-	    IF(RATIO_OM .GT. 1.05_LDP)THEN
+!
+! edited by Devin, 14-Oct-2026: same seed-transient floor as
+! SWEEP_FLD -- here the residual history is a single sequence, so
+! the baseline is NPO-1 and the floor is NPO>=4 (a baseline from
+! passes 1-2 is still the seed transient).  Applies to the
+! growth-ratio and the sign-flip damping branches alike.
+!
+	    IF(RATIO_OM .GT. 1.05_LDP .AND. NPO .GE. 4)THEN
 	      T4=OMEGA_RAY
 	      OMEGA_RAY=MAX(0.45_LDP,OMEGA_RAY*0.7_LDP)
 	    ELSE IF(RATIO_OM .LT. 0.5_LDP)THEN
 	      T4=OMEGA_RAY
 	      OMEGA_RAY=MIN(1.0_LDP,OMEGA_RAY*1.15_LDP)
-	    ELSE IF(NOSC .GE. 2 .AND. OMEGA_RAY .GT. 0.45_LDP)THEN
+	    ELSE IF(NOSC .GE. 2 .AND. NPO .GE. 4 .AND.
+	1       OMEGA_RAY .GT. 0.45_LDP)THEN
 !
 ! Consecutive sign flips in the flat band: a -1 mode under an
 ! under-relaxed update has |1-2*OMEGA|<1, so decaying OMEGA
@@ -6792,12 +6809,18 @@ C
 ! An OMEGA_RAY change alters the relaxed map.  Stored pass deltas
 ! are omega*(F(x)-x), so for the affine refresh map a rescale to
 ! the new omega keeps the history pairs consistent instead of
-! restarting it.
+! restarting it.  The same applies to the Aitken delta history
+! (DLT_PRV, KN_ORD_AITKEN): an unscaled DEL_OLD/DEL_CUR pair across
+! an omega change mixes two different maps, so the geometric-tail
+! assumption behind the extrapolation only holds piecewise.
 !
-	    IF(T4 .GT. 0.0_LDP .AND. NH_AA .GT. 0 .AND.
-	1       ALLOCATED(AA_XH))
-	2      AA_RH(1:NI,1:NCF,1:NH_AA)=
-	3      AA_RH(1:NI,1:NCF,1:NH_AA)*OMEGA_RAY/T4
+	    IF(T4 .GT. 0.0_LDP)THEN
+	      IF(NH_AA .GT. 0 .AND. ALLOCATED(AA_XH))
+	1        AA_RH(1:NI,1:NCF,1:NH_AA)=
+	2        AA_RH(1:NI,1:NCF,1:NH_AA)*OMEGA_RAY/T4
+	      IF(ALLOCATED(DLT_PRV))
+	1        DLT_PRV(1:NI,1:NCF)=DLT_PRV(1:NI,1:NCF)*OMEGA_RAY/T4
+	    END IF
 	    IF(NPO .GE. 8)THEN
 	      IF(RATIO_OM .GT. KN_RAY_STALL)THEN
 	        NSTALL=NSTALL+1
