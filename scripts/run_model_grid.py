@@ -2978,26 +2978,36 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 f"setenv cmfdist {cmfgen_install_dir}",
                 patched,
             )
-        # Freeze the solver binary into the model directory. The install
-        # tree is rebuilt often; without this a rebuild between requeues
-        # silently swaps the executable mid-run and the run can no longer
-        # be mapped to one code revision. The frozen copy is refreshed on
-        # every run_model_grid.py submission, so picking up a rebuild is
-        # still a deliberate act, and the rename is atomic so a running
-        # job keeps its inode if a resubmission overlaps it.
+        # Freeze the solver and OBS binaries into hash-named snapshots under
+        # the selected install tree. The model directory only references the
+        # immutable paths, so all CMFGEN code and executables stay
+        # self-contained in cmfdist while a pending job cannot drift to a
+        # rebuilt binary.
         dist_dir = cmfgen_install_dir
         if not dist_dir:
             m_dist = re.search(r"(?m)^\s*setenv\s+cmfdist\s+(\S+)", patched)
             dist_dir = m_dist.group(1) if m_dist else None
+        cmfgen.pop("_frozen_obs_exe", None)
         if dist_dir:
             import hashlib
             import datetime
 
-            frozen_dir = cmfgen_dir / "exe_frozen"
             provenance = []
             src_exe = Path(dist_dir) / "exe" / exe_name
+            obs_src_exe = Path(dist_dir) / "exe" / "cmf_flux.exe"
+            solver_hash = (
+                hashlib.sha256(src_exe.read_bytes()).hexdigest()[:16]
+                if src_exe.is_file()
+                else "solver_unknown"
+            )
+            obs_hash = (
+                hashlib.sha256(obs_src_exe.read_bytes()).hexdigest()[:16]
+                if obs_src_exe.is_file()
+                else "obs_unknown"
+            )
+            frozen_dir = Path(dist_dir) / "exe_frozen" / f"{solver_hash}_{obs_hash}"
             if src_exe.is_file():
-                frozen_dir.mkdir(exist_ok=True)
+                frozen_dir.mkdir(parents=True, exist_ok=True)
                 dst_exe = frozen_dir / exe_name
                 tmp_exe = frozen_dir / (exe_name + ".tmp")
                 shutil.copy2(src_exe, tmp_exe)
@@ -3009,7 +3019,7 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 provenance.extend(
                     [
                         f"solver source: {src_exe}",
-                        f"solver sha256[:16]: {hashlib.sha256(dst_exe.read_bytes()).hexdigest()[:16]}",
+                        f"solver sha256[:16]: {solver_hash}",
                         f"solver git HEAD at freeze: {git_rev}",
                         f"solver frozen at: {datetime.datetime.now().isoformat(timespec='seconds')}",
                     ]
@@ -3021,9 +3031,8 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 )
                 print(f"  Froze solver binary: {dst_exe} (git {git_rev or 'n/a'})")
 
-            obs_src_exe = Path(dist_dir) / "exe" / "cmf_flux.exe"
             if obs_src_exe.is_file():
-                frozen_dir.mkdir(exist_ok=True)
+                frozen_dir.mkdir(parents=True, exist_ok=True)
                 obs_dst_exe = frozen_dir / "cmf_flux.exe"
                 obs_tmp_exe = frozen_dir / "cmf_flux.exe.tmp"
                 shutil.copy2(obs_src_exe, obs_tmp_exe)
@@ -3035,11 +3044,12 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 provenance.extend(
                     [
                         f"obs source: {obs_src_exe}",
-                        f"obs sha256[:16]: {hashlib.sha256(obs_dst_exe.read_bytes()).hexdigest()[:16]}",
+                        f"obs sha256[:16]: {obs_hash}",
                         f"obs git HEAD at freeze: {obs_git_rev}",
                         f"obs frozen at: {datetime.datetime.now().isoformat(timespec='seconds')}",
                     ]
                 )
+                cmfgen["_frozen_obs_exe"] = str(obs_dst_exe)
                 print(f"  Froze OBS binary: {obs_dst_exe} (git {obs_git_rev or 'n/a'})")
 
             if provenance:
@@ -7736,6 +7746,9 @@ def submit_cmfgen_jobs(
             print(f"ERROR: configured CMFGEN executable not found: {cmfgen_executable}")
             return None
         env["CMFDIST"] = cmfgen_install_dir
+    frozen_obs_exe = cmfgen_cfg.get("_frozen_obs_exe")
+    if frozen_obs_exe:
+        env["CMF_OBS_EXE"] = str(frozen_obs_exe)
     if cmfgen_cfg.get("skip_obs", False):
         env["SKIP_OBS"] = "1"
     if cmfgen_cfg.get("skip_final", False):

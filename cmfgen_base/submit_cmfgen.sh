@@ -1558,6 +1558,7 @@ export CMFGEN_MODEL_TYPE="${MODEL_TYPE}"
 export SCRATCH_DIR="SCRATCH/"
 mkdir -p SCRATCH/
 export atomic="${ATOMIC}"
+export CMF_OBS_EXE="${CMF_OBS_EXE:-}"
 
 echo "Preparing batobs.sh..."
 cp -f "${OBS_TEMPLATE_DIR}/batobs.sh" batobs.sh
