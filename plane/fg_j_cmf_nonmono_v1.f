@@ -5711,7 +5711,10 @@ C
 	4   IKC1(NI),IKC2(NI),JPR1(NI),JPR2(NI),WINX(NI),T1V(NI),
 	5   IGRD(NI),IM_NI(NCF),RES_FREQ(NCF),
 	6   NFM_L(NI),DLNM_L(NI),DRF_L(NI),STAT=IOS)
-	IF(IOS .NE. 0)RETURN
+	IF(IOS .NE. 0)THEN
+	  RESID=1.0_LDP
+	  RETURN
+	END IF
 	RES_FREQ=0.0_LDP
 !
 ! Per-ray-point compressing lookup, identical logic to the in-sweep
@@ -5838,7 +5841,10 @@ C
 ! ---------------- I_M (inward) field ----------------
 !
 	ALLOCATE(FLD(NI,NCF),STAT=IOS)
-	IF(IOS .NE. 0)GOTO 900
+	IF(IOS .NE. 0)THEN
+	  RESID=1.0_LDP
+	  GOTO 900
+	END IF
 	FLD(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD,I_M_DEPTH_NEXT)
 	IF(ORD_SWEEP)THEN
@@ -5880,6 +5886,7 @@ C
 !
 	ALLOCATE(FLD_P(NI,NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
+	  RESID=1.0_LDP
 	  DEALLOCATE(FLD)
 	  GOTO 900
 	END IF

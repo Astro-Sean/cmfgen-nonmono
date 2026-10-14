@@ -372,6 +372,16 @@
 	LOGICAL, SAVE :: MOM_AA_OUT=.TRUE.
 	INTEGER, SAVE :: MOM_AA_OUT_M=8
 	INTEGER, SAVE :: NHIST_OUT=-1
+!
+! MOM_AA_OUT_FAIL latches a history-allocation failure for the
+! (ND_NM,KN_M_NCF,MOM_AA_OUT_M) triple recorded in the *_F* slots.
+! The unaccelerated refresh result is kept and the same multi-GB
+! request is not retried every great iteration; a grid rebuild or
+! a changed history depth clears the latch.
+!
+	LOGICAL, SAVE :: MOM_AA_OUT_FAIL=.FALSE.
+	INTEGER, SAVE :: MOM_AA_OUT_FND=0,MOM_AA_OUT_FNCF=0,
+	1    MOM_AA_OUT_FM=0
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: XHIST_OUT(:,:,:),
 	1    FHIST_OUT(:,:,:),RETJ_PREV(:,:),RETH_PREV(:,:)
 !
@@ -4074,6 +4084,119 @@
 	RETURN
 	END
 !
+! ------------------------------------------------------------------------------
+! In-run rollback restore for the lagged J_NEXT_FRQ/H_NEXT_FRQ store,
+! mirroring RESTORE_FG_INEXT_LATEST: when a BA step is rolled back in
+! SOLVEBA, the lagged moment store in memory was solved on the post-step
+! (rejected) populations, and re-solving from that seed can leave the GS
+! basin entirely.  MOMJNXT_GS on disk still holds the generation written
+! at the end of the rejected step's own iteration -- the field solved on
+! the pre-step populations the rollback restores.
+!
+! The NITSF tag check is skipped (meaningless mid-run); the same R/V
+! endpoint + expanded-grid (R_NM/R_PNT_NM) fingerprint the INIT restore
+! uses guards against a foreign checkpoint or a post-dump grid revision.
+! On failure the in-memory field is left untouched: a stale store after
+! a pops rollback is no worse than the pops-only rollback the caller
+! falls back to.
+!
+	SUBROUTINE RESTORE_MOM_JNEXT_LATEST(OK)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1
+	USE MOD_CMFGEN, ONLY: R,V
+	IMPLICIT NONE
+	LOGICAL OK
+	INTEGER IOS,LUER,ERROR_LU
+	INTEGER MAG,VER,TAG
+	INTEGER ND_NM_F,NCF_F,ND_F,ENDM
+	INTEGER, PARAMETER :: MAGIC=20260916
+	REAL(KIND=LDP) R1_F,RND_F,V1_F,VND_F
+	REAL(KIND=LDP), ALLOCATABLE :: RNM_F(:)
+	INTEGER, ALLOCATABLE :: RPNT_F(:)
+	EXTERNAL ERROR_LU
+	LOGICAL FILE_THERE
+!
+	OK=.FALSE.
+	LUER=ERROR_LU()
+!
+	IF(.NOT. ALLOCATED(J_NEXT_FRQ) .OR.
+	1   .NOT. ALLOCATED(R_NM) .OR. .NOT. ALLOCATED(R_PNT_NM))RETURN
+	INQUIRE(FILE='MOMJNXT_GS',EXIST=FILE_THERE)
+	IF(.NOT. FILE_THERE)RETURN
+!
+	OPEN(UNIT=292,FILE='MOMJNXT_GS',FORM='UNFORMATTED',
+	1     STATUS='OLD',ACTION='READ',IOSTAT=IOS)
+	IF(IOS .NE. 0)RETURN
+	READ(292,IOSTAT=IOS)MAG,VER,TAG
+	IF(IOS .NE. 0 .OR. MAG .NE. MAGIC .OR.
+	1   (VER .NE. 3 .AND. VER .NE. 4))GOTO 900
+	READ(292,IOSTAT=IOS)ND_NM_F,NCF_F,ND_F
+	IF(IOS .NE. 0)GOTO 900
+	READ(292,IOSTAT=IOS)R1_F,RND_F,V1_F,VND_F
+	IF(IOS .NE. 0)GOTO 900
+!
+	IF(ND_NM_F .NE. SIZE(J_NEXT_FRQ,1) .OR.
+	1   NCF_F .NE. SIZE(J_NEXT_FRQ,2) .OR. ND_F .NE. SIZE(R))GOTO 900
+	IF(R1_F .NE. R(1) .OR. RND_F .NE. R(ND_F) .OR.
+	1   V1_F .NE. V(1) .OR. VND_F .NE. V(ND_F))GOTO 900
+!
+	IF(ND_NM_F .NE. SIZE(R_NM) .OR.
+	1   ND_NM_F .NE. SIZE(R_PNT_NM))GOTO 900
+	ALLOCATE(RNM_F(ND_NM_F),RPNT_F(ND_NM_F),STAT=IOS)
+	IF(IOS .NE. 0)GOTO 900
+	READ(292,IOSTAT=IOS)RNM_F
+	IF(IOS .NE. 0)GOTO 910
+	READ(292,IOSTAT=IOS)RPNT_F
+	IF(IOS .NE. 0)GOTO 910
+	IF(ANY(RNM_F .NE. R_NM) .OR.
+	1   ANY(RPNT_F .NE. R_PNT_NM))THEN
+	  DEALLOCATE(RNM_F,RPNT_F)
+	  GOTO 900
+	END IF
+	DEALLOCATE(RNM_F,RPNT_F)
+!
+	READ(292,IOSTAT=IOS)MOM_GS_CHG_FILE,MOM_GS_CAP_FILE
+	IF(IOS .NE. 0)GOTO 900
+!
+	READ(292,IOSTAT=IOS)J_NEXT_FRQ
+	IF(IOS .NE. 0)GOTO 900
+	IF(VER .EQ. 4)THEN
+	  IF(.NOT. ALLOCATED(H_NEXT_FRQ))GOTO 900
+	  READ(292,IOSTAT=IOS)H_NEXT_FRQ
+	  IF(IOS .NE. 0)GOTO 900
+	END IF
+	READ(292,IOSTAT=IOS)ENDM
+	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 900
+!
+	IF(ANY(.NOT.(ABS(J_NEXT_FRQ) .LE. HUGE(1.0_LDP))) .OR.
+	1   ANY(J_NEXT_FRQ .LT. 0.0_LDP))GOTO 900
+	IF(ALLOCATED(H_NEXT_FRQ))THEN
+	  IF(ANY(.NOT.(ABS(H_NEXT_FRQ) .LE. HUGE(1.0_LDP))))GOTO 900
+	END IF
+	CLOSE(292)
+	J_NEXT_VALID=.TRUE.
+	IF(ALLOCATED(RETJ_PREV) .AND. ALLOCATED(RETH_PREV))THEN
+	  IF(SIZE(RETJ_PREV,1) .EQ. SIZE(J_NEXT_FRQ,1) .AND.
+	1     SIZE(RETJ_PREV,2) .EQ. SIZE(J_NEXT_FRQ,2) .AND.
+	2     SIZE(RETH_PREV,1) .EQ. SIZE(J_NEXT_FRQ,1) .AND.
+	3     SIZE(RETH_PREV,2) .EQ. SIZE(J_NEXT_FRQ,2))THEN
+	    RETJ_PREV=J_NEXT_FRQ
+	    RETH_PREV=H_NEXT_FRQ
+	  END IF
+	END IF
+	NHIST_OUT=-1
+	OK=.TRUE.
+	RETURN
+!
+910	CONTINUE
+	IF(ALLOCATED(RNM_F))DEALLOCATE(RNM_F)
+	IF(ALLOCATED(RPNT_F))DEALLOCATE(RPNT_F)
+900	CONTINUE
+	INQUIRE(UNIT=292,OPENED=FILE_THERE)
+	IF(FILE_THERE)CLOSE(292)
+	RETURN
+	END
+!
 ! ==============================================================================
 !  GET_MOM_GS_MATURITY (added 19-Sep-2026, dev7 port).
 !
@@ -4712,8 +4835,6 @@
 	MOM_SW_NQUAR=MOM_GS_NQUAR
 	MOM_SW_CAPPED=MOM_INEXT_CAPPED
 	MOM_SW_NHUGE=MOM_GS_NHUGE
-	JNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
-	HNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 !
 ! Heal poisoned store slots once per refresh.  A non-finite entry
 ! (a failed early sweep or a stale checkpoint) sits in a slot that
@@ -4742,6 +4863,8 @@
 	IF(NDMP+NACC .GT. 0_8)WRITE(LUER,'(A,2I12)')
 	1   ' MOM_KNOP_REFRESH: healed non-finite J/H store entries',
 	2   NDMP,NACC
+	JNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
+	HNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 !
 ! The retained composite starts as the seed: under MOM_RF_OWNW each
 ! direction's best pass merges only its owned rows, so a direction
@@ -5700,30 +5823,50 @@
 ! a no-op.  [MOM_AA_OUT] gates it (default T); history depth
 ! [MOM_AA_OUT_M] (default 8).
 !
+	LAA_OK=.FALSE.
 	IF(MOM_RF_AA .AND. MOM_AA_OUT)THEN
-	  IF(.NOT. ALLOCATED(XHIST_OUT) .OR.
-	1     SIZE(XHIST_OUT,1) .NE. ND_NM .OR.
-	2     SIZE(XHIST_OUT,2) .NE. KN_M_NCF .OR.
-	3     SIZE(XHIST_OUT,3) .NE. MOM_AA_OUT_M+1)THEN
-	    IF(ALLOCATED(XHIST_OUT))DEALLOCATE(XHIST_OUT)
-	    IF(ALLOCATED(FHIST_OUT))DEALLOCATE(FHIST_OUT)
-	    IF(ALLOCATED(RETJ_PREV))DEALLOCATE(RETJ_PREV)
-	    IF(ALLOCATED(RETH_PREV))DEALLOCATE(RETH_PREV)
-	    ALLOCATE(XHIST_OUT(ND_NM,KN_M_NCF,MOM_AA_OUT_M+1),
-	1      FHIST_OUT(ND_NM,KN_M_NCF,MOM_AA_OUT_M+1),
-	2      RETJ_PREV(ND_NM,KN_M_NCF),RETH_PREV(ND_NM,KN_M_NCF),
-	3      STAT=IOS)
-	    IF(IOS .NE. 0)THEN
+	  IF(MOM_AA_OUT_FAIL .AND.
+	1     (MOM_AA_OUT_FND .NE. ND_NM .OR.
+	2      MOM_AA_OUT_FNCF .NE. KN_M_NCF .OR.
+	3      MOM_AA_OUT_FM .NE. MOM_AA_OUT_M))
+	4      MOM_AA_OUT_FAIL=.FALSE.
+	  IF(.NOT. MOM_AA_OUT_FAIL)THEN
+	    LAA_OK=ALLOCATED(XHIST_OUT) .AND. ALLOCATED(FHIST_OUT)
+	1      .AND. ALLOCATED(RETJ_PREV) .AND. ALLOCATED(RETH_PREV)
+	    IF(LAA_OK)LAA_OK=(SIZE(XHIST_OUT,1) .EQ. ND_NM .AND.
+	1       SIZE(XHIST_OUT,2) .EQ. KN_M_NCF .AND.
+	2       SIZE(XHIST_OUT,3) .EQ. MOM_AA_OUT_M+1)
+	    IF(.NOT. LAA_OK)THEN
 	      IF(ALLOCATED(XHIST_OUT))DEALLOCATE(XHIST_OUT)
 	      IF(ALLOCATED(FHIST_OUT))DEALLOCATE(FHIST_OUT)
 	      IF(ALLOCATED(RETJ_PREV))DEALLOCATE(RETJ_PREV)
 	      IF(ALLOCATED(RETH_PREV))DEALLOCATE(RETH_PREV)
-	      WRITE(LUER,*)'Unable to allocate outer AA history'//
-	1        ' in MOM_KNOP_REFRESH_V1'
+	      ALLOCATE(XHIST_OUT(ND_NM,KN_M_NCF,MOM_AA_OUT_M+1),
+	1        FHIST_OUT(ND_NM,KN_M_NCF,MOM_AA_OUT_M+1),
+	2        RETJ_PREV(ND_NM,KN_M_NCF),RETH_PREV(ND_NM,KN_M_NCF),
+	3        STAT=IOS)
+	      IF(IOS .NE. 0)THEN
+	        IF(ALLOCATED(XHIST_OUT))DEALLOCATE(XHIST_OUT)
+	        IF(ALLOCATED(FHIST_OUT))DEALLOCATE(FHIST_OUT)
+	        IF(ALLOCATED(RETJ_PREV))DEALLOCATE(RETJ_PREV)
+	        IF(ALLOCATED(RETH_PREV))DEALLOCATE(RETH_PREV)
+	        MOM_AA_OUT_FAIL=.TRUE.
+	        MOM_AA_OUT_FND=ND_NM
+	        MOM_AA_OUT_FNCF=KN_M_NCF
+	        MOM_AA_OUT_FM=MOM_AA_OUT_M
+	        WRITE(LUER,'(A,ES10.3,A)')' MOM_KNOP_REFRESH:'//
+	1          ' outer AA history alloc failed (need ~',
+	2          8.0_LDP*DBLE(ND_NM)*DBLE(KN_M_NCF)*
+	3          DBLE(2*MOM_AA_OUT_M+4)/1.0E6_LDP,
+	4          ' MB) -- disabled for this grid'
+	      END IF
+	      NHIST_OUT=-1
 	    END IF
-	    NHIST_OUT=-1
+	    LAA_OK=ALLOCATED(XHIST_OUT) .AND. ALLOCATED(FHIST_OUT)
+	1      .AND. ALLOCATED(RETJ_PREV) .AND. ALLOCATED(RETH_PREV)
 	  END IF
-	  IF(ALLOCATED(XHIST_OUT))THEN
+	END IF
+	IF(LAA_OK)THEN
 !
 ! RETJ_PREV is valid only after the first call commits a field
 ! (NHIST_OUT=-1 before that): the first push then pairs (x_1, f_1)
@@ -5893,7 +6036,6 @@
 	1      H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 	    IF(NHIST_OUT .LT. 0)NHIST_OUT=0
 	  END IF
-	END IF
 !
 ! Post-refresh maturity of the RETAINED field: the distance between
 ! the field the populations saw (the pre-refresh store, which is the

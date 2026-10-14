@@ -88,6 +88,8 @@
 	EXTERNAL ERROR_LU
 	LOGICAL FG_RB_OK
 	EXTERNAL RESTORE_FG_INEXT_LATEST
+	LOGICAL MOM_RB_OK
+	EXTERNAL RESTORE_MOM_JNEXT_LATEST
 !
 	INTEGER, PARAMETER :: IZERO=0
 	INTEGER, PARAMETER :: IONE=1
@@ -628,6 +630,11 @@
 	      IF(FG_RB_OK)WRITE(LUER,'(A)')
 	1    'BA_RES_ACC: lagged FG field rolled back to pre-step state'
 	    END IF
+	    IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
+	      CALL RESTORE_MOM_JNEXT_LATEST(MOM_RB_OK)
+	      IF(MOM_RB_OK)WRITE(LUER,'(A)')
+	1    'BA_RES_ACC: lagged MOM field rolled back to pre-step state'
+	    END IF
 	    BA_PART_THIS=.TRUE.
 	    BA_NREJ=BA_NREJ+1
 	    IF(L_PROG)THEN
@@ -721,6 +728,11 @@
 	      CALL RESTORE_FG_INEXT_LATEST(FG_RB_OK)
 	      IF(FG_RB_OK)WRITE(LUER,'(A)')
 	1    'BA_RES_ACC: lagged FG field rolled back to pre-step state'
+	    END IF
+	    IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
+	      CALL RESTORE_MOM_JNEXT_LATEST(MOM_RB_OK)
+	      IF(MOM_RB_OK)WRITE(LUER,'(A)')
+	1    'BA_RES_ACC: lagged MOM field rolled back to pre-step state'
 	    END IF
 	    WRITE(LUER,'(/,A,I5,A)')
 	1      ' -------------------- BA_RES_ACC REJ it',MAIN_COUNTER,
