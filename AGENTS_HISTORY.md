@@ -2976,3 +2976,11 @@ reaches.  `ifort -c` clean on both edited files and `./build.sh` succeeded
 with the JFNK harness tests passing.  A `run_model_grid.py`
 validation run is still required before this counts as validated
 (per AGENTS.md section 6/7).
+
+Submitted 14-Oct-2026 from committed state ef769d4e (frozen exe
+hash 0d8fa5b4ecea4048): `dessart_m15_2p82d_KNOP_FORMAL_freqmatch`
+(FG ordered sweep + AUDIT-4/5 + DO_NONMONO_FREQ_MATCH experiment)
+as job 12204057 and `dessart_m15_2p82d_KNOP_MOM_probe`
+(MOM_J_CMF_NONMONO_V1 warm-restart probe, covers the AUDIT-1/2/3
+refresh path and MOM_TRIAL_LAM) as job 12204071, OBS 12204072.
+Both on the interactive partition; results pending.
