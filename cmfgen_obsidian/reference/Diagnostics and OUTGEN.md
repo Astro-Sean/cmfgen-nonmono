@@ -103,6 +103,7 @@ SOLVEBA POPULATION UPDATE - held variables, max corrections, DEC_VEC/INC_VEC, sc
 FG_KNOP_REFRESH: pass   - per-pass residual history
 ray exits: exact= tol= bulk= stall= cap= div=  - per-ray stop-rule census
 stall/cap rays: maxres= bad cells=  - share of unconverged cells left by early exits
+AA: applied= vetoed= rejected= solve-fail=  - KN_ORD_AA mix counts per refresh
 MOM_KNOP_REFRESH guard  - why the MOM refresh skipped
 huge-drift              - conditional MOM refresh pass row: cells drifting >1e6 this pass
 gam-floor               - conditional MOM refresh pass row: cells at the |1+sigma*K| floor

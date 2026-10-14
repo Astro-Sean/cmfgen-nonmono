@@ -2855,6 +2855,87 @@ Addendum: two residual FIX_T_AUTO=T surfaces closed after the above:
   DO_T_AUTO=T in vadat_overrides; the strip pass removes them with a
   WARNING on every run (left in place, intent-vs-fact documented).
 
+## 14-Oct-2026 - KNOP release-churn cycle and GS_FREEZE_LIM stop (arms done)
+
+Two warm-restart arms off the it8 stall checkpoint ran to the designed
+non-convergence stop (SOLVE_FOR_POPS GS_FREEZE_LIM=60 consecutive
+frozen iterations -> STOP):
+
+- stallpat (12188036 -> 12188938 -> 12190108; stall=0.999,
+  MAXPASS=300, PRINT_KNOP_DEBUG): reached it121.  Both arms first
+  RELEASED populations (stallpat it20, stallfm it13) after two
+  consecutive mature sweeps -- first KNOP release on this model.
+- stallfm (12188867 -> 12190107; freq_match=T, stall=0.98):
+  reached it78.  Its bulk bad-frac declined monotonically
+  3.1e-4 -> 1.8e-4 over the last ~30 its -- freq-match genuinely
+  converges the bulk.
+
+Mechanism (now quantified): release -> the second live-population
+step (uncapped, demand ~1e21-1e98% on stiff levels CIII:2s2s / HI:17
+at depth 69-70) displaces the field fixed point -> ~800-900K store
+cells churn >50% -> GS_NCONV gate re-freezes -> store re-settles
+~10x/iter under held pops -> re-release.  The cycle-2 spike was
+~12-14% LARGER than cycle-1 in both arms -- a persistent limit
+cycle, not a decaying transient.
+
+Terminal blocker: after ~it60 (pat) / ~it18 (fm) the field locked
+permanently frozen.  Bulk frac converged but GS_MAXCHG (the refresh
+max residual, KN_RF_RESID at fg_j line ~5403) plateaued at 0.51-0.78
+> GS_UNSAFE_TOL=0.5 -- a fixed-point inconsistency of the lagged
+I_NEXT coupling at a handful of compressing hot-frequency cells.
+Per-pass history shows NOT slow contraction but a fluctuating
+plateau (~0.05, noisy), and the ordered sweep reads the live FLD
+upwind (KN_ORD_SPV) -- so the intra-sweep GS spectral radius is ~1
+on those cells; the lagged store is downstream of it, not the cause.
+
+KN_DUMP/KNSTOR instrumentation (commit 4524716, cherry-picked into
+cmfgen_jfnk_aa as 2d61d24, gated on PRINT_KNOP_DEBUG):
+- KNDUMP: per-cell record in SWEEP_FLD_ORD (both march directions)
+  for res>0.2 at pass>=8: pass, ray, depth row, freq idx, res,
+  vold/vnew, GAM, JPR1/JPR2, NFM.
+- KNSTOR: per-cell record in the in-sweep I_NEXT store update for
+  |solved-stored|/stored>0.25: freq idx, ray, model depth, stored,
+  solved, rel change, SIGMA_TRUE.
+Caps: 2000 records per ray / per frequency.
+
+Diagnostic arm dessart_m15_2p82d_KNOP_FORMAL_kndump warm-restarts
+the it120 stallpat checkpoint for 4 its to classify the
+non-contractive cells.
+
+## 14-Oct-2026 (Devin session) - tree consolidation + per-cell P2 damping (commit 4754f8f)
+
+Consolidation: `cmfgen_jfnk` is again the single active tree.
+`cmfgen_jfnk_aa` (a cherry-pick mirror of this tree's solver commits
+plus the OBS pipeline commits it lacked) and
+`cmfgen_jfnk_stale_pre_1ec74d5` moved under `archive/`; the
+install-dir `exe_frozen` cache was deleted (recreated per-run by
+run_model_grid at submission).  All yaml `install_dir` entries now
+point here.  Verified before the move: no `_aa`-unique files beyond
+the exe cache; no pending/running job references the old path.
+
+KN_ORD_P2DAMP (default F, commit 4754f8f): per-cell period-2
+collapse in SWEEP_FLD_ORD.  Motivation: the kndump arm held
+GS_MAXCHG at a stable 0.53 for it125-136 -- ~20 near-floor cells on
+rays 3-6 flip-flopping ~2x/~0.5x per pass (lambda~-1), invisible to
+the whole-ray KN_SGN_SUM detector (commit 635625c) because the
+contracting bulk dominates its sign.  Significant cells track the
+update-delta sign; KN_ORD_P2N (2) consecutive flips switch the
+commit to the bracket midpoint (geometric when both endpoints are
+positive - the observed flip is multiplicative so the midpoint is
+the exact fixed point; arithmetic fallback otherwise); KN_ORD_P2REL
+(3) flip-free passes release.  Fixed point unchanged; the nfm slot
+needs no freeze since KN_ORD_SPV's upwind offset is static per
+cell.  State: 3 int*1 arrays per ray (~3 B/cell), per-iteration
+`p2damped writes=` counter prints only when on.
+
+KN_GATE_DIVERGENCE (default F, dormant prototype): SOLVE_FOR_POPS
+unsafe tier tests divergence (growth >KN_GATE_DIV_FAC over
+KN_GATE_DIV_M sweeps, or non-finite) rather than the absolute
+GS_UNSAFE_TOL.  No absolute backstop by design; owner opt-in only.
+
+Validation arm `dessart_m15_2p82d_KNOP_FORMAL_p2damp` warm-restarts
+the it136 kndump checkpoint with KN_ORD_P2DAMP=T.
+
 ## 14-Oct-2026 - Knop solver stability-audit fixes (code only)
 
 Applied the outstanding items from the Knop-solver stability audit.

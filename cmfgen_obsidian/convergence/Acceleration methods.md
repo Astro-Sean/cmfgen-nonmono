@@ -87,13 +87,14 @@ managed 14 successes against 39 cancels.  Two distinct causes:
   (every component held) returns `NG_DONE=F` so no identical record
   is appended.
 
-Pipeline default for all generated runs is `DO_NG=T`, `CHK_NG=T`,
-`BEG_NG=5.0D0`, `IBEG_NG=15`, `BW_NG=40`, and `ITS/NG=8`.  Non-mono
-runs additionally carry `NG_ABSTAIN=T` (`_nm_defaults` in
-`run_model_grid.py`); the profile tables keep `NG_ABSTAIN=F` for
-monotonic models, where the upstream path is unchanged.  The 5% arm
-threshold is the conservative end of the CMFGEN 5-10% convention for
-this guarded non-monotonic stack: `NG_CLEAN>=4`, `GS_FREEZE`,
+Pipeline default is `DO_NG=F` since 13-Oct-2026 (X_SOB 40d): accepted
+kicks overshot the interaction-depth populations by up to ~30% every
+`ITS/NG` iterations, so MAXCH oscillated near ~0.5% and never crossed
+`EPS_TERM` after dead-level demand was gated by `BA_DEM_RELFRAC`.  The
+unaccelerated map contracted ~0.65x/iteration.  The NG machinery stays
+armed for models that opt in via `vadat_overrides DO_NG=T`: `CHK_NG=T`,
+`BEG_NG=5.0D0`, `IBEG_NG=15`, `BW_NG=40`, `ITS/NG=8`, and for non-mono
+runs `NG_ABSTAIN=T`.  When NG is enabled, `NG_CLEAN>=4`, `GS_FREEZE`,
 `FORCE_LAMBDA`, and residual-acceptance history still decide whether a
 scheduled attempt is allowed to fire.
 

@@ -16,9 +16,7 @@ the pristine upstream archive `cur_cmf_18jun25.tar.gz`
 2. Non-mono SOB on an interacting model (type IIn-like spectrum).
 3. Knop arbitrary-velocity solver as a plug-in; touch base CMFGEN as
    little as possible.
-
-
-
+   
 Run area: `/ptmp/sbrennan/SN2024pba/cmfgen_validation` (config
 `configs/dessart_m15_2p82d_****.yaml`).
 
