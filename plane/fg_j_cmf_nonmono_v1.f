@@ -608,6 +608,16 @@
 	INTEGER KN_RAY_MAXPASS,KN_MAX_THREADS
 	REAL(KIND=LDP) KN_RF_RESID
 !
+! FG_RF_DCHG: retained-field delta of the last refresh -- the
+! max relative change between the in-sweep lagged store (the
+! field the populations saw) and the field committed by
+! WRITE_STORE, using the same per-frequency peak floor as the
+! residual metrics.  FG-side analogue of MOM_RF_DCHG; the
+! population gate reads it when deciding whether the refresh
+! actually moved the field it will gate on.
+!
+	REAL(KIND=LDP) FG_RF_DCHG
+!
 ! KN_RF_TOT_MB: total refresh memory budget (MB) across all OMP
 ! threads.  Each thread in KNOP_RAY_SOLVE_V1 can hold ~80 B per
 ! (depth,frequency) cell (8-array coefficient pack + FLD + work), so
@@ -748,6 +758,7 @@
 	DATA KN_RAY_MAX_INS /256/
 	DATA KN_ND /0/,KN_NP /0/,KN_NC /0/,KN_NCF /0/,KN_ND_EXT /0/
 	DATA KN_RF_RESID /0.0_LDP/
+	DATA FG_RF_DCHG /0.0_LDP/
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -5426,6 +5437,7 @@ C
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
 	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1; NP2_LS=0_8
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
+	FG_RF_DCHG=0.0_LDP
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
 	ALLOCATE(KN_RES_PASS(2*KN_RAY_MAXPASS),STAT=IOS)
@@ -5487,6 +5499,8 @@ C
 	2  '   frac=',DBLE(FG_GS_NBAD)/MAX(1_8,FG_GS_NTOT)
 	WRITE(LUER,'(A,I14)')'    store cells>50%=',FG_GS_NCONV
 	WRITE(LUER,'(A,F9.1,A)')'    t=',T1_W,' s'
+	WRITE(LUER,'(A,ES12.4)')'    retained-field delta: max=',
+	1  FG_RF_DCHG
 !
 ! Ray exit census: which stop rule ended each field solve (codes in
 ! KNOP_RAY_SOLVE_V1).  Stall and cap exits leave above-tolerance
@@ -5674,6 +5688,7 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: SPW(:,:)
 !
 	REAL(KIND=LDP) RES_M,RES_P,DLN,T1,T2,DZ,T1_DTAU,I_CORE
+	REAL(KIND=LDP) DCH_M,DCH_P
 	REAL(KIND=LDP) VNEW,VOLD,INEXT_V
 	REAL(KIND=LDP) OMEGA_RAY,RES_PREV(2),RATIO_OM
 	INTEGER*8 NBAD_CUR,NTOT_CUR,NB_M,NB_P,NT_M,NT_P
@@ -5698,6 +5713,7 @@ C
 	RES_M=0.0_LDP; RES_P=0.0_LDP; NP_M=0; NP_P=0
 	NP2=0_8; NP2_CNT=0_8
 	DIVERGED=.FALSE.
+	DCH_M=0.0_LDP; DCH_P=0.0_LDP
 	LUER=ERROR_LU()
 	KN_DUMP_N=0
 	NI=NI_RAY(LS)
@@ -5908,8 +5924,11 @@ C
 	    END DO
 !$OMP END CRITICAL (KN_HOT_UPD)
 	  END IF
-	  CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT)
-	  CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT)
+	  CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
+	  CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+!$OMP CRITICAL (FG_DCHG_UPD)
+	  FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
+!$OMP END CRITICAL (FG_DCHG_UPD)
 	END IF
 	DEALLOCATE(FLD,FLD_P)
 !
@@ -7479,11 +7498,12 @@ C
 ! (same semantics as the in-sweep FG_GS_NCONV); NCAP counts the
 ! cap/NaN floor events (same semantics as FG_INEXT_CAPPED).
 ! ----------------------------------------------------------------
-	SUBROUTINE WRITE_STORE(FLD,STORE)
+	SUBROUTINE WRITE_STORE(FLD,STORE,DMAX)
 	REAL(KIND=LDP) FLD(NI,NCF)
 	REAL(KIND=LDP) STORE(:,:,:)
+	REAL(KIND=LDP) DMAX
 	INTEGER KS,LS2,JP2
-	REAL(KIND=LDP) V1,V2
+	REAL(KIND=LDP) V1,V2,DLOC
 	REAL(KIND=LDP) VMAX_F(NCF)
 !
 ! Column peak per frequency for the >50% churn count.  Without this
@@ -7501,6 +7521,7 @@ C
 	1    MAXVAL(FLD(1:NI,LS2),
 	2    MASK=FLD(1:NI,LS2) .EQ. FLD(1:NI,LS2)))
 	END DO
+	DMAX=0.0_LDP
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
 	  IF(KC .GE. 1)THEN
@@ -7528,11 +7549,22 @@ C
 	        ELSE IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))THEN
 	          NSTORE=NSTORE+1
 	        END IF
+! Retained-field delta uses the committed (relaxed) value, not
+! the raw solve output -- the gate reads the store, so the
+! metric must describe what the store actually holds.  A cell
+! the seed left at the floor (or non-finite, healed above)
+! counts 1.0 when the refresh writes a significant value.
+!
 	        IF(V2 .GT. 0.0_LDP)THEN
+	          DLOC=INEXT_RELAX*ABS(V1-V2)/
+	1            MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
 	          STORE(KC,LS,LS2-1)=V2+INEXT_RELAX*(V1-V2)
 	        ELSE
+	          DLOC=0.0_LDP
+	          IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))DLOC=1.0_LDP
 	          STORE(KC,LS,LS2-1)=V1
 	        END IF
+	        DMAX=MAX(DMAX,DLOC)
 	      END DO
 	    END IF
 	  END IF

@@ -382,6 +382,18 @@
 	LOGICAL, SAVE :: MOM_AA_OUT_FAIL=.FALSE.
 	INTEGER, SAVE :: MOM_AA_OUT_FND=0,MOM_AA_OUT_FNCF=0,
 	1    MOM_AA_OUT_FM=0
+!
+! Per-refresh AA tallies (reset at the top of each
+! MOM_KNOP_REFRESH_V1 call): inner AA is the within-pass
+! Anderson on the frozen-map iterate; outer AA is the
+! across-call Anderson on the committed lagged store.
+! The OUTGEN summary needs aggregates, not per-pass prints,
+! to show which acceleration level is doing the work.
+!
+	INTEGER*8, SAVE :: MOM_AA_APP=0_8,MOM_AA_SKIP=0_8,
+	1    MOM_AA_SNG=0_8
+	INTEGER*8, SAVE :: MOM_AA_OUT_APP=0_8,MOM_AA_OUT_REJ=0_8,
+	1    MOM_AA_OUT_SNG=0_8
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: XHIST_OUT(:,:,:),
 	1    FHIST_OUT(:,:,:),RETJ_PREV(:,:),RETH_PREV(:,:)
 !
@@ -4690,6 +4702,8 @@
 	END IF
 !
 	MOM_KN_REFRESHING=.TRUE.
+	MOM_AA_APP=0_8; MOM_AA_SKIP=0_8; MOM_AA_SNG=0_8
+	MOM_AA_OUT_APP=0_8; MOM_AA_OUT_REJ=0_8; MOM_AA_OUT_SNG=0_8
 	T0=OMP_GET_WTIME()
 !
 	ALLOCATE(JNEXT_RF_READ(ND_NM,KN_M_NCF),
@@ -5434,6 +5448,7 @@
 	        IF(ND_NM*INT(KN_M_NCF,8)-NAA_SKIP .LT.
 	1           MAX(100_8,ND_NM*INT(KN_M_NCF,8)/1000))THEN
 	          INFO_AA=-999
+	          MOM_AA_SKIP=MOM_AA_SKIP+1
 	          WRITE(LUER,'(A,I12)')
 	1            '    AA skipped -- affine subset empty, excl=',
 	2            NAA_SKIP
@@ -5473,6 +5488,7 @@
 ! rather than contracts.  The raw map output is kept on a skip.
 !
 	          IF(DNRM .GT. FNRM)THEN
+	            MOM_AA_SKIP=MOM_AA_SKIP+1
 	            WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1            '    AA m=',MP_AA,'  ||f||=',FNRM,
 	2            '  ||corr||=',DNRM,'  skipped (>||f||) excl=',
@@ -5522,11 +5538,13 @@
 	1                H_NEXT_FRQ(I,L)=H_NEXT_FRQ(I,L)*XV/T4
 	            END DO
 	          END DO
+	          MOM_AA_APP=MOM_AA_APP+1
 	          WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1            '    AA m=',MP_AA,'  ||f||=',FNRM,
 	2            '  ||corr||=',DNRM*SC,'  excl=',NAA_SKIP
 	          END IF
 	        ELSE
+	          MOM_AA_SNG=MOM_AA_SNG+1
 	          WRITE(LUER,'(A,I3,A,I2)')
 	1            '    AA solve failed (DGESV info=',INFO_AA,
 	2            ') -- raw map output kept'
@@ -6016,14 +6034,17 @@
 	1                  H_NEXT_FRQ(I,L)=H_NEXT_FRQ(I,L)*XV/T4
 	            END DO
 	          END DO
+	          MOM_AA_OUT_APP=MOM_AA_OUT_APP+1
 	          WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1              '    outer-AA m=',MTRY,'  ||f||=',FNRM,
 	2              '  ||corr||=',DNRM,'  excl=',NAA_SKIP
 	        ELSE IF(INFO_AA .EQ. 0)THEN
+	          MOM_AA_OUT_REJ=MOM_AA_OUT_REJ+1
 	          WRITE(LUER,'(A,ES12.4,A,I12)')
 	1            '    outer-AA all depths rejected, ||f||=',FNRM,
 	2            '  excl=',NAA_SKIP
 	        ELSE IF(INFO_AA .NE. -999)THEN
+	          MOM_AA_OUT_SNG=MOM_AA_OUT_SNG+1
 	          WRITE(LUER,'(A,I3,A)')
 	1            '    outer-AA solve failed (DGESV info=',INFO_AA,
 	2            ') -- raw map output kept'
@@ -6128,6 +6149,15 @@
 	WRITE(LUER,'(/,A,I4,A,F8.2,A)')
 	1  ' ------------- MOM_KNOP_REFRESH done:',MIN(IPASS,KN_M_MAXPASS),
 	2  ' passes,',OMP_GET_WTIME()-T0,' s --------------------'
+	WRITE(LUER,'(3(A,I4))')
+	1  '    inner-AA: applied=',MOM_AA_APP,' skipped=',MOM_AA_SKIP,
+	2  ' solve-fail=',MOM_AA_SNG
+	IF(MOM_AA_OUT)THEN
+	  WRITE(LUER,'(3(A,I4),A,L2)')
+	1    '    outer-AA: applied=',MOM_AA_OUT_APP,' rejected=',
+	2    MOM_AA_OUT_REJ,' solve-fail=',MOM_AA_OUT_SNG,
+	3    ' alloc-fail=',MOM_AA_OUT_FAIL
+	END IF
 !
 	DEALLOCATE(HRF,OUTJ,OUTH,ETA_L,CHI_L,ESEC_L)
 	DEALLOCATE(JNEXT_RF_READ,JNEXT_SAVE)
