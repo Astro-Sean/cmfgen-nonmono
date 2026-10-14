@@ -686,10 +686,12 @@ Controlled render on the `zlaw14_fresh` checkpoint (interactive OBS job
 `DO_SOB_LINE_ES=T`, `COH_ES=F`, `NUM_ES=2`, `DIF=T`,
 `IB_METH=DIFFUSION`, `DO_SOB_FLUX_OBS=T`, `VTURB=50 km/s`, and
 `dV_OBS_PROF=100 km/s`, and produced `obs_fin_10` from frozen renderer
-`exe_frozen/0f5d83f8ab4a97e2_24c6351c151b47bb/cmf_flux.exe`. The wrapper
-still exited 141 after the output-copy/notification stage, and the
-spectrum has not yet passed the `OBSFLUX`/`STARS_LUM` or Luc comparison
-acceptance checks.
+`exe_frozen/0f5d83f8ab4a97e2_24c6351c151b47bb/cmf_flux.exe`. Repeating
+with `notification_email` unset completed cleanly as job 12198625.
+The integrated `obs_fin_10` luminosity is ~1.94E9 Lsun versus
+`OBSFLUX` ~2.28E9 Lsun under the same conversion, so bolometric
+normalization and Luc-spectrum review remain required before
+production use.
 
 Focused tests now cover the pieces that previously had only model-run
 evidence: `test_sob_flux_obs.py` checks deposition shape, local-cell

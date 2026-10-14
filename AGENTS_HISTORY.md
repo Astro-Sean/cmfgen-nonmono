@@ -2926,8 +2926,13 @@ residue before log interpolation; the rerun then completed
 The run wrote `obs/obs_fin_10` and the standard spectrum plot, and
 `batobs.log` records frozen executable
 `exe_frozen/0f5d83f8ab4a97e2_24c6351c151b47bb/cmf_flux.exe`.
-The SLURM wrapper still reported `FAILED` exit 141 after the output
-copy stage (post-processing/notification path), not a Fortran stop.
-Physical acceptance remains open: the zlaw14 spectrum has not been
-validated against `OBSFLUX`, `STARS_LUM`, or Luc's reference, so
-`DO_SOB_LINE_ES` stays experimental and is not production default.
+Job 12198453 still exited 141 after the output-copy/notification
+stage rather than at a Fortran STOP. Repeating the identical render
+with `notification_email` unset completed cleanly as interactive OBS
+job 12198625 (`COMPLETED`, 2m11s). `BATOBS Job Complete`, the spectrum
+plot, and the `obs_fin_10` output were produced. Physical acceptance
+remains open: `obs_fin_10` integrates to ~1.94E9 Lsun versus `OBSFLUX`
+~2.28E9 Lsun under the same conversion, so the render is above the
+4.27E8 Lsun input scale and still requires bolometric normalization and
+Luc-spectrum review before production use. `DO_SOB_LINE_ES` stays
+experimental and is not production default.
