@@ -680,6 +680,17 @@ for a submitted spectrum until a controlled OBS run has checked the
 `SOB_LINE_ES iteration` diagnostics, finite emissivity, and integrated
 `obs_fin_10` luminosity against `OBSFLUX`/`STARS_LUM`.
 
+Controlled render on the `zlaw14_fresh` checkpoint (interactive OBS job
+12198453, 14-Oct-2026) completed `CMF_FLUX has finished` after the
+`ETA_FIXED` roundoff floor was added (`e48476b`). It used
+`DO_SOB_LINE_ES=T`, `COH_ES=F`, `NUM_ES=2`, `DIF=T`,
+`IB_METH=DIFFUSION`, `DO_SOB_FLUX_OBS=T`, `VTURB=50 km/s`, and
+`dV_OBS_PROF=100 km/s`, and produced `obs_fin_10` from frozen renderer
+`exe_frozen/0f5d83f8ab4a97e2_24c6351c151b47bb/cmf_flux.exe`. The wrapper
+still exited 141 after the output-copy/notification stage, and the
+spectrum has not yet passed the `OBSFLUX`/`STARS_LUM` or Luc comparison
+acceptance checks.
+
 Focused tests now cover the pieces that previously had only model-run
 evidence: `test_sob_flux_obs.py` checks deposition shape, local-cell
 normalization, the `1e-15` per-Hz factor, clump factors, maser and

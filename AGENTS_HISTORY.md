@@ -2910,3 +2910,24 @@ Verification: `./build.sh` completed cleanly; `cmfgen_dev.exe`,
 contains `DO_SOB_LINE_ES`, `SOB_LINE_ES iteration`, `DO_SOB_FLUX_OBS`,
 and `OBS_FRAME_SOB` strings. The frozen pending-job binary is
 unchanged.
+
+Controlled zlaw14 OBS render (14-Oct-2026, jobs 12198383 and
+12198453): the first interactive run exposed a cancellation residue in
+`SOB_LINE_ES_UPDATE` (`ETA_FIXED` reached -1.98E-47 after removing the
+old scattering source). Commit `e48476b` floors only that roundoff
+residue before log interpolation; the rerun then completed
+`CMF_FLUX has finished` under
+`DO_SOB_LINE_ES=T`, `COH_ES=F`, `NUM_ES=2`, `DIF=T`,
+`IB_METH=DIFFUSION`, `DO_SOB_FLUX_OBS=T`, `VTURB=50 km/s`, and
+`dV_OBS_PROF=100 km/s`. Diagnostics:
+`SOB_LINE_ES iteration 1/2 maximum relative dJ = 5.2384E6 / 3.8770E3`,
+`SOB profile injection: masing cells dropped = 741996`, and
+`dropped / injected emissivity = 2.8662E6 / 7.6228E17`.
+The run wrote `obs/obs_fin_10` and the standard spectrum plot, and
+`batobs.log` records frozen executable
+`exe_frozen/0f5d83f8ab4a97e2_24c6351c151b47bb/cmf_flux.exe`.
+The SLURM wrapper still reported `FAILED` exit 141 after the output
+copy stage (post-processing/notification path), not a Fortran stop.
+Physical acceptance remains open: the zlaw14 spectrum has not been
+validated against `OBSFLUX`, `STARS_LUM`, or Luc's reference, so
+`DO_SOB_LINE_ES` stays experimental and is not production default.
