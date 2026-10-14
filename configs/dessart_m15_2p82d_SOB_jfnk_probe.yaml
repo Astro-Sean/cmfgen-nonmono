@@ -35,6 +35,10 @@ cmfgen:
   init_num_its: 10
   cpus_per_task: 8
   mem: 30G
+  # Diagnostic probe: restarts the live recovery checkpoint to
+  # exercise the JFNK path, not to produce a spectrum.  The
+  # flux-discarding inner boundary is deliberate.
+  allow_dead_inner_boundary: true
   # 12-Oct-2026: the default SOB OBS (GLOBAL_LINE=SOB, TRANS_*=SOB)
   # renders each line across its Sobolev resonance surfaces, producing
   # broad undulations that cannot match the Dessart reference .fl.
