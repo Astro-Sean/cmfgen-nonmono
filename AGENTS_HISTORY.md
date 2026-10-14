@@ -2862,7 +2862,8 @@ Source commit: `26dac94` (`agent/sob-es-broadening`).
 Run provenance first: the submitted m15 OBS job now resolves
 `../exe_frozen/cmf_flux.exe` when present, and future
 `run_model_grid.py` submissions freeze `cmf_flux.exe` beside
-`cmfgen_dev.exe` and write both hashes to `exe_frozen/PROVENANCE.txt`.
+`cmfgen_dev.exe` and write both hashes to `exe_frozen/PROVENANCE.txt`
+(pipeline commit `d97d735a`; OBS template commit `09caf83`).
 The active m15 run has OBS sha256
 `5610e11e16e92aa64102a864f30195f486c4b038caa69fcceb1c59954cc7316b`; the
 pending OBS job therefore remains on the audited binary and does not
