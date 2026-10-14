@@ -713,6 +713,51 @@ cmfgen/40.00days/plots/X_SOB_40.00days_obs_spectrum.png). The DIF=T
 spectrum was not preserved (outputs copy overwritten), so a direct
 boundary-sensitivity diff is not available.
 
+## OBS_FRAME diffusion inner boundary (14-Oct-2026)
+
+Job 12191101 (X_SOB 40d) carries two flag-gated fixes that restored
+the observer-frame luminosity, which had been ~170x below OBSFLUX:
+
+1. **Luminosity-consistent DTDR in `cmf_flux_sub_v5.f`.** The OBS
+   code recomputed `DTDR=(T(ND)-T(ND-1))/(R(ND-1)-R(ND))` from the
+   local T gradient. The X_SOB base T decreases inwards, so DTDR<0
+   and `DBB<0`; the local `DBB=1E-99` floor then zeroed
+   `DBC=DBB*sqrt(...)/CHI(ND)` in `FQCOMP_IBC_V2`, starving the
+   atmosphere of boundary flux. Under `DO_NONMONO_SOB` a negative
+   DTDR is now replaced by the population-solve value derived from
+   `STARS_LUM`:
+   `DTDR = LUM*7.2685E11*ROSS_MEAN(ND) / (7.218771E11*R(ND)^2*T(ND)^3)`
+   (`ROSS_MEAN`, `STARS_LUM` from `MOD_CMF_OBS`). Verified: gives
+   4.36E-8 vs the population solve's 5.36E-8 (~20%, Rosseland
+   approximation). Guarded: needs `ROSS_MEAN(ND)>0` and
+   `STARS_LUM>0`, else falls through to the existing `DBB<0` guard.
+
+2. **Eddington boundary seed + hollow-core override in
+   `obs_frame_sub_v9.f`.** `OBS_FRAME_SUB_V9` now takes
+   `IB_J_CMF(NCF)`, `IB_H_CMF(NCF)` (J and H at R(ND) on the CMF
+   grid, stored per-frequency in `cmf_flux_sub_v5.f` as
+   `IB_J_CMF_ST=RJ(ND)`, `IB_H_CMF_ST=HFLUX_AT_IB=DBB/(3*CHI(ND))`)
+   and flag `DO_IB_DIFF_FLUX` (passed as `DO_NONMONO_SOB.AND.DIF`;
+   `obs_frame_v2.f` passes zeroed dummies + .FALSE.). When set:
+   - `HOLLOW_CORE` is forced .FALSE. -- this was the load-bearing
+     fix. Stock `HOLLOW_CORE=(V(ND)>100 .AND. TAU_ES(ND)<TAU_MAX)`
+     was true (tau_ES~0.08 at the base although Rosseland tau~99):
+     core rays then cross a zero-emission cavity to the far side and
+     the boundary seed branch is never reached.
+   - A core ray that runs to the inner boundary
+     (`SM_NRAY=NRAY`, i.e. not truncated at TAU_MAX) is seeded with
+     `I(mu)=J+3*mu*H` interpolated to the ray comoving frequency,
+     with the `NU_ON_NU0^3` rel correction, instead of
+     `PAR_FLUX=ETA_VEC(SM_NRAY)` (local source only).
+
+   Verified on job 12191101: pass-1 `IP_DATA` bolometric rose from
+   ~1.2E6 to 1.99E8 Lsun; `obs_fin_10` = 2.00E8 Lsun vs `OBSFLUX`
+   2.16E8 and injected `STARS_LUM` 2.29E8 (~93% conserved). FIR
+   obs_fin/OBSFLUX ~0.9, optical ~2 (line emission on top).
+
+Stock behaviour is unchanged: `DO_IB_DIFF_FLUX` is F unless
+`DO_NONMONO_SOB.AND.DIF`, and `obs_frame_v2.f` always passes F.
+
 ## Runtime record
 
 - **m15 2.82d** (`dessart_m15_2p82d_SOB.yaml`, job 12001805): stable

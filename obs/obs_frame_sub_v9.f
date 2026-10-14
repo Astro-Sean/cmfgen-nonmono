@@ -8,7 +8,8 @@
 	1            MAX_DEL_V_RES_ZONE,
 	1            TAU_MAX,ES_DTAU,N_INS_OBS,INT_METHOD,
 	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
-	1            DO_REL_CORRECTIONS,PLANE_PARALLEL)
+	1            DO_REL_CORRECTIONS,PLANE_PARALLEL,
+	1            IB_J_CMF,IB_H_CMF,DO_IB_DIFF_FLUX)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
@@ -116,6 +117,18 @@
 !
 	LOGICAL DO_REL_CORRECTIONS
 	LOGICAL PLANE_PARALLEL
+!
+! Diffusion inner-boundary moments on the CMF frequency grid: IB_J_CMF is
+! J and IB_H_CMF the Eddington flux H at R(ND).  When DO_IB_DIFF_FLUX is
+! set, a ray that reaches the inner boundary is seeded with the Eddington
+! boundary intensity I(mu) = J + 3*mu*H instead of the local source
+! function, so the injected luminosity is carried through envelopes that
+! are optically thin along the ray.  When .FALSE. the arrays are not
+! referenced and the routine behaves as the stock version.
+!
+	REAL(KIND=LDP) IB_J_CMF(NCF)
+	REAL(KIND=LDP) IB_H_CMF(NCF)
+	LOGICAL DO_IB_DIFF_FLUX
 !
 !       Vectors defined along a ray. HALF_DZ, DZSQ_ON_12, and RECIP_DEL_Z are used
 !       to minimize computations.
@@ -347,6 +360,15 @@
 	END DO
 	HOLLOW_CORE=.FALSE.
 	IF(V(ND) .GT. 100.0_LDP .AND. TAU_ES(ND) .LT. TAU_MAX)HOLLOW_CORE=.TRUE.
+!
+! With DO_IB_DIFF_FLUX the interior is a radiating boundary, not an
+! empty cavity: TAU_ES is not a measure of the total optical depth
+! here (continuum tau at the base is >> TAU_MAX although tau_ES is
+! small).  Core rays must terminate at R(ND) so that the diffusion
+! inner-boundary intensity is injected below; otherwise they cross a
+! zero-emission cavity and the injected luminosity is lost.
+!
+	IF(DO_IB_DIFF_FLUX)HOLLOW_CORE=.FALSE.
 !
 ! 2* since ray can extend across whole atmosphere. The 2TAU_MAX/ES_DTAU is
 ! for the insertion of extra continuum points if DTAU_ES > ES_DTAU (for
@@ -1090,6 +1112,26 @@
 !
 	      ELSE
 	        PAR_FLUX=ETA_VEC(SM_NRAY)	!Ray is thick!
+	        IF(DO_IB_DIFF_FLUX .AND. SM_NRAY .EQ. NRAY)THEN
+!
+! The ray ran to the inner boundary without hitting TAU_MAX.  The local
+! source function alone omits the luminosity that must stream through the
+! boundary: in the diffusion limit the incident outward intensity is
+! I(mu) = J + 3*mu*H, evaluated here at the ray point's comoving
+! frequency.  Rays truncated at TAU_MAX keep the source function; the
+! incident term there is attenuated by e^-TAU_MAX anyway.
+!
+	          K=INDX(SM_NRAY)
+	          J=STRT_INDX_CMF(OUT_ML)+K-1
+	          T1=OBS_FREQ(ML)*(1.0_LDP-VMU_RAY(SM_NRAY))*GAM_RAY(SM_NRAY)
+	          T2=(T1-SM_FREQ_CMF(K))/(SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K))
+	          T3=T2*(IB_J_CMF(J-1)-IB_J_CMF(J))+IB_J_CMF(J)
+	          T4=T2*(IB_H_CMF(J-1)-IB_H_CMF(J))+IB_H_CMF(J)
+	          T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	          PAR_FLUX=T3+3.0_LDP*T1*T4
+	          IF(DO_REL_CORRECTIONS)
+	1            PAR_FLUX=PAR_FLUX*NU_ON_NU0_RAY(SM_NRAY)**3
+	        END IF
 	      END IF
 	      DO I=IEND-1,IST,-1
 	        PAR_FLUX=PAR_FLUX*A0(I)+ (

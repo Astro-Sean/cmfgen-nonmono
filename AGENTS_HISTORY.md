@@ -2774,3 +2774,36 @@ unchanged (KN_ORD_AA=F default); no other exits or caps touched.
 
 Compile: production ifort flags, clean.  Runtime test pending on the
 warm-restart arm off the it8 stall checkpoint.
+
+## 14-Oct-2026 - X_SOB OBS_FRAME luminosity fix (verified)
+
+Observer-frame spectrum (obs_fin_10) was ~170x below OBSFLUX
+(7E6 vs 2.2E8 Lsun bolometric; FIR worst at ~400x). Two flag-gated
+fixes in obs/, gated on DO_NONMONO_SOB.AND.DIF:
+
+1. cmf_flux_sub_v5.f: local DTDR=(T(ND)-T(ND-1))/(R(ND-1)-R(ND)) is
+   negative for the inward-decreasing base T; the DBB=1E-99 floor then
+   zeroed DBC and starved the boundary. Under DO_NONMONO_SOB a negative
+   DTDR is replaced by the population-solve value derived from
+   STARS_LUM via the Rosseland integral (DTDR=4.36E-8 vs population
+   5.36E-8).
+2. obs_frame_sub_v9.f: new args IB_J_CMF/IB_H_CMF (J,H at R(ND) on the
+   CMF grid, stored from RJ(ND) and HFLUX_AT_IB=DBB/(3*CHI(ND))) plus
+   DO_IB_DIFF_FLUX. When set, HOLLOW_CORE is forced F (tau_ES(ND)~0.08
+   was classifying the radiating interior as an empty cavity so core
+   rays crossed it with zero seed), and a core ray reaching the
+   boundary (SM_NRAY=NRAY) is seeded I(mu)=J+3*mu*H.
+
+Verified on OBS job 12191101: IP_DATA pass-1 1.24E6 -> 1.99E8 Lsun;
+obs_fin_10 bolometric 2.00E8 vs OBSFLUX 2.16E8 (93%); FIR ratio ~0.9,
+optical ~2. The spectrum is still far too red: 91% of the luminosity
+escapes longward of 1 um because FIX_T=T holds the gas at ~3000 K and
+the injected luminosity free-streams through the FIR-transparent
+envelope; the observed optical continuum needs a ~9e3 K photosphere.
+INC_SHOCK_POWER + temperature release (IN_ITS pins DO_T_AUTO=F) is
+the remaining lever; deferred pending user decision.
+
+Temporary diagnostics used during the hunt (IB_DATA dump, RAY_DIAG
+per-ray dump, IB_CNT seed counter) were removed after verification;
+the diff is ~90 lines across cmf_flux_sub_v5.f, obs_frame_sub_v9.f,
+obs_frame_v2.f.

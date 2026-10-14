@@ -91,6 +91,13 @@
 	INTEGER NOS
 	REAL(KIND=LDP), ALLOCATABLE :: OBS_FREQ(:)
 	REAL(KIND=LDP), ALLOCATABLE :: OBS_FLUX(:)
+!
+! OBS_FRAME_SUB_V9 takes optional diffusion inner-boundary moments; the
+! standalone driver has no flux data, so these are dummies and the flag
+! is passed .FALSE.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: IB_J_CMF(:)
+	REAL(KIND=LDP), ALLOCATABLE :: IB_H_CMF(:)
 ! 
 !
 	EXTERNAL ERROR_LU,SPEED_OF_LIGHT
@@ -494,6 +501,13 @@
 !
 	TMP_LOG=.FALSE.
 	IF(NP .LT. NC+4)TMP_LOG=.TRUE.                  !Indicates plane-parallel
+	ALLOCATE (IB_J_CMF(NCF),IB_H_CMF(NCF),STAT=I)
+	IF(I .NE. 0)THEN
+	  WRITE(LUER,*)'Error in OBS_FRAME_V2: unable to allocate IB_CMF'
+	  STOP
+	END IF
+	IB_J_CMF(:)=0.0_LDP
+	IB_H_CMF(:)=0.0_LDP
 	CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
 	1            R,V,T,ED,ND,NCF,
 	1            P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
@@ -501,7 +515,8 @@
 	1            MAX_DEL_V_RES_ZONE,OBS_TAU_MAX,OBS_ES_DTAU,
 	1            N_INS_OBS,OBS_INT_METHOD,
 	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
-	1            DO_REL_IN_OBSFRAME,TMP_LOG)
+	1            DO_REL_IN_OBSFRAME,TMP_LOG,
+	1            IB_J_CMF,IB_H_CMF,L_FALSE)
 	CALL TUNE(3,' ')
 !
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)

@@ -216,6 +216,8 @@
 	REAL(KIND=LDP), ALLOCATABLE :: ETA_CMF_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: CHI_CMF_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: RJ_CMF_ST(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: IB_J_CMF_ST(:)	!J at inner boundary
+	REAL(KIND=LDP), ALLOCATABLE :: IB_H_CMF_ST(:)	!H at inner boundary
 	REAL(KIND=LDP), ALLOCATABLE :: RAY_CMF_ST(:,:)			!Rayleigh scattering opacity
 	REAL(KIND=LDP), ALLOCATABLE :: DUST_CMF_ST(:,:)			!Dust scattering
 	REAL(KIND=LDP), ALLOCATABLE :: ION_LINE_FORCE(:,:)
@@ -1173,6 +1175,8 @@
 	ALLOCATE (ETA_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (CHI_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (RJ_CMF_ST(ND,NCF),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE (IB_J_CMF_ST(NCF),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE (IB_H_CMF_ST(NCF),STAT=IOS)
 	IF(IOS .EQ. 0 .AND. INCL_RAY_SCAT)ALLOCATE(RAY_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0 .AND. INCL_DUST)ALLOCATE(DUST_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
@@ -1196,6 +1200,27 @@
 	END DO
 !
 	DTDR=(T(ND)-T(ND-1))/(R(ND-1)-R(ND))
+!
+! With DO_NONMONO_SOB the interacting-SN temperature can decrease
+! inwards at the base, making this local gradient negative.  The
+! population solve does not use it at the boundary: it derives DTDR
+! from the requested luminosity so that the diffusion boundary
+! condition carries the injected flux (LUM = R^2 * chi * integral of
+! dB_nu/dT dnu * DTDR, cf. cmfgen_sub).  Reproduce that here from the
+! stored Rosseland mean, since the frequency integral is only
+! accumulated inside the ML loop below:  integral(dB_nu/dT/chi dnu)
+! = 7.2188e11*T^3/ROSS_MEAN.  A non-positive DTDR without valid
+! Rosseland data falls through unchanged so the COMP_JCONT_V4 guard
+! below still catches it.
+!
+	IF(DO_NONMONO_SOB .AND. DTDR .LT. 0.0_LDP)THEN
+	  IF(ROSS_MEAN(ND) .GT. 0.0_LDP .AND. STARS_LUM .GT. 0.0_LDP)THEN
+	    DTDR=STARS_LUM*7.2685E+11_LDP*ROSS_MEAN(ND)/
+	1       (7.218771E+11_LDP*R(ND)*R(ND)*(T(ND)**3))
+	    WRITE(LUER,*)
+	1      'DO_NONMONO_SOB: using luminosity-derived DTDR at IB =',DTDR
+	  END IF
+	END IF
 ! 
 !
 ! Decide whether to use an file with old J values to provide an initial
@@ -1848,6 +1873,8 @@
 	  CHI_CMF_ST(1:ND,ML)=CHI(1:ND)
 	END IF
 	RJ_CMF_ST(1:ND,ML)=RJ(1:ND)
+	IB_J_CMF_ST(ML)=RJ(ND)
+	IB_H_CMF_ST(ML)=HFLUX_AT_IB
 !
 10000	CONTINUE
 	T1=1.0D0; WRITE(LU_EDD,REC=FINISH_REC)T1
@@ -2180,7 +2207,8 @@
 	1            MAX_DEL_V_RES_ZONE,OBS_TAU_MAX,OBS_ES_DTAU,
 	1            N_INS_OBS,OBS_INT_METHOD,
 	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
-	1            DO_REL_IN_OBSFRAME,TMP_LOG)
+	1            DO_REL_IN_OBSFRAME,TMP_LOG,
+	1            IB_J_CMF_ST,IB_H_CMF_ST,DO_NONMONO_SOB .AND. DIF)
 !
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
 	  WRITE(STRING,'(I10)')N_OBS
@@ -2574,7 +2602,8 @@
 	1            MAX_DEL_V_RES_ZONE,OBS_TAU_MAX,OBS_ES_DTAU,
 	1            N_INS_OBS,OBS_INT_METHOD,
 	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
-	1            DO_REL_IN_OBSFRAME,TMP_LOG)
+	1            DO_REL_IN_OBSFRAME,TMP_LOG,
+	1            IB_J_CMF_ST,IB_H_CMF_ST,DO_NONMONO_SOB .AND. DIF)
 	  CALL TUNE(2,'OBS_FRAME_SOB')
 !
 	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
