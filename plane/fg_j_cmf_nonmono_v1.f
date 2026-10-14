@@ -896,6 +896,7 @@
 !
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
+	INTEGER KN_DUMP_NS
 !
 ! Local variables.
 !
@@ -3721,6 +3722,7 @@ C
 	1        MAXVAL(I_M(1:NI_RAY(LS),LS),
 	2        MASK=I_M(1:NI_RAY(LS),LS) .EQ. I_M(1:NI_RAY(LS),LS)))
 	    END DO
+	    KN_DUMP_NS=0
 	    DO K=1,ND
 	      KC=COMP_DEPTH_IDX(K)
 	      IF(KC .GE. 1)THEN
@@ -3743,6 +3745,22 @@ C
 	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS))
 	2                FG_GS_NCONV=FG_GS_NCONV+1
 	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/T2)
+!
+! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store.  A
+! cell whose freshly solved intensity still differs from the stored
+! value by >25% after relaxation cycles is part of the residual
+! floor that holds the field above GS_UNSAFE_TOL.
+!
+	              IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
+	1               0.25_LDP .AND.
+	2               MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS) .AND.
+	3               KN_DUMP_NS .LT. 2000)THEN
+	                KN_DUMP_NS=KN_DUMP_NS+1
+	                WRITE(LUER,'(A,I6,A,I4,A,I4,A,I5,4(A,ES11.4))')
+	1               ' KNSTOR P f=',FREQ_IDX_ITER,' r=',LS,' k=',K,
+	2               ' i=',I,' st=',T2,' sv=',T1,' rel=',
+	3               ABS(T1-T2)/T2,' sig=',SIGMA_TRUE_IN(K)
+	              END IF
 	            ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IP(LS))THEN
 	              FG_GS_NCONV=FG_GS_NCONV+1
 	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,1.0_LDP)
@@ -3769,6 +3787,16 @@ C
 	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS))
 	2                FG_GS_NCONV=FG_GS_NCONV+1
 	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/T2)
+	              IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
+	1               0.25_LDP .AND.
+	2               MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS) .AND.
+	3               KN_DUMP_NS .LT. 2000)THEN
+	                KN_DUMP_NS=KN_DUMP_NS+1
+	                WRITE(LUER,'(A,I6,A,I4,A,I4,A,I5,4(A,ES11.4))')
+	1               ' KNSTOR M f=',FREQ_IDX_ITER,' r=',LS,' k=',K,
+	2               ' i=',I,' st=',T2,' sv=',T1,' rel=',
+	3               ABS(T1-T2)/T2,' sig=',SIGMA_TRUE_IN(K)
+	              END IF
 	            ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IM(LS))THEN
 	              FG_GS_NCONV=FG_GS_NCONV+1
 	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,1.0_LDP)
@@ -5545,6 +5573,9 @@ C
 !
 	INTEGER, PARAMETER :: NC_PNT_SRCE_L=2
 !
+	INTEGER LUER,ERROR_LU
+	EXTERNAL ERROR_LU
+	INTEGER KN_DUMP_N
 	INTEGER NI,NCF
 	INTEGER I,K,KC,L,JPT,IOS
 	INTEGER, ALLOCATABLE :: IKC1(:),IKC2(:),JPR1(:),JPR2(:),IGRD(:)
@@ -5616,6 +5647,8 @@ C
 	NXIT=-1; IXIT_M=-1; IXIT_P=-1
 	RES_M=0.0_LDP; RES_P=0.0_LDP; NP_M=0; NP_P=0
 	DIVERGED=.FALSE.
+	LUER=ERROR_LU()
+	KN_DUMP_N=0
 	NI=NI_RAY(LS)
 	NCF=KN_NCF
 	IF(NI .LT. 2 .OR. NCF .LT. 2)RETURN
@@ -6371,6 +6404,23 @@ C
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+!
+! KN_DUMP: per-cell record of late-pass residual outliers.  Cells
+! still changing >20% past the transient passes form the
+! non-contractive set that pins the maturity gate; the record
+! carries the coupling context so failing modes can be classified
+! offline.  Capped per ray so a pathological solve cannot flood
+! the log.
+!
+	          IF(PRINT_KNOP_DEBUG .AND. T1 .GT. 0.2_LDP .AND.
+	1           NPO .GE. 8 .AND. KN_DUMP_N .LT. 2000)THEN
+	            KN_DUMP_N=KN_DUMP_N+1
+	            WRITE(LUER,'(A,I4,A,I4,A,I5,A,I5,4(A,ES11.4),3(A,I4))')
+	1           ' KNDUMP p=',NPO,' r=',LS,' j=',J,' l=',L,
+	2           ' res=',T1,' vo=',VOLD,' vn=',VNEW,
+	3           ' gam=',GAM(J,LS),' jp1=',JPR1(J),' jp2=',JPR2(J),
+	4           ' nfm=',NFM_L(J)
+	          END IF
 	        END IF
 	        FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	      END DO
@@ -6449,6 +6499,15 @@ C
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	          IF(PRINT_KNOP_DEBUG .AND. T1 .GT. 0.2_LDP .AND.
+	1           NPO .GE. 8 .AND. KN_DUMP_N .LT. 2000)THEN
+	            KN_DUMP_N=KN_DUMP_N+1
+	            WRITE(LUER,'(A,I4,A,I4,A,I5,A,I5,4(A,ES11.4),3(A,I4))')
+	1           ' KNDUMP p=',NPO,' r=',LS,' j=',J,' l=',L,
+	2           ' res=',T1,' vo=',VOLD,' vn=',VNEW,
+	3           ' gam=',GAM(J,LS),' jp1=',JPR1(J),' jp2=',JPR2(J),
+	4           ' nfm=',NFM_L(J)
+	          END IF
 	        END IF
 	        FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	      END DO
