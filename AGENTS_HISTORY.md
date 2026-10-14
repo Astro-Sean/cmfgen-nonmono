@@ -2984,3 +2984,27 @@ as job 12204057 and `dessart_m15_2p82d_KNOP_MOM_probe`
 (MOM_J_CMF_NONMONO_V1 warm-restart probe, covers the AUDIT-1/2/3
 refresh path and MOM_TRIAL_LAM) as job 12204071, OBS 12204072.
 Both on the interactive partition; results pending.
+
+## 14-Oct-2026 (part 3) - Point-source irradiated 350 d SN A ejecta (PNT_SRCE)
+
+New pipeline feature, no Fortran changes. `configs/point_source_sn_a.yaml`
+(SN2024pba commit d958f034) submits `point_source_sn_a`: the
+SN_A_g_T20k_Ni06 ejecta converted at 50.227 d and aged to 350 d by
+`scripts/age_sn_hydro_data.py` (ballistic expansion R -> R + V*dt with
+mass-conserving dilution, velocity monotonised at the 3950 km/s
+reversal, Ni56 -> Co56 -> Fe56 decayed from the .xni initial profile).
+An artificial inner point source heats the old ejecta:
+`IB_METH=PNT_SRCE` + `PNT_SRCE=T` with `R_PNT=1.098D4 Rsun`
+(7.6e14 cm, inside the 6.8e15 cm inner cavity) and `TEFF_PNT=0.7`
+(L = 4 pi R^2 sigma T^4 = 1e42 erg/s = 2.61e8 Lsun, also stamped into
+LSTAR for RLUMST).  Standard solver: SOL_METH=TRI (NUM_BNDS=3),
+GLOBAL_LINE=BLANK, FIX_T=F + FIX_T_AUTO=T so the gas T responds to the
+irradiation (new `cmfgen.solve_temperature` YAML opt-in gates the
+hydro-T pin in prepare_VADAT.py/apply_profile and the skip_final
+VADAT pin in run_model_grid.py).  `is_luminous_inner_boundary` now
+counts PNT_SRCE so the dead-boundary guard does not reject it.
+
+Frozen exe hash 0d8fa5b4ecea4048 (git f7562919) - stock PNT_SRCE path,
+unchanged binary.  Jobs: CMFGEN 12204418, OBS 12204419 (afterok).
+ND=140, tau_es(inner)=0.38 - optically thin ejecta, source flux mostly
+transmitted/reprocessed.  Results pending.
