@@ -435,6 +435,55 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # DO_BA_RES_REUSE opt-in keys parse and land.
+    d = write_vadat(
+        WORKDIR / "vadat_reuse",
+        {
+            "DO_BA_RES_REUSE": "T",
+            "BA_REUSE_TOL": "8.0D-1",
+            "BA_REUSE_NSTALL": "3",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_BA_RES_REUSE keys parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("DO_BA_RES_REUSE") == "T"
+        and abs(float(v.get("BA_REUSE_TOL", "nan").replace("D", "E")) - 0.8)
+        < 1e-12
+        and v.get("BA_REUSE_NSTALL") == "3",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # DO_BA_RES_REUSE=T without DO_BA_RES_ACC warns (inert, not fatal).
+    d = write_vadat(
+        WORKDIR / "vadat_reuse_noacc",
+        {"DO_BA_RES_REUSE": "T", "DO_BA_RES_ACC": "F"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_BA_RES_REUSE without resacc warns but parses",
+        "RESULT_OK" in p.stdout
+        and "DO_BA_RES_REUSE=T has no effect" in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # Defaults: reuse off, tol 0.9, nstall 2.
+    d = write_vadat(WORKDIR / "vadat_reuse_def", {})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "BA_RES_REUSE defaults (F / 0.9 / 2)",
+        "RESULT_OK" in p.stdout
+        and v.get("DO_BA_RES_REUSE") == "F"
+        and abs(float(v.get("BA_REUSE_TOL", "nan").replace("D", "E")) - 0.9)
+        < 1e-12
+        and v.get("BA_REUSE_NSTALL") == "2",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # RLOC defaults to zero so the legacy V-space path stays live.
     d = write_vadat(WORKDIR / "vadat_rloc_def", {})
     p = run_vadat(exe, d)

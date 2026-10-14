@@ -213,7 +213,22 @@
 ! and stops the run (MOM_dbg it31: "cant read BA File").
 !
 	LOGICAL, SAVE :: BA_MATRIX_STORED=.FALSE.
+	LOGICAL, SAVE :: PREV_COMPUTE_ENT=.FALSE.
 	LOGICAL LAMBDA_ENT,COMPUTE_ENT
+!
+! BA_REUSE_STALL counts consecutive judged recall steps (armed
+! steps committed under a recalled matrix) whose RES2 ratio
+! exceeded BA_REUSE_TOL -- the stored BA matrix stopped producing
+! meaningful contraction.  A flat judgment on a fresh-matrix step
+! does not count: rebuilding an already-current matrix cannot fix
+! a hard nonlinear step.  At BA_REUSE_NSTALL the FIX_BA override
+! below forces one rebuild.  SUM_FIRED records that the MAXCH_SUM
+! drift trigger fired this call: accumulated population movement
+! large enough to invalidate the linearization is not overridden
+! by residual evidence.
+!
+	INTEGER, SAVE :: BA_REUSE_STALL=0
+	LOGICAL SUM_FIRED
 !
 ! ITER_LEG_DONE prints the ITER_SUM field legend once per process.
 ! The *_ST strings carry the per-row [OK]/[WARN]/[BAD]/[HELD]
@@ -328,6 +343,8 @@
 !
 	  NG_CLEAN=0
 	  NG_DEFERRED=.FALSE.
+	  BA_REUSE_STALL=0
+	  PREV_COMPUTE_ENT=.FALSE.
 	  BAACC_RDLAM_PROBE_ARM=.FALSE.
 	  BAACC_RDLAM_PROBE=.FALSE.
 	END IF
@@ -1744,6 +1761,7 @@
 	IF(.NOT. LAMBDA_ENT .AND. COMPUTE_ENT .AND. WRBAMAT)
 	1   BA_MATRIX_STORED=.TRUE.
 !
+	SUM_FIRED=.FALSE.
 	IF(N_ITS_TO_FIX_BA .GT. 0 .AND. .NOT. LAMBDA_ITERATION)THEN
 	  IF(COMPUTE_BA)THEN
 	    CNT_FIX_BA=0
@@ -1761,6 +1779,7 @@
 	    MAXCH_SUM=0.0_LDP
 	    COMPUTE_BA=L_TRUE
 	    WRBAMAT=WRBAMAT_RDIN
+	    SUM_FIRED=.TRUE.
 	  END IF
 !
 ! This will force BA to be recomuted again, after N_ITS_TO_FIX_BA, because T was variable
@@ -1791,6 +1810,61 @@
 	1          .AND. CON_SCL_T .EQ. 0.0_LDP)THEN
 	    WRBAMAT=.TRUE.
 	  END IF
+	END IF
+!
+! edited by Devin, 15-Oct-2026: residual-driven BA recall
+! ([DO_BA_RES_REUSE], default F; requires DO_BA_RES_ACC).  The
+! legacy scheme reads staleness from the demanded correction
+! (MAXCH_CTRL <= VAL_FIX_BA): demand mixes refused (masked or
+! trust-capped) demand with real demand, so it cannot tell a stale
+! Jacobian from a stiff iterate.  The resacc judgment is the direct
+! measure: an armed step whose RES2 ratio BA_JUDGE_RATIO stayed
+! <= BA_REUSE_TOL contracted against the stored linearization and
+! supports one more recall, even above the VAL_FIX_BA demand
+! threshold.  BA_REUSE_NSTALL consecutive stalled judgments force
+! one rebuild.  Rejection and the MAXCH_SUM drift trigger (both
+! above) still force COMPUTE_BA=T and are honored here via
+! BA_REJ_THIS/BA_PART_WAS/SUM_FIRED -- the residual test can only
+! extend recall, never veto a rebuild.  Recall still requires a
+! stored matrix (BA_MATRIX_STORED, cleared on grid revision),
+! WRBAMAT_RDIN, a non-LAMBDA next call, and CON_SCL_T=0.  The
+! recall assignment is a hard L_FALSE like the FIX_BA recall above:
+! COMPUTE_BARDIN is the COMP_BA VADAT value (T in production), so
+! assigning it here would leave COMPUTE_BA=T and silently defeat
+! the flag.
+!
+	IF(DO_BA_RES_REUSE .AND. DO_BA_RES_ACC)THEN
+	  IF(BA_JUDGED .AND. .NOT. JFNK_THIS .AND.
+	1     .NOT. PREV_COMPUTE_ENT .AND.
+	2     BA_JUDGE_RATIO .GT. BA_REUSE_TOL)THEN
+	    BA_REUSE_STALL=BA_REUSE_STALL+1
+	  ELSE IF(BA_JUDGED .AND. .NOT. JFNK_THIS .AND.
+	1     BA_JUDGE_RATIO .LE. BA_REUSE_TOL)THEN
+	    BA_REUSE_STALL=0
+	  END IF
+	  IF(BA_REUSE_STALL .GE. BA_REUSE_NSTALL)THEN
+	    COMPUTE_BA=L_TRUE
+	    WRBAMAT=WRBAMAT_RDIN
+	    BA_REUSE_STALL=0
+	    CALL APPEND_ITER_REASON(ITER_REASON,'ba_reuse_stall')
+	    IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(LUER,'(A,I4)')' BA_RES_REUSE: stall limit reached;'//
+	2    ' rebuilding BA matrix at it',MAIN_COUNTER
+	  ELSE IF(.NOT. LAMBDA_ITERATION .AND. .NOT. SUM_FIRED
+	1     .AND. .NOT. JFNK_THIS .AND. BA_MATRIX_STORED
+	2     .AND. WRBAMAT_RDIN .AND. WRBAMAT
+	3     .AND. .NOT. BA_REJ_THIS .AND. .NOT. BA_PART_WAS
+	4     .AND. CON_SCL_T .EQ. 0.0_LDP
+	5     .AND. ((BA_JUDGED .AND. BA_JUDGE_RATIO .LE. BA_REUSE_TOL)
+	6     .OR. MAXCH_CTRL .LT. VAL_FIX_BA))THEN
+	    COMPUTE_BA=L_FALSE
+	    IF(CONV_DIAG_LVL .GE. 2 .AND. BA_JUDGED .AND.
+	1     MAXCH_CTRL .GE. VAL_FIX_BA)
+	2    WRITE(LUER,'(A,ES10.2,A,I5)')
+	3    ' BA_RES_REUSE: recall on judged contraction, ratio=',
+	4    BA_JUDGE_RATIO,' at it',MAIN_COUNTER
+	  END IF
+	  PREV_COMPUTE_ENT=COMPUTE_ENT
 	END IF
 !
 !	IF(T_MIN_BA_EXTRAP)COMPUTE_BA=.TRUE.

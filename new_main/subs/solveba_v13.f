@@ -16,7 +16,8 @@
 	9     BA_PART_THIS,BA_REJ_FRAC,BA_NREJ_SOFT,BA_SOFT_THIS,
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
-	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC
+	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
+	2     BA_JUDGED,BA_JUDGE_RATIO
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -238,6 +239,14 @@
 	  END IF
 	  BA_PART_THIS=.FALSE.
 	  BA_SE_RES=0.0_LDP
+!
+! Per-call adjudication telemetry for the residual-driven recall
+! policy [DO_BA_RES_REUSE] in SOLVE_FOR_POPS: reset each call so a
+! deferred judgment (GS_POPS_HELD) or a call with no armed step
+! leaves the flags false rather than replaying an old verdict.
+!
+	  BA_JUDGED=.FALSE.
+	  BA_JUDGE_RATIO=1.0_LDP
 	  RES_LOC(1)=1
 	  RES_LOC(2)=1
 	  COL_RES(1:ND)=0.0_LDP
@@ -502,6 +511,27 @@
 	    REJ_STATE=REJ_MAX .OR. REJ_BULK
 	  END IF
 	  WLD_REJ=REJ_STATE .OR. REJ_PART
+!
+! Export the verdict of the armed step adjudicated this call for
+! the residual-driven recall policy [DO_BA_RES_REUSE].  The RES2
+! (rank) channel is the contraction measure: it is the bulk veto
+! channel already, so a persistent degenerate floor cannot fake
+! progress or fake a stall.  The column scan clamps nonfinite
+! entries to HUGE, so a post-step residual at the clamp reads as a
+! stall, as does growth from a zero pre-step base.
+!
+	  IF(BAACC_PENDING)THEN
+	    BA_JUDGED=.TRUE.
+	    IF(BA_SE_RES2 .GE. 0.5_LDP*HUGE(1.0_LDP))THEN
+	      BA_JUDGE_RATIO=HUGE(1.0_LDP)
+	    ELSE IF(BAACC_RES2_PREV .GT. 0.0_LDP)THEN
+	      BA_JUDGE_RATIO=BA_SE_RES2/BAACC_RES2_PREV
+	    ELSE IF(BA_SE_RES2 .GT. 0.0_LDP)THEN
+	      BA_JUDGE_RATIO=HUGE(1.0_LDP)
+	    ELSE
+	      BA_JUDGE_RATIO=0.0_LDP
+	    END IF
+	  END IF
 !
 ! edited by Devin, 07-Oct-2026: progress exemption for the
 ! consecutive-rejection streak.  A masked or soft-judged step

@@ -1292,6 +1292,30 @@
 	LOGICAL :: BAACC_RDLAM_PROBE_ARM=.FALSE.
 	LOGICAL :: BAACC_RDLAM_PROBE=.FALSE.
 !
+! DO_BA_RES_REUSE (default FALSE, VADAT [DO_BA_RES_REUSE]):
+! residual-driven BA-matrix recall policy, active only with
+! DO_BA_RES_ACC.  The legacy FIX_BA scheme reads staleness from the
+! demanded correction (MAXCH_CTRL <= VAL_FIX_BA); demand mixes
+! refused (masked or trust-capped) demand with real demand, so it
+! cannot distinguish a stale Jacobian from a stiff iterate.  This
+! policy instead reads the resacc judgment: an armed step whose
+! measured RES2 ratio BA_JUDGE_RATIO <= BA_REUSE_TOL (default 0.9,
+! i.e. at least 10% contraction, VADAT [BA_REUSE_TOL]) contracted
+! meaningfully against the stored linearization and supports one
+! more recall; BA_REUSE_NSTALL (default 2, VADAT
+! [BA_REUSE_NSTALL]) consecutive judged steps without meaningful
+! contraction force a rebuild.  Rejections and the MAXCH_SUM drift
+! trigger still force COMPUTE_BA=T -- the residual test can only
+! extend recall, it can never veto a rebuild those paths demand.
+! BA_JUDGED/BA_JUDGE_RATIO are written by SOLVEBA_V13 when an armed
+! step is adjudicated; they are internal state, not VADAT keys.
+!
+	LOGICAL DO_BA_RES_REUSE
+	REAL(KIND=LDP) BA_REUSE_TOL
+	INTEGER BA_REUSE_NSTALL
+	LOGICAL BA_JUDGED
+	REAL(KIND=LDP) BA_JUDGE_RATIO
+!
 ! NG_ABSTAIN (default FALSE, VADAT [NG_ABSTAIN]): when T,
 ! NG_MIT_BAND_OPT_V1 holds (rather than vetoes) any component whose
 ! newest stored difference is zero -- a resacc-restored or otherwise

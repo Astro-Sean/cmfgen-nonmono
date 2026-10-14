@@ -1732,6 +1732,33 @@
 	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
 	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')
 !
+! Residual-driven BA recall (default FALSE): while the judged
+! residual still contracts, allow BAMAT recall past the FIX_BA
+! demand window.  Inert without DO_BA_RES_ACC, which supplies the
+! residual measurements; warn rather than alter the flag so the
+! VADAT echo stays truthful.
+!
+	  DO_BA_RES_REUSE=.FALSE.
+	  CALL RD_STORE_LOG(DO_BA_RES_REUSE,'DO_BA_RES_REUSE',L_FALSE,
+	1     'Recall stored BA matrix while resacc steps still'//
+	2     ' contract the SE residual')
+	  BA_REUSE_TOL=0.9_LDP
+	  CALL RD_STORE_DBLE(BA_REUSE_TOL,'BA_REUSE_TOL',L_FALSE,
+	1     'RES2 ratio above which a judged recall step counts'//
+	2     ' as stalled')
+	  IF(BA_REUSE_TOL .LT. 0.0_LDP)BA_REUSE_TOL=0.0_LDP
+	  IF(BA_REUSE_TOL .GT. 1.0_LDP)BA_REUSE_TOL=1.0_LDP
+	  BA_REUSE_NSTALL=2
+	  CALL RD_STORE_INT(BA_REUSE_NSTALL,'BA_REUSE_NSTALL',L_FALSE,
+	1     'Consecutive stalled judged steps before forcing a'//
+	2     ' fresh BA matrix')
+	  IF(BA_REUSE_NSTALL .LT. 1)BA_REUSE_NSTALL=1
+	  BA_JUDGED=.FALSE.
+	  BA_JUDGE_RATIO=1.0_LDP
+	  IF(DO_BA_RES_REUSE .AND. .NOT. DO_BA_RES_ACC)
+	1    WRITE(LUER,*)'Warning: DO_BA_RES_REUSE=T has no effect'//
+	2    ' without DO_BA_RES_ACC.'
+!
 ! Legacy keys retained so existing VADAT files remain readable.  Shock
 ! deposition makes inner/outer luminosity agreement unsuitable for
 ! convergence control; both values are diagnostic-only.
