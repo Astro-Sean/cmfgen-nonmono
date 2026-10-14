@@ -2990,11 +2990,13 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
             m_dist = re.search(r"(?m)^\s*setenv\s+cmfdist\s+(\S+)", patched)
             dist_dir = m_dist.group(1) if m_dist else None
         if dist_dir:
+            import hashlib
+            import datetime
+
+            frozen_dir = cmfgen_dir / "exe_frozen"
+            provenance = []
             src_exe = Path(dist_dir) / "exe" / exe_name
             if src_exe.is_file():
-                import hashlib
-                import datetime
-                frozen_dir = cmfgen_dir / "exe_frozen"
                 frozen_dir.mkdir(exist_ok=True)
                 dst_exe = frozen_dir / exe_name
                 tmp_exe = frozen_dir / (exe_name + ".tmp")
@@ -3004,11 +3006,13 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                     ["git", "-C", str(src_exe.parents[1]), "rev-parse", "--short", "HEAD"],
                     capture_output=True, text=True,
                 ).stdout.strip()
-                (frozen_dir / "PROVENANCE.txt").write_text(
-                    f"source: {src_exe}\n"
-                    f"sha256[:16]: {hashlib.sha256(dst_exe.read_bytes()).hexdigest()[:16]}\n"
-                    f"git HEAD at freeze: {git_rev}\n"
-                    f"frozen at: {datetime.datetime.now().isoformat(timespec='seconds')}\n"
+                provenance.extend(
+                    [
+                        f"solver source: {src_exe}",
+                        f"solver sha256[:16]: {hashlib.sha256(dst_exe.read_bytes()).hexdigest()[:16]}",
+                        f"solver git HEAD at freeze: {git_rev}",
+                        f"solver frozen at: {datetime.datetime.now().isoformat(timespec='seconds')}",
+                    ]
                 )
                 patched = re.sub(
                     r"(?m)^setenv\s+CMFGEN_PROG\s+\S+\s*$",
@@ -3016,6 +3020,32 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                     patched,
                 )
                 print(f"  Froze solver binary: {dst_exe} (git {git_rev or 'n/a'})")
+
+            obs_src_exe = Path(dist_dir) / "exe" / "cmf_flux.exe"
+            if obs_src_exe.is_file():
+                frozen_dir.mkdir(exist_ok=True)
+                obs_dst_exe = frozen_dir / "cmf_flux.exe"
+                obs_tmp_exe = frozen_dir / "cmf_flux.exe.tmp"
+                shutil.copy2(obs_src_exe, obs_tmp_exe)
+                os.replace(obs_tmp_exe, obs_dst_exe)
+                obs_git_rev = subprocess.run(
+                    ["git", "-C", str(obs_src_exe.parents[1]), "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True,
+                ).stdout.strip()
+                provenance.extend(
+                    [
+                        f"obs source: {obs_src_exe}",
+                        f"obs sha256[:16]: {hashlib.sha256(obs_dst_exe.read_bytes()).hexdigest()[:16]}",
+                        f"obs git HEAD at freeze: {obs_git_rev}",
+                        f"obs frozen at: {datetime.datetime.now().isoformat(timespec='seconds')}",
+                    ]
+                )
+                print(f"  Froze OBS binary: {obs_dst_exe} (git {obs_git_rev or 'n/a'})")
+
+            if provenance:
+                (frozen_dir / "PROVENANCE.txt").write_text(
+                    "\n".join(provenance) + "\n"
+                )
         if patched != text:
             batch_sh.write_text(patched)
             print(
