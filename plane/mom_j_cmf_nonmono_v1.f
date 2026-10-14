@@ -264,6 +264,7 @@
 	REAL(KIND=LDP), SAVE :: MOM_MAX_COH=0.0_LDP
 	REAL(KIND=LDP), SAVE :: MOM_MAX_GAM=0.0_LDP
 	REAL(KIND=LDP), SAVE :: MOM_MAX_SIGT=0.0_LDP
+	INTEGER*8, SAVE :: MOM_N_SIGBIG=0
 !
 ! Sweep-level maturity metrics: MOM_KNOP_REFRESH_V1 overwrites the
 ! MOM_GS_* counters with its per-pass map residuals, so the values the
@@ -1604,6 +1605,7 @@
 	  MOM_MAX_COH=0.0_LDP
 	  MOM_MAX_GAM=0.0_LDP
 	  MOM_MAX_SIGT=0.0_LDP
+	  MOM_N_SIGBIG=0
 	  MOM_LAGB_CNT=0
 	  MOM_LAGB_MIN=1.0_LDP
 	END IF
@@ -3010,6 +3012,13 @@
 	MOM_MAX_GAM=MAX(MOM_MAX_GAM,MAXVAL(ABS(GAM_NM(1:ND_NM))))
 	MOM_MAX_SIGT=MAX(MOM_MAX_SIGT,
 	1    MAXVAL(ABS(SIGMA_TRUE_NM(1:ND_NM))))
+! Depths with |sigma|>1E4 sit above the K_ON_J floor's reach: K is
+! bounded below at 1E-4, so a true K<1/|sigma| is clipped up and
+! 1+sigma*K keeps the compressing sign but a clipped magnitude.
+! Counting them shows whether the clip ever acts on real depths
+! (it can only over-flag compression, never suppress it).
+	MOM_N_SIGBIG=MOM_N_SIGBIG+
+	1    COUNT(ABS(SIGMA_TRUE_NM(1:ND_NM)) .GT. 1.0E+4_LDP)
 !
 	XM_SAVE_NM=XM_NM
 	GT_DL(1:ND_NM-1)=TA_NM(2:ND_NM)
@@ -3856,9 +3865,10 @@
 	WRITE(LUER,'(4X,A10,1X,A,ES10.3,A,I5,A,I5,A,1X,A,ES10.3)')
 	1    'eq resid','max=',MOM_EQ_RES,' at(',MOM_EQ_RES_I,',',
 	2    MOM_EQ_RES_L,')','max ESEC/CHI-1=',MOM_MAX_COH
-	WRITE(LUER,'(4X,A10,1X,A,ES10.3,1X,A,ES10.3,1X,A,I10)')
+	WRITE(LUER,'(4X,A10,1X,A,ES10.3,1X,A,ES10.3,1X,A,I10,1X,A,I10)')
 	1    'params','max|GAM|=',MOM_MAX_GAM,'max|sigT|=',
-	2    MOM_MAX_SIGT,'HBC floors=',MOM_BND_HBC_FL
+	2    MOM_MAX_SIGT,'HBC floors=',MOM_BND_HBC_FL,
+	3    'nsigT>1e4=',MOM_N_SIGBIG
 	WRITE(LUER,'(4X,A10,1X,A,I6,A,I6,A,1X,A,I10)')
 	1    'misc','argmax(d,f)=(',MOM_GS_ARGI,',',MOM_GS_ARGL,')',
 	2    'NCF=',MOM_GS_NCF
@@ -4816,6 +4826,7 @@
 	  MOM_MAX_COH=0.0_LDP
 	  MOM_MAX_GAM=0.0_LDP
 	  MOM_MAX_SIGT=0.0_LDP
+	  MOM_N_SIGBIG=0
 	  MOM_LAGB_CNT=0
 	  MOM_LAGB_MIN=1.0_LDP
 !
