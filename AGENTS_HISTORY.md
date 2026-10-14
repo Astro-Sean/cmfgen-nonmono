@@ -2936,3 +2936,17 @@ remains open: `obs_fin_10` integrates to ~1.94E9 Lsun versus `OBSFLUX`
 4.27E8 Lsun input scale and still requires bolometric normalization and
 Luc-spectrum review before production use. `DO_SOB_LINE_ES` stays
 experimental and is not production default.
+
+A/B diagnosis (14-Oct-2026): an identical zlaw14 render with
+`DO_SOB_LINE_ES=F` (interactive job 12198986) produced essentially the
+same line morphology as the ES-on render, so the missing Luc emission
+is not caused by the post-line ES update. The inherited zlaw14
+populations were computed with `FIX_T_AUTO=T`/`DO_T_AUTO=T`: OUTGEN
+shows progressive FIX_T_AUTO release to alpha=1.0, and the Ne/T
+comparison gives input T=12666-86666 K vs CMFGEN T=18430-60908 K.
+A fixed-T `VEL_LAW=14` population run was therefore submitted
+(FINAL 12199124 -> OBS 12199125) using
+`warm_restart_population_only`, `FIX_T=T`, `FIX_T_AUTO=F`,
+`DO_T_AUTO=F`, `DO_GT_AUTO=F`, `IT_ON_T=F`, `DIF=T`,
+`IB_METH=DIFFUSION`, `USE_LAM_ES=T`, `SOL_METH=DIAG`,
+`GLOBAL_LINE=SOB`, and `DO_JFNK=T`.
