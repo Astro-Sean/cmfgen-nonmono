@@ -8,7 +8,20 @@
 # $ATOMIC must be set (e.g. in environment or before sourcing/calling ../batch.sh).
 #
 
-setenv PROG_CMF_OBS   $cmfdist/exe/cmf_flux.exe
+if ( $?CMF_OBS_EXE ) then
+  if ( "$CMF_OBS_EXE" != "" ) then
+    if ( -x "$CMF_OBS_EXE" ) then
+      setenv PROG_CMF_OBS   $CMF_OBS_EXE
+    else
+      echo "ERROR: CMF_OBS_EXE is set but not executable: $CMF_OBS_EXE"
+      exit 1
+    endif
+  else
+    setenv PROG_CMF_OBS   $cmfdist/exe/cmf_flux.exe
+  endif
+else
+  setenv PROG_CMF_OBS   $cmfdist/exe/cmf_flux.exe
+endif
 
 # ***********************************************************************
 # Get MASS from ../VADAT
@@ -92,6 +105,7 @@ rm -f error.log
 
 echo "Machine name is :" > 'batobs.log'
 uname -a >> 'batobs.log'
+echo "CMF_FLUX executable: $PROG_CMF_OBS" >> 'batobs.log'
 
 echo " " >> 'batobs.log'
 echo "Program started on:" >> 'batobs.log'
