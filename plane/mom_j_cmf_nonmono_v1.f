@@ -4108,9 +4108,12 @@
 ! The NITSF tag check is skipped (meaningless mid-run); the same R/V
 ! endpoint + expanded-grid (R_NM/R_PNT_NM) fingerprint the INIT restore
 ! uses guards against a foreign checkpoint or a post-dump grid revision.
-! On failure the in-memory field is left untouched: a stale store after
-! a pops rollback is no worse than the pops-only rollback the caller
-! falls back to.
+! A failure before the J record is read leaves the in-memory field
+! untouched -- a stale store after a pops rollback is no worse than
+! the pops-only rollback the caller falls back to.  A failure after
+! the J record can leave the store partially overwritten, so that
+! path invalidates and zeroes it (label 920): the next sweep
+! rebuilds it from the restored populations.
 !
 	SUBROUTINE RESTORE_MOM_JNEXT_LATEST(OK)
 	USE SET_KIND_MODULE
@@ -4171,19 +4174,19 @@
 	IF(IOS .NE. 0)GOTO 900
 !
 	READ(292,IOSTAT=IOS)J_NEXT_FRQ
-	IF(IOS .NE. 0)GOTO 900
+	IF(IOS .NE. 0)GOTO 920
 	IF(VER .EQ. 4)THEN
-	  IF(.NOT. ALLOCATED(H_NEXT_FRQ))GOTO 900
+	  IF(.NOT. ALLOCATED(H_NEXT_FRQ))GOTO 920
 	  READ(292,IOSTAT=IOS)H_NEXT_FRQ
-	  IF(IOS .NE. 0)GOTO 900
+	  IF(IOS .NE. 0)GOTO 920
 	END IF
 	READ(292,IOSTAT=IOS)ENDM
-	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 900
+	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 920
 !
 	IF(ANY(.NOT.(ABS(J_NEXT_FRQ) .LE. HUGE(1.0_LDP))) .OR.
-	1   ANY(J_NEXT_FRQ .LT. 0.0_LDP))GOTO 900
+	1   ANY(J_NEXT_FRQ .LT. 0.0_LDP))GOTO 920
 	IF(ALLOCATED(H_NEXT_FRQ))THEN
-	  IF(ANY(.NOT.(ABS(H_NEXT_FRQ) .LE. HUGE(1.0_LDP))))GOTO 900
+	  IF(ANY(.NOT.(ABS(H_NEXT_FRQ) .LE. HUGE(1.0_LDP))))GOTO 920
 	END IF
 	CLOSE(292)
 	J_NEXT_VALID=.TRUE.
@@ -4203,6 +4206,18 @@
 910	CONTINUE
 	IF(ALLOCATED(RNM_F))DEALLOCATE(RNM_F)
 	IF(ALLOCATED(RPNT_F))DEALLOCATE(RPNT_F)
+	GOTO 900
+920	CONTINUE
+! A failed read after J_NEXT_FRQ was touched can leave the
+! store partially overwritten -- it is no longer the caller's
+! pre-call state either way, so invalidate and zero it (same
+! fallback as the init restore) rather than return a corrupt
+! field flagged valid.
+!
+	J_NEXT_VALID=.FALSE.
+	IF(ALLOCATED(J_NEXT_FRQ))J_NEXT_FRQ=0.0_LDP
+	IF(ALLOCATED(H_NEXT_FRQ))H_NEXT_FRQ=0.0_LDP
+	GOTO 900
 900	CONTINUE
 	INQUIRE(UNIT=292,OPENED=FILE_THERE)
 	IF(FILE_THERE)CLOSE(292)
