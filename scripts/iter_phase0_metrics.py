@@ -65,8 +65,11 @@ RE_SOFT = re.compile(r"soft rejects=\s*(\d+)")
 RE_NG_FAIL = re.compile(r"Error performing NG acceleration")
 RE_AV = re.compile(r"Averaging of oscilating")
 RE_LUMSTAR = re.compile(
-    r"Luminosity of star \(d=1,ND\)\(iteration\s+(\d+)\) is:\s+(\S+)\s+(\S+)"
+    r"Luminosity of star \(d=1,ND\)\(iteration\s+(\d+)\) is:"
+    r"\s+(\S+)(?:\s+\(outer\))?\s+(\S+)"
 )
+RE_BA_REUSE_RECALL = re.compile(r"BA_RES_REUSE: recall on judged")
+RE_BA_REUSE_STALL = re.compile(r"BA_RES_REUSE: stall limit")
 RE_FG_CALLS = re.compile(
     r"Average number of calls to FG_J_CMF is\s+(\S+)"
 )
@@ -127,6 +130,8 @@ def parse_outgen(path):
         "av_done": 0,
         "bamat_recall": 0,
         "bamat_recompute": 0,
+        "ba_reuse_recall": 0,
+        "ba_reuse_stall": 0,
     }
     pending_rej_partial = False
     pending_rej_full = False
@@ -196,7 +201,8 @@ def parse_outgen(path):
             m = RE_LUMSTAR.search(line)
             if m:
                 r = row(int(m.group(1)))
-                r.lum_inner, r.lum_outer = _f(m.group(2)), _f(m.group(3))
+                # RLUMST(1) is the outer boundary, RLUMST(ND) inner.
+                r.lum_outer, r.lum_inner = _f(m.group(2)), _f(m.group(3))
                 continue
             m = RE_FG_CALLS.search(line)
             if m and cur_it is not None:
@@ -237,6 +243,12 @@ def parse_outgen(path):
                 continue
             if RE_BAMAT_RECOMPUTE.search(line):
                 events["bamat_recompute"] += 1
+                continue
+            if RE_BA_REUSE_RECALL.search(line):
+                events["ba_reuse_recall"] += 1
+                continue
+            if RE_BA_REUSE_STALL.search(line):
+                events["ba_reuse_stall"] += 1
                 continue
             if pending_rej_full:
                 pending_rej_full = False
@@ -308,6 +320,8 @@ def main():
     print(f"AV averaging events      : {events['av_done']}")
     print(f"BAMAT recalls / fallback recomputes: "
           f"{events['bamat_recall']} / {events['bamat_recompute']}")
+    print(f"BA_RES_REUSE recalls / stall rebuilds: "
+          f"{events['ba_reuse_recall']} / {events['ba_reuse_stall']}")
     print(f"total iteration time [s] : {total_t:.1f}")
 
     if args.csv:
