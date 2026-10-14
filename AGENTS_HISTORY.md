@@ -2807,3 +2807,36 @@ Temporary diagnostics used during the hunt (IB_DATA dump, RAY_DIAG
 per-ray dump, IB_CNT seed counter) were removed after verification;
 the diff is ~90 lines across cmf_flux_sub_v5.f, obs_frame_sub_v9.f,
 obs_frame_v2.f.
+
+## 14-Oct-2026 (part 2) - FIX_T=T enforced as pipeline policy
+
+User directive: input SN_HYDRO_DATA temperatures come from the
+hydrodynamic simulation and are authoritative; CMFGEN must not iterate
+or auto-release T on any run. Enforcement points:
+
+- prepare_VADAT.py apply_profile(): stamps FIX_T=T/FIX_T_AUTO=F after
+  vadat_overrides, warns on any conflicting request.
+- prepare_VADAT.py final override pass (same block that strips FIX_NE):
+  strips FIX_T, FIX_T_AUTO, DO_T_AUTO, DO_GT_AUTO when set to a
+  non-fixed value, with a WARNING.
+- prepare_VADAT.py IT_SPECIFIER writer: bare FULL cycles rewritten to
+  FULL(FIXT) -- SPECIFY_IT_CYCLE_V3 sets FIXED_T=.FALSE. for a bare
+  FULL, which would bypass VADAT entirely.
+- run_model_grid.py apply_fixed_j_workflow_overrides(): the J-release
+  phase no longer injects FIX_T=F/FIX_T_AUTO=T, and the on-node VADAT
+  rewrite in the generated j_release slurm no longer flips FIX_T.
+- run_model_grid.py: warns when cmfgen.do_gt_auto=true is set (dead
+  under FIX_T=T).
+- prepare_IN_INTS.py: an explicit --gt-auto can no longer force
+  DO_GT_AUTO=T when FIX_T=T.
+- The stable convergence-mode profile tables no longer carry
+  FIX_T=F/FIX_T_AUTO=T (dead under the policy).
+- X_SOB.yaml corrected: FIX_T_AUTO=T/DO_T_AUTO=T -> F/F.
+
+JFNK_FIXT auto-aligns to FIX_T in prepare_VADAT so it stays T with no
+separate guard. Verified: apply_profile stamps T/F over a FIX_T=F
+override for both profiles and both convergence modes; override strip
+removes FIX_T/FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=T requests while letting
+benign FIX_T=T through; IT_SPECIFIER rewrite covers FULL and
+FULL(FIXBA). Vault note added in 'VADAT keys.md'; policy documented in
+top-level AGENTS.md section 23.

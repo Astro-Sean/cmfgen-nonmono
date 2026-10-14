@@ -131,7 +131,17 @@ not recompute SOB line rates.
   grey floor and wrecks the start. Keep `IT_ON_T=F`.
 - `DIF` + `IB_METH`: `DIFFUSION` when inner tau ~30+ (m15 SOB);
   `ZERO_FLUX` for thin inner boundary (KNOP m15 config).
-- `FIX_T=T` + `FIX_T_AUTO=F`: hold hydro T (snapshot runs).
+- `FIX_T=T` + `FIX_T_AUTO=F`: hold hydro T. Since 14-Oct-2026 this is
+  a hard pipeline policy, not a default: `apply_profile` stamps both
+  keys after `vadat_overrides`, the final override pass strips
+  `FIX_T`/`FIX_T_AUTO`/`DO_T_AUTO`/`DO_GT_AUTO` requests for a
+  non-fixed value with a warning, IT_SPECIFIER `FULL` cycles are
+  rewritten to `FULL(FIXT)`, and the fixed-J workflow J-release no
+  longer requests FIX_T=F. A bare `DO_T_AUTO=T`/`do_gt_auto` in YAML
+  prints a warning and is ignored. Rationale: the input models rely
+  on the hydrodynamic temperature; a CMFGEN T release would replace
+  it with a radiative-equilibrium T that is inconsistent with the
+  staged hydro -> CMFGEN division of labour.
 - `FIX_NE=F`: let charge conservation set Ne.
 - `COH_ES=F`: non-coherent electron scattering. The Type IIn OBS
   preparation carries this through, enforces `NUM_ES>=2`, and expands
