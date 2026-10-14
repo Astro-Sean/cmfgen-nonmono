@@ -87,13 +87,13 @@
 	INTEGER JFNK_N,JFNK_INFO,JFNK_ATTEMPT,II_F
 	LOGICAL APPLY_JFNK_UPDATE,JFNK_CATASTROPHIC
 	LOGICAL BASELINE_REBUILT,F0_OK,DO_JFNK_NOW
-	LOGICAL COMMITTED_BASELINE
+	LOGICAL COMMITTED_BASELINE,VERIF_REJECT
 	LOGICAL LAMBDA_SAVE,FIXED_T_SAVE,COMPUTE_BA_SAVE
 	LOGICAL WR_BA_INV_SAVE,WR_PRT_INV_SAVE
 	LOGICAL JFNK_LAG_FACTORS_OK
 	CHARACTER*20 TEMP_CHAR_SAVE
 	DOUBLE PRECISION F_INF,F_INF_INIT,F_W,F_W_INIT
-	DOUBLE PRECISION JFNK_TOL_ABS
+	DOUBLE PRECISION JFNK_TOL_ABS,F_APP
 	DOUBLE PRECISION, ALLOCATABLE :: BEST_X(:)
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
 	LOGICAL JFNK_REACH_OK
@@ -174,6 +174,7 @@
 	LUER=ERROR_LU()
 	JFNK_LAG_FACTORS_ACTIVE=.FALSE.
 	JFNK_LAG_FACTORS_READY=.FALSE.
+	VERIF_REJECT=.FALSE.
 	LAMBDA_SAVE=LAMBDA_A
 	FIXED_T_SAVE=FIXED_T
 	COMPUTE_BA_SAVE=COMPUTE_BA_A
@@ -1537,6 +1538,74 @@
 	      END IF
 	    END IF
 !
+! Verify the applied state against the frozen residual before the
+! commit is allowed to stand.  The Newton accept tests all ran on
+! unclipped iterates, so a heavily clipped commit would otherwise be
+! applied blind: x_app is reconstructed from the committed POPS (it
+! therefore includes every clip bound, floor, and skipped fixed row
+! exactly) and F(x_app) is compared with the entry residual.  A
+! committed state that does not beat |F|_w at entry is rolled back
+! atomically to POPS_PREV and the caller-mode BA fallback runs on the
+! restored state.  The coupled tier is skipped: one eval costs a
+! full formal sweep, and coupled commits already carry
+! JFNK_UNCONVERGED_COMMIT.
+!
+	    IF(.NOT. JFNK_COUPLED_LOC)THEN
+	      BLOCK
+	        DOUBLE PRECISION X_APP(JFNK_N),Y_APP(JFNK_N)
+	        INTEGER JA
+	        LOGICAL X_APP_OK
+	        X_APP_OK=.TRUE.
+	        DO K=1,ND
+	          DO J=1,NT
+	            JA=(K-1)*NT+J
+	            IF(jfnk_log_unknown)THEN
+	              IF(POPS(J,K) .GT. 0.0_LDP .AND.
+     1                 POPS_BASE(J,K) .GT. 0.0_LDP)THEN
+	                X_APP(JA)=LOG(DBLE(POPS(J,K))/DBLE(POPS_BASE(J,K)))
+	              ELSE
+	                X_APP(JA)=0.0D0
+	                X_APP_OK=.FALSE.
+	              END IF
+	            ELSE
+	              IF(POPS_BASE(J,K) .NE. 0.0_LDP)THEN
+	                X_APP(JA)=DBLE(POPS(J,K))/DBLE(POPS_BASE(J,K))-1.0D0
+	              ELSE
+	                X_APP(JA)=0.0D0
+	                X_APP_OK=.FALSE.
+	              END IF
+	            END IF
+	          END DO
+	        END DO
+	        IF(X_APP_OK)THEN
+	          CALL JFNK_RESIDUAL_V1(JFNK_N,X_APP,Y_APP)
+	          CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,Y_APP)
+	          CALL jfnk_ptc_strip_v1(JFNK_N,X_APP,Y_APP)
+	          F_APP=SQRT(JFNK_DOT_V1(JFNK_N,Y_APP,Y_APP))
+	          WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+     1          '    |F|_w at applied state    :',F_APP,
+     2          '   (entry',F_W_INIT,')'
+	        ELSE
+	          F_APP=F_W_INIT
+	        END IF
+	        IF(.NOT. X_APP_OK .OR. jfnk_resid_nbad .GT. 0 .OR.
+     1           .NOT. (F_APP .LT. F_W_INIT))THEN
+	          WRITE(LUER,'(A)')
+     1          '  JFNK: applied step did not improve the frozen'//
+     2          ' residual -- rolling back, caller-mode BA follows'
+	          POPS=POPS_PREV
+	          DO K=1,ND
+	            ED(K)=POPS(NT-1,K)
+	            T(K)=POPS(NT,K)
+	          END DO
+	          APPLY_JFNK_UPDATE=.FALSE.
+	          VERIF_REJECT=.TRUE.
+	        END IF
+	      END BLOCK
+	    END IF
+	  END IF
+	  IF(APPLY_JFNK_UPDATE)THEN
+!
 ! SOL = applied fractional change (same convention as SOLVEBA);
 ! MAXCH = 100*max|SOL|.
 !
@@ -1667,6 +1736,11 @@
 ! info=-2 is the reachability precheck skip: Newton never ran, so the
 ! admission cost ~one matvec.  Do not count it toward stagnation; the
 ! residual may become reachable at a later outer iterate.
+	    IF(VERIF_REJECT)THEN
+	      WRITE(LUER,'(A)')
+     1       '  JFNK: applied correction rejected by the'//
+     2       ' applied-state residual check; state restored to entry'
+	    END IF
 	    IF(JFNK_INFO .EQ. -2)THEN
 	      WRITE(LUER,'(A)')
 	1       '  JFNK: reachability gate skipped Newton;'//
