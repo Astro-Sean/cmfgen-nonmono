@@ -8,8 +8,17 @@
 # $ATOMIC must be set (e.g. in environment or before sourcing/calling ../batch.sh).
 #
 
-if ( -x ../exe_frozen/cmf_flux.exe ) then
-  setenv PROG_CMF_OBS   ../exe_frozen/cmf_flux.exe
+if ( $?CMF_OBS_EXE ) then
+  if ( "$CMF_OBS_EXE" != "" ) then
+    if ( -x "$CMF_OBS_EXE" ) then
+      setenv PROG_CMF_OBS   $CMF_OBS_EXE
+    else
+      echo "ERROR: CMF_OBS_EXE is set but not executable: $CMF_OBS_EXE"
+      exit 1
+    endif
+  else
+    setenv PROG_CMF_OBS   $cmfdist/exe/cmf_flux.exe
+  endif
 else
   setenv PROG_CMF_OBS   $cmfdist/exe/cmf_flux.exe
 endif
