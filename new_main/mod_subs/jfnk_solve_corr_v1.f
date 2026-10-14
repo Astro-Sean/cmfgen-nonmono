@@ -797,7 +797,8 @@
 	        IF(JROW .EQ. JFNK_NT)THEN
 	          IF(MOD_FIX_T_D_ST .GT. 0 .AND.
 	1          KROW .GE. MOD_FIX_T_D_ST .AND.
-	2          KROW .LE. MOD_FIX_T_D_END)THEN
+	2          KROW .LE. MOD_FIX_T_D_END .AND.
+	3          .NOT. JFNK_TAUTO_ACTIVE)THEN
 	          ELSE
 	            IF(Z_CLIP(I) .GT. X_T_MAX_R)THEN
 	              Z_CLIP(I)=X_T_MAX_R
@@ -1479,7 +1480,8 @@
 	      IF(.NOT. FIXED_T)THEN
 	        IF(MOD_FIX_T_D_ST .GT. 0 .AND.
 	1          K .GE. MOD_FIX_T_D_ST .AND.
-	2          K .LE. MOD_FIX_T_D_END)THEN
+	2          K .LE. MOD_FIX_T_D_END .AND.
+	3          .NOT. JFNK_TAUTO_ACTIVE)THEN
 	        ELSE
 	          T1=REAL(jfnk_x((K-1)*NT+NT),KIND=LDP)
 	          T1_RAW=T1
