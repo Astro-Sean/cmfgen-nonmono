@@ -40,6 +40,18 @@ build_*.out
 build_*.err
 build*.log
 knop_solver_files/
+
+# Local-only dirs (not synced to GitHub)
+*_solver_files/
+cmfgen_obsidian/
+
+# Python caches and test artifacts
+__pycache__/
+*.pyc
+unit_test/bin/
+unit_tests/bin/
+unit_tests/plots/
+unit_tests/work/
 tests/jfnk_core/test_newton_core
 tests/f90/mod/
 tests/f90/mod2/

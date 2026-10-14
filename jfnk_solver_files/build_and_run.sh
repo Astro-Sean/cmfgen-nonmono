@@ -1,1 +1,0 @@
-../tests/f90/build_and_run.sh
