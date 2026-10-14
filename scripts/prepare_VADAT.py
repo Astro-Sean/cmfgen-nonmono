@@ -164,15 +164,18 @@ def _parse_lstar_lsun(token):
 def is_luminous_inner_boundary(dif_val, ib_meth_val):
     """True only when the inner boundary transports the LSTAR flux.
 
-    DIF=T + IB_METH=DIFFUSION is the only combination that injects the
-    hydro luminosity at the inner edge.  ZERO_FLUX, HOLLOW and SCHUSTER
-    carry no net flux, so a luminous model converges with no energy
-    input (X_SOB 40d radiated ~9e39 erg/s against a header LSTAR of
-    8.8e41 erg/s; L=0 at both boundaries all 1692 iterations).
+    DIF=T + IB_METH=DIFFUSION injects the hydro luminosity at the inner
+    edge; IB_METH=PNT_SRCE injects the point-source blackbody instead
+    (both require a luminous header LSTAR for RLUMST normalisation).
+    ZERO_FLUX, HOLLOW and SCHUSTER carry no net flux, so a luminous
+    model converges with no energy input (X_SOB 40d radiated ~9e39 erg/s
+    against a header LSTAR of 8.8e41 erg/s; L=0 at both boundaries all
+    1692 iterations).
     """
-    return str(dif_val).strip().upper().startswith("T") and "DIFFUSION" in str(
-        ib_meth_val
-    ).strip().upper()
+    ib = str(ib_meth_val).strip().upper()
+    if "PNT_SRCE" in ib:
+        return True
+    return str(dif_val).strip().upper().startswith("T") and "DIFFUSION" in ib
 
 
 def check_inner_boundary_luminosity(
@@ -3721,6 +3724,7 @@ def apply_profile(
     num_isotopes: int = 0,
     depth_independent_solver: bool = True,
     user_overrides: Optional[dict] = None,
+    allow_t_release: bool = False,
 ) -> Tuple[List[str], int]:
     """
     Apply final VADAT profile for CMFGEN convergence run.
@@ -4307,7 +4311,17 @@ def apply_profile(
     # rely on the hydrodynamic temperature, and a CMFGEN T iteration or the
     # FIX_T_AUTO release would replace it with a radiative-equilibrium T.
     # This stamps over user_overrides, so vadat_overrides cannot release T.
+    # Exception: allow_t_release (cmfgen.solve_temperature) is the opt-in
+    # for irradiated-ejecta runs (e.g. PNT_SRCE inner source) where the
+    # artificial heating, not the hydro T, sets the thermal structure.
     for k, v in (("FIX_T", "T"), ("FIX_T_AUTO", "F")):
+        if allow_t_release and user_overrides and k in user_overrides:
+            ov = str(user_overrides[k]).strip().upper()
+            if ov != v:
+                changes.append(
+                    f"{k}: released to {user_overrides[k]} (solve_temperature)"
+                )
+            continue
         set_or_append_keyword(lines, k, v)
         if user_overrides and k in user_overrides:
             ov = str(user_overrides[k]).strip().upper()
@@ -4787,6 +4801,7 @@ def main() -> int:
     # Load VADAT overrides from YAML config if provided
     vadat_overrides = {}
     cmfgen_cfg = {}
+    allow_t_release = False
     depth_independent_solver = True  # default: DIAG (depth-independent)
     iteration_strategy = None  # IT_SPECIFIER content from YAML
     adjust_corrections = None  # ADJUST_CORRECTIONS content from YAML
@@ -4804,6 +4819,11 @@ def main() -> int:
                 config = yaml.safe_load(f)
             if config and 'cmfgen' in config:
                 cmfgen_cfg = config['cmfgen']
+                # cmfgen.solve_temperature: opt-in for models whose gas
+                # temperature must respond to an artificial energy source
+                # (PNT_SRCE point source).  Releases the FIX_T/FIX_T_AUTO
+                # hydro pin for keys the user sets in vadat_overrides.
+                allow_t_release = bool(cmfgen_cfg.get('solve_temperature', False))
                 if 'vadat_overrides' in cmfgen_cfg:
                     vadat_overrides = cmfgen_cfg['vadat_overrides']
                     print(f"  Loaded vadat_overrides from {config_path}: {list(vadat_overrides.keys())}")
@@ -5066,6 +5086,7 @@ def main() -> int:
             lines, profile, convergence_mode=args.convergence_mode, num_isotopes=n_iso,
             depth_independent_solver=depth_independent_solver,
             user_overrides=vadat_overrides if vadat_overrides else None,
+            allow_t_release=allow_t_release,
         )
         
         print_subheader("VADAT keywords: RT grid and velocity law")
@@ -5893,21 +5914,23 @@ def main() -> int:
             # (FIX_T=F, FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=T) would replace it
             # with a radiative-equilibrium T.  Strip any request for a
             # non-fixed value so this late re-application cannot undo the
-            # apply_profile stamp.
-            _t_pinned = {"FIX_T": "T", "FIX_T_AUTO": "F",
-                         "DO_T_AUTO": "F", "DO_GT_AUTO": "F"}
-            _t_strip = sorted(k for k in _t_pinned
-                              if k in vadat_overrides
-                              and str(vadat_overrides[k]).strip().upper()
-                                  != _t_pinned[k])
-            if _t_strip:
-                print(
-                    f"  WARNING: vadat_overrides {', '.join(_t_strip)} "
-                    f"rejected -- T is pinned to the hydro profile "
-                    f"(FIX_T=T, FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=F)."
-                )
-                vadat_overrides = {k: v for k, v in vadat_overrides.items()
-                                   if k not in _t_strip}
+            # apply_profile stamp.  Skipped when cmfgen.solve_temperature
+            # opts the model out of the pin (irradiated-ejecta runs).
+            if not allow_t_release:
+                _t_pinned = {"FIX_T": "T", "FIX_T_AUTO": "F",
+                             "DO_T_AUTO": "F", "DO_GT_AUTO": "F"}
+                _t_strip = sorted(k for k in _t_pinned
+                                  if k in vadat_overrides
+                                  and str(vadat_overrides[k]).strip().upper()
+                                      != _t_pinned[k])
+                if _t_strip:
+                    print(
+                        f"  WARNING: vadat_overrides {', '.join(_t_strip)} "
+                        f"rejected -- T is pinned to the hydro profile "
+                        f"(FIX_T=T, FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=F)."
+                    )
+                    vadat_overrides = {k: v for k, v in vadat_overrides.items()
+                                       if k not in _t_strip}
             final_overrides = update_keywords_in_lines(lines, vadat_overrides, numeric_format_like_old=True)
             # Also append any override keys that don't exist in the VADAT template
             existing = find_existing_keys(lines)

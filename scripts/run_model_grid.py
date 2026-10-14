@@ -3114,11 +3114,15 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         # Restore restart/output files
         for fname, (backup, tmpdir) in restart_backups.items():
             shutil.copy2(backup, cmfgen_dir / fname)
-            if fname == "VADAT":
+            if fname == "VADAT" and not (config.get("cmfgen") or {}).get(
+                "solve_temperature", False
+            ):
                 # skip_final resubmits reuse the previous VADAT without
                 # re-running prepare_VADAT, so the fixed-T stamps would not
                 # be re-applied. Pin them here so a VADAT written before the
                 # 14-Oct-2026 policy cannot keep FIX_T=F / FIX_T_AUTO=T.
+                # cmfgen.solve_temperature opts out (irradiated ejecta with
+                # a PNT_SRCE inner source needs T to respond to heating).
                 _pin_vadat_fixed_t(cmfgen_dir / fname)
             shutil.rmtree(tmpdir)
     else:
