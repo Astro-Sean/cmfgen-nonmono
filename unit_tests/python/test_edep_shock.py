@@ -196,6 +196,51 @@ def main():
     p = run_case(bins["new"], d, "F")
     rep.check("flags F: equal-V pair still completes (legacy)", "RESULT_OK" in p.stdout)
 
+    # -- radius-space deposition (RLOC) ---------------------------
+    # On the non-monotonic V grid, RLOC bypasses the V guards and
+    # deposits a Gaussian in radius.  Grid R is geomspace(1e5,1e3);
+    # pick RLOC inside the range.
+    rloc = 3.0e4
+    drloc = 1.0e4
+    d, r, vn, _ = write_input(WORKDIR / "edep_nonmono_r", v_mut=nonmono)
+    for mode, name in (("S", "DO_NONMONO_SOB"), ("K", "DO_NONMONO_KNOP")):
+        p = run(
+            bins["new"], mode, VLOC, DVLOC, PSP, "F", rloc, drloc,
+            cwd=d, check=False, timeout=30,
+        )
+        rep.check(
+            f"{name} + RLOC on nonmono V: completes",
+            "RESULT_OK" in p.stdout,
+            p.stdout[-300:],
+        )
+        arr, cmg = parse(p.stdout)
+        sp_r = arr[:, 1]
+        rep.check(
+            f"{name} + RLOC: argmax at |R-RLOC| min",
+            np.argmax(sp_r) == np.argmin(np.abs(r - rloc)),
+        )
+        wgt_r = np.exp(-(((r - rloc) / drloc) ** 2))
+        m = wgt_r > 1e-12
+        ratio = sp_r[m] / wgt_r[m]
+        rep.check(
+            f"{name} + RLOC: profile proportional to R-Gaussian",
+            np.abs(ratio - ratio.mean()).max() / ratio.mean() < 1e-6,
+        )
+        rep.check(
+            f"{name} + RLOC: CMFGEN power == prescribed",
+            cmg is not None and abs(cmg - PSP) / PSP < 1e-8,
+            f"got {cmg}",
+        )
+    # flags off + RLOC: radius deposition also works on stock path
+    p = run(
+        bins["new"], "F", VLOC, DVLOC, PSP, "F", rloc, drloc,
+        cwd=d, check=False, timeout=30,
+    )
+    rep.check(
+        "flags F + RLOC: completes on nonmono V (no V guards)",
+        "RESULT_OK" in p.stdout,
+    )
+
     # -- upstream guards still live --------------------------------
     d, *_ = write_input(WORKDIR / "edep_fcl0", fcl_mut=lambda x: x * 0.0)
     for tag in ("new", "ref"):

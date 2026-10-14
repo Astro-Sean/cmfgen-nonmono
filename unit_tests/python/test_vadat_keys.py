@@ -382,6 +382,54 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # MOM_TRIAL_LAM opt-in key parses and lands.
+    d = write_vadat(
+        WORKDIR / "vadat_mom_triallam",
+        {"MOM_TRIAL_LAM": "1.0D3"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_TRIAL_LAM key parses and lands",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("MOM_TRIAL_LAM", "nan").replace("D", "E")) - 1.0e3)
+        < 1e-9,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # RLOC/DRLOC opt-in keys parse and land.
+    d = write_vadat(
+        WORKDIR / "vadat_rloc",
+        {
+            "INC_SHOCK_POWER": "T",
+            "RLOC_SHOCK_POWER": "2.5D5",
+            "DRLOC_SHOCK_POWER": "5.0D4",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "RLOC_SHOCK_POWER/DRLOC_SHOCK_POWER keys parse and land",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("RLOC_SHOCK_POWER", "nan").replace("D", "E")) - 2.5e5)
+        < 1e-9
+        and abs(float(v.get("DRLOC_SHOCK_POWER", "nan").replace("D", "E")) - 5.0e4)
+        < 1e-9,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # RLOC defaults to zero so the legacy V-space path stays live.
+    d = write_vadat(WORKDIR / "vadat_rloc_def", {})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "RLOC_SHOCK_POWER defaults to 0 (V-space deposition)",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("RLOC_SHOCK_POWER", "nan").replace("D", "E")))
+        < 1e-30,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 

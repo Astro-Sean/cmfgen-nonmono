@@ -912,9 +912,33 @@
 	9   '  ntr=',N_TRIAL_ACC
 	    IF(MOM_TRIAL)THEN
 	      TRIAL_FIRED=.TRUE.
-	      IF(CONV_DIAG_LVL .GE. 1)
-	1     WRITE(LUER,'(A)')'      MOM field marginal: releasing'//
-	2      ' resacc-gated BA trial this iteration'
+	      IF(MOM_TRIAL_LAM .GT. 0.0_LDP .AND.
+	1      MAXCH .GT. MOM_TRIAL_LAM)THEN
+		IF(CONV_DIAG_LVL .GE. 1)
+	1       WRITE(LUER,'(A,ES10.3)')
+	2       '      MOM field marginal: demand beyond BA'//
+	3       ' validity -- releasing damped LAMBDA trial,'//
+	4       ' maxch=',MAXCH
+!
+! At 1E7-scale demand the resacc-gated BA step below is rejected
+! every time (the linearization extrapolates orders of magnitude
+! past validity; m15 KNOP warm looped release->blow-up->rollback).
+! The factor-3 LAMBDA probe is the same contractive step the
+! schedule takes on LAMBDA-mode releases; on this model it cut
+! the SE residual ~6x in one call.  No resacc arm rides on a
+! LAMBDA call, but the step cannot run away: its correction cap
+! is the near-mature limit the freeze path already uses.
+!
+		LAMBDA_ITERATION=.TRUE.
+		FIXED_T=.TRUE.
+		COMPUTE_BA=.TRUE.
+		TEMP_CHAR='DIAG'
+		T1=GS_LAM_CAP
+		CALL APPEND_ITER_REASON(ITER_REASON,'mom_trial_lam')
+	      ELSE
+		IF(CONV_DIAG_LVL .GE. 1)
+	1       WRITE(LUER,'(A)')'      MOM field marginal: releasing'//
+	2       ' resacc-gated BA trial this iteration'
 !
 ! The SOLVEBA call below uses the ENTRY LAMBDA_ITERATION/T1 -- the
 ! mode controller further down only sets the mode for the NEXT
@@ -922,12 +946,13 @@
 ! still take a LAMBDA solve (LAMBDA_IT=T keeps resacc disarmed) but
 ! with the entry T1=MAX_LAM_COR cap instead of GS_LAM_CAP.
 !
-	      LAMBDA_ITERATION=.FALSE.
-	      FIXED_T=.TRUE.
-	      COMPUTE_BA=.TRUE.
-	      TEMP_CHAR=METH_SOL
-	      T1=MAX_LIN_COR
-	      CALL APPEND_ITER_REASON(ITER_REASON,'mom_trial_release')
+		LAMBDA_ITERATION=.FALSE.
+		FIXED_T=.TRUE.
+		COMPUTE_BA=.TRUE.
+		TEMP_CHAR=METH_SOL
+		T1=MAX_LIN_COR
+		CALL APPEND_ITER_REASON(ITER_REASON,'mom_trial_release')
+	      END IF
 	    ELSE
 	    LAMBDA_ITERATION=.TRUE.
 	    FIXED_T=.TRUE.

@@ -109,8 +109,23 @@ C
 C
 C NB: GAM is the angle dependent SOBOLEV optical depth.
 C
+C
+C Dessart, Audit & Hillier (2015, arXiv:1503.05463) guard: for
+C sigma < 0 the factor |1+sigma*mu^2| (mu^2=Z^2/R^2) can vanish along a
+C ray, so the Sobolev optical depth is floored via
+C MAX(|1+sigma*mu^2|, -0.2*(1+sigma)); 1D-4 bounds the sigma=-1 case.
+C Inactive for sigma >= -1, so monotonic flows are unchanged.
+C Matches the guard already in SOBEW_GRAD_V2/V3 (this routine is not
+C currently called, but should not carry the unguarded form).
+C
 	    DO I=1,NI
-	      GAM(I)=GAMH(I)/(1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I))
+	      T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
+	      IF(SIGMA(I) .LT. 0.0_LDP)THEN
+	        T1=MAX(ABS(T1),-0.2_LDP*(1.0_LDP+SIGMA(I)),1.0D-4)
+	      ELSE
+	        T1=ABS(T1)
+	      END IF
+	      GAM(I)=GAMH(I)/T1
 	    END DO
 C
 	    IF(DIF .AND. LS .LE. NC)THEN
