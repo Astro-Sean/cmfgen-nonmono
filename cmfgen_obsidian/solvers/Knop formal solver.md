@@ -194,6 +194,42 @@ garbage filter at 1E3*||f||, with the per-cell cap and the rollback
 remaining the real safeguards.
 #status/unverified (built; runtime arm pending)
 
+### Per-cell period-2 damping: `KN_ORD_P2DAMP` (default F)
+
+Collapse of bounded lambda~-1 oscillations inside `SWEEP_FLD_ORD`.
+The whole-ray `KN_SGN_SUM` detector added in 0a207b1 keys on the
+signed residual sum over all significant cells, so a minority
+oscillating set is drowned by the contracting bulk - on the m15_2p82d
+kndump arm ~20 near-floor cells flip-flopped ~2x/~0.5x per pass for
+60+ iterations at a stable 0.53 max residual, and `OMEGA_RAY` never
+moved off 1.0.
+
+With `KN_ORD_P2DAMP=T` each significant cell (above the 1e-4 column
+floor) keeps the sign of its last update delta `(VNEW-VOLD)` across
+passes. After `KN_ORD_P2N` (default 2) consecutive sign flips the
+commit becomes the bracket midpoint - `sqrt(VOLD*VNEW)` when both
+endpoints are strictly positive (the observed flip is
+multiplicative, ratios ~0.475/2.1, so the geometric midpoint is the
+exact fixed point of the pure mode), `0.5*(VOLD+VNEW)` otherwise -
+until `KN_ORD_P2REL` (default 3) consecutive flip-free passes
+release the cell back to the relaxed update. The fixed point is
+unchanged: a midpoint inside the flip bracket is a bounded step of
+the same fixed-point problem, not a clamp to a target. State is
+three int*1 arrays (~3 B/cell) allocated per ray solve, so the
+~80 B/cell `KN_RF_TOT_MB` thread budget is effectively unchanged.
+The `nfm` slot does not need freezing: in the ordered march the
+compressing upwind offset is computed inline in `KN_ORD_SPV` from
+`DRF_L`/`KN_DLN_N` (static per cell), so the map is deterministic
+pass to pass.
+
+Diagnostics: per-ray `p2damped` write count accumulates into the
+per-iteration `p2damped writes=` line (flag-gated, so the F build
+prints nothing new), plus the worst-ray block. Validation arm:
+`dessart_m15_2p82d_KNOP_FORMAL_p2damp` warm-restarts the it136
+kndump checkpoint.
+
+#status/unverified (built; runtime arm pending)
+
 ### Stall threshold: `KN_RAY_STALL` (default 0.98)
 
 Same-direction residual ratio above which a pass counts toward the

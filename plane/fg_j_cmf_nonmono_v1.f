@@ -677,6 +677,22 @@
 	LOGICAL FG_ORD_AA
 	INTEGER FG_ORD_AA_M
 !
+! FG_ORD_P2DAMP: VADAT [KN_ORD_P2DAMP] (default F, set by
+! SET_FG_ORD_P2DAMP).  Per-cell period-2 collapse inside
+! SWEEP_FLD_ORD: after FG_ORD_P2N [KN_ORD_P2N, default 2]
+! consecutive sign flips of (VNEW-VOLD) at a significant cell, the
+! commit becomes the bracket midpoint -- sqrt(VOLD*VNEW) when both
+! endpoints are positive, 0.5*(VOLD+VNEW) otherwise -- which is the
+! exact fixed point of a pure multiplicative lambda=-1 mode and a
+! bounded step inside the bracket in general.  Releases after
+! FG_ORD_P2REL [KN_ORD_P2REL, default 3] flip-free passes.  The
+! state costs 3 B per cell as int*1 arrays, allocated per ray
+! solve, so the ~80 B/cell thread budget at KN_RF_TOT_MB is
+! effectively unchanged.
+!
+	LOGICAL FG_ORD_P2DAMP
+	INTEGER FG_ORD_P2N,FG_ORD_P2REL
+!
 ! KN_RAY_STALL: VADAT [KN_RAY_STALL] (default 0.98, set by
 ! SET_FG_STALL_LIM).  Same-direction residual ratio above which a
 ! pass counts toward the NSTALL early exit.  The 0.90 setting
@@ -720,6 +736,8 @@
 	DATA FG_ORD_AITKEN /.FALSE./
 	DATA FG_ORD_AA /.FALSE./
 	DATA FG_ORD_AA_M /2/
+	DATA FG_ORD_P2DAMP /.FALSE./
+	DATA FG_ORD_P2N /2/,FG_ORD_P2REL /3/
 	DATA KN_RAY_STALL /0.98_LDP/
 	DATA KN_AA_APP /0_8/,KN_AA_VETO /0_8/,KN_AA_REJ /0_8/,
 	1     KN_AA_SNG /0_8/
@@ -5266,6 +5284,18 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_ORD_P2DAMP(DO_P2,N_P2,REL_P2)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     FG_ORD_P2DAMP,FG_ORD_P2N,FG_ORD_P2REL
+	IMPLICIT NONE
+	LOGICAL DO_P2
+	INTEGER N_P2,REL_P2
+	FG_ORD_P2DAMP=DO_P2
+	FG_ORD_P2N=MAX(1,MIN(N_P2,100))
+	FG_ORD_P2REL=MAX(1,MIN(REL_P2,100))
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_STALL_LIM(T)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_STALL
@@ -5310,6 +5340,7 @@ C
 	INTEGER, ALLOCATABLE :: NNG_LS(:),NDV_LS(:),NMX_LS(:)
 	INTEGER, ALLOCATABLE :: NXT_LS(:)
 	INTEGER*8, ALLOCATABLE :: NBD_LS(:),NTT_LS(:),NMT_LS(:),NCM_LS(:)
+	INTEGER*8, ALLOCATABLE :: NP2_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
@@ -5380,11 +5411,11 @@ C
 	ALLOCATE(RES_LS(KN_NP),NST_LS(KN_NP),NPS_LS(KN_NP),
 	1   NCP_LS(KN_NP),NNG_LS(KN_NP),NBD_LS(KN_NP),NTT_LS(KN_NP),
 	2   NDV_LS(KN_NP),NMX_LS(KN_NP),NMT_LS(KN_NP),NCM_LS(KN_NP),
-	3   NXT_LS(KN_NP),STAT=IOS)
+	3   NXT_LS(KN_NP),NP2_LS(KN_NP),STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 	RES_LS=0.0_LDP
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
-	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1
+	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1; NP2_LS=0_8
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
@@ -5417,7 +5448,8 @@ C
 	DO LS=1,KN_NP
 	  CALL KNOP_RAY_SOLVE_V1(LS,RES_LS(LS),NST_LS(LS),
 	1    NPS_LS(LS),NCP_LS(LS),NNG_LS(LS),NBD_LS(LS),NTT_LS(LS),
-	2    NDV_LS(LS),NMT_LS(LS),NCM_LS(LS),NMX_LS(LS),NXT_LS(LS))
+	2    NDV_LS(LS),NMT_LS(LS),NCM_LS(LS),NMX_LS(LS),NXT_LS(LS),
+	3    NP2_LS(LS))
 	END DO
 !$OMP END PARALLEL DO
 	T1_W=OMP_GET_WTIME()-T0
@@ -5476,6 +5508,10 @@ C
 	1    '    AA: applied=',KN_AA_APP,' vetoed=',KN_AA_VETO,
 	2    ' rejected=',KN_AA_REJ,' solve-fail=',KN_AA_SNG
 	END IF
+	IF(FG_ORD_P2DAMP)THEN
+	  WRITE(LUER,'(A,I14)')
+	1    '    p2damped writes=',SUM(NP2_LS)
+	END IF
 !
 ! Temporary DO_NONMONO_KNOP diagnostic table.  The formal refresh can
 ! appear converged in aggregate while one ray remains tied to a long
@@ -5487,6 +5523,8 @@ C
 	1  ' FG-KNOP worst ray=',LS,' ni=',NI_RAY(LS)
 	WRITE(LUER,'(A,ES11.3,A,I4)')
 	1  '    residual=',RES_LS(LS),' passes=',NPS_LS(LS)
+	IF(FG_ORD_P2DAMP)WRITE(LUER,'(A,I14)')
+	1  '    p2damped=',NP2_LS(LS)
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    matched/compress=',SUM(NMT_LS),'/',SUM(NCM_LS)
 	WRITE(LUER,'(A,I6)')'    max offset=',MAXVAL(NMX_LS)
@@ -5547,7 +5585,7 @@ C
 	  DEALLOCATE(KN_HOT_CNT)
 	END IF
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
-	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS)
+	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS)
 	RETURN
 	END
 !
@@ -5562,13 +5600,13 @@ C
 ! ==============================================================================
 !
 	SUBROUTINE KNOP_RAY_SOLVE_V1(LS,RESID,NSTORE,NPASS,NCAP,NNEG,
-	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT)
+	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
 	IMPLICIT NONE
 !
 	INTEGER LS,NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
-	INTEGER*8 NBAD,NTOT,NMATCH,NCOMP
+	INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2
 	REAL(KIND=LDP) RESID
 !
 	INTEGER, PARAMETER :: NC_PNT_SRCE_L=2
@@ -5628,6 +5666,7 @@ C
 	REAL(KIND=LDP) VNEW,VOLD,INEXT_V
 	REAL(KIND=LDP) OMEGA_RAY,RES_PREV(2),RATIO_OM
 	INTEGER*8 NBAD_CUR,NTOT_CUR,NB_M,NB_P,NT_M,NT_P
+	INTEGER*8 NP2_CNT
 	INTEGER IDIR
 	INTEGER NP_M,NP_P
 ! Exit census of the two field solves: 0 exact (no compressing
@@ -5646,6 +5685,7 @@ C
 	NMATCH=0; NCOMP=0
 	NXIT=-1; IXIT_M=-1; IXIT_P=-1
 	RES_M=0.0_LDP; RES_P=0.0_LDP; NP_M=0; NP_P=0
+	NP2=0_8; NP2_CNT=0_8
 	DIVERGED=.FALSE.
 	LUER=ERROR_LU()
 	KN_DUMP_N=0
@@ -5876,6 +5916,7 @@ C
 	NTOT=NT_M+NT_P
 !
 900	CONTINUE
+	NP2=NP2_CNT
 	IF(ALLOCATED(CHI_L))THEN
 	  DEALLOCATE(CHI_L,ETA_L,DCHR_L,Q_L,SR_L,SP_L,S_L,DS_L,
 	1    DTAU_L,A0L,A1L,A2L,A3L,A4L,EEL,E0L,E1L,E2L,E3L,
@@ -6287,6 +6328,21 @@ C
 	LOGICAL DO_AA,AA_PEND,AA_OFF
 	EXTERNAL DGESV
 !
+! FG_ORD_P2DAMP (VADAT [KN_ORD_P2DAMP], default F): per-cell
+! period-2 collapse for the bounded lambda~-1 modes the whole-ray
+! KN_SGN_SUM detector cannot see (the m15_2p82d kndump run pinned
+! the gate at a stable 0.53 max residual on ~20 near-floor cells
+! flip-flopping ~2x/~0.5x per pass).  P2_SGN holds the sign of the
+! last update delta at each significant cell, P2_FLIP the
+! consecutive flip count, P2_DMP the damped state (0 = off,
+! 1..FG_ORD_P2REL = damped; counts flip-free passes until release).
+! int*1 keeps the per-ray state at 3 B/cell; allocated per solve
+! so each OMP thread owns its own copy.
+!
+	INTEGER*1, ALLOCATABLE :: P2_SGN(:,:),P2_FLIP(:,:),P2_DMP(:,:)
+	INTEGER*1 SGN_P
+	LOGICAL DO_P2
+!
 	NPO=0
 	NSTALL=0
 	NOSC=0
@@ -6324,6 +6380,17 @@ C
 	AA_OFF=.FALSE.
 	NH_AA=0
 	AA_REF=0.0_LDP
+!
+	DO_P2=FG_ORD_P2DAMP
+	IF(DO_P2)THEN
+	  ALLOCATE(P2_SGN(NI,NCF),P2_FLIP(NI,NCF),P2_DMP(NI,NCF),
+	1    STAT=IOS)
+	  IF(IOS .NE. 0)THEN
+	    DO_P2=.FALSE.
+	  ELSE
+	    P2_SGN=0_1; P2_FLIP=0_1; P2_DMP=0_1
+	  END IF
+	END IF
 !
 	DO
 	  NPO=NPO+1
@@ -6429,8 +6496,55 @@ C
 	3           ' gam=',GAM(J,LS),' jp1=',JPR1(J),' jp2=',JPR2(J),
 	4           ' nfm=',NFM_L(J)
 	          END IF
+!
+! P2 tracking (KN_ORD_P2DAMP): the sign of this cell's update delta
+! is kept across passes; a significant cell that flips
+! FG_ORD_P2N times in a row rides a lambda<0 mode the bulk
+! KN_SGN_SUM cannot see.  P2_DMP counts flip-free passes while
+! damped, so the collapse releases once the cell settles.
+!
+	          IF(DO_P2)THEN
+	            SGN_P=0_1
+	            IF(VNEW .GT. VOLD)SGN_P=1_1
+	            IF(VNEW .LT. VOLD)SGN_P=-1_1
+	            IF(P2_SGN(J,L) .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
+	1             SGN_P .NE. P2_SGN(J,L))THEN
+	              IF(P2_FLIP(J,L) .LT. 100_1)
+	1               P2_FLIP(J,L)=P2_FLIP(J,L)+1_1
+	              IF(INT(P2_FLIP(J,L)) .GE. FG_ORD_P2N)
+	1               P2_DMP(J,L)=1_1
+	            ELSE
+	              P2_FLIP(J,L)=0_1
+	              IF(P2_DMP(J,L) .GT. 0_1)THEN
+	                P2_DMP(J,L)=P2_DMP(J,L)+1_1
+	                IF(INT(P2_DMP(J,L)) .GT. FG_ORD_P2REL)
+	1                 P2_DMP(J,L)=0_1
+	              END IF
+	            END IF
+	            P2_SGN(J,L)=SGN_P
+	          END IF
 	        END IF
-	        FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+!
+! Damped commit: for a pure multiplicative period-2 mode the
+! geometric midpoint of the flip bracket is the fixed point itself
+! (F(x)/x* = x*/x), and in general a bounded step inside the
+! bracket -- the relaxation path changes, the fixed point does not.
+! Arithmetic fallback covers a zero endpoint.
+!
+	        IF(DO_P2)THEN
+	          IF(P2_DMP(J,L) .GT. 0_1)THEN
+	            IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
+	              FLD(J,L)=SQRT(VOLD*VNEW)
+	            ELSE
+	              FLD(J,L)=0.5_LDP*(VOLD+VNEW)
+	            END IF
+	            NP2_CNT=NP2_CNT+1
+	          ELSE
+	            FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	          END IF
+	        ELSE
+	          FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	        END IF
 	      END DO
 	    END DO
 	  ELSE
@@ -6472,8 +6586,41 @@ C
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
 	        IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	        IF(DO_P2)THEN
+	          SGN_P=0_1
+	          IF(VNEW .GT. VOLD)SGN_P=1_1
+	          IF(VNEW .LT. VOLD)SGN_P=-1_1
+	          IF(P2_SGN(NI,L) .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
+	1           SGN_P .NE. P2_SGN(NI,L))THEN
+	            IF(P2_FLIP(NI,L) .LT. 100_1)
+	1             P2_FLIP(NI,L)=P2_FLIP(NI,L)+1_1
+	            IF(INT(P2_FLIP(NI,L)) .GE. FG_ORD_P2N)
+	1             P2_DMP(NI,L)=1_1
+	          ELSE
+	            P2_FLIP(NI,L)=0_1
+	            IF(P2_DMP(NI,L) .GT. 0_1)THEN
+	              P2_DMP(NI,L)=P2_DMP(NI,L)+1_1
+	              IF(INT(P2_DMP(NI,L)) .GT. FG_ORD_P2REL)
+	1               P2_DMP(NI,L)=0_1
+	            END IF
+	          END IF
+	          P2_SGN(NI,L)=SGN_P
+	        END IF
 	      END IF
-	      FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	      IF(DO_P2)THEN
+	        IF(P2_DMP(NI,L) .GT. 0_1)THEN
+	          IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
+	            FLD(NI,L)=SQRT(VOLD*VNEW)
+	          ELSE
+	            FLD(NI,L)=0.5_LDP*(VOLD+VNEW)
+	          END IF
+	          NP2_CNT=NP2_CNT+1
+	        ELSE
+	          FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	        END IF
+	      ELSE
+	        FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	      END IF
 	    END DO
 	    CALL KN_ORD_SPW_FILL(FLD,NI)
 	    DO J=NI-1,1,-1
@@ -6518,8 +6665,45 @@ C
 	3           ' gam=',GAM(J,LS),' jp1=',JPR1(J),' jp2=',JPR2(J),
 	4           ' nfm=',NFM_L(J)
 	          END IF
+!
+! P2 tracking (KN_ORD_P2DAMP): same per-cell sign-flip test as the
+! inward march above.
+!
+	          IF(DO_P2)THEN
+	            SGN_P=0_1
+	            IF(VNEW .GT. VOLD)SGN_P=1_1
+	            IF(VNEW .LT. VOLD)SGN_P=-1_1
+	            IF(P2_SGN(J,L) .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
+	1             SGN_P .NE. P2_SGN(J,L))THEN
+	              IF(P2_FLIP(J,L) .LT. 100_1)
+	1               P2_FLIP(J,L)=P2_FLIP(J,L)+1_1
+	              IF(INT(P2_FLIP(J,L)) .GE. FG_ORD_P2N)
+	1               P2_DMP(J,L)=1_1
+	            ELSE
+	              P2_FLIP(J,L)=0_1
+	              IF(P2_DMP(J,L) .GT. 0_1)THEN
+	                P2_DMP(J,L)=P2_DMP(J,L)+1_1
+	                IF(INT(P2_DMP(J,L)) .GT. FG_ORD_P2REL)
+	1                 P2_DMP(J,L)=0_1
+	              END IF
+	            END IF
+	            P2_SGN(J,L)=SGN_P
+	          END IF
 	        END IF
-	        FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	        IF(DO_P2)THEN
+	          IF(P2_DMP(J,L) .GT. 0_1)THEN
+	            IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
+	              FLD(J,L)=SQRT(VOLD*VNEW)
+	            ELSE
+	              FLD(J,L)=0.5_LDP*(VOLD+VNEW)
+	            END IF
+	            NP2_CNT=NP2_CNT+1
+	          ELSE
+	            FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	          END IF
+	        ELSE
+	          FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
+	        END IF
 	      END DO
 	    END DO
 	  END IF
@@ -6828,6 +7012,7 @@ C
 !
 	DEALLOCATE(VMAXF)
 	IF(DO_AIT)DEALLOCATE(FLD_PRV,DLT_PRV)
+	IF(DO_P2)DEALLOCATE(P2_SGN,P2_FLIP,P2_DMP)
 	IF(ALLOCATED(AA_XH))DEALLOCATE(AA_XH)
 	IF(ALLOCATED(AA_RH))DEALLOCATE(AA_RH)
 	IF(CLEAN_EXIT)NB_O=0

@@ -986,6 +986,37 @@
 !
 	LOGICAL KN_ORD_AA
 !
+! KN_ORD_P2DAMP (default FALSE): per-cell period-2 collapse inside
+! SWEEP_FLD_ORD.  Tracks the sign of (VNEW-VOLD) at each significant
+! cell; after KN_ORD_P2N consecutive sign flips the committed value
+! becomes the bracket midpoint (geometric when both endpoints are
+! strictly positive, arithmetic otherwise) instead of the relaxed
+! VNEW.  Damping releases after KN_ORD_P2REL consecutive flip-free
+! passes so converged cells are not slowed.  Targets the bounded
+! lambda~-1 oscillation the whole-ray KN_SGN_SUM detector cannot
+! see (m15_2p82d kndump arm: ~20 near-floor cells flip-flopped
+! ~2x/~0.5x at a stable 0.53 max residual from it125-136).  VADAT
+! [KN_ORD_P2DAMP], [KN_ORD_P2N], [KN_ORD_P2REL].
+!
+	LOGICAL KN_ORD_P2DAMP
+	INTEGER KN_ORD_P2N
+	INTEGER KN_ORD_P2REL
+!
+! KN_GATE_DIVERGENCE (default FALSE, prototype, dormant): replace
+! the absolute GS_MAXCHG>GS_UNSAFE_TOL unsafe tier in SOLVE_FOR_POPS
+! with a divergence test -- unsafe only when the refresh max
+! residual grows by more than KN_GATE_DIV_FAC against the value
+! recorded KN_GATE_DIV_M refresh sweeps back, or is non-finite.  A
+! bounded stationary residual (the 0.53 period-2 asymptote above)
+! then counts as mature rather than runaway.  There is no absolute
+! backstop in this variant: a large but stable residual passes.
+! Enabling is a gate policy change for the run owner.  VADAT
+! [KN_GATE_DIVERGENCE], [KN_GATE_DIV_FAC], [KN_GATE_DIV_M].
+!
+	LOGICAL KN_GATE_DIVERGENCE
+	REAL(KIND=LDP) KN_GATE_DIV_FAC
+	INTEGER KN_GATE_DIV_M
+!
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
 ! SWEEP_FLD/SWEEP_FLD_ORD.  0.90 quit rays still contracting at up

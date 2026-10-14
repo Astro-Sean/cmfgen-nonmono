@@ -230,6 +230,16 @@
 	INTEGER, SAVE :: N_MATURE=0
 	EXTERNAL GET_FG_GS_MATURITY,GET_MOM_GS_MATURITY
 !
+! KN_GATE_DIVERGENCE prototype state: ring of the last GD_MMAX
+! refresh sweeps' max residuals.  SAVE so the history persists
+! across calls; a warm restart replays N_LAM_RWARM sweeps before
+! the ring can arm the growth test, matching the warm-up window.
+!
+	INTEGER, PARAMETER :: GD_MMAX=8
+	REAL(KIND=LDP), SAVE :: GS_DIV_HIST(GD_MMAX)=0.0_LDP
+	INTEGER, SAVE :: GS_DIV_NH=0
+	LOGICAL GDIV_UNSAFE
+!
 	INTEGER I,J
 	INTEGER LU_GS
 	INTEGER GS_IT_RD,GS_NF_RD,GS_MT_RD,GS_RL_RD,GS_TA_RD
@@ -593,10 +603,43 @@
 ! when a BA/stale-BA SE update committed corrections against the
 ! churning field (LAM run it126-131 blow-up, Sep-2026).
 !
+!
+! KN_GATE_DIVERGENCE (default F): prototype unsafe-tier variant
+! that tests residual growth instead of the absolute GS_UNSAFE_TOL
+! bound.  A bounded, stationary max residual -- e.g. the period-2
+! limit cycle KNDUMP showed holding ~0.53 across it125-136 on
+! m15_2p82d -- reads as an asymptote, not runaway.  Unsafe
+! requires a non-finite value or growth by more than
+! KN_GATE_DIV_FAC against the residual from KN_GATE_DIV_M refresh
+! sweeps back.  The ring fills only when the refresh ran, and the
+! variant has no absolute backstop: a large but stable residual
+! passes.  Dormant by design; enabling is a gate policy change.
+!
+	  GDIV_UNSAFE=.FALSE.
+	  IF(KN_GATE_DIVERGENCE .AND. GS_NTOT .GT. 0)THEN
+	    IF(GS_MAXCHG .NE. GS_MAXCHG .OR.
+	1      GS_MAXCHG .GT. HUGE(GS_MAXCHG))GDIV_UNSAFE=.TRUE.
+	    IF(GS_DIV_NH .GE. KN_GATE_DIV_M)THEN
+	      IF(GS_MAXCHG .GT. KN_GATE_DIV_FAC*
+	1        GS_DIV_HIST(GD_MMAX-KN_GATE_DIV_M+1))
+	2        GDIV_UNSAFE=.TRUE.
+	    END IF
+	    DO I=1,GD_MMAX-1
+	      GS_DIV_HIST(I)=GS_DIV_HIST(I+1)
+	    END DO
+	    GS_DIV_HIST(GD_MMAX)=GS_MAXCHG
+	    GS_DIV_NH=GS_DIV_NH+1
+	  END IF
+!
 	  GS_FG_IMMATURE=GS_MAXCHG .GT. GS_MATURE_TOL
 	  IF(GS_NTOT .GT. 0 .AND. GS_FG_IMMATURE)THEN
-	    GS_FG_IMMATURE=(GS_NBAD .GT. MAX(50_8,GS_NTOT/1000)) .OR.
-	1      (GS_MAXCHG .GT. GS_UNSAFE_TOL)
+	    IF(KN_GATE_DIVERGENCE)THEN
+	      GS_FG_IMMATURE=(GS_NBAD .GT. MAX(50_8,GS_NTOT/1000)) .OR.
+	1        GDIV_UNSAFE
+	    ELSE
+	      GS_FG_IMMATURE=(GS_NBAD .GT. MAX(50_8,GS_NTOT/1000)) .OR.
+	1        (GS_MAXCHG .GT. GS_UNSAFE_TOL)
+	    END IF
 	  END IF
 	  IF(GS_NTOT .GT. 0)THEN
 	    GS_FG_IMMATURE=GS_FG_IMMATURE .OR.

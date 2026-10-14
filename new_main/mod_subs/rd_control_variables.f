@@ -1585,6 +1585,42 @@
 	1     'Anderson secant depth for the ordered FG march')
 	  CALL SET_FG_ORD_AA(KN_ORD_AA,KN_ORD_AA_M_V)
 !
+! KN_ORD_P2DAMP (default FALSE): per-cell period-2 collapse in the
+! ordered refresh march.  After KN_ORD_P2N consecutive update-sign
+! flips at a significant cell, the commit becomes the bracket
+! midpoint until KN_ORD_P2REL flip-free passes release it.  The
+! fixed point is unchanged -- only the relaxation path to it.
+!
+	  KN_ORD_P2DAMP=.FALSE.
+	  CALL RD_STORE_LOG(KN_ORD_P2DAMP,'KN_ORD_P2DAMP',L_FALSE,
+	1     'Damp per-cell period-2 modes in the ordered FG march?')
+	  KN_ORD_P2N=2
+	  CALL RD_STORE_INT(KN_ORD_P2N,'KN_ORD_P2N',L_FALSE,
+	1     'Consecutive sign flips before a cell is damped')
+	  KN_ORD_P2REL=3
+	  CALL RD_STORE_INT(KN_ORD_P2REL,'KN_ORD_P2REL',L_FALSE,
+	1     'Flip-free passes before a damped cell is released')
+	  CALL SET_FG_ORD_P2DAMP(KN_ORD_P2DAMP,KN_ORD_P2N,KN_ORD_P2REL)
+!
+! KN_GATE_DIVERGENCE (default FALSE, prototype): swap the absolute
+! GS_UNSAFE_TOL unsafe tier in the SOLVE_FOR_POPS maturity gate for
+! a divergence test on the refresh max residual -- unsafe only on
+! non-finite values or growth above KN_GATE_DIV_FAC versus the
+! value KN_GATE_DIV_M refresh sweeps back.  Dormant by design:
+! enabling changes gate policy and needs owner sign-off.
+!
+	  KN_GATE_DIVERGENCE=.FALSE.
+	  CALL RD_STORE_LOG(KN_GATE_DIVERGENCE,'KN_GATE_DIVERGENCE',
+	1     L_FALSE,'Gate unsafe tier tests divergence, not size?')
+	  KN_GATE_DIV_FAC=1.5_LDP
+	  CALL RD_STORE_DBLE(KN_GATE_DIV_FAC,'KN_GATE_DIV_FAC',L_FALSE,
+	1     'Growth factor over KN_GATE_DIV_M sweeps that is unsafe')
+	  IF(KN_GATE_DIV_FAC .LT. 1.0_LDP)KN_GATE_DIV_FAC=1.0_LDP
+	  KN_GATE_DIV_M=4
+	  CALL RD_STORE_INT(KN_GATE_DIV_M,'KN_GATE_DIV_M',L_FALSE,
+	1     'Sweeps of maxchg history in the divergence test')
+	  KN_GATE_DIV_M=MAX(1,MIN(KN_GATE_DIV_M,8))
+!
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a pass counts toward the NSTALL early exit.  Fires only on
 ! nearly flat passes so slowly contracting rays use more of

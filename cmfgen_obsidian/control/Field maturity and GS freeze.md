@@ -59,6 +59,17 @@ Thresholds (`solve_for_pops.f`):
   >1% drifting >50%, >0.01% collapsed, one non-finite, >10%
   negJ/quar) vs **marginal** tier (blocks release, eligible for
   `MOM_TRIAL`).
+- `KN_GATE_DIVERGENCE` (default F, prototype, dormant): replaces the
+  absolute `GS_MAXCHG > GS_UNSAFE_TOL` unsafe tier with a divergence
+  test - unsafe only when the refresh max residual is non-finite or
+  grows by more than `KN_GATE_DIV_FAC` (default 1.5) against the
+  value `KN_GATE_DIV_M` (default 4) refresh sweeps back (ring held
+  in `SOLVE_FOR_POPS`, SAVE-persisted). A bounded stationary
+  residual like the 0.53 period-2 asymptote on m15_2p82d then counts
+  as mature instead of runaway. There is deliberately no absolute
+  backstop in this variant: a large but stable residual passes.
+  Enabling is a gate policy change and needs owner sign-off; the
+  p2damp validation arm leaves it F.
 
 ## The controller
 
