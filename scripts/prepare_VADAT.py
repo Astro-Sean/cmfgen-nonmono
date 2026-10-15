@@ -322,12 +322,12 @@ _NON_MONO_LINE_SOB = {
     # the VAR_MOM_J_CMF_V12 continuum linearization -- opt-in endgame
     # variant (12-Oct-2026); an explicit vadat_overrides key wins.
     'USE_LAM_ES': 'T',
-    # SOL_METH=DIAG (NUM_BNDS=1) is required for SOB: the TRIDIAG path
-    # forces USE_SELECTIVE_JVAR -> VAR_MOM_J_CMF_NONMONO_V1, the Jacobian
-    # of the Knop generalized-opacity moment equations, which is
-    # inconsistent with the standard FG_J_CMF_V13 solver used here
-    # (do_var_cont_nonmono_v1.f).  DIAG uses the fixed-J path with the
-    # diagonal non-monotonic ALO.  NUM_BNDS follows SOL_METH via
+    # SOL_METH=DIAG (NUM_BNDS=1) is the SOB default.  (The earlier claim
+    # that TRI selects USE_SELECTIVE_JVAR/VAR_MOM_J_CMF_NONMONO_V1 is
+    # stale: neither exists in this tree, and do_var_cont.f zeroes
+    # TX/TVX under DO_NONMONO_SOB so the BA matrix is block-diagonal
+    # either way.)  depth_independent_solver=false opts into
+    # TRI/NUM_BNDS=3.  NUM_BNDS follows SOL_METH via
     # update_model_spec_nd().
     'SOL_METH': 'DIAG',
     'GLOBAL_LINE': 'SOB',

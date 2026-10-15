@@ -1761,6 +1761,7 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     slow_shell_comp = x_cfg.get("slow_shell_composition", None)
     ejecta_T_const = float(x_cfg.get("ejecta_T_const_K", 0.0) or 0.0)
     ejecta_r_inner_cm = float(x_cfg.get("ejecta_r_inner_cm", 0.0) or 0.0)
+    ejecta_rho_boost = float(x_cfg.get("ejecta_rho_boost", 1.0) or 1.0)
     # Explosion convention (two-event workflow):
     #   SN_B (x_model_from_sn, this path): velocity-driven embedded shell.
     #   The .hyd built by prepare_SN_B_model.py already carries the shell's
@@ -2078,6 +2079,8 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
             cmd.append("--no-csm-density-match")
         if ejecta_r_inner_cm > 0:
             cmd.extend(["--ejecta-r-inner-cm", str(ejecta_r_inner_cm)])
+        if ejecta_rho_boost != 1.0:
+            cmd.extend(["--ejecta-rho-boost", str(ejecta_rho_boost)])
         if ejecta_T_const > 0:
             cmd.extend(["--ejecta-T-const", str(ejecta_T_const)])
         if no_ejecta:
@@ -3711,7 +3714,8 @@ def prepare_sedona_directory(
                     pass
             species_line = mod_lines[2].strip()
             try:
-                mod_species_z = [int(x) for x in species_line.split()]
+                # Species tokens are "Z.A" (e.g. "1.1 2.4 26.56"); take the Z
+                mod_species_z = [int(x.split('.')[0]) for x in species_line.split()]
             except ValueError:
                 mod_species_z = []
             for col, z in enumerate(mod_species_z):
@@ -10872,9 +10876,14 @@ def enforce_cmfgen_sn_iin_settings(config):
                 )
             else:
                 # SOB mode: USE_LAM_ES=T stays the default, paired with
-                # DIAG — the TRIDIAG path selects the Knop-Jacobian
-                # solver that is inconsistent with FG_J_CMF_V13 used by
-                # SOB.  Since 12-Oct-2026 USE_LAM_ES=F is a permitted
+                # DIAG.  (The earlier claim that TRI selects a Knop-
+                # Jacobian solver is stale: USE_SELECTIVE_JVAR /
+                # VAR_MOM_J_CMF_NONMONO_V1 were never ported to this
+                # tree, and do_var_cont.f zeroes TX/TVX under
+                # DO_NONMONO_SOB, so the BA matrix is block-diagonal
+                # either way and depth_independent_solver=False is
+                # honoured as an opt-in.)
+                # Since 12-Oct-2026 USE_LAM_ES=F is a permitted
                 # opt-in (Fortran warns, does not STOP): since
                 # 12-Oct-2026 the J solve is MOM_J_CMF_NONMONO_V1 with
                 # the fixed-J + GET_MOM_ALO_DIAG linearization - the
@@ -10897,10 +10906,14 @@ def enforce_cmfgen_sn_iin_settings(config):
                 if _di_cur is not None and not _vadat_true(_di_cur):
                     print(
                         "  [NON_MONO] WARNING: depth_independent_solver="
-                        f"{_di_cur} overridden — SOB mode requires "
-                        "SOL_METH=DIAG (NUM_BNDS=1)"
+                        f"{_di_cur} kept — SOB default is DIAG "
+                        "(NUM_BNDS=1).  do_var_cont.f zeroes TX/TVX under "
+                        "DO_NONMONO_SOB, so TRI (NUM_BNDS=3) solves the "
+                        "same block-diagonal BA system through the "
+                        "tridiagonal route"
                     )
-                cmfgen["depth_independent_solver"] = True
+                else:
+                    cmfgen["depth_independent_solver"] = True
 
         # SOB-mode recommended defaults — the Dessart+2015
         # (arXiv:1503.05463) recipe validated on the m15 2.82d model
@@ -11208,6 +11221,20 @@ def enforce_cmfgen_sn_iin_settings(config):
     _jfnk_banded = _vadat_true(v.get("JFNK_USE_BANDED", "F"))
     if _jfnk:
         _sol = "TRI" if _jfnk_banded else "DIAG"
+    # A bare vadat_overrides SOL_METH cannot be honoured: NUM_BNDS in
+    # MODEL_SPEC is stamped from depth_independent_solver, and
+    # rd_control_variables.f resets METH_SOL to DIAG when NUM_BNDS=1.
+    # Warn instead of silently keeping the value.
+    if "SOL_METH" in user_vadat_keys:
+        _usr_sol = str(v["SOL_METH"]).strip().upper()
+        _usr_tri = _usr_sol.startswith("TRI")
+        if _usr_tri != (_sol == "TRI"):
+            print(
+                f"  [SN_IIN] WARNING: vadat_overrides SOL_METH={v['SOL_METH']} "
+                f"ignored — use cmfgen.depth_independent_solver="
+                f"{'false' if _usr_tri else 'true'} so NUM_BNDS stays "
+                "consistent"
+            )
     _force("SOL_METH", _sol, "JFNK" if _jfnk else "SN_IIN")
 
     # An explicit DO_LAM_IT=F is the stock cycle: iteration 1 is a full
