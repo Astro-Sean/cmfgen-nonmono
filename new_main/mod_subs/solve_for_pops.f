@@ -306,6 +306,7 @@
 	GS_FREEZE=.FALSE.
 	TRIAL_FIRED=.FALSE.
 	JFNK_UNCONVERGED_COMMIT=.FALSE.
+	JFNK_COMMITTED=.FALSE.
 !
 ! Consume the rd_lam probe arm into a call-local flag.  CMFGEN_SUB
 ! already read BA_RDLAM_PROBE to leave LAMBDA_ITERATION false for this
@@ -1612,15 +1613,24 @@
 ! never meant to see.  NG_CLEAN counts calls since the last
 ! non-contracting record -- full reject, masked rollback, LAMBDA
 ! follow-up soft reject, an armed-but-unjudged step (BAACC_PENDING,
-! whose commit is only decided next call), a JFNK Newton iterate
-! (not a Lambda-map iterate; extrapolating across it extrapolates
-! the wrong map), or a held-pops record.  The NG fire test below
-! defers until 4 clean records exist.  Upstream has no
+! whose commit is only decided next call), a committed JFNK Newton
+! iterate (not a Lambda-map iterate; extrapolating across it
+! extrapolates the wrong map), or a held-pops record.  The NG fire
+! test below defers until 4 clean records exist.  Upstream has no
 ! resacc/hold/JFNK machinery so all six conditions are always false
 ! and the upstream path is unchanged.
 !
+! edited by Devin, 05-Nov-2026: the JFNK term previously tested
+! JFNK_THIS, the admission flag -- true on every eligible call while
+! DO_JFNK is armed, including defers, cooldown calls, and stagnation
+! fallbacks whose SCRTEMP record is an ordinary caller-mode BA
+! iterate.  With an admitting gate that reset the window on every
+! call and NG could never fire.  JFNK_COMMITTED marks only calls
+! that ended in a committed Newton correction, so deferred JFNK
+! calls now count toward the window like the BA steps they were.
+!
 	IF(BA_REJ_THIS .OR. BA_PART_WAS .OR. BA_SOFT_THIS .OR.
-	1   BAACC_PENDING .OR. JFNK_THIS .OR. GS_POPS_HELD)THEN
+	1   BAACC_PENDING .OR. JFNK_COMMITTED .OR. GS_POPS_HELD)THEN
 	  NG_CLEAN=0
 	ELSE
 	  NG_CLEAN=NG_CLEAN+1

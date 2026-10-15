@@ -1469,6 +1469,13 @@
 ! F) commits a best iterate, rebuilt baseline, or clipped Newton update.
 ! Convergence and phased-T gates must not count it as solved.
 	LOGICAL :: JFNK_UNCONVERGED_COMMIT=.FALSE.
+! Same runtime class (no VADAT key): true only when the driver's JFNK
+! branch actually committed a Newton correction this call.  Admission
+! alone -- demand/reach/direction-gate defers, stagnation fallbacks,
+! cooldown calls -- ends in an ordinary caller-mode BA step, whose
+! SCRTEMP record is a valid Lambda-map iterate and must not contaminate
+! the NG secant window.
+	LOGICAL :: JFNK_COMMITTED=.FALSE.
 ! JFNK_ANY_ITER (VADAT [JFNK_ANYITER], default F): debug/bring-up
 ! only -- lets the JFNK correction solve fire on a LAMBDA-designated
 ! call, so the machinery (residual/JVP/preconditioner path) can be

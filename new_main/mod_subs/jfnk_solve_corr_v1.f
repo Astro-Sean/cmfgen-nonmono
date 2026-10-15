@@ -1928,6 +1928,13 @@
 	1   JFNK_N_RESIDUAL_NAN
 	  WRITE(LUER,'(A)')' '
 !
+! APPLY_JFNK_UPDATE is the final commit verdict: verify-rejects,
+! catastrophic paths, and every defer/fallback leave it false, so the
+! NG window bookkeeping can tell a real Newton iterate from an
+! admitted call that merely ran caller-mode BA.
+!
+	  JFNK_COMMITTED=APPLY_JFNK_UPDATE
+!
 	ELSE
 !
 ! LAMBDA mode: standard direct solve (same as the default path).
