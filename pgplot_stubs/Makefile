@@ -5,7 +5,7 @@
 # The stubs do nothing - plotting tools will not produce output,
 # but the CMFGEN solver is completely unaffected.
 #
-# Added 2026-09-07 by Devin for SN2024pba V4 build on Raven.
+# Added 2026-09-07 by Devin for headless builds without a real PGPLOT.
 
 include ../Makefile_definitions
 

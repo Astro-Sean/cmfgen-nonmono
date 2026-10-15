@@ -45,7 +45,7 @@ INSTALL_DIR:=$(realpath $(dir $(lastword $(MAKEFILE_LIST))))/
 endif
 
 ifeq ($(HOST),raven)
-INSTALL_DIR=/raven/ptmp/sbrennan/SN2024pba/cmfgen_jfnk/
+INSTALL_DIR:=$(realpath $(dir $(lastword $(MAKEFILE_LIST))))/
 endif
 
 ifeq ($(DEBUG),nodebug)

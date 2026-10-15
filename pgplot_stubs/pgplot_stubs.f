@@ -6,7 +6,7 @@ C plotting tools.  This allows all executables to link without a
 C real PGPLOT installation.  The stubs return immediately without
 C producing graphical output.  The CMFGEN solver runs unaffected.
 C
-C Added 2026-09-07 by Devin for SN2024pba V4 build on Raven.
+C Added 2026-09-07 by Devin for headless builds without a real PGPLOT.
 C
       SUBROUTINE PGASK(FLAG)
       LOGICAL FLAG

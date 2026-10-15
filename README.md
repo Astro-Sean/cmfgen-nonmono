@@ -105,8 +105,8 @@ a mature and stable Knop field, and contracting BA demand; it is not
 triggered by a single low correction. The frozen-J path has been exercised
 as a `SOLVEBA_V13` replacement. The coupled path has not yet completed a
 runtime-validated model activation, so a clean build or a generated spectrum
-alone does not establish that JFNK converges or produces a valid SN 2024pba
-spectrum. Check the dated run record in
+alone does not establish that JFNK converges or produces a valid
+interacting-supernova spectrum. Check the dated run record in
 `cmfgen_obsidian/history/convergence_issues.md` and the
 solver status notes before interpreting results.
 
@@ -156,7 +156,7 @@ correctness and build fixes that are not controlled by solver flags:
 
 ### Pipeline runs
 
-Prepare, validate, and submit SN 2024pba models through the pipeline
+Prepare, validate, and submit models through the pipeline
 orchestrator, not by calling CMFGEN submission scripts or `sbatch`
 directly:
 
@@ -164,7 +164,7 @@ directly:
 python scripts/run_model_grid.py <config.yaml> [--epochs <day> ...]
 ```
 
-Run this from the SN2024pba pipeline checkout that contains
+Run this from the pipeline checkout that contains
 `scripts/run_model_grid.py`. That orchestrator prepares the CMFGEN inputs,
 selects the executable, and records run provenance. A spectrum produced
 outside that path is not a pipeline-validated model result.

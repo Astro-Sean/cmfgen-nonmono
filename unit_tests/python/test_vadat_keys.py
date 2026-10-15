@@ -25,6 +25,7 @@ New-key coverage:
   * Unmodified keys round-trip (spot check of shock-power controls).
 """
 
+import os
 import re
 import shutil
 import sys
@@ -43,9 +44,13 @@ from common import (
     run,
 )
 
+# Template VADAT shipped in the repo; override with JFNK_TEST_VADAT
+# to exercise the parser against a production file from a live run.
 VADAT_SRC = Path(
-    "/viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/"
-    "m15_2p82d_SOB_jfnk_probe/cmfgen/2.82days/VADAT"
+    os.environ.get(
+        "JFNK_TEST_VADAT",
+        TREE / "unit_tests" / "systems" / "vadat_template.txt",
+    )
 )
 
 HELPERS = [
