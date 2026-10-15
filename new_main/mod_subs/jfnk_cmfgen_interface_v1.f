@@ -40,6 +40,8 @@
 	REAL(KIND=LDP), INTENT(IN) :: EPS_JVP
 	INTEGER :: IOS
 	INTEGER :: ID_ION, SE_TOTAL_SIZE
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 	JFNK_NT = NT
 	JFNK_ND = ND
@@ -402,6 +404,8 @@
 	JFNK_ADDRECOM = 0.0_LDP
 !
 	JFNK_N_RESIDUAL_EVALS = 0
+	JFNK_T_START = OMP_GET_WTIME()
+	JFNK_SEC_HIT = .FALSE.
 	JFNK_N_RESIDUAL_NAN = 0
 	JFNK_N_JVP_EVALS = 0
 	JFNK_N_JVP_NAN = 0
@@ -1524,7 +1528,7 @@
 	3     jfnk_resid_nbad, jfnk_maxch_est
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -1534,6 +1538,8 @@
 	INTEGER K, J, N_BAD, N_NAN_Y, N_INF_Y, IDX, ID_ION
 	INTEGER LUER
 	INTEGER, EXTERNAL :: ERROR_LU
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 	REAL(KIND=LDP) MCE_DABS, MCE_DMAX
 !
 ! Audit 17-Sep-2026 (issue 4): count constraint crossings that are NEW
@@ -1568,6 +1574,27 @@
 	    WRITE(LUER,'(A,I6,A)')
 	1     '  JFNK: eval budget (',JFNK_MAX_EVALS,
 	2     ') exhausted -- forcing rejection path'
+	    FLUSH(LUER)
+	  END IF
+	  Y=1.0D20
+	  jfnk_resid_nbad=N
+	  JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
+	  RETURN
+	END IF
+!
+! Wall-clock budget (VADAT [JFNK_MAX_SEC], default 0 = off): same
+! sentinel path as the eval budget, but measured in elapsed seconds
+! since JFNK_INIT_V1 stamped JFNK_T_START.  Covers admissions whose
+! cost is not eval-counted (it191 burned ~500 s in dirchk precheck
+! work with zero Newton-level evals).  edited by Devin, 15-Oct-2026.
+!
+	IF(JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	1     OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC)THEN
+	  IF(.NOT. JFNK_SEC_HIT)THEN
+	    JFNK_SEC_HIT=.TRUE.
+	    WRITE(LUER,'(A,F10.1,A)')
+	1     '  JFNK: wall budget (',JFNK_MAX_SEC,
+	2     ' s) exhausted -- forcing rejection path'
 	    FLUSH(LUER)
 	  END IF
 	  Y=1.0D20
@@ -2407,12 +2434,14 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
 	DOUBLE PRECISION, INTENT(IN) :: V(N)
 	DOUBLE PRECISION, INTENT(OUT) :: JV(N)
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 	DOUBLE PRECISION EPS0, VNORM, XNORM, H_STEP
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
@@ -2522,8 +2551,10 @@
 	    JFNK_W_X_PERT(I) = jfnk_x(I) + H_STEP * JFNK_W_V_USE(I)
 	  END DO
 	  CALL JFNK_RESIDUAL_V1(N, JFNK_W_X_PERT, JFNK_W_F_PERT)
-	  IF(JFNK_MAX_EVALS .GT. 0 .AND.
-	1       JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS)THEN
+	  IF((JFNK_MAX_EVALS .GT. 0 .AND.
+	1       JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS) .OR.
+	2       (JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	3       OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC))THEN
 ! Budget sentinel eval returned -- flag JVP failure so GMRES aborts
 ! immediately rather than building a Krylov vector on the sentinel.
 	    JV = 0.0D0
@@ -2673,20 +2704,35 @@
 
 
 !
-! JFNK_FACTOR_PRECOND_V1: Extract the BA diagonal for the JFNK
-! diagonal (Jacobi) preconditioner.
+! JFNK_FACTOR_PRECOND_V1: Factor the per-depth BA blocks that serve
+! as the JFNK preconditioner M ~= J.
 !
-! The full BA LU solve gives a Newton step s = -BA^{-1}*F that is
-! numerically tiny (~1e-18) because BA spans ~13 orders of magnitude
-! (H~1e10 vs Fe~1e-3).  The diagonal Jacobi preconditioner gives a
-! useful Lambda-like step s = -F/diag(BA) (O(0.1-1)) that GMRES then
-! refines using the full Jacobian (via FD JVP).
+! JFNK_PRECOND_TYPE selects the factorization stored per depth K:
+!   'LU'    -- DGEEQU-equilibrated DGETRF of JFNK_BA_A(:,:,K) into
+!              JFNK_LU_FAC, with a ridge retry ladder on pivot
+!              failure (JFNK_BA_RIDGE_FAC, JFNK_RIDGE_PIV) and DGECON
+!              rcond recorded in JFNK_LU_RCOND.
+!   'LSQ'   -- the same block solved by least squares (JFNK_LSQ_LAM
+!              Tikhonov term) when the LU is rank-deficient.
+!   'SCHUR' -- population-block LSQ with the ED/T rows Schur-
+!              complemented out.
+!   'BANDED'-- JFNK_USE_BANDED assembles the full NT*ND banded matrix
+!              (JFNK_CMAT_RAD_BANDS cross-depth bands) and factors it
+!              once with DGBTRF instead of per-depth blocks.
+! Near-null rows (max|row| < JFNK_ROW_TINY*blockmax, and population
+! rows pinned at JFNK_POP_FLOOR) are replaced by identity rows before
+! factorization and recorded in JFNK_ROW_REG so the apply step can
+! project them consistently.
 !
-! This routine only needs the BA diagonal and the full BA matrix
-! (for the JVP self-check diagnostic).  The previous DGEEQU/DGETRF
-! LU machinery was dead weight — JFNK_PRECOND_V1 never called DGETRS.
+! JFNK_PRECOND_V1 applies whichever factorization this routine left
+! in JFNK_LU_FAC / JFNK_BANDED_LUAB (so DGETRS/DGBTRS/DGELS are live
+! paths, not dead code).  JFNK_LU_READY reports whether any usable
+! factorization exists; the reach/direction precheck in
+! JFNK_SOLVE_CORR_V1 requires it.
 !
 ! editted by Sean Brennan (09-Sep-2026)
+! header rewritten to match the LU/LSQ/banded implementation
+! (edited by Devin, 15-Oct-2026)
 !
 	SUBROUTINE JFNK_FACTOR_PRECOND_V1()
 	USE SET_KIND_MODULE
@@ -3290,11 +3336,11 @@
 	1        '  col scale min/max=', COL_SF_MIN, COL_SF_MAX
 	    END IF
 	    IF(N_REG_ROWS .GT. 0)THEN
-	      WRITE(LUER,'(A,I5,A,ES10.2,A)')
+	      WRITE(LUER,'(A,I8,A,ES10.2,A)')
 	1        '  JFNK: regularized', N_REG_ROWS,
 	1        ' near-null rows (JFNK_ROW_TINY=', JFNK_ROW_TINY, ')'
 	      IF(N_POP_FRZ .GT. 0)
-	1       WRITE(LUER,'(A,I5,A,ES10.2,A)')
+	1       WRITE(LUER,'(A,I8,A,ES10.2,A)')
 	2        '  JFNK: of which', N_POP_FRZ,
 	3        ' frozen on population floor (JFNK_POP_FL=',
 	4        JFNK_POP_FLOOR, ')'
@@ -3314,7 +3360,7 @@
 	          K_REG_TOP = MAXLOC(NREG_DEPTH, 1)
 	          N_REG_TOP = NREG_DEPTH(K_REG_TOP)
 	          IF(N_REG_TOP .LE. 0)EXIT
-	          WRITE(LUER,'(A,I4,A,I5,A,I4)')
+	          WRITE(LUER,'(A,I5,A,I8,A,I8)')
 	1            '    depth=', K_REG_TOP, '  reg rows=', N_REG_TOP,
 	1            ' of', JFNK_NT
 	          NREG_DEPTH(K_REG_TOP) = -1
@@ -3490,7 +3536,7 @@
 	1      '  JFNK: SCHUR pop-block LSQ nfact=',
 	2      JFNK_N_LU_FACTORS+1, ' ok=', N_OK,
 	3      ' ridged=', N_RIDGE, ' S_ok=', JFNK_SCHUR_OK
-	    IF(N_REG_ROWS .GT. 0) WRITE(LUER,'(A,I5)')
+	    IF(N_REG_ROWS .GT. 0) WRITE(LUER,'(A,I8)')
 	1      '  JFNK: SCHUR regularized pop rows=', N_REG_ROWS
 	  END IF
 	END IF
@@ -3691,7 +3737,7 @@
 	2       '  cols=', N_ZCOL
 	    END IF
 	    IF(LUER .GT. 0 .AND. N_REG_B .GT. 0)THEN
-	      WRITE(LUER,'(A,I6,A,ES10.2,A)')
+	      WRITE(LUER,'(A,I8,A,ES10.2,A)')
 	1       '  JFNK: regularized', N_REG_B,
 	2       ' near-null banded rows (JFNK_ROW_TINY=',
 	3       JFNK_ROW_TINY, ')'

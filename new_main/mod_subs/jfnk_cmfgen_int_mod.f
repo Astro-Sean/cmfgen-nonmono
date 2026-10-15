@@ -455,6 +455,12 @@
 !
 	INTEGER, SAVE :: JFNK_EDD_START_REC=-1
 !
+! JFNK_T_START: wall-clock stamp (OMP_GET_WTIME) of the current
+! activation, set in JFNK_INIT_V1; JFNK_RESIDUAL_V1 reads it for the
+! [JFNK_MAX_SEC] elapsed-time abort (edited by Devin, 15-Oct-2026).
+!
+	DOUBLE PRECISION, SAVE :: JFNK_T_START=0.0D0
+	LOGICAL, SAVE :: JFNK_SEC_HIT=.FALSE.
 	INTEGER, SAVE :: JFNK_N_RESIDUAL_EVALS=0
 	INTEGER, SAVE :: JFNK_N_RESIDUAL_NAN=0    ! residual evals with NaN/Inf
 	INTEGER, SAVE :: JFNK_N_JVP_EVALS=0

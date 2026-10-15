@@ -30,6 +30,8 @@
 ! conservative Lambda safety path.
 !
 ! editted by Devin (V7-JFNK port, 02-Oct-2026)
+! Altered 15-Oct-2026 : BA_DIRCHK_MAX caps the dirchk defer count so
+!                          real Newton admission resumes (edited by Devin).
 ! Altered 05-Oct-2026 : Demoted JFNK banners to iteration subheaders.
 !
 	SUBROUTINE JFNK_SOLVE_CORR_V1(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,
@@ -74,6 +76,18 @@
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
 	CHARACTER*11 JFNK_TAG
+!
+! Phase timers (edited by Devin, 15-Oct-2026): per-admission wall
+! seconds for the expensive JFNK phases, printed as one line with the
+! final diagnostics so the iteration cost can be attributed (the
+! it191 admission spent ~500 s in dirchk evals that nothing time-
+! stamped).  Bracketed with OMP_GET_WTIME, matching the iteration
+! timer in CMFGEN_SUB.
+!
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
+	REAL(KIND=LDP) T_PH_TOT,T_PH_CMAT,T_PH_PC,T_PH_F0
+	REAL(KIND=LDP) T_PH_PREC,T_PH_NWT,TW_PH
 !
 ! Solver settings (validated copies of the control variables)
 !
@@ -152,6 +166,16 @@
 	INTEGER, SAVE :: JFNK_REARM_CYCLE=0
 	INTEGER JFNK_REARM_WAIT
 !
+! BA_DIRCHK_MAX arms the dirchk diagnostics for at most that many
+! defer events (default 1; -1 = unlimited, the pre-cap behaviour).
+! Each armed admission costs a fresh BA factorization plus ~12
+! residual/JVP evals; past the cap JFNK admission proceeds normally.
+! JFNK_DIRCHK_N is a CONTROL_VARIABLE_MOD counter (initialized at
+! VADAT read) so the admission bypass in SOLVE_FOR_POPS drops out on
+! the same event count.
+!
+	LOGICAL DO_DIRCHK_NOW
+!
 ! FIX_T_AUTO scratch: the domain T-row residual norm at admission and
 ! the committed log-T step measured at the outcome.
 !
@@ -183,6 +207,15 @@
 	WR_PRT_INV_SAVE=WR_PRT_INV_A
 	TEMP_CHAR_SAVE=TEMP_CHAR
 	T1=COR_LIM_IN
+	DO_DIRCHK_NOW=DO_BA_DIR_CHK .AND.
+	1    (BA_DIRCHK_MAX .LT. 0 .OR. JFNK_DIRCHK_N .LT. BA_DIRCHK_MAX)
+!
+	T_PH_TOT=OMP_GET_WTIME()
+	T_PH_CMAT=0.0_LDP
+	T_PH_PC=0.0_LDP
+	T_PH_F0=0.0_LDP
+	T_PH_PREC=0.0_LDP
+	T_PH_NWT=0.0_LDP
 !
 ! -----------------------------------------------------------------------
 ! Entry gating: after repeated stagnation JFNK pauses for
@@ -445,6 +478,7 @@
 ! SE%STEQ directly, so neither STEQ_RAD nor CMAT_RAD is needed.
 !
 	  IF(.NOT. JFNK_COUPLED_LOC)THEN
+	    TW_PH=OMP_GET_WTIME()
 	    CALL JFNK_SYNC_ATM_FROM_POPS(POPS)
 	    IF(JFNK_LAG_FACTORS)THEN
 	      CALL JFNK_CAPTURE_LAG_FACTORS_V1(JFNK_LAG_FACTORS_OK)
@@ -480,13 +514,16 @@
 	    CALL JFNK_RESTORE_MOD_STEQ_V1()
 	    JFNK_RAD_READY=.TRUE.
 	    CALL JFNK_BUILD_BA_RAD_V1()
+	    T_PH_CMAT=OMP_GET_WTIME()-TW_PH
 	  END IF
 	  FLUSH(LUER)
 !
 ! Factor the BA matrix as the GMRES preconditioner (cached per-depth
 ! equilibrated LU, or banded LU when JFNK_USE_BANDED=T).
 !
+	  TW_PH=OMP_GET_WTIME()
 	  CALL JFNK_FACTOR_PRECOND_V1()
+	  T_PH_PC=OMP_GET_WTIME()-TW_PH
 	  FLUSH(LUER)
 !
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,jfnk_fx)
@@ -503,6 +540,7 @@
 ! either way.
 !
 	  F0_OK=.TRUE.
+	  TW_PH=OMP_GET_WTIME()
 	  BLOCK
 	    DOUBLE PRECISION F0_X(JFNK_N),F0_Y(JFNK_N)
 	    DOUBLE PRECISION F0_DIFF,F0_MAX,F0_REL
@@ -637,6 +675,7 @@
 	    END IF
 	    FLUSH(LUER)
 	  END BLOCK
+	  T_PH_F0=OMP_GET_WTIME()-TW_PH
 !
 ! jfnk_fx now holds F_eval at jfnk_x=0 (adopted in both modes on the
 ! F0_OK path so the FD JVP baseline is bitwise-consistent with the
@@ -783,11 +822,12 @@
 ! runs when any of the four gates is armed.
 !
 	    JFNK_REACH_OK=.TRUE.
+	    TW_PH=OMP_GET_WTIME()
 	    IF((JFNK_REACH_GATE .GT. 0.0_LDP .OR.
 	1       JFNK_COS_MIN .GT. 0.0_LDP .OR.
 	2       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
 	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .OR.
-	4       DO_BA_DIR_CHK) .AND.
+	4       DO_DIRCHK_NOW) .AND.
 	5       JFNK_LU_READY .AND.
 	6       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
 	7        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
@@ -1346,14 +1386,17 @@
 ! real correction.  jfnk_fx_fresh must clear -- the adopted F_eval
 ! baseline belongs to the skipped Newton, not to a later activation.
 !
-	    IF(DO_BA_DIR_CHK)THEN
+	    IF(DO_DIRCHK_NOW)THEN
+	      JFNK_DIRCHK_N=JFNK_DIRCHK_N+1
 	      JFNK_REACH_OK=.FALSE.
 	      jfnk_fx_fresh=.FALSE.
-	      WRITE(LUER,'(A)')
+	      WRITE(LUER,'(A,I4,A)')
 	1     '  JFNK DIRCHK: diagnostics complete; deferring Newton'//
-	2     ' to caller-mode SOLVEBA'
+	2     ' to caller-mode SOLVEBA (event ',JFNK_DIRCHK_N,')'
 	    END IF
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
+	    T_PH_PREC=OMP_GET_WTIME()-TW_PH
+	    TW_PH=OMP_GET_WTIME()
 	    FLUSH(LUER)
 	    DO WHILE(JFNK_REACH_OK .AND. JFNK_ATTEMPT .LT. JFNK_MAX_RESTART)
 	      JFNK_ATTEMPT=JFNK_ATTEMPT+1
@@ -1459,6 +1502,7 @@
 	2         //' Newton iterations reached'
 	      END IF
 	    END DO
+	    T_PH_NWT=OMP_GET_WTIME()-TW_PH
 	    IF(.NOT. APPLY_JFNK_UPDATE .AND. .NOT. JFNK_CATASTROPHIC .AND.
 	1     BEST_F_W .LT. F_W_INIT)THEN
 	      jfnk_x=BEST_X
@@ -1960,6 +2004,19 @@
 	1   jfnk_nan_rejects
 	  WRITE(LUER,'(A,I6)')'    Residual NaN evals:   ',
 	1   JFNK_N_RESIDUAL_NAN
+!
+! Phase-time summary: cmat = frozen-mode STEQ split + BA_rad build;
+! pc = preconditioner factorization; f0 = F(0) residual test; prec =
+! reach/direction-gate precheck and dirchk diagnostics; newton =
+! NEWTON_HOOK_V1 attempts (all GMRES/JVP/line-search cost).  'other'
+! is the residual -- entry gating, commit/rollback, and untimed
+! bookkeeping.  Written on every JFNK admission so the phase timers
+! can be diffed against the iteration wall clock.
+!
+	  WRITE(LUER,'(A,5(F8.1,A),F8.1,A)')
+	1   '    JFNK phase time [s]: cmat=',T_PH_CMAT,
+	2   ' pc=',T_PH_PC,' f0=',T_PH_F0,' prec=',T_PH_PREC,
+	3   ' newton=',T_PH_NWT,' total=',OMP_GET_WTIME()-T_PH_TOT
 	  WRITE(LUER,'(A)')' '
 !
 ! APPLY_JFNK_UPDATE is the final commit verdict: verify-rejects,
