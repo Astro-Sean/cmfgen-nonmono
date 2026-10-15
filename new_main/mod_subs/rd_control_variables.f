@@ -1493,6 +1493,11 @@
 	  DO_BA_DIR_CHK=.FALSE.
 	  CALL RD_STORE_LOG(DO_BA_DIR_CHK,'DO_BA_DIR_CHK',L_FALSE,
 	1     'Run JFNK direction diagnostics on BA steps, then defer')
+	  BA_DIRCHK_MAX=-1
+	  JFNK_DIRCHK_N=0
+	  CALL RD_STORE_INT(BA_DIRCHK_MAX,'BA_DIRCHK_MAX',L_FALSE,
+	1     'Max dirchk defer events before JFNK admission resumes'//
+	2     ' (-1 = every eligible call)')
 	  IF(DO_BA_DIR_CHK .AND. .NOT. USE_JFNK_SOLVER)
 	1    WRITE(LUER,*)'Warning: DO_BA_DIR_CHK=T has no effect'//
 	2    ' without DO_JFNK=T.'

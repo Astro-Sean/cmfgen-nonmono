@@ -42,6 +42,8 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_SWEEP_CB,JFNK_EDD_START_REC
 	IMPLICIT NONE
 !
+! Altered 15-Oct-2026 : DO_LAM_AUTO handoff under nonmono flags requires
+!                          CNT_STABLE_LAM >= N_STABLE_LAM (edited by Devin).
 ! Altered 05-Oct-2026 : Sized non-monotonic VINF from MAXVAL(ABS(V)) (edited by Devin).
 ! Altered 05-Oct-2026 : Kept the star iteration separator and added a setup subheader (edited by Devin).
 ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)

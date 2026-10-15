@@ -1596,6 +1596,19 @@
 ! the operator question does not need a formal sweep per eval.
 !
 	LOGICAL DO_BA_DIR_CHK
+!
+! BA_DIRCHK_MAX (VADAT [BA_DIRCHK_MAX], default -1 = every eligible
+! call): cap on dirchk defer events.  Each armed admission spends a
+! fresh BA factorization plus ~12 residual/JVP evals on diagnostics
+! (~500 s vs ~113 s for a Lambda call), which is a one-time
+! investigation cost -- after the cap the dirchk defer disengages
+! and JFNK admission proceeds normally, so Newton can actually run.
+! JFNK_DIRCHK_N counts the defer events; it lives here (not as a
+! routine-local SAVE) so SOLVE_FOR_POPS can also drop the dirchk
+! admission bypass once the cap is spent.
+!
+	INTEGER BA_DIRCHK_MAX
+	INTEGER JFNK_DIRCHK_N
 	INTEGER JFNK_REARM_EVERY
 	INTEGER JFNK_ROW_DIAG
 ! JFNK_LAG_FACTORS (VADAT, default F) holds POPION and the level-

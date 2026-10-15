@@ -12,6 +12,8 @@
 	USE CONTROL_VARIABLE_MOD
 	IMPLICIT NONE
 !
+! Altered:   15-Oct-2026 : BA_DIRCHK_MAX drops the dirchk admission bypass
+!                          after the diagnostic budget is spent (edited by Devin).
 ! Altered:   05-Oct-2026 : Added population-solve subheader to OUTGEN (edited by Devin).
 ! Altered:   26-Apr-2019 : Added "CALL SMOOTH_POPS_AS_WE_ITERATE" (done earlier on OSIRIS).
 ! Altered:   18-Nov-2016 : Before doing AV, check NG acceleration was not done recently.
@@ -1328,12 +1330,20 @@
 ! step on the same call.  The deferred call then counts toward the
 ! NG window like the BA iterate it is.
 !
+! edited by Devin, 15-Oct-2026: the [BA_DIRCHK_MAX] cap disengages
+! the bypass once the diagnostic budget is spent -- after
+! JFNK_DIRCHK_N defer events the admission reverts to the ordinary
+! demand gates so a real Newton step can run.  -1 (default) keeps
+! the uncapped behaviour.
+!
 	IF(DO_BA_DIR_CHK .AND. .NOT. JFNK_THIS .AND.
-	1   USE_JFNK_SOLVER .AND.
-	2   ITS_SINCE_START .GT. JFNK_WARMUP .AND.
-	3   (.NOT. LAMBDA_ITERATION .OR. JFNK_ANY_ITER) .AND.
-	4   (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_FREEZE) .AND.
-	5   USE_LAM_ES .AND. .NOT. RDLAM_PROBE_THIS)THEN
+	1   (BA_DIRCHK_MAX .LT. 0 .OR.
+	2    JFNK_DIRCHK_N .LT. BA_DIRCHK_MAX) .AND.
+	3   USE_JFNK_SOLVER .AND.
+	4   ITS_SINCE_START .GT. JFNK_WARMUP .AND.
+	5   (.NOT. LAMBDA_ITERATION .OR. JFNK_ANY_ITER) .AND.
+	6   (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_FREEZE) .AND.
+	7   USE_LAM_ES .AND. .NOT. RDLAM_PROBE_THIS)THEN
 	  JFNK_THIS=.TRUE.
 	  JFNK_COUPLED_THIS=.FALSE.
 	  CALL APPEND_ITER_REASON(ITER_REASON,'dirchk')

@@ -30,6 +30,8 @@
 ! conservative Lambda safety path.
 !
 ! editted by Devin (V7-JFNK port, 02-Oct-2026)
+! Altered 15-Oct-2026 : BA_DIRCHK_MAX caps the dirchk defer count so
+!                          real Newton admission resumes (edited by Devin).
 ! Altered 05-Oct-2026 : Demoted JFNK banners to iteration subheaders.
 !
 	SUBROUTINE JFNK_SOLVE_CORR_V1(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,
@@ -152,6 +154,16 @@
 	INTEGER, SAVE :: JFNK_REARM_CYCLE=0
 	INTEGER JFNK_REARM_WAIT
 !
+! BA_DIRCHK_MAX arms the dirchk diagnostics for at most that many
+! defer events (default -1 = unlimited, the pre-cap behaviour).
+! Each armed admission costs a fresh BA factorization plus ~12
+! residual/JVP evals; past the cap JFNK admission proceeds normally.
+! JFNK_DIRCHK_N is a CONTROL_VARIABLE_MOD counter (initialized at
+! VADAT read) so the admission bypass in SOLVE_FOR_POPS drops out on
+! the same event count.
+!
+	LOGICAL DO_DIRCHK_NOW
+!
 ! FIX_T_AUTO scratch: the domain T-row residual norm at admission and
 ! the committed log-T step measured at the outcome.
 !
@@ -183,6 +195,8 @@
 	WR_PRT_INV_SAVE=WR_PRT_INV_A
 	TEMP_CHAR_SAVE=TEMP_CHAR
 	T1=COR_LIM_IN
+	DO_DIRCHK_NOW=DO_BA_DIR_CHK .AND.
+	1    (BA_DIRCHK_MAX .LT. 0 .OR. JFNK_DIRCHK_N .LT. BA_DIRCHK_MAX)
 !
 ! -----------------------------------------------------------------------
 ! Entry gating: after repeated stagnation JFNK pauses for
@@ -787,7 +801,7 @@
 	1       JFNK_COS_MIN .GT. 0.0_LDP .OR.
 	2       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
 	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .OR.
-	4       DO_BA_DIR_CHK) .AND.
+	4       DO_DIRCHK_NOW) .AND.
 	5       JFNK_LU_READY .AND.
 	6       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
 	7        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
@@ -1346,12 +1360,13 @@
 ! real correction.  jfnk_fx_fresh must clear -- the adopted F_eval
 ! baseline belongs to the skipped Newton, not to a later activation.
 !
-	    IF(DO_BA_DIR_CHK)THEN
+	    IF(DO_DIRCHK_NOW)THEN
+	      JFNK_DIRCHK_N=JFNK_DIRCHK_N+1
 	      JFNK_REACH_OK=.FALSE.
 	      jfnk_fx_fresh=.FALSE.
-	      WRITE(LUER,'(A)')
+	      WRITE(LUER,'(A,I4,A)')
 	1     '  JFNK DIRCHK: diagnostics complete; deferring Newton'//
-	2     ' to caller-mode SOLVEBA'
+	2     ' to caller-mode SOLVEBA (event ',JFNK_DIRCHK_N,')'
 	    END IF
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
 	    FLUSH(LUER)
