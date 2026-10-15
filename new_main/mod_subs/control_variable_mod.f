@@ -1159,6 +1159,12 @@
 ! residual growth in the rest of the grid -- the single-metric
 ! acceptance test was blind to that (FreeNe LAM blow-up, Sep-2026).
 	REAL(KIND=LDP) BA_SE_RES2
+! BA_COL_RES: per-depth copy of SOLVEBA_V13's column-max residual
+! (COL_RES), refreshed every call since 15-Oct-2026 -- including
+! calls with DO_BA_RES_ACC off, which previously left the residual
+! channels at zero.  Read by the ITER_SUM per-depth summary in
+! SOLVE_FOR_POPS under CONV_DIAG_LVL.
+	REAL(KIND=LDP), ALLOCATABLE :: BA_COL_RES(:)
 	LOGICAL BAACC_PENDING
 	LOGICAL BA_STEP_REJECTED
 ! BA_SNAPSHOT_MISSING: set by SOLVEBA_V13 when the POPS_BA_SAVE arm
@@ -1381,6 +1387,14 @@
 ! raised; SOLVE_FOR_POPS then forces a BA recompute and demotes via
 ! the existing BA_REJ_THIS path.  Inert at the default.
 !
+! Interaction with MAX_LIN: MAX_LIN_COR clips each correction at a
+! factor MAX_LIN (a 5 clip permits ~400% committed changes), so a
+! BA_MAXCH_FAIL below the clip ceiling rejects every step that had
+! to be clipped -- which is the intended use: a clipped step is by
+! construction distrusted.  Set BA_MAXCH_FAIL above the ceiling to
+! let clipped steps commit, or leave it off to clip-and-commit as
+! before.
+!
 	REAL(KIND=LDP) BA_MAXCH_FAIL
 !
 ! DO_FG13_ALO (VADAT [DO_FG13_ALO], default F): use the diagonal
@@ -1525,7 +1539,7 @@
 	REAL(KIND=LDP) JFNK_MXDL
 	LOGICAL JFNK_FIXED_T
 	LOGICAL JFNK_VERBOSE
-	LOGICAL JFNK_DIAGNOSTIC
+	LOGICAL JFNK_DIAGNOSTIC	!VADAT [JFNK_DIAG], default F
 	INTEGER JFNK_WARMUP
 	REAL(KIND=LDP) MAX_JFNK_COR
 	LOGICAL JFNK_APPLY_BA_RIDGE
@@ -1597,12 +1611,14 @@
 !
 	LOGICAL DO_BA_DIR_CHK
 !
-! BA_DIRCHK_MAX (VADAT [BA_DIRCHK_MAX], default -1 = every eligible
-! call): cap on dirchk defer events.  Each armed admission spends a
+! BA_DIRCHK_MAX (VADAT [BA_DIRCHK_MAX], default 1): cap on dirchk
+! defer events.  Each armed admission spends a
 ! fresh BA factorization plus ~12 residual/JVP evals on diagnostics
 ! (~500 s vs ~113 s for a Lambda call), which is a one-time
 ! investigation cost -- after the cap the dirchk defer disengages
 ! and JFNK admission proceeds normally, so Newton can actually run.
+! -1 restores the uncapped pre-cap behaviour (defer every eligible
+! call).
 ! JFNK_DIRCHK_N counts the defer events; it lives here (not as a
 ! routine-local SAVE) so SOLVE_FOR_POPS can also drop the dirchk
 ! admission bypass once the cap is spent.

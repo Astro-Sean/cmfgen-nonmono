@@ -1493,11 +1493,11 @@
 	  DO_BA_DIR_CHK=.FALSE.
 	  CALL RD_STORE_LOG(DO_BA_DIR_CHK,'DO_BA_DIR_CHK',L_FALSE,
 	1     'Run JFNK direction diagnostics on BA steps, then defer')
-	  BA_DIRCHK_MAX=-1
+	  BA_DIRCHK_MAX=1
 	  JFNK_DIRCHK_N=0
 	  CALL RD_STORE_INT(BA_DIRCHK_MAX,'BA_DIRCHK_MAX',L_FALSE,
 	1     'Max dirchk defer events before JFNK admission resumes'//
-	2     ' (-1 = every eligible call)')
+	2     ' (default 1; -1 = every eligible call)')
 	  IF(DO_BA_DIR_CHK .AND. .NOT. USE_JFNK_SOLVER)
 	1    WRITE(LUER,*)'Warning: DO_BA_DIR_CHK=T has no effect'//
 	2    ' without DO_JFNK=T.'
@@ -1615,6 +1615,10 @@
 	  JFNK_SELECTIVE_JVAR=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_SELECTIVE_JVAR,'JFNK_SELECTIVE_JVAR',
 	1     L_FALSE,'Enable selective J-variation (cross-depth coupling)?')
+	  IF(JFNK_SELECTIVE_JVAR)
+	1    WRITE(LUER,*)'Warning: JFNK_SELECTIVE_JVAR is read but not'//
+	2    ' wired in this tree -- the selective-JVAR mask'//
+	3    ' (V6 MASK_TX_TVX_NONMONO_V1) was never ported.  No effect.'
 !
 ! JFNK_ROW_TINY: rows of a per-depth preconditioner block with
 ! max|A_ij| < JFNK_ROW_TINY*blockmax are replaced by the identity row
