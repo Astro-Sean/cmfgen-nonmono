@@ -772,10 +772,11 @@
 	    IF((JFNK_REACH_GATE .GT. 0.0_LDP .OR.
 	1       JFNK_COS_MIN .GT. 0.0_LDP .OR.
 	2       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
-	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP) .AND.
-	4       JFNK_LU_READY .AND.
-	5       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
-	6        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
+	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .OR.
+	4       DO_BA_DIR_CHK) .AND.
+	5       JFNK_LU_READY .AND.
+	6       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
+	7        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
 	      ALLOCATE(Z_CHK(JFNK_N), JZ_VEC(JFNK_N), Z_CLIP(JFNK_N))
 	      Z_CHK=jfnk_fx
 	      CALL JFNK_PRECOND_V1(JFNK_N, Z_CHK)
@@ -1319,6 +1320,24 @@
 	      DEALLOCATE(Z_CHK, JZ_VEC, Z_CLIP)
 	    ELSE
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,jfnk_fx,0)
+	    END IF
+!
+! DO_BA_DIR_CHK (VADAT [DO_BA_DIR_CHK], default F): diagnostics only.
+! The precheck block above has priced the stored-BA direction the
+! caller-mode SOLVEBA step is about to take (cos(F,Jz), |Jz|/|F|,
+! REACH, plus the FD-vs-stored comparison when JFNK_REACH_OK stayed
+! true).  Force the reach-fail path so Newton never runs: info=-2
+! exits through the admission-gate branch, which is not counted as
+! stagnation, and the same call's SOLVEBA_V13 fallback applies the
+! real correction.  jfnk_fx_fresh must clear -- the adopted F_eval
+! baseline belongs to the skipped Newton, not to a later activation.
+!
+	    IF(DO_BA_DIR_CHK)THEN
+	      JFNK_REACH_OK=.FALSE.
+	      jfnk_fx_fresh=.FALSE.
+	      WRITE(LUER,'(A)')
+	1     '  JFNK DIRCHK: diagnostics complete; deferring Newton'//
+	2     ' to caller-mode SOLVEBA'
 	    END IF
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
 	    FLUSH(LUER)

@@ -1315,6 +1315,35 @@
 	  END IF
 	END IF
 !
+! DO_BA_DIR_CHK (VADAT [DO_BA_DIR_CHK], default F; requires DO_JFNK):
+! diagnostic-only JFNK admission on direct-BA iterations.  The demand
+! gates above are bypassed -- the check exists to price the stored-BA
+! direction exactly where the real BA step linearizes, which is
+! precisely the high-demand first full step the gates defer.  The
+! structural gates (warmup, non-LAMBDA, GS-freeze under KNOP,
+! USE_LAM_ES, not a rd_lam probe) still apply: outside them the
+! stored operator is not the one SOLVEBA is about to use.  Frozen-J
+! tier only; JFNK_SOLVE_CORR_V1 exits through the info=-2 path after
+! the direction metrics, so caller-mode SOLVEBA_V13 takes the real
+! step on the same call.  The deferred call then counts toward the
+! NG window like the BA iterate it is.
+!
+	IF(DO_BA_DIR_CHK .AND. .NOT. JFNK_THIS .AND.
+	1   USE_JFNK_SOLVER .AND.
+	2   ITS_SINCE_START .GT. JFNK_WARMUP .AND.
+	3   (.NOT. LAMBDA_ITERATION .OR. JFNK_ANY_ITER) .AND.
+	4   (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_FREEZE) .AND.
+	5   USE_LAM_ES .AND. .NOT. RDLAM_PROBE_THIS)THEN
+	  JFNK_THIS=.TRUE.
+	  JFNK_COUPLED_THIS=.FALSE.
+	  CALL APPEND_ITER_REASON(ITER_REASON,'dirchk')
+	  WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DIRCHK --------------------------------'
+	  WRITE(LUER,'(A)')
+	1   '    DO_BA_DIR_CHK: direction diagnostics on the stored BA;'
+	  WRITE(LUER,'(A)')
+	1   '    Newton skipped -- caller-mode SOLVEBA takes the step'
+	END IF
+!
 ! edited by Devin, 03-Oct-2026: the non-demand defer paths were
 ! silent -- an armed JFNK that sat out on field maturity or a
 ! LAMBDA designation printed nothing, which made gate verification

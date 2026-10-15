@@ -1564,6 +1564,23 @@
 	REAL(KIND=LDP) JFNK_LSQ_LAM
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
+!
+! DO_BA_DIR_CHK (default FALSE, VADAT [DO_BA_DIR_CHK]): diagnostic-only
+! admission of the JFNK precheck machinery on direct-BA iterations.
+! Requires DO_JFNK (the residual evaluator, stored-BA capture and
+! preconditioner only exist under JFNK arming).  On every structurally
+! eligible call -- non-LAMBDA, field not GS-frozen, USE_LAM_ES, past
+! warmup -- SOLVE_FOR_POPS admits JFNK regardless of the demand gates,
+! JFNK_SOLVE_CORR_V1 runs the F(0) identity test, the stored-BA
+! reach/direction metrics and the FD-vs-stored-operator check, then
+! exits through the info=-2 path so caller-mode SOLVEBA still takes
+! the real step.  The point: resacc measures the outcome of a BA step
+! one call late, but cannot say whether the stored matrix predicted
+! it; cos(BAz,A_FDz) and |A_FDz|/|F| price the linearization itself
+! at the exact state the BA step linearizes.  Frozen-J tier only --
+! the operator question does not need a formal sweep per eval.
+!
+	LOGICAL DO_BA_DIR_CHK
 	INTEGER JFNK_REARM_EVERY
 	INTEGER JFNK_ROW_DIAG
 ! JFNK_LAG_FACTORS (VADAT, default F) holds POPION and the level-

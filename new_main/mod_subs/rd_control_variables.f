@@ -1479,6 +1479,24 @@
 	  IF(JFNK_CLIP_FRAC_MAX .LE. 0.0_LDP)JFNK_CLIP_FRAC_MAX=0.0_LDP
 	  IF(JFNK_CLIP_FRAC_MAX .GT. 1.0_LDP)JFNK_CLIP_FRAC_MAX=1.0_LDP
 !
+! DO_BA_DIR_CHK (default F): diagnostic-only JFNK admission on
+! direct-BA iterations.  The demand gates are bypassed so the check
+! fires on the first full step, where the direction quality matters
+! most; the structural gates (warmup, non-LAMBDA, GS-freeze,
+! USE_LAM_ES) still apply.  The activation runs the F(0) identity
+! test, the stored-BA reach/direction metrics and the FD-vs-stored-
+! operator check, then defers to caller-mode SOLVEBA through the
+! info=-2 path -- the real correction still comes from SOLVEBA_V13.
+! Requires DO_JFNK: the residual evaluator, stored-BA capture and
+! LU/LSQ preconditioner only exist under JFNK arming.
+!
+	  DO_BA_DIR_CHK=.FALSE.
+	  CALL RD_STORE_LOG(DO_BA_DIR_CHK,'DO_BA_DIR_CHK',L_FALSE,
+	1     'Run JFNK direction diagnostics on BA steps, then defer')
+	  IF(DO_BA_DIR_CHK .AND. .NOT. USE_JFNK_SOLVER)
+	1    WRITE(LUER,*)'Warning: DO_BA_DIR_CHK=T has no effect'//
+	2    ' without DO_JFNK=T.'
+!
 ! JFNK_REARM_EVERY (default 10): admitted calls skipped before a
 ! stagnated JFNK is retried.  Each failure cycle doubles the wait
 ! (cap x8), so a persistently failing Newton costs few retries while
