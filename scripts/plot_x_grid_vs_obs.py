@@ -201,6 +201,65 @@ MODEL_STYLE = {
     'X_V10000_w5ss25': dict(color='tab:olive', lw=1.4, ls='--', zorder=13,
                             label=(r'wall $5\times10^{17}$ + slow wind '
                                    r'$w=2.5\times10^{17}$')),
+    'X_V10000_w5ss50': dict(color='tab:olive', lw=1.4, ls='-.', zorder=13,
+                            label=(r'slow wind $w=5\times10^{17}$')),
+    'X_V10000_w5ss50x': dict(color='darkgoldenrod', lw=1.4, ls='-', zorder=13,
+                             label=(r'slow wind $w=5\times10^{17}$ '
+                                    r'to $3\times10^{16}$')),
+    'X_V10000_w5ss1e18x': dict(color='tab:brown', lw=1.4, ls='-.', zorder=13,
+                               label=(r'slow wind $w=10^{18}$ '
+                                      r'to $3\times10^{16}$')),
+    'X_V10000_wind': dict(color='tab:purple', lw=1.4, ls='-', zorder=13,
+                          label=(r'wind $\dot M=0.12$, '
+                                 r'SN-A blanket')),
+    'X_V10000_wind03': dict(color='tab:purple', lw=1.0, ls=':', zorder=13,
+                            label=r'wind $\dot M=0.03$'),
+    'X_V10000_wind06': dict(color='tab:purple', lw=1.0, ls='--', zorder=13,
+                            label=r'wind $\dot M=0.06$'),
+    'X_V10000_wind09': dict(color='tab:purple', lw=1.0, ls='-.', zorder=13,
+                            label=r'wind $\dot M=0.09$'),
+    'X_V10000_wind035': dict(color='tab:purple', lw=1.0, ls='--', zorder=13,
+                             label=r'wind $\dot M=0.035$'),
+    'X_V10000_wind04': dict(color='tab:purple', lw=1.0, ls='-.', zorder=13,
+                            label=r'wind $\dot M=0.04$'),
+    'X_V10000_wind045': dict(color='tab:purple', lw=1.6, ls='-', zorder=14,
+                             label=(r'wind $\dot M=0.045$, '
+                                    r'SN-A blanket')),
+    'X_V10000_wind045b': dict(color='tab:purple', lw=1.6, ls='-.', zorder=14,
+                              label=(r'wind $\dot M=0.045$, '
+                                     r'blanket $\rho\times5$')),
+    'X_V10000_wind045s': dict(color='tab:purple', lw=1.6, ls='--', zorder=14,
+                              label=(r'wind $\dot M=0.045$ + shell '
+                                     r'$6{\times}10^{17}$ at $1.8\times10^{16}$')),
+    'X_V10000_wind02i': dict(color='tab:purple', lw=1.0, ls=':', zorder=13,
+                             label=r'wind $\dot M=0.02$, intact SN-A'),
+    'X_V10000_wind03i': dict(color='tab:purple', lw=1.0, ls=(0, (1, 1)),
+                             zorder=13,
+                             label=r'wind $\dot M=0.03$, intact SN-A'),
+    'X_V10000_wind045i': dict(color='tab:purple', lw=1.6, ls='-', zorder=14,
+                              label=(r'wind $\dot M=0.045$, '
+                                     r'intact SN-A')),
+    'X_V10000_wind06i': dict(color='tab:purple', lw=1.0, ls='--', zorder=13,
+                             label=r'wind $\dot M=0.06$, intact SN-A'),
+    'X_V10000_wind09i': dict(color='tab:purple', lw=1.0, ls='-.', zorder=13,
+                             label=r'wind $\dot M=0.09$, intact SN-A'),
+    'X_V10000_w2m1i': dict(color='tab:violet', lw=1.4, ls='-', zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}5{\times}10^{17}$ '
+                                  r'at $3.5{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m2i': dict(color='tab:violet', lw=1.4, ls='--', zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}8{\times}10^{17}$ '
+                                  r'at $4.5{\times}10^{15}$, intact SN-A')),
+    'X_V10000_wind2m_inv': dict(color='tab:purple', lw=1.6, ls=':', zorder=14,
+                              label=(r'wind $\dot{M}$: $1\to3$'
+                                     r'$\times 10^{17}$ at $5{\times}10^{15}$,'
+                                     ' SN-A blanket')),
+    'X_V10000_wind2m': dict(color='tab:purple', lw=1.6, ls='--', zorder=14,
+                            label=(r'wind $\dot M$: $2.5\to1.3\times10^{17}$ '
+                                   r'at $10^{16}$, SN-A blanket')),
+    'X_V10000_wallwind': dict(color='tab:purple', lw=1.4, ls='--', zorder=13,
+                              label=(r'two-$\dot M$ wind '
+                                     r'$1.5\to0.5\times10^{18}$, '
+                                     r'SN-A blanket')),
     'X_V12000_cut250w5': dict(color='tab:red', lw=1.4, ls='-', zorder=13,
                               label=(r'$v_{\rm sh}=12\,000$ km s$^{-1}$, '
                                      r'wall $5\times10^{17}$')),
@@ -238,7 +297,18 @@ MODEL_ORDER = ['X', 'X_M2', 'X_M10', 'X_V6000', 'X_V8000',
                'X_nowall',
                'X_rs24', 'X_cut33', 'X_cut55', 'X_V10000_cut70',
                'X_V10000_cut70_ss', 'X_V10000_cut250w5',
-               'X_V10000_w5ss25', 'X_n05', 'X_n10', 'X_t1',
+               'X_V10000_w5ss25', 'X_V10000_w5ss50', 'X_V10000_w5ss50x',
+               'X_V10000_w5ss1e18x', 'X_V10000_wind', 'X_V10000_wind03',
+               'X_V10000_wind06', 'X_V10000_wind09', 'X_V10000_wind035',
+               'X_V10000_wind04', 'X_V10000_wind045',
+               'X_V10000_wind045b', 'X_V10000_wind045s',
+               'X_V10000_wind02i', 'X_V10000_wind03i',
+               'X_V10000_wind045i', 'X_V10000_wind06i',
+               'X_V10000_wind09i',
+               'X_V10000_w2m1i', 'X_V10000_w2m2i',
+               'X_V10000_wind2m', 'X_V10000_wind2m_inv',
+               'X_V10000_wallwind',
+               'X_n05', 'X_n10', 'X_t1',
                'X_V12000_cut250w5', 'X_V10000_cut250w5_hhe',
                'X_V10000_cut250w5_ss2e16', 'X_V10000_cut250w5_ss5e16',
                'X_V10000_cut250w5_ni03', 'X_V10000_cut250w5_ni06']
@@ -254,8 +324,9 @@ def style_for(name):
 REFERENCE_DIRS = []
 
 
-def load_models(grid_dir):
+def load_models(grid_dir, min_tmax=0.0):
     models = []
+    skipped = []
     for mdir in sorted(d for d in glob.glob(os.path.join(grid_dir, '*'))
                        if os.path.isdir(d)):
         tt = base.find_tt(mdir)
@@ -263,6 +334,10 @@ def load_models(grid_dir):
             continue
         df = base.load_tt(tt)
         if df is not None and len(df):
+            if df['time'].max() < min_tmax:
+                skipped.append((os.path.basename(mdir),
+                                df['time'].max()))
+                continue
             models.append((os.path.basename(mdir), df))
     for rel_dir, name in REFERENCE_DIRS:
         mdir = os.path.normpath(os.path.join(grid_dir, rel_dir))
@@ -271,7 +346,14 @@ def load_models(grid_dir):
             continue
         df = base.load_tt(tt)
         if df is not None and len(df):
+            if df['time'].max() < min_tmax:
+                skipped.append((name, df['time'].max()))
+                continue
             models.append((name, df))
+    if skipped:
+        txt = ', '.join(f'{n} ({t:.0f}d)' for n, t in skipped)
+        print(f'  skipped {len(skipped)} models below '
+              f'{min_tmax:.0f}d: {txt}')
     return models
 
 
@@ -288,11 +370,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid-dir', default=GRID_DIR)
     ap.add_argument('--out', default=None)
-    ap.add_argument('--fit-end', type=float, default=130.0,
+    ap.add_argument('--fit-end', type=float, default=None,
                     help='last obs phase (d) included in the best-dt fit')
     ap.add_argument('--ebv', type=float, default=None,
                     help='total E(B-V) incl. host; default keeps '
                          'EBV=0.15 (MW foreground only)')
+    ap.add_argument('--all-models', action='store_true',
+                    help='plot every model; default keeps only the '
+                         'intact-SN_A family (names ending in i)')
+    ap.add_argument('--min-tmax', type=float, default=200.0,
+                    help='drop models whose .tt ends before this '
+                         'model time (d); 0 disables')
     args = ap.parse_args()
     if args.ebv is not None:
         base.set_ebv(args.ebv)
@@ -302,7 +390,11 @@ def main():
     out_file = args.out or os.path.join(
         args.grid_dir, 'x_grid_vs_obs.png')
 
-    models = load_models(args.grid_dir)
+    models = load_models(args.grid_dir, min_tmax=args.min_tmax)
+    if not args.all_models:
+        # The intact-SN_A family is the current baseline; the older
+        # truncated-ejecta models misrepresent SN_A composition.
+        models = [(n, d) for n, d in models if n.endswith('i')]
     if not models:
         raise SystemExit(f'no completed models found in {args.grid_dir}')
     print(f'loaded {len(models)} models')
@@ -321,6 +413,18 @@ def main():
     # fiducial first in the legend, then the parameter variations
     order = {name: i for i, name in enumerate(MODEL_ORDER)}
     scored.sort(key=lambda s: order.get(s['name'], len(order)))
+    # Highlight the best-fitting model in black so it stands out
+    # regardless of which family it belongs to.
+    ok = [s for s in scored if s['ok']]
+    best_name = (min(ok, key=lambda s: s['score'])['name']
+                 if ok else None)
+
+    def style_for_scored(s):
+        st = style_for(s['name'])
+        if s['name'] == best_name:
+            st = dict(st, color='k', lw=2.2, zorder=19,
+                      label=st.get('label', s['name']) + ' (best)')
+        return st
 
     BANDS = [
         ('g', 'g', 'Error', 'o', 'tab:green', 'SN 2024pba $g$'),
@@ -329,7 +433,7 @@ def main():
         ('o', 'o', 'Mabs_err', '^', 'darkorange',
          'SN 2024pba $o$ (ATLAS)'),
     ]
-    x_lo, x_hi = -60.0, 250.0
+    x_lo, x_hi = -60.0, 400.0
 
     fig, axes = plt.subplots(2, 2, figsize=(2.0 * AA_COL_IN, 4.6),
                            sharex=True, sharey=True)
@@ -341,7 +445,7 @@ def main():
         ax.errorbar(det['phase'], det['Mabs'], yerr=det[ecol],
                     fmt=fmt, color=col, ms=3, mec='k', mew=0.5,
                     capsize=1.0, elinewidth=0.6, alpha=0.85, zorder=20)
-        ax.set_ylim(top=-19.2, bottom=-14.2)
+        ax.set_ylim(top=-19.2, bottom=-12.9)
         ax.text(0.03, 0.06, f'${band}$', transform=ax.transAxes,
                 fontsize=8)
         ax.xaxis.set_minor_locator(AutoMinorLocator())
@@ -363,7 +467,7 @@ def main():
 
     handles = []
     for s in scored:
-        st = style_for(s['name'])
+        st = style_for_scored(s)
         ph = s['df']['time'] - s['tpk'] + s['dt']
         lab = st['label']
         for band, mcol, _, _, _, _ in BANDS:
@@ -430,9 +534,10 @@ def main():
     plt.tight_layout(rect=[0, 0, 1, rect_top])
     save_both(fig, out_file)
 
-    # --- colour companion figure: g-r, o-g, o-r ---
-    colour_defs = [('g', 'r', 0.75), ('o', 'g', 1.5), ('o', 'r', 1.5)]
-    figc, axesc = plt.subplots(3, 1, figsize=(AA_COL_IN, 4.9),
+    # --- colour companion figure: g-r, o-g, o-r, r-i ---
+    colour_defs = [('g', 'r', 0.75), ('o', 'g', 1.5), ('o', 'r', 1.5),
+                   ('r', 'i', 0.75)]
+    figc, axesc = plt.subplots(4, 1, figsize=(AA_COL_IN, 6.4),
                                sharex=True)
     for ax, (b1, b2, sep) in zip(axesc, colour_defs):
         pairs = base.obs_color_pairs(obs, b1, b2, max_sep=sep)
@@ -443,7 +548,7 @@ def main():
                         zorder=20,
                         label=f'SN 2024pba ${b1} - {b2}$')
         for s in scored:
-            st = style_for(s['name'])
+            st = style_for_scored(s)
             ph = s['df']['time'] - s['tpk'] + s['dt']
             ax.plot(ph,
                     s['df'][base.OBS2MOD[b1]] - s['df'][base.OBS2MOD[b2]],

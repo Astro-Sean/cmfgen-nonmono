@@ -119,3 +119,38 @@ All plots must be saved to `models/<model_name>/plots/` or `cmfgen_validation/pl
 - Examples: `cmfgen_30d_spectrum.png`, `cmfgen_45d_spectropolarimetry.png`.
 - Always include axis labels, units (e.g., Angstrom for wavelength, 10^-17 erg s^-1 cm^-2 Angstrom^-1 for flux), and a legend.
 - When comparing to Luc Dessart's validation runs, explicitly overlay the benchmark spectrum for visual diffing.
+
+## 9. SN_B X-Grid Geometry Convention
+
+- The SN_A ejecta appended by `x_model_from_sn` must be kept fully
+  intact and metal rich. Do NOT set `ejecta_r_inner_cm` or
+  `ejecta_v_max_kms`: those options discard the Fe/Si core and the
+  fast outer edge, leaving only the He layer.
+- Reference config: `SN_B_X_grid/X_V10000_wind045i.yaml`.
+- Wind(s) and the 4 Msun shell may be tuned freely; they occupy only
+  the region between the shell surface and the SN_A inner edge
+  (~7e15 cm). Overlays (`slow_shell_*`) must end below that edge so
+  SN_A zones are never merged or diluted.
+
+## 10. SEDONA Development Repository
+
+- `sedona_source/` is its own git repo (nested; ignored by the workspace
+  whitelist .gitignore). All SEDONA code development is tracked there.
+- Remote: `git@github.com:Astro-Sean/pubsed.git` (user's SEDONA fork).
+- `main` tracks upstream pubsed development.
+- `development` is the active development branch for the
+  interacting-SN modifications (non-monotonic velocity support, DDMC
+  diagnostics, isotope-aware converters). Only two branches exist
+  (main + development); ALL commits and pushes go to development
+  by default (push.default=upstream, development is checked out).
+- Build: `cd sedona_source/src && module load intel/2024.0 openmpi/4.1
+  gsl/2.6 hdf5-serial/1.14.1`, set `SEDONA_HOME`, `GSL_DIR`,
+  `HDF5_DIR`, `LUA_DIR=$SEDONA_HOME/src/external/lua-5.2.1`, then
+  `cd build && make gomc CXX=mpicxx` (Makefile.general hardcodes
+  /usr/local/bin/mpicxx; override with CXX=). Binary lands at
+  `src/sedona6.ex` via install.sh, or build/gomc directly.
+  NOTE: `transport.h` changes require `rm -f build/*.o` first -- the
+  Makefile has no header dependencies and stale objects cause ABI
+  segfaults.
+- `.mod` species tokens must be written as "Z.A" (e.g. "1.1 2.4 26.56");
+  bare "Z" is silently parsed as A=Z by grid_1D_sphere::read_ascii_file.

@@ -86,6 +86,17 @@ STELLA_ELEM_Z = {
 # Canonical order (all 15 STELLA elements), used for species column ordering.
 STELLA_ELEM_ORDER = ['H', 'He', 'C', 'N', 'O', 'Ne', 'Na', 'Mg', 'Al',
                      'Si', 'S', 'Ar', 'Ca', 'Fe', 'Ni']
+# Dominant isotope mass number per element, written as the "A" in the
+# .mod "Z.A" species tokens.  SEDONA's ascii parser requires Z.A; a bare
+# "Z" is silently parsed as A=Z, halving the particle mass for all metals
+# and He (grid_1D_sphere.cpp:read_ascii_file).  Ni is written as 28.56:
+# the STELLA "Ni" column is explosively synthesized 56Ni, and the isotope
+# token lets SEDONA's radioactive.decay track the Ni56 -> Co56 -> Fe56 chain.
+STELLA_ELEM_A = {
+    'H': 1, 'He': 4, 'C': 12, 'N': 14, 'O': 16, 'Ne': 20, 'Na': 23,
+    'Mg': 24, 'Al': 27, 'Si': 28, 'S': 32, 'Ar': 40, 'Ca': 40,
+    'Fe': 56, 'Ni': 56,
+}
 
 SIGMA_SB = 5.670374419e-5  # erg/cm^2/s/K^4
 
@@ -525,8 +536,10 @@ def convert_swd_to_sedona(swd_path: str, output_file: str,
         else:
             print(f"  Header (static): {n_final} zones, rmin={rmin:.3e} cm, "
                   f"t_now={t_sec:.1f}s ({t_model:.3f}d)")
-        # Line 3: species atomic numbers.
-        f.write(" ".join(str(z) for z in species_z) + "\n")
+        # Line 3: species as "Z.A" isotope tokens (required by
+        # grid_1D_sphere::read_ascii_file; bare "Z" parses as A=Z).
+        species_tokens = [f"{z}.{STELLA_ELEM_A[z_to_elem[z]]}" for z in species_z]
+        f.write(" ".join(species_tokens) + "\n")
         # Data lines: r, v, rho, T, mass_fracs...
         # Use .8e precision for r, v, rho, T to avoid zero-thickness zones
         # when adjacent zones differ by less than 1e-4 * r.

@@ -8,13 +8,16 @@
 # R_PNT = 1.098e4 Rsun = 7.6e14 cm, well inside the 6.8e15 cm cavity)
 # heats the old ejecta; FIX_T=F lets the gas temperature respond.
 #
-# Standard solver path (no DO_NONMONO_* flags): SOL_METH=TRI via
-# depth_independent_solver=false, GLOBAL_LINE=BLANK blanketed mode.
+# DO_NONMONO_SOB mode (GLOBAL_LINE=SOB, Dessart+2015 recipe): the
+# verified pairing is USE_LAM_ES=T with SOL_METH=DIAG, so TRI is
+# superseded under this solver mode.  Cold start is LTE (LTE_EST=T,
+# T_EXC required) - no proxy _IN files.
 model_name: point_source_sn_a
 description: 'SN_A_g_T20k_Ni06 ejecta aged homologously 50.2d -> 350d,
   irradiated by a 7000 K / 1e42 erg/s inner point source (IB_METH=PNT_SRCE).
-  Standard TRIDIAG solver, blanketed, T solved (FIX_T=F, FIX_T_AUTO=T).'
-submission: normal
+  DO_NONMONO_SOB Sobolev mode, LTE_EST=T cold start, T solved
+  (FIX_T=F, FIX_T_AUTO=T).'
+submission: debug
 hydro_backend: stella
 skip_stella: true
 run_cmfgen: true
@@ -36,12 +39,17 @@ cmfgen:
   single_final: true
   target_nd: 140
   install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_jfnk
+  proxy_populations: false
   inc_rad_decays: true
   vturb: 20.0
   incl_rel: false
   vel_law: 11
-  # TRIDIAG population solver (SOL_METH=TRI, NUM_BNDS=3).
-  depth_independent_solver: false
+  # DO_NONMONO_SOB: Sobolev line treatment (GLOBAL_LINE=SOB), verified
+  # pairing USE_LAM_ES=T / SOL_METH=DIAG (TRI is incompatible with the
+  # SOB solver path - depth_independent_solver=true keeps them synced).
+  non_mono_mode: SOB
+  use_lam_es: true
+  depth_independent_solver: true
   # Opt-in: release the FIX_T/FIX_T_AUTO hydro-T pin so the gas
   # temperature responds to the artificial inner source heating.
   solve_temperature: true
@@ -49,7 +57,7 @@ cmfgen:
   # the luminosity guard; the injected flux itself is R_PNT*TEFF_PNT).
   inner_boundary_luminosity_lsun: 2.61e8
   partition: general
-  cpus_per_task: 16
+  cpus_per_task: 8
   mem: 64G
   init_mem: 64G
   init_num_its: 1000
@@ -63,13 +71,20 @@ cmfgen:
     LSTAR: 2.61D8
     FIX_T: F
     FIX_T_AUTO: T
+    # rd_control_variables.f makes JFNK_TAUTO a required key when
+    # FIX_T_AUTO=T (default = VARFIXT).  Inert here (DO_JFNK off).
+    JFNK_TAUTO: T
     FIX_NE: F
     FIX_IMP: T
     USE_LAM_ES: T
     DO_LAM_IT: T
     DO_LAM_AUTO: T
-    SOL_METH: TRI
-    GLOBAL_LINE: BLANK
+    SOL_METH: DIAG
+    GLOBAL_LINE: SOB
+    DO_NONMONO_SOB: T
+    DO_NOMONO_SOB: T
+    LTE_EST: T
+    T_EXC: 0.3D0
     N_OB_INS: '0'
     N_IB_INS: '0'
     REV_RGRID: F
@@ -77,9 +92,6 @@ cmfgen:
     IB_STAB: 0.1D0
     VTURB: 20.0D0
     STOP_IF_BP: F
-    LTE_EST: F
-    DC_METH: R
-    LIN_INT: T
     T_ON_R: T
     SCL_SL_OPAC: T
     SCL_LN: F
@@ -94,6 +106,14 @@ cmfgen:
     MAX_LIN: 5.0D0
     LAM_VAL: 2.0D2
     NUM_LAM: '2'
+    # Required keys newer than cmfgen_base/VADAT_INIT (values match the
+    # verified m15_2p82d_KNOP_FORMAL_freqmatch run).
+    LAM_ENTER: 4.0D2
+    LAM_EXIT: 5.0D0
+    LAM_N_STABLE: '5'
+    FRESH_BA_EXIT: T
+    N_FULL_TREL: '0'
+    T_REL_CHG: 3.0D0
     N_FIX_BA: '2'
     FIX_BA: 1.0D1
     BA_CHK_FAC: 1.0D-05

@@ -46,6 +46,8 @@ MAX_CELLS = 250     # downsample target
 # SEDONA .mod format: H He C O Si Ca Fe (matching the 7-element scheme)
 ALL_ELEMENTS = ['H', 'He', 'C', 'O', 'Si', 'Ca', 'Fe']
 ELEMENT_Z = {'H': 1, 'He': 2, 'C': 6, 'O': 8, 'Si': 14, 'Ca': 20, 'Fe': 26}
+# Dominant isotope mass numbers for .mod "Z.A" species tokens
+ELEMENT_A = {'H': 1, 'He': 4, 'C': 12, 'O': 16, 'Si': 28, 'Ca': 40, 'Fe': 56}
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +217,7 @@ def write_sedona_mod(mod_path, r_io, v_io, rho_io, t_gas, comp_io, elems,
     with open(mod_path, 'w') as f:
         f.write('1D_sphere standard\n')
         f.write(f'{n}\t{r_inner:.8e}\t{t_exp:.1f}\t{nelem}\n')
-        f.write(' '.join(str(z) for z in z_list) + '\n')
+        f.write(' '.join(f"{z}.{ELEMENT_A[e]}" for z, e in zip(z_list, elems)) + '\n')
 
         for i in range(n):
             # r_outer, v (cm/s), rho, T, abundances

@@ -74,7 +74,7 @@ def read_sedona_mod(filepath):
     T = data[:, 3]
     # Mass fractions start at column 4
     species_line = lines[2].split()
-    z_list = [int(z) for z in species_line]
+    z_list = [int(z.split('.')[0]) for z in species_line]
     elem_names = {1: 'H', 2: 'He', 6: 'C', 8: 'O', 14: 'Si', 20: 'Ca', 26: 'Fe', 27: 'Co', 28: 'Ni'}
     mf = {}
     for i, z in enumerate(z_list):

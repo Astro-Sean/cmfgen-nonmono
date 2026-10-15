@@ -213,7 +213,7 @@ def obs_color_pairs(obs, b1, b2, max_sep=0.75):
     return pd.DataFrame(rows)
 
 
-def best_phase_shift(df, obs, t_pk, fit_end=130.0, foot_phase=-19.0,
+def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
                      foot_slack=3.0):
     """Best time offset (days added to the model's own-peak phase).
 
@@ -236,14 +236,21 @@ def best_phase_shift(df, obs, t_pk, fit_end=130.0, foot_phase=-19.0,
     0.75 d for g-r (g only starts at +29 d anyway).
     Returns (score, dt, chi2_rise, chi2_tail, chi2_col, pen).
     """
+    # Default: score over every fitted-band detection, so the whole
+    # observed tail contributes rather than just the first ~130 d.
+    if fit_end is None:
+        fit_end = max(obs[b]['phase'].max() for b in ('r', 'o', 'i')
+                      if len(obs[b]))
     plat = obs['r'][(obs['r']['phase'] >= -45) & (obs['r']['phase'] <= -19)]
     fit_r = obs['r'][(obs['r']['phase'] > -19) &
                      (obs['r']['phase'] <= fit_end)]
     fit_o = obs['o'][(obs['o']['phase'] > -19) &
                      (obs['o']['phase'] <= fit_end)]
+    fit_i = obs['i'][(obs['i']['phase'] > -19) &
+                     (obs['i']['phase'] <= fit_end)]
     fit_cols = []
     for b1, b2, sep in (('g', 'r', 0.75), ('o', 'g', 1.5),
-                        ('o', 'r', 1.5)):
+                        ('o', 'r', 1.5), ('r', 'i', 0.75)):
         pairs = obs_color_pairs(obs, b1, b2, max_sep=sep)
         pairs = pairs[(pairs['phase'] > foot_phase) &
                       (pairs['phase'] <= fit_end)]
@@ -288,9 +295,11 @@ def best_phase_shift(df, obs, t_pk, fit_end=130.0, foot_phase=-19.0,
         # (Rm = -12 floor) and underpredicts it.
         chi2_rise = 0.0
         chi2_tail = 0.0
-        for det, err_col in ((fit_r, 'Error'), (fit_o, 'Mabs_err')):
+        for det, err_col, mcol in ((fit_r, 'Error', 'R'),
+                                   (fit_o, 'Mabs_err', 'o'),
+                                   (fit_i, 'Error', 'i')):
             for _, row in det.iterrows():
-                rm = model_R_at(df, row['phase'] - dt + t_pk)
+                rm = model_mag_at(df, row['phase'] - dt + t_pk, mcol)
                 if not np.isfinite(rm):
                     rm = -12.0
                 err = np.hypot(row[err_col], 0.25)
@@ -328,8 +337,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid-dir', default=GRID_DIR)
     ap.add_argument('--out', default=None)
-    ap.add_argument('--fit-end', type=float, default=130.0,
-                    help='last obs phase (d) included in the best-dt fit')
+    ap.add_argument('--fit-end', type=float, default=None,
+                    help='last obs phase (d) in the best-dt fit; '
+                         'default uses the latest fitted-band detection')
     ap.add_argument('--ebv', type=float, default=None,
                     help='total E(B-V) incl. host; default keeps EBV=0.15 '
                          '(MW foreground only)')

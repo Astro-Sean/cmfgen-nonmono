@@ -165,7 +165,8 @@ def fix_param_lua(sedona_dir: Path):
     if len(mod_lines) >= 4:
         species_line = mod_lines[2].strip()
         try:
-            mod_species_z = [int(x) for x in species_line.split()]
+            # Species tokens are "Z.A" (e.g. "1.1 2.4 26.56"); take the Z
+            mod_species_z = [int(x.split('.')[0]) for x in species_line.split()]
         except ValueError:
             mod_species_z = []
 

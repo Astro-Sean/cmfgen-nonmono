@@ -215,7 +215,10 @@ def _csm_T(csm, r):
     if gamma == 0.0:
         T = np.full(np.asarray(r).shape, csm["T"], dtype=float)
     else:
-        T = csm["T"] * (_csm_rho(csm, r) / csm["rho15"]) ** gamma
+        # Beta winds carry no rho15; anchor the T law at R_REF_1E15
+        # so T still equals csm["T"] at the reference radius.
+        rho_ref = csm.get("rho15") or float(_csm_rho(csm, R_REF_1E15))
+        T = csm["T"] * (_csm_rho(csm, r) / rho_ref) ** gamma
     return np.maximum(T, csm.get("T_min", 0.0))
 
 
@@ -1426,6 +1429,15 @@ def main():
         "Discards tenuous inner ejecta material and "
         "enlarges the CSM region",
     )
+    parser.add_argument(
+        "--ejecta-rho-boost",
+        type=float,
+        default=1.0,
+        help="Multiply ejecta density by this factor after "
+        "truncation.  A boost > 1 makes the CSM-ejecta interface a "
+        "density enhancement the shock rebrightens against, rather "
+        "than a drop it fades through.",
+    )
 
     # Wind args: accepted for CLI compatibility with run_model_grid.py;
     # only --wind-T and --wind-r-outer-cm are reused (CSM defaults).
@@ -1975,6 +1987,13 @@ def main():
                     f"{r_min_before:.3e} -> {ejecta['r'].min():.3e} cm "
                     f"({mask.sum()} zones kept)"
                 )
+        if args.ejecta_rho_boost != 1.0:
+            ejecta["rho"] = ejecta["rho"] * args.ejecta_rho_boost
+            print(
+                f"  Ejecta density boost x{args.ejecta_rho_boost:g}: "
+                f"rho=[{ejecta['rho'].min():.3e}, "
+                f"{ejecta['rho'].max():.3e}] g/cc"
+            )
 
     # --- Step 2: H/He shell ---
     r_ej_inner = (ejecta["r"].min() * 0.99) if ejecta is not None else None
