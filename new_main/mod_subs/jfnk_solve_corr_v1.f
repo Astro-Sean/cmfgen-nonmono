@@ -263,8 +263,14 @@
 	  WRITE(LUER,'(A,A)')
 	1   '    admitted tier                   : ',
 	1     TRIM(ADJUSTL(JFNK_TAG))
+! FIXED_T is the IN_ITS schedule flag; a FULL token leaves it false
+! even when RD_FIX_T pins every T row via MOD_FIXED_T.  Report the
+! effective state (schedule .OR. VADAT pin) so the banner cannot claim
+! free T on a globally pinned solve.
+!
 	  WRITE(LUER,'(A,L2)')
 	1   '    T free to vary                  :',.NOT. FIXED_T
+	2   .AND. .NOT. RD_FIX_T
 	  WRITE(LUER,'(A,L2)')
 	1   '    Ne free to vary                 :',.NOT. FIXED_NE
 	  WRITE(LUER,'(A,L2)')
@@ -275,13 +281,13 @@
 	1   '    population change clip          :',MAX_JFNK_COR
 	  WRITE(LUER,'(A,ES10.3)')
 	1   '    temperature change clip         :',MDT_A
-	  IF(.NOT. FIXED_T)THEN
+	  IF(.NOT. FIXED_T .AND. .NOT. RD_FIX_T)THEN
 	    WRITE(LUER,'(A)')
 	1   '    NOTE: free-T JFNK; the frozen-J residual'
 	    WRITE(LUER,'(A)')
 	1   '    linearizes the radiation about T0 only.'
 	  END IF
-	  IF(MOD_FIX_T_D_ST .GT. 0 .AND. .NOT. FIXED_T)THEN
+	  IF(MOD_FIX_T_D_ST .GT. 0)THEN
 	    WRITE(LUER,'(A,I4,A,I4)')
 	1     '    T held fixed over depths ',
 	2     MOD_FIX_T_D_ST,' to ',MOD_FIX_T_D_END
@@ -347,7 +353,15 @@
 ! shock guard -- a STELLA T profile is not in NLTE equilibrium, so a
 ! free first Newton step can drive T to unphysical values.
 !
+! RD_FIX_T is a VADAT-level global pin the IN_ITS schedule never sees:
+! a FULL token leaves FIXED_T false even though every T row is fixed
+! (dirchk run, it473).  TAUTO must not release that pin -- with it
+! active the depth-range mask in JFNK_MASK_FIXED_UNKNOWNS and the
+! T-commit skip below are bypassed, so a Newton step would update T
+! under FIX_T=T.
+!
 	  JFNK_TAUTO_ACTIVE=JFNK_TAUTO .AND. (.NOT. JFNK_FIXED_T_LOC)
+	1   .AND. (.NOT. RD_FIX_T)
 	  IF(JFNK_TAUTO_ACTIVE)THEN
 	    IF(JFNK_FIX_T_D_ST .GT. 0)THEN
 	      JFNK_TAU_DOM_ST=JFNK_FIX_T_D_ST
@@ -1544,11 +1558,12 @@
 	    MINSCALE_J=1.0_LDP
 	    WRITE(LUER,'(A,L2)')
 	1     '    T free to vary              :',.NOT. FIXED_T
+	2     .AND. .NOT. RD_FIX_T
 	    WRITE(LUER,'(A,L2)')
 	1     '    Ne free to vary             :',.NOT. FIXED_NE
 	    WRITE(LUER,'(A,2ES10.2)')
 	1     '    pop/Ne unknown clip bounds  :',X_MIN,X_MAX
-	    IF(.NOT. FIXED_T)THEN
+	    IF(.NOT. FIXED_T .AND. .NOT. RD_FIX_T)THEN
 	      WRITE(LUER,'(A,2ES10.2)')
 	1       '    T unknown clip bounds       :',X_T_MIN,X_T_MAX
 	    END IF
