@@ -7,6 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 trap 'rm -f exe/*.tmp' EXIT
 
+# Makefiles never create the output dirs; a fresh clone fails without them.
+mkdir -p mod lib exe mod_dbg lib_dbg exe_dbg
+
 make KEEP_EXE=1 clean
 make DEBUG=nodebug all
 
