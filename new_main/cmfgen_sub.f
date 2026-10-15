@@ -5070,10 +5070,25 @@
 ! populations. Defer this handoff while GS_POPS_HELD is true. The guard
 ! is gated by DO_NONMONO_KNOP, which defaults F, so the stock path stays
 ! unchanged.
+! edited by Devin, 15-Oct-2026: [DO_NONMONO_SOB]/[DO_NONMONO_KNOP]
+! add the stable-count requirement to the one-time DO_LAM_AUTO
+! handoff.  The stock test (MAXCH_CTRL < 50) hands off on a single
+! iteration, so a 47% LAMBDA demand still released an unrestricted
+! first full step (dirchk_lc it172->173 committed a 400% update on
+! a raw 1E7 demand).  CNT_STABLE_LAM is already counted during
+! RD_LAMBDA in SOLVE_FOR_POPS (needs MAXCH_CTRL < LAM_EXIT for
+! N_STABLE_LAM consecutive calls), so requiring it here reuses the
+! same hysteresis the post-handoff exits use.  On a model whose
+! LAMBDA demand floors above LAM_EXIT the handoff stays closed and
+! the periodic cnt_lam_escape / BA_PROBE_LAM probes remain the only
+! full-step channel -- each is still bounded by BA_TRUST, resacc,
+! and BA_MAXCH_FAIL.  Default path unchanged (both flags F).
 	    ELSE IF(DO_LAMBDA_AUTO .AND. RD_LAMBDA .AND.
 	1           MAXCH_CTRL .LT. 50.0_LDP .AND.
 	2           .NOT. JFNK_UNCONVERGED_COMMIT .AND.
-	3           (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_POPS_HELD))THEN
+	3           (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_POPS_HELD) .AND.
+	4           (.NOT. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .OR.
+	5            CNT_STABLE_LAM .GE. N_STABLE_LAM))THEN
 ! edited by Devin, 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
 ! the start of full iterations is visible in OUTGEN.
 	       WRITE(LUER,'(A,I5,A,ES12.4)')

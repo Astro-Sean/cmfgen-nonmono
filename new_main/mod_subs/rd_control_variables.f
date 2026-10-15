@@ -1777,6 +1777,9 @@
 	  BA_DEM_RELFRAC=0.0_LDP
 	  CALL RD_STORE_DBLE(BA_DEM_RELFRAC,'BA_DEM_RELFRAC',L_FALSE,
 	1     'Demand floor as fraction of max population at the depth')
+	  BA_MAXCH_FAIL=1.0E+30_LDP
+	  CALL RD_STORE_DBLE(BA_MAXCH_FAIL,'BA_MAXCH_FAIL',L_FALSE,
+	1     'Reject and roll back a committed BA step above this change')
 	  DO_FG13_ALO=.FALSE.
 	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
 	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')

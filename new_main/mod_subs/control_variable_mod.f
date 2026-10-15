@@ -1368,6 +1368,21 @@
 !
 	REAL(KIND=LDP) BA_DEM_RELFRAC
 !
+! BA_MAXCH_FAIL (VADAT [BA_MAXCH_FAIL], default 1.0D30 = off):
+! same-call hard rejection for a committed non-LAMBDA step in
+! SOLVEBA_V13.  The residual-acceptance net (DO_BA_RES_ACC) judges a
+! step on the NEXT call, so a run with resacc off -- or any call the
+! net is not armed on -- has no path that vetoes a committed update:
+! the scale limits bound each correction but never refuse it
+! (m15_2p82d dirchk_lc it173 committed a 400% change on a raw 1.0E+7
+! demand with zero rejects).  When the committed change MAXCH_APP
+! exceeds BA_MAXCH_FAIL, or any population came out non-finite, POPS
+! is restored to the pre-step snapshot and BA_STEP_REJECTED is
+! raised; SOLVE_FOR_POPS then forces a BA recompute and demotes via
+! the existing BA_REJ_THIS path.  Inert at the default.
+!
+	REAL(KIND=LDP) BA_MAXCH_FAIL
+!
 ! DO_FG13_ALO (VADAT [DO_FG13_ALO], default F): use the diagonal
 ! Olson-Auer-Buchler approximate Lambda operator that FG_J_CMF_V13
 ! stores per frequency to restore continuum self-coupling (dJ/dCHI,

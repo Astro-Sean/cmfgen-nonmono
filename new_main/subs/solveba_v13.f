@@ -17,13 +17,15 @@
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
 	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
-	2     BA_JUDGED,BA_JUDGE_RATIO
+	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
 	IMPLICIT NONE
 !
+! Altered 15-Oct-2026 : BA_MAXCH_FAIL same-call rejection of a committed
+!                          catastrophic full step (edited by Devin).
 ! Altered 07-Oct-2026 : Per-equation quarantine (DO_BA_QUAR) under the masked residual
 !                          acceptance (edited by Devin).
 ! Altered 07-Oct-2026 : Held-call and residual-progress accounting for BA_NREJ_CONSEC (edited by Devin).
@@ -1584,6 +1586,45 @@
 	    DECREASE=1.0E+07_LDP
 	  END IF
 	  MAXCH_APP=MIN(1.0E+07_LDP,MAX(MAXCH_APP,DECREASE))
+!
+! edited by Devin, 15-Oct-2026: [BA_MAXCH_FAIL] (default 1.0D30 =
+! off) same-call rejection of a committed non-LAMBDA step.  The
+! scale limits bound each correction but never refuse the update,
+! and residual acceptance (DO_BA_RES_ACC) can only judge it next
+! call -- a run with resacc off has no path that vetoes a committed
+! update before the wrecked populations feed the next FG/MOM work.
+! When the committed change exceeds BA_MAXCH_FAIL, or any population
+! came out non-finite, restore the pre-step POPS_OLD and raise
+! BA_STEP_REJECTED: SOLVE_FOR_POPS forces a BA recompute and demotes
+! through the existing BA_REJ_THIS path, so no new machinery is
+! needed downstream.  No lagged-field rollback is required because
+! nothing between the commit above and this point has consumed the
+! rejected populations.  MAXCH keeps the 1.5E5 sentinel used by the
+! resacc reject so the step stays above the 1.0E5 stay-in-LAMBDA
+! guard; .NOT.(X .LE. Y) also catches a NaN MAXCH_APP, which a
+! direct .GT. test would miss.  Inert at the default; LAMBDA calls
+! are exempt (the Lambda map owns its own convergence behaviour).
+!
+	  IF(BA_MAXCH_FAIL .LT. 1.0E+29_LDP .AND. .NOT. LAMBDA_IT)THEN
+	    T1=0.0_LDP
+	    DO I=1,ND
+	      DO J=1,NT
+	        IF(POPS(J,I) .NE. POPS(J,I) .OR.
+	1           ABS(POPS(J,I)) .GT. HUGE(1.0_LDP))T1=1.0_LDP
+	      END DO
+	    END DO
+	    IF(T1 .GT. 0.0_LDP .OR.
+	1       .NOT. (MAXCH_APP .LE. BA_MAXCH_FAIL))THEN
+	      WRITE(LUER,'(A,I5,A,ES12.4,A,ES12.4)')
+	1      ' BA_MAXCH_FAIL: rejecting committed step at it',
+	2      MAIN_COUNTER,' -- committed max change',MAXCH_APP,
+	3      ' vs limit',BA_MAXCH_FAIL
+	      POPS(1:NT,1:ND)=POPS_OLD(1:NT,1:ND)
+	      BA_STEP_REJECTED=.TRUE.
+	      MAXCH=1.5E+05_LDP
+	      MAXCH_APP=MAXCH
+	    END IF
+	  END IF
 	  DEALLOCATE(POPS_OLD)
 	END IF
 !
