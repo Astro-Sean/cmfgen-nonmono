@@ -205,6 +205,14 @@
 !
 	LOGICAL, SAVE :: NG_DEFERRED=.FALSE.
 !
+! NG_DEM_PRE (edited by Devin, 15-Oct-2026): the demanded MAXCH on
+! the call that fired the last NG acceleration.  ITER_SUM prints it
+! against the next call's demand so an acceleration that pushed the
+! model backwards (m15: MAXCH 5.3 -> 13.0 across it181) is visible
+! as a rebound instead of two unrelated numbers.
+!
+	REAL(KIND=LDP), SAVE :: NG_DEM_PRE=-1.0_LDP
+!
 ! BA_MATRIX_STORED records that a call was entered with
 ! LAMBDA_ITERATION=F and COMPUTE_BA=T -- i.e. an iteration whose SE
 ! phase actually ran STORE_BA_DATA_V3 and wrote BAMAT.  The fix-BA
@@ -2520,6 +2528,7 @@
 	    LAST_NG=MAIN_COUNTER
 	    NEXT_NG=MAIN_COUNTER+ITS_PER_NG
 	    NG_DEFERRED=.FALSE.
+	    NG_DEM_PRE=MAXCH
 	    CALL SCR_RITE_V2(R,V,SIGMA,POPS,IREC,MAIN_COUNTER,
 	1             RITE_N_TIMES,LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
 	    IF(T1 .GT. 50.0_LDP .AND. T2 .GT. 50.0_LDP)THEN
@@ -2694,9 +2703,42 @@
 	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,A)')
 	1    'pops',MAXCH,MAXCH_APP,POP_ST,
 	2    'demand / applied correction'
+	  IF(NG_DEM_PRE .GE. 0.0_LDP)THEN
+	    WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A)')
+	1    'ng rebound',NG_DEM_PRE,MAXCH,
+	2    'demand before last NG / this call'
+	    NG_DEM_PRE=-1.0_LDP
+	  END IF
 	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,A)')
 	1    'se residual',BA_SE_RES,BA_SE_RES2,SE_ST,
 	2    'all cells / excl. worst cols'
+!
+! Per-depth residual profile (edited by Devin, 15-Oct-2026): under
+! CONV_DIAG_LVL list the five depths carrying the largest column-max
+! SE residual and each one's share of the column sum.  BA_COL_RES
+! is exported by SOLVEBA_V13 on every call, so this also covers
+! LAMBDA calls and resacc-off runs where the residual used to be
+! invisible (m15 dirchk_lc printed se residual 0 while the JFNK
+! |F|_max was ~1E12, concentrated at depths 66-70 and He II).
+!
+	  IF(CONV_DIAG_LVL .GE. 1 .AND. ALLOCATED(BA_COL_RES)
+	1     .AND. SIZE(BA_COL_RES) .EQ. ND)THEN
+	    BLOCK
+	      REAL(KIND=LDP) RES_TOP(ND),RES_SUM
+	      INTEGER ITOP,ID_TOP
+	      RES_TOP(1:ND)=BA_COL_RES(1:ND)
+	      RES_SUM=SUM(RES_TOP)
+	      DO ITOP=1,MIN(5,ND)
+	        ID_TOP=MAXLOC(RES_TOP,1)
+	        IF(RES_TOP(ID_TOP) .LE. 0.0_LDP)EXIT
+	        WRITE(LUER,'(4X,A14,1X,I5,2X,ES10.3,2X,F5.1,A)')
+	1        'res depth',ID_TOP,RES_TOP(ID_TOP),
+	2        100.0_LDP*RES_TOP(ID_TOP)/MAX(RES_SUM,1.0E-30_LDP),
+	3        '% of column sum'
+	        RES_TOP(ID_TOP)=0.0_LDP
+	      END DO
+	    END BLOCK
+	  END IF
 	  WRITE(LUER,'(4X,A14,2X,ES10.3,2X,I4,7X,A,1X,A)')
 	1    'ba',BA_TRUST_CUR,BA_NREJ_CONSEC,BA_ST,
 	2    'trust / consec rejects'

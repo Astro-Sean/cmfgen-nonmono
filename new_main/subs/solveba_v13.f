@@ -17,13 +17,16 @@
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
 	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
-	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL
+	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
 	IMPLICIT NONE
 !
+! Altered 15-Oct-2026 : SE residual measured on every call (not only
+!                          under DO_BA_RES_ACC); BA_COL_RES exported
+!                          for the ITER_SUM depth profile (edited by Devin).
 ! Altered 15-Oct-2026 : BA_MAXCH_FAIL same-call rejection of a committed
 !                          catastrophic full step (edited by Devin).
 ! Altered 07-Oct-2026 : Per-equation quarantine (DO_BA_QUAR) under the masked residual
@@ -208,7 +211,16 @@
 ! the RES2 rank channel judges the step; BA_RES_SAT <= 0 restores
 ! the legacy all-channel test.
 !
-	IF(DO_BA_RES_ACC)THEN
+! edited by Devin, 15-Oct-2026: the residual MEASUREMENT below runs
+! on every call, not only under DO_BA_RES_ACC.  The ITER_SUM 'se
+! residual' channel reads BA_SE_RES/BA_SE_RES2; with resacc off it
+! printed 0.000E+00 on every iteration (m15 dirchk_lc its 170+),
+! leaving the run blind while the JFNK residual was ~1E12.  The
+! scan is O(species*ND*N_SE) -- cheap next to the BA build.  Only
+! the acceptance bookkeeping and adjudication stay gated; the
+! BAACC_*_MIN/BA_RBK_MASK/RES_LOC housekeeping here is write-only
+! when resacc is off and changes no solver behaviour.
+!
 !
 ! edited by Devin, 01-Oct-2026: STEQ is output-only scratch at this
 ! point -- the caller (SOLVE_FOR_POPS) passes uninitialized automatic
@@ -394,6 +406,18 @@
 	  RES2_COL=MAXLOC(COL_RES_S,1)
 	  IF(BA_SE_RES2 .LT. BAACC_RES2_MIN)
 	1    BAACC_RES2_MIN=BA_SE_RES2
+!
+! Per-depth export for the ITER_SUM residual profile (15-Oct-2026).
+!
+	  IF(.NOT. ALLOCATED(BA_COL_RES))THEN
+	    ALLOCATE(BA_COL_RES(ND),STAT=IOS)
+	  ELSE IF(SIZE(BA_COL_RES) .NE. ND)THEN
+	    DEALLOCATE(BA_COL_RES)
+	    ALLOCATE(BA_COL_RES(ND),STAT=IOS)
+	  END IF
+	  IF(IOS .EQ. 0)BA_COL_RES(1:ND)=COL_RES(1:ND)
+!
+	  IF(DO_BA_RES_ACC)THEN
 !
 ! edited by Devin, 29-Sep-2026: residual trajectory every call, not
 ! just on rejection -- needed to see whether accepted steps still
