@@ -1580,6 +1580,16 @@
 ! sentinel residual so Newton rejects and the driver falls back to
 ! the best-iterate/Lambda path instead of burning sweeps.
 	INTEGER JFNK_MAX_EVALS
+!
+! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
+! wall-clock budget in seconds, measured from JFNK_INIT_V1.  Checked
+! alongside the eval budget in JFNK_RESIDUAL_V1 -- an activation that
+! overruns returns the sentinel residual so the trust region rejects
+! and the caller's LAMBDA/BA path takes over.  Guards against the
+! it191 failure mode (~615 s spent on an admission that did no Newton
+! work) when the eval count is not the cost driver.
+!
+	REAL(KIND=LDP) JFNK_MAX_SEC
 	LOGICAL JFNK_LINE_SEARCH
 	INTEGER JFNK_LS_MAX
 	REAL(KIND=LDP) JFNK_LS_BETA

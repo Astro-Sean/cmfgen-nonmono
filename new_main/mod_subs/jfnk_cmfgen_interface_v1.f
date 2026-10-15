@@ -40,6 +40,8 @@
 	REAL(KIND=LDP), INTENT(IN) :: EPS_JVP
 	INTEGER :: IOS
 	INTEGER :: ID_ION, SE_TOTAL_SIZE
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 	JFNK_NT = NT
 	JFNK_ND = ND
@@ -402,6 +404,8 @@
 	JFNK_ADDRECOM = 0.0_LDP
 !
 	JFNK_N_RESIDUAL_EVALS = 0
+	JFNK_T_START = OMP_GET_WTIME()
+	JFNK_SEC_HIT = .FALSE.
 	JFNK_N_RESIDUAL_NAN = 0
 	JFNK_N_JVP_EVALS = 0
 	JFNK_N_JVP_NAN = 0
@@ -1524,7 +1528,7 @@
 	3     jfnk_resid_nbad, jfnk_maxch_est
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -1534,6 +1538,8 @@
 	INTEGER K, J, N_BAD, N_NAN_Y, N_INF_Y, IDX, ID_ION
 	INTEGER LUER
 	INTEGER, EXTERNAL :: ERROR_LU
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 	REAL(KIND=LDP) MCE_DABS, MCE_DMAX
 !
 ! Audit 17-Sep-2026 (issue 4): count constraint crossings that are NEW
@@ -1568,6 +1574,27 @@
 	    WRITE(LUER,'(A,I6,A)')
 	1     '  JFNK: eval budget (',JFNK_MAX_EVALS,
 	2     ') exhausted -- forcing rejection path'
+	    FLUSH(LUER)
+	  END IF
+	  Y=1.0D20
+	  jfnk_resid_nbad=N
+	  JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
+	  RETURN
+	END IF
+!
+! Wall-clock budget (VADAT [JFNK_MAX_SEC], default 0 = off): same
+! sentinel path as the eval budget, but measured in elapsed seconds
+! since JFNK_INIT_V1 stamped JFNK_T_START.  Covers admissions whose
+! cost is not eval-counted (it191 burned ~500 s in dirchk precheck
+! work with zero Newton-level evals).  edited by Devin, 15-Oct-2026.
+!
+	IF(JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	1     OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC)THEN
+	  IF(.NOT. JFNK_SEC_HIT)THEN
+	    JFNK_SEC_HIT=.TRUE.
+	    WRITE(LUER,'(A,F10.1,A)')
+	1     '  JFNK: wall budget (',JFNK_MAX_SEC,
+	2     ' s) exhausted -- forcing rejection path'
 	    FLUSH(LUER)
 	  END IF
 	  Y=1.0D20
@@ -2407,12 +2434,14 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
 	DOUBLE PRECISION, INTENT(IN) :: V(N)
 	DOUBLE PRECISION, INTENT(OUT) :: JV(N)
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 	DOUBLE PRECISION EPS0, VNORM, XNORM, H_STEP
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
@@ -2522,8 +2551,10 @@
 	    JFNK_W_X_PERT(I) = jfnk_x(I) + H_STEP * JFNK_W_V_USE(I)
 	  END DO
 	  CALL JFNK_RESIDUAL_V1(N, JFNK_W_X_PERT, JFNK_W_F_PERT)
-	  IF(JFNK_MAX_EVALS .GT. 0 .AND.
-	1       JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS)THEN
+	  IF((JFNK_MAX_EVALS .GT. 0 .AND.
+	1       JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS) .OR.
+	2       (JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	3       OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC))THEN
 ! Budget sentinel eval returned -- flag JVP failure so GMRES aborts
 ! immediately rather than building a Krylov vector on the sentinel.
 	    JV = 0.0D0
