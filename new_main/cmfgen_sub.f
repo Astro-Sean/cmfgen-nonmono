@@ -204,6 +204,7 @@
 	INTEGER MAIN_COUNTER,NITSF,NUM_ITS_RD,NUM_ITS_TO_DO
 	LOGICAL LST_ITERATION
 	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
+	LOGICAL BA_STAGEB_ARM
 !
 ! Wall-clock timer for the great-iteration loop.  Each iteration's
 ! elapsed time is reported when the next iteration begins; the final
@@ -5018,10 +5019,11 @@
 ! so as to write out all relevant model data.
 !
 ! BA_TRACE_NEEDED is evaluated before the exit test rather than inside
-! the BA_DEM_EXM release term.  A material hidden demand can therefore
-! arm the polish instead of holding the run with BA_TR_NSWP never
-! incremented.  The old BA_DEM_EXM hold is unchanged when Stage B is
-! disabled, already converged, or unavailable under the nonmono flags.
+! the BA_DEM_EXM release term, and BA_STAGEB_ARM (below) reroutes the
+! would-be converged exit into the ELSE continuation so the polish
+! sweep actually runs as another great iteration.  The old BA_DEM_EXM
+! hold is unchanged when Stage B is disabled, already converged, or
+! unavailable under the nonmono flags.
 !
 	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1    BA_TR_MAXSWP .GT. 0 .AND.
@@ -5034,6 +5036,20 @@
 	  BA_DEM_EXIT_OK=BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
 	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE
+!
+! BA_STAGEB_ARM uses the same tests as the converged-exit branch
+! below, plus BA_TRACE_NEEDED.  When it is set the exit is skipped
+! and the outer ELSE continuation runs one more great iteration
+! with BA_TRACE_PHASE armed, so the Stage-B sweep actually executes
+! instead of being armed on the way out of CMFGEN_SUB.
+!
+	  BA_STAGEB_ARM=BA_TRACE_NEEDED .AND.
+	1    ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
+	2     (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
+	3    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	4    BA_DEM_EXIT_OK .AND.
+	5    NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
+	6    .NOT. GS_POPS_HELD
 !
 	  IF(DO_T_AUTO .AND. RD_FIX_T .AND. MAXCH_CTRL .LT. 50.0_LDP .AND.
 	1     .NOT. JFNK_UNCONVERGED_COMMIT .AND.
@@ -5067,21 +5083,26 @@
 !
 ! Block-triangular trace polish (same edit): exempted rows are
 ! one-way coupled trace species.  Once the major-species condition
-! below is met, up to BA_TR_MAXSWP Stage-B sweeps run with
-! BA_TRACE_PHASE armed -- SOLVEBA_V13 commits only the exempted rows
-! while majors/T/ED are held and the field continues its normal
-! lagged refresh.  Exit fires when the absolute trace change
-! BA_TR_ABS falls below BA_TR_ABSMAX, or the sweeps run out: trace
-! state must never pin the global exit, so a spent sweep budget
-! also releases the BA_DEM_EXM hold (what remains after the polish
-! is the unsatisfiable dead-stage class the floors were built for).
+! below is met and BA_TRACE_NEEDED holds, BA_STAGEB_ARM skips this
+! exit and the ELSE continuation below arms BA_TRACE_PHASE for one
+! more great iteration; up to BA_TR_MAXSWP such Stage-B sweeps run
+! with SOLVEBA_V13 committing only the exempted rows while
+! majors/T/ED are held and the field continues its normal lagged
+! refresh.  Exit fires when the absolute trace change BA_TR_ABS
+! falls below BA_TR_ABSMAX, or the sweeps run out: trace state must
+! never pin the global exit, so a spent sweep budget also releases
+! the BA_DEM_EXM hold (what remains after the polish is the
+! unsatisfiable dead-stage class the floors were built for).
 !
 	  ELSE IF( ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR. (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	1      .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
 	4      BA_DEM_EXIT_OK .AND.
 	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
-	3      .NOT. GS_POPS_HELD)THEN
-	    IF(BA_TRACE_NEEDED)THEN
+	3      .NOT. GS_POPS_HELD .AND. .NOT. BA_STAGEB_ARM)THEN
+	    BA_TRACE_PHASE=.FALSE.
+	    IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
+	  ELSE
+	    IF(BA_STAGEB_ARM)THEN
 	      BA_TRACE_PHASE=.TRUE.
 	      BA_TR_NSWP=BA_TR_NSWP+1
 	      WRITE(LUER,'(A,I2,A,I2,A,ES10.2)')
@@ -5089,10 +5110,7 @@
 	2      BA_TR_MAXSWP,'; trace |dn|/gas=',BA_TR_ABS
 	    ELSE
 	      BA_TRACE_PHASE=.FALSE.
-	      IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
 	    END IF
-	  ELSE
-	    BA_TRACE_PHASE=.FALSE.
 !
 ! If we are USING a fixed J, autmatically switched to variable J when convergence achieved.
 ! We switch when the convergence is 20%.
@@ -5237,6 +5255,18 @@
 !	  WRITE(6,*)'Inserted temporary fudge for FIXED_T'
 !	  FIXED_T=.TRUE.
 !	  IF(MAXCH .LT. 50.0D0 .AND. LAST_LAMBDA .NE. MAIN_COUNTER)FIXED_T=RD_FIX_T
+!
+! A Stage-B sweep must re-assemble BAMAT at the held trace state:
+! DO_VAR_CONT/UPDATE_BA_FOR_LINE assembly is gated on
+! COMPUTE_BA .AND. .NOT. LAMBDA_ITERATION.  solve_for_pops already
+! forces JFNK/LAMBDA/FIX_IMPURITY off for the solve itself under
+! BA_TRACE_PHASE; this keeps the pre-solve assembly consistent.
+!
+	  IF(BA_TRACE_PHASE)THEN
+	    COMPUTE_BA=.TRUE.
+	    LAMBDA_ITERATION=.FALSE.
+	    FIX_IMPURITY=.FALSE.
+	  END IF
 	  GOTO 20000				!Begin another iteration
 	END IF
 !
