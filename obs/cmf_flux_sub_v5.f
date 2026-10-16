@@ -161,7 +161,7 @@
 	INTEGER MNL_F,MNUP_F
 	INTEGER I,J,K,L,ML,LS,LINE_INDX
 	INTEGER ID,ID_SAV,ISPEC
-	INTEGER ES_COUNTER,N_SIG_UNDEF
+	INTEGER ES_COUNTER,N_SIG_UNDEF,N_SIG_CLAMP
 !
 ! Functions called
 !
@@ -586,6 +586,31 @@
 	1     //' the Sobolev EW/profile estimates unreliable.  Set'
 	2     //' ALLOW_SIGMA_UNDEF=T to downgrade this to a warning.'
 	      STOP
+	    END IF
+	  END IF
+!
+! Report how many cells carry |sigma|>200: the Sobolev tau scales as
+! chi*R*sigma/V, so extreme compression can overflow or flip sign.
+! SOB_SIGMA_MAX>0 (default off) additionally clamps |SIGMA_TRUE| to
+! that bound; leaving it off keeps the OBS estimator on the same
+! unclamped SIGMA_TRUE as the population solve.
+!
+	  N_SIG_CLAMP=0
+	  DO I=1,ND
+	    IF(ABS(SIGMA_TRUE(I)) .GT. 200.0_LDP)N_SIG_CLAMP=N_SIG_CLAMP+1
+	    IF(SOB_SIGMA_MAX .GT. 0.0_LDP .AND.
+	1       ABS(SIGMA_TRUE(I)) .GT. SOB_SIGMA_MAX)THEN
+	      SIGMA_TRUE(I)=SIGN(SOB_SIGMA_MAX,SIGMA_TRUE(I))
+	    END IF
+	  END DO
+	  IF(N_SIG_CLAMP .GT. 0)THEN
+	    WRITE(LUER,'(A,I6,A,I6,A)')
+	1     'CMF_FLUX_SUB_V5:',N_SIG_CLAMP,' of',ND,
+	2     ' cells have |SIGMA_TRUE|>200'
+	    IF(SOB_SIGMA_MAX .GT. 0.0_LDP)THEN
+	      WRITE(LUER,'(A,ES12.4)')
+	1       '   |SIGMA_TRUE| clamped to SOB_SIGMA_MAX =',
+	2       SOB_SIGMA_MAX
 	    END IF
 	  END IF
 	END IF
@@ -2223,6 +2248,15 @@
 	ELSE
 	   TA(1:ND)=V(1:ND)
 	END IF
+!
+! The last argument injects the diffusion inner boundary
+! (I(mu)=J+3*mu*H from IB_J_CMF_ST/IB_H_CMF_ST) only under
+! DO_NONMONO_SOB and only when this run's IB_METH is DIFFUSION
+! (DIF=T).  This is post-processing: the stored boundary moments
+! come from the population run's checkpoint, so the render is
+! consistent only if that run used the same USE_LAM_ES=T +
+! IB_METH=DIFFUSION inner boundary the model notes require.
+!
 	CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
 	1            P_OBS,MU_AT_RMAX,HQW_AT_RMAX,NC_OBS,NP_OBS,
@@ -2734,6 +2768,7 @@
 	CHARACTER(LEN=*), INTENT(IN) :: TRANS_TYPE(N_LINES)
 !
 	INTEGER I,K,S,LP,K0,KA,KB,LO,HI,MID
+	INTEGER N_DROP_L
 	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
@@ -2747,7 +2782,9 @@
 	DO K=1,NCF-1
 	  IF(NU(K+1) .GE. NU(K))THEN
 	    WRITE(LUER,*)'ADD_SOB_LINE_PROF: NU not strictly'
-	1   //' decreasing at index',K+1,'; aborting.'
+	1   //' decreasing; first bad index =',K+1
+	    WRITE(LUER,*)'   NU(1),NU(K+1),NU(NCF) =',
+	1   NU(1),NU(K+1),NU(NCF)
 	    STOP
 	  END IF
 	END DO
@@ -2761,10 +2798,17 @@
 	  W=3.0_LDP*DNU_D
 !
 ! NU decreases with index.  K0 is the last index with NU(K0) >= F0,
-! so F0 lies in [NU(K0+1),NU(K0)).  Lines outside the grid are skipped.
+! so F0 lies in [NU(K0+1),NU(K0)).  Lines outside the grid cannot
+! deposit anything; name them in LUER so a missing observed line is
+! traceable to the CMF window rather than the populations.
 !
-	  IF(NU(1) .LT. F0)CYCLE
-	  IF(NU(NCF) .GE. F0)CYCLE
+	  IF(NU(1) .LT. F0 .OR. NU(NCF) .GE. F0)THEN
+	    WRITE(LUER,'(A,I6,A,3ES16.7,A)')
+	1     'ADD_SOB_LINE_PROF: SOB line',LP,
+	2     ' F0,NU(NCF),NU(1) =',F0,NU(NCF),NU(1),
+	3     '; outside CMF grid, skipped'
+	    CYCLE
+	  END IF
 	  LO=1
 	  HI=NCF
 	  DO WHILE(HI-LO .GT. 1)
@@ -2808,6 +2852,7 @@
 	  END DO
 	  IF(XNORM .LE. 0.0_LDP)CYCLE
 !
+	  N_DROP_L=0
 	  DO I=1,ND
 !
 ! NEG_OPACITY cells had their CHIL_MAT crushed to 1/NUM_SIM_LINES by
@@ -2816,6 +2861,7 @@
 !
 	    IF(CHIL_MAT(I,S) .LE. 0.0_LDP .OR. NEG_OPACITY(I))THEN
 	      N_DROP=N_DROP+1
+	      N_DROP_L=N_DROP_L+1
 	      DROP_SUM=DROP_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
 	      CYCLE
 	    END IF
@@ -2828,6 +2874,16 @@
      1	          ETAL_MAT(I,S)*CLUMP_FAC(I)*WT
 	    END DO
 	  END DO
+!
+! A line masing at more than 10% of the depths renders as a lower
+! bound only; name it so the run log shows which transition lost
+! flux, not just the group totals.
+!
+	  IF(N_DROP_L*10 .GT. ND)THEN
+	    WRITE(LUER,'(A,I6,A,I6,A,I6,A,ES16.7)')
+	1     'ADD_SOB_LINE_PROF: line',LP,' dropped',N_DROP_L,
+	2     ' of',ND,' depths (masing/neg-opacity), F0=',F0
+	  END IF
 	END DO
 !
 	RETURN

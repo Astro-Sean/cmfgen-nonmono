@@ -61,6 +61,7 @@
 !
 	INTEGER KN_M_MAXPASS_V,KN_RAY_MAXPASS_V,MOM_AA_M_V,
 	1     MOM_AA_OUT_M_V,KN_ORD_AA_M_V
+	LOGICAL KN_ADAPT_RELAX_V
 	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
@@ -1185,6 +1186,18 @@
 	  CALL SET_FG_KN_OPTS(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,
 	1     INEXT_RELAX_V)
 !
+! KN_ADAPT_RELAX (default T): adaptive write-back weight for both
+! lagged stores.  The relax factor becomes the seed value; each
+! refresh call re-estimates the dominant-mode contraction rho_est
+! and moves the weight toward 1/(1+rho_est).  Set FALSE to keep the
+! fixed INEXT_RELAX/JNEXT_RELAX behaviour.
+!
+	  KN_ADAPT_RELAX_V=.TRUE.
+	  CALL RD_STORE_LOG(KN_ADAPT_RELAX_V,'KN_ADAPT_RELAX',L_FALSE,
+	1     'Adaptive lagged-store under-relaxation (FG+MOM)?')
+	  CALL SET_FG_KN_ADAPT(KN_ADAPT_RELAX_V)
+	  CALL SET_MOM_KN_ADAPT(KN_ADAPT_RELAX_V)
+!
 ! KN_RAY_ORDERED (default TRUE): ordered characteristic march in
 ! the FG refresh (Knop Paper II ordering).  FALSE restores the
 ! alternating-direction passes.
@@ -1295,7 +1308,7 @@
 	  CALL RD_STORE_INT(JFNK_M_GMRES,'JFNK_M',L_FALSE,
 	1     'GMRES restart dimension for JFNK solve')
 !
-	  JFNK_MAX_GMRES=0
+	  JFNK_MAX_GMRES=50
 	  CALL RD_STORE_INT(JFNK_MAX_GMRES,'JFNK_MAXGMRES',L_FALSE,
 	1     'Max GMRES its per Newton step (0=use restart dim m)')
 !
@@ -1607,6 +1620,19 @@
 	  JFNK_LS_C=1.0E-4_LDP
 	  CALL RD_STORE_DBLE(JFNK_LS_C,'JFNK_LS_C',L_FALSE,
 	1     'Armijo sufficient-decrease parameter')
+!
+! Non-monotone (Li-Fukushima) reference for the JFNK line search:
+! the sufficient-decrease test uses the max |F| over the last
+! JFNK_LS_NMWIN accepted iterates instead of the current |F|, which
+! keeps the search working when the coupled residual carries sweep
+! noise.  Default T / window 4.
+!
+	  JFNK_LS_NM=.TRUE.
+	  CALL RD_STORE_LOG(JFNK_LS_NM,'JFNK_LS_NM',L_FALSE,
+	1     'Non-monotone (Li-Fukushima) JFNK line search?')
+	  JFNK_LS_NMWIN=4
+	  CALL RD_STORE_INT(JFNK_LS_NMWIN,'JFNK_LS_NMWIN',L_FALSE,
+	1     'Non-monotone LS reference window (accepted steps)')
 !
 	  JFNK_CAUCHY=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_CAUCHY,'JFNK_CAUCHY',L_FALSE,

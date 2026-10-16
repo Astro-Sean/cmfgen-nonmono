@@ -2433,7 +2433,8 @@
 	SUBROUTINE JFNK_JVP_V1(N, V, JV)
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
-	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed,
+	1                           jfnk_log_unknown
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
 	IMPLICIT NONE
 !
@@ -2444,6 +2445,8 @@
 	EXTERNAL OMP_GET_WTIME
 !
 	DOUBLE PRECISION EPS0, VNORM, XNORM, H_STEP
+	DOUBLE PRECISION H_CAP, X_CLIP_B
+	INTEGER IDX_J
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
@@ -2515,10 +2518,36 @@
 ! flag JVP failure rather than silently taking a bad derivative.
 !
 ! Cap the actual perturbation norm, not scalar h: h is inversely
-! proportional to ||v||. The coupled EPS0 floor is honored for every
-! direction norm; frozen mode keeps its machine-eps step.
-	H_STEP = MIN(H_STEP, MAX(1.0D-4, EPS0) *
-	1       MAX(XNORM,1.0D0) / VNORM)
+! proportional to ||v||.
+!
+! Oct-2026 fix: the previous cap MAX(1D-4,EPS0)*MAX(XNORM,1)/VNORM
+! could never bind -- H_STEP is already EPS0*MAX(XNORM,1)/VNORM and
+! EPS0 <= MAX(1D-4,EPS0).  Replace it with a cap that can shrink:
+! under log-unknowns the residual clips the trial state at |x|>40
+! (pops/ED) or |x|>50 (T), and a perturbation that reaches the clip
+! boundary contaminates the FD difference with a non-smooth,
+! artificial derivative (counted by JFNK_N_NEW_CLIP).  Bound h so
+! that no component can cover more than half its remaining distance
+! to the clip boundary: h*|v_i| <= 0.5*(B_i - |x_i|).  Components
+! already at/past the boundary are excluded (their crossings are not
+! counted).  In coupled mode this can push below the EPS0 noise
+! floor; an unclipped derivative at a smaller step is still better
+! than a clipped one at the noise-optimal step.
+!
+	IF(jfnk_log_unknown)THEN
+	  H_CAP = HUGE(1.0D0)
+	  DO I = 1, N
+	    IF(ABS(JFNK_W_V_USE(I)) .GT. 0.0D0)THEN
+	      IDX_J = MOD(I-1, JFNK_NT) + 1
+	      X_CLIP_B = 40.0D0
+	      IF(IDX_J .EQ. JFNK_NT)X_CLIP_B = 50.0D0
+	      IF(ABS(jfnk_x(I)) .LT. X_CLIP_B)
+	1      H_CAP = MIN(H_CAP,
+	2        0.5D0*(X_CLIP_B-ABS(jfnk_x(I)))/ABS(JFNK_W_V_USE(I)))
+	    END IF
+	  END DO
+	  H_STEP = MIN(H_STEP, H_CAP)
+	END IF
 !
 ! COLPROBE h-scan hook (see JFNK_CMFGEN_INT_MOD): a diagnostic-only
 ! multiplier applied after the safety cap so probes can step across
@@ -2576,10 +2605,21 @@
 	  IF(JFNK_COUPLED_LOC .AND.
 	1       H_STEP*0.1D0*VNORM .LT.
 	2       EPS0*MAX(XNORM,1.0D0))THEN
+!
+! Oct-2026 fix: do not silently keep a clipped derivative.  If the
+! clip-margin cap above could not prevent a crossing at the EPS0
+! floor (non-log unknowns, or a trial state already at the bound),
+! the FD difference is contaminated by the nonsmooth clip and the
+! direction is unusable -- flag JVP failure so GMRES aborts and the
+! driver falls back instead of building a Krylov space on it.
+!
 	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A)')
 	1      'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,
-	2      ' crossings; perturbation at EPS0 floor, keeping JV'
-	    EXIT
+	2      ' crossings; perturbation at EPS0 floor, flagging JVP fail'
+	    JV = 0.0D0
+	    jfnk_jvp_failed = .TRUE.
+	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
+	    RETURN
 	  END IF
 	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A,ES10.3)')
 	1    'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,

@@ -467,6 +467,9 @@
 	    ALLOW_SIGMA_UNDEF=.FALSE.
 	    CALL RD_STORE_LOG(ALLOW_SIGMA_UNDEF,'ALLOW_SIGMA_UNDEF',L_FALSE,
 	1      'Allow undefined SIGMA_TRUE cells (warning only, no abort)?')
+	    SOB_SIGMA_MAX=-1.0_LDP
+	    CALL RD_STORE_DBLE(SOB_SIGMA_MAX,'SOB_SIGMA_MAX',L_FALSE,
+	1      'Clamp |SIGMA_TRUE| above this bound in OBS (>0 to enable)?')
 	  END IF
 !
 !

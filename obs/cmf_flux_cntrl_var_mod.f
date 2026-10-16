@@ -182,6 +182,16 @@
 !
 	LOGICAL :: ALLOW_SIGMA_UNDEF=.FALSE.
 !
+! SOB_SIGMA_MAX (default <=0 = off).  When >0, CMF_FLUX_SUB_V5 clamps
+! |SIGMA_TRUE| to this bound before the Sobolev EW/profile estimators
+! see it, and reports how many cells were clipped.  Extreme sigma
+! (tau ~ chi R sigma / V) can overflow or flip sign at strong
+! compression.  Default off: the OBS estimator uses the same
+! unclamped SIGMA_TRUE as the population solve.  Optional; read only
+! under DO_NONMONO_SOB.
+!
+	REAL(KIND=LDP) :: SOB_SIGMA_MAX=-1.0_LDP
+!
 	LOGICAL PLANE_PARALLEL_NO_V
 	LOGICAL PLANE_PARALLEL
 	LOGICAL INCL_INCID_RAD

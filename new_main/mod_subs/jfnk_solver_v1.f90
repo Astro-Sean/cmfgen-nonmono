@@ -99,14 +99,24 @@ module jfnk_solver_v1_mod
    ! gfortran -std=f2008; removed per ChatGPT audit fix #3 (2026-09-09).
    double precision :: jfnk_tol_prev = 0d0    ! |F| at previous Newton step
    double precision :: jfnk_eta = 0d0          ! current Eisenstat-Walker eta
+   ! eta_prev stores the previous Newton step's forcing term: the
+   ! Choice-2 safeguard eta_k >= gamma*eta_{k-1}^alpha needs it.
+   ! (Oct-2026 EW fix)
+   double precision :: jfnk_eta_prev = 0d0     ! eta at previous Newton step
    double precision :: jfnk_eta_gamma = 0.9d0  ! EW gamma parameter
-   double precision :: jfnk_eta_alpha = 0.5d0  ! EW alpha (exponent)
+   ! EW Choice 2 requires alpha in (1,2] for superlinear local
+   ! convergence (Eisenstat & Walker 1994, Thm 3.3); the previous
+   ! alpha=0.5 contracted too slowly for the theory to apply.  The
+   ! golden ratio is the reference value used by EW and Kelley.
+   double precision :: jfnk_eta_alpha = 1.618033988749895d0
    ! Floor matches the bottom of the range Arramy et al. (2024,
    ! A&A 690, A12) found useful for multilevel NLTE.  Below this,
    ! GMRES spends formal solutions without improving the Newton step.
-   ! eta_max stays loose so a distant residual is not over-solved.
+   ! eta_max=0.9 is the standard EW cap; 0.1 forced GMRES to solve
+   ! every Newton step far more accurately than inexact-Newton
+   ! theory requires.
    double precision :: jfnk_eta_min = 3.0d-4   ! minimum forcing term
-   double precision :: jfnk_eta_max = 0.1d0    ! maximum forcing term
+   double precision :: jfnk_eta_max = 0.9d0    ! maximum forcing term
    !
    ! Diagnostics counters
    !
@@ -195,6 +205,19 @@ module jfnk_solver_v1_mod
    integer          :: jfnk_ls_max_steps = 20          ! max backtracking steps
    double precision :: jfnk_ls_beta_fac = 0.5d0      ! backtracking factor
    double precision :: jfnk_ls_armijo_c = 1.0d-4      ! Armijo parameter
+   !
+   ! Non-monotone line search (Li & Fukushima 2000, Appl. Math.
+   ! Comput.; Grippo-Lampariello-Lucidi reference norm): when the
+   ! coupled residual carries evaluation noise, a monotone Armijo test
+   ! rejects steps whose true decrease is masked by sweep noise.  The
+   ! reference norm is the max of the last jfnk_ls_nmwin_s ACCEPTED
+   ! |F| values (ring buffer below), so a bounded temporary increase
+   ! still satisfies the descent condition.
+   !
+   logical          :: jfnk_ls_nonmono = .true.
+   integer          :: jfnk_ls_nmwin_s = 4
+   double precision :: jfnk_ls_nmhist(8) = -1d0
+   integer          :: jfnk_ls_nmidx = 0
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -508,6 +531,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    double precision :: snrm_tr   ! 2026-09-13 TR-units fix: ||y|| norm the hookstep constrains
    double precision :: gres, gdel, h((m+1)*m)
    double precision :: del_try, scale_fac, s_inf_orig
+   double precision :: eta_sav    ! EW Choice-2 safeguard gamma*eta_{k-1}^alpha
    double precision :: ref_norm
    double precision :: pred_res
    double precision :: pred_res_physical  ! ||F - J*s||_w (physical norm)
@@ -522,6 +546,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    !
    logical          :: ls_accepted
    double precision :: phi_0, dphi_0, phi_alpha, alpha_ls, dtau_was
+   double precision :: phi_ref   ! non-monotone LS reference (Oct-2026)
    integer          :: ls_step
    !
    ! Cauchy direction safeguards (audit 17-Sep-2026): the
@@ -621,12 +646,22 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
    end if
    jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
+   ! Fresh non-monotone LS history per activation (Oct-2026).
+   jfnk_ls_nmhist = -1d0
+   jfnk_ls_nmidx  = 0
+   ! EW Choice-2 memory is per-Newton-iteration, not per-activation:
+   ! a stale eta from a previous solve would safeguard nothing and
+   ! make the forcing path stateful across calls.
+   jfnk_eta_prev  = 0d0
    !
    ! 2026-09-13 TR-units fix: for M≈J the full Newton step has
    ! ||y|| ≈ ||F||_w, so |F|/10 capped every first step to a 10%
    ! residual reduction.  Start at 2*|F| instead.
    if(del < 0d0)  jfnk_del = 2d0 * jfnk_tol
-   if(del < 0d0)  mxdl_    = 1d99
+   ! Auto trust-region (del<0) must not discard a user-supplied mxdl:
+   ! only expand the cap when the caller did not set one (mxdl<=0).
+   ! (Oct-2026 JFNK_MXDL fix)
+   if(del < 0d0 .and. mxdl <= 0d0)  mxdl_ = 1d99
    !
    if(info == 1) write(luer,'(A,I3,A,ES12.4)') &
       '  JFNK: nits=', jfnk_nits, ' res=', real(jfnk_tol), &
@@ -722,17 +757,25 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! forcing-term bounds entirely).
          jfnk_eta = min(max(gtol, jfnk_eta_min), jfnk_eta_max)
       else
-         ! Eisenstat-Walker formula (Choice 2 from Eisenstat & Walker 1994):
-         !   eta_k = gamma * (|F_k| / |F_{k-1}|)^alpha
+         ! Eisenstat-Walker Choice 2 (Eisenstat & Walker 1994, SIAM J.
+         ! Optim. 4, 393, Eq 4.2): eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha.
+         ! Their safeguard against over-solving is on eta_{k-1}, not on
+         ! the residual ratio: when gamma*eta_{k-1}^alpha > 0.1 the
+         ! contraction theory still holds with
+         ! eta_k = max(eta_k, gamma*eta_{k-1}^alpha).  The previous code
+         ! used max(eta_k, 0.5*|F_k|/|F_{k-1}|) -- a ratio safeguard that
+         ! EW show is NOT covered by the Choice-2 convergence proof and
+         ! that pins eta near the contraction rate, defeating the
+         ! adaptive tolerance.  (Oct-2026 EW fix)
          jfnk_eta = jfnk_eta_gamma * &
             (jfnk_tol / jfnk_tol_prev)**jfnk_eta_alpha
-         ! Safeguard: prevent over-solving by ensuring eta is not too
-         ! small relative to the Newton convergence rate
-         jfnk_eta = max(jfnk_eta, 0.5d0 * jfnk_tol / jfnk_tol_prev)
+         eta_sav = jfnk_eta_gamma * jfnk_eta_prev**jfnk_eta_alpha
+         if(eta_sav > 0.1d0) jfnk_eta = max(jfnk_eta, eta_sav)
          ! Clamp to [eta_min, eta_max] for numerical stability
          jfnk_eta = max(jfnk_eta, jfnk_eta_min)
          jfnk_eta = min(jfnk_eta, jfnk_eta_max)
       end if
+      jfnk_eta_prev = jfnk_eta
       !
       ! Bug fix (09-Sep-2026): EW forcing-term tolerance must be in the
       ! same units as the GMRES residual.  Under left preconditioning
@@ -1313,6 +1356,18 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          phi_0  = 0.5d0 * tol_ * tol_
          dphi_0 = -dir_deriv           ! < 0 for descent direction
          !
+         ! Non-monotone reference (Oct-2026): phi_ref replaces phi_0 in
+         ! the sufficient-decrease test.  With jfnk_ls_nonmono=F this
+         ! collapses to the monotone Armijo test.
+         !
+         phi_ref = phi_0
+         if(jfnk_ls_nonmono) then
+            do i = 1, min(jfnk_ls_nmwin_s, size(jfnk_ls_nmhist))
+               if(jfnk_ls_nmhist(i) > 0d0) &
+                  phi_ref = max(phi_ref, 0.5d0 * jfnk_ls_nmhist(i)**2)
+            end do
+         end if
+         !
          ls_loop: do ls_step = 1, jfnk_ls_max_steps
             alpha_ls = jfnk_ls_beta_fac ** dble(ls_step)
             jfnk_x = x_ - alpha_ls * s
@@ -1322,7 +1377,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
             jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
             phi_alpha = 0.5d0 * jfnk_tol * jfnk_tol
-            if(phi_alpha <= phi_0 + jfnk_ls_armijo_c * alpha_ls * dphi_0) then
+            if(phi_alpha <= phi_ref + jfnk_ls_armijo_c * alpha_ls * dphi_0) then
                ! Armijo sufficient decrease satisfied
                ls_accepted = .true.
                s    = alpha_ls * s          ! scale the step
@@ -1379,7 +1434,15 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          if(allocated(jfnk_w_cauchy)) then
             if(size(jfnk_w_cauchy) /= n) deallocate(jfnk_w_cauchy)
          end if
-         if(.not. allocated(jfnk_w_cauchy)) allocate(jfnk_w_cauchy(n))
+         if(.not. allocated(jfnk_w_cauchy)) &
+            allocate(jfnk_w_cauchy(n), stat=ios_nw)
+         if(ios_nw /= 0) then
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: cauchy workspace alloc failed -- skipping step'
+            jfnk_exit_reason = 'cauchy_alloc_failure'
+            info = 3
+            return
+         end if
          jfnk_w_cauchy = fx_          ! start from F(x)
          call dfp(n, jfnk_w_cauchy)   ! d_C = M⁻¹ * F
          !
@@ -1608,6 +1671,12 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                '    |F| ', real(jfnk_tol_prev), ' -> ', real(jfnk_tol)
          end if
       end if
+      !
+      ! Push the accepted |F| into the non-monotone LS history ring
+      ! (Oct-2026, Li-Fukushima reference set).
+      !
+      jfnk_ls_nmidx = mod(jfnk_ls_nmidx, size(jfnk_ls_nmhist)) + 1
+      jfnk_ls_nmhist(jfnk_ls_nmidx) = jfnk_tol
       !
       jfnk_nits = jfnk_nits + 1
       n_reject = 0
@@ -2438,7 +2507,8 @@ subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
          end if
       end do
    end do
-   write(luer,'(A)') '  rank  idx    depth  level  var          s(i)         F(i)        J*s(i)      F-J*s(i)    RSCALE(i)   BA_diag(i)  |Js|/|F|'
+   write(luer,'(A)') '  rank  idx    depth  level  var          s(i)         F(i)' // &
+      '        J*s(i)      F-J*s(i)    RSCALE(i)   BA_diag(i)  |Js|/|F|'
    ntop_actual = min(ntop, n)
    do i = 1, ntop_actual
       ii = idx_sorted(i)

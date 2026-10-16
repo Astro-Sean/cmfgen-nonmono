@@ -1786,6 +1786,13 @@
 	STEQ_T=0.0_LDP
 	STEQ_T_EHB=0.0_LDP
 	STEQ_T_NO_SCL=0.0_LDP
+!
+! STEQ_T_SCL is the scaled sibling of STEQ_T_NO_SCL (the pair is
+! differenced for the SL luminosity error estimate below); it was
+! never zeroed, so the diagnostic accumulated across great
+! iterations and across JFNK eval sweeps.  (Oct-2026)
+!
+	STEQ_T_SCL=0.0_LDP
         BA_ED   = 0.0_LDP
         BA_T    = 0.0_LDP
         BA_T_PAR=0.0_LDP
@@ -5203,6 +5210,8 @@
 !
 	SUBROUTINE JFNK_RAD_SWEEP_V1(POPS_EVAL)
 	USE TWO_PHOT_MOD, ONLY: UP_RATE_TWO,DOWN_RATE_TWO,N_TWO
+	USE MOD_MOM_J_NONMONO_V1, ONLY:
+	1   MOM_QUAR_AGE,XM_BAD_NM,MOM_CELL_QUAR
 	IMPLICIT NONE
 	REAL(KIND=LDP), INTENT(IN) :: POPS_EVAL(:,:)
 	INTEGER :: IOS_EVAL
@@ -5212,6 +5221,10 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: UP_TWO_SAV(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: DOWN_TWO_SAV(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FOLD_SAVE(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: SCL_SAV(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: NOSCL_SAV(:)
+	INTEGER(KIND=2), ALLOCATABLE, SAVE :: QAGE_SAV(:,:)
+	LOGICAL, ALLOCATABLE, SAVE :: XMBAD_SAV(:),CELLQ_SAV(:)
 	EXTERNAL GEN_ASCI_OPEN, SET_LINE_BUFFERING
 !
 ! The real sweep leaves ACCESS_F at EOF (COMP_J_BLANK advances it one
@@ -5225,6 +5238,47 @@
 ! 03-Oct-2026).  ACCESS_F is still saved: COMP_J_BLANK advances it one
 ! record per frequency even in eval mode, so the epilogue must put
 ! back the entry value when no cursor was captured.
+!
+! Determinism bracket (Oct-2026): the quarantine/repair decisions in
+! MOM_J_CMF_NONMONO_V1 are stateful -- MOM_QUAR_AGE is a monotone
+! counter per (depth,frequency) cell, so every eval ages the cells it
+! repairs and a cell can cross the MOM_QUAR_PERSIST threshold
+! mid-Newton, changing F(x) between evals of the SAME x.  XM_BAD_NM
+! and MOM_CELL_QUAR feed DO_VAR_CONT's ALO suppression.  These saves
+! run before any production state below is mutated, so an allocation
+! failure can return without needing a restore pass.
+!
+	IF(ALLOCATED(MOM_QUAR_AGE))THEN
+	  IF(ALLOCATED(QAGE_SAV))THEN
+	    IF(SIZE(QAGE_SAV,1) .NE. SIZE(MOM_QUAR_AGE,1) .OR.
+	1       SIZE(QAGE_SAV,2) .NE. SIZE(MOM_QUAR_AGE,2))
+	2       DEALLOCATE(QAGE_SAV)
+	  END IF
+	  IF(.NOT. ALLOCATED(QAGE_SAV))ALLOCATE(
+	1    QAGE_SAV(SIZE(MOM_QUAR_AGE,1),SIZE(MOM_QUAR_AGE,2)),
+	2    STAT=IOS_EVAL)
+	  IF(IOS_EVAL .NE. 0)GOTO 9999
+	  QAGE_SAV=MOM_QUAR_AGE
+	END IF
+	IF(ALLOCATED(XM_BAD_NM))THEN
+	  IF(ALLOCATED(XMBAD_SAV))THEN
+	    IF(SIZE(XMBAD_SAV) .NE. SIZE(XM_BAD_NM))DEALLOCATE(XMBAD_SAV)
+	  END IF
+	  IF(.NOT. ALLOCATED(XMBAD_SAV))
+	1    ALLOCATE(XMBAD_SAV(SIZE(XM_BAD_NM)),STAT=IOS_EVAL)
+	  IF(IOS_EVAL .NE. 0)GOTO 9999
+	  XMBAD_SAV=XM_BAD_NM
+	END IF
+	IF(ALLOCATED(MOM_CELL_QUAR))THEN
+	  IF(ALLOCATED(CELLQ_SAV))THEN
+	    IF(SIZE(CELLQ_SAV) .NE. SIZE(MOM_CELL_QUAR))
+	1       DEALLOCATE(CELLQ_SAV)
+	  END IF
+	  IF(.NOT. ALLOCATED(CELLQ_SAV))
+	1    ALLOCATE(CELLQ_SAV(SIZE(MOM_CELL_QUAR)),STAT=IOS_EVAL)
+	  IF(IOS_EVAL .NE. 0)GOTO 9999
+	  CELLQ_SAV=MOM_CELL_QUAR
+	END IF
 !
 	ACCESS_F_SAVE=ACCESS_F
 	IF(JFNK_EDD_START_REC .GT. 0)ACCESS_F=JFNK_EDD_START_REC
@@ -5293,6 +5347,18 @@
 	  DOWN_TWO_SAV=DOWN_RATE_TWO
 	  DOWN_RATE_TWO=0.0_LDP
 	END IF
+!
+! Same bracket for the SL line-cooling accumulators STEQ_T_SCL /
+! STEQ_T_NO_SCL: on a last-iteration eval they accumulate a second
+! copy of the line sums and corrupt the L-error diagnostic the host
+! writes after the sweep.  (Oct-2026)
+!
+	IF(.NOT. ALLOCATED(SCL_SAV))ALLOCATE(SCL_SAV(ND))
+	IF(.NOT. ALLOCATED(NOSCL_SAV))ALLOCATE(NOSCL_SAV(ND))
+	SCL_SAV=STEQ_T_SCL
+	NOSCL_SAV=STEQ_T_NO_SCL
+	STEQ_T_SCL=0.0_LDP
+	STEQ_T_NO_SCL=0.0_LDP
 !
 ! A coupled eval re-runs the whole frequency loop, so every per-frequency
 ! diagnostic (f-convergence warnings, solver banners) would hit OUTGEN
@@ -6160,6 +6226,25 @@
 	1    UP_RATE_TWO=UP_TWO_SAV
 	IF(ALLOCATED(DOWN_TWO_SAV) .AND. ALLOCATED(DOWN_RATE_TWO))
 	1    DOWN_RATE_TWO=DOWN_TWO_SAV
+	STEQ_T_SCL=SCL_SAV
+	STEQ_T_NO_SCL=NOSCL_SAV
+!
+! Restore the quarantine/repair state saved at entry (eval-side
+! mutations must not age the production counters or leak a
+! trial-dependent ALO mask).
+!
+	IF(ALLOCATED(QAGE_SAV) .AND. ALLOCATED(MOM_QUAR_AGE))THEN
+	  IF(SIZE(QAGE_SAV,1) .EQ. SIZE(MOM_QUAR_AGE,1) .AND.
+	1     SIZE(QAGE_SAV,2) .EQ. SIZE(MOM_QUAR_AGE,2))
+	2     MOM_QUAR_AGE=QAGE_SAV
+	END IF
+	IF(ALLOCATED(XMBAD_SAV) .AND. ALLOCATED(XM_BAD_NM))THEN
+	  IF(SIZE(XMBAD_SAV) .EQ. SIZE(XM_BAD_NM))XM_BAD_NM=XMBAD_SAV
+	END IF
+	IF(ALLOCATED(CELLQ_SAV) .AND. ALLOCATED(MOM_CELL_QUAR))THEN
+	  IF(SIZE(CELLQ_SAV) .EQ. SIZE(MOM_CELL_QUAR))
+	1     MOM_CELL_QUAR=CELLQ_SAV
+	END IF
 !
 ! COMP_J_BLANK leaves ACCESS_F at EOF.  The next real sweep reloads
 ! the cursor from EDD_CONT_REC, but anything between this return and
@@ -6211,6 +6296,18 @@
 	2   ' OUTGEN, IOS=',IOS_EVAL
 	CALL SET_LINE_BUFFERING(LUER)
 !
+	RETURN
+!
+! Allocation-failure tail for the entry saves: no production state has
+! been mutated at that point, so only the sentinel-residual poison is
+! needed (mirrors the broken-eval epilogue path).
+!
+9999	CONTINUE
+	JFNK_EVAL_BROKEN=.TRUE.
+	DO I=1,NUM_IONS-1
+	  IF(ASSOCIATED(SE(I)%STEQ))SE(I)%STEQ=1.0E+35_LDP
+	END DO
+	JFNK_EVAL_BROKEN=.FALSE.
 	RETURN
 	END SUBROUTINE JFNK_RAD_SWEEP_V1
 	END

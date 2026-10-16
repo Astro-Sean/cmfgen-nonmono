@@ -358,6 +358,8 @@
 	  jfnk_ls_max_steps=JFNK_LS_MAX
 	  jfnk_ls_beta_fac=DBLE(JFNK_LS_BETA)
 	  jfnk_ls_armijo_c=DBLE(JFNK_LS_C)
+	  jfnk_ls_nonmono=JFNK_LS_NM
+	  jfnk_ls_nmwin_s=MIN(MAX(JFNK_LS_NMWIN,1),8)
 	  jfnk_do_cauchy=JFNK_CAUCHY
 	  jfnk_diagnostic_flag=JFNK_DIAGNOSTIC
 !

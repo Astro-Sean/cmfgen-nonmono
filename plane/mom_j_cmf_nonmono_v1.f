@@ -331,6 +331,17 @@
 !
 	REAL(KIND=LDP), SAVE :: JNEXT_RELAX=0.5_LDP
 !
+! KN_ADAPT_RELAX (VADAT [KN_ADAPT_RELAX], default T, set by
+! SET_MOM_KN_ADAPT): same adaptive under-relaxation as the FG
+! INEXT_RELAX update -- the dominant-mode contraction rho_est of the
+! outer refresh map is estimated from the ratio of successive
+! refresh residual maxima (MOM_GS_MAXCHG), and the write-back weight
+! becomes 1/(1+rho_est).  The per-cell MOM_DAMP_NM schedule still
+! applies on top inside the refresh.  Oct-2026.
+!
+	LOGICAL, SAVE :: MOM_ADAPT_RELAX=.TRUE.
+	REAL(KIND=LDP), SAVE :: MOM_RF_RESID_PRV=-1.0_LDP
+!
 ! Per-cell relaxation schedule for the refresh write.  Cells whose
 ! update returns near its same-parity-pass value while still making
 ! large steps are cycling (a period-2 mode of the alternating-
@@ -4477,6 +4488,14 @@
 	RETURN
 	END
 !
+	SUBROUTINE SET_MOM_KN_ADAPT(DO_AD)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_ADAPT_RELAX
+	IMPLICIT NONE
+	LOGICAL DO_AD
+	MOM_ADAPT_RELAX=DO_AD
+	RETURN
+	END
+!
 ! GET_MOM_CELL_QUAR: return the quarantine mask (XM_BAD mapped to the
 ! SM grid) recorded by the last non-refresh MOM solve, for
 ! DO_VAR_CONT's unconditional ALO diagonal suppression at frozen
@@ -6172,6 +6191,26 @@
 	1    '    outer-AA: applied=',MOM_AA_OUT_APP,' rejected=',
 	2    MOM_AA_OUT_REJ,' solve-fail=',MOM_AA_OUT_SNG,
 	3    ' alloc-fail=',MOM_AA_OUT_FAIL
+	END IF
+!
+! Adaptive JNEXT_RELAX (KN_ADAPT_RELAX, default T): rho_est is the
+! contraction of the refresh residual between calls, so a bounded or
+! growing outer map is damped toward omega=1/(1+rho_est).  Smoothed
+! and clamped to [0.05,1] -- same rule as the FG INEXT_RELAX update
+! in FG_KNOP_REFRESH_V1.  Oct-2026.
+!
+	IF(MOM_ADAPT_RELAX .AND. MOM_GS_MAXCHG .GT. 0.0_LDP .AND.
+	1   MOM_GS_MAXCHG .LE. HUGE(MOM_GS_MAXCHG))THEN
+	  IF(MOM_RF_RESID_PRV .GT. 0.0_LDP)THEN
+	    DTR=MOM_GS_MAXCHG/MOM_RF_RESID_PRV
+	    DTR=MIN(MAX(DTR,0.0_LDP),50.0_LDP)
+	    JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
+	1      0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+DTR)))
+	    WRITE(LUER,'(A,ES10.3,A,ES10.3)')
+	1      '    adaptive JNEXT_RELAX: rho_est=',DTR,
+	2      '  omega=',JNEXT_RELAX
+	  END IF
+	  MOM_RF_RESID_PRV=MOM_GS_MAXCHG
 	END IF
 !
 	DEALLOCATE(HRF,OUTJ,OUTH,ETA_L,CHI_L,ESEC_L)

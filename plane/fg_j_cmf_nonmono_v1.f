@@ -501,6 +501,21 @@
 	REAL(KIND=LDP) INEXT_RELAX
 	DATA INEXT_RELAX/0.5_LDP/
 !
+! KN_ADAPT_RELAX (VADAT [KN_ADAPT_RELAX], default T, set by
+! SET_FG_KN_ADAPT): replace the fixed write-back weight with a
+! spectral-radius estimate of the outer (sweep+refresh) fixed-point
+! map.  rho_est is the ratio of successive refresh residual maxima
+! (the dominant-mode contraction factor of the lagged map); the
+! weight is omega = 1/(1+rho_est), so a non-contracting or
+! sign-flipping dominant mode (rho_est >= 1) is damped to <= 1/2
+! while a contracting map recovers toward the full update.
+! KN_RF_RESID_PRV carries the previous call's residual maximum.
+!
+	LOGICAL KN_ADAPT_RELAX
+	DATA KN_ADAPT_RELAX/.TRUE./
+	REAL(KIND=LDP) KN_RF_RESID_PRV
+	DATA KN_RF_RESID_PRV/-1.0_LDP/
+!
 ! ----------------------------------------------------------------------
 ! Per-ray Knop refresh store (added Oct-2026).
 !
@@ -942,6 +957,7 @@
 	INTEGER LK
 	REAL(KIND=LDP) W_INEXT,INEXT_V
 	REAL(KIND=LDP) DLN_C,DLN_N_SAV
+	REAL(KIND=LDP) DENOM_IN,DENOM_SCL
 	INTEGER NI
 	INTEGER NIR_ALO
 	INTEGER N_OUT_LAMSTAR
@@ -2873,7 +2889,11 @@ C
 	        NM_RAY(I)=1
 	        DLN_RAY(I)=DLN_N_SAV
 	      END DO
-	      IF(FG_FREQ_MATCH .AND. FREQ_IDX_ITER .LT. NCF_IN .AND.
+!        FREQ_IDX_ITER+1 < NCF_IN: the compressing upwind is the
+!        redder slot, so the last real frequency has nothing to
+!        rematch to (slot NCF_IN is the phantom).
+!
+	      IF(FG_FREQ_MATCH .AND. FREQ_IDX_ITER+1 .LT. NCF_IN .AND.
 	1       DLN_N_SAV .GT. 0.0_LDP)THEN
 	        DO I=1,NI
 	          IF(GAM(I,LS) .LT. 0.0_LDP)THEN
@@ -2886,8 +2906,15 @@ C
 	1            ABS(Z(I,LS)-Z(I+1,LS)))
 	            END IF
 	            T2=GAM_MAG(I,LS)*T1/DLN_N_SAV
-	            IF(T2 .GE. DBLE(NCF_IN-FREQ_IDX_ITER))THEN
-	              K2=NCF_IN-FREQ_IDX_ITER
+!
+! Cap K2 at the last REAL lagged-store slot.  During frequency k the
+! store index FREQ_IDX_ITER+K2 holds nu_{k+K2} (slot s = frequency
+! s+1), so the largest usable offset is NCF_IN-FREQ_IDX_ITER-1: slot
+! NCF_IN is a force-zeroed phantom beyond the last frequency.
+! (Oct-2026 matched-span fix)
+!
+	            IF(T2 .GE. DBLE(NCF_IN-FREQ_IDX_ITER-1))THEN
+	              K2=NCF_IN-FREQ_IDX_ITER-1
 	            ELSE
 !
 ! CEILING keeps the characteristic foot inside the matched
@@ -2898,12 +2925,23 @@ C
 	            END IF
 	            NM_RAY(I)=K2
 	            DLN_RAY(I)=K2*DLN_N_SAV
+!
+! KN_FREQ is indexed by frequency (slot s = frequency s), while the
+! lagged I_NEXT store is shifted by one (slot s = frequency s+1).
+! The upwind read uses store slot FREQ_IDX_ITER+K2 = frequency
+! k+K2, so the matched log span must close on KN_FREQ index
+! FREQ_IDX_ITER+1+K2 -- the same bin MATCH_FREQ uses in the refresh
+! worker (its NFM offset L+NNF in KN_ indexing).  The previous
+! FREQ_IDX_ITER+K2 index measured the span to nu_{k+K2-1}, so the
+! in-sweep frequency derivative and the refresh operator disagreed
+! by one bin.  (Oct-2026 matched-span fix)
+!
 	            IF(ALLOCATED(KN_FREQ) .AND.
-	1           FREQ_IDX_ITER+K2 .LE. NCF_IN)THEN
-	              IF(KN_FREQ(FREQ_IDX_ITER+K2) .GT. 0.0_LDP .AND.
-	1             KN_FREQ(FREQ_IDX_ITER+K2) .LT. FREQ)
+	1           FREQ_IDX_ITER+1+K2 .LE. NCF_IN)THEN
+	              IF(KN_FREQ(FREQ_IDX_ITER+1+K2) .GT. 0.0_LDP .AND.
+	1             KN_FREQ(FREQ_IDX_ITER+1+K2) .LT. FREQ)
 	1           DLN_RAY(I)=
-	1             LOG(FREQ/KN_FREQ(FREQ_IDX_ITER+K2))
+	1             LOG(FREQ/KN_FREQ(FREQ_IDX_ITER+1+K2))
 	            END IF
 	          END IF
 	        END DO
@@ -4272,10 +4310,31 @@ C
 !
 	FG_MIN_JBND=MIN(FG_MIN_JBND,JNU_STORE(1))
 	IF(JNU_STORE(1) .LT. 1.0E-30_LDP)JNU_STORE(1)=1.0E-30_LDP
-	IF(ABS(2.0_LDP*JNU_STORE(ND)-IC) .LT. 1.0E-30_LDP)JNU_STORE(ND)=1.0E-30_LDP
+!
+! Inner-boundary Eddington IN_HBC = <mu*I_in>/(2*J(ND)-IC).  The old
+! guard floored only |denom| < 1e-30, which is scale-blind: a small
+! but nonzero signed denominator (J(ND) ~ IC/2 cancellation) produced
+! an arbitrarily large or negative IN_HBC that then entered
+! TB_NM(ND)=F/DTAU+IN_HBC and XM_NM(ND)=R^2*IC*(0.25+0.5*IN_HBC) in
+! the moment solver.  Floor the denominator relative to the terms
+! forming it, and validate the ratio into the physical range [0,1]
+! (|mu| <= 1); an unusable measurement falls back to 0.5, the
+! hemispheric mean of |mu| for incident radiation -- the same
+! degenerate-Eddington-replaced-by-physical-closure policy as the
+! MOM HBC_ROW floor.  The .NOT.(.GE.) tests also catch NaN.
+! (Oct-2026 IN_HBC guard fix)
+!
+	DENOM_IN=2.0_LDP*JNU_STORE(ND)-IC
+	DENOM_SCL=MAX(ABS(IC),2.0_LDP*JNU_STORE(ND),1.0E-30_LDP)
+	IF(ABS(DENOM_IN) .LT. 1.0E-6_LDP*DENOM_SCL)THEN
+	  IN_HBC=0.5_LDP
+	ELSE
+	  IN_HBC=IN_HBC/DENOM_IN
+	END IF
+	IF(.NOT.(IN_HBC .GE. 0.0_LDP))IN_HBC=0.5_LDP
+	IF(.NOT.(IN_HBC .LE. 1.0_LDP))IN_HBC=0.5_LDP
 	HBC=HNU_AT_OB/JNU_STORE(1)
 	NBC=NNU_AT_OB/JNU_STORE(1)
-	IN_HBC=IN_HBC/(2.0_LDP*JNU_STORE(ND)-IC)
 	IF(.NOT. (ABS(HBC) .LE. HUGE(HBC)))THEN
 	  FG_N_BADHBC=FG_N_BADHBC+1
 	ELSE
@@ -5342,6 +5401,14 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_KN_ADAPT(DO_AD)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_ADAPT_RELAX
+	IMPLICIT NONE
+	LOGICAL DO_AD
+	KN_ADAPT_RELAX=DO_AD
+	RETURN
+	END
+!
 	SUBROUTINE FG_KNOP_REFRESH_V1()
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
@@ -5481,6 +5548,27 @@ C
 ! function, so the SE update may proceed immediately.
 !
 	KN_RF_RESID=MAXVAL(RES_LS)
+!
+! Adaptive under-relaxation of the lagged store (KN_ADAPT_RELAX,
+! default T): the residual maxima of successive refresh calls are the
+! dominant-mode contraction factors rho_est of the outer
+! sweep+refresh fixed-point map.  omega = 1/(1+rho_est) damps an
+! expansive or sign-flipping mode (rho_est >= 1) to <= 1/2 and lets a
+! contracting map recover toward the undamped write.  INEXT_RELAX is
+! smoothed over calls so one noisy residual cannot swing it; the
+! [0.05,1] clamp keeps the update causal (bounded damping) and
+! prevents a collapsed residual from disabling relaxation forever.
+! VADAT INEXT_RELAX then acts as the seed value.  Oct-2026.
+!
+	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
+	  IF(KN_RF_RESID_PRV .GT. 0.0_LDP)THEN
+	    T2=KN_RF_RESID/KN_RF_RESID_PRV
+	    T2=MIN(MAX(T2,0.0_LDP),50.0_LDP)
+	    INEXT_RELAX=0.5_LDP*INEXT_RELAX+
+	1      0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
+	  END IF
+	  KN_RF_RESID_PRV=KN_RF_RESID
+	END IF
 	FG_GS_MAXCHG=KN_RF_RESID
 	FG_GS_NCONV=SUM(NST_LS)
 	FG_INEXT_CAPPED=FG_INEXT_CAPPED+SUM(NCP_LS)+SUM(NNG_LS)+
@@ -5501,6 +5589,8 @@ C
 	WRITE(LUER,'(A,F9.1,A)')'    t=',T1_W,' s'
 	WRITE(LUER,'(A,ES12.4)')'    retained-field delta: max=',
 	1  FG_RF_DCHG
+	IF(KN_ADAPT_RELAX)WRITE(LUER,'(A,ES10.3)')
+	1  '    adaptive INEXT_RELAX: omega=',INEXT_RELAX
 !
 ! Ray exit census: which stop rule ended each field solve (codes in
 ! KNOP_RAY_SOLVE_V1).  Stall and cap exits leave above-tolerance
