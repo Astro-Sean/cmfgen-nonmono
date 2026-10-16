@@ -14,11 +14,6 @@ their flags unset, they do not replace the stock solver. This tree
 also has general correctness, build, and observation-frame fixes, so
 it is not a byte-for-byte copy of upstream.
 
-The private development repo is `Astro-Sean/cmfgen-nonmono` (CMFGEN is
-licensed code - keep the repo private). All code lives on the
-`development` branch; `main` carries only a placeholder README.
-`upstream` is the pristine `pitt-phyast/cmfsource`, used for fetching
-and diffing only.
 
 ## The problem
 
@@ -60,7 +55,6 @@ mostly on physically empty trace levels that no step can satisfy.
 
 ![Sobolev vs non-monotonic transfer](docs/knop_solver.png)
 
-Regenerate with `python3 docs/plot_knop_solver.py`.
 
 The formal solver follows Knop, Hauschildt & Baron (2009): the sign of
 `gamma` picks which side counts as upwind. Expanding points couple to
@@ -79,7 +73,6 @@ floored so it cannot cross zero. Both paths are off by default.
 
 ![Iteration cycle](docs/iteration_cycle.png)
 
-Regenerate with `python3 docs/plot_iteration_cycle.py`.
 
 Each pass is one model iteration: solve the radiation field, update
 the populations, write a checkpoint, repeat until the populations stop
@@ -104,7 +97,6 @@ The new parts:
 
 ![Trace-polish flow](docs/stage_b_flow.png)
 
-Regenerate with `python3 docs/plot_stage_b_flow.py`.
 
 On interacting-supernova models many levels are physically empty at
 some depths (a few 1e-20 or less of the local gas). They keep
