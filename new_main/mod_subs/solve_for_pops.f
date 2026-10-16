@@ -289,6 +289,7 @@
 	LOGICAL JFNK_COUPLED_THIS,JFNK_DEM_CTR
 	REAL(KIND=LDP) JFNK_GATE_IN
 	REAL(KIND=LDP) JFNK_DEM_IN
+	INTEGER JFNK_NREQ_EFF
 	INTEGER, SAVE :: JFNK_FRZ_HITS=0
 	INTEGER, SAVE :: JFNK_CPL_HITS=0
 !
@@ -1304,9 +1305,26 @@
 ! Frozen tier: admit only when the effective gate is satisfied and
 ! the hysteresis count is met.  GATE_IN=0 means no gating at all
 ! (legacy behavior with COR_GATE=0).
+!
+! edited by Devin, 16-Oct-2026: hysteresis relief under
+! DO_NONMONO_SOB.  In the LAMBDA-dominated regime every LAMBDA-
+! designated call is JFNK-ineligible and resets JFNK_FRZ_HITS above,
+! so a JFNK_GATE_NREQ>1 count is unreachable however quiet the
+! demand -- the stable-exit release then runs plain SOLVEBA and JFNK
+! never fires (m15 SOB_l14_jfnk OUTGEN: LAMBDA-designated defer on
+! every eligible-era call).  When the LAMBDA-mode controller has
+! already proven stability (MAXCH_CTRL below VAL_EXIT_LAM for
+! N_STABLE_LAM consecutive calls -- the same condition that releases
+! this call to full) one sub-gate, contracting full-call demand is
+! enough.  The demand level and contraction tests are unchanged;
+! only the multi-call hit count is relaxed.
+!
+	    JFNK_NREQ_EFF=JFNK_GATE_NREQ
+	    IF(DO_NONMONO_SOB .AND.
+	1       CNT_STABLE_LAM .GE. N_STABLE_LAM)JFNK_NREQ_EFF=1
 	    IF(JFNK_GATE_IN .GT. 0.0_LDP .AND.
 	1       (JFNK_DEM_IN .GE. JFNK_GATE_IN .OR.
-	2        JFNK_FRZ_HITS .LT. JFNK_GATE_NREQ))THEN
+	2        JFNK_FRZ_HITS .LT. JFNK_NREQ_EFF))THEN
 	      JFNK_THIS=.FALSE.
 	      CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_defer')
 	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
@@ -1320,7 +1338,7 @@
 	1     '    demand still contracting          :',JFNK_DEM_CTR
 	      WRITE(LUER,'(A,I3,A,I3)')
 	1     '    consecutive sub-gate calls, need  :',
-	1     JFNK_FRZ_HITS,' /',JFNK_GATE_NREQ
+	1     JFNK_FRZ_HITS,' /',JFNK_NREQ_EFF
 	      WRITE(LUER,'(A)')
 	1     '    disposition : falls back to SOLVEBA path'
 	    END IF
