@@ -37,8 +37,8 @@ LH_TITLE = 0.34        # axis units per title line
 LH_BODY = 0.265        # axis units per body line
 PAD_V = 0.16
 BOX_X = 0.75           # left edge of the main column
-TXT_PAD_L = 0.28       # text indent inside a box
-TXT_PAD_R = 0.25       # clearance between text and box edge
+TXT_PAD_L = 0.30       # text indent inside a box
+TXT_PAD_R = 0.30       # clearance between text and box edge
 RMARGIN = 0.3          # right edge margin
 GAP = 0.45             # vertical gap left for arrows between boxes
 DPI = 160
@@ -51,13 +51,13 @@ BOXES = [
         kind="stock",
         title="Opacities",
         lines=[
-            "how much light each layer absorbs and emits",
+            "How much light each layer absorbs and emits",
         ]),
     dict(
         kind="new",
         title="Radiation field",
         lines=[
-            "intensity at each depth and frequency;",
+            "Intensity at each depth and frequency;",
             "in compression zones the coupling direction",
             "flips, so the missing neighbour is taken",
             "from the previous sweep (lagged store)",
@@ -66,21 +66,21 @@ BOXES = [
         kind="stock",
         title="Rate equations",
         lines=[
-            "residuals and Jacobian terms for the update:",
+            "Residuals and Jacobian terms for the update:",
             "levels, electron density, temperature",
         ]),
     dict(
         kind="new",
         title="Settle the stored field",
         lines=[
-            "repeat the radiation solve until the stored",
+            "Repeat the radiation solve until the stored",
             "intensities stop drifting between rounds",
         ]),
     dict(
         kind="mod",
         title="Update the populations",
         lines=[
-            "the mode controller picks one per call:",
+            "The mode controller picks one per call:",
             "  Lambda step   - safe fixed-point update",
             "                  (warm-up, drifting field)",
             "  Newton step   - full Jacobian per depth",
@@ -90,30 +90,30 @@ BOXES = [
         kind="mod",
         title="Acceleration (scheduled)",
         lines=[
-            "extrapolate the last few iterates",
-            "average levels that keep oscillating",
-            "reuse the Jacobian while demand is small",
+            "Extrapolate the last few iterates",
+            "Average levels that keep oscillating",
+            "Reuse the Jacobian while demand is small",
         ]),
     dict(
         kind="mod",
         title="Apply and checkpoint",
         lines=[
-            "cap the step; roll back if the residual grows",
-            "write restart files",
+            "Cap the step; roll back if the residual grows",
+            "Write restart files",
         ]),
 ]
 
 DONE_TITLE = "Done"
 DONE_LINES = [
-    "populations have stopped changing;",
-    "a separate tool computes the spectrum",
+    "Populations have stopped changing;",
+    "A separate tool computes the spectrum",
 ]
 
-DEC_TEXT = "converged?"
+DEC_TEXT = "Converged?"
 
-LEGEND = [("new", "new code"),
-          ("mod", "existing code, new switches"),
-          ("stock", "unchanged CMFGEN")]
+LEGEND = [("new", "New code"),
+          ("mod", "Existing code, new switches"),
+          ("stock", "Unchanged CMFGEN")]
 
 
 # ---------------------------------------------------------------
@@ -191,7 +191,7 @@ S_box = (BOX_X + TXT_PAD_L + TXT_PAD_R + RMARGIN) / (1.0 - wbox_px / aw_px)
 S_leg = leg_fixed / (1.0 - leg_text_px / aw_px)
 S = max(S_box, S_leg)
 
-BOX_W = wbox_px * S / aw_px + TXT_PAD_L + TXT_PAD_R
+BOX_W = wbox_px * 1.06 * S / aw_px + TXT_PAD_L + TXT_PAD_R
 XC = S / 2                 # centre the column on the canvas
 XLIM = S
 
@@ -229,7 +229,7 @@ for kind, lab in LEGEND:
     ax.text(lx, leg_y, lab, fontsize=8.8, va="center")
     lx += px_leg[lab] * units_per_px + 0.5
 ax.text(XLIM / 2, leg_y - 0.4,
-        "new features are off by default",
+        "New features are off by default",
         fontsize=8.4, ha="center", va="top", style="italic",
         color="#444444")
 y -= 1.0
@@ -257,7 +257,7 @@ arrow(ax, XC, bounds[-1][0], dec_top)
 done_top = dec_top - dec_h - GAP
 yb, _ = draw_box(ax, XC, done_top, DONE_TITLE, DONE_LINES,
                  "stock", BOX_W)
-arrow(ax, XC, dec_top - dec_h, done_top, label="yes", lx=XC + 0.15)
+arrow(ax, XC, dec_top - dec_h, done_top, label="Yes", lx=XC + 0.15)
 
 # Loop-back arrow: decision "no" -> left margin -> back to box 1.
 x_loop = 0.28
@@ -272,7 +272,7 @@ ax.add_patch(FancyArrowPatch(
     (x_loop, box1_mid), (XC - BOX_W / 2, box1_mid),
     arrowstyle="-|>", mutation_scale=16, lw=1.4, color="#444444"))
 ax.text(XC - dec_w / 2 - 0.15, dec_top - dec_h / 2 + 0.16,
-        "no: repeat", fontsize=8.6, color="#444444", ha="right")
+        "No: repeat", fontsize=8.6, color="#444444", ha="right")
 
 out = Path(__file__).resolve().parent / "iteration_cycle.png"
 plt.savefig(out, dpi=DPI, bbox_inches="tight")

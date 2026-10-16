@@ -101,11 +101,11 @@ ax.plot(r, v_int, color='k', lw=1.6)
 ax.fill_between(r, 0, 10500, where=sigma_int < -1.0, color='tab:red',
                 alpha=0.15)
 ax.axvline(R_SHOCK, color='gray', lw=0.8, ls=':')
-ax.annotate('reverse shock:\nshell stalls into the\ncold dense shell',
+ax.annotate('Reverse shock:\nshell stalls into the\ncold dense shell',
             xy=(5.05, 5800), xytext=(0.6, 7800), fontsize=9,
             arrowprops=dict(arrowstyle='->', color='k', lw=0.8))
-ax.text(6.6, 4700, 'shocked CSM', fontsize=9)
-ax.text(0.4, 3800, 'fast ejecta\nshell', fontsize=9)
+ax.text(6.6, 4700, 'Shocked CSM', fontsize=9)
+ax.text(0.4, 3800, 'Fast ejecta\nshell', fontsize=9)
 ax.set_title(col_titles[1], fontsize=11)
 ax.set_xlim(0, 10)
 ax.set_ylim(0, 10500)
@@ -138,7 +138,7 @@ ax.plot(s, dop_mono, color='k', lw=1.6)
 ax.axhline(delta_mono, color='tab:green', lw=1.0, ls='--')
 for k in cross_mono:
     ax.plot(s[k], dop_mono[k], 'o', ms=9, color='tab:green', zorder=5)
-    ax.annotate('one resonance\n(Sobolev point)', (s[k], dop_mono[k]),
+    ax.annotate('One resonance\n(Sobolev point)', (s[k], dop_mono[k]),
                 textcoords='offset points', xytext=(-110, -25),
                 fontsize=9, color='tab:green',
                 arrowprops=dict(arrowstyle='->', color='tab:green',
@@ -157,7 +157,7 @@ lbl = [(-30, 14), (-4, -28), (22, 14)]
 for i, k in enumerate(cross_int):
     j = min(i, len(lbl) - 1)
     ax.plot(s[k], dop_int[k], 'o', ms=9, color='tab:green', zorder=5)
-    ax.annotate(f'root {i + 1}', (s[k], dop_int[k]),
+    ax.annotate(f'Root {i + 1}', (s[k], dop_int[k]),
                 textcoords='offset points', xytext=lbl[j],
                 ha='center', fontsize=9, color='tab:green',
                 arrowprops=dict(arrowstyle='-', color='tab:green',
@@ -184,9 +184,9 @@ ax.text(0.1, 0.68, r"$S' = S + Q\,I_{\rm upwind}$"
         '  (velocity coupling moved into the source)', fontsize=10)
 ax.text(0.1, 0.50, 'sign(' r'$\gamma$' ') picks the upwind frequency:',
         fontsize=10)
-ax.text(0.35, 0.32, r'$\gamma > 0$ expanding:  use previous $\nu$',
+ax.text(0.35, 0.32, r'$\gamma > 0$  expanding:  use previous $\nu$',
         fontsize=10, color='tab:blue')
-ax.text(0.35, 0.16, r'$\gamma < 0$ compressing:  use next $\nu$'
+ax.text(0.35, 0.16, r'$\gamma < 0$  compressing:  use next $\nu$'
         '  (lagged from the previous iteration)',
         fontsize=10, color='tab:red')
 
@@ -207,7 +207,7 @@ ax.annotate('', xy=(x1, y_line + 0.34), xytext=(x2, y_line + 0.34),
 ax.text((x1 + x2) / 2, y_line + 0.40,
         r'$\gamma < 0$: lagged $I_{i+1}$',
         ha='center', fontsize=9, color='tab:red')
-ax.text(7.6, 0.02, 'intensity always upwinds from the correct side',
+ax.text(7.6, 0.02, 'Intensity always upwinds from the correct side',
         ha='center', fontsize=9, style='italic')
 
 out = Path(__file__).resolve().parent / 'knop_solver.png'

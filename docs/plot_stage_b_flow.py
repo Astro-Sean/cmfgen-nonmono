@@ -31,8 +31,8 @@ FS_BODY = 9.2
 LH_TITLE = 0.34
 LH_BODY = 0.265
 PAD_V = 0.16
-TXT_PAD_L = 0.28
-TXT_PAD_R = 0.25
+TXT_PAD_L = 0.30
+TXT_PAD_R = 0.30
 GAP = 0.45
 DPI = 160
 FIG_W_IN = 12.5
@@ -95,55 +95,55 @@ def arrow(ax, x0, y0, x1, y1, label=None, lx=None, ly=None,
 MAIN = [
     dict(kind="stock", title="Great iteration",
          lines=[
-             "radiation field, populations, checkpoint",
+             "Radiation field, populations, checkpoint",
          ]),
     dict(kind="mod", title="Measure the demand",
          lines=[
-             "largest correction on ordinary rows",
-             "largest correction the floors hid",
-             "largest trace change per gas density",
+             "Largest correction on ordinary rows",
+             "Largest correction the floors hid",
+             "Largest trace change per gas density",
          ]),
 ]
 
-DEC1 = "majors\nconverged?"
+DEC1 = "Majors\nconverged?"
 SIDE = dict(kind="stock", title="Normal exit or continue",
             lines=[
-                "stock logic decides:",
-                "converged -> write model, return",
-                "else      -> next great iteration",
+                "Stock logic decides:",
+                "Converged -> write model, return",
+                "Else      -> next great iteration",
             ])
 
 ARM = dict(kind="new", title="Arm a polish sweep",
            lines=[
-               "mark the next iteration as a polish sweep;",
-               "sweep count +1",
-               "rebuild the update matrix",
-               "another great iteration runs",
+               "Mark the next iteration as a polish sweep;",
+               "Sweep count +1",
+               "Rebuild the update matrix",
+               "Another great iteration runs",
            ])
 
 SOLVE = dict(kind="new", title="Polish solve",
              lines=[
-                 "direct matrix step; Krylov and",
+                 "Direct matrix step; Krylov and",
                  "fixed-point solvers stay off",
-                 "only floor-exempted rows commit;",
-                 "majors, density and temperature held",
+                 "Only floor-exempted rows commit;",
+                 "Majors, density and temperature held",
              ])
 
-DEC2 = "trace settled\nor sweeps spent?"
+DEC2 = "Trace settled\nor sweeps spent?"
 
 EXIT = dict(kind="stock", title="Exit",
             lines=[
-                "converged write-out; a spent sweep",
-                "budget never holds the run",
+                "Converged write-out; a spent sweep",
+                "Budget never holds the run",
             ])
 
 TRIGGER = [
     "A polish sweep runs only when all of these hold:",
-    "a non-monotonic solver is active",
-    "a demand floor is set",
-    "ordinary rows have converged",
-    "traces are still moving",
-    "sweeps remain in the budget",
+    "A non-monotonic solver is active",
+    "A demand floor is set",
+    "Ordinary rows have converged",
+    "Traces are still moving",
+    "Sweeps remain in the budget",
 ]
 
 # ---------------------------------------------------------------
@@ -162,7 +162,7 @@ aw_px = FIG_W_IN * DPI * AX_W_FRAC
 wbox_px = max(px.values())
 
 S = (0.6 + TXT_PAD_L + TXT_PAD_R + 0.3) / (1.0 - wbox_px / aw_px)
-BOX_W = wbox_px * S / aw_px + TXT_PAD_L + TXT_PAD_R
+BOX_W = wbox_px * 1.06 * S / aw_px + TXT_PAD_L + TXT_PAD_R
 # Keep the side column clear of the main column.
 min_sep = BOX_W + 1.2
 if S * 0.46 < min_sep:
@@ -181,11 +181,11 @@ fig.suptitle("Trace-species polish at the converged exit",
              fontsize=13, fontweight="bold", y=0.985)
 
 handles = [Patch(fc=STYLE["new"]["fc"], ec=STYLE["new"]["ec"],
-                 label="new code"),
+                 label="New code"),
            Patch(fc=STYLE["mod"]["fc"], ec=STYLE["mod"]["ec"],
-                 label="existing code, new switches"),
+                 label="Existing code, new switches"),
            Patch(fc=STYLE["stock"]["fc"], ec=STYLE["stock"]["ec"],
-                 label="unchanged CMFGEN")]
+                 label="Unchanged CMFGEN")]
 fig.legend(handles=handles, loc="upper center", ncol=3,
            bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=8.8,
            handlelength=1.6)
@@ -212,13 +212,13 @@ yb_side, h_side = draw_box(ax, X_SIDE, y + dec_h / 2, SIDE["title"],
                            SIDE["lines"], SIDE["kind"], BOX_W)
 arrow(ax, X_MAIN + dec_w / 2, d1_yc, X_SIDE - BOX_W / 2, d1_yc)
 ax.text((X_MAIN + dec_w / 2 + X_SIDE - BOX_W / 2) / 2, d1_yc + 0.3,
-        "no", fontsize=8.6, color="#444444", ha="center")
+        "No", fontsize=8.6, color="#444444", ha="center")
 
 y = d1_yc - dec_h / 2 - GAP
 yb_arm, h_arm = draw_box(ax, X_MAIN, y, ARM["title"], ARM["lines"],
                          ARM["kind"], BOX_W)
 arrow(ax, X_MAIN, d1_yc - dec_h / 2, X_MAIN, y,
-      label="yes + trace demand", lx=X_MAIN + 0.15)
+      label="Yes + trace demand", lx=X_MAIN + 0.15)
 
 y = yb_arm - GAP
 yb_sol, h_sol = draw_box(ax, X_MAIN, y, SOLVE["title"],
@@ -233,7 +233,7 @@ y = d2_yc - dec_h / 2 - GAP
 yb_exit, h_exit = draw_box(ax, X_MAIN, y, EXIT["title"],
                            EXIT["lines"], EXIT["kind"], BOX_W)
 arrow(ax, X_MAIN, d2_yc - dec_h / 2, X_MAIN, y,
-      label="yes", lx=X_MAIN + 0.15)
+      label="Yes", lx=X_MAIN + 0.15)
 
 # Loop-back for "no" on the second decision: re-arm Stage-B.
 x_loop = X_MAIN - BOX_W / 2 - 0.9
@@ -248,7 +248,7 @@ ax.add_patch(FancyArrowPatch(
     (x_loop, arm_mid), (X_MAIN - BOX_W / 2, arm_mid),
     arrowstyle="-|>", mutation_scale=16, lw=1.4, color="#444444"))
 ax.text(X_MAIN - dec_w / 2 - 0.15, d2_yc + 0.25,
-        "no: arm another sweep", fontsize=8.6, color="#444444",
+        "No: arm another sweep", fontsize=8.6, color="#444444",
         ha="right")
 
 # Trigger-condition note in the right column, beside the Stage-B
