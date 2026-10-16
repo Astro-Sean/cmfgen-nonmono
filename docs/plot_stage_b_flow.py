@@ -3,11 +3,11 @@
 End-of-iteration trace-species handling in this CMFGEN fork, drawn as
 a flowchart.
 
-The BA_DEM floors exempt dead trace rows from the convergence metric
-while their corrections still commit.  When the majors have converged
-but the exempted rows are still moving, the run does not exit: it
-arms BA_TRACE_PHASE and loops for up to BA_TR_MAXSWP Stage-B sweeps
-in which only the exempted rows are updated.
+Demand floors exempt dead trace rows from the convergence metric
+while their corrections still commit.  When the major species have
+converged but the exempted rows are still moving, the run does not
+exit: it arms a trace-polish phase and loops for a bounded number of
+sweeps in which only the exempted rows are updated.
 
 Box colours follow plot_iteration_cycle.py: grey = unchanged CMFGEN,
 amber = existing routine with new switches, blue = new code.
@@ -97,11 +97,11 @@ MAIN = [
          lines=[
              "radiation field, populations, checkpoint",
          ]),
-    dict(kind="mod", title="Measure demand   [SOLVEBA_V13]",
+    dict(kind="mod", title="Measure the demand",
          lines=[
-             "MAXCH: largest correction on non-exempt rows",
-             "BA_DEM_EXM: largest correction the floors hid",
-             "BA_TR_ABS: largest |dn|/gas on exempted rows",
+             "largest correction on ordinary rows",
+             "largest correction the floors hid",
+             "largest trace change per gas density",
          ]),
 ]
 
@@ -113,18 +113,20 @@ SIDE = dict(kind="stock", title="Normal exit or continue",
                 "else      -> next great iteration",
             ])
 
-ARM = dict(kind="new", title="Arm Stage-B sweep   [BA_STAGEB_ARM]",
+ARM = dict(kind="new", title="Arm a polish sweep",
            lines=[
-               "BA_TRACE_PHASE=T; sweep count +1",
-               "reassemble BA matrix (COMPUTE_BA)",
+               "mark the next iteration as a polish sweep;",
+               "sweep count +1",
+               "rebuild the update matrix",
                "another great iteration runs",
            ])
 
-SOLVE = dict(kind="new", title="Stage-B solve   [BA_TRACE_PHASE]",
+SOLVE = dict(kind="new", title="Polish solve",
              lines=[
-                 "direct BA step; JFNK/LAMBDA off",
+                 "direct matrix step; Krylov and",
+                 "fixed-point solvers stay off",
                  "only floor-exempted rows commit;",
-                 "majors, ED and T restored from POPS_OLD",
+                 "majors, density and temperature held",
              ])
 
 DEC2 = "trace settled\nor sweeps spent?"
@@ -136,12 +138,12 @@ EXIT = dict(kind="stock", title="Exit",
             ])
 
 TRIGGER = [
-    "Stage-B arms only when all of these hold:",
-    "DO_NONMONO_SOB or DO_NONMONO_KNOP on",
-    "BA_DEM_PFLOOR or BA_DEM_RELFRAC set",
-    "MAXCH < EPS (majors converged)",
-    "BA_TR_ABS > BA_TR_ABSMAX (traces moving)",
-    "sweeps used < BA_TR_MAXSWP",
+    "A polish sweep runs only when all of these hold:",
+    "a non-monotonic solver is active",
+    "a demand floor is set",
+    "ordinary rows have converged",
+    "traces are still moving",
+    "sweeps remain in the budget",
 ]
 
 # ---------------------------------------------------------------
@@ -175,7 +177,7 @@ ax.set_xlim(0, XLIM)
 ax.set_ylim(0, fig_h)
 ax.axis("off")
 
-fig.suptitle("Trace-species handling at the converged exit",
+fig.suptitle("Trace-species polish at the converged exit",
              fontsize=13, fontweight="bold", y=0.985)
 
 handles = [Patch(fc=STYLE["new"]["fc"], ec=STYLE["new"]["ec"],

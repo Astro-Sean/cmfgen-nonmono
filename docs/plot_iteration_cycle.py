@@ -3,23 +3,20 @@
 Great-iteration cycle of this CMFGEN fork, drawn as a flowchart with
 the non-monotonic additions marked against the unchanged steps.
 
-One pass through the diagram is one great iteration of the cmfgen_sub
-loop.  Boxes are coloured by provenance: grey steps are code this fork
-does not touch, amber steps are existing routines carrying new
+One pass through the diagram is one great iteration of the main
+loop.  Boxes are coloured by provenance: grey steps are code this
+fork does not touch, amber steps are existing routines carrying new
 flag-gated options, and blue steps are new code.  Every blue/amber
-feature is off by default and is switched on by the VADAT /
-CMF_FLUX_PARAM keys named inside the box.
+feature is off by default.
 
 Box widths are measured from the rendered text, so no label can
 overflow its box.  The canvas is widened as needed to fit the legend
 row under the title.
 
-Output: iteration_cycle.png (next to this script; also mirrored into
-        ../cmfgen_obsidian/attachments/ when that vault exists, since
-        vault notes embed the figure via [[iteration_cycle.png]])
+Output: iteration_cycle.png (next to this script).
 """
 
-import shutil
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -58,12 +55,12 @@ BOXES = [
         ]),
     dict(
         kind="new",
-        title="Radiation field   [DO_NONMONO_KNOP]",
+        title="Radiation field",
         lines=[
-            "intensity at each depth and frequency; the inner",
-            "loop refits the f-factors until they settle",
-            "compression zones reuse last round's intensity",
-            "J: ray sum (USE_LAM_ES=T) or moment solve (=F)",
+            "intensity at each depth and frequency;",
+            "in compression zones the coupling direction",
+            "flips, so the missing neighbour is taken",
+            "from the previous sweep (lagged store)",
         ]),
     dict(
         kind="stock",
@@ -74,7 +71,7 @@ BOXES = [
         ]),
     dict(
         kind="new",
-        title="Settle the stored field   [DO_KNOP_REFRESH]",
+        title="Settle the stored field",
         lines=[
             "repeat the radiation solve until the stored",
             "intensities stop drifting between rounds",
@@ -83,19 +80,19 @@ BOXES = [
         kind="mod",
         title="Update the populations",
         lines=[
-            "maturity gates pick one method per call:",
-            "  LAMBDA - safe step per depth (warm-up or",
-            "          drifting field)",
-            "  BA     - coupled Newton step, full Jacobian",
-            "  JFNK   - Newton-Krylov, no Jacobian built  [DO_JFNK]",
+            "the mode controller picks one per call:",
+            "  Lambda step   - safe fixed-point update",
+            "                  (warm-up, drifting field)",
+            "  Newton step   - full Jacobian per depth",
+            "  Newton-Krylov - no Jacobian built (opt-in)",
         ]),
     dict(
         kind="mod",
         title="Acceleration (scheduled)",
         lines=[
-            "Ng: extrapolate the last four iterates   [DO_NG]",
-            "AV: average levels that keep oscillating   [DO_AV]",
-            "FIX_BA: reuse the Jacobian while demand is small",
+            "extrapolate the last few iterates",
+            "average levels that keep oscillating",
+            "reuse the Jacobian while demand is small",
         ]),
     dict(
         kind="mod",
@@ -213,7 +210,7 @@ ax.axis("off")
 
 y = fig_h - 0.55
 ax.text(XLIM / 2, y + 0.25,
-        "The CMFGEN iteration loop (KNOP / JFNK modes)",
+        "The iteration loop for non-monotonic models",
         ha="center", fontsize=13, fontweight="bold")
 
 # Horizontal legend row under the title.
@@ -232,8 +229,7 @@ for kind, lab in LEGEND:
     ax.text(lx, leg_y, lab, fontsize=8.8, va="center")
     lx += px_leg[lab] * units_per_px + 0.5
 ax.text(XLIM / 2, leg_y - 0.4,
-        "new features are off by default; [brackets] name the flag "
-        "or routine",
+        "new features are off by default",
         fontsize=8.4, ha="center", va="top", style="italic",
         color="#444444")
 y -= 1.0
@@ -281,8 +277,3 @@ ax.text(XC - dec_w / 2 - 0.15, dec_top - dec_h / 2 + 0.16,
 out = Path(__file__).resolve().parent / "iteration_cycle.png"
 plt.savefig(out, dpi=DPI, bbox_inches="tight")
 print(f"wrote {out}  (BOX_W={BOX_W:.2f}, XLIM={XLIM:.2f})")
-
-vault = Path(__file__).resolve().parent.parent / "cmfgen_obsidian" / "attachments"
-if vault.is_dir():
-    shutil.copy2(out, vault / out.name)
-    print(f"mirrored to {vault / out.name}")

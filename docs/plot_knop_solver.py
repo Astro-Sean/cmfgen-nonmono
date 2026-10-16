@@ -19,15 +19,12 @@ Bottom row   - the Knop fix: chi_hat = chi + |gamma|/dln_nu stays
                term S' = S + Q*I_upwind, and sign(gamma) picks the
                upwind frequency.  The "next" frequency at compressing
                points is taken from the previous great iteration
-               (Gauss-Seidel lagged I_NEXT, checkpointed in
-               FGINEXT_GS).
+               (a lagged Gauss-Seidel store, checkpointed with the
+               model so restarts pick it up).
 
-Output: knop_solver.png (next to this script; also mirrored into
-        ../cmfgen_obsidian/attachments/ when that vault exists, since
-        vault notes embed the figure via [[knop_solver.png]])
+Output: knop_solver.png (next to this script).
 """
 
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -190,7 +187,7 @@ ax.text(0.1, 0.50, 'sign(' r'$\gamma$' ') picks the upwind frequency:',
 ax.text(0.35, 0.32, r'$\gamma > 0$ expanding:  use previous $\nu$',
         fontsize=10, color='tab:blue')
 ax.text(0.35, 0.16, r'$\gamma < 0$ compressing:  use next $\nu$'
-        '  (from previous iteration - lagged I_NEXT)',
+        '  (lagged from the previous iteration)',
         fontsize=10, color='tab:red')
 
 # Upwinding sketch on the right half: frequency grid with arrows.
@@ -208,7 +205,7 @@ ax.text((x0 + x1) / 2, y_line + 0.16, r'$\gamma > 0$',
 ax.annotate('', xy=(x1, y_line + 0.34), xytext=(x2, y_line + 0.34),
             arrowprops=dict(arrowstyle='->', color='tab:red', lw=1.6))
 ax.text((x1 + x2) / 2, y_line + 0.40,
-        r'$\gamma < 0$: lagged $I_{\rm next}$',
+        r'$\gamma < 0$: lagged $I_{i+1}$',
         ha='center', fontsize=9, color='tab:red')
 ax.text(7.6, 0.02, 'intensity always upwinds from the correct side',
         ha='center', fontsize=9, style='italic')
@@ -217,8 +214,3 @@ out = Path(__file__).resolve().parent / 'knop_solver.png'
 plt.savefig(out, dpi=160, bbox_inches='tight')
 print(f'wrote {out}  (roots: monotonic={len(cross_mono)}, '
       f'interacting={len(cross_int)})')
-
-vault = Path(__file__).resolve().parent.parent / 'cmfgen_obsidian' / 'attachments'
-if vault.is_dir():
-    shutil.copy2(out, vault / out.name)
-    print(f'mirrored to {vault / out.name}')
