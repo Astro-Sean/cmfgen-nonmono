@@ -39,7 +39,7 @@ cmfgen:
   # changes the solve route only; kept to match Luc's setup.
   depth_independent_solver: false
   proxy_populations: false
-  init_num_its: 10
+  init_num_its: 1000
   cpus_per_task: 8
   mem: 30G
   # Diagnostic probe: restarts the live recovery checkpoint to
@@ -62,7 +62,8 @@ cmfgen:
   # POINT1/POINT2 + SCRTEMP checkpoint instead of wiping ~230
   # iterations of Lambda marching.
   warm_restart: true
-  warm_restart_from: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_SOB_l14_prod/cmfgen/2.82days
+  # warm_restart_from removed after first submission: resubmits must
+  # continue from the local checkpoint (TRI solve already applied).
   # Verify probe (14-Oct-2026): seed from the live jfnk_probe
   # checkpoint (~it 465) so Newton admits fire immediately with
   # REACH_GATE=0.  This is a separate run dir; the staged checkpoint

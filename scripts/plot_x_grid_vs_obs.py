@@ -243,12 +243,64 @@ MODEL_STYLE = {
                              label=r'wind $\dot M=0.06$, intact SN-A'),
     'X_V10000_wind09i': dict(color='tab:purple', lw=1.0, ls='-.', zorder=13,
                              label=r'wind $\dot M=0.09$, intact SN-A'),
-    'X_V10000_w2m1i': dict(color='tab:violet', lw=1.4, ls='-', zorder=14,
+    'X_V10000_w2m1i': dict(color='blueviolet', lw=1.4, ls='-', zorder=14,
                            label=(r'2-$\dot M$ wind $2{\to}5{\times}10^{17}$ '
                                   r'at $3.5{\times}10^{15}$, intact SN-A')),
-    'X_V10000_w2m2i': dict(color='tab:violet', lw=1.4, ls='--', zorder=14,
+    'X_V10000_w2m2i': dict(color='blueviolet', lw=1.4, ls='--', zorder=14,
                            label=(r'2-$\dot M$ wind $2{\to}8{\times}10^{17}$ '
                                   r'at $4.5{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m3i': dict(color='mediumvioletred', lw=1.4, ls='-',
+                           zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}3.5{\times}10^{17}$'
+                                  r' at $3{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m4i': dict(color='mediumvioletred', lw=1.4, ls='--',
+                           zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}4{\times}10^{17}$'
+                                  r' at $3.5{\times}10^{15}$, $n=3$ outer,'
+                                  ' intact SN-A')),
+    'X_V10000_wind12i': dict(color='tab:pink', lw=1.0, ls='-', zorder=13,
+                             label=r'wind $\dot M=0.12$, intact SN-A'),
+    'X_V10000_w2m5i': dict(color='crimson', lw=1.4, ls='-', zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}6{\times}10^{17}$ '
+                                  r'at $3{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m6i': dict(color='crimson', lw=1.4, ls='--', zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}6{\times}10^{17}$'
+                                  r' at $3{\times}10^{15}$, $n=3$ outer,'
+                                  ' intact SN-A')),
+    'X_V10000_w2m7i': dict(color='tab:orange', lw=1.4, ls='-', zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}5{\times}10^{17}$ '
+                                  r'at $2{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m8i': dict(color='tab:orange', lw=1.4, ls='--', zorder=14,
+                           label=(r'2-$\dot M$ wind $1{\to}5{\times}10^{17}$ '
+                                  r'at $3{\times}10^{15}$, intact SN-A')),
+    'X_V10000_wind15i': dict(color='tab:pink', lw=1.0, ls='--', zorder=13,
+                             label=r'wind $\dot M=0.15$, intact SN-A'),
+    'X_V10000_wind20i': dict(color='tab:pink', lw=1.0, ls='-.', zorder=13,
+                             label=r'wind $\dot M=0.20$, intact SN-A'),
+    'X_V10000_wind13i': dict(color='tab:pink', lw=1.2, ls=':', zorder=13,
+                             label=r'wind $\dot M=0.13$, intact SN-A'),
+    'X_V10000_wind14i': dict(color='tab:pink', lw=1.2,
+                             ls=(0, (1, 1)), zorder=13,
+                             label=r'wind $\dot M=0.14$, intact SN-A'),
+    'X_V10000_wind12li': dict(color='tab:gray', lw=1.4, ls='-', zorder=14,
+                              label=(r'wind $\dot M=0.12$, $v_\infty=100$, '
+                                     'intact SN-A')),
+    'X_V10000_wind09li': dict(color='tab:gray', lw=1.4, ls='--', zorder=14,
+                              label=(r'wind $\dot M=0.09$, $v_\infty=100$, '
+                                     'intact SN-A')),
+    'X_V10000_w2m9i': dict(color='tab:brown', lw=1.4, ls='-', zorder=14,
+                           label=(r'2-$\dot M$ wind $2{\to}1{\times}10^{18}$ '
+                                  r'at $3{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m10i': dict(color='tab:brown', lw=1.4, ls='--', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}2{\times}10^{18}$ '
+                                   r'at $3{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m11i': dict(color='tab:brown', lw=1.4, ls='-.', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}1.5{\times}10^{18}$'
+                                   r' at $4{\times}10^{15}$, intact SN-A')),
+    'X_V10000_w2m12i': dict(color='darkred', lw=1.4, ls='-', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}6{\times}10^{17}$'
+                                   r' at $3{\times}10^{15}$, steep CD,'
+                                   ' intact SN-A')),
     'X_V10000_wind2m_inv': dict(color='tab:purple', lw=1.6, ls=':', zorder=14,
                               label=(r'wind $\dot{M}$: $1\to3$'
                                      r'$\times 10^{17}$ at $5{\times}10^{15}$,'
@@ -305,7 +357,14 @@ MODEL_ORDER = ['X', 'X_M2', 'X_M10', 'X_V6000', 'X_V8000',
                'X_V10000_wind02i', 'X_V10000_wind03i',
                'X_V10000_wind045i', 'X_V10000_wind06i',
                'X_V10000_wind09i',
-               'X_V10000_w2m1i', 'X_V10000_w2m2i',
+               'X_V10000_w2m1i', 'X_V10000_w2m2i', 'X_V10000_w2m3i',
+               'X_V10000_w2m4i', 'X_V10000_w2m5i', 'X_V10000_w2m6i',
+               'X_V10000_w2m7i', 'X_V10000_w2m8i',
+               'X_V10000_w2m9i', 'X_V10000_w2m10i', 'X_V10000_w2m11i',
+               'X_V10000_w2m12i',
+               'X_V10000_wind12i', 'X_V10000_wind13i', 'X_V10000_wind14i',
+               'X_V10000_wind15i', 'X_V10000_wind20i',
+               'X_V10000_wind12li', 'X_V10000_wind09li',
                'X_V10000_wind2m', 'X_V10000_wind2m_inv',
                'X_V10000_wallwind',
                'X_n05', 'X_n10', 'X_t1',
@@ -409,6 +468,8 @@ def main():
         scored.append(dict(name=name, df=df, tpk=tpk, dt=dt,
                            score=score, ok=np.isfinite(pen)))
         print(f'  {name:12s} dt={dt:+6.2f}  score={score:8.1f}  '
+              f'(early={cr:7.1f} tail={ct:7.1f} col={cc:7.1f} '
+              f'pen={pen:7.1f})  '
               f'{"OK" if np.isfinite(pen) else "VIOLATES"}')
     # fiducial first in the legend, then the parameter variations
     order = {name: i for i, name in enumerate(MODEL_ORDER)}

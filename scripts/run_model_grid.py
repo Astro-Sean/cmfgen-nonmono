@@ -1750,6 +1750,9 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     csm_split_blend_dex = float(
         x_cfg.get("csm_split_blend_dex", 0.15) or 0.15
     )
+    # Larger cd_max_dlogrho shortens the interface density ramp so a
+    # dense outer CSM segment survives closer to the ejecta boundary.
+    cd_max_dlogrho = float(x_cfg.get("cd_max_dlogrho", 16.0) or 16.0)
     # Slow shell overlaid on the ejecta (v2 only): a detached dense
     # slow eruption embedded in the SN_A ejecta radial range, giving
     # the forward shock a slow target at late times.
@@ -2032,6 +2035,8 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
                 str(csm_cutoff_n),
                 "--cd-transition-zones",
                 str(cd_transition_zones),
+                "--cd-max-dlogrho",
+                str(cd_max_dlogrho),
             ]
         )
         if csm_target_dlogr > 0:

@@ -584,6 +584,7 @@ def combine_shell_csm_ejecta(
     max_dlogr=None,
     density_matched=True,
     csm_target_dlogr=0.0,
+    cd_max_dlogrho=16.0,
 ):
     """Combine shell + power-law CSM + ejecta.
 
@@ -909,7 +910,8 @@ def combine_shell_csm_ejecta(
         # Spread the density jump log-linearly over enough trailing zones
         # of the CSM+CD grid to keep |dlog rho/dlog r| < 16.
         grid_dlogr = np.diff(np.log10(csm_r)).mean()
-        need = int(np.ceil(cd_contrast / 16.0 / max(grid_dlogr, 1e-6)))
+        need = int(np.ceil(
+            cd_contrast / cd_max_dlogrho / max(grid_dlogr, 1e-6)))
         ramp_n = max(cd_transition_zones, min(need, len(csm_r) - 1))
         i0 = len(csm_r) - ramp_n
         rho_start = csm_rho[i0]
@@ -1740,6 +1742,20 @@ def main():
         default=0.15,
         help="Blend width in dex across the inner/outer junction",
     )
+    parser.add_argument(
+        "--cd-max-dlogrho",
+        type=float,
+        default=16.0,
+        help="Max |dlog rho/dlog r| allowed in the CD ramp; larger values "
+        "make the ramp shorter so dense CSM survives closer to the "
+        "ejecta interface",
+    )
+    parser.add_argument(
+        "--allow-steep-interface",
+        action="store_true",
+        help="Permit |dlog rho/dlog r| > 16 in the final grid "
+        "(physical contact discontinuity at the wind-ejecta boundary)",
+    )
 
     # Slow shell overlaid on the ejecta (late-tail experiments)
     parser.add_argument(
@@ -2215,6 +2231,7 @@ def main():
             max_dlogr=args.max_dlogr,
             density_matched=density_matched,
             csm_target_dlogr=args.csm_target_dlogr,
+            cd_max_dlogrho=args.cd_max_dlogrho,
         )
         print_csm_diagnostics(csm, csm_r_inner, csm_r_outer)
 
@@ -2278,6 +2295,7 @@ def main():
         min_dlogr=args.min_dlogr,
         max_dlogr=args.max_dlogr,
         strict=args.strict_grid,
+        allow_steep_interface=args.allow_steep_interface,
     )
 
     # --- Step 4: write STELLA inputs ---

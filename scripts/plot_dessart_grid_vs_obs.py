@@ -214,7 +214,8 @@ def obs_color_pairs(obs, b1, b2, max_sep=0.75):
 
 
 def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
-                     foot_slack=3.0):
+                     foot_slack=3.0, early_phase=80.0, early_wt=3.0,
+                     peak_gate=0.4):
     """Best time offset (days added to the model's own-peak phase).
 
     The turn-on is anchored to the observed -19 d r-band point by a
@@ -265,6 +266,13 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
     # than the point at -19 d.
     r_foot = float(np.interp(foot_phase,
                              obs['r']['phase'], obs['r']['Mabs']))
+    # Observed r peak: magnitude and phase.  A model must reproduce it
+    # within peak_gate (in either direction) or pay a penalty - total
+    # chi2 over the long tail otherwise lets a model win while missing
+    # the peak and pre-80 d decline entirely.
+    i_pk = fit_r['Mabs'].idxmin()
+    obs_r_pk = float(fit_r.loc[i_pk, 'Mabs'])
+    pk_ph = float(fit_r.loc[i_pk, 'phase'])
     rise = df[df['R'] <= r_foot]
     t_cross = (float(rise['time'].iloc[0]) if len(rise)
                else float(df['time'].iloc[-1]))
@@ -290,9 +298,19 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
                 excess = row['Mabs'] - rm
                 if excess > 0:
                     pen += (excess / 0.15) ** 2
+        rm_pk = model_mag_at(df, pk_ph - dt + t_pk, 'R')
+        if not np.isfinite(rm_pk):
+            pen += (obs_r_pk - (-12.0)) ** 2
+        else:
+            d_pk = abs(rm_pk - obs_r_pk)
+            if d_pk > peak_gate:
+                pen += ((d_pk - peak_gate) / 0.15) ** 2
         # Total (not mean) chi2 so large shifts can't win by shrinking
         # coverage; a model absent at a detection is effectively dark
-        # (Rm = -12 floor) and underpredicts it.
+        # (Rm = -12 floor) and underpredicts it.  Detections up to
+        # early_phase are upweighted so the rise/peak/early-decline
+        # fidelity is a prerequisite rather than a minority term among
+        # the much more numerous tail points.
         chi2_rise = 0.0
         chi2_tail = 0.0
         for det, err_col, mcol in ((fit_r, 'Error', 'R'),
@@ -304,8 +322,8 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
                     rm = -12.0
                 err = np.hypot(row[err_col], 0.25)
                 c2 = ((rm - row['Mabs']) / err) ** 2
-                if row['phase'] <= 30.0:
-                    chi2_rise += c2
+                if row['phase'] <= early_phase:
+                    chi2_rise += early_wt * c2
                 else:
                     chi2_tail += c2
         # Colour chi2 over every paired epoch; 0.15 mag floor on the

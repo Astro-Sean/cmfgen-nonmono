@@ -152,5 +152,12 @@ All plots must be saved to `models/<model_name>/plots/` or `cmfgen_validation/pl
   NOTE: `transport.h` changes require `rm -f build/*.o` first -- the
   Makefile has no header dependencies and stale objects cause ABI
   segfaults.
+  CRITICAL: `build/` holds COPIES of the sources, made once by
+  install.sh. Running `make` in build/ compiles the stale copies.
+  After ANY source edit, first sync:
+  `cp -p transport/*.cpp transport/*.h opacity/*.cpp opacity/*.h
+   utils/*.cpp utils/*.h grid/*.cpp grid/*.h hydro/*.cpp hydro/*.h
+   hydro/*/*.cpp hydro/*/*.h main/*.cpp main/*.h build/`
+  then `rm -f build/*.o && make gomc CXX=mpicxx`.
 - `.mod` species tokens must be written as "Z.A" (e.g. "1.1 2.4 26.56");
   bare "Z" is silently parsed as A=Z by grid_1D_sphere::read_ascii_file.
