@@ -4,6 +4,8 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
+! Altered 16-Oct-2026 : Read ALLOW_SIGMA_UNDEF (obs-side mirror of
+!                          the VADAT key) under DO_NONMONO_SOB.
 ! Altered 13-Oct-2026 : Keep the CMFGEN observer solver on the stock
 !                          path and gate non-monotonic Sobolev handling
 !                          on DO_NONMONO_SOB and DO_SOB_FLUX_OBS.
@@ -462,6 +464,9 @@
 	1      ' uses unclamped dlnV/dlnR-1 (SIGMA_TRUE)'
 	    WRITE(LUER,'(A)')' Formal J still uses clamped SIGMA,'//
 	1      ' consistent with the population continuum.'
+	    ALLOW_SIGMA_UNDEF=.FALSE.
+	    CALL RD_STORE_LOG(ALLOW_SIGMA_UNDEF,'ALLOW_SIGMA_UNDEF',L_FALSE,
+	1      'Allow undefined SIGMA_TRUE cells (warning only, no abort)?')
 	  END IF
 !
 !
@@ -517,6 +522,15 @@
 ! Doppler cores need. With DO_SOB_LINES=F the routine returns before
 ! that block and the flag would silently produce a continuum-only
 ! spectrum, so the combination is rejected outright.
+!
+! Full dependency chain: DO_SOB_FLUX_OBS requires DO_NONMONO_SOB,
+! DO_SOBOLEV_LINES, and SOB_FREQ_IN_OBS; DO_NONMONO_SOB in turn
+! requires GLOBAL_LINE=SOB (or NONE with all TRANS_*=SOB) and a
+! population run done with VADAT DO_NONMONO_SOB=T.  SOB_FREQ_IN_OBS
+! feeds the observer-frame frequency grid built by INS_LINE_OBS_V4,
+! so any cached observer grid/EDDFACTOR files from a run with a
+! different flag set must be deleted before rerunning cmf_flux --
+! the grid would otherwise silently omit the SOB line frequencies.
 !
 	  IF(DO_SOB_FLUX_OBS .AND.
 	1      (.NOT. DO_NONMONO_SOB .OR. .NOT. DO_SOBOLEV_LINES .OR.

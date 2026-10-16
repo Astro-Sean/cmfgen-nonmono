@@ -17,6 +17,10 @@
 	USE EDDFAC_REC_DEFS_MOD
 	IMPLICIT NONE
 !
+! Altered: 16-Oct-2026 : Fail closed on undefined SIGMA_TRUE cells
+!                          (ALLOW_SIGMA_UNDEF downgrades to warning),
+!                          assert NU monotonicity in ADD_SOB_LINE_PROF,
+!                          warn on large maser-drop fraction.
 ! Altered: 13-Oct-2026 : Add a flag-gated OBS_FRAME render for lines
 !                          whose populations were computed with the
 !                          non-monotonic Sobolev approximation.
@@ -565,6 +569,25 @@
 	    STOP
 	  END IF
 	  CALL SIGMA_TRUE_CORE(SIGMA_TRUE,R,V,ND,N_SIG_UNDEF)
+!
+! Fail closed on undefined cells, matching the policy of
+! RECOMPUTE_SIGMA_TRUE in the population solve: SIGMA_TRUE_CORE
+! returns SIGMA_TRUE=0 at a cell with degenerate R spacing or a
+! fully stagnant neighbourhood, which marks it non-compressing and
+! biases the Sobolev EW and profile estimates.  ALLOW_SIGMA_UNDEF=T
+! (default F) downgrades the abort to a warning.
+!
+	  IF(N_SIG_UNDEF .GT. 0)THEN
+	    WRITE(LUER,*)'CMF_FLUX_SUB_V5:',N_SIG_UNDEF,
+	1   ' of',ND,'cells have no usable velocity gradient;',
+	2   ' SIGMA_TRUE=0 marks them non-compressing'
+	    IF(.NOT. ALLOW_SIGMA_UNDEF)THEN
+	      WRITE(LUER,*)'Aborting: undefined SIGMA_TRUE cells make'
+	1     //' the Sobolev EW/profile estimates unreliable.  Set'
+	2     //' ALLOW_SIGMA_UNDEF=T to downgrade this to a warning.'
+	      STOP
+	    END IF
+	  END IF
 	END IF
 !
 ! VINF sets the frequency margins used by the observer-frame line
@@ -2594,6 +2617,17 @@
 	  WRITE(LUER,'(A,1X,1P,2E12.4)')
 	1     'SOB profile injection: dropped / injected emissivity =',
 	2     SOB_DROP_EMIS,SOB_INJ_EMIS
+!
+! A heavily masing line contributes almost nothing to the injected
+! emissivity; above 10% dropped the rendered SOB line flux is a
+! lower bound rather than a prediction.
+!
+	  IF(SOB_DROP_EMIS .GT.
+	1     0.1_LDP*(SOB_DROP_EMIS+SOB_INJ_EMIS))THEN
+	    WRITE(LUER,'(A)')'Warning: >10% of clumped SOB line'//
+	1     ' emissivity was dropped (masing or negative-opacity'//
+	2     ' cells); rendered SOB line flux is a lower bound.'
+	  END IF
 	  CALL TUNE(1,'OBS_FRAME_SOB')
 	  CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
@@ -2701,6 +2735,22 @@
 !
 	INTEGER I,K,S,LP,K0,KA,KB,LO,HI,MID
 	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K
+	INTEGER LUER,ERROR_LU
+	EXTERNAL ERROR_LU
+!
+! The binary search below assumes NU decreases strictly with index
+! (the CMF grid is built that way).  A non-monotonic NU would place
+! every line at the wrong frequencies, so check once per call and
+! abort rather than deposit silently wrong profiles.
+!
+	LUER=ERROR_LU()
+	DO K=1,NCF-1
+	  IF(NU(K+1) .GE. NU(K))THEN
+	    WRITE(LUER,*)'ADD_SOB_LINE_PROF: NU not strictly'
+	1   //' decreasing at index',K+1,'; aborting.'
+	    STOP
+	  END IF
+	END DO
 !
 	DO S=1,NUM_SIM
 	  LP=SIM_POINTER(S)

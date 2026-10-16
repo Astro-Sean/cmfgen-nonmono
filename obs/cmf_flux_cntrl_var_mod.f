@@ -173,6 +173,15 @@
 	LOGICAL USE_DR4JDT
 	LOGICAL :: DO_NONMONO_SOB=.FALSE.
 !
+! Mirrors the VADAT key of the same name read by
+! RD_CONTROL_VARIABLES: when FALSE (default), CMF_FLUX_SUB_V5 aborts
+! if SIGMA_TRUE_CORE leaves a cell undefined (SIGMA_TRUE=0 marks it
+! non-compressing, which silently distorts the Sobolev EW/profile
+! estimates).  Set TRUE to downgrade the abort to a warning.
+! Optional; read only under DO_NONMONO_SOB.
+!
+	LOGICAL :: ALLOW_SIGMA_UNDEF=.FALSE.
+!
 	LOGICAL PLANE_PARALLEL_NO_V
 	LOGICAL PLANE_PARALLEL
 	LOGICAL INCL_INCID_RAD
