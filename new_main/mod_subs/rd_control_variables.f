@@ -6,6 +6,13 @@
 	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready
 	IMPLICIT NONE
 !
+! Altered : 16-Oct-2026 : Self-consistency enforcement: the
+!                            non-monotonic/JFNK trigger flags now
+!                            auto-configure their dependent switches
+!                            (logged to LUER) instead of relying on
+!                            VADAT being consistent.  USE_LAM_ES=F and
+!                            DO_KNOP_REFRESH=F opt-ins are overridden;
+!                            INC_GRID=F is auto-set under KNOP (Devin).
 ! Altered : 07-Oct-2026 : DO_JFNK is now the shared JFNK arm key for
 !                           DO_NONMONO_KNOP and DO_NONMONO_SOB; USE_JFNK is a
 !                           deprecated alias.  JFNK_COUPLED stays KNOP-only
@@ -952,15 +959,14 @@
 	  GS_POPS_HELD=.FALSE.
 	  GS_ATTEMPT_APP=0.0_LDP
 !
-! DO_KNOP_REFRESH (default DO_NONMONO_KNOP, or DO_NONMONO_SOB with
-! USE_LAM_ES=F): per-ray re-solve of the lagged compressing-branch
-! coupling after each frequency sweep (Knop Paper II Sect. 3.2
-! ordering), replacing the one-bin-per-iteration lag that cannot
-! mature on strongly non-monotonic models.  The SOB moment path needs
-! it for the same reason: without a within-iteration refresh the
-! lagged J_NEXT coupling injects a stale, dimmer upwind field and the
-! emergent luminosity diverges secularly (m15 mom_probe, it441-453).
-! Set FALSE for A/B comparison with the original lagged scheme.
+! DO_KNOP_REFRESH (default DO_NONMONO_KNOP): per-ray re-solve of the
+! lagged compressing-branch coupling after each frequency sweep (Knop
+! Paper II Sect. 3.2 ordering), replacing the one-bin-per-iteration
+! lag that cannot mature on strongly non-monotonic models.  The
+! self-consistency pass below forces this flag T under
+! DO_NONMONO_KNOP; under DO_NONMONO_SOB the moment path is unreachable
+! (enforcement forces USE_LAM_ES=T), so the refresh has no consumer
+! there.
 !
 	  DO_KNOP_REFRESH=DO_NONMONO_KNOP .OR.
 	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)
@@ -1422,11 +1428,10 @@
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')
 	  IF(JFNK_MAX_SEC .LT. 0.0_LDP)JFNK_MAX_SEC=0.0_LDP
-	  IF(USE_JFNK_SOLVER .AND. JFNK_MAX_SEC .EQ. 0.0_LDP)THEN
-	    WRITE(LUER,*)'Warning: DO_JFNK is set but JFNK_MAX_SEC=0.'
-	    WRITE(LUER,*)'No wall-clock budget guards the JFNK solve;'
-	    WRITE(LUER,*)'a stalled activation can consume the job.'
-	  END IF
+!
+! A zero budget used to warn here; the self-consistency pass below now
+! raises JFNK_MAX_SEC=0 to the one-hour default under DO_JFNK and logs
+! the override, so a stuck activation cannot consume the whole job.
 !
 	  JFNK_PRECOND_TYPE='LU'
 	  CALL RD_STORE_CHAR(JFNK_PRECOND_TYPE,'JFNK_PRECOND',L_FALSE,
@@ -2373,6 +2378,158 @@
 	    STOP
 	  END IF
 !
+! ------------------------------------------------------------------
+! Non-monotonic / JFNK self-consistency enforcement (Devin,
+! 16-Oct-2026).  The trigger flags DO_NONMONO_KNOP / DO_NONMONO_SOB /
+! DO_JFNK auto-configure their dependent switches here so a model
+! cannot run with an inconsistent combination; every override is
+! logged to LUER.  This block sits after the last read of every
+! dependent key it touches (GLOBAL_LINE/LAM_SET ~744, FG_OPT ~596,
+! USE_LAM_ES ~2347, the JFNK block ~1236-1660, the BA trace keys
+! ~1818) and before the validation blocks below, which then re-check
+! the enforced values.  INC_GRID (ACCURATE) is read after this
+! point, so its KNOP override lives with the INC_GRID read itself.
+!
+! Two former opt-ins are overridden here: USE_LAM_ES=F (the
+! MOM_J_CMF_NONMONO_V1 moment solve, diagnostic-only after the
+! Oct-2026 m15 divergences) and DO_KNOP_REFRESH=F (the lagged-scheme
+! A/B comparison).  A self-consistent non-monotonic run requires the
+! formal-solve J update and the within-sweep lag refresh.
+! ------------------------------------------------------------------
+!
+! Rule 1: DO_NONMONO_KNOP.  The Knop chi_hat formalism exists only in
+! the BLANKeted INTEGRAL path of FG_J_CMF_NONMONO_V1, so GLOBAL_LINE
+! must be BLANK (or NONE with all TRANS_*=BLANK, still validated
+! below), LAM_SET must stay off (it would reset GLOBAL_LINE to NONE
+! and hand edge lines to the clamped-sigma Sobolev routines), and
+! FG_OPT=DIFF is rejected outright at its own read (no recovery).
+! N_LAM_RWARM and GS_REL_STABLE are raised only when left at their
+! floor values; higher explicit settings are respected.
+!
+	  IF(DO_NONMONO_KNOP)THEN
+	    IF(GLOBAL_LINE_SWITCH(1:5) .NE. 'BLANK' .AND.
+	1       GLOBAL_LINE_SWITCH(1:4) .NE. 'NONE')THEN
+	      GLOBAL_LINE_SWITCH='BLANK'
+	      WRITE(LUER,'(A)')' KNOP auto-set: GLOBAL_LINE=BLANK'
+	    END IF
+	    IF(SET_TRANS_TYPE_BY_LAM)THEN
+	      SET_TRANS_TYPE_BY_LAM=.FALSE.
+	      WRITE(LUER,'(A)')' KNOP auto-set: LAM_SET=F'
+	    END IF
+	    IF(FG_SOL_OPTIONS(1:3) .NE. 'INT')THEN
+	      FG_SOL_OPTIONS='INT/INS'
+	      WRITE(LUER,'(A)')' KNOP auto-set: FG_OPT=INT/INS'
+	    END IF
+	    IF(.NOT. USE_LAM_ES)THEN
+	      USE_LAM_ES=.TRUE.
+	      WRITE(LUER,'(A)')' KNOP auto-set: USE_LAM_ES=T'
+	    END IF
+	    IF(.NOT. DO_KNOP_REFRESH)THEN
+	      DO_KNOP_REFRESH=.TRUE.
+	      CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
+	      WRITE(LUER,'(A)')' KNOP auto-set: DO_KNOP_REFRESH=T'
+	    END IF
+	    IF(N_LAM_RWARM .EQ. 0)THEN
+	      N_LAM_RWARM=4
+	      WRITE(LUER,'(A)')' KNOP auto-set: N_LAM_RWARM=4'
+	    END IF
+	    IF(GS_REL_STABLE .LT. 2)THEN
+	      GS_REL_STABLE=2
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_STABLE=2'
+	    END IF
+	  END IF
+!
+! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line
+! routines, so GLOBAL_LINE must be SOB (or the validated all-SOB NONE
+! form).  JFNK_COUPLED=T under SOB is rejected at its own read --
+! the coupled residual replays the KNOP continuum chain and never
+! recomputes the SOB line rates.  With USE_LAM_ES forced T there is
+! no within-sweep lag refresh under SOB (DO_KNOP_REFRESH only serves
+! the moment path); the formal solve is the refresh.
+!
+	  IF(DO_NONMONO_SOB)THEN
+	    IF(GLOBAL_LINE_SWITCH(1:3) .NE. 'SOB' .AND.
+	1       GLOBAL_LINE_SWITCH(1:4) .NE. 'NONE')THEN
+	      GLOBAL_LINE_SWITCH='SOB'
+	      WRITE(LUER,'(A)')' SOB auto-set: GLOBAL_LINE=SOB'
+	    END IF
+	    IF(.NOT. USE_LAM_ES)THEN
+	      USE_LAM_ES=.TRUE.
+	      WRITE(LUER,'(A)')' SOB auto-set: USE_LAM_ES=T'
+	    END IF
+	    WRITE(LUER,'(A)')
+	1   ' ============================================================'
+	    WRITE(LUER,*)'Warning: DO_NONMONO_SOB takes continuum J from'
+	1   ,' FG_J_CMF_V13, the stock formal solver built on clamped'
+	2   ,' SIGMA.  That solver is expansion-biased: in compression'
+	3   ,' zones (sigma_true < -1) it treats the flow with the'
+	4   ,' monotonic-field sigma limit, and there is no within-sweep'
+	5   ,' lag refresh under SOB.  For strongly non-monotonic fields'
+	6   ,' the verified solver is DO_NONMONO_KNOP; SOB remains the'
+	7   ,' Sobolev-line diagnostic path.'
+	    WRITE(LUER,'(A)')
+	1   ' ============================================================'
+	  END IF
+!
+! Rule 3: DO_JFNK.  Arm the stable/globalized formulation when the
+! solver is on: log unknown, pseudo-transient continuation, Armijo
+! backtracking and the Cauchy fallback.  JFNK_MAX_SEC=0 leaves no
+! wall-clock guard, so a stuck activation could consume the whole
+! job; a zero value is raised to the one-hour budget.
+!
+	  IF(USE_JFNK_SOLVER)THEN
+	    IF(JFNK_MAX_SEC .LE. 0.0_LDP)THEN
+	      JFNK_MAX_SEC=3600.0_LDP
+	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_MAX_SEC=3600'
+	    END IF
+	    IF(.NOT. jfnk_log_unknown)THEN
+	      jfnk_log_unknown=.TRUE.
+	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_LOGX=T'
+	    END IF
+	    IF(.NOT. jfnk_ptc_active)THEN
+	      jfnk_ptc_active=.TRUE.
+	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_PTC=T'
+	    END IF
+	    IF(.NOT. JFNK_LINE_SEARCH)THEN
+	      JFNK_LINE_SEARCH=.TRUE.
+	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_LS=T'
+	    END IF
+	    IF(.NOT. JFNK_CAUCHY)THEN
+	      JFNK_CAUCHY=.TRUE.
+	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_CAUCHY=T'
+	    END IF
+	    IF(JFNK_MAXCH_CNV .LE. 0.0_LDP)THEN
+	      WRITE(LUER,*)'Warning: JFNK_MXCH_TOL=0 - the secondary'
+	1    ,' convergence target is inactive; it needs a ready'
+	2    ,' BA diagonal before it can gate admission.'
+	    END IF
+	  END IF
+!
+! Rule 4: trace-polish arming.  Only values left at their off
+! defaults are set; explicit user settings are respected.  The
+! demand floors exempt trace rows from the MAXCH metric, and
+! BA_TR_MAXSWP bounds the Stage-B polish sweeps once the majors
+! converge.
+!
+	  IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	    IF(BA_DEM_PFLOOR .EQ. 0.0_LDP)THEN
+	      BA_DEM_PFLOOR=1.0E-30_LDP
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_PFLOOR=1.0E-30'
+	    END IF
+	    IF(BA_DEM_RELFRAC .EQ. 0.0_LDP)THEN
+	      BA_DEM_RELFRAC=0.01_LDP
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_RELFRAC=0.01'
+	    END IF
+	    IF(BA_TR_MAXSWP .EQ. 0)THEN
+	      BA_TR_MAXSWP=5
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_TR_MAXSWP=5'
+	    END IF
+	    IF(BA_TR_ABSMAX .EQ. 0.0_LDP)THEN
+	      BA_TR_ABSMAX=1.0E-08_LDP
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_TR_ABSMAX=1.0E-08'
+	    END IF
+	  END IF
+!
 ! DO_NONMONO_SOB only steers the Sobolev line routines (SUB_SOB_LINE_V3,
 ! SOBEW*) through SIGMA_TRUE; if no line is SOB-treated the flag is dead
 ! code.  GLOBAL_LINE=SOB is therefore mandatory [GLOBAL_LINE].  The
@@ -2407,26 +2564,12 @@
 	      STOP
 	    END IF
 !
-! The verified non-monotonic SOB configuration takes J from the formal
-! ray solution (USE_LAM_ES=T, the pipeline default).  USE_LAM_ES=F is
-! permitted as an opt-in variant: continuum J then comes from
-! MOM_J_CMF_NONMONO_V1 (12-Oct-2026; the stock MOM_J_CMF_V11 assumes
-! expanding flow and diverges on this velocity field), with the
-! fixed-J + GET_MOM_ALO_DIAG linearization in the BA matrix - the same
-! pairing as KNOP+LAM_ES=F.  FG_J_CMF_V13 still runs each frequency,
-! so the Eddington factors (N_ON_J etc.) come from its ray moments via
-! GET_MOMS_NON_REL, and SIGMA_TRUE continues to drive the Sobolev
-! lines unchanged.  Warn rather than STOP so the default
-! (pipeline-forced LAM_ES=T) path is untouched.
-!
-	    IF(.NOT. USE_LAM_ES)THEN
-	      WRITE(LUSCR,'(A)')' DO_NONMONO_SOB=T with USE_LAM_ES=F:'//
-	1       ' continuum J from MOM_J_CMF_NONMONO_V1 (SIGMA_TRUE);'//
-	2       ' fixed-J + MOM diagonal ALO linearization active'
-	      WRITE(LUER,*)'Warning: DO_NONMONO_SOB with USE_LAM_ES=F uses'
-	1       ,' the MOM_J_CMF_NONMONO_V1 moment solve (sign-split'
-	2       ,' upwind on SIGMA_TRUE); Sobolev lines unchanged.'
-	    END IF
+! The enforcement block above forces USE_LAM_ES=T under SOB, so J
+! always comes from the formal ray solution.  The former USE_LAM_ES=F
+! opt-in (continuum J from MOM_J_CMF_NONMONO_V1 with the fixed-J +
+! GET_MOM_ALO_DIAG linearization, 12-Oct-2026) is no longer reachable:
+! the moment path diverged on m15 under both warm and cold starts and
+! is retained in the source only as reference code.
 !
 ! LAM_SET is redundant with GLOBAL_LINE=SOB (every line is already SOB)
 ! and resets GLOBAL_LINE_SWITCH to NONE at run time, which changes the
@@ -2446,26 +2589,15 @@
 !
 ! DO_NONMONO_KNOP consistency checks (deferred until the solver-mode
 ! flags have been read).  The Knop formal solver replaces FG_J_CMF_V13
-! on the standard (non-extended) grid.  Two J-update modes are valid:
-!   USE_LAM_ES=T : J from the formal solution (Lambda iteration).
-!   USE_LAM_ES=F : J from MOM_J_CMF_NONMONO_V1, the non-monotonic
-!     variable-Eddington-factor moment solve (chi_hat generalized
-!     opacity, sign-dependent frequency upwind, J_NEXT Gauss-Seidel) -
-!     same equations as the formal solver, faster convergence.
-! The stock MOM_J_CMF_V11 (clamped SIGMA, one-way PREV coupling) is
-! never selected in KNOP mode, so no USE_LAM_ES guard is needed here.
+! on the standard (non-extended) grid, with J from the formal solution
+! (Lambda iteration).  The enforcement block above forces
+! USE_LAM_ES=T, so the MOM_J_CMF_NONMONO_V1 moment-solve mode is no
+! longer reachable; the stock MOM_J_CMF_V11 (clamped SIGMA, one-way
+! PREV coupling) is never selected in KNOP mode either.
 !
 	  IF(DO_NONMONO_KNOP)THEN
-	    IF(USE_LAM_ES)THEN
-	      WRITE(LUSCR,'(A)')' DO_NONMONO_KNOP=T: Knop et al. 2009'//
-	1       ' formal solver (FG_J_CMF_NONMONO_V1, USE_LAM_ES)'
-	    ELSE
-	      WRITE(LUSCR,'(A)')' DO_NONMONO_KNOP=T: Knop et al. 2009'//
-	1       ' formal + non-monotonic moment solver (SIGMA_TRUE)'
-	      WRITE(LUER,*)'RD_CONTROL_VARIABLES: USE_LAM_ES=F with'
-	      WRITE(LUER,*)'DO_NONMONO_KNOP=T - using MOM_J_CMF_NONMONO_V1'
-	      WRITE(LUER,*)'(non-monotonic Knop moment solver).'
-	    END IF
+	    WRITE(LUSCR,'(A)')' DO_NONMONO_KNOP=T: Knop et al. 2009'//
+	1     ' formal solver (FG_J_CMF_NONMONO_V1, USE_LAM_ES)'
 	    IF(USE_FIXED_J .OR. USE_FORMAL_REL .OR. USE_J_REL .OR.
 	1      USE_DJDT_RTE .OR. PLANE_PARALLEL .OR.
 	1      PLANE_PARALLEL_NO_V)THEN
@@ -2574,14 +2706,15 @@
 !
 ! DO_NONMONO_KNOP is incompatible with the enhanced-grid (ACCURATE)
 ! branch of COMP_J_BLANK, which calls MOM_J_CMF_V11 after the formal
-! transfer and is not non-monotonic safe.
+! transfer and is not non-monotonic safe.  Auto-set rather than STOP
+! (16-Oct-2026 self-consistency pass; INC_GRID is read after the main
+! enforcement block above, so its override lives here).
 !
 	  IF(DO_NONMONO_KNOP .AND. ACCURATE)THEN
-	    WRITE(LUER,*)'Error in RD_CONTROL_VARIABLES:'
-	    WRITE(LUER,*)'DO_NONMONO_KNOP=T requires INC_GRID=F'
-	    WRITE(LUER,*)'The enhanced-grid branch calls MOM_J_CMF_V11 after'
-	    WRITE(LUER,*)'formal transfer and is not non-monotonic safe.'
-	    STOP
+	    ACCURATE=.FALSE.
+	    WRITE(LUER,'(A)')' KNOP auto-set: INC_GRID=F - the'//
+	1   ' enhanced-grid branch calls MOM_J_CMF_V11 after the'//
+	2   ' formal transfer and is not non-monotonic safe.'
 	  END IF
 	  CALL RD_STORE_LOG(ALL_FREQ,'ALL_FREQ',L_TRUE,
 	1          'Increase accuracy for all frequencies?')
