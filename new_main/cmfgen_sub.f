@@ -205,6 +205,12 @@
 	LOGICAL LST_ITERATION
 	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
 	LOGICAL BA_STAGEB_ARM
+! edited by Devin, 16-Oct-2026: CONV_EXIT_MET is the converged-exit
+! condition evaluated before the LST_ITERATION split so the budgeted-
+! final iteration gets a convergence test; CONV_EXIT_DONE makes the
+! exit-reason report print once per run.
+	LOGICAL CONV_EXIT_MET,CONV_EXIT_DONE
+	CHARACTER*80 CONV_EXIT_WHY
 !
 ! Wall-clock timer for the great-iteration loop.  Each iteration's
 ! elapsed time is reported when the next iteration begins; the final
@@ -514,6 +520,7 @@
 	CNT_FIX_BA=0
 	MAXCH_SUM=0.0_LDP
 	LST_ITERATION=.FALSE.
+	CONV_EXIT_DONE=.FALSE.
 	dE_RAD_DECAY=0.0_LDP 			!For non-SN models.
 	dE_SHOCK_POWER= 0.0_LDP
 	LUM_SCL_FAC=4.1274E-12_LDP              !(4*PI)**2*Dex(+20)/L(sun)
@@ -4677,9 +4684,69 @@
 ! 
 9999	CONTINUE
 !
+! edited by Devin, 16-Oct-2026: the Stage-B/BA_DEM exit state and the
+! converged-exit condition are evaluated here -- before the
+! LST_ITERATION split -- so the budgeted-final iteration gets a real
+! convergence test.  Previously NUM_ITS_TO_DO hit 0 at the top of the
+! loop, set LST_ITERATION, and the model wrote out and STOPped without
+! ever reaching the exit tests in the ELSE branch (which also required
+! NUM_ITS_TO_DO .NE. 0), so a run ending exactly on a converged
+! iterate left no record of whether it had converged.
+!
+! BA_DEM_EXM is the largest correction demanded this solve on rows the
+! BA_DEM floors exempted; BA_TR_ABS is the largest committed absolute
+! trace change (|dn|/gas).  Both are written by SOLVEBA_V13, or by the
+! JFNK commit path in JFNK_SOLVE_CORR_V1 (best-effort committed-change
+! proxy), and are 0 when the floors are off -- the default path is
+! unchanged.
+!
+	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1    BA_TR_MAXSWP .GT. 0 .AND.
+	2    (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
+	3     BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
+	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
+	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
+	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.
+	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
+	  BA_DEM_EXIT_OK=BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
+	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
+	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE
+!
+	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
+	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
+	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
+	4    .NOT. GS_POPS_HELD
+!
+! Exit-reason string for the one-time report: a converged exit can be
+! clean, ride on a saturated (unsatisfiable) exempted demand, or close
+! out with the Stage-B sweep budget spent / still owed.  Checked in
+! precedence order -- a still-owed polish outranks the other flags
+! because it is the only case where trace work remained to do.
+!
+	  CONV_EXIT_WHY='clean convergence (MAXCH < EPS, exempted demand small)'
+	  IF(BA_DEM_EXM .GE. BA_SAT_RAW)CONV_EXIT_WHY=
+	1    'exempted demand saturated (>= BA_SAT_RAW): dead-stage class'
+	  IF(BA_TRACE_DONE)CONV_EXIT_WHY=
+	1    'Stage-B sweep budget spent with residual trace demand'
+	  IF(BA_TRACE_NEEDED)CONV_EXIT_WHY=
+	1    'Stage-B trace polish still owed; iteration budget spent'
+!
 ! NB - Need GE because of NG acceleration.
 !
 	IF(LST_ITERATION)THEN
+!
+	  IF(CONV_EXIT_MET)THEN
+	    WRITE(LUER,'(A)')
+	1     ' Convergence criteria met on the final budgeted'//
+	2     ' iteration; writing converged model state.'
+	    IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(2A)')
+	1     '   exit reason: ',TRIM(CONV_EXIT_WHY)
+	  ELSE
+	    WRITE(LUER,'(A)')
+	1     ' Iteration budget exhausted before convergence;'//
+	2     ' writing unconverged model state.'
+	  END IF
 !
 	  CALL TUNE(ITWO,'GIT')
 	  CALL TUNE(ITHREE,' ')
@@ -5018,24 +5085,30 @@
 ! If we have reached desired convergence, we do one final loop
 ! so as to write out all relevant model data.
 !
-! BA_TRACE_NEEDED is evaluated before the exit test rather than inside
-! the BA_DEM_EXM release term, and BA_STAGEB_ARM (below) reroutes the
+! BA_TRACE_NEEDED/BA_TRACE_DONE/BA_DEM_EXIT_OK and CONV_EXIT_MET are
+! evaluated before the LST_ITERATION split (at 9999).  CONV_EXIT_MET
+! is re-evaluated here because the ramp blocks above may have forced
+! MAXCH=100 to hold the run open.  BA_STAGEB_ARM (below) reroutes the
 ! would-be converged exit into the ELSE continuation so the polish
 ! sweep actually runs as another great iteration.  The old BA_DEM_EXM
 ! hold is unchanged when Stage B is disabled, already converged, or
 ! unavailable under the nonmono flags.
 !
-	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
-	1    BA_TR_MAXSWP .GT. 0 .AND.
-	2    (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
-	3     BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
-	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
-	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
-	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.
-	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
-	  BA_DEM_EXIT_OK=BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
-	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
-	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE
+! Convergence-exit metric note (16-Oct-2026 audit): the exit gates on
+! raw demanded MAXCH, not the committed MAXCH_CTRL.  Under
+! [DO_NONMONO_KNOP] MAXCH_CTRL=MAXCH_APP is the applied step -- a
+! trust-capped or GS-held call commits a small change while the
+! linearization still demands a large correction, so gating the exit
+! on the applied metric would release on unsatisfied demand.  On JFNK
+! commits MAXCH is the applied change by construction, but
+! JFNK_UNCONVERGED_COMMIT blocks this branch unless the nonlinear
+! target was met, so the distinction is harmless there.
+!
+	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
+	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
+	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
+	4    .NOT. GS_POPS_HELD
 !
 ! BA_STAGEB_ARM uses the same tests as the converged-exit branch
 ! below, plus BA_TRACE_NEEDED.  When it is set the exit is skipped
@@ -5043,13 +5116,8 @@
 ! with BA_TRACE_PHASE armed, so the Stage-B sweep actually executes
 ! instead of being armed on the way out of CMFGEN_SUB.
 !
-	  BA_STAGEB_ARM=BA_TRACE_NEEDED .AND.
-	1    ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
-	2     (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
-	3    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
-	4    BA_DEM_EXIT_OK .AND.
-	5    NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
-	6    .NOT. GS_POPS_HELD
+	  BA_STAGEB_ARM=BA_TRACE_NEEDED .AND. CONV_EXIT_MET .AND.
+	1    NUM_ITS_TO_DO .NE. 0
 !
 	  IF(DO_T_AUTO .AND. RD_FIX_T .AND. MAXCH_CTRL .LT. 50.0_LDP .AND.
 	1     .NOT. JFNK_UNCONVERGED_COMMIT .AND.
@@ -5094,12 +5162,20 @@
 ! the BA_DEM_EXM hold (what remains after the polish is the
 ! unsatisfiable dead-stage class the floors were built for).
 !
-	  ELSE IF( ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR. (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
-	1      .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
-	4      BA_DEM_EXIT_OK .AND.
-	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
-	3      .NOT. GS_POPS_HELD .AND. .NOT. BA_STAGEB_ARM)THEN
+	  ELSE IF(CONV_EXIT_MET .AND. NUM_ITS_TO_DO .NE. 0 .AND.
+	1      .NOT. BA_STAGEB_ARM)THEN
 	    BA_TRACE_PHASE=.FALSE.
+! edited by Devin, 16-Oct-2026: name the exit route once per run.
+! BA_DEM_EXIT_OK releases for small demand, saturated dead-stage
+! demand, or a spent/needed Stage-B polish alike -- without this the
+! converged exit looked identical whether trace demand was resolved
+! or simply unresolvable.  Reaching this branch at all means
+! BA_TRACE_NEEDED was false (it would have armed instead).
+	    IF(.NOT. CONV_EXIT_DONE)THEN
+	      CONV_EXIT_DONE=.TRUE.
+	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(2A)')
+	1       ' Converged exit; reason: ',TRIM(CONV_EXIT_WHY)
+	    END IF
 	    IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
 	  ELSE
 	    IF(BA_STAGEB_ARM)THEN

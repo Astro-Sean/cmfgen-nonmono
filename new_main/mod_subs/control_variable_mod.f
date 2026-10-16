@@ -522,6 +522,10 @@
 ! MAXCH_CTRL is the current iteration's committed-change metric. Under
 ! DO_NONMONO_KNOP it is applied; otherwise it equals MAXCH, so the
 ! default path is unchanged. CMFGEN_SUB uses it for 50-percent gates.
+! The converged exit deliberately gates on raw demanded MAXCH, not
+! MAXCH_CTRL: a capped or held applied step can be small while the
+! demanded correction stays large, so the applied metric must not
+! release the exit (16-Oct-2026 audit).
 	REAL(KIND=LDP) :: MAXCH_CTRL=0.0_LDP
 	INTEGER CNT_LAM
 	INTEGER RD_CNT_LAM

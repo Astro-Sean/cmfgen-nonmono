@@ -1470,9 +1470,11 @@
 	  WRITE(LUER,'(A,/)')REPEAT('~',LEN_TRIM(ITER_MSG))
 	END IF
 !
-! BA_TR_ABS/BA_DEM_EXM are exported inside SOLVEBA_V13 only; reset
-! before either solve path so a JFNK iteration never leaves a stale
-! trace-delta behind for the Stage-B trigger in CMFGEN_SUB.
+! BA_TR_ABS/BA_DEM_EXM are exported by SOLVEBA_V13 (demanded exempted
+! correction from STEQ) or, on a JFNK commit, by JFNK_SOLVE_CORR_V1
+! (committed exempted change as best-effort proxy); reset before
+! either solve path so a solve that exports nothing leaves no stale
+! trace-delta for the Stage-B trigger in CMFGEN_SUB.
 	BA_TR_ABS=0.0_LDP
 	BA_DEM_EXM=0.0_LDP
 !

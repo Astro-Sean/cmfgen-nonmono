@@ -33,8 +33,10 @@
 ! Altered 15-Oct-2026 : BA_DIRCHK_MAX caps the dirchk defer count so
 !                          real Newton admission resumes (edited by Devin).
 ! Altered 16-Oct-2026 : Applied-change metrics use the BA_DEM trace
-!                          mask and export BA_TR_ABS for Stage B
-!                          (edited by Devin).
+!                          mask and export BA_TR_ABS for Stage B;
+!                          commits also export BA_DEM_EXM so the
+!                          Stage-B exit gate sees exempted demand on
+!                          JFNK iterations (edited by Devin).
 ! Altered 05-Oct-2026 : Demoted JFNK banners to iteration subheaders.
 !
 	SUBROUTINE JFNK_SOLVE_CORR_V1(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,
@@ -1552,9 +1554,13 @@
 ! block (plus T/ED) to CMFGEN_SUB, while BA_TR_ABS carries the absolute
 ! committed trace change used to arm Stage B.  Without this a Newton
 ! commit could leave BA_TR_ABS=0 and skip the polish entirely.
+! BA_DEM_EXM takes the committed exempted change as the best-effort
+! proxy for exempted demand (the JFNK residual has no STEQ), so the
+! Stage-B trigger and exit test see trace state on JFNK iterations.
 !
 	    MAXCH=0.0_LDP
 	    BA_TR_ABS=0.0_LDP
+	    BA_DEM_EXM=0.0_LDP
 	    DO K=1,ND
 	      T2=0.0_LDP
 	      IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
@@ -1571,6 +1577,7 @@
 	2            POPS_PREV(J,K) .LT. T2))THEN
 	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
 	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
+	          BA_DEM_EXM=MAX(BA_DEM_EXM,T1)
 	          CYCLE
 	        END IF
 	        IF(T1 .GT. MAXCH)MAXCH=T1
@@ -1802,6 +1809,7 @@
 	    END DO
 	    MAXCH=0.0_LDP
 	    BA_TR_ABS=0.0_LDP
+	    BA_DEM_EXM=0.0_LDP
 	    DO K=1,ND
 	      T2=0.0_LDP
 	      IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
@@ -1813,6 +1821,7 @@
 	2            POPS_PREV(J,K) .LT. T2))THEN
 	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
 	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
+	          BA_DEM_EXM=MAX(BA_DEM_EXM,T1)
 	          CYCLE
 	        END IF
 	        IF(T1 .GT. MAXCH)MAXCH=T1

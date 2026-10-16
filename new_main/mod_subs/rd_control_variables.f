@@ -1833,6 +1833,7 @@
 	  BA_TRACE_PHASE=.FALSE.
 	  BA_TR_NSWP=0
 	  BA_TR_ABS=0.0_LDP
+	  BA_DEM_EXM=0.0_LDP
 	  DO_FG13_ALO=.FALSE.
 	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
 	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')
