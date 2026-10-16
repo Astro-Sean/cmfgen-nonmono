@@ -32,6 +32,9 @@
 ! editted by Devin (V7-JFNK port, 02-Oct-2026)
 ! Altered 15-Oct-2026 : BA_DIRCHK_MAX caps the dirchk defer count so
 !                          real Newton admission resumes (edited by Devin).
+! Altered 16-Oct-2026 : Applied-change metrics use the BA_DEM trace
+!                          mask and export BA_TR_ABS for Stage B
+!                          (edited by Devin).
 ! Altered 05-Oct-2026 : Demoted JFNK banners to iteration subheaders.
 !
 	SUBROUTINE JFNK_SOLVE_CORR_V1(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,
@@ -1544,8 +1547,18 @@
 	    ED(1:ND)=POPS(NT-1,1:ND)
 	    T(1:ND)=POPS(NT,1:ND)
 	    CALL JFNK_SYNC_ATM_FROM_POPS(POPS)
+!
+! Same MAXCH trace exemption as SOLVEBA_V13: JFNK reports the major
+! block (plus T/ED) to CMFGEN_SUB, while BA_TR_ABS carries the absolute
+! committed trace change used to arm Stage B.  Without this a Newton
+! commit could leave BA_TR_ABS=0 and skip the polish entirely.
+!
 	    MAXCH=0.0_LDP
+	    BA_TR_ABS=0.0_LDP
 	    DO K=1,ND
+	      T2=0.0_LDP
+	      IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_PREV(1:NT-2,K))
 	      DO J=1,NT
 	        IF(POPS_PREV(J,K) .GT. 1.0E-100_LDP)THEN
 	          SOL(J,K)=POPS(J,K)/POPS_PREV(J,K)-1.0_LDP
@@ -1553,6 +1566,13 @@
 	          SOL(J,K)=0.0_LDP
 	        END IF
 	        T1=100.0_LDP*ABS(SOL(J,K))
+	        IF(J .LE. NT-2 .AND.
+	1           (POPS_PREV(J,K) .LT. BA_DEM_PFLOOR .OR.
+	2            POPS_PREV(J,K) .LT. T2))THEN
+	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
+	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
+	          CYCLE
+	        END IF
 	        IF(T1 .GT. MAXCH)MAXCH=T1
 	      END DO
 	    END DO
@@ -1781,9 +1801,20 @@
 	      END DO
 	    END DO
 	    MAXCH=0.0_LDP
+	    BA_TR_ABS=0.0_LDP
 	    DO K=1,ND
+	      T2=0.0_LDP
+	      IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_PREV(1:NT-2,K))
 	      DO J=1,NT
 	        T1=100.0_LDP*ABS(SOL(J,K))
+	        IF(J .LE. NT-2 .AND.
+	1           (POPS_PREV(J,K) .LT. BA_DEM_PFLOOR .OR.
+	2            POPS_PREV(J,K) .LT. T2))THEN
+	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
+	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
+	          CYCLE
+	        END IF
 	        IF(T1 .GT. MAXCH)MAXCH=T1
 	      END DO
 	    END DO

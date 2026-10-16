@@ -12,6 +12,8 @@
 	USE CONTROL_VARIABLE_MOD
 	IMPLICIT NONE
 !
+! Altered:   16-Oct-2026 : Stage-B trace polish forces the BA dispatch so
+!                          SOLVEBA_V13 can hold majors/T/ED (edited by Devin).
 ! Altered:   15-Oct-2026 : BA_DIRCHK_MAX drops the dirchk admission bypass
 !                          after the diagnostic budget is spent (edited by Devin).
 ! Altered:   05-Oct-2026 : Added population-solve subheader to OUTGEN (edited by Devin).
@@ -1360,6 +1362,21 @@
 	1   '    DO_BA_DIR_CHK: direction diagnostics on the stored BA;'
 	  WRITE(LUER,'(A)')
 	1   '    Newton skipped -- caller-mode SOLVEBA takes the step'
+	END IF
+!
+! Stage B is a BA-space triangular solve: SOLVEBA_V13 owns the
+! POPS_OLD row restore that leaves only exempted trace rows free.
+! A Newton or LAMBDA dispatch would update the full vector and undo
+! the major-state freeze, so BA_TRACE_PHASE always takes the direct
+! BA path.  FIX_IMPURITY is cleared for the same reason: it is the
+! inverse mask and would freeze the trace block Stage B is solving.
+!
+	IF(BA_TRACE_PHASE)THEN
+	  JFNK_THIS=.FALSE.
+	  JFNK_COUPLED_THIS=.FALSE.
+	  LAMBDA_ITERATION=.FALSE.
+	  FIX_IMPURITY=.FALSE.
+	  MOD_FIX_IMPURITY=.FALSE.
 	END IF
 !
 ! edited by Devin, 03-Oct-2026: the non-demand defer paths were

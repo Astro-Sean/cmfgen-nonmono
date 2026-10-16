@@ -42,6 +42,9 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_SWEEP_CB,JFNK_EDD_START_REC
 	IMPLICIT NONE
 !
+! Altered 16-Oct-2026 : Stage-B trace polish admits a material hidden
+!                          demand instead of holding without sweeping
+!                          (edited by Devin).
 ! Altered 15-Oct-2026 : DO_LAM_AUTO handoff under nonmono flags requires
 !                          CNT_STABLE_LAM >= N_STABLE_LAM (edited by Devin).
 ! Altered 05-Oct-2026 : Sized non-monotonic VINF from MAXVAL(ABS(V)) (edited by Devin).
@@ -200,6 +203,7 @@
 !
 	INTEGER MAIN_COUNTER,NITSF,NUM_ITS_RD,NUM_ITS_TO_DO
 	LOGICAL LST_ITERATION
+	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
 !
 ! Wall-clock timer for the great-iteration loop.  Each iteration's
 ! elapsed time is reported when the next iteration begins; the final
@@ -5013,6 +5017,24 @@
 ! If we have reached desired convergence, we do one final loop
 ! so as to write out all relevant model data.
 !
+! BA_TRACE_NEEDED is evaluated before the exit test rather than inside
+! the BA_DEM_EXM release term.  A material hidden demand can therefore
+! arm the polish instead of holding the run with BA_TR_NSWP never
+! incremented.  The old BA_DEM_EXM hold is unchanged when Stage B is
+! disabled, already converged, or unavailable under the nonmono flags.
+!
+	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1    BA_TR_MAXSWP .GT. 0 .AND.
+	2    (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
+	3     BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
+	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
+	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
+	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.
+	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
+	  BA_DEM_EXIT_OK=BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
+	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
+	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE
+!
 	  IF(DO_T_AUTO .AND. RD_FIX_T .AND. MAXCH_CTRL .LT. 50.0_LDP .AND.
 	1     .NOT. JFNK_UNCONVERGED_COMMIT .AND.
 	2     (LAST_LAMBDA .NE. MAIN_COUNTER))THEN
@@ -5056,16 +5078,10 @@
 !
 	  ELSE IF( ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR. (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	1      .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
-	4      (BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
-	5      BA_DEM_EXM .GE. BA_SAT_RAW .OR.
-	6      (BA_TR_MAXSWP .GT. 0 .AND. BA_TR_NSWP .GE. BA_TR_MAXSWP)) .AND.
+	4      BA_DEM_EXIT_OK .AND.
 	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3      .NOT. GS_POPS_HELD)THEN
-	    IF(BA_TR_MAXSWP .GT. 0 .AND.
-	1       (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
-	2        BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
-	3       BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
-	4       BA_TR_NSWP .LT. BA_TR_MAXSWP)THEN
+	    IF(BA_TRACE_NEEDED)THEN
 	      BA_TRACE_PHASE=.TRUE.
 	      BA_TR_NSWP=BA_TR_NSWP+1
 	      WRITE(LUER,'(A,I2,A,I2,A,ES10.2)')
