@@ -214,8 +214,8 @@ def obs_color_pairs(obs, b1, b2, max_sep=0.75):
 
 
 def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
-                     foot_slack=3.0, early_phase=80.0, early_wt=3.0,
-                     peak_gate=0.4):
+                     foot_slack=3.0, early_phase=80.0, early_wt=5.0,
+                     tail_wt=0.5, col_wt=0.1, peak_gate=0.4):
     """Best time offset (days added to the model's own-peak phase).
 
     The turn-on is anchored to the observed -19 d r-band point by a
@@ -242,9 +242,14 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
     if fit_end is None:
         fit_end = max(obs[b]['phase'].max() for b in ('r', 'o', 'i')
                       if len(obs[b]))
-    plat = obs['r'][(obs['r']['phase'] >= -45) & (obs['r']['phase'] <= -19)]
+    # ATLAS o carries the rise/peak (dense cadence); r and g carry the
+    # tail, which is what each band actually covers.  i joins the early
+    # window since its detections are pre-+100 d only.
+    plat = obs['o'][(obs['o']['phase'] >= -45) & (obs['o']['phase'] <= -19)]
     fit_r = obs['r'][(obs['r']['phase'] > -19) &
                      (obs['r']['phase'] <= fit_end)]
+    fit_g = obs['g'][(obs['g']['phase'] > -19) &
+                     (obs['g']['phase'] <= fit_end)]
     fit_o = obs['o'][(obs['o']['phase'] > -19) &
                      (obs['o']['phase'] <= fit_end)]
     fit_i = obs['i'][(obs['i']['phase'] > -19) &
@@ -264,25 +269,28 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
     # its first recorded epoch cannot satisfy the gate under any shift:
     # anchoring its first epoch to foot_phase still leaves it brighter
     # than the point at -19 d.
+    # The foot and peak anchors use the o band: ATLAS o has the densest,
+    # most uniform early cadence, so it pins the rise timing far better
+    # than the sparser r detections.
     r_foot = float(np.interp(foot_phase,
-                             obs['r']['phase'], obs['r']['Mabs']))
-    # Observed r peak: magnitude and phase.  A model must reproduce it
-    # within peak_gate (in either direction) or pay a penalty - total
-    # chi2 over the long tail otherwise lets a model win while missing
-    # the peak and pre-80 d decline entirely.
-    i_pk = fit_r['Mabs'].idxmin()
-    obs_r_pk = float(fit_r.loc[i_pk, 'Mabs'])
-    pk_ph = float(fit_r.loc[i_pk, 'phase'])
-    rise = df[df['R'] <= r_foot]
+                             obs['o']['phase'], obs['o']['Mabs']))
+    rise = df[df['o'] <= r_foot]
     t_cross = (float(rise['time'].iloc[0]) if len(rise)
                else float(df['time'].iloc[-1]))
     dt_anchor = t_pk - t_cross + foot_phase
+    # Observed o peak: magnitude and phase.  A model must reproduce it
+    # within peak_gate (in either direction) or pay a penalty - total
+    # chi2 over the long tail otherwise lets a model win while missing
+    # the peak and pre-80 d decline entirely.
+    i_pk = fit_o['Mabs'].idxmin()
+    obs_r_pk = float(fit_o.loc[i_pk, 'Mabs'])
+    pk_ph = float(fit_o.loc[i_pk, 'phase'])
     # Phases up to and including the anchor point itself.
     early_ph = np.arange(-60.0, foot_phase + 1e-9, 0.1)
 
     def violates_foot(dt):
         for ph in early_ph:
-            rm = model_R_at(df, ph - dt + t_pk)
+            rm = model_mag_at(df, ph - dt + t_pk, 'o')
             if np.isfinite(rm) and rm < r_foot - 0.05:
                 return True  # brighter than the point at or before -19 d
         return False
@@ -293,12 +301,12 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
                         dt_anchor + foot_slack + 1e-9, 0.25):
         pen = 0.0
         for _, row in plat.iterrows():
-            rm = model_R_at(df, row['phase'] - dt + t_pk)
+            rm = model_mag_at(df, row['phase'] - dt + t_pk, 'o')
             if np.isfinite(rm):
                 excess = row['Mabs'] - rm
                 if excess > 0:
                     pen += (excess / 0.15) ** 2
-        rm_pk = model_mag_at(df, pk_ph - dt + t_pk, 'R')
+        rm_pk = model_mag_at(df, pk_ph - dt + t_pk, 'o')
         if not np.isfinite(rm_pk):
             pen += (obs_r_pk - (-12.0)) ** 2
         else:
@@ -313,10 +321,18 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
         # the much more numerous tail points.
         chi2_rise = 0.0
         chi2_tail = 0.0
+        # Every band contributes to the early window (the dense ATLAS o
+        # cadence dominates it anyway); past early_phase only r and g
+        # are scored - o coverage ends near +250 d and the systematic
+        # o-band offset in the models would otherwise contaminate the
+        # tail fit.
         for det, err_col, mcol in ((fit_r, 'Error', 'R'),
+                                   (fit_g, 'Error', 'g'),
                                    (fit_o, 'Mabs_err', 'o'),
                                    (fit_i, 'Error', 'i')):
             for _, row in det.iterrows():
+                if row['phase'] > early_phase and mcol not in ('R', 'g'):
+                    continue
                 rm = model_mag_at(df, row['phase'] - dt + t_pk, mcol)
                 if not np.isfinite(rm):
                     rm = -12.0
@@ -325,7 +341,7 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
                 if row['phase'] <= early_phase:
                     chi2_rise += early_wt * c2
                 else:
-                    chi2_tail += c2
+                    chi2_tail += tail_wt * c2
         # Colour chi2 over every paired epoch; 0.15 mag floor on the
         # colour error, missing coverage counted as a 0.75 mag residual
         # so a model that ends early is penalised rather than excused.
@@ -338,7 +354,8 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
                          - model_mag_at(df, t_m, m2)) - row['col']
                 if not np.isfinite(resid):
                     resid = 0.75
-                chi2_col += (resid / np.hypot(row['err'], 0.15)) ** 2
+                chi2_col += col_wt * (
+                    resid / np.hypot(row['err'], 0.15)) ** 2
         score = chi2_rise + chi2_tail + chi2_col + pen
         if score < fallback[0]:
             fallback = (score, dt, chi2_rise, chi2_tail, chi2_col, np.inf)

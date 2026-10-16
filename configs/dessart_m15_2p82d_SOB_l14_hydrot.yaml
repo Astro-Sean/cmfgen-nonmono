@@ -194,7 +194,7 @@ cmfgen:
     # and pin MAXCH above EPS_TERM forever; the absolute floor cannot
     # reach them.  Rows below RELFRAC*max(POPS) are exempted from the
     # metric only - their corrections still commit.
-    BA_DEM_RELFRAC: 1.0D-3
+    BA_DEM_RELFRAC: 1.0D-6   # 16-Oct-2026: 1e-3 also hid populated metal levels vs the H-dominated max; 1e-6 still exempts dead stages (~1e-23 rel) while trace ions count in MAXCH
     # Damping guards for the cold-start transient: bound committed BA
     # correction factors while demand is saturated, and average any
     # level whose correction flips sign >=4 times (fires only on

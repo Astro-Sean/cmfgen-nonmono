@@ -301,6 +301,30 @@ MODEL_STYLE = {
                             label=(r'2-$\dot M$ wind $2{\to}6{\times}10^{17}$'
                                    r' at $3{\times}10^{15}$, steep CD,'
                                    ' intact SN-A')),
+    'X_V10000_w2m13i': dict(color='darkgreen', lw=1.4, ls='-', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}5{\times}10^{17}$'
+                                   r' at $4{\times}10^{15}$, steep CD,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m14i': dict(color='darkgreen', lw=1.4, ls='--', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}4{\times}10^{17}$'
+                                   r' at $4.5{\times}10^{15}$, steep CD,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m15i': dict(color='teal', lw=1.6, ls='-', zorder=14,
+                            label=(r'eruption $t=-180$ d: '
+                                   r'$2{\to}5{\times}10^{17}$ at '
+                                   r'$4{\times}10^{15}$, intact SN-A')),
+    'X_V8000_w2m13i_sh6': dict(color='darkorange', lw=1.4, ls='-', zorder=14,
+                              label=(r'6 $M_\odot$ shell at 8000 km s$^{-1}$,'
+                                     ' w2m13 wind, intact SN-A')),
+    'X_V14000_w2m13i_sh2': dict(color='darkorange', lw=1.4, ls=':', zorder=14,
+                               label=(r'2 $M_\odot$ shell at 14000 km s$^{-1}$,'
+                                      ' w2m13 wind, intact SN-A')),
+    'X_V10000_w2m13i_sh6': dict(color='darkorange', lw=1.4, ls='--', zorder=14,
+                               label=(r'6 $M_\odot$ shell at 10000 km s$^{-1}$,'
+                                      ' w2m13 wind, intact SN-A')),
+    'X_V12000_w2m13i_sh4': dict(color='darkorange', lw=1.4, ls='-.', zorder=14,
+                               label=(r'4 $M_\odot$ shell at 12000 km s$^{-1}$,'
+                                      ' w2m13 wind, intact SN-A')),
     'X_V10000_wind2m_inv': dict(color='tab:purple', lw=1.6, ls=':', zorder=14,
                               label=(r'wind $\dot{M}$: $1\to3$'
                                      r'$\times 10^{17}$ at $5{\times}10^{15}$,'
@@ -361,7 +385,10 @@ MODEL_ORDER = ['X', 'X_M2', 'X_M10', 'X_V6000', 'X_V8000',
                'X_V10000_w2m4i', 'X_V10000_w2m5i', 'X_V10000_w2m6i',
                'X_V10000_w2m7i', 'X_V10000_w2m8i',
                'X_V10000_w2m9i', 'X_V10000_w2m10i', 'X_V10000_w2m11i',
-               'X_V10000_w2m12i',
+               'X_V10000_w2m12i', 'X_V10000_w2m13i', 'X_V10000_w2m14i',
+               'X_V10000_w2m15i',
+               'X_V8000_w2m13i_sh6', 'X_V14000_w2m13i_sh2',
+               'X_V10000_w2m13i_sh6', 'X_V12000_w2m13i_sh4',
                'X_V10000_wind12i', 'X_V10000_wind13i', 'X_V10000_wind14i',
                'X_V10000_wind15i', 'X_V10000_wind20i',
                'X_V10000_wind12li', 'X_V10000_wind09li',
@@ -374,7 +401,7 @@ MODEL_ORDER = ['X', 'X_M2', 'X_M10', 'X_V6000', 'X_V8000',
 
 
 def style_for(name):
-    return MODEL_STYLE.get(name, dict(color='0.45', lw=1.0, ls='-',
+    return MODEL_STYLE.get(name, dict(color='0.45', lw=0.5, ls='-',
                                       zorder=10, label=name))
 
 
