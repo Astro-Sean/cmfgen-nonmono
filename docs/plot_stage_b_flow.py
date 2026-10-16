@@ -149,29 +149,37 @@ TRIGGER = [
 # ---------------------------------------------------------------
 # Measure text so the canvas fits the widest box.
 # ---------------------------------------------------------------
+# Only box text sizes the boxes; notes and diamonds have their own
+# layout.  TRIGGER lines render at 9 pt, so they are measured at 9 pt.
 items = []
 for b in MAIN + [SIDE, ARM, SOLVE, EXIT]:
     items.append((b["title"], FS_TITLE, "bold"))
     items += [(ln, FS_BODY, "normal") for ln in b["lines"]]
-for t in [DEC1, DEC2] + TRIGGER:
-    for ln in t.split("\n"):
-        items.append((ln, FS_TITLE, "bold"))
 
 px = measure_px(items)
+px.update(measure_px(
+    [(ln, FS_TITLE, "bold") for t in [DEC1, DEC2]
+     for ln in t.split("\n")]
+    + [(TRIGGER[0], 9.0, "bold")]
+    + [(ln, 9.0, "normal") for ln in TRIGGER[1:]]))
+
 aw_px = FIG_W_IN * DPI * AX_W_FRAC
-wbox_px = max(px.values())
+wbox_px = max(px[ln] for b in MAIN + [SIDE, ARM, SOLVE, EXIT]
+              for ln in [b["title"]] + b["lines"])
 
-S = (0.6 + TXT_PAD_L + TXT_PAD_R + 0.3) / (1.0 - wbox_px / aw_px)
-BOX_W = wbox_px * 1.06 * S / aw_px + TXT_PAD_L + TXT_PAD_R
-# Keep the side column clear of the main column.
-min_sep = BOX_W + 1.2
-if S * 0.46 < min_sep:
-    S = min_sep / 0.46
-X_MAIN = S * 0.33
-X_SIDE = S * 0.79
-XLIM = S
+# Layout: main column at X_MAIN, note column at X_SIDE.  BOX_W grows
+# with XLIM (pixels convert at XLIM/aw_px) and XLIM must contain
+# BOX_W twice plus the column gap and margins, so solve directly.
+COL_GAP = 1.0
+A = wbox_px * 1.06 / aw_px
+B = TXT_PAD_L + TXT_PAD_R
+# XLIM = 2*BOX_W + COL_GAP + left loop margin (1.1) + right margin (0.4)
+XLIM = (2 * B + COL_GAP + 1.5) / (1.0 - 2.0 * A)
+BOX_W = A * XLIM + B
+X_MAIN = BOX_W / 2 + 1.1
+X_SIDE = X_MAIN + BOX_W + COL_GAP
 
-fig_h = 17.0
+fig_h = 14.6
 fig, ax = plt.subplots(figsize=(FIG_W_IN, fig_h * 0.58))
 ax.set_xlim(0, XLIM)
 ax.set_ylim(0, fig_h)
@@ -190,7 +198,7 @@ fig.legend(handles=handles, loc="upper center", ncol=3,
            bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=8.8,
            handlelength=1.6)
 
-y = fig_h - 1.7
+y = fig_h - 1.0
 
 bounds = []
 for b in MAIN:
