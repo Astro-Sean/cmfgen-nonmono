@@ -5376,13 +5376,18 @@
 	SUBROUTINE JFNK_RAD_SWEEP_V1(POPS_EVAL)
 	USE TWO_PHOT_MOD, ONLY: UP_RATE_TWO,DOWN_RATE_TWO,N_TWO
 	USE MOD_MOM_J_NONMONO_V1, ONLY:
-	1   MOM_QUAR_AGE,XM_BAD_NM,MOM_CELL_QUAR
+	1   MOM_QUAR_AGE,XM_BAD_NM,MOM_CELL_QUAR,
+	2   MOM_GS_MAXCHG,JNEXT_RELAX,MOM_RF_RESID_PRV
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1   INEXT_RELAX,KN_RF_RESID_PRV
 	IMPLICIT NONE
 	REAL(KIND=LDP), INTENT(IN) :: POPS_EVAL(:,:)
 	INTEGER :: IOS_EVAL
 	INTEGER :: ACCESS_F_SAVE
 	LOGICAL :: COMPUTE_BA_SAVE
 	LOGICAL :: EDDINGTON_SAVE
+	REAL(KIND=LDP) :: MGSMAX_SAV,MRFPRV_SAV,JNRLX_SAV
+	REAL(KIND=LDP) :: INRLX_SAV,KRFPRV_SAV
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: UP_TWO_SAV(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: DOWN_TWO_SAV(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FOLD_SAVE(:)
@@ -5444,6 +5449,22 @@
 	  IF(IOS_EVAL .NE. 0)GOTO 9999
 	  CELLQ_SAV=MOM_CELL_QUAR
 	END IF
+!
+! Same determinism bracket for the adaptive refresh state the eval
+! path mutates in MOM_J_CMF_NONMONO_V1 / FG_J_CMF_NONMONO_V1
+! (Oct-2026 audit): MOM_GS_MAXCHG and MOM_RF_RESID_PRV feed the
+! spectral-radius estimate that sets JNEXT_RELAX for the next
+! production refresh, and INEXT_RELAX/KN_RF_RESID_PRV are the FG
+! pair.  Unbracketed, the number and order of residual/JVP evals
+! perturbs the production write-back weight -- F(x) then depends on
+! where in the Newton sequence x sits.  Scalars, so a straight
+! copy costs nothing.
+!
+	MGSMAX_SAV=MOM_GS_MAXCHG
+	MRFPRV_SAV=MOM_RF_RESID_PRV
+	JNRLX_SAV=JNEXT_RELAX
+	INRLX_SAV=INEXT_RELAX
+	KRFPRV_SAV=KN_RF_RESID_PRV
 !
 	ACCESS_F_SAVE=ACCESS_F
 	IF(JFNK_EDD_START_REC .GT. 0)ACCESS_F=JFNK_EDD_START_REC
@@ -6411,6 +6432,16 @@
 	1     MOM_CELL_QUAR=CELLQ_SAV
 	END IF
 !
+! Put back the adaptive write-back state saved at entry (see the
+! entry comment): the eval's refresh residuals must not steer the
+! next production JNEXT_RELAX/INEXT_RELAX.
+!
+	MOM_GS_MAXCHG=MGSMAX_SAV
+	MOM_RF_RESID_PRV=MRFPRV_SAV
+	JNEXT_RELAX=JNRLX_SAV
+	INEXT_RELAX=INRLX_SAV
+	KN_RF_RESID_PRV=KRFPRV_SAV
+!
 ! COMP_J_BLANK leaves ACCESS_F at EOF.  The next real sweep reloads
 ! the cursor from EDD_CONT_REC, but anything between this return and
 ! that read (a fallback that touches the file, a crash dump) would
@@ -6464,15 +6495,20 @@
 	RETURN
 !
 ! Allocation-failure tail for the entry saves: no production state has
-! been mutated at that point, so only the sentinel-residual poison is
-! needed (mirrors the broken-eval epilogue path).
+! been mutated at that point, so only the diagnostic and the
+! sentinel-residual poison are needed (mirrors the broken-eval
+! epilogue path).  JFNK_EVAL_BROKEN is consumed only inside this
+! routine's epilogue, which this return skips, so the flag itself is
+! not toggled; LUER still points at OUTGEN here (the redirect happens
+! later), so the message lands in OUTGEN.
 !
 9999	CONTINUE
-	JFNK_EVAL_BROKEN=.TRUE.
+	WRITE(LUER,'(A)')'  JFNK_RAD_SWEEP_V1: eval aborted at entry'//
+	1   ' (state-save allocation failure) -- forcing'//
+	2   ' sentinel residual'
 	DO I=1,NUM_IONS-1
 	  IF(ASSOCIATED(SE(I)%STEQ))SE(I)%STEQ=1.0E+35_LDP
 	END DO
-	JFNK_EVAL_BROKEN=.FALSE.
 	RETURN
 	END SUBROUTINE JFNK_RAD_SWEEP_V1
 	END
