@@ -1365,8 +1365,11 @@
 	REAL(KIND=LDP) BA_SAT_RAW
 	INTEGER BA_SAT_CNT
 !
-! BA_DEM_PFLOOR (VADAT [BA_DEM_PFLOOR], default 0=off): population
-! floor for the demanded-correction metric in SOLVEBA_V13.  Rows
+! BA_DEM_PFLOOR (VADAT [BA_DEM_PFLOOR], default -1=auto, 0=off):
+! population floor for the demanded-correction metric in SOLVEBA_V13.
+! -1 leaves the reader free to auto-set the floor under
+! DO_NONMONO_SOB/DO_NONMONO_KNOP; an explicit 0 disables it and any
+! positive value is used as-is.  Rows
 ! whose current population sits below the floor are skipped in the
 ! DECREASE/INCREASE scan and the MAXCH_APP committed scan -- their
 ! corrections still commit normally, but a floor-level demanding a
@@ -1377,8 +1380,9 @@
 !
 	REAL(KIND=LDP) BA_DEM_PFLOOR
 !
-! BA_DEM_RELFRAC (VADAT [BA_DEM_RELFRAC], default 0=off): relative
-! demand floor, same skip mechanism as BA_DEM_PFLOOR but expressed as
+! BA_DEM_RELFRAC (VADAT [BA_DEM_RELFRAC], default -1=auto, 0=off):
+! relative demand floor, same skip mechanism and the same -1/0 sentinel
+! policy as BA_DEM_PFLOOR but expressed as
 ! a fraction of the largest population row at that depth.  The
 ! absolute floor cannot catch a physically empty ion at a populated
 ! depth -- e.g. FeI or CVI at d65 (T~60 kK) sit orders above 1E-30 yet

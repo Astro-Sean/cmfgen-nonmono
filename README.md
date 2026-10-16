@@ -159,6 +159,27 @@ prints a warning that a stalled activation could consume the job.
 Exhausting a budget forces the rejection path, so the iteration falls
 back to the stock update rather than aborting.
 
+## VADAT keys for the trace-exemption and polish machinery
+
+All of these are opt-in and only take effect under
+`DO_NONMONO_SOB`/`DO_NONMONO_KNOP` (or `DO_JFNK` where stated). With
+the flags off none of this code runs and the defaults are inert.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `BA_DEM_PFLOOR` | -1 (auto) | Absolute population floor exempting trace rows from the demand metric. `-1` resolves to `1.0E-30` under the non-monotonic flags; `0` disables; `>0` is used as set. |
+| `BA_DEM_RELFRAC` | -1 (auto) | Relative demand floor, as a fraction of the largest population row at the depth. `-1` resolves to `0.01` under the non-monotonic flags; `0` disables. |
+| `BA_TR_MAXSWP` | 3 | Bound on Stage-B trace-polish sweeps. `0` disables the polish entirely; the reader no longer rewrites `0` to another value. |
+| `BA_TR_ABSMAX` | 1.0E-08 | Trace convergence threshold on `BA_TR_ABS` (max committed `|dn|/POP_ATOM` over exempted rows). Under the non-monotonic flags an explicit `0` is auto-set to `1.0E-08`. |
+| `KN_ADAPT_RELAX` | T | Adaptive write-back weight for the lagged-field refresh maps (`INEXT_RELAX`/`JNEXT_RELAX` adapt to the measured contraction). `F` keeps the fixed `0.5` weight. |
+
+Observation-frame (`cmf_flux`/`obs_frame`) keys:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ALLOW_SIGMA_UNDEF` | F | `T` warns instead of aborting on cells with an undefined `SIGMA_TRUE`. |
+| `SOB_SIGMA_MAX` | -1 (off) | If `>0`, clamp `|SIGMA_TRUE|` to this bound in the OBS estimator. Off keeps the same unclamped `SIGMA_TRUE` as the population solve. |
+
 ## Validation status
 
 The Newton-Krylov path is off by default. Admission waits for a warmup

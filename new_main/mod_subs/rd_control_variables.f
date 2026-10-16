@@ -1820,12 +1820,12 @@
 	1     'Raw MAXCH level counted as a saturated BA demand')
 	  BA_SAT_CNT=0
 !
-	  BA_DEM_PFLOOR=0.0_LDP
+	  BA_DEM_PFLOOR=-1.0_LDP
 	  CALL RD_STORE_DBLE(BA_DEM_PFLOOR,'BA_DEM_PFLOOR',L_FALSE,
-	1     'Population floor for the BA demanded-correction metric')
-	  BA_DEM_RELFRAC=0.0_LDP
+	1     'Population floor for the BA demanded-corr metric (-1=auto)')
+	  BA_DEM_RELFRAC=-1.0_LDP
 	  CALL RD_STORE_DBLE(BA_DEM_RELFRAC,'BA_DEM_RELFRAC',L_FALSE,
-	1     'Demand floor as fraction of max population at the depth')
+	1     'Demand floor as frac of max pop at depth (-1=auto, 0=off)')
 	  BA_MAXCH_FAIL=1.0E+30_LDP
 	  CALL RD_STORE_DBLE(BA_MAXCH_FAIL,'BA_MAXCH_FAIL',L_FALSE,
 	1     'Reject and roll back a committed BA step above this change')
@@ -2506,24 +2506,24 @@
 	    END IF
 	  END IF
 !
-! Rule 4: trace-polish arming.  Only values left at their off
-! defaults are set; explicit user settings are respected.  The
-! demand floors exempt trace rows from the MAXCH metric, and
-! BA_TR_MAXSWP bounds the Stage-B polish sweeps once the majors
-! converge.
+! Rule 4: trace-polish arming.  Only values left at their auto (-1)
+! sentinels are set; explicit user settings, including 0 = off, are
+! respected.  The demand floors exempt trace rows from the MAXCH
+! metric, and BA_TR_MAXSWP bounds the Stage-B polish sweeps once the
+! majors converge.  An explicit BA_TR_MAXSWP=0 stays 0 and disables
+! the polish (BA_TRACE_NEEDED requires it > 0); the previous 0 -> 5
+! rewrite made the documented disable unreachable.
 !
 	  IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
-	    IF(BA_DEM_PFLOOR .EQ. 0.0_LDP)THEN
+	    IF(BA_DEM_PFLOOR .LT. 0.0_LDP)THEN
 	      BA_DEM_PFLOOR=1.0E-30_LDP
-	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_PFLOOR=1.0E-30'
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_PFLOOR=1.0E-30'//
+	1     ' (-1 auto)'
 	    END IF
-	    IF(BA_DEM_RELFRAC .EQ. 0.0_LDP)THEN
+	    IF(BA_DEM_RELFRAC .LT. 0.0_LDP)THEN
 	      BA_DEM_RELFRAC=0.01_LDP
-	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_RELFRAC=0.01'
-	    END IF
-	    IF(BA_TR_MAXSWP .EQ. 0)THEN
-	      BA_TR_MAXSWP=5
-	      WRITE(LUER,'(A)')' Trace auto-set: BA_TR_MAXSWP=5'
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_RELFRAC=0.01'//
+	1     ' (-1 auto)'
 	    END IF
 	    IF(BA_TR_ABSMAX .EQ. 0.0_LDP)THEN
 	      BA_TR_ABSMAX=1.0E-08_LDP
