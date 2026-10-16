@@ -1,6 +1,0 @@
-60 [NUM_ITS]       ! Init iterations (static BLANK model: 60 lambda iterations)
-T [DO_LAM_IT]      ! Lambda iteration on (all profiles)
-T [DO_LAM_AUTO]    ! Auto-switch lambda/ALI enabled for convergence
-F [DO_GT_AUTO]     ! No GT auto-update (FIX_T=T: T fixed to hydro)
-F [DO_T_AUTO]      ! No T auto-update (FIX_T=T: T fixed to hydro)
-T [D2_EQ_D1]       ! Tie depth-2 populations to depth-1 for stability
