@@ -4720,9 +4720,12 @@
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
-! out with the Stage-B sweep budget spent / still owed.  Checked in
-! precedence order -- a still-owed polish outranks the other flags
-! because it is the only case where trace work remained to do.
+! out with the Stage-B sweep budget spent.  Checked in precedence
+! order.  The "still owed" variant is only reachable on the
+! LST_ITERATION path: on a non-final iteration BA_TRACE_NEEDED arms
+! BA_STAGEB_ARM below, and .NOT. BA_STAGEB_ARM is part of the
+! converged-exit branch's guard, so the branch that prints this
+! string can never see BA_TRACE_NEEDED true.
 !
 	  CONV_EXIT_WHY='clean convergence (MAXCH < EPS, exempted demand small)'
 	  IF(BA_DEM_EXM .GE. BA_SAT_RAW)CONV_EXIT_WHY=
