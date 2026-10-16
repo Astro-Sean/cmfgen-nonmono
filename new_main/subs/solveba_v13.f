@@ -1728,7 +1728,7 @@
 	    END IF
 	  END IF
 !
-! edited by Devin, 16-Oct-2026: MAXCH_TRACE_ABS -- the absolute
+! edited by Devin, 16-Oct-2026: BA_TR_ABS -- the absolute
 ! committed change on the floor-exempted (trace) rows, normalized by
 ! POP_ATOM.  Relative change is meaningless across ~50 decades of
 ! population: 100% of 1E-55 carries no information, while a few

@@ -2440,7 +2440,7 @@
 	  WRITE(LUER,'(A,ES12.4)')
 	1    '    exempted demand (BA_DEM floors):',BA_DEM_EXM
 	  WRITE(LUER,'(A,ES12.4,2X,A,I3,A,I3,2X,A,L2)')
-	1    '    MAXCH_TRACE_ABS (|dn|/gas)    :',BA_TR_ABS,
+	1    '    BA_TR_ABS (|dn|/gas)          :',BA_TR_ABS,
 	2    'sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,'phase',BA_TRACE_PHASE
 	  WRITE(LUER,'(A,L2,3X,L2,3X,L2)')
 	1    '    next lam / comp_ba / fix_t    :',LAMBDA_ITERATION,
