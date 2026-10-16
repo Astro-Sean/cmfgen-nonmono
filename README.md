@@ -15,9 +15,9 @@ general correctness, build, and observation-frame fixes, so it is not a
 byte-for-byte copy of upstream.
 
 The private development repo is `Astro-Sean/cmfgen-nonmono` (CMFGEN is
-licensed code - keep the repo private). `main` is both the GitHub default
-and the development branch for this source, including JFNK. This checkout
-pushes to `origin/main`. `upstream` is the pristine
+licensed code - keep the repo private). All code lives on the
+`development` branch; `main` carries only a placeholder README. This
+checkout pushes to `origin/development`. `upstream` is the pristine
 `pitt-phyast/cmfsource`, used for fetching and diffing only.
 
 ## What the solver does
@@ -65,6 +65,58 @@ The new parts:
   lagged field settles, then switches to the faster Newton step.
 - `FGINEXT_GS` / `MOMJNXT_GS` checkpoint the lagged fields next to
   `POINT1/2`, so a restart picks up where it stopped.
+
+## Updated approach: demand floors and Stage-B trace polish
+
+![Stage-B trace-polish flow](docs/stage_b_flow.png)
+
+Regenerate with `python3 docs/plot_stage_b_flow.py`.
+
+On interacting-supernova models many levels are physically empty at
+some depths (a few 1e-20 or less of the local gas). They keep
+demanding large relative corrections that no solver can satisfy -
+cascade coupling refills them between solves - so the raw `MAXCH`
+metric never drops below the exit threshold and the model stalls at
+convergence.
+
+This tree treats those rows as trace species and handles them in two
+stages, both off by default:
+
+1. **Demand floors.** `BA_DEM_PFLOOR` (absolute population floor) and
+   `BA_DEM_RELFRAC` (fraction of the largest population at the depth)
+   exempt trace rows from `MAXCH` in `SOLVEBA_V13`. Their corrections
+   still commit - the floors only gate the metric. The largest
+   exempted demand is exported as `BA_DEM_EXM`, and the largest
+   committed trace change as `BA_TR_ABS` (|dn| normalised by the gas
+   density, since relative change is meaningless across ~50 decades).
+   Both print every call, so hidden demand is never silent.
+
+2. **Stage-B trace polish.** When the majors converge
+   (`MAXCH < EPS`) but exempted rows still move
+   (`BA_TR_ABS > BA_TR_ABSMAX`), `CMFGEN_SUB` arms `BA_TRACE_PHASE`
+   and runs one more great iteration instead of exiting, for up to
+   `BA_TR_MAXSWP` sweeps. Each sweep takes a direct BA step (JFNK and
+   LAMBDA are off in this phase, and `COMPUTE_BA` is forced so the
+   matrix is re-assembled), commits only the exempted rows, and
+   restores majors, electron density and temperature from `POPS_OLD`.
+   Trace species are one-way coupled - they absorb and emit but do
+   not feed back on J, ED or T - so solving them at a fixed major
+   state is the lower triangle of a block-triangular system.
+
+Exit fires when `BA_TR_ABS` falls below `BA_TR_ABSMAX` or the sweep
+budget runs out; a spent budget never holds the run. What remains is
+the unsatisfiable dead-stage class the floors were built for.
+
+What the run prints (all in `OUTGEN`):
+
+| Line | Meaning |
+|------|---------|
+| `Largest exempted demand at depth ... is X%` | `BA_DEM_EXM`: biggest correction hidden by the floors |
+| `exempted demand (BA_DEM floors)` | same quantity in `ITER_SUM` |
+| `MAXCH_TRACE_ABS (|dn|/gas)` | `BA_TR_ABS`: committed trace motion this call |
+| `Stage-B trace polish: sweep N of M` | armed sweep N, with `BA_TR_ABS` |
+| `Stage-B trace polish: majors/T/ED held` | solve committed trace rows only |
+| `Stage-B trace |dn|/gas at depth ...` | trace change left after the sweep |
 
 ## JFNK population solve
 
