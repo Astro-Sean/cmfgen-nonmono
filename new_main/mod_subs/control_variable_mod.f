@@ -1383,6 +1383,34 @@
 !
 	REAL(KIND=LDP) BA_DEM_EXM
 !
+! Block-triangular trace polish (edited by Devin, 16-Oct-2026).
+! Rows exempted by the BA_DEM floors are trace species: one-way
+! coupled (they absorb/emit but do not move J, ED, T or the major
+! populations), so once the majors converge they are polished by
+! Stage-B sweeps that update ONLY the exempted rows in SOLVEBA_V13
+! while the field and majors are held.  Relative change is the wrong
+! convergence metric over ~50 decades of population, so Stage B is
+! judged on the absolute committed change BA_TR_ABS = max |dn| over
+! trace rows, normalized by POP_ATOM (fraction of the local gas).
+!
+! BA_TR_MAXSWP (VADAT [BA_TR_MAXSWP], default 3): maximum Stage-B
+! sweeps after the major-species MAXCH<EPS condition is met; 0
+! disables the polish entirely.  Sweeps exhausted -> the exit fires
+! regardless of trace state: trace species must never pin the run.
+! BA_TR_ABSMAX (VADAT [BA_TR_ABSMAX], default 1.0D-8): trace
+! convergence threshold on BA_TR_ABS.
+! BA_TR_ABS (diagnostic export): written by SOLVEBA_V13 on every
+! call, 0 when no row is exempted.
+! BA_TRACE_PHASE / BA_TR_NSWP (module state): set/reset in
+! CMFGEN_SUB; BA_TRACE_PHASE tells SOLVEBA_V13 to commit only the
+! exempted rows and restore majors/T/ED from POPS_OLD.
+!
+	LOGICAL BA_TRACE_PHASE
+	INTEGER BA_TR_NSWP
+	INTEGER BA_TR_MAXSWP
+	REAL(KIND=LDP) BA_TR_ABS
+	REAL(KIND=LDP) BA_TR_ABSMAX
+!
 ! BA_MAXCH_FAIL (VADAT [BA_MAXCH_FAIL], default 1.0D30 = off):
 ! same-call hard rejection for a committed non-LAMBDA step in
 ! SOLVEBA_V13.  The residual-acceptance net (DO_BA_RES_ACC) judges a

@@ -5016,6 +5016,9 @@
 	  IF(DO_T_AUTO .AND. RD_FIX_T .AND. MAXCH_CTRL .LT. 50.0_LDP .AND.
 	1     .NOT. JFNK_UNCONVERGED_COMMIT .AND.
 	2     (LAST_LAMBDA .NE. MAIN_COUNTER))THEN
+! A DO_T_AUTO unfix reopens the temperature equation -- drop any
+! armed Stage-B phase so the next BA call is a full update.
+	       BA_TRACE_PHASE=.FALSE.
 	       RD_FIX_T=.FALSE.
 	       FIXED_T=RD_FIX_T
                COMPUTE_BA=.TRUE.
@@ -5040,14 +5043,40 @@
 ! so the hidden demand is never silent.  BA_DEM_EXM=0 whenever the
 ! floors are off, so the default path is unchanged.
 !
+! Block-triangular trace polish (same edit): exempted rows are
+! one-way coupled trace species.  Once the major-species condition
+! below is met, up to BA_TR_MAXSWP Stage-B sweeps run with
+! BA_TRACE_PHASE armed -- SOLVEBA_V13 commits only the exempted rows
+! while majors/T/ED are held and the field continues its normal
+! lagged refresh.  Exit fires when the absolute trace change
+! BA_TR_ABS falls below BA_TR_ABSMAX, or the sweeps run out: trace
+! state must never pin the global exit, so a spent sweep budget
+! also releases the BA_DEM_EXM hold (what remains after the polish
+! is the unsatisfiable dead-stage class the floors were built for).
+!
 	  ELSE IF( ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR. (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	1      .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
 	4      (BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
-	5      BA_DEM_EXM .GE. BA_SAT_RAW) .AND.
+	5      BA_DEM_EXM .GE. BA_SAT_RAW .OR.
+	6      (BA_TR_MAXSWP .GT. 0 .AND. BA_TR_NSWP .GE. BA_TR_MAXSWP)) .AND.
 	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3      .NOT. GS_POPS_HELD)THEN
+	    IF(BA_TR_MAXSWP .GT. 0 .AND.
+	1       (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
+	2        BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
+	3       BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
+	4       BA_TR_NSWP .LT. BA_TR_MAXSWP)THEN
+	      BA_TRACE_PHASE=.TRUE.
+	      BA_TR_NSWP=BA_TR_NSWP+1
+	      WRITE(LUER,'(A,I2,A,I2,A,ES10.2)')
+	1      ' Stage-B trace polish: sweep',BA_TR_NSWP,' of',
+	2      BA_TR_MAXSWP,'; trace |dn|/gas=',BA_TR_ABS
+	    ELSE
+	      BA_TRACE_PHASE=.FALSE.
 	      IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
+	    END IF
 	  ELSE
+	    BA_TRACE_PHASE=.FALSE.
 !
 ! If we are USING a fixed J, autmatically switched to variable J when convergence achieved.
 ! We switch when the convergence is 20%.

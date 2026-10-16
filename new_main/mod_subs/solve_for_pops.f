@@ -1453,6 +1453,12 @@
 	  WRITE(LUER,'(A,/)')REPEAT('~',LEN_TRIM(ITER_MSG))
 	END IF
 !
+! BA_TR_ABS/BA_DEM_EXM are exported inside SOLVEBA_V13 only; reset
+! before either solve path so a JFNK iteration never leaves a stale
+! trace-delta behind for the Stage-B trigger in CMFGEN_SUB.
+	BA_TR_ABS=0.0_LDP
+	BA_DEM_EXM=0.0_LDP
+!
 	IF(JFNK_THIS)THEN
 	  WRITE(LUER,'(/,A)')' ---------------------------------- JFNK ADMIT ---------------------------------'
 	  WRITE(LUER,'(A,ES12.4)')
@@ -2372,6 +2378,9 @@
 	1    '    last raw MAXCH                :',BA_LAST_RAW
 	  WRITE(LUER,'(A,ES12.4)')
 	1    '    exempted demand (BA_DEM floors):',BA_DEM_EXM
+	  WRITE(LUER,'(A,ES12.4,2X,A,I3,A,I3,2X,A,L2)')
+	1    '    MAXCH_TRACE_ABS (|dn|/gas)    :',BA_TR_ABS,
+	2    'sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,'phase',BA_TRACE_PHASE
 	  WRITE(LUER,'(A,L2,3X,L2,3X,L2)')
 	1    '    next lam / comp_ba / fix_t    :',LAMBDA_ITERATION,
 	2    COMPUTE_BA,FIXED_T

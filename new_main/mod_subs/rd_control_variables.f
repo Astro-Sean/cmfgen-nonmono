@@ -1819,6 +1819,15 @@
 	  BA_MAXCH_FAIL=1.0E+30_LDP
 	  CALL RD_STORE_DBLE(BA_MAXCH_FAIL,'BA_MAXCH_FAIL',L_FALSE,
 	1     'Reject and roll back a committed BA step above this change')
+	  BA_TR_MAXSWP=3
+	  CALL RD_STORE_INT(BA_TR_MAXSWP,'BA_TR_MAXSWP',L_FALSE,
+	1     'Stage-B trace-polish sweeps after majors converge (0=off)')
+	  BA_TR_ABSMAX=1.0E-08_LDP
+	  CALL RD_STORE_DBLE(BA_TR_ABSMAX,'BA_TR_ABSMAX',L_FALSE,
+	1     'Trace convergence: max |dn|/POP_ATOM over exempted rows')
+	  BA_TRACE_PHASE=.FALSE.
+	  BA_TR_NSWP=0
+	  BA_TR_ABS=0.0_LDP
 	  DO_FG13_ALO=.FALSE.
 	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
 	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')

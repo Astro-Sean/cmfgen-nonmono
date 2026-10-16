@@ -18,7 +18,7 @@
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
 	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
 	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES,
-	3     BA_DEM_EXM
+	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -118,6 +118,7 @@
 	REAL(KIND=LDP) STEQ_MASKED_MAX
 	REAL(KIND=LDP) STEQ_EXM
 	INTEGER IEXM,JEXM
+	INTEGER ITRC,JTRC
 	REAL(KIND=LDP) BIG_LIM,LIT_LIM
 ! Allocatable, not automatic: NT*ND is too large to trust to the stack
 ! on nodes with a limited stack size.
@@ -1190,6 +1191,7 @@
 	IEXM=0
 	JEXM=0
 	BA_DEM_EXM=0.0_LDP
+	BA_TR_ABS=0.0_LDP
 	DO I=1,ND
 	  COUNT(:)=0
 !
@@ -1265,6 +1267,8 @@
 	1   '          --- iteration ',MAIN_COUNTER
 	END IF
 9215	FORMAT(' Largest exempted demand at depth ',I4,' is',ES10.2,'%  (',
+	1        A,')',A,I4)
+9216	FORMAT(' Stage-B trace |dn|/gas at depth ',I4,' is',ES10.2,'  (',
 	1        A,')',A,I4)
 !
 	DECREASE=100.0_LDP*DECREASE
@@ -1591,6 +1595,37 @@
 !
 	IF(LTE_MODEL)CALL SET_POPS_TO_PURE_LTE(POPS,NT,ND)
 !
+! edited by Devin, 16-Oct-2026: Stage-B trace polish.  When
+! BA_TRACE_PHASE is armed by CMFGEN_SUB (majors converged, trace
+! deltas still above BA_TR_ABSMAX) the committed update is restricted
+! to the BA_DEM-floor-exempted rows; majors, ED and T are restored
+! from POPS_OLD.  Trace species are one-way coupled -- they absorb
+! and emit but do not feed back on J/ED/T at their populations -- so
+! solving them at a fixed major/field state is the lower triangle of
+! the block-triangular system and cannot oscillate against the
+! majors.  Armed only when a floor is set (otherwise the mask is
+! empty and every row is a major); LAMBDA calls are exempt.
+!
+	IF(BA_TRACE_PHASE .AND. .NOT. LAMBDA_IT .AND.
+	1   ALLOCATED(POPS_OLD) .AND.
+	2   (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
+	3    BA_DEM_RELFRAC .GT. 0.0_LDP))THEN
+	  DO I=1,ND
+	    T2=0.0_LDP
+	    IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_OLD(1:NT-2,I))
+	    DO J=1,NT-2
+	      IF(POPS_OLD(J,I) .GE. BA_DEM_PFLOOR .AND.
+	1         POPS_OLD(J,I) .GE. T2)POPS(J,I)=POPS_OLD(J,I)
+	    END DO
+	    POPS(NT-1,I)=POPS_OLD(NT-1,I)
+	    POPS(NT,I)=POPS_OLD(NT,I)
+	  END DO
+	  WRITE(LUER,'(A,I4)')
+	1  ' Stage-B trace polish: majors/T/ED held --- iteration ',
+	2  MAIN_COUNTER
+	END IF
+!
 ! edited by Devin, 29-Sep-2026: report the maximum population change
 ! actually committed after FIDDLE_POP_CORRECTIONS_V2 / scale limits.
 ! The raw STEQ-based MAXCH can be 1.0E+7 for a pre-limit decrease that
@@ -1691,6 +1726,38 @@
 	      MAXCH=1.5E+05_LDP
 	      MAXCH_APP=MAXCH
 	    END IF
+	  END IF
+!
+! edited by Devin, 16-Oct-2026: MAXCH_TRACE_ABS -- the absolute
+! committed change on the floor-exempted (trace) rows, normalized by
+! POP_ATOM.  Relative change is meaningless across ~50 decades of
+! population: 100% of 1E-55 carries no information, while a few
+! percent on 1E-5 matters.  Reported every call so Stage-B polish
+! progress (and hidden trace motion before it) is visible; it is
+! diagnostic only and does not gate MAXCH.  Runs on the final
+! committed state, so a rejected step reads 0.
+!
+	  ITRC=0
+	  JTRC=0
+	  DO I=1,ND
+	    T2=0.0_LDP
+	    IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_OLD(1:NT-2,I))
+	    DO J=1,NT-2
+	      IF(POPS_OLD(J,I) .GE. BA_DEM_PFLOOR .AND.
+	1         POPS_OLD(J,I) .GE. T2)CYCLE
+	      T1=ABS(POPS(J,I)-POPS_OLD(J,I))/
+	1         MAX(POP_ATOM(I),1.0E-30_LDP)
+	      IF(T1 .GT. BA_TR_ABS)THEN
+	        BA_TR_ABS=T1
+	        ITRC=I
+	        JTRC=J
+	      END IF
+	    END DO
+	  END DO
+	  IF(JTRC .GT. 0 .AND. BA_TRACE_PHASE)THEN
+	    WRITE(LUER,9216)ITRC,BA_TR_ABS,TRIM(EQ_DESC(JTRC)),
+	1   '          --- iteration ',MAIN_COUNTER
 	  END IF
 	  DEALLOCATE(POPS_OLD)
 	END IF
