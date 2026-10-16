@@ -1422,6 +1422,11 @@
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')
 	  IF(JFNK_MAX_SEC .LT. 0.0_LDP)JFNK_MAX_SEC=0.0_LDP
+	  IF(USE_JFNK_SOLVER .AND. JFNK_MAX_SEC .EQ. 0.0_LDP)THEN
+	    WRITE(LUER,*)'Warning: DO_JFNK is set but JFNK_MAX_SEC=0.'
+	    WRITE(LUER,*)'No wall-clock budget guards the JFNK solve;'
+	    WRITE(LUER,*)'a stalled activation can consume the job.'
+	  END IF
 !
 	  JFNK_PRECOND_TYPE='LU'
 	  CALL RD_STORE_CHAR(JFNK_PRECOND_TYPE,'JFNK_PRECOND',L_FALSE,

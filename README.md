@@ -142,6 +142,14 @@ recomputed radiation field during the residual evaluations, and the
 lagged non-monotonic intensity store is held fixed for the duration of
 each evaluation.
 
+Each activation is bounded by iteration and restart caps plus two
+budgets: `JFNK_MAX_EVALS` (residual evaluations) and `JFNK_MAX_SEC`
+(wall-clock seconds per activation). Both default to 0, meaning off;
+when `DO_JFNK` is set with no wall-clock budget the input reader
+prints a warning that a stalled activation could consume the job.
+Exhausting a budget forces the rejection path, so the iteration falls
+back to the stock update rather than aborting.
+
 ## Validation status
 
 The Newton-Krylov path is off by default. Admission waits for a warmup
