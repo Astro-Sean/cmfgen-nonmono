@@ -544,6 +544,16 @@
 	INTEGER N_STABLE_LAM
 	INTEGER CNT_STABLE_LAM
 !
+! LAM_STABLE_PROVEN (no VADAT key): latched copy of the stability
+! proof CNT_STABLE_LAM >= N_STABLE_LAM represents.  The live count is
+! zeroed by the same stable-exit release that makes the next call
+! non-LAMBDA, so a consumer that needs the proof on the released
+! call (the JFNK hysteresis relief in SOLVE_FOR_POPS) cannot read it
+! from the counter.  Set wherever the count earns the threshold,
+! cleared on the same instability resets that zero the count.
+!
+	LOGICAL LAM_STABLE_PROVEN
+!
 ! FRESH_BA_EXIT (VADAT [FRESH_BA_EXIT], default F): when a LAMBDA
 ! sequence exits to a full step, force COMPUTE_BA and WRBAMAT for
 ! the next iteration so the full step runs against a Jacobian built

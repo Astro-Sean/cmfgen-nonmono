@@ -2260,6 +2260,7 @@
 	1      '# consecutive below-LAM_EXIT its needed to exit LAMBDA')
 	  IF(N_STABLE_LAM .LT. 1)N_STABLE_LAM=1
 	  CNT_STABLE_LAM=0
+	  LAM_STABLE_PROVEN=.FALSE.
 !
 ! BA_ENTER_RAW (optional, default 1E30 = gate off): while the raw
 ! demand of the last non-LAMBDA step is still at/above this level,

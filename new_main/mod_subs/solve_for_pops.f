@@ -1320,8 +1320,18 @@
 ! only the multi-call hit count is relaxed.
 !
 	    JFNK_NREQ_EFF=JFNK_GATE_NREQ
-	    IF(DO_NONMONO_SOB .AND.
-	1       CNT_STABLE_LAM .GE. N_STABLE_LAM)JFNK_NREQ_EFF=1
+!
+! The relief cannot key on the live count: CNT_STABLE_LAM is zeroed
+! by the stable-exit release that produced this eligible call, so
+! CNT_STABLE_LAM >= N_STABLE_LAM was never true inside this IF.
+! LAM_STABLE_PROVEN latches the earned count at the exit and stays
+! set until the next instability reset (edited by Devin, 16-Oct-2026).
+!
+	    IF(DO_NONMONO_SOB .AND. LAM_STABLE_PROVEN)THEN
+	      JFNK_NREQ_EFF=1
+	      WRITE(LUER,'(A)')'    JFNK: stable-LAMBDA relief active'//
+	1     ' (frozen-tier NREQ -> 1)'
+	    END IF
 	    IF(JFNK_GATE_IN .GT. 0.0_LDP .AND.
 	1       (JFNK_DEM_IN .GE. JFNK_GATE_IN .OR.
 	2        JFNK_FRZ_HITS .LT. JFNK_NREQ_EFF))THEN
@@ -2129,14 +2139,19 @@
 ! edited by Devin: DO_LAM_AUTO's initial non-monotonic handoff uses
 ! the same applied-change stability count as later LAMBDA exits.  A
 ! forced/frozen or luminosity-drifting call cannot establish readiness.
-	IF(FORCE_LAMBDA)CNT_STABLE_LAM=0
+	IF(FORCE_LAMBDA)THEN
+	  CNT_STABLE_LAM=0
+	  LAM_STABLE_PROVEN=.FALSE.
+	END IF
 	IF(RD_LAMBDA .AND. DO_LAMBDA_AUTO .AND. LAMBDA_ITERATION .AND.
 	1   (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP))THEN
 	  IF(FORCE_LAMBDA .OR. LUM_BLOCKED .OR.
 	1      MAXCH_CTRL .GE. VAL_EXIT_LAM)THEN
 	    CNT_STABLE_LAM=0
+	    LAM_STABLE_PROVEN=.FALSE.
 	  ELSE
 	    CNT_STABLE_LAM=CNT_STABLE_LAM+1
+	    IF(CNT_STABLE_LAM .GE. N_STABLE_LAM)LAM_STABLE_PROVEN=.TRUE.
 	  END IF
 !
 ! edited by Devin, 11-Oct-2026: [BA_PROBE_LAM]-cadence bounded probe
@@ -2172,7 +2187,10 @@
 ! still requires MAXCH < 50 for the switch, so the arm only matters
 ! while the LAMBDA demand stays sane.  Dead once RD_LAMBDA clears.
 !
-	  IF(BA_RDLAM_ACCEPT)CNT_STABLE_LAM=N_STABLE_LAM
+	  IF(BA_RDLAM_ACCEPT)THEN
+	    CNT_STABLE_LAM=N_STABLE_LAM
+	    LAM_STABLE_PROVEN=.TRUE.
+	  END IF
 	END IF
 	IF(.NOT. RD_LAMBDA .AND. .NOT. FORCE_LAMBDA)THEN
 	  IF(LAMBDA_ITERATION)THEN
@@ -2180,8 +2198,10 @@
 	        CNT_STABLE_LAM=CNT_STABLE_LAM+1
 	     ELSE
 	        CNT_STABLE_LAM=0
+	        LAM_STABLE_PROVEN=.FALSE.
 	     END IF
 	     IF(CNT_STABLE_LAM .GE. N_STABLE_LAM)THEN
+	       LAM_STABLE_PROVEN=.TRUE.
 	       IF(LUM_BLOCKED)THEN
 !
 ! BA_LUM_GATE: the pops are quiet enough to leave LAMBDA but the
@@ -2311,6 +2331,7 @@
 	        COMPUTE_BA=.TRUE.
 	        CNT_LAM=0
 	        CNT_STABLE_LAM=0
+	        LAM_STABLE_PROVEN=.FALSE.
 	        N_ACC_FULL=0
 	        T_HELD_PHASE=.FALSE.
 	        FIXED_T=.TRUE.
@@ -2330,6 +2351,7 @@
 	        COMPUTE_BA=.TRUE.
 	        CNT_LAM=0
 	        CNT_STABLE_LAM=0
+	        LAM_STABLE_PROVEN=.FALSE.
 	        N_ACC_FULL=0
 	        T_HELD_PHASE=.FALSE.
 	        FIXED_T=.TRUE.
@@ -2354,6 +2376,7 @@
 	        FIX_IMPURITY=.FALSE.
 	        CNT_LAM=0
 	        CNT_STABLE_LAM=0
+	        LAM_STABLE_PROVEN=.FALSE.
 	        FIXED_T=.TRUE.
 	        CALL APPEND_ITER_REASON(ITER_REASON,'ba_damped_full')
 	     ELSE IF(MAXCH_CTRL .LT. VAL_ENTER_LAM)THEN
@@ -2379,6 +2402,7 @@
 	        COMPUTE_BA=.TRUE.
 	        CNT_LAM=0
 	        CNT_STABLE_LAM=0
+	        LAM_STABLE_PROVEN=.FALSE.
 	        N_ACC_FULL=0
 	        T_HELD_PHASE=.FALSE.
 	        FIXED_T=.TRUE.
