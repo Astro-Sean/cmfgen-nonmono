@@ -113,7 +113,8 @@ stages, both off by default:
    trace rows from the convergence metric. Their corrections still
    commit - the floors only gate the metric. The largest exempted
    demand and the largest committed trace change are reported every
-   call, so hidden demand is never silent.
+   call, on both the stock and Newton-Krylov solve paths, so hidden
+   demand is never silent.
 
 2. **Trace polish sweeps.** When the major species converge but
    exempted rows are still moving, the run arms a polish phase and
@@ -129,6 +130,14 @@ The run exits when the trace motion falls below its threshold or the
 sweep budget runs out; a spent budget never holds the run. What
 remains is the unsatisfiable dead-stage class the floors were built
 for.
+
+The exit test itself gates on the demanded correction, not the applied
+step, so a capped or held update cannot release the exit while demand
+remains. The test is evaluated before the final-iteration branch, so a
+run whose iteration budget ends exactly on a converged state still
+gets the convergence check and a report of which exit it took - clean
+convergence, a saturated exempted demand, or a spent polish budget -
+rather than writing out untested.
 
 ## Newton-Krylov population solve
 
