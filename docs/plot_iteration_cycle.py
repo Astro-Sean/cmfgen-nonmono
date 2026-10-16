@@ -40,7 +40,7 @@ BOX_X = 0.75           # left edge of the main column
 TXT_PAD_L = 0.28       # text indent inside a box
 TXT_PAD_R = 0.25       # clearance between text and box edge
 RMARGIN = 0.3          # right edge margin
-GAP = 0.62             # vertical gap left for arrows between boxes
+GAP = 0.45             # vertical gap left for arrows between boxes
 DPI = 160
 FIG_W_IN = 13.6
 AX_W_FRAC = 0.775      # default subplots_adjust: right 0.9 - left 0.125
@@ -106,7 +106,7 @@ BOXES = [
 DONE_TITLE = "Done"
 DONE_LINES = [
     "populations have stopped changing;",
-    "CMF_FLUX then computes the spectrum",
+    "a separate tool computes the spectrum",
 ]
 
 DEC_TEXT = "converged?"
@@ -201,7 +201,7 @@ XLIM = S
 total_h = sum(box_height(b["lines"]) for b in BOXES)
 dec_h, done_h = 0.85, box_height(DONE_LINES)
 # +1.0 headroom for the legend row under the title
-fig_h = total_h + GAP * (len(BOXES) + 1) + dec_h + done_h + 2.2
+fig_h = total_h + GAP * (len(BOXES) + 1) + dec_h + done_h + 1.9
 
 fig, ax = plt.subplots(figsize=(FIG_W_IN, fig_h * 0.58))
 ax.set_xlim(0, XLIM)
