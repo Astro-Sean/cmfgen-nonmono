@@ -17,13 +17,18 @@
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
 	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
-	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES
+	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES,
+	3     BA_DEM_EXM
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
 	IMPLICIT NONE
 !
+! Altered 16-Oct-2026 : Largest exempted (floor-hidden) demand is
+!                          exported as BA_DEM_EXM and named in OUTGEN;
+!                          the MAXCH metric itself is unchanged
+!                          (edited by Devin).
 ! Altered 15-Oct-2026 : SE residual measured on every call (not only
 !                          under DO_BA_RES_ACC); BA_COL_RES exported
 !                          for the ITER_SUM depth profile (edited by Devin).
@@ -111,6 +116,8 @@
 	REAL(KIND=LDP) SCALE,MINSCALE,T1,T2,T3
 	REAL(KIND=LDP) INCREASE,DECREASE
 	REAL(KIND=LDP) STEQ_MASKED_MAX
+	REAL(KIND=LDP) STEQ_EXM
+	INTEGER IEXM,JEXM
 	REAL(KIND=LDP) BIG_LIM,LIT_LIM
 ! Allocatable, not automatic: NT*ND is too large to trust to the stack
 ! on nodes with a limited stack size.
@@ -1179,6 +1186,10 @@
 	IINC=0
 	JDEC=0
 	JINC=0
+	STEQ_EXM=0.0_LDP
+	IEXM=0
+	JEXM=0
+	BA_DEM_EXM=0.0_LDP
 	DO I=1,ND
 	  COUNT(:)=0
 !
@@ -1223,6 +1234,38 @@
 	  WRITE(LU_SUM,'(8I8)')I,COUNT(7:1:-1)
 	END DO
 	CLOSE(LU_SUM)
+!
+! edited by Devin, 16-Oct-2026: the exempted rows' largest demand is
+! exported as BA_DEM_EXM so a floor-hidden correction (e.g. a trace
+! species below the relative floor) is still visible in OUTGEN and
+! can gate the convergence exit in CMFGEN_SUB.  STEQ is fractional;
+! the export uses the same percent scale as DECREASE/INCREASE.  A
+! second scan is cheaper than folding into the masked loop above:
+! the exempted set is exactly the rows the two floor tests skipped.
+!
+	DO I=1,ND
+	  T2=0.0_LDP
+	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
+	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,I))
+	  DO J=1,NT-2
+	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	1       POPS(J,I) .LT. BA_DEM_PFLOOR .OR.
+	2       POPS(J,I) .LT. T2)THEN
+	      IF(ABS(STEQ(J,I)) .GT. STEQ_EXM)THEN
+	        STEQ_EXM=ABS(STEQ(J,I))
+	        IEXM=I
+	        JEXM=J
+	      END IF
+	    END IF
+	  END DO
+	END DO
+	BA_DEM_EXM=100.0_LDP*STEQ_EXM
+	IF(JEXM .GT. 0)THEN
+	  WRITE(LUER,9215)IEXM,BA_DEM_EXM,TRIM(EQ_DESC(JEXM)),
+	1   '          --- iteration ',MAIN_COUNTER
+	END IF
+9215	FORMAT(' Largest exempted demand at depth ',I4,' is',ES10.2,'%  (',
+	1        A,')',A,I4)
 !
 	DECREASE=100.0_LDP*DECREASE
 	INCREASE=100.0_LDP*INCREASE

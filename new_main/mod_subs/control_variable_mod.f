@@ -1374,6 +1374,15 @@
 !
 	REAL(KIND=LDP) BA_DEM_RELFRAC
 !
+! BA_DEM_EXM (diagnostic export, not a VADAT key): largest demanded
+! correction over the rows the BA_DEM floors exempted this call,
+! written by SOLVEBA_V13 on the same percent scale as MAXCH.  It
+! exists so a hidden-but-large trace-species demand is visible in
+! OUTGEN/MODCTL instead of silently dropping out of the metric;
+! the metric itself is unchanged.
+!
+	REAL(KIND=LDP) BA_DEM_EXM
+!
 ! BA_MAXCH_FAIL (VADAT [BA_MAXCH_FAIL], default 1.0D30 = off):
 ! same-call hard rejection for a committed non-LAMBDA step in
 ! SOLVEBA_V13.  The residual-acceptance net (DO_BA_RES_ACC) judges a

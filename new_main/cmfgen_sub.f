@@ -5028,8 +5028,22 @@
 ! (KNOP_mom_cold wrote RVTJ and exited at it6 this way with the
 ! moment sweep at refresh delta=3.1E10).
 !
+! edited by Devin, 16-Oct-2026: the BA_DEM floors exempt rows from
+! MAXCH, so a species below the relative floor can still be demanding
+! real corrections when MAXCH < EPS fires the converged exit.
+! BA_DEM_EXM reports the largest exempted demand; the exit is held
+! only for a material hidden demand (above MAX(10*EPS,1%)) that is
+! not saturated (>= BA_SAT_RAW).  Persistent sub-percent dead-stage
+! noise (OI/OSIX re-demand ~0.3-0.9% at 1e-23-1e-39 relative pops)
+! stays exempt -- blocking on it would re-pin the run on demands the
+! solver can never satisfy.  BA_DEM_EXM is still printed every call
+! so the hidden demand is never silent.  BA_DEM_EXM=0 whenever the
+! floors are off, so the default path is unchanged.
+!
 	  ELSE IF( ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR. (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	1      .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	4      (BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
+	5      BA_DEM_EXM .GE. BA_SAT_RAW) .AND.
 	2      NUM_ITS_TO_DO .NE. 0 .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3      .NOT. GS_POPS_HELD)THEN
 	      IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
