@@ -215,9 +215,12 @@ d1_yc = y - dec_h / 2
 draw_diamond(ax, X_MAIN, d1_yc, dec_w, dec_h, DEC1)
 arrow(ax, X_MAIN, bounds[-1][0], X_MAIN, d1_yc + dec_h / 2)
 
-# Side box: normal exit/continue for the "no" branch.
-yb_side, h_side = draw_box(ax, X_SIDE, y + dec_h / 2, SIDE["title"],
-                           SIDE["lines"], SIDE["kind"], BOX_W)
+# Side box: normal exit/continue for the "no" branch, centred on
+# the arrow leaving the diamond.
+h_side = box_height(SIDE["lines"])
+yb_side, h_side = draw_box(ax, X_SIDE, d1_yc + h_side / 2,
+                           SIDE["title"], SIDE["lines"],
+                           SIDE["kind"], BOX_W)
 arrow(ax, X_MAIN + dec_w / 2, d1_yc, X_SIDE - BOX_W / 2, d1_yc)
 ax.text((X_MAIN + dec_w / 2 + X_SIDE - BOX_W / 2) / 2, d1_yc + 0.3,
         "No", fontsize=8.6, color="#444444", ha="center")
