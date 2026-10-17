@@ -165,6 +165,18 @@ def main():
             "baseline: ALLOW_SIGMA_UNDEF defaults F",
             v.get("ALLOW_SIGMA_UNDEF") == "F",
         )
+        rep.check(
+            "baseline: absent JFNK_FADAPT defaults T",
+            v.get("JFNK_FADAPT") == "T",
+        )
+        rep.check(
+            "baseline: absent JFNK_FDCPLX defaults F",
+            v.get("JFNK_FDCPLX") == "F",
+        )
+        rep.check(
+            "baseline: absent JFNK_ESFR defaults F",
+            v.get("JFNK_ESFR") == "F",
+        )
 
     cases = [
         # (name, mutations, expect_ok, expect_stdout_substr)
@@ -175,25 +187,25 @@ def main():
             "mutually exclusive",
         ),
         (
-            "DO_NONMONO_SOB + GLOBAL_LINE=BLANK aborts",
+            "DO_NONMONO_SOB + GLOBAL_LINE=BLANK auto-sets to SOB",
             {"GLOBAL_LINE": "BLANK"},
-            False,
-            "requires GLOBAL_LINE=SOB",
+            True,
+            "SOB auto-set: GLOBAL_LINE=SOB",
         ),
         (
-            "DO_NONMONO_SOB + USE_LAM_ES=F warns but parses",
+            "DO_NONMONO_SOB + USE_LAM_ES=F auto-sets to T",
             {"USE_LAM_ES": "F"},
             True,
-            "USE_LAM_ES=F",
+            "SOB auto-set: USE_LAM_ES=T",
         ),
         (
-            "DO_NONMONO_KNOP + GLOBAL_LINE=SOB aborts",
+            "DO_NONMONO_KNOP + GLOBAL_LINE=SOB auto-sets to BLANK",
             {"DO_NONMONO_SOB": "F", "DO_NONMONO_KNOP": "T", "DO_JFNK": "F"},
-            False,
-            "requires GLOBAL_LINE=BLANK",
+            True,
+            "KNOP auto-set: GLOBAL_LINE=BLANK",
         ),
         (
-            "DO_NONMONO_KNOP + LAM_SET=T aborts",
+            "DO_NONMONO_KNOP + LAM_SET=T auto-sets to F",
             {
                 "DO_NONMONO_SOB": "F",
                 "DO_NONMONO_KNOP": "T",
@@ -201,8 +213,8 @@ def main():
                 "LAM_SET": "T",
                 "DO_JFNK": "F",
             },
-            False,
-            "requires LAM_SET=F",
+            True,
+            "KNOP auto-set: LAM_SET=F",
         ),
         (
             "DO_JFNK without non-mono mode aborts",
@@ -233,6 +245,12 @@ def main():
             {"IB_METH": "BOGUS"},
             False,
             "Invalid INNER_BND_METH",
+        ),
+        (
+            "BA_DAMP_CAP in (0,1] aborts",
+            {"BA_DAMP_CAP": "0.5D0"},
+            False,
+            "BA_DAMP_CAP = 0 (off) or > 1.0",
         ),
     ]
     for name, muts, expect_ok, needle in cases:
@@ -282,6 +300,22 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # New JFNK Phase-C keys parse and land when present.
+    d = write_vadat(
+        WORKDIR / "vadat_newkeys",
+        {"JFNK_FADAPT": "F", "JFNK_FDCPLX": "T", "JFNK_ESFR": "T"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "JFNK_FADAPT/FDCPLX/ESFR parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_FADAPT") == "F"
+        and v.get("JFNK_FDCPLX") == "T"
+        and v.get("JFNK_ESFR") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # DO_NONLOC_SOB without DO_NONMONO_SOB -> forced off with warning.
     d = write_vadat(
         WORKDIR / "vadat_nonloc",
@@ -327,15 +361,16 @@ def main():
         "RESULT_OK" in p.stdout and v.get("INNER_BND_METH", "").strip() == "DIFFUSION",
     )
 
-    # JFNK_PTC key lands in the solver module (dtau has no VADAT key:
-    # it is fixed at 1.0 by the reader).
+    # JFNK_PTC=F is force-flipped by the JFNK auto-set (the
+    # transcendental-corrector stub is mandatory while JFNK is armed).
     d = write_vadat(WORKDIR / "vadat_ptc", {"JFNK_PTC": "F"})
     p = run_vadat(exe, d)
     v = parse(p.stdout)
     rep.check(
-        "JFNK_PTC key lands in solver module",
+        "JFNK_PTC=F auto-sets to T",
         "RESULT_OK" in p.stdout
-        and v.get("JFNK_PTC_ACTIVE") == "F"
+        and "JFNK auto-set: JFNK_PTC=T" in p.stdout
+        and v.get("JFNK_PTC_ACTIVE") == "T"
         and abs(float(v.get("JFNK_PTC_DTAU", "nan").replace("D", "E")) - 1.0) < 1e-9,
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
