@@ -18,7 +18,8 @@
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
 	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
 	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES,
-	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS
+	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS,POPS_GS_SAVE,
+	4     BA_HOLD_RESTORE_REVIVAL
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -136,6 +137,7 @@
 	1    LADV_OK
 	REAL(KIND=LDP) STEQ_QMAX
 	LOGICAL REJ_BULK,REJ_MAX,REJ_STATE,REJ_PART,WLD_REJ
+	LOGICAL, SAVE :: BAACC_R2GATE_PRINTED=.FALSE.
 	INTEGER, SAVE :: PV_JI=0,PV_II=0,PV_JD=0,PV_ID=0
 	LOGICAL OSC_FL
 	INTEGER COUNT(7)
@@ -415,8 +417,23 @@
 	  END DO
 	  BA_SE_RES2=MAXVAL(COL_RES_S)
 	  RES2_COL=MAXLOC(COL_RES_S,1)
-	  IF(BA_SE_RES2 .LT. BAACC_RES2_MIN)
-	1    BAACC_RES2_MIN=BA_SE_RES2
+!
+! RES2 minima obey the same pending gate as the RES/COL minima
+! above: a ratchet on an unjudged call (LAMBDA, demoted, held)
+! tightens the BA_RES_HARD bound at :534 on a value no acceptance
+! test produced, so the next legitimate FULL call trips a phantom
+! rejection and the run settles into forced RA_LAMBDA alternation.
+!
+	  IF(BAACC_PENDING)THEN
+	    IF(.NOT. BAACC_R2GATE_PRINTED .AND.
+	1      CONV_DIAG_LVL .GE. 2)THEN
+	      WRITE(LUER,'(A)')
+	1   '    BA_RES_ACC: RES2-min ratchet is now acceptance-gated'
+	      BAACC_R2GATE_PRINTED=.TRUE.
+	    END IF
+	    IF(BA_SE_RES2 .LT. BAACC_RES2_MIN)
+	1      BAACC_RES2_MIN=BA_SE_RES2
+	  END IF
 !
 ! Per-depth export for the ITER_SUM residual profile (15-Oct-2026).
 !
@@ -459,6 +476,9 @@
 	    WRITE(LUER,'(A,2I6,2A)')
 	1    '    worst eqn (var,depth)           :',RES_LOC(1),
 	1    RES_LOC(2),'  ',TRIM(EQ_DESC(RES_LOC(1)))
+	    IF(BA_HOLD_RESTORE_REVIVAL .GT. 0_8)WRITE(LUER,'(A,I6)')
+	1    '    held-snapshot restore revivals  :',
+	2    BA_HOLD_RESTORE_REVIVAL
 	  END IF
 ! edited by Devin, 29-Sep-2026: a non-finite residual (NaN or Inf in
 ! STEQ) fails every comparison below and so was silently accepted --
@@ -774,7 +794,27 @@
 	    BA_NREJ=BA_NREJ+1
 	    BA_NREJ_CONSEC=BA_NREJ_CONSEC+1
 	    BA_TRUST_CUR=MAX(1.0_LDP,0.5_LDP*BA_TRUST_CUR)
-	    IF(ALLOCATED(POPS_BA_SAVE))THEN
+!
+! Snapshot-source contract: POPS_BA_SAVE is only refreshed on
+! non-LAMBDA calls whose POPS equal the last committed state
+! (solve_for_pops restores POPS_GS_SAVE after every held call,
+! :1401-1426), so inside a held sequence the two snapshots are
+! identical and either would do.  The post-:518 deferral means a
+! restore can only run on an unheld call, but if the hold flag is
+! ever armed while adjudication runs (contract violation), the
+! caller's mandated restore target POPS_GS_SAVE is the fresher,
+! committed-side state and wins.  The swap is counted so the
+! event is loud rather than silently absorbed.
+!
+	    IF(GS_POPS_HELD .AND. ALLOCATED(POPS_GS_SAVE) .AND.
+	1      SIZE(POPS_GS_SAVE,1) .EQ. NT .AND.
+	2      SIZE(POPS_GS_SAVE,2) .EQ. ND)THEN
+	      POPS=POPS_GS_SAVE
+	      BA_HOLD_RESTORE_REVIVAL=BA_HOLD_RESTORE_REVIVAL+1_8
+	      WRITE(LUER,'(A)')
+	1   'BA_RES_ACC: held-sequence restore revived from'//
+	2   ' POPS_GS_SAVE (snapshot overlap)'
+	    ELSE IF(ALLOCATED(POPS_BA_SAVE))THEN
 	      IF(SIZE(POPS_BA_SAVE,1) .EQ. NT .AND.
 	1         SIZE(POPS_BA_SAVE,2) .EQ. ND)THEN
 	        POPS=POPS_BA_SAVE

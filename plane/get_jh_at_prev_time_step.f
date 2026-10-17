@@ -109,13 +109,24 @@
             STOP
 	  END IF
 !
-	  READ(LU_IN,REC=3)ST_IREC,NCF_OLD,ND_OLD
+	  READ(LU_IN,REC=3,IOSTAT=IOS)ST_IREC,NCF_OLD,ND_OLD
+          IF(IOS .NE. 0)THEN
+            WRITE(LU_ER,*)'Error reading JH_AT_OLD_TIME header rec'
+            WRITE(LU_ER,*)'IOS=',IOS
+            STOP
+	  END IF
 !
 	  ALLOCATE (OLD_V(ND_OLD))
 	  ALLOCATE (OLD_R(ND_OLD))
 !
 	  IREC=ST_IREC
-	  READ(LU_IN,REC=IREC)OLD_R,OLD_V;    IREC=IREC+1
+	  READ(LU_IN,REC=IREC,IOSTAT=IOS)OLD_R,OLD_V
+          IF(IOS .NE. 0)THEN
+            WRITE(LU_ER,*)'Error reading JH_AT_OLD_TIME R/V rec'
+            WRITE(LU_ER,*)'IOS=',IOS
+            STOP
+	  END IF
+	  IREC=IREC+1
 !
 ! The J/H lookup is performed on LOG(V), so V must be positive and
 ! single-valued in radius.  A repeated or reversed velocity would make the
@@ -326,8 +337,14 @@
 !
 	  DO ML=1,NSM
 	    COUNTER=COUNTER+1
-	    READ(LU_IN,REC=IREC)(JST(I,ML),I=1,ND_OLD),(HST(I,ML),I=1,ND_OLD-1),
+	    READ(LU_IN,REC=IREC,IOSTAT=IOS)(JST(I,ML),I=1,ND_OLD),
+	1                          (HST(I,ML),I=1,ND_OLD-1),
 	1                          H_INBC_ST(ML),H_OUTBC_ST(ML),NUST(ML)
+            IF(IOS .NE. 0)THEN
+              WRITE(LU_ER,*)'Error reading JH_AT_OLD_TIME J/H rec',IREC
+              WRITE(LU_ER,*)'IOS=',IOS
+              STOP
+	    END IF
 	    IREC=IREC+1
 !	    WRITE(250,'(7ES14.5)')NUST(ML),JST(1,ML),HST(1,ML),JST(ND_OLD,ML),HST(ND_OLD-1,ML),
 !	1                          H_INBC_ST(ML),H_OUTBC_ST(ML)
@@ -352,6 +369,11 @@
 	  WRITE(LU_ER,'(A,ES16.6,A,ES16.6)')'NU=',NU,'NUST=',NUST(1)
 	END IF
 !
+	IF(.NOT. (NU .LE. HUGE(1.0_LDP)))THEN
+	  WRITE(LU_ER,*)'Error in GET_JH_AT_PREV_TIME_STEP'
+	  WRITE(LU_ER,*)'NU is non-finite:',NU
+	  STOP
+	END IF
 	IF(NU .GT. NUST(1))THEN
 	  DO I=1,ND_OLD
 	    OLD_J(I)=JST(I,1)
@@ -374,7 +396,7 @@
 !
 ! We initially use linear interpolation in frequency.
 !
-	  DO WHILE(NU .LT. NUST(INDX))
+	  DO WHILE(INDX .LT. NSM .AND. NU .LT. NUST(INDX))
 	    INDX=INDX+1
 	  END DO
 	  T1=(NU-NUST(INDX))/(NUST(INDX-1)-NUST(INDX))

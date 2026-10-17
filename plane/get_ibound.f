@@ -102,6 +102,31 @@
 	      INTENSITY(I)=DILUTION_FACTOR*INTENSITY(I)
 	    END DO
 	  CLOSE(UNIT=LU)
+!
+! Fail closed on a degenerate incident grid: the search below walks
+! NU_GRID with no per-step bound and divides by the grid gap, so a
+! repeated, reversed, or non-finite frequency would hang or feed
+! NaN into IBOUND.  Reject the file at load instead.
+!
+	  IF(NCF .LT. 2)THEN
+	    WRITE(LUER,*)'Error in GET_IBOUND: NCF=',NCF,
+	1    ' -- need at least 2 incident frequencies'
+	    STOP
+	  END IF
+	  DO I=1,NCF
+	    IF(NU_GRID(I) .NE. NU_GRID(I) .OR.
+	1       NU_GRID(I) .LE. 0.0_LDP)THEN
+	      WRITE(LUER,*)'Error in GET_IBOUND: non-finite or'//
+	1      ' non-positive NU_GRID entry at index',I
+	      STOP
+	    END IF
+	    IF(I .GT. 1 .AND.
+	1      NU_GRID(I) .GE. NU_GRID(I-1))THEN
+	      WRITE(LUER,*)'Error in GET_IBOUND: NU_GRID not'//
+	1      ' strictly decreasing at index',I
+	      STOP
+	    END IF
+	  END DO
 	END IF
 !
 ! Find locations for MU interpolation. Note that this must be done
@@ -145,13 +170,15 @@
 ! As we come into this routine, frequencies should be ordered. Thus
 ! we always search from last frequency index, unless starting again.
 !
-	IF(FREQ .GT. NU_GRID(1) .OR. FREQ .LT. NU_GRID(NCF))THEN
+	IF(.NOT. (FREQ .LE. HUGE(1.0_LDP)) .OR.
+	1   FREQ .GT. NU_GRID(1) .OR. FREQ .LT. NU_GRID(NCF))THEN
 	  IBOUND=0.0_LDP
 	ELSE
-	  DO WHILE(FREQ .LT. NU_GRID(CUR_NU_INDX+1))
+	  DO WHILE(CUR_NU_INDX .LT. NCF-1 .AND.
+	1    FREQ .LT. NU_GRID(CUR_NU_INDX+1))
 	    CUR_NU_INDX=CUR_NU_INDX+1
 	  END DO
-	  ML=CUR_NU_INDX
+	  ML=MIN(CUR_NU_INDX,NCF-1)
 	  T1=(NU_GRID(ML)-FREQ)/(NU_GRID(ML)-NU_GRID(ML+1))
 	  T2=(1.0_LDP-T1)*INTENSITY(ML)+T1*INTENSITY(ML+1)
 	  DO LS=1,NP	

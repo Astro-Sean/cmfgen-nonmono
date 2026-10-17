@@ -25,7 +25,8 @@
 	1                            jfnk_n_reg_proj, jfnk_ptc_scale_ready,
 	2                            jfnk_ptc_anchor_ready
 	USE CONTROL_VARIABLE_MOD, ONLY: FIXED_NE, JFNK_USE_BANDED,
-	1                                JFNK_SELECTIVE_JVAR
+	1                                JFNK_SELECTIVE_JVAR,
+	2                                JFNK_EVAL_BROKEN
 	USE STEQ_DATA_MOD, ONLY: SE
 	IMPLICIT NONE
 !
@@ -393,6 +394,7 @@
 	JFNK_ADDRECOM = 0.0_LDP
 !
 	JFNK_N_RESIDUAL_EVALS = 0
+	JFNK_EVAL_BROKEN = .FALSE.
 	JFNK_T_START = OMP_GET_WTIME()
 	JFNK_SEC_HIT = .FALSE.
 	JFNK_N_RESIDUAL_NAN = 0
@@ -1524,7 +1526,8 @@
 	3     jfnk_resid_nbad, jfnk_maxch_est
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
+	1     JFNK_EVAL_BROKEN
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -1554,6 +1557,12 @@
 ! allocation.  audit §3, 09-Sep-2026.
 !
 	LUER = ERROR_LU()
+!
+! Cleared at entry; any sentinel or non-finite return below sets it
+! again.  Baseline adopters (JFNK_REBUILD_BASELINE_V1) key on this
+! rather than re-measuring the vector themselves.
+!
+	JFNK_EVAL_BROKEN=.FALSE.
 !
 ! Eval budget (VADAT [JFNK_MAX_EVALS], default 0=off; enforced via
 ! the activation-local JFNK_EVAL_LIM so the driver can trim it per
@@ -2057,9 +2066,10 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_log_unknown,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_fx_fresh,
-	2     jfnk_ptc_scale_ready
+	2     jfnk_ptc_scale_ready, jfnk_resid_nbad
 	USE CONTROL_VARIABLE_MOD, ONLY: MAX_JFNK_COR, MAX_dT_COR,
-	1                                JFNK_FIXED_T, FIXED_NE
+	1                                JFNK_FIXED_T, FIXED_NE,
+	2                                JFNK_EVAL_BROKEN
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD, ONLY: SE
 	IMPLICIT NONE
@@ -2190,6 +2200,21 @@
 !
 	  jfnk_ptc_scale_ready=.FALSE.
 	  CALL JFNK_RESIDUAL_V1(JFNK_NT*JFNK_ND,X_CORR_FULL,jfnk_fx)
+!
+! A broken eval (budget/wall-clock sentinel or non-finite components)
+! returns Y=1D20 sentinels.  Adopting that through RSCALE and the
+! PTC mass-shift scale freezes s~1D20 for the whole activation --
+! the same failure the F(0) gate in the driver (jfnk_solve_corr_v1)
+! already rejects.  Return before RSCALE/PTC are re-based on the
+! sentinel; the driver reads JFNK_EVAL_BROKEN and exits through
+! JFNK_CATASTROPHIC, so no update commits from this baseline.
+!
+	  IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A)')
+	1   '  JFNK_REBUILD: baseline eval broken (nbad=',
+	2   jfnk_resid_nbad,') -- keeping old baseline'
+	    RETURN
+	  END IF
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_NT*JFNK_ND,jfnk_fx)
 	  CALL JFNK_COMPUTE_RSCALE_V1(JFNK_NT*JFNK_ND,jfnk_fx)
 	  jfnk_x=0.0D0

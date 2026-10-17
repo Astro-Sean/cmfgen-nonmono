@@ -4677,7 +4677,7 @@
 !
 ! Check to see if corrections are reasonable.
 !
-	IF(MAXCH .GT. MAX_CHNG_LIM)THEN
+	IF(.NOT. (ABS(MAXCH) .LE. MAX_CHNG_LIM))THEN
 	  WRITE(LUER,*)'Error - bad initial population guesses.'
 	  WRITE(LUER,*)'Predicted changes are too large. '
 	  WRITE(LUER,*)'New populations written to SCRTEMP file.'
@@ -5956,7 +5956,8 @@
 !
 ! Compute the recombination, photoionization and cooling rates.
 !
-	IF(LST_ITERATION .AND. FINAL_CONSTANT_CROSS)THEN ! .AND. .NOT.  USE_FIXED_J)THEN
+	IF(LST_ITERATION .AND. FINAL_CONSTANT_CROSS .AND.
+	1   .NOT. JFNK_IN_EVAL)THEN ! .AND. .NOT.  USE_FIXED_J)THEN
 	  CALL TUNE(IONE,'PRRRCOOL')
 !
 	  DO ID=1,NUM_IONS-1
@@ -5993,7 +5994,8 @@
 	CALL TUNE(ITWO,'PRRRCOOL')
 	END IF 			!Only evaluate if last iteration.
 !
-	IF(LST_ITERATION .AND. .NOT. USE_FIXED_J)THEN
+	IF(LST_ITERATION .AND. .NOT. USE_FIXED_J .AND.
+	1   .NOT. JFNK_IN_EVAL)THEN
 	  CALL PRRR_LOWT_V2(RJ,NU(ML),FQW(ML),ND,FIRST_FREQ)
 	END IF
 !
@@ -6303,7 +6305,8 @@
 	  ETA_PREV(I)=ETA_CONT(I)
 	END DO
 !
-	IF(LST_ITERATION .AND. WRITE_RATES)THEN
+	IF(LST_ITERATION .AND. WRITE_RATES .AND.
+	1   (.NOT. JFNK_IN_EVAL .OR. CONV_DIAG_LVL .GE. 3))THEN
 	  DO SIM_INDX=1,MAX_SIM
 	    IF(END_RES_ZONE(SIM_INDX))THEN
 	      LS=SIM_LINE_POINTER(SIM_INDX)

@@ -1592,6 +1592,14 @@
 	REAL(KIND=LDP) GS_ATTEMPT_APP
 	REAL(KIND=LDP), ALLOCATABLE :: POPS_GS_SAVE(:,:)
 !
+! BA_HOLD_RESTORE_REVIVAL: bumped by SOLVEBA_V13 when a whole-grid BA
+! restore finds a live hold snapshot fresher than its own and swaps
+! restore sources.  Nonzero means the POPS_BA_SAVE/POPS_GS_SAVE
+! overlap contract was exercised -- zero is the expected steady
+! state.  (edited by Devin, 17-Oct-2026)
+!
+	INTEGER*8 :: BA_HOLD_RESTORE_REVIVAL=0_8
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 !

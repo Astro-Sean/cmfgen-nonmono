@@ -1539,6 +1539,17 @@
 	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART_LOC,
 	3           ') best|F|=',REAL(BEST_F_W)
 	          CALL JFNK_REBUILD_BASELINE_V1(BEST_X,LUER)
+!
+! The rebuild's coupled baseline eval can return a sentinel
+! (budget/wall-clock or non-finite components).  Rebuild leaves
+! RSCALE/PTC alone and flags JFNK_EVAL_BROKEN; exit the attempt
+! loop through the existing catastrophic/rejection path rather
+! than running Newton on an unmeasured baseline.
+!
+	          IF(JFNK_EVAL_BROKEN)THEN
+	            JFNK_CATASTROPHIC=.TRUE.
+	            EXIT
+	          END IF
 	          BASELINE_REBUILT=.TRUE.
 	          F_W_INIT=SQRT(JFNK_DOT_V1(JFNK_N,jfnk_fx,jfnk_fx))
 	          F_INF_INIT=0.0D0

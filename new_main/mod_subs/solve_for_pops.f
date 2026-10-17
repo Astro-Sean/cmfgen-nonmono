@@ -561,6 +561,18 @@
 ! hold/trial-veto plumbing below; past LUM_DIV_CAP the state is not
 ! recoverable, so stop rather than burn the frozen-cycle budget.
 !
+	IF(DO_NONMONO_KNOP .AND. LUM_DIV_N .GT. 0)THEN
+!
+! A NaN/Inf luminosity fails every .GT. test below: the streak
+! counter would reset and LUM_PREV_OUT would latch NaN, leaving
+! the runaway invisible while it keeps feeding POPS.  Fail closed.
+!
+	  IF(.NOT. (ABS(LUM_OUT_ABS) .LE. HUGE(1.0_LDP)))THEN
+	    WRITE(LUER,'(A)')
+	1   '  SOLVE_FOR_POPS: luminosity non-finite -- stopping'
+	    STOP 'SOLVE_FOR_POPS: luminosity non-finite'
+	  END IF
+	END IF
 	IF(DO_NONMONO_KNOP .AND. LUM_DIV_N .GT. 0 .AND.
 	1   LUM_OUT_ABS .GT. 0.0_LDP)THEN
 	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
