@@ -381,6 +381,7 @@
 	  END IF
 !
 	  jfnk_use_left_pc=JFNK_LEFT_PRECOND
+	  jfnk_ew_adapt=JFNK_FADAPT_V
 	  jfnk_pc_ref_frac=DBLE(JFNK_PC_REFRESH_FRAC)
 	  jfnk_need_precond_refresh=0
 	  jfnk_do_line_search=JFNK_LINE_SEARCH
@@ -978,6 +979,18 @@
 	          END DO
 	        END DO
 	      END DO
+!
+! W24d: under JFNK_USE_BANDED the preconditioner sees the full
+! multi-band operator while JFNK_BA_A above prices only the
+! diagonal band -- the reach estimate is then priced on a
+! cheaper operator than the one GMRES runs.  Kept DIAG-only
+! (the banded apply is not free here); say so once per
+! admission so the log does not read the guard as exact.
+!
+	      IF(JFNK_BANDED_LU_READY .AND.
+	1     CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A)')
+	2     '  REACH note: JZ_VEC uses diagonal band only'//
+	3     ' (banded operator active)'
 	      FF2_DP=JFNK_DOT_V1(JFNK_N,jfnk_fx,jfnk_fx)
 	      FJZ_DP=JFNK_DOT_V1(JFNK_N,jfnk_fx,JZ_VEC)
 	      JJZ_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JZ_VEC)
@@ -2366,6 +2379,8 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	IMPLICIT NONE
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 ! NEWMOD symmetry (17-Oct-2026, W6): a second model in one process
 ! must not inherit the JFNK budget rung or the tau ladder -- a
@@ -2379,5 +2394,17 @@
 	JFNK_TAU_RE_LAST=0.0_LDP
 	JFNK_TAU_ALPHA=0.05_LDP
 	JFNK_TAUTO_ACTIVE=.FALSE.
+!
+! W24a: eval-budget and wall-clock state are per-activation, so a
+! second model in one process must not inherit them -- a stale
+! JFNK_N_RESIDUAL_EVALS would make the first activation hit the
+! budget immediately, and a stale JFNK_T_START would produce a
+! spurious JFNK_SEC_HIT wall-clock abort.  (JFNK_MAX_EVALS itself
+! lives in CONTROL_VARIABLE_MOD and is re-read on NEWMOD.)
+!
+	JFNK_EVAL_LIM=0
+	JFNK_SEC_HIT=.FALSE.
+	JFNK_N_RESIDUAL_EVALS=0
+	JFNK_T_START=OMP_GET_WTIME()
 	RETURN
 	END SUBROUTINE JFNK_RETREAT_RESET_V1

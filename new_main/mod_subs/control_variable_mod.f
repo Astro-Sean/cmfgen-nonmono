@@ -1686,6 +1686,34 @@
 	REAL(KIND=LDP) JFNK_POP_FLOOR
 	LOGICAL JFNK_PRECOND_REFINE
 	LOGICAL JFNK_LEFT_PRECOND
+!
+! JFNK_FADAPT_V (VADAT [JFNK_FADAPT], default T): selects the
+! Eisenstat-Walker adaptive GMRES forcing term inside
+! jfnk_solver_v1.f90 (Choice-2 eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha
+! with the eta_{k-1} safeguard).  F restores the fixed user gtol --
+! the fixed path stays one branch away for A/B comparison.
+! (edited by Devin, 17-Oct-2026)
+!
+	LOGICAL :: JFNK_FADAPT_V=.TRUE.
+!
+! JFNK_FD_COMPLEX (VADAT [JFNK_FDCPLX], default F): request the
+! complex-step JVP mode (Martins & Ning 2021) in place of the
+! forward-difference JVP.  The perturbation path is not ported --
+! enabling it fails closed at admission; see
+! docs/audits/JFNK_COMPLEX_STEP.md for the port plan.
+! (edited by Devin, 17-Oct-2026)
+!
+	LOGICAL :: JFNK_FD_COMPLEX=.FALSE.
+!
+! JFNK_ENRICH_SFR (VADAT [JFNK_ESFR], default F): request the
+! source-function-response enrichment term (Arramy et al. 2024,
+! eqs. 55-61) using the previous Newton update's stored dJ/dn
+! estimate.  No stored-dJ channel exists in this tree yet --
+! enabling it warns and runs plain enrichment until the channel
+! lands (see docs/audits/ROBUSTNESS_AUDIT_2026-10.md, W23).
+! (edited by Devin, 17-Oct-2026)
+!
+	LOGICAL :: JFNK_ENRICH_SFR=.FALSE.
 	REAL(KIND=LDP) JFNK_PC_REFRESH_FRAC
 	CHARACTER(LEN=8) JFNK_PRECOND_TYPE
 	REAL(KIND=LDP) JFNK_LAM_AUTO_THRESH

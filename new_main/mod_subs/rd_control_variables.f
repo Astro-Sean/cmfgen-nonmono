@@ -1428,6 +1428,15 @@
 	  CALL RD_STORE_LOG(JFNK_LEFT_PRECOND,'JFNK_LEFTPC',L_FALSE,
 	1     'Use left GMRES preconditioning (Arramy 2024)?')
 !
+	  CALL RD_STORE_LOG(JFNK_FADAPT_V,'JFNK_FADAPT',L_TRUE,
+	1     'Adaptive Eisenstat-Walker GMRES forcing term (F=fixed gtol)')
+!
+	  CALL RD_STORE_LOG(JFNK_FD_COMPLEX,'JFNK_FDCPLX',L_FALSE,
+	1     'Complex-step JVP mode (NOT IMPLEMENTED - fails closed)')
+!
+	  CALL RD_STORE_LOG(JFNK_ENRICH_SFR,'JFNK_ESFR',L_FALSE,
+	1     'SFR enrichment term (Arramy eqs 55-61; warns, plain path)')
+!
 	  JFNK_PC_REFRESH_FRAC=0.8_LDP
 	  CALL RD_STORE_DBLE(JFNK_PC_REFRESH_FRAC,'JFNK_PC_RF',L_FALSE,
 	1     'Refresh LU cache when GMRES its > frac*m')
@@ -2727,6 +2736,10 @@
 	1   '   hot_passes=',KN_RAY_HOTPASSES_V,
 	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,
 	3   '  fg_trial_min=',FG_TRIAL_MIN
+	    WRITE(LUER,'(A,L2,A,L2,A,L2)')
+	1   '   jfnk_fadapt=',JFNK_FADAPT_V,
+	2   '  jfnk_fdcplx=',JFNK_FD_COMPLEX,
+	3   '  jfnk_esfr=',JFNK_ENRICH_SFR
 	  END IF
 !
 ! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line

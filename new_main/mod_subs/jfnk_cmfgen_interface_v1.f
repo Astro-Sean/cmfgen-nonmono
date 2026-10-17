@@ -2470,7 +2470,8 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed,
 	1                           jfnk_log_unknown
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
+	1                           JFNK_FD_COMPLEX
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -2486,6 +2487,21 @@
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
 	INTEGER I, KK, JJ, II, NRETRY
+	INTEGER LUER, ERROR_LU
+!
+! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
+! 2021) needs the perturbation carried through the residual in
+! COMPLEX arithmetic; this path is real-only, so enabling the flag
+! fails closed rather than silently running the wrong operator.
+!
+	IF(JFNK_FD_COMPLEX)THEN
+	  LUER=ERROR_LU()
+	  WRITE(LUER,'(A)')' JFNK: [JFNK_FDCPLX] complex-step JVP'//
+	1   ' requested but NOT IMPLEMENTED in this tree --'
+	  WRITE(LUER,'(A)')' set JFNK_FDCPLX=F (see'//
+	1   ' docs/audits/JFNK_COMPLEX_STEP.md).  STOP.'
+	  STOP
+	END IF
 !
 ! Reset per-call NaN counter and failure flag (audit 17-Sep-2026).
 !
@@ -2851,6 +2867,14 @@
 	DOUBLE PRECISION, ALLOCATABLE :: GECON_WORK(:)
 	INTEGER, ALLOCATABLE :: GECON_IWORK(:)
 	INTEGER LU_INFO_G
+!
+! W24c: per-depth backward-error micro-test workspace.  MTST keeps
+! the pre-factorization block so the synthetic-RHS check below
+! prices the exact matrix the apply path sees (same contract as the
+! banded path's solve-residual test).
+!
+	REAL(KIND=LDP), ALLOCATABLE :: MTST(:,:), B_TST(:), X_TST(:)
+	REAL(KIND=LDP) REL_RES_T
 ! DO_FACTOR=.FALSE. builds JFNK_BA_A/diagonals only and returns
 ! before the LU/SCHUR/banded factorizations -- the admission path
 ! uses it to price the reach/direction gates cheaply (17-Oct-2026).
@@ -3183,6 +3207,9 @@
 	    ALLOCATE(GN_WORK(JFNK_NT,JFNK_NT), STAT=IOS)
 	    IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc GN_WORK'
 	  END IF
+	  ALLOCATE(MTST(JFNK_NT,JFNK_NT),B_TST(JFNK_NT),
+	1     X_TST(JFNK_NT),STAT=IOS)
+	  IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc MTST failed'
 	  DO K = 1, JFNK_ND
 	    JFNK_LU_OK(K) = .FALSE.
 	    JFNK_DEPTH_RIDGE(K) = 0.0_LDP
@@ -3338,6 +3365,7 @@
           GN_WORK(I,I) = GN_WORK(I,I) + LSQ_L2
         END DO
         JFNK_LU_FAC(:,:,K) = GN_WORK
+        MTST(1:JFNK_NT,1:JFNK_NT) = JFNK_LU_FAC(:,:,K)
         CALL DPOTRF('L', JFNK_NT, JFNK_LU_FAC(1,1,K),
 	1         JFNK_NT, LU_INFO_K)
       ELSE
@@ -3349,10 +3377,40 @@
           END DO
           ANORM_K = MAX(ANORM_K, S_TMP)
         END DO
+        MTST(1:JFNK_NT,1:JFNK_NT) = JFNK_LU_FAC(:,:,K)
         CALL DGETRF(JFNK_NT, JFNK_NT, JFNK_LU_FAC(1,1,K),
 	1         JFNK_NT, JFNK_IPIV(1,K), LU_INFO_K)
       END IF
 	      IF(LU_INFO_K .EQ. 0)THEN
+!
+! Synthetic-RHS backward-error micro-test (W24c, same contract as
+! the banded path's solve-residual check): b = M*1 through the
+! fresh factors must return x=1 to ~1E-4 relative.  A factorization
+! that passes INFO=0 but cannot reproduce a smooth solve is
+! rejected so the ITRY loop escalates the ridge instead of arming
+! the preconditioner with a poisoned operator.
+!
+	        B_TST(1:JFNK_NT)=0.0_LDP
+	        DO I=1,JFNK_NT
+	          DO J=1,JFNK_NT
+	            B_TST(I)=B_TST(I)+MTST(I,J)
+	          END DO
+	        END DO
+	        X_TST(1:JFNK_NT)=B_TST(1:JFNK_NT)
+	        IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
+	          CALL DPOTRS('L',JFNK_NT,1,JFNK_LU_FAC(1,1,K),
+	1           JFNK_NT,X_TST,JFNK_NT,LU_INFO_G)
+	        ELSE
+	          CALL DGETRS('N',JFNK_NT,1,JFNK_LU_FAC(1,1,K),
+	1           JFNK_NT,JFNK_IPIV(1,K),X_TST,JFNK_NT,LU_INFO_G)
+	        END IF
+	        IF(LU_INFO_G .NE. 0 .OR.
+	1     MAXVAL(ABS(X_TST(1:JFNK_NT)-1.0_LDP)) .GT.
+	2     1.0E-4_LDP)THEN
+	          JFNK_LU_OK(K) = .FALSE.
+	          JFNK_DEPTH_RIDGE(K) = 0.0_LDP
+	          CYCLE
+	        END IF
 	        JFNK_LU_OK(K) = .TRUE.
 	        JFNK_DEPTH_RIDGE(K) = RIDGE_ADD
 	        JFNK_LU_ITRY(K) = ITRY
@@ -3422,6 +3480,7 @@
 	  END DO
 !
 	  IF(ALLOCATED(GN_WORK)) DEALLOCATE(GN_WORK)
+	  IF(ALLOCATED(MTST))DEALLOCATE(MTST,B_TST,X_TST)
 !
 	  JFNK_N_RIDGE_DEPTHS = N_RIDGE
 	  JFNK_N_LU_FAIL_DEPTH = N_FAIL
@@ -3506,6 +3565,7 @@
 	  N_RIDGE = 0
 	  N_REG_ROWS = 0
 	  IF(ALLOCATED(GN_WORK)) DEALLOCATE(GN_WORK)
+	  IF(ALLOCATED(MTST))DEALLOCATE(MTST,B_TST,X_TST)
 	  ALLOCATE(GN_WORK(NPB,NPB), STAT=IOS)
 	  IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc GN_WORK'
 	  DO K = 1, JFNK_ND
@@ -3635,6 +3695,7 @@
 	  JFNK_N_RIDGE_DEPTHS = N_RIDGE
 	  JFNK_N_LU_FAIL_DEPTH = N_FAIL
 	  IF(ALLOCATED(GN_WORK)) DEALLOCATE(GN_WORK)
+	  IF(ALLOCATED(MTST))DEALLOCATE(MTST,B_TST,X_TST)
 	  IF(LUER .GT. 0)THEN
 	    WRITE(LUER,'(A,A,I4,A,I4,A,I4,A,L2)')
 	1      '  JFNK: SCHUR pop-block LSQ nfact=',
@@ -6916,7 +6977,7 @@
 	USE MOD_CMFGEN
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ENRICH,JFNK_ENRICH_K,
 	1     JFNK_ENRICH_PERCENT,JFNK_MAX_EVALS,JFNK_POP_FLOOR,
-	2     JFNK_ROW_TINY
+	2     JFNK_ROW_TINY,JFNK_ENRICH_SFR
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_fx,jfnk_jvp_failed
 	IMPLICIT NONE
@@ -6936,6 +6997,17 @@
 !
 	JFNK_ENRICH_ACTIVE=.FALSE.
 	JFNK_ENRICH_KLOC=0
+!
+! W23 [JFNK_ESFR, default F]: the source-function-response term
+! (Arramy et al. 2024 eqs. 55-61) needs the previous committed
+! Newton update's stored dJ/dn per anchor row.  No stored-dJ
+! channel exists in this tree, so the flag warns once per assembly
+! and runs the plain anchor enrichment until the channel lands
+! (audit doc W23); enabling it never silently changes the basis.
+!
+	IF(JFNK_ENRICH_SFR .AND. JFNK_ENRICH)WRITE(LUER,'(A)')
+	1   '  JFNK ENRICH: [JFNK_ESFR] SFR response term not'//
+	2   ' implemented -- running plain anchor basis  [WARN]'
 	IF(.NOT. JFNK_ENRICH)RETURN
 	IF(.NOT. JFNK_COUPLED_LOC)RETURN
 	IF(JFNK_NT .LE. 0 .OR. JFNK_ND .LE. 0)RETURN
@@ -7050,11 +7122,25 @@
 	IF(ALLOCATED(JFNK_ENRICH_U))DEALLOCATE(JFNK_ENRICH_U)
 	IF(ALLOCATED(JFNK_ENRICH_S))DEALLOCATE(JFNK_ENRICH_S)
 	IF(ALLOCATED(JFNK_ENRICH_IPIV))DEALLOCATE(JFNK_ENRICH_IPIV)
-	ALLOCATE(JFNK_ENRICH_IDX(KWANT),JFNK_ENRICH_U(N,KWANT),
-	1   JFNK_ENRICH_S(KWANT,KWANT),JFNK_ENRICH_IPIV(KWANT),STAT=IOS)
+!
+! W24b: one ALLOCATE per array -- a shared STAT=IOS leaves the
+! earlier siblings partially allocated on failure, so the DEALLOCATE
+! list below must only touch what the run actually owns.  Unallocated
+! members of the group are safe to deallocate by name.
+!
+	IOS=0
+	ALLOCATE(JFNK_ENRICH_IDX(KWANT),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_U(N,KWANT),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_S(KWANT,KWANT),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_IPIV(KWANT),STAT=IOS)
 	IF(IOS .NE. 0)THEN
-	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
-	1     '  JFNK ENRICH: state alloc failed -- plain LU runs'
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4)')
+	1   '  JFNK ENRICH: state alloc failed (N=',N,' K=',KWANT,
+	2   ') -- plain LU runs'
+	  IF(ALLOCATED(JFNK_ENRICH_IDX))DEALLOCATE(JFNK_ENRICH_IDX)
+	  IF(ALLOCATED(JFNK_ENRICH_U))DEALLOCATE(JFNK_ENRICH_U)
+	  IF(ALLOCATED(JFNK_ENRICH_S))DEALLOCATE(JFNK_ENRICH_S)
+	  IF(ALLOCATED(JFNK_ENRICH_IPIV))DEALLOCATE(JFNK_ENRICH_IPIV)
 	  DEALLOCATE(RVEC,FABS,ORD,CAND,EVEC,JV,BCL,WRK,Z0,Z1,A0,A1)
 	  RETURN
 	END IF

@@ -99,6 +99,11 @@ module jfnk_solver_v1_mod
    ! gfortran -std=f2008; removed per ChatGPT audit fix #3 (2026-09-09).
    double precision :: jfnk_tol_prev = 0d0    ! |F| at previous Newton step
    double precision :: jfnk_eta = 0d0          ! current Eisenstat-Walker eta
+   ! jfnk_ew_adapt (VADAT [JFNK_FADAPT], default T): T keeps the
+   ! adaptive EW Choice-2 forcing term below; F restores the fixed
+   ! user gtol each Newton step -- the fixed path stays one branch
+   ! away for A/B comparison.  (Devin, 17-Oct-2026)
+   logical :: jfnk_ew_adapt = .true.
    ! eta_prev stores the previous Newton step's forcing term: the
    ! Choice-2 safeguard eta_k >= gamma*eta_{k-1}^alpha needs it.
    ! (Oct-2026 EW fix)
@@ -525,7 +530,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    integer,          intent(inout) :: info
    integer,          intent(in)    :: luer
    !
-   double precision, allocatable :: v(:,:)
+   ! W25: SAVE'd GMRES basis buffer -- one heap allocation per
+   ! (n,m) instead of one per Newton step (audit 17-Oct-2026).
+   double precision, allocatable, save :: v(:,:)
    double precision :: tol_, del__, tol__
    double precision :: mxdl_, ared, pred, snrm, s_inf
    double precision :: snrm_tr   ! 2026-09-13 TR-units fix: ||y|| norm the hookstep constrains
@@ -607,12 +614,17 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       end if
    end if
    !
-   allocate(v(n,m+1), stat=ginfo)
-   if(ginfo /= 0) then
-      if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
-      info = 4
-      jfnk_exit_reason = 'alloc_fail_v'
-      return
+   if(allocated(v)) then
+      if(size(v,1) .ne. n .or. size(v,2) .ne. m+1) deallocate(v)
+   end if
+   if(.not. allocated(v)) then
+      allocate(v(n,m+1), stat=ginfo)
+      if(ginfo /= 0) then
+         if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
+         info = 4
+         jfnk_exit_reason = 'alloc_fail_v'
+         return
+      end if
    end if
    !
    jfnk_nits = 0
@@ -684,7 +696,6 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(info == 1) write(luer,*) '  JFNK: input already converged'
       info = 0
       jfnk_exit_reason = 'converged_at_entry'
-      deallocate(v)
       return
    end if
    !
@@ -724,8 +735,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          if(info == 1) write(luer,*) '  JFNK: trust region too small'
          info = 3
          jfnk_exit_reason = 'trust_region_too_small'
-         deallocate(v)
-         return
+            return
       end if
       !
       ! Solve for hookstep s subject to |s| < del
@@ -750,11 +760,12 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       s        = 0d0
       del_try  = jfnk_del
-      if(jfnk_nits == 0 .or. jfnk_tol_prev .le. 0d0) then
-         ! First Newton step: user-specified gtol as initial eta, but
-         ! clamped to [eta_min, eta_max] like every later step
-         ! (audit 17-Sep-2026 -- an unclamped gtol could bypass the
-         ! forcing-term bounds entirely).
+      if(jfnk_nits == 0 .or. jfnk_tol_prev .le. 0d0 .or. &
+           .not. jfnk_ew_adapt) then
+         ! First Newton step (or fixed-forcing mode): user-specified
+         ! gtol as initial eta, but clamped to [eta_min, eta_max] like
+         ! every later step (audit 17-Sep-2026 -- an unclamped gtol
+         ! could bypass the forcing-term bounds entirely).
          jfnk_eta = min(max(gtol, jfnk_eta_min), jfnk_eta_max)
       else
          ! Eisenstat-Walker Choice 2 (Eisenstat & Walker 1994, SIAM J.
@@ -812,8 +823,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             jfnk_fx  = fx_
             jfnk_tol = tol_
             info = 3
-            deallocate(v)
-         jfnk_exit_reason = 'precond_clip_forcing_norm'
+               jfnk_exit_reason = 'precond_clip_forcing_norm'
             return
          end if
          ref_norm = dsqrt(dp(n, fx_pc, fx_pc))
@@ -890,8 +900,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_fx  = fx_
          jfnk_tol = tol_
          info = 3
-         deallocate(v)
-         jfnk_exit_reason = 'krylov_jvp_or_pc_failure'
+            jfnk_exit_reason = 'krylov_jvp_or_pc_failure'
          return
       end if
       !
@@ -948,8 +957,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_fx = fx_
          jfnk_tol = tol_
          info = 3
-         deallocate(v)
-         jfnk_exit_reason = 'gmres_stagnation_abort'
+            jfnk_exit_reason = 'gmres_stagnation_abort'
          return
       end if
       !
@@ -1025,8 +1033,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             if(info == 1) write(luer,'(A)') &
                '  JFNK: too many rejected steps — aborting Newton'
             info = 3
-            deallocate(v)
-         jfnk_exit_reason = 'too_many_rejected_steps'
+               jfnk_exit_reason = 'too_many_rejected_steps'
             return
          end if
          ginfo = 2
@@ -1066,8 +1073,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_fx  = fx_
          jfnk_tol = tol_
          info = 3
-         deallocate(v)
-         jfnk_exit_reason = 'jvp_failure_pred_eval'
+            jfnk_exit_reason = 'jvp_failure_pred_eval'
          return
       end if
       ! edited by Devin, 06-Oct-2026 (SER anchor fix): df returns the
@@ -1305,8 +1311,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             if(info == 1) write(luer,'(A)') &
                '  JFNK: too many rejected steps — aborting Newton'
             info = 3
-            deallocate(v)
-         jfnk_exit_reason = 'too_many_rejected_steps'
+               jfnk_exit_reason = 'too_many_rejected_steps'
             return
          end if
          ginfo = 2
@@ -1699,15 +1704,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ' (res=', real(jfnk_tol), ' maxch_est=', real(jfnk_maxch_est), ')'
          info = 0
          jfnk_exit_reason = 'converged'
-         deallocate(v)
-         return
+            return
       else if(jfnk_nits == nits) then
          if(info == 1) write(luer,*) '  JFNK: MAXIMUM NONLINEAR ITERATIONS REACHED'
          if(info == 1) write(luer,*) '  JFNK: NONLINEAR SOLVE NOT YET CONVERGED'
          info = 2
          jfnk_exit_reason = 'max_newton_iterations'
-         deallocate(v)
-         return
+            return
       end if
       !
    end do newton_loop
@@ -2423,8 +2426,9 @@ subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
    double precision :: BA_s(n), diff(n), diff_norm, ba_norm
    double precision :: s_arr(n), s_temp(n)
    integer :: i, k, kk, ii, jj, irow, icol, ntop, ntop_actual
-   integer, allocatable :: idx_sorted(:)
-   double precision, allocatable :: s_abs(:)
+   ! W25: SAVE'd sort workspace -- one allocation per n.
+   integer, allocatable, save :: idx_sorted(:)
+   double precision, allocatable, save :: s_abs(:)
    !
    ! Index mapping: i = (k-1)*JFNK_NT + j, where k=depth, j=level
    ! j=1..NT-2: populations, j=NT-1: electron density, j=NT: temperature
@@ -2491,7 +2495,10 @@ subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
    ! --- 3. Component-wise top-20 analysis ---
    !
    write(luer,'(A)') '--- 3. Top-20 Components of |s(i)| ---'
-   allocate(s_abs(n), idx_sorted(n))
+   if(allocated(s_abs)) then
+      if(size(s_abs) .ne. n) deallocate(s_abs, idx_sorted)
+   end if
+   if(.not. allocated(s_abs)) allocate(s_abs(n), idx_sorted(n))
    do i = 1, n
       s_abs(i) = abs(s(i))
       idx_sorted(i) = i
@@ -2542,7 +2549,7 @@ subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
             abs(J_s(ii)) / max(abs(fx(ii)), 1.0d-30)
       end if
    end do
-   deallocate(s_abs, idx_sorted)
+   continue  ! W25: workspace now SAVE'd, freed with the process
    write(luer,'(A)') ' '
    !
    ! --- 4. Alpha-sweep of linearized model ---
@@ -2658,18 +2665,23 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    integer, parameter :: n_tests = 4
    integer :: m_tests(n_tests)
    integer :: i_test, m_test, i, j, info_test, its_test, n_restarts
-   double precision, allocatable :: v_test(:,:), h_test(:)
-   double precision, allocatable :: s_test(:), J_s_test(:), F_pred_test(:)
+   ! W25: SAVE'd test/save workspace -- one heap allocation per n
+   ! instead of one per experiment call (audit 17-Oct-2026).
+   double precision, allocatable, save :: v_test(:,:), h_test(:)
+   double precision, allocatable, save :: s_test(:), J_s_test(:), &
+     &   F_pred_test(:)
    double precision :: pred_res_test, res_test
    double precision :: norm_F, norm_Js, norm_Fp, dir_deriv, cos_angle
    double precision :: alpha_list(5), alpha, norm_model, alpha_opt
    double precision :: snrm_test, s_inf_test, snrm_scaled, scale_fac_test
    integer :: save_max_gmres, save_gmres_jj
    double precision :: save_gmres_beta
-   double precision, allocatable :: save_jfnk_x(:), save_jfnk_fx(:)
+   double precision, allocatable, save :: save_jfnk_x(:), &
+     &   save_jfnk_fx(:)
    ! Right-PC basis/Gram checkpoint: the test solves below clobber
    ! jfnk_gmres_z/g, so save/restore them with the jj/beta pair.
-   double precision, allocatable :: save_gmres_z(:,:), save_gmres_g(:,:)
+   double precision, allocatable, save :: save_gmres_z(:,:), &
+     &   save_gmres_g(:,:)
    logical :: have_gmres_zg
    double precision :: rs_min, rs_max, rs_ratio
    character(len=12) :: status_str
@@ -2683,7 +2695,12 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    ! h_test/v_test (with m_test up to 40 > production m); without the
    ! restore, a later info==2 hookstep recompute would read/write past
    ! the caller's m-sized h/v/y arrays.  (2026-10 audit fix)
-   allocate(save_jfnk_x(n), save_jfnk_fx(n))
+   if(allocated(save_jfnk_x)) then
+      if(size(save_jfnk_x) .ne. n) deallocate(save_jfnk_x, &
+     &   save_jfnk_fx)
+   end if
+   if(.not. allocated(save_jfnk_x)) allocate(save_jfnk_x(n), &
+     &   save_jfnk_fx(n))
    save_jfnk_x = jfnk_x
    save_jfnk_fx = jfnk_fx
    save_max_gmres = jfnk_max_gmres_its
@@ -2691,15 +2708,27 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    save_gmres_beta = jfnk_gmres_beta
    have_gmres_zg = allocated(jfnk_gmres_z)
    if(have_gmres_zg) then
-      allocate(save_gmres_z(size(jfnk_gmres_z,1), &
-         size(jfnk_gmres_z,2)), save_gmres_g(size(jfnk_gmres_g,1), &
-         size(jfnk_gmres_g,2)))
+      if(allocated(save_gmres_z)) then
+         if(size(save_gmres_z,1) .ne. size(jfnk_gmres_z,1) .or. &
+            size(save_gmres_z,2) .ne. size(jfnk_gmres_z,2)) &
+            deallocate(save_gmres_z, save_gmres_g)
+      end if
+      if(.not. allocated(save_gmres_z)) &
+         allocate(save_gmres_z(size(jfnk_gmres_z,1), &
+            size(jfnk_gmres_z,2)), &
+            save_gmres_g(size(jfnk_gmres_g,1), &
+            size(jfnk_gmres_g,2)))
       save_gmres_z = jfnk_gmres_z
       save_gmres_g = jfnk_gmres_g
    end if
    jfnk_max_gmres_its = 0   ! use default (m) for each test
    !
-   allocate(s_test(n), J_s_test(n), F_pred_test(n))
+   if(allocated(s_test)) then
+      if(size(s_test) .ne. n) deallocate(s_test, J_s_test, &
+     &   F_pred_test)
+   end if
+   if(.not. allocated(s_test)) allocate(s_test(n), J_s_test(n), &
+     &   F_pred_test(n))
    !
    norm_F = dsqrt(dp(n, fx_cur, fx_cur))
    !
@@ -2726,7 +2755,12 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    do i_test = 1, n_tests
       m_test = m_tests(i_test)
       !
-      allocate(v_test(n, m_test+1), h_test((m_test+1)*m_test))
+      if(allocated(v_test)) then
+         if(size(v_test,1) .ne. n .or. size(v_test,2) .ne. m_test+1) &
+     &      deallocate(v_test, h_test)
+      end if
+      if(.not. allocated(v_test)) allocate(v_test(n, m_test+1), &
+     &   h_test((m_test+1)*m_test))
       !
       ! Restore JVP state for each test
       jfnk_x = x_cur
@@ -2818,7 +2852,7 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
          end do
       end if
       !
-      deallocate(v_test, h_test)
+      continue  ! W25: SAVE'd workspace
    end do
    !
    ! Restore state (see entry: the gmres basis pair must describe the
@@ -2835,10 +2869,10 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
          size(save_gmres_g,2)))
       jfnk_gmres_z = save_gmres_z
       jfnk_gmres_g = save_gmres_g
-      deallocate(save_gmres_z, save_gmres_g)
+      continue  ! W25: SAVE'd workspace
    end if
    !
-   deallocate(save_jfnk_x, save_jfnk_fx, s_test, J_s_test, F_pred_test)
+   continue  ! W25: SAVE'd workspace
    !
    write(luer,'(A)') ' '
    write(luer,'(A)') '=== End GMRES Dimension Experiment ==='
