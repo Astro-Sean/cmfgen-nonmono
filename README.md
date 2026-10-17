@@ -224,6 +224,15 @@ correctness and build fixes that are not controlled by solver flags:
   readers instead of running with mixed transfer assumptions.
 - General fixes including the non-monotonic observed-frame
   integration bounds and headless build support.
+- Robustness hardening on the Knop formal-solver path (degenerate
+  ray/frequency spacings, short-ray end slopes, deallocation
+  status checks, OpenMP private hygiene); itemized status in
+  `docs/audits/KNOP_FORMAL_SOLVER_AUDIT.md`.
+
+The `unit_tests/` suite (`unit_tests/run_all_tests.py`) compiles the
+production parsers and solver-adjacent sources against small drivers;
+`test_vadat_keys.py` covers the non-monotonic flag contract and the
+JFNK VADAT keys.
 
 ## Building and running
 
