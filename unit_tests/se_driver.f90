@@ -681,42 +681,27 @@ program se_driver
       end do
 
    case ('sestrike')
-      ! Strike/cooldown FSM replica of JFNK_SOLVE_CORR_V1 (the
-      ! production counters JFNK_STAGNATION_COUNT / JFNK_DISABLED /
-      ! JFNK_REARM_COUNT / JFNK_REARM_CYCLE live in the outer routine
-      ! and cannot be driven from this unit driver).  Each character
-      ! of <seq> is one admitted call: 'F' runs newton_hook_v1 with
-      ! the production LU path (info=3 on these systems -> strike),
-      ! 'S' runs LSQ-alg (info=0 on hard -> commit/reset), 'R' is the
-      ! reach-gate skip (info=-2 -> Lambda fallback, not counted).
-      ! PAUSE lines are the cooldown calls that take the Lambda step
-      ! instead of Newton; REARM is the re-arm transition.
+      ! Budget-ladder replica of JFNK_SOLVE_CORR_V1 (the production
+      ! rung JFNK_BUDGET_RUNG lives in JFNK_CMFGEN_INT_MOD; this stub
+      ! mirrors the motion rules).  JFNK is attempted on EVERY
+      ! admitted call at every rung -- there is no pause state.
+      ! Each character of <seq> is one admitted call: 'F' runs
+      ! newton_hook_v1 with the production LU path (info=3 on these
+      ! systems -> counted failure, rung up), 'S' runs LSQ-alg
+      ! (info=0 on hard -> commit, rung resets to 0), 'R' is the
+      ! reach-gate skip (info=-2 -> cheap skip, rung unchanged).
+      ! RUNG lines report the rung each admission ran at.
       call get_command_argument(2, dir)
       call get_command_argument(3, arg); read(arg, *) rearm_every
       call get_command_argument(4, seqstr)
       call se_load(dir, stat)
       if (stat /= 0) stop 2
       n = se_n
+      ! rearm_every is repurposed as the rung cap (JFNK_RUNG_MAX)
+      cyc = rearm_every
       stag = 0
-      cool = 0
-      cyc = 0
-      disarm = .false.
       do i = 1, len_trim(seqstr)
-         ! entry gating: count the skipped call, then compare against
-         ! the adaptive wait (production order in JFNK_SOLVE_CORR_V1)
-         if (disarm) cool = cool + 1
-         wait_i = rearm_every * 2**min(cyc, 3)
-         if (disarm .and. cool >= wait_i) then
-            disarm = .false.
-            stag = 0
-            cool = 0
-            write(*, '(A,I0,A,I0)') 'REARM ', i, ' after ', wait_i
-         end if
-         if (disarm) then
-            write(*, '(A,I0,A,I0,A,I0)') 'PAUSE ', i, ' cooldown ', &
-               cool, ' of ', wait_i
-            cycle
-         end if
+         write(*, '(A,I0,A,I0)') 'RUNG ', i, ' rung ', stag
          select case (seqstr(i:i))
          case ('R')
             info = -2
@@ -725,25 +710,18 @@ program se_driver
          case default
             call se_run_newton(2, 0d0, 1, info, 0)
          end select
-         ! outcome bookkeeping: committed update resets strike count
-         ! and the backoff cycle; info=-2 is exempt; every other
-         ! failed solve strikes, and JFNK_MAX_STAGNATE=3 pauses with
-         ! the cycle counter doubling the next wait
+         ! outcome bookkeeping: a committed update resets the rung;
+         ! info=-2 leaves it unchanged; every other failure raises
+         ! it by one, capped at the rung maximum
          if (info == 0) then
             stag = 0
-            cyc = 0
          else if (info == -2) then
             continue
          else
-            stag = stag + 1
-            if (stag >= 3) then
-               disarm = .true.
-               stag = 0
-               cyc = cyc + 1
-            end if
+            stag = min(stag + 1, cyc)
          end if
-         write(*, '(A,I0,A,I0,A,I0,A,L1,A,I0)') 'ADM ', i, ' INFO ', &
-            info, ' STAG ', stag, ' DIS ', disarm, ' CYCLE ', cyc
+         write(*, '(A,I0,A,I0,A,I0)') 'ADM ', i, ' INFO ', info, &
+            ' RUNG ', stag
       end do
 
    case ('setauto')

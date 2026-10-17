@@ -52,7 +52,6 @@
 	JFNK_FIXED_T_LOC = FIXED_T_MODE
 	JFNK_FIXED_NE_LOC = FIXED_NE
 	JFNK_METH_SOL = METH_SOL
-	JFNK_BA_COMPUTED = BA_COMPUTED
 	JFNK_EPS_JVP_LOC = EPS_JVP
 	JFNK_BA_RAD_READY = .FALSE.
 	JFNK_RAD_READY = .FALSE.
@@ -105,6 +104,10 @@
 !
 	jfnk_ptc_scale_ready = .FALSE.
 	jfnk_ptc_anchor_ready = .FALSE.
+! BA_A is rebuilt on the next admission; any diag-only pricing state
+! belongs to the previous activation.
+	JFNK_BA_BUILT = .FALSE.
+	JFNK_PC_DIAG_ONLY = .FALSE.
 !
 ! Reallocate if the problem size changed (R-grid revision).
 !
@@ -182,24 +185,10 @@
 	  END IF
 	END IF
 !
-! Age-limited CMAT_RAD reuse across activations.  Stale BA_rad keeps
-! the same fixed point (see jfnk_cmfgen_int_mod), so skipping the
-! rebuild saves a collisional-only BA assembly; STEQ_RAD_FLAT is
-! still rebuilt every activation because it depends on the current
-! baseline.  The preconditioner is unaffected: FACTOR_PRECOND
-! re-derives JFNK_BA_DIAG and the ridge from the live BA each call.
-!
-	IF(JFNK_CMAT_AGE .LT. JFNK_CMAT_MAX_AGE .AND.
-	1   ALLOCATED(JFNK_CMAT_RAD))THEN
-	  JFNK_BA_RAD_READY=.TRUE.
-	  JFNK_CMAT_AGE=JFNK_CMAT_AGE+1
-	  IF(JFNK_USE_BANDED_LOC .AND.
-	1     ALLOCATED(JFNK_CMAT_RAD_BANDS))
-	1   JFNK_BA_RAD_BANDS_READY=.TRUE.
-	  WRITE(LUER,'(A,I2,A)')
-	1   '  JFNK: reusing CMAT_RAD (age ',JFNK_CMAT_AGE,
-	2   ' activations)'
-	END IF
+! The CMAT_RAD age-reuse branch was removed (17-Oct-2026, W10): the
+! driver rebuilds BA_rad unconditionally each activation, so this
+! only set a flag the rebuild overwrote -- and printed "reusing"
+! for a matrix that was never reused.
 !
 	IOS=0
 	IF(.NOT. ALLOCATED(POPS_BASE)) ALLOCATE(POPS_BASE(NT, ND),STAT=IOS)
@@ -416,6 +405,13 @@
 	JFNK_N_PRECOND_REFRESH = 0
 	jfnk_n_reg_proj = 0
 	JFNK_LU_READY = .FALSE.
+!
+! W11/W12 (17-Oct-2026): per-activation state -- a stale enriched
+! apply or census mask must not survive into a new baseline.
+!
+	JFNK_ENRICH_ACTIVE = .FALSE.
+	JFNK_ENRICH_KLOC = 0
+	IF(ALLOCATED(JFNK_CENSUS_REG))DEALLOCATE(JFNK_CENSUS_REG)
 !
 ! Fix #6 (review 2026-09-11): Reset the ridge-floor SAVE state so
 ! that the first model does not determine the floor for subsequent
@@ -1559,7 +1555,9 @@
 !
 	LUER = ERROR_LU()
 !
-! Eval budget (VADAT [JFNK_MAX_EVALS], default 0=off): a coupled
+! Eval budget (VADAT [JFNK_MAX_EVALS], default 0=off; enforced via
+! the activation-local JFNK_EVAL_LIM so the driver can trim it per
+! budget rung without mutating the control): a coupled
 ! eval is a full formal sweep, so an activation that exhausts the
 ! budget is spending more than a failed solve is worth.  Return a
 ! sentinel residual (no sweep): GMRES aborts on the JVP NaN-count
@@ -2080,6 +2078,18 @@
 ! JFNK_ASSEMBLE_STEQ_V1).
 !
 	JFNK_EQ_STRUCT_READY=.FALSE.
+!
+! The stored operator belongs to the old baseline: force
+! FACTOR_PRECOND to rebuild BA_A rather than reuse it.
+!
+	JFNK_BA_BUILT=.FALSE.
+!
+! W12 (17-Oct-2026): same staleness for the enriched U columns --
+! they priced the old baseline's stored operator, so disarm the
+! apply; the next admission re-assembles if enrichment still runs.
+!
+	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_KLOC=0
 !
 ! Clipping parameters (must match the final update in
 ! solve_for_pops_jfnk_v1.f)
@@ -2774,7 +2784,7 @@
 ! header rewritten to match the LU/LSQ/banded implementation
 ! (edited by Devin, 15-Oct-2026)
 !
-	SUBROUTINE JFNK_FACTOR_PRECOND_V1()
+	SUBROUTINE JFNK_FACTOR_PRECOND_V1(DO_FACTOR)
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
@@ -2816,9 +2826,17 @@
 	DOUBLE PRECISION, ALLOCATABLE :: GECON_WORK(:)
 	INTEGER, ALLOCATABLE :: GECON_IWORK(:)
 	INTEGER LU_INFO_G
+! DO_FACTOR=.FALSE. builds JFNK_BA_A/diagonals only and returns
+! before the LU/SCHUR/banded factorizations -- the admission path
+! uses it to price the reach/direction gates cheaply (17-Oct-2026).
+! A later DO_FACTOR call reuses the built BA_A (JFNK_BA_BUILT).
+	LOGICAL, INTENT(IN), OPTIONAL :: DO_FACTOR
+	LOGICAL DO_FACTOR_L
 	EXTERNAL ERROR_LU
 !
 	LUER = ERROR_LU()
+	DO_FACTOR_L=.TRUE.
+	IF(PRESENT(DO_FACTOR))DO_FACTOR_L=DO_FACTOR
 	JFNK_LU_READY = .FALSE.
 	JFNK_FACTOR_DONE = .FALSE.
 !
@@ -2997,6 +3015,12 @@
 	FIRST_MATRIX = .TRUE.
 	LAST_MATRIX = .FALSE.
 !
+! JFNK_BA_BUILT reuse (17-Oct-2026): the admission path already ran
+! the build below with DO_FACTOR=.FALSE.; factoring now reuses that
+! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.
+!
+	IF(.NOT. (JFNK_BA_BUILT .AND. DO_FACTOR_L))THEN
+!
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
 ! JFNK_SET_PTC_SCALE_V1.  Computed here because SET_PTC_SCALE arms
 ! only after this routine returns on the admission path.  dtau is
@@ -3092,6 +3116,21 @@
 	    JFNK_PRECOND_DIAG(JFNK_NT-1,K) = 1.0_LDP
 	  END IF
 	END DO
+	END IF   ! JFNK_BA_BUILT reuse guard
+!
+! DO_FACTOR=.FALSE. (17-Oct-2026, W5B): BA_A plus the folded
+! diagonals are everything the reach/direction gates read; stop
+! before the LU/SCHUR/banded factorizations so a gate skip never
+! pays for them.  JFNK_BA_BUILT stays set across the activation
+! (and through the follow-up real factor call) so restarts that
+! keep the baseline refactor the same matrix; only
+! JFNK_INIT_V1/JFNK_REBUILD_BASELINE_V1 clear it.
+!
+	IF(.NOT. DO_FACTOR_L)THEN
+	  JFNK_BA_BUILT=.TRUE.
+	  JFNK_BA_DIAG_READY=.TRUE.
+	  RETURN
+	END IF
 !
 ! ── Equilibrated depth-block LU ────────────────────────────────────
 ! M_K = BA(:,:,K).  Attempt DGEEQU + DGETRF with zero ridge first.
@@ -4174,6 +4213,27 @@
 	END DO
 !$OMP END PARALLEL DO
 !
+	IF(JFNK_PC_DIAG_ONLY)THEN
+! Admission-gate pricing (17-Oct-2026, W5B): the LU is deliberately
+! deferred until the reach/direction gates pass, so apply the
+! folded-diagonal (Jacobi) map directly and return -- the lazy
+! factorization below must not fire here or the deferral pays for
+! itself anyway.  JFNK_BA_RIDGE_ADD is still zero at this point
+! (ridges are decided by LU failures), so the gate prices the raw
+! folded diagonal.
+	  DO K = 1, JFNK_ND
+	    DO J = 1, JFNK_NT
+	      DIAG_USE = JFNK_BA_DIAG(J, K) + JFNK_BA_RIDGE_ADD(J, K)
+	      IF(ABS(DIAG_USE) .GT. 1.0E-30_LDP)THEN
+	        V((K-1)*JFNK_NT + J) =
+	1         V((K-1)*JFNK_NT + J) / DBLE(DIAG_USE)
+	      END IF
+	    END DO
+	  END DO
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, V)
+	  RETURN
+	END IF
+!
 	IF(.NOT. JFNK_FACTOR_DONE)THEN
 	  CALL JFNK_FACTOR_PRECOND_V1()
 	END IF
@@ -4614,6 +4674,43 @@
 ! JFNK_TAUTO_DAMP_V1 is still the hard bound.
 !
 	CALL JFNK_TAUTO_SCALE_V1(N, V)
+!
+! W12 (17-Oct-2026, [JFNK_ENRICH], default F): Sherman-Morrison-
+! Woodbury tail of the enriched apply.  The base solve above produced
+! z1 = M0^-1 v (full path, same as the U columns were built with);
+! the enriched output is
+!   z = z1 - U (I + E^T U)^-1 E^T z1,
+! with U = M0^-1 W the JVP-probed field-response columns assembled by
+! JFNK_ASSEMBLE_ENRICH_V1 and S = I + E^T U already factored.  Linear
+! in v, so Krylov consistency is preserved; K <= 64 keeps the tail
+! at O(K^2 + K*n).  Coupled tier only -- ACTIVE is set solely by the
+! coupled-tri assembly.
+!
+	IF(JFNK_ENRICH_ACTIVE .AND. JFNK_ENRICH_KLOC .GT. 0)THEN
+	  BLOCK
+	    DOUBLE PRECISION ALP(JFNK_ENRICH_KLOC)
+	    DOUBLE PRECISION VSAVE(JFNK_ENRICH_KLOC)
+	    INTEGER IM,INFO_E
+	    DO IM=1,JFNK_ENRICH_KLOC
+	      ALP(IM)=V(JFNK_ENRICH_IDX(IM))
+	      VSAVE(IM)=ALP(IM)
+	    END DO
+	    CALL DGETRS('N',JFNK_ENRICH_KLOC,1,JFNK_ENRICH_S,
+	1       JFNK_ENRICH_KLOC,JFNK_ENRICH_IPIV,ALP,
+	2       JFNK_ENRICH_KLOC,INFO_E)
+	    IF(INFO_E .EQ. 0)THEN
+	      DO IM=1,JFNK_ENRICH_KLOC
+	        V=V-ALP(IM)*JFNK_ENRICH_U(:,IM)
+	      END DO
+	    ELSE
+! A failed K x K backsolve leaves the plain M0^-1 output in place --
+! the safe fallback, and the only sane action inside a GMRES matvec.
+	      DO IM=1,JFNK_ENRICH_KLOC
+	        V(JFNK_ENRICH_IDX(IM))=VSAVE(IM)
+	      END DO
+	    END IF
+	  END BLOCK
+	END IF
 !
 	JFNK_N_PRECOND_APPLIES = JFNK_N_PRECOND_APPLIES + 1
 !
@@ -6512,3 +6609,553 @@
 	FLUSH(LUER)
 	RETURN
 	END SUBROUTINE JFNK_ROW_ANATOMY_V1
+
+
+!
+! JFNK_RESIDUAL_CENSUS_V1 (W11, 17-Oct-2026): admission-time census of
+! the F(0) residual against the stored BA rows, run after
+! JFNK_FACTOR_PRECOND_V1(.FALSE.) (BA_A built) and the F(0) adoption,
+! but BEFORE the LU factorization and any reach-precheck JVP evals.
+! On radiation-pinned residuals -- the SOB frozen-J class where ~all
+! of |F| sits in deep-H rows whose radiative lag no population step
+! can move (m15 SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
+! ~39k pop-floor regularized rows, cos(F,Jz) ~ 1e-4) -- this certifies
+! the frozen tier's inability for ~one residual eval plus the BA build
+! instead of ~78 s of CMAT+LU per admission.
+!
+! Metrics returned:
+!   R_MAX/R_MED  - max/median row-stiffness r_i = |BA_i|.inf /
+!                  max(|F_i|, 1e-8*|F|max) (inf-norm rows of the
+!                  built, PTC-folded JFNK_BA_A)
+!   STIFF_FR     - fraction of all N rows with r_i > JFNK_CENSUS_STIFF_CUT
+!   PIN_N        - rows that factor-time regularization would mask
+!                  (ROW_TINY near-null + JFNK_POP_FL population floor,
+!                  replicated here on the unfactored block)
+!   PIN_FSH      - share of |F| (unweighted l1) on those pinned rows
+!   FTOP_FR      - share of |F|^2 held by the top 1% of rows
+!
+! The pinned-row mask is also stored in JFNK_CENSUS_REG for the W12
+! anchor selection (enrichment must not anchor on structurally-zero
+! directions).  DO_PRINT gates the OUTGEN block (CONV_DIAG_LVL>=1).
+!
+	SUBROUTINE JFNK_RESIDUAL_CENSUS_V1(LUER,R_MAX,R_MED,STIFF_FR,
+	1    PIN_N,PIN_FSH,FTOP_FR,DO_PRINT)
+	USE SET_KIND_MODULE
+	USE MOD_CMFGEN
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ROW_TINY,JFNK_POP_FLOOR,
+	1     JFNK_CENSUS_STIFF_CUT
+	USE JFNK_CMFGEN_INT_MOD
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_fx
+	IMPLICIT NONE
+!
+	INTEGER LUER,PIN_N
+	DOUBLE PRECISION R_MAX,R_MED,STIFF_FR,PIN_FSH,FTOP_FR
+	LOGICAL DO_PRINT
+!
+	INTEGER I,J,K,ID,N,IH,NSTIFF,NTOP,NRK,II
+	INTEGER, PARAMETER :: NHB=121
+	INTEGER HIST(NHB)
+	INTEGER, ALLOCATABLE :: J2ID(:),ORD(:)
+	DOUBLE PRECISION BLKMAX,ROWMAX,FMAX,FFL,R_I,F1T,F2T
+	DOUBLE PRECISION ION_TOT,HLO,HSTEP,HCUM
+	DOUBLE PRECISION, ALLOCATABLE :: FABS(:),RVEC(:)
+	CHARACTER*14 LBL
+	INTEGER LEV_L,KCUM
+	LOGICAL SKIP_L
+	EXTERNAL JFNK_MASK_FIXED_UNKNOWNS
+!
+	R_MAX=0.0D0
+	R_MED=0.0D0
+	STIFF_FR=0.0D0
+	PIN_N=0
+	PIN_FSH=0.0D0
+	FTOP_FR=0.0D0
+	IF(JFNK_NT .LE. 0 .OR. JFNK_ND .LE. 0)RETURN
+	IF(.NOT. ALLOCATED(JFNK_BA_A))RETURN
+	IF(.NOT. ALLOCATED(jfnk_fx))RETURN
+	N=JFNK_NT*JFNK_ND
+	IF(SIZE(jfnk_fx) .LT. N)RETURN
+!
+	ALLOCATE(FABS(N),RVEC(N),ORD(N),J2ID(JFNK_NT))
+	IF(ALLOCATED(JFNK_CENSUS_REG))THEN
+	  IF(SIZE(JFNK_CENSUS_REG) .NE. N)DEALLOCATE(JFNK_CENSUS_REG)
+	END IF
+	IF(.NOT. ALLOCATED(JFNK_CENSUS_REG))ALLOCATE(JFNK_CENSUS_REG(N))
+!
+! J -> ion map (same construction as JFNK_ROW_ANATOMY_V1).
+!
+	J2ID=0
+	DO ID=1,JFNK_NION
+	  IF(ATM(ID)%XzV_PRES)THEN
+	    DO J=ATM(ID)%EQXzV,
+	1        MIN(ATM(ID)%EQXzV+ATM(ID)%NXzV-1,JFNK_NT-2)
+	      IF(J .GE. 1)J2ID(J)=ID
+	    END DO
+	  ELSE
+	    IF(ATM(ID)%EQXzV .GE. 1 .AND.
+	1       ATM(ID)%EQXzV .LE. JFNK_NT-2)J2ID(ATM(ID)%EQXzV)=ID
+	  END IF
+	END DO
+!
+	FMAX=0.0D0
+	F1T=0.0D0
+	F2T=0.0D0
+	DO I=1,N
+	  FABS(I)=ABS(jfnk_fx(I))
+	  FMAX=MAX(FMAX,FABS(I))
+	  F1T=F1T+FABS(I)
+	  F2T=F2T+FABS(I)**2
+	END DO
+	FFL=1.0D-8*FMAX
+!
+! Pinned-row mask + stiffness, per depth.  Replicates the factor-time
+! tests on the unfactored block: near-null row vs JFNK_ROW_TINY*BLKMAX,
+! then the JFNK_POP_FL population floor per ion.
+!
+	JFNK_CENSUS_REG=.FALSE.
+	NSTIFF=0
+	HIST=0
+	DO K=1,JFNK_ND
+	  BLKMAX=0.0_LDP
+	  DO I=1,JFNK_NT
+	    DO J=1,JFNK_NT
+	      BLKMAX=MAX(BLKMAX,ABS(JFNK_BA_A(I,J,K)))
+	    END DO
+	  END DO
+	  DO I=1,JFNK_NT
+	    ROWMAX=0.0_LDP
+	    DO J=1,JFNK_NT
+	      ROWMAX=MAX(ROWMAX,ABS(JFNK_BA_A(I,J,K)))
+	    END DO
+	    II=(K-1)*JFNK_NT+I
+	    IF(ROWMAX .LT. JFNK_ROW_TINY*BLKMAX)
+	1       JFNK_CENSUS_REG(II)=.TRUE.
+	    R_I=ROWMAX/MAX(FABS(II),FFL)
+	    RVEC(II)=R_I
+	    R_MAX=MAX(R_MAX,R_I)
+	    IF(JFNK_CENSUS_STIFF_CUT .GT. 0.0_LDP .AND.
+	1       R_I .GT. JFNK_CENSUS_STIFF_CUT)NSTIFF=NSTIFF+1
+	    IF(R_I .GT. 0.0D0)THEN
+	      IH=INT(2.0D0*(LOG10(R_I)+30.0D0))+1
+	      IH=MIN(MAX(IH,1),NHB)
+	    ELSE
+	      IH=1
+	    END IF
+	    HIST(IH)=HIST(IH)+1
+	  END DO
+	  IF(JFNK_POP_FLOOR .GT. 0.0_LDP .AND.
+	1     ALLOCATED(POPS_BASE))THEN
+	    DO ID=1,NUM_IONS
+	      IF(.NOT. ATM(ID)%XzV_PRES)CYCLE
+	      ION_TOT=0.0_LDP
+	      DO J=ATM(ID)%EQXzV,
+	1          MIN(ATM(ID)%EQXzV+ATM(ID)%NXzV-1,JFNK_NT-2)
+	        IF(J .GE. 1)ION_TOT=ION_TOT+POPS_BASE(J,K)
+	      END DO
+	      IF(ION_TOT .LE. 0.0_LDP)CYCLE
+	      DO J=ATM(ID)%EQXzV,
+	1          MIN(ATM(ID)%EQXzV+ATM(ID)%NXzV-1,JFNK_NT-2)
+	        II=(K-1)*JFNK_NT+J
+	        IF(J .GE. 1 .AND. .NOT. JFNK_CENSUS_REG(II) .AND.
+	1           POPS_BASE(J,K) .LT. JFNK_POP_FLOOR*ION_TOT)
+	2           JFNK_CENSUS_REG(II)=.TRUE.
+	      END DO
+	    END DO
+	  END IF
+	END DO
+	STIFF_FR=DBLE(NSTIFF)/DBLE(N)
+!
+	DO I=1,N
+	  IF(JFNK_CENSUS_REG(I))THEN
+	    PIN_N=PIN_N+1
+	    PIN_FSH=PIN_FSH+FABS(I)
+	  END IF
+	END DO
+	PIN_FSH=PIN_FSH/MAX(F1T,1.0D-300)
+!
+! Median stiffness from the log10 histogram (bin width 0.5 dex).
+!
+	KCUM=0
+	DO IH=1,NHB
+	  KCUM=KCUM+HIST(IH)
+	  IF(KCUM .GE. (N+1)/2)THEN
+	    R_MED=10.0D0**((DBLE(IH)-1.5D0)/2.0D0-30.0D0)
+	    GOTO 10
+	  END IF
+	END DO
+   10	CONTINUE
+!
+! F concentration: share of |F|^2 on the top 1% of rows.
+!
+	NTOP=MIN(MAX(1,N/100),512)
+	DO I=1,N
+	  ORD(I)=I
+	END DO
+	DO I=1,NTOP
+	  DO K=I+1,N
+	    IF(FABS(ORD(K)) .GT. FABS(ORD(I)))THEN
+	      II=ORD(I)
+	      ORD(I)=ORD(K)
+	      ORD(K)=II
+	    END IF
+	  END DO
+	END DO
+	HCUM=0.0D0
+	DO I=1,NTOP
+	  HCUM=HCUM+FABS(ORD(I))**2
+	END DO
+	FTOP_FR=HCUM/MAX(F2T,1.0D-300)
+!
+	IF(DO_PRINT .AND. LUER .GT. 0)THEN
+	  WRITE(LUER,'(/,A)')' ------------------------------- JFNK CENSUS --------------------------------'
+	  WRITE(LUER,'(A,2ES10.2)')
+	1   '    row stiffness r=|BA|/|F|  max/med :',R_MAX,R_MED
+	  WRITE(LUER,'(A,ES10.2,A,ES10.2)')
+	1   '    rows above stiff cut  frac/cutoff :',STIFF_FR,
+	2   ' /',JFNK_CENSUS_STIFF_CUT
+	  WRITE(LUER,'(A,I8,A,ES10.2)')
+	1   '    regularized (pinned) rows         :',PIN_N,
+	2   '  |F| share=',PIN_FSH
+	  WRITE(LUER,'(A,ES10.2)')
+	1   '    |F|^2 share in top 1% of rows     :',FTOP_FR
+	  NRK=MIN(8,NTOP)
+	  WRITE(LUER,'(A)')
+	1   '    rnk    idx     K     J  ion          lev     F_i'//
+	2   '        r_i        pinned'
+	  DO I=1,NRK
+	    II=ORD(I)
+	    K=(II-1)/JFNK_NT+1
+	    J=MOD(II-1,JFNK_NT)+1
+	    IF(J .EQ. JFNK_NT)THEN
+	      LBL='T (energy)'
+	      LEV_L=0
+	    ELSE IF(J .EQ. JFNK_NT-1)THEN
+	      LBL='Ne (charge)'
+	      LEV_L=0
+	    ELSE IF(J2ID(J) .GT. 0)THEN
+	      LBL=ION_ID(J2ID(J))
+	      LEV_L=J-ATM(J2ID(J))%EQXzV+1
+	    ELSE
+	      LBL='unlabeled'
+	      LEV_L=0
+	    END IF
+	    WRITE(LUER,'(I5,I8,I6,I6,2X,A12,I5,2ES11.3,4X,L1)')
+	1       I,II,K,J,LBL,LEV_L,jfnk_fx(II),RVEC(II),
+	2       JFNK_CENSUS_REG(II)
+	  END DO
+	  FLUSH(LUER)
+	END IF
+!
+	DEALLOCATE(FABS,RVEC,ORD,J2ID)
+	RETURN
+	END SUBROUTINE JFNK_RESIDUAL_CENSUS_V1
+
+
+!
+! JFNK_ASSEMBLE_ENRICH_V1 (W12, 17-Oct-2026): low-rank field-response
+! enrichment of the coupled-tier preconditioner, flag-gated by
+! [JFNK_ENRICH] (default F = unchanged apply).
+!
+! The stored BA (M0 = LU(BA_A)) lacks the dJ/dn source-function
+! response -- the frozen-operator gap of ApJ 2001 10.1086/304873 that
+! Arramy et al. (2024, A&A 690 A12) close with an analytic Jacobian.
+! Here the same response is added as a bounded rank-K update built
+! from Jacobian-vector products only:
+!
+!   anchors   : K unknowns e_c at the rows where the stored operator
+!               is worst -- top-|F| rows ranked by census stiffness
+!               r_i = |BA_i|.inf/|F_i| (JFNK_CENSUS_REG rows excluded:
+!               pop-floor regularized directions are structurally
+!               zero and anchoring them wastes evals / reintroduces
+!               the clipped flail the census documents).
+!   columns   : W(:,m) = J e_c - BA_A e_c.  The FD column comes from
+!               JFNK_JVP_V1 (exact coupled J action, the SAME state
+!               and PTC-folded BA_A the LU was built from -- the
+!               compare is self-consistent under the fold because
+!               BA_A already carries it).
+!   apply     : with U = M0^-1 W and S = I + E^T U (K x K, factored
+!               once), JFNK_PRECOND_V1 applies
+!               z -> z - U S^-1 E^T z  (Sherman-Morrison-Woodbury on
+!               the left-preconditioned operator, O(K^2+K*n) per GMRES
+!               iteration).
+!
+! Cost is K coupled residual evals (one JVP per anchor) plus two
+! telemetry JVPs, bounded by JFNK_ENRICH_PERCENT of the activation
+! eval budget; past the cap the enrichment is abandoned and the
+! plain LU runs.  No production state is touched: the JVPs respect
+! the e7d5d43 eval-bracket contract and FREEZE_I_NEXT holds for the
+! whole admission window.
+!
+	SUBROUTINE JFNK_ASSEMBLE_ENRICH_V1(LUER)
+	USE SET_KIND_MODULE
+	USE MOD_CMFGEN
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ENRICH,JFNK_ENRICH_K,
+	1     JFNK_ENRICH_PERCENT,JFNK_MAX_EVALS,JFNK_POP_FLOOR,
+	2     JFNK_ROW_TINY
+	USE JFNK_CMFGEN_INT_MOD
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_fx,jfnk_jvp_failed
+	IMPLICIT NONE
+!
+	INTEGER LUER
+!
+	INTEGER N,KWANT,M,I,J,K,ID,II,IOS,NEV0,NEV_CAP,NCAND
+	INTEGER, ALLOCATABLE :: ORD(:),CAND(:)
+	DOUBLE PRECISION, ALLOCATABLE :: RVEC(:),FABS(:),EVEC(:),
+	1   JV(:),BCL(:),WRK(:),Z0(:),Z1(:),A0(:),A1(:),ARHS(:)
+	DOUBLE PRECISION BLKMAX,ROWMAX,FFL,FMAX,DMET,COSA,FF2,AA2,FA
+	DOUBLE PRECISION S_DOT,JFNK_DOT_V1
+	EXTERNAL JFNK_DOT_V1,JFNK_JVP_V1,JFNK_PRECOND_V1,
+	1   JFNK_MASK_FIXED_UNKNOWNS,JFNK_RESIDUAL_CENSUS_V1
+	DOUBLE PRECISION RDUM1,RDUM2,RDUM3,RDUM4,RDUM5
+	INTEGER IDUM1
+!
+	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_KLOC=0
+	IF(.NOT. JFNK_ENRICH)RETURN
+	IF(.NOT. JFNK_COUPLED_LOC)RETURN
+	IF(JFNK_NT .LE. 0 .OR. JFNK_ND .LE. 0)RETURN
+	IF(.NOT. ALLOCATED(JFNK_BA_A) .OR. .NOT. ALLOCATED(jfnk_fx))RETURN
+	N=JFNK_NT*JFNK_ND
+	IF(SIZE(jfnk_fx) .LT. N)RETURN
+	KWANT=MIN(MAX(JFNK_ENRICH_K,2),64)
+!
+! Reg-row mask for anchor exclusion: reuse the W11 census mask when
+! the driver already computed it this admission, else compute it now
+! (metrics are discarded; only JFNK_CENSUS_REG matters here).
+!
+	IF(.NOT. ALLOCATED(JFNK_CENSUS_REG))THEN
+	  CALL JFNK_RESIDUAL_CENSUS_V1(0,RDUM1,RDUM2,RDUM3,IDUM1,
+	1     RDUM4,RDUM5,.FALSE.)
+	END IF
+	IF(.NOT. ALLOCATED(JFNK_CENSUS_REG))THEN
+	  IF(SIZE(JFNK_CENSUS_REG) .NE. N)DEALLOCATE(JFNK_CENSUS_REG)
+	END IF
+	IF(.NOT. ALLOCATED(JFNK_CENSUS_REG))RETURN
+!
+! Eval cap: JFNK_ENRICH_PERCENT bounds the extra coupled evals this
+! activation spends on enrichment, as a percent of the activation
+! budget (JFNK_EVAL_LIM, else JFNK_MAX_EVALS).  <=0 = uncapped.
+!
+	NEV0=JFNK_N_RESIDUAL_EVALS
+	NEV_CAP=HUGE(1)
+	IF(JFNK_ENRICH_PERCENT .GT. 0.0_LDP)THEN
+	  IF(JFNK_EVAL_LIM .GT. 0)THEN
+	    NEV_CAP=NEV0+NINT(JFNK_EVAL_LIM*
+	1       JFNK_ENRICH_PERCENT/100.0_LDP)
+	  ELSE IF(JFNK_MAX_EVALS .GT. 0)THEN
+	    NEV_CAP=NEV0+NINT(JFNK_MAX_EVALS*
+	1       JFNK_ENRICH_PERCENT/100.0_LDP)
+	  END IF
+	END IF
+!
+	ALLOCATE(RVEC(N),FABS(N),ORD(N),CAND(N),EVEC(N),JV(N),BCL(N),
+	1   WRK(N),Z0(N),Z1(N),A0(N),A1(N),ARHS(KWANT),STAT=IOS)
+	IF(IOS .NE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK ENRICH: workspace alloc failed -- plain LU runs'
+	  RETURN
+	END IF
+!
+! Stiffness per row on the post-fold BA_A (same matrix the LU solved).
+!
+	FMAX=0.0D0
+	DO I=1,N
+	  FABS(I)=ABS(jfnk_fx(I))
+	  FMAX=MAX(FMAX,FABS(I))
+	END DO
+	FFL=1.0D-8*FMAX
+	DO K=1,JFNK_ND
+	  DO I=1,JFNK_NT
+	    ROWMAX=0.0_LDP
+	    DO J=1,JFNK_NT
+	      ROWMAX=MAX(ROWMAX,ABS(JFNK_BA_A(I,J,K)))
+	    END DO
+	    II=(K-1)*JFNK_NT+I
+	    RVEC(II)=ROWMAX/MAX(FABS(II),FFL)
+	  END DO
+	END DO
+!
+! Anchor candidates: non-regularized, non-fixed rows ordered by |F_i|
+! (top 4*KWANT pool), then ranked by stiffness r_i.  Anchoring on the
+! residual-heavy rows is what inserts the missing dJ/dn response in
+! the directions F actually lives.
+!
+	NCAND=0
+	DO I=1,N
+	  ORD(I)=I
+	  J=MOD(I-1,JFNK_NT)+1
+	  K=(I-1)/JFNK_NT+1
+	  IF(JFNK_CENSUS_REG(I))CYCLE
+	  IF(J .EQ. JFNK_NT-1 .AND. JFNK_FIXED_NE_LOC)CYCLE
+	  IF(J .EQ. JFNK_NT .AND. (JFNK_FIXED_T_LOC .OR.
+	1     (JFNK_FIX_T_D_ST .GT. 0 .AND.
+	2      K .GE. JFNK_FIX_T_D_ST .AND. K .LE. JFNK_FIX_T_D_END .AND.
+	3      .NOT. JFNK_TAUTO_ACTIVE)))CYCLE
+	  NCAND=NCAND+1
+	  CAND(NCAND)=I
+	END DO
+	IF(NCAND .LE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK ENRICH: no eligible anchor rows -- plain LU runs'
+	  DEALLOCATE(RVEC,FABS,ORD,CAND,EVEC,JV,BCL,WRK,Z0,Z1,A0,A1,
+	1     ARHS)
+	  RETURN
+	END IF
+	DO I=1,MIN(4*KWANT,NCAND)
+	  DO K=I+1,NCAND
+	    IF(FABS(CAND(K)) .GT. FABS(CAND(I)))THEN
+	      II=CAND(I)
+	      CAND(I)=CAND(K)
+	      CAND(K)=II
+	    END IF
+	  END DO
+	END DO
+	DO I=1,MIN(KWANT,NCAND)
+	  DO K=I+1,MIN(4*KWANT,NCAND)
+	    IF(RVEC(CAND(K)) .GT. RVEC(CAND(I)))THEN
+	      II=CAND(I)
+	      CAND(I)=CAND(K)
+	      CAND(K)=II
+	    END IF
+	  END DO
+	END DO
+	KWANT=MIN(KWANT,NCAND)
+!
+	IF(ALLOCATED(JFNK_ENRICH_IDX))DEALLOCATE(JFNK_ENRICH_IDX)
+	IF(ALLOCATED(JFNK_ENRICH_U))DEALLOCATE(JFNK_ENRICH_U)
+	IF(ALLOCATED(JFNK_ENRICH_S))DEALLOCATE(JFNK_ENRICH_S)
+	IF(ALLOCATED(JFNK_ENRICH_IPIV))DEALLOCATE(JFNK_ENRICH_IPIV)
+	ALLOCATE(JFNK_ENRICH_IDX(KWANT),JFNK_ENRICH_U(N,KWANT),
+	1   JFNK_ENRICH_S(KWANT,KWANT),JFNK_ENRICH_IPIV(KWANT),STAT=IOS)
+	IF(IOS .NE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK ENRICH: state alloc failed -- plain LU runs'
+	  DEALLOCATE(RVEC,FABS,ORD,CAND,EVEC,JV,BCL,WRK,Z0,Z1,A0,A1)
+	  RETURN
+	END IF
+!
+	IF(LUER .GT. 0)THEN
+	  WRITE(LUER,'(/,A)')' ------------------------------ JFNK ENRICH --------------------------------'
+	  WRITE(LUER,'(A,I4,A,I8)')
+	1   '    anchors K=',KWANT,'   eval cap at=',NEV_CAP
+	END IF
+!
+	M=0
+	DO I=1,KWANT
+	  II=CAND(I)
+	  IF(JFNK_N_RESIDUAL_EVALS .GE. NEV_CAP)THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1       '  JFNK ENRICH: eval cap after ',M,
+	2       ' anchors -- abandoning enrichment, plain LU runs'
+	    GOTO 100
+	  END IF
+	  EVEC=0.0D0
+	  EVEC(II)=1.0D0
+	  CALL JFNK_JVP_V1(N,EVEC,JV)
+	  IF(jfnk_jvp_failed)THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A)')
+	1       '  JFNK ENRICH: JVP failed at anchor ',II,
+	2       ' -- abandoning enrichment'
+	    GOTO 100
+	  END IF
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N,JV)
+!
+! BA_A e_c: the stored column lives inside the depth block of c
+! (DIAG blocks only -- cross-depth stored response does not exist in
+! this preconditioner, which is part of the gap being repaired).
+!
+	  BCL=0.0D0
+	  K=(II-1)/JFNK_NT+1
+	  J=MOD(II-1,JFNK_NT)+1
+	  DO ID=1,JFNK_NT
+	    BCL((K-1)*JFNK_NT+ID)=DBLE(JFNK_BA_A(ID,J,K))
+	  END DO
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N,BCL)
+	  WRK=JV-BCL
+	  DMET=0.0D0
+	  FFL=0.0D0
+	  DO ID=1,N
+	    DMET=MAX(DMET,ABS(WRK(ID)))
+	    FFL=MAX(FFL,ABS(BCL(ID)))
+	  END DO
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4,A,I4,A,2ES11.3)')
+	1     '    anchor idx=',II,' K=',K,' J=',J,
+	2     '  max|dA|=',DMET,'  |dA|/|BAcol|=',DMET/MAX(FFL,1.0D-300)
+!
+! U(:,m) = M0^-1 W(:,m) through the full existing apply (LU +
+! post-processing), so the enrichment corrects the operator GMRES
+! actually sees.  JFNK_ENRICH_ACTIVE is still F here, so the apply is
+! the plain M0^-1.
+!
+	  CALL JFNK_PRECOND_V1(N,WRK)
+	  M=M+1
+	  JFNK_ENRICH_IDX(M)=II
+	  JFNK_ENRICH_U(:,M)=WRK
+	END DO
+!
+! Capacitance matrix S = I + E^T U, factored once per activation.
+!
+	DO J=1,M
+	  DO I=1,M
+	    JFNK_ENRICH_S(I,J)=JFNK_ENRICH_U(JFNK_ENRICH_IDX(I),J)
+	  END DO
+	  JFNK_ENRICH_S(J,J)=JFNK_ENRICH_S(J,J)+1.0D0
+	END DO
+	IF(M .GT. 0)THEN
+	  CALL DGETRF(M,M,JFNK_ENRICH_S,KWANT,JFNK_ENRICH_IPIV,IOS)
+	  IF(IOS .NE. 0)THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1       '  JFNK ENRICH: capacitance factor failed (info=',IOS,
+	2       ') -- plain LU runs'
+	    GOTO 100
+	  END IF
+	END IF
+	IF(M .LE. 0)GOTO 100
+	JFNK_ENRICH_KLOC=M
+	JFNK_ENRICH_ACTIVE=.TRUE.
+!
+! Direction telemetry: does the enriched preconditioner repair the
+! stored operator's descent failure on F?  Price cos(F, A z) with the
+! plain and the enriched apply -- two coupled evals, counted under
+! the same cap.
+!
+	IF(JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	  Z0=jfnk_fx
+	  CALL JFNK_PRECOND_V1(N,Z0)
+	  A0=0.0D0
+	  CALL JFNK_JVP_V1(N,Z0,A0)
+	  Z1=jfnk_fx
+	  CALL JFNK_PRECOND_V1(N,Z1)
+	  A1=0.0D0
+	  CALL JFNK_JVP_V1(N,Z1,A1)
+	  IF(.NOT. jfnk_jvp_failed)THEN
+	    FF2=JFNK_DOT_V1(N,jfnk_fx,jfnk_fx)
+	    AA2=JFNK_DOT_V1(N,A0,A0)
+	    FA=JFNK_DOT_V1(N,jfnk_fx,A0)
+	    COSA=FA/SQRT(MAX(FF2*AA2,1.0D-300))
+	    S_DOT=SQRT(AA2)/SQRT(MAX(FF2,1.0D-300))
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1       '    plain  : cos(F,Az)=',COSA,'  |Az|/|F|=',S_DOT
+	    AA2=JFNK_DOT_V1(N,A1,A1)
+	    FA=JFNK_DOT_V1(N,jfnk_fx,A1)
+	    COSA=FA/SQRT(MAX(FF2*AA2,1.0D-300))
+	    S_DOT=SQRT(AA2)/SQRT(MAX(FF2,1.0D-300))
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1       '    enrich : cos(F,Az)=',COSA,'  |Az|/|F|=',S_DOT
+	  END IF
+	END IF
+	IF(LUER .GT. 0)
+	1   WRITE(LUER,'(A,I4,A,I8,A)')
+	2     '    enrichment active: K=',JFNK_ENRICH_KLOC,
+	3     '  evals spent=',JFNK_N_RESIDUAL_EVALS-NEV0,' '
+	DEALLOCATE(RVEC,FABS,ORD,CAND,EVEC,JV,BCL,WRK,Z0,Z1,A0,A1,
+	1   ARHS)
+	RETURN
+!
+  100	CONTINUE
+	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_KLOC=0
+	DEALLOCATE(RVEC,FABS,ORD,CAND,EVEC,JV,BCL,WRK,Z0,Z1,A0,A1,
+	1   ARHS)
+	RETURN
+	END SUBROUTINE JFNK_ASSEMBLE_ENRICH_V1

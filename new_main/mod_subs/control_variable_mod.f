@@ -843,6 +843,15 @@
 !
 	INTEGER GS_TRIAL_LIM
 !
+! GS_RELEASE_LIM (default 0 = disabled): total rejected trial
+! releases (N_TRIALS_REJ) before SOLVE_FOR_POPS stops the model as
+! non-convergent.  An accepted release refunds N_FROZEN, so the
+! freeze->release->refreeze cycle can run forever under
+! GS_FREEZE_LIM alone; rejected releases are counted nowhere else.
+! VADAT keyword [GS_RELEASE_LIM].
+!
+	INTEGER GS_RELEASE_LIM
+!
 ! GS_REL_STABLE (default 1): consecutive sweeps that must pass the
 ! KNOP maturity gate before SOLVE_FOR_POPS releases the population
 ! update.  A single mature-looking sweep can be a coincidence of the
@@ -1764,6 +1773,15 @@
 	INTEGER BA_DIRCHK_MAX
 	INTEGER JFNK_DIRCHK_N
 	INTEGER JFNK_REARM_EVERY
+! Budget ladder (17-Oct-2026): JFNK is attempted on every admissible
+! call at every rung; failures only trim per-activation budgets toward
+! the RUNG_MIN floors, never retire the solver.  JFNK_RUNG_MAX is the
+! top rung (full floor trim); the MIN_* keys bound how far nits,
+! GMRES iters, and residual evals shrink per halving/thirding step.
+	INTEGER JFNK_RUNG_MAX
+	INTEGER JFNK_RUNG_MIN_NITS
+	INTEGER JFNK_RUNG_MIN_GMRES
+	INTEGER JFNK_RUNG_MIN_EVALS
 	INTEGER JFNK_ROW_DIAG
 ! JFNK_LAG_FACTORS (VADAT, default F) holds POPION and the level-
 ! dissolution coefficients at the activation baseline during frozen-J
@@ -1789,5 +1807,44 @@
 	REAL(KIND=LDP) JFNK_TAU_DMAX	! hard |dlogT| cap per step
 	INTEGER JFNK_TAU_NLOCK	! commits before release allowed
 	LOGICAL JFNK_TAU_PCW	! down-weight T rows in PC'd system
+!
+! W11 census gate (17-Oct-2026): admission-time census of the F(0)
+! residual against the stored BA row norms, computed before the LU
+! factorization.  On the SOB frozen-J residual class the radiation-
+! pinned rows leave ~98% of |F| in equations the population-space
+! Newton cannot move (m15 SOB 2.82d audit: |BArow|/|F| ~ 1e8-1e9,
+! ~39k pop-floor rows), and the reach gate only proves it after the
+! expensive CMAT+LU work.  All three keys default 0 = off, which
+! reproduces the pre-census behaviour exactly; the gate fires on the
+! FROZEN tier only (the coupled operator re-solves J per eval, so the
+! same census does not certify its reachability).
+!   JFNK_CENSUS_STIFF_CUT  - row-stiffness cutoff r_i = |BA_i|.inf /
+!                            max(|F_i|, floor); rows above count stiff
+!   JFNK_CENSUS_STIFF_FRAC - defer when the stiff-row fraction exceeds
+!   JFNK_CENSUS_PIN_FRAC   - defer when the share of |F| carried by
+!                            regularized (near-null / pop-floor) rows
+!                            exceeds this
+!
+	REAL(KIND=LDP) JFNK_CENSUS_STIFF_CUT
+	REAL(KIND=LDP) JFNK_CENSUS_STIFF_FRAC
+	REAL(KIND=LDP) JFNK_CENSUS_PIN_FRAC
+!
+! W12 (17-Oct-2026): low-rank field-response enrichment of the
+! coupled-tier preconditioner.  The stored BA lacks the dJ/dn
+! response (the frozen-operator gap of ApJ 2001 10.1086/304873);
+! JFNK_ENRICH adds a rank-K correction Delta = W E^T assembled from
+! K Jacobian-vector probes (J e_c - BA_A e_c) at the anchor unknowns
+! where the stored operator is worst, applied as
+! z -> z - U (I + E^T U)^-1 E^T z after the base M0^-1 solve.
+!   JFNK_ENRICH         - default F (off = byte-identical apply)
+!   JFNK_ENRICH_K       - anchor count, clamped 2..64
+!   JFNK_ENRICH_PERCENT - cap on extra coupled evals per activation,
+!                         percent of the activation eval budget;
+!                         past it the enrichment is abandoned and the
+!                         plain preconditioner runs (0 = off)
+!
+	LOGICAL JFNK_ENRICH
+	INTEGER JFNK_ENRICH_K
+	REAL(KIND=LDP) JFNK_ENRICH_PERCENT
 !
 	END MODULE CONTROL_VARIABLE_MOD

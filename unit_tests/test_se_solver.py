@@ -516,56 +516,46 @@ def t10_lsq_grid(spec):
 
 
 def t11_strike(spec):
-    """Strike/cooldown FSM (sestrike replica): 3 strikes -> pause,
-    adaptive wait doubling, commit resets, reach-skip exempt.
+    """Budget-ladder replica (sestrike): a counted failure raises the
+    rung (capped at the argument), a commit resets to 0, a reach-skip
+    is exempt -- and Newton runs on EVERY admission (no pause state).
     Requires a spec where the LU admission fails (info=3) and the
     LSQ-alg admission commits (info=0) -- only 'hard' does both."""
     ok = True
     notes = []
 
-    def run(seq, rearm=2):
-        out = run_cli("sestrike", spec["dir"], rearm, seq)
-        adm, pauses, rearms = {}, [], []
+    def run(seq, rung_max=4):
+        out = run_cli("sestrike", spec["dir"], rung_max, seq)
+        adm = {}
         for ln in out.splitlines():
             t = ln.split()
-            if not t:
-                continue
-            if t[0] == "ADM":
-                adm[int(t[1])] = dict(info=int(t[3]), stag=int(t[5]),
-                                      dis=t[7] == "T", cyc=int(t[9]))
-            elif t[0] == "PAUSE":
-                pauses.append((int(t[1]), int(t[3]), int(t[5])))
-            elif t[0] == "REARM":
-                rearms.append((int(t[1]), int(t[3])))
-        return adm, pauses, rearms
+            if t and t[0] == "ADM":
+                adm[int(t[1])] = dict(info=int(t[3]), rung=int(t[5]))
+        return adm
 
-    # strikes accumulate, third disables with cycle=1
-    adm, pauses, rearms = run("FFFFFFFFF")
-    a = (adm[1]["stag"] == 1 and adm[2]["stag"] == 2
-         and adm[3]["dis"] and adm[3]["cyc"] == 1)
-    # wait = rearm*2^cyc = 4 -> 3 pauses then rearm at admission 7
-    a &= ([p[0] for p in pauses] == [4, 5, 6]
-          and pauses[-1][1:] == (3, 4) and rearms == [(7, 4)])
-    # second disable doubles the cycle counter
-    a &= adm[9]["dis"] and adm[9]["cyc"] == 2
+    # failures climb the ladder one rung each, capped at rung_max;
+    # every admission still ran Newton (all ADM rows exist)
+    adm = run("FFFFFFFFF")
+    a = all(i in adm for i in range(1, 10))
+    a &= [adm[i]["rung"] for i in range(1, 7)] == [1, 2, 3, 4, 4, 4]
     ok &= a
-    notes.append(f"3-strike pause/rearm/doubling: {a}")
+    notes.append(f"always-try ladder climbs to cap: {a}")
 
-    # committed update resets strikes and cycle
-    adm, pauses, rearms = run("FFSFFFF")
-    a = (adm[3]["info"] == 0 and adm[3]["stag"] == 0
-         and adm[3]["cyc"] == 0 and adm[4]["stag"] == 1
-         and adm[6]["dis"] and adm[6]["cyc"] == 1
-         and pauses == [(7, 1, 4)])
+    # committed update resets the rung to 0
+    adm = run("FFSFFFF")
+    a = (adm[3]["info"] == 0 and adm[3]["rung"] == 0
+         and adm[4]["rung"] == 1 and adm[7]["rung"] == 4)
     ok &= a
-    notes.append(f"commit resets stag+cycle: {a}")
+    notes.append(f"commit resets rung: {a}")
 
-    # reach-gate skip (info=-2) is exempt from strikes
-    adm, pauses, rearms = run("RFFRFF")
-    a = (adm[1]["info"] == -2 and adm[1]["stag"] == 0
-         and adm[4]["stag"] == 2 and adm[5]["dis"])
+    # reach-gate skip (info=-2) leaves the rung unchanged
+    adm = run("RFFRFF")
+    a = (adm[1]["info"] == -2 and adm[1]["rung"] == 0
+         and adm[2]["rung"] == 1 and adm[3]["rung"] == 2
+         and adm[4]["info"] == -2 and adm[4]["rung"] == 2
+         and adm[6]["rung"] == 4)
     ok &= a
-    notes.append(f"reach-skip exempt: {a}")
+    notes.append(f"reach-skip exempt, rung unchanged: {a}")
     return ok, "; ".join(notes), {}
 
 

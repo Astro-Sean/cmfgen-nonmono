@@ -160,6 +160,13 @@
 	LOGICAL GS_FREEZE,GS_RAW_IMMATURE
 	INTEGER, SAVE :: N_FROZEN=0
 	INTEGER, SAVE :: N_TRIAL_ACC=0
+! Release-cycle accounting (17-Oct-2026): accepted trials refund
+! N_FROZEN, so the freeze->release->refreeze loop could cycle
+! forever under GS_FREEZE_LIM.  N_TRIALS_REJ counts rejected
+! resacc-gated releases for the GS_RELEASE_LIM stop; N_RELEASES_TOT
+! counts accepted ones for telemetry.  Both ride GS_STATE.
+	INTEGER, SAVE :: N_TRIALS_REJ=0
+	INTEGER, SAVE :: N_RELEASES_TOT=0
 	LOGICAL TRIAL_FIRED
 !
 ! GS_WAS_FROZEN records the previous call's freeze state so the first
@@ -265,8 +272,10 @@
 !
 ! KN_GATE_DIVERGENCE prototype state: ring of the last GD_MMAX
 ! refresh sweeps' max residuals.  SAVE so the history persists
-! across calls; a warm restart replays N_LAM_RWARM sweeps before
-! the ring can arm the growth test, matching the warm-up window.
+! across calls.  On a warm restart two paths exist (GS_RWARM_SKIP):
+! replay N_LAM_RWARM sweeps before the ring can arm the growth
+! test, or -- when the GS state file restores a mature field --
+! skip the replay and let the ring refill from live sweeps.
 !
 	INTEGER, PARAMETER :: GD_MMAX=8
 	REAL(KIND=LDP), SAVE :: GS_DIV_HIST(GD_MMAX)=0.0_LDP
@@ -276,6 +285,7 @@
 	INTEGER I,J
 	INTEGER LU_GS
 	INTEGER GS_IT_RD,GS_NF_RD,GS_MT_RD,GS_RL_RD,GS_TA_RD
+	INTEGER GS_TR_RD,GS_NR_RD
 	LOGICAL GS_FRZ_RD
 	CHARACTER*80 RSV_CH
 !
@@ -315,6 +325,7 @@
 !
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
+	EXTERNAL JFNK_RETREAT_RESET_V1
 !
 	LUER=ERROR_LU()	
 !
@@ -346,6 +357,8 @@
 	  COUNT_FULL_LAM_BA=1
 	  N_FROZEN=0
 	  N_TRIAL_ACC=0
+	  N_TRIALS_REJ=0
+	  N_RELEASES_TOT=0
 	  TRIAL_FIRED=.FALSE.
 	  GS_WAS_FROZEN=.FALSE.
 	  N_REL_SINCE=0
@@ -370,6 +383,14 @@
 	  PREV_COMPUTE_ENT=.FALSE.
 	  BAACC_RDLAM_PROBE_ARM=.FALSE.
 	  BAACC_RDLAM_PROBE=.FALSE.
+!
+! Retreat/ladder state is likewise process-local: a second model
+! must not inherit a raised JFNK budget rung, a mid-release tau
+! rung, or the KNOP divergence ring (all zeroed by a requeue).
+!
+	  CALL JFNK_RETREAT_RESET_V1()
+	  GS_DIV_HIST=0.0_LDP
+	  GS_DIV_NH=0
 	END IF
 	ITS_SINCE_START=ITS_SINCE_START+1
 !
@@ -399,6 +420,8 @@
 	    GS_MT_RD=0
 	    GS_RL_RD=0
 	    GS_TA_RD=0
+	    GS_TR_RD=0
+	    GS_NR_RD=0
 	    GS_FRZ_RD=.FALSE.
 	    DO
 	      RSV_CH=' '
@@ -415,6 +438,10 @@
 	1      READ(RSV_CH(7:),*,IOSTAT=IOS)GS_RL_RD
 	      IF(INDEX(RSV_CH,'n_trial_acc=') .EQ. 1)
 	1      READ(RSV_CH(13:),*,IOSTAT=IOS)GS_TA_RD
+	      IF(INDEX(RSV_CH,'n_trials_rej=') .EQ. 1)
+	1      READ(RSV_CH(14:),*,IOSTAT=IOS)GS_TR_RD
+	      IF(INDEX(RSV_CH,'n_releases=') .EQ. 1)
+	1      READ(RSV_CH(12:),*,IOSTAT=IOS)GS_NR_RD
 	    END DO
 	    CLOSE(LU_GS)
 	    IF(GS_NF_RD .GE. 0 .AND.
@@ -424,6 +451,8 @@
 	      N_MATURE=MAX(GS_MT_RD,0)
 	      N_REL_SINCE=MAX(GS_RL_RD,0)
 	      N_TRIAL_ACC=MAX(GS_TA_RD,0)
+	      N_TRIALS_REJ=MAX(GS_TR_RD,0)
+	      N_RELEASES_TOT=MAX(GS_NR_RD,0)
 	      GS_WAS_FROZEN=GS_FRZ_RD
 	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I5,A,I5,A,L2)')
 	1     ' GS_STATE restart: adopted n_frozen=',N_FROZEN,
@@ -1887,18 +1916,36 @@
 ! N_TRIAL_ACC bounds consecutive accepted pulses between raw-mature
 ! sweeps via GS_TRIAL_LIM in the gate above.
 !
-	IF(TRIAL_FIRED .AND. GS_TRIAL_LIM .GT. 0)THEN
+! The release counters (N_RELEASES_TOT/N_TRIALS_REJ) count events,
+! not the GS_TRIAL_LIM pulse budget -- they also bound the cycle
+! when GS_TRIAL_LIM is 0 (unbounded pulses) but releases still fire
+! through the raw-mature path.  GS_RELEASE_LIM stops the model on
+! repeated rejection: the field never matures under a release.
+!
+	IF(TRIAL_FIRED)THEN
 	  IF(.NOT. BA_REJ_THIS)THEN
-	    N_FROZEN=MOM_TRIAL_MIN
-	    N_TRIAL_ACC=N_TRIAL_ACC+1
-	    IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I4,A,I4)')
-	1    ' BA_RES_ACC: trial release accepted -- n_frozen'//
-	2    ' refunded to',N_FROZEN,
-	3    '  consecutive accepted trials=',N_TRIAL_ACC
+	    N_RELEASES_TOT=N_RELEASES_TOT+1
+	    IF(GS_TRIAL_LIM .GT. 0)THEN
+	      N_FROZEN=MOM_TRIAL_MIN
+	      N_TRIAL_ACC=N_TRIAL_ACC+1
+	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I4,A,I4)')
+	1      ' BA_RES_ACC: trial release accepted -- n_frozen'//
+	2      ' refunded to',N_FROZEN,
+	3      '  consecutive accepted trials=',N_TRIAL_ACC
+	    END IF
 	  ELSE
+	    N_TRIALS_REJ=N_TRIALS_REJ+1
 	    IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A)')
 	1    ' BA_RES_ACC: trial release rejected --'//
 	2    ' freeze clock keeps counting'
+	    IF(DO_NONMONO_KNOP .AND. GS_RELEASE_LIM .GT. 0 .AND.
+	1      N_TRIALS_REJ .GE. GS_RELEASE_LIM)THEN
+	      WRITE(LUER,'(A,I4,A)')'SOLVE_FOR_POPS: ',N_TRIALS_REJ,
+	1      ' release attempts rejected; GS field will not mature'
+	      WRITE(LUER,'(A)')'  the lagged GS field never matured;'//
+	1      ' stopping as non-convergent'
+	      STOP
+	    END IF
 	  END IF
 	END IF
 !
@@ -1965,6 +2012,8 @@
 	    WRITE(LU_GS,'(A,I0)')'n_mature=',N_MATURE
 	    WRITE(LU_GS,'(A,I0)')'n_rel=',N_REL_SINCE
 	    WRITE(LU_GS,'(A,I0)')'n_trial_acc=',N_TRIAL_ACC
+	    WRITE(LU_GS,'(A,I0)')'n_trials_rej=',N_TRIALS_REJ
+	    WRITE(LU_GS,'(A,I0)')'n_releases=',N_RELEASES_TOT
 	    CLOSE(LU_GS)
 	  END IF
 	END IF
@@ -2746,6 +2795,15 @@
 	      FIXED_T=.TRUE.
 	      FIX_IMPURITY=.FALSE.
 	      COMPUTE_BA=.TRUE.
+! edited by Devin, 17-Oct-2026: ng_kick is a demote branch like the
+! resacc/saturation demotes below -- it must clear the same
+! hysteresis state.  A surviving LAM_STABLE_PROVEN would short-
+! circuit the stable-LAMBDA relief (and the stable-exit gate) on the
+! next FULL call with a proof earned before the extrapolation.
+	      CNT_STABLE_LAM=0
+	      LAM_STABLE_PROVEN=.FALSE.
+	      N_ACC_FULL=0
+	      T_HELD_PHASE=.FALSE.
 	      CALL APPEND_ITER_REASON(ITER_REASON,'ng_kick')
 	    END IF
 	  ELSE

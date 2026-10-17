@@ -156,20 +156,21 @@
 	REAL(KIND=LDP) MINSCALE_J,T1_RAW
 !
 	LOGICAL, SAVE :: JFNK_BANNER_PRINTED=.FALSE.
-	INTEGER, SAVE :: JFNK_STAGNATION_COUNT=0
-	INTEGER, PARAMETER :: JFNK_MAX_STAGNATE=3
-	LOGICAL, SAVE :: JFNK_DISABLED=.FALSE.
 !
-! Cooldown re-arm: JFNK is never permanently disabled.  After
-! JFNK_MAX_STAGNATE consecutive failures it pauses for
-! JFNK_REARM_WAIT eligible calls, which use the outer SOLVEBA mode,
-! then retries.  The wait doubles each failure cycle up to x8 so a
-! persistently failing Newton is retried rarely; it resets on any
-! committed JFNK update.
+! Budget ladder (17-Oct-2026, replaces the pause/re-arm machinery):
+! JFNK is the convergence engine -- it is attempted on every
+! admissible call, forever, and is never retired.  A counted failure
+! (catastrophic eval, GMRES stagnation without an improving best
+! iterate, verify reject, max Newton iters) raises JFNK_BUDGET_RUNG,
+! which trims the per-activation budgets toward the JFNK_RUNG_MIN_*
+! floors; a committed outcome resets the rung to 0.  Admission-gate
+! skips (info=-2) do not move the rung -- they are cheap by design
+! (BA_A build + Jacobi-z metrics, no factorization).  At the top
+! rung Newton still runs, at the floor budgets.  The rung itself
+! lives in JFNK_CMFGEN_INT_MOD so JFNK_RETREAT_RESET_V1 can clear
+! it on NEWMOD.
 !
-	INTEGER, SAVE :: JFNK_REARM_COUNT=0
-	INTEGER, SAVE :: JFNK_REARM_CYCLE=0
-	INTEGER JFNK_REARM_WAIT
+	INTEGER JFNK_MAX_RESTART_LOC
 !
 ! BA_DIRCHK_MAX arms the dirchk diagnostics for at most that many
 ! defer events (default 1; -1 = unlimited, the pre-cap behaviour).
@@ -201,11 +202,29 @@
 	DOUBLE PRECISION JFNK_DOT_V1
 	EXTERNAL JFNK_DOT_V1
 !
+! W11/W12 (17-Oct-2026): census metrics for the frozen-tier gate and
+! the enrichment assembly hook.
+!
+	EXTERNAL JFNK_RESIDUAL_CENSUS_V1,JFNK_ASSEMBLE_ENRICH_V1
+	DOUBLE PRECISION JFNK_CEN_RMAX,JFNK_CEN_RMED,JFNK_CEN_SFR,
+	1   JFNK_CEN_PFSH,JFNK_CEN_FTOP
+	INTEGER JFNK_CEN_PIN
+!
 	LUER=ERROR_LU()
+! W7 (17-Oct-2026): SUCCESS arrives as the caller's stale argument;
+! initialize it so a verify-reject cannot inherit .TRUE.
+	SUCCESS=.FALSE.
 	JFNK_LAG_FACTORS_ACTIVE=.FALSE.
 	JFNK_LAG_FACTORS_READY=.FALSE.
 	VERIF_REJECT=.FALSE.
 	JFNK_REACH_SKIP=.FALSE.
+!
+! W12 (17-Oct-2026): enriched-apply state is per-activation -- a
+! deferred or rejected previous admission must not leave a stale U
+! armed for this one.
+!
+	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_KLOC=0
 	LAMBDA_SAVE=LAMBDA_A
 	FIXED_T_SAVE=FIXED_T
 	COMPUTE_BA_SAVE=COMPUTE_BA_A
@@ -224,10 +243,12 @@
 	T_PH_NWT=0.0_LDP
 !
 ! -----------------------------------------------------------------------
-! Entry gating: after repeated stagnation JFNK pauses for
-! JFNK_REARM_WAIT admitted calls, then re-arms.  Paused and failed
-! non-catastrophic calls retain the caller's SOLVEBA mode; only a
-! catastrophic eval uses the conservative Lambda safety solve.
+! Entry gating (17-Oct-2026, budget-ladder rewrite): while the caller
+! admits JFNK, Newton is always attempted at the current rung's
+! budgets -- repeated failure trims cost, never the attempt.  Only a
+! catastrophic eval failure reroutes the call to the conservative
+! Lambda safety solve; a finite stagnation or admission-gate skip
+! retains the caller's SOLVEBA mode for THIS call.
 ! -----------------------------------------------------------------------
 !
 ! JFNK_ANY_ITER (VADAT [JFNK_ANYITER], default F): bring-up flag --
@@ -236,31 +257,6 @@
 ! update still passes through solve_for_pops' hold/reject logic.
 !
 	DO_JFNK_NOW=(.NOT. LAMBDA_A) .OR. JFNK_ANY_ITER
-!
-	IF(JFNK_DISABLED .AND. DO_JFNK_NOW)THEN
-	  JFNK_REARM_COUNT=JFNK_REARM_COUNT+1
-	END IF
-	JFNK_REARM_WAIT=JFNK_REARM_EVERY*
-	1   (2**MIN(JFNK_REARM_CYCLE,3))
-	IF(JFNK_DISABLED .AND. DO_JFNK_NOW .AND.
-	1   JFNK_REARM_COUNT .GE. JFNK_REARM_WAIT)THEN
-	  JFNK_DISABLED=.FALSE.
-	  JFNK_STAGNATION_COUNT=0
-	  JFNK_REARM_COUNT=0
-	  WRITE(LUER,'(A,I3,A,I3,A)')
-	1   'JFNK re-armed after ',JFNK_REARM_WAIT,
-	2   ' skipped calls (cycle ',JFNK_REARM_CYCLE,
-	3   '); retrying Newton'
-	END IF
-!
-	IF(JFNK_DISABLED .AND. DO_JFNK_NOW)THEN
-	  WRITE(LUER,'(A,I3,A,I3,A)')
-	1   'JFNK paused (cooldown ',JFNK_REARM_COUNT,' of ',
-	2   JFNK_REARM_WAIT,'); using caller SOLVEBA mode'
-! The paused path has not changed POPS or the stored BA.  Skip Newton
-! while preserving the outer solver's mode, matrix and correction cap.
-	  DO_JFNK_NOW=.FALSE.
-	END IF
 !
 	IF(DO_JFNK_NOW)THEN
 !
@@ -357,6 +353,31 @@
 	  IF(JFNK_DEL_INIT_LOC .EQ. 0.0_LDP)JFNK_DEL_INIT_LOC=-1.0_LDP
 !
 	  jfnk_max_gmres_its=JFNK_MAX_GMRES
+!
+! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
+! after each counted failure.  The trims are per-activation locals --
+! the VADAT control variables are never mutated (JFNK_EVAL_LIM is
+! the activation-local eval budget consumed by JFNK_RESIDUAL_V1).
+! Rung 0 reproduces full-budget behaviour exactly.
+!
+	  JFNK_EVAL_LIM=JFNK_MAX_EVALS
+	  JFNK_MAX_RESTART_LOC=JFNK_MAX_RESTART
+	  IF(JFNK_BUDGET_RUNG .GT. 0)THEN
+	    JFNK_MAX_NEWTON_LOC=MAX(JFNK_RUNG_MIN_NITS,
+	1     JFNK_MAX_NEWTON_LOC/2**JFNK_BUDGET_RUNG)
+	    IF(jfnk_max_gmres_its .GT. 0)jfnk_max_gmres_its=
+	1     MAX(JFNK_RUNG_MIN_GMRES,
+	2     jfnk_max_gmres_its/2**JFNK_BUDGET_RUNG)
+	    IF(JFNK_EVAL_LIM .GT. 0)JFNK_EVAL_LIM=
+	1     MAX(JFNK_RUNG_MIN_EVALS,
+	2     JFNK_EVAL_LIM/3**JFNK_BUDGET_RUNG)
+	    IF(JFNK_BUDGET_RUNG .GE. 2)JFNK_MAX_RESTART_LOC=1
+	    WRITE(LUER,'(A,I2,A,I2,A,I4,A,I4,A,I6,A,I3)')
+	1   '  JFNK budget rung ',JFNK_BUDGET_RUNG,'/',JFNK_RUNG_MAX,
+	2   ': nits=',JFNK_MAX_NEWTON_LOC,' gmres=',jfnk_max_gmres_its,
+	3   ' evals=',JFNK_EVAL_LIM,' restarts=',JFNK_MAX_RESTART_LOC
+	  END IF
+!
 	  jfnk_use_left_pc=JFNK_LEFT_PRECOND
 	  jfnk_pc_ref_frac=DBLE(JFNK_PC_REFRESH_FRAC)
 	  jfnk_need_precond_refresh=0
@@ -526,11 +547,14 @@
 	  END IF
 	  FLUSH(LUER)
 !
-! Factor the BA matrix as the GMRES preconditioner (cached per-depth
-! equilibrated LU, or banded LU when JFNK_USE_BANDED=T).
+! Build the BA blocks for the reach/direction gates, but DEFER the
+! LU factorization until the gates pass (W5B, 17-Oct-2026): a
+! reach-skip then pays only this build plus one residual eval, not
+! the per-depth LU (~minutes on a coupled model).  The factor call
+! just above the Newton loop reuses this BA_A via JFNK_BA_BUILT.
 !
 	  TW_PH=OMP_GET_WTIME()
-	  CALL JFNK_FACTOR_PRECOND_V1()
+	  CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)
 	  T_PH_PC=OMP_GET_WTIME()-TW_PH
 	  FLUSH(LUER)
 !
@@ -783,8 +807,8 @@
 	    WRITE(LUER,'(A,A)')
 	1   '    row residual weighting : ',TRIM(JFNK_RSCALE_MODE)
 	    WRITE(LUER,'(A,I3)')
-	1   '    max PC refactorizations per activation :',
-	1     JFNK_MAX_RESTART
+	1   '    baseline/PC restarts per activation     :',
+	1     JFNK_MAX_RESTART_LOC
 	    WRITE(LUER,'(A)')
 	1   '    globalization       : Hookstep trust region +'
 	2   //' line search'
@@ -833,19 +857,62 @@
 !
 	    JFNK_REACH_OK=.TRUE.
 	    TW_PH=OMP_GET_WTIME()
-	    IF((JFNK_REACH_GATE .GT. 0.0_LDP .OR.
-	1       JFNK_COS_MIN .GT. 0.0_LDP .OR.
-	2       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
-	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .OR.
+!
+! W11 census gate (17-Oct-2026, [JFNK_CENSUS_*], all defaults off):
+! on radiation-pinned residuals -- the SOB frozen-J class where ~all
+! of |F| sits in deep-H rows whose radiative lag no population step
+! can move (m15 SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
+! ~39k pop-floor regularized rows, cos(F,Jz) ~ 1e-4) -- the frozen
+! tier's inability is certified by data already paid for (BA_A built
+! at :557, F(0) adopted above).  Refusing here costs ~one residual
+! eval plus the BA build instead of the LU factor plus the precheck
+! JVPs (the it35 audit paid ~78 s/admission, ~4.5 h over 210
+! admissions, for zero committed Newton steps).  JFNK_REACH_OK=F
+! reuses the existing info=-2 admission-gate path below, so the
+! caller's BA/LAMBDA runs exactly as at HEAD and the rung ladder does
+! not move.  FROZEN tier only: a coupled eval re-solves the radiation
+! per residual, so the same census numbers do not imply coupled
+! unreachability -- W12's telemetry covers that tier.
+!
+	    IF(.NOT. JFNK_COUPLED_LOC)THEN
+	      CALL JFNK_RESIDUAL_CENSUS_V1(LUER,JFNK_CEN_RMAX,
+	1        JFNK_CEN_RMED,JFNK_CEN_SFR,JFNK_CEN_PIN,
+	2        JFNK_CEN_PFSH,JFNK_CEN_FTOP,CONV_DIAG_LVL .GE. 1)
+	      IF((JFNK_CENSUS_STIFF_FRAC .GT. 0.0_LDP .AND.
+	1        JFNK_CEN_SFR .GT. JFNK_CENSUS_STIFF_FRAC) .OR.
+	2        (JFNK_CENSUS_PIN_FRAC .GT. 0.0_LDP .AND.
+	3        JFNK_CEN_PFSH .GT. JFNK_CENSUS_PIN_FRAC))THEN
+	        JFNK_REACH_OK=.FALSE.
+	        JFNK_REACH_SKIP=.TRUE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,2ES11.3)')
+	1         '  JFNK: census deferral (stiff frac, pin |F| share)=',
+	2         JFNK_CEN_SFR,JFNK_CEN_PFSH
+	        WRITE(LUER,'(A)')
+	1         '  (frozen-J rows are radiation-pinned; LAMBDA/BA step'
+	2         //' advances the outer lag instead)'
+	      END IF
+	    END IF
+	    IF(JFNK_REACH_OK .AND.
+	1       (JFNK_REACH_GATE .GT. 0.0_LDP .OR.
+	2       JFNK_COS_MIN .GT. 0.0_LDP .OR.
+	3       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
+	4       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .OR.
 	4       JFNK_FD_COS_MIN .GT. 0.0_LDP .OR.
 	4       JFNK_FD_AUTODEF .OR.
 	5       DO_DIRCHK_NOW) .AND.
-	5       JFNK_LU_READY .AND.
+	5       JFNK_BA_BUILT .AND.
 	6       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
 	7        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
 	      ALLOCATE(Z_CHK(JFNK_N), JZ_VEC(JFNK_N), Z_CLIP(JFNK_N))
 	      Z_CHK=jfnk_fx
+! Jacobi z for the gate metrics: the LU is deliberately not factored
+! yet (skip-cheap path), so price the direction with the folded
+! diagonal.  JFNK_PC_DIAG_ONLY prevents PRECOND_V1's lazy factor
+! call from defeating the deferral; cleared immediately after.
+	      JFNK_PC_DIAG_ONLY=.TRUE.
 	      CALL JFNK_PRECOND_V1(JFNK_N, Z_CHK)
+	      JFNK_PC_DIAG_ONLY=.FALSE.
 !
 ! The commit path clips each component of the accepted step to the
 ! log-space bound [X_MIN,X_MAX] (population clip = MAX_JFNK_COR); the
@@ -1442,15 +1509,34 @@
 	    END IF
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
 	    T_PH_PREC=OMP_GET_WTIME()-TW_PH
+!
+! Gates passed: pay for the LU factorization now.  The BA_A build
+! above is reused (JFNK_BA_BUILT), so this call factors the same
+! matrix the gate metrics priced.
+!
+	    IF(JFNK_REACH_OK)THEN
+	      TW_PH=OMP_GET_WTIME()
+	      CALL JFNK_FACTOR_PRECOND_V1()
+	      T_PH_PC=T_PH_PC+(OMP_GET_WTIME()-TW_PH)
+!
+! W12 (17-Oct-2026, [JFNK_ENRICH], default F): with the LU in hand,
+! price the low-rank field-response columns (K JVPs) and factor the
+! K x K capacitance matrix -- JFNK_PRECOND_V1 then applies the SMW
+! correction on every GMRES matvec.  Coupled tier and flag-gated
+! only; on any failure the routine leaves JFNK_ENRICH_ACTIVE=F and
+! the plain LU apply runs unchanged.
+!
+	      CALL JFNK_ASSEMBLE_ENRICH_V1(LUER)
+	    END IF
 	    TW_PH=OMP_GET_WTIME()
 	    FLUSH(LUER)
-	    DO WHILE(JFNK_REACH_OK .AND. JFNK_ATTEMPT .LT. JFNK_MAX_RESTART)
+	    DO WHILE(JFNK_REACH_OK .AND. JFNK_ATTEMPT .LT. JFNK_MAX_RESTART_LOC)
 	      JFNK_ATTEMPT=JFNK_ATTEMPT+1
 	      IF(JFNK_ATTEMPT .GT. 1)THEN
 	        IF(BEST_F_W .LT. F_W_INIT)THEN
 	          WRITE(LUER,'(A,I3,A,I3,A,ES12.4)')
 	1           '  JFNK: REBUILDING BASELINE (attempt ',
-	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART,
+	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART_LOC,
 	3           ') best|F|=',REAL(BEST_F_W)
 	          CALL JFNK_REBUILD_BASELINE_V1(BEST_X,LUER)
 	          BASELINE_REBUILT=.TRUE.
@@ -1466,7 +1552,7 @@
 	        ELSE
 	          WRITE(LUER,'(A,I3,A,I3)')
 	1           '  JFNK: REBUILDING PRECONDITIONER (attempt ',
-	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART,')'
+	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART_LOC,')'
 	          CALL JFNK_FACTOR_PRECOND_V1()
 !
 ! The rebuilt BA was assembled at the current state; let the next
@@ -1945,34 +2031,22 @@
 	1     ' The minimum value of scale for the JFNK update is:',
 	2     MINSCALE_J
 	    SUCCESS=.TRUE.
-	    JFNK_STAGNATION_COUNT=0
-	    JFNK_REARM_CYCLE=0
+	    JFNK_BUDGET_RUNG=0
 	  ELSE IF(COMMITTED_BASELINE)THEN
-	    JFNK_STAGNATION_COUNT=0
-	    JFNK_REARM_CYCLE=0
+	    JFNK_BUDGET_RUNG=0
 	  ELSE IF(JFNK_CATASTROPHIC)THEN
 	    WRITE(LUER,'(A,I3)')
 	1     '  JFNK: CATASTROPHIC eval failure (NaN/Inf or factor '//
 	2     'breakdown), info=',JFNK_INFO
-! editted by Devin, 04-Oct-2026: a catastrophic failure used to reset
-! the stagnation count, so a deterministic catastrophic mode retried
-! forever (each admission costs a full coupled formal sweep).  Count
-! it toward JFNK_MAX_STAGNATE like any other failed solve; only a
-! converged Newton or a committed best-iterate resets the budget.
-! W7 (17-Oct-2026): name the failure class -- a catastrophic eval
-! failure (NaN/Inf, factor breakdown) is not GMRES stagnation.
-	    JFNK_STAGNATION_COUNT=JFNK_STAGNATION_COUNT+1
-	    IF(JFNK_STAGNATION_COUNT .GE. JFNK_MAX_STAGNATE)THEN
-	      WRITE(LUER,'(A,I3,A,I3)')
-	1       '  JFNK: CATASTROPHIC failure count ',JFNK_STAGNATION_COUNT,
-	2       ' consecutive solves (max=',JFNK_MAX_STAGNATE,')'
-	      JFNK_DISABLED=.TRUE.
-	      JFNK_STAGNATION_COUNT=0
-	      JFNK_REARM_CYCLE=JFNK_REARM_CYCLE+1
-	    ELSE
-	      WRITE(LUER,'(A)')
-	1       '  JFNK remains enabled; Lambda safety step this iteration'
-	    END IF
+! A catastrophic eval failure (NaN/Inf, factor breakdown) is not
+! GMRES stagnation -- name the class.  Both are counted failures:
+! they bump the budget rung so the next activation costs less; a
+! committed outcome restores rung 0.  JFNK is never retired --
+! the rung only shrinks what an attempt may spend.
+	    JFNK_BUDGET_RUNG=MIN(JFNK_BUDGET_RUNG+1,JFNK_RUNG_MAX)
+	    WRITE(LUER,'(A,I3,A,I3)')
+	1     '  JFNK: budget rung raised to ',JFNK_BUDGET_RUNG,
+	2     ' of ',JFNK_RUNG_MAX
 	    LAMBDA_ITERATION=.TRUE.
 	    FIXED_T=.TRUE.
 	    COMPUTE_BA=.TRUE.
@@ -1997,26 +2071,25 @@
 	      WRITE(LUER,'(A)')
      1       '  JFNK: applied correction rejected by the'//
      2       ' applied-state residual check; state restored to entry'
+! W7 (17-Oct-2026): the rejected step must not reach the tau-rung
+! adjudication below -- TAU_EPS_T reads jfnk_x, which still holds the
+! correction the verify check just rolled back.  Zero it and force
+! SUCCESS off so the step counts as a failure, not a commit.
+	      IF(ALLOCATED(jfnk_x))jfnk_x=0.0D0
+	      SUCCESS=.FALSE.
 	    END IF
 	    IF(JFNK_INFO .EQ. -2)THEN
 	      WRITE(LUER,'(A)')
 	1       '  JFNK: admission gate skipped Newton;'//
-	2       ' retaining caller mode (not counted as stagnation)'
+	2       ' retaining caller mode (not counted, rung unchanged)'
 	    ELSE
-	      JFNK_STAGNATION_COUNT=JFNK_STAGNATION_COUNT+1
-	      IF(JFNK_STAGNATION_COUNT .GE. JFNK_MAX_STAGNATE)THEN
-	        WRITE(LUER,'(A,I3,A,I3)')
-	1         '  JFNK: stagnated ',JFNK_STAGNATION_COUNT,
-	2         ' consecutive solves (max=',JFNK_MAX_STAGNATE,')'
-	        JFNK_DISABLED=.TRUE.
-	        JFNK_STAGNATION_COUNT=0
-	        JFNK_REARM_CYCLE=JFNK_REARM_CYCLE+1
-	      ELSE
-	        WRITE(LUER,'(A,I3,A,I3)')
-	1         '  JFNK: finite GMRES stagnation; retaining caller '//
-	2         'mode, count ',
-	3         JFNK_STAGNATION_COUNT,' of ',JFNK_MAX_STAGNATE
-	      END IF
+! A rejected or stagnated attempt is a counted failure: bump the
+! budget rung (floored schedule still runs Newton next call).
+	      JFNK_BUDGET_RUNG=MIN(JFNK_BUDGET_RUNG+1,JFNK_RUNG_MAX)
+	      WRITE(LUER,'(A,I3,A,I3)')
+	1       '  JFNK: finite GMRES stagnation; retaining caller '//
+	2       'mode, budget rung ',
+	3       JFNK_BUDGET_RUNG,' of ',JFNK_RUNG_MAX
 	    END IF
 ! Residual callbacks restore POPS, ED, T and STEQ.  The Newton
 ! preconditioner is local, so a clean FULL fallback can reuse the outer
@@ -2142,7 +2215,7 @@
 !
 ! LAMBDA mode: standard direct solve (same as the default path).
 !
-! Same cap rule on the paused/LAMBDA direct-solve path: the caller's
+! Same cap rule on the caller-mode LAMBDA direct-solve path: the caller's
 ! damped cap (GS release window, BA_DAMP_CAP) wins over MAX_LAM_COR.
 	  IF(LAMBDA_A)T1=JFNK_FALLBACK_CAP(.TRUE.,COR_LIM_IN,.FALSE.)
 	  CALL SOLVEBA_V13(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,NION,
@@ -2186,3 +2259,23 @@
 	END FUNCTION JFNK_FALLBACK_CAP
 !
 	END
+!
+	SUBROUTINE JFNK_RETREAT_RESET_V1()
+	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD
+	IMPLICIT NONE
+!
+! NEWMOD symmetry (17-Oct-2026, W6): a second model in one process
+! must not inherit the JFNK budget rung or the tau ladder -- a
+! requeue zeroes all of this, so do the same here.  Called from
+! SOLVE_FOR_POPS next to the other process-local resets.
+!
+	JFNK_BUDGET_RUNG=0
+	JFNK_TAU_RUNG=1
+	JFNK_TAU_NCOMMIT=0
+	JFNK_TAU_RE0=0.0_LDP
+	JFNK_TAU_RE_LAST=0.0_LDP
+	JFNK_TAU_ALPHA=0.05_LDP
+	JFNK_TAUTO_ACTIVE=.FALSE.
+	RETURN
+	END SUBROUTINE JFNK_RETREAT_RESET_V1

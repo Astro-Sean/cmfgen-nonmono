@@ -4306,9 +4306,13 @@
 	NPQUAR=MOM_GS_NPQUAR
 	SW_BNDFL=MOM_BND_HBC_FL
 !
-! When no refresh ran this iteration the sweep-level slots stay at
-! their last values; report the live counters so the gate always sees
-! a sweep-drift estimate.
+! When MOM_SW_NTOT > 0 the SW_* slots are the snapshot taken at the
+! last refresh entry (written once per refresh, above) -- the sweep
+! drift seen at that pass-1 boundary.  On iterations without a
+! refresh they describe the most recent refresh, not the live
+! iteration; the bulk gate in SOLVE_FOR_POPS may therefore read a
+! census one iteration stale.  Fall back to the live counters only
+! when no refresh has ever run.
 !
 	IF(MOM_SW_NTOT .GT. 0)THEN
 	  SW_MAXCHG=MOM_SW_MAXCHG

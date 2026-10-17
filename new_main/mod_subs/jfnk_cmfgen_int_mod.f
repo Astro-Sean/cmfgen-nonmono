@@ -191,6 +191,29 @@
 ! every psolve call re-ran the full (possibly banded) factorization.
 !
 	LOGICAL, SAVE :: JFNK_FACTOR_DONE=.FALSE.
+!
+! JFNK_BA_BUILT (17-Oct-2026, W5B): the admission calls
+! JFNK_FACTOR_PRECOND_V1(.FALSE.) so the reach/direction gates run
+! before the per-depth LU; the real factor call skips the
+! GENERATE_FULL_MATRIX_V3 rebuild when this is set.  Cleared by
+! JFNK_INIT_V1 and JFNK_REBUILD_BASELINE_V1 (new baseline -> new
+! operator).
+!
+	LOGICAL, SAVE :: JFNK_BA_BUILT=.FALSE.
+!
+! JFNK_PC_DIAG_ONLY: while set, JFNK_PRECOND_V1 applies the folded
+! diagonal (Jacobi) instead of the LU solve and never triggers the
+! lazy factorization -- used by the admission precheck so a gate
+! skip pays no factorization cost.
+!
+	LOGICAL, SAVE :: JFNK_PC_DIAG_ONLY=.FALSE.
+!
+! JFNK_EVAL_LIM: the activation-local eval budget the residual
+! evaluator enforces; the driver sets it from JFNK_MAX_EVALS with
+! the budget-rung trim.  Initialized to 0 (=off) for safety when a
+! residual eval somehow runs outside the driver.
+!
+	INTEGER, SAVE :: JFNK_EVAL_LIM=0
 	INTEGER, SAVE :: JFNK_N_LU_FACTORS=0
 	INTEGER, SAVE :: JFNK_N_PRECOND_REFRESH=0
 	INTEGER, SAVE :: JFNK_N_RIDGE_DEPTHS=0
@@ -229,6 +252,13 @@
 	INTEGER, SAVE :: JFNK_TAU_RUNG=1
 	INTEGER, SAVE :: JFNK_TAU_NCOMMIT=0
 !
+! JFNK_BUDGET_RUNG (17-Oct-2026, replaces pause/re-arm): counted
+! failures raise it, committed outcomes reset it; the driver trims
+! per-activation budgets toward the JFNK_RUNG_MIN_* floors.  Module
+! scope so JFNK_RETREAT_RESET_V1 clears it on NEWMOD.
+!
+	INTEGER, SAVE :: JFNK_BUDGET_RUNG=0
+!
 ! Effective damped domain for this activation: the VARFIXT range when
 ! set, else all depths.  Kept separate from JFNK_FIX_T_D_* so the
 ! mask sites can keep their range semantics under both modes.
@@ -238,7 +268,6 @@
 !
 ! Preconditioner state
 !
-	LOGICAL, SAVE :: JFNK_BA_COMPUTED=.FALSE.
 	LOGICAL, SAVE :: JFNK_PRECOND_READY=.FALSE.
 	CHARACTER(LEN=4), SAVE :: JFNK_METH_SOL='DIAG'
 !
@@ -511,6 +540,32 @@
 	LOGICAL, ALLOCATABLE, SAVE :: JFNK_REPLACE_SAV(:,:)
 	LOGICAL, ALLOCATABLE, SAVE :: JFNK_ZSTEQ_SAV(:,:)
 	LOGICAL, SAVE :: JFNK_EQ_STRUCT_READY=.FALSE.
+!
+! W11/W12 (17-Oct-2026): census + preconditioner-enrichment state.
+!
+! JFNK_CENSUS_REG(i): row-regularization mask computed by
+! JFNK_RESIDUAL_CENSUS_V1 on the built (unfactored) JFNK_BA_A -- the
+! same ROW_TINY near-null and JFNK_POP_FL population-floor tests the
+! LU path applies at factor time, reproduced early so the frozen-tier
+! census gate and the coupled-tier anchor selection can read them
+! before any factorization runs.  Allocated per admission.
+!
+! JFNK_ENRICH_*: low-rank field-response enrichment of the
+! coupled-tier preconditioner ([JFNK_ENRICH], default F).
+! JFNK_ENRICH_U(:,m) = M0^-1 W(:,m) where W(:,m) = (J - BA_A) e_c for
+! anchor unknown c = JFNK_ENRICH_IDX(m); JFNK_ENRICH_S holds the
+! factored K x K capacitance matrix I + E^T U.  The apply in
+! JFNK_PRECOND_V1 is then z -> z - U S^-1 E^T z (Sherman-Morrison-
+! Woodbury on the left-preconditioned operator).  KLOC is the live
+! anchor count; ACTIVE gates the apply.
+!
+	LOGICAL, ALLOCATABLE, SAVE :: JFNK_CENSUS_REG(:)
+	LOGICAL, SAVE :: JFNK_ENRICH_ACTIVE=.FALSE.
+	INTEGER, SAVE :: JFNK_ENRICH_KLOC=0
+	INTEGER, ALLOCATABLE, SAVE :: JFNK_ENRICH_IDX(:)
+	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JFNK_ENRICH_U(:,:)
+	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JFNK_ENRICH_S(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: JFNK_ENRICH_IPIV(:)
 !
 ! JFNK_PTC_FOLDED: set by JFNK_FACTOR_PRECOND_V1 when the pseudo-time
 ! diagonal s_i = max(|F_i|, 1e-8*|F|max) has been folded into the

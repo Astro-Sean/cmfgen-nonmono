@@ -4716,11 +4716,19 @@
 	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
 	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE
 !
+! edited by Devin, 17-Oct-2026: two new guards.  BAACC_PENDING means
+! the last FULL solve armed the resacc acceptance test whose verdict
+! only exists on the NEXT solve -- exiting now writes a state the
+! code itself treats as unjudged (NG refuses to extrapolate from it).
+! MAIN_COUNTER=LAST_NG means this call returned the pre-NG demand,
+! so the exit would certify an extrapolated state never re-measured.
+!
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
-	4    .NOT. GS_POPS_HELD
+	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
+	5    (MAIN_COUNTER .NE. LAST_NG)
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
@@ -5115,7 +5123,20 @@
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
-	4    .NOT. GS_POPS_HELD
+	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
+	5    (MAIN_COUNTER .NE. LAST_NG)
+!
+! Deferred-exit diagnostic: when every other gate passes but the
+! resacc verdict is still pending, name the one-iteration deferral
+! so a triage does not read it as a stall.
+!
+	  IF(.NOT. CONV_EXIT_MET .AND. BAACC_PENDING .AND.
+	1    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	2    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
+	3    .NOT. GS_POPS_HELD .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.
+	4    CONV_DIAG_LVL .GE. 1)
+	5    WRITE(LUER,'(A)')' Converged exit deferred: resacc '//
+	6    'verdict pending on the armed BA step'
 !
 ! BA_STAGEB_ARM uses the same tests as the converged-exit branch
 ! below, plus BA_TRACE_NEEDED.  When it is set the exit is skipped
@@ -5183,7 +5204,11 @@
 	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(2A)')
 	1       ' Converged exit; reason: ',TRIM(CONV_EXIT_WHY)
 	    END IF
-	    IF(MAIN_COUNTER .NE. LAST_NG)NUM_ITS_TO_DO=1
+! The pin is unconditional: the exit gate above already refuses to
+! fire on the NG pass itself, so when it does fire -- including the
+! first post-NG re-evaluation -- one settle pass on the measured
+! state is always wanted.
+	    NUM_ITS_TO_DO=1
 	  ELSE
 	    IF(BA_STAGEB_ARM)THEN
 	      BA_TRACE_PHASE=.TRUE.

@@ -61,6 +61,8 @@
 	CHARACTER(LEN=80)  TMP_STRING
 	CHARACTER(LEN=20)  TMP_KEY
 	CHARACTER(LEN=132) TEMP_CHAR
+	LOGICAL L_FALSE_TMP
+	EXTERNAL GET_KEY_STRING
 !
 	INTEGER I
 	INTEGER ISPEC
@@ -925,6 +927,15 @@
 	1     'KNOP: accepted trial releases before freeze veto?')
 	  IF(GS_TRIAL_LIM .LT. 0)GS_TRIAL_LIM=0
 !
+! GS_RELEASE_LIM (default 0 = disabled): rejected trial releases
+! before the model stops -- the freeze/release cycle can otherwise
+! refund the stall clock indefinitely.
+!
+	  GS_RELEASE_LIM=0
+	  CALL RD_STORE_INT(GS_RELEASE_LIM,'GS_RELEASE_LIM',L_FALSE,
+	1     'KNOP: rejected release attempts before stop (0=disabled)?')
+	  IF(GS_RELEASE_LIM .LT. 0)GS_RELEASE_LIM=0
+!
 ! GS_REL_STABLE (default 1): consecutive sweeps passing the maturity
 ! gate before the freeze releases the population update.  Guards
 ! against releasing on a single marginal sweep of a churning field.
@@ -1550,6 +1561,52 @@
 	  CALL RD_STORE_LOG(JFNK_FD_AUTODEF,'JFNK_FD_AUTODEF',L_FALSE,
 	1     'Defer Newton on anti-descent FD image (cos(F,Az)<0)?')
 !
+! W11 census gate (17-Oct-2026): price the frozen-tier residual's
+! reachability from the F(0) vector and the stored BA row norms,
+! BEFORE the LU factorization and the reach-precheck JVP evals.  On
+! radiation-pinned residuals (deep-H rows carrying ~all of |F| with
+! |BArow|/|F| ~ 1e8) this turns a ~78 s LU+CMAT admission into a
+! ~1-eval defer.  Frozen tier only: the coupled operator re-solves J
+! per eval so the stored-BA census cannot certify its reachability.
+! All defaults 0 = off = pre-census behaviour.
+!
+	  JFNK_CENSUS_STIFF_CUT=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_CENSUS_STIFF_CUT,'JFNK_CENSUS_STIFF_CUT',
+	1     L_FALSE,'Census: |BA row|/|F_i| stiffness cutoff (0=off)')
+	  IF(JFNK_CENSUS_STIFF_CUT .LT. 0.0_LDP)JFNK_CENSUS_STIFF_CUT=0.0_LDP
+	  JFNK_CENSUS_STIFF_FRAC=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_CENSUS_STIFF_FRAC,
+	1     'JFNK_CENSUS_STIFF_FRAC',L_FALSE,
+	2     'Defer Newton when stiff-row fraction exceeds this (0=off)')
+	  IF(JFNK_CENSUS_STIFF_FRAC .LE. 0.0_LDP)
+	1     JFNK_CENSUS_STIFF_FRAC=0.0_LDP
+	  IF(JFNK_CENSUS_STIFF_FRAC .GT. 1.0_LDP)
+	1     JFNK_CENSUS_STIFF_FRAC=1.0_LDP
+	  JFNK_CENSUS_PIN_FRAC=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_CENSUS_PIN_FRAC,'JFNK_CENSUS_PIN_FRAC',
+	1     L_FALSE,
+	2     'Defer Newton when |F| share on regularized rows exceeds this')
+	  IF(JFNK_CENSUS_PIN_FRAC .LE. 0.0_LDP)JFNK_CENSUS_PIN_FRAC=0.0_LDP
+	  IF(JFNK_CENSUS_PIN_FRAC .GT. 1.0_LDP)JFNK_CENSUS_PIN_FRAC=1.0_LDP
+!
+! W12 (17-Oct-2026): low-rank field-response enrichment of the
+! coupled-tier preconditioner (JVP-probed J - BA_A columns at the
+! worst stored-operator anchors, Sherman-Morrison-Woodbury apply).
+! Coupled tier only.  Default F = byte-identical to pre-enrichment.
+!
+	  JFNK_ENRICH=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_ENRICH,'JFNK_ENRICH',L_FALSE,
+	1     'Enrich coupled-tier preconditioner with JVP columns?')
+	  JFNK_ENRICH_K=16
+	  CALL RD_STORE_INT(JFNK_ENRICH_K,'JFNK_ENRICH_K',L_FALSE,
+	1     'Low-rank enrichment anchor count (clamped 2..64)')
+	  IF(JFNK_ENRICH_K .LT. 2)JFNK_ENRICH_K=2
+	  IF(JFNK_ENRICH_K .GT. 64)JFNK_ENRICH_K=64
+	  JFNK_ENRICH_PERCENT=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_ENRICH_PERCENT,'JFNK_ENRICH_PERCENT',
+	1     L_FALSE,'Cap on enrichment evals, percent of eval budget')
+	  IF(JFNK_ENRICH_PERCENT .LE. 0.0_LDP)JFNK_ENRICH_PERCENT=0.0_LDP
+!
 ! DO_BA_DIR_CHK (default F): diagnostic-only JFNK admission on
 ! direct-BA iterations.  The demand gates are bypassed so the check
 ! fires on the first full step, where the direction quality matters
@@ -1573,17 +1630,44 @@
 	1    WRITE(LUER,*)'Warning: DO_BA_DIR_CHK=T has no effect'//
 	2    ' without DO_JFNK=T.'
 !
-! JFNK_REARM_EVERY (default 10): admitted calls skipped before a
-! stagnated JFNK is retried.  Each failure cycle doubles the wait
-! (cap x8), so a persistently failing Newton costs few retries while
-! a recovering residual is re-attempted soon.  JFNK is never
-! permanently disabled -- Lambda iterations carry the model forward
-! between retries.
+! JFNK_REARM_EVERY is retired (17-Oct-2026): the pause/re-arm
+! machinery was replaced by the always-try budget ladder.  The key
+! is still accepted so old VADAT files parse, but it does nothing.
 !
 	  JFNK_REARM_EVERY=10
 	  CALL RD_STORE_INT(JFNK_REARM_EVERY,'JFNK_REARM_EVERY',L_FALSE,
-	1     'Admitted calls skipped before retrying a stagnated JFNK')
-	  IF(JFNK_REARM_EVERY .LT. 1)JFNK_REARM_EVERY=10
+	1     'RETIRED: pause/re-arm removed; JFNK budget ladder '//
+	2     'trims costs instead')
+	  CALL GET_KEY_STRING(TMP_STRING,'JFNK_REARM_EVERY',L_FALSE,
+	1     L_FALSE_TMP)
+	  IF(L_FALSE_TMP)
+	1    WRITE(LUER,*)'Warning: JFNK_REARM_EVERY is retired; the '//
+	2    'budget ladder (JFNK_RUNG_*) replaces pause/re-arm.'
+!
+! Budget ladder rungs (17-Oct-2026): JFNK is attempted on every
+! admissible call.  Each counted failure raises JFNK_BUDGET_RUNG by
+! one (max JFNK_RUNG_MAX); a committed outcome resets it.  Per rung
+! the activation budgets halve (evals third) toward these floors:
+! nits -> MAX(MIN_NITS,nits/2), maxgmres -> MAX(MIN_GMRES,m/2),
+! evals -> MAX(MIN_EVALS,e/3), restarts -> 1 at rung >= 2.
+! Defaults reproduce the pre-ladder per-activation clamps.
+!
+	  JFNK_RUNG_MAX=4
+	  CALL RD_STORE_INT(JFNK_RUNG_MAX,'JFNK_RUNG_MAX',L_FALSE,
+	1     'Top JFNK budget rung (budgets trimmed per rung; >=1)')
+	  IF(JFNK_RUNG_MAX .LT. 1)JFNK_RUNG_MAX=1
+	  JFNK_RUNG_MIN_NITS=4
+	  CALL RD_STORE_INT(JFNK_RUNG_MIN_NITS,'JFNK_RUNG_MIN_NITS',
+	1     L_FALSE,'Floor on Newton iterations per activation')
+	  IF(JFNK_RUNG_MIN_NITS .LT. 1)JFNK_RUNG_MIN_NITS=1
+	  JFNK_RUNG_MIN_GMRES=15
+	  CALL RD_STORE_INT(JFNK_RUNG_MIN_GMRES,'JFNK_RUNG_MIN_GMRES',
+	1     L_FALSE,'Floor on GMRES iterations per Newton step')
+	  IF(JFNK_RUNG_MIN_GMRES .LT. 1)JFNK_RUNG_MIN_GMRES=1
+	  JFNK_RUNG_MIN_EVALS=12
+	  CALL RD_STORE_INT(JFNK_RUNG_MIN_EVALS,'JFNK_RUNG_MIN_EVALS',
+	1     L_FALSE,'Floor on residual evals per activation')
+	  IF(JFNK_RUNG_MIN_EVALS .LT. 1)JFNK_RUNG_MIN_EVALS=1
 !
 ! JFNK_ROW_DIAG (default 10 rows; 0 = off): at each admission, print
 ! the largest |F| rows labeled by ion/level/depth together with their
@@ -1924,6 +2008,17 @@
 	  BA_LUM_DCHG=0.1_LDP
 	  CALL RD_STORE_DBLE(BA_LUM_DCHG,'BA_LUM_DCHG',L_FALSE,
 	1     'Legacy no-op luminosity-drift threshold')
+	  CALL GET_KEY_STRING(TMP_STRING,'BA_LUM_GATE',L_FALSE,
+	1     L_FALSE_TMP)
+	  IF(L_FALSE_TMP)
+	1    WRITE(LUER,*)'Warning: BA_LUM_GATE is a no-op; the '//
+	2    'inner/outer luminosity gate is diagnostic only (shock '//
+	3    'deposition).  Runaway detection is LUM_DIV_*.'
+	  CALL GET_KEY_STRING(TMP_STRING,'BA_LUM_DCHG',L_FALSE,
+	1     L_FALSE_TMP)
+	  IF(L_FALSE_TMP)
+	1    WRITE(LUER,*)'Warning: BA_LUM_DCHG is a no-op; see '//
+	2    'LUM_DIV_FAC/LUM_DIV_N/LUM_DIV_CAP instead.'
 !
 ! LUM_DIV_* (17-Oct-2026, DO_NONMONO_KNOP only): sustained outer-
 ! luminosity runaway detector.  Inner/outer agreement stays a

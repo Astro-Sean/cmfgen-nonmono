@@ -175,6 +175,11 @@ the flags off none of this code runs and the defaults are inert.
 | `GS_RAW_MATURE` | F | `T` requires the raw FG sweep max change to pass `GS_MATURE_TOL` for a sweep to count toward the `GS_REL_STABLE` release streak -- a bulk-pass sweep with a high max norm resets the count instead. Recommended for KNOP runs. |
 | `JFNK_CPL_RELWAIT` | F | `T` defers the coupled JFNK tier while a call sits in the post-release damp window (`N_REL_SINCE <= GS_REL_N`); the call falls to the frozen tier or SOLVEBA. Note: a very large `GS_REL_N` defers the coupled tier indefinitely. |
 | `JFNK_REL_REACH_MAX` | 5 | Consecutive reach-gate skips after which the SOB stable-LAMBDA relief stands down (stops relaxing `JFNK_GATE_NREQ`). `0` disables the stand-down. |
+| `JFNK_RUNG_MAX` | 4 | Budget-ladder top rung (replaces the retired 3-strike pause/re-arm): counted failures raise the rung, a commit resets it; Newton is attempted on every admissible call at every rung. |
+| `JFNK_RUNG_MIN_NITS` | 4 | Floor on Newton iterations per activation under the rung trim. |
+| `JFNK_RUNG_MIN_GMRES` | 15 | Floor on GMRES iterations per Newton step under the rung trim. |
+| `JFNK_RUNG_MIN_EVALS` | 12 | Floor on residual evals per activation under the rung trim. |
+| `GS_RELEASE_LIM` | 0 | Rejected GS trial releases (`N_TRIALS_REJ`) before the run stops (KNOP); `0` disables. |
 | `JFNK_FD_COS_MIN` | 0.05 | Descent floor on the finite-difference image of the clipped step, `cos(F,A_FD z)` -- the stored-BA REACH can pass a step the true Jacobian maps anti-parallel to F (KNOP_jfnkrel it35: REACH 0.735 vs FD cos -0.23). `0` disables. |
 | `JFNK_FD_AUTODEF` | T | Defer any JFNK admission whose FD operator image is anti-descent (`cos(F,A_FD z) < 0`), even with all thresholds at 0. Arms the precheck block (one extra residual eval per admission). `F` recovers pre-guard behaviour. |
 | `LUM_DIV_FAC` | 1.0E2 | KNOP only: per-call outer-luminosity growth factor counted as runaway. |

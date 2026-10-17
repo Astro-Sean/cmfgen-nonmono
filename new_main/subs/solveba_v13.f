@@ -374,18 +374,21 @@
 	      END IF
 	    END DO
 	  END IF
-	  IF(BA_SE_RES .LT. BAACC_RES_MIN)BAACC_RES_MIN=BA_SE_RES
+! Scope: the running minima feed the BA_RES_HARD bounds of the
+! armed acceptance test, so they only move on calls that actually
+! adjudicate one (BAACC_PENDING still armed here -- it is cleared
+! below).  LAMBDA/held calls do not tighten bounds later FULL
+! calls inherit.
 !
-! Per-column running minimum for the masked acceptance test.
-! Guarded on allocation: the arrays only exist once an armed
-! snapshot has been taken, so a pure-LAMBDA stretch skips this.
-!
-	  IF(ALLOCATED(BAACC_COL_MIN))THEN
-	    IF(SIZE(BAACC_COL_MIN) .EQ. ND)THEN
-	      DO I=1,ND
-	        IF(COL_RES(I) .LT. BAACC_COL_MIN(I))
-	1          BAACC_COL_MIN(I)=COL_RES(I)
-	      END DO
+	  IF(BAACC_PENDING)THEN
+	    IF(BA_SE_RES .LT. BAACC_RES_MIN)BAACC_RES_MIN=BA_SE_RES
+	    IF(ALLOCATED(BAACC_COL_MIN))THEN
+	      IF(SIZE(BAACC_COL_MIN) .EQ. ND)THEN
+	        DO I=1,ND
+	          IF(COL_RES(I) .LT. BAACC_COL_MIN(I))
+	1            BAACC_COL_MIN(I)=COL_RES(I)
+	        END DO
+	      END IF
 	    END IF
 	  END IF
 !
