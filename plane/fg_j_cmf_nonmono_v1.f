@@ -407,6 +407,21 @@
 	REAL(KIND=LDP), SAVE :: FG_COMMIT_JUMP=50.0_LDP
 	REAL(KIND=LDP), SAVE :: FG_DIV_HEAL_CAP=1.0E+6_LDP
 !
+! FG_COMMIT_CONV (VADAT [FG_COMMIT_CONV], default F): fail-closed
+! refresh commits.  When T, a ray field solve that ended on a stall,
+! pass-cap or plateau exit (IXIT 3/4/6 -- residual still above
+! KN_RAY_TOL) does not reach WRITE_STORE: the ray's lagged store
+! keeps its pre-refresh generation instead of taking the last
+! iterate of a non-converged fixed-point solve.  Only the
+! FG_COMMIT_JUMP bound guarded those exits, so a capped ray could
+! commit a field tens of factors off the sane seed (w19 class:
+! residual 0.465 at the cap with retained delta 21).  FG_NC_REJ
+! counts these rejections separately from jump rejects.  IXIT 0
+! (exact), 1 (tol) and 2 (bulk-maturity) still commit.
+!
+	LOGICAL, SAVE :: FG_COMMIT_CONV=.FALSE.
+	INTEGER, SAVE :: FG_NC_REJ=0
+!
 ! W7 (17-Oct-2026): extended per-ray pass budget for rays with
 ! contiguous hot-frequency runs (RES_FREQ>KN_RAY_TOL over a run).
 ! After the standard exits fire, a ray with a hot run continues
@@ -2123,6 +2138,7 @@
 	    FG_GS_NPLAT=0
 	    FG_DIV_HEAL=0
 	    FG_COMMIT_REJ=0
+	    FG_NC_REJ=0
 	    KN_HOT_SPENT=0
 	    KN_STORE_READY=.FALSE.
 	  END IF
@@ -4807,7 +4823,7 @@ C
 	WRITE(LUER,'(A,I8,2(A,I10))')
 	1   '    div rays=',FG_GS_NDIV,
 	2   '  healed slots=',FG_DIV_HEAL,
-	3   '  commit rejs=',FG_COMMIT_REJ
+	3   '  commit rejs=',FG_COMMIT_REJ+FG_NC_REJ
 	WRITE(LUER,'(A,I6)')'    NCF=',FG_GS_NCF
 	WRITE(LUER,'(A,ES12.4)')'    max |HBC|=',FG_MAX_HBC
 	WRITE(LUER,'(A,ES12.4)')'    min boundary J=',FG_MIN_JBND
@@ -5628,14 +5644,16 @@ C
 	RETURN
 	END
 !
-	SUBROUTINE SET_FG_COMMIT(JCAP,HCAP)
+	SUBROUTINE SET_FG_COMMIT(JCAP,HCAP,DO_CC)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
-	1     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP
+	1     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP,FG_COMMIT_CONV
 	IMPLICIT NONE
 	REAL(KIND=LDP) JCAP,HCAP
+	LOGICAL DO_CC
 	FG_COMMIT_JUMP=MAX(JCAP,1.0_LDP)
 	FG_DIV_HEAL_CAP=MAX(HCAP,1.0_LDP)
+	FG_COMMIT_CONV=DO_CC
 	RETURN
 	END
 !
@@ -5898,9 +5916,10 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
 	2  FG_GS_NTOT_BLK
-	WRITE(LUER,'(A,I6,A,I6)')
+	WRITE(LUER,'(A,I6,A,I6,A,I6)')
 	1  '    healed slots=',FG_DIV_HEAL,
-	2  '   commit rejects=',FG_COMMIT_REJ
+	2  '   commit rejects=',FG_COMMIT_REJ,
+	3  '   nc rejects=',FG_NC_REJ
 	IF(KN_HOT_SPENT .GT. 0)WRITE(LUER,'(A,I8,A,I6)')
 	1  '    hot-pass budget spent=',INT(MIN(KN_HOT_SPENT,2**30_8)),
 	2  '  cap=',KN_HOT_TOTAL_PASSES
@@ -6391,6 +6410,24 @@ C
 !$OMP CRITICAL (FG_REJ_UPD)
 	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
 !$OMP END CRITICAL (FG_REJ_UPD)
+	  ELSE IF(FG_COMMIT_CONV .AND.
+	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2) .OR.
+	2     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2)))THEN
+!
+! edited by Devin, 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
+! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
+! unset code) means the fixed-point solve ended above KN_RAY_TOL;
+! committing its last iterate wrote that unconverged field into
+! the lagged store bounded only by the FG_COMMIT_JUMP magnitude --
+! the w19 runaway class (residual 0.465 vs tol 2E-3 committed with
+! retained delta 21).  Skip the write: the store keeps the
+! pre-refresh generation, which is a sane consistent seed for the
+! next refresh.  The residual still reports RES_M/RES_P, so the
+! maturity gate reads the ray as unconverged either way.
+!
+!$OMP CRITICAL (FG_NC_UPD)
+	    FG_NC_REJ=FG_NC_REJ+1
+!$OMP END CRITICAL (FG_NC_UPD)
 	  ELSE
 	    CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
 	    CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)

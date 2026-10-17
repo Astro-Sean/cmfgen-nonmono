@@ -77,6 +77,7 @@
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
+	LOGICAL FG_COMMIT_CONV_V
 !
 	LOGICAL USE_JFNK_OLD
 !
@@ -1943,7 +1944,20 @@
 	  FG_DIV_HEAL_CAP_V=1.0E+6_LDP
 	  CALL RD_STORE_DBLE(FG_DIV_HEAL_CAP_V,'FG_DIV_HEAL_CAP',
 	1     L_FALSE,'Heal bound on diverged-ray poisoned store slots')
-	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V)
+!
+! FG_COMMIT_CONV (17-Oct-2026, default F): fail-closed refresh
+! commits.  When T, a ray whose refresh solve exits on stall,
+! pass-cap or plateau (IXIT 3/4/6, residual still above KN_RAY_TOL)
+! does not write its last iterate to the lagged store -- the
+! pre-refresh generation stays as the seed instead of committing a
+! non-converged field bounded only by FG_COMMIT_JUMP (w19 class:
+! cap-exit commit at residual 0.465, retained delta 21).
+!
+	  FG_COMMIT_CONV_V=.FALSE.
+	  CALL RD_STORE_LOG(FG_COMMIT_CONV_V,'FG_COMMIT_CONV',L_FALSE,
+	1     'Reject refresh commits on non-converged ray exits?')
+	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V,
+	1     FG_COMMIT_CONV_V)
 !
 ! Residual-accepted BA update (default FALSE).  The BA correction
 ! is committed only when the SE residual after the previous BA
@@ -2117,6 +2131,29 @@
 	  CALL RD_STORE_DBLE(LUM_DIV_CAP,'LUM_DIV_CAP',L_FALSE,
 	1     'KNOP: L_out (L_sun) past which the run stops divergent')
 	  IF(LUM_DIV_CAP .LE. 0.0_LDP)LUM_DIV_CAP=1.0D15
+!
+! LUM_DIV_FAC2/LUM_DIV_N2 (17-Oct-2026): second, lower-factor streak.
+! The FAC=1E2/N=3 detector misses a sustained geometric runaway of
+! ~10x per call (w19: 9.5E9 -> 5.9E14 L_sun in 7 iterations) -- the
+! slow tier catches LUM_DIV_N2 consecutive calls each growing by
+! more than LUM_DIV_FAC2.  LUM_DIV_REC (default 1.0, 0 = never
+! release) is the latch-recovery factor: once LUM_BLOCKED trips it
+! holds until L_out falls back below LUM_DIV_REC times the
+! pre-runaway level, so a single sub-threshold call cannot clear
+! the hold at a still-runaway luminosity.
+!
+	  LUM_DIV_FAC2=5.0_LDP
+	  CALL RD_STORE_DBLE(LUM_DIV_FAC2,'LUM_DIV_FAC2',L_FALSE,
+	1     'KNOP: lower per-call growth factor for the slow streak')
+	  IF(LUM_DIV_FAC2 .LE. 1.0_LDP)LUM_DIV_FAC2=5.0_LDP
+	  LUM_DIV_N2=4
+	  CALL RD_STORE_INT(LUM_DIV_N2,'LUM_DIV_N2',L_FALSE,
+	1     'KNOP: consecutive slow-growth calls before LUM_BLOCKED')
+	  IF(LUM_DIV_N2 .LT. 0)LUM_DIV_N2=4
+	  LUM_DIV_REC=1.0_LDP
+	  CALL RD_STORE_DBLE(LUM_DIV_REC,'LUM_DIV_REC',L_FALSE,
+	1     'KNOP: release lum latch below REC*pre-runaway L_out (0=never)')
+	  IF(LUM_DIV_REC .LT. 0.0_LDP)LUM_DIV_REC=1.0_LDP
 !
 ! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
 ! diagnostics.  2 reproduces the pre-existing output volume
@@ -2727,11 +2764,12 @@
 ! repair controls so the run log shows what the refresh/gate
 ! actually ran with.
 !
-	    WRITE(LUER,'(A,L2,A,L2,A,ES10.3,A,I4)')
+	    WRITE(LUER,'(A,L2,A,L2,A,ES10.3,A,I4,A,L2)')
 	1   '   omega_v2=',FG_ADAPT_OMEGA_V2_V,
 	2   '  plateau_det=',FG_PLATEAU_DET_V,
 	3   '  commit_jump=',FG_COMMIT_JUMP_V,
-	4   '  heal_cap_exp=',INT(LOG10(FG_DIV_HEAL_CAP_V))
+	4   '  heal_cap_exp=',INT(LOG10(FG_DIV_HEAL_CAP_V)),
+	5   '  commit_conv=',FG_COMMIT_CONV_V
 	    WRITE(LUER,'(A,I4,A,I4,A,I4)')
 	1   '   hot_passes=',KN_RAY_HOTPASSES_V,
 	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,

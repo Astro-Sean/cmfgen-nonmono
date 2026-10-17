@@ -1575,6 +1575,20 @@
 	INTEGER LUM_DIV_N
 	REAL(KIND=LDP) LUM_DIV_CAP
 !
+! LUM_DIV_FAC2/LUM_DIV_N2 (17-Oct-2026): slow-streak tier of the
+! same guard.  FAC=1E2/N=3 only sees abrupt jumps; a sustained
+! geometric runaway of ~10x per call (w19: 9.5E9 -> 5.9E14 L_sun in
+! 7 iterations) never increments it.  The second tier trips on
+! LUM_DIV_N2 consecutive calls each above factor LUM_DIV_FAC2.
+! LUM_DIV_REC is the latch-recovery factor: once tripped,
+! LUM_BLOCKED stays latched until L_out falls below
+! LUM_DIV_REC*pre-runaway level (0 = hold until the cap or freeze
+! limit stops the run).
+!
+	REAL(KIND=LDP) LUM_DIV_FAC2
+	INTEGER LUM_DIV_N2
+	REAL(KIND=LDP) LUM_DIV_REC
+!
 ! GS_HOLD_POPS (VADAT [GS_HOLD_POPS], default F): on a GS-freeze
 ! iteration, snapshot POPS before the forced-LAMBDA SOLVEBA update
 ! and restore them afterwards, so the sweep converges the lagged

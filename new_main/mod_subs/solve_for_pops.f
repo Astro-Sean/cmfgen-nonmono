@@ -13,6 +13,9 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
 	IMPLICIT NONE
 !
+! Altered:   17-Oct-2026 : LUM_BLOCKED is a latch with baseline recovery;
+!                          added the LUM_DIV_FAC2/LUM_DIV_N2 slow-streak
+!                          tier (edited by Devin).
 ! Altered:   17-Oct-2026 : ITER_SUM gains the trace-side channels and a live
 !                          converged-exit gate verdict (edited by Devin).
 ! Altered:   16-Oct-2026 : Stage-B trace polish forces the BA dispatch so
@@ -228,6 +231,22 @@
 	REAL(KIND=LDP), SAVE :: LUM_PREV_OUT=0.0_LDP
 	INTEGER, SAVE :: LUM_DIV_NCNT=0
 !
+! Latch state for the runaway detector (edited by Devin,
+! 17-Oct-2026).  LUM_BLOCKED used to be recomputed per call, so one
+! call with growth below LUM_DIV_FAC cleared the hold while L_out
+! was still catastrophically high.  LUM_DIV_LATCH now persists once
+! tripped; LUM_DIV_BASE records the pre-runaway luminosity (the
+! level before the triggering streak) so recovery requires
+! L_out <= LUM_DIV_REC*LUM_DIV_BASE, not merely a quiet iteration.
+! LUM_DIV_NCNT2/LUM_DIV_B2 track the slow-streak tier
+! ([LUM_DIV_FAC2]/[LUM_DIV_N2]): ~10x-per-call geometric runaways
+! never reach LUM_DIV_FAC=1E2 but still diverge.
+!
+	LOGICAL, SAVE :: LUM_DIV_LATCH=.FALSE.
+	REAL(KIND=LDP), SAVE :: LUM_DIV_BASE=0.0_LDP
+	REAL(KIND=LDP), SAVE :: LUM_DIV_B2=0.0_LDP
+	INTEGER, SAVE :: LUM_DIV_NCNT2=0
+!
 ! Consecutive calls whose SCRTEMP record is a clean committed
 ! iterate (no reject/masked/soft-reject/pending-arm/Newton/held-pops
 ! record).  NG requires 4 clean records before firing -- see the
@@ -408,6 +427,10 @@
 	  LUM_PREV=0.0_LDP
 	  LUM_PREV_OUT=0.0_LDP
 	  LUM_DIV_NCNT=0
+	  LUM_DIV_LATCH=.FALSE.
+	  LUM_DIV_BASE=0.0_LDP
+	  LUM_DIV_B2=0.0_LDP
+	  LUM_DIV_NCNT2=0
 	  N_HIST=0
 	  HIST_POS=0
 	  PLAT_CNT=0
@@ -558,10 +581,11 @@
 	MOM_TRIAL=.FALSE.
 !
 ! Keep the former BA_LUM_GATE measurement for diagnostics and restart
-! comparisons, but leave LUM_BLOCKED false.  Shocks invalidate inner-
-! versus-outer luminosity agreement as a convergence condition.
+! comparisons, but leave LUM_BLOCKED to the runaway latch alone.
+! Shocks invalidate inner- versus-outer luminosity agreement as a
+! convergence condition.
 !
-	LUM_BLOCKED=.FALSE.
+	LUM_BLOCKED=LUM_DIV_LATCH
 	LUM_DCHG_REL=0.0_LDP
 	IF(LUM_INIT)LUM_DCHG_REL=ABS(LUM_RATIO_OI-LUM_PREV)/
 	1    MAX(ABS(LUM_RATIO_OI),ABS(LUM_PREV),0.1_LDP)
@@ -592,11 +616,53 @@
 	END IF
 	IF(DO_NONMONO_KNOP .AND. LUM_DIV_N .GT. 0 .AND.
 	1   LUM_OUT_ABS .GT. 0.0_LDP)THEN
+!
+! edited by Devin, 17-Oct-2026: latch semantics plus a slow-growth
+! tier.  Recovery is checked first: a latched runaway releases only
+! when L_out falls back below LUM_DIV_REC*LUM_DIV_BASE (the
+! luminosity level just before the triggering streak), so a single
+! sub-threshold call can no longer clear LUM_BLOCKED at a still-
+! runaway luminosity.  LUM_DIV_REC=0 disables release -- the cap or
+! GS_FREEZE_LIM ends the run.
+!
+	  IF(LUM_DIV_LATCH .AND. LUM_DIV_REC .GT. 0.0_LDP .AND.
+	1    LUM_DIV_BASE .GT. 0.0_LDP .AND.
+	2    LUM_OUT_ABS .LE. LUM_DIV_REC*LUM_DIV_BASE)THEN
+	    WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1   '  SOLVE_FOR_POPS: luminosity runaway recovered, L_out=',
+	2   LUM_OUT_ABS,' <= ',LUM_DIV_REC*LUM_DIV_BASE
+	    LUM_DIV_LATCH=.FALSE.
+	    LUM_DIV_NCNT=0
+	    LUM_DIV_NCNT2=0
+	    LUM_DIV_BASE=0.0_LDP
+	    LUM_DIV_B2=0.0_LDP
+	    LUM_BLOCKED=.FALSE.
+	  END IF
 	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
 	1    LUM_OUT_ABS .GT. LUM_DIV_FAC*LUM_PREV_OUT)THEN
 	    LUM_DIV_NCNT=LUM_DIV_NCNT+1
+!
+! The latch base is the pre-runaway luminosity: the first call of a
+! qualifying streak records the level it grew FROM.
+!
+	    IF(LUM_DIV_NCNT .EQ. 1)LUM_DIV_BASE=LUM_PREV_OUT
 	  ELSE
 	    LUM_DIV_NCNT=0
+	    IF(.NOT. LUM_DIV_LATCH)LUM_DIV_BASE=0.0_LDP
+	  END IF
+!
+! Slow-streak tier: sustained growth above LUM_DIV_FAC2 for
+! LUM_DIV_N2 consecutive calls is the same divergence signature at
+! a lower per-call factor -- the w19 runaway grew ~10x per call and
+! never touched LUM_DIV_FAC=1E2.
+!
+	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
+	1    LUM_OUT_ABS .GT. LUM_DIV_FAC2*LUM_PREV_OUT)THEN
+	    LUM_DIV_NCNT2=LUM_DIV_NCNT2+1
+	    IF(LUM_DIV_NCNT2 .EQ. 1)LUM_DIV_B2=LUM_PREV_OUT
+	  ELSE
+	    LUM_DIV_NCNT2=0
+	    IF(.NOT. LUM_DIV_LATCH)LUM_DIV_B2=0.0_LDP
 	  END IF
 	  LUM_PREV_OUT=LUM_OUT_ABS
 ! The cap stops on the absolute level, streak or not -- the observed
@@ -609,11 +675,24 @@
 	    WRITE(LUER,'(A)')'  Non-convergent state; stopping.'
 	    STOP 'SOLVE_FOR_POPS: luminosity diverging'
 	  END IF
-	  IF(LUM_DIV_NCNT .GE. LUM_DIV_N)THEN
+	  IF(LUM_DIV_NCNT .GE. LUM_DIV_N .OR.
+	1    (LUM_DIV_N2 .GT. 0 .AND. LUM_DIV_NCNT2 .GE. LUM_DIV_N2))THEN
+	    IF(.NOT. LUM_DIV_LATCH)THEN
+!
+! On the first trip the recovery base is the lower of the two
+! streak bases: the luminosity must come back to the earliest
+! pre-runaway level, not merely below the level at trip time.
+!
+	      IF(LUM_DIV_BASE .LE. 0.0_LDP)LUM_DIV_BASE=LUM_DIV_B2
+	      IF(LUM_DIV_B2 .GT. 0.0_LDP)
+	1        LUM_DIV_BASE=MIN(LUM_DIV_BASE,LUM_DIV_B2)
+	    END IF
+	    LUM_DIV_LATCH=.TRUE.
 	    LUM_BLOCKED=.TRUE.
-	    WRITE(LUER,'(A,ES12.4,A,I2,A)')
+	    WRITE(LUER,'(A,ES12.4,A,I2,A,I2,A)')
 	1   '  SOLVE_FOR_POPS: luminosity runaway, L_out=',LUM_OUT_ABS,
-	2   ' streak=',LUM_DIV_NCNT,' -- LUM_BLOCKED set'
+	2   ' streak=',LUM_DIV_NCNT,'/',LUM_DIV_NCNT2,
+	3   ' -- LUM_BLOCKED latched'
 	  END IF
 	END IF
 !
