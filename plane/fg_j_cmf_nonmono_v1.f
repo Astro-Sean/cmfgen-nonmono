@@ -3469,11 +3469,19 @@ C
 	        dS(I)=(S(I-1)*DTAU(I,LS)+S(I)*DTAU(I-1,LS))/T1_DTAU
 	      END IF
 	    END DO
-	    T1_DTAU=DTAU(NI-2,LS)+DTAU(NI-1,LS)
-	    IF(ABS(T1_DTAU) .LT. 1.0E-30_LDP)THEN
-	      dS(NI)=0.0_LDP
+!
+! NI=2 (allowed on the thinnest insert-free rays) has no NI-2 node;
+! constant-slope extrapolation is the only defined derivative.
+!
+	    IF(NI .GE. 3)THEN
+	      T1_DTAU=DTAU(NI-2,LS)+DTAU(NI-1,LS)
+	      IF(ABS(T1_DTAU) .LT. 1.0E-30_LDP)THEN
+	        dS(NI)=0.0_LDP
+	      ELSE
+	        dS(NI)=S(NI-1)+(S(NI-1)-S(NI-2))*DTAU(NI-1,LS)/T1_DTAU
+	      END IF
 	    ELSE
-	      dS(NI)=S(NI-1)+(S(NI-1)-S(NI-2))*DTAU(NI-1,LS)/T1_DTAU
+	      dS(NI)=S(NI-1)
 	    END IF
 !
 ! Adjust first derivatives so that function is monotonic  in each interval.
@@ -3702,11 +3710,19 @@ C
 	        dS(I)=(S(I-1)*DTAU(I,LS)+S(I)*DTAU(I-1,LS))/T1_DTAU
 	      END IF
 	    END DO
-	    T1_DTAU=DTAU(NI-2,LS)+DTAU(NI-1,LS)
-	    IF(ABS(T1_DTAU) .LT. 1.0E-30_LDP)THEN
-	      dS(NI)=0.0_LDP
+!
+! NI=2 (allowed on the thinnest insert-free rays) has no NI-2 node;
+! constant-slope extrapolation is the only defined derivative.
+!
+	    IF(NI .GE. 3)THEN
+	      T1_DTAU=DTAU(NI-2,LS)+DTAU(NI-1,LS)
+	      IF(ABS(T1_DTAU) .LT. 1.0E-30_LDP)THEN
+	        dS(NI)=0.0_LDP
+	      ELSE
+	        dS(NI)=S(NI-1)+(S(NI-1)-S(NI-2))*DTAU(NI-1,LS)/T1_DTAU
+	      END IF
 	    ELSE
-	      dS(NI)=S(NI-1)+(S(NI-1)-S(NI-2))*DTAU(NI-1,LS)/T1_DTAU
+	      dS(NI)=S(NI-1)
 	    END IF
 !
 ! Adjust the first derivatives so that function is monotonic in each interval.
