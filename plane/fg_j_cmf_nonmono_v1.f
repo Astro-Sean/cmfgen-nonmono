@@ -3899,10 +3899,19 @@ C
 	            END IF
 	            T2=I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)
 	            IF(T2 .GT. 0.0_LDP)THEN
+!
+! MAXCHG denominators are floored at the ray peak (same contract as
+! MOM_GS_MAXCHG): a stored cell ~1E-300 vs a fresh 1E-38 reports
+! relchg ~1E262 on a cell the NCONV gate already deems
+! insignificant, and GS_MAX_ALL=MAX(...) then pins the maturity
+! gate at GS_UNSAFE_TOL forever.  Job 12255111 ran with
+! sweep drift=1.5E263 from exactly this.
+!
 	              IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
 	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS))
 	2                FG_GS_NCONV=FG_GS_NCONV+1
-	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/T2)
+	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/
+	1                MAX(T2,1.0E-4_LDP*VMAX_IP(LS)))
 !
 ! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store.  A
 ! cell whose freshly solved intensity still differs from the stored
@@ -3944,7 +3953,8 @@ C
 	              IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
 	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS))
 	2                FG_GS_NCONV=FG_GS_NCONV+1
-	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/T2)
+	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/
+	1                MAX(T2,1.0E-4_LDP*VMAX_IM(LS)))
 	              IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
 	1               0.25_LDP .AND.
 	2               MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS) .AND.
