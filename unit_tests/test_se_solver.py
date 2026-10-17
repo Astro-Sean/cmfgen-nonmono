@@ -622,11 +622,12 @@ def t12_shock(spec):
     ok &= a
     notes.append(f"x_T reached x*={xs_t:.3f}: {a} (xt={xts[-1]:.3f})")
 
-    # the undamped control takes the full deficit in one admission --
-    # >= 4x the first damped step (the STELLA shock excursion)
+    # the undamped control takes the full deficit in one admission.
+    # Adaptive relax (5c4aefe3) raises the first damped step, so the
+    # separation is now ~3.5x rather than the pre-adaptive >=4x.
     eps0_d = damped[min(damped)]["eps"]
     eps0_f = free[min(free)]["eps"]
-    a = eps0_f >= 4.0 * max(eps0_d, 1e-12)
+    a = eps0_f >= 3.0 * max(eps0_d, 1e-12)
     ok &= a
     notes.append(f"undamped first step {eps0_f:.3f} >> damped "
                  f"{eps0_d:.3f}: {a}")
@@ -648,8 +649,10 @@ def t13_tauto_fsm(spec):
                   0.05, 0.3, 0.1, 0.5, 2)
     adm, trans = _auto_admissions(out)
 
-    # rung 1 held throughout the march (eps > 0.1 blocks release)
-    march = [adm[i] for i in range(1, 8)]
+    # rung 1 held through the early march (eps > 0.1 blocks release).
+    # Post-adaptive-relax the release fires one admission earlier
+    # than the pre-5c4aefe3 ladder, so the locked window ends at 5.
+    march = [adm[i] for i in range(1, 6)]
     a = all(a_["rung"] == 1 for a_ in march)
     ok &= a
     notes.append(f"rung 1 locked while eps>eps_thr: {a}")
