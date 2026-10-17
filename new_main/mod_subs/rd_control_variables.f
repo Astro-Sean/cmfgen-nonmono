@@ -70,10 +70,13 @@
 !
 	INTEGER KN_M_MAXPASS_V,KN_RAY_MAXPASS_V,MOM_AA_M_V,
 	1     MOM_AA_OUT_M_V,KN_ORD_AA_M_V
+	INTEGER KN_RAY_HOTPASSES_V,KN_HOT_TOTAL_PASSES_V
 	LOGICAL KN_ADAPT_RELAX_V
+	LOGICAL FG_ADAPT_OMEGA_V2_V,FG_PLATEAU_DET_V
 	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
+	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
 !
 	LOGICAL USE_JFNK_OLD
 !
@@ -895,6 +898,18 @@
 	  CALL RD_STORE_INT(MOM_TRIAL_MIN,'MOM_TRIAL_MIN',L_FALSE,
 	1     'KNOP: frozen iters before a resacc-gated BA trial?')
 	  IF(MOM_TRIAL_MIN .LT. 0)MOM_TRIAL_MIN=0
+!
+! FG_TRIAL_MIN (default 30, 0 disables): frozen-iteration count
+! that arms the FG-only marginal-release trial -- the
+! USE_LAM_ES=T analogue of MOM_TRIAL, which can never fire with
+! MOM_RAN=F.  Requires the cured gate (no immaturity, no UNSAFE
+! share) and the resacc snapshot; accepted trials refund N_FROZEN
+! to this floor.
+!
+	  FG_TRIAL_MIN=30
+	  CALL RD_STORE_INT(FG_TRIAL_MIN,'FG_TRIAL_MIN',L_FALSE,
+	1     'KNOP: frozen iters before the FG-only LAMBDA trial?')
+	  IF(FG_TRIAL_MIN .LT. 0)FG_TRIAL_MIN=0
 !
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial.  With MAXCH above it the trial takes the
@@ -1827,7 +1842,7 @@
 ! midpoint until KN_ORD_P2REL flip-free passes release it.  The
 ! fixed point is unchanged -- only the relaxation path to it.
 !
-	  KN_ORD_P2DAMP=.FALSE.
+	  KN_ORD_P2DAMP=.TRUE.
 	  CALL RD_STORE_LOG(KN_ORD_P2DAMP,'KN_ORD_P2DAMP',L_FALSE,
 	1     'Damp per-cell period-2 modes in the ordered FG march?')
 	  KN_ORD_P2N=2
@@ -1867,6 +1882,59 @@
 	  CALL RD_STORE_DBLE(KN_RAY_STALL_V,'KN_RAY_STALL',L_FALSE,
 	1     'Same-direction residual ratio counting as a stall pass')
 	  CALL SET_FG_STALL_LIM(KN_RAY_STALL_V)
+!
+! W1-W9 VADATs (17-Oct-2026, KNOP maturity-chain repair):
+!
+! FG_ADAPT_OMEGA_V2 (default T): same-map omega estimator -- the
+! relaxation weight is re-estimated from the per-pass residual
+! sequence of the current refresh instead of the cross-iteration
+! ratio, which miskeyed oscillation and marginal contraction to
+! the same omega~0.5.  F restores the cross-iteration rule.
+!
+	  FG_ADAPT_OMEGA_V2_V=.TRUE.
+	  CALL RD_STORE_LOG(FG_ADAPT_OMEGA_V2_V,'FG_ADAPT_OMEGA_V2',
+	1     L_FALSE,'Same-map omega estimator in the FG refresh?')
+!
+! FG_PLATEAU_DET (default T): plateau and combined-direction stall
+! triggers in the refresh sweeps -- three flat same-direction
+! ratios, or two straight >0.95 ratios, exit the ray at ~8-10
+! passes instead of riding KN_RAY_MAXPASS.
+!
+	  FG_PLATEAU_DET_V=.TRUE.
+	  CALL RD_STORE_LOG(FG_PLATEAU_DET_V,'FG_PLATEAU_DET',L_FALSE,
+	1     'Plateau/combined-direction stall exits in FG refresh?')
+	  CALL SET_FG_OMEGA_V2(FG_ADAPT_OMEGA_V2_V,FG_PLATEAU_DET_V)
+!
+! KN_RAY_HOTPASSES (default 120) / KN_HOT_TOTAL_PASSES (default
+! 480): extra per-ray pass budget when a stall or cap exit leaves
+! residual only inside a contiguous hot-frequency run; the run
+! continues restricted to its window +/-2 bins.  The total bounds
+! the refresh-wide spend so a hot-ray farm cannot dominate.
+!
+	  KN_RAY_HOTPASSES_V=120
+	  CALL RD_STORE_INT(KN_RAY_HOTPASSES_V,'KN_RAY_HOTPASSES',
+	1     L_FALSE,'Extra pass budget for hot-frequency runs per ray')
+	  KN_HOT_TOTAL_PASSES_V=480
+	  CALL RD_STORE_INT(KN_HOT_TOTAL_PASSES_V,'KN_HOT_TOTAL_PASSES',
+	1     L_FALSE,'Refresh-wide cap on hot-run extra passes')
+	  CALL SET_FG_HOTPASS(KN_RAY_HOTPASSES_V,KN_HOT_TOTAL_PASSES_V)
+!
+! FG_COMMIT_JUMP (default 50.0): whole-ray commit rollback -- a
+! refreshed store whose max |V1-V2|/max(V2,1e-4*peak) exceeds this
+! factor is rejected and the pre-refresh values stay.  Bounds the
+! committed-near-blowup class (audit: retained delta 4.19E-1 ->
+! 5.03E3) while allowing genuine factor-of-few rewrites.
+! FG_DIV_HEAL_CAP (default 1e6): diverged-ray heal bound -- stored
+! slots above this multiple of the per-depth median are zeroed so
+! a poisoned slot cannot re-seed the next refresh.
+!
+	  FG_COMMIT_JUMP_V=50.0_LDP
+	  CALL RD_STORE_DBLE(FG_COMMIT_JUMP_V,'FG_COMMIT_JUMP',L_FALSE,
+	1     'Max committed-write relative jump before ray rollback')
+	  FG_DIV_HEAL_CAP_V=1.0E+6_LDP
+	  CALL RD_STORE_DBLE(FG_DIV_HEAL_CAP_V,'FG_DIV_HEAL_CAP',
+	1     L_FALSE,'Heal bound on diverged-ray poisoned store slots')
+	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V)
 !
 ! Residual-accepted BA update (default FALSE).  The BA correction
 ! is committed only when the SE residual after the previous BA
@@ -2633,6 +2701,20 @@
 	1   ' KNOP effective (post auto-set): N_LAM_RWARM=',N_LAM_RWARM,
 	2   '  GS_REL_STABLE=',GS_REL_STABLE,'  GLOBAL_LINE=',
 	3   GLOBAL_LINE_SWITCH(1:5),'  FG_OPT=',FG_SOL_OPTIONS(1:7)
+!
+! W1-W9 effective knobs (17-Oct-2026): echo the maturity-chain
+! repair controls so the run log shows what the refresh/gate
+! actually ran with.
+!
+	    WRITE(LUER,'(A,L2,A,L2,A,ES10.3,A,I4)')
+	1   '   omega_v2=',FG_ADAPT_OMEGA_V2_V,
+	2   '  plateau_det=',FG_PLATEAU_DET_V,
+	3   '  commit_jump=',FG_COMMIT_JUMP_V,
+	4   '  heal_cap_exp=',INT(LOG10(FG_DIV_HEAL_CAP_V))
+	    WRITE(LUER,'(A,I4,A,I4,A,I4)')
+	1   '   hot_passes=',KN_RAY_HOTPASSES_V,
+	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,
+	3   '  fg_trial_min=',FG_TRIAL_MIN
 	  END IF
 !
 ! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line

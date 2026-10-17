@@ -357,6 +357,70 @@
 	REAL(KIND=LDP), SAVE :: FG_GS_CHG_FILE=-1.0_LDP
 	INTEGER, SAVE :: FG_GS_CAP_FILE=-1
 !
+! W1-W9 (17-Oct-2026, KNOP maturity-chain repair):
+!
+! FG_SW_MAXCHG / FG_SW_NCONV: the in-sweep store drift, snapshotted
+! by FG_KNOP_REFRESH_V1 before it overwrites FG_GS_MAXCHG/NCONV
+! with the refresh fixed-point metrics.  The two semantics measure
+! different things (sweep drift is what the populations experience;
+! refresh residual measures lagged-map self-consistency), so the
+! gate needs both -- MOM keeps the same split in MOM_SW_*.
+!
+! FG_GS_NDIV: rays whose refresh solve diverged (IXIT=5) on the
+! last refresh.  Gated on ray share, not the RESID=1.0 pin the
+! diverged ray used to leave in MAXVAL(RES_LS).
+!
+! FG_GS_NBAD_BLK / FG_GS_NTOT_BLK: best-pass bad-cell census.  For
+! stall (IXIT=3) and pass-cap (IXIT=4) exits the last pass still
+! carries above-tolerance cells that the gate reads as immature
+! even though the ray's best pass was inside the bulk band, so the
+! gate reads MIN(FG_GS_NBAD, FG_GS_NBAD_BLK) (W3).
+!
+! FG_DIV_HEAL: store slots zeroed by the diverged-ray heal (W2):
+! a diverged ray skips its store write, so a poisoned slot value
+! (non-finite or > FG_DIV_HEAL_CAP * the ray's stored column peak)
+! would re-seed and re-diverge the next refresh (MOM heals the
+! same class of slot each call).  Zeroed slots take the seeded
+! floor path on the next refresh.
+!
+! FG_COMMIT_REJ / FG_COMMIT_JUMP: whole-ray commit rollback (W9).
+! When the max |V1-V2|/max(V2,1e-4*peak) over a ray's refreshed
+! stores exceeds FG_COMMIT_JUMP the writes are skipped entirely --
+! bounds the committed-near-blowup class (audit: retained delta
+! 4.19E-1 -> 5.03E3) while allowing genuine factor-of-few rewrites.
+!
+	REAL(KIND=LDP), SAVE :: FG_SW_MAXCHG=0.0_LDP
+	INTEGER*8, SAVE :: FG_SW_NCONV=0
+	INTEGER, SAVE :: FG_GS_NDIV=0
+	INTEGER*8, SAVE :: FG_GS_NBAD_BLK=-1
+	INTEGER*8, SAVE :: FG_GS_NTOT_BLK=0
+	INTEGER, SAVE :: FG_DIV_HEAL=0
+	INTEGER, SAVE :: FG_COMMIT_REJ=0
+	REAL(KIND=LDP), SAVE :: FG_COMMIT_JUMP=50.0_LDP
+	REAL(KIND=LDP), SAVE :: FG_DIV_HEAL_CAP=1.0E+6_LDP
+!
+! W7 (17-Oct-2026): extended per-ray pass budget for rays with
+! contiguous hot-frequency runs (RES_FREQ>KN_RAY_TOL over a run).
+! After the standard exits fire, a ray with a hot run continues
+! restricted to the run's window +/- 2 frequencies for up to
+! KN_RAY_HOTPASSES extra passes; KN_HOT_TOTAL_PASSES caps the
+! refresh-wide spend so pathological farms cannot dominate.
+! KN_HOT_SPENT is the running refresh-global counter.
+!
+	INTEGER, SAVE :: KN_RAY_HOTPASSES=120
+	INTEGER, SAVE :: KN_HOT_TOTAL_PASSES=480
+	INTEGER*8, SAVE :: KN_HOT_SPENT=0
+!
+! W5 (17-Oct-2026): FG_ADAPT_OMEGA_V2=T prices rho_est from the
+! per-pass residual sequence of the current refresh (same-map
+! contraction) instead of the cross-iteration KN_RF_RESID ratio,
+! which conflates source drift with map contraction.
+! FG_PLATEAU_DET=T arms the plateau (|ratio-1|<0.05 x3) and the
+! combined-direction stall triggers in both sweep loops.
+!
+	LOGICAL, SAVE :: FG_ADAPT_OMEGA_V2=.TRUE.
+	LOGICAL, SAVE :: FG_PLATEAU_DET=.TRUE.
+!
 ! Boundary-closure audit counters.  HBC = HNU_AT_OB/JNU_STORE(1)
 ! blows up when the boundary J hits its 1D-30 floor, and the moment
 ! solver's outer boundary row consumes the ratio directly.  Track
@@ -761,7 +825,7 @@
 	DATA FG_ORD_AITKEN /.FALSE./
 	DATA FG_ORD_AA /.FALSE./
 	DATA FG_ORD_AA_M /2/
-	DATA FG_ORD_P2DAMP /.FALSE./
+	DATA FG_ORD_P2DAMP /.TRUE./
 	DATA FG_ORD_P2N /2/,FG_ORD_P2REL /3/
 	DATA KN_RAY_STALL /0.98_LDP/
 	DATA KN_AA_APP /0_8/,KN_AA_VETO /0_8/,KN_AA_REJ /0_8/,
@@ -2026,6 +2090,19 @@
 	    FG_INEXT_CAPPED=0
 	    FG_GS_NBAD=-1
 	    FG_GS_NTOT=0
+!
+! W1-W9 resets (17-Oct-2026): every counter the maturity gate reads
+! must clear at sweep entry so a single bad iteration cannot veto
+! the release path forever.
+!
+	    FG_SW_MAXCHG=0.0_LDP
+	    FG_SW_NCONV=0
+	    FG_GS_NDIV=0
+	    FG_GS_NBAD_BLK=-1
+	    FG_GS_NTOT_BLK=0
+	    FG_DIV_HEAL=0
+	    FG_COMMIT_REJ=0
+	    KN_HOT_SPENT=0
 	    KN_STORE_READY=.FALSE.
 	  END IF
 !
@@ -4481,7 +4558,11 @@ C
 !    rec 2: N_COMP, NP, NCF_IN, ND
 !    rec 3-5: R(1:ND), V(1:ND), SIGMA(1:ND)
 !    rec 6: COMP_DEPTH_IDX(1:ND)
-!    rec 7: FG_GS_MAXCHG, FG_INEXT_CAPPED
+!    rec 7: FG_GS_MAXCHG, FG_INEXT_CAPPED,
+!           [appended W1-W9]: FG_GS_NDIV, FG_COMMIT_REJ, FG_DIV_HEAL,
+!           FG_SW_MAXCHG, FG_SW_NCONV, FG_RF_DCHG
+!           (prefix-compatible: readers pulling the original two
+!           fields still succeed on the longer record)
 !    rec 8: KN_FREQ(1:NCF_IN)      (VERSION >= 3 only; the writer's
 !           frequency grid -- needed so the OBS driver, which builds a
 !           different grid, can remap I_NEXT in frequency)
@@ -4533,17 +4614,20 @@ C
 !   CAP_FILE : capped/non-finite write count recorded in the file
 !
 	SUBROUTINE GET_FG_GS_MATURITY(GS_OK,CHG_FILE,CAP_FILE,
-	1                             MAXCHG,CAPPED,NBAD,NTOT,NCONV)
+	1                             MAXCHG,CAPPED,NBAD,NTOT,NCONV,
+	2                             NDIV,NRAY,NBAD_BLK,
+	3                             SW_MAXCHG,SW_NCONV,RF_DCHG)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     I_NEXT_GS_OK,FG_GS_CHG_FILE,FG_GS_CAP_FILE,
 	2     FG_GS_MAXCHG,FG_INEXT_CAPPED,FG_GS_NBAD,FG_GS_NTOT,
-	3     FG_GS_NCONV
+	3     FG_GS_NCONV,FG_GS_NP,FG_GS_NDIV,FG_GS_NBAD_BLK,
+	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG
 	IMPLICIT NONE
 	LOGICAL GS_OK
-	REAL(KIND=LDP) CHG_FILE,MAXCHG
-	INTEGER CAP_FILE,CAPPED
-	INTEGER*8 NBAD,NTOT,NCONV
+	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG
+	INTEGER CAP_FILE,CAPPED,NDIV,NRAY
+	INTEGER*8 NBAD,NTOT,NCONV,NBAD_BLK,SW_NCONV
 	GS_OK=I_NEXT_GS_OK
 	CHG_FILE=FG_GS_CHG_FILE
 	CAP_FILE=FG_GS_CAP_FILE
@@ -4552,6 +4636,18 @@ C
 	NBAD=FG_GS_NBAD
 	NTOT=FG_GS_NTOT
 	NCONV=FG_GS_NCONV
+!
+! W1-W9 (17-Oct-2026): appended transfer fields -- the diverged-ray
+! count (share-gated in SOLVE_FOR_POPS), the solved-ray count for
+! that share, the best-pass bad census (W3 bulk floor), and the
+! sweep-semantics drift the refresh used to clobber (W4).
+!
+	NDIV=FG_GS_NDIV
+	NRAY=FG_GS_NP
+	NBAD_BLK=FG_GS_NBAD_BLK
+	SW_MAXCHG=FG_SW_MAXCHG
+	SW_NCONV=FG_SW_NCONV
+	RF_DCHG=FG_RF_DCHG
 	RETURN
 	END
 !
@@ -4617,6 +4713,10 @@ C
 	1  '    max rel. change=',FG_GS_MAXCHG
 	WRITE(LUER,'(A,I10)')'    cap/bad writes=',FG_INEXT_CAPPED
 	WRITE(LUER,'(A,I10)')'    cells>50%=',FG_GS_NCONV
+	WRITE(LUER,'(A,I8,2(A,I10))')
+	1   '    div rays=',FG_GS_NDIV,
+	2   '  healed slots=',FG_DIV_HEAL,
+	3   '  commit rejs=',FG_COMMIT_REJ
 	WRITE(LUER,'(A,I6)')'    NCF=',FG_GS_NCF
 	WRITE(LUER,'(A,ES12.4)')'    max |HBC|=',FG_MAX_HBC
 	WRITE(LUER,'(A,ES12.4)')'    min boundary J=',FG_MIN_JBND
@@ -4660,7 +4760,9 @@ C
 	    WRITE(LU,IOSTAT=IOS)(0,I=1,ND)
 	  END IF
 	END IF
-	IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)FG_GS_MAXCHG,FG_INEXT_CAPPED
+	IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)FG_GS_MAXCHG,FG_INEXT_CAPPED,
+	1     FG_GS_NDIV,FG_COMMIT_REJ,FG_DIV_HEAL,
+	2     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG
 	IF(IOS .EQ. 0 .AND. N_COMP .GT. 0)THEN
 	  WRITE(LU,IOSTAT=IOS)KN_FREQ
 	  IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)I_P_DEPTH_NEXT
@@ -5409,6 +5511,41 @@ C
 	RETURN
 	END
 !
+! W1-W9 setters (17-Oct-2026): VADAT wiring for the
+! maturity-chain-repair knobs.  Same clamp-in-setter pattern as
+! SET_FG_KN_OPTS.
+!
+	SUBROUTINE SET_FG_OMEGA_V2(DO_V2,DO_PLAT)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     FG_ADAPT_OMEGA_V2,FG_PLATEAU_DET
+	IMPLICIT NONE
+	LOGICAL DO_V2,DO_PLAT
+	FG_ADAPT_OMEGA_V2=DO_V2
+	FG_PLATEAU_DET=DO_PLAT
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_HOTPASS(NRAY_P,NTOT_P)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     KN_RAY_HOTPASSES,KN_HOT_TOTAL_PASSES
+	IMPLICIT NONE
+	INTEGER NRAY_P,NTOT_P
+	KN_RAY_HOTPASSES=MAX(0,NRAY_P)
+	KN_HOT_TOTAL_PASSES=MAX(0,NTOT_P)
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_COMMIT(JCAP,HCAP)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP
+	IMPLICIT NONE
+	REAL(KIND=LDP) JCAP,HCAP
+	FG_COMMIT_JUMP=MAX(JCAP,1.0_LDP)
+	FG_DIV_HEAL_CAP=MAX(HCAP,1.0_LDP)
+	RETURN
+	END
+!
 	SUBROUTINE FG_KNOP_REFRESH_V1()
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
@@ -5420,7 +5557,7 @@ C
 	REAL(KIND=LDP) OMP_GET_WTIME
 	EXTERNAL OMP_GET_MAX_THREADS,OMP_GET_WTIME
 !
-	INTEGER LS,L,I,J,IOS,N_TH
+	INTEGER LS,L,I,J,K,IOS,N_TH
 	REAL(KIND=LDP) T0,T1_W,T2
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
 	INTEGER, ALLOCATABLE :: NST_LS(:),NPS_LS(:),NCP_LS(:)
@@ -5428,7 +5565,9 @@ C
 	INTEGER, ALLOCATABLE :: NXT_LS(:)
 	INTEGER*8, ALLOCATABLE :: NBD_LS(:),NTT_LS(:),NMT_LS(:),NCM_LS(:)
 	INTEGER*8, ALLOCATABLE :: NP2_LS(:)
+	INTEGER*8, ALLOCATABLE :: NBB_LS(:),NTB_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
+	REAL(KIND=LDP) RHO_H(4)
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
 ! return, 0-5 as coded in KNOP_RAY_SOLVE_V1).  The residual max
@@ -5498,13 +5637,16 @@ C
 	ALLOCATE(RES_LS(KN_NP),NST_LS(KN_NP),NPS_LS(KN_NP),
 	1   NCP_LS(KN_NP),NNG_LS(KN_NP),NBD_LS(KN_NP),NTT_LS(KN_NP),
 	2   NDV_LS(KN_NP),NMX_LS(KN_NP),NMT_LS(KN_NP),NCM_LS(KN_NP),
-	3   NXT_LS(KN_NP),NP2_LS(KN_NP),STAT=IOS)
+	3   NXT_LS(KN_NP),NP2_LS(KN_NP),NBB_LS(KN_NP),NTB_LS(KN_NP),
+	4   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 	RES_LS=0.0_LDP
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
 	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1; NP2_LS=0_8
+	NBB_LS=0_8; NTB_LS=0_8
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 	FG_RF_DCHG=0.0_LDP
+	KN_HOT_SPENT=0
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
 	ALLOCATE(KN_RES_PASS(2*KN_RAY_MAXPASS),STAT=IOS)
@@ -5537,7 +5679,7 @@ C
 	  CALL KNOP_RAY_SOLVE_V1(LS,RES_LS(LS),NST_LS(LS),
 	1    NPS_LS(LS),NCP_LS(LS),NNG_LS(LS),NBD_LS(LS),NTT_LS(LS),
 	2    NDV_LS(LS),NMT_LS(LS),NCM_LS(LS),NMX_LS(LS),NXT_LS(LS),
-	3    NP2_LS(LS))
+	3    NP2_LS(LS),NBB_LS(LS),NTB_LS(LS))
 	END DO
 !$OMP END PARALLEL DO
 	T1_W=OMP_GET_WTIME()-T0
@@ -5547,7 +5689,18 @@ C
 ! a fixed point of the wavelength coupling for the current source
 ! function, so the SE update may proceed immediately.
 !
-	KN_RF_RESID=MAXVAL(RES_LS)
+! W2 (17-Oct-2026): diverged rays report RESID=1.0 so a lone
+! runaway cannot pin the max-norm backstop -- one diverged ray out
+! of hundreds used to hold GS_MAXCHG=1.0 > GS_UNSAFE_TOL on every
+! iteration.  They are counted in FG_GS_NDIV and share-gated in
+! SOLVE_FOR_POPS instead; the backstop still sees every
+! non-diverged residual.
+!
+	IF(COUNT(NDV_LS .EQ. 0) .GT. 0)THEN
+	  KN_RF_RESID=MAXVAL(RES_LS,MASK=NDV_LS .EQ. 0)
+	ELSE
+	  KN_RF_RESID=MAXVAL(RES_LS)
+	END IF
 !
 ! Adaptive under-relaxation of the lagged store (KN_ADAPT_RELAX,
 ! default T): the residual maxima of successive refresh calls are the
@@ -5560,8 +5713,50 @@ C
 ! prevents a collapsed residual from disabling relaxation forever.
 ! VADAT INEXT_RELAX then acts as the seed value.  Oct-2026.
 !
+! W5 (17-Oct-2026, [FG_ADAPT_OMEGA_V2], default T): the old
+! cross-iteration ratio miskeys omega -- the refresh residual drifts
+! with the populations' source update, so a converging field can
+! read rho_est~1 whether the map oscillates (wants omega~0.5) or
+! contracts marginally (wants omega~1).  KN_RES_PASS holds the
+! per-pass max-over-rays residual sequence of THIS refresh, so the
+! median of its last ~4 pass ratios measures the same-map
+! contraction factor directly: oscillation (rho>1) still drives
+! omega down, smooth contraction (rho~0.9) lets it rise toward the
+! unrelaxed commit W4 made safe.  Clamp [0.05,20] as in the old
+! rule; F restores the cross-iteration estimate.
+!
 	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
-	  IF(KN_RF_RESID_PRV .GT. 0.0_LDP)THEN
+	  IF(FG_ADAPT_OMEGA_V2 .AND. ALLOCATED(KN_RES_PASS))THEN
+	    J=SIZE(KN_RES_PASS)
+	    DO WHILE(J .GT. 1)
+	      IF(KN_RES_PASS(J) .GT. 0.0_LDP)EXIT
+	      J=J-1
+	    END DO
+	    IF(J .GE. 3 .AND. KN_RES_PASS(J-1) .GT. 0.0_LDP)THEN
+	      L=0
+	      DO I=MAX(2,J-3),J
+	        IF(KN_RES_PASS(I-1) .GT. 0.0_LDP)THEN
+	          L=L+1
+	          RHO_H(L)=KN_RES_PASS(I)/KN_RES_PASS(I-1)
+	        END IF
+	      END DO
+	      IF(L .GT. 0)THEN
+	        DO I=1,L-1
+	          DO K=I+1,L
+	            IF(RHO_H(K) .LT. RHO_H(I))THEN
+	              T2=RHO_H(I)
+	              RHO_H(I)=RHO_H(K)
+	              RHO_H(K)=T2
+	            END IF
+	          END DO
+	        END DO
+	        T2=RHO_H((L+1)/2)
+	        T2=MIN(MAX(T2,0.05_LDP),20.0_LDP)
+	        INEXT_RELAX=0.5_LDP*INEXT_RELAX+
+	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
+	      END IF
+	    END IF
+	  ELSE IF(KN_RF_RESID_PRV .GT. 0.0_LDP)THEN
 	    T2=KN_RF_RESID/KN_RF_RESID_PRV
 	    T2=MIN(MAX(T2,0.0_LDP),50.0_LDP)
 	    INEXT_RELAX=0.5_LDP*INEXT_RELAX+
@@ -5569,12 +5764,24 @@ C
 	  END IF
 	  KN_RF_RESID_PRV=KN_RF_RESID
 	END IF
+!
+! W4 (17-Oct-2026): keep both metric semantics.  The sweep churn
+! (fresh solve vs stored field -- what the populations saw) is
+! snapshotted into FG_SW_* before FG_GS_* takes the refresh
+! fixed-point values; SOLVE_FOR_POPS now reads both.  MOM keeps
+! the identical split in MOM_SW_*.
+!
+	FG_SW_MAXCHG=FG_GS_MAXCHG
+	FG_SW_NCONV=FG_GS_NCONV
 	FG_GS_MAXCHG=KN_RF_RESID
 	FG_GS_NCONV=SUM(NST_LS)
 	FG_INEXT_CAPPED=FG_INEXT_CAPPED+SUM(NCP_LS)+SUM(NNG_LS)+
 	1  SUM(NDV_LS)
+	FG_GS_NDIV=SUM(NDV_LS)
 	FG_GS_NBAD=SUM(NBD_LS)
 	FG_GS_NTOT=SUM(NTT_LS)
+	FG_GS_NBAD_BLK=SUM(NBB_LS)
+	FG_GS_NTOT_BLK=SUM(NTB_LS)
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP FIELD ----------------------------------'
 	WRITE(LUER,'(A)')'  KNOP I_NEXT refresh (lagged coupling):'
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
@@ -5586,6 +5793,15 @@ C
 	1  '    unconverged cells=',FG_GS_NBAD,' of',FG_GS_NTOT,
 	2  '   frac=',DBLE(FG_GS_NBAD)/MAX(1_8,FG_GS_NTOT)
 	WRITE(LUER,'(A,I14)')'    store cells>50%=',FG_GS_NCONV
+	WRITE(LUER,'(A,I14,A,I14)')
+	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
+	2  FG_GS_NTOT_BLK
+	WRITE(LUER,'(A,I6,A,I6)')
+	1  '    healed slots=',FG_DIV_HEAL,
+	2  '   commit rejects=',FG_COMMIT_REJ
+	IF(KN_HOT_SPENT .GT. 0)WRITE(LUER,'(A,I8,A,I6)')
+	1  '    hot-pass budget spent=',INT(MIN(KN_HOT_SPENT,2**30_8)),
+	2  '  cap=',KN_HOT_TOTAL_PASSES
 	WRITE(LUER,'(A,F9.1,A)')'    t=',T1_W,' s'
 	WRITE(LUER,'(A,ES12.4)')'    retained-field delta: max=',
 	1  FG_RF_DCHG
@@ -5715,14 +5931,35 @@ C
 ! ==============================================================================
 !
 	SUBROUTINE KNOP_RAY_SOLVE_V1(LS,RESID,NSTORE,NPASS,NCAP,NNEG,
-	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2)
+	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
 	IMPLICIT NONE
 !
 	INTEGER LS,NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
-	INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2
+	INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
 	REAL(KIND=LDP) RESID
+!
+! NBBLK/NTBLK (W3, 17-Oct-2026): best-pass bad-cell census summed
+! over the two field solves.  For stall/cap exits the last-pass
+! NBAD still counts every above-tolerance cell, so the gate reads
+! MIN(GS_NBAD, GS_NBAD_BLK) -- the best pass is the closest the
+! fixed-point map actually reached.
+!
+! W_LO/W_HI/NHOT (W7, 17-Oct-2026): hot-pass extension state.  When
+! a stall or cap exit fires with residual left only inside a
+! contiguous hot-frequency run, the sweep continues restricted to
+! that window (+/-2) for up to KN_RAY_HOTPASSES extra passes;
+! KN_HOT_SPENT bounds the refresh-wide spend.
+!
+	INTEGER W_LO,W_HI,NHOT
+!
+! SGN_ACC/SGN_PRV/NOSC_FL (W6, 17-Oct-2026): the KN_SGN_SUM sign-flip
+! detector ported to the alternating SWEEP_FLD path -- MARCH adds the
+! signed per-cell update into the host-scope SGN_ACC.
+!
+	REAL(KIND=LDP) SGN_ACC,SGN_PRV
+	INTEGER NOSC_FL
 !
 	INTEGER, PARAMETER :: NC_PNT_SRCE_L=2
 !
@@ -5793,7 +6030,9 @@ C
 ! that the population-release gate still counts as immature.
 !
 	INTEGER IXIT_M,IXIT_P
+	INTEGER*8 NB_BM,NT_BM,NB_BP,NT_BP
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
+	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
 	NSTORE=0; NPASS=0; NCAP=0; NNEG=0; NDIV=0; NMAX=1
@@ -5801,9 +6040,13 @@ C
 	NMATCH=0; NCOMP=0
 	NXIT=-1; IXIT_M=-1; IXIT_P=-1
 	RES_M=0.0_LDP; RES_P=0.0_LDP; NP_M=0; NP_P=0
+	NBBLK=0_8; NTBLK=0_8; NB_BM=0_8; NT_BM=0_8
+	NB_BP=0_8; NT_BP=0_8
 	NP2=0_8; NP2_CNT=0_8
 	DIVERGED=.FALSE.
 	DCH_M=0.0_LDP; DCH_P=0.0_LDP
+	W_LO=0; W_HI=0; NHOT=0
+	SGN_ACC=0.0_LDP; SGN_PRV=0.0_LDP; NOSC_FL=0
 	LUER=ERROR_LU()
 	KN_DUMP_N=0
 	NI=NI_RAY(LS)
@@ -5953,10 +6196,13 @@ C
 	END IF
 	FLD(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD,I_M_DEPTH_NEXT)
+	W_LO=0; W_HI=0; NHOT=0
 	IF(ORD_SWEEP)THEN
-	  CALL SWEEP_FLD_ORD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M)
+	  CALL SWEEP_FLD_ORD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M,
+	1     NB_BM,NT_BM)
 	ELSE
-	  CALL SWEEP_FLD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M)
+	  CALL SWEEP_FLD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M,
+	1     NB_BM,NT_BM)
 	END IF
 	IF(DIVERGED)THEN
 !
@@ -5998,10 +6244,13 @@ C
 	END IF
 	FLD_P(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD_P,I_P_DEPTH_NEXT)
+	W_LO=0; W_HI=0; NHOT=0
 	IF(ORD_SWEEP)THEN
-	  CALL SWEEP_FLD_ORD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P)
+	  CALL SWEEP_FLD_ORD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P,
+	1     NB_BP,NT_BP)
 	ELSE
-	  CALL SWEEP_FLD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P)
+	  CALL SWEEP_FLD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P,
+	1     NB_BP,NT_BP)
 	END IF
 	IF(DIVERGED)THEN
 	  NDIV=1
@@ -6014,11 +6263,31 @@ C
 	    END DO
 !$OMP END CRITICAL (KN_HOT_UPD)
 	  END IF
-	  CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
-	  CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+!
+! W9 (17-Oct-2026, [FG_COMMIT_JUMP], default 50.0): whole-ray
+! commit guard.  A runaway pass that stayed below the divergence
+! threshold would once commit a near-blowup into the store (audit:
+! retained delta 4.19E-1 -> 5.03E3).  Reject the commit when the
+! max |V1-V2|/max(V2,1e-4*peak) over either store exceeds
+! FG_COMMIT_JUMP; the pre-refresh slot values stay in place, so
+! the next refresh re-seeds from the committed (sane) field.
+! Genuine factor-of-few rewrites still pass.  Direct slot fills
+! (cells the store left at the floor) are excluded -- those are
+! seeds, not overwrites.
+!
+	  JUMP=MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT),
+	1         FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT))
+	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
+!$OMP CRITICAL (FG_REJ_UPD)
+	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
+!$OMP END CRITICAL (FG_REJ_UPD)
+	  ELSE
+	    CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
+	    CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !$OMP CRITICAL (FG_DCHG_UPD)
-	  FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
+	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
 !$OMP END CRITICAL (FG_DCHG_UPD)
+	  END IF
 	END IF
 	DEALLOCATE(FLD,FLD_P)
 !
@@ -6027,7 +6296,17 @@ C
 ! A diverged ray reports a 100% residual so the maturity gate reads
 ! it as unconverged; NBAD/NTOT keep the last completed pass counts.
 !
+! W2 (17-Oct-2026): heal the ray's retained stores before the next
+! refresh re-seeds from them.  A diverged ray skips the store
+! write, so a poisoned slot value (non-finite, or >FG_DIV_HEAL_CAP
+! times the column median) would re-seed and re-diverge the next
+! refresh -- the mechanism that once held GS_MAXCHG=1.0 forever.
+! Zeroed slots take the seeded floor path, mirroring the MOM
+! heal (mom_j_cmf_nonmono_v1.f).
+!
 	IF(NDIV .EQ. 1)THEN
+	  CALL HEAL_STORE(I_M_DEPTH_NEXT)
+	  CALL HEAL_STORE(I_P_DEPTH_NEXT)
 	  RESID=1.0_LDP
 	  NXIT=5
 	ELSE
@@ -6041,6 +6320,14 @@ C
 	NPASS=MAX(NP_M,NP_P)
 	NBAD=NB_M+NB_P
 	NTOT=NT_M+NT_P
+!
+! W3 (17-Oct-2026): the best-pass census.  For stall/cap exits the
+! last pass still counts every above-tolerance cell, so the gate
+! reads MIN(GS_NBAD, GS_NBAD_BLK) -- the best pass is what the
+! fixed-point map actually reached.
+!
+	NBBLK=NB_BM+NB_BP
+	NTBLK=NT_BM+NT_BP
 !
 900	CONTINUE
 	NP2=NP2_CNT
@@ -6095,35 +6382,62 @@ C
 ! even passes descend (fresh upwind for compressing cells).  A ray
 ! with no usable compressing slots is exact after the first pass.
 ! ----------------------------------------------------------------
-	SUBROUTINE SWEEP_FLD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT)
+	SUBROUTINE SWEEP_FLD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT,
+	1   NB_B,NT_B)
 	REAL(KIND=LDP) FLD(NI,NCF),RES
 	LOGICAL INWARD
 	INTEGER NPO,LB,LE,LDI,IXIT
-	INTEGER*8 NB_O,NT_O
-	INTEGER NSTALL
+	INTEGER*8 NB_O,NT_O,NB_B,NT_B
+	INTEGER NSTALL,NPLAT(2)
 	REAL(KIND=LDP) BEST_RES
-	LOGICAL ASC
+	INTEGER*8 BEST_NB,BEST_NT
+	REAL(KIND=LDP) RATIO_PV(2)
+	LOGICAL ASC,HOTMODE
 	NPO=0
 	NSTALL=0
+	NPLAT(1)=0; NPLAT(2)=0
 	IXIT=-1
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
+	HOTMODE=.FALSE.
 	RES=1.0E+30_LDP
 	RES_PREV(1)=0.0_LDP; RES_PREV(2)=0.0_LDP
+	RATIO_PV(1)=0.0_LDP; RATIO_PV(2)=0.0_LDP
 	OMEGA_RAY=KN_RAY_OMEGA
 	BEST_RES=HUGE(RES)
+	BEST_NB=0_8; BEST_NT=0_8
 	DO
 	  NPO=NPO+1
+!
+! W7 (17-Oct-2026): hot-pass extension.  When a stall or cap exit
+! fires with residual left only inside a contiguous hot-frequency
+! run, the sweep continues restricted to that window for up to
+! KN_RAY_HOTPASSES extra passes; KN_HOT_SPENT bounds the
+! refresh-wide spend.
+!
+	  IF(HOTMODE)THEN
+	    NHOT=NHOT+1
+!$OMP CRITICAL (KN_HOT_SPD)
+	    KN_HOT_SPENT=KN_HOT_SPENT+1
+!$OMP END CRITICAL (KN_HOT_SPD)
+	    IF(NHOT .GT. KN_RAY_HOTPASSES .OR.
+	1       KN_HOT_SPENT .GT. KN_HOT_TOTAL_PASSES)THEN
+	      IXIT=4
+	      EXIT
+	    END IF
+	  END IF
 	  ASC=(MOD(NPO,2) .EQ. 1)
 	  RES=0.0_LDP
 	  RES_FREQ(1:NCF)=0.0_LDP
 	  NBAD_CUR=0; NTOT_CUR=0
+	  SGN_ACC=0.0_LDP
 	  IF(ASC)THEN
 	    LB=1; LE=NCF; LDI=1
 	  ELSE
 	    LB=NCF; LE=1; LDI=-1
 	  END IF
 	  DO L=LB,LE,LDI
+	    IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	    IF(HAVE_PACK)THEN
 !
 ! Replay the pass-invariant coefficients built once per ray (same
@@ -6170,7 +6484,17 @@ C
 	    IXIT=5
 	    EXIT
 	  END IF
-	  BEST_RES=MIN(BEST_RES,RES)
+!
+! W3 (17-Oct-2026): best-pass census.  The stall/cap exits below
+! carry NB_O/NT_O from the last pass; the gate reads
+! MIN(GS_NBAD, GS_NBAD_BLK), so track the census of the pass the
+! map actually reached.
+!
+	  IF(RES .LT. BEST_RES)THEN
+	    BEST_RES=RES
+	    BEST_NB=NBAD_CUR
+	    BEST_NT=NTOT_CUR
+	  END IF
 !
 ! Adaptive relaxation keyed on the SAME-DIRECTION residual history
 ! (pass N vs N-2): alternating-direction sweeps interleave a
@@ -6203,6 +6527,24 @@ C
 	      OMEGA_RAY=MIN(1.0_LDP,OMEGA_RAY*1.15_LDP)
 	    END IF
 !
+! W6 (17-Oct-2026): sign-flip damping ported from SWEEP_FLD_ORD --
+! on a period-2 limit cycle (lambda ~ -1) the signed per-cell
+! update sum flips every pass; two consecutive flips damp
+! OMEGA_RAY.  Marginal contraction (lambda ~ +0.99) keeps its
+! sign and is left to the stall exits.
+!
+	    IF(SGN_PRV .NE. 0.0_LDP .AND.
+	1     SGN_ACC*SGN_PRV .LT. 0.0_LDP)THEN
+	      NOSC_FL=NOSC_FL+1
+	    ELSE
+	      NOSC_FL=0
+	    END IF
+	    SGN_PRV=SGN_ACC
+	    IF(NOSC_FL .GE. 2 .AND. NPO .GE. 5 .AND.
+	1     OMEGA_RAY .GT. 0.45_LDP)THEN
+	      OMEGA_RAY=MAX(0.45_LDP,OMEGA_RAY*0.7_LDP)
+	    END IF
+!
 ! Stall detection: count consecutive same-direction comparisons with
 ! residual ratio above KN_RAY_STALL (VADAT, default 0.98 = <2%
 ! improvement).  The lagged field is rebuilt from fresh opacities
@@ -6218,6 +6560,26 @@ C
 	      ELSE
 	        NSTALL=0
 	      END IF
+!
+! W6 (17-Oct-2026, [FG_PLATEAU_DET], default T): two additions to
+! the same-direction-only stall.  (a) Plateau: three consecutive
+! same-direction ratios in [0.95,1.05] -- flat, not contracting.
+! (b) Combined-direction thrash: MAX ratio >0.98 AND the previous
+! same-direction ratio >0.95 -- both directions stagnate, so the
+! ray cannot polish out; exiting at pass ~10 lets W3 count the
+! best pass instead of riding KN_RAY_MAXPASS.
+!
+	      IF(FG_PLATEAU_DET)THEN
+	        IF(ABS(RATIO_OM-1.0_LDP) .LT. 0.05_LDP)THEN
+	          NPLAT(IDIR)=NPLAT(IDIR)+1
+	        ELSE
+	          NPLAT(IDIR)=0
+	        END IF
+	        IF(NPLAT(IDIR) .GE. 3)NSTALL=MAX(NSTALL,2)
+	        IF(RATIO_OM .GT. 0.98_LDP .AND.
+	1         RATIO_PV(IDIR) .GT. 0.95_LDP)NSTALL=MAX(NSTALL,2)
+	      END IF
+	      RATIO_PV(IDIR)=RATIO_OM
 	    END IF
 	  END IF
 	  RES_PREV(IDIR)=RES
@@ -6251,13 +6613,28 @@ C
 	    IXIT=2
 	    EXIT
 	  END IF
+!
+! W7 (17-Oct-2026): hot-pass extension.  A stall or pass-cap exit
+! with residual left only inside a contiguous hot-frequency run
+! continues restricted to that window instead of exiting -- the
+! marginal |Q|/(chi+|Q|) modes live on contiguous compression
+! frequencies, so extra passes there cost little per pass.
+!
 	  IF(NSTALL .GE. 2)THEN
-	    IXIT=3
-	    EXIT
+	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
+	      HOTMODE=.TRUE.
+	    ELSE
+	      IXIT=3
+	      EXIT
+	    END IF
 	  END IF
 	  IF(NPO .GE. KN_RAY_MAXPASS)THEN
-	    IXIT=4
-	    EXIT
+	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
+	      HOTMODE=.TRUE.
+	    ELSE
+	      IXIT=4
+	      EXIT
+	    END IF
 	  END IF
 	END DO
 !
@@ -6267,6 +6644,15 @@ C
 ! the bulk bad-cell fraction the maturity gate reads.
 !
 	IF(CLEAN_EXIT)NB_O=0
+!
+! W3 (17-Oct-2026): export the best-pass census.  Stall/cap exits
+! carry the last-pass NB_O/NT_O; the gate takes
+! MIN(GS_NBAD, GS_NBAD_BLK) so a ray whose best pass was inside the
+! bulk band cannot keep the maturity gate pinned.
+!
+	NB_B=BEST_NB
+	NT_B=BEST_NT
+	IF(CLEAN_EXIT)NB_B=0_8
 	RETURN
 	END
 !
@@ -6413,15 +6799,19 @@ C
 ! SWEEP_FLD; the pass-order alternation is dropped because the
 ! ordering is fixed by the characteristic, not by pass parity.
 ! ----------------------------------------------------------------
-	SUBROUTINE SWEEP_FLD_ORD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT)
+	SUBROUTINE SWEEP_FLD_ORD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT,
+	1   NB_B,NT_B)
 	REAL(KIND=LDP) FLD(NI,NCF),RES
 	LOGICAL INWARD
 	INTEGER NPO,IXIT
-	INTEGER*8 NB_O,NT_O
+	INTEGER*8 NB_O,NT_O,NB_B,NT_B
 	INTEGER NSTALL,J,L,LB,LE,LDI
-	INTEGER NOSC
+	INTEGER NOSC,NPLAT
 	REAL(KIND=LDP) KN_SGN_SUM,KN_SGN_PREV
 	REAL(KIND=LDP) BEST_RES
+	INTEGER*8 BEST_NB,BEST_NT
+	REAL(KIND=LDP) RATIO_PV
+	LOGICAL HOTMODE
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
 !
@@ -6484,6 +6874,9 @@ C
 	NPO=0
 	NSTALL=0
 	NOSC=0
+	NPLAT=0
+	RATIO_PV=0.0_LDP
+	HOTMODE=.FALSE.
 	IXIT=-1
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
@@ -6494,6 +6887,7 @@ C
 	KN_SGN_PREV=0.0_LDP
 	OMEGA_RAY=KN_RAY_OMEGA
 	BEST_RES=HUGE(RES)
+	BEST_NB=0_8; BEST_NT=0_8
 	ALLOCATE(VMAXF(NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
 	  DIVERGED=.TRUE.
@@ -6532,6 +6926,22 @@ C
 !
 	DO
 	  NPO=NPO+1
+!
+! W7 (17-Oct-2026): hot-pass extension spend accounting, same rule
+! as SWEEP_FLD -- up to KN_RAY_HOTPASSES extra passes per ray,
+! KN_HOT_TOTAL_PASSES per refresh.
+!
+	  IF(HOTMODE)THEN
+	    NHOT=NHOT+1
+!$OMP CRITICAL (KN_HOT_SPD)
+	    KN_HOT_SPENT=KN_HOT_SPENT+1
+!$OMP END CRITICAL (KN_HOT_SPD)
+	    IF(NHOT .GT. KN_RAY_HOTPASSES .OR.
+	1       KN_HOT_SPENT .GT. KN_HOT_TOTAL_PASSES)THEN
+	      IXIT=4
+	      EXIT
+	    END IF
+	  END IF
 !
 ! AA history: save the pre-march iterate as the newest pair input.
 ! Lazy allocation at NPO>=4 keeps fast rays free of the
@@ -6592,6 +7002,7 @@ C
 	        LB=NCF; LE=1; LDI=-1
 	      END IF
 	      DO L=LB,LE,LDI
+	        IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	        CALL KN_ORD_SPV(FLD,J,L,SPJ)
 	        SPW(L,MOD(J-1,4)+1)=SPJ
 	        DSD=KN_ORD_DS(J-1,L)
@@ -6769,6 +7180,7 @@ C
 	        LB=NCF; LE=1; LDI=-1
 	      END IF
 	      DO L=LB,LE,LDI
+	        IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	        CALL KN_ORD_SPV(FLD,J,L,SPJ)
 	        SPW(L,MOD(J-1,4)+1)=SPJ
 	        DSU=KN_ORD_DS(J+1,L)
@@ -6893,7 +7305,16 @@ C
 	    IXIT=5
 	    EXIT
 	  END IF
-	  BEST_RES=MIN(BEST_RES,RES)
+!
+! W3 (17-Oct-2026): best-pass census, same role as SWEEP_FLD --
+! stall/cap exits carry the last-pass NB_O; the gate reads
+! MIN(GS_NBAD, GS_NBAD_BLK).
+!
+	  IF(RES .LT. BEST_RES)THEN
+	    BEST_RES=RES
+	    BEST_NB=NBAD_CUR
+	    BEST_NT=NTOT_CUR
+	  END IF
 	  IF(RES_PREV(1) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(1)
 !
@@ -6958,6 +7379,24 @@ C
 	      ELSE
 	        NSTALL=0
 	      END IF
+!
+! W6 (17-Oct-2026, [FG_PLATEAU_DET], default T): ORD's residual is
+! a single sequence, so the plateau test runs on consecutive
+! passes: three ratios in [0.95,1.05] is flat, and two straight
+! >0.95 ratios ending above 0.98 is the stagnation the same-
+! direction-only counter can ride past.
+!
+	      IF(FG_PLATEAU_DET)THEN
+	        IF(ABS(RATIO_OM-1.0_LDP) .LT. 0.05_LDP)THEN
+	          NPLAT=NPLAT+1
+	        ELSE
+	          NPLAT=0
+	        END IF
+	        IF(NPLAT .GE. 3)NSTALL=MAX(NSTALL,2)
+	        IF(RATIO_OM .GT. 0.98_LDP .AND.
+	1         RATIO_PV .GT. 0.95_LDP)NSTALL=MAX(NSTALL,2)
+	      END IF
+	      RATIO_PV=RATIO_OM
 	    END IF
 	  END IF
 	  RES_PREV(1)=RES
@@ -6985,13 +7424,26 @@ C
 	    IXIT=2
 	    EXIT
 	  END IF
+!
+! W7 (17-Oct-2026): hot-pass extension, same rule as SWEEP_FLD --
+! a stall/cap exit with residual left only inside a contiguous
+! hot-frequency run continues restricted to that window.
+!
 	  IF(NSTALL .GE. 2)THEN
-	    IXIT=3
-	    EXIT
+	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
+	      HOTMODE=.TRUE.
+	    ELSE
+	      IXIT=3
+	      EXIT
+	    END IF
 	  END IF
 	  IF(NPO .GE. KN_RAY_MAXPASS)THEN
-	    IXIT=4
-	    EXIT
+	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
+	      HOTMODE=.TRUE.
+	    ELSE
+	      IXIT=4
+	      EXIT
+	    END IF
 	  END IF
 !
 ! Aitken delta-squared on the pass iterate (KN_ORD_AITKEN).  Applied
@@ -7170,6 +7622,13 @@ C
 	IF(ALLOCATED(AA_XH))DEALLOCATE(AA_XH)
 	IF(ALLOCATED(AA_RH))DEALLOCATE(AA_RH)
 	IF(CLEAN_EXIT)NB_O=0
+!
+! W3 (17-Oct-2026): export the best-pass census -- the gate takes
+! MIN(GS_NBAD, GS_NBAD_BLK) for stall/cap exits.
+!
+	NB_B=BEST_NB
+	NT_B=BEST_NT
+	IF(CLEAN_EXIT)NB_B=0_8
 	RETURN
 	END
 !
@@ -7515,6 +7974,12 @@ C
 	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
+!
+! Signed per-cell update for the W6 sign-flip detector in
+! SWEEP_FLD (same metric the ORD loop accumulates inline).
+!
+	      SGN_ACC=SGN_ACC+
+	1        (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
@@ -7571,6 +8036,8 @@ C
 	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
+	      SGN_ACC=SGN_ACC+
+	1        (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
@@ -7583,10 +8050,12 @@ C
 !
 ! ----------------------------------------------------------------
 ! Write the converged ray field back to the lagged depth store with
-! the same guards and under-relaxed in-place update the in-sweep
-! write uses.  NSTORE counts cells whose merged change exceeded 50%
-! (same semantics as the in-sweep FG_GS_NCONV); NCAP counts the
-! cap/NaN floor events (same semantics as FG_INEXT_CAPPED).
+! the same guards the in-sweep write uses, but an UNRELAXED commit
+! (W4, 17-Oct-2026): the inner march's OMEGA_RAY is the only
+! under-relaxation on the refresh path.  NSTORE counts cells whose
+! merged change exceeded 50% (same semantics as the in-sweep
+! FG_GS_NCONV); NCAP counts the cap/NaN floor events (same
+! semantics as FG_INEXT_CAPPED).
 ! ----------------------------------------------------------------
 	SUBROUTINE WRITE_STORE(FLD,STORE,DMAX)
 	REAL(KIND=LDP) FLD(NI,NCF)
@@ -7639,16 +8108,22 @@ C
 	        ELSE IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))THEN
 	          NSTORE=NSTORE+1
 	        END IF
-! Retained-field delta uses the committed (relaxed) value, not
-! the raw solve output -- the gate reads the store, so the
-! metric must describe what the store actually holds.  A cell
-! the seed left at the floor (or non-finite, healed above)
-! counts 1.0 when the refresh writes a significant value.
+! Retained-field delta uses the committed value, not the raw
+! solve output -- the gate reads the store, so the metric must
+! describe what the store actually holds.  A cell the seed left
+! at the floor (or non-finite, healed above) counts 1.0 when the
+! refresh writes a significant value.
+!
+! W4 (17-Oct-2026): unrelaxed commit.  The inner march already
+! under-relaxes via OMEGA_RAY; applying INEXT_RELAX here double-
+! damped every slot (effective motion ~0.22 of the map with the
+! audited omega=0.5) and locked the marginal |Q|~1 modes at
+! per-pass contraction ~0.995.  The generation-level INEXT_RELAX
+! stays on the sweep write sites only.
 !
 	        IF(V2 .GT. 0.0_LDP)THEN
-	          DLOC=INEXT_RELAX*ABS(V1-V2)/
-	1            MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
-	          STORE(KC,LS,LS2-1)=V2+INEXT_RELAX*(V1-V2)
+	          DLOC=ABS(V1-V2)/MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	          STORE(KC,LS,LS2-1)=V1
 	        ELSE
 	          DLOC=0.0_LDP
 	          IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))DLOC=1.0_LDP
@@ -7659,6 +8134,138 @@ C
 	    END IF
 	  END IF
 	END DO
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! W7 (17-Oct-2026): hot-pass extension test.  Returns .TRUE. and
+! sets the host-scope W_LO/W_HI window when the last-pass residual
+! field is confined to a contiguous run of above-tolerance
+! frequencies, the per-ray KN_RAY_HOTPASSES budget remains, and the
+! refresh-wide KN_HOT_TOTAL_PASSES cap has not been reached.  The
+! run window is extended +/-2 frequencies to cover the upwind reads
+! of the marginal cells.
+! ----------------------------------------------------------------
+	LOGICAL FUNCTION TRY_HOT()
+	INTEGER L_H
+	TRY_HOT=.FALSE.
+	IF(KN_RAY_HOTPASSES .LE. 0)RETURN
+	IF(KN_HOT_TOTAL_PASSES .LE. 0)RETURN
+	IF(KN_HOT_SPENT .GE. KN_HOT_TOTAL_PASSES)RETURN
+	W_LO=NCF
+	W_HI=1
+	DO L_H=1,NCF
+	  IF(RES_FREQ(L_H) .GT. KN_RAY_TOL)THEN
+	    W_LO=MIN(W_LO,L_H)
+	    W_HI=MAX(W_HI,L_H)
+	  END IF
+	END DO
+	IF(W_HI .LT. W_LO)RETURN
+	W_LO=MAX(1,W_LO-2)
+	W_HI=MIN(NCF,W_HI+2)
+	TRY_HOT=.TRUE.
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! W9 (17-Oct-2026): max committed-write jump for the FG_COMMIT_JUMP
+! guard.  Measures max |V1-V2|/MAX(V2,1e-4*column peak) over the
+! cells the store already holds (V2>0 and finite); cells the store
+! left at the floor are direct fills, not overwrites, and are
+! excluded -- the guard bounds the committed-near-blowup class
+! (audit: retained delta 4.19E-1 -> 5.03E3) while allowing
+! genuine factor-of-few rewrites.
+! ----------------------------------------------------------------
+	REAL(KIND=LDP) FUNCTION FG_JUMP_MAX(FLD,STORE)
+	REAL(KIND=LDP) FLD(NI,NCF)
+	REAL(KIND=LDP) STORE(:,:,:)
+	INTEGER KS,LS2,JP2
+	REAL(KIND=LDP) V1,V2
+	REAL(KIND=LDP) VMAX_F(NCF)
+	FG_JUMP_MAX=0.0_LDP
+	DO LS2=1,NCF
+	  VMAX_F(LS2)=MAX(1.0E-25_LDP,
+	1    MAXVAL(FLD(1:NI,LS2),
+	2    MASK=FLD(1:NI,LS2) .EQ. FLD(1:NI,LS2)))
+	END DO
+	DO KS=1,KN_ND
+	  KC=COMP_DEPTH_IDX(KS)
+	  IF(KC .GE. 1)THEN
+	    JP2=J_PNT(KS,LS)
+	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
+	      DO LS2=2,NCF
+	        V2=STORE(KC,LS,LS2-1)
+	        IF(V2 .LE. 0.0_LDP .OR. V2 .NE. V2)CYCLE
+	        V1=FLD(JP2,LS2)
+	        IF(V1 .NE. V1 .OR. V1 .LE. 0.0_LDP)THEN
+	          FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
+	          RETURN
+	        END IF
+	        V1=MIN(V1,NONMONO_INEXT_CAP)
+	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,ABS(V1-V2)/
+	1          MAX(V2,1.0E-4_LDP*VMAX_F(LS2)))
+	      END DO
+	    END IF
+	  END IF
+	END DO
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! W2 (17-Oct-2026): diverged-ray store heal.  A diverged ray skips
+! the store write, so a poisoned slot would re-seed the next
+! refresh and re-diverge -- the mechanism that held GS_MAXCHG=1.0
+! for the whole run.  Slots that are non-finite, non-positive, or
+! above FG_DIV_HEAL_CAP times the per-depth median of the sane
+! values are zeroed; the next refresh then takes the seeded floor
+! path for those cells (mirrors the MOM heal).
+! ----------------------------------------------------------------
+	SUBROUTINE HEAL_STORE(STORE)
+	REAL(KIND=LDP) STORE(:,:,:)
+	INTEGER KS,LS2,KC,NV,NHL,II,JJ
+	REAL(KIND=LDP) VMED,VT,VSORT(NCF)
+	NHL=0
+	DO KS=1,KN_ND
+	  KC=COMP_DEPTH_IDX(KS)
+	  IF(KC .GE. 1)THEN
+	    NV=0
+	    DO LS2=1,NCF-1
+	      IF(STORE(KC,LS,LS2) .GT. 0.0_LDP .AND.
+	1         STORE(KC,LS,LS2) .LT. HUGE(STORE))THEN
+	        NV=NV+1
+	        VSORT(NV)=STORE(KC,LS,LS2)
+	      END IF
+	    END DO
+	    IF(NV .EQ. 0)CYCLE
+!
+! Median of the sane values, insertion sort -- per-depth scale
+! reference for the poisoned-slot test.  NCF is O(100), so the
+! O(N^2) cost only lands on diverged rays.
+!
+	    DO II=2,NV
+	      VT=VSORT(II)
+	      JJ=II-1
+	      DO WHILE(JJ .GE. 1)
+	        IF(VSORT(JJ) .LE. VT)EXIT
+	        VSORT(JJ+1)=VSORT(JJ)
+	        JJ=JJ-1
+	      END DO
+	      VSORT(JJ+1)=VT
+	    END DO
+	    VMED=VSORT((NV+1)/2)
+	    DO LS2=1,NCF-1
+	      IF(.NOT. (STORE(KC,LS,LS2) .GT. 0.0_LDP) .OR.
+	1         .NOT. (STORE(KC,LS,LS2) .LT. HUGE(STORE)) .OR.
+	2         STORE(KC,LS,LS2) .GT. FG_DIV_HEAL_CAP*VMED)THEN
+	        STORE(KC,LS,LS2)=0.0_LDP
+	        NHL=NHL+1
+	      END IF
+	    END DO
+	  END IF
+	END DO
+!$OMP CRITICAL (FG_HEAL_UPD)
+	FG_DIV_HEAL=FG_DIV_HEAL+NHL
+!$OMP END CRITICAL (FG_HEAL_UPD)
 	RETURN
 	END
 !

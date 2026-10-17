@@ -81,6 +81,30 @@
 	REAL(KIND=LDP) GS_CHG_FILE,GS_MAXCHG
 	INTEGER GS_CAP_FILE,GS_CAPPED
 	INTEGER*8 GS_NBAD,GS_NTOT,GS_NCONV
+!
+! W1-W9 (17-Oct-2026, KNOP maturity-chain repair):
+!
+! GS_NDIV / GS_NRAY: diverged-ray count and solved-ray count, gated
+! on share not on the RESID=1.0 pin (W2).  GS_NBAD_BLK: best-pass
+! bad census; the bulk rule reads MIN(GS_NBAD,GS_NBAD_BLK) (W3).
+! GS_SW_MAXCHG / GS_SW_NCONV / GS_RF_DCHG: sweep-semantics drift
+! and retained-field delta, kept separate from the refresh
+! fixed-point metrics (W4).  GS_UNSAFE is the catastrophic
+! backstop tier (>10% capped cells, >1% diverged rays, >10% raw
+! bad cells); GS_PIN is the strict-freeze tier (>0.1% capped).
+! FG_TRIAL mirrors MOM_TRIAL for the USE_LAM_ES=T path (W8).
+! TRIAL_MIN_USED carries the fired trial's refund floor so the
+! accepted-trial refund below applies to either arm (W8).
+! GS_RAW_NUDGE_DONE: one-shot for the GS_RAW_MATURE=F nudge.
+!
+	INTEGER GS_NDIV,GS_NRAY
+	INTEGER*8 GS_NBAD_BLK,GS_SW_NCONV
+	REAL(KIND=LDP) GS_SW_MAXCHG,GS_RF_DCHG
+	REAL(KIND=LDP) GS_MAX_ALL
+	INTEGER*8 GS_NBAD_EFF,GS_NCONV_ALL
+	LOGICAL GS_UNSAFE,GS_PIN,FG_TRIAL
+	INTEGER TRIAL_MIN_USED
+	LOGICAL, SAVE :: GS_RAW_NUDGE_DONE=.FALSE.
 	LOGICAL MOM_RAN,MOM_OK
 	REAL(KIND=LDP) MOM_CHG_FILE,MOM_MAXCHG
 	INTEGER*8 MOM_CAP_FILE,MOM_CAPPED,MOM_NEGJ
@@ -474,6 +498,19 @@
 	GS_NBAD=0
 	GS_NTOT=0
 	GS_NCONV=0
+	GS_NDIV=0
+	GS_NRAY=0
+	GS_NBAD_BLK=0_8
+	GS_SW_NCONV=0_8
+	GS_SW_MAXCHG=0.0_LDP
+	GS_RF_DCHG=0.0_LDP
+	GS_MAX_ALL=0.0_LDP
+	GS_NBAD_EFF=0_8
+	GS_NCONV_ALL=0_8
+	GS_UNSAFE=.FALSE.
+	GS_PIN=.FALSE.
+	FG_TRIAL=.FALSE.
+	TRIAL_MIN_USED=0
 	GS_CHURN=0.0_LDP
 	MOM_RAN=.FALSE.
 	MOM_OK=.FALSE.
@@ -652,7 +689,9 @@
 	GS_FG_IMMATURE=.FALSE.
 	IF(DO_NONMONO_KNOP)THEN
 	  CALL GET_FG_GS_MATURITY(GS_OK,GS_CHG_FILE,GS_CAP_FILE,
-	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV)
+	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV,
+	2      GS_NDIV,GS_NRAY,GS_NBAD_BLK,
+	3      GS_SW_MAXCHG,GS_SW_NCONV,GS_RF_DCHG)
 	  CALL GET_MOM_GS_MATURITY(MOM_RAN,MOM_OK,MOM_CHG_FILE,
 	1      MOM_CAP_FILE,MOM_MAXCHG,MOM_CAPPED,MOM_NEGJ,
 	2      MOM_NBAD5,MOM_NBAD50,MOM_NTOT,MOM_NQUAR,
@@ -746,19 +785,55 @@
 	    GS_DIV_NH=GS_DIV_NH+1
 	  END IF
 !
-	  GS_FG_IMMATURE=GS_MAXCHG .GT. GS_MATURE_TOL
+!
+! W1-W9 (17-Oct-2026): the gate below reads three metric families
+! now kept separate by the refresh rewrite:
+!   max-norm   GS_MAX_ALL = MAX(refresh residual, sweep drift,
+!              retained-field delta) -- the backstop.
+!   bad cells  GS_NBAD_EFF = MIN(last-pass census, best-pass census)
+!              -- stall/cap exits carried their stale last-pass
+!              counts forever (W3).
+!   churn      GS_NCONV_ALL = MAX(refresh churn, sweep churn) --
+!              the refresh used to clobber the sweep metric (W4).
+!
+! The share tiers W1 adds: UNSAFE is the catastrophic backstop
+! (>10% capped events, >1% diverged rays, >10% raw bad cells);
+! PIN adds the strict >0.1% capped tier to the marginal freeze.
+! One clamp event in one cell can no longer veto the run.
+!
+	  GS_MAX_ALL=GS_MAXCHG
+	  IF(GS_NTOT .GT. 0)THEN
+	    GS_MAX_ALL=MAX(GS_MAX_ALL,GS_SW_MAXCHG,GS_RF_DCHG)
+	    IF(GS_NBAD_BLK .GE. 0_8)THEN
+	      GS_NBAD_EFF=MIN(GS_NBAD,GS_NBAD_BLK)
+	    ELSE
+	      GS_NBAD_EFF=GS_NBAD
+	    END IF
+	    GS_NCONV_ALL=MAX(GS_NCONV,GS_SW_NCONV)
+	  ELSE
+	    GS_NBAD_EFF=GS_NBAD
+	    GS_NCONV_ALL=GS_NCONV
+	  END IF
+	  GS_UNSAFE=(GS_CAPPED .GT. MAX(50_8,GS_NTOT/10)) .OR.
+	1     (GS_NDIV .GT. MAX(1,GS_NRAY/100)) .OR.
+	2     (GS_NBAD .GT. MAX(50_8,GS_NTOT/10))
+	  GS_PIN=GS_UNSAFE .OR.
+	1     (GS_CAPPED .GT. MAX(50_8,GS_NTOT/1000))
+!
+	  GS_FG_IMMATURE=GS_MAX_ALL .GT. GS_MATURE_TOL
 	  IF(GS_NTOT .GT. 0 .AND. GS_FG_IMMATURE)THEN
 	    IF(KN_GATE_DIVERGENCE)THEN
-	      GS_FG_IMMATURE=(GS_NBAD .GT. MAX(50_8,GS_NTOT/1000)) .OR.
-	1        GDIV_UNSAFE
+	      GS_FG_IMMATURE=(GS_NBAD_EFF .GT.
+	1        MAX(50_8,GS_NTOT/1000)) .OR. GDIV_UNSAFE
 	    ELSE
-	      GS_FG_IMMATURE=(GS_NBAD .GT. MAX(50_8,GS_NTOT/1000)) .OR.
-	1        (GS_MAXCHG .GT. GS_UNSAFE_TOL)
+	      GS_FG_IMMATURE=(GS_NBAD_EFF .GT.
+	1        MAX(50_8,GS_NTOT/1000)) .OR.
+	2        (GS_MAX_ALL .GT. GS_UNSAFE_TOL)
 	    END IF
 	  END IF
 	  IF(GS_NTOT .GT. 0)THEN
 	    GS_FG_IMMATURE=GS_FG_IMMATURE .OR.
-	1      (GS_NCONV .GT. MAX(50_8,GS_NTOT/1000))
+	1      (GS_NCONV_ALL .GT. MAX(50_8,GS_NTOT/1000))
 	  END IF
 !
 ! MOM bulk maturity (MOM_GATE_BULK, VADAT): the lagged J_NEXT field is
@@ -864,7 +939,7 @@
 ! MAXCH is known.
 !
 	  IF(RD_LAMBDA .AND. .NOT. LAMBDA_ITERATION)THEN
-	    IF(GS_CAPPED .GT. 0 .OR. GS_FG_IMMATURE .OR.
+	    IF(GS_UNSAFE .OR. GS_FG_IMMATURE .OR.
 	1      (MOM_RAN .AND. MOM_UNSAFE_B))THEN
 	      IF(CONV_DIAG_LVL .GE. 1)THEN
 	      WRITE(LUER,'(A)')
@@ -939,7 +1014,14 @@
 ! iteration; the BA update resumes automatically on the first sweep
 ! that returns a mature field.
 !
-	  GS_RAW_IMMATURE=(GS_CAPPED .GT. 0 .OR.
+!
+! W1 (17-Oct-2026): the capped-write veto is now share-gated
+! (GS_PIN: >10% events is UNSAFE, >0.1% pins the marginal tier) --
+! a single clamp/NaN event in one cell used to raw-immature every
+! later iteration and run the freeze clock to GS_FREEZE_LIM.
+! W2 adds the diverged-ray share (>1% of solved rays) to UNSAFE.
+!
+	  GS_RAW_IMMATURE=(GS_PIN .OR.
 	1      GS_FG_IMMATURE .OR.
 	2      (MOM_RAN .AND. MOM_FREEZE_B))
 ! GS_RAW_MATURE (VADAT, default F): a bulk-pass sweep with the raw
@@ -967,6 +1049,29 @@
 	  IF(GS_FREEZE .AND. .NOT. GS_RAW_IMMATURE .AND.
 	1     N_MATURE .LT. GS_REL_STABLE)
 	2   CALL APPEND_ITER_REASON(ITER_REASON,'rel_stable_hold')
+!
+! GS_RAW_MATURE nudge (17-Oct-2026): the KNOP auto-set leaves
+! GS_RAW_MATURE=F, so a bulk-pass sweep with raw max still in the
+! 0.05-0.5 marginal band can release while the field is still
+! moving (it34-class release-then-blow-up).  One-time warning;
+! the default is unchanged -- the marginal-release machinery
+! (W3 best-pass census, W8 FG_TRIAL) is the remediation, not a
+! default change.
+!
+	  IF(.NOT. GS_RAW_NUDGE_DONE .AND. .NOT. GS_RAW_MATURE .AND.
+	1     DO_NONMONO_KNOP .AND. .NOT. GS_RAW_IMMATURE .AND.
+	2     N_MATURE .GE. GS_REL_STABLE .AND.
+	3     GS_MAX_ALL .GT. 0.05_LDP .AND.
+	4     GS_MAX_ALL .LT. 0.5_LDP)THEN
+	    WRITE(LUER,'(A,ES10.3)')
+	1   'SOLVE_FOR_POPS: NUDGE -- lagged field releasing with raw'//
+	2   ' max still',GS_MAX_ALL
+	    WRITE(LUER,'(A)')
+	1   '    in the 0.05-0.5 marginal band under'//
+	2   ' GS_RAW_MATURE=F (KNOP auto-set default); consider'//
+	3   ' setting GS_RAW_MATURE=T if a released step detonates.'
+	    GS_RAW_NUDGE_DONE=.TRUE.
+	  END IF
 	  IF(GS_FREEZE)THEN
 	    N_FROZEN=N_FROZEN+1
 	  ELSE
@@ -980,6 +1085,12 @@
 	    WRITE(LUER,'(A,I8)')'    immature-field iteration : ',N_FROZEN
 	    WRITE(LUER,'(A,2ES12.4)')
 	1   '    FG / MOM maxchg          : ',GS_MAXCHG,MOM_MAXCHG
+	    WRITE(LUER,'(A,2ES12.4)')
+	1   '    FG sweep drift / RF delta: ',GS_SW_MAXCHG,GS_RF_DCHG
+	    WRITE(LUER,'(A,I6,A,I6)')
+	1   '    FG div rays              : ',GS_NDIV,' of',GS_NRAY
+	    WRITE(LUER,'(A,I14,A,I14)')
+	1   '    FG nbad last / best      : ',GS_NBAD,GS_NBAD_BLK
 	    WRITE(LUER,'(A)')'    MOM bulk'
 	    WRITE(LUER,'(A,2I12)')
 	1   '      nbad5 / nbad50         : ',MOM_NBAD5,MOM_NBAD50
@@ -1026,7 +1137,7 @@
 	2      DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING) .AND.
 	3      (MOM_TRIAL_MIN .GT. 0) .AND.
 	4      (N_FROZEN .GE. MOM_TRIAL_MIN) .AND.
-	5      (GS_CAPPED .EQ. 0) .AND. (.NOT. GS_FG_IMMATURE) .AND.
+	5      (.NOT. GS_UNSAFE) .AND. (.NOT. GS_FG_IMMATURE) .AND.
 	6      (.NOT. LUM_BLOCKED) .AND.
 	7      (GS_TRIAL_LIM .LE. 0 .OR. N_TRIAL_ACC .LT. GS_TRIAL_LIM))
 	    IF(CONV_DIAG_LVL .GE. 2)
@@ -1050,8 +1161,28 @@
 	7   '  nquar=',MOM_SW_NQUAR,
 	8   '  nhuge=',MOM_SW_NHUGE,
 	9   '  ntr=',N_TRIAL_ACC
+!
+! W8 (17-Oct-2026): FG-only marginal-release arm ([FG_TRIAL_MIN],
+! default 30, 0 disables).  Mirrors MOM_TRIAL for the
+! USE_LAM_ES=T path where MOM never ran: arms only when the cured
+! gate sees no immaturity and no UNSAFE census (a PIN-tier cap
+! share or the GS_REL_STABLE hold is the marginal condition the
+! trial exists to escape), the resacc snapshot is armed, the
+! diverged-ray share is inside the W2 bound (folded into
+! GS_UNSAFE), luminosity is not blocked, and the accepted-trial
+! pulse budget remains.
+!
+	    FG_TRIAL=(.NOT. MOM_RAN) .AND. (.NOT. GS_FG_IMMATURE)
+	1      .AND. (.NOT. GS_UNSAFE)
+	2      .AND. DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING)
+	3      .AND. (FG_TRIAL_MIN .GT. 0)
+	4      .AND. (N_FROZEN .GE. FG_TRIAL_MIN)
+	5      .AND. (.NOT. LUM_BLOCKED)
+	6      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
+	7      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
 	    IF(MOM_TRIAL)THEN
 	      TRIAL_FIRED=.TRUE.
+	      TRIAL_MIN_USED=MOM_TRIAL_MIN
 	      IF(MOM_TRIAL_LAM .GT. 0.0_LDP .AND.
 	1      MAXCH .GT. MOM_TRIAL_LAM)THEN
 		IF(CONV_DIAG_LVL .GE. 1)
@@ -1093,6 +1224,30 @@
 		T1=MAX_LIN_COR
 		CALL APPEND_ITER_REASON(ITER_REASON,'mom_trial_release')
 	      END IF
+	    ELSE IF(FG_TRIAL)THEN
+!
+! W8 (17-Oct-2026, [FG_TRIAL_MIN], default 30, 0 disables): the
+! FG-only marginal-release arm.  Under USE_LAM_ES=T MOM_RAN is
+! false, so MOM_TRIAL can never fire and a field frozen only by
+! the marginal tier (PIN-tier cap share, or the stability hold)
+! used to ride GS_FREEZE_LIM to a non-convergent stop.  The arm
+! requires the W1-W3-cured gate to see no immaturity and no
+! UNSAFE-tier census, plus the resacc net.  The trial is the
+! damped LAMBDA probe (T1=GS_LAM_CAP), resacc-judged by the same
+! accepted/rejected refund machinery as MOM_TRIAL.
+!
+	      TRIAL_FIRED=.TRUE.
+	      TRIAL_MIN_USED=FG_TRIAL_MIN
+	      IF(CONV_DIAG_LVL .GE. 1)
+	1     WRITE(LUER,'(A,I6)')
+	2     '      FG field marginal: releasing damped LAMBDA'//
+	3     ' trial, n_frozen=',N_FROZEN
+	      LAMBDA_ITERATION=.TRUE.
+	      FIXED_T=.TRUE.
+	      COMPUTE_BA=.TRUE.
+	      TEMP_CHAR='DIAG'
+	      T1=GS_LAM_CAP
+	      CALL APPEND_ITER_REASON(ITER_REASON,'fg_trial_lam')
 	    ELSE
 	    LAMBDA_ITERATION=.TRUE.
 	    FIXED_T=.TRUE.
@@ -1926,7 +2081,13 @@
 	  IF(.NOT. BA_REJ_THIS)THEN
 	    N_RELEASES_TOT=N_RELEASES_TOT+1
 	    IF(GS_TRIAL_LIM .GT. 0)THEN
-	      N_FROZEN=MOM_TRIAL_MIN
+!
+! W8 (17-Oct-2026): TRIAL_MIN_USED carries the fired arm's refund
+! floor -- MOM_TRIAL_MIN for the MOM arm, FG_TRIAL_MIN for the
+! FG-only arm -- so either accepted trial refunds to its own
+! re-arm threshold.
+!
+	      N_FROZEN=TRIAL_MIN_USED
 	      N_TRIAL_ACC=N_TRIAL_ACC+1
 	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I4,A,I4)')
 	1      ' BA_RES_ACC: trial release accepted -- n_frozen'//

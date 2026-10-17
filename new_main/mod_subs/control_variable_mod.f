@@ -816,6 +816,17 @@
 !
 	INTEGER MOM_TRIAL_MIN
 !
+! FG_TRIAL_MIN (default 30, 0 disables): frozen-iteration count that
+! arms the FG-only marginal-release trial in SOLVE_FOR_POPS (W8,
+! 17-Oct-2026).  Under USE_LAM_ES=T MOM never ran so MOM_TRIAL can
+! never fire; this arm releases a damped LAMBDA probe (T1=GS_LAM_CAP)
+! once the share-gated FG gate shows no immaturity and no UNSAFE
+! census and the resacc snapshot is armed.  Accepted trials refund
+! N_FROZEN to FG_TRIAL_MIN; rejected trials keep the clock.
+! VADAT keyword [FG_TRIAL_MIN].
+!
+	INTEGER FG_TRIAL_MIN
+!
 ! GS_FREEZE_LIM (default 0 = disabled): consecutive great iterations
 ! the KNOP forced-LAMBDA freeze may persist before SOLVE_FOR_POPS
 ! stops the model as non-convergent.  The freeze itself stays
