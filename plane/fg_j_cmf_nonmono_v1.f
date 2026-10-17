@@ -2228,8 +2228,16 @@
 	    T1=3.33564E-06_LDP*V_RAY(I)/R_RAY(I,LS)
 	    dGAMdR(I,LS)=GAM(I,LS)*SIGMA_RAY(I)/R_RAY(I,LS)
 	    J=MAX(I-1,1); K=MIN(NI,I+1)
-	    dGAMdR(I,LS)=dGAMdR(I,LS)+T1*(MU**2)*
-	1       (SIGMA_RAY(J)-SIGMA_RAY(K))/(R_RAY(J,LS)-R_RAY(K,LS))
+!
+! A degenerate ray (duplicate radii after insertion) can make the
+! spacing identically zero; skipping the central difference leaves
+! the sigma-scaled and curvature terms, which are still defined.
+!
+	    T4=R_RAY(J,LS)-R_RAY(K,LS)
+	    IF(ABS(T4) .GT. 1.0E-30_LDP*R_RAY(I,LS))THEN
+	      dGAMdR(I,LS)=dGAMdR(I,LS)+T1*(MU**2)*
+	1       (SIGMA_RAY(J)-SIGMA_RAY(K))/T4
+	    END IF
 !
 ! Ray-curvature term: MU=Z/R varies along the ray even for fixed impact
 ! parameter.  dMU/dR = (1-MU^2)/(MU*R), so
@@ -3048,6 +3056,14 @@ C
 	      DO I=1,NI
 	        DLN_C=dLOG_NU
 	        IF(GAM(I,LS) .LT. 0.0_LDP)DLN_C=DLN_RAY(I)
+!
+! DLN_C is a log-frequency spacing; a degenerate grid (duplicate
+! frequencies) or an unseeded DLN_RAY slot can make it zero or
+! negative, and 1/DLN_C would then poison chi_hat.  Flooring it
+! keeps chi_hat well above CHI_RAY -- locally opaque, the safe
+! failure direction.
+!
+	        IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
 	        Q(I)=GAM_MAG(I,LS)/DLN_C
 	        CHI_RAY(I)=CHI_RAY(I)+Q(I)
 	      END DO
@@ -3380,7 +3396,8 @@ C
 !	          the characteristic foot).
 !
 	          IF(KC1 .GE. 1 .AND. KC2 .GE. 1)THEN
-	            IF(R(K+1) .NE. R(K))THEN
+	            IF(ABS(R(K+1)-R(K)) .GT. 1.0E-14_LDP*
+	1          MAX(ABS(R(K)),ABS(R(K+1)),R(1)))THEN
 	              W_INEXT=(R_RAY(I,LS)-R(K))/(R(K+1)-R(K))
 	              W_INEXT=MAX(0.0_LDP,MIN(1.0_LDP,W_INEXT))
 	              INEXT_V=(1.0_LDP-W_INEXT)*
@@ -3621,7 +3638,8 @@ C
 !	          edited by Sean Brennan
 !
 	          IF(KC1 .GE. 1 .AND. KC2 .GE. 1)THEN
-	            IF(R(K+1) .NE. R(K))THEN
+	            IF(ABS(R(K+1)-R(K)) .GT. 1.0E-14_LDP*
+	1          MAX(ABS(R(K)),ABS(R(K+1)),R(1)))THEN
 	              W_INEXT=(R_RAY(I,LS)-R(K))/(R(K+1)-R(K))
 	              W_INEXT=MAX(0.0_LDP,MIN(1.0_LDP,W_INEXT))
 	              INEXT_V=(1.0_LDP-W_INEXT)*
