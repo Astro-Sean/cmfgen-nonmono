@@ -1110,12 +1110,20 @@
 	    WRITE(LUER,'(A,I8)')'    immature-field iteration : ',N_FROZEN
 	    WRITE(LUER,'(A,2ES12.4)')
 	1   '    FG / MOM maxchg          : ',GS_MAXCHG,MOM_MAXCHG
-	    WRITE(LUER,'(A,2ES12.4)')
+!
+! edited by Devin, 17-Oct-2026: the sweep drift can reach
+! 1E263 on a detonating sweep -- ES12.4 drops the 'E' for a
+! 3-digit exponent (printed "1.7030+263"), so this line uses
+! ES13.4.  The nbad line below passes the ' / ' literal: the
+! previous (A,I14,A,I14) form had no argument for the second
+! A descriptor and printed GS_NBAD_BLK's raw bytes.
+!
+	    WRITE(LUER,'(A,2ES13.4)')
 	1   '    FG sweep drift / RF delta: ',GS_SW_MAXCHG,GS_RF_DCHG
 	    WRITE(LUER,'(A,I6,A,I6)')
 	1   '    FG div rays              : ',GS_NDIV,' of',GS_NRAY
 	    WRITE(LUER,'(A,I14,A,I14)')
-	1   '    FG nbad last / best      : ',GS_NBAD,GS_NBAD_BLK
+	1   '    FG nbad last / best      : ',GS_NBAD,' / ',GS_NBAD_BLK
 	    WRITE(LUER,'(A)')'    MOM bulk'
 	    WRITE(LUER,'(A,2I12)')
 	1   '      nbad5 / nbad50         : ',MOM_NBAD5,MOM_NBAD50
