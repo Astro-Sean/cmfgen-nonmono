@@ -864,6 +864,44 @@
 !
 	INTEGER GS_REL_N
 !
+! GS_RAW_MATURE (default FALSE): require the raw FG sweep max change
+! to pass GS_MATURE_TOL for a sweep to count toward the GS_REL_STABLE
+! release streak.  The default bulk rule can mark a sweep mature while
+! the max-norm is still ~5E-2 (a small fraction of cells above
+! tolerance); releasing on that let the first unheld step re-poison
+! the field (KNOP_jfnkrel it35-40, se_res -> 2E31).  With the flag
+! set, a bulk-pass-but-max-high sweep resets the consecutive count --
+! release then waits for a genuinely quiet field.  Opt-in: the bulk
+! exception remains the default release discriminator.  VADAT keyword
+! [GS_RAW_MATURE].
+!
+	LOGICAL GS_RAW_MATURE
+!
+! JFNK_CPL_RELWAIT (default FALSE): hold the coupled JFNK tier during
+! the GS release window.  The first live iterations after a freeze
+! carry the deferred SE correction and a field re-lagging to moved
+! populations; admitting JFNK-CPL there couples a marginal field to a
+! perturbative solve (KNOP_jfnkrel it35: admitted on the release call,
+! GMRES stagnated, and the fallback step re-poisoned the field).
+! When TRUE, an otherwise-admitted coupled call inside the damped
+! window (N_REL_SINCE <= GS_REL_N) is deferred and falls to the
+! frozen tier or plain SOLVEBA.  Note: with GS_REL_N very large the
+! coupled tier never admits -- intended for configs that use a
+! short damp window.  Policy change: alters admission timing.
+! VADAT keyword [JFNK_CPL_RELWAIT].
+!
+	LOGICAL JFNK_CPL_RELWAIT
+!
+! JFNK_REL_REACH_MAX (default 5): consecutive reach-gate skips after
+! which the SOB stable-LAMBDA relief stops relaxing JFNK_GATE_NREQ.
+! The relief exists to let the frozen tier fire at all under SOB, but
+! the frozen tier cannot reduce a radiation-pinned residual, so once
+! the reach gate has rejected a run of admissions the relief defers
+! to the outer BA/LAMBDA loop.  0 = never suppress (pre-17-Oct-2026
+! behaviour).  VADAT keyword [JFNK_REL_REACH_MAX].
+!
+	INTEGER JFNK_REL_REACH_MAX
+!
 ! DO_KNOP_REFRESH: per-ray Knop refresh (Oct-2026).  When TRUE and
 ! DO_NONMONO_KNOP=T, CMFGEN_SUB calls FG_KNOP_REFRESH_V1 after each
 ! frequency sweep to converge the compressing-branch wavelength
@@ -1497,9 +1535,25 @@
 ! LUM_RATIO_OI: outer/inner radiative luminosity ratio
 ! RLUMST(1)/RLUMST(ND), set in CMFGEN_SUB just before the
 ! SOLVE_FOR_POPS call (RLUMST lives in RADIATION_MOD).
-! Diagnostic only.
+! Diagnostic only.  LUM_OUT_ABS: |RLUMST(ND)| itself -- the runaway
+! detector needs the absolute value because the ratio degenerates
+! when the inner luminosity pegs at zero.
 !
 	REAL(KIND=LDP) LUM_RATIO_OI
+	REAL(KIND=LDP) LUM_OUT_ABS
+!
+! Luminosity runaway guard (KNOP only): a call whose outer
+! luminosity grew by more than LUM_DIV_FAC over the previous call
+! counts toward LUM_DIV_N consecutive-growth trips of LUM_BLOCKED;
+! beyond LUM_DIV_CAP (L_sun units) the state is past recovery and
+! SOLVE_FOR_POPS stops as non-convergent.  Defaults bound a
+! KNOP_jfnkrel-class runaway (5.7E9 -> 6.2E28 L_sun in 5 calls)
+! inside ~5 iterations instead of a full frozen-cycle budget.
+! LUM_DIV_N=0 disables the guard entirely.
+!
+	REAL(KIND=LDP) LUM_DIV_FAC
+	INTEGER LUM_DIV_N
+	REAL(KIND=LDP) LUM_DIV_CAP
 !
 ! GS_HOLD_POPS (VADAT [GS_HOLD_POPS], default F): on a GS-freeze
 ! iteration, snapshot POPS before the forced-LAMBDA SOLVEBA update
@@ -1660,6 +1714,23 @@
 	REAL(KIND=LDP) JFNK_LSQ_LAM
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
+!
+! JFNK_FD_COS_MIN (VADAT [JFNK_FD_COS_MIN], default 0.05): descent
+! floor on the FINITE-DIFFERENCE image cos(F,A_FD z) only.  The FD
+! image prices the true operator the residual re-solve produces;
+! stored-BA REACH/COS can pass while the true direction is
+! anti-descent (KNOP_jfnkrel it35: REACH frac 0.735 with
+! cos(F,A_FD z) = -0.23).  Kept separate from JFNK_COS_MIN so the
+! stored-BA policy is untouched.
+!
+! JFNK_FD_AUTODEF (VADAT [JFNK_FD_AUTODEF], default T): defer any
+! admission whose clipped-step FD image is anti-descent
+! (cos(F,A_FD z) < 0) even when every threshold is off.  Arming this
+! also enables the precheck block (one extra residual eval per
+! admission).  Opt-out for A/B against the pre-guard behaviour.
+!
+	REAL(KIND=LDP) JFNK_FD_COS_MIN
+	LOGICAL JFNK_FD_AUTODEF
 !
 ! DO_BA_DIR_CHK (default FALSE, VADAT [DO_BA_DIR_CHK]): diagnostic-only
 ! admission of the JFNK precheck machinery on direct-BA iterations.

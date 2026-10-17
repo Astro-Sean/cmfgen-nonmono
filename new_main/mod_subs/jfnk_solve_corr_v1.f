@@ -115,7 +115,7 @@
 	DOUBLE PRECISION JFNK_TOL_ABS,F_APP
 	DOUBLE PRECISION, ALLOCATABLE :: BEST_X(:)
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
-	LOGICAL JFNK_REACH_OK
+	LOGICAL JFNK_REACH_OK,JFNK_REACH_SKIP
 	DOUBLE PRECISION REACH_VAL,FF2_DP,FJZ_DP,JJZ_DP
 	DOUBLE PRECISION COS_BA,JZF_BA,CLIP_FR,COS_FD,JZF_FD
 	DOUBLE PRECISION X_MAX_R,X_MIN_R,X_T_MAX_R,X_T_MIN_R
@@ -205,6 +205,7 @@
 	JFNK_LAG_FACTORS_ACTIVE=.FALSE.
 	JFNK_LAG_FACTORS_READY=.FALSE.
 	VERIF_REJECT=.FALSE.
+	JFNK_REACH_SKIP=.FALSE.
 	LAMBDA_SAVE=LAMBDA_A
 	FIXED_T_SAVE=FIXED_T
 	COMPUTE_BA_SAVE=COMPUTE_BA_A
@@ -826,7 +827,9 @@
 ! that is non-descent, outsized vs |F|, or mostly clip bounds cannot
 ! produce a useful Newton correction, so the admission defers to the
 ! caller's SOLVEBA mode before GMRES/JVP evals are spent.  The block
-! runs when any of the four gates is armed.
+! runs when any of the gates is armed; JFNK_FD_COS_MIN (default
+! 0.05) and JFNK_FD_AUTODEF (default T) arm it by themselves so the
+! FD descent test is on unless the user opts out.
 !
 	    JFNK_REACH_OK=.TRUE.
 	    TW_PH=OMP_GET_WTIME()
@@ -834,7 +837,9 @@
 	1       JFNK_COS_MIN .GT. 0.0_LDP .OR.
 	2       JFNK_JZ_F_MAX .GT. 0.0_LDP .OR.
 	3       JFNK_CLIP_FRAC_MAX .GT. 0.0_LDP .OR.
-	4       DO_DIRCHK_NOW) .AND.
+	4       JFNK_FD_COS_MIN .GT. 0.0_LDP .OR.
+	4       JFNK_FD_AUTODEF .OR.
+	5       DO_DIRCHK_NOW) .AND.
 	5       JFNK_LU_READY .AND.
 	6       (JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ' .OR.
 	7        JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'))THEN
@@ -1039,6 +1044,27 @@
 	        WRITE(LUER,'(A,ES10.2,A,ES10.2)')
 	1        '  JFNK GUARD DEFER: FD |Az|/|F|=',
 	2        REAL(JZF_FD),' > jz_f_max=',REAL(JFNK_JZ_F_MAX)
+	      END IF
+!
+! FD descent floor (17-Oct-2026, [JFNK_FD_COS_MIN] default 0.05 +
+! [JFNK_FD_AUTODEF] default T): the FD image is the descent test
+! against the TRUE operator -- the stored-BA REACH passed a step
+! whose real Jacobian maps it anti-parallel to F (KNOP_jfnkrel
+! it35, cos=-0.23) and GMRES then spent 30 evals stagnating.
+! Deferring here costs only the evals already spent; GMRES is
+! skipped.  Independent of JFNK_COS_MIN so the stored-BA policy is
+! untouched; set JFNK_FD_COS_MIN=0 and JFNK_FD_AUTODEF=F to recover
+! the pre-guard behaviour.
+!
+	      IF(JFNK_REACH_OK .AND.
+	1      ((JFNK_FD_COS_MIN .GT. 0.0_LDP .AND.
+	2        COS_FD .LT. JFNK_FD_COS_MIN) .OR.
+	3       (JFNK_FD_AUTODEF .AND. COS_FD .LT. 0.0_LDP)))THEN
+	        JFNK_REACH_OK=.FALSE.
+	        jfnk_fx_fresh=.FALSE.
+	        WRITE(LUER,'(A,ES10.2,A,ES10.2)')
+	1        '  JFNK GUARD DEFER: FD non-descent cos(F,Az)=',
+	2        REAL(COS_FD),' < fd_cos_min=',REAL(JFNK_FD_COS_MIN)
 	      END IF
 !
 	    IF(JFNK_REACH_OK)THEN
@@ -1367,9 +1393,22 @@
 	    END IF
 	      DEALLOCATE(JV_FD, JV_FD2, Z_BLK, JV_SAV)
 	    END IF
+! The REACH metric is priced against JFNK_BA_A, the outer
+! (admission-time) BA linearization -- valid for the frozen tier,
+! whose residual is that same fixed-J system.  The coupled tier
+! re-solves J per eval, so its Newton differentiates a different
+! operator; a stored-BA REACH would be the wrong test there and can
+! veto the only tier able to reduce a J-pinned residual.  Gate the
+! frozen tier only; the GMRES/Hookstep budget judges coupled
+! reachability.  The COS/JZ_F/CLIP direction guards above share the
+! same stored-BA basis and have the same limitation -- they are
+! default-off diagnostics and are left unchanged.
+!
 	      IF(JFNK_REACH_GATE .GT. 0.0_LDP .AND.
-	1        REACH_VAL .LT. JFNK_REACH_GATE)THEN
+	1        .NOT. JFNK_COUPLED_LOC .AND.
+	2        REACH_VAL .LT. JFNK_REACH_GATE)THEN
 	        JFNK_REACH_OK=.FALSE.
+	        JFNK_REACH_SKIP=.TRUE.
 	        WRITE(LUER,'(A,ES10.2,A)')
 	1        '  JFNK: residual unreachable by population step',
 	2        REAL(JFNK_REACH_GATE),' gate -- skipping Newton'
@@ -1913,16 +1952,19 @@
 	    JFNK_REARM_CYCLE=0
 	  ELSE IF(JFNK_CATASTROPHIC)THEN
 	    WRITE(LUER,'(A,I3)')
-	1     '  JFNK: unrecoverable this iteration (info=',JFNK_INFO,')'
+	1     '  JFNK: CATASTROPHIC eval failure (NaN/Inf or factor '//
+	2     'breakdown), info=',JFNK_INFO
 ! editted by Devin, 04-Oct-2026: a catastrophic failure used to reset
 ! the stagnation count, so a deterministic catastrophic mode retried
 ! forever (each admission costs a full coupled formal sweep).  Count
 ! it toward JFNK_MAX_STAGNATE like any other failed solve; only a
 ! converged Newton or a committed best-iterate resets the budget.
+! W7 (17-Oct-2026): name the failure class -- a catastrophic eval
+! failure (NaN/Inf, factor breakdown) is not GMRES stagnation.
 	    JFNK_STAGNATION_COUNT=JFNK_STAGNATION_COUNT+1
 	    IF(JFNK_STAGNATION_COUNT .GE. JFNK_MAX_STAGNATE)THEN
 	      WRITE(LUER,'(A,I3,A,I3)')
-	1       '  JFNK: stagnated ',JFNK_STAGNATION_COUNT,
+	1       '  JFNK: CATASTROPHIC failure count ',JFNK_STAGNATION_COUNT,
 	2       ' consecutive solves (max=',JFNK_MAX_STAGNATE,')'
 	      JFNK_DISABLED=.TRUE.
 	      JFNK_STAGNATION_COUNT=0
@@ -1936,8 +1978,12 @@
 	    COMPUTE_BA=.TRUE.
 	    TEMP_CHAR='DIAG'
 ! Failed Newton must not apply MAX_LAM.  The seq run's safety step
-! followed |F| ~ 1e20.  Use the full-BA limit.
-	    T1=MAX_LIN_COR
+! followed |F| ~ 1e20.  Use the full-BA limit -- clamped by the
+! caller's cap: a GS-damped or BA_DAMP_CAP-bounded COR_LIM_IN must
+! survive the fallback (KNOP_jfnkrel it35: MAX_LAM_COR here let a
+! +91% free-electron step through on the GS release call and the
+! lagged field ran away, se_res -> 2E31).
+	    T1=JFNK_FALLBACK_CAP(.TRUE.,COR_LIM_IN,.TRUE.)
 	    CALL SOLVEBA_V13(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,NION,
 	1       NUM_BNDS,ND,MAXCH,MAXCH_APP,TEMP_CHAR,SUCCESS,SCALE_OPT_A,
 	2       LAM_SC_OPT_A,T1,MDT_A,TMIN_A,
@@ -1967,8 +2013,9 @@
 	        JFNK_REARM_CYCLE=JFNK_REARM_CYCLE+1
 	      ELSE
 	        WRITE(LUER,'(A,I3,A,I3)')
-	1         '  JFNK: finite stagnation; retaining caller mode, count ',
-	2         JFNK_STAGNATION_COUNT,' of ',JFNK_MAX_STAGNATE
+	1         '  JFNK: finite GMRES stagnation; retaining caller '//
+	2         'mode, count ',
+	3         JFNK_STAGNATION_COUNT,' of ',JFNK_MAX_STAGNATE
 	      END IF
 	    END IF
 ! Residual callbacks restore POPS, ED, T and STEQ.  The Newton
@@ -1980,10 +2027,13 @@
 	    WR_BA_INV_A=WR_BA_INV_SAVE
 	    WR_PRT_INV_A=WR_PRT_INV_SAVE
 	    TEMP_CHAR=TEMP_CHAR_SAVE
+! The LAMBDA fallback must not raise the caller's cap either: during
+! the GS release window COR_LIM_IN carries GS_LAM_CAP and the
+! field-poisoning step above applies here unchanged.
 	    IF(LAMBDA_A)THEN
-	      T1=MAX_LAM_COR
+	      T1=JFNK_FALLBACK_CAP(.TRUE.,COR_LIM_IN,.FALSE.)
 	    ELSE
-	      T1=MIN(COR_LIM_IN,MAX_LIN_COR)
+	      T1=JFNK_FALLBACK_CAP(.FALSE.,COR_LIM_IN,.FALSE.)
 	    END IF
 	    CALL SOLVEBA_V13(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,NION,
 	1       NUM_BNDS,ND,MAXCH,MAXCH_APP,TEMP_CHAR,SUCCESS,SCALE_OPT_A,
@@ -2077,11 +2127,24 @@
 !
 	  JFNK_COMMITTED=APPLY_JFNK_UPDATE
 !
+! Reach-skip streak for the SOB relief de-rate (17-Oct-2026): only
+! the JFNK_REACH_GATE skip counts; dirchk defers, guard defers, real
+! Newton outcomes and stagnations are all non-reach outcomes and
+! reset the streak, as does a committed step.
+!
+	  IF(JFNK_REACH_SKIP)THEN
+	    JFNK_REACH_SKIP_STREAK=JFNK_REACH_SKIP_STREAK+1
+	  ELSE
+	    JFNK_REACH_SKIP_STREAK=0
+	  END IF
+!
 	ELSE
 !
 ! LAMBDA mode: standard direct solve (same as the default path).
 !
-	  IF(LAMBDA_A)T1=MAX_LAM_COR
+! Same cap rule on the paused/LAMBDA direct-solve path: the caller's
+! damped cap (GS release window, BA_DAMP_CAP) wins over MAX_LAM_COR.
+	  IF(LAMBDA_A)T1=JFNK_FALLBACK_CAP(.TRUE.,COR_LIM_IN,.FALSE.)
 	  CALL SOLVEBA_V13(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,NION,
 	1     NUM_BNDS,ND,MAXCH,MAXCH_APP,TEMP_CHAR,SUCCESS,SCALE_OPT_A,
 	2     LAM_SC_OPT_A,T1,MDT_A,TMIN_A,
@@ -2096,4 +2159,30 @@
 	JFNK_LAG_FACTORS_READY=.FALSE.
 !
 	RETURN
+!
+	CONTAINS
+!
+! edited by Devin, 17-Oct-2026: single source for the fallback
+! correction-cap mapping.  The invariant shared with SOLVE_FOR_POPS:
+! LAMBDA mode caps at MAX_LAM_COR, full/BA mode at MAX_LIN_COR,
+! GS_LAM_CAP is a tighter caller bound for KNOP-forced LAMBDA calls,
+! and a catastrophic JFNK failure deliberately uses the full-BA limit
+! (FORCE_FULL_LIM).  Every fallback answer is additionally capped by
+! COR_LIM_IN, the cap the caller requested this iteration -- a
+! GS-damped (GS_LAM_CAP) or BA_DAMP_CAP-bounded value must survive
+! the fallback (KNOP_jfnkrel it35: an uncapped MAX_LAM_COR fallback
+! passed a +91% free-electron step on the GS release call and the
+! lagged field ran away, se_res -> 2E31).
+!
+	FUNCTION JFNK_FALLBACK_CAP(IS_LAMBDA,COR_LIM,FORCE_FULL_LIM)
+	REAL(KIND=LDP) JFNK_FALLBACK_CAP
+	LOGICAL, INTENT(IN) :: IS_LAMBDA,FORCE_FULL_LIM
+	REAL(KIND=LDP), INTENT(IN) :: COR_LIM
+	REAL(KIND=LDP) BASE
+	BASE=MAX_LIN_COR
+	IF(IS_LAMBDA)BASE=MAX_LAM_COR
+	IF(FORCE_FULL_LIM)BASE=MIN(BASE,MAX_LIN_COR)
+	JFNK_FALLBACK_CAP=MIN(BASE,COR_LIM)
+	END FUNCTION JFNK_FALLBACK_CAP
+!
 	END

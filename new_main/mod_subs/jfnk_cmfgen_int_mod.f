@@ -196,6 +196,15 @@
 	INTEGER, SAVE :: JFNK_N_RIDGE_DEPTHS=0
 	INTEGER, SAVE :: JFNK_N_LU_FAIL_DEPTH=0
 !
+! Consecutive admissions that ended in the reach-gate skip
+! (JFNK_INFO=-2 via the JFNK_REACH_GATE test).  SOLVE_FOR_POPS reads
+! it to stand down the SOB stable-LAMBDA relief once the frozen tier
+! has been repeatedly proved unable to move the residual
+! ([JFNK_REL_REACH_MAX]); a committed Newton or any non-reach outcome
+! resets it.  Written only inside JFNK_SOLVE_CORR_V1.
+!
+	INTEGER, SAVE :: JFNK_REACH_SKIP_STREAK=0
+!
 ! V4 audit fix (2026-09-07): Per-depth T-fix range for VARFIXT support
 ! (audit finding #11).  When JFNK_FIXED_T_LOC=.TRUE., T is fixed at all
 ! depths.  When .FALSE., T is free at all depths UNLESS a partial range

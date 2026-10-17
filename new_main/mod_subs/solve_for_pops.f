@@ -10,6 +10,7 @@
 	USE MOD_CMFGEN
         USE ANG_QW_MOD
 	USE CONTROL_VARIABLE_MOD
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
 	IMPLICIT NONE
 !
 ! Altered:   16-Oct-2026 : Stage-B trace polish forces the BA dispatch so
@@ -187,6 +188,11 @@
 	LOGICAL, SAVE :: LUM_INIT=.FALSE.
 	REAL(KIND=LDP), SAVE :: LUM_PREV=0.0_LDP
 	REAL(KIND=LDP) LUM_DCHG_REL
+! Runaway-detector state: the ratio (LUM_RATIO_OI) cannot see a
+! divergence whose inner luminosity pegs at zero, so the guard
+! tracks the absolute outer value.
+	REAL(KIND=LDP), SAVE :: LUM_PREV_OUT=0.0_LDP
+	INTEGER, SAVE :: LUM_DIV_NCNT=0
 !
 ! Consecutive calls whose SCRTEMP record is a clean committed
 ! iterate (no reject/masked/soft-reject/pending-arm/Newton/held-pops
@@ -334,6 +340,7 @@
 	  ITER_TYPE_LAST_IT=-1
 	  JFNK_FRZ_HITS=0
 	  JFNK_CPL_HITS=0
+	  JFNK_REACH_SKIP_STREAK=0
 	  JFNK_LAST_DEM=0.0_LDP
 	  MAXCH_SUM=0.0_LDP
 	  COUNT_FULL_LAM_BA=1
@@ -345,6 +352,8 @@
 	  N_MATURE=0
 	  LUM_INIT=.FALSE.
 	  LUM_PREV=0.0_LDP
+	  LUM_PREV_OUT=0.0_LDP
+	  LUM_DIV_NCNT=0
 	  N_HIST=0
 	  HIST_POS=0
 	  PLAT_CNT=0
@@ -476,6 +485,43 @@
 	LUM_INIT=.TRUE.
 	LUM_PREV=LUM_RATIO_OI
 !
+! edited by Devin, 17-Oct-2026: luminosity runaway guard, KNOP only
+! ([LUM_DIV_FAC]=1D2, [LUM_DIV_N]=3, [LUM_DIV_CAP]=1D15; 0 disables).
+! Inner/outer agreement stays diagnostic -- shocked models
+! legitimately disagree -- but sustained superlinear growth of the
+! absolute outer luminosity is unambiguous divergence
+! (KNOP_jfnkrel: 5.7E9 -> 6.2E28 L_sun in ~5 calls, then ~60 dead
+! iterations until GS_FREEZE_LIM).  LUM_BLOCKED revives the dormant
+! hold/trial-veto plumbing below; past LUM_DIV_CAP the state is not
+! recoverable, so stop rather than burn the frozen-cycle budget.
+!
+	IF(DO_NONMONO_KNOP .AND. LUM_DIV_N .GT. 0 .AND.
+	1   LUM_OUT_ABS .GT. 0.0_LDP)THEN
+	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
+	1    LUM_OUT_ABS .GT. LUM_DIV_FAC*LUM_PREV_OUT)THEN
+	    LUM_DIV_NCNT=LUM_DIV_NCNT+1
+	  ELSE
+	    LUM_DIV_NCNT=0
+	  END IF
+	  LUM_PREV_OUT=LUM_OUT_ABS
+! The cap stops on the absolute level, streak or not -- the observed
+! runaway plateaued at ~6E28 with growth zero, which a streak-only
+! test would leave running until GS_FREEZE_LIM.
+	  IF(LUM_OUT_ABS .GT. LUM_DIV_CAP)THEN
+	    WRITE(LUER,'(A,ES12.4)')
+	1   '  SOLVE_FOR_POPS: luminosity diverging, L_out=',
+	2   LUM_OUT_ABS
+	    WRITE(LUER,'(A)')'  Non-convergent state; stopping.'
+	    STOP 'SOLVE_FOR_POPS: luminosity diverging'
+	  END IF
+	  IF(LUM_DIV_NCNT .GE. LUM_DIV_N)THEN
+	    LUM_BLOCKED=.TRUE.
+	    WRITE(LUER,'(A,ES12.4,A,I2,A)')
+	1   '  SOLVE_FOR_POPS: luminosity runaway, L_out=',LUM_OUT_ABS,
+	2   ' streak=',LUM_DIV_NCNT,' -- LUM_BLOCKED set'
+	  END IF
+	END IF
+!
 ! We can adjust the BA/STEQ equations so that certain species are
 ! held fixed. For all species, this now done using FIXPOP_IN_BA_V2
 ! called by GENERATE_FULL_MATRIX.
@@ -539,6 +585,15 @@
 ! a factor of 10.0D0. (Installed 28-Dec-1989). Specified by parameter
 ! T1 in SOLVEBA call. TEMP_CHAR is used to utilize the BLK_DIAGONAL
 ! nature of the BA matrix when performing a LAMBDA iteration.
+!
+! edited by Devin, 17-Oct-2026: the correction-cap mapping is a single
+! invariant -- LAMBDA -> MAX_LAM_COR, full/BA -> MAX_LIN_COR.
+! GS_LAM_CAP is an additional upper bound applied to COR_LIM_IN for
+! KNOP-forced LAMBDA calls while the lagged field is immature; the
+! catastrophic JFNK fallback intentionally caps at MAX_LIN_COR.
+! JFNK_FALLBACK_CAP (jfnk_solve_corr_v1.f) encodes the same mapping on
+! the JFNK side.  SOLVEBA_V13 only consumes the cap (CHANGE_LIM), so
+! correctness lives entirely at these call sites.
 !
 	IF(LAMBDA_ITERATION)THEN
 	  T1=MAX_LAM_COR
@@ -823,6 +878,24 @@
 	      T1=GS_LAM_CAP
 	      FORCE_LAMBDA=.TRUE.
 	      CALL APPEND_ITER_REASON(ITER_REASON,'ba_no_snapshot_demote')
+	    ELSE IF(LUM_BLOCKED)THEN
+!
+! Luminosity runaway (LUM_DIV_*): the last steps drove the outer
+! luminosity nonphysical; a BA or full-MAX_LAM step against this
+! state can only amplify it.  Same recipe as the snapshot demote --
+! damped LAMBDA at the near-mature cap so the field can settle while
+! the detector below holds populations.
+!
+	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A)')
+	1     'SOLVE_FOR_POPS: luminosity runaway'//
+	2     ' -- demoting BA step to damped LAMBDA'
+	      LAMBDA_ITERATION=.TRUE.
+	      FIXED_T=.TRUE.
+	      COMPUTE_BA=.TRUE.
+	      TEMP_CHAR='DIAG'
+	      T1=GS_LAM_CAP
+	      FORCE_LAMBDA=.TRUE.
+	      CALL APPEND_ITER_REASON(ITER_REASON,'lum_div_demote')
 	    END IF
 	  END IF
 !
@@ -840,7 +913,14 @@
 	  GS_RAW_IMMATURE=(GS_CAPPED .GT. 0 .OR.
 	1      GS_FG_IMMATURE .OR.
 	2      (MOM_RAN .AND. MOM_FREEZE_B))
-	  IF(GS_RAW_IMMATURE)THEN
+! GS_RAW_MATURE (VADAT, default F): a bulk-pass sweep with the raw
+! max change still above GS_MATURE_TOL does not count toward release.
+! The bulk exception tolerates a small fraction of drifting cells,
+! but a max-norm of ~5E-2 still released on KNOP_jfnkrel it34 and the
+! first unheld step detonated the lagged field.  Reset rather than
+! merely hold the count: the GS_REL_STABLE test is consecutive.
+	  IF(GS_RAW_IMMATURE .OR.
+	1    (GS_RAW_MATURE .AND. GS_MAXCHG .GT. GS_MATURE_TOL))THEN
 	    N_MATURE=0
 	  ELSE
 	    N_MATURE=N_MATURE+1
@@ -1127,7 +1207,12 @@
 ! release path is excluded: a released trial exists to take a real
 ! resacc-gated BA step.
 !
-	LUM_POPS_HELD=.FALSE.
+! edited by Devin, 17-Oct-2026: LUM_POPS_HELD is no longer dead --
+! a detected luminosity runaway (LUM_BLOCKED) holds populations so
+! the sweeps can only move the lagged field, matching the
+! GS_HOLD_POPS recipe of converging at fixed pops.
+!
+	LUM_POPS_HELD=LUM_BLOCKED
 	GS_POPS_HELD=.FALSE.
 	IF((GS_HOLD_POPS .AND. GS_FREEZE .AND. .NOT. MOM_TRIAL) .OR.
 	1   LUM_POPS_HELD)THEN
@@ -1194,6 +1279,15 @@
 ! are written in place on every sweep with no freeze -- each JFNK
 ! residual/JVP eval would overwrite the lagged field the committed
 ! iterate relies on, corrupting the in-sweep coupling.
+!
+! edited by Devin, 17-Oct-2026: under DO_NONMONO_SOB only the frozen
+! tier exists (JFNK_COUPLED is a hard STOP in the reader), and the
+! frozen-J residual is the same fixed-J system SOLVEBA solves
+! directly -- JFNK can therefore never accelerate a radiation-pinned
+! residual (m15 SOB_l14_jfnkrel: 186 admits, 0 GMRES, every one a
+! reach-gate skip).  For that model class consider disabling the
+! relief/DO_JFNK, or cap the wasted admissions via
+! JFNK_REL_REACH_MAX.
 !
 	JFNK_THIS=USE_JFNK_SOLVER .AND. ITS_SINCE_START .GT. JFNK_WARMUP
 	1          .AND. (.NOT. LAMBDA_ITERATION .OR. JFNK_ANY_ITER)
@@ -1296,7 +1390,35 @@
 !
 	JFNK_COUPLED_THIS=.FALSE.
 	IF(JFNK_THIS)THEN
-	  IF(JFNK_COUPLED .AND.
+!
+! JFNK_CPL_RELWAIT (VADAT, default F; edited by Devin, 17-Oct-2026):
+! hold the coupled tier through the post-release damp window.  The
+! first live sweeps after a GS freeze carry the deferred SE
+! correction and a field re-lagging to moved populations -- admitting
+! JFNK-CPL there couples a marginal field to a perturbative solve
+! (KNOP_jfnkrel it35: admitted on the release call, stagnated, and
+! the LAMBDA fallback then re-poisoned the field, se_res -> 2E31).
+! N_REL_SINCE was already incremented above, so 1 marks the first
+! live call; the damped window spans N_REL_SINCE <= GS_REL_N.
+! Frozen-tier admission below is unaffected.  NOTE: a config with a
+! very large GS_REL_N defers the coupled tier indefinitely.
+!
+	  IF(DO_NONMONO_KNOP .AND. JFNK_CPL_RELWAIT .AND.
+	1     JFNK_COUPLED .AND.
+	2     (JFNK_COR_GATE .LE. 0.0_LDP .OR.
+	3      JFNK_CPL_HITS .GE. JFNK_GATE_NREQ) .AND.
+	4     N_REL_SINCE .GE. 1 .AND.
+	5     N_REL_SINCE .LE. GS_REL_N)THEN
+	    CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_rel_defer')
+	    WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	    WRITE(LUER,'(A)')
+	1   '    reason : coupled tier held during GS release window'
+	    WRITE(LUER,'(A,I6,A,I6)')
+	1   '    live calls since release / window :',N_REL_SINCE,
+	2   ' /',GS_REL_N
+	    WRITE(LUER,'(A)')
+	1   '    disposition : frozen tier / SOLVEBA path this call'
+	  ELSE IF(JFNK_COUPLED .AND.
 	1     (JFNK_COR_GATE .LE. 0.0_LDP .OR.
 	2      JFNK_CPL_HITS .GE. JFNK_GATE_NREQ))THEN
 	    JFNK_COUPLED_THIS=.TRUE.
@@ -1327,10 +1449,25 @@
 ! LAM_STABLE_PROVEN latches the earned count at the exit and stays
 ! set until the next instability reset (edited by Devin, 16-Oct-2026).
 !
+! The relief is further de-rated by reachability (17-Oct-2026): under
+! SOB only the frozen tier exists, and a frozen-J Newton cannot reduce
+! a radiation-pinned residual (it is the same fixed-J system SOLVEBA
+! solves directly).  Once JFNK_REACH_SKIP_STREAK consecutive
+! admissions have been skipped by the reach gate, the relief stands
+! down and leaves the outer BA/LAMBDA loop to advance the lag.
+! JFNK_REL_REACH_MAX=0 restores the original unconditional relief.
+!
 	    IF(DO_NONMONO_SOB .AND. LAM_STABLE_PROVEN)THEN
-	      JFNK_NREQ_EFF=1
-	      WRITE(LUER,'(A)')'    JFNK: stable-LAMBDA relief active'//
-	1     ' (frozen-tier NREQ -> 1)'
+	      IF(JFNK_REL_REACH_MAX .GT. 0 .AND.
+	1       JFNK_REACH_SKIP_STREAK .GE. JFNK_REL_REACH_MAX)THEN
+	        WRITE(LUER,'(A,I4,A)')'    JFNK: stable-LAMBDA relief'//
+	1       ' suppressed (reach-skip streak >=',JFNK_REL_REACH_MAX,
+	2       ')'
+	      ELSE
+	        JFNK_NREQ_EFF=1
+	        WRITE(LUER,'(A)')'    JFNK: stable-LAMBDA relief active'//
+	1       ' (frozen-tier NREQ -> 1)'
+	      END IF
 	    END IF
 	    IF(JFNK_GATE_IN .GT. 0.0_LDP .AND.
 	1       (JFNK_DEM_IN .GE. JFNK_GATE_IN .OR.

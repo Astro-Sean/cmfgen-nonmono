@@ -4288,6 +4288,10 @@
 !
 	IF(ABS(RLUMST(ND)) .GT. 1.0E-30_LDP)
 	1    LUM_RATIO_OI=RLUMST(1)/RLUMST(ND)
+! LUM_OUT_ABS feeds the SOLVE_FOR_POPS runaway detector; the ratio
+! alone degenerates to ~0 when the inner luminosity pegs at zero
+! during a divergence (KNOP_jfnkrel: L_inner=0 while outer->6E28).
+	LUM_OUT_ABS=ABS(RLUMST(ND))
 !
 	CALL TUNE(IONE,'SOLVE_FOR_POPS')
 	CALL SOLVE_FOR_POPS(POPS,NT,NION,ND,NC,NP,NUM_BNDS,DIAG_INDX,

@@ -603,6 +603,10 @@ program se_driver
       ! REACH gate (arg18): replica of the production admission
       ! precheck in JFNK_SOLVE_CORR_V1 -- z = M^-1 F, Jz = BA z,
       ! REACH = (2<F,Jz>-<Jz,Jz>)/<F,F>; skip Newton when below gate.
+      ! Production applies this to the frozen tier only (the coupled
+      ! tier re-solves J per eval, so the stored BA is not its
+      ! operator); this driver tests the stored-BA metric itself, so
+      ! no tier check is needed here.
       reach_ok = .true.
       call get_command_argument(18, arg)
       if (len_trim(arg) > 0) then

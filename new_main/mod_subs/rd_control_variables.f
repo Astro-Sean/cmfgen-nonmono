@@ -943,6 +943,22 @@
 	1     'KNOP: damped LAMBDA its after a freeze release?')
 	  IF(GS_REL_N .LT. 1)GS_REL_N=1
 !
+! GS_RAW_MATURE (default FALSE): when set, a sweep whose raw FG max
+! change still exceeds GS_MATURE_TOL does not count toward the
+! GS_REL_STABLE release streak, even if the bulk rule passed it.
+!
+	  GS_RAW_MATURE=L_FALSE
+	  CALL RD_STORE_LOG(GS_RAW_MATURE,'GS_RAW_MATURE',L_FALSE,
+	1     'KNOP: require raw max change for release maturity?')
+!
+! JFNK_CPL_RELWAIT (default FALSE): when set, the coupled JFNK tier
+! is deferred while the call sits in the post-release damp window
+! (N_REL_SINCE <= GS_REL_N).
+!
+	  JFNK_CPL_RELWAIT=L_FALSE
+	  CALL RD_STORE_LOG(JFNK_CPL_RELWAIT,'JFNK_CPL_RELWAIT',L_FALSE,
+	1     'KNOP: hold coupled JFNK during the GS release window?')
+!
 ! GS_HOLD_POPS (default FALSE): on a GS-freeze iteration, roll the
 ! forced-LAMBDA population update back after SOLVEBA returns, so the
 ! great iteration converges the lagged radiation field at fixed
@@ -1467,11 +1483,22 @@
 ! linear step can remove.  On the SOB frozen-J residual the pinned
 ! radiative rows leave REACH~0, so every GMRES/JVP eval is wasted;
 ! the gate converts such admissions to ~one matvec.  Gate 0.1-0.5 is
-! conservative: solvable test systems reach ~1.
+! conservative: solvable test systems reach ~1.  Frozen tier only
+! (17-Oct-2026): REACH is priced against the stored outer BA, which
+! is not the coupled operator -- the coupled tier is exempt.
 !
 	  JFNK_REACH_GATE=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_REACH_GATE,'JFNK_REACH_GATE',L_FALSE,
 	1     'Skip Newton when residual reachable fraction below this')
+!
+! JFNK_REL_REACH_MAX (default 5): consecutive reach-gate skips that
+! stand down the SOB stable-LAMBDA relief.  0 disables the stand-down.
+!
+	  JFNK_REL_REACH_MAX=5
+	  CALL RD_STORE_INT(JFNK_REL_REACH_MAX,'JFNK_REL_REACH_MAX',
+	1     L_FALSE,
+	2     'SOB: reach skips before stable-LAMBDA relief stands down?')
+	  IF(JFNK_REL_REACH_MAX .LT. 0)JFNK_REL_REACH_MAX=0
 	  IF(JFNK_REACH_GATE .LT. 0.0_LDP)JFNK_REACH_GATE=0.0_LDP
 	  IF(JFNK_REACH_GATE .GT. 1.0_LDP)JFNK_REACH_GATE=1.0_LDP
 !
@@ -1505,6 +1532,23 @@
 	1     L_FALSE,'Defer Newton when clipped-step fraction exceeds this')
 	  IF(JFNK_CLIP_FRAC_MAX .LE. 0.0_LDP)JFNK_CLIP_FRAC_MAX=0.0_LDP
 	  IF(JFNK_CLIP_FRAC_MAX .GT. 1.0_LDP)JFNK_CLIP_FRAC_MAX=1.0_LDP
+!
+! FD-image descent gates (17-Oct-2026): the stored-BA metrics above
+! can pass while the true (finite-difference) operator maps the same
+! step anti-parallel to F -- KNOP_jfnkrel it35 passed stored REACH
+! 0.735 while cos(F,A_FD z) = -0.23.  JFNK_FD_COS_MIN gates cos on
+! the FD image only; JFNK_FD_AUTODEF (default T) defers any
+! anti-descent FD image even with all thresholds at 0.  Both arm the
+! precheck block, which costs one extra residual eval per admission.
+!
+	  JFNK_FD_COS_MIN=0.05_LDP
+	  CALL RD_STORE_DBLE(JFNK_FD_COS_MIN,'JFNK_FD_COS_MIN',L_FALSE,
+	1     'Defer Newton when FD cos(F,Az) below this (0=off)')
+	  IF(JFNK_FD_COS_MIN .LT. 0.0_LDP)JFNK_FD_COS_MIN=0.0_LDP
+	  IF(JFNK_FD_COS_MIN .GT. 1.0_LDP)JFNK_FD_COS_MIN=1.0_LDP
+	  JFNK_FD_AUTODEF=.TRUE.
+	  CALL RD_STORE_LOG(JFNK_FD_AUTODEF,'JFNK_FD_AUTODEF',L_FALSE,
+	1     'Defer Newton on anti-descent FD image (cos(F,Az)<0)?')
 !
 ! DO_BA_DIR_CHK (default F): diagnostic-only JFNK admission on
 ! direct-BA iterations.  The demand gates are bypassed so the check
@@ -1881,6 +1925,27 @@
 	  CALL RD_STORE_DBLE(BA_LUM_DCHG,'BA_LUM_DCHG',L_FALSE,
 	1     'Legacy no-op luminosity-drift threshold')
 !
+! LUM_DIV_* (17-Oct-2026, DO_NONMONO_KNOP only): sustained outer-
+! luminosity runaway detector.  Inner/outer agreement stays a
+! diagnostic (shock deposition makes it physically ambiguous), but
+! factor-of-LUM_DIV_FAC growth for LUM_DIV_N consecutive calls is
+! unambiguous divergence; LUM_DIV_CAP (L_sun) is the nonphysical
+! ceiling past which the run stops as non-convergent.
+! LUM_DIV_N=0 disables the guard.
+!
+	  LUM_DIV_FAC=1.0D2
+	  CALL RD_STORE_DBLE(LUM_DIV_FAC,'LUM_DIV_FAC',L_FALSE,
+	1     'KNOP: per-call outer-lum growth factor counted as runaway')
+	  IF(LUM_DIV_FAC .LE. 1.0_LDP)LUM_DIV_FAC=1.0D2
+	  LUM_DIV_N=3
+	  CALL RD_STORE_INT(LUM_DIV_N,'LUM_DIV_N',L_FALSE,
+	1     'KNOP: consecutive runaway calls before LUM_BLOCKED (0=off)')
+	  IF(LUM_DIV_N .LT. 0)LUM_DIV_N=3
+	  LUM_DIV_CAP=1.0D15
+	  CALL RD_STORE_DBLE(LUM_DIV_CAP,'LUM_DIV_CAP',L_FALSE,
+	1     'KNOP: L_out (L_sun) past which the run stops divergent')
+	  IF(LUM_DIV_CAP .LE. 0.0_LDP)LUM_DIV_CAP=1.0D15
+!
 ! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
 ! diagnostics.  2 reproduces the pre-existing output volume
 ! (MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE plus the
@@ -2212,6 +2277,31 @@
 	1      'Maximum fractional change for linearization ')
 	  CALL RD_STORE_DBLE(MAX_LAM_COR,'MAX_LAM',L_TRUE,
 	1      'Maximum fractional change for lambda iteration ')
+!
+! edited by Devin, 17-Oct-2026: MAX_LAM/MAX_LIN sanity checks.  Values
+! <= 1 forbid any increase and deadlock the solver; MAX_LAM ~ 1D10
+! (used on the KNOP_jfnkrel run) makes the LAMBDA cap unbounded on
+! every path GS_LAM_CAP does not clip - warn loudly rather than stop,
+! since legacy pipelines set it high on purpose.  MAX_LAM < MAX_LIN
+! inverts the documented intent (LAMBDA tolerates the larger step).
+!
+	  IF(MAX_LIN_COR .LE. 1.0_LDP .OR. MAX_LAM_COR .LE. 1.0_LDP)THEN
+	    WRITE(LUER,*)' Error: MAX_LIN/MAX_LAM in VADAT must exceed 1.0'
+	    WRITE(LUER,*)' MAX_LIN=',MAX_LIN_COR,' MAX_LAM=',MAX_LAM_COR
+	    STOP
+	  END IF
+	  IF(MAX_LAM_COR .GT. 1.0D4)THEN
+	    WRITE(LUER,*)'******** WARNING in CMFGEN *****************'
+	    WRITE(LUER,*)'MAX_LAM=',MAX_LAM_COR,' is effectively '//
+	1    'unbounded; a physically bounded value (1D2-1D3) is '//
+	2    'recommended for production'
+	  END IF
+	  IF(MAX_LAM_COR .LT. MAX_LIN_COR)THEN
+	    WRITE(LUER,*)'******** WARNING in CMFGEN *****************'
+	    WRITE(LUER,*)'MAX_LAM=',MAX_LAM_COR,' < MAX_LIN=',
+	1    MAX_LIN_COR,'; LAMBDA steps are meant to allow the '//
+	2    'larger change'
+	  END IF
 	  MAX_dT_COR=0.2_LDP
 	  CALL RD_STORE_DBLE(MAX_dT_COR,'MAX_dT',L_FALSE,
 	1      'Maximum fractional change in the temperature')
@@ -2438,6 +2528,16 @@
 	      GS_REL_STABLE=2
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_STABLE=2'
 	    END IF
+!
+! edited by Devin, 17-Oct-2026: the VADAT dump above echoes the
+! pre-auto-set values, so it showed GS_REL_STABLE=1 while the solver
+! ran with 2 (KNOP_jfnkrel triage read the stale number).  Re-print
+! the effective post-auto-set knobs so the log reflects what runs.
+!
+	    WRITE(LUER,'(A,I4,A,I4,3A)')
+	1   ' KNOP effective (post auto-set): N_LAM_RWARM=',N_LAM_RWARM,
+	2   '  GS_REL_STABLE=',GS_REL_STABLE,'  GLOBAL_LINE=',
+	3   GLOBAL_LINE_SWITCH(1:5),'  FG_OPT=',FG_SOL_OPTIONS(1:7)
 	  END IF
 !
 ! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line
