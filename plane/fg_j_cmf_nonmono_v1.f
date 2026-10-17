@@ -8181,12 +8181,28 @@ C
 	REAL(KIND=LDP) STORE(:,:,:)
 	INTEGER KS,LS2,JP2
 	REAL(KIND=LDP) V1,V2
-	REAL(KIND=LDP) VMAX_F(NCF)
+	REAL(KIND=LDP) VMAX_S(NCF)
 	FG_JUMP_MAX=0.0_LDP
+!
+! Store-column peak per frequency.  The jump test is keyed on the
+! retained store's own scale, not the new field's: a write is a
+! suspicious jump only when it is both >FG_COMMIT_JUMP times the
+! stored value AND larger than the whole stored column peak.  The
+! old 1E-4*VMAX_F floor rejected every seed-replacement write
+! (floor cells hold +1E-30, not 0, so the V2<=0 skip never saw
+! them) and left the store frozen at its seed for the whole run.
+!
 	DO LS2=1,NCF
-	  VMAX_F(LS2)=MAX(1.0E-25_LDP,
-	1    MAXVAL(FLD(1:NI,LS2),
-	2    MASK=FLD(1:NI,LS2) .EQ. FLD(1:NI,LS2)))
+	  VMAX_S(LS2)=0.0_LDP
+	END DO
+	DO KS=1,KN_ND
+	  KC=COMP_DEPTH_IDX(KS)
+	  IF(KC .GE. 1)THEN
+	    DO LS2=2,NCF
+	      V2=STORE(KC,LS,LS2-1)
+	      IF(V2 .EQ. V2)VMAX_S(LS2)=MAX(VMAX_S(LS2),V2)
+	    END DO
+	  END IF
 	END DO
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
@@ -8194,16 +8210,24 @@ C
 	    JP2=J_PNT(KS,LS)
 	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
 	      DO LS2=2,NCF
+! A frequency column whose store peak is at the write floor has no
+! committed field to compare against -- fills there are seeds, and
+! the absolute test would veto the first real write forever.
+	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)CYCLE
 	        V2=STORE(KC,LS,LS2-1)
 	        IF(V2 .LE. 0.0_LDP .OR. V2 .NE. V2)CYCLE
 	        V1=FLD(JP2,LS2)
-	        IF(V1 .NE. V1 .OR. V1 .LE. 0.0_LDP)THEN
+	        IF(V1 .NE. V1)THEN
 	          FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	          RETURN
 	        END IF
+! WRITE_STORE floors non-positive output to 1E-30; floor-bound
+! cells are ordinary events, not whole-ray veto grounds.  Judge
+! the value actually written.
+	        V1=MAX(V1,1.0E-30_LDP)
 	        V1=MIN(V1,NONMONO_INEXT_CAP)
 	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,ABS(V1-V2)/
-	1          MAX(V2,1.0E-4_LDP*VMAX_F(LS2)))
+	1          MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP))
 	      END DO
 	    END IF
 	  END IF
