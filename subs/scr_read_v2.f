@@ -395,6 +395,8 @@
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,*)'Error writing R,V etc vectors in SCR_RITE'
 	  WRITFAIL=.TRUE.
+	  INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	  IF(FILE_OPEN)CLOSE(UNIT=LU)
 	  RETURN
 	END IF
 !
@@ -455,8 +457,19 @@
 	    WRITE(LUER,'(1X,4(I6,4X))')IREC,NITSF,NUM_TIMES,LST_NG
 	  END IF
 	  WRITE(LU,'(X,A,50X,A)')FORMAT_DATE,'!Format date'
-	  WRITE(LU,'(1X,4(I6,4X),2X,L1)')IREC,NITSF,NUM_TIMES,LST_NG,WRITE_RVSIG
+	  WRITE(LU,'(1X,4(I6,4X),2X,L1)',IOSTAT=IOS)
+	1    IREC,NITSF,NUM_TIMES,LST_NG,WRITE_RVSIG
 	  WRITE(LU,'(3X,A,5X,A,3X,A,4X,A,4X,A)')'IREC','NITSF','#_TIMES','LST_NG','WR_RVS'
+!
+! A failed pointer write leaves POINT at the previous iteration
+! while SCRTEMP already holds the new record -- a requeue then
+! resumes a torn pair silently.  Flag it so callers can react.
+!
+	  IF(IOS .NE. 0)THEN
+	    WRITFAIL=.TRUE.
+	    WRITE(LUER,*)'Error writing POINT1 data in SCR_RITE'
+	    WRITE(LUER,*)'IOS=',IOS
+	  END IF
 	  INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
 	IF(FILE_OPEN)CLOSE(UNIT=LU)
 !
@@ -466,8 +479,14 @@
 	    WRITE(LUER,'(1X,4(I6,4X))')IREC,NITSF,NUM_TIMES,LST_NG
 	  END IF
 	  WRITE(LU,'(X,A,50X,A)')FORMAT_DATE,'!Format date'
-	  WRITE(LU,'(1X,4(I6,4X),2X,L1)')IREC,NITSF,NUM_TIMES,LST_NG,WRITE_RVSIG
+	  WRITE(LU,'(1X,4(I6,4X),2X,L1)',IOSTAT=IOS)
+	1    IREC,NITSF,NUM_TIMES,LST_NG,WRITE_RVSIG
 	  WRITE(LU,'(3X,A,5X,A,3X,A,4X,A,4X,A)')'IREC','NITSF','#_TIMES','LST_NG','WR_RVS'
+	  IF(IOS .NE. 0)THEN
+	    WRITFAIL=.TRUE.
+	    WRITE(LUER,*)'Error writing POINT2 data in SCR_RITE'
+	    WRITE(LUER,*)'IOS=',IOS
+	  END IF
 	  INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
 	IF(FILE_OPEN)CLOSE(UNIT=LU)
 !
@@ -644,6 +663,8 @@
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,*)'Error writing R,V etc vectors in SCR_RITE'
 	  WRITFAIL=.TRUE.
+	  INQUIRE(UNIT=LU,OPENED=FILE_OPEN)
+	  IF(FILE_OPEN)CLOSE(UNIT=LU)
 	  RETURN
 	END IF
 	WRITE(6,*)'Read R, V & SIGMA'

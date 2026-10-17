@@ -58,6 +58,7 @@
 	    LUER=ERROR_LU()
 	    WRITE(LUER,*)'Error in READ_BCD_MAT'
 	    WRITE(LUER,*)'Unrecognized TYPE: TYPE=',TYPE
+	    STOP
 	  END IF
 	  IF(IOS .NE. 0)THEN
 	    LUER=ERROR_LU()
@@ -125,8 +126,9 @@
 	    WRITE(LU,IOSTAT=IOS)D
 	  ELSE
 	    LUER=ERROR_LU()
-	    WRITE(LUER,*)'Error in READ_BCD_MAT'
+	    WRITE(LUER,*)'Error in WRITE_BCD_MAT'
 	    WRITE(LUER,*)'Unrecognized TYPE: TYPE=',TYPE
+	    STOP
 	  END IF
 	  IF(IOS .NE. 0)THEN
 	    LUER=ERROR_LU()

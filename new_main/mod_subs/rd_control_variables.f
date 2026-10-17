@@ -2543,6 +2543,18 @@
 	  BA_DAMP_CAP=0.0_LDP
 	  CALL RD_STORE_DBLE(BA_DAMP_CAP,'BA_DAMP_CAP',L_FALSE,
 	1      'Factor cap for damped full steps on saturated demand')
+!
+! A user cap <= 1 lets MIN(T1,BA_DAMP_CAP) collapse every damped
+! step to a contraction; fail at read time instead of letting the
+! schedule reach a meaningless state (same contract as the MAX_dT
+! validation above).
+!
+	  IF(BA_DAMP_CAP .GT. 0.0_LDP .AND. BA_DAMP_CAP .LE. 1.0_LDP)THEN
+	    WRITE(LUER,*)' Error: BA_DAMP_CAP in VADAT has an invalid'//
+	1      ' value of',BA_DAMP_CAP
+	    WRITE(LUER,*)' Require BA_DAMP_CAP = 0 (off) or > 1.0'
+	    STOP
+	  END IF
 	  IF(BA_DAMP_CAP .GT. 0.0_LDP .AND. BA_SAT_LIM .LE. 0)
 	1    BA_SAT_LIM=8
 !

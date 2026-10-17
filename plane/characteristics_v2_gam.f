@@ -71,6 +71,8 @@
 ! Radius variables
 !
       REAL(KIND=LDP) dZ,dV,dR
+      INTEGER(8) :: N_CLAMP_POINT=0
+      REAL(KIND=LDP) B_CLMP
       REAL(KIND=LDP) :: RMIN,RMAX,DS,SS,RR,VEL,A_OLD,DR_OLD,DS_1,DR_1
       REAL(KIND=LDP) :: MU_E,MU_H
 !
@@ -317,7 +319,9 @@
 !	IF(.NOT. ALLOCATED(RAY(IP)%NINS))ALLOCATE (RAY(IP)%NINS(NRAY_SM))
 !	RAY(IP)%NINS=0
         DO I=1,NRAY_SM
-          Z(I)=SQRT( (R_GRID(I)-P(IP))*(R_GRID(I)+P(IP)) )
+	  B_CLMP=MIN(P(IP),0.9999_LDP*R_GRID(I))
+	  IF(B_CLMP .NE. P(IP))N_CLAMP_POINT=N_CLAMP_POINT+1
+          Z(I)=SQRT( (R_GRID(I)-B_CLMP)*(R_GRID(I)+B_CLMP) )
 !          RAY(IP)%Z_SM(I)=SQRT((R_GRID(I)-P(IP))*(R_GRID(I)+P(IP)))
 	END DO
         R(1)=R_GRID(1)
@@ -325,10 +329,10 @@
         ID=1
         DO I=1,NRAY_SM-1
           dV=Z(I)*V_GRID(I)/R_GRID(I)-Z(I+1)*V_GRID(I+1)/R_GRID(I+1)
-          IF(dV .GT. 1.25_LDP*VDOP_FRAC*VDOP_VEC(I))THEN
+          IF(ABS(dV) .GT. 1.25_LDP*VDOP_FRAC*VDOP_VEC(I))THEN
             RAY_POINTS_INSERTED=.TRUE.
 	    WRITE(LUER,'(A,1X,I3)') "INSERTING RAY POINTS for ray:",IP
-            NINS=dV/(VDOP_FRAC*VDOP_VEC(I))
+            NINS=ABS(dV)/(VDOP_FRAC*VDOP_VEC(I))
 !	    RAY(IP)%NINS(I)=NINS
             dZ=(Z(I)-Z(I+1))/(NINS+1)
             IF(ID .GT. NRAY_MAX)THEN

@@ -82,7 +82,7 @@
 	1       ACCESS='DIRECT',STATUS='OLD',RECL=RECORD_SIZE,IOSTAT=IOS)
 	  IF(IOS .EQ. 0)THEN
 	    READ(LU_EDD,REC=FINISH_REC,IOSTAT=IOS)T1
-	    IF(FILENAME .EQ. FILENAME .OR. FILENAME .EQ. 'ES_J_CONV')THEN
+	    IF(FILENAME .EQ. 'EDDFACTOR' .OR. FILENAME .EQ. 'ES_J_CONV')THEN
 	      IF(T1 .EQ. 0.0_LDP .OR. IOS .NE. 0)THEN
 	        WRITE(LUER,'(/,A)')' Warning --- All values not'//
 	1                      ' computed - will compute new F'
@@ -196,7 +196,12 @@
 	  END IF
 	END IF
 !
-	READ(LU_EDD,REC=RV_REC)IREC
+	READ(LU_EDD,REC=RV_REC,IOSTAT=IOS)IREC
+	IF(IOS .NE. 0)THEN
+	  WRITE(LUER,*)'Error reading RV_REC pointer in',TRIM(FILENAME)
+	  WRITE(LUER,*)'IOSTAT=',IOS,' -- treating file as empty'
+	  IREC=0
+	END IF
 	IF(IREC .EQ. 0)THEN
 	  IREC=ACCESS_F
 	  WRITE(LU_EDD,REC=RV_REC)IREC

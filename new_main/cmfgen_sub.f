@@ -203,6 +203,7 @@
 !
 	INTEGER MAIN_COUNTER,NITSF,NUM_ITS_RD,NUM_ITS_TO_DO
 	LOGICAL LST_ITERATION
+	LOGICAL SCRWF
 	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
 	LOGICAL BA_STAGEB_ARM
 ! edited by Devin, 16-Oct-2026: CONV_EXIT_MET is the converged-exit
@@ -1260,7 +1261,11 @@
 	  IF(RDINSOL .OR. NEWMOD)THEN
 	    MAIN_COUNTER=NITSF+1
 	    CALL SCR_RITE_V2(R,V,SIGMA,POPS,IREC,MAIN_COUNTER,RITE_N_TIMES,
-	1                  LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
+	1                  LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,SCRWF)
+	    IF(SCRWF)WRITE(LUER,'(A)')
+	1    'ERROR: SCR_RITE_V2 reported WRITFAIL -- SCRTEMP/POINT'//
+	2    ' checkpoint is torn; a requeue resumes the LAST clean'//
+	3    ' record, not this one.'
 	  END IF
 	  LST_ITERATION=.TRUE.
 	  CALL TUNE(IONE,'GIT')
@@ -4421,7 +4426,11 @@
 	      CALL WIND_SCALE_POPS_V1(POPS,R_OLD,Z_POP,DO_LEV_DISSOLUTION,ND,NT)
 	    END IF
 	    CALL SCR_RITE_V2(R,V,SIGMA,POPS,IREC,MAIN_COUNTER,RITE_N_TIMES,
-	1                LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
+	1                LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,SCRWF)
+	    IF(SCRWF)WRITE(LUER,'(A)')
+	1    'ERROR: SCR_RITE_V2 reported WRITFAIL -- SCRTEMP/POINT'//
+	2    ' checkpoint is torn; a requeue resumes the LAST clean'//
+	3    ' record, not this one.'
 	END IF
 !
 ! Match the mode controller's applied-change metric for administrative
@@ -4434,7 +4443,11 @@
 	  IF(CHK)THEN
 	    CALL SET_ABUND_CLUMP(MEAN_ATOMIC_WEIGHT,ABUND_SUM,LUER,ND)
 	    CALL SCR_RITE_V2(R,V,SIGMA,POPS,IREC,MAIN_COUNTER,RITE_N_TIMES,
-	1                LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
+	1                LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,SCRWF)
+	    IF(SCRWF)WRITE(LUER,'(A)')
+	1    'ERROR: SCR_RITE_V2 reported WRITFAIL -- SCRTEMP/POINT'//
+	2    ' checkpoint is torn; a requeue resumes the LAST clean'//
+	3    ' record, not this one.'
 	    LAMBDA_ITERATION=.TRUE.
             FIXED_T=.TRUE.
 	    RD_FIX_T=.TRUE.
@@ -5234,7 +5247,11 @@
 	1               LUER,LUIN,NC,ND,NP,NT,NCF,N_LINE_FREQ,MAX_SIM)
                  MAIN_COUNTER=MAIN_COUNTER+1
 	         CALL SCR_RITE_V2(R,V,SIGMA,POPS,IREC,MAIN_COUNTER,RITE_N_TIMES,
-	1               LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
+	1               LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,SCRWF)
+	    IF(SCRWF)WRITE(LUER,'(A)')
+	1    'ERROR: SCR_RITE_V2 reported WRITFAIL -- SCRTEMP/POINT'//
+	2    ' checkpoint is torn; a requeue resumes the LAST clean'//
+	3    ' record, not this one.'
 	       END IF
 	       I=WORD_SIZE*(NDEXT+1)/UNIT_SIZE
 !

@@ -94,6 +94,13 @@
 	INTEGER NRAY_MAX
 	INTEGER NRAY_SM
 !
+! A ray with P > R_GRID(I) makes the Z_SM square root negative --
+! grid noise on a tangent ray is enough.  Clamp the impact radius
+! and count the events instead of emitting a NaN Z.
+!
+	INTEGER(8) :: N_CLAMP_POINT=0
+	REAL(KIND=LDP) B_CLMP
+!
 	INTEGER ERROR_LU
 	INTEGER LUER
 	INTEGER IOS
@@ -283,15 +290,17 @@
         NRAY_SM=ND
         IF(IP .GT. NC)NRAY_SM=ND-(IP-NC-1)
         DO I=1,NRAY_SM
-          Z(I)=SQRT( (R_GRID(I)-P(IP))*(R_GRID(I)+P(IP)) )
+	  B_CLMP=MIN(P(IP),0.9999_LDP*R_GRID(I))
+	  IF(B_CLMP .NE. P(IP))N_CLAMP_POINT=N_CLAMP_POINT+1
+          Z(I)=SQRT( (R_GRID(I)-B_CLMP)*(R_GRID(I)+B_CLMP) )
 	END DO
         R(1)=R_GRID(1)
         ID=1
         DO I=1,NRAY_SM-1
           dV=Z(I)*V_GRID(I)/R_GRID(I)-Z(I+1)*V_GRID(I+1)/R_GRID(I+1)
-          IF(dV .GT. 1.25_LDP*VDOP_FRAC*VDOP_VEC(I))THEN
+          IF(ABS(dV) .GT. 1.25_LDP*VDOP_FRAC*VDOP_VEC(I))THEN
             RAY_POINTS_INSERTED=.TRUE.
-            NINS=dV/(VDOP_FRAC*VDOP_VEC(I))
+            NINS=ABS(dV)/(VDOP_FRAC*VDOP_VEC(I))
             dZ=(Z(I)-Z(I+1))/(NINS+1)
             IF(ID .GT. NRAY_MAX)THEN
 	      WRITE(LUER,*)'Error in CHRACTERISTICS_V2'

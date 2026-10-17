@@ -228,6 +228,8 @@
 	INTEGER BAND_INDX
 !
         INTEGER I,J,K,JJ
+	INTEGER N_DIV_FLOOR
+	REAL(KIND=LDP) POP_DIV
         INTEGER IOS,IFAIL
 	CHARACTER*10 DESC
 	LOGICAL ANONZERO,ENONZERO
@@ -248,6 +250,7 @@
 	CHARACTER(LEN=200) BCD_DIR,BCD_F1,BCD_F2
 !
 	LUER=ERROR_LU()
+	N_DIV_FLOOR=0
 !
 ! The DIAG recall path reads the cached LU factors (CSCRATCH<depth>)
 ! written by WRITE_BCD_MAT.  A stored BAMAT can outlive the cache:
@@ -354,7 +357,19 @@
 ! Correct for the use of old POPS populations in doing the scaling.
 !
 	   DO I=1,N
-	     STEQ(I,K)=STEQ(I,K)*(ORIG_POPS(I,K)/POPS(I,K))
+!
+! A transiently non-positive POPS (rejected pre-step residue)
+! divides to Inf/NaN here; floor it at a fraction of the saved
+! pre-step population so the correction stays finite, and count
+! the intervention.
+!
+	     POP_DIV=MAX(POPS(I,K),
+	1        1.0E-40_LDP*MAX(ABS(ORIG_POPS(I,K)),1.0E-300_LDP))
+	     IF(POP_DIV .NE. POPS(I,K))THEN
+	       N_DIV_FLOOR=N_DIV_FLOOR+1
+	       FLAG=.TRUE.
+	     END IF
+	     STEQ(I,K)=STEQ(I,K)*(ORIG_POPS(I,K)/POP_DIV)
 	   END DO
 !
 	  END DO
@@ -580,7 +595,13 @@
 !
 	  DO K=1,ND
 	    DO I=1,N
-	      STEQ(I,K)=STEQ(I,K)*(ORIG_POPS(I,K)/POPS(I,K))
+	      POP_DIV=MAX(POPS(I,K),
+	1        1.0E-40_LDP*MAX(ABS(ORIG_POPS(I,K)),1.0E-300_LDP))
+	      IF(POP_DIV .NE. POPS(I,K))THEN
+	        N_DIV_FLOOR=N_DIV_FLOOR+1
+	        FLAG=.TRUE.
+	      END IF
+	      STEQ(I,K)=STEQ(I,K)*(ORIG_POPS(I,K)/POP_DIV)
 	    END DO
 	  END DO
 !

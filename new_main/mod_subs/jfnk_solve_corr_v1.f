@@ -138,6 +138,8 @@
 	INTEGER, ALLOCATABLE :: J2ID_LOC(:)
 	INTEGER, ALLOCATABLE :: NZ_SP(:)
 	INTEGER JROW,KROW,LEV_LOC,IHS
+	INTEGER NEV_CAP
+	LOGICAL L_EVR_PTZ,L_EVR_FDOP,L_EVR_TOPF,L_EVR_TZ2
 	DOUBLE PRECISION POP_LOC,NLTE_LOC,BADG_LOC
 	CHARACTER*14 LBL_LOC
 	LOGICAL REP_LOC
@@ -1038,6 +1040,23 @@
 	    IF(JFNK_REACH_OK)THEN
 	      ALLOCATE(JV_FD(JFNK_N), JV_FD2(JFNK_N), Z_BLK(JFNK_N))
 	      ALLOCATE(JV_SAV(JFNK_N))
+!
+! Eval-budget headroom for the probe JVP calls below: each probe
+! costs a full coupled sweep, and an activation near its cap would
+! spend the remaining evals on diagnostics while the Newton solve
+! starves.  NEV_CAP=MIN(JFNK_EVAL_LIM,JFNK_MAX_EVALS) with 0 = off;
+! a probe needs >=2 evals of headroom (eval + clip retry).  Skipped
+! probes print at CONV_DIAG_LVL>=2 and leave the flag false.
+!
+	      NEV_CAP=0
+	      IF(JFNK_EVAL_LIM .GT. 0)NEV_CAP=JFNK_EVAL_LIM
+	      IF(JFNK_MAX_EVALS .GT. 0 .AND.
+	1    (NEV_CAP .EQ. 0 .OR. JFNK_MAX_EVALS .LT. NEV_CAP))
+	2    NEV_CAP=JFNK_MAX_EVALS
+	      L_EVR_PTZ=.FALSE.
+	      L_EVR_FDOP=.FALSE.
+	      L_EVR_TOPF=.FALSE.
+	      L_EVR_TZ2=.FALSE.
 	      IF(ALLOCATED(J2ID_LOC))DEALLOCATE(J2ID_LOC)
 	      ALLOCATE(J2ID_LOC(JFNK_NT))
 	      J2ID_LOC=0
@@ -1062,11 +1081,19 @@
 	      END DO
 	      Z_BLK = 0.0_LDP
 	      Z_BLK(I_ZMAX) = 1.0_LDP
-	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_SAV)
-	      WRITE(LUER,'(A,I8,A,ES12.4)')
+	      IF(NEV_CAP .LE. 0 .OR.
+	1    JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	        CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_SAV)
+	        L_EVR_PTZ=.TRUE.
+	        WRITE(LUER,'(A,I8,A,ES12.4)')
 	1        '  COLPROBE pristine topZ idx=',I_ZMAX,
 	2        ' |FDcol|=',
 	3        REAL(SQRT(JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV)))
+	      ELSE
+	        JV_SAV=0.0D0
+	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A)')
+	1        '  COLPROBE pristine topZ skipped: eval headroom < 2'
+	      END IF
 !
 ! FD-vs-stored operator check (11-Oct-2026): the stored-BA REACH can
 ! report frac~1 while the finite-difference operator maps the same
@@ -1074,7 +1101,10 @@
 ! One extra residual eval prices A_FD*z directly; the anatomy names
 ! the rows where stored BA and true dF/dx diverge.
 !
+	      IF(NEV_CAP .LE. 0 .OR.
+	1    JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
 	      CALL JFNK_JVP_V1(JFNK_N, Z_CLIP, JV_FD)
+	      L_EVR_FDOP=.TRUE.
 	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD)
 	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
 	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD)
@@ -1086,6 +1116,11 @@
 	5        ' cos(BAz,A_FDz)=',
 	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD,JFNK_N)
+	      ELSE
+	        JV_FD=0.0D0
+	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A)')
+	1        '  REACH-FD clipped probe skipped: eval headroom < 2'
+	      END IF
 !
 ! Direction gates on the FD image (defaults 0 = off): the stored-BA
 ! stage-A tests can pass on states where the true Jacobian maps z
@@ -1095,6 +1130,12 @@
 ! actually sees.  Deferring here still costs only the evals already
 ! spent above; the remaining isolation probes are skipped.
 !
+!
+! The gates below read COS_FD/JZF_FD priced from the probe JVP;
+! with the probe skipped those metrics are uninitialized and a
+! garbage value could veto the whole admission.  Gate the gates.
+!
+	      IF(L_EVR_FDOP)THEN
 	      COS_FD=FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))
 	      JZF_FD=SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))
 	      IF(JFNK_COS_MIN .GT. 0.0_LDP .AND.
@@ -1133,6 +1174,7 @@
 	1        '  JFNK GUARD DEFER: FD non-descent cos(F,Az)=',
 	2        REAL(COS_FD),' < fd_cos_min=',REAL(JFNK_FD_COS_MIN)
 	      END IF
+	      END IF    ! L_EVR_FDOP gate on the FD direction gates
 !
 	    IF(JFNK_REACH_OK)THEN
 ! Isolation probes (11-Oct-2026): A_FD*z returned ~60x|F| with
@@ -1232,7 +1274,16 @@
 !
 	      Z_BLK = 0.0_LDP
 	      Z_BLK(I_TOPF) = 1.0_LDP
-	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	      IF(NEV_CAP .LE. 0 .OR.
+	1    JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	        CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	        L_EVR_TOPF=.TRUE.
+	      ELSE
+	        JV_FD2=0.0D0
+	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A)')
+	1        '  COLPROBE topF skipped: eval headroom < 2'
+	      END IF
+	      IF(L_EVR_TOPF)THEN
 	      JV_FD = 0.0_LDP
 	      DO I = (K_TOPF-1)*JFNK_NT+1, K_TOPF*JFNK_NT
 	        JV_FD(I) = JFNK_BA_A(MOD(I-1,JFNK_NT)+1,
@@ -1323,14 +1374,22 @@
 	!
 	      WRITE(LUER,'(A)')'  COLPROBE hscan (topF self):'
 	      DO IHS=1,3
-	        JFNK_PROBE_HSCALE=HS_ARR(IHS)
-	        Z_BLK=0.0_LDP
-	        Z_BLK(I_TOPF)=1.0_LDP
-	        CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
-	        WRITE(LUER,'(A,ES10.2,A,ES14.6)')
-	1          '    h x',HS_ARR(IHS),' FD=',JV_FD2(I_TOPF)
+	        IF(NEV_CAP .LE. 0 .OR.
+	1      JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	          JFNK_PROBE_HSCALE=HS_ARR(IHS)
+	          Z_BLK=0.0_LDP
+	          Z_BLK(I_TOPF)=1.0_LDP
+	          CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
+	          WRITE(LUER,'(A,ES10.2,A,ES14.6)')
+	1            '    h x',HS_ARR(IHS),' FD=',JV_FD2(I_TOPF)
+	        ELSE IF(CONV_DIAG_LVL .GE. 2)THEN
+	          WRITE(LUER,'(A,ES10.2,A)')'    h x',HS_ARR(IHS),
+	1            ' skipped: eval headroom < 2'
+	          EXIT
+	        END IF
 	      END DO
 	      JFNK_PROBE_HSCALE=1.0_LDP
+	      END IF    ! L_EVR_TOPF on the topF column probe
 !
 ! (b) same column probe for the top-|z| row (the ~147 component).
 !
@@ -1345,7 +1404,16 @@
 	      J = (I_ZMAX-1)/JFNK_NT + 1
 	      Z_BLK = 0.0_LDP
 	      Z_BLK(I_ZMAX) = 1.0_LDP
-	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	      IF(NEV_CAP .LE. 0 .OR.
+	1    JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	        CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
+	        L_EVR_TZ2=.TRUE.
+	      ELSE
+	        JV_FD2=0.0D0
+	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A)')
+	1        '  COLPROBE topZ skipped: eval headroom < 2'
+	      END IF
+	      IF(L_EVR_TZ2)THEN
 	      JV_FD = 0.0_LDP
 	      DO I = (J-1)*JFNK_NT+1, J*JFNK_NT
 	        JV_FD(I) = JFNK_BA_A(MOD(I-1,JFNK_NT)+1,
@@ -1415,6 +1483,9 @@
 ! zero means the evals are pure and the cross-depth entries are real
 ! Jacobian structure; a large value proves eval-order contamination.
 !
+	      END IF    ! L_EVR_TZ2 on the topZ column probe
+!
+	      IF(L_EVR_PTZ .AND. L_EVR_TZ2)THEN
 	      JV_FD = JV_FD2 - JV_SAV
 	      FJZ_FD = SQRT(JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD))
 	      JVP_N = SQRT(JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV))
@@ -1422,22 +1493,36 @@
 	1        '  COLPROBE repeat-vs-pristine: |diff|=',
 	2        REAL(FJZ_FD),
 	3        ' rel=',REAL(FJZ_FD/MAX(JVP_N,1.0E-300_LDP))
+	      ELSE IF(CONV_DIAG_LVL .GE. 2)THEN
+	        WRITE(LUER,'(A)')
+	1        '  COLPROBE repeat-vs-pristine skipped: a leg was'//
+	2        ' budget-deferred'
+	      END IF
 !
 ! h-scan on the topZ self element.  A derivative stable across
 ! decades of step size is real; one that drifts or flips is
 ! cancellation noise (row partial terms reach 1D15-1D19 against a
 ! nominal 1.5D-8 perturbation).
 !
+	      IF(L_EVR_TZ2)THEN
 	      WRITE(LUER,'(A)')'  COLPROBE hscan (topZ self):'
 	      DO IHS=1,3
-	        JFNK_PROBE_HSCALE=HS_ARR(IHS)
-	        Z_BLK=0.0_LDP
-	        Z_BLK(I_ZMAX)=1.0_LDP
-	        CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
-	        WRITE(LUER,'(A,ES10.2,A,ES14.6)')
-	1          '    h x',HS_ARR(IHS),' FD=',JV_FD2(I_ZMAX)
+	        IF(NEV_CAP .LE. 0 .OR.
+	1      JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	          JFNK_PROBE_HSCALE=HS_ARR(IHS)
+	          Z_BLK=0.0_LDP
+	          Z_BLK(I_ZMAX)=1.0_LDP
+	          CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
+	          WRITE(LUER,'(A,ES10.2,A,ES14.6)')
+	1            '    h x',HS_ARR(IHS),' FD=',JV_FD2(I_ZMAX)
+	        ELSE IF(CONV_DIAG_LVL .GE. 2)THEN
+	          WRITE(LUER,'(A,ES10.2,A)')'    h x',HS_ARR(IHS),
+	1            ' skipped: eval headroom < 2'
+	          EXIT
+	        END IF
 	      END DO
 	      JFNK_PROBE_HSCALE=1.0_LDP
+	      END IF
 !
 ! (b) soft-component removal: zero every |z_i|>1 and re-price.
 !
@@ -1445,6 +1530,8 @@
 	      DO I = 1, JFNK_N
 	        IF(ABS(Z_BLK(I)) .GT. 1.0_LDP) Z_BLK(I) = 0.0_LDP
 	      END DO
+	      IF(NEV_CAP .LE. 0 .OR.
+	1    JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
 	      CALL JFNK_JVP_V1(JFNK_N, Z_BLK, JV_FD2)
 	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD2)
 	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
@@ -1457,6 +1544,10 @@
 	5        ' cos(BAz,A_FDz)=',
 	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD2,JFNK_N)
+	      ELSE IF(CONV_DIAG_LVL .GE. 2)THEN
+	        WRITE(LUER,'(A)')
+	1        '  REACH-FD soft-removal probe skipped: eval headroom < 2'
+	      END IF
 	    END IF
 	      DEALLOCATE(JV_FD, JV_FD2, Z_BLK, JV_SAV)
 	    END IF

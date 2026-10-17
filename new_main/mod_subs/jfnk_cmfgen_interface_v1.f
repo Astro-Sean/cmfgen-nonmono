@@ -7145,10 +7145,18 @@
 ! the same cap.
 !
 	IF(JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+!
+! The plain arm must disarm the enrichment first: Z0 above ran
+! AFTER JFNK_ENRICH_ACTIVE went T, so it priced the same enriched
+! apply as Z1 -- identical operators under two labels, two wasted
+! evals, and a false "plain" comparison.
+!
+	  JFNK_ENRICH_ACTIVE=.FALSE.
 	  Z0=jfnk_fx
 	  CALL JFNK_PRECOND_V1(N,Z0)
 	  A0=0.0D0
 	  CALL JFNK_JVP_V1(N,Z0,A0)
+	  JFNK_ENRICH_ACTIVE=.TRUE.
 	  Z1=jfnk_fx
 	  CALL JFNK_PRECOND_V1(N,Z1)
 	  A1=0.0D0

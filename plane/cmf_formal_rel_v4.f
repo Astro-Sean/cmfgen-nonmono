@@ -388,7 +388,7 @@
 	    HQW_AT_RMAX=2.0_LDP*HQW_P(1,IP)
 	    WRITE(7,'(I4,4ES16.6)')IP,MU_AT_RMAX,HQW_AT_RMAX,
 	1                 (MU_AT_RMAX+V(1)/C_KMS)/(1.0D0+MU_AT_RMAX*V(1)/C_KMS),
-	1                 SQRT( (R(1)-P(IP))*(R(1)+P(IP)) )/R(1)
+	1                 SQRT( MAX(0.0_LDP,(R(1)-P(IP))*(R(1)+P(IP))) )/R(1)
 	  END DO
 	  CLOSE(UNIT=7)
 	  IF( ALLOCATED(CHI_RAY) ) DEALLOCATE (CHI_RAY)
@@ -403,7 +403,9 @@
 !
 	IF(INNER_BND_METH .EQ. 'HOLLOW')THEN
 	  IF(.NOT. ALLOCATED(FREQ_STORE))THEN
-	    N_STORE=2.0_LDP*V(ND)                   !/5.0D0
+	    N_STORE=MAX(1,NINT(2.0_LDP*V(ND)))      !/5.0D0
+! A coastal V(ND) truncates N_STORE to 0, which then crashes in
+! MOD(CUR_LOC+1,N_STORE) and allocates a zero-size store -- floor at 1.
 	    WRITE(6,*)'N_STORE=',N_STORE
 	    WRITE(6,*)'VDOP_FRAC=',VDOP_FRAC
 	    WRITE(6,*)'MIN(VDOP)=',MINVAL(VDOP_VEC)
@@ -414,7 +416,7 @@
 	    IF(NEW_R_GRID)THEN
 	      BETA=V(ND)/2.99792458E+05_LDP
 	      DO IP=1,NC
-	        T1=SQRT( (R(ND)-P(IP))*(R(ND)+P(IP)) )/R(ND)
+	        T1=SQRT( MAX(0.0_LDP,(R(ND)-P(IP))*(R(ND)+P(IP))) )/R(ND)
 	        T2=1.0_LDP-BETA*(T1+BETA)/(1.0_LDP+BETA*T1)
 	        RAY(IP)%FREQ_CONV_FAC=1.0_LDP/GAM_REL_STORE(ND)/GAM_REL_STORE(ND)/T2/(1.0_LDP-BETA*T1)
 	        WRITE(6,'(5ES14.4)')RAY(IP)%FREQ_CONV_FAC,GAM_REL_STORE(ND),T1,T2,BETA

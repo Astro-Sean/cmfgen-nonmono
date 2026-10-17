@@ -68,10 +68,31 @@
 	     ALLOCATE(RJ_LOW(1:ND))
 	     ALLOCATE(RJ_HIGH(1:ND))
 	  END IF
-	  READ(LU_EDD,REC=ACCESS_F)(RJ_HIGH(I),I=1,ND),HIGH_FREQ
-          ACCESS_F=ACCESS_F+1
-	  READ(LU_EDD,REC=ACCESS_F)(RJ_LOW(I),I=1,ND),LOW_FREQ
-          ACCESS_F=ACCESS_F+1
+	  READ(LU_EDD,REC=ACCESS_F,IOSTAT=IOS)(RJ_HIGH(I),I=1,ND),HIGH_FREQ
+	  IF(IOS .NE. 0)THEN
+!
+! A torn EDDFACTOR record hard-crashes the LAMBDA warm-up.  Fall back
+! to zero J with bounds covering FL so later reads skip the walk;
+! SOURCE then reduces to ZETA only for this species.
+!
+	    WRITE(LUER,*)'Error reading EDDFACTOR in RD_CONT_J'
+	    WRITE(LUER,*)'IOSTAT=',IOS,' ACCESS_F=',ACCESS_F
+	    RJ_HIGH(1:ND)=0.0_LDP
+	    RJ_LOW(1:ND)=0.0_LDP
+	    HIGH_FREQ=0.0_LDP
+	    LOW_FREQ=0.0_LDP
+	  ELSE
+            ACCESS_F=ACCESS_F+1
+	    READ(LU_EDD,REC=ACCESS_F,IOSTAT=IOS)(RJ_LOW(I),I=1,ND),LOW_FREQ
+	    IF(IOS .NE. 0)THEN
+	      WRITE(LUER,*)'Error reading EDDFACTOR in RD_CONT_J'
+	      WRITE(LUER,*)'IOSTAT=',IOS,' ACCESS_F=',ACCESS_F
+	      RJ_LOW(1:ND)=0.0_LDP
+	      LOW_FREQ=0.0_LDP
+	    ELSE
+              ACCESS_F=ACCESS_F+1
+	    END IF
+	  END IF
 	END IF
 !
 ! Get next frequency until we find the interpolation interval. Note

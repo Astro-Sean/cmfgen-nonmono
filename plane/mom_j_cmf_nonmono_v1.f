@@ -4655,6 +4655,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: RES_L(:)
 	INTEGER, ALLOCATABLE :: NMUP_L(:)
 	INTEGER NACT
+	INTEGER NJMP
 	LOGICAL DO_ACT
 !
 	LUER=ERROR_LU()
@@ -5822,6 +5823,39 @@
 	    IF(.NOT. KEEP_BEST)WRITE(LUER,'(A)')
 	1      ' MOM_KNOP_REFRESH: best-pass field rejected'//
 	2      ' (non-finite or >1E40 entry)  [WARN]'
+	  END IF
+!
+! W16: retained-store jump guard (MOM parity with the FG W9
+! commit-jump).  A best-pass cell can sit orders above the retained
+! store while every aggregate test passes; committing it re-seeds
+! the next refresh from a near-blowup.  Same rule as FG_JUMP_MAX:
+! the write must exceed 50x its stored value AND the stored column
+! scale (MAX(|store|)/50) to count as a jump, so seed/floor cells
+! and ordinary reshaping still commit.
+!
+	  IF(KEEP_BEST)THEN
+	    T3=0.0_LDP
+	    DO L=1,KN_M_NCF
+	      DO I=1,ND_NM
+	        T3=MAX(T3,ABS(JNEXT_SAVE(I,L)),ABS(HNEXT_SAVE(I,L)))
+	      END DO
+	    END DO
+	    T3=MAX(T3/50.0_LDP,1.0E-300_LDP)
+	    NJMP=0
+	    DO L=1,KN_M_NCF
+	      DO I=1,ND_NM
+	        IF(ABS(JBEST(I,L)-JNEXT_SAVE(I,L)) .GT.
+	1          50.0_LDP*MAX(ABS(JNEXT_SAVE(I,L)),T3) .OR.
+	2          ABS(HBEST(I,L)-HNEXT_SAVE(I,L)) .GT.
+	3          50.0_LDP*MAX(ABS(HNEXT_SAVE(I,L)),T3))NJMP=NJMP+1
+	      END DO
+	    END DO
+	    IF(NJMP .GT. 0)THEN
+	      KEEP_BEST=.FALSE.
+	      WRITE(LUER,'(A,I10,A)')
+	1      ' MOM_KNOP_REFRESH: best-pass field rejected'//
+	2      ' (',NJMP,' cells >50x retained store)  [WARN]'
+	    END IF
 	  END IF
 	  IF(KEEP_BEST)THEN
 	    J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)=

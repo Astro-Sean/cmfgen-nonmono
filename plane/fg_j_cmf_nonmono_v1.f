@@ -343,7 +343,7 @@
 	INTEGER, SAVE :: FG_GS_NCF=-1
 	REAL(KIND=LDP), SAVE :: FG_GS_MAXCHG=0.0_LDP
 	INTEGER*8, SAVE :: FG_GS_NCONV=0
-	INTEGER, SAVE :: FG_INEXT_CAPPED=0
+	INTEGER*8, SAVE :: FG_INEXT_CAPPED=0
 !
 ! FG_GS_NBAD / FG_GS_NTOT: bulk convergence accounting from the last
 ! FG_KNOP_REFRESH_V1 pass -- number of significant cells (intensity
@@ -394,6 +394,14 @@
 	INTEGER, SAVE :: FG_GS_NDIV=0
 	INTEGER*8, SAVE :: FG_GS_NBAD_BLK=-1
 	INTEGER*8, SAVE :: FG_GS_NTOT_BLK=0
+!
+! FG_GS_NSTAL / FG_GS_NPLAT split the bulk bad-cell census by exit
+! class: stall/cap rays (IXIT=3,4) are still slow-converging, plateau
+! rays (IXIT=6) stopped improving entirely.  The two feed different
+! unsafe-share tiers in SOLVE_FOR_POPS.
+!
+	INTEGER*8, SAVE :: FG_GS_NSTAL=0
+	INTEGER*8, SAVE :: FG_GS_NPLAT=0
 	INTEGER, SAVE :: FG_DIV_HEAL=0
 	INTEGER, SAVE :: FG_COMMIT_REJ=0
 	REAL(KIND=LDP), SAVE :: FG_COMMIT_JUMP=50.0_LDP
@@ -894,7 +902,7 @@
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
 	USE MOD_RAY_MOM_STORE
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_IN_EVAL
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_IN_EVAL,CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 ! Altered 05-Oct-2026: V and SIGMA_TRUE fingerprints added to the NEW_R_GRID test so a
@@ -2100,6 +2108,8 @@
 	    FG_GS_NDIV=0
 	    FG_GS_NBAD_BLK=-1
 	    FG_GS_NTOT_BLK=0
+	    FG_GS_NSTAL=0
+	    FG_GS_NPLAT=0
 	    FG_DIV_HEAL=0
 	    FG_COMMIT_REJ=0
 	    KN_HOT_SPENT=0
@@ -4475,9 +4485,21 @@ C
             CALL WRITE_DIRECT_INFO_V3(NP,I,'20-Aug-2000','IP_FG_DATA',LU_IP)
             OPEN(UNIT=LU_IP,FILE='IP_FG_DATA',FORM='UNFORMATTED',
 	1         ACCESS='DIRECT',STATUS='UNKNOWN',RECL=I,IOSTAT=IOS)
-	    FREQ_CNT=0
-            WRITE(LU_IP,REC=3)ACCESS_F,FREQ_CNT,NP
-            WRITE(LU_IP,REC=ACCESS_F)(P(I),I=1,NP)
+!
+! A failed direct-access open left WRITE_IP armed: every later
+! REC write then hits an unopened unit on the production path.
+! Fail closed instead -- IP_FG_DATA is an opt-in diagnostic file,
+! so disabling it costs nothing.
+!
+	    IF(IOS .NE. 0)THEN
+	      WRITE_IP=.FALSE.
+	      WRITE(LUER,'(A,I8)')'IP_FG_DATA open failed, IOSTAT=',IOS
+	    END IF
+	    IF(WRITE_IP)THEN
+	      FREQ_CNT=0
+              WRITE(LU_IP,REC=3)ACCESS_F,FREQ_CNT,NP
+              WRITE(LU_IP,REC=ACCESS_F)(P(I),I=1,NP)
+	    END IF
 	  END IF
 	END IF
         IF(WRITE_IP)THEN
@@ -4501,9 +4523,15 @@ C
 ! to JNU_CLAMP_DIAG.txt after the first sweep of the first great iteration.
 ! This is a one-shot diagnostic - it writes once and never again.
 ! edited by Sean Brennan
-	IF(JNU_CLAMP_DIAG_WRITTEN .EQ. 0 .AND. N_SWEEP_CNT .GE. NCF_IN)THEN
+! W18: gated on CONV_DIAG_LVL>=1 -- this write ran unconditionally on
+! the production path on every cold start.  IOSTAT checked so a
+! failing open never wedges the sweep.
+	IF(CONV_DIAG_LVL .GE. 1 .AND.
+	1   JNU_CLAMP_DIAG_WRITTEN .EQ. 0 .AND. N_SWEEP_CNT .GE. NCF_IN)THEN
 	  JNU_CLAMP_DIAG_WRITTEN=1
-	  OPEN(UNIT=999,FILE='JNU_CLAMP_DIAG.txt',STATUS='REPLACE',ACTION='WRITE')
+	  OPEN(UNIT=999,FILE='JNU_CLAMP_DIAG.txt',STATUS='REPLACE',
+	1   ACTION='WRITE',IOSTAT=IOS)
+	  IF(IOS .NE. 0)GOTO 9998
 	  WRITE(999,'(A)')' ========== JNU Clamp Diagnostic (first sweep, first great iteration) =========='
 	  WRITE(999,'(A,I8,A,I6)')'Total clamped: ',N_NAN_JNU_SWEEP,' over ',N_SWEEP_CNT,' frequencies'
 	  WRITE(999,*)
@@ -4538,7 +4566,10 @@ C
 	  CLOSE(999)
 	  WRITE(LUER,'(A)')'JNU_CLAMP_DIAG.txt written (one-shot diagnostic)'
 	END IF
+	GOTO 9997
+9998	WRITE(LUER,'(A)')'JNU_CLAMP_DIAG.txt open failed -- diagnostic skipped'
 !
+9997	CONTINUE
 	RETURN
 	END
 !
@@ -4616,18 +4647,21 @@ C
 	SUBROUTINE GET_FG_GS_MATURITY(GS_OK,CHG_FILE,CAP_FILE,
 	1                             MAXCHG,CAPPED,NBAD,NTOT,NCONV,
 	2                             NDIV,NRAY,NBAD_BLK,
-	3                             SW_MAXCHG,SW_NCONV,RF_DCHG)
+	3                             SW_MAXCHG,SW_NCONV,RF_DCHG,
+	4                             NBAD_STAL,NBAD_PLAT)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     I_NEXT_GS_OK,FG_GS_CHG_FILE,FG_GS_CAP_FILE,
 	2     FG_GS_MAXCHG,FG_INEXT_CAPPED,FG_GS_NBAD,FG_GS_NTOT,
 	3     FG_GS_NCONV,FG_GS_NP,FG_GS_NDIV,FG_GS_NBAD_BLK,
-	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG
+	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,
+	5     FG_GS_NSTAL,FG_GS_NPLAT
 	IMPLICIT NONE
 	LOGICAL GS_OK
 	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG
 	INTEGER CAP_FILE,CAPPED,NDIV,NRAY
 	INTEGER*8 NBAD,NTOT,NCONV,NBAD_BLK,SW_NCONV
+	INTEGER*8 NBAD_STAL,NBAD_PLAT
 	GS_OK=I_NEXT_GS_OK
 	CHG_FILE=FG_GS_CHG_FILE
 	CAP_FILE=FG_GS_CAP_FILE
@@ -4648,6 +4682,8 @@ C
 	SW_MAXCHG=FG_SW_MAXCHG
 	SW_NCONV=FG_SW_NCONV
 	RF_DCHG=FG_RF_DCHG
+	NBAD_STAL=FG_GS_NSTAL
+	NBAD_PLAT=FG_GS_NPLAT
 	RETURN
 	END
 !
@@ -4760,9 +4796,10 @@ C
 	    WRITE(LU,IOSTAT=IOS)(0,I=1,ND)
 	  END IF
 	END IF
-	IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)FG_GS_MAXCHG,FG_INEXT_CAPPED,
-	1     FG_GS_NDIV,FG_COMMIT_REJ,FG_DIV_HEAL,
-	2     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG
+	IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)FG_GS_MAXCHG,
+	1     INT(MIN(FG_INEXT_CAPPED,2147483647_8),4),
+	2     FG_GS_NDIV,FG_COMMIT_REJ,FG_DIV_HEAL,
+	3     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG
 	IF(IOS .EQ. 0 .AND. N_COMP .GT. 0)THEN
 	  WRITE(LU,IOSTAT=IOS)KN_FREQ
 	  IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)I_P_DEPTH_NEXT
@@ -5550,6 +5587,7 @@ C
 	SUBROUTINE FG_KNOP_REFRESH_V1()
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
+	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 	INTEGER LUER,ERROR_LU
@@ -5577,9 +5615,9 @@ C
 ! gate still counts their leftover bad cells, so the census shows
 ! which stop rule actually limits refresh maturity.
 !
-	INTEGER NX_CNT(-1:5)
-	INTEGER*8 NX_BAD(-1:5)
-	REAL(KIND=LDP) NX_RMX(-1:5)
+	INTEGER NX_CNT(-1:6)
+	INTEGER*8 NX_BAD(-1:6)
+	REAL(KIND=LDP) NX_RMX(-1:6)
 !
 	LUER=ERROR_LU()
 	IF(.NOT. DO_KNOP_REFRESH)RETURN
@@ -5650,7 +5688,8 @@ C
 	KN_HOT_SPENT=0
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
-	ALLOCATE(KN_RES_PASS(2*KN_RAY_MAXPASS),STAT=IOS)
+	ALLOCATE(KN_RES_PASS(2*(KN_RAY_MAXPASS+KN_RAY_HOTPASSES)),
+	1   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 	KN_RES_PASS=0.0_LDP
 !
@@ -5753,6 +5792,11 @@ C
 	        END DO
 	        T2=RHO_H((L+1)/2)
 	        T2=MIN(MAX(T2,0.05_LDP),20.0_LDP)
+	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A,ES10.3,A,I4,
+	1        A,ES10.3)')
+	2        '    omega est: rho=',T2,' window passes=',L,
+	3        ' applied omega=',0.5_LDP*INEXT_RELAX+
+	4        0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
 	        INEXT_RELAX=0.5_LDP*INEXT_RELAX+
 	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
 	      END IF
@@ -5783,6 +5827,8 @@ C
 	FG_GS_NTOT=SUM(NTT_LS)
 	FG_GS_NBAD_BLK=SUM(NBB_LS)
 	FG_GS_NTOT_BLK=SUM(NTB_LS)
+	FG_GS_NSTAL=NX_BAD(3)+NX_BAD(4)
+	FG_GS_NPLAT=NX_BAD(6)
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP FIELD ----------------------------------'
 	WRITE(LUER,'(A)')'  KNOP I_NEXT refresh (lagged coupling):'
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
@@ -5821,14 +5867,15 @@ C
 	  NX_BAD(NXT_LS(LS))=NX_BAD(NXT_LS(LS))+NBD_LS(LS)
 	  NX_RMX(NXT_LS(LS))=MAX(NX_RMX(NXT_LS(LS)),RES_LS(LS))
 	END DO
-	WRITE(LUER,'(A,I5,5(A,I5))')
+	WRITE(LUER,'(A,I5,6(A,I5))')
 	1  '    ray exits: exact=',NX_CNT(0),' tol=',NX_CNT(1),
 	2  ' bulk=',NX_CNT(2),' stall=',NX_CNT(3),' cap=',NX_CNT(4),
-	3  ' div=',NX_CNT(5)
-	IF(NX_CNT(3)+NX_CNT(4) .GT. 0)THEN
+	3  ' div=',NX_CNT(5),' plat=',NX_CNT(6)
+	IF(NX_CNT(3)+NX_CNT(4)+NX_CNT(6) .GT. 0)THEN
 	  WRITE(LUER,'(A,ES10.3,A,I14)')
-	1    '    stall/cap rays: maxres=',MAX(NX_RMX(3),NX_RMX(4)),
-	2    ' bad cells=',NX_BAD(3)+NX_BAD(4)
+	1    '    stall/cap rays: maxres=',
+	2    MAX(NX_RMX(3),MAX(NX_RMX(4),NX_RMX(6))),
+	3    ' bad cells=',NX_BAD(3)+NX_BAD(4)
 	END IF
 	IF(NX_CNT(-1) .GT. 0)THEN
 	  WRITE(LUER,'(A,I5)')'    ray exits: unsolved=',NX_CNT(-1)
@@ -6034,6 +6081,7 @@ C
 	INTEGER IXIT_M,IXIT_P
 	INTEGER*8 NB_BM,NT_BM,NB_BP,NT_BP
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
+	LOGICAL L_HOT_OVER
 	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
@@ -6399,10 +6447,11 @@ C
 	REAL(KIND=LDP) BEST_RES
 	INTEGER*8 BEST_NB,BEST_NT
 	REAL(KIND=LDP) RATIO_PV(2)
-	LOGICAL ASC,HOTMODE
+	LOGICAL ASC,HOTMODE,L_PLAT
 	NPO=0
 	NSTALL=0
 	NPLAT(1)=0; NPLAT(2)=0
+	L_PLAT=.FALSE.
 	IXIT=-1
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
@@ -6410,6 +6459,14 @@ C
 	RES=1.0E+30_LDP
 	RES_PREV(1)=0.0_LDP; RES_PREV(2)=0.0_LDP
 	RATIO_PV(1)=0.0_LDP; RATIO_PV(2)=0.0_LDP
+!
+! SGN_PRV/NOSC_FL are host variables: without this reset the first
+! pass of the I_P sweep compares its sign against the I_M sweep's
+! last accumulator, scoring a spurious flip and damping OMEGA_RAY
+! on stale state (SWEEP_FLD_ORD already resets KN_SGN_PREV/NOSC at
+! its own head).
+!
+	SGN_ACC=0.0_LDP; SGN_PRV=0.0_LDP; NOSC_FL=0
 	OMEGA_RAY=KN_RAY_OMEGA
 	BEST_RES=HUGE(RES)
 	BEST_NB=0_8; BEST_NT=0_8
@@ -6426,9 +6483,9 @@ C
 	    NHOT=NHOT+1
 !$OMP CRITICAL (KN_HOT_SPD)
 	    KN_HOT_SPENT=KN_HOT_SPENT+1
+	    L_HOT_OVER=KN_HOT_SPENT .GT. KN_HOT_TOTAL_PASSES
 !$OMP END CRITICAL (KN_HOT_SPD)
-	    IF(NHOT .GT. KN_RAY_HOTPASSES .OR.
-	1       KN_HOT_SPENT .GT. KN_HOT_TOTAL_PASSES)THEN
+	    IF(NHOT .GT. KN_RAY_HOTPASSES .OR. L_HOT_OVER)THEN
 	      IXIT=4
 	      EXIT
 	    END IF
@@ -6471,7 +6528,7 @@ C
 	    CALL MARCH(FLD,L,INWARD,RES)
 	  END DO
 	  NB_O=NBAD_CUR; NT_O=NTOT_CUR
-	  IF(ALLOCATED(KN_RES_PASS))THEN
+	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
 	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
 !$OMP CRITICAL (KN_RES_UPD)
 	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
@@ -6582,7 +6639,10 @@ C
 	        ELSE
 	          NPLAT(IDIR)=0
 	        END IF
-	        IF(NPLAT(IDIR) .GE. 3)NSTALL=MAX(NSTALL,2)
+	        IF(NPLAT(IDIR) .GE. 3)THEN
+	          NSTALL=MAX(NSTALL,2)
+	          L_PLAT=.TRUE.
+	        END IF
 	        IF(RATIO_OM .GT. 0.98_LDP .AND.
 	1         RATIO_PV(IDIR) .GT. 0.95_LDP)NSTALL=MAX(NSTALL,2)
 	      END IF
@@ -6632,6 +6692,7 @@ C
 	      HOTMODE=.TRUE.
 	    ELSE
 	      IXIT=3
+	      IF(L_PLAT)IXIT=6
 	      EXIT
 	    END IF
 	  END IF
@@ -6814,6 +6875,7 @@ C
 	INTEGER*8 NB_O,NT_O,NB_B,NT_B
 	INTEGER NSTALL,J,L,LB,LE,LDI
 	INTEGER NOSC,NPLAT
+	LOGICAL L_PLAT
 	REAL(KIND=LDP) KN_SGN_SUM,KN_SGN_PREV
 	REAL(KIND=LDP) BEST_RES
 	INTEGER*8 BEST_NB,BEST_NT
@@ -6882,6 +6944,7 @@ C
 	NSTALL=0
 	NOSC=0
 	NPLAT=0
+	L_PLAT=.FALSE.
 	RATIO_PV=0.0_LDP
 	HOTMODE=.FALSE.
 	IXIT=-1
@@ -6943,9 +7006,9 @@ C
 	    NHOT=NHOT+1
 !$OMP CRITICAL (KN_HOT_SPD)
 	    KN_HOT_SPENT=KN_HOT_SPENT+1
+	    L_HOT_OVER=KN_HOT_SPENT .GT. KN_HOT_TOTAL_PASSES
 !$OMP END CRITICAL (KN_HOT_SPD)
-	    IF(NHOT .GT. KN_RAY_HOTPASSES .OR.
-	1       KN_HOT_SPENT .GT. KN_HOT_TOTAL_PASSES)THEN
+	    IF(NHOT .GT. KN_RAY_HOTPASSES .OR. L_HOT_OVER)THEN
 	      IXIT=4
 	      EXIT
 	    END IF
@@ -7294,7 +7357,7 @@ C
 !$OMP END CRITICAL (KN_AA_UPD)
 	    END IF
 	  END IF
-	  IF(ALLOCATED(KN_RES_PASS))THEN
+	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
 	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
 !$OMP CRITICAL (KN_RES_UPD)
 	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
@@ -7400,7 +7463,10 @@ C
 	        ELSE
 	          NPLAT=0
 	        END IF
-	        IF(NPLAT .GE. 3)NSTALL=MAX(NSTALL,2)
+	        IF(NPLAT .GE. 3)THEN
+	          NSTALL=MAX(NSTALL,2)
+	          L_PLAT=.TRUE.
+	        END IF
 	        IF(RATIO_OM .GT. 0.98_LDP .AND.
 	1         RATIO_PV .GT. 0.95_LDP)NSTALL=MAX(NSTALL,2)
 	      END IF
@@ -7442,6 +7508,7 @@ C
 	      HOTMODE=.TRUE.
 	    ELSE
 	      IXIT=3
+	      IF(L_PLAT)IXIT=6
 	      EXIT
 	    END IF
 	  END IF

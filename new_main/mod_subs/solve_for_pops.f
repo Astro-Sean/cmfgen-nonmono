@@ -102,6 +102,7 @@
 	REAL(KIND=LDP) GS_SW_MAXCHG,GS_RF_DCHG
 	REAL(KIND=LDP) GS_MAX_ALL
 	INTEGER*8 GS_NBAD_EFF,GS_NCONV_ALL
+	INTEGER*8 GS_NBAD_STAL,GS_NBAD_PLAT
 	LOGICAL GS_UNSAFE,GS_PIN,FG_TRIAL
 	INTEGER TRIAL_MIN_USED
 	LOGICAL, SAVE :: GS_RAW_NUDGE_DONE=.FALSE.
@@ -703,7 +704,8 @@
 	  CALL GET_FG_GS_MATURITY(GS_OK,GS_CHG_FILE,GS_CAP_FILE,
 	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV,
 	2      GS_NDIV,GS_NRAY,GS_NBAD_BLK,
-	3      GS_SW_MAXCHG,GS_SW_NCONV,GS_RF_DCHG)
+	3      GS_SW_MAXCHG,GS_SW_NCONV,GS_RF_DCHG,
+	4      GS_NBAD_STAL,GS_NBAD_PLAT)
 	  CALL GET_MOM_GS_MATURITY(MOM_RAN,MOM_OK,MOM_CHG_FILE,
 	1      MOM_CAP_FILE,MOM_MAXCHG,MOM_CAPPED,MOM_NEGJ,
 	2      MOM_NBAD5,MOM_NBAD50,MOM_NTOT,MOM_NQUAR,
@@ -846,6 +848,17 @@
 	  IF(GS_NTOT .GT. 0)THEN
 	    GS_FG_IMMATURE=GS_FG_IMMATURE .OR.
 	1      (GS_NCONV_ALL .GT. MAX(50_8,GS_NTOT/1000))
+	  END IF
+!
+! Plateau exits (IXIT=6) are a different failure mode from
+! stall/cap: the map stopped improving entirely, so their bad
+! cells are a fixed-point floor, not a slow transient.  A plateau
+! share above 1% marks the field unsafe; MIN(NBAD,NBAD_BLK)
+! still prices the stall/cap class the same way as before.
+!
+	  IF(GS_NTOT .GT. 0)THEN
+	    GS_UNSAFE=GS_UNSAFE .OR.
+	1      (GS_NBAD_PLAT .GT. MAX(50_8,GS_NTOT/100))
 	  END IF
 !
 ! MOM bulk maturity (MOM_GATE_BULK, VADAT): the lagged J_NEXT field is
@@ -1277,6 +1290,13 @@
 	    ELSE
 	      T1=MAX_LAM_COR
 	    END IF
+!
+! The churn pick above can hand back MAX_LAM_COR while a
+! luminosity runaway is armed -- silently reversing the
+! LUM_BLOCKED demote (lum_div_demote takes GS_LAM_CAP).
+! Respect the demote regardless of the churn reading.
+!
+	    IF(LUM_BLOCKED)T1=MIN(T1,GS_LAM_CAP)
 	    IF(CONV_DIAG_LVL .GE. 1)THEN
 	      WRITE(LUER,'(A)')'    LAMBDA correction cap'
 	      WRITE(LUER,'(A,ES12.4)')
