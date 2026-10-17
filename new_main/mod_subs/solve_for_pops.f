@@ -13,6 +13,8 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
 	IMPLICIT NONE
 !
+! Altered:   17-Oct-2026 : ITER_SUM gains the trace-side channels and a live
+!                          converged-exit gate verdict (edited by Devin).
 ! Altered:   16-Oct-2026 : Stage-B trace polish forces the BA dispatch so
 !                          SOLVEBA_V13 can hold majors/T/ED (edited by Devin).
 ! Altered:   15-Oct-2026 : BA_DIRCHK_MAX drops the dirchk admission bypass
@@ -286,6 +288,20 @@
 !
 	LOGICAL, SAVE :: ITER_LEG_DONE=.FALSE.
 	CHARACTER(LEN=7) POP_ST,SE_ST,BA_ST,LUM_ST,FG_ST,MOM_ST,JFNK_ST
+!
+! Converged-exit gate evaluation for the ITER_SUM 'conv exit' row:
+! locals replicate the CONV_EXIT_MET / BA_DEM_EXIT_OK tests in
+! CMFGEN_SUB verbatim so OUTGEN reports per iteration whether the
+! TOTAL system (majors plus the floor-exempted trace species) would
+! exit converged on this call, and which gate is holding when not.
+!
+	CHARACTER(LEN=7) TRC_ST,CONV_ST
+	LOGICAL CONV_LAM_OK,CONV_DEM_OK,CONV_TRC_NEED,CONV_TRC_DONE,
+	1    CONV_ALL
+	CHARACTER(LEN=120) CONV_FAILS
+	INTEGER CONV_NPASS,CONV_NPCT
+	REAL(KIND=LDP) CONV_MGN
+	CHARACTER(LEN=8) CONV_MGN_CH
 !
 ! N_MATURE counts consecutive calls on which the raw maturity gate
 ! passes; GS_REL_STABLE consecutive mature sweeps are required before
@@ -3129,8 +3145,20 @@
 	  IF(.NOT. ITER_LEG_DONE)THEN
 	    ITER_LEG_DONE=.TRUE.
 	    WRITE(LUER,'(A)')'  ITER_SUM legend:'
-	    WRITE(LUER,'(A)')'   demand/applied = largest population'//
-	1    ' correction wanted / committed this call'
+	    WRITE(LUER,'(A)')'   demand/applied = largest non-exempted'//
+	1    ' (major) population correction wanted / committed; rows'//
+	2    ' below the BA_DEM floors are exempt -- see exempt/trc'
+	    WRITE(LUER,'(A)')'   exempt/trc     = largest floor-exempted'//
+	1    ' (trace) % demand / committed trace |dn|/gas vs the'//
+	2    ' exit gates in (); [SAT] = saturated dead-stage demand'//
+	3    ' (>= BA_SAT_RAW, counts as unresolvable and releases'//
+	4    ' the exit like a small demand)'
+	    WRITE(LUER,'(A)')'   conv exit      = live evaluation of the'//
+	1    ' CMFGEN_SUB converged-exit test on the total system;'//
+	2    ' [MET] the exit would fire on this call, [HOLD] lists'//
+	3    ' the gates still failing; N% = share of the 8 exit'//
+	4    ' gates passing, worst margin = worst numeric channel'//
+	5    ' vs its gate in dex'
 	    WRITE(LUER,'(A)')'   se / se2       = max SE residual;'//
 	1    ' se2 excludes the worst depth columns'
 	    WRITE(LUER,'(A)')'   trust / nrej   = BA correction cap'//
@@ -3180,6 +3208,41 @@
 	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,A)')
 	1    'se residual',BA_SE_RES,BA_SE_RES2,SE_ST,
 	2    'all cells / excl. worst cols'
+!
+! edited by Devin, 17-Oct-2026: trace-side channels and the
+! converged-exit verdict.  Under the major/trace split
+! ([BA_DEM_PFLOOR]/[BA_DEM_RELFRAC]) the 'pops' row reads only the
+! non-exempted demand, so MAXCH < EPS can print while exempted rows
+! still demand percent-level-or-larger corrections -- the major
+! channels alone cannot say whether the system is converged.  The
+! tests below replicate CMFGEN_SUB's BA_TRACE_NEEDED /
+! BA_TRACE_DONE / BA_DEM_EXIT_OK / CONV_EXIT_MET exactly, so the
+! 'conv exit' row names every gate that is holding and [MET] means
+! the converged exit would fire on this call.
+!
+	  CONV_TRC_NEED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1    BA_TR_MAXSWP .GT. 0 .AND.
+	2    (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
+	3     BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
+	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
+	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
+	  CONV_TRC_DONE=BA_TR_MAXSWP .GT. 0 .AND.
+	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
+	  CONV_DEM_OK=BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
+	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
+	2    CONV_TRC_NEED .OR. CONV_TRC_DONE
+	  TRC_ST='[OK]   '
+	  IF(.NOT. CONV_DEM_OK)THEN
+	    TRC_ST='[HOLD] '
+	  ELSE IF(BA_DEM_EXM .GE. BA_SAT_RAW)THEN
+	    TRC_ST='[SAT]  '
+	  END IF
+	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,2(A,ES9.2))')
+	1    'exempt/trc',BA_DEM_EXM,BA_TR_ABS,TRC_ST,
+	2    'gates',MAX(10.0_LDP*EPS,1.0_LDP),'/',BA_TR_ABSMAX
+	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I3,A,I3,2X,A,L2)')
+	1    'stageB','sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,
+	2    'phase',BA_TRACE_PHASE
 !
 ! Per-depth residual profile (edited by Devin, 15-Oct-2026): under
 ! CONV_DIAG_LVL list the five depths carrying the largest column-max
@@ -3259,6 +3322,89 @@
 	2    'hits cpl=',JFNK_CPL_HITS,'/',JFNK_GATE_NREQ,
 	3    'vs cpl gate; coupled=',JFNK_COUPLED_THIS
 	  END IF
+!
+! Converged-exit verdict (edited by Devin, 17-Oct-2026): the same
+! test CMFGEN_SUB applies at the 9999 exit split, evaluated live.
+! [HOLD] names each gate that fails, so an OUTGEN grep of ITER_SUM
+! alone tells whether the total system -- majors, exempted trace
+! species, and the lambda-state bookkeeping -- is converged.
+!
+	  CONV_LAM_OK=(RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
+	1    (LAST_LAMBDA .NE. MAIN_COUNTER)
+	  CONV_ALL=CONV_LAM_OK .AND. .NOT. JFNK_UNCONVERGED_COMMIT .AND.
+	1    (MAXCH .LT. EPS) .AND. CONV_DEM_OK .AND.
+	2    .NOT. DONE_HYDRO_REVISION .AND. .NOT. GS_POPS_HELD .AND.
+	3    .NOT. BAACC_PENDING .AND. (MAIN_COUNTER .NE. LAST_NG)
+	  CONV_FAILS=' all pass'
+	  IF(.NOT. CONV_ALL)THEN
+	    CONV_FAILS=' '
+	    IF(.NOT. CONV_LAM_OK)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' lambda-state'
+	    IF(.NOT. (MAXCH .LT. EPS))
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' maxch>=eps'
+	    IF(JFNK_UNCONVERGED_COMMIT)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' jfnk-unconverged'
+	    IF(.NOT. CONV_DEM_OK)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' exempted-demand'
+	    IF(DONE_HYDRO_REVISION)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' hydro-revision'
+	    IF(GS_POPS_HELD)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' pops-held'
+	    IF(BAACC_PENDING)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' resacc-pending'
+	    IF(MAIN_COUNTER .EQ. LAST_NG)
+	1      CONV_FAILS=TRIM(CONV_FAILS)//' on-ng-iteration'
+	  END IF
+!
+! Percent-converged figure: share of the 8 exit gates passing, plus
+! the worst continuous gate's distance from its threshold in dex.
+! A gate that fails on a logical flag (pops-held, resacc-pending,
+! lambda-state, hydro-revision, jfnk-unconverged, on-NG) has no
+! continuous margin, so the dex figure reads the numeric channels
+! only.  [MET] implies 100% -- all gates passed.
+!
+	  CONV_NPASS=0
+	  IF(CONV_LAM_OK)CONV_NPASS=CONV_NPASS+1
+	  IF(MAXCH .LT. EPS)CONV_NPASS=CONV_NPASS+1
+	  IF(.NOT. JFNK_UNCONVERGED_COMMIT)CONV_NPASS=CONV_NPASS+1
+	  IF(CONV_DEM_OK)CONV_NPASS=CONV_NPASS+1
+	  IF(.NOT. DONE_HYDRO_REVISION)CONV_NPASS=CONV_NPASS+1
+	  IF(.NOT. GS_POPS_HELD)CONV_NPASS=CONV_NPASS+1
+	  IF(.NOT. BAACC_PENDING)CONV_NPASS=CONV_NPASS+1
+	  IF(MAIN_COUNTER .NE. LAST_NG)CONV_NPASS=CONV_NPASS+1
+	  CONV_NPCT=NINT(100.0_LDP*CONV_NPASS/8.0_LDP)
+	  CONV_MGN=-99.0_LDP
+	  CONV_MGN_CH='none'
+	  IF(EPS .GT. 0.0_LDP .AND. MAXCH .GT. 0.0_LDP .AND.
+	1     LOG10(MAXCH/EPS) .GT. CONV_MGN)THEN
+	    CONV_MGN=LOG10(MAXCH/EPS)
+	    CONV_MGN_CH='maxch'
+	  END IF
+	  IF(EPS .GT. 0.0_LDP .AND. BA_DEM_EXM .GT. 0.0_LDP .AND.
+	1     LOG10(BA_DEM_EXM/MAX(10.0_LDP*EPS,1.0_LDP)) .GT. CONV_MGN)
+	2    THEN
+	    CONV_MGN=LOG10(BA_DEM_EXM/MAX(10.0_LDP*EPS,1.0_LDP))
+	    CONV_MGN_CH='exm'
+	  END IF
+	  IF(BA_TR_MAXSWP .GT. 0 .AND. BA_TR_ABSMAX .GT. 0.0_LDP .AND.
+	1     BA_TR_ABS .GT. 0.0_LDP .AND.
+	2     LOG10(BA_TR_ABS/BA_TR_ABSMAX) .GT. CONV_MGN)THEN
+	    CONV_MGN=LOG10(BA_TR_ABS/BA_TR_ABSMAX)
+	    CONV_MGN_CH='trabs'
+	  END IF
+	  IF(CONV_MGN .GT. -98.0_LDP)THEN
+	    WRITE(TEMP_CHAR,'(F7.2)')CONV_MGN
+	  ELSE
+	    TEMP_CHAR='    n/a'
+	  END IF
+	  CONV_ST='[MET]  '
+	  IF(.NOT. CONV_ALL)CONV_ST='[HOLD] '
+	  WRITE(LUER,'(4X,A14,2X,A,1X,I3,A,A,A,A,A,1X,A)')
+	1    'conv exit',CONV_ST,CONV_NPCT,'%, worst margin ',
+	2    TRIM(TEMP_CHAR),' dex (',TRIM(CONV_MGN_CH),')',
+	3    'gates:'//TRIM(CONV_FAILS)
+	  WRITE(LUER,'(4X,A,I3,A)')
+	1    'Model Convergence:',CONV_NPCT,' %'
 	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
 !
 ! Append one row per iteration; header only when the file is new.
@@ -3273,9 +3419,9 @@
 	1    ' froz held maxraw maxapp maxatt se se2 trust nrej lum'//
 	2    ' fg_d fg_badf fg_churnf fg_cap'//
 	3    ' mom_d mom_n5f mom_n50f mom_negjf mom_quarf'//
-	4    ' mom_cap mom_pquar'
+	4    ' mom_cap mom_pquar exm trabs'
 	    WRITE(LU_GS,'(I6,1X,A11,1X,A11,1X,A6,2(1X,L1),'//
-	1    '6(1X,ES11.4),1X,I4,12(1X,ES11.4))')
+	1    '6(1X,ES11.4),1X,I4,14(1X,ES11.4))')
 	2    MAIN_COUNTER,MODE_NOW,MODE_NEXT,BA_CH,GS_FREEZE,
 	3    GS_POPS_HELD,
 	4    MAXCH,MAXCH_APP,GS_ATTEMPT_APP,BA_SE_RES,BA_SE_RES2,
@@ -3287,7 +3433,7 @@
 	1    DBLE(MOM_SW_NBAD50)/DBLE(MAX(MOM_SW_NTOT,1_8)),
 	2    DBLE(MOM_SW_NEGJ)/DBLE(MAX(MOM_SW_NTOT,1_8)),
 	3    DBLE(MOM_SW_NQUAR)/DBLE(MAX(MOM_SW_NTOT,1_8)),
-	4    DBLE(MOM_SW_CAPPED),DBLE(MOM_NPQUAR)
+	4    DBLE(MOM_SW_CAPPED),DBLE(MOM_NPQUAR),BA_DEM_EXM,BA_TR_ABS
 	    CLOSE(LU_GS)
 	  END IF
 !
