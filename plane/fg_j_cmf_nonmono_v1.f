@@ -422,6 +422,49 @@
 	LOGICAL, SAVE :: FG_COMMIT_CONV=.FALSE.
 	INTEGER, SAVE :: FG_NC_REJ=0
 !
+! FG_COMMIT_NC (VADAT [FG_COMMIT_NC], default 0): per-cell bound on
+! the committed change for a NON-converged ray under FG_COMMIT_CONV.
+! FG_COMMIT_CONV alone skips the write on bad exits, but a bulk exit
+! (IXIT=2) is classed converged even when the residual is far above
+! KN_RAY_TOL, so the non-converged test keys on
+! MAX(RES_M,RES_P)>KN_RAY_TOL as well as the exit code.  NC>0 writes
+! a capped provisional field (each cell bounded to NC times its
+! retained value) instead of skipping outright: the store still
+! tracks a contracting field but cannot ratchet by more than NC per
+! refresh.  NC=0 keeps the pure reject.  w19 committed bulk-exit
+! deltas of 8-27x at residual ~0.47; the geometric ratchet was the
+! luminosity amplifier.
+! FG_NC_CAP counts capped commits; FG_RAY_VC records the per-ray
+! verdict for the summary census and worst-ray line.
+!
+	REAL(KIND=LDP), SAVE :: FG_COMMIT_NC=0.0_LDP
+	INTEGER, SAVE :: FG_NC_CAP=0
+! Verdict codes: -1 unsolved, 0 committed, 1 jump reject,
+! 2 non-converged reject, 3 capped commit, 4 diverged.
+	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_VC(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FG_RAY_DCH(:)
+!
+! Per-ray worst-cell record: depth/freq index of the last-pass
+! residual max (of the worse direction) and how many consecutive
+! passes held the same cell.  A persistent cell means one unstable
+! mode dominates; a moving max means different cells reset the
+! residual each pass.  Filled for solved rays only (0 otherwise).
+!
+	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WI(:),FG_RAY_WL(:)
+	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WS(:)
+!
+! FG_BULK_CONTR (VADAT [FG_BULK_CONTR], default F): require the
+! same-direction residual to be contracting (RATIO_OM<=KN_RAY_STALL)
+! before the bulk bad-fraction exit can fire.  Without it a ray
+! whose residual is flat at 0.05-0.5 with a sub-0.1% bad fraction
+! exits "bulk converged" at pass 6 -- before the stall/plateau
+! classifiers (which need pass>=8) ever run -- and commits under
+! the converged label.  w19: 49/84 rays took this path at residual
+! 0.25-0.49 during the luminosity runaway.  Ordering fix; F keeps
+! the old exit.
+!
+	LOGICAL, SAVE :: FG_BULK_CONTR=.FALSE.
+!
 ! W7 (17-Oct-2026): extended per-ray pass budget for rays with
 ! contiguous hot-frequency runs (RES_FREQ>KN_RAY_TOL over a run).
 ! After the standard exits fire, a ray with a hot run continues
@@ -2139,6 +2182,7 @@
 	    FG_DIV_HEAL=0
 	    FG_COMMIT_REJ=0
 	    FG_NC_REJ=0
+	    FG_NC_CAP=0
 	    KN_HOT_SPENT=0
 	    KN_STORE_READY=.FALSE.
 	  END IF
@@ -5644,16 +5688,19 @@ C
 	RETURN
 	END
 !
-	SUBROUTINE SET_FG_COMMIT(JCAP,HCAP,DO_CC)
+	SUBROUTINE SET_FG_COMMIT(JCAP,HCAP,DO_CC,NCAPC,BCON)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
-	1     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP,FG_COMMIT_CONV
+	1     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP,FG_COMMIT_CONV,
+	2     FG_COMMIT_NC,FG_BULK_CONTR
 	IMPLICIT NONE
-	REAL(KIND=LDP) JCAP,HCAP
-	LOGICAL DO_CC
+	REAL(KIND=LDP) JCAP,HCAP,NCAPC
+	LOGICAL DO_CC,BCON
 	FG_COMMIT_JUMP=MAX(JCAP,1.0_LDP)
 	FG_DIV_HEAL_CAP=MAX(HCAP,1.0_LDP)
 	FG_COMMIT_CONV=DO_CC
+	FG_COMMIT_NC=MAX(NCAPC,0.0_LDP)
+	FG_BULK_CONTR=BCON
 	RETURN
 	END
 !
@@ -5759,6 +5806,28 @@ C
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 	FG_RF_DCHG=0.0_LDP
 	KN_HOT_SPENT=0
+!
+! Per-ray commit verdict/delta: each thread writes only its own LS
+! slot inside KNOP_RAY_SOLVE_V1.  -1 marks rays that never reached
+! the commit decision (unsolved/alloc-fail).
+!
+	IF(ALLOCATED(FG_RAY_VC))DEALLOCATE(FG_RAY_VC)
+	IF(ALLOCATED(FG_RAY_DCH))DEALLOCATE(FG_RAY_DCH)
+	ALLOCATE(FG_RAY_VC(KN_NP),FG_RAY_DCH(KN_NP),STAT=IOS)
+	IF(IOS .EQ. 0)THEN
+	  FG_RAY_VC=-1
+	  FG_RAY_DCH=0.0_LDP
+	END IF
+	IF(ALLOCATED(FG_RAY_WI))DEALLOCATE(FG_RAY_WI)
+	IF(ALLOCATED(FG_RAY_WL))DEALLOCATE(FG_RAY_WL)
+	IF(ALLOCATED(FG_RAY_WS))DEALLOCATE(FG_RAY_WS)
+	ALLOCATE(FG_RAY_WI(KN_NP),FG_RAY_WL(KN_NP),FG_RAY_WS(KN_NP),
+	1   STAT=IOS)
+	IF(IOS .EQ. 0)THEN
+	  FG_RAY_WI=0
+	  FG_RAY_WL=0
+	  FG_RAY_WS=0
+	END IF
 !
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
 	ALLOCATE(KN_RES_PASS(2*(KN_RAY_MAXPASS+KN_RAY_HOTPASSES)),
@@ -5916,10 +5985,11 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
 	2  FG_GS_NTOT_BLK
-	WRITE(LUER,'(A,I6,A,I6,A,I6)')
+	WRITE(LUER,'(A,I6,A,I6,A,I6,A,I6)')
 	1  '    healed slots=',FG_DIV_HEAL,
 	2  '   commit rejects=',FG_COMMIT_REJ,
-	3  '   nc rejects=',FG_NC_REJ
+	3  '   nc rejects=',FG_NC_REJ,
+	4  '   nc capped=',FG_NC_CAP
 	IF(KN_HOT_SPENT .GT. 0)WRITE(LUER,'(A,I8,A,I6)')
 	1  '    hot-pass budget spent=',INT(MIN(KN_HOT_SPENT,2**30_8)),
 	2  '  cap=',KN_HOT_TOTAL_PASSES
@@ -5979,6 +6049,34 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    matched/compress=',SUM(NMT_LS),'/',SUM(NCM_LS)
 	WRITE(LUER,'(A,I6)')'    max offset=',MAXVAL(NMX_LS)
+!
+! Commit census + worst-ray verdict (17-Oct-2026): the exit census
+! alone cannot show whether an above-tolerance ray's field reached
+! the store.  Verdict codes: 0 committed, 1 jump reject, 2
+! non-converged reject, 3 capped commit (FG_COMMIT_NC), 4 diverged,
+! -1 unsolved.  The worst ray's own exit class, verdict and
+! retained delta identify which acceptance channel carries the
+! largest residual.
+!
+	IF(ALLOCATED(FG_RAY_VC))THEN
+	  WRITE(LUER,'(A,7(A,I5))')
+	1    '    commit verdicts: committed=',COUNT(FG_RAY_VC.EQ.0),
+	2    '  jump-rej=',COUNT(FG_RAY_VC.EQ.1),
+	3    '  nc-rej=',COUNT(FG_RAY_VC.EQ.2),
+	4    '  capped=',COUNT(FG_RAY_VC.EQ.3),
+	5    '  div=',COUNT(FG_RAY_VC.EQ.4),
+	6    '  unsolved=',COUNT(FG_RAY_VC.EQ.-1),
+	7    '  worst=(ixit',NXT_LS(LS),',v',FG_RAY_VC(LS),')'
+	  WRITE(LUER,'(A,ES11.3,A,ES11.3)')
+	1    '    worst-ray delta: commit=',FG_RAY_DCH(LS),
+	2    '  max=',MAXVAL(FG_RAY_DCH)
+	END IF
+	IF(ALLOCATED(FG_RAY_WI))THEN
+	  WRITE(LUER,'(A,I5,A,I5,A,I4,A,I4)')
+	1    '    worst cell: i=',FG_RAY_WI(LS),' l=',FG_RAY_WL(LS),
+	2    ' same-cell passes=',FG_RAY_WS(LS),
+	3    ' max same=',MAXVAL(FG_RAY_WS)
+	END IF
 !
 ! Per-pass convergence history (max over rays).  I_M and I_P sweeps
 ! share the array; pass counts can differ between the two fields, so
@@ -6141,6 +6239,16 @@ C
 	REAL(KIND=LDP) DCH_M,DCH_P
 	REAL(KIND=LDP) VNEW,VOLD,INEXT_V
 	REAL(KIND=LDP) OMEGA_RAY,RES_PREV(2),RATIO_OM
+!
+! Worst-cell tracking (17-Oct-2026): MARCH records the (depth,freq)
+! cell holding the running max residual; SWEEP_FLD counts how many
+! consecutive passes keep the same worst cell.  A persistent cell
+! identifies a single unstable mode; a moving max identifies
+! different cells resetting the residual each pass.
+!
+	INTEGER WRC_I,WRC_L,WRC_PI,WRC_PL,WRC_SAME
+	INTEGER WRC_IM,WRC_LM,WRC_SM
+	REAL(KIND=LDP) DCELL
 	INTEGER*8 NBAD_CUR,NTOT_CUR,NB_M,NB_P,NT_M,NT_P
 	INTEGER*8 NP2_CNT
 	INTEGER IDIR
@@ -6332,6 +6440,12 @@ C
 	  CALL SWEEP_FLD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M,
 	1     NB_BM,NT_BM)
 	END IF
+!
+! Worst-cell record of the I_M sweep; the I_P sweep below overwrites
+! the shared WRC_* host variables, so keep the direction that ends
+! with the larger residual.
+!
+	WRC_IM=WRC_I; WRC_LM=WRC_L; WRC_SM=WRC_SAME
 	IF(DIVERGED)THEN
 !
 !	  Diverged I_M: the runaway field must not reach the store, and
@@ -6410,9 +6524,12 @@ C
 !$OMP CRITICAL (FG_REJ_UPD)
 	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
 !$OMP END CRITICAL (FG_REJ_UPD)
+	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=1
+	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
 	  ELSE IF(FG_COMMIT_CONV .AND.
 	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2) .OR.
-	2     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2)))THEN
+	2     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2) .OR.
+	3     MAX(RES_M,RES_P) .GT. KN_RAY_TOL))THEN
 !
 ! edited by Devin, 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
 ! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
@@ -6420,20 +6537,44 @@ C
 ! committing its last iterate wrote that unconverged field into
 ! the lagged store bounded only by the FG_COMMIT_JUMP magnitude --
 ! the w19 runaway class (residual 0.465 vs tol 2E-3 committed with
-! retained delta 21).  Skip the write: the store keeps the
-! pre-refresh generation, which is a sane consistent seed for the
-! next refresh.  The residual still reports RES_M/RES_P, so the
-! maturity gate reads the ray as unconverged either way.
+! retained delta 21).  The residual test also catches the bulk
+! exit: IXIT=2 fires on the bad-cell fraction alone, so a ray with
+! residual ~0.5 and <0.1% bad cells was still classed converged.
+! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
+! (per-cell change bounded by NC; the store keeps tracking a
+! contracting field but cannot ratchet faster than NC/refresh).
+! NC=0 skips the write: the store keeps the pre-refresh
+! generation, a sane consistent seed.  The residual still reports
+! RES_M/RES_P, so the maturity gate reads the ray as unconverged
+! either way.
 !
+	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
+	      CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
+	      CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+!$OMP CRITICAL (FG_CAP_UPD)
+	      FG_NC_CAP=FG_NC_CAP+1
+!$OMP END CRITICAL (FG_CAP_UPD)
+!$OMP CRITICAL (FG_DCHG_UPD)
+	      FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
+!$OMP END CRITICAL (FG_DCHG_UPD)
+	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=3
+	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=
+	1        MAX(DCH_M,DCH_P)
+	    ELSE
 !$OMP CRITICAL (FG_NC_UPD)
-	    FG_NC_REJ=FG_NC_REJ+1
+	      FG_NC_REJ=FG_NC_REJ+1
 !$OMP END CRITICAL (FG_NC_UPD)
+	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=2
+	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
+	    END IF
 	  ELSE
 	    CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
 	    CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !$OMP CRITICAL (FG_DCHG_UPD)
 	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
 !$OMP END CRITICAL (FG_DCHG_UPD)
+	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=0
+	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=MAX(DCH_M,DCH_P)
 	  END IF
 	END IF
 	DEALLOCATE(FLD,FLD_P)
@@ -6456,12 +6597,29 @@ C
 	  CALL HEAL_STORE(I_P_DEPTH_NEXT)
 	  RESID=1.0_LDP
 	  NXIT=5
+	  IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=4
+	  IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=0.0_LDP
 	ELSE
 	  RESID=MAX(RES_M,RES_P)
 	  IF(RES_M .GE. RES_P)THEN
 	    NXIT=IXIT_M
 	  ELSE
 	    NXIT=IXIT_P
+	  END IF
+	END IF
+!
+! Export the worse direction's worst-cell record for the refresh
+! summary; a diverged I_M keeps its own record since I_P never ran.
+!
+	IF(ALLOCATED(FG_RAY_WI))THEN
+	  IF(RES_M .GE. RES_P)THEN
+	    FG_RAY_WI(LS)=WRC_IM
+	    FG_RAY_WL(LS)=WRC_LM
+	    FG_RAY_WS(LS)=WRC_SM
+	  ELSE
+	    FG_RAY_WI(LS)=WRC_I
+	    FG_RAY_WL(LS)=WRC_L
+	    FG_RAY_WS(LS)=WRC_SAME
 	  END IF
 	END IF
 	NPASS=MAX(NP_M,NP_P)
@@ -6551,6 +6709,8 @@ C
 	RES=1.0E+30_LDP
 	RES_PREV(1)=0.0_LDP; RES_PREV(2)=0.0_LDP
 	RATIO_PV(1)=0.0_LDP; RATIO_PV(2)=0.0_LDP
+	RATIO_OM=0.0_LDP
+	WRC_I=0; WRC_L=0; WRC_PI=0; WRC_PL=0; WRC_SAME=0
 !
 ! SGN_PRV/NOSC_FL are host variables: without this reset the first
 ! pass of the I_P sweep compares its sign against the I_M sweep's
@@ -6742,6 +6902,18 @@ C
 	    END IF
 	  END IF
 	  RES_PREV(IDIR)=RES
+!
+! Worst-cell persistence: if the same (depth,freq) cell held the
+! pass max last pass too, one unstable mode dominates; a moving max
+! means the residual is being reset by different cells each pass.
+!
+	  IF(WRC_I .EQ. WRC_PI .AND. WRC_L .EQ. WRC_PL .AND.
+	1    WRC_I .GT. 0)THEN
+	    WRC_SAME=WRC_SAME+1
+	  ELSE
+	    WRC_SAME=1
+	  END IF
+	  WRC_PI=WRC_I; WRC_PL=WRC_L
 	  IF(.NOT. HAS_CP)THEN
 !
 !	    No compressing cells: the single pass is the exact solve, so
@@ -6767,8 +6939,17 @@ C
 ! ignores.  Require a minimum of 6 passes so the first couple of
 ! sweep directions cannot exit on a partially-propagated field.
 !
+! [FG_BULK_CONTR]: the bulk test ignores the residual magnitude, so
+! a flat noncontracting ray (RATIO_OM~1) with a sub-0.1% bad
+! fraction exited "converged" at pass 6 -- before the stall and
+! plateau classifiers (pass>=8) could run.  w19 committed 8-27x
+! retained deltas through this door at residual 0.25-0.49.  With the
+! flag set the exit also requires same-direction contraction;
+! noncontracting rays fall through to the stall/plateau/cap classes.
+!
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
-	1     NB_O .LE. MAX(50_8,NT_O/1000))THEN
+	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
+	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL))THEN
 	    IXIT=2
 	    EXIT
 	  END IF
@@ -7045,6 +7226,8 @@ C
 	RES=1.0E+30_LDP
 	RES_PREV(1)=0.0_LDP
 	RES_PREV(2)=0.0_LDP
+	RATIO_OM=0.0_LDP
+	WRC_I=0; WRC_L=0; WRC_PI=0; WRC_PL=0; WRC_SAME=0
 	KN_SGN_SUM=0.0_LDP
 	KN_SGN_PREV=0.0_LDP
 	OMEGA_RAY=KN_RAY_OMEGA
@@ -7147,6 +7330,10 @@ C
 	      VOLD=FLD(1,L)
 	      IF(VOLD .GT. 0.0_LDP)THEN
 	        T1=VOLD/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
+	        IF(T1 .GT. RES)THEN
+	          WRC_I=1
+	          WRC_L=L
+	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	      END IF
@@ -7184,6 +7371,10 @@ C
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
+	        IF(T1 .GT. RES)THEN
+	          WRC_I=J
+	          WRC_L=L
+	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
@@ -7293,6 +7484,10 @@ C
 	      END IF
 	      VOLD=FLD(NI,L)
 	      T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
+	      IF(T1 .GT. RES)THEN
+	        WRC_I=NI
+	        WRC_L=L
+	      END IF
 	      RES=MAX(RES,T1)
 	      RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
@@ -7362,6 +7557,10 @@ C
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
+	        IF(T1 .GT. RES)THEN
+	          WRC_I=J
+	          WRC_L=L
+	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
@@ -7447,6 +7646,30 @@ C
 !$OMP CRITICAL (KN_AA_UPD)
 	      KN_AA_REJ=KN_AA_REJ+1
 !$OMP END CRITICAL (KN_AA_UPD)
+!
+! edited by Devin, 17-Oct-2026: NB_O/NT_O were latched from the
+! rejected-mix pass above; the bulk-exit census must describe the
+! restored iterate.  The slot-2 history pair is exactly the accepted
+! step (x_pre = AA_XH(2), g(x_pre)-x_pre = AA_RH(2)), so rebuild the
+! census with the same significance floor and tolerance the march
+! used.  Only reachable under [KN_ORD_AA]=T (default F).
+!
+	      NBAD_CUR=0
+	      NTOT_CUR=0
+	      DO L=1,NCF
+	        DO J=1,NI
+	          T1=ABS(AA_RH(J,L,2))/
+	1             MAX(ABS(AA_XH(J,L,2)),1.0E-4_LDP*VMAXF(L))
+	          IF(MAX(ABS(AA_XH(J,L,2)),
+	1             ABS(AA_XH(J,L,2)+AA_RH(J,L,2))) .GT.
+	2             1.0E-4_LDP*VMAXF(L))THEN
+	            NTOT_CUR=NTOT_CUR+1
+	            IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	          END IF
+	        END DO
+	      END DO
+	      NB_O=NBAD_CUR
+	      NT_O=NTOT_CUR
 	    END IF
 	  END IF
 	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
@@ -7566,6 +7789,13 @@ C
 	    END IF
 	  END IF
 	  RES_PREV(1)=RES
+	  IF(WRC_I .EQ. WRC_PI .AND. WRC_L .EQ. WRC_PL .AND.
+	1    WRC_I .GT. 0)THEN
+	    WRC_SAME=WRC_SAME+1
+	  ELSE
+	    WRC_SAME=1
+	  END IF
+	  WRC_PI=WRC_I; WRC_PL=WRC_L
 	  IF(.NOT. HAS_CP)THEN
 !
 !	    No compressing cells: pass 1 still carries the stale slope
@@ -7585,8 +7815,13 @@ C
 	    IXIT=1
 	    EXIT
 	  END IF
+! [FG_BULK_CONTR]: same ordering fix as SWEEP_FLD -- the bulk exit
+! must not fire on a noncontracting pass sequence; RATIO_OM here is
+! the consecutive-pass ratio.
+!
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
-	1     NB_O .LE. MAX(50_8,NT_O/1000))THEN
+	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
+	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL))THEN
 	    IXIT=2
 	    EXIT
 	  END IF
@@ -8121,8 +8356,13 @@ C
 	  VNEW=0.0_LDP
 	  VOLD=FLD(1,L)
 	  IF(ABS(VNEW-VOLD) .GT. 1.0E-25_LDP*VOLD)THEN
-	    RES=MAX(RES,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
-	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
+	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	    IF(DCELL .GT. RES)THEN
+	      WRC_I=1
+	      WRC_L=L
+	    END IF
+	    RES=MAX(RES,DCELL)
+	    RESL=MAX(RESL,DCELL)
 	  END IF
 	  FLD(1,L)=0.0_LDP
 	  DO I=1,NI-1
@@ -8137,16 +8377,20 @@ C
 	      NNEG=NNEG+1
 	    END IF
 	    VOLD=FLD(I+1,L)
-	    RES=MAX(RES,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
-	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
+	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	    IF(DCELL .GT. RES)THEN
+	      WRC_I=I+1
+	      WRC_L=L
+	    END IF
+	    RES=MAX(RES,DCELL)
+	    RESL=MAX(RESL,DCELL)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
 !
 ! Signed per-cell update for the W6 sign-flip detector in
 ! SWEEP_FLD (same metric the ORD loop accumulates inline).
 !
-	      SGN_ACC=SGN_ACC+
-	1        (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	      SGN_ACC=SGN_ACC+DCELL
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
@@ -8179,12 +8423,16 @@ C
 	    NNEG=NNEG+1
 	  END IF
 	  VOLD=FLD(NI,L)
-	  RES=MAX(RES,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
-	  RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
+	  DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	  IF(DCELL .GT. RES)THEN
+	    WRC_I=NI
+	    WRC_L=L
+	  END IF
+	  RES=MAX(RES,DCELL)
+	  RESL=MAX(RESL,DCELL)
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
-	    IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	1      .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	    IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	  END IF
 	  FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  DO I=NI-1,1,-1
@@ -8199,14 +8447,17 @@ C
 	      NNEG=NNEG+1
 	    END IF
 	    VOLD=FLD(I,L)
-	    RES=MAX(RES,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
-	    RESL=MAX(RESL,ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L))
+	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
+	    IF(DCELL .GT. RES)THEN
+	      WRC_I=I
+	      WRC_L=L
+	    END IF
+	    RES=MAX(RES,DCELL)
+	    RESL=MAX(RESL,DCELL)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
-	      SGN_ACC=SGN_ACC+
-	1        (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	      SGN_ACC=SGN_ACC+DCELL
+	      IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
 	    FLD(I,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  END DO
@@ -8288,6 +8539,82 @@ C
 ! per-pass contraction ~0.995.  The generation-level INEXT_RELAX
 ! stays on the sweep write sites only.
 !
+	        IF(V2 .GT. 0.0_LDP)THEN
+	          DLOC=ABS(V1-V2)/MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	          STORE(KC,LS,LS2-1)=V1
+	        ELSE
+	          DLOC=0.0_LDP
+	          IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))DLOC=1.0_LDP
+	          STORE(KC,LS,LS2-1)=V1
+	        END IF
+	        DMAX=MAX(DMAX,DLOC)
+	      END DO
+	    END IF
+	  END IF
+	END DO
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! Capped provisional commit (17-Oct-2026, [FG_COMMIT_NC] under
+! [FG_COMMIT_CONV]): same write-back as WRITE_STORE, but each cell's
+! committed change is bounded by FG_COMMIT_NC times the retained
+! value (significance floored at 1E-4 of the frequency column peak,
+! matching DLOC's own normalization).  A seed fill (V2 at/below the
+! write floor) may inject at most NC times that significance floor
+! -- an unconverged ray cannot drop a large value into an empty
+! slot.  NSTORE keeps its >50%-moved semantics; DMAX reports the
+! capped delta actually committed.
+! ----------------------------------------------------------------
+	SUBROUTINE WRITE_STORE_CAP(FLD,STORE,DMAX)
+	REAL(KIND=LDP) FLD(NI,NCF)
+	REAL(KIND=LDP) STORE(:,:,:)
+	REAL(KIND=LDP) DMAX
+	INTEGER KS,LS2,JP2
+	REAL(KIND=LDP) V1,V2,DLOC,DVB
+	REAL(KIND=LDP) VMAX_F(NCF)
+!
+	DO LS2=1,NCF
+	  VMAX_F(LS2)=MAX(1.0E-25_LDP,
+	1    MAXVAL(FLD(1:NI,LS2),
+	2    MASK=FLD(1:NI,LS2) .EQ. FLD(1:NI,LS2)))
+	END DO
+	DMAX=0.0_LDP
+	DO KS=1,KN_ND
+	  KC=COMP_DEPTH_IDX(KS)
+	  IF(KC .GE. 1)THEN
+	    JP2=J_PNT(KS,LS)
+	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
+	      DO LS2=2,NCF
+	        V1=FLD(JP2,LS2)
+	        IF(V1 .EQ. V1 .AND. V1 .GT. 0.0_LDP)THEN
+	          IF(V1 .GT. NONMONO_INEXT_CAP)THEN
+	            V1=NONMONO_INEXT_CAP
+	            NCAP=NCAP+1
+	          END IF
+	        ELSE
+	          V1=1.0E-30_LDP
+	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2)))
+	1            NCAP=NCAP+1
+	        END IF
+	        V2=STORE(KC,LS,LS2-1)
+!
+! Cap the committed change at FG_COMMIT_NC times the retained value
+! (or the significance floor when the slot held only a seed).  The
+! provisional write moves the store toward the refreshed field
+! without letting an unconverged iterate ratchet it by an unbounded
+! factor per refresh.
+!
+	        DVB=FG_COMMIT_NC*MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	        IF(ABS(V1-V2) .GT. DVB)V1=V2+SIGN(DVB,V1-V2)
+!
+	        IF(V2 .GT. 0.0_LDP)THEN
+	          IF(ABS(V1-V2)/V2 .GT. 0.5_LDP .AND.
+	1          MAX(V1,V2) .GT. 1.0E-4_LDP*VMAX_F(LS2))
+	2          NSTORE=NSTORE+1
+	        ELSE IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))THEN
+	          NSTORE=NSTORE+1
+	        END IF
 	        IF(V2 .GT. 0.0_LDP)THEN
 	          DLOC=ABS(V1-V2)/MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
 	          STORE(KC,LS,LS2-1)=V1

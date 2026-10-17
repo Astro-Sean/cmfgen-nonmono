@@ -77,7 +77,8 @@
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
-	LOGICAL FG_COMMIT_CONV_V
+	REAL(KIND=LDP) FG_COMMIT_NC_V
+	LOGICAL FG_COMMIT_CONV_V,FG_BULK_CONTR_V
 !
 	LOGICAL USE_JFNK_OLD
 !
@@ -1956,8 +1957,25 @@
 	  FG_COMMIT_CONV_V=.FALSE.
 	  CALL RD_STORE_LOG(FG_COMMIT_CONV_V,'FG_COMMIT_CONV',L_FALSE,
 	1     'Reject refresh commits on non-converged ray exits?')
+!
+! FG_COMMIT_NC (default 0 = pure reject): under FG_COMMIT_CONV a
+! non-converged ray (bad exit class OR residual > KN_RAY_TOL --
+! bulk exits are also caught, since IXIT=2 fires on the bad-cell
+! fraction alone) takes a capped provisional commit, each cell
+! bounded to NC times its retained value.  w19's bulk-exit commits
+! of 8-27x at residual ~0.47 were the luminosity ratchet.
+! FG_BULK_CONTR (default F) additionally requires same-direction
+! contraction before the bulk exit may fire, so flat noncontracting
+! rays are classed stall/plateau/cap instead of converged.
+!
+	  FG_COMMIT_NC_V=0.0_LDP
+	  CALL RD_STORE_DBLE(FG_COMMIT_NC_V,'FG_COMMIT_NC',L_FALSE,
+	1     'KNOP: per-cell cap factor on non-converged commits (0=reject)')
+	  FG_BULK_CONTR_V=.FALSE.
+	  CALL RD_STORE_LOG(FG_BULK_CONTR_V,'FG_BULK_CONTR',L_FALSE,
+	1     'Require contraction before the bulk bad-fraction exit?')
 	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V,
-	1     FG_COMMIT_CONV_V)
+	1     FG_COMMIT_CONV_V,FG_COMMIT_NC_V,FG_BULK_CONTR_V)
 !
 ! Residual-accepted BA update (default FALSE).  The BA correction
 ! is committed only when the SE residual after the previous BA
@@ -2770,6 +2788,9 @@
 	3   '  commit_jump=',FG_COMMIT_JUMP_V,
 	4   '  heal_cap_exp=',INT(LOG10(FG_DIV_HEAL_CAP_V)),
 	5   '  commit_conv=',FG_COMMIT_CONV_V
+	    WRITE(LUER,'(A,ES10.3,A,L2)')
+	1   '   commit_nc=',FG_COMMIT_NC_V,
+	2   '  bulk_contr=',FG_BULK_CONTR_V
 	    WRITE(LUER,'(A,I4,A,I4,A,I4)')
 	1   '   hot_passes=',KN_RAY_HOTPASSES_V,
 	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,
