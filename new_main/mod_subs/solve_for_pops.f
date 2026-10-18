@@ -3290,7 +3290,7 @@
 !
 ! edited by Devin, 17-Oct-2026: trace-side channels and the
 ! converged-exit verdict.  Under the major/trace split
-! ([BA_DEM_PFLOOR]/[BA_DEM_RELFRAC]) the 'pops' row reads only the
+! ([BA_DEM_PFLOOR]) the 'pops' row reads only the
 ! non-exempted demand, so MAXCH < EPS can print while exempted rows
 ! still demand percent-level-or-larger corrections -- the major
 ! channels alone cannot say whether the system is converged.  The
@@ -3301,8 +3301,7 @@
 !
 	  CONV_TRC_NEED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1    BA_TR_MAXSWP .GT. 0 .AND.
-	2    (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
-	3     BA_DEM_RELFRAC .GT. 0.0_LDP) .AND.
+	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
 	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
 	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
 	  CONV_TRC_DONE=BA_TR_MAXSWP .GT. 0 .AND.

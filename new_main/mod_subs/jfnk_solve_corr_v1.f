@@ -1802,9 +1802,6 @@
 	    BA_TR_ABS=0.0_LDP
 	    BA_DEM_EXM=0.0_LDP
 	    DO K=1,ND
-	      T2=0.0_LDP
-	      IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_PREV(1:NT-2,K))
 	      DO J=1,NT
 	        IF(POPS_PREV(J,K) .GT. 1.0E-100_LDP)THEN
 	          SOL(J,K)=POPS(J,K)/POPS_PREV(J,K)-1.0_LDP
@@ -1815,14 +1812,13 @@
 !
 ! Same exempted-row predicate as SOLVEBA_V13's demand/committed
 ! scans, on the same operands: POPS_PREV is the pre-step state, so it
-! plays the POPS_OLD role and is also the RELFRAC baseline.  The
+! plays the POPS_OLD role.  The
 ! PFLOOR>0 guard keeps an explicit 0 = off consistent with the BA
 ! side; without it the two solvers exempt different rows.
+! (17-Oct-2026: BA_DEM_RELFRAC removed -- exemption is PFLOOR-only.)
 !
-	        IF(J .LE. NT-2 .AND.
-	1           ((BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
-	2             POPS_PREV(J,K) .LT. BA_DEM_PFLOOR) .OR.
-	3            POPS_PREV(J,K) .LT. T2))THEN
+	        IF(J .LE. NT-2 .AND. BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	1             POPS_PREV(J,K) .LT. BA_DEM_PFLOOR)THEN
 	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
 	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
 	          BA_DEM_EXM=MAX(BA_DEM_EXM,T1)
@@ -2059,15 +2055,10 @@
 	    BA_TR_ABS=0.0_LDP
 	    BA_DEM_EXM=0.0_LDP
 	    DO K=1,ND
-	      T2=0.0_LDP
-	      IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_PREV(1:NT-2,K))
 	      DO J=1,NT
 	        T1=100.0_LDP*ABS(SOL(J,K))
-	        IF(J .LE. NT-2 .AND.
-	1           ((BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
-	2             POPS_PREV(J,K) .LT. BA_DEM_PFLOOR) .OR.
-	3            POPS_PREV(J,K) .LT. T2))THEN
+	        IF(J .LE. NT-2 .AND. BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	1             POPS_PREV(J,K) .LT. BA_DEM_PFLOOR)THEN
 	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
 	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
 	          BA_DEM_EXM=MAX(BA_DEM_EXM,T1)

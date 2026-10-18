@@ -2060,9 +2060,6 @@
 	  BA_DEM_PFLOOR=-1.0_LDP
 	  CALL RD_STORE_DBLE(BA_DEM_PFLOOR,'BA_DEM_PFLOOR',L_FALSE,
 	1     'Population floor for the BA demanded-corr metric (-1=auto)')
-	  BA_DEM_RELFRAC=-1.0_LDP
-	  CALL RD_STORE_DBLE(BA_DEM_RELFRAC,'BA_DEM_RELFRAC',L_FALSE,
-	1     'Demand floor as frac of max pop at depth (-1=auto, 0=off)')
 	  BA_MAXCH_FAIL=1.0E+30_LDP
 	  CALL RD_STORE_DBLE(BA_MAXCH_FAIL,'BA_MAXCH_FAIL',L_FALSE,
 	1     'Reject and roll back a committed BA step above this change')
@@ -2879,11 +2876,6 @@
 	    IF(BA_DEM_PFLOOR .LT. 0.0_LDP)THEN
 	      BA_DEM_PFLOOR=1.0E-30_LDP
 	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_PFLOOR=1.0E-30'//
-	1     ' (-1 auto)'
-	    END IF
-	    IF(BA_DEM_RELFRAC .LT. 0.0_LDP)THEN
-	      BA_DEM_RELFRAC=0.01_LDP
-	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_RELFRAC=0.01'//
 	1     ' (-1 auto)'
 	    END IF
 	    IF(BA_TR_ABSMAX .EQ. 0.0_LDP)THEN

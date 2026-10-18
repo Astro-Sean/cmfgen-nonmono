@@ -1438,17 +1438,14 @@
 !
 	REAL(KIND=LDP) BA_DEM_PFLOOR
 !
-! BA_DEM_RELFRAC (VADAT [BA_DEM_RELFRAC], default -1=auto, 0=off):
-! relative demand floor, same skip mechanism and the same -1/0 sentinel
-! policy as BA_DEM_PFLOOR but expressed as
-! a fraction of the largest population row at that depth.  The
-! absolute floor cannot catch a physically empty ion at a populated
-! depth -- e.g. FeI or CVI at d65 (T~60 kK) sit orders above 1E-30 yet
-! carry ~1E-20 of the gas -- so their unsatisfiable demands keep
-! pinning MAXCH above EPS_TERM.  The two floors combine as MAX;
-! skipped rows still commit corrections, and ED/T rows stay exempt.
-!
-	REAL(KIND=LDP) BA_DEM_RELFRAC
+! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor.  It
+! exempted trace rows from the MAXCH/demand metric at a populated
+! depth, which let the SOB l14 run report ~0.1% demand while ~700
+! rows per depth still demanded >0.1% corrections -- the converged
+! exit fired on an unconverged system and the written model state is
+! not reliable.  BA_DEM_PFLOOR remains (it only exempts rows that
+! are physically empty in absolute terms).  The VADAT key is no
+! longer recognized.
 !
 ! BA_DEM_EXM (diagnostic export, not a VADAT key): largest demanded
 ! correction over the rows the BA_DEM floors exempted this call,

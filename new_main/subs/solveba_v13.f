@@ -16,7 +16,7 @@
 	9     BA_PART_THIS,BA_REJ_FRAC,BA_NREJ_SOFT,BA_SOFT_THIS,
 	1     BAACC_RDLAM_PROBE_ARM,BAACC_RDLAM_PROBE,
 	1     USE_ELEC_HEAT_BAL,GS_POPS_HELD,DO_BA_QUAR,BA_QUAR_MAX,BA_QUAR_MASK,
-	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,BA_DEM_RELFRAC,
+	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,
 	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES,
 	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS,POPS_GS_SAVE,
 	4     BA_HOLD_RESTORE_REVIVAL
@@ -59,6 +59,9 @@
 !                          MAX_INC_VEC / MAX_DEC_VEC accumulation, so the
 !                          DO_LEVEL_CHK NV-th-largest MAXCH respects the
 !                          dead-level floors (previously bypassed them).
+! Altered 17-Oct-2026 : BA_DEM_RELFRAC removed entirely -- relative
+!                          exemption hid a converged-exit on an
+!                          unconverged model (SOB l14 it242).
 ! Altered 23-Apr-2010 : DO_LEVEL_CHECK, MAX_INC_VEC, & MAX_DEC_VEC variables installed.
 !                         Return 10th maximum value, rather than biggest correction.
 !                         Done to help with a few non-converging levels.
@@ -1212,9 +1215,9 @@
 	WRITE(LU_SUM,'(A)')' '
 ! Cumulative demanded-correction counts over ALL NT rows per depth.
 ! The histogram is deliberately unmasked: gating it on the
-! BA_DEM_PFLOOR/BA_DEM_RELFRAC floors hid that ~99% of rows demanded
+! BA_DEM_PFLOOR floor hid that ~99% of rows demanded
 ! large corrections on the m15 formal KNOP start (it1-2, Oct-2026).
-! The floors still gate the DECREASE/INCREASE scan below, which feeds
+! The floor still gates the DECREASE/INCREASE scan below, which feeds
 ! the MAXCH control metric where unsatisfiable floor-level demands
 ! are noise.
 !
@@ -1238,16 +1241,11 @@
 	DO I=1,ND
 	  COUNT(:)=0
 !
-! edited by Devin, 12-Oct-2026: [BA_DEM_RELFRAC] relative demand floor.
-! The absolute floor cannot reach a physically empty ion at a populated
-! depth (FeI/CVI at d65: n~1E-20 of the gas, above 1E-30), so the floor
-! is also expressed as a fraction of the largest row at this depth.
-! ED/T rows are excluded from the max (J.LE.NT-2 below) so T/ED cannot
-! set the scale.
+! Removed 17-Oct-2026: the [BA_DEM_RELFRAC] relative demand floor and
+! its POPS(J,I).LT.T2 skip below.  Relative exemption let hundreds of
+! populated-depth trace rows escape the MAXCH metric (SOB l14 it242:
+! ~700/depth >0.1% while MAXCH printed 0.08%).
 !
-	  T2=0.0_LDP
-	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,I))
 	  DO J=1,NT
 	    T1=1.0E+06_LDP*ABS(STEQ(J,I))+1.0E-31_LDP		!to ensure non-zero.
 	    K=LOG10(T1)+1; K=MIN(7,K)
@@ -1265,7 +1263,6 @@
 !
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
 	1     POPS(J,I) .LT. BA_DEM_PFLOOR)CYCLE
-	    IF(J .LE. NT-2 .AND. POPS(J,I) .LT. T2)CYCLE
 	    IF(STEQ(J,I) .GT. DECREASE)THEN
 	      DECREASE=STEQ(J,I)
 	      IDEC=I
@@ -1289,13 +1286,9 @@
 ! the exempted set is exactly the rows the two floor tests skipped.
 !
 	DO I=1,ND
-	  T2=0.0_LDP
-	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,I))
 	  DO J=1,NT-2
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
-	1       POPS(J,I) .LT. BA_DEM_PFLOOR .OR.
-	2       POPS(J,I) .LT. T2)THEN
+	1       POPS(J,I) .LT. BA_DEM_PFLOOR)THEN
 	      IF(ABS(STEQ(J,I)) .GT. STEQ_EXM)THEN
 	        STEQ_EXM=ABS(STEQ(J,I))
 	        IEXM=I
@@ -1368,21 +1361,19 @@
 	MAX_DEC_VEC=0.0_LDP
 	DO J=1,ND
 !
-! edited by Devin, 13-Oct-2026: [BA_DEM_PFLOOR]/[BA_DEM_RELFRAC] must gate
+! edited by Devin, 13-Oct-2026: [BA_DEM_PFLOOR] must gate
 ! this scan too.  When DO_LEVEL_CHK is true the NV-th largest STEQ value
 ! replaces MAXCH below, so floor-level rows skipped by the demand scan
 ! would still pin the metric whenever they fill all NV slots (the X_SOB
 ! 40d run: HeI singlet dead levels at depth 73 hold MAXCH ~9% while the
-! spectrum is converged).  ED/T rows (I>NT-2) stay exempt; both floors
-! default to 0, which leaves this scan unchanged.
+! spectrum is converged).  ED/T rows (I>NT-2) stay exempt; the floor
+! defaults to 0, which leaves this scan unchanged.
+! (17-Oct-2026: the [BA_DEM_RELFRAC] second floor was removed here as
+! everywhere -- see the module comment in CONTROL_VARIABLE_MOD.)
 !
-	  T2=0.0_LDP
-	  IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1   T2=BA_DEM_RELFRAC*MAXVAL(POPS(1:NT-2,J))
 	  DO I=1,NT
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. I .LE. NT-2 .AND.
 	1     POPS(I,J) .LT. BA_DEM_PFLOOR)CYCLE
-	    IF(I .LE. NT-2 .AND. POPS(I,J) .LT. T2)CYCLE
 	    T1=STEQ(I,J)
 	    IF(T1 .LE. 0.0_LDP)THEN
 	      IF(T1 .LT. MAX_INC_VEC(NV))THEN
@@ -1648,18 +1639,14 @@
 ! the block-triangular system and cannot oscillate against the
 ! majors.  Armed only when a floor is set (otherwise the mask is
 ! empty and every row is a major); LAMBDA calls are exempt.
+! (17-Oct-2026: BA_DEM_RELFRAC removed -- the mask is now PFLOOR-only.)
 !
 	IF(BA_TRACE_PHASE .AND. .NOT. LAMBDA_IT .AND.
 	1   ALLOCATED(POPS_OLD) .AND.
-	2   (BA_DEM_PFLOOR .GT. 0.0_LDP .OR.
-	3    BA_DEM_RELFRAC .GT. 0.0_LDP))THEN
+	2   BA_DEM_PFLOOR .GT. 0.0_LDP)THEN
 	  DO I=1,ND
-	    T2=0.0_LDP
-	    IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_OLD(1:NT-2,I))
 	    DO J=1,NT-2
-	      IF(POPS_OLD(J,I) .GE. BA_DEM_PFLOOR .AND.
-	1         POPS_OLD(J,I) .GE. T2)POPS(J,I)=POPS_OLD(J,I)
+	      IF(POPS_OLD(J,I) .GE. BA_DEM_PFLOOR)POPS(J,I)=POPS_OLD(J,I)
 	    END DO
 	    POPS(NT-1,I)=POPS_OLD(NT-1,I)
 	    POPS(NT,I)=POPS_OLD(NT,I)
@@ -1697,19 +1684,15 @@
 	  INCREASE=0.0_LDP
 	  DECREASE=0.0_LDP
 	  DO I=1,ND
-	    T2=0.0_LDP
-	    IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_OLD(1:NT-2,I))
 	    DO J=1,NT
 !
 ! edited by Devin, 11-Oct-2026: same [BA_DEM_PFLOOR] exemption as the
 ! demand scan above -- a committed change on a floor-level row is
-! equally uninformative for the mode decision.  12-Oct-2026: the
-! [BA_DEM_RELFRAC] relative floor uses POPS_OLD consistently here.
+! equally uninformative for the mode decision.  (17-Oct-2026: the
+! [BA_DEM_RELFRAC] POPS_OLD.LT.T2 skip was removed with the key.)
 !
 	      IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
 	1     POPS_OLD(J,I) .LT. BA_DEM_PFLOOR)CYCLE
-	      IF(J .LE. NT-2 .AND. POPS_OLD(J,I) .LT. T2)CYCLE
 	      IF(POPS_OLD(J,I) .LE. 0.0_LDP)THEN
 	        IF(POPS(J,I) .GT. 0.0_LDP)INCREASE=1.0E+07_LDP
 	      ELSE IF(POPS(J,I) .LE. 0.0_LDP)THEN
@@ -1783,12 +1766,8 @@
 	  ITRC=0
 	  JTRC=0
 	  DO I=1,ND
-	    T2=0.0_LDP
-	    IF(BA_DEM_RELFRAC .GT. 0.0_LDP)
-	1     T2=BA_DEM_RELFRAC*MAXVAL(POPS_OLD(1:NT-2,I))
 	    DO J=1,NT-2
-	      IF(POPS_OLD(J,I) .GE. BA_DEM_PFLOOR .AND.
-	1         POPS_OLD(J,I) .GE. T2)CYCLE
+	      IF(POPS_OLD(J,I) .GE. BA_DEM_PFLOOR)CYCLE
 	      T1=ABS(POPS(J,I)-POPS_OLD(J,I))/
 	1         MAX(POP_ATOM(I),1.0E-30_LDP)
 	      IF(T1 .GT. BA_TR_ABS)THEN
