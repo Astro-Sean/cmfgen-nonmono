@@ -6067,9 +6067,11 @@ C
 	5    '  div=',COUNT(FG_RAY_VC.EQ.4),
 	6    '  unsolved=',COUNT(FG_RAY_VC.EQ.-1),
 	7    '  worst=(ixit',NXT_LS(LS),',v',FG_RAY_VC(LS),')'
-	  WRITE(LUER,'(A,ES11.3,A,ES11.3)')
+	  WRITE(LUER,'(A,ES11.3,A,ES11.3,A,ES11.3)')
 	1    '    worst-ray delta: commit=',FG_RAY_DCH(LS),
-	2    '  max=',MAXVAL(FG_RAY_DCH)
+	2    '  max=',MAXVAL(FG_RAY_DCH),
+	3    '  committed-max=',
+	4    MAX(0.0_LDP,MAXVAL(FG_RAY_DCH,MASK=FG_RAY_VC.EQ.0))
 	END IF
 	IF(ALLOCATED(FG_RAY_WI))THEN
 	  WRITE(LUER,'(A,I5,A,I5,A,I4,A,I4)')
@@ -8663,19 +8665,22 @@ C
 !
 ! ----------------------------------------------------------------
 ! W9 (17-Oct-2026): max committed-write jump for the FG_COMMIT_JUMP
-! guard.  Measures max |V1-V2|/MAX(V2,1e-4*column peak) over the
-! cells the store already holds (V2>0 and finite); cells the store
-! left at the floor are direct fills, not overwrites, and are
-! excluded -- the guard bounds the committed-near-blowup class
-! (audit: retained delta 4.19E-1 -> 5.03E3) while allowing
-! genuine factor-of-few rewrites.
+! guard.  Measures max |V1-V2|/MAX(V2,column peak/FG_COMMIT_JUMP)
+! over the cells the store already holds (V2>0 and finite).  Fills
+! into never-committed frequency columns are bounded by the
+! sibling-ray peak at the same field frequency (VMAX_X); only a
+! column that is at the floor for every ray (true cold start) is
+! exempt, so a fresh seed can still land.  The guard bounds the
+! committed-near-blowup class (audit: retained delta 4.19E-1 ->
+! 5.03E3) while allowing genuine factor-of-few rewrites.
 ! ----------------------------------------------------------------
 	REAL(KIND=LDP) FUNCTION FG_JUMP_MAX(FLD,STORE)
 	REAL(KIND=LDP) FLD(NI,NCF)
 	REAL(KIND=LDP) STORE(:,:,:)
-	INTEGER KS,LS2,JP2
-	REAL(KIND=LDP) V1,V2
+	INTEGER KS,KS2,LS2,JP2,RS,KC2
+	REAL(KIND=LDP) V1,V2,VX
 	REAL(KIND=LDP) VMAX_S(NCF)
+	REAL(KIND=LDP) VMAX_X(NCF)
 	FG_JUMP_MAX=0.0_LDP
 !
 ! Store-column peak per frequency.  The jump test is keyed on the
@@ -8688,6 +8693,7 @@ C
 !
 	DO LS2=1,NCF
 	  VMAX_S(LS2)=0.0_LDP
+	  VMAX_X(LS2)=-1.0_LDP
 	END DO
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
@@ -8704,12 +8710,6 @@ C
 	    JP2=J_PNT(KS,LS)
 	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
 	      DO LS2=2,NCF
-! A frequency column whose store peak is at the write floor has no
-! committed field to compare against -- fills there are seeds, and
-! the absolute test would veto the first real write forever.
-	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)CYCLE
-	        V2=STORE(KC,LS,LS2-1)
-	        IF(V2 .LE. 0.0_LDP .OR. V2 .NE. V2)CYCLE
 	        V1=FLD(JP2,LS2)
 	        IF(V1 .NE. V1)THEN
 	          FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
@@ -8720,6 +8720,39 @@ C
 ! the value actually written.
 	        V1=MAX(V1,1.0E-30_LDP)
 	        V1=MIN(V1,NONMONO_INEXT_CAP)
+! A frequency column whose store peak is at the write floor has no
+! committed field of its own to compare against.  Fills there were
+! once exempt entirely, which let a converged-classified ray seed a
+! column with an extreme value -- the w19 it90 failure channel
+! (committed delta ~3E7 while JUMP stayed under the bound).  Fall
+! back to the sibling-ray peak at the same field frequency: rays
+! sample the same atmosphere, so a genuine seed lands within
+! FG_COMMIT_JUMP of what neighbouring rays hold.  Only when every
+! ray's column is at the floor (true cold start) is the fill
+! exempt.
+	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)THEN
+	          IF(VMAX_X(LS2) .LT. 0.0_LDP)THEN
+	            VX=0.0_LDP
+	            DO RS=1,KN_NP
+	              DO KS2=1,KN_ND
+	                KC2=COMP_DEPTH_IDX(KS2)
+	                IF(KC2 .GE. 1)THEN
+	                  V2=STORE(KC2,RS,LS2-1)
+	                  IF(V2 .EQ. V2)VX=MAX(VX,V2)
+	                END IF
+	              END DO
+	            END DO
+	            VMAX_X(LS2)=VX
+	          END IF
+	          IF(VMAX_X(LS2) .GT. 1.0E-28_LDP .AND.
+	1          V1 .GT. FG_COMMIT_JUMP*VMAX_X(LS2))THEN
+	            FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
+	            RETURN
+	          END IF
+	          CYCLE
+	        END IF
+	        V2=STORE(KC,LS,LS2-1)
+	        IF(V2 .LE. 0.0_LDP .OR. V2 .NE. V2)CYCLE
 	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,ABS(V1-V2)/
 	1          MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP))
 	      END DO
