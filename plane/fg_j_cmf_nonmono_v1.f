@@ -2954,7 +2954,7 @@ C
 !
 !        CMFGEN's convention drops it on the ray: the equation solved
 !        here and in stock FG_J_CMF_V13 is
-!          dI/ds = eta - chi*I - GAM * dI/d(ln nu)
+!          dI/ds = eta - chi*I + GAM * dI/d(ln nu)
 !        with GAM = (V/cR)(1 + SIGMA*mu^2) the signed O(v/c)
 !        frequency-drift coefficient.  This is the inherited CMFGEN
 !        truncation, not an omission introduced by this routine; for
