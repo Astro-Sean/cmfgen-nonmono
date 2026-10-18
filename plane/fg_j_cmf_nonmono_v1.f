@@ -345,6 +345,18 @@
 	INTEGER*8, SAVE :: FG_GS_NCONV=0
 	INTEGER*8, SAVE :: FG_INEXT_CAPPED=0
 !
+! Compressing-cell sink census (edited by Devin, 18-Oct-2026): a ray
+! point with GAM < 0 whose bracketing depths are both non-compressing
+! (or which runs while HAS_COMPRESSING is false) keeps
+! chi_hat = chi + |GAM|/DLN but drops the |Q|*I_NEXT source term --
+! the cell absorbs without the compensating upwind feed.  Counted per
+! ray in FG_NOSLOT_RAY (LS-indexed so the OMP ray loop is race-free),
+! summed into FG_NOSLOT_CNT once per frequency, and read once per
+! great iteration by GET_FG_NOSLOT for the KN_NOSLOT census line.
+!
+	INTEGER*8, SAVE :: FG_NOSLOT_CNT=0
+	INTEGER, ALLOCATABLE :: FG_NOSLOT_RAY(:)
+!
 ! FG_GS_NBAD / FG_GS_NTOT: bulk convergence accounting from the last
 ! FG_KNOP_REFRESH_V1 pass -- number of significant cells (intensity
 ! above 1e-4 of the column peak) whose unrelaxed fixed-point residual
@@ -2056,6 +2068,8 @@
 	    IF(IOS .EQ. 0)ALLOCATE (ALO_CHIHAT_RAY(NRAY_MAX,NP),STAT=IOS )
 	    IF(IOS .EQ. 0)ALLOCATE (ALO_SPR_M_RAY(NRAY_MAX,NP),STAT=IOS )
 	    IF(IOS .EQ. 0)ALLOCATE (ALO_SPR_P_RAY(NRAY_MAX,NP),STAT=IOS )
+	    IF(IOS .EQ. 0)ALLOCATE (FG_NOSLOT_RAY(NP),STAT=IOS )
+	    IF(IOS .EQ. 0)FG_NOSLOT_RAY=0
 !
 ! Optimized Knop et al. 2009 depth-point intensity storage.
 ! Sparse depth storage (Opt A): only N_COMP compressing depths.
@@ -2185,6 +2199,7 @@
 	    FG_NC_CAP=0
 	    KN_HOT_SPENT=0
 	    KN_STORE_READY=.FALSE.
+	    FG_NOSLOT_CNT=0
 	  END IF
 !
 	  LOG_R_EXT(1:ND_EXT)=LOG(R_EXT(1:ND_EXT))
@@ -2866,6 +2881,7 @@ C
 !
 	  DO LS=1,NP
 !
+	    FG_NOSLOT_RAY(LS)=0
 	    IF(NI_RAY(LS) .EQ. 1)THEN
 	      I_P(1,LS)=0.0_LDP
 	      I_M(1,LS)=0.0_LDP
@@ -3479,6 +3495,7 @@ C
 !	          frequency coupling entirely rather than applying it with a
 !	          sign inconsistent with CHI_RAY.
 !
+	          FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)
 	        END IF
 	      ELSE
@@ -3487,6 +3504,7 @@ C
 !	        interpolation of SIGMA_RAY can still overshoot below -1.
 !	        Signed Q*I_PREV would subtract the upwind intensity (Q<0).
 !	        Drop frequency coupling, matching the no-slot branch above.
+	        FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	        SOURCE_PRIME(I)=SOURCE_RAY(I)
 	      END IF
 	    END DO
@@ -3728,11 +3746,13 @@ C
 !	          GAM < 0 but no I_NEXT slot is available.  Drop the
 !	          frequency coupling rather than applying an inconsistent sign.
 !
+	          FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)
 	        END IF
 	      ELSE
 !	        GAM < 0 without I_NEXT storage (cubic SIGMA overshoot).
 !	        Drop frequency coupling rather than applying signed Q*I_PREV.
+	        FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	        SOURCE_PRIME(I)=SOURCE_RAY(I)
 	      END IF
 	    END DO
@@ -3931,6 +3951,11 @@ C
 !
 	  I_P_STORE(:,:)=MIN(I_P(:,:),NONMONO_INEXT_CAP)
 	  I_M_STORE(:,:)=MIN(I_M(:,:),NONMONO_INEXT_CAP)
+!
+! Fold this frequency's compressing-cell sink count into the
+! great-iteration census (serial region; the ray loop is done).
+!
+	  FG_NOSLOT_CNT=FG_NOSLOT_CNT+SUM(FG_NOSLOT_RAY(1:NP))
 !
 ! Cap the expanding-zone frequency feedback (I_M_PREV / I_P_PREV) at
 ! NONMONO_INEXT_CAP, matching the cap already applied to the compressing-
@@ -4799,6 +4824,14 @@ C
 	RF_DCHG=FG_RF_DCHG
 	NBAD_STAL=FG_GS_NSTAL
 	NBAD_PLAT=FG_GS_NPLAT
+	RETURN
+	END
+!
+	SUBROUTINE GET_FG_NOSLOT(CNT)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_NOSLOT_CNT
+	IMPLICIT NONE
+	INTEGER*8 CNT
+	CNT=FG_NOSLOT_CNT
 	RETURN
 	END
 !

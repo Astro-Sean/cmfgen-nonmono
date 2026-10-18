@@ -237,7 +237,8 @@
 	LOGICAL EQUAL
 	EXTERNAL ICHRLEN,ERROR_LU,WARNING_LU,SPEED_OF_LIGHT,GRAVITATIONAL_CONSTANT
 	EXTERNAL MASS_SUN,RAD_SUN,TEFF_SUN
-	EXTERNAL SET_FG_GS_TAG,SET_MOM_GS_TAG
+	EXTERNAL SET_FG_GS_TAG,SET_MOM_GS_TAG,GET_FG_NOSLOT
+	INTEGER*8 KN_NOSLOT_CNT
 !
 	INTEGER GET_DIAG
 	INTEGER BNDST
@@ -3396,6 +3397,21 @@
 	  END IF
 	  KN_NOGAIN_CNT=0; KN_NOGAIN_DMIN=ND+1; KN_NOGAIN_DMAX=0
 	  KN_NOGAIN_RMAX=0.0_LDP; KN_NOGAIN_NU=0.0_LDP
+	END IF
+!
+! edited by Devin, 18-Oct-2026: KN_NOSLOT census -- compressing
+! ray-points (GAM<0) that kept the chi_hat absorption term but had no
+! lagged I_NEXT slot to draw the compensating source from.  These
+! cells act as net sinks while the fixed point is converged; a nonzero
+! count is expected on the cold start and at compression-zone edges,
+! but a large persistent census would flag the store depth map as
+! inconsistent with the ray SIGMA field.
+!
+	IF(DO_NONMONO_KNOP)THEN
+	  CALL GET_FG_NOSLOT(KN_NOSLOT_CNT)
+	  IF(KN_NOSLOT_CNT .GT. 0)
+	1   WRITE(LUER,'(A,I11,A)')' KN_NOSLOT: ',KN_NOSLOT_CNT,
+	2   ' compressing cells had no I_NEXT slot (absorb-only)'
 	END IF
 !
 	IF(RLUMST(1) .LE. 0.0_LDP)RLUMST(1)=1.0E-20_LDP
