@@ -188,13 +188,11 @@ cmfgen:
     # sentinel and can never pass any finite JFNK_FRZ_GATE.  With the
     # floor armed the metric sees the real demand (~60).
     BA_DEM_PFLOOR: 1.0D-30
-    # 16-Oct-2026: relative demand floor, as in the luc_rfrac variant.
-    # Trace ionization stages (OI at d58 ~1e-39 of the depth max, OSIX
-    # at d16 ~1e-23) re-demand ~0.3-0.9% corrections every iteration
-    # and pin MAXCH above EPS_TERM forever; the absolute floor cannot
-    # reach them.  Rows below RELFRAC*max(POPS) are exempted from the
-    # metric only - their corrections still commit.
-    BA_DEM_RELFRAC: 1.0D-6   # 16-Oct-2026: 1e-3 also hid populated metal levels vs the H-dominated max; 1e-6 still exempts dead stages (~1e-23 rel) while trace ions count in MAXCH
+    # 17-Oct-2026: BA_DEM_RELFRAC removed from the code entirely.
+    # The relative floor let the SOB l14 run report ~0.1% demand at
+    # it242 while ~700 rows/depth still demanded >0.1% -- a converged
+    # exit on an unconverged system.  BA_DEM_PFLOOR remains and
+    # exempts only absolutely-empty rows.
     # Damping guards for the cold-start transient: bound committed BA
     # correction factors while demand is saturated, and average any
     # level whose correction flips sign >=4 times (fires only on

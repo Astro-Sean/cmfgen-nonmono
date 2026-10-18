@@ -159,7 +159,6 @@ cmfgen:
     # Empty-ion demand rows (depth-62 ~1.6e11% re-fed chatter) pin
     # MAXCH and block the convergence exit; drop rows <1e-6 of
     # depth-max from the metric.  Corrections still commit.
-    BA_DEM_RELFRAC: 1.0D-6
     DO_JFNK: F
     JFNK_WARMUP: '0'
     JFNK_ANYITER: T

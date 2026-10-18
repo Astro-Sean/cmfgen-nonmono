@@ -172,7 +172,6 @@ cmfgen:
     # sentinel and can never pass any finite JFNK_FRZ_GATE.  With the
     # floor armed the metric sees the real demand (~60).
     BA_DEM_PFLOOR: 1.0D-30
-    BA_DEM_RELFRAC: 1.0D-6   # 16-Oct-2026: 1e-3 also hid populated metal levels vs the H-dominated max; 1e-6 still exempts dead stages (~1e-23 rel) while trace ions count in MAXCH
     # 08-Oct-2026: frozen-tier JFNK (Newton-Krylov on the lagged-J
     # SE residual) replacing the single clipped BA step on full
     # calls.  Coupled tier is unavailable under SOB.  Gates left at

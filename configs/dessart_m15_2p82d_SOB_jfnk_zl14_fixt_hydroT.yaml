@@ -114,7 +114,6 @@ cmfgen:
     BA_SAT_RAW: 2.0D3
     BA_SAT_LIM: '0'
     BA_DEM_PFLOOR: 1.0D-30
-    BA_DEM_RELFRAC: 1.0D-6
     DO_JFNK: T
     JFNK_FIXT: T
     JFNK_WARMUP: '6'

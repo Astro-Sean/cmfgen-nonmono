@@ -112,7 +112,6 @@ cmfgen:
     BA_DEM_PFLOOR: 1.0D-30
     # Empty-ion rows (CSIX lev 1 ~4.6e-26 at surface) oscillated the
     # demand metric 1e4% for 400+ iterations without blocking physics.
-    BA_DEM_RELFRAC: 1.0D-6
     # Keep JFNK off so this run tests the validated Lambda path directly.
     DO_JFNK: F
     JFNK_WARMUP: '6'

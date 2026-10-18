@@ -1,0 +1,316 @@
+model_name: dessart_m15_2p82d_KNOP_jfnkrel
+description: KNOP analogue of the SOB JFNK probe.  Warm restarts from the same
+  live-recovery snapshot (m15_2p82d_SOB_jfnk_zlaw14_fresh/probe_snap, an
+  SOB-mode checkpoint -- the KNOP lagged I_NEXT field is therefore rebuilt
+  from scratch by the N_LAM_RWARM forced-LAMBDA warm-up).  Investigates
+  whether the Knop et al. (2009) non-monotonic solver runs on this grid and
+  whether JFNK admits once the lagged field matures.  JFNK_COUPLED=T arms the
+  KNOP-only coupled tier (fresh formal solve per residual eval, Arramy et al.
+  2024); gates are held open (COR/FRZ 1e30, NREQ 1, ANYITER T) so the first
+  non-frozen call admits.  Runs on small rather than interactive because
+  the KNOP I_NEXT lagged store puts the job memory estimate ~32G, over
+  the 30G interactive cap -- the probe tests the solver, not the OOM
+  boundary.  Not a production run.
+submission: normal
+hydro_backend: stella
+skip_stella: true
+run_cmfgen: true
+run_sedona: false
+run_sirocco: false
+run_superlite: false
+output:
+  model_dir: cmfgen_validation/m15_2p82d_KNOP_jfnkrel
+cmfgen_conversion:
+  snapshot_days:
+    - 2.82
+  use_existing_sn_hydro: true
+cmfgen:
+  base_dir: cmfgen_base_dessart
+  model_type: static_snapshot
+  single_final: true
+  target_nd: 70
+  ncf_estimate: 56119
+  # ptmp1 worktree build: the only tree carrying the LSQ source; the
+  # ptmp2 install is on the stalled NFS gateway.  Same binary the SOB
+  # probe runs -- the tree carries DO_NONMONO_KNOP + the coupled JFNK
+  # tier (JFNK_RAD_SWEEP_V1) as well as the SOB path.
+  install_dir: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_jfnk
+  inc_rad_decays: true
+  vturb: 50.0
+  incl_rel: false
+  vel_law: 11
+  non_mono_mode: KNOP
+  use_lam_es: true
+  depth_independent_solver: true
+  proxy_populations: false
+  init_num_its: 60
+  cpus_per_task: 8
+  mem: 64G
+  final_requeue_when: wall
+  final_requeue_max: 500
+  # Same warm-restart checkpoint as the SOB probe: POINT1/POINT2/SCRTEMP
+  # plus RVTJ/MODEL/CUR_MODEL_DATA are injected into the fresh dir.
+  # No FGINEXT_GS/MOMJNXT_GS exist in the snapshot -- the KNOP lagged
+  # GS radiation state cold-starts and is rebuilt over the first
+  # iterations of this run.
+  warm_restart: true
+  warm_restart_from: /viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_SOB_l14_fixtest/cmfgen/2.82days
+  vadat_overrides:
+    LSTAR: 4.265857D8
+    RSTAR: 1.454688D4
+    RMAX: 8.61436267
+    VTURB: 50.0D0
+    MIN_CF: 3.0D-3
+    MAX_CF: 2.0D2
+    DIF: F
+    IB_METH: ZERO_FLUX
+    THK_LINE: T
+    STOP_IF_BP: F
+    FIX_T: T
+    FIX_T_AUTO: T
+    # Native release when MAXCH_CTRL < 50%; this is separate from
+    # FIX_T_AUTO, which does not release a global FIX_T hold.
+    DO_T_AUTO: T
+    FIX_IMP: F
+    DO_LAM_IT: T
+    DO_LAM_AUTO: T
+    USE_LAM_ES: T
+    SOL_METH: DIAG
+    DO_NOMONO_KNOP: T
+    DO_NONMONO_KNOP: T
+    N_OB_INS: '0'
+    N_IB_INS: '0'
+    REV_RGRID: F
+    FIX_NE: F
+    FIX_BA: 1.0D1
+    N_FIX_BA: 2
+    LAM_SET: F
+    USE_J_REL: F
+    USE_FRM_REL: F
+    USE_DJDT_RTE: F
+    INC_GRID: F
+    N_TYPE: N_ON_J
+    PURE_HUB: F
+    RD_IN_R_GRID: T
+    FG_OPT: INT/INS
+    USE_FIXED_J: F
+    PP_MOD: F
+    PP_NOV: F
+    AUTO_SMOOTH: F
+    NON_MONO_SOLVER: T
+    DO_NOMONO_SOB: F
+    DO_NONMONO_SOB: F
+    DO_NONLOC_SOB: F
+    GLOBAL_LINE: BLANK
+    DO_SOB_LINES: F
+    SOB_FREQ_IN_OBS: F
+    JBAR_W_EDD: F
+    DO_NG: T
+    COMP_BA: T
+    NUM_LAM: '2'
+    LAM_ENTER: 4.0D2
+    LAM_EXIT: 5.0D0
+    LAM_N_STABLE: '5'
+    BA_PROBE_LAM: '0'
+    FRESH_BA_EXIT: T
+    N_FULL_TREL: '0'
+    # KNOP resacc net kept armed (unlike the SOB probe, which disabled
+    # every guard): under DO_NONMONO_KNOP it is the verified rollback
+    # path and it licenses the marginal-release MOM_TRIAL steps that let
+    # an asymptoting lagged field finish maturing.
+    DO_BA_RES_ACC: T
+    BA_RES_GROW: 1.5D0
+    BA_RES_HARD: 1.0D2
+    BA_TRUST: 1.0D4
+    BA_REJ_FRAC: 0.25D0
+    BA_NREJ_LIM: '20'
+    BA_ENTER_RAW: 1.0D30
+    BA_DAMP_CAP: 0.0D0
+    BA_SAT_RAW: 2.0D3
+    BA_SAT_LIM: '5'
+    # KNOP Gauss-Seidel lagged-field controls.  N_LAM_RWARM forced-LAMBDA
+    # iterations rebuild I_NEXT at process start (the SOB checkpoint
+    # carries no Knop radiation state).  GS_REL_STABLE=1 releases the
+    # freeze on the first mature sweep so a JFNK admission lands inside
+    # the probe window; GS_FREEZE_LIM still bounds a field that never
+    # matures, and the submit-level KNOP_STALL watchdog backs it up.
+    N_LAM_RWARM: '4'
+    MOM_TRIAL_MIN: '30'
+    GS_FREEZE_LIM: '60'
+    GS_TRIAL_LIM: '15'
+    GS_REL_STABLE: '1'
+    GS_REL_N: '1000000'
+    GS_HOLD_POPS: T
+    CONV_DIAG_LVL: '1'
+    # 11-Oct-2026: exempt floor-level populations from the demanded-
+    # correction metric.  CV:1s_4p_1Po at depth 16 sits at ~1e-55
+    # (inner-shell level, equilibrium ~1e-62) and is re-fed by cascade
+    # couplings DIAG BA cannot see, so it re-demands a 1e7% decrease
+    # every non-LAMBDA call.  That pins BA_LAST_RAW at the 1e7
+    # sentinel and can never pass any finite JFNK_FRZ_GATE.  With the
+    # floor armed the metric sees the real demand (~60).
+    BA_DEM_PFLOOR: 1.0D-30
+    # JFNK admission under KNOP additionally requires a mature lagged
+    # field (GS_FREEZE=F); the frozen-iteration sweep first has to
+    # rebuild I_NEXT from the SOB checkpoint.  Gates are held open so
+    # the first non-frozen call admits: ANYITER lets Newton fire on a
+    # LAMBDA-designated call (post-release calls are still Lambda-
+    # designated until MAXCH drops below LAM_ENTER), COR_GATE=1e30 with
+    # NREQ=1 selects the coupled tier on the first eligible call, and
+    # FRZ_GATE=1e30 keeps the frozen tier as the fallback whenever the
+    # coupled tier does not fire.
+    DO_JFNK: T
+    JFNK_WARMUP: '0'
+    JFNK_ANYITER: T
+    JFNK_COUPLED: T
+    JFNK_FRZ_GATE: 1.0D30
+    JFNK_GATE_NREQ: '1'
+    JFNK_LAG_FACTORS: T
+    JFNK_COR_GATE: 1.0D30
+    # Coupled evals re-run the KNOP continuum formal solve per FD JVP,
+    # so each admission is far more expensive than the SOB frozen tier.
+    # The eval budget is capped at 60 to bound one admission inside the
+    # interactive window; a budget-exhausted solve falls back to the
+    # outer BA path (probe machinery, not a scientific cut).
+    JFNK_MAX_EVALS: '60'
+    JFNK_MAX_RESTART: '2'
+    JFNK_DEEPDIAG: F
+    # 08-Oct-2026: keep at 1e-30.  BA rows are population-scaled, so
+    # 1e-10 flagged ~68% of every depth block (all trace-ion rows,
+    # ~1260/1839 per depth) as null and projected away their Newton
+    # updates.  Only structurally-null rows (NaN-zeroed compression
+    # rows, exact-zero constraints) belong in JFNK_ROW_REG.
+    JFNK_ROW_TINY: 1.0D-30
+    # 11-Oct-2026: LU admission showed ||z||_inf=1.3e25 -- the 1e-8
+    # ridge leaves ~1e25 of near-null headroom, the FD JVP along z is
+    # garbage (|FD|=3e17 vs |BA v|=0.3), GMRES flat -> abort.  1e-4
+    # bounds the amplification at ~1e4 while leaving the stiff rows'
+    # physical dn~1e-8 direction untouched.
+    JFNK_RIDGE: 1.0D-4
+    # Arm the REACH precheck as telemetry + a floor under truly
+    # unreachable admissions (LU/LSQ only).  With the stored-BA
+    # matvec it measures the fraction of |F|^2 the linear model can
+    # remove in one step; gate=1e-3 skips only hopeless admissions.
+    JFNK_REACH_GATE: 1.0D-3
+    # m=30 with a 90-iter cap per Newton step gives the minimization
+    # room for a physical descent direction while staying inside the
+    # eval budget.
+    JFNK_M: '30'
+    JFNK_MAXGMRES: '90'
+    # 09-Oct-2026: right-preconditioned GMRES.  Left-PC minimizes
+    # ||M^-1(F-Js)|| which at row/col scales ~1e24-1e30 bears no
+    # relation to the physical residual.  Right-PC minimizes ||F-Js||
+    # directly, so any Krylov progress yields a guaranteed descent
+    # direction.
+    JFNK_LEFTPC: F
+    # 11-Oct-2026: under SOL_METH=DIAG the frozen J is exactly
+    # block-diagonal per depth, so the equilibrated block LU is a
+    # near-exact inverse.  The same holds for the coupled sweep, whose
+    # per-depth SE blocks are unchanged by the J re-solve.
+    JFNK_PRECOND: LU
+    JFNK_LSQ_LAM: 1.0D-2
+    # Adaptive temperature release: T rows stay live in the JFNK
+    # residual/JVP but the committed T step is damped (alpha ladder
+    # 0.05 -> 1.0) until the energy residual falls below eps_thr of
+    # its entry value.  Guards the STELLA T guess against the first
+    # free-T Newton step.  Independent of FIX_T_AUTO, which stays F.
+    JFNK_TAUTO: 'T'
+    LAM_VAL: 2.0D2
+    BEG_NG: 1.0D1
+    IBEG_NG: '15'
+    BA_MAXCH_FAIL: 1.0D30
+    REL_OBS: F
+    REL_CMF: F
+    DO_DDT: F
+    INC_ADV: F
+    INC_AD: F
+    INCL_DJDT: F
+    CHK_L_POS: T
+    LIN_INT: F
+    DO_DIS: T
+    INC_PEN: T
+    INC_CHG: F
+    ALLOW_OL: F
+    DC_METH: LTE
+    T_INIT_TAU: 1.5D0
+    SIG_GAU_KMS: 3.0D3
+    INC_RAY: T
+    MAX_LIN: 5.0D0
+    # Asymmetric cap: decreases may step by up to a factor 1e4 per
+    # non-LAMBDA solve (increases stay at MAX_LIN).  Breaks the
+    # CV:1s_2p_1Po depth-10 limit cycle where a drain-pinned level
+    # demanded ~1e5x every FULL solve but the symmetric cap only
+    # allowed 5x, so the cell could never reach its asymptote.
+    MAX_DEC: 1.0D4
+    BA_CHK_FAC: 1.0D-05
+    EPS_TERM: 5.0D-02
+    BW_NG: '40'
+    TRANS_HI: BLANK
+    TRANS_HeI: BLANK
+    TRANS_He2: BLANK
+    TRANS_CIII: BLANK
+    TRANS_CIV: BLANK
+    TRANS_CV: BLANK
+    TRANS_NIII: BLANK
+    TRANS_NIV: BLANK
+    TRANS_NV: BLANK
+    TRANS_O2: BLANK
+    TRANS_OIII: BLANK
+    TRANS_OIV: BLANK
+    TRANS_OV: BLANK
+    TRANS_OSIX: BLANK
+    TRANS_NeIII: BLANK
+    TRANS_NeIV: BLANK
+    TRANS_NeV: BLANK
+    TRANS_MgIII: BLANK
+    TRANS_MgIV: BLANK
+    TRANS_MgV: BLANK
+    TRANS_AlIII: BLANK
+    TRANS_AlIV: BLANK
+    TRANS_AlV: BLANK
+    TRANS_SkIII: BLANK
+    TRANS_SkIV: BLANK
+    TRANS_SkV: BLANK
+    TRANS_SIII: BLANK
+    TRANS_SIV: BLANK
+    TRANS_SV: BLANK
+    TRANS_ArIII: BLANK
+    TRANS_ArIV: BLANK
+    TRANS_ArV: BLANK
+    TRANS_ArSIX: BLANK
+    TRANS_CaIII: BLANK
+    TRANS_CaIV: BLANK
+    TRANS_CaV: BLANK
+    TRANS_CaSIX: BLANK
+    TRANS_TkIII: BLANK
+    TRANS_TkIV: BLANK
+    TRANS_TkV: BLANK
+    TRANS_CrIII: BLANK
+    TRANS_CrIV: BLANK
+    TRANS_CrV: BLANK
+    TRANS_CrSIX: BLANK
+    TRANS_FeIII: BLANK
+    TRANS_FeIV: BLANK
+    TRANS_FeV: BLANK
+    TRANS_FeSIX: BLANK
+    TRANS_FeSEV: BLANK
+    NEG_OPAC_OPT: SRCE_CHK
+    TRANS_OI: BLANK
+    TRANS_SkI: BLANK
+    TRANS_Sk2: BLANK
+    TRANS_CaI: BLANK
+    TRANS_Ca2: BLANK
+    TRANS_FeI: BLANK
+    TRANS_Fe2: BLANK
+    T_REL_CHG: 3.0D0
+    MAX_LAM: 1.0D10
+    CHK_NG: T
+    NG_ABSTAIN: T
+    ITS/NG: '8'
+    FIX_INB_NE: F
+  cmf_flux_param_overrides:
+    DO_CMF_EW: F
+    WR_dFR: true
+    WR_IP: true
+  notification_email: sbrennan@mpe.mpg.de
+  n_ob_ins: 0

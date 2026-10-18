@@ -128,7 +128,6 @@ cmfgen:
     BA_DEM_PFLOOR: 1.0D-30
     # Same empty-ion demand filter as the other three probes; keeps
     # metric settings identical across the experiment.
-    BA_DEM_RELFRAC: 1.0D-6
     # JFNK parked: admission is gated on USE_LAM_ES, which is F here.
     DO_JFNK: F
     JFNK_WARMUP: '6'

@@ -118,7 +118,6 @@ cmfgen:
     CHK_NG: T
     NG_ABSTAIN: T
     BA_DEM_PFLOOR: 1.0D-30
-    BA_DEM_RELFRAC: 1.0D-6
     DO_JFNK: F
     LAM_SCALE_OPT: LIMIT
     MAX_LAM: 1.0D2
