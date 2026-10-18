@@ -2490,7 +2490,11 @@
 ! the stock branch so the BA linearization sees the line opacity
 ! removed consistently.  This also suppresses real maser
 ! amplification at these frequencies -- accepted, since the
-! inversions come from unconverged trace-ion Rydberg levels.
+! inversions sit on high-n Rydberg and intra-n far-IR levels
+! (NEG_OPAC: HI n=9-18, OIV/OV/OSIX) overpopulated by the
+! recombination cascade on transient iterates; at Ne~1E13-1E14
+! those levels should be collisionally thermalised, so the
+! inversion is an iterate artifact, not a physical maser.
 !
 	    IF(DO_NONMONO_KNOP .AND. KN_NO_GAIN)THEN
 	      DO I=1,ND

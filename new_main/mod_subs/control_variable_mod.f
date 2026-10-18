@@ -802,9 +802,11 @@
 ! region).  Flooring CHI at CHI_SCAT keeps every source coefficient
 ! sum <= 1, so the lagged map is non-expanding in the sup norm.
 ! The cost is suppressed stimulated-emission (maser) amplification
-! at those frequencies -- acceptable, since the inversions come
-! from unconverged trace-ion Rydberg levels.  VADAT keyword
-! [KN_NO_GAIN]; optional, default FALSE preserves the stock path.
+! at those frequencies -- acceptable, since the inversions sit on
+! high-n Rydberg / intra-n far-IR levels (HI n=9-18, O IV-VI)
+! overpopulated by the recombination cascade on transient iterates.
+! VADAT keyword [KN_NO_GAIN]; optional, default FALSE preserves
+! the stock path.
 !
 	LOGICAL KN_NO_GAIN
 !
