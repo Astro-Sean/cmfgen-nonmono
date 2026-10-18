@@ -132,6 +132,10 @@ cmfgen:
     BA_SAT_RAW: 2.0D3
     BA_SAT_LIM: '0'
     BA_DEM_PFLOOR: 1.0D-30
+    # 18-Oct-2026: exit-only relative floor (option c) -- exempts
+    # rows below 1e-6 of depth-max from the exit demand only, with
+    # BA_DEM_EXR reporting the hidden max every call.
+    BA_EX_RELFRAC: 1.0D-6
     BA_TR_MAXSWP: '3'
     BA_TR_ABSMAX: 1.0D-8
     DO_JFNK: T

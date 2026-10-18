@@ -142,6 +142,12 @@ cmfgen:
     # of converged.
     FG_COMMIT_NC: 0.5D0
     FG_BULK_CONTR: T
+    # 18-Oct-2026 (job 12268434): the NEG_OPAC floors can leave
+    # CHI < CHI_SCAT, making the cell a net photon amplifier whose
+    # gain the lagged I_NEXT store compounds ~8.6x/iter (all in the
+    # 18.6 um line).  Floors CHI at CHI_SCAT so no source
+    # coefficient sum exceeds 1.
+    KN_NO_GAIN: T
     DO_BA_RES_ACC: T
     BA_RES_GROW: 1.5D0
     BA_RES_HARD: 1.0D2
@@ -174,6 +180,11 @@ cmfgen:
     # sentinel and can never pass any finite JFNK_FRZ_GATE.  With the
     # floor armed the metric sees the real demand (~60).
     BA_DEM_PFLOOR: 1.0D-30
+    # 18-Oct-2026: exit-only relative floor (option c).  Rows below
+    # 1e-6 of the depth-max population are exempted from the
+    # converged-exit demand (BA_EX_MAXCH) only -- they stay in MAXCH
+    # and their largest demand prints as BA_DEM_EXR every call.
+    BA_EX_RELFRAC: 1.0D-6
     # JFNK admission under KNOP additionally requires a mature lagged
     # field (GS_FREEZE=F); the frozen-iteration sweep first has to
     # rebuild I_NEXT from the SOB checkpoint.  Gates are held open so
@@ -318,7 +329,13 @@ cmfgen:
     TRANS_FeV: BLANK
     TRANS_FeSIX: BLANK
     TRANS_FeSEV: BLANK
-    NEG_OPAC_OPT: SRCE_CHK
+    # 18-Oct-2026: ESEC_CHK bounds every inverted cell at
+    # 0.1*CHI_SCAT; the SRCE_CHK first branch (0.1*ETA*CHI_NOSCAT/
+    # ETA_CONT) has no CHI_SCAT bound and left CHI < CHI_SCAT cells
+    # amplifying up to chi_scat/chi=15 -- the gain channel KN_NO_GAIN
+    # now floors, but stock should not be more permissive than the
+    # SOB path's tau_Sob<-0.5 reset.
+    NEG_OPAC_OPT: ESEC_CHK
     TRANS_OI: BLANK
     TRANS_SkI: BLANK
     TRANS_Sk2: BLANK
