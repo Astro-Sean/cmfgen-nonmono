@@ -19,7 +19,8 @@
 	1     BA_QUAR_COUNT,BA_DEM_PFLOOR,
 	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES,
 	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS,POPS_GS_SAVE,
-	4     BA_HOLD_RESTORE_REVIVAL
+	4     BA_HOLD_RESTORE_REVIVAL,BA_EX_RELFRAC,BA_EX_MAXCH,
+	5     BA_DEM_EXR
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -123,6 +124,8 @@
 	REAL(KIND=LDP) STEQ_EXM
 	INTEGER IEXM,JEXM
 	INTEGER ITRC,JTRC
+	REAL(KIND=LDP) EX_DEC,EX_INC,EXR_VAL,T2EX
+	INTEGER IEXR,JEXR
 	REAL(KIND=LDP) BIG_LIM,LIT_LIM
 ! Allocatable, not automatic: NT*ND is too large to trust to the stack
 ! on nodes with a limited stack size.
@@ -1238,6 +1241,8 @@
 	JEXM=0
 	BA_DEM_EXM=0.0_LDP
 	BA_TR_ABS=0.0_LDP
+	EX_DEC=0.0_LDP
+	EX_INC=0.0_LDP
 	DO I=1,ND
 	  COUNT(:)=0
 !
@@ -1246,6 +1251,16 @@
 ! populated-depth trace rows escape the MAXCH metric (SOB l14 it242:
 ! ~700/depth >0.1% while MAXCH printed 0.08%).
 !
+! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] exit-only relative
+! floor.  T2EX uses the old RELFRAC predicate but feeds only
+! EX_DEC/EX_INC, which become BA_EX_MAXCH -- the demand the
+! converged-exit gate tests.  DECREASE/INCREASE (MAXCH) are
+! untouched, so the hidden rows stay in the reported metric and
+! their largest demand is exported separately as BA_DEM_EXR.
+!
+	  T2EX=0.0_LDP
+	  IF(BA_EX_RELFRAC .GT. 0.0_LDP)
+	1   T2EX=BA_EX_RELFRAC*MAXVAL(POPS(1:NT-2,I))
 	  DO J=1,NT
 	    T1=1.0E+06_LDP*ABS(STEQ(J,I))+1.0E-31_LDP		!to ensure non-zero.
 	    K=LOG10(T1)+1; K=MIN(7,K)
@@ -1272,6 +1287,9 @@
 	      IINC=I
 	      JINC=J
 	    END IF
+	    IF(J .LE. NT-2 .AND. POPS(J,I) .LT. T2EX)CYCLE
+	    IF(STEQ(J,I) .GT. EX_DEC)EX_DEC=STEQ(J,I)
+	    IF(STEQ(J,I) .LT. EX_INC)EX_INC=STEQ(J,I)
 	  END DO
 	  WRITE(LU_SUM,'(8I8)')I,COUNT(7:1:-1)
 	END DO
@@ -1302,8 +1320,42 @@
 	  WRITE(LUER,9215)IEXM,BA_DEM_EXM,TRIM(EQ_DESC(JEXM)),
 	1   '          --- iteration ',MAIN_COUNTER
 	END IF
+!
+! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] BA_DEM_EXR is the
+! largest demand over the rows the exit-only relative floor skips
+! (the PFLOOR rows are already covered by BA_DEM_EXM).  Exported on
+! the same percent scale and printed every call so the demand the
+! converged exit hides is never silent.
+!
+	BA_DEM_EXR=0.0_LDP
+	EXR_VAL=0.0_LDP
+	IEXR=0
+	JEXR=0
+	IF(BA_EX_RELFRAC .GT. 0.0_LDP)THEN
+	  DO I=1,ND
+	    T2EX=BA_EX_RELFRAC*MAXVAL(POPS(1:NT-2,I))
+	    DO J=1,NT-2
+	      IF(POPS(J,I) .LT. T2EX .AND.
+	1        (BA_DEM_PFLOOR .LE. 0.0_LDP .OR.
+	2         POPS(J,I) .GE. BA_DEM_PFLOOR))THEN
+	        IF(ABS(STEQ(J,I)) .GT. EXR_VAL)THEN
+	          EXR_VAL=ABS(STEQ(J,I))
+	          IEXR=I
+	          JEXR=J
+	        END IF
+	      END IF
+	    END DO
+	  END DO
+	  BA_DEM_EXR=100.0_LDP*EXR_VAL
+	  IF(JEXR .GT. 0)THEN
+	    WRITE(LUER,9217)IEXR,BA_DEM_EXR,TRIM(EQ_DESC(JEXR)),
+	1     '      --- iteration ',MAIN_COUNTER
+	  END IF
+	END IF
 9215	FORMAT(' Largest exempted demand at depth ',I4,' is',ES10.2,'%  (',
 	1        A,')',A,I4)
+9217	FORMAT(' Largest exit-exempted demand at depth ',I4,' is',ES10.2,
+	1       '%  (',A,')',A,I4)
 9216	FORMAT(' Stage-B trace |dn|/gas at depth ',I4,' is',ES10.2,'  (',
 	1        A,')',A,I4)
 !
@@ -1433,6 +1485,30 @@
 	  MAXCH=MAX( ABS(MAX_INC_VEC(NV)), MAX_DEC_VEC(NV)/(1.0_LDP-MIN(MAX_DEC_VEC(NV),0.9999_LDP)))
 	  MAXCH=100.0_LDP*MAXCH
 	END IF
+!
+! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] the exit demand over
+! non-exempted rows, on the same new-population scale as MAXCH.  It
+! is the raw max (no DO_LEVEL_CHK NV-th-largest reduction), so the
+! converged exit is never looser than the reported metric.  The
+! masked-demand boost is kept: a refused correction is unsatisfied
+! demand on either metric.  Flag off -> BA_EX_MAXCH=MAXCH and the
+! exit is identical to stock.
+!
+	BA_EX_MAXCH=MAXCH
+	IF(BA_EX_RELFRAC .GT. 0.0_LDP)THEN
+	  T1=-100.0_LDP*EX_INC
+	  IF(EX_DEC .LT. 0.99999_LDP)THEN
+	    T2EX=100.0_LDP*EX_DEC/(1.0_LDP-EX_DEC)
+	  ELSE
+	    T2EX=1.0E+07_LDP
+	  END IF
+	  BA_EX_MAXCH=MIN(1.0E+07_LDP,MAX(T1,T2EX))
+	  IF(STEQ_MASKED_MAX .GT. 0.0_LDP)THEN
+	    BA_EX_MAXCH=MAX(BA_EX_MAXCH,
+	1      MIN(1.0D+07,1.0D+02*STEQ_MASKED_MAX))
+	  END IF
+	END IF
+!
 	WRITE(6,*)'Maximm changes as returned by SOLVEBA_V13 is',MAXCH
 	WRITE(6,'(A,10ES10.2)')' DEC_VEC: ',MAX_DEC_VEC(1:10)
 	WRITE(6,'(A,10ES10.2)')' INC_VEC: ',MAX_INC_VEC(1:10)

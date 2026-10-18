@@ -2077,6 +2077,11 @@
 	  BA_TR_NSWP=0
 	  BA_TR_ABS=0.0_LDP
 	  BA_DEM_EXM=0.0_LDP
+	  BA_EX_RELFRAC=-1.0_LDP
+	  CALL RD_STORE_DBLE(BA_EX_RELFRAC,'BA_EX_RELFRAC',L_FALSE,
+	1     'Rel. floor for the converged-exit demand metric (-1=off)')
+	  BA_EX_MAXCH=1.0E+30_LDP
+	  BA_DEM_EXR=0.0_LDP
 	  DO_FG13_ALO=.FALSE.
 	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
 	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')

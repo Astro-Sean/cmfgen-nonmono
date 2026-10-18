@@ -1801,7 +1801,17 @@
 	    MAXCH=0.0_LDP
 	    BA_TR_ABS=0.0_LDP
 	    BA_DEM_EXM=0.0_LDP
+	    BA_DEM_EXR=0.0_LDP
 	    DO K=1,ND
+!
+! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] the JFNK commit has
+! no STEQ demand, so the exempted-demand proxies use the committed
+! change.  T2 mirrors the SOLVEBA_V13 exit-only relative floor on
+! the same operand (pre-step populations).
+!
+	      T2=0.0_LDP
+	      IF(BA_EX_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_EX_RELFRAC*MAXVAL(POPS_PREV(1:NT-2,K))
 	      DO J=1,NT
 	        IF(POPS_PREV(J,K) .GT. 1.0E-100_LDP)THEN
 	          SOL(J,K)=POPS(J,K)/POPS_PREV(J,K)-1.0_LDP
@@ -1824,10 +1834,21 @@
 	          BA_DEM_EXM=MAX(BA_DEM_EXM,T1)
 	          CYCLE
 	        END IF
+	        IF(J .LE. NT-2 .AND. POPS_PREV(J,K) .LT. T2)THEN
+	          BA_DEM_EXR=MAX(BA_DEM_EXR,T1)
+	          CYCLE
+	        END IF
 	        IF(T1 .GT. MAXCH)MAXCH=T1
 	      END DO
 	    END DO
 	    MAXCH_APP=MAXCH
+!
+! BA_EX_MAXCH mirrors the exit gate on JFNK iterations: the commit
+! metric is already the applied change (not demanded), so the exit
+! test reads it unchanged -- the relative-floor exemption does not
+! apply to an already-committed update.
+!
+	    BA_EX_MAXCH=MAXCH
 	    SUCCESS=.TRUE.
 	    COMMITTED_BASELINE=.TRUE.
 ! A lower residual is progress, not proof that the convergence target passed.

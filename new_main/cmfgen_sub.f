@@ -4784,9 +4784,19 @@
 	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
 	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.
 	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
-	  BA_DEM_EXIT_OK=BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
+!
+! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] adds a second
+! exempted-demand channel.  BA_DEM_EXR covers the rows skipped by
+! the exit-only relative floor and is released by the same
+! small-or-saturated test as BA_DEM_EXM; it is not part of the
+! Stage-B set, so the polish budget does not release it.  Flag off
+! -> BA_DEM_EXR=0 and the test is identical.
+!
+	  BA_DEM_EXIT_OK=(BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
-	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE
+	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE) .AND.
+	3    (BA_DEM_EXR .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
+	4    BA_DEM_EXR .GE. BA_SAT_RAW)
 !
 ! edited by Devin, 17-Oct-2026: two new guards.  BAACC_PENDING means
 ! the last FULL solve armed the resacc acceptance test whose verdict
@@ -4794,10 +4804,12 @@
 ! code itself treats as unjudged (NG refuses to extrapolate from it).
 ! MAIN_COUNTER=LAST_NG means this call returned the pre-NG demand,
 ! so the exit would certify an extrapolated state never re-measured.
+! (18-Oct-2026: the demand gate uses BA_EX_MAXCH, which equals
+! MAXCH when [BA_EX_RELFRAC] is off.)
 !
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
-	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
 	5    (MAIN_COUNTER .NE. LAST_NG)
@@ -4812,6 +4824,12 @@
 ! string can never see BA_TRACE_NEEDED true.
 !
 	  CONV_EXIT_WHY='clean convergence (MAXCH < EPS, exempted demand small)'
+	  IF(BA_DEM_EXR .GE. MAX(10.0_LDP*EPS,1.0_LDP))CONV_EXIT_WHY=
+	1    'exit-exempted demand above EPS (BA_DEM_EXR printed; see'//
+	2    ' Largest exit-exempted demand lines)'
+	  IF(BA_DEM_EXR .GE. BA_SAT_RAW)CONV_EXIT_WHY=
+	1    'exit-exempted demand saturated (>= BA_SAT_RAW):'//
+	2    ' dead-stage class'
 	  IF(BA_DEM_EXM .GE. BA_SAT_RAW)CONV_EXIT_WHY=
 	1    'exempted demand saturated (>= BA_SAT_RAW): dead-stage class'
 	  IF(BA_TRACE_DONE)CONV_EXIT_WHY=
@@ -5193,7 +5211,7 @@
 !
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
-	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
 	5    (MAIN_COUNTER .NE. LAST_NG)
@@ -5203,7 +5221,7 @@
 ! so a triage does not read it as a stall.
 !
 	  IF(.NOT. CONV_EXIT_MET .AND. BAACC_PENDING .AND.
-	1    .NOT. JFNK_UNCONVERGED_COMMIT .AND. MAXCH .LT. EPS .AND.
+	1    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	2    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3    .NOT. GS_POPS_HELD .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.
 	4    CONV_DIAG_LVL .GE. 1)

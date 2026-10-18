@@ -1515,6 +1515,27 @@
 	REAL(KIND=LDP) BA_TR_ABS
 	REAL(KIND=LDP) BA_TR_ABSMAX
 !
+! BA_EX_RELFRAC (VADAT [BA_EX_RELFRAC], default -1=off, 18-Oct-2026):
+! relative floor applied ONLY to the converged-exit demand metric.
+! Rows with POPS(J,I) < BA_EX_RELFRAC*MAXVAL(POPS(1:NT-2,I)) are
+! skipped when SOLVEBA_V13 computes BA_EX_MAXCH, the demand the
+! exit gates on; MAXCH itself, the committed scan, the histogram,
+! and the level-check vectors keep every row, so the full demand
+! stays printed and nothing leaves the applied corrections.  This
+! replaces the removed BA_DEM_RELFRAC, which exempted the same rows
+! from the reported metric and let a converged exit fire while
+! ~700 rows/depth still demanded >0.1% invisibly.  With the exit
+! variant the hidden demand is exported every call as BA_DEM_EXR
+! and saturates/holds the exit through the same BA_DEM_EXIT_OK test
+! as BA_DEM_EXM.  BA_EX_MAXCH is the raw max over non-exempted
+! rows (no NV-th-largest reduction), so it is never looser than
+! MAXCH; when the flag is off BA_EX_MAXCH=MAXCH and BA_DEM_EXR=0
+! and the default path is unchanged.
+!
+	REAL(KIND=LDP) BA_EX_RELFRAC
+	REAL(KIND=LDP) BA_EX_MAXCH
+	REAL(KIND=LDP) BA_DEM_EXR
+!
 ! BA_MAXCH_FAIL (VADAT [BA_MAXCH_FAIL], default 1.0D30 = off):
 ! same-call hard rejection for a committed non-LAMBDA step in
 ! SOLVEBA_V13.  The residual-acceptance net (DO_BA_RES_ACC) judges a
