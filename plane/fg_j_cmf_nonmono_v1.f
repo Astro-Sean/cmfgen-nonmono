@@ -6059,7 +6059,7 @@ C
 ! largest residual.
 !
 	IF(ALLOCATED(FG_RAY_VC))THEN
-	  WRITE(LUER,'(A,7(A,I5))')
+	  WRITE(LUER,'(A,6(A,I5),A,I5,A,I5,A)')
 	1    '    commit verdicts: committed=',COUNT(FG_RAY_VC.EQ.0),
 	2    '  jump-rej=',COUNT(FG_RAY_VC.EQ.1),
 	3    '  nc-rej=',COUNT(FG_RAY_VC.EQ.2),
