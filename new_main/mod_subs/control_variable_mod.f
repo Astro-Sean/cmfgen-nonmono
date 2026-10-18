@@ -789,6 +789,35 @@
 !
 	LOGICAL DO_NONMONO_KNOP
 !
+! KN_NO_GAIN (18-Oct-2026, job 12268434).  When TRUE, and
+! DO_NONMONO_KNOP is also TRUE, CMFGEN_SUB floors CHI at CHI_SCAT
+! after the stock NEG_OPAC fixups.  The SRCE_CHK/ESEC_CHK floors
+! can leave total CHI below CHI_SCAT, which makes the source
+! coefficient sum (CHI_SCAT+|GAM|/dLOG_NU)/(CHI+|GAM|/dLOG_NU)
+! exceed 1 -- the cell is a net photon amplifier.  FG_J_CMF_V13
+! is bounded because nothing carries across great iterations, but
+! the KNOP solver recycles the amplified intensity through the
+! lagged I_P/I_M_DEPTH_NEXT store, so the gain compounds every
+! iteration (8.6x/iter observed in w19, all in the 18.6 um line
+! region).  Flooring CHI at CHI_SCAT keeps every source coefficient
+! sum <= 1, so the lagged map is non-expanding in the sup norm.
+! The cost is suppressed stimulated-emission (maser) amplification
+! at those frequencies -- acceptable, since the inversions come
+! from unconverged trace-ion Rydberg levels.  VADAT keyword
+! [KN_NO_GAIN]; optional, default FALSE preserves the stock path.
+!
+	LOGICAL KN_NO_GAIN
+!
+! Census for the KN_NO_GAIN floor, accumulated in CMFGEN_SUB across
+! the frequency loop and reported once per great iteration.
+! KN_NOGAIN_DMIN uses a large sentinel for "no depth floored".
+!
+	INTEGER :: KN_NOGAIN_CNT=0
+	INTEGER :: KN_NOGAIN_DMIN=1000000000
+	INTEGER :: KN_NOGAIN_DMAX=0
+	REAL(KIND=LDP) :: KN_NOGAIN_RMAX=0.0_LDP
+	REAL(KIND=LDP) :: KN_NOGAIN_NU=0.0_LDP
+!
 ! N_LAM_RWARM: forced LAMBDA iterations at process start when
 ! DO_NONMONO_KNOP=T.  The Gauss-Seidel I_NEXT arrays in
 ! FG_J_CMF_NONMONO_V1 are process-local and are re-zeroed on every

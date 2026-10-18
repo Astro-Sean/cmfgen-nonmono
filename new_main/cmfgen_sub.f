@@ -2476,6 +2476,40 @@
 	      END DO
 	    END IF
 !
+! edited by Devin, 18-Oct-2026: [KN_NO_GAIN, default F, stock path
+! unchanged].  The NEG_OPAC floors above can leave CHI < CHI_SCAT,
+! so the formal-solver source coefficient sum
+! (CHI_SCAT+|GAM|/dLOG_NU)/(CHI+|GAM|/dLOG_NU) exceeds 1 and the
+! cell amplifies photons (effective scattering albedo
+! THETA=CHI_SCAT/CHI > 1).  Under the lagged KNOP coupling the
+! I_P/I_M_DEPTH_NEXT store recycles that gain into the next great
+! iteration, so it compounds (~8.6x/iter in job 12268434, all in
+! the 18.6 um line region).  Flooring CHI at CHI_SCAT caps every
+! source coefficient sum at 1, making the lagged map non-expanding
+! in the sup norm.  NEG_OPACITY/NEG_OPAC_FAC are set exactly as
+! the stock branch so the BA linearization sees the line opacity
+! removed consistently.  This also suppresses real maser
+! amplification at these frequencies -- accepted, since the
+! inversions come from unconverged trace-ion Rydberg levels.
+!
+	    IF(DO_NONMONO_KNOP .AND. KN_NO_GAIN)THEN
+	      DO I=1,ND
+	        IF(CHI(I) .LT. CHI_SCAT(I))THEN
+	          T1=CHI_SCAT(I)/MAX(CHI(I),1.0E-30_LDP*CHI_SCAT(I))
+	          IF(T1 .GT. KN_NOGAIN_RMAX)THEN
+	            KN_NOGAIN_RMAX=T1; KN_NOGAIN_NU=FL
+	          END IF
+	          KN_NOGAIN_CNT=KN_NOGAIN_CNT+1
+	          KN_NOGAIN_DMIN=MIN(KN_NOGAIN_DMIN,I)
+	          KN_NOGAIN_DMAX=MAX(KN_NOGAIN_DMAX,I)
+	          CHI(I)=CHI_SCAT(I)
+	          NEG_OPACITY(I)=.TRUE.
+	          NEG_OPAC_FAC(I)=0.0_LDP
+	          AT_LEAST_ONE_NEG_OPAC=.TRUE.
+	        END IF
+	      END DO
+	    END IF
+!
 	    IF(LST_ITERATION .AND. AT_LEAST_ONE_NEG_OPAC)THEN
 	      WRITE(LU_NEG,'(A,1P,E14.6)')
 	1         ' Neg opacity for transition for frequency ',FL
@@ -3338,6 +3372,28 @@
 	WRITE(LUER,'(A,ES18.8,A,ES18.8,A,/)')TRIM(STRING),RLUMST(1),
 	1   ' (outer)',RLUMST(ND),' (inner)'
 	FLUSH(LUER)
+!
+! edited by Devin, 18-Oct-2026: [KN_NO_GAIN] per-iteration census
+! of the CHI>=CHI_SCAT floor, accumulated over the frequency loop
+! above.  lambda uses the LAMVACAIR convention (2997.92458/nu for
+! nu in 1e15 Hz); the max-ratio frequency tells which transition
+! the worst amplifier sits in.
+!
+	IF(DO_NONMONO_KNOP .AND. KN_NO_GAIN)THEN
+	  IF(KN_NOGAIN_CNT .GT. 0)THEN
+	    WRITE(LUER,'(A,I9,A,I4,A,I4,A,ES11.3,A,ES11.3,A,ES11.3,A)')
+	1   ' KN_NO_GAIN: floored ',KN_NOGAIN_CNT,
+	2   ' cells (depths ',KN_NOGAIN_DMIN,'-',KN_NOGAIN_DMAX,
+	3   '); max chi_scat/chi= ',KN_NOGAIN_RMAX,
+	4   ' at nu= ',KN_NOGAIN_NU,' (1e15 Hz) lambda= ',
+	5   2997.92458_LDP/KN_NOGAIN_NU,' A'
+	  ELSE
+	    WRITE(LUER,'(A)')' KN_NO_GAIN: floored 0 cells'
+	  END IF
+	  KN_NOGAIN_CNT=0; KN_NOGAIN_DMIN=ND+1; KN_NOGAIN_DMAX=0
+	  KN_NOGAIN_RMAX=0.0_LDP; KN_NOGAIN_NU=0.0_LDP
+	END IF
+!
 	IF(RLUMST(1) .LE. 0.0_LDP)RLUMST(1)=1.0E-20_LDP
 	J=0
 	DO I=1,ND
@@ -5829,6 +5885,28 @@
 	          CHI(I)=0.1_LDP*CHI_SCAT(I)
 	          NEG_OPACITY(I)=.TRUE.
 !	          NEG_OPAC_FAC(I)=(CHI(I)-CHI_CONT(I))/(T1-CHI_CONT(I))
+	          NEG_OPAC_FAC(I)=0.0_LDP
+	          AT_LEAST_ONE_NEG_OPAC=.TRUE.
+	        END IF
+	      END DO
+	    END IF
+!
+! edited by Devin, 18-Oct-2026: same [KN_NO_GAIN] CHI>=CHI_SCAT
+! floor as in the main iteration loop above; applied to this
+! post-iteration pass so the final spectrum is not a maser spike.
+!
+	    IF(DO_NONMONO_KNOP .AND. KN_NO_GAIN)THEN
+	      DO I=1,ND
+	        IF(CHI(I) .LT. CHI_SCAT(I))THEN
+	          T1=CHI_SCAT(I)/MAX(CHI(I),1.0E-30_LDP*CHI_SCAT(I))
+	          IF(T1 .GT. KN_NOGAIN_RMAX)THEN
+	            KN_NOGAIN_RMAX=T1; KN_NOGAIN_NU=FL
+	          END IF
+	          KN_NOGAIN_CNT=KN_NOGAIN_CNT+1
+	          KN_NOGAIN_DMIN=MIN(KN_NOGAIN_DMIN,I)
+	          KN_NOGAIN_DMAX=MAX(KN_NOGAIN_DMAX,I)
+	          CHI(I)=CHI_SCAT(I)
+	          NEG_OPACITY(I)=.TRUE.
 	          NEG_OPAC_FAC(I)=0.0_LDP
 	          AT_LEAST_ONE_NEG_OPAC=.TRUE.
 	        END IF

@@ -813,6 +813,10 @@
 	  CALL RD_STORE_LOG(DO_NONMONO_KNOP,'DO_NONMONO_KNOP',L_FALSE,
 	1     'Use Knop et al. 2009 non-monotonic formal solver?')
 !
+	  KN_NO_GAIN=.FALSE.
+	  CALL RD_STORE_LOG(KN_NO_GAIN,'KN_NO_GAIN',L_FALSE,
+	1     'KNOP: floor CHI at CHI_SCAT (no net photon gain)?')
+!
 	  DO_NONLOC_SOB=.FALSE.
 	  CALL RD_STORE_LOG(DO_NONLOC_SOB,'DO_NONLOC_SOB',L_FALSE,
 	1     'Use Rybicki-Hummer non-local Sobolev coupling?')
@@ -2785,9 +2789,10 @@
 	3   '  commit_jump=',FG_COMMIT_JUMP_V,
 	4   '  heal_cap_exp=',INT(LOG10(FG_DIV_HEAL_CAP_V)),
 	5   '  commit_conv=',FG_COMMIT_CONV_V
-	    WRITE(LUER,'(A,ES10.3,A,L2)')
+	    WRITE(LUER,'(A,ES10.3,A,L2,A,L2)')
 	1   '   commit_nc=',FG_COMMIT_NC_V,
-	2   '  bulk_contr=',FG_BULK_CONTR_V
+	2   '  bulk_contr=',FG_BULK_CONTR_V,
+	3   '  no_gain=',KN_NO_GAIN
 	    WRITE(LUER,'(A,I4,A,I4,A,I4)')
 	1   '   hot_passes=',KN_RAY_HOTPASSES_V,
 	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,
