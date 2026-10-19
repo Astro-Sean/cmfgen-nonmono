@@ -23,7 +23,7 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1                            jfnk_n_reg_proj, jfnk_ptc_scale_ready,
-	2                            jfnk_ptc_anchor_ready
+	2                            jfnk_ptc_anchor_ready, jfnk_ptc_dtau
 	USE CONTROL_VARIABLE_MOD, ONLY: FIXED_NE, JFNK_USE_BANDED,
 	1                                JFNK_SELECTIVE_JVAR,
 	2                                JFNK_EVAL_BROKEN
@@ -101,10 +101,14 @@
 ! constant divided by h.  A stale jfnk_ptc_scale sized for a previous
 ! N (R-grid revision) would also be indexed past its end.  Clearing
 ! the readiness flags makes the residual eval skip the PTC term until
-! the driver measures the new baseline.
+! the driver measures the new baseline.  dtau also persists across
+! activations (it grows toward jfnk_ptc_dtau_max): the admission gate
+! build folds s/dtau into the gate BA before the driver re-arms, so a
+! stale dtau ~1e8 would price a near-unregularized gate matrix.
 !
 	jfnk_ptc_scale_ready = .FALSE.
 	jfnk_ptc_anchor_ready = .FALSE.
+	jfnk_ptc_dtau = 1.0D0
 ! BA_A is rebuilt on the next admission; any diag-only pricing state
 ! belongs to the previous activation.
 	JFNK_BA_BUILT = .FALSE.
@@ -2078,7 +2082,8 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_log_unknown,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_fx_fresh,
-	2     jfnk_ptc_scale_ready, jfnk_resid_nbad
+	2     jfnk_ptc_scale_ready, jfnk_resid_nbad,
+	3     jfnk_need_precond_refresh
 	USE CONTROL_VARIABLE_MOD, ONLY: MAX_JFNK_COR, MAX_dT_COR,
 	1                                JFNK_FIXED_T, FIXED_NE,
 	2                                JFNK_EVAL_BROKEN
@@ -2235,6 +2240,16 @@
 	    CALL JFNK_SET_PTC_SCALE_V1(JFNK_NT*JFNK_ND,jfnk_fx)
 	    jfnk_ptc_dtau=1.0D0
 	  END IF
+!
+! No factor runs on this branch, so the previous baseline's LU (with
+! its old fold) would otherwise be applied by the next Newton solve.
+! JFNK_BA_BUILT is already .FALSE. from the top of this routine;
+! dropping the factor flags forces JFNK_PRECOND_V1's lazy factor to
+! rebuild on the re-armed state before any apply.
+!
+	  JFNK_FACTOR_DONE=.FALSE.
+	  JFNK_LU_READY=.FALSE.
+	  jfnk_need_precond_refresh=1
 	  IF(LUER .GT. 0)THEN
 	    WRITE(LUER,'(A)')
 	1     '  JFNK_REBUILD: coupled baseline, F from eval sweep'
@@ -2292,6 +2307,21 @@
 !
 	CALL JFNK_BUILD_BA_RAD_V1()
 !
+! Re-arm the pseudo-time state BEFORE the factor: the fold in
+! JFNK_FACTOR_PRECOND_V1 reads jfnk_ptc_scale, jfnk_ptc_dtau and
+! jfnk_x, and the caller does not refactor after a baseline rebuild,
+! so the matrix factored below must carry the new baseline's fold.
+! jfnk_fx holds the new F(0) from Step 5, so the scale re-arms on the
+! correct baseline; jfnk_x=0 makes the log-coordinate sigma*exp(-x)
+! factor unity on the new anchor.  dtau restarts at 1 for the new
+! Newton sequence on this baseline.
+!
+	jfnk_x = 0.0D0
+	IF(jfnk_ptc_active)THEN
+	  CALL JFNK_SET_PTC_SCALE_V1(JFNK_NT*JFNK_ND,jfnk_fx)
+	  jfnk_ptc_dtau=1.0D0
+	END IF
+!
 ! Step 7: Factor preconditioner from new BA
 !
 	CALL JFNK_FACTOR_PRECOND_V1()
@@ -2301,22 +2331,11 @@
 	CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_NT * JFNK_ND, jfnk_fx)
 	CALL JFNK_COMPUTE_RSCALE_V1(JFNK_NT * JFNK_ND, jfnk_fx)
 !
-! Step 9: Reset Newton correction to zero (new baseline)
+! Step 9: Reset Newton correction to zero (new baseline; idempotent
+! with the pre-factor re-arm above).
 !
 	jfnk_x = 0.0D0
 	jfnk_fx_fresh = .TRUE.
-!
-! editted by Devin, 05-Oct-2026: refresh the pseudo-time scale on the
-! new baseline, mirroring the coupled branch above.  jfnk_ptc_scale
-! is frozen from |F(0)| of the baseline it was measured on; after
-! POPS_BASE moves, keeping the old scale would leave sigma_i =
-! s_i/dtau tied to the pre-rebuild residual.  dtau restarts at 1
-! for the new Newton sequence on this baseline.
-!
-	IF(jfnk_ptc_active)THEN
-	  CALL JFNK_SET_PTC_SCALE_V1(JFNK_NT*JFNK_ND,jfnk_fx)
-	  jfnk_ptc_dtau=1.0D0
-	END IF
 !
 	IF(LUER .GT. 0)THEN
 	  WRITE(LUER,'(A)')'  JFNK_REBUILD: baseline updated with best &
@@ -3104,12 +3123,15 @@
 	  JFNK_BA_DIAG_READY = .FALSE.
 !
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
-! JFNK_SET_PTC_SCALE_V1.  The admission build runs at dtau=1 before
-! the scale is armed; later factor calls rebuild while PTC is active
-! so the folded shift follows the live dtau.  For log unknowns, BA is
-! in fractional units, so the PTC diagonal uses sigma*exp(-x).  This
-! routine is reached only under [USE_JFNK_SOLVER] (default F); the
-! stock population path is unchanged.
+! JFNK_SET_PTC_SCALE_V1.  The admission build runs at dtau=1 (reset
+! per activation in JFNK_INIT_V1) before the scale is armed, so it
+! folds the pre-adoption jfnk_fx; in coupled mode the adopted F can
+! differ, which is why the real factor rebuilds while PTC is active
+! and the folded shift then follows the live dtau and scale.  For
+! log unknowns, BA is in fractional units, so the PTC diagonal uses
+! sigma*exp(-x).  This routine is reached only under
+! [USE_JFNK_SOLVER] (default F); the stock population path is
+! unchanged.
 !
 	JFNK_PTC_FOLDED = .FALSE.
 	IF(jfnk_ptc_active .AND. ALLOCATED(jfnk_fx))THEN
@@ -3219,6 +3241,13 @@
 	  END DO
 	  JFNK_BA_DIAG_READY = .TRUE.
 	END IF   ! JFNK_BA_BUILT reuse guard
+!
+! The matrix above now belongs to the current baseline whether the
+! rebuild branch ran or the cache was reused.  Without this, a factor
+! that started from JFNK_BA_BUILT=.FALSE. (post-rebuild path) left it
+! false and every later factor call regenerated the full BA.
+!
+	JFNK_BA_BUILT = .TRUE.
 !
 ! DO_FACTOR=.FALSE. (17-Oct-2026, W5B): BA_A plus the folded
 ! diagonals are everything the reach/direction gates read; stop

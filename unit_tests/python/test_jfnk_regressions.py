@@ -57,6 +57,49 @@ check(
     "MAX(jfnk_ptc_dtau, 1.0D-8)" in factor
     and "S_PTC = S_PTC * EXP(-X_PTC)" in factor,
 )
+post_guard = section(
+    factor,
+    "END IF   ! JFNK_BA_BUILT reuse guard",
+    "IF(.NOT. DO_FACTOR_L)THEN",
+)
+check(
+    "real factor marks the BA cache built",
+    re.search(r"JFNK_BA_BUILT\s*=\s*\.TRUE\.", post_guard) is not None,
+)
+
+init = section(
+    INTERFACE,
+    "SUBROUTINE JFNK_INIT_V1",
+    "END SUBROUTINE JFNK_INIT_V1",
+)
+check(
+    "JFNK_INIT_V1 resets jfnk_ptc_dtau per activation",
+    re.search(r"jfnk_ptc_dtau\s*=\s*1\.0D0", init, re.IGNORECASE)
+    is not None,
+)
+
+rebuild = section(
+    INTERFACE,
+    "SUBROUTINE JFNK_REBUILD_BASELINE_V1",
+    "END SUBROUTINE JFNK_REBUILD_BASELINE_V1",
+)
+pre_factor = section(
+    rebuild,
+    "CALL JFNK_BUILD_BA_RAD_V1()",
+    "CALL JFNK_FACTOR_PRECOND_V1()",
+)
+check(
+    "baseline rebuild re-arms PTC state before the factor call",
+    re.search(r"jfnk_x\s*=\s*0\.0D0", pre_factor) is not None
+    and "CALL JFNK_SET_PTC_SCALE_V1" in pre_factor
+    and re.search(r"jfnk_ptc_dtau\s*=\s*1\.0D0", pre_factor) is not None,
+)
+check(
+    "coupled rebuild forces a refactor before returning",
+    "JFNK_FACTOR_DONE=.FALSE." in rebuild
+    and "JFNK_LU_READY=.FALSE." in rebuild
+    and "jfnk_need_precond_refresh=1" in rebuild,
+)
 
 jvp = section(INTERFACE, "SUBROUTINE JFNK_JVP_V1", "END SUBROUTINE JFNK_JVP_V1")
 bad_residual = section(
