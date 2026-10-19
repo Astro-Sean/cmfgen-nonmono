@@ -113,6 +113,52 @@ def test_rel_damp_window_default_and_raw_release_counter():
     )
 
 
+def test_march_sign_flip_accumulator_is_signed():
+    march = section(FG, "SUBROUTINE MARCH", "SUBROUTINE WRITE_STORE")
+    check(
+        "MARCH accumulates the signed update for the detector",
+        "SGN_ACC=SGN_ACC+(VNEW-VOLD)/" in march,
+    )
+    check(
+        "MARCH no longer feeds the ABS delta to the detector",
+        "SGN_ACC=SGN_ACC+DCELL" not in march,
+    )
+    check(
+        "RES/NBAD bookkeeping keeps the ABS delta",
+        "DCELL=ABS(VNEW-VOLD)" in march,
+    )
+
+
+def test_ordered_boundary_rows_skip_out_of_window_frequencies():
+    ord_body = section(
+        FG, "SUBROUTINE SWEEP_FLD_ORD", "SUBROUTINE BUILD_FREQ"
+    )
+    row1 = section(
+        ord_body, "Boundary row I=1", "CALL KN_ORD_SPW_FILL(FLD,1)"
+    )
+    row_ni = section(
+        ord_body,
+        "Inner boundary row I=NI",
+        "CALL KN_ORD_SPW_FILL(FLD,NI)",
+    )
+    guard = "IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE"
+    check("row-1 boundary block has the hot-window guard", guard in row1)
+    check(
+        "row-NI boundary block has the hot-window guard",
+        guard in row_ni,
+    )
+
+
+def test_march_only_called_from_sweep_fld():
+    sweep = section(
+        FG, "SUBROUTINE SWEEP_FLD(FLD", "SUBROUTINE KN_ORD_SPV"
+    )
+    check(
+        "MARCH is called exactly once, inside SWEEP_FLD",
+        FG.count("CALL MARCH") == 1 and "CALL MARCH" in sweep,
+    )
+
+
 if __name__ == "__main__":
     test_heal_store_zeroes_fully_poisoned_rows()
     test_sweep_store_write_gated_on_new_freq()
@@ -120,4 +166,7 @@ if __name__ == "__main__":
     test_fail_closed_commit_defaults()
     test_fg_trial_excluded_from_population_hold()
     test_rel_damp_window_default_and_raw_release_counter()
+    test_march_sign_flip_accumulator_is_signed()
+    test_ordered_boundary_rows_skip_out_of_window_frequencies()
+    test_march_only_called_from_sweep_fld()
     print("all KNOP lagged-field checks passed")
