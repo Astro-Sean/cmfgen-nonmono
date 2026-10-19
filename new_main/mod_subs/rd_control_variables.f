@@ -1060,15 +1060,16 @@
 	1     'Print verbose KNOP solver diagnostics to OUTGEN?')
 	  CALL SET_FG_KNOP_DEBUG(PRINT_KNOP_DEBUG)
 !
-! DO_NONMONO_FREQ_MATCH (default FALSE): rematch the lagged upwind
-! frequency index at compressing points to the bin containing the
-! photon's characteristic foot (per-cell drift in bins), and widen
-! the frequency-derivative stencil to match.  Targets the
-! oscillatory-eigenvalue instability identified by Ceulemans et
-! al. 2025 when the per-cell Doppler shift exceeds the frequency
-! spacing.  Only acts where the Knop solver already switches to
-! the lagged redder upwind; expanding cells keep the implicit
-! same-sweep coupling.
+! DO_NONMONO_FREQ_MATCH (default FALSE here; the KNOP auto-set
+! below lifts it to T when the key is absent): rematch the lagged
+! upwind frequency index at compressing points to the bin
+! containing the photon's characteristic foot (per-cell drift in
+! bins), and widen the frequency-derivative stencil to match.
+! Targets the oscillatory-eigenvalue instability identified by
+! Ceulemans et al. 2025 when the per-cell Doppler shift exceeds
+! the frequency spacing.  Only acts where the Knop solver already
+! switches to the lagged redder upwind; expanding cells keep the
+! implicit same-sweep coupling.
 !
 	  DO_NONMONO_FREQ_MATCH=.FALSE.
 	  CALL RD_STORE_LOG(DO_NONMONO_FREQ_MATCH,
@@ -2796,6 +2797,23 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_STABLE=2'
 	    END IF
 !
+! DO_NONMONO_FREQ_MATCH defaults T under KNOP: with one-bin upwind
+! coupling at compressing points the lagged map gain approaches 1
+! when the per-cell Doppler shift exceeds the frequency spacing, so
+! the refresh residual asymptotes above KN_RAY_TOL and the field
+! never matures (Ceulemans et al. 2025, JQSRT, arXiv:2505.08309;
+! Knop et al. 2009 II, A&A 501, 813).  An explicit VADAT setting is
+! respected -- only the absent-key default is lifted.
+!
+	  CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',L_FALSE,
+	1     L_FALSE_TMP)
+	  IF(DO_NONMONO_KNOP .AND. .NOT. L_FALSE_TMP)THEN
+	    DO_NONMONO_FREQ_MATCH=.TRUE.
+	    CALL SET_FG_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
+	    CALL SET_MOM_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
+	    WRITE(LUER,'(A)')' KNOP auto-set: DO_NONMONO_FREQ_MATCH=T'
+	  END IF
+!
 ! edited by Devin, 17-Oct-2026: the VADAT dump above echoes the
 ! pre-auto-set values, so it showed GS_REL_STABLE=1 while the solver
 ! ran with 2 (KNOP_jfnkrel triage read the stale number).  Re-print
@@ -2828,6 +2846,10 @@
 	1   '   jfnk_fadapt=',JFNK_FADAPT_V,
 	2   '  jfnk_fdcplx=',JFNK_FD_COMPLEX,
 	3   '  jfnk_esfr=',JFNK_ENRICH_SFR
+	    WRITE(LUER,'(A,L2,A,L2,A,L2)')
+	1   '   freq_match=',DO_NONMONO_FREQ_MATCH,
+	2   '  knop_refresh=',DO_KNOP_REFRESH,
+	3   '  nov_cont=',NO_VEL_FOR_CONTINUUM
 	  END IF
 !
 ! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line

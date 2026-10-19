@@ -1003,12 +1003,13 @@
 !
 	LOGICAL PRINT_KNOP_DEBUG
 !
-! DO_NONMONO_FREQ_MATCH (default FALSE): at compressing points the
-! lagged upwind frequency is rematched to the bin the photon
-! actually occupies one cell upwind, n = |GAM|*ds/dln(nu) bins,
-! instead of always the adjacent bin.  The frequency derivative
-! then spans n*dln(nu), which is what the discretization needs
-! when the per-cell Doppler shift exceeds one grid bin (the
+! DO_NONMONO_FREQ_MATCH (default FALSE; auto-set TRUE under
+! DO_NONMONO_KNOP when the VADAT key is absent): at compressing
+! points the lagged upwind frequency is rematched to the bin the
+! photon actually occupies one cell upwind, n = |GAM|*ds/dln(nu)
+! bins, instead of always the adjacent bin.  The frequency
+! derivative then spans n*dln(nu), which is what the discretization
+! needs when the per-cell Doppler shift exceeds one grid bin (the
 ! oscillatory-eigenvalue regime of Ceulemans et al. 2025, JQSRT).
 ! Implemented in FG_J_CMF_NONMONO_V1 and MOM_J_CMF_NONMONO_V1;
 ! expanding cells and the monotonic path are unchanged.  VADAT
