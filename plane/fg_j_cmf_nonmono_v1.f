@@ -6455,6 +6455,12 @@ C
 	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
+! NCAP/NNEG are separate census channels (edited by Devin,
+! 19-Oct-2026): NNEG counts only the negative/NaN floor writes,
+! while the NONMONO_INEXT_CAP hits count into NCAP -- they were
+! previously folded into NNEG, inflating the NNG_LS "clamped"
+! telemetry with cap events.
+!
 	NSTORE=0; NPASS=0; NCAP=0; NNEG=0; NDIV=0; NMAX=1
 	NBAD=0; NTOT=0; NB_M=0; NB_P=0; NT_M=0; NT_P=0
 	NMATCH=0; NCOMP=0
@@ -7510,9 +7516,14 @@ C
 	  IF(INWARD)THEN
 !
 ! Boundary row I=1: zero incident intensity, same residual
-! accounting as MARCH.
+! accounting as MARCH.  edited by Devin, 19-Oct-2026: hot-window
+! guard matching the interior frequency loops -- on a hot pass the
+! out-of-window columns kept reprocessing this row each pass,
+! polluting the NTOT_CUR/RES_FREQ bookkeeping (and re-zeroing a
+! column that must hold its prior value).
 !
 	    DO L=1,NCF
+	      IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	      VOLD=FLD(1,L)
 	      IF(VOLD .GT. 0.0_LDP)THEN
 	        T1=VOLD/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -7553,7 +7564,7 @@ C
 	        END IF
 	        IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	          VNEW=NONMONO_INEXT_CAP
-	          NNEG=NNEG+1
+	          NCAP=NCAP+1
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -7639,9 +7650,12 @@ C
 	  ELSE
 !
 ! Inner boundary row I=NI: same options and accounting as the
-! outward branch of MARCH.
+! outward branch of MARCH.  edited by Devin, 19-Oct-2026: same
+! hot-window guard as the row-1 block -- out-of-window columns
+! must keep their stored values and stay out of the pass census.
 !
 	    DO L=1,NCF
+	      IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	      IF(KN_INNER_METH .EQ. 'DIFFUSION' .AND.
 	1         LS .LE. KN_NC)THEN
 	        I_CORE=(PK_ETANI(L)+KN_DBB(L)*
@@ -7666,7 +7680,7 @@ C
 	      END IF
 	      IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	        VNEW=NONMONO_INEXT_CAP
-	        NNEG=NNEG+1
+	        NCAP=NCAP+1
 	      END IF
 	      VOLD=FLD(NI,L)
 	      T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -7739,7 +7753,7 @@ C
 	        END IF
 	        IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	          VNEW=NONMONO_INEXT_CAP
-	          NNEG=NNEG+1
+	          NCAP=NCAP+1
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -8598,7 +8612,7 @@ C
 	    END IF
 	    IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	      VNEW=NONMONO_INEXT_CAP
-	      NNEG=NNEG+1
+	      NCAP=NCAP+1
 	    END IF
 	    VOLD=FLD(I+1,L)
 	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -8613,8 +8627,13 @@ C
 !
 ! Signed per-cell update for the W6 sign-flip detector in
 ! SWEEP_FLD (same metric the ORD loop accumulates inline).
+! edited by Devin, 19-Oct-2026: the accumulator must carry the
+! SIGNED delta -- DCELL is ABS and made SGN_ACC monotone, so the
+! SGN_ACC*SGN_PRV<0 test could never fire and the unordered sweep
+! had no period-2 damping.
 !
-	      SGN_ACC=SGN_ACC+DCELL
+	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
+	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
@@ -8644,7 +8663,7 @@ C
 	  END IF
 	  IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	    VNEW=NONMONO_INEXT_CAP
-	    NNEG=NNEG+1
+	    NCAP=NCAP+1
 	  END IF
 	  VOLD=FLD(NI,L)
 	  DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -8668,7 +8687,7 @@ C
 	    END IF
 	    IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	      VNEW=NONMONO_INEXT_CAP
-	      NNEG=NNEG+1
+	      NCAP=NCAP+1
 	    END IF
 	    VOLD=FLD(I,L)
 	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -8680,7 +8699,10 @@ C
 	    RESL=MAX(RESL,DCELL)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
-	      SGN_ACC=SGN_ACC+DCELL
+! Signed accumulation, same as the inward branch above: the
+! detector needs sign alternation, not magnitude.
+	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
+	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
 	    FLD(I,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
