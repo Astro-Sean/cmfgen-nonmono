@@ -1204,7 +1204,17 @@
 ! calls; the extra held sweeps still run the forced-LAMBDA path so
 ! the field keeps converging at fixed pops.
 !
-	  GS_FREEZE=GS_RAW_IMMATURE .OR. (N_MATURE .LT. GS_REL_STABLE)
+! The freeze machinery is KNOP-only (Paper-II nested iteration):
+! outside DO_NONMONO_KNOP the gate metrics are still tallied for
+! diagnostics, but GS_FREEZE must stay false -- otherwise a non-KNOP
+! run with GS_REL_STABLE>1 would freeze on the stability hold with
+! no KNOP field to mature.
+!
+	  IF(DO_NONMONO_KNOP)THEN
+	    GS_FREEZE=GS_RAW_IMMATURE .OR. (N_MATURE .LT. GS_REL_STABLE)
+	  ELSE
+	    GS_FREEZE=.FALSE.
+	  END IF
 	  IF(GS_FREEZE .AND. .NOT. GS_RAW_IMMATURE .AND.
 	1     N_MATURE .LT. GS_REL_STABLE)
 	2   CALL APPEND_ITER_REASON(ITER_REASON,'rel_stable_hold')
@@ -1951,10 +1961,13 @@
 	      WRITE(LUER,'(A,I14,A,I14)')
 	1   '    cells changed >50pct, MOM census  :',MOM_SW_NBAD50,
 	2   ' /',MOM_SW_NTOT
-	    ELSE
+	    ELSE IF(DO_NONMONO_KNOP .AND. GS_NTOT .GT. 0)THEN
 	      WRITE(LUER,'(A,I14,A,I14)')
 	1   '    cells changed >50pct, FG census   :',GS_NCONV,
 	2   ' /',GS_NTOT
+	    ELSE
+	      WRITE(LUER,'(A)')
+	1   '    cells changed >50pct census     : inactive this call'
 	    END IF
 	  ELSE IF(LAMBDA_ITERATION .AND. .NOT. JFNK_ANY_ITER)THEN
 	    WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'

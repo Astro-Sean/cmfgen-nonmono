@@ -211,6 +211,11 @@ check(
     "GS_FREEZE is asserted outside the KNOP gate",
     "IF(.NOT. DO_NONMONO_KNOP .AND. GS_FREEZE)THEN" in POPS,
 )
+check(
+    "GS_FREEZE is only assigned inside the KNOP gate",
+    re.search(r"IF\(DO_NONMONO_KNOP\)THEN\s+GS_FREEZE\s*=", POPS)
+    is not None,
+)
 
 for stub in (
     "tests/f90/jfnk_int_mod_stub.f90",

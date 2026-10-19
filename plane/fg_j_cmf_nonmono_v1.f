@@ -3140,14 +3140,21 @@ C
 !
 	    IF(INIT)THEN
 	      Q(1:NI)=0.0_LDP
-!        INIT path: guard chi and eta against NaN from interpolation.
-!        The chi_hat NaN guard below is only in the ELSE branch, so
-!        the INIT path needs its own guard.
+!        INIT path: guard chi and eta against non-finite values from
+!        interpolation.  The .NOT.(|x| <= HUGE) test catches +Inf,
+!        which the old x /= x and x < 1e-30 tests both missed.
 ! edited by Sean Brennan (04-Sep-2026)
 	      DO I=1,NI
-	        IF(CHI_RAY(I) .NE. CHI_RAY(I) .OR.
+	        IF(.NOT.(ABS(CHI_RAY(I)) .LE. HUGE(CHI_RAY(I))) .OR.
 	1          CHI_RAY(I) .LT. 1.0E-30_LDP)CHI_RAY(I)=1.0E-30_LDP
-	        IF(ETA_RAY(I) .NE. ETA_RAY(I))ETA_RAY(I)=0.0_LDP
+	        IF(.NOT.(ABS(ETA_RAY(I)) .LE. HUGE(ETA_RAY(I))))
+	1          ETA_RAY(I)=0.0_LDP
+	        IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))
+	1          GAM(I,LS)=0.0_LDP
+	        IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))
+	1          GAM_MAG(I,LS)=0.0_LDP
+	        IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))
+	1          dGAMdR(I,LS)=0.0_LDP
 	      END DO
 !
 !        Compressing cells at the bluest frequency: the upwind bin is
@@ -3159,20 +3166,41 @@ C
 !        as interior frequencies.  On the first great iteration the
 !        lagged store is zero, so the coupling acts as pure outflow --
 !        the same cold-start approximation the interior bins use.
+!        NM_RAY/DLN_RAY are set above the INIT split, so the update is
+!        valid without the HAS_COMPRESSING store census.
 !
-	      IF(HAS_COMPRESSING)THEN
-	        DO I=1,NI
-	          IF(GAM(I,LS) .LT. 0.0_LDP)THEN
-	            DLN_C=DLN_RAY(I)
-	            IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
-	            T1=GAM_MAG(I,LS)/DLN_C
-	            CHI_RAY(I)=CHI_RAY(I)+T1
-	            dCHIdR_RAY(I)=dCHIdR_RAY(I)-dGAMdR(I,LS)/DLN_C
-	            Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
-	          END IF
-	        END DO
-	      END IF
+	      DO I=1,NI
+	        IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	          DLN_C=DLN_RAY(I)
+	          IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
+	          T1=GAM_MAG(I,LS)/DLN_C
+	          CHI_RAY(I)=CHI_RAY(I)+T1
+	          dCHIdR_RAY(I)=dCHIdR_RAY(I)-dGAMdR(I,LS)/DLN_C
+	        END IF
+	      END DO
+!        Post-update guards on the compressing increments: a cubic-
+!        overshoot GAM<0 can drive chi_hat to +Inf (uncaught by the
+!        entry test above) and leave DTAU infinite downstream.
+	      DO I=1,NI
+	        IF(.NOT.(ABS(CHI_RAY(I)) .LE. HUGE(CHI_RAY(I))) .OR.
+	1          CHI_RAY(I) .LT. 1.0E-30_LDP)CHI_RAY(I)=1.0E-30_LDP
+	        IF(.NOT.(ABS(dCHIdR_RAY(I)) .LE. HUGE(dCHIdR_RAY(I))))
+	1          dCHIdR_RAY(I)=0.0_LDP
+	      END DO
+	      DO I=1,NI
+	        IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	          DLN_C=DLN_RAY(I)
+	          IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
+	          Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
+	        END IF
+	      END DO
 	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
+!        Final belt-and-suspenders guard, matching the ELSE branch.
+	      DO I=1,NI
+	        IF(.NOT.(ABS(Q(I)) .LE. HUGE(Q(I))))Q(I)=0.0_LDP
+	        IF(.NOT.(ABS(SOURCE_RAY(I)) .LE. HUGE(SOURCE_RAY(I))))
+	1          SOURCE_RAY(I)=0.0_LDP
+	      END DO
 	    ELSE
 !        Generalized opacity: chi_hat = chi + |GAM|/dLOG_NU (always > 0)
 !        NM_RAY/DLN_RAY are set above the INIT split.
@@ -4004,7 +4032,7 @@ C
 ! Fold this frequency's compressing-cell sink count into the
 ! great-iteration census (serial region; the ray loop is done).
 !
-	  FG_NOSLOT_CNT=FG_NOSLOT_CNT+SUM(FG_NOSLOT_RAY(1:NP))
+	  FG_NOSLOT_CNT=FG_NOSLOT_CNT+SUM(FG_NOSLOT_RAY(1:NP),KIND=8)
 !
 ! Cap the expanding-zone frequency feedback (I_M_PREV / I_P_PREV) at
 ! NONMONO_INEXT_CAP, matching the cap already applied to the compressing-
@@ -8189,9 +8217,16 @@ C
 	IF(L .EQ. 1)THEN
 	  CALL MATCH_FREQ(L)
 	  DO I=1,NI
-	    IF(CHI_L(I) .NE. CHI_L(I) .OR. CHI_L(I) .LT. 1.0E-30_LDP)
-	1      CHI_L(I)=1.0E-30_LDP
-	    IF(ETA_L(I) .NE. ETA_L(I))ETA_L(I)=0.0_LDP
+	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
+	1      CHI_L(I) .LT. 1.0E-30_LDP)CHI_L(I)=1.0E-30_LDP
+	    IF(.NOT.(ABS(ETA_L(I)) .LE. HUGE(ETA_L(I))))
+	1      ETA_L(I)=0.0_LDP
+	    IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))
+	1      GAM(I,LS)=0.0_LDP
+	    IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))
+	1      GAM_MAG(I,LS)=0.0_LDP
+	    IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))
+	1      dGAMdR(I,LS)=0.0_LDP
 	  END DO
 	  DO I=1,NI
 	    Q_L(I)=0.0_LDP
@@ -8200,10 +8235,26 @@ C
 	      IF(.NOT.(DLN .GT. 0.0_LDP))DLN=1.0E-30_LDP
 	      CHI_L(I)=CHI_L(I)+GAM_MAG(I,LS)/DLN
 	      DCHR_L(I)=DCHR_L(I)-dGAMdR(I,LS)/DLN
-	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
 	    END IF
 	  END DO
-	  SR_L(1:NI)=ETA_L(1:NI)/CHI_L(1:NI)
+	  DO I=1,NI
+	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
+	1      CHI_L(I) .LT. 1.0E-30_LDP)CHI_L(I)=1.0E-30_LDP
+	    IF(.NOT.(ABS(DCHR_L(I)) .LE. HUGE(DCHR_L(I))))
+	1      DCHR_L(I)=0.0_LDP
+	  END DO
+	  DO I=1,NI
+	    IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	      DLN=DLNM_L(I)
+	      IF(.NOT.(DLN .GT. 0.0_LDP))DLN=1.0E-30_LDP
+	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
+	    END IF
+	    SR_L(I)=ETA_L(I)/CHI_L(I)
+	  END DO
+	  DO I=1,NI
+	    IF(.NOT.(ABS(Q_L(I)) .LE. HUGE(Q_L(I))))Q_L(I)=0.0_LDP
+	    IF(.NOT.(ABS(SR_L(I)) .LE. HUGE(SR_L(I))))SR_L(I)=0.0_LDP
+	  END DO
 	ELSE
 !
 ! The matched compressing slot/span (offset 1 and KN_DLN_N(L) when
