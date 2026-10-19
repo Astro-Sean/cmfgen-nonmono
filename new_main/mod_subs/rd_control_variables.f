@@ -77,6 +77,7 @@
 	INTEGER KN_RAY_HOTPASSES_V,KN_HOT_TOTAL_PASSES_V
 	LOGICAL KN_ADAPT_RELAX_V
 	LOGICAL FG_ADAPT_OMEGA_V2_V,FG_PLATEAU_DET_V
+	LOGICAL MOM_ADAPT_OMEGA_V2_V
 	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
@@ -1249,6 +1250,18 @@
 	1     'Adaptive lagged-store under-relaxation (FG+MOM)?')
 	  CALL SET_FG_KN_ADAPT(KN_ADAPT_RELAX_V)
 	  CALL SET_MOM_KN_ADAPT(KN_ADAPT_RELAX_V)
+!
+! MOM_ADAPT_OMEGA_V2 (default T, 19-Oct-2026): same-map omega
+! estimator in the MOM refresh -- the relax weight is re-estimated
+! from the median of the last ~4 per-pass residual ratios of the
+! current refresh instead of the cross-call ratio, which miskeyed
+! oscillation and marginal contraction to the same omega~0.5.
+! F restores the cross-call rule (ports FG_ADAPT_OMEGA_V2, W5).
+!
+	  MOM_ADAPT_OMEGA_V2_V=.TRUE.
+	  CALL RD_STORE_LOG(MOM_ADAPT_OMEGA_V2_V,'MOM_ADAPT_OMEGA_V2',
+	1     L_FALSE,'Same-map omega estimator in the MOM refresh?')
+	  CALL SET_MOM_OMEGA_V2(MOM_ADAPT_OMEGA_V2_V)
 !
 ! KN_RAY_ORDERED (default TRUE): ordered characteristic march in
 ! the FG refresh (Knop Paper II ordering).  FALSE restores the

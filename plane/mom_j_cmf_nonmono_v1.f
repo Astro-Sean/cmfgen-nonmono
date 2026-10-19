@@ -340,6 +340,15 @@
 ! applies on top inside the refresh.  Oct-2026.
 !
 	LOGICAL, SAVE :: MOM_ADAPT_RELAX=.TRUE.
+! MOM_ADAPT_OMEGA_V2 (VADAT [MOM_ADAPT_OMEGA_V2], default T, set by
+! SET_MOM_OMEGA_V2): same-map omega estimator -- rho_est comes from
+! the median of the last ~4 per-pass residual ratios of the current
+! refresh instead of the cross-call MOM_GS_MAXCHG ratio, which
+! conflates source drift with map contraction (ports the FG W5
+! fix, FG_ADAPT_OMEGA_V2 in fg_j_cmf_nonmono_v1.f).  F restores the
+! cross-call estimator under KN_ADAPT_RELAX.
+!
+	LOGICAL, SAVE :: MOM_ADAPT_OMEGA_V2=.TRUE.
 	REAL(KIND=LDP), SAVE :: MOM_RF_RESID_PRV=-1.0_LDP
 !
 ! Per-cell relaxation schedule for the refresh write.  Cells whose
@@ -4500,6 +4509,14 @@
 	RETURN
 	END
 !
+	SUBROUTINE SET_MOM_OMEGA_V2(DO_V2)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_ADAPT_OMEGA_V2
+	IMPLICIT NONE
+	LOGICAL DO_V2
+	MOM_ADAPT_OMEGA_V2=DO_V2
+	RETURN
+	END
+!
 ! GET_MOM_CELL_QUAR: return the quarantine mask (XM_BAD mapped to the
 ! SM grid) recorded by the last non-refresh MOM solve, for
 ! DO_VAR_CONT's unconditional ALO diagonal suppression at frozen
@@ -4611,6 +4628,14 @@
 	REAL(KIND=LDP) GRM_AA(MOM_AA_M,MOM_AA_M),BRHS_AA(MOM_AA_M)
 	REAL(KIND=LDP) WGRM(MOM_AA_M,MOM_AA_M),WBR(MOM_AA_M)
 	REAL(KIND=LDP) GAM_AA(MOM_AA_M),FNRM,DNRM,SC,XV,WV,DTR
+	REAL(KIND=LDP) OMG_PRV,RHO_H(4)
+	LOGICAL L_V2
+! Per-pass max residual of this refresh for the V2 same-map omega
+! estimator (edited by Devin, 19-Oct-2026): PASS_CHG is the pass's
+! MOM_GS_MAXCHG before the counters merge, same normalization the
+! refresh residual prints use.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: RES_PASS(:)
 	INTEGER IPIV_OUT(MOM_AA_OUT_M)
 	REAL(KIND=LDP) GRM_OUT(MOM_AA_OUT_M,MOM_AA_OUT_M),
 	1    BRHS_OUT(MOM_AA_OUT_M)
@@ -4775,6 +4800,13 @@
 	  IF(ALLOCATED(FHIST_AA))DEALLOCATE(FHIST_AA)
 	  RETURN
 	END IF
+!
+! Per-pass residual record for the V2 same-map omega estimator.
+! Alloc-fail just loses the V2 branch -- the estimator falls back
+! to the cross-call ratio.
+!
+	ALLOCATE(RES_PASS(KN_M_MAXPASS),STAT=IOS)
+	IF(IOS .EQ. 0)RES_PASS=0.0_LDP
 !
 ! AA history restarts every call: each refresh iterates a different
 ! map (the source function was rebuilt from updated populations), so
@@ -5226,6 +5258,12 @@
 	  MOM_GS_MAXCHG=PASS_CHG
 	  MOM_INEXT_CAPPED=PASS_CAP
 	  MOM_NEGJ_LRG=PASS_NEG
+!
+! Same-map record (edited by Devin, 19-Oct-2026): the pass's max
+! residual before best-pass/AA modification, appended in pass order
+! for the adaptive JNEXT_RELAX estimator at the exit.
+!
+	  IF(ALLOCATED(RES_PASS))RES_PASS(IPASS)=PASS_CHG
 !
 ! edited by Devin, 28-Sep-2026: best-pass selection runs here, on
 ! the raw map output, before the cycle check and Anderson update
@@ -6237,9 +6275,61 @@
 ! and clamped to [0.05,1] -- same rule as the FG INEXT_RELAX update
 ! in FG_KNOP_REFRESH_V1.  Oct-2026.
 !
+! V2 (edited by Devin, 19-Oct-2026, [MOM_ADAPT_OMEGA_V2], default T):
+! the cross-call ratio miskeys omega -- the refresh residual drifts
+! with the populations' source update, so a converging field can
+! read rho_est~1 whether the map oscillates (wants omega~0.5) or
+! contracts marginally (wants omega~1), and the median settles at
+! ~0.5 either way, over-damping smooth contraction.  RES_PASS holds
+! the per-pass max-residual sequence of THIS refresh, so the median
+! of its last ~4 pass ratios measures the same-map contraction
+! factor directly.  Used only when >=3 usable ratios exist; the
+! cross-call estimate is the fallback.  Ports the FG W5 fix
+! (FG_ADAPT_OMEGA_V2, fg_j_cmf_nonmono_v1.f).
+!
 	IF(MOM_ADAPT_RELAX .AND. MOM_GS_MAXCHG .GT. 0.0_LDP .AND.
 	1   MOM_GS_MAXCHG .LE. HUGE(MOM_GS_MAXCHG))THEN
-	  IF(MOM_RF_RESID_PRV .GT. 0.0_LDP)THEN
+	  OMG_PRV=JNEXT_RELAX
+	  L_V2=.FALSE.
+	  IF(MOM_ADAPT_OMEGA_V2 .AND. ALLOCATED(RES_PASS))THEN
+	    J=0
+	    DO I=SIZE(RES_PASS),1,-1
+	      IF(RES_PASS(I) .GT. 0.0_LDP)THEN
+	        J=I
+	        EXIT
+	      END IF
+	    END DO
+	    IF(J .GE. 4)THEN
+	      L=0
+	      DO I=MAX(2,J-3),J
+	        IF(RES_PASS(I-1) .GT. 0.0_LDP)THEN
+	          L=L+1
+	          RHO_H(L)=RES_PASS(I)/RES_PASS(I-1)
+	        END IF
+	      END DO
+	      IF(L .GE. 3)THEN
+	        DO I=1,L-1
+	          DO KK=I+1,L
+	            IF(RHO_H(KK) .LT. RHO_H(I))THEN
+	              T4=RHO_H(I)
+	              RHO_H(I)=RHO_H(KK)
+	              RHO_H(KK)=T4
+	            END IF
+	          END DO
+	        END DO
+	        DTR=RHO_H((L+1)/2)
+	        DTR=MIN(MAX(DTR,0.05_LDP),20.0_LDP)
+	        JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
+	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,
+	2          1.0_LDP/(1.0_LDP+DTR)))
+	        WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
+	1          '    adaptive JNEXT_RELAX: rho_est=',DTR,
+	2          ' (',L,' same-map ratios) omega=',JNEXT_RELAX
+	        L_V2=.TRUE.
+	      END IF
+	    END IF
+	  END IF
+	  IF(.NOT. L_V2 .AND. MOM_RF_RESID_PRV .GT. 0.0_LDP)THEN
 	    DTR=MOM_GS_MAXCHG/MOM_RF_RESID_PRV
 	    DTR=MIN(MAX(DTR,0.0_LDP),50.0_LDP)
 	    JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
@@ -6247,6 +6337,28 @@
 	    WRITE(LUER,'(A,ES10.3,A,ES10.3)')
 	1      '    adaptive JNEXT_RELAX: rho_est=',DTR,
 	2      '  omega=',JNEXT_RELAX
+	  END IF
+!
+! Omega-consistency rescale (edited by Devin, 19-Oct-2026): the
+! outer-AA residual history FHIST_OUT holds committed deltas
+! measured under the JNEXT_RELAX in force when each was recorded
+! (for relax-written cells f_j = omega*(G(x_j)-x_j)), so an omega
+! change leaves the stored secants in the wrong units for the next
+! call's projection -- the AA affine-map assumption degrades
+! exactly in the omega-adapting runs it targets.  Scale the
+! retained columns by omega_new/omega_old, the same fix FG applies
+! to AA_RH/DLT_PRV when OMEGA_RAY changes (fg_j_cmf_nonmono_v1.f,
+! "An OMEGA_RAY change alters the relaxed map").  XHIST_OUT and
+! RETJ_PREV hold unscaled iterates and are untouched.  NHIST_OUT
+! counts the used slots; the history is SAVE, so this rescale
+! reaches the next call.
+!
+	  IF(ALLOCATED(FHIST_OUT) .AND. NHIST_OUT .GT. 0 .AND.
+	1     OMG_PRV .GT. 0.0_LDP .AND.
+	2     ABS(JNEXT_RELAX-OMG_PRV) .GT. 1.0E-6_LDP)THEN
+	    FHIST_OUT(1:ND_NM,1:KN_M_NCF,1:NHIST_OUT)=
+	1      FHIST_OUT(1:ND_NM,1:KN_M_NCF,1:NHIST_OUT)*
+	2      (JNEXT_RELAX/OMG_PRV)
 	  END IF
 	  MOM_RF_RESID_PRV=MOM_GS_MAXCHG
 	END IF
@@ -6264,5 +6376,6 @@
 	IF(ALLOCATED(SHOT_L))DEALLOCATE(SHOT_L)
 	IF(ALLOCATED(RES_L))DEALLOCATE(RES_L)
 	IF(ALLOCATED(NMUP_L))DEALLOCATE(NMUP_L)
+	IF(ALLOCATED(RES_PASS))DEALLOCATE(RES_PASS)
 	RETURN
 	END
