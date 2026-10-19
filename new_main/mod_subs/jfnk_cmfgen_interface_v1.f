@@ -2859,7 +2859,6 @@
 	REAL(KIND=LDP) BANDED_RIDGE, BANDED_MAX_DIAG
 	REAL(KIND=LDP) LSQ_L2
 	REAL(KIND=LDP), ALLOCATABLE :: GN_WORK(:,:)
-	LOGICAL, ALLOCATABLE :: REPLACE_SAVE(:,:)
 	INTEGER N_BANDED_RETRY
 	DOUBLE PRECISION FMAX_PTC, S_PTC
 	INTEGER IDX_PTC
@@ -3041,21 +3040,13 @@
 	  END IF
 	END IF
 !
-	JFNK_BA_DIAG = 0.0_LDP
-	JFNK_BA_DIAG_READY = .FALSE.
-!
-! Allocate per-depth REPLACE save array for banded assembly.
-! GENERATE_FULL_MATRIX_V3 determines REPLACE (which ground-state
-! equations are replaced by ionization equations) on the diagonal
-! pass.  The banded loop needs the same REPLACE for each depth.
-!
-	IF(ALLOCATED(REPLACE_SAVE))THEN
-	  IF(SIZE(REPLACE_SAVE,1).NE.JFNK_NION .OR.
-	1    SIZE(REPLACE_SAVE,2).NE.JFNK_ND) DEALLOCATE(REPLACE_SAVE)
-	END IF
-	IF(.NOT. ALLOCATED(REPLACE_SAVE))THEN
-	  ALLOCATE(REPLACE_SAVE(JFNK_NION, JFNK_ND), STAT=IOS)
-	  IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc REPLACE_SAVE'
+	FMAX_PTC = 0.0D0
+	IF(jfnk_ptc_active .AND. ALLOCATED(jfnk_fx))THEN
+	  IF(SIZE(jfnk_fx) .EQ. JFNK_NT*JFNK_ND)THEN
+	    DO IDX_PTC = 1, JFNK_NT*JFNK_ND
+	      FMAX_PTC = MAX(FMAX_PTC, ABS(jfnk_fx(IDX_PTC)))
+	    END DO
+	  END IF
 	END IF
 !
 	ZERO_STEQ = .FALSE.
@@ -3069,6 +3060,8 @@
 ! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.
 !
 	IF(.NOT. (JFNK_BA_BUILT .AND. DO_FACTOR_L))THEN
+	  JFNK_BA_DIAG = 0.0_LDP
+	  JFNK_BA_DIAG_READY = .FALSE.
 !
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
 ! JFNK_SET_PTC_SCALE_V1.  Computed here because SET_PTC_SCALE arms
@@ -3078,12 +3071,8 @@
 ! FD JVP differentiates.
 !
 	JFNK_PTC_FOLDED = .FALSE.
-	FMAX_PTC = 0.0D0
 	IF(jfnk_ptc_active .AND. ALLOCATED(jfnk_fx))THEN
 	  IF(SIZE(jfnk_fx) .EQ. JFNK_NT*JFNK_ND)THEN
-	    DO IDX_PTC = 1, JFNK_NT*JFNK_ND
-	      FMAX_PTC = MAX(FMAX_PTC, ABS(jfnk_fx(IDX_PTC)))
-	    END DO
 	    IF(FMAX_PTC .GT. 0.0D0)JFNK_PTC_FOLDED = .TRUE.
 	  END IF
 	END IF
@@ -3096,7 +3085,6 @@
 	1       JFNK_DIAG_INDX, JFNK_DIAG_INDX, K,
 	1       FIRST_MATRIX, LAST_MATRIX, USE_PASSED_REP)
 	  FIRST_MATRIX = .FALSE.
-	  REPLACE_SAVE(:, K) = REPLACE
 !
 	  DO J = 1, JFNK_NT
 	    JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
@@ -3165,6 +3153,17 @@
 	    JFNK_PRECOND_DIAG(JFNK_NT-1,K) = 1.0_LDP
 	  END IF
 	END DO
+	ELSE
+! [USE_JFNK_SOLVER] defaults to F, so the stock population path is
+! unchanged.  The cache stays valid only for the active JFNK baseline;
+! restore its diagonal before any factor path reads it.
+!
+	  DO K = 1, JFNK_ND
+	    DO J = 1, JFNK_NT
+	      JFNK_BA_DIAG(J,K) = JFNK_BA_A(J,J,K)
+	    END DO
+	  END DO
+	  JFNK_BA_DIAG_READY = .TRUE.
 	END IF   ! JFNK_BA_BUILT reuse guard
 !
 ! DO_FACTOR=.FALSE. (17-Oct-2026, W5B): BA_A plus the folded
@@ -3768,7 +3767,12 @@
 ! coupling (BA_ADV_TERM) from the BA matrix.
 !
 	  DO K = 1, JFNK_ND
-	    REPLACE = REPLACE_SAVE(:, K)
+	    CALL GENERATE_FULL_MATRIX_V3(
+	1       JFNK_C_MAT, DUMMY_STEQ, POPS_WORK, REPLACE, ZERO_STEQ,
+	1       JFNK_NT, JFNK_ND, JFNK_NION, JFNK_NUM_BNDS,
+	1       JFNK_DIAG_INDX, JFNK_DIAG_INDX, K,
+	1       .FALSE., (K .EQ. JFNK_ND .AND.
+	2       JFNK_DIAG_INDX .EQ. JFNK_NUM_BNDS), .FALSE.)
 	    DO IB = 1, JFNK_NUM_BNDS
 	      BAND_OFFSET = K + IB - JFNK_DIAG_INDX
 	      L = BAND_OFFSET
