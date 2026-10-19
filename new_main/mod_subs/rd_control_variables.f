@@ -6,6 +6,10 @@
 	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready
 	IMPLICIT NONE
 !
+! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
+!                            NUM_BNDS=2 with 'TRI' previously passed
+!                            validation and STOPped in CMF_BLKBAND_V3
+!                            after the BA was assembled (Devin).
 ! Altered : 16-Oct-2026 : Self-consistency enforcement: the
 !                            non-monotonic/JFNK trigger flags now
 !                            auto-configure their dependent switches
@@ -2482,10 +2486,10 @@
 	  CALL RD_STORE_NCHAR(METH_SOL,'SOL_METH',ISIX,L_TRUE,
 	1            'Which Method To solve Matrix Equations'//
 	1            ' DIAG, TRI, PEN, GSIT or MIN')
-	  IF(NUM_BNDS .EQ. 1 .AND. METH_SOL .NE. 'DIAG')THEN
+	  IF(NUM_BNDS .LT. 3 .AND. METH_SOL .NE. 'DIAG')THEN
 	    WRITE(LUER,*)'****************************************'
 	    WRITE(LUER,*)'******WARNING in CMFGEN*****************'
-	    WRITE(LUER,*)'Solution method inconsistent with NUM_BNDS'
+	    WRITE(LUER,*)'Solution method requires NUM_BNDS of at least 3'
 	    WRITE(LUER,*)'METH_SOL=',METH_SOL,'NUM_BNDS=',NUM_BNDS
 	    WRITE(LUER,'(X,A,/)')'Using diagnoal solution'
 	    METH_SOL='DIAG'
