@@ -29,6 +29,13 @@
 !       production eval-side bracketing (JFNK_RAD_SWEEP_V1) cannot be
 !       exercised standalone; this test locks determinism of the
 !       Newton/GMRES layer itself.
+!   G5: multi-cycle GMRES keeps the total step inside del and an
+!       info=2 recompute retains the earlier restart contribution.
+!   G6: log-unknown PTC diagonal agrees with the scalar shifted operator
+!       at x != 0.
+!   G7: GMRES aborts when the JVP callback reports a repaired bad
+!       perturbed residual instead of consuming its sentinel vector.
+!   G8: coupled Newton does not converge on maxch alone.
 !
 ! edited by Devin, Oct-2026
 !----------------------------------------------------------------------
@@ -53,9 +60,10 @@ end module guards_prob_mod
 
 program test_guards
    use jfnk_solver_v1_mod
+   use jfnk_cmfgen_int_mod, only: JFNK_COUPLED_LOC
    use guards_prob_mod
    implicit none
-   external :: f_t, df_t, dfp_t, sub_t
+   external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1
    double precision, external :: dp_t
    integer :: nfail, info, luer, i
    !
@@ -220,6 +228,138 @@ program test_guards
       end if
    end block
    !
+   ! -------- G5: restarted GMRES total trust radius and recompute ----
+   !
+   block
+      integer, parameter :: M = 4
+      double precision :: rhs(NG), step(NG), step_before(NG)
+      double precision :: h(M+1,M), basis(NG,M+1), pred, res, radius
+      double precision :: x_cycle(NG), step_norm
+      integer :: its
+      !
+      jfnk_ptc_active = .false.
+      jfnk_use_left_pc = .true.
+      jfnk_x = xsg + 0.4d0
+      call f_t(NG, jfnk_x, jfnk_fx)
+      rhs = jfnk_fx
+      step = 0d0
+      res = 1d-12
+      radius = 5d-2
+      its = 20
+      info = 1
+      call gmres_m_v1(M, NG, step, rhs, df_t, dfp_t, dp_t, h, basis, &
+         res, radius, pred, its, info, luer)
+      step_norm = dsqrt(dp_t(NG, step, step))
+      x_cycle = jfnk_gmres_x_cycle_start
+      if(its <= M .or. step_norm > radius + 1d-12) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A,ES12.4)') &
+            'G5: FAIL (restart bound), its=', its, ' norm=', step_norm
+      else
+         write(luer,'(A,I3,A,ES12.4)') &
+            'G5: PASS (total restart step bounded), its=', its, &
+            ' norm=', step_norm
+      end if
+      !
+      step_before = step
+      radius = 2.5d-2
+      its = 20
+      info = 2
+      call gmres_m_v1(M, NG, step, rhs, df_t, dfp_t, dp_t, h, basis, &
+         res, radius, pred, its, info, luer)
+      step_norm = dsqrt(dp_t(NG, step, step))
+      if(step_norm > radius + 1d-12 .or. &
+         dp_t(NG, step, x_cycle) <= 0d0 .or. &
+         maxval(abs(step_before)) <= 1d-12) then
+         nfail = nfail + 1
+         write(luer,'(A,ES12.4,A,ES12.4)') &
+            'G5: FAIL (recompute lost restart), norm=', step_norm, &
+            ' prior_norm=', dsqrt(dp_t(NG, x_cycle, x_cycle))
+      else
+         write(luer,'(A,ES12.4)') &
+            'G5: PASS (recompute retained earlier cycle), norm=', step_norm
+      end if
+   end block
+   !
+   ! -------- G6: fractional/log PTC chain rule at nonzero x ----------
+   !
+   block
+      double precision :: d_frac, sigma, x_log, rhs_scalar
+      double precision :: shifted_frac, log_apply, exact_apply
+      d_frac = -2.3d0
+      sigma = 0.7d0
+      x_log = 0.6d0
+      rhs_scalar = 1.4d0
+      shifted_frac = d_frac + sigma * exp(-x_log)
+      log_apply = exp(-x_log) * rhs_scalar / shifted_frac
+      exact_apply = rhs_scalar / (d_frac * exp(x_log) + sigma)
+      if(abs(log_apply - exact_apply) > &
+         1d-13 * max(1d0, abs(exact_apply))) then
+         nfail = nfail + 1
+         write(luer,'(A,2ES14.6)') &
+            'G6: FAIL (log PTC scalar), got/expected=', &
+            log_apply, exact_apply
+      else
+         write(luer,'(A)') 'G6: PASS (log PTC scalar at x != 0)'
+      end if
+   end block
+   !
+   ! -------- G7: GMRES aborts on a failed perturbed residual --------
+   !
+   block
+      integer, parameter :: M = 4
+      double precision :: rhs(NG), step(NG), h(M+1,M), basis(NG,M+1)
+      double precision :: pred
+      integer :: its
+      jfnk_x = 0d0
+      jfnk_fx = 1d0
+      rhs = 1d0
+      step = 0d0
+      jfnk_jvp_failed = .false.
+      its = M
+      info = 1
+      call gmres_m_v1(M, NG, step, rhs, df_bad, dfp_t, dp_t, h, basis, &
+         1d-8, 5d-2, pred, its, info, luer)
+      if(info /= 3 .or. .not. jfnk_jvp_failed) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A,L1)') &
+            'G7: FAIL (JVP sentinel consumed), info=', info, &
+            ' failed=', jfnk_jvp_failed
+      else
+         write(luer,'(A)') 'G7: PASS (GMRES aborts on failed JVP)'
+      end if
+   end block
+   !
+   ! -------- G8: coupled mode requires the residual tolerance --------
+   !
+   block
+      double precision :: f0_norm
+      call seed_prob()
+      if(.not. allocated(jfnk_x)) allocate(jfnk_x(NG), jfnk_fx(NG))
+      jfnk_ptc_active = .false.
+      jfnk_do_line_search = .false.
+      jfnk_x = xsg + 3d0
+      call f_t(NG, jfnk_x, jfnk_fx)
+      f0_norm = dsqrt(dp_t(NG, jfnk_fx, jfnk_fx))
+      jfnk_maxch_tol = 1d0
+      jfnk_maxch_est = 0d0
+      JFNK_COUPLED_LOC = .true.
+      info = 1
+      call newton_hook_v1(f_t, df_t, dfp_t, sub_t, dp_t, &
+         10, NG, 1d-3, 1d-14*f0_norm, -1d0, 1d-12, 5d-2, 1, info, luer)
+      JFNK_COUPLED_LOC = .false.
+      jfnk_maxch_tol = 0d0
+      if(info == 0) then
+         nfail = nfail + 1
+         write(luer,'(A,ES12.4,A,ES12.4)') &
+            'G8: FAIL (maxch bypassed residual), |F0|=', f0_norm, &
+            ' |F|=', jfnk_tol
+      else
+         write(luer,'(A,ES12.4)') &
+            'G8: PASS (coupled residual remains above tol), |F|=', jfnk_tol
+      end if
+   end block
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL GUARD TESTS PASSED'
    else
@@ -257,6 +397,16 @@ subroutine df_t(n, v, jv)
    call f_t(n, xp, yp)
    jv = (yp - jfnk_fx) / h
 end subroutine df_t
+
+subroutine df_bad(n, v, jv)
+   use jfnk_solver_v1_mod, only: jfnk_jvp_failed
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(in) :: v(n)
+   double precision, intent(out) :: jv(n)
+   jv = 0d0
+   jfnk_jvp_failed = .true.
+end subroutine df_bad
 
 subroutine dfp_t(n, z)
    implicit none

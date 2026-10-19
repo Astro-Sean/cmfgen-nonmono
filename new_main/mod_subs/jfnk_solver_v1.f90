@@ -344,6 +344,9 @@ module jfnk_solver_v1_mod
    !
    integer          :: jfnk_gmres_jj    = 0
    double precision :: jfnk_gmres_beta  = 0d0
+   ! The opt-in [USE_JFNK_SOLVER] path needs this checkpoint to replace
+   ! only the last restart cycle during an info=2 hookstep recompute.
+   double precision, allocatable :: jfnk_gmres_x_cycle_start(:)
    !
    ! Right-preconditioning step map (edited by Devin, 2026-10,
    ! right-PC TR-units fix): under right PC the GMRES iterate y maps
@@ -520,7 +523,7 @@ end subroutine jfnk_alloc_workspace
 subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                             tol, del, mndl, mxdl, nits, info, luer)
    use jfnk_solver_v1_mod
-   use jfnk_cmfgen_int_mod, only: JFNK_NT
+   use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_COUPLED_LOC
    implicit none
    external                        :: f, df, dfp, sub
    double precision, external      :: dp
@@ -533,7 +536,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! W25: SAVE'd GMRES basis buffer -- one heap allocation per
    ! (n,m) instead of one per Newton step (audit 17-Oct-2026).
    double precision, allocatable, save :: v(:,:)
-   double precision :: tol_, del__, tol__
+   double precision :: tol_, del__, tol__, tol_initial
    double precision :: mxdl_, ared, pred, snrm, s_inf
    double precision :: snrm_tr   ! 2026-09-13 TR-units fix: ||y|| norm the hookstep constrains
    double precision :: gres, gdel, h((m+1)*m)
@@ -546,6 +549,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    double precision :: pred_floor          ! floor for safe ared/pred division
    double precision :: rho                 ! ared/pred ratio (dimensionless)
    logical          :: pred_negligible     ! |pred| <= pred_floor
+   logical          :: maxch_converged
    integer :: ginfo, n_reject, ios_nw, i
    integer, parameter :: n_reject_max = 8
    !
@@ -658,6 +662,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
    end if
    jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
+   tol_initial = jfnk_tol
    ! Fresh non-monotone LS history per activation (Oct-2026).
    jfnk_ls_nmhist = -1d0
    jfnk_ls_nmidx  = 0
@@ -1371,6 +1376,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                if(jfnk_ls_nmhist(i) > 0d0) &
                   phi_ref = max(phi_ref, 0.5d0 * jfnk_ls_nmhist(i)**2)
             end do
+            ! Cap a stale history reference so a trial cannot claim an
+            ! unbounded increase. [USE_JFNK_SOLVER] defaults to F.
+            if(jfnk_del > 0d0) phi_ref = min(phi_ref, 1.21d0 * phi_0)
          end if
          !
          ls_loop: do ls_step = 1, jfnk_ls_max_steps
@@ -1389,7 +1397,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                snrm = dsqrt(dp(n, s, s))     ! update weighted norm
                s_inf = maxval(abs(s))        ! update inf norm
                snrm_tr = alpha_ls * snrm_tr  ! 2026-09-13 TR-units fix
-               if(jfnk_del > 0d0) jfnk_del = min(mxdl_, snrm_tr * 2d0)
+               if(jfnk_del > 0d0 .and. jfnk_tol <= tol_) then
+                  jfnk_del = min(mxdl_, snrm_tr * 2d0)
+               end if
                ared = tol_ - jfnk_tol
                if(info == 1) write(luer,'(A,ES10.3,A,ES14.4,A,ES14.4)') &
                   '  JFNK: line search accepted α=', real(alpha_ls), &
@@ -1559,8 +1569,20 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! the trust-region rejection branches and go straight to the
       ! step-accepted path (ginfo = 0).
       !
-      if(ls_accepted) then
-         ginfo = 0  ! step accepted
+      if(ls_accepted .and. ared >= 0d0) then
+         ginfo = 0  ! monotone Armijo decrease
+      else if(ls_accepted .and. del == 0d0) then
+         ginfo = 0  ! no trust region; keep the non-monotone LS outcome
+      else if(ls_accepted) then
+         ! [USE_JFNK_SOLVER] defaults to F. A non-monotone increase in
+         ! trust-region mode must restore the base and take the normal
+         ! rejection path so it cannot grow del or skip its counter.
+         jfnk_n_tr_rejected = jfnk_n_tr_rejected + 1
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         jfnk_del = 0.5d0 * snrm_tr
+         ginfo = 2
       else if(del == 0d0) then
          if(info == 1) write(luer,*) '  JFNK: took full newton step'
          ginfo = 0  ! step accepted, clear hookstep flag
@@ -1697,9 +1719,27 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! linearization-point residual equal to F.
       call jfnk_ptc_set_anchor_v1(n, x_)
       !
+      ! A coupled residual solve can carry sweep noise, so maxch alone
+      ! cannot certify its root. [JFNK_COUPLED] defaults to F.
+      !
+      maxch_converged = jfnk_maxch_tol > 0d0 .and. &
+         jfnk_maxch_est >= 0d0 .and. jfnk_maxch_est < jfnk_maxch_tol
+      if(maxch_converged .and. jfnk_tol >= tol .and. info == 1) then
+         if(JFNK_COUPLED_LOC) then
+            write(luer,'(A,ES12.4,A,ES12.4,A,ES12.4)') &
+               '  JFNK: maxch-only convergence blocked in coupled mode; maxch_est=', &
+               real(jfnk_maxch_est), ' |F|=', &
+               real(jfnk_tol), ' |F|/|F0|=', &
+               real(jfnk_tol/max(tol_initial,1d-30))
+         else
+            write(luer,'(A,ES12.4,A,ES12.4,A,ES12.4)') &
+               '  JFNK: maxch-only convergence; maxch_est=', &
+               real(jfnk_maxch_est), ' |F|=', real(jfnk_tol), &
+               ' |F|/|F0|=', real(jfnk_tol/max(tol_initial,1d-30))
+         end if
+      end if
       if(jfnk_tol < tol .or. &
-         (jfnk_maxch_tol > 0d0 .and. &
-          jfnk_maxch_est >= 0d0 .and. jfnk_maxch_est < jfnk_maxch_tol)) then
+         (maxch_converged .and. .not. JFNK_COUPLED_LOC)) then
          if(info == 1) write(luer,*) '  JFNK: NONLINEAR CONVERGED', &
             ' (res=', real(jfnk_tol), ' maxch_est=', real(jfnk_maxch_est), ')'
          info = 0
@@ -1753,6 +1793,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_gmres_recomputed, &
                                   jfnk_gmres_jj, jfnk_gmres_beta, &
                                   jfnk_gmres_z, jfnk_gmres_g, &
+                                  jfnk_gmres_x_cycle_start, &
                                   jfnk_exit_reason
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
@@ -1778,6 +1819,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision :: h_(m+1, m), y(m+1), p(m+1), work(6*m+16)
    double precision :: s_tmp  ! re-orthogonalization scratch
    double precision :: true_res  ! V4 audit: true residual at restart
+   double precision :: del_cycle, x_cycle_norm
    integer :: imx, piv(m), rank, i, j, ios_gm
    ! beta and jj are no longer SAVE variables: the cross-call basis
    ! state the info==2 hookstep recompute needs lives in the module
@@ -1817,6 +1859,14 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          jfnk_exit_reason = 'gmres_alloc_fail'
          return
       end if
+   end if
+   if(allocated(jfnk_gmres_x_cycle_start)) then
+      if(size(jfnk_gmres_x_cycle_start) /= n) &
+         deallocate(jfnk_gmres_x_cycle_start)
+   end if
+   if(.not. allocated(jfnk_gmres_x_cycle_start)) then
+      allocate(jfnk_gmres_x_cycle_start(n))
+      jfnk_gmres_x_cycle_start = x
    end if
    !
    left_pc = jfnk_use_left_pc
@@ -1861,20 +1911,41 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       jj   = jfnk_gmres_jj
       beta = jfnk_gmres_beta
       if(left_pc) then
-         call hook_step_v1(jj, h, m, beta, del, y, pred_res)
-         ! 2026-09-13 TR-units fix: record the norm the hookstep bounds
-         jfnk_last_ynrm = dsqrt(dot_product(y(1:jj), y(1:jj)))
+         x_cycle_norm = dsqrt(max(0d0, &
+              dotprd(n, jfnk_gmres_x_cycle_start, &
+                     jfnk_gmres_x_cycle_start)))
+         del_cycle = del
+         if(del_cycle > 1d-30) then
+            call hook_step_v1(jj, h, m, beta, del_cycle, y, pred_res)
+         else
+            y = 0d0
+            pred_res = beta
+         end if
          z = matmul(v(:,1:jj), y(1:jj))
       else
          ! Right-PC: constrain ||s||_w = sqrt(y' G y), recover s = Z y
          ! from the stored preconditioned basis.
-         call hook_step_g_v1(jj, h, m, beta, del, &
-              jfnk_gmres_g, size(jfnk_gmres_g,1), y, pred_res)
+         x_cycle_norm = dsqrt(max(0d0, &
+              dotprd(n, jfnk_gmres_x_cycle_start, &
+                     jfnk_gmres_x_cycle_start)))
+         del_cycle = del
+         if(del_cycle > 1d-30) then
+            call hook_step_g_v1(jj, h, m, beta, del_cycle, &
+                 jfnk_gmres_g, size(jfnk_gmres_g,1), y, pred_res)
+         else
+            y = 0d0
+            pred_res = beta
+         end if
          jfnk_last_ynrm = dsqrt(max(0d0, dot_product(y(1:jj), &
               matmul(jfnk_gmres_g(1:jj,1:jj), y(1:jj)))))
          z = matmul(jfnk_gmres_z(:,1:jj), y(1:jj))
       end if
-      x = z
+      x = jfnk_gmres_x_cycle_start + z
+      if(del > 0d0) then
+         x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
+         if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
+      end if
+      jfnk_last_ynrm = dsqrt(max(0d0, dotprd(n, x, x)))
       info = 0
       ! edited by Devin, 05-Oct-2026 (recompute-pass descent-skip fix):
       ! tell newton_hook_v1 this step came from a recalculation on the
@@ -1898,6 +1969,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    n_stag = 0
    res_best = 1d99
    lb_hit = .false.
+   jfnk_gmres_x_cycle_start = x
+   del_cycle = del
    !
    ! Initial residual: r = b - A*x  (then left-precondition if requested)
    !
@@ -2082,9 +2155,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(done .or. j == m .or. lb_hit) then
          if(del > 0d0) then
             if(left_pc) then
-               call hook_step_v1(j, h, m, beta, del, y, pred_res)
+               call hook_step_v1(j, h, m, beta, del_cycle, y, pred_res)
             else
-               call hook_step_g_v1(j, h, m, beta, del, &
+               call hook_step_g_v1(j, h, m, beta, del_cycle, &
                     jfnk_gmres_g, size(jfnk_gmres_g,1), y, pred_res)
             end if
          else
@@ -2092,25 +2165,20 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! least-squares residual as the predicted residual.
             pred_res = res
          end if
-         ! 2026-09-13 TR-units fix: the Newton trust radius is set in
-         ! the units the hookstep bounds.  edited by Devin, 05-Oct-2026
-         ! (||y|| restart fix): keep only the LAST cycle's step norm.
-         ! The total step is s = sum_k V_k y_k over different bases, so
-         ! the old quadrature sum of ||y_k|| was neither ||s||_w nor a
-         ! bound on it.  The info==2 recompute path above reuses only
-         ! the last cycle's (jj, h, beta), so the trust radius must
-         ! match that basis.  Under left preconditioning ||y||_2 is
-         ! exactly this cycle's contribution to ||s||_w; under right
-         ! preconditioning the contribution is sqrt(y' G y).
+         ! Restart updates may temporarily exceed del. Project only the
+         ! returned total step so a single-cycle solve keeps its original
+         ! hookstep while restart accumulation remains bounded on return.
          if(left_pc) then
-            jfnk_last_ynrm = dsqrt(dot_product(y(1:j), y(1:j)))
             z = matmul(v(:,1:j), y(1:j))
          else
-            jfnk_last_ynrm = dsqrt(max(0d0, dot_product(y(1:j), &
-                 matmul(jfnk_gmres_g(1:j,1:j), y(1:j)))))
             z = matmul(jfnk_gmres_z(:,1:j), y(1:j))
          end if
          x = x + z
+         if(del > 0d0 .and. done) then
+            x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
+            if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
+         end if
+         jfnk_last_ynrm = dsqrt(max(0d0, dotprd(n, x, x)))
          if(its == imx) info = 2
          if(n_stag >= 3) info = 1   ! 2026-09-13 TR-units fix: stagnation, not any rise
          if(res <= tol) info = 0
@@ -2193,6 +2261,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! the caller's inexact-direction path via info=1.
          n_restart = n_restart + 1
          if(n_restart > 1) then
+            if(del > 0d0) then
+               x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
+               if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
+               jfnk_last_ynrm = dsqrt(max(0d0, dotprd(n, x, x)))
+            end if
             if(luer > 0) write(luer,'(A,I3,A)') &
                '  GMRES: restart cap (', n_restart, &
                ') -- treating as stagnation'
@@ -2654,7 +2727,7 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    use jfnk_solver_v1_mod, only: jfnk_x, jfnk_fx, jfnk_total_jvp_evals, &
                                   jfnk_max_gmres_its, jfnk_gmres_jj, &
                                   jfnk_gmres_beta, jfnk_gmres_z, &
-                                  jfnk_gmres_g
+                                  jfnk_gmres_g, jfnk_gmres_x_cycle_start
    use jfnk_cmfgen_int_mod, only: JFNK_RSCALE, JFNK_RSCALE_READY
    implicit none
    integer,          intent(in) :: n, luer
@@ -2682,7 +2755,9 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    ! jfnk_gmres_z/g, so save/restore them with the jj/beta pair.
    double precision, allocatable, save :: save_gmres_z(:,:), &
      &   save_gmres_g(:,:)
+   double precision, allocatable, save :: save_gmres_x_cycle_start(:)
    logical :: have_gmres_zg
+   logical :: have_gmres_x_cycle_start
    double precision :: rs_min, rs_max, rs_ratio
    character(len=12) :: status_str
    !
@@ -2706,6 +2781,18 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    save_max_gmres = jfnk_max_gmres_its
    save_gmres_jj   = jfnk_gmres_jj
    save_gmres_beta = jfnk_gmres_beta
+   have_gmres_x_cycle_start = allocated(jfnk_gmres_x_cycle_start)
+   if(have_gmres_x_cycle_start) then
+      if(allocated(save_gmres_x_cycle_start)) then
+         if(size(save_gmres_x_cycle_start) /= &
+            size(jfnk_gmres_x_cycle_start)) &
+            deallocate(save_gmres_x_cycle_start)
+      end if
+      if(.not. allocated(save_gmres_x_cycle_start)) &
+         allocate(save_gmres_x_cycle_start( &
+            size(jfnk_gmres_x_cycle_start)))
+      save_gmres_x_cycle_start = jfnk_gmres_x_cycle_start
+   end if
    have_gmres_zg = allocated(jfnk_gmres_z)
    if(have_gmres_zg) then
       if(allocated(save_gmres_z)) then
@@ -2870,6 +2957,15 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
       jfnk_gmres_z = save_gmres_z
       jfnk_gmres_g = save_gmres_g
       continue  ! W25: SAVE'd workspace
+   end if
+   if(have_gmres_x_cycle_start) then
+      if(allocated(jfnk_gmres_x_cycle_start)) &
+         deallocate(jfnk_gmres_x_cycle_start)
+      allocate(jfnk_gmres_x_cycle_start( &
+         size(save_gmres_x_cycle_start)))
+      jfnk_gmres_x_cycle_start = save_gmres_x_cycle_start
+   else if(allocated(jfnk_gmres_x_cycle_start)) then
+      deallocate(jfnk_gmres_x_cycle_start)
    end if
    !
    continue  ! W25: SAVE'd workspace

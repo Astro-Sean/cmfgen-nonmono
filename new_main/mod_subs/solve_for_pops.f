@@ -1647,6 +1647,14 @@
 ! relief/DO_JFNK, or cap the wasted admissions via
 ! JFNK_REL_REACH_MAX.
 !
+! GS_FREEZE is assigned from the radiation-maturity gate only inside
+! the [DO_NONMONO_KNOP] block (default F). Keep this assertion beside
+! admission so a future SOB path cannot inherit a stale KNOP freeze.
+	IF(.NOT. DO_NONMONO_KNOP .AND. GS_FREEZE)THEN
+	  WRITE(LUER,'(A)')'SOLVE_FOR_POPS: GS_FREEZE set outside KNOP gate'
+	  STOP 'SOLVE_FOR_POPS: invalid GS_FREEZE state'
+	END IF
+!
 	JFNK_THIS=USE_JFNK_SOLVER .AND. ITS_SINCE_START .GT. JFNK_WARMUP
 	1          .AND. (.NOT. LAMBDA_ITERATION .OR. JFNK_ANY_ITER)
 	2          .AND. (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_FREEZE)

@@ -11,6 +11,7 @@ module jfnk_cmfgen_int_mod
    save
    integer :: JFNK_NT = 3
    integer :: JFNK_ND = 0
+   logical :: JFNK_COUPLED_LOC = .false.
    double precision, allocatable :: JFNK_RSCALE(:)
    logical :: JFNK_RSCALE_READY = .false.
    ! Only referenced by the diagnostic routines (never called by the
