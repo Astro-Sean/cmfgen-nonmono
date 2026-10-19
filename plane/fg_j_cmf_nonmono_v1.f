@@ -5898,6 +5898,7 @@ C
 	INTEGER*8, ALLOCATABLE :: NBB_LS(:),NTB_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
 	REAL(KIND=LDP) RHO_H(4)
+	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
 ! return, 0-5 as coded in KNOP_RAY_SOLVE_V1).  The residual max
@@ -6220,6 +6221,20 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    matched/compress=',SUM(NMT_LS),'/',SUM(NCM_LS)
 	WRITE(LUER,'(A,I6)')'    max offset=',MAXVAL(NMX_LS)
+!
+! Slot-layout limitation (edited by Devin, 19-Oct-2026): the lagged
+! store holds frequency l in slot l-1, so the refreshed frequency-1
+! field computed in KNOP_RAY_SOLVE_V1 has no slot and is never
+! written back (WRITE_STORE loops LS2=2..NCF).  Both band edges
+! therefore carry zero lagged memory across generations -- exactly
+! where the compressing coupling is strongest.  Informational only;
+! the slot convention itself is unchanged.
+!
+	IF(.NOT. F1_NOSLOT_NOTE)THEN
+	  F1_NOSLOT_NOTE=.TRUE.
+	  WRITE(LUER,'(A)')'    note: freq-1 field computed but not'//
+	1   ' stored (no lagged-memory slot at either band edge)'
+	END IF
 !
 ! Commit census + worst-ray verdict (17-Oct-2026): the exit census
 ! alone cannot show whether an above-tolerance ray's field reached
