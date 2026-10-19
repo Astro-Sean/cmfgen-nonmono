@@ -140,7 +140,10 @@
 !
 	LOGICAL USE_J_REL
 	LOGICAL USE_FORMAL_REL
-	LOGICAL USE_LAM_ES
+! Defined default: DO_KNOP_REFRESH is evaluated before the VADAT
+! read of USE_LAM_ES on some orderings, so the declaration must not
+! leave the value undefined.
+	LOGICAL :: USE_LAM_ES=.FALSE.
 	LOGICAL INCL_REL_TERMS
 	LOGICAL INCL_ADVEC_TERMS_IN_TRANS_EQ
 	LOGICAL USE_OLD_MF_SCALING
@@ -960,9 +963,12 @@
 ! sweep-captured opacities), replacing the one-frequency-bin-per-
 ! great-iteration lag that prevented GS maturity.  VADAT keyword
 ! [DO_KNOP_REFRESH]; default DO_NONMONO_KNOP (set FALSE to recover
-! the lagged behaviour for A/B tests).
+! the lagged behaviour for A/B tests).  Initialized FALSE so the
+! SET_MOM_RF_DIR_OPT wiring that runs before the VADAT read sees a
+! defined value; the effective value is re-wired after USE_LAM_ES
+! is read (rd_control_variables.f).
 !
-	LOGICAL DO_KNOP_REFRESH
+	LOGICAL :: DO_KNOP_REFRESH=.FALSE.
 !
 ! MOM_RF_GS_DESC (default FALSE): on descending MOM_KNOP_REFRESH
 ! passes, compressing depths read the live J_NEXT_FRQ(:,L+1) --

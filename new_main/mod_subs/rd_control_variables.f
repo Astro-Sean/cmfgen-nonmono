@@ -1007,20 +1007,10 @@
 	  GS_POPS_HELD=.FALSE.
 	  GS_ATTEMPT_APP=0.0_LDP
 !
-! DO_KNOP_REFRESH (default DO_NONMONO_KNOP): per-ray re-solve of the
-! lagged compressing-branch coupling after each frequency sweep (Knop
-! Paper II Sect. 3.2 ordering), replacing the one-bin-per-iteration
-! lag that cannot mature on strongly non-monotonic models.  The
-! self-consistency pass below forces this flag T under
-! DO_NONMONO_KNOP; under DO_NONMONO_SOB the moment path is unreachable
-! (enforcement forces USE_LAM_ES=T), so the refresh has no consumer
-! there.
-!
-	  DO_KNOP_REFRESH=DO_NONMONO_KNOP .OR.
-	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)
-	  CALL RD_STORE_LOG(DO_KNOP_REFRESH,'DO_KNOP_REFRESH',L_FALSE,
-	1     'Per-ray converge of KNOP lagged I_NEXT coupling?')
-	  CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
+! DO_KNOP_REFRESH is read later, after USE_LAM_ES: its default
+! expression depends on USE_LAM_ES, and Fortran does not guarantee
+! short-circuit .OR. evaluation, so evaluating it here read an
+! undefined variable on the SOB-only path.
 !
 ! MOM refresh toggles (Oct-2026).  MOM_RF_GS_DESC stays FALSE
 ! (unvalidated).  MOM_RF_KEEPNEG and MOM_GATE_BULK default TRUE:
@@ -2686,6 +2676,26 @@
 	  INCL_ADVEC_TERMS_IN_TRANS_EQ=.FALSE.
 	  USE_FORMAL_REL=.FALSE.
 	  CALL RD_STORE_LOG(USE_LAM_ES,'USE_LAM_ES',L_FALSE,'Use lambda iteration with ray solutions?')
+!
+! DO_KNOP_REFRESH (default DO_NONMONO_KNOP): per-ray re-solve of the
+! lagged compressing-branch coupling after each frequency sweep (Knop
+! Paper II Sect. 3.2 ordering), replacing the one-bin-per-iteration
+! lag that cannot mature on strongly non-monotonic models.  The
+! self-consistency pass below forces this flag T under
+! DO_NONMONO_KNOP; under DO_NONMONO_SOB the moment path is unreachable
+! (enforcement forces USE_LAM_ES=T), so the refresh has no consumer
+! there.  Read here, after USE_LAM_ES, so the default expression
+! sees the final value.  The MOM-side wiring (MOM_RF_ENABLED) is
+! re-synced on the post-read value so the earlier placeholder call
+! does not leave the two sides disagreeing.
+!
+	  DO_KNOP_REFRESH=DO_NONMONO_KNOP .OR.
+	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)
+	  CALL RD_STORE_LOG(DO_KNOP_REFRESH,'DO_KNOP_REFRESH',L_FALSE,
+	1     'Per-ray converge of KNOP lagged I_NEXT coupling?')
+	  CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
+	  CALL SET_MOM_RF_DIR_OPT(MOM_RF_DIR,MOM_EPS_LIM,
+	1     DO_KNOP_REFRESH,MOM_RF_OWNW)
 	  CALL RD_STORE_LOG(USE_J_REL,'USE_J_REL',L_FALSE,'Use MOM_J_REL_VN to solve the moment equations?')
 	  IF(USE_DJDT_RTE .OR. USE_J_REL)USE_FORMAL_REL=.TRUE.
 	  CALL RD_STORE_LOG(USE_FORMAL_REL,'USE_FRM_REL',L_FALSE,'Use CMF_FORMAL_REL to compute F etc?')
@@ -2763,6 +2773,10 @@
 	    IF(.NOT. DO_KNOP_REFRESH)THEN
 	      DO_KNOP_REFRESH=.TRUE.
 	      CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
+! MOM_RF_ENABLED was wired from the pre-auto-set value; re-sync it
+! here so the moment solver agrees with the FG side.
+	      CALL SET_MOM_RF_DIR_OPT(MOM_RF_DIR,MOM_EPS_LIM,
+	1       DO_KNOP_REFRESH,MOM_RF_OWNW)
 	      WRITE(LUER,'(A)')' KNOP auto-set: DO_KNOP_REFRESH=T'
 	    END IF
 	    IF(N_LAM_RWARM .EQ. 0)THEN
