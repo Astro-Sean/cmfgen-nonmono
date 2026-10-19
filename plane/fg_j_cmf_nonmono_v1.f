@@ -7510,9 +7510,14 @@ C
 	  IF(INWARD)THEN
 !
 ! Boundary row I=1: zero incident intensity, same residual
-! accounting as MARCH.
+! accounting as MARCH.  edited by Devin, 19-Oct-2026: hot-window
+! guard matching the interior frequency loops -- on a hot pass the
+! out-of-window columns kept reprocessing this row each pass,
+! polluting the NTOT_CUR/RES_FREQ bookkeeping (and re-zeroing a
+! column that must hold its prior value).
 !
 	    DO L=1,NCF
+	      IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	      VOLD=FLD(1,L)
 	      IF(VOLD .GT. 0.0_LDP)THEN
 	        T1=VOLD/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -7639,9 +7644,12 @@ C
 	  ELSE
 !
 ! Inner boundary row I=NI: same options and accounting as the
-! outward branch of MARCH.
+! outward branch of MARCH.  edited by Devin, 19-Oct-2026: same
+! hot-window guard as the row-1 block -- out-of-window columns
+! must keep their stored values and stay out of the pass census.
 !
 	    DO L=1,NCF
+	      IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	      IF(KN_INNER_METH .EQ. 'DIFFUSION' .AND.
 	1         LS .LE. KN_NC)THEN
 	        I_CORE=(PK_ETANI(L)+KN_DBB(L)*
