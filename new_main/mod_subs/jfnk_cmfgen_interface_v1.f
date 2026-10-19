@@ -1757,13 +1757,25 @@
 !   This replaces the old T_new = T_base * (1 + x) which could produce
 !   negative temperatures when |x| > 1 (common at shock fronts).
 !   The exp() guarantees T > 0 for any finite x.
-	    IF(ABS(JFNK_W_FRAC(JFNK_NT, K)) .GT. 50.0_LDP .AND.
+! The existing 1 K residual floor is nonsmooth. Under
+! [USE_JFNK_SOLVER] (default F), count a crossing only if the
+! temperature at jfnk_x was above the floor.
+	    X_TRY = JFNK_W_FRAC(JFNK_NT, K)
+	    IF(ABS(X_TRY) .GT. 50.0_LDP .AND.
 	1       ABS(jfnk_x((K-1)*JFNK_NT + JFNK_NT)) .LE. 50.0D0)
 	2       N_NEW_CLIP_LOC = N_NEW_CLIP_LOC + 1
-	    POPS_WORK(JFNK_NT, K) = POPS_BASE(JFNK_NT, K) *
-	1       EXP(MIN(MAX(JFNK_W_FRAC(JFNK_NT, K), -50.0_LDP), 50.0_LDP))
-	    IF(POPS_WORK(JFNK_NT, K) .LT. 1.0_LDP)
-	1       POPS_WORK(JFNK_NT, K) = 1.0_LDP
+	    X_TRY = MIN(MAX(X_TRY, -50.0_LDP), 50.0_LDP)
+	    T_BASE_UNCL = POPS_BASE(JFNK_NT, K) * EXP(X_TRY)
+	    IF(T_BASE_UNCL .LT. 1.0_LDP)THEN
+	      X_BASE = MIN(MAX(REAL(jfnk_x(
+	1       (K-1)*JFNK_NT + JFNK_NT),KIND=LDP),
+	2       -50.0_LDP), 50.0_LDP)
+	      IF(POPS_BASE(JFNK_NT,K)*EXP(X_BASE) .GE. 1.0_LDP)
+	1       N_NEW_CLIP_LOC = N_NEW_CLIP_LOC + 1
+	      POPS_WORK(JFNK_NT, K) = 1.0_LDP
+	    ELSE
+	      POPS_WORK(JFNK_NT, K) = T_BASE_UNCL
+	    END IF
 	    T(K) = POPS_WORK(JFNK_NT, K)
 	  END IF
 	END DO
@@ -2469,9 +2481,9 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed,
-	1                           jfnk_log_unknown
+	1                           jfnk_log_unknown, jfnk_resid_nbad
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
-	1                           JFNK_FD_COMPLEX
+	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -2481,12 +2493,13 @@
 	EXTERNAL OMP_GET_WTIME
 !
 	DOUBLE PRECISION EPS0, VNORM, XNORM, H_STEP
-	DOUBLE PRECISION H_CAP, X_CLIP_B
+	DOUBLE PRECISION H_CAP, X_CLIP_B, X_FLOOR, X_MARGIN
 	INTEGER IDX_J
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
 	INTEGER I, KK, JJ, II, NRETRY
+	INTEGER K_J
 	INTEGER LUER, ERROR_LU
 !
 ! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
@@ -2574,31 +2587,39 @@
 ! Oct-2026 fix: the previous cap MAX(1D-4,EPS0)*MAX(XNORM,1)/VNORM
 ! could never bind -- H_STEP is already EPS0*MAX(XNORM,1)/VNORM and
 ! EPS0 <= MAX(1D-4,EPS0).  Replace it with a cap that can shrink:
-! under log-unknowns the residual clips the trial state at |x|>40
-! (pops/ED) or |x|>50 (T), and a perturbation that reaches the clip
-! boundary contaminates the FD difference with a non-smooth,
-! artificial derivative (counted by JFNK_N_NEW_CLIP).  Bound h so
-! that no component can cover more than half its remaining distance
-! to the clip boundary: h*|v_i| <= 0.5*(B_i - |x_i|).  Components
-! already at/past the boundary are excluded (their crossings are not
-! counted).  In coupled mode this can push below the EPS0 noise
-! floor; an unclipped derivative at a smaller step is still better
-! than a clipped one at the noise-optimal step.
+! Under [USE_JFNK_SOLVER] (default F), log unknowns clip at |x|>40
+! (populations/ED) or |x|>50 (T); the temperature update also floors
+! T at 1 K in either unknown mode. A perturbation that crosses one of
+! these bounds contaminates the FD difference. Limit h to half the
+! distance to each inactive boundary. In coupled mode this can push h
+! below the EPS0 noise floor; an unclipped derivative at smaller h is
+! safer than a clipped derivative at the noise-optimal step.
 !
-	IF(jfnk_log_unknown)THEN
-	  H_CAP = HUGE(1.0D0)
-	  DO I = 1, N
-	    IF(ABS(JFNK_W_V_USE(I)) .GT. 0.0D0)THEN
-	      IDX_J = MOD(I-1, JFNK_NT) + 1
+	H_CAP = HUGE(1.0D0)
+	DO I = 1, N
+	  IF(ABS(JFNK_W_V_USE(I)) .GT. 0.0D0)THEN
+	    IDX_J = MOD(I-1, JFNK_NT) + 1
+	    IF(jfnk_log_unknown)THEN
 	      X_CLIP_B = 40.0D0
 	      IF(IDX_J .EQ. JFNK_NT)X_CLIP_B = 50.0D0
 	      IF(ABS(jfnk_x(I)) .LT. X_CLIP_B)
 	1      H_CAP = MIN(H_CAP,
 	2        0.5D0*(X_CLIP_B-ABS(jfnk_x(I)))/ABS(JFNK_W_V_USE(I)))
 	    END IF
-	  END DO
-	  H_STEP = MIN(H_STEP, H_CAP)
-	END IF
+	    IF(IDX_J .EQ. JFNK_NT)THEN
+	      K_J = (I-1)/JFNK_NT + 1
+	      IF(POPS_BASE(JFNK_NT,K_J) .GT. 0.0_LDP)THEN
+	        X_FLOOR = LOG(1.0D0/POPS_BASE(JFNK_NT,K_J))
+	        X_MARGIN = jfnk_x(I) - X_FLOOR
+	        IF(X_MARGIN .GT. 0.0D0 .AND.
+	1         JFNK_W_V_USE(I) .LT. 0.0D0)
+	2         H_CAP = MIN(H_CAP, 0.5D0*X_MARGIN/
+	3           ABS(JFNK_W_V_USE(I)))
+	      END IF
+	    END IF
+	  END IF
+	END DO
+	H_STEP = MIN(H_STEP, H_CAP)
 !
 ! COLPROBE h-scan hook (see JFNK_CMFGEN_INT_MOD): a diagnostic-only
 ! multiplier applied after the safety cap so probes can step across
@@ -2631,6 +2652,19 @@
 	    JFNK_W_X_PERT(I) = jfnk_x(I) + H_STEP * JFNK_W_V_USE(I)
 	  END DO
 	  CALL JFNK_RESIDUAL_V1(N, JFNK_W_X_PERT, JFNK_W_F_PERT)
+! A repaired sentinel is finite and can look plausible after division,
+! so fail closed before forming the directional derivative.
+! [USE_JFNK_SOLVER] defaults to F.
+!
+	  IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A,L1)')
+	1       'JFNK_JVP_V1: perturbed residual repaired bad entries=',
+	2       jfnk_resid_nbad, ' eval_broken=', JFNK_EVAL_BROKEN
+	    JV = 0.0D0
+	    jfnk_jvp_failed = .TRUE.
+	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
+	    RETURN
+	  END IF
 	  IF((JFNK_MAX_EVALS .GT. 0 .AND.
 	1       JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS) .OR.
 	2       (JFNK_MAX_SEC .GT. 0.0_LDP .AND.
@@ -2833,7 +2867,8 @@
 	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
-	1     jfnk_ptc_active, jfnk_fx
+	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_log_unknown,
+	2     jfnk_ptc_scale, jfnk_ptc_scale_ready, jfnk_x, jfnk_fx
 	IMPLICIT NONE
 !
 	REAL(KIND=LDP) DUMMY_STEQ(JFNK_NT)
@@ -2866,6 +2901,8 @@
 	DOUBLE PRECISION, ALLOCATABLE :: GECON_WORK(:)
 	INTEGER, ALLOCATABLE :: GECON_IWORK(:)
 	INTEGER LU_INFO_G
+	LOGICAL REBUILD_BA
+	DOUBLE PRECISION X_PTC
 !
 ! W24c: per-depth backward-error micro-test workspace.  MTST keeps
 ! the pre-factorization block so the synthetic-RHS check below
@@ -2877,7 +2914,8 @@
 ! DO_FACTOR=.FALSE. builds JFNK_BA_A/diagonals only and returns
 ! before the LU/SCHUR/banded factorizations -- the admission path
 ! uses it to price the reach/direction gates cheaply (17-Oct-2026).
-! A later DO_FACTOR call reuses the built BA_A (JFNK_BA_BUILT).
+! A later DO_FACTOR call reuses BA_A unless live PTC requires a new
+! shift for the current dtau.
 	LOGICAL, INTENT(IN), OPTIONAL :: DO_FACTOR
 	LOGICAL DO_FACTOR_L
 	EXTERNAL ERROR_LU
@@ -3059,16 +3097,19 @@
 ! the build below with DO_FACTOR=.FALSE.; factoring now reuses that
 ! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.
 !
-	IF(.NOT. (JFNK_BA_BUILT .AND. DO_FACTOR_L))THEN
+	REBUILD_BA = .NOT. JFNK_BA_BUILT .OR.
+	1     (DO_FACTOR_L .AND. jfnk_ptc_active)
+	IF(REBUILD_BA)THEN
 	  JFNK_BA_DIAG = 0.0_LDP
 	  JFNK_BA_DIAG_READY = .FALSE.
 !
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
-! JFNK_SET_PTC_SCALE_V1.  Computed here because SET_PTC_SCALE arms
-! only after this routine returns on the admission path.  dtau is
-! 1 whenever this routine runs (reset on admission/rebuild before
-! any Newton step), so folding s directly matches the operator the
-! FD JVP differentiates.
+! JFNK_SET_PTC_SCALE_V1.  The admission build runs at dtau=1 before
+! the scale is armed; later factor calls rebuild while PTC is active
+! so the folded shift follows the live dtau.  For log unknowns, BA is
+! in fractional units, so the PTC diagonal uses sigma*exp(-x).  This
+! routine is reached only under [USE_JFNK_SOLVER] (default F); the
+! stock population path is unchanged.
 !
 	JFNK_PTC_FOLDED = .FALSE.
 	IF(jfnk_ptc_active .AND. ALLOCATED(jfnk_fx))THEN
@@ -3113,7 +3154,20 @@
 	  IF(JFNK_PTC_FOLDED)THEN
 	    DO J = 1, JFNK_NT
 	      IDX_PTC = (K-1)*JFNK_NT + J
-	      S_PTC = MAX(ABS(jfnk_fx(IDX_PTC)), 1.0D-8*FMAX_PTC)
+	      S_PTC = MAX(ABS(jfnk_fx(IDX_PTC)), 1.0D-8*FMAX_PTC) /
+	1        MAX(jfnk_ptc_dtau, 1.0D-8)
+	      IF(jfnk_ptc_scale_ready .AND.
+	1       ALLOCATED(jfnk_ptc_scale))THEN
+	        IF(SIZE(jfnk_ptc_scale) .EQ. JFNK_NT*JFNK_ND)
+	1         S_PTC = DBLE(jfnk_ptc_scale(IDX_PTC)) /
+	2           MAX(jfnk_ptc_dtau, 1.0D-8)
+	      END IF
+	      IF(jfnk_log_unknown .AND. ALLOCATED(jfnk_x))THEN
+	        IF(SIZE(jfnk_x) .EQ. JFNK_NT*JFNK_ND)THEN
+	          X_PTC = MIN(MAX(jfnk_x(IDX_PTC), -40.0D0), 40.0D0)
+	          S_PTC = S_PTC * EXP(-X_PTC)
+	        END IF
+	      END IF
 	      JFNK_BA_A(J,J,K) = JFNK_BA_A(J,J,K) + S_PTC
 	      JFNK_BA_DIAG(J,K) = JFNK_BA_A(J,J,K)
 	      JFNK_PRECOND_DIAG(J,K) = JFNK_BA_A(J,J,K)
@@ -3784,14 +3838,29 @@
 	1         .FALSE., (K .EQ. JFNK_ND .AND. IB .EQ. JFNK_NUM_BNDS),
 	2         .TRUE.)
 !
-! Same PTC fold as the block-LU path so the banded factorization
-! matches the FD operator's s-shifted diagonal.
+! Use the live log-aware PTC shift so the banded factorization matches
+! the FD operator at this dtau.
 !
 	      IF(IB .EQ. JFNK_DIAG_INDX .AND. JFNK_PTC_FOLDED)THEN
 	        DO JJ = 1, JFNK_NT
 	          IDX_PTC = (K-1)*JFNK_NT + JJ
+	          S_PTC = MAX(ABS(jfnk_fx(IDX_PTC)),
+	1             1.0D-8*FMAX_PTC) /
+	2             MAX(jfnk_ptc_dtau, 1.0D-8)
+	          IF(jfnk_ptc_scale_ready .AND.
+	1           ALLOCATED(jfnk_ptc_scale))THEN
+	            IF(SIZE(jfnk_ptc_scale) .EQ. JFNK_NT*JFNK_ND)
+	1             S_PTC = DBLE(jfnk_ptc_scale(IDX_PTC)) /
+	2               MAX(jfnk_ptc_dtau, 1.0D-8)
+	          END IF
+	          IF(jfnk_log_unknown .AND. ALLOCATED(jfnk_x))THEN
+	            IF(SIZE(jfnk_x) .EQ. JFNK_NT*JFNK_ND)THEN
+	              X_PTC = MIN(MAX(jfnk_x(IDX_PTC), -40.0D0), 40.0D0)
+	              S_PTC = S_PTC * EXP(-X_PTC)
+	            END IF
+	          END IF
 	          JFNK_C_MAT(JJ,JJ) = JFNK_C_MAT(JJ,JJ) +
-	1           MAX(ABS(jfnk_fx(IDX_PTC)), 1.0D-8*FMAX_PTC)
+	1           S_PTC
 	        END DO
 	      END IF
 !
@@ -4242,7 +4311,7 @@
 	INTEGER K, J, NJAC, NZERO, LU_INFO, NZMAX_LOC
 	INTEGER NZCLIP, IDX_PC, K_PC, J_PC, NPROJ
 	INTEGER I, IOS
-	DOUBLE PRECISION Z_BA, X_PC, D_PC, SIG_PC, RHS_PC
+	DOUBLE PRECISION Z_BA, X_PC, D_PC, SIG_PC, SIG_EFF_PC, RHS_PC
 	LOGICAL BANDED_APPLIED
 	CHARACTER(LEN=1) NO_TRANS
 	REAL(KIND=LDP) WI_LSQ
@@ -4686,16 +4755,15 @@
 ! returns 2*b/(d'+sigma) for d' > 0 and 0 for d' < 0.  BA rate rows are predominantly loss-dominated (d' < 0),
 ! so the blend annihilated the preconditioner output on much of the
 ! vector.  Rescale the BA solve instead:
-!   z_i = Z_BA_i * d'_i / (d'_i + sigma_i),
+!   z_i = Z_BA_i * d'_i / (d'_i + sigma_i*exp(-x_i)).
 ! which is scalar-exact for either sign of d'.  jfnk_ptc_dtau ->
 ! infinity sends sigma -> 0 and the factor to 1 (pure BA solve);
-! dtau -> 0 gives z ~ Z_BA*d'/sigma ~ b/sigma, the diagonal PTC
-! solve.  s_i and jfnk_ptc_dtau are frozen for a whole GMRES solve,
-! so the weight depends on the fixed diagonal and sigma only, not
-! on v: M^{-1} stays linear (Krylov validity). When |d'+sigma| is
-! near zero, keep Z_BA rather than dividing by a singular value. If
-! d' itself is zero, use the original right-hand side over sigma; a
-! null-row identity solve must not be annihilated by a zero scale.
+! the live factor stores this shift in fractional units when PTC is
+! folded, so this scalar path is skipped. Otherwise s_i and dtau are
+! frozen for a GMRES solve and the correction remains linear in v.
+! Near a singular denominator, keep Z_BA; a null BA diagonal uses the
+! original right-hand side over sigma in log units. [USE_JFNK_SOLVER]
+! defaults to F.
 !
 	IF(jfnk_log_unknown .OR.
 	1   (jfnk_ptc_active .AND. jfnk_ptc_scale_ready))THEN
@@ -4725,11 +4793,16 @@
 	      D_PC = DBLE(JFNK_PRECOND_DIAG(J_PC, K_PC))
 	      SIG_PC = DBLE(jfnk_ptc_scale(IDX_PC)) /
 	1       MAX(jfnk_ptc_dtau, 1.0D-8)
+	      SIG_EFF_PC = SIG_PC
+	      IF(jfnk_log_unknown .AND. ALLOCATED(jfnk_x))THEN
+	        IF(SIZE(jfnk_x) .EQ. N)SIG_EFF_PC =
+	1           SIG_PC * EXP(-X_PC)
+	      END IF
 	      RHS_PC = DBLE(JFNK_W_V_SAVE(J_PC, K_PC))
 	      IF(ABS(D_PC) .GT. 1.0D-30)THEN
-	        IF(ABS(D_PC + SIG_PC) .GT.
+	        IF(ABS(D_PC + SIG_EFF_PC) .GT.
 	1           1.0D-30*MAX(1.0D0, ABS(D_PC)))THEN
-	          V(IDX_PC) = Z_BA * D_PC / (D_PC + SIG_PC)
+	          V(IDX_PC) = Z_BA * D_PC / (D_PC + SIG_EFF_PC)
 	        ELSE
 	          V(IDX_PC) = Z_BA
 	        END IF
