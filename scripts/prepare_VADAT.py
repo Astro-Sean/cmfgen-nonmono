@@ -34,9 +34,12 @@ Type IIn / metal-rich CSM workflow (single-final LTE cold-start or final warm re
   to prevent CMFGEN from solving for temperature and use the hydro temperature instead.
   Opt-out: cmfgen.solve_temperature=true releases the FIX_T/FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO
   pins for keys the user sets in vadat_overrides.  For "solve T only where the
-  ejecta is optically thin" use FIX_T=F + FIX_INB_T=T + FIX_X_DPTH=<N inner depths
-  to pin>; the fixpop_in_ba_v3 inner-boundary mask then pins T at depths
-  ND+1-FIX_X_DPTH..ND and leaves the outer grid free.  Do NOT use FIX_T_AUTO for
+  ejecta is optically thin" use FIX_T=F + FIX_INB_T=T (+ optional FIX_X_DPTH=
+  <N inner depths to pin>); the fixpop_in_ba_v3 inner-boundary mask then pins
+  T at depths ND+1-FIX_X_DPTH..ND and leaves the outer grid free.  When
+  FIX_X_DPTH is omitted or 0 under FIX_INB_T=T, this script fills it with the
+  tau=2/3 photosphere index from estimate_tau_es_and_fix_x_dpth (kappa floored
+  at KAPPA_ES_CGS), i.e. the thin region is determined automatically.  Do NOT use FIX_T_AUTO for
   this: VARFIXT pins T where tau_es < TAU_SCL_T (the thin region) and solves it
   deep, the opposite domain.  DO_JFNK must be F for FIX_X_DPTH runs: JFNK mirrors
   only the MOD_FIX_T domain and would leave the inner T rows live.
@@ -5940,6 +5943,28 @@ def main() -> int:
                     )
                     vadat_overrides = {k: v for k, v in vadat_overrides.items()
                                        if k not in _t_strip}
+            # Thin-region T release (solve_temperature + FIX_INB_T=T): when the
+            # user did not give FIX_X_DPTH (or left it at 0), fill it with the
+            # tau=2/3 photosphere index computed above -- pins T at the inner
+            # depths only, exactly the "solve T where optically thin" domain.
+            if allow_t_release and str(
+                    vadat_overrides.get("FIX_INB_T", "")).strip().upper() == "T":
+                _xdp = str(vadat_overrides.get("FIX_X_DPTH", "")).strip()
+                if _xdp in ("", "0", "0.0", "0.0D0"):
+                    vadat_overrides["FIX_X_DPTH"] = str(fix_x_dpth)
+                    print(
+                        f"  FIX_X_DPTH auto = {fix_x_dpth} "
+                        f"(tau=2/3 photosphere at hydro index {i_phot}; "
+                        f"override FIX_X_DPTH in vadat_overrides to pin a "
+                        f"different number of inner depths)")
+                _fixt_ov = vadat_overrides.get("FIX_T")
+                _fixt_cur = str(_fixt_ov if _fixt_ov is not None
+                                else _get_key_token(lines, "FIX_T") or "")
+                if _fixt_cur.strip().upper() == "T":
+                    print(
+                        "  WARNING: FIX_INB_T=T has no effect while "
+                        "FIX_T=T (the all-depths pin wins).  Set FIX_T=F in "
+                        "vadat_overrides for a partial-depth T release.")
             final_overrides = update_keywords_in_lines(lines, vadat_overrides, numeric_format_like_old=True)
             # Also append any override keys that don't exist in the VADAT template
             existing = find_existing_keys(lines)
