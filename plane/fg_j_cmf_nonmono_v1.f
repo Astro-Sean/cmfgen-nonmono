@@ -3050,22 +3050,6 @@ C
 !        GAM_MAG(I,LS) = |GAM(I,LS)| is already computed above.
 ! edited by Sean Brennan (07-Sep-2026)
 !
-	    IF(INIT)THEN
-	      Q(1:NI)=0.0_LDP
-!        INIT path: guard chi and eta against NaN from interpolation.
-!        The chi_hat NaN guard below is only in the ELSE branch, so
-!        the INIT path needs its own guard.
-! edited by Sean Brennan (04-Sep-2026)
-	      DO I=1,NI
-	        IF(CHI_RAY(I) .NE. CHI_RAY(I) .OR.
-	1          CHI_RAY(I) .LT. 1.0E-30_LDP)CHI_RAY(I)=1.0E-30_LDP
-	        IF(ETA_RAY(I) .NE. ETA_RAY(I))ETA_RAY(I)=0.0_LDP
-	      END DO
-	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
-	    ELSE
-!        Generalized opacity: chi_hat = chi + |GAM|/dLOG_NU (always > 0)
-! edited by Sean Brennan
-!
 !        Compressing cells (GAM<0) couple to the NEXT (redder)
 !        frequency, so the frequency derivative spanning (k,k+1) must
 !        use the forward spacing ln(nu_k/nu_{k+1}), not the backward
@@ -3081,7 +3065,10 @@ C
 !        |GAM|*dZ/DLN bins along the ray, and the frequency
 !        derivative spans the matched log range ln(nu_k/nu_{k+n}).
 !        Defaults reproduce the pre-match stencil: slot +1 and the
-!        forward spacing DLN_N_SAV.
+!        forward spacing DLN_N_SAV.  Set before the INIT split so the
+!        bluest frequency can use the same stencil -- at INIT only
+!        compressing cells consume it (expanding cells have no bluer
+!        upwind and keep Q=0).
 !
 	      DO I=1,NI
 	        NM_RAY(I)=1
@@ -3144,6 +3131,46 @@ C
 	          END IF
 	        END DO
 	      END IF
+!
+	    IF(INIT)THEN
+	      Q(1:NI)=0.0_LDP
+!        INIT path: guard chi and eta against NaN from interpolation.
+!        The chi_hat NaN guard below is only in the ELSE branch, so
+!        the INIT path needs its own guard.
+! edited by Sean Brennan (04-Sep-2026)
+	      DO I=1,NI
+	        IF(CHI_RAY(I) .NE. CHI_RAY(I) .OR.
+	1          CHI_RAY(I) .LT. 1.0E-30_LDP)CHI_RAY(I)=1.0E-30_LDP
+	        IF(ETA_RAY(I) .NE. ETA_RAY(I))ETA_RAY(I)=0.0_LDP
+	      END DO
+!
+!        Compressing cells at the bluest frequency: the upwind bin is
+!        the REDDER lagged slot (store slot 1 = frequency 2), which
+!        exists -- only expanding cells have no upwind here (blue-edge
+!        inflow is zero).  Forcing Q=0 on compressing cells drops the
+!        advective coupling at the band edge and leaves photons unable
+!        to leave the bluest bin; apply the same chi_hat/Q treatment
+!        as interior frequencies.  On the first great iteration the
+!        lagged store is zero, so the coupling acts as pure outflow --
+!        the same cold-start approximation the interior bins use.
+!
+	      IF(HAS_COMPRESSING)THEN
+	        DO I=1,NI
+	          IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	            DLN_C=DLN_RAY(I)
+	            IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
+	            T1=GAM_MAG(I,LS)/DLN_C
+	            CHI_RAY(I)=CHI_RAY(I)+T1
+	            dCHIdR_RAY(I)=dCHIdR_RAY(I)-dGAMdR(I,LS)/DLN_C
+	            Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
+	          END IF
+	        END DO
+	      END IF
+	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
+	    ELSE
+!        Generalized opacity: chi_hat = chi + |GAM|/dLOG_NU (always > 0)
+!        NM_RAY/DLN_RAY are set above the INIT split.
+! edited by Sean Brennan
 !
 	      DO I=1,NI
 	        DLN_C=dLOG_NU
@@ -6467,11 +6494,9 @@ C
 	IF(HAVE_PACK)THEN
 	  DO L=1,NCF
 	    CALL BUILD_FREQ(L)
-	    IF(L .GT. 1)THEN
-	      NCOMP=NCOMP+INT(COUNT(GAM(1:NI,LS) .LT. 0.0_LDP),8)
-	      NMATCH=NMATCH+INT(COUNT(NFM_L(1:NI) .GT. 1),8)
-	      NMAX=MAX(NMAX,MAXVAL(NFM_L(1:NI)))
-	    END IF
+	    NCOMP=NCOMP+INT(COUNT(GAM(1:NI,LS) .LT. 0.0_LDP),8)
+	    NMATCH=NMATCH+INT(COUNT(NFM_L(1:NI) .GT. 1),8)
+	    NMAX=MAX(NMAX,MAXVAL(NFM_L(1:NI)))
 	    PK_DTAU(1:NI,L)=DTAU_L(1:NI)
 	    PK_A0(1:NI,L)=A0L(1:NI)
 	    PK_A1(1:NI,L)=A1L(1:NI)
@@ -8147,15 +8172,30 @@ C
 	  DCHR_L(I)=KN_CHI_COEF(K,3,L)*CHI_L(I)/R_RAY(I,LS)
 	END DO
 !
-! First frequency: INIT equivalent -- no velocity coupling, raw
-! opacity/emissivity (matches the in-sweep INIT branch).
+! First frequency: expanding cells keep zero blue-edge inflow
+! (Q_L=0, matching the in-sweep INIT branch).  Compressing cells
+! instead keep their chi_hat/Q coupling to the lagged redder bin --
+! the in-sweep INIT fix: forcing Q=0 there dropped the advective
+! outflow from the bluest bin and left the refresh and sweep
+! disagreeing at the band edge.  DLNM_L comes from MATCH_FREQ(L=1)
+! so the matched span applies here too.
 !
 	IF(L .EQ. 1)THEN
-	  Q_L(1:NI)=0.0_LDP
+	  CALL MATCH_FREQ(L)
 	  DO I=1,NI
 	    IF(CHI_L(I) .NE. CHI_L(I) .OR. CHI_L(I) .LT. 1.0E-30_LDP)
 	1      CHI_L(I)=1.0E-30_LDP
 	    IF(ETA_L(I) .NE. ETA_L(I))ETA_L(I)=0.0_LDP
+	  END DO
+	  DO I=1,NI
+	    Q_L(I)=0.0_LDP
+	    IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	      DLN=DLNM_L(I)
+	      IF(.NOT.(DLN .GT. 0.0_LDP))DLN=1.0E-30_LDP
+	      CHI_L(I)=CHI_L(I)+GAM_MAG(I,LS)/DLN
+	      DCHR_L(I)=DCHR_L(I)-dGAMdR(I,LS)/DLN
+	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
+	    END IF
 	  END DO
 	  SR_L(1:NI)=ETA_L(1:NI)/CHI_L(1:NI)
 	ELSE
