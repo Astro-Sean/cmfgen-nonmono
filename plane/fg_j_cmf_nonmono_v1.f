@@ -345,6 +345,19 @@
 	INTEGER*8, SAVE :: FG_GS_NCONV=0
 	INTEGER*8, SAVE :: FG_INEXT_CAPPED=0
 !
+! Same-census cap accounting (maturity-gate fix): the sweep-store
+! loop and the refresh passes visit different cell sets, so a single
+! FG_INEXT_CAPPED numerator against the refresh's FG_GS_NTOT
+! denominator mis-rates the cap share.  FG_SW_CAPPED counts the
+! sweep cap/NaN events only, FG_SW_CAPTOT counts the sweep-store
+! writes evaluated (the sweep census), and FG_RF_CAPPED counts the
+! refresh-pass events only.  FG_INEXT_CAPPED keeps accumulating the
+! total so the FGINEXT_GS checkpoint record is unchanged.
+!
+	INTEGER*8, SAVE :: FG_SW_CAPPED=0
+	INTEGER*8, SAVE :: FG_SW_CAPTOT=0
+	INTEGER*8, SAVE :: FG_RF_CAPPED=0
+!
 ! Compressing-cell sink census (edited by Devin, 18-Oct-2026): a ray
 ! point with GAM < 0 whose bracketing depths are both non-compressing
 ! (or which runs while HAS_COMPRESSING is false) keeps
@@ -2179,6 +2192,9 @@
 	    FG_GS_MAXCHG=0.0_LDP
 	    FG_GS_NCONV=0
 	    FG_INEXT_CAPPED=0
+	    FG_SW_CAPPED=0
+	    FG_SW_CAPTOT=0
+	    FG_RF_CAPPED=0
 	    FG_GS_NBAD=-1
 	    FG_GS_NTOT=0
 !
@@ -4017,15 +4033,20 @@ C
 	        DO LS=1,NP
 	          I=J_PNT(K,LS)
 	          IF(I .GE. 1 .AND. I .LE. NI_RAY(LS))THEN
+	            FG_SW_CAPTOT=FG_SW_CAPTOT+1
 	            IF(I_P(I,LS) .EQ. I_P(I,LS) .AND.
 	1              I_P(I,LS) .GT. 0.0_LDP)THEN
 	              T1=MIN(I_P(I,LS),NONMONO_INEXT_CAP)
-	              IF(I_P(I,LS) .GT. NONMONO_INEXT_CAP)
-	1              FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	              IF(I_P(I,LS) .GT. NONMONO_INEXT_CAP)THEN
+	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	                FG_SW_CAPPED=FG_SW_CAPPED+1
+	              END IF
 	            ELSE
 	              T1=1.0E-30_LDP
-	              IF(.NOT. (I_P(I,LS) .EQ. I_P(I,LS)))
-	1              FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	              IF(.NOT. (I_P(I,LS) .EQ. I_P(I,LS)))THEN
+	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	                FG_SW_CAPPED=FG_SW_CAPPED+1
+	              END IF
 	            END IF
 	            T2=I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)
 	            IF(T2 .GT. 0.0_LDP)THEN
@@ -4068,15 +4089,20 @@ C
 	            ELSE
 	              I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)=T1
 	            END IF
+	            FG_SW_CAPTOT=FG_SW_CAPTOT+1
 	            IF(I_M(I,LS) .EQ. I_M(I,LS) .AND.
 	1              I_M(I,LS) .GT. 0.0_LDP)THEN
 	              T1=MIN(I_M(I,LS),NONMONO_INEXT_CAP)
-	              IF(I_M(I,LS) .GT. NONMONO_INEXT_CAP)
-	1              FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	              IF(I_M(I,LS) .GT. NONMONO_INEXT_CAP)THEN
+	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	                FG_SW_CAPPED=FG_SW_CAPPED+1
+	              END IF
 	            ELSE
 	              T1=1.0E-30_LDP
-	              IF(.NOT. (I_M(I,LS) .EQ. I_M(I,LS)))
-	1              FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	              IF(.NOT. (I_M(I,LS) .EQ. I_M(I,LS)))THEN
+	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
+	                FG_SW_CAPPED=FG_SW_CAPPED+1
+	              END IF
 	            END IF
 	            T2=I_M_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)
 	            IF(T2 .GT. 0.0_LDP)THEN
@@ -4788,20 +4814,23 @@ C
 	1                             MAXCHG,CAPPED,NBAD,NTOT,NCONV,
 	2                             NDIV,NRAY,NBAD_BLK,
 	3                             SW_MAXCHG,SW_NCONV,RF_DCHG,
-	4                             NBAD_STAL,NBAD_PLAT)
+	4                             NBAD_STAL,NBAD_PLAT,
+	5                             SW_CAPPED,SW_CAPTOT,RF_CAPPED)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     I_NEXT_GS_OK,FG_GS_CHG_FILE,FG_GS_CAP_FILE,
 	2     FG_GS_MAXCHG,FG_INEXT_CAPPED,FG_GS_NBAD,FG_GS_NTOT,
 	3     FG_GS_NCONV,FG_GS_NP,FG_GS_NDIV,FG_GS_NBAD_BLK,
 	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,
-	5     FG_GS_NSTAL,FG_GS_NPLAT
+	5     FG_GS_NSTAL,FG_GS_NPLAT,
+	6     FG_SW_CAPPED,FG_SW_CAPTOT,FG_RF_CAPPED
 	IMPLICIT NONE
 	LOGICAL GS_OK
 	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG
 	INTEGER CAP_FILE,CAPPED,NDIV,NRAY
 	INTEGER*8 NBAD,NTOT,NCONV,NBAD_BLK,SW_NCONV
 	INTEGER*8 NBAD_STAL,NBAD_PLAT
+	INTEGER*8 SW_CAPPED,SW_CAPTOT,RF_CAPPED
 	GS_OK=I_NEXT_GS_OK
 	CHG_FILE=FG_GS_CHG_FILE
 	CAP_FILE=FG_GS_CAP_FILE
@@ -4824,6 +4853,15 @@ C
 	RF_DCHG=FG_RF_DCHG
 	NBAD_STAL=FG_GS_NSTAL
 	NBAD_PLAT=FG_GS_NPLAT
+!
+! Same-census cap fields: sweep-only caps against sweep-store
+! writes, refresh-only caps against the refresh significant-cell
+! total.  SOLVE_FOR_POPS picks the pair matching whichever side
+! ran this iteration.
+!
+	SW_CAPPED=FG_SW_CAPPED
+	SW_CAPTOT=FG_SW_CAPTOT
+	RF_CAPPED=FG_RF_CAPPED
 	RETURN
 	END
 !
@@ -5995,8 +6033,8 @@ C
 	FG_SW_NCONV=FG_GS_NCONV
 	FG_GS_MAXCHG=KN_RF_RESID
 	FG_GS_NCONV=SUM(NST_LS)
-	FG_INEXT_CAPPED=FG_INEXT_CAPPED+SUM(NCP_LS)+SUM(NNG_LS)+
-	1  SUM(NDV_LS)
+	FG_RF_CAPPED=SUM(NCP_LS)+SUM(NNG_LS)+SUM(NDV_LS)
+	FG_INEXT_CAPPED=FG_INEXT_CAPPED+FG_RF_CAPPED
 	FG_GS_NDIV=SUM(NDV_LS)
 	FG_GS_NBAD=SUM(NBD_LS)
 	FG_GS_NTOT=SUM(NTT_LS)

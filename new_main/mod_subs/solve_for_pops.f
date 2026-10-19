@@ -104,6 +104,11 @@
 !
 	INTEGER GS_NDIV,GS_NRAY
 	INTEGER*8 GS_NBAD_BLK,GS_SW_NCONV
+! Same-census cap numerator/denominator for the gate below: the
+! refresh census (RF against NTOT) when a refresh ran, else the
+! sweep-store census (SW against SW_CAPTOT).
+	INTEGER*8 GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED
+	INTEGER*8 GS_CAP_NUM,GS_CAP_DEN
 	REAL(KIND=LDP) GS_SW_MAXCHG,GS_RF_DCHG
 	REAL(KIND=LDP) GS_MAX_ALL
 	INTEGER*8 GS_NBAD_EFF,GS_NCONV_ALL
@@ -544,6 +549,9 @@
 	GS_SW_NCONV=0_8
 	GS_SW_MAXCHG=0.0_LDP
 	GS_RF_DCHG=0.0_LDP
+	GS_SW_CAPPED=0_8
+	GS_SW_CAPTOT=0_8
+	GS_RF_CAPPED=0_8
 	GS_MAX_ALL=0.0_LDP
 	GS_NBAD_EFF=0_8
 	GS_NCONV_ALL=0_8
@@ -800,7 +808,8 @@
 	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV,
 	2      GS_NDIV,GS_NRAY,GS_NBAD_BLK,
 	3      GS_SW_MAXCHG,GS_SW_NCONV,GS_RF_DCHG,
-	4      GS_NBAD_STAL,GS_NBAD_PLAT)
+	4      GS_NBAD_STAL,GS_NBAD_PLAT,
+	5      GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED)
 	  CALL GET_MOM_GS_MATURITY(MOM_RAN,MOM_OK,MOM_CHG_FILE,
 	1      MOM_CAP_FILE,MOM_MAXCHG,MOM_CAPPED,MOM_NEGJ,
 	2      MOM_NBAD5,MOM_NBAD50,MOM_NTOT,MOM_NQUAR,
@@ -923,14 +932,38 @@
 	    GS_NBAD_EFF=GS_NBAD
 	    GS_NCONV_ALL=GS_NCONV
 	  END IF
-	  GS_UNSAFE=(GS_CAPPED .GT. MAX(50_8,GS_NTOT/10)) .OR.
+! Same-census cap share: refresh cap/NaN/divergence events against
+! the refresh significant-cell census when the refresh ran; sweep
+! cap events against the sweep-store write count otherwise.  The
+! mixed census made the share tiers latch on a contracting field.
+!
+	  IF(GS_NTOT .GT. 0)THEN
+	    GS_CAP_NUM=GS_RF_CAPPED
+	    GS_CAP_DEN=GS_NTOT
+	  ELSE
+	    GS_CAP_NUM=GS_SW_CAPPED
+	    GS_CAP_DEN=GS_SW_CAPTOT
+	  END IF
+	  GS_UNSAFE=(GS_CAP_NUM .GT. MAX(50_8,GS_CAP_DEN/10)) .OR.
 	1     (GS_NDIV .GT. MAX(1,GS_NRAY/100)) .OR.
 	2     (GS_NBAD .GT. MAX(50_8,GS_NTOT/10))
 	  GS_PIN=GS_UNSAFE .OR.
-	1     (GS_CAPPED .GT. MAX(50_8,GS_NTOT/1000))
+	1     (GS_CAP_NUM .GT. MAX(50_8,GS_CAP_DEN/1000))
 !
 	  GS_FG_IMMATURE=GS_MAX_ALL .GT. GS_MATURE_TOL
-	  IF(GS_NTOT .GT. 0 .AND. GS_FG_IMMATURE)THEN
+	  IF(GS_NTOT .EQ. 0)THEN
+! The refresh self-guards return before any pass runs (frozen store
+! for JFNK eval, incomplete sweep, unarmed capture store): NTOT
+! stays 0 and the raw max-norm veto above lets a single
+! pathological cell pin the gate (the 1.5E263 sweep-drift case).
+! Fall back to the sweep-store churn share -- the same bulk rule
+! the refresh census applies -- with the unsafe-tolerance backstop
+! for a genuinely runaway field.
+	    GS_FG_IMMATURE=(GS_SW_CAPTOT .GT. 0_8 .AND.
+	1      GS_NCONV_ALL .GT. MAX(50_8,GS_SW_CAPTOT/1000)) .OR.
+	2      (GS_MAX_ALL .GT. GS_UNSAFE_TOL)
+	    CALL APPEND_ITER_REASON(ITER_REASON,'no_refresh')
+	  ELSE IF(GS_FG_IMMATURE)THEN
 	    IF(KN_GATE_DIVERGENCE)THEN
 	      GS_FG_IMMATURE=(GS_NBAD_EFF .GT.
 	1        MAX(50_8,GS_NTOT/1000)) .OR. GDIV_UNSAFE
