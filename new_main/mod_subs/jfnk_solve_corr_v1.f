@@ -1672,6 +1672,14 @@
 	          WRITE(LUER,'(A,I3,A,I3)')
 	1           '  JFNK: REBUILDING PRECONDITIONER (attempt ',
 	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART_LOC,')'
+!
+! The failed attempt moved the fold state (jfnk_x, dtau), and the
+! JFNK_EQ_STRUCT_READY reset below re-harvests the equation structure
+! on the next eval.  Reuse is keyed on JFNK_BA_BUILT, so clear it
+! explicitly -- without this the factor would keep the admission
+! gate's folded BA.
+!
+	          JFNK_BA_BUILT=.FALSE.
 	          CALL JFNK_FACTOR_PRECOND_V1()
 !
 ! The rebuilt BA was assembled at the current state; let the next

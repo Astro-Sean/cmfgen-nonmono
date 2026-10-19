@@ -128,6 +128,18 @@ check(
     and pre_factor.index("CALL JFNK_MASK_FIXED_UNKNOWNS")
     < pre_factor.index("CALL JFNK_SET_PTC_SCALE_V1"),
 )
+retry = section(
+    SOLVE_CORR,
+    "REBUILDING PRECONDITIONER (attempt",
+    "JFNK_EQ_STRUCT_READY=.FALSE.",
+)
+check(
+    "attempt-retry rebuild clears the BA cache before factoring",
+    "JFNK_BA_BUILT=.FALSE." in retry
+    and retry.index("JFNK_BA_BUILT=.FALSE.")
+    < retry.index("CALL JFNK_FACTOR_PRECOND_V1()"),
+)
+
 gate_idx = SOLVE_CORR.index("CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)")
 check(
     "admission gate build follows F(0) adoption and PTC arming",

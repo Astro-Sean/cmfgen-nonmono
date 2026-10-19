@@ -3129,8 +3129,9 @@
 ! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.  The gate
 ! build runs after F(0) adoption, masking and PTC arming, so its fold
 ! state is the one the real factor needs.  Any change to the fold
-! inputs (scale re-arm, baseline rebuild, refresh request) clears
-! JFNK_BA_BUILT and forces the rebuild branch.
+! inputs (scale re-arm, baseline rebuild, GMRES refresh request,
+! attempt-retry rebuild) clears JFNK_BA_BUILT and forces the rebuild
+! branch.
 !
 	REBUILD_BA = .NOT. JFNK_BA_BUILT
 	IF(REBUILD_BA)THEN
@@ -3142,8 +3143,9 @@
 ! adoption, masking and PTC arming at dtau=1; the immediate real
 ! factor reuses it.  Later refresh factors rebuild because the fold
 ! state changed (JFNK_BA_BUILT cleared by the scale re-arm, baseline
-! rebuild, or the refresh request in JFNK_DIAGNOSTIC_V1), so the
-! folded shift then follows the live dtau and x.  For log unknowns,
+! rebuild, the refresh request in JFNK_DIAGNOSTIC_V1, or the
+! attempt-retry rebuild in JFNK_SOLVE_CORR_V1), so the folded shift
+! then follows the live dtau and x.  For log unknowns,
 ! BA is in fractional units, so the PTC diagonal uses sigma*exp(-x).
 ! This routine is reached only under [USE_JFNK_SOLVER] (default F);
 ! the stock population path is unchanged.
