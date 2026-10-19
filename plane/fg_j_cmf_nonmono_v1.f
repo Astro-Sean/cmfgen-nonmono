@@ -8958,7 +8958,22 @@ C
 	        VSORT(NV)=STORE(KC,LS,LS2)
 	      END IF
 	    END DO
-	    IF(NV .EQ. 0)CYCLE
+!
+! Fully poisoned row (edited by Devin, 19-Oct-2026): with no sane
+! slot there is no median to build on; the old CYCLE left every
+! NaN/negative entry in place, so SEED_FLD re-seeded NaN at residual
+! 1.0 every refresh -- the failure this heal exists to break.  Zero
+! the whole row so the next refresh takes the seeded floor path.
+!
+	    IF(NV .EQ. 0)THEN
+	      DO LS2=1,NCF-1
+	        IF(STORE(KC,LS,LS2) .NE. 0.0_LDP)THEN
+	          STORE(KC,LS,LS2)=0.0_LDP
+	          NHL=NHL+1
+	        END IF
+	      END DO
+	      CYCLE
+	    END IF
 !
 ! Median of the sane values, insertion sort -- per-depth scale
 ! reference for the poisoned-slot test.  NCF is O(100), so the
