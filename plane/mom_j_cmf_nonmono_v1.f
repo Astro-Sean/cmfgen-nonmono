@@ -4611,6 +4611,7 @@
 	REAL(KIND=LDP) GRM_AA(MOM_AA_M,MOM_AA_M),BRHS_AA(MOM_AA_M)
 	REAL(KIND=LDP) WGRM(MOM_AA_M,MOM_AA_M),WBR(MOM_AA_M)
 	REAL(KIND=LDP) GAM_AA(MOM_AA_M),FNRM,DNRM,SC,XV,WV,DTR
+	REAL(KIND=LDP) OMG_PRV
 	INTEGER IPIV_OUT(MOM_AA_OUT_M)
 	REAL(KIND=LDP) GRM_OUT(MOM_AA_OUT_M,MOM_AA_OUT_M),
 	1    BRHS_OUT(MOM_AA_OUT_M)
@@ -6239,6 +6240,7 @@
 !
 	IF(MOM_ADAPT_RELAX .AND. MOM_GS_MAXCHG .GT. 0.0_LDP .AND.
 	1   MOM_GS_MAXCHG .LE. HUGE(MOM_GS_MAXCHG))THEN
+	  OMG_PRV=JNEXT_RELAX
 	  IF(MOM_RF_RESID_PRV .GT. 0.0_LDP)THEN
 	    DTR=MOM_GS_MAXCHG/MOM_RF_RESID_PRV
 	    DTR=MIN(MAX(DTR,0.0_LDP),50.0_LDP)
@@ -6247,6 +6249,28 @@
 	    WRITE(LUER,'(A,ES10.3,A,ES10.3)')
 	1      '    adaptive JNEXT_RELAX: rho_est=',DTR,
 	2      '  omega=',JNEXT_RELAX
+	  END IF
+!
+! Omega-consistency rescale (edited by Devin, 19-Oct-2026): the
+! outer-AA residual history FHIST_OUT holds committed deltas
+! measured under the JNEXT_RELAX in force when each was recorded
+! (for relax-written cells f_j = omega*(G(x_j)-x_j)), so an omega
+! change leaves the stored secants in the wrong units for the next
+! call's projection -- the AA affine-map assumption degrades
+! exactly in the omega-adapting runs it targets.  Scale the
+! retained columns by omega_new/omega_old, the same fix FG applies
+! to AA_RH/DLT_PRV when OMEGA_RAY changes (fg_j_cmf_nonmono_v1.f,
+! "An OMEGA_RAY change alters the relaxed map").  XHIST_OUT and
+! RETJ_PREV hold unscaled iterates and are untouched.  NHIST_OUT
+! counts the used slots; the history is SAVE, so this rescale
+! reaches the next call.
+!
+	  IF(ALLOCATED(FHIST_OUT) .AND. NHIST_OUT .GT. 0 .AND.
+	1     OMG_PRV .GT. 0.0_LDP .AND.
+	2     ABS(JNEXT_RELAX-OMG_PRV) .GT. 1.0E-6_LDP)THEN
+	    FHIST_OUT(1:ND_NM,1:KN_M_NCF,1:NHIST_OUT)=
+	1      FHIST_OUT(1:ND_NM,1:KN_M_NCF,1:NHIST_OUT)*
+	2      (JNEXT_RELAX/OMG_PRV)
 	  END IF
 	  MOM_RF_RESID_PRV=MOM_GS_MAXCHG
 	END IF
