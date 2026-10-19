@@ -3122,16 +3122,16 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
         # Restore restart/output files
         for fname, (backup, tmpdir) in restart_backups.items():
             shutil.copy2(backup, cmfgen_dir / fname)
-            if fname == "VADAT" and not (config.get("cmfgen") or {}).get(
-                "solve_temperature", False
+            if fname == "VADAT" and (config.get("cmfgen") or {}).get(
+                "fix_temperature", False
             ):
                 # skip_final resubmits reuse the previous VADAT without
                 # re-running prepare_VADAT, so the fixed-T stamps would not
                 # be re-applied. Pin them here so a VADAT written before the
                 # 14-Oct-2026 policy cannot keep FIX_T=F / FIX_T_AUTO=T.
-                # cmfgen.solve_temperature opts out (irradiated ejecta with
-                # a PNT_SRCE inner source, or FIX_INB_T/FIX_X_DPTH partial
-                # release: see the prepare_VADAT.py header recipe).
+                # Only under cmfgen.fix_temperature: the thin-region release
+                # is the default policy, and cmfgen.solve_temperature means
+                # fully free T (see the prepare_VADAT.py header recipe).
                 _pin_vadat_fixed_t(cmfgen_dir / fname)
             shutil.rmtree(tmpdir)
     else:
@@ -6749,8 +6749,8 @@ def generate_eddfactor_for_cmfgen(
     if _gt_auto is not None:
         if _gt_auto:
             print(
-                "  WARNING: cmfgen.do_gt_auto=true ignored -- T is pinned "
-                "to the hydro profile (FIX_T=T), so DO_GT_AUTO stays F."
+                "  WARNING: cmfgen.do_gt_auto=true overrides the T-policy "
+                "default; set only if a fully free grey-T update is intended."
             )
         inits_cmd.extend(["--gt-auto", "T" if _gt_auto else "F"])
     inits_result = subprocess.run(
@@ -7784,8 +7784,8 @@ def submit_cmfgen_jobs(
     if do_gt_auto is not None:
         if do_gt_auto:
             print(
-                "  WARNING: cmfgen.do_gt_auto=true ignored -- T is pinned "
-                "to the hydro profile (FIX_T=T), so DO_GT_AUTO stays F."
+                "  WARNING: cmfgen.do_gt_auto=true overrides the T-policy "
+                "default; set only if a fully free grey-T update is intended."
             )
         cmd.append(f"--gt-auto={'T' if do_gt_auto else 'F'}")
     rdinr_max_dv = cmfgen_cfg.get("rdinr_max_dv_kms", None)

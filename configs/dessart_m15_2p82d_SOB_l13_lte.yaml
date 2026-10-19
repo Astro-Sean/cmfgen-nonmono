@@ -20,6 +20,9 @@ cmfgen_conversion:
     - 2.82
   use_existing_sn_hydro: true
 cmfgen:
+  # A/B arm keeps the pre-default pinned-T policy so it stays
+  # comparable with the l14_lte baseline (see AGENTS.md gotchas).
+  fix_temperature: true
   base_dir: cmfgen_base_dessart
   model_type: static_snapshot
   single_final: true
