@@ -438,7 +438,7 @@
 	REAL(KIND=LDP), SAVE :: FG_COMMIT_JUMP=50.0_LDP
 	REAL(KIND=LDP), SAVE :: FG_DIV_HEAL_CAP=1.0E+6_LDP
 !
-! FG_COMMIT_CONV (VADAT [FG_COMMIT_CONV], default F): fail-closed
+! FG_COMMIT_CONV (VADAT [FG_COMMIT_CONV], default T): fail-closed
 ! refresh commits.  When T, a ray field solve that ended on a stall,
 ! pass-cap or plateau exit (IXIT 3/4/6 -- residual still above
 ! KN_RAY_TOL) does not reach WRITE_STORE: the ray's lagged store
@@ -448,12 +448,14 @@
 ! commit a field tens of factors off the sane seed (w19 class:
 ! residual 0.465 at the cap with retained delta 21).  FG_NC_REJ
 ! counts these rejections separately from jump rejects.  IXIT 0
-! (exact), 1 (tol) and 2 (bulk-maturity) still commit.
+! (exact), 1 (tol) and 2 (bulk-maturity) still commit.  Default
+! changed to T (edited by Devin, 19-Oct-2026): fail-open was the
+! wrong default for the drift class this guard was written for.
 !
-	LOGICAL, SAVE :: FG_COMMIT_CONV=.FALSE.
+	LOGICAL, SAVE :: FG_COMMIT_CONV=.TRUE.
 	INTEGER, SAVE :: FG_NC_REJ=0
 !
-! FG_COMMIT_NC (VADAT [FG_COMMIT_NC], default 0): per-cell bound on
+! FG_COMMIT_NC (VADAT [FG_COMMIT_NC], default 0.05): per-cell bound on
 ! the committed change for a NON-converged ray under FG_COMMIT_CONV.
 ! FG_COMMIT_CONV alone skips the write on bad exits, but a bulk exit
 ! (IXIT=2) is classed converged even when the residual is far above
@@ -468,7 +470,7 @@
 ! FG_NC_CAP counts capped commits; FG_RAY_VC records the per-ray
 ! verdict for the summary census and worst-ray line.
 !
-	REAL(KIND=LDP), SAVE :: FG_COMMIT_NC=0.0_LDP
+	REAL(KIND=LDP), SAVE :: FG_COMMIT_NC=0.05_LDP
 	INTEGER, SAVE :: FG_NC_CAP=0
 ! Verdict codes: -1 unsolved, 0 committed, 1 jump reject,
 ! 2 non-converged reject, 3 capped commit, 4 diverged.
@@ -484,17 +486,17 @@
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WI(:),FG_RAY_WL(:)
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WS(:)
 !
-! FG_BULK_CONTR (VADAT [FG_BULK_CONTR], default F): require the
+! FG_BULK_CONTR (VADAT [FG_BULK_CONTR], default T): require the
 ! same-direction residual to be contracting (RATIO_OM<=KN_RAY_STALL)
 ! before the bulk bad-fraction exit can fire.  Without it a ray
 ! whose residual is flat at 0.05-0.5 with a sub-0.1% bad fraction
 ! exits "bulk converged" at pass 6 -- before the stall/plateau
 ! classifiers (which need pass>=8) ever run -- and commits under
 ! the converged label.  w19: 49/84 rays took this path at residual
-! 0.25-0.49 during the luminosity runaway.  Ordering fix; F keeps
-! the old exit.
+! 0.25-0.49 during the luminosity runaway.  Ordering fix; default
+! changed to T (edited by Devin, 19-Oct-2026); F keeps the old exit.
 !
-	LOGICAL, SAVE :: FG_BULK_CONTR=.FALSE.
+	LOGICAL, SAVE :: FG_BULK_CONTR=.TRUE.
 !
 ! W7 (17-Oct-2026): extended per-ray pass budget for rays with
 ! contiguous hot-frequency runs (RES_FREQ>KN_RAY_TOL over a run).
@@ -4061,7 +4063,18 @@ C
 ! around the coupled eval sweep) sees the same Gauss-Seidel I_NEXT
 ! state as the baseline; the default path leaves it .FALSE.
 !
-	  IF(HAS_COMPRESSING .AND. FREQ_IDX_ITER .GE. 1 .AND.
+! NEW_FREQ gate (edited by Devin, 19-Oct-2026): comp_j_blank re-enters
+! this routine inside its J accuracy loop with NEW_FREQ=.FALSE. after
+! the first call of each frequency.  Without the gate the store relaxes
+! again against the already-relaxed values (~1-(1-omega)^k per
+! frequency) and the FG_GS_MAXCHG/FG_GS_NCONV/FG_SW_* churn metrics the
+! freeze gate reads collect one extra sample per re-entry.  With the
+! gate the lagged store sees one relaxed write and one churn sample per
+! frequency per sweep; the re-entries still produce and return their
+! full formal solve for J -- only the store write and counters skip.
+!
+	  IF(HAS_COMPRESSING .AND. NEW_FREQ .AND.
+	1   FREQ_IDX_ITER .GE. 1 .AND.
 	1   FREQ_IDX_ITER .LE. NCF_IN .AND.
 	1   .NOT. FREEZE_I_NEXT)THEN
 ! FG_GS_MAXCHG/FG_INEXT_CAPPED accumulate the last-sweep convergence
@@ -5373,6 +5386,25 @@ C
 	READ(291,IOSTAT=IOS)ENDM
 	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 900
 !
+! Value audit (edited by Devin, 19-Oct-2026): replicate the INIT-path
+! check from RESTORE_FG_INEXT_GS.  This path previously accepted any
+! fingerprint-matching record, so a corrupt but dimensionally valid
+! FGINEXT_GS (or an init-rejected stale file with matching dims)
+! could re-seed the sweep after a BA rollback -- exactly the failure
+! the INIT audit exists to prevent.  On rejection the in-memory
+! field is left untouched and the caller falls back, as on the other
+! failure exits.
+!
+	IF(.NOT.(ABS(FG_GS_CHG_FILE) .LE. HUGE(1.0_LDP)) .OR.
+	1   FG_GS_CHG_FILE .LT. 0.0_LDP .OR.
+	1   FG_GS_CAP_FILE .LT. 0)GOTO 940
+	IF(N_COMP .GT. 0)THEN
+	  IF(ANY(.NOT.(ABS(I_P_DEPTH_NEXT) .LE. HUGE(1.0_LDP))) .OR.
+	1     ANY(.NOT.(ABS(I_M_DEPTH_NEXT) .LE. HUGE(1.0_LDP))) .OR.
+	1     ANY(I_P_DEPTH_NEXT .LT. 0.0_LDP) .OR.
+	1     ANY(I_M_DEPTH_NEXT .LT. 0.0_LDP))GOTO 940
+	END IF
+!
 	CLOSE(291)
 	I_NEXT_GS_OK=.TRUE.
 	OK=.TRUE.
@@ -5398,6 +5430,12 @@ C
 930	CONTINUE
 	WRITE(LUER,'(A)')
 	1  '  I_NEXT rollback restore rejected: COMP_DEPTH map mismatch'
+	IF(ALLOCATED(WRK))DEALLOCATE(WRK)
+	IF(ALLOCATED(IWRK))DEALLOCATE(IWRK)
+	GOTO 900
+940	CONTINUE
+	WRITE(LUER,'(A)')
+	1  '  I_NEXT rollback restore rejected: non-finite/negative data'
 	IF(ALLOCATED(WRK))DEALLOCATE(WRK)
 	IF(ALLOCATED(IWRK))DEALLOCATE(IWRK)
 	GOTO 900
@@ -5860,6 +5898,7 @@ C
 	INTEGER*8, ALLOCATABLE :: NBB_LS(:),NTB_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
 	REAL(KIND=LDP) RHO_H(4)
+	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
 ! return, 0-5 as coded in KNOP_RAY_SOLVE_V1).  The residual max
@@ -6182,6 +6221,20 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    matched/compress=',SUM(NMT_LS),'/',SUM(NCM_LS)
 	WRITE(LUER,'(A,I6)')'    max offset=',MAXVAL(NMX_LS)
+!
+! Slot-layout limitation (edited by Devin, 19-Oct-2026): the lagged
+! store holds frequency l in slot l-1, so the refreshed frequency-1
+! field computed in KNOP_RAY_SOLVE_V1 has no slot and is never
+! written back (WRITE_STORE loops LS2=2..NCF).  Both band edges
+! therefore carry zero lagged memory across generations -- exactly
+! where the compressing coupling is strongest.  Informational only;
+! the slot convention itself is unchanged.
+!
+	IF(.NOT. F1_NOSLOT_NOTE)THEN
+	  F1_NOSLOT_NOTE=.TRUE.
+	  WRITE(LUER,'(A)')'    note: freq-1 field computed but not'//
+	1   ' stored (no lagged-memory slot at either band edge)'
+	END IF
 !
 ! Commit census + worst-ray verdict (17-Oct-2026): the exit census
 ! alone cannot show whether an above-tolerance ray's field reached
@@ -8956,7 +9009,22 @@ C
 	        VSORT(NV)=STORE(KC,LS,LS2)
 	      END IF
 	    END DO
-	    IF(NV .EQ. 0)CYCLE
+!
+! Fully poisoned row (edited by Devin, 19-Oct-2026): with no sane
+! slot there is no median to build on; the old CYCLE left every
+! NaN/negative entry in place, so SEED_FLD re-seeded NaN at residual
+! 1.0 every refresh -- the failure this heal exists to break.  Zero
+! the whole row so the next refresh takes the seeded floor path.
+!
+	    IF(NV .EQ. 0)THEN
+	      DO LS2=1,NCF-1
+	        IF(STORE(KC,LS,LS2) .NE. 0.0_LDP)THEN
+	          STORE(KC,LS,LS2)=0.0_LDP
+	          NHL=NHL+1
+	        END IF
+	      END DO
+	      CYCLE
+	    END IF
 !
 ! Median of the sane values, insertion sort -- per-depth scale
 ! reference for the poisoned-slot test.  NCF is O(100), so the
