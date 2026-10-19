@@ -121,7 +121,10 @@ cmfgen:
     BA_EX_RELFRAC: 1.0D-6
     BA_TR_MAXSWP: '3'
     BA_TR_ABSMAX: 1.0D-8
-    DO_JFNK: T
+    # Stock V13 leg has no non-mono mode; JFNK admission requires
+    # DO_NONMONO_KNOP or DO_NONMONO_SOB and now aborts on this key.
+    # The A/B isolates the solver path, so JFNK stays off here too.
+    DO_JFNK: F
     JFNK_WARMUP: '0'
     JFNK_ANYITER: T
     JFNK_COUPLED: T
