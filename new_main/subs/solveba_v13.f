@@ -467,8 +467,13 @@
 	1    '    max SE residual, current call   :',BA_SE_RES
 	    WRITE(LUER,'(A,ES12.4)')
 	1    '    residual before last full step  :',BAACC_RES_PREV
-	    WRITE(LUER,'(A,ES12.4)')
+	    IF(BAACC_RES_MIN .GT. 0.5_LDP*HUGE(BAACC_RES_MIN))THEN
+	      WRITE(LUER,'(A)')
+	1    '    best residual seen              :  none yet'
+	    ELSE
+	      WRITE(LUER,'(A,ES12.4)')
 	1    '    best residual seen              :',BAACC_RES_MIN
+	    END IF
 	    WRITE(LUER,'(A,L2)')
 	1    '    acceptance test armed this call :',BAACC_PENDING
 	    WRITE(LUER,'(A,L2)')

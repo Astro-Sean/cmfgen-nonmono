@@ -82,11 +82,12 @@
 	IF(MOD_FIXED_T .AND. LAST_MATRIX)THEN
 	   I=MOD_FIX_T_D_END-MOD_FIX_T_D_ST+1
 	   IF(I .EQ. ND)THEN
-              WRITE(LUER,'(A)')' Temperature held fixed at all depths.'
+              WRITE(LUER,'(A,I4,A)')' Temperature held fixed at all',
+     1                 I,' depths this call.'
 	   ELSE
               WRITE(LUER,'(A,ES12.3)')
 	1              ' Temperature held partially fixed: TAU_SCL_T=',MOD_TAU_SCL_T
-              WRITE(LUER,'(A,I3,A)')' Temperature held fixed at ',I,' depths.'
+              WRITE(LUER,'(A,I3,A)')' Temperature held fixed at ',I,' depths this call.'
 	   END IF
 	 END IF
 !

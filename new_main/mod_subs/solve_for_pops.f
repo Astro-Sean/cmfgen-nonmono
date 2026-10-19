@@ -87,6 +87,12 @@
 	INTEGER GS_CAP_FILE,GS_CAPPED
 	INTEGER*8 GS_NBAD,GS_NTOT,GS_NCONV
 !
+! edited by Devin, 22-Oct-2026: GS_NBAD=-1 is the no-census sentinel
+! (refresh never ran or no compressing cells); ITER_SUM renders it
+! as 'n/a' through NBAD_STR instead of printing a bare -1.
+!
+	CHARACTER(LEN=10) NBAD_STR
+!
 ! W1-W9 (17-Oct-2026, KNOP maturity-chain repair):
 !
 ! GS_NDIV / GS_NRAY: diverged-ray count and solved-ray count, gated
@@ -1247,11 +1253,11 @@
 ! A descriptor and printed GS_NBAD_BLK's raw bytes.
 !
 	    WRITE(LUER,'(A,2ES13.4)')
-	1   '    FG sweep drift / RF delta: ',GS_SW_MAXCHG,GS_RF_DCHG
+	1   '    FG store raw drift / RF delta: ',GS_SW_MAXCHG,GS_RF_DCHG
 	    WRITE(LUER,'(A,I6,A,I6)')
 	1   '    FG div rays              : ',GS_NDIV,' of',GS_NRAY
 	    WRITE(LUER,'(A,I14,A,I14)')
-	1   '    FG nbad last / best      : ',GS_NBAD,' / ',GS_NBAD_BLK
+	1   '    FG nbad last / best-pass : ',GS_NBAD,' / ',GS_NBAD_BLK
 	    WRITE(LUER,'(A)')'    MOM bulk'
 	    WRITE(LUER,'(A,2I12)')
 	1   '      nbad5 / nbad50         : ',MOM_NBAD5,MOM_NBAD50
@@ -1929,13 +1935,19 @@
 	    WRITE(LUER,'(A)')
 	1   '    reason : GS radiation field not ready'
 	    WRITE(LUER,'(A,I3,A,I3)')
-	1   '    consecutive mature sweeps, needed :',N_MATURE,
+	1   '    mature sweeps in a row / needed   :',N_MATURE,
 	2   ' /',GS_REL_STABLE
 	    WRITE(LUER,'(A,ES12.4)')
-	1   '    FG sweep max change               :',GS_MAXCHG
-	    WRITE(LUER,'(A,I14,A,I14)')
-	1   '    cells changed >50pct, threshold   :',MOM_SW_NBAD50,
+	1   '    FG sweep drift, gate metric       :',GS_MAXCHG
+	    IF(MOM_RAN)THEN
+	      WRITE(LUER,'(A,I14,A,I14)')
+	1   '    cells changed >50pct, MOM census  :',MOM_SW_NBAD50,
 	2   ' /',MOM_SW_NTOT
+	    ELSE
+	      WRITE(LUER,'(A,I14,A,I14)')
+	1   '    cells changed >50pct, FG census   :',GS_NCONV,
+	2   ' /',GS_NTOT
+	    END IF
 	  ELSE IF(LAMBDA_ITERATION .AND. .NOT. JFNK_ANY_ITER)THEN
 	    WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
 	    WRITE(LUER,'(A)')
@@ -3396,9 +3408,14 @@
 	    ELSE IF(GS_FG_IMMATURE)THEN
 	      FG_ST='[WARN] '
 	    END IF
-	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,I10,1X,A,I10,1X,A,I6,'//
+	    IF(GS_NBAD .GE. 0)THEN
+	      WRITE(NBAD_STR,'(I10)')GS_NBAD
+	    ELSE
+	      NBAD_STR='       n/a'
+	    END IF
+	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,A,1X,A,I10,1X,A,I6,'//
 	1    '2X,A,1X,A)')
-	2    'fg',GS_MAXCHG,'bad=',GS_NBAD,'churn=',GS_NCONV,
+	2    'fg',GS_MAXCHG,'bad=',NBAD_STR,'churn=',GS_NCONV,
 	3    'cap=',GS_CAPPED,FG_ST,'lagged field drift'
 	    IF(MOM_RAN)THEN
 	      MOM_ST='[OK]   '
