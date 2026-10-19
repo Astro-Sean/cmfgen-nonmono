@@ -970,11 +970,14 @@
 	1     'KNOP: mature sweeps required before freeze release?')
 	  IF(GS_REL_STABLE .LT. 1)GS_REL_STABLE=1
 !
-! GS_REL_N (default 1): post-release LAMBDA iterations held at the
+! GS_REL_N (default 2): post-release LAMBDA iterations held at the
 ! near-mature correction cap while the field re-lags to the moved
-! populations.
+! populations.  Default changed to 2 (edited by Devin, 19-Oct-2026):
+! with N=1 only the first live step was damped and the it8-class
+! undamped second step re-froze the field at factor-100 changes,
+! feeding the release->refreeze alternation.
 !
-	  GS_REL_N=1
+	  GS_REL_N=2
 	  CALL RD_STORE_INT(GS_REL_N,'GS_REL_N',L_FALSE,
 	1     'KNOP: damped LAMBDA its after a freeze release?')
 	  IF(GS_REL_N .LT. 1)GS_REL_N=1

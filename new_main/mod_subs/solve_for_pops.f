@@ -208,6 +208,13 @@
 ! counts accepted ones for telemetry.  Both ride GS_STATE.
 	INTEGER, SAVE :: N_TRIALS_REJ=0
 	INTEGER, SAVE :: N_RELEASES_TOT=0
+! GS_RAW_RELEASES_TOT (edited by Devin, 19-Oct-2026) counts raw-cure
+! freeze releases -- the frozen->live transition, not the trial arms
+! N_RELEASES_TOT tracks.  The release->immature->refreeze alternation
+! resets N_FROZEN at every release, so neither the freeze streak nor
+! the trial counters ever see it; this counter makes the cycle
+! visible in GS_STATE.  8-byte so a long alternation cannot overflow.
+	INTEGER*8, SAVE :: GS_RAW_RELEASES_TOT=0
 	LOGICAL TRIAL_FIRED
 !
 ! GS_WAS_FROZEN records the previous call's freeze state so the first
@@ -357,6 +364,7 @@
 	INTEGER LU_GS
 	INTEGER GS_IT_RD,GS_NF_RD,GS_MT_RD,GS_RL_RD,GS_TA_RD
 	INTEGER GS_TR_RD,GS_NR_RD
+	INTEGER*8 GS_RR_RD
 	LOGICAL GS_FRZ_RD
 	CHARACTER*80 RSV_CH
 !
@@ -430,6 +438,7 @@
 	  N_TRIAL_ACC=0
 	  N_TRIALS_REJ=0
 	  N_RELEASES_TOT=0
+	  GS_RAW_RELEASES_TOT=0
 	  TRIAL_FIRED=.FALSE.
 	  GS_WAS_FROZEN=.FALSE.
 	  N_REL_SINCE=0
@@ -497,6 +506,7 @@
 	    GS_TA_RD=0
 	    GS_TR_RD=0
 	    GS_NR_RD=0
+	    GS_RR_RD=0
 	    GS_FRZ_RD=.FALSE.
 	    DO
 	      RSV_CH=' '
@@ -517,6 +527,8 @@
 	1      READ(RSV_CH(14:),*,IOSTAT=IOS)GS_TR_RD
 	      IF(INDEX(RSV_CH,'n_releases=') .EQ. 1)
 	1      READ(RSV_CH(12:),*,IOSTAT=IOS)GS_NR_RD
+	      IF(INDEX(RSV_CH,'n_raw_releases=') .EQ. 1)
+	1      READ(RSV_CH(16:),*,IOSTAT=IOS)GS_RR_RD
 	    END DO
 	    CLOSE(LU_GS)
 	    IF(GS_NF_RD .GE. 0 .AND.
@@ -528,6 +540,7 @@
 	      N_TRIAL_ACC=MAX(GS_TA_RD,0)
 	      N_TRIALS_REJ=MAX(GS_TR_RD,0)
 	      N_RELEASES_TOT=MAX(GS_NR_RD,0)
+	      GS_RAW_RELEASES_TOT=MAX(GS_RR_RD,0_8)
 	      GS_WAS_FROZEN=GS_FRZ_RD
 	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I5,A,I5,A,L2)')
 	1     ' GS_STATE restart: adopted n_frozen=',N_FROZEN,
@@ -1539,6 +1552,11 @@
 	    N_REL_SINCE=0
 	  ELSE IF(GS_WAS_FROZEN .OR. N_REL_SINCE .GT. 0)THEN
 	    N_REL_SINCE=N_REL_SINCE+1
+! Count the raw-cure release once per frozen->live transition; the
+! trial arms fire while GS_FREEZE is still .TRUE. so they never
+! reach this branch (edited by Devin, 19-Oct-2026).
+	    IF(GS_WAS_FROZEN)
+	1    GS_RAW_RELEASES_TOT=GS_RAW_RELEASES_TOT+1
 	  END IF
 	  GS_WAS_FROZEN=GS_FREEZE
 	END IF
@@ -2381,6 +2399,7 @@
 	    WRITE(LU_GS,'(A,I0)')'n_trial_acc=',N_TRIAL_ACC
 	    WRITE(LU_GS,'(A,I0)')'n_trials_rej=',N_TRIALS_REJ
 	    WRITE(LU_GS,'(A,I0)')'n_releases=',N_RELEASES_TOT
+	    WRITE(LU_GS,'(A,I0)')'n_raw_releases=',GS_RAW_RELEASES_TOT
 	    CLOSE(LU_GS)
 	  END IF
 	END IF
