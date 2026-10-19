@@ -1573,7 +1573,12 @@
 ! still runs so the STEQ diagnostics show the attempted update;
 ! the committed correction is rolled back below.  The MOM_TRIAL
 ! release path is excluded: a released trial exists to take a real
-! resacc-gated BA step.
+! resacc-gated BA step.  FG_TRIAL is excluded too (edited by Devin,
+! 19-Oct-2026): under the hold an FG trial call snapshotted and
+! restored POPS, so its probe was discarded while still counting
+! as an accepted release -- a trial during a pop-hold does not
+! test the field and must not consume a trial slot or burn the
+! N_FROZEN refund and GS_TRIAL_LIM budget.
 !
 ! edited by Devin, 17-Oct-2026: LUM_POPS_HELD is no longer dead --
 ! a detected luminosity runaway (LUM_BLOCKED) holds populations so
@@ -1582,8 +1587,8 @@
 !
 	LUM_POPS_HELD=LUM_BLOCKED
 	GS_POPS_HELD=.FALSE.
-	IF((GS_HOLD_POPS .AND. GS_FREEZE .AND. .NOT. MOM_TRIAL) .OR.
-	1   LUM_POPS_HELD)THEN
+	IF((GS_HOLD_POPS .AND. GS_FREEZE .AND. .NOT. MOM_TRIAL .AND.
+	1   .NOT. FG_TRIAL) .OR. LUM_POPS_HELD)THEN
 	  IF(.NOT. ALLOCATED(POPS_GS_SAVE))THEN
 	    ALLOCATE(POPS_GS_SAVE(NT,ND),STAT=IOS)
 	  ELSE IF(SIZE(POPS_GS_SAVE,1) .NE. NT .OR.
