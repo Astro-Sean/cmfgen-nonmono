@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 INTERFACE = (ROOT / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f").read_text()
 SOLVER = (ROOT / "new_main/mod_subs/jfnk_solver_v1.f90").read_text()
 POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
+SOLVE_CORR = (ROOT / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
 
 
 def section(source, start, end):
@@ -93,6 +94,19 @@ check(
     re.search(r"jfnk_x\s*=\s*0\.0D0", pre_factor) is not None
     and "CALL JFNK_SET_PTC_SCALE_V1" in pre_factor
     and re.search(r"jfnk_ptc_dtau\s*=\s*1\.0D0", pre_factor) is not None,
+)
+check(
+    "baseline rebuild masks fixed unknowns before PTC re-arm",
+    pre_factor.index("CALL JFNK_MASK_FIXED_UNKNOWNS")
+    < pre_factor.index("jfnk_x = 0.0D0")
+    and pre_factor.index("CALL JFNK_MASK_FIXED_UNKNOWNS")
+    < pre_factor.index("CALL JFNK_SET_PTC_SCALE_V1"),
+)
+check(
+    "admission gate build follows F(0) adoption and PTC arming",
+    SOLVE_CORR.index("CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)")
+    > SOLVE_CORR.index("CALL JFNK_SET_PTC_SCALE_V1(JFNK_N,jfnk_fx)")
+    > SOLVE_CORR.index("jfnk_fx=F0_Y"),
 )
 check(
     "coupled rebuild forces a refactor before returning",

@@ -550,17 +550,6 @@
 	  END IF
 	  FLUSH(LUER)
 !
-! Build the BA blocks for the reach/direction gates, but DEFER the
-! LU factorization until the gates pass (W5B, 17-Oct-2026): a
-! reach-skip then pays only this build plus one residual eval, not
-! the per-depth LU (~minutes on a coupled model).  The factor call
-! just above the Newton loop reuses this BA_A via JFNK_BA_BUILT.
-!
-	  TW_PH=OMP_GET_WTIME()
-	  CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)
-	  T_PH_PC=OMP_GET_WTIME()-TW_PH
-	  FLUSH(LUER)
-!
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,jfnk_fx)
 	  CALL JFNK_COMPUTE_RSCALE_V1(JFNK_N,jfnk_fx)
 !
@@ -833,6 +822,21 @@
 	      CALL JFNK_SET_PTC_SCALE_V1(JFNK_N,jfnk_fx)
 	      jfnk_ptc_dtau=1.0D0
 	    END IF
+!
+! Build the BA blocks for the reach/direction gates, but DEFER the
+! LU factorization until the gates pass (W5B, 17-Oct-2026): a
+! reach-skip then pays only this build plus one residual eval, not
+! the per-depth LU (~minutes on a coupled model).  The factor call
+! just above the Newton loop reuses this BA_A via JFNK_BA_BUILT.
+! The build sits after F(0) adoption, masking and PTC arming so the
+! gate diagonal folds the adopted masked baseline at the live scale
+! (previously it folded the pre-adoption, unmasked F; in coupled mode
+! that could over- or under-price the gate by a large margin).
+!
+	    TW_PH=OMP_GET_WTIME()
+	    CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)
+	    T_PH_PC=OMP_GET_WTIME()-TW_PH
+	    FLUSH(LUER)
 	    ALLOCATE(BEST_X(JFNK_N))
 	    BEST_X=0.0D0
 	    BEST_F_W=F_W_INIT
@@ -867,7 +871,7 @@
 ! can move (m15 SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
 ! ~39k pop-floor regularized rows, cos(F,Jz) ~ 1e-4) -- the frozen
 ! tier's inability is certified by data already paid for (BA_A built
-! at :557, F(0) adopted above).  Refusing here costs ~one residual
+! above, F(0) adopted above).  Refusing here costs ~one residual
 ! eval plus the BA build instead of the LU factor plus the precheck
 ! JVPs (the it35 audit paid ~78 s/admission, ~4.5 h over 210
 ! admissions, for zero committed Newton steps).  JFNK_REACH_OK=F
