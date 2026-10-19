@@ -214,8 +214,8 @@ def obs_color_pairs(obs, b1, b2, max_sep=0.75):
 
 
 def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
-                     foot_slack=3.0, early_phase=80.0, early_wt=5.0,
-                     tail_wt=0.5, col_wt=0.1, peak_gate=0.4):
+                     foot_slack=10.0, early_phase=80.0, early_wt=5.0,
+                     tail_wt=0.5, col_wt=0.0, peak_gate=0.4):
     """Best time offset (days added to the model's own-peak phase).
 
     The turn-on is anchored to the observed -19 d r-band point by a
@@ -269,12 +269,12 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
     # its first recorded epoch cannot satisfy the gate under any shift:
     # anchoring its first epoch to foot_phase still leaves it brighter
     # than the point at -19 d.
-    # The foot and peak anchors use the o band: ATLAS o has the densest,
-    # most uniform early cadence, so it pins the rise timing far better
-    # than the sparser r detections.
+    # The foot anchor uses the r-band point at -19 d: the model's r rise
+    # must cross that magnitude at or after the point.  The peak gate
+    # stays on o (densest cadence around maximum).
     r_foot = float(np.interp(foot_phase,
-                             obs['o']['phase'], obs['o']['Mabs']))
-    rise = df[df['o'] <= r_foot]
+                             obs['r']['phase'], obs['r']['Mabs']))
+    rise = df[df['R'] <= r_foot]
     t_cross = (float(rise['time'].iloc[0]) if len(rise)
                else float(df['time'].iloc[-1]))
     dt_anchor = t_pk - t_cross + foot_phase
@@ -290,7 +290,7 @@ def best_phase_shift(df, obs, t_pk, fit_end=None, foot_phase=-19.0,
 
     def violates_foot(dt):
         for ph in early_ph:
-            rm = model_mag_at(df, ph - dt + t_pk, 'o')
+            rm = model_mag_at(df, ph - dt + t_pk, 'R')
             if np.isfinite(rm) and rm < r_foot - 0.05:
                 return True  # brighter than the point at or before -19 d
         return False

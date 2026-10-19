@@ -82,6 +82,20 @@ FIT_MAX_MJD = 60544.0
 # superbol (mnicholl/superbol) band colours for the observed points
 BAND_COLORS = {'g': 'g', 'r': 'r', 'i': 'goldenrod'}
 
+# Focused-fit weights:
+# - the rise is anchored in the i band: the two non-detections before the
+#   first i detection are one-sided upper limits, the first i detection is
+#   matched directly.  Each i constraint weighs W_RISE.
+# - detections at phase <= EARLY_PHASE_CUT (days since i peak; covers the
+#   rise, the peak and the first two weeks post-peak) weigh W_EARLY,
+#   later detections weigh W_LATE.
+EARLY_PHASE_CUT = 15.0
+W_EARLY = 1.0
+W_LATE = 0.25
+W_RISE = 2.0
+N_I_NONDET = 2
+DARK_MAG = -12.0   # model magnitude when the phase is outside coverage
+
 
 def parse_grid_name(name):
     """'E05_Ni0p075' -> (5.0, 0.075, ''); envelope variants keep a suffix
@@ -212,9 +226,26 @@ def load_observations(path):
 
 
 def score_model(df, obs, shift):
-    """RMS mag deviation vs g/r/i detections at MJD < FIT_MAX_MJD;
-    model time + shift = phase."""
+    """Focused weighted-RMS fit vs SN 2024pba first peak.
+
+    Three ingredients, all in magnitudes:
+      1. i-band rise gate: at the last N_I_NONDET i non-detections before
+         the first i detection the model must be fainter than the 5-sigma
+         limit (one-sided residual), and the first i detection is matched
+         directly.  Each constraint carries weight W_RISE.
+      2. g/r/i detections at phase <= EARLY_PHASE_CUT (rise, peak and
+         <15 d post-peak) weigh W_EARLY; later detections up to
+         FIT_MAX_MJD weigh W_LATE.
+      3. combined = weighted RMS over all residuals.
+
+    model time + shift = phase (days since observed i peak).  Phases
+    outside the model coverage count as DARK_MAG for the first i
+    detection (a model that has no flux that early is dark and satisfies
+    a non-detection by construction).
+    """
     scores = {}
+    num = 0.0
+    den = 0.0
     for band in ('g', 'r', 'i'):
         det = obs[band]['det']
         t_mod = df['time'].values + shift
@@ -225,13 +256,54 @@ def score_model(df, obs, shift):
         if ok.sum() < 3:
             scores[band] = np.nan
             continue
-        interp = np.interp(det['phase'].values[ok], t_mod, m_mod)
-        scores[band] = float(np.sqrt(np.mean(
-            (interp - det['Mabs'].values[ok]) ** 2)))
+        phases = det['phase'].values[ok]
+        interp = np.interp(phases, t_mod, m_mod)
+        resid = interp - det['Mabs'].values[ok]
+        w = np.where(phases <= EARLY_PHASE_CUT, W_EARLY, W_LATE)
+        scores[band] = float(np.sqrt(np.sum(w * resid**2) / np.sum(w)))
         scores[f'n_{band}'] = int(ok.sum())
+        num += float(np.sum(w * resid**2))
+        den += float(np.sum(w))
+
+    # i-band rise gate: non-detection limits + first detection
+    iobs = obs['i']
+    det_i = iobs['det'].sort_values('phase')
+    nd_i = iobs['nd'].sort_values('phase')
+    t_i = df['time'].values + shift
+    m_i = df['i'].values
+    rise_pen = 0.0
+    n_rise = 0
+    if len(det_i):
+        first_ph = det_i['phase'].values[0]
+        nd_use = nd_i[nd_i['phase'] < first_ph].tail(N_I_NONDET)
+        for ph, mlim in zip(nd_use['phase'].values,
+                            nd_use['Mabs_lim'].values):
+            if ph > t_i.max():
+                continue
+            # phases before model t=0 are dark -> satisfy the limit
+            m_mod = (np.interp(ph, t_i, m_i) if ph >= t_i.min()
+                     else np.inf)
+            # one-sided: only penalise a model brighter than the limit
+            pen = max(0.0, mlim - m_mod)
+            rise_pen += pen * pen
+            n_rise += 1
+        # first i detection: direct match (dark if outside coverage)
+        m_det = det_i['Mabs'].values[0]
+        if first_ph <= t_i.max():
+            m_mod = (np.interp(first_ph, t_i, m_i)
+                     if first_ph >= t_i.min() else DARK_MAG)
+            pen = m_mod - m_det
+            rise_pen += pen * pen
+            n_rise += 1
+    scores['rise_rms'] = float(np.sqrt(rise_pen / n_rise)) if n_rise \
+        else np.nan
+    num += W_RISE * rise_pen
+    den += W_RISE * n_rise
+
     parts = [s for s in (scores.get('g'), scores.get('r'), scores.get('i'))
              if s is not None and not np.isnan(s)]
-    scores['combined'] = float(np.mean(parts)) if parts else np.nan
+    scores['combined'] = float(np.sqrt(num / den)) \
+        if den > 0 and parts else np.nan
     return scores
 
 
@@ -282,8 +354,8 @@ def main():
 
     print(f"{'Model':<14} {'E':>5} {'Ni56':>6} {'src':>6} "
           f"{'i_peak':>7} {'pk_day':>6} {'rms_g':>6} {'rms_r':>6} "
-          f"{'rms_i':>6} {'rms':>6}")
-    print('-' * 80)
+          f"{'rms_i':>6} {'rise':>6} {'rms':>6}")
+    print('-' * 88)
     for m in models:
         df = m['df']
         t_ipeak = df.loc[df[PEAK_BAND].idxmin(), 'time']
@@ -299,6 +371,7 @@ def main():
               f"{sc.get('g', float('nan')):6.2f} "
               f"{sc.get('r', float('nan')):6.2f} "
               f"{sc.get('i', float('nan')):6.2f} "
+              f"{sc.get('rise_rms', float('nan')):6.2f} "
               f"{sc['combined']:6.2f}")
 
     best = min(models, key=lambda m: m['score']['combined']

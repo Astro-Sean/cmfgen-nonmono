@@ -287,10 +287,7 @@ if [[ $restart -eq 0 && $no_submit -eq 0 && ! -f "$RESTART_HELPER" && "${SKIP_FI
   # SCRTEMP and SCRATCH/ (SCR_READ_V2 warm-restart checkpoints), POP* and
   # species *_IN/*_OUT (population continuation; T_IN and GAMMAS_IN are
   # inputs and stay), FGINEXT_GS/MOMJNXT_GS (Knop GS radiation state).
-  # exe_frozen holds the per-submission frozen solver binary that the
-  # patched batch.sh executes - it is pipeline output, not run state,
-  # and deleting it breaks cold-start submissions with exit 127.
-  FILES_TO_KEEP="$BASE_FILES_TO_KEEP exe_frozen SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat OUTGEN SPECIES_MASSES OBSFLUX SN_HYDRO_FOR_NEXT_MODEL RS_XRAY_FLUXES GAMMAS GAMMAS_IN JH_AT_CURRENT_TIME JH_AT_CURRENT_TIME_INFO config_resolved.yaml"
+  FILES_TO_KEEP="$BASE_FILES_TO_KEEP SN_HYDRO_DATA obs plots EDDFACTOR EDDFACTOR_INFO GREY_SCL_FAC_IN input_hydro.dat OUTGEN SPECIES_MASSES OBSFLUX SN_HYDRO_FOR_NEXT_MODEL RS_XRAY_FLUXES GAMMAS GAMMAS_IN JH_AT_CURRENT_TIME JH_AT_CURRENT_TIME_INFO config_resolved.yaml"
   
   cd "${MODEL_DIR}"
   

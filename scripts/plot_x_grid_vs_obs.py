@@ -309,6 +309,35 @@ MODEL_STYLE = {
                             label=(r'2-$\dot M$ wind $2{\to}4{\times}10^{17}$'
                                    r' at $4.5{\times}10^{15}$, steep CD,'
                                    ' intact SN-A')),
+    'X_V10000_w2m16i': dict(color='darkgreen', lw=1.4, ls=':', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}2.5{\times}10^{17}$'
+                                   r' at $4.5{\times}10^{15}$, steep CD,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m17i': dict(color='darkgreen', lw=1.4, ls='-.', zorder=14,
+                            label=(r'2-$\dot M$ wind $2{\to}3{\times}10^{17}$'
+                                   r' at $4.5{\times}10^{15}$, steep CD,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m18i': dict(color='seagreen', lw=1.4, ls=':', zorder=14,
+                            label=(r'wind ramp $2{\to}3{\times}10^{17}$'
+                                   r' at $4.5{\times}10^{15}$, 0.4-dex blend,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m19i': dict(color='seagreen', lw=1.4, ls='-.', zorder=14,
+                            label=(r'wind ramp $2{\to}3.5{\times}10^{17}$'
+                                   r' at $4.5{\times}10^{15}$, 0.6-dex blend,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m20i': dict(color='olivedrab', lw=1.4, ls='-', zorder=14,
+                            label=(r'wind ramp $2{\to}3.5{\times}10^{17}$'
+                                   r' at $4.5{\times}10^{15}$, 0.4-dex blend,'
+                                   ' intact SN-A')),
+    'X_V10000_w2m21i': dict(color='olivedrab', lw=1.4, ls='--', zorder=14,
+                            label=(r'inner $w=2.7{\times}10^{17}$, cocoon'
+                                   r' $2.5{\times}10^{17}$, intact SN-A')),
+    'X_V10000_w2m22i': dict(color='olive', lw=1.4, ls=':', zorder=14,
+                            label=(r'rising cocoon $w\,{\propto}\,r$ to'
+                                   r' $4{\times}10^{17}$, intact SN-A')),
+    'X_V10000_w2m23i': dict(color='olive', lw=1.4, ls='--', zorder=14,
+                            label=(r'rising cocoon $w\,{\propto}\,r^{1.7}$ to'
+                                   r' $5{\times}10^{17}$, intact SN-A')),
     'X_V10000_w2m15i': dict(color='teal', lw=1.6, ls='-', zorder=14,
                             label=(r'eruption $t=-180$ d: '
                                    r'$2{\to}5{\times}10^{17}$ at '
@@ -325,6 +354,120 @@ MODEL_STYLE = {
     'X_V12000_w2m13i_sh4': dict(color='darkorange', lw=1.4, ls='-.', zorder=14,
                                label=(r'4 $M_\odot$ shell at 12000 km s$^{-1}$,'
                                       ' w2m13 wind, intact SN-A')),
+    'X_V8000_w2m24i': dict(color='tab:blue', lw=1.4, ls='-', zorder=14,
+                           label=(r'w2m18i CSM, shell at 8000 km s$^{-1}$,'
+                                  ' intact SN-A')),
+    'X_V7000_w2m25i': dict(color='tab:blue', lw=1.4, ls='--', zorder=14,
+                           label=(r'w2m18i CSM, shell at 7000 km s$^{-1}$,'
+                                  ' intact SN-A')),
+    'X_V6000_w2m26i': dict(color='tab:blue', lw=1.4, ls=':', zorder=14,
+                           label=(r'w2m18i CSM, shell at 6000 km s$^{-1}$,'
+                                  ' intact SN-A')),
+    'X_V7000_w2m27i': dict(color='tab:cyan', lw=1.4, ls='-', zorder=14,
+                           label=(r'shell 7000 km s$^{-1}$, outer'
+                                  r' $w=2.5{\times}10^{17}$, intact SN-A')),
+    'X_V6000_w2m28i': dict(color='tab:cyan', lw=1.4, ls='--', zorder=14,
+                           label=(r'shell 6000 km s$^{-1}$, outer'
+                                  r' $w=2.5{\times}10^{17}$, intact SN-A')),
+    'X_V5000_w2m29i': dict(color='tab:blue', lw=1.4, ls='-.', zorder=14,
+                           label=(r'w2m18i CSM, shell at 5000 km s$^{-1}$,'
+                                  ' intact SN-A')),
+    'X_V5000_w2m30i': dict(color='tab:red', lw=1.4, ls='-', zorder=14,
+                           label=(r'shell 5000 km s$^{-1}$, braking layer'
+                                  r' $w\to5.6{\times}10^{17}$ at'
+                                  r' $7{\times}10^{15}$, intact SN-A')),
+    'X_V4000_w2m31i': dict(color='navy', lw=1.4, ls=':', zorder=14,
+                           label=(r'w2m18i CSM, shell at 4000 km s$^{-1}$,'
+                                  ' intact SN-A')),
+    'X_V5000M3_w2m32i': dict(color='tab:red', lw=1.4, ls='--', zorder=14,
+                             label=(r'3 $M_\odot$ shell at 5000 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V5000M2_w2m33i': dict(color='tab:red', lw=1.4, ls=':', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 5000 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V6000_w2m34i': dict(color='tab:brown', lw=1.4, ls='-', zorder=14,
+                           label=(r'shell 6000 km s$^{-1}$, braking wall'
+                                  r' $w\to9{\times}10^{17}$ at'
+                                  r' $7{\times}10^{15}$, intact SN-A')),
+    'X_V5500M3_w2m35i': dict(color='tab:red', lw=1.4, ls='-.', zorder=14,
+                             label=(r'3 $M_\odot$ shell at 5500 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V7000_w2m36i': dict(color='tab:olive', lw=1.4, ls='-', zorder=14,
+                           label=(r'shell 7000 km s$^{-1}$, outer $n=3$,'
+                                  ' intact SN-A')),
+    'X_V6000_w2m37i': dict(color='tab:olive', lw=1.4, ls='--', zorder=14,
+                           label=(r'shell 6000 km s$^{-1}$, outer $n=3$,'
+                                  ' intact SN-A')),
+    'X_V6000_w2m38i': dict(color='tab:cyan', lw=1.4, ls='-.', zorder=14,
+                           label=(r'shell 6000 km s$^{-1}$, outer'
+                                  r' $w=2{\times}10^{17}$, intact SN-A')),
+    'X_V6000_w2m40i': dict(color='tab:pink', lw=1.4, ls='-', zorder=14,
+                           label=(r'shell 6000 km s$^{-1}$, outer $n=2.5$,'
+                                  ' intact SN-A')),
+    'X_V7000_w2m41i': dict(color='tab:pink', lw=1.4, ls='--', zorder=14,
+                           label=(r'shell 7000 km s$^{-1}$, outer $n=2.5$,'
+                                  ' intact SN-A')),
+    'X_V4500M3_w2m42i': dict(color='maroon', lw=1.4, ls='-', zorder=14,
+                             label=(r'3 $M_\odot$ shell at 4500 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V5000M3_w2m43i': dict(color='maroon', lw=1.4, ls='--', zorder=14,
+                             label=(r'3 $M_\odot$ shell at 5000 km s$^{-1}$,'
+                                    r' inner $w=3{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V5000M3_w2m44i': dict(color='maroon', lw=1.4, ls=':', zorder=14,
+                             label=(r'3 $M_\odot$ shell at 5000 km s$^{-1}$,'
+                                    r' inner $w=2.5{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V5000M2p5_w2m45i': dict(color='tab:purple', lw=1.4, ls='-', zorder=14,
+                              label=(r'2.5 $M_\odot$ shell at 5000 km s$^{-1}$,'
+                                     r' inner $w=3{\times}10^{17}$,'
+                                     ' intact SN-A')),
+    'X_V5500M3_w2m46i': dict(color='maroon', lw=1.4, ls='-.', zorder=14,
+                             label=(r'3 $M_\odot$ shell at 5500 km s$^{-1}$,'
+                                    r' inner $w=3{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V5500M2_w2m47i': dict(color='tab:purple', lw=1.4, ls='--', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 5500 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V4500M2p5_w2m48i': dict(color='tab:purple', lw=1.4, ls=':', zorder=14,
+                              label=(r'2.5 $M_\odot$ shell at 4500 km s$^{-1}$,'
+                                     ' intact SN-A')),
+    'X_V5000M2p5_w2m49i': dict(color='tab:purple', lw=1.4, ls='-.', zorder=14,
+                              label=(r'2.5 $M_\odot$ shell at 5000 km s$^{-1}$,'
+                                     r' inner $w=4{\times}10^{17}$,'
+                                     ' intact SN-A')),
+    'X_V6000M2p5_w2m50i': dict(color='tab:purple', lw=1.4, ls='-', zorder=14,
+                              label=(r'2.5 $M_\odot$ shell at 6000 km s$^{-1}$,'
+                                     ' intact SN-A')),
+    'X_V6000M2_w2m51i': dict(color='tab:brown', lw=1.4, ls='-', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 6000 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V6500M2_w2m52i': dict(color='tab:brown', lw=1.4, ls='--', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 6500 km s$^{-1}$,'
+                                    ' intact SN-A')),
+    'X_V5500M2p5_w2m53i': dict(color='tab:brown', lw=1.4, ls=':', zorder=14,
+                              label=(r'2.5 $M_\odot$ shell at 5500 km s$^{-1}$,'
+                                     ' intact SN-A')),
+    'X_V6000M2_w2m54i': dict(color='tab:brown', lw=1.4, ls='-.', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 6000 km s$^{-1}$,'
+                                    r' inner $w=4{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V6000M2_w2m55i': dict(color='tab:olive', lw=1.4, ls='-', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 6000 km s$^{-1}$,'
+                                    r' inner $w=5{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V6500M2_w2m56i': dict(color='tab:olive', lw=1.4, ls='--', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 6500 km s$^{-1}$,'
+                                    r' inner $w=4{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V5500M2_w2m57i': dict(color='tab:olive', lw=1.4, ls=':', zorder=14,
+                             label=(r'2 $M_\odot$ shell at 5500 km s$^{-1}$,'
+                                    r' inner $w=4{\times}10^{17}$,'
+                                    ' intact SN-A')),
+    'X_V6000M1p5_w2m58i': dict(color='k', lw=1.6, ls='--', zorder=14,
+                              label=(r'1.5 $M_\odot$ shell at 6000 km s$^{-1}$,'
+                                     r' inner $w=4{\times}10^{17}$,'
+                                     ' intact SN-A')),
     'X_V10000_wind2m_inv': dict(color='tab:purple', lw=1.6, ls=':', zorder=14,
                               label=(r'wind $\dot{M}$: $1\to3$'
                                      r'$\times 10^{17}$ at $5{\times}10^{15}$,'
@@ -378,19 +521,41 @@ MODEL_ORDER = ['X', 'X_M2', 'X_M10', 'X_V6000', 'X_V8000',
                'X_V10000_wind06', 'X_V10000_wind09', 'X_V10000_wind035',
                'X_V10000_wind04', 'X_V10000_wind045',
                'X_V10000_wind045b', 'X_V10000_wind045s',
-               'X_V10000_wind02i', 'X_V10000_wind03i',
                'X_V10000_wind045i', 'X_V10000_wind06i',
                'X_V10000_wind09i',
-               'X_V10000_w2m1i', 'X_V10000_w2m2i', 'X_V10000_w2m3i',
-               'X_V10000_w2m4i', 'X_V10000_w2m5i', 'X_V10000_w2m6i',
-               'X_V10000_w2m7i', 'X_V10000_w2m8i',
-               'X_V10000_w2m9i', 'X_V10000_w2m10i', 'X_V10000_w2m11i',
+               'X_V10000_w2m2i', 'X_V10000_w2m3i',
+               'X_V10000_w2m4i', 'X_V10000_w2m6i',
+               'X_V10000_w2m7i',
                'X_V10000_w2m12i', 'X_V10000_w2m13i', 'X_V10000_w2m14i',
+               'X_V10000_w2m16i', 'X_V10000_w2m17i',
+               'X_V10000_w2m18i', 'X_V10000_w2m19i',
+               'X_V10000_w2m20i', 'X_V10000_w2m21i',
+               'X_V10000_w2m22i', 'X_V10000_w2m23i',
                'X_V10000_w2m15i',
+               'X_V8000_w2m24i', 'X_V7000_w2m25i', 'X_V6000_w2m26i',
+               'X_V7000_w2m27i',
+               'X_V6000_w2m28i', 'X_V5000_w2m29i', 'X_V5000_w2m30i',
+               'X_V4000_w2m31i',
+               'X_V5000M3_w2m32i', 'X_V5000M2_w2m33i',
+               'X_V6000_w2m34i', 'X_V5500M3_w2m35i',
+               'X_V7000_w2m36i', 'X_V6000_w2m37i', 'X_V6000_w2m38i',
+               'X_V6000_w2m40i', 'X_V7000_w2m41i', 'X_V4500M3_w2m42i',
+               'X_V5000M3_w2m43i', 'X_V5000M3_w2m44i',
+               'X_V5000M2p5_w2m45i', 'X_V5500M3_w2m46i',
+               'X_V5500M2_w2m47i', 'X_V4500M2p5_w2m48i',
+               'X_V5000M2p5_w2m49i', 'X_V6000M2p5_w2m50i',
+               'X_V6000M2_w2m51i', 'X_V6500M2_w2m52i',
+               'X_V5500M2p5_w2m53i', 'X_V6000M2_w2m54i',
+               'X_V5000M2_w2m54i', 'X_V6000M2_w2m54di',
+               'X_V4500M2_w2m54i', 'X_V5500M2_w2m54i',
+               'X_V5500M1p5_w2m54i', 'X_V5500M1p5_w3e17i',
+               'X_V6000M2_w2m54a390i', 'X_V6000M2_w2m54a430i',
+               'X_V6000M2_w2m55i', 'X_V6500M2_w2m56i',
+               'X_V5500M2_w2m57i', 'X_V6000M1p5_w2m58i',
                'X_V8000_w2m13i_sh6', 'X_V14000_w2m13i_sh2',
                'X_V10000_w2m13i_sh6', 'X_V12000_w2m13i_sh4',
                'X_V10000_wind12i', 'X_V10000_wind13i', 'X_V10000_wind14i',
-               'X_V10000_wind15i', 'X_V10000_wind20i',
+               'X_V10000_wind15i',
                'X_V10000_wind12li', 'X_V10000_wind09li',
                'X_V10000_wind2m', 'X_V10000_wind2m_inv',
                'X_V10000_wallwind',
@@ -467,6 +632,8 @@ def main():
     ap.add_argument('--min-tmax', type=float, default=200.0,
                     help='drop models whose .tt ends before this '
                          'model time (d); 0 disables')
+    ap.add_argument('--only', nargs='+', default=None,
+                    help='plot only these model names')
     args = ap.parse_args()
     if args.ebv is not None:
         base.set_ebv(args.ebv)
@@ -480,7 +647,61 @@ def main():
     if not args.all_models:
         # The intact-SN_A family is the current baseline; the older
         # truncated-ejecta models misrepresent SN_A composition.
-        models = [(n, d) for n, d in models if n.endswith('i')]
+        # Shell-scan names append _sh* after the i suffix.
+        intact = lambda n: n.endswith('i') or 'i_sh' in n
+        models = [(n, d) for n, d in models if intact(n)]
+        # Retired poor fits: keep the run outputs but drop them from
+        # the comparison so the informative family stays readable.
+        drop = {
+            'X_V10000_wind02i', 'X_V10000_wind03i', 'X_V10000_wind20i',
+            'X_V10000_w2m1i', 'X_V10000_w2m5i', 'X_V10000_w2m8i',
+            'X_V10000_w2m9i', 'X_V10000_w2m10i', 'X_V10000_w2m11i',
+            'X_V10000_w2m15i',
+            # Flat winds all wreck the rise (early >= 280); none
+            # compete with the ramp family.
+            'X_V10000_wind045i', 'X_V10000_wind06i', 'X_V10000_wind09i',
+            'X_V10000_wind12i', 'X_V10000_wind13i', 'X_V10000_wind14i',
+            'X_V10000_wind15i', 'X_V10000_wind09li', 'X_V10000_wind12li',
+            # Early 2-Mdot scans: all score > 1200 with bad tails.
+            'X_V10000_w2m2i', 'X_V10000_w2m3i', 'X_V10000_w2m4i',
+            'X_V10000_w2m6i', 'X_V10000_w2m7i', 'X_V10000_w2m12i',
+            'X_V10000_w2m13i',
+            # Shell scans: keep only sh2 (best tail term in the grid).
+            'X_V8000_w2m13i_sh6', 'X_V10000_w2m13i_sh6',
+            'X_V12000_w2m13i_sh4',
+            # Redundant worse variants of the blend/cocoon scans.
+            'X_V10000_w2m17i', 'X_V10000_w2m19i',
+            'X_V10000_w2m20i', 'X_V10000_w2m23i',
+            # Velocity-scan failures: early term blows up below 5000.
+            'X_V5000_w2m29i', 'X_V5000_w2m30i', 'X_V4000_w2m31i',
+            # Low-momentum shells: tail great but early collapses.
+            'X_V5000M3_w2m32i', 'X_V5000M2_w2m33i', 'X_V5500M3_w2m35i',
+            # Braking wall glows at +160-240 d; n=3 outer fades too fast.
+            'X_V6000_w2m34i', 'X_V7000_w2m36i', 'X_V6000_w2m37i',
+            # n=2.5 outer variants: middling scores, bump still ~235 d.
+            'X_V6000_w2m40i', 'X_V7000_w2m41i',
+            # Superseded velocity-scan points: w2m27i is the best of
+            # the family; cocoon/sh branches lose overall.
+            'X_V8000_w2m24i', 'X_V7000_w2m25i', 'X_V6000_w2m26i',
+            'X_V6000_w2m28i', 'X_V6000_w2m38i',
+            'X_V10000_w2m14i', 'X_V10000_w2m21i', 'X_V10000_w2m22i',
+            'X_V14000_w2m13i_sh2',
+            # Inner-column variants superseded by the w2m43-50 set.
+            'X_V4500M3_w2m42i', 'X_V5000M3_w2m44i', 'X_V4500M2p5_w2m48i',
+            'X_V5000M2p5_w2m49i',
+            # Mid-score bracket points superseded by w2m53i/54i.
+            'X_V5000M3_w2m43i', 'X_V5000M2p5_w2m45i',
+            'X_V6000M2_w2m51i', 'X_V6500M2_w2m52i',
+            'X_V5500M2_w2m47i', 'X_V5500M2p5_w2m53i',
+            # w2m56i fit collapses (dt=+58, late bright peak);
+            # w2m57i is an exact rerun of X_V5500M2_w2m54i;
+            # w2m54di scores 31885 with dt=+60.
+            'X_V6500M2_w2m56i', 'X_V5500M2_w2m57i',
+            'X_V6000M2_w2m54di',
+        }
+        models = [(n, d) for n, d in models if n not in drop]
+    if args.only:
+        models = [(n, d) for n, d in models if n in set(args.only)]
     if not models:
         raise SystemExit(f'no completed models found in {args.grid_dir}')
     print(f'loaded {len(models)} models')
