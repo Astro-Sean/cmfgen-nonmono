@@ -1945,32 +1945,40 @@
 	  CALL RD_STORE_DBLE(FG_DIV_HEAL_CAP_V,'FG_DIV_HEAL_CAP',
 	1     L_FALSE,'Heal bound on diverged-ray poisoned store slots')
 !
-! FG_COMMIT_CONV (17-Oct-2026, default F): fail-closed refresh
+! FG_COMMIT_CONV (17-Oct-2026, default T): fail-closed refresh
 ! commits.  When T, a ray whose refresh solve exits on stall,
 ! pass-cap or plateau (IXIT 3/4/6, residual still above KN_RAY_TOL)
 ! does not write its last iterate to the lagged store -- the
 ! pre-refresh generation stays as the seed instead of committing a
 ! non-converged field bounded only by FG_COMMIT_JUMP (w19 class:
 ! cap-exit commit at residual 0.465, retained delta 21).
+! Default changed to T (edited by Devin, 19-Oct-2026): the guard
+! only closed the w19 drift class when the VADAT key was set by
+! hand, so fail-open was the wrong default.  F remains available
+! as an opt-in diagnostic.
 !
-	  FG_COMMIT_CONV_V=.FALSE.
+	  FG_COMMIT_CONV_V=.TRUE.
 	  CALL RD_STORE_LOG(FG_COMMIT_CONV_V,'FG_COMMIT_CONV',L_FALSE,
 	1     'Reject refresh commits on non-converged ray exits?')
 !
-! FG_COMMIT_NC (default 0 = pure reject): under FG_COMMIT_CONV a
+! FG_COMMIT_NC (default 0.05): under FG_COMMIT_CONV a
 ! non-converged ray (bad exit class OR residual > KN_RAY_TOL --
 ! bulk exits are also caught, since IXIT=2 fires on the bad-cell
 ! fraction alone) takes a capped provisional commit, each cell
 ! bounded to NC times its retained value.  w19's bulk-exit commits
 ! of 8-27x at residual ~0.47 were the luminosity ratchet.
-! FG_BULK_CONTR (default F) additionally requires same-direction
+! Default changed to 0.05 (edited by Devin, 19-Oct-2026): the NC=0
+! pure-reject default starved the store on models where every ray
+! exits un-converged, re-arming the cold-reseed cycle the commit
+! gate was built to break.
+! FG_BULK_CONTR (default T) additionally requires same-direction
 ! contraction before the bulk exit may fire, so flat noncontracting
 ! rays are classed stall/plateau/cap instead of converged.
 !
-	  FG_COMMIT_NC_V=0.0_LDP
+	  FG_COMMIT_NC_V=0.05_LDP
 	  CALL RD_STORE_DBLE(FG_COMMIT_NC_V,'FG_COMMIT_NC',L_FALSE,
 	1     'KNOP: per-cell cap factor on non-converged commits (0=reject)')
-	  FG_BULK_CONTR_V=.FALSE.
+	  FG_BULK_CONTR_V=.TRUE.
 	  CALL RD_STORE_LOG(FG_BULK_CONTR_V,'FG_BULK_CONTR',L_FALSE,
 	1     'Require contraction before the bulk bad-fraction exit?')
 	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V,
@@ -2830,7 +2838,9 @@
 !
 ! W1-W9 effective knobs (17-Oct-2026): echo the maturity-chain
 ! repair controls so the run log shows what the refresh/gate
-! actually ran with.
+! actually ran with.  commit_conv/commit_nc/bulk_contr print the
+! effective values, so the post-19-Oct-2026 defaults (T/0.05/T)
+! show up here whenever VADAT leaves them unset.
 !
 	    WRITE(LUER,'(A,L2,A,L2,A,ES10.3,A,I4,A,L2)')
 	1   '   omega_v2=',FG_ADAPT_OMEGA_V2_V,

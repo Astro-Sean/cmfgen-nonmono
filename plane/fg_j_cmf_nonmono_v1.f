@@ -438,7 +438,7 @@
 	REAL(KIND=LDP), SAVE :: FG_COMMIT_JUMP=50.0_LDP
 	REAL(KIND=LDP), SAVE :: FG_DIV_HEAL_CAP=1.0E+6_LDP
 !
-! FG_COMMIT_CONV (VADAT [FG_COMMIT_CONV], default F): fail-closed
+! FG_COMMIT_CONV (VADAT [FG_COMMIT_CONV], default T): fail-closed
 ! refresh commits.  When T, a ray field solve that ended on a stall,
 ! pass-cap or plateau exit (IXIT 3/4/6 -- residual still above
 ! KN_RAY_TOL) does not reach WRITE_STORE: the ray's lagged store
@@ -448,12 +448,14 @@
 ! commit a field tens of factors off the sane seed (w19 class:
 ! residual 0.465 at the cap with retained delta 21).  FG_NC_REJ
 ! counts these rejections separately from jump rejects.  IXIT 0
-! (exact), 1 (tol) and 2 (bulk-maturity) still commit.
+! (exact), 1 (tol) and 2 (bulk-maturity) still commit.  Default
+! changed to T (edited by Devin, 19-Oct-2026): fail-open was the
+! wrong default for the drift class this guard was written for.
 !
-	LOGICAL, SAVE :: FG_COMMIT_CONV=.FALSE.
+	LOGICAL, SAVE :: FG_COMMIT_CONV=.TRUE.
 	INTEGER, SAVE :: FG_NC_REJ=0
 !
-! FG_COMMIT_NC (VADAT [FG_COMMIT_NC], default 0): per-cell bound on
+! FG_COMMIT_NC (VADAT [FG_COMMIT_NC], default 0.05): per-cell bound on
 ! the committed change for a NON-converged ray under FG_COMMIT_CONV.
 ! FG_COMMIT_CONV alone skips the write on bad exits, but a bulk exit
 ! (IXIT=2) is classed converged even when the residual is far above
@@ -468,7 +470,7 @@
 ! FG_NC_CAP counts capped commits; FG_RAY_VC records the per-ray
 ! verdict for the summary census and worst-ray line.
 !
-	REAL(KIND=LDP), SAVE :: FG_COMMIT_NC=0.0_LDP
+	REAL(KIND=LDP), SAVE :: FG_COMMIT_NC=0.05_LDP
 	INTEGER, SAVE :: FG_NC_CAP=0
 ! Verdict codes: -1 unsolved, 0 committed, 1 jump reject,
 ! 2 non-converged reject, 3 capped commit, 4 diverged.
@@ -484,17 +486,17 @@
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WI(:),FG_RAY_WL(:)
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WS(:)
 !
-! FG_BULK_CONTR (VADAT [FG_BULK_CONTR], default F): require the
+! FG_BULK_CONTR (VADAT [FG_BULK_CONTR], default T): require the
 ! same-direction residual to be contracting (RATIO_OM<=KN_RAY_STALL)
 ! before the bulk bad-fraction exit can fire.  Without it a ray
 ! whose residual is flat at 0.05-0.5 with a sub-0.1% bad fraction
 ! exits "bulk converged" at pass 6 -- before the stall/plateau
 ! classifiers (which need pass>=8) ever run -- and commits under
 ! the converged label.  w19: 49/84 rays took this path at residual
-! 0.25-0.49 during the luminosity runaway.  Ordering fix; F keeps
-! the old exit.
+! 0.25-0.49 during the luminosity runaway.  Ordering fix; default
+! changed to T (edited by Devin, 19-Oct-2026); F keeps the old exit.
 !
-	LOGICAL, SAVE :: FG_BULK_CONTR=.FALSE.
+	LOGICAL, SAVE :: FG_BULK_CONTR=.TRUE.
 !
 ! W7 (17-Oct-2026): extended per-ray pass budget for rays with
 ! contiguous hot-frequency runs (RES_FREQ>KN_RAY_TOL over a run).
