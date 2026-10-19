@@ -270,8 +270,8 @@
 ! written by WRITE_BCD_MAT.  A stored BAMAT can outlive the cache:
 ! warm-restart staging, directory refreshes, and solves that factor
 ! via the JFNK path all write BAMAT/BAMATPNT without the BCD files.
-! READ_BCD_MAT STOPs on a missing file, so verify the boundary
-! depths first and fall through to the compute path, which rebuilds
+! READ_BCD_MAT STOPs on a missing file, so verify every depth the
+! recall reads and fall through to the compute path, which rebuilds
 ! the factors from the loaded SE%BA.  The check mirrors the startup
 ! guard in cmfgen_sub.f but covers mid-run cache loss as well.
 !
@@ -280,15 +280,22 @@
 	1   WR_BA_INV)THEN
 	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',BCD_DIR)
 	  IF(LEN_TRIM(BCD_DIR) .EQ. 0)BCD_DIR='SCRATCH/'
-	  WRITE(BCD_F1,'(A,A,I4.4)')TRIM(BCD_DIR),'CSCRATCH',1
-	  WRITE(BCD_F2,'(A,A,I4.4)')TRIM(BCD_DIR),'CSCRATCH',ND
-	  INQUIRE(FILE=TRIM(BCD_F1),EXIST=BCD_OK)
-	  IF(BCD_OK)INQUIRE(FILE=TRIM(BCD_F2),EXIST=BCD_OK)
-	  IF(.NOT. BCD_OK)THEN
-	    WRITE(LUER,*)'CMF_BLKBAND_V3: BAMAT recall requested but'//
-	1      ' CSCRATCH factor cache is absent; recomputing LU'//
-	2      ' from stored BA'
-	  END IF
+!
+! edited by Devin, 19-Oct-2026: the recall reads every CSCRATCH<k>;
+! READ_BCD_MAT STOPs on a missing mid-depth file, so verify all depths
+! rather than the two boundaries and fall through to the compute path.
+!
+	  BCD_OK=.TRUE.
+	  DO DEPTH_INDX=1,ND
+	    WRITE(BCD_F1,'(A,A,I4.4)')TRIM(BCD_DIR),'CSCRATCH',DEPTH_INDX
+	    INQUIRE(FILE=TRIM(BCD_F1),EXIST=BCD_OK)
+	    IF(.NOT. BCD_OK)THEN
+	      WRITE(LUER,*)'CMF_BLKBAND_V3: BAMAT recall requested but'//
+	1        ' CSCRATCH factor cache is missing depth',DEPTH_INDX,
+	2        '; recomputing LU from stored BA'
+	      EXIT
+	    END IF
+	  END DO
 	END IF
 !
 	BCD_TRI_OK=.FALSE.
@@ -296,14 +303,26 @@
 	1   WR_BA_INV)THEN
 	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',BCD_DIR)
 	  IF(LEN_TRIM(BCD_DIR) .EQ. 0)BCD_DIR='SCRATCH/'
-	  WRITE(BCD_F1,'(A,A,I4.4)')TRIM(BCD_DIR),'BCSCRATCH',1
-	  WRITE(BCD_F2,'(A,A,I4.4)')TRIM(BCD_DIR),'DSCRATCH',ND
-	  INQUIRE(FILE=TRIM(BCD_F1),EXIST=BCD_TRI_OK)
-	  IF(BCD_TRI_OK)INQUIRE(FILE=TRIM(BCD_F2),EXIST=BCD_TRI_OK)
+!
+! edited by Devin, 19-Oct-2026: the TRI recall reads BCSCRATCH<k> for
+! every depth and DSCRATCH<k> for k=1..ND-1; same mid-depth check as
+! the DIAG path above.
+!
+	  BCD_TRI_OK=.TRUE.
+	  DO DEPTH_INDX=1,ND
+	    WRITE(BCD_F1,'(A,A,I4.4)')TRIM(BCD_DIR),'BCSCRATCH',DEPTH_INDX
+	    INQUIRE(FILE=TRIM(BCD_F1),EXIST=BCD_TRI_OK)
+	    IF(.NOT. BCD_TRI_OK)EXIT
+	    IF(DEPTH_INDX .LT. ND)THEN
+	      WRITE(BCD_F2,'(A,A,I4.4)')TRIM(BCD_DIR),'DSCRATCH',DEPTH_INDX
+	      INQUIRE(FILE=TRIM(BCD_F2),EXIST=BCD_TRI_OK)
+	      IF(.NOT. BCD_TRI_OK)EXIT
+	    END IF
+	  END DO
 	  IF(.NOT. BCD_TRI_OK)THEN
 	    WRITE(LUER,*)'CMF_BLKBAND_V3: BAMAT recall requested but'//
-	1      ' BCSCRATCH/DSCRATCH factor cache is absent;'//
-	2      ' recomputing LU from stored BA'
+	1      ' BCSCRATCH/DSCRATCH factor cache is missing depth',
+	2      DEPTH_INDX,'; recomputing LU from stored BA'
 	  END IF
 	END IF
 !
