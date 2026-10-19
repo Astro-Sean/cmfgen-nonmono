@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Compare m15_2p82d CMFGEN spectra (SOB + KNOP legs) against Luc's .fl model.
+"""Compare m15_2p82d CMFGEN output observed spectra against Luc's .fl.
 
-All model spectra are in OBSFLUX/obs_fin format (Jy at 1 kpc) and are
-converted to F_lambda [erg/s/cm2/A].  Luc's .fl file is wavelength(A) +
-F_lambda at 1 kpc.
+Only post-processed obs_fin products (output/*_obs_fin.dat, Jy at 1 kpc)
+are plotted, converted to F_lambda [erg/s/cm2/A].  Luc's .fl file is
+wavelength(A) + F_lambda at 1 kpc.
 """
 import re
 import sys
@@ -19,6 +19,10 @@ VAL = ROOT / "cmfgen_validation"
 LUC = VAL / "m15_z1p4em2_ekin1p2_mdot0p01_rcsm6e14_nb10a_vt50.fl"
 
 # (label, color, path, linestyle, zorder)
+# Only post-processed output spectra (output/*obs_fin.dat) - files
+# produced by the batobs/cmf_flux chain.  In-code OBSFLUX writes are
+# excluded: they are diagnostic dumps at whatever iteration wrote them,
+# not the observed-spectrum product.
 SPECS = [
     (
         "SOB l14 lte (conv exit, 88%)",
@@ -37,27 +41,6 @@ SPECS = [
         / "dessart_m15_2p82d_SOB_l14_jfnk_2.82days_obs_fin.dat",
         "--",
         5,
-    ),
-    (
-        "KNOP w19 lte (GS_FREEZE stop, it60)",
-        "tab:green",
-        VAL / "m15_2p82d_KNOP_w19_lte/cmfgen/2.82days/OBSFLUX",
-        "-",
-        4,
-    ),
-    (
-        "KNOP w19 (earlier, unconverged)",
-        "tab:olive",
-        VAL / "m15_2p82d_KNOP_w19/cmfgen/2.82days/OBSFLUX",
-        "--",
-        3,
-    ),
-    (
-        "KNOP w19 nogain (pre-clamp, unconverged)",
-        "tab:orange",
-        VAL / "m15_2p82d_KNOP_w19_nogain/cmfgen/2.82days/OBSFLUX",
-        ":",
-        2,
     ),
 ]
 
