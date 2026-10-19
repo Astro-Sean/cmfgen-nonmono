@@ -6455,6 +6455,12 @@ C
 	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
+! NCAP/NNEG are separate census channels (edited by Devin,
+! 19-Oct-2026): NNEG counts only the negative/NaN floor writes,
+! while the NONMONO_INEXT_CAP hits count into NCAP -- they were
+! previously folded into NNEG, inflating the NNG_LS "clamped"
+! telemetry with cap events.
+!
 	NSTORE=0; NPASS=0; NCAP=0; NNEG=0; NDIV=0; NMAX=1
 	NBAD=0; NTOT=0; NB_M=0; NB_P=0; NT_M=0; NT_P=0
 	NMATCH=0; NCOMP=0
@@ -7558,7 +7564,7 @@ C
 	        END IF
 	        IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	          VNEW=NONMONO_INEXT_CAP
-	          NNEG=NNEG+1
+	          NCAP=NCAP+1
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -7674,7 +7680,7 @@ C
 	      END IF
 	      IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	        VNEW=NONMONO_INEXT_CAP
-	        NNEG=NNEG+1
+	        NCAP=NCAP+1
 	      END IF
 	      VOLD=FLD(NI,L)
 	      T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -7747,7 +7753,7 @@ C
 	        END IF
 	        IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	          VNEW=NONMONO_INEXT_CAP
-	          NNEG=NNEG+1
+	          NCAP=NCAP+1
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -8606,7 +8612,7 @@ C
 	    END IF
 	    IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	      VNEW=NONMONO_INEXT_CAP
-	      NNEG=NNEG+1
+	      NCAP=NCAP+1
 	    END IF
 	    VOLD=FLD(I+1,L)
 	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -8657,7 +8663,7 @@ C
 	  END IF
 	  IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	    VNEW=NONMONO_INEXT_CAP
-	    NNEG=NNEG+1
+	    NCAP=NCAP+1
 	  END IF
 	  VOLD=FLD(NI,L)
 	  DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -8681,7 +8687,7 @@ C
 	    END IF
 	    IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	      VNEW=NONMONO_INEXT_CAP
-	      NNEG=NNEG+1
+	      NCAP=NCAP+1
 	    END IF
 	    VOLD=FLD(I,L)
 	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
