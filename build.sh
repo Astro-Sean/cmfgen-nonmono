@@ -22,4 +22,9 @@ done
 # check, so a broken solver fails the build like a compile error.
 tests/f90/build_and_run.sh
 
+# Parser/unit regression suite: each python/test_*.py compiles the
+# production sources it exercises, so a parser or guard regression
+# fails the build here rather than in a model run.
+python3 unit_tests/run_all_tests.py
+
 echo "Build succeeded."

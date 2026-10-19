@@ -287,6 +287,88 @@ def main():
         "valid KNOP config: flags land",
         v.get("DO_NONMONO_KNOP") == "T" and v.get("DO_NONMONO_SOB") == "F",
     )
+    rep.check(
+        "KNOP absent-key: FREQ_MATCH auto-set T",
+        v.get("DO_NONMONO_FREQ_MATCH") == "T"
+        and "KNOP auto-set: DO_NONMONO_FREQ_MATCH=T" in p.stdout,
+    )
+    rep.check(
+        "KNOP absent-key: refresh defaults T",
+        v.get("DO_KNOP_REFRESH") == "T",
+    )
+
+    # KNOP + explicit DO_KNOP_REFRESH=F is re-armed post-USE_LAM_ES
+    # (the moment side is re-synced to the post-auto-set value).
+    d = write_vadat(
+        WORKDIR / "vadat_knop_rf_off",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+            "DO_KNOP_REFRESH": "F",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP explicit refresh=F re-armed T",
+        "RESULT_OK" in p.stdout
+        and "KNOP auto-set: DO_KNOP_REFRESH=T" in p.stdout
+        and v.get("DO_KNOP_REFRESH") == "T",
+        p.stdout[-300:],
+    )
+    rep.check(
+        "KNOP defaults: KN_ORD_P2DAMP stays F",
+        v.get("KN_ORD_P2DAMP") == "F",
+    )
+    rep.check(
+        "KNOP defaults: N_LAM_RWARM>=4, GS_REL_STABLE>=2",
+        int(v.get("N_LAM_RWARM", "0")) >= 4
+        and int(v.get("GS_REL_STABLE", "0")) >= 2,
+    )
+
+    # KNOP + explicit FREQ_MATCH=F is respected (overridable).
+    d = write_vadat(
+        WORKDIR / "vadat_knop_fm_off",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+            "DO_NONMONO_FREQ_MATCH": "F",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP explicit FREQ_MATCH=F respected",
+        "RESULT_OK" in p.stdout
+        and v.get("DO_NONMONO_FREQ_MATCH") == "F"
+        and "auto-set: DO_NONMONO_FREQ_MATCH" not in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # KNOP + NOV_CONT=T is forced off (silent continuum bypass).
+    d = write_vadat(
+        WORKDIR / "vadat_knop_novcont",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+            "NOV_CONT": "T",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP NOV_CONT=T forced F",
+        "RESULT_OK" in p.stdout
+        and "KNOP auto-set: NOV_CONT=F" in p.stdout
+        and v.get("NO_VEL_FOR_CONTINUUM") == "F",
+        p.stdout[-300:],
+    )
 
     # USE_JFNK deprecated alias still arms the solver.
     d = write_vadat(WORKDIR / "vadat_usejfnk", {"DO_JFNK": "F", "USE_JFNK": "T"})
