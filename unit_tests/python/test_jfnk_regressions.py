@@ -58,6 +58,32 @@ check(
     "MAX(jfnk_ptc_dtau, 1.0D-8)" in factor
     and "S_PTC = S_PTC * EXP(-X_PTC)" in factor,
 )
+check(
+    "gate BA build is reused by the real factor",
+    "(DO_FACTOR_L .AND. jfnk_ptc_active)" not in factor,
+)
+
+set_scale = section(
+    INTERFACE,
+    "SUBROUTINE JFNK_SET_PTC_SCALE_V1",
+    "END SUBROUTINE JFNK_SET_PTC_SCALE_V1",
+)
+check(
+    "PTC scale re-arm invalidates the folded BA cache",
+    re.search(r"JFNK_BA_BUILT\s*=\s*\.FALSE\.", set_scale) is not None,
+)
+
+refresh = section(
+    INTERFACE,
+    "IF(jfnk_need_precond_refresh .NE. 0)THEN",
+    "jfnk_need_precond_refresh = 0",
+)
+check(
+    "precond refresh rebuilds the BA with live fold state",
+    "JFNK_BA_BUILT = .FALSE." in refresh
+    and refresh.index("JFNK_BA_BUILT = .FALSE.")
+    < refresh.index("CALL JFNK_FACTOR_PRECOND_V1()"),
+)
 post_guard = section(
     factor,
     "END IF   ! JFNK_BA_BUILT reuse guard",
@@ -102,11 +128,14 @@ check(
     and pre_factor.index("CALL JFNK_MASK_FIXED_UNKNOWNS")
     < pre_factor.index("CALL JFNK_SET_PTC_SCALE_V1"),
 )
+gate_idx = SOLVE_CORR.index("CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)")
 check(
     "admission gate build follows F(0) adoption and PTC arming",
-    SOLVE_CORR.index("CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)")
+    gate_idx
     > SOLVE_CORR.index("CALL JFNK_SET_PTC_SCALE_V1(JFNK_N,jfnk_fx)")
-    > SOLVE_CORR.index("jfnk_fx=F0_Y"),
+    > SOLVE_CORR.rindex("CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,jfnk_fx)",
+                      0, gate_idx)
+    > SOLVE_CORR.rindex("jfnk_fx=F0_Y", 0, gate_idx),
 )
 check(
     "coupled rebuild forces a refactor before returning",

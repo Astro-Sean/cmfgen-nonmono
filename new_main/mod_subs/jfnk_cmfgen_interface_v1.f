@@ -1465,6 +1465,7 @@
 !
 	SUBROUTINE JFNK_SET_PTC_SCALE_V1(N, F0)
 	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_BA_BUILT
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ptc_scale, jfnk_ptc_scale_ready,
 	1     jfnk_ptc_x0, jfnk_ptc_anchor_ready
 	IMPLICIT NONE
@@ -1506,6 +1507,9 @@
 	jfnk_ptc_scale_ready = .TRUE.
 	jfnk_ptc_x0 = 0.0D0
 	jfnk_ptc_anchor_ready = .TRUE.
+! The scale is a fold input: any cached BA_A carries the old scale in
+! its diagonal, so the next factor must rebuild rather than reuse.
+	JFNK_BA_BUILT = .FALSE.
 	END SUBROUTINE JFNK_SET_PTC_SCALE_V1
 !
 !
@@ -3122,22 +3126,27 @@
 !
 ! JFNK_BA_BUILT reuse (17-Oct-2026): the admission path already ran
 ! the build below with DO_FACTOR=.FALSE.; factoring now reuses that
-! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.
+! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.  The gate
+! build runs after F(0) adoption, masking and PTC arming, so its fold
+! state is the one the real factor needs.  Any change to the fold
+! inputs (scale re-arm, baseline rebuild, refresh request) clears
+! JFNK_BA_BUILT and forces the rebuild branch.
 !
-	REBUILD_BA = .NOT. JFNK_BA_BUILT .OR.
-	1     (DO_FACTOR_L .AND. jfnk_ptc_active)
+	REBUILD_BA = .NOT. JFNK_BA_BUILT
 	IF(REBUILD_BA)THEN
 	  JFNK_BA_DIAG = 0.0_LDP
 	  JFNK_BA_DIAG_READY = .FALSE.
 !
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
 ! JFNK_SET_PTC_SCALE_V1.  The admission build runs after F(0)
-! adoption, masking and PTC arming at dtau=1; later factor calls
-! rebuild while PTC is active so the folded shift follows the live
-! dtau.  For log unknowns, BA is in fractional units, so the PTC
-! diagonal uses sigma*exp(-x).  This routine is reached only under
-! [USE_JFNK_SOLVER] (default F); the stock population path is
-! unchanged.
+! adoption, masking and PTC arming at dtau=1; the immediate real
+! factor reuses it.  Later refresh factors rebuild because the fold
+! state changed (JFNK_BA_BUILT cleared by the scale re-arm, baseline
+! rebuild, or the refresh request in JFNK_DIAGNOSTIC_V1), so the
+! folded shift then follows the live dtau and x.  For log unknowns,
+! BA is in fractional units, so the PTC diagonal uses sigma*exp(-x).
+! This routine is reached only under [USE_JFNK_SOLVER] (default F);
+! the stock population path is unchanged.
 !
 	JFNK_PTC_FOLDED = .FALSE.
 	IF(jfnk_ptc_active .AND. ALLOCATED(jfnk_fx))THEN
@@ -5758,6 +5767,10 @@
 	  WRITE(JFNK_LUER,'(A,I4,A,F5.2)')
 	1    '  JFNK: REBUILDING PRECONDITIONER (GMRES its=',
 	1    jfnk_last_gmres_its, ' frac=', JFNK_PC_REFRESH_FRAC, ')'
+! This is the live-dtau/x refresh: dtau and the iterate have moved
+! since the fold was applied, so the cached matrix must be rebuilt,
+! not just re-factored.
+	  JFNK_BA_BUILT = .FALSE.
 	  CALL JFNK_FACTOR_PRECOND_V1()
 	  JFNK_N_PRECOND_REFRESH = JFNK_N_PRECOND_REFRESH + 1
 	  jfnk_need_precond_refresh = 0
