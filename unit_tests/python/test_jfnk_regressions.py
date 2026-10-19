@@ -10,6 +10,8 @@ INTERFACE = (ROOT / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f").read_text()
 SOLVER = (ROOT / "new_main/mod_subs/jfnk_solver_v1.f90").read_text()
 POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
 SOLVE_CORR = (ROOT / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
+BLKBAND = (ROOT / "new_main/subs/cmf_blkband_v3.f").read_text()
+RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
 
 
 def section(source, start, end):
@@ -226,3 +228,36 @@ for stub in (
         f"int-module stub defines JFNK_BA_BUILT ({stub})",
         "JFNK_BA_BUILT" in (ROOT / stub).read_text(),
     )
+
+tri_fail = section(BLKBAND, "9999\tCONTINUE", "\tFLAG=.FALSE.")
+check(
+    "TRI failure at 9999 retries via the DIAG solve",
+    "TRI_RECALL" in tri_fail
+    and "GO TO 8888" in tri_fail
+    and "CALL CMF_DIAG_SOLVE()" in tri_fail
+    and "TRI_ACTIVE" in tri_fail,
+)
+check(
+    "TRI fallback clears the partial factor cache",
+    "'BCSCRATCH'" in tri_fail and "STATUS='DELETE'" in tri_fail,
+)
+check(
+    "BCD recall gates loop over all depths",
+    re.search(
+        r"DO DEPTH_INDX=1,ND\s+WRITE\(BCD_F1.{0,60}CSCRATCH",
+        BLKBAND,
+        re.S,
+    )
+    is not None
+    and re.search(
+        r"DO DEPTH_INDX=1,ND\s+WRITE\(BCD_F1.{0,60}BCSCRATCH",
+        BLKBAND,
+        re.S,
+    )
+    is not None
+    and "DSCRATCH" in section(BLKBAND, "BCD_TRI_OK=.FALSE.", "END IF"),
+)
+check(
+    "NUM_BNDS<3 forces METH_SOL='DIAG'",
+    "IF(NUM_BNDS .LT. 3 .AND. METH_SOL .NE. 'DIAG')THEN" in RD_CONTROL,
+)
