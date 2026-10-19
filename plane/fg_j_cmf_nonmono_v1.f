@@ -4032,7 +4032,8 @@ C
 ! Fold this frequency's compressing-cell sink count into the
 ! great-iteration census (serial region; the ray loop is done).
 !
-	  FG_NOSLOT_CNT=FG_NOSLOT_CNT+SUM(FG_NOSLOT_RAY(1:NP),KIND=8)
+	  FG_NOSLOT_CNT=FG_NOSLOT_CNT+
+	1          SUM(INT(FG_NOSLOT_RAY(1:NP),8))
 !
 ! Cap the expanding-zone frequency feedback (I_M_PREV / I_P_PREV) at
 ! NONMONO_INEXT_CAP, matching the cap already applied to the compressing-
