@@ -112,7 +112,7 @@ def main():
     fig, axes = plt.subplots(3, 1, figsize=(13, 14), sharex=False)
 
     def draw(ax, lo, hi, title):
-        ax.plot(wl_l, fl_l, color="k", lw=1.0, zorder=10,
+        ax.plot(wl_l, fl_l, color="k", lw=1.0, zorder=1,
                 label="Luc m15 (converged, powered)")
         for label, color, wl, fl, ls, zo in curves:
             ax.plot(wl, fl, color=color, lw=0.7, ls=ls, alpha=0.85,
