@@ -93,6 +93,12 @@
 ! equation carries only the GAM*dI/d(ln nu) drift term, and the dilution
 ! physics enters at the moment level via the advection terms (MOM_J_DDT)
 ! or relativistic coefficients (MOM_JREL).  No S_tilde source is needed.
+! Audit note: the 3a*I_nu term cancels identically between dI/ds and
+! a*dI/dln(nu) in the I_nu form, so nothing is dropped; the piece of
+! Knop's lambda-form 4*a*I that survives the split is the implicit
+! (same-bin) part of his upwind frequency difference, which here is
+! the |GAM|/DLN absorbed into chi_hat.  Sign reversal under
+! compression is handled by the GAM<0 upwind switch, not by the term.
 ! edited by Sean Brennan
 !
 	REAL(KIND=LDP), ALLOCATABLE :: GAM_MAG(:,:)
