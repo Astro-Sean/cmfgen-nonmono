@@ -4063,7 +4063,18 @@ C
 ! around the coupled eval sweep) sees the same Gauss-Seidel I_NEXT
 ! state as the baseline; the default path leaves it .FALSE.
 !
-	  IF(HAS_COMPRESSING .AND. FREQ_IDX_ITER .GE. 1 .AND.
+! NEW_FREQ gate (edited by Devin, 19-Oct-2026): comp_j_blank re-enters
+! this routine inside its J accuracy loop with NEW_FREQ=.FALSE. after
+! the first call of each frequency.  Without the gate the store relaxes
+! again against the already-relaxed values (~1-(1-omega)^k per
+! frequency) and the FG_GS_MAXCHG/FG_GS_NCONV/FG_SW_* churn metrics the
+! freeze gate reads collect one extra sample per re-entry.  With the
+! gate the lagged store sees one relaxed write and one churn sample per
+! frequency per sweep; the re-entries still produce and return their
+! full formal solve for J -- only the store write and counters skip.
+!
+	  IF(HAS_COMPRESSING .AND. NEW_FREQ .AND.
+	1   FREQ_IDX_ITER .GE. 1 .AND.
 	1   FREQ_IDX_ITER .LE. NCF_IN .AND.
 	1   .NOT. FREEZE_I_NEXT)THEN
 ! FG_GS_MAXCHG/FG_INEXT_CAPPED accumulate the last-sweep convergence
