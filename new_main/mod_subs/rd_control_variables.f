@@ -2779,6 +2779,14 @@
 	1       DO_KNOP_REFRESH,MOM_RF_OWNW)
 	      WRITE(LUER,'(A)')' KNOP auto-set: DO_KNOP_REFRESH=T'
 	    END IF
+	    IF(NO_VEL_FOR_CONTINUUM)THEN
+! NOV_CONT=T with GLOBAL_LINE other than BLANK (e.g. NONE) clears
+! CONT_VEL in COMP_J_BLANK, which silently hands the continuum to a
+! path with no KNOP coupling.  The non-monotonic run needs the
+! comoving continuum, so the switch must stay off here.
+	      NO_VEL_FOR_CONTINUUM=.FALSE.
+	      WRITE(LUER,'(A)')' KNOP auto-set: NOV_CONT=F'
+	    END IF
 	    IF(N_LAM_RWARM .EQ. 0)THEN
 	      N_LAM_RWARM=4
 	      WRITE(LUER,'(A)')' KNOP auto-set: N_LAM_RWARM=4'
