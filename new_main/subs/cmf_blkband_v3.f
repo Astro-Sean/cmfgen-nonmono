@@ -617,14 +617,21 @@
 !
 	  DEPTH_INDX=K
 	  CALL TUNE(1,'TRI_GEN')
+C
+C edited by Devin, 19-Oct-2026: LAST_MATRIX flags the diagonal-band
+C build for FIXPOP_IN_BA_V3's "held fixed" summary, but it was set on
+C the B_MAT (off-diagonal) call at K=ND while the C_MAT call saw it
+C false.  Compute it explicitly per depth so it cannot stay latched.
+C
+	  LAST_MATRIX=(K .EQ. ND)
 	  CALL GENERATE_FULL_MATRIX_V3(
 	1         C_MAT,STEQ(1,K),POPS,REPLACE_EQ,ZERO_STEQ,
 	1         N,ND,NION,NUM_BNDS,
 	1         DIAG_INDX,DIAG_INDX,DEPTH_INDX,
 	1         FIRST_MATRIX,LAST_MATRIX,USE_PASSED_REP)
 	  FIRST_MATRIX=.FALSE.
+	  LAST_MATRIX=.FALSE.
 	  IF(K .NE. 1)THEN
-	    IF(K .EQ. ND)LAST_MATRIX=.TRUE.
 	    BAND_INDX=DIAG_INDX-1
 	    CALL GENERATE_FULL_MATRIX_V3(
 	1           B_MAT,STEQ(1,K),POPS,REPLACE_EQ,ZERO_STEQ,
