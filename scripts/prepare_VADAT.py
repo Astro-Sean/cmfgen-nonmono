@@ -32,6 +32,14 @@ Type IIn / metal-rich CSM workflow (single-final LTE cold-start or final warm re
 
   Temperature: FIX_T=T always. Temperature is fixed to the input SN_HYDRO_DATA at all depths
   to prevent CMFGEN from solving for temperature and use the hydro temperature instead.
+  Opt-out: cmfgen.solve_temperature=true releases the FIX_T/FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO
+  pins for keys the user sets in vadat_overrides.  For "solve T only where the
+  ejecta is optically thin" use FIX_T=F + FIX_INB_T=T + FIX_X_DPTH=<N inner depths
+  to pin>; the fixpop_in_ba_v3 inner-boundary mask then pins T at depths
+  ND+1-FIX_X_DPTH..ND and leaves the outer grid free.  Do NOT use FIX_T_AUTO for
+  this: VARFIXT pins T where tau_es < TAU_SCL_T (the thin region) and solves it
+  deep, the opposite domain.  DO_JFNK must be F for FIX_X_DPTH runs: JFNK mirrors
+  only the MOD_FIX_T domain and would leave the inner T rows live.
 
   Electron density: FIX_NE=F for both profiles (NLTE self-consistent).
   Ne is free to allow self-consistent ionization in the optically thin CSM.
@@ -4312,8 +4320,8 @@ def apply_profile(
     # FIX_T_AUTO release would replace it with a radiative-equilibrium T.
     # This stamps over user_overrides, so vadat_overrides cannot release T.
     # Exception: allow_t_release (cmfgen.solve_temperature) is the opt-in
-    # for irradiated-ejecta runs (e.g. PNT_SRCE inner source) where the
-    # artificial heating, not the hydro T, sets the thermal structure.
+    # for runs that need T to respond: irradiated ejecta (PNT_SRCE inner
+    # source) or partial-depth T release via FIX_INB_T/FIX_X_DPTH.
     for k, v in (("FIX_T", "T"), ("FIX_T_AUTO", "F")):
         if allow_t_release and user_overrides and k in user_overrides:
             ov = str(user_overrides[k]).strip().upper()
@@ -5915,7 +5923,8 @@ def main() -> int:
             # with a radiative-equilibrium T.  Strip any request for a
             # non-fixed value so this late re-application cannot undo the
             # apply_profile stamp.  Skipped when cmfgen.solve_temperature
-            # opts the model out of the pin (irradiated-ejecta runs).
+            # opts the model out of the pin (irradiated-ejecta or
+            # FIX_INB_T/FIX_X_DPTH partial-depth release runs).
             if not allow_t_release:
                 _t_pinned = {"FIX_T": "T", "FIX_T_AUTO": "F",
                              "DO_T_AUTO": "F", "DO_GT_AUTO": "F"}

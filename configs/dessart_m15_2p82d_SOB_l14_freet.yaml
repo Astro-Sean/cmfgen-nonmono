@@ -1,13 +1,19 @@
 model_name: dessart_m15_2p82d_SOB_l14_freet
 description: >
   Warm restart of the converged l14 LTE SOB model with T released
-  only where the ejecta is optically thin.  solve_temperature=true
-  lifts the runner's fixed-T pins; FIX_T=F plus FIX_INB_T=T and
-  FIX_X_DPTH=21 holds T at the inner 21 depths (tau_es >~ 1,
-  below the photosphere at depth ~49) and solves T over the outer
-  49 depths where the lines form.  Isolates the T-pinning
-  hypothesis for the Luc EW residuals (weak He II, strong C IV/N II)
-  while keeping the deep structure anchored to hydro.
+  only where the ejecta is optically thin (the line-forming region).
+  Recipe: solve_temperature=true lifts the runner's fixed-T pins;
+  FIX_T=F opens the T row; FIX_INB_T=T + FIX_X_DPTH=21 pins T to
+  hydro at the inner 21 depths (tau_es >~ 1, below the photosphere
+  at depth ~49) via the fixpop_in_ba_v3 inner-boundary mask, so T
+  solves over the outer 49 depths only.  DO_JFNK=F is required:
+  JFNK mirrors only the MOD_FIX_T domain and would leave the inner
+  T rows live; the BA/STEQ path honors FIX_X_DPTH exactly.  Do NOT
+  use FIX_T_AUTO for this domain -- VARFIXT pins T in the thin
+  region and solves it deep, the opposite of this test.  Isolates
+  the T-pinning hypothesis for the Luc EW residuals (weak He II,
+  strong C IV/N II) while keeping the deep structure anchored to
+  hydro.
 submission: normal
 hydro_backend: stella
 skip_stella: true

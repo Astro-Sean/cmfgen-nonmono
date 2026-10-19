@@ -43,6 +43,15 @@ this plus ../MODELS_STUDY.md before submitting anything.
 - `velocity_max_kms` must be >= `shell_velocity_kms`.
 - `wind_mdot_msun_yr` only applies to beta-wind mode; power-law CSM
   uses `csm_w_gcm`.
+- CMFGEN temperature release: the runner pins T to hydro
+  (FIX_T=T, FIX_T_AUTO/DO_T_AUTO/DO_GT_AUTO=F) and rejects
+  vadat_overrides asking otherwise.  `cmfgen.solve_temperature: true`
+  is the opt-out.  To solve T only in the optically thin region:
+  FIX_T=F + FIX_INB_T=T + FIX_X_DPTH=<N inner depths pinned> +
+  DO_JFNK=F (JFNK ignores the FIX_X_DPTH mask).  FIX_T_AUTO is NOT
+  this domain -- VARFIXT pins T in the thin region and frees it
+  deep.  Working example: configs/dessart_m15_2p82d_SOB_l14_freet.yaml;
+  recipe is also in the prepare_VADAT.py header.
 
 ## Evaluation
 

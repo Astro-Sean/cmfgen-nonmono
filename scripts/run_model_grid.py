@@ -3130,7 +3130,8 @@ def prepare_cmfgen_directory(config, scripts_dir, project_dir, day=None):
                 # be re-applied. Pin them here so a VADAT written before the
                 # 14-Oct-2026 policy cannot keep FIX_T=F / FIX_T_AUTO=T.
                 # cmfgen.solve_temperature opts out (irradiated ejecta with
-                # a PNT_SRCE inner source needs T to respond to heating).
+                # a PNT_SRCE inner source, or FIX_INB_T/FIX_X_DPTH partial
+                # release: see the prepare_VADAT.py header recipe).
                 _pin_vadat_fixed_t(cmfgen_dir / fname)
             shutil.rmtree(tmpdir)
     else:
