@@ -5386,6 +5386,25 @@ C
 	READ(291,IOSTAT=IOS)ENDM
 	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 900
 !
+! Value audit (edited by Devin, 19-Oct-2026): replicate the INIT-path
+! check from RESTORE_FG_INEXT_GS.  This path previously accepted any
+! fingerprint-matching record, so a corrupt but dimensionally valid
+! FGINEXT_GS (or an init-rejected stale file with matching dims)
+! could re-seed the sweep after a BA rollback -- exactly the failure
+! the INIT audit exists to prevent.  On rejection the in-memory
+! field is left untouched and the caller falls back, as on the other
+! failure exits.
+!
+	IF(.NOT.(ABS(FG_GS_CHG_FILE) .LE. HUGE(1.0_LDP)) .OR.
+	1   FG_GS_CHG_FILE .LT. 0.0_LDP .OR.
+	1   FG_GS_CAP_FILE .LT. 0)GOTO 940
+	IF(N_COMP .GT. 0)THEN
+	  IF(ANY(.NOT.(ABS(I_P_DEPTH_NEXT) .LE. HUGE(1.0_LDP))) .OR.
+	1     ANY(.NOT.(ABS(I_M_DEPTH_NEXT) .LE. HUGE(1.0_LDP))) .OR.
+	1     ANY(I_P_DEPTH_NEXT .LT. 0.0_LDP) .OR.
+	1     ANY(I_M_DEPTH_NEXT .LT. 0.0_LDP))GOTO 940
+	END IF
+!
 	CLOSE(291)
 	I_NEXT_GS_OK=.TRUE.
 	OK=.TRUE.
@@ -5411,6 +5430,12 @@ C
 930	CONTINUE
 	WRITE(LUER,'(A)')
 	1  '  I_NEXT rollback restore rejected: COMP_DEPTH map mismatch'
+	IF(ALLOCATED(WRK))DEALLOCATE(WRK)
+	IF(ALLOCATED(IWRK))DEALLOCATE(IWRK)
+	GOTO 900
+940	CONTINUE
+	WRITE(LUER,'(A)')
+	1  '  I_NEXT rollback restore rejected: non-finite/negative data'
 	IF(ALLOCATED(WRK))DEALLOCATE(WRK)
 	IF(ALLOCATED(IWRK))DEALLOCATE(IWRK)
 	GOTO 900
