@@ -16,6 +16,7 @@ module jfnk_cmfgen_int_mod
    logical :: JFNK_RSCALE_READY = .false.
    ! Only referenced by the diagnostic routines (never called by the
    ! test); kept so the `use ... only:` lists resolve.
+   logical :: JFNK_BA_BUILT = .false.
    double precision, allocatable :: JFNK_BA_DIAG(:,:)
    logical :: JFNK_BA_DIAG_READY = .false.
    double precision, allocatable :: JFNK_BA_A(:,:,:)

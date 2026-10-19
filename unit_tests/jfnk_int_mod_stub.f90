@@ -10,6 +10,7 @@ module jfnk_cmfgen_int_mod
    logical, save :: JFNK_COUPLED_LOC = .false.
    double precision, allocatable, save :: JFNK_RSCALE(:)
    logical, save :: JFNK_RSCALE_READY = .false.
+   logical, save :: JFNK_BA_BUILT = .false.
    double precision, allocatable, save :: JFNK_BA_DIAG(:,:)
    logical, save :: JFNK_BA_DIAG_READY = .false.
    double precision, allocatable, save :: JFNK_BA_A(:,:,:)

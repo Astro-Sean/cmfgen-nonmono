@@ -1474,6 +1474,13 @@
 	INTEGER I, IOS
 	DOUBLE PRECISION FMAX, FLOOR_USE
 !
+! The scale is a fold input: any cached BA_A carries the old scale in
+! its diagonal, so a re-arm invalidates the cache.  Clear it on entry
+! so the allocation-failure returns below cannot leave a stale folded
+! matrix marked built.
+!
+	JFNK_BA_BUILT = .FALSE.
+!
 	IF(ALLOCATED(jfnk_ptc_scale))THEN
 	  IF(SIZE(jfnk_ptc_scale) .NE. N) DEALLOCATE(jfnk_ptc_scale)
 	END IF
@@ -1507,9 +1514,6 @@
 	jfnk_ptc_scale_ready = .TRUE.
 	jfnk_ptc_x0 = 0.0D0
 	jfnk_ptc_anchor_ready = .TRUE.
-! The scale is a fold input: any cached BA_A carries the old scale in
-! its diagonal, so the next factor must rebuild rather than reuse.
-	JFNK_BA_BUILT = .FALSE.
 	END SUBROUTINE JFNK_SET_PTC_SCALE_V1
 !
 !

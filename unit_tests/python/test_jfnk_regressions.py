@@ -72,6 +72,10 @@ check(
     "PTC scale re-arm invalidates the folded BA cache",
     re.search(r"JFNK_BA_BUILT\s*=\s*\.FALSE\.", set_scale) is not None,
 )
+check(
+    "BA invalidation precedes the allocation-failure returns",
+    set_scale.index("JFNK_BA_BUILT = .FALSE.") < set_scale.index("RETURN"),
+)
 
 refresh = section(
     INTERFACE,
@@ -207,3 +211,13 @@ check(
     "GS_FREEZE is asserted outside the KNOP gate",
     "IF(.NOT. DO_NONMONO_KNOP .AND. GS_FREEZE)THEN" in POPS,
 )
+
+for stub in (
+    "tests/f90/jfnk_int_mod_stub.f90",
+    "tests/jfnk_core/jfnk_int_stub.f90",
+    "unit_tests/jfnk_int_mod_stub.f90",
+):
+    check(
+        f"int-module stub defines JFNK_BA_BUILT ({stub})",
+        "JFNK_BA_BUILT" in (ROOT / stub).read_text(),
+    )
