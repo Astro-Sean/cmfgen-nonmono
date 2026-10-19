@@ -2813,11 +2813,11 @@
 	    WRITE(LUER,'(A,L2,A,L2,A,ES10.3,A,I4,A,L2)')
 	1   '   omega_v2=',FG_ADAPT_OMEGA_V2_V,
 	2   '  plateau_det=',FG_PLATEAU_DET_V,
-	3   '  commit_jump=',FG_COMMIT_JUMP_V,
-	4   '  heal_cap_exp=',INT(LOG10(FG_DIV_HEAL_CAP_V)),
+	3   '  commit_jump=',MAX(FG_COMMIT_JUMP_V,1.0_LDP),
+	4   '  heal_cap_exp=',INT(LOG10(MAX(FG_DIV_HEAL_CAP_V,1.0_LDP))),
 	5   '  commit_conv=',FG_COMMIT_CONV_V
 	    WRITE(LUER,'(A,ES10.3,A,L2,A,L2)')
-	1   '   commit_nc=',FG_COMMIT_NC_V,
+	1   '   commit_nc=',MAX(FG_COMMIT_NC_V,0.0_LDP),
 	2   '  bulk_contr=',FG_BULK_CONTR_V,
 	3   '  no_gain=',KN_NO_GAIN
 	    WRITE(LUER,'(A,I4,A,I4,A,I4)')
