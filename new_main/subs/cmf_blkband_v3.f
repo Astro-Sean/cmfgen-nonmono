@@ -224,6 +224,11 @@
 	INTEGER RUB_VEC(N)
 !
 	LOGICAL, PARAMETER :: L_TRUE=.TRUE.
+!
+! edited by Devin, 19-Oct-2026: the "Beginning TRI solution" banner was
+! unconditional stdout noise on every TRI call; gate it.
+!
+	LOGICAL, PARAMETER :: TRI_VERBOSE=.FALSE.
 	LOGICAL REPLACE_EQ(NION)
 	LOGICAL ZERO_STEQ(N)
 	LOGICAL USE_PASSED_REP
@@ -569,7 +574,7 @@
 ! the LU decomposition of BA.
 !
 8888	CONTINUE
-	WRITE(6,*)'Beginning TRI solution in CMF_BLKBAND'
+	IF(TRI_VERBOSE)WRITE(6,*)'Beginning TRI solution in CMF_BLKBAND'
 !
 	ALLOCATE (B_MAT(N,N),STAT=IOS)
         IF(IOS .EQ. 0)ALLOCATE (C_MAT(N,N),STAT=IOS)
@@ -741,7 +746,12 @@ C
 C
 	END DO
 C
-!
+C edited by Devin, 19-Oct-2026: STEQ_STORE holds the assembled RHS
+C snapshot taken before the forward elimination overwrote STEQ with
+C phi[k] -- same content as the DIAG path dump.  It must stay ahead
+C of the failure handler, which reads STEQ_STORE to reseed the DIAG
+C fallback.
+C
 	CALL WR2D_V2(STEQ_STORE,N,ND,'STEQ_ARRAY','*',L_TRUE,16)
 ! 
 !**************************************************************************
