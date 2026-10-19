@@ -1,10 +1,8 @@
 model_name: dessart_m15_2p82d_MONO_KNOP
-description: >
-  Monotonic-field A/B leg B: FG_J_CMF_NONMONO_V1 (Knop) solver on a
-  velocity-monotonised SN_HYDRO_DATA (v reversed -> sigma > -1
-  everywhere, zero compressing cells).  Identical to MONO_V13 except
-  the solver flag; the run must reproduce the V13 result to
-  round-off in the expansion limit.  6 iterations, LTE_EST=T.
+description: 'Monotonic-field A/B leg B: FG_J_CMF_NONMONO_V1 (Knop) solver on a velocity-monotonised SN_HYDRO_DATA (v reversed -> sigma > -1 everywhere, zero compressing cells).  Identical to MONO_V13 except
+  the solver flag; the run must reproduce the V13 result to round-off in the expansion limit.  6 iterations, LTE_EST=T.
+
+  '
 submission: normal
 hydro_backend: stella
 skip_stella: true
@@ -16,7 +14,7 @@ output:
   model_dir: cmfgen_validation/m15_2p82d_MONO_KNOP
 cmfgen_conversion:
   snapshot_days:
-    - 2.82
+  - 2.82
   use_existing_sn_hydro: true
 cmfgen:
   base_dir: cmfgen_base_dessart
@@ -59,9 +57,6 @@ cmfgen:
     SOL_METH: DIAG
     DO_NOMONO_KNOP: T
     DO_NONMONO_KNOP: T
-    DO_NOMONO_SOB: F
-    DO_NONMONO_SOB: F
-    NON_MONO_SOLVER: T
     N_OB_INS: '0'
     N_IB_INS: '0'
     REV_RGRID: F
@@ -75,13 +70,16 @@ cmfgen:
     INC_GRID: F
     N_TYPE: N_ON_J
     PURE_HUB: F
-    VEL_LAW: 11
     RD_IN_R_GRID: T
     FG_OPT: INT/INS
     USE_FIXED_J: F
     PP_MOD: F
     PP_NOV: F
     AUTO_SMOOTH: F
+    NON_MONO_SOLVER: T
+    DO_NOMONO_SOB: F
+    DO_NONMONO_SOB: F
+    DO_NONLOC_SOB: F
     GLOBAL_LINE: BLANK
     DO_SOB_LINES: F
     SOB_FREQ_IN_OBS: F
@@ -92,11 +90,55 @@ cmfgen:
     LAM_ENTER: 4.0D2
     LAM_EXIT: 5.0D0
     LAM_N_STABLE: '5'
+    BA_PROBE_LAM: '0'
     FRESH_BA_EXIT: T
+    N_FULL_TREL: '0'
+    FG_COMMIT_CONV: T
+    FG_COMMIT_NC: 0.5D0
+    FG_BULK_CONTR: T
+    KN_NO_GAIN: T
     DO_BA_RES_ACC: T
+    BA_RES_GROW: 1.5D0
+    BA_RES_HARD: 1.0D2
+    BA_TRUST: 1.0D4
+    BA_REJ_FRAC: 0.25D0
+    BA_NREJ_LIM: '20'
+    BA_ENTER_RAW: 1.0D30
+    BA_DAMP_CAP: 0.0D0
+    BA_SAT_RAW: 2.0D3
+    BA_SAT_LIM: '5'
+    N_LAM_RWARM: '4'
+    MOM_TRIAL_MIN: '30'
+    GS_FREEZE_LIM: '60'
+    GS_TRIAL_LIM: '15'
+    GS_REL_STABLE: '1'
+    GS_REL_N: '1000000'
+    GS_HOLD_POPS: T
+    CONV_DIAG_LVL: '1'
     BA_DEM_PFLOOR: 1.0D-30
     BA_EX_RELFRAC: 1.0D-6
-    DO_JFNK: F
+    BA_TR_MAXSWP: '3'
+    BA_TR_ABSMAX: 1.0D-8
+    DO_JFNK: T
+    JFNK_WARMUP: '0'
+    JFNK_ANYITER: T
+    JFNK_COUPLED: T
+    JFNK_FRZ_GATE: 1.0D30
+    JFNK_GATE_NREQ: '1'
+    JFNK_LAG_FACTORS: T
+    JFNK_COR_GATE: 1.0D30
+    JFNK_MAX_EVALS: '60'
+    JFNK_MAX_RESTART: '2'
+    JFNK_DEEPDIAG: F
+    JFNK_ROW_TINY: 1.0D-30
+    JFNK_RIDGE: 1.0D-4
+    JFNK_REACH_GATE: 1.0D-3
+    JFNK_M: '30'
+    JFNK_MAXGMRES: '90'
+    JFNK_LEFTPC: F
+    JFNK_PRECOND: LU
+    JFNK_LSQ_LAM: 1.0D-2
+    JFNK_TAUTO: T
     LAM_VAL: 2.0D2
     BEG_NG: 1.0D1
     IBEG_NG: '15'
@@ -122,7 +164,63 @@ cmfgen:
     BA_CHK_FAC: 1.0D-05
     EPS_TERM: 5.0D-02
     BW_NG: '40'
+    TRANS_HI: BLANK
+    TRANS_HeI: BLANK
+    TRANS_He2: BLANK
+    TRANS_CIII: BLANK
+    TRANS_CIV: BLANK
+    TRANS_CV: BLANK
+    TRANS_NIII: BLANK
+    TRANS_NIV: BLANK
+    TRANS_NV: BLANK
+    TRANS_O2: BLANK
+    TRANS_OIII: BLANK
+    TRANS_OIV: BLANK
+    TRANS_OV: BLANK
+    TRANS_OSIX: BLANK
+    TRANS_NeIII: BLANK
+    TRANS_NeIV: BLANK
+    TRANS_NeV: BLANK
+    TRANS_MgIII: BLANK
+    TRANS_MgIV: BLANK
+    TRANS_MgV: BLANK
+    TRANS_AlIII: BLANK
+    TRANS_AlIV: BLANK
+    TRANS_AlV: BLANK
+    TRANS_SkIII: BLANK
+    TRANS_SkIV: BLANK
+    TRANS_SkV: BLANK
+    TRANS_SIII: BLANK
+    TRANS_SIV: BLANK
+    TRANS_SV: BLANK
+    TRANS_ArIII: BLANK
+    TRANS_ArIV: BLANK
+    TRANS_ArV: BLANK
+    TRANS_ArSIX: BLANK
+    TRANS_CaIII: BLANK
+    TRANS_CaIV: BLANK
+    TRANS_CaV: BLANK
+    TRANS_CaSIX: BLANK
+    TRANS_TkIII: BLANK
+    TRANS_TkIV: BLANK
+    TRANS_TkV: BLANK
+    TRANS_CrIII: BLANK
+    TRANS_CrIV: BLANK
+    TRANS_CrV: BLANK
+    TRANS_CrSIX: BLANK
+    TRANS_FeIII: BLANK
+    TRANS_FeIV: BLANK
+    TRANS_FeV: BLANK
+    TRANS_FeSIX: BLANK
+    TRANS_FeSEV: BLANK
     NEG_OPAC_OPT: ESEC_CHK
+    TRANS_OI: BLANK
+    TRANS_SkI: BLANK
+    TRANS_Sk2: BLANK
+    TRANS_CaI: BLANK
+    TRANS_Ca2: BLANK
+    TRANS_FeI: BLANK
+    TRANS_Fe2: BLANK
     T_REL_CHG: 3.0D0
     MAX_LAM: 1.0D10
     CHK_NG: T
