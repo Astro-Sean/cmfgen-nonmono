@@ -8613,8 +8613,13 @@ C
 !
 ! Signed per-cell update for the W6 sign-flip detector in
 ! SWEEP_FLD (same metric the ORD loop accumulates inline).
+! edited by Devin, 19-Oct-2026: the accumulator must carry the
+! SIGNED delta -- DCELL is ABS and made SGN_ACC monotone, so the
+! SGN_ACC*SGN_PRV<0 test could never fire and the unordered sweep
+! had no period-2 damping.
 !
-	      SGN_ACC=SGN_ACC+DCELL
+	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
+	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
@@ -8680,7 +8685,10 @@ C
 	    RESL=MAX(RESL,DCELL)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
-	      SGN_ACC=SGN_ACC+DCELL
+! Signed accumulation, same as the inward branch above: the
+! detector needs sign alternation, not magnitude.
+	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
+	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	    END IF
 	    FLD(I,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
