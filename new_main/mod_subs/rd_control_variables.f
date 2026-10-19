@@ -1847,7 +1847,7 @@
 ! midpoint until KN_ORD_P2REL flip-free passes release it.  The
 ! fixed point is unchanged -- only the relaxation path to it.
 !
-	  KN_ORD_P2DAMP=.TRUE.
+	  KN_ORD_P2DAMP=.FALSE.
 	  CALL RD_STORE_LOG(KN_ORD_P2DAMP,'KN_ORD_P2DAMP',L_FALSE,
 	1     'Damp per-cell period-2 modes in the ordered FG march?')
 	  KN_ORD_P2N=2
