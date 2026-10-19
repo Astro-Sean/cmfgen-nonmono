@@ -1677,19 +1677,22 @@
 	    END IF
 	  END DO
 !
-! Limit the change in T to a maximum of 20%.
+! Limit the change in T to a maximum of MAX_dT_COR.
 !
 ! Upstream bug fix (not flag-gated): the loop used to overwrite T3 at
-! each depth, so the 20% bound was enforced only against the last
+! each depth, so the T bound was enforced only against the last
 ! depth STEQ(NT,ND).  T3 must accumulate the maximum T correction
 ! over the whole atmosphere.  Only the SCALE_OPT='GLOBAL' branch is
 ! affected -- LOCAL, NONE and MAJOR are unchanged.
+! Edited by Devin, 19-Oct-2026: the hardcoded 0.2 cap replaced by
+! MAX_dT_COR, matching the LOCAL and MAJOR branches; identical
+! behaviour at the default MAX_dT_COR=0.2.
 !
-	  T3=0.2_LDP
+	  T3=MAX_dT_COR
 	  DO I=1,ND
 	    T3=MAX( T3,ABS(STEQ(NT,I)) )
 	  END DO
-	  SCALE=MIN( 0.2_LDP/T3,SCALE )
+	  SCALE=MIN( MAX_dT_COR/T3,SCALE )
 	  WRITE(LUER,'(A,1PE12.4)')' The value of scale is:',SCALE
 !
 ! Update the population levels (and the temperature) .
