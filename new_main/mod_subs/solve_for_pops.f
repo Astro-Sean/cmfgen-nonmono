@@ -3807,9 +3807,14 @@
 ! 'conv exit' row names every gate that is holding and [MET] means
 ! the converged exit would fire on this call.
 !
+! BA_TR_ABSMAX=0 is the documented off state (22-Oct-2026): without
+! the >0 guard the comparison is true for any nonzero BA_TR_ABS and
+! the trace polish could never be switched off.
+!
 	  CONV_TRC_NEED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1    BA_TR_MAXSWP .GT. 0 .AND.
 	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	3    BA_TR_ABSMAX .GT. 0.0_LDP .AND.
 	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
 	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
 	  CONV_TRC_DONE=BA_TR_MAXSWP .GT. 0 .AND.

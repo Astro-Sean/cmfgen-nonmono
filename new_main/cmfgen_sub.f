@@ -4793,9 +4793,13 @@
 ! proxy), and are 0 when the floors are off -- the default path is
 ! unchanged.
 !
+! BA_TR_ABSMAX=0 is the documented off state (22-Oct-2026), mirroring
+! the CONV_TRC_NEED replica in SOLVE_FOR_POPS.
+!
 	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1    BA_TR_MAXSWP .GT. 0 .AND.
 	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	3    BA_TR_ABSMAX .GT. 0.0_LDP .AND.
 	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
 	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
 	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.

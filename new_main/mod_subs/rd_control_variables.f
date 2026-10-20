@@ -3225,7 +3225,10 @@
 ! metric, and BA_TR_MAXSWP bounds the Stage-B polish sweeps once the
 ! majors converge.  An explicit BA_TR_MAXSWP=0 stays 0 and disables
 ! the polish (BA_TRACE_NEEDED requires it > 0); the previous 0 -> 5
-! rewrite made the documented disable unreachable.
+! rewrite made the documented disable unreachable.  Likewise an
+! explicit BA_TR_ABSMAX=0 stays 0 and disables the absolute trace
+! gate (both BA_TRACE_NEEDED legs require it > 0); the previous
+! 0 -> 1E-08 rewrite made that off-state unreachable.
 !
 	  IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
 	    IF(BA_DEM_PFLOOR .LT. 0.0_LDP)THEN
@@ -3233,9 +3236,10 @@
 	      WRITE(LUER,'(A)')' Trace auto-set: BA_DEM_PFLOOR=1.0E-30'//
 	1     ' (-1 auto)'
 	    END IF
-	    IF(BA_TR_ABSMAX .EQ. 0.0_LDP)THEN
+	    IF(BA_TR_ABSMAX .LT. 0.0_LDP)THEN
 	      BA_TR_ABSMAX=1.0E-08_LDP
-	      WRITE(LUER,'(A)')' Trace auto-set: BA_TR_ABSMAX=1.0E-08'
+	      WRITE(LUER,'(A)')' Trace auto-set: BA_TR_ABSMAX=1.0E-08'//
+	1     ' (-1 auto)'
 	    END IF
 	  END IF
 !
