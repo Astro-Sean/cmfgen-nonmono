@@ -3373,9 +3373,21 @@
 !
 ! DO_BA_RES_ACC is not a hard requirement, but it is the verified guard:
 ! a BA step taken against an immature lagged Knop field needs the
-! residual gate to roll back.  Warn rather than abort so controlled
-! comparisons (F baselines) still run.
+! residual gate to roll back, and the GS release trials are adjudicated
+! through BAACC_PENDING -- unjudged without it.  Absent-key auto-set to
+! T (22-Oct-2026): every validated KNOP config already sets it
+! explicitly, and SOLVEBA_V13 handles the LAMBDA-phase calls and the
+! MOM/FG lagged-field rollback under it.  An explicit F is still
+! honoured for controlled F baselines (the warning below keeps
+! covering that case).  The GET_KEY_STRING probe is safe here -- the
+! key's read site sits ~1200 lines earlier.
 !
+	    CALL GET_KEY_STRING(TMP_STRING,'DO_BA_RES_ACC',L_FALSE,
+	1     L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      DO_BA_RES_ACC=.TRUE.
+	      WRITE(LUER,'(A)')' KNOP auto-set: DO_BA_RES_ACC=T'
+	    END IF
 	    IF(.NOT. DO_BA_RES_ACC)THEN
 	      WRITE(LUER,*)'Warning: DO_BA_RES_ACC=F under DO_NONMONO_KNOP.'
 	      WRITE(LUER,*)'BA steps are not residual-accepted; the verified'
