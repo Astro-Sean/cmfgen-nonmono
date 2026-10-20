@@ -93,7 +93,7 @@
 	CALL SCR_READ_V2(R,V,SIGMA,POPS,IREC,NITSF,RITE_N_TIMES,LST_NG,
 	1                    WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
 	IF(NEWMOD)THEN
-	  WRITE(LUER,*)'Unable to read last iteration in scratch file in DO_NG_BAND_ACCEL_V2'
+	  WRITE(LUER,*)'Unable to read last iteration in scratch file in DO_NG_BAND_ACCEL_V4'
 	  WRITE(LUER,*)'Unrecoverable error (1) as these should have been written recently'
 	  STOP
 	  NG_DONE=.FALSE.
@@ -121,7 +121,7 @@
 	  RDPOPS(NT+2,:,I)=V(:)
 	  RDPOPS(NT+3,:,I)=SIGMA(:)+1.0_LDP
 	  IF(NEWMOD)THEN
-	    WRITE(LUER,*)'Unable to read scratch file in DO_NG_BAND_ACCEL_V2'
+	    WRITE(LUER,*)'Unable to read scratch file in DO_NG_BAND_ACCEL_V4'
 	    WRITE(LUER,*)'Trying to read IREC ',J
 	    CALL SCR_READ_V2(R,V,SIGMA,POPS,IREC,NITSF,RITE_N_TIMES,LST_NG,
 	1                WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
