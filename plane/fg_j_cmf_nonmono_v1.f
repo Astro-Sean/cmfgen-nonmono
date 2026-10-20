@@ -6749,12 +6749,12 @@ C
 	  ELSE IF(FG_COMMIT_CONV .AND.
 	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2 .AND.
 	2     (RES_M .LE. KN_RAY_TOL .OR.
-	3      (IXIT_M .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
-	4       RES_M .LE. KN_RAY_BULK_TOL))) .OR.
+	3      (IXIT_M .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	4       RES_M .LE. KN_RAY_BULK_TOL)))) .OR.
 	5     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2 .AND.
 	6     (RES_P .LE. KN_RAY_TOL .OR.
-	7      (IXIT_P .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
-	8       RES_P .LE. KN_RAY_BULK_TOL)))))THEN
+	7      (IXIT_P .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	8       RES_P .LE. KN_RAY_BULK_TOL))))))THEN
 !
 ! edited by Devin, 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
 ! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
@@ -6770,7 +6770,11 @@ C
 ! floored it at the residual the maturity gate's bulk rule
 ! accepts, so sending it to WRITE_STORE_CAP only parked the store
 ! one capped step from the fixed point (the 8-12 nc-capped
-! commits per refresh on m15_2p82d).
+! commits per refresh on m15_2p82d).  With KN_RAY_BULK_TOL<=0 the
+! floor is off entirely -- the IXIT=2 exit fired on bad-fraction
+! alone, so the commit test must admit it rather than require
+! BTOL>0 (edited by Devin, 20-Oct-2026: the two semantics were
+! inconsistent, bulk exits fired and were never accepted).
 ! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
 ! (per-cell change bounded by NC; the store keeps tracking a
 ! contracting field but cannot ratchet faster than NC/refresh).
