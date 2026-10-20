@@ -396,6 +396,52 @@ def test_mom_adapt_omega_v2_vadat_wiring():
     )
 
 
+def test_no_progress_stops():
+    check(
+        "no-progress totals declared",
+        "INTEGER*8, SAVE :: N_FROZEN_TOT=0" in POPS
+        and "INTEGER*8, SAVE :: N_PRECOND_TOT=0" in POPS,
+    )
+    check(
+        "frozen and preconditioned calls accumulate totals",
+        "N_FROZEN_TOT=N_FROZEN_TOT+1" in POPS
+        and "N_PRECOND_TOT=N_PRECOND_TOT+1" in POPS,
+    )
+    check(
+        "release progress resets the totals",
+        "N_FROZEN_TOT=0_8" in POPS and "N_PRECOND_TOT=0_8" in POPS,
+    )
+    check(
+        "GS_FREEZE_LIM reads the no-progress total",
+        "N_FROZEN_TOT .GE. GS_FREEZE_LIM" in POPS,
+    )
+    check(
+        "GS_PRECOND_LIM reads the no-progress total",
+        "N_PRECOND_TOT .GE. GS_PRECOND_LIM" in POPS,
+    )
+    check(
+        "GS_REL_NOPROG_LIM stop exists",
+        "N_REL_NOPROG .GE. GS_REL_NOPROG_LIM" in POPS
+        and "INTEGER GS_REL_NOPROG_LIM" in CTRL_MOD
+        and "RD_STORE_INT(GS_REL_NOPROG_LIM,'GS_REL_NOPROG_LIM'"
+        in RD_CONTROL,
+    )
+    check(
+        "GS_STATE persists the totals",
+        "'n_frozen_tot='" in POPS
+        and "'n_precond_tot='" in POPS
+        and "'n_rel_noprog='" in POPS
+        and "N_FROZEN_TOT=MAX(GS_NFT_RD" in POPS
+        and "N_PRECOND_TOT=MAX(GS_PCT_RD" in POPS
+        and "N_REL_NOPROG=MAX(GS_RNP_RD" in POPS,
+    )
+    check(
+        "KNOP auto-sets the no-progress limits",
+        "KNOP auto-set: GS_PRECOND_LIM=50" in RD_CONTROL
+        and "KNOP auto-set: GS_REL_NOPROG_LIM=10" in RD_CONTROL,
+    )
+
+
 def test_fg_trial_churn_arm():
     check(
         "FG_TRIAL_CHURN declared in control_variable_mod",
@@ -451,5 +497,6 @@ if __name__ == "__main__":
     test_mom_same_map_omega_estimator()
     test_solveba_global_temperature_cap_uses_max_dt_cor()
     test_mom_adapt_omega_v2_vadat_wiring()
+    test_no_progress_stops()
     test_fg_trial_churn_arm()
     print("all KNOP lagged-field checks passed")

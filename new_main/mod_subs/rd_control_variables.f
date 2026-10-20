@@ -973,6 +973,16 @@
 	1     'KNOP: rejected release attempts before stop (0=disabled)?')
 	  IF(GS_RELEASE_LIM .LT. 0)GS_RELEASE_LIM=0
 !
+! GS_REL_NOPROG_LIM (default 0 = disabled): releases that made no
+! demand progress or re-poisoned the field before the model stops.
+! The count survives release refunds, so it catches the
+! release/refreeze limit cycle the consecutive counters cannot.
+!
+	  GS_REL_NOPROG_LIM=0
+	  CALL RD_STORE_INT(GS_REL_NOPROG_LIM,'GS_REL_NOPROG_LIM',
+	1     L_FALSE,'KNOP: no-progress releases before stop?')
+	  IF(GS_REL_NOPROG_LIM .LT. 0)GS_REL_NOPROG_LIM=0
+!
 ! GS_REL_STABLE (default 1): consecutive sweeps passing the maturity
 ! gate before the freeze releases the population update.  Guards
 ! against releasing on a single marginal sweep of a churning field.
@@ -2904,6 +2914,35 @@
 	    IF(.NOT. L_FALSE_TMP)THEN
 	      GS_FREEZE_LIM=300
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_FREEZE_LIM=300'
+	    END IF
+!
+! GS_PRECOND_LIM defaults to 50 under KNOP (edited by Devin,
+! 20-Oct-2026): the precondition gate clears GS_FREEZE every call
+! it fires on, so N_FROZEN never advances and GS_FREEZE_LIM is
+! unreachable there.  A demand that stays above GS_PRECOND_MAX
+! through 50 live updates is a structural failure, not a
+! transient.  Explicit VADAT values, including 0 = off, are
+! respected.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'GS_PRECOND_LIM',L_FALSE,
+	1     L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      GS_PRECOND_LIM=50
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_PRECOND_LIM=50'
+	    END IF
+!
+! GS_REL_NOPROG_LIM defaults to 10 under KNOP (edited by Devin,
+! 20-Oct-2026): the release/refreeze cycle refunds the freeze
+! clock at every release, so the cumulative no-progress count is
+! the earliest reachable stop on the m15_2p82d-class alternation
+! (~10 bad releases inside ~60 iterations).  Explicit VADAT
+! values, including 0 = off, are respected.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'GS_REL_NOPROG_LIM',
+	1     L_FALSE,L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      GS_REL_NOPROG_LIM=10
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_NOPROG_LIM=10'
 	    END IF
 !
 ! DO_NONMONO_FREQ_MATCH defaults T under KNOP: with one-bin upwind
