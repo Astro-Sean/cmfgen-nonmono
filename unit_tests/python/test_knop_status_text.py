@@ -26,6 +26,18 @@ CMF = (ROOT / "new_main/cmfgen_sub.f").read_text()
 FAILED = []
 
 
+def flat(src):
+    """Join Fortran string literals split across continuation
+    lines, so prose checks search the runtime text rather than the
+    source layout."""
+    return re.sub(r"'\s*//\s*&?\s*\n\s*(?:\d\s*)?'", "", src)
+
+
+MOD_FLAT = flat(MOD)
+CJB_FLAT = flat(CJB)
+RD_FLAT = flat(RD_CONTROL)
+
+
 def check(msg, cond):
     if cond:
         print(f"  ok  {msg}")
@@ -161,7 +173,7 @@ def test_status_module_and_binding_sentences():
         "expanding direction only",
         "alternating compressing and expanding directions",
     ):
-        check(f"binding sentence '{frag[:50]}...'", frag in MOD)
+        check(f"binding sentence '{frag[:50]}...'", frag in MOD_FLAT)
 
 
 def test_mom_sweep_table_is_prose():
@@ -262,12 +274,13 @@ def test_mode_and_format_lines():
     )
     check(
         "moment-solver mode line",
-        "Field solver: moment equations (MOM_J_CMF_NONMONO_V1)" in CJB,
+        "Field solver: moment equations (MOM_J_CMF_NONMONO_V1)"
+        in CJB_FLAT,
     )
     check(
         "SOB auto-set prose",
-        "using the SOB line transfer" in RD_CONTROL
-        and "lambda iteration with ray solutions enabled" in RD_CONTROL,
+        "using the SOB line transfer" in RD_FLAT
+        and "lambda iteration with ray solutions enabled" in RD_FLAT,
     )
     check(
         "iteration count widened to I8",
