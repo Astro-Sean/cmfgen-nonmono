@@ -14,6 +14,10 @@
 	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
+! Altered:   20-Oct-2026 : FG_TRIAL_CHURN arm -- a churn-only immature
+!                          FG gate inside the factor may still release
+!                          the resacc-judged LAMBDA trial
+!                          (edited by Devin).
 ! Altered:   20-Oct-2026 : Release-progress audit flags and counts
 !                          no-progress frozen->live transitions
 !                          (edited by Devin).
@@ -127,6 +131,11 @@
 	INTEGER*8 GS_NBAD_EFF,GS_NCONV_ALL
 	INTEGER*8 GS_NBAD_STAL,GS_NBAD_PLAT
 	LOGICAL GS_UNSAFE,GS_PIN,FG_TRIAL
+! GS_FG_PRECHURN: GS_FG_IMMATURE evaluated before the store-churn OR
+! (snapshot, not a saved state).  FG_CHURN_MARG: immature ONLY via
+! churn and inside the [FG_TRIAL_CHURN] factor (edited by Devin,
+! 20-Oct-2026).
+	LOGICAL GS_FG_PRECHURN,FG_CHURN_MARG
 	INTEGER TRIAL_MIN_USED
 	LOGICAL, SAVE :: GS_RAW_NUDGE_DONE=.FALSE.
 	LOGICAL MOM_RAN,MOM_OK
@@ -1064,10 +1073,29 @@
 	2        (GS_MAX_ALL .GT. GS_UNSAFE_TOL)
 	    END IF
 	  END IF
+! Snapshot before the churn OR (edited by Devin, 20-Oct-2026): the
+! [FG_TRIAL_CHURN] arm below needs the gate value excluding the churn
+! term so a churn-only immature call can still arm the trial.
+!
+	  GS_FG_PRECHURN=GS_FG_IMMATURE
 	  IF(GS_NTOT .GT. 0)THEN
 	    GS_FG_IMMATURE=GS_FG_IMMATURE .OR.
 	1      (GS_NCONV_ALL .GT. MAX(50_8,GS_NTOT/1000))
 	  END IF
+!
+! [FG_TRIAL_CHURN] arm (edited by Devin, 20-Oct-2026): when the gate
+! is immature ONLY through the store-churn term, and churn is within
+! FG_TRIAL_CHURN times the bulk bound, the FG marginal-release trial
+! may still arm.  The refresh limit cycle floors the residual at
+! ~0.05-0.15 while churn asymptotes 2-3x above the bound
+! (m15_2p82d it851-860), so the flat veto otherwise guarantees a
+! permanent hold.  The trial stays resacc-judged -- a release that
+! re-poisons the field rolls back like any other rejected trial.
+!
+	  FG_CHURN_MARG=GS_FG_IMMATURE .AND. (.NOT. GS_FG_PRECHURN) .AND.
+	1    (GS_NTOT .GT. 0_8) .AND. (FG_TRIAL_CHURN .GT. 0.0_LDP) .AND.
+	2    (GS_NCONV_ALL .LE.
+	3     FG_TRIAL_CHURN*MAX(50_8,GS_NTOT/1000))
 !
 ! Plateau exits (IXIT=6) are a different failure mode from
 ! stall/cap: the map stopped improving entirely, so their bad
@@ -1500,14 +1528,15 @@
 ! GS_UNSAFE), luminosity is not blocked, and the accepted-trial
 ! pulse budget remains.
 !
-	    FG_TRIAL=(.NOT. MOM_RAN) .AND. (.NOT. GS_FG_IMMATURE)
-	1      .AND. (.NOT. GS_UNSAFE)
-	2      .AND. DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING)
-	3      .AND. (FG_TRIAL_MIN .GT. 0)
-	4      .AND. (N_FROZEN .GE. FG_TRIAL_MIN)
-	5      .AND. (.NOT. LUM_BLOCKED)
-	6      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
-	7      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
+	    FG_TRIAL=(.NOT. MOM_RAN) .AND.
+	1      (.NOT. GS_FG_IMMATURE .OR. FG_CHURN_MARG)
+	2      .AND. (.NOT. GS_UNSAFE)
+	3      .AND. DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING)
+	4      .AND. (FG_TRIAL_MIN .GT. 0)
+	5      .AND. (N_FROZEN .GE. FG_TRIAL_MIN)
+	6      .AND. (.NOT. LUM_BLOCKED)
+	7      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
+	8      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
 	    IF(MOM_TRIAL)THEN
 	      TRIAL_FIRED=.TRUE.
 	      TRIAL_MIN_USED=MOM_TRIAL_MIN
@@ -1567,17 +1596,29 @@
 !
 	      TRIAL_FIRED=.TRUE.
 	      TRIAL_MIN_USED=FG_TRIAL_MIN
-	      IF(CONV_DIAG_LVL .GE. 1)
-	1     WRITE(LUER,'(A,I6,A)')
-	2     '      Ray field marginal: releasing a damped'//
-	3     ' LAMBDA trial (immature-field iteration ',
-	4     N_FROZEN,')'
+	      IF(CONV_DIAG_LVL .GE. 1)THEN
+		IF(FG_CHURN_MARG)THEN
+		  WRITE(LUER,'(A,I6,A,I14,A)')
+	1         '      Ray field churn-marginal: releasing a'//
+	2         ' damped LAMBDA trial (immature-field iteration ',
+	3         N_FROZEN,', churn ',GS_NCONV_ALL,')'
+		ELSE
+		  WRITE(LUER,'(A,I6,A)')
+	1         '      Ray field marginal: releasing a damped'//
+	2         ' LAMBDA trial (immature-field iteration ',
+	3         N_FROZEN,')'
+		END IF
+	      END IF
 	      LAMBDA_ITERATION=.TRUE.
 	      FIXED_T=.TRUE.
 	      COMPUTE_BA=.TRUE.
 	      TEMP_CHAR='DIAG'
 	      T1=GS_LAM_CAP
-	      CALL APPEND_ITER_REASON(ITER_REASON,'fg_trial_lam')
+	      IF(FG_CHURN_MARG)THEN
+		CALL APPEND_ITER_REASON(ITER_REASON,'fg_trial_churn')
+	      ELSE
+		CALL APPEND_ITER_REASON(ITER_REASON,'fg_trial_lam')
+	      END IF
 	    ELSE
 	    LAMBDA_ITERATION=.TRUE.
 	    FIXED_T=.TRUE.

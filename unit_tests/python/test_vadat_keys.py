@@ -69,6 +69,7 @@ HELPERS = [
     "subs/write_vec.f",
     "unix/dir_acc_pars_gen.f",
     "plane/mod_ray_mom_store.f",
+    "new_main/mod_subs/knop_status_mod.f90",
     "plane/get_moms_non_rel.f",
     "new_main/mod_subs/mod_cmfgen.f",
     "new_main/mod_subs/control_variable_mod.f",
@@ -520,6 +521,21 @@ def main():
         "RESULT_OK" in p.stdout
         and abs(float(v.get("MOM_TRIAL_LAM", "nan").replace("D", "E")) - 1.0e3)
         < 1e-9,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # FG_TRIAL_CHURN opt-in key parses and lands.
+    d = write_vadat(
+        WORKDIR / "vadat_fg_trialchurn",
+        {"FG_TRIAL_CHURN": "3.0D0"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "FG_TRIAL_CHURN key parses and lands",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("FG_TRIAL_CHURN", "nan").replace("D", "E")) - 3.0)
+        < 1e-12,
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 

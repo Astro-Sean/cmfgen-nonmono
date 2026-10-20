@@ -922,6 +922,17 @@
 	1     'KNOP: frozen iters before the FG-only LAMBDA trial?')
 	  IF(FG_TRIAL_MIN .LT. 0)FG_TRIAL_MIN=0
 !
+! FG_TRIAL_CHURN (default 0.0 = off): store-churn multiplier under
+! which a churn-only immature FG gate still arms the trial.  0 keeps
+! the strict no-immaturity requirement; ~3 admits the m15-class
+! asymptote where churn sits 2-3x the bulk bound with every other
+! gate term clean.
+!
+	  FG_TRIAL_CHURN=0.0_LDP
+	  CALL RD_STORE_DBLE(FG_TRIAL_CHURN,'FG_TRIAL_CHURN',L_FALSE,
+	1     'KNOP: churn-bound factor arming the FG-only trial?')
+	  IF(FG_TRIAL_CHURN .LT. 0.0_LDP)FG_TRIAL_CHURN=0.0_LDP
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial.  With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a

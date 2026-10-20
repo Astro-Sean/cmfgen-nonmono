@@ -861,6 +861,21 @@
 !
 	INTEGER FG_TRIAL_MIN
 !
+! FG_TRIAL_CHURN (default 0.0 = off): multiplier on the store-churn
+! bulk bound that lets the FG-only trial arm when churn is the ONLY
+! remaining GS_FG_IMMATURE driver.  The lagged-map fixed point can
+! sit 0.2-0.3% of cells above 50% per sweep while the bad-cell share
+! and residual are already inside their bounds (m15_2p82d it851-860:
+! nbad frac 4-8E-4 < 1E-3 but churn 1.3-2.1E6 of 6.5E8 cells ~ 2-3x
+! the bound) -- a flat boolean veto then holds populations forever.
+! With FG_TRIAL_CHURN > 0 a trial may fire when the cured gate is
+! clean except GS_NCONV_ALL <= FG_TRIAL_CHURN*MAX(50,GS_NTOT/1000);
+! the same resacc net judges the probe, so a churning-field release
+! that re-poisons rolls back like any other rejected trial.
+! VADAT keyword [FG_TRIAL_CHURN].
+!
+	REAL(KIND=LDP) FG_TRIAL_CHURN
+!
 ! GS_FREEZE_LIM (default 0 = disabled): consecutive great iterations
 ! the KNOP forced-LAMBDA freeze may persist before SOLVE_FOR_POPS
 ! stops the model as non-convergent.  The freeze itself stays

@@ -16,6 +16,7 @@ FG = (ROOT / "plane/fg_j_cmf_nonmono_v1.f").read_text()
 MOM = (ROOT / "plane/mom_j_cmf_nonmono_v1.f").read_text()
 POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
 RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
+CTRL_MOD = (ROOT / "new_main/mod_subs/control_variable_mod.f").read_text()
 SOLVEBA = (ROOT / "new_main/subs/solveba_v13.f").read_text()
 
 
@@ -395,6 +396,44 @@ def test_mom_adapt_omega_v2_vadat_wiring():
     )
 
 
+def test_fg_trial_churn_arm():
+    check(
+        "FG_TRIAL_CHURN declared in control_variable_mod",
+        re.search(r"REAL\(KIND=LDP\) FG_TRIAL_CHURN", CTRL_MOD) is not None,
+    )
+    check(
+        "FG_TRIAL_CHURN key read with 0.0 default",
+        re.search(
+            r"FG_TRIAL_CHURN=0\.0_LDP\s+CALL RD_STORE_DBLE"
+            r"\(FG_TRIAL_CHURN,'FG_TRIAL_CHURN'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "pre-churn gate snapshot taken",
+        "GS_FG_PRECHURN=GS_FG_IMMATURE" in POPS,
+    )
+    check(
+        "churn arm requires churn-only immaturity inside the factor",
+        re.search(
+            r"FG_CHURN_MARG=GS_FG_IMMATURE \.AND\. "
+            r"\(\.NOT\. GS_FG_PRECHURN\)",
+            POPS,
+        )
+        is not None
+        and "FG_TRIAL_CHURN*MAX(50_8,GS_NTOT/1000)" in POPS,
+    )
+    check(
+        "FG_TRIAL admits the churn arm",
+        ".NOT. GS_FG_IMMATURE .OR. FG_CHURN_MARG" in POPS,
+    )
+    check(
+        "churn arm tags its own reason",
+        "'fg_trial_churn'" in POPS,
+    )
+
+
 if __name__ == "__main__":
     test_heal_store_zeroes_fully_poisoned_rows()
     test_sweep_store_write_gated_on_new_freq()
@@ -412,4 +451,5 @@ if __name__ == "__main__":
     test_mom_same_map_omega_estimator()
     test_solveba_global_temperature_cap_uses_max_dt_cor()
     test_mom_adapt_omega_v2_vadat_wiring()
+    test_fg_trial_churn_arm()
     print("all KNOP lagged-field checks passed")
