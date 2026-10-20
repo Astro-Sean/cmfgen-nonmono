@@ -164,6 +164,16 @@ def test_pop_precondition_gate():
         "'pop_precond'" in POPS,
     )
     check(
+        "preconditioned call is forced to LAMBDA",
+        re.search(
+            r"'pop_precond'[\s\S]{0,800}?"
+            r"LAMBDA_ITERATION=\.TRUE\.[\s\S]{0,200}?"
+            r"T1=MAX_LAM_COR",
+            POPS,
+        )
+        is not None,
+    )
+    check(
         "release-damp block excludes preconditioned calls",
         re.search(
             r"LAMBDA_ITERATION \.AND\. \.NOT\. MOM_TRIAL \.AND\.\s*\n"

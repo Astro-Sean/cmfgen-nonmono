@@ -1397,6 +1397,18 @@
 	    CALL APPEND_ITER_REASON(ITER_REASON,'pop_precond')
 	    N_PRECOND=N_PRECOND+1
 	    N_PRECOND_TOT=N_PRECOND_TOT+1
+! edited by Devin, 20-Oct-2026: the message promises a live LAMBDA
+! step, but the entry mode could be FULL -- the gate only cleared
+! GS_FREEZE, so a scheduled BA call took an unchecked BA step at
+! ~1E10% demand (the exact step this gate exists to soften).
+! Mirror the gs_immature_demote flag set for this call;
+! FORCE_LAMBDA stays off because the next call re-evaluates the
+! gate on its own demand.
+	    LAMBDA_ITERATION=.TRUE.
+	    FIXED_T=.TRUE.
+	    COMPUTE_BA=.TRUE.
+	    TEMP_CHAR='DIAG'
+	    T1=MAX_LAM_COR
 	    IF(CONV_DIAG_LVL .GE. 1)
 	1   WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
 	2   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
