@@ -869,7 +869,9 @@
 ! requeues and report as a completed model.  Independent of this
 ! key, SOLVE_FOR_POPS publishes the freeze state to the GS_STATE
 ! file each call so the job wrapper can apply its own limit.
-! VADAT keyword [GS_FREEZE_LIM].
+! VADAT keyword [GS_FREEZE_LIM].  Under DO_NONMONO_KNOP an absent
+! key auto-sets 300 (edited by Devin, 20-Oct-2026); an explicit
+! value, including 0 = off, is respected.
 !
 	INTEGER GS_FREEZE_LIM
 !
@@ -1621,7 +1623,8 @@
 ! per-iteration convergence diagnostics.
 !   0 = ITER_SUM / ITER_HISTORY only
 !   1 = + ITER_MODE transitions, CONV_PLATEAU, GS-freeze dumps, the
-!       BA_RES_ACC trajectory line
+!       BA_RES_ACC trajectory line (under DO_NONMONO_KNOP also a
+!       decimated BA13-TRACE every 10th great iteration)
 !   2 = + MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE (the output
 !       volume produced before this control existed)
 !
