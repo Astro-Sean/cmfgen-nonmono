@@ -94,6 +94,20 @@ def main():
         and "dir census" in passes.group(0),
         p.stdout[-400:] if passes is None else "",
     )
+    argmax = re.search(r"^\s*argmax\s.*$", p.stdout, re.M)
+    rep.check(
+        "argmax row prints the 4-tuple history and cycle class",
+        argmax is not None
+        and "8.00E-02" in argmax.group(0)
+        and "cycle" in argmax.group(0),
+        p.stdout[-400:] if argmax is None else "",
+    )
+    fghist = re.search(r"^\s*argmax history \(d,r,f\)=v:.*$", p.stdout, re.M)
+    rep.check(
+        "FG argmax history prints the cycle class",
+        fghist is not None and "cycle" in fghist.group(0),
+        p.stdout[-400:] if fghist is None else "",
+    )
     rep.summary()
 
 

@@ -7,11 +7,12 @@
       PROGRAM DRV_MOM_SWEEP
       USE SET_KIND_MODULE
       USE MOD_MOM_J_NONMONO_V1
+      USE FG_J_CMF_NONMONO_MOD_V1
       USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
       IMPLICIT NONE
       REAL(KIND=LDP) R(4),V(4),SIGMA(4)
 !
-      ALLOCATE(J_NEXT_FRQ(4,2))
+      ALLOCATE(J_NEXT_FRQ(8,2))
       J_NEXT_FRQ=0.0_LDP
       R=1.0_LDP
       V=1.0_LDP
@@ -39,5 +40,31 @@
       MOM_EQ_RES_L=12
       MOM_MAX_COH=1.3E+1_LDP
       MOM_RF_DIR='AUTO'
+!
+! Call 1: interior argmax with alternating last-4 values -> 'cycle'.
+!
+      MOM_ARG_HI=(/9,7,5,5/)
+      MOM_ARG_HL=(/3,1,2,2/)
+      MOM_ARG_HV=(/0.10_LDP,0.05_LDP,0.10_LDP,0.05_LDP/)
+      MOM_GS_ARGI=5
+      MOM_GS_ARGL=2
+      MOM_GS_MAXCHG=8.0E-2_LDP
       CALL DUMP_MOM_JNEXT_GS(0,R,V,SIGMA,4,97)
+!
+! FG variant: the same alternating seed on the (depth,ray,freq)
+! history classifies 'cycle'.  N_COMP=0 keeps the checkpoint write
+! from streaming unallocated intensity arrays.
+!
+      FG_ARG_HK=(/3,3,2,2/)
+      FG_ARG_HR=(/4,5,1,1/)
+      FG_ARG_HL=(/6,1,2,2/)
+      FG_ARG_HV=(/0.10_LDP,0.05_LDP,0.10_LDP,0.05_LDP/)
+      FG_GS_ARGK=2
+      FG_GS_ARGR=1
+      FG_GS_ARGL=2
+      FG_GS_MAXCHG=8.0E-2_LDP
+      N_COMP=0
+      ALLOCATE(I_P_DEPTH_NEXT(0,1,1))
+      ALLOCATE(I_M_DEPTH_NEXT(0,1,1))
+      CALL DUMP_FG_INEXT_GS(0,R,V,SIGMA,4,98)
       END

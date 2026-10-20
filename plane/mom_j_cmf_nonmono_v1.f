@@ -180,6 +180,18 @@
 	REAL(KIND=LDP), SAVE :: MOM_GS_CHG_P1=0.0_LDP
 	REAL(KIND=LDP), SAVE :: MOM_GS_CHG_P2=0.0_LDP
 !
+! Last four sweeps' (depth,freq,value) argmax tuples plus a
+! classification (CONV_DIAG_LVL>=2 only): values alternating
+! direction at a fixed cell mark a period-2 limit cycle of the
+! composite map; a stable monotone argmax marks a marginal
+! contraction tail; a stable argmax at a boundary depth points at
+! the HBC/NBC closure row.  MOM_GS_CLS is read by the SOLVE_FOR_POPS
+! settle-tolerance gate (GS_SETTLE_TOL).
+!
+	INTEGER, SAVE :: MOM_ARG_HI(4)=0, MOM_ARG_HL(4)=0
+	REAL(KIND=LDP), SAVE :: MOM_ARG_HV(4)=0.0_LDP
+	CHARACTER(LEN=6), SAVE :: MOM_GS_CLS=' '
+!
 ! Bulk convergence metrics (Oct-2026): the max-norm MOM_GS_MAXCHG is
 ! pinned by a handful of roaming pathological cells even when the
 ! field is converged in bulk.  MOM_GS_NBAD5/NBAD50 count cells whose
@@ -3915,6 +3927,35 @@
 !
 	LUER=ERROR_LU()
 !
+! Argmax-jitter history: the last four sweeps' (depth,freq,value)
+! tuples classify the drift floor.  Values alternating direction at
+! a fixed cell mark a period-2 limit cycle of the composite map; a
+! stable monotone argmax marks a marginal contraction tail that
+! under-relaxation only slows; a stable argmax at a boundary depth
+! points at the HBC/NBC closure row.
+!
+	MOM_ARG_HI(1:3)=MOM_ARG_HI(2:4);  MOM_ARG_HI(4)=MOM_GS_ARGI
+	MOM_ARG_HL(1:3)=MOM_ARG_HL(2:4);  MOM_ARG_HL(4)=MOM_GS_ARGL
+	MOM_ARG_HV(1:3)=MOM_ARG_HV(2:4);  MOM_ARG_HV(4)=MOM_GS_MAXCHG
+	MOM_GS_CLS=' '
+	IF(MOM_ARG_HI(4) .GT. 0 .AND. MOM_ARG_HI(4) .EQ. MOM_ARG_HI(3)
+	1     .AND. MOM_ARG_HL(4) .EQ. MOM_ARG_HL(3))THEN
+	  IF(MOM_ARG_HI(2) .GT. 0 .AND.
+	1      ((MOM_ARG_HV(4) .GT. MOM_ARG_HV(3) .AND.
+	2        MOM_ARG_HV(3) .LT. MOM_ARG_HV(2)) .OR.
+	3       (MOM_ARG_HV(4) .LT. MOM_ARG_HV(3) .AND.
+	4        MOM_ARG_HV(3) .GT. MOM_ARG_HV(2))))THEN
+	    MOM_GS_CLS='cycle'
+	  ELSE IF(MOM_ARG_HV(4) .LE. MOM_ARG_HV(3))THEN
+	    MOM_GS_CLS='margnl'
+	  END IF
+	END IF
+	IF(MOM_GS_CLS .EQ. ' ' .AND. MOM_ARG_HI(4) .GT. 0 .AND.
+	1     MOM_ARG_HI(4) .EQ. MOM_ARG_HI(3) .AND.
+	2     (MOM_ARG_HI(4) .LE. 2 .OR.
+	3      MOM_ARG_HI(4) .GE. SIZE(J_NEXT_FRQ,1)-1))
+	4     MOM_GS_CLS='bndry'
+!
 ! Tabulated sweep report.  The status tag mirrors the maturity gate
 ! tiers in SOLVE_FOR_POPS: [BAD] = catastrophic tier (>10% capped,
 ! >1% drifting >50%, max change >1E6, >10% negJ or quarantined),
@@ -3961,6 +4002,11 @@
 	2    'passes','1st-call drift ',MOM_GS_CHG_P1,
 	3    '; 2nd-call drift ',MOM_GS_CHG_P2,
 	4    '; dir census ',MOM_SW_NCROW,' of ',MOM_SW_NROW
+	IF(CONV_DIAG_LVL .GE. 2)
+	1    WRITE(LUER,'(4X,A10,2X,A,4(2X,A,I4,A,I4,A,ES9.2),2X,A)')
+	2    'argmax','last 4 (depth,freq)=val:',
+	3    ('(',MOM_ARG_HI(I),',',MOM_ARG_HL(I),')=',
+	4     MOM_ARG_HV(I),I=1,4),MOM_GS_CLS
 	WRITE(LUER,'(4X,A10,2X,I10,3(A,I10),A)')
 	1    'repairs',MOM_NEGJ_LRG,
 	2    ' significant negative J_NEXT cells, ',MOM_N_NEGJ_T,
@@ -4579,6 +4625,17 @@
 	IMPLICIT NONE
 	REAL(KIND=LDP) RLX
 	MOM_FAC_RLX=MIN(MAX(RLX,1.0E-3_LDP),1.0_LDP)
+	RETURN
+	END
+!
+! GET_MOM_GS_CLS: read-back of the argmax-jitter classification for
+! the SOLVE_FOR_POPS settle-tolerance gate (GS_SETTLE_TOL).
+!
+	SUBROUTINE GET_MOM_GS_CLS(CLS)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_GS_CLS
+	IMPLICIT NONE
+	CHARACTER(LEN=*) CLS
+	CLS=MOM_GS_CLS
 	RETURN
 	END
 !

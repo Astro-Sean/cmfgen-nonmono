@@ -351,6 +351,18 @@
 	INTEGER*8, SAVE :: FG_GS_NCONV=0
 	INTEGER*8, SAVE :: FG_INEXT_CAPPED=0
 !
+! Argmax of FG_GS_MAXCHG -- (model depth K, ray LS, freq) of the
+! largest relative I_NEXT store drift this sweep -- plus the last
+! four sweeps' tuples and a classification.  CONV_DIAG_LVL>=2 only:
+! a period-2 limit cycle (alternating values at a fixed cell), a
+! marginal contraction tail (stable argmax, monotone decay), and a
+! boundary-carried residual read identically in the max-norm value.
+!
+	INTEGER, SAVE :: FG_GS_ARGK=0, FG_GS_ARGR=0, FG_GS_ARGL=0
+	INTEGER, SAVE :: FG_ARG_HK(4)=0, FG_ARG_HR(4)=0, FG_ARG_HL(4)=0
+	REAL(KIND=LDP), SAVE :: FG_ARG_HV(4)=0.0_LDP
+	CHARACTER(LEN=6), SAVE :: FG_GS_CLS=' '
+!
 ! Same-census cap accounting (maturity-gate fix): the sweep-store
 ! loop and the refresh passes visit different cell sets, so a single
 ! FG_INEXT_CAPPED numerator against the refresh's FG_GS_NTOT
@@ -2213,6 +2225,7 @@
 ! edited by Sean Brennan
 	    FREQ_IDX_ITER=0
 	    FG_GS_MAXCHG=0.0_LDP
+	    FG_GS_ARGK=0;  FG_GS_ARGR=0;  FG_GS_ARGL=0
 	    FG_GS_NCONV=0
 	    FG_INEXT_CAPPED=0
 	    FG_SW_CAPPED=0
@@ -4151,8 +4164,12 @@ C
 	              IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
 	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS))
 	2                FG_GS_NCONV=FG_GS_NCONV+1
-	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/
-	1                MAX(T2,1.0E-4_LDP*VMAX_IP(LS)))
+	              T4=ABS(T1-T2)/MAX(T2,1.0E-4_LDP*VMAX_IP(LS))
+	              IF(T4 .GT. FG_GS_MAXCHG)THEN
+	                FG_GS_MAXCHG=T4
+	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                FG_GS_ARGL=FREQ_IDX_ITER
+	              END IF
 !
 ! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store.  A
 ! cell whose freshly solved intensity still differs from the stored
@@ -4171,7 +4188,11 @@ C
 	              END IF
 	            ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IP(LS))THEN
 	              FG_GS_NCONV=FG_GS_NCONV+1
-	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,1.0_LDP)
+	              IF(FG_GS_MAXCHG .LT. 1.0_LDP)THEN
+	                FG_GS_MAXCHG=1.0_LDP
+	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                FG_GS_ARGL=FREQ_IDX_ITER
+	              END IF
 	            END IF
 	            IF(T2 .GT. 0.0_LDP)THEN
 	              I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)=
@@ -4199,8 +4220,12 @@ C
 	              IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
 	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS))
 	2                FG_GS_NCONV=FG_GS_NCONV+1
-	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,ABS(T1-T2)/
-	1                MAX(T2,1.0E-4_LDP*VMAX_IM(LS)))
+	              T4=ABS(T1-T2)/MAX(T2,1.0E-4_LDP*VMAX_IM(LS))
+	              IF(T4 .GT. FG_GS_MAXCHG)THEN
+	                FG_GS_MAXCHG=T4
+	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                FG_GS_ARGL=FREQ_IDX_ITER
+	              END IF
 	              IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
 	1               0.25_LDP .AND.
 	2               MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS) .AND.
@@ -4213,7 +4238,11 @@ C
 	              END IF
 	            ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IM(LS))THEN
 	              FG_GS_NCONV=FG_GS_NCONV+1
-	              FG_GS_MAXCHG=MAX(FG_GS_MAXCHG,1.0_LDP)
+	              IF(FG_GS_MAXCHG .LT. 1.0_LDP)THEN
+	                FG_GS_MAXCHG=1.0_LDP
+	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                FG_GS_ARGL=FREQ_IDX_ITER
+	              END IF
 	            END IF
 	            IF(T2 .GT. 0.0_LDP)THEN
 	              I_M_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)=
@@ -4963,6 +4992,17 @@ C
 	RETURN
 	END
 !
+! GET_FG_GS_CLS: read-back of the argmax-jitter classification for
+! the SOLVE_FOR_POPS settle-tolerance gate (GS_SETTLE_TOL).
+!
+	SUBROUTINE GET_FG_GS_CLS(CLS)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_GS_CLS
+	IMPLICIT NONE
+	CHARACTER(LEN=*) CLS
+	CLS=FG_GS_CLS
+	RETURN
+	END
+!
 	SUBROUTINE GET_FG_ALO_DIAG(DJDCHI,DJDETA,N,VALID)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
@@ -4991,11 +5031,12 @@ C
 	SUBROUTINE DUMP_FG_INEXT_GS(NITSF,R,V,SIGMA,ND,LU)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
+	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
 	USE IFPORT
 	IMPLICIT NONE
 	INTEGER NITSF,ND,LU
 	REAL(KIND=LDP) R(ND),V(ND),SIGMA(ND)
-	INTEGER IOS,I,LUER,ERROR_LU
+	INTEGER IOS,I,K,LUER,ERROR_LU
 	INTEGER, PARAMETER :: MAGIC=20260916, VER=3
 	LOGICAL REN_OK
 	EXTERNAL ERROR_LU
@@ -5019,10 +5060,46 @@ C
 ! veto every requeue.
 !
 	LUER=ERROR_LU()
+!
+! Argmax-jitter history (CONV_DIAG_LVL>=2): the last four sweeps'
+! (depth,ray,freq,value) tuples classify the drift floor.  Values
+! alternating direction at a fixed cell mark a period-2 limit cycle
+! of the composite map; a stable monotone argmax marks a marginal
+! contraction tail (under-relaxation slows it but cannot shrink it);
+! a stable argmax at a boundary depth points at the HBC/NBC closure.
+!
+	FG_ARG_HK(1:3)=FG_ARG_HK(2:4);  FG_ARG_HK(4)=FG_GS_ARGK
+	FG_ARG_HR(1:3)=FG_ARG_HR(2:4);  FG_ARG_HR(4)=FG_GS_ARGR
+	FG_ARG_HL(1:3)=FG_ARG_HL(2:4);  FG_ARG_HL(4)=FG_GS_ARGL
+	FG_ARG_HV(1:3)=FG_ARG_HV(2:4);  FG_ARG_HV(4)=FG_GS_MAXCHG
+	FG_GS_CLS=' '
+	IF(FG_ARG_HK(4) .GT. 0 .AND. FG_ARG_HK(4) .EQ. FG_ARG_HK(3)
+	1     .AND. FG_ARG_HR(4) .EQ. FG_ARG_HR(3) .AND.
+	2     FG_ARG_HL(4) .EQ. FG_ARG_HL(3))THEN
+	  IF(FG_ARG_HK(2) .GT. 0 .AND.
+	1      ((FG_ARG_HV(4) .GT. FG_ARG_HV(3) .AND.
+	2        FG_ARG_HV(3) .LT. FG_ARG_HV(2)) .OR.
+	3       (FG_ARG_HV(4) .LT. FG_ARG_HV(3) .AND.
+	4        FG_ARG_HV(3) .GT. FG_ARG_HV(2))))THEN
+	    FG_GS_CLS='cycle'
+	  ELSE IF(FG_ARG_HV(4) .LE. FG_ARG_HV(3))THEN
+	    FG_GS_CLS='margnl'
+	  END IF
+	END IF
+	IF(FG_GS_CLS .EQ. ' ' .AND. FG_ARG_HK(4) .GT. 0 .AND.
+	1     FG_ARG_HK(4) .EQ. FG_ARG_HK(3) .AND.
+	2     (FG_ARG_HK(4) .LE. 2 .OR. FG_ARG_HK(4) .GE. ND-1))
+	3     FG_GS_CLS='bndry'
+!
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP STORE ----------------------------------'
 	WRITE(LUER,'(A)')'  I_NEXT sweep update:'
 	WRITE(LUER,'(A,ES12.4)')
 	1  '    max rel. change=',FG_GS_MAXCHG
+	IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,
+	1  '(A,4(2X,A,I4,A,I4,A,I4,A,ES9.2),2X,A)')
+	2  '    argmax history (d,r,f)=v:',
+	3  ('(',FG_ARG_HK(K),',',FG_ARG_HR(K),',',FG_ARG_HL(K),')=',
+	4   FG_ARG_HV(K),K=1,4),FG_GS_CLS
 	WRITE(LUER,'(A,I10)')'    cap/bad writes=',FG_INEXT_CAPPED
 	WRITE(LUER,'(A,I10)')'    cells>50%=',FG_GS_NCONV
 	WRITE(LUER,'(A,I8,2(A,I10))')
