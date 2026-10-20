@@ -142,7 +142,11 @@
 !
 	REAL(KIND=LDP), ALLOCATABLE :: R(:)		!Radius in units of 10^10 cm
 	REAL(KIND=LDP), ALLOCATABLE :: V(:)		!V in units of km/s
-	REAL(KIND=LDP), ALLOCATABLE :: SIGMA(:)		!dlnV/dlnR-1 (clamped >= -0.999)
+	REAL(KIND=LDP), ALLOCATABLE :: SIGMA(:)		!dlnV/dlnr-1 as read from RVTJ; under KNOP the stored sigma is
+						!unclamped and may be < -1.  SOB-mode obs runs rebuild
+						!SIGMA_TRUE in cmf_flux_sub_v5.f; KNOP-mode obs runs have
+						!no nonmono adaptation yet and are caught by the
+						!detector in cmf_flux_v5.f (ALLOW_NONMONO_OBS escape).
 	REAL(KIND=LDP), ALLOCATABLE :: SIGMA_TRUE(:)	!Unclamped dlnV/dlnR-1 for DO_NONMONO_SOB EW estimators
 	REAL(KIND=LDP), ALLOCATABLE :: T(:)		!Temperature in units of 10^4 K
 	REAL(KIND=LDP), ALLOCATABLE :: ED(:)		!Electron density (#/cm^3)

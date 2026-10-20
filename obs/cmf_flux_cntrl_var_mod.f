@@ -192,6 +192,15 @@
 !
 	REAL(KIND=LDP) :: SOB_SIGMA_MAX=-1.0_LDP
 !
+! ALLOW_NONMONO_OBS (default F): escape key for the non-monotonic
+! detector in CMF_FLUX_SUB_V5.  When an RVTJ carries sigma < -1 or a
+! non-strictly-decreasing V and the obs controls do not confirm
+! DO_NONMONO_SOB, the run aborts -- the monotonic formal-solver and
+! sigma-clamp paths cannot be trusted on such a model.  T downgrades
+! the abort to a warning (e.g. to inspect an unsupported KNOP model).
+!
+	LOGICAL :: ALLOW_NONMONO_OBS=.FALSE.
+!
 	LOGICAL PLANE_PARALLEL_NO_V
 	LOGICAL PLANE_PARALLEL
 	LOGICAL INCL_INCID_RAD

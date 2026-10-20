@@ -472,6 +472,15 @@
 	1      'Clamp |SIGMA_TRUE| above this bound in OBS (>0 to enable)?')
 	  END IF
 !
+! Escape key for the fail-closed non-monotonic detector in
+! CMF_FLUX_SUB_V5: read unconditionally so it can rescue a run whose
+! obs controls carry no nonmono flag at all (e.g. a KNOP model read
+! by a stock OBS setup).  Absent key -> F -> hard stop.
+!
+	  ALLOW_NONMONO_OBS=.FALSE.
+	  CALL RD_STORE_LOG(ALLOW_NONMONO_OBS,'ALLOW_NONMONO_OBS',L_FALSE,
+	1      'Allow OBS processing of a non-monotonic RVTJ model?')
+!
 !
 ! The flag defaults to F, so the stock OBS path is unchanged unless
 ! the population model used the non-monotonic Sobolev treatment.

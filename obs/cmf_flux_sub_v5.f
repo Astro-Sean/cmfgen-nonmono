@@ -162,6 +162,7 @@
 	INTEGER I,J,K,L,ML,LS,LINE_INDX
 	INTEGER ID,ID_SAV,ISPEC
 	INTEGER ES_COUNTER,N_SIG_UNDEF,N_SIG_CLAMP
+	INTEGER N_NONMONO_OBS
 !
 ! Functions called
 !
@@ -556,6 +557,46 @@
 ! As subroutine exits, it also cleans and releases the STORE.
 !
 	  CALL RD_CMF_FLUX_CONTROLS(ND,LUMOD,LUER)
+!
+! edited by Devin, 05-Nov-2026 (nonmono gap item 7): fail closed at
+! the OBS entry.  A model written by a KNOP (or otherwise
+! non-monotonic) population run carries sigma < -1 and/or a
+! non-strictly-decreasing V in RVTJ.  This executable has confirmed
+! nonmono machinery only for DO_NONMONO_SOB (the SIGMA_TRUE rebuild
+! below); every other path -- FG_J_CMF_V12, EXTEND_VTSIGMA, the
+! stored-J/EDD routes -- assumes the monotonic sigma >= -1 contract
+! and would clamp or sign-flip silently.  Tolerances absorb the
+! ~1E-8 print precision of RVTJ columns.
+!
+	  N_NONMONO_OBS=0
+	  DO I=1,ND-1
+	    IF(V(I+1) .GT. V(I)*(1.0_LDP+1.0E-8_LDP))
+	1     N_NONMONO_OBS=N_NONMONO_OBS+1
+	  END DO
+	  DO I=1,ND
+	    IF(SIGMA(I) .LT. -1.0_LDP-1.0E-6_LDP)
+	1     N_NONMONO_OBS=N_NONMONO_OBS+1
+	  END DO
+	  IF(N_NONMONO_OBS .GT. 0)THEN
+	    WRITE(LUER,'(A,I6,A)')' CMF_FLUX_SUB_V5: non-monotonic'
+	1     //' velocity signature in RVTJ (',N_NONMONO_OBS,
+	2     ' flagged cells)'
+	    IF(DO_NONMONO_SOB)THEN
+	      WRITE(LUER,'(A)')'   DO_NONMONO_SOB=T confirmed in obs'//
+	1       ' controls: SIGMA_TRUE machinery active, continuing.'
+	    ELSE IF(ALLOW_NONMONO_OBS)THEN
+	      WRITE(LUER,'(A)')'   ALLOW_NONMONO_OBS=T: continuing'//
+	1       ' WITHOUT confirmed nonmono OBS machinery (override).'
+	    ELSE
+	      WRITE(LUER,'(A)')'   Error: model was computed with a'//
+	1       ' non-monotonic velocity treatment; this OBS'//
+	2       ' executable has confirmed nonmono machinery only'//
+	3       ' for DO_NONMONO_SOB.'
+	      WRITE(LUER,'(A)')'   Set DO_NONMONO_SOB=T (SOB models) or'//
+	1       ' ALLOW_NONMONO_OBS=T in the obs controls to continue.'
+	      STOP
+	    END IF
+	  END IF
 !
 ! Under DO_NONMONO_SOB only, match the EW estimator's velocity gradient
 ! to the unclamped gradient used for the populations (Dessart et al.
