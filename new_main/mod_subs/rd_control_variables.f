@@ -2881,6 +2881,20 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_PRECOND=T'
 	    END IF
 !
+! GS_FREEZE_LIM defaults to 300 under KNOP (edited by Devin,
+! 20-Oct-2026): a release/refreeze limit cycle resets N_FROZEN at
+! every release, so with no in-model cap a stuck run burns the
+! whole requeue budget doing forced-LAMBDA iterations that cannot
+! converge (m15_2p82d: ~200 KNOP blocks with no progress).
+! Explicit VADAT values, including 0 = off, are respected.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'GS_FREEZE_LIM',L_FALSE,
+	1     L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      GS_FREEZE_LIM=300
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_FREEZE_LIM=300'
+	    END IF
+!
 ! DO_NONMONO_FREQ_MATCH defaults T under KNOP: with one-bin upwind
 ! coupling at compressing points the lagged map gain approaches 1
 ! when the per-cell Doppler shift exceeds the frequency spacing, so

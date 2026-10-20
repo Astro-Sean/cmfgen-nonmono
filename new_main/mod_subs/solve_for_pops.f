@@ -13,6 +13,9 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
 	IMPLICIT NONE
 !
+! Altered:   20-Oct-2026 : Release-progress audit flags and counts
+!                          no-progress frozen->live transitions
+!                          (edited by Devin).
 ! Altered:   20-Oct-2026 : GS_PRECOND demand gate postpones the freeze
 !                          while the population demand is grossly
 !                          unconverged (edited by Devin).
@@ -252,6 +255,20 @@
 	LOGICAL, SAVE :: GS_PRECOND_ACT=.FALSE.
 	INTEGER, SAVE :: N_PRECOND=0
 !
+! Release-progress audit (edited by Devin, 20-Oct-2026):
+! GS_JUST_REL arms on each frozen->live transition; the next call
+! judges the release.  If the demand entering that call (MAXCH =
+! the release call's demand) has not fallen at least 10% below the
+! release-time demand GS_REL_DEM, or the post-release sweep still
+! drifted above GS_UNSAFE_TOL, the release made no progress --
+! counted in N_REL_NOPROG and flagged 'release_no_progress' in
+! ITER_REASON so the release/refreeze limit cycle is visible
+! without grepping the sweep dumps.
+!
+	LOGICAL, SAVE :: GS_JUST_REL=.FALSE.
+	REAL(KIND=LDP), SAVE :: GS_REL_DEM=0.0_LDP
+	INTEGER, SAVE :: N_REL_NOPROG=0
+!
 ! Luminosity is diagnostic only in shocked models: local deposition
 ! and mechanical-to-radiative conversion mean the inner and outer
 ! luminosities need not agree or settle together.  Keep the ratio and
@@ -464,6 +481,9 @@
 	  N_MATURE=0
 	  GS_PRECOND_ACT=.FALSE.
 	  N_PRECOND=0
+	  GS_JUST_REL=.FALSE.
+	  GS_REL_DEM=0.0_LDP
+	  N_REL_NOPROG=0
 	  LUM_INIT=.FALSE.
 	  LUM_PREV=0.0_LDP
 	  LUM_PREV_OUT=0.0_LDP
@@ -894,6 +914,32 @@
 	    CALL APPEND_ITER_REASON(ITER_REASON,'gs_warmup')
 	  END IF
 !
+! edited by Devin, 20-Oct-2026: judge the last release.  On the
+! call after a frozen->live transition, demand progress is the
+! entry MAXCH against the release-time demand GS_REL_DEM, and the
+! field answer is the just-finished sweep drift -- a release that
+! re-poisoned the field (raw drift above GS_UNSAFE_TOL, the
+! 6.5-52 kicks of the m15_2p82d limit cycle) or that left the
+! demand within 10% of its release value made no progress.
+! Log-only accounting; the counter prints in the frozen-call GS
+! dump below.
+!
+	  IF(GS_JUST_REL)THEN
+	    GS_JUST_REL=.FALSE.
+	    IF((GS_REL_DEM .GT. 0.0_LDP .AND.
+	1       MAXCH .GE. 0.9_LDP*GS_REL_DEM) .OR.
+	2      GS_SW_MAXCHG .GT. GS_UNSAFE_TOL)THEN
+	      N_REL_NOPROG=N_REL_NOPROG+1
+	      CALL APPEND_ITER_REASON(ITER_REASON,
+	1       'release_no_progress')
+	      IF(CONV_DIAG_LVL .GE. 1)
+	1     WRITE(LUER,'(A,ES10.3,A,ES10.3,A,ES10.3,A,I6)')
+	2     'SOLVE_FOR_POPS: release_no_progress: demand=',MAXCH,
+	3     '  rel_dem=',GS_REL_DEM,'  raw_drift=',GS_SW_MAXCHG,
+	4     '  count=',N_REL_NOPROG
+	    END IF
+	  END IF
+!
 ! In-run GS immaturity gate: when a BA
 ! iteration is pending but the lagged I_NEXT/J_NEXT coupling field is
 ! still moving by more than GS_UNSAFE_TOL, or cap/negative-J events
@@ -1322,6 +1368,8 @@
 	    WRITE(LUER,'(/,A)')' -------------------------------- KNOP GS SWEEP --------------------------------'
 	    WRITE(LUER,'(A)')'  KNOP inner-GS sweep'
 	    WRITE(LUER,'(A,I8)')'    immature-field iteration : ',N_FROZEN
+	    WRITE(LUER,'(A,I8)')'    no-progress releases       : ',
+	1   N_REL_NOPROG
 	    WRITE(LUER,'(A,2ES12.4)')
 	1   '    FG / MOM maxchg          : ',GS_MAXCHG,MOM_MAXCHG
 !
@@ -1635,9 +1683,16 @@
 	    N_REL_SINCE=N_REL_SINCE+1
 ! Count the raw-cure release once per frozen->live transition; the
 ! trial arms fire while GS_FREEZE is still .TRUE. so they never
-! reach this branch (edited by Devin, 19-Oct-2026).
-	    IF(GS_WAS_FROZEN)
-	1    GS_RAW_RELEASES_TOT=GS_RAW_RELEASES_TOT+1
+! reach this branch (edited by Devin, 19-Oct-2026).  The
+! transition also arms the release-progress audit above (edited
+! by Devin, 20-Oct-2026): GS_REL_DEM snapshots the entry demand
+! -- still the last frozen call's value here, before SOLVEBA
+! writes this call's demand into MAXCH.
+	    IF(GS_WAS_FROZEN)THEN
+	      GS_RAW_RELEASES_TOT=GS_RAW_RELEASES_TOT+1
+	      GS_JUST_REL=.TRUE.
+	      GS_REL_DEM=MAXCH
+	    END IF
 	  END IF
 	  GS_WAS_FROZEN=GS_FREEZE
 	END IF

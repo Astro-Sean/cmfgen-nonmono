@@ -225,6 +225,47 @@ def test_bulk_exit_residual_floor():
     )
 
 
+def test_knop_observability_and_runaway_safety():
+    check(
+        "BA13-TRACE emits at lvl 1 under KNOP every 10th iteration",
+        re.search(
+            r"CONV_DIAG_LVL \.GE\. 2 \.OR\.\s*\n"
+            r"\s*\d?\s*\(?DO_NONMONO_KNOP \.AND\. CONV_DIAG_LVL "
+            r"\.GE\. 1 \.AND\.\s*\n"
+            r"\s*\d?\s*MOD\(MAIN_COUNTER,10\) \.EQ\. 0",
+            SOLVEBA,
+        )
+        is not None,
+    )
+    check(
+        "release_no_progress reason is appended",
+        "'release_no_progress'" in POPS,
+    )
+    check(
+        "no-progress counter increments and prints in the GS dump",
+        "N_REL_NOPROG=N_REL_NOPROG+1" in POPS
+        and "'    no-progress releases" in POPS,
+    )
+    check(
+        "release audit keys on demand fall and raw drift",
+        "MAXCH .GE. 0.9_LDP*GS_REL_DEM" in POPS
+        and "GS_SW_MAXCHG .GT. GS_UNSAFE_TOL" in POPS,
+    )
+    check(
+        "release transition arms the audit",
+        "GS_JUST_REL=.TRUE." in POPS and "GS_REL_DEM=MAXCH" in POPS,
+    )
+    check(
+        "GS_FREEZE_LIM absent-key auto-set to 300 under KNOP",
+        re.search(
+            r"CALL GET_KEY_STRING\(TMP_STRING,'GS_FREEZE_LIM',"
+            r"L_FALSE,[\s\S]*?' KNOP auto-set: GS_FREEZE_LIM=300'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+
+
 def test_march_sign_flip_accumulator_is_signed():
     march = section(FG, "SUBROUTINE MARCH", "SUBROUTINE WRITE_STORE")
     check(
@@ -363,6 +404,7 @@ if __name__ == "__main__":
     test_rel_damp_window_default_and_raw_release_counter()
     test_pop_precondition_gate()
     test_bulk_exit_residual_floor()
+    test_knop_observability_and_runaway_safety()
     test_march_sign_flip_accumulator_is_signed()
     test_ordered_boundary_rows_skip_out_of_window_frequencies()
     test_march_only_called_from_sweep_fld()

@@ -27,6 +27,9 @@
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
 	IMPLICIT NONE
 !
+! Altered 20-Oct-2026 : BA13-TRACE also emits at CONV_DIAG_LVL=1
+!                          under DO_NONMONO_KNOP, decimated to every
+!                          10th great iteration (edited by Devin).
 ! Altered 16-Oct-2026 : Largest exempted (floor-hidden) demand is
 !                          exported as BA_DEM_EXM and named in OUTGEN;
 !                          the MAXCH metric itself is unchanged
@@ -1533,8 +1536,16 @@
 ! section (----- NAME it ----- header + aligned rows), matching the
 ! BA_RES_ACC / ITER SUMMARY block style; fields unchanged.
 !
-	IF(CONV_DIAG_LVL .GE. 2 .AND. (DO_NONMONO_SOB .OR.
-	1    DO_NONMONO_KNOP .OR. DO_BA_RES_ACC))THEN
+! edited by Devin, 20-Oct-2026: under DO_NONMONO_KNOP the block
+! also emits at CONV_DIAG_LVL=1, decimated to every 10th great
+! iteration -- the species driving the non-exempted max demand
+! stays named without the full level-2 log volume.
+!
+	IF((CONV_DIAG_LVL .GE. 2 .OR.
+	1    (DO_NONMONO_KNOP .AND. CONV_DIAG_LVL .GE. 1 .AND.
+	2     MOD(MAIN_COUNTER,10) .EQ. 0)) .AND.
+	3    (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR.
+	4     DO_BA_RES_ACC))THEN
 	  OSC_FL=.FALSE.
 	  IF(.NOT. LAMBDA_IT)THEN
 	    IF(JINC .EQ. PV_JD .AND. IINC .EQ. PV_ID)OSC_FL=.TRUE.
