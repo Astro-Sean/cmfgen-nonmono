@@ -2051,8 +2051,9 @@
 	1     '    demanded population change MAXCH  :',MAXCH
 	      WRITE(LUER,'(A,ES12.4)')
 	1     '    frozen-tier admission gate        :',JFNK_GATE_IN
-	      WRITE(LUER,'(A,L2)')
-	1     '    demand still contracting          :',JFNK_DEM_CTR
+	      WRITE(LUER,'(A,1X,A3)')
+	1     '    demand still contracting          :',
+	2     MERGE('yes','no ',JFNK_DEM_CTR)
 	      WRITE(LUER,'(A,I3,A,I3)')
 	1     '    consecutive sub-gate calls, need  :',
 	1     JFNK_FRZ_HITS,' /',JFNK_NREQ_EFF
@@ -3664,10 +3665,11 @@
 	1    'jfnk',MAXCH,MAX(JFNK_GATE_IN,0.0_LDP),JFNK_ST,
 	2    'hits frz=',JFNK_FRZ_HITS,'/',JFNK_GATE_NREQ,
 	3    'demand vs frz gate'
-	    WRITE(LUER,'(4X,A14,2(2X,ES10.3),7X,A,I3,A,I3,1X,A,1X,L2)')
+	    WRITE(LUER,'(4X,A14,2(2X,ES10.3),7X,A,I3,A,I3,1X,A,1X,A3)')
 	1    'jfnk_cpl',MAXCH,MAX(JFNK_COR_GATE,0.0_LDP),
 	2    'hits cpl=',JFNK_CPL_HITS,'/',JFNK_GATE_NREQ,
-	3    'vs cpl gate; coupled=',JFNK_COUPLED_THIS
+	3    'vs cpl gate; coupled ',
+	4    MERGE('yes','no ',JFNK_COUPLED_THIS)
 	  END IF
 !
 ! Converged-exit verdict (edited by Devin, 17-Oct-2026): the same
