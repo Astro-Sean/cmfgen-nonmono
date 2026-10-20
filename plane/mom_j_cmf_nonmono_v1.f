@@ -203,6 +203,13 @@
 	INTEGER*8, SAVE :: MOM_GS_NBAD50=0
 	INTEGER*8, SAVE :: MOM_GS_NTOT=0
 !
+! MOM_GS_NLOW: cells above the 1E-3 user-facing convergence target
+! (CONV_DIAG_LVL>=2 diagnostic only).  With NBAD5/NBAD50 already at
+! 5%/50% this is the share that tells a tail-dominated max-norm
+! floor (single pathological cell) from a bulk-stalled field.
+!
+	INTEGER*8, SAVE :: MOM_GS_NLOW=0
+!
 ! MOM_GS_NHUGE: cells whose relative drift exceeded 1E6 this sweep.
 ! MAXCHG is a single-cell statistic, so one bounded-but-bad
 ! resonance cell (GAM~0 at the 1+sigma*K angle cancellation) pins
@@ -1654,6 +1661,7 @@
 	  MOM_INEXT_CAPPED=0
 	  MOM_NEGJ_LRG=0
 	  MOM_GS_NBAD5=0;  MOM_GS_NBAD50=0
+	  MOM_GS_NLOW=0
 	  MOM_GS_NHUGE=0
 	  MOM_GS_NQUAR=0
 	  MOM_GS_NPQUAR=0
@@ -3502,6 +3510,7 @@
 !	      producing an arbitrarily large (or non-finite) ratio.
 !
 	      T4=ABS(T2-T1)/MAX(ABS(T1),1.0E-4_LDP*T3)
+	      IF(T4 .GT. 1.0E-3_LDP)MOM_GS_NLOW=MOM_GS_NLOW+1
 	      IF(T4 .GT. 0.05_LDP)MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	      IF(T4 .GT. 0.5_LDP)MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	      IF(T4 .GT. 1.0E+6_LDP)MOM_GS_NHUGE=MOM_GS_NHUGE+1
@@ -4012,6 +4021,17 @@
 	2    'passes','1st-call drift ',MOM_GS_CHG_P1,
 	3    '; 2nd-call drift ',MOM_GS_CHG_P2,
 	4    '; dir census ',MOM_SW_NCROW,' of ',MOM_SW_NROW
+!
+! Bulk share vs max-norm: a 1E-1 floor with almost no cells above
+! the 1E-3 target is tail-dominated (one pathological cell), which
+! would justify reading the bulk share at the gate instead of the
+! max; a broad share means the whole field is still moving.
+!
+	IF(CONV_DIAG_LVL .GE. 2 .AND. MOM_GS_NTOT .GT. 0)
+	1    WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,I10,A,I10,A)')
+	2    'bulk','cells above 1e-3 share ',
+	3    DBLE(MOM_GS_NLOW)/DBLE(MOM_GS_NTOT),' (',MOM_GS_NLOW,
+	4    ' of ',MOM_GS_NTOT,')'
 	IF(CONV_DIAG_LVL .GE. 2)
 	1    WRITE(LUER,'(4X,A10,2X,A,4(2X,A,I4,A,I4,A,ES9.2),2X,A)')
 	2    'argmax','last 4 (depth,freq)=val:',

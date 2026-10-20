@@ -112,6 +112,12 @@ def main():
         "boundary argmax is tagged bnd_row and classified bndry",
         "bnd_row" in p.stdout and "bndry" in p.stdout,
     )
+    bulk = re.search(r"^\s*bulk\s.*$", p.stdout, re.M)
+    rep.check(
+        "bulk row prints the share above 1e-3",
+        bulk is not None and "2.000E-02" in bulk.group(0),
+        p.stdout[-400:] if bulk is None else "",
+    )
     rep.summary()
 
 

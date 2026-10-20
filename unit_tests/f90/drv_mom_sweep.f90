@@ -29,6 +29,7 @@
       MOM_SW_NROW=100_8
       MOM_GS_CHG_P1=8.0E-2_LDP
       MOM_GS_CHG_P2=3.0E-2_LDP
+      MOM_GS_NLOW=2_8
       MOM_MIN_DR=1.1E-3_LDP
       MOM_MIN_DR_I=2
       MOM_MIN_DR_L=3
