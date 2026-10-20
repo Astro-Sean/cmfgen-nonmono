@@ -5,6 +5,7 @@
 	SUBROUTINE SET_RV_HYDRO_MODEL_V3(R,V,SIGMA,RMAX,RCORE,RMAX_ON_RCORE,
 	1                  SN_AGE_DAYS,PURE_HUBBLE_FLOW,N_IB_INS,N_OB_INS,RDINR,ND,LU)
 	USE SET_KIND_MODULE
+	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
 	IMPLICIT NONE
 !
 ! Altered 05-Oct-2026 : Validate hydro grid/velocity before R=R0+Vdt expansion.
@@ -94,6 +95,7 @@
 	INTEGER IOS
 	INTEGER NOLD,NDOLD
 	INTEGER I,J,J_SAV,L
+	INTEGER N_UNDEF
 	INTEGER N_INS_TOT
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
@@ -468,6 +470,25 @@
 	    GOTO 500
 	  END IF
 	END DO
+!
+! edited by Devin, 05-Nov-2026 (nonmono gap item 2): on an RDINR
+! restart the SIGMA above is the analytic derivative of the
+! MON_INT_FUNS_V2 cubic -- close to, but not identical with, the
+! centred-difference sigma that RECOMPUTE_SIGMA_TRUE later stores
+! in SIGMA_TRUE.  Under the nonmono flags the diagnostic work
+! arrays (EVAL_ADIABATIC_V3, grey-T) consume SIGMA on the
+! assumption it is the same discretization as SIGMA_TRUE, so
+! rebuild it from the final (R,V) pair via SIGMA_TRUE_CORE: same
+! stagnation guard and |sigma| cap, bit-consistent with
+! SIGMA_TRUE.  Not applied on the stock path (RDINR + no nonmono
+! flag keeps the cubic derivative).
+!
+	IF(RDINR .AND. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP))THEN
+	  CALL SIGMA_TRUE_CORE(SIGMA,R,V,ND,N_UNDEF)
+	  WRITE(LUER,*)'SET_RV_HYDRO_V3 (RDINR, nonmono): SIGMA rebuilt',
+	1   ' from centred differences of final (R,V);',
+	2   ' undefined cells =',N_UNDEF
+	END IF
 !
 ! If very close to Hubble law, we set SIGMA to zero.
 !
