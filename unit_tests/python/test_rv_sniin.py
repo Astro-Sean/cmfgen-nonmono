@@ -7,22 +7,19 @@ Three behaviors under test:
    V(I) = VCORE*(R(I)/R(ND))**BETA1, SIGMA = BETA1-1.  New and
    reference builds must produce identical grids.
 
-2. Hydro path (RDINR=F): the routine calls
-   LIN_INTERP(V,TA,ND,V_HYDRO,R_HYDRO,NHYDRO), i.e. it uses the
-   caller-supplied V array as the *target coordinate* for the velocity
-   interpolation.  If V arrives uninitialized (zeros), the new strict
-   monotonicity guards abort loudly (pre-existing bug made loud);
-   an increasing V mismatches V_HYDRO's direction (the upstream
-   reversal loop swaps each pair twice, so V_HYDRO stays decreasing)
-   and also aborts.
+2. Hydro path (RDINR=F), monotone-V table: the fixed routine calls
+   LIN_INTERP(R,V,ND,R_HYDRO,V_HYDRO,NHYDRO) so V is interpolated
+   from the hydro table onto the tau_es-derived R grid (the hydro
+   arrays must first be genuinely reversed -- the old I=1,NHYDRO swap
+   loop was a no-op).  Checks: run completes on every vfill, V equals
+   the piecewise-linear hydro table evaluated at R, and SIGMA matches
+   the centred-difference formula applied to the *returned* V.
+   The reference build still aborts in LIN_INTERP (swapped call).
 
-3. Corrected SIGMA denominator (the actual code change): when V is
-   pre-filled strictly increasing inside V_HYDRO's range, the guard
-   passes and the routine reaches the SIGMA loop.  The new code
-   computes the non-uniform centred difference
-       dVdR = [T1*(R_i-R_{i+1}) + T2*(R_{i-1}-R_i)] / (R_{i-1}-R_{i+1})
-   while the reference divides by (R_{i-1}-R_i) only.  Both drivers
-   run to completion on the same V so the fix is checked cell by cell.
+3. Hydro path, repeated-V table (velocity plateau): W values need not
+   be strictly monotonic in LIN_INTERP -- only the abscissa must.  A
+   table with a flat V segment must interpolate cleanly and produce
+   SIGMA = -1 across the plateau (dV/dR = 0).
 """
 
 import sys
@@ -56,7 +53,7 @@ TREE_HELPERS = [
 
 ND = 20
 RMAX, RP, VCORE, BETA1 = 5.0e4, 1.0e3, 10.0, 1.5
-VFILL = np.linspace(8900.0, 310.0, ND)  # matches driver 'D'
+
 
 
 def build():
@@ -85,7 +82,13 @@ def write_rdinr(d):
             f.write("0.5\n")
 
 
-def write_hydro(d, n=8):
+R_HYD = np.linspace(1.0e3, 1.0e5, 8)  # file order: increasing radius
+TAU_HYD = np.geomspace(1.0e-4, 30.0, 8)
+V_MONO = np.linspace(9000.0, 300.0, len(R_HYD))  # monotone decreasing
+V_PLAT = np.array([9000.0, 6000.0, 4000.0, 4000.0, 4000.0, 2500.0, 1200.0, 300.0])
+
+
+def write_hydro(d, v_row=None):
     """Synthetic input_hydro.dat.
 
     The production row read is
@@ -97,16 +100,16 @@ def write_hydro(d, n=8):
     row, so keep them identical), TAU_HYDRO(i)=col14.
     """
     d.mkdir(parents=True, exist_ok=True)
-    r = np.linspace(1.0e3, 1.0e5, n)
-    tau = np.geomspace(1.0e-4, 30.0, n)
-    v_row = np.linspace(9000.0, 300.0, n)  # decreasing with R index
+    if v_row is None:
+        v_row = np.linspace(9000.0, 300.0, len(R_HYD))
+    n = len(R_HYD)
     with open(d / "input_hydro.dat", "w") as f:
         f.write("F\n")  # ADD_ACC_ZONE
         f.write("header1\n")
         f.write(f"{n}\n")
         f.write("header2\n")
         for i in range(n):
-            cols = [r[i], *v_row, 1.0, 1.0, 1.0, 1.0, tau[i]]
+            cols = [R_HYD[i], *v_row, 1.0, 1.0, 1.0, 1.0, TAU_HYD[i]]
             assert len(cols) == 14
             f.write(" ".join(f"{x:.8e}" for x in cols) + "\n")
 
@@ -133,17 +136,9 @@ def sigma_expected(r, v):
     return s
 
 
-def sigma_reference(r, v):
-    """The pre-fix formula (wrong denominator) for comparison."""
-    s = np.zeros(len(r))
-    for i in range(1, len(r) - 1):
-        t1 = (v[i - 1] - v[i]) / (r[i - 1] - r[i])
-        t2 = (v[i] - v[i + 1]) / (r[i] - r[i + 1])
-        dvdr = (t1 * (r[i] - r[i + 1]) + t2 * (r[i - 1] - r[i])) / (r[i - 1] - r[i])
-        s[i] = r[i] * dvdr / v[i] - 1.0
-    s[0] = r[0] * (v[0] - v[1]) / (r[0] - r[1]) / v[0] - 1.0
-    s[-1] = r[-1] * (v[-2] - v[-1]) / (r[-2] - r[-1]) / v[-1] - 1.0
-    return s
+def hydro_v_expected(r):
+    """Piecewise-linear hydro V evaluated at the returned R grid."""
+    return np.interp(r, R_HYD, V_MONO)
 
 
 def main():
@@ -177,64 +172,89 @@ def main():
         abs(r_g[0] - RMAX) < 1e-8 and abs(r_g[-1] - RP) < 1e-8,
     )
 
-    # -- Hydro path, vfill=Z: guard aborts in new build -----------
+    # -- Hydro path, monotone-V table ------------------------------
     d = WORKDIR / "sniin_hydro"
     write_hydro(d)
-    r = run(
-        bins["new"], "F", RMAX, RP, VCORE, BETA1, "Z", cwd=d, check=False, timeout=30
-    )
-    aborted = "RESULT_OK" not in r.stdout and (
-        "Error in LIN_INTERP" in r.stdout or "monotonic" in r.stdout
-    )
-    rep.check(
-        "hydro vfill=Z: uninit V aborts via guard",
-        aborted,
-        "guard fired" if aborted else r.stdout[-300:],
-    )
-
-    # -- Hydro path, vfill=I: direction mismatch aborts ------------
-    r = run(
-        bins["new"], "F", RMAX, RP, VCORE, BETA1, "I", cwd=d, check=False, timeout=30
-    )
-    aborted = "RESULT_OK" not in r.stdout and "Error" in r.stdout
-    rep.check("hydro vfill=I: wrong-direction V aborts", aborted)
-
-    # -- Hydro path, vfill=D: reaches SIGMA loop -------------------
-    # Both new and ref complete; SIGMA differs by the denominator fix.
     results = {}
     for tag in ("new", "ref"):
         r = run(
-            bins[tag], "F", RMAX, RP, VCORE, BETA1, "D", cwd=d, check=False, timeout=30
+            bins[tag], "F", RMAX, RP, VCORE, BETA1, "Z",
+            cwd=d, check=False, timeout=30,
         )
-        if "RESULT_OK" in r.stdout:
-            results[tag] = parse(r.stdout)
+        results[tag] = parse(r.stdout) if "RESULT_OK" in r.stdout else None
     rep.check(
-        "hydro vfill=D: both builds reach SIGMA loop",
-        results.get("new") is not None and results.get("ref") is not None,
-        str({k: (v is not None) for k, v in results.items()}),
+        "hydro mono-V: new build completes",
+        results["new"] is not None,
     )
-    if results.get("new") is not None:
-        a = results["new"]
-        r_h, s_new = a[:, 0], a[:, 2]
-        s_exp = sigma_expected(r_h, VFILL)
-        err = np.abs(s_new - s_exp).max()
+    # The reference (pre-fix) build either aborts or emits a V grid
+    # that does not reproduce the hydro table.
+    bad_ref = results["ref"] is None or not np.allclose(
+        results["ref"][:, 1], np.interp(results["ref"][:, 0], R_HYD, V_MONO),
+        rtol=1e-6, atol=1e-6,
+    )
+    rep.check(
+        "hydro mono-V: ref build is broken (swapped call)",
+        bad_ref,
+    )
+    a = results.get("new")
+    if a is not None:
+        r_h, v_h, s_h = a[:, 0], a[:, 1], a[:, 2]
         rep.check(
-            "hydro vfill=D: SIGMA == corrected centred diff",
+            "hydro mono-V: R strictly decreasing",
+            (np.diff(r_h) < 0).all(),
+        )
+        v_exp = hydro_v_expected(r_h)
+        err = np.abs(v_h - v_exp).max() / v_exp.max()
+        rep.check(
+            "hydro mono-V: V == hydro table interp at R",
+            err < 1e-6,
+            f"relerr={err:.2e}",
+        )
+        s_exp = sigma_expected(r_h, v_h)
+        err = np.abs(s_h - s_exp).max()
+        rep.check(
+            "hydro mono-V: SIGMA == centred diff of returned V",
             err < 1e-9,
             f"maxerr={err:.2e}",
         )
-        if results.get("ref") is not None:
-            s_ref_out = results["ref"][:, 2]
-            s_old = sigma_reference(r_h, VFILL)
-            err_ref = np.abs(s_ref_out - s_old).max()
-            diff = np.abs(s_new - s_ref_out).max()
-            rep.check(
-                "hydro vfill=D: ref == old-denominator formula",
-                err_ref < 1e-9 and diff > 1e-2,
-                f"err_ref={err_ref:.2e} new_vs_ref={diff:.2e}",
-            )
+        # vfill is inert now: 'I'/'D' fills must give identical grids.
+        r2 = run(
+            bins["new"], "F", RMAX, RP, VCORE, BETA1, "I",
+            cwd=d, check=False, timeout=30,
+        )
+        b = parse(r2.stdout) if "RESULT_OK" in r2.stdout else None
+        rep.check(
+            "hydro mono-V: vfill=I output identical (V is output)",
+            b is not None and np.array_equal(a, b),
+        )
 
-    # -- Plot: RDINR beta-law + SIGMA formulas ---------------------
+    # -- Hydro path, repeated-V table (velocity plateau) -----------
+    d = WORKDIR / "sniin_hydro_plat"
+    write_hydro(d, v_row=V_PLAT)
+    r = run(
+        bins["new"], "F", RMAX, RP, VCORE, BETA1, "Z", cwd=d, check=False, timeout=30
+    )
+    b = parse(r.stdout) if "RESULT_OK" in r.stdout else None
+    rep.check("hydro rep-V: new build completes", b is not None)
+    if b is not None:
+        r_p, v_p, s_p = b[:, 0], b[:, 1], b[:, 2]
+        v_exp = np.interp(r_p, R_HYD, V_PLAT)
+        rep.check(
+            "hydro rep-V: V == plateau table interp at R",
+            np.abs(v_p - v_exp).max() / v_exp.max() < 1e-6,
+        )
+        rep.check(
+            "hydro rep-V: SIGMA == centred diff of returned V",
+            np.abs(s_p - sigma_expected(r_p, v_p)).max() < 1e-9,
+        )
+        # A cell fully inside the plateau has zero dV/dR -> SIGMA = -1.
+        rep.check(
+            "hydro rep-V: plateau cells carry SIGMA == -1",
+            (np.abs(s_p + 1.0) < 1e-9).any(),
+            f"min|sig+1|={np.abs(s_p + 1.0).min():.2e}",
+        )
+
+    # -- Plot: RDINR beta-law + hydro interp -----------------------
     fig, ax = plt.subplots(1, 2, figsize=(10, 4))
     ax[0].loglog(r_g, v_g, "ro-", ms=3, label="driver output")
     ax[0].loglog(r_g, vexp, "k--", lw=0.8, label="beta law")
@@ -242,15 +262,17 @@ def main():
     ax[0].set_ylabel("V")
     ax[0].legend()
     ax[0].set_title("RDINR beta-law velocity")
-    if results.get("new") is not None:
-        ax[1].plot(r_h, s_new, "ro-", ms=3, label="new (fixed)")
-        ax[1].plot(r_h, s_old, "bx-", ms=3, label="old denominator")
-        ax[1].plot(r_h, s_exp, "k--", lw=0.8, label="exact")
+    if a is not None:
+        ax[1].plot(r_h, v_h, "ro-", ms=3, label="interp output")
+        ax[1].plot(R_HYD, V_MONO, "ks", ms=5, label="hydro table")
+        if b is not None:
+            ax[1].plot(r_p, v_p, "bx-", ms=3, label="plateau table")
+            ax[1].plot(R_HYD, V_PLAT, "b^", ms=4, mfc="none")
         ax[1].set_xscale("log")
         ax[1].set_xlabel("R")
-        ax[1].set_ylabel("SIGMA")
+        ax[1].set_ylabel("V")
         ax[1].legend()
-        ax[1].set_title("SIGMA denominator fix")
+        ax[1].set_title("hydro table interpolation")
     fig.tight_layout()
     out = PLOTDIR / "rv_sniin.png"
     fig.savefig(out, dpi=140)

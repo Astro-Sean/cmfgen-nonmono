@@ -220,7 +220,15 @@
 	  R(ND-3)=R(ND)+(TA(MND-1)-TA(MND))/3.0_LDP
 	END IF
 !
-	DO I=1,NHYDRO
+!
+! Bug fix (Oct-2026): the swap loop must stop at the midpoint -- the
+! old DO I=1,NHYDRO swapped every symmetric pair twice (identity), so
+! R_HYDRO/V_HYDRO kept file order (increasing) while R below is
+! decreasing, and LIN_INTERP's strict-monotonic check then rejects
+! the abscissa.  Not flag-gated: the reversal was dead code either
+! way.
+!
+	DO I=1,NHYDRO/2
 	  T1=R_HYDRO(I)
 	  R_HYDRO(I)=R_HYDRO(NHYDRO-I+1)
 	  R_HYDRO(NHYDRO-I+1)=T1
@@ -229,7 +237,13 @@
 	  V_HYDRO(NHYDRO-I+1)=T1
 	END DO
 !
-        CALL LIN_INTERP(V,TA,ND,V_HYDRO,R_HYDRO,NHYDRO)
+! Bug fix (Oct-2026): the old call had target and source arguments
+! inverted -- LIN_INTERP(R,V,ND,U,W,NIN) interpolates W(U) onto R
+! into V; the old call read uninitialized V as the target grid and
+! overwrote TA (which in any case holds only MND=ND-2*NBND_INS live
+! entries, so it can never substitute for the full R grid).
+!
+        CALL LIN_INTERP(R,V,ND,R_HYDRO,V_HYDRO,NHYDRO)
 	WRITE(127,*)RP,RMAX,VCORE,BETA1
 	DO I=2,ND-1
 	  T1=(V(I-1)-V(I))/(R(I-1)-R(I))

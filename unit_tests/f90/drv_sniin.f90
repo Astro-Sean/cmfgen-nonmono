@@ -4,14 +4,11 @@
 !
 ! RDINR=T: reads the RDINR file in cwd (beta-law velocity).
 ! RDINR=F: reads input_hydro.dat in cwd (hydro tau_es grid path).
-!          The production code calls LIN_INTERP with the output V
-!          array as the target coordinate, so what V contains on entry
-!          decides what happens:
-!          vfill=Z: V=0 (not monotonic) -> guard aborts.
-!          vfill=I: V filled strictly increasing inside V_HYDRO's
-!                   range -> guard passes, SIGMA loop runs on this V.
-!          vfill=D: V filled strictly decreasing -> direction mismatch
-!                   aborts.
+!          Since the Oct-2026 LIN_INTERP argument fix, V is a pure
+!          output (interpolated from the hydro table onto R); the
+!          vfill selector is kept for interface compatibility but is
+!          inert -- before the fix it decided whether the swapped
+!          call aborted or ran on the pre-filled V.
 !
 ! Prints RESULT_OK plus R,V,SIGMA on success.
 !
