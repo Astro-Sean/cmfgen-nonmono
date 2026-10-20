@@ -93,6 +93,8 @@
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
 	REAL(KIND=LDP) FG_COMMIT_NC_V
 	LOGICAL FG_COMMIT_CONV_V,FG_BULK_CONTR_V
+	REAL(KIND=LDP) MOM_DAMP_E
+	EXTERNAL GET_MOM_DAMP_MIN
 !
 	LOGICAL USE_JFNK_OLD
 !
@@ -3066,6 +3068,19 @@
 	1   '   freq_match=',DO_NONMONO_FREQ_MATCH,
 	2   '  knop_refresh=',DO_KNOP_REFRESH,
 	3   '  nov_cont=',NO_VEL_FOR_CONTINUUM
+!
+! MOM-side accelerators (echo only): Anderson on the refresh map
+! (MOM_RF_AA, default T), the same-map omega estimator
+! (MOM_ADAPT_OMEGA_V2, default T) and the per-cell cycle-damp floor
+! MOM_DAMP_MIN.  These govern whether the ~1E-1 lagged-drift floor
+! is attacked at all; MOM_DAMP_MIN is read back through a getter
+! because it is a solver PARAMETER, not a VADAT key.
+!
+	    CALL GET_MOM_DAMP_MIN(MOM_DAMP_E)
+	    WRITE(LUER,'(A,L2,A,L2,A,ES10.3)')
+	1   '   mom_rf_aa=',MOM_RF_AA,
+	2   '  mom_om_v2=',MOM_ADAPT_OMEGA_V2_V,
+	3   '  mom_damp_min=',MOM_DAMP_E
 	  END IF
 !
 ! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line

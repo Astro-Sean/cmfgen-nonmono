@@ -4628,6 +4628,20 @@
 	RETURN
 	END
 !
+! GET_MOM_DAMP_MIN: read-back of the cycle-damp floor.  MOM_DAMP_MIN
+! is a PARAMETER inside MOD_MOM_J_NONMONO_V1, and RD_CONTROL_VARIABLES
+! (mod_subs) compiles before plane/ so it cannot USE the module --
+! this getter keeps the VADAT echo honest if the constant moves.
+!
+	SUBROUTINE GET_MOM_DAMP_MIN(DMIN)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_DAMP_MIN
+	IMPLICIT NONE
+	REAL(KIND=LDP) DMIN
+	DMIN=MOM_DAMP_MIN
+	RETURN
+	END
+!
 ! GET_MOM_GS_CLS: read-back of the argmax-jitter classification for
 ! the SOLVE_FOR_POPS settle-tolerance gate (GS_SETTLE_TOL).
 !
