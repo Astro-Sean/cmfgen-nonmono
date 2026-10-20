@@ -279,8 +279,8 @@ def test_mode_and_format_lines():
     )
     check(
         "SOB auto-set prose",
-        "using the SOB line transfer" in RD_FLAT
-        and "lambda iteration with ray solutions enabled" in RD_FLAT,
+        "SOB auto-set: GLOBAL_LINE=SOB" in RD_FLAT
+        and "SOB field solver" in RD_FLAT,
     )
     check(
         "iteration count widened to I8",

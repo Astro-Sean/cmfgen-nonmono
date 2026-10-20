@@ -194,10 +194,16 @@ def main():
             "SOB auto-set: GLOBAL_LINE=SOB",
         ),
         (
-            "DO_NONMONO_SOB + USE_LAM_ES=F auto-sets to T",
+            "DO_NONMONO_SOB + USE_LAM_ES=F honoured (moment solver)",
             {"USE_LAM_ES": "F"},
             True,
-            "SOB auto-set: USE_LAM_ES=T",
+            "SOB field solver: MOM_J_CMF_NONMONO_V1",
+        ),
+        (
+            "DO_NONMONO_SOB + USE_LAM_ES absent defaults to F",
+            {"USE_LAM_ES": None},
+            True,
+            "SOB field solver: MOM_J_CMF_NONMONO_V1",
         ),
         (
             "DO_NONMONO_KNOP + GLOBAL_LINE=SOB auto-sets to BLANK",
