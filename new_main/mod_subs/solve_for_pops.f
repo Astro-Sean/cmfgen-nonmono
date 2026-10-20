@@ -13,6 +13,9 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
 	IMPLICIT NONE
 !
+! Altered:   20-Oct-2026 : GS_PRECOND demand gate postpones the freeze
+!                          while the population demand is grossly
+!                          unconverged (edited by Devin).
 ! Altered:   17-Oct-2026 : LUM_BLOCKED is a latch with baseline recovery;
 !                          added the LUM_DIV_FAC2/LUM_DIV_N2 slow-streak
 !                          tier (edited by Devin).
@@ -233,6 +236,22 @@
 	LOGICAL, SAVE :: GS_WAS_FROZEN=.FALSE.
 	INTEGER, SAVE :: N_REL_SINCE=0
 !
+! GS_PRECOND_ACT (edited by Devin, 20-Oct-2026): this call cleared
+! GS_FREEZE under the [GS_PRECOND] demand gate -- the entry MAXCH
+! (previous call's demand) exceeded GS_PRECOND_MAX, so holding the
+! populations would park the iteration orders of magnitude outside
+! the SE linearization's validity (m15_2p82d KNOP: 1.5E10% demand
+! held 5 of 6 calls; the released step, capped at 200%, never moved
+! it).  The flag keeps the call out of the post-release damp-window
+! bookkeeping below: the frozen->live edge it crosses is a gate
+! override, not a field release, so it must neither consume
+! N_REL_SINCE nor take the GS_LAM_CAP release cap.  N_PRECOND
+! counts consecutive preconditioned calls for the [GS_PRECOND_LIM]
+! structural-failure stop and rides GS_STATE across requeues.
+!
+	LOGICAL, SAVE :: GS_PRECOND_ACT=.FALSE.
+	INTEGER, SAVE :: N_PRECOND=0
+!
 ! Luminosity is diagnostic only in shocked models: local deposition
 ! and mechanical-to-radiative conversion mean the inner and outer
 ! luminosities need not agree or settle together.  Keep the ratio and
@@ -363,7 +382,7 @@
 	INTEGER I,J
 	INTEGER LU_GS
 	INTEGER GS_IT_RD,GS_NF_RD,GS_MT_RD,GS_RL_RD,GS_TA_RD
-	INTEGER GS_TR_RD,GS_NR_RD
+	INTEGER GS_TR_RD,GS_NR_RD,GS_PC_RD
 	INTEGER*8 GS_RR_RD
 	LOGICAL GS_FRZ_RD
 	CHARACTER*80 RSV_CH
@@ -443,6 +462,8 @@
 	  GS_WAS_FROZEN=.FALSE.
 	  N_REL_SINCE=0
 	  N_MATURE=0
+	  GS_PRECOND_ACT=.FALSE.
+	  N_PRECOND=0
 	  LUM_INIT=.FALSE.
 	  LUM_PREV=0.0_LDP
 	  LUM_PREV_OUT=0.0_LDP
@@ -507,6 +528,7 @@
 	    GS_TR_RD=0
 	    GS_NR_RD=0
 	    GS_RR_RD=0
+	    GS_PC_RD=0
 	    GS_FRZ_RD=.FALSE.
 	    DO
 	      RSV_CH=' '
@@ -529,6 +551,8 @@
 	1      READ(RSV_CH(12:),*,IOSTAT=IOS)GS_NR_RD
 	      IF(INDEX(RSV_CH,'n_raw_releases=') .EQ. 1)
 	1      READ(RSV_CH(16:),*,IOSTAT=IOS)GS_RR_RD
+	      IF(INDEX(RSV_CH,'n_precond=') .EQ. 1)
+	1      READ(RSV_CH(11:),*,IOSTAT=IOS)GS_PC_RD
 	    END DO
 	    CLOSE(LU_GS)
 	    IF(GS_NF_RD .GE. 0 .AND.
@@ -541,6 +565,7 @@
 	      N_TRIALS_REJ=MAX(GS_TR_RD,0)
 	      N_RELEASES_TOT=MAX(GS_NR_RD,0)
 	      GS_RAW_RELEASES_TOT=MAX(GS_RR_RD,0_8)
+	      N_PRECOND=MAX(GS_PC_RD,0)
 	      GS_WAS_FROZEN=GS_FRZ_RD
 	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I5,A,I5,A,L2)')
 	1     ' GS_STATE restart: adopted n_frozen=',N_FROZEN,
@@ -1228,6 +1253,38 @@
 	  ELSE
 	    GS_FREEZE=.FALSE.
 	  END IF
+!
+! edited by Devin, 20-Oct-2026: population-precondition gate
+! (VADAT [GS_PRECOND], auto-set T under DO_NONMONO_KNOP).  The
+! freeze/hold machinery assumes the entered populations are close
+! enough to convergence that holding them lets the lagged field
+! settle; on m15_2p82d the hold was applied at ~1E10% demanded
+! correction -- orders of magnitude outside the SE linearization
+! -- and the release/refreeze cycle never moved the demand.
+! When the entry MAXCH (the previous call's demanded maximum
+! correction, same semantics as the JFNK demand gates below)
+! exceeds [GS_PRECOND_MAX] the freeze is postponed for this call
+! so a live update keeps working the demand down.  With GS_FREEZE
+! cleared here the GS_HOLD_POPS rollback and the whole
+! frozen-call path below are bypassed automatically; the gate
+! acts from the second call onward since MAXCH arrives as the
+! previous call's demand.
+!
+	  IF(GS_FREEZE .AND. GS_PRECOND .AND.
+	1     MAXCH .GT. GS_PRECOND_MAX)THEN
+	    GS_FREEZE=.FALSE.
+	    GS_PRECOND_ACT=.TRUE.
+	    CALL APPEND_ITER_REASON(ITER_REASON,'pop_precond')
+	    N_PRECOND=N_PRECOND+1
+	    IF(CONV_DIAG_LVL .GE. 1)
+	1   WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
+	2   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
+	3   ' > limit=',GS_PRECOND_MAX,
+	4   '; hold postponed, live LAMBDA  n_precond=',N_PRECOND
+	  ELSE
+	    GS_PRECOND_ACT=.FALSE.
+	    N_PRECOND=0
+	  END IF
 	  IF(GS_FREEZE .AND. .NOT. GS_RAW_IMMATURE .AND.
 	1     N_MATURE .LT. GS_REL_STABLE)
 	2   CALL APPEND_ITER_REASON(ITER_REASON,'rel_stable_hold')
@@ -1514,11 +1571,16 @@
 ! below GS_LAM_TRANSIENT, for the whole GS_REL_N-iteration window.
 ! MOM_TRIAL releases keep MAX_LIN_COR and non-LAMBDA releases are
 ! covered by the resacc net; neither is touched here.
+! GS_PRECOND_ACT calls are excluded too (edited by Devin,
+! 20-Oct-2026): the precondition step is a gate override, not a
+! field release, so it takes the normal pre-freeze correction cap
+! rather than the near-mature GS_LAM_CAP.
 !
 	  IF((GS_WAS_FROZEN .OR.
 	1    (N_REL_SINCE .GE. 1 .AND. N_REL_SINCE .LT. GS_REL_N))
 	2    .AND. .NOT. GS_FREEZE .AND.
-	3    LAMBDA_ITERATION .AND. .NOT. MOM_TRIAL)THEN
+	3    LAMBDA_ITERATION .AND. .NOT. MOM_TRIAL .AND.
+	4    .NOT. GS_PRECOND_ACT)THEN
 	    T1=MIN(T1,GS_LAM_CAP)
 	    IF(CONV_DIAG_LVL .GE. 1)
 	1   WRITE(LUER,'(A,ES12.4)')
@@ -1545,10 +1607,29 @@
 	    STOP
 	  END IF
 !
+! Same structural-failure stop for the precondition path (edited
+! by Devin, 20-Oct-2026): a demand that stays above
+! GS_PRECOND_MAX through GS_PRECOND_LIM consecutive live updates
+! is not converging under the postponed hold either.
+!
+	  IF(GS_PRECOND_LIM .GT. 0 .AND.
+	1     N_PRECOND .GE. GS_PRECOND_LIM)THEN
+	    WRITE(LUER,'(A,I4,A)')'SOLVE_FOR_POPS: ',N_PRECOND,
+	1    ' consecutive pop-preconditioning iterations reach'//
+	2    ' GS_PRECOND_LIM'
+	    WRITE(LUER,'(A)')'  the population demand never fell'//
+	1    ' below GS_PRECOND_MAX; stopping as non-convergent'
+	    STOP
+	  END IF
+!
 ! Carry the freeze state and the post-release window counter into
 ! the next call so released steps can be damped above.
 !
-	  IF(GS_FREEZE)THEN
+	  IF(GS_FREEZE .OR. GS_PRECOND_ACT)THEN
+! A preconditioned call is neither frozen nor released (edited by
+! Devin, 20-Oct-2026): the gate override must not open the damp
+! window or count a raw release, and GS_WAS_FROZEN below stays
+! false, so the next call is not treated as post-release.
 	    N_REL_SINCE=0
 	  ELSE IF(GS_WAS_FROZEN .OR. N_REL_SINCE .GT. 0)THEN
 	    N_REL_SINCE=N_REL_SINCE+1
@@ -2400,6 +2481,7 @@
 	    WRITE(LU_GS,'(A,I0)')'n_trials_rej=',N_TRIALS_REJ
 	    WRITE(LU_GS,'(A,I0)')'n_releases=',N_RELEASES_TOT
 	    WRITE(LU_GS,'(A,I0)')'n_raw_releases=',GS_RAW_RELEASES_TOT
+	    WRITE(LU_GS,'(A,I0)')'n_precond=',N_PRECOND
 	    CLOSE(LU_GS)
 	  END IF
 	END IF

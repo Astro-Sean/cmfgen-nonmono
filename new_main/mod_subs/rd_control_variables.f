@@ -991,6 +991,37 @@
 	  CALL RD_STORE_LOG(GS_RAW_MATURE,'GS_RAW_MATURE',L_FALSE,
 	1     'KNOP: require raw max change for release maturity?')
 !
+! GS_PRECOND (default FALSE standalone; auto-set TRUE under
+! DO_NONMONO_KNOP in the auto-set block below, explicit F
+! respected): postpone the GS freeze while the demanded
+! population correction entering the call is grossly
+! unconverged.  Holding populations at ~1E10% demand parks the
+! iteration 1E9 outside the solver's validity domain
+! (m15_2p82d KNOP release/refreeze limit cycle).
+!
+	  GS_PRECOND=L_FALSE
+	  CALL RD_STORE_LOG(GS_PRECOND,'GS_PRECOND',L_FALSE,
+	1     'KNOP: postpone freeze while pop demand is unconverged?')
+!
+! GS_PRECOND_MAX (default 1.0E+03): percent demand threshold for
+! the precondition gate.  Entry MAXCH is the previous call's
+! demanded maximum correction.
+!
+	  GS_PRECOND_MAX=1.0E+03_LDP
+	  CALL RD_STORE_DBLE(GS_PRECOND_MAX,'GS_PRECOND_MAX',L_FALSE,
+	1     'KNOP: demand above which the GS freeze is postponed?')
+	  IF(GS_PRECOND_MAX .LE. 0.0_LDP)GS_PRECOND_MAX=1.0E+03_LDP
+!
+! GS_PRECOND_LIM (default 0 = disabled): consecutive
+! preconditioned calls before the model stops as non-convergent
+! -- a demand that never falls is a structural failure, not a
+! transient.
+!
+	  GS_PRECOND_LIM=0
+	  CALL RD_STORE_INT(GS_PRECOND_LIM,'GS_PRECOND_LIM',L_FALSE,
+	1     'KNOP: preconditioned calls before stop (0=disabled)?')
+	  IF(GS_PRECOND_LIM .LT. 0)GS_PRECOND_LIM=0
+!
 ! JFNK_CPL_RELWAIT (default FALSE): when set, the coupled JFNK tier
 ! is deferred while the call sits in the post-release damp window
 ! (N_REL_SINCE <= GS_REL_N).
@@ -2823,6 +2854,18 @@
 	    IF(GS_REL_STABLE .LT. 2)THEN
 	      GS_REL_STABLE=2
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_STABLE=2'
+	    END IF
+!
+! GS_PRECOND defaults T under KNOP (edited by Devin, 20-Oct-2026):
+! the m15_2p82d KNOP run held populations at ~1E10% demand while
+! the field cycled release/refreeze.  An explicit VADAT setting is
+! respected -- only the absent-key default is lifted.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'GS_PRECOND',L_FALSE,
+	1     L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      GS_PRECOND=.TRUE.
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_PRECOND=T'
 	    END IF
 !
 ! DO_NONMONO_FREQ_MATCH defaults T under KNOP: with one-bin upwind

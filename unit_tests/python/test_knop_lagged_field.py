@@ -115,6 +115,74 @@ def test_rel_damp_window_default_and_raw_release_counter():
     )
 
 
+def test_pop_precondition_gate():
+    check(
+        "GS_PRECOND key read with logical default",
+        re.search(
+            r"GS_PRECOND=L_FALSE\s+CALL RD_STORE_LOG\(GS_PRECOND,"
+            r"'GS_PRECOND'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "GS_PRECOND_MAX key read with 1.0E+03 default",
+        re.search(
+            r"GS_PRECOND_MAX=1\.0E\+03_LDP\s+CALL RD_STORE_DBLE"
+            r"\(GS_PRECOND_MAX,'GS_PRECOND_MAX'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "GS_PRECOND_LIM key read with 0 default",
+        re.search(
+            r"GS_PRECOND_LIM=0\s+CALL RD_STORE_INT\(GS_PRECOND_LIM,"
+            r"'GS_PRECOND_LIM'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "GS_PRECOND defaults T under DO_NONMONO_KNOP",
+        "'GS_PRECOND'" in RD_CONTROL
+        and "KNOP auto-set: GS_PRECOND=T" in RD_CONTROL,
+    )
+    check(
+        "freeze override clears GS_FREEZE on high demand",
+        re.search(
+            r"GS_FREEZE \.AND\. GS_PRECOND \.AND\.[\s\S]*?"
+            r"MAXCH \.GT\. GS_PRECOND_MAX[\s\S]*?"
+            r"GS_FREEZE=\.FALSE\.",
+            POPS,
+        )
+        is not None,
+    )
+    check(
+        "override appends the pop_precond reason",
+        "'pop_precond'" in POPS,
+    )
+    check(
+        "release-damp block excludes preconditioned calls",
+        re.search(
+            r"LAMBDA_ITERATION \.AND\. \.NOT\. MOM_TRIAL \.AND\.\s*\n"
+            r"\s*\d?\s*\.NOT\. GS_PRECOND_ACT\)THEN",
+            POPS,
+        )
+        is not None,
+    )
+    check(
+        "n_precond written and read back via GS_STATE",
+        "'n_precond='" in POPS
+        and "READ(RSV_CH(11:),*,IOSTAT=IOS)GS_PC_RD" in POPS
+        and "N_PRECOND=MAX(GS_PC_RD,0)" in POPS,
+    )
+    check(
+        "preconditioned calls are not post-release",
+        "IF(GS_FREEZE .OR. GS_PRECOND_ACT)THEN" in POPS,
+    )
+
+
 def test_march_sign_flip_accumulator_is_signed():
     march = section(FG, "SUBROUTINE MARCH", "SUBROUTINE WRITE_STORE")
     check(
@@ -251,6 +319,7 @@ if __name__ == "__main__":
     test_fail_closed_commit_defaults()
     test_fg_trial_excluded_from_population_hold()
     test_rel_damp_window_default_and_raw_release_counter()
+    test_pop_precondition_gate()
     test_march_sign_flip_accumulator_is_signed()
     test_ordered_boundary_rows_skip_out_of_window_frequencies()
     test_march_only_called_from_sweep_fld()
