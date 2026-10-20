@@ -3036,8 +3036,13 @@
 ! stayed flat through LAM_dbg it36-47 while demand stayed pinned),
 ! so the demand trend is the only pre-cliff signal available.
 !
+! edited by Devin, 22-Oct-2026: exclude JFNK calls -- a JFNK step
+! returns the applied correction in MAXCH (see the BA_LAST_RAW note
+! below), not raw demand, so counting it here could demote on an
+! applied-step value that never rode the cap.
+!
 	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND. .NOT. LAM_WAS
-	1   .AND. MAXCH .GE. BA_SAT_RAW)THEN
+	1   .AND. .NOT. JFNK_THIS .AND. MAXCH .GE. BA_SAT_RAW)THEN
 	  BA_SAT_CNT=BA_SAT_CNT+1
 	ELSE
 	  BA_SAT_CNT=0
@@ -3162,7 +3167,8 @@
 	1          (BA_LAST_RAW .GE. BA_ENTER_RAW .OR.
 	2           (BA_ENTER_RAW .LT. 1.0E30_LDP .AND.
 	3            (BA_RAW_REJECTED .OR. BA_RAW_TRIAL_PENDING))))THEN
-	        IF(CNT_LAM .GE. MAX(BA_PROBE_LAM, RD_CNT_LAM))THEN
+	        IF(BA_PROBE_LAM .GT. 0 .AND.
+	1       CNT_LAM .GE. MAX(BA_PROBE_LAM, RD_CNT_LAM))THEN
 !
 ! edited by Devin, 03-Oct-2026: held-gate probe (VADAT
 ! [BA_PROBE_LAM], default 0 = off).  BA_LAST_RAW only refreshes on a
@@ -3245,6 +3251,14 @@
 	          LAMBDA_ITERATION=.FALSE.
 	          FIX_IMPURITY=RD_FIX_IMP
 	          FIXED_T=RD_FIX_T
+!
+! edited by Devin, 22-Oct-2026: a cadence escape is not a proven
+! stable exit -- clear the latched proof so a stale
+! LAM_STABLE_PROVEN cannot arm the SOB stable-LAMBDA JFNK relief
+! (JFNK_NREQ_EFF -> 1) on this unearned release.  The flag is
+! inert outside DO_NONMONO_SOB, so the stock path is unchanged.
+!
+	          LAM_STABLE_PROVEN=.FALSE.
 	          CALL APPEND_ITER_REASON(ITER_REASON,'cnt_lam_escape')
 	          IF(FRESH_BA_EXIT)THEN
 	            COMPUTE_BA=.TRUE.
@@ -3586,6 +3600,18 @@
 	   LAMBDA_ITERATION=.TRUE.
 	   COMPUTE_BA=.TRUE.
 	   COUNT_FULL_LAM_BA=1000
+!
+! edited by Devin, 22-Oct-2026: the regrid forces a LAMBDA demote, so
+! it must clear the same stability state the other demote branches
+! do (cf. ng_kick above).  A CNT_STABLE_LAM/LAM_STABLE_PROVEN pair
+! earned before the R-grid changed would arm the stable-exit and
+! the SOB stable-LAMBDA JFNK relief on the first post-regrid call.
+! Both are inert outside the nonmono modes.
+!
+	   IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	      CNT_STABLE_LAM=0
+	      LAM_STABLE_PROVEN=.FALSE.
+	   END IF
 	   CALL APPEND_ITER_REASON(ITER_REASON,'rgrid_revised')
 	ELSE IF(LAST_LAMBDA .EQ. MAIN_COUNTER .AND. .NOT. LAMBDA_ITERATION)THEN
 	   IF(COUNT_FULL_LAM_BA .NE. 0)THEN

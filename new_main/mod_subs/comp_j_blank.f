@@ -625,10 +625,14 @@ C
 ! LOG(FL/NU_NEXT_FREQ) (NU_NEXT_FREQ set by CMFGEN_SUB).  Without this
 ! the non-monotonic chi_hat = chi + |GAM|/dLOG_NU sees a garbage/zero
 ! dLOG_NU at frequency 1 and produces a non-finite moment solution.
-! Gated on DO_NONMONO_KNOP so the stock path is unchanged.
+! Gated on DO_NONMONO_KNOP, and on DO_NONMONO_SOB with USE_LAM_ES=F
+! (MOM_J_CMF_NONMONO_V1 is the field solver there too, 22-Oct-2026),
+! so the stock path is unchanged.
 !
-	    IF(DO_NONMONO_KNOP .AND. NU_NEXT_FREQ .GT. 0.0_LDP .AND.
-	1       NU_NEXT_FREQ .LT. FL)THEN
+	    IF((DO_NONMONO_KNOP .OR.
+	1       (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)) .AND.
+	2       NU_NEXT_FREQ .GT. 0.0_LDP .AND.
+	3       NU_NEXT_FREQ .LT. FL)THEN
 	      dLOG_NU=LOG(FL/NU_NEXT_FREQ)
 	    END IF
 	    HBC_PREV(:)=0.0_LDP		!1:3
