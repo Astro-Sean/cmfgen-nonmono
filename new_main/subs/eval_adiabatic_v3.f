@@ -16,7 +16,8 @@
 	USE SET_KIND_MODULE
 	USE MOD_CMFGEN
  	USE STEQ_DATA_MOD
-	USE CONTROL_VARIABLE_MOD, ONLY : USE_ELEC_HEAT_BAL, COMP_STEQ_T_EHB
+	USE CONTROL_VARIABLE_MOD, ONLY : USE_ELEC_HEAT_BAL, COMP_STEQ_T_EHB,
+	1                               DO_NONMONO_SOB, DO_NONMONO_KNOP
  	IMPLICIT NONE
 !
 ! Altered  13-Jun-2-25 : Changed dimension of SUM_EN to NT from ND.
@@ -59,6 +60,7 @@
 	REAL(KIND=LDP) INT_EN(ND)
 	REAL(KIND=LDP) COL_EN(ND)
 	REAL(KIND=LDP) WORK(ND)
+	REAL(KIND=LDP) SIG_AD(ND)
 !
 	REAL(KIND=LDP) ION_EN(NT)
 	REAL(KIND=LDP) TOT_ENERGY(NT)
@@ -124,6 +126,21 @@
 	INT_EN=HDKT*INT_EN/POP_ATOM
 	COL_EN=HDKT*COL_EN/POP_ATOM
 !
+!
+! edited by Devin, 05-Nov-2026 (nonmono gap item 3): the adiabatic
+! coolant's B coefficient wants the instantaneous velocity
+! gradient.  Under the nonmono flags SIGMA can be stale -- after a
+! TAU_SPACE regrid it is the derivative of the forced-monotone
+! LOG(V) cubic from ADJUST_R_GRID_V4, biased at velocity
+! inversions -- while SIGMA_TRUE is refreshed from the actual V.
+! SIG_AD selects SIGMA_TRUE (always allocated in cmfgen.f, filled
+! by RECOMPUTE_SIGMA_TRUE under either flag) and falls back to
+! SIGMA otherwise, so stock runs are bit-identical.
+!
+	SIG_AD(1:ND)=SIGMA(1:ND)
+	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1   ALLOCATED(SIGMA_TRUE))SIG_AD(1:ND)=SIGMA_TRUE(1:ND)
+!
 	IF(USE_ELEC_HEAT_BAL .OR. COMP_STEQ_T_EHB)THEN
 	  SCALE=0.1_LDP*BOLTZMANN_CONSTANT()
 	  CALL UPDATE_BA_ST(BA_T_EHB,STEQ_T_EHB,COL_EN,ION_EN)
@@ -182,6 +199,8 @@
 	    WRITE(7,'(A)')' GAMMA=ED/POP_ATOM'
 	    WRITE(7,'(A)')' A=1.5D0*SCALE*(POP_ATOM+ED)*V/T1 * (T(I)-T(I+1)'
 	    WRITE(7,'(A)')' B=SCALE*(POP_ATOM+ED)*V*(3.0D0+SIGMA)/R * T(I)'
+	    WRITE(7,'(A)')'   SIGMA column is SIG_AD: SIGMA_TRUE under a'
+	1   //' nonmono flag, SIGMA otherwise'
 	    WRITE(7,'(A)')' C=1.5D0*SCALE*POP_ATOM*V/T1 * T(I)*(GAMMA(I)-GAMMA(I+1))'
 	    WRITE(7,'(A)')' D=SCALE*POP_ATOM*V/T1* (INT_EN(I)-INT_EN(I+1))'
 	    WRITE(7,'(A)')' '
@@ -189,12 +208,12 @@
 	1                 'NU_ION','     A','     B','     C','     D'
 	    DO I=1,ND-1
 	      WRITE(7,'(ES15.7,8(1X,ES12.4))')
-	1              R(I),V(I),SIGMA(I),T(I),INT_EN(I)/HDKT,
+	1              R(I),V(I),SIG_AD(I),T(I),INT_EN(I)/HDKT,
 	1              A(I)*(T(I)-T(I+1)),B(I)*T(I),
 	1              C(I)*T(I)*(GAMMA(I)-GAMMA(I+1)),D(I)*(INT_EN(I)-INT_EN(I+1))
 	    END DO
 	    WRITE(7,'(ES15.7,8(1X,ES12.4))')
-	1              R(ND),V(ND),SIGMA(ND),T(ND),INT_EN(ND)/HDKT,
+	1              R(ND),V(ND),SIG_AD(ND),T(ND),INT_EN(ND)/HDKT,
 	1              A(ND)*(T(ND-1)-T(ND)),B(ND)*T(ND),
 	1              C(ND)*T(ND)*(GAMMA(ND-1)-GAMMA(ND)),D(ND)*(INT_EN(ND-1)-INT_EN(ND))
 	  CLOSE(UNIT=7)
@@ -228,7 +247,7 @@
 	    T1=R(I)-R(I+1)
 	  END IF
 	  A(I)=1.5_LDP*SCALE*(POP_ATOM(I)+ED(I))*V(I)/T1
-	  B(I)=SCALE*(POP_ATOM(I)+ED(I))*V(I)*(3.0_LDP+SIGMA(I))/R(I)
+	  B(I)=SCALE*(POP_ATOM(I)+ED(I))*V(I)*(3.0_LDP+SIG_AD(I))/R(I)
 	  C(I)=1.5_LDP*SCALE*POP_ATOM(I)*V(I)/T1
 	  D(I)=SCALE*POP_ATOM(I)*V(I)/T1
 	  GAMMA(I)=ED(I)/POP_ATOM(I)
