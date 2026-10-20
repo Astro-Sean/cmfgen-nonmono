@@ -26,6 +26,18 @@ CMF = (ROOT / "new_main/cmfgen_sub.f").read_text()
 FAILED = []
 
 
+def flat(src):
+    """Join Fortran string literals split across continuation
+    lines, so prose checks search the runtime text rather than the
+    source layout."""
+    return re.sub(r"'\s*//\s*&?\s*\n\s*(?:\d\s*)?'", "", src)
+
+
+MOD_FLAT = flat(MOD)
+CJB_FLAT = flat(CJB)
+RD_FLAT = flat(RD_CONTROL)
+
+
 def check(msg, cond):
     if cond:
         print(f"  ok  {msg}")
@@ -38,6 +50,93 @@ def section(source, start, end):
     first = source.index(start)
     last = source.index(end, first)
     return source[first:last]
+
+
+def _write_stmt(src, needle):
+    """Return the WRITE(LUER,...) statement (with tab-digit
+    continuation lines) whose argument list contains needle."""
+    lines = src.splitlines()
+    for i, ln in enumerate(lines):
+        if "WRITE(LUER" not in ln:
+            continue
+        stmt = [ln]
+        j = i + 1
+        while j < len(lines) and re.match(r"\t[&\d]", lines[j]):
+            stmt.append(lines[j])
+            j += 1
+        text = "\n".join(stmt)
+        if needle in text:
+            return text
+    return ""
+
+
+def _fmt_consumer_count(fmt):
+    """Count arg-consuming descriptors in a Fortran format string."""
+    body = fmt.strip()[1:-1]
+    n = 0
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "'":
+            i = body.index("'", i + 1) + 1
+            continue
+        m = re.match(r"\d*", body[i:])
+        rep = int(m.group(0)) if m.group(0) else 0
+        i += m.end()
+        if i >= len(body):
+            break
+        ch = body[i]
+        if ch == "(":
+            depth = 0
+            j = i
+            while j < len(body):
+                if body[j] == "(":
+                    depth += 1
+                elif body[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            n += max(rep, 1) * _fmt_consumer_count(body[i:j + 1])
+            i = j + 1
+            continue
+        dm = re.match(
+            r"(ES|EN|E|A|I|L|F|G|D|B|O|Z)(\d*(\.\d*)?)", body[i:]
+        )
+        if dm:
+            n += max(rep, 1)
+            i += dm.end()
+            continue
+        i += 1
+    return n
+
+
+def _arg_count(stmt):
+    """Count the io-list arguments of a WRITE statement.  The args
+    follow the format literal and the control-list ')'."""
+    m = re.search(r"WRITE\(LUER,'((?:[^']|'')*)'", stmt)
+    fmt = m.group(1)
+    rest = stmt[m.end():]
+    rest = rest[rest.index(")") + 1 :]
+    rest = re.sub(r"\n\s*\t?[&\d]\s*", "", rest)
+    depth = 0
+    in_q = False
+    commas = 0
+    for ch in rest:
+        if in_q:
+            if ch == "'":
+                in_q = False
+            continue
+        if ch == "'":
+            in_q = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            commas += 1
+    nargs = commas + 1 if rest.strip() else 0
+    return nargs, fmt
 
 
 def test_status_module_and_binding_sentences():
@@ -74,7 +173,7 @@ def test_status_module_and_binding_sentences():
         "expanding direction only",
         "alternating compressing and expanding directions",
     ):
-        check(f"binding sentence '{frag[:50]}...'", frag in MOD)
+        check(f"binding sentence '{frag[:50]}...'", frag in MOD_FLAT)
 
 
 def test_mom_sweep_table_is_prose():
@@ -101,6 +200,23 @@ def test_mom_sweep_table_is_prose():
     check("sweep table keeps SV_ST", "SV_ST" in body)
     check("direction sentence used", "MOM_DIRECTION_SENTENCE" in body)
     check("refresh delta sentence used", "'delta'" in body)
+
+
+def test_sweep_table_fmt_arg_counts():
+    """Every sweep-table WRITE must feed each io-list arg a
+    descriptor -- the 'matrix' and 'eq resid' rows printed reals
+    through A descriptors before 20-Oct-2026."""
+    for needle in ("'matrix'", "'eq resid'"):
+        stmt = _write_stmt(MOM, needle)
+        check(f"found sweep WRITE for {needle}", bool(stmt))
+        if not stmt:
+            continue
+        nargs, fmt = _arg_count(stmt)
+        ndesc = _fmt_consumer_count(fmt)
+        check(
+            f"{needle} args match descriptors ({nargs} vs {ndesc})",
+            nargs == ndesc,
+        )
 
 
 def test_mom_pass_and_exit_prose():
@@ -158,12 +274,13 @@ def test_mode_and_format_lines():
     )
     check(
         "moment-solver mode line",
-        "Field solver: moment equations (MOM_J_CMF_NONMONO_V1)" in CJB,
+        "Field solver: moment equations (MOM_J_CMF_NONMONO_V1)"
+        in CJB_FLAT,
     )
     check(
         "SOB auto-set prose",
-        "using the SOB line transfer" in RD_CONTROL
-        and "lambda iteration with ray solutions enabled" in RD_CONTROL,
+        "using the SOB line transfer" in RD_FLAT
+        and "lambda iteration with ray solutions enabled" in RD_FLAT,
     )
     check(
         "iteration count widened to I8",
@@ -249,6 +366,7 @@ def test_synthetic_block_still_parses():
 if __name__ == "__main__":
     test_status_module_and_binding_sentences()
     test_mom_sweep_table_is_prose()
+    test_sweep_table_fmt_arg_counts()
     test_mom_pass_and_exit_prose()
     test_solve_for_pops_prose()
     test_mode_and_format_lines()

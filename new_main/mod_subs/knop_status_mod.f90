@@ -29,16 +29,20 @@ module knop_status_mod
 contains
 
     ! Left-adjusted ES-format for embedding a real in a sentence.
+    ! len 13 / es13.4: a negative 3-digit exponent needs 12 chars
+    ! (e.g. -1.2345E-105), which overran len 10 and printed stars.
     pure function es(x) result(str)
         real(kind=ldp), intent(in) :: x
-        character(len=10) :: str
-        write (str, '(es10.3)') x
+        character(len=13) :: str
+        write (str, '(es13.4)') x
         str = adjustl(str)
     end function es
 
+    ! len 24: kind-8 cell counts (GS_NTOT ~ 6.5E8 now, larger on
+    ! expanded grids) plus sign fit without overflow.
     pure function i8(x) result(str)
         integer(kind=8), intent(in) :: x
-        character(len=12) :: str
+        character(len=24) :: str
         write (str, '(i0)') x
     end function i8
 
@@ -55,11 +59,18 @@ contains
         character(len=12) :: num
         write (num, '(i0)') it
         if (unsafe) then
-            str = 'Moment field unsafe - catastrophic drift; holding ' // &
-                  'populations.'
+            ! 'holding' is only true when GS_HOLD_POPS is on; with the
+            ! hold off the capped LAMBDA update still commits.
+            if (held) then
+                str = 'Moment field unsafe - catastrophic drift; ' // &
+                      'holding populations.'
+            else
+                str = 'Moment field unsafe - catastrophic drift; ' // &
+                      'hold disabled.'
+            end if
         else if (precond) then
             str = 'Populations far from equilibrium - postponing the ' // &
-                  'moment-field hold and taking a live LAMBDA step.'
+                  'lagged-field hold and taking a live LAMBDA step.'
         else if (trial) then
             str = 'Moment field marginal - trying a full step with ' // &
                   'the rollback net armed.'

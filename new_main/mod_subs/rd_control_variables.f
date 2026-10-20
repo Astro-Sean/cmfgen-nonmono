@@ -933,6 +933,17 @@
 	1     'KNOP: churn-bound factor arming the FG-only trial?')
 	  IF(FG_TRIAL_CHURN .LT. 0.0_LDP)FG_TRIAL_CHURN=0.0_LDP
 !
+! FG_TRIAL_CHURN_MIN (default 3): consecutive churn-marginal calls
+! before the churn arm may release a trial.  A single
+! churn-marginal sweep could still be transient; N_FROZEN is the
+! wrong clock because releases refund it under the same hold
+! (m15_2p82d: streak ~5-6 vs FG_TRIAL_MIN=30).  0 disables the arm.
+!
+	  FG_TRIAL_CHURN_MIN=3
+	  CALL RD_STORE_INT(FG_TRIAL_CHURN_MIN,'FG_TRIAL_CHURN_MIN',
+	1     L_FALSE,'KNOP: churn-marginal calls before the FG trial?')
+	  IF(FG_TRIAL_CHURN_MIN .LT. 0)FG_TRIAL_CHURN_MIN=0
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial.  With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
@@ -972,6 +983,16 @@
 	  CALL RD_STORE_INT(GS_RELEASE_LIM,'GS_RELEASE_LIM',L_FALSE,
 	1     'KNOP: rejected release attempts before stop (0=disabled)?')
 	  IF(GS_RELEASE_LIM .LT. 0)GS_RELEASE_LIM=0
+!
+! GS_REL_NOPROG_LIM (default 0 = disabled): releases that made no
+! demand progress or re-poisoned the field before the model stops.
+! The count survives release refunds, so it catches the
+! release/refreeze limit cycle the consecutive counters cannot.
+!
+	  GS_REL_NOPROG_LIM=0
+	  CALL RD_STORE_INT(GS_REL_NOPROG_LIM,'GS_REL_NOPROG_LIM',
+	1     L_FALSE,'KNOP: no-progress releases before stop?')
+	  IF(GS_REL_NOPROG_LIM .LT. 0)GS_REL_NOPROG_LIM=0
 !
 ! GS_REL_STABLE (default 1): consecutive sweeps passing the maturity
 ! gate before the freeze releases the population update.  Guards
@@ -1279,16 +1300,22 @@
 	  CALL RD_STORE_DBLE(INEXT_RELAX_V,'INEXT_RELAX',L_FALSE,
 	1     'FG lagged-store under-relaxation factor')
 !
-! KN_RAY_BULK_TOL (default 2.5E-2 = 0.5*GS_MATURE_TOL, edited by
-! Devin, 20-Oct-2026): residual floor on the bulk exit (IXIT=2).
-! The bad-fraction test alone let rays exit converged at
-! residual ~5E-2 -- one capped commit step from the fixed point
-! -- pinning the refresh max just above the maturity gate
-! (m15_2p82d: 5.19-5.24E-2) and ratcheting the store through
-! WRITE_STORE_CAP.  A floored bulk exit commits through
-! WRITE_STORE instead.  0 disables the new term.
+! KN_RAY_BULK_TOL (default 6.0E-2 under DO_NONMONO_KNOP, 0 = off
+! otherwise; edited by Devin, 20-Oct-2026): residual floor on the
+! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
+! converged at residual ~5E-2 -- one capped commit step from the
+! fixed point -- pinning the refresh max just above the maturity
+! gate (m15_2p82d: 5.19-5.24E-2) and ratcheting the store through
+! WRITE_STORE_CAP.  The earlier 2.5E-2 default sat below that
+! floor, so the bulk exit never fired on m15 and floored rays
+! still hit the commit gate capped.  6.0E-2 clears the measured
+! floor so those rays commit through WRITE_STORE.  The key is
+! KNOP-scoped: SET_FG_KN_OPTS is global, so a shared nonzero
+! default would silently floor bulk exits on non-KNOP runs --
+! off unless the key is set explicitly.  0 disables the term.
 !
-	  KN_RAY_BULK_TOL_V=2.5E-2_LDP
+	  KN_RAY_BULK_TOL_V=0.0_LDP
+	  IF(DO_NONMONO_KNOP)KN_RAY_BULK_TOL_V=6.0E-2_LDP
 	  CALL RD_STORE_DBLE(KN_RAY_BULK_TOL_V,'KN_RAY_BULK_TOL',
 	1     L_FALSE,'Residual floor for the FG bulk exit (0=off)')
 	  CALL SET_FG_KN_OPTS(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,
@@ -2904,6 +2931,35 @@
 	    IF(.NOT. L_FALSE_TMP)THEN
 	      GS_FREEZE_LIM=300
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_FREEZE_LIM=300'
+	    END IF
+!
+! GS_PRECOND_LIM defaults to 50 under KNOP (edited by Devin,
+! 20-Oct-2026): the precondition gate clears GS_FREEZE every call
+! it fires on, so N_FROZEN never advances and GS_FREEZE_LIM is
+! unreachable there.  A demand that stays above GS_PRECOND_MAX
+! through 50 live updates is a structural failure, not a
+! transient.  Explicit VADAT values, including 0 = off, are
+! respected.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'GS_PRECOND_LIM',L_FALSE,
+	1     L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      GS_PRECOND_LIM=50
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_PRECOND_LIM=50'
+	    END IF
+!
+! GS_REL_NOPROG_LIM defaults to 10 under KNOP (edited by Devin,
+! 20-Oct-2026): the release/refreeze cycle refunds the freeze
+! clock at every release, so the cumulative no-progress count is
+! the earliest reachable stop on the m15_2p82d-class alternation
+! (~10 bad releases inside ~60 iterations).  Explicit VADAT
+! values, including 0 = off, are respected.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'GS_REL_NOPROG_LIM',
+	1     L_FALSE,L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      GS_REL_NOPROG_LIM=10
+	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_NOPROG_LIM=10'
 	    END IF
 !
 ! DO_NONMONO_FREQ_MATCH defaults T under KNOP: with one-bin upwind

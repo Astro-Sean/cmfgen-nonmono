@@ -783,15 +783,18 @@
 ! so this bounds refresh memory at ~KN_MAX_THREADS*NI*NCF*8 B.
 !
 	REAL(KIND=LDP) KN_RAY_TOL
-! KN_RAY_BULK_TOL (VADAT [KN_RAY_BULK_TOL], default 2.5E-2 =
-! 0.5*GS_MATURE_TOL, set by SET_FG_KN_OPTS): residual floor on the
-! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
-! converged at residual ~5E-2 -- one capped commit step from the
-! fixed point -- which pinned the refresh residual just above the
-! maturity gate and ratcheted the store through WRITE_STORE_CAP
-! (m15_2p82d: 5.19-5.24E-2 vs tol 2E-3, 8-12 nc-capped commits per
-! refresh).  A floored bulk exit is also accepted at the commit
-! gate.  <=0 disables the new term.
+! KN_RAY_BULK_TOL (VADAT [KN_RAY_BULK_TOL], set by SET_FG_KN_OPTS;
+! default 6.0E-2 under DO_NONMONO_KNOP, 0 = off otherwise): residual
+! floor on the bulk exit (IXIT=2).  The bad-fraction test alone let
+! rays exit converged at residual ~5E-2 -- one capped commit step
+! from the fixed point -- which pinned the refresh residual just
+! above the maturity gate and ratcheted the store through
+! WRITE_STORE_CAP (m15_2p82d: 5.19-5.24E-2 vs tol 2E-3, 8-12
+! nc-capped commits per refresh).  The KNOP default sits above the
+! measured 5.2E-2 floor so floored rays can still exit and commit;
+! the earlier 2.5E-2 default left every such ray to stall/cap while
+! the commit gate refused it.  A floored bulk exit is also accepted
+! at the commit gate.  <=0 disables the new term.
 !
 	REAL(KIND=LDP) KN_RAY_BULK_TOL
 	INTEGER KN_RAY_MAXPASS,KN_MAX_THREADS
@@ -930,7 +933,7 @@
 	DATA KN_STORE_READY /.FALSE./
 	DATA KN_RF_WARNED /.FALSE./
 	DATA KN_RAY_TOL /2.0E-03_LDP/
-	DATA KN_RAY_BULK_TOL /2.5E-02_LDP/
+	DATA KN_RAY_BULK_TOL /0.0_LDP/
 	DATA KN_RAY_OMEGA /1.0_LDP/
 	DATA FG_ORD_SWEEP /.TRUE./
 	DATA FG_ORD_AITKEN /.FALSE./
@@ -6746,12 +6749,12 @@ C
 	  ELSE IF(FG_COMMIT_CONV .AND.
 	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2 .AND.
 	2     (RES_M .LE. KN_RAY_TOL .OR.
-	3      (IXIT_M .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
-	4       RES_M .LE. KN_RAY_BULK_TOL))) .OR.
+	3      (IXIT_M .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	4       RES_M .LE. KN_RAY_BULK_TOL)))) .OR.
 	5     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2 .AND.
 	6     (RES_P .LE. KN_RAY_TOL .OR.
-	7      (IXIT_P .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
-	8       RES_P .LE. KN_RAY_BULK_TOL)))))THEN
+	7      (IXIT_P .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	8       RES_P .LE. KN_RAY_BULK_TOL))))))THEN
 !
 ! edited by Devin, 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
 ! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
@@ -6767,7 +6770,11 @@ C
 ! floored it at the residual the maturity gate's bulk rule
 ! accepts, so sending it to WRITE_STORE_CAP only parked the store
 ! one capped step from the fixed point (the 8-12 nc-capped
-! commits per refresh on m15_2p82d).
+! commits per refresh on m15_2p82d).  With KN_RAY_BULK_TOL<=0 the
+! floor is off entirely -- the IXIT=2 exit fired on bad-fraction
+! alone, so the commit test must admit it rather than require
+! BTOL>0 (edited by Devin, 20-Oct-2026: the two semantics were
+! inconsistent, bulk exits fired and were never accepted).
 ! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
 ! (per-cell change bounded by NC; the store keeps tracking a
 ! contracting field but cannot ratchet faster than NC/refresh).

@@ -876,12 +876,25 @@
 !
 	REAL(KIND=LDP) FG_TRIAL_CHURN
 !
-! GS_FREEZE_LIM (default 0 = disabled): consecutive great iterations
-! the KNOP forced-LAMBDA freeze may persist before SOLVE_FOR_POPS
-! stops the model as non-convergent.  The freeze itself stays
-! uncapped -- a field that cannot mature must not take BA steps --
-! but a run that never matures should fail loudly rather than burn
-! requeues and report as a completed model.  Independent of this
+! FG_TRIAL_CHURN_MIN (default 3): consecutive churn-marginal calls
+! (gate immature only via store churn, inside the FG_TRIAL_CHURN
+! factor) before the churn arm may release a trial.  The arm uses
+! its own streak rather than N_FROZEN -- releases refund the
+! freeze clock, so a churn-only hold never reaches FG_TRIAL_MIN on
+! the field class this arm exists for.  0 disables the arm.
+! VADAT keyword [FG_TRIAL_CHURN_MIN].
+!
+	INTEGER FG_TRIAL_CHURN_MIN
+!
+! GS_FREEZE_LIM (default 0 = disabled): no-progress great iterations
+! spent in the KNOP forced-LAMBDA freeze before SOLVE_FOR_POPS
+! stops the model as non-convergent.  The count survives the
+! release/refreeze cycle -- it resets only when a release makes
+! real demand progress, not at every release the way N_FROZEN
+! does.  The freeze itself stays uncapped -- a field that cannot
+! mature must not take BA steps -- but a run that never matures
+! should fail loudly rather than burn requeues and report as a
+! completed model.  Independent of this
 ! key, SOLVE_FOR_POPS publishes the freeze state to the GS_STATE
 ! file each call so the job wrapper can apply its own limit.
 ! VADAT keyword [GS_FREEZE_LIM].  Under DO_NONMONO_KNOP an absent
@@ -913,6 +926,17 @@
 ! VADAT keyword [GS_RELEASE_LIM].
 !
 	INTEGER GS_RELEASE_LIM
+!
+! GS_REL_NOPROG_LIM (default 0 = disabled): releases that produced
+! no demand progress or that re-poisoned the field (N_REL_NOPROG)
+! before SOLVE_FOR_POPS stops the model as non-convergent.  The
+! release/refreeze limit cycle resets the consecutive counters at
+! every release, so this cumulative count reaches its bound first
+! on the m15_2p82d-class alternation.  VADAT keyword
+! [GS_REL_NOPROG_LIM].  Under DO_NONMONO_KNOP an absent key
+! auto-sets to 10; explicit VADAT values are respected.
+!
+	INTEGER GS_REL_NOPROG_LIM
 !
 ! GS_REL_STABLE (default 1): consecutive sweeps that must pass the
 ! KNOP maturity gate before SOLVE_FOR_POPS releases the population

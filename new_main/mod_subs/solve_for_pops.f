@@ -14,6 +14,12 @@
 	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
+! Altered:   20-Oct-2026 : No-progress totals N_FROZEN_TOT /
+!                          N_PRECOND_TOT survive release refunds so
+!                          GS_FREEZE_LIM / GS_PRECOND_LIM can fire on
+!                          a release/refreeze cycle; GS_REL_NOPROG_LIM
+!                          stops on counted no-progress releases
+!                          (edited by Devin).
 ! Altered:   20-Oct-2026 : FG_TRIAL_CHURN arm -- a churn-only immature
 !                          FG gate inside the factor may still release
 !                          the resacc-judged LAMBDA trial
@@ -134,8 +140,13 @@
 ! GS_FG_PRECHURN: GS_FG_IMMATURE evaluated before the store-churn OR
 ! (snapshot, not a saved state).  FG_CHURN_MARG: immature ONLY via
 ! churn and inside the [FG_TRIAL_CHURN] factor (edited by Devin,
-! 20-Oct-2026).
+! 20-Oct-2026).  N_CHURN_STREAK counts consecutive churn-marginal
+! calls and gates the churn arm in place of N_FROZEN: the freeze
+! streak stays ~5-6 under the release/refreeze cycle, far short of
+! FG_TRIAL_MIN, so the arm could never fire on the field class it
+! was built for.
 	LOGICAL GS_FG_PRECHURN,FG_CHURN_MARG
+	INTEGER, SAVE :: N_CHURN_STREAK=0
 	INTEGER TRIAL_MIN_USED
 	LOGICAL, SAVE :: GS_RAW_NUDGE_DONE=.FALSE.
 	LOGICAL MOM_RAN,MOM_OK
@@ -279,6 +290,20 @@
 	REAL(KIND=LDP), SAVE :: GS_REL_DEM=0.0_LDP
 	INTEGER, SAVE :: N_REL_NOPROG=0
 !
+! No-progress totals (edited by Devin, 20-Oct-2026): the
+! consecutive counters N_FROZEN/N_PRECOND reset at every release
+! or gate transition -- exactly the alternation GS_FREEZE_LIM /
+! GS_PRECOND_LIM exist to catch, so those stops were unreachable
+! on the m15_2p82d release/refreeze cycle.  These totals
+! accumulate frozen and preconditioned calls and reset ONLY on
+! measured demand progress (a release judged progressive by the
+! GS_JUST_REL block, or MAXCH back under GS_PRECOND_MAX while the
+! precondition feature runs).  Both ride GS_STATE across requeues
+! like the streaks.
+!
+	INTEGER*8, SAVE :: N_FROZEN_TOT=0
+	INTEGER*8, SAVE :: N_PRECOND_TOT=0
+!
 ! Luminosity is diagnostic only in shocked models: local deposition
 ! and mechanical-to-radiative conversion mean the inner and outer
 ! luminosities need not agree or settle together.  Keep the ratio and
@@ -410,7 +435,8 @@
 	INTEGER LU_GS
 	INTEGER GS_IT_RD,GS_NF_RD,GS_MT_RD,GS_RL_RD,GS_TA_RD
 	INTEGER GS_TR_RD,GS_NR_RD,GS_PC_RD
-	INTEGER*8 GS_RR_RD
+	INTEGER GS_RNP_RD
+	INTEGER*8 GS_RR_RD,GS_NFT_RD,GS_PCT_RD
 	LOGICAL GS_FRZ_RD
 	CHARACTER*80 RSV_CH
 !
@@ -494,6 +520,9 @@
 	  GS_JUST_REL=.FALSE.
 	  GS_REL_DEM=0.0_LDP
 	  N_REL_NOPROG=0
+	  N_FROZEN_TOT=0
+	  N_PRECOND_TOT=0
+	  N_CHURN_STREAK=0
 	  LUM_INIT=.FALSE.
 	  LUM_PREV=0.0_LDP
 	  LUM_PREV_OUT=0.0_LDP
@@ -559,6 +588,9 @@
 	    GS_NR_RD=0
 	    GS_RR_RD=0
 	    GS_PC_RD=0
+	    GS_NFT_RD=0
+	    GS_PCT_RD=0
+	    GS_RNP_RD=0
 	    GS_FRZ_RD=.FALSE.
 	    DO
 	      RSV_CH=' '
@@ -583,6 +615,12 @@
 	1      READ(RSV_CH(16:),*,IOSTAT=IOS)GS_RR_RD
 	      IF(INDEX(RSV_CH,'n_precond=') .EQ. 1)
 	1      READ(RSV_CH(11:),*,IOSTAT=IOS)GS_PC_RD
+	      IF(INDEX(RSV_CH,'n_frozen_tot=') .EQ. 1)
+	1      READ(RSV_CH(14:),*,IOSTAT=IOS)GS_NFT_RD
+	      IF(INDEX(RSV_CH,'n_precond_tot=') .EQ. 1)
+	1      READ(RSV_CH(15:),*,IOSTAT=IOS)GS_PCT_RD
+	      IF(INDEX(RSV_CH,'n_rel_noprog=') .EQ. 1)
+	1      READ(RSV_CH(14:),*,IOSTAT=IOS)GS_RNP_RD
 	    END DO
 	    CLOSE(LU_GS)
 	    IF(GS_NF_RD .GE. 0 .AND.
@@ -596,6 +634,9 @@
 	      N_RELEASES_TOT=MAX(GS_NR_RD,0)
 	      GS_RAW_RELEASES_TOT=MAX(GS_RR_RD,0_8)
 	      N_PRECOND=MAX(GS_PC_RD,0)
+	      N_FROZEN_TOT=MAX(GS_NFT_RD,0_8)
+	      N_PRECOND_TOT=MAX(GS_PCT_RD,0_8)
+	      N_REL_NOPROG=MAX(GS_RNP_RD,0)
 	      GS_WAS_FROZEN=GS_FRZ_RD
 	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I5,A,I5,A,L2)')
 	1     ' GS_STATE restart: adopted n_frozen=',N_FROZEN,
@@ -947,6 +988,13 @@
 	2     'SOLVE_FOR_POPS: release_no_progress: demand=',MAXCH,
 	3     '  rel_dem=',GS_REL_DEM,'  raw_drift=',GS_SW_MAXCHG,
 	4     '  count=',N_REL_NOPROG
+	    ELSE
+! edited by Devin, 20-Oct-2026: a judged-progressive release is the
+! one reset the no-progress totals honour -- N_FROZEN_TOT survives
+! the release/refreeze refund precisely so that only real demand
+! progress clears it.
+	      N_FROZEN_TOT=0_8
+	      N_PRECOND_TOT=0_8
 	    END IF
 	  END IF
 !
@@ -1096,6 +1144,20 @@
 	1    (GS_NTOT .GT. 0_8) .AND. (FG_TRIAL_CHURN .GT. 0.0_LDP) .AND.
 	2    (GS_NCONV_ALL .LE.
 	3     FG_TRIAL_CHURN*MAX(50_8,GS_NTOT/1000))
+!
+! Churn-marginal streak (edited by Devin, 20-Oct-2026): the arm
+! needs a few consecutive churn-only calls before firing -- a
+! single churn-marginal sweep could still be a transient -- but
+! N_FROZEN is the wrong clock here: releases refund it to ~5-6,
+! far under FG_TRIAL_MIN (30), so the churn arm was dead on the
+! m15-class field it targets.  [FG_TRIAL_CHURN_MIN] sets the
+! streak threshold.
+!
+	  IF(FG_CHURN_MARG)THEN
+	    N_CHURN_STREAK=N_CHURN_STREAK+1
+	  ELSE
+	    N_CHURN_STREAK=0
+	  END IF
 !
 ! Plateau exits (IXIT=6) are a different failure mode from
 ! stall/cap: the map stopped improving entirely, so their bad
@@ -1354,14 +1416,43 @@
 	    GS_PRECOND_ACT=.TRUE.
 	    CALL APPEND_ITER_REASON(ITER_REASON,'pop_precond')
 	    N_PRECOND=N_PRECOND+1
-	    IF(CONV_DIAG_LVL .GE. 1)
-	1   WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
-	2   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
-	3   ' > limit=',GS_PRECOND_MAX,
-	4   '; hold postponed, live LAMBDA  n_precond=',N_PRECOND
+	    N_PRECOND_TOT=N_PRECOND_TOT+1
+! edited by Devin, 20-Oct-2026: the message promises a live LAMBDA
+! step, but the entry mode could be FULL -- the gate only cleared
+! GS_FREEZE, so a scheduled BA call took an unchecked BA step at
+! ~1E10% demand (the exact step this gate exists to soften).
+! Mirror the gs_immature_demote flag set for this call;
+! FORCE_LAMBDA stays off because the next call re-evaluates the
+! gate on its own demand.
+	    LAMBDA_ITERATION=.TRUE.
+	    FIXED_T=.TRUE.
+	    COMPUTE_BA=.TRUE.
+	    TEMP_CHAR='DIAG'
+	    T1=MAX_LAM_COR
+	    IF(CONV_DIAG_LVL .GE. 1)THEN
+! edited by Devin, 20-Oct-2026: the sweep state block below prints
+! only under GS_FREEZE, so a preconditioned call had no gate
+! sentence -- the precond branch of MOM_STATE_SENTENCE existed but
+! was never reached.
+	      WRITE(LUER,'(2A)')'  [PRECOND]',
+	1     TRIM(MOM_STATE_SENTENCE(.FALSE.,.FALSE.,MOM_UNSAFE_B,
+	2     MOM_BROAD,.FALSE.,.TRUE.,MOM_RF_CONV,MAIN_COUNTER))
+	      WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
+	1   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
+	2   ' > limit=',GS_PRECOND_MAX,
+	3   '; hold postponed, live LAMBDA  n_precond=',N_PRECOND
+	    END IF
 	  ELSE
 	    GS_PRECOND_ACT=.FALSE.
 	    N_PRECOND=0
+! edited by Devin, 20-Oct-2026: with the precondition feature on,
+! demand back inside GS_PRECOND_MAX means the gate did its job --
+! clear both no-progress totals.  Gated on GS_PRECOND so a stock
+! (precond=F) run keeps the strict accumulate-only totals.
+	    IF(GS_PRECOND .AND. MAXCH .LE. GS_PRECOND_MAX)THEN
+	      N_PRECOND_TOT=0_8
+	      N_FROZEN_TOT=0_8
+	    END IF
 	  END IF
 	  IF(GS_FREEZE .AND. .NOT. GS_RAW_IMMATURE .AND.
 	1     N_MATURE .LT. GS_REL_STABLE)
@@ -1373,13 +1464,16 @@
 ! moving (it34-class release-then-blow-up).  One-time warning;
 ! the default is unchanged -- the marginal-release machinery
 ! (W3 best-pass census, W8 FG_TRIAL) is the remediation, not a
-! default change.
+! default change.  Preconditioned calls are excluded (edited by
+! Devin, 20-Oct-2026): the gate postponed the freeze rather than
+! releasing a hold, so 'releasing' would misreport the step.
 !
 	  IF(.NOT. GS_RAW_NUDGE_DONE .AND. .NOT. GS_RAW_MATURE .AND.
 	1     DO_NONMONO_KNOP .AND. .NOT. GS_RAW_IMMATURE .AND.
-	2     N_MATURE .GE. GS_REL_STABLE .AND.
-	3     GS_MAX_ALL .GT. 0.05_LDP .AND.
-	4     GS_MAX_ALL .LT. 0.5_LDP)THEN
+	2     .NOT. GS_PRECOND_ACT .AND.
+	3     N_MATURE .GE. GS_REL_STABLE .AND.
+	4     GS_MAX_ALL .GT. 0.05_LDP .AND.
+	5     GS_MAX_ALL .LT. 0.5_LDP)THEN
 	    WRITE(LUER,'(A,ES10.3)')
 	1   'SOLVE_FOR_POPS: NUDGE -- lagged field releasing with raw'//
 	2   ' max still',GS_MAX_ALL
@@ -1391,6 +1485,11 @@
 	  END IF
 	  IF(GS_FREEZE)THEN
 	    N_FROZEN=N_FROZEN+1
+! edited by Devin, 20-Oct-2026: the no-progress total counts every
+! frozen call and is NOT reset on release -- releases refund
+! N_FROZEN, which is exactly why GS_FREEZE_LIM could never fire on
+! a release/refreeze cycle.
+	    N_FROZEN_TOT=N_FROZEN_TOT+1
 	  ELSE
 	    N_FROZEN=0
 	    N_TRIAL_ACC=0
@@ -1528,15 +1627,24 @@
 ! GS_UNSAFE), luminosity is not blocked, and the accepted-trial
 ! pulse budget remains.
 !
+! Two arm thresholds (edited by Devin, 20-Oct-2026): the ordinary
+! marginal arm keeps the N_FROZEN >= FG_TRIAL_MIN requirement,
+! while the FG_CHURN_MARG arm gates on N_CHURN_STREAK >=
+! [FG_TRIAL_CHURN_MIN] (default 3) -- a churn-only hold survives
+! the release refund, so N_FROZEN stays far under FG_TRIAL_MIN on
+! exactly the field the churn arm was added for.
+!
 	    FG_TRIAL=(.NOT. MOM_RAN) .AND.
 	1      (.NOT. GS_FG_IMMATURE .OR. FG_CHURN_MARG)
 	2      .AND. (.NOT. GS_UNSAFE)
 	3      .AND. DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING)
-	4      .AND. (FG_TRIAL_MIN .GT. 0)
-	5      .AND. (N_FROZEN .GE. FG_TRIAL_MIN)
-	6      .AND. (.NOT. LUM_BLOCKED)
-	7      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
-	8      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
+	4      .AND. ((.NOT. GS_FG_IMMATURE .AND. FG_TRIAL_MIN .GT. 0
+	5        .AND. N_FROZEN .GE. FG_TRIAL_MIN) .OR.
+	6        (FG_CHURN_MARG .AND. FG_TRIAL_CHURN_MIN .GT. 0 .AND.
+	7        N_CHURN_STREAK .GE. FG_TRIAL_CHURN_MIN))
+	8      .AND. (.NOT. LUM_BLOCKED)
+	9      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
+	1      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
 	    IF(MOM_TRIAL)THEN
 	      TRIAL_FIRED=.TRUE.
 	      TRIAL_MIN_USED=MOM_TRIAL_MIN
@@ -1718,14 +1826,21 @@
 ! submit_cmfgen.sh greps '^n_frozen=' with -m1, so n_frozen must
 ! stay the first key in the file.
 !
-! Optional in-model cap (VADAT [GS_FREEZE_LIM], default 0 = off):
-! the field staying immature this long is a structural failure, not
-! a transient -- stop loudly rather than consume the full requeue
-! budget doing forced-LAMBDA iterations that cannot converge.
+! Optional in-model cap (VADAT [GS_FREEZE_LIM], default 0 = off;
+! auto-set 300 under KNOP): the field staying immature this long
+! is a structural failure, not a transient -- stop loudly rather
+! than consume the full requeue budget doing forced-LAMBDA
+! iterations that cannot converge.  N_FROZEN_TOT counts frozen
+! calls without resetting at releases -- releases refund
+! N_FROZEN, so a release/refreeze cycle kept the consecutive
+! count under the bound forever on m15_2p82d.  Only measured
+! demand progress clears the total.  Wording changed from
+! 'consecutive' to 'no-progress' (edited by Devin, 20-Oct-2026).
 !
-	  IF(GS_FREEZE_LIM .GT. 0 .AND. N_FROZEN .GE. GS_FREEZE_LIM)THEN
-	    WRITE(LUER,'(A,I4,A)')'SOLVE_FOR_POPS: ',N_FROZEN,
-	1    ' consecutive GS-frozen iterations reach GS_FREEZE_LIM'
+	  IF(GS_FREEZE_LIM .GT. 0 .AND.
+	1     N_FROZEN_TOT .GE. GS_FREEZE_LIM)THEN
+	    WRITE(LUER,'(A,I8,A)')'SOLVE_FOR_POPS: ',N_FROZEN_TOT,
+	1    ' no-progress GS-frozen iterations reach GS_FREEZE_LIM'
 	    WRITE(LUER,'(A)')'  the lagged GS field never matured;'//
 	1    ' stopping as non-convergent'
 	    STOP
@@ -1733,16 +1848,37 @@
 !
 ! Same structural-failure stop for the precondition path (edited
 ! by Devin, 20-Oct-2026): a demand that stays above
-! GS_PRECOND_MAX through GS_PRECOND_LIM consecutive live updates
-! is not converging under the postponed hold either.
+! GS_PRECOND_MAX through GS_PRECOND_LIM no-progress live updates
+! is not converging under the postponed hold either.  The gate
+! clears GS_FREEZE, so N_FROZEN stayed 0 and GS_FREEZE_LIM was
+! unreachable here; N_PRECOND_TOT survives the alternating
+! preconditioned/frozen pattern and is the counter the limit
+! must read.
 !
 	  IF(GS_PRECOND_LIM .GT. 0 .AND.
-	1     N_PRECOND .GE. GS_PRECOND_LIM)THEN
-	    WRITE(LUER,'(A,I4,A)')'SOLVE_FOR_POPS: ',N_PRECOND,
-	1    ' consecutive pop-preconditioning iterations reach'//
+	1     N_PRECOND_TOT .GE. GS_PRECOND_LIM)THEN
+	    WRITE(LUER,'(A,I8,A)')'SOLVE_FOR_POPS: ',N_PRECOND_TOT,
+	1    ' no-progress pop-preconditioning iterations reach'//
 	2    ' GS_PRECOND_LIM'
 	    WRITE(LUER,'(A)')'  the population demand never fell'//
 	1    ' below GS_PRECOND_MAX; stopping as non-convergent'
+	    STOP
+	  END IF
+!
+! Earliest guard on the release/refreeze limit cycle (edited by
+! Devin, 20-Oct-2026, VADAT [GS_REL_NOPROG_LIM]): N_REL_NOPROG
+! counts releases judged no-progress by the GS_JUST_REL audit
+! and is not refunded by accepted trials, so the 5-6-iteration
+! release alternation reaches this bound before either total
+! above.
+!
+	  IF(GS_REL_NOPROG_LIM .GT. 0 .AND.
+	1     N_REL_NOPROG .GE. GS_REL_NOPROG_LIM)THEN
+	    WRITE(LUER,'(A,I4,A)')'SOLVE_FOR_POPS: ',N_REL_NOPROG,
+	1    ' releases with no demand progress reach'//
+	2    ' GS_REL_NOPROG_LIM'
+	    WRITE(LUER,'(A)')'  the release/refreeze cycle never'//
+	1    ' matured the lagged field; stopping as non-convergent'
 	    STOP
 	  END IF
 !
@@ -2614,6 +2750,10 @@
 	    WRITE(LU_GS,'(A,I0)')'n_releases=',N_RELEASES_TOT
 	    WRITE(LU_GS,'(A,I0)')'n_raw_releases=',GS_RAW_RELEASES_TOT
 	    WRITE(LU_GS,'(A,I0)')'n_precond=',N_PRECOND
+	    WRITE(LU_GS,'(A,I0)')'n_frozen_tot=',N_FROZEN_TOT
+	    WRITE(LU_GS,'(A,I0)')'n_precond_tot=',N_PRECOND_TOT
+	    WRITE(LU_GS,'(A,I0)')'n_rel_noprog=',N_REL_NOPROG
+	    WRITE(LU_GS,'(A,I0)')'n_churn_streak=',N_CHURN_STREAK
 	    CLOSE(LU_GS)
 	  END IF
 	END IF

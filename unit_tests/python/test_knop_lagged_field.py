@@ -164,6 +164,16 @@ def test_pop_precondition_gate():
         "'pop_precond'" in POPS,
     )
     check(
+        "preconditioned call is forced to LAMBDA",
+        re.search(
+            r"'pop_precond'[\s\S]{0,800}?"
+            r"LAMBDA_ITERATION=\.TRUE\.[\s\S]{0,200}?"
+            r"T1=MAX_LAM_COR",
+            POPS,
+        )
+        is not None,
+    )
+    check(
         "release-damp block excludes preconditioned calls",
         re.search(
             r"LAMBDA_ITERATION \.AND\. \.NOT\. MOM_TRIAL \.AND\.\s*\n"
@@ -186,13 +196,14 @@ def test_pop_precondition_gate():
 
 def test_bulk_exit_residual_floor():
     check(
-        "KN_RAY_BULK_TOL defaults to 2.5E-2 in the fg DATA block",
-        "DATA KN_RAY_BULK_TOL /2.5E-02_LDP/" in FG,
+        "KN_RAY_BULK_TOL DATA fallback is off (KNOP-scoped)",
+        "DATA KN_RAY_BULK_TOL /0.0_LDP/" in FG,
     )
     check(
-        "KN_RAY_BULK_TOL VADAT key is read and passed to the setter",
-        "'KN_RAY_BULK_TOL'" in RD_CONTROL
-        and "KN_RAY_BULK_TOL_V=2.5E-2_LDP" in RD_CONTROL
+        "KN_RAY_BULK_TOL defaults 6.0E-2 under KNOP, 0 elsewhere",
+        "KN_RAY_BULK_TOL_V=0.0_LDP" in RD_CONTROL
+        and "IF(DO_NONMONO_KNOP)KN_RAY_BULK_TOL_V=6.0E-2_LDP"
+        in RD_CONTROL
         and re.search(
             r"CALL SET_FG_KN_OPTS\(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,\s*\n"
             r"\s*\d?\s*INEXT_RELAX_V,KN_RAY_BULK_TOL_V\)",
@@ -202,20 +213,20 @@ def test_bulk_exit_residual_floor():
     )
     check(
         "both bulk exits carry the residual floor",
-        FG.count("KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.") == 2
+        FG.count("KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.") >= 2
         and FG.count("RES .LE. KN_RAY_BULK_TOL))THEN") == 2,
     )
     check(
-        "commit gate accepts floored bulk exits via WRITE_STORE",
+        "commit gate admits floored or unfloored bulk exits",
         re.search(
-            r"IXIT_M \.EQ\. 2 \.AND\. KN_RAY_BULK_TOL \.GT\. 0\.0_LDP"
-            r" \.AND\.[\s\S]*?RES_M \.LE\. KN_RAY_BULK_TOL",
+            r"IXIT_M \.EQ\. 2 \.AND\. \(KN_RAY_BULK_TOL \.LE\. "
+            r"0\.0_LDP \.OR\.[\s\S]*?RES_M \.LE\. KN_RAY_BULK_TOL\)",
             FG,
         )
         is not None
         and re.search(
-            r"IXIT_P \.EQ\. 2 \.AND\. KN_RAY_BULK_TOL \.GT\. 0\.0_LDP"
-            r" \.AND\.[\s\S]*?RES_P \.LE\. KN_RAY_BULK_TOL",
+            r"IXIT_P \.EQ\. 2 \.AND\. \(KN_RAY_BULK_TOL \.LE\. "
+            r"0\.0_LDP \.OR\.[\s\S]*?RES_P \.LE\. KN_RAY_BULK_TOL\)",
             FG,
         )
         is not None,
@@ -396,6 +407,52 @@ def test_mom_adapt_omega_v2_vadat_wiring():
     )
 
 
+def test_no_progress_stops():
+    check(
+        "no-progress totals declared",
+        "INTEGER*8, SAVE :: N_FROZEN_TOT=0" in POPS
+        and "INTEGER*8, SAVE :: N_PRECOND_TOT=0" in POPS,
+    )
+    check(
+        "frozen and preconditioned calls accumulate totals",
+        "N_FROZEN_TOT=N_FROZEN_TOT+1" in POPS
+        and "N_PRECOND_TOT=N_PRECOND_TOT+1" in POPS,
+    )
+    check(
+        "release progress resets the totals",
+        "N_FROZEN_TOT=0_8" in POPS and "N_PRECOND_TOT=0_8" in POPS,
+    )
+    check(
+        "GS_FREEZE_LIM reads the no-progress total",
+        "N_FROZEN_TOT .GE. GS_FREEZE_LIM" in POPS,
+    )
+    check(
+        "GS_PRECOND_LIM reads the no-progress total",
+        "N_PRECOND_TOT .GE. GS_PRECOND_LIM" in POPS,
+    )
+    check(
+        "GS_REL_NOPROG_LIM stop exists",
+        "N_REL_NOPROG .GE. GS_REL_NOPROG_LIM" in POPS
+        and "INTEGER GS_REL_NOPROG_LIM" in CTRL_MOD
+        and "RD_STORE_INT(GS_REL_NOPROG_LIM,'GS_REL_NOPROG_LIM'"
+        in RD_CONTROL,
+    )
+    check(
+        "GS_STATE persists the totals",
+        "'n_frozen_tot='" in POPS
+        and "'n_precond_tot='" in POPS
+        and "'n_rel_noprog='" in POPS
+        and "N_FROZEN_TOT=MAX(GS_NFT_RD" in POPS
+        and "N_PRECOND_TOT=MAX(GS_PCT_RD" in POPS
+        and "N_REL_NOPROG=MAX(GS_RNP_RD" in POPS,
+    )
+    check(
+        "KNOP auto-sets the no-progress limits",
+        "KNOP auto-set: GS_PRECOND_LIM=50" in RD_CONTROL
+        and "KNOP auto-set: GS_REL_NOPROG_LIM=10" in RD_CONTROL,
+    )
+
+
 def test_fg_trial_churn_arm():
     check(
         "FG_TRIAL_CHURN declared in control_variable_mod",
@@ -432,6 +489,36 @@ def test_fg_trial_churn_arm():
         "churn arm tags its own reason",
         "'fg_trial_churn'" in POPS,
     )
+    check(
+        "FG_TRIAL_CHURN_MIN declared with 3 default",
+        "INTEGER FG_TRIAL_CHURN_MIN" in CTRL_MOD
+        and re.search(
+            r"FG_TRIAL_CHURN_MIN=3\s+CALL RD_STORE_INT"
+            r"\(FG_TRIAL_CHURN_MIN,'FG_TRIAL_CHURN_MIN'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "churn-marginal streak counted and reset",
+        re.search(
+            r"IF\(FG_CHURN_MARG\)THEN\s+"
+            r"N_CHURN_STREAK=N_CHURN_STREAK\+1\s+ELSE\s+"
+            r"N_CHURN_STREAK=0",
+            POPS,
+        )
+        is not None,
+    )
+    check(
+        "churn arm gated on the streak not N_FROZEN",
+        "N_CHURN_STREAK .GE. FG_TRIAL_CHURN_MIN" in POPS
+        and re.search(
+            r"\.NOT\. GS_FG_IMMATURE \.AND\. FG_TRIAL_MIN \.GT\. 0"
+            r"[\s\S]*?N_FROZEN \.GE\. FG_TRIAL_MIN",
+            POPS,
+        )
+        is not None,
+    )
 
 
 if __name__ == "__main__":
@@ -451,5 +538,6 @@ if __name__ == "__main__":
     test_mom_same_map_omega_estimator()
     test_solveba_global_temperature_cap_uses_max_dt_cor()
     test_mom_adapt_omega_v2_vadat_wiring()
+    test_no_progress_stops()
     test_fg_trial_churn_arm()
     print("all KNOP lagged-field checks passed")
