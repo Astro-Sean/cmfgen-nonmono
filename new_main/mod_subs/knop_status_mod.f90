@@ -59,7 +59,7 @@ contains
                   'populations.'
         else if (precond) then
             str = 'Populations far from equilibrium - postponing the ' // &
-                  'moment-field hold and taking a live LAMBDA step.'
+                  'lagged-field hold and taking a live LAMBDA step.'
         else if (trial) then
             str = 'Moment field marginal - trying a full step with ' // &
                   'the rollback net armed.'

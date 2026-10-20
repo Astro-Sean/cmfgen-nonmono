@@ -1409,11 +1409,19 @@
 	    COMPUTE_BA=.TRUE.
 	    TEMP_CHAR='DIAG'
 	    T1=MAX_LAM_COR
-	    IF(CONV_DIAG_LVL .GE. 1)
-	1   WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
-	2   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
-	3   ' > limit=',GS_PRECOND_MAX,
-	4   '; hold postponed, live LAMBDA  n_precond=',N_PRECOND
+	    IF(CONV_DIAG_LVL .GE. 1)THEN
+! edited by Devin, 20-Oct-2026: the sweep state block below prints
+! only under GS_FREEZE, so a preconditioned call had no gate
+! sentence -- the precond branch of MOM_STATE_SENTENCE existed but
+! was never reached.
+	      WRITE(LUER,'(2A)')'  [PRECOND]',
+	1     TRIM(MOM_STATE_SENTENCE(.FALSE.,.FALSE.,MOM_UNSAFE_B,
+	2     MOM_BROAD,.FALSE.,.TRUE.,MOM_RF_CONV,MAIN_COUNTER))
+	      WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
+	1   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
+	2   ' > limit=',GS_PRECOND_MAX,
+	3   '; hold postponed, live LAMBDA  n_precond=',N_PRECOND
+	    END IF
 	  ELSE
 	    GS_PRECOND_ACT=.FALSE.
 	    N_PRECOND=0

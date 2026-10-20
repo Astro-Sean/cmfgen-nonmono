@@ -539,6 +539,52 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # Freeze/precondition and bulk-floor keys parse and land.  The
+    # template is non-KNOP, so no auto-sets disturb the explicit
+    # values; KN_RAY_BULK_TOL echoes the solver module variable.
+    d = write_vadat(
+        WORKDIR / "vadat_gates",
+        {
+            "GS_PRECOND": "T",
+            "GS_PRECOND_MAX": "2.0D3",
+            "GS_PRECOND_LIM": "42",
+            "GS_FREEZE_LIM": "120",
+            "GS_REL_NOPROG_LIM": "7",
+            "KN_RAY_BULK_TOL": "6.0D-2",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "GS_PRECOND/GS_PRECOND_MAX/GS_PRECOND_LIM parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("GS_PRECOND") == "T"
+        and abs(
+            float(v.get("GS_PRECOND_MAX", "nan").replace("D", "E"))
+            - 2000.0
+        )
+        < 1e-6
+        and v.get("GS_PRECOND_LIM") == "42",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "GS_FREEZE_LIM/GS_REL_NOPROG_LIM parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("GS_FREEZE_LIM") == "120"
+        and v.get("GS_REL_NOPROG_LIM") == "7",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "KN_RAY_BULK_TOL parses and lands on the solver",
+        "RESULT_OK" in p.stdout
+        and abs(
+            float(v.get("KN_RAY_BULK_TOL", "nan").replace("D", "E"))
+            - 0.06
+        )
+        < 1e-12,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # RLOC/DRLOC opt-in keys parse and land.
     d = write_vadat(
         WORKDIR / "vadat_rloc",
