@@ -3583,9 +3583,9 @@
 	  WRITE(LUER,'(4X,A14,3(2X,ES10.3),2X,A,1X,2(A,ES9.2))')
 	1    'exempt/trc',BA_DEM_EXM,BA_DEM_EXR,BA_TR_ABS,TRC_ST,
 	2    'gates',MAX(10.0_LDP*EPS,1.0_LDP),'/',BA_TR_ABSMAX
-	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I3,A,I3,2X,A,L2)')
+	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I3,A,I3,2X,A,A3)')
 	1    'stageB','sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,
-	2    'phase',BA_TRACE_PHASE
+	2    'phase ',MERGE('yes','no ',BA_TRACE_PHASE)
 !
 ! Per-depth residual profile (edited by Devin, 15-Oct-2026): under
 ! CONV_DIAG_LVL list the five depths carrying the largest column-max
