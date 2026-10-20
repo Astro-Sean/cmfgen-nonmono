@@ -1580,6 +1580,17 @@
 !
 	REAL(KIND=LDP) BA_DEM_EXM
 !
+! BA_ARG_J / BA_ARG_I / BA_ARG_PCT (diagnostic export, not VADAT):
+! (row,depth) and percent size of the dominant demanded correction
+! this call -- the JINC/IINC vs JDEC/IDEC winner, written by
+! SOLVEBA_V13 every call including LAMBDA.  SOLVE_FOR_POPS reads it
+! for the same-cell LAMBDA churn streak (early N_CHURN_STREAK bump
+! under KNOP); the demand argmax locates the applied correction
+! because a LAMBDA update applies STEQ scaled.
+!
+	INTEGER BA_ARG_J,BA_ARG_I
+	REAL(KIND=LDP) BA_ARG_PCT
+!
 ! Block-triangular trace polish (edited by Devin, 16-Oct-2026).
 ! Rows exempted by the BA_DEM floors are trace species: one-way
 ! coupled (they absorb/emit but do not move J, ED, T or the major

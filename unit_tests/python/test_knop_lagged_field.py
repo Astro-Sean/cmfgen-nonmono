@@ -502,12 +502,21 @@ def test_fg_trial_churn_arm():
     check(
         "churn-marginal streak counted and reset",
         re.search(
-            r"IF\(FG_CHURN_MARG\)THEN\s+"
+            r"IF\(FG_CHURN_MARG \.OR\. N_SAMECELL \.GE\. 2\)THEN\s+"
             r"N_CHURN_STREAK=N_CHURN_STREAK\+1\s+ELSE\s+"
             r"N_CHURN_STREAK=0",
             POPS,
         )
         is not None,
+    )
+    check(
+        "same-cell LAMBDA streak updates from the dominant argmax",
+        "BA_ARG_J .EQ. LST_CHG_J .AND. BA_ARG_I .EQ. LST_CHG_I" in POPS
+        and "N_SAMECELL=N_SAMECELL+1" in POPS,
+    )
+    check(
+        "same-cell streak waives the GS_NTOT>0 arm requirement",
+        "GS_NTOT .GT. 0_8 .OR. N_SAMECELL .GE. 2" in POPS,
     )
     check(
         "churn arm gated on the streak not N_FROZEN",

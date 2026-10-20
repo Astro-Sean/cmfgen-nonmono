@@ -154,6 +154,14 @@
 ! was built for.
 	LOGICAL GS_FG_PRECHURN,FG_CHURN_MARG
 	INTEGER, SAVE :: N_CHURN_STREAK=0
+!
+! Same-cell LAMBDA churn streak: consecutive LAMBDA calls that apply
+! >10% to one (row,depth) cell are the local-limit-cycle signature
+! the store-churn census can miss when the field never refresh-
+! converges (GS_NTOT=0 disarms FG_CHURN_MARG).  A streak >= 2 bumps
+! N_CHURN_STREAK early and waives the arm's GS_NTOT>0 requirement.
+!
+	INTEGER, SAVE :: LST_CHG_J=0,LST_CHG_I=0,N_SAMECELL=0
 	INTEGER TRIAL_MIN_USED
 	LOGICAL, SAVE :: GS_RAW_NUDGE_DONE=.FALSE.
 	LOGICAL MOM_RAN,MOM_OK
@@ -1183,9 +1191,10 @@
 ! re-poisons the field rolls back like any other rejected trial.
 !
 	  FG_CHURN_MARG=GS_FG_IMMATURE .AND. (.NOT. GS_FG_PRECHURN) .AND.
-	1    (GS_NTOT .GT. 0_8) .AND. (FG_TRIAL_CHURN .GT. 0.0_LDP) .AND.
-	2    (GS_NCONV_ALL .LE.
-	3     FG_TRIAL_CHURN*MAX(50_8,GS_NTOT/1000))
+	1    (GS_NTOT .GT. 0_8 .OR. N_SAMECELL .GE. 2) .AND.
+	2    (FG_TRIAL_CHURN .GT. 0.0_LDP) .AND.
+	3    (GS_NCONV_ALL .LE.
+	4     FG_TRIAL_CHURN*MAX(50_8,GS_NTOT/1000))
 !
 ! Churn-marginal streak (edited by Devin, 20-Oct-2026): the arm
 ! needs a few consecutive churn-only calls before firing -- a
@@ -1195,7 +1204,7 @@
 ! m15-class field it targets.  [FG_TRIAL_CHURN_MIN] sets the
 ! streak threshold.
 !
-	  IF(FG_CHURN_MARG)THEN
+	  IF(FG_CHURN_MARG .OR. N_SAMECELL .GE. 2)THEN
 	    N_CHURN_STREAK=N_CHURN_STREAK+1
 	  ELSE
 	    N_CHURN_STREAK=0
@@ -2451,6 +2460,11 @@
 	BA_TR_ABS=0.0_LDP
 	BA_DEM_EXM=0.0_LDP
 !
+! Same-cell streak export: a JFNK or held call writes nothing, so a
+! stale argmax cannot fabricate a streak entry.
+!
+	BA_ARG_J=0;  BA_ARG_I=0;  BA_ARG_PCT=0.0_LDP
+!
 	IF(JFNK_THIS)THEN
 	  WRITE(LUER,'(/,A)')' ---------------------------------- JFNK ADMIT ---------------------------------'
 	  WRITE(LUER,'(A,ES12.4)')
@@ -2603,6 +2617,31 @@
 	  COMPUTE_BA=.TRUE.
 	  BA_PART_THIS=.FALSE.
 	  CALL APPEND_ITER_REASON(ITER_REASON,'ba_partial_rej')
+	END IF
+!
+! Same-cell LAMBDA churn streak (KNOP only): consecutive LAMBDA
+! calls applying >10% to the same (row,depth) cell are the local
+! limit-cycle signature the bulk churn census misses when the field
+! sits below every share threshold.  A rejected step applied
+! nothing, and a non-LAMBDA (or JFNK) call breaks the run.
+!
+	IF(DO_NONMONO_KNOP .AND. LAMBDA_ITERATION .AND.
+	1   .NOT. JFNK_THIS .AND. .NOT. BA_REJ_THIS .AND.
+	2   BA_ARG_J .GT. 0 .AND. BA_ARG_PCT .GT. 10.0_LDP)THEN
+	  IF(BA_ARG_J .EQ. LST_CHG_J .AND. BA_ARG_I .EQ. LST_CHG_I)THEN
+	    N_SAMECELL=N_SAMECELL+1
+	    IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(LUER,'(A,I3,A,I5,A,I4,A,I4,A,ES10.2)')
+	2    'SOLVE_FOR_POPS: same-cell LAMBDA streak ',N_SAMECELL,
+	3    ' at it',MAIN_COUNTER,' (J,I)=(',BA_ARG_J,',',
+	4    BA_ARG_I,') pct=',BA_ARG_PCT
+	  ELSE
+	    N_SAMECELL=1
+	  END IF
+	  LST_CHG_J=BA_ARG_J;  LST_CHG_I=BA_ARG_I
+	ELSE
+	  N_SAMECELL=0
+	  LST_CHG_J=0;  LST_CHG_I=0
 	END IF
 !
 ! edited by Devin: on [DO_NONMONO_SOB] or [DO_NONMONO_KNOP], a low
