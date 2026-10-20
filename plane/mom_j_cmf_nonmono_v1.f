@@ -3915,11 +3915,11 @@
 	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3)')
 	1    'lagbnd',MOM_LAGB_CNT,' boundary-lag cells,'//
 	2    ' smallest lag ',MOM_LAGB_MIN
-	WRITE(LUER,'(4X,A10,2X,2(A,ES10.3,A,I5,A,I5,A))')
+	WRITE(LUER,'(4X,A10,2X,2(A,ES10.3,A,I5,A,I5),A)')
 	1    'matrix','smallest DR ',MOM_MIN_DR,' at (',MOM_MIN_DR_I,',',
 	2    MOM_MIN_DR_L,'); smallest DR|a| ',MOM_MIN_DRA,' at (',
 	3    MOM_MIN_DRA_I,',',MOM_MIN_DRA_L,')'
-	WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,I5,A,I5,A,A,ES10.3)')
+	WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,I5,A,I5,A,ES10.3)')
 	1    'eq resid','largest equation residual ',MOM_EQ_RES,' at (',
 	2    MOM_EQ_RES_I,',',MOM_EQ_RES_L,'); largest ESEC/CHI-1 ',
 	3    MOM_MAX_COH
