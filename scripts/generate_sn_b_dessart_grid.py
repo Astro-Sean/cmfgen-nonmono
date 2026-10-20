@@ -859,14 +859,14 @@ GRID_POINTS = [
       "cd_transition_zones": 15}),
     ("DX26_V7000_p075w2_sa334", 7.0, 7000, 2.0, 0.0,
      {"source_age_days": 334.0, "target_days": 200.0,
-      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_grid/"
+      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_Y_grid/"
                     "SN_A_g_T20k_Ni075",
       "powerlaw_csm": True, "csm_powerlaw_n": 0.75,
       "csm_density_match": False, "csm_w_gcm": 2e17,
       "cd_transition_zones": 15}),
     ("DX26_V7000_b025_r35_sa334", 7.0, 7000, 2.0, 0.0,
      {"source_age_days": 334.0, "target_days": 200.0,
-      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_grid/"
+      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_Y_grid/"
                     "SN_A_g_T20k_Ni075",
       "powerlaw_csm": True, "csm_powerlaw_n": 0.75,
       "csm_density_match": False, "csm_w_gcm": 1.5e17,
@@ -874,7 +874,7 @@ GRID_POINTS = [
       "csm_outer_n": 0.25, "cd_transition_zones": 15}),
     ("DX26_V7000_b025_r50_sa334", 7.0, 7000, 2.0, 0.0,
      {"source_age_days": 334.0, "target_days": 200.0,
-      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_grid/"
+      "source_dir": "/viper/ptmp1/sbrennan/SN2024pba/SN_A_Y_grid/"
                     "SN_A_g_T20k_Ni075",
       "powerlaw_csm": True, "csm_powerlaw_n": 0.75,
       "csm_density_match": False, "csm_w_gcm": 1.5e17,

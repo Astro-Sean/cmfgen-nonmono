@@ -1023,7 +1023,8 @@ def write_dat(fname: str, model_name: str, target_days: float,
               temp_floor: float = 0.03, floor_rad: float = 0.01, iout: int = 10,
               aq: float = 2.0, bq: float = 1.0,
               amni: float = 0.0, xmni: float = 0.0,
-              tcura_days: float = 0.0):
+              tcura_days: float = 0.0,
+              r_max_cm: float = 0.0, v_max_cms: float = 0.0):
     """Write STELLA run/strad/*.dat control file for model_name.
 
     explosion_age_days: age of the SN at start of the .hyd profile (days since explosion).
@@ -1047,7 +1048,22 @@ def write_dat(fname: str, model_name: str, target_days: float,
     """
     t_start = 0.0  # Epoch axis stays anchored to explosion time
     tcura = tcura_days  # TcurA: STELLA clock value at run start (days)
-    t_end = target_days  # Stop at target_days after explosion
+
+    # TcurB is a PROPER_T stop, but target_days is an OBS.TIME target and
+    # STELLA reports t_ob = PROPER_T - r_max(t)/c.  r_max grows with the
+    # outermost velocity, so solve TcurB = target + light_time(TcurB)
+    # self-consistently; otherwise the run ends early by ~r_max/c.
+    c_light = 2.998e10
+    light_time_0 = r_max_cm / c_light / 86400.0 if r_max_cm > 0 else 0.0
+    if 0.0 < v_max_cms < c_light and light_time_0 > 0.0:
+        denom = 1.0 - v_max_cms / c_light
+        numer = target_days + light_time_0 - v_max_cms * tcura / c_light
+        t_end = numer / denom
+        print(f"  Light-travel-time correction: initial={light_time_0:.2f} d "
+              f"(r_max={r_max_cm:.3e} cm, v_max={v_max_cms/1e5:.0f} km/s); "
+              f"TcurB={t_end:.2f} d for OBS.TIME target={target_days} d")
+    else:
+        t_end = target_days + light_time_0
 
     # Generate output epochs in absolute days, spaced from t_start to t_end
     # STELLA TO array has KOMAX=80 slots — must not exceed this
@@ -1507,7 +1523,8 @@ def main():
               nout=args.nout,
               aq=args.aq, bq=args.bq,
               amni=args.amni, xmni=args.xmni,
-              tcura_days=args.tcura_days)
+              tcura_days=args.tcura_days,
+              r_max_cm=float(r[-1]), v_max_cms=float(u[-1]))
 
     # -------------------------------------------------------
     # Final step: plot the generated .hyd profile for verification

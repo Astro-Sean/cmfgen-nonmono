@@ -544,7 +544,7 @@ INIT_TIME="${INIT_TIME}"
 # FINAL/SINGLE_FINAL: high-iteration mode; graceful chunking/requeue handles walltime.
 # Cap at 500 great iterations per user policy (27-Sep-2026): a model that has not
 # converged by then is treated as a failure to investigate, not to keep requeueing.
-FINAL_NUM_ITS=500
+FINAL_NUM_ITS=10000
 
 OBS_TIME_DEFAULT="23:59:00"
 OBS_TIME_DEBUG="01:59:00"
@@ -1112,7 +1112,7 @@ export SCRATCH_DIR="SCRATCH/"
 mkdir -p SCRATCH/
 
 # Sentinel indicating we previously requested a clean stop (NUM_ITS=0)
-# and need to restore NUM_ITS back to 500 before starting CMFGEN again.
+# and need to restore NUM_ITS back to FINAL_NUM_ITS before starting CMFGEN again.
 NUM_ITS_RESET_SENTINEL=".CMFGEN_FINAL_NEEDS_NUM_ITS_RESET"
 
 # Requeue state file: explicit state machine for graceful-stop / requeue logic.

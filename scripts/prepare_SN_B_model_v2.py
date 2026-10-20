@@ -222,6 +222,22 @@ def _csm_T(csm, r):
     return np.maximum(T, csm.get("T_min", 0.0))
 
 
+def _csm_T_anchor_to_shell(csm, r_anchor, T_anchor):
+    """Renormalize the CSM T law so T_csm(r_anchor) = T_anchor.
+
+    Anchoring to the shell edge temperature makes T continuous across
+    the shell-CSM buffer; without it the buffer smoothsteps up to the
+    rho15-normalized law and leaves an artificial bump at the junction.
+    """
+    gamma = csm.get("T_gamma", 0.0)
+    if gamma == 0.0:
+        csm["T"] = float(T_anchor)
+        return
+    rho_ref = csm.get("rho15") or float(_csm_rho(csm, R_REF_1E15))
+    rho_anchor = float(_csm_rho(csm, r_anchor))
+    csm["T"] = float(T_anchor) * (rho_ref / max(rho_anchor, 1e-300)) ** gamma
+
+
 def _csm_set_match(csm, r_target, rho_target):
     """Rescale the density normalisation so rho_csm(r_target)=rho_target.
 
@@ -298,6 +314,7 @@ def create_powerlaw_csm(
     cutoff_n=12.0,
     T_gamma=0.0,
     T_min=0.0,
+    T_anchor_shell=False,
     match_shell=False,
     law="powerlaw",
     mdot_msun_yr=0.0,
@@ -354,6 +371,7 @@ def create_powerlaw_csm(
         "yhe": yhe,
         "T_gamma": T_gamma,
         "T_min": T_min,
+        "T_anchor_shell": T_anchor_shell,
         "match_shell": match_shell,
         "law": law,
         "mdot_gs": mdot_msun_yr * MSUN / YR_TO_S,
@@ -688,6 +706,13 @@ def combine_shell_csm_ejecta(
     rho_sc_start = shell["rho"][-1]
     rho_sc_end = _csm_rho(csm, r_sc_buffer_end)
     sc_contrast = np.log10(max(rho_sc_start, 1e-300) / max(rho_sc_end, 1e-300))
+
+    if csm.get("T_anchor_shell"):
+        _csm_T_anchor_to_shell(csm, r_sc_buffer_end, float(shell["T"][-1]))
+        print(
+            f"  CSM T anchored to shell edge: T({r_sc_buffer_end:.2e} cm)"
+            f" = {shell['T'][-1]:.0f} K (csm_T renorm = {csm['T']:.2e} K)"
+        )
 
     nzon_sc_buffer = max(20, int(sc_contrast / 16 * sw_transition_dex / 0.02))
     nzon_sc_buffer = min(nzon_sc_buffer, 60)
@@ -1149,6 +1174,13 @@ def combine_shell_csm(
     rho_sc_start = shell["rho"][-1]
     rho_sc_end = _csm_rho(csm, r_sc_buffer_end)
     sc_contrast = np.log10(max(rho_sc_start, 1e-300) / max(rho_sc_end, 1e-300))
+
+    if csm.get("T_anchor_shell"):
+        _csm_T_anchor_to_shell(csm, r_sc_buffer_end, float(shell["T"][-1]))
+        print(
+            f"  CSM T anchored to shell edge: T({r_sc_buffer_end:.2e} cm)"
+            f" = {shell['T'][-1]:.0f} K (csm_T renorm = {csm['T']:.2e} K)"
+        )
 
     nzon_sc_buffer = max(20, int(sc_contrast / 16 * sw_transition_dex / 0.02))
     nzon_sc_buffer = min(nzon_sc_buffer, 60)
@@ -1662,6 +1694,13 @@ def main():
         "T ~ rho^gamma, isothermal if gamma=0",
     )
     parser.add_argument(
+        "--csm-T-anchor-shell",
+        action="store_true",
+        help="Renormalize the CSM T law so T at the shell-CSM buffer "
+        "end equals the shell edge temperature; makes T continuous "
+        "across the junction and removes the artificial T bump",
+    )
+    parser.add_argument(
         "--csm-T-gamma",
         type=float,
         default=0.3,
@@ -2121,6 +2160,7 @@ def main():
             cutoff_n=args.csm_cutoff_n,
             T_gamma=args.csm_T_gamma,
             T_min=csm_T_min,
+            T_anchor_shell=args.csm_T_anchor_shell,
             match_shell=args.csm_match_shell,
             r_split_cm=args.csm_r_split_cm,
             outer_slope=(
@@ -2201,6 +2241,7 @@ def main():
             cutoff_n=args.csm_cutoff_n,
             T_gamma=args.csm_T_gamma,
             T_min=csm_T_min,
+            T_anchor_shell=args.csm_T_anchor_shell,
             match_shell=args.csm_match_shell,
             law=law,
             mdot_msun_yr=mdot,

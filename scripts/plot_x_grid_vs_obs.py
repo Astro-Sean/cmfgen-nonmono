@@ -22,8 +22,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.patches import Rectangle
-from matplotlib.ticker import AutoMinorLocator
+from matplotlib.patches import ConnectionPatch, Rectangle
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 import numpy as np
 import pandas as pd
 
@@ -32,6 +32,11 @@ import plot_dessart_grid_vs_obs as base
 
 GRID_DIR = '/ptmp/sbrennan/SN2024pba/SN_B_X_grid'
 SN2009IP_FILE = '/ptmp/sbrennan/SN2024pba/observational_data/SN2009ip.csv'
+# GOTO forced photometry in the broad L filter (~400-700 nm); closest
+# STELLA band is r, so r-band extinction applies.
+GOTO_FILE = '/ptmp/sbrennan/SN2024pba/observational_data/SN2024pba_GOTO_forced_photometry.csv'
+GOTO_COLOR = 'purple'
+PLOT_GOTO = False
 # 2012B g/r maximum; on this phase axis the 2012A precursor sits near
 # -40 d, the same window as the observed 2024pba r-band foot.
 SN2009IP_PEAK_MJD = 56206.0
@@ -464,10 +469,99 @@ MODEL_STYLE = {
                              label=(r'2 $M_\odot$ shell at 5500 km s$^{-1}$,'
                                     r' inner $w=4{\times}10^{17}$,'
                                     ' intact SN-A')),
+    'X_V5500M1p5_w2m54i': dict(color='tab:orange', lw=1.8, ls='-', zorder=15,
+                              label=(r'1.5 $M_\odot$ shell at 5500 km s$^{-1}$,'
+                                     r' inner $w=4{\times}10^{17}$,'
+                                     ' intact SN-A')),
     'X_V6000M1p5_w2m58i': dict(color='k', lw=1.6, ls='--', zorder=14,
                               label=(r'1.5 $M_\odot$ shell at 6000 km s$^{-1}$,'
                                      r' inner $w=4{\times}10^{17}$,'
                                      ' intact SN-A')),
+    'X_V6000M1p75_w2m54a390i': dict(color='tab:orange', lw=1.4, ls='--',
+                                   zorder=14,
+                                   label=(r'1.75 $M_\odot$ shell at 6000,'
+                                          ' SN-A at 390 d')),
+    'X_V6000M1p5_w2m54a390i': dict(color='tab:orange', lw=1.4, ls='-',
+                                  zorder=14,
+                                  label=(r'1.5 $M_\odot$ shell at 6000,'
+                                         ' SN-A at 390 d')),
+    'X_V5500M1p5_w2m54a390i': dict(color='tab:orange', lw=1.4, ls=':',
+                                  zorder=14,
+                                  label=(r'1.5 $M_\odot$ shell at 5500,'
+                                         ' SN-A at 390 d')),
+    'X_V5000M2_w2m54a390i': dict(color='tab:brown', lw=1.4, ls='-',
+                                zorder=14,
+                                label=(r'2 $M_\odot$ shell at 5000,'
+                                       ' SN-A at 390 d')),
+    'X_V4500M2_w2m54a317i': dict(color='tab:green', lw=1.4, ls='-',
+                                zorder=15,
+                                label=(r'2 $M_\odot$ shell at 4500,'
+                                       ' SN-A at 317 d')),
+    'X_V4000M2_w2m54a317i': dict(color='tab:green', lw=1.4, ls='--',
+                                zorder=15,
+                                label=(r'2 $M_\odot$ shell at 4000,'
+                                       ' SN-A at 317 d')),
+    'X_V4000M2p5_w2m54a317i': dict(color='tab:green', lw=1.4, ls=':',
+                                  zorder=15,
+                                  label=(r'2.5 $M_\odot$ shell at 4000,'
+                                         ' SN-A at 317 d')),
+    'X_V4000M3_w2m54a317i': dict(color='tab:green', lw=1.4, ls='-.',
+                                zorder=15,
+                                label=(r'3 $M_\odot$ shell at 4000,'
+                                       ' SN-A at 317 d')),
+    'X_V4500M2_w2m54a317YC05i': dict(color='tab:cyan', lw=1.4, ls='-',
+                                    zorder=15,
+                                    label=(r'2 $M_\odot$ shell at 4500,'
+                                           ' SN-A=Y_C05 at 317 d')),
+    'X_V5000M2_w2m54a317YC05i': dict(color='tab:cyan', lw=1.4, ls='-.',
+                                    zorder=15,
+                                    label=(r'2 $M_\odot$ shell at 5000,'
+                                           ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M2p5_w2m54a317YC05i': dict(color='tab:cyan', lw=1.4, ls=':',
+                                      zorder=15,
+                                      label=(r'2.5 $M_\odot$ shell at 4500,'
+                                             ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M1p75_w2m54a317YC05i': dict(color='tab:orange', lw=1.4, ls='-',
+                                       zorder=15,
+                                       label=(r'1.75 $M_\odot$ shell at 4500,'
+                                              ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M1p5_w2m54a317YC05i': dict(color='tab:orange', lw=1.4, ls='--',
+                                      zorder=15,
+                                      label=(r'1.5 $M_\odot$ shell at 4500,'
+                                             ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M1p5_w4e17a317YC05i': dict(color='tab:blue', lw=1.4, ls='-',
+                                      zorder=15,
+                                      label=(r'1.5 $M_\odot$ shell, outer'
+                                             r' $w=4{\times}10^{17}$,'
+                                             ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M1p5_w6e17a317YC05i': dict(color='tab:blue', lw=1.4, ls='--',
+                                      zorder=15,
+                                      label=(r'1.5 $M_\odot$ shell, outer'
+                                             r' $w=6{\times}10^{17}$,'
+                                             ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M2_w4e17a317YC05i': dict(color='tab:blue', lw=1.4, ls='-.',
+                                    zorder=15,
+                                    label=(r'2 $M_\odot$ shell, outer'
+                                           r' $w=4{\times}10^{17}$,'
+                                           ' SN-A=Y_C05 at 317 d')),
+    'X_V4500M1p5_w4e17a317YC05i_tcs': dict(color='tab:blue', lw=1.4, ls=':',
+                                          zorder=15,
+                                          label=(r'1.5 $M_\odot$ shell, outer'
+                                                 r' $w=4{\times}10^{17}$,'
+                                                 ' co-moving CSM,'
+                                                 ' SN-A=Y_C05 at 317 d')),
+    'X_V4000M1p75_w2m54a317YC05i': dict(color='tab:olive', lw=1.4, ls='-',
+                                       zorder=15,
+                                       label=(r'1.75 $M_\odot$ shell at 4000,'
+                                              ' SN-A=Y_C05 at 317 d')),
+    'X_V3500M2_w2m54a317YC05i': dict(color='tab:purple', lw=1.4, ls='-',
+                                    zorder=15,
+                                    label=(r'2 $M_\odot$ shell at 3500,'
+                                           ' SN-A=Y_C05 at 317 d')),
+    'X_V4000M2_w2m54a317YC05i': dict(color='tab:cyan', lw=1.4, ls='--',
+                                    zorder=15,
+                                    label=(r'2 $M_\odot$ shell at 4000,'
+                                           ' SN-A=Y_C05 at 317 d')),
     'X_V10000_wind2m_inv': dict(color='tab:purple', lw=1.6, ls=':', zorder=14,
                               label=(r'wind $\dot{M}$: $1\to3$'
                                      r'$\times 10^{17}$ at $5{\times}10^{15}$,'
@@ -550,6 +644,18 @@ MODEL_ORDER = ['X', 'X_M2', 'X_M10', 'X_V6000', 'X_V8000',
                'X_V4500M2_w2m54i', 'X_V5500M2_w2m54i',
                'X_V5500M1p5_w2m54i', 'X_V5500M1p5_w3e17i',
                'X_V6000M2_w2m54a390i', 'X_V6000M2_w2m54a430i',
+               'X_V6000M1p75_w2m54a390i', 'X_V6000M1p5_w2m54a390i',
+               'X_V5500M1p5_w2m54a390i', 'X_V5000M2_w2m54a390i',
+               'X_V4500M2_w2m54a317i', 'X_V4000M2_w2m54a317i',
+               'X_V4000M2p5_w2m54a317i', 'X_V4000M3_w2m54a317i',
+               'X_V5000M2_w2m54a317YC05i', 'X_V4500M2_w2m54a317YC05i',
+               'X_V4500M2p5_w2m54a317YC05i',
+               'X_V4000M2_w2m54a317YC05i', 'X_V4500M1p75_w2m54a317YC05i',
+               'X_V4500M1p5_w2m54a317YC05i', 'X_V4000M1p75_w2m54a317YC05i',
+               'X_V3500M2_w2m54a317YC05i',
+               'X_V4500M1p5_w4e17a317YC05i', 'X_V4500M1p5_w6e17a317YC05i',
+               'X_V4500M2_w4e17a317YC05i',
+               'X_V4500M1p5_w4e17a317YC05i_tcs',
                'X_V6000M2_w2m55i', 'X_V6500M2_w2m56i',
                'X_V5500M2_w2m57i', 'X_V6000M1p5_w2m58i',
                'X_V8000_w2m13i_sh6', 'X_V14000_w2m13i_sh2',
@@ -648,7 +754,7 @@ def main():
         # The intact-SN_A family is the current baseline; the older
         # truncated-ejecta models misrepresent SN_A composition.
         # Shell-scan names append _sh* after the i suffix.
-        intact = lambda n: n.endswith('i') or 'i_sh' in n
+        intact = lambda n: n.endswith('i') or 'i_sh' in n or 'i_tcs' in n
         models = [(n, d) for n, d in models if intact(n)]
         # Retired poor fits: keep the run outputs but drop them from
         # the comparison so the informative family stays readable.
@@ -698,6 +804,21 @@ def main():
             # w2m54di scores 31885 with dt=+60.
             'X_V6500M2_w2m56i', 'X_V5500M2_w2m57i',
             'X_V6000M2_w2m54di',
+            # Models not sourced from the hydrodynamically evolved
+            # Y_C05 ejecta: kept on disk, hidden from the comparison.
+            'X_V10000_w2m16i', 'X_V10000_w2m18i',
+            'X_V4000M2_w2m54a317i', 'X_V4000M2p5_w2m54a317i',
+            'X_V4000M3_w2m54a317i', 'X_V4500M2_w2m54a317i',
+            'X_V4500M2_w2m54i',
+            'X_V5000M2_w2m54a390i', 'X_V5000M2_w2m54i',
+            'X_V5500M1p5_w2m54a390i', 'X_V5500M1p5_w2m54i',
+            'X_V5500M1p5_w3e17i', 'X_V5500M2_w2m54i',
+            'X_V5500M3_w2m46i',
+            'X_V6000M1p5_w2m54a390i', 'X_V6000M1p75_w2m54a390i',
+            'X_V6000M2_w2m54a390i', 'X_V6000M2_w2m54a430i',
+            'X_V6000M2_w2m54i', 'X_V6000M2_w2m55i',
+            'X_V6000M2p5_w2m50i', 'X_V6000M1p5_w2m58i',
+            'X_V7000_w2m27i',
         }
         models = [(n, d) for n, d in models if n not in drop]
     if args.only:
@@ -754,9 +875,14 @@ def main():
         ax.errorbar(det['phase'], det['Mabs'], yerr=det[ecol],
                     fmt=fmt, color=col, ms=3, mec='k', mew=0.5,
                     capsize=1.0, elinewidth=0.6, alpha=0.85, zorder=20)
+        lim = obs.get('lim', {}).get(band)
+        if lim is not None and len(lim):
+            ax.scatter(lim['phase'], lim['Mabs'], marker='v',
+                       facecolor='white', edgecolor=col, s=14, lw=0.7,
+                       zorder=19)
         ax.set_ylim(top=-19.2, bottom=-12.9)
         ax.text(0.03, 0.06, f'${band}$', transform=ax.transAxes,
-                fontsize=8)
+                fontsize=8, color=col)
         ax.xaxis.set_minor_locator(AutoMinorLocator())
         ax.yaxis.set_minor_locator(AutoMinorLocator())
         ax.grid(True, alpha=0.3)
@@ -774,6 +900,32 @@ def main():
             plat['Mabs'].max() - plat['Mabs'].min() + 0.10,
             fc='0.85', ec='none', alpha=0.5, zorder=0))
 
+    # GOTO forced photometry (broad L band, ~r) on the r panel.
+    if PLOT_GOTO and os.path.exists(GOTO_FILE):
+        goto = pd.read_csv(GOTO_FILE)
+        gdet = goto[goto['forced_mag'].notna()].copy()
+        glim = goto[goto['forced_mag'].isna()].copy()
+        dm = 5 * np.log10(base.DL_MPC * 1e5)
+        gdet['phase'] = gdet['mjd'] - base.PEAK_MJD
+        gdet['Mabs'] = gdet['forced_mag'] - dm - base.A_R
+        gdet['err'] = gdet['forced_mag_uncert']
+        main_r = band_ax['r']
+        main_r.errorbar(gdet['phase'], gdet['Mabs'], yerr=gdet['err'],
+                        fmt='D', color=GOTO_COLOR, ms=2.8, mec='k',
+                        mew=0.4, capsize=0.8, elinewidth=0.5,
+                        alpha=0.85, zorder=20)
+        glim['phase'] = glim['mjd'] - base.PEAK_MJD
+        glim['Mabs'] = (glim['forced_mag_sigma_limit'] - dm - base.A_R)
+        glim = glim[np.isfinite(glim['Mabs'])]
+        main_r.scatter(glim['phase'], glim['Mabs'], marker='v',
+                       facecolor='white', edgecolor=GOTO_COLOR, s=12,
+                       lw=0.6, zorder=19)
+        main_r.legend(handles=[
+            Line2D([], [], marker='D', color=GOTO_COLOR, ls='', ms=3,
+                   mec='k', mew=0.4, label='GOTO $L$'),
+        ], fontsize=6, frameon=False, loc='upper left',
+            handletextpad=0.4, borderaxespad=0.3)
+
     handles = []
     for s in scored:
         st = style_for_scored(s)
@@ -785,6 +937,112 @@ def main():
                                zorder=st['zorder'])
         handles.append(Line2D([], [], color=st['color'], lw=st['lw'],
                               ls=st['ls'], label=lab))
+
+    # Inset on the r panel: zoom of the pre-SN outburst (-50..-5 d).
+    axins = band_ax['r'].inset_axes([0.23, 0.11, 0.30, 0.25])
+    axins.set_facecolor('white')
+    axins.patch.set_alpha(1.0)
+    det_r = obs['r']
+    axins.errorbar(det_r['phase'], det_r['Mabs'], yerr=det_r['Error'],
+                   fmt='o', color='tab:red', ms=2.5, mec='k', mew=0.4,
+                   capsize=0.8, elinewidth=0.5, alpha=0.9, zorder=20)
+    lim_r = obs.get('lim', {}).get('r')
+    if lim_r is not None and len(lim_r):
+        axins.scatter(lim_r['phase'], lim_r['Mabs'], marker='v',
+                      facecolor='white', edgecolor='tab:red', s=10,
+                      lw=0.6, zorder=19)
+    # SN 2009ip in the inset: the 2012A precursor sits in this window.
+    sn09 = pd.read_csv(SN2009IP_FILE)
+    win = (sn09['mjd'] > 56140.0) & (sn09['mjd'] < 56460.0)
+    sub = sn09.loc[win, ['mjd', 'R']].dropna()
+    sub = sub[np.isfinite(sub['mjd']) & np.isfinite(sub['R'])]
+    sub = sub.copy()
+    sub['bin'] = np.floor(sub['mjd'] / SN2009IP_BIN_D)
+    day = (sub.groupby('bin')
+              .agg(mjd=('mjd', 'mean'), mag=('R', 'median'))
+              .dropna()
+              .sort_values('mjd'))
+    ph09 = day['mjd'].to_numpy() - SN2009IP_PEAK_MJD
+    keep = (ph09 >= -47.0) & (ph09 <= -12.0)
+    axins.plot(ph09[keep], day['mag'].to_numpy()[keep], '-',
+               color='0.45', lw=0.7, marker='o', ms=1.5, mec='none',
+               alpha=0.8, zorder=8)
+    for s in scored:
+        st = style_for_scored(s)
+        ph = s['df']['time'] - s['tpk'] + s['dt']
+        axins.plot(ph, s['df']['R'], color=st['color'], lw=st['lw'],
+                   ls=st['ls'], zorder=st['zorder'])
+    axins.set_xlim(-47.0, -12.0)
+    win_r = det_r[(det_r['phase'] >= -47.0) & (det_r['phase'] <= -12.0)]
+    lo = float((win_r['Mabs'] + win_r['Error']).max()) + 0.15
+    hi = float((win_r['Mabs'] - win_r['Error']).min()) - 0.15
+    axins.set_ylim(top=hi, bottom=lo)
+    axins.grid(True, alpha=0.3)
+    axins.yaxis.set_major_locator(MultipleLocator(0.5))
+    axins.tick_params(labelsize=5.5)
+    for tick_lab in list(axins.get_yticklabels()):
+        tick_lab.set_bbox({'facecolor': 'white', 'edgecolor': 'none',
+                           'pad': 0.8, 'alpha': 0.95})
+    main_r = band_ax['r']
+    main_r.add_patch(Rectangle(
+        (-47.0, hi), 35.0, lo - hi, fill=False, edgecolor='k',
+        lw=0.5, zorder=30))
+    for data_xy, inset_xy in (((-47.0, lo), (0.0, 0.0)),
+                              ((-12.0, hi), (1.0, 1.0))):
+        connector = ConnectionPatch(
+            xyA=data_xy, coordsA='data', axesA=main_r,
+            xyB=inset_xy, coordsB='axes fraction', axesB=axins,
+            color='k', lw=0.5, zorder=29,
+            clip_on=False)
+        fig.add_artist(connector)
+
+    # Second inset on the r panel: zoom of the late-time bump
+    # (+240..390 d), where the shock reaches the SN_A overdensity.
+    axins2 = band_ax['r'].inset_axes([0.52, 0.66, 0.33, 0.31])
+    axins2.set_facecolor('white')
+    axins2.patch.set_alpha(1.0)
+    bx0, bx1 = 315.0, 360.0
+    axins2.errorbar(det_r['phase'], det_r['Mabs'], yerr=det_r['Error'],
+                    fmt='o', color='tab:red', ms=2.5, mec='k', mew=0.4,
+                    capsize=0.8, elinewidth=0.5, alpha=0.9, zorder=20)
+    if lim_r is not None and len(lim_r):
+        axins2.scatter(lim_r['phase'], lim_r['Mabs'], marker='v',
+                       facecolor='white', edgecolor='tab:red', s=10,
+                       lw=0.6, zorder=19)
+    for s in scored:
+        st = style_for_scored(s)
+        ph = s['df']['time'] - s['tpk'] + s['dt']
+        axins2.plot(ph, s['df']['R'], color=st['color'], lw=st['lw'],
+                    ls=st['ls'], zorder=st['zorder'])
+    win_d = det_r[(det_r['phase'] >= bx0) & (det_r['phase'] <= bx1)]
+    bump_lo = float((win_d['Mabs'] - win_d['Error']).min())
+    bump_hi = float((win_d['Mabs'] + win_d['Error']).max())
+    if lim_r is not None and len(lim_r):
+        win_l = lim_r[(lim_r['phase'] >= bx0) & (lim_r['phase'] <= bx1)]
+        if len(win_l):
+            bump_lo = min(bump_lo, float(win_l['Mabs'].min()))
+            bump_hi = max(bump_hi, float(win_l['Mabs'].max()))
+    axins2.set_xlim(bx0, bx1)
+    axins2.set_ylim(bottom=bump_hi + 0.15, top=-15.3)
+    in2_top, in2_bot = -15.3, bump_hi + 0.15
+    axins2.grid(True, alpha=0.3)
+    axins2.yaxis.set_major_locator(MultipleLocator(0.5))
+    axins2.xaxis.set_major_locator(MultipleLocator(15))
+    axins2.tick_params(labelsize=5.5)
+    for tick_lab in list(axins2.get_yticklabels()):
+        tick_lab.set_bbox({'facecolor': 'white', 'edgecolor': 'none',
+                           'pad': 0.8, 'alpha': 0.95})
+    main_r.add_patch(Rectangle(
+        (bx0, in2_top), bx1 - bx0, in2_bot - in2_top,
+        fill=False, edgecolor='k', lw=0.5, zorder=30))
+    for data_xy, inset_xy in (((bx0, in2_bot), (0.0, 0.0)),
+                              ((bx1, in2_top), (1.0, 0.0))):
+        connector = ConnectionPatch(
+            xyA=data_xy, coordsA='data', axesA=main_r,
+            xyB=inset_xy, coordsB='axes fraction', axesB=axins2,
+            color='k', lw=0.5, zorder=29,
+            clip_on=False)
+        fig.add_artist(connector)
 
     # SN 2009ip comparison (absolute mags, phased to the 2012B peak).
     # Johnson V/R cover both the 2012A precursor and 2012B; the SDSS
@@ -802,31 +1060,9 @@ def main():
                   .sort_values('mjd'))
         ph = day['mjd'].to_numpy() - SN2009IP_PEAK_MJD
         mag = day['mag'].to_numpy()
-        # keep the connecting line off long observing gaps
-        seg = np.split(np.arange(len(day)),
-                       np.where(np.diff(ph) > 10.0)[0] + 1)
-        for s in seg:
-            band_ax[band].plot(ph[s], mag[s], '-', color='0.45',
-                               lw=0.7, marker='o', ms=1.5, mec='none',
-                               alpha=0.8, zorder=8)
-    obs_handles = [
-        Line2D([], [], marker='o', color='tab:green', ls='', ms=3,
-               mec='k', mew=0.5, label='$g$'),
-        Line2D([], [], marker='o', color='tab:red', ls='', ms=3,
-               mec='k', mew=0.5, label='$r$'),
-        Line2D([], [], marker='s', color='goldenrod', ls='', ms=3,
-               mec='k', mew=0.5, label='$i$'),
-        Line2D([], [], marker='^', color='darkorange', ls='', ms=3,
-               mec='k', mew=0.5, label='$o$'),
-        Line2D([], [], color='0.45', lw=0.7, marker='o', ms=2,
-               mec='none', label='SN 2009ip'),
-    ]
-    # filters key inside the upper-right panel; model key above the
-    # figure
-    band_ax['r'].legend(handles=obs_handles, fontsize=6, ncol=1,
-                        frameon=False, loc='upper right',
-                        handletextpad=0.4, borderaxespad=0.3,
-                        labelspacing=0.3)
+        band_ax[band].plot(ph, mag, '-', color='0.45', lw=0.7,
+                           marker='o', ms=1.5, mec='none', alpha=0.8,
+                           zorder=0)
     fig.legend(handles=handles, fontsize=5.4, ncol=4, frameon=False,
                loc='upper center', bbox_to_anchor=(0.5, 1.0),
                columnspacing=0.6, handlelength=1.6,

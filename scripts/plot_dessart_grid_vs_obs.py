@@ -101,6 +101,16 @@ def load_obs():
         det['phase'] = det['MJD'] - PEAK_MJD
         det['Mabs'] = det['Mag'] - 5 * np.log10(DL_MPC * 1e5) - A
         obs[band] = det
+        nd = sub[sub['Mag'].apply(lambda x: x == '-')]
+        if len(nd):
+            nd = nd.copy()
+            lim = pd.to_numeric(nd['Limit_5p0S2N'], errors='coerce')
+            lim = lim.where(lim.isna(),
+                            lim - 5 * np.log10(DL_MPC * 1e5) - A)
+            obs.setdefault('lim', {})[band] = pd.DataFrame({
+                'phase': nd['MJD'] - PEAK_MJD,
+                'Mabs': lim,
+            }).dropna()
     atl = pd.read_csv(ATLAS_FILE)
     sub = atl[atl['F'] == 'o'].copy()
     sub['sn'] = sub['uJy'] / sub['duJy_new']

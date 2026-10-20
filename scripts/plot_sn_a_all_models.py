@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plot ALL SN_A-family STELLA lightcurves vs SN 2024pba first-peak obs.
 
-Discovers every model under SN_A_grid/ that has a STELLA .tt
+Discovers every model under SN_A_Y_grid/ that has a STELLA .tt
 lightcurve (the only source used - the pysynphot *_lightcurve*.csv
 products are never read) and overlays their g/r/i lightcurves on the
 dereddened SN 2024pba photometry.
@@ -37,7 +37,7 @@ from plot_sn_a_pba_grid_vs_obs import (BASE, OBS_FILE, EXP_MJD,
                                      score_model)
 from plot_model import read_2011dh_photometry
 
-GRID_NEW_DIR = os.path.join(BASE, 'SN_A_grid')
+GRID_NEW_DIR = os.path.join(BASE, 'SN_A_Y_grid')
 OUT_FILE = os.path.join(GRID_NEW_DIR, 'sn_a_all_models_vs_obs.png')
 OBS_2011DH_DIR = os.path.join(BASE, 'observational_data', 'SN2011dh')
 # SN 2011dh Johnson band -> panel (same convention as plot_model.py:
@@ -50,7 +50,7 @@ LEAK_SLOPE = 0.021  # mag/day, 2011dh R-band tail rate at ~100d (Ergon+15, Table
 
 
 def discover_all_sn_a_models():
-    """All model dirs under SN_A_grid/ with lightcurves."""
+    """All model dirs under SN_A_Y_grid/ with lightcurves."""
     dirs = [d for d in sorted(glob.glob(os.path.join(GRID_NEW_DIR, '*')))
             if os.path.isdir(d)]
     models = []

@@ -42,7 +42,7 @@ cmfgen:
   depth_independent_solver: true
   proxy_populations: false
   solve_temperature: true
-  init_num_its: 1000
+  init_num_its: 10000
   cpus_per_task: 8
   mem: 30G
   allow_dead_inner_boundary: false
@@ -155,10 +155,10 @@ cmfgen:
     BA_SAT_RAW: 2.0D3
     BA_SAT_LIM: '0'
     BA_DEM_PFLOOR: 1.0D-30
-    # 18-Oct-2026: exit-only relative floor (option c) -- exempts
-    # rows below 1e-6 of depth-max from the exit demand only, with
-    # BA_DEM_EXR reporting the hidden max every call.
-    BA_EX_RELFRAC: 1.0D-6
+    # 19-Oct-2026: relative floor disabled -- trace-ion demand counts in
+    # BA_EX_MAXCH, so the converged exit requires the whole system below
+    # EPS_TERM rather than exempting rows < RELFRAC*max(pop).
+    BA_EX_RELFRAC: '0'
     BA_TR_MAXSWP: '3'
     BA_TR_ABSMAX: 1.0D-8
     DO_JFNK: F
@@ -211,7 +211,7 @@ cmfgen:
     MAX_LIN: 5.0D0
     MAX_DEC: 1.0D4
     BA_CHK_FAC: 1.0D-05
-    EPS_TERM: 5.0D-02
+    EPS_TERM: 1.0D-02
     BW_NG: '40'
     TRANS_HI: SOB
     TRANS_HeI: SOB

@@ -65,8 +65,10 @@ def homologous_evolve(epoch_data: dict, t_source: float, t_target: float) -> dic
     --------
     dict : Scaled epoch data with same keys
     """
-    if t_target <= t_source:
-        raise ValueError(f"Target day ({t_target}) must be > source day ({t_source})")
+    if t_target <= 0:
+        raise ValueError(f"Target day ({t_target}) must be > 0")
+    if t_target == t_source:
+        return dict(epoch_data)
 
     # Scale factor for homologous expansion
     scale = t_target / t_source

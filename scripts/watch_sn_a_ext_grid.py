@@ -33,7 +33,7 @@ from datetime import datetime
 
 BASE = "/viper/ptmp1/sbrennan/SN2024pba"
 SCRIPTS = os.path.join(BASE, "scripts")
-GRID_DIR = os.path.join(BASE, "SN_A_grid")
+GRID_DIR = os.path.join(BASE, "SN_A_Y_grid")
 SNB_GRID_DIR = os.path.join(BASE, "SN_B_v2_T6k_grid")
 LOG_FILE = os.path.join(BASE, "logs", "sn_a_ext_grid_watch.log")
 STATE_FILE = os.path.join(BASE, "logs", "sn_a_ext_grid_watch.state")
@@ -191,16 +191,16 @@ def _entry(name, mdir, label, best):
 
 def update_plot_sn_a(best):
     """SN_A_MODELS: best model solid, others faded."""
-    entries = [_entry(best, f"SN_A_grid/{best}",
+    entries = [_entry(best, f"SN_A_Y_grid/{best}",
                       f"{best} (best fit)", True),
                _entry(SNB_EJECTA_OLD, SNB_EJECTA_OLD_DIR,
                       f"{SNB_EJECTA_OLD} (ejecta for SN_B)", True)]
     for name in NEW_MODELS:
         if name != best:
-            entries.append(_entry(name, f"SN_A_grid/{name}", name, False))
+            entries.append(_entry(name, f"SN_A_Y_grid/{name}", name, False))
     for name in (INCUMBENT, "SN_A_X_E06", "SN_A_S_11dh", "SN_A_X_E08"):
         if name != best:
-            entries.append(_entry(name, f"SN_A_grid/{name}", name, False))
+            entries.append(_entry(name, f"SN_A_Y_grid/{name}", name, False))
     set_model_list("SN_A_MODELS",
                    "SN_A_MODELS = [\n" + "\n".join(entries) + "\n]")
 

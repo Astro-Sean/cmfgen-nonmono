@@ -361,12 +361,13 @@ def clean_ejecta_outer_boundary(ejecta, n_edge=20):
 
     # Ensure velocity is monotonically increasing outward (v increases
     # with r in homologous expansion).  Walk inward->outward so each
-    # correction propagates to the next comparison.
-    dv_avg = np.mean(np.diff(v_clean)) if len(v_clean) > 1 else 0.0
-    dv_avg = max(dv_avg, 0.0)
+    # correction propagates to the next comparison.  Clamp to the
+    # previous value only: adding dv_avg here turns a single dip into a
+    # staircase that inflates every later zone until the true profile
+    # catches up.
     for i in range(n - n_edge, n):
         if v[i] < v[i - 1]:
-            v[i] = v[i - 1] + dv_avg
+            v[i] = v[i - 1]
 
     # --- 2. Fix density non-monotonicity ---
     # Enforce monotonically decreasing density in the outer ejecta.
@@ -943,12 +944,14 @@ def clean_combined_outer_boundary(combined, n_edge=20, ej_start_idx=None):
     blend = blend * blend * (3.0 - 2.0 * blend)
     v[clean_end:] = (1 - blend) * v[clean_end:] + blend * v_edge_fit
 
-    # Ensure monotonically increasing velocity in the ejecta
+    # Ensure monotonically increasing velocity in the ejecta.  Clamp to
+    # the previous value only: adding dv_avg here turns a single dip
+    # into a staircase that inflates every later zone until the true
+    # profile catches up (observed as a ~70 km/s/zone ramp over ~90
+    # zones across the SN_A density shelf).
     for i in range(ej_start_idx + 1, n):
-        if v[i] <= v[i - 1]:
-            # Use the average velocity gradient from the clean region
-            dv_avg = np.mean(np.diff(v_clean))
-            v[i] = v[i - 1] + dv_avg
+        if v[i] < v[i - 1]:
+            v[i] = v[i - 1]
 
     # --- 2. Fix density non-monotonicity ---
     # Enforce monotonically decreasing density in the outer ejecta

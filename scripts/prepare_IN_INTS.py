@@ -349,7 +349,7 @@ def write_final_in_its(
     # Check if VADAT has USE_FIXED_J=T (signals DO_LAM_AUTO=T for J release)
     use_fixed_j = check_vadat_use_fixed_j(directory)
 
-    cfg["NUM_ITS"] = str(num_its if num_its is not None else 500)
+    cfg["NUM_ITS"] = str(num_its if num_its is not None else 10000)
     # DO_LAM_IT: respect explicit VADAT setting (from vadat_overrides in YAML);
     #   otherwise default to T (start in LAMBDA mode, stable cold-start from LTE).
     # DO_LAM_AUTO: respect explicit VADAT setting (from vadat_overrides in YAML);
@@ -470,7 +470,7 @@ def main():
         "--num-its",
         type=int,
         default=None,
-        help="Override NUM_ITS (default: 500 for final, 10000 for single-final).",
+        help="Override NUM_ITS (default: 10000 for final and single-final).",
     )
     d2_group = parser.add_mutually_exclusive_group()
     d2_group.add_argument(

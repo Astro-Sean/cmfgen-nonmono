@@ -10,10 +10,14 @@ this plus ../MODELS_STUDY.md before submitting anything.
   SN_A inner edge (~7e15 cm).
 - **No 56Ni.** Keep `nickel56.enabled: false` (zero .xni). The user
   explicitly excluded radioactive nickel.
-- **Intact models end in `i`** (shell scans append `_sh*` after the i;
-  the plot filter accepts `endswith('i') or 'i_sh' in name`).
-- Reference config: `X_V10000_w2m16i.yaml` (current best,
-  score 639 / early 169 / tail 471 under the r-anchored metric).
+- **Intact models end in `i`** (variant suffixes `_sh*`, `_tcs` may
+  follow the i; the plot filter accepts `endswith('i') or 'i_sh' or
+  'i_tcs' in name`).
+- Reference config: `X_V6000M1p5_w2m54a390i.yaml` (1.5 Msun shell @
+  6000 km/s, inner w=4e17 -> 2.5e17 @4.5e15, SN_A ejecta at
+  source_age 390 d).  The lighter shell gives the best g-band offset
+  in the grid; the 2 Msun parent `X_V6000M2_w2m54a390i.yaml` holds
+  the best total score (156.2) but runs ~0.3 mag bright in g.
 
 ## Workflow for a new model
 
@@ -41,8 +45,24 @@ this plus ../MODELS_STUDY.md before submitting anything.
   of the density step; wider values spread the luminosity onset and
   reduce the +80 d bump but also lower the peak column.
 - `velocity_max_kms` must be >= `shell_velocity_kms`.
+- `ejecta_T_floor_K` is a clamp, not a target: set it BELOW the
+  source ejecta's minimum T (~1100 K at ~319 d in Y_C05) or every
+  zone gets flattened to the floor. Use 500.0, not 2000.0.
 - `wind_mdot_msun_yr` only applies to beta-wind mode; power-law CSM
   uses `csm_w_gcm`.
+- `ce_v_ramp_zones` (try 10) ramps the outer CSM velocity up to the
+  ejecta inner-edge speed; without it a 20000-d `t_cs` leaves a
+  ~37 vs ~2230 km/s jump at the interface and a rarefaction opens
+  at t=0. `csm_age_days: 0` instead auto-sets t_cs = source age
+  (319 d), making the whole CSM co-moving - velocity-continuous but
+  it cuts the relative shock speed and dims the early lightcurve.
+- The ejecta monotonic-velocity cleanup in
+  `prepare_SN_B_model.py::clean_combined_outer_boundary` once used
+  `v[i] = v[i-1] + mean(dv)`: a single source dip propagated a
+  ~67 km/s/zone staircase across ~90 zones and inflated the shelf
+  to ~6200 vs the true ~5500 km/s. Now clamps to `v[i-1]`. Never
+  reintroduce a global-slope step there; verify u(1.59e16) ~ 5530
+  km/s vs the source snapshot after every build.
 - CMFGEN temperature policy (three modes, default = thin release):
   T solves in the optically thin region by default -- FIX_T=F +
   FIX_INB_T=T + FIX_X_DPTH auto-filled from the tau=2/3 photosphere.
@@ -64,9 +84,15 @@ this plus ../MODELS_STUDY.md before submitting anything.
 - Check the score decomposition (early/tail) - a low total score with
   a bad early term is not a good model.
 - Compare absolute r/g magnitudes +80-250 d directly, not just scores.
-- The rebrightening at ~+330 d should come from SN_A's overdensity at
-  1.5e16 cm; if it appears at ~+200 d the shock is too fast (needs
-  ~5300 km/s average, not ~7900).
+- The +330 d feature in the built models is the shock crossing the
+  CSM/ejecta interface and entering SN_A's inner density shelf
+  (w ~ 5e16 -> 3e17 at 6.5e15-1.6e16), NOT the overdensity peak at
+  1.5e16 - that recedes at ~5500-6000 km/s and outruns the swept-up
+  shell (~1900-5500 km/s). To delay the feature toward +330 d,
+  raise the outer CSM column (`csm_outer_w_gcm` 2.5e17 -> 4e17/6e17
+  adds ~0.1/0.25 Msun) rather than slowing the shell, which wrecks
+  the early light. A ~250-270 d dip is the shock leaving the dense
+  CSM; more outer column fills it inside the 245-325 d data gap.
 
 ## What NOT to do again (established by tests)
 

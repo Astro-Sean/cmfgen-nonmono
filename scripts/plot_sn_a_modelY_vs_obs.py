@@ -37,9 +37,9 @@ from plot_sn_a_pba_grid_vs_obs import (BASE, OBS_FILE, OBS_PEAK_MJD,
                                      score_model, score_model_shift)
 from plot_model import read_2011dh_photometry
 
-MODEL_DIRS = [os.path.join(BASE, 'SN_A_grid'),
+MODEL_DIRS = [os.path.join(BASE, 'SN_A_Y_grid'),
               os.path.join(BASE, 'SN_A_Y_grid')]
-OUT_FILE = os.path.join(BASE, 'SN_A_grid', 'sn_a_modelY_vs_obs.png')
+OUT_FILE = os.path.join(BASE, 'SN_A_Y_grid', 'sn_a_modelY_vs_obs.png')
 OBS_2011DH_DIR = os.path.join(BASE, 'observational_data', 'SN2011dh')
 # SN 2011dh Johnson band -> panel (2024pba g on V, r on R, i on I)
 DH_BAND_MAP = {'g': 'V', 'r': 'R', 'i': 'I'}
@@ -70,29 +70,29 @@ plt.rcParams.update({
 # Model Y = E 9x10^50 erg, M_env 0.05 Msun at 200 Rsun (X_H=0.7,
 # T_base 20 kK), Ni56 0.075 Msun.  (name, grid dir, label, style)
 MODELS = [
-    ('SN_A_g_T20k_Ni075', 'SN_A_grid',
+    ('SN_A_g_T20k_Ni075', 'SN_A_Y_grid',
      r'model Y',
      dict(color='k', lw=1.9, ls='-', zorder=19)),
     # Ni56 axis (same envelope as Y)
-    ('SN_A_g_T20k_Ni06', 'SN_A_grid',
+    ('SN_A_g_T20k_Ni06', 'SN_A_Y_grid',
      r'$M_{\rm Ni}=0.06\,M_\odot$',
      dict(color='tab:blue', lw=1.1, ls='-', zorder=12)),
-    ('SN_A_g_T20k_Ni05', 'SN_A_grid',
+    ('SN_A_g_T20k_Ni05', 'SN_A_Y_grid',
      r'$M_{\rm Ni}=0.05\,M_\odot$',
      dict(color='tab:blue', lw=1.1, ls='--', zorder=12)),
-    ('SN_A_g_T20k_Ni04', 'SN_A_grid',
+    ('SN_A_g_T20k_Ni04', 'SN_A_Y_grid',
      r'$M_{\rm Ni}=0.04\,M_\odot$',
      dict(color='tab:blue', lw=1.1, ls=':', zorder=12)),
     # Envelope temperature
-    ('SN_A_g_T15k_Ni06', 'SN_A_grid',
+    ('SN_A_g_T15k_Ni06', 'SN_A_Y_grid',
      r'$T_{\rm base}=15$ kK, $M_{\rm Ni}=0.06$',
      dict(color='tab:red', lw=1.1, ls='-', zorder=12)),
     # Envelope mass
-    ('SN_A_g_M10', 'SN_A_grid',
+    ('SN_A_g_M10', 'SN_A_Y_grid',
      r'$M_{\rm env}=0.10\,M_\odot$, $M_{\rm Ni}=0$',
      dict(color='tab:green', lw=1.1, ls='-', zorder=12)),
     # Envelope radius
-    ('SN_A_g_R300', 'SN_A_grid',
+    ('SN_A_g_R300', 'SN_A_Y_grid',
      r'$R_{\rm env}=300\,R_\odot$, $M_{\rm Ni}=0$',
      dict(color='tab:purple', lw=1.1, ls='-', zorder=12)),
     # Compact envelope (R 200 -> 10 Rsun, Ni -> 0.05)

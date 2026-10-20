@@ -230,7 +230,9 @@ def load_observations(path):
         det['Mabs_err'] = det['Error']
         nd = sub[sub['Mag'].apply(lambda x: x == '-' or pd.isna(x))].copy()
         if len(nd):
-            nd['Mabs_lim'] = nd['Limit_5p0S2N'].astype(float) - DM - A
+            nd['Mabs_lim'] = (pd.to_numeric(nd['Limit_5p0S2N'],
+                                            errors='coerce') - DM - A)
+            nd = nd.dropna(subset=['Mabs_lim'])
         obs[band] = {'det': det, 'nd': nd}
     return obs
 
