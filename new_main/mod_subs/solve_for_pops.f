@@ -11,6 +11,7 @@
         USE ANG_QW_MOD
 	USE CONTROL_VARIABLE_MOD
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
+	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
 ! Altered:   20-Oct-2026 : Release-progress audit flags and counts
@@ -1186,13 +1187,16 @@
 	1      (MOM_RAN .AND. MOM_UNSAFE_B))THEN
 	      IF(CONV_DIAG_LVL .GE. 1)THEN
 	      WRITE(LUER,'(A)')
-	1     'SOLVE_FOR_POPS: KNOP GS state immature'
-	      WRITE(LUER,'(A,ES12.4,A,I8,A,I14,A,ES12.4,A,I8,A,I8)')
-	1     '    FG: maxchg=',GS_MAXCHG,' capped=',GS_CAPPED,
-	2     ' nconv50=',GS_NCONV,
-	3     '  MOM: maxchg=',MOM_MAXCHG,' capped=',MOM_CAPPED,
-	4     ' negJ=',MOM_NEGJ
-	      WRITE(LUER,'(A)')'    forcing LAMBDA for this iteration'
+	1     'SOLVE_FOR_POPS: lagged radiation field not stable'
+	      WRITE(LUER,'(A,ES12.4,A,I8,A,I14,A)')
+	1     '    ray solve: largest drift ',GS_MAXCHG,'; ',GS_CAPPED,
+	2     ' capped writes; ',GS_NCONV,' cells changed by more than 50%'
+	      WRITE(LUER,'(A,ES12.4,A,I8,A,I8,A)')
+	1     '    moment solve: largest drift ',MOM_MAXCHG,'; ',
+	2     MOM_CAPPED,' capped writes; ',MOM_NEGJ,
+	3     ' negative-J cells repaired'
+	      WRITE(LUER,'(A)')
+	1     '    demoting this step to a damped LAMBDA iteration'
 	      END IF
 	      LAMBDA_ITERATION=.TRUE.
 	      FIXED_T=.TRUE.
@@ -1367,11 +1371,28 @@
 	    IF(CONV_DIAG_LVL .GE. 1)THEN
 	    WRITE(LUER,'(/,A)')' -------------------------------- KNOP GS SWEEP --------------------------------'
 	    WRITE(LUER,'(A)')'  KNOP inner-GS sweep'
+!
+! edited by Devin, 21-Oct-2026: lead the sweep report with the
+! population-gate sentence so the hold (or its absence) is stated
+! before the census numbers.  The tag stays greppable.
+!
+	    IF(MOM_RAN)THEN
+	      IF(MOM_UNSAFE_B)THEN
+	        MOM_ST='[BAD]  '
+	      ELSE IF(GS_HOLD_POPS)THEN
+	        MOM_ST='[HELD] '
+	      ELSE
+	        MOM_ST='[WARN] '
+	      END IF
+	      WRITE(LUER,'(2A)')'  '//MOM_ST,
+	1     TRIM(MOM_STATE_SENTENCE(.TRUE.,GS_HOLD_POPS,MOM_UNSAFE_B,
+	2     MOM_BROAD,.FALSE.,.FALSE.,MOM_RF_CONV,MAIN_COUNTER))
+	    END IF
 	    WRITE(LUER,'(A,I8)')'    immature-field iteration : ',N_FROZEN
 	    WRITE(LUER,'(A,I8)')'    no-progress releases       : ',
 	1   N_REL_NOPROG
 	    WRITE(LUER,'(A,2ES12.4)')
-	1   '    FG / MOM maxchg          : ',GS_MAXCHG,MOM_MAXCHG
+	1   '    largest drift, ray / moment : ',GS_MAXCHG,MOM_MAXCHG
 !
 ! edited by Devin, 17-Oct-2026: the sweep drift can reach
 ! 1E263 on a detonating sweep -- ES12.4 drops the 'E' for a
@@ -1381,34 +1402,30 @@
 ! A descriptor and printed GS_NBAD_BLK's raw bytes.
 !
 	    WRITE(LUER,'(A,2ES13.4)')
-	1   '    FG store raw drift / RF delta: ',GS_SW_MAXCHG,GS_RF_DCHG
+	1   '    ray store drift / refresh delta : ',
+	2   GS_SW_MAXCHG,GS_RF_DCHG
 	    WRITE(LUER,'(A,I6,A,I6)')
-	1   '    FG div rays              : ',GS_NDIV,' of',GS_NRAY
+	1   '    diverged rays                 : ',GS_NDIV,' of',GS_NRAY
 	    WRITE(LUER,'(A,I14,A,I14)')
-	1   '    FG nbad last / best-pass : ',GS_NBAD,' / ',GS_NBAD_BLK
-	    WRITE(LUER,'(A)')'    MOM bulk'
-	    WRITE(LUER,'(A,2I12)')
-	1   '      nbad5 / nbad50         : ',MOM_NBAD5,MOM_NBAD50
-	    WRITE(LUER,'(A,2I12)')
-	1   '      negJ / quar            : ',MOM_NEGJ,MOM_NQUAR
-	    WRITE(LUER,'(A,2I12)')
-	1   '      ntot / pquar           : ',MOM_NTOT,MOM_NPQUAR
-	    WRITE(LUER,'(A)')'    MOM sweep'
-	    WRITE(LUER,'(A,ES12.4)')
-	1   '      maxchg                 : ',MOM_SW_MAXCHG
-	    WRITE(LUER,'(A,2I12)')
-	1   '      nbad5 / nbad50         : ',MOM_SW_NBAD5,MOM_SW_NBAD50
-	    WRITE(LUER,'(A,2I12)')
-	1   '      negJ / quar            : ',MOM_SW_NEGJ,MOM_SW_NQUAR
-	    IF(MOM_RF_RAN)THEN
-	      WRITE(LUER,'(A)')'    MOM refresh'
-	      WRITE(LUER,'(A,L2)')
-	1     '      converged              : ',MOM_RF_CONV
-	      WRITE(LUER,'(A,ES12.4)')
-	1     '      retained delta         : ',MOM_RF_DCHG
-	      WRITE(LUER,'(A,2I12)')
-	1     '      n5 / n50               : ',MOM_RF_N5,MOM_RF_N50
-	    END IF
+	1   '    bad cells last / best pass    : ',GS_NBAD,' / ',
+	2   GS_NBAD_BLK
+!
+! edited by Devin, 21-Oct-2026: the moment-field rows are written
+! as sentences through KNOP_STATUS_MOD so an OUTGEN reader does
+! not need the column legend -- same wording the solver-side
+! narration uses.  The numbers are identical; only the prose
+! changed.
+!
+	    WRITE(LUER,'(2A)')'    ',
+	1   TRIM(MOM_SWEEP_SENTENCE('pops',0.0_LDP,MOM_NBAD5,
+	2   MOM_NBAD50,MOM_NEGJ,MOM_NQUAR,MOM_NTOT,MOM_NPQUAR))
+	    WRITE(LUER,'(2A)')'    ',
+	1   TRIM(MOM_SWEEP_SENTENCE('sweep',MOM_SW_MAXCHG,
+	2   MOM_SW_NBAD5,MOM_SW_NBAD50,MOM_SW_NEGJ,MOM_SW_NQUAR,
+	3   0_8,0_8))
+	    IF(MOM_RF_RAN)WRITE(LUER,'(2A)')'    ',
+	1   TRIM(MOM_REFRESH_SENTENCE(MOM_RF_CONV,MOM_RF_DCHG,
+	2   MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
 	    END IF
 !
 ! edited by Devin, 30-Sep-2026: marginal-release BA trial.  When the
@@ -1435,27 +1452,43 @@
 	5      (.NOT. GS_UNSAFE) .AND. (.NOT. GS_FG_IMMATURE) .AND.
 	6      (.NOT. LUM_BLOCKED) .AND.
 	7      (GS_TRIAL_LIM .LE. 0 .OR. N_TRIAL_ACC .LT. GS_TRIAL_LIM))
-	    IF(CONV_DIAG_LVL .GE. 2)
-	1   WRITE(LUER,'(A,9L2,A,I6,A,I10,A,ES12.4,5(A,I10),A,I4)')
-	2   '      MOM_TRIAL terms: ran,capok,nhuge,nb50ok,'//
-	3   'njok,nqok,nbroad,snap,trlim=',
-	4   MOM_RAN,MOM_SW_CAPPED .LE. MAX(50_8,MOM_SW_NTOT/10),
-	5   MOM_SW_NHUGE .LE. MAX(50_8,MOM_SW_NTOT/10000),
-	6   MOM_SW_NBAD50 .LE. MAX(50_8,MOM_SW_NTOT/100),
-	7   MOM_SW_NEGJ .LE. MOM_SW_NTOT/10,
-	8   MOM_SW_NQUAR .LE. MOM_SW_NTOT/10,
-	9   .NOT. MOM_BROAD,
-	1   DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING),
-	1   (GS_TRIAL_LIM .LE. 0 .OR. N_TRIAL_ACC .LT. GS_TRIAL_LIM),
-	1   '  nfroz=',N_FROZEN,
-	2   '  cap=',MOM_SW_CAPPED,
-	3   '  mx=',MOM_SW_MAXCHG,
-	4   '  n50=',MOM_SW_NBAD50,
-	5   '  ntot=',MOM_SW_NTOT,
-	6   '  negj=',MOM_SW_NEGJ,
-	7   '  nquar=',MOM_SW_NQUAR,
-	8   '  nhuge=',MOM_SW_NHUGE,
-	9   '  ntr=',N_TRIAL_ACC
+	    IF(CONV_DIAG_LVL .GE. 2)THEN
+	      WRITE(LUER,'(9(A,A3))')
+	1   '      moment-trial gate terms: moment solver ran ',
+	2   MERGE('yes','no ',MOM_RAN),
+	3   '; capped writes within floor ',
+	4   MERGE('yes','no ',MOM_SW_CAPPED .LE.
+	5   MAX(50_8,MOM_SW_NTOT/10)),
+	6   '; huge-drift count within floor ',
+	7   MERGE('yes','no ',MOM_SW_NHUGE .LE.
+	8   MAX(50_8,MOM_SW_NTOT/10000)),
+	9   '; cells-above-50% share within floor ',
+	1   MERGE('yes','no ',MOM_SW_NBAD50 .LE.
+	2   MAX(50_8,MOM_SW_NTOT/100)),
+	3   '; negative-J share within floor ',
+	4   MERGE('yes','no ',MOM_SW_NEGJ .LE. MOM_SW_NTOT/10),
+	5   '; quarantined share within floor ',
+	6   MERGE('yes','no ',MOM_SW_NQUAR .LE. MOM_SW_NTOT/10),
+	7   '; broad-drift veto clear ',
+	8   MERGE('yes','no ',.NOT. MOM_BROAD),
+	9   '; resacc snapshot armed ',
+	1   MERGE('yes','no ',DO_BA_RES_ACC .AND.
+	2   (.NOT. BA_SNAPSHOT_MISSING)),
+	3   '; trial budget remains ',
+	4   MERGE('yes','no ',(GS_TRIAL_LIM .LE. 0 .OR.
+	5   N_TRIAL_ACC .LT. GS_TRIAL_LIM))
+	      WRITE(LUER,'(A,I6,A,I10,A,ES12.4,5(A,I10),A,I4)')
+	1   '      moment-trial census: immature-field'//
+	2   ' iterations ',N_FROZEN,
+	3   '; capped writes ',MOM_SW_CAPPED,
+	4   '; largest drift ',MOM_SW_MAXCHG,
+	5   '; cells above 50% ',MOM_SW_NBAD50,
+	6   '; significant cells ',MOM_SW_NTOT,
+	7   '; negative-J repairs ',MOM_SW_NEGJ,
+	8   '; quarantined cells ',MOM_SW_NQUAR,
+	9   '; huge-drift cells ',MOM_SW_NHUGE,
+	1   '; trial budget used ',N_TRIAL_ACC
+	    END IF
 !
 ! W8 (17-Oct-2026): FG-only marginal-release arm ([FG_TRIAL_MIN],
 ! default 30, 0 disables).  Mirrors MOM_TRIAL for the
@@ -1481,10 +1514,10 @@
 	      IF(MOM_TRIAL_LAM .GT. 0.0_LDP .AND.
 	1      MAXCH .GT. MOM_TRIAL_LAM)THEN
 		IF(CONV_DIAG_LVL .GE. 1)
-	1       WRITE(LUER,'(A,ES10.3)')
-	2       '      MOM field marginal: demand beyond BA'//
-	3       ' validity -- releasing damped LAMBDA trial,'//
-	4       ' maxch=',MAXCH
+	1       WRITE(LUER,'(A,ES10.3,A)')
+	2       '      Moment field marginal: demand beyond'//
+	3       ' BA validity - releasing a damped LAMBDA'//
+	4       ' trial (largest demanded correction ',MAXCH,')'
 !
 ! At 1E7-scale demand the resacc-gated BA step below is rejected
 ! every time (the linearization extrapolates orders of magnitude
@@ -1503,8 +1536,9 @@
 		CALL APPEND_ITER_REASON(ITER_REASON,'mom_trial_lam')
 	      ELSE
 		IF(CONV_DIAG_LVL .GE. 1)
-	1       WRITE(LUER,'(A)')'      MOM field marginal: releasing'//
-	2       ' resacc-gated BA trial this iteration'
+	1       WRITE(LUER,'(2A)')'      ',
+	2       TRIM(MOM_STATE_SENTENCE(.FALSE.,.FALSE.,.FALSE.,
+	3       .FALSE.,.TRUE.,.FALSE.,.FALSE.,MAIN_COUNTER))
 !
 ! The SOLVEBA call below uses the ENTRY LAMBDA_ITERATION/T1 -- the
 ! mode controller further down only sets the mode for the NEXT
@@ -1534,9 +1568,10 @@
 	      TRIAL_FIRED=.TRUE.
 	      TRIAL_MIN_USED=FG_TRIAL_MIN
 	      IF(CONV_DIAG_LVL .GE. 1)
-	1     WRITE(LUER,'(A,I6)')
-	2     '      FG field marginal: releasing damped LAMBDA'//
-	3     ' trial, n_frozen=',N_FROZEN
+	1     WRITE(LUER,'(A,I6,A)')
+	2     '      Ray field marginal: releasing a damped'//
+	3     ' LAMBDA trial (immature-field iteration ',
+	4     N_FROZEN,')'
 	      LAMBDA_ITERATION=.TRUE.
 	      FIXED_T=.TRUE.
 	      COMPUTE_BA=.TRUE.
@@ -2118,11 +2153,11 @@
 	1   '    FG sweep drift, gate metric       :',GS_MAXCHG
 	    IF(MOM_RAN)THEN
 	      WRITE(LUER,'(A,I14,A,I14)')
-	1   '    cells changed >50pct, MOM census  :',MOM_SW_NBAD50,
+	1   '    cells changed >50pct, moment census:',MOM_SW_NBAD50,
 	2   ' /',MOM_SW_NTOT
 	    ELSE IF(DO_NONMONO_KNOP .AND. GS_NTOT .GT. 0)THEN
 	      WRITE(LUER,'(A,I14,A,I14)')
-	1   '    cells changed >50pct, FG census   :',GS_NCONV,
+	1   '    cells changed >50pct, ray census   :',GS_NCONV,
 	2   ' /',GS_NTOT
 	    ELSE
 	      WRITE(LUER,'(A)')
@@ -3473,10 +3508,10 @@
 	1    ' ratio and relative drift (diagnostic only for shocks)'
 	    WRITE(LUER,'(A)')'   fg / mom       = lagged-field sweep'//
 	1    ' metrics: d = max rel. change; bad = cells >50%;'//
-	2    ' churn = cells >5%; n5,n50 = mom-cell counts,'//
-	3    ' n50 printed as count/threshold; neg ='//
+	2    ' churn = cells >5%; >5%,>50% = mom-cell counts,'//
+	3    ' >50% printed as count/threshold; negJ ='//
 	4    ' significant negative-J repairs; quar/pquar ='//
-	5    ' quarantined cells (pquar persistent); cap ='//
+	5    ' quarantined cells (pquar persistent); capped ='//
 	6    ' dropped non-finite writes'
 	    WRITE(LUER,'(A)')'   status         = [OK] inside the'//
 	1    ' maturity gates, [WARN] marginal tier,'//
@@ -3598,7 +3633,7 @@
 	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,A,1X,A,I10,1X,A,I6,'//
 	1    '2X,A,1X,A)')
 	2    'fg',GS_MAXCHG,'bad=',NBAD_STR,'churn=',GS_NCONV,
-	3    'cap=',GS_CAPPED,FG_ST,'lagged field drift'
+	3    'capped=',GS_CAPPED,FG_ST,'lagged field drift'
 	    IF(MOM_RAN)THEN
 	      MOM_ST='[OK]   '
 	      IF(MOM_UNSAFE_B)THEN
@@ -3608,10 +3643,10 @@
 	      END IF
 	      WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,I10,1X,A,I10,1X,A,I10,'//
 	1      '1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I10,2X,A)')
-	2      'mom',MOM_SW_MAXCHG,'n5=',MOM_SW_NBAD5,
-	3      'n50=',MOM_SW_NBAD50,'/',MOM_SW_NTOT,
-	4      'neg=',MOM_SW_NEGJ,'quar=',MOM_SW_NQUAR,
-	5      'pquar=',MOM_NPQUAR,'cap=',MOM_SW_CAPPED,MOM_ST
+	2      'mom',MOM_SW_MAXCHG,' >5%:',MOM_SW_NBAD5,
+	3      ' >50%:',MOM_SW_NBAD50,'/',MOM_SW_NTOT,
+	4      ' negJ:',MOM_SW_NEGJ,' quar:',MOM_SW_NQUAR,
+	5      ' pquar:',MOM_NPQUAR,' capped:',MOM_SW_CAPPED,MOM_ST
 	    END IF
 	  END IF
 !
