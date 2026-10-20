@@ -931,6 +931,25 @@
 !
 	LOGICAL GS_RAW_MATURE
 !
+! GS_PRECOND (default FALSE standalone; auto-set TRUE under
+! DO_NONMONO_KNOP, explicit F respected): population-precondition
+! gate on the freeze decision in SOLVE_FOR_POPS.  The hold/freeze
+! machinery assumes the entered populations are close enough to
+! convergence that holding them lets the lagged field settle; on
+! m15_2p82d the hold was applied at ~1E10% demanded correction --
+! far outside the SE linearization -- and the release/refreeze
+! cycle never moved the demand.  When the entry MAXCH (the
+! previous call's demand) exceeds GS_PRECOND_MAX (default
+! 1.0E+03 percent) the freeze is postponed for that call so a
+! live LAMBDA update keeps working the demand down.
+! GS_PRECOND_LIM (default 0 = disabled) bounds consecutive
+! preconditioned calls before the model stops as non-convergent.
+! VADAT keywords [GS_PRECOND], [GS_PRECOND_MAX], [GS_PRECOND_LIM].
+!
+	LOGICAL GS_PRECOND
+	REAL(KIND=LDP) GS_PRECOND_MAX
+	INTEGER GS_PRECOND_LIM
+!
 ! JFNK_CPL_RELWAIT (default FALSE): hold the coupled JFNK tier during
 ! the GS release window.  The first live iterations after a freeze
 ! carry the deferred SE correction and a field re-lagging to moved
