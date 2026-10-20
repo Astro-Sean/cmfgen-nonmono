@@ -272,12 +272,10 @@ _NON_MONO_FORCED_SHARED = {
     # user-overridable: USE_LAM_ES=F is a consistent alternative since
     # COMP_J_BLANK calls MOM_J_CMF_NONMONO_V1 (SIGMA_TRUE, Knop
     # chi_hat discretization) rather than the clamped-sigma
-    # MOM_J_CMF_V11.  For SOB mode it defaults to T in
-    # _NON_MONO_LINE_SOB but is user-overridable since 12-Oct-2026:
-    # with an explicit USE_LAM_ES=F override the Fortran warns instead
-    # of STOPping, runs MOM_J_CMF_NONMONO_V1 for the J update, and
-    # DO_VAR_CONT uses fixed-J + GET_MOM_ALO_DIAG (the KNOP+LAM_ES=F
-    # recipe) rather than the inconsistent V11/V12 pairing.
+    # MOM_J_CMF_V11.  For SOB mode it defaults to F in
+    # _NON_MONO_LINE_SOB (21-Oct-2026): USE_LAM_ES=F runs
+    # MOM_J_CMF_NONMONO_V1 for the J update and DO_VAR_CONT uses
+    # fixed-J + GET_MOM_ALO_DIAG (the KNOP+LAM_ES=F recipe).
     # SIGMA_TRUE still drives the Sobolev line path.
     'INC_GRID': 'F',
     'N_TYPE': 'N_ON_J',
@@ -330,11 +328,12 @@ _NON_MONO_LINE_SOB = {
     # dev7 spelling: the V7 Fortran reads DO_NONMONO_SOB (V6 reads the
     # DO_NOMONO_SOB above; each tree ignores the other's key).
     'DO_NONMONO_SOB': 'T',
-    # USE_LAM_ES=T is the validated default (J from the FG ray solve).
-    # USE_LAM_ES=F selects stock MOM_J_CMF_V11 on clamped SIGMA plus
-    # the VAR_MOM_J_CMF_V12 continuum linearization -- opt-in endgame
-    # variant (12-Oct-2026); an explicit vadat_overrides key wins.
-    'USE_LAM_ES': 'T',
+    # USE_LAM_ES=F is the SOB default (21-Oct-2026, user request): J
+    # comes from MOM_J_CMF_NONMONO_V1 (the sign-split moment solver on
+    # SIGMA_TRUE) with the fixed-J + MOM-ALO Jacobian pairing in
+    # do_var_cont.f -- the same recipe as KNOP+LAM_ES=F.  An explicit
+    # vadat_overrides USE_LAM_ES=T selects the FG_J_CMF_V13 formal J.
+    'USE_LAM_ES': 'F',
     # SOL_METH=DIAG (NUM_BNDS=1) is the SOB default.  (The earlier claim
     # that TRI selects USE_SELECTIVE_JVAR/VAR_MOM_J_CMF_NONMONO_V1 is
     # stale: neither exists in this tree, and do_var_cont.f zeroes
@@ -446,7 +445,11 @@ NON_MONO_SOB_RECOMMENDED = {
     'MAX_LAM': '1.0D10',      # effectively unclamped Lambda correction factor
     'MAX_LIN': '1.0D1',       # manual-typical 10x cap on ordinary full steps
     'BA_CHK_FAC': '1.0D-05',
-    'EPS_TERM': '5.0D-02',
+    'EPS_TERM': '1.0D-02',
+    # BA_EX_RELFRAC=0 disables the exit-only relative floor: trace-ion
+    # demand counts in BA_EX_MAXCH, so the converged exit requires the
+    # whole system below EPS rather than exempting rows < RELFRAC*max.
+    'BA_EX_RELFRAC': '0.0D0',
     'BA_MAXCH_FAIL': '1.0D30',
     'DO_BA_RES_ACC': 'F',
     'BA_ENTER_RAW': '1.0D30',
@@ -823,6 +826,10 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         # Required by the solver (GET_KEY_STRING aborts without it); 0
         # matches the running MOM/SOB configs and the recommended default.
         'N_FULL_TREL': '0',
+        # BA_EX_RELFRAC=0 disables the exit-only relative floor: trace-ion
+        # demand counts in BA_EX_MAXCH, so the converged exit requires the
+        # whole system below EPS rather than exempting rows < RELFRAC*max.
+        'BA_EX_RELFRAC': '0.0D0',
     }
     # Merge mode-dependent line-treatment keys into defaults.
     defaults.update(_line_defaults)
@@ -843,6 +850,7 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         'BA_NREJ_LIM', 'BA_ENTER_RAW', 'BA_PROBE_LAM', 'BA_DAMP_CAP',
         'BA_SAT_RAW', 'BA_SAT_LIM', 'LAM_ENTER', 'LAM_EXIT',
         'LAM_N_STABLE', 'FRESH_BA_EXIT', 'N_FULL_TREL', 'T_REL_CHG',
+        'BA_EX_RELFRAC',
         'OB_RAT', 'THK_CONT', 'STOP_IF_BP', 'REV_RGRID',
         'LTE_EST', 'FIX_T', 'FIX_T_AUTO',
         'SOL_METH', 'VEL_LAW',
@@ -944,8 +952,8 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
         #     conversion R grid; RD_IN_R_GRID=F would rebuild R and PCHIP-
         #     smooth V, destroying sigma < -1 extrema
         #   INC_GRID=F / N_TYPE=N_ON_J — Fortran STOP otherwise.
-        #   USE_LAM_ES=T is the SOB default but user-overridable to F
-        #   (12-Oct-2026: Fortran warns, moment solver + VAR_MOM linearization)
+        #   USE_LAM_ES=F is the SOB default (21-Oct-2026):
+        #   MOM_J_CMF_NONMONO_V1 moment solve; T selects V13 formal J
         #   USE_FIXED_J / USE_FRM_REL / PP_MOD / PP_NOV = F — those paths
         #     bypass FG_J_CMF_NONMONO_V1
         #
@@ -1033,9 +1041,9 @@ def enforce_sn_iin_physics(vadat_lines, line_treatment='BLANK',
                 elif m.group(2) == 'DO_LAM_IT':
                     do_lam_it_val = m.group(1).strip()
         if use_lam_es_val.upper() == 'T':
-            print(f"    Moment solver: bypassed (USE_LAM_ES=T)")
+            print(f"    Moment solver: bypassed (USE_LAM_ES=T, FG formal J)")
         else:
-            print(f"    Moment solver: enabled (USE_LAM_ES=F, dual-sigma with clamped SIGMA)")
+            print(f"    Moment solver: MOM_J_CMF_NONMONO_V1 (USE_LAM_ES=F, SIGMA_TRUE)")
         print(f"    BA solver: {sol_meth_val} (SOL_METH={sol_meth_val})")
         print(f"    Eddington factor: {n_type_val} (N_TYPE={n_type_val})")
         if fix_t_val.upper() == 'T':
@@ -3936,7 +3944,11 @@ def apply_profile(
             "dV_OBS_WING": "400.0D0",  # observer spacing in line wings (km/s)
             "dV_OBS_BIG": "2000.0D0",  # observer spacing in line-free regions (km/s)
 
-            "EPS_TERM": "5.0D-02",  # iterate until the max % population change falls below this
+            "EPS_TERM": "1.0D-02",  # iterate until the max % population change falls below this
+            # BA_EX_RELFRAC=0 disables the exit-only relative floor: trace-ion
+            # demand counts in BA_EX_MAXCH, so the converged exit requires the
+            # whole system below EPS rather than exempting rows < RELFRAC*max.
+            "BA_EX_RELFRAC": "0.0D0",
             "ACC_F": "1.0D-04",  # accuracy demanded of the Eddington-factor solve
 
             # Alternating LAMBDA/linearization (standard CMFGEN approach).
@@ -4112,7 +4124,11 @@ def apply_profile(
             "dV_OBS_WING": "400.0D0",  # observer spacing in line wings (km/s)
             "dV_OBS_BIG": "2000.0D0",  # observer spacing in line-free regions (km/s)
 
-            "EPS_TERM": "5.0D-02",  # iterate until the max % population change falls below this
+            "EPS_TERM": "1.0D-02",  # iterate until the max % population change falls below this
+            # BA_EX_RELFRAC=0 disables the exit-only relative floor: trace-ion
+            # demand counts in BA_EX_MAXCH, so the converged exit requires the
+            # whole system below EPS rather than exempting rows < RELFRAC*max.
+            "BA_EX_RELFRAC": "0.0D0",
             "ACC_F": "1.0D-04",  # accuracy demanded of the Eddington-factor solve
 
             "DO_LAM_IT": "T",

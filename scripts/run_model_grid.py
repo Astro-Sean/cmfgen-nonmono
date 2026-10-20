@@ -148,7 +148,7 @@ except ImportError:
                         "DO_NONMONO_KNOP": "F",
                         "DO_NOMONO_SOB": "T",
                         "DO_NONMONO_SOB": "T",
-                        "USE_LAM_ES": "T",
+                        "USE_LAM_ES": "F",
                         "SOL_METH": "DIAG",
                         "GLOBAL_LINE": "SOB",
                         "DO_SOB_LINES": "T",
@@ -1741,6 +1741,7 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
     csm_cutoff_n = x_cfg.get("csm_cutoff_n", 12.0)
     csm_T_gamma = x_cfg.get("csm_T_gamma", 0.3)
     csm_T_min = x_cfg.get("csm_T_min_K", None)
+    csm_T_anchor_shell = bool(x_cfg.get("csm_T_anchor_shell", False))
     # Piecewise CSM: inner power law plus an outer segment joined at
     # csm_r_split_cm (DX18+ reservoir models).  Without the pass-through
     # below, configs carrying these keys silently build a single law.
@@ -2057,6 +2058,8 @@ def generate_sn_b_model_profile(config, scripts_dir, project_dir, config_path):
         if csm_T is not None:
             cmd.extend(["--csm-T", str(csm_T)])
         cmd.extend(["--csm-T-gamma", str(csm_T_gamma)])
+        if csm_T_anchor_shell:
+            cmd.append("--csm-T-anchor-shell")
         if csm_T_min is not None:
             cmd.extend(["--csm-T-min", str(csm_T_min)])
         if csm_composition:
@@ -6737,7 +6740,7 @@ def generate_eddfactor_for_cmfgen(
 
     # Run prepare_IN_INTS.py
     inits_script = (scripts_dir / "prepare_IN_INTS.py").resolve()
-    init_num_its = cmfgen_cfg.get("init_num_its", 100000)
+    init_num_its = cmfgen_cfg.get("init_num_its", 10000)
     inits_cmd = [
         sys.executable,
         str(inits_script),
@@ -10665,8 +10668,10 @@ def enforce_cmfgen_sn_iin_settings(config):
     #       DO_NONMONO_KNOP the BA correction matrix is block-diagonal
     #       either way (do_var_cont.f zeroes TX/TVX), so TRI vs DIAG
     #       changes bookkeeping only, not the population update.
-    # SOB mode forces USE_LAM_ES=T (F would fall back to the
-    # clamped-sigma MOM_J_CMF_V11).  Outside non-monotonic mode the key
+    # SOB mode defaults USE_LAM_ES=F (21-Oct-2026): the Fortran
+    # enforcement no longer overrides an explicit value, so F runs
+    # MOM_J_CMF_NONMONO_V1 with the fixed-J + MOM-ALO pairing.
+    # Outside non-monotonic mode the key
     # stamps USE_LAM_ES only; SOL_METH stays owned by
     # depth_independent_solver.
     _ule_raw = cmfgen.get("use_lam_es")
@@ -10800,33 +10805,41 @@ def enforce_cmfgen_sn_iin_settings(config):
                     f"{_j_desc}; SOL_METH={'DIAG' if _ule else 'TRI'}"
                 )
             else:
-                # SOB mode: USE_LAM_ES=T stays the default, paired with
-                # DIAG.  (The earlier claim that TRI selects a Knop-
-                # Jacobian solver is stale: USE_SELECTIVE_JVAR /
-                # VAR_MOM_J_CMF_NONMONO_V1 were never ported to this
-                # tree, and do_var_cont.f zeroes TX/TVX under
-                # DO_NONMONO_SOB, so the BA matrix is block-diagonal
-                # either way and depth_independent_solver=False is
-                # honoured as an opt-in.)
-                # Since 12-Oct-2026 USE_LAM_ES=F is a permitted
-                # opt-in (Fortran warns, does not STOP): since
-                # 12-Oct-2026 the J solve is MOM_J_CMF_NONMONO_V1 with
-                # the fixed-J + GET_MOM_ALO_DIAG linearization - the
-                # same pairing as KNOP+LAM_ES=F.  The earlier
-                # MOM_J_CMF_V11 + VAR_MOM_J_CMF_V12 variant diverged
-                # on m15 (V11 assumes expanding flow).
-                # Selected by cmfgen.use_lam_es=F or an explicit
+                # SOB mode: USE_LAM_ES=F is the default (21-Oct-2026)
+                # -- MOM_J_CMF_NONMONO_V1 with the fixed-J +
+                # GET_MOM_ALO_DIAG linearization, the same recipe as
+                # KNOP+LAM_ES=F.  The Fortran enforcement honours
+                # explicit values, so a user T is not rewritten.
+                # do_var_cont.f zeroes TX/TVX under DO_NONMONO_SOB, so
+                # the BA matrix is block-diagonal either way and
+                # depth_independent_solver=False is honoured as an
+                # opt-in that changes bookkeeping only.
+                # Selected by cmfgen.use_lam_es or an explicit
                 # vadat_overrides USE_LAM_ES key.
-                if _ule is False:
+                if _ule is True:
                     print(
-                        "  [NON_MONO] use_lam_es=F under SOB: opt-in "
+                        "  [NON_MONO] use_lam_es=T under SOB: opt-in "
+                        "FG_J_CMF_V13 formal J (clamped SIGMA; F is "
+                        "the default MOM_J_CMF_NONMONO_V1 moment "
+                        "solve)"
+                    )
+                    _force("USE_LAM_ES", "T", "NON_MONO")
+                elif _ule is False:
+                    print(
+                        "  [NON_MONO] use_lam_es=F under SOB: "
                         "MOM_J_CMF_NONMONO_V1 + fixed-J/MOM-ALO "
                         "linearization (SIGMA_TRUE still drives the "
                         "Sobolev lines)"
                     )
                     _force("USE_LAM_ES", "F", "NON_MONO")
                 elif "USE_LAM_ES" not in user_vadat_keys:
-                    _force("USE_LAM_ES", "T", "NON_MONO")
+                    print(
+                        "  [NON_MONO] SOB default: USE_LAM_ES=F "
+                        "(MOM_J_CMF_NONMONO_V1 moment J-update; set "
+                        "cmfgen.use_lam_es: true or a vadat_overrides "
+                        "key for the V13 formal solution)"
+                    )
+                    _force("USE_LAM_ES", "F", "NON_MONO")
                 _di_cur = cmfgen.get("depth_independent_solver")
                 if _di_cur is not None and not _vadat_true(_di_cur):
                     print(
