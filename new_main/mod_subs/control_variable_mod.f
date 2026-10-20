@@ -1735,6 +1735,15 @@
 !
 	LOGICAL GS_HOLD_POPS
 	LOGICAL GS_POPS_HELD
+!
+! GS_FREEZE (22-Oct-2026): promoted from a SOLVE_FOR_POPS local so
+! CMFGEN_SUB can refuse the one-time DO_LAM_AUTO handoff while the
+! lagged field is still immature -- a damped freeze-trial call's
+! quiet MAXCH_CTRL is not convergence evidence.  Re-derived every
+! SOLVE_FOR_POPS call (reset .FALSE. at entry, KNOP-only), so no
+! stale state survives between calls.
+!
+	LOGICAL GS_FREEZE
 	REAL(KIND=LDP) GS_ATTEMPT_APP
 	REAL(KIND=LDP), ALLOCATABLE :: POPS_GS_SAVE(:,:)
 !

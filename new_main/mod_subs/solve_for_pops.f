@@ -225,7 +225,10 @@
 ! solve (KNOP_MOM_TFIT it16-19, 20-Sep-2026), so the SE update now
 ! waits for real maturity rather than a counter.
 !
-	LOGICAL GS_FREEZE,GS_RAW_IMMATURE
+! GS_FREEZE now lives in CONTROL_VARIABLE_MOD (22-Oct-2026) so
+! CMFGEN_SUB can guard the DO_LAM_AUTO handoff on it; still
+! re-derived every call (reset .FALSE. at entry).
+	LOGICAL GS_RAW_IMMATURE
 	INTEGER, SAVE :: N_FROZEN=0
 	INTEGER, SAVE :: N_TRIAL_ACC=0
 ! Release-cycle accounting (17-Oct-2026): accepted trials refund
@@ -3096,11 +3099,19 @@
 	END IF
 	IF(RD_LAMBDA .AND. DO_LAMBDA_AUTO .AND. LAMBDA_ITERATION .AND.
 	1   (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP))THEN
+!
+! edited by Devin, 22-Oct-2026: a GS_FREEZE trial call enters with
+! LAMBDA_ITERATION=T and a damped, held-population update -- its
+! quiet MAXCH_CTRL is not evidence the free map contracts, so it
+! must not earn the stability count (with N_STABLE_LAM=1 a single
+! damped probe would otherwise latch LAM_STABLE_PROVEN and open the
+! one-time handoff against a still-churning lagged field).
+!
 	  IF(FORCE_LAMBDA .OR. LUM_BLOCKED .OR.
 	1      MAXCH_CTRL .GE. VAL_EXIT_LAM)THEN
 	    CNT_STABLE_LAM=0
 	    LAM_STABLE_PROVEN=.FALSE.
-	  ELSE
+	  ELSE IF(.NOT. GS_FREEZE)THEN
 	    CNT_STABLE_LAM=CNT_STABLE_LAM+1
 	    IF(CNT_STABLE_LAM .GE. N_STABLE_LAM)LAM_STABLE_PROVEN=.TRUE.
 	  END IF
@@ -3145,8 +3156,15 @@
 	END IF
 	IF(.NOT. RD_LAMBDA .AND. .NOT. FORCE_LAMBDA)THEN
 	  IF(LAMBDA_ITERATION)THEN
+!
+! Same exclusion as the RD_LAMBDA counter above (22-Oct-2026): a
+! GS_FREEZE trial call runs as a damped LAMBDA call with held pops;
+! its quiet MAXCH_CTRL is not evidence the free map contracts.
+! GS_FREEZE is forced F outside DO_NONMONO_KNOP, so stock and SOB
+! paths are unchanged.
+!
 	     IF(MAXCH_CTRL .LT. VAL_EXIT_LAM)THEN
-	        CNT_STABLE_LAM=CNT_STABLE_LAM+1
+	        IF(.NOT. GS_FREEZE)CNT_STABLE_LAM=CNT_STABLE_LAM+1
 	     ELSE
 	        CNT_STABLE_LAM=0
 	        LAM_STABLE_PROVEN=.FALSE.

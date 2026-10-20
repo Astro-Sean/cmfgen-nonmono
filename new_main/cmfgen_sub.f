@@ -5374,6 +5374,11 @@
 ! populations. Defer this handoff while GS_POPS_HELD is true. The guard
 ! is gated by DO_NONMONO_KNOP, which defaults F, so the stock path stays
 ! unchanged.
+! edited by Devin, 22-Oct-2026: also defer while GS_FREEZE is true --
+! a freeze-trial call runs as a damped LAMBDA call with held pops, so
+! its quiet MAXCH_CTRL is not evidence the free map contracts and the
+! handoff must not fire on it.  GS_FREEZE is forced F outside KNOP, so
+! stock and SOB paths are unchanged.
 ! edited by Devin, 15-Oct-2026: [DO_NONMONO_SOB]/[DO_NONMONO_KNOP]
 ! add the stable-count requirement to the one-time DO_LAM_AUTO
 ! handoff.  The stock test (MAXCH_CTRL < 50) hands off on a single
@@ -5390,9 +5395,10 @@
 	    ELSE IF(DO_LAMBDA_AUTO .AND. RD_LAMBDA .AND.
 	1           MAXCH_CTRL .LT. 50.0_LDP .AND.
 	2           .NOT. JFNK_UNCONVERGED_COMMIT .AND.
-	3           (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_POPS_HELD) .AND.
-	4           (.NOT. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .OR.
-	5            CNT_STABLE_LAM .GE. N_STABLE_LAM))THEN
+	3           (.NOT. DO_NONMONO_KNOP .OR.
+	4            (.NOT. GS_POPS_HELD .AND. .NOT. GS_FREEZE)) .AND.
+	5           (.NOT. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .OR.
+	6            CNT_STABLE_LAM .GE. N_STABLE_LAM))THEN
 ! edited by Devin, 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
 ! the start of full iterations is visible in OUTGEN.
 	       WRITE(LUER,'(A,I5,A,ES12.4)')
