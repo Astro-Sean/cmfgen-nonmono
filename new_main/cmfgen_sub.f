@@ -2167,7 +2167,16 @@
 ! want to assume the line opacity is zero --- since dielectronic
 ! transition.
 !
-	    IF(DO_NONMONO_SOB)THEN
+! edited by Devin, 05-Nov-2026 (nonmono gap item 5): the
+! dielectronic EW diagnostic must see the same unclamped velocity
+! gradient the transfer solve used.  SOB already passes
+! SIGMA_TRUE; KNOP solves J on the unclamped gradient too, so the
+! stock SIGMA (unclamped under KNOP, or a forced-monotone-cubic
+! derivative after regridding) is inconsistent here.  SIGMA_TRUE
+! is always allocated (cmfgen.f) and filled by
+! RECOMPUTE_SIGMA_TRUE under either flag.
+!
+	    IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
 	      CALL SOBEW(SOURCE,CHI,CHI_SCAT,CHIL,ETAL,
 	1              V,SIGMA_TRUE,R,P,AQW,HQW,TA,EW,CONT_INT,
 	1              FL,DIF,DBB,IC,THK_CONT,L_TRUE,NC,NP,ND,METHOD)
