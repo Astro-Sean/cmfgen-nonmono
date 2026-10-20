@@ -3914,7 +3914,7 @@
 	INTEGER NITSF,ND,LU
 	REAL(KIND=LDP) R(ND),V(ND),SIGMA(ND)
 	INTEGER IOS,I,ND_NM_F,LUER,ERROR_LU
-	CHARACTER(LEN=7) SW_ST,SV_ST
+	CHARACTER(LEN=7) SW_ST,SV_ST,BND_TAG
 	CHARACTER(LEN=20) RF_DIR_W
 	INTEGER, PARAMETER :: MAGIC=20260916, VER=4
 	LOGICAL REN_OK
@@ -3985,10 +3985,20 @@
 ! labelled sentences; the short-key legend is gone because every
 ! number now names itself.  Counts and tags are unchanged.
 !
-	WRITE(LUER,'(4X,A10,2X,A,ES10.3,3(A,I10),A,1X,A)')
+!
+! Boundary-row tag (CONV_DIAG_LVL>=2, diagnostic only): the drift
+! argmax sitting at a boundary-adjacent depth (1/2, or ND-1/ND on the
+! H midpoint rows) localizes the floor to the HBC/NBC closure rather
+! than a breadth phenomenon.
+!
+	BND_TAG=' '
+	IF(CONV_DIAG_LVL .GE. 2 .AND. MOM_GS_ARGI .GT. 0 .AND.
+	1   (MOM_GS_ARGI .LE. 2 .OR.
+	2    MOM_GS_ARGI .GE. SIZE(J_NEXT_FRQ,1)-1))BND_TAG='bnd_row'
+	WRITE(LUER,'(4X,A10,2X,A,ES10.3,3(A,I10),A,1X,A,2X,A)')
 	1    'drift','lagged J_NEXT drift ',MOM_GS_MAXCHG,' (',
 	2    MOM_GS_NBAD5,' cells above 5%, ',MOM_GS_NBAD50,
-	3    ' above 50% of ',MOM_GS_NTOT,' total) ',SW_ST
+	3    ' above 50% of ',MOM_GS_NTOT,' total) ',SW_ST,BND_TAG
 !
 ! Per-pass split of the drift metric: the comp_j_blank F-iteration
 ! re-calls the solver with NEW_FREQ=F at the same frequency, so a

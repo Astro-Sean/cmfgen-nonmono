@@ -51,6 +51,16 @@
       MOM_GS_MAXCHG=8.0E-2_LDP
       CALL DUMP_MOM_JNEXT_GS(0,R,V,SIGMA,4,97)
 !
+! Calls 2-3: argmax pinned on a boundary row; the stable position
+! classifies 'bndry' and tags the drift line bnd_row.
+!
+      MOM_GS_ARGI=1
+      MOM_GS_ARGL=4
+      MOM_GS_MAXCHG=0.15_LDP
+      CALL DUMP_MOM_JNEXT_GS(0,R,V,SIGMA,4,97)
+      MOM_GS_MAXCHG=0.20_LDP
+      CALL DUMP_MOM_JNEXT_GS(0,R,V,SIGMA,4,97)
+!
 ! FG variant: the same alternating seed on the (depth,ray,freq)
 ! history classifies 'cycle'.  N_COMP=0 keeps the checkpoint write
 ! from streaming unallocated intensity arrays.

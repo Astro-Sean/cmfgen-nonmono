@@ -108,6 +108,10 @@ def main():
         fghist is not None and "cycle" in fghist.group(0),
         p.stdout[-400:] if fghist is None else "",
     )
+    rep.check(
+        "boundary argmax is tagged bnd_row and classified bndry",
+        "bnd_row" in p.stdout and "bndry" in p.stdout,
+    )
     rep.summary()
 
 
