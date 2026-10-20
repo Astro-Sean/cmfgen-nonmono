@@ -183,6 +183,48 @@ def test_pop_precondition_gate():
     )
 
 
+def test_bulk_exit_residual_floor():
+    check(
+        "KN_RAY_BULK_TOL defaults to 2.5E-2 in the fg DATA block",
+        "DATA KN_RAY_BULK_TOL /2.5E-02_LDP/" in FG,
+    )
+    check(
+        "KN_RAY_BULK_TOL VADAT key is read and passed to the setter",
+        "'KN_RAY_BULK_TOL'" in RD_CONTROL
+        and "KN_RAY_BULK_TOL_V=2.5E-2_LDP" in RD_CONTROL
+        and re.search(
+            r"CALL SET_FG_KN_OPTS\(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,\s*\n"
+            r"\s*\d?\s*INEXT_RELAX_V,KN_RAY_BULK_TOL_V\)",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "both bulk exits carry the residual floor",
+        FG.count("KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.") == 2
+        and FG.count("RES .LE. KN_RAY_BULK_TOL))THEN") == 2,
+    )
+    check(
+        "commit gate accepts floored bulk exits via WRITE_STORE",
+        re.search(
+            r"IXIT_M \.EQ\. 2 \.AND\. KN_RAY_BULK_TOL \.GT\. 0\.0_LDP"
+            r" \.AND\.[\s\S]*?RES_M \.LE\. KN_RAY_BULK_TOL",
+            FG,
+        )
+        is not None
+        and re.search(
+            r"IXIT_P \.EQ\. 2 \.AND\. KN_RAY_BULK_TOL \.GT\. 0\.0_LDP"
+            r" \.AND\.[\s\S]*?RES_P \.LE\. KN_RAY_BULK_TOL",
+            FG,
+        )
+        is not None,
+    )
+    check(
+        "exit census prints the bulk floor",
+        "'  floor=',KN_RAY_BULK_TOL" in FG,
+    )
+
+
 def test_march_sign_flip_accumulator_is_signed():
     march = section(FG, "SUBROUTINE MARCH", "SUBROUTINE WRITE_STORE")
     check(
@@ -320,6 +362,7 @@ if __name__ == "__main__":
     test_fg_trial_excluded_from_population_hold()
     test_rel_damp_window_default_and_raw_release_counter()
     test_pop_precondition_gate()
+    test_bulk_exit_residual_floor()
     test_march_sign_flip_accumulator_is_signed()
     test_ordered_boundary_rows_skip_out_of_window_frequencies()
     test_march_only_called_from_sweep_fld()
