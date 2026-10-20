@@ -60,6 +60,7 @@
 	REAL(KIND=LDP) H_ON_J(ND)
 	REAL(KIND=LDP) RSQHNU(ND)
 	REAL(KIND=LDP) dlnJdlnR(ND)
+	REAL(KIND=LDP) SIGMA_GREY(ND)
 !
 	REAL(KIND=LDP) T1,T2
 	REAL(KIND=LDP) HBC_J
@@ -91,6 +92,30 @@
 	WRITE(LUER,'(/,A,3I6)')' Begin COMP_GREY_V4',ND,NC,NP
 	PI=4.0_LDP*ATAN(1.0_LDP)
 	CHI(1:ND)=ROSSMEAN(1:ND)
+!
+! edited by Devin, 05-Nov-2026 (nonmono gap item 4): the grey
+! solvers below build monotonic-expansion moment structures whose
+! 1+sigma*g terms sign-flip or divide near a pole when sigma < -1.
+! The grey path is a T-revision diagnostic only -- it never feeds
+! STEQ, rate integrals, or the KNOP chi_hat transfer -- so a local
+! clamp of the work copy is safe.  SIGMA and SIGMA_TRUE stay
+! untouched.  Stock runs are bit-identical (flags off -> plain
+! copy, no message).
+!
+	SIGMA_GREY(1:ND)=SIGMA(1:ND)
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	  J=0
+	  DO I=1,ND
+	    IF(SIGMA_GREY(I) .LT. -0.999_LDP)THEN
+	      SIGMA_GREY(I)=-0.999_LDP
+	      J=J+1
+	    END IF
+	  END DO
+	  IF(J .GT. 0 .AND. CONV_DIAG_LVL .GE. 1)THEN
+	    WRITE(LUER,*)'COMP_GREY_V4: clamped',J,'of',ND,
+	1   ' grey-work sigma values to >= -0.999 (nonmono grey-T)'
+	  END IF
+	END IF
 !
 ! Compute the Rosseland optical depth scale. J is used to indicate the second
 ! depth used to compute exponential or power law slope.
@@ -164,7 +189,7 @@
 ! order the effect of the velocity field.
 !
 	   T2=1.0E-05_LDP		!Accuracy to converge f
-	   CALL JGREY_WITH_FVT(RJ,SOB,CHI,R,V,SIGMA,
+	   CALL JGREY_WITH_FVT(RJ,SOB,CHI,R,V,SIGMA_GREY,
 	1           P,AQW,HMIDQW,KQW,NMIDQW,
 	1           LUM,METHOD,DIF,IC,T2,ND,NC,NP)
 !
@@ -198,14 +223,14 @@
 	  END IF
 	  T1=1.0_LDP; HBC_CMF=0.0_LDP; INBC=0.0D0
 	  DO WHILE(T1 .GT. 1.0E-05_LDP)
-            CALL MOM_JREL_GREY_V2(XM,CHI,CHI,V,SIGMA,R,
+            CALL MOM_JREL_GREY_V2(XM,CHI,CHI,V,SIGMA_GREY,R,
 	1              H_ON_J,FEDD,dlnJdlnR,
 	1              RJ,RSQHNU,HBC_CMF,INBC,
 	1              LOCAL_DIF,DBB,IC,METHOD,
 	1              L_TRUE,L_TRUE,NEW_FREQ,COMPUTED,ND)
 	    IF(.NOT. COMPUTED)RETURN
 !
-	    CALL FGREY_NOREL_V1(FEDD,H_ON_J,RJ,CHI,R,V,SIGMA,
+	    CALL FGREY_NOREL_V1(FEDD,H_ON_J,RJ,CHI,R,V,SIGMA_GREY,
 	1              P,AQW,HMIDQW,KQW,LUM,IC,METHOD,
 	1              HBC_CMF,INBC,LOCAL_DIF,ND,NC,NP)
 	    T1=0.0_LDP
@@ -235,7 +260,7 @@
 	   WRITE(LUER,*)'Calling JGREY_HUB_DDT_V5'
 	   WRITE(LUWARN,*)'Calling JGREY_HUB_DDT_V5'
 	   T2=1.0E-06_LDP		!Accuracy to converge f
-	   CALL JGREY_HUB_DDT_V5(RJ,SOB,CHI,PLANCKMEAN,R,CLUMP_FAC,V,SIGMA,POPS,
+	   CALL JGREY_HUB_DDT_V5(RJ,SOB,CHI,PLANCKMEAN,R,CLUMP_FAC,V,SIGMA_GREY,POPS,
 	1              P,AQW,HMIDQW,KQW,LUM,METHOD,DIF,IC,
 	1              T2,INCL_DJDT_TERMS,TIME_SEQ_NO,COMPUTED,ND,NC,NP,NT)
 	   IF(.NOT. COMPUTED)RETURN

@@ -55,6 +55,7 @@
 	REAL(KIND=LDP) H_ON_J(ND)
 	REAL(KIND=LDP) RSQHNU(ND)
 	REAL(KIND=LDP) dlnJdlnR(ND)
+	REAL(KIND=LDP) SIGMA_GREY(ND)
 !
 	REAL(KIND=LDP) T1,T2
 	REAL(KIND=LDP) HBC_J
@@ -79,6 +80,30 @@
 !
 	PI=4.0_LDP*ATAN(1.0_LDP)
 	CHI(1:ND)=ROSSMEAN(1:ND)
+!
+! edited by Devin, 05-Nov-2026 (nonmono gap item 4): the grey
+! solvers below build monotonic-expansion moment structures whose
+! 1+sigma*g terms sign-flip or divide near a pole when sigma < -1.
+! The grey path is a T-revision diagnostic only -- it never feeds
+! STEQ, rate integrals, or the KNOP chi_hat transfer -- so a local
+! clamp of the work copy is safe.  SIGMA and SIGMA_TRUE stay
+! untouched.  Stock runs are bit-identical (flags off -> plain
+! copy, no message).
+!
+	SIGMA_GREY(1:ND)=SIGMA(1:ND)
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	  J=0
+	  DO I=1,ND
+	    IF(SIGMA_GREY(I) .LT. -0.999_LDP)THEN
+	      SIGMA_GREY(I)=-0.999_LDP
+	      J=J+1
+	    END IF
+	  END DO
+	  IF(J .GT. 0 .AND. CONV_DIAG_LVL .GE. 1)THEN
+	    WRITE(LUER,*)'COMP_GREY_V2: clamped',J,'of',ND,
+	1   ' grey-work sigma values to >= -0.999 (nonmono grey-T)'
+	  END IF
+	END IF
 !
 ! Compute the Rosseland optical depth scale.
 !
@@ -151,7 +176,7 @@
 ! order the effect of the velocity field.
 !
 	   T2=1.0E-05_LDP		!Accuracy to converge f
-	   CALL JGREY_WITH_FVT(RJ,SOB,CHI,R,V,SIGMA,
+	   CALL JGREY_WITH_FVT(RJ,SOB,CHI,R,V,SIGMA_GREY,
 	1           P,AQW,HMIDQW,KQW,NMIDQW,
 	1           LUM,METHOD,DIF,IC,T2,ND,NC,NP)
 !
@@ -174,13 +199,13 @@
           DBB=3.0_LDP*HFLUX*CHI(ND)
 	  T1=1.0_LDP
 	  DO WHILE(T1 .GT. 1.0E-05_LDP)
-            CALL MOM_JREL_GREY_V1(XM,CHI,CHI,V,SIGMA,R,
+            CALL MOM_JREL_GREY_V1(XM,CHI,CHI,V,SIGMA_GREY,R,
 	1              H_ON_J,FEDD,dlnJdlnR,
 	1              RJ,RSQHNU,HBC_CMF,INBC,
 	1              DIF,DBB,IC,METHOD,
 	1              L_TRUE,L_TRUE,NEW_FREQ,ND)
 !
-	    CALL FGREY_NOREL_V1(FEDD,H_ON_J,RJ,CHI,R,V,SIGMA,
+	    CALL FGREY_NOREL_V1(FEDD,H_ON_J,RJ,CHI,R,V,SIGMA_GREY,
 	1              P,AQW,HMIDQW,KQW,LUM,IC,METHOD,
 	1              HBC_CMF,INBC,DIF,ND,NC,NP)
 	    T1=0.0_LDP
@@ -198,7 +223,7 @@
 !
 	   WRITE(6,*)'Calling JGREY_HUB_DDT_V2'
 	   T2=1.0E-06_LDP		!Accuracy to converge f
-	   CALL JGREY_HUB_DDT_V2(RJ,SOB,CHI,R,V,SIGMA,POPS,
+	   CALL JGREY_HUB_DDT_V2(RJ,SOB,CHI,R,V,SIGMA_GREY,POPS,
 	1              P,AQW,HMIDQW,KQW,LUM,METHOD,DIF,IC,
 	1              T2,INCL_DJDT_TERMS,TIME_SEQ_NO,ND,NC,NP,NT)
 !
