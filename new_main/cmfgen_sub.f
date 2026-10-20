@@ -1465,7 +1465,7 @@
 	WRITE(LUER,'(X,80A)')('*',I=1,80)
 	WRITE(LUER,'(X,80A)')('*',I=1,80)
 	WRITE(LUER,'(A)')' '
-	WRITE(LUER,'(A,I4)')' Current great iteration count is',MAIN_COUNTER
+	WRITE(LUER,'(A,I8)')' Current great iteration count is',MAIN_COUNTER
 	WRITE(LUER,'(A)')' '
 	WRITE(LUER,'(A)')
 	1  ' ----------------------------- ITERATION SETUP ------------------------------'

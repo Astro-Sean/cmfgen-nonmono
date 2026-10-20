@@ -2964,11 +2964,13 @@
 	    IF(GLOBAL_LINE_SWITCH(1:3) .NE. 'SOB' .AND.
 	1       GLOBAL_LINE_SWITCH(1:4) .NE. 'NONE')THEN
 	      GLOBAL_LINE_SWITCH='SOB'
-	      WRITE(LUER,'(A)')' SOB auto-set: GLOBAL_LINE=SOB'
+	      WRITE(LUER,'(A)')' SOB auto-set: using the SOB line'//
+	1     ' transfer (GLOBAL_LINE=SOB)'
 	    END IF
 	    IF(.NOT. USE_LAM_ES)THEN
 	      USE_LAM_ES=.TRUE.
-	      WRITE(LUER,'(A)')' SOB auto-set: USE_LAM_ES=T'
+	      WRITE(LUER,'(A)')' SOB auto-set: lambda iteration'//
+	1     ' with ray solutions enabled (USE_LAM_ES=T)'
 	    END IF
 	    WRITE(LUER,'(A)')
 	1   ' ============================================================'

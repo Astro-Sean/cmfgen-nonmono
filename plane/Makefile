@@ -167,7 +167,7 @@ $(LIB)(mom_j_cmf_v8.o) : mom_j_cmf_v8.f $(LIB)(mod_ray_mom_store.o)
 	$(F90) -c $(OPTION) mom_j_cmf_v8.f
 	ar $(AR_OPTION) $(LIB) mom_j_cmf_v8.o
 
-$(LIB)(mom_j_cmf_nonmono_v1.o) : mom_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o)
+$(LIB)(mom_j_cmf_nonmono_v1.o) : mom_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)knop_status_mod.mod
 	$(F90) -c $(OPTION) mom_j_cmf_nonmono_v1.f
 	ar $(AR_OPTION) $(LIB) mom_j_cmf_nonmono_v1.o
 

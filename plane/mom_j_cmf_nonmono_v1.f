@@ -3844,12 +3844,14 @@
 	SUBROUTINE DUMP_MOM_JNEXT_GS(NITSF,R,V,SIGMA,ND,LU)
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1
+	USE KNOP_STATUS_MOD
 	USE IFPORT
 	IMPLICIT NONE
 	INTEGER NITSF,ND,LU
 	REAL(KIND=LDP) R(ND),V(ND),SIGMA(ND)
 	INTEGER IOS,I,ND_NM_F,LUER,ERROR_LU
 	CHARACTER(LEN=7) SW_ST,SV_ST
+	CHARACTER(LEN=20) RF_DIR_W
 	INTEGER, PARAMETER :: MAGIC=20260916, VER=4
 	LOGICAL REN_OK
 	EXTERNAL ERROR_LU
@@ -3885,48 +3887,75 @@
 	1   MOM_TB_NONPOS .GT. 0)SV_ST='[BAD]  '
 !
 	WRITE(LUER,'(/,A)')' ----------------------- MOM_J_CMF_NONMONO_V1: GS sweep ------------------------'
-	WRITE(LUER,'(A)')'   cols: d = max rel. change in lagged'//
-	1    ' J_NEXT; counts are cells this sweep'
-	WRITE(LUER,'(4X,A10,2X,ES10.3,1X,A,I10,A,I10,1X,A,I10,2X,A)')
-	1    'drift',MOM_GS_MAXCHG,'n50=',MOM_GS_NBAD50,'/',
-	2    MOM_GS_NTOT,'n5=',MOM_GS_NBAD5,SW_ST
-	WRITE(LUER,'(4X,A10,1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I10,2X,A)')
-	1    'repairs','negJ=',MOM_NEGJ_LRG,'tiny=',MOM_N_NEGJ_T,
-	2    'quar=',MOM_GS_NQUAR,'pquar=',MOM_GS_NPQUAR,
-	3    'significant/roundoff negJ; quarantined cells'
-	WRITE(LUER,'(4X,A10,1X,A,I6,1X,A,I10,1X,A,I10,1X,A,I10,2X,A)')
-	1    'solver','DGTSV=',MOM_N_DGTSV,'nonfinite=',
-	2    MOM_N_NONF,'runaway=',MOM_N_RUNAWAY,'TB<=0=',
-	3    MOM_TB_NONPOS,SV_ST
-	WRITE(LUER,'(4X,A10,1X,A,I10,1X,A,I10,1X,A,ES10.3,1X,A,I10)')
-	1    'structure','nonMM=',MOM_NONMM_CNT,'negEPS=',
-	2    MOM_EPS_FWD,'max|EPS|/HU=',MOM_EPS_RAT,'eps_cap=',
-	3    MOM_EPS_CAP_SW
-	WRITE(LUER,'(4X,A10,1X,A,I10,1X,A,ES10.3)')
-	1    'lagbnd','scaled=',MOM_LAGB_CNT,'mins=',MOM_LAGB_MIN
-	WRITE(LUER,'(4X,A10,1X,A,ES10.3,A,I5,A,I5,A,1X,A,ES10.3,A,I5,A,I5,A)')
-	1    'matrix','minDR(s)=',MOM_MIN_DR,' at(',MOM_MIN_DR_I,',',
-	2    MOM_MIN_DR_L,')','minDR|a|=',MOM_MIN_DRA,' at(',
+!
+! edited by Devin, 21-Oct-2026: the sweep table is written as
+! labelled sentences; the short-key legend is gone because every
+! number now names itself.  Counts and tags are unchanged.
+!
+	WRITE(LUER,'(4X,A10,2X,A,ES10.3,3(A,I10),A,1X,A)')
+	1    'drift','lagged J_NEXT drift ',MOM_GS_MAXCHG,' (',
+	2    MOM_GS_NBAD5,' cells above 5%, ',MOM_GS_NBAD50,
+	3    ' above 50% of ',MOM_GS_NTOT,' total) ',SW_ST
+	WRITE(LUER,'(4X,A10,2X,I10,3(A,I10),A)')
+	1    'repairs',MOM_NEGJ_LRG,
+	2    ' significant negative J_NEXT cells, ',MOM_N_NEGJ_T,
+	3    ' round-off negatives, ',MOM_GS_NQUAR,
+	4    ' quarantined, ',MOM_GS_NPQUAR,
+	5    ' physically quarantined'
+	WRITE(LUER,'(4X,A10,2X,I10,3(A,I10),A,2X,A)')
+	1    'solver',MOM_N_DGTSV,
+	2    ' solver failures, ',MOM_N_NONF,' non-finite results, ',
+	3    MOM_N_RUNAWAY,' runaway cells, ',MOM_TB_NONPOS,
+	4    ' non-positive transmission coefficients ',SV_ST
+	WRITE(LUER,'(4X,A10,2X,I10,A,I10,A,ES10.3,A,I10)')
+	1    'structure',MOM_NONMM_CNT,
+	2    ' non-monotonic rows; ',MOM_EPS_FWD,
+	3    ' forward-epsilon midpoints; largest |EPS|/HU ',
+	4    MOM_EPS_RAT,'; epsilon-cap hits ',MOM_EPS_CAP_SW
+	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3)')
+	1    'lagbnd',MOM_LAGB_CNT,' boundary-lag cells,'//
+	2    ' smallest lag ',MOM_LAGB_MIN
+	WRITE(LUER,'(4X,A10,2X,2(A,ES10.3,A,I5,A,I5,A))')
+	1    'matrix','smallest DR ',MOM_MIN_DR,' at (',MOM_MIN_DR_I,',',
+	2    MOM_MIN_DR_L,'); smallest DR|a| ',MOM_MIN_DRA,' at (',
 	3    MOM_MIN_DRA_I,',',MOM_MIN_DRA_L,')'
-	WRITE(LUER,'(4X,A10,1X,A,ES10.3,A,I5,A,I5,A,1X,A,ES10.3)')
-	1    'eq resid','max=',MOM_EQ_RES,' at(',MOM_EQ_RES_I,',',
-	2    MOM_EQ_RES_L,')','max ESEC/CHI-1=',MOM_MAX_COH
-	WRITE(LUER,'(4X,A10,1X,A,ES10.3,1X,A,ES10.3,1X,A,I10,1X,A,I10)')
-	1    'params','max|GAM|=',MOM_MAX_GAM,'max|sigT|=',
-	2    MOM_MAX_SIGT,'HBC floors=',MOM_BND_HBC_FL,
-	3    'nsigT>1e4=',MOM_N_SIGBIG
-	WRITE(LUER,'(4X,A10,1X,A,I6,A,I6,A,1X,A,I10)')
-	1    'misc','argmax(d,f)=(',MOM_GS_ARGI,',',MOM_GS_ARGL,')',
-	2    'NCF=',MOM_GS_NCF
-	WRITE(LUER,'(4X,A10,1X,A,A4,1X,A,ES10.3,1X,A,L1,1X,A,L1,'//
-	1    '1X,A,I10)')
-	2    'ordering','dir=',MOM_RF_DIR,'cmp_frac=',MOM_SW_FCMP,
-	3    'dom_cmp=',MOM_DOM_CMP,'dom_exp=',MOM_DOM_EXP,
-	4    'nsupp=',MOM_SW_NSUPP
+	WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,I5,A,I5,A,A,ES10.3)')
+	1    'eq resid','largest equation residual ',MOM_EQ_RES,' at (',
+	2    MOM_EQ_RES_I,',',MOM_EQ_RES_L,'); largest ESEC/CHI-1 ',
+	3    MOM_MAX_COH
+	WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,ES10.3,A,I10,A,I10)')
+	1    'params','largest |GAM| ',MOM_MAX_GAM,
+	2    '; largest |sigT| ',MOM_MAX_SIGT,'; ',MOM_BND_HBC_FL,
+	3    ' boundary HBC floors; ',MOM_N_SIGBIG,
+	4    ' cells with sigT>1E4'
+	WRITE(LUER,'(4X,A10,2X,A,I6,A,I6,A,I10)')
+	1    'misc','worst cell at depth ',MOM_GS_ARGI,
+	2    ', frequency ',MOM_GS_ARGL,'; frequency slots ',
+	3    MOM_GS_NCF
+	WRITE(LUER,'(4X,A10,2X,A)')'ordering',
+	1    TRIM(MOM_DIRECTION_SENTENCE(MOM_DOM_CMP,MOM_DOM_EXP))
+!
+! The requested schedule is a 4-char VADAT-style code; print it
+! with its direction name so the row reads without a legend.
+!
+	IF(MOM_RF_DIR .EQ. 'DESC')THEN
+	  RF_DIR_W='compressing first'
+	ELSE IF(MOM_RF_DIR .EQ. 'ASC ')THEN
+	  RF_DIR_W='expanding first'
+	ELSE IF(MOM_RF_DIR .EQ. 'ALT ')THEN
+	  RF_DIR_W='alternating'
+	ELSE
+	  RF_DIR_W='auto'
+	END IF
+	WRITE(LUER,'(4X,A10,2X,A,A4,A,A,A,ES10.3,A,I10,A)')
+	1    '','requested schedule ',MOM_RF_DIR,' (',
+	2    TRIM(RF_DIR_W),'); compressing share ',MOM_SW_FCMP,'; ',
+	3    MOM_SW_NSUPP,' rows suppressed (owned by the other'//
+	4    ' direction)'
 	IF(MOM_RF_RAN)THEN
-	  WRITE(LUER,'(4X,A10,1X,A,L2,1X,A,ES10.3,1X,A,I10,1X,A,I10)')
-	1    'refresh','conv=',MOM_RF_CONV,'delta=',MOM_RF_DCHG,
-	2    'n5=',MOM_RF_N5,'n50=',MOM_RF_N50
+	  WRITE(LUER,'(4X,A10,2X,A)')
+	1    'refresh',TRIM(MOM_REFRESH_SENTENCE(MOM_RF_CONV,
+	2    MOM_RF_DCHG,MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
 	END IF
 	WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
 !
@@ -3970,6 +3999,7 @@
 	SUBROUTINE RESTORE_MOM_JNEXT_GS(R,V,ND)
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1
+	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 	INTEGER ND
 	REAL(KIND=LDP) R(ND),V(ND)
@@ -3996,18 +4026,21 @@
 ! accepted on a coincidental tag/dimension match.
 !
 	IF(MOM_GS_TAG_EXP .LE. 0)THEN
-	  WRITE(LUER,'(A)')'  cold start (NITSF<=0): no GS restore'
+	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.FALSE.,
+	1    .FALSE.,'',0,0))
 	  WRITE(LUER,'(A)')'  FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)'
 	  RETURN
 	END IF
 !
 	INQUIRE(FILE='MOMJNXT_GS',EXIST=FILE_THERE)
 	IF(.NOT. FILE_THERE)THEN
-	  WRITE(LUER,'(A)')'  J_NEXT checkpoint present: NO'
+	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.FALSE.,
+	1    .FALSE.,'',0,0))
 	  WRITE(LUER,'(A)')'  FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)'
 	  RETURN
 	END IF
-	WRITE(LUER,'(A)')'  J_NEXT checkpoint present: YES'
+	WRITE(LUER,'(A)')'  J_NEXT checkpoint: file present;'//
+	1    ' validating tag and grid.'
 !
 	OPEN(UNIT=292,FILE='MOMJNXT_GS',FORM='UNFORMATTED',
 	1     STATUS='OLD',ACTION='READ',IOSTAT=IOS)
@@ -4023,20 +4056,23 @@
 	READ(292,IOSTAT=IOS)R1_F,RND_F,V1_F,VND_F
 	IF(IOS .NE. 0)GOTO 900
 !
-	WRITE(LUER,'(A,I8)')'  GS tag (checkpoint iter): ',TAG
-	WRITE(LUER,'(A,I8)')'  expected tag (NITSF):     ',MOM_GS_TAG_EXP
+	WRITE(LUER,'(A,I8)')'  checkpoint iteration tag: ',TAG
+	WRITE(LUER,'(A,I8)')'  expected tag (this run):  ',MOM_GS_TAG_EXP
 	IF(TAG .NE. MOM_GS_TAG_EXP)THEN
-	  WRITE(LUER,'(A)')'  J_NEXT valid: NO (stale/foreign checkpoint)'
+	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .FALSE.,'stale',TAG,MOM_GS_TAG_EXP))
 	  GOTO 800
 	END IF
 	IF(ND_NM_F .NE. SIZE(J_NEXT_FRQ,1) .OR.
 	1   NCF_F .NE. SIZE(J_NEXT_FRQ,2) .OR. ND_F .NE. ND)THEN
-	  WRITE(LUER,'(A)')'  J_NEXT valid: NO (dimension mismatch)'
+	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .FALSE.,'dims',0,0))
 	  GOTO 800
 	END IF
 	IF(R1_F .NE. R(1) .OR. RND_F .NE. R(ND) .OR.
 	1   V1_F .NE. V(1) .OR. VND_F .NE. V(ND))THEN
-	  WRITE(LUER,'(A)')'  J_NEXT valid: NO (grid fingerprint mismatch)'
+	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .FALSE.,'dims',0,0))
 	  GOTO 800
 	END IF
 !
@@ -4087,7 +4123,8 @@
 !
 	MOM_J_GS_OK=.TRUE.
 	J_NEXT_VALID=.TRUE.
-	WRITE(LUER,'(A)')'  J_NEXT valid: YES'
+	WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .TRUE.,'',TAG,0))
 	WRITE(LUER,'(A,I8,A)')
 	1 '  RESTORED COMPLETE J_NEXT GENERATION (tag=',TAG,')'
 	WRITE(LUER,'(A,ES10.3,A,I6)')
@@ -4096,13 +4133,16 @@
 	RETURN
 !
 900	CONTINUE
-	WRITE(LUER,'(A)')'  J_NEXT valid: NO (read/format failure)'
+	WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .FALSE.,'read',0,0))
 	GOTO 800
 810	CONTINUE
-	WRITE(LUER,'(A)')'  J_NEXT valid: NO (expanded-grid mismatch)'
+	WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .FALSE.,'dims',0,0))
 	GOTO 800
 820	CONTINUE
-	WRITE(LUER,'(A)')'  J_NEXT valid: NO (non-finite/negative data)'
+	WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.TRUE.,
+	1    .FALSE.,'data',0,0))
 800	CONTINUE
 	INQUIRE(UNIT=292,OPENED=FILE_THERE)
 	IF(FILE_THERE)CLOSE(292)
@@ -4601,6 +4641,7 @@
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1
 	USE MOD_RAY_MOM_STORE
+	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
 	INTEGER LUER,ERROR_LU
@@ -4647,6 +4688,7 @@
 	INTEGER IKONJ_SZ
 	LOGICAL BESTV_D(2),SKIP_D(2)
 	CHARACTER(LEN=7) RF_ST
+	CHARACTER(LEN=21) DIR_W
 !
 ! Latest RSQHNU per frequency.  Double precision is required: the
 ! runaway guard limits XM_NM to ~1E3 times the previous valid field,
@@ -4692,13 +4734,21 @@
 ! value so the diagnostic stays defined on every guard path.
 	IKONJ_SZ=-1
 	IF(ALLOCATED(K_ON_J))IKONJ_SZ=SIZE(K_ON_J)
-	WRITE(LUER,'(A,4L2,2I8,L2,2I8)')
-	1    ' MOM_KNOP_REFRESH guard: RDY CMP CHISM JNXT | NDNM NDNMnow'//
-	2    ' | VALID KONJsz ND_NM=',
-	3    KN_M_READY,KN_M_ANYCMP,ALLOCATED(KN_M_CHISM),
-	4    ALLOCATED(J_NEXT_FRQ),KN_M_NDNM,ND_NM,
-	5    J_NEXT_VALID,
-	6    IKONJ_SZ,ND_NM
+	WRITE(LUER,'(6(A,A3),2(A,I8))')
+	1    ' Moment refresh guards: ready ',
+	2    MERGE('yes','no ',KN_M_READY),
+	3    '; compressing cells present ',
+	4    MERGE('yes','no ',KN_M_ANYCMP),
+	5    '; CHI store allocated ',
+	6    MERGE('yes','no ',ALLOCATED(KN_M_CHISM)),
+	7    '; J_NEXT store allocated ',
+	8    MERGE('yes','no ',ALLOCATED(J_NEXT_FRQ)),
+	9    '; grids match ',
+	1    MERGE('yes','no ',KN_M_NDNM .EQ. ND_NM),
+	2    '; J_NEXT valid ',
+	3    MERGE('yes','no ',J_NEXT_VALID),
+	4    '; K_ON_J size ',IKONJ_SZ,
+	5    '; ND_NM ',ND_NM
 	END IF
 	IF(.NOT. KN_M_READY)RETURN
 	IF(.NOT. KN_M_ANYCMP)RETURN
@@ -4760,8 +4810,9 @@
 	    END DO
 	  END DO
 	  WRITE(LUER,'(A,I10,A,I10,A,I8,A,I8)')
-	1    ' MOM_KNOP_REFRESH store scan: bad ETA=',IT1,' bad CHI=',J,
-	2    '  NDSM=',KN_M_NDSM,'  NCF=',KN_M_NCF
+	1    ' MOM_KNOP_REFRESH store scan: ',IT1,' non-positive'//
+	2    ' ETA entries, ',J,' non-positive CHI entries;'//
+	3    ' smoothed depths ',KN_M_NDSM,', frequencies ',KN_M_NCF
 	  KN_M_RF_WARNED=.TRUE.
 	END IF
 !
@@ -4945,9 +4996,9 @@
 	    END IF
 	  END DO
 	END DO
-	IF(NDMP+NACC .GT. 0_8)WRITE(LUER,'(A,2I12)')
-	1   ' MOM_KNOP_REFRESH: healed non-finite J/H store entries',
-	2   NDMP,NACC
+	IF(NDMP+NACC .GT. 0_8)WRITE(LUER,'(A,I12,A,I12,A)')
+	1   ' MOM_KNOP_REFRESH: healed ',NDMP,' non-finite J and ',
+	2   NACC,' non-finite H store entries'
 	JNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 	HNEXT_SAVE(1:ND_NM,1:KN_M_NCF)=H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 !
@@ -4985,11 +5036,6 @@
 	WRITE(LUER,'(/,A)')' ------------------------------ MOM_KNOP_REFRESH -------------------------------'
 	WRITE(LUER,'(A)')'  lagged-field re-solve, direction-ordered'//
 	1    ' frequency passes'
-	WRITE(LUER,'(A)')'   per pass: drift = max rel. change'//
-	1    ' (+ same-direction ratio); n5/n50 = cells'//
-	2    ' >5%/>50%; argmax = nu,R,V,sigT,GAM,Q at'//
-	3    ' the worst cell; match/off = upwind reads'//
-	4    ' frequency-matched / dropped off-grid'
 !
 ! Report the resolved pass order.  On a dominant grid the minority
 ! direction is a pure Jacobi step that re-injects a full pass of
@@ -4997,16 +5043,9 @@
 ! physically-guided ordering of Knop Paper II Sect. 3.2.
 !
 	FCMP=MOM_SW_FCMP
-	IF(MOM_DOM_CMP)THEN
-	  WRITE(LUER,'(A,F6.3,A)')'   compressing rows=',FCMP,
-	1    ' -- pass order DESC (dominant-direction only)'
-	ELSE IF(MOM_DOM_EXP)THEN
-	  WRITE(LUER,'(A,F6.3,A)')'   compressing rows=',FCMP,
-	1    ' -- pass order ASC (dominant-direction only)'
-	ELSE
-	  WRITE(LUER,'(A,F6.3,A)')'   compressing rows=',FCMP,
-	1    ' -- pass order alternating'
-	END IF
+	WRITE(LUER,'(2A)')'   ',
+	1    TRIM(MOM_DIRECTION_SENTENCE(MOM_DOM_CMP,MOM_DOM_EXP))
+	WRITE(LUER,'(A,F6.3)')'   compressing-row share ',FCMP
 	DO IPASS=1,KN_M_MAXPASS
 	  PASS_CHG=0.0_LDP
 	  PASS_CAP=0
@@ -5252,7 +5291,7 @@
 	    ACT_CUR(1:KN_M_NCF)=ACT_NEW(1:KN_M_NCF)
 	    NACT=COUNT(ACT_CUR(1:KN_M_NCF))
 	    IF(NACT .LT. KN_M_NCF)WRITE(LUER,'(A,I8,A,I8)')
-	1      '    active freqs=',NACT,' of',KN_M_NCF
+	1      '    active frequencies ',NACT,' of',KN_M_NCF
 	  END IF
 !
 	  MOM_GS_MAXCHG=PASS_CHG
@@ -5316,10 +5355,13 @@
 	    BEST_CHG_D(IDIR)=PASS_CHG
 	    BEST_N5_D(IDIR)=PASS_N5;  BEST_N50_D(IDIR)=PASS_N50
 	    BESTV_D(IDIR)=.TRUE.
-	    WRITE(LUER,'(A,I4,3A,I12,A,I12,A,ES12.4)')
-	1      '    best pass updated: pass',IPASS,'  dir=',
-	2      MERGE('D','A',IDIR.EQ.2),'  n50=',BEST_N50_D(IDIR),
-	3      '  n5=',BEST_N5_D(IDIR),'  residual=',BEST_CHG_D(IDIR)
+	    DIR_W='expanding direction'
+	    IF(IDIR .EQ. 2)DIR_W='compressing direction'
+	    WRITE(LUER,'(A,I4,A,A,A,I12,A,I12,A,ES12.4)')
+	1      '    best pass updated: pass',IPASS,' (',
+	2      TRIM(DIR_W),'); ',BEST_N50_D(IDIR),
+	3      ' cells above 50%, ',BEST_N5_D(IDIR),' above 5%;'//
+	4      ' residual ',BEST_CHG_D(IDIR)
 	  END IF
 	  BEST_VALID=.FALSE.
 	  IF(BESTV_D(1) .OR. BESTV_D(2))BEST_VALID=.TRUE.
@@ -5407,7 +5449,7 @@
 	        END DO
 	      END DO
 	      IF(NDMP .GT. 0_8)WRITE(LUER,'(A,I12)')
-	1        '    newly damped this pass=',NDMP
+	1        '    cells newly damped this pass ',NDMP
 	    END IF
 !
 ! Anderson acceleration on the composite map at even pass boundaries.
@@ -5433,8 +5475,9 @@
 	      IF(DBLE(NDMP) .GT. MOM_AA_DMP_FRAC*
 	1        DBLE(ND_NM)*DBLE(KN_M_NCF))THEN
 	        NHIST_AA=0
-	        WRITE(LUER,'(A,I12)')
-	1          '    AA history restarted (damped=',NDMP
+	        WRITE(LUER,'(A,I12,A)')
+	1          '    AA history restarted (',NDMP,
+	2          ' cells re-damped this pass)'
 	      END IF
 	      DO JJ=MOM_AA_M+1,2,-1
 	        IF(JJ-1 .LE. NHIST_AA)THEN
@@ -5527,8 +5570,8 @@
 	          INFO_AA=-999
 	          MOM_AA_SKIP=MOM_AA_SKIP+1
 	          WRITE(LUER,'(A,I12)')
-	1            '    AA skipped -- affine subset empty, excl=',
-	2            NAA_SKIP
+	1            '    AA skipped - affine subset empty, '//
+	2            'cells excluded ',NAA_SKIP
 	        ELSE
 	          CALL DGESV(MP_AA,1,WGRM,MOM_AA_M,IPIV_AA,WBR,MOM_AA_M,
 	1            INFO_AA)
@@ -5568,8 +5611,9 @@
 	            MOM_AA_SKIP=MOM_AA_SKIP+1
 	            WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1            '    AA m=',MP_AA,'  ||f||=',FNRM,
-	2            '  ||corr||=',DNRM,'  skipped (>||f||) excl=',
-	3            NAA_SKIP
+	2            '  ||corr||=',DNRM,
+	3            '  skipped (correction exceeds ||f||),'//
+	4            ' cells excluded ',NAA_SKIP
 	          ELSE
 	            SC=1.0_LDP
 	          DO L=1,KN_M_NCF
@@ -5618,13 +5662,14 @@
 	          MOM_AA_APP=MOM_AA_APP+1
 	          WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1            '    AA m=',MP_AA,'  ||f||=',FNRM,
-	2            '  ||corr||=',DNRM*SC,'  excl=',NAA_SKIP
+	2            '  ||corr||=',DNRM*SC,'  cells excluded ',
+	3            NAA_SKIP
 	          END IF
 	        ELSE
 	          MOM_AA_SNG=MOM_AA_SNG+1
 	          WRITE(LUER,'(A,I3,A,I2)')
 	1            '    AA solve failed (DGESV info=',INFO_AA,
-	2            ') -- raw map output kept'
+	2            ') - raw map output kept'
 	        END IF
 	      END IF
 	    END IF
@@ -5639,42 +5684,51 @@
 	  RATIO_M=-1.0_LDP
 	  IF(RES_PREV(IDIR) .GT. 0.0_LDP)
 	1  RATIO_M=PASS_CHG/RES_PREV(IDIR)
-	  WRITE(LUER,'(/,A,I3,3A)')' ------------- MOM refresh pass',IPASS,
-	1    '  dir=',MERGE('D','A',LDI.LT.0),
-	2    ' --------------------------------------'
-	  WRITE(LUER,'(4X,A11,2(1X,ES10.3),1X,A,I10,1X,A,I10)')
-	1    'drift',PASS_CHG,RATIO_M,'n5=',PASS_N5,'n50=',PASS_N50
-	  WRITE(LUER,'(4X,A11,1X,A,I5,A,I7,A,6(1X,ES10.3))')
-	1    'argmax(d,f)','(',PASS_ARGI,',',PASS_ARGL,')',
-	2    PASS_NU,PASS_R,PASS_V,PASS_SIGT,PASS_GAM,PASS_Q
-	  WRITE(LUER,'(4X,A11,1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I11,A,I10,'//
-	1    '1X,A,I6,1X,A,I6)')
-	2    'repairs','negJ=',PASS_NEG,'quar=',PASS_NQ,
-	3    'cap=',PASS_CAP,'match=',PASS_NMATCH,'/',PASS_NCMP,
-	4    'off=',PASS_NOFF,'nmax=',PASS_NMAX
-	  IF(MOM_EPS_CAP .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
-	1    'eps-limit','capped=',MOM_EPS_CAP
-	  IF(MOM_RF_NSUPP .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
-	1    'owned-skip','suppressed=',MOM_RF_NSUPP
-	  IF(PASS_NHUGE .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
-	1    'huge-drift','cells=',PASS_NHUGE
-	  IF(PASS_NRES .GT. 0_8)WRITE(LUER,'(4X,A11,1X,A,I10)')
-	1    'gam-floor','cells=',PASS_NRES
+	  DIR_W='expanding direction'
+	  IF(LDI .LT. 0)DIR_W='compressing direction'
+	  WRITE(LUER,'(/,A,I3,A,A,A)')
+	1    ' ------------- Moment refresh pass ',IPASS,' - ',
+	2    TRIM(DIR_W),' ----------------------------------'
+	  WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,ES10.3,A,I10,A,I10,A)')
+	1    'drift','largest change ',PASS_CHG,
+	2    '; same-direction contraction ratio ',RATIO_M,'; ',
+	3    PASS_N5,' cells above 5%, ',PASS_N50,' above 50%'
+	  WRITE(LUER,'(4X,A11,2X,A,I5,A,I7,A,6(A,ES10.3))')
+	1    'worst cell','at (depth ',PASS_ARGI,', frequency ',
+	2    PASS_ARGL,'):',' nu=',PASS_NU,' R=',PASS_R,' V=',
+	3    PASS_V,' sigT=',PASS_SIGT,' GAM=',PASS_GAM,
+	4    ' Q=',PASS_Q
+	  WRITE(LUER,'(4X,A11,2X,6(I10,A),I6)')
+	1    'repairs',PASS_NEG,' negative J_NEXT, ',PASS_NQ,
+	2    ' quarantined, ',PASS_CAP,' capped; ',PASS_NMATCH,
+	3    ' frequency matches of ',PASS_NCMP,'; ',PASS_NOFF,
+	4    ' off-grid reads; largest bin offset ',PASS_NMAX
+	  IF(MOM_EPS_CAP .GT. 0_8)WRITE(LUER,'(4X,A11,2X,A,I10,A)')
+	1    'eps-limit','epsilon limit reached in ',MOM_EPS_CAP,
+	2    ' cells'
+	  IF(MOM_RF_NSUPP .GT. 0_8)WRITE(LUER,'(4X,A11,2X,I10,A)')
+	1    'owned-skip',MOM_RF_NSUPP,
+	2    ' rows skipped (owned by the other direction)'
+	  IF(PASS_NHUGE .GT. 0_8)WRITE(LUER,'(4X,A11,2X,I10,A)')
+	1    'huge-drift',PASS_NHUGE,
+	2    ' cells exceeded the huge-drift limit'
+	  IF(PASS_NRES .GT. 0_8)WRITE(LUER,'(4X,A11,2X,I10,A)')
+	1    'gam-floor',PASS_NRES,' cells hit the GAM floor'
 	  IF(ALLOCATED(MOM_DAMP_NM))THEN
 	    NDMP=COUNT(MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF) .LT.
 	1      0.99_LDP*JNEXT_RELAX)
 	    IF(NDMP .GT. 0 .OR. NACC .GT. 0)WRITE(LUER,
-	1      '(4X,A11,1X,A,I10,1X,A,ES10.3,1X,A,I10)')
-	2      'damp/accel','damped=',NDMP,'min relax=',
-	3      MINVAL(MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF)),
-	4      'accel=',NACC
+	1      '(4X,A11,2X,I10,A,ES10.3,A,I10,A)')
+	2      'damp/accel',NDMP,
+	3      ' cells under-relaxed (minimum relaxation ',
+	4      MINVAL(MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF)),
+	5      '); acceleration applied to ',NACC,' cells'
 	  END IF
 	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
 	  IF(PASS_CHG .LT. KN_M_TOL)THEN
 	    CONVERGED=.TRUE.
-	    WRITE(LUER,'(A,I4,A,ES10.3,A)')
-	1      ' MOM_KNOP_REFRESH: converged at pass',IPASS,
-	2      '  residual=',PASS_CHG,'  [OK]'
+	    WRITE(LUER,'(2A)')' [OK]  ',TRIM(MOM_REFRESH_SENTENCE(
+	1      .TRUE.,PASS_CHG,0_8,0_8,'converged',IPASS,0.0_LDP))
 	    EXIT
 	  END IF
 !
@@ -5702,9 +5756,9 @@
 	5     PASS_NHUGE .LE. MAX(50_8,MOM_SW_NTOT/10000) .AND.
 	6     PASS_NQ .LE. MOM_SW_NTOT/10)THEN
 	    CONVERGED=.TRUE.
-	    WRITE(LUER,'(A,I4,A,I12,A)')
-	1      ' MOM_KNOP_REFRESH: bulk-converged at pass',IPASS,
-	2      '  cells>50%=',LAST_N50(1)+LAST_N50(2),'  [OK]'
+	    WRITE(LUER,'(2A)')' [OK]  ',TRIM(MOM_REFRESH_SENTENCE(
+	1      .TRUE.,PASS_CHG,0_8,LAST_N50(1)+LAST_N50(2),'bulk',
+	2      IPASS,0.0_LDP))
 	    EXIT
 	  END IF
 !
@@ -5716,9 +5770,8 @@
 !	  bulk-chosen pass.
 !
 	  IF(IPASS .GE. 3 .AND. PASS_CHG .GT. 1.0E+3_LDP*MIN_RES)THEN
-	    WRITE(LUER,'(A,I4,A,ES12.4,A,ES12.4,A)')
-	1      ' MOM_KNOP_REFRESH: diverging -- abort at pass',IPASS,
-	2      ', residual=',PASS_CHG,' vs min=',MIN_RES,'  [BAD]'
+	    WRITE(LUER,'(2A)')' [BAD]  ',TRIM(MOM_REFRESH_SENTENCE(
+	1      .FALSE.,PASS_CHG,0_8,0_8,'diverge',IPASS,MIN_RES))
 	    EXIT
 	  END IF
 !
@@ -5763,29 +5816,37 @@
 !	  direction has stalled.  [MOM_RF_OWNW]
 !
 	  IF(NSTALL_D(IDIR) .GE. 2)THEN
-	    IF(.NOT. SKIP_D(IDIR))WRITE(LUER,'(3A,I4,A)')
-	1      ' MOM_KNOP_REFRESH: direction stalled -- dropping dir=',
-	2      MERGE('D','A',IDIR.EQ.2),' after pass',IPASS,'  [WARN]'
+	    IF(.NOT. SKIP_D(IDIR))THEN
+	      IF(IDIR .EQ. 2)THEN
+	        WRITE(LUER,'(A,I4,A)')' [WARN] Compressing direction'//
+	1        ' stalled - dropping it after pass',IPASS,
+	2        '; the expanding direction continues.'
+	      ELSE
+	        WRITE(LUER,'(A,I4,A)')' [WARN] Expanding direction'//
+	1        ' stalled - dropping it after pass',IPASS,
+	2        '; the compressing direction continues.'
+	      END IF
+	    END IF
 	    SKIP_D(IDIR)=.TRUE.
 	  END IF
 	  IF(MOM_DOM_CMP)THEN
 	    IF(SKIP_D(2))THEN
-	      WRITE(LUER,'(A,I4,A,ES12.4,A)')
-	1        ' MOM_KNOP_REFRESH: stalled -- exit at pass',IPASS,
-	2        ', residual=',PASS_CHG,'  [WARN]'
+	      WRITE(LUER,'(2A)')' [WARN] ',
+	1        TRIM(MOM_REFRESH_SENTENCE(.FALSE.,PASS_CHG,0_8,0_8,
+	2        'stall',IPASS,0.0_LDP))
 	      EXIT
 	    END IF
 	  ELSE IF(MOM_DOM_EXP)THEN
 	    IF(SKIP_D(1))THEN
-	      WRITE(LUER,'(A,I4,A,ES12.4,A)')
-	1        ' MOM_KNOP_REFRESH: stalled -- exit at pass',IPASS,
-	2        ', residual=',PASS_CHG,'  [WARN]'
+	      WRITE(LUER,'(2A)')' [WARN] ',
+	1        TRIM(MOM_REFRESH_SENTENCE(.FALSE.,PASS_CHG,0_8,0_8,
+	2        'stall',IPASS,0.0_LDP))
 	      EXIT
 	    END IF
 	  ELSE IF(SKIP_D(1) .AND. SKIP_D(2))THEN
 	    WRITE(LUER,'(A,I4,A,ES12.4,A)')
-	1      ' MOM_KNOP_REFRESH: stalled -- exit at pass',IPASS,
-	2      ', residual=',PASS_CHG,'  [WARN]'
+	1      ' [WARN] Both directions stalled - stopping the'//
+	2      ' refresh at pass',IPASS,' (residual ',PASS_CHG,').'
 	    EXIT
 	  END IF
 	END DO
@@ -5830,24 +5891,27 @@
 	  IF(BEST_VALID .AND. .NOT. KEEP_BEST)THEN
 	    IF(BEST_N50 .GT. N50_SV)THEN
 	      WRITE(LUER,'(A,2I12,A,2I12,2A)')
-	1        ' MOM_KNOP_REFRESH: best-pass field rejected'//
-	2        ' (n50 regressed: n5,n50=',BEST_N5,BEST_N50,
-	3        ' vs sweep',N5_SV,N50_SV,')','  [WARN]'
+	1        ' MOM_KNOP_REFRESH: best-pass field rejected ('//
+	2        'above-50% count regressed: ',BEST_N5,' above 5%, ',
+	3        BEST_N50,' above 50% vs the sweep''s ',N5_SV,N50_SV,
+	4        ')','  [WARN]'
 	    ELSE IF(BEST_N5 .GT. N5_SV+N5_SV/2)THEN
 	      WRITE(LUER,'(A,2I12,A,2I12,2A)')
-	1        ' MOM_KNOP_REFRESH: best-pass field rejected'//
-	2        ' (n5 churn >1.5x: n5,n50=',BEST_N5,BEST_N50,
-	3        ' vs sweep',N5_SV,N50_SV,')','  [WARN]'
+	1        ' MOM_KNOP_REFRESH: best-pass field rejected ('//
+	2        'above-5% churn beyond 1.5x: ',BEST_N5,' above 5%, ',
+	3        BEST_N50,' above 50% vs the sweep''s ',N5_SV,N50_SV,
+	4        ')','  [WARN]'
 	    ELSE IF(BEST_N5 .GT. N5_SV)THEN
 	      WRITE(LUER,'(A,2I12,A,2I12,2A)')
-	1        ' MOM_KNOP_REFRESH: best-pass field rejected'//
-	2        ' (no bulk improvement: n5,n50=',BEST_N5,BEST_N50,
-	3        ' vs sweep',N5_SV,N50_SV,')','  [WARN]'
+	1        ' MOM_KNOP_REFRESH: best-pass field rejected (no'//
+	2        ' bulk improvement: ',BEST_N5,' above 5%, ',
+	3        BEST_N50,' above 50% vs the sweep''s ',N5_SV,N50_SV,
+	4        ')','  [WARN]'
 	    ELSE
 	      WRITE(LUER,'(A,ES12.4,A,ES12.4,2A)')
-	1        ' MOM_KNOP_REFRESH: best-pass field rejected'//
-	2        ' (residual runaway: ',BEST_CHG,' vs 1E3*min=',MIN_RES
-	3        ,')','  [WARN]'
+	1        ' MOM_KNOP_REFRESH: best-pass field rejected ('//
+	2        'residual runaway: ',BEST_CHG,
+	3        ' vs 1E3 x the best ',MIN_RES,')','  [WARN]'
 	    END IF
 	  END IF
 	  IF(KEEP_BEST)THEN
@@ -5891,8 +5955,9 @@
 	    IF(NJMP .GT. 0)THEN
 	      KEEP_BEST=.FALSE.
 	      WRITE(LUER,'(A,I10,A)')
-	1      ' MOM_KNOP_REFRESH: best-pass field rejected'//
-	2      ' (',NJMP,' cells >50x retained store)  [WARN]'
+	1      ' MOM_KNOP_REFRESH: best-pass field rejected ('//
+	2      ' ',NJMP,' cells jumped more than 50x over the'//
+	3      ' retained store)  [WARN]'
 	    END IF
 	  END IF
 	  IF(KEEP_BEST)THEN
@@ -5900,18 +5965,16 @@
 	1      JBEST(1:ND_NM,1:KN_M_NCF)
 	    H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)=
 	1      HBEST(1:ND_NM,1:KN_M_NCF)
-	    WRITE(LUER,'(A,ES12.4,A,2I12,A)')
-	1      ' MOM_KNOP_REFRESH: unconverged -- retained best-pass'//
-	2      ' field, residual=',BEST_CHG,'  n5,n50=',BEST_N5,BEST_N50,
-	3      '  [WARN]'
+	    WRITE(LUER,'(2A)')' [WARN] ',TRIM(MOM_REFRESH_SENTENCE(
+	1      .FALSE.,BEST_CHG,BEST_N5,BEST_N50,'keep_best',0,
+	2      0.0_LDP))
 	  ELSE
 	    J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)=
 	1      JNEXT_SAVE(1:ND_NM,1:KN_M_NCF)
 	    H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)=
 	1      HNEXT_SAVE(1:ND_NM,1:KN_M_NCF)
-	    WRITE(LUER,'(A,ES12.4,A)')
-	1      ' MOM_KNOP_REFRESH: unconverged -- retained pre-refresh'//
-	2      ' field, best residual=',BEST_CHG,'  [WARN]'
+	    WRITE(LUER,'(2A)')' [WARN] ',TRIM(MOM_REFRESH_SENTENCE(
+	1      .FALSE.,BEST_CHG,0_8,0_8,'keep_prior',0,0.0_LDP))
 	  END IF
 	  MOM_GS_MAXCHG=BEST_CHG
 	  MOM_GS_NBAD5=N5_SV
@@ -5983,10 +6046,10 @@
 	        MOM_AA_OUT_FNCF=KN_M_NCF
 	        MOM_AA_OUT_FM=MOM_AA_OUT_M
 	        WRITE(LUER,'(A,ES10.3,A)')' MOM_KNOP_REFRESH:'//
-	1          ' outer AA history alloc failed (need ~',
+	1          ' outer AA history allocation failed (need ~',
 	2          8.0_LDP*DBLE(ND_NM)*DBLE(KN_M_NCF)*
 	3          DBLE(2*MOM_AA_OUT_M+4)/1.0E6_LDP,
-	4          ' MB) -- disabled for this grid'
+	4          ' MB) - disabled for this grid'
 	      END IF
 	      NHIST_OUT=-1
 	    END IF
@@ -6064,8 +6127,8 @@
 	1           MAX(100_8,ND_NM*INT(KN_M_NCF,8)/1000))THEN
 	          INFO_AA=-999
 	          WRITE(LUER,'(A,I12)')
-	1            '    outer-AA skipped -- affine subset empty, excl=',
-	2            NAA_SKIP
+	1            '    outer-AA skipped - affine subset empty,'//
+	2            ' cells excluded ',NAA_SKIP
 	        ELSE
 	          CALL DGESV(MP_AA,1,WGRM_OUT,MOM_AA_OUT_M,
 	1            IPIV_OUT,WBR_OUT,MOM_AA_OUT_M,INFO_AA)
@@ -6110,8 +6173,8 @@
 	          IF(MTRY .EQ. MP_AA)THEN
 	            WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1              '    outer-AA m=',MTRY,'  ||f||=',FNRM,
-	2              '  ||corr||=',DNRM,'  retry at m-1, excl=',
-	3              NAA_SKIP
+	2              '  ||corr||=',DNRM,'  retry at m-1,'//
+	3              ' cells excluded ',NAA_SKIP
 	          END IF
 	          MTRY=MTRY-1
 	          INFO_AA=0
@@ -6147,12 +6210,12 @@
 	          MOM_AA_OUT_APP=MOM_AA_OUT_APP+1
 	          WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1              '    outer-AA m=',MTRY,'  ||f||=',FNRM,
-	2              '  ||corr||=',DNRM,'  excl=',NAA_SKIP
+	2              '  ||corr||=',DNRM,'  cells excluded ',NAA_SKIP
 	        ELSE IF(INFO_AA .EQ. 0)THEN
 	          MOM_AA_OUT_REJ=MOM_AA_OUT_REJ+1
 	          WRITE(LUER,'(A,ES12.4,A,I12)')
-	1            '    outer-AA all depths rejected, ||f||=',FNRM,
-	2            '  excl=',NAA_SKIP
+	1            '    outer-AA rejected on every depth, ||f||=',
+	2            FNRM,'  cells excluded ',NAA_SKIP
 	        ELSE IF(INFO_AA .NE. -999)THEN
 	          MOM_AA_OUT_SNG=MOM_AA_OUT_SNG+1
 	          WRITE(LUER,'(A,I3,A)')
@@ -6221,9 +6284,9 @@
 	RF_ST='[WARN] '
 	IF(MOM_RF_DCHG .LT. 0.5_LDP .AND.
 	1   MOM_RF_N50 .LE. MAX(50_8,MOM_SW_NTOT/1000))RF_ST='[OK]   '
-	WRITE(LUER,'(A,ES12.4,A,I12,A,I12,2X,A)')
-	1  ' MOM_KNOP_REFRESH retained-field delta: max=',MOM_RF_DCHG,
-	2  '  cells>5%=',MOM_RF_N5,'  cells>50%=',MOM_RF_N50,RF_ST
+	WRITE(LUER,'(2A)')' '//RF_ST,
+	1  TRIM(MOM_REFRESH_SENTENCE(MOM_RF_CONV,MOM_RF_DCHG,
+	2  MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
 !
 ! Restore the post-sweep module state (frequency NCF) so the next
 ! great iteration starts from the same external view as a normal
@@ -6256,17 +6319,18 @@
 	HNU_AT_IB=KN_MHIB(L)
 	MOM_NU_NEXT=KN_MNUNXT(L)
 !
-	WRITE(LUER,'(/,A,I4,A,F8.2,A)')
-	1  ' ------------- MOM_KNOP_REFRESH done:',MIN(IPASS,KN_M_MAXPASS),
-	2  ' passes,',OMP_GET_WTIME()-T0,' s --------------------'
+	WRITE(LUER,'(/,2A)')' ------------- ',
+	1  TRIM(MOM_REFRESH_SENTENCE(.FALSE.,0.0_LDP,0_8,0_8,'done',
+	2  MIN(IPASS,KN_M_MAXPASS),OMP_GET_WTIME()-T0))
 	WRITE(LUER,'(3(A,I4))')
-	1  '    inner-AA: applied=',MOM_AA_APP,' skipped=',MOM_AA_SKIP,
-	2  ' solve-fail=',MOM_AA_SNG
+	1  '    inner Aitken acceleration: applied ',MOM_AA_APP,
+	2  ', skipped ',MOM_AA_SKIP,', solve failures ',MOM_AA_SNG
 	IF(MOM_AA_OUT)THEN
-	  WRITE(LUER,'(3(A,I4),A,L2)')
-	1    '    outer-AA: applied=',MOM_AA_OUT_APP,' rejected=',
-	2    MOM_AA_OUT_REJ,' solve-fail=',MOM_AA_OUT_SNG,
-	3    ' alloc-fail=',MOM_AA_OUT_FAIL
+	  WRITE(LUER,'(3(A,I4),A,A3)')
+	1    '    outer Aitken acceleration: applied ',MOM_AA_OUT_APP,
+	2    ', rejected ',MOM_AA_OUT_REJ,', solve failures ',
+	3    MOM_AA_OUT_SNG,', allocation failures ',
+	4    MERGE('yes','no ',MOM_AA_OUT_FAIL)
 	END IF
 !
 ! Adaptive JNEXT_RELAX (KN_ADAPT_RELAX, default T): rho_est is the
@@ -6323,8 +6387,9 @@
 	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,
 	2          1.0_LDP/(1.0_LDP+DTR)))
 	        WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
-	1          '    adaptive JNEXT_RELAX: rho_est=',DTR,
-	2          ' (',L,' same-map ratios) omega=',JNEXT_RELAX
+	1          '    adaptive JNEXT_RELAX: estimated'//
+	2          ' contraction factor ',DTR,' (',L,
+	3          ' same-map ratios); new relaxation ',JNEXT_RELAX
 	        L_V2=.TRUE.
 	      END IF
 	    END IF
@@ -6335,8 +6400,8 @@
 	    JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
 	1      0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+DTR)))
 	    WRITE(LUER,'(A,ES10.3,A,ES10.3)')
-	1      '    adaptive JNEXT_RELAX: rho_est=',DTR,
-	2      '  omega=',JNEXT_RELAX
+	1      '    adaptive JNEXT_RELAX: estimated contraction'//
+	2      ' factor ',DTR,'; new relaxation ',JNEXT_RELAX
 	  END IF
 !
 ! Omega-consistency rescale (edited by Devin, 19-Oct-2026): the
