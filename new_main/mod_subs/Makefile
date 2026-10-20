@@ -30,6 +30,7 @@ MOD = $(LIB_MOD)(mod_cmfgen.o)\
       $(LIB_MOD)(shock_power_mod.o)\
       $(LIB_MOD)(steq_data_mod.o)\
       $(LIB_MOD)(two_phot_mod.o)\
+      $(LIB_MOD)(knop_status_mod.o)\
       $(LIB_MOD)(var_rad_mod.o)
 
 OBJ = $(LIB)(adjust_r_grid_v4.o)\
@@ -113,7 +114,7 @@ $(LIB)(mod_ray_mom_store.o) : ../../plane/mod_ray_mom_store.f
 	$(F90) -c $(OPTION) ../../plane/mod_ray_mom_store.f
 	ar $(AR_OPTION) $(LIB) mod_ray_mom_store.o
 
-$(LIB)(comp_j_blank.o) : comp_j_blank.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mod_ray_mom_store.o)
+$(LIB)(comp_j_blank.o) : comp_j_blank.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mod_ray_mom_store.o) $(LIB_MOD)(knop_status_mod.o)
 	$(F90) -c $(OPTION) comp_j_blank.f
 	ar $(AR_OPTION) $(LIB) comp_j_blank.o
 
@@ -187,7 +188,7 @@ $(LIB)(set_new_model_estimates.o) : set_new_model_estimates.f $(LIB)(opac_mod.o)
 	ar $(AR_OPTION) $(LIB) set_new_model_estimates.o
                                                                                                                       
 $(LIB)(solve_for_pops.o) : solve_for_pops.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
-                                  $(LIB_MOD)(ang_qw_mod.o)
+                                  $(LIB_MOD)(ang_qw_mod.o) $(LIB_MOD)(knop_status_mod.o)
 	$(F90) -c $(OPTION) solve_for_pops.f
 	ar $(AR_OPTION) $(LIB) solve_for_pops.o
 
@@ -202,6 +203,13 @@ $(LIB)(solve_for_pops.o) : solve_for_pops.f $(LIB_MOD)(control_variable_mod.o) $
 $(LIB_MOD)(jfnk_solver_v1.o) : jfnk_solver_v1.f90 $(LIB)(jfnk_cmfgen_int_mod.o)
 	$(F90) -c $(FFREE) jfnk_solver_v1.f90
 	ar $(AR_OPTION) $(LIB_MOD) jfnk_solver_v1.o
+
+# Shared status-sentence module for the KNOP/SOB lagged-field
+# narration (free format).  plane/mom_j_cmf_nonmono_v1.f USEs it, so
+# it must land in libmod.a during d_mod_subs, before d_plane runs.
+$(LIB_MOD)(knop_status_mod.o) : knop_status_mod.f90
+	$(F90) -c $(FFREE) knop_status_mod.f90
+	ar $(AR_OPTION) $(LIB_MOD) knop_status_mod.o
 
 $(LIB)(jfnk_cmfgen_int_mod.o) : jfnk_cmfgen_int_mod.f $(LIB_MOD)(mod_cmfgen.o)
 	$(F90) -c $(OPTION) jfnk_cmfgen_int_mod.f
