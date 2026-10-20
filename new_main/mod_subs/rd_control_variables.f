@@ -955,6 +955,15 @@
 	1     L_FALSE,'KNOP: churn-marginal calls before the FG trial?')
 	  IF(FG_TRIAL_CHURN_MIN .LT. 0)FG_TRIAL_CHURN_MIN=0
 !
+! GS_SETTLE_TOL (default -1 = off): settle-asymptote tolerance on
+! the lagged-field drift.  A 'cycle'-classified argmax floor at or
+! below this value stops refreezing the field on store churn alone;
+! an absent key keeps the GS_MATURE_TOL behaviour bit-identical.
+!
+	  GS_SETTLE_TOL=-1.0_LDP
+	  CALL RD_STORE_DBLE(GS_SETTLE_TOL,'GS_SETTLE_TOL',L_FALSE,
+	1     'KNOP: drift floor at which a cycle floor may settle?')
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial.  With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
@@ -3056,10 +3065,11 @@
 	1   '   commit_nc=',MAX(FG_COMMIT_NC_V,0.0_LDP),
 	2   '  bulk_contr=',FG_BULK_CONTR_V,
 	3   '  no_gain=',KN_NO_GAIN
-	    WRITE(LUER,'(A,I4,A,I4,A,I4)')
+	    WRITE(LUER,'(A,I4,A,I4,A,I4,A,ES10.3)')
 	1   '   hot_passes=',KN_RAY_HOTPASSES_V,
 	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,
-	3   '  fg_trial_min=',FG_TRIAL_MIN
+	3   '  fg_trial_min=',FG_TRIAL_MIN,
+	4   '  gs_settle=',GS_SETTLE_TOL
 	    WRITE(LUER,'(A,L2,A,L2,A,L2)')
 	1   '   jfnk_fadapt=',JFNK_FADAPT_V,
 	2   '  jfnk_fdcplx=',JFNK_FD_COMPLEX,

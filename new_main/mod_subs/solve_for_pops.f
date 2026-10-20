@@ -110,6 +110,13 @@
 !
 	CHARACTER(LEN=10) NBAD_STR
 !
+! Argmax-jitter classification read-back for the GS_SETTLE_TOL
+! settle path: 'cycle' at or below the tolerance exempts the
+! store-churn term from refreezing the field.
+!
+	CHARACTER(LEN=6) GS_CLS_MOM,GS_CLS_FG
+	LOGICAL L_SETTLE
+!
 ! W1-W9 (17-Oct-2026, KNOP maturity-chain repair):
 !
 ! GS_NDIV / GS_NRAY: diverged-ray count and solved-ray count, gated
@@ -431,6 +438,7 @@
 !
 	INTEGER, SAVE :: N_MATURE=0
 	EXTERNAL GET_FG_GS_MATURITY,GET_MOM_GS_MATURITY
+	EXTERNAL GET_MOM_GS_CLS,GET_FG_GS_CLS
 !
 ! KN_GATE_DIVERGENCE prototype state: ring of the last GD_MMAX
 ! refresh sweeps' max residuals.  SAVE so the history persists
@@ -947,6 +955,8 @@
 	5      MOM_SW_BNDFL,
 	6      MOM_RF_RAN,MOM_RF_CONV,MOM_RF_DCHG,MOM_RF_N5,MOM_RF_N50,
 	7      MOM_NPQUAR,MOM_SW_NHUGE)
+	  CALL GET_MOM_GS_CLS(GS_CLS_MOM)
+	  CALL GET_FG_GS_CLS(GS_CLS_FG)
 !
 ! The mom-side file counts as satisfied when MOM_J_CMF_NONMONO_V1
 ! never ran in this process (USE_LAM_ES=T): the flag then reflects
@@ -1140,9 +1150,27 @@
 ! term so a churn-only immature call can still arm the trial.
 !
 	  GS_FG_PRECHURN=GS_FG_IMMATURE
-	  IF(GS_NTOT .GT. 0)THEN
+!
+! [GS_SETTLE_TOL] (default -1 = off): a 'cycle'-classified argmax
+! floor at or below the tolerance is an asymptote of the composite
+! map, not a moving field, so the churn term alone must not refreeze
+! it.  A cycle floor above the tolerance still forces the LAMBDA
+! phase even when churn is quiet, and every GS_UNSAFE backstop is
+! untouched.  Absent key = bit-identical gate.
+!
+	  L_SETTLE=GS_SETTLE_TOL .GT. 0.0_LDP .AND.
+	1    (GS_CLS_MOM .EQ. 'cycle' .OR. GS_CLS_FG .EQ. 'cycle') .AND.
+	2    GS_MAX_ALL .LE. GS_SETTLE_TOL
+	  IF(GS_NTOT .GT. 0 .AND. .NOT. L_SETTLE)THEN
 	    GS_FG_IMMATURE=GS_FG_IMMATURE .OR.
 	1      (GS_NCONV_ALL .GT. MAX(50_8,GS_NTOT/1000))
+	  END IF
+	  IF(GS_SETTLE_TOL .GT. 0.0_LDP .AND.
+	1    (GS_CLS_MOM .EQ. 'cycle' .OR. GS_CLS_FG .EQ. 'cycle') .AND.
+	2    GS_MAX_ALL .GT. GS_SETTLE_TOL .AND.
+	3    .NOT. GS_FG_IMMATURE)THEN
+	    GS_FG_IMMATURE=.TRUE.
+	    CALL APPEND_ITER_REASON(ITER_REASON,'settle_exceed')
 	  END IF
 !
 ! [FG_TRIAL_CHURN] arm (edited by Devin, 20-Oct-2026): when the gate

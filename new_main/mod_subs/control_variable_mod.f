@@ -886,6 +886,17 @@
 !
 	INTEGER FG_TRIAL_CHURN_MIN
 !
+! GS_SETTLE_TOL (default -1 = off): settle-asymptote tolerance for
+! the KNOP maturity gate.  The argmax-jitter classification
+! (MOM_GS_CLS/FG_GS_CLS) distinguishes a period-2 limit cycle of the
+! composite map from a genuinely moving field; with a positive
+! tolerance, a 'cycle' floor at or below it no longer refreezes the
+! field on the store-churn term alone.  Drift above the tolerance
+! still forces LAMBDA and every GS_UNSAFE backstop stays live.
+! VADAT keyword [GS_SETTLE_TOL].
+!
+	REAL(KIND=LDP) GS_SETTLE_TOL
+!
 ! GS_FREEZE_LIM (default 0 = disabled): no-progress great iterations
 ! spent in the KNOP forced-LAMBDA freeze before SOLVE_FOR_POPS
 ! stops the model as non-convergent.  The count survives the
