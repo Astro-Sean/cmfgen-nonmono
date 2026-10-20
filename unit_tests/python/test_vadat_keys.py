@@ -681,6 +681,31 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # NG_ABSTAIN absent key under SOB: the auto-set must survive the
+    # read site (the template carries an explicit T; None deletes it).
+    d = write_vadat(WORKDIR / "vadat_ng_abstain", {"NG_ABSTAIN": None})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "SOB absent-key: NG_ABSTAIN auto-set survives the read",
+        "RESULT_OK" in p.stdout
+        and "SOB auto-set: NG_ABSTAIN=T" in p.stdout
+        and v.get("NG_ABSTAIN") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # Explicit NG_ABSTAIN=F is respected under SOB.
+    d = write_vadat(WORKDIR / "vadat_ng_abstain_off", {"NG_ABSTAIN": "F"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "SOB explicit NG_ABSTAIN=F respected",
+        "RESULT_OK" in p.stdout
+        and v.get("NG_ABSTAIN") == "F"
+        and "SOB auto-set: NG_ABSTAIN" not in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # RLOC defaults to zero so the legacy V-space path stays live.
     d = write_vadat(WORKDIR / "vadat_rloc_def", {})
     p = run_vadat(exe, d)

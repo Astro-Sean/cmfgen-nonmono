@@ -2864,6 +2864,11 @@
 ! ~1818) and before the validation blocks below, which then re-check
 ! the enforced values.  INC_GRID (ACCURATE) is read after this
 ! point, so its KNOP override lives with the INC_GRID read itself.
+! NG_ABSTAIN is likewise read after this block: its SOB absent-key
+! auto-set stays here, and its base default is set just below so the
+! read site needs no re-default (a probe immediately after the read
+! would miss the key -- the GET_KEY_STRING cursor brackets the index
+! just consumed).
 !
 ! One former opt-in override survives only as an absent-key default:
 ! under DO_NONMONO_KNOP an unset USE_LAM_ES defaults to T (the
@@ -2873,6 +2878,12 @@
 ! T selecting the V13 formal J.  DO_KNOP_REFRESH=F (the lagged-scheme
 ! A/B comparison) is still overridden under KNOP.
 ! ------------------------------------------------------------------
+!
+! NG_ABSTAIN has no module initializer; its read site carries no
+! re-default (see below), so the base default must be set here --
+! before the SOB auto-set -- on every path.
+!
+	  NG_ABSTAIN=.FALSE.
 !
 ! Rule 1: DO_NONMONO_KNOP.  The Knop chi_hat formalism exists only in
 ! the BLANKeted INTEGRAL path of FG_J_CMF_NONMONO_V1, so GLOBAL_LINE
@@ -3148,7 +3159,9 @@
 ! the unverified moment path; DO_BA_RES_REUSE recalls the stored BA
 ! matrix while the judged residual still contracts; NG_ABSTAIN keeps
 ! the contracting components of an NG correction rather than vetoing
-! the whole step.
+! the whole step.  The NG_ABSTAIN probe must stay here: its read
+! site sits ~300 lines later, after enough other reads that the
+! GET_KEY_STRING cursor skip no longer applies (22-Oct-2026).
 !
 	    CALL GET_KEY_STRING(TMP_STRING,'DO_BA_RES_ACC',L_FALSE,
 	1     L_FALSE_TMP)
@@ -3475,9 +3488,15 @@
 	  END IF
 !
 ! NG_ABSTAIN: see CONTROL_VARIABLE_MOD.  Optional (L_FALSE); absent
-! key leaves the upstream all-or-nothing veto in place.
+! key leaves the upstream all-or-nothing veto in place.  The base
+! default is set before the enforcement block above (NG_ABSTAIN
+! carries no module initializer), so an SOB auto-set survives this
+! read site -- the old unconditional .FALSE. here silently undid it
+! (announced T, ran F; 22-Oct-2026).  NB: GET_KEY_STRING cannot
+! re-probe this key here -- its I_DWN/I_UP cursor brackets the index
+! just consumed by RD_STORE_LOG, so a probe immediately after the
+! read reports not-found.  Presence checks must run earlier.
 !
-	  NG_ABSTAIN=.FALSE.
 	  CALL RD_STORE_LOG(NG_ABSTAIN,'NG_ABSTAIN',L_FALSE,
 	1   'Hold non-contractive/non-positive NG components per-component?')
 !
