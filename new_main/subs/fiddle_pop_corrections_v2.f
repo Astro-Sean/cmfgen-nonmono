@@ -7,6 +7,7 @@
 	SUBROUTINE FIDDLE_POP_CORRECTIONS_V2(POPS,STEQ,T_MIN,CHANGE_LIM,MAX_dT_COR,
 	1              SCALE_OPT,LAMBDA_IT,LU_SUM,NT,ND)
 	USE SET_KIND_MODULE
+	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
 	IMPLICIT NONE
 !
 ! Altered: 14-Feb-2014 -- Changed to V2 -- added MAX_dT_COR to call.
@@ -152,10 +153,29 @@
 !
 	    T1=BIG_LIM                  !Prevents division by zero and insures
 	    T2=LIT_LIM                  !SCALE=1 if small changes.
+!
+! The per-element apply-clamp bounds for this depth are needed before
+! the scale scan under the non-monotonic modes: a demanded correction
+! can exceed anything the clamp would ever apply (e.g. STEQ=-1E70 from
+! an ill-conditioned row on the m15_2p82d KNOP cold start), and letting
+! that row bound SCALE froze every other correction at the depth
+! (SCALE~1E-69, it28).  The clamp already enforces the identical bound
+! on the row itself, so its contribution to the column scale is
+! redundant for it and destructive for the rest -- cap each row's
+! contribution at the applied bound.  Stock path is unchanged.
+!
+	    IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	      T3=(POP_LIM(I)-1.0_LDP)/POP_LIM(I)
+	      DPTH_BIG_LIM=MIN(BIG_LIM,T3)
+	      DPTH_LIT_LIM=MAX(LIT_LIM,1.0_LDP-POP_LIM(I))
+	    ELSE
+	      DPTH_BIG_LIM=HUGE(1.0_LDP)
+	      DPTH_LIT_LIM=-HUGE(1.0_LDP)
+	    END IF
 	    DO J=1,NT-1
 	      IF(POPS(J,I) .GT. 1.0E-10_LDP*POPS(NT-1,I))THEN
-	        T1=MAX(T1,STEQ(J,I))            !Note + means decrease
-	        T2=MIN(T2,STEQ(J,I))            !Note - means increase
+	        T1=MAX(T1,MIN(STEQ(J,I),DPTH_BIG_LIM))   !Note + means decrease
+	        T2=MIN(T2,MAX(STEQ(J,I),DPTH_LIT_LIM))   !Note - means increase
 	      END IF
 	    END DO
 	    SCALE=MIN( BIG_LIM/T1, LIT_LIM/T2 )

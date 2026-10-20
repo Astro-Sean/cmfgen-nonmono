@@ -2141,6 +2141,13 @@
 	  CALL RD_STORE_INT(BA_QUAR_MAX,'BA_QUAR_MAX',L_FALSE,
 	1     'Max quarantined population equations; <=0 disables'//
 	2     ' quarantine growth')
+	  BA_LQ_DEM=1.0D+12
+	  CALL RD_STORE_DBLE(BA_LQ_DEM,'BA_LQ_DEM',L_FALSE,
+	1     'LAMBDA-phase quarantine demand bound (%) -- a row past'//
+	2     ' this for BA_LQ_PAT consecutive LAMBDA calls is parked')
+	  BA_LQ_PAT=8
+	  CALL RD_STORE_INT(BA_LQ_PAT,'BA_LQ_PAT',L_FALSE,
+	1     'Consecutive over-demand LAMBDA calls before an eqn parks')
 	  BA_QUAR_COUNT=0
 	  BA_SE_RES=0.0_LDP
 	  BA_SE_RES2=0.0_LDP

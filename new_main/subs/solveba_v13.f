@@ -20,7 +20,7 @@
 	2     BA_JUDGED,BA_JUDGE_RATIO,BA_MAXCH_FAIL,BA_COL_RES,
 	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS,POPS_GS_SAVE,
 	4     BA_HOLD_RESTORE_REVIVAL,BA_EX_RELFRAC,BA_EX_MAXCH,
-	5     BA_DEM_EXR
+	5     BA_DEM_EXR,BA_LQ_HIT,BA_LQ_DEM,BA_LQ_PAT
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -164,6 +164,15 @@
 !
 	LQUAR_OK=.FALSE.
 	IF(DO_BA_RES_ACC .AND. DO_BA_QUAR)THEN
+	  IF(.NOT. ALLOCATED(BA_LQ_HIT))THEN
+	    ALLOCATE(BA_LQ_HIT(NT,ND),STAT=IOS)
+	    IF(IOS .EQ. 0)BA_LQ_HIT(1:NT,1:ND)=0
+	  ELSE IF(SIZE(BA_LQ_HIT,1) .NE. NT .OR.
+	1     SIZE(BA_LQ_HIT,2) .NE. ND)THEN
+	    DEALLOCATE(BA_LQ_HIT)
+	    ALLOCATE(BA_LQ_HIT(NT,ND),STAT=IOS)
+	    IF(IOS .EQ. 0)BA_LQ_HIT(1:NT,1:ND)=0
+	  END IF
 	  IF(.NOT. ALLOCATED(BA_QUAR_MASK))THEN
 	    ALLOCATE(BA_QUAR_MASK(NT,ND),STAT=IOS)
 	    IF(IOS .EQ. 0)BA_QUAR_MASK(1:NT,1:ND)=.FALSE.
@@ -1213,6 +1222,68 @@
 	  END DO
 	  IF(COUNT(1) .NE. 0)
 	1   WRITE(LUER,*)'Warning -- using  LIMIT option for LAMBDA iteration in SOLVEBA_V13.f'
+	END IF
+!
+! edited by Devin, 21-Oct-2026: LAMBDA-phase quarantine extension
+! ([DO_BA_QUAR] -- inert without DO_BA_RES_ACC as before).  During
+! population preconditioning every call is a LAMBDA step, so the
+! reject-path parking above never runs -- on m15_2p82d_KNOP_np a
+! handful of ill-conditioned rows demanded +1E15..+1E72% every call,
+! churning at the +MAX_LAM clamp and pinning MAXCH so the
+! GS_PRECOND gate could never open.  A row still beyond BA_LQ_DEM
+! percent after BA_LQ_PAT consecutive LAMBDA calls is degenerate:
+! the level's SE target moves faster than the applied clamp can
+! chase it.  Park it like a BA-path offender; its correction is
+! suppressed (zeroed) so it can no longer churn or drive the
+! per-depth MAJOR scale.  Floor-level rows are already exempt from
+! the demand metric and are not counted.  Held calls are skipped:
+! their STEQ was solved against restored populations and is not a
+! committed demand.  Legitimately underpopulated levels fall
+! through the band in a call or two (each applied step is capped
+! near a factor MAX_LAM), so the persistence test does not catch
+! them.  Parking is reported loudly and bounded by BA_QUAR_MAX.
+!
+	IF(LQUAR_OK .AND. LAMBDA_IT .AND. .NOT. GS_POPS_HELD)THEN
+	  IF(ALLOCATED(BA_LQ_HIT))THEN
+	    DO I=1,ND
+	      DO J=1,NT-2
+	        IF(BA_QUAR_MASK(J,I))CYCLE
+	        IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	1           POPS(J,I) .LT. BA_DEM_PFLOOR)CYCLE
+	        IF(100.0_LDP*ABS(STEQ(J,I)) .GE. BA_LQ_DEM)THEN
+	          BA_LQ_HIT(J,I)=BA_LQ_HIT(J,I)+1
+	          IF(BA_LQ_HIT(J,I) .GE. BA_LQ_PAT .AND.
+	1             BA_QUAR_COUNT .LT. BA_QUAR_MAX)THEN
+	            BA_QUAR_MASK(J,I)=.TRUE.
+	            BA_QUAR_COUNT=BA_QUAR_COUNT+1
+	            NQUAR_NEW=NQUAR_NEW+1
+	            WRITE(LUER,'(A,I6,A,I4,2A,ES12.4)')
+	1              'BA_QUAR: persistent LAMBDA demand parks eqn'//
+	2              ' (var,depth)',J,' @',I,'  ',TRIM(EQ_DESC(J)),
+	3              '   demand%=',100.0_LDP*ABS(STEQ(J,I))
+	          END IF
+	        ELSE
+	          BA_LQ_HIT(J,I)=0
+	        END IF
+	      END DO
+	    END DO
+	  END IF
+	  IF(BA_QUAR_COUNT .GT. 0)THEN
+	    STEQ_QMAX=0.0_LDP
+	    DO I=1,ND
+	      DO J=1,NT-2
+	        IF(BA_QUAR_MASK(J,I))THEN
+	          STEQ_QMAX=MAX(STEQ_QMAX,ABS(STEQ(J,I)))
+	          STEQ(J,I)=0.0_LDP
+	        END IF
+	      END DO
+	    END DO
+	    IF(NQUAR_NEW .NE. 0 .OR. STEQ_QMAX .GT. 0.0_LDP)
+	1     WRITE(LUER,'(A,I5,A,ES12.4)')
+	2       'BA_QUAR: suppressed',BA_QUAR_COUNT,
+	3       ' parked eqns on LAMBDA call; max parked demand%=',
+	4       100.0_LDP*STEQ_QMAX
+	  END IF
 	END IF
 !
 ! Determine maximum corrections to the 'population parameters', and output

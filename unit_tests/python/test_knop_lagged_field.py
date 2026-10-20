@@ -166,7 +166,7 @@ def test_pop_precondition_gate():
     check(
         "preconditioned call is forced to LAMBDA",
         re.search(
-            r"'pop_precond'[\s\S]{0,800}?"
+            r"'pop_precond'[\s\S]{0,1200}?"
             r"LAMBDA_ITERATION=\.TRUE\.[\s\S]{0,200}?"
             r"T1=MAX_LAM_COR",
             POPS,

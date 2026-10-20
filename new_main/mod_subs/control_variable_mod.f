@@ -1439,6 +1439,21 @@
 	INTEGER BA_QUAR_MAX
 	LOGICAL, ALLOCATABLE :: BA_QUAR_MASK(:,:)
 	INTEGER BA_QUAR_COUNT
+!
+! BA_LQ_* (edited by Devin, 21-Oct-2026): persistence counter and
+! thresholds for the LAMBDA-phase quarantine extension in
+! SOLVEBA_V13.  During population preconditioning every call is a
+! LAMBDA step, so the reject-path parking above never runs -- a
+! degenerate row (ill-conditioned level whose demanded correction
+! stays beyond BA_LQ_DEM percent for BA_LQ_PAT consecutive calls)
+! kept churning at the MAX_LAM clamp and pinned MAXCH forever on the
+! m15_2p82d_KNOP cold start.  Such rows are parked into
+! BA_QUAR_MASK like the BA-path offenders.  Inert unless
+! DO_BA_RES_ACC and DO_BA_QUAR are both set.
+!
+	INTEGER, ALLOCATABLE :: BA_LQ_HIT(:,:)
+	REAL(KIND=LDP) BA_LQ_DEM
+	INTEGER BA_LQ_PAT
 ! BA_RAW_TRIAL_PENDING tracks the residual check for the last full BA
 ! demand. With [DO_BA_RES_ACC] and either non-monotonic flag enabled,
 ! BA_RAW_REJECTED prevents an unsuccessful demand from reopening the

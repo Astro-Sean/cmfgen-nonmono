@@ -275,6 +275,16 @@
 !
 	LOGICAL, SAVE :: GS_PRECOND_ACT=.FALSE.
 	INTEGER, SAVE :: N_PRECOND=0
+! Best demand seen during the current above-threshold preconditioning
+! stretch (edited by Devin, 21-Oct-2026).  N_PRECOND_TOT is the
+! no-progress total for [GS_PRECOND_LIM], so a call that still beats
+! the stretch best by the same 10% margin the release audit uses is
+! progress and must not count -- a cold start that is working the
+! demand down needs more than GS_PRECOND_LIM calls to reach
+! GS_PRECOND_MAX, and was being stopped mid-contraction on
+! m15_2p82d_KNOP_np.  HUGE start means the first gated call always
+! records progress; reset to HUGE whenever the gate opens.
+	REAL(KIND=LDP), SAVE :: GS_PC_BEST=HUGE(1.0_LDP)
 !
 ! Release-progress audit (edited by Devin, 20-Oct-2026):
 ! GS_JUST_REL arms on each frozen->live transition; the next call
@@ -522,6 +532,7 @@
 	  N_REL_NOPROG=0
 	  N_FROZEN_TOT=0
 	  N_PRECOND_TOT=0
+	  GS_PC_BEST=HUGE(1.0_LDP)
 	  N_CHURN_STREAK=0
 	  LUM_INIT=.FALSE.
 	  LUM_PREV=0.0_LDP
@@ -1416,7 +1427,15 @@
 	    GS_PRECOND_ACT=.TRUE.
 	    CALL APPEND_ITER_REASON(ITER_REASON,'pop_precond')
 	    N_PRECOND=N_PRECOND+1
-	    N_PRECOND_TOT=N_PRECOND_TOT+1
+! Only calls that fail to improve on the stretch's best demand count
+! toward GS_PRECOND_LIM (edited by Devin, 21-Oct-2026): the counter
+! documented itself as a no-progress total but counted every gated
+! call, so a still-contracting cold start died at the limit.
+	    IF(MAXCH .LT. 0.9_LDP*GS_PC_BEST)THEN
+	      GS_PC_BEST=MAXCH
+	    ELSE
+	      N_PRECOND_TOT=N_PRECOND_TOT+1
+	    END IF
 ! edited by Devin, 20-Oct-2026: the message promises a live LAMBDA
 ! step, but the entry mode could be FULL -- the gate only cleared
 ! GS_FREEZE, so a scheduled BA call took an unchecked BA step at
@@ -1452,6 +1471,7 @@
 	    IF(GS_PRECOND .AND. MAXCH .LE. GS_PRECOND_MAX)THEN
 	      N_PRECOND_TOT=0_8
 	      N_FROZEN_TOT=0_8
+	      GS_PC_BEST=HUGE(1.0_LDP)
 	    END IF
 	  END IF
 	  IF(GS_FREEZE .AND. .NOT. GS_RAW_IMMATURE .AND.
