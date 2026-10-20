@@ -1667,7 +1667,7 @@
 	    T1=MIN(T1,GS_LAM_CAP)
 	    IF(CONV_DIAG_LVL .GE. 1)
 	1   WRITE(LUER,'(A,ES12.4)')
-	2   '      GS release: damping LAMBDA step, cap=',T1
+	2   '      GS release: damping LAMBDA step, correction cap ',T1
 	    CALL APPEND_ITER_REASON(ITER_REASON,'release_damped')
 	  END IF
 !

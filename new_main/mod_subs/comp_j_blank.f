@@ -860,7 +860,10 @@ C
 	         CALL OUT_JH(TA,RSQHNU,T1,T2,FL,NCF,R,V,ND,FIRST_FREQ,'NORMAL')
 	       END IF
 	     ELSE IF(USE_LAM_ES)THEN
-	       IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)WRITE(LUER,*)'Using USE_LAM_ES instead of solving moment equatons'
+	       IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)WRITE(LUER,*)
+	1         'Field solver: ray solutions with lambda'//
+	2         ' iteration (USE_LAM_ES); the moment equations'//
+	3         ' are not solved'
 	       RJ(1:ND)=TC(1:ND)
 !
 ! Fill Eddington factors (K_ON_J, NMID_ON_J, NMID_ON_HMID) from the
@@ -913,7 +916,8 @@ C
 !	        GET_MOMS_NON_REL inside the solver reads fresh N_ON_J ray
 !	        moments.  Default (no non-mono flag) keeps MOM_J_CMF_V11.
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)
-	1             WRITE(LUER,*)'Calling MOM_J_CMF_NONMONO_V1'
+	1             WRITE(LUER,*)'Field solver: moment equations'//
+	2             ' (MOM_J_CMF_NONMONO_V1)'
 !
 ! Pass nu(k+1) to the moment solver so compressing depths use the
 ! forward spacing ln(nu_k/nu_{k+1}) (asymmetric-spacing fix,
