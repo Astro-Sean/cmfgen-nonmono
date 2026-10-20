@@ -783,6 +783,17 @@
 ! so this bounds refresh memory at ~KN_MAX_THREADS*NI*NCF*8 B.
 !
 	REAL(KIND=LDP) KN_RAY_TOL
+! KN_RAY_BULK_TOL (VADAT [KN_RAY_BULK_TOL], default 2.5E-2 =
+! 0.5*GS_MATURE_TOL, set by SET_FG_KN_OPTS): residual floor on the
+! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
+! converged at residual ~5E-2 -- one capped commit step from the
+! fixed point -- which pinned the refresh residual just above the
+! maturity gate and ratcheted the store through WRITE_STORE_CAP
+! (m15_2p82d: 5.19-5.24E-2 vs tol 2E-3, 8-12 nc-capped commits per
+! refresh).  A floored bulk exit is also accepted at the commit
+! gate.  <=0 disables the new term.
+!
+	REAL(KIND=LDP) KN_RAY_BULK_TOL
 	INTEGER KN_RAY_MAXPASS,KN_MAX_THREADS
 	REAL(KIND=LDP) KN_RF_RESID
 !
@@ -919,6 +930,7 @@
 	DATA KN_STORE_READY /.FALSE./
 	DATA KN_RF_WARNED /.FALSE./
 	DATA KN_RAY_TOL /2.0E-03_LDP/
+	DATA KN_RAY_BULK_TOL /2.5E-02_LDP/
 	DATA KN_RAY_OMEGA /1.0_LDP/
 	DATA FG_ORD_SWEEP /.TRUE./
 	DATA FG_ORD_AITKEN /.FALSE./
@@ -5811,19 +5823,21 @@ C
 	END
 !
 ! SET_FG_KN_OPTS: runtime wiring for the previously compile-time
-! FG refresh knobs KN_RAY_TOL, KN_RAY_MAXPASS and the lagged-store
-! relaxation factor INEXT_RELAX.
+! FG refresh knobs KN_RAY_TOL, KN_RAY_MAXPASS, the lagged-store
+! relaxation factor INEXT_RELAX and the bulk-exit residual floor
+! KN_RAY_BULK_TOL (edited by Devin, 20-Oct-2026).
 !
-	SUBROUTINE SET_FG_KN_OPTS(TOL,MAXP,RLX)
+	SUBROUTINE SET_FG_KN_OPTS(TOL,MAXP,RLX,BTOL)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
-	1     KN_RAY_TOL,KN_RAY_MAXPASS,INEXT_RELAX
+	1     KN_RAY_TOL,KN_RAY_MAXPASS,INEXT_RELAX,KN_RAY_BULK_TOL
 	IMPLICIT NONE
-	REAL(KIND=LDP) TOL,RLX
+	REAL(KIND=LDP) TOL,RLX,BTOL
 	INTEGER MAXP
 	KN_RAY_TOL=MAX(TOL,1.0E-12_LDP)
 	KN_RAY_MAXPASS=MAX(MAXP,1)
 	INEXT_RELAX=MIN(MAX(RLX,1.0E-3_LDP),1.0_LDP)
+	KN_RAY_BULK_TOL=MAX(BTOL,0.0_LDP)
 	RETURN
 	END
 !
@@ -6187,6 +6201,17 @@ C
 	1  '    ray exits: exact=',NX_CNT(0),' tol=',NX_CNT(1),
 	2  ' bulk=',NX_CNT(2),' stall=',NX_CNT(3),' cap=',NX_CNT(4),
 	3  ' div=',NX_CNT(5),' plat=',NX_CNT(6)
+!
+! Floored bulk exits are now distinguishable from the stall/cap
+! stop rules by their residual ceiling (edited by Devin,
+! 20-Oct-2026): a bulk count with maxres <= KN_RAY_BULK_TOL is
+! converged-class, anything above it failed the floor and exited
+! through a different class instead.
+!
+	IF(NX_CNT(2) .GT. 0)
+	1  WRITE(LUER,'(A,ES10.3,A,ES10.3)')
+	2  '    bulk rays: maxres=',NX_RMX(2),
+	3  '  floor=',KN_RAY_BULK_TOL
 	IF(NX_CNT(3)+NX_CNT(4)+NX_CNT(6) .GT. 0)THEN
 	  WRITE(LUER,'(A,ES10.3,A,I14)')
 	1    '    stall/cap rays: maxres=',
@@ -6719,9 +6744,14 @@ C
 	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=1
 	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
 	  ELSE IF(FG_COMMIT_CONV .AND.
-	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2) .OR.
-	2     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2) .OR.
-	3     MAX(RES_M,RES_P) .GT. KN_RAY_TOL))THEN
+	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2 .AND.
+	2     (RES_M .LE. KN_RAY_TOL .OR.
+	3      (IXIT_M .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
+	4       RES_M .LE. KN_RAY_BULK_TOL))) .OR.
+	5     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2 .AND.
+	6     (RES_P .LE. KN_RAY_TOL .OR.
+	7      (IXIT_P .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
+	8       RES_P .LE. KN_RAY_BULK_TOL)))))THEN
 !
 ! edited by Devin, 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
 ! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
@@ -6732,6 +6762,12 @@ C
 ! retained delta 21).  The residual test also catches the bulk
 ! exit: IXIT=2 fires on the bad-cell fraction alone, so a ray with
 ! residual ~0.5 and <0.1% bad cells was still classed converged.
+! edited by Devin, 20-Oct-2026: a bulk exit that also clears
+! [KN_RAY_BULK_TOL] counts as converged here -- the sweep already
+! floored it at the residual the maturity gate's bulk rule
+! accepts, so sending it to WRITE_STORE_CAP only parked the store
+! one capped step from the fixed point (the 8-12 nc-capped
+! commits per refresh on m15_2p82d).
 ! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
 ! (per-cell change bounded by NC; the store keeps tracking a
 ! contracting field but cannot ratchet faster than NC/refresh).
@@ -7139,9 +7175,17 @@ C
 ! flag set the exit also requires same-direction contraction;
 ! noncontracting rays fall through to the stall/plateau/cap classes.
 !
+! [KN_RAY_BULK_TOL] (edited by Devin, 20-Oct-2026): the exit is
+! also floored on the residual itself -- the level the maturity
+! gate's bulk rule accepts.  Rays above the floor fall through to
+! stall/plateau/cap, so an IXIT=2 exit now certifies the field the
+! refresh commit gate writes unconverged-free.
+!
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
-	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL))THEN
+	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL)
+	3     .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	4      RES .LE. KN_RAY_BULK_TOL))THEN
 	    IXIT=2
 	    EXIT
 	  END IF
@@ -8017,11 +8061,14 @@ C
 	  END IF
 ! [FG_BULK_CONTR]: same ordering fix as SWEEP_FLD -- the bulk exit
 ! must not fire on a noncontracting pass sequence; RATIO_OM here is
-! the consecutive-pass ratio.
+! the consecutive-pass ratio.  [KN_RAY_BULK_TOL] floors the exit on
+! the residual here too (edited by Devin, 20-Oct-2026).
 !
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
-	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL))THEN
+	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL)
+	3     .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	4      RES .LE. KN_RAY_BULK_TOL))THEN
 	    IXIT=2
 	    EXIT
 	  END IF

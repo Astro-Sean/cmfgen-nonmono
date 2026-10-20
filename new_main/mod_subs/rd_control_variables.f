@@ -78,7 +78,7 @@
 	LOGICAL KN_ADAPT_RELAX_V
 	LOGICAL FG_ADAPT_OMEGA_V2_V,FG_PLATEAU_DET_V
 	LOGICAL MOM_ADAPT_OMEGA_V2_V
-	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V
+	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V,KN_RAY_BULK_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
@@ -1267,8 +1267,21 @@
 	  INEXT_RELAX_V=0.5_LDP
 	  CALL RD_STORE_DBLE(INEXT_RELAX_V,'INEXT_RELAX',L_FALSE,
 	1     'FG lagged-store under-relaxation factor')
+!
+! KN_RAY_BULK_TOL (default 2.5E-2 = 0.5*GS_MATURE_TOL, edited by
+! Devin, 20-Oct-2026): residual floor on the bulk exit (IXIT=2).
+! The bad-fraction test alone let rays exit converged at
+! residual ~5E-2 -- one capped commit step from the fixed point
+! -- pinning the refresh max just above the maturity gate
+! (m15_2p82d: 5.19-5.24E-2) and ratcheting the store through
+! WRITE_STORE_CAP.  A floored bulk exit commits through
+! WRITE_STORE instead.  0 disables the new term.
+!
+	  KN_RAY_BULK_TOL_V=2.5E-2_LDP
+	  CALL RD_STORE_DBLE(KN_RAY_BULK_TOL_V,'KN_RAY_BULK_TOL',
+	1     L_FALSE,'Residual floor for the FG bulk exit (0=off)')
 	  CALL SET_FG_KN_OPTS(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,
-	1     INEXT_RELAX_V)
+	1     INEXT_RELAX_V,KN_RAY_BULK_TOL_V)
 !
 ! KN_ADAPT_RELAX (default T): adaptive write-back weight for both
 ! lagged stores.  The relax factor becomes the seed value; each
