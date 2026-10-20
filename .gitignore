@@ -56,6 +56,7 @@ unit_tests/bin/
 unit_tests/plots/
 unit_tests/work/
 tests/jfnk_core/test_newton_core
+tests/jfnk_core/test_guards
 tests/f90/mod/
 tests/f90/mod2/
 tests/f90/obj/
