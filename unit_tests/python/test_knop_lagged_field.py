@@ -196,13 +196,14 @@ def test_pop_precondition_gate():
 
 def test_bulk_exit_residual_floor():
     check(
-        "KN_RAY_BULK_TOL defaults to 2.5E-2 in the fg DATA block",
-        "DATA KN_RAY_BULK_TOL /2.5E-02_LDP/" in FG,
+        "KN_RAY_BULK_TOL DATA fallback is off (KNOP-scoped)",
+        "DATA KN_RAY_BULK_TOL /0.0_LDP/" in FG,
     )
     check(
-        "KN_RAY_BULK_TOL VADAT key is read and passed to the setter",
-        "'KN_RAY_BULK_TOL'" in RD_CONTROL
-        and "KN_RAY_BULK_TOL_V=2.5E-2_LDP" in RD_CONTROL
+        "KN_RAY_BULK_TOL defaults 6.0E-2 under KNOP, 0 elsewhere",
+        "KN_RAY_BULK_TOL_V=0.0_LDP" in RD_CONTROL
+        and "IF(DO_NONMONO_KNOP)KN_RAY_BULK_TOL_V=6.0E-2_LDP"
+        in RD_CONTROL
         and re.search(
             r"CALL SET_FG_KN_OPTS\(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,\s*\n"
             r"\s*\d?\s*INEXT_RELAX_V,KN_RAY_BULK_TOL_V\)",
@@ -212,20 +213,20 @@ def test_bulk_exit_residual_floor():
     )
     check(
         "both bulk exits carry the residual floor",
-        FG.count("KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.") == 2
+        FG.count("KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.") >= 2
         and FG.count("RES .LE. KN_RAY_BULK_TOL))THEN") == 2,
     )
     check(
-        "commit gate accepts floored bulk exits via WRITE_STORE",
+        "commit gate admits floored or unfloored bulk exits",
         re.search(
-            r"IXIT_M \.EQ\. 2 \.AND\. KN_RAY_BULK_TOL \.GT\. 0\.0_LDP"
-            r" \.AND\.[\s\S]*?RES_M \.LE\. KN_RAY_BULK_TOL",
+            r"IXIT_M \.EQ\. 2 \.AND\. \(KN_RAY_BULK_TOL \.LE\. "
+            r"0\.0_LDP \.OR\.[\s\S]*?RES_M \.LE\. KN_RAY_BULK_TOL\)",
             FG,
         )
         is not None
         and re.search(
-            r"IXIT_P \.EQ\. 2 \.AND\. KN_RAY_BULK_TOL \.GT\. 0\.0_LDP"
-            r" \.AND\.[\s\S]*?RES_P \.LE\. KN_RAY_BULK_TOL",
+            r"IXIT_P \.EQ\. 2 \.AND\. \(KN_RAY_BULK_TOL \.LE\. "
+            r"0\.0_LDP \.OR\.[\s\S]*?RES_P \.LE\. KN_RAY_BULK_TOL\)",
             FG,
         )
         is not None,
