@@ -545,6 +545,7 @@ def main():
     d = write_vadat(
         WORKDIR / "vadat_gates",
         {
+            "FG_TRIAL_CHURN_MIN": "5",
             "GS_PRECOND": "T",
             "GS_PRECOND_MAX": "2.0D3",
             "GS_PRECOND_LIM": "42",
@@ -582,6 +583,12 @@ def main():
             - 0.06
         )
         < 1e-12,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "FG_TRIAL_CHURN_MIN parses and lands",
+        "RESULT_OK" in p.stdout
+        and v.get("FG_TRIAL_CHURN_MIN") == "5",
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 

@@ -933,6 +933,17 @@
 	1     'KNOP: churn-bound factor arming the FG-only trial?')
 	  IF(FG_TRIAL_CHURN .LT. 0.0_LDP)FG_TRIAL_CHURN=0.0_LDP
 !
+! FG_TRIAL_CHURN_MIN (default 3): consecutive churn-marginal calls
+! before the churn arm may release a trial.  A single
+! churn-marginal sweep could still be transient; N_FROZEN is the
+! wrong clock because releases refund it under the same hold
+! (m15_2p82d: streak ~5-6 vs FG_TRIAL_MIN=30).  0 disables the arm.
+!
+	  FG_TRIAL_CHURN_MIN=3
+	  CALL RD_STORE_INT(FG_TRIAL_CHURN_MIN,'FG_TRIAL_CHURN_MIN',
+	1     L_FALSE,'KNOP: churn-marginal calls before the FG trial?')
+	  IF(FG_TRIAL_CHURN_MIN .LT. 0)FG_TRIAL_CHURN_MIN=0
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial.  With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a

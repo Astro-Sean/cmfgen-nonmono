@@ -489,6 +489,36 @@ def test_fg_trial_churn_arm():
         "churn arm tags its own reason",
         "'fg_trial_churn'" in POPS,
     )
+    check(
+        "FG_TRIAL_CHURN_MIN declared with 3 default",
+        "INTEGER FG_TRIAL_CHURN_MIN" in CTRL_MOD
+        and re.search(
+            r"FG_TRIAL_CHURN_MIN=3\s+CALL RD_STORE_INT"
+            r"\(FG_TRIAL_CHURN_MIN,'FG_TRIAL_CHURN_MIN'",
+            RD_CONTROL,
+        )
+        is not None,
+    )
+    check(
+        "churn-marginal streak counted and reset",
+        re.search(
+            r"IF\(FG_CHURN_MARG\)THEN\s+"
+            r"N_CHURN_STREAK=N_CHURN_STREAK\+1\s+ELSE\s+"
+            r"N_CHURN_STREAK=0",
+            POPS,
+        )
+        is not None,
+    )
+    check(
+        "churn arm gated on the streak not N_FROZEN",
+        "N_CHURN_STREAK .GE. FG_TRIAL_CHURN_MIN" in POPS
+        and re.search(
+            r"\.NOT\. GS_FG_IMMATURE \.AND\. FG_TRIAL_MIN \.GT\. 0"
+            r"[\s\S]*?N_FROZEN \.GE\. FG_TRIAL_MIN",
+            POPS,
+        )
+        is not None,
+    )
 
 
 if __name__ == "__main__":

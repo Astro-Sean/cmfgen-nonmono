@@ -876,6 +876,16 @@
 !
 	REAL(KIND=LDP) FG_TRIAL_CHURN
 !
+! FG_TRIAL_CHURN_MIN (default 3): consecutive churn-marginal calls
+! (gate immature only via store churn, inside the FG_TRIAL_CHURN
+! factor) before the churn arm may release a trial.  The arm uses
+! its own streak rather than N_FROZEN -- releases refund the
+! freeze clock, so a churn-only hold never reaches FG_TRIAL_MIN on
+! the field class this arm exists for.  0 disables the arm.
+! VADAT keyword [FG_TRIAL_CHURN_MIN].
+!
+	INTEGER FG_TRIAL_CHURN_MIN
+!
 ! GS_FREEZE_LIM (default 0 = disabled): no-progress great iterations
 ! spent in the KNOP forced-LAMBDA freeze before SOLVE_FOR_POPS
 ! stops the model as non-convergent.  The count survives the

@@ -140,8 +140,13 @@
 ! GS_FG_PRECHURN: GS_FG_IMMATURE evaluated before the store-churn OR
 ! (snapshot, not a saved state).  FG_CHURN_MARG: immature ONLY via
 ! churn and inside the [FG_TRIAL_CHURN] factor (edited by Devin,
-! 20-Oct-2026).
+! 20-Oct-2026).  N_CHURN_STREAK counts consecutive churn-marginal
+! calls and gates the churn arm in place of N_FROZEN: the freeze
+! streak stays ~5-6 under the release/refreeze cycle, far short of
+! FG_TRIAL_MIN, so the arm could never fire on the field class it
+! was built for.
 	LOGICAL GS_FG_PRECHURN,FG_CHURN_MARG
+	INTEGER, SAVE :: N_CHURN_STREAK=0
 	INTEGER TRIAL_MIN_USED
 	LOGICAL, SAVE :: GS_RAW_NUDGE_DONE=.FALSE.
 	LOGICAL MOM_RAN,MOM_OK
@@ -517,6 +522,7 @@
 	  N_REL_NOPROG=0
 	  N_FROZEN_TOT=0
 	  N_PRECOND_TOT=0
+	  N_CHURN_STREAK=0
 	  LUM_INIT=.FALSE.
 	  LUM_PREV=0.0_LDP
 	  LUM_PREV_OUT=0.0_LDP
@@ -1139,6 +1145,20 @@
 	2    (GS_NCONV_ALL .LE.
 	3     FG_TRIAL_CHURN*MAX(50_8,GS_NTOT/1000))
 !
+! Churn-marginal streak (edited by Devin, 20-Oct-2026): the arm
+! needs a few consecutive churn-only calls before firing -- a
+! single churn-marginal sweep could still be a transient -- but
+! N_FROZEN is the wrong clock here: releases refund it to ~5-6,
+! far under FG_TRIAL_MIN (30), so the churn arm was dead on the
+! m15-class field it targets.  [FG_TRIAL_CHURN_MIN] sets the
+! streak threshold.
+!
+	  IF(FG_CHURN_MARG)THEN
+	    N_CHURN_STREAK=N_CHURN_STREAK+1
+	  ELSE
+	    N_CHURN_STREAK=0
+	  END IF
+!
 ! Plateau exits (IXIT=6) are a different failure mode from
 ! stall/cap: the map stopped improving entirely, so their bad
 ! cells are a fixed-point floor, not a slow transient.  A plateau
@@ -1444,13 +1464,16 @@
 ! moving (it34-class release-then-blow-up).  One-time warning;
 ! the default is unchanged -- the marginal-release machinery
 ! (W3 best-pass census, W8 FG_TRIAL) is the remediation, not a
-! default change.
+! default change.  Preconditioned calls are excluded (edited by
+! Devin, 20-Oct-2026): the gate postponed the freeze rather than
+! releasing a hold, so 'releasing' would misreport the step.
 !
 	  IF(.NOT. GS_RAW_NUDGE_DONE .AND. .NOT. GS_RAW_MATURE .AND.
 	1     DO_NONMONO_KNOP .AND. .NOT. GS_RAW_IMMATURE .AND.
-	2     N_MATURE .GE. GS_REL_STABLE .AND.
-	3     GS_MAX_ALL .GT. 0.05_LDP .AND.
-	4     GS_MAX_ALL .LT. 0.5_LDP)THEN
+	2     .NOT. GS_PRECOND_ACT .AND.
+	3     N_MATURE .GE. GS_REL_STABLE .AND.
+	4     GS_MAX_ALL .GT. 0.05_LDP .AND.
+	5     GS_MAX_ALL .LT. 0.5_LDP)THEN
 	    WRITE(LUER,'(A,ES10.3)')
 	1   'SOLVE_FOR_POPS: NUDGE -- lagged field releasing with raw'//
 	2   ' max still',GS_MAX_ALL
@@ -1604,15 +1627,24 @@
 ! GS_UNSAFE), luminosity is not blocked, and the accepted-trial
 ! pulse budget remains.
 !
+! Two arm thresholds (edited by Devin, 20-Oct-2026): the ordinary
+! marginal arm keeps the N_FROZEN >= FG_TRIAL_MIN requirement,
+! while the FG_CHURN_MARG arm gates on N_CHURN_STREAK >=
+! [FG_TRIAL_CHURN_MIN] (default 3) -- a churn-only hold survives
+! the release refund, so N_FROZEN stays far under FG_TRIAL_MIN on
+! exactly the field the churn arm was added for.
+!
 	    FG_TRIAL=(.NOT. MOM_RAN) .AND.
 	1      (.NOT. GS_FG_IMMATURE .OR. FG_CHURN_MARG)
 	2      .AND. (.NOT. GS_UNSAFE)
 	3      .AND. DO_BA_RES_ACC .AND. (.NOT. BA_SNAPSHOT_MISSING)
-	4      .AND. (FG_TRIAL_MIN .GT. 0)
-	5      .AND. (N_FROZEN .GE. FG_TRIAL_MIN)
-	6      .AND. (.NOT. LUM_BLOCKED)
-	7      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
-	8      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
+	4      .AND. ((.NOT. GS_FG_IMMATURE .AND. FG_TRIAL_MIN .GT. 0
+	5        .AND. N_FROZEN .GE. FG_TRIAL_MIN) .OR.
+	6        (FG_CHURN_MARG .AND. FG_TRIAL_CHURN_MIN .GT. 0 .AND.
+	7        N_CHURN_STREAK .GE. FG_TRIAL_CHURN_MIN))
+	8      .AND. (.NOT. LUM_BLOCKED)
+	9      .AND. (GS_TRIAL_LIM .LE. 0 .OR.
+	1      N_TRIAL_ACC .LT. GS_TRIAL_LIM)
 	    IF(MOM_TRIAL)THEN
 	      TRIAL_FIRED=.TRUE.
 	      TRIAL_MIN_USED=MOM_TRIAL_MIN
@@ -2721,6 +2753,7 @@
 	    WRITE(LU_GS,'(A,I0)')'n_frozen_tot=',N_FROZEN_TOT
 	    WRITE(LU_GS,'(A,I0)')'n_precond_tot=',N_PRECOND_TOT
 	    WRITE(LU_GS,'(A,I0)')'n_rel_noprog=',N_REL_NOPROG
+	    WRITE(LU_GS,'(A,I0)')'n_churn_streak=',N_CHURN_STREAK
 	    CLOSE(LU_GS)
 	  END IF
 	END IF
