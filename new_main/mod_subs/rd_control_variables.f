@@ -1289,16 +1289,22 @@
 	  CALL RD_STORE_DBLE(INEXT_RELAX_V,'INEXT_RELAX',L_FALSE,
 	1     'FG lagged-store under-relaxation factor')
 !
-! KN_RAY_BULK_TOL (default 2.5E-2 = 0.5*GS_MATURE_TOL, edited by
-! Devin, 20-Oct-2026): residual floor on the bulk exit (IXIT=2).
-! The bad-fraction test alone let rays exit converged at
-! residual ~5E-2 -- one capped commit step from the fixed point
-! -- pinning the refresh max just above the maturity gate
-! (m15_2p82d: 5.19-5.24E-2) and ratcheting the store through
-! WRITE_STORE_CAP.  A floored bulk exit commits through
-! WRITE_STORE instead.  0 disables the new term.
+! KN_RAY_BULK_TOL (default 6.0E-2 under DO_NONMONO_KNOP, 0 = off
+! otherwise; edited by Devin, 20-Oct-2026): residual floor on the
+! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
+! converged at residual ~5E-2 -- one capped commit step from the
+! fixed point -- pinning the refresh max just above the maturity
+! gate (m15_2p82d: 5.19-5.24E-2) and ratcheting the store through
+! WRITE_STORE_CAP.  The earlier 2.5E-2 default sat below that
+! floor, so the bulk exit never fired on m15 and floored rays
+! still hit the commit gate capped.  6.0E-2 clears the measured
+! floor so those rays commit through WRITE_STORE.  The key is
+! KNOP-scoped: SET_FG_KN_OPTS is global, so a shared nonzero
+! default would silently floor bulk exits on non-KNOP runs --
+! off unless the key is set explicitly.  0 disables the term.
 !
-	  KN_RAY_BULK_TOL_V=2.5E-2_LDP
+	  KN_RAY_BULK_TOL_V=0.0_LDP
+	  IF(DO_NONMONO_KNOP)KN_RAY_BULK_TOL_V=6.0E-2_LDP
 	  CALL RD_STORE_DBLE(KN_RAY_BULK_TOL_V,'KN_RAY_BULK_TOL',
 	1     L_FALSE,'Residual floor for the FG bulk exit (0=off)')
 	  CALL SET_FG_KN_OPTS(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,

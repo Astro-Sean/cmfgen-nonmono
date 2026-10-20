@@ -783,15 +783,18 @@
 ! so this bounds refresh memory at ~KN_MAX_THREADS*NI*NCF*8 B.
 !
 	REAL(KIND=LDP) KN_RAY_TOL
-! KN_RAY_BULK_TOL (VADAT [KN_RAY_BULK_TOL], default 2.5E-2 =
-! 0.5*GS_MATURE_TOL, set by SET_FG_KN_OPTS): residual floor on the
-! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
-! converged at residual ~5E-2 -- one capped commit step from the
-! fixed point -- which pinned the refresh residual just above the
-! maturity gate and ratcheted the store through WRITE_STORE_CAP
-! (m15_2p82d: 5.19-5.24E-2 vs tol 2E-3, 8-12 nc-capped commits per
-! refresh).  A floored bulk exit is also accepted at the commit
-! gate.  <=0 disables the new term.
+! KN_RAY_BULK_TOL (VADAT [KN_RAY_BULK_TOL], set by SET_FG_KN_OPTS;
+! default 6.0E-2 under DO_NONMONO_KNOP, 0 = off otherwise): residual
+! floor on the bulk exit (IXIT=2).  The bad-fraction test alone let
+! rays exit converged at residual ~5E-2 -- one capped commit step
+! from the fixed point -- which pinned the refresh residual just
+! above the maturity gate and ratcheted the store through
+! WRITE_STORE_CAP (m15_2p82d: 5.19-5.24E-2 vs tol 2E-3, 8-12
+! nc-capped commits per refresh).  The KNOP default sits above the
+! measured 5.2E-2 floor so floored rays can still exit and commit;
+! the earlier 2.5E-2 default left every such ray to stall/cap while
+! the commit gate refused it.  A floored bulk exit is also accepted
+! at the commit gate.  <=0 disables the new term.
 !
 	REAL(KIND=LDP) KN_RAY_BULK_TOL
 	INTEGER KN_RAY_MAXPASS,KN_MAX_THREADS
@@ -930,7 +933,7 @@
 	DATA KN_STORE_READY /.FALSE./
 	DATA KN_RF_WARNED /.FALSE./
 	DATA KN_RAY_TOL /2.0E-03_LDP/
-	DATA KN_RAY_BULK_TOL /2.5E-02_LDP/
+	DATA KN_RAY_BULK_TOL /0.0_LDP/
 	DATA KN_RAY_OMEGA /1.0_LDP/
 	DATA FG_ORD_SWEEP /.TRUE./
 	DATA FG_ORD_AITKEN /.FALSE./
