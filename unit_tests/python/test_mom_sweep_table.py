@@ -85,6 +85,15 @@ def main():
         and "1.300E+01" in eqres.group(0),
         p.stdout[-400:] if eqres is None else "",
     )
+    passes = re.search(r"^\s*passes\s.*$", p.stdout, re.M)
+    rep.check(
+        "passes row prints both per-pass drift values",
+        passes is not None
+        and "8.000E-02" in passes.group(0)
+        and "3.000E-02" in passes.group(0)
+        and "dir census" in passes.group(0),
+        p.stdout[-400:] if passes is None else "",
+    )
     rep.summary()
 
 

@@ -7,6 +7,7 @@
       PROGRAM DRV_MOM_SWEEP
       USE SET_KIND_MODULE
       USE MOD_MOM_J_NONMONO_V1
+      USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
       IMPLICIT NONE
       REAL(KIND=LDP) R(4),V(4),SIGMA(4)
 !
@@ -15,8 +16,18 @@
       R=1.0_LDP
       V=1.0_LDP
       SIGMA=0.5_LDP
+!
+! CONV_DIAG_LVL=2 turns on the extended report rows (per-pass,
+! bulk-share, argmax-history, boundary tag) so this run exercises
+! their formats.
+!
+      CONV_DIAG_LVL=2
       MOM_GS_NTOT=100_8
       MOM_GS_NCF=2
+      MOM_SW_NCROW=60_8
+      MOM_SW_NROW=100_8
+      MOM_GS_CHG_P1=8.0E-2_LDP
+      MOM_GS_CHG_P2=3.0E-2_LDP
       MOM_MIN_DR=1.1E-3_LDP
       MOM_MIN_DR_I=2
       MOM_MIN_DR_L=3

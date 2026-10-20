@@ -167,6 +167,19 @@
 !
 	INTEGER, SAVE :: MOM_GS_ARGI=0, MOM_GS_ARGL=0
 !
+! Per-pass drift split (CONV_DIAG_LVL>=2 diagnostic only).  The
+! comp_j_blank F-iteration re-invokes this solver with NEW_FREQ=F at
+! the same frequency, where the store already holds the relaxed
+! first-pass write -- the drift there measures the under-relaxation
+! increment rather than contraction of the store-fix map, and a
+! FREQ_INDX=1 re-call also re-fires the accumulator reset.  P1/P2
+! keep each pass's maximum so the sweep report can show which call
+! pins the metric the maturity gate reads.  Refresh re-calls are
+! excluded; their residual is MOM_RF_DCHG.
+!
+	REAL(KIND=LDP), SAVE :: MOM_GS_CHG_P1=0.0_LDP
+	REAL(KIND=LDP), SAVE :: MOM_GS_CHG_P2=0.0_LDP
+!
 ! Bulk convergence metrics (Oct-2026): the max-norm MOM_GS_MAXCHG is
 ! pinned by a handful of roaming pathological cells even when the
 ! field is converged in bulk.  MOM_GS_NBAD5/NBAD50 count cells whose
@@ -1616,6 +1629,16 @@
 	  MOM_EPS_CAP=0;  MOM_EPS_CAP_SW=0
 	  MOM_SW_NSUPP=0
 	  MOM_GS_MAXCHG=0.0_LDP
+!
+!	  The repeat call at FREQ_INDX=1 (NEW_FREQ=F) re-enters this
+!	  block and already re-zeroes MOM_GS_MAXCHG; gating the
+!	  diagnostic split on NEW_FREQ keeps pass-1 history intact so
+!	  both passes can be compared in the sweep report.
+!
+	  IF(NEW_FREQ)THEN
+	    MOM_GS_CHG_P1=0.0_LDP
+	    MOM_GS_CHG_P2=0.0_LDP
+	  END IF
 	  MOM_INEXT_CAPPED=0
 	  MOM_NEGJ_LRG=0
 	  MOM_GS_NBAD5=0;  MOM_GS_NBAD50=0
@@ -3410,6 +3433,11 @@
 	    END IF
 	    T1=J_NEXT_FRQ(I,FREQ_INDX)
 	    T2=XM_NM(I)
+!
+!	    T5 = this cell's drift contribution for the per-pass split
+!	    folded after the branch chain (CONV_DIAG_LVL>=2 diagnostic).
+!
+	    T5=0.0_LDP
 	    IF(XM_BAD_NM(I) .AND. MOM_RF_KEEPNEG)THEN
 !
 !	      Quarantined cell: the stored value is frozen by
@@ -3439,6 +3467,7 @@
 !
 	      MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	      MOM_GS_NBAD50=MOM_GS_NBAD50+1
+	      T5=1.0_LDP
 	      IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
 	        MOM_GS_MAXCHG=1.0_LDP
 	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
@@ -3454,6 +3483,7 @@
 	      MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	      MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	      MOM_GS_NHUGE=MOM_GS_NHUGE+1
+	      T5=1.0E+30_LDP
 	    ELSE IF(ABS(T1) .GT. 1.0E-28_LDP)THEN
 !
 !	      Denominator floor prevents a vanishing old value from
@@ -3463,6 +3493,7 @@
 	      IF(T4 .GT. 0.05_LDP)MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	      IF(T4 .GT. 0.5_LDP)MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	      IF(T4 .GT. 1.0E+6_LDP)MOM_GS_NHUGE=MOM_GS_NHUGE+1
+	      T5=T4
 	      IF(T4 .GT. MOM_GS_MAXCHG)THEN
 	        MOM_GS_MAXCHG=T4
 	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
@@ -3470,9 +3501,22 @@
 	    ELSE IF(ABS(T2) .GT. 1.0E-4_LDP*T3)THEN
 	      MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	      MOM_GS_NBAD50=MOM_GS_NBAD50+1
+	      T5=1.0_LDP
 	      IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
 	        MOM_GS_MAXCHG=1.0_LDP
 	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	      END IF
+	    END IF
+!
+!	    Fold the cell's drift into its caller pass (first vs repeat
+!	    call at this frequency).  Refresh re-calls are excluded:
+!	    their contraction is already read via MOM_RF_DCHG.
+!
+	    IF(.NOT. MOM_KN_REFRESHING)THEN
+	      IF(NEW_FREQ)THEN
+	        MOM_GS_CHG_P1=MAX(MOM_GS_CHG_P1,T5)
+	      ELSE
+	        MOM_GS_CHG_P2=MAX(MOM_GS_CHG_P2,T5)
 	      END IF
 	    END IF
 !
@@ -3722,6 +3766,13 @@
 	      MOM_GS_MAXCHG=T4
 	      MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
 	    END IF
+	    IF(.NOT. MOM_KN_REFRESHING)THEN
+	      IF(NEW_FREQ)THEN
+	        MOM_GS_CHG_P1=MAX(MOM_GS_CHG_P1,T4)
+	      ELSE
+	        MOM_GS_CHG_P2=MAX(MOM_GS_CHG_P2,T4)
+	      END IF
+	    END IF
 	    T5=JNEXT_RELAX
 	    IF(MOM_KN_REFRESHING .AND. ALLOCATED(MOM_DAMP_NM))
 	1      T5=MOM_DAMP_NM(I,FREQ_INDX)
@@ -3845,6 +3896,7 @@
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1
 	USE KNOP_STATUS_MOD
+	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
 	USE IFPORT
 	IMPLICIT NONE
 	INTEGER NITSF,ND,LU
@@ -3896,6 +3948,19 @@
 	1    'drift','lagged J_NEXT drift ',MOM_GS_MAXCHG,' (',
 	2    MOM_GS_NBAD5,' cells above 5%, ',MOM_GS_NBAD50,
 	3    ' above 50% of ',MOM_GS_NTOT,' total) ',SW_ST
+!
+! Per-pass split of the drift metric: the comp_j_blank F-iteration
+! re-calls the solver with NEW_FREQ=F at the same frequency, so a
+! floor in the combined drift can be pass-2 under-measurement (the
+! store was already relaxed toward the solve) rather than a stalled
+! store-fix map.  The row census shows the compressing-row share the
+! AUTO direction split is working from.
+!
+	IF(CONV_DIAG_LVL .GE. 2)
+	1    WRITE(LUER,'(4X,A10,2X,2(A,ES10.3),A,I10,A,I10)')
+	2    'passes','1st-call drift ',MOM_GS_CHG_P1,
+	3    '; 2nd-call drift ',MOM_GS_CHG_P2,
+	4    '; dir census ',MOM_SW_NCROW,' of ',MOM_SW_NROW
 	WRITE(LUER,'(4X,A10,2X,I10,3(A,I10),A)')
 	1    'repairs',MOM_NEGJ_LRG,
 	2    ' significant negative J_NEXT cells, ',MOM_N_NEGJ_T,
