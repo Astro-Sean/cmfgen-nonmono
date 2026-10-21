@@ -2544,6 +2544,8 @@
 	INTEGER NZMAX_SAV, NPROJ_SAV, JR_L
 	INTEGER, SAVE :: JVP_DIR_CT = 0
 	INTEGER I, KK, JJ, II, NRETRY
+	INTEGER IB, L_BND
+	DOUBLE PRECISION BND_MX
 	INTEGER K_J
 	INTEGER LUER, ERROR_LU
 !
@@ -2613,12 +2615,55 @@
 	      END DO
 	    END DO
 	  END DO
+!
+! Off-diagonal bands: add the cross-depth coupling when banded storage
+! is armed ([JFNK_USE_BANDED], requires NUM_BNDS>1).  BA_A alone is the
+! diagonal band; CMAT_RAD_BANDS holds the rad-part bands but collisional
+! terms are within-depth, so B .NE. DIAG_INDX entries equal the full
+! off-diagonal operator (BA_ADV_TERM advection and any ALO writes).
+! jfnk_x = 0 at admission, so x_frac(v) = v exactly -- raw v is used on
+! every band to match the diagonal block's linearity.
+!
+	  IF(JFNK_BA_RAD_BANDS_READY)THEN
+	    DO KK = 1, JFNK_ND
+	      DO IB = 1, JFNK_NUM_BNDS
+	        IF(IB .EQ. JFNK_DIAG_INDX)CYCLE
+	        L_BND = KK + IB - JFNK_DIAG_INDX
+	        IF(L_BND .LT. 1 .OR. L_BND .GT. JFNK_ND)CYCLE
+	        DO II = 1, JFNK_NT
+	          DO JJ = 1, JFNK_NT
+	            JV((KK-1)*JFNK_NT + II) = JV((KK-1)*JFNK_NT + II) +
+     1            DBLE(JFNK_CMAT_RAD_BANDS(II, JJ, IB, KK)) *
+     2            JFNK_W_V_USE((L_BND-1)*JFNK_NT + JJ)
+	          END DO
+	        END DO
+	      END DO
+	    END DO
+	  END IF
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV)
 	  IF(.NOT. BA_JVP_NOTED)THEN
 	    BA_JVP_NOTED = .TRUE.
 	    LUER=ERROR_LU()
 	    WRITE(LUER,'(A)')'  JFNK: JVP using analytic BA diagonal-band'//
 	1     ' matvec [JFNK_BA_JVP]'
+	    IF(JFNK_BA_RAD_BANDS_READY)THEN
+! Report each band's max element once: if off-diagonal content is ~0
+! the plateau-vs-reachable question is settled for this configuration
+! before the GMRES result is read.
+	      DO IB = 1, JFNK_NUM_BNDS
+	        BND_MX = 0.0D0
+	        DO KK = 1, JFNK_ND
+	          DO II = 1, JFNK_NT
+	            DO JJ = 1, JFNK_NT
+	              BND_MX = MAX(BND_MX,
+     1              ABS(DBLE(JFNK_CMAT_RAD_BANDS(II, JJ, IB, KK))))
+	            END DO
+	          END DO
+	        END DO
+	        WRITE(LUER,'(A,I3,A,ES12.4)')
+     1        '  JFNK: max|BA band ', IB, '|=', BND_MX
+	      END DO
+	    END IF
 	  END IF
 	  RETURN
 	END IF
