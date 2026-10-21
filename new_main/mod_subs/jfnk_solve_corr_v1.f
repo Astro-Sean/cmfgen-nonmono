@@ -1234,9 +1234,15 @@
         WRITE(LUER,'(A,I3,A)')
      1       '  DEFER-PROBE ',JFNK_DEFER_PROBE_N,
      2       ' (FD-gate deferral; diagnostics only, Newton still skipped)'
-        WRITE(LUER,'(A,I6,A,I6,A,I6,A)')
-     1       '    it=',MAIN_COUNTER,'  BA src it=',JFNK_BA_SRC_IT,
-     2       '  BA age=',MAIN_COUNTER-JFNK_BA_SRC_IT,' its'
+        IF(JFNK_BA_SRC_IT .GE. 0)THEN
+          WRITE(LUER,'(A,I6,A,I6,A,I6,A)')
+     1         '    it=',MAIN_COUNTER,'  BA src it=',JFNK_BA_SRC_IT,
+     2         '  BA age=',MAIN_COUNTER-JFNK_BA_SRC_IT,' its'
+        ELSE
+          WRITE(LUER,'(A,I6,A)')
+     1         '    it=',MAIN_COUNTER,
+     2         '  BA src it=unknown (loaded from disk this run)'
+        END IF
         WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8,A,I8)')
      1       '    |F| unw=',REAL(F_NU),'  wtd=',REAL(SQRT(FF2_DP)),
      2       '  resid evals=',JFNK_N_RESIDUAL_EVALS,'  nclip=',NCLIP_R
@@ -1347,7 +1353,7 @@
             JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
             BAFD_DP=JFNK_DOT_V1(JFNK_N,JV_SAV,JV_FD2)
             JZF_BA=JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV)
-            WRITE(LUER,'(A,5(A,ES12.4))')
+            WRITE(LUER,'(A,ES12.4,4(A,ES12.4))')
      1           '    raw direction:  |BAz|/|F|=',
      2           REAL(SQRT(JZF_BA)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
      3           '  |Az|/|F|=',REAL(SQRT(JJZ_FD)/

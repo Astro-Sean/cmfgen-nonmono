@@ -10,6 +10,8 @@ INTERFACE = (ROOT / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f").read_text()
 SOLVER = (ROOT / "new_main/mod_subs/jfnk_solver_v1.f90").read_text()
 POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
 SOLVE_CORR = (ROOT / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
+INTMOD = (ROOT / "new_main/mod_subs/jfnk_cmfgen_int_mod.f").read_text()
+CVARMOD = (ROOT / "new_main/mod_subs/control_variable_mod.f").read_text()
 BLKBAND = (ROOT / "new_main/subs/cmf_blkband_v3.f").read_text()
 RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
 
@@ -260,4 +262,73 @@ check(
 check(
     "NUM_BNDS<3 forces METH_SOL='DIAG'",
     "IF(NUM_BNDS .LT. 3 .AND. METH_SOL .NE. 'DIAG')THEN" in RD_CONTROL,
+)
+
+# JFNK_DEFER_PROBE (21-Oct-2026): the deferral-path operator probe must
+# run only on FD-gate deferrals, inside the allocated-vector scope, and
+# must never revive the admission or leak the h multiplier.
+
+defer = section(
+    SOLVE_CORR,
+    "Deferral-path operator probe ([JFNK_DEFER_PROBE]",
+    "DEFER-PROBE end.'",
+)
+check(
+    "defer probe gated on defer + flag + cap",
+    "IF(.NOT. JFNK_REACH_OK .AND. L_EVR_FDOP" in defer
+    and "JFNK_DEFER_PROBE .GT. 0" in defer
+    and "JFNK_DEFER_PROBE_N .LT. JFNK_DEFER_PROBE" in defer,
+)
+check(
+    "defer probe sits between FD gates and isolation probes",
+    SOLVE_CORR.index("'  DEFER-PROBE '")
+    < SOLVE_CORR.index("IF(JFNK_REACH_OK)THEN\n! Isolation probes"),
+)
+check(
+    "defer probe never revives the admission",
+    "JFNK_REACH_OK=.TRUE." not in defer.replace(" ", ""),
+)
+check(
+    "defer probe resets HSCALE after every JVP call",
+    defer.count("JFNK_PROBE_HSCALE=1.0_LDP")
+    >= defer.count("CALL JFNK_JVP_V1"),
+)
+check(
+    "defer probe reuses the gate JVP at scale 1",
+    "JV_FD2=JV_FD" in defer and "L_EVP(1)=.NOT. jfnk_jvp_failed" in defer,
+)
+check(
+    "raw dF comes from the perturbed residual, not the derivative",
+    "JFNK_W_F_PERT(TPI(I))-jfnk_fx(TPI(I))" in defer,
+)
+check(
+    "JFNK_DEFER_PROBE parsed with 0=off default",
+    "JFNK_DEFER_PROBE=0" in RD_CONTROL
+    and "'JFNK_DEFER_PROBE'" in RD_CONTROL
+    and "INTEGER JFNK_DEFER_PROBE" in CVARMOD,
+)
+check(
+    "probe state lives in the interface module",
+    "JFNK_PROBE_H_LAST" in INTMOD
+    and "JFNK_BA_SRC_IT" in INTMOD
+    and "JFNK_DEFER_PROBE_N" in INTMOD,
+)
+check(
+    "actual FD step exported after retry loop",
+    "JFNK_PROBE_H_LAST=H_STEP" in INTERFACE
+    and "JFNK_PROBE_H_LAST=0.0_LDP" in INTERFACE,
+)
+check(
+    "BA source iteration stamped at build",
+    "JFNK_BA_SRC_IT=MAIN_COUNTER" in POPS,
+)
+check(
+    "unknown BA src age guarded (src=-1 on disk load)",
+    "JFNK_BA_SRC_IT .GE. 0" in defer
+    and "BA src it=unknown" in defer,
+)
+check(
+    "raw-direction write keeps A/ES pairing",
+    "'(A,ES12.4,4(A,ES12.4))'" in defer
+    and "'(A,5(A,ES12.4))'" not in defer,
 )
