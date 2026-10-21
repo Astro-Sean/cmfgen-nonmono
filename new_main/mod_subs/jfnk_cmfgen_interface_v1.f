@@ -2544,7 +2544,7 @@
 	DOUBLE PRECISION, ALLOCATABLE :: DIFF_ARR(:), JV_H(:)
 	INTEGER IHS, I_TOP, JROW, KROW, ID, LEV_LOC, ISEL
 	INTEGER ITOP_ARR(3)
-	DOUBLE PRECISION H_ARR(2), HMULT, DH_NORM, FDH_NORM, ROWMAX_A
+	DOUBLE PRECISION H_ARR(8), HMULT, DH_NORM, FDH_NORM, ROWMAX_A
 	CHARACTER*12 LBL_LOC
 !
 ! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
@@ -2895,11 +2895,18 @@
      4        ' |F_i|=',ABS(jfnk_fx(I_TOP)),' max|BA_row|=',ROWMAX_A
 	    END DO
 !
-	    H_ARR(1)=0.1D0
-	    H_ARR(2)=10.0D0
-	    WRITE(JFNK_LUER,'(A,ES12.4)')
-     1      '    h-scan on same direction (h0=',H_STEP,')'
-	    DO IHS=1,2
+	    H_ARR(1)=1.0D-2
+	    H_ARR(2)=1.0D-1
+	    H_ARR(3)=1.0D0
+	    H_ARR(4)=1.0D1
+	    H_ARR(5)=1.0D2
+	    H_ARR(6)=1.0D3
+	    H_ARR(7)=1.0D4
+	    H_ARR(8)=1.0D5
+	    WRITE(JFNK_LUER,'(A,ES12.4,A)')
+     1      '    h-sweep on same direction (h0=',H_STEP,
+     2      '); DF is the raw F(x+hv)-F(x)'
+	    DO IHS=1,8
 	      HMULT=H_ARR(IHS)
 	      DO I=1,N
 	        JFNK_W_X_PERT(I)=jfnk_x(I)+HMULT*H_STEP*
@@ -2918,21 +2925,28 @@
 	      DH_NORM=0.0D0
 	      FDH_NORM=0.0D0
 	      DO I=1,N
+	        DIFF_ARR(I)=JFNK_W_F_PERT(I)-jfnk_fx(I)
 	        DH_NORM=MAX(DH_NORM,ABS(JV_H(I)-JV_ANAL(I)))
 	        FDH_NORM=MAX(FDH_NORM,ABS(JV_H(I)))
 	      END DO
-	      WRITE(JFNK_LUER,'(A,ES10.2,A,ES12.4,A,ES12.4,A,ES12.4)')
-     1      '      h x',HMULT,': max|FD_h-BA*v|=',DH_NORM,
-     2      ' /|BA*v|=',DH_NORM/MAX(AN_NORM,1.0D-30),
-     3      ' max|FD_h|=',FDH_NORM
-! Per-row FD at the worst rows pins a 1/h jump vs curvature on one
-! component: a row whose FD_h scales ~1/h carries a discontinuous
-! switch; one that converges is a smooth derivative the BA missed.
+	      ROWMAX_A=0.0D0
+	      DO I=1,N
+	        ROWMAX_A=MAX(ROWMAX_A,ABS(DIFF_ARR(I)))
+	      END DO
+	      WRITE(JFNK_LUER,'(A,ES10.2,4(A,ES12.4))')
+     1      '      h x',HMULT,' heff=',HMULT*H_STEP,
+     2      ' max|DF|=',ROWMAX_A,' max|FD_h|=',FDH_NORM,
+     3      ' max|FD_h-BA*v|/|BA*v|=',DH_NORM/MAX(AN_NORM,1.0D-30)
+! Per-row values at the worst components: a cancellation-floor row
+! shows raw |DF_i| pinned near the eval noise floor (~1e4 on the stiff
+! inner-boundary rows) at every h, while a resolved row's |DF_i| grows
+! ~linearly in h.  FD_h vs BA*v sign agreement is printed explicitly.
 	      DO ISEL=1,3
 	        IF(ITOP_ARR(ISEL) .GT. 0)WRITE(JFNK_LUER,
-     1        '(A,I8,A,ES14.6,A,ES14.6)')
-     2        '        row ',ITOP_ARR(ISEL),': FD_h=',
-     3        JV_H(ITOP_ARR(ISEL)),' BA*v=',JV_ANAL(ITOP_ARR(ISEL))
+     1        '(A,I8,3(A,ES13.5))')
+     2        '        row ',ITOP_ARR(ISEL),': dF=',
+     3        DIFF_ARR(ITOP_ARR(ISEL)),' FD_h=',JV_H(ITOP_ARR(ISEL)),
+     4        ' BA*v=',JV_ANAL(ITOP_ARR(ISEL))
 	      END DO
 	    END DO
 !

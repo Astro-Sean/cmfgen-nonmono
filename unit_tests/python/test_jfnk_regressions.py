@@ -388,3 +388,9 @@ check(
     "jfnk_fx(I)+H_STEP*JV(I)" in jvp_diag
     and "repeat eval: max|F_rep-F_first|" in jvp_diag,
 )
+check(
+    "JVP diag sweep reports raw dF and FD at each h",
+    "DIFF_ARR(I)=JFNK_W_F_PERT(I)-jfnk_fx(I)" in jvp_diag
+    and "max|DF|" in jvp_diag
+    and "h-sweep on same direction" in jvp_diag,
+)
