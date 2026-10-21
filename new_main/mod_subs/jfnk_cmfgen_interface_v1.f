@@ -2519,6 +2519,7 @@
 	1                           jfnk_log_unknown, jfnk_resid_nbad
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN
+	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -2536,6 +2537,14 @@
 	INTEGER I, KK, JJ, II, NRETRY
 	INTEGER K_J
 	INTEGER LUER, ERROR_LU
+!
+! One-shot extended audit (worst-diff rows + h-scan) scratch.
+!
+	INTEGER, ALLOCATABLE :: J2ID_LOC(:)
+	DOUBLE PRECISION, ALLOCATABLE :: DIFF_ARR(:), JV_H(:)
+	INTEGER IHS, I_TOP, JROW, KROW, ID, LEV_LOC, ISEL
+	DOUBLE PRECISION H_ARR(2), HMULT, DH_NORM, FDH_NORM, ROWMAX_A
+	CHARACTER*12 LBL_LOC
 !
 ! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
 ! 2021) needs the perturbation carried through the residual in
@@ -2808,6 +2817,111 @@
 	    DO I = 1, MIN(10, N)
 	      IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I6,A,ES14.6,A,ES14.6)')
      1        '    i=', I, ' FD=', JV(I), ' anal=', JV_ANAL(I)
+	    END DO
+!
+! Extended audit (30-Oct-2026, gates-off experiment follow-up): the
+! gates-off run measured |FD|/|BA*v| ~ 36 on a GMRES basis direction
+! while the deferred-admission probe saw ~0.1% agreement on the gate's
+! proxy direction.  DIFF_NORM is an inf-norm, so first locate the
+! worst components -- a single pinned-row artifact reads differently
+! from a broad stiff-row gap.  Then re-evaluate the SAME direction at
+! h*0.1 and h*10 on the same state snapshot: a truncation-error gap
+! shrinks ~linearly with h, while a structural BA misspecification
+! (analytic STEQ_coll block vs the true derivative of the assembled
+! residual) is h-invariant.  PTC enters both sides identically so it
+! cancels in the comparison.  The h*10 point may cross clip bounds the
+! host h was chosen to avoid -- flagged nbad rather than trusted.
+! Costs two residual evals, once per process.
+!
+	    IF(ALLOCATED(J2ID_LOC))DEALLOCATE(J2ID_LOC)
+	    ALLOCATE(J2ID_LOC(JFNK_NT))
+	    J2ID_LOC=0
+	    DO ID=1,JFNK_NION
+	      IF(ATM(ID)%XzV_PRES)THEN
+	        DO JJ=ATM(ID)%EQXzV,
+     1          MIN(ATM(ID)%EQXzV+ATM(ID)%NXzV-1,JFNK_NT-2)
+	          IF(JJ .GE. 1)J2ID_LOC(JJ)=ID
+	        END DO
+	      ELSE IF(ATM(ID)%EQXzV .GE. 1 .AND.
+     1          ATM(ID)%EQXzV .LE. JFNK_NT-2)THEN
+	        J2ID_LOC(ATM(ID)%EQXzV)=ID
+	      END IF
+	    END DO
+!
+	    IF(ALLOCATED(DIFF_ARR))DEALLOCATE(DIFF_ARR)
+	    IF(ALLOCATED(JV_H))DEALLOCATE(JV_H)
+	    ALLOCATE(DIFF_ARR(N),JV_H(N))
+	    DO I=1,N
+	      DIFF_ARR(I)=ABS(JV(I)-JV_ANAL(I))
+	    END DO
+	    WRITE(JFNK_LUER,'(A)')
+     1      '    worst |FD-BA*v| components (row-max |BA_row|, F_i):'
+	    DO ISEL=1,8
+	      I_TOP=0
+	      DH_NORM=0.0D0
+	      DO I=1,N
+	        IF(DIFF_ARR(I) .GT. DH_NORM)THEN
+	          DH_NORM=DIFF_ARR(I)
+	          I_TOP=I
+	        END IF
+	      END DO
+	      IF(I_TOP .EQ. 0)EXIT
+	      DIFF_ARR(I_TOP)=0.0D0
+	      JROW=MOD(I_TOP-1,JFNK_NT)+1
+	      KROW=(I_TOP-1)/JFNK_NT+1
+	      ROWMAX_A=0.0D0
+	      DO JJ=1,JFNK_NT
+	        ROWMAX_A=MAX(ROWMAX_A,ABS(DBLE(JFNK_BA_A(JROW,JJ,KROW))))
+	      END DO
+	      ID=0
+	      IF(JROW .LE. JFNK_NT-2)ID=J2ID_LOC(JROW)
+	      LBL_LOC='unlabeled'
+	      LEV_LOC=0
+	      IF(JROW .EQ. JFNK_NT)THEN
+	        LBL_LOC='T (energy)'
+	      ELSE IF(JROW .EQ. JFNK_NT-1)THEN
+	        LBL_LOC='Ne (charge)'
+	      ELSE IF(ID .GT. 0)THEN
+	        LBL_LOC=ION_ID(ID)
+	        LEV_LOC=JROW-ATM(ID)%EQXzV+1
+	      END IF
+	      WRITE(JFNK_LUER,'(A,I8,A,I4,A,I4,2X,A12,I5,'//
+     1        'A,ES11.3,A,ES11.3,A,ES11.3,A,ES11.3)')
+     2        '      idx=',I_TOP,' K=',KROW,' J=',JROW,LBL_LOC,
+     3        LEV_LOC,' FD=',JV(I_TOP),' BA*v=',JV_ANAL(I_TOP),
+     4        ' |F_i|=',ABS(jfnk_fx(I_TOP)),' max|BA_row|=',ROWMAX_A
+	    END DO
+!
+	    H_ARR(1)=0.1D0
+	    H_ARR(2)=10.0D0
+	    WRITE(JFNK_LUER,'(A,ES12.4)')
+     1      '    h-scan on same direction (h0=',H_STEP,')'
+	    DO IHS=1,2
+	      HMULT=H_ARR(IHS)
+	      DO I=1,N
+	        JFNK_W_X_PERT(I)=jfnk_x(I)+HMULT*H_STEP*
+     1          DBLE(JFNK_W_V_USE(I))
+	      END DO
+	      CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	      IF(jfnk_resid_nbad .GT. 0)THEN
+	        WRITE(JFNK_LUER,'(A,ES10.2,A)')
+     1        '      h x',HMULT,': residual nbad -- eval untrusted'
+	        CYCLE
+	      END IF
+	      DO I=1,N
+	        JV_H(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/(HMULT*H_STEP)
+	      END DO
+	      CALL JFNK_MASK_FIXED_UNKNOWNS(N,JV_H)
+	      DH_NORM=0.0D0
+	      FDH_NORM=0.0D0
+	      DO I=1,N
+	        DH_NORM=MAX(DH_NORM,ABS(JV_H(I)-JV_ANAL(I)))
+	        FDH_NORM=MAX(FDH_NORM,ABS(JV_H(I)))
+	      END DO
+	      WRITE(JFNK_LUER,'(A,ES10.2,A,ES12.4,A,ES12.4,A,ES12.4)')
+     1      '      h x',HMULT,': max|FD_h-BA*v|=',DH_NORM,
+     2      ' /|BA*v|=',DH_NORM/MAX(AN_NORM,1.0D-30),
+     3      ' max|FD_h|=',FDH_NORM
 	    END DO
 	  END IF
 	END IF

@@ -339,3 +339,36 @@ check(
     and "JFNK_FACTOR_PRECOND_V1(.TRUE.)" in SOLVE_CORR
     and "JFNK_FACTOR_PRECOND_V1(.TRUE.)" in INTERFACE,
 )
+
+jvp_diag = section(
+    INTERFACE,
+    "Extended audit (30-Oct-2026",
+    "END SUBROUTINE JFNK_JVP_V1",
+)
+check(
+    "JVP diag h-scan uses the same masked direction",
+    "HMULT*H_STEP*" in jvp_diag
+    and "DBLE(JFNK_W_V_USE(I))" in jvp_diag,
+)
+check(
+    "JVP diag h-scan forms raw residual difference at its own h",
+    "JFNK_W_F_PERT(I)-jfnk_fx(I))/(HMULT*H_STEP)" in jvp_diag,
+)
+check(
+    "JVP diag FD at each h is masked like the host JV",
+    "JFNK_MASK_FIXED_UNKNOWNS(N,JV_H)" in jvp_diag,
+)
+check(
+    "JVP diag nbad guard is an integer compare",
+    "jfnk_resid_nbad .GT. 0" in jvp_diag,
+)
+check(
+    "JVP diag reports worst |FD-BA*v| components",
+    "worst |FD-BA*v| components" in jvp_diag
+    and "max|BA_row|" in jvp_diag,
+)
+check(
+    "JVP diag stays one-shot behind JVP_DIAG_DONE",
+    "JVP_DIAG_DONE = .TRUE." in INTERFACE
+    and "JVP_DIAG_DONE .AND. JFNK_LU_READY" in INTERFACE,
+)
