@@ -1614,6 +1614,9 @@
 	  CALL RD_STORE_INT(JFNK_JVP_NDIR,'JFNK_JVP_NDIR',L_FALSE,
 	1     'JVPs reporting FD-vs-BA norm line (4=default, 0=off)')
 	  IF(JFNK_JVP_NDIR .LT. 0)JFNK_JVP_NDIR=0
+	  JFNK_BA_JVP=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_BA_JVP,'JFNK_BA_JVP',L_FALSE,
+	1     'Analytic BA matvec in place of FD JVP (diagnostic)')
 	  JFNK_MAX_SEC=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')

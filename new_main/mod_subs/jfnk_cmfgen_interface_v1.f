@@ -2521,7 +2521,7 @@
 	3                           jfnk_n_reg_proj
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
-	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR
+	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR, JFNK_BA_JVP
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
@@ -2539,6 +2539,7 @@
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
 	DOUBLE PRECISION RT_FD, RT_BA, RT_DEN, VREG, VTOT
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
+	LOGICAL, SAVE :: BA_JVP_NOTED = .FALSE.
 	LOGICAL CLIP_SAV
 	INTEGER NZMAX_SAV, NPROJ_SAV, JR_L
 	INTEGER, SAVE :: JVP_DIR_CT = 0
@@ -2586,6 +2587,39 @@
 	END DO
 	IF(VNORM .LT. 1.0D-30)THEN
 	  JV = 0.0D0
+	  RETURN
+	END IF
+!
+! [JFNK_BA_JVP, default F] Analytic-matvec experiment: return the BA
+! diagonal-band action instead of a finite difference.  The FD JVP
+! picks an adaptive h (and clip-retries) per call, so the effective
+! operator is mildly nonlinear in v; on the npq_dbg run the Hessenberg
+! LS residual diverged from the true residual by 150-450x at restart
+! (RESTART DIAG), i.e. the Krylov basis does not compose linearly.
+! BA_A*v is exactly linear and already carries the PTC fold, matching
+! the operator the FD path approximates (BA-A agrees with FD to ~2% on
+! the resolved-window directions).  Requires JFNK_BA_BUILT: the first
+! JVP follows the preconditioner factorization on every admission.
+! Default F keeps the Jacobian-free matvec unchanged.
+!
+	IF(JFNK_BA_JVP .AND. JFNK_BA_BUILT .AND. ALLOCATED(JFNK_BA_A))THEN
+	  JV(1:N) = 0.0D0
+	  DO KK = 1, JFNK_ND
+	    DO II = 1, JFNK_NT
+	      DO JJ = 1, JFNK_NT
+	        JV((KK-1)*JFNK_NT + II) = JV((KK-1)*JFNK_NT + II) +
+     1        DBLE(JFNK_BA_A(II, JJ, KK)) *
+     2        JFNK_W_V_USE((KK-1)*JFNK_NT + JJ)
+	      END DO
+	    END DO
+	  END DO
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV)
+	  IF(.NOT. BA_JVP_NOTED)THEN
+	    BA_JVP_NOTED = .TRUE.
+	    LUER=ERROR_LU()
+	    WRITE(LUER,'(A)')'  JFNK: JVP using analytic BA diagonal-band'//
+	1     ' matvec [JFNK_BA_JVP]'
+	  END IF
 	  RETURN
 	END IF
 !

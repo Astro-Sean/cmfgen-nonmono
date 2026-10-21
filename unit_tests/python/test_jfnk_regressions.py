@@ -437,3 +437,9 @@ check(
     and "RD_STORE_DBLE(JFNK_GMRES_STAG,'JFNK_GMRES_STAG'" in RD_CONTROL
     and "jfnk_gmres_stag_tol=JFNK_GMRES_STAG" in SOLVE_CORR,
 )
+check(
+    "JFNK_BA_JVP is a VADAT key gated on BA build",
+    "LOGICAL JFNK_BA_JVP" in CVARMOD
+    and "RD_STORE_LOG(JFNK_BA_JVP,'JFNK_BA_JVP'" in RD_CONTROL
+    and "IF(JFNK_BA_JVP .AND. JFNK_BA_BUILT" in INTERFACE,
+)

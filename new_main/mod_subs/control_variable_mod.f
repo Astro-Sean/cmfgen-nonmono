@@ -1938,6 +1938,11 @@
 ! subspace; the expensive extended block still fires once at most.
 	INTEGER JFNK_JVP_NDIR
 !
+! JFNK_BA_JVP (VADAT [JFNK_BA_JVP], default F): replace the FD JVP with
+! the analytic BA diagonal-band matvec.  Diagnostic: tests whether FD
+! h-adaptivity makes the effective Krylov operator nonlinear.
+	LOGICAL JFNK_BA_JVP
+!
 ! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
 ! wall-clock budget in seconds, measured from JFNK_INIT_V1.  Checked
 ! alongside the eval budget in JFNK_RESIDUAL_V1 -- an activation that
