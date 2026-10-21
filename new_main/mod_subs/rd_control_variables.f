@@ -1595,6 +1595,17 @@
 	  CALL RD_STORE_INT(JFNK_MAX_EVALS,'JFNK_MAX_EVALS',L_FALSE,
 	1     'Max residual evaluations per JFNK activation (0=off)')
 	  IF(JFNK_MAX_EVALS .LT. 0)JFNK_MAX_EVALS=0
+!
+! Max clip-crossing retries before keeping the last JVP attempt.
+! Each retry shrinks h by 10x; the 21-Oct-2026 h-sweep showed frozen
+! FD resolution requires h_eff ~1e-6+, so retries driven by
+! degenerate floor crossings can push h below the cancellation
+! floor.  JFNK_CLIP_RETRY=0 accepts the crossing (diagnostic use).
+!
+	  JFNK_CLIP_RETRY=2
+	  CALL RD_STORE_INT(JFNK_CLIP_RETRY,'JFNK_CLIP_RETRY',L_FALSE,
+	1     'Clip-crossing h retries per JVP (2=default, 0=accept)')
+	  IF(JFNK_CLIP_RETRY .LT. 0)JFNK_CLIP_RETRY=0
 	  JFNK_MAX_SEC=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')

@@ -399,3 +399,14 @@ check(
     "EPS0 = MAX(EPS0, JFNK_EPS_JVP_LOC)" in INTERFACE
     and "IF(JFNK_COUPLED_LOC)EPS0" not in INTERFACE,
 )
+check(
+    "JFNK_CLIP_RETRY is a VADAT key with default 2",
+    "INTEGER JFNK_CLIP_RETRY" in CVARMOD
+    and "RD_STORE_INT(JFNK_CLIP_RETRY,'JFNK_CLIP_RETRY'" in RD_CONTROL,
+)
+check(
+    "clip retry keeps last attempt at its own h",
+    "DO NRETRY = 0, JFNK_CLIP_RETRY" in INTERFACE
+    and "NRETRY .EQ. JFNK_CLIP_RETRY" in INTERFACE
+    and "keeping FD as-is" in INTERFACE,
+)

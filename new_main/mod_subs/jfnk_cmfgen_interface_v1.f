@@ -2518,7 +2518,8 @@
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed,
 	1                           jfnk_log_unknown, jfnk_resid_nbad
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
-	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN
+	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
+	2                           JFNK_CLIP_RETRY
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
@@ -2699,7 +2700,7 @@
 ! crossing persists the derivative is still usable at the smaller
 ! step, so the last attempt is kept (GMRES tolerates inexactness).
 !
-	DO NRETRY = 0, 2
+	DO NRETRY = 0, JFNK_CLIP_RETRY
 	  DO I = 1, N
 	    JFNK_W_X_PERT(I) = jfnk_x(I) + H_STEP * JFNK_W_V_USE(I)
 	  END DO
@@ -2757,6 +2758,15 @@
 	    jfnk_jvp_failed = .TRUE.
 	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
 	    RETURN
+	  END IF
+	  IF(NRETRY .EQ. JFNK_CLIP_RETRY)THEN
+! Keep the last attempt at the h actually evaluated: shrinking here
+! without a fresh eval would divide (F(x+hv)-F(x)) by a step 10x too
+! small and inflate JV 10x on exactly the directions GMRES needed.
+	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A)')
+     1      'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,
+     2      ' clip crossings persist at final h -- keeping FD as-is'
+	    EXIT
 	  END IF
 	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A,ES10.3)')
 	1    'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,

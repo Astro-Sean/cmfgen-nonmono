@@ -1923,6 +1923,14 @@
 ! the best-iterate/Lambda path instead of burning sweeps.
 	INTEGER JFNK_MAX_EVALS
 !
+! JFNK_CLIP_RETRY (VADAT [JFNK_CLIP_RETRY], default 2): maximum clip-
+! crossing retries in JFNK_JVP_V1 -- each retry shrinks h by 10x.
+! Set 0 to accept the crossing at the nominal step; the h-sweep
+! showed crossings on degenerate floor components do not corrupt the
+! resolved FD on the stiff rows, while the shrink can push h below
+! the eval cancellation floor and destroy the JVP entirely.
+	INTEGER JFNK_CLIP_RETRY
+!
 ! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
 ! wall-clock budget in seconds, measured from JFNK_INIT_V1.  Checked
 ! alongside the eval budget in JFNK_RESIDUAL_V1 -- an activation that
