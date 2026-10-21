@@ -2530,7 +2530,8 @@
 	EXTERNAL OMP_GET_WTIME
 !
 	DOUBLE PRECISION EPS0, VNORM, XNORM, H_STEP
-	DOUBLE PRECISION H_CAP, X_CLIP_B, X_FLOOR, X_MARGIN
+	DOUBLE PRECISION H_CAP, X_CLIP_B, X_FLOOR, X_MARGIN, CAP_MARGIN
+	INTEGER I_CAP
 	INTEGER IDX_J
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
@@ -2649,15 +2650,27 @@
 ! safer than a clipped derivative at the noise-optimal step.
 !
 	H_CAP = HUGE(1.0D0)
+	I_CAP = 0
+	CAP_MARGIN = 0.0D0
 	DO I = 1, N
 	  IF(ABS(JFNK_W_V_USE(I)) .GT. 0.0D0)THEN
 	    IDX_J = MOD(I-1, JFNK_NT) + 1
 	    IF(jfnk_log_unknown)THEN
 	      X_CLIP_B = 40.0D0
 	      IF(IDX_J .EQ. JFNK_NT)X_CLIP_B = 50.0D0
-	      IF(ABS(jfnk_x(I)) .LT. X_CLIP_B)
-	1      H_CAP = MIN(H_CAP,
-	2        0.5D0*(X_CLIP_B-ABS(jfnk_x(I)))/ABS(JFNK_W_V_USE(I)))
+! The clip bound is symmetric in |x|, so only an outward-moving
+! component can cross it; a saturated unknown moving back into range
+! must not strangle the global step (it is already degenerate there).
+	      IF(ABS(jfnk_x(I)) .LT. X_CLIP_B .AND.
+	1        JFNK_W_V_USE(I)*jfnk_x(I) .GT. 0.0D0)THEN
+	        X_MARGIN = 0.5D0*(X_CLIP_B-ABS(jfnk_x(I)))/
+	1          ABS(JFNK_W_V_USE(I))
+	        IF(X_MARGIN .LT. H_CAP)THEN
+	          H_CAP = X_MARGIN
+	          I_CAP = I
+	          CAP_MARGIN = X_CLIP_B-ABS(jfnk_x(I))
+	        END IF
+	      END IF
 	    END IF
 	    IF(IDX_J .EQ. JFNK_NT)THEN
 	      K_J = (I-1)/JFNK_NT + 1
@@ -2665,9 +2678,14 @@
 	        X_FLOOR = LOG(1.0D0/POPS_BASE(JFNK_NT,K_J))
 	        X_MARGIN = jfnk_x(I) - X_FLOOR
 	        IF(X_MARGIN .GT. 0.0D0 .AND.
-	1         JFNK_W_V_USE(I) .LT. 0.0D0)
-	2         H_CAP = MIN(H_CAP, 0.5D0*X_MARGIN/
-	3           ABS(JFNK_W_V_USE(I)))
+	1         JFNK_W_V_USE(I) .LT. 0.0D0)THEN
+	          X_MARGIN = 0.5D0*X_MARGIN/ABS(JFNK_W_V_USE(I))
+	          IF(X_MARGIN .LT. H_CAP)THEN
+	            H_CAP = X_MARGIN
+	            I_CAP = -I
+	            CAP_MARGIN = jfnk_x(I) - X_FLOOR
+	          END IF
+	        END IF
 	      END IF
 	    END IF
 	  END IF
@@ -2922,6 +2940,9 @@
 	    WRITE(JFNK_LUER,'(A,ES12.4,A)')
      1      '    h-sweep on same direction (h0=',H_STEP,
      2      '); DF is the raw F(x+hv)-F(x)'
+	    IF(I_CAP .NE. 0)WRITE(JFNK_LUER,'(A,I8,2(A,ES12.4))')
+     1      '    h cap bound by idx=',I_CAP,' margin=',CAP_MARGIN,
+     2      ' h_cap=',H_CAP
 	    DO IHS=1,8
 	      HMULT=H_ARR(IHS)
 	      DO I=1,N
