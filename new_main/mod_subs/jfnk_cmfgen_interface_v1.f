@@ -2935,6 +2935,78 @@
      3        JV_H(ITOP_ARR(ISEL)),' BA*v=',JV_ANAL(ITOP_ARR(ISEL))
 	      END DO
 	    END DO
+!
+! Repeatability / baseline / direction tests (22-Oct-2026 review):
+! the ~1/h gap means an h-independent offset contaminates the
+! perturbed-minus-baseline difference, but three mechanisms produce
+! that signature and they must be separated.  (i) Stale stored
+! baseline: if a fresh eval at the SAME x disagrees with jfnk_fx,
+! the JVP numerator carries an h-independent offset with no physics
+! switch involved.  (ii) Switch at the state: a smooth row returns
+! the same derivative forward and backward; a threshold crossing is
+! antisymmetric around the post-jump slope.  (iii) Nondeterministic
+! eval: repeating the SAME perturbed eval must return the same F if
+! the module-state restore path is complete.
+!
+	    DO I=1,N
+	      JFNK_W_X_PERT(I)=jfnk_x(I)
+	    END DO
+	    CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	    DH_NORM=0.0D0
+	    I_TOP=0
+	    DO I=1,N
+	      DIFF_ARR(I)=JFNK_W_F_PERT(I)-jfnk_fx(I)
+	      IF(ABS(DIFF_ARR(I)) .GT. DH_NORM)THEN
+	        DH_NORM=ABS(DIFF_ARR(I))
+	        I_TOP=I
+	      END IF
+	    END DO
+	    WRITE(JFNK_LUER,'(A,ES12.4,A,I8,A,I4,A,I4)')
+     1        '    baseline re-eval: max|F(x0)-fx|=',DH_NORM,
+     2        ' at idx=',I_TOP,' K=',(I_TOP-1)/JFNK_NT+1,
+     3        ' J=',MOD(I_TOP-1,JFNK_NT)+1
+	    DO ISEL=1,3
+	      IF(ITOP_ARR(ISEL) .GT. 0)WRITE(JFNK_LUER,
+     1        '(A,I8,A,ES14.6)')
+     2        '        row ',ITOP_ARR(ISEL),': F(x0)-fx=',
+     3        DIFF_ARR(ITOP_ARR(ISEL))
+	    END DO
+!
+	    DO I=1,N
+	      JFNK_W_X_PERT(I)=jfnk_x(I)-H_STEP*DBLE(JFNK_W_V_USE(I))
+	    END DO
+	    CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	    IF(jfnk_resid_nbad .GT. 0)THEN
+	      WRITE(JFNK_LUER,'(A)')
+     1        '    -h eval residual nbad -- direction test skipped'
+	    ELSE
+	      DO I=1,N
+	        JV_H(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/(-H_STEP)
+	      END DO
+	      CALL JFNK_MASK_FIXED_UNKNOWNS(N,JV_H)
+	      WRITE(JFNK_LUER,'(A)')
+     1        '    direction test at worst rows (switch => asymmetric):'
+	      DO ISEL=1,3
+	        IF(ITOP_ARR(ISEL) .GT. 0)WRITE(JFNK_LUER,
+     1          '(A,I8,3(A,ES14.6))')
+     2          '        row ',ITOP_ARR(ISEL),': FD(+h)=',
+     3          JV(ITOP_ARR(ISEL)),' FD(-h)=',JV_H(ITOP_ARR(ISEL)),
+     4          ' mid=',0.5D0*(JV(ITOP_ARR(ISEL))+
+     5          JV_H(ITOP_ARR(ISEL)))
+	      END DO
+	    END IF
+!
+	    DO I=1,N
+	      JFNK_W_X_PERT(I)=jfnk_x(I)+H_STEP*DBLE(JFNK_W_V_USE(I))
+	    END DO
+	    CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	    DH_NORM=0.0D0
+	    DO I=1,N
+	      DIFF_ARR(I)=JFNK_W_F_PERT(I)-(jfnk_fx(I)+H_STEP*JV(I))
+	      DH_NORM=MAX(DH_NORM,ABS(DIFF_ARR(I)))
+	    END DO
+	    WRITE(JFNK_LUER,'(A,ES12.4)')
+     1        '    repeat eval: max|F_rep-F_first|=',DH_NORM
 	  END IF
 	END IF
 !

@@ -372,3 +372,19 @@ check(
     "JVP_DIAG_DONE = .TRUE." in INTERFACE
     and "JVP_DIAG_DONE .AND. JFNK_LU_READY" in INTERFACE,
 )
+
+check(
+    "JVP diag re-evaluates residual at the baseline state",
+    "JFNK_W_X_PERT(I)=jfnk_x(I)" in jvp_diag
+    and "baseline re-eval: max|F(x0)-fx|" in jvp_diag,
+)
+check(
+    "JVP diag probes the negative direction for switch asymmetry",
+    "jfnk_x(I)-H_STEP*DBLE(JFNK_W_V_USE(I))" in jvp_diag
+    and "FD(-h)=" in jvp_diag,
+)
+check(
+    "JVP diag repeat-eval compares against reconstructed first eval",
+    "jfnk_fx(I)+H_STEP*JV(I)" in jvp_diag
+    and "repeat eval: max|F_rep-F_first|" in jvp_diag,
+)
