@@ -2809,11 +2809,12 @@
 	CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV)
 !
 ! One-time diagnostic: Compare FD JVP with the UNTRANSFORMED analytical
-! BA_full * v.  The previous self-check applied the same SI transform
-! to the analytical side, so it "passed" even when the matvec was the
-! wrong operator.  Now the self-check compares FD J*v against the true
-! BA_full * v, so a large discrepancy indicates genuine finite-difference
-! error (or a bug in the residual evaluation), not a hidden transform.
+! BA diagonal-band action.  The previous self-check applied the same SI
+! transform to the analytical side, so it "passed" even when the matvec
+! was the wrong operator.  Now the self-check compares FD J*v against
+! the diagonal-band BA * v, so a large discrepancy indicates genuine
+! finite-difference error, a bug in the residual evaluation, or an
+! off-diagonal-band (cross-depth) contribution exceeding the gap.
 !
 ! [JFNK_JVP_NDIR, default 4] repeats the cheap FD-vs-BA norm line on
 ! the first few JVPs of the process -- a single direction cannot show
@@ -2822,16 +2823,23 @@
 ! repeat evals) stays one-shot and fires only on the first direction
 ! whose mismatch exceeds 10%.
 !
-	IF(JVP_DIR_CT .LT. JFNK_JVP_NDIR .AND. JFNK_LU_READY)THEN
+! Gate on JFNK_FACTOR_DONE, not JFNK_LU_READY: the latter only fires on
+! the LU/SCHUR paths, so the diagnostic silently skipped JACOBI runs.
+	IF(JVP_DIR_CT .LT. JFNK_JVP_NDIR .AND. JFNK_FACTOR_DONE)THEN
 	  JVP_DIR_CT = JVP_DIR_CT + 1
 	  IF(.NOT. ALLOCATED(JV_ANAL)) ALLOCATE(JV_ANAL(N))
 	  JV_ANAL(1:N) = 0.0D0
-! Analytical: JV_ANAL = BA_full * v (physical Jacobian, no SI transform,
-! no ridge).  The ridge (JFNK_BA_RIDGE_ADD) is an artificial
-! regularization added only to the preconditioner diagonal, not to the
-! physical Jacobian.  Subtracting it from the analytical comparison
-! would make a correct FD J*v appear to disagree with the analytical
-! side (review §7).
+! Analytical side: JV_ANAL = BA_diag * v -- the DIAGONAL-BAND action
+! only.  JFNK_BA_A holds the within-depth NT x NT block; the cross-depth
+! J-coupling/advection bands stored in SE(ID)%BA off-diagonal bands are
+! only extracted when JFNK_USE_BANDED=T (default F, inactive in the
+! experiment runs).  The FD side is a full residual re-eval and carries
+! any true cross-depth derivative, so |FD-BA_diag*v| bounds the omitted
+! band contribution on the tested direction.  The ridge
+! (JFNK_BA_RIDGE_ADD) is an artificial regularization added only to the
+! preconditioner diagonal, not to the physical Jacobian.  Subtracting
+! it from the analytical comparison would make a correct FD J*v appear
+! to disagree with the analytical side (review §7).
 	  DO KK = 1, JFNK_ND
 	    DO II = 1, JFNK_NT
 	      DO JJ = 1, JFNK_NT
@@ -2857,7 +2865,7 @@
 	  END DO
 	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I2,3(A,ES12.4))')
      1    '  JVP dir ', JVP_DIR_CT, ': |FD|=', FD_NORM,
-     2    ' |BA*v|=', AN_NORM,
+     2    ' |BAdiag*v|=', AN_NORM,
      3    ' |diff|/|anal|=', DIFF_NORM/MAX(AN_NORM,1.0D-30)
 !
 ! Round-trip audit (04-Nov-2026): feed the measured J*v products back
@@ -2917,7 +2925,7 @@
      1    DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0)THEN
 	    JVP_DIAG_DONE = .TRUE.
 	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A)')
-     1      '  JVP DIAGNOSTIC (FD vs untransformed BA_full*v):'
+     1      '  JVP DIAGNOSTIC (FD vs BA diagonal-band action):'
 	    DO I = 1, MIN(10, N)
 	      IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I6,A,ES14.6,A,ES14.6)')
      1        '    i=', I, ' FD=', JV(I), ' anal=', JV_ANAL(I)
@@ -6266,7 +6274,13 @@
 	Z_TEST = V_TEST
 	CALL JFNK_PRECOND_V1(N, Z_TEST)
 !
-! Compute M*z using JFNK_BA_A (the ridge-augmented BA)
+! Compute M*z using JFNK_BA_A (diagonal band; PTC fold is already in
+! BA_A because S_PTC is added to BA_A before LU_FAC copies it).  This
+! raw-BA check is superseded by the factored-M check below, which adds
+! the stored ridge and identity reg-rows.  Neither reconstructs the
+! banded path: under JFNK_USE_BANDED=T the factored matrix also carries
+! the off-diagonal SE(ID)%BA bands, which would read here as a false
+! residual.
 !
 	R_TEST = 0.0_LDP
 	DO KK = 1, JFNK_ND
