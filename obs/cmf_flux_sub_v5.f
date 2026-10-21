@@ -17,6 +17,14 @@
 	USE EDDFAC_REC_DEFS_MOD
 	IMPLICIT NONE
 !
+! Altered: 06-Nov-2026 : Restore the KNOP OBS path removed 13-Oct-2026:
+!                          DO_NONMONO_KNOP registers the OBS frequency
+!                          grid (SET_FG_GS_OBS_GRID -> RESTORE_FG_INEXT_OBS)
+!                          and COMP_JCONT_V4 dispatches the formal J to
+!                          FG_J_CMF_NONMONO_V1 on SIGMA_TRUE.  Also
+!                          restores the ungated guards that path needs:
+!                          LAW_V1/LAW_TAU1 VTURB fixes, MU_AT_RMAX
+!                          radicand guard, CHI_FLR division floor.
 ! Altered: 16-Oct-2026 : Fail closed on undefined SIGMA_TRUE cells
 !                          (ALLOW_SIGMA_UNDEF downgrades to warning),
 !                          assert NU monotonicity in ADD_SOB_LINE_PROF,
@@ -118,6 +126,7 @@
 	REAL(KIND=LDP) MEAN_ATOMIC_WEIGHT
 	REAL(KIND=LDP) TSTAR,S1,IC,MAXCH
 	REAL(KIND=LDP) C_KMS
+	REAL(KIND=LDP) CHI_FLR		!positive opacity floor for guarded divisions
 	REAL(KIND=LDP) T1,T2,T3,T4
 	REAL(KIND=LDP) FL,FL_OLD
 	REAL(KIND=LDP) FG_COUNT
@@ -562,11 +571,12 @@
 ! the OBS entry.  A model written by a KNOP (or otherwise
 ! non-monotonic) population run carries sigma < -1 and/or a
 ! non-strictly-decreasing V in RVTJ.  This executable has confirmed
-! nonmono machinery only for DO_NONMONO_SOB (the SIGMA_TRUE rebuild
-! below); every other path -- FG_J_CMF_V12, EXTEND_VTSIGMA, the
-! stored-J/EDD routes -- assumes the monotonic sigma >= -1 contract
-! and would clamp or sign-flip silently.  Tolerances absorb the
-! ~1E-8 print precision of RVTJ columns.
+! nonmono machinery for DO_NONMONO_SOB (SIGMA_TRUE EW estimators)
+! and DO_NONMONO_KNOP (FG_J_CMF_NONMONO_V1 formal J); every other
+! path -- FG_J_CMF_V12, EXTEND_VTSIGMA, the stored-J/EDD routes --
+! assumes the monotonic sigma >= -1 contract and would clamp or
+! sign-flip silently.  Tolerances absorb the ~1E-8 print precision
+! of RVTJ columns.
 !
 	  N_NONMONO_OBS=0
 	  DO I=1,ND-1
@@ -581,7 +591,11 @@
 	    WRITE(LUER,'(A,I6,A)')' CMF_FLUX_SUB_V5: non-monotonic'
 	1     //' velocity signature in RVTJ (',N_NONMONO_OBS,
 	2     ' flagged cells)'
-	    IF(DO_NONMONO_SOB)THEN
+	    IF(DO_NONMONO_KNOP)THEN
+	      WRITE(LUER,'(A)')'   DO_NONMONO_KNOP=T confirmed in obs'//
+	1       ' controls: Knop formal J machinery active,'//
+	2       ' continuing.'
+	    ELSE IF(DO_NONMONO_SOB)THEN
 	      WRITE(LUER,'(A)')'   DO_NONMONO_SOB=T confirmed in obs'//
 	1       ' controls: SIGMA_TRUE machinery active, continuing.'
 	    ELSE IF(ALLOW_NONMONO_OBS)THEN
@@ -591,18 +605,21 @@
 	      WRITE(LUER,'(A)')'   Error: model was computed with a'//
 	1       ' non-monotonic velocity treatment; this OBS'//
 	2       ' executable has confirmed nonmono machinery only'//
-	3       ' for DO_NONMONO_SOB.'
-	      WRITE(LUER,'(A)')'   Set DO_NONMONO_SOB=T (SOB models) or'//
-	1       ' ALLOW_NONMONO_OBS=T in the obs controls to continue.'
+	3       ' for DO_NONMONO_SOB and DO_NONMONO_KNOP.'
+	      WRITE(LUER,'(A)')'   Set DO_NONMONO_SOB=T (SOB models),'//
+	1       ' DO_NONMONO_KNOP=T (Knop models) or'//
+	2       ' ALLOW_NONMONO_OBS=T in the obs controls to continue.'
 	      STOP
 	    END IF
 	  END IF
 !
-! Under DO_NONMONO_SOB only, match the EW estimator's velocity gradient
-! to the unclamped gradient used for the populations (Dessart et al.
-! 2015, Sec. 3.1). The default F leaves the stock path unchanged.
+! Under the nonmono flags only, derive the unclamped velocity
+! gradient the OBS paths consume: SIGMA_TRUE feeds the Sobolev EW
+! estimator (Dessart et al. 2015, Sec. 3.1) under DO_NONMONO_SOB
+! and is the SIGMA_TRUE_IN argument of FG_J_CMF_NONMONO_V1 under
+! DO_NONMONO_KNOP.  Both flags default F; stock path unchanged.
 !
-	IF(DO_NONMONO_SOB)THEN
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
 	  IOS=0
 	  IF(.NOT. ALLOCATED(SIGMA_TRUE))ALLOCATE(SIGMA_TRUE(ND),STAT=IOS)
 	  IF(IOS .NE. 0)THEN
@@ -656,12 +673,16 @@
 	  END IF
 	END IF
 !
-! VINF sets the frequency margins used by the observer-frame line
-! grid.  For non-monotonic Sobolev populations, use the full speed
-! range so shell and ejecta lines stay inside those margins.  The flag
-! defaults to F; the stock CMF_FLUX path is otherwise unchanged.
+! VINF sets the CMF-to-observer frequency coverage margins
+! (NU_MAX_OBS/NU_MIN_OBS) and the e.s. wing extents in
+! INS_LINE_V5/INS_LINE_OBS_V4.  On a non-monotonic field V(1) is the
+! slow outer material while the interior moves much faster, so an
+! undersized VINF leaves Doppler-shifted opacity outside the refined
+! grid regions.  Use the full velocity-magnitude range on the
+! non-monotonic paths only; stock keeps VINF=V(1).
 !
-	IF(DO_NONMONO_SOB) VINF=MAXVAL(ABS(V(1:ND)))
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)
+	1   VINF=MAXVAL(ABS(V(1:ND)))
 !
 ! 
 !
@@ -750,14 +771,42 @@
 ! For the later, the iron mas of 55.8amu is assumed.
 !
 	IF(TURB_LAW .EQ. 'LAW_V1')THEN
-	  VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)*V(1:ND)/V(1)
+!
+! Bug fix, not flag-gated: stock divided by V(1), which is zero for a
+! finite base velocity offset, small at a resolved shock, or negative
+! under infall -- any of these poisons VTURB_VEC (and hence VDOP_VEC).
+! Normalize by max|V| and use |V|; for monotonic outflow this reduces
+! to the old law exactly.
+!
+	  T1=MAXVAL(ABS(V(1:ND)))
+	  IF(T1 .GT. 1.0E-12_LDP)THEN
+	    VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)*
+	1       MIN(1.0_LDP,ABS(V(1:ND))/T1)
+	  ELSE
+	    VTURB_VEC(1:ND)=VTURB_MIN
+	  END IF
 	ELSE IF(TURB_LAW .EQ. 'LAW_TAU1')THEN
-	  ESEC(1:ND)=6.65E-15_LDP*ED(1:ND)*CLUMP_FAC(1:ND)
+!
+! Bug fix, not flag-gated: the stock loop read R(I+1)/ESEC(I+1) at
+! I=ND (out of bounds) and built every TA(I) relative to TA(1)
+! instead of accumulating, so the optical-depth weighting was wrong
+! at all depths.  TA is now the cumulative electron-scattering depth
+! integral inward from the outer boundary; the trapezoid assumes the
+! CMFGEN convention R(1) > ... > R(ND).
+!
+	  IF(ANY(R(1:ND-1) .LE. R(2:ND)))THEN
+	    WRITE(LUER,*)'Error in CMF_FLUX_SUB_V5: LAW_TAU1 requires'
+	    WRITE(LUER,*)'  R decreasing with depth index'
+	    STOP
+	  END IF
+	  ESEC(1:ND)=6.65E-15_LDP*MAX(ED(1:ND),0.0_LDP)*
+	1       MAX(CLUMP_FAC(1:ND),0.0_LDP)
 	  TA(1)=1.0_LDP
-	  DO I=1,ND
-	    TA(I)=TA(1)+0.5_LDP*(R(I)-R(I+1))*(ESEC(I)+ESEC(I+1))
+	  DO I=2,ND
+	    TA(I)=TA(I-1)+0.5_LDP*(R(I-1)-R(I))*(ESEC(I-1)+ESEC(I))
 	  END DO
-	  VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)/(1.0_LDP+TA(1:ND))
+	  VTURB_VEC(1:ND)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)/
+	1       (1.0_LDP+MAX(TA(1:ND),0.0_LDP))
 	ELSE
 	  WRITE(LUER,'(A)')' Error --- TURBULENT velocity law not recognized'
 	  WRITE(LUER,'(A)')TRIM(TURB_LAW)
@@ -1247,15 +1296,21 @@
 ! Used when computing the observed fluxes. These will get overwritten
 ! if we do an accurate comoving frame soluton using CMF_FORM_SOL.
 !
+! MAX() on the radicand guards the sqrt against a P exceeding R by a
+! few ulps after P-grid interpolation or revision (tangential ray).
+! Bug fix, not flag-gated: stock produced NaN mu on that ray.
+!
 	IF(ACCURATE)THEN
 	  DO LS=1,NPEXT
-	    MU_AT_RMAX(LS)=SQRT( 1.0_LDP -(PEXT(LS)/REXT(1))**2 )
+	    MU_AT_RMAX(LS)=SQRT( MAX(0.0_LDP,
+	1        1.0_LDP -(PEXT(LS)/REXT(1))**2 ) )
 	    HQW_AT_RMAX(LS)=HQWEXT(1,LS)
 	  END DO
 	  IF(PEXT(NPEXT) .EQ. REXT(1))MU_AT_RMAX(NPEXT)=0.0_LDP
 	ELSE
 	  DO LS=1,NP
-	    MU_AT_RMAX(LS)=SQRT( 1.0_LDP -(P(LS)/R(1))**2 )
+	    MU_AT_RMAX(LS)=SQRT( MAX(0.0_LDP,
+	1        1.0_LDP -(P(LS)/R(1))**2 ) )
 	    HQW_AT_RMAX(LS)=HQW(1,LS)
 	  END DO
 	  IF(P(NP) .EQ. R(1))MU_AT_RMAX(NP)=0.0_LDP
@@ -1302,12 +1357,13 @@
 ! Rosseland data falls through unchanged so the COMP_JCONT_V4 guard
 ! below still catches it.
 !
-	IF(DO_NONMONO_SOB .AND. DTDR .LT. 0.0_LDP)THEN
+	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1    DTDR .LT. 0.0_LDP)THEN
 	  IF(ROSS_MEAN(ND) .GT. 0.0_LDP .AND. STARS_LUM .GT. 0.0_LDP)THEN
 	    DTDR=STARS_LUM*7.2685E+11_LDP*ROSS_MEAN(ND)/
 	1       (7.218771E+11_LDP*R(ND)*R(ND)*(T(ND)**3))
 	    WRITE(LUER,*)
-	1      'DO_NONMONO_SOB: using luminosity-derived DTDR at IB =',DTDR
+	1      'Nonmono OBS: using luminosity-derived DTDR at IB =',DTDR
 	  END IF
 	END IF
 ! 
@@ -1405,6 +1461,15 @@
 	NU_FORCE_FAC=(1.0_LDP-500.0_LDP/C_KMS)
 	ML_FORCE=1
 	FLUSH(LUER)
+!
+! DO_NONMONO_KNOP (Knop et al. 2009, Papers I/II): register the OBS
+! frequency grid with the formal solver before the first call below.
+! The FGINEXT_GS checkpoint was written on the model frequency grid
+! (different NCF and spacing), so the solver init remaps the lagged
+! I_NEXT coupling in frequency instead of restoring by position or
+! cold-starting it.
+!
+	IF(DO_NONMONO_KNOP)CALL SET_FG_GS_OBS_GRID(NU,NCF)
 !
 ! Enter loop for each continuum frequency.
 !
@@ -1738,9 +1803,17 @@
 	  END IF
 	END IF
 !
+! Bug fix, not flag-gated: a NEG_OPAC_OPTION of neither SRCE_CHK nor
+! ESEC_CHK, or a zero scattering floor, could leave CHI <= 0 here, so
+! ZETA/THETA took 0/0 or x/0.  Divide by a floored CHI instead; the
+! floor tracks the continuum opacity scale so transparent zones get
+! a large-but-finite source term rather than Inf.
+!
+	  CHI_FLR=MAX(1.0E-30_LDP,1.0E-12_LDP*MAXVAL(ABS(CHI_CONT(1:ND))))
 	  DO I=1,ND
-	    ZETA(I)=ETA(I)/CHI(I)
-	    THETA(I)=CHI_SCAT(I)/CHI(I)
+	    T2=MAX(CHI(I),CHI_FLR)
+	    ZETA(I)=ETA(I)/T2
+	    THETA(I)=CHI_SCAT(I)/T2
 	  END DO
 !
 	  IF(LST_ITERATION .AND. ML .NE. NCF)THEN
@@ -1911,7 +1984,7 @@
 	    LINE_FLUXMEAN(I)=LINE_FLUXMEAN(I)+T2*(CHI(I)-CHI_CONT(I))
 	    T2=T1*EMHNUKT(I)/(  ( (1.0_LDP-EMHNUKT(I))*T(I) )**2  )
 	    INT_dBdT(I)=INT_dBdT(I)+T2
-	    ROSSMEAN(I)=ROSSMEAN(I)+T2/CHI(I)
+	    ROSSMEAN(I)=ROSSMEAN(I)+T2/MAX(CHI(I),CHI_FLR)
 	  END DO
 	END IF
 !
@@ -2291,12 +2364,11 @@
 	END IF
 !
 ! The last argument injects the diffusion inner boundary
-! (I(mu)=J+3*mu*H from IB_J_CMF_ST/IB_H_CMF_ST) only under
-! DO_NONMONO_SOB and only when this run's IB_METH is DIFFUSION
-! (DIF=T).  This is post-processing: the stored boundary moments
-! come from the population run's checkpoint, so the render is
-! consistent only if that run used the same USE_LAM_ES=T +
-! IB_METH=DIFFUSION inner boundary the model notes require.
+! (I(mu)=J+3*mu*H from IB_J_CMF_ST/IB_H_CMF_ST) only under the
+! nonmono flags and only when this run's IB_METH is DIFFUSION
+! (DIF=T).  The stored boundary moments come from this run's
+! formal solve, so the injection stays consistent with whichever
+! solver produced them.
 !
 	CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
@@ -2306,7 +2378,8 @@
 	1            N_INS_OBS,OBS_INT_METHOD,
 	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
 	1            DO_REL_IN_OBSFRAME,TMP_LOG,
-	1            IB_J_CMF_ST,IB_H_CMF_ST,DO_NONMONO_SOB .AND. DIF)
+	1            IB_J_CMF_ST,IB_H_CMF_ST,
+	1            (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND. DIF)
 !
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
 	  WRITE(STRING,'(I10)')N_OBS
@@ -2712,7 +2785,8 @@
 	1            N_INS_OBS,OBS_INT_METHOD,
 	1            TAU_REF,WRITE_RTAU,WRITE_IP,WRITE_dFR,
 	1            DO_REL_IN_OBSFRAME,TMP_LOG,
-	1            IB_J_CMF_ST,IB_H_CMF_ST,DO_NONMONO_SOB .AND. DIF)
+	1            IB_J_CMF_ST,IB_H_CMF_ST,
+	1            (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND. DIF)
 	  CALL TUNE(2,'OBS_FRAME_SOB')
 !
 	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)

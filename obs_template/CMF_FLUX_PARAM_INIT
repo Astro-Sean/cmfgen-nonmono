@@ -256,9 +256,17 @@ LOG          [INTERP_TYPE]      !LOG or LIN plane
 F            [COMP_F]           !Compute new Continuum f values ?
 1.0D-04      [ACC_F]            !Convergence accuracy for F
  
-! Non-monotonic Sobolev support leaves the stock formal-J solver intact.
-! DO_NONMONO_SOB selects SIGMA_TRUE for the Sobolev EW estimator;
-! DO_SOB_FLUX_OBS is added by prepare_CMF_PARAM.py when resolved line
-! profiles are requested. Both options default off.
+! Non-monotonic OBS transfer. DO_NONMONO_KNOP selects the Knop et al.
+! (2009) formal J (FG_J_CMF_NONMONO_V1 on unclamped SIGMA_TRUE) and
+! requires USE_LAM_ES=T, INC_GRID=F, GLOBAL_LINE=BLANK with all
+! TRANS_*=BLANK, LAM_SET=F, and no fixed-J/relativistic/plane-parallel
+! paths; rd_cmf_flux_controls rejects violations.  For a SOB population
+! run, DO_NONMONO_SOB=T alone keeps the stock FG_J_CMF_V12 formal J on
+! clamped SIGMA (the same solver and field the population continuum
+! converged under, Dessart et al. 2015) while the Sobolev EW estimator
+! uses SIGMA_TRUE.  Both flags default F; prepare_CMF_PARAM.py stamps
+! DO_NONMONO_KNOP only for Knop population models.
+F            [DO_NONMONO_KNOP]  !Use Knop et al. (2009) solver for CMF formal J?
 F            [DO_NONMONO_SOB]   !Use unclamped dlnV/dlnR-1 in Sobolev EW estimators?
+F            [PRINT_KNOP_DEBUG] !Print verbose KNOP solver diagnostics (I_NEXT depth map etc)?
 T            [USE_LAM_ES]       !Lambda iteration (bypasses moment solver for non-monotonic velocity)

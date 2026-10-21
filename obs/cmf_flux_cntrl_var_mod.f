@@ -172,6 +172,13 @@
 	LOGICAL USE_DJDT_RTE
 	LOGICAL USE_DR4JDT
 	LOGICAL :: DO_NONMONO_SOB=.FALSE.
+	LOGICAL :: DO_NONMONO_KNOP=.FALSE.
+!
+! Pushed into FG_J_CMF_NONMONO_MOD_V1 by RD_CMF_FLUX_CONTROLS via
+! SET_FG_KNOP_DEBUG so the OBS formal solve honours the same switch
+! the main run reads from VADAT.  Read unconditionally (default F).
+!
+	LOGICAL :: PRINT_KNOP_DEBUG=.FALSE.
 !
 ! Mirrors the VADAT key of the same name read by
 ! RD_CONTROL_VARIABLES: when FALSE (default), CMF_FLUX_SUB_V5 aborts

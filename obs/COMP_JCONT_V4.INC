@@ -2,6 +2,12 @@
 ! Program section to compute the continuum intensity. Opacities must have
 ! previuosly been evaluated.
 !
+! Altered 06-Nov-2026 - Restore the DO_NONMONO_KNOP dispatch removed
+!                         13-Oct-2026: FG_J_CMF_NONMONO_V1 replaces V12
+!                         in the non-extended CMF branch, the OBSFLUX
+!                         CMF_FORM_SOL shortcut stays off the Knop
+!                         path, and the extended-grid branch fails
+!                         loudly (no extended-grid SIGMA_TRUE).
 ! Altered 01-Jul-2024 - Fixed bug related to J computation with dust.
 ! Altered 19-Mar-2024 - Added dust opacity and emissivity.
 ! Altered 30-Apr-2019 - Now call MOM_JREL_V9
@@ -73,19 +79,22 @@
 	DBB=TWOHCSQ*( FL**3 )*T1*DTDR/T(ND)*EMHNUKT(ND)/(T2**2)
 	DDBBDT=DBB*(T1*(1.0_LDP+EMHNUKT(ND))/T2-2.0_LDP)/T(ND)
 !
-! With DO_NONMONO_SOB the interacting-SN temperature can decrease
+! With a nonmono flag the interacting-SN temperature can decrease
 ! inwards at the base (cool inner ejecta below the shocked shell
 ! gives DTDR<0 above), so DBB=dB/dR<0.  The DIFFUSION inner
 ! boundary then returns XM(NI)=DBC<0 in FQCOMP_IBC_V2 and RJ(ND)<0
-! in JFEAU_IBC_V2, stopping the run on the -ve intensity guards.
-! The physical limit of an inwards-decreasing Planck gradient is no
-! diffusion flux through the boundary, so floor DBB at a small
-! positive value -- numerically zero-flux, but strictly positive
-! because JFEAU_IBC_V2 rejects RJ(ND)<=0.  Only under
-! DO_NONMONO_SOB, and only for DBB<0, so the hollow-core DBB=0
-! case below and all default runs are unchanged.
+! in JFEAU_IBC_V2, stopping the run on the -ve intensity guards;
+! under DO_NONMONO_KNOP a negative DBB also seeds a negative
+! diffusion H into IB_H_CMF_ST.  The physical limit of an
+! inwards-decreasing Planck gradient is no diffusion flux through
+! the boundary, so floor DBB at a small positive value --
+! numerically zero-flux, but strictly positive because
+! JFEAU_IBC_V2 rejects RJ(ND)<=0.  Only under the nonmono flags,
+! and only for DBB<0, so the hollow-core DBB=0 case below and all
+! default runs are unchanged.
 !
-	IF(DO_NONMONO_SOB .AND. DBB .LT. 0.0_LDP)THEN
+	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1    DBB .LT. 0.0_LDP)THEN
 	  DBB=1.0D-99
 	  DDBBDT=0.0_LDP
 	END IF
@@ -371,6 +380,16 @@
 	1               VDOP_VEC_EXT,DELV_FRAC_FG,REXT_FAC,
 	1               METHOD,FIRST_FREQ,NEW_FREQ,NCEXT,NPEXT,NDEXT)
 	     ELSE
+	       IF(DO_NONMONO_KNOP)THEN
+!	         The Knop solver needs an extended-grid SIGMA_TRUE, which is
+!	         not implemented.  Fail loudly rather than let V12 abort on
+!	         sigma < -1 with a misleading message.  INC_GRID=F is also
+!	         enforced in RD_CMF_FLUX_CONTROLS.
+	         WRITE(LUER,*)'Error: DO_NONMONO_KNOP requires INC_GRID=F;'
+	         WRITE(LUER,*)'extended-grid Knop formal solution'//
+	1          ' is not implemented.'
+	         STOP
+	       END IF
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12 with accurate grid'
 	       CALL FG_J_CMF_V12(TA,CHIEXT,CHI_SCAT_EXT,
 	1              VEXT,SIGMAEXT,REXT,PEXT,TC,FEDD,
@@ -580,7 +599,8 @@
 	        IF(PLANE_PARALLEL_NO_V)V_AT_RMAX=0.0_LDP
 	      END IF
 	    ELSE IF( (LST_ITERATION .AND. .NOT. LAMBDA_ITERATION .AND.
-	1         MAXCH .LT. VAL_DO_NG .AND. .NOT. USE_FORMAL_REL)  )THEN
+	1         MAXCH .LT. VAL_DO_NG .AND. .NOT. DO_NONMONO_KNOP .AND.
+	1         .NOT. USE_FORMAL_REL)  )THEN
 !
 ! Quick and dirty method to ge an extended DENSITY vector. Will use TB in
 ! the call to CMF_FORM_SOL.
@@ -748,13 +768,32 @@
 	1                  METHOD,FIRST_FREQ,NEW_FREQ,NC,NP,ND)
 	       INBC=0.0_LDP
 	     ELSE
-	        IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12'
-	        CALL FG_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
+	        IF(DO_NONMONO_KNOP)THEN
+!	          Knop et al. (2009) CMF formal solver for non-monotonic
+!	          velocity fields: required when sigma < -1, where V12
+!	          aborts.  Uses the unclamped SIGMA_TRUE; SIGMA stays
+!	          clamped for the moment equations and infrastructure.
+!	          SET_FG_NU_NEXT passes nu(ML+1) so compressing cells use
+!	          the correct upwind slot on the OBS grid.
+	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
+	1               'Calling FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
+	          CALL SET_FG_NU_NEXT(NU(MIN(ML+1,NCF)))
+	          CALL FG_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
+	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
+	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,
+	1                  INNER_BND_METH,DBB,IC,
+	1                  VDOP_VEC,DELV_FRAC_FG,REXT_FAC,
+	1                  METHOD,FG_SOL_OPTIONS,THK_CONT,
+	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND,SIGMA_TRUE,NCF)
+	        ELSE
+	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12'
+	          CALL FG_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
 	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,DIF,DBB,IC,
 	1                  VDOP_VEC,DELV_FRAC_FG,REXT_FAC,
 	1                  METHOD,FG_SOL_OPTIONS,THK_CONT,
 	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND)
+	        END IF
 	     END IF
 !
 	     CALL TUNE(ITWO,'FG_J_CMF')

@@ -4,6 +4,12 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
+! Altered 06-Nov-2026 : Restore the DO_NONMONO_KNOP controls removed
+!                          13-Oct-2026: Knop formal J selection plus
+!                          its prerequisite checks (BLANK lines,
+!                          LAM_SET=F, USE_LAM_ES=T, INC_GRID=F, no
+!                          fixed-J/relativistic/plane-parallel paths)
+!                          and the PRINT_KNOP_DEBUG forwarding.
 ! Altered 16-Oct-2026 : Read ALLOW_SIGMA_UNDEF (obs-side mirror of
 !                          the VADAT key) under DO_NONMONO_SOB.
 ! Altered 13-Oct-2026 : Keep the CMFGEN observer solver on the stock
@@ -462,14 +468,40 @@
 	  IF(DO_NONMONO_SOB)THEN
 	    WRITE(LUER,'(A)')' DO_NONMONO_SOB=T: Sobolev EW estimator'//
 	1      ' uses unclamped dlnV/dlnR-1 (SIGMA_TRUE)'
-	    WRITE(LUER,'(A)')' Formal J still uses clamped SIGMA,'//
-	1      ' consistent with the population continuum.'
 	    ALLOW_SIGMA_UNDEF=.FALSE.
 	    CALL RD_STORE_LOG(ALLOW_SIGMA_UNDEF,'ALLOW_SIGMA_UNDEF',L_FALSE,
 	1      'Allow undefined SIGMA_TRUE cells (warning only, no abort)?')
 	    SOB_SIGMA_MAX=-1.0_LDP
 	    CALL RD_STORE_DBLE(SOB_SIGMA_MAX,'SOB_SIGMA_MAX',L_FALSE,
 	1      'Clamp |SIGMA_TRUE| above this bound in OBS (>0 to enable)?')
+	  END IF
+!
+! DO_NONMONO_KNOP indicates the main run used the Knop et al. (2009)
+! CMF formal solver (FG_J_CMF_NONMONO_V1).  The OBS formal J must use
+! the same solver: FG_J_CMF_V12 aborts when sigma < -1, which occurs
+! in non-monotonic ejecta.  Requires the unclamped SIGMA_TRUE that
+! CMF_FLUX_SUB_V5 derives from R and V.  The extended-grid variant is
+! not implemented, so INC_GRID must stay F.
+!
+	  DO_NONMONO_KNOP=.FALSE.
+	  CALL RD_STORE_LOG(DO_NONMONO_KNOP,'DO_NONMONO_KNOP',L_FALSE,
+	1      'Use Knop et al. (2009) solver for CMF formal J?')
+	  IF(DO_NONMONO_KNOP)THEN
+	    WRITE(LUER,'(A)')' DO_NONMONO_KNOP=T: CMF formal solution'//
+	1      ' uses FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
+	  END IF
+!
+! The two flags describe separate OBS roles: DO_NONMONO_KNOP selects
+! the formal J solve; DO_NONMONO_SOB preserves the population line
+! treatment and SIGMA_TRUE EW estimator.  Both default F, so the
+! stock OBS path is unchanged when both are F.
+!
+	  IF(DO_NONMONO_KNOP .AND. DO_NONMONO_SOB)THEN
+	    WRITE(LUER,'(A)')' OBS combination: Knop formal J with'//
+	1      ' Sobolev lines'
+	  ELSE IF(DO_NONMONO_SOB)THEN
+	    WRITE(LUER,'(A)')' Formal J still uses clamped SIGMA,'//
+	1      ' consistent with the population continuum.'
 	  END IF
 !
 ! Escape key for the fail-closed non-monotonic detector in
@@ -488,7 +520,8 @@
 ! COMP_EW_ABS_EW uses the clamped SIGMA and V(1) to size the CMF EW
 ! frequency window, so it is not valid for this velocity field.
 !
-	  IF(DO_NONMONO_SOB .AND. DO_CMF_EW)THEN
+	  IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1      DO_CMF_EW)THEN
 	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
 	    WRITE(LUER,*)'DO_CMF_EW is incompatible with non-monotonic'
 	    WRITE(LUER,*)'velocity fields.  The CMF EW estimator uses'
@@ -528,6 +561,74 @@
 	    END IF
 	  END IF
 !
+! Knop populations carry no CMF line transfer: every line must be
+! BLANK unless DO_NONMONO_SOB is also set (the OBS-only pair that
+! renders SOB line frequencies on Knop J).
+!
+	  IF(DO_NONMONO_KNOP)THEN
+	    IF(GLOBAL_LINE_SWITCH(1:4) .EQ. 'NONE' .AND.
+	1       .NOT. DO_NONMONO_SOB)THEN
+	      DO ID=1,NUM_IONS
+	        IF(ATM(ID)%XZV_PRES .AND.
+	1          ATM(ID)%XzV_TRANS_TYPE(1:5) .NE. 'BLANK')THEN
+	          WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	          WRITE(LUER,*)'DO_NONMONO_KNOP=T with GLOBAL_LINE=NONE'
+	          WRITE(LUER,*)'requires TRANS_*=BLANK for every ion',
+	1            ' present; TRANS_'//TRIM(ION_ID(ID)),'=',
+	2            ATM(ID)%XzV_TRANS_TYPE,' violates this.'
+	          WRITE(LUER,*)'Set GLOBAL_LINE=BLANK, or set every',
+	1            ' TRANS_* key to BLANK.'
+	          STOP
+	        END IF
+	      END DO
+	    ELSE IF(GLOBAL_LINE_SWITCH(1:5) .NE. 'BLANK' .AND.
+	1       .NOT. DO_NONMONO_SOB)THEN
+	      WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	      WRITE(LUER,*)'DO_NONMONO_KNOP=T requires GLOBAL_LINE=BLANK'
+	      WRITE(LUER,*)'(or GLOBAL_LINE=NONE/BLANK_SPEC with all',
+	1        ' TRANS_*=BLANK).'
+	      WRITE(LUER,*)'GLOBAL_LINE=',GLOBAL_LINE_SWITCH,' is'
+	      WRITE(LUER,*)'inconsistent with the non-monotonic Knop',
+	1        ' populations.'
+	      STOP
+	    END IF
+!
+! LAM_SET rewrites edge lines to SOB at run time; under KNOP those
+! lines get the clamped-sigma Sobolev EW estimate, inconsistent with
+! the non-monotonic field.  Same rule as the main VADAT reader.
+!
+	    IF(SET_TRANS_TYPE_BY_LAM)THEN
+	      WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	      WRITE(LUER,*)'DO_NONMONO_KNOP=T requires LAM_SET=F.'
+	      WRITE(LUER,*)'LAM_SET would give edge lines the clamped-sigma'
+	      WRITE(LUER,*)'Sobolev treatment, inconsistent with the Knop'
+	      WRITE(LUER,*)'non-monotonic field.'
+	      STOP
+	    END IF
+!
+! COMP_JCONT_V4 has no non-monotonic moment solver.  USE_LAM_ES=T is
+! therefore mandatory so RJ comes from FG_J_CMF_NONMONO_V1, and every
+! stock solver branch that would bypass it is rejected here.
+!
+	    IF(.NOT. USE_LAM_ES)THEN
+	      WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	      WRITE(LUER,*)'DO_NONMONO_KNOP=T requires USE_LAM_ES=T.'
+	      WRITE(LUER,*)'USE_LAM_ES=F would call the clamped-sigma'
+	      WRITE(LUER,*)'MOM_J_CMF_V5 moment solver.'
+	      STOP
+	    END IF
+	    IF(USE_FIXED_J .OR. USE_FORMAL_REL .OR. USE_J_REL .OR.
+	1      USE_DJDT_RTE .OR. PLANE_PARALLEL .OR.
+	2      PLANE_PARALLEL_NO_V)THEN
+	      WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	      WRITE(LUER,*)'DO_NONMONO_KNOP is incompatible with'
+	      WRITE(LUER,*)'USE_FIXED_J, relativistic/DJDT solvers, and'
+	      WRITE(LUER,*)'plane-parallel modes.  Those paths bypass'
+	      WRITE(LUER,*)'FG_J_CMF_NONMONO_V1.'
+	      STOP
+	    END IF
+	  END IF
+!
 !
 ! DO_SOB_FLUX_OBS profile injection runs inside the DO_SOBOLEV_LINES
 ! block, which owns the line opacity/emissivity arrays the injected
@@ -552,9 +653,25 @@
 	    WRITE(LUER,*)'DO_SOB_LINES=T, and SOB_FREQ_IN_OBS=T.'
 	    STOP
 	  END IF
+!
+! PRINT_KNOP_DEBUG (default F): verbose Knop-solver diagnostics, same
+! meaning as the VADAT key in the main run.  Pushed into the solver
+! module so the OBS formal solve honours it too.
+!
+	  PRINT_KNOP_DEBUG=.FALSE.
+	  CALL RD_STORE_LOG(PRINT_KNOP_DEBUG,'PRINT_KNOP_DEBUG',L_FALSE,
+	1      'Print verbose KNOP solver diagnostics?')
+	  CALL SET_FG_KNOP_DEBUG(PRINT_KNOP_DEBUG)
 
 	  WRITE(LUMOD,'()')
 	  CALL RD_STORE_LOG(ACCURATE,'INC_GRID',L_TRUE,'Increase grid size to improve accuracy? ')
+	  IF(DO_NONMONO_KNOP .AND. ACCURATE)THEN
+	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	    WRITE(LUER,*)'DO_NONMONO_KNOP=T requires INC_GRID=F.'
+	    WRITE(LUER,*)'The extended-grid Knop formal solution is not'
+	    WRITE(LUER,*)'implemented.'
+	    STOP
+	  END IF
 	  CALL RD_STORE_LOG(ALL_FREQ,'ALL_FREQ',L_TRUE,'Increase accuracy for all frequencies?')
 	  CALL RD_STORE_DBLE(ACC_FREQ_END,'ACC_END',L_TRUE,'Increase accuracy for all frequencies > ACC_END?')
 	  CALL RD_STORE_INT(NPINS,'N_INS',L_TRUE,'Number of points to be inserted in higher'//
