@@ -6086,6 +6086,7 @@
 	REAL(KIND=LDP) V_NORM, R_NORM, REL_ERR, Z_NORM
 	REAL(KIND=LDP) JZ_NORM, JM_RATIO
 	REAL(KIND=LDP) R_NORM_P, V_NORM_T
+	REAL(KIND=LDP) R_NORM_G, R_NORM_NR, WF_REG, WF_ALL
 	INTEGER JR
 !
 	IF(AUDIT_DONE) RETURN
@@ -6244,17 +6245,54 @@
 !
 	R_NORM_P = 0.0_LDP
 	V_NORM_T = 0.0_LDP
+	R_NORM_G = 0.0_LDP
+	R_NORM_NR = 0.0_LDP
+	WF_REG = 0.0_LDP
+	WF_ALL = 0.0_LDP
 	DO I = 1, N
 	  JR = MOD(I-1, JFNK_NT) + 1
+	  KK = (I-1)/JFNK_NT + 1
 	  IF(JR .LT. JFNK_NT-1)THEN
 	    R_NORM_P = MAX(R_NORM_P, ABS(R_TEST(I)))
+	    IF(ALLOCATED(JFNK_ROW_REG) .AND.
+	1       JFNK_ROW_REG(JR, KK))THEN
+	      R_NORM_G = MAX(R_NORM_G, ABS(R_TEST(I)))
+	    ELSE
+	      R_NORM_NR = MAX(R_NORM_NR, ABS(R_TEST(I)))
+	    END IF
 	  ELSE
 	    V_NORM_T = MAX(V_NORM_T, ABS(V_TEST(I)))
+	  END IF
+	  IF(JFNK_RSCALE_READY)THEN
+	    IF(ALLOCATED(JFNK_ROW_REG) .AND.
+	1       JFNK_ROW_REG(JR, KK))THEN
+	      WF_REG = WF_REG + (JFNK_RSCALE(I)*V_TEST(I))**2
+	    ELSE
+	      WF_ALL = WF_ALL + (JFNK_RSCALE(I)*V_TEST(I))**2
+	    END IF
 	  END IF
 	END DO
 	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
 	1    '  PC accuracy (v=F, pop rows): ||Mz-v||_inf=', R_NORM_P,
 	1    ' |v|_inf on T/Ne rows=', V_NORM_T
+!
+! Reg-row split.  JFNK_ROW_REG rows were substituted by the identity
+! before factoring, so BA_A*z - v on those rows mixes the original
+! row coefficients with an identity-row solve result: a structural
+! audit mismatch, not apply error.  The non-reg pop-row residual is
+! the honest apply check.  The weighted |F|^2 share on reg rows is
+! the part of the Krylov residual that J*M^{-1} can never reduce
+! (the preconditioned operator row is near-null there); if that
+! share is O(1), GMRES stagnation is structural, not an apply bug.
+!
+	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1    '  PC accuracy (v=F): |Mz-v|_inf on reg rows=', R_NORM_G,
+	1    ' on non-reg pop rows=', R_NORM_NR
+	IF(JFNK_RSCALE_READY)THEN
+	  WRITE(LUER,'(A,ES12.4)')
+	1    '  weighted |F|^2 share on non-reg rows=',
+	1    WF_ALL/MAX(WF_ALL+WF_REG, 1.0E-30_LDP)
+	END IF
 !
 ! Test vector 2: unit vector in the first species at first depth
 !

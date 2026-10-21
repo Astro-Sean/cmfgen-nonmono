@@ -416,3 +416,9 @@ check(
     and "NRETRY .EQ. JFNK_CLIP_RETRY" in INTERFACE
     and "keeping FD as-is" in INTERFACE,
 )
+check(
+    "PC audit splits |Mz-v| by reg-substituted vs non-reg rows",
+    "on reg rows=" in INTERFACE
+    and "on non-reg pop rows=" in INTERFACE
+    and "weighted |F|^2 share on non-reg rows" in INTERFACE,
+)
