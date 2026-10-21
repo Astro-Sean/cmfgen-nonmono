@@ -4064,7 +4064,7 @@
 	1    'eq resid','largest equation residual ',MOM_EQ_RES,' at (',
 	2    MOM_EQ_RES_I,',',MOM_EQ_RES_L,'); largest ESEC/CHI-1 ',
 	3    MOM_MAX_COH
-	WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,ES10.3,A,I10,A,I10)')
+	WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,ES10.3,A,I10,A,I10,A)')
 	1    'params','largest |GAM| ',MOM_MAX_GAM,
 	2    '; largest |sigT| ',MOM_MAX_SIGT,'; ',MOM_BND_HBC_FL,
 	3    ' boundary HBC floors; ',MOM_N_SIGBIG,
