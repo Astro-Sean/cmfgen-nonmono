@@ -6399,6 +6399,62 @@
 	1    '  PC accuracy (v=F, factored M): |Mz-v|_inf=', R_NORM,
 	1    ' non-reg pop rows=', R_NORM_NR
 !
+! The apply projects reg components of z to zero AFTER the LU solve
+! (post-chain), so the delivered operator is P*M^{-1}, not M^{-1}.
+! On a non-reg row i the residual picks up the truncated reg-column
+! coupling: M_mod*(P z) - v = -sum_{j reg} BA_A(i,j)*v_j, since the
+! identity substitution gives z_j = v_j in the solve.  Recompute the
+! residual with the pre-projection vector (z on non-reg rows, v on
+! reg rows): if the apply is exactly "solve then project", this
+! restores the small-solve residual and exposes the column coupling
+! as the entire discrepancy.
+!
+	R_TEST = 0.0_LDP
+	DO KK = 1, JFNK_ND
+	  DO II = 1, JFNK_NT
+	    DO J = 1, JFNK_NT
+	      IF(ALLOCATED(JFNK_ROW_REG) .AND.
+	1         JFNK_ROW_REG(II, KK))THEN
+	        IF(II .EQ. J)R_TEST((KK-1)*JFNK_NT + II) =
+	1         R_TEST((KK-1)*JFNK_NT + II) +
+	2         V_TEST((KK-1)*JFNK_NT + J)
+	      ELSE
+	        IF(ALLOCATED(JFNK_ROW_REG) .AND.
+	1           JFNK_ROW_REG(J, KK))THEN
+	          R_TEST((KK-1)*JFNK_NT + II) =
+	1           R_TEST((KK-1)*JFNK_NT + II) +
+	2           JFNK_BA_A(II, J, KK) * V_TEST((KK-1)*JFNK_NT + J)
+	        ELSE
+	          R_TEST((KK-1)*JFNK_NT + II) =
+	1           R_TEST((KK-1)*JFNK_NT + II) +
+	2           (JFNK_BA_A(II, J, KK) +
+	3           MERGE(JFNK_BA_RIDGE_ADD(II, KK), 0.0_LDP,
+	4                 II .EQ. J)) *
+	5           Z_TEST((KK-1)*JFNK_NT + J)
+	        END IF
+	      END IF
+	    END DO
+	    R_TEST((KK-1)*JFNK_NT + II) =
+	1       R_TEST((KK-1)*JFNK_NT + II) - V_TEST((KK-1)*JFNK_NT + II)
+	  END DO
+	END DO
+	R_NORM = 0.0_LDP
+	R_NORM_NR = 0.0_LDP
+	DO I = 1, N
+	  R_NORM = MAX(R_NORM, ABS(R_TEST(I)))
+	  JR = MOD(I-1, JFNK_NT) + 1
+	  KK = (I-1)/JFNK_NT + 1
+	  IF(JR .LT. JFNK_NT-1)THEN
+	    IF(.NOT. (ALLOCATED(JFNK_ROW_REG) .AND.
+	1       JFNK_ROW_REG(JR, KK)))THEN
+	      R_NORM_NR = MAX(R_NORM_NR, ABS(R_TEST(I)))
+	    END IF
+	  END IF
+	END DO
+	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1    '  PC accuracy (v=F, pre-projection z): |Mz-v|_inf=', R_NORM,
+	1    ' non-reg pop rows=', R_NORM_NR
+!
 ! Test vector 2: unit vector in the first species at first depth
 !
 	V_TEST = 0.0_LDP
