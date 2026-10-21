@@ -4238,7 +4238,19 @@
 ! If DGBTRF fails, fall back to the per-depth LU/Jacobi above.
 !
 	JFNK_BANDED_LU_READY = .FALSE.
-	IF(JFNK_USE_BANDED_LOC .AND. JFNK_NUM_BNDS .GT. 1)THEN
+!
+! Gate the banded factorization on the LU preconditioner being the
+! active type, not just on JFNK_USE_BANDED: the apply path prefers a
+! ready banded LU over any other preconditioner, so a JACOBI/LSQ/SCHUR
+! run would otherwise pay the ~3*KL*N banded allocation (>>20 GB on
+! this model: SIGBUS on viper nodes at page touch, 21-Oct-2026 npq_dbg
+! crash) and then silently apply a different preconditioner than the
+! one requested.  CMAT_RAD_BANDS is still armed by JFNK_BUILD_BA_RAD_V1
+! under JFNK_USE_BANDED regardless of this gate, so the analytic banded
+! JVP keeps the full operator under JACOBI.
+!
+	IF(JFNK_USE_BANDED_LOC .AND. JFNK_NUM_BNDS .GT. 1 .AND.
+	1   JFNK_PRECOND_TYPE(1:2) .EQ. 'LU')THEN
 ! Block-tridiagonal bandwidth: each off-diagonal block is NT×NT, so
 ! the maximum |i-j| for the lower band is (NUM_BNDS/2)*NT + (NT-1).
 ! The previous code used (NUM_BNDS/2)*NT, which is too small by NT-1

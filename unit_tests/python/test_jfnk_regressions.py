@@ -443,3 +443,8 @@ check(
     and "RD_STORE_LOG(JFNK_BA_JVP,'JFNK_BA_JVP'" in RD_CONTROL
     and "IF(JFNK_BA_JVP .AND. JFNK_BA_BUILT" in INTERFACE,
 )
+check(
+    "banded LU factorization requires the LU preconditioner",
+    "JFNK_USE_BANDED_LOC .AND. JFNK_NUM_BNDS .GT. 1 .AND." in INTERFACE
+    and "JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'" in INTERFACE,
+)
