@@ -10,7 +10,7 @@
 	USE MOD_CMFGEN
         USE ANG_QW_MOD
 	USE CONTROL_VARIABLE_MOD
-	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK,JFNK_BA_SRC_IT
 	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
@@ -898,6 +898,9 @@
 !
 	IF(COMPUTE_BA)THEN
 	  WRITE(LUER,*)'BA matrix computed'
+! Stamp the source-iteration of SE(ID)%BA so JFNK deferral probes can
+! report the stored operator's age relative to the admission state.
+	  JFNK_BA_SRC_IT=MAIN_COUNTER
 	ELSE
 	  WRITE(LUER,*)'BA matrix **NOT** computed'
 	END IF

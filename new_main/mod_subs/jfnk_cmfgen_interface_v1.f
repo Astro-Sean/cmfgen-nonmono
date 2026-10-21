@@ -2555,6 +2555,7 @@
 !
 	JFNK_N_JVP_NAN = 0
 	jfnk_jvp_failed = .FALSE.
+	JFNK_PROBE_H_LAST=0.0_LDP
 !
 	JFNK_W_V_USE = V
 	CALL JFNK_MASK_FIXED_UNKNOWNS(N, JFNK_W_V_USE)
@@ -2747,6 +2748,11 @@
 	  H_STEP = H_STEP * 0.1D0
 	END DO
 !
+! Export the step actually differentiated with (cap, HSCALE and any
+! clip-retry reductions applied) so deferred-admission probes can log
+! the true perturbation size per call.
+!
+	JFNK_PROBE_H_LAST=H_STEP
 	DO I = 1, N
 	  JV(I) = (JFNK_W_F_PERT(I) - jfnk_fx(I)) / H_STEP
 	END DO
@@ -2843,6 +2849,7 @@
 ! ignores the flag.
 	    JV = 0.0D0
 	    jfnk_jvp_failed = .TRUE.
+	    JFNK_PROBE_H_LAST=0.0_LDP
 	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
 	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I6,A,I6,A)')
 	1      'JFNK_JVP_V1: ', JFNK_N_JVP_NAN, ' NaN/Inf in JVP (N=',

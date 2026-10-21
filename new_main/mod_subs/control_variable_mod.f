@@ -2071,4 +2071,14 @@
 	INTEGER JFNK_ENRICH_K
 	REAL(KIND=LDP) JFNK_ENRICH_PERCENT
 !
+! JFNK_DEFER_PROBE (default 0 = off): diagnostic-only cap on
+! deferral-path operator probes.  When an FD-gate deferral fires,
+! the first JFNK_DEFER_PROBE deferred admissions run a multi-h
+! FD-vs-BA comparison on the residual-dominant rows (direction
+! h-scan on the clipped step, raw-vs-clipped direction, and a
+! top-|F| column probe).  Pure diagnostics -- the admission still
+! defers and no Newton state changes.
+!
+	INTEGER JFNK_DEFER_PROBE
+!
 	END MODULE CONTROL_VARIABLE_MOD

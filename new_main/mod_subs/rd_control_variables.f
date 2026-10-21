@@ -1733,6 +1733,18 @@
 	  IF(JFNK_CENSUS_PIN_FRAC .LE. 0.0_LDP)JFNK_CENSUS_PIN_FRAC=0.0_LDP
 	  IF(JFNK_CENSUS_PIN_FRAC .GT. 1.0_LDP)JFNK_CENSUS_PIN_FRAC=1.0_LDP
 !
+! JFNK_DEFER_PROBE (default 0 = off): cap on deferral-path operator
+! probes.  An FD-gate deferral normally skips the isolation probes
+! entirely; this runs a bounded h-scanned FD-vs-BA comparison on the
+! dominant residual rows for the first N deferrals so the cause of a
+! deferred admission (stale stored operator vs FD cancellation vs
+! genuinely unreachable residual) can be read from one log block.
+!
+	  JFNK_DEFER_PROBE=0
+	  CALL RD_STORE_INT(JFNK_DEFER_PROBE,'JFNK_DEFER_PROBE',L_FALSE,
+     1     'Probe FD-vs-BA on this many FD-gate deferrals (0=off)')
+	  IF(JFNK_DEFER_PROBE .LT. 0)JFNK_DEFER_PROBE=0
+!
 ! W12 (17-Oct-2026): low-rank field-response enrichment of the
 ! coupled-tier preconditioner (JVP-probed J - BA_A columns at the
 ! worst stored-operator anchors, Sherman-Morrison-Woodbury apply).

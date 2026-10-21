@@ -522,6 +522,26 @@
 ! few decades and resets it to 1 afterward.
 !
 	REAL(KIND=LDP), SAVE :: JFNK_PROBE_HSCALE=1.0_LDP
+!
+! JFNK_PROBE_H_LAST: H_STEP actually used by the most recent
+! JFNK_JVP_V1 call, after the safety cap, the HSCALE multiplier and
+! any clip-crossing retries.  0 after a failed call.  Lets the
+! deferral-path probe report the true perturbation ||h*v|| instead
+! of recomputing a value the cap may have changed.
+!
+	REAL(KIND=LDP), SAVE :: JFNK_PROBE_H_LAST=0.0_LDP
+!
+! JFNK_BA_SRC_IT: MAIN_COUNTER at the last COMPUTE_BA population
+! call, stamped in SOLVE_FOR_POPS where 'BA matrix computed' prints.
+! JFNK_BA_A is rebuilt per admission from SE(ID)%BA, so the stored
+! operator's age is the outer-BA age, not the admission count.
+!
+	INTEGER, SAVE :: JFNK_BA_SRC_IT=-1
+!
+! JFNK_DEFER_PROBE_N: deferral-path probes already run this run
+! ([JFNK_DEFER_PROBE] cap, default 0 = off).
+!
+	INTEGER, SAVE :: JFNK_DEFER_PROBE_N=0
 	INTEGER, SAVE :: JFNK_N_PRECOND_APPLIES=0
 	INTEGER, SAVE :: JFNK_N_PRECOND_FAILURES=0
 !

@@ -147,6 +147,21 @@
 	DOUBLE PRECISION HS_ARR(3)
 	DATA HS_ARR/1.0D2,1.0D4,1.0D6/
 !
+! Deferral-path probe locals ([JFNK_DEFER_PROBE], default 0 = off):
+! per-dominant-row FD-vs-BA comparison of the deferred direction at
+! four step scales, with raw residual differences so cancellation
+! and a stable-but-different derivative separate cleanly.
+!
+	INTEGER, PARAMETER :: NTPR=8
+	INTEGER TPI(NTPR)
+	DOUBLE PRECISION FDT(NTPR,4),RFT(NTPR,4),BZT(NTPR)
+	DOUBLE PRECISION FD_C_TOP(NTPR)
+	DOUBLE PRECISION F_NU,FDMN,FDMX,FDRNG,RDIFF
+	LOGICAL L_EVP(4)
+	INTEGER NTPR_C,IHS2
+	DOUBLE PRECISION HS_D(4)
+	DATA HS_D/1.0D0,1.0D2,1.0D4,1.0D6/
+!
 ! Correction clipping state
 !
 	INTEGER NCLIP_POP,NCLIP_T,NCLIP_ED
@@ -1192,6 +1207,274 @@
 	2        REAL(COS_FD),' < fd_cos_min=',REAL(JFNK_FD_COS_MIN)
 	      END IF
 	      END IF    ! L_EVR_FDOP gate on the FD direction gates
+!
+! Deferral-path operator probe ([JFNK_DEFER_PROBE], default 0 = off;
+! diagnostic only).  The FD direction gates above defer the admission
+! before any isolation probe runs, so a repeated defer never shows
+! WHY the stored BA and the FD operator disagree on the deferred
+! direction (stale stored rows vs FD cancellation on huge-|F| rows vs
+! a truly unreachable direction vs clipping).  For the first
+! JFNK_DEFER_PROBE deferrals, re-price the same clipped direction at
+! four h scales, the unclipped direction once, and the top-|F|
+! Jacobian column at the same scales, and log the raw residual
+! differences per dominant row.  Solver state is untouched: the
+! defer decision stands, no commit runs, JFNK_PROBE_HSCALE is reset
+! after every eval, and JV_SAV is only reused because the pass-path
+! probes below cannot run on this branch.
+!
+      IF(.NOT. JFNK_REACH_OK .AND. L_EVR_FDOP .AND.
+     1        JFNK_DEFER_PROBE .GT. 0 .AND.
+     2        JFNK_DEFER_PROBE_N .LT. JFNK_DEFER_PROBE)THEN
+        JFNK_DEFER_PROBE_N=JFNK_DEFER_PROBE_N+1
+        F_NU=0.0_LDP
+        DO I=1,JFNK_N
+          F_NU=F_NU+jfnk_fx(I)**2
+        END DO
+        F_NU=SQRT(F_NU)
+        WRITE(LUER,'(A,I3,A)')
+     1       '  DEFER-PROBE ',JFNK_DEFER_PROBE_N,
+     2       ' (FD-gate deferral; diagnostics only, Newton still skipped)'
+        WRITE(LUER,'(A,I6,A,I6,A,I6,A)')
+     1       '    it=',MAIN_COUNTER,'  BA src it=',JFNK_BA_SRC_IT,
+     2       '  BA age=',MAIN_COUNTER-JFNK_BA_SRC_IT,' its'
+        WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8,A,I8)')
+     1       '    |F| unw=',REAL(F_NU),'  wtd=',REAL(SQRT(FF2_DP)),
+     2       '  resid evals=',JFNK_N_RESIDUAL_EVALS,'  nclip=',NCLIP_R
+        WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+     1       '    |z_raw|inf=',REAL(ZMAX_RAW),'  |z_clip|inf=',
+     2       REAL(MAXVAL(ABS(Z_CLIP)))
+        IF(JFNK_COUPLED_LOC)THEN
+          WRITE(LUER,'(A)')
+     1         '    tier=coupled: probe evals re-solve J'
+        ELSE
+          WRITE(LUER,'(A)')
+     1         '    tier=frozen-J: probe evals perturb populations'//
+     2         ' only, J held fixed'
+        END IF
+!
+! Dominant residual rows (same top-N selection as the anatomy table).
+!
+        Z_BLK=0.0_LDP
+        NTPR_C=0
+        DO K=1,NTPR
+          FMAX_LOC=0.0_LDP
+          I_ZMAX=0
+          DO I=1,JFNK_N
+            IF(ABS(jfnk_fx(I)) .GT. FMAX_LOC .AND.
+     1              Z_BLK(I) .EQ. 0.0_LDP)THEN
+              FMAX_LOC=ABS(jfnk_fx(I))
+              I_ZMAX=I
+            END IF
+          END DO
+          IF(I_ZMAX .EQ. 0)EXIT
+          Z_BLK(I_ZMAX)=1.0_LDP
+          NTPR_C=NTPR_C+1
+          TPI(NTPR_C)=I_ZMAX
+          BZT(NTPR_C)=JZ_VEC(I_ZMAX)
+          FD_C_TOP(NTPR_C)=0.0_LDP
+        END DO
+        IF(NTPR_C .GT. 0)THEN
+          I_TOPF=TPI(1)
+          K_TOPF=(I_TOPF-1)/JFNK_NT+1
+        END IF
+!
+! (1) Direction h-scan on the SAME Z_CLIP the gates priced.  Scale 1
+! reuses JV_FD (the gate probe itself; JFNK_W_F_PERT still holds its
+! perturbed residual).  A derivative stable across scales is real;
+! one that drifts or flips is cancellation noise.
+!
+        WRITE(LUER,'(A)')'    direction A_FD*z_clip, h scan:'
+        FDT=0.0_LDP
+        RFT=0.0_LDP
+        DO IHS2=1,4
+          L_EVP(IHS2)=.FALSE.
+          IF(IHS2 .EQ. 1)THEN
+            JV_FD2=JV_FD
+            L_EVP(1)=.NOT. jfnk_jvp_failed
+            IF(jfnk_jvp_failed)WRITE(LUER,'(A)')
+     1           '      h x  1.00E+00 gate JVP failed; reused'//
+     2           ' image excluded from the table'
+          ELSE IF(NEV_CAP .LE. 0 .OR.
+     1        JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+            JFNK_PROBE_HSCALE=HS_D(IHS2)
+            CALL JFNK_JVP_V1(JFNK_N,Z_CLIP,JV_FD2)
+            JFNK_PROBE_HSCALE=1.0_LDP
+            L_EVP(IHS2)=.NOT. jfnk_jvp_failed
+          ELSE
+            WRITE(LUER,'(A,ES10.2,A)')'      h x',HS_D(IHS2),
+     1           ' skipped: eval headroom < 2'
+          END IF
+          IF(L_EVP(IHS2))THEN
+            FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD2)
+            JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
+            BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD2)
+            WRITE(LUER,'(A,ES10.2,4(A,ES12.4))')
+     1           '      h x',HS_D(IHS2),
+     2           '  |hv|inf=',REAL(JFNK_PROBE_H_LAST*MAXVAL(ABS(Z_CLIP))),
+     3           '  |Az|/|F|=',REAL(SQRT(JJZ_FD)/
+     4           SQRT(MAX(FF2_DP,1.0E-300_LDP))),
+     5           '  cos(F,Az)=',
+     6           REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
+     7           '  cos(BAz,Az)=',
+     8           REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
+            DO I=1,NTPR_C
+              FDT(I,IHS2)=JV_FD2(TPI(I))
+              RFT(I,IHS2)=JFNK_W_F_PERT(TPI(I))-jfnk_fx(TPI(I))
+            END DO
+          END IF
+        END DO
+!
+! (2) Unclipped direction: separates a clipping-induced discrepancy
+! from an operator one.  JV_SAV is free on this path (the
+! pristine-vs-repeat comparison it feeds runs only when the
+! admission passed).
+!
+        JV_SAV=0.0_LDP
+        DO K=1,JFNK_ND
+          DO I=1,JFNK_NT
+            DO J=1,JFNK_NT
+              JV_SAV((K-1)*JFNK_NT+I)=JV_SAV((K-1)*JFNK_NT+I)+
+     1               JFNK_BA_A(I,J,K)*Z_CHK((K-1)*JFNK_NT+J)
+            END DO
+          END DO
+        END DO
+        IF(NEV_CAP .LE. 0 .OR.
+     1      JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+          CALL JFNK_JVP_V1(JFNK_N,Z_CHK,JV_FD2)
+          JFNK_PROBE_HSCALE=1.0_LDP
+          IF(.NOT. jfnk_jvp_failed)THEN
+            FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD2)
+            JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
+            BAFD_DP=JFNK_DOT_V1(JFNK_N,JV_SAV,JV_FD2)
+            JZF_BA=JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV)
+            WRITE(LUER,'(A,5(A,ES12.4))')
+     1           '    raw direction:  |BAz|/|F|=',
+     2           REAL(SQRT(JZF_BA)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
+     3           '  |Az|/|F|=',REAL(SQRT(JJZ_FD)/
+     4           SQRT(MAX(FF2_DP,1.0E-300_LDP))),
+     5           '  cos(F,Az)=',
+     6           REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
+     7           '  cos(BAz,Az)=',
+     8           REAL(BAFD_DP/SQRT(MAX(JZF_BA*JJZ_FD,1.0E-300_LDP))),
+     9           '  |hv|inf=',
+     1           REAL(JFNK_PROBE_H_LAST*MAXVAL(ABS(Z_CHK)))
+            DO I=1,NTPR_C
+              FD_C_TOP(I)=JV_FD2(TPI(I))
+            END DO
+          ELSE
+            WRITE(LUER,'(A)')
+     1           '    raw direction: JVP failed'
+          END IF
+        ELSE
+          WRITE(LUER,'(A)')
+     1         '    raw direction skipped: eval headroom < 2'
+        END IF
+!
+! (3) Top-|F| column probe at the same scales: e_i JVP returns
+! column i of the true Jacobian; the self element FD_ii vs the
+! stored BA diagonal decides whether the row's own derivative is
+! mis-stored or merely swamped.
+!
+        IF(NTPR_C .GT. 0)THEN
+          JROW=MOD(I_TOPF-1,JFNK_NT)+1
+          WRITE(LUER,'(A,I8,A,I4,A,I6,A,ES12.4)')
+     1         '    column probe topF idx=',I_TOPF,' K=',K_TOPF,
+     2         ' J=',JROW,'  BA diag=',
+     3         REAL(JFNK_BA_A(JROW,JROW,K_TOPF))
+          DO IHS2=1,4
+            IF(NEV_CAP .LE. 0 .OR.
+     1          JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+              JFNK_PROBE_HSCALE=HS_D(IHS2)
+              Z_BLK=0.0_LDP
+              Z_BLK(I_TOPF)=1.0_LDP
+              CALL JFNK_JVP_V1(JFNK_N,Z_BLK,JV_FD2)
+              JFNK_PROBE_HSCALE=1.0_LDP
+              IF(.NOT. jfnk_jvp_failed)THEN
+                WRITE(LUER,'(A,ES10.2,2(A,ES14.6))')
+     1               '      h x',HS_D(IHS2),'  FD self=',
+     2               REAL(JV_FD2(I_TOPF)),'  |FDcol|=',
+     3               REAL(SQRT(JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)))
+              ELSE
+                WRITE(LUER,'(A,ES10.2,A)')'      h x',HS_D(IHS2),
+     1               '  JVP failed'
+              END IF
+            ELSE
+              WRITE(LUER,'(A,ES10.2,A)')'      h x',HS_D(IHS2),
+     1             ' skipped: eval headroom < 2'
+            END IF
+          END DO
+        END IF
+!
+! Per-row verdict table.  FDT holds the clipped-direction FD at each
+! scale; RFT the raw residual difference F(x+hz)-F(x).  The verdict
+! is heuristic: a large non-monotone range in |FD| across h reads as
+! cancellation, a monotone drift as nonlinearity, and a stable
+! plateau materially off the stored-BA value as a stale or
+! inconsistent stored row.
+!
+        WRITE(LUER,'(A)')'    rnk    idx     K     J'//
+     1       '  ion          lev     F_i        BA(clip)   BA(raw)'//
+     2       '     FD(raw)'
+        DO I=1,NTPR_C
+          II_PROBE=TPI(I)
+          JROW=MOD(II_PROBE-1,JFNK_NT)+1
+          KROW=(II_PROBE-1)/JFNK_NT+1
+          ID=0
+          IF(JROW .LE. JFNK_NT-2)ID=J2ID_LOC(JROW)
+          IF(JROW .EQ. JFNK_NT)THEN
+            LBL_LOC='T (energy)'
+            LEV_LOC=0
+          ELSE IF(JROW .EQ. JFNK_NT-1)THEN
+            LBL_LOC='Ne (charge)'
+            LEV_LOC=0
+          ELSE IF(ID .GT. 0)THEN
+            LBL_LOC=ION_ID(ID)
+            LEV_LOC=JROW-ATM(ID)%EQXzV+1
+          ELSE
+            LBL_LOC='unlabeled'
+            LEV_LOC=0
+          END IF
+          WRITE(LUER,'(I5,I8,I6,I6,2X,A12,I5,4ES11.3)')I,II_PROBE,
+     1         KROW,JROW,LBL_LOC,LEV_LOC,jfnk_fx(II_PROBE),BZT(I),
+     2         JV_SAV(II_PROBE),FD_C_TOP(I)
+          WRITE(LUER,'(A,4ES11.3)')'      FD(h) :',
+     1         (FDT(I,IHS2),IHS2=1,4)
+          WRITE(LUER,'(A,4ES11.3)')'      dF(h) :',
+     1         (RFT(I,IHS2),IHS2=1,4)
+          FDMN=HUGE(1.0_LDP)
+          FDMX=0.0_LDP
+          FDRNG=0.0_LDP
+          J=0
+          RDIFF=0.0_LDP
+          DO IHS2=1,4
+            IF(L_EVP(IHS2))THEN
+              J=J+1
+              RDIFF=FDT(I,IHS2)
+              FDMN=MIN(FDMN,ABS(FDT(I,IHS2)))
+              FDMX=MAX(FDMX,ABS(FDT(I,IHS2)))
+            END IF
+          END DO
+          IF(J .GE. 2)FDRNG=FDMX/MAX(FDMN,1.0E-300_LDP)
+          IF(J .LT. 2)THEN
+            WRITE(LUER,'(A)')'      verdict: unresolved'//
+     1           ' (fewer than 2 valid h)'
+          ELSE IF(FDRNG .GT. 10.0_LDP)THEN
+            WRITE(LUER,'(A)')'      verdict: h-unstable'//
+     1           ' (FD cancellation suspected; check dF vs |F_i|)'
+          ELSE IF(FDRNG .GT. 3.0_LDP)THEN
+            WRITE(LUER,'(A)')'      verdict: h-dependent'//
+     1           ' (nonlinear response or mixed floor)'
+          ELSE IF(ABS(RDIFF-BZT(I)) .LE.
+     1        0.5_LDP*MAX(ABS(BZT(I)),1.0E-300_LDP))THEN
+            WRITE(LUER,'(A)')'      verdict: stable FD ='//
+     1           ' BA within 2x (operators consistent on this row)'
+          ELSE
+            WRITE(LUER,'(A)')'      verdict: stable FD'//
+     1           ' differs from BA (stale/inconsistent stored row)'
+          END IF
+        END DO
+        WRITE(LUER,'(A)')'  DEFER-PROBE end.'
+      END IF
 !
 	    IF(JFNK_REACH_OK)THEN
 ! Isolation probes (11-Oct-2026): A_FD*z returned ~60x|F| with
