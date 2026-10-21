@@ -2543,6 +2543,7 @@
 	INTEGER, ALLOCATABLE :: J2ID_LOC(:)
 	DOUBLE PRECISION, ALLOCATABLE :: DIFF_ARR(:), JV_H(:)
 	INTEGER IHS, I_TOP, JROW, KROW, ID, LEV_LOC, ISEL
+	INTEGER ITOP_ARR(3)
 	DOUBLE PRECISION H_ARR(2), HMULT, DH_NORM, FDH_NORM, ROWMAX_A
 	CHARACTER*12 LBL_LOC
 !
@@ -2856,6 +2857,7 @@
 	    END DO
 	    WRITE(JFNK_LUER,'(A)')
      1      '    worst |FD-BA*v| components (row-max |BA_row|, F_i):'
+	    ITOP_ARR=0
 	    DO ISEL=1,8
 	      I_TOP=0
 	      DH_NORM=0.0D0
@@ -2867,6 +2869,7 @@
 	      END DO
 	      IF(I_TOP .EQ. 0)EXIT
 	      DIFF_ARR(I_TOP)=0.0D0
+	      IF(ISEL .LE. 3)ITOP_ARR(ISEL)=I_TOP
 	      JROW=MOD(I_TOP-1,JFNK_NT)+1
 	      KROW=(I_TOP-1)/JFNK_NT+1
 	      ROWMAX_A=0.0D0
@@ -2922,6 +2925,15 @@
      1      '      h x',HMULT,': max|FD_h-BA*v|=',DH_NORM,
      2      ' /|BA*v|=',DH_NORM/MAX(AN_NORM,1.0D-30),
      3      ' max|FD_h|=',FDH_NORM
+! Per-row FD at the worst rows pins a 1/h jump vs curvature on one
+! component: a row whose FD_h scales ~1/h carries a discontinuous
+! switch; one that converges is a smooth derivative the BA missed.
+	      DO ISEL=1,3
+	        IF(ITOP_ARR(ISEL) .GT. 0)WRITE(JFNK_LUER,
+     1        '(A,I8,A,ES14.6,A,ES14.6)')
+     2        '        row ',ITOP_ARR(ISEL),': FD_h=',
+     3        JV_H(ITOP_ARR(ISEL)),' BA*v=',JV_ANAL(ITOP_ARR(ISEL))
+	      END DO
 	    END DO
 	  END IF
 	END IF
