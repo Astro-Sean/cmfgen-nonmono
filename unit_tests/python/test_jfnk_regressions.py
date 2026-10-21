@@ -90,7 +90,7 @@ check(
     "precond refresh rebuilds the BA with live fold state",
     "JFNK_BA_BUILT = .FALSE." in refresh
     and refresh.index("JFNK_BA_BUILT = .FALSE.")
-    < refresh.index("CALL JFNK_FACTOR_PRECOND_V1()"),
+    < refresh.index("CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)"),
 )
 post_guard = section(
     factor,
@@ -121,7 +121,7 @@ rebuild = section(
 pre_factor = section(
     rebuild,
     "CALL JFNK_BUILD_BA_RAD_V1()",
-    "CALL JFNK_FACTOR_PRECOND_V1()",
+    "CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)",
 )
 check(
     "baseline rebuild re-arms PTC state before the factor call",
@@ -145,7 +145,7 @@ check(
     "attempt-retry rebuild clears the BA cache before factoring",
     "JFNK_BA_BUILT=.FALSE." in retry
     and retry.index("JFNK_BA_BUILT=.FALSE.")
-    < retry.index("CALL JFNK_FACTOR_PRECOND_V1()"),
+    < retry.index("CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)"),
 )
 
 gate_idx = SOLVE_CORR.index("CALL JFNK_FACTOR_PRECOND_V1(.FALSE.)")
@@ -331,4 +331,11 @@ check(
     "raw-direction write keeps A/ES pairing",
     "'(A,ES12.4,4(A,ES12.4))'" in defer
     and "'(A,5(A,ES12.4))'" not in defer,
+)
+check(
+    "no implicit-interface call to OPTIONAL-arg FACTOR_PRECOND",
+    "JFNK_FACTOR_PRECOND_V1()" not in SOLVE_CORR
+    and "JFNK_FACTOR_PRECOND_V1()" not in INTERFACE
+    and "JFNK_FACTOR_PRECOND_V1(.TRUE.)" in SOLVE_CORR
+    and "JFNK_FACTOR_PRECOND_V1(.TRUE.)" in INTERFACE,
 )

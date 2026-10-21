@@ -1913,7 +1913,7 @@
 !
 	    IF(JFNK_REACH_OK)THEN
 	      TW_PH=OMP_GET_WTIME()
-	      CALL JFNK_FACTOR_PRECOND_V1()
+	      CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)
 	      T_PH_PC=T_PH_PC+(OMP_GET_WTIME()-TW_PH)
 !
 ! W12 (17-Oct-2026, [JFNK_ENRICH], default F): with the LU in hand,
@@ -1969,7 +1969,7 @@
 ! gate's folded BA.
 !
 	          JFNK_BA_BUILT=.FALSE.
-	          CALL JFNK_FACTOR_PRECOND_V1()
+	          CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)
 !
 ! The rebuilt BA was assembled at the current state; let the next
 ! eval re-harvest its equation structure so the residual and the

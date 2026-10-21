@@ -2341,7 +2341,7 @@
 !
 ! Step 7: Factor preconditioner from new BA
 !
-	CALL JFNK_FACTOR_PRECOND_V1()
+	CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)
 !
 ! Step 8: Recompute RSCALE (fixed unknowns already masked above).
 !
@@ -4451,7 +4451,7 @@
 	END IF
 !
 	IF(.NOT. JFNK_FACTOR_DONE)THEN
-	  CALL JFNK_FACTOR_PRECOND_V1()
+	  CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)
 	END IF
 !
 ! ── Banded LU solve (JFNK_USE_BANDED=T) ────────────────────────────
@@ -5784,7 +5784,7 @@
 ! since the fold was applied, so the cached matrix must be rebuilt,
 ! not just re-factored.
 	  JFNK_BA_BUILT = .FALSE.
-	  CALL JFNK_FACTOR_PRECOND_V1()
+	  CALL JFNK_FACTOR_PRECOND_V1(.TRUE.)
 	  JFNK_N_PRECOND_REFRESH = JFNK_N_PRECOND_REFRESH + 1
 	  jfnk_need_precond_refresh = 0
 	END IF
