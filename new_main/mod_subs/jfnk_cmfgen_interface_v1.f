@@ -2516,7 +2516,9 @@
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed,
-	1                           jfnk_log_unknown, jfnk_resid_nbad
+	1                           jfnk_log_unknown, jfnk_resid_nbad,
+	2                           jfnk_pc_clip_event, jfnk_n_zmax_hit,
+	3                           jfnk_n_reg_proj
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
 	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR
@@ -2533,9 +2535,12 @@
 	DOUBLE PRECISION H_CAP, X_CLIP_B, X_FLOOR, X_MARGIN, CAP_MARGIN
 	INTEGER I_CAP
 	INTEGER IDX_J
-	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
+	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:), JV_RT(:)
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
+	DOUBLE PRECISION RT_FD, RT_BA, RT_DEN, VREG, VTOT
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
+	LOGICAL CLIP_SAV
+	INTEGER NZMAX_SAV, NPROJ_SAV, JR_L
 	INTEGER, SAVE :: JVP_DIR_CT = 0
 	INTEGER I, KK, JJ, II, NRETRY
 	INTEGER K_J
@@ -2854,6 +2859,60 @@
      1    '  JVP dir ', JVP_DIR_CT, ': |FD|=', FD_NORM,
      2    ' |BA*v|=', AN_NORM,
      3    ' |diff|/|anal|=', DIFF_NORM/MAX(AN_NORM,1.0D-30)
+!
+! Round-trip audit (04-Nov-2026): feed the measured J*v products back
+! through M^{-1} and check whether v returns on reachable (non-reg,
+! non-fixed) rows.  The PC audit's ||M*z-v|| cannot separate apply
+! error from factor-time model edits (ridge, reg-row substitution,
+! PTC fold); w = M^{-1} J v with the verified FD product answers the
+! operator-level question GMRES cares about: is M^{-1} an inverse of
+! the Krylov operator on this direction?  The extra applies share
+! solver state with the live GMRES (clip flag, ZMAX/reg counters), so
+! save and restore them -- a clip triggered here must not abort the
+! real solve.
+!
+	  IF(.NOT. ALLOCATED(JV_RT))ALLOCATE(JV_RT(N))
+	  CLIP_SAV = jfnk_pc_clip_event
+	  NZMAX_SAV = jfnk_n_zmax_hit
+	  NPROJ_SAV = jfnk_n_reg_proj
+	  JV_RT(1:N) = JV(1:N)
+	  CALL JFNK_PRECOND_V1(N, JV_RT)
+	  RT_FD = 0.0D0
+	  RT_DEN = 0.0D0
+	  VREG = 0.0D0
+	  VTOT = 0.0D0
+	  DO I = 1, N
+	    JR_L = MOD(I-1, JFNK_NT) + 1
+	    KK = (I-1)/JFNK_NT + 1
+	    IF(JR_L .GE. JFNK_NT-1)CYCLE
+	    IF(ALLOCATED(JFNK_ROW_REG) .AND.
+     1       JFNK_ROW_REG(JR_L, KK))THEN
+	      VREG = VREG + JFNK_W_V_USE(I)**2
+	    ELSE
+	      VTOT = VTOT + JFNK_W_V_USE(I)**2
+	      RT_FD = MAX(RT_FD, ABS(JV_RT(I) - JFNK_W_V_USE(I)))
+	      RT_DEN = MAX(RT_DEN, ABS(JFNK_W_V_USE(I)))
+	    END IF
+	  END DO
+	  JV_RT(1:N) = JV_ANAL(1:N)
+	  CALL JFNK_PRECOND_V1(N, JV_RT)
+	  RT_BA = 0.0D0
+	  DO I = 1, N
+	    JR_L = MOD(I-1, JFNK_NT) + 1
+	    KK = (I-1)/JFNK_NT + 1
+	    IF(JR_L .GE. JFNK_NT-1)CYCLE
+	    IF(ALLOCATED(JFNK_ROW_REG) .AND.
+     1       JFNK_ROW_REG(JR_L, KK))CYCLE
+	    RT_BA = MAX(RT_BA, ABS(JV_RT(I) - JFNK_W_V_USE(I)))
+	  END DO
+	  jfnk_pc_clip_event = CLIP_SAV
+	  jfnk_n_zmax_hit = NZMAX_SAV
+	  jfnk_n_reg_proj = NPROJ_SAV
+	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I2,4(A,ES12.4))')
+     1    '  JVP dir ', JVP_DIR_CT,
+     2    ' rt FD: |M^-1Jv-v|/|v|=', RT_FD/MAX(RT_DEN,1.0D-30),
+     3    ' rt BA=', RT_BA/MAX(RT_DEN,1.0D-30),
+     4    ' reg share=', VREG/MAX(VREG+VTOT,1.0D-30)
 	  IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
      1    DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0)THEN
 	    JVP_DIAG_DONE = .TRUE.

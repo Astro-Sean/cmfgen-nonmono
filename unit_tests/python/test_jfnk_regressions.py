@@ -422,3 +422,12 @@ check(
     and "on non-reg pop rows=" in INTERFACE
     and "weighted |F|^2 share on non-reg rows" in INTERFACE,
 )
+check(
+    "PC audit checks apply against the factored matrix",
+    "factored M" in INTERFACE,
+)
+check(
+    "JVP dir report includes M^-1 J v round-trip on reachable rows",
+    "rt FD: |M^-1Jv-v|/|v|" in INTERFACE
+    and "jfnk_pc_clip_event = CLIP_SAV" in INTERFACE,
+)
