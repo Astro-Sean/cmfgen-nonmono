@@ -431,3 +431,9 @@ check(
     "rt FD: |M^-1Jv-v|/|v|" in INTERFACE
     and "jfnk_pc_clip_event = CLIP_SAV" in INTERFACE,
 )
+check(
+    "JFNK_GMRES_STAG is a VADAT key wired to jfnk_gmres_stag_tol",
+    "REAL(KIND=LDP) JFNK_GMRES_STAG" in CVARMOD
+    and "RD_STORE_DBLE(JFNK_GMRES_STAG,'JFNK_GMRES_STAG'" in RD_CONTROL
+    and "jfnk_gmres_stag_tol=JFNK_GMRES_STAG" in SOLVE_CORR,
+)

@@ -370,6 +370,7 @@
 	  IF(JFNK_DEL_INIT_LOC .EQ. 0.0_LDP)JFNK_DEL_INIT_LOC=-1.0_LDP
 !
 	  jfnk_max_gmres_its=JFNK_MAX_GMRES
+	  jfnk_gmres_stag_tol=JFNK_GMRES_STAG
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
 ! after each counted failure.  The trims are per-activation locals --

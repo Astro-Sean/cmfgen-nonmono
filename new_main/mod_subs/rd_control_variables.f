@@ -1484,6 +1484,10 @@
 	  CALL RD_STORE_DBLE(JFNK_GTOL,'JFNK_GTOL',L_FALSE,
 	1     'Relative GMRES tolerance (fraction of |F|)')
 !
+	  JFNK_GMRES_STAG=1.0D-3
+	  CALL RD_STORE_DBLE(JFNK_GMRES_STAG,'JFNK_GMRES_STAG',L_FALSE,
+	1     'GMRES stagnation improvement threshold (0=never stagnate)')
+!
 	  JFNK_TOL_REL=1.0E-4_LDP
 	  CALL RD_STORE_DBLE(JFNK_TOL_REL,'JFNK_TOL',L_FALSE,
 	1     'Relative Newton tolerance (target |F|/|F_0|)')
