@@ -27,7 +27,7 @@ Non-monotonic consistency (Knop et al. 2009):
                              the OBS binary has no MOM_J_CMF_NONMONO_V1 —
                              a main run that converged with USE_LAM_ES=F
                              still gets its OBS J from the formal solve)
-  - NON_MONO_SOLVER = T       activate FG_J_CMF_NONMONO_V1
+  - DO_NONMONO_KNOP = T       activate FG_J_CMF_NONMONO_V1
   - INC_GRID = F              required by non-monotonic solver
   - FG_OPT = INT/INS          required by non-monotonic solver (not DIFF)
   - NEG_OPAC_OPT = SRCE_CHK   negative opacity handling
@@ -227,7 +227,8 @@ NON_MONO_FORCED_CMF_PARAM = {
 #
 # SOB populations converge with the standard formal solver on clamped
 # SIGMA (Dessart, Audit & Hillier 2015). The stock OBS formal solver
-# stays on that same field; this CMF_FLUX tree has no Knop OBS path.
+# stays on that same field; a Knop population run instead gets
+# DO_NONMONO_KNOP=T below, which selects FG_J_CMF_NONMONO_V1.
 NON_MONO_SOB_CMF_PARAM = {
     **NON_MONO_FORCED_CMF_PARAM,
     'DO_NONMONO_SOB': 'T',
@@ -388,7 +389,7 @@ def obs_line_treatment(config_path):
     DO_SOB_FLUX_OBS=F, so EWDATA is written while OBS_FLUX stays
     continuum-only. 'blank' opts into stock CMF line profiles on the
     resolved grid as a comparison render for SOB populations. This
-    option does not enable the removed Knop OBS formal solver. Only read
+    option does not change the Knop OBS solver selection. Only read
     when the population mode is SOB; monotonic runs always use BLANK.
     """
     try:
@@ -781,16 +782,23 @@ def main():
               f"SOB_FREQ_IN_OBS="
               f"{vadat_lt.get('SOB_FREQ_IN_OBS', '(unset)')}")
         if nonmono_in_vadat:
-            if not _vadat_sob(vadat_lt or {}):
-                raise SystemExit(
-                    "CMF_FLUX Knop OBS support was removed when the flux "
-                    "solver was restored to stock. Use a SOB population "
-                    "model or select a compatible CMFGEN executable."
-                )
-            lines = _apply_forced_keys(
-                lines, {'DO_CMF_EW': 'F'}, tag="NON_MONO_VADAT")
-            print("  non-monotonic SOB population run: "
-                  "stock FG_J_CMF_V12 on clamped SIGMA, DO_CMF_EW=F")
+            if _vadat_sob(vadat_lt or {}):
+                lines = _apply_forced_keys(
+                    lines, {'DO_CMF_EW': 'F'}, tag="NON_MONO_VADAT")
+                print("  non-monotonic SOB population run: "
+                      "stock FG_J_CMF_V12 on clamped SIGMA, DO_CMF_EW=F")
+            else:
+                # Knop populations: the OBS formal J must use the same
+                # FG_J_CMF_NONMONO_V1 solver on SIGMA_TRUE; the solver
+                # prerequisites (USE_LAM_ES=T, INC_GRID=F, BLANK lines,
+                # LAM_SET=F, no fixed-J/rel/plane modes) are already in
+                # the mirrored forced set above.
+                lines = _apply_forced_keys(
+                    lines, {'DO_NONMONO_KNOP': 'T', 'DO_CMF_EW': 'F'},
+                    tag="NON_MONO_KNOP_OBS")
+                print("  non-monotonic Knop population run: "
+                      "FG_J_CMF_NONMONO_V1 formal J on SIGMA_TRUE, "
+                      "BLANK lines, DO_CMF_EW=F")
     elif sob_mode:
         if obs_lt == 'sob_ew':
             forced_set = NON_MONO_SOB_CMF_PARAM
@@ -811,11 +819,15 @@ def main():
         lines = _apply_forced_keys(lines, forced_set)
 
     if not vadat_applied and knop_mode_active(args.vadat_overrides):
-        raise SystemExit(
-            "CMF_FLUX Knop OBS support was removed when the flux solver "
-            "was restored to stock. Use a SOB population model or select "
-            "a compatible CMFGEN executable."
-        )
+        # VADAT unreadable but the YAML marks a Knop population run:
+        # stamp the same OBS solver selection the mirrored-VADAT path
+        # stamps.  The preceding forced set already carries the Knop
+        # prerequisites (BLANK lines, USE_LAM_ES=T, INC_GRID=F).
+        lines = _apply_forced_keys(
+            lines, {'DO_NONMONO_KNOP': 'T', 'DO_CMF_EW': 'F'},
+            tag="NON_MONO_KNOP_OBS")
+        print("  non-monotonic Knop mode (YAML): FG_J_CMF_NONMONO_V1 "
+              "formal J on SIGMA_TRUE, BLANK lines, DO_CMF_EW=F")
 
     # 1c. Non-coherent ES companions.  Gate on the OBS param's own
     # COH_ES, not VADAT's: population runs commonly solve coherent ES
