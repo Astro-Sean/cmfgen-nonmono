@@ -2586,17 +2586,23 @@
 ! Optimal forward-difference step (2026-09-11): h ~ sqrt(eps_mach)
 ! balances truncation error O(h) against cancellation error O(eps/h).
 ! 03-Oct-2026: JFNK_EPS_JVP_LOC (VADAT [JFNK_EPS]) is honored again as
-! a floor in COUPLED mode only.  The coupled residual is produced by
+! a floor in COUPLED mode.  The coupled residual is produced by
 ! an iterative formal solve and carries an evaluation-noise floor
 ! ~delta_F, so the FD step must scale as h ~ sqrt(delta_F/|F|), not
 ! sqrt(eps_mach) (Kelley; Pernice & Walker 2008 on approximate
 ! function values).  JFNK_EPS~1e-3..1e-2 is the intended setting for
-! coupled evals on the iterative Knop sweep.  The frozen residual is
-! deterministic arithmetic on stored arrays, so it keeps the
-! machine-eps rule; absent keys also keep machine-eps everywhere.
+! coupled evals on the iterative Knop sweep.
+! 21-Oct-2026: the same floor is now honored in frozen mode too.  The
+! frozen residual is deterministic arithmetic on stored arrays, but the
+! stiff inner-boundary SE rows cancel ~1e19 inflow/outflow terms down
+! to ~1e12 residuals, so the per-eval rounding floor is ~1e4 in
+! residual units -- far above the h*Jv signal at h~sqrt(eps_mach).
+! The live h-sweep (JVP DIAGNOSTIC) resolved FD to within ~2% of
+! BA*v at h_eff~3e-7..3e-5 on this model; the default keeps
+! machine-eps, so absent keys are unchanged.
 !
 	EPS0 = SQRT(EPSILON(1.0D0))
-	IF(JFNK_COUPLED_LOC)EPS0 = MAX(EPS0, JFNK_EPS_JVP_LOC)
+	EPS0 = MAX(EPS0, JFNK_EPS_JVP_LOC)
 !
 ! Global forward-difference JVP:
 !   h = EPS0 * max(1, ||x||_inf) / ||v||_inf

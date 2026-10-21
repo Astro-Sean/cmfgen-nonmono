@@ -394,3 +394,8 @@ check(
     and "max|DF|" in jvp_diag
     and "h-sweep on same direction" in jvp_diag,
 )
+check(
+    "JFNK_EPS floor applies in both modes (VADAT-opt-in)",
+    "EPS0 = MAX(EPS0, JFNK_EPS_JVP_LOC)" in INTERFACE
+    and "IF(JFNK_COUPLED_LOC)EPS0" not in INTERFACE,
+)
