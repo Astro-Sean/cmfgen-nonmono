@@ -1931,6 +1931,12 @@
 ! the eval cancellation floor and destroy the JVP entirely.
 	INTEGER JFNK_CLIP_RETRY
 !
+! JFNK_JVP_NDIR (VADAT [JFNK_JVP_NDIR], default 4): number of JVPs per
+! process that get the FD-vs-BA norm line in JFNK_JVP_V1.  Tests
+! whether BA agreement on one Krylov direction holds across the
+! subspace; the expensive extended block still fires once at most.
+	INTEGER JFNK_JVP_NDIR
+!
 ! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
 ! wall-clock budget in seconds, measured from JFNK_INIT_V1.  Checked
 ! alongside the eval budget in JFNK_RESIDUAL_V1 -- an activation that

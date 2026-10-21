@@ -1606,6 +1606,10 @@
 	  CALL RD_STORE_INT(JFNK_CLIP_RETRY,'JFNK_CLIP_RETRY',L_FALSE,
 	1     'Clip-crossing h retries per JVP (2=default, 0=accept)')
 	  IF(JFNK_CLIP_RETRY .LT. 0)JFNK_CLIP_RETRY=0
+	  JFNK_JVP_NDIR=4
+	  CALL RD_STORE_INT(JFNK_JVP_NDIR,'JFNK_JVP_NDIR',L_FALSE,
+	1     'JVPs reporting FD-vs-BA norm line (4=default, 0=off)')
+	  IF(JFNK_JVP_NDIR .LT. 0)JFNK_JVP_NDIR=0
 	  JFNK_MAX_SEC=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')

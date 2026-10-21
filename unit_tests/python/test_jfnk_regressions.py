@@ -368,9 +368,15 @@ check(
     and "max|BA_row|" in jvp_diag,
 )
 check(
-    "JVP diag stays one-shot behind JVP_DIAG_DONE",
+    "JVP diag extended block stays one-shot behind JVP_DIAG_DONE",
     "JVP_DIAG_DONE = .TRUE." in INTERFACE
-    and "JVP_DIAG_DONE .AND. JFNK_LU_READY" in INTERFACE,
+    and ".NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND." in INTERFACE,
+)
+check(
+    "JVP dir norm line is VADAT-capped by JFNK_JVP_NDIR",
+    "JVP_DIR_CT .LT. JFNK_JVP_NDIR .AND. JFNK_LU_READY" in INTERFACE
+    and "RD_STORE_INT(JFNK_JVP_NDIR,'JFNK_JVP_NDIR'" in RD_CONTROL
+    and "INTEGER JFNK_JVP_NDIR" in CVARMOD,
 )
 
 check(

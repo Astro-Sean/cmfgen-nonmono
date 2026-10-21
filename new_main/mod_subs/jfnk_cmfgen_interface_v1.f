@@ -2519,7 +2519,7 @@
 	1                           jfnk_log_unknown, jfnk_resid_nbad
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
-	2                           JFNK_CLIP_RETRY
+	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
@@ -2536,6 +2536,7 @@
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:)
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
+	INTEGER, SAVE :: JVP_DIR_CT = 0
 	INTEGER I, KK, JJ, II, NRETRY
 	INTEGER K_J
 	INTEGER LUER, ERROR_LU
@@ -2809,8 +2810,15 @@
 ! BA_full * v, so a large discrepancy indicates genuine finite-difference
 ! error (or a bug in the residual evaluation), not a hidden transform.
 !
-	IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LU_READY)THEN
-	  JVP_DIAG_DONE = .TRUE.
+! [JFNK_JVP_NDIR, default 4] repeats the cheap FD-vs-BA norm line on
+! the first few JVPs of the process -- a single direction cannot show
+! whether BA agreement is uniform across the Krylov subspace.  The
+! expensive extended block (worst rows, h-sweep, baseline/negative/
+! repeat evals) stays one-shot and fires only on the first direction
+! whose mismatch exceeds 10%.
+!
+	IF(JVP_DIR_CT .LT. JFNK_JVP_NDIR .AND. JFNK_LU_READY)THEN
+	  JVP_DIR_CT = JVP_DIR_CT + 1
 	  IF(.NOT. ALLOCATED(JV_ANAL)) ALLOCATE(JV_ANAL(N))
 	  JV_ANAL(1:N) = 0.0D0
 ! Analytical: JV_ANAL = BA_full * v (physical Jacobian, no SI transform,
@@ -2842,13 +2850,15 @@
 	    AN_NORM = MAX(AN_NORM, ABS(JV_ANAL(I)))
 	    DIFF_NORM = MAX(DIFF_NORM, ABS(JV(I) - JV_ANAL(I)))
 	  END DO
-	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A)')
-     1    '  JVP DIAGNOSTIC (FD vs untransformed BA_full*v):'
-	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-     1    '    |FD|=', FD_NORM, ' |analytical|=', AN_NORM,
-     1    ' |diff|/|anal|=', DIFF_NORM/MAX(AN_NORM,1.0D-30)
-	  IF(JFNK_LUER .GT. 0 .AND.
+	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I2,3(A,ES12.4))')
+     1    '  JVP dir ', JVP_DIR_CT, ': |FD|=', FD_NORM,
+     2    ' |BA*v|=', AN_NORM,
+     3    ' |diff|/|anal|=', DIFF_NORM/MAX(AN_NORM,1.0D-30)
+	  IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
      1    DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0)THEN
+	    JVP_DIAG_DONE = .TRUE.
+	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A)')
+     1      '  JVP DIAGNOSTIC (FD vs untransformed BA_full*v):'
 	    DO I = 1, MIN(10, N)
 	      IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I6,A,ES14.6,A,ES14.6)')
      1        '    i=', I, ' FD=', JV(I), ' anal=', JV_ANAL(I)
