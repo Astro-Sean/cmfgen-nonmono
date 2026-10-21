@@ -448,3 +448,11 @@ check(
     "JFNK_USE_BANDED_LOC .AND. JFNK_NUM_BNDS .GT. 1 .AND." in INTERFACE
     and "JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'" in INTERFACE,
 )
+check(
+    "JFNK_GMRES_RST is a VADAT key wired to jfnk_gmres_max_restart",
+    "INTEGER JFNK_GMRES_RST" in CVARMOD
+    and "RD_STORE_INT(JFNK_GMRES_RST,'JFNK_GMRES_RST'" in RD_CONTROL
+    and "jfnk_gmres_max_restart=JFNK_GMRES_RST" in SOLVE_CORR
+    and "jfnk_gmres_max_restart = 1" in SOLVER
+    and "n_restart > jfnk_gmres_max_restart" in SOLVER,
+)

@@ -1488,6 +1488,11 @@
 	  CALL RD_STORE_DBLE(JFNK_GMRES_STAG,'JFNK_GMRES_STAG',L_FALSE,
 	1     'GMRES stagnation improvement threshold (0=never stagnate)')
 !
+	  JFNK_GMRES_RST=1
+	  CALL RD_STORE_INT(JFNK_GMRES_RST,'JFNK_GMRES_RST',L_FALSE,
+	1     'Max GMRES restarts per solve (safety cap; total its still'
+	2     //' bounded by JFNK_MAXGMRES)')
+!
 	  JFNK_TOL_REL=1.0E-4_LDP
 	  CALL RD_STORE_DBLE(JFNK_TOL_REL,'JFNK_TOL',L_FALSE,
 	1     'Relative Newton tolerance (target |F|/|F_0|)')

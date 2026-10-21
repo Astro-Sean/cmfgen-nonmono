@@ -371,6 +371,7 @@
 !
 	  jfnk_max_gmres_its=JFNK_MAX_GMRES
 	  jfnk_gmres_stag_tol=JFNK_GMRES_STAG
+	  jfnk_gmres_max_restart=JFNK_GMRES_RST
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
 ! after each counted failure.  The trims are per-activation locals --

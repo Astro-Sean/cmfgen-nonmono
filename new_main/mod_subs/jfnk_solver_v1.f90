@@ -153,6 +153,14 @@ module jfnk_solver_v1_mod
    !
    integer :: jfnk_max_gmres_its = 0
    !
+   ! Maximum GMRES restarts per solve (added 22-Oct-2026).  Guards
+   ! against restart storms on an invariant Krylov space; default 1
+   ! preserves the historical cap.  The total iteration count is still
+   ! bounded by imx regardless of this cap.  Set from the JFNK_GMRES_RST
+   ! control variable via JFNK_SOLVE_CORR_V1.
+   !
+   integer :: jfnk_gmres_max_restart = 1
+   !
    ! Left vs right GMRES preconditioning (Arramy 2024 prefers left).
    ! Set from JFNK_LEFT_PRECOND before NEWTON_HOOK_V1.
    ! editted by Sean Brennan (08-Sep-2026)
@@ -1794,6 +1802,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_gmres_jj, jfnk_gmres_beta, &
                                   jfnk_gmres_z, jfnk_gmres_g, &
                                   jfnk_gmres_x_cycle_start, &
+                                  jfnk_gmres_max_restart, &
                                   jfnk_exit_reason
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
@@ -2256,11 +2265,15 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! Restart cap: a Krylov space that goes invariant because the
          ! preconditioned operator cannot reach the residual tail stays
          ! invariant on restart.  Cycles then die in ~2 its and restart
-         ! storm accumulates bad LSQ steps until imx.  Allow one retry
-         ! (helps when the first basis was unlucky), then fall back to
-         ! the caller's inexact-direction path via info=1.
+         ! storm accumulates bad LSQ steps until imx.  The cap is a
+         ! storm guard only -- set [JFNK_GMRES_RST] above 1 when the
+         ! goal is to exercise the full JFNK_MAXGMRES budget; the
+         ! true-residual diagnostic above prints at every restart so
+         ! a persistently flat cycle is recorded, not hidden.  On
+         ! exceeding the cap, fall back to the caller's
+         ! inexact-direction path via info=1.
          n_restart = n_restart + 1
-         if(n_restart > 1) then
+         if(n_restart > jfnk_gmres_max_restart) then
             if(del > 0d0) then
                x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
                if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
