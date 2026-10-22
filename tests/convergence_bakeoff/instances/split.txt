@@ -1,0 +1,35 @@
+# instance split: TUNE = hyperparameter tuning set;
+# HELDOUT = pre-registered evaluation set.
+# Chosen in gen_ensemble.py before any tuning run.
+i01_easy HELDOUT
+i02_easy TUNE
+i03_easy HELDOUT
+i04_easy HELDOUT
+i05_stiff TUNE
+i06_stiff HELDOUT
+i07_stiff TUNE
+i08_stiff HELDOUT
+i09_thin TUNE
+i10_thin HELDOUT
+i11_thin HELDOUT
+i12_thin HELDOUT
+i13_thick TUNE
+i14_thick HELDOUT
+i15_thick TUNE
+i16_thick HELDOUT
+i17_noisy TUNE
+i18_noisy HELDOUT
+i19_noisy HELDOUT
+i20_noisy HELDOUT
+i21_sing TUNE
+i22_sing HELDOUT
+i23_sing TUNE
+i24_sing HELDOUT
+i25_lag TUNE
+i26_lag HELDOUT
+i27_lag HELDOUT
+i28_lag HELDOUT
+i29_mix TUNE
+i30_mix HELDOUT
+i31_mix HELDOUT
+i32_mix HELDOUT

@@ -1,0 +1,12 @@
+s0
+and2
+and4
+and8
+s2f
+s2f+b
+s2f+c1
+s2f+a
+s2f+b+c1+a
+and2+b
+and2+a
+s2c
