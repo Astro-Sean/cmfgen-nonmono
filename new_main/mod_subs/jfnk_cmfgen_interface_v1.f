@@ -486,6 +486,27 @@
 	    IF(ABS_FI .LT. FLOOR_USE) ABS_FI = FLOOR_USE
 	    JFNK_RSCALE(I) = 1.0_LDP / SQRT(ABS_FI)
 	  END DO
+!
+! 22-Oct-2026: DIAG_RDG must be tested before DIAG -- 'DIAG_RDG'(1:4)
+! equals 'DIAG', so the previous order made this branch unreachable.
+	ELSE IF(JFNK_RSCALE_MODE(1:8) .EQ. 'DIAG_RDG')THEN
+	  RIDGE_FAC = JFNK_BA_RIDGE_FAC
+	  IF(RIDGE_FAC .LE. 0.0_LDP) RIDGE_FAC = 1.0E-3_LDP
+	  IF(JFNK_BA_DIAG_READY)THEN
+	    DO K = 1, JFNK_ND
+	      DMAX_K = 0.0_LDP
+	      DO J = 1, JFNK_NT
+	        DMAX_K = MAX(DMAX_K, ABS(JFNK_BA_DIAG(J, K)))
+	      END DO
+	      RIDGE_K = RIDGE_FAC * MAX(DMAX_K, 1.0_LDP)
+	      DO J = 1, JFNK_NT
+	        I = (K-1)*JFNK_NT + J
+	        IF(I .GT. N) CYCLE
+	        DABS = ABS(JFNK_BA_DIAG(J, K))
+	        JFNK_RSCALE(I) = SQRT(DABS / (DABS + RIDGE_K + 1.0E-30_LDP))
+	      END DO
+	    END DO
+	  END IF
 	ELSE IF(JFNK_RSCALE_MODE(1:4) .EQ. 'DIAG')THEN
 	  IF(JFNK_BA_DIAG_READY)THEN
 	    DO K = 1, JFNK_ND
@@ -508,24 +529,6 @@
 	    IF(LUER .GT. 0)WRITE(LUER,'(A)')
 	1     '  JFNK: RSCALE=DIAG requested but BA diagonal not yet'
 	2     //' available -- keeping EUCLIDEAN for this call'
-	  END IF
-	ELSE IF(JFNK_RSCALE_MODE(1:8) .EQ. 'DIAG_RDG')THEN
-	  RIDGE_FAC = JFNK_BA_RIDGE_FAC
-	  IF(RIDGE_FAC .LE. 0.0_LDP) RIDGE_FAC = 1.0E-3_LDP
-	  IF(JFNK_BA_DIAG_READY)THEN
-	    DO K = 1, JFNK_ND
-	      DMAX_K = 0.0_LDP
-	      DO J = 1, JFNK_NT
-	        DMAX_K = MAX(DMAX_K, ABS(JFNK_BA_DIAG(J, K)))
-	      END DO
-	      RIDGE_K = RIDGE_FAC * MAX(DMAX_K, 1.0_LDP)
-	      DO J = 1, JFNK_NT
-	        I = (K-1)*JFNK_NT + J
-	        IF(I .GT. N) CYCLE
-	        DABS = ABS(JFNK_BA_DIAG(J, K))
-	        JFNK_RSCALE(I) = SQRT(DABS / (DABS + RIDGE_K + 1.0E-30_LDP))
-	      END DO
-	    END DO
 	  END IF
 	END IF
 !
