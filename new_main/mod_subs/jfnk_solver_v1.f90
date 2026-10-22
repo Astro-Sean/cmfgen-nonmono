@@ -611,32 +611,34 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    !
    double precision, allocatable, save :: J_s(:), F_pred(:)
    !
-   ! (Re)allocate if N changed
+   ! (Re)allocate if N changed.  The stat= variables must be reset
+   ! before each conditional allocate: on a re-entry where the arrays
+   ! already hold the right shape, no allocate runs and a stale nonzero
+   ! ios_nw/ginfo would otherwise fabricate an alloc failure.
    if(allocated(x_)) then
       if(size(x_) .ne. n) deallocate(x_, fx_, x__, fx__, s, fx_pc, J_s, F_pred)
    end if
-   if(.not. allocated(x_)) then
+   ios_nw = 0
+   if(.not. allocated(x_)) &
       allocate(x_(n), fx_(n), x__(n), fx__(n), s(n), fx_pc(n), &
                J_s(n), F_pred(n), stat=ios_nw)
-      if(ios_nw /= 0) then
-         if(info == 1) write(luer,*) 'newton_hook_v1: workspace alloc failed'
-         info = 4
-         jfnk_exit_reason = 'alloc_fail_workspace'
-         return
-      end if
+   if(ios_nw /= 0) then
+      if(info == 1) write(luer,*) 'newton_hook_v1: workspace alloc failed'
+      info = 4
+      jfnk_exit_reason = 'alloc_fail_workspace'
+      return
    end if
    !
    if(allocated(v)) then
       if(size(v,1) .ne. n .or. size(v,2) .ne. m+1) deallocate(v)
    end if
-   if(.not. allocated(v)) then
-      allocate(v(n,m+1), stat=ginfo)
-      if(ginfo /= 0) then
-         if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
-         info = 4
-         jfnk_exit_reason = 'alloc_fail_v'
-         return
-      end if
+   ginfo = 0
+   if(.not. allocated(v)) allocate(v(n,m+1), stat=ginfo)
+   if(ginfo /= 0) then
+      if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
+      info = 4
+      jfnk_exit_reason = 'alloc_fail_v'
+      return
    end if
    !
    jfnk_nits = 0
@@ -1457,6 +1459,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          if(allocated(jfnk_w_cauchy)) then
             if(size(jfnk_w_cauchy) /= n) deallocate(jfnk_w_cauchy)
          end if
+         ! ios_nw must be reset here too: with the workspace already
+         ! allocated the conditional allocate is skipped and a stale
+         ! stat value would fake an alloc failure (seen under gfortran
+         ! on the second setauto admission).
+         ios_nw = 0
          if(.not. allocated(jfnk_w_cauchy)) &
             allocate(jfnk_w_cauchy(n), stat=ios_nw)
          if(ios_nw /= 0) then
