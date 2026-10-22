@@ -15,7 +15,7 @@ ifeq ($(FC_BASE),ifort)
 FFLAGS = -O2 -g -traceback -fpp
 LDLIBS = -qmkl -Wl,-rpath,$(MKLROOT)/lib/intel64
 else ifeq ($(FC_BASE),gfortran)
-FFLAGS = -O2 -g -fcheck=all -fbacktrace -cpp -ffree-line-length-none -fno-range-check
+FFLAGS = -O2 -g -fcheck=all -fbacktrace -cpp -ffree-line-length-none -fno-range-check -fallow-argument-mismatch
 # System openblas carries the LAPACK symbols; there is no unversioned
 # libopenblas.so symlink, so -l:libopenblas.so.0 is required.
 LDLIBS = -Wl,-rpath,/usr/lib64 -l:libopenblas.so.0
