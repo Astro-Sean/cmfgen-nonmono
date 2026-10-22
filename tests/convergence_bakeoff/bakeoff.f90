@@ -122,7 +122,7 @@ program bakeoff
                '  cheap/jvp=', n_cheap, n_jvp
          end block
       end if
-      if(rmax /= rmax) then
+      if(rmax /= rmax .or. rmax > 1.0d3) then
          w = 'diverged'; exit
       end if
       if(rmax < r_prev_best*0.95d0) then
@@ -631,29 +631,78 @@ contains
    end subroutine true_r
 
    ! ---- noise probe --------------------------------------------------
+   ! Reproduces the production FD-window experiment on the toy: for a
+   ! fixed direction v (fractional perturbation), |F(n(1+hv))-F(n)|/h
+   ! is compared with |BA v| (the approximate-Jacobian action).  A
+   ! window where the ratio is ~1 = trustworthy FD JVPs; divergence
+   ! at small h = evaluation non-smoothness (Jacobi-count switching),
+   ! divergence at large h = truncation.  Run on instances with
+   ! nml_jsolve=0 vs 1 to separate deterministic vs iterative noise.
    subroutine run_noise()
       implicit none
       real(dp) :: F1(nt,nd), F2(nt,nd), F3(nt,nd), Gd(nt,nd)
+      real(dp) :: vv(nt,nd), np(nt,nd), fd(nt,nd), bav(nt,nd)
+      real(dp) :: hrel, nfd, nbv, num
+      integer  :: ih, k, i, is
       call refresh_L(pops)
       jcount_base = -1
       call eval_F(pops, F1, Gd, 0)
       call eval_F(pops, F2, Gd, 0)
       write(*,'(A,ES12.4)') 'NOISE same-x |F1-F2|/max|F1| = ', &
          maxval(abs(F1-F2))/max(1d-300,maxval(abs(F1)))
-      write(*,'(A,I6)') 'NOISE jac count recorded (baseline) = ', &
-         jcount_base
-      ! FD-scale perturbation sensitivity: the coupled-noise analog
-      block
-         real(dp) :: np(nt,nd)
-         integer :: k, i
-         np = pops
-         np(1,1) = np(1,1)*(1d0 + 1d-8)
+      ! deterministic unit direction in fractional-population space
+      is = seed*2654435761 + 97
+      do k = 1, nd
+         do i = 1, nt
+            vv(i,k) = 2d0*toy_rand(is) - 1d0
+         end do
+      end do
+      vv = vv/maxval(abs(vv))
+      call build_BA(pops)          ! ba_raw holds the unfactored block
+      do k = 1, nd
+         bav(:,k) = matmul(ba_raw(:,:,k), vv(:,k)*pops(:,k))
+      end do
+      nbv = sqrt(sum(bav*bav))
+      write(*,'(A)') 'NOISE h_rel      |FD|/|BAv|      jac(0) jac(h)'
+      do ih = 0, 10
+         hrel = 10.0d0**(-dble(ih))
+         np = pops*(1d0 + hrel*vv)
          call eval_F(np, F3, Gd, 0)
-         write(*,'(A,ES12.4)') 'NOISE |F(n+dn)-F(n)|_inf @ dn/n=1e-8 = ', &
-            maxval(abs(F3-F1))
+         fd = (F3 - F1)/hrel
+         nfd = sqrt(sum(fd*fd))
+         write(*,'(A,ES10.2,ES16.6,2I7)') 'NOISE ', hrel, &
+            nfd/max(nbv,1d-300), jit_hist(1), n_jac_tot
+      end do
+      ! The cancellation noise floor only binds where |F| << |G|:
+      ! near the fixed point.  March to convergence with stock steps
+      ! first (the state Newton actually polishes), then rescan.
+      block
+         integer :: it
+         do it = 1, 300
+            call step_stock(); call refresh_L(pops)
+            call max_r(pops, 2, rmax_true, rrms)
+            if(rmax_true < 1.0d-9) exit
+            if(dble(n_sweep)+dble(n_ba) > budget) exit
+         end do
       end block
-      call max_r(pops, 0, rmax_true, rrms)
-      write(*,'(A,ES12.4)') 'NOISE max|r| mode0 = ', rmax_true
+      call eval_F(pops, F1, Gd, 0)
+      call build_BA(pops)
+      do k = 1, nd
+         bav(:,k) = matmul(ba_raw(:,:,k), vv(:,k)*pops(:,k))
+      end do
+      nbv = sqrt(sum(bav*bav))
+      write(*,'(A,ES12.4)') 'NOISE post-stock max|r| mode2 = ', &
+         rmax_true
+      write(*,'(A)') 'NOISE h_rel      |FD|/|BAv| (near fixed point)'
+      do ih = 0, 12
+         hrel = 10.0d0**(-dble(ih))
+         np = pops*(1d0 + hrel*vv)
+         call eval_F(np, F3, Gd, 0)
+         fd = (F3 - F1)/hrel
+         nfd = sqrt(sum(fd*fd))
+         write(*,'(A,ES10.2,ES16.6)') 'NOISE ', hrel, &
+            nfd/max(nbv,1d-300)
+      end do
    end subroutine run_noise
 
    ! ---- sanity: same fixed point from every converging method --------
