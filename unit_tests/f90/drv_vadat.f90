@@ -6,7 +6,9 @@
       PROGRAM DRV_VADAT
       USE SET_KIND_MODULE
       USE CONTROL_VARIABLE_MOD
-      USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ptc_active, jfnk_ptc_dtau
+      USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ptc_active, jfnk_ptc_dtau, &
+           jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
+           jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
       USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_BULK_TOL
       IMPLICIT NONE
 !
@@ -75,4 +77,18 @@
       WRITE(*,'(A,ES12.5)')'KN_GATE_DIV_FAC=',KN_GATE_DIV_FAC
       WRITE(*,'(A,I5)')'KN_GATE_DIV_M=',KN_GATE_DIV_M
       WRITE(*,'(A,L2)')'ACCURATE=',ACCURATE
+      WRITE(*,'(A,L2)')'JFNK_PC_SIGN_DIAG=',JFNK_PC_SIGN_DIAG
+      WRITE(*,'(A,L2)')'JFNK_PTC_SIGNED=',JFNK_PTC_SIGNED
+      WRITE(*,'(A,L2)')'JFNK_REG_ZERO_COL=',JFNK_REG_ZERO_COL
+      WRITE(*,'(A,L2)')'JFNK_ROW_TINY_EQUIL=',JFNK_ROW_TINY_EQUIL
+      WRITE(*,'(A,L2)')'JFNK_PC_RCOND_GATE=',JFNK_PC_RCOND_GATE
+      WRITE(*,'(A,ES12.5)')'JFNK_PC_RCOND_MIN=',JFNK_PC_RCOND_MIN
+      WRITE(*,'(A,I5)')'JFNK_PC_ITRY_CAP=',JFNK_PC_ITRY_CAP
+      WRITE(*,'(A,L2)')'JFNK_PC_PAR_FACTOR=',JFNK_PC_PAR_FACTOR
+      WRITE(*,'(A,L2)')'jfnk_pc_signed=',jfnk_pc_signed
+      WRITE(*,'(A,L2)')'jfnk_pc_reg_zerocol=',jfnk_pc_reg_zerocol
+      WRITE(*,'(A,L2)')'jfnk_pc_tiny_equil=',jfnk_pc_tiny_equil
+      WRITE(*,'(A,L2)')'jfnk_rcond_gate=',jfnk_rcond_gate
+      WRITE(*,'(A,ES12.5)')'jfnk_rcond_min=',jfnk_rcond_min
+      WRITE(*,'(A,I5)')'jfnk_itry_cap=',jfnk_itry_cap
       END

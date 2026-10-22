@@ -186,6 +186,21 @@ the flags off none of this code runs and the defaults are inert.
 | `LUM_DIV_N` | 3 | KNOP only: consecutive runaway calls before `LUM_BLOCKED` fires (pops held, damped LAMBDA only). `0` disables the guard. |
 | `LUM_DIV_CAP` | 1.0E15 | KNOP only: outer luminosity (L_sun) past which the run stops as non-convergent. |
 
+Preconditioner-audit keys (`jfnk-precond-fixes`; all default OFF so
+the default factorization path is unchanged; details in
+`docs/audits/JFNK_PRECOND_AUDIT.md`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `JFNK_PC_SIGN_DIAG` | F | Logging-only report at each factorization: fraction of rows with `d<0` and `sigma>0`, the `sigma/|d|` min/median/p99, and the near-cancellation count `|d+sigma| < 0.1|d|`. |
+| `JFNK_PTC_SIGNED` | F | Sign-matched PTC shift: residual term, preconditioner fold, apply rescale, and ridge all use `sign(d_i)*sigma_i` so `|d_i+shift| = |d_i|+sigma_i` on loss-dominated rows. |
+| `JFNK_REG_ZERO_COL` | F | Regularized (near-null/pop-floor) rows also get their column zeroed, so the factored block is the clean projected operator (per-depth and banded paths). |
+| `JFNK_ROW_TINY_EQUIL` | F | Scale-free near-null row test `share_i = max_J |a_iJ|/colmax_J < JFNK_ROW_TINY` replacing the raw rowmax/blockmax test; logs reclassification counts per factorization. |
+| `JFNK_PC_RCOND_GATE` | F | Replace the `x=1` forward-error micro-test by an explicit `rcond >= JFNK_PC_RCOND_MIN` acceptance threshold and cap the ridge ladder at `JFNK_PC_ITRY_CAP` attempts per depth. |
+| `JFNK_PC_RCOND_MIN` | 1.0D-13 | rcond acceptance threshold under `JFNK_PC_RCOND_GATE`. |
+| `JFNK_PC_ITRY_CAP` | 3 | Maximum factorization attempts per depth under `JFNK_PC_RCOND_GATE` (historical ladder allows up to 9). |
+| `JFNK_PC_PAR_FACTOR` | F | Declared for the depth-parallel factorization option; pending the Phase-4 profiling outcome. |
+
 Observation-frame (`cmf_flux`/`obs_frame`) keys:
 
 | Key | Default | Meaning |

@@ -206,7 +206,7 @@ module jfnk_solver_v1_mod
    ! jfnk_pc_tiny_equil: [JFNK_ROW_TINY_EQUIL] classify near-null rows
    !    on the column-equilibrated block instead of the raw block, so
    !    a row in different units is not mistaken for a null row.
-   ! jfnk_pc_rcond_gate/rcond_min/itry_cap: [JFNK_PC_RCOND_GATE,
+   ! jfnk_rcond_gate/rcond_min/itry_cap: [JFNK_PC_RCOND_GATE,
    !    JFNK_PC_RCOND_MIN] replace the x=1 forward-error micro-test by
    !    an explicit reciprocal-condition threshold and cap the ridge
    !    ladder attempts per depth.
@@ -214,9 +214,9 @@ module jfnk_solver_v1_mod
    logical :: jfnk_pc_signed = .false.
    logical :: jfnk_pc_reg_zerocol = .false.
    logical :: jfnk_pc_tiny_equil = .false.
-   logical :: jfnk_pc_rcond_gate = .false.
-   double precision :: jfnk_pc_rcond_min = 1.0d-13
-   integer :: jfnk_pc_itry_cap = 3
+   logical :: jfnk_rcond_gate = .false.
+   double precision :: jfnk_rcond_min = 1.0d-13
+   integer :: jfnk_itry_cap = 3
    !
    ! Persistent workspace for newton_hook_v1 and gmres_m_v1 (audit §3,
    ! 09-Sep-2026): replaces large automatic arrays that were on the stack.
@@ -418,6 +418,29 @@ module jfnk_solver_v1_mod
    !
    double precision, allocatable :: jfnk_w_cauchy(:)  ! M^{-1}*F direction
    !
+contains
+   !
+   ! jfnk_pc_set_options_v1: copy the parsed VADAT values into the
+   ! solver-module mirrors.  rd_control_variables.f cannot import the
+   ! mirrors directly: their names collide with the
+   ! CONTROL_VARIABLE_MOD declarations (ifort #6405), so the sync goes
+   ! through this routine.
+   !
+   subroutine jfnk_pc_set_options_v1(ptc_signed, reg_zerocol, &
+        tiny_equil, rcond_gate, rcond_min, itry_cap)
+      implicit none
+      logical, intent(in) :: ptc_signed, reg_zerocol, tiny_equil, &
+           rcond_gate
+      double precision, intent(in) :: rcond_min
+      integer, intent(in) :: itry_cap
+      jfnk_pc_signed = ptc_signed
+      jfnk_pc_reg_zerocol = reg_zerocol
+      jfnk_pc_tiny_equil = tiny_equil
+      jfnk_rcond_gate = rcond_gate
+      jfnk_rcond_min = rcond_min
+      jfnk_itry_cap = itry_cap
+   end subroutine jfnk_pc_set_options_v1
+!
 end module jfnk_solver_v1_mod
 
 
@@ -3253,7 +3276,7 @@ end subroutine jfnk_schur_apply_v1
         rcond, pivrat, itry_used, ridge_used, lu_ok)
       use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
-           jfnk_pc_rcond_gate, jfnk_pc_rcond_min, jfnk_pc_itry_cap
+           jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
       implicit none
       integer, intent(in) :: n, luer
       double precision, intent(in) :: a(n,n)
@@ -3309,8 +3332,8 @@ end subroutine jfnk_schur_apply_v1
 ! explicit reciprocal-condition threshold and caps the retry ladder;
 ! the default path keeps the historical 0..8 ladder unchanged.
 !
-      if(jfnk_pc_rcond_gate)then
-         itry_max = max(jfnk_pc_itry_cap, 1) - 1
+      if(jfnk_rcond_gate)then
+         itry_max = max(jfnk_itry_cap, 1) - 1
       else
          itry_max = 8
       end if
@@ -3491,7 +3514,7 @@ end subroutine jfnk_schur_apply_v1
 ! backward error stays ~1e-17; the gate instead compares the DGECON
 ! reciprocal condition estimate against JFNK_PC_RCOND_MIN directly.
 !
-            if(jfnk_pc_rcond_gate .and. .not. lsq_mode)then
+            if(jfnk_rcond_gate .and. .not. lsq_mode)then
                if(.not. allocated(gecon_work))then
                   allocate(gecon_work(4*n), gecon_iwork(n), stat=ios)
                   if(ios /= 0) return
@@ -3499,7 +3522,7 @@ end subroutine jfnk_schur_apply_v1
                call dgecon('I', n, lu, n, anorm_k, rcond_k, &
                     gecon_work, gecon_iwork, info_g)
                if(info_g == 0) rcond = rcond_k
-               if(info_g /= 0 .or. rcond_k < jfnk_pc_rcond_min)then
+               if(info_g /= 0 .or. rcond_k < jfnk_rcond_min)then
                   ridge_used = 0.0d0
                   cycle
                end if

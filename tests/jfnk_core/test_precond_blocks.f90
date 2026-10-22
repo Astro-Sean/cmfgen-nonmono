@@ -16,8 +16,8 @@
 program test_precond_blocks
    use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
         jfnk_ridge_floor_set, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
-        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate, jfnk_pc_rcond_min, &
-        jfnk_pc_itry_cap
+        jfnk_pc_tiny_equil, jfnk_rcond_gate, jfnk_rcond_min, &
+        jfnk_itry_cap
    implicit none
    integer :: nfail
 !
@@ -374,7 +374,7 @@ end subroutine fill_test_block
 !======================================================================
 subroutine t_ident_factor(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
-        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate
+        jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
    integer, intent(inout) :: nfail
    integer, parameter :: n = 24
@@ -398,7 +398,7 @@ subroutine t_ident_factor(nfail)
             if(style == 2) pre_reg(2) = .true.
 ! defaults: all audit flags off
             jfnk_pc_signed = .false.; jfnk_pc_reg_zerocol = .false.
-            jfnk_pc_tiny_equil = .false.; jfnk_pc_rcond_gate = .false.
+            jfnk_pc_tiny_equil = .false.; jfnk_rcond_gate = .false.
             call old_factor(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
                  lsq, lu1, ipiv1, rsf1, csf1, reg1, rr1, rcond1, &
                  pv1, itry1, ru1, ok1)
@@ -493,7 +493,7 @@ end subroutine t_ident_apply
 !======================================================================
 subroutine t_linear(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
-        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate
+        jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
    integer, intent(inout) :: nfail
    integer, parameter :: n = 24
@@ -522,7 +522,7 @@ subroutine t_linear(nfail)
       jfnk_pc_signed     = (iand(iflags,1) /= 0)
       jfnk_pc_reg_zerocol= (iand(iflags,2) /= 0)
       jfnk_pc_tiny_equil = (iand(iflags,4) /= 0)
-      jfnk_pc_rcond_gate = (iand(iflags,8) /= 0)
+      jfnk_rcond_gate = (iand(iflags,8) /= 0)
       call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, &
            1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
            rcond, pv, itry, ru, ok)
@@ -563,7 +563,7 @@ end subroutine t_linear
 !======================================================================
 subroutine t_rcond_norm(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
-        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate
+        jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
    integer, intent(inout) :: nfail
    integer, parameter :: ns(3) = [50, 200, 800]
@@ -578,7 +578,7 @@ subroutine t_rcond_norm(nfail)
    double precision :: u
 !
    jfnk_pc_signed=.false.; jfnk_pc_reg_zerocol=.false.
-   jfnk_pc_tiny_equil=.false.; jfnk_pc_rcond_gate=.false.
+   jfnk_pc_tiny_equil=.false.; jfnk_rcond_gate=.false.
    do ni = 1, 3
       n = ns(ni)
       allocate(a(n,n), b(n,n), lu(n,n), rsf(n), csf(n), rr(n), &
@@ -844,7 +844,7 @@ end subroutine t_ridge
 !======================================================================
 subroutine t_regcol(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_reg_zerocol, jfnk_pc_signed, &
-        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate
+        jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
    integer, intent(inout) :: nfail
    integer, parameter :: n = 40, r = 17
@@ -860,7 +860,7 @@ subroutine t_regcol(nfail)
    integer :: np,nz,nc,nm,ns
 !
    jfnk_pc_signed=.false.; jfnk_pc_tiny_equil=.false.
-   jfnk_pc_rcond_gate=.false.
+   jfnk_rcond_gate=.false.
    call srand(555)
    do ic = 1, 4
       do j = 1, n
@@ -939,7 +939,7 @@ end subroutine t_regcol
 !======================================================================
 subroutine t_tiny_equil(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_tiny_equil, jfnk_pc_signed, &
-        jfnk_pc_reg_zerocol, jfnk_pc_rcond_gate
+        jfnk_pc_reg_zerocol, jfnk_rcond_gate
    implicit none
    integer, intent(inout) :: nfail
    integer, parameter :: n = 12
@@ -951,7 +951,7 @@ subroutine t_tiny_equil(nfail)
    logical :: ok
 !
    jfnk_pc_signed=.false.; jfnk_pc_reg_zerocol=.false.
-   jfnk_pc_rcond_gate=.false.
+   jfnk_rcond_gate=.false.
    call srand(88)
    a = 0.0d0
    do j = 1, n
@@ -1009,8 +1009,8 @@ subroutine t_tiny_equil(nfail)
 end subroutine t_tiny_equil
 !======================================================================
 subroutine t_gate(nfail)
-   use jfnk_solver_v1_mod, only: jfnk_pc_rcond_gate, jfnk_pc_rcond_min, &
-        jfnk_pc_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
+   use jfnk_solver_v1_mod, only: jfnk_rcond_gate, jfnk_rcond_min, &
+        jfnk_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_ridge_floor
    implicit none
    integer, intent(inout) :: nfail
@@ -1040,7 +1040,7 @@ subroutine t_gate(nfail)
    pre_reg = .false.
 !
 ! default gate: x=1 micro-test decides; record how the block fares
-   jfnk_pc_rcond_gate = .false.
+   jfnk_rcond_gate = .false.
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
         itry, ru, ok)
@@ -1084,22 +1084,22 @@ subroutine t_gate(nfail)
 !
 ! rcond gate: acceptance is the explicit threshold; the ladder must
 ! stop within ITRY_CAP attempts and either produce rcond>=min or fail
-   jfnk_pc_rcond_gate = .true.
-   jfnk_pc_rcond_min = 1.0d-13
-   jfnk_pc_itry_cap = 3
+   jfnk_rcond_gate = .true.
+   jfnk_rcond_min = 1.0d-13
+   jfnk_itry_cap = 3
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
         itry, ru, ok)
-   if(itry > jfnk_pc_itry_cap - 1)then
+   if(itry > jfnk_itry_cap - 1)then
       print *, 'T-GATE FAIL: ladder exceeded cap', itry
       nfail = nfail + 1
    end if
-   if(ok .and. rcond > 0.0d0 .and. rcond < jfnk_pc_rcond_min)then
+   if(ok .and. rcond > 0.0d0 .and. rcond < jfnk_rcond_min)then
       print *, 'T-GATE FAIL: accepted below rcond_min'
       nfail = nfail + 1
    end if
    print '(A,L2,A,I3,A,ES10.2,A,ES10.2)', &
         ' T-GATE rcond  ok=', ok, ' itry=', itry, ' rcond=', rcond, &
         ' ridge=', ru
-   jfnk_pc_rcond_gate = .false.
+   jfnk_rcond_gate = .false.
 end subroutine t_gate

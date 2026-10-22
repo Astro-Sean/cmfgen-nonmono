@@ -4,8 +4,7 @@
 	USE CONTROL_VARIABLE_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_log_unknown, jfnk_ptc_active,
 	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready,
-	2     jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil,
-	3     jfnk_pc_rcond_gate, jfnk_pc_rcond_min, jfnk_pc_itry_cap
+	2     jfnk_pc_set_options_v1
 	IMPLICIT NONE
 !
 ! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
@@ -1998,13 +1997,25 @@
 	  JFNK_ROW_TINY_EQUIL=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_ROW_TINY_EQUIL,'JFNK_ROW_TINY_EQUIL',
 	1     L_FALSE,'Classify near-null rows on the equilibrated block?')
+	  JFNK_PC_RCOND_GATE=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PC_RCOND_GATE,'JFNK_PC_RCOND_GATE',
+	1     L_FALSE,'Gate factorizations on rcond instead of the x=1 test?')
+	  JFNK_PC_RCOND_MIN=1.0D-13
+	  CALL RD_STORE_DBLE(JFNK_PC_RCOND_MIN,'JFNK_PC_RCOND_MIN',
+	1     L_FALSE,'rcond threshold for JFNK_PC_RCOND_GATE')
+	  JFNK_PC_ITRY_CAP=3
+	  CALL RD_STORE_INT(JFNK_PC_ITRY_CAP,'JFNK_PC_ITRY_CAP',
+	1     L_FALSE,'Ridge-ladder cap per depth under RCOND_GATE')
+	  JFNK_PC_PAR_FACTOR=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PC_PAR_FACTOR,'JFNK_PC_PAR_FACTOR',
+	1     L_FALSE,'Depth-parallel preconditioner factorization?')
 !
-	  jfnk_pc_signed = JFNK_PTC_SIGNED
-	  jfnk_pc_reg_zerocol = JFNK_REG_ZERO_COL
-	  jfnk_pc_tiny_equil = JFNK_ROW_TINY_EQUIL
-	  jfnk_pc_rcond_gate = JFNK_PC_RCOND_GATE
-	  jfnk_pc_rcond_min = JFNK_PC_RCOND_MIN
-	  jfnk_pc_itry_cap = JFNK_PC_ITRY_CAP
+! The solver-module mirrors sync through a setter: their names
+! collide with the CONTROL_VARIABLE_MOD declarations in this unit
+! (ifort #6405).
+	  CALL JFNK_PC_SET_OPTIONS_V1(JFNK_PTC_SIGNED,
+	1     JFNK_REG_ZERO_COL, JFNK_ROW_TINY_EQUIL,
+	2     JFNK_PC_RCOND_GATE, JFNK_PC_RCOND_MIN, JFNK_PC_ITRY_CAP)
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march field iterate at pass

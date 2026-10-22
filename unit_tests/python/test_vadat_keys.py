@@ -178,6 +178,44 @@ def main():
             "baseline: absent JFNK_ESFR defaults F",
             v.get("JFNK_ESFR") == "F",
         )
+        # Preconditioner-audit keys (jfnk-precond-fixes): every new
+        # flag must default OFF so the default path is unchanged.
+        rep.check(
+            "baseline: absent JFNK_PC_SIGN_DIAG defaults F",
+            v.get("JFNK_PC_SIGN_DIAG") == "F",
+        )
+        rep.check(
+            "baseline: absent JFNK_PTC_SIGNED defaults F",
+            v.get("JFNK_PTC_SIGNED") == "F",
+        )
+        rep.check(
+            "baseline: absent JFNK_REG_ZERO_COL defaults F",
+            v.get("JFNK_REG_ZERO_COL") == "F",
+        )
+        rep.check(
+            "baseline: absent JFNK_ROW_TINY_EQUIL defaults F",
+            v.get("JFNK_ROW_TINY_EQUIL") == "F",
+        )
+        rep.check(
+            "baseline: absent JFNK_PC_RCOND_GATE defaults F",
+            v.get("JFNK_PC_RCOND_GATE") == "F",
+        )
+        rep.check(
+            "baseline: JFNK_PC_RCOND_MIN defaults 1e-13",
+            abs(
+                float(v.get("JFNK_PC_RCOND_MIN", "nan").replace("D", "E"))
+                - 1.0e-13
+            )
+            < 1e-20,
+        )
+        rep.check(
+            "baseline: JFNK_PC_ITRY_CAP defaults 3",
+            v.get("JFNK_PC_ITRY_CAP") == "3",
+        )
+        rep.check(
+            "baseline: absent JFNK_PC_PAR_FACTOR defaults F",
+            v.get("JFNK_PC_PAR_FACTOR") == "F",
+        )
 
     cases = [
         # (name, mutations, expect_ok, expect_stdout_substr)
@@ -482,6 +520,54 @@ def main():
         < 1e-9
         and v.get("JFNK_GATE_NREQ") == "2",
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # Preconditioner-audit keys parse and land on both the control
+    # variables and the solver-module mirrors.
+    d = write_vadat(
+        WORKDIR / "vadat_pc_audit",
+        {
+            "JFNK_PC_SIGN_DIAG": "T",
+            "JFNK_PTC_SIGNED": "T",
+            "JFNK_REG_ZERO_COL": "T",
+            "JFNK_ROW_TINY_EQUIL": "T",
+            "JFNK_PC_RCOND_GATE": "T",
+            "JFNK_PC_RCOND_MIN": "1.0D-11",
+            "JFNK_PC_ITRY_CAP": "5",
+            "JFNK_PC_PAR_FACTOR": "T",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "JFNK preconditioner-audit keys parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_PC_SIGN_DIAG") == "T"
+        and v.get("JFNK_PTC_SIGNED") == "T"
+        and v.get("JFNK_REG_ZERO_COL") == "T"
+        and v.get("JFNK_ROW_TINY_EQUIL") == "T"
+        and v.get("JFNK_PC_RCOND_GATE") == "T"
+        and abs(
+            float(v.get("JFNK_PC_RCOND_MIN", "nan").replace("D", "E"))
+            - 1.0e-11
+        )
+        < 1e-18
+        and v.get("JFNK_PC_ITRY_CAP") == "5"
+        and v.get("JFNK_PC_PAR_FACTOR") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "JFNK preconditioner-audit keys sync to solver module",
+        v.get("jfnk_pc_signed") == "T"
+        and v.get("jfnk_pc_reg_zerocol") == "T"
+        and v.get("jfnk_pc_tiny_equil") == "T"
+        and v.get("jfnk_rcond_gate") == "T"
+        and abs(
+            float(v.get("jfnk_rcond_min", "nan").replace("D", "E"))
+            - 1.0e-11
+        )
+        < 1e-18
+        and v.get("jfnk_itry_cap") == "5",
     )
 
     # MOM_H_IMPL / MOM_ABS_FLR opt-in keys parse and land.
