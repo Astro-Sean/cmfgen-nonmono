@@ -4,7 +4,8 @@
 	USE CONTROL_VARIABLE_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_log_unknown, jfnk_ptc_active,
 	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready,
-	2     jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil
+	2     jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil,
+	3     jfnk_pc_rcond_gate, jfnk_pc_rcond_min, jfnk_pc_itry_cap
 	IMPLICIT NONE
 !
 ! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
@@ -2001,6 +2002,9 @@
 	  jfnk_pc_signed = JFNK_PTC_SIGNED
 	  jfnk_pc_reg_zerocol = JFNK_REG_ZERO_COL
 	  jfnk_pc_tiny_equil = JFNK_ROW_TINY_EQUIL
+	  jfnk_pc_rcond_gate = JFNK_PC_RCOND_GATE
+	  jfnk_pc_rcond_min = JFNK_PC_RCOND_MIN
+	  jfnk_pc_itry_cap = JFNK_PC_ITRY_CAP
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march field iterate at pass

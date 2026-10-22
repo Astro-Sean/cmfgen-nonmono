@@ -33,6 +33,7 @@ program test_precond_blocks
    call t_ridge(nfail)
    call t_regcol(nfail)
    call t_tiny_equil(nfail)
+   call t_gate(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -1006,3 +1007,99 @@ subroutine t_tiny_equil(nfail)
    end if
    print *, 'T-TINY-EQUIL: ok'
 end subroutine t_tiny_equil
+!======================================================================
+subroutine t_gate(nfail)
+   use jfnk_solver_v1_mod, only: jfnk_pc_rcond_gate, jfnk_pc_rcond_min, &
+        jfnk_pc_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
+        jfnk_pc_tiny_equil, jfnk_ridge_floor
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: n = 30
+   double precision :: a(n,n), lu(n,n), rsf(n), csf(n), rr(n)
+   double precision :: b(n), x(n), res(n)
+   integer :: ipiv(n)
+   logical :: reg(n), regt(n), pre_reg(n)
+   double precision :: rcond, pv, ru, berr, u
+   integer :: itry, i, j, tries
+   logical :: ok
+!
+   jfnk_pc_signed=.false.; jfnk_pc_reg_zerocol=.false.
+   jfnk_pc_tiny_equil=.false.; jfnk_ridge_floor=0.0d0
+   call srand(31)
+   do j = 1, n
+      do i = 1, n
+         u = rand()
+         a(i,j) = (2.0d0*u - 1.0d0)
+      end do
+   end do
+   do i = 1, n
+      a(i,i) = a(i,i) + 3.0d0
+   end do
+! force near-singularity: make row n a near-copy of row n-1
+   a(n,:) = a(n-1,:) * (1.0d0 + 1.0d-15)
+   pre_reg = .false.
+!
+! default gate: x=1 micro-test decides; record how the block fares
+   jfnk_pc_rcond_gate = .false.
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   print '(A,L2,A,I3,A,ES10.2,A,ES10.2)', &
+        ' T-GATE default ok=', ok, ' itry=', itry, ' rcond=', rcond, &
+        ' ridge=', ru
+   if(ok)then
+! measure the true backward error of the accepted factorization on
+! b = M*1: |b - M x|/|b| -- the micro-test asserts on |x-1| instead
+      b = 0.0d0
+      block
+         double precision :: mrec(n,n)
+         integer :: i2, j2
+         mrec = a
+         do i2 = 1, n
+            mrec(i2,i2) = mrec(i2,i2) + rr(i2)
+         end do
+         do i2 = 1, n
+            if(reg(i2))then
+               mrec(i2,:) = 0.0d0
+               mrec(i2,i2) = 1.0d0
+            end if
+         end do
+         do j2 = 1, n
+            do i2 = 1, n
+               mrec(i2,j2) = mrec(i2,j2) * rsf(i2) * csf(j2)
+            end do
+         end do
+         do i2 = 1, n
+            b(i2) = sum(mrec(i2,:))
+         end do
+         x = b
+         call dgetrs('N', n, 1, lu, n, ipiv, x, n, itry)
+         res = matmul(mrec, x) - b
+         berr = maxval(abs(res)) / max(maxval(abs(b)), 1.0d-300)
+         print '(A,ES10.2,A,ES10.2)', &
+              ' T-GATE backward err=', berr, &
+              ' fwd err=', maxval(abs(x-1.0d0))
+      end block
+   end if
+!
+! rcond gate: acceptance is the explicit threshold; the ladder must
+! stop within ITRY_CAP attempts and either produce rcond>=min or fail
+   jfnk_pc_rcond_gate = .true.
+   jfnk_pc_rcond_min = 1.0d-13
+   jfnk_pc_itry_cap = 3
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   if(itry > jfnk_pc_itry_cap - 1)then
+      print *, 'T-GATE FAIL: ladder exceeded cap', itry
+      nfail = nfail + 1
+   end if
+   if(ok .and. rcond > 0.0d0 .and. rcond < jfnk_pc_rcond_min)then
+      print *, 'T-GATE FAIL: accepted below rcond_min'
+      nfail = nfail + 1
+   end if
+   print '(A,L2,A,I3,A,ES10.2,A,ES10.2)', &
+        ' T-GATE rcond  ok=', ok, ' itry=', itry, ' rcond=', rcond, &
+        ' ridge=', ru
+   jfnk_pc_rcond_gate = .false.
+end subroutine t_gate
