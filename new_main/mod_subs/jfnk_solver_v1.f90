@@ -4042,3 +4042,91 @@ end subroutine jfnk_schur_apply_v1
       end do
       if(rel_min > tol) imult = 0
    end subroutine jfnk_h_select_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_BTD_FACTOR_V1: block-Thomas factorization of a scaled
+! block-tridiagonal matrix for [JFNK_BANDED_TDMA].  The DGBTRF path on
+! the assembled banded matrix costs O(N*KL*KU) ~ 3E15 flops at
+! NT~2E3/ND~70 -- infeasible per JFNK activation.  The block
+! recurrence costs ND*(4/3)*NT^3 (~seconds once per activation) and
+! each apply is O(ND*NT^2).  lu_out arrives holding the diagonal
+! blocks D_k and returns the pivoted LU factors of the modified
+! diagonals D~_k = D_k - al_k c_{k-1}; c_out arrives holding the
+! uppers U_k and returns c_k = D~_k^{-1} U_k; al holds the lowers
+! (read-only).  nfail returns the failing depth index, 0 on success
+! -- the caller retries with a ridge or falls back to the per-depth
+! LU.
+!----------------------------------------------------------------------
+   subroutine jfnk_btd_factor_v1(nt, nd, al, lu_out, c_out, &
+        ipiv, nfail, luer)
+      implicit none
+      integer, intent(in) :: nt, nd, luer
+      double precision, intent(in) :: al(nt,nt,nd)
+      double precision, intent(inout) :: lu_out(nt,nt,nd), &
+           c_out(nt,nt,nd)
+      integer, intent(out) :: ipiv(nt,nd), nfail
+      integer :: k, info
+      nfail = 0
+      do k = 1, nd
+         if(k > 1)then
+            call dgemm('N','N',nt,nt,nt,-1.0d0,al(1,1,k),nt, &
+                 c_out(1,1,k-1),nt,1.0d0,lu_out(1,1,k),nt)
+         end if
+         call dgetrf(nt,nt,lu_out(1,1,k),nt,ipiv(1,k),info)
+         if(info /= 0)then
+            nfail = k
+            if(luer > 0) write(luer,'(A,I6,A,I4)') &
+                 '  JFNK-BTD: dgetrf failed at depth ',k,' info=',info
+            return
+         end if
+         if(k < nd)then
+            call dgetrs('N',nt,nt,lu_out(1,1,k),nt,ipiv(1,k), &
+                 c_out(1,1,k),nt,info)
+            if(info /= 0)then
+               nfail = k
+               if(luer > 0) write(luer,'(A,I6,A,I4)') &
+                    '  JFNK-BTD: dgetrs failed at depth ',k, &
+                    ' info=',info
+               return
+            end if
+         end if
+      end do
+   end subroutine jfnk_btd_factor_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_BTD_APPLY_V1: in-place block-Thomas solve M x = b using the
+! factors from jfnk_btd_factor_v1.  Forward sweep overwrites v_k with
+! D~_k^{-1}(v_k - L_k v_{k-1}); backward sweep completes
+! v_k = w_k - c_k v_{k+1}.  In-place is safe because each block is
+! consumed only by its immediate neighbour in sweep order.
+!----------------------------------------------------------------------
+   subroutine jfnk_btd_apply_v1(nt, nd, al, lu_f, c_f, ipiv, v, &
+        nfail)
+      implicit none
+      integer, intent(in) :: nt, nd
+      double precision, intent(in) :: al(nt,nt,nd), lu_f(nt,nt,nd), &
+           c_f(nt,nt,nd)
+      integer, intent(in) :: ipiv(nt,nd)
+      double precision, intent(inout) :: v(nt,nd)
+      integer, intent(out) :: nfail
+      integer :: k, info
+      nfail = 0
+      do k = 1, nd
+         if(k > 1)then
+            call dgemv('N',nt,nt,-1.0d0,al(1,1,k),nt,v(1,k-1),1, &
+                 1.0d0,v(1,k),1)
+         end if
+         call dgetrs('N',nt,1,lu_f(1,1,k),nt,ipiv(1,k),v(1,k),nt, &
+              info)
+         if(info /= 0)then
+            nfail = k
+            return
+         end if
+      end do
+      do k = nd-1, 1, -1
+         call dgemv('N',nt,nt,-1.0d0,c_f(1,1,k),nt,v(1,k+1),1, &
+              1.0d0,v(1,k),1)
+      end do
+   end subroutine jfnk_btd_apply_v1

@@ -380,6 +380,21 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_BANDED_ARAW(:,:)
 	LOGICAL, SAVE :: JFNK_BANDED_CHK_DONE=.FALSE.
 !
+! JFNK_BTD_*: block-Thomas factorization of the banded matrix
+! [JFNK_BANDED_TDMA, default F].  DGBTRF on the N=NT*ND banded system
+! costs O(N*KL*KU) ~ 3E15 flops at NT~2E3/ND~70 (infeasible per
+! activation); the block recurrence is ND*(4/3)*NT^3 (seconds once per
+! activation) with O(ND*NT^2) applies.  JFNK_BTD_L holds the scaled
+! lower blocks, JFNK_BTD_LU the LU factors of the modified diagonals
+! D~_k = D_k - L_k C_{k-1}, JFNK_BTD_C the transformed uppers
+! C_k = D~_k^{-1} U_k.  All (NT,NT,ND); ~5.7 GB at NT=1839/ND=70.
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_BTD_L(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_BTD_LU(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_BTD_C(:,:,:)
+	INTEGER, ALLOCATABLE, SAVE :: JFNK_BTD_IPIV(:,:)
+	LOGICAL, SAVE :: JFNK_BTD_READY=.FALSE.
+!
 ! JFNK_USE_BANDED_LOC: runtime flag (set in JFNK_INIT_V1 from the
 !   JFNK_USE_BANDED VADAT control variable).  When .TRUE., build banded
 !   BA_rad (all bands) and use a banded LU preconditioner (DGBTRF/DGBTRS).

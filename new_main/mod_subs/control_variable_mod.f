@@ -2002,6 +2002,11 @@
 	CHARACTER(LEN=12) JFNK_RSCALE_MODE
 	INTEGER JFNK_MAX_RESTART
 	LOGICAL JFNK_USE_BANDED
+! JFNK_BANDED_TDMA (default F): factor the assembled banded
+! preconditioner by block-Thomas recursion instead of DGBTRF --
+! the scalar-band LU is O(N*KL*KU) ~ 3E15 flops on this model
+! (infeasible), the block form is ND*(4/3)*NT^3 once per activation.
+	LOGICAL JFNK_BANDED_TDMA
 	LOGICAL JFNK_SELECTIVE_JVAR
 	REAL(KIND=LDP) JFNK_ROW_TINY
 	REAL(KIND=LDP) JFNK_LSQ_LAM

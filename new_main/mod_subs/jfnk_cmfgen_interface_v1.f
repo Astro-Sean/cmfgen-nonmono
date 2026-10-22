@@ -58,6 +58,7 @@
 	JFNK_RAD_READY = .FALSE.
 	JFNK_BA_RAD_BANDS_READY = .FALSE.
 	JFNK_BANDED_LU_READY = .FALSE.
+	JFNK_BTD_READY = .FALSE.
 !
 ! Wire JFNK_USE_BANDED_LOC from the VADAT control variable.  When T,
 ! the solver builds banded BA_rad and uses a banded LU preconditioner.
@@ -3659,7 +3660,7 @@
 	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR,
 	3                              JFNK_PTC_SIGNED, JFNK_PC_SIGN_DIAG,
 	4                              JFNK_REG_ZERO_COL,
-	5                              JFNK_ROW_TINY_EQUIL
+	5                              JFNK_ROW_TINY_EQUIL, JFNK_BANDED_TDMA
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_log_unknown,
@@ -4487,6 +4488,7 @@
 ! If DGBTRF fails, fall back to the per-depth LU/Jacobi above.
 !
 	JFNK_BANDED_LU_READY = .FALSE.
+	JFNK_BTD_READY = .FALSE.
 !
 ! Gate the banded factorization on the LU preconditioner being the
 ! active type, not just on JFNK_USE_BANDED: the apply path prefers a
@@ -4857,7 +4859,11 @@
 !
 ! Save an unscaled copy of the assembled matrix for the
 ! solve-residual check below (post zero-row fix, pre-scaling).
+! Skipped under [JFNK_BANDED_TDMA]: the block-Thomas check measures
+! the componentwise backward error on the scaled LUAB directly and
+! the ~11 GB copy is not needed.
 !
+	  IF(.NOT. JFNK_BANDED_TDMA)THEN
 	  IF(ALLOCATED(JFNK_BANDED_ARAW))THEN
 	    IF(SIZE(JFNK_BANDED_ARAW,1).NE.
 	1       2*JFNK_BANDED_KL+JFNK_BANDED_KU+1 .OR.
@@ -4872,6 +4878,7 @@
 	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc ARAW failed'
 	  END IF
 	  JFNK_BANDED_ARAW = JFNK_BANDED_LUAB
+	  END IF
 !
 	  IF(JFNK_BANDED_EQUIL_OK)THEN
 ! Apply equilibration: A_eq(i,j) = ROW_SF(i) * A(i,j) * COL_SF(j)
@@ -4891,6 +4898,168 @@
 ! and retry once.  This avoids unnecessary regularization when the
 ! matrix is already well-conditioned.
 !
+	  IF(JFNK_BANDED_TDMA)THEN
+!
+! --- Block-Thomas factorization [JFNK_BANDED_TDMA, default F] ---
+! DGBTRF on the assembled banded matrix costs O(N*KL*KU) ~ 3E15
+! flops here (N=NT*ND~1.3E5, KL=KU~2NT) -- infeasible per JFNK
+! activation.  The block recurrence is ND*(4/3)*NT^3 (seconds once
+! per activation) with O(ND*NT^2) applies.  Blocks are extracted
+! from the scaled LUAB, so the identical row-reg'd, equilibrated
+! operator is factored; the residual check measures the
+! componentwise backward error against the scaled LUAB (ARAW is
+! not allocated under TDMA).  Ridge retries add to the LUAB
+! diagonal -- the same convention as the DGBTRF retry (ridge on
+! the matrix actually factored).
+!
+	    BLOCK
+	      INTEGER :: K_B, I_B, J_B, NFAIL_B, NTRY_B, IOS_B
+	      INTEGER :: I_C, J_C, EROW_C
+	      DOUBLE PRECISION :: RIDGE_B, MAXD_B, REL_B, RI_B, DEN_B
+	      DOUBLE PRECISION, ALLOCATABLE :: XT_B(:)
+!
+	      IF(ALLOCATED(JFNK_BTD_L))THEN
+	        IF(SIZE(JFNK_BTD_L,1).NE.JFNK_NT .OR.
+	1           SIZE(JFNK_BTD_L,3).NE.JFNK_ND)THEN
+	          DEALLOCATE(JFNK_BTD_L,JFNK_BTD_LU,JFNK_BTD_C,
+	1             JFNK_BTD_IPIV)
+	        END IF
+	      END IF
+	      IF(.NOT. ALLOCATED(JFNK_BTD_L))THEN
+	        ALLOCATE(JFNK_BTD_L(JFNK_NT,JFNK_NT,JFNK_ND),
+	1           JFNK_BTD_LU(JFNK_NT,JFNK_NT,JFNK_ND),
+	2           JFNK_BTD_C(JFNK_NT,JFNK_NT,JFNK_ND),
+	3           JFNK_BTD_IPIV(JFNK_NT,JFNK_ND), STAT=IOS_B)
+	        IF(IOS_B.NE.0)
+	1           STOP 'JFNK_FACTOR_PRECOND: alloc BTD failed'
+	      END IF
+!
+	      NTRY_B = 0
+	      DO
+! Extract L/D/U from the scaled band: global row i=(K-1)*NT+II,
+! col j=(L-1)*NT+JJ lives at LUAB(KL+KU+1+i-j, j).
+	        DO K_B = 1, JFNK_ND
+	          DO J_B = 1, JFNK_NT
+	            DO I_B = 1, JFNK_NT
+	              JFNK_BTD_LU(I_B,J_B,K_B) =
+	1               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	2               JFNK_BANDED_KU+1+I_B-J_B,
+	3               (K_B-1)*JFNK_NT+J_B)
+	              IF(K_B .GT. 1)
+	1               JFNK_BTD_L(I_B,J_B,K_B) =
+	2               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	3               JFNK_BANDED_KU+1+JFNK_NT+I_B-J_B,
+	4               (K_B-2)*JFNK_NT+J_B)
+	              IF(K_B .LT. JFNK_ND)
+	1               JFNK_BTD_C(I_B,J_B,K_B) =
+	2               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	3               JFNK_BANDED_KU+1-JFNK_NT+I_B-J_B,
+	4               K_B*JFNK_NT+J_B)
+	            END DO
+	          END DO
+	        END DO
+	        CALL JFNK_BTD_FACTOR_V1(JFNK_NT, JFNK_ND,
+	1         JFNK_BTD_L, JFNK_BTD_LU, JFNK_BTD_C,
+	2         JFNK_BTD_IPIV, NFAIL_B, LUER)
+	        REL_B = 1.0D30
+	        IF(NFAIL_B .EQ. 0)THEN
+! Componentwise backward error on the scaled system A_eq x' = 1
+! (same Oettli-Prager form as the DGBTRF check, evaluated on
+! LUAB; the scaled matrix is the one actually factored).
+	          ALLOCATE(XT_B(JFNK_BANDED_N), STAT=IOS_B)
+	          IF(IOS_B .NE. 0)
+	1             STOP 'JFNK_FACTOR_PRECOND: alloc XT_B failed'
+	          XT_B = 1.0_LDP
+	          CALL JFNK_BTD_APPLY_V1(JFNK_NT, JFNK_ND,
+	1           JFNK_BTD_L, JFNK_BTD_LU, JFNK_BTD_C,
+	2           JFNK_BTD_IPIV, XT_B, NFAIL_B)
+	          REL_B = 0.0_LDP
+	          IF(NFAIL_B .EQ. 0)THEN
+	            DO I_C = 1, JFNK_BANDED_N
+	              RI_B = -1.0_LDP
+	              DEN_B = 0.0_LDP
+	              DO J_C = MAX(1,I_C-JFNK_BANDED_KL),
+	1                 MIN(JFNK_BANDED_N,I_C+JFNK_BANDED_KU)
+	                EROW_C = JFNK_BANDED_KL+JFNK_BANDED_KU+
+	1                 1+I_C-J_C
+	                RI_B = RI_B +
+	1                 JFNK_BANDED_LUAB(EROW_C,J_C)*XT_B(J_C)
+	                DEN_B = DEN_B +
+	1                 ABS(JFNK_BANDED_LUAB(EROW_C,J_C)*XT_B(J_C))
+	              END DO
+	              DEN_B = DEN_B + 1.0_LDP
+	              REL_B = MAX(REL_B,
+	1                 ABS(RI_B)/MAX(DEN_B,1.0D-300))
+	            END DO
+	          END IF
+	          DEALLOCATE(XT_B)
+	        END IF
+	        IF(NFAIL_B .EQ. 0 .AND. REL_B .LE. 1.0D-4)THEN
+	          JFNK_BTD_READY = .TRUE.
+	          JFNK_BA_RIDGE_ADD = 0.0_LDP
+	          IF(NTRY_B .GT. 0) JFNK_BA_RIDGE_ADD = RIDGE_B
+! PRECOND_DIAG wants the diagonal of the accepted matrix in raw
+! (unscaled) units -- undo the equilibration on the diagonal.
+	          DO K_B = 1, JFNK_ND
+	            DO J_B = 1, JFNK_NT
+	              J_C = (K_B-1)*JFNK_NT + J_B
+	              JFNK_PRECOND_DIAG(J_B,K_B) =
+	1               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	2               JFNK_BANDED_KU+1, J_C)
+	              IF(JFNK_BANDED_EQUIL_OK)
+	1               JFNK_PRECOND_DIAG(J_B,K_B) =
+	2               JFNK_PRECOND_DIAG(J_B,K_B) /
+	3               (JFNK_BANDED_ROW_SF(J_C)*
+	4               JFNK_BANDED_COL_SF(J_C))
+	            END DO
+	          END DO
+	          IF(LUER .GT. 0)THEN
+	            WRITE(LUER,'(A,I6,A,I2,A,ES10.2)')
+	1           '  JFNK: banded TDMA factor  N=',JFNK_BANDED_N,
+	2           '  retry=',NTRY_B,
+	3           '  max|r_i|/(|A||x|+|b|)=',REL_B
+	          END IF
+	          EXIT
+	        END IF
+	        NTRY_B = NTRY_B + 1
+	        IF(NTRY_B .GT. 2)THEN
+	          IF(LUER .GT. 0)THEN
+	            WRITE(LUER,'(A,I6,A,ES10.2,A)')
+	1           '  JFNK: banded TDMA FAILED (nfail=',NFAIL_B,
+	2           ' relres=',REL_B,
+	3           ') -- falling back to per-depth LU/Jacobi'
+	          END IF
+	          EXIT
+	        END IF
+! Add a scaled-space ridge to the LUAB diagonal and refactor
+! (extraction re-reads LUAB, so the retry sees the ridged matrix).
+	        MAXD_B = 0.0_LDP
+	        DO K_B = 1, JFNK_ND
+	          DO I_B = 1, JFNK_NT
+	            MAXD_B = MAX(MAXD_B,
+	1             ABS(JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	2             JFNK_BANDED_KU+1, (K_B-1)*JFNK_NT+I_B)))
+	          END DO
+	        END DO
+	        RIDGE_B = MAX(JFNK_BA_RIDGE_FAC,1.0D-10)
+	1       * MAX(MAXD_B,1.0_LDP)
+	        IF(LUER .GT. 0)THEN
+	          WRITE(LUER,'(A,I2,A,ES10.2)')
+	1         '  JFNK: banded TDMA retry ',NTRY_B,
+	2         '  ridge=',RIDGE_B
+	        END IF
+	        DO K_B = 1, JFNK_ND
+	          DO I_B = 1, JFNK_NT
+	            JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	1             JFNK_BANDED_KU+1, (K_B-1)*JFNK_NT+I_B) =
+	2             JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	3             JFNK_BANDED_KU+1, (K_B-1)*JFNK_NT+I_B)
+	4             + RIDGE_B
+	          END DO
+	        END DO
+	      END DO
+	    END BLOCK
+	  ELSE
 	  N_BANDED_RETRY = 0
 	  DO
 	    CALL DGBTRF(JFNK_BANDED_N, JFNK_BANDED_N,
@@ -5065,6 +5234,7 @@
 	      END DO
 	    END IF
 	  END DO
+	  END IF
 	END IF
 !
 	JFNK_BA_DIAG_READY = .TRUE.
@@ -5240,6 +5410,48 @@
 	    IF(JFNK_LUER .GT. 0)THEN
 	      WRITE(JFNK_LUER,'(A,I6)')
 	1        '  JFNK: DGBTRS failed (info=', LU_INFO,
+	2        ') -- Jacobi fallback'
+	    END IF
+	  END IF
+	END IF
+!
+! ── Block-Thomas banded solve [JFNK_BANDED_TDMA] ──────────────────
+! Same equilibration/post-processing convention as the DGBTRS
+! branch above: b' = ROW_SF*b, block-Thomas solve on the scaled
+! factors, x = COL_SF*x', then regularized-row projection and the
+! fixed-unknown mask.
+!
+	IF(JFNK_BTD_READY .AND. .NOT. BANDED_APPLIED)THEN
+	  IF(JFNK_BANDED_EQUIL_OK)THEN
+	    DO J = 1, JFNK_BANDED_N
+	      V(J) = V(J) * DBLE(JFNK_BANDED_ROW_SF(J))
+	    END DO
+	  END IF
+	  CALL JFNK_BTD_APPLY_V1(JFNK_NT, JFNK_ND, JFNK_BTD_L,
+	1     JFNK_BTD_LU, JFNK_BTD_C, JFNK_BTD_IPIV, V, LU_INFO)
+	  IF(LU_INFO .EQ. 0)THEN
+	    IF(JFNK_BANDED_EQUIL_OK)THEN
+	      DO J = 1, JFNK_BANDED_N
+	        V(J) = V(J) * DBLE(JFNK_BANDED_COL_SF(J))
+	      END DO
+	    END IF
+	    IF(ALLOCATED(JFNK_ROW_REG))THEN
+	      DO J = 1, JFNK_BANDED_N
+	        K_PC = (J-1)/JFNK_NT + 1
+	        J_PC = J - (K_PC-1)*JFNK_NT
+	        IF(JFNK_ROW_REG(J_PC, K_PC))THEN
+	          V(J) = 0.0_LDP
+	          NPROJ = NPROJ + 1
+	        END IF
+	      END DO
+	      jfnk_n_reg_proj = jfnk_n_reg_proj + NPROJ
+	    END IF
+	    CALL JFNK_MASK_FIXED_UNKNOWNS(N, V)
+	    BANDED_APPLIED = .TRUE.
+	  ELSE
+	    IF(JFNK_LUER .GT. 0)THEN
+	      WRITE(JFNK_LUER,'(A,I6)')
+	1        '  JFNK: BTD solve failed (nfail=', LU_INFO,
 	2        ') -- Jacobi fallback'
 	    END IF
 	  END IF

@@ -36,6 +36,7 @@ program test_precond_blocks
    call t_gate(nfail)
    call t_rcond_nan(nfail)
    call t_linear(nfail)
+   call t_tdma(nfail)
 !
    if(nfail == 0)then
       print *, 'ALL PRECOND BLOCK TESTS PASSED'
@@ -1174,3 +1175,79 @@ subroutine t_rcond_nan(nfail)
    end if
    jfnk_rcond_gate = .false.
 end subroutine t_rcond_nan
+
+
+!======================================================================
+! T-BTD: block-Thomas factor+solve vs a dense LU reference on a
+! diagonally dominant block-tridiagonal system (nt=6, nd=5), plus a
+! singular-block rejection case.  Exercises the production routines
+! used by [JFNK_BANDED_TDMA].
+!======================================================================
+subroutine t_tdma(nfail)
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: nt = 6, nd = 5, n = nt*nd
+   double precision :: al(nt,nt,nd), dlu(nt,nt,nd), c(nt,nt,nd)
+   double precision :: adense(n,n), b(n), x(n), yv(nt,nd)
+   integer :: ipiv(nt,nd), ipivd(n), nfl, info, i, j, k
+   double precision :: err, xn
+!
+   al = 0.0d0; dlu = 0.0d0; c = 0.0d0
+   do k = 1, nd
+      do j = 1, nt
+         do i = 1, nt
+            dlu(i,j,k) = 0.1d0*sin(1.3d0*i + 0.7d0*j + 0.2d0*k)
+            if(k > 1)  al(i,j,k) = 0.05d0*cos(0.9d0*i - 0.4d0*j + k)
+            if(k < nd) c(i,j,k)  = 0.05d0*sin(0.3d0*i + 0.8d0*j - k)
+         end do
+         dlu(j,j,k) = dlu(j,j,k) + 2.0d0
+      end do
+   end do
+   adense = 0.0d0
+   do k = 1, nd
+      adense((k-1)*nt+1:k*nt,(k-1)*nt+1:k*nt) = dlu(:,:,k)
+      if(k > 1) adense((k-1)*nt+1:k*nt,(k-2)*nt+1:(k-1)*nt) = &
+           al(:,:,k)
+      if(k < nd) adense((k-1)*nt+1:k*nt,k*nt+1:(k+1)*nt) = &
+           c(:,:,k)
+   end do
+   do i = 1, n
+      b(i) = sin(0.31d0*i)
+   end do
+   x = b
+   call dgetrf(n,n,adense,n,ipivd,info)
+   call dgetrs('N',n,1,adense,n,ipivd,x,n,info)
+!
+   call jfnk_btd_factor_v1(nt,nd,al,dlu,c,ipiv,nfl,0)
+   if(nfl /= 0)then
+      print *, 'T-BTD FAIL: factor nfail=',nfl
+      nfail = nfail + 1
+      return
+   end if
+   yv = reshape(b, (/nt,nd/))
+   call jfnk_btd_apply_v1(nt,nd,al,dlu,c,ipiv,yv,nfl)
+   err = maxval(abs(reshape(yv, (/n/)) - x))
+   xn  = maxval(abs(x))
+   print '(A,ES10.2)', ' T-BTD max|x_btd-x_lu| =', err
+   if(nfl /= 0 .or. err > 1d-10*max(xn,1.0d0))then
+      print *, 'T-BTD FAIL'
+      nfail = nfail + 1
+   else
+      print *, 'T-BTD: PASS'
+   end if
+!
+   al = 0.0d0; dlu = 0.0d0; c = 0.0d0
+   do k = 1, nd
+      do j = 1, nt
+         dlu(j,j,k) = 1.0d0
+      end do
+   end do
+   dlu(:,:,3) = 0.0d0
+   call jfnk_btd_factor_v1(nt,nd,al,dlu,c,ipiv,nfl,0)
+   if(nfl == 3)then
+      print *, 'T-BTD-SING: PASS (nfail=3)'
+   else
+      print *, 'T-BTD-SING FAIL: nfail=',nfl
+      nfail = nfail + 1
+   end if
+end subroutine t_tdma
