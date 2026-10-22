@@ -98,7 +98,8 @@ module toy_se_mod
    integer :: n_clip = 0, n_jac_tot = 0, n_jac_evals = 0
 
    ! ---- BA workspace --------------------------------------------------
-   real(dp), allocatable :: ba_blk(:,:,:) ! (nt,nt,nd) assembled BA
+   real(dp), allocatable :: ba_blk(:,:,:) ! (nt,nt,nd) LU-factored BA
+   real(dp), allocatable :: ba_raw(:,:,:) ! unfactored copy for reduced
    integer,  allocatable :: ba_ipiv(:,:)  ! (nt,nd) LU pivots
    logical  :: ba_ready = .false.
 
@@ -118,10 +119,11 @@ contains
       nt = nl + ntr + 2
       neq = nt*nd
       if(allocated(pops)) deallocate(pops, n0, j_store, j_now, x_base, &
-         jit_hist, cmat, rmat, atr, bsrc, ba_blk, ba_ipiv)
+         jit_hist, cmat, rmat, atr, bsrc, ba_blk, ba_raw, ba_ipiv)
       allocate(pops(nt,nd), n0(nt,nd), j_store(nd), j_now(nd), &
          x_base(neq), jit_hist(nd), cmat(nl,nl), rmat(nl,nl), &
-         atr(ntr,ntr), bsrc(ntr,nl), ba_blk(nt,nt,nd), ba_ipiv(nt,nd))
+         atr(ntr,ntr), bsrc(ntr,nl), ba_blk(nt,nt,nd), &
+         ba_raw(nt,nt,nd), ba_ipiv(nt,nd))
    end subroutine toy_alloc
 
    ! simple LCG; deterministic across compilers
@@ -482,6 +484,10 @@ contains
          else
             ba_blk(nt,nt,k) = 1d0
          end if
+         ! keep the unfactored block: factor_ba_red extracts major
+         ! subblocks and dgetrf would otherwise leave it reading LU
+         ! factors (the original +a divergence)
+         ba_raw(:,:,k) = ba_blk(:,:,k)
          call dgetrf(nt, nt, ba_blk(:,:,k), nt, ba_ipiv(:,k), info)
          if(info /= 0) then
             ba_ready = .false.

@@ -90,9 +90,9 @@ module toy_ctx_mod
       do k = 1, nd
          do i = 1, nmj
             do j = 1, nmj
-               ! red_map holds global row indices; ba_blk is per-depth
-               ! so convert back to local rows via mod
-               ba_red(j,i,k) = ba_blk( &
+               ! red_map holds global row indices; extract from the
+               ! unfactored ba_raw (ba_blk holds LU factors by now)
+               ba_red(j,i,k) = ba_raw( &
                   mod(red_map((k-1)*nmj+j)-1,nt)+1, &
                   mod(red_map((k-1)*nmj+i)-1,nt)+1, k)
             end do
