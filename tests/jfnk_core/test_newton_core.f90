@@ -39,6 +39,9 @@ module test_prob_mod
    ! ||b - A x|| keeps an O(c0) floor.
    double precision :: amat(NN,NN), c0v(NN)
    logical :: matvec_bias = .false.
+   ! T4f: inject a NaN into the matvec output on a chosen call index so
+   ! the tres measurement lands on a non-finite residual.  -1 disables.
+   integer :: matvec_ct = 0, matvec_nan_at = -1
 end module test_prob_mod
 
 
@@ -47,10 +50,11 @@ program test_newton_core
    use test_prob_mod
    implicit none
    external :: f_test, df_test, dfp_test, sub_test
-   external :: df_lin, dfp_id
+   external :: df_lin, dfp_id, dfp_jac
    double precision, external :: dp_test
    integer :: i, info, nfail, luer
    integer :: its_g
+   integer :: nevals_b, nevals_c, ntres_call
    double precision :: x0(NN), f0(NN), ftrue(NN), xsol(NN)
    double precision :: x_g(NN), b_g(NN), res_g, pred_g
    double precision :: h_g(11,10), v_g(NN,11)
@@ -180,6 +184,7 @@ program test_newton_core
    jfnk_total_jvp_evals = 0
    !
    matvec_bias = .false.
+   matvec_ct = 0
    jfnk_gmres_tres_fac = 1.5d0
    jfnk_exit_reason = ' '
    x_g = 0d0
@@ -189,10 +194,14 @@ program test_newton_core
    call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
                    h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
    maxerr = maxval(abs(x_g - xs))
+   ! The tres measurement is the last matvec call of an accepted solve;
+   ! T4f reuses this call index to land a NaN on it.
+   ntres_call = matvec_ct
    write(luer,'(A,I3,A,ES12.4,A)') &
       'T4a: info=', info, '  max|x-xs|=', maxerr, &
       '  exit='//trim(jfnk_exit_reason)
-   if(info == 0 .and. maxerr < 1.0d-6) then
+   if(info == 0 .and. maxerr < 1.0d-6 .and. &
+      jfnk_exit_reason == 'gmres_converged') then
       write(luer,'(A)') 'T4a: PASS'
    else
       write(luer,'(A)') 'T4a: FAIL'
@@ -201,8 +210,83 @@ program test_newton_core
    !
    ! T4b: same system but the matvec adds a fixed offset.  The LS
    ! residual converges while ||b - A x - c0|| keeps the offset floor,
-   ! so every claimed convergence must fail the tres gate and the
-   ! solve exits rejected rather than converged.
+   ! so every claimed convergence must fail the tres gate; with
+   ! max_restart=1 the first claim restarts on the measured residual
+   ! and the second claim exits 'gmres_tres_reject' at the cap.
+   !
+   matvec_bias = .true.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_b = jfnk_total_jvp_evals
+   write(luer,'(A,I3,A,I4,A,A)') &
+      'T4b: info=', info, '  evals=', nevals_b, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject') then
+      write(luer,'(A)') 'T4b: PASS'
+   else
+      write(luer,'(A)') 'T4b: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T4c: same biased claim with no restart headroom -- the tres gate
+   ! must reject on the FIRST claim, spending strictly fewer evals than
+   ! T4b (which burned a second cycle before hitting the cap).  tol is
+   ! loosened to 1e-6 so the claim lands inside cycle 1; the c0 floor
+   ! in the true residual (~5e-5 there) stays far above 1.5*tol.
+   !
+   jfnk_gmres_max_restart = 0
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_c = jfnk_total_jvp_evals
+   write(luer,'(A,I3,A,I4,A,A)') &
+      'T4c: info=', info, '  evals=', nevals_c, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject' .and. &
+      nevals_c < nevals_b) then
+      write(luer,'(A)') 'T4c: PASS'
+   else
+      write(luer,'(A)') 'T4c: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_gmres_max_restart = 1
+   !
+   ! T4d/T4e: left preconditioning -- the production default.  The tres
+   ! check then applies psolve to the measured residual, so these run
+   ! with a nontrivial (non-cI) diagonal M to exercise the M^{-1} path.
+   !
+   jfnk_use_left_pc = .true.
+   !
+   matvec_bias = .false.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_jac, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   maxerr = maxval(abs(x_g - xs))
+   write(luer,'(A,I3,A,ES12.4,A)') &
+      'T4d: info=', info, '  max|x-xs|=', maxerr, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info == 0 .and. maxerr < 1.0d-6 .and. &
+      jfnk_exit_reason == 'gmres_converged') then
+      write(luer,'(A)') 'T4d: PASS'
+   else
+      write(luer,'(A)') 'T4d: FAIL'
+      nfail = nfail + 1
+   end if
    !
    matvec_bias = .true.
    jfnk_exit_reason = ' '
@@ -210,18 +294,57 @@ program test_newton_core
    res_g = 1.0d-10
    its_g = 60
    info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_jac, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,A)') &
+      'T4e: info=', info, '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject') then
+      write(luer,'(A)') 'T4e: PASS'
+   else
+      write(luer,'(A)') 'T4e: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_use_left_pc = .false.
+   matvec_bias = .false.
+   !
+   ! T4f: non-finite true residual.  A calibration pass (tol loosened
+   ! to 1e-6 so the claim lands inside cycle 1) learns which matvec
+   ! call the tres measurement uses; the second pass injects a NaN on
+   ! exactly that call.  true_res=NaN must fail the claim -- NaN >
+   ! acc_tol is .false., so without the fail-closed guard this would
+   ! return 'gmres_converged' on an unverifiable residual.
+   !
+   matvec_bias = .false.
+   jfnk_gmres_max_restart = 0
+   matvec_ct = 0
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   ntres_call = matvec_ct
+   matvec_nan_at = ntres_call
+   matvec_ct = 0
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 60
+   info = 1
    call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
                    h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
    write(luer,'(A,I3,A,A)') &
-      'T4b: info=', info, '  exit='//trim(jfnk_exit_reason)
-   if(info /= 0) then
-      write(luer,'(A)') 'T4b: PASS'
+      'T4f: info=', info, '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject') then
+      write(luer,'(A)') 'T4f: PASS'
    else
-      write(luer,'(A)') 'T4b: FAIL'
+      write(luer,'(A)') 'T4f: FAIL'
       nfail = nfail + 1
    end if
+   jfnk_gmres_max_restart = 1
+   matvec_nan_at = -1
    jfnk_gmres_tres_fac = 0d0
-   matvec_bias = .false.
    !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL TESTS PASSED'
@@ -361,12 +484,19 @@ end subroutine sub_test
 ! explicit ||b - matvec(x)|| the tres gate measures.
 subroutine df_lin(n, v, jv)
    use test_prob_mod
+   use, intrinsic :: ieee_arithmetic
    implicit none
    integer, intent(in) :: n
    double precision, intent(in) :: v(n)
    double precision, intent(out) :: jv(n)
+   matvec_ct = matvec_ct + 1
    jv = matmul(amat, v)
    if(matvec_bias) jv = jv + c0v
+   ! T4f: land a NaN on the tres measurement call.  Deliberately does
+   ! NOT raise jfnk_jvp_failed -- the guard under test is the solver's
+   ! own non-finite check on the measured residual.
+   if(matvec_ct == matvec_nan_at) &
+      jv(1) = ieee_value(0d0, ieee_quiet_nan)
 end subroutine df_lin
 
 
@@ -375,6 +505,20 @@ subroutine dfp_id(n, v)
    integer, intent(in) :: n
    double precision, intent(inout) :: v(n)
 end subroutine dfp_id
+
+
+! Nontrivial left preconditioner for T4d/T4e: a per-row varying
+! diagonal (not a multiple of the identity), so the tres psolve branch
+! is exercised the same way the production left-pc path uses it.
+subroutine dfp_jac(n, v)
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(inout) :: v(n)
+   integer :: i
+   do i = 1, n
+      v(i) = v(i) / (2d0 + 0.5d0 * dble(i) / dble(n))
+   end do
+end subroutine dfp_jac
 
 
 double precision function dp_test(n, a, b)

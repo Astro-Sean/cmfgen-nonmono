@@ -2319,8 +2319,12 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                   '  GMRES TRES: it=', its, ' hess_res=', real(res), &
                   ' true_res=', real(true_res), ' acc_tol=', &
                   real(jfnk_gmres_tres_fac * tol)
-               if(res <= tol .and. &
-                  true_res > jfnk_gmres_tres_fac * tol) tres_rej = .true.
+               ! A non-finite true_res cannot verify the claim:
+               ! NaN > x is .false., so without the /= guard a NaN
+               ! residual would be accepted as converged.  Fail closed.
+               if(res <= tol .and. (true_res /= true_res .or. &
+                  true_res > jfnk_gmres_tres_fac * tol)) &
+                  tres_rej = .true.
             end if
             if(tres_rej) then
                if(its == imx .or. &

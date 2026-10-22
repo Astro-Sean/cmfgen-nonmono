@@ -2703,6 +2703,31 @@
 	    END DO
 	  END IF
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV)
+!
+! Non-finite guard for the analytic path (audit 07-Nov-2026): this
+! branch returns before the FD-path NaN/Inf check below, so apply the
+! same policy here -- a NaN in BA_A would otherwise reach GMRES as a
+! valid-looking zeroed or NaN action.  >N/10 bad entries fails the
+! JVP (GMRES aborts); fewer are zeroed individually.
+!
+	  JFNK_N_JVP_NAN = 0
+	  DO I = 1, N
+	    IF(JV(I) .NE. JV(I)) JFNK_N_JVP_NAN = JFNK_N_JVP_NAN + 1
+	    IF(ABS(JV(I)) .GT. 1.0D30) JFNK_N_JVP_NAN = JFNK_N_JVP_NAN + 1
+	  END DO
+	  IF(JFNK_N_JVP_NAN .GT. (N / 10))THEN
+	    JV = 0.0D0
+	    jfnk_jvp_failed = .TRUE.
+	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
+	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I6,A,I6,A)')
+	1      'JFNK_JVP_V1: ', JFNK_N_JVP_NAN, ' NaN/Inf in BA-JVP (N=',
+	2      N, ') -- JVP FAILED, GMRES will abort this solve'
+	  ELSE IF(JFNK_N_JVP_NAN .GT. 0)THEN
+	    DO I = 1, N
+	      IF(JV(I) .NE. JV(I)) JV(I) = 0.0D0
+	      IF(ABS(JV(I)) .GT. 1.0D30) JV(I) = 0.0D0
+	    END DO
+	  END IF
 	  IF(.NOT. BA_JVP_NOTED)THEN
 	    BA_JVP_NOTED = .TRUE.
 	    LUER=ERROR_LU()
@@ -3071,6 +3096,15 @@
      1    (DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0 .OR.
      2     JFNK_HSCAN))THEN
 	    JVP_DIAG_DONE = .TRUE.
+! Fence the solver-side status flags around the probe evals below
+! (audit 07-Nov-2026): the h-sweep trials step to 1E5*h and can end
+! on an nbad/broken eval, and the routine exits this block without a
+! final healthy eval on every path.  JFNK_RESIDUAL_V1 restores the
+! CMFGEN state itself, so only nbad/N_NEW_CLIP/EVAL_BROKEN need
+! restoring here; the residual-eval accounting is intentionally kept.
+	    NBAD_SAV=jfnk_resid_nbad
+	    NCLIP_SAV=JFNK_N_NEW_CLIP
+	    EVB_SAV=JFNK_EVAL_BROKEN
 	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A)')
      1      '  JVP DIAGNOSTIC (FD vs BA diagonal-band action):'
 	    DO I = 1, MIN(10, N)
@@ -3325,6 +3359,9 @@
 	    END DO
 	    WRITE(JFNK_LUER,'(A,ES12.4)')
      1        '    repeat eval: max|F_rep-F_first|=',DH_NORM
+	    jfnk_resid_nbad=NBAD_SAV
+	    JFNK_N_NEW_CLIP=NCLIP_SAV
+	    JFNK_EVAL_BROKEN=EVB_SAV
 	  END IF
 	END IF
 !
@@ -3394,7 +3431,11 @@
 !   repeat     |Jrep(u)-Ju| / |Ju|            eval-noise floor
 !   homogene   |J(2u)-2Ju| / |2Ju|            step-scale dependence
 !   additive   |J(u+vs)-Ju-Jvs|/(|Ju|+|Jvs|)  cross-direction defect
-! with vs the unit direction on all free unknowns.  All probes run at
+! with vs a flat direction on all free unknowns scaled so that
+! |vs|_inf = |u|_inf: H_STEP was selected for the production |u|_inf,
+! so an unscaled vs would perturb the state by 1/|u|_inf too much and
+! the defect would measure clip/floor branches rather than operator
+! nonlinearity (07-Nov-2026 audit).  All probes run at
 ! the current jfnk_x, so jfnk_x motion between Newton iterates cannot
 ! contaminate the comparison.  Probe evals reuse the W_* scratch after
 ! JV is final; JFNK_RESIDUAL_V1 restores POPS/ATM/STEQ module state
@@ -3415,8 +3456,9 @@
 	  DO I=1,N
 	    W_INF_L=MAX(W_INF_L,ABS(JV(I)))
 	  END DO
-	  WRITE(JFNK_LUER,'(A,ES12.4,A,ES12.4)')
-	1    '  LINTEST: heff=',H_STEP,' |Ju|_inf=',W_INF_L
+	  WRITE(JFNK_LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
+	1    '  LINTEST: heff=',H_STEP,' |Ju|_inf=',W_INF_L,
+	2    ' |u|_inf=',VNORM
 !
 	  DO I=1,N
 	    JFNK_W_X_PERT(I)=jfnk_x(I)+H_STEP*DBLE(JFNK_W_V_USE(I))
@@ -3455,7 +3497,10 @@
 	2      MAX(2.0D0*W_INF_L,1.0D-30),' nclip=',JFNK_N_NEW_CLIP
 	  END IF
 !
-	  DIR_LIN(1:N)=1.0D0
+! Flat synthetic direction at the production direction's own inf-norm
+! (see the block header): |h*vs|_inf then equals |h*u|_inf, so the
+! additivity defect is not dominated by the scale mismatch.
+	  DIR_LIN(1:N)=VNORM
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(N,DIR_LIN)
 	  DO I=1,N
 	    JFNK_W_X_PERT(I)=jfnk_x(I)+H_STEP*DIR_LIN(I)
