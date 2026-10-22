@@ -4251,8 +4251,15 @@
 	              S_PTC = S_PTC * EXP(-X_PTC)
 	            END IF
 	          END IF
-	          JFNK_C_MAT(JJ,JJ) = JFNK_C_MAT(JJ,JJ) +
+! [JFNK_PTC_SIGNED]: same signed shift as the per-depth fold -- the
+! banded and LU preconditioners must model the same residual G.
+	          IF(JFNK_PTC_SGN_READY)THEN
+	            JFNK_C_MAT(JJ,JJ) = JFNK_C_MAT(JJ,JJ) +
+	1           JFNK_PTC_SGN(IDX_PTC)*S_PTC
+	          ELSE
+	            JFNK_C_MAT(JJ,JJ) = JFNK_C_MAT(JJ,JJ) +
 	1           S_PTC
+	          END IF
 	        END DO
 	      END IF
 !
