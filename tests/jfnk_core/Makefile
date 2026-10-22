@@ -29,10 +29,11 @@ checkfc:
 	@if [ "$(FC_BASE)" != ifort ] && [ "$(FC_BASE)" != gfortran ]; then \
 	  echo "unsupported FC '$(FC)' - use ifort or gfortran"; exit 1; fi
 
-test: test_newton_core test_guards test_precond_blocks
+test: test_newton_core test_guards test_precond_blocks test_ptc_sign
 	./test_newton_core
 	./test_guards
 	./test_precond_blocks
+	./test_ptc_sign
 
 test_newton_core: jfnk_int_stub.o jfnk_solver_v1.o test_newton_core.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
@@ -49,6 +50,12 @@ test_precond_blocks: jfnk_int_stub.o jfnk_solver_v1.o test_precond_blocks.o
 test_precond_blocks.o: test_precond_blocks.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o
 	$(FC) $(FFLAGS) -c $<
 
+test_ptc_sign: jfnk_int_stub.o jfnk_solver_v1.o test_ptc_sign.o
+	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
+
+test_ptc_sign.o: test_ptc_sign.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o
+	$(FC) $(FFLAGS) -c $<
+
 jfnk_int_stub.o: jfnk_int_stub.f90 checkfc
 	$(FC) $(FFLAGS) -c $<
 
@@ -59,6 +66,6 @@ test_newton_core.o: test_newton_core.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.
 	$(FC) $(FFLAGS) -c $<
 
 clean:
-	rm -f *.o *.mod test_newton_core test_guards test_precond_blocks
+	rm -f *.o *.mod test_newton_core test_guards test_precond_blocks test_ptc_sign
 
 .PHONY: test clean checkfc
