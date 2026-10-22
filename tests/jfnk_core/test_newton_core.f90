@@ -33,6 +33,12 @@ module test_prob_mod
    integer, parameter :: NN = 60
    double precision :: a(NN), xs(NN), xbase(NN), diagJ(NN)
    double precision :: b
+   ! T4: fixed linear operator for the gmres_m_v1 tres tests, plus an
+   ! optional constant offset that makes the matvec affine (v -> Av+c0)
+   ! -- the Arnoldi model then converges while the explicitly measured
+   ! ||b - A x|| keeps an O(c0) floor.
+   double precision :: amat(NN,NN), c0v(NN)
+   logical :: matvec_bias = .false.
 end module test_prob_mod
 
 
@@ -41,9 +47,13 @@ program test_newton_core
    use test_prob_mod
    implicit none
    external :: f_test, df_test, dfp_test, sub_test
+   external :: df_lin, dfp_id
    double precision, external :: dp_test
    integer :: i, info, nfail, luer
+   integer :: its_g
    double precision :: x0(NN), f0(NN), ftrue(NN), xsol(NN)
+   double precision :: x_g(NN), b_g(NN), res_g, pred_g
+   double precision :: h_g(11,10), v_g(NN,11)
    double precision :: fnrm0, tol_t, ftru_nrm, maxerr
    !
    luer = 6
@@ -146,6 +156,72 @@ program test_newton_core
       write(luer,'(A)') 'T3: FAIL'
       nfail = nfail + 1
    end if
+   !
+   ! ---------------- T4: JFNK_TRES_FAC acceptance ---------------------
+   !
+   ! gmres_m_v1 driven directly on A x = b, identity preconditioner,
+   ! no trust region.  T4a uses the consistent matvec jv = A v: the
+   ! hessenberg claim is accepted once true_res <= fac*tol.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = 2d0
+      if(i > 1)  amat(i,i-1) = -0.5d0
+      if(i < NN) amat(i,i+1) = -0.5d0
+   end do
+   b_g = matmul(amat, xs)
+   c0v = 1.0d-6
+   jfnk_use_left_pc = .false.
+   jfnk_jvp_failed = .false.
+   jfnk_pc_clip_event = .false.
+   jfnk_ptc_active = .false.
+   jfnk_gmres_max_restart = 1
+   jfnk_gmres_stag_tol = 1.0d-3
+   jfnk_total_jvp_evals = 0
+   !
+   matvec_bias = .false.
+   jfnk_gmres_tres_fac = 1.5d0
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   maxerr = maxval(abs(x_g - xs))
+   write(luer,'(A,I3,A,ES12.4,A)') &
+      'T4a: info=', info, '  max|x-xs|=', maxerr, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info == 0 .and. maxerr < 1.0d-6) then
+      write(luer,'(A)') 'T4a: PASS'
+   else
+      write(luer,'(A)') 'T4a: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T4b: same system but the matvec adds a fixed offset.  The LS
+   ! residual converges while ||b - A x - c0|| keeps the offset floor,
+   ! so every claimed convergence must fail the tres gate and the
+   ! solve exits rejected rather than converged.
+   !
+   matvec_bias = .true.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,A)') &
+      'T4b: info=', info, '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0) then
+      write(luer,'(A)') 'T4b: PASS'
+   else
+      write(luer,'(A)') 'T4b: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_gmres_tres_fac = 0d0
+   matvec_bias = .false.
    !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL TESTS PASSED'
@@ -276,6 +352,29 @@ end subroutine dfp_test
 subroutine sub_test
    implicit none
 end subroutine sub_test
+
+
+! Linear matvec for the T4 tres tests: jv = A v, plus the constant
+! offset c0v when matvec_bias is set.  The offset makes the action
+! affine -- each Arnoldi product carries c0 while the accumulated
+! step does not, so the least-squares residual under-reports the
+! explicit ||b - matvec(x)|| the tres gate measures.
+subroutine df_lin(n, v, jv)
+   use test_prob_mod
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(in) :: v(n)
+   double precision, intent(out) :: jv(n)
+   jv = matmul(amat, v)
+   if(matvec_bias) jv = jv + c0v
+end subroutine df_lin
+
+
+subroutine dfp_id(n, v)
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(inout) :: v(n)
+end subroutine dfp_id
 
 
 double precision function dp_test(n, a, b)

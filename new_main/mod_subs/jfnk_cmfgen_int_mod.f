@@ -612,4 +612,15 @@
 !
 	LOGICAL, SAVE :: JFNK_PTC_FOLDED=.FALSE.
 !
+! JFNK_LIN_STAGE ([JFNK_LINTEST], default F): once-per-activation arm
+! flag for the JVP operator-consistency probes in JFNK_JVP_V1.  0 =
+! armed; the first post-factorization direction with a valid
+! production image runs the repeat/homogeneity/additivity evals at the
+! same jfnk_x and flips STAGE to 1.  JFNK_INIT_V1 re-arms it each
+! activation.  No direction storage is needed: all probes run inside
+! one JVP call so a Newton update of jfnk_x between calls cannot
+! contaminate the defect.
+!
+	INTEGER, SAVE :: JFNK_LIN_STAGE=0
+!
 	END MODULE JFNK_CMFGEN_INT_MOD

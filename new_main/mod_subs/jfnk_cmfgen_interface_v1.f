@@ -412,6 +412,13 @@
 	jfnk_n_reg_proj = 0
 	JFNK_LU_READY = .FALSE.
 !
+! [JFNK_LINTEST] per-activation probe state: re-arm the stage machine
+! so each admission stores its own first post-factorization direction
+! (a stored direction from a previous activation is a different
+! linearization point and must not feed the additivity defect).
+!
+	JFNK_LIN_STAGE=0
+!
 ! W11/W12 (17-Oct-2026): per-activation state -- a stale enriched
 ! apply or census mask must not survive into a new baseline.
 !
@@ -2560,7 +2567,8 @@
 	3                           jfnk_n_reg_proj
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
-	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR, JFNK_BA_JVP
+	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR, JFNK_BA_JVP,
+	3                           JFNK_LINTEST, JFNK_HSCAN
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
@@ -2596,6 +2604,21 @@
 	INTEGER ITOP_ARR(3)
 	DOUBLE PRECISION H_ARR(8), HMULT, DH_NORM, FDH_NORM, ROWMAX_A
 	CHARACTER*12 LBL_LOC
+!
+! Cancellation-floor SNR table (h-sweep extension): per worst row, the
+! estimated eval noise floor eps_mach*max|BA_row| and the |dF| signal
+! at each scanned h.  BRM_ARR stores the row max at selection time
+! (ROWMAX_A is reused inside the h loop for a different quantity).
+!
+	DOUBLE PRECISION BRM_ARR(3), SNR_H(3,8)
+!
+! [JFNK_LINTEST] probe scratch: synthetic second direction and probe
+! JVP image.  Allocated lazily inside the probe block.
+!
+	DOUBLE PRECISION, ALLOCATABLE :: DIR_LIN(:), JV_LIN(:)
+	DOUBLE PRECISION W_INF_L, DEF_INF, DEN_INF
+	INTEGER NBAD_SAV, NCLIP_SAV
+	LOGICAL EVB_SAV
 !
 ! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
 ! 2021) needs the perturbation carried through the residual in
@@ -3039,8 +3062,14 @@
      2    ' rt FD: |M^-1Jv-v|/|v|=', RT_FD/MAX(RT_DEN,1.0D-30),
      3    ' rt BA=', RT_BA/MAX(RT_DEN,1.0D-30),
      4    ' reg share=', VREG/MAX(VREG+VTOT,1.0D-30)
+! [JFNK_HSCAN, default F] forces the extended block on the first
+! post-factor direction regardless of the mismatch trigger, so a
+! plateau-state run gets the h-sweep + cancellation-floor table on
+! demand rather than only after a >10% FD-BA disagreement.
+!
 	  IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
-     1    DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0)THEN
+     1    (DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0 .OR.
+     2     JFNK_HSCAN))THEN
 	    JVP_DIAG_DONE = .TRUE.
 	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A)')
      1      '  JVP DIAGNOSTIC (FD vs BA diagonal-band action):'
@@ -3087,6 +3116,7 @@
 	    WRITE(JFNK_LUER,'(A)')
      1      '    worst |FD-BA*v| components (row-max |BA_row|, F_i):'
 	    ITOP_ARR=0
+	    BRM_ARR=0.0D0
 	    DO ISEL=1,8
 	      I_TOP=0
 	      DH_NORM=0.0D0
@@ -3105,6 +3135,7 @@
 	      DO JJ=1,JFNK_NT
 	        ROWMAX_A=MAX(ROWMAX_A,ABS(DBLE(JFNK_BA_A(JROW,JJ,KROW))))
 	      END DO
+	      IF(ISEL .LE. 3)BRM_ARR(ISEL)=ROWMAX_A
 	      ID=0
 	      IF(JROW .LE. JFNK_NT-2)ID=J2ID_LOC(JROW)
 	      LBL_LOC='unlabeled'
@@ -3124,6 +3155,7 @@
      4        ' |F_i|=',ABS(jfnk_fx(I_TOP)),' max|BA_row|=',ROWMAX_A
 	    END DO
 !
+	    SNR_H=0.0D0
 	    H_ARR(1)=1.0D-2
 	    H_ARR(2)=1.0D-1
 	    H_ARR(3)=1.0D0
@@ -3161,6 +3193,10 @@
 	        DH_NORM=MAX(DH_NORM,ABS(JV_H(I)-JV_ANAL(I)))
 	        FDH_NORM=MAX(FDH_NORM,ABS(JV_H(I)))
 	      END DO
+	      DO ISEL=1,3
+	        IF(ITOP_ARR(ISEL) .GT. 0)
+	1        SNR_H(ISEL,IHS)=ABS(DIFF_ARR(ITOP_ARR(ISEL)))
+	      END DO
 	      ROWMAX_A=0.0D0
 	      DO I=1,N
 	        ROWMAX_A=MAX(ROWMAX_A,ABS(DIFF_ARR(I)))
@@ -3180,6 +3216,42 @@
      3        DIFF_ARR(ITOP_ARR(ISEL)),' FD_h=',JV_H(ITOP_ARR(ISEL)),
      4        ' BA*v=',JV_ANAL(ITOP_ARR(ISEL))
 	      END DO
+	    END DO
+!
+! Cancellation-floor summary (Phase-1 JVP review): the per-row eval
+! noise floor is ~eps_mach times the row's gross rate scale;
+! max|BA_row| is the stored surrogate for that scale (no gross-rate
+! vector exists -- for a rate row |BA_ii| is already the outflow
+! total).  A row whose |dF_i| never exceeds ~30x the floor over the
+! whole sweep cannot be resolved by the forward difference at any
+! scanned h; one that crosses it has a resolved window.  SNR_H holds
+! |dF_i| at each scanned multiplier; h points skipped on nbad read
+! as 0.
+!
+	    WRITE(JFNK_LUER,'(A)')
+     1      '    cancellation floor vs |dF_i| per worst row:'
+	    DO ISEL=1,3
+	      IF(ITOP_ARR(ISEL) .GT. 0 .AND. BRM_ARR(ISEL) .GT. 0.0D0)THEN
+	        DH_NORM=EPSILON(1.0D0)*BRM_ARR(ISEL)
+	        I_TOP=0
+	        DO IHS=1,8
+	          IF(I_TOP .EQ. 0 .AND.
+	1            SNR_H(ISEL,IHS) .GT. 30.0D0*DH_NORM)I_TOP=IHS
+	        END DO
+	        IF(I_TOP .GT. 0)THEN
+	          WRITE(JFNK_LUER,'(A,I8,3(A,ES12.4))')
+	1            '      row ',ITOP_ARR(ISEL),': floor=',DH_NORM,
+	2            ' first resolved at heff=',H_ARR(I_TOP)*H_STEP,
+	3            ' max SNR=',MAXVAL(SNR_H(ISEL,:))/
+	4            MAX(DH_NORM,1.0D-300)
+	        ELSE
+	          WRITE(JFNK_LUER,'(A,I8,2(A,ES12.4),A)')
+	1            '      row ',ITOP_ARR(ISEL),': floor=',DH_NORM,
+	2            ' max SNR=',MAXVAL(SNR_H(ISEL,:))/
+	3            MAX(DH_NORM,1.0D-300),
+	4            ' -- unresolved at every scanned h'
+	        END IF
+	      END IF
 	    END DO
 !
 ! Repeatability / baseline / direction tests (22-Oct-2026 review):
@@ -3306,6 +3378,125 @@
 	      IF(ABS(JV(I)) .GT. 1.0D30) JV(I) = 0.0D0
 	    END DO
 	  END IF
+	END IF
+!
+! [JFNK_LINTEST, default F] JVP operator-consistency probe (Phase-1
+! review, Nov-2026): GMRES builds its Krylov space on the assumption
+! that the matvec applies ONE fixed linear operator at jfnk_x.  The
+! FD JVP is only approximately linear -- clip retries can shrink the
+! effective step inside a call, and the residual's nonsmooth branches
+! (population floor, T-exp cap, FIXPOP row swaps) make the action
+! state- and scale-dependent, so columns of the Arnoldi recurrence can
+! come from different effective operators.  Once per activation, on
+! the first post-factorization direction u whose production image is
+! valid, this measures at the SAME final H_STEP the production JV
+! used:
+!   repeat     |Jrep(u)-Ju| / |Ju|            eval-noise floor
+!   homogene   |J(2u)-2Ju| / |2Ju|            step-scale dependence
+!   additive   |J(u+vs)-Ju-Jvs|/(|Ju|+|Jvs|)  cross-direction defect
+! with vs the unit direction on all free unknowns.  All probes run at
+! the current jfnk_x, so jfnk_x motion between Newton iterates cannot
+! contaminate the comparison.  Probe evals reuse the W_* scratch after
+! JV is final; JFNK_RESIDUAL_V1 restores POPS/ATM/STEQ module state
+! itself, so only the solver-side counters are fenced.  A broken probe
+! eval skips only its own line; JV, h selection and flags are
+! untouched -- diagnostic only.
+!
+	IF(JFNK_LINTEST .AND. JFNK_LUER .GT. 0 .AND.
+	1    JFNK_LIN_STAGE .EQ. 0 .AND. JFNK_FACTOR_DONE .AND.
+	2    .NOT. jfnk_jvp_failed)THEN
+	  JFNK_LIN_STAGE=1
+	  IF(.NOT. ALLOCATED(JV_LIN))ALLOCATE(JV_LIN(N))
+	  IF(.NOT. ALLOCATED(DIR_LIN))ALLOCATE(DIR_LIN(N))
+	  NBAD_SAV=jfnk_resid_nbad
+	  NCLIP_SAV=JFNK_N_NEW_CLIP
+	  EVB_SAV=JFNK_EVAL_BROKEN
+	  W_INF_L=0.0D0
+	  DO I=1,N
+	    W_INF_L=MAX(W_INF_L,ABS(JV(I)))
+	  END DO
+	  WRITE(JFNK_LUER,'(A,ES12.4,A,ES12.4)')
+	1    '  LINTEST: heff=',H_STEP,' |Ju|_inf=',W_INF_L
+!
+	  DO I=1,N
+	    JFNK_W_X_PERT(I)=jfnk_x(I)+H_STEP*DBLE(JFNK_W_V_USE(I))
+	  END DO
+	  CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	  IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	    WRITE(JFNK_LUER,'(A)')
+	1      '    repeat: eval broken -- skipped'
+	  ELSE
+	    DEF_INF=0.0D0
+	    DO I=1,N
+	      JV_LIN(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/H_STEP
+	      DEF_INF=MAX(DEF_INF,ABS(JV_LIN(I)-JV(I)))
+	    END DO
+	    WRITE(JFNK_LUER,'(A,ES12.4,A,I4)')
+	1      '    repeat: |Jrep-Ju|/|Ju|=',DEF_INF/
+	2      MAX(W_INF_L,1.0D-30),' nclip=',JFNK_N_NEW_CLIP
+	  END IF
+!
+	  DO I=1,N
+	    JFNK_W_X_PERT(I)=jfnk_x(I)+2.0D0*H_STEP*
+	1      DBLE(JFNK_W_V_USE(I))
+	  END DO
+	  CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	  IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	    WRITE(JFNK_LUER,'(A)')
+	1      '    homog J(2u): eval broken -- skipped'
+	  ELSE
+	    DEF_INF=0.0D0
+	    DO I=1,N
+	      JV_LIN(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/H_STEP
+	      DEF_INF=MAX(DEF_INF,ABS(JV_LIN(I)-2.0D0*JV(I)))
+	    END DO
+	    WRITE(JFNK_LUER,'(A,ES12.4,A,I4)')
+	1      '    homog: |J2u-2Ju|/|2Ju|=',DEF_INF/
+	2      MAX(2.0D0*W_INF_L,1.0D-30),' nclip=',JFNK_N_NEW_CLIP
+	  END IF
+!
+	  DIR_LIN(1:N)=1.0D0
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N,DIR_LIN)
+	  DO I=1,N
+	    JFNK_W_X_PERT(I)=jfnk_x(I)+H_STEP*DIR_LIN(I)
+	  END DO
+	  CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	  IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	    WRITE(JFNK_LUER,'(A)')
+	1      '    addit J(vs): eval broken -- skipped'
+	  ELSE
+	    DO I=1,N
+	      JV_LIN(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/H_STEP
+	    END DO
+	    CALL JFNK_MASK_FIXED_UNKNOWNS(N,JV_LIN)
+	    DO I=1,N
+	      JFNK_W_X_PERT(I)=jfnk_x(I)+H_STEP*
+	1        (DBLE(JFNK_W_V_USE(I))+DIR_LIN(I))
+	    END DO
+	    CALL JFNK_RESIDUAL_V1(N,JFNK_W_X_PERT,JFNK_W_F_PERT)
+	    IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	      WRITE(JFNK_LUER,'(A)')
+	1        '    addit J(u+vs): eval broken -- skipped'
+	    ELSE
+	      DO I=1,N
+	        DIR_LIN(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/H_STEP
+	      END DO
+	      CALL JFNK_MASK_FIXED_UNKNOWNS(N,DIR_LIN)
+	      DEF_INF=0.0D0
+	      DEN_INF=0.0D0
+	      DO I=1,N
+	        DEF_INF=MAX(DEF_INF,ABS(DIR_LIN(I)-JV(I)-JV_LIN(I)))
+	        DEN_INF=MAX(DEN_INF,ABS(JV(I))+ABS(JV_LIN(I)))
+	      END DO
+	      WRITE(JFNK_LUER,'(A,ES12.4,A,I4)')
+	1        '    addit: |J(u+vs)-Ju-Jvs|/(|Ju|+|Jvs|)=',
+	2        DEF_INF/MAX(DEN_INF,1.0D-30),' nclip=',JFNK_N_NEW_CLIP
+	    END IF
+	  END IF
+!
+	  jfnk_resid_nbad=NBAD_SAV
+	  JFNK_N_NEW_CLIP=NCLIP_SAV
+	  JFNK_EVAL_BROKEN=EVB_SAV
 	END IF
 !
 	JFNK_N_JVP_EVALS = JFNK_N_JVP_EVALS + 1

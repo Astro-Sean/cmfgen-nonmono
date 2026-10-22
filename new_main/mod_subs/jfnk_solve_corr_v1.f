@@ -372,6 +372,7 @@
 	  jfnk_max_gmres_its=JFNK_MAX_GMRES
 	  jfnk_gmres_stag_tol=JFNK_GMRES_STAG
 	  jfnk_gmres_max_restart=JFNK_GMRES_RST
+	  jfnk_gmres_tres_fac=DBLE(JFNK_TRES_FAC)
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
 ! after each counted failure.  The trims are per-activation locals --
@@ -824,6 +825,12 @@
 	    WRITE(LUER,'(A)')
 	1   '    termination         : nonlinear |F|, not GMRES'
 	2   //' residual'
+	    IF(JFNK_LINTEST .OR. JFNK_HSCAN .OR.
+	1       JFNK_TRES_FAC .GT. 0.0_LDP)THEN
+	      WRITE(LUER,'(A,L1,A,L1,A,ES10.3)')
+	1     '    phase-1 JVP diagnostics  : lintest=',JFNK_LINTEST,
+	2     ' hscan=',JFNK_HSCAN,' tres_fac=',REAL(JFNK_TRES_FAC)
+	    END IF
 	    JFNK_BANNER_PRINTED=.TRUE.
 	  END IF
 	  FLUSH(LUER)

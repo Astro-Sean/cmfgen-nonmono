@@ -1944,6 +1944,33 @@
 ! h-adaptivity makes the effective Krylov operator nonlinear.
 	LOGICAL JFNK_BA_JVP
 !
+! JFNK_LINTEST (VADAT [JFNK_LINTEST], default F): once per activation,
+! run the JVP operator-consistency probes in JFNK_JVP_V1 on the first
+! post-factorization GMRES direction u -- repeatability (same-state
+! re-eval), finite-h curvature (Jv at 2*h vs 2*Jv), and additivity
+! (J(u+vs) - Ju - Jvs on a unit synthetic direction vs).  All probes
+! run at the same jfnk_x and the same effective h the production image
+! used.  Diagnostic only; 4 extra residual evals per admission.
+	LOGICAL JFNK_LINTEST
+!
+! JFNK_HSCAN (VADAT [JFNK_HSCAN], default F): force the one-shot
+! extended JVP diagnostic in JFNK_JVP_V1 (worst |FD-BA*v| rows, the
+! 8-point h-sweep, baseline/direction/repeat evals, and the per-row
+! cancellation-floor SNR table) on the first post-factor direction
+! even when the FD-vs-BA mismatch stays below the 10% trigger.
+	LOGICAL JFNK_HSCAN
+!
+! JFNK_TRES_FAC (VADAT [JFNK_TRES_FAC], default 0 = off): GMRES
+! true-residual acceptance.  When > 0, a claimed LSQ convergence
+! (res <= tol) in gmres_m_v1 is verified by an explicit residual
+! eval and accepted only when true_res <= JFNK_TRES_FAC*tol; a
+! rejected claim restarts the cycle on the measured true residual
+! (bounded by JFNK_GMRES_RST and the iteration cap) or exits with
+! jfnk_exit_reason='gmres_tres_reject'.  The measured true residual
+! is also printed at every done-exit.  Costs one residual eval per
+! GMRES exit.
+	REAL(KIND=LDP) JFNK_TRES_FAC
+!
 ! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
 ! wall-clock budget in seconds, measured from JFNK_INIT_V1.  Checked
 ! alongside the eval budget in JFNK_RESIDUAL_V1 -- an activation that

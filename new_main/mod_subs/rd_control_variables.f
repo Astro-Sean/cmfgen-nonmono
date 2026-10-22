@@ -1623,6 +1623,16 @@
 	  JFNK_BA_JVP=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_BA_JVP,'JFNK_BA_JVP',L_FALSE,
 	1     'Analytic BA matvec in place of FD JVP (diagnostic)')
+	  JFNK_LINTEST=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_LINTEST,'JFNK_LINTEST',L_FALSE,
+	1     'JVP operator-consistency probes once per activation')
+	  JFNK_HSCAN=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_HSCAN,'JFNK_HSCAN',L_FALSE,
+	1     'Force the extended JVP h-sweep diagnostic once per run')
+	  JFNK_TRES_FAC=0.0_LDP
+	  CALL RD_STORE_DBLE(JFNK_TRES_FAC,'JFNK_TRES_FAC',L_FALSE,
+	1     'GMRES true-residual acceptance factor (0=off)')
+	  IF(JFNK_TRES_FAC .LT. 0.0_LDP)JFNK_TRES_FAC=0.0_LDP
 	  JFNK_MAX_SEC=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')

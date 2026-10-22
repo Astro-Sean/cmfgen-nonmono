@@ -161,6 +161,18 @@ module jfnk_solver_v1_mod
    !
    integer :: jfnk_gmres_max_restart = 1
    !
+   ! True-residual acceptance factor (added 22-Oct-2026, numerical-
+   ! methods review Phase 1).  When > 0, a claimed LSQ convergence
+   ! (res <= tol) in gmres_m_v1 must survive an explicit
+   ! ||b - A x||_w measurement: the Hessenberg residual is only a
+   ! model of the true residual, and with a finite-difference matvec
+   ! it has been observed 150-450x low at restart (the Arnoldi basis
+   ! does not compose a fixed linear operator).  Set from the
+   ! JFNK_TRES_FAC control variable via JFNK_SOLVE_CORR_V1;
+   ! 0 = off preserves the historical accept-on-hess_res path.
+   !
+   double precision :: jfnk_gmres_tres_fac = 0d0
+   !
    ! Left vs right GMRES preconditioning (Arramy 2024 prefers left).
    ! Set from JFNK_LEFT_PRECOND before NEWTON_HOOK_V1.
    ! editted by Sean Brennan (08-Sep-2026)
@@ -1861,7 +1873,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_gmres_jj, jfnk_gmres_beta, &
                                   jfnk_gmres_z, jfnk_gmres_g, &
                                   jfnk_gmres_x_cycle_start, &
-                                  jfnk_gmres_max_restart, &
+                                  jfnk_gmres_max_restart, jfnk_gmres_tres_fac, &
                                   jfnk_exit_reason
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
@@ -1897,6 +1909,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision :: beta
    integer :: jj
    logical :: done, left_pc
+   ! ltres: a JFNK_TRES_FAC true-residual measurement was taken this
+   ! cycle -- the restart-diag block reuses it instead of spending a
+   ! second eval on the same vector.
+   logical :: ltres, tres_rej
    ! Lucky-breakdown cycle end: h(j+1,j)~0 means the Krylov space is
    ! invariant, so every later Arnoldi step is built on the zeroed
    ! v(:,j+1) and can only spin until n_stag aborts the solve.  End the
@@ -2037,6 +2053,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    n_stag = 0
    res_best = 1d99
    lb_hit = .false.
+   ltres = .false.
    jfnk_gmres_x_cycle_start = x
    del_cycle = del
    !
@@ -2257,6 +2274,69 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          jfnk_gmres_jj   = j
          jfnk_gmres_beta = beta
          if(done) then
+            ! [JFNK_TRES_FAC] (default 0 = off): measure the true
+            ! weighted linear residual ||b - A x||_w at every done-exit
+            ! with one extra matvec.  The Hessenberg LS residual is only
+            ! a model of that quantity; with a finite-difference matvec
+            ! the Arnoldi vectors need not span a fixed linear operator,
+            ! and hess_res has been observed 150-450x below the true
+            ! residual at restart (RESTART DIAG, npq_dbg run).  A
+            ! claimed convergence (res <= tol) is accepted only when
+            ! true_res <= JFNK_TRES_FAC*tol; a rejected claim restarts
+            ! the cycle on the measured residual (bounded by the
+            ! restart cap and imx), or exits 'gmres_tres_reject' when no
+            ! restart headroom remains.  Non-converged exits (its==imx,
+            ! stagnation) only record true_res.
+            tres_rej = .false.
+            if(jfnk_gmres_tres_fac > 0d0) then
+               call matvec(n, x, z)
+               jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+               if(jfnk_jvp_failed) then
+                  if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
+                     ' in TRES check -- aborting'
+                  info = 3
+                  jfnk_exit_reason = 'gmres_jvp_failure_tres'
+                  return
+               end if
+               w = b - z
+               if(left_pc) then
+                  call psolve(n, w)
+                  if(jfnk_pc_clip_event) then
+                     if(luer > 0) write(luer,*) '  GMRES: precond'// &
+                        ' clip in TRES check -- aborting'
+                     info = 3
+                     jfnk_exit_reason = 'gmres_pc_clip_tres'
+                     return
+                  end if
+               end if
+               true_res = dsqrt(dotprd(n, w, w))
+               ltres = .true.
+               ! info already holds the exit code here (0 on a claimed
+               ! convergence), so it cannot double as the verbose gate:
+               ! this line exists to audit exactly those claims.
+               if(luer > 0) &
+                  write(luer,'(A,I3,3(A,ES12.4))') &
+                  '  GMRES TRES: it=', its, ' hess_res=', real(res), &
+                  ' true_res=', real(true_res), ' acc_tol=', &
+                  real(jfnk_gmres_tres_fac * tol)
+               if(res <= tol .and. &
+                  true_res > jfnk_gmres_tres_fac * tol) tres_rej = .true.
+            end if
+            if(tres_rej) then
+               if(its == imx .or. &
+                  n_restart >= jfnk_gmres_max_restart) then
+                  if(luer > 0) write(luer,'(A)') &
+                     '  GMRES: convergence claim failed the true-'// &
+                     'residual check; no restart headroom left'
+                  info = 1
+                  jfnk_exit_reason = 'gmres_tres_reject'
+                  return
+               end if
+               if(luer > 0) write(luer,'(A)') &
+                  '  GMRES: convergence claim failed the true-'// &
+                  'residual check -- restarting on the measured residual'
+               goto 2
+            end if
             ! Convergence and the total-iteration cap always exit.
             ! Stagnation exit (n_stag>=3) is bypassed when lb_hit ended
             ! the cycle: the stall was caused by the invariant Krylov
@@ -2283,6 +2363,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                return
             end if
          end if
+2        continue
          !
          ! V4 audit (2026-10): True residual at restart.
          ! The Hessenberg least-squares residual `res` is computed with
@@ -2294,26 +2375,31 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! Compute the true residual explicitly and compare.
          !
          if(info == 1) then
-            w = b
-            call matvec(n, x, z)
-            jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
-            if(jfnk_jvp_failed) then
-               write(luer,*) '  GMRES: JVP failure in restart diag -- aborting'
-               info = 3
-               jfnk_exit_reason = 'gmres_jvp_failure_restart_diag'
-               return
-            end if
-            w = b - z
-            if(left_pc) then
-               call psolve(n, w)
-               if(jfnk_pc_clip_event) then
-                  write(luer,*) '  GMRES: precond clip in restart diag -- aborting'
+            ! When the TRES check above already measured ||b - A x||_w
+            ! this cycle, reuse it -- a second eval on the same vector
+            ! buys nothing and doubles the diagnostic cost.
+            if(.not. ltres) then
+               w = b
+               call matvec(n, x, z)
+               jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+               if(jfnk_jvp_failed) then
+                  write(luer,*) '  GMRES: JVP failure in restart diag -- aborting'
                   info = 3
-                  jfnk_exit_reason = 'gmres_pc_clip_restart_diag'
+                  jfnk_exit_reason = 'gmres_jvp_failure_restart_diag'
                   return
                end if
+               w = b - z
+               if(left_pc) then
+                  call psolve(n, w)
+                  if(jfnk_pc_clip_event) then
+                     write(luer,*) '  GMRES: precond clip in restart diag -- aborting'
+                     info = 3
+                     jfnk_exit_reason = 'gmres_pc_clip_restart_diag'
+                     return
+                  end if
+               end if
+               true_res = dsqrt(dotprd(n, w, w))
             end if
-            true_res = dsqrt(dotprd(n, w, w))
             write(luer,'(A,I3,A,ES12.4,A,ES12.4,A,ES12.4)') &
                '  GMRES RESTART DIAG: it=', its, &
                ' hess_res=', real(res), &
