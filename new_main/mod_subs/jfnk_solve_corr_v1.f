@@ -507,6 +507,34 @@
 	  IF(.NOT. ALLOCATED(jfnk_fx))ALLOCATE(jfnk_fx(JFNK_N))
 	  jfnk_x=0.0D0
 !
+! JFNK_TRACE_ELIM (VADAT [JFNK_TRACE_ELIM], default F): freeze the
+! exempt-row mask at the activation baseline so every eval, JVP and
+! the committed step see the same reduced unknown set -- a per-eval
+! recomputed mask would make the Krylov operator state-dependent.
+! Predicate identical to the demand-metric exemption above
+! (J <= NT-2 and POPS < BA_DEM_PFLOOR): the Stage-B polish already
+! treats those rows as the trace block, so removing them from the
+! Newton solve is the toy's reduced-space split in Gauss-Seidel
+! form.  With the flag off the mask is deallocated and
+! JFNK_MASK_FIXED_UNKNOWNS is byte-identical to before.
+! edited by Devin, 22-Oct-2026
+!
+	  JFNK_TRACE_ELIM_LOC=.FALSE.
+	  IF(ALLOCATED(JFNK_TRACE_MASK))DEALLOCATE(JFNK_TRACE_MASK)
+	  IF(JFNK_TRACE_ELIM .AND. BA_DEM_PFLOOR .GT. 0.0_LDP)THEN
+	    ALLOCATE(JFNK_TRACE_MASK(NT,ND))
+	    JFNK_TRACE_MASK=.FALSE.
+	    DO K=1,ND
+	      DO J=1,NT-2
+	        IF(POPS(J,K) .LT. BA_DEM_PFLOOR)JFNK_TRACE_MASK(J,K)=.TRUE.
+	      END DO
+	    END DO
+	    JFNK_TRACE_ELIM_LOC=ANY(JFNK_TRACE_MASK)
+	    WRITE(LUER,'(A,I7,A,I7,A)')
+	1     '  JFNK_TRACE_ELIM: ',COUNT(JFNK_TRACE_MASK),' of ',NT*ND,
+	2     ' rows masked out of the Newton unknowns'
+	  END IF
+!
 ! New admission baseline: the first ASSEMBLE below re-harvests the
 ! REPLACE/ZERO_STEQ equation structure at this state; every perturbed
 ! residual eval in this Newton solve replays it frozen.
@@ -2176,6 +2204,15 @@
 	1       '    applying    : best Newton correction,'
 	2       //' not fully converged'
 	    END IF
+!
+! Under JFNK_TRACE_ELIM the committed step must not move exempt rows
+! either: residuals, JVPs and preconditioned vectors are all masked,
+! but an un-preconditioned line-search/Cauchy direction follows the
+! raw gradient J^T F, whose trace columns are unmasked.  One mask
+! call here is the last guard before POPS is written.
+! edited by Devin, 22-Oct-2026
+!
+	    CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,jfnk_x)
 !
 ! [JFNK_LOGX] (default T): n = n0*exp(x), clipped to
 ! [1/MAX_JFNK, MAX_JFNK].  [JFNK_LOGX]=F keeps n = n0*(1+x).

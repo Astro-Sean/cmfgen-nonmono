@@ -1529,6 +1529,11 @@
 	  CALL RD_STORE_LOG(JFNK_NOISE_DIAG,'JFNK_NOISE_DIAG',L_FALSE,
 	1     'Log per-eval JFNK residual noise (repeat-X reproducibility)?')
 !
+	  JFNK_TRACE_ELIM=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_TRACE_ELIM,'JFNK_TRACE_ELIM',L_FALSE,
+	1     'Mask exempt trace rows out of the JFNK unknowns '//
+	2     '(GS trace elimination)?')
+!
 	  JFNK_WARMUP=6
 	  CALL RD_STORE_INT(JFNK_WARMUP,'JFNK_WARMUP',L_FALSE,
 	1     'Number of GS/LAMBDA warm-up iterations before JFNK (0=cold start)')

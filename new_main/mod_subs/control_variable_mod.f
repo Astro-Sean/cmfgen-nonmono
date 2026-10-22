@@ -1863,6 +1863,18 @@
 ! (OMP reduction order, unbracketed sweep state).  Diagnostic only;
 ! the default path is unchanged.  (bake-off Phase 2, 22-Oct-2026)
 	LOGICAL JFNK_NOISE_DIAG
+!
+! JFNK_TRACE_ELIM (VADAT [JFNK_TRACE_ELIM], default F): block
+! Gauss-Seidel variant of the bake-off winner A -- rows below
+! BA_DEM_PFLOOR (the same exempt-row predicate the demand metric and
+! Stage-B polish use) are masked out of the Newton residual and
+! correction for the whole activation, so the Krylov solve only moves
+! major rows; the existing BA_TRACE_PHASE polish then resolves the
+! trace populations post-step.  In the toy bake-off the equivalent
+! reduced-space split was the decisive ingredient (21/21 held-out,
+! ~2x fewer sweep-equivalents than stock).  UNVERIFIED on real
+! models.  (bake-off Phase 3, 22-Oct-2026)
+	LOGICAL JFNK_TRACE_ELIM
 	INTEGER JFNK_WARMUP
 	REAL(KIND=LDP) MAX_JFNK_COR
 	LOGICAL JFNK_APPLY_BA_RIDGE

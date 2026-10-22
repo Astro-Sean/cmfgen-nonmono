@@ -5417,7 +5417,26 @@
 	IMPLICIT NONE
 	INTEGER, INTENT(IN) :: N
 	DOUBLE PRECISION, INTENT(INOUT) :: VEC(N)
-	INTEGER K, IDX
+	INTEGER K, J, IDX
+!
+! JFNK_TRACE_ELIM (VADAT key, default F): exempt trace rows are
+! zeroed like fixed unknowns.  The mask was frozen at activation
+! from the baseline POPS (< BA_DEM_PFLOOR), so every call applies
+! the identical projection -- residuals, JVPs and the committed
+! step all stay inside the reduced unknown set, which is what makes
+! the masked operator a fixed linear map for GMRES.
+! edited by Devin, 22-Oct-2026
+!
+	IF(JFNK_TRACE_ELIM_LOC .AND. ALLOCATED(JFNK_TRACE_MASK))THEN
+	  DO K = 1, JFNK_ND
+	    DO J = 1, JFNK_NT
+	      IF(JFNK_TRACE_MASK(J,K))THEN
+	        IDX = (K-1)*JFNK_NT + J
+	        IF(IDX .GE. 1 .AND. IDX .LE. N) VEC(IDX) = 0.0D0
+	      END IF
+	    END DO
+	  END DO
+	END IF
 !
 	DO K = 1, JFNK_ND
 	  IF(JFNK_FIXED_NE_LOC)THEN

@@ -115,6 +115,19 @@
 	LOGICAL, SAVE :: JFNK_FIXED_T_LOC=.TRUE.
 	LOGICAL, SAVE :: JFNK_FIXED_NE_LOC=.TRUE.
 !
+! JFNK_TRACE_ELIM (bake-off Phase 3, VADAT [JFNK_TRACE_ELIM], default
+! F): per-activation mask of exempt trace rows (same predicate as the
+! demand-metric exemption: J <= NT-2 and POPS < BA_DEM_PFLOOR at the
+! activation baseline).  JFNK_MASK_FIXED_UNKNOWNS zeroes those
+! residual/correction components, so the Krylov operator stays a
+! fixed linear map on the reduced unknown set; trace populations are
+! left to the existing BA_TRACE_PHASE polish (block Gauss-Seidel).
+! The mask is frozen at activation: recomputing it per eval would
+! make the operator state-dependent.
+!
+	LOGICAL, ALLOCATABLE, SAVE :: JFNK_TRACE_MASK(:,:)
+	LOGICAL, SAVE :: JFNK_TRACE_ELIM_LOC=.FALSE.
+!
 ! Per-activation residual mode (03-Oct-2026, two-stage admission):
 ! JFNK_COUPLED in CONTROL_VARIABLE_MOD is the VADAT capability flag;
 ! JFNK_COUPLED_LOC is the mode selected for THIS activation by the
