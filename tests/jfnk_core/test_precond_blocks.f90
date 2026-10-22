@@ -31,6 +31,7 @@ program test_precond_blocks
    call t_rscale_order(nfail)
    call t_sign(nfail)
    call t_ridge(nfail)
+   call t_regcol(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -838,3 +839,98 @@ subroutine t_ridge(nfail)
    jfnk_ridge_floor = 0.0d0
    print *, 'T-RIDGE: ok'
 end subroutine t_ridge
+!======================================================================
+subroutine t_regcol(nfail)
+   use jfnk_solver_v1_mod, only: jfnk_pc_reg_zerocol, jfnk_pc_signed, &
+        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: n = 40, r = 17
+   double precision :: a(n,n), lu(n,n), b(n), z(n), rhs(n)
+   double precision :: rsf(n), csf(n), rr(n), diag(n)
+   integer :: ipiv(n)
+   logical :: reg(n), regt(n), fixed(n), pre_reg(n)
+   double precision :: rcond, pv, ru, err, scl, u
+   integer :: itry, i, j, ic, info
+   logical :: ok
+   double precision :: csc(4) = [1.0d-6, 1.0d-3, 1.0d-1, 1.0d0]
+   double precision :: err_old(4), err_new(4)
+   integer :: np,nz,nc,nm,ns
+!
+   jfnk_pc_signed=.false.; jfnk_pc_tiny_equil=.false.
+   jfnk_pc_rcond_gate=.false.
+   call srand(555)
+   do ic = 1, 4
+      do j = 1, n
+         do i = 1, n
+            u = rand()
+            a(i,j) = (2.0d0*u - 1.0d0)
+         end do
+      end do
+      do i = 1, n
+         a(i,i) = a(i,i) + 4.0d0
+      end do
+! make row r near-null so it is regularized; populate column r at
+! the controlled scale
+      a(r,:) = 0.0d0
+      do i = 1, n
+         if(i /= r) a(i,r) = csc(ic) * (2.0d0*rand() - 1.0d0)
+      end do
+      do i = 1, n
+         rhs(i) = sin(1.1d0*i)
+         diag(i) = a(i,i)
+      end do
+! true reduced-system solve: delete row and column r
+      block
+         double precision :: ared(n-1,n-1), bred(n-1)
+         integer :: ipr(n-1), i2, j2
+         do j2 = 1, n-1
+            do i2 = 1, n-1
+               ared(i2,j2) = a(merge(i2+1,i2,i2>=r), &
+                    merge(j2+1,j2,j2>=r))
+            end do
+            bred(j2) = rhs(merge(j2+1,j2,j2>=r))
+         end do
+         call dgetrf(n-1, n-1, ared, n-1, ipr, info)
+         call dgetrs('N', n-1, 1, ared, n-1, ipr, bred, n-1, info)
+         rhs = 0.0d0
+         do j2 = 1, n-1
+            rhs(merge(j2+1,j2,j2>=r)) = bred(j2)
+         end do
+         rhs(r) = 0.0d0
+      end block
+      pre_reg = .false.; pre_reg(r) = .true.
+      fixed = .false.
+      jfnk_pc_reg_zerocol = .false.
+      call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, &
+           1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
+           rcond, pv, itry, ru, ok)
+      b = 0.0d0
+      do i = 1, n
+         b(i) = sin(1.1d0*i)
+      end do
+      z = b
+      np=0;nz=0;nc=0;nm=0;ns=0
+      call jfnk_pc_apply_block_v1(z, b, n, ok, lu, ipiv, rsf, csf, &
+           a, rr, diag, reg, fixed, .false., 1.0d30, &
+           np, nz, nc, nm, ns)
+      scl = max(maxval(abs(rhs)), 1.0d-30)
+      err_old(ic) = maxval(abs(z - rhs)) / scl
+      jfnk_pc_reg_zerocol = .true.
+      call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, &
+           1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
+           rcond, pv, itry, ru, ok)
+      z = b
+      call jfnk_pc_apply_block_v1(z, b, n, ok, lu, ipiv, rsf, csf, &
+           a, rr, diag, reg, fixed, .false., 1.0d30, &
+           np, nz, nc, nm, ns)
+      err_new(ic) = maxval(abs(z - rhs)) / scl
+      if(err_new(ic) > 1.0d-12)then
+         print *, 'T-REGCOL FAIL zero_col err', csc(ic), err_new(ic)
+         nfail = nfail + 1
+      end if
+   end do
+   print '(A,4ES9.1)', ' T-REGCOL old err vs col scale:', err_old
+   print '(A,4ES9.1)', ' T-REGCOL new err vs col scale:', err_new
+   jfnk_pc_reg_zerocol = .false.
+end subroutine t_regcol

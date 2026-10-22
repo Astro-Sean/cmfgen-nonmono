@@ -4,7 +4,7 @@
 	USE CONTROL_VARIABLE_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_log_unknown, jfnk_ptc_active,
 	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready,
-	2     jfnk_pc_signed
+	2     jfnk_pc_signed, jfnk_pc_reg_zerocol
 	IMPLICIT NONE
 !
 ! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
@@ -1991,8 +1991,12 @@
 	  JFNK_PTC_SIGNED=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_PTC_SIGNED,'JFNK_PTC_SIGNED',L_FALSE,
 	1     'Sign-match the PTC diagonal shift to the BA diagonal?')
+	  JFNK_REG_ZERO_COL=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_REG_ZERO_COL,'JFNK_REG_ZERO_COL',
+	1     L_FALSE,'Also zero the column of regularized rows?')
 !
 	  jfnk_pc_signed = JFNK_PTC_SIGNED
+	  jfnk_pc_reg_zerocol = JFNK_REG_ZERO_COL
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march field iterate at pass

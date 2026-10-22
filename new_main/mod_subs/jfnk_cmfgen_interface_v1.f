@@ -3328,7 +3328,8 @@
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
 	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM,
 	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR,
-	3                              JFNK_PTC_SIGNED, JFNK_PC_SIGN_DIAG
+	3                              JFNK_PTC_SIGNED, JFNK_PC_SIGN_DIAG,
+	4                              JFNK_REG_ZERO_COL
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_log_unknown,
@@ -4350,6 +4351,25 @@
 	        N_REG_B = N_REG_B + 1
 	      END IF
 	    END DO
+! [JFNK_REG_ZERO_COL]: the row-only substitution leaves the regular-
+! ized column populated in other rows' equations; under the flag the
+! column is zeroed too, matching the per-depth projected operator.
+	    IF(JFNK_REG_ZERO_COL)THEN
+	      DO I_Z = 1, JFNK_BANDED_N
+	        K_B = (I_Z-1)/JFNK_NT + 1
+	        J_B = I_Z - (K_B-1)*JFNK_NT
+	        IF(JFNK_ROW_REG(J_B, K_B))THEN
+	          DO J_Z = MAX(1,I_Z-JFNK_BANDED_KU),
+	1             MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KL)
+	            IF(J_Z .NE. I_Z)THEN
+	              JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 +
+	1                 J_Z - I_Z
+	              JFNK_BANDED_LUAB(JROW, I_Z) = 0.0_LDP
+	            END IF
+	          END DO
+	        END IF
+	      END DO
+	    END IF
 ! Count/fix zero COLUMNS: column J_Z has all-zero elements across rows
 	    DO J_Z = 1, JFNK_BANDED_N
 	      ROW_NZ = .FALSE.
