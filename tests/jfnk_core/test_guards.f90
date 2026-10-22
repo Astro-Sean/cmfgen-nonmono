@@ -59,6 +59,7 @@ contains
 end module guards_prob_mod
 
 program test_guards
+   use, intrinsic :: ieee_arithmetic
    use jfnk_solver_v1_mod
    use jfnk_cmfgen_int_mod, only: JFNK_COUPLED_LOC
    use guards_prob_mod
@@ -168,8 +169,9 @@ program test_guards
       if(.not.(inhbc >= 0.0d0)) inhbc = 0.5d0
       if(.not.(inhbc <= 1.0d0)) inhbc = 0.5d0
       if(abs(inhbc - 0.3d0) > 1d-14) nbad2 = nbad2 + 1
-      ! Case C: NaN numerator falls back
-      inhbc = 0.0d0 / 0.0d0
+      ! Case C: NaN numerator falls back.  ieee_value is used because
+      ! gfortran refuses to fold a literal 0d0/0d0 at compile time.
+      inhbc = ieee_value(inhbc, ieee_quiet_nan)
       den = 2.0d0 * jnd - ic
       dscl = max(abs(ic), 2.0d0 * jnd, 1.0d-30)
       if(abs(den) < 1.0d-6 * dscl) then
