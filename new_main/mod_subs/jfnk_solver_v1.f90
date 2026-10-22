@@ -189,6 +189,35 @@ module jfnk_solver_v1_mod
    double precision :: jfnk_ridge_floor = 1.0d-2
    logical :: jfnk_ridge_floor_set = .false.
    !
+   ! Preconditioner audit flags (jfnk-precond-fixes branch, Oct-2026).
+   ! All default to the historical behaviour; each maps to a VADAT key
+   ! that is assigned by the interface layer (JFNK_INIT_V1 /
+   ! JFNK_FACTOR_PRECOND_V1) so the extracted block routines below stay
+   ! free of CONTROL_VARIABLE_MOD dependencies and unit-testable.
+   !
+   ! jfnk_pc_signed: [JFNK_PTC_SIGNED] fold/ridge/rescale use
+   !    sign(d_i)*sigma_i so |d_i+shift| = |d_i|+sigma_i on
+   !    loss-dominated (d<0) rows instead of moving the diagonal
+   !    toward zero.
+   ! jfnk_pc_reg_zerocol: [JFNK_REG_ZERO_COL] regularized rows also
+   !    get their column zeroed (the frozen T/Ne path already does
+   !    this); otherwise a substituted row still couples to other
+   !    equations through its column entries.
+   ! jfnk_pc_tiny_equil: [JFNK_ROW_TINY_EQUIL] classify near-null rows
+   !    on the column-equilibrated block instead of the raw block, so
+   !    a row in different units is not mistaken for a null row.
+   ! jfnk_pc_rcond_gate/rcond_min/itry_cap: [JFNK_PC_RCOND_GATE,
+   !    JFNK_PC_RCOND_MIN] replace the x=1 forward-error micro-test by
+   !    an explicit reciprocal-condition threshold and cap the ridge
+   !    ladder attempts per depth.
+   !
+   logical :: jfnk_pc_signed = .false.
+   logical :: jfnk_pc_reg_zerocol = .false.
+   logical :: jfnk_pc_tiny_equil = .false.
+   logical :: jfnk_pc_rcond_gate = .false.
+   double precision :: jfnk_pc_rcond_min = 1.0d-13
+   integer :: jfnk_pc_itry_cap = 3
+   !
    ! Persistent workspace for newton_hook_v1 and gmres_m_v1 (audit §3,
    ! 09-Sep-2026): replaces large automatic arrays that were on the stack.
    ! For N=40000 (NT=200, ND=200), these accounted for ~2.5MB of stack.
@@ -3201,3 +3230,472 @@ subroutine jfnk_schur_apply_v1(nd, nt, np_, jt, jne, chol, braw, &
    end do
    return
 end subroutine jfnk_schur_apply_v1
+
+! ----------------------------------------------------------------------
+! jfnk_pc_factor_block_v1: factorization of ONE depth block of the BA
+! preconditioner, extracted verbatim from the per-depth loop of
+! JFNK_FACTOR_PRECOND_V1 (jfnk_cmfgen_interface_v1.f) so the unit tests
+! run the identical production code (precedent: jfnk_schur_apply_v1).
+!
+! a(n,n) arrives already carrying the PTC fold and the frozen T/Ne
+! identity substitution: those write the persistent JFNK_BA_A /
+! JFNK_BA_DIAG which the banded path, the Jacobi fallback and the
+! admission gates also read, so they stay in the caller.  pre_reg is
+! the caller-built population-floor mask (needs POPS_BASE/ATM); this
+! routine treats its rows exactly like detected near-null rows.
+!
+! All jfnk_pc_* module flags default to the historical behaviour; each
+! flag branch is a VADAT-gated audit fix (JFNK_PRECOND_AUDIT.md).
+! ----------------------------------------------------------------------
+   subroutine jfnk_pc_factor_block_v1(a, n, pre_reg, row_tiny, &
+        ridge_piv, lsq_lam, lsq_mode, luer, &
+        lu, ipiv, rsf, csf, reg, reg_tiny, ridge_rows, &
+        rcond, pivrat, itry_used, ridge_used, lu_ok)
+      use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
+           jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
+           jfnk_pc_rcond_gate, jfnk_pc_rcond_min, jfnk_pc_itry_cap
+      implicit none
+      integer, intent(in) :: n, luer
+      double precision, intent(in) :: a(n,n)
+      logical, intent(in) :: pre_reg(n), lsq_mode
+      double precision, intent(in) :: row_tiny, ridge_piv, lsq_lam
+      double precision, intent(out) :: lu(n,n), rsf(n), csf(n), &
+           ridge_rows(n), rcond, pivrat, ridge_used
+      integer, intent(out) :: ipiv(n), itry_used
+      logical, intent(out) :: reg(n), reg_tiny(n), lu_ok
+!
+      integer :: i, j, itry, ios, info_k, info_g, itry_max
+      double precision :: eps, ridge_add, blkmax, scale_k, rowmax_i
+      double precision :: row_cnd, col_cnd, amax, lsq_l2, anorm_k
+      double precision :: s_tmp, piv_min, piv_max, rcond_k
+      double precision, allocatable :: mtst(:,:), b_tst(:), x_tst(:)
+      double precision, allocatable :: gn_work(:,:)
+      double precision, allocatable :: gecon_work(:)
+      integer, allocatable :: gecon_iwork(:)
+      logical, allocatable :: reg_raw(:), reg_eq(:)
+      double precision, allocatable :: csf_pre(:), rsf_pre(:)
+      integer :: n_tiny_chg
+      double precision :: blk_eq
+      logical :: eq_ok
+!
+      lu_ok = .false.
+      ridge_used = 0.0d0
+      itry_used = -1
+      rcond = -1.0d0
+      pivrat = -1.0d0
+      ridge_rows(1:n) = 0.0d0
+      reg(1:n) = .false.
+      reg_tiny(1:n) = .false.
+!
+      scale_k = 0.0d0
+      do i = 1, n
+         scale_k = max(scale_k, abs(a(i,i)))
+      end do
+      scale_k = max(scale_k, 1.0d0)
+!
+      blkmax = 0.0d0
+      do i = 1, n
+         do j = 1, n
+            blkmax = max(blkmax, abs(a(i,j)))
+         end do
+      end do
+!
+      allocate(mtst(n,n), b_tst(n), x_tst(n), stat=ios)
+      if(ios /= 0) return
+      if(lsq_mode)then
+         allocate(gn_work(n,n), stat=ios)
+         if(ios /= 0) return
+      end if
+!
+! The rcond gate (F5) replaces the x=1 forward-error micro-test by an
+! explicit reciprocal-condition threshold and caps the retry ladder;
+! the default path keeps the historical 0..8 ladder unchanged.
+!
+      if(jfnk_pc_rcond_gate)then
+         itry_max = max(jfnk_pc_itry_cap, 1) - 1
+      else
+         itry_max = 8
+      end if
+!
+      do itry = 0, itry_max
+         reg(1:n) = .false.
+         reg_tiny(1:n) = .false.
+         if(itry == 0)then
+            eps = jfnk_ridge_floor
+         else if(itry == 1)then
+            eps = 1.0d-16
+         else if(itry == 2)then
+            eps = 1.0d-14
+         else if(itry == 3)then
+            eps = 1.0d-12
+         else if(itry == 4)then
+            eps = 1.0d-10
+         else if(itry == 5)then
+            eps = 1.0d-8
+         else if(itry == 6)then
+            eps = 1.0d-6
+         else if(itry == 7)then
+            eps = 1.0d-4
+         else
+            eps = 1.0d-2
+         end if
+         ridge_add = max(eps, jfnk_ridge_floor)
+         lu(1:n,1:n) = a(1:n,1:n)
+         if(jfnk_pc_signed)then
+! [JFNK_PTC_SIGNED]: the ridge must increase |d|, so it follows the
+! sign of the post-fold diagonal (d_i*(1+ridge) form).  A positive
+! ridge added to a loss-dominated d<0 row instead shrinks |d| and can
+! push the pivot through zero.  For |d_i| below the 1e-30*scale_k
+! floor the sign is ambiguous by definition; sign(x,0)=x keeps +ridge
+! on an exactly-zero diagonal, matching the unsigned path there.
+            do i = 1, n
+               lu(i,i) = lu(i,i) + ridge_add * &
+                    sign(max(abs(a(i,i)), 1.0d-30*scale_k), a(i,i))
+            end do
+         else
+            do i = 1, n
+               lu(i,i) = lu(i,i) + ridge_add * &
+                    max(abs(a(i,i)), 1.0d-30*scale_k)
+            end do
+         end if
+!
+! Near-null row detection.  Default (historical): test the raw row
+! against the block maximum, which is dominated by the stiffest rows
+! so a full-rank row in different units can be misclassified.
+! [JFNK_ROW_TINY_EQUIL] (F3): test on the column-equilibrated block
+! (|a_ij|*csf_j) instead.  Row scaling is deliberately not applied to
+! the test metric: DGEEQU row factors normalize every row max to ~1,
+! which would erase the signal entirely; column scaling measures each
+! entry against the largest element competing for its unknown.
+!
+         if(jfnk_pc_tiny_equil)then
+            eq_ok = .false.
+            allocate(reg_raw(n), reg_eq(n), rsf_pre(n), csf_pre(n), &
+                 stat=ios)
+            if(ios == 0 .and. blkmax > 0.0d0)then
+               mtst(1:n,1:n) = a(1:n,1:n)
+               call dgeequ(n, n, mtst, n, rsf_pre, csf_pre, &
+                    row_cnd, col_cnd, amax, info_k)
+               if(info_k == 0)then
+                  blk_eq = 0.0d0
+                  do i = 1, n
+                     do j = 1, n
+                        blk_eq = max(blk_eq, &
+                             abs(a(i,j))*csf_pre(j))
+                     end do
+                  end do
+                  if(blk_eq > 0.0d0)then
+                     eq_ok = .true.
+                     do i = 1, n
+                        rowmax_i = 0.0d0
+                        do j = 1, n
+                           rowmax_i = max(rowmax_i, &
+                                abs(a(i,j))*csf_pre(j))
+                        end do
+                        reg_eq(i) = &
+                             (rowmax_i < row_tiny*blk_eq)
+                        rowmax_i = 0.0d0
+                        do j = 1, n
+                           rowmax_i = max(rowmax_i, abs(a(i,j)))
+                        end do
+                        reg_raw(i) = (rowmax_i < row_tiny*blkmax)
+                     end do
+                     n_tiny_chg = count(reg_raw .neqv. reg_eq)
+                     if(n_tiny_chg > 0 .and. luer > 0)then
+                        write(luer,'(A,I6,A)') &
+                          '  JFNK: ROW_TINY_EQUIL reclassifies ', &
+                          n_tiny_chg, ' rows vs raw test'
+                     end if
+                     reg_tiny(1:n) = reg_eq(1:n)
+                  end if
+               end if
+            end if
+            if(allocated(reg_raw)) &
+                 deallocate(reg_raw, reg_eq, rsf_pre, csf_pre)
+! A failed equilibration pre-pass must not silently disable the
+! regularization; fall back to the historical raw-block test.
+            if(.not. eq_ok .and. blkmax > 0.0d0)then
+               do i = 1, n
+                  rowmax_i = 0.0d0
+                  do j = 1, n
+                     rowmax_i = max(rowmax_i, abs(a(i,j)))
+                  end do
+                  if(rowmax_i < row_tiny*blkmax) &
+                       reg_tiny(i) = .true.
+               end do
+            end if
+         else
+            if(blkmax > 0.0d0)then
+               do i = 1, n
+                  rowmax_i = 0.0d0
+                  do j = 1, n
+                     rowmax_i = max(rowmax_i, abs(a(i,j)))
+                  end do
+                  if(rowmax_i < row_tiny*blkmax) reg_tiny(i) = .true.
+               end do
+            end if
+         end if
+!
+! Substitute identity for regularized rows (and, under
+! [JFNK_REG_ZERO_COL], columns) in the factored block only -- the
+! residual and JVP never see the substitution.  Column zeroing
+! removes the stale coupling of the regularized unknown into the
+! other equations; without it the projected solve error grows
+! linearly with the column magnitude (unit test T-regcol).
+!
+         do i = 1, n
+            if(reg_tiny(i) .or. pre_reg(i))then
+               reg(i) = .true.
+               do j = 1, n
+                  lu(i,j) = 0.0d0
+               end do
+               if(jfnk_pc_reg_zerocol)then
+                  do j = 1, n
+                     lu(j,i) = 0.0d0
+                  end do
+               end if
+               lu(i,i) = 1.0d0
+            end if
+         end do
+!
+         call dgeequ(n, n, lu, n, rsf, csf, row_cnd, col_cnd, amax, &
+              info_k)
+         if(info_k /= 0) cycle
+         do j = 1, n
+            do i = 1, n
+               lu(i,j) = lu(i,j) * rsf(i) * csf(j)
+            end do
+         end do
+!
+         if(lsq_mode)then
+            lsq_l2 = (lsq_lam * max(amax, 1.0d0))**2
+            call dsyrk('L', 'T', n, n, 1.0d0, lu, n, 0.0d0, &
+                 gn_work, n)
+            do i = 1, n
+               gn_work(i,i) = gn_work(i,i) + lsq_l2
+            end do
+            lu(1:n,1:n) = gn_work(1:n,1:n)
+            mtst(1:n,1:n) = lu(1:n,1:n)
+            call dpotrf('L', n, lu, n, info_k)
+         else
+            anorm_k = 0.0d0
+            do j = 1, n
+               s_tmp = 0.0d0
+               do i = 1, n
+                  s_tmp = s_tmp + abs(lu(i,j))
+               end do
+               anorm_k = max(anorm_k, s_tmp)
+            end do
+            mtst(1:n,1:n) = lu(1:n,1:n)
+            call dgetrf(n, n, lu, n, ipiv, info_k)
+         end if
+         if(info_k == 0)then
+!
+! Acceptance test.  Default: synthetic-RHS forward-error micro-test
+! (b = M*1 must return x=1 to 1e-4).  [JFNK_PC_RCOND_GATE] (F5): the
+! micro-test is a hidden condition-number gate (~1e13) since the true
+! backward error stays ~1e-17; the gate instead compares the DGECON
+! reciprocal condition estimate against JFNK_PC_RCOND_MIN directly.
+!
+            if(jfnk_pc_rcond_gate .and. .not. lsq_mode)then
+               if(.not. allocated(gecon_work))then
+                  allocate(gecon_work(4*n), gecon_iwork(n), stat=ios)
+                  if(ios /= 0) return
+               end if
+               call dgecon('I', n, lu, n, anorm_k, rcond_k, &
+                    gecon_work, gecon_iwork, info_g)
+               if(info_g == 0) rcond = rcond_k
+               if(info_g /= 0 .or. rcond_k < jfnk_pc_rcond_min)then
+                  ridge_used = 0.0d0
+                  cycle
+               end if
+            else
+               b_tst(1:n) = 0.0d0
+               do i = 1, n
+                  do j = 1, n
+                     b_tst(i) = b_tst(i) + mtst(i,j)
+                  end do
+               end do
+               x_tst(1:n) = b_tst(1:n)
+               if(lsq_mode)then
+                  call dpotrs('L', n, 1, lu, n, x_tst, n, info_g)
+               else
+                  call dgetrs('N', n, 1, lu, n, ipiv, x_tst, n, info_g)
+               end if
+               if(info_g /= 0 .or. &
+                    maxval(abs(x_tst(1:n)-1.0d0)) > 1.0d-4)then
+                  ridge_used = 0.0d0
+                  cycle
+               end if
+               if(lsq_mode)then
+                  rcond = -1.0d0
+               else
+                  if(.not. allocated(gecon_work))then
+                     allocate(gecon_work(4*n), gecon_iwork(n), stat=ios)
+                     if(ios /= 0) return
+                  end if
+                  call dgecon('I', n, lu, n, anorm_k, rcond_k, &
+                       gecon_work, gecon_iwork, info_g)
+                  if(info_g == 0) rcond = rcond_k
+               end if
+            end if
+            lu_ok = .true.
+            ridge_used = ridge_add
+            itry_used = itry
+            piv_min = huge(1.0d0)
+            piv_max = 0.0d0
+            do i = 1, n
+               piv_min = min(piv_min, abs(lu(i,i)))
+               piv_max = max(piv_max, abs(lu(i,i)))
+            end do
+            pivrat = piv_min / max(piv_max, 1.0d-300)
+            if(.not. lsq_mode .and. &
+                 ridge_piv > 0.0d0 .and. pivrat < ridge_piv)then
+! DGETRF can return INFO=0 on a near-singular block whose smallest
+! pivot still avoids an exact zero; the solve inherits the full
+! amplification.  With JFNK_RIDGE_PIV>0 the successful-but-ill-
+! conditioned factorization is rejected so the ladder escalates.
+               lu_ok = .false.
+               ridge_used = 0.0d0
+               cycle
+            end if
+            do i = 1, n
+               ridge_rows(i) = ridge_add * &
+                    max(abs(a(i,i)), 1.0d-30*scale_k)
+            end do
+            exit
+         end if
+      end do
+!
+      if(allocated(gecon_work)) deallocate(gecon_work, gecon_iwork)
+      if(allocated(gn_work)) deallocate(gn_work)
+      deallocate(mtst, b_tst, x_tst)
+      return
+   end subroutine jfnk_pc_factor_block_v1
+!
+! ----------------------------------------------------------------------
+! jfnk_pc_apply_block_v1: apply of ONE depth block, extracted verbatim
+! from JFNK_PRECOND_V1 so the unit tests run the identical production
+! code.  v(n) is the input right-hand side on entry and the
+! preconditioned output on return; rhs(n) is an unmodified copy of the
+! input used by the Jacobi fallback.  fixed(n) is the caller-built
+! fixed-unknown mask (frozen T/Ne rows), reg(n) the factorization's
+! regularized-row mask; both project z_i = 0, which is linear and keeps
+! M^{-1} a consistent operator for GMRES.  Nonfinite outputs are zeroed
+! and counted in nzclip -- the only nonlinearity, and the caller aborts
+! the GMRES cycle when nzclip grows (jfnk_pc_clip_event).
+!
+! The LSQ B^T w expansion assumes the row-only regularization of the
+! default path; under [JFNK_REG_ZERO_COL] the substituted block also
+! has zeroed columns, for which (B'^T w)_i = w_i exactly on reg rows.
+! ----------------------------------------------------------------------
+   subroutine jfnk_pc_apply_block_v1(v, rhs, n, lu_ok, lu, ipiv, &
+        rsf, csf, a_raw, ridge_rows, ba_diag, reg, fixed, lsq_mode, &
+        zmax, nproj, nzero, nzclip, nzmax_hit, nsolved)
+      use jfnk_solver_v1_mod, only: jfnk_pc_reg_zerocol
+      implicit none
+      integer, intent(in) :: n
+      double precision, intent(inout) :: v(n)
+      double precision, intent(in) :: rhs(n)
+      logical, intent(in) :: lu_ok, lsq_mode, reg(n), fixed(n)
+      double precision, intent(in) :: lu(n,n), rsf(n), csf(n), &
+           a_raw(n,n), ridge_rows(n), ba_diag(n), zmax
+      integer, intent(in) :: ipiv(n)
+      integer, intent(inout) :: nproj, nzero, nzclip, nzmax_hit, &
+           nsolved
+!
+      integer :: i, j, info
+      double precision :: diag_use, wi_lsq
+      double precision, allocatable :: w_lsq(:)
+!
+      if(.not. lu_ok)then
+         do j = 1, n
+            diag_use = ba_diag(j) + ridge_rows(j)
+            if(reg(j))then
+               v(j) = 0.0d0
+               nproj = nproj + 1
+            else if(abs(diag_use) > 1.0d-30)then
+               v(j) = rhs(j) / diag_use
+            else
+               v(j) = 0.0d0
+               nzero = nzero + 1
+            end if
+            nsolved = nsolved + 1
+         end do
+         return
+      end if
+!
+      do j = 1, n
+         v(j) = v(j) * rsf(j)
+      end do
+      if(lsq_mode)then
+         allocate(w_lsq(n))
+! w = ROW_SF v' and rhs = B^T w.  B = A + ridge + reg-row substitution
+! expanded as B^T w = A^T w + D_r w + sum_{i reg} w_i (e_i - A(i,:)^T)
+! - w_i D_r(i) e_i so no second n x n block is needed.
+         do j = 1, n
+            w_lsq(j) = v(j) * rsf(j)
+         end do
+         call dgemv('T', n, n, 1.0d0, a_raw, n, w_lsq, 1, 0.0d0, &
+              v, 1)
+         do j = 1, n
+            v(j) = v(j) + ridge_rows(j) * w_lsq(j)
+         end do
+         do i = 1, n
+            if(reg(i))then
+               wi_lsq = w_lsq(i)
+               do j = 1, n
+                  v(j) = v(j) - wi_lsq * a_raw(i,j)
+               end do
+               if(jfnk_pc_reg_zerocol)then
+! With the column also zeroed, (B'^T w)_i = w_i exactly: the raw
+! DGEMV left the other rows' column-i contributions in component i.
+                  v(i) = wi_lsq
+               else
+                  v(i) = v(i) + wi_lsq - wi_lsq * ridge_rows(i)
+               end if
+            end if
+         end do
+         do j = 1, n
+            v(j) = v(j) * csf(j)
+         end do
+         call dpotrs('L', n, 1, lu, n, v, n, info)
+      else
+         call dgetrs('N', n, 1, lu, n, ipiv, v, n, info)
+      end if
+      if(info /= 0)then
+         do j = 1, n
+            diag_use = ba_diag(j) + ridge_rows(j)
+            if(reg(j))then
+               v(j) = 0.0d0
+               nproj = nproj + 1
+            else if(abs(diag_use) > 1.0d-30)then
+               v(j) = rhs(j) / diag_use
+            else
+               v(j) = 0.0d0
+               nzero = nzero + 1
+            end if
+         end do
+      else
+         do j = 1, n
+            v(j) = v(j) * csf(j)
+         end do
+         do j = 1, n
+            if(reg(j))then
+               v(j) = 0.0d0
+               nproj = nproj + 1
+            else if(fixed(j))then
+               v(j) = 0.0d0
+            else if(.not. (abs(v(j)) <= huge(1.0d0)))then
+               v(j) = 0.0d0
+               nzero = nzero + 1
+               nzclip = nzclip + 1
+            else if(abs(v(j)) > zmax)then
+               nzmax_hit = nzmax_hit + 1
+            end if
+            nsolved = nsolved + 1
+         end do
+      end if
+      if(allocated(w_lsq)) deallocate(w_lsq)
+      return
+   end subroutine jfnk_pc_apply_block_v1

@@ -3358,6 +3358,13 @@
 !
 	REAL(KIND=LDP), ALLOCATABLE :: MTST(:,:), B_TST(:), X_TST(:)
 	REAL(KIND=LDP) REL_RES_T
+! Per-depth block factorization is delegated to
+! jfnk_pc_factor_block_v1 (jfnk_solver_v1.f90) so the unit tests run
+! the identical production code; these are the mask/ridge arrays it
+! returns for the caller-side bookkeeping (N_REG_ROWS, N_POP_FRZ,
+! PRECOND_DIAG).
+	LOGICAL, ALLOCATABLE :: PRE_REG_L(:), REG_L(:), REG_TINY_L(:)
+	REAL(KIND=LDP), ALLOCATABLE :: RIDGE_ROWS_L(:)
 ! DO_FACTOR=.FALSE. builds JFNK_BA_A/diagonals only and returns
 ! before the LU/SCHUR/banded factorizations -- the admission path
 ! uses it to price the reach/direction gates cheaply (17-Oct-2026).
@@ -3718,100 +3725,12 @@
 	IF(JFNK_PRECOND_TYPE(1:2) .EQ. 'LU' .OR.
 	1   JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
 	  JFNK_LU_INFO = 0
-	  IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
-	    ALLOCATE(GN_WORK(JFNK_NT,JFNK_NT), STAT=IOS)
-	    IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc GN_WORK'
-	  END IF
-	  ALLOCATE(MTST(JFNK_NT,JFNK_NT),B_TST(JFNK_NT),
-	1     X_TST(JFNK_NT),STAT=IOS)
-	  IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc MTST failed'
+	  ALLOCATE(PRE_REG_L(JFNK_NT), REG_L(JFNK_NT),
+	1     REG_TINY_L(JFNK_NT), RIDGE_ROWS_L(JFNK_NT), STAT=IOS)
+	  IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc masks'
 	  DO K = 1, JFNK_ND
 	    JFNK_LU_OK(K) = .FALSE.
 	    JFNK_DEPTH_RIDGE(K) = 0.0_LDP
-	    MAX_VAL = 0.0_LDP
-	    DO I = 1, JFNK_NT
-	      MAX_VAL = MAX(MAX_VAL, ABS(JFNK_BA_A(I, I, K)))
-	    END DO
-	    SCALE_K = MAX(MAX_VAL, 1.0_LDP)
-!
-! Row regularization (JFNK_ROW_TINY): compute blockmax once per depth
-! from the raw block.  Rows whose maximum |A_ij| is below
-! JFNK_ROW_TINY*blockmax carry no physical information and wreck the
-! equilibration (row scale factors spanning 1e-12..1e42 have been seen
-! in production).  They are replaced by the identity row below, before
-! DGEEQU/DGETRF.  Only the preconditioner matrix is modified — never
-! the residual or the JVP.
-! edited by Sean Brennan (2026-10)
-!
-	    BLKMAX = 0.0_LDP
-	    DO I = 1, JFNK_NT
-	      DO J = 1, JFNK_NT
-	        BLKMAX = MAX(BLKMAX, ABS(JFNK_BA_A(I, J, K)))
-	      END DO
-	    END DO
-!
-	    DO ITRY = 0, 8
-	      ROW_REG=.FALSE.
-	      IF(ITRY .EQ. 0)THEN
-! editted by Devin, 08-Oct-2026: JFNK_BA_RIDGE_FAC (via
-! jfnk_ridge_floor) is the user-set LM base ridge -- the
-! floor was captured at first factorization but never
-! consumed, so every depth always started at EPS=0.
-! Ridge stays 0 unless the user asks for it.
-	        EPS = jfnk_ridge_floor
-	      ELSE IF(ITRY .EQ. 1)THEN
-	        EPS = 1.0E-16_LDP
-	      ELSE IF(ITRY .EQ. 2)THEN
-	        EPS = 1.0E-14_LDP
-	      ELSE IF(ITRY .EQ. 3)THEN
-	        EPS = 1.0E-12_LDP
-	      ELSE IF(ITRY .EQ. 4)THEN
-	        EPS = 1.0E-10_LDP
-	      ELSE IF(ITRY .EQ. 5)THEN
-	        EPS = 1.0E-8_LDP
-	      ELSE IF(ITRY .EQ. 6)THEN
-	        EPS = 1.0E-6_LDP
-	      ELSE IF(ITRY .EQ. 7)THEN
-	        EPS = 1.0E-4_LDP
-	      ELSE
-	        EPS = 1.0E-2_LDP
-	      END IF
-! editted by Devin, 08-Oct-2026: ridge is per-row proportional
-! (LM form J + alpha*diag(J)), not uniform lambda*I -- a uniform
-! raw-unit ridge dominates the small trace-ion diagonals after
-! equilibration and erases exactly the dynamics that need Newton
-! updates.  RIDGE_ADD is now the dimensionless factor.
-!
-	      RIDGE_ADD = MAX(EPS, jfnk_ridge_floor)
-	      JFNK_LU_FAC(:,:,K) = JFNK_BA_A(:,:,K)
-	      DO I = 1, JFNK_NT
-	        JFNK_LU_FAC(I, I, K) = JFNK_LU_FAC(I, I, K) +
-	1           RIDGE_ADD *
-	2           MAX(ABS(JFNK_BA_A(I, I, K)), 1.0E-30_LDP*SCALE_K)
-	      END DO
-!
-! Replace near-null rows by the identity row before equilibration.
-! Recomputed each retry (identical result every time; counted once).
-! The rowmax test reads the un-augmented BA_A row, not LU_FAC: the
-! ridge added above must not let a physically-null row escape
-! regularization on retry ITRY>0 and invert to an oversized z.
-!
-	      IF(BLKMAX .GT. 0.0_LDP)THEN
-	        DO I = 1, JFNK_NT
-	          ROWMAX_I = 0.0_LDP
-	          DO J = 1, JFNK_NT
-	            ROWMAX_I = MAX(ROWMAX_I, ABS(JFNK_BA_A(I, J, K)))
-	          END DO
-	          IF(ROWMAX_I .LT. JFNK_ROW_TINY*BLKMAX)THEN
-	            ROW_REG(I)=.TRUE.
-	            DO J = 1, JFNK_NT
-	              JFNK_LU_FAC(I, J, K) = 0.0_LDP
-	            END DO
-	            JFNK_LU_FAC(I, I, K) = 1.0_LDP
-	            IF(ITRY .EQ. 0)N_REG_ROWS = N_REG_ROWS + 1
-	          END IF
-	        END DO
-	      END IF
 !
 ! [JFNK_POP_FL] (default 0 = off): freeze the Newton correction on
 ! near-empty levels.  Rows with n_i < JFNK_POP_FL * (ion total at this
@@ -3821,182 +3740,75 @@
 ! anyway.  Marking them regularized gives an identity row in the factor
 ! and z_i = 0 at apply, so Newton leaves them on the outer iteration.
 ! The residual row itself is unchanged -- this only bounds the step.
-! Recomputed each retry because ROW_REG resets with the matrix.
+! The mask is built once per depth here; the factorization retry loop
+! in jfnk_pc_factor_block_v1 consumed an identical mask every ITRY.
 !
-	      IF(JFNK_POP_FLOOR .GT. 0.0_LDP .AND.
+	    PRE_REG_L(1:JFNK_NT) = .FALSE.
+	    IF(JFNK_POP_FLOOR .GT. 0.0_LDP .AND.
 	1       ALLOCATED(POPS_BASE))THEN
-	        DO ID_ION = 1, NUM_IONS
-	          IF(.NOT. ATM(ID_ION)%XzV_PRES)CYCLE
-	          ION_TOT = 0.0_LDP
-	          DO J = ATM(ID_ION)%EQXzV,
+	      DO ID_ION = 1, NUM_IONS
+	        IF(.NOT. ATM(ID_ION)%XzV_PRES)CYCLE
+	        ION_TOT = 0.0_LDP
+	        DO J = ATM(ID_ION)%EQXzV,
 	1             MIN(ATM(ID_ION)%EQXzV+ATM(ID_ION)%NXzV-1, JFNK_NT-2)
-	            IF(J .GE. 1)ION_TOT = ION_TOT + POPS_BASE(J,K)
-	          END DO
-	          IF(ION_TOT .LE. 0.0_LDP)CYCLE
-	          DO J = ATM(ID_ION)%EQXzV,
-	1             MIN(ATM(ID_ION)%EQXzV+ATM(ID_ION)%NXzV-1, JFNK_NT-2)
-	            IF(J .GE. 1 .AND. .NOT. ROW_REG(J) .AND.
-	1             POPS_BASE(J,K) .LT. JFNK_POP_FLOOR*ION_TOT)THEN
-	              ROW_REG(J)=.TRUE.
-	              DO JJ = 1, JFNK_NT
-	                JFNK_LU_FAC(J, JJ, K) = 0.0_LDP
-	              END DO
-	              JFNK_LU_FAC(J, J, K) = 1.0_LDP
-	              IF(ITRY .EQ. 0)THEN
-	                N_REG_ROWS = N_REG_ROWS + 1
-	                N_POP_FRZ = N_POP_FRZ + 1
-	              END IF
-	            END IF
-	          END DO
+	          IF(J .GE. 1)ION_TOT = ION_TOT + POPS_BASE(J,K)
 	        END DO
-	      END IF
-!
-	      CALL DGEEQU(JFNK_NT, JFNK_NT, JFNK_LU_FAC(1,1,K),
-	1         JFNK_NT, JFNK_ROW_SF(1,K), JFNK_COL_SF(1,K),
-	2         ROW_CND, COL_CND, AMAX, LU_INFO_K)
-	      IF(LU_INFO_K .NE. 0) CYCLE
-	      DO J = 1, JFNK_NT
-	        DO I = 1, JFNK_NT
-	          JFNK_LU_FAC(I,J,K) = JFNK_LU_FAC(I,J,K)
-	1           * JFNK_ROW_SF(I,K) * JFNK_COL_SF(J,K)
+	        IF(ION_TOT .LE. 0.0_LDP)CYCLE
+	        DO J = ATM(ID_ION)%EQXzV,
+	1             MIN(ATM(ID_ION)%EQXzV+ATM(ID_ION)%NXzV-1, JFNK_NT-2)
+	          IF(J .GE. 1 .AND.
+	1             POPS_BASE(J,K) .LT. JFNK_POP_FLOOR*ION_TOT)THEN
+	            PRE_REG_L(J) = .TRUE.
+	          END IF
 	        END DO
 	      END DO
-	      IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
+	    END IF
 !
-! LSQ factorization: solve min|J_eq y - v'|^2 + lam^2|y|^2 per block.
-! J_eq is the same ridged, reg-substituted, equilibrated block the LU
-! path factors.  The LU solve amplifies the near-null singular
-! directions of the population Jacobian into corrections of 1e24+ in
-! log space that GMRES cannot use (unit_tests T4/T5); the
-! Tikhonov normal equations bound |y| <= |v'|/(2 lam) instead, so the
-! preconditioned operator stays finite and Krylov-consistent.
-! lam = JFNK_LSQ_LAM * max|J_eq|; max|J_eq| ~ 1 after DGEEQU.
+! Per-depth factorization lives in jfnk_solver_v1.f90
+! (jfnk_pc_factor_block_v1) so the unit tests run the identical
+! production code.  It fills the persistent LU_FAC/IPIV/ROW_SF/COL_SF
+! slices the apply path reads and returns the regularized-row mask,
+! per-row ridge, rcond and pivot-ratio diagnostics.
 !
-        LSQ_L2 = (JFNK_LSQ_LAM * MAX(AMAX, 1.0_LDP))**2
-        CALL DSYRK('L', 'T', JFNK_NT, JFNK_NT, 1.0_LDP,
-	1         JFNK_LU_FAC(1,1,K), JFNK_NT, 0.0_LDP,
-	2         GN_WORK, JFNK_NT)
-        DO I = 1, JFNK_NT
-          GN_WORK(I,I) = GN_WORK(I,I) + LSQ_L2
-        END DO
-        JFNK_LU_FAC(:,:,K) = GN_WORK
-        MTST(1:JFNK_NT,1:JFNK_NT) = JFNK_LU_FAC(:,:,K)
-        CALL DPOTRF('L', JFNK_NT, JFNK_LU_FAC(1,1,K),
-	1         JFNK_NT, LU_INFO_K)
-      ELSE
-        ANORM_K = 0.0_LDP
-        DO J = 1, JFNK_NT
-          S_TMP = 0.0_LDP
-          DO I = 1, JFNK_NT
-            S_TMP = S_TMP + ABS(JFNK_LU_FAC(I,J,K))
-          END DO
-          ANORM_K = MAX(ANORM_K, S_TMP)
-        END DO
-        MTST(1:JFNK_NT,1:JFNK_NT) = JFNK_LU_FAC(:,:,K)
-        CALL DGETRF(JFNK_NT, JFNK_NT, JFNK_LU_FAC(1,1,K),
-	1         JFNK_NT, JFNK_IPIV(1,K), LU_INFO_K)
-      END IF
-	      IF(LU_INFO_K .EQ. 0)THEN
+	    CALL JFNK_PC_FACTOR_BLOCK_V1(
+	1       JFNK_BA_A(1,1,K), JFNK_NT, PRE_REG_L, JFNK_ROW_TINY,
+	2       JFNK_RIDGE_PIV, DBLE(JFNK_LSQ_LAM),
+	3       JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ', LUER,
+	4       JFNK_LU_FAC(1,1,K), JFNK_IPIV(1,K), JFNK_ROW_SF(1,K),
+	5       JFNK_COL_SF(1,K), REG_L, REG_TINY_L, RIDGE_ROWS_L,
+	6       JFNK_LU_RCOND(K), JFNK_LU_PIVRAT(K), JFNK_LU_ITRY(K),
+	7       JFNK_DEPTH_RIDGE(K), JFNK_LU_OK(K))
 !
-! Synthetic-RHS backward-error micro-test (W24c, same contract as
-! the banded path's solve-residual check): b = M*1 through the
-! fresh factors must return x=1 to ~1E-4 relative.  A factorization
-! that passes INFO=0 but cannot reproduce a smooth solve is
-! rejected so the ITRY loop escalates the ridge instead of arming
-! the preconditioner with a poisoned operator.
-!
-	        B_TST(1:JFNK_NT)=0.0_LDP
-	        DO I=1,JFNK_NT
-	          DO J=1,JFNK_NT
-	            B_TST(I)=B_TST(I)+MTST(I,J)
-	          END DO
-	        END DO
-	        X_TST(1:JFNK_NT)=B_TST(1:JFNK_NT)
-	        IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
-	          CALL DPOTRS('L',JFNK_NT,1,JFNK_LU_FAC(1,1,K),
-	1           JFNK_NT,X_TST,JFNK_NT,LU_INFO_G)
-	        ELSE
-	          CALL DGETRS('N',JFNK_NT,1,JFNK_LU_FAC(1,1,K),
-	1           JFNK_NT,JFNK_IPIV(1,K),X_TST,JFNK_NT,LU_INFO_G)
-	        END IF
-	        IF(LU_INFO_G .NE. 0 .OR.
-	1     MAXVAL(ABS(X_TST(1:JFNK_NT)-1.0_LDP)) .GT.
-	2     1.0E-4_LDP)THEN
-	          JFNK_LU_OK(K) = .FALSE.
-	          JFNK_DEPTH_RIDGE(K) = 0.0_LDP
-	          CYCLE
-	        END IF
-	        JFNK_LU_OK(K) = .TRUE.
-	        JFNK_DEPTH_RIDGE(K) = RIDGE_ADD
-	        JFNK_LU_ITRY(K) = ITRY
-	        PIV_MIN = HUGE(1.0_LDP)
-	        PIV_MAX = 0.0_LDP
-	        DO I = 1, JFNK_NT
-	          PIV_MIN = MIN(PIV_MIN, ABS(JFNK_LU_FAC(I,I,K)))
-	          PIV_MAX = MAX(PIV_MAX, ABS(JFNK_LU_FAC(I,I,K)))
-	        END DO
-	        JFNK_LU_PIVRAT(K) = PIV_MIN/MAX(PIV_MAX,1.0E-300_LDP)
-	        JFNK_LU_RCOND(K) = -1.0_LDP
-	        IF(JFNK_PRECOND_TYPE(1:2) .EQ. 'LU')THEN
-	          IF(.NOT. ALLOCATED(GECON_WORK))THEN
-	            ALLOCATE(GECON_WORK(4*JFNK_NT),
-	1               GECON_IWORK(JFNK_NT), STAT=IOS)
-	            IF(IOS .NE. 0) STOP 'alloc GECON_WORK failed'
-	          END IF
-	          CALL DGECON('I', JFNK_NT, JFNK_LU_FAC(1,1,K), JFNK_NT,
-	1           ANORM_K, RCOND_K, GECON_WORK, GECON_IWORK, LU_INFO_G)
-	          IF(LU_INFO_G .EQ. 0)JFNK_LU_RCOND(K) = RCOND_K
-	        END IF
-	        IF(JFNK_PRECOND_TYPE(1:2) .EQ. 'LU' .AND.
-	1          JFNK_RIDGE_PIV .GT. 0.0_LDP .AND.
-	2          JFNK_LU_PIVRAT(K) .LT. JFNK_RIDGE_PIV)THEN
-! DGETRF can return INFO=0 on a near-singular block whose smallest
-! pivot is still large enough to avoid an exact zero; the solve then
-! inherits the full amplification.  When JFNK_RIDGE_PIV>0 the first
-! successful-but-ill-conditioned factorization is rejected so the
-! ITRY loop escalates the ridge instead.  Default 0 keeps the
-! previous accept-on-INFO=0 behaviour.
-	          JFNK_LU_OK(K) = .FALSE.
-	          JFNK_DEPTH_RIDGE(K) = 0.0_LDP
-	          CYCLE
-	        END IF
-	        DO I = 1, JFNK_NT
-	          JFNK_BA_RIDGE_ADD(I, K) = RIDGE_ADD *
-	1           MAX(ABS(JFNK_BA_A(I, I, K)), 1.0E-30_LDP*SCALE_K)
-	          JFNK_PRECOND_DIAG(I, K) =
-	1             JFNK_BA_DIAG(I, K) + JFNK_BA_RIDGE_ADD(I, K)
-	          IF(ROW_REG(I))JFNK_PRECOND_DIAG(I, K)=1.0_LDP
-	        END DO
-	        N_OK = N_OK + 1
-	        IF(RIDGE_ADD .GT. 0.0_LDP) N_RIDGE = N_RIDGE + 1
-	        DO I = 1, JFNK_NT
-	          ROW_SF_MIN = MIN(ROW_SF_MIN, JFNK_ROW_SF(I,K))
-	          ROW_SF_MAX = MAX(ROW_SF_MAX, JFNK_ROW_SF(I,K))
-	          COL_SF_MIN = MIN(COL_SF_MIN, JFNK_COL_SF(I,K))
-	          COL_SF_MAX = MAX(COL_SF_MAX, JFNK_COL_SF(I,K))
-	        END DO
-	        EXIT
-	      END IF
-	    END DO
-!
-! Record the regularized-row mask for this depth: at apply time these
-! components are projected to zero rather than solved (which returned
-! z_i~v_i through the identity row and tripped the |z|>1D8 clip).
-!
+	    N_REG_ROWS = N_REG_ROWS + COUNT(REG_L)
+	    N_POP_FRZ = N_POP_FRZ +
+	1       COUNT(PRE_REG_L .AND. .NOT. REG_TINY_L)
 	    DO I = 1, JFNK_NT
-	      JFNK_ROW_REG(I, K) = ROW_REG(I)
+	      JFNK_ROW_REG(I, K) = REG_L(I)
 	    END DO
-!
-	    IF(.NOT. JFNK_LU_OK(K))THEN
+	    IF(JFNK_LU_OK(K))THEN
+	      DO I = 1, JFNK_NT
+	        JFNK_BA_RIDGE_ADD(I, K) = RIDGE_ROWS_L(I)
+	        JFNK_PRECOND_DIAG(I, K) =
+	1             JFNK_BA_DIAG(I, K) + RIDGE_ROWS_L(I)
+	        IF(REG_L(I))JFNK_PRECOND_DIAG(I,K)=1.0_LDP
+	      END DO
+	      N_OK = N_OK + 1
+	      IF(JFNK_DEPTH_RIDGE(K) .GT. 0.0_LDP)N_RIDGE = N_RIDGE + 1
+	      DO I = 1, JFNK_NT
+	        ROW_SF_MIN = MIN(ROW_SF_MIN, JFNK_ROW_SF(I,K))
+	        ROW_SF_MAX = MAX(ROW_SF_MAX, JFNK_ROW_SF(I,K))
+	        COL_SF_MIN = MIN(COL_SF_MIN, JFNK_COL_SF(I,K))
+	        COL_SF_MAX = MAX(COL_SF_MAX, JFNK_COL_SF(I,K))
+	      END DO
+	    ELSE
 	      N_FAIL = N_FAIL + 1
 	      IF(LUER .GT. 0) WRITE(LUER,'(A,I4,A)')
-	1       '  JFNK: LU failed at depth', K, ' — Jacobi fallback'
+	1       '  JFNK: LU failed at depth', K, ' - Jacobi fallback'
 	    END IF
 	  END DO
 !
-	  IF(ALLOCATED(GN_WORK)) DEALLOCATE(GN_WORK)
-	  IF(ALLOCATED(MTST))DEALLOCATE(MTST,B_TST,X_TST)
-!
+	  IF(ALLOCATED(PRE_REG_L))
+	1    DEALLOCATE(PRE_REG_L, REG_L, REG_TINY_L, RIDGE_ROWS_L)
 	  JFNK_N_RIDGE_DEPTHS = N_RIDGE
 	  JFNK_N_LU_FAIL_DEPTH = N_FAIL
 	  JFNK_LU_READY = (N_OK .GT. 0)
@@ -4790,6 +4602,11 @@
 	CHARACTER(LEN=1) NO_TRANS
 	REAL(KIND=LDP) WI_LSQ
 	REAL(KIND=LDP), ALLOCATABLE :: W_LSQ(:,:)
+! Per-depth apply delegated to jfnk_pc_apply_block_v1 so the unit
+! tests run the identical production code; these carry the caller-side
+! masks (unallocated JFNK_ROW_REG maps to an all-false REG_L2).
+	LOGICAL LU_OK_L
+	LOGICAL REG_L2(JFNK_NT), FIXED_L(JFNK_NT)
 !
 ! STEQ_MAT and V_SAVE are now persistent module workspace
 ! (JFNK_W_STEQ_MAT, JFNK_W_V_SAVE) to avoid stack allocation.
@@ -4966,131 +4783,40 @@
 ! JFNK_BA_A plus the ridge diagonal and the reg-row corrections
 ! (verified against the direct solve in unit_tests lsqchk).
 !
-	IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
-	  ALLOCATE(W_LSQ(JFNK_NT, JFNK_ND), STAT=IOS)
-	  IF(IOS .NE. 0) STOP 'JFNK_PRECOND: alloc W_LSQ failed'
-	END IF
 !
-!$OMP PARALLEL DO PRIVATE(J, I, LU_INFO, DIAG_USE, WI_LSQ) REDUCTION(+:NJAC, NZERO, NZMAX_LOC, NZCLIP, NPROJ)
+!$OMP PARALLEL DO PRIVATE(J, LU_OK_L, REG_L2, FIXED_L) REDUCTION(+:NJAC, NZERO, NZMAX_LOC, NZCLIP, NPROJ)
 	  DO K = 1, JFNK_ND
-	    IF(.NOT. ALLOCATED(JFNK_LU_OK) .OR. .NOT. JFNK_LU_OK(K))THEN
-	      DO J = 1, JFNK_NT
-	        DIAG_USE = JFNK_BA_DIAG(J, K) + JFNK_BA_RIDGE_ADD(J, K)
-	        IF(ALLOCATED(JFNK_ROW_REG) .AND.
-	1           JFNK_ROW_REG(J, K))THEN
-	          JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	          NPROJ = NPROJ + 1
-	        ELSE IF(ABS(DIAG_USE) .GT. 1.0E-30_LDP)THEN
-	          JFNK_W_V_SAVE(J, K) = JFNK_W_STEQ_MAT(J, K) / DIAG_USE
-	        ELSE
-	          JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	          NZERO = NZERO + 1
-	        END IF
-	        NJAC = NJAC + 1
-	      END DO
+	    LU_OK_L = .FALSE.
+	    IF(ALLOCATED(JFNK_LU_OK)) LU_OK_L = JFNK_LU_OK(K)
+	    IF(ALLOCATED(JFNK_ROW_REG))THEN
+	      REG_L2(1:JFNK_NT) = JFNK_ROW_REG(1:JFNK_NT, K)
 	    ELSE
-	      DO J = 1, JFNK_NT
-	        JFNK_W_V_SAVE(J, K) = JFNK_W_V_SAVE(J, K)
-	1         * JFNK_ROW_SF(J, K)
-	      END DO
-	      IF(JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ')THEN
-! w = ROW_SF v' and rhs = B^T w.  B = BA_A + ridge + reg-row
-! substitution is expanded as
-!   B^T w = BA_A^T w + D_r w + sum_{i reg} w_i (e_i - BA_A(i,:)^T)
-! - w_i D_r(i) e_i
-! so no second NT x NT block is needed to form J_eq^T v'.
-	        DO J = 1, JFNK_NT
-	          W_LSQ(J, K) = JFNK_W_V_SAVE(J, K) *
-	1           JFNK_ROW_SF(J, K)
-	        END DO
-	        CALL DGEMV('T', JFNK_NT, JFNK_NT, 1.0_LDP,
-	1           JFNK_BA_A(1,1,K), JFNK_NT, W_LSQ(1,K), 1,
-	2           0.0_LDP, JFNK_W_V_SAVE(1,K), 1)
-	        DO J = 1, JFNK_NT
-	          JFNK_W_V_SAVE(J, K) = JFNK_W_V_SAVE(J, K) +
-	1           JFNK_BA_RIDGE_ADD(J, K) * W_LSQ(J, K)
-	        END DO
-	        DO I = 1, JFNK_NT
-	          IF(JFNK_ROW_REG(I, K))THEN
-	            WI_LSQ = W_LSQ(I, K)
-	            DO J = 1, JFNK_NT
-	              JFNK_W_V_SAVE(J, K) = JFNK_W_V_SAVE(J, K) -
-	1               WI_LSQ * JFNK_BA_A(I, J, K)
-	            END DO
-	            JFNK_W_V_SAVE(I, K) = JFNK_W_V_SAVE(I, K) +
-	1             WI_LSQ - WI_LSQ * JFNK_BA_RIDGE_ADD(I, K)
-	          END IF
-	        END DO
-	        DO J = 1, JFNK_NT
-	          JFNK_W_V_SAVE(J, K) = JFNK_W_V_SAVE(J, K) *
-	1           JFNK_COL_SF(J, K)
-	        END DO
-	        CALL DPOTRS('L', JFNK_NT, 1, JFNK_LU_FAC(1,1,K),
-	1           JFNK_NT, JFNK_W_V_SAVE(1,K), JFNK_NT, LU_INFO)
-	      ELSE
-	        CALL DGETRS(NO_TRANS, JFNK_NT, 1, JFNK_LU_FAC(1,1,K),
-	1           JFNK_NT, JFNK_IPIV(1,K), JFNK_W_V_SAVE(1,K),
-	2           JFNK_NT, LU_INFO)
-	      END IF
-	      IF(LU_INFO .NE. 0)THEN
-	        DO J = 1, JFNK_NT
-	          DIAG_USE = JFNK_BA_DIAG(J, K) + JFNK_BA_RIDGE_ADD(J, K)
-	          IF(ALLOCATED(JFNK_ROW_REG) .AND.
-	1             JFNK_ROW_REG(J, K))THEN
-	            JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	            NPROJ = NPROJ + 1
-	          ELSE IF(ABS(DIAG_USE) .GT. 1.0E-30_LDP)THEN
-	            JFNK_W_V_SAVE(J, K) = JFNK_W_STEQ_MAT(J, K) / DIAG_USE
-	          ELSE
-	            JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	            NZERO = NZERO + 1
-	          END IF
-	        END DO
-	      ELSE
-	        DO J = 1, JFNK_NT
-	          JFNK_W_V_SAVE(J, K) = JFNK_W_V_SAVE(J, K)
-	1           * JFNK_COL_SF(J, K)
-!
-! editted by Devin, 04-Oct-2026: zero the fixed-unknown components
-! (T under FIX_T/FIX_T range, Ne under FIX_NE) before the clip test.
-! DGETRS mixes all NT rows of the depth block, so a masked row is a
-! genuine solve output of arbitrary magnitude; it is discarded by
-! JFNK_MASK_FIXED_UNKNOWNS at pack time and must not count as a
-! nonlinear-preconditioner clip event.
-!
-! Regularized null rows: project the solved component to zero instead
-! of returning z_i~v_i.  Projection is a linear map, so M^{-1} stays
-! a consistent linear operator and the Krylov space is unaffected;
-! those directions simply get no update.  Finite z of any magnitude
-! now passes through unclipped: with null rows projected, a huge
-! finite component is faithful M^{-1} output on a badly conditioned
-! block, and clipping it is itself the nonlinearity GMRES cannot
-! tolerate.  Only nonfinite components are zeroed and flagged.
-!
-	          IF(ALLOCATED(JFNK_ROW_REG) .AND.
-	1             JFNK_ROW_REG(J, K))THEN
-	            JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	            NPROJ = NPROJ + 1
-	          ELSE IF((JFNK_FIXED_NE_LOC .AND. J .EQ. JFNK_NT-1) .OR.
-	1            (J .EQ. JFNK_NT .AND. (JFNK_FIXED_T_LOC .OR.
-	2             (JFNK_FIX_T_D_ST .GT. 0 .AND.
-	3              K .GE. JFNK_FIX_T_D_ST .AND.
-	4              K .LE. JFNK_FIX_T_D_END .AND.
-	5              .NOT. JFNK_TAUTO_ACTIVE))))THEN
-	            JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	          ELSE IF(.NOT. (ABS(JFNK_W_V_SAVE(J, K)) .LE.
-	1                 HUGE(1.0_LDP)))THEN
-	            JFNK_W_V_SAVE(J, K) = 0.0_LDP
-	            NZERO = NZERO + 1
-	            NZCLIP = NZCLIP + 1
-	          ELSE IF(ABS(JFNK_W_V_SAVE(J, K)) .GT.
-	1                 JFNK_PRECOND_ZMAX)THEN
-	            NZMAX_LOC = NZMAX_LOC + 1
-	          END IF
-	          NJAC = NJAC + 1
-	        END DO
-	      END IF
+	      REG_L2(1:JFNK_NT) = .FALSE.
 	    END IF
+	    DO J = 1, JFNK_NT
+	      FIXED_L(J) = (JFNK_FIXED_NE_LOC .AND. J .EQ. JFNK_NT-1)
+	1        .OR. (J .EQ. JFNK_NT .AND. (JFNK_FIXED_T_LOC .OR.
+	2        (JFNK_FIX_T_D_ST .GT. 0 .AND.
+	3         K .GE. JFNK_FIX_T_D_ST .AND.
+	4         K .LE. JFNK_FIX_T_D_END .AND.
+	5         .NOT. JFNK_TAUTO_ACTIVE)))
+	    END DO
+!
+! Per-depth apply lives in jfnk_solver_v1.f90
+! (jfnk_pc_apply_block_v1) so the unit tests run the identical
+! production code.  It covers the LU solve, the LSQ normal-equation
+! solve, the Jacobi fallback, and the reg/fixed/nonfinite projection
+! accounting; the counters feed the same reductions as before.
+!
+	    CALL JFNK_PC_APPLY_BLOCK_V1(
+	1       JFNK_W_V_SAVE(1,K), JFNK_W_STEQ_MAT(1,K), JFNK_NT,
+	2       LU_OK_L, JFNK_LU_FAC(1,1,K), JFNK_IPIV(1,K),
+	3       JFNK_ROW_SF(1,K), JFNK_COL_SF(1,K), JFNK_BA_A(1,1,K),
+	4       JFNK_BA_RIDGE_ADD(1,K), JFNK_BA_DIAG(1,K),
+	5       REG_L2, FIXED_L,
+	6       JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ',
+	7       DBLE(JFNK_PRECOND_ZMAX),
+	8       NPROJ, NZERO, NZCLIP, NZMAX_LOC, NJAC)
 	  END DO
 !$OMP END PARALLEL DO
 	jfnk_n_zmax_hit = jfnk_n_zmax_hit + NZMAX_LOC
