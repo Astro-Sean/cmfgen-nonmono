@@ -4,14 +4,20 @@ set -e
 TD="$(cd "$(dirname "$0")" && pwd)"
 TREE="$(dirname "$TD")"
 mkdir -p "$TD/bin"
-if command -v ifort >/dev/null 2>&1; then
+if [ -z "$FC" ] && command -v ifort >/dev/null 2>&1; then
    FC=ifort
+fi
+if [ "$(basename "$FC" 2>/dev/null)" = "ifort" ]; then
    FLAGS="-mkl=sequential -O0 -g -traceback -diag-disable=10448,10412,10434 -module $TD/bin"
    LIBS=""
 else
-   FC=gfortran
-   FLAGS="-O0 -g -fbacktrace -J$TD/bin"
-   LIBS="-llapack -lblas"
+   FC="${FC:-gfortran}"
+   FLAGS="-O0 -g -fcheck=all -fbacktrace -ffree-line-length-none -fno-range-check -J$TD/bin"
+   if ldconfig -p 2>/dev/null | grep -q 'liblapack'; then
+      LIBS="-llapack -lblas"
+   else
+      LIBS="-l:libopenblas.so.0"
+   fi
 fi
 $FC $FLAGS \
    "$TD/jfnk_int_mod_stub.f90" \
