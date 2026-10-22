@@ -329,6 +329,9 @@ end subroutine old_apply
 !
 !======================================================================
 subroutine fill_test_block(a, n, iseed, style)
+#ifdef __INTEL_COMPILER
+   use ifport  ! rand/srand are ifport extensions under ifort
+#endif
    implicit none
    integer, intent(in) :: n, iseed, style
    double precision, intent(out) :: a(n,n)
@@ -562,6 +565,9 @@ end subroutine t_linear
 ! old/new ratio for the record.
 !======================================================================
 subroutine t_rcond_norm(nfail)
+#ifdef __INTEL_COMPILER
+   use ifport  ! rand/srand are ifport extensions under ifort
+#endif
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
@@ -843,6 +849,9 @@ subroutine t_ridge(nfail)
 end subroutine t_ridge
 !======================================================================
 subroutine t_regcol(nfail)
+#ifdef __INTEL_COMPILER
+   use ifport  ! rand/srand are ifport extensions under ifort
+#endif
    use jfnk_solver_v1_mod, only: jfnk_pc_reg_zerocol, jfnk_pc_signed, &
         jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
@@ -938,6 +947,9 @@ subroutine t_regcol(nfail)
 end subroutine t_regcol
 !======================================================================
 subroutine t_tiny_equil(nfail)
+#ifdef __INTEL_COMPILER
+   use ifport  ! rand/srand are ifport extensions under ifort
+#endif
    use jfnk_solver_v1_mod, only: jfnk_pc_tiny_equil, jfnk_pc_signed, &
         jfnk_pc_reg_zerocol, jfnk_rcond_gate
    implicit none
@@ -1009,6 +1021,9 @@ subroutine t_tiny_equil(nfail)
 end subroutine t_tiny_equil
 !======================================================================
 subroutine t_gate(nfail)
+#ifdef __INTEL_COMPILER
+   use ifport  ! rand/srand are ifport extensions under ifort
+#endif
    use jfnk_solver_v1_mod, only: jfnk_rcond_gate, jfnk_rcond_min, &
         jfnk_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_ridge_floor
