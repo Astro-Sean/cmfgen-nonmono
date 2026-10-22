@@ -29,9 +29,10 @@ checkfc:
 	@if [ "$(FC_BASE)" != ifort ] && [ "$(FC_BASE)" != gfortran ]; then \
 	  echo "unsupported FC '$(FC)' - use ifort or gfortran"; exit 1; fi
 
-test: test_newton_core test_guards
+test: test_newton_core test_guards test_stress
 	./test_newton_core
 	./test_guards
+	./test_stress
 
 test_newton_core: jfnk_int_stub.o jfnk_solver_v1.o test_newton_core.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
@@ -51,7 +52,13 @@ jfnk_solver_v1.o: $(SOLVER) checkfc jfnk_int_stub.o
 test_newton_core.o: test_newton_core.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o
 	$(FC) $(FFLAGS) -c $<
 
+test_stress: jfnk_int_stub.o jfnk_solver_v1.o stress.o
+	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
+
+stress.o: stress.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o
+	$(FC) $(FFLAGS) -c $<
+
 clean:
-	rm -f *.o *.mod test_newton_core test_guards
+	rm -f *.o *.mod test_newton_core test_guards test_stress
 
 .PHONY: test clean checkfc
