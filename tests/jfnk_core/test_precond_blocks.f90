@@ -27,6 +27,7 @@ program test_precond_blocks
 !
    call t_ident_factor(nfail)
    call t_ident_apply(nfail)
+   call t_rcond_norm(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -403,9 +404,19 @@ subroutine t_ident_factor(nfail)
                nfail = nfail + 1; cycle
             end if
             if(any(reg1 .neqv. reg2) .or. itry1 /= itry2 .or. &
-                 ru1 /= ru2 .or. pv1 /= pv2 .or. rcond1 /= rcond2)then
+                 ru1 /= ru2 .or. pv1 /= pv2)then
                print *, 'T-IDENT FAIL scalars', style, imode, seed
                nfail = nfail + 1; cycle
+            end if
+! rcond is exempt from the bit-compare: old_factor supplies the
+! 1-norm to DGECON('I') (the F4 defect); the extracted routine now
+! supplies the matching infinity norm, so the values legitimately
+! differ (diagnostic only).
+            if(ok1)then
+               if(rcond2 <= 0.0d0)then
+                  print *, 'T-IDENT FAIL rcond not set'
+                  nfail = nfail + 1; cycle
+               end if
             end if
             if(any(ipiv1 /= ipiv2) .or. any(lu1 /= lu2) .or. &
                  any(rsf1 /= rsf2) .or. any(csf1 /= csf2) .or. &
@@ -533,3 +544,99 @@ subroutine t_linear(nfail)
    end do
    print *, 'T-LINEAR: ok'
 end subroutine t_linear
+
+!======================================================================
+! T-RCOND-NORM (F4): on rate-like blocks with one dense
+! conservation-like row, the rcond returned must match an independent
+! DGECON('I') call whose ANORM is recomputed here as the infinity norm
+! (max row sum) of the reconstructed pre-factor matrix.  The old
+! 1-norm ANORM produced rcond values ~9x (n=50), ~50x (n=200), ~240x
+! (n=800) too optimistic in the reviewer's measurement; this test
+! asserts the corrected value is consistent and prints the residual
+! old/new ratio for the record.
+!======================================================================
+subroutine t_rcond_norm(nfail)
+   use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
+        jfnk_pc_tiny_equil, jfnk_pc_rcond_gate
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: ns(3) = [50, 200, 800]
+   double precision, allocatable :: a(:,:), b(:,:), lu(:,:)
+   double precision, allocatable :: rsf(:), csf(:), rr(:), w(:)
+   integer, allocatable :: ipiv(:), iw(:)
+   logical, allocatable :: reg(:), regt(:), pre_reg(:)
+   double precision :: rcond2, pv, ru, an_inf, an_one, rc_true, &
+        rc_old, ratio
+   integer :: itry, ni, n, i, j, info
+   logical :: ok
+   double precision :: u
+!
+   jfnk_pc_signed=.false.; jfnk_pc_reg_zerocol=.false.
+   jfnk_pc_tiny_equil=.false.; jfnk_pc_rcond_gate=.false.
+   do ni = 1, 3
+      n = ns(ni)
+      allocate(a(n,n), b(n,n), lu(n,n), rsf(n), csf(n), rr(n), &
+           w(4*n), ipiv(n), iw(n), reg(n), regt(n), pre_reg(n))
+      call srand(97 + n)
+      do j = 1, n
+         do i = 1, n
+            u = rand()
+            a(i,j) = (2.0d0*u - 1.0d0) * 1.0d-2
+         end do
+      end do
+! rate-like negative diagonals plus one dense conservation row whose
+! magnitude dominates every column (the anisotropy that separated the
+! two norms in the reviewer measurement)
+      do j = 1, n
+         a(j,j) = -abs(a(j,j)) - 1.0d0
+         a(1,j) = 5.0d0 + rand()
+      end do
+      pre_reg = .false.
+      call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, &
+           1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
+           rcond2, pv, itry, ru, ok)
+      if(.not. ok)then
+         print *, 'T-RCOND-NORM: factor failed at n=', n
+         nfail = nfail + 1; cycle
+      end if
+! Reconstruct the pre-factor equilibrated matrix the routine factored:
+! ridged diagonal, identity substitution on reg rows, then rsf*csf
+! scaling -- the same B the internal MTST held at DGETRF time.
+      b = a
+      do i = 1, n
+         b(i,i) = b(i,i) + rr(i)
+      end do
+      do i = 1, n
+         if(reg(i))then
+            b(i,:) = 0.0d0
+            b(i,i) = 1.0d0
+         end if
+      end do
+      do j = 1, n
+         do i = 1, n
+            b(i,j) = b(i,j) * rsf(i) * csf(j)
+         end do
+      end do
+      an_inf = 0.0d0
+      an_one = 0.0d0
+      do i = 1, n
+         an_inf = max(an_inf, sum(abs(b(i,:))))
+      end do
+      do j = 1, n
+         an_one = max(an_one, sum(abs(b(:,j))))
+      end do
+      call dgecon('I', n, lu, n, an_inf, rc_true, w, iw, info)
+      call dgecon('I', n, lu, n, an_one, rc_old, w, iw, info)
+      if(rcond2 <= 0.0d0 .or. abs(rcond2/rc_true - 1.0d0) > 2.0d0)then
+         print *, 'T-RCOND-NORM FAIL n=', n, ' rcond=', rcond2, &
+              ' indep=', rc_true
+         nfail = nfail + 1
+      end if
+      ratio = rc_old / max(rc_true, tiny(1.0d0))
+      print '(A,I5,A,ES10.2,A,ES10.2,A,F7.2)', &
+           ' T-RCOND-NORM n=', n, ' rcond=', rcond2, &
+           ' old-1norm=', rc_old, ' old/new=', ratio
+      deallocate(a, b, lu, rsf, csf, rr, w, ipiv, iw, reg, regt, &
+           pre_reg)
+   end do
+end subroutine t_rcond_norm

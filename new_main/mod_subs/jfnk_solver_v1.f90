@@ -3478,10 +3478,16 @@ end subroutine jfnk_schur_apply_v1
             mtst(1:n,1:n) = lu(1:n,1:n)
             call dpotrf('L', n, lu, n, info_k)
          else
+! F4: DGECON below is called with NORM='I' (infinity norm), so ANORM
+! must be the maximum ROW sum; the pre-fix code supplied the maximum
+! column sum (1-norm), which on unsymmetric blocks underestimates
+! rcond by an order-dependent factor (~9x at n=50, ~240x at n=800 in
+! the unit test).  rcond is diagnostic only today, so this changes
+! logged values, not control flow.
             anorm_k = 0.0d0
-            do j = 1, n
+            do i = 1, n
                s_tmp = 0.0d0
-               do i = 1, n
+               do j = 1, n
                   s_tmp = s_tmp + abs(lu(i,j))
                end do
                anorm_k = max(anorm_k, s_tmp)
