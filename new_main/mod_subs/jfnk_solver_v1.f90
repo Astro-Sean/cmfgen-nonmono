@@ -690,7 +690,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! (Oct-2026 JFNK_MXDL fix)
    if(del < 0d0 .and. mxdl <= 0d0)  mxdl_ = 1d99
    !
-   if(info == 1) write(luer,'(A,I3,A,ES12.4)') &
+   if(info == 1) write(luer,'(A,I3,A,ES12.4,A,ES12.4)') &
       '  JFNK: nits=', jfnk_nits, ' res=', real(jfnk_tol), &
       ' maxch_est=', real(jfnk_maxch_est)
    if(info == 1) flush(luer)
