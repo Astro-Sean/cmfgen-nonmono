@@ -3705,3 +3705,28 @@ end subroutine jfnk_schur_apply_v1
       if(allocated(w_lsq)) deallocate(w_lsq)
       return
    end subroutine jfnk_pc_apply_block_v1
+!
+! ----------------------------------------------------------------------
+! jfnk_rscale_branch_v1: JFNK_RSCALE mode dispatch, extracted as a
+! pure function so the unit tests exercise the exact production
+! branch order.  F7: the pre-fix chain tested mode(1:4)=='DIAG'
+! before 'DIAG_RDG', which made DIAG_RDG unreachable.  The specific
+! 8-character match must be tested before the 4-character prefix.
+! Return codes: 0 EUCLIDEAN (default), 1 SQRT_STE, 2 DIAG, 3 DIAG_RDG.
+! ----------------------------------------------------------------------
+   integer function jfnk_rscale_branch_v1(mode)
+      implicit none
+      character(len=*), intent(in) :: mode
+      character(len=8) :: m8
+      m8 = mode
+      if(m8 == 'SQRT_STE')then
+         jfnk_rscale_branch_v1 = 1
+      else if(m8 == 'DIAG_RDG')then
+         jfnk_rscale_branch_v1 = 3
+      else if(m8(1:4) == 'DIAG')then
+         jfnk_rscale_branch_v1 = 2
+      else
+         jfnk_rscale_branch_v1 = 0
+      end if
+      return
+   end function jfnk_rscale_branch_v1

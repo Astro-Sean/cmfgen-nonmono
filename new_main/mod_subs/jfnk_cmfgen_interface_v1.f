@@ -463,7 +463,9 @@
 	INTEGER I, K, J
 	REAL(KIND=LDP) ABS_FI, FMAX, FLOOR_USE, DABS, DMAX_K, RIDGE_K, RIDGE_FAC
 	INTEGER LUER, ERROR_LU
-	EXTERNAL ERROR_LU
+	INTEGER RSCALE_SEL
+	INTEGER JFNK_RSCALE_BRANCH_V1
+	EXTERNAL ERROR_LU, JFNK_RSCALE_BRANCH_V1
 !
 ! Production default is Euclidean (RSCALE=1).  The 1/sqrt(|STEQ|)
 ! weighting (SQRT_STEQ) and the diagnostic sqrt(|D|/(|D|+ridge))
@@ -475,7 +477,14 @@
 	LUER = ERROR_LU()
 	JFNK_RSCALE(1:N) = 1.0_LDP
 !
-	IF(JFNK_RSCALE_MODE(1:8) .EQ. 'SQRT_STE')THEN
+! The dispatch moved into jfnk_rscale_branch_v1 (jfnk_solver_v1.f90)
+! so the unit tests exercise the exact branch order.  F7 fix: the
+! 8-character 'DIAG_RDG' test must precede the 4-character 'DIAG'
+! prefix or DIAG_RDG is unreachable.
+!
+	RSCALE_SEL = JFNK_RSCALE_BRANCH_V1(JFNK_RSCALE_MODE)
+!
+	IF(RSCALE_SEL .EQ. 1)THEN
 	  FMAX = 0.0_LDP
 	  DO I = 1, N
 	    FMAX = MAX(FMAX, ABS(REAL(F_BASE(I), KIND=LDP)))
@@ -486,7 +495,7 @@
 	    IF(ABS_FI .LT. FLOOR_USE) ABS_FI = FLOOR_USE
 	    JFNK_RSCALE(I) = 1.0_LDP / SQRT(ABS_FI)
 	  END DO
-	ELSE IF(JFNK_RSCALE_MODE(1:4) .EQ. 'DIAG')THEN
+	ELSE IF(RSCALE_SEL .EQ. 2)THEN
 	  IF(JFNK_BA_DIAG_READY)THEN
 	    DO K = 1, JFNK_ND
 	      DMAX_K = 0.0_LDP
@@ -509,7 +518,7 @@
 	1     '  JFNK: RSCALE=DIAG requested but BA diagonal not yet'
 	2     //' available -- keeping EUCLIDEAN for this call'
 	  END IF
-	ELSE IF(JFNK_RSCALE_MODE(1:8) .EQ. 'DIAG_RDG')THEN
+	ELSE IF(RSCALE_SEL .EQ. 3)THEN
 	  RIDGE_FAC = JFNK_BA_RIDGE_FAC
 	  IF(RIDGE_FAC .LE. 0.0_LDP) RIDGE_FAC = 1.0E-3_LDP
 	  IF(JFNK_BA_DIAG_READY)THEN

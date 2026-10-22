@@ -28,6 +28,7 @@ program test_precond_blocks
    call t_ident_factor(nfail)
    call t_ident_apply(nfail)
    call t_rcond_norm(nfail)
+   call t_rscale_order(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -640,3 +641,37 @@ subroutine t_rcond_norm(nfail)
            pre_reg)
    end do
 end subroutine t_rcond_norm
+
+!======================================================================
+! T-RSCALE-ORDER (F7): 'DIAG_RDG' must select the DIAG_RDG branch, not
+! be shadowed by the 4-character 'DIAG' prefix.  Production dispatch
+! is jfnk_rscale_branch_v1 itself, so this test covers the real code.
+!======================================================================
+subroutine t_rscale_order(nfail)
+   implicit none
+   integer, intent(inout) :: nfail
+   integer :: jfnk_rscale_branch_v1
+   external jfnk_rscale_branch_v1
+!
+   if(jfnk_rscale_branch_v1('DIAG_RDG') /= 3)then
+      print *, 'T-RSCALE-ORDER FAIL: DIAG_RDG not selected'
+      nfail = nfail + 1
+   end if
+   if(jfnk_rscale_branch_v1('DIAG') /= 2)then
+      print *, 'T-RSCALE-ORDER FAIL: DIAG not selected'
+      nfail = nfail + 1
+   end if
+   if(jfnk_rscale_branch_v1('DIAG_XX') /= 2)then
+      print *, 'T-RSCALE-ORDER FAIL: DIAG prefix lost'
+      nfail = nfail + 1
+   end if
+   if(jfnk_rscale_branch_v1('SQRT_STEQ') /= 1)then
+      print *, 'T-RSCALE-ORDER FAIL: SQRT_STE not selected'
+      nfail = nfail + 1
+   end if
+   if(jfnk_rscale_branch_v1('EUCLIDEAN') /= 0)then
+      print *, 'T-RSCALE-ORDER FAIL: default branch lost'
+      nfail = nfail + 1
+   end if
+   print *, 'T-RSCALE-ORDER: ok'
+end subroutine t_rscale_order
