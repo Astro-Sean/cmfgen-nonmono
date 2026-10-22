@@ -455,6 +455,7 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE MOD_CMFGEN, ONLY: ED
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_RSCALE_MODE, JFNK_BA_RIDGE_FAC
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_use_left_pc
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -465,6 +466,7 @@
 	INTEGER LUER, ERROR_LU
 	INTEGER RSCALE_SEL
 	INTEGER JFNK_RSCALE_BRANCH_V1
+	LOGICAL, SAVE :: WARNED_LSPC = .FALSE.
 	EXTERNAL ERROR_LU, JFNK_RSCALE_BRANCH_V1
 !
 ! Production default is Euclidean (RSCALE=1).  The 1/sqrt(|STEQ|)
@@ -483,6 +485,27 @@
 ! prefix or DIAG_RDG is unreachable.
 !
 	RSCALE_SEL = JFNK_RSCALE_BRANCH_V1(JFNK_RSCALE_MODE)
+!
+! Audit F6: under left preconditioning the Arnoldi vectors live in
+! correction space (M^-1 r) while the weights computed here are
+! built from residual-space quantities (STEQ, BA diagonal).  The
+! weighted JFNK_DOT_V1 inner product then mixes spaces.  Euclidean
+! (RSCALE=1, the default) is invisible to the mismatch; warn once
+! for any non-trivial mode rather than silently trusting the norm.
+!
+	IF(RSCALE_SEL .NE. 0 .AND. jfnk_use_left_pc .AND.
+	1   .NOT. WARNED_LSPC)THEN
+	  WARNED_LSPC = .TRUE.
+	  IF(LUER .GT. 0)THEN
+	    WRITE(LUER,'(A)')'  JFNK: WARNING - non-Euclidean' //
+	1      ' JFNK_RSCALE under left preconditioning applies'
+	    WRITE(LUER,'(A)')'       residual-space weights to' //
+	1      ' correction-space (M^-1 r) Krylov vectors; the'
+	    WRITE(LUER,'(A)')'       weighted inner product is a' //
+	1      ' space mismatch (audit F6).  JFNK_RSCALE=EUCLIDEAN'
+	2      //' avoids it.'
+	  END IF
+	END IF
 !
 	IF(RSCALE_SEL .EQ. 1)THEN
 	  FMAX = 0.0_LDP
