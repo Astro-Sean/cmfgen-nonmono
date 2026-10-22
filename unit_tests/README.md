@@ -1,10 +1,11 @@
 # unit_tests -- production-file regression tests for the modified CMFGEN/JFNK tree
 
 Every test is a Python script that compiles the **exact production
-Fortran files** from `cmfgen_jfnk/` (and, where the signature allows,
-the pristine reference in `cmfgen_reference/cur_cmf/`) together with a
-small CLI driver in `f90/`, runs the binary, and asserts on its
-output.  No Python reimplementation of production code.
+Fortran files** from this tree (the repo root, parent of
+`unit_tests/`; `common.py:TREE`) and, where the signature allows, the
+pristine reference in `../cmfgen_reference/cur_cmf/` (`common.py:REF`)
+together with a small CLI driver in `f90/`, runs the binary, and
+asserts on its output.  No Python reimplementation of production code.
 
 Run everything:
 
@@ -33,7 +34,7 @@ error text.
 | `test_edep_shock.py` | `new_main/subs/get_edep_shock_power.f` | flags-off path bit-identical to reference including non-monotonic V (legacy tolerance); `DO_NONMONO_SOB`/`DO_NONMONO_KNOP`/`both` abort on non-positive or non-decreasing V and accept monotone V; Gaussian deposition profile shape/location; 4*pi normalization vs prescribed power; upstream `clump_fac=0` and `sum(wrk)=0` guards |
 | `test_sob_prof.py` | `obs/cmf_flux_sub_v5.f` (`ADD_SOB_LINE_PROF`) | stored Doppler core integrates to CHIL*CLUMP; off-grid SOB line named and skipped; >10% masing-depth drop warns per line and counts N_DROP; non-monotonic NU aborts before deposition |
 | `test_vadat_keys.py` | `new_main/mod_subs/rd_control_variables.f` (+ real `rd_store_log.f`, `control_variable_mod.f`, `jfnk_solver_v1.f90`, `check_param_consistency.f`, `fg_j_cmf_nonmono_v1.f`, `mom_j_cmf_nonmono_v1.f`) | a production VADAT parses; every new non-mono/LAM/BA/JFNK key round-trips into the module store; mutual exclusion; GLOBAL_LINE/USE_LAM_ES/LAM_SET prerequisites abort; DO_JFNK non-mono gate; JFNK_COUPLED KNOP-only; USE_JFNK deprecated alias; JFNK_LAG_FACTORS/JFNK_FRZ_GATE/JFNK_GATE_NREQ round-trip; DO_NONLOC_SOB auto-off; DO_CL/GAMRAY_TRANS legacy-coordinate rejections; IB_METH whitelist + case normalization; VEL_LAW=13 -> SN_HYDRO_MODEL |
-| `test_jfnk_solver.py` | `new_main/mod_subs/jfnk_solver_v1.f90` (via `tests/jfnk_core` and `cmfgen_jfnk_unit_test`) | Newton/GMRES/hookstep core T1-T3 on an analytic stiff problem (PTC off, SER anchor, far-start trust region); surrogate-SE systems T0-T14: FD-JVP error curve, demanded-step SVD, PC variants, GMRES, end-to-end Newton, masked-T rows, tauto ladder/FSM.  Known author-flagged diagnostics are XFAIL |
+| `test_jfnk_solver.py` | `new_main/mod_subs/jfnk_solver_v1.f90` (via `tests/jfnk_core` and the `unit_tests/se_driver` harness) | Newton/GMRES/hookstep core T1-T3 on an analytic stiff problem (PTC off, SER anchor, far-start trust region); surrogate-SE systems T0-T14: FD-JVP error curve, demanded-step SVD, PC variants, GMRES, end-to-end Newton, masked-T rows, tauto ladder/FSM.  Known author-flagged diagnostics are XFAIL |
 
 ## Supporting files
 

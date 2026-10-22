@@ -644,10 +644,12 @@ subroutine se_psolve_tsvd(n, v)
    integer :: k, i, idx, info, lwork, liwork, rank
    double precision, allocatable :: u(:,:), s(:), svv(:,:), wk(:)
    integer, allocatable :: iwk(:)
-   double precision :: rcond, wkq
-   integer :: iwkq
+   double precision :: rcond, wkq(1)
+   integer :: iwkq(1)
    vsave = v
-   ! workspace query (lwork = -1): dgelsd returns optimal sizes
+   ! workspace query (lwork = -1): dgelsd returns optimal sizes.
+   ! WORK and IWORK are rank-1 arrays in LAPACK even on a query call;
+   ! passing scalars is a rank mismatch under gfortran.
    allocate(u(se_nt,se_nt), s(se_nt), svv(se_nt,se_nt), stat=info)
    if (info /= 0) then
       v = 0d0
@@ -660,8 +662,8 @@ subroutine se_psolve_tsvd(n, v)
                rank, wkq, -1, iwkq, info)
    ! fall back to documented bounds if the query failed or returned
    ! unusable sizes, so a bad query cannot size the real call
-   lwork = int(wkq) + 100
-   liwork = iwkq + 100
+   lwork = int(wkq(1)) + 100
+   liwork = iwkq(1) + 100
    if (info /= 0 .or. lwork < 12*se_nt+2*se_nt*se_nt .or. &
        liwork < 12*se_nt) then
       lwork = 12*se_nt + 4*se_nt*se_nt + 512
