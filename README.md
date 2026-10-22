@@ -182,6 +182,7 @@ the flags off none of this code runs and the defaults are inert.
 | `GS_RELEASE_LIM` | 0 | Rejected GS trial releases (`N_TRIALS_REJ`) before the run stops (KNOP); `0` disables. |
 | `JFNK_FD_COS_MIN` | 0.05 | Descent floor on the finite-difference image of the clipped step, `cos(F,A_FD z)` -- the stored-BA REACH can pass a step the true Jacobian maps anti-parallel to F (KNOP_jfnkrel it35: REACH 0.735 vs FD cos -0.23). `0` disables. |
 | `JFNK_FD_AUTODEF` | T | Defer any JFNK admission whose FD operator image is anti-descent (`cos(F,A_FD z) < 0`), even with all thresholds at 0. Arms the precheck block (one extra residual eval per admission). `F` recovers pre-guard behaviour. |
+| `JFNK_NOISE_DIAG` | F | Per-residual-eval noise record: eval index, `|X|`/`|Y|` inf-norms, `|dX|`/`|dY|` vs the previous eval (`|dY|` at `|dX|=0` exposes the non-determinism floor an FD JVP sees), bad-component count, OMP thread count. Diagnostic only; default path unchanged. |
 | `LUM_DIV_FAC` | 1.0E2 | KNOP only: per-call outer-luminosity growth factor counted as runaway. |
 | `LUM_DIV_N` | 3 | KNOP only: consecutive runaway calls before `LUM_BLOCKED` fires (pops held, damped LAMBDA only). `0` disables the guard. |
 | `LUM_DIV_CAP` | 1.0E15 | KNOP only: outer luminosity (L_sun) past which the run stops as non-convergent. |

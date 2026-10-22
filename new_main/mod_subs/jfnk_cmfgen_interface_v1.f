@@ -1542,7 +1542,7 @@
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
-	1     JFNK_EVAL_BROKEN
+	1     JFNK_EVAL_BROKEN, JFNK_NOISE_DIAG
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -1554,6 +1554,8 @@
 	INTEGER, EXTERNAL :: ERROR_LU
 	REAL(KIND=LDP) OMP_GET_WTIME
 	EXTERNAL OMP_GET_WTIME
+	INTEGER OMP_GET_NUM_THREADS
+	EXTERNAL OMP_GET_NUM_THREADS
 	REAL(KIND=LDP) MCE_DABS, MCE_DMAX
 !
 ! Audit 17-Sep-2026 (issue 4): count constraint crossings that are NEW
@@ -2066,6 +2068,50 @@
 	CALL JFNK_RESTORE_MOD_STEQ_V1()
 !
 	CALL JFNK_SYNC_ATM_FROM_POPS(POPS_WORK)
+!
+! JFNK_NOISE_DIAG (VADAT [JFNK_NOISE_DIAG], default F): per-eval
+! noise record.  Keeps the previous eval's X and Y so a repeated X
+! exposes non-determinism directly: |dY| at |dX|=0 is the eval-side
+! noise floor that an FD JVP sees (OMP reduction order, unbracketed
+! sweep state).  Coupled-mode answer to finding 5 in the bake-off --
+! the toy shows deterministic iterative noise cannot reach the FD
+! scales Newton uses, so the real question is whether production's
+! is non-deterministic.  SAVE workspace, default path unchanged.
+! edited by Devin, 22-Oct-2026
+!
+	IF(JFNK_NOISE_DIAG)THEN
+	  BLOCK
+	    DOUBLE PRECISION, ALLOCATABLE, SAVE :: X_PRV(:), Y_PRV(:)
+	    DOUBLE PRECISION :: DXM, DYM, XIM, YIM
+	    INTEGER :: NTHR, IOS_ND
+	    IF(ALLOCATED(X_PRV))THEN
+	      IF(SIZE(X_PRV) .NE. N) DEALLOCATE(X_PRV, Y_PRV)
+	    END IF
+	    IOS_ND = 0
+	    IF(.NOT. ALLOCATED(X_PRV))THEN
+	      ALLOCATE(X_PRV(N), Y_PRV(N), STAT=IOS_ND)
+	      IF(IOS_ND .EQ. 0)THEN
+	        X_PRV = X
+	        Y_PRV = Y
+	      END IF
+	    END IF
+	    IF(IOS_ND .EQ. 0)THEN
+	      DXM = MAXVAL(ABS(X - X_PRV))
+	      DYM = MAXVAL(ABS(Y - Y_PRV))
+	      XIM = MAXVAL(ABS(X))
+	      YIM = MAXVAL(ABS(Y))
+	      NTHR = OMP_GET_NUM_THREADS()
+	      WRITE(LUER,'(A,I7,4(A,ES13.5),A,I4,A,I4)')
+	1       '  JFNK_NOISE eval=', JFNK_N_RESIDUAL_EVALS,
+	2       '  |X|=', XIM, '  |Y|=', YIM,
+	3       '  |dX|=', DXM, '  |dY|=', DYM,
+	4       '  nbad=', N_BAD, '  thr=', NTHR
+	      FLUSH(LUER)
+	      X_PRV = X
+	      Y_PRV = Y
+	    END IF
+	  END BLOCK
+	END IF
 !
 	JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
 !

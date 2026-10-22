@@ -178,6 +178,10 @@ def main():
             "baseline: absent JFNK_ESFR defaults F",
             v.get("JFNK_ESFR") == "F",
         )
+        rep.check(
+            "baseline: absent JFNK_NOISE_DIAG defaults F",
+            v.get("JFNK_NOISE_DIAG") == "F",
+        )
 
     cases = [
         # (name, mutations, expect_ok, expect_stdout_substr)
@@ -392,16 +396,22 @@ def main():
     # New JFNK Phase-C keys parse and land when present.
     d = write_vadat(
         WORKDIR / "vadat_newkeys",
-        {"JFNK_FADAPT": "F", "JFNK_FDCPLX": "T", "JFNK_ESFR": "T"},
+        {
+            "JFNK_FADAPT": "F",
+            "JFNK_FDCPLX": "T",
+            "JFNK_ESFR": "T",
+            "JFNK_NOISE_DIAG": "T",
+        },
     )
     p = run_vadat(exe, d)
     v = parse(p.stdout)
     rep.check(
-        "JFNK_FADAPT/FDCPLX/ESFR parse and land",
+        "JFNK_FADAPT/FDCPLX/ESFR/NOISE_DIAG parse and land",
         "RESULT_OK" in p.stdout
         and v.get("JFNK_FADAPT") == "F"
         and v.get("JFNK_FDCPLX") == "T"
-        and v.get("JFNK_ESFR") == "T",
+        and v.get("JFNK_ESFR") == "T"
+        and v.get("JFNK_NOISE_DIAG") == "T",
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 

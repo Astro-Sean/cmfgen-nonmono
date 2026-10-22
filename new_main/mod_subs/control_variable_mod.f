@@ -1856,6 +1856,13 @@
 	LOGICAL JFNK_FIXED_T
 	LOGICAL JFNK_VERBOSE
 	LOGICAL JFNK_DIAGNOSTIC	!VADAT [JFNK_DIAG], default F
+! JFNK_NOISE_DIAG (VADAT [JFNK_NOISE_DIAG], default F): per-residual-
+! eval noise logging in JFNK_RESIDUAL_V1 -- eval index, |X|_inf,
+! |Y|_inf, bad-component count, OMP thread count, and the change vs
+! the previous eval's (X,Y) so a repeated X exposes non-determinism
+! (OMP reduction order, unbracketed sweep state).  Diagnostic only;
+! the default path is unchanged.  (bake-off Phase 2, 22-Oct-2026)
+	LOGICAL JFNK_NOISE_DIAG
 	INTEGER JFNK_WARMUP
 	REAL(KIND=LDP) MAX_JFNK_COR
 	LOGICAL JFNK_APPLY_BA_RIDGE
