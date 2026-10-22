@@ -1983,6 +1983,10 @@
 ! JFNK_REG_ZERO_COL (default F): identity-substituted regularized
 ! rows also have their columns zeroed.
 	LOGICAL JFNK_REG_ZERO_COL
+! JFNK_ROW_TINY_EQUIL (default F): scale-free near-null row
+! classification (row share of its column maxima) instead of the
+! raw rowmax-vs-blockmax test.
+	LOGICAL JFNK_ROW_TINY_EQUIL
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
 !

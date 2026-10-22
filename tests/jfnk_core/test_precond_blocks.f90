@@ -32,6 +32,7 @@ program test_precond_blocks
    call t_sign(nfail)
    call t_ridge(nfail)
    call t_regcol(nfail)
+   call t_tiny_equil(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -934,3 +935,74 @@ subroutine t_regcol(nfail)
    print '(A,4ES9.1)', ' T-REGCOL new err vs col scale:', err_new
    jfnk_pc_reg_zerocol = .false.
 end subroutine t_regcol
+!======================================================================
+subroutine t_tiny_equil(nfail)
+   use jfnk_solver_v1_mod, only: jfnk_pc_tiny_equil, jfnk_pc_signed, &
+        jfnk_pc_reg_zerocol, jfnk_pc_rcond_gate
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: n = 12
+   double precision :: a(n,n), lu(n,n), rsf(n), csf(n), rr(n)
+   integer :: ipiv(n)
+   logical :: reg(n), regt(n), pre_reg(n)
+   double precision :: rcond, pv, ru, u
+   integer :: itry, i, j
+   logical :: ok
+!
+   jfnk_pc_signed=.false.; jfnk_pc_reg_zerocol=.false.
+   jfnk_pc_rcond_gate=.false.
+   call srand(88)
+   a = 0.0d0
+   do j = 1, n
+      do i = 1, j-1
+         u = rand()
+! upper-triangular, row-scaled couplings: every column is owned by
+! its own diagonal while row scales span 24 decades, so the raw
+! blockmax test flags the small rows but the column-equilibrated
+! test does not
+         a(i,j) = (2.0d0*u - 1.0d0) * 1.0d-4 * &
+              10.0d0**(2.0d0*(i-1)-12)
+      end do
+   end do
+   do i = 1, n
+      a(i,i) = 10.0d0**(2.0d0*(i-1) - 12)
+   end do
+   pre_reg = .false.
+! raw test must flag the small rows
+   jfnk_pc_tiny_equil = .false.
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   if(count(regt) == 0)then
+      print *, 'T-TINY-EQUIL FAIL: raw test flagged nothing'
+      nfail = nfail + 1
+   end if
+! equilibrated test must not flag any of the full-rank rows
+   jfnk_pc_tiny_equil = .true.
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   if(count(regt) /= 0)then
+      print *, 'T-TINY-EQUIL FAIL: equil test flagged', count(regt)
+      nfail = nfail + 1
+   end if
+! a genuinely zero row is caught by both conventions
+   a(7,:) = 0.0d0
+   jfnk_pc_tiny_equil = .true.
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   if(.not. regt(7))then
+      print *, 'T-TINY-EQUIL FAIL: equil missed zero row'
+      nfail = nfail + 1
+   end if
+   jfnk_pc_tiny_equil = .false.
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   if(.not. regt(7))then
+      print *, 'T-TINY-EQUIL FAIL: raw missed zero row'
+      nfail = nfail + 1
+   end if
+   print *, 'T-TINY-EQUIL: ok'
+end subroutine t_tiny_equil

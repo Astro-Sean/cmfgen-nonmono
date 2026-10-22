@@ -3329,7 +3329,8 @@
 	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM,
 	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR,
 	3                              JFNK_PTC_SIGNED, JFNK_PC_SIGN_DIAG,
-	4                              JFNK_REG_ZERO_COL
+	4                              JFNK_REG_ZERO_COL,
+	5                              JFNK_ROW_TINY_EQUIL
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_log_unknown,
@@ -4304,13 +4305,17 @@
 	    INTEGER :: N_ZROW, N_ZCOL, J_Z, I_Z, JROW, JCOL
 	    INTEGER :: N_REG_B, K_B, J_B
 	    REAL(KIND=LDP) :: RMAX_B, BLKMAX_B
+	    REAL(KIND=LDP), ALLOCATABLE :: CMAX_B(:)
 	    LOGICAL :: ROW_NZ
 	    N_ZROW = 0; N_ZCOL = 0; N_REG_B = 0
 !
 ! Block maximum over the assembled banded matrix (headroom rows are
 ! zeroed at allocation).  Rows whose max|A_ij| is below
 ! JFNK_ROW_TINY*blockmax are replaced by the identity row, matching
-! the per-depth LU path.  Preconditioner only.  Repaired rows/columns
+! the per-depth LU path.  Under [JFNK_ROW_TINY_EQUIL] the raw test is
+! replaced by the same scale-free share criterion used in the
+! per-depth routine (share_i = max_J |A_iJ|/colmax_J < ROW_TINY).
+! Preconditioner only.  Repaired rows/columns
 ! are recorded in JFNK_ROW_REG so the apply side projects them to
 ! zero (linear) instead of returning z_i ~ v_i.
 ! edited by Sean Brennan (2026-10)
@@ -4324,13 +4329,33 @@
 	    END IF
 	    JFNK_ROW_REG = .FALSE.
 	    BLKMAX_B = MAXVAL(ABS(JFNK_BANDED_LUAB))
+	    IF(JFNK_ROW_TINY_EQUIL)THEN
+	      IF(.NOT. ALLOCATED(CMAX_B))THEN
+	        ALLOCATE(CMAX_B(JFNK_BANDED_N), STAT=IOS)
+	        IF(IOS .NE. 0) STOP 'JFNK_FACTOR_PRECOND: alloc CMAX_B'
+	      END IF
+	      DO J_Z = 1, JFNK_BANDED_N
+	        CMAX_B(J_Z) = 0.0_LDP
+	        DO I_Z = MAX(1,J_Z-JFNK_BANDED_KU),
+	1           MIN(JFNK_BANDED_N,J_Z+JFNK_BANDED_KL)
+	          JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	          CMAX_B(J_Z) = MAX(CMAX_B(J_Z),
+	1             ABS(JFNK_BANDED_LUAB(JROW, J_Z)))
+	        END DO
+	      END DO
+	    END IF
 ! Count/fix zero ROWS: row I_Z has all-zero elements across columns
 	    DO I_Z = 1, JFNK_BANDED_N
 	      RMAX_B = 0.0_LDP
 	      DO J_Z = MAX(1,I_Z-JFNK_BANDED_KL),
 	1         MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KU)
 	        JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
-	        RMAX_B = MAX(RMAX_B, ABS(JFNK_BANDED_LUAB(JROW, J_Z)))
+	        IF(JFNK_ROW_TINY_EQUIL)THEN
+	          IF(CMAX_B(J_Z) .GT. 0.0_LDP) RMAX_B = MAX(RMAX_B,
+	1             ABS(JFNK_BANDED_LUAB(JROW, J_Z))/CMAX_B(J_Z))
+	        ELSE
+	          RMAX_B = MAX(RMAX_B, ABS(JFNK_BANDED_LUAB(JROW, J_Z)))
+	        END IF
 	      END DO
 	      K_B = (I_Z-1)/JFNK_NT + 1
 	      J_B = I_Z - (K_B-1)*JFNK_NT
@@ -4339,6 +4364,18 @@
 	        JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, I_Z)
 	1           = 1.0_LDP
 	        JFNK_ROW_REG(J_B, K_B) = .TRUE.
+	      ELSE IF(JFNK_ROW_TINY_EQUIL)THEN
+	        IF(RMAX_B .LT. JFNK_ROW_TINY)THEN
+	          DO J_Z = MAX(1,I_Z-JFNK_BANDED_KL),
+	1             MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KU)
+	            JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	            JFNK_BANDED_LUAB(JROW, J_Z) = 0.0_LDP
+	          END DO
+	          JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, I_Z)
+	1             = 1.0_LDP
+	          JFNK_ROW_REG(J_B, K_B) = .TRUE.
+	          N_REG_B = N_REG_B + 1
+	        END IF
 	      ELSE IF(RMAX_B .LT. JFNK_ROW_TINY*BLKMAX_B)THEN
 	        DO J_Z = MAX(1,I_Z-JFNK_BANDED_KL),
 	1           MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KU)

@@ -3273,10 +3273,8 @@ end subroutine jfnk_schur_apply_v1
       double precision, allocatable :: gecon_work(:)
       integer, allocatable :: gecon_iwork(:)
       logical, allocatable :: reg_raw(:), reg_eq(:)
-      double precision, allocatable :: csf_pre(:), rsf_pre(:)
+      double precision, allocatable :: csf_pre(:)
       integer :: n_tiny_chg
-      double precision :: blk_eq
-      logical :: eq_ok
 !
       lu_ok = .false.
       ridge_used = 0.0d0
@@ -3362,67 +3360,57 @@ end subroutine jfnk_schur_apply_v1
 ! Near-null row detection.  Default (historical): test the raw row
 ! against the block maximum, which is dominated by the stiffest rows
 ! so a full-rank row in different units can be misclassified.
-! [JFNK_ROW_TINY_EQUIL] (F3): test on the column-equilibrated block
-! (|a_ij|*csf_j) instead.  Row scaling is deliberately not applied to
-! the test metric: DGEEQU row factors normalize every row max to ~1,
-! which would erase the signal entirely; column scaling measures each
-! entry against the largest element competing for its unknown.
+! [JFNK_ROW_TINY_EQUIL] (F3): scale-free test -- a row counts as
+! null only when every entry is negligible relative to its column
+! maximum, share_i = max_j |a_ij|/colmax_j < row_tiny.  A row in
+! small units that still owns its column keeps share ~1; a genuinely
+! null row keeps share ~0.  DGEEQU factors cannot express this: its
+! column scaling normalizes the row-scaled matrix, leaving a small
+! row's absolute magnitude dominant anyway.
 !
          if(jfnk_pc_tiny_equil)then
-            eq_ok = .false.
-            allocate(reg_raw(n), reg_eq(n), rsf_pre(n), csf_pre(n), &
-                 stat=ios)
-            if(ios == 0 .and. blkmax > 0.0d0)then
-               mtst(1:n,1:n) = a(1:n,1:n)
-               call dgeequ(n, n, mtst, n, rsf_pre, csf_pre, &
-                    row_cnd, col_cnd, amax, info_k)
-               if(info_k == 0)then
-                  blk_eq = 0.0d0
+            allocate(reg_raw(n), reg_eq(n), csf_pre(n), stat=ios)
+            if(ios == 0)then
+               do j = 1, n
+                  csf_pre(j) = 0.0d0
                   do i = 1, n
-                     do j = 1, n
-                        blk_eq = max(blk_eq, &
-                             abs(a(i,j))*csf_pre(j))
-                     end do
+                     csf_pre(j) = max(csf_pre(j), abs(a(i,j)))
                   end do
-                  if(blk_eq > 0.0d0)then
-                     eq_ok = .true.
-                     do i = 1, n
-                        rowmax_i = 0.0d0
-                        do j = 1, n
-                           rowmax_i = max(rowmax_i, &
-                                abs(a(i,j))*csf_pre(j))
-                        end do
-                        reg_eq(i) = &
-                             (rowmax_i < row_tiny*blk_eq)
-                        rowmax_i = 0.0d0
-                        do j = 1, n
-                           rowmax_i = max(rowmax_i, abs(a(i,j)))
-                        end do
-                        reg_raw(i) = (rowmax_i < row_tiny*blkmax)
-                     end do
-                     n_tiny_chg = count(reg_raw .neqv. reg_eq)
-                     if(n_tiny_chg > 0 .and. luer > 0)then
-                        write(luer,'(A,I6,A)') &
-                          '  JFNK: ROW_TINY_EQUIL reclassifies ', &
-                          n_tiny_chg, ' rows vs raw test'
-                     end if
-                     reg_tiny(1:n) = reg_eq(1:n)
-                  end if
-               end if
-            end if
-            if(allocated(reg_raw)) &
-                 deallocate(reg_raw, reg_eq, rsf_pre, csf_pre)
-! A failed equilibration pre-pass must not silently disable the
-! regularization; fall back to the historical raw-block test.
-            if(.not. eq_ok .and. blkmax > 0.0d0)then
+               end do
                do i = 1, n
+                  rowmax_i = 0.0d0
+                  do j = 1, n
+                     if(csf_pre(j) > 0.0d0) rowmax_i = &
+                          max(rowmax_i, abs(a(i,j))/csf_pre(j))
+                  end do
+                  reg_eq(i) = (rowmax_i < row_tiny)
                   rowmax_i = 0.0d0
                   do j = 1, n
                      rowmax_i = max(rowmax_i, abs(a(i,j)))
                   end do
-                  if(rowmax_i < row_tiny*blkmax) &
-                       reg_tiny(i) = .true.
+                  reg_raw(i) = (rowmax_i < row_tiny*blkmax)
                end do
+               n_tiny_chg = count(reg_raw .neqv. reg_eq)
+               if(n_tiny_chg > 0 .and. luer > 0)then
+                  write(luer,'(A,I6,A)') &
+                    '  JFNK: ROW_TINY_EQUIL reclassifies ', &
+                    n_tiny_chg, ' rows vs raw test'
+               end if
+               reg_tiny(1:n) = reg_eq(1:n)
+               deallocate(reg_raw, reg_eq, csf_pre)
+            else
+! allocation failure must not silently disable regularization;
+! fall back to the historical raw-block test.
+               if(blkmax > 0.0d0)then
+                  do i = 1, n
+                     rowmax_i = 0.0d0
+                     do j = 1, n
+                        rowmax_i = max(rowmax_i, abs(a(i,j)))
+                     end do
+                     if(rowmax_i < row_tiny*blkmax) &
+                          reg_tiny(i) = .true.
+                  end do
+               end if
             end if
          else
             if(blkmax > 0.0d0)then
