@@ -34,6 +34,7 @@ program test_precond_blocks
    call t_regcol(nfail)
    call t_tiny_equil(nfail)
    call t_gate(nfail)
+   call t_rcond_nan(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -1118,3 +1119,58 @@ subroutine t_gate(nfail)
         ' ridge=', ru
    jfnk_rcond_gate = .false.
 end subroutine t_gate
+
+!======================================================================
+! T-RCOND-NAN (10-Nov-2026 audit): a block that produces a non-finite
+! DGECON estimate must be REJECTED by the rcond gate.  The gate now
+! also requires ieee_is_finite(rcond_k) -- a NaN estimate makes
+! 'rcond < min' vacuously false and would otherwise accept a poisoned
+! LU.  With MKL DGECON a NaN block lands on rcond=0 (rejected by the
+! threshold) or info_g=-5 (rejected by the info test) depending on
+! where the NaN sits; either way lu_ok must come back .false., which
+! is the fail-closed property this pins.  A genuine info_g=0+NaN rcond
+! is not constructible through real LAPACK, so the explicit finiteness
+! clause is belt-and-braces for other BLAS variants.
+!======================================================================
+subroutine t_rcond_nan(nfail)
+   use, intrinsic :: ieee_arithmetic
+   use jfnk_solver_v1_mod, only: jfnk_rcond_gate, jfnk_rcond_min, &
+        jfnk_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
+        jfnk_pc_tiny_equil, jfnk_ridge_floor
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: n = 12
+   double precision :: a(n,n), lu(n,n), rsf(n), csf(n), rr(n)
+   integer :: ipiv(n)
+   logical :: reg(n), regt(n), pre_reg(n)
+   double precision :: rcond, pv, ru
+   integer :: itry, i, j
+   logical :: ok
+!
+   jfnk_pc_signed=.false.; jfnk_pc_reg_zerocol=.false.
+   jfnk_pc_tiny_equil=.false.; jfnk_ridge_floor=0.0d0
+   do j = 1, n
+      do i = 1, n
+         a(i,j) = 0.3d0 * sin(1.7d0 * i + 0.4d0 * j)
+      end do
+      a(j,j) = a(j,j) + 2.0d0
+   end do
+   a(4,7) = ieee_value(0.0d0, ieee_quiet_nan)
+   pre_reg = .false.
+!
+   jfnk_rcond_gate = .true.
+   jfnk_rcond_min = 1.0d-13
+   jfnk_itry_cap = 3
+   call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   print '(A,L2,A,I3,A,ES10.2)', &
+        ' T-RCOND-NAN ok=', ok, ' itry=', itry, ' rcond=', rcond
+   if(ok)then
+      print *, 'T-RCOND-NAN FAIL: NaN block accepted by rcond gate'
+      nfail = nfail + 1
+   else
+      print *, 'T-RCOND-NAN: PASS (non-finite rcond rejected)'
+   end if
+   jfnk_rcond_gate = .false.
+end subroutine t_rcond_nan

@@ -1550,9 +1550,15 @@
 	  CALL RD_STORE_DBLE(JFNK_RIDGE_PIV,'JFNK_RIDGE_PIV',L_FALSE,
 	1     'Escalate ridge if min/max LU pivot below this (0=off)')
 !
-	  JFNK_PRECOND_REFINE=.TRUE.
+! JFNK_PRECOND_REFINE is parsed but has no implementation in this
+! tree (10-Nov-2026 audit): nothing reads it past this point.  Default
+! flipped to F so an explicit T warns instead of pretending the
+! historical default did anything; JFNK_SOLVE_CORR_V1 prints the
+! inactivity warning once per run.
+!
+	  JFNK_PRECOND_REFINE=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_PRECOND_REFINE,'JFNK_REFINE',L_FALSE,
-	1     'Iterative refinement (DGERFS) after JFNK precond solve?')
+	1     'Iterative refinement after JFNK precond solve? (INACTIVE)')
 !
 	  JFNK_LEFT_PRECOND=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_LEFT_PRECOND,'JFNK_LEFTPC',L_FALSE,
@@ -1629,6 +1635,9 @@
 	  JFNK_HSCAN=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_HSCAN,'JFNK_HSCAN',L_FALSE,
 	1     'Force the extended JVP h-sweep diagnostic once per run')
+	  JFNK_HADAPT=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_HADAPT,'JFNK_HADAPT',L_FALSE,
+	1     'Pick the FD step from the h-sweep plateau (implies h-sweep)')
 	  JFNK_TRES_FAC=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_TRES_FAC,'JFNK_TRES_FAC',L_FALSE,
 	1     'GMRES true-residual acceptance factor (0=off)')
@@ -2018,7 +2027,8 @@
 	1     L_FALSE,'Ridge-ladder cap per depth under RCOND_GATE')
 	  JFNK_PC_PAR_FACTOR=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_PC_PAR_FACTOR,'JFNK_PC_PAR_FACTOR',
-	1     L_FALSE,'Depth-parallel preconditioner factorization?')
+	1     L_FALSE,'Depth-parallel preconditioner factorization?'//
+	2     ' (INACTIVE: parsed, not implemented)')
 !
 ! The solver-module mirrors sync through a setter: their names
 ! collide with the CONTROL_VARIABLE_MOD declarations in this unit

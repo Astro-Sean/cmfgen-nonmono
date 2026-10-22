@@ -36,6 +36,9 @@
 !   G7: GMRES aborts when the JVP callback reports a repaired bad
 !       perturbed residual instead of consuming its sentinel vector.
 !   G8: coupled Newton does not converge on maxch alone.
+!   G9: jfnk_h_select_v1 picks the stable h plateau and rejects a
+!       direction whose sweep never stabilizes (JFNK_HADAPT).
+!   G10: jfnk_pc_final_guard_v1 zeroes and counts non-finite outputs.
 !
 ! edited by Devin, Oct-2026
 !----------------------------------------------------------------------
@@ -329,6 +332,117 @@ program test_guards
             ' failed=', jfnk_jvp_failed
       else
          write(luer,'(A)') 'G7: PASS (GMRES aborts on failed JVP)'
+      end if
+   end block
+   !
+   ! -------- G9: h-sweep plateau selector (JFNK_HADAPT) -------------
+   !
+   block
+      integer, parameter :: NV = 40, NH = 8
+      double precision :: jvsw(NV, NH), relmin, base(NV)
+      logical :: oks(NH)
+      integer :: im, j, k
+      external :: jfnk_h_select_v1
+      !
+      ! Synthetic sweep: columns 1-3 noise-dominated (random-sign
+      ! jitter), 4-6 a stable plateau, 7-8 truncation drift.  The
+      ! selector must return index 5 or 6 (upper member of the best
+      ! adjacent pair inside the plateau).
+      do k = 1, NH
+         do j = 1, NV
+            if(k <= 3) then
+               jvsw(j,k) = 1d0 + 0.9d0 * sin(12.9898d0 * j * k)
+            else if(k <= 6) then
+               jvsw(j,k) = cos(0.31d0 * j) + 1d-4 * k
+            else
+               jvsw(j,k) = cos(0.31d0 * j) + 0.5d0 * (k - 6)
+            end if
+         end do
+      end do
+      oks = .true.
+      call jfnk_h_select_v1(jvsw, oks, NV, NH, 0.3d0, im, relmin)
+      if(im < 4 .or. im > 6) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A,ES12.4)') &
+            'G9a: FAIL (plateau missed), im=', im, ' rel=', relmin
+      else
+         write(luer,'(A,I3,A,ES12.4)') &
+            'G9a: PASS (plateau at idx', im, '), rel=', relmin
+      end if
+      !
+      ! Pure noise: every pair disagrees > 30% -- must return im=0
+      ! (direction unreliable) rather than a noise-chosen step.
+      do k = 1, NH
+         do j = 1, NV
+            jvsw(j,k) = sin(78.233d0 * j * k) + &
+               0.5d0 * sin(4.13d0 * j + 2.7d0 * k)
+         end do
+      end do
+      call jfnk_h_select_v1(jvsw, oks, NV, NH, 0.3d0, im, relmin)
+      if(im /= 0) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A,ES12.4)') &
+            'G9b: FAIL (noise accepted), im=', im, ' rel=', relmin
+      else
+         write(luer,'(A)') 'G9b: PASS (unresolvable sweep rejected)'
+      end if
+      !
+      ! A failed eval (oks=F) must be skipped: column 5 would pair
+      ! perfectly with 6 if it were read, but the only honest plateau
+      ! is (6,7) -> im must be 7, not 6.
+      jvsw = 0d0
+      do j = 1, NV
+         base(j) = cos(0.31d0 * j)
+      end do
+      jvsw(:,1) = base * 1.9d0
+      jvsw(:,2) = base * 0.9d0
+      jvsw(:,3) = base * 0.2d0
+      jvsw(:,4) = base * 3.0d0
+      jvsw(:,5) = base * 1.0d0   ! bad eval: skipped
+      jvsw(:,6) = base * 1.0d0
+      jvsw(:,7) = base * 1.01d0
+      jvsw(:,8) = base * 4.0d0
+      oks = .true.
+      oks(5) = .false.
+      call jfnk_h_select_v1(jvsw, oks, NV, NH, 0.3d0, im, relmin)
+      if(im /= 7) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A,ES12.4)') &
+            'G9c: FAIL (bad eval not skipped), im=', im, ' rel=', relmin
+      else
+         write(luer,'(A,I3)') 'G9c: PASS (bad eval skipped), im=', im
+      end if
+   end block
+   !
+   ! -------- G10: preconditioner final-output finite guard ---------
+   !
+   block
+      double precision :: z(16)
+      integer :: nbad, i
+      external :: jfnk_pc_final_guard_v1
+      z = 1d0
+      z(3) = ieee_value(0d0, ieee_quiet_nan)
+      z(7) = ieee_value(0d0, ieee_positive_inf)
+      z(11) = -ieee_value(0d0, ieee_positive_inf)
+      call jfnk_pc_final_guard_v1(16, z, nbad)
+      if(nbad /= 3 .or. any(z /= z) .or. &
+         any(.not. ieee_is_finite(z)) .or. &
+         z(3) /= 0d0 .or. z(7) /= 0d0 .or. z(11) /= 0d0 .or. &
+         z(1) /= 1d0) then
+         nfail = nfail + 1
+         write(luer,'(A,I3)') &
+            'G10: FAIL (final guard), nbad=', nbad
+      else
+         write(luer,'(A)') 'G10: PASS (final guard zeroes NaN/Inf)'
+      end if
+      ! All-finite input passes through unchanged with nbad=0.
+      z = 5d0
+      call jfnk_pc_final_guard_v1(16, z, nbad)
+      if(nbad /= 0 .or. any(z /= 5d0)) then
+         nfail = nfail + 1
+         write(luer,'(A,I3)') 'G10b: FAIL (finite pass-through)', nbad
+      else
+         write(luer,'(A)') 'G10b: PASS (finite vector untouched)'
       end if
    end block
    !

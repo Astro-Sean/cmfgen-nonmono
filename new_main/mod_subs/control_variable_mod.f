@@ -1960,6 +1960,18 @@
 ! even when the FD-vs-BA mismatch stays below the 10% trigger.
 	LOGICAL JFNK_HSCAN
 !
+! JFNK_HADAPT (VADAT [JFNK_HADAPT], default F): adaptive FD-step
+! selection.  Forces the same one-shot h-sweep as JFNK_HSCAN, then
+! picks the sweep multiplier whose JVP best agrees with its adjacent
+! neighbor (the stable region between truncation error at large h and
+! cancellation noise at small h).  The selected multiplier scales the
+! post-cap step of every later JVP this run, and the returned image is
+! the sweep value at the selected step.  If no adjacent pair agrees
+! within the 30% tolerance the direction is FD-unresolvable: the JVP
+! is flagged failed so the driver defers Newton rather than building a
+! Krylov space on an unmeasured derivative.
+	LOGICAL JFNK_HADAPT
+!
 ! JFNK_TRES_FAC (VADAT [JFNK_TRES_FAC], default 0 = off): GMRES
 ! true-residual acceptance.  When > 0, a claimed LSQ convergence
 ! (res <= tol) in gmres_m_v1 is verified by an explicit residual

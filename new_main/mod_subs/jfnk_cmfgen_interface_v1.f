@@ -2568,7 +2568,7 @@
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
 	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR, JFNK_BA_JVP,
-	3                           JFNK_LINTEST, JFNK_HSCAN
+	3                           JFNK_LINTEST, JFNK_HSCAN, JFNK_HADAPT
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
@@ -2603,6 +2603,14 @@
 	INTEGER IHS, I_TOP, JROW, KROW, ID, LEV_LOC, ISEL
 	INTEGER ITOP_ARR(3)
 	DOUBLE PRECISION H_ARR(8), HMULT, DH_NORM, FDH_NORM, ROWMAX_A
+!
+! [JFNK_HADAPT] per-multiplier JVP storage for the plateau selector
+! (only allocated when the key is set).
+!
+	DOUBLE PRECISION, ALLOCATABLE :: JV_SW(:,:)
+	LOGICAL SW_OK(8)
+	INTEGER IBEST_HA
+	DOUBLE PRECISION HAD_REL
 	CHARACTER*12 LBL_LOC
 !
 ! Cancellation-floor SNR table (h-sweep extension): per worst row, the
@@ -2871,6 +2879,15 @@
 !
 	IF(JFNK_PROBE_HSCALE .NE. 1.0_LDP)
 	1   H_STEP = H_STEP * JFNK_PROBE_HSCALE
+!
+! [JFNK_HADAPT] multiplier selected by the plateau finder below.  The
+! sweep multipliers are relative to the post-cap H_STEP, so the
+! selected factor applies at the same point: the production eval then
+! repeats a scanned step.  A selected step that still crosses a clip
+! bound is handled by the ordinary retry/validity logic below.
+!
+	IF(JFNK_HADAPT_MULT .NE. 1.0_LDP)
+	1   H_STEP = H_STEP * JFNK_HADAPT_MULT
 	IF(.NOT. (H_STEP .GT. 0.0D0) .OR.
 	1     H_STEP * VNORM .GT. MAX(XNORM, 1.0D0))THEN
 	  JV = 0.0D0
@@ -3090,11 +3107,12 @@
 ! [JFNK_HSCAN, default F] forces the extended block on the first
 ! post-factor direction regardless of the mismatch trigger, so a
 ! plateau-state run gets the h-sweep + cancellation-floor table on
-! demand rather than only after a >10% FD-BA disagreement.
+! demand rather than only after a >10% FD-BA disagreement.  [JFNK_HADAPT]
+! needs the same sweep to select its operating step.
 !
 	  IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
      1    (DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0 .OR.
-     2     JFNK_HSCAN))THEN
+     2     JFNK_HSCAN .OR. JFNK_HADAPT))THEN
 	    JVP_DIAG_DONE = .TRUE.
 ! Fence the solver-side status flags around the probe evals below
 ! (audit 07-Nov-2026): the h-sweep trials step to 1E5*h and can end
@@ -3144,6 +3162,12 @@
 	    IF(ALLOCATED(DIFF_ARR))DEALLOCATE(DIFF_ARR)
 	    IF(ALLOCATED(JV_H))DEALLOCATE(JV_H)
 	    ALLOCATE(DIFF_ARR(N),JV_H(N))
+	    IF(JFNK_HADAPT)THEN
+	      IF(ALLOCATED(JV_SW))DEALLOCATE(JV_SW)
+	      ALLOCATE(JV_SW(N,8))
+	      JV_SW=0.0D0
+	      SW_OK=.FALSE.
+	    END IF
 	    DO I=1,N
 	      DIFF_ARR(I)=ABS(JV(I)-JV_ANAL(I))
 	    END DO
@@ -3220,6 +3244,10 @@
 	        JV_H(I)=(JFNK_W_F_PERT(I)-jfnk_fx(I))/(HMULT*H_STEP)
 	      END DO
 	      CALL JFNK_MASK_FIXED_UNKNOWNS(N,JV_H)
+	      IF(JFNK_HADAPT)THEN
+	        JV_SW(1:N,IHS)=JV_H(1:N)
+	        SW_OK(IHS)=.TRUE.
+	      END IF
 	      DH_NORM=0.0D0
 	      FDH_NORM=0.0D0
 	      DO I=1,N
@@ -3251,6 +3279,48 @@
      4        ' BA*v=',JV_ANAL(ITOP_ARR(ISEL))
 	      END DO
 	    END DO
+!
+! [JFNK_HADAPT] plateau selection (10-Nov-2026 audit): HSCAN only
+! reports the sweep; this picks the operating step from it.  Adjacent
+! multipliers whose JVPs agree within 30% mark the stable region
+! between truncation error (large h) and cancellation noise (small h);
+! the selector returns the upper member, more noise-immune with the
+! agreement bounding truncation drift.  The returned image becomes
+! the sweep value at the selected step, and the multiplier is kept in
+! JFNK_HADAPT_MULT so every later JVP repeats that step on its own
+! direction.  No agreeing pair means the direction is not FD-
+! resolvable at any scanned h -- flag the JVP failed so the driver
+! defers Newton instead of building a Krylov space on an unmeasured
+! derivative.  The mode is logged because frozen and coupled
+! residuals carry different noise floors and need not share a step.
+!
+	    IF(JFNK_HADAPT)THEN
+	      CALL JFNK_H_SELECT_V1(JV_SW, SW_OK, N, 8, 0.3D0,
+	1        IBEST_HA, HAD_REL)
+	      IF(IBEST_HA .GT. 0)THEN
+	        JFNK_HADAPT_MULT=H_ARR(IBEST_HA)
+	        JV(1:N)=JV_SW(1:N,IBEST_HA)
+! Advance H_STEP itself to the selected step so the probes below and
+! any LINTEST run on this call measure at the h that produced JV.
+	        H_STEP=H_STEP*H_ARR(IBEST_HA)
+	        JFNK_PROBE_H_LAST=H_STEP
+	        WRITE(JFNK_LUER,'(A,ES10.2,2(A,ES12.4),A,L1)')
+	1        '    JFNK_HADAPT: selected h x',JFNK_HADAPT_MULT,
+	2        ' heff=',H_STEP,
+	3        ' pair drift=',HAD_REL,' coupled=',JFNK_COUPLED_LOC
+	      ELSE
+	        WRITE(JFNK_LUER,'(A,ES12.4,A)')
+	1        '    JFNK_HADAPT: no stable h plateau (best drift=',
+	2        HAD_REL,') -- flagging JVP failure'
+	        JV=0.0D0
+	        jfnk_jvp_failed=.TRUE.
+	        JFNK_N_JVP_FAILURES=JFNK_N_JVP_FAILURES+1
+	        jfnk_resid_nbad=NBAD_SAV
+	        JFNK_N_NEW_CLIP=NCLIP_SAV
+	        JFNK_EVAL_BROKEN=EVB_SAV
+	        RETURN
+	      END IF
+	    END IF
 !
 ! Cancellation-floor summary (Phase-1 JVP review): the per-row eval
 ! noise floor is ~eps_mach times the row's gross rate scale;
@@ -5025,6 +5095,7 @@
 	REAL(KIND=LDP) DIAG_USE, Jacobi
 	INTEGER K, J, NJAC, NZERO, LU_INFO, NZMAX_LOC
 	INTEGER NZCLIP, IDX_PC, K_PC, J_PC, NPROJ
+	INTEGER NPOST_BAD
 	INTEGER I, IOS
 	DOUBLE PRECISION Z_BA, X_PC, D_PC, SIG_PC, SIG_EFF_PC, RHS_PC
 	DOUBLE PRECISION DENOM_PC
@@ -5111,6 +5182,8 @@
 	    END DO
 	  END DO
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, V)
+	  CALL JFNK_PC_FINAL_GUARD_V1(N, V, NPOST_BAD)
+	  IF(NPOST_BAD .GT. 0)jfnk_pc_clip_event = .TRUE.
 	  RETURN
 	END IF
 !
@@ -5510,6 +5583,25 @@
 	      END DO
 	    END IF
 	  END BLOCK
+	END IF
+!
+! Final output validation (audit 10-Nov-2026): the solves above guard
+! their own intermediate results, but the log/PTC rescale, T-ladder
+! scaling and the enrichment backsolve run afterwards -- Z_BA*EXP(-x),
+! RHS/SIG and the E-column correction can still overflow or return NaN
+! on a block the factor stage accepted.  A non-finite component
+! reaching GMRES corrupts the Krylov basis, so scan the delivered
+! vector once here: zero the bad entries (the only safe action inside
+! a matvec) and raise the clip flag, which aborts the solve rather
+! than continuing on a nonlinear M^{-1}.
+!
+	CALL JFNK_PC_FINAL_GUARD_V1(N, V, NPOST_BAD)
+	IF(NPOST_BAD .GT. 0)THEN
+	  jfnk_pc_clip_event = .TRUE.
+	  IF(JFNK_LUER .GT. 0)WRITE(JFNK_LUER,'(A,I8,A)')
+	1    '  JFNK: ', NPOST_BAD,
+	2    ' non-finite precond outputs after post-processing'//
+	3    ' -- clip event flagged'
 	END IF
 !
 	JFNK_N_PRECOND_APPLIES = JFNK_N_PRECOND_APPLIES + 1

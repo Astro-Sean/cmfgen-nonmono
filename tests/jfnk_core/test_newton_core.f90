@@ -41,7 +41,8 @@ module test_prob_mod
    logical :: matvec_bias = .false.
    ! T4f: inject a NaN into the matvec output on a chosen call index so
    ! the tres measurement lands on a non-finite residual.  -1 disables.
-   integer :: matvec_ct = 0, matvec_nan_at = -1
+   ! matvec_inf_at does the same with +Inf (T4i).
+   integer :: matvec_ct = 0, matvec_nan_at = -1, matvec_inf_at = -1
 end module test_prob_mod
 
 
@@ -369,7 +370,71 @@ program test_newton_core
       nfail = nfail + 1
    end if
    jfnk_gmres_max_restart = 1
+   !
+   ! T4h: non-finite TRES at a NON-claim done-exit.  its_g=3 hits the
+   ! iteration cap with res >> tol, so 'done' fires via its==imx, not
+   ! via a convergence claim.  The tres eval still runs and lands on
+   ! the injected NaN: the exit must be gmres_tres_nonfinite (info=1),
+   ! not the old gmres_max_iterations (info=2) that silently accepted
+   ! an unverifiable measurement.  Calibration pass learns the tres
+   ! call index exactly as T4f does.
+   !
    matvec_nan_at = -1
+   matvec_ct = 0
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 3
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   ntres_call = matvec_ct
+   matvec_nan_at = ntres_call
+   matvec_ct = 0
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 3
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,I4,A,A)') &
+      'T4h: info=', info, '  ct=', matvec_ct, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_nonfinite' &
+      .and. matvec_ct == matvec_nan_at) then
+      write(luer,'(A)') 'T4h: PASS'
+   else
+      write(luer,'(A)') 'T4h: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T4i: same non-claim done-exit with +Inf instead of NaN -- Inf
+   ! satisfies 'true_res > fac*tol' but belongs to the unverifiable
+   ! class, so ieee_is_finite must route it to the same exit, not to
+   ! tres_rej.
+   !
+   matvec_nan_at = -1
+   matvec_inf_at = ntres_call
+   matvec_ct = 0
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 3
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,A)') &
+      'T4i: info=', info, '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_nonfinite') then
+      write(luer,'(A)') 'T4i: PASS'
+   else
+      write(luer,'(A)') 'T4i: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_gmres_max_restart = 1
+   matvec_nan_at = -1
+   matvec_inf_at = -1
    jfnk_gmres_tres_fac = 0d0
    !
    if(nfail == 0) then
@@ -520,9 +585,12 @@ subroutine df_lin(n, v, jv)
    if(matvec_bias) jv = jv + c0v
    ! T4f: land a NaN on the tres measurement call.  Deliberately does
    ! NOT raise jfnk_jvp_failed -- the guard under test is the solver's
-   ! own non-finite check on the measured residual.
+   ! own non-finite check on the measured residual.  T4i does the
+   ! same with +Inf.
    if(matvec_ct == matvec_nan_at) &
       jv(1) = ieee_value(0d0, ieee_quiet_nan)
+   if(matvec_ct == matvec_inf_at) &
+      jv(1) = ieee_value(0d0, ieee_positive_inf)
 end subroutine df_lin
 
 

@@ -544,6 +544,14 @@
 !
 	REAL(KIND=LDP), SAVE :: JFNK_PROBE_H_LAST=0.0_LDP
 !
+! JFNK_HADAPT_MULT: post-cap FD-step multiplier selected by the
+! [JFNK_HADAPT] plateau finder in JFNK_JVP_V1.  1.0 until the one-shot
+! h-sweep runs; the selected value makes every later JVP repeat the
+! scanned stable step on its own direction (multipliers in the sweep
+! are relative to the post-cap H_STEP, so this multiplies post-cap too).
+!
+	REAL(KIND=LDP), SAVE :: JFNK_HADAPT_MULT=1.0_LDP
+!
 ! JFNK_BA_SRC_IT: MAIN_COUNTER at the last COMPUTE_BA population
 ! call, stamped in SOLVE_FOR_POPS where 'BA matrix computed' prints.
 ! JFNK_BA_A is rebuilt per admission from SE(ID)%BA, so the stored

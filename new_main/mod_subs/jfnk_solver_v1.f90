@@ -2286,8 +2286,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! true_res <= JFNK_TRES_FAC*tol; a rejected claim restarts
             ! the cycle on the measured residual (bounded by the
             ! restart cap and imx), or exits 'gmres_tres_reject' when no
-            ! restart headroom remains.  Non-converged exits (its==imx,
-            ! stagnation) only record true_res.
+            ! restart headroom remains.  A non-finite true_res at ANY
+            ! done-exit exits 'gmres_tres_nonfinite' immediately --
+            ! non-converged exits otherwise only record true_res.
             tres_rej = .false.
             if(jfnk_gmres_tres_fac > 0d0) then
                call matvec(n, x, z)
@@ -2320,21 +2321,20 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                   '  GMRES TRES: it=', its, ' hess_res=', real(res), &
                   ' true_res=', real(true_res), ' acc_tol=', &
                   real(jfnk_gmres_tres_fac * tol)
-               ! A non-finite true_res cannot verify the claim, and the
-               ! measured residual vector is itself non-finite: the
-               ! ordinary reject path would restart the cycle and re-run
-               ! matvecs on an operator that just produced NaN/Inf.
-               ! Exit non-converged with a dedicated reason instead of
-               ! restarting (07-Nov-2026 audit).  ieee_is_finite covers
-               ! NaN and Inf -- Inf already fails the > test below but
-               ! belongs to this unverifiable class, not the "too big"
-               ! one.  Only claimed convergences branch here; on a
-               ! non-converged exit the value is diagnostic only.
-               if(res <= tol .and. &
-                  .not. ieee_is_finite(true_res)) then
+               ! A non-finite true_res cannot verify ANY done-exit, and
+               ! the measured residual vector is itself non-finite: the
+               ! ordinary paths would restart the cycle and re-run
+               ! matvecs on an operator that just produced NaN/Inf (the
+               ! lb_hit stagnation bypass reaches the restart at label 2
+               ! even without a convergence claim).  Exit non-converged
+               ! with a dedicated reason instead of restarting
+               ! (07/10-Nov-2026 audits).  ieee_is_finite covers NaN and
+               ! Inf -- Inf already fails the > test below but belongs
+               ! to this unverifiable class, not the "too big" one.
+               if(.not. ieee_is_finite(true_res)) then
                   if(luer > 0) write(luer,'(A)') &
                      '  GMRES: non-finite true residual in TRES '// &
-                     'check -- claim unverifiable, not restarting'
+                     'check -- exit unverifiable, not restarting'
                   info = 1
                   jfnk_exit_reason = 'gmres_tres_nonfinite'
                   return
@@ -3383,6 +3383,7 @@ end subroutine jfnk_schur_apply_v1
       use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
            jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
+      use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
       implicit none
       integer, intent(in) :: n, luer
       double precision, intent(in) :: a(n,n)
@@ -3628,7 +3629,11 @@ end subroutine jfnk_schur_apply_v1
                call dgecon('I', n, lu, n, anorm_k, rcond_k, &
                     gecon_work, gecon_iwork, info_g)
                if(info_g == 0) rcond = rcond_k
-               if(info_g /= 0 .or. rcond_k < jfnk_rcond_min)then
+               ! Fail closed on a non-finite estimate (10-Nov-2026
+               ! audit): a NaN rcond makes '< min' .false. and would
+               ! accept a NaN-contaminated LU as a valid factorization.
+               if(info_g /= 0 .or. .not. ieee_is_finite(rcond_k) .or. &
+                    rcond_k < jfnk_rcond_min)then
                   ridge_used = 0.0d0
                   cycle
                end if
@@ -3961,3 +3966,79 @@ end subroutine jfnk_schur_apply_v1
          a(i) = t
       end do
    end subroutine jfnk_pc_hpsort
+
+
+!----------------------------------------------------------------------
+! JFNK_PC_FINAL_GUARD_V1: last-chance finite-output scan on the fully
+! post-processed preconditioner result (10-Nov-2026 audit).  The
+! per-depth apply guards its own intermediate values, but the
+! log-unknown rescale, PTC diagonal rescale, T-ladder scaling and the
+! enrichment backsolve run afterwards and can still overflow or return
+! NaN on a block the factor stage accepted.  Non-finite entries are
+! zeroed -- the only safe value inside a matvec -- and counted so the
+! caller can raise jfnk_pc_clip_event and abort the Krylov solve
+! rather than silently deliver a nonlinear M^{-1}.
+! Extracted as a pure routine so the unit tests run the identical
+! production code.
+!----------------------------------------------------------------------
+   subroutine jfnk_pc_final_guard_v1(n, v, nbad)
+      use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+      implicit none
+      integer, intent(in) :: n
+      double precision, intent(inout) :: v(n)
+      integer, intent(out) :: nbad
+      integer :: i
+      nbad = 0
+      do i = 1, n
+         if(.not. ieee_is_finite(v(i))) then
+            v(i) = 0.0d0
+            nbad = nbad + 1
+         end if
+      end do
+   end subroutine jfnk_pc_final_guard_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_H_SELECT_V1: plateau selector for [JFNK_HADAPT] (10-Nov-2026
+! audit).  jv_sw holds the JVPs sampled by the h-sweep (one column per
+! multiplier; ok_sw marks evals that survived the residual checks).
+! A forward difference inside the stable region between truncation
+! error (large h) and residual noise (small h) changes little across a
+! decade; noise-dominated points fluctuate randomly and truncation-
+! dominated points drift systematically, so the best adjacent-pair
+! agreement locates the plateau.  imult returns the upper member of
+! the best pair -- the more noise-immune endpoint, with agreement
+! bounding the truncation drift -- or 0 when no adjacent pair agrees
+! within tol, meaning the direction is not FD-resolvable at any
+! scanned step.
+!----------------------------------------------------------------------
+   subroutine jfnk_h_select_v1(jv_sw, ok_sw, n, nh, tol, &
+        imult, rel_min)
+      implicit none
+      integer, intent(in) :: n, nh
+      double precision, intent(in) :: jv_sw(n, nh), tol
+      logical, intent(in) :: ok_sw(nh)
+      integer, intent(out) :: imult
+      double precision, intent(out) :: rel_min
+      integer :: i, k
+      double precision :: rel_k, na, nb
+      imult = 0
+      rel_min = huge(1.0d0)
+      do k = 2, nh
+         if(.not. ok_sw(k) .or. .not. ok_sw(k-1)) cycle
+         na = 0.0d0
+         nb = 0.0d0
+         rel_k = 0.0d0
+         do i = 1, n
+            na = max(na, abs(jv_sw(i,k-1)))
+            nb = max(nb, abs(jv_sw(i,k)))
+            rel_k = max(rel_k, abs(jv_sw(i,k) - jv_sw(i,k-1)))
+         end do
+         rel_k = rel_k / max(max(na, nb), tiny(1.0d0))
+         if(rel_k < rel_min)then
+            rel_min = rel_k
+            imult = k
+         end if
+      end do
+      if(rel_min > tol) imult = 0
+   end subroutine jfnk_h_select_v1

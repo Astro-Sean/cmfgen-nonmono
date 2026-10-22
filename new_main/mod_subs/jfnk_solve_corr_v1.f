@@ -825,11 +825,17 @@
 	    WRITE(LUER,'(A)')
 	1   '    termination         : nonlinear |F|, not GMRES'
 	2   //' residual'
-	    IF(JFNK_LINTEST .OR. JFNK_HSCAN .OR.
+	    IF(JFNK_LINTEST .OR. JFNK_HSCAN .OR. JFNK_HADAPT .OR.
 	1       JFNK_TRES_FAC .GT. 0.0_LDP)THEN
-	      WRITE(LUER,'(A,L1,A,L1,A,ES10.3)')
+	      WRITE(LUER,'(A,L1,A,L1,A,L1,A,ES10.3)')
 	1     '    phase-1 JVP diagnostics  : lintest=',JFNK_LINTEST,
-	2     ' hscan=',JFNK_HSCAN,' tres_fac=',REAL(JFNK_TRES_FAC)
+	2     ' hscan=',JFNK_HSCAN,' hadapt=',JFNK_HADAPT,
+	3     ' tres_fac=',REAL(JFNK_TRES_FAC)
+	    END IF
+	    IF(JFNK_PRECOND_REFINE .OR. JFNK_PC_PAR_FACTOR)THEN
+	      WRITE(LUER,'(A)')
+	1     '    WARNING: JFNK_REFINE / JFNK_PC_PAR_FACTOR are parsed'
+	2     //' but have no implementation -- they change nothing'
 	    END IF
 	    JFNK_BANNER_PRINTED=.TRUE.
 	  END IF
