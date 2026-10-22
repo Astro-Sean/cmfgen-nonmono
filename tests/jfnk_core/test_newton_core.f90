@@ -33,6 +33,12 @@ module test_prob_mod
    integer, parameter :: NN = 60
    double precision :: a(NN), xs(NN), xbase(NN), diagJ(NN)
    double precision :: b
+   ! T3-only nonconvex wrinkle: a bounded sinusoidal term in d = x - xs
+   ! gives the residual genuine ared<0 trials, which the monotone
+   ! exp+coupling problem never produces (every step accepted, all
+   ! counters printed zero).  Off for T1/T2 and for f_true.
+   logical :: osc_on = .false.
+   double precision :: osc_amp = 0d0
 end module test_prob_mod
 
 
@@ -117,11 +123,20 @@ program test_newton_core
    !
    ! ---------------- T3: PTC on, far start ---------------------------
    !
+   ! osc_on adds a bounded nonconvex term only for this test: on the
+   ! monotone exp problem every step is accepted and the LS/TR/Cauchy
+   ! counters all read zero, so T3 exercised none of the paths it
+   ! claims.  With the wrinkle the trial step repeatedly overshoots
+   ! into larger |F| (ared<0), forcing line-search, trust-region
+   ! rejections and Cauchy fallback attempts.
+   !
    jfnk_ptc_active = .true.
    jfnk_ptc_dtau = 1d0
    jfnk_n_ls_used = 0
    jfnk_n_tr_rejected = 0
    jfnk_n_cauchy_used = 0
+   osc_on = .true.
+   osc_amp = 10d0
    xbase = 0d0
    x0 = xs + 3.0d0
    jfnk_x = x0
@@ -136,11 +151,21 @@ program test_newton_core
                        50, info, luer)
    xsol = jfnk_x
    maxerr = maxval(abs(xsol - xs))
+   call f_true(NN, xsol, ftrue)
+   ftru_nrm = dsqrt(dp_test(NN, ftrue, ftrue))
    write(luer,'(A,I3,A,ES12.4,A,I4,A,I4,A,I4)') &
       'T3: info=', info, '  max|x-xs|=', maxerr, &
       '  ls_used=', jfnk_n_ls_used, '  tr_rejected=', &
       jfnk_n_tr_rejected, '  cauchy_used=', jfnk_n_cauchy_used
-   if(info == 0 .and. maxerr < 1.0d-5) then
+   ! The nonconvex landscape admits spurious roots, so full
+   ! convergence to xs is not asserted.  What must hold: the
+   ! trial/exit machinery was actually exercised (at least one of
+   ! line search, trust-region rejection, Cauchy fallback fired),
+   ! the exit is a classified one (info>0 or clean), and the true
+   ! residual never ended larger than it started.
+   if(info >= 0 .and. info <= 3 .and. maxerr == maxerr .and. &
+      ftru_nrm < fnrm0 .and. &
+      jfnk_n_ls_used + jfnk_n_tr_rejected + jfnk_n_cauchy_used > 0) then
       write(luer,'(A)') 'T3: PASS'
    else
       write(luer,'(A)') 'T3: FAIL'
@@ -216,6 +241,7 @@ subroutine f_test(n, x, y)
       y(i) = a(i) * (exp(xa(i)) - exp(xs(i)))
       if(i > 1) y(i) = y(i) + b * (d(i) - d(i-1))
       if(i < n) y(i) = y(i) + b * (d(i) - d(i+1))
+      if(osc_on) y(i) = y(i) + osc_amp * a(i) * sin(1.3d0 * d(i))
    end do
    if(jfnk_ptc_active .and. jfnk_ptc_scale_ready .and. &
       jfnk_ptc_anchor_ready) then
