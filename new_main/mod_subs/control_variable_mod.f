@@ -1966,6 +1966,20 @@
 	LOGICAL JFNK_SELECTIVE_JVAR
 	REAL(KIND=LDP) JFNK_ROW_TINY
 	REAL(KIND=LDP) JFNK_LSQ_LAM
+!
+! Preconditioner audit keys (jfnk-precond-fixes, Oct-2026).  All
+! default to the historical behaviour; each is a flagged fix
+! described in docs/audits/JFNK_PRECOND_AUDIT.md.
+!
+! JFNK_PC_SIGN_DIAG (default F): logging-only report at each
+! factorization of how many rows carry d<0 with sigma>0, the
+! sigma/|d| distribution, and the near-cancellation count -- the
+! evidence for or against the signed shift below.
+! JFNK_PTC_SIGNED (default F): fold/apply/residual PTC shift uses
+! sign(d_i)*sigma_i so |d_i+shift| = |d_i|+sigma_i.
+!
+	LOGICAL JFNK_PC_SIGN_DIAG
+	LOGICAL JFNK_PTC_SIGNED
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
 !

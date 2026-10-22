@@ -3,7 +3,8 @@
 	USE MOD_CMFGEN
 	USE CONTROL_VARIABLE_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_log_unknown, jfnk_ptc_active,
-	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready
+	1     jfnk_ptc_dtau, jfnk_ptc_scale_ready,
+	2     jfnk_pc_signed
 	IMPLICIT NONE
 !
 ! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
@@ -1978,6 +1979,20 @@
 	  JFNK_ROW_TINY=1.0D-30
 	  CALL RD_STORE_DBLE(JFNK_ROW_TINY,'JFNK_ROW_TINY',L_FALSE,
 	1     'Near-null row threshold for JFNK preconditioner blocks')
+!
+! Preconditioner audit keys (jfnk-precond-fixes).  All default to
+! historical behaviour; the jfnk_pc_* solver-module mirrors are set
+! immediately below so the extracted block routines read them without
+! a CONTROL_VARIABLE_MOD dependency.
+!
+	  JFNK_PC_SIGN_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PC_SIGN_DIAG,'JFNK_PC_SIGN_DIAG',
+	1     L_FALSE,'Log PTC sign diagnostics at each factorization?')
+	  JFNK_PTC_SIGNED=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PTC_SIGNED,'JFNK_PTC_SIGNED',L_FALSE,
+	1     'Sign-match the PTC diagonal shift to the BA diagonal?')
+!
+	  jfnk_pc_signed = JFNK_PTC_SIGNED
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march field iterate at pass

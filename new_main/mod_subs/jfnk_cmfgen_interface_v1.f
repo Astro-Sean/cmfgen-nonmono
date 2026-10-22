@@ -1572,6 +1572,9 @@
 !
 	INTEGER N_NEW_CLIP_LOC
 	REAL(KIND=LDP) T_BASE_UNCL, X_TRY, X_BASE
+! [JFNK_PTC_SIGNED] per-row PTC sign; 1.0 when the signed shift is
+! off or not yet armed, preserving the unsigned historical term.
+	REAL(KIND=LDP) SGN_PTC
 !
 ! FRAC, STEQ_MAT, and YRAD are now persistent module workspace
 ! (JFNK_W_FRAC, JFNK_W_STEQ_MAT, JFNK_W_YRAD) to avoid stack
@@ -1998,14 +2001,18 @@
 	  IF(jfnk_ptc_anchor_ready .AND. ALLOCATED(jfnk_ptc_x0) .AND.
 	1     SIZE(jfnk_ptc_x0) .EQ. N)THEN
 	    DO IDX = 1, N
+	      SGN_PTC = 1.0_LDP
+	      IF(JFNK_PTC_SGN_READY)SGN_PTC = DBLE(JFNK_PTC_SGN(IDX))
 	      Y(IDX) = Y(IDX) + (X(IDX) - DBLE(jfnk_ptc_x0(IDX))) *
-	1         DBLE(jfnk_ptc_scale(IDX)) /
+	1         DBLE(jfnk_ptc_scale(IDX)) * SGN_PTC /
 	2         MAX(jfnk_ptc_dtau, 1.0D-8)
 	    END DO
 	  ELSE
 	    DO IDX = 1, N
+	      SGN_PTC = 1.0_LDP
+	      IF(JFNK_PTC_SGN_READY)SGN_PTC = DBLE(JFNK_PTC_SGN(IDX))
 	      Y(IDX) = Y(IDX) + X(IDX) *
-	1         DBLE(jfnk_ptc_scale(IDX)) /
+	1         DBLE(jfnk_ptc_scale(IDX)) * SGN_PTC /
 	2         MAX(jfnk_ptc_dtau, 1.0D-8)
 	    END DO
 	  END IF
@@ -3320,7 +3327,8 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
 	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM,
-	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR
+	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR,
+	3                              JFNK_PTC_SIGNED, JFNK_PC_SIGN_DIAG
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_log_unknown,
@@ -3374,6 +3382,13 @@
 ! PRECOND_DIAG).
 	LOGICAL, ALLOCATABLE :: PRE_REG_L(:), REG_L(:), REG_TINY_L(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RIDGE_ROWS_L(:)
+! [JFNK_PTC_SIGNED]/[JFNK_PC_SIGN_DIAG]: per-depth sign vector and
+! the (d_i, sigma_i) pairs behind the sign diagnostic report.
+	REAL(KIND=LDP) BLK_SGN
+	DOUBLE PRECISION DIAG_SGN(JFNK_NT), SGN_TMP(JFNK_NT)
+	REAL(KIND=LDP), ALLOCATABLE :: D_SD(:), SIG_SD(:)
+	INTEGER N_SD, N_NEG_SD, N_CANCEL_SD
+	DOUBLE PRECISION RMIN_SD, RMED_SD, RP99_SD
 ! DO_FACTOR=.FALSE. builds JFNK_BA_A/diagonals only and returns
 ! before the LU/SCHUR/banded factorizations -- the admission path
 ! uses it to price the reach/direction gates cheaply (17-Oct-2026).
@@ -3589,6 +3604,18 @@
 	  END IF
 	END IF
 !
+	  IF(JFNK_PC_SIGN_DIAG .AND. .NOT. ALLOCATED(D_SD))THEN
+	    ALLOCATE(D_SD(JFNK_NT*JFNK_ND), SIG_SD(JFNK_NT*JFNK_ND),
+	1       STAT=IOS)
+	    IF(IOS .NE. 0)THEN
+	      IF(ALLOCATED(D_SD)) DEALLOCATE(D_SD)
+	      IF(ALLOCATED(SIG_SD)) DEALLOCATE(SIG_SD)
+	    ELSE
+	      D_SD(1:JFNK_NT*JFNK_ND) = 0.0_LDP
+	      SIG_SD(1:JFNK_NT*JFNK_ND) = 0.0_LDP
+	    END IF
+	  END IF
+!
 	DO K = 1, JFNK_ND
 	  IF(K .EQ. JFNK_ND) LAST_MATRIX = .TRUE.
 	  CALL GENERATE_FULL_MATRIX_V3(
@@ -3611,6 +3638,47 @@
 	    JFNK_BA_RIDGE_ADD(I, K) = 0.0_LDP
 	  END DO
 	  JFNK_BA_A(:,:,K) = JFNK_C_MAT
+!
+! [JFNK_PTC_SIGNED] (default F): capture the sign of each raw BA
+! diagonal before the fold.  BA rate rows are predominantly
+! loss-dominated (d < 0), so the unsigned +sigma shift moves those
+! diagonals toward zero -- anti-damping -- and can push a row through
+! zero into sign reversal.  The signed convention folds
+! sign(d_i)*sigma_i so |d_i + shift| = |d_i| + sigma_i for every row.
+! Rows whose |d_i| falls below the JFNK_ROW_TINY block floor cannot
+! decide a sign reliably and take +1 (the regularized-row class;
+! identity substitution dominates them anyway).  The array is
+! refreshed on each BA rebuild and read by the residual PTC term and
+! the apply rescale, keeping G and its preconditioner model
+! consistent; before the first factorization READY=F gives the
+! unsigned historical shift.
+!
+	  IF(JFNK_PTC_SIGNED)THEN
+	    BLK_SGN = 0.0_LDP
+	    DO I = 1, JFNK_NT
+	      DO J = 1, JFNK_NT
+	        BLK_SGN = MAX(BLK_SGN, ABS(JFNK_BA_A(I,J,K)))
+	      END DO
+	    END DO
+	    IF(.NOT. ALLOCATED(JFNK_PTC_SGN))THEN
+	      ALLOCATE(JFNK_PTC_SGN(JFNK_NT*JFNK_ND))
+	      JFNK_PTC_SGN(1:JFNK_NT*JFNK_ND) = 1.0_LDP
+	    END IF
+	    IF(SIZE(JFNK_PTC_SGN) .NE. JFNK_NT*JFNK_ND)THEN
+	      DEALLOCATE(JFNK_PTC_SGN)
+	      ALLOCATE(JFNK_PTC_SGN(JFNK_NT*JFNK_ND))
+	      JFNK_PTC_SGN(1:JFNK_NT*JFNK_ND) = 1.0_LDP
+	    END IF
+	    DO J = 1, JFNK_NT
+	      DIAG_SGN(J) = DBLE(JFNK_BA_A(J,J,K))
+	    END DO
+	    CALL JFNK_PC_SIGN_VEC_V1(DIAG_SGN, JFNK_NT,
+	1       DBLE(JFNK_ROW_TINY)*DBLE(BLK_SGN), SGN_TMP)
+	    DO J = 1, JFNK_NT
+	      JFNK_PTC_SGN((K-1)*JFNK_NT+J) = SGN_TMP(J)
+	    END DO
+	    JFNK_PTC_SGN_READY = .TRUE.
+	  END IF
 !
 ! Fold s_i into the factored diagonal.  Bare BA is nearly singular
 ! on thousands of weak rows; the LU then emits z ~ 1e2..1e5 along
@@ -3639,7 +3707,16 @@
 	          S_PTC = S_PTC * EXP(-X_PTC)
 	        END IF
 	      END IF
-	      JFNK_BA_A(J,J,K) = JFNK_BA_A(J,J,K) + S_PTC
+	      IF(JFNK_PC_SIGN_DIAG .AND. ALLOCATED(D_SD))THEN
+	        D_SD(IDX_PTC) = JFNK_BA_A(J,J,K)
+	        SIG_SD(IDX_PTC) = S_PTC
+	      END IF
+	      IF(JFNK_PTC_SGN_READY)THEN
+	        JFNK_BA_A(J,J,K) = JFNK_BA_A(J,J,K) +
+	1           JFNK_PTC_SGN(IDX_PTC)*S_PTC
+	      ELSE
+	        JFNK_BA_A(J,J,K) = JFNK_BA_A(J,J,K) + S_PTC
+	      END IF
 	      JFNK_BA_DIAG(J,K) = JFNK_BA_A(J,J,K)
 	      JFNK_PRECOND_DIAG(J,K) = JFNK_BA_A(J,J,K)
 	    END DO
@@ -3678,6 +3755,26 @@
 	    JFNK_PRECOND_DIAG(JFNK_NT-1,K) = 1.0_LDP
 	  END IF
 	END DO
+!
+	  IF(JFNK_PC_SIGN_DIAG .AND. ALLOCATED(D_SD) .AND.
+	1     JFNK_PTC_FOLDED)THEN
+	    N_SD = JFNK_NT*JFNK_ND
+	    CALL JFNK_PC_SIGN_STATS_V1(D_SD, SIG_SD, N_SD,
+	1       N_NEG_SD, N_CANCEL_SD, RMIN_SD, RMED_SD, RP99_SD)
+	    IF(LUER .GT. 0)THEN
+	      WRITE(LUER,'(A,F7.4,A,I8,A,I8)')
+	1        '  JFNK: PTC sign diag - frac rows d<0 & sig>0 =',
+	2        DBLE(N_NEG_SD)/MAX(DBLE(N_SD),1.0D0),
+	3        ' (', N_NEG_SD, ' of', N_SD, ')'
+	      WRITE(LUER,'(A,3ES12.4)')
+	1        '  JFNK: sigma/|d| min/med/p99 =',
+	2        RMIN_SD, RMED_SD, RP99_SD
+	      WRITE(LUER,'(A,I8,A)')
+	1        '  JFNK: |d+sig|<0.1|d| rows =', N_CANCEL_SD,
+	2        ' (unsigned shift near-cancels)'
+	    END IF
+	  END IF
+!
 	ELSE
 ! [USE_JFNK_SOLVER] defaults to F, so the stock population path is
 ! unchanged.  The cache stays valid only for the active JFNK baseline;
@@ -4607,6 +4704,7 @@
 	INTEGER NZCLIP, IDX_PC, K_PC, J_PC, NPROJ
 	INTEGER I, IOS
 	DOUBLE PRECISION Z_BA, X_PC, D_PC, SIG_PC, SIG_EFF_PC, RHS_PC
+	DOUBLE PRECISION DENOM_PC
 	LOGICAL BANDED_APPLIED
 	CHARACTER(LEN=1) NO_TRANS
 	REAL(KIND=LDP) WI_LSQ
@@ -5009,9 +5107,16 @@
 	      END IF
 	      RHS_PC = DBLE(JFNK_W_V_SAVE(J_PC, K_PC))
 	      IF(ABS(D_PC) .GT. 1.0D-30)THEN
-	        IF(ABS(D_PC + SIG_EFF_PC) .GT.
+! [JFNK_PTC_SIGNED]: the scalar rescale uses the same per-row sign as
+! the fold, so the denominator is |D|+sig in magnitude on d<0 rows
+! instead of crossing zero near sig ~ |d|.  READY=F is the unsigned
+! historical path.
+	        DENOM_PC = D_PC + SIG_EFF_PC
+	        IF(JFNK_PTC_SGN_READY)DENOM_PC = D_PC +
+	1           DBLE(JFNK_PTC_SGN(IDX_PC))*SIG_EFF_PC
+	        IF(ABS(DENOM_PC) .GT.
 	1           1.0D-30*MAX(1.0D0, ABS(D_PC)))THEN
-	          V(IDX_PC) = Z_BA * D_PC / (D_PC + SIG_EFF_PC)
+	          V(IDX_PC) = Z_BA * D_PC / DENOM_PC
 	        ELSE
 	          V(IDX_PC) = Z_BA
 	        END IF

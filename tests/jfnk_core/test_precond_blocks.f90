@@ -29,6 +29,8 @@ program test_precond_blocks
    call t_ident_apply(nfail)
    call t_rcond_norm(nfail)
    call t_rscale_order(nfail)
+   call t_sign(nfail)
+   call t_ridge(nfail)
    call t_linear(nfail)
 !
    if(nfail == 0)then
@@ -675,3 +677,164 @@ subroutine t_rscale_order(nfail)
    end if
    print *, 'T-RSCALE-ORDER: ok'
 end subroutine t_rscale_order
+!======================================================================
+subroutine t_sign(nfail)
+   use jfnk_solver_v1_mod, only: jfnk_pc_signed
+   implicit none
+   integer, intent(inout) :: nfail
+   double precision :: a_coef, xstar, xk, sigma, gval, du, ds, &
+        con_u, con_s, sgn(1), diag(1), m_u(1,1), m_s(1,1), rhs1(1)
+   integer :: ipiv1(1), info, i
+   double precision :: fracs(7) = [0.1d0, 0.5d0, 0.9d0, 1.1d0, &
+        2.0d0, 10.0d0, 100.0d0]
+   double precision :: tabl_u(7) = [1.0d0/9.0d0*1.111111d0*0.9d0, &
+        0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0]
+   logical :: bad
+!
+   a_coef = 2.0d0
+   xstar = 1.7d0
+   xk = 4.0d0
+   bad = .false.
+   do i = 1, 7
+      sigma = fracs(i) * a_coef
+      diag(1) = -a_coef
+      call jfnk_pc_sign_vec_v1(diag, 1, 0.0d0, sgn)
+! residual at the anchor: G(xk) = F(xk); the PTC term vanishes
+      gval = -a_coef * (xk - xstar)
+! unsigned: J_G = -a + sigma ; signed: J_G = -a - sigma
+      m_u(1,1) = -a_coef + sigma
+      m_s(1,1) = -a_coef + sgn(1)*sigma
+      rhs1(1) = gval
+      call dgetrf(1, 1, m_u, 1, ipiv1, info)
+      call dgetrs('N', 1, 1, m_u, 1, ipiv1, rhs1, 1, info)
+      du = -rhs1(1)
+      rhs1(1) = gval
+      call dgetrf(1, 1, m_s, 1, ipiv1, info)
+      call dgetrs('N', 1, 1, m_s, 1, ipiv1, rhs1, 1, info)
+      ds = -rhs1(1)
+      con_u = abs(xk + du - xstar) / abs(xk - xstar)
+      con_s = abs(xk + ds - xstar) / abs(xk - xstar)
+      if(abs(con_u - sigma/abs(sigma - a_coef)) > 1.0d-10)then
+         print *, 'T-SIGN FAIL unsigned model', fracs(i), con_u
+         bad = .true.
+      end if
+      if(con_s >= 1.0d0)then
+         print *, 'T-SIGN FAIL signed contraction', fracs(i), con_s
+         bad = .true.
+      end if
+      if(abs(con_s - sigma/(a_coef+sigma)) > 1.0d-10)then
+         print *, 'T-SIGN FAIL signed model', fracs(i), con_s
+         bad = .true.
+      end if
+   end do
+   if(.not. bad) print *, 'T-SIGN scalar: ok'
+
+! 3-level coupled rate block: negative rate diagonal plus a dense
+! conservation row.  Signed fold makes M equal J_G, so the
+! preconditioned step equals the true Newton step on the signed G.
+   block
+      double precision :: ar(3,3), mu(3,3), ms(3,3), rhs(3)
+      double precision :: dx_u(3), dx_s(3), dx_ref(3), sg3(3), d3(3)
+      double precision :: jg(3,3), gv(3)
+      integer :: ipv(3)
+      integer :: i2, j2
+      ar = 0.0d0
+! conservation row (positive), two loss rows (negative diagonal)
+      ar(1,1) =  1.0d0; ar(1,2) =  1.0d0; ar(1,3) =  1.0d0
+      ar(2,1) =  0.4d0; ar(2,2) = -2.0d0; ar(2,3) =  0.1d0
+      ar(3,1) =  0.2d0; ar(3,2) =  0.3d0; ar(3,3) = -3.0d0
+      gv = [0.5d0, -0.7d0, 0.9d0]
+      sigma = 1.5d0
+      do i2 = 1, 3
+         d3(i2) = ar(i2,i2)
+      end do
+      call jfnk_pc_sign_vec_v1(d3, 3, 0.0d0, sg3)
+! unsigned fold M_u = A + sigma I; signed fold M_s = A + sgn*sigma I;
+! J_G(signed residual) = A + sgn*sigma = M_s, so the signed solve is
+! the exact Newton step for the signed G: assert dx_s == reference.
+      mu = ar; ms = ar; jg = ar
+      do i2 = 1, 3
+         mu(i2,i2) = mu(i2,i2) + sigma
+         ms(i2,i2) = ms(i2,i2) + sg3(i2)*sigma
+         jg(i2,i2) = jg(i2,i2) + sg3(i2)*sigma
+      end do
+      rhs = gv
+      call dgetrf(3, 3, mu, 3, ipv, info)
+      call dgetrs('N', 3, 1, mu, 3, ipv, rhs, 3, info)
+      dx_u = -rhs
+      rhs = gv
+      call dgetrf(3, 3, ms, 3, ipv, info)
+      call dgetrs('N', 3, 1, ms, 3, ipv, rhs, 3, info)
+      dx_s = -rhs
+      rhs = gv
+      call dgetrf(3, 3, jg, 3, ipv, info)
+      call dgetrs('N', 3, 1, jg, 3, ipv, rhs, 3, info)
+      dx_ref = -rhs
+      if(maxval(abs(dx_s - dx_ref)) > 1.0d-12)then
+         print *, 'T-SIGN FAIL coupled signed step', &
+              maxval(abs(dx_s-dx_ref))
+         bad = .true.
+      end if
+      if(maxval(abs(dx_u - dx_ref)) < 1.0d-12)then
+         print *, 'T-SIGN WARN: unsigned step identical to signed'
+      end if
+      print '(A,3ES11.3,A,3ES11.3)', &
+           ' T-SIGN coupled dx signed=', dx_s, ' unsigned=', dx_u
+   end block
+   if(bad) nfail = nfail + 1
+end subroutine t_sign
+!======================================================================
+subroutine t_ridge(nfail)
+   use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_ridge_floor
+   implicit none
+   integer, intent(inout) :: nfail
+   double precision :: a(4,4), lu(4,4), rsf(4), csf(4), rr(4)
+   integer :: ipiv(4)
+   logical :: reg(4), regt(4), pre_reg(4)
+   double precision :: rcond, pv, ru
+   integer :: itry, i
+   logical :: ok
+   double precision :: du(4), ds(4)
+!
+! rows 1,3: positive diagonal; rows 2,4: negative.  ridge floor
+! forces the signed/unsigned ridge branch to add a visible shift.
+   jfnk_ridge_floor = 1.0d-3
+   a = 0.0d0
+   do i = 1, 4
+      a(i,i) = merge(2.0d0, -2.0d0, mod(i,2) == 1)
+      a(i,mod(i,4)+1) = 0.1d0
+   end do
+   pre_reg = .false.
+   jfnk_pc_signed = .true.
+   call jfnk_pc_factor_block_v1(a, 4, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   do i = 1, 4
+      ds(i) = rr(i)
+   end do
+   jfnk_pc_signed = .false.
+   call jfnk_pc_factor_block_v1(a, 4, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
+        .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
+        itry, ru, ok)
+   do i = 1, 4
+      du(i) = rr(i)
+   end do
+   do i = 1, 4
+      if(abs(a(i,i) + ds(i)) < abs(a(i,i)))then
+         print *, 'T-RIDGE FAIL signed ridge shrinks |d| at row', i
+         nfail = nfail + 1
+      end if
+      if(a(i,i) < 0.0d0)then
+         if(ds(i) >= 0.0d0)then
+            print *, 'T-RIDGE FAIL signed ridge sign at row', i
+            nfail = nfail + 1
+         end if
+! document: unsigned ridge shrinks |d| on this negative row
+         if(abs(a(i,i) + du(i)) >= abs(a(i,i)))then
+            print *, 'T-RIDGE WARN: unsigned ridge did not shrink'
+         end if
+      end if
+   end do
+   jfnk_ridge_floor = 0.0d0
+   print *, 'T-RIDGE: ok'
+end subroutine t_ridge

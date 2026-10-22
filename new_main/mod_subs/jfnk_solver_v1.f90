@@ -3565,10 +3565,17 @@ end subroutine jfnk_schur_apply_v1
                ridge_used = 0.0d0
                cycle
             end if
-            do i = 1, n
-               ridge_rows(i) = ridge_add * &
-                    max(abs(a(i,i)), 1.0d-30*scale_k)
-            end do
+            if(jfnk_pc_signed)then
+               do i = 1, n
+                  ridge_rows(i) = ridge_add * &
+                       sign(max(abs(a(i,i)), 1.0d-30*scale_k), a(i,i))
+               end do
+            else
+               do i = 1, n
+                  ridge_rows(i) = ridge_add * &
+                       max(abs(a(i,i)), 1.0d-30*scale_k)
+               end do
+            end if
             exit
          end if
       end do
@@ -3730,3 +3737,110 @@ end subroutine jfnk_schur_apply_v1
       end if
       return
    end function jfnk_rscale_branch_v1
+!
+! ----------------------------------------------------------------------
+! jfnk_pc_sign_vec_v1: per-row sign vector for [JFNK_PTC_SIGNED].
+! sgn_i = sign(d_i) when |d_i| clears the floor (the caller supplies
+! the ROW_TINY-style floor), else +1: a numerically zero diagonal
+! cannot decide a sign, and such rows are regularized anyway, so +1
+! reproduces the unsigned shift on them.  Shared by the residual PTC
+! term, the factorization fold and the apply rescale so all three use
+! the same convention.
+! ----------------------------------------------------------------------
+   subroutine jfnk_pc_sign_vec_v1(d, n, floor_abs, sgn)
+      implicit none
+      integer, intent(in) :: n
+      double precision, intent(in) :: d(n), floor_abs
+      double precision, intent(out) :: sgn(n)
+      integer :: i
+      do i = 1, n
+         if(abs(d(i)) >= floor_abs)then
+            sgn(i) = sign(1.0d0, d(i))
+         else
+            sgn(i) = 1.0d0
+         end if
+      end do
+      return
+   end subroutine jfnk_pc_sign_vec_v1
+!
+! ----------------------------------------------------------------------
+! jfnk_pc_sign_stats_v1: [JFNK_PC_SIGN_DIAG] report data.  For rows
+! with d < 0 and sigma > 0 (the unsigned-shift cancellation class),
+! collect the ratio sigma/|d| and count the rows where the unsigned
+! fold nearly annihilates the diagonal (|d+sigma| < 0.1|d|).  The
+! caller prints; this routine only reduces the arrays.
+! ----------------------------------------------------------------------
+   subroutine jfnk_pc_sign_stats_v1(d, sig, n, n_neg, n_cancel, &
+        rmin, rmed, rp99)
+      implicit none
+      integer, intent(in) :: n
+      double precision, intent(in) :: d(n), sig(n)
+      integer, intent(out) :: n_neg, n_cancel
+      double precision, intent(out) :: rmin, rmed, rp99
+      integer :: i, m
+      double precision, allocatable :: r(:)
+!
+      n_neg = 0
+      n_cancel = 0
+      allocate(r(n))
+      do i = 1, n
+         if(d(i) < 0.0d0 .and. sig(i) > 0.0d0)then
+            n_neg = n_neg + 1
+            r(n_neg) = sig(i) / abs(d(i))
+            if(abs(d(i)+sig(i)) < 0.1d0*abs(d(i))) &
+                 n_cancel = n_cancel + 1
+         end if
+      end do
+      rmin = 0.0d0; rmed = 0.0d0; rp99 = 0.0d0
+      if(n_neg > 0)then
+         call jfnk_pc_hpsort(r, n_neg)
+         rmin = r(1)
+         m = max(1, int(0.5d0*n_neg + 0.5d0))
+         rmed = r(min(m, n_neg))
+         m = max(1, int(0.99d0*n_neg + 0.5d0))
+         rp99 = r(min(m, n_neg))
+      end if
+      deallocate(r)
+      return
+   end subroutine jfnk_pc_sign_stats_v1
+!
+! Heapsort for the quantile report (LAPACK has no sort).
+   subroutine jfnk_pc_hpsort(a, n)
+      implicit none
+      integer, intent(in) :: n
+      double precision, intent(inout) :: a(n)
+      integer :: i, j, l, ir
+      double precision :: t
+      if(n < 2) return
+      l = n/2 + 1
+      ir = n
+      do
+         if(l > 1)then
+            l = l - 1
+            t = a(l)
+         else
+            t = a(ir)
+            a(ir) = a(1)
+            ir = ir - 1
+            if(ir == 1)then
+               a(1) = t
+               return
+            end if
+         end if
+         i = l
+         j = 2*l
+         do while(j <= ir)
+            if(j < ir)then
+               if(a(j) < a(j+1)) j = j + 1
+            end if
+            if(t < a(j))then
+               a(i) = a(j)
+               i = j
+               j = 2*j
+            else
+               j = ir + 1
+            end if
+         end do
+         a(i) = t
+      end do
+   end subroutine jfnk_pc_hpsort

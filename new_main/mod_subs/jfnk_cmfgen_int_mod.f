@@ -138,6 +138,19 @@
 ! against the operator actually applied, not the unregularized BA.
 	LOGICAL, SAVE :: JFNK_BA_DIAG_READY=.FALSE.
 !
+! JFNK_PTC_SGN (NT*ND): per-row sign of the raw BA diagonal captured
+! at factorization when [JFNK_PTC_SIGNED] is on (default F).  The
+! residual PTC term, the factorization fold and the apply rescale all
+! multiply the shift by this sign so |d_i + shift| = |d_i| + sigma_i
+! on loss-dominated rows instead of cancelling toward zero.  Frozen
+! between factorizations so the residual stays a fixed function
+! within a Newton solve; all +1 (READY=F) means unsigned historical
+! behaviour, which is also the documented fallback for the first
+! activation before any factorization has run.
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_PTC_SGN(:)
+	LOGICAL, SAVE :: JFNK_PTC_SGN_READY=.FALSE.
+!
 ! Cached DIAG BA LU factorization for the JFNK preconditioner
 ! (Issue 1 — Knoll & Keyes 2004).  Built once by JFNK_FACTOR_PRECOND_V1
 ! and reused by JFNK_PRECOND_V1 via DGETRS only.  Refresh when GMRES
