@@ -310,9 +310,9 @@ program test_newton_core
    ! T4f: non-finite true residual.  A calibration pass (tol loosened
    ! to 1e-6 so the claim lands inside cycle 1) learns which matvec
    ! call the tres measurement uses; the second pass injects a NaN on
-   ! exactly that call.  true_res=NaN must fail the claim -- NaN >
-   ! acc_tol is .false., so without the fail-closed guard this would
-   ! return 'gmres_converged' on an unverifiable residual.
+   ! exactly that call.  true_res=NaN cannot verify the claim --
+   ! without the fail-closed guard, NaN > acc_tol is .false. and this
+   ! would return 'gmres_converged' on an unverifiable residual.
    !
    matvec_bias = .false.
    jfnk_gmres_max_restart = 0
@@ -336,10 +336,36 @@ program test_newton_core
                    h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
    write(luer,'(A,I3,A,A)') &
       'T4f: info=', info, '  exit='//trim(jfnk_exit_reason)
-   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject') then
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_nonfinite') then
       write(luer,'(A)') 'T4f: PASS'
    else
       write(luer,'(A)') 'T4f: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T4g: same non-finite claim but WITH restart headroom -- the
+   ! nonfinite exit must still fire immediately, with no further
+   ! matvec (a restart would run calls beyond the injected index).
+   ! matvec_ct == matvec_nan_at proves nothing ran after the tres
+   ! measurement.
+   !
+   matvec_ct = 0
+   jfnk_gmres_max_restart = 1
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,I4,A,A)') &
+      'T4g: info=', info, '  ct=', matvec_ct, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_nonfinite' &
+      .and. matvec_ct == matvec_nan_at) then
+      write(luer,'(A)') 'T4g: PASS'
+   else
+      write(luer,'(A)') 'T4g: FAIL'
       nfail = nfail + 1
    end if
    jfnk_gmres_max_restart = 1

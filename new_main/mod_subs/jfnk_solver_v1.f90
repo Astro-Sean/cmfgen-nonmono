@@ -1865,6 +1865,7 @@ end subroutine newton_hook_v1
 !----------------------------------------------------------------------
 subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                        res, del, pred_res, its, info, luer)
+   use, intrinsic :: ieee_arithmetic
    use jfnk_solver_v1_mod, only: jfnk_precond_fails, &
                                   jfnk_total_jvp_evals, jfnk_use_left_pc, &
                                   jfnk_last_ynrm, jfnk_jvp_failed, &
@@ -2319,12 +2320,27 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                   '  GMRES TRES: it=', its, ' hess_res=', real(res), &
                   ' true_res=', real(true_res), ' acc_tol=', &
                   real(jfnk_gmres_tres_fac * tol)
-               ! A non-finite true_res cannot verify the claim:
-               ! NaN > x is .false., so without the /= guard a NaN
-               ! residual would be accepted as converged.  Fail closed.
-               if(res <= tol .and. (true_res /= true_res .or. &
-                  true_res > jfnk_gmres_tres_fac * tol)) &
-                  tres_rej = .true.
+               ! A non-finite true_res cannot verify the claim, and the
+               ! measured residual vector is itself non-finite: the
+               ! ordinary reject path would restart the cycle and re-run
+               ! matvecs on an operator that just produced NaN/Inf.
+               ! Exit non-converged with a dedicated reason instead of
+               ! restarting (07-Nov-2026 audit).  ieee_is_finite covers
+               ! NaN and Inf -- Inf already fails the > test below but
+               ! belongs to this unverifiable class, not the "too big"
+               ! one.  Only claimed convergences branch here; on a
+               ! non-converged exit the value is diagnostic only.
+               if(res <= tol .and. &
+                  .not. ieee_is_finite(true_res)) then
+                  if(luer > 0) write(luer,'(A)') &
+                     '  GMRES: non-finite true residual in TRES '// &
+                     'check -- claim unverifiable, not restarting'
+                  info = 1
+                  jfnk_exit_reason = 'gmres_tres_nonfinite'
+                  return
+               end if
+               if(res <= tol .and. &
+                  true_res > jfnk_gmres_tres_fac * tol) tres_rej = .true.
             end if
             if(tres_rej) then
                if(its == imx .or. &
