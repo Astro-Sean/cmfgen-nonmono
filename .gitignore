@@ -66,3 +66,6 @@ tests/f90/test_jfnk_interface
 tests/plots/
 tests/f90/*.csv
 tests/f90/bin/
+
+# Bake-off harness binary
+tests/convergence_bakeoff/bakeoff
