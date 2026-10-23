@@ -5168,7 +5168,7 @@
 	2           '  nts=',NTS_B,' nds=',NDS_B,
 	3           '  retry=',NTRY_B,
 	4           '  max|r_i|/(|A||x|+|b|)=',REL_B
-	            WRITE(LUER,'(A,3(A,ES10.2))')
+	            WRITE(LUER,'(4(A,ES10.2))')
 	1           '    superbands: max|L|=',L_NRM_B,
 	2           '  max|D|=',D_NRM_B,'  max|U|=',U_NRM_B
 	          END IF
