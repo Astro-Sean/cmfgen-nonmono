@@ -91,7 +91,7 @@ program test_guards
    use guards_prob_mod
    implicit none
    external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1, f_nan, &
-      f_flat, f_const, df_split, df_id
+      f_flat, f_const, df_split, df_id, df_anti
    double precision, external :: dp_t
    integer :: nfail, info, luer, i
    !
@@ -711,6 +711,44 @@ program test_guards
       jfnk_use_left_pc = .true.
    end block
    !
+   ! -------- G15: broken linear solve must not burn an eta re-solve --
+   !
+   ! df_anti gives Arnoldi basis calls (|v| ~ 1) a three-eigenvalue
+   ! definite action, so GMRES needs >2 iterations; jfnk_max_gmres_its
+   ! caps it at 2, forcing the info=2 exit.  The accumulated-step
+   ! calls (|v| > 2: the exit true-residual measure, restarts, and
+   ! the newton J_s eval) see anti-aligned -2*v action, so the
+   ! physical model |F-Js| exceeds |F| and the step is non-descent --
+   ! the OUTGEN signature where an eta-tightened re-solve repeated
+   ! the same failure.  The fix must skip the retry entirely:
+   ! jfnk_n_descent_retry stays 0.
+   block
+      jfnk_ptc_active = .false.
+      jfnk_do_line_search = .false.
+      jfnk_use_left_pc = .false.
+      jfnk_gmres_tres_fac = 0d0
+      jfnk_jvp_failed = .false.
+      jfnk_gmres_recomputed = .false.
+      jfnk_gmres_true_res_ok = .false.
+      jfnk_gmres_true_res = 0d0
+      jfnk_max_gmres_its = 2
+      jfnk_n_descent_retry = 0
+      jfnk_x = 0d0
+      info = 1
+      call newton_hook_v1(f_flat, df_anti, dfp_t, sub_t, dp_t, &
+         10, NG, 1d-9, 1d-11, 1d3, 1d-12, 1d8, 30, info, luer)
+      if(jfnk_n_descent_retry /= 0) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A)') 'G15: FAIL (burned ', &
+            jfnk_n_descent_retry, ' re-solves on a broken operator)'
+      else
+         write(luer,'(A,A)') 'G15: PASS (no eta re-solve on broken &
+            &solve), reason=', trim(jfnk_exit_reason)
+      end if
+      jfnk_max_gmres_its = 0
+      jfnk_use_left_pc = .true.
+   end block
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL GUARD TESTS PASSED'
    else
@@ -872,3 +910,22 @@ subroutine df_id(n, v, jv)
    ! produces a full step against the constant residual.
    jv = v
 end subroutine df_id
+
+subroutine df_anti(n, v, jv)
+   implicit none
+   integer :: n, i
+   double precision :: v(n), jv(n)
+   ! G15: unit-norm Arnoldi basis calls see a definite three-eigenvalue
+   ! action (slow convergence, forces the imx exit); the accumulated-
+   ! step calls -- exit true-residual measure, restart residuals, and
+   ! the newton J_s -- see anti-aligned action.  Reproduces the
+   ! production pathology of a max-its exit returning a non-descent
+   ! step whose measured true_res exceeds the reference.
+   if(dsqrt(dot_product(v, v)) < 2d0) then
+      do i = 1, n
+         jv(i) = (0.4d0 + 0.5d0 * dble(mod(i, 3))) * v(i)
+      end do
+   else
+      jv = -2d0 * v
+   end if
+end subroutine df_anti

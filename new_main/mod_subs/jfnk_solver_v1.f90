@@ -1265,7 +1265,27 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       dir_deriv = dp(n, fx_, J_s)
       !
+      ! Bail when the physical linear model already shows the step
+      ! makes the residual worse: ||F - J*s||_w > ||F||_w means the
+      ! Krylov space / preconditioner produced a direction that
+      ! amplifies the operator, and re-solving with a tighter forcing
+      ! term burns a full GMRES budget on the same broken map
+      ! (observed in OUTGEN: hess_res 1.6e7 vs |F-Js| 5.0e15; the
+      ! eta-tightened re-solve failed the same way).  The step still
+      ! reaches the trial eval below, where the ared <= 0 rejection
+      ! shrinks del and requests a hookstep recompute on the existing
+      ! basis at no eval cost.
+      !
       if(dir_deriv <= 0d0 .and. .not. jfnk_gmres_recomputed .and. &
+         jfnk_eta > jfnk_eta_min .and. &
+         descent_retry_count < descent_retry_max .and. &
+         pred_res_physical > ref_norm) then
+         if(info == 1) write(luer,'(A,ES10.3,A,ES10.3,A)') &
+            '  JFNK: non-descent dir (<F,Js>=', real(dir_deriv), &
+            ') with |F-Js|/|F|=', &
+            real(pred_res_physical / max(ref_norm, 1d-30)), &
+            ' -- rejecting, not retrying'
+      else if(dir_deriv <= 0d0 .and. .not. jfnk_gmres_recomputed .and. &
          jfnk_eta > jfnk_eta_min .and. &
          descent_retry_count < descent_retry_max) then
          !
