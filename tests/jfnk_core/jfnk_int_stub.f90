@@ -22,4 +22,10 @@ module jfnk_cmfgen_int_mod
    double precision, allocatable :: JFNK_BA_A(:,:,:)
    logical :: JFNK_LU_READY = .false.
    double precision, allocatable :: JFNK_BA_RIDGE_ADD(:,:)
+   ! Budget-sentinel plumbing added by the commit-verification fix
+   ! (21b52ca): the stub mirrors the production module so the G11
+   ! contract test exercises the same symbols.
+   logical :: JFNK_EVAL_BYPASS = .false.
+   integer :: JFNK_MAX_EVALS = 0
+   integer :: JFNK_N_RESIDUAL_EVALS = 0
 end module jfnk_cmfgen_int_mod

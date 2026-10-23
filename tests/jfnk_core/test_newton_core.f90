@@ -25,6 +25,10 @@
 !   T3: PTC on, far start xs + 3.0 -- exp nonlinearity overshoots the
 !       full Newton step, exercising trust region / line search /
 !       Cauchy fallback.
+!   T5: DIAG-analog weighted norms (~1e8-1e9): a normal Newton step
+!       must not read as runaway and must reach >= 1 trial eval.
+!   T5b: the scale-relative cap still fires when the factor is set
+!       small enough that every ~ref_norm step is "runaway".
 !
 ! edited by Devin, 06-Oct-2026
 !----------------------------------------------------------------------
@@ -43,6 +47,10 @@ module test_prob_mod
    ! the tres measurement lands on a non-finite residual.  -1 disables.
    ! matvec_inf_at does the same with +Inf (T4i).
    integer :: matvec_ct = 0, matvec_nan_at = -1, matvec_inf_at = -1
+   ! T5: weight scale for the DIAG-analog inner product (|v|_w =
+   ! w_dp*|v|_euc) and a residual-eval call counter.
+   double precision :: w_dp = 1d0
+   integer :: n_f_evals = 0
 end module test_prob_mod
 
 
@@ -52,7 +60,7 @@ program test_newton_core
    implicit none
    external :: f_test, df_test, dfp_test, sub_test
    external :: df_lin, dfp_id, dfp_jac
-   double precision, external :: dp_test
+   double precision, external :: dp_test, dp_w
    integer :: i, info, nfail, luer
    integer :: its_g
    integer :: nevals_b, nevals_c, ntres_call
@@ -437,6 +445,72 @@ program test_newton_core
    matvec_inf_at = -1
    jfnk_gmres_tres_fac = 0d0
    !
+   ! ---------------- T5: scale-relative runaway cap ------------------
+   !
+   ! DIAG-analog weighting: dp_w multiplies every weighted norm by
+   ! w_dp, so |F|_w and |s|_w sit at ~1e8-1e9 -- the RZC regime where
+   ! the old absolute cap (|s|_w > 1e2) rejected every Krylov step
+   ! before a single trial residual eval ("Newton-level F evals: 0").
+   ! The relative cap (100 * ||M^-1 F||_w) must admit a normal step;
+   ! info=0 requires >= 1 accepted step and hence >= 1 trial eval.
+   ! Left preconditioning is on to match the production default.
+   !
+   jfnk_ptc_active = .false.
+   jfnk_use_left_pc = .true.
+   jfnk_runaway_fac = 1.0d2
+   jfnk_n_ls_used = 0
+   jfnk_n_tr_rejected = 0
+   w_dp = 1.0d6
+   xbase = 0d0
+   jfnk_x = xs + 0.5d0
+   call f_test(NN, jfnk_x, f0)
+   fnrm0 = dsqrt(dp_w(NN, f0, f0))
+   tol_t = 1.0d-10 * fnrm0
+   diagJ = a * exp(jfnk_x) + 2d0 * b
+   jfnk_exit_reason = ' '
+   n_f_evals = 0
+   info = 1
+   call newton_hook_v1(f_test, df_test, dfp_test, sub_test, dp_w, &
+                       20, NN, 1.0d-2, tol_t, -1d0, 1.0d-12, 1.0d99, &
+                       50, info, luer)
+   maxerr = maxval(abs(jfnk_x - xs))
+   write(luer,'(A,I3,A,ES12.4,A,I5,A,A)') &
+      'T5: info=', info, '  |F0|_w=', fnrm0, &
+      '  evals=', n_f_evals, '  exit='//trim(jfnk_exit_reason)
+   if(info == 0 .and. maxerr < 1.0d-6 .and. n_f_evals >= 2) then
+      write(luer,'(A)') 'T5: PASS'
+   else
+      write(luer,'(A)') 'T5: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T5b: the cap must still fire when the factor is small enough that
+   ! a ~ref_norm step is "runaway" -- the hookstep retry loop then
+   ! aborts without a single trial eval, proving the safeguard (not
+   ! just its absence) is active.
+   !
+   jfnk_runaway_fac = 1.0d-3
+   jfnk_x = xs + 0.5d0
+   jfnk_exit_reason = ' '
+   n_f_evals = 0
+   info = 1
+   call newton_hook_v1(f_test, df_test, dfp_test, sub_test, dp_w, &
+                       20, NN, 1.0d-2, tol_t, -1d0, 1.0d-12, 1.0d99, &
+                       50, info, luer)
+   write(luer,'(A,I3,A,I5,A,A)') &
+      'T5b: info=', info, '  evals=', n_f_evals, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. &
+      jfnk_exit_reason == 'too_many_rejected_steps') then
+      write(luer,'(A)') 'T5b: PASS'
+   else
+      write(luer,'(A)') 'T5b: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_runaway_fac = 1.0d2
+   w_dp = 1.0d0
+   jfnk_use_left_pc = .false.
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL TESTS PASSED'
    else
@@ -500,6 +574,7 @@ subroutine f_test(n, x, y)
    double precision, intent(out) :: y(n)
    double precision :: xa(n), d(n)
    integer :: i
+   n_f_evals = n_f_evals + 1
    xa = xbase + x
    d = xa - xs
    do i = 1, n
@@ -621,3 +696,15 @@ double precision function dp_test(n, a, b)
    double precision, intent(in) :: a(n), b(n)
    dp_test = dot_product(a, b)
 end function dp_test
+
+
+! DIAG-analog weighted inner product for T5: |v|_w = w_dp*|v|_euc,
+! putting every weighted norm at the ~1e8-1e9 scale RZC reaches under
+! JFNK_RSCALE=DIAG.
+double precision function dp_w(n, a, b)
+   use test_prob_mod, only: w_dp
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(in) :: a(n), b(n)
+   dp_w = w_dp * w_dp * dot_product(a, b)
+end function dp_w

@@ -39,6 +39,13 @@
 !   G9: jfnk_h_select_v1 picks the stable h plateau and rejects a
 !       direction whose sweep never stabilizes (JFNK_HADAPT).
 !   G10: jfnk_pc_final_guard_v1 zeroes and counts non-finite outputs.
+!   G11: eval-budget bypass contract: the sentinel fires without the
+!        bypass, a real eval passes through it, and a non-finite
+!        applied state still fails the commit gate (f_budget mirrors
+!        the JFNK_RESIDUAL_V1 sentinel verbatim, same convention as
+!        the G2 replication).
+!   G12: solver-level NaN trial residuals count nan_rejects and abort
+!        the Newton loop rather than committing a non-finite step.
 !
 ! edited by Devin, Oct-2026
 !----------------------------------------------------------------------
@@ -51,6 +58,11 @@ module guards_prob_mod
    integer, parameter :: NG = 60
    double precision :: ag(NG), xsg(NG)
    double precision :: bg = 0.3d0
+   ! G11/G12: inject_nan makes f_budget return a non-finite residual
+   ! (the applied-state reject case); nan_calls counts f_nan calls so
+   ! its first call (the entry eval) can stay real.
+   logical :: inject_nan = .false.
+   integer :: nan_calls = 0
 contains
    subroutine seed_prob()
       integer :: i
@@ -64,10 +76,11 @@ end module guards_prob_mod
 program test_guards
    use, intrinsic :: ieee_arithmetic
    use jfnk_solver_v1_mod
-   use jfnk_cmfgen_int_mod, only: JFNK_COUPLED_LOC
+   use jfnk_cmfgen_int_mod, only: JFNK_COUPLED_LOC, JFNK_EVAL_BYPASS, &
+      JFNK_MAX_EVALS, JFNK_N_RESIDUAL_EVALS
    use guards_prob_mod
    implicit none
-   external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1
+   external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1, f_nan
    double precision, external :: dp_t
    integer :: nfail, info, luer, i
    !
@@ -476,6 +489,119 @@ program test_guards
       end if
    end block
    !
+   ! -------- G11: eval-budget bypass for the commit verification ----
+   !
+   ! jfnk_solve_corr_v1 sets JFNK_EVAL_BYPASS around exactly one
+   ! JFNK_RESIDUAL_V1 call.  f_budget replicates the residual-side
+   ! sentinel semantics verbatim (the JFNK_MAX_SEC branch has the
+   ! same shape): an exhausted budget returns Y=1D20 with nbad=N
+   ! unless the bypass is set.  The commit gate (nbad>0 or
+   ! F_APP >= F_ENTRY -> rollback, jfnk_solve_corr_v1) must:
+   !   (a) see the sentinel and reject when the bypass is off --
+   !       the rzc2 it585 rollback mechanism,
+   !   (b) see the real, improved residual and commit when it is on,
+   !   (c) still reject when the applied eval is genuinely non-finite:
+   !       the bypass opens only the budget gate, not NaN accounting.
+   !
+   block
+      double precision :: x_ent(NG), x_app(NG), y_app(NG)
+      double precision :: f_entry, f_app
+      logical :: commit
+      integer :: nbad_a
+      !
+      ! The flag must default to .false.: the sentinel bounds GMRES
+      ! burn and only the commit-verification call may pass it.
+      if(JFNK_EVAL_BYPASS) then
+         nfail = nfail + 1
+         write(luer,'(A)') 'G11: FAIL (bypass default not F)'
+      end if
+      call seed_prob()
+      x_ent = xsg + 0.4d0    ! entry state: far from the root
+      x_app = xsg + 0.05d0   ! applied state: verified improvement
+      JFNK_MAX_EVALS = 2
+      JFNK_N_RESIDUAL_EVALS = 0
+      ! Spend the budget exactly as the solve does: entry + one trial.
+      call f_budget(NG, x_ent, y_app)
+      f_entry = dsqrt(dp_t(NG, y_app, y_app))
+      call f_budget(NG, x_app, y_app)
+      if(JFNK_N_RESIDUAL_EVALS /= JFNK_MAX_EVALS) then
+         nfail = nfail + 1
+         write(luer,'(A)') 'G11a: FAIL (budget accounting)'
+      end if
+      call f_budget(NG, x_app, y_app)
+      commit = (jfnk_resid_nbad <= 0) .and. &
+         all(ieee_is_finite(y_app)) .and. &
+         (dsqrt(dp_t(NG, y_app, y_app)) < f_entry)
+      if(commit .or. jfnk_resid_nbad /= NG .or. &
+         any(y_app /= 1.0d20)) then
+         nfail = nfail + 1
+         write(luer,'(A)') 'G11a: FAIL (sentinel not applied)'
+      else
+         write(luer,'(A)') 'G11a: PASS (exhausted budget -> sentinel)'
+      end if
+      JFNK_EVAL_BYPASS = .true.
+      call f_budget(NG, x_app, y_app)
+      JFNK_EVAL_BYPASS = .false.
+      f_app = dsqrt(dp_t(NG, y_app, y_app))
+      commit = (jfnk_resid_nbad == 0) .and. &
+         all(ieee_is_finite(y_app)) .and. (f_app < f_entry)
+      if(.not. commit) then
+         nfail = nfail + 1
+         write(luer,'(A,2ES12.4,A,I4)') &
+            'G11b: FAIL (bypass eval not real), f_app/f_entry=', &
+            f_app, f_entry, ' nbad=', jfnk_resid_nbad
+      else
+         write(luer,'(A,2ES12.4)') &
+            'G11b: PASS (real eval commits), f_app/f_entry=', &
+            f_app, f_entry
+      end if
+      inject_nan = .true.
+      JFNK_EVAL_BYPASS = .true.
+      call f_budget(NG, x_app, y_app)
+      JFNK_EVAL_BYPASS = .false.
+      inject_nan = .false.
+      nbad_a = jfnk_resid_nbad
+      commit = (nbad_a <= 0) .and. all(ieee_is_finite(y_app)) .and. &
+         (dsqrt(dp_t(NG, y_app, y_app)) < f_entry)
+      if(commit .or. nbad_a <= 0) then
+         nfail = nfail + 1
+         write(luer,'(A)') 'G11c: FAIL (non-finite applied committed)'
+      else
+         write(luer,'(A)') 'G11c: PASS (non-finite applied rejects)'
+      end if
+      JFNK_MAX_EVALS = 0
+      jfnk_resid_nbad = 0
+   end block
+   !
+   ! -------- G12: non-finite trial residuals reject, never commit ---
+   !
+   ! f_nan returns the real residual for the entry eval and NaN for
+   ! every trial eval.  The solver must count nan_rejects, restore
+   ! the iterate, and abort rather than converging on NaN steps.
+   !
+   block
+      nan_calls = 0
+      jfnk_nan_rejects = 0
+      jfnk_ptc_active = .false.
+      jfnk_do_line_search = .false.
+      jfnk_use_left_pc = .false.
+      jfnk_x = xsg + 0.4d0
+      jfnk_exit_reason = ' '
+      info = 1
+      call newton_hook_v1(f_nan, df_t, dfp_t, sub_t, dp_t, &
+         10, NG, 1d-9, 1d-11, -1d0, 1d-12, 5d-2, 30, info, luer)
+      if(info == 0 .or. jfnk_nan_rejects < 1) then
+         nfail = nfail + 1
+         write(luer,'(A,I3,A,I5)') &
+            'G12: FAIL (NaN trial committed), info=', info, &
+            ' nan_rejects=', jfnk_nan_rejects
+      else
+         write(luer,'(A,I3,A,I5)') &
+            'G12: PASS (NaN trials rejected), info=', info, &
+            ' nan_rejects=', jfnk_nan_rejects
+      end if
+   end block
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL GUARD TESTS PASSED'
    else
@@ -541,3 +667,56 @@ double precision function dp_t(n, x, y)
    double precision :: x(n), y(n)
    dp_t = dot_product(x, y)
 end function dp_t
+
+
+! Verbatim mirror of the JFNK_RESIDUAL_V1 eval-budget sentinel used by
+! G11 (the JFNK_MAX_SEC branch in production has the same shape).
+! Without JFNK_EVAL_BYPASS an exhausted budget returns Y=1D20 and
+! nbad=N; with it the eval is real and bad components are counted
+! exactly as the production NaN/Inf policy loop does.
+subroutine f_budget(n, x, y)
+   use jfnk_cmfgen_int_mod, only: JFNK_EVAL_BYPASS, JFNK_MAX_EVALS, &
+      JFNK_N_RESIDUAL_EVALS
+   use jfnk_solver_v1_mod, only: jfnk_resid_nbad
+   use guards_prob_mod
+   use, intrinsic :: ieee_arithmetic
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(in) :: x(n)
+   double precision, intent(out) :: y(n)
+   integer :: i, nbad
+   if(JFNK_MAX_EVALS > 0 .and. .not. JFNK_EVAL_BYPASS .and. &
+      JFNK_N_RESIDUAL_EVALS >= JFNK_MAX_EVALS) then
+      y = 1.0d20
+      jfnk_resid_nbad = n
+      JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
+      return
+   end if
+   JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
+   call f_t(n, x, y)
+   if(inject_nan) y(1) = ieee_value(0d0, ieee_quiet_nan)
+   nbad = 0
+   do i = 1, n
+      if(y(i) /= y(i) .or. abs(y(i)) > 1.0d30) nbad = nbad + 1
+   end do
+   jfnk_resid_nbad = nbad
+end subroutine f_budget
+
+
+! G12 residual: the first call is the entry eval and stays real so
+! the Newton loop starts; every later call is a trial eval returning
+! NaN, which must reject instead of committing.
+subroutine f_nan(n, x, y)
+   use guards_prob_mod, only: nan_calls
+   use, intrinsic :: ieee_arithmetic
+   implicit none
+   integer, intent(in) :: n
+   double precision, intent(in) :: x(n)
+   double precision, intent(out) :: y(n)
+   nan_calls = nan_calls + 1
+   if(nan_calls <= 1) then
+      call f_t(n, x, y)
+   else
+      y = ieee_value(0d0, ieee_quiet_nan)
+   end if
+end subroutine f_nan
