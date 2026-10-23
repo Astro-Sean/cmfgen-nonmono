@@ -3487,7 +3487,7 @@
 	1    '    last raw MAXCH                :',BA_LAST_RAW
 	  WRITE(LUER,'(A,ES12.4)')
 	1    '    exempted demand (BA_DEM floors):',BA_DEM_EXM
-	  WRITE(LUER,'(A,ES12.4,2X,A,I3,A,I3,2X,A,L2)')
+	  WRITE(LUER,'(A,ES12.4,2X,A,I4,A,I4,2X,A,L2)')
 	1    '    BA_TR_ABS (|dn|/gas)          :',BA_TR_ABS,
 	2    'sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,'phase',BA_TRACE_PHASE
 	  WRITE(LUER,'(A,L2,3X,L2,3X,L2)')
@@ -3912,7 +3912,7 @@
 	2    'exempt/trc',BA_DEM_EXM,'%',BA_DEM_EXR,'%',BA_TR_ABS,TRC_ST,
 	3    'dem>',MAX(10.0_LDP*EPS,1.0_LDP),'%',
 	4    ' trc|dn|/gas>',BA_TR_ABSMAX
-	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I3,A,I3,2X,A,A3)')
+	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I4,A,I4,2X,A,A3)')
 	1    'stageB','sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,
 	2    'phase ',MERGE('yes','no ',BA_TRACE_PHASE)
 !
