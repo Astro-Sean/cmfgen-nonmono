@@ -2348,7 +2348,14 @@
 	          END DO
 	        END DO
 	        IF(X_APP_OK)THEN
+! Bypass the eval budget/wall-clock sentinels for this one call:
+! they exist to bound GMRES burn during the solve, but by commit
+! time the budget is usually spent -- the sentinel Y=1e20 reads as
+! |F|_w~1e46 under RSCALE^2 weighting and rolls back steps the line
+! search already verified (rzc2 it585).
+	          JFNK_EVAL_BYPASS=.TRUE.
 	          CALL JFNK_RESIDUAL_V1(JFNK_N,X_APP,Y_APP)
+	          JFNK_EVAL_BYPASS=.FALSE.
 	          CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,Y_APP)
 	          CALL jfnk_ptc_strip_v1(JFNK_N,X_APP,Y_APP)
 	          F_APP=SQRT(JFNK_DOT_V1(JFNK_N,Y_APP,Y_APP))

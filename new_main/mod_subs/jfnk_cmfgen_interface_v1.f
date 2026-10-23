@@ -1633,7 +1633,7 @@
 ! best-iterate/Lambda fallback instead of burning sweeps.  The
 ! counter resets in JFNK_INIT_V1, so the budget is per-activation.
 !
-	IF(JFNK_MAX_EVALS .GT. 0 .AND.
+	IF(JFNK_MAX_EVALS .GT. 0 .AND. .NOT. JFNK_EVAL_BYPASS .AND.
 	1     JFNK_N_RESIDUAL_EVALS .GE. JFNK_MAX_EVALS)THEN
 	  IF(JFNK_N_RESIDUAL_EVALS .EQ. JFNK_MAX_EVALS)THEN
 	    WRITE(LUER,'(A,I6,A)')
@@ -1653,7 +1653,7 @@
 ! cost is not eval-counted (it191 burned ~500 s in dirchk precheck
 ! work with zero Newton-level evals).  edited by Devin, 15-Oct-2026.
 !
-	IF(JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	IF(JFNK_MAX_SEC .GT. 0.0_LDP .AND. .NOT. JFNK_EVAL_BYPASS .AND.
 	1     OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC)THEN
 	  IF(.NOT. JFNK_SEC_HIT)THEN
 	    JFNK_SEC_HIT=.TRUE.
