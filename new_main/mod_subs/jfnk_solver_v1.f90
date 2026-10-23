@@ -1412,8 +1412,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             step_status = 'ACCEPTED (previous)'
          else if(pred_negligible) then
             step_status = 'REJECTED (pred negligible)'
-         else if(ared < 0d0) then
-            step_status = 'REJECTED (norm increased)'
+         else if(ared <= 0d0) then
+            step_status = 'REJECTED (no decrease)'
          else if(rho < 0.75d0) then
             step_status = 'ACCEPTED (rho<0.75)'
          else if(snrm_tr < jfnk_del * 0.9d0) then   ! 2026-09-13 TR-units fix
@@ -1750,10 +1750,30 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! return the identical step and loop.
          jfnk_del = 0.5d0 * min(del_try, snrm_tr)   ! 2026-09-13 TR-units fix
          ginfo   = 2
-      else if(ared < 0d0) then
-         if(info == 1) write(luer,*) '  JFNK: norm increased, try &
-            &smaller step'
+      else if(ared <= 0d0) then
+         ! editted by Devin, 12-Nov-2026: a trial that fails to reduce
+         ! |F| is a rejection, not a retry.  ared == 0 used to land in
+         ! the rho < 0.75 branch below, which retries without touching
+         ! n_reject -- OUTGEN showed it halving del from ~6 to 1e-8
+         ! over hundreds of zero-progress trials until
+         ! trust_region_too_small.  Count it as a rejection so
+         ! no-progress ends the solve in n_reject_max passes instead of
+         ! crawling the del floor; ared < 0 (norm increase) takes the
+         ! same path it always did.
+         if(info == 1) write(luer,*) '  JFNK: norm did not decrease, &
+            &try smaller step'
+         n_reject = n_reject + 1
          jfnk_n_tr_rejected = jfnk_n_tr_rejected + 1
+         if(n_reject >= n_reject_max .or. jfnk_del < mndl) then
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: too many rejected steps -- aborting Newton'
+            jfnk_x = x_
+            jfnk_fx = fx_
+            jfnk_tol = tol_
+            info = 3
+            jfnk_exit_reason = 'too_many_rejected_steps'
+            return
+         end if
          jfnk_x = x_
          jfnk_fx = fx_
          jfnk_tol = tol_
