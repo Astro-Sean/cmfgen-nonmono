@@ -1099,6 +1099,16 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       call jfnk_tauto_damp_v1(n, s)
       !
+      ! jfnk_tauto_damp_v1 modifies the T components of s in place;
+      ! the norms below must describe the step actually taken, not the
+      ! pre-damping candidate.  snrm_tr = snrm: the damped s IS the
+      ! trust-region-constrained quantity from here on (the Cauchy
+      ! path already recomputes its own cauchy_nrm).
+      !
+      snrm = dsqrt(dp(n, s, s))
+      s_inf = maxval(abs(s))
+      snrm_tr = snrm
+      !
       ! Weighted |s| can still explode if RSCALE is large.  Reject if
       ! the overall weighted norm is truly catastrophic -- i.e. far
       ! above the ||M^{-1} F||_w scale the step is built at.  An
