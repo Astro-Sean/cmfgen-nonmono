@@ -2416,7 +2416,15 @@
 	    MAXCH=0.0_LDP
 	    BA_TR_ABS=0.0_LDP
 	    BA_DEM_EXM=0.0_LDP
+	    BA_DEM_EXR=0.0_LDP
 	    DO K=1,ND
+! Same committed-change EXR proxy as the rebuild-commit scan above:
+! without a reset the last BA call's exit-exempted demand leaks into
+! a JFNK commit that already moved those rows.  edited by Devin,
+! 12-Nov-2026.
+	      T2=0.0_LDP
+	      IF(BA_EX_RELFRAC .GT. 0.0_LDP)
+	1     T2=BA_EX_RELFRAC*MAXVAL(POPS_PREV(1:NT-2,K))
 	      DO J=1,NT
 	        T1=100.0_LDP*ABS(SOL(J,K))
 	        IF(J .LE. NT-2 .AND. BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
@@ -2424,6 +2432,10 @@
 	          BA_TR_ABS=MAX(BA_TR_ABS,ABS(POPS(J,K)-POPS_PREV(J,K))/
 	1           MAX(POP_ATOM_A(K),1.0E-30_LDP))
 	          BA_DEM_EXM=MAX(BA_DEM_EXM,T1)
+	          CYCLE
+	        END IF
+	        IF(J .LE. NT-2 .AND. POPS_PREV(J,K) .LT. T2)THEN
+	          BA_DEM_EXR=MAX(BA_DEM_EXR,T1)
 	          CYCLE
 	        END IF
 	        IF(T1 .GT. MAXCH)MAXCH=T1
