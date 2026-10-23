@@ -8384,7 +8384,7 @@
 	    DMET=MAX(DMET,ABS(WRK(ID)))
 	    FFL=MAX(FFL,ABS(BCL(ID)))
 	  END DO
-	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4,A,I4,A,2ES11.3)')
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4,A,I4,A,ES11.3,A,ES11.3)')
 	1     '    anchor idx=',II,' K=',K,' J=',J,
 	2     '  max|dA|=',DMET,'  |dA|/|BAcol|=',DMET/MAX(FFL,1.0D-300)
 !
