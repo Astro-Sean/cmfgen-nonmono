@@ -464,6 +464,37 @@ module jfnk_solver_v1_mod
    double precision, allocatable :: jfnk_lgmres_dlast(:)  ! completed-cycle step
    double precision, allocatable :: jfnk_lgmres_q(:,:)    ! orth image complements
    !
+   ! [JFNK_GDEFL] (default F): GMRES-DR deflated restarting (Morgan
+   ! 2002, SISC 24(1) 20-37; Parks et al. 2006, SISC 28(5) 1651-1674
+   ! for the GCRO-DR sequence version).  At each restart the smallest-
+   ! |theta| harmonic Ritz pairs of the completed cycle's Hessenberg
+   ! block are extracted and their Arnoldi images written into the
+   ! same augmentation slots the LGMRES retention uses, so the next
+   ! cycle's least-squares keeps the eigenmodes restarted GMRES
+   ! forgets -- the restart-angle ~0.99 stall class.  A complex pair
+   ! keeps both real vectors, so the live count can exceed
+   ! [JFNK_GDEFL_K] (default 4, clamped 1..8) by one.  jfnk_aug_kmax
+   ! is the combined augmentation capacity (LGMRES + GDEFL slots),
+   ! hard bound 8 matching the lg_kmax workspace bound in gmres_m_v1.
+   ! [JFNK_RECYC] (default F) additionally carries the retained set
+   ! across gmres_m_v1 calls within one activation -- the operator
+   ! has moved one Newton step, but augmentation only needs
+   ! approximately-correct images.
+   logical :: jfnk_gdefl_on = .false.
+   integer :: jfnk_gdefl_kmax = 4
+   integer :: jfnk_aug_kmax = 0
+   logical :: jfnk_recyc_on = .false.
+   !
+   ! [JFNK_CYCSTALL] (default F): a completed restart cycle that trims
+   ! the LS residual by less than [JFNK_CYCSTALL_FAC] (default 0.02)
+   ! is rebuilding the same invariant space; [JFNK_CYCSTALL_N]
+   ! (default 2) consecutive such cycles exit info=1 and hand the
+   ! partial direction to the Newton inexact-direction path instead
+   ! of grinding the iteration cap out.
+   logical :: jfnk_cycstall_on = .false.
+   double precision :: jfnk_cycstall_frac = 2.0d-2
+   integer :: jfnk_cycstall_nmax = 2
+   !
    ! GMRES stagnation criterion (audit 17-Sep-2026): an iteration counts
    ! as non-improving unless it reduces the residual by more than this
    ! relative factor.  The previous 1D-14 threshold only fired on
@@ -2068,7 +2099,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_lgmres_on, jfnk_lgmres_kmax, &
                                   jfnk_lgmres_n, jfnk_lgmres_d, &
                                   jfnk_lgmres_ad, jfnk_lgmres_dlast, &
-                                  jfnk_lgmres_q
+                                  jfnk_lgmres_q, jfnk_gdefl_on, &
+                                  jfnk_gdefl_kmax, jfnk_aug_kmax, &
+                                  jfnk_recyc_on, jfnk_cycstall_on, &
+                                  jfnk_cycstall_frac, jfnk_cycstall_nmax
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
    ! (JFNK_N_PRECOND_APPLIES).  Incrementing here double-counted every
@@ -2110,7 +2144,16 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    integer :: piv_aug(m+lg_kmax)
    integer :: lg_k, lg_i, lg_l, lg_nv, lg_rank
    double precision :: lg_rho, lg_scale
-   logical :: lg_active, lg_have_last
+   logical :: lg_active, lg_have_last, gd_active
+   ! aug_cap: actual slot capacity this solve (LGMRES + GDEFL combined,
+   ! bounded by the lg_kmax workspace bound).  jvp_soft: a JVP failure
+   ! killed a Krylov column mid-cycle -- the cycle closes on the valid
+   ! basis and exits through the soft-exit path.  res_prev_end /
+   ! n_cycstall back the [JFNK_CYCSTALL] per-cycle contraction guard.
+   integer :: aug_cap
+   logical :: jvp_soft
+   double precision :: res_prev_end
+   integer :: n_cycstall
    double precision :: true_res  ! V4 audit: true residual at restart
    double precision :: del_cycle, x_cycle_norm
    integer :: imx, piv(m), rank, i, j, ios_gm
@@ -2175,7 +2218,22 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! The correction vectors live in x-space under both conventions;
    ! only the image map differs (A z vs M^{-1} A z) -- handled at pair
    ! formation below, one extra psolve per restart for left-PC.
-   lg_active = jfnk_lgmres_on
+   ! Augmentation runs when either retention scheme is armed:
+   ! [JFNK_LGMRES] fills slots from completed-cycle steps, [JFNK_GDEFL]
+   ! from harmonic Ritz extraction at each restart.  The capacity is
+   ! the driver-set combined bound, rebuilt here when a direct caller
+   ! (unit tests) left jfnk_aug_kmax at its zero default.
+   lg_active = jfnk_lgmres_on .or. jfnk_gdefl_on
+   gd_active = jfnk_gdefl_on
+   aug_cap = jfnk_aug_kmax
+   if(jfnk_lgmres_on .and. .not. jfnk_gdefl_on) &
+      aug_cap = max(aug_cap, jfnk_lgmres_kmax)
+   if(jfnk_gdefl_on .and. .not. jfnk_lgmres_on) &
+      aug_cap = max(aug_cap, jfnk_gdefl_kmax)
+   if(jfnk_lgmres_on .and. jfnk_gdefl_on) &
+      aug_cap = max(aug_cap, jfnk_lgmres_kmax + jfnk_gdefl_kmax)
+   aug_cap = min(aug_cap, lg_kmax)
+   if(aug_cap < 1) lg_active = .false.
    lg_k = 0
    pred_res = 0d0
    !
@@ -2205,27 +2263,32 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       end if
    end if
    !
-   ! LGMRES storage is independent of the preconditioning side.
+   ! Augmentation storage is independent of the preconditioning side.
    if(lg_active) then
       if(allocated(jfnk_lgmres_d)) then
          if(size(jfnk_lgmres_d,1) /= n .or. &
-            size(jfnk_lgmres_d,2) /= jfnk_lgmres_kmax) then
+            size(jfnk_lgmres_d,2) /= aug_cap) then
             deallocate(jfnk_lgmres_d, jfnk_lgmres_ad, &
                        jfnk_lgmres_dlast, jfnk_lgmres_q)
          end if
       end if
       if(.not. allocated(jfnk_lgmres_d)) then
-         allocate(jfnk_lgmres_d(n,jfnk_lgmres_kmax), &
-                  jfnk_lgmres_ad(n,jfnk_lgmres_kmax), &
+         allocate(jfnk_lgmres_d(n,aug_cap), &
+                  jfnk_lgmres_ad(n,aug_cap), &
                   jfnk_lgmres_dlast(n), &
-                  jfnk_lgmres_q(n,jfnk_lgmres_kmax), stat=ios_gm)
+                  jfnk_lgmres_q(n,aug_cap), stat=ios_gm)
          if(ios_gm /= 0) then
             if(info == 1) write(luer,*) 'gmres_m_v1: lgmres alloc'// &
                ' failed -- running plain GMRES'
             lg_active = .false.
          end if
       end if
-      if(lg_active) jfnk_lgmres_n = 0
+      if(lg_active) then
+         ! [JFNK_RECYC] keeps the retained set across solves; stale
+         ! images are still useful augmentation constraints.
+         if(.not. jfnk_recyc_on) jfnk_lgmres_n = 0
+         jfnk_lgmres_n = min(jfnk_lgmres_n, aug_cap)
+      end if
    end if
    !
    ! Hookstep recalculation with new del
@@ -2289,8 +2352,13 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    jj = 0
    jfnk_gmres_jj = 0   ! fresh solve: no basis survives for recompute
    if(allocated(jfnk_gmres_rprev)) deallocate(jfnk_gmres_rprev)   ! fresh solve: no cross-solve residual history
-   jfnk_lgmres_n = 0
+   ! [JFNK_RECYC] carries the augmentation set over from the previous
+   ! solve; otherwise each solve starts with an empty set.
+   if(.not. jfnk_recyc_on) jfnk_lgmres_n = 0
    lg_have_last = .false.   ! no completed cycle yet to correct from
+   jvp_soft = .false.
+   res_prev_end = -1d0
+   n_cycstall = 0
    !
    tol = res
    imx = its
@@ -2317,7 +2385,19 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
       ! Audit 17-Sep-2026: abort the Krylov solve on an explicit JVP
       ! failure instead of interpreting a zeroed JV as zero action.
+      ! Softened (gdefl work): on a restart the accumulated x already
+      ! holds the completed cycles' step -- return it through the
+      ! inexact-direction gate instead of discarding the solve.  A
+      ! failure on the very first residual still aborts (x is the
+      ! input guess; nothing to salvage).
       if(jfnk_jvp_failed) then
+         if(its > 0) then
+            if(info == 1) write(luer,*) '  GMRES: JVP failure at'// &
+               ' restart residual -- returning partial step'
+            info = 1
+            jfnk_exit_reason = 'gmres_jvp_soft_exit'
+            return
+         end if
          if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
          info = 3
          jfnk_exit_reason = 'gmres_jvp_failure'
@@ -2346,6 +2426,19 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
               dsqrt(dotprd(n, jfnk_gmres_rprev, jfnk_gmres_rprev)), &
               1d-300))
    end if
+   ! [JFNK_GDEFL] deflated restart (Morgan 2002, GMRES-DR): extract
+   ! the smallest-|theta| harmonic Ritz directions of the completed
+   ! cycle into the augmentation slots.  Must run BEFORE the LGMRES
+   ! append below (its vectors occupy the leading slots) and before
+   ! v(:,1)/h are overwritten by the new cycle -- the completed
+   ! basis and (jj+1) x jj Hessenberg block are still intact here.
+   ! Extraction costs one jj x jj DGEEV; no JVPs.
+   !
+   if(gd_active .and. n_restart > 0 .and. jj >= 2 .and. aug_cap > 0) then
+      call jfnk_gdefl_extract_v1(n, m, jj, h, m+1, v, n, dotprd, &
+                                 left_pc, jfnk_lgmres_on, luer)
+   end if
+   !
    ! LGMRES: pair the completed cycle's step d = x_e - x_s (saved at
    ! the update below) with its operator image, recovered from the
    ! residual difference r_s - r_e = rprev - w -- no extra matvec.
@@ -2355,15 +2448,15 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! GMRES is circling).  Under left PC the Arnoldi operator is
    ! B = M^{-1}A, so the stored image needs one psolve on the true
    ! residual difference (cheap vs a JVP; still before the r0 psolve).
-   if(lg_active .and. lg_have_last .and. n_restart > 0) then
+   if(jfnk_lgmres_on .and. lg_have_last .and. n_restart > 0) then
       if(all(ieee_is_finite(jfnk_lgmres_dlast)) .and. &
          all(ieee_is_finite(jfnk_gmres_rprev - w))) then
-         if(jfnk_lgmres_n == jfnk_lgmres_kmax) then
-            jfnk_lgmres_d(:,1:jfnk_lgmres_kmax-1) = &
-               jfnk_lgmres_d(:,2:jfnk_lgmres_kmax)
-            jfnk_lgmres_ad(:,1:jfnk_lgmres_kmax-1) = &
-               jfnk_lgmres_ad(:,2:jfnk_lgmres_kmax)
-            jfnk_lgmres_n = jfnk_lgmres_kmax - 1
+         if(jfnk_lgmres_n == aug_cap) then
+            jfnk_lgmres_d(:,1:aug_cap-1) = &
+               jfnk_lgmres_d(:,2:aug_cap)
+            jfnk_lgmres_ad(:,1:aug_cap-1) = &
+               jfnk_lgmres_ad(:,2:aug_cap)
+            jfnk_lgmres_n = aug_cap - 1
          end if
          jfnk_lgmres_n = jfnk_lgmres_n + 1
          jfnk_lgmres_d(:,jfnk_lgmres_n) = jfnk_lgmres_dlast
@@ -2421,12 +2514,27 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! Left: w = M^{-1} * A * v_j
          call matvec(n, v(:,j), w)
          jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
-         ! Audit 17-Sep-2026: explicit JVP failure aborts the solve.
+         ! JVP soft-fail: only this direction is unevaluable (budget
+         ! sentinel, clip floor, non-finite perturbed eval); the
+         ! accumulated step is still valid.  The failed matvec left
+         ! w = JV = 0, so the MGS below leaves column j dead and
+         ! DGELSY ignores it -- the cycle closes on the completed
+         ! basis and exits through the soft-exit path rather than
+         ! discarding the solve.
          if(jfnk_jvp_failed) then
-            if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
-            info = 3
-            jfnk_exit_reason = 'gmres_jvp_failure'
-            return
+            if(its == 1) then
+               ! First Krylov column is unevaluable: no completed
+               ! basis and x is still the input guess, so there is
+               ! nothing to salvage -- keep the hard fail.
+               if(info == 1) write(luer,*) &
+                  '  GMRES: JVP failure -- aborting'
+               info = 3
+               jfnk_exit_reason = 'gmres_jvp_failure'
+               return
+            end if
+            if(info == 1) write(luer,*) '  GMRES: JVP failure --'// &
+               ' closing cycle on completed basis'
+            jvp_soft = .true.
          end if
          call psolve(n, w)
          if(jfnk_pc_clip_event) then
@@ -2455,11 +2563,24 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          end do
          call matvec(n, z, w)
          jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+         ! Same soft-fail as the left-PC site: the failed matvec left
+         ! w = 0, so column j goes dead in the least-squares and the
+         ! cycle closes on the completed basis.  z_j and its Gram
+         ! column were stored before the matvec and stay valid.
          if(jfnk_jvp_failed) then
-            if(info == 1) write(luer,*) '  GMRES: JVP failure -- aborting'
-            info = 3
-            jfnk_exit_reason = 'gmres_jvp_failure'
-            return
+            if(its == 1) then
+               ! First Krylov column is unevaluable: no completed
+               ! basis and x is still the input guess, so there is
+               ! nothing to salvage -- keep the hard fail.
+               if(info == 1) write(luer,*) &
+                  '  GMRES: JVP failure -- aborting'
+               info = 3
+               jfnk_exit_reason = 'gmres_jvp_failure'
+               return
+            end if
+            if(info == 1) write(luer,*) '  GMRES: JVP failure --'// &
+               ' closing cycle on completed basis'
+            jvp_soft = .true.
          end if
       end if
       !
@@ -2714,7 +2835,47 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! cycle's starting residual norm.  (2026-10 audit fix)
          jfnk_gmres_jj   = j
          jfnk_gmres_beta = beta
-         if(done) then
+         if(done .or. jvp_soft) then
+            !
+            ! JVP soft-fail exit (gdefl work): a killed column closed
+            ! the cycle above and x already holds the step built from
+            ! the completed basis.  Measure the true residual when the
+            ! operator still evaluates -- an eval that fails leaves the
+            ! direction unverifiable and the caller's stagnation gate
+            ! falls back to the same abort the old hard exit produced.
+            !
+            if(jvp_soft) then
+               ! Steps accumulate across cycles, so x can exceed the
+               ! trust radius even though each cycle's step was
+               ! hookstep-bounded.  Rescale like the restart-cap exit
+               ! before the caller sees the direction.
+               if(del > 0d0) then
+                  x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
+                  if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
+                  jfnk_last_ynrm = dsqrt(max(0d0, dotprd(n, x, x)))
+               end if
+               if(.not. ltres) then
+                  ! The flag still marks the killed column; this eval
+                  ! is a fresh direction, so the stale flag must not
+                  ! veto a measurement that succeeds.
+                  jfnk_jvp_failed = .false.
+                  call matvec(n, x, z)
+                  jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+                  if(.not. jfnk_jvp_failed) then
+                     w = b - z
+                     if(left_pc) call psolve(n, w)
+                     if(.not. jfnk_pc_clip_event) then
+                        true_res = dsqrt(dotprd(n, w, w))
+                        ltres = .true.
+                        jfnk_gmres_true_res = true_res
+                        jfnk_gmres_true_res_ok = .true.
+                     end if
+                  end if
+               end if
+               info = 1
+               jfnk_exit_reason = 'gmres_jvp_soft_exit'
+               return
+            end if
             ! [JFNK_TRES_FAC] (default 0 = off): measure the true
             ! weighted linear residual ||b - A x||_w at every done-exit
             ! with one extra matvec.  The Hessenberg LS residual is only
@@ -2731,13 +2892,17 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! non-converged exits otherwise only record true_res.
             tres_rej = .false.
             if(jfnk_gmres_tres_fac > 0d0) then
+               jfnk_jvp_failed = .false.
                call matvec(n, x, z)
                jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+               ! Soft fail: the step is formed; an unverifiable
+               ! verification eval hands info=1 to the caller gate
+               ! (which aborts identically) instead of discarding x.
                if(jfnk_jvp_failed) then
                   if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
-                     ' in TRES check -- aborting'
-                  info = 3
-                  jfnk_exit_reason = 'gmres_jvp_failure_tres'
+                     ' in TRES check -- soft exit'
+                  info = 1
+                  jfnk_exit_reason = 'gmres_jvp_soft_exit'
                   return
                end if
                w = b - z
@@ -2813,13 +2978,14 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                ! exits (info=0) and cycles already measured by the TRES
                ! check (ltres) add no extra matvec.
                if(info /= 0 .and. .not. ltres) then
+                  jfnk_jvp_failed = .false.
                   call matvec(n, x, z)
                   jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
                   if(jfnk_jvp_failed) then
                      if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
-                        ' in exit true-res measure -- aborting'
-                     info = 3
-                     jfnk_exit_reason = 'gmres_jvp_failure_tres_exit'
+                        ' in exit true-res measure -- soft exit'
+                     info = 1
+                     jfnk_exit_reason = 'gmres_jvp_soft_exit'
                      return
                   end if
                   w = b - z
@@ -2875,12 +3041,13 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! buys nothing and doubles the diagnostic cost.
             if(.not. ltres) then
                w = b
+               jfnk_jvp_failed = .false.
                call matvec(n, x, z)
                jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
                if(jfnk_jvp_failed) then
-                  write(luer,*) '  GMRES: JVP failure in restart diag -- aborting'
-                  info = 3
-                  jfnk_exit_reason = 'gmres_jvp_failure_restart_diag'
+                  write(luer,*) '  GMRES: JVP failure in restart diag -- soft exit'
+                  info = 1
+                  jfnk_exit_reason = 'gmres_jvp_soft_exit'
                   return
                end if
                w = b - z
@@ -2905,6 +3072,33 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                ' ratio=', real(true_res / max(res, 1d-30))
          end if
          !
+         ! [JFNK_CYCSTALL] (default F): per-cycle contraction guard.
+         ! A cycle that trims the LS residual by less than
+         ! jfnk_cycstall_frac is re-solving a nearly invariant space --
+         ! the JVP budget is better spent on the inexact direction
+         ! than on jfnk_cycstall_nmax more identical cycles.  Exit via
+         ! info=1 like the other non-converged exits; the caller's
+         ! true-residual gate decides whether the partial direction
+         ! is usable.
+         if(jfnk_cycstall_on) then
+            if(res_prev_end > 0d0) then
+               if(res > res_prev_end * (1d0 - jfnk_cycstall_frac)) then
+                  n_cycstall = n_cycstall + 1
+               else
+                  n_cycstall = 0
+               end if
+               if(n_cycstall >= jfnk_cycstall_nmax) then
+                  if(luer > 0) write(luer,'(A,I3,A,ES12.4)') &
+                     '  GMRES: cycle stall (', n_cycstall, &
+                     ' flat cycles) -- exiting, res=', real(res)
+                  info = 1
+                  jfnk_exit_reason = 'gmres_cycle_stall'
+                  return
+               end if
+            end if
+            res_prev_end = res
+         end if
+         !
          ! Restart cap: a Krylov space that goes invariant because the
          ! preconditioned operator cannot reach the residual tail stays
          ! invariant on restart.  Cycles then die in ~2 its and restart
@@ -2927,13 +3121,14 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! measurement taken on the unscaled x is stale -- measure
             ! after the rescale when no current-cycle value exists.
             if(.not. ltres) then
+               jfnk_jvp_failed = .false.
                call matvec(n, x, z)
                jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
                if(jfnk_jvp_failed) then
                   if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
-                     ' in exit true-res measure -- aborting'
-                  info = 3
-                  jfnk_exit_reason = 'gmres_jvp_failure_tres_exit'
+                     ' in exit true-res measure -- soft exit'
+                  info = 1
+                  jfnk_exit_reason = 'gmres_jvp_soft_exit'
                   return
                end if
                w = b - z
@@ -2968,6 +3163,172 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    end do
    !
 end subroutine gmres_m_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_GDEFL_EXTRACT_V1: harmonic-Ritz deflation for GMRES-DR.
+!
+! At a GMRES restart, the k smallest-|theta| harmonic Ritz pairs of
+! the completed cycle's Hessenberg block approximate the eigenmodes
+! of the preconditioned operator B that restarted GMRES discards and
+! re-discovers each cycle (Morgan 2002, SISC 24(1) 20-37; the
+! Parks et al. 2006 GCRO-DR uses the same machinery for sequences of
+! systems).  The retained directions fill the augmentation slots the
+! LGMRES machinery already consumes, so the next cycle's dense
+! least-squares sees span[V_jj g_i] jointly with the new Krylov
+! space.
+!
+! Harmonic Ritz problem (Morgan 2002 eq. 4.1): the pairs (theta, g)
+! are eigenpairs of Hhat = H + h_{jj+1,jj}^2 f e_jj^T with
+! f = H^{-T} e_jj.  The retained step-space direction is V_jj g under
+! left PC and Z g = M^{-1} V_jj g under right PC -- matching the
+! [V D]/[Z D] step the augmented LS builds.  Its operator image is
+! V_{jj+1} H_bar g by the Arnoldi relation B V_jj = V_{jj+1} H_bar,
+! so extraction needs no extra matvecs.  A complex-conjugate pair
+! contributes its real 2-d invariant span (two vectors).
+!
+! [JFNK_GDEFL] (default F) gates the caller site; [JFNK_GDEFL_K]
+! bounds the mode count.  All failures (singular H, dgeev error,
+! non-finite vectors) degrade to "keep the existing set" -- the
+! augmented LS only treats the set as constraint directions.
+!----------------------------------------------------------------------
+subroutine jfnk_gdefl_extract_v1(n, m, jj, h, ldh, v, ldv, dotprd, &
+                                 left_pc, keep_lg, luer)
+   use, intrinsic :: ieee_arithmetic
+   use jfnk_solver_v1_mod, only: jfnk_gmres_z, jfnk_gdefl_kmax, &
+                                jfnk_lgmres_d, jfnk_lgmres_ad, jfnk_lgmres_n
+   implicit none
+   integer,          intent(in) :: n, m, jj, ldh, ldv, luer
+   double precision, intent(in) :: h(ldh,m), v(ldv,m+1)
+   double precision, external   :: dotprd
+   logical,          intent(in) :: left_pc, keep_lg
+   !
+   integer :: i, l, k_g, k_cap, info_e, lwk, is, ns
+   double precision :: th, dnorm
+   double precision, allocatable :: hh(:,:), ht(:,:), f(:), wr(:), &
+                                    wi(:), vr(:,:), wk(:), gs(:,:), &
+                                    hg(:), dv(:), av(:)
+   integer, allocatable :: ipiv(:), ord(:)
+   logical, allocatable :: used(:)
+   !
+   if(jj < 2) return
+   if(.not. left_pc .and. .not. allocated(jfnk_gmres_z)) return
+   if(.not. allocated(jfnk_lgmres_d)) return
+   !
+   ! Slot budget: reserve one for the LGMRES last-step pair when that
+   ! retention is also armed.
+   k_cap = size(jfnk_lgmres_d,2)
+   if(keep_lg) k_cap = k_cap - 1
+   k_cap = min(k_cap, jfnk_gdefl_kmax)
+   if(k_cap < 1) return
+   !
+   lwk = 8*jj
+   allocate(hh(jj,jj), ht(jj,jj), f(jj), wr(jj), wi(jj), vr(jj,jj), &
+            wk(lwk), gs(jj,k_cap), hg(jj+1), dv(n), av(n), ipiv(jj), &
+            ord(jj), used(jj), stat=info_e)
+   if(info_e /= 0) return
+   !
+   ! f = H^{-T} e_jj, then the rank-1 update on the last column.
+   !
+   ht = transpose(h(1:jj,1:jj))
+   f = 0d0
+   f(jj) = 1d0
+   call dgesv(jj, 1, ht, jj, ipiv, f, jj, info_e)
+   if(info_e /= 0) then
+      if(luer > 0) write(luer,'(A,I3)') &
+         '  GDEFL: H^T solve failed, info=', info_e
+      goto 90
+   end if
+   hh = h(1:jj,1:jj)
+   hh(:,jj) = hh(:,jj) + h(jj+1,jj)**2 * f
+   !
+   call dgeev('N', 'V', jj, hh, jj, wr, wi, ht, 1, vr, jj, wk, lwk, &
+              info_e)
+   if(info_e /= 0) then
+      if(luer > 0) write(luer,'(A,I3)') &
+         '  GDEFL: dgeev failed, info=', info_e
+      goto 90
+   end if
+   !
+   ! Ascending-|theta| order (insertion sort; jj <= m).
+   !
+   do i = 1, jj
+      ord(i) = i
+   end do
+   do i = 2, jj
+      is = ord(i)
+      th = wr(is)**2 + wi(is)**2
+      do l = i-1, 1, -1
+         if(wr(ord(l))**2 + wi(ord(l))**2 <= th) exit
+         ord(l+1) = ord(l)
+         ord(l) = is
+      end do
+   end do
+   !
+   ! Collect real coefficient vectors: one per real eigenvalue, two
+   ! per complex-conjugate pair (the real invariant span).  A partner
+   ! is dropped only when the slot budget is spent.
+   !
+   used = .false.
+   ns = 0
+   do i = 1, jj
+      if(ns >= k_cap) exit
+      is = ord(i)
+      if(used(is)) cycle
+      if(wi(is) == 0d0) then
+         ns = ns + 1
+         gs(:,ns) = vr(:,is)
+         used(is) = .true.
+      else if(wi(is) > 0d0) then
+         ns = ns + 1
+         gs(:,ns) = vr(:,is)
+         used(is) = .true.
+         if(is+1 <= jj) then
+            used(is+1) = .true.
+            if(ns < k_cap) then
+               ns = ns + 1
+               gs(:,ns) = vr(:,is+1)
+            end if
+         end if
+      else
+         ! wi < 0: conjugate already taken with its wi > 0 partner.
+         used(is) = .true.
+      end if
+   end do
+   !
+   ! Map coefficients to (step-space direction, operator image) pairs
+   ! and unit-normalize the direction -- the image is scaled by the
+   ! same factor so the pair stays consistent.
+   !
+   k_g = 0
+   do i = 1, ns
+      hg = matmul(h(1:jj+1,1:jj), gs(:,i))
+      av = matmul(v(:,1:jj+1), hg)
+      if(left_pc) then
+         dv = matmul(v(:,1:jj), gs(:,i))
+      else
+         dv = matmul(jfnk_gmres_z(:,1:jj), gs(:,i))
+      end if
+      if(.not. all(ieee_is_finite(dv)) .or. &
+         .not. all(ieee_is_finite(av))) cycle
+      dnorm = dsqrt(max(0d0, dotprd(n, dv, dv)))
+      if(dnorm < 1d-30) cycle
+      k_g = k_g + 1
+      jfnk_lgmres_d(:,k_g)  = dv / dnorm
+      jfnk_lgmres_ad(:,k_g) = av / dnorm
+   end do
+   jfnk_lgmres_n = k_g
+   !
+   if(luer > 0) write(luer,'(A,I2,A,ES12.4)') &
+      '  GDEFL: retained ', k_g, ' Ritz dirs, |theta|_min=', &
+      real(sqrt(wr(ord(1))**2 + wi(ord(1))**2))
+   !
+90 continue
+   if(allocated(hh)) deallocate(hh, ht, f, wr, wi, vr, wk, gs, hg, &
+                                dv, av, ipiv, ord, used)
+   return
+   !
+end subroutine jfnk_gdefl_extract_v1
 
 
 !----------------------------------------------------------------------

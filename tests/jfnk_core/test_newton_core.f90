@@ -48,7 +48,10 @@ module test_prob_mod
    ! T4f: inject a NaN into the matvec output on a chosen call index so
    ! the tres measurement lands on a non-finite residual.  -1 disables.
    ! matvec_inf_at does the same with +Inf (T4i).
+   ! matvec_fail_at raises jfnk_jvp_failed on one call index (T7f);
+   ! matvec_fail_from raises it on every call from that index (T7g).
    integer :: matvec_ct = 0, matvec_nan_at = -1, matvec_inf_at = -1
+   integer :: matvec_fail_at = -1, matvec_fail_from = -1
    ! T5: weight scale for the DIAG-analog inner product (|v|_w =
    ! w_dp*|v|_euc) and a residual-eval call counter.
    double precision :: w_dp = 1d0
@@ -759,6 +762,127 @@ program test_newton_core
    jfnk_gmres_max_restart = 1
    jfnk_gmres_stag_tol = 1.0d-3
    !
+   ! T7e: GDEFL (harmonic-Ritz deflated restart) on the same T7b
+   ! stall problem, right-PC, armed together with LGMRES K=2 -- the
+   ! production pairing.  Equal-budget A/B against the plain run
+   ! above: no more evals and a materially lower true residual,
+   ! mirroring the LGMRES criterion.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = a(i)
+      if(i > 1)  amat(i,i-1) = -0.01d0 * dsqrt(a(i) * a(i-1))
+      if(i < NN) amat(i,i+1) = -0.01d0 * dsqrt(a(i) * a(i+1))
+   end do
+   b_g = matmul(amat, xsol)
+   jfnk_gmres_max_restart = 30
+   jfnk_lgmres_on = .false.
+   jfnk_gdefl_on = .false.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 120
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_b = jfnk_total_jvp_evals
+   res_p = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   jfnk_gdefl_on = .true.
+   jfnk_gdefl_kmax = 4
+   jfnk_lgmres_on = .true.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 120
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_c = jfnk_total_jvp_evals
+   res_g = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   write(luer,'(A,I3,A,I4,A,ES12.4,1X,ES12.4,A)') &
+      'T7e: info=', info, '  evals=', nevals_c, &
+      '  true_res(gdefl+lg/plain)=', res_g, res_p, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(nevals_c <= nevals_b .and. res_g <= 0.5d0*res_p) then
+      write(luer,'(A)') 'T7e: PASS'
+   else
+      write(luer,'(A)') 'T7e: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_gdefl_on = .false.
+   jfnk_lgmres_on = .false.
+   !
+   ! T7f: JVP failure at the third Arnoldi call of cycle 1 -- two
+   ! valid columns exist, so the cycle must close on them, apply
+   ! the partial step, verify with one more eval, and return info=1
+   ! (inexact direction) rather than discarding the solve.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = 2d0
+      if(i > 1)  amat(i,i-1) = -0.5d0
+      if(i < NN) amat(i,i+1) = -0.5d0
+   end do
+   b_g = matmul(amat, xsol)
+   jfnk_gmres_max_restart = 4
+   matvec_ct = 0
+   matvec_fail_at = 3
+   jfnk_jvp_failed = .false.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 40
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,ES12.4,A,L1,A)') &
+      'T7f: info=', info, '  |x|=', dsqrt(dp_test(NN, x_g, x_g)), &
+      '  tres_ok=', jfnk_gmres_true_res_ok, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info == 1 .and. all(abs(x_g) < 1d30) .and. &
+      dsqrt(dp_test(NN, x_g, x_g)) > 1d-12 .and. &
+      jfnk_gmres_true_res_ok .and. &
+      jfnk_exit_reason == 'gmres_jvp_soft_exit') then
+      write(luer,'(A)') 'T7f: PASS'
+   else
+      write(luer,'(A)') 'T7f: FAIL'
+      nfail = nfail + 1
+   end if
+   matvec_fail_at = -1
+   !
+   ! T7g: persistent failure from call 2 -- the partial step exists
+   ! but the verification eval fails too, so the direction must come
+   ! back unverifiable (info=1, tres_ok=F).  The caller gate then
+   ! aborts to the fallback, matching the old hard-exit outcome.
+   !
+   matvec_ct = 0
+   matvec_fail_from = 2
+   jfnk_jvp_failed = .false.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 40
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,L1,A)') &
+      'T7g: info=', info, '  tres_ok=', jfnk_gmres_true_res_ok, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info == 1 .and. .not. jfnk_gmres_true_res_ok .and. &
+      jfnk_exit_reason == 'gmres_jvp_soft_exit') then
+      write(luer,'(A)') 'T7g: PASS'
+   else
+      write(luer,'(A)') 'T7g: FAIL'
+      nfail = nfail + 1
+   end if
+   matvec_fail_from = -1
+   jfnk_jvp_failed = .false.
+   jfnk_gmres_max_restart = 1
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL TESTS PASSED'
    else
@@ -898,6 +1022,7 @@ end subroutine sub_test
 ! explicit ||b - matvec(x)|| the tres gate measures.
 subroutine df_lin(n, v, jv)
    use test_prob_mod
+   use jfnk_solver_v1_mod, only: jfnk_jvp_failed
    use, intrinsic :: ieee_arithmetic
    implicit none
    integer, intent(in) :: n
@@ -914,6 +1039,13 @@ subroutine df_lin(n, v, jv)
       jv(1) = ieee_value(0d0, ieee_quiet_nan)
    if(matvec_ct == matvec_inf_at) &
       jv(1) = ieee_value(0d0, ieee_positive_inf)
+   ! T7f/T7g: emulate the production JVP-failure sentinel -- JV = 0 and
+   ! the flag raised, so the column goes dead in the Krylov basis.
+   if(matvec_ct == matvec_fail_at .or. &
+      (matvec_fail_from > 0 .and. matvec_ct >= matvec_fail_from)) then
+      jv = 0d0
+      jfnk_jvp_failed = .true.
+   end if
 end subroutine df_lin
 
 

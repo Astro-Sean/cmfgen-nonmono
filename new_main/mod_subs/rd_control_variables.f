@@ -1539,6 +1539,34 @@
 	  IF(JFNK_LGMRES_K .LT. 1)JFNK_LGMRES_K=1
 	  IF(JFNK_LGMRES_K .GT. 8)JFNK_LGMRES_K=8
 !
+	  JFNK_GDEFL=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_GDEFL,'JFNK_GDEFL',L_FALSE,
+	1     'GMRES-DR: deflate harmonic Ritz dirs at each restart?')
+!
+	  JFNK_GDEFL_K=4
+	  CALL RD_STORE_INT(JFNK_GDEFL_K,'JFNK_GDEFL_K',L_FALSE,
+	1     'Retained deflation directions per restart (1..8)')
+	  IF(JFNK_GDEFL_K .LT. 1)JFNK_GDEFL_K=1
+	  IF(JFNK_GDEFL_K .GT. 8)JFNK_GDEFL_K=8
+!
+	  JFNK_RECYC=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_RECYC,'JFNK_RECYC',L_FALSE,
+	1     'Carry augmentation set across GMRES solves?')
+!
+	  JFNK_CYCSTALL=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_CYCSTALL,'JFNK_CYCSTALL',L_FALSE,
+	1     'Exit GMRES after N flat restart cycles?')
+!
+	  JFNK_CYCSTALL_FAC=0.02_LDP
+	  CALL RD_STORE_DBLE(JFNK_CYCSTALL_FAC,'JFNK_CYCSTALL_FAC',
+	1     L_FALSE,
+	2     'Min fractional LS-residual drop per cycle before stall')
+!
+	  JFNK_CYCSTALL_N=2
+	  CALL RD_STORE_INT(JFNK_CYCSTALL_N,'JFNK_CYCSTALL_N',L_FALSE,
+	1     'Consecutive flat cycles before stall exit')
+	  IF(JFNK_CYCSTALL_N .LT. 1)JFNK_CYCSTALL_N=1
+!
 	  JFNK_TOL_REL=1.0E-4_LDP
 	  CALL RD_STORE_DBLE(JFNK_TOL_REL,'JFNK_TOL',L_FALSE,
 	1     'Relative Newton tolerance (target |F|/|F_0|)')

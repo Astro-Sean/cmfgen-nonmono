@@ -1890,6 +1890,23 @@
 ! Manteuffel 2005).  Experimental; right-preconditioned solves only.
 	LOGICAL JFNK_LGMRES
 	INTEGER JFNK_LGMRES_K
+! JFNK_GDEFL / JFNK_GDEFL_K (VADAT, defaults F/4): GMRES-DR deflated
+! restarting -- at each restart, keep the smallest-|theta| harmonic
+! Ritz directions of the completed cycle in the shared augmentation
+! slots (Morgan 2002; GCRO-DR, Parks et al. 2006).  One jj x jj DGEEV
+! per restart, no extra residual evals.  JFNK_RECYC (default F)
+! carries the retained set across GMRES solves within an activation.
+! JFNK_CYCSTALL (default F) exits the Krylov solve after
+! JFNK_CYCSTALL_N (default 2) consecutive cycles that each trim the
+! LS residual by less than JFNK_CYCSTALL_FAC (default 0.02), handing
+! the partial direction to the Newton inexact-direction gate instead
+! of spending the iteration cap on an invariant space.
+	LOGICAL JFNK_GDEFL
+	INTEGER JFNK_GDEFL_K
+	LOGICAL JFNK_RECYC
+	LOGICAL JFNK_CYCSTALL
+	REAL(KIND=LDP) JFNK_CYCSTALL_FAC
+	INTEGER JFNK_CYCSTALL_N
 	REAL(KIND=LDP) JFNK_GTOL
 	REAL(KIND=LDP) JFNK_GMRES_STAG
 	REAL(KIND=LDP) JFNK_TOL_REL

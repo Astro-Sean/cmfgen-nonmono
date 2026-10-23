@@ -401,8 +401,28 @@
 ! [JFNK_LGMRES] (default F): retain per-cycle corrections across
 ! restarts (Baker-Jessup-Manteuffel).  Valid under both PC sides;
 ! left PC costs one extra psolve per restart for the image map.
-	  jfnk_lgmres=JFNK_LGMRES
+! Bug fix: the original line read jfnk_lgmres=JFNK_LGMRES, which is a
+! no-op -- Fortran is case-insensitive, so the lhs IS the control
+! variable and the solver flag jfnk_lgmres_on was never set.  Every
+! run with [JFNK_LGMRES]=T therefore executed plain restarted GMRES.
+	  jfnk_lgmres_on=JFNK_LGMRES
 	  jfnk_lgmres_kmax=MIN(MAX(JFNK_LGMRES_K,1),8)
+! [JFNK_GDEFL]/[JFNK_GDEFL_K] (defaults F/4): GMRES-DR harmonic-Ritz
+! deflation at each restart into the same augmentation slots.
+! [JFNK_RECYC] (default F): carry the set across solves within an
+! activation.  jfnk_aug_kmax is the combined slot capacity; the
+! solver-side bound lg_kmax=8 caps it again inside gmres_m_v1.
+	  jfnk_gdefl_on=JFNK_GDEFL
+	  jfnk_gdefl_kmax=MIN(MAX(JFNK_GDEFL_K,1),8)
+	  jfnk_recyc_on=JFNK_RECYC
+	  jfnk_aug_kmax=MIN(8,
+	1   MERGE(jfnk_lgmres_kmax,0,jfnk_lgmres_on) +
+	2   MERGE(jfnk_gdefl_kmax,0,jfnk_gdefl_on))
+! [JFNK_CYCSTALL] (default F): exit GMRES after N flat restart cycles
+! instead of spending the iteration cap on an invariant space.
+	  jfnk_cycstall_on=JFNK_CYCSTALL
+	  jfnk_cycstall_frac=DBLE(JFNK_CYCSTALL_FAC)
+	  jfnk_cycstall_nmax=MAX(JFNK_CYCSTALL_N,1)
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
 ! after each counted failure.  The trims are per-activation locals --
@@ -879,6 +899,16 @@
 	      WRITE(LUER,'(A,I2)')
 	1     '    LGMRES retained corrections per cycle :',
 	1     jfnk_lgmres_kmax
+	    END IF
+	    IF(JFNK_GDEFL)THEN
+	      WRITE(LUER,'(A,I2,A,L1)')
+	1     '    GDEFL harmonic Ritz dirs per restart :',
+	1     jfnk_gdefl_kmax,'  recycle=',JFNK_RECYC
+	    END IF
+	    IF(JFNK_CYCSTALL)THEN
+	      WRITE(LUER,'(A,F6.3,A,I2)')
+	1     '    cycle-stall exit : fac=',JFNK_CYCSTALL_FAC,
+	2     '  n=',JFNK_CYCSTALL_N
 	    END IF
 	    WRITE(LUER,'(A)')
 	1   '    globalization       : Hookstep trust region +'
