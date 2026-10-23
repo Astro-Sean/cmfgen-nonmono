@@ -2587,8 +2587,10 @@
 ! its held BA stays valid.
 	    IF(JFNK_INFO .NE. -2)THEN
 	      COMPUTE_BA_A=.TRUE.
-	      WRITE(LUER,'(A)')
-	1       '  JFNK: failed Newton -- forcing BA rebuild for fallback'
+	      WRITE(LUER,'(A,I3,A,I4)')
+	1       '  JFNK: failed Newton (info=',JFNK_INFO,
+	2       ') -- forcing BA rebuild for fallback, iteration ',
+	3       MAIN_COUNTER
 	    END IF
 	    WR_BA_INV_A=WR_BA_INV_SAVE
 	    WR_PRT_INV_A=WR_PRT_INV_SAVE
