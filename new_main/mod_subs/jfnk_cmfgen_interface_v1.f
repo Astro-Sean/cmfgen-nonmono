@@ -590,7 +590,8 @@
 	USE SET_KIND_MODULE
 	USE MOD_CMFGEN
 	USE STEQ_DATA_MOD
-	USE CONTROL_VARIABLE_MOD, ONLY: LTE_MODEL, USE_ELEC_HEAT_BAL
+	USE CONTROL_VARIABLE_MOD, ONLY: LTE_MODEL, USE_ELEC_HEAT_BAL,
+	1     JFNK_QUIET_IO
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_C_MAT, JFNK_D_MAT,
 	1     JFNK_REPLACE_SAV, JFNK_ZSTEQ_SAV, JFNK_EQ_STRUCT_READY
 	IMPLICIT NONE
@@ -607,6 +608,10 @@
 	STEQ_OUT = 0.0_LDP
 	JFNK_C_MAT = 0.0_LDP
 	JFNK_D_MAT = 0.0_LDP
+! This routine runs once per residual eval and Krylov matvec; the
+! BA_ASCI dumps in GENERATE are a production diagnostic and would
+! rewrite ~100 MB of scratch per call without the quiet flag.
+	JFNK_QUIET_IO = .TRUE.
 	ZERO_STEQ = .FALSE.
 	REPLACE = .FALSE.
 	FIRST_MATRIX = .TRUE.
@@ -650,6 +655,7 @@
 	  END IF
 	  FIRST_MATRIX = .FALSE.
 	END DO
+	JFNK_QUIET_IO = .FALSE.
 	IF(.NOT. USE_PASSED_REP)JFNK_EQ_STRUCT_READY = .TRUE.
 !
 ! GENERATE_FULL_MATRIX_V3 already writes the charge and energy equations:
@@ -861,6 +867,7 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE MOD_CMFGEN
 	USE STEQ_DATA_MOD
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_QUIET_IO
 	IMPLICIT NONE
 !
 	TYPE(JFNK_BA_HOLD_TYPE), ALLOCATABLE :: BA_HOLD(:)
@@ -892,6 +899,10 @@
 	NRM_RAD_F = 0.0_LDP
 	NRM_COLL_MX = 0.0_LDP
 	NRM_RAD_MX = 0.0_LDP
+! Same I/O guard as JFNK_ASSEMBLE_STEQ_V1 -- this routine is entered
+! once per residual eval, so its GENERATE calls must not emit the
+! per-iteration BA_ASCI production dumps.
+	JFNK_QUIET_IO = .TRUE.
 	K_RAD_DOM = 0
 	JFNK_BA_RAD_READY = .FALSE.
 	JFNK_BA_RAD_BANDS_READY = .FALSE.
@@ -1247,6 +1258,7 @@
 	1  '  JFNK: rad-dominated depth blocks:', K_RAD_DOM,
 	1  ' of', JFNK_ND, ' (max-element basis)'
 	FLUSH(LUER)
+	JFNK_QUIET_IO = .FALSE.
 !
 	END SUBROUTINE JFNK_BUILD_BA_RAD_V1
 
@@ -3668,7 +3680,7 @@
 	1                              JFNK_ROW_TINY, JFNK_LSQ_LAM,
 	2                              JFNK_RIDGE_PIV, JFNK_POP_FLOOR,
 	3                              JFNK_PTC_SIGNED, JFNK_PC_SIGN_DIAG,
-	4                              JFNK_REG_ZERO_COL,
+	4                              JFNK_REG_ZERO_COL, JFNK_QUIET_IO,
 	5                              JFNK_ROW_TINY_EQUIL, JFNK_BANDED_TDMA
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
@@ -3744,6 +3756,10 @@
 	IF(PRESENT(DO_FACTOR))DO_FACTOR_L=DO_FACTOR
 	JFNK_LU_READY = .FALSE.
 	JFNK_FACTOR_DONE = .FALSE.
+! The BA assembly below re-enters GENERATE per depth; the BA_ASCI
+! dumps it triggers are a production diagnostic and would overwrite
+! the outer-iteration files with JFNK-context data.
+	JFNK_QUIET_IO = .TRUE.
 !
 ! Capture the user-supplied ridge as the relaxation floor on the first
 ! factorization, so the relaxation path cannot push the ridge below the
@@ -4147,6 +4163,7 @@
 	IF(.NOT. DO_FACTOR_L)THEN
 	  JFNK_BA_BUILT=.TRUE.
 	  JFNK_BA_DIAG_READY=.TRUE.
+	  JFNK_QUIET_IO = .FALSE.
 	  RETURN
 	END IF
 !
@@ -5249,6 +5266,7 @@
 	JFNK_BA_DIAG_READY = .TRUE.
 	JFNK_N_LU_FACTORS = JFNK_N_LU_FACTORS + 1
 	JFNK_FACTOR_DONE = .TRUE.
+	JFNK_QUIET_IO = .FALSE.
 !
 	END SUBROUTINE JFNK_FACTOR_PRECOND_V1
 

@@ -1873,6 +1873,13 @@
 ! jfnk_resid_nbad>0, so the driver falls back to LAMBDA/BA.  Cleared at
 ! each sweep entry; meaningless outside JFNK_IN_EVAL=T regions.
 	LOGICAL JFNK_EVAL_BROKEN
+! JFNK_QUIET_IO: internal runtime flag (no VADAT key).  Set inside the
+! JFNK-internal routines that re-enter GENERATE_FULL_MATRIX_V3
+! (JFNK_ASSEMBLE_STEQ_V1, JFNK_BUILD_BA_RAD_V1, the preconditioner
+! build) to suppress the BA_ASCI depth dumps -- without it every
+! residual eval and Krylov matvec rewrites ~100 MB of scratch files
+! that only make sense as a per-iteration production diagnostic.
+	LOGICAL JFNK_QUIET_IO
 	INTEGER JFNK_MAX_NEWTON
 	INTEGER JFNK_M_GMRES
 	INTEGER JFNK_MAX_GMRES

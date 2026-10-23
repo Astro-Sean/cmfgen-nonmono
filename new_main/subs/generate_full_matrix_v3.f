@@ -12,7 +12,7 @@
 	USE MOD_CMFGEN
 	USE STEQ_DATA_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY : LTE_MODEL, USE_ELEC_HEAT_BAL,
-	1     JFNK_IN_EVAL
+	1     JFNK_QUIET_IO
 	IMPLICIT NONE
 !
 ! Altered 21-Feb-2022 : Added a quick fudge to STOP equation replacement from occuring.
@@ -389,14 +389,15 @@
 	  END DO
 	END DO
 !
-! JFNK_IN_EVAL suppresses the BA_ASCI dumps during JFNK residual
-! evals -- JFNK_JVP_V1 re-enters this routine once per Krylov matvec,
-! so an ungated dump rewrites ~100 MB of scratch every eval.  The
-! dumps are a per-activation diagnostic; production writes unchanged.
+! JFNK_QUIET_IO suppresses the BA_ASCI dumps on the JFNK-internal
+! call paths -- JFNK_ASSEMBLE_STEQ_V1 / JFNK_BUILD_BA_RAD_V1 /
+! JFNK_JVP_V1 re-enter this routine once per residual eval and
+! Krylov matvec, so an ungated dump rewrites ~100 MB of scratch
+! every eval.  The production SOLVEBA writes are unchanged.
 !
 	CALL GET_LU(LUOUT,'In generate_full_matrix_v3')
 	IF(K .EQ. 41 .AND. DIAG_BAND .AND. K .LE. ND .AND.
-	1   .NOT. JFNK_IN_EVAL)THEN
+	1   .NOT. JFNK_QUIET_IO)THEN
 	  OPEN(UNIT=LUOUT,FILE='BA_ASCI_N_D41',STATUS='UNKNOWN')
 	    CALL WR2D_MA(POPS(1,K),NT,1,'POPS_D1',LUOUT)
 	    CALL WR2D_MA(STEQ_VEC,NT,1,'STEQ_VEC_D1',LUOUT)
@@ -404,7 +405,7 @@
 	  CLOSE(UNIT=LUOUT)
 	END IF
 	IF(K .EQ. ND .AND. DIAG_BAND .AND. K .LE. ND .AND.
-	1   .NOT. JFNK_IN_EVAL)THEN
+	1   .NOT. JFNK_QUIET_IO)THEN
 	  OPEN(UNIT=LUOUT,FILE='BA_ASCI_N_DND',STATUS='UNKNOWN')
 	    CALL WR2D_MA(POPS(1,K),NT,1,'POPS_D1',LUOUT)
 	    CALL WR2D_MA(STEQ_VEC,NT,1,'STEQ_VEC_D1',LUOUT)
@@ -412,7 +413,7 @@
 	  CLOSE(UNIT=LUOUT)
 	END IF
 	IF(K .EQ. 5 .AND. DIAG_BAND .AND. K .LE. ND .AND.
-	1   .NOT. JFNK_IN_EVAL)THEN
+	1   .NOT. JFNK_QUIET_IO)THEN
 	  OPEN(UNIT=LUOUT,FILE='BA_ASCI_N_D5',STATUS='UNKNOWN')
 	    CALL WR2D_MA(POPS(1,K),NT,1,'POPS_D1',LUOUT)
 	    CALL WR2D_MA(STEQ_VEC,NT,1,'STEQ_VEC_D1',LUOUT)
