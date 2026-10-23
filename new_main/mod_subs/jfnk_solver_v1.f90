@@ -1324,7 +1324,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             '  JFNK: non-descent dir (<F,Js>=', real(dir_deriv), &
             ') with true_res/|F|=', &
             real(jfnk_gmres_true_res / max(ref_norm, 1d-30)), &
-            ' -- rejecting, not retrying'
+            ' -- keeping direction, not retrying'
       else if(dir_deriv <= 0d0 .and. .not. jfnk_gmres_recomputed .and. &
          jfnk_eta > jfnk_eta_min .and. &
          descent_retry_count < descent_retry_max) then
