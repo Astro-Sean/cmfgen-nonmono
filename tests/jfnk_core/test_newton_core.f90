@@ -29,6 +29,8 @@
 !       must not read as runaway and must reach >= 1 trial eval.
 !   T5b: the scale-relative cap still fires when the factor is set
 !       small enough that every ~ref_norm step is "runaway".
+!   T6: tauto T-damping refreshes snrm/s_inf/snrm_tr: an accepted
+!       damped step must leave jfnk_del on the post-damp scale.
 !
 ! edited by Devin, 06-Oct-2026
 !----------------------------------------------------------------------
@@ -508,6 +510,50 @@ program test_newton_core
       nfail = nfail + 1
    end if
    jfnk_runaway_fac = 1.0d2
+   w_dp = 1.0d0
+   jfnk_use_left_pc = .false.
+   !
+   ! ------------- T6: step norms refreshed after T damping ----------
+   !
+   ! jfnk_tauto_damp_v1 modifies s in place; the runaway check,
+   ! trust-radius growth (jfnk_del = 2*snrm_tr on accept) and the
+   ! diagnostics must use the damped norms.  Treat every component as
+   ! T (nt=1) with alpha=1e-3: the post-damp |s|_w is ~1e-3 of the
+   ! Krylov step, so an accepted step leaves jfnk_del ~ 1e-3 * |s|_w
+   ! instead of ~|s|_w -- a ~1000x split in the module state.
+   !
+   jfnk_ptc_active = .false.
+   jfnk_use_left_pc = .true.
+   jfnk_tauto_on = .true.
+   jfnk_tauto_nt = 1
+   jfnk_tauto_jt = 1
+   jfnk_tauto_dst = 1
+   jfnk_tauto_dend = NN
+   jfnk_tauto_alpha = 1.0d-3
+   jfnk_tauto_dmax = 1.0d30
+   w_dp = 1.0d6
+   xbase = 0d0
+   jfnk_x = xs + 0.5d0
+   jfnk_exit_reason = ' '
+   info = 1
+   call newton_hook_v1(f_test, df_test, dfp_test, sub_test, dp_w, &
+                       20, NN, 1.0d-2, 1.0d-4, -1d0, 1.0d-12, 1.0d99, &
+                       50, info, luer)
+   write(luer,'(A,I3,A,ES12.4,A,A)') 'T6: info=', info, &
+      '  jfnk_del=', jfnk_del, '  exit='//trim(jfnk_exit_reason)
+   if(jfnk_del > 0d0 .and. jfnk_del < 1.0d8) then
+      write(luer,'(A)') 'T6: PASS'
+   else
+      write(luer,'(A)') 'T6: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_tauto_on = .false.
+   jfnk_tauto_nt = 0
+   jfnk_tauto_jt = 0
+   jfnk_tauto_dst = 0
+   jfnk_tauto_dend = 0
+   jfnk_tauto_alpha = 1.0d0
+   jfnk_tauto_dmax = 0.5d0
    w_dp = 1.0d0
    jfnk_use_left_pc = .false.
    !

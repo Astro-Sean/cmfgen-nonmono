@@ -28,4 +28,7 @@ module jfnk_cmfgen_int_mod
    logical :: JFNK_EVAL_BYPASS = .false.
    integer :: JFNK_MAX_EVALS = 0
    integer :: JFNK_N_RESIDUAL_EVALS = 0
+   ! Activation-local budget the driver trims per rung; the residual
+   ! sentinel enforces the tighter of it and JFNK_MAX_EVALS.
+   integer :: JFNK_EVAL_LIM = 0
 end module jfnk_cmfgen_int_mod

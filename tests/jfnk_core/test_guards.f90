@@ -46,6 +46,9 @@
 !        the G2 replication).
 !   G12: solver-level NaN trial residuals count nan_rejects and abort
 !        the Newton loop rather than committing a non-finite step.
+!   G11d/e: JFNK_EVAL_LIM tightens the sentinel cap below
+!        JFNK_MAX_EVALS; jfnk_eval_cap_v1 picks the smallest
+!        positive of the two (0 = off).
 !
 ! edited by Devin, Oct-2026
 !----------------------------------------------------------------------
@@ -77,7 +80,7 @@ program test_guards
    use, intrinsic :: ieee_arithmetic
    use jfnk_solver_v1_mod
    use jfnk_cmfgen_int_mod, only: JFNK_COUPLED_LOC, JFNK_EVAL_BYPASS, &
-      JFNK_MAX_EVALS, JFNK_N_RESIDUAL_EVALS
+      JFNK_MAX_EVALS, JFNK_N_RESIDUAL_EVALS, JFNK_EVAL_LIM
    use guards_prob_mod
    implicit none
    external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1, f_nan
@@ -569,7 +572,37 @@ program test_guards
       else
          write(luer,'(A)') 'G11c: PASS (non-finite applied rejects)'
       end if
+      ! JFNK_EVAL_LIM is the activation-local trim the driver applies
+      ! per budget rung; the sentinel must fire at the tighter of the
+      ! two caps -- checking JFNK_MAX_EVALS alone let the trimmed cap
+      ! go unenforced for ordinary residual calls.
+      JFNK_MAX_EVALS = 5
+      JFNK_EVAL_LIM = 1
+      JFNK_N_RESIDUAL_EVALS = 0
+      call f_budget(NG, x_ent, y_app)   ! eval 1 spends the lim cap
+      call f_budget(NG, x_ent, y_app)   ! sentinel at the lower cap
+      if(jfnk_resid_nbad /= NG .or. any(y_app /= 1.0d20)) then
+         nfail = nfail + 1
+         write(luer,'(A)') 'G11d: FAIL (EVAL_LIM cap not honored)'
+      else
+         write(luer,'(A)') 'G11d: PASS (EVAL_LIM tightens cap)'
+      end if
+      ! jfnk_eval_cap_v1: smallest positive cap wins; 0 disables.
+      nbad_a = 0
+      if(jfnk_eval_cap_v1(5, 10) /= 5) nbad_a = nbad_a + 1
+      if(jfnk_eval_cap_v1(0, 10) /= 10) nbad_a = nbad_a + 1
+      if(jfnk_eval_cap_v1(10, 0) /= 10) nbad_a = nbad_a + 1
+      if(jfnk_eval_cap_v1(0, 0) /= 0) nbad_a = nbad_a + 1
+      if(jfnk_eval_cap_v1(3, 0) /= 3) nbad_a = nbad_a + 1
+      if(nbad_a > 0) then
+         nfail = nfail + 1
+         write(luer,'(A,I2)') 'G11e: FAIL (cap helper)', nbad_a
+      else
+         write(luer,'(A)') 'G11e: PASS (eval cap helper)'
+      end if
       JFNK_MAX_EVALS = 0
+      JFNK_EVAL_LIM = 0
+      JFNK_N_RESIDUAL_EVALS = 0
       jfnk_resid_nbad = 0
    end block
    !
@@ -676,17 +709,18 @@ end function dp_t
 ! exactly as the production NaN/Inf policy loop does.
 subroutine f_budget(n, x, y)
    use jfnk_cmfgen_int_mod, only: JFNK_EVAL_BYPASS, JFNK_MAX_EVALS, &
-      JFNK_N_RESIDUAL_EVALS
-   use jfnk_solver_v1_mod, only: jfnk_resid_nbad
+      JFNK_N_RESIDUAL_EVALS, JFNK_EVAL_LIM
+   use jfnk_solver_v1_mod, only: jfnk_resid_nbad, jfnk_eval_cap_v1
    use guards_prob_mod
    use, intrinsic :: ieee_arithmetic
    implicit none
    integer, intent(in) :: n
    double precision, intent(in) :: x(n)
    double precision, intent(out) :: y(n)
-   integer :: i, nbad
-   if(JFNK_MAX_EVALS > 0 .and. .not. JFNK_EVAL_BYPASS .and. &
-      JFNK_N_RESIDUAL_EVALS >= JFNK_MAX_EVALS) then
+   integer :: i, nbad, nev_cap
+   nev_cap = jfnk_eval_cap_v1(JFNK_EVAL_LIM, JFNK_MAX_EVALS)
+   if(nev_cap > 0 .and. .not. JFNK_EVAL_BYPASS .and. &
+      JFNK_N_RESIDUAL_EVALS >= nev_cap) then
       y = 1.0d20
       jfnk_resid_nbad = n
       JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
