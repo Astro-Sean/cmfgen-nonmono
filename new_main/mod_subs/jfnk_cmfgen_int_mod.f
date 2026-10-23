@@ -395,6 +395,36 @@
 	INTEGER, ALLOCATABLE, SAVE :: JFNK_BTD_IPIV(:,:)
 	LOGICAL, SAVE :: JFNK_BTD_READY=.FALSE.
 !
+! JFNK_SEC_*: rank-r Broyden/secant preconditioner update
+! [JFNK_SEC_R, default 0].  The BA model demonstrably misses the true
+! Jacobian's action on the residual-dominant rows (FD-vs-BA mismatch
+! ~1E4 on He II rows at the compression depths, 23-Oct-2026), so no
+! BA-derived factorization can precondition GMRES there.  Instead the
+! pairs (u_i, J*u_i) measured by the JVP are used directly: the
+! corrected inverse B' v = B v + D*(G^-1 * JV^T v) with
+! D_i = u_i - B(J*u_i) and G = JV^T JV satisfies B'(J*u_i) = u_i
+! exactly on the measured span -- GMRES gets an exact inverse on the
+! directions the base preconditioner models worst.  JFNK_SEC_U/JV
+! hold the recorded pairs, JFNK_SEC_D the correction columns
+! (rebuilt lazily via the base apply), JFNK_SEC_G the factored Gram.
+! JFNK_SEC_N counts recorded pairs, JFNK_SEC_BUILT_N how many have
+! D computed; D is invalidated when the factorization is rebuilt
+! (SEC_BUILT_N reset inside JFNK_FACTOR_PRECOND_V1), and the whole
+! pair set is invalidated on a baseline rebuild (new J).
+! JFNK_SEC_BASE set inside JFNK_PRECOND_V1 suppresses the correction
+! while the builder itself applies B to the recorded JV columns.
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_SEC_U(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_SEC_JV(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_SEC_D(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_SEC_G(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: JFNK_SEC_IPIV(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_W_SEC_VIN(:)
+	INTEGER, SAVE :: JFNK_SEC_N=0
+	INTEGER, SAVE :: JFNK_SEC_BUILT_N=0
+	LOGICAL, SAVE :: JFNK_SEC_READY=.FALSE.
+	LOGICAL, SAVE :: JFNK_SEC_BASE=.FALSE.
+!
 ! JFNK_USE_BANDED_LOC: runtime flag (set in JFNK_INIT_V1 from the
 !   JFNK_USE_BANDED VADAT control variable).  When .TRUE., build banded
 !   BA_rad (all bands) and use a banded LU preconditioner (DGBTRF/DGBTRS).

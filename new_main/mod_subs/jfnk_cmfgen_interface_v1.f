@@ -114,6 +114,9 @@
 ! belongs to the previous activation.
 	JFNK_BA_BUILT = .FALSE.
 	JFNK_PC_DIAG_ONLY = .FALSE.
+	JFNK_SEC_N = 0
+	JFNK_SEC_BUILT_N = 0
+	JFNK_SEC_READY = .FALSE.
 !
 ! Reallocate if the problem size changed (R-grid revision).
 !
@@ -2166,6 +2169,13 @@
 !
 	JFNK_BA_BUILT=.FALSE.
 !
+! The secant pairs measured the old baseline's operator, so they are
+! stale for the same reason BA_A is.
+!
+	JFNK_SEC_N=0
+	JFNK_SEC_BUILT_N=0
+	JFNK_SEC_READY=.FALSE.
+!
 ! W12 (17-Oct-2026): same staleness for the enriched U columns --
 ! they priced the old baseline's stored operator, so disarm the
 ! apply; the next admission re-assembles if enrichment still runs.
@@ -2569,7 +2579,8 @@
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
 	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR, JFNK_BA_JVP,
-	3                           JFNK_LINTEST, JFNK_HSCAN, JFNK_HADAPT
+	3                           JFNK_LINTEST, JFNK_HSCAN, JFNK_HADAPT,
+	4                           JFNK_SEC_R
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
 	IMPLICIT NONE
 !
@@ -2584,7 +2595,8 @@
 	INTEGER I_CAP
 	INTEGER IDX_J
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_ANAL(:), JV_RT(:)
-	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM
+	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_AN2(:)
+	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM, DIF2_NORM
 	DOUBLE PRECISION RT_FD, RT_BA, RT_DEN, VREG, VTOT
 	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
 	LOGICAL, SAVE :: BA_JVP_NOTED = .FALSE.
@@ -2761,6 +2773,7 @@
 	      END DO
 	    END IF
 	  END IF
+	  CALL JFNK_SEC_RECORD_V1(N, JFNK_W_V_USE, JV)
 	  RETURN
 	END IF
 !
@@ -3034,6 +3047,34 @@
 	      END DO
 	    END DO
 	  END DO
+!
+! Under [JFNK_USE_BANDED] also form the full-band analytic action
+! (BA_A diagonal + CMAT_RAD_BANDS off-diagonals): the diag-only diff
+! above then splits into band content (BA_full - BA_diag) and true
+! model error (FD - BA_full).  The split answers which wall the
+! preconditioner faces -- width the bands already store, or
+! linearization the BA never had.  23-Oct-2026.
+!
+	  IF(JFNK_BA_RAD_BANDS_READY)THEN
+	    IF(.NOT. ALLOCATED(JV_AN2)) ALLOCATE(JV_AN2(N))
+	    JV_AN2(1:N) = JV_ANAL(1:N)
+	    DO KK = 1, JFNK_ND
+	      DO IB = 1, JFNK_NUM_BNDS
+	        IF(IB .EQ. JFNK_DIAG_INDX)CYCLE
+	        L_BND = KK + IB - JFNK_DIAG_INDX
+	        IF(L_BND .LT. 1 .OR. L_BND .GT. JFNK_ND)CYCLE
+	        DO II = 1, JFNK_NT
+	          DO JJ = 1, JFNK_NT
+	            JV_AN2((KK-1)*JFNK_NT + II) =
+	1            JV_AN2((KK-1)*JFNK_NT + II) +
+	2            DBLE(JFNK_CMAT_RAD_BANDS(II, JJ, IB, KK)) *
+	3            JFNK_W_V_USE((L_BND-1)*JFNK_NT + JJ)
+	          END DO
+	        END DO
+	      END DO
+	    END DO
+	    CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV_AN2)
+	  END IF
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV_ANAL)
 !
 ! JFNK_BA_A is the physical BA (no ridge).  Local ridge is applied
@@ -3042,15 +3083,23 @@
 	  FD_NORM = 0.0D0
 	  AN_NORM = 0.0D0
 	  DIFF_NORM = 0.0D0
+	  DIF2_NORM = 0.0D0
 	  DO I = 1, N
 	    FD_NORM = MAX(FD_NORM, ABS(JV(I)))
 	    AN_NORM = MAX(AN_NORM, ABS(JV_ANAL(I)))
 	    DIFF_NORM = MAX(DIFF_NORM, ABS(JV(I) - JV_ANAL(I)))
+	    IF(JFNK_BA_RAD_BANDS_READY)
+	1     DIF2_NORM = MAX(DIF2_NORM, ABS(JV(I) - JV_AN2(I)))
 	  END DO
 	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I2,3(A,ES12.4))')
      1    '  JVP dir ', JVP_DIR_CT, ': |FD|=', FD_NORM,
      2    ' |BAdiag*v|=', AN_NORM,
      3    ' |diff|/|anal|=', DIFF_NORM/MAX(AN_NORM,1.0D-30)
+	  IF(JFNK_BA_RAD_BANDS_READY .AND. JFNK_LUER .GT. 0)
+	1   WRITE(JFNK_LUER,'(A,I2,2(A,ES12.4))')
+     2    '  JVP dir ', JVP_DIR_CT, ' full-band:',
+     3    ' |FD-BAall*v|=', DIF2_NORM,
+     4    ' /|anal|=', DIF2_NORM/MAX(AN_NORM,1.0D-30)
 !
 ! Round-trip audit (04-Nov-2026): feed the measured J*v products back
 ! through M^{-1} and check whether v returns on reachable (non-reg,
@@ -3615,9 +3664,61 @@
 	  JFNK_EVAL_BROKEN=EVB_SAV
 	END IF
 !
+	CALL JFNK_SEC_RECORD_V1(N, JFNK_W_V_USE, JV)
+!
 	JFNK_N_JVP_EVALS = JFNK_N_JVP_EVALS + 1
 !
 	END SUBROUTINE JFNK_JVP_V1
+
+
+!
+! JFNK_SEC_RECORD_V1: store a measured (u, J*u) pair for the rank-r
+! Broyden preconditioner update [JFNK_SEC_R, default 0].  The BA
+! model demonstrably misses the true operator on the dominant rows
+! (23-Oct-2026: FD-vs-BA ~1E4 on the He II compression rows, and
+! JFNK_BA_JVP directions leave the true residual unchanged), so the
+! correction is built from the JVP's own measurements instead.
+! Recording is capped at JFNK_SEC_R pairs per baseline; JFNK_INIT_V1
+! and JFNK_REBUILD_BASELINE_V1 clear the store when the operator
+! re-bases.  D columns are built lazily in JFNK_PRECOND_V1 because
+! they need the factored base map.
+!
+	SUBROUTINE JFNK_SEC_RECORD_V1(N, U, JV)
+	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_jvp_failed
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_SEC_R
+	IMPLICIT NONE
+!
+	INTEGER, INTENT(IN) :: N
+	DOUBLE PRECISION, INTENT(IN) :: U(N), JV(N)
+	INTEGER IOS, LUER, ERROR_LU
+	EXTERNAL ERROR_LU
+!
+	IF(JFNK_SEC_R .LE. 0)RETURN
+	IF(jfnk_jvp_failed)RETURN
+	IF(JFNK_SEC_N .GE. JFNK_SEC_R)RETURN
+!
+	IF(.NOT. ALLOCATED(JFNK_SEC_U))THEN
+	  ALLOCATE(JFNK_SEC_U(N,JFNK_SEC_R),
+	1    JFNK_SEC_JV(N,JFNK_SEC_R),
+	2    JFNK_SEC_D(N,JFNK_SEC_R),
+	3    JFNK_SEC_G(JFNK_SEC_R,JFNK_SEC_R),
+	4    JFNK_SEC_IPIV(JFNK_SEC_R), STAT=IOS)
+	  IF(IOS .NE. 0)THEN
+	    LUER=ERROR_LU()
+	    WRITE(LUER,'(A)')' JFNK_SEC: allocation failed --'//
+	1     ' secant update disabled'
+	    JFNK_SEC_N=0
+	    RETURN
+	  END IF
+	END IF
+!
+	JFNK_SEC_N=JFNK_SEC_N+1
+	JFNK_SEC_U(1:N,JFNK_SEC_N)=U(1:N)
+	JFNK_SEC_JV(1:N,JFNK_SEC_N)=JV(1:N)
+	RETURN
+	END SUBROUTINE JFNK_SEC_RECORD_V1
 
 
 
@@ -3735,6 +3836,16 @@
 	IF(PRESENT(DO_FACTOR))DO_FACTOR_L=DO_FACTOR
 	JFNK_LU_READY = .FALSE.
 	JFNK_FACTOR_DONE = .FALSE.
+!
+! A fresh factorization changes the base map B, so the stored
+! correction columns D_i = u_i - B(J*u_i) are stale.  The recorded
+! pairs themselves still measure the same baseline operator and are
+! kept; JFNK_PRECOND_V1 rebuilds D lazily on the next apply.
+!
+	IF(DO_FACTOR_L)THEN
+	  JFNK_SEC_BUILT_N = 0
+	  JFNK_SEC_READY = .FALSE.
+	END IF
 !
 ! Capture the user-supplied ridge as the relaxation floor on the first
 ! factorization, so the relaxation path cannot push the ridge below the
@@ -4915,50 +5026,88 @@
 	    BLOCK
 	      INTEGER :: K_B, I_B, J_B, NFAIL_B, NTRY_B, IOS_B
 	      INTEGER :: I_C, J_C, EROW_C
+	      INTEGER :: MB_B, NTS_B, NDS_B
 	      DOUBLE PRECISION :: RIDGE_B, MAXD_B, REL_B, RI_B, DEN_B
+	      DOUBLE PRECISION :: D_NRM_B, L_NRM_B, U_NRM_B
 	      DOUBLE PRECISION, ALLOCATABLE :: XT_B(:)
 !
+! Superblock form (23-Oct-2026): a matrix with band half-width MB
+! depths is exactly block-tridiagonal in superblocks of MB*NT rows.
+! For NUM_BNDS=3, MB=1 and the superblocks are the depth blocks
+! themselves.  Wider NUM_BNDS (5,11,15 -- MB=2,5,7 all divide ND=70)
+! widens the stored TX/dJ_LOC coupling that BA_UPDATE fills
+! (BNDST:BNDEND scale with NUM_BNDS), so the same solve reaches
+! cross-depth structure the tridiagonal truncates.  Requires
+! MOD(ND,MB)=0; the guard below leaves BTD_READY=F and the apply
+! falls back to the per-depth LU.
+!
+	      MB_B = MAX(JFNK_NUM_BNDS/2, 1)
+	      NTS_B = MB_B*JFNK_NT
+	      NDS_B = JFNK_ND/MB_B
+	      IF(MOD(JFNK_ND,MB_B) .NE. 0 .OR. NDS_B .LT. 2)THEN
+	        IF(LUER .GT. 0)THEN
+	          WRITE(LUER,'(A,I3,A,I6)')
+	1         '  JFNK: banded TDMA skipped -- ND=',JFNK_ND,
+	2         ' not divisible by band half-width ',MB_B
+	        END IF
+	        GOTO 777
+	      END IF
+!
 	      IF(ALLOCATED(JFNK_BTD_L))THEN
-	        IF(SIZE(JFNK_BTD_L,1).NE.JFNK_NT .OR.
-	1           SIZE(JFNK_BTD_L,3).NE.JFNK_ND)THEN
+	        IF(SIZE(JFNK_BTD_L,1).NE.NTS_B .OR.
+	1           SIZE(JFNK_BTD_L,3).NE.NDS_B)THEN
 	          DEALLOCATE(JFNK_BTD_L,JFNK_BTD_LU,JFNK_BTD_C,
 	1             JFNK_BTD_IPIV)
 	        END IF
 	      END IF
 	      IF(.NOT. ALLOCATED(JFNK_BTD_L))THEN
-	        ALLOCATE(JFNK_BTD_L(JFNK_NT,JFNK_NT,JFNK_ND),
-	1           JFNK_BTD_LU(JFNK_NT,JFNK_NT,JFNK_ND),
-	2           JFNK_BTD_C(JFNK_NT,JFNK_NT,JFNK_ND),
-	3           JFNK_BTD_IPIV(JFNK_NT,JFNK_ND), STAT=IOS_B)
+	        ALLOCATE(JFNK_BTD_L(NTS_B,NTS_B,NDS_B),
+	1           JFNK_BTD_LU(NTS_B,NTS_B,NDS_B),
+	2           JFNK_BTD_C(NTS_B,NTS_B,NDS_B),
+	3           JFNK_BTD_IPIV(NTS_B,NDS_B), STAT=IOS_B)
 	        IF(IOS_B.NE.0)
 	1           STOP 'JFNK_FACTOR_PRECOND: alloc BTD failed'
 	      END IF
 !
 	      NTRY_B = 0
 	      DO
-! Extract L/D/U from the scaled band: global row i=(K-1)*NT+II,
-! col j=(L-1)*NT+JJ lives at LUAB(KL+KU+1+i-j, j).
-	        DO K_B = 1, JFNK_ND
-	          DO J_B = 1, JFNK_NT
-	            DO I_B = 1, JFNK_NT
+! Extract L/D/U from the scaled band on superblock boundaries:
+! global row i=(K-1)*NTS+II, col j=(L-1)*NTS+JJ lives at
+! LUAB(KL+KU+1+i-j, j).  D_NRM/L_NRM/U_NRM report the superband
+! content so a run shows whether the stored coupling reaches the
+! requested width without needing the BA_JVP probe.
+	        D_NRM_B = 0.0_LDP
+	        L_NRM_B = 0.0_LDP
+	        U_NRM_B = 0.0_LDP
+	        DO K_B = 1, NDS_B
+	          DO J_B = 1, NTS_B
+	            DO I_B = 1, NTS_B
 	              JFNK_BTD_LU(I_B,J_B,K_B) =
 	1               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
 	2               JFNK_BANDED_KU+1+I_B-J_B,
-	3               (K_B-1)*JFNK_NT+J_B)
-	              IF(K_B .GT. 1)
-	1               JFNK_BTD_L(I_B,J_B,K_B) =
-	2               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	3               JFNK_BANDED_KU+1+JFNK_NT+I_B-J_B,
-	4               (K_B-2)*JFNK_NT+J_B)
-	              IF(K_B .LT. JFNK_ND)
-	1               JFNK_BTD_C(I_B,J_B,K_B) =
-	2               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	3               JFNK_BANDED_KU+1-JFNK_NT+I_B-J_B,
-	4               K_B*JFNK_NT+J_B)
+	3               (K_B-1)*NTS_B+J_B)
+	              D_NRM_B = MAX(D_NRM_B,
+	1               ABS(JFNK_BTD_LU(I_B,J_B,K_B)))
+	              IF(K_B .GT. 1)THEN
+	                JFNK_BTD_L(I_B,J_B,K_B) =
+	1                 JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	2                 JFNK_BANDED_KU+1+NTS_B+I_B-J_B,
+	3                 (K_B-2)*NTS_B+J_B)
+	                L_NRM_B = MAX(L_NRM_B,
+	1                 ABS(JFNK_BTD_L(I_B,J_B,K_B)))
+	              END IF
+	              IF(K_B .LT. NDS_B)THEN
+	                JFNK_BTD_C(I_B,J_B,K_B) =
+	1                 JFNK_BANDED_LUAB(JFNK_BANDED_KL+
+	2                 JFNK_BANDED_KU+1-NTS_B+I_B-J_B,
+	3                 K_B*NTS_B+J_B)
+	                U_NRM_B = MAX(U_NRM_B,
+	1                 ABS(JFNK_BTD_C(I_B,J_B,K_B)))
+	              END IF
 	            END DO
 	          END DO
 	        END DO
-	        CALL JFNK_BTD_FACTOR_V1(JFNK_NT, JFNK_ND,
+	        CALL JFNK_BTD_FACTOR_V1(NTS_B, NDS_B,
 	1         JFNK_BTD_L, JFNK_BTD_LU, JFNK_BTD_C,
 	2         JFNK_BTD_IPIV, NFAIL_B, LUER)
 	        REL_B = 1.0D30
@@ -4970,7 +5119,7 @@
 	          IF(IOS_B .NE. 0)
 	1             STOP 'JFNK_FACTOR_PRECOND: alloc XT_B failed'
 	          XT_B = 1.0_LDP
-	          CALL JFNK_BTD_APPLY_V1(JFNK_NT, JFNK_ND,
+	          CALL JFNK_BTD_APPLY_V1(NTS_B, NDS_B,
 	1           JFNK_BTD_L, JFNK_BTD_LU, JFNK_BTD_C,
 	2           JFNK_BTD_IPIV, XT_B, NFAIL_B)
 	          REL_B = 0.0_LDP
@@ -5014,10 +5163,14 @@
 	            END DO
 	          END DO
 	          IF(LUER .GT. 0)THEN
-	            WRITE(LUER,'(A,I6,A,I2,A,ES10.2)')
+	            WRITE(LUER,'(A,I6,A,I4,A,I3,A,I2,A,ES10.2)')
 	1           '  JFNK: banded TDMA factor  N=',JFNK_BANDED_N,
-	2           '  retry=',NTRY_B,
-	3           '  max|r_i|/(|A||x|+|b|)=',REL_B
+	2           '  nts=',NTS_B,' nds=',NDS_B,
+	3           '  retry=',NTRY_B,
+	4           '  max|r_i|/(|A||x|+|b|)=',REL_B
+	            WRITE(LUER,'(A,3(A,ES10.2))')
+	1           '    superbands: max|L|=',L_NRM_B,
+	2           '  max|D|=',D_NRM_B,'  max|U|=',U_NRM_B
 	          END IF
 	          EXIT
 	        END IF
@@ -5058,6 +5211,9 @@
 	          END DO
 	        END DO
 	      END DO
+! Indivisible superblock skip lands here: no banded factor exists,
+! so the apply falls back to the per-depth LU (JFNK_BTD_READY=F).
+  777	    CONTINUE
 	    END BLOCK
 	  ELSE
 	  N_BANDED_RETRY = 0
@@ -5250,13 +5406,14 @@
 !
 ! editted by Sean Brennan (08-Sep-2026)
 !
-	SUBROUTINE JFNK_PRECOND_V1(N, V)
+	RECURSIVE SUBROUTINE JFNK_PRECOND_V1(N, V)
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_n_zmax_hit, jfnk_n_reg_proj,
 	1     jfnk_pc_clip_event, jfnk_x, jfnk_log_unknown, jfnk_ptc_active,
 	2     jfnk_ptc_dtau, jfnk_ptc_scale, jfnk_ptc_scale_ready
-	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
+	1     JFNK_SEC_R
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: N
@@ -5266,7 +5423,7 @@
 	INTEGER K, J, NJAC, NZERO, LU_INFO, NZMAX_LOC
 	INTEGER NZCLIP, IDX_PC, K_PC, J_PC, NPROJ
 	INTEGER NPOST_BAD
-	INTEGER I, IOS
+	INTEGER I, IOS, IS
 	DOUBLE PRECISION Z_BA, X_PC, D_PC, SIG_PC, SIG_EFF_PC, RHS_PC
 	DOUBLE PRECISION DENOM_PC
 	LOGICAL BANDED_APPLIED
@@ -5304,6 +5461,20 @@
 	NZCLIP = 0
 !
 	CALL JFNK_MASK_FIXED_UNKNOWNS(N, V)
+!
+! [JFNK_SEC_R]: the correction JV^T v acts on the apply's argument,
+! so snapshot the masked input before the base solve overwrites V.
+!
+	IF(JFNK_SEC_R .GT. 0 .AND. .NOT. JFNK_SEC_BASE .AND.
+	1   JFNK_SEC_N .GT. 0)THEN
+	  IF(.NOT. ALLOCATED(JFNK_W_SEC_VIN))
+	1   ALLOCATE(JFNK_W_SEC_VIN(N))
+	  IF(SIZE(JFNK_W_SEC_VIN) .NE. N)THEN
+	    DEALLOCATE(JFNK_W_SEC_VIN)
+	    ALLOCATE(JFNK_W_SEC_VIN(N))
+	  END IF
+	  JFNK_W_SEC_VIN(1:N) = V(1:N)
+	END IF
 !
 ! The preconditioner applies plain M^{-1} (physical-space BA solve).
 ! RSCALE must NOT be applied here.  In weighted-norm GMRES the weight
@@ -5427,8 +5598,14 @@
 	      V(J) = V(J) * DBLE(JFNK_BANDED_ROW_SF(J))
 	    END DO
 	  END IF
-	  CALL JFNK_BTD_APPLY_V1(JFNK_NT, JFNK_ND, JFNK_BTD_L,
-	1     JFNK_BTD_LU, JFNK_BTD_C, JFNK_BTD_IPIV, V, LU_INFO)
+! Superblock dims must match the factor: a band half-width MB depth
+! matrix is block-tridiagonal in superblocks of MB*NT (see the
+! factor branch).  V(N) reshapes to v(NTS,NDS) across the call.
+	  CALL JFNK_BTD_APPLY_V1(
+	1     MAX(JFNK_NUM_BNDS/2,1)*JFNK_NT,
+	2     JFNK_ND/MAX(JFNK_NUM_BNDS/2,1),
+	3     JFNK_BTD_L, JFNK_BTD_LU, JFNK_BTD_C, JFNK_BTD_IPIV,
+	4     V, LU_INFO)
 	  IF(LU_INFO .EQ. 0)THEN
 	    IF(JFNK_BANDED_EQUIL_OK)THEN
 	      DO J = 1, JFNK_BANDED_N
@@ -5795,6 +5972,49 @@
 	      END DO
 	    END IF
 	  END BLOCK
+	END IF
+!
+! [JFNK_SEC_R, default 0] rank-r Broyden/secant update.  The BA model
+! misses the true operator's action on the residual-dominant rows
+! (FD-vs-BA ~1E4 there, 23-Oct-2026), so no BA-derived factorization
+! can converge those directions; the correction adds the measured
+! pairs instead: B'v = Bv + D*(G^-1 JV^T v) with G = JV^T JV and
+! D_i = u_i - B(J*u_i), giving B'(J*u_i) = u_i exactly on the
+! recorded span.  The D columns are built lazily at first use because
+! they need the factored base map; the recursive apply calls run
+! under JFNK_SEC_BASE so they return the uncorrected B and cannot
+! re-enter this block.  Linear in v, so Krylov consistency is kept.
+!
+	IF(JFNK_SEC_R .GT. 0 .AND. .NOT. JFNK_SEC_BASE)THEN
+	  IF(JFNK_SEC_N .GT. JFNK_SEC_BUILT_N)THEN
+	    JFNK_SEC_BASE = .TRUE.
+	    BLOCK
+	      DOUBLE PRECISION, ALLOCATABLE :: WTMP(:)
+	      ALLOCATE(WTMP(N))
+	      DO IS = JFNK_SEC_BUILT_N+1, JFNK_SEC_N
+	        WTMP(1:N) = JFNK_SEC_JV(1:N,IS)
+	        CALL JFNK_PRECOND_V1(N, WTMP)
+	        JFNK_SEC_D(1:N,IS) = JFNK_SEC_U(1:N,IS) - WTMP(1:N)
+	      END DO
+	    END BLOCK
+	    JFNK_SEC_BASE = .FALSE.
+	    JFNK_SEC_BUILT_N = JFNK_SEC_N
+	    CALL JFNK_SECANT_GRAM_V1(N, JFNK_SEC_N, JFNK_SEC_JV, N,
+	1       JFNK_SEC_G, JFNK_SEC_R, JFNK_SEC_IPIV, IS)
+	    JFNK_SEC_READY = (IS .EQ. 0)
+	    IF(JFNK_LUER .GT. 0)WRITE(JFNK_LUER,'(A,I4,A,I4,A,L1)')
+	1      '  JFNK: secant update built r=', JFNK_SEC_BUILT_N,
+	2      '/', JFNK_SEC_N, ' ready=', JFNK_SEC_READY
+	  END IF
+	  IF(JFNK_SEC_READY .AND. JFNK_SEC_BUILT_N .GT. 0)THEN
+	    BLOCK
+	      DOUBLE PRECISION C_SEC(JFNK_SEC_BUILT_N)
+	      CALL JFNK_SECANT_APPLY_V1(N, JFNK_SEC_BUILT_N,
+	1         JFNK_SEC_JV, N, JFNK_SEC_D, N, JFNK_SEC_G,
+	2         JFNK_SEC_R, JFNK_SEC_IPIV, JFNK_W_SEC_VIN, V, C_SEC)
+	    END BLOCK
+	    CALL JFNK_MASK_FIXED_UNKNOWNS(N, V)
+	  END IF
 	END IF
 !
 ! Final output validation (audit 10-Nov-2026): the solves above guard
