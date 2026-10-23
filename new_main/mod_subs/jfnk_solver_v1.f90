@@ -944,6 +944,10 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       end if
       gres     = jfnk_eta * ref_norm
       gdel     = jfnk_del
+      ! jfnk_gits is both the iteration budget in and the used count
+      ! out of gmres_m_v1.  A ginfo==2 hookstep recompute performs no
+      ! Arnoldi work, so the prior solve's count is deliberately
+      ! retained rather than re-armed to m.
       if(ginfo /= 2) jfnk_gits = m
       if(del == 0d0) jfnk_gits = 9999
       !
@@ -1974,6 +1978,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision, external      :: dotprd
    double precision, intent(inout) :: h(m+1, m)
    double precision, intent(inout) :: v(n, m+1)
+   ! res is dual-use: on entry it carries the caller's weighted
+   ! residual target (gres = eta*ref_norm), captured into tol below;
+   ! on exit it returns the final Hessenberg LS residual of the last
+   ! cycle.  newton_hook_v1 reads pred_res, not res, for its logic.
    double precision, intent(inout) :: res
    double precision, intent(in)    :: del
    double precision, intent(out)   :: pred_res
@@ -2787,6 +2795,11 @@ subroutine hook_step_g_v1(j, h, m, beta, del, g, ldg, y, pred_res)
    end do
    call dpotrf('U', j, r, j, info)
    if(info /= 0) then
+      ! Fallback: Euclidean hookstep in y-units.  This is not the
+      ! physical ||s||_w norm the G-factorization was built to
+      ! constrain -- the step is still bounded by del, but in the
+      ! wrong metric.  Rare: the ridge above already absorbs
+      ! near-dependent Z columns.
       call hook_step_v1(j, h, m, beta, del, y, pred_res)
       return
    end if
