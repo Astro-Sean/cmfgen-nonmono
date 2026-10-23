@@ -8342,17 +8342,23 @@
 !
 	IF(LUER .GT. 0)THEN
 	  WRITE(LUER,'(/,A)')' ------------------------------ JFNK ENRICH --------------------------------'
-	  WRITE(LUER,'(A,I4,A,I8)')
-	1   '    anchors K=',KWANT,'   eval cap at=',NEV_CAP
+! The cap is JFNK_ENRICH_PERCENT of the rung-scaled activation
+! budget added to the entry count, so it shrinks on higher rungs
+! and when entry evals were already spent -- print NEV0 so the
+! anchor-count-vs-cap arithmetic is checkable.
+	  WRITE(LUER,'(A,I4,A,I8,A,I8,A)')
+	1   '    anchors K=',KWANT,'   eval cap at=',NEV_CAP,
+	2   ' (entry at',NEV0,')'
 	END IF
 !
 	M=0
 	DO I=1,KWANT
 	  II=CAND(I)
 	  IF(JFNK_N_RESIDUAL_EVALS .GE. NEV_CAP)THEN
-	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A,I8,A)')
 	1       '  JFNK ENRICH: eval cap after ',M,
-	2       ' anchors -- abandoning enrichment, plain LU runs'
+	2       ' anchors (evals=',JFNK_N_RESIDUAL_EVALS,')'//
+	3       ' -- abandoning enrichment, plain LU runs'
 	    GOTO 100
 	  END IF
 	  EVEC=0.0D0
