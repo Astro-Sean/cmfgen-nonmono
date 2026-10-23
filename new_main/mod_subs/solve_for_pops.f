@@ -3897,12 +3897,21 @@
 	  TRC_ST='[OK]   '
 	  IF(.NOT. CONV_DEM_OK)THEN
 	    TRC_ST='[HOLD] '
+	  ELSE IF(CONV_TRC_OFF)THEN
+	    TRC_ST='[OFF]  '
 	  ELSE IF(BA_DEM_EXM .GE. BA_SAT_RAW)THEN
 	    TRC_ST='[SAT]  '
 	  END IF
-	  WRITE(LUER,'(4X,A14,3(2X,ES10.3),2X,A,1X,2(A,ES9.2))')
-	1    'exempt/trc',BA_DEM_EXM,BA_DEM_EXR,BA_TR_ABS,TRC_ST,
-	2    'dem>',MAX(10.0_LDP*EPS,1.0_LDP),' trc>',BA_TR_ABSMAX
+! 12-Nov-2026: ES9.2 cannot hold thresholds like 1E-100 and dropped
+! the E on three-digit exponents; the E3 forms always emit it.
+! Demand channels print %, BA_TR_ABS is named as the |dn|/POP_ATOM
+! metric, and [OFF] shows the polish-disabled state instead of
+! implying the exit gate is holding.
+	  WRITE(LUER,'(4X,A14,2(2X,ES10.3,A),2X,ES12.4E3,2X,A,1X,'//
+	1    'A,ES12.4E3,A,1X,A,ES12.4E3)')
+	2    'exempt/trc',BA_DEM_EXM,'%',BA_DEM_EXR,'%',BA_TR_ABS,TRC_ST,
+	3    'dem>',MAX(10.0_LDP*EPS,1.0_LDP),'%',
+	4    ' trc|dn|/gas>',BA_TR_ABSMAX
 	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I3,A,I3,2X,A,A3)')
 	1    'stageB','sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,
 	2    'phase ',MERGE('yes','no ',BA_TRACE_PHASE)

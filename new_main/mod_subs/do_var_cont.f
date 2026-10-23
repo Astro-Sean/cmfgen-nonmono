@@ -408,7 +408,12 @@
 ! dJ/dCHI<0 and dJ/dETA>0 are the expected signs.
 	       IF(FIRST_FREQ)THEN
 	         LUER=ERROR_LU()
-	         WRITE(LUER,'(A,2ES12.4,2A,2ES12.4,A)')
+! Delimited fields with an explicit 3-digit exponent: ES12.4 (and
+! plain ESw.d generally) drops the E on a three-digit exponent and
+! concatenates adjacent negatives -- production OUTGEN printed
+! -1.6086-164.  ES14.4E3 always emits the E and 1X keeps a
+! separator.
+	         WRITE(LUER,'(A,2(1X,ES14.4E3),2A,2(1X,ES14.4E3),A)')
 	1         '  '//TRIM(MERGE('KNOP','SOB ',DO_NONMONO_KNOP))//
 	2         ' ALO ('//TRIM(MERGE('FG ','MOM',USE_LAM_ES))//
 	3         '): dJ/dCHI diag [',
