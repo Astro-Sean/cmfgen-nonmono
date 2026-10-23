@@ -207,6 +207,7 @@
 	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
 	LOGICAL BA_TRACE_ACTIVE,BA_TRACE_OFF,BA_TRACE_RELEASE
 	LOGICAL BA_STAGEB_ARM
+	CHARACTER(LEN=6) ARM_CAUSE
 ! edited by Devin, 16-Oct-2026: CONV_EXIT_MET is the converged-exit
 ! condition evaluated before the LST_ITERATION split so the budgeted-
 ! final iteration gets a convergence test; CONV_EXIT_DONE makes the
@@ -4894,10 +4895,32 @@
 	IF(LST_ITERATION)THEN
 !
 	  IF(CONV_EXIT_MET)THEN
-	    WRITE(LUER,'(A)')
-	1     ' Convergence criteria met on the final budgeted'//
-	2     ' iteration; writing converged model state.'
-	    IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(2A)')
+! edited by Devin, 12-Nov-2026: the status line used to print
+! "Convergence criteria met" unconditionally on a met gate, which
+! contradicted CONV_EXIT_WHY when the met state still owed Stage-B
+! (BA_STAGEB_ARM cannot arm on the final budgeted iteration, so a
+! needed polish reaches this write with the budget spent).  Non-clean
+! exits print the reason unconditionally -- a production log must say
+! why it stopped.
+	    IF(BA_TRACE_NEEDED)THEN
+	      WRITE(LUER,'(A)')
+	1       ' Iteration budget exhausted with Stage-B trace polish'//
+	2       ' still owed; writing trace-limited model state.'
+	    ELSE IF(BA_TRACE_DONE .AND.
+	1        BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP))THEN
+	      WRITE(LUER,'(A)')
+	1       ' Exit gate met with trace-polish budget spent;'//
+	2       ' residual exempted demand remains.'
+	    ELSE IF(BA_TRACE_OFF .AND.
+	1        BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP))THEN
+	      WRITE(LUER,'(A)')
+	1       ' Exit gate met with trace polish disabled.'
+	    ELSE
+	      WRITE(LUER,'(A)')
+	1       ' Convergence criteria met on the final budgeted'//
+	2       ' iteration; writing converged model state.'
+	    END IF
+	    WRITE(LUER,'(2A)')
 	1     '   exit reason: ',TRIM(CONV_EXIT_WHY)
 	  ELSE
 	    WRITE(LUER,'(A)')
@@ -5354,10 +5377,24 @@
 	  ELSE
 	    IF(BA_STAGEB_ARM)THEN
 	      BA_TRACE_PHASE=.TRUE.
+! BA_TR_NSWP counts armed attempts (one extra great iteration each),
+! not verified successful sweeps -- a Stage-B solve that fails or is
+! rolled back still consumes budget.  The arm cause is named
+! explicitly: the demand leg can fire while the absolute change is
+! far below its threshold, which made sweeps look spurious.
+! edited by Devin, 12-Nov-2026.
 	      BA_TR_NSWP=BA_TR_NSWP+1
-	      WRITE(LUER,'(A,I2,A,I2,A,ES10.2)')
-	1      ' Stage-B trace polish: sweep',BA_TR_NSWP,' of',
-	2      BA_TR_MAXSWP,'; trace |dn|/gas=',BA_TR_ABS
+	      ARM_CAUSE='abs   '
+	      IF(BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
+	1        BA_DEM_EXM .LT. BA_SAT_RAW)THEN
+	        ARM_CAUSE='demand'
+	        IF(BA_TR_ABSMAX .GT. 0.0_LDP .AND.
+	1          BA_TR_ABS .GT. BA_TR_ABSMAX)ARM_CAUSE='both  '
+	      END IF
+	      WRITE(LUER,'(A,I4,A,I4,A,F8.2,A,ES12.4,A,A,A)')
+	1      ' Stage-B trace polish: sweep',BA_TR_NSWP,'/',
+	2      BA_TR_MAXSWP,' (demand',BA_DEM_EXM,'%, |dn|/gas',
+	3      BA_TR_ABS,'; arm=',TRIM(ARM_CAUSE),')'
 	    ELSE
 	      BA_TRACE_PHASE=.FALSE.
 	    END IF
