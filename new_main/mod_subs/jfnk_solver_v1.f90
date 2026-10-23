@@ -188,6 +188,17 @@ module jfnk_solver_v1_mod
    ! PC it is sqrt(y' G y) = ||s||_w with G = Z' W Z, so the
    ! trust-region radius is in physical-step units either way.
    double precision :: jfnk_last_ynrm = 0d0
+   !
+   ! editted by Devin, 12-Nov-2026: true preconditioned linear residual
+   ! ||M^{-1}(b - A x)||_w measured inside gmres_m_v1, exported so the
+   ! newton_hook_v1 stagnation gate can test the real residual rather
+   ! than the Hessenberg least-squares model residual.  With a finite-
+   ! difference matvec the Krylov basis need not span a fixed linear
+   ! operator; OUTGEN showed hess_res 15x-450x below true_res on exits
+   ! this gate used to accept.  _ok marks whether the last gmres_m_v1
+   ! exit carried a measurement.
+   double precision :: jfnk_gmres_true_res = 0d0
+   logical :: jfnk_gmres_true_res_ok = .false.
    integer :: jfnk_need_precond_refresh = 0
    integer :: jfnk_gmres_m_dim = 10
    double precision :: jfnk_pc_ref_frac = 0.8d0
@@ -617,6 +628,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                             tol, del, mndl, mxdl, nits, info, luer)
    use jfnk_solver_v1_mod
    use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_COUPLED_LOC
+   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
    implicit none
    external                        :: f, df, dfp, sub
    double precision, external      :: dp
@@ -1045,14 +1057,26 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! ref_norm = ||M^{-1}F||, not tol_ = ||F||_w.  The two differ by
       ! the conditioning of M, which made the old gate fire (or not
       ! fire) on the wrong threshold.
-      if(ginfo == 1 .and. pred_res < 0.9d0 * ref_norm) then
-         if(info == 1) write(luer,'(A,ES12.4)') &
+      ! editted by Devin, 12-Nov-2026: the Hessenberg residual is only a
+      ! Krylov-space model; under a finite-difference matvec the basis
+      ! need not span a fixed operator, and OUTGEN showed hess_res
+      ! 15x-450x below the measured true_res on exits this gate used to
+      ! accept.  Require the measured value below the same threshold,
+      ! and treat a missing/non-finite measurement as unverifiable --
+      ! abort rather than commit the solve to a bad direction.
+      if(ginfo == 1 .and. pred_res < 0.9d0 * ref_norm .and. &
+         jfnk_gmres_true_res_ok .and. &
+         ieee_is_finite(jfnk_gmres_true_res) .and. &
+         jfnk_gmres_true_res < 0.9d0 * ref_norm) then
+         if(info == 1) write(luer,'(A,ES12.4,A,ES12.4)') &
             '  JFNK: GMRES stagnated; using inexact direction &
-            &(pred_res/ref=', real(pred_res / max(ref_norm, 1d-30))
+            &(pred_res/ref=', real(pred_res / max(ref_norm, 1d-30)), &
+            ' true_res/ref=', &
+            real(jfnk_gmres_true_res / max(ref_norm, 1d-30))
          ginfo = 0
       else if(ginfo == 1) then
          if(info == 1) write(luer,'(A)') &
-            '  JFNK: GMRES stagnated — aborting Newton (Lambda fallback)'
+            '  JFNK: GMRES stagnated -- aborting Newton (Lambda fallback)'
          jfnk_x = x_
          jfnk_fx = fx_
          jfnk_tol = tol_
@@ -1916,6 +1940,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_gmres_z, jfnk_gmres_g, &
                                   jfnk_gmres_x_cycle_start, &
                                   jfnk_gmres_max_restart, jfnk_gmres_tres_fac, &
+                                  jfnk_gmres_true_res, jfnk_gmres_true_res_ok, &
                                   jfnk_exit_reason
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
@@ -1974,6 +1999,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! (stagnation gate) and jfnk_last_ynrm (snrm_tr) unconditionally.
    pred_res = 0d0
    jfnk_last_ynrm = 0d0
+   ! Alloc-failure returns below precede the per-exit resets; without
+   ! this a stale measured residual from a previous solve could pass
+   ! the caller's true-residual stagnation gate.
+   jfnk_gmres_true_res_ok = .false.
+   jfnk_gmres_true_res = 0d0
    if(allocated(w)) then
       if(size(w) .ne. n) deallocate(w, z)
    end if
@@ -2078,6 +2108,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       ! unchanged Krylov basis, so its descent check skips the pass --
       ! info=0 above hides that fact from the caller.
       jfnk_gmres_recomputed = .true.
+      jfnk_gmres_true_res_ok = .false.
       jfnk_exit_reason = 'gmres_recompute_pass'
       return
    end if
@@ -2089,6 +2120,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    its = 0
    v   = 0d0
    jfnk_last_ynrm = 0d0   ! 2026-09-13 TR-units fix: fresh GMRES solve
+   jfnk_gmres_true_res_ok = .false.   ! no exit measurement yet
    n_restart = 0
    !
 1 continue
@@ -2354,6 +2386,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                end if
                true_res = dsqrt(dotprd(n, w, w))
                ltres = .true.
+               jfnk_gmres_true_res = true_res
+               jfnk_gmres_true_res_ok = .true.
                ! info already holds the exit code here (0 on a claimed
                ! convergence), so it cannot double as the verbose gate:
                ! this line exists to audit exactly those claims.
@@ -2404,6 +2438,39 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! space, not slow progress, so a fresh basis is worth it.
             ! Restarts are bounded by imx (its keeps accumulating).
             if(res <= tol .or. its == imx .or. .not. lb_hit) then
+               ! editted by Devin, 12-Nov-2026: an info=1/2 exit hands
+               ! the caller only the Hessenberg model residual, which a
+               ! finite-difference matvec can leave orders below the
+               ! true ||b - A x||_w.  Measure once here so the Newton
+               ! stagnation gate tests the real residual.  Converged
+               ! exits (info=0) and cycles already measured by the TRES
+               ! check (ltres) add no extra matvec.
+               if(info /= 0 .and. .not. ltres) then
+                  call matvec(n, x, z)
+                  jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+                  if(jfnk_jvp_failed) then
+                     if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
+                        ' in exit true-res measure -- aborting'
+                     info = 3
+                     jfnk_exit_reason = 'gmres_jvp_failure_tres_exit'
+                     return
+                  end if
+                  w = b - z
+                  if(left_pc) then
+                     call psolve(n, w)
+                     if(jfnk_pc_clip_event) then
+                        if(luer > 0) write(luer,*) '  GMRES: precond'// &
+                           ' clip in exit true-res measure -- aborting'
+                        info = 3
+                        jfnk_exit_reason = 'gmres_pc_clip_tres_exit'
+                        return
+                     end if
+                  end if
+                  true_res = dsqrt(dotprd(n, w, w))
+                  ltres = .true.
+                  jfnk_gmres_true_res = true_res
+                  jfnk_gmres_true_res_ok = .true.
+               end if
                if(info == 0) then
                   jfnk_exit_reason = 'gmres_converged'
                else if(its == imx) then
@@ -2460,6 +2527,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                   end if
                end if
                true_res = dsqrt(dotprd(n, w, w))
+               ltres = .true.
+               jfnk_gmres_true_res = true_res
+               jfnk_gmres_true_res_ok = .true.
             end if
             write(luer,'(A,I3,A,ES12.4,A,ES12.4,A,ES12.4)') &
                '  GMRES RESTART DIAG: it=', its, &
@@ -2484,6 +2554,35 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
                if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
                jfnk_last_ynrm = dsqrt(max(0d0, dotprd(n, x, x)))
+            end if
+            ! Same unverifiable-direction hazard as the stagnation exit
+            ! above: x is re-scaled to the trust radius here, so a TRES
+            ! measurement taken on the unscaled x is stale -- measure
+            ! after the rescale when no current-cycle value exists.
+            if(.not. ltres) then
+               call matvec(n, x, z)
+               jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+               if(jfnk_jvp_failed) then
+                  if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
+                     ' in exit true-res measure -- aborting'
+                  info = 3
+                  jfnk_exit_reason = 'gmres_jvp_failure_tres_exit'
+                  return
+               end if
+               w = b - z
+               if(left_pc) then
+                  call psolve(n, w)
+                  if(jfnk_pc_clip_event) then
+                     if(luer > 0) write(luer,*) '  GMRES: precond'// &
+                        ' clip in exit true-res measure -- aborting'
+                     info = 3
+                     jfnk_exit_reason = 'gmres_pc_clip_tres_exit'
+                     return
+                  end if
+               end if
+               true_res = dsqrt(dotprd(n, w, w))
+               jfnk_gmres_true_res = true_res
+               jfnk_gmres_true_res_ok = .true.
             end if
             if(luer > 0) write(luer,'(A,I3,A)') &
                '  GMRES: restart cap (', n_restart, &
