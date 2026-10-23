@@ -52,6 +52,8 @@
 !   G13: the Newton stagnation gate uses the measured true residual,
 !       not only the Hessenberg model residual (12-Nov-2026 fix).
 !   G14: a zero-decrease trial is a rejection, not a rho<0.75 retry
+!   G15: a broken linear solve (measured true_res > |F| on a
+!        non-converged GMRES exit) skips the eta re-solve.
 !       (12-Nov-2026 fix).
 !
 ! edited by Devin, Oct-2026
@@ -713,15 +715,15 @@ program test_guards
    !
    ! -------- G15: broken linear solve must not burn an eta re-solve --
    !
-   ! df_anti gives Arnoldi basis calls (|v| ~ 1) a three-eigenvalue
-   ! definite action, so GMRES needs >2 iterations; jfnk_max_gmres_its
-   ! caps it at 2, forcing the info=2 exit.  The accumulated-step
-   ! calls (|v| > 2: the exit true-residual measure, restarts, and
-   ! the newton J_s eval) see anti-aligned -2*v action, so the
-   ! physical model |F-Js| exceeds |F| and the step is non-descent --
-   ! the OUTGEN signature where an eta-tightened re-solve repeated
-   ! the same failure.  The fix must skip the retry entirely:
-   ! jfnk_n_descent_retry stays 0.
+   ! df_anti gives Arnoldi basis calls (|v| ~ 1) a ten-eigenvalue
+   ! definite action, so no Krylov space of dim < 10 can converge;
+   ! jfnk_max_gmres_its caps it at 2, forcing the info=2 exit and the
+   ! measured true_res on every solve.  The accumulated-step calls
+   ! (|v| > 2: the exit true-residual measure, restarts, and the
+   ! newton J_s eval) see anti-aligned -2*v action, so true_res
+   ! exceeds |F| and the step is non-descent -- the OUTGEN signature
+   ! where an eta-tightened re-solve repeated the same failure.  The
+   ! fix must skip the retry entirely: jfnk_n_descent_retry stays 0.
    block
       jfnk_ptc_active = .false.
       jfnk_do_line_search = .false.
@@ -748,6 +750,7 @@ program test_guards
       jfnk_max_gmres_its = 0
       jfnk_use_left_pc = .true.
    end block
+   !
    !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL GUARD TESTS PASSED'
@@ -915,15 +918,16 @@ subroutine df_anti(n, v, jv)
    implicit none
    integer :: n, i
    double precision :: v(n), jv(n)
-   ! G15: unit-norm Arnoldi basis calls see a definite three-eigenvalue
-   ! action (slow convergence, forces the imx exit); the accumulated-
-   ! step calls -- exit true-residual measure, restart residuals, and
-   ! the newton J_s -- see anti-aligned action.  Reproduces the
-   ! production pathology of a max-its exit returning a non-descent
-   ! step whose measured true_res exceeds the reference.
+   ! G15: unit-norm Arnoldi basis calls see a definite ten-eigenvalue
+   ! action (no Krylov space of dim < 10 converges, so the imx=2 cap
+   ! always exits non-converged and true_res is measured); the
+   ! accumulated-step calls -- exit true-residual measure, restart
+   ! residuals, and the newton J_s -- see anti-aligned action.
+   ! Reproduces the production pathology of a max-its exit returning a
+   ! non-descent step whose measured true_res exceeds the reference.
    if(dsqrt(dot_product(v, v)) < 2d0) then
       do i = 1, n
-         jv(i) = (0.4d0 + 0.5d0 * dble(mod(i, 3))) * v(i)
+         jv(i) = (0.4d0 + 0.3d0 * dble(mod(i, 10))) * v(i)
       end do
    else
       jv = -2d0 * v
