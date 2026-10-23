@@ -3097,8 +3097,8 @@
      3    ' |diff|/|anal|=', DIFF_NORM/MAX(AN_NORM,1.0D-30)
 	  IF(JFNK_BA_RAD_BANDS_READY .AND. JFNK_LUER .GT. 0)
 	1   WRITE(JFNK_LUER,'(A,I2,2(A,ES12.4))')
-     2    '  JVP dir ', JVP_DIR_CT, ' full-band:',
-     3    ' |FD-BAall*v|=', DIF2_NORM,
+     2    '  JVP dir ', JVP_DIR_CT, ' full-band: |FD-BAall*v|=',
+     3    DIF2_NORM,
      4    ' /|anal|=', DIF2_NORM/MAX(AN_NORM,1.0D-30)
 !
 ! Round-trip audit (04-Nov-2026): feed the measured J*v products back
@@ -8577,7 +8577,7 @@
 	    DMET=MAX(DMET,ABS(WRK(ID)))
 	    FFL=MAX(FFL,ABS(BCL(ID)))
 	  END DO
-	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4,A,I4,A,2ES11.3)')
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4,A,I4,2(A,ES11.3))')
 	1     '    anchor idx=',II,' K=',K,' J=',J,
 	2     '  max|dA|=',DMET,'  |dA|/|BAcol|=',DMET/MAX(FFL,1.0D-300)
 !
