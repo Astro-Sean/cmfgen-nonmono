@@ -4805,12 +4805,26 @@
 ! BA_TR_ABSMAX=0 is the documented off state (22-Oct-2026), mirroring
 ! the CONV_TRC_NEED replica in SOLVE_FOR_POPS.
 !
+! edited by Devin, 12-Nov-2026: arm on a material exempted demand as
+! well as on the absolute trace change.  Stage-B rows sit below
+! BA_DEM_PFLOOR (1E-30), so even a 100% committed change leaves
+! BA_TR_ABS ~1E-37, unreachable below BA_TR_ABSMAX=1E-8 -- the
+! absolute leg alone never fired and Stage-B stayed "sweep 0/3 phase
+! no" forever while BA_DEM_EXM held at ~18%.  The demand leg covers
+! the unsaturated material band [MAX(10*EPS,1), BA_SAT_RAW); demand
+! below EPS is exempt noise and >= BA_SAT_RAW is the dead-stage class
+! that releases the exit instead of arming.  BA_TR_ABS remains the
+! completion/diagnostic metric and the BA_TR_ABSMAX > 0 off state is
+! preserved.
+!
 	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1    BA_TR_MAXSWP .GT. 0 .AND.
 	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
 	3    BA_TR_ABSMAX .GT. 0.0_LDP .AND.
-	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
-	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
+	4    BA_TR_NSWP .LT. BA_TR_MAXSWP .AND.
+	5    ( (BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
+	6        BA_DEM_EXM .LT. BA_SAT_RAW) .OR.
+	7        BA_TR_ABS .GT. BA_TR_ABSMAX )
 	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.
 	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
 !

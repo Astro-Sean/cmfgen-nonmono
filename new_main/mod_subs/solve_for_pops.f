@@ -3806,10 +3806,11 @@
 	1    ' (major) population correction wanted / committed; rows'//
 	2    ' below the BA_DEM floors are exempt -- see exempt/trc'
 	    WRITE(LUER,'(A)')'   exempt/trc     = largest floor-exempted'//
-	1    ' (trace) % demand / committed trace |dn|/gas vs the'//
-	2    ' exit gates in (); [SAT] = saturated dead-stage demand'//
-	3    ' (>= BA_SAT_RAW, counts as unresolvable and releases'//
-	4    ' the exit like a small demand)'
+	1    ' (trace) % demand / committed trace |dn|/gas; gates are'//
+	2    ' the Stage-B arming thresholds (demand >= dem> OR'//
+	3    ' abs > trc>); [SAT] = saturated dead-stage demand'//
+	4    ' (>= BA_SAT_RAW, counts as unresolvable and releases'//
+	5    ' the exit like a small demand)'
 	    WRITE(LUER,'(A)')'   conv exit      = live evaluation of the'//
 	1    ' CMFGEN_SUB converged-exit test on the total system;'//
 	2    ' [MET] the exit would fire on this call, [HOLD] lists'//
@@ -3879,14 +3880,20 @@
 !
 ! BA_TR_ABSMAX=0 is the documented off state (22-Oct-2026): without
 ! the >0 guard the comparison is true for any nonzero BA_TR_ABS and
-! the trace polish could never be switched off.
+! the trace polish could never be switched off.  12-Nov-2026: the
+! arming legs replicate CMFGEN_SUB exactly -- a material unsaturated
+! exempted demand [MAX(10*EPS,1), BA_SAT_RAW) arms Stage-B as well
+! as BA_TR_ABS > BA_TR_ABSMAX, which floor-exempted rows can never
+! reach.
 !
 	  CONV_TRC_NEED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1    BA_TR_MAXSWP .GT. 0 .AND.
 	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
 	3    BA_TR_ABSMAX .GT. 0.0_LDP .AND.
-	4    BA_TR_ABS .GT. BA_TR_ABSMAX .AND.
-	5    BA_TR_NSWP .LT. BA_TR_MAXSWP
+	4    BA_TR_NSWP .LT. BA_TR_MAXSWP .AND.
+	5    ( (BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
+	6        BA_DEM_EXM .LT. BA_SAT_RAW) .OR.
+	7        BA_TR_ABS .GT. BA_TR_ABSMAX )
 	  CONV_TRC_DONE=BA_TR_MAXSWP .GT. 0 .AND.
 	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
 	  CONV_DEM_OK=(BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
@@ -3902,7 +3909,7 @@
 	  END IF
 	  WRITE(LUER,'(4X,A14,3(2X,ES10.3),2X,A,1X,2(A,ES9.2))')
 	1    'exempt/trc',BA_DEM_EXM,BA_DEM_EXR,BA_TR_ABS,TRC_ST,
-	2    'gates',MAX(10.0_LDP*EPS,1.0_LDP),'/',BA_TR_ABSMAX
+	2    'dem>',MAX(10.0_LDP*EPS,1.0_LDP),' trc>',BA_TR_ABSMAX
 	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I3,A,I3,2X,A,A3)')
 	1    'stageB','sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,
 	2    'phase ',MERGE('yes','no ',BA_TRACE_PHASE)
