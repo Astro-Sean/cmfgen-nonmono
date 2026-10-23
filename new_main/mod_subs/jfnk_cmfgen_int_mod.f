@@ -227,6 +227,15 @@
 ! residual eval somehow runs outside the driver.
 !
 	INTEGER, SAVE :: JFNK_EVAL_LIM=0
+!
+! JFNK_EVAL_BYPASS: lets a single deliberate residual eval through
+! the budget/wall-clock sentinels.  The commit-time applied-state
+! verification (JFNK_SOLVE_CORR_V1) runs AFTER the solve has spent
+! the budget; without a bypass it receives the Y=1e20 sentinel and
+! rolls back steps the line search already verified.  The budget
+! exists to bound GMRES burn, not to blind the commit check.
+!
+	LOGICAL, SAVE :: JFNK_EVAL_BYPASS=.FALSE.
 	INTEGER, SAVE :: JFNK_N_LU_FACTORS=0
 	INTEGER, SAVE :: JFNK_N_PRECOND_REFRESH=0
 	INTEGER, SAVE :: JFNK_N_RIDGE_DEPTHS=0
