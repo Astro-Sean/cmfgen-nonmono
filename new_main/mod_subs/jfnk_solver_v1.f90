@@ -1733,7 +1733,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       else if(snrm_tr < jfnk_del * 0.9d0) then
          if(info == 1) write(luer,*) '  JFNK: step good, took full &
             &newton step'
-         if(snrm < 1d2) jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
+         if(snrm < jfnk_runaway_fac * max(ref_norm, 1.0d-30)) &
+            jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
          ginfo = 0  ! step accepted, clear hookstep flag
       else if(jfnk_del < mxdl_ * 0.9d0) then
          if(info == 1) write(luer,*) '  JFNK: step good, trying larger &
@@ -1742,7 +1743,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          fx__    = jfnk_fx
          tol__   = jfnk_tol
          del__   = jfnk_del
-         if(snrm < 1d2) jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
+         if(snrm < jfnk_runaway_fac * max(ref_norm, 1.0d-30)) &
+            jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
          ! edited by Devin, 05-Oct-2026 (retry-pass base-point fix):
          ! same restore as the rho<0.75 branch above -- the module
          ! state must sit at the linearization point (x_, fx_) because
