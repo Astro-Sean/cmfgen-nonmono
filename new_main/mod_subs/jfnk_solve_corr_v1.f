@@ -25,6 +25,12 @@
 ! JFNK_COUPLED=F: V6 semantics -- STEQ_coll(n) + stored radiative term
 ! + CMAT_RAD linearization.  Retained as a debugging/fallback mode.
 !
+! Under DO_NONMONO_SOB + [JFNK_COUPLED_SOB] (both default F) the
+! coupled tier is never demand-admitted: it fires only as the
+! reach-fail fallback below, once the frozen tier certifies the
+! residual unreachable by a population step, and only after the eval
+! residual at x=0 reproduces the production STEQ to 1D-10.
+!
 ! On non-catastrophic stagnation this routine returns to the caller's
 ! SOLVEBA_V13 mode.  Only an unrecoverable eval failure forces the
 ! conservative Lambda safety path.
@@ -139,6 +145,21 @@
 	INTEGER, ALLOCATABLE :: NZ_SP(:)
 	INTEGER JROW,KROW,LEV_LOC,IHS
 	INTEGER NEV_CAP
+!
+! Coupled-SOB reach-fail fallback ([JFNK_COUPLED_SOB], default F;
+! 23-Oct-2026): F_PROD_SAV holds the production-assembled masked STEQ
+! for the consistency gate -- jfnk_fx is overwritten by the adopted
+! F_eval(0) baseline before the reach gate runs, so the check needs
+! its own copy.  CPL_FB_MIN_EVALS is the smallest budget a bounded
+! coupled attempt can usefully spend: one consistency eval at x=0
+! plus a few GMRES matvec evals.
+!
+	DOUBLE PRECISION, ALLOCATABLE :: F_PROD_SAV(:)
+	LOGICAL CPL_FB_ARM,CPL_FB_FIRED,CPL_CHK_ACTIVE
+	INTEGER CPL_CAP,JJ_W
+	DOUBLE PRECISION FB_D2,FB_R2,FB_REL
+	INTEGER, PARAMETER :: CPL_FB_MIN_EVALS=6
+!
 	LOGICAL L_EVR_PTZ,L_EVR_FDOP,L_EVR_TOPF,L_EVR_TZ2
 	DOUBLE PRECISION POP_LOC,NLTE_LOC,BADG_LOC
 	CHARACTER*14 LBL_LOC
@@ -235,6 +256,9 @@
 	JFNK_LAG_FACTORS_READY=.FALSE.
 	VERIF_REJECT=.FALSE.
 	JFNK_REACH_SKIP=.FALSE.
+! One coupled-SOB fallback admission per activation -- the flag also
+! guards the site against future restructuring that reaches it twice.
+	CPL_FB_FIRED=.FALSE.
 !
 ! W12 (17-Oct-2026): enriched-apply state is per-activation -- a
 ! deferred or rejected previous admission must not leave a stale U
@@ -570,6 +594,19 @@
 !
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,jfnk_fx)
 	  CALL JFNK_COMPUTE_RSCALE_V1(JFNK_N,jfnk_fx)
+!
+! Coupled-SOB fallback ([JFNK_COUPLED_SOB], default F; 23-Oct-2026):
+! the consistency gate at the reach-fail site compares the coupled
+! eval at x=0 against the production-assembled STEQ -- keep a masked
+! copy now, since the F(0) adoption below overwrites jfnk_fx with the
+! eval-side baseline.  The copy itself changes no computation.
+!
+	  IF(DO_NONMONO_SOB .AND. JFNK_COUPLED .AND.
+	1     JFNK_COUPLED_SOB)THEN
+	    IF(ALLOCATED(F_PROD_SAV))DEALLOCATE(F_PROD_SAV)
+	    ALLOCATE(F_PROD_SAV(JFNK_N))
+	    F_PROD_SAV=jfnk_fx
+	  END IF
 !
 ! F(0) identity test: in frozen mode the JFNK residual at x=0 must
 ! reproduce the outer-iteration STEQ to within rounding; otherwise the
@@ -1932,6 +1969,118 @@
 	1     '  JFNK DIRCHK: diagnostics complete; deferring Newton'//
 	2     ' to caller-mode SOLVEBA (event ',JFNK_DIRCHK_N,')'
 	    END IF
+!
+! Coupled-SOB reach-fail fallback ([JFNK_COUPLED_SOB], default F;
+! 23-Oct-2026).  JFNK_REACH_SKIP means the stored-BA gates certified
+! this residual unreachable by a population step: |F| sits in
+! radiation-pinned rows where the frozen operator carries no dJ/dn,
+! so each frozen admission defers (~100 s of setup) and the lagged
+! field never gets a Newton correction.  The coupled tier is the only
+! operator carrying the full pops->opacity->formal-J->rates chain
+! (Arramy et al. 2024), and demand alone never admits it under SOB --
+! a certified reach failure is its only entry point.  One attempt
+! per activation, bounded by the same eval/wall budgets plus
+! [JFNK_CPL_SOB_MAX_EVALS]; when the remaining budget cannot afford
+! the consistency eval plus a few GMRES matvecs the call keeps the
+! plain frozen skip.  DIRCHK admissions stay diagnostics-only.
+! JFNK_PC_DIAG_ONLY is re-cleared defensively: a stuck flag would
+! silently degrade the LU apply inside the coupled GMRES solve.
+!
+	    CPL_FB_ARM=JFNK_CPL_SOB_ADMIT_V1(JFNK_REACH_SKIP,
+	1      JFNK_COUPLED_LOC,CPL_FB_FIRED,DO_DIRCHK_NOW,
+	2      DO_NONMONO_SOB,JFNK_COUPLED,JFNK_COUPLED_SOB,
+	3      JFNK_CPL_SOB_DEAD,ASSOCIATED(JFNK_SWEEP_CB))
+	    IF(CPL_FB_ARM)THEN
+	      CPL_CAP=JFNK_CPL_SOB_CAP_V1(JFNK_EVAL_LIM,JFNK_MAX_EVALS,
+	1        JFNK_CPL_SOB_MAX_EVALS)
+	      IF((CPL_CAP .GT. 0 .AND.
+	1        JFNK_N_RESIDUAL_EVALS+CPL_FB_MIN_EVALS .GT. CPL_CAP)
+	2        .OR. (JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	3        OMP_GET_WTIME()-JFNK_T_START .GE.
+	4        DBLE(JFNK_MAX_SEC)))THEN
+	        CPL_FB_ARM=.FALSE.
+	        WRITE(LUER,'(A)')
+	1       '  JFNK: reach-fail fallback denied -- eval/wall budget'//
+	2       ' cannot afford a bounded JFNK-CPL attempt'
+	      END IF
+	    END IF
+	    IF(CPL_FB_ARM)THEN
+	      CPL_FB_FIRED=.TRUE.
+	      JFNK_PC_DIAG_ONLY=.FALSE.
+	      BLOCK
+	        DOUBLE PRECISION FB_X(JFNK_N),FB_Y(JFNK_N),FB_D(JFNK_N)
+	        FB_X=0.0D0
+	        JFNK_COUPLED_LOC=.TRUE.
+	        CALL JFNK_RESIDUAL_V1(JFNK_N,FB_X,FB_Y)
+	        CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,FB_Y)
+!
+! A3 consistency gate: the coupled eval at x=0 must reproduce the
+! production-assembled STEQ to 1D-10 (weighted) before Newton may
+! differentiate it.  The gate is enforced on the first coupled
+! admission, and on every one when [JFNK_CPL_SOB_EACH]=T; once it has
+! passed, later activations only log the drift.  A failed enforced
+! check detaches the sweep callback for the rest of the run and this
+! call exits through the identical frozen skip.  A broken eval
+! (budget sentinel, non-finite components) is transient -- it vetoes
+! this admission only, without latching JFNK_CPL_SOB_DEAD.
+!
+	        FB_D=FB_Y-F_PROD_SAV
+	        FB_D2=SQRT(JFNK_DOT_V1(JFNK_N,FB_D,FB_D))
+	        FB_R2=SQRT(JFNK_DOT_V1(JFNK_N,F_PROD_SAV,F_PROD_SAV))
+	        FB_REL=FB_D2/MAX(FB_R2,1.0D-300)
+	        JJ_W=MAXLOC(ABS(FB_D),1)
+	        CPL_CHK_ACTIVE=JFNK_CPL_SOB_EACH .OR.
+	1          .NOT. JFNK_CPL_SOB_CHK_DONE
+	        WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1       '  JFNK-CPL consistency: |F_eval-F_prod|_w=',REAL(FB_D2),
+	2       '  rel=',REAL(FB_REL)
+	        WRITE(LUER,'(A,I10,A,I8,A,I4)')
+	1       '    worst eqn',JJ_W,' depth',(JJ_W-1)/JFNK_NT+1,
+	2       ' slot',MOD(JJ_W-1,JFNK_NT)+1
+	        IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	          JFNK_COUPLED_LOC=.FALSE.
+	          JFNK_TAG=' (JFNK-FRZ)'
+	          WRITE(LUER,'(A)')
+	1         '  JFNK-CPL: eval broken/non-finite -- staying on'//
+	2         ' frozen tier + SOLVEBA for this call'
+	        ELSE IF(CPL_CHK_ACTIVE .AND.
+	1                .NOT.(FB_REL .LE. 1.0D-10))THEN
+	          JFNK_COUPLED_LOC=.FALSE.
+	          JFNK_TAG=' (JFNK-FRZ)'
+	          JFNK_CPL_SOB_DEAD=.TRUE.
+	          NULLIFY(JFNK_SWEEP_CB)
+	          WRITE(LUER,'(A)')
+	1         '  JFNK-CPL: eval residual inconsistent with'//
+	2         ' production STEQ -- callback detached, frozen'//
+	3         ' tier + SOLVEBA continue'
+	        ELSE
+	          JFNK_CPL_SOB_CHK_DONE=.TRUE.
+	          jfnk_fx=FB_Y
+	          CALL JFNK_COMPUTE_RSCALE_V1(JFNK_N,jfnk_fx)
+	          JFNK_TOL_ABS=DBLE(JFNK_TOL_REL)*SQRT(
+	1             JFNK_DOT_V1(JFNK_N,jfnk_fx,jfnk_fx))
+	          IF(JFNK_TOL_ABS .LT. 1.0D-30)JFNK_TOL_ABS=1.0D-30
+	          F_W_INIT=SQRT(JFNK_DOT_V1(JFNK_N,jfnk_fx,jfnk_fx))
+	          F_INF_INIT=0.0D0
+	          DO II_F=1,JFNK_N
+	            F_INF_INIT=MAX(F_INF_INIT,ABS(jfnk_fx(II_F)))
+	          END DO
+	          F_W_ENTRY=F_W_INIT
+	          BEST_F_W=F_W_INIT
+	          BEST_F_INF=F_INF_INIT
+	          JFNK_EVAL_LIM=JFNK_CPL_SOB_CAP_V1(JFNK_EVAL_LIM,0,
+	1            JFNK_CPL_SOB_MAX_EVALS)
+	          jfnk_fx_fresh=.TRUE.
+	          JFNK_REACH_OK=.TRUE.
+	          JFNK_REACH_SKIP=.FALSE.
+	          JFNK_TAG=' (JFNK-CPL)'
+	          WRITE(LUER,'(A,I6,A)')
+	1         '  JFNK: reach-fail fallback -> JFNK-CPL admitted,',
+	2         JFNK_CPL_SOB_CAP_V1(JFNK_EVAL_LIM,JFNK_MAX_EVALS,
+	3           JFNK_CPL_SOB_MAX_EVALS),' evals budgeted'
+	        END IF
+	      END BLOCK
+	    END IF
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
 	    T_PH_PREC=OMP_GET_WTIME()-TW_PH
 !
@@ -2659,6 +2808,11 @@
 	  END IF
 !
 	  WRITE(LUER,'(A)')'  JFNK final diagnostics:'
+! JFNK_TAG tracks the tier actually run -- a reach-fail fallback
+! flips it mid-activation, so audits see JFNK-CPL where a frozen
+! admission ended in a coupled attempt.
+	  WRITE(LUER,'(A,A)')'    Residual tier:              ',
+	1   TRIM(ADJUSTL(JFNK_TAG))
 	  WRITE(LUER,'(A,I6)')'    Newton-level F evaluations:',
 	1   jfnk_total_f_evals
 	  WRITE(LUER,'(A,I6)')'    Residual evals incl JVPs: ',
@@ -2789,5 +2943,13 @@
 ! JFNK_EVAL_BYPASS is commit-verification scope only; an interrupted
 ! activation must not hand it to the next one.
 	JFNK_EVAL_BYPASS=.FALSE.
+!
+! Coupled-SOB fallback state ([JFNK_COUPLED_SOB], 23-Oct-2026): the
+! consistency verdict was measured against the previous model's
+! production STEQ -- a NEWMOD must re-prove it rather than inherit a
+! detach or a stale pass.
+!
+	JFNK_CPL_SOB_DEAD=.FALSE.
+	JFNK_CPL_SOB_CHK_DONE=.FALSE.
 	RETURN
 	END SUBROUTINE JFNK_RETREAT_RESET_V1

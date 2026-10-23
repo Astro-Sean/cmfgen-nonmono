@@ -485,6 +485,40 @@ contains
          cap = eval_lim
    end function jfnk_eval_cap_v1
 !
+   ! jfnk_cpl_sob_cap_v1: effective residual-eval cap for a coupled-SOB
+   ! activation ([JFNK_CPL_SOB_MAX_EVALS], default 0 = inherit).  Layers
+   ! the coupled cap over the usual eval_lim/max_evals pair; 0 disables
+   ! a cap independently at each level.  (23-Oct-2026)
+   !
+   pure integer function jfnk_cpl_sob_cap_v1(eval_lim, max_evals, &
+        cpl_max) result(cap)
+      implicit none
+      integer, intent(in) :: eval_lim, max_evals, cpl_max
+      cap = jfnk_eval_cap_v1(eval_lim, max_evals)
+      if(cpl_max > 0 .and. (cap <= 0 .or. cpl_max < cap)) cap = cpl_max
+   end function jfnk_cpl_sob_cap_v1
+!
+   ! jfnk_cpl_sob_admit_v1: reach-fail fallback admission predicate
+   ! ([JFNK_COUPLED_SOB], default F; 23-Oct-2026).  The coupled tier
+   ! fires under SOB only when the frozen tier just certified the
+   ! residual unreachable (reach_skip), the activation is not already
+   ! coupled, no fallback fired yet this activation, the admission is
+   ! not a dirchk diagnostic call, the coupled-SOB config is armed,
+   ! the consistency check has not latched dead, and the sweep
+   ! callback is registered.  Extracted pure so the unit tests lock
+   ! the gate semantics; JFNK_SOLVE_CORR_V1 calls it at the skip site.
+   !
+   pure logical function jfnk_cpl_sob_admit_v1(reach_skip, &
+        coupled_loc, fired, dirchk, sob, coupled, cpl_sob, dead, &
+        cb_assoc) result(arm)
+      implicit none
+      logical, intent(in) :: reach_skip, coupled_loc, fired, dirchk
+      logical, intent(in) :: sob, coupled, cpl_sob, dead, cb_assoc
+      arm = reach_skip .and. .not. coupled_loc .and. .not. fired &
+         .and. .not. dirchk .and. sob .and. coupled .and. cpl_sob &
+         .and. .not. dead .and. cb_assoc
+   end function jfnk_cpl_sob_admit_v1
+!
 end module jfnk_solver_v1_mod
 
 

@@ -124,6 +124,22 @@
 ! flag so a single executable can mix frozen and coupled activations.
 !
 	LOGICAL, SAVE :: JFNK_COUPLED_LOC=.FALSE.
+!
+! Coupled-SOB reach-fail fallback state ([JFNK_COUPLED_SOB], default
+! F; 23-Oct-2026).  Under DO_NONMONO_SOB the coupled tier is never
+! demand-admitted -- it fires only inside JFNK_SOLVE_CORR_V1 after
+! the frozen tier certifies the residual unreachable, and only if the
+! eval residual at x=0 first reproduces the production-assembled STEQ
+! to 1D-10 relative (otherwise Newton would optimize a different
+! equation than the outer iteration).  A failed check latches
+! JFNK_CPL_SOB_DEAD: the sweep callback is detached and every later
+! reach skip falls back to caller-mode SOLVEBA exactly as before.
+! JFNK_CPL_SOB_CHK_DONE records a passed check so it runs once per
+! run unless [JFNK_CPL_SOB_EACH]=T re-arms it on every coupled
+! admission.  Run scope: JFNK_RETREAT_RESET_V1 clears both on NEWMOD.
+!
+	LOGICAL, SAVE :: JFNK_CPL_SOB_DEAD=.FALSE.
+	LOGICAL, SAVE :: JFNK_CPL_SOB_CHK_DONE=.FALSE.
 ! Runaway |z| threshold after M^{-1}; default 10 matches MAX_JFNK.
 ! editted by Sean Brennan (08-Sep-2026)
 	REAL(KIND=LDP), SAVE :: JFNK_PRECOND_ZMAX=1.0E1_LDP
@@ -500,11 +516,16 @@
 ! frequency loop (opacity -> formal solve -> radiative rates, with the
 ! Knop I_NEXT store frozen) at a perturbed population state, so the
 ! finite-difference JVP probes dJ/dn -- the fully coupled SE+RTE
-! residual used by Arramy et al. (2024).  Registered once from
+! residual used by Arramy et al. (2024).  Under DO_NONMONO_SOB +
+! [JFNK_COUPLED_SOB] it additionally replays the SECTION='LINE' pass
+! (SUB_SOB_LINE_V3) so Sobolev line rates enter the eval residual the
+! same way they enter the production assembly.  Registered once from
 ! CMFGEN_SUB when USE_JFNK_SOLVER .AND. JFNK_COUPLED; JFNK_RESIDUAL_V1
-! checks ASSOCIATED before calling it.  The pointer target is an
-! internal procedure -- valid only while CMFGEN_SUB is active, which
-! always holds (the solver runs inside SOLVE_FOR_POPS).
+! checks ASSOCIATED before calling it, and a failed coupled-SOB
+! consistency check NULLIFYs it for the rest of the run
+! (JFNK_CPL_SOB_DEAD).  The pointer target is an internal procedure --
+! valid only while CMFGEN_SUB is active, which always holds (the
+! solver runs inside SOLVE_FOR_POPS).
 !
 ! JFNK_SKIP_SE_ZERO: set .TRUE. around the post-sweep
 ! JFNK_COMPUTE_STEQ_V1 call so the collisional terms are accumulated on

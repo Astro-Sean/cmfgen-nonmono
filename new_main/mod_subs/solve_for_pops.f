@@ -10,7 +10,8 @@
 	USE MOD_CMFGEN
         USE ANG_QW_MOD
 	USE CONTROL_VARIABLE_MOD
-	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK,JFNK_BA_SRC_IT
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK,JFNK_BA_SRC_IT,
+	1    JFNK_SWEEP_CB,JFNK_CPL_SOB_DEAD
 	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
@@ -2051,9 +2052,10 @@
 ! LAMBDA/frozen-field warmup and all GS/resacc gating above are
 ! untouched.  JFNK_SOLVE_CORR_V1 falls back internally to a
 ! LAMBDA-mode SOLVEBA_V13 on failure.  Admitted under DO_NONMONO_KNOP
-! or DO_NONMONO_SOB; the coupled tier is KNOP-only (JFNK_COUPLED is
-! rejected under SOB at VADAT read), so SOB always runs the frozen-J
-! residual here.
+! or DO_NONMONO_SOB.  The coupled tier is demand-admitted only under
+! KNOP: under SOB [JFNK_COUPLED_SOB] (default F) arms it solely as
+! the reach-fail fallback inside JFNK_SOLVE_CORR_V1, so SOB calls
+! here always enter on the frozen-J residual.
 !
 ! JFNK_ANY_ITER (VADAT [JFNK_ANYITER], default F): bring-up/debug
 ! only -- fire the JFNK solve even on a LAMBDA-designated call.  The
@@ -2082,14 +2084,18 @@
 ! residual/JVP eval would overwrite the lagged field the committed
 ! iterate relies on, corrupting the in-sweep coupling.
 !
-! edited by Devin, 17-Oct-2026: under DO_NONMONO_SOB only the frozen
-! tier exists (JFNK_COUPLED is a hard STOP in the reader), and the
-! frozen-J residual is the same fixed-J system SOLVEBA solves
-! directly -- JFNK can therefore never accelerate a radiation-pinned
-! residual (m15 SOB_l14_jfnkrel: 186 admits, 0 GMRES, every one a
-! reach-gate skip).  For that model class consider disabling the
-! relief/DO_JFNK, or cap the wasted admissions via
-! JFNK_REL_REACH_MAX.
+! edited by Devin, 17-Oct-2026: under DO_NONMONO_SOB the frozen-J
+! residual is the same fixed-J system SOLVEBA solves directly -- the
+! frozen tier can never accelerate a radiation-pinned residual (m15
+! SOB_l14_jfnkrel: 186 admits, 0 GMRES, every one a reach-gate skip).
+! For that model class consider disabling the relief/DO_JFNK, or cap
+! the wasted admissions via JFNK_REL_REACH_MAX.
+! 23-Oct-2026: with [JFNK_COUPLED_SOB]=T the frozen-tier reach
+! failure instead arms the coupled tier inside JFNK_SOLVE_CORR_V1 --
+! the tier whose evals re-solve J and can move a radiation-pinned
+! residual.  Admission still enters on the frozen tier; the flip
+! happens only after unreachability is certified and the consistency
+! check passes.
 !
 ! GS_FREEZE is assigned from the radiation-maturity gate only inside
 ! the [DO_NONMONO_KNOP] block (default F). Keep this assertion beside
@@ -2228,7 +2234,13 @@
 	2   ' /',GS_REL_N
 	    WRITE(LUER,'(A)')
 	1   '    disposition : frozen tier / SOLVEBA path this call'
-	  ELSE IF(JFNK_COUPLED .AND.
+! Under DO_NONMONO_SOB the coupled tier is never demand-admitted
+! ([JFNK_COUPLED_SOB], 23-Oct-2026): a full-sweep eval per JVP is too
+! expensive to fire on a demand signal that has not first certified
+! the frozen tier cannot help.  SOB coupled admissions arise only
+! from the reach-fail fallback inside JFNK_SOLVE_CORR_V1.
+!
+	  ELSE IF(JFNK_COUPLED .AND. .NOT. DO_NONMONO_SOB .AND.
 	1     (JFNK_COR_GATE .LE. 0.0_LDP .OR.
 	2      JFNK_CPL_HITS .GE. JFNK_GATE_NREQ))THEN
 	    JFNK_COUPLED_THIS=.TRUE.
@@ -2260,16 +2272,24 @@
 ! set until the next instability reset (edited by Devin, 16-Oct-2026).
 !
 ! The relief is further de-rated by reachability (17-Oct-2026): under
-! SOB only the frozen tier exists, and a frozen-J Newton cannot reduce
-! a radiation-pinned residual (it is the same fixed-J system SOLVEBA
-! solves directly).  Once JFNK_REACH_SKIP_STREAK consecutive
-! admissions have been skipped by the reach gate, the relief stands
-! down and leaves the outer BA/LAMBDA loop to advance the lag.
-! JFNK_REL_REACH_MAX=0 restores the original unconditional relief.
+! SOB a frozen-J Newton cannot reduce a radiation-pinned residual (it
+! is the same fixed-J system SOLVEBA solves directly).  Once
+! JFNK_REACH_SKIP_STREAK consecutive admissions have been skipped by
+! the reach gate, the relief stands down and leaves the outer
+! BA/LAMBDA loop to advance the lag.  JFNK_REL_REACH_MAX=0 restores
+! the original unconditional relief.
+! 23-Oct-2026: the de-rate yields to a viable coupled-SOB fallback
+! ([JFNK_COUPLED_SOB]=T, callback attached, check not failed) -- a
+! certified-unreachable frozen tier then triggers a JFNK-CPL attempt
+! instead of another doomed frozen admission, so the skip is a
+! trigger event rather than a holiday.
 !
 	    IF(DO_NONMONO_SOB .AND. LAM_STABLE_PROVEN)THEN
 	      IF(JFNK_REL_REACH_MAX .GT. 0 .AND.
-	1       JFNK_REACH_SKIP_STREAK .GE. JFNK_REL_REACH_MAX)THEN
+	1       JFNK_REACH_SKIP_STREAK .GE. JFNK_REL_REACH_MAX .AND.
+	2       .NOT. (JFNK_COUPLED .AND. JFNK_COUPLED_SOB .AND.
+	3                .NOT. JFNK_CPL_SOB_DEAD .AND.
+	4                ASSOCIATED(JFNK_SWEEP_CB)))THEN
 	        WRITE(LUER,'(A,I4,A)')'    JFNK: stable-LAMBDA relief'//
 	1       ' suppressed (reach-skip streak >=',JFNK_REL_REACH_MAX,
 	2       ')'
@@ -2485,6 +2505,12 @@
 	  ELSE
 	    WRITE(LUER,'(A)')
 	1   '    admitted tier : JFNK-FRZ, J frozen during solve'
+	  END IF
+	  IF(.NOT. JFNK_COUPLED_THIS .AND. DO_NONMONO_SOB .AND.
+	1     JFNK_COUPLED .AND. JFNK_COUPLED_SOB .AND.
+	2     .NOT. JFNK_CPL_SOB_DEAD .AND. ASSOCIATED(JFNK_SWEEP_CB))THEN
+	    WRITE(LUER,'(A)')
+	1   '    coupled-SOB fallback armed (fires on reach fail)'
 	  END IF
 	  IF(JFNK_COUPLED_THIS)THEN
 	    CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_cpl')

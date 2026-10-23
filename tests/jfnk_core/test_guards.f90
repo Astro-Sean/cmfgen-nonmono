@@ -54,6 +54,10 @@
 !   G14: a zero-decrease trial is a rejection, not a rho<0.75 retry
 !   G15: a broken linear solve (measured true_res > |F| on a
 !        non-converged GMRES exit) skips the eta re-solve.
+!   G16: coupled-SOB fallback admission + eval-cap layering: the
+!        arm predicate fires only on a certified reach fail under the
+!        full opt-in config, and jfnk_cpl_sob_cap_v1 layers the
+!        coupled cap over the activation/global caps.
 !       (12-Nov-2026 fix).
 !
 ! edited by Devin, Oct-2026
@@ -751,6 +755,66 @@ program test_guards
       jfnk_use_left_pc = .true.
    end block
    !
+   ! -------- G16: coupled-SOB fallback admission and cap layering ---
+   !
+   ! jfnk_cpl_sob_admit_v1 is the arm predicate JFNK_SOLVE_CORR_V1
+   ! evaluates at the frozen-tier reach-skip site: every denying
+   ! argument must independently veto the flip, and the arm requires
+   ! all of them at once.  jfnk_cpl_sob_cap_v1 layers
+   ! [JFNK_CPL_SOB_MAX_EVALS] over the usual eval cap pair.
+   block
+      integer :: nbad_c
+      nbad_c = 0
+      if(.not. jfnk_cpl_sob_admit_v1(.true., .false., .false., &
+         .false., .true., .true., .true., .false., .true.)) &
+         nbad_c = nbad_c + 1
+      ! frozen tier passed reach -> no fallback trigger
+      if(jfnk_cpl_sob_admit_v1(.false., .false., .false., .false., &
+         .true., .true., .true., .false., .true.)) nbad_c = nbad_c + 1
+      ! activation already coupled -> nothing to flip
+      if(jfnk_cpl_sob_admit_v1(.true., .true., .false., .false., &
+         .true., .true., .true., .false., .true.)) nbad_c = nbad_c + 1
+      ! one fallback per activation
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .true., .false., &
+         .true., .true., .true., .false., .true.)) nbad_c = nbad_c + 1
+      ! dirchk admissions stay diagnostics-only
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .false., .true., &
+         .true., .true., .true., .false., .true.)) nbad_c = nbad_c + 1
+      ! KNOP keeps its demand-admitted coupled tier instead
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .false., .false., &
+         .false., .true., .true., .false., .true.)) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .false., .false., &
+         .true., .false., .true., .false., .true.)) nbad_c = nbad_c + 1
+      ! the opt-in flag off -> frozen-only, bit-identical path
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .false., .false., &
+         .true., .true., .false., .false., .true.)) nbad_c = nbad_c + 1
+      ! failed consistency check detaches for the rest of the run
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .false., .false., &
+         .true., .true., .true., .true., .true.)) nbad_c = nbad_c + 1
+      ! no sweep callback -> no eval possible
+      if(jfnk_cpl_sob_admit_v1(.true., .false., .false., .false., &
+         .true., .true., .true., .false., .false.)) nbad_c = nbad_c + 1
+      if(nbad_c > 0) then
+         nfail = nfail + 1
+         write(luer,'(A,I2)') 'G16: FAIL (admit predicate)', nbad_c
+      else
+         write(luer,'(A)') 'G16: PASS (admit predicate)'
+      end if
+      nbad_c = 0
+      if(jfnk_cpl_sob_cap_v1(0, 0, 0) /= 0) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_cap_v1(0, 10, 0) /= 10) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_cap_v1(0, 10, 4) /= 4) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_cap_v1(3, 10, 8) /= 3) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_cap_v1(0, 0, 7) /= 7) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_cap_v1(5, 0, 0) /= 5) nbad_c = nbad_c + 1
+      if(jfnk_cpl_sob_cap_v1(12, 10, 8) /= 8) nbad_c = nbad_c + 1
+      if(nbad_c > 0) then
+         nfail = nfail + 1
+         write(luer,'(A,I2)') 'G16b: FAIL (cpl cap layering)', nbad_c
+      else
+         write(luer,'(A)') 'G16b: PASS (cpl cap layering)'
+      end if
+   end block
    !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL GUARD TESTS PASSED'
