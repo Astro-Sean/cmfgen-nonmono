@@ -2278,19 +2278,32 @@
 	      END IF
 	    END DO
 	    T_PH_NWT=OMP_GET_WTIME()-TW_PH
+! Best-attempt commits require at least 1D-4 relative residual
+! improvement: the coupled-SOB run (it581, job 12345334) committed
+! a 0.45-MAXCH correction on a 1D-5 residual change -- noise paid
+! for with a population perturbation.  Below the floor the call
+! takes the same caller-mode path as a rejected attempt.
+!
 	    IF(.NOT. APPLY_JFNK_UPDATE .AND. .NOT. JFNK_CATASTROPHIC .AND.
 	1     BEST_F_W .LT. F_W_INIT)THEN
-	      jfnk_x=BEST_X
-	      APPLY_JFNK_UPDATE=.TRUE.
-	      WRITE(LUER,'(A,ES12.4)')
-	1       '    best-iterate weighted residual     :',
-	1       REAL(BEST_F_W)
-	      WRITE(LUER,'(A,ES12.4)')
-	1       '    weighted residual at entry         :',
-	1       REAL(F_W_INIT)
-	      WRITE(LUER,'(A)')
-	1       '    solver status                    : apply'
-	2       //' best attempt'
+	      IF(BEST_F_W .LE. (1.0_LDP-1.0E-4_LDP)*F_W_INIT)THEN
+	        jfnk_x=BEST_X
+	        APPLY_JFNK_UPDATE=.TRUE.
+	        WRITE(LUER,'(A,ES12.4)')
+	1         '    best-iterate weighted residual     :',
+	1         REAL(BEST_F_W)
+	        WRITE(LUER,'(A,ES12.4)')
+	1         '    weighted residual at entry         :',
+	1         REAL(F_W_INIT)
+	        WRITE(LUER,'(A)')
+	1         '    solver status                    : apply'
+	2         //' best attempt'
+	      ELSE
+	        WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1       '    best attempt below 1D-4 improvement floor (',
+	2       REAL(BEST_F_W),' vs ',REAL(F_W_INIT),
+	3       ') -- retaining caller mode'
+	      END IF
 	    END IF
 	    DEALLOCATE(BEST_X)
 	  ELSE
