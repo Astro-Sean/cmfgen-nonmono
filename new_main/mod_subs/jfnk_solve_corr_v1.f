@@ -398,6 +398,11 @@
 	  jfnk_gmres_stag_tol=JFNK_GMRES_STAG
 	  jfnk_gmres_max_restart=JFNK_GMRES_RST
 	  jfnk_gmres_tres_fac=DBLE(JFNK_TRES_FAC)
+! [JFNK_LGMRES] (default F): retain per-cycle corrections across
+! restarts (Baker-Jessup-Manteuffel).  Valid under both PC sides;
+! left PC costs one extra psolve per restart for the image map.
+	  jfnk_lgmres=JFNK_LGMRES
+	  jfnk_lgmres_kmax=MIN(MAX(JFNK_LGMRES_K,1),8)
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
 ! after each counted failure.  The trims are per-activation locals --
@@ -870,6 +875,11 @@
 	    WRITE(LUER,'(A,I3)')
 	1   '    baseline/PC restarts per activation     :',
 	1     JFNK_MAX_RESTART_LOC
+	    IF(JFNK_LGMRES)THEN
+	      WRITE(LUER,'(A,I2)')
+	1     '    LGMRES retained corrections per cycle :',
+	1     jfnk_lgmres_kmax
+	    END IF
 	    WRITE(LUER,'(A)')
 	1   '    globalization       : Hookstep trust region +'
 	2   //' line search'

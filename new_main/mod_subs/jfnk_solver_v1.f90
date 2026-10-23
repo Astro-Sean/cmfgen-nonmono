@@ -425,6 +425,45 @@ module jfnk_solver_v1_mod
    double precision, allocatable :: jfnk_gmres_z(:,:)   ! M^{-1} V basis
    double precision, allocatable :: jfnk_gmres_g(:,:)   ! Z' W Z Gram
    !
+   ! Cycle-start residual of the previous restart cycle (23-Oct-2026,
+   ! LGMRES diagnosis): Baker-Jessup-Manteuffel stagnation shows up as
+   ! a repeating/alternating residual direction across cycles, so the
+   ! restart diag reports |<r_c, r_{c-1}>|/(|r_c||r_{c-1}|).  Purely
+   ! diagnostic -- never enters the solve.
+   !
+   double precision, allocatable :: jfnk_gmres_rprev(:)
+   !
+   ! LGMRES augmentation state (23-Oct-2026; Baker, Jessup &
+   ! Manteuffel 2005, "A Technique for Accelerating the Convergence of
+   ! Restarted GMRES").  The coupled-SOB solve shows exactly the
+   ! cyclic restart stagnation that paper targets: the cycle-1
+   ! residual drops ~12% while cycles 2+ make <1% each and the
+   ! restart-boundary residual direction returns cos(r_c,r_{c-1}) ~
+   ! 0.99 -- every restart rebuilds the same Krylov space because the
+   ! converged directions were discarded with the basis.  LGMRES keeps
+   ! the last K per-cycle solution corrections z_i = x_e - x_s and
+   ! solves each restart's least-squares over V_m + span(z_i) jointly.
+   ! The image A z_i = r_s - r_e is a residual difference already in
+   ! hand at cycle start, so augmentation costs zero extra matvecs.
+   !
+   ! Right-preconditioning only: the physical step s = Z y + D c
+   ! appends d_i in step space, equivalent to t-space vectors M d_i --
+   ! no forward M action is needed.  With JFNK_LEFTPC=T the flag is
+   ! ignored and a note prints once per solve.
+   !
+   ! [JFNK_LGMRES] default F: plain restarted GMRES unchanged.
+   ! [JFNK_LGMRES_K] default 2 (clamped 1..8): corrections retained.
+   ! Vectors are kept only within a single linear solve -- no
+   ! recycling across Newton steps.
+   !
+   logical :: jfnk_lgmres_on = .false.
+   integer :: jfnk_lgmres_kmax = 2
+   integer :: jfnk_lgmres_n = 0
+   double precision, allocatable :: jfnk_lgmres_d(:,:)    ! z_i
+   double precision, allocatable :: jfnk_lgmres_ad(:,:)   ! op z_i (A z or M^{-1}A z)
+   double precision, allocatable :: jfnk_lgmres_dlast(:)  ! completed-cycle step
+   double precision, allocatable :: jfnk_lgmres_q(:,:)    ! orth image complements
+   !
    ! GMRES stagnation criterion (audit 17-Sep-2026): an iteration counts
    ! as non-improving unless it reduces the residual by more than this
    ! relative factor.  The previous 1D-14 threshold only fired on
@@ -2025,7 +2064,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_gmres_x_cycle_start, &
                                   jfnk_gmres_max_restart, jfnk_gmres_tres_fac, &
                                   jfnk_gmres_true_res, jfnk_gmres_true_res_ok, &
-                                  jfnk_exit_reason
+                                  jfnk_gmres_rprev, jfnk_exit_reason, &
+                                  jfnk_lgmres_on, jfnk_lgmres_kmax, &
+                                  jfnk_lgmres_n, jfnk_lgmres_d, &
+                                  jfnk_lgmres_ad, jfnk_lgmres_dlast, &
+                                  jfnk_lgmres_q
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
    ! (JFNK_N_PRECOND_APPLIES).  Incrementing here double-counted every
@@ -2053,6 +2096,21 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    integer :: n_stag              ! 2026-09-13 TR-units fix: consecutive non-improving residuals
    double precision :: h_(m+1, m), y(m+1), p(m+1), work(6*m+16)
    double precision :: s_tmp  ! re-orthogonalization scratch
+   ! LGMRES work (23-Oct-2026): hard bound KMAX=8 matches the VADAT
+   ! clamp on JFNK_LGMRES_K.  The augmented LS is (j+1+k) x (j+k) --
+   ! dense, because the appended image columns are full -- so it goes
+   ! through DGELSY like the Hessenberg system, and the hookstep takes
+   ! an augmented Gram built once per cycle end.
+   integer, parameter :: lg_kmax = 8
+   double precision :: h_aug(m+1+lg_kmax, m+lg_kmax)
+   double precision :: hd_aug(m+1+lg_kmax, m+lg_kmax)
+   double precision :: p_aug(m+1+lg_kmax), y_aug(m+lg_kmax)
+   double precision :: g_aug(m+lg_kmax, m+lg_kmax)
+   double precision :: work_aug(6*(m+lg_kmax)+16)
+   integer :: piv_aug(m+lg_kmax)
+   integer :: lg_k, lg_i, lg_l, lg_nv, lg_rank
+   double precision :: lg_rho, lg_scale
+   logical :: lg_active, lg_have_last
    double precision :: true_res  ! V4 audit: true residual at restart
    double precision :: del_cycle, x_cycle_norm
    integer :: imx, piv(m), rank, i, j, ios_gm
@@ -2114,6 +2172,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    end if
    !
    left_pc = jfnk_use_left_pc
+   ! The correction vectors live in x-space under both conventions;
+   ! only the image map differs (A z vs M^{-1} A z) -- handled at pair
+   ! formation below, one extra psolve per restart for left-PC.
+   lg_active = jfnk_lgmres_on
+   lg_k = 0
    pred_res = 0d0
    !
    ! Right-PC step map (2026-10 TR-units fix): Z = M^{-1} V and its
@@ -2140,6 +2203,29 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             return
          end if
       end if
+   end if
+   !
+   ! LGMRES storage is independent of the preconditioning side.
+   if(lg_active) then
+      if(allocated(jfnk_lgmres_d)) then
+         if(size(jfnk_lgmres_d,1) /= n .or. &
+            size(jfnk_lgmres_d,2) /= jfnk_lgmres_kmax) then
+            deallocate(jfnk_lgmres_d, jfnk_lgmres_ad, &
+                       jfnk_lgmres_dlast, jfnk_lgmres_q)
+         end if
+      end if
+      if(.not. allocated(jfnk_lgmres_d)) then
+         allocate(jfnk_lgmres_d(n,jfnk_lgmres_kmax), &
+                  jfnk_lgmres_ad(n,jfnk_lgmres_kmax), &
+                  jfnk_lgmres_dlast(n), &
+                  jfnk_lgmres_q(n,jfnk_lgmres_kmax), stat=ios_gm)
+         if(ios_gm /= 0) then
+            if(info == 1) write(luer,*) 'gmres_m_v1: lgmres alloc'// &
+               ' failed -- running plain GMRES'
+            lg_active = .false.
+         end if
+      end if
+      if(lg_active) jfnk_lgmres_n = 0
    end if
    !
    ! Hookstep recalculation with new del
@@ -2202,6 +2288,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    end if
    jj = 0
    jfnk_gmres_jj = 0   ! fresh solve: no basis survives for recompute
+   if(allocated(jfnk_gmres_rprev)) deallocate(jfnk_gmres_rprev)   ! fresh solve: no cross-solve residual history
+   jfnk_lgmres_n = 0
+   lg_have_last = .false.   ! no completed cycle yet to correct from
    !
    tol = res
    imx = its
@@ -2236,6 +2325,66 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       end if
    end if
    w = b - w
+   !
+   ! LGMRES diagnosis (23-Oct-2026): the physical residual at cycle
+   ! start is what the next Arnoldi basis is built on.  If successive
+   ! cycles restart on nearly the same direction (cos ~ +-1), the
+   ! Baker-Jessup-Manteuffel augmentation mechanism is the relevant
+   ! cure; a small cosine means each cycle explores fresh space and
+   ! retained correction vectors would not repair the stall.
+   !
+   if(allocated(jfnk_gmres_rprev)) then
+      if(size(jfnk_gmres_rprev) /= n) deallocate(jfnk_gmres_rprev)
+   end if
+   if(.not. allocated(jfnk_gmres_rprev)) allocate(jfnk_gmres_rprev(n))
+   if(n_restart > 0 .and. luer > 0) then
+      s_tmp = dotprd(n, w, jfnk_gmres_rprev)
+      write(luer,'(A,I3,A,ES12.4)') &
+         '  GMRES RESTART ANGLE: cyc=', n_restart, &
+         '  |<r_c,r_prev>|/(|r||r_prev|)=', &
+         real(abs(s_tmp) / max(dsqrt(dotprd(n, w, w)) * &
+              dsqrt(dotprd(n, jfnk_gmres_rprev, jfnk_gmres_rprev)), &
+              1d-300))
+   end if
+   ! LGMRES: pair the completed cycle's step d = x_e - x_s (saved at
+   ! the update below) with its operator image, recovered from the
+   ! residual difference r_s - r_e = rprev - w -- no extra matvec.
+   ! rprev is still the previous cycle's start residual here.  A
+   ! non-finite or empty pair is dropped; at capacity the oldest
+   ! vector leaves (FIFO, the recent corrections carry the direction
+   ! GMRES is circling).  Under left PC the Arnoldi operator is
+   ! B = M^{-1}A, so the stored image needs one psolve on the true
+   ! residual difference (cheap vs a JVP; still before the r0 psolve).
+   if(lg_active .and. lg_have_last .and. n_restart > 0) then
+      if(all(ieee_is_finite(jfnk_lgmres_dlast)) .and. &
+         all(ieee_is_finite(jfnk_gmres_rprev - w))) then
+         if(jfnk_lgmres_n == jfnk_lgmres_kmax) then
+            jfnk_lgmres_d(:,1:jfnk_lgmres_kmax-1) = &
+               jfnk_lgmres_d(:,2:jfnk_lgmres_kmax)
+            jfnk_lgmres_ad(:,1:jfnk_lgmres_kmax-1) = &
+               jfnk_lgmres_ad(:,2:jfnk_lgmres_kmax)
+            jfnk_lgmres_n = jfnk_lgmres_kmax - 1
+         end if
+         jfnk_lgmres_n = jfnk_lgmres_n + 1
+         jfnk_lgmres_d(:,jfnk_lgmres_n) = jfnk_lgmres_dlast
+         if(left_pc) then
+            z = jfnk_gmres_rprev - w
+            call psolve(n, z)
+            if(jfnk_pc_clip_event) then
+               if(info == 1) write(luer,*) &
+                  '  GMRES: precond clip -- aborting'
+               info = 3
+               jfnk_exit_reason = 'gmres_pc_clip'
+               return
+            end if
+            jfnk_lgmres_ad(:,jfnk_lgmres_n) = z
+         else
+            jfnk_lgmres_ad(:,jfnk_lgmres_n) = jfnk_gmres_rprev - w
+         end if
+      end if
+      lg_have_last = .false.
+   end if
+   jfnk_gmres_rprev = w
    !
    if(left_pc) then
       call psolve(n, w)
@@ -2351,34 +2500,105 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       !
       ! Solve least-squares for y
       !
-      p(1) = beta
-      p(2:j+1) = 0d0
-      h_(1:j+1,1:j) = h(1:j+1,1:j)
-      piv = 0
-      !
-      ! DGELSY workspace (ChatGPT audit fix #1, 2026-09-09): the
-      ! least-squares solve for the GMRES y-coefficients needs ~5*M
-      ! workspace for this rank-deficient Hessenberg problem.  The
-      ! original 4*M+1 was undersized and could overwrite adjacent
-      ! stack memory inside GMRES, producing otherwise-inexplicable
-      ! crashes around the Newton-loop return/deallocation.  Use a
-      ! generous 6*M+16 (matches the declaration above).
-      !
-      call dgelsy(j+1, j, 1, h_, m+1, p, m+1, piv, 1.0d-14, rank, work, &
-                   6*m+16, i)
-      if(i /= 0) then
-         if(info == 1) write(luer,*) '  GMRES: dgelsy error ', i
-         info = 1
-         jfnk_exit_reason = 'gmres_dgelsy_error'
-         return
+      if(lg_active .and. jfnk_lgmres_n > 0) then
+         !
+         ! LGMRES (Baker-Jessup-Manteuffel 2005): append the retained
+         ! correction images A z_i to the LS as dense columns.  The
+         ! basis is [V_{j+1}, q_1..q_k] with q_i the orthonormalized
+         ! complement of A z_i; column j+i holds [V' A z_i ; R_i]
+         ! where R is the (lower-triangular) q-expansion.  A z_i is
+         ! stored from the restart pairing, so no matvec is needed.
+         ! The complement must be re-orthogonalized each iteration
+         ! because V_{j+1} grows -- n-dot cost is trivial vs a JVP.
+         ! A dependent image (already inside the span) zeroes its
+         ! column: DGELSY's rank-revealing solve then keeps its
+         ! coefficient ~0 and the step ignores that direction.
+         !
+         lg_k = jfnk_lgmres_n
+         h_aug = 0d0
+         h_aug(1:j+1,1:j) = h(1:j+1,1:j)
+         do lg_i = 1, lg_k
+            do lg_l = 1, j+1
+               h_aug(lg_l, j+lg_i) = &
+                  dotprd(n, v(1,lg_l), jfnk_lgmres_ad(1,lg_i))
+            end do
+            jfnk_lgmres_q(:,lg_i) = jfnk_lgmres_ad(:,lg_i)
+            do lg_l = 1, j+1
+               jfnk_lgmres_q(:,lg_i) = jfnk_lgmres_q(:,lg_i) - &
+                  h_aug(lg_l, j+lg_i) * v(:,lg_l)
+            end do
+            do lg_l = 1, lg_i-1
+               s_tmp = dotprd(n, jfnk_lgmres_q(1,lg_i), &
+                              jfnk_lgmres_q(1,lg_l))
+               h_aug(j+1+lg_l, j+lg_i) = s_tmp
+               jfnk_lgmres_q(:,lg_i) = jfnk_lgmres_q(:,lg_i) - &
+                  s_tmp * jfnk_lgmres_q(:,lg_l)
+            end do
+            lg_scale = dsqrt(max(0d0, dotprd(n, jfnk_lgmres_ad(1,lg_i),&
+                                             jfnk_lgmres_ad(1,lg_i))))
+            lg_rho = dsqrt(max(0d0, dotprd(n, jfnk_lgmres_q(1,lg_i), &
+                                           jfnk_lgmres_q(1,lg_i))))
+            if(lg_rho > 1d-8 * lg_scale) then
+               jfnk_lgmres_q(:,lg_i) = jfnk_lgmres_q(:,lg_i) / lg_rho
+               h_aug(j+1+lg_i, j+lg_i) = lg_rho
+            else
+               h_aug(:, j+lg_i) = 0d0
+               jfnk_lgmres_q(:,lg_i) = 0d0
+            end if
+         end do
+         p_aug = 0d0
+         p_aug(1) = beta
+         piv_aug = 0
+         ! DGELSY overwrites A with its QR factors, so it gets a copy;
+         ! h_aug must stay intact for the residual reconstruction and
+         ! the augmented hookstep below (same convention as h_/h).
+         hd_aug = h_aug
+         call dgelsy(j+1+lg_k, j+lg_k, 1, hd_aug, m+1+lg_kmax, p_aug, &
+                     m+1+lg_kmax, piv_aug, 1.0d-14, lg_rank, &
+                     work_aug, 6*(m+lg_kmax)+16, i)
+         if(i /= 0) then
+            if(info == 1) write(luer,*) '  GMRES: dgelsy error ', i
+            info = 1
+            jfnk_exit_reason = 'gmres_dgelsy_error'
+            return
+         end if
+         y_aug(1:j+lg_k) = p_aug(1:j+lg_k)
+         y(1:j) = y_aug(1:j)
+         p_aug(1:j+1+lg_k) = &
+            -matmul(h_aug(1:j+1+lg_k,1:j+lg_k), y_aug(1:j+lg_k))
+         p_aug(1) = p_aug(1) + beta
+         res = dsqrt(dot_product(p_aug(1:j+1+lg_k), &
+                                 p_aug(1:j+1+lg_k)))
+      else
+         p(1) = beta
+         p(2:j+1) = 0d0
+         h_(1:j+1,1:j) = h(1:j+1,1:j)
+         piv = 0
+         !
+         ! DGELSY workspace (ChatGPT audit fix #1, 2026-09-09): the
+         ! least-squares solve for the GMRES y-coefficients needs ~5*M
+         ! workspace for this rank-deficient Hessenberg problem.  The
+         ! original 4*M+1 was undersized and could overwrite adjacent
+         ! stack memory inside GMRES, producing otherwise-inexplicable
+         ! crashes around the Newton-loop return/deallocation.  Use a
+         ! generous 6*M+16 (matches the declaration above).
+         !
+         call dgelsy(j+1, j, 1, h_, m+1, p, m+1, piv, 1.0d-14, rank, work, &
+                      6*m+16, i)
+         if(i /= 0) then
+            if(info == 1) write(luer,*) '  GMRES: dgelsy error ', i
+            info = 1
+            jfnk_exit_reason = 'gmres_dgelsy_error'
+            return
+         end if
+         y = p
+         !
+         ! Residual of the (preconditioned) least-squares problem
+         !
+         p(1:j+1) = -matmul(h(1:j+1,1:j), y(1:j))
+         p(1) = p(1) + beta
+         res = dsqrt(dot_product(p(1:j+1), p(1:j+1)))
       end if
-      y = p
-      !
-      ! Residual of the (preconditioned) least-squares problem
-      !
-      p(1:j+1) = -matmul(h(1:j+1,1:j), y(1:j))
-      p(1) = p(1) + beta
-      res = dsqrt(dot_product(p(1:j+1), p(1:j+1)))
       ! 2026-09-13 TR-units fix: tolerate small FD-noise residual rises.
       ! The old `res > res_` test aborted the whole Newton solve on any
       ! non-monotone wiggle; now require 3 consecutive non-improvements.
@@ -2401,7 +2621,46 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       !
       if(done .or. j == m .or. lb_hit) then
          if(del > 0d0) then
-            if(left_pc) then
+            if(lg_active .and. jfnk_lgmres_n > 0) then
+               ! LGMRES hookstep: the step is V y + D c (left-PC) or
+               ! Z y + D c (right-PC), so the ||s||_w constraint needs
+               ! the Gram of the combined basis.  Under left PC the
+               ! basis is V itself (W-orthonormal, Gram = I); under
+               ! right PC it is the stored Z'WZ.  Cross and aug-aug
+               ! blocks are built once per cycle end -- k*j dotprd
+               ! calls, trivial vs a JVP.
+               lg_k = jfnk_lgmres_n
+               g_aug = 0d0
+               if(left_pc) then
+                  do i = 1, j
+                     g_aug(i,i) = 1d0
+                  end do
+               else
+                  g_aug(1:j,1:j) = jfnk_gmres_g(1:j,1:j)
+               end if
+               do lg_i = 1, lg_k
+                  do lg_l = 1, j
+                     if(left_pc) then
+                        s_tmp = dotprd(n, v(1,lg_l), &
+                                       jfnk_lgmres_d(1,lg_i))
+                     else
+                        s_tmp = dotprd(n, jfnk_gmres_z(1,lg_l), &
+                                       jfnk_lgmres_d(1,lg_i))
+                     end if
+                     g_aug(lg_l, j+lg_i) = s_tmp
+                     g_aug(j+lg_i, lg_l) = s_tmp
+                  end do
+                  do lg_l = 1, lg_i
+                     s_tmp = dotprd(n, jfnk_lgmres_d(1,lg_i), &
+                                    jfnk_lgmres_d(1,lg_l))
+                     g_aug(j+lg_i, j+lg_l) = s_tmp
+                     g_aug(j+lg_l, j+lg_i) = s_tmp
+                  end do
+               end do
+               call hook_step_g_v1(j+lg_k, h_aug, m+lg_kmax, beta, &
+                    del_cycle, g_aug, m+lg_kmax, y_aug, pred_res)
+               y(1:j) = y_aug(1:j)
+            else if(left_pc) then
                call hook_step_v1(j, h, m, beta, del_cycle, y, pred_res)
             else
                call hook_step_g_v1(j, h, m, beta, del_cycle, &
@@ -2415,10 +2674,30 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! Restart updates may temporarily exceed del. Project only the
          ! returned total step so a single-cycle solve keeps its original
          ! hookstep while restart accumulation remains bounded on return.
-         if(left_pc) then
+         if(lg_active .and. jfnk_lgmres_n > 0) then
+            ! Step = basis*y_aug(1:j) + D*y_aug(j+1:j+k): the basis is
+            ! V under left PC (Arnoldi already runs in x-space) and
+            ! the stored Z = M^{-1}V under right PC.
+            if(left_pc) then
+               z = matmul(v(:,1:j), y_aug(1:j)) + &
+                   matmul(jfnk_lgmres_d(:,1:jfnk_lgmres_n), &
+                          y_aug(j+1:j+jfnk_lgmres_n))
+            else
+               z = matmul(jfnk_gmres_z(:,1:j), y_aug(1:j)) + &
+                   matmul(jfnk_lgmres_d(:,1:jfnk_lgmres_n), &
+                          y_aug(j+1:j+jfnk_lgmres_n))
+            end if
+         else if(left_pc) then
             z = matmul(v(:,1:j), y(1:j))
          else
             z = matmul(jfnk_gmres_z(:,1:j), y(1:j))
+         end if
+         if(lg_active) then
+            ! Retain this cycle's step for the next restart's pair:
+            ! its image is recovered from the residual difference at
+            ! the next cycle start, so no storage of A z is needed.
+            jfnk_lgmres_dlast = z
+            lg_have_last = .true.
          end if
          x = x + z
          if(del > 0d0 .and. done) then

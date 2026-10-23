@@ -1529,6 +1529,16 @@
 	1     'Max GMRES restarts per solve (safety cap; total its still'
 	2     //' bounded by JFNK_MAXGMRES)')
 !
+	  JFNK_LGMRES=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_LGMRES,'JFNK_LGMRES',L_FALSE,
+	1     'LGMRES: retain solution corrections across GMRES restarts?')
+!
+	  JFNK_LGMRES_K=2
+	  CALL RD_STORE_INT(JFNK_LGMRES_K,'JFNK_LGMRES_K',L_FALSE,
+	1     'Retained correction vectors for LGMRES (1..8)')
+	  IF(JFNK_LGMRES_K .LT. 1)JFNK_LGMRES_K=1
+	  IF(JFNK_LGMRES_K .GT. 8)JFNK_LGMRES_K=8
+!
 	  JFNK_TOL_REL=1.0E-4_LDP
 	  CALL RD_STORE_DBLE(JFNK_TOL_REL,'JFNK_TOL',L_FALSE,
 	1     'Relative Newton tolerance (target |F|/|F_0|)')

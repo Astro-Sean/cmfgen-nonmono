@@ -67,7 +67,7 @@ program test_newton_core
    integer :: its_g
    integer :: nevals_b, nevals_c, ntres_call
    double precision :: x0(NN), f0(NN), ftrue(NN), xsol(NN)
-   double precision :: x_g(NN), b_g(NN), res_g, pred_g
+   double precision :: x_g(NN), b_g(NN), res_g, pred_g, res_p
    double precision :: h_g(11,10), v_g(NN,11)
    double precision :: fnrm0, tol_t, ftru_nrm, maxerr
    !
@@ -556,6 +556,208 @@ program test_newton_core
    jfnk_tauto_dmax = 0.5d0
    w_dp = 1.0d0
    jfnk_use_left_pc = .false.
+   !
+   ! ---------------- T7: LGMRES augmentation ----------------------
+   !
+   ! Baker-Jessup-Manteuffel: retain the per-cycle corrections
+   ! z_i = x_e - x_s (images A z_i = r_s - r_e, free) and append them
+   ! to each restart's least-squares.  gmres_m_v1 driven directly,
+   ! identity right preconditioner, same tridiagonal system as T4.
+   !
+   ! T7a: JFNK_LGMRES on must still converge to the known xs.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = 2d0
+      if(i > 1)  amat(i,i-1) = -0.5d0
+      if(i < NN) amat(i,i+1) = -0.5d0
+   end do
+   b_g = matmul(amat, xs)
+   jfnk_use_left_pc = .false.
+   jfnk_jvp_failed = .false.
+   jfnk_pc_clip_event = .false.
+   jfnk_gmres_max_restart = 4
+   jfnk_gmres_stag_tol = 1.0d-6
+   jfnk_gmres_tres_fac = 0d0
+   jfnk_lgmres_on = .true.
+   jfnk_lgmres_kmax = 2
+   matvec_bias = .false.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   maxerr = maxval(abs(x_g - xs))
+   write(luer,'(A,I3,A,ES12.4,A,A)') &
+      'T7a: info=', info, '  max|x-xs|=', maxerr, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info == 0 .and. maxerr < 1.0d-6 .and. &
+      jfnk_exit_reason == 'gmres_converged') then
+      write(luer,'(A)') 'T7a: PASS'
+   else
+      write(luer,'(A)') 'T7a: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T7b: restart-stagnating problem.  amat is rebuilt as the
+   ! log-scaled diagonal a_i (1e-3..1e3) plus the -0.5 coupling --
+   ! kappa ~ 1e6, so GMRES(4) cycles plateau while LGMRES keeps the
+   ! discarded corrections.  Plain GMRES runs first for the A/B
+   ! eval-count comparison; both must still reach the answer.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = a(i)
+      if(i > 1)  amat(i,i-1) = -0.01d0 * dsqrt(a(i) * a(i-1))
+      if(i < NN) amat(i,i+1) = -0.01d0 * dsqrt(a(i) * a(i+1))
+   end do
+   xsol = 1d0
+   b_g = matmul(amat, xsol)
+   ! Both sides need restart headroom to reach the 1e-6 tolerance --
+   ! the cap is the A/B budget axis, not the result.
+   jfnk_gmres_max_restart = 30
+   jfnk_lgmres_on = .false.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 120
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_b = jfnk_total_jvp_evals
+   res_p = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   write(luer,'(A,I3,A,I4,A,ES12.4,A)') &
+      'T7b(plain): info=', info, '  evals=', nevals_b, &
+      '  true_res=', res_p, '  exit='//trim(jfnk_exit_reason)
+   !
+   jfnk_lgmres_on = .true.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 120
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_c = jfnk_total_jvp_evals
+   res_g = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   maxerr = maxval(abs(x_g - xsol))
+   write(luer,'(A,I3,A,I4,A,ES12.4,A)') &
+      'T7b(lgmres): info=', info, '  evals=', nevals_c, &
+      '  true_res=', res_g, '  exit='//trim(jfnk_exit_reason)
+   ! Equal-budget A/B: LGMRES must reach a materially lower true
+   ! residual than plain restarted GMRES for the same matvec count.
+   if(nevals_c <= nevals_b .and. res_g <= 0.5d0*res_p) then
+      write(luer,'(A)') 'T7b: PASS'
+   else
+      write(luer,'(A)') 'T7b: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T7c: LGMRES under the hookstep trust region (del > 0) -- the
+   ! augmented Gram must keep ||s||_w inside the radius.  xs sits
+   ! outside the del ball, so convergence is not the criterion: run
+   ! plain GMRES under the same radius and require (a) the iterate
+   ! stays inside del and (b) the augmented solve does no worse on
+   ! the measured true residual.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = 2d0
+      if(i > 1)  amat(i,i-1) = -0.5d0
+      if(i < NN) amat(i,i+1) = -0.5d0
+   end do
+   b_g = matmul(amat, xs)
+   jfnk_lgmres_on = .false.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0.5d0, pred_g, its_g, info, luer)
+   res_p = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   x_g = 0d0
+   jfnk_lgmres_on = .true.
+   jfnk_exit_reason = ' '
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0.5d0, pred_g, its_g, info, luer)
+   res_g = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   maxerr = maxval(abs(x_g - xs))
+   write(luer,'(A,I3,A,ES12.4,A,ES12.4,1X,ES12.4,A)') &
+      'T7c: info=', info, '  |x|=', dsqrt(dp_test(NN, x_g, x_g)), &
+      '  true_res(lg/plain)=', res_g, res_p, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(dsqrt(dp_test(NN, x_g, x_g)) <= 0.5d0*(1d0+1d-9) .and. &
+      res_g <= res_p*1.0001d0) then
+      write(luer,'(A)') 'T7c: PASS'
+   else
+      write(luer,'(A)') 'T7c: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T7d: left-PC LGMRES -- the production convention.  With the
+   ! identity psolve the operator is the same T7b matrix, but the
+   ! code path differs (psolve on the residual, V-space step, image
+   ! map M^{-1}A d).  Same equal-budget criterion as T7b.
+   !
+   amat = 0d0
+   do i = 1, NN
+      amat(i,i) = a(i)
+      if(i > 1)  amat(i,i-1) = -0.01d0 * dsqrt(a(i) * a(i-1))
+      if(i < NN) amat(i,i+1) = -0.01d0 * dsqrt(a(i) * a(i+1))
+   end do
+   b_g = matmul(amat, xsol)
+   jfnk_use_left_pc = .true.
+   jfnk_lgmres_on = .false.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-6
+   its_g = 120
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   res_p = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   nevals_b = jfnk_total_jvp_evals
+   x_g = 0d0
+   jfnk_lgmres_on = .true.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   res_g = 1.0d-6
+   its_g = 120
+   info = 1
+   call gmres_m_v1(4, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   res_g = dsqrt(dp_test(NN, b_g - matmul(amat, x_g), &
+                         b_g - matmul(amat, x_g)))
+   nevals_c = jfnk_total_jvp_evals
+   write(luer,'(A,I3,A,I4,A,ES12.4,1X,ES12.4,A)') &
+      'T7d: info=', info, '  evals=', nevals_c, &
+      '  true_res(lg/plain)=', res_g, res_p, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(nevals_c <= nevals_b .and. res_g <= 0.5d0*res_p) then
+      write(luer,'(A)') 'T7d: PASS'
+   else
+      write(luer,'(A)') 'T7d: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_use_left_pc = .false.
+   jfnk_lgmres_on = .false.
+   jfnk_lgmres_kmax = 2
+   jfnk_gmres_max_restart = 1
+   jfnk_gmres_stag_tol = 1.0d-3
    !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL TESTS PASSED'

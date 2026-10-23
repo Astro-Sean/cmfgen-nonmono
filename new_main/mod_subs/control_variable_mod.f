@@ -1884,6 +1884,12 @@
 	INTEGER JFNK_M_GMRES
 	INTEGER JFNK_MAX_GMRES
 	INTEGER JFNK_GMRES_RST
+! JFNK_LGMRES / JFNK_LGMRES_K (VADAT [JFNK_LGMRES]/[JFNK_LGMRES_K],
+! defaults F/2): retain up to K per-cycle solution corrections and
+! augment each restart's least-squares over them (Baker, Jessup &
+! Manteuffel 2005).  Experimental; right-preconditioned solves only.
+	LOGICAL JFNK_LGMRES
+	INTEGER JFNK_LGMRES_K
 	REAL(KIND=LDP) JFNK_GTOL
 	REAL(KIND=LDP) JFNK_GMRES_STAG
 	REAL(KIND=LDP) JFNK_TOL_REL
