@@ -1931,6 +1931,17 @@
 ! (edited by Devin, 17-Oct-2026)
 !
 	LOGICAL :: JFNK_ENRICH_SFR=.FALSE.
+!
+! JFNK_ENRICH_ARN (VADAT [JFNK_ENRICH_ARN], default F): replace the
+! coordinate-anchor enrichment basis with a short Arnoldi pass on the
+! preconditioned operator J M0^-1 started from the normalized
+! residual.  Each step probes J along u_i = M0^-1 v_i (one JVP), so
+! the rank-K update is exact on the subspace GMRES actually explores
+! -- the coordinate anchors failed to rotate the stalled direction
+! (Oct-2026 experiment, jte_cpl_enrich it603).  No effect unless
+! JFNK_ENRICH is also T.
+!
+	LOGICAL :: JFNK_ENRICH_ARN=.FALSE.
 	REAL(KIND=LDP) JFNK_PC_REFRESH_FRAC
 	CHARACTER(LEN=8) JFNK_PRECOND_TYPE
 	REAL(KIND=LDP) JFNK_LAM_AUTO_THRESH
@@ -2194,6 +2205,8 @@
 !                         percent of the activation eval budget;
 !                         past it the enrichment is abandoned and the
 !                         plain preconditioner runs (0 = off)
+!   JFNK_ENRICH_ARN     - default F; T swaps the anchor basis for an
+!                         Arnoldi pass on J M0^-1 (same K, same cap)
 !
 	LOGICAL JFNK_ENRICH
 	INTEGER JFNK_ENRICH_K

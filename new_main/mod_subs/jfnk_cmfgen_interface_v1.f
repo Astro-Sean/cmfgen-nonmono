@@ -5803,10 +5803,19 @@
 	    DOUBLE PRECISION ALP(JFNK_ENRICH_KLOC)
 	    DOUBLE PRECISION VSAVE(JFNK_ENRICH_KLOC)
 	    INTEGER IM,INFO_E
-	    DO IM=1,JFNK_ENRICH_KLOC
-	      ALP(IM)=V(JFNK_ENRICH_IDX(IM))
-	      VSAVE(IM)=ALP(IM)
-	    END DO
+	    IF(JFNK_ENRICH_ARN_MODE)THEN
+! Arnoldi basis: E^T z is replaced by Qp^T z over the orthonormalized
+! probe directions -- plain Euclidean, matching the basis the
+! assembly orthogonalized.
+	      DO IM=1,JFNK_ENRICH_KLOC
+	        ALP(IM)=DOT_PRODUCT(JFNK_ENRICH_P(:,IM),V)
+	      END DO
+	    ELSE
+	      DO IM=1,JFNK_ENRICH_KLOC
+	        ALP(IM)=V(JFNK_ENRICH_IDX(IM))
+	        VSAVE(IM)=ALP(IM)
+	      END DO
+	    END IF
 	    CALL DGETRS('N',JFNK_ENRICH_KLOC,1,JFNK_ENRICH_S,
 	1       JFNK_ENRICH_KLOC,JFNK_ENRICH_IPIV,ALP,
 	2       JFNK_ENRICH_KLOC,INFO_E)
@@ -5814,9 +5823,10 @@
 	      DO IM=1,JFNK_ENRICH_KLOC
 	        V=V-ALP(IM)*JFNK_ENRICH_U(:,IM)
 	      END DO
-	    ELSE
+	    ELSE IF(.NOT. JFNK_ENRICH_ARN_MODE)THEN
 ! A failed K x K backsolve leaves the plain M0^-1 output in place --
 ! the safe fallback, and the only sane action inside a GMRES matvec.
+! The Arnoldi branch needs no restore: nothing was written to V.
 	      DO IM=1,JFNK_ENRICH_KLOC
 	        V(JFNK_ENRICH_IDX(IM))=VSAVE(IM)
 	      END DO
@@ -8172,7 +8182,7 @@
 	USE MOD_CMFGEN
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ENRICH,JFNK_ENRICH_K,
 	1     JFNK_ENRICH_PERCENT,JFNK_MAX_EVALS,JFNK_POP_FLOOR,
-	2     JFNK_ROW_TINY,JFNK_ENRICH_SFR
+	2     JFNK_ROW_TINY,JFNK_ENRICH_SFR,JFNK_ENRICH_ARN
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_fx,jfnk_jvp_failed
 	IMPLICIT NONE
@@ -8191,6 +8201,7 @@
 	INTEGER IDUM1
 !
 	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_ARN_MODE=.FALSE.
 	JFNK_ENRICH_KLOC=0
 !
 ! W23 [JFNK_ESFR, default F]: the source-function-response term
@@ -8210,6 +8221,15 @@
 	N=JFNK_NT*JFNK_ND
 	IF(SIZE(jfnk_fx) .LT. N)RETURN
 	KWANT=MIN(MAX(JFNK_ENRICH_K,2),64)
+!
+! [JFNK_ENRICH_ARN, default F]: residual-informed basis -- a separate
+! routine because the probe directions come from a live Arnoldi pass
+! on J M0^-1, not from row selection on BA_A.
+!
+	IF(JFNK_ENRICH_ARN)THEN
+	  CALL JFNK_ASSEMBLE_ENRICH_ARN_V1(LUER)
+	  RETURN
+	END IF
 !
 ! Reg-row mask for anchor exclusion: reuse the W11 census mask when
 ! the driver already computed it this admission, else compute it now
@@ -8315,6 +8335,7 @@
 !
 	IF(ALLOCATED(JFNK_ENRICH_IDX))DEALLOCATE(JFNK_ENRICH_IDX)
 	IF(ALLOCATED(JFNK_ENRICH_U))DEALLOCATE(JFNK_ENRICH_U)
+	IF(ALLOCATED(JFNK_ENRICH_P))DEALLOCATE(JFNK_ENRICH_P)
 	IF(ALLOCATED(JFNK_ENRICH_S))DEALLOCATE(JFNK_ENRICH_S)
 	IF(ALLOCATED(JFNK_ENRICH_IPIV))DEALLOCATE(JFNK_ENRICH_IPIV)
 !
@@ -8479,3 +8500,293 @@
 	1   ARHS)
 	RETURN
 	END SUBROUTINE JFNK_ASSEMBLE_ENRICH_V1
+!
+!
+!
+	SUBROUTINE JFNK_ASSEMBLE_ENRICH_ARN_V1(LUER)
+	USE SET_KIND_MODULE
+	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ENRICH_K,
+	1     JFNK_ENRICH_PERCENT,JFNK_MAX_EVALS
+	USE JFNK_CMFGEN_INT_MOD
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_fx,jfnk_jvp_failed
+	IMPLICIT NONE
+!
+	INTEGER LUER
+!
+	INTEGER N,KWANT,M,I,J,IOS,NEV0,NEV_CAP,INFO_A
+	DOUBLE PRECISION, ALLOCATABLE :: VB(:,:),QP(:,:),QD(:,:),
+	1   TT(:,:),TI(:,:),UU(:,:),U(:),W(:),WN(:),Z0(:),Z1(:),
+	2   A0(:),A1(:)
+	DOUBLE PRECISION NRM,UNRM,H,COSA,FF2,AA2,FA,S_DOT
+	DOUBLE PRECISION JFNK_DOT_V1
+	EXTERNAL JFNK_JVP_V1,JFNK_PRECOND_V1,
+	1   JFNK_MASK_FIXED_UNKNOWNS
+!
+! Residual-informed enrichment ([JFNK_ENRICH_ARN], default F).
+!
+! The coordinate-anchor basis failed on the first coupled test
+! (jte_cpl_enrich it603/605): most columns of J-BA at anchor rows are
+! ~3E-7 of |BAcol| and the correction did not rotate the stalled
+! direction.  This variant instead runs K steps of Arnoldi on the
+! right-preconditioned operator A_p = J M0^-1 seeded with the
+! normalized residual v_1 = F/|F|.  Each step is one PC apply
+! (u_i = M0^-1 v_i, no eval) plus one JVP (w_i = J u_i, one coupled
+! eval).  Since u_i was produced by the same apply GMRES uses,
+! M u_i = v_i to LU accuracy, so q_i = w_i - v_i is the exact probe
+! of the operator gap (J - M) u_i along the directions the Krylov
+! method actually explores.
+!
+! With P = [u_i] = QP T (MGS factorization) and Q = [q_i], the
+! update
+!    M' = M + Q T^-1 QP^T
+! satisfies M' u_i = J u_i exactly on the retained subspace -- i.e.
+! the enriched preconditioner reproduces J on every direction the
+! stall was measured in.  If GMRES still fails under M', the
+! explored subspace itself cannot support progress, which is a
+! stronger diagnostic than the coordinate test provided.
+!
+! Apply side (JFNK_PRECOND_V1, SMW tail):
+!    z -> z - U0 (I + QP^T U0)^-1 QP^T z,   U0 = M0^-1 Q T^-1,
+! identical in form to the coordinate path with E^T replaced by QP^T.
+!
+	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_ARN_MODE=.FALSE.
+	JFNK_ENRICH_KLOC=0
+!
+	N=JFNK_NT*JFNK_ND
+	KWANT=MIN(MAX(JFNK_ENRICH_K,2),64)
+!
+! Same eval-cap convention as the coordinate path: ENRICH_PERCENT of
+! the rung-scaled activation budget on top of the entry count.
+!
+	NEV0=JFNK_N_RESIDUAL_EVALS
+	NEV_CAP=HUGE(1)
+	IF(JFNK_ENRICH_PERCENT .GT. 0.0_LDP)THEN
+	  IF(JFNK_EVAL_LIM .GT. 0)THEN
+	    NEV_CAP=NEV0+NINT(JFNK_EVAL_LIM*
+	1       JFNK_ENRICH_PERCENT/100.0_LDP)
+	  ELSE IF(JFNK_MAX_EVALS .GT. 0)THEN
+	    NEV_CAP=NEV0+NINT(JFNK_MAX_EVALS*
+	1       JFNK_ENRICH_PERCENT/100.0_LDP)
+	  END IF
+	END IF
+!
+	ALLOCATE(VB(N,KWANT+1),QP(N,KWANT),QD(N,KWANT),
+	1   TT(KWANT,KWANT),TI(KWANT,KWANT),UU(N,KWANT),U(N),W(N),
+	2   WN(N),Z0(N),Z1(N),A0(N),A1(N),STAT=IOS)
+	IF(IOS .NE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK ENRICH-ARN: workspace alloc failed'//
+	2     ' -- plain LU runs'
+	  RETURN
+	END IF
+!
+	IF(LUER .GT. 0)THEN
+	  WRITE(LUER,'(/,A)')' --------------------------- JFNK ENRICH-ARN ------------------------------'
+	  WRITE(LUER,'(A,I4,A,I8,A,I8,A)')
+	1   '    arnoldi K=',KWANT,'   eval cap at=',NEV_CAP,
+	2   ' (entry at',NEV0,')'
+	END IF
+!
+! v_1 = normalized masked residual.  A masked-near-zero F means
+! nothing is reachable this activation -- bail to the plain LU.
+!
+	WN=jfnk_fx(1:N)
+	CALL JFNK_MASK_FIXED_UNKNOWNS(N,WN)
+	NRM=SQRT(DOT_PRODUCT(WN,WN))
+	IF(NRM .LE. 0.0D0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK ENRICH-ARN: masked residual is zero'//
+	2     ' -- plain LU runs'
+	  GOTO 100
+	END IF
+	VB(:,1)=WN/NRM
+!
+	M=0
+	TT=0.0D0
+	DO I=1,KWANT
+	  IF(JFNK_N_RESIDUAL_EVALS .GE. NEV_CAP)THEN
+! A truncated Arnoldi basis is still exact on the completed
+! subspace, so the cap closes the basis at rank M rather than
+! discarding the probes already paid for.
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A,I8,A)')
+	1       '  JFNK ENRICH-ARN: eval cap after ',M,
+	2       ' probes (evals=',JFNK_N_RESIDUAL_EVALS,')'//
+	3       ' -- closing basis at reduced rank'
+	    EXIT
+	  END IF
+	  U=VB(:,I)
+! JFNK_ENRICH_ACTIVE is F here, so this is the plain M0^-1 apply --
+! the same operator GMRES sees, post-processing included.
+	  CALL JFNK_PRECOND_V1(N,U)
+	  CALL JFNK_JVP_V1(N,U,W)
+	  IF(jfnk_jvp_failed)THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1       '  JFNK ENRICH-ARN: JVP failed at probe ',I,
+	2       ' -- abandoning enrichment'
+	    GOTO 100
+	  END IF
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N,W)
+	  QD(:,I)=W-VB(:,I)
+!
+! MGS of the probe u_i into QP (P = QP T): dependent directions carry
+! no new constraint, and a singular T would make T^-1 meaningless, so
+! a collapse ends the basis.  The pair is still counted -- QD(:,I) is
+! stored before the test so the eval is not wasted if M is kept.
+!
+	  UNRM=SQRT(DOT_PRODUCT(U,U))
+	  DO J=1,M
+	    TT(J,I)=DOT_PRODUCT(QP(:,J),U)
+	    U=U-TT(J,I)*QP(:,J)
+	  END DO
+	  NRM=SQRT(DOT_PRODUCT(U,U))
+	  IF(NRM .LE. 1.0D-10*MAX(UNRM,1.0D-300))THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1       '  JFNK ENRICH-ARN: probe ',I,
+	2       ' dependent on basis -- basis closed'
+	    EXIT
+	  END IF
+	  M=M+1
+	  TT(M,I)=NRM
+	  QP(:,M)=U/NRM
+!
+! Arnoldi continuation: v_{m+1} = w_i orthogonalized against the
+! completed basis.  A collapsing residual means J M0^-1 closed on
+! the probed subspace -- the best possible outcome for this pass.
+!
+	  WN=W
+	  DO J=1,M
+	    H=DOT_PRODUCT(VB(:,J),WN)
+	    WN=WN-H*VB(:,J)
+	  END DO
+	  NRM=SQRT(DOT_PRODUCT(WN,WN))
+	  IF(NRM .LE. 1.0D-10*
+	1     MAX(SQRT(DOT_PRODUCT(W,W)),1.0D-300))THEN
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1       '  JFNK ENRICH-ARN: invariant subspace at probe ',I,
+	2       ' -- basis closed'
+	    EXIT
+	  END IF
+	  VB(:,M+1)=WN/NRM
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A,ES11.3,A,ES11.3)')
+	1     '    probe ',I,'  |q|=',
+	2     SQRT(DOT_PRODUCT(QD(:,I),QD(:,I))),
+	3     '  |u|=',UNRM
+	END DO
+	IF(M .LE. 0)GOTO 100
+!
+! UU = Q T^-1 with T upper-triangular; U0(:,j) = M0^-1 UU(:,j) via
+! the plain apply (still JFNK_ENRICH_ACTIVE=F).
+!
+	TI=0.0D0
+	DO I=1,M
+	  TI(I,I)=1.0D0
+	END DO
+	CALL DTRTRS('U','N','N',M,M,TT,KWANT,TI,KWANT,INFO_A)
+	IF(INFO_A .NE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1     '  JFNK ENRICH-ARN: probe-basis inverse failed (info=',
+	2     INFO_A,') -- plain LU runs'
+	  GOTO 100
+	END IF
+	UU=0.0D0
+	UU(:,1:M)=MATMUL(QD(:,1:M),TI(1:M,1:M))
+!
+	IF(ALLOCATED(JFNK_ENRICH_U))DEALLOCATE(JFNK_ENRICH_U)
+	IF(ALLOCATED(JFNK_ENRICH_P))DEALLOCATE(JFNK_ENRICH_P)
+	IF(ALLOCATED(JFNK_ENRICH_S))DEALLOCATE(JFNK_ENRICH_S)
+	IF(ALLOCATED(JFNK_ENRICH_IPIV))DEALLOCATE(JFNK_ENRICH_IPIV)
+	IOS=0
+	ALLOCATE(JFNK_ENRICH_U(N,KWANT),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_P(N,KWANT),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_S(KWANT,KWANT),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_IPIV(KWANT),STAT=IOS)
+	IF(IOS .NE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A)')
+	1     '  JFNK ENRICH-ARN: state alloc failed -- plain LU runs'
+	  GOTO 100
+	END IF
+!
+	DO J=1,M
+	  U=UU(:,J)
+	  CALL JFNK_PRECOND_V1(N,U)
+	  JFNK_ENRICH_U(:,J)=U
+	  JFNK_ENRICH_P(:,J)=QP(:,J)
+	END DO
+!
+! Capacitance S = I + QP^T U0, factored once per activation.
+!
+	DO J=1,M
+	  DO I=1,M
+	    JFNK_ENRICH_S(I,J)=DOT_PRODUCT(JFNK_ENRICH_P(:,I),
+	1       JFNK_ENRICH_U(:,J))
+	  END DO
+	  JFNK_ENRICH_S(J,J)=JFNK_ENRICH_S(J,J)+1.0D0
+	END DO
+	CALL DGETRF(M,M,JFNK_ENRICH_S,KWANT,JFNK_ENRICH_IPIV,IOS)
+	IF(IOS .NE. 0)THEN
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I4,A)')
+	1     '  JFNK ENRICH-ARN: capacitance factor failed (info=',IOS,
+	2     ') -- plain LU runs'
+	  GOTO 100
+	END IF
+	JFNK_ENRICH_KLOC=M
+	JFNK_ENRICH_ARN_MODE=.TRUE.
+	JFNK_ENRICH_ACTIVE=.TRUE.
+!
+! Direction telemetry, same as the coordinate path: price cos(F,Az)
+! and |Az|/|F| with the plain and enriched apply on the same RHS.
+!
+	IF(JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
+	  JFNK_ENRICH_ACTIVE=.FALSE.
+	  Z0=jfnk_fx
+	  CALL JFNK_PRECOND_V1(N,Z0)
+	  A0=0.0D0
+	  CALL JFNK_JVP_V1(N,Z0,A0)
+	  JFNK_ENRICH_ACTIVE=.TRUE.
+	  Z1=jfnk_fx
+	  CALL JFNK_PRECOND_V1(N,Z1)
+	  A1=0.0D0
+	  CALL JFNK_JVP_V1(N,Z1,A1)
+	  IF(.NOT. jfnk_jvp_failed)THEN
+	    FF2=JFNK_DOT_V1(N,jfnk_fx,jfnk_fx)
+	    AA2=JFNK_DOT_V1(N,A0,A0)
+	    FA=JFNK_DOT_V1(N,jfnk_fx,A0)
+	    COSA=FA/SQRT(MAX(FF2*AA2,1.0D-300))
+	    S_DOT=SQRT(AA2)/SQRT(MAX(FF2,1.0D-300))
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1       '    plain  : cos(F,Az)=',COSA,'  |Az|/|F|=',S_DOT
+	    AA2=JFNK_DOT_V1(N,A1,A1)
+	    FA=JFNK_DOT_V1(N,jfnk_fx,A1)
+	    COSA=FA/SQRT(MAX(FF2*AA2,1.0D-300))
+	    S_DOT=SQRT(AA2)/SQRT(MAX(FF2,1.0D-300))
+	    IF(LUER .GT. 0)WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1       '    enrich : cos(F,Az)=',COSA,'  |Az|/|F|=',S_DOT
+	  END IF
+	END IF
+	IF(LUER .GT. 0)
+	1   WRITE(LUER,'(A,I4,A,I8,A)')
+	2     '    enrichment active: K=',JFNK_ENRICH_KLOC,
+	3     '  evals spent=',JFNK_N_RESIDUAL_EVALS-NEV0,' '
+	DEALLOCATE(VB,QP,QD,TT,TI,UU,U,W,WN,Z0,Z1,A0,A1)
+	RETURN
+!
+  100	CONTINUE
+	JFNK_ENRICH_ACTIVE=.FALSE.
+	JFNK_ENRICH_ARN_MODE=.FALSE.
+	JFNK_ENRICH_KLOC=0
+	IF(ALLOCATED(VB))DEALLOCATE(VB)
+	IF(ALLOCATED(QP))DEALLOCATE(QP)
+	IF(ALLOCATED(QD))DEALLOCATE(QD)
+	IF(ALLOCATED(TT))DEALLOCATE(TT)
+	IF(ALLOCATED(TI))DEALLOCATE(TI)
+	IF(ALLOCATED(UU))DEALLOCATE(UU)
+	IF(ALLOCATED(U))DEALLOCATE(U)
+	IF(ALLOCATED(W))DEALLOCATE(W)
+	IF(ALLOCATED(WN))DEALLOCATE(WN)
+	IF(ALLOCATED(Z0))DEALLOCATE(Z0)
+	IF(ALLOCATED(Z1))DEALLOCATE(Z1)
+	IF(ALLOCATED(A0))DEALLOCATE(A0)
+	IF(ALLOCATED(A1))DEALLOCATE(A1)
+	RETURN
+	END SUBROUTINE JFNK_ASSEMBLE_ENRICH_ARN_V1

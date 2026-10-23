@@ -645,11 +645,21 @@
 ! Woodbury on the left-preconditioned operator).  KLOC is the live
 ! anchor count; ACTIVE gates the apply.
 !
+! JFNK_ENRICH_ARN_MODE ([JFNK_ENRICH_ARN], default F): the
+! correction basis came from a short Arnoldi pass on J M0^-1 rather
+! than coordinate anchors.  JFNK_ENRICH_P(:,m) then holds the
+! orthonormal probe basis Qp (u_m = M0^-1 v_m orthonormalized) and
+! the SMW apply replaces E^T z by Qp^T z: the update
+! M' = M0 + QDIF T^-1 Qp^T makes M' u_m = J u_m exact on the probed
+! subspace.  IDX is unused in this mode.
+!
 	LOGICAL, ALLOCATABLE, SAVE :: JFNK_CENSUS_REG(:)
 	LOGICAL, SAVE :: JFNK_ENRICH_ACTIVE=.FALSE.
+	LOGICAL, SAVE :: JFNK_ENRICH_ARN_MODE=.FALSE.
 	INTEGER, SAVE :: JFNK_ENRICH_KLOC=0
 	INTEGER, ALLOCATABLE, SAVE :: JFNK_ENRICH_IDX(:)
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JFNK_ENRICH_U(:,:)
+	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JFNK_ENRICH_P(:,:)
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JFNK_ENRICH_S(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: JFNK_ENRICH_IPIV(:)
 !

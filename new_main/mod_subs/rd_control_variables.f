@@ -1844,6 +1844,9 @@
 	  CALL RD_STORE_DBLE(JFNK_ENRICH_PERCENT,'JFNK_ENRICH_PERCENT',
 	1     L_FALSE,'Cap on enrichment evals, percent of eval budget')
 	  IF(JFNK_ENRICH_PERCENT .LE. 0.0_LDP)JFNK_ENRICH_PERCENT=0.0_LDP
+	  JFNK_ENRICH_ARN=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_ENRICH_ARN,'JFNK_ENRICH_ARN',L_FALSE,
+	1     'Arnoldi-basis enrichment instead of coordinate anchors?')
 !
 ! DO_BA_DIR_CHK (default F): diagnostic-only JFNK admission on
 ! direct-BA iterations.  The demand gates are bypassed so the check
@@ -3205,10 +3208,11 @@
 	2   '  hot_total=',KN_HOT_TOTAL_PASSES_V,
 	3   '  fg_trial_min=',FG_TRIAL_MIN,
 	4   '  gs_settle=',GS_SETTLE_TOL
-	    WRITE(LUER,'(A,L2,A,L2,A,L2)')
+	    WRITE(LUER,'(A,L2,A,L2,A,L2,A,L2)')
 	1   '   jfnk_fadapt=',JFNK_FADAPT_V,
 	2   '  jfnk_fdcplx=',JFNK_FD_COMPLEX,
-	3   '  jfnk_esfr=',JFNK_ENRICH_SFR
+	3   '  jfnk_esfr=',JFNK_ENRICH_SFR,
+	4   '  jfnk_earm=',JFNK_ENRICH_ARN
 	    WRITE(LUER,'(A,L2,A,L2,A,L2)')
 	1   '   freq_match=',DO_NONMONO_FREQ_MATCH,
 	2   '  knop_refresh=',DO_KNOP_REFRESH,
