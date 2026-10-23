@@ -2542,11 +2542,24 @@
 	3       JFNK_BUDGET_RUNG,' of ',JFNK_RUNG_MAX
 	    END IF
 ! Residual callbacks restore POPS, ED, T and STEQ.  The Newton
-! preconditioner is local, so a clean FULL fallback can reuse the outer
-! BA.  Restore the entry flags because called routines may update them.
+! preconditioner is local, so a -2 admission-gate skip can reuse the
+! outer BA; a ran attempt cannot (see the invalidation below).
+! Restore the entry flags because called routines may update them.
 	    LAMBDA_A=LAMBDA_SAVE
 	    FIXED_T=FIXED_T_SAVE
 	    COMPUTE_BA_A=COMPUTE_BA_SAVE
+! edited by Devin, 12-Nov-2026: when the Newton attempt actually ran,
+! the caller's held BA was linearized before it -- the attempt spent
+! perturbed-state evals and OUTGEN showed the fallback (and the next
+! iteration) reusing that stale matrix (it585 fail, newmat=F on a BA
+! from it575, demand 2.41% -> 37.6%).  Force a rebuild for any
+! ran attempt; the -2 admission-gate skip never touched the state so
+! its held BA stays valid.
+	    IF(JFNK_INFO .NE. -2)THEN
+	      COMPUTE_BA_A=.TRUE.
+	      WRITE(LUER,'(A)')
+	1       '  JFNK: failed Newton -- forcing BA rebuild for fallback'
+	    END IF
 	    WR_BA_INV_A=WR_BA_INV_SAVE
 	    WR_PRT_INV_A=WR_PRT_INV_SAVE
 	    TEMP_CHAR=TEMP_CHAR_SAVE
