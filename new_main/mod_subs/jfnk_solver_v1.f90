@@ -284,12 +284,17 @@ module jfnk_solver_v1_mod
    ! Step-safeguard caps (parameterized 2026-10 for unit testing):
    ! jfnk_step_inf_cap is the maximum allowed |s|_inf per Newton step
    ! (= MAX_JFNK_COR semantics: factor-10 fractional population change);
-   ! jfnk_runaway_nrm is the catastrophic weighted-step norm above which
-   ! the step is rejected and the trust radius shrunk.  Defaults preserve
-   ! the previously hardcoded production values.
+   ! jfnk_runaway_fac is the catastrophic weighted-step norm, measured
+   ! relative to ref_norm = ||M^{-1} F||_w, above which the step is
+   ! rejected and the trust radius shrunk.  The reference must be
+   ! relative: under a non-Euclidean JFNK_RSCALE the absolute norm
+   ! scale is arbitrary (|F|_w ~ 1e10 under DIAG), so an absolute cap
+   ! either always fires or never does.  A Newton step satisfies
+   ! |s|_w ~ |M^{-1} F|_w; 100x that is genuine singular-inverse
+   ! garbage (the 1e31 class this check was added for).
    !
    double precision :: jfnk_step_inf_cap = 10d0
-   double precision :: jfnk_runaway_nrm  = 1.0d2
+   double precision :: jfnk_runaway_fac  = 1.0d2
    !
    ! Logarithmic unknown and pseudo-transient continuation.
    ! Set from VADAT [JFNK_LOGX] and [JFNK_PTC] in RD_CONTROL_VARIABLES
@@ -1079,8 +1084,14 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       call jfnk_tauto_damp_v1(n, s)
       !
       ! Weighted |s| can still explode if RSCALE is large.  Reject if
-      ! the overall weighted norm is truly catastrophic.
-      if(snrm > jfnk_runaway_nrm) then
+      ! the overall weighted norm is truly catastrophic -- i.e. far
+      ! above the ||M^{-1} F||_w scale the step is built at.  An
+      ! absolute cap is meaningless under non-Euclidean RSCALE (this
+      ! model: |F|_w ~ 5e10, every step read as "runaway" and the
+      ! solver aborted before a single trial F evaluation).  Not
+      ! flag-gated: the relative check reproduces the intended
+      ! semantics under every JFNK_RSCALE mode.
+      if(snrm > jfnk_runaway_fac * max(ref_norm, 1.0d-30)) then
          !
          ! Fix (2026-09-11): the retry must produce a DIFFERENT, smaller
          ! trial step.  Previously this halved del_try — the trust-region
@@ -1567,7 +1578,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          end if
          if(cauchy_ok) then
             cauchy_nrm = dsqrt(dp(n, jfnk_w_cauchy, jfnk_w_cauchy))
-            if(cauchy_nrm > jfnk_runaway_nrm) then
+            ! Same relative cap as the Newton step: d_C = M^{-1} F is
+            ! built at the ref_norm scale by construction.
+            if(cauchy_nrm > jfnk_runaway_fac * max(ref_norm, 1.0d-30)) then
                cauchy_ok = .false.
                if(info == 1) write(luer,'(A,ES12.4)') &
                   '  JFNK: runaway Cauchy norm ', real(cauchy_nrm), &
