@@ -39,6 +39,10 @@
 !   G9: jfnk_h_select_v1 picks the stable h plateau and rejects a
 !       direction whose sweep never stabilizes (JFNK_HADAPT).
 !   G10: jfnk_pc_final_guard_v1 zeroes and counts non-finite outputs.
+!   G11: the Newton stagnation gate uses the measured true residual,
+!       not only the Hessenberg model residual (12-Nov-2026 fix).
+!   G12: a zero-decrease trial is a rejection, not a rho<0.75 retry
+!       (12-Nov-2026 fix).
 !
 ! edited by Devin, Oct-2026
 !----------------------------------------------------------------------
@@ -51,6 +55,9 @@ module guards_prob_mod
    integer, parameter :: NG = 60
    double precision :: ag(NG), xsg(NG)
    double precision :: bg = 0.3d0
+   ! df_split keeps components <= split_keep of unit-norm arguments and
+   ! answers zero on the larger accumulated-step calls -- see G11.
+   integer :: split_keep = 34
 contains
    subroutine seed_prob()
       integer :: i
@@ -67,7 +74,8 @@ program test_guards
    use jfnk_cmfgen_int_mod, only: JFNK_COUPLED_LOC
    use guards_prob_mod
    implicit none
-   external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1
+   external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1, &
+      f_flat, f_const, df_split, df_id
    double precision, external :: dp_t
    integer :: nfail, info, luer, i
    !
@@ -476,6 +484,74 @@ program test_guards
       end if
    end block
    !
+   ! -------- G11: stagnation gate must use the measured true res ----
+   !
+   ! The Hessenberg least-squares residual is only a Krylov-space
+   ! model.  df_split answers unit-norm basis calls with a rank-
+   ! deficient projection (components <= split_keep kept) and the
+   ! accumulated-step call with zero action, so the hess model claims
+   ! ~34% residual reduction while the measured residual is the full
+   ! ||b||.  The pre-fix gate accepted that direction on
+   ! pred_res/ref ~0.66; the fix must see true_res/ref = 1 and abort.
+   block
+      double precision :: f0w
+      jfnk_ptc_active = .false.
+      jfnk_do_line_search = .false.
+      jfnk_use_left_pc = .false.
+      jfnk_gmres_tres_fac = 0d0
+      jfnk_jvp_failed = .false.
+      jfnk_gmres_true_res_ok = .false.
+      jfnk_gmres_true_res = 0d0
+      jfnk_x = 0d0
+      info = 1
+      call newton_hook_v1(f_flat, df_split, dfp_t, sub_t, dp_t, &
+         10, NG, 1d-9, 1d-11, 1d3, 1d-12, 1d8, 30, info, luer)
+      f0w = dsqrt(dble(NG))
+      if(jfnk_exit_reason /= 'gmres_stagnation_abort' .or. &
+         .not. jfnk_gmres_true_res_ok .or. &
+         jfnk_gmres_true_res < 0.9d0 * f0w) then
+         nfail = nfail + 1
+         write(luer,'(A,A,A,ES12.4,A,L1)') &
+            'G11: FAIL (hess-only gate), reason=', &
+            trim(jfnk_exit_reason), ' true_res=', jfnk_gmres_true_res, &
+            ' ok=', jfnk_gmres_true_res_ok
+      else
+         write(luer,'(A,ES12.4)') &
+            'G11: PASS (true-res gate aborts phantom step), true_res=', &
+            jfnk_gmres_true_res
+      end if
+      jfnk_use_left_pc = .true.
+   end block
+   !
+   ! -------- G12: zero-progress trial rejects, not rho<0.75 retry ---
+   !
+   ! f_const returns a constant residual, so every trial reports
+   ! ared == 0.  The pre-fix code sent that into the rho<0.75 retry
+   ! branch, which never touches n_reject: the trust radius halved to
+   ! the floor and the solve ended in trust_region_too_small after
+   ! burning its whole budget.  With the fix the solve must abort via
+   ! n_reject_max as too_many_rejected_steps.
+   block
+      jfnk_ptc_active = .false.
+      jfnk_do_line_search = .false.
+      jfnk_use_left_pc = .false.
+      jfnk_gmres_tres_fac = 0d0
+      jfnk_jvp_failed = .false.
+      jfnk_x = 0d0
+      info = 1
+      call newton_hook_v1(f_const, df_id, dfp_t, sub_t, dp_t, &
+         10, NG, 1d-9, 1d-11, 1d3, 1d-12, 1d8, 30, info, luer)
+      if(jfnk_exit_reason /= 'too_many_rejected_steps') then
+         nfail = nfail + 1
+         write(luer,'(A,A,A,I3)') 'G12: FAIL (zero-progress retry), &
+            &reason=', trim(jfnk_exit_reason), ' info=', info
+      else
+         write(luer,'(A)') &
+            'G12: PASS (zero progress aborts via n_reject)'
+      end if
+      jfnk_use_left_pc = .true.
+   end block
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL GUARD TESTS PASSED'
    else
@@ -541,3 +617,46 @@ double precision function dp_t(n, x, y)
    double precision :: x(n), y(n)
    dp_t = dot_product(x, y)
 end function dp_t
+
+subroutine f_flat(n, x, y)
+   implicit none
+   integer :: n
+   double precision :: x(n), y(n)
+   ! G11: unit residual per component, so the hess/true residual split
+   ! in df_split is fully controlled by the projection rank.
+   y = x - 1d0
+end subroutine f_flat
+
+subroutine f_const(n, x, y)
+   implicit none
+   integer :: n
+   double precision :: x(n), y(n)
+   ! G12: residual identical at every trial state -> ared == 0 always.
+   y = 1d0
+end subroutine f_const
+
+subroutine df_split(n, v, jv)
+   use guards_prob_mod, only: split_keep
+   implicit none
+   integer :: n, k
+   double precision :: v(n), jv(n)
+   ! Deliberately inconsistent matvec.  Arnoldi basis calls carry unit
+   ! norm and see a rank-split_keep projection; the gmres exit's
+   ! true-residual call (and cycle restarts) pass the accumulated step
+   ! (norm ~ sqrt(split_keep)) and see zero action.  This reproduces
+   ! the OUTGEN pathology: hess_res << true_res on a stagnation exit.
+   jv = 0d0
+   if(dsqrt(dot_product(v, v)) < 3d0) then
+      k = min(split_keep, n)
+      jv(1:k) = v(1:k)
+   end if
+end subroutine df_split
+
+subroutine df_id(n, v, jv)
+   implicit none
+   integer :: n
+   double precision :: v(n), jv(n)
+   ! G12: identity action converges immediately so every Newton pass
+   ! produces a full step against the constant residual.
+   jv = v
+end subroutine df_id
