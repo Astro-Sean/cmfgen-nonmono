@@ -205,6 +205,7 @@
 	LOGICAL LST_ITERATION
 	LOGICAL SCRWF
 	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
+	LOGICAL BA_TRACE_ACTIVE,BA_TRACE_OFF,BA_TRACE_RELEASE
 	LOGICAL BA_STAGEB_ARM
 ! edited by Devin, 16-Oct-2026: CONV_EXIT_MET is the converged-exit
 ! condition evaluated before the LST_ITERATION split so the budgeted-
@@ -4802,9 +4803,6 @@
 ! proxy), and are 0 when the floors are off -- the default path is
 ! unchanged.
 !
-! BA_TR_ABSMAX=0 is the documented off state (22-Oct-2026), mirroring
-! the CONV_TRC_NEED replica in SOLVE_FOR_POPS.
-!
 ! edited by Devin, 12-Nov-2026: arm on a material exempted demand as
 ! well as on the absolute trace change.  Stage-B rows sit below
 ! BA_DEM_PFLOOR (1E-30), so even a 100% committed change leaves
@@ -4814,19 +4812,21 @@
 ! the unsaturated material band [MAX(10*EPS,1), BA_SAT_RAW); demand
 ! below EPS is exempt noise and >= BA_SAT_RAW is the dead-stage class
 ! that releases the exit instead of arming.  BA_TR_ABS remains the
-! completion/diagnostic metric and the BA_TR_ABSMAX > 0 off state is
-! preserved.
+! completion/diagnostic metric.
 !
-	  BA_TRACE_NEEDED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
-	1    BA_TR_MAXSWP .GT. 0 .AND.
-	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
-	3    BA_TR_ABSMAX .GT. 0.0_LDP .AND.
-	4    BA_TR_NSWP .LT. BA_TR_MAXSWP .AND.
-	5    ( (BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
-	6        BA_DEM_EXM .LT. BA_SAT_RAW) .OR.
-	7        BA_TR_ABS .GT. BA_TR_ABSMAX )
-	  BA_TRACE_DONE=BA_TR_MAXSWP .GT. 0 .AND.
-	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
+! Same edit, off-state fix: the truth table lives in
+! BA_TRACE_EVAL (CONTROL_VARIABLE_MOD), shared with the ITER_SUM
+! replica in SOLVE_FOR_POPS.  BA_TR_MAXSWP=0 is the master off
+! switch and BA_DEM_PFLOOR<=0 disables the demand channel: both now
+! set BA_TRACE_OFF, which releases the exit instead of pinning it
+! (NEEDED .OR. DONE can never be true with the polish off, so a
+! material exempted demand used to hold BA_DEM_EXIT_OK forever).
+! BA_TR_ABSMAX=0 disables only the absolute leg -- the demand leg
+! still arms Stage-B.
+!
+	  CALL BA_TRACE_EVAL(BA_TRACE_ACTIVE,BA_TRACE_OFF,
+	1    BA_TRACE_NEEDED,BA_TRACE_DONE)
+	  BA_TRACE_RELEASE=BA_TRACE_OFF .OR. BA_TRACE_DONE
 !
 ! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] adds a second
 ! exempted-demand channel.  BA_DEM_EXR covers the rows skipped by
@@ -4834,10 +4834,15 @@
 ! small-or-saturated test as BA_DEM_EXM; it is not part of the
 ! Stage-B set, so the polish budget does not release it.  Flag off
 ! -> BA_DEM_EXR=0 and the test is identical.
+! Known limitation (12-Nov-2026): a material unsaturated BA_DEM_EXR
+! holds the exit without a bounded release -- the channel is
+! exit-only by design, and folding it into Stage-B needs numerical
+! validation first.  The hold is visible on the 'exempt/trc' row and
+! in CONV_EXIT_WHY, never silent.
 !
 	  BA_DEM_EXIT_OK=(BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
-	2    BA_TRACE_NEEDED .OR. BA_TRACE_DONE) .AND.
+	2    BA_TRACE_NEEDED .OR. BA_TRACE_RELEASE) .AND.
 	3    (BA_DEM_EXR .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	4    BA_DEM_EXR .GE. BA_SAT_RAW)
 !
@@ -4879,6 +4884,10 @@
 	1    'Stage-B sweep budget spent with residual trace demand'
 	  IF(BA_TRACE_NEEDED)CONV_EXIT_WHY=
 	1    'Stage-B trace polish still owed; iteration budget spent'
+	  IF(BA_TRACE_OFF .AND.
+	1    BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP))CONV_EXIT_WHY=
+	2    'exempted demand held; trace polish disabled'//
+	3    ' (BA_TR_MAXSWP<=0 or BA_DEM_PFLOOR<=0)'
 !
 ! NB - Need GE because of NG acceleration.
 !

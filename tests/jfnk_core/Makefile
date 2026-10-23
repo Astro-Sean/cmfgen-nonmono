@@ -29,11 +29,12 @@ checkfc:
 	@if [ "$(FC_BASE)" != ifort ] && [ "$(FC_BASE)" != gfortran ]; then \
 	  echo "unsupported FC '$(FC)' - use ifort or gfortran"; exit 1; fi
 
-test: test_newton_core test_guards test_precond_blocks test_ptc_sign
+test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state
 	./test_newton_core
 	./test_guards
 	./test_precond_blocks
 	./test_ptc_sign
+	./test_trace_state
 
 test_newton_core: jfnk_int_stub.o jfnk_solver_v1.o test_newton_core.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
@@ -56,6 +57,21 @@ test_ptc_sign: jfnk_int_stub.o jfnk_solver_v1.o test_ptc_sign.o
 test_ptc_sign.o: test_ptc_sign.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o
 	$(FC) $(FFLAGS) -c $<
 
+# Stage-B state machine: links the production control_variable_mod
+# (fixed-form, needs -extend-source) so BA_TRACE_EVAL is tested, not
+# a mirror.
+set_kind_module.o: ../../tools/set_kind_module.f checkfc
+	$(FC) $(FFLAGS) -c $< -o set_kind_module.o
+
+control_variable_mod.o: ../../new_main/mod_subs/control_variable_mod.f set_kind_module.o checkfc
+	$(FC) $(FFLAGS) -extend-source -c $< -o control_variable_mod.o
+
+test_trace_state: control_variable_mod.o test_trace_state.o
+	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
+
+test_trace_state.o: test_trace_state.f90 checkfc control_variable_mod.o
+	$(FC) $(FFLAGS) -c $<
+
 jfnk_int_stub.o: jfnk_int_stub.f90 checkfc
 	$(FC) $(FFLAGS) -c $<
 
@@ -66,6 +82,6 @@ test_newton_core.o: test_newton_core.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.
 	$(FC) $(FFLAGS) -c $<
 
 clean:
-	rm -f *.o *.mod test_newton_core test_guards test_precond_blocks test_ptc_sign
+	rm -f *.o *.mod test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state
 
 .PHONY: test clean checkfc

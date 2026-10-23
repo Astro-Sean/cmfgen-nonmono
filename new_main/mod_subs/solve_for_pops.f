@@ -433,7 +433,7 @@
 !
 	CHARACTER(LEN=7) TRC_ST,CONV_ST
 	LOGICAL CONV_LAM_OK,CONV_DEM_OK,CONV_TRC_NEED,CONV_TRC_DONE,
-	1    CONV_ALL
+	1    CONV_TRC_ACTIVE,CONV_TRC_OFF,CONV_TRC_REL,CONV_ALL
 	CHARACTER(LEN=120) CONV_FAILS
 	INTEGER CONV_NPASS,CONV_NPCT
 	REAL(KIND=LDP) CONV_MGN
@@ -3873,32 +3873,25 @@
 ! non-exempted demand, so MAXCH < EPS can print while exempted rows
 ! still demand percent-level-or-larger corrections -- the major
 ! channels alone cannot say whether the system is converged.  The
-! tests below replicate CMFGEN_SUB's BA_TRACE_NEEDED /
-! BA_TRACE_DONE / BA_DEM_EXIT_OK / CONV_EXIT_MET exactly, so the
+! tests below share CMFGEN_SUB's BA_TRACE_* state (BA_TRACE_EVAL)
+! and mirror BA_DEM_EXIT_OK / CONV_EXIT_MET, so the
 ! 'conv exit' row names every gate that is holding and [MET] means
 ! the converged exit would fire on this call.
 !
-! BA_TR_ABSMAX=0 is the documented off state (22-Oct-2026): without
-! the >0 guard the comparison is true for any nonzero BA_TR_ABS and
-! the trace polish could never be switched off.  12-Nov-2026: the
-! arming legs replicate CMFGEN_SUB exactly -- a material unsaturated
-! exempted demand [MAX(10*EPS,1), BA_SAT_RAW) arms Stage-B as well
-! as BA_TR_ABS > BA_TR_ABSMAX, which floor-exempted rows can never
-! reach.
+! 12-Nov-2026: the trace-polish state machine is shared with
+! CMFGEN_SUB through BA_TRACE_EVAL (CONTROL_VARIABLE_MOD) -- a
+! material unsaturated exempted demand
+! [MAX(10*EPS,1), BA_SAT_RAW) arms Stage-B as well as
+! BA_TR_ABS > BA_TR_ABSMAX (a leg floor-exempted rows can never
+! reach), BA_TR_MAXSWP=0 is the master off switch releasing the
+! exit, and BA_TR_ABSMAX=0 disables only the absolute leg.
 !
-	  CONV_TRC_NEED=(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
-	1    BA_TR_MAXSWP .GT. 0 .AND.
-	2    BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
-	3    BA_TR_ABSMAX .GT. 0.0_LDP .AND.
-	4    BA_TR_NSWP .LT. BA_TR_MAXSWP .AND.
-	5    ( (BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
-	6        BA_DEM_EXM .LT. BA_SAT_RAW) .OR.
-	7        BA_TR_ABS .GT. BA_TR_ABSMAX )
-	  CONV_TRC_DONE=BA_TR_MAXSWP .GT. 0 .AND.
-	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
+	  CALL BA_TRACE_EVAL(CONV_TRC_ACTIVE,CONV_TRC_OFF,
+	1    CONV_TRC_NEED,CONV_TRC_DONE)
+	  CONV_TRC_REL=CONV_TRC_OFF .OR. CONV_TRC_DONE
 	  CONV_DEM_OK=(BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	1    BA_DEM_EXM .GE. BA_SAT_RAW .OR.
-	2    CONV_TRC_NEED .OR. CONV_TRC_DONE) .AND.
+	2    CONV_TRC_NEED .OR. CONV_TRC_REL) .AND.
 	3    (BA_DEM_EXR .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	4    BA_DEM_EXR .GE. BA_SAT_RAW)
 	  TRC_ST='[OK]   '

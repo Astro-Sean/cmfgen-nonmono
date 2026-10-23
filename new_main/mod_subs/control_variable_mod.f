@@ -2171,4 +2171,49 @@
 !
 	INTEGER JFNK_DEFER_PROBE
 !
+	CONTAINS
+!
+! BA_TRACE_EVAL (12-Nov-2026): single source of the Stage-B
+! trace-polish state machine.  CMFGEN_SUB and SOLVE_FOR_POPS both
+! call it, so the arming/release truth table cannot drift between
+! the driver and the ITER_SUM replica.
+!
+! States:
+!   ACTIVE = nonmono path .AND. BA_TR_MAXSWP>0 .AND.
+!            BA_DEM_PFLOOR>0 -- the polish can arm.
+!   OFF    = nonmono path .AND. (BA_TR_MAXSWP<=0 .OR.
+!            BA_DEM_PFLOOR<=0) -- the polish is disabled and the
+!            exempted-demand channel releases the exit.
+!            BA_TR_MAXSWP=0 is the master off switch;
+!            BA_DEM_PFLOOR<=0 switches off the demand channel.
+!   NEEDED = ACTIVE .AND. sweeps remain .AND.
+!            ( material unsaturated exempted demand
+!              [MAX(10*EPS,1), BA_SAT_RAW) .OR.
+!              (BA_TR_ABSMAX>0 .AND. BA_TR_ABS>BA_TR_ABSMAX) ).
+!            BA_TR_ABSMAX=0 disables only the absolute-change leg;
+!            the demand leg still arms.
+!   DONE   = nonmono path .AND. BA_TR_MAXSWP>0 .AND. budget spent.
+!
+! At the call sites RELEASE = OFF .OR. DONE.  NEEDED also releases
+! the exempted-demand leg of BA_DEM_EXIT_OK: the would-be exit is
+! diverted into a sweep by BA_STAGEB_ARM instead.
+!
+	SUBROUTINE BA_TRACE_EVAL(T_ACTIVE,T_OFF,T_NEEDED,T_DONE)
+	IMPLICIT NONE
+	LOGICAL, INTENT(OUT) :: T_ACTIVE,T_OFF,T_NEEDED,T_DONE
+	LOGICAL L_NM
+	L_NM=DO_NONMONO_SOB .OR. DO_NONMONO_KNOP
+	T_ACTIVE=L_NM .AND. BA_TR_MAXSWP .GT. 0 .AND.
+	1    BA_DEM_PFLOOR .GT. 0.0_LDP
+	T_OFF=L_NM .AND. (BA_TR_MAXSWP .LE. 0 .OR.
+	1    BA_DEM_PFLOOR .LE. 0.0_LDP)
+	T_NEEDED=T_ACTIVE .AND. BA_TR_NSWP .LT. BA_TR_MAXSWP .AND.
+	1    ( (BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
+	2        BA_DEM_EXM .LT. BA_SAT_RAW) .OR.
+	3        (BA_TR_ABSMAX .GT. 0.0_LDP .AND.
+	4         BA_TR_ABS .GT. BA_TR_ABSMAX) )
+	T_DONE=L_NM .AND. BA_TR_MAXSWP .GT. 0 .AND.
+	1    BA_TR_NSWP .GE. BA_TR_MAXSWP
+	END SUBROUTINE BA_TRACE_EVAL
+!
 	END MODULE CONTROL_VARIABLE_MOD
