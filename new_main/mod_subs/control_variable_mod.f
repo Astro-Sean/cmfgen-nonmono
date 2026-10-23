@@ -1820,6 +1820,14 @@
 ! the coupled-vs-production residual consistency check at every
 ! coupled-SOB activation instead of only the first.
 !
+! JFNK_CPL_SOB_TOL (VADAT [JFNK_CPL_SOB_TOL], default 1.0D-5):
+! weighted relative tolerance of the consistency check.  The
+! coupled eval re-solves J iteratively while production stored
+! J from the same fixed point, so an exact bitwise match is
+! unreachable -- the observed re-solve noise floor is ~1D-8.  The
+! gate exists to catch a different equation (missing replay
+! terms give O(1) row errors), not solver truncation.
+!
 ! The remaining keys mirror the V4/V6 JFNK implementation:
 ! solver tolerances, GMRES restart, trust-region (hookstep)
 ! controls, correction cap, preconditioner selection.
@@ -1830,6 +1838,7 @@
 	LOGICAL JFNK_COUPLED_SOB
 	INTEGER JFNK_CPL_SOB_MAX_EVALS
 	LOGICAL JFNK_CPL_SOB_EACH
+	REAL(KIND=LDP) JFNK_CPL_SOB_TOL
 ! Internal runtime state (no VADAT key): true when [USE_JFNK]=T (default
 ! F) commits a best iterate, rebuilt baseline, or clipped Newton update.
 ! Convergence and phased-T gates must not count it as solved.

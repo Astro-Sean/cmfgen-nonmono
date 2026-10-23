@@ -29,7 +29,7 @@
 ! coupled tier is never demand-admitted: it fires only as the
 ! reach-fail fallback below, once the frozen tier certifies the
 ! residual unreachable by a population step, and only after the eval
-! residual at x=0 reproduces the production STEQ to 1D-10.
+! residual at x=0 reproduces the production STEQ to [JFNK_CPL_SOB_TOL].
 !
 ! On non-catastrophic stagnation this routine returns to the caller's
 ! SOLVEBA_V13 mode.  Only an unrecoverable eval failure forces the
@@ -2015,14 +2015,20 @@
 	        CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,FB_Y)
 !
 ! A3 consistency gate: the coupled eval at x=0 must reproduce the
-! production-assembled STEQ to 1D-10 (weighted) before Newton may
-! differentiate it.  The gate is enforced on the first coupled
-! admission, and on every one when [JFNK_CPL_SOB_EACH]=T; once it has
-! passed, later activations only log the drift.  A failed enforced
-! check detaches the sweep callback for the rest of the run and this
-! call exits through the identical frozen skip.  A broken eval
-! (budget sentinel, non-finite components) is transient -- it vetoes
-! this admission only, without latching JFNK_CPL_SOB_DEAD.
+! production-assembled STEQ to [JFNK_CPL_SOB_TOL] (weighted, default
+! 1.0D-5) before Newton may differentiate it.  The eval re-solves J
+! iteratively where production stored the converged J, so the gate
+! cannot demand bitwise replay -- it exists to catch a different
+! equation, and the top-|diff| row dump below names the rows so a
+! systematic omission shows as a concentrated signature while
+! re-solve truncation reads as diffuse noise.  The gate is enforced
+! on the first coupled admission, and on every one when
+! [JFNK_CPL_SOB_EACH]=T; once it has passed, later activations only
+! log the drift.  A failed enforced check detaches the sweep
+! callback for the rest of the run and this call exits through the
+! identical frozen skip.  A broken eval (budget sentinel,
+! non-finite components) is transient -- it vetoes this admission
+! only, without latching JFNK_CPL_SOB_DEAD.
 !
 	        FB_D=FB_Y-F_PROD_SAV
 	        FB_D2=SQRT(JFNK_DOT_V1(JFNK_N,FB_D,FB_D))
@@ -2033,10 +2039,54 @@
 	1          .NOT. JFNK_CPL_SOB_CHK_DONE
 	        WRITE(LUER,'(A,ES12.4,A,ES12.4)')
 	1       '  JFNK-CPL consistency: |F_eval-F_prod|_w=',REAL(FB_D2),
-	2       '  rel=',REAL(FB_REL)
+	2       '  rel=',REAL(FB_REL),'  tol=',REAL(JFNK_CPL_SOB_TOL)
 	        WRITE(LUER,'(A,I10,A,I8,A,I4)')
 	1       '    worst eqn',JJ_W,' depth',(JJ_W-1)/JFNK_NT+1,
 	2       ' slot',MOD(JJ_W-1,JFNK_NT)+1
+	        BLOCK
+	          DOUBLE PRECISION FB_BLK(JFNK_N)
+	          INTEGER I_TOP
+	          WRITE(LUER,'(A)')'    rnk    idx     K     J'//
+	1         '  ion          lev     F_prod     F_eval'//
+	2         '      |diff|     rel_i'
+	          FB_BLK=0.0_LDP
+	          DO I=1,8
+	            FMAX_LOC=0.0_LDP
+	            I_TOP=0
+	            DO II_F=1,JFNK_N
+	              IF(ABS(FB_D(II_F)) .GT. FMAX_LOC .AND.
+	1                 FB_BLK(II_F) .EQ. 0.0_LDP)THEN
+	                FMAX_LOC=ABS(FB_D(II_F))
+	                I_TOP=II_F
+	              END IF
+	            END DO
+	            IF(I_TOP .EQ. 0)EXIT
+	            FB_BLK(I_TOP)=1.0_LDP
+	            JROW=MOD(I_TOP-1,JFNK_NT)+1
+	            KROW=(I_TOP-1)/JFNK_NT+1
+	            ID=0
+	            IF(JROW .LE. JFNK_NT-2 .AND.
+	1              ALLOCATED(J2ID_LOC))ID=J2ID_LOC(JROW)
+	            IF(JROW .EQ. JFNK_NT)THEN
+	              LBL_LOC='T (energy)'
+	              LEV_LOC=0
+	            ELSE IF(JROW .EQ. JFNK_NT-1)THEN
+	              LBL_LOC='Ne (charge)'
+	              LEV_LOC=0
+	            ELSE IF(ID .GT. 0)THEN
+	              LBL_LOC=ION_ID(ID)
+	              LEV_LOC=JROW-ATM(ID)%EQXzV+1
+	            ELSE
+	              LBL_LOC='unlabeled'
+	              LEV_LOC=0
+	            END IF
+	            WRITE(LUER,'(I5,I9,I6,I6,2X,A12,I5,4ES12.4)')
+	1            I,I_TOP,KROW,JROW,LBL_LOC,LEV_LOC,
+	2            F_PROD_SAV(I_TOP),FB_Y(I_TOP),ABS(FB_D(I_TOP)),
+	3            ABS(FB_D(I_TOP))/MAX(ABS(F_PROD_SAV(I_TOP)),
+	4            1.0E-300_LDP)
+	          END DO
+	        END BLOCK
 	        IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
 	          JFNK_COUPLED_LOC=.FALSE.
 	          JFNK_TAG=' (JFNK-FRZ)'
@@ -2044,7 +2094,7 @@
 	1         '  JFNK-CPL: eval broken/non-finite -- staying on'//
 	2         ' frozen tier + SOLVEBA for this call'
 	        ELSE IF(CPL_CHK_ACTIVE .AND.
-	1                .NOT.(FB_REL .LE. 1.0D-10))THEN
+	1                .NOT.(FB_REL .LE. JFNK_CPL_SOB_TOL))THEN
 	          JFNK_COUPLED_LOC=.FALSE.
 	          JFNK_TAG=' (JFNK-FRZ)'
 	          JFNK_CPL_SOB_DEAD=.TRUE.

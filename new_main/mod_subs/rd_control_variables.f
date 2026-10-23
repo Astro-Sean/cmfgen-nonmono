@@ -1446,6 +1446,10 @@
 	  JFNK_CPL_SOB_EACH=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_CPL_SOB_EACH,'JFNK_CPL_SOB_EACH',L_FALSE,
 	1     'Recheck coupled-SOB residual consistency each activation?')
+	  JFNK_CPL_SOB_TOL=1.0E-5_LDP
+	  CALL RD_STORE_DBLE(JFNK_CPL_SOB_TOL,'JFNK_CPL_SOB_TOL',
+	1     L_FALSE,'Coupled-vs-production residual consistency tol')
+	  IF(JFNK_CPL_SOB_TOL .LE. 0.0_LDP)JFNK_CPL_SOB_TOL=1.0E-5_LDP
 !
 ! The coupled tier under SOB needs JFNK_COUPLED_SOB as the explicit
 ! opt-in: without it, a JFNK_COUPLED=T request used to STOP the run.

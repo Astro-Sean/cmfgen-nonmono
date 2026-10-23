@@ -577,6 +577,52 @@ def main():
         and v.get("jfnk_itry_cap") == "5",
     )
 
+    # Coupled-SOB fallback keys parse and land; the tolerance
+    # accepts an explicit value and keeps its 1D-5 default otherwise.
+    d = write_vadat(
+        WORKDIR / "vadat_cpl_sob",
+        {
+            "JFNK_COUPLED": "T",
+            "JFNK_COUPLED_SOB": "T",
+            "JFNK_CPL_SOB_MAX_EVALS": "40",
+            "JFNK_CPL_SOB_EACH": "T",
+            "JFNK_CPL_SOB_TOL": "1.0D-4",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "JFNK coupled-SOB keys parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_COUPLED") == "T"
+        and v.get("JFNK_COUPLED_SOB") == "T"
+        and v.get("JFNK_CPL_SOB_MAX_EVALS") == "40"
+        and v.get("JFNK_CPL_SOB_EACH") == "T"
+        and abs(
+            float(v.get("JFNK_CPL_SOB_TOL", "nan").replace("D", "E"))
+            - 1.0e-4
+        )
+        < 1e-18,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    d = write_vadat(
+        WORKDIR / "vadat_cpl_sob_default",
+        {"JFNK_COUPLED": "T", "JFNK_COUPLED_SOB": "T"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "JFNK_CPL_SOB_TOL defaults to 1D-5",
+        "RESULT_OK" in p.stdout
+        and abs(
+            float(v.get("JFNK_CPL_SOB_TOL", "nan").replace("D", "E"))
+            - 1.0e-5
+        )
+        < 1e-18,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # MOM_H_IMPL / MOM_ABS_FLR opt-in keys parse and land.
     d = write_vadat(
         WORKDIR / "vadat_mom_himpl",
