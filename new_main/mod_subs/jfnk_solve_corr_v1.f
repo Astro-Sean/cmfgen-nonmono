@@ -2741,5 +2741,8 @@
 	JFNK_SEC_HIT=.FALSE.
 	JFNK_N_RESIDUAL_EVALS=0
 	JFNK_T_START=OMP_GET_WTIME()
+! JFNK_EVAL_BYPASS is commit-verification scope only; an interrupted
+! activation must not hand it to the next one.
+	JFNK_EVAL_BYPASS=.FALSE.
 	RETURN
 	END SUBROUTINE JFNK_RETREAT_RESET_V1

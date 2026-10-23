@@ -402,6 +402,9 @@
 	JFNK_EVAL_BROKEN = .FALSE.
 	JFNK_T_START = OMP_GET_WTIME()
 	JFNK_SEC_HIT = .FALSE.
+! A stale .TRUE. here would let the next activation's residual calls
+! skip the budget sentinels it exists to enforce.
+	JFNK_EVAL_BYPASS=.FALSE.
 	JFNK_N_RESIDUAL_NAN = 0
 	JFNK_N_JVP_EVALS = 0
 	JFNK_N_JVP_NAN = 0
