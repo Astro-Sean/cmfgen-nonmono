@@ -111,7 +111,7 @@
 	LOGICAL WR_BA_INV_SAVE,WR_PRT_INV_SAVE
 	LOGICAL JFNK_LAG_FACTORS_OK
 	CHARACTER*20 TEMP_CHAR_SAVE
-	DOUBLE PRECISION F_INF,F_INF_INIT,F_W,F_W_INIT
+	DOUBLE PRECISION F_INF,F_INF_INIT,F_W,F_W_INIT,F_W_ENTRY
 	DOUBLE PRECISION JFNK_TOL_ABS,F_APP
 	DOUBLE PRECISION, ALLOCATABLE :: BEST_X(:)
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
@@ -739,6 +739,19 @@
 	  WRITE(LUER,'(/,A)')' ---------------------------------- JFNK SETUP ---------------------------------'
 	  WRITE(LUER,'(A,ES12.4)')
 	1   '    weighted residual norm at entry   :',REAL(F_W_INIT)
+!
+! F_W_ENTRY freezes the activation-entry residual as the commit
+! reference.  A baseline rebuild re-bases F_W_INIT onto the new
+! baseline's assembled operator (STEQ_RAD_FLAT absorbs CMAT_RAD*X_CORR,
+! so the rebuilt |F(0)| is the linear model's prediction, not a
+! measured residual), and the applied-state check below then compared
+! moved-operator vs moved-operator -- it602 rolled back a best
+! iterate that had a verified 6.04e10 < 6.32e10 entry residual
+! because both sides of the comparison read the same phantom 1.49.
+! Not flag-gated: commit-reference bug fix, JFNK admissions only.
+! edited by Devin, 23-Oct-2026.
+!
+	  F_W_ENTRY=F_W_INIT
 	  WRITE(LUER,'(A,ES12.4)')
 	1   '    largest residual component        :',REAL(F_INF_INIT)
 	  WRITE(LUER,'(A,ES12.4)')
@@ -2361,12 +2374,17 @@
 	          F_APP=SQRT(JFNK_DOT_V1(JFNK_N,Y_APP,Y_APP))
 	          WRITE(LUER,'(A,ES12.4,A,ES12.4)')
      1          '    |F|_w at applied state    :',F_APP,
-     2          '   (entry',F_W_INIT,')'
+     2          '   (entry',F_W_ENTRY,')'
 	        ELSE
-	          F_APP=F_W_INIT
+	          F_APP=F_W_ENTRY
 	        END IF
+! The commit gate compares against the activation-entry residual
+! (F_W_ENTRY), not F_W_INIT: the attempt loop re-bases F_W_INIT
+! after each baseline rebuild, so a post-rebuild check against it
+! cannot answer "did this activation improve the model state".
+! edited by Devin, 23-Oct-2026.
 	        IF(.NOT. X_APP_OK .OR. jfnk_resid_nbad .GT. 0 .OR.
-     1           .NOT. (F_APP .LT. F_W_INIT))THEN
+     1           .NOT. (F_APP .LT. F_W_ENTRY))THEN
 	          WRITE(LUER,'(A)')
      1          '  JFNK: applied step did not improve the frozen'//
      2          ' residual -- rolling back, caller-mode BA follows'
