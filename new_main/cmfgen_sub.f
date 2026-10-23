@@ -1433,10 +1433,18 @@
 ! SE+radiation residual at perturbed populations while CMFGEN_SUB is
 ! suspended inside SOLVE_FOR_POPS.  Only used when USE_JFNK_SOLVER=T
 ! and JFNK_COUPLED=T; on the default path the pointer stays null and
-! nothing here is reached.  JFNK_COUPLED is rejected under
-! DO_NONMONO_SOB at VADAT read (this callback does not recompute the
-! SOB line rates), so under SOB the pointer is always null and only
-! the frozen-J residual tier can be admitted.
+! nothing here is reached.
+!
+! Coupled residual convention (frozen field): the eval recomputes the
+! continuum opacity/emissivity -> formal J -> radiative rate chain at
+! the trial populations against the stored Eddington records; under
+! DO_NONMONO_SOB + [JFNK_COUPLED_SOB] it also replays the
+! SECTION='LINE' pass so the Sobolev line rates enter the residual
+! the same way they do in the production assembly.  BA/CMAT terms are
+! not touched -- COMPUTE_BA is held off inside the eval.  The driver
+! verifies at activation entry that this eval residual reproduces the
+! production-assembled STEQ residual at x=0 (JFNK-CPL consistency
+! check in JFNK_SOLVE_CORR_V1) before Newton is allowed to use it.
 !
 	IF(USE_JFNK_SOLVER .AND. JFNK_COUPLED)THEN
 	  JFNK_SWEEP_CB => JFNK_RAD_SWEEP_V1
@@ -5582,10 +5590,14 @@
 ! association gives it NU/FQW/NU_EVAL_CONT, POPS-independent module
 ! state, and the same loop constants without new plumbing.  The body
 ! below is a verbatim copy of the continuum-loop preamble and the
-! "DO 10000 ML" loop above, with POPS replaced by the trial
-! populations POPS_EVAL.  With GLOBAL_LINE=BLANK the line transfer
-! is handled inside this loop (SET_LINE_OPAC + COMP_J_BLANK), so no
-! separate line loop is required.
+! "DO ML=1,NCF" loop above, with POPS replaced by the trial
+! populations POPS_EVAL.  With GLOBAL_LINE=BLANK (KNOP) the line
+! transfer is handled inside that loop (SET_LINE_OPAC + COMP_J_BLANK),
+! so no separate line pass is required.  Under DO_NONMONO_SOB with
+! [JFNK_COUPLED_SOB]=T the sweep additionally replays the
+! SECTION='LINE' group loop (SUB_SOB_LINE_V3 Sobolev rates on the
+! stored field), which is what makes the coupled residual the same
+! equation the outer iteration assembles.
 !
 ! Registered to JFNK_SWEEP_CB just before the main iteration loop;
 ! only called when USE_JFNK_SOLVER=T and JFNK_COUPLED=T.  The
@@ -5607,6 +5619,7 @@
 	INTEGER :: ACCESS_F_SAVE
 	LOGICAL :: COMPUTE_BA_SAVE
 	LOGICAL :: EDDINGTON_SAVE
+	LOGICAL :: JFNK_EVAL_SOB_LINES
 	REAL(KIND=LDP) :: MGSMAX_SAV,MRFPRV_SAV,JNRLX_SAV
 	REAL(KIND=LDP) :: INRLX_SAV,KRFPRV_SAV
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: UP_TWO_SAV(:,:)
@@ -5766,6 +5779,27 @@
 	NOSCL_SAV=STEQ_T_NO_SCL
 	STEQ_T_SCL=0.0_LDP
 	STEQ_T_NO_SCL=0.0_LDP
+!
+! Coupled-SOB line replay ([JFNK_COUPLED_SOB], default F): under
+! DO_NONMONO_SOB the eval must also replay the SECTION='LINE' pass so
+! the residual contains the Sobolev line rates the production assembly
+! computes.  That replay mutates the line-module workspace below
+! (JBAR/ZNET_SIM/CHIL_MAT/...) -- JFNK_EVAL_LSTATE_V1('S') saves every
+! array and scalar it can write so the production state returns
+! bit-for-bit at the epilogue restore.  Runs before any eval-side
+! mutation, same early-exit discipline as the brackets above.
+!
+! COMPUTE_EW is forced off for the whole eval: under it SUB_CMF_LINE
+! would read/write LU_JEW records and corrupt the production JEW
+! record trail.  EW values are last-iteration diagnostics only -- they
+! never enter the residual.  Saved by the same bracket.
+!
+	JFNK_EVAL_SOB_LINES=DO_NONMONO_SOB .AND. JFNK_COUPLED_SOB
+	IF(JFNK_EVAL_SOB_LINES)THEN
+	  CALL JFNK_EVAL_LSTATE_V1('S',IOS_EVAL)
+	  IF(IOS_EVAL .NE. 0)GOTO 9999
+	  COMPUTE_EW=.FALSE.
+	END IF
 !
 ! A coupled eval re-runs the whole frequency loop, so every per-frequency
 ! diagnostic (f-convergence warnings, solver banners) would hit OUTGEN
@@ -6638,10 +6672,374 @@
 !
 	END DO
 !
+! ====================================================================
+! Coupled-SOB line-section replay ([JFNK_COUPLED_SOB], default F).
+!
+! Verbatim replay of the host's SECTION='LINE' pass (the "DO WHILE
+! (LINE_INDX .LE. N_LINE_FREQ)" loop above), with POPS replaced by the
+! trial populations POPS_EVAL, for the same reason the continuum loop
+! is copied: under DO_NONMONO_SOB the production residual contains the
+! Sobolev line rates SUB_SOB_LINE_V3 assembles from POPS and the
+! stored continuum field, so a coupled eval that skipped this block
+! would solve a different equation than the outer iteration (the
+! original correctness blocker for JFNK_COUPLED under SOB).
+!
+! Differences from the production block, all intentional:
+!  * NM_KI < NNM and the EDD cursor read poison the eval
+!    (JFNK_EVAL_BROKEN -> sentinel residual) instead of STOP: a STOP
+!    inside a residual eval would kill the run mid-JVP.
+!  * LST_ITERATION-gated LU_NET/LU_DR/LU_HT/LU_EW/LU_NEG writes are
+!    omitted -- those are production output files, not on the LUER
+!    redirect.  The NEG_OPACITY / CHIL clamps themselves are kept
+!    verbatim so the eval sees the same opacities production does.
+!  * COMPUTE_EW was forced F at entry: SUB_CMF_LINE would otherwise
+!    read/write LU_JEW records, so no JEW file I/O can occur.  EW's
+!    are diagnostics and never enter STEQ.  (Under DO_NONMONO_SOB
+!    every line transition is SOB type so SUB_CMF_LINE is in any
+!    case unreachable; the guard covers mixed configurations.)
+!  * COMPUTE_BA is already .FALSE. for the eval, so the DO_VAR_CONT,
+!    BA/BA_T and variation-storage blocks inside SUB_SOB_LINE_V3 are
+!    all dormant -- no Jacobian terms are accumulated.
+!  * NLBEGIN is read but never written (restart-resume pointer).
+!
+! State matrix for this block (file, variable, eval mutation, bracket):
+!   cmfgen_sub.f   ACCESS_F        line EDD cursor advanced   JFNK_EDD epilogue
+!   cmfgen_sub.f   ACCESS_JEW      reset to 1, incremented    LSTATE bracket
+!   cmfgen_sub.f   LINE_INDX,FREQ_INDX,CONT_FREQ,FIRST_FREQ,
+!                  THIS_FREQ_EXT,FINAL_CONSTANT_CROSS,SECTION,
+!                  AMASS,SUM_BA,EW,CONT_INT,NNM,VAR_SOB_JC,
+!                  LAST_LINE,AT_LEAST_ONE_NEG_OPAC,CHIL,ETAL,
+!                  VB,VC,NEG_OPACITY   per-group scratch      LSTATE bracket
+!   control_var    EDDINGTON       EDD_LINECONT for the pass  entry save
+!   control_var    COMPUTE_EW      forced F                   LSTATE bracket
+!   control_var    COMPUTE_BA      forced F                   entry save
+!   control_var    SOBOLEV,OVER_FREQ_DIF,NUM_OF_WEAK_LINES,
+!                  NLBEGIN,COMPUTE_NEW_CROSS                  LSTATE bracket
+!   LINE_MOD       CHIL_MAT,ETAL_MAT,BB_COR,L/U_STAR_RATIO,
+!                  dL/dU_RAT_dT,ZNET_SIM,VB_SIM,VC_SIM,VB_2,
+!                  VC_2,BETAC_SIM,JBAR_SIM,DRC_SIM,
+!                  LINE_PROF_SIM,LINE_QW_SIM,LINE_QW_SUM,
+!                  NEG_OPAC_FAC,EINA,OSCIL,GLDGU,AMASS_SIM,
+!                  FL_SIM,LINE_OPAC_CON,LINE_EMIS_CON,SIM_NL,
+!                  SIM_NUP,SIM_LINE_POINTER,LOW_POINTER,
+!                  UP_POINTER,VAR_IN_USE_CNT,VAR_LEV_ID,
+!                  WEAK_LINE,RESONANCE_ZONE,END_RES_ZONE,
+!                  LINE_STORAGE_USED,NEW_LINE_STORAGE,
+!                  USE_THIS_VAR_MAT,IMP_TRANS_VEC,
+!                  DO_THIS_TX_MATRIX,TRANS_NAME_SIM,BETA,BETAC,
+!                  NUM_SIM_LINES,TMP_MAX_SIM,SIM_INDX         LSTATE bracket
+!   LINE_VEC_MOD   LINE_LOC                                     LSTATE bracket
+!   CMF_SOB_MOD    JBAR,ZNET,PF,PROF,LFQW,JNU,HNU,F_LINE,
+!                  G_LINE,HBC_LINE,NBC_LINE,IN_HBC_LINE,
+!                  JBLANK,HBLANK,JEW   (CMF branch only)       LSTATE bracket
+!   RADIATION_MOD  LLUMST          line luminosity sum         LSTATE bracket
+!   SOB_RH_MOD     RH_NCALL,RH_LASTREP,RH_MAXDJ,RH_MAXDZ
+!                                 diagnostic counters         LSTATE bracket
+!                 (geometry tables RH_NP/ID/T1/T1P/PW keyed on
+!                  R,V,SIGMA -- unchanged by evals -> not bracketed)
+!   STEQ_DATA_MOD  SE%STEQ,STEQ_T,STEQ_ED,STEQ_T_EHB,
+!                  SE%STEQ_ADV,SE%T_EHB   residual terms       interface
+!                  JFNK_SAVE/RESTORE_MOD_STEQ_V1
+!   TWO_PHOT_MOD   UP/DOWN_RATE_TWO                            entry bracket
+!   MOD_MOM/FG     quarantine + refresh state                  entry bracket
+!   host scratch   I,J,K,L,ML,NL,NUP,MNL,MNUP,MNL_F,MNUP_F,
+!                  ID,LS,T1..T4,S1     loop temporaries, always
+!                  reassigned before use in production        not bracketed
+!   per-frequency  CHI,ETA,CHI_SCAT,ETA_NOSCAT,CHI_NOSCAT,
+!   workspace      ETA_CONT,CHI_CONT,ZETA,THETA,ESEC,SOURCE,RJ,
+!                  EMHNUKT*,JREC*,SOB,H_MOM,K_MOM,RLUMST,
+!                  J_INT,H_INT,K_INT,*_MEAN,OBS_*,BAND_*,
+!                  STEQ_T_EHB(intfc),CHI_PREV*,X_RECOM,X_COOL,
+!                  ATM%* quad weights (idempotent rewrites)   not bracketed:
+!                  production rewrites all of these at sweep
+!                  head before any read.
+!   BA/variation   SE%BA,BA_T,TX,TVX,dZ,VJ,VCHI,VETA,STEQ_T_BF
+!                  all writes COMPUTE_BA-gated -> never
+!                  touched inside an eval                    not bracketed
+!   ATM pops       ATM%XzV,DXzV,XzV_F   trial pops             interface
+!                  (JFNK_SYNC_ATM_FROM_POPS + restore)
+!   EDDFACTOR      LU_EDD records   read-only in eval          JFNK_IN_EVAL
+!                  suppresses COMP_J_BLANK writes
+!   JEW file       LU_JEW records   never touched              COMPUTE_EW=F
+! ====================================================================
+!
+	IF(JFNK_EVAL_SOB_LINES .AND. .NOT. JFNK_EVAL_BROKEN)THEN
+!
+	IF(GLOBAL_LINE_SWITCH(1:5) .EQ. 'BLANK')THEN
+!
+! These lines have been treated with the continuum.
+!
+	ELSE IF(FLUX_CAL_ONLY .AND. .NOT. DO_SOBOLEV_LINES)THEN
+!
+! Don't waste time by computing rates and EW's for lines treated with the
+! Sobolev approximation.
+!
+	ELSE
+!
+	EDDINGTON=EDD_LINECONT
+	IF(ACCURATE .OR. EDDINGTON)THEN
+	  IF(.NOT. COMPUTE_EDDFAC)THEN
+	    READ(LU_EDD,REC=LINE_CONT_REC,IOSTAT=IOS_EVAL)ACCESS_F
+	    IF(IOS_EVAL .NE. 0)THEN
+	      WRITE(LUER,'(A,I8)')
+	1     '  JFNK_RAD_SWEEP_V1: LINE_CONT_REC cursor read failed,'//
+	2     ' IOS=',IOS_EVAL
+	      JFNK_EVAL_BROKEN=.TRUE.
+	    END IF
+	  END IF
+	END IF
+	ACCESS_JEW=1
+!
+	LINE_INDX=NLBEGIN
+	IF(LINE_INDX .LE. 0)LINE_INDX=1
+	DO WHILE (LINE_INDX .LE. N_LINE_FREQ .AND.
+	1          .NOT. JFNK_EVAL_BROKEN)
+!
+	  IF(OVERLAP)THEN
+	    TMP_MAX_SIM=MAX_SIM
+	  ELSE
+	    TMP_MAX_SIM=1
+	    OVER_FREQ_DIF=0.0_LDP
+	  END IF
+!
+	  SIM_INDX=0
+	  J=LINE_INDX
+	  SOBOLEV=.FALSE.
+	  DO WHILE(LINE_INDX+SIM_INDX .LE. N_LINE_FREQ .AND.
+	1      (VEC_FREQ(LINE_INDX)-VEC_FREQ(J))/VEC_FREQ(LINE_INDX)
+	1          .LE. OVER_FREQ_DIF
+	1          .AND. SIM_INDX .LT. TMP_MAX_SIM .AND.
+	1      (VEC_TRANS_TYPE(J)(1:3) .EQ. 'CMF' .OR.
+	1         VEC_TRANS_TYPE(J)(1:3) .EQ. 'SOB')    )
+	    SIM_INDX=SIM_INDX+1
+	    SIM_NL(SIM_INDX)=VEC_NL(LINE_INDX+SIM_INDX-1)
+	    SIM_NUP(SIM_INDX)=VEC_NUP(LINE_INDX+SIM_INDX-1)
+	    NL=SIM_NL(SIM_INDX)
+	    NUP=SIM_NUP(SIM_INDX)
+	    EINA(SIM_INDX)=VEC_EINA(LINE_INDX)
+	    OSCIL(SIM_INDX)=VEC_OSCIL(LINE_INDX)
+	    FL_SIM(SIM_INDX)=VEC_FREQ(LINE_INDX)
+	    SIM_LINE_POINTER(SIM_INDX)=LINE_INDX
+	    IF(VEC_TRANS_TYPE(LINE_INDX)(1:3) .EQ. 'SOB')SOBOLEV=.TRUE.
+	    TRANS_NAME_SIM(SIM_INDX)=TRIM(VEC_SPEC(LINE_INDX))
+	    AMASS_SIM(SIM_INDX)=AMASS_DOP
+	    J=MIN(LINE_INDX+SIM_INDX,N_LINE_FREQ)
+	  END DO
+!
+	  NUM_SIM_LINES=SIM_INDX
+	  IF(NUM_SIM_LINES .EQ. 0)THEN
+	    LINE_INDX=LINE_INDX+1
+	    GOTO 50001
+	  END IF
+!
+	  FL=0.0_LDP
+	  DO SIM_INDX=1,NUM_SIM_LINES
+	    FL=FL+FL_SIM(SIM_INDX)
+	  END DO
+	  FL=FL/NUM_SIM_LINES
+!
+	  CONT_FREQ=FL
+	  COMPUTE_NEW_CROSS=.TRUE.
+!
+	  VAR_SOB_JC=.TRUE.
+	  NNM=4
+	  IF(NM_KI .LT. NNM)THEN
+	    WRITE(LUER,*)'JFNK_RAD_SWEEP_V1: NM_KI must be at least 4'
+	    JFNK_EVAL_BROKEN=.TRUE.
+	    EXIT
+	  END IF
+!
+	  IF(LINE_INDX .LT. NLBEGIN)THEN
+	    ACCESS_F=ACCESS_F + 1
+	    ACCESS_JEW=ACCESS_JEW + 1
+	    GO TO 50001
+	  END IF
+!
+	  AMASS=AMASS_DOP
+!
+	  IF(ACCURATE .AND. ALL_FREQ)THEN
+	    THIS_FREQ_EXT=.TRUE.
+	  ELSE IF( ACCURATE .AND. FL .GT. ACC_FREQ_END )THEN
+	    THIS_FREQ_EXT=.TRUE.
+	  ELSE
+	    THIS_FREQ_EXT=.FALSE.
+	  END IF
+!
+	  IF(.NOT. SOBOLEV)THEN
+	    CALL TRAPUNEQ(PF,LFQW,NLF)
+	    T1=0.0_LDP
+	    DO ML=1,NLF
+	      LFQW(ML)=LFQW(ML)*FL*1.0E+15_LDP
+	      PROF(ML)=DOP_PRO(PF(ML),FL,TDOP,VTURB,AMASS)
+	      T1=T1+LFQW(ML)*PROF(ML)
+	    END DO
+	    DO ML=1,NLF
+	      LFQW(ML)=LFQW(ML)/T1
+	    END DO
+	  END IF
+!
+	  DO SIM_INDX=1,NUM_SIM_LINES
+	    I=SIM_LINE_POINTER(SIM_INDX)
+	    MNL_F=VEC_MNL_F(I)
+	    MNUP_F=VEC_MNUP_F(I)
+	    DO K=1,ND
+	      L_STAR_RATIO(K,SIM_INDX)=0.0_LDP
+	      U_STAR_RATIO(K,SIM_INDX)=0.0_LDP
+	      dL_RAT_dT(K,SIM_INDX)=0.0_LDP
+	      dU_RAT_dT(K,SIM_INDX)=0.0_LDP
+	    END DO
+	    DO ID=1,NUM_IONS-1
+	      IF(VEC_SPEC(I) .EQ. ION_ID(ID))THEN
+	        MNL=ATM(ID)%F_TO_S_XzV(MNL_F)
+	        MNUP=ATM(ID)%F_TO_S_XzV(MNUP_F)
+	        DO K=1,ND
+	          T1=(ATM(ID)%XzV_F(MNL_F,K)/ATM(ID)%XzVLTE_F(MNL_F,K)) /
+	1                (ATM(ID)%XzV(MNL,K)/ATM(ID)%XzVLTE(MNL,K))
+	          L_STAR_RATIO(K,SIM_INDX)=T1*ATM(ID)%W_XzV_F(MNUP_F,K)*
+	1             ATM(ID)%XzVLTE_F(MNL_F,K)/ATM(ID)%XzVLTE(MNL,K)/
+	1             ATM(ID)%W_XzV_F(MNL_F,K)
+	          T2=(ATM(ID)%XzV_F(MNUP_F,K)/ATM(ID)%XzVLTE_F(MNUP_F,K)) /
+	1             (ATM(ID)%XzV(MNUP,K)/ATM(ID)%XzVLTE(MNUP,K))
+	          U_STAR_RATIO(K,SIM_INDX)=T2*ATM(ID)%XzVLTE_F(MNUP_F,K)/
+	1              ATM(ID)%XzVLTE(MNUP,K)
+	          dL_RAT_dT(K,SIM_INDX)=L_STAR_RATIO(K,SIM_INDX)*
+	1         (-1.5_LDP-HDKT*ATM(ID)%EDGEXzV_F(MNL_F)/T(K)
+	1               -ATM(ID)%dlnXzVLTE_dlnT(MNL,K))/T(K)
+	          dU_RAT_dT(K,SIM_INDX)=U_STAR_RATIO(K,SIM_INDX)*
+	1         (-1.5_LDP-HDKT*ATM(ID)%EDGEXzV_F(MNUP_F)/T(K)
+	1               -ATM(ID)%dlnXzVLTE_dlnT(MNUP,K))/T(K)
+	        END DO
+	        GLDGU(SIM_INDX)=ATM(ID)%GXzV_F(MNL_F)/ATM(ID)%GXzV_F(MNUP_F)
+	        TRANS_NAME_SIM(SIM_INDX)=TRIM(TRANS_NAME_SIM(SIM_INDX))//
+	1           '('//TRIM(ATM(ID)%XzVLEVNAME_F(MNUP_F))//'-'//
+	1                TRIM(ATM(ID)%XzVLEVNAME_F(MNL_F))//')'
+	        EXIT
+	      END IF
+	    END DO
+	  END DO
+!
+	  DO SIM_INDX=1,NUM_SIM_LINES
+	    T1=OSCIL(SIM_INDX)*OPLIN
+	    T2=FL_SIM(SIM_INDX)*EINA(SIM_INDX)*EMLIN
+	    NL=SIM_NL(SIM_INDX)
+	    NUP=SIM_NUP(SIM_INDX)
+	    DO I=1,ND
+	      CHIL_MAT(I,SIM_INDX)=T1*(L_STAR_RATIO(I,SIM_INDX)*POPS_EVAL(NL,I)-
+	1            GLDGU(SIM_INDX)*U_STAR_RATIO(I,SIM_INDX)*POPS_EVAL(NUP,I))
+	      ETAL_MAT(I,SIM_INDX)=T2*POPS_EVAL(NUP,I)*U_STAR_RATIO(I,SIM_INDX)
+	      NEG_OPACITY(I)=.FALSE.
+	    END DO
+	  END DO
+!
+	  SECTION='LINE'
+	  IF(IMPURITY_CODE)THEN
+	    INCLUDE 'GET_J_CHI.INC'
+	  ELSE
+	    CALL COMP_OPAC(POPS_EVAL,NU_EVAL_CONT,FQW,
+	1                FL,CONT_FREQ,FREQ_INDX,NCF,
+	1                SECTION,ND,NT,LST_DEPTH_ONLY)
+            CALL COMP_J_BLANK(SECTION,EDDINGTON,FL,FREQ_INDX,FIRST_FREQ,LST_ITERATION,
+	1                              MAXCH,LUER,LU_ES,LU_JCOMP,LU_EDD,ACCESS_F,
+	1                              ND,NC,NP,NCF,NDEXT,NCEXT,NPEXT)
+	  END IF
+	  IF(JFNK_EVAL_BROKEN)EXIT
+!
+	  DO I=1,ND
+	    SOURCE(I)=ZETA(I)+RJ(I)*THETA(I)
+	  END DO
+!
+	  DO SIM_INDX=1,NUM_SIM_LINES
+	    DO I=1,ND
+	      T1=FL**3/(EXP(HDKT*FL/T(I))-1.0_LDP)
+	      T2=FL_SIM(SIM_INDX)**3/(EXP(HDKT*FL_SIM(SIM_INDX)/T(I))-1.0_LDP)
+	      BB_COR(I,SIM_INDX)=T1/T2
+	    END DO
+	  END DO
+!
+	  IF(SOBOLEV .OR. NUM_SIM_LINES .EQ. 1)THEN
+	    DO I=1,ND
+	      CHIL(I)=0.0_LDP
+	      ETAL(I)=0.0_LDP
+	      DO SIM_INDX=1,NUM_SIM_LINES
+	        CHIL(I)=CHIL(I)+CHIL_MAT(I,SIM_INDX)
+	        ETAL(I)=ETAL(I)+ETAL_MAT(I,SIM_INDX)*BB_COR(I,SIM_INDX)
+	      END DO
+	    END DO
+	  END IF
+!
+        IF(CHECK_LINE_OPAC .AND. SOBOLEV)THEN
+	  T1=3.0E-10_LDP/FL
+	  DO I=1,ND
+	    T2=CHIL(I)*T1*R(I)/V(I)		!Tau(Sobolev) for dlnV/dlnr=1
+	    IF(T2 .LT. -0.5_LDP)THEN
+	      NEG_OPACITY(I)=.TRUE.
+	      CHIL(I)=1.0_LDP	!Reset after we output its value.
+	    END IF
+	  END DO
+	  DO SIM_INDX=1,NUM_SIM_LINES
+	    DO I=1,ND
+              IF(NEG_OPACITY(I))CHIL_MAT(I,SIM_INDX)=1.0_LDP/NUM_SIM_LINES
+	    END DO
+	  END DO
+	ELSE IF(CHECK_LINE_OPAC)THEN
+	  DO I=1,ND
+	    IF( (CHIL(I)*PROF(NLF/2+1)+CHI(I))
+	1            .LT. 0.2_LDP*CHI(I) )THEN
+	      CHIL(I)=1.0E-04_LDP*ESEC(I)/PROF(NLF/2+1)
+	      NEG_OPACITY(I)=.TRUE.
+	    END IF
+	  END DO
+	END IF
+!
+	  IF(NL .EQ. ATM(4)%EQXzV .AND. SETZERO .AND. .NOT. OVERLAP)THEN
+	    DO I=1,ND
+	      ZNET(I)=0.0_LDP
+	      VB(I)=0.0_LDP
+	      VC(I)=0.0_LDP
+	    END DO
+	  ELSE IF(.NOT. SOBOLEV)THEN
+	    CALL SUB_CMF_LINE(SECTION,POPS_EVAL,CHIL,ETAL,NEG_OPACITY,
+	1                    FL,CONT_FREQ,AMASS,
+	1                    EDDINGTON,IMPURITY_CODE,
+	1                    EW,CONT_INT,COMPUTE_EW,
+	1                    COMPUTE_JEW,LU_JEW,ACCESS_JEW,
+	1                    NL,NUP,NT,ND,NC,NP,
+	1                    NDEXT,NCEXT,NPEXT,
+	1                    NLF,NNM,
+	1                    DIAG_INDX,NUM_BNDS)
+	  ELSE
+	    CALL SUB_SOB_LINE_V3(SECTION,POPS_EVAL,CHIL,ETAL,NEG_OPACITY,
+	1                    FL,CONT_FREQ,AMASS,
+	1                    EDDINGTON,IMPURITY_CODE,VAR_SOB_JC,LST_ITERATION,
+	1                    EW,CONT_INT,
+	1                    NL,NUP,NT,ND,NC,NP,
+	1                    NDEXT,NCEXT,NPEXT,
+	1                    NLF,DIAG_INDX,NUM_BNDS)
+	  END IF
+!
+	  DO SIM_INDX=1,NUM_SIM_LINES
+	    DO I=1,ND
+	      LLUMST(I)=LLUMST(I)+ZNET_SIM(I,SIM_INDX)*ETAL_MAT(I,SIM_INDX)
+	    END DO
+	  END DO
+!
+50001	  CONTINUE
+	  LINE_INDX=LINE_INDX+NUM_SIM_LINES
+	END DO 			!END NL LOOP
+!
+	END IF			!GLOBAL_LINE dispatch
+	END IF			!JFNK_EVAL_SOB_LINES .AND. .NOT. JFNK_EVAL_BROKEN
+!
 ! FORMAT label copied from the host body: statement labels are not
 ! host-associated into internal subprograms.
 !
 40003	FORMAT(3X,1P,5E16.5)
+!
+! Restore every array/scalar the line replay could have written (the
+! save ran at entry, before any eval-side mutation).  Skipped when the
+! bracket never armed (KNOP coupled or flag off).
+!
+	IF(JFNK_EVAL_SOB_LINES)CALL JFNK_EVAL_LSTATE_V1('R',IOS_EVAL)
 !
 	JFNK_IN_EVAL=.FALSE.
 	COMPUTE_BA=COMPUTE_BA_SAVE
@@ -6757,4 +7155,353 @@
 	END DO
 	RETURN
 	END SUBROUTINE JFNK_RAD_SWEEP_V1
+!
+! =====================================================================
+! JFNK_EVAL_LSTATE_V1: save/restore bracket for the mutable line-module
+! and host state that the coupled-SOB line-section replay inside
+! JFNK_RAD_SWEEP_V1 writes (see the state matrix there).  ACTION='S'
+! copies production state into persistent SAVE buffers (allocated once);
+! 'R' writes it back.  Host association gives access to the CMFGEN_SUB
+! locals (CHIL, ETAL, VB, VC, NEG_OPACITY, ACCESS_JEW, EW, CONT_INT,
+! COMPUTE_EW, NNM, VAR_SOB_JC, AMASS, SECTION, FREQ_INDX, CONT_FREQ,
+! FIRST_FREQ, FINAL_CONSTANT_CROSS, LAST_LINE, LINE_INDX,
+! AT_LEAST_ONE_NEG_OPAC, SUM_BA); module state arrives via USE.
+! Only called under DO_NONMONO_SOB + JFNK_COUPLED_SOB -- the default
+! path never enters.
+! =====================================================================
+!
+	SUBROUTINE JFNK_EVAL_LSTATE_V1(ACTION,IOS)
+	USE SET_KIND_MODULE
+	USE LINE_MOD
+	USE LINE_VEC_MOD, ONLY: LINE_LOC
+	USE CMF_SOB_MOD
+	USE RADIATION_MOD, ONLY: LLUMST
+	USE SOB_RH_MOD, ONLY: RH_NCALL,RH_LASTREP,RH_MAXDJ,RH_MAXDZ
+	USE CONTROL_VARIABLE_MOD, ONLY: SOBOLEV,OVER_FREQ_DIF,
+	1   NUM_OF_WEAK_LINES,NLBEGIN,COMPUTE_NEW_CROSS,THIS_FREQ_EXT
+	IMPLICIT NONE
+	CHARACTER(LEN=1), INTENT(IN) :: ACTION
+	INTEGER, INTENT(OUT) :: IOS
+!
+! Packed save buffers, one slot per production array, grouped by shape
+! so each save/restore is a single copy.  NR2 labels the (ND,MAX_SIM)
+! slot table below; every assignment lists the array it mirrors.
+!
+	INTEGER, PARAMETER :: NR2=16
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_R2(:,:,:)
+	INTEGER, PARAMETER :: NR1=13
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_R1(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_VB(:),S_VC(:)
+	INTEGER, PARAMETER :: NRL=3
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_RL(:,:)
+	INTEGER, PARAMETER :: NRJ=4
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_RJ(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_RB(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_RB1(:)
+	INTEGER, PARAMETER :: NRS=7
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: S_RS(:,:)
+	INTEGER, PARAMETER :: NI5=5
+	INTEGER, ALLOCATABLE, SAVE :: S_I5(:,:)
+	INTEGER, PARAMETER :: NL5=5
+	LOGICAL, ALLOCATABLE, SAVE :: S_L5(:,:)
+	INTEGER, PARAMETER :: NIN=2
+	INTEGER, ALLOCATABLE, SAVE :: S_IN(:,:)
+	INTEGER, PARAMETER :: NLN=3
+	LOGICAL, ALLOCATABLE, SAVE :: S_LN(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: S_IL(:)
+	CHARACTER(LEN=50), ALLOCATABLE, SAVE :: S_TS(:)
+	LOGICAL, ALLOCATABLE, SAVE :: S_LG1(:)
+!
+	INTEGER, SAVE :: SV_ACCESS_JEW,SV_NNM,SV_LINE_INDX,SV_NLBEGIN
+	INTEGER, SAVE :: SV_NSL,SV_TMS,SV_NWL,SV_LLINE,SV_FREQ_INDX
+	INTEGER, SAVE :: SV_SIM_INDX,SV_RH_NCALL,SV_RH_LASTREP
+	REAL(KIND=LDP), SAVE :: SV_EW,SV_CONT_INT,SV_OVER_FREQ_DIF
+	REAL(KIND=LDP), SAVE :: SV_AMASS,SV_CONT_FREQ,SV_SUM_BA
+	REAL(KIND=LDP), SAVE :: SV_RH_MAXDJ,SV_RH_MAXDZ
+	LOGICAL, SAVE :: SV_VAR_SOB_JC,SV_SOBOLEV,SV_COMPUTE_EW
+	LOGICAL, SAVE :: SV_ATLNO,SV_FIRST_FREQ,SV_FCC
+	LOGICAL, SAVE :: SV_CNC,SV_TFE
+	CHARACTER(LEN=20), SAVE :: SV_SECTION
+!
+	IOS=0
+!
+	IF(ACTION .EQ. 'S')THEN
+!
+	  IF(.NOT. ALLOCATED(S_R2))ALLOCATE(S_R2(ND,MAX_SIM,NR2),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(CHIL_MAT))S_R2(:,:,1)=CHIL_MAT
+	  IF(ALLOCATED(ETAL_MAT))S_R2(:,:,2)=ETAL_MAT
+	  IF(ALLOCATED(BB_COR))S_R2(:,:,3)=BB_COR
+	  IF(ALLOCATED(L_STAR_RATIO))S_R2(:,:,4)=L_STAR_RATIO
+	  IF(ALLOCATED(U_STAR_RATIO))S_R2(:,:,5)=U_STAR_RATIO
+	  IF(ALLOCATED(dL_RAT_dT))S_R2(:,:,6)=dL_RAT_dT
+	  IF(ALLOCATED(dU_RAT_dT))S_R2(:,:,7)=dU_RAT_dT
+	  IF(ALLOCATED(VB_SIM))S_R2(:,:,8)=VB_SIM
+	  IF(ALLOCATED(VC_SIM))S_R2(:,:,9)=VC_SIM
+	  IF(ALLOCATED(BETAC_SIM))S_R2(:,:,10)=BETAC_SIM
+	  IF(ALLOCATED(ZNET_SIM))S_R2(:,:,11)=ZNET_SIM
+	  IF(ALLOCATED(DRC_SIM))S_R2(:,:,12)=DRC_SIM
+	  IF(ALLOCATED(JBAR_SIM))S_R2(:,:,13)=JBAR_SIM
+	  IF(ALLOCATED(LINE_PROF_SIM))S_R2(:,:,14)=LINE_PROF_SIM
+	  IF(ALLOCATED(LINE_QW_SIM))S_R2(:,:,15)=LINE_QW_SIM
+	  IF(ALLOCATED(LINE_QW_SUM))S_R2(:,:,16)=LINE_QW_SUM
+!
+	  IF(.NOT. ALLOCATED(S_R1))ALLOCATE(S_R1(ND,NR1),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(JBAR))S_R1(:,1)=JBAR
+	  IF(ALLOCATED(ZNET))S_R1(:,2)=ZNET
+	  IF(ALLOCATED(BETA))S_R1(:,3)=BETA
+	  IF(ALLOCATED(BETAC))S_R1(:,4)=BETAC
+	  IF(ALLOCATED(VB_2))S_R1(:,5)=VB_2
+	  IF(ALLOCATED(VC_2))S_R1(:,6)=VC_2
+	  IF(ALLOCATED(NEG_OPAC_FAC))S_R1(:,7)=NEG_OPAC_FAC
+	  IF(ALLOCATED(LLUMST))S_R1(:,8)=LLUMST
+	  IF(ALLOCATED(JBLANK))S_R1(:,9)=JBLANK
+	  IF(ALLOCATED(HBLANK))S_R1(:,10)=HBLANK
+	  IF(ALLOCATED(JEW))S_R1(:,11)=JEW
+	  S_R1(:,12)=CHIL
+	  S_R1(:,13)=ETAL
+!
+	  IF(.NOT. ALLOCATED(S_VB))ALLOCATE(S_VB(SIZE(VB)),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(.NOT. ALLOCATED(S_VC))ALLOCATE(S_VC(SIZE(VC)),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  S_VB=VB
+	  S_VC=VC
+!
+	  IF(.NOT. ALLOCATED(S_RL))ALLOCATE(S_RL(NLF,NRL),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(PF))S_RL(:,1)=PF
+	  IF(ALLOCATED(PROF))S_RL(:,2)=PROF
+	  IF(ALLOCATED(LFQW))S_RL(:,3)=LFQW
+!
+	  IF(.NOT. ALLOCATED(S_RJ))
+	1    ALLOCATE(S_RJ(ND,NLF+1,NRJ),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(JNU))S_RJ(:,:,1)=JNU
+	  IF(ALLOCATED(HNU))S_RJ(:,:,2)=HNU
+	  IF(ALLOCATED(F_LINE))S_RJ(:,:,3)=F_LINE
+	  IF(ALLOCATED(G_LINE))S_RJ(:,:,4)=G_LINE
+	  IF(.NOT. ALLOCATED(S_RB))
+	1    ALLOCATE(S_RB(3,NLF+1,2),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(HBC_LINE))S_RB(:,:,1)=HBC_LINE
+	  IF(ALLOCATED(NBC_LINE))S_RB(:,:,2)=NBC_LINE
+	  IF(.NOT. ALLOCATED(S_RB1))ALLOCATE(S_RB1(NLF+1),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(IN_HBC_LINE))S_RB1=IN_HBC_LINE
+!
+	  IF(.NOT. ALLOCATED(S_RS))ALLOCATE(S_RS(MAX_SIM,NRS),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(EINA))S_RS(:,1)=EINA
+	  IF(ALLOCATED(OSCIL))S_RS(:,2)=OSCIL
+	  IF(ALLOCATED(GLDGU))S_RS(:,3)=GLDGU
+	  IF(ALLOCATED(AMASS_SIM))S_RS(:,4)=AMASS_SIM
+	  IF(ALLOCATED(FL_SIM))S_RS(:,5)=FL_SIM
+	  IF(ALLOCATED(LINE_OPAC_CON))S_RS(:,6)=LINE_OPAC_CON
+	  IF(ALLOCATED(LINE_EMIS_CON))S_RS(:,7)=LINE_EMIS_CON
+!
+	  IF(.NOT. ALLOCATED(S_I5))ALLOCATE(S_I5(MAX_SIM,NI5),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(SIM_NL))S_I5(:,1)=SIM_NL
+	  IF(ALLOCATED(SIM_NUP))S_I5(:,2)=SIM_NUP
+	  IF(ALLOCATED(SIM_LINE_POINTER))S_I5(:,3)=SIM_LINE_POINTER
+	  IF(ALLOCATED(LOW_POINTER))S_I5(:,4)=LOW_POINTER
+	  IF(ALLOCATED(UP_POINTER))S_I5(:,5)=UP_POINTER
+!
+	  IF(.NOT. ALLOCATED(S_L5))ALLOCATE(S_L5(MAX_SIM,NL5),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(WEAK_LINE))S_L5(:,1)=WEAK_LINE
+	  IF(ALLOCATED(RESONANCE_ZONE))S_L5(:,2)=RESONANCE_ZONE
+	  IF(ALLOCATED(END_RES_ZONE))S_L5(:,3)=END_RES_ZONE
+	  IF(ALLOCATED(LINE_STORAGE_USED))S_L5(:,4)=LINE_STORAGE_USED
+	  IF(ALLOCATED(NEW_LINE_STORAGE))S_L5(:,5)=NEW_LINE_STORAGE
+!
+	  IF(.NOT. ALLOCATED(S_IN))ALLOCATE(S_IN(NM,NIN),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(VAR_IN_USE_CNT))S_IN(:,1)=VAR_IN_USE_CNT
+	  IF(ALLOCATED(VAR_LEV_ID))S_IN(:,2)=VAR_LEV_ID
+!
+	  IF(.NOT. ALLOCATED(S_LN))ALLOCATE(S_LN(NM,NLN),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(IMP_TRANS_VEC))S_LN(:,1)=IMP_TRANS_VEC
+	  IF(ALLOCATED(USE_THIS_VAR_MAT))S_LN(:,2)=USE_THIS_VAR_MAT
+	  IF(ALLOCATED(DO_THIS_TX_MATRIX))S_LN(:,3)=DO_THIS_TX_MATRIX
+!
+	  IF(.NOT. ALLOCATED(S_IL))
+	1    ALLOCATE(S_IL(SIZE(LINE_LOC)),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(LINE_LOC))S_IL=LINE_LOC
+!
+	  IF(.NOT. ALLOCATED(S_TS))
+	1    ALLOCATE(S_TS(MAX_SIM),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  IF(ALLOCATED(TRANS_NAME_SIM))S_TS=TRANS_NAME_SIM
+!
+	  IF(.NOT. ALLOCATED(S_LG1))ALLOCATE(S_LG1(ND),STAT=IOS)
+	  IF(IOS .NE. 0)RETURN
+	  S_LG1=NEG_OPACITY
+!
+	  SV_ACCESS_JEW=ACCESS_JEW
+	  SV_NNM=NNM
+	  SV_LINE_INDX=LINE_INDX
+	  SV_NLBEGIN=NLBEGIN
+	  SV_NSL=NUM_SIM_LINES
+	  SV_TMS=TMP_MAX_SIM
+	  SV_NWL=NUM_OF_WEAK_LINES
+	  SV_LLINE=LAST_LINE
+	  SV_FREQ_INDX=FREQ_INDX
+	  SV_SIM_INDX=SIM_INDX
+	  SV_RH_NCALL=RH_NCALL
+	  SV_RH_LASTREP=RH_LASTREP
+	  SV_EW=EW
+	  SV_CONT_INT=CONT_INT
+	  SV_OVER_FREQ_DIF=OVER_FREQ_DIF
+	  SV_AMASS=AMASS
+	  SV_CONT_FREQ=CONT_FREQ
+	  SV_SUM_BA=SUM_BA
+	  SV_RH_MAXDJ=RH_MAXDJ
+	  SV_RH_MAXDZ=RH_MAXDZ
+	  SV_VAR_SOB_JC=VAR_SOB_JC
+	  SV_SOBOLEV=SOBOLEV
+	  SV_COMPUTE_EW=COMPUTE_EW
+	  SV_ATLNO=AT_LEAST_ONE_NEG_OPAC
+	  SV_FIRST_FREQ=FIRST_FREQ
+	  SV_FCC=FINAL_CONSTANT_CROSS
+	  SV_CNC=COMPUTE_NEW_CROSS
+	  SV_TFE=THIS_FREQ_EXT
+	  SV_SECTION=SECTION
+!
+	ELSE
+!
+! Restore: write every saved value back.  Buffers only exist when the
+! matching save ran, so each restore is guarded on ALLOCATED.
+!
+	  IF(ALLOCATED(S_R2))THEN
+	    IF(ALLOCATED(CHIL_MAT))CHIL_MAT=S_R2(:,:,1)
+	    IF(ALLOCATED(ETAL_MAT))ETAL_MAT=S_R2(:,:,2)
+	    IF(ALLOCATED(BB_COR))BB_COR=S_R2(:,:,3)
+	    IF(ALLOCATED(L_STAR_RATIO))L_STAR_RATIO=S_R2(:,:,4)
+	    IF(ALLOCATED(U_STAR_RATIO))U_STAR_RATIO=S_R2(:,:,5)
+	    IF(ALLOCATED(dL_RAT_dT))dL_RAT_dT=S_R2(:,:,6)
+	    IF(ALLOCATED(dU_RAT_dT))dU_RAT_dT=S_R2(:,:,7)
+	    IF(ALLOCATED(VB_SIM))VB_SIM=S_R2(:,:,8)
+	    IF(ALLOCATED(VC_SIM))VC_SIM=S_R2(:,:,9)
+	    IF(ALLOCATED(BETAC_SIM))BETAC_SIM=S_R2(:,:,10)
+	    IF(ALLOCATED(ZNET_SIM))ZNET_SIM=S_R2(:,:,11)
+	    IF(ALLOCATED(DRC_SIM))DRC_SIM=S_R2(:,:,12)
+	    IF(ALLOCATED(JBAR_SIM))JBAR_SIM=S_R2(:,:,13)
+	    IF(ALLOCATED(LINE_PROF_SIM))LINE_PROF_SIM=S_R2(:,:,14)
+	    IF(ALLOCATED(LINE_QW_SIM))LINE_QW_SIM=S_R2(:,:,15)
+	    IF(ALLOCATED(LINE_QW_SUM))LINE_QW_SUM=S_R2(:,:,16)
+	  END IF
+	  IF(ALLOCATED(S_R1))THEN
+	    IF(ALLOCATED(JBAR))JBAR=S_R1(:,1)
+	    IF(ALLOCATED(ZNET))ZNET=S_R1(:,2)
+	    IF(ALLOCATED(BETA))BETA=S_R1(:,3)
+	    IF(ALLOCATED(BETAC))BETAC=S_R1(:,4)
+	    IF(ALLOCATED(VB_2))VB_2=S_R1(:,5)
+	    IF(ALLOCATED(VC_2))VC_2=S_R1(:,6)
+	    IF(ALLOCATED(NEG_OPAC_FAC))NEG_OPAC_FAC=S_R1(:,7)
+	    IF(ALLOCATED(LLUMST))LLUMST=S_R1(:,8)
+	    IF(ALLOCATED(JBLANK))JBLANK=S_R1(:,9)
+	    IF(ALLOCATED(HBLANK))HBLANK=S_R1(:,10)
+	    IF(ALLOCATED(JEW))JEW=S_R1(:,11)
+	    CHIL=S_R1(:,12)
+	    ETAL=S_R1(:,13)
+	  END IF
+	  IF(ALLOCATED(S_VB))VB=S_VB
+	  IF(ALLOCATED(S_VC))VC=S_VC
+	  IF(ALLOCATED(S_RL))THEN
+	    IF(ALLOCATED(PF))PF=S_RL(:,1)
+	    IF(ALLOCATED(PROF))PROF=S_RL(:,2)
+	    IF(ALLOCATED(LFQW))LFQW=S_RL(:,3)
+	  END IF
+	  IF(ALLOCATED(S_RJ))THEN
+	    IF(ALLOCATED(JNU))JNU=S_RJ(:,:,1)
+	    IF(ALLOCATED(HNU))HNU=S_RJ(:,:,2)
+	    IF(ALLOCATED(F_LINE))F_LINE=S_RJ(:,:,3)
+	    IF(ALLOCATED(G_LINE))G_LINE=S_RJ(:,:,4)
+	  END IF
+	  IF(ALLOCATED(S_RB))THEN
+	    IF(ALLOCATED(HBC_LINE))HBC_LINE=S_RB(:,:,1)
+	    IF(ALLOCATED(NBC_LINE))NBC_LINE=S_RB(:,:,2)
+	  END IF
+	  IF(ALLOCATED(S_RB1))THEN
+	    IF(ALLOCATED(IN_HBC_LINE))IN_HBC_LINE=S_RB1
+	  END IF
+	  IF(ALLOCATED(S_RS))THEN
+	    IF(ALLOCATED(EINA))EINA=S_RS(:,1)
+	    IF(ALLOCATED(OSCIL))OSCIL=S_RS(:,2)
+	    IF(ALLOCATED(GLDGU))GLDGU=S_RS(:,3)
+	    IF(ALLOCATED(AMASS_SIM))AMASS_SIM=S_RS(:,4)
+	    IF(ALLOCATED(FL_SIM))FL_SIM=S_RS(:,5)
+	    IF(ALLOCATED(LINE_OPAC_CON))LINE_OPAC_CON=S_RS(:,6)
+	    IF(ALLOCATED(LINE_EMIS_CON))LINE_EMIS_CON=S_RS(:,7)
+	  END IF
+	  IF(ALLOCATED(S_I5))THEN
+	    IF(ALLOCATED(SIM_NL))SIM_NL=S_I5(:,1)
+	    IF(ALLOCATED(SIM_NUP))SIM_NUP=S_I5(:,2)
+	    IF(ALLOCATED(SIM_LINE_POINTER))SIM_LINE_POINTER=S_I5(:,3)
+	    IF(ALLOCATED(LOW_POINTER))LOW_POINTER=S_I5(:,4)
+	    IF(ALLOCATED(UP_POINTER))UP_POINTER=S_I5(:,5)
+	  END IF
+	  IF(ALLOCATED(S_L5))THEN
+	    IF(ALLOCATED(WEAK_LINE))WEAK_LINE=S_L5(:,1)
+	    IF(ALLOCATED(RESONANCE_ZONE))RESONANCE_ZONE=S_L5(:,2)
+	    IF(ALLOCATED(END_RES_ZONE))END_RES_ZONE=S_L5(:,3)
+	    IF(ALLOCATED(LINE_STORAGE_USED))LINE_STORAGE_USED=S_L5(:,4)
+	    IF(ALLOCATED(NEW_LINE_STORAGE))NEW_LINE_STORAGE=S_L5(:,5)
+	  END IF
+	  IF(ALLOCATED(S_IN))THEN
+	    IF(ALLOCATED(VAR_IN_USE_CNT))VAR_IN_USE_CNT=S_IN(:,1)
+	    IF(ALLOCATED(VAR_LEV_ID))VAR_LEV_ID=S_IN(:,2)
+	  END IF
+	  IF(ALLOCATED(S_LN))THEN
+	    IF(ALLOCATED(IMP_TRANS_VEC))IMP_TRANS_VEC=S_LN(:,1)
+	    IF(ALLOCATED(USE_THIS_VAR_MAT))USE_THIS_VAR_MAT=S_LN(:,2)
+	    IF(ALLOCATED(DO_THIS_TX_MATRIX))DO_THIS_TX_MATRIX=S_LN(:,3)
+	  END IF
+	  IF(ALLOCATED(S_IL))THEN
+	    IF(ALLOCATED(LINE_LOC))LINE_LOC=S_IL
+	  END IF
+	  IF(ALLOCATED(S_TS))THEN
+	    IF(ALLOCATED(TRANS_NAME_SIM))TRANS_NAME_SIM=S_TS
+	  END IF
+	  IF(ALLOCATED(S_LG1))NEG_OPACITY=S_LG1
+!
+	  ACCESS_JEW=SV_ACCESS_JEW
+	  NNM=SV_NNM
+	  LINE_INDX=SV_LINE_INDX
+	  NLBEGIN=SV_NLBEGIN
+	  NUM_SIM_LINES=SV_NSL
+	  TMP_MAX_SIM=SV_TMS
+	  NUM_OF_WEAK_LINES=SV_NWL
+	  LAST_LINE=SV_LLINE
+	  FREQ_INDX=SV_FREQ_INDX
+	  SIM_INDX=SV_SIM_INDX
+	  RH_NCALL=SV_RH_NCALL
+	  RH_LASTREP=SV_RH_LASTREP
+	  EW=SV_EW
+	  CONT_INT=SV_CONT_INT
+	  OVER_FREQ_DIF=SV_OVER_FREQ_DIF
+	  AMASS=SV_AMASS
+	  CONT_FREQ=SV_CONT_FREQ
+	  SUM_BA=SV_SUM_BA
+	  RH_MAXDJ=SV_RH_MAXDJ
+	  RH_MAXDZ=SV_RH_MAXDZ
+	  VAR_SOB_JC=SV_VAR_SOB_JC
+	  SOBOLEV=SV_SOBOLEV
+	  COMPUTE_EW=SV_COMPUTE_EW
+	  AT_LEAST_ONE_NEG_OPAC=SV_ATLNO
+	  FIRST_FREQ=SV_FIRST_FREQ
+	  FINAL_CONSTANT_CROSS=SV_FCC
+	  COMPUTE_NEW_CROSS=SV_CNC
+	  THIS_FREQ_EXT=SV_TFE
+	  SECTION=SV_SECTION
+!
+	END IF
+!
+	RETURN
+	END SUBROUTINE JFNK_EVAL_LSTATE_V1
 	END

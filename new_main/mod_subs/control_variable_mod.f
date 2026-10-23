@@ -1794,12 +1794,31 @@
 ! chain via JFNK_SWEEP_CB -> JFNK_RAD_SWEEP_V1), so the
 ! finite-difference JVP probes the full dJ/dn coupling.  This is
 ! the Arramy et al. (2024, A&A 690, A12) formulation: Newton on the
-! coupled SE+RTE system.  KNOP only -- under DO_NONMONO_SOB the
-! sweep callback does not recompute SOB line rates, so coupled mode
-! is rejected at VADAT read and SOB admits only the frozen tier.
-! When F, the residual uses the stored (fixed-J) radiative rates --
-! the same fixed-J system SOLVEBA solves exactly, run through the
-! globalized Newton machinery.
+! coupled SE+RTE system.  When F, the residual uses the stored
+! (fixed-J) radiative rates -- the same fixed-J system SOLVEBA
+! solves exactly, run through the globalized Newton machinery.
+!
+! JFNK_COUPLED_SOB (VADAT [JFNK_COUPLED_SOB], default F): admit
+! JFNK_COUPLED under DO_NONMONO_SOB.  The sweep callback then also
+! replays the line-frequency section (SET_LINE_OPAC bookkeeping is
+! already part of the continuum loop; the replay adds the
+! SECTION='LINE' pass: SUB_SOB_LINE_V3 Sobolev rates plus the
+! line-group continuum solve) so the coupled residual is the same
+! equation the outer iteration assembles.  Even with the flag on,
+! the coupled tier is never demand-admitted under SOB -- it fires
+! only as the reach-fail fallback when the frozen tier certifies
+! the residual unreachable.  Default F keeps the reader forcing
+! JFNK_COUPLED=F and the SOB path frozen-only, bit-identical.
+!
+! JFNK_CPL_SOB_MAX_EVALS (VADAT [JFNK_CPL_SOB_MAX_EVALS], default
+! 0 = inherit): residual-eval cap for a coupled-SOB activation,
+! layered over the effective JFNK_MAX_EVALS/rung trim.  A
+! reach-fail fallback is denied when the remaining cap cannot
+! afford the consistency eval plus a few GMRES matvecs.
+!
+! JFNK_CPL_SOB_EACH (VADAT [JFNK_CPL_SOB_EACH], default F): rerun
+! the coupled-vs-production residual consistency check at every
+! coupled-SOB activation instead of only the first.
 !
 ! The remaining keys mirror the V4/V6 JFNK implementation:
 ! solver tolerances, GMRES restart, trust-region (hookstep)
@@ -1808,6 +1827,9 @@
 !
 	LOGICAL USE_JFNK_SOLVER
 	LOGICAL JFNK_COUPLED
+	LOGICAL JFNK_COUPLED_SOB
+	INTEGER JFNK_CPL_SOB_MAX_EVALS
+	LOGICAL JFNK_CPL_SOB_EACH
 ! Internal runtime state (no VADAT key): true when [USE_JFNK]=T (default
 ! F) commits a best iterate, rebuilt baseline, or clipped Newton update.
 ! Convergence and phased-T gates must not count it as solved.

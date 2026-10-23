@@ -1392,11 +1392,16 @@
 ! SOLVEBA_V13 solves directly, run through the globalized Newton
 ! machinery instead.
 !
-! JFNK_COUPLED is KNOP-only: JFNK_RAD_SWEEP_V1 replays the
-! blanketing continuum chain and does not recompute the SOB line
-! rates (SUB_SOB_LINE_V3), so under DO_NONMONO_SOB a coupled eval
-! would solve a residual different from the equations the outer
-! iteration assembles.  SOB therefore admits only the frozen-J tier.
+! Under DO_NONMONO_SOB the coupled tier is opt-in via
+! [JFNK_COUPLED_SOB] (default F): the eval sweep then also replays
+! the line-frequency section (SUB_SOB_LINE_V3 Sobolev rates against
+! the frozen field), which is what makes the coupled residual the
+! same equation the outer iteration assembles.  Without the flag,
+! JFNK_COUPLED=T under SOB is reset to F with a warning -- never a
+! stop -- and the SOB path stays frozen-only.  Even when enabled
+! the coupled tier is not demand-admitted under SOB: it fires only
+! as the reach-fail fallback inside JFNK_SOLVE_CORR_V1 once the
+! frozen tier certifies the residual unreachable.
 !
 ! editted by Devin (V7-JFNK port, 02-Oct-2026)
 ! editted by Devin (DO_JFNK shared SOB/KNOP switch, 07-Oct-2026)
@@ -1431,17 +1436,43 @@
 	  CALL RD_STORE_LOG(JFNK_COUPLED,'JFNK_COUPLED',L_FALSE,
 	1     'Evaluate JFNK residual with fresh formal solve (coupled)?')
 !
-	  IF(USE_JFNK_SOLVER .AND. JFNK_COUPLED .AND. DO_NONMONO_SOB)THEN
-	    WRITE(LUER,*)'Error in RD_CONTROL_VARIABLES:'
-	    WRITE(LUER,*)'JFNK_COUPLED=T is not available under'
-	    WRITE(LUER,*)'DO_NONMONO_SOB.  The eval sweep callback'
-	    WRITE(LUER,*)'(JFNK_RAD_SWEEP_V1) replays the KNOP continuum'
-	    WRITE(LUER,*)'chain and does not recompute the SOB line rates'
-	    WRITE(LUER,*)'(SUB_SOB_LINE_V3), so the coupled residual would'
-	    WRITE(LUER,*)'not match the equations the outer iteration'
-	    WRITE(LUER,*)'assembles.  Set JFNK_COUPLED=F: SOB admits only'
-	    WRITE(LUER,*)'the frozen-J residual tier.'
-	    STOP
+	  JFNK_COUPLED_SOB=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_COUPLED_SOB,'JFNK_COUPLED_SOB',L_FALSE,
+	1     'Allow coupled JFNK tier under DO_NONMONO_SOB?')
+	  JFNK_CPL_SOB_MAX_EVALS=0
+	  CALL RD_STORE_INT(JFNK_CPL_SOB_MAX_EVALS,'JFNK_CPL_SOB_MAX_EVALS',
+	1     L_FALSE,'Max residual evals per coupled-SOB activation')
+	  IF(JFNK_CPL_SOB_MAX_EVALS .LT. 0)JFNK_CPL_SOB_MAX_EVALS=0
+	  JFNK_CPL_SOB_EACH=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_CPL_SOB_EACH,'JFNK_CPL_SOB_EACH',L_FALSE,
+	1     'Recheck coupled-SOB residual consistency each activation?')
+!
+! The coupled tier under SOB needs JFNK_COUPLED_SOB as the explicit
+! opt-in: without it, a JFNK_COUPLED=T request used to STOP the run.
+! Auto-F plus a loud warning keeps the run alive on the frozen tier
+! -- the default path is unchanged.
+!
+	  IF(USE_JFNK_SOLVER .AND. JFNK_COUPLED .AND. DO_NONMONO_SOB .AND.
+	1     .NOT. JFNK_COUPLED_SOB)THEN
+	    WRITE(LUER,*)'Warning in RD_CONTROL_VARIABLES:'
+	    WRITE(LUER,*)'JFNK_COUPLED=T under DO_NONMONO_SOB requires'
+	    WRITE(LUER,*)'JFNK_COUPLED_SOB=T -- without it the coupled'
+	    WRITE(LUER,*)'residual tier stays disabled and SOB admits'
+	    WRITE(LUER,*)'only the frozen-J residual.  Forcing'
+	    WRITE(LUER,*)'JFNK_COUPLED=F.'
+	    JFNK_COUPLED=.FALSE.
+	  END IF
+	  IF(JFNK_COUPLED_SOB .AND. .NOT. JFNK_COUPLED)THEN
+	    WRITE(LUER,*)'Warning in RD_CONTROL_VARIABLES:'
+	    WRITE(LUER,*)'JFNK_COUPLED_SOB=T has no effect without'
+	    WRITE(LUER,*)'JFNK_COUPLED=T -- forcing JFNK_COUPLED_SOB=F.'
+	    JFNK_COUPLED_SOB=.FALSE.
+	  END IF
+	  IF(JFNK_COUPLED_SOB .AND. .NOT. DO_NONMONO_SOB)THEN
+	    WRITE(LUER,*)'Warning in RD_CONTROL_VARIABLES:'
+	    WRITE(LUER,*)'JFNK_COUPLED_SOB=T is only meaningful under'
+	    WRITE(LUER,*)'DO_NONMONO_SOB -- forcing JFNK_COUPLED_SOB=F.'
+	    JFNK_COUPLED_SOB=.FALSE.
 	  END IF
 !
 	  JFNK_ANY_ITER=.FALSE.

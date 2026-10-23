@@ -14,7 +14,8 @@ New-key coverage:
       DO_NONMONO_SOB  needs GLOBAL_LINE=SOB; USE_LAM_ES=F warns only
       (opt-in MOM_J_CMF_NONMONO_V1 path, rewired 12-Oct-2026)
       DO_NONMONO_KNOP needs GLOBAL_LINE=BLANK and LAM_SET=F
-  * DO_JFNK requires a non-mono mode; JFNK_COUPLED is KNOP-only;
+  * DO_JFNK requires a non-mono mode; JFNK_COUPLED under SOB needs
+    JFNK_COUPLED_SOB=T else it is forced F with a warning;
     USE_JFNK is a deprecated alias that still arms the solver.
   * DO_NONLOC_SOB is forced F (with warning) when DO_NONMONO_SOB=F.
   * Legacy V-coord controls rejected under non-mono: DO_CL=T and
@@ -268,10 +269,16 @@ def main():
             "requires DO_NONMONO_KNOP",
         ),
         (
-            "JFNK_COUPLED under SOB aborts",
+            "JFNK_COUPLED under SOB auto-F + warning",
             {"JFNK_COUPLED": "T"},
-            False,
-            "not available under",
+            True,
+            "Forcing",
+        ),
+        (
+            "JFNK_COUPLED_SOB=T without JFNK_COUPLED auto-F",
+            {"JFNK_COUPLED_SOB": "T"},
+            True,
+            "no effect without",
         ),
         (
             "DO_CL=T under non-mono aborts",
