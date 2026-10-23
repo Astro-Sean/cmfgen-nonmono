@@ -1578,7 +1578,7 @@
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_log_unknown,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_ptc_scale,
 	2     jfnk_ptc_scale_ready, jfnk_ptc_x0, jfnk_ptc_anchor_ready,
-	3     jfnk_resid_nbad, jfnk_maxch_est
+	3     jfnk_resid_nbad, jfnk_maxch_est, jfnk_eval_cap_v1
 	USE MOD_CMFGEN, ONLY: ED, T
 	USE STEQ_DATA_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
@@ -1590,7 +1590,7 @@
 	DOUBLE PRECISION, INTENT(OUT) :: Y(N)
 !
 	INTEGER K, J, N_BAD, N_NAN_Y, N_INF_Y, IDX, ID_ION
-	INTEGER LUER
+	INTEGER LUER, NEV_CAP
 	INTEGER, EXTERNAL :: ERROR_LU
 	REAL(KIND=LDP) OMP_GET_WTIME
 	EXTERNAL OMP_GET_WTIME
@@ -1633,11 +1633,17 @@
 ! best-iterate/Lambda fallback instead of burning sweeps.  The
 ! counter resets in JFNK_INIT_V1, so the budget is per-activation.
 !
-	IF(JFNK_MAX_EVALS .GT. 0 .AND. .NOT. JFNK_EVAL_BYPASS .AND.
-	1     JFNK_N_RESIDUAL_EVALS .GE. JFNK_MAX_EVALS)THEN
-	  IF(JFNK_N_RESIDUAL_EVALS .EQ. JFNK_MAX_EVALS)THEN
+! The cap the driver actually intends is the tighter of the
+! activation-local JFNK_EVAL_LIM (budget-rung trim) and the VADAT
+! JFNK_MAX_EVALS; checking MAX_EVALS alone let the trimmed rung cap
+! go unenforced for ordinary residual calls.
+!
+	NEV_CAP=JFNK_EVAL_CAP_V1(JFNK_EVAL_LIM, JFNK_MAX_EVALS)
+	IF(NEV_CAP .GT. 0 .AND. .NOT. JFNK_EVAL_BYPASS .AND.
+	1     JFNK_N_RESIDUAL_EVALS .GE. NEV_CAP)THEN
+	  IF(JFNK_N_RESIDUAL_EVALS .EQ. NEV_CAP)THEN
 	    WRITE(LUER,'(A,I6,A)')
-	1     '  JFNK: eval budget (',JFNK_MAX_EVALS,
+	1     '  JFNK: eval budget (',NEV_CAP,
 	2     ') exhausted -- forcing rejection path'
 	    FLUSH(LUER)
 	  END IF

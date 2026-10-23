@@ -458,6 +458,22 @@ contains
       jfnk_itry_cap = itry_cap
    end subroutine jfnk_pc_set_options_v1
 !
+   ! jfnk_eval_cap_v1: effective per-activation residual-eval cap.
+   ! JFNK_EVAL_LIM (int_mod) is the activation-local budget the driver
+   ! trims per rung; JFNK_MAX_EVALS is the VADAT control.  The
+   ! sentinel in JFNK_RESIDUAL_V1 must see the tighter of the two,
+   ! with 0 disabling a cap independently.  Pure so the unit tests
+   ! can lock the semantics directly.
+   !
+   pure integer function jfnk_eval_cap_v1(eval_lim, max_evals) &
+         result(cap)
+      implicit none
+      integer, intent(in) :: eval_lim, max_evals
+      cap = max_evals
+      if(eval_lim > 0 .and. (cap <= 0 .or. eval_lim < cap)) &
+         cap = eval_lim
+   end function jfnk_eval_cap_v1
+!
 end module jfnk_solver_v1_mod
 
 
