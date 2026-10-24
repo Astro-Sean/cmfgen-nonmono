@@ -4829,6 +4829,39 @@
 	        END DO
 	      END IF
 !
+! Frozen-row reduction, mirroring the per-depth JFNK_BA_A block
+! above.  The analytic JVP sees T (and Ne under FIX_NE) as masked
+! unknowns: JFNK_MASK_FIXED_UNKNOWNS kills their input and output
+! components, so the JVP operator has zero T/Ne row and column.
+! Without the same reduction here LUAB keeps the real energy/
+! charge rows and the dF/dT, dF/dNe columns: the solve then lets
+! those stiff columns shift the population components of z, and
+! masking z on output cannot undo it -- J*M^-1 measured on F was
+! |Jz-v|/|v| ~ 3.6E+05 (bte/btf audit, 24-Oct-2026).  Off-diagonal
+! blocks also get the row/column zeroed; the diagonal block keeps
+! the identity row so the row is not all-zero for equilibration.
+!
+	      IF(JFNK_FIXED_T_LOC .OR.
+	1    (JFNK_FIX_T_D_ST .GT. 0 .AND.
+	2     K .GE. JFNK_FIX_T_D_ST .AND.
+	3     K .LE. JFNK_FIX_T_D_END .AND.
+	4     .NOT. JFNK_TAUTO_ACTIVE))THEN
+	    DO JJ = 1, JFNK_NT
+	      JFNK_C_MAT(JJ, JFNK_NT) = 0.0_LDP
+	      JFNK_C_MAT(JFNK_NT, JJ) = 0.0_LDP
+	    END DO
+	    IF(IB .EQ. JFNK_DIAG_INDX)
+	1     JFNK_C_MAT(JFNK_NT, JFNK_NT) = 1.0_LDP
+	  END IF
+	  IF(JFNK_FIXED_NE_LOC)THEN
+	    DO JJ = 1, JFNK_NT
+	      JFNK_C_MAT(JJ, JFNK_NT-1) = 0.0_LDP
+	      JFNK_C_MAT(JFNK_NT-1, JJ) = 0.0_LDP
+	    END DO
+	    IF(IB .EQ. JFNK_DIAG_INDX)
+	1     JFNK_C_MAT(JFNK_NT-1, JFNK_NT-1) = 1.0_LDP
+	  END IF
+!
 ! Copy NT×NT block into LAPACK banded storage.
 ! Global row i = (K-1)*NT + II, global col j = (L-1)*NT + JJ.
 ! AB(DIA_ROFF+1+i-j, j) = A(i, j); DIA_ROFF is KL+KU in DGBTRF
@@ -7066,7 +7099,7 @@
 !
 ! Workspace for the banded J*M^{-1} check (JFNK_USE_BANDED path)
 !
-	INTEGER IB_A, L_A
+	INTEGER IB_A, L_A, IARG_Z, IARG_R
 	REAL(KIND=LDP) JZ_N2, V_N2, JZ_DOT, COS_JZV
 !
 	IF(AUDIT_DONE) RETURN
@@ -7426,12 +7459,15 @@
 	  JZ_DOT = 0.0_LDP
 	  R_NORM = 0.0_LDP
 	  R_NORM_NR = 0.0_LDP
+	  IARG_Z = 1
+	  IARG_R = 1
 	  DO I = 1, N
 	    JZ_NORM = MAX(JZ_NORM, ABS(R_TEST(I)))
 	    JZ_N2 = JZ_N2 + R_TEST(I)*R_TEST(I)
 	    V_N2 = V_N2 + V_TEST(I)*V_TEST(I)
 	    JZ_DOT = JZ_DOT + R_TEST(I)*V_TEST(I)
 	    R_TEST(I) = R_TEST(I) - V_TEST(I)
+	    IF(ABS(R_TEST(I)) .GT. R_NORM) IARG_R = I
 	    R_NORM = MAX(R_NORM, ABS(R_TEST(I)))
 	    JR = MOD(I-1, JFNK_NT) + 1
 	    KK = (I-1)/JFNK_NT + 1
@@ -7452,6 +7488,19 @@
 	  WRITE(LUER,'(A,ES12.4)')
 	1    '  PC banded J*M^-1 (v=F, non-reg pop rows): |Jz-v|_inf=',
 	1    R_NORM_NR
+!
+! Localize the worst mismatch: report the (depth, row) of the
+! largest |Jz-v| component and of the largest |z| component.  The
+! argmax row identifies which part of the operator disagrees with
+! the JVP (e.g. frozen T/Ne rows before the LUAB frozen-row
+! reduction, or specific depth blocks with dropped band content).
+!
+	  IARG_Z = MAXLOC(ABS(Z_TEST(1:N)), 1)
+	  WRITE(LUER,'(A,I4,A,I6,A,I4,A,I6,A)')
+	1    '  PC banded J*M^-1 worst: |Jz-v| at K=',
+	1    (IARG_R-1)/JFNK_NT + 1, ' row=', MOD(IARG_R-1, JFNK_NT)+1,
+	2    ' ; |z|max at K=', (IARG_Z-1)/JFNK_NT + 1,
+	3    ' row=', MOD(IARG_Z-1, JFNK_NT)+1
 	END IF
 !
 ! Test vector 2: unit vector in the first species at first depth
