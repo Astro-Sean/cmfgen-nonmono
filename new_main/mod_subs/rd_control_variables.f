@@ -2061,6 +2061,9 @@
 	  JFNK_BANDED_TDMA=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_BANDED_TDMA,'JFNK_BANDED_TDMA',L_FALSE,
 	1     'Factor banded preconditioner by block-Thomas (not DGBTRF)?')
+	  JFNK_SEC_R=0
+	  CALL RD_STORE_INT(JFNK_SEC_R,'JFNK_SEC_R',L_FALSE,
+	1     'Rank of secant/Broyden preconditioner update (0=off)?')
 !
 	  JFNK_SELECTIVE_JVAR=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_SELECTIVE_JVAR,'JFNK_SELECTIVE_JVAR',

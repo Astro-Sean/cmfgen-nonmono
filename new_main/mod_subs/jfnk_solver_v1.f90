@@ -5007,3 +5007,52 @@ end subroutine jfnk_schur_apply_v1
               1.0d0,v(1,k),1)
       end do
    end subroutine jfnk_btd_apply_v1
+!======================================================================
+! jfnk_secant_gram_v1: build and factor G = JV^T JV for the rank-r
+! Broyden preconditioner update [JFNK_SEC_R].  The corrected inverse
+! B'v = Bv + D*(G^-1 JV^T v) with D_i = u_i - B(J*u_i) satisfies
+! B'(J*u_i) = u_i exactly on the recorded span, so the factorization
+! must not fail on near-dependent JV columns: a relative ridge on the
+! diagonal keeps the projection well-posed when two measured actions
+! nearly coincide (repeated Krylov directions near stagnation).
+!----------------------------------------------------------------------
+   subroutine jfnk_secant_gram_v1(n, r, jv, ldjv, g, ldg, ipiv, nfail)
+      implicit none
+      integer, intent(in) :: n, r, ldjv, ldg
+      double precision, intent(in) :: jv(ldjv,r)
+      double precision, intent(inout) :: g(ldg,r)
+      integer, intent(out) :: ipiv(r), nfail
+      integer :: i, info
+      double precision :: dmax
+      call dgemm('T','N',r,r,n,1.0d0,jv,ldjv,jv,ldjv,0.0d0,g,ldg)
+      dmax = 0.0d0
+      do i = 1, r
+         dmax = max(dmax, abs(g(i,i)))
+      end do
+      do i = 1, r
+         g(i,i) = g(i,i) + 1.0d-12*max(dmax, 1.0d0)
+      end do
+      call dgetrf(r, r, g, ldg, ipiv, info)
+      nfail = info
+   end subroutine jfnk_secant_gram_v1
+!======================================================================
+! jfnk_secant_apply_v1: vout += D*(G^-1 JV^T vin).  JV^T must act on
+! the apply's original argument (vin), not on the base-applied vout:
+! B'v = Bv + D*(G^-1 JV^T v) with v the input, so B'(J*u_i) = u_i.
+!----------------------------------------------------------------------
+
+   subroutine jfnk_secant_apply_v1(n, r, jv, ldjv, d, ldd, g, ldg, &
+        ipiv, vin, vout, c)
+      implicit none
+      integer, intent(in) :: n, r, ldjv, ldd, ldg
+      double precision, intent(in) :: jv(ldjv,r), d(ldd,r), g(ldg,r)
+      integer, intent(in) :: ipiv(r)
+      double precision, intent(in) :: vin(n)
+      double precision, intent(inout) :: vout(n)
+      double precision, intent(out) :: c(r)
+      integer :: info
+      call dgemv('T',n,r,1.0d0,jv,ldjv,vin,1,0.0d0,c,1)
+      call dgetrs('N',r,1,g,ldg,ipiv,c,r,info)
+      if(info /= 0) return
+      call dgemv('N',n,r,1.0d0,d,ldd,c,1,1.0d0,vout,1)
+   end subroutine jfnk_secant_apply_v1

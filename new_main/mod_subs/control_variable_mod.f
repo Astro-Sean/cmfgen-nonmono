@@ -2079,6 +2079,11 @@
 ! the scalar-band LU is O(N*KL*KU) ~ 3E15 flops on this model
 ! (infeasible), the block form is ND*(4/3)*NT^3 once per activation.
 	LOGICAL JFNK_BANDED_TDMA
+! JFNK_SEC_R (default 0=off): rank of the Broyden/secant preconditioner
+! update.  Pairs (u_i, J*u_i) measured by the JVP are stored and the
+! applied inverse is corrected so B'(J*u_i) = u_i on the recorded
+! span -- an exact inverse where the BA model is worst.
+	INTEGER JFNK_SEC_R
 	LOGICAL JFNK_SELECTIVE_JVAR
 	REAL(KIND=LDP) JFNK_ROW_TINY
 	REAL(KIND=LDP) JFNK_LSQ_LAM

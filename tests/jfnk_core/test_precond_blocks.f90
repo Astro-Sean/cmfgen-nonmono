@@ -37,6 +37,7 @@ program test_precond_blocks
    call t_rcond_nan(nfail)
    call t_linear(nfail)
    call t_tdma(nfail)
+   call t_secant(nfail)
 !
    if(nfail == 0)then
       print *, 'ALL PRECOND BLOCK TESTS PASSED'
@@ -1177,6 +1178,8 @@ subroutine t_rcond_nan(nfail)
 end subroutine t_rcond_nan
 
 
+
+
 !======================================================================
 ! T-BTD: block-Thomas factor+solve vs a dense LU reference on a
 ! diagonally dominant block-tridiagonal system (nt=6, nd=5), plus a
@@ -1251,3 +1254,59 @@ subroutine t_tdma(nfail)
       nfail = nfail + 1
    end if
 end subroutine t_tdma
+!======================================================================
+! T-SEC: rank-r Broyden/secant preconditioner update.  The corrected
+! inverse B'v = Bv + D*(G^-1 JV^T v) with D_i = u_i - B(J*u_i) must
+! satisfy B'(J*u_i) = u_i on the recorded span, for any base map B.
+! Here B is the Jacobi inverse of a nonsymmetric J with strong
+! off-diagonal coupling -- a poor preconditioner, so the test would
+! catch a sign, ordering or stride error in the Gram/apply pair.
+subroutine t_secant(nfail)
+   implicit none
+   integer, intent(inout) :: nfail
+   integer, parameter :: n = 40, r = 4, rmax = 8
+   double precision :: aj(n,n), u(n,rmax), jv(n,rmax), d(n,rmax)
+   double precision :: g(rmax,rmax), v(n), w(n), c(rmax), err
+   integer :: ipiv(rmax), i, j, k, nfl
+!
+   call random_seed()
+   call random_number(aj)
+   do i = 1, n
+      aj(i,i) = aj(i,i) + 2.0d0
+   end do
+! Deliberately bad base map: diagonal-only inverse of J.
+   call random_number(u)
+! jv_i = J*u_i; d_i = u_i - B(jv_i), B(v) = v/diag(J).
+   do k = 1, r
+      jv(:,k) = matmul(aj, u(:,k))
+      do i = 1, n
+         d(i,k) = u(i,k) - jv(i,k)/aj(i,i)
+      end do
+   end do
+   call jfnk_secant_gram_v1(n, r, jv, n, g, rmax, ipiv, nfl)
+   if(nfl /= 0)then
+      print *, 'T-SEC FAIL: gram factor nfail=', nfl
+      nfail = nfail + 1
+      return
+   end if
+! For each recorded pair, B'(J*u_i) must return u_i exactly:
+! out = B(J*u_i) + D*(G^-1 JV^T J*u_i) = B(J*u_i) + d_i = u_i.
+   err = 0.0d0
+   do k = 1, r
+      w(1:n) = jv(1:n,k)
+      do i = 1, n
+         v(i) = jv(i,k)/aj(i,i)
+      end do
+      call jfnk_secant_apply_v1(n, r, jv, n, d, n, g, rmax, ipiv, &
+           w, v, c)
+      err = max(err, maxval(abs(v(1:n) - u(1:n,k))))
+   end do
+! Tolerance reflects the 1e-12 relative Gram ridge in
+! jfnk_secant_gram_v1, not exact arithmetic.
+   if(err > 1.0d-8)then
+      print '(A,ES10.2)', ' T-SEC FAIL: secant property err=', err
+      nfail = nfail + 1
+   else
+      print '(A,ES10.2)', ' T-SEC: PASS, max err=', err
+   end if
+end subroutine t_secant
