@@ -383,6 +383,10 @@
 !
 ! Banded preconditioner storage (LAPACK banded format).
 ! JFNK_BANDED_LUAB(2*KL+KU+1, N) stores the LU factors from DGBTRF.
+! Under [JFNK_BANDED_TDMA] the allocation is the compact
+! KL+KU+1-row form (no pivoting headroom) and the factor/apply uses
+! the block-Thomas routines instead of DGBTRF; the diagonal offset
+! then differs (DIA_ROFF in JFNK_FACTOR_PRECOND_V1).
 ! JFNK_BANDED_IPIV(N) stores the pivot indices.
 ! KL = KU = (NUM_BNDS/2) * (2*NT - 1) ≈ 2*NT for NUM_BNDS=3.
 ! When JFNK_USE_BANDED=F, these are not allocated and the solver

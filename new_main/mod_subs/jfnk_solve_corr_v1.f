@@ -234,6 +234,7 @@
 	EXTERNAL JFNK_MASK_FIXED_UNKNOWNS,JFNK_COMPUTE_RSCALE_V1
 	EXTERNAL JFNK_BUILD_BA_RAD_V1,JFNK_FACTOR_PRECOND_V1
 	EXTERNAL JFNK_REBUILD_BASELINE_V1
+	EXTERNAL JFNK_FREE_BANDED_STATE_V1
 	EXTERNAL JFNK_SET_PTC_SCALE_V1
 	EXTERNAL JFNK_SAVE_MOD_STEQ_V1,JFNK_RESTORE_MOD_STEQ_V1
 	EXTERNAL JFNK_ROW_ANATOMY_V1
@@ -3004,6 +3005,12 @@
 	  CALL JFNK_SYNC_ATM_FROM_POPS(POPS)
 	END IF
 	JFNK_LAG_FACTORS_READY=.FALSE.
+!
+! The banded operator/factors are no longer needed once this activation
+! commits, falls back, or defers.  Dropping them here keeps the optional
+! frozen-failure hold from carrying a second-admission memory footprint.
+!
+	CALL JFNK_FREE_BANDED_STATE_V1()
 !
 	RETURN
 !

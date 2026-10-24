@@ -43,6 +43,7 @@
 	INTEGER :: ID_ION, SE_TOTAL_SIZE
 	REAL(KIND=LDP) OMP_GET_WTIME
 	EXTERNAL OMP_GET_WTIME
+	EXTERNAL JFNK_FREE_BANDED_STATE_V1
 !
 	JFNK_NT = NT
 	JFNK_ND = ND
@@ -117,6 +118,13 @@
 	JFNK_SEC_N = 0
 	JFNK_SEC_BUILT_N = 0
 	JFNK_SEC_READY = .FALSE.
+!
+! The banded operator and block-Thomas factors are activation-local and
+! dominate the interactive-node footprint.  Release the previous admission
+! before this one allocates its evaluation workspace; retaining them let
+! job 12366624 OOM on the second admission at iteration 760.
+!
+	CALL JFNK_FREE_BANDED_STATE_V1()
 !
 ! Reallocate if the problem size changed (R-grid revision).
 !
@@ -443,6 +451,41 @@
 	jfnk_ridge_floor = 0.0_LDP
 !
 	END SUBROUTINE JFNK_INIT_V1
+
+
+!
+! JFNK_FREE_BANDED_STATE_V1: release activation-local banded operator
+! and factor storage.  JFNK_FACTOR_PRECOND_V1 rebuilds both on every
+! admission, so retaining the previous LUAB/BTD blocks only leaves the
+! next factorization competing with stale tens-of-GB SAVE arrays under
+! an interactive memory cap.  With JFNK_USE_BANDED=F only the diagonal
+! CMAT block exists and is rebuilt; the LUAB/BTD arrays never do.
+!
+	SUBROUTINE JFNK_FREE_BANDED_STATE_V1()
+	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD
+	IMPLICIT NONE
+!
+	IF(ALLOCATED(JFNK_CMAT_RAD_BANDS))DEALLOCATE(JFNK_CMAT_RAD_BANDS)
+	IF(ALLOCATED(JFNK_BANDED_LUAB))DEALLOCATE(JFNK_BANDED_LUAB)
+	IF(ALLOCATED(JFNK_BANDED_ARAW))DEALLOCATE(JFNK_BANDED_ARAW)
+	IF(ALLOCATED(JFNK_BANDED_IPIV))DEALLOCATE(JFNK_BANDED_IPIV)
+	IF(ALLOCATED(JFNK_BANDED_ROW_SF))DEALLOCATE(JFNK_BANDED_ROW_SF)
+	IF(ALLOCATED(JFNK_BANDED_COL_SF))DEALLOCATE(JFNK_BANDED_COL_SF)
+	IF(ALLOCATED(JFNK_BTD_L))DEALLOCATE(JFNK_BTD_L,
+	1   JFNK_BTD_LU,JFNK_BTD_C,JFNK_BTD_IPIV)
+!
+	JFNK_BANDED_KL=0
+	JFNK_BANDED_KU=0
+	JFNK_BANDED_N=0
+!
+	JFNK_BA_RAD_BANDS_READY=.FALSE.
+	JFNK_BANDED_LU_READY=.FALSE.
+	JFNK_BANDED_EQUIL_OK=.FALSE.
+	JFNK_BANDED_CHK_DONE=.FALSE.
+	JFNK_BTD_READY=.FALSE.
+!
+	END SUBROUTINE JFNK_FREE_BANDED_STATE_V1
 
 
 !
@@ -3840,7 +3883,7 @@
 	REAL(KIND=LDP) BANDED_RIDGE, BANDED_MAX_DIAG
 	REAL(KIND=LDP) LSQ_L2
 	REAL(KIND=LDP), ALLOCATABLE :: GN_WORK(:,:)
-	INTEGER N_BANDED_RETRY, LDAB_B
+	INTEGER N_BANDED_RETRY, LDAB_B, DIA_ROFF
 	DOUBLE PRECISION FMAX_PTC, S_PTC
 	INTEGER IDX_PTC
 	DOUBLE PRECISION ANORM_K, RCOND_K, PIV_MIN, PIV_MAX, S_TMP
@@ -4687,6 +4730,22 @@
 	  IF(JFNK_BANDED_TDMA)
 	1   LDAB_B = JFNK_BANDED_KL + JFNK_BANDED_KU + 1
 !
+! Diagonal row offset for the active LUAB layout.  The DGBTRF array
+! stores A(i,j) at AB(KL+KU+1+i-j, j); the compact [JFNK_BANDED_TDMA]
+! array drops the KL pivoting headroom rows and must use
+! AB(KU+1+i-j, j) instead.  Every LUAB index below goes through
+! DIA_ROFF+1: the earlier single KL+KU+1 offset pushed every i>j
+! entry past the compact LDAB, so the guarded assembly silently
+! discarded the lower triangle (and every lower off-diagonal block)
+! and the block-Thomas factor only ever saw the upper band.  Found
+! on the btdc run (24-Oct-2026): superbands reported max|L|=0 and
+! the vacuous 5E-14 backward error measured the truncated array
+! against itself.
+!
+	  DIA_ROFF = JFNK_BANDED_KL + JFNK_BANDED_KU
+	  IF(JFNK_BANDED_TDMA)
+	1   DIA_ROFF = JFNK_BANDED_KU
+!
 	  IOS=0
 	  IF(ALLOCATED(JFNK_BANDED_LUAB))THEN
 	    IF(SIZE(JFNK_BANDED_LUAB,1) .NE. LDAB_B .OR.
@@ -4772,11 +4831,12 @@
 !
 ! Copy NT×NT block into LAPACK banded storage.
 ! Global row i = (K-1)*NT + II, global col j = (L-1)*NT + JJ.
-! AB(KL+KU+1+i-j, j) = A(i, j).
+! AB(DIA_ROFF+1+i-j, j) = A(i, j); DIA_ROFF is KL+KU in DGBTRF
+! layout, KU under [JFNK_BANDED_TDMA].
 !
 	      DO JJ = 1, JFNK_NT
 	        DO II = 1, JFNK_NT
-		  IROW = JFNK_BANDED_KL+JFNK_BANDED_KU+1+
+		  IROW = DIA_ROFF+1+
 	1           (K-L)*JFNK_NT + (II-JJ)
 		  JCOL = (L-1)*JFNK_NT + JJ
 		  IF(IROW .GE. 1 .AND. IROW .LE.
@@ -4843,7 +4903,7 @@
 	        CMAX_B(J_Z) = 0.0_LDP
 	        DO I_Z = MAX(1,J_Z-JFNK_BANDED_KU),
 	1           MIN(JFNK_BANDED_N,J_Z+JFNK_BANDED_KL)
-	          JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	          JROW = DIA_ROFF + 1 + I_Z - J_Z
 	          CMAX_B(J_Z) = MAX(CMAX_B(J_Z),
 	1             ABS(JFNK_BANDED_LUAB(JROW, J_Z)))
 	        END DO
@@ -4854,7 +4914,7 @@
 	      RMAX_B = 0.0_LDP
 	      DO J_Z = MAX(1,I_Z-JFNK_BANDED_KL),
 	1         MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KU)
-	        JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	        JROW = DIA_ROFF + 1 + I_Z - J_Z
 	        IF(JFNK_ROW_TINY_EQUIL)THEN
 	          IF(CMAX_B(J_Z) .GT. 0.0_LDP) RMAX_B = MAX(RMAX_B,
 	1             ABS(JFNK_BANDED_LUAB(JROW, J_Z))/CMAX_B(J_Z))
@@ -4866,17 +4926,17 @@
 	      J_B = I_Z - (K_B-1)*JFNK_NT
 	      IF(RMAX_B .EQ. 0.0_LDP)THEN
 	        N_ZROW = N_ZROW + 1
-	        JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, I_Z)
+	        JFNK_BANDED_LUAB(DIA_ROFF+1, I_Z)
 	1           = 1.0_LDP
 	        JFNK_ROW_REG(J_B, K_B) = .TRUE.
 	      ELSE IF(JFNK_ROW_TINY_EQUIL)THEN
 	        IF(RMAX_B .LT. JFNK_ROW_TINY)THEN
 	          DO J_Z = MAX(1,I_Z-JFNK_BANDED_KL),
 	1             MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KU)
-	            JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	            JROW = DIA_ROFF + 1 + I_Z - J_Z
 	            JFNK_BANDED_LUAB(JROW, J_Z) = 0.0_LDP
 	          END DO
-	          JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, I_Z)
+	          JFNK_BANDED_LUAB(DIA_ROFF+1, I_Z)
 	1             = 1.0_LDP
 	          JFNK_ROW_REG(J_B, K_B) = .TRUE.
 	          N_REG_B = N_REG_B + 1
@@ -4884,10 +4944,10 @@
 	      ELSE IF(RMAX_B .LT. JFNK_ROW_TINY*BLKMAX_B)THEN
 	        DO J_Z = MAX(1,I_Z-JFNK_BANDED_KL),
 	1           MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KU)
-	          JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	          JROW = DIA_ROFF + 1 + I_Z - J_Z
 	          JFNK_BANDED_LUAB(JROW, J_Z) = 0.0_LDP
 	        END DO
-	        JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, I_Z)
+	        JFNK_BANDED_LUAB(DIA_ROFF+1, I_Z)
 	1           = 1.0_LDP
 	        JFNK_ROW_REG(J_B, K_B) = .TRUE.
 	        N_REG_B = N_REG_B + 1
@@ -4904,8 +4964,7 @@
 	          DO J_Z = MAX(1,I_Z-JFNK_BANDED_KU),
 	1             MIN(JFNK_BANDED_N,I_Z+JFNK_BANDED_KL)
 	            IF(J_Z .NE. I_Z)THEN
-	              JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 +
-	1                 J_Z - I_Z
+	              JROW = DIA_ROFF + 1 + J_Z - I_Z
 	              JFNK_BANDED_LUAB(JROW, I_Z) = 0.0_LDP
 	            END IF
 	          END DO
@@ -4917,13 +4976,13 @@
 	      ROW_NZ = .FALSE.
 	      DO I_Z = MAX(1,J_Z-JFNK_BANDED_KU),
 	1         MIN(JFNK_BANDED_N,J_Z+JFNK_BANDED_KL)
-	        JROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_Z - J_Z
+	        JROW = DIA_ROFF + 1 + I_Z - J_Z
 	        IF(JFNK_BANDED_LUAB(JROW, J_Z) .NE. 0.0_LDP)
 	1           ROW_NZ = .TRUE.
 	      END DO
 	      IF(.NOT. ROW_NZ)THEN
 	        N_ZCOL = N_ZCOL + 1
-	        JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, J_Z)
+	        JFNK_BANDED_LUAB(DIA_ROFF+1, J_Z)
 	1           = 1.0_LDP
 	        K_B = (J_Z-1)/JFNK_NT + 1
 	        J_B = J_Z - (K_B-1)*JFNK_NT
@@ -4973,9 +5032,11 @@
 !
 ! The correct options are (a) pass the shifted base pointer
 ! LUAB(KL+1,1) so DGBEQU's KU+1+i-j lands on KL+KU+1+i-j, or
-! (b) compute the row/column maxima directly in DGBTRF layout.
+! (b) compute the row/column maxima directly on the stored band.
 ! Option (b) is used here: it is transparent, O(N*bandwidth), and
-! avoids sequence-association subtleties.
+! avoids sequence-association subtleties.  DIA_ROFF selects the
+! active layout (KL+KU for DGBTRF storage, KU under
+! [JFNK_BANDED_TDMA]).
 !
 ! Algorithm (same as DGBEQU): R(i)=1/max_j|A(i,j)| on the raw band,
 ! then C(j)=1/max_i|R(i)*A(i,j)| on the row-scaled band.  The solve
@@ -4993,14 +5054,14 @@
 	      RMAX = 0.0_LDP
 	      DO J_E = MAX(1,I_E-JFNK_BANDED_KL),
 	1         MIN(JFNK_BANDED_N,I_E+JFNK_BANDED_KU)
-	        EROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_E - J_E
+	        EROW = DIA_ROFF + 1 + I_E - J_E
 	        RMAX = MAX(RMAX, ABS(JFNK_BANDED_LUAB(EROW, J_E)))
 	      END DO
 	      IF(RMAX .GT. 0.0_LDP)THEN
 	        JFNK_BANDED_ROW_SF(I_E) = 1.0_LDP / RMAX
 	      ELSE
 	        JFNK_BANDED_ROW_SF(I_E) = 1.0_LDP
-	        JFNK_BANDED_LUAB(JFNK_BANDED_KL+JFNK_BANDED_KU+1, I_E)
+	        JFNK_BANDED_LUAB(DIA_ROFF+1, I_E)
 	1           = 1.0_LDP
 	        N_ZROW = N_ZROW + 1
 	      END IF
@@ -5010,7 +5071,7 @@
 	      CMAX = 0.0_LDP
 	      DO I_E = MAX(1,J_E-JFNK_BANDED_KU),
 	1         MIN(JFNK_BANDED_N,J_E+JFNK_BANDED_KL)
-	        EROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I_E - J_E
+	        EROW = DIA_ROFF + 1 + I_E - J_E
 	        CMAX = MAX(CMAX,
 	1         JFNK_BANDED_ROW_SF(I_E)*ABS(JFNK_BANDED_LUAB(EROW, J_E)))
 	      END DO
@@ -5057,7 +5118,7 @@
 	    DO J = 1, JFNK_BANDED_N
 	      DO I = MAX(1,J-JFNK_BANDED_KU),
 	1         MIN(JFNK_BANDED_N,J+JFNK_BANDED_KL)
-	        IROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I - J
+	        IROW = DIA_ROFF + 1 + I - J
 	        JFNK_BANDED_LUAB(IROW, J) =
 	1           JFNK_BANDED_LUAB(IROW, J) *
 	2           JFNK_BANDED_ROW_SF(I) * JFNK_BANDED_COL_SF(J)
@@ -5134,7 +5195,7 @@
 	      DO
 ! Extract L/D/U from the scaled band on superblock boundaries:
 ! global row i=(K-1)*NTS+II, col j=(L-1)*NTS+JJ lives at
-! LUAB(KL+KU+1+i-j, j).  D_NRM/L_NRM/U_NRM report the superband
+! LUAB(DIA_ROFF+1+i-j, j).  D_NRM/L_NRM/U_NRM report the superband
 ! content so a run shows whether the stored coupling reaches the
 ! requested width without needing the BA_JVP probe.
 	        D_NRM_B = 0.0_LDP
@@ -5144,23 +5205,20 @@
 	          DO J_B = 1, NTS_B
 	            DO I_B = 1, NTS_B
 	              JFNK_BTD_LU(I_B,J_B,K_B) =
-	1               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	2               JFNK_BANDED_KU+1+I_B-J_B,
+	1               JFNK_BANDED_LUAB(DIA_ROFF+1+I_B-J_B,
 	3               (K_B-1)*NTS_B+J_B)
 	              D_NRM_B = MAX(D_NRM_B,
 	1               ABS(JFNK_BTD_LU(I_B,J_B,K_B)))
 	              IF(K_B .GT. 1)THEN
 	                JFNK_BTD_L(I_B,J_B,K_B) =
-	1                 JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	2                 JFNK_BANDED_KU+1+NTS_B+I_B-J_B,
+	1                 JFNK_BANDED_LUAB(DIA_ROFF+1+NTS_B+I_B-J_B,
 	3                 (K_B-2)*NTS_B+J_B)
 	                L_NRM_B = MAX(L_NRM_B,
 	1                 ABS(JFNK_BTD_L(I_B,J_B,K_B)))
 	              END IF
 	              IF(K_B .LT. NDS_B)THEN
 	                JFNK_BTD_C(I_B,J_B,K_B) =
-	1                 JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	2                 JFNK_BANDED_KU+1-NTS_B+I_B-J_B,
+	1                 JFNK_BANDED_LUAB(DIA_ROFF+1-NTS_B+I_B-J_B,
 	3                 K_B*NTS_B+J_B)
 	                U_NRM_B = MAX(U_NRM_B,
 	1                 ABS(JFNK_BTD_C(I_B,J_B,K_B)))
@@ -5190,8 +5248,7 @@
 	              DEN_B = 0.0_LDP
 	              DO J_C = MAX(1,I_C-JFNK_BANDED_KL),
 	1                 MIN(JFNK_BANDED_N,I_C+JFNK_BANDED_KU)
-	                EROW_C = JFNK_BANDED_KL+JFNK_BANDED_KU+
-	1                 1+I_C-J_C
+	                EROW_C = DIA_ROFF+1+I_C-J_C
 	                RI_B = RI_B +
 	1                 JFNK_BANDED_LUAB(EROW_C,J_C)*XT_B(J_C)
 	                DEN_B = DEN_B +
@@ -5214,8 +5271,7 @@
 	            DO J_B = 1, JFNK_NT
 	              J_C = (K_B-1)*JFNK_NT + J_B
 	              JFNK_PRECOND_DIAG(J_B,K_B) =
-	1               JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	2               JFNK_BANDED_KU+1, J_C)
+	1               JFNK_BANDED_LUAB(DIA_ROFF+1, J_C)
 	              IF(JFNK_BANDED_EQUIL_OK)
 	1               JFNK_PRECOND_DIAG(J_B,K_B) =
 	2               JFNK_PRECOND_DIAG(J_B,K_B) /
@@ -5251,8 +5307,8 @@
 	        DO K_B = 1, JFNK_ND
 	          DO I_B = 1, JFNK_NT
 	            MAXD_B = MAX(MAXD_B,
-	1             ABS(JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	2             JFNK_BANDED_KU+1, (K_B-1)*JFNK_NT+I_B)))
+	1             ABS(JFNK_BANDED_LUAB(DIA_ROFF+1,
+	2             (K_B-1)*JFNK_NT+I_B)))
 	          END DO
 	        END DO
 	        RIDGE_B = MAX(JFNK_BA_RIDGE_FAC,1.0D-10)
@@ -5264,10 +5320,10 @@
 	        END IF
 	        DO K_B = 1, JFNK_ND
 	          DO I_B = 1, JFNK_NT
-	            JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	1             JFNK_BANDED_KU+1, (K_B-1)*JFNK_NT+I_B) =
-	2             JFNK_BANDED_LUAB(JFNK_BANDED_KL+
-	3             JFNK_BANDED_KU+1, (K_B-1)*JFNK_NT+I_B)
+	            JFNK_BANDED_LUAB(DIA_ROFF+1,
+	1             (K_B-1)*JFNK_NT+I_B) =
+	2             JFNK_BANDED_LUAB(DIA_ROFF+1,
+	3             (K_B-1)*JFNK_NT+I_B)
 	4             + RIDGE_B
 	          END DO
 	        END DO
@@ -5338,7 +5394,7 @@
 	            REL_RES = 0.0D0
 	            DO J_C = MAX(1,I_C-JFNK_BANDED_KL),
 	1               MIN(JFNK_BANDED_N,I_C+JFNK_BANDED_KU)
-	              EROW_C = JFNK_BANDED_KL+JFNK_BANDED_KU+1+I_C-J_C
+	              EROW_C = DIA_ROFF+1+I_C-J_C
 	              RI = RI + DBLE(JFNK_BANDED_ARAW(EROW_C,J_C))*XT(J_C)
 	              REL_RES = REL_RES +
 	1               ABS(DBLE(JFNK_BANDED_ARAW(EROW_C,J_C))*XT(J_C))
@@ -5379,7 +5435,7 @@
 	1          JFNK_BA_RIDGE_ADD=BANDED_RIDGE
 	        DO K=1,JFNK_ND
 	          DO J=1,JFNK_NT
-	            IROW=JFNK_BANDED_KL+JFNK_BANDED_KU+1
+	            IROW=DIA_ROFF+1
 	            JCOL=(K-1)*JFNK_NT+J
 	            JFNK_PRECOND_DIAG(J,K)=
 	1              JFNK_BANDED_ARAW(IROW,JCOL)
@@ -5416,8 +5472,7 @@
 	    DO K = 1, JFNK_ND
 	      DO I = 1, JFNK_NT
 	        BANDED_MAX_DIAG = MAX(BANDED_MAX_DIAG,
-	1         ABS(JFNK_BANDED_LUAB(
-	2           JFNK_BANDED_KL+JFNK_BANDED_KU+1,
+	1         ABS(JFNK_BANDED_LUAB(DIA_ROFF+1,
 	3           (K-1)*JFNK_NT + I)))
 	      END DO
 	    END DO
@@ -5431,10 +5486,10 @@
 	    DO K = 1, JFNK_ND
 	      DO I = 1, JFNK_NT
 	        JFNK_BANDED_LUAB(
-	1           JFNK_BANDED_KL+JFNK_BANDED_KU+1,
+	1           DIA_ROFF+1,
 	2           (K-1)*JFNK_NT + I) =
 	3           JFNK_BANDED_LUAB(
-	4             JFNK_BANDED_KL+JFNK_BANDED_KU+1,
+	4             DIA_ROFF+1,
 	5             (K-1)*JFNK_NT + I) + BANDED_RIDGE
 	      END DO
 	    END DO
@@ -5443,7 +5498,7 @@
 	      DO J = 1, JFNK_BANDED_N
 	        DO I = MAX(1,J-JFNK_BANDED_KU),
 	1           MIN(JFNK_BANDED_N,J+JFNK_BANDED_KL)
-	          IROW = JFNK_BANDED_KL + JFNK_BANDED_KU + 1 + I - J
+	          IROW = DIA_ROFF + 1 + I - J
 	          JFNK_BANDED_LUAB(IROW, J) =
 	1           JFNK_BANDED_LUAB(IROW, J) *
 	2           JFNK_BANDED_ROW_SF(I) * JFNK_BANDED_COL_SF(J)
