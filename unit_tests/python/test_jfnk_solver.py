@@ -61,7 +61,7 @@ def run_core(rep):
     verdicts = re.findall(r"(T\d+):\s*(PASS|FAIL)", out)
     rep.check(
         "jfnk_core: exits cleanly and runs all tests",
-        p.returncode == 0 and len(verdicts) == 5,
+        p.returncode == 0 and len(verdicts) >= 5,
         out[-400:],
     )
     for tag, verdict in verdicts:

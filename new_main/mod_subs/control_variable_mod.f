@@ -1920,6 +1920,14 @@
 	LOGICAL JFNK_CYCSTALL
 	REAL(KIND=LDP) JFNK_CYCSTALL_FAC
 	INTEGER JFNK_CYCSTALL_N
+! JFNK_CAP_STEP (VADAT [JFNK_CAP_STEP], default F): when the finished
+! Newton step exceeds the |s|_inf cap, clip only the over-bound
+! components instead of uniformly shrinking the whole direction.  With
+! an accurate banded preconditioner the exact Newton step's inf-norm is
+! set by weakly-coupled rows; uniform scaling then discards most of the
+! usable correction on every other row, which is what forced the long
+! clipped-ratchet sequences on the m15 2.82d SOB runs.
+	LOGICAL JFNK_CAP_STEP
 	REAL(KIND=LDP) JFNK_GTOL
 	REAL(KIND=LDP) JFNK_GMRES_STAG
 	REAL(KIND=LDP) JFNK_TOL_REL

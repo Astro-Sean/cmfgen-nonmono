@@ -424,6 +424,7 @@
 	  jfnk_cycstall_on=JFNK_CYCSTALL
 	  jfnk_cycstall_frac=DBLE(JFNK_CYCSTALL_FAC)
 	  jfnk_cycstall_nmax=MAX(JFNK_CYCSTALL_N,1)
+	  jfnk_cap_step_on=JFNK_CAP_STEP
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
 ! after each counted failure.  The trims are per-activation locals --

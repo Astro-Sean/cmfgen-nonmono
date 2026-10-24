@@ -1567,6 +1567,10 @@
 	1     'Consecutive flat cycles before stall exit')
 	  IF(JFNK_CYCSTALL_N .LT. 1)JFNK_CYCSTALL_N=1
 !
+	  JFNK_CAP_STEP=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_CAP_STEP,'JFNK_CAP_STEP',L_FALSE,
+	1     'Cap over-bound step components instead of uniform scale?')
+!
 	  JFNK_TOL_REL=1.0E-4_LDP
 	  CALL RD_STORE_DBLE(JFNK_TOL_REL,'JFNK_TOL',L_FALSE,
 	1     'Relative Newton tolerance (target |F|/|F_0|)')

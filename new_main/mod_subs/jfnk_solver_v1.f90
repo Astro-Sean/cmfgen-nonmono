@@ -306,6 +306,9 @@ module jfnk_solver_v1_mod
    !
    double precision :: jfnk_step_inf_cap = 10d0
    double precision :: jfnk_runaway_fac  = 1.0d2
+   ! [JFNK_CAP_STEP] (default F): replace the uniform inf-norm rescale
+   ! with a per-component cap at +/- jfnk_step_inf_cap.
+   logical          :: jfnk_cap_step_on = .false.
    !
    ! Logarithmic unknown and pseudo-transient continuation.
    ! Set from VADAT [JFNK_LOGX] and [JFNK_PTC] in RD_CONTROL_VARIABLES
@@ -1209,20 +1212,43 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       s_inf_orig = s_inf
       if(s_inf > jfnk_step_inf_cap) then
+         if(jfnk_cap_step_on) then
+            ! [JFNK_CAP_STEP] (default F): cap each over-bound component
+            ! at +/-cap and leave the rest of the direction untouched.
+            ! Uniform rescaling is right when the whole step is a
+            ! runaway, but with an accurate preconditioner the Newton
+            ! direction is dominated by a few weakly-coupled rows and
+            ! the rescale throws away the usable correction on every
+            ! bounded row -- the clipped-ratchet pattern seen on the
+            ! m15 2.82d SOB runs.  The commit path already clips the
+            ! accumulated correction component-wise, so this only moves
+            ! the same bound upstream into the trial step.
+            where(abs(s) > jfnk_step_inf_cap)
+               s = sign(jfnk_step_inf_cap, s)
+            end where
+            snrm = dsqrt(dp(n, s, s))
+            snrm_tr = snrm
+            s_inf = jfnk_step_inf_cap
+            jfnk_n_step_scaled = jfnk_n_step_scaled + 1
+            if(info == 1) write(luer,'(A,ES10.3,A,ES10.3)') &
+               '  JFNK: capped step to |s|_inf=', real(s_inf), &
+               ' |s|=', real(snrm)
+         else
 ! jfnk_step_inf_cap (default 10.0d0 = MAX_JFNK_COR, 1.0D1): steps larger
 ! than a factor-of-10 population correction are unphysical for the
 ! clipping that is applied after the Newton update.  Scale the whole
 ! step back so the inf-norm equals the maximum allowed correction
 ! (audit 2026-09-10).
-         scale_fac = jfnk_step_inf_cap / s_inf
-         s = s * scale_fac
-         snrm = dsqrt(dp(n, s, s))
-         snrm_tr = snrm_tr * scale_fac   ! 2026-09-13 TR-units fix
-         s_inf = jfnk_step_inf_cap
-         jfnk_n_step_scaled = jfnk_n_step_scaled + 1
-         if(info == 1) write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
-            '  JFNK: scaled step by ', real(scale_fac), &
-            ' |s|=', real(snrm), ' |s|_inf=', real(s_inf)
+            scale_fac = jfnk_step_inf_cap / s_inf
+            s = s * scale_fac
+            snrm = dsqrt(dp(n, s, s))
+            snrm_tr = snrm_tr * scale_fac   ! 2026-09-13 TR-units fix
+            s_inf = jfnk_step_inf_cap
+            jfnk_n_step_scaled = jfnk_n_step_scaled + 1
+            if(info == 1) write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
+               '  JFNK: scaled step by ', real(scale_fac), &
+               ' |s|=', real(snrm), ' |s|_inf=', real(s_inf)
+         end if
       end if
       !
       ! FIX_T_AUTO: damp/cap the T components of the finished Newton
@@ -1773,12 +1799,25 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                ! Same direction-preserving inf-norm cap as the Newton step.
                s_inf_c = maxval(abs(jfnk_w_cauchy))
                if(s_inf_c > jfnk_step_inf_cap) then
-                  jfnk_w_cauchy = jfnk_w_cauchy * &
-                     (jfnk_step_inf_cap / s_inf_c)
-                  cauchy_nrm    = cauchy_nrm * (jfnk_step_inf_cap / s_inf_c)
-                  if(info == 1) write(luer,'(A,ES10.3)') &
-                     '  JFNK: Cauchy direction scaled by ', &
-                     real(jfnk_step_inf_cap / s_inf_c)
+                  if(jfnk_cap_step_on) then
+                     ! Same [JFNK_CAP_STEP] semantics as the Newton step.
+                     where(abs(jfnk_w_cauchy) > jfnk_step_inf_cap)
+                        jfnk_w_cauchy = sign(jfnk_step_inf_cap, &
+                           jfnk_w_cauchy)
+                     end where
+                     cauchy_nrm = dsqrt(dp(n, jfnk_w_cauchy, &
+                        jfnk_w_cauchy))
+                     if(info == 1) write(luer,'(A)') &
+                        '  JFNK: Cauchy direction capped at |s|_inf'
+                  else
+                     jfnk_w_cauchy = jfnk_w_cauchy * &
+                        (jfnk_step_inf_cap / s_inf_c)
+                     cauchy_nrm    = cauchy_nrm * &
+                        (jfnk_step_inf_cap / s_inf_c)
+                     if(info == 1) write(luer,'(A,ES10.3)') &
+                        '  JFNK: Cauchy direction scaled by ', &
+                        real(jfnk_step_inf_cap / s_inf_c)
+                  end if
                end if
             end if
          end if

@@ -56,6 +56,10 @@ module test_prob_mod
    ! w_dp*|v|_euc) and a residual-eval call counter.
    double precision :: w_dp = 1d0
    integer :: n_f_evals = 0
+   ! T8: decouple row 1's residual (exp-only, no b coupling).  Starting
+   ! x_1 ~14 log units underpopulated makes its Newton component ~e14
+   ! while the diagonal stays tiny -- the m15 dead-row pathology.
+   logical :: cap_row1 = .false.
 end module test_prob_mod
 
 
@@ -883,6 +887,74 @@ program test_newton_core
    jfnk_jvp_failed = .false.
    jfnk_gmres_max_restart = 1
    !
+   ! ---------------- T8: component cap vs uniform step scale --------
+   !
+   ! cap_row1 decouples row 1 and it starts ~14 log units
+   ! underpopulated, so the exact Newton step's component 1 is ~e14
+   ! while the rest of the direction is usable -- the m15 dead-row
+   ! pathology in miniature.  Uniform rescaling shrinks every
+   ! component to serve that one row; [JFNK_CAP_STEP] confines the
+   ! bound to row 1 and lets it ratchet toward xs.  A/B over the same
+   ! 12-iteration budget: the capped run must leave a materially
+   ! smaller |F|, and the safeguard must actually fire in both runs
+   ! (jfnk_n_step_scaled > 0) or the comparison is vacuous.
+   !
+   jfnk_ptc_active = .false.
+   jfnk_use_left_pc = .false.
+   jfnk_lgmres_on = .false.
+   jfnk_gdefl_on = .false.
+   jfnk_recyc_on = .false.
+   jfnk_cycstall_on = .false.
+   jfnk_runaway_fac = 1.0d30     ! isolate: only the inf-cap varies
+   jfnk_step_inf_cap = 2.3d0
+   cap_row1 = .true.
+   xbase = 0d0
+   !
+   jfnk_cap_step_on = .false.
+   jfnk_x = xs + 0.5d0
+   jfnk_x(1) = xs(1) - 1.4d1
+   diagJ = a * exp(jfnk_x) + 2d0 * b
+   diagJ(1) = a(1) * exp(jfnk_x(1))   ! true weak diagonal of the row
+   n_f_evals = 0
+   jfnk_n_step_scaled = 0
+   jfnk_exit_reason = ' '
+   info = 1
+   call newton_hook_v1(f_test, df_test, dfp_test, sub_test, dp_test, &
+                       20, NN, 1.0d-2, 1.0d-10, -1d0, 1.0d-12, 1.0d99, &
+                       25, info, luer)
+   call f_test(NN, jfnk_x, ftrue)
+   res_p = dsqrt(dp_test(NN, ftrue, ftrue))
+   nevals_b = jfnk_n_step_scaled
+   !
+   jfnk_cap_step_on = .true.
+   jfnk_x = xs + 0.5d0
+   jfnk_x(1) = xs(1) - 1.4d1
+   n_f_evals = 0
+   jfnk_n_step_scaled = 0
+   jfnk_exit_reason = ' '
+   info = 1
+   call newton_hook_v1(f_test, df_test, dfp_test, sub_test, dp_test, &
+                       20, NN, 1.0d-2, 1.0d-10, -1d0, 1.0d-12, 1.0d99, &
+                       25, info, luer)
+   call f_test(NN, jfnk_x, ftrue)
+   res_g = dsqrt(dp_test(NN, ftrue, ftrue))
+   nevals_c = jfnk_n_step_scaled
+   write(luer,'(A,ES12.4,A,ES12.4,A,I3,A,I3,A)') &
+      'T8: |F|(scaled)=', res_p, '  |F|(capped)=', res_g, &
+      '  scaled-steps=', nevals_b, '/', nevals_c, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(nevals_b > 0 .and. nevals_c > 0 .and. &
+      res_g < 0.5d0*res_p) then
+      write(luer,'(A)') 'T8: PASS'
+   else
+      write(luer,'(A)') 'T8: FAIL'
+      nfail = nfail + 1
+   end if
+   jfnk_cap_step_on = .false.
+   jfnk_step_inf_cap = 10d0
+   jfnk_runaway_fac = 1.0d2
+   cap_row1 = .false.
+   !
    if(nfail == 0) then
       write(luer,'(A)') 'ALL TESTS PASSED'
    else
@@ -954,6 +1026,9 @@ subroutine f_test(n, x, y)
       if(i > 1) y(i) = y(i) + b * (d(i) - d(i-1))
       if(i < n) y(i) = y(i) + b * (d(i) - d(i+1))
    end do
+   ! T8: decouple row 1 so its Newton component can run exponential:
+   ! a deep underpopulation demands ~e14 while J_11 stays tiny.
+   if(cap_row1) y(1) = a(1) * (exp(xa(1)) - exp(xs(1)))
    if(jfnk_ptc_active .and. jfnk_ptc_scale_ready .and. &
       jfnk_ptc_anchor_ready) then
       if(allocated(jfnk_ptc_x0) .and. allocated(jfnk_ptc_scale)) then
