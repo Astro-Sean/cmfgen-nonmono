@@ -515,6 +515,8 @@ def main():
             "JFNK_LAG_FACTORS": "T",
             "JFNK_FRZ_GATE": "3.0D0",
             "JFNK_GATE_NREQ": "2",
+            "JFNK_FRZ_FAIL_LIM": "2",
+            "JFNK_FRZ_FAIL_HOLD": "8",
         },
     )
     p = run_vadat(exe, d)
@@ -525,7 +527,9 @@ def main():
         and v.get("JFNK_LAG_FACTORS") == "T"
         and abs(float(v.get("JFNK_FRZ_GATE", "nan").replace("D", "E")) - 3.0)
         < 1e-9
-        and v.get("JFNK_GATE_NREQ") == "2",
+        and v.get("JFNK_GATE_NREQ") == "2"
+        and v.get("JFNK_FRZ_FAIL_LIM") == "2"
+        and v.get("JFNK_FRZ_FAIL_HOLD") == "8",
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 

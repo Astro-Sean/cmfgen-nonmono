@@ -1774,6 +1774,25 @@
 	1     L_FALSE,
 	2     'SOB: reach skips before stable-LAMBDA relief stands down?')
 	  IF(JFNK_REL_REACH_MAX .LT. 0)JFNK_REL_REACH_MAX=0
+!
+! JFNK_FRZ_FAIL_LIM (default 0 = off): consecutive frozen-tier
+! admissions without a committed Newton step before the gate holds the
+! tier on SOLVEBA.  The trigger is deliberately broad -- reach skips,
+! guard defers, and GMRES/trust failures are all evidence that another
+! admission is unlikely to buy anything on a radiation-pinned residual.
+! JFNK_FRZ_FAIL_HOLD is the number of eligible calls spent in SOLVEBA
+! before a fresh probe is allowed; the triggering call counts as one.
+!
+	  JFNK_FRZ_FAIL_LIM=0
+	  CALL RD_STORE_INT(JFNK_FRZ_FAIL_LIM,'JFNK_FRZ_FAIL_LIM',
+	1     L_FALSE,
+	2     'Frozen no-commit admissions before a SOLVEBA hold (0=off)')
+	  IF(JFNK_FRZ_FAIL_LIM .LT. 0)JFNK_FRZ_FAIL_LIM=0
+	  JFNK_FRZ_FAIL_HOLD=10
+	  CALL RD_STORE_INT(JFNK_FRZ_FAIL_HOLD,'JFNK_FRZ_FAIL_HOLD',
+	1     L_FALSE,
+	2     'Eligible calls in SOLVEBA after a frozen-failure hold')
+	  IF(JFNK_FRZ_FAIL_HOLD .LT. 0)JFNK_FRZ_FAIL_HOLD=0
 	  IF(JFNK_REACH_GATE .LT. 0.0_LDP)JFNK_REACH_GATE=0.0_LDP
 	  IF(JFNK_REACH_GATE .GT. 1.0_LDP)JFNK_REACH_GATE=1.0_LDP
 !

@@ -1027,6 +1027,19 @@
 !
 	INTEGER JFNK_REL_REACH_MAX
 !
+! JFNK_FRZ_FAIL_LIM (default 0 = off): consecutive frozen-tier
+! admissions that end without a committed Newton step before the
+! admission gate holds JFNK on the caller's SOLVEBA path.  This is a
+! cost control, not a convergence criterion: the fixed-T population
+! residual can remain unreachable even when GMRES and its
+! preconditioner are behaving correctly.  JFNK_FRZ_FAIL_HOLD (default
+! 10) is the number of eligible frozen calls spent in SOLVEBA before
+! one probe admission is allowed again.  VADAT keywords
+! [JFNK_FRZ_FAIL_LIM], [JFNK_FRZ_FAIL_HOLD].
+!
+	INTEGER JFNK_FRZ_FAIL_LIM
+	INTEGER JFNK_FRZ_FAIL_HOLD
+!
 ! DO_KNOP_REFRESH: per-ray Knop refresh (Oct-2026).  When TRUE and
 ! DO_NONMONO_KNOP=T, CMFGEN_SUB calls FG_KNOP_REFRESH_V1 after each
 ! frequency sweep to converge the compressing-branch wavelength

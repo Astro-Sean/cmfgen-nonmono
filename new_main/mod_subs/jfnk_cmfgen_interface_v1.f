@@ -938,21 +938,29 @@
 	END IF
 !
 	IOS=0
-	IF(ALLOCATED(JFNK_CMAT_RAD))THEN
-	  IF(SIZE(JFNK_CMAT_RAD,1).NE.JFNK_NT .OR.
-	1    SIZE(JFNK_CMAT_RAD,2).NE.JFNK_NT .OR.
-	2    SIZE(JFNK_CMAT_RAD,3).NE.JFNK_ND)THEN
-	    DEALLOCATE(JFNK_CMAT_RAD)
+! Banded mode stores the same diagonal rad block in
+! JFNK_CMAT_RAD_BANDS(:,:,DIAG,:).  Keeping JFNK_CMAT_RAD as well
+! duplicates ~NT^2*ND storage and pushed the TDMA diagnostic over the
+! interactive-node memory cap; the non-banded residual still needs it.
+	IF(JFNK_USE_BANDED_LOC)THEN
+	  IF(ALLOCATED(JFNK_CMAT_RAD))DEALLOCATE(JFNK_CMAT_RAD)
+	ELSE
+	  IF(ALLOCATED(JFNK_CMAT_RAD))THEN
+	    IF(SIZE(JFNK_CMAT_RAD,1).NE.JFNK_NT .OR.
+	1      SIZE(JFNK_CMAT_RAD,2).NE.JFNK_NT .OR.
+	2      SIZE(JFNK_CMAT_RAD,3).NE.JFNK_ND)THEN
+	      DEALLOCATE(JFNK_CMAT_RAD)
+	    END IF
 	  END IF
-	END IF
-	IF(.NOT. ALLOCATED(JFNK_CMAT_RAD))THEN
-	  ALLOCATE(JFNK_CMAT_RAD(JFNK_NT, JFNK_NT, JFNK_ND), STAT=IOS)
-	  IF(IOS.NE.0)THEN
-	    WRITE(LUER,*)'JFNK_BUILD_BA_RAD_V1: cannot allocate CMAT_RAD'
-	    STOP 'JFNK_BUILD_BA_RAD_V1: alloc CMAT_RAD failed'
+	  IF(.NOT. ALLOCATED(JFNK_CMAT_RAD))THEN
+	    ALLOCATE(JFNK_CMAT_RAD(JFNK_NT, JFNK_NT, JFNK_ND), STAT=IOS)
+	    IF(IOS.NE.0)THEN
+	      WRITE(LUER,*)'JFNK_BUILD_BA_RAD_V1: cannot allocate CMAT_RAD'
+	      STOP 'JFNK_BUILD_BA_RAD_V1: alloc CMAT_RAD failed'
+	    END IF
 	  END IF
+	  JFNK_CMAT_RAD = 0.0_LDP
 	END IF
-	JFNK_CMAT_RAD = 0.0_LDP
 !
 	IOS=0
 	IF(ALLOCATED(JFNK_BA_DIAG))THEN
@@ -1016,9 +1024,10 @@
 	1       JFNK_NT, JFNK_ND, JFNK_NION, JFNK_NUM_BNDS,
 	1       JFNK_DIAG_INDX, JFNK_DIAG_INDX, K,
 	1       FIRST_MATRIX, LAST_MATRIX, USE_PASSED_REP)
-	  JFNK_CMAT_RAD(:,:,K) = JFNK_C_MAT
 	  IF(JFNK_USE_BANDED_LOC)THEN
 	    JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K) = JFNK_C_MAT
+	  ELSE
+	    JFNK_CMAT_RAD(:,:,K) = JFNK_C_MAT
 	  END IF
 	  DO J = 1, JFNK_NT
 	    JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
@@ -1043,9 +1052,10 @@
 	      JFNK_C_MAT = 0.0_LDP
 	    END WHERE
 	    IF(N_NAN_ZN .GT. 0)THEN
-	      JFNK_CMAT_RAD(:,:,K) = JFNK_C_MAT
 	      IF(JFNK_USE_BANDED_LOC)THEN
 	        JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K) = JFNK_C_MAT
+	      ELSE
+	        JFNK_CMAT_RAD(:,:,K) = JFNK_C_MAT
 	      END IF
 	      DO J = 1, JFNK_NT
 	        JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
@@ -1167,10 +1177,11 @@
 	1       JFNK_NT, JFNK_ND, JFNK_NION, JFNK_NUM_BNDS,
 	1       JFNK_DIAG_INDX, JFNK_DIAG_INDX, K,
 	1       FIRST_MATRIX, LAST_MATRIX, USE_PASSED_REP)
-	  JFNK_CMAT_RAD(:,:,K) = JFNK_CMAT_RAD(:,:,K) - JFNK_C_MAT
 	  IF(JFNK_USE_BANDED_LOC)THEN
 	    JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K) =
 	1       JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K) - JFNK_C_MAT
+	  ELSE
+	    JFNK_CMAT_RAD(:,:,K) = JFNK_CMAT_RAD(:,:,K) - JFNK_C_MAT
 	  END IF
 !
 ! Accumulate coll/rad norms for the audit summary.  JFNK_C_MAT is
@@ -1178,18 +1189,35 @@
 ! subtraction above.
 !
 	  NRM_COLL_F = NRM_COLL_F + SUM(JFNK_C_MAT**2)
-	  NRM_RAD_F = NRM_RAD_F + SUM(JFNK_CMAT_RAD(:,:,K)**2)
 	  NRM_COLL_MX = MAX(NRM_COLL_MX, MAXVAL(ABS(JFNK_C_MAT)))
-	  NRM_RAD_MX = MAX(NRM_RAD_MX, MAXVAL(ABS(JFNK_CMAT_RAD(:,:,K))))
-	  IF(MAXVAL(ABS(JFNK_CMAT_RAD(:,:,K))) .GT.
-	1     MAXVAL(ABS(JFNK_C_MAT))) K_RAD_DOM = K_RAD_DOM + 1
+	  IF(JFNK_USE_BANDED_LOC)THEN
+	    NRM_RAD_F = NRM_RAD_F +
+	1       SUM(JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K)**2)
+	    NRM_RAD_MX = MAX(NRM_RAD_MX,
+	1       MAXVAL(ABS(JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K))))
+	    IF(MAXVAL(ABS(JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K)))
+	1       .GT. MAXVAL(ABS(JFNK_C_MAT)))
+	2       K_RAD_DOM = K_RAD_DOM + 1
+	  ELSE
+	    NRM_RAD_F = NRM_RAD_F + SUM(JFNK_CMAT_RAD(:,:,K)**2)
+	    NRM_RAD_MX = MAX(NRM_RAD_MX,
+	1       MAXVAL(ABS(JFNK_CMAT_RAD(:,:,K))))
+	    IF(MAXVAL(ABS(JFNK_CMAT_RAD(:,:,K))) .GT.
+	1       MAXVAL(ABS(JFNK_C_MAT))) K_RAD_DOM = K_RAD_DOM + 1
+	  END IF
 !
 ! F(0) diagnostic: check CMAT_RAD (BA_full - BA_coll) for NaN
 	  IF(K .LE. 3 .OR. K .GE. JFNK_ND-2)THEN
 	    BLOCK
 	      INTEGER :: N_NAN_CR
-	      N_NAN_CR = COUNT(JFNK_CMAT_RAD(:,:,K) .NE.
-	1                   JFNK_CMAT_RAD(:,:,K))
+	      IF(JFNK_USE_BANDED_LOC)THEN
+	        N_NAN_CR = COUNT(
+	1           JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K) .NE.
+	2           JFNK_CMAT_RAD_BANDS(:,:,JFNK_DIAG_INDX,K))
+	      ELSE
+	        N_NAN_CR = COUNT(JFNK_CMAT_RAD(:,:,K) .NE.
+	1           JFNK_CMAT_RAD(:,:,K))
+	      END IF
       IF(N_NAN_CR .GT. 0)THEN
         WRITE(LUER,'(A,I3,A,I6,A,I6)')
 	1      '  CMAT_RAD NaN check: K=', K,
@@ -3812,7 +3840,7 @@
 	REAL(KIND=LDP) BANDED_RIDGE, BANDED_MAX_DIAG
 	REAL(KIND=LDP) LSQ_L2
 	REAL(KIND=LDP), ALLOCATABLE :: GN_WORK(:,:)
-	INTEGER N_BANDED_RETRY
+	INTEGER N_BANDED_RETRY, LDAB_B
 	DOUBLE PRECISION FMAX_PTC, S_PTC
 	INTEGER IDX_PTC
 	DOUBLE PRECISION ANORM_K, RCOND_K, PIV_MIN, PIV_MAX, S_TMP
@@ -4617,7 +4645,10 @@
 !
 ! Banded storage: AB(KL+KU+1+i-j, j) = A(i, j)
 ! KL = KU = (NUM_BNDS/2) * NT  (sub/super-diagonal bandwidth)
-! LDAB = 2*KL + KU + 1
+! DGBTRF needs LDAB=2*KL+KU+1 for pivot headroom.  The TDMA branch
+! never calls DGBTRF, so it uses the compact KL+KU+1 layout -- the
+! extra KL*N rows cost ~3.8 GB here and pushed the interactive run
+! over its node memory limit before factorization.
 !
 ! Block (K, L) maps to global rows (K-1)*NT+1..K*NT, cols (L-1)*NT+1..L*NT
 ! where L = BND_TO_FULL(B, K) for band B at depth K.
@@ -4633,12 +4664,17 @@
 ! run would otherwise pay the ~3*KL*N banded allocation (>>20 GB on
 ! this model: SIGBUS on viper nodes at page touch, 21-Oct-2026 npq_dbg
 ! crash) and then silently apply a different preconditioner than the
-! one requested.  CMAT_RAD_BANDS is still armed by JFNK_BUILD_BA_RAD_V1
-! under JFNK_USE_BANDED regardless of this gate, so the analytic banded
-! JVP keeps the full operator under JACOBI.
+! one requested.  [JFNK_BANDED_TDMA] is the explicit exception: with
+! PRECOND=JACOBI it still assembles the banded blocks, while skipping
+! the per-depth LU allocation/factorization so the block-Thomas solve
+! can fit the 30G interactive cap; a TDMA failure then falls back to
+! the requested Jacobi map.  CMAT_RAD_BANDS is still armed by
+! JFNK_BUILD_BA_RAD_V1 under JFNK_USE_BANDED regardless of this gate,
+! so the analytic banded JVP keeps the full operator under JACOBI.
 !
 	IF(JFNK_USE_BANDED_LOC .AND. JFNK_NUM_BNDS .GT. 1 .AND.
-	1   JFNK_PRECOND_TYPE(1:2) .EQ. 'LU')THEN
+	1   (JFNK_PRECOND_TYPE(1:2) .EQ. 'LU' .OR.
+	2    JFNK_BANDED_TDMA))THEN
 ! Block-tridiagonal bandwidth: each off-diagonal block is NT×NT, so
 ! the maximum |i-j| for the lower band is (NUM_BNDS/2)*NT + (NT-1).
 ! The previous code used (NUM_BNDS/2)*NT, which is too small by NT-1
@@ -4647,19 +4683,20 @@
 	  JFNK_BANDED_KL = (JFNK_NUM_BNDS/2) * JFNK_NT + JFNK_NT - 1
 	  JFNK_BANDED_KU = JFNK_BANDED_KL
 	  JFNK_BANDED_N = JFNK_NT * JFNK_ND
+	  LDAB_B = 2*JFNK_BANDED_KL + JFNK_BANDED_KU + 1
+	  IF(JFNK_BANDED_TDMA)
+	1   LDAB_B = JFNK_BANDED_KL + JFNK_BANDED_KU + 1
 !
 	  IOS=0
 	  IF(ALLOCATED(JFNK_BANDED_LUAB))THEN
-	    IF(SIZE(JFNK_BANDED_LUAB,1) .NE.
-	1       2*JFNK_BANDED_KL+JFNK_BANDED_KU+1 .OR.
-	2       SIZE(JFNK_BANDED_LUAB,2) .NE. JFNK_BANDED_N)THEN
+	    IF(SIZE(JFNK_BANDED_LUAB,1) .NE. LDAB_B .OR.
+	1       SIZE(JFNK_BANDED_LUAB,2) .NE. JFNK_BANDED_N)THEN
 	      DEALLOCATE(JFNK_BANDED_LUAB)
 	    END IF
 	  END IF
 	  IF(.NOT. ALLOCATED(JFNK_BANDED_LUAB))THEN
-	    ALLOCATE(JFNK_BANDED_LUAB(
-	1       2*JFNK_BANDED_KL+JFNK_BANDED_KU+1, JFNK_BANDED_N),
-	2       STAT=IOS)
+	    ALLOCATE(JFNK_BANDED_LUAB(LDAB_B, JFNK_BANDED_N),
+	1       STAT=IOS)
 	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc BANDED_LUAB failed'
 	  END IF
 	  IF(ALLOCATED(JFNK_BANDED_IPIV))THEN
@@ -5002,16 +5039,14 @@
 !
 	  IF(.NOT. JFNK_BANDED_TDMA)THEN
 	  IF(ALLOCATED(JFNK_BANDED_ARAW))THEN
-	    IF(SIZE(JFNK_BANDED_ARAW,1).NE.
-	1       2*JFNK_BANDED_KL+JFNK_BANDED_KU+1 .OR.
-	2       SIZE(JFNK_BANDED_ARAW,2).NE.JFNK_BANDED_N)THEN
+	    IF(SIZE(JFNK_BANDED_ARAW,1).NE. LDAB_B .OR.
+	1       SIZE(JFNK_BANDED_ARAW,2).NE.JFNK_BANDED_N)THEN
 	      DEALLOCATE(JFNK_BANDED_ARAW)
 	    END IF
 	  END IF
 	  IF(.NOT. ALLOCATED(JFNK_BANDED_ARAW))THEN
-	    ALLOCATE(JFNK_BANDED_ARAW(
-	1       2*JFNK_BANDED_KL+JFNK_BANDED_KU+1, JFNK_BANDED_N),
-	2       STAT=IOS)
+	    ALLOCATE(JFNK_BANDED_ARAW(LDAB_B, JFNK_BANDED_N),
+	1       STAT=IOS)
 	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc ARAW failed'
 	  END IF
 	  JFNK_BANDED_ARAW = JFNK_BANDED_LUAB

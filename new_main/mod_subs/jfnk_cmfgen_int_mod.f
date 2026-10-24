@@ -266,6 +266,15 @@
 !
 	INTEGER, SAVE :: JFNK_REACH_SKIP_STREAK=0
 !
+! Consecutive frozen-tier admissions that leave the caller iterate
+! unchanged.  Reach/guard skips count with solver failures because all
+! of them certify the fixed-T population space failed to produce a
+! usable step; SOLVE_FOR_POPS uses the streak to hold admission on
+! SOLVEBA for [JFNK_FRZ_FAIL_HOLD] eligible calls.  A committed Newton
+! or a coupled-tier activation resets it.
+!
+	INTEGER, SAVE :: JFNK_FRZ_FAIL_STREAK=0
+!
 ! V4 audit fix (2026-09-07): Per-depth T-fix range for VARFIXT support
 ! (audit finding #11).  When JFNK_FIXED_T_LOC=.TRUE., T is fixed at all
 ! depths.  When .FALSE., T is free at all depths UNLESS a partial range

@@ -888,8 +888,17 @@
 	1     '    residual definition : STEQ_coll + STEQ_rad +'
 	2     //' CMAT_RAD*x (J frozen inside JFNK)'
 	    END IF
-	    WRITE(LUER,'(A)')
-	1   '    preconditioner      : equilibrated depth-block LU of BA'
+	    IF(JFNK_BANDED_TDMA)THEN
+	      WRITE(LUER,'(A,A)')
+	1     '    preconditioner      : block-Thomas banded BA, base=',
+	2     TRIM(JFNK_PRECOND_TYPE)
+	    ELSE IF(JFNK_PRECOND_TYPE(1:2) .EQ. 'LU')THEN
+	      WRITE(LUER,'(A)')
+	1     '    preconditioner      : equilibrated depth-block LU of BA'
+	    ELSE
+	      WRITE(LUER,'(A,A)')
+	1     '    preconditioner      : ',TRIM(JFNK_PRECOND_TYPE)
+	    END IF
 	    WRITE(LUER,'(A,A)')
 	1   '    row residual weighting : ',TRIM(JFNK_RSCALE_MODE)
 	    WRITE(LUER,'(A,I3)')
@@ -2964,6 +2973,18 @@
 	    JFNK_REACH_SKIP_STREAK=0
 	  END IF
 !
+! Frozen no-commit streak for the optional admission hold
+! ([JFNK_FRZ_FAIL_LIM]): every frozen admission that ends without an
+! applied Newton update is counted, whether the precheck skipped it or
+! GMRES/globalization failed.  Coupled activations are excluded because
+! the radiation-resolving operator is a different solve.
+!
+	  IF(JFNK_COMMITTED .OR. JFNK_COUPLED_LOC)THEN
+	    JFNK_FRZ_FAIL_STREAK=0
+	  ELSE
+	    JFNK_FRZ_FAIL_STREAK=JFNK_FRZ_FAIL_STREAK+1
+	  END IF
+!
 	ELSE
 !
 ! LAMBDA mode: standard direct solve (same as the default path).
@@ -3055,5 +3076,11 @@
 !
 	JFNK_CPL_SOB_DEAD=.FALSE.
 	JFNK_CPL_SOB_CHK_DONE=.FALSE.
+!
+! The admission hold is per model as well: a NEWMOD must not inherit a
+! frozen-tier failure history measured against another field/state.
+!
+	JFNK_REACH_SKIP_STREAK=0
+	JFNK_FRZ_FAIL_STREAK=0
 	RETURN
 	END SUBROUTINE JFNK_RETREAT_RESET_V1

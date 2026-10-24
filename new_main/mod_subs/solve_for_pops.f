@@ -10,8 +10,9 @@
 	USE MOD_CMFGEN
         USE ANG_QW_MOD
 	USE CONTROL_VARIABLE_MOD
-	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK,JFNK_BA_SRC_IT,
-	1    JFNK_SWEEP_CB,JFNK_CPL_SOB_DEAD
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK,
+	1    JFNK_FRZ_FAIL_STREAK,JFNK_BA_SRC_IT,
+	2    JFNK_SWEEP_CB,JFNK_CPL_SOB_DEAD
 	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
@@ -487,8 +488,16 @@
 	REAL(KIND=LDP) JFNK_GATE_IN
 	REAL(KIND=LDP) JFNK_DEM_IN
 	INTEGER JFNK_NREQ_EFF
+	INTEGER JFNK_FRZ_FAIL_N
 	INTEGER, SAVE :: JFNK_FRZ_HITS=0
 	INTEGER, SAVE :: JFNK_CPL_HITS=0
+!
+! JFNK_FRZ_HOLD: eligible frozen-tier calls still assigned to SOLVEBA
+! after [JFNK_FRZ_FAIL_LIM] consecutive no-commit admissions.  The hold
+! is local to the admission gate; the failure streak itself is exported
+! by JFNK_CMFGEN_INT_MOD.
+!
+	INTEGER, SAVE :: JFNK_FRZ_HOLD=0
 !
 ! JFNK_LAST_DEM: demanded correction at the previous call, used by
 ! the demand-contraction term in the gate hits.  Newton is only a
@@ -533,6 +542,8 @@
 	  JFNK_FRZ_HITS=0
 	  JFNK_CPL_HITS=0
 	  JFNK_REACH_SKIP_STREAK=0
+	  JFNK_FRZ_FAIL_STREAK=0
+	  JFNK_FRZ_HOLD=0
 	  JFNK_LAST_DEM=0.0_LDP
 	  MAXCH_SUM=0.0_LDP
 	  COUNT_FULL_LAM_BA=1
@@ -2320,8 +2331,45 @@
 	      WRITE(LUER,'(A)')
 	1     '    disposition : falls back to SOLVEBA path'
 	    END IF
+!
+! Optional no-commit hold ([JFNK_FRZ_FAIL_LIM], default 0 = off): the
+! demand gate can stay satisfied while every frozen admission stalls on
+! the radiation-pinned residual.  After a run of such outcomes, spend
+! JFNK_FRZ_FAIL_HOLD eligible calls in the caller's SOLVEBA path before
+! probing the frozen tier again.  The streak is written at the JFNK
+! outcome; coupled admissions clear the hold because they test a
+! different operator.
+!
+	    IF(JFNK_THIS .AND. JFNK_FRZ_HOLD .GT. 0)THEN
+	      JFNK_FRZ_HOLD=JFNK_FRZ_HOLD-1
+	      JFNK_THIS=.FALSE.
+	      CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_frz_hold')
+	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	      WRITE(LUER,'(A)')'    reason : frozen-tier no-commit hold'
+	      WRITE(LUER,'(A,I4)')
+	1     '    SOLVEBA calls remaining after this:',JFNK_FRZ_HOLD
+	      WRITE(LUER,'(A)')
+	1     '    disposition : falls back to SOLVEBA path'
+	    ELSE IF(JFNK_THIS .AND. JFNK_FRZ_FAIL_LIM .GT. 0 .AND.
+	1       JFNK_FRZ_FAIL_STREAK .GE. JFNK_FRZ_FAIL_LIM)THEN
+	      JFNK_FRZ_FAIL_N=JFNK_FRZ_FAIL_STREAK
+	      JFNK_FRZ_FAIL_STREAK=0
+	      JFNK_FRZ_HOLD=MAX(0,JFNK_FRZ_FAIL_HOLD-1)
+	      JFNK_THIS=.FALSE.
+	      CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_frz_hold')
+	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	      WRITE(LUER,'(A)')'    reason : frozen-tier no-commit hold'
+	      WRITE(LUER,'(A,I4,A,I4)')
+	1     '    consecutive no-commit outcomes    :',JFNK_FRZ_FAIL_N,
+	2     ' /',JFNK_FRZ_FAIL_LIM
+	      WRITE(LUER,'(A,I4)')
+	1     '    SOLVEBA calls remaining after this:',JFNK_FRZ_HOLD
+	      WRITE(LUER,'(A)')
+	1     '    disposition : falls back to SOLVEBA path'
+	    END IF
 	  END IF
 	END IF
+	IF(JFNK_COUPLED_THIS)JFNK_FRZ_HOLD=0
 !
 ! DO_BA_DIR_CHK (VADAT [DO_BA_DIR_CHK], default F; requires DO_JFNK):
 ! diagnostic-only JFNK admission on direct-BA iterations.  The demand
@@ -2334,7 +2382,8 @@
 ! tier only; JFNK_SOLVE_CORR_V1 exits through the info=-2 path after
 ! the direction metrics, so caller-mode SOLVEBA_V13 takes the real
 ! step on the same call.  The deferred call then counts toward the
-! NG window like the BA iterate it is.
+! NG window like the BA iterate it is.  The no-commit hold still
+! applies: a diagnostic bypass must not defeat the failure cooldown.
 !
 ! edited by Devin, 15-Oct-2026: the [BA_DIRCHK_MAX] cap disengages
 ! the bypass once the diagnostic budget is spent -- after
@@ -2349,7 +2398,8 @@
 	4   ITS_SINCE_START .GT. JFNK_WARMUP .AND.
 	5   (.NOT. LAMBDA_ITERATION .OR. JFNK_ANY_ITER) .AND.
 	6   (.NOT. DO_NONMONO_KNOP .OR. .NOT. GS_FREEZE) .AND.
-	7   USE_LAM_ES .AND. .NOT. RDLAM_PROBE_THIS)THEN
+	7   JFNK_FRZ_HOLD .LE. 0 .AND.
+	8   USE_LAM_ES .AND. .NOT. RDLAM_PROBE_THIS)THEN
 	  JFNK_THIS=.TRUE.
 	  JFNK_COUPLED_THIS=.FALSE.
 	  CALL APPEND_ITER_REASON(ITER_REASON,'dirchk')
