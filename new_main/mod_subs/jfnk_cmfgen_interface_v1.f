@@ -7034,6 +7034,9 @@
 !
 ! Called once at the first JFNK Newton iteration.
 !
+! Altered : 24-Oct-2026 : run under JFNK_BTD_READY too and add the
+!           banded J*M^-1 residual check that tests the factored
+!           banded operator against the JVP matvec.
 ! V4 audit, 2026-10.
 !
 	SUBROUTINE JFNK_PRECOND_AUDIT_V1(N, F_BASE, LUER)
@@ -7061,10 +7064,15 @@
 	REAL(KIND=LDP) R_NORM_G, R_NORM_NR, WF_REG, WF_ALL
 	INTEGER JR
 !
+! Workspace for the banded J*M^{-1} check (JFNK_USE_BANDED path)
+!
+	INTEGER IB_A, L_A
+	REAL(KIND=LDP) JZ_N2, V_N2, JZ_DOT, COS_JZV
+!
 	IF(AUDIT_DONE) RETURN
 	AUDIT_DONE = .TRUE.
 !
-	IF(.NOT. JFNK_LU_READY) THEN
+	IF(.NOT. (JFNK_LU_READY .OR. JFNK_BTD_READY)) THEN
 	  WRITE(LUER,'(A)') '  PRECOND AUDIT: LU not ready, skipping'
 	  RETURN
 	END IF
@@ -7373,6 +7381,78 @@
 	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
 	1    '  PC accuracy (v=F, pre-projection z): |Mz-v|_inf=', R_NORM,
 	1    ' non-reg pop rows=', R_NORM_NR
+!
+! Banded J*M^{-1} check.  The checks above reconstruct M from
+! JFNK_BA_A plus the stored ridge and reg-row identities; they do
+! not see the off-diagonal SE(ID)%BA bands or the CMAT_RAD blocks
+! the banded JVP uses, so under JFNK_USE_BANDED they conflate apply
+! error with missing bands.  Here the same analytic matvec the
+! GMRES JVP uses is applied to the delivered z = M^{-1} F: if the
+! factored banded operator equals the JVP operator, |Jz - v| sits
+! at the backward-error level modulo reg-row projection.  This is
+! the decisive check for the compact-TDMA layout, where a wrong
+! storage offset silently drops matrix content while the factor's
+! own backward-error check still passes.
+!
+	IF(JFNK_BA_RAD_BANDS_READY)THEN
+	  R_TEST = 0.0_LDP
+	  DO KK = 1, JFNK_ND
+	    DO II = 1, JFNK_NT
+	      DO J = 1, JFNK_NT
+	        R_TEST((KK-1)*JFNK_NT + II) =
+	1       R_TEST((KK-1)*JFNK_NT + II) +
+	2       JFNK_BA_A(II, J, KK) *
+	3       Z_TEST((KK-1)*JFNK_NT + J)
+	      END DO
+	    END DO
+	    DO IB_A = 1, JFNK_NUM_BNDS
+	      IF(IB_A .EQ. JFNK_DIAG_INDX)CYCLE
+	      L_A = KK + IB_A - JFNK_DIAG_INDX
+	      IF(L_A .LT. 1 .OR. L_A .GT. JFNK_ND)CYCLE
+	      DO II = 1, JFNK_NT
+	        DO J = 1, JFNK_NT
+	          R_TEST((KK-1)*JFNK_NT + II) =
+	1           R_TEST((KK-1)*JFNK_NT + II) +
+	2           JFNK_CMAT_RAD_BANDS(II, J, IB_A, KK) *
+	3           Z_TEST((L_A-1)*JFNK_NT + J)
+	        END DO
+	      END DO
+	    END DO
+	  END DO
+	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, R_TEST)
+	  JZ_NORM = 0.0_LDP
+	  JZ_N2 = 0.0_LDP
+	  V_N2 = 0.0_LDP
+	  JZ_DOT = 0.0_LDP
+	  R_NORM = 0.0_LDP
+	  R_NORM_NR = 0.0_LDP
+	  DO I = 1, N
+	    JZ_NORM = MAX(JZ_NORM, ABS(R_TEST(I)))
+	    JZ_N2 = JZ_N2 + R_TEST(I)*R_TEST(I)
+	    V_N2 = V_N2 + V_TEST(I)*V_TEST(I)
+	    JZ_DOT = JZ_DOT + R_TEST(I)*V_TEST(I)
+	    R_TEST(I) = R_TEST(I) - V_TEST(I)
+	    R_NORM = MAX(R_NORM, ABS(R_TEST(I)))
+	    JR = MOD(I-1, JFNK_NT) + 1
+	    KK = (I-1)/JFNK_NT + 1
+	    IF(JR .LT. JFNK_NT-1 .AND. .NOT.
+	1      (ALLOCATED(JFNK_ROW_REG) .AND.
+	2       JFNK_ROW_REG(JR, KK)))THEN
+	      R_NORM_NR = MAX(R_NORM_NR, ABS(R_TEST(I)))
+	    END IF
+	  END DO
+	  COS_JZV = JZ_DOT /
+	1    MAX(SQRT(JZ_N2)*SQRT(V_N2), 1.0E-300_LDP)
+	  WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)')
+	1    '  PC banded J*M^-1 (v=F): |Jz-v|/|v|=',
+	1    R_NORM/MAX(V_NORM, 1.0E-30_LDP),
+	2    ' |Jz|_inf=', JZ_NORM,
+	3    ' |z|_inf=', Z_NORM,
+	4    ' cos(Jz,v)=', COS_JZV
+	  WRITE(LUER,'(A,ES12.4)')
+	1    '  PC banded J*M^-1 (v=F, non-reg pop rows): |Jz-v|_inf=',
+	1    R_NORM_NR
+	END IF
 !
 ! Test vector 2: unit vector in the first species at first depth
 !
