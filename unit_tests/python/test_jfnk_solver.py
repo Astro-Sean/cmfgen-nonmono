@@ -4,8 +4,8 @@ harnesses that compile the production new_main/mod_subs/
 jfnk_solver_v1.f90 unchanged:
 
   * tests/jfnk_core/test_newton_core.f90 -- Newton/GMRES/hookstep core
-    on a stiff analytic problem with a known root (T1 PTC off, T2 PTC
-    SER anchor, T3 far-start trust region/line search).
+    on a stiff analytic problem with a known root, plus restart and
+    guarded-step regressions.
   * unit_tests/test_se_solver.py -- surrogate statistical-equilibrium
     systems (mild/std/hard/shock) covering the FD JVP error curve,
     demanded-step SVD, preconditioner variants, GMRES with/without
@@ -44,7 +44,7 @@ XFAIL = {
 
 
 def run_core(rep):
-    """make test in tests/jfnk_core; parse T1..T3 verdicts."""
+    """make test in tests/jfnk_core; parse the emitted verdicts."""
     subprocess.run(["make", "-s", "clean"], cwd=CORE_DIR, check=False)
     p = subprocess.run(
         ["make", "-s", "test"],
@@ -61,7 +61,7 @@ def run_core(rep):
     verdicts = re.findall(r"(T\d+):\s*(PASS|FAIL)", out)
     rep.check(
         "jfnk_core: exits cleanly and runs all tests",
-        p.returncode == 0 and len(verdicts) == 3,
+        p.returncode == 0 and len(verdicts) == 5,
         out[-400:],
     )
     for tag, verdict in verdicts:

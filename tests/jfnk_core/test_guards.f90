@@ -296,6 +296,19 @@ program test_guards
             ' norm=', step_norm
       end if
       !
+      call df_t(NG, step, step_before)
+      step_before = rhs - step_before
+      call dfp_t(NG, step_before)
+      step_norm = dsqrt(dp_t(NG, step_before, step_before))
+      if(.not. jfnk_gmres_true_res_ok .or. &
+         abs(jfnk_gmres_true_res - step_norm) > &
+         1d-10 * max(1d0, step_norm)) then
+         nfail = nfail + 1
+         write(luer,'(A,2ES12.4)') 'G5: FAIL (returned-step residual)', &
+            jfnk_gmres_true_res, step_norm
+      else
+         write(luer,'(A)') 'G5: PASS (returned-step residual)'
+      end if
       step_before = step
       radius = 2.5d-2
       its = 20

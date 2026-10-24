@@ -32,7 +32,7 @@ Tests:
   T18 lagged factor: freeze the synthetic aggregate factor and recover
       the baseline BA derivative without its live low-rank term
   T19 fallback dispatch: preserve a defined caller cap and mode on
-      cooldown and finite stagnation
+      finite stagnation
   T20 evaluation telemetry: report residual callbacks made inside JVPs
       separately from Newton-level residual calls
 
@@ -520,7 +520,8 @@ def t11_strike(spec):
     rung (capped at the argument), a commit resets to 0, a reach-skip
     is exempt -- and Newton runs on EVERY admission (no pause state).
     Requires a spec where the LU admission fails (info=3) and the
-    LSQ-alg admission commits (info=0) -- only 'hard' does both."""
+    TSVD admission reaches a committed best iterate (info=2) -- only
+    'hard' does both."""
     ok = True
     notes = []
 
@@ -543,7 +544,7 @@ def t11_strike(spec):
 
     # committed update resets the rung to 0
     adm = run("FFSFFFF")
-    a = (adm[3]["info"] == 0 and adm[3]["rung"] == 0
+    a = (adm[3]["info"] in (0, 2) and adm[3]["rung"] == 0
          and adm[4]["rung"] == 1 and adm[7]["rung"] == 4)
     ok &= a
     notes.append(f"commit resets rung: {a}")
@@ -598,23 +599,26 @@ def t12_shock(spec):
         out = run_cli("setauto", spec["dir"], seq, a0, 0.3, 0.1, 0.5, 2)
         return _auto_admissions(out)[0]
 
-    damped = run("DDDDDDDD", 0.05)
+    damped = run("D" * 44, 0.05)
     free = run("D", 1.0)
 
-    # survive the first 5+ admissions with bounded T motion and no
-    # overshoot of the equilibrium correction (surrogate T=e^x so
-    # positivity is inherent; the excursion bound is the check)
+    # The guarded Newton path rejects many early shocks, so the bounded
+    # march is longer than the old least-squares-only fixture allowed.
     xts = np.array([damped[i]["xt"] for i in sorted(damped)])
-    a = (len(damped) >= 5 and np.all(xts <= xs_t + 0.05)
+    a = (len(damped) >= 40 and np.all(xts <= xs_t + 0.05)
          and np.all(xts >= -1e-12))
     ok &= a
     notes.append(f"x_T bounded in [0,x*] every admission: {a}")
 
-    # energy residual falls monotonically (small wiggle allowed)
+    # Near the floor the rejected iterates can add noise to RE.  Keep
+    # the early march monotone and require a large net reduction by the
+    # end rather than allowing local floor noise to hide a runaway.
     res = np.array([damped[i]["re"] for i in sorted(damped)])
-    a = np.all(np.diff(res) <= 0.05 * res[:-1])
+    a = (np.all(np.diff(res[:8]) <= 0.05 * res[:7])
+         and np.all(res[8:] <= res[0])
+         and res[-1] <= 0.01 * res[0])
     ok &= a
-    notes.append(f"RE monotone decrease: {a} "
+    notes.append(f"RE decreases and reaches the floor: {a} "
                  f"({res[0]:.3e} -> {res[-1]:.3e})")
 
     # T reaches the equilibrium correction
@@ -645,39 +649,49 @@ def t13_tauto_fsm(spec):
         return True, "skipped: no T shock (x*_T=0)", {}
     notes = []
     ok = True
-    out = run_cli("setauto", spec["dir"], "DDDDDDDDPDDDD",
+    out = run_cli("setauto", spec["dir"], "D" * 44 + "P" + "D" * 4,
                   0.05, 0.3, 0.1, 0.5, 2)
     adm, trans = _auto_admissions(out)
 
-    # rung 1 held through the early march (eps > 0.1 blocks release).
-    # Post-adaptive-relax the release fires one admission earlier
-    # than the pre-5c4aefe3 ladder, so the locked window ends at 5.
-    march = [adm[i] for i in range(1, 6)]
-    a = all(a_["rung"] == 1 for a_ in march)
-    ok &= a
-    notes.append(f"rung 1 locked while eps>eps_thr: {a}")
-
-    # release to rung 2 fires once RE < rel*RE0 and eps settles
+    # The guarded solve rejects several shock iterates before it can
+    # commit, so locate the ladder transitions instead of pinning them
+    # to a fixed admission index.
     rel = [ln for ln in trans if ln.startswith("RELEASE")]
-    a = len(rel) >= 1 and adm[8]["rung"] == 2 and \
-        adm[8]["alpha"] == 0.2
+    rev = [ln for ln in trans if ln.startswith("REVERT")]
+    per = [ln for ln in trans if ln.startswith("PERT")]
+    rel_i = int(rel[0].split()[1]) if rel else 0
+    per_i = int(per[-1].split()[1]) if per else 0
+    post_i = per_i + 1
+
+    # rung 1 holds until the first release.
+    a = bool(rel) and all(
+        adm[i]["rung"] == 1 for i in range(1, rel_i)
+    )
+    ok &= a
+    notes.append(f"rung 1 locked until release: {a}")
+
+    # release to rung 2 fires once RE < rel*RE0 and eps settles.
+    a = bool(rel) and adm[rel_i]["rung"] == 2 and \
+        adm[rel_i]["alpha"] == 0.2
     ok &= a
     notes.append(f"release 1->2 on RE drop: {a} ({rel[0] if rel else '-'})")
 
-    # the re-shock admission reverts a rung and clears the streak
-    rev = [ln for ln in trans if ln.startswith("REVERT")]
-    a = len(rev) >= 1 and adm[10]["rung"] == 1 and \
-        adm[10]["alpha"] == 0.05 and adm[10]["nc"] == 0
+    # The outer-iteration re-shock reverts the highest rung and clears
+    # the streak on the next admission.
+    a = (bool(rev) and bool(per) and post_i in adm
+         and adm[post_i]["rung"] == adm[per_i - 1]["rung"] - 1
+         and adm[post_i]["nc"] == 0)
     ok &= a
-    notes.append(f"re-shock reverts 2->1: {a} ({rev[0] if rev else '-'})")
+    notes.append(f"re-shock reverts one rung: {a} "
+                 f"({rev[-1] if rev else '-'})")
 
     # no rung-1 admission may have all three release conditions met
     # (commit streak + RE below rel*RE0 + eps below the threshold)
-    viol = [i for i in range(1, 8)
+    viol = [i for i in range(1, rel_i)
             if adm[i]["rung"] == 1 and adm[i]["nc"] >= 2
             and adm[i]["re"] <= 0.3 * adm[i]["re0"]
             and adm[i]["eps"] <= 0.1]
-    a = len(viol) == 0
+    a = rel_i > 0 and len(viol) == 0
     ok &= a
     notes.append(f"no release without all conditions: {a}")
     return ok, "; ".join(notes), {}
@@ -807,24 +821,20 @@ def t18_lagged_factor(spec):
 
 
 def t19_fallback_dispatch():
-    """Guard the dispatch invariant that cooldown/stagnation fallback
+    """Guard the dispatch invariant that finite-stagnation fallback
     starts from a defined caller cap and preserves the FULL/Lambda flags
     unless the eval is catastrophic."""
     source = (TD.parent / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
     init_at = source.index("T1=COR_LIM_IN")
-    pause_at = source.index("JFNK paused (cooldown")
-    pause_end = source.index("IF(DO_JFNK_NOW)THEN", pause_at)
-    pause_block = source[pause_at:pause_end]
     failure_at = source.index("! info=-2 is the reachability precheck skip")
     failure_end = source.index("FIX_T_AUTO ladder", failure_at)
     failure_block = source[failure_at:failure_end]
     ok = (
-        init_at < pause_at
-        and "LAMBDA_ITERATION=.TRUE." not in pause_block
-        and "COMPUTE_BA=.TRUE." not in pause_block
+        init_at < failure_at
+        and "JFNK_BUDGET_RUNG=MIN(JFNK_BUDGET_RUNG+1" in failure_block
         and "LAMBDA_A=LAMBDA_SAVE" in failure_block
         and "COMPUTE_BA_A=COMPUTE_BA_SAVE" in failure_block
-        and "T1=MIN(COR_LIM_IN,MAX_LIN_COR)" in failure_block
+        and "T1=JFNK_FALLBACK_CAP" in failure_block
     )
     return ok, "caller cap/mode initialized and restored", {}
 
@@ -877,7 +887,7 @@ def main():
                      "T5": "GMRES", "T6": "Newton end-to-end",
                      "T7": "residual floor", "T8": "masked-T",
                      "T9": "JVP stiff", "T10": "LSQ grid",
-                     "T11": "strike/cooldown", "T12": "STELLA shock",
+                     "T11": "budget ladder", "T12": "STELLA shock",
                      "T13": "tauto ladder", "T14": "JVP tauto",
                      "T15": "stale baseline", "T16": "struct freeze",
                      "T17": "repeat determinism"}[tag]
@@ -896,7 +906,7 @@ def main():
                     ok, msg, aux = t7_floor(spec, F0)
                 elif tag == "T11" and not spec["meta"]["hard"]:
                     ok, msg = True, "skipped: needs 'hard' (LU fails, " \
-                        "LSQ commits)"
+                        "TSVD commits)"
                 else:
                     ok, msg, aux = fn(spec)
             except subprocess.CalledProcessError as e:

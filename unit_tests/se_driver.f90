@@ -687,10 +687,11 @@ program se_driver
       ! admitted call at every rung -- there is no pause state.
       ! Each character of <seq> is one admitted call: 'F' runs
       ! newton_hook_v1 with the production LU path (info=3 on these
-      ! systems -> counted failure, rung up), 'S' runs LSQ-alg
-      ! (info=0 on hard -> commit, rung resets to 0), 'R' is the
-      ! reach-gate skip (info=-2 -> cheap skip, rung unchanged).
-      ! RUNG lines report the rung each admission ran at.
+      ! systems -> counted failure, rung up), 'S' runs the TSVD path
+      ! (info=2 on hard -> committed best iterate, rung resets to 0),
+      ! 'R' is the reach-gate skip (info=-2 -> cheap skip, rung
+      ! unchanged).  RUNG lines report the entry rung; ADM lines report
+      ! the post-outcome rung.
       call get_command_argument(2, dir)
       call get_command_argument(3, arg); read(arg, *) rearm_every
       call get_command_argument(4, seqstr)
@@ -706,14 +707,15 @@ program se_driver
          case ('R')
             info = -2
          case ('S')
-            call se_run_newton(6, 1d-2, 0, info, 0)
+            call se_run_newton(3, 1d-2, 0, info, 0)
          case default
             call se_run_newton(2, 0d0, 1, info, 0)
          end select
          ! outcome bookkeeping: a committed update resets the rung;
          ! info=-2 leaves it unchanged; every other failure raises
-         ! it by one, capped at the rung maximum
-         if (info == 0) then
+         ! it by one, capped at the rung maximum.  info=2 mirrors the
+         ! production COMMITTED_BASELINE path.
+         if (info == 0 .or. info == 2) then
             stag = 0
          else if (info == -2) then
             continue
@@ -950,6 +952,26 @@ contains
       nits_l = 30
       m_l = 20
       select case (pc_in)
+      case (0)
+         call newton_hook_v1(se_f, se_jvp_fd, se_psolve_ident, se_sub, &
+              se_dp, m_l, se_n, gtol_l, tol_l, del_l, mndl_l, mxdl_l, &
+              nits_l, info_l, 6)
+      case (1)
+         call newton_hook_v1(se_f, se_jvp_fd, se_psolve_jacobi, se_sub, &
+              se_dp, m_l, se_n, gtol_l, tol_l, del_l, mndl_l, mxdl_l, &
+              nits_l, info_l, 6)
+      case (3)
+         call newton_hook_v1(se_f, se_jvp_fd, se_psolve_tsvd, se_sub, &
+              se_dp, m_l, se_n, gtol_l, tol_l, del_l, mndl_l, mxdl_l, &
+              nits_l, info_l, 6)
+      case (4)
+         call newton_hook_v1(se_f, se_jvp_fd, se_psolve_ptclu, se_sub, &
+              se_dp, m_l, se_n, gtol_l, tol_l, del_l, mndl_l, mxdl_l, &
+              nits_l, info_l, 6)
+      case (5)
+         call newton_hook_v1(se_f, se_jvp_fd, se_psolve_lsq, se_sub, &
+              se_dp, m_l, se_n, gtol_l, tol_l, del_l, mndl_l, mxdl_l, &
+              nits_l, info_l, 6)
       case (6)
          call newton_hook_v1(se_f, se_jvp_fd, se_psolve_lsq2, se_sub, &
               se_dp, m_l, se_n, gtol_l, tol_l, del_l, mndl_l, mxdl_l, &

@@ -3113,7 +3113,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          if(n_restart > jfnk_gmres_max_restart) then
             if(del > 0d0) then
                x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
-               if(x_cycle_norm > del) x = x * (del / x_cycle_norm)
+               if(x_cycle_norm > del) then
+                  x = x * (del / x_cycle_norm)
+                  ltres = .false.
+                  jfnk_gmres_true_res_ok = .false.
+               end if
                jfnk_last_ynrm = dsqrt(max(0d0, dotprd(n, x, x)))
             end if
             ! Same unverifiable-direction hazard as the stagnation exit
