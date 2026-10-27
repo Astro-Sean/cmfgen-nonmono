@@ -105,6 +105,25 @@
 	INTEGER J_IT_COUNTER
 	LOGICAL NEW_FREQ
 !
+! edited by Devin, 27-Oct-2026: ES-ALI state [DO_ES_ALI].  ES_ALI_ON
+! is the per-call gate (evaluated just before the iteration loop);
+! ES_DJ is the max relative RJ update of the current pass; ES_ALI_FB
+! marks a pass that fell back to plain Lambda.  The SAVE'd counters
+! accumulate per-frequency results for the once-per-iteration print.
+! DJDCHI_TMP/DJDETA_TMP hold the V13 stored diagonal.
+!
+	LOGICAL ES_ALI_ON
+	LOGICAL ES_ALI_FB
+	LOGICAL ALO_OK
+	REAL(KIND=LDP) ES_DJ
+	REAL(KIND=LDP) RJNEW
+	REAL(KIND=LDP) DEN
+	REAL(KIND=LDP) DJDCHI_TMP(ND)
+	REAL(KIND=LDP) DJDETA_TMP(ND)
+	INTEGER, SAVE :: ES_ALI_NUNC
+	INTEGER, SAVE :: ES_ALI_NFALL
+	REAL(KIND=LDP), SAVE :: ES_ALI_DJMAX
+!
 ! See COMP_J_CONT.INC to see earlier changes to this routine.
 !
 ! 
@@ -630,7 +649,8 @@ C
 ! so the stock path is unchanged.
 !
 	    IF((DO_NONMONO_KNOP .OR.
-	1       (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)) .AND.
+	1       (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES) .OR.
+	1       (DO_NONMONO_SOB .AND. DO_SOB_FG_KNOP)) .AND.
 	2       NU_NEXT_FREQ .GT. 0.0_LDP .AND.
 	3       NU_NEXT_FREQ .LT. FL)THEN
 	      dLOG_NU=LOG(FL/NU_NEXT_FREQ)
@@ -640,6 +660,14 @@ C
 	    HBC_CMF(:)=0.0_LDP		!1:3
 	    NBC_CMF(:)=0.0_LDP		!1:3
 	    FG_COUNT=0
+!
+! ES-ALI per-iteration counters [DO_ES_ALI]; reset with FG_COUNT so
+! the NCF print covers exactly one great iteration.  Inert when the
+! feature is off.
+!
+	    ES_ALI_NUNC=0
+	    ES_ALI_NFALL=0
+	    ES_ALI_DJMAX=0.0_LDP
 	  ELSE
 	    dLOG_NU=LOG(FL_OLD/FL)
 	    DO I=1,ND
@@ -720,8 +748,23 @@ C We will do this twice, so that F is of higher accuracy.
 C
 	  INACCURATE=.TRUE.
 	  J_IT_COUNTER=0
+C
+C edited by Devin, 27-Oct-2026: ES-ALI gate [DO_ES_ALI].  The
+C Olson-Auer-Buchler update below uses the diagonal stored by
+C FG_J_CMF_V13, so it is restricted to the V13 path: DO_NONMONO_SOB +
+C USE_LAM_ES + COHERENT_ES and not DO_SOB_FG_KNOP (which runs
+C FG_J_CMF_NONMONO_V1 instead).  RJ entering the loop is the
+C EDDFACTOR-read previous-iteration J (warm seed), and TA is rebuilt
+C from the updated RJ at the top of every pass.  DO_ES_ALI=F leaves
+C the loop bit-identical to stock.
+C
+	  ES_ALI_ON=DO_ES_ALI .AND. DO_NONMONO_SOB .AND. USE_LAM_ES .AND.
+	1     COHERENT_ES .AND. .NOT. DO_SOB_FG_KNOP
+	  ES_ALI_FB=.FALSE.
+	  ES_DJ=0.0_LDP
 	  DO WHILE(INACCURATE)
 C
+	     IF(ES_ALI_ON)ES_DJ=0.0_LDP
 	     IF(COHERENT_ES)THEN
 	       TA(1:ND)=ETA_CLUMP(1:ND)+CHI_SCAT_CLUMP(1:ND)*RJ(1:ND)
 	     ELSE
@@ -757,7 +800,8 @@ C
 	1                  METHOD,FIRST_FREQ,NEW_FREQ,NC,NP,ND)
 !
 	     ELSE
-	       IF(DO_NONMONO_KNOP)THEN
+	       IF(DO_NONMONO_KNOP .OR.
+	1         (DO_NONMONO_SOB .AND. USE_LAM_ES .AND. DO_SOB_FG_KNOP))THEN
 !	         Knop et al. (2009, Paper I) CMF formal solver for
 !	         non-monotonic velocity fields: chi_hat = chi + |GAM|/dLOG_NU stays
 !	         positive in compression zones (sigma < -1), and the
@@ -765,6 +809,8 @@ C
 !	         with the upwind direction chosen by the sign of GAM.
 !	         Uses the unclamped SIGMA_TRUE; SIGMA stays clamped for
 !	         the rest of the infrastructure.
+!	         DO_SOB_FG_KNOP (opt-in) brings the same solver to the
+!	         SOB+LAM_ES=T path -- V13 is expansion-biased at sigma<-1.
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)THEN
 	           WRITE(LUER,'(/,A)')' -------------------------------- KNOP SOLVER --------------------------------'
 	           WRITE(LUER,*)'Calling FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
@@ -868,15 +914,47 @@ C
 	1         'Field solver: ray solutions with lambda'//
 	2         ' iteration (USE_LAM_ES); the moment equations'//
 	3         ' are not solved'
-	       RJ(1:ND)=TC(1:ND)
+	       IF(ES_ALI_ON)THEN
+!
+! edited by Devin, 27-Oct-2026: Olson-Auer-Buchler Jacobi update of
+! the coherent-ES iterate [DO_ES_ALI].  TA was built from the
+! previous RJ, so TC is Lambda[RJ]; the V13 stored diagonal
+! DJDETA = dJ/dETA converts the residual into an approximate solve
+! of J = Lambda[ETA + chi_scat J]:
+! RJNEW = RJ + (TC-RJ)/DEN with DEN = 1 - DJDETA*chi_scat, floored
+! at 0.01; a non-positive RJNEW falls back to the Lambda value TC.
+! ES_DJ records the max relative update for the exit test below.  If
+! the diagonal is unavailable the pass degrades to plain RJ=TC, the
+! frequency is counted as a fallback, and no extra passes are forced.
+!
+	         CALL GET_FG13_ALO_DIAG(DJDCHI_TMP,DJDETA_TMP,ND,ALO_OK)
+	         IF(ALO_OK)THEN
+	           DO I=1,ND
+	             DEN=MAX(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I),
+	1                0.01_LDP)
+	             RJNEW=RJ(I)+(TC(I)-RJ(I))/DEN
+	             IF(RJNEW .LE. 0.0_LDP)RJNEW=TC(I)
+	             ES_DJ=MAX(ES_DJ,
+	1                ABS(RJNEW-RJ(I))/MAX(ABS(RJNEW),1.0E-300_LDP))
+	             RJ(I)=RJNEW
+	           END DO
+	         ELSE
+	           RJ(1:ND)=TC(1:ND)
+	           ES_ALI_FB=.TRUE.
+	         END IF
+	       ELSE
+	         RJ(1:ND)=TC(1:ND)
+	       END IF
 !
 ! Fill Eddington factors (K_ON_J, NMID_ON_J, NMID_ON_HMID) from the
 ! ray moments stored by FG_J_CMF_NONMONO_V1.  Normally these are
 ! filled by MOM_J_CMF_V11, which is NOT called when USE_LAM_ES=T.
 ! Gated on DO_NONMONO_KNOP: USE_LAM_ES is a standard CMFGEN option
-! and the stock path is unchanged without the flag.
+! and the stock path is unchanged without the flag.  DO_SOB_FG_KNOP
+! runs the same ray solver, so its stored moments feed here too.
 !
-	       IF(DO_NONMONO_KNOP)THEN
+	       IF(DO_NONMONO_KNOP .OR.
+	1         (DO_NONMONO_SOB .AND. DO_SOB_FG_KNOP))THEN
 	         CALL GET_MOMS_NON_REL(R,V,FL,N_TYPE,ND)
 	       END IF
 	       IF(INNER_BND_METH .EQ. 'PNT_SRCE')THEN
@@ -894,7 +972,9 @@ C
 ! because MOM_J_CMF is never called.  The Knop ray solve measures the
 ! emergent flux directly, so use HNU_AT_OB for the SOB/RLUMST outer
 ! boundary.  Stock path (DO_NONMONO_KNOP=F) is unchanged.
-	          IF(DO_NONMONO_KNOP)HFLUX_AT_OB=HNU_AT_OB
+	          IF(DO_NONMONO_KNOP .OR.
+	1            (DO_NONMONO_SOB .AND. DO_SOB_FG_KNOP))
+	1            HFLUX_AT_OB=HNU_AT_OB
 	       ELSE IF(.NOT. USE_FORMAL_REL)THEN
 	         IF(.NOT. DIF)HFLUX_AT_IB=0.5_LDP*IC*(0.5_LDP+INBC)-INBC*RJ(ND)
                  HFLUX_AT_OB=HBC_CMF(1)*RJ(1)
@@ -989,6 +1069,16 @@ C
 	          FOLD(I)=FEDD(I)
 	        END DO
 	        IF(T1 .GT. ACC_EDD_FAC)INACCURATE=.TRUE.
+C
+C edited by Devin, 27-Oct-2026: under DO_ES_ALI the ES iterate keeps
+C passing until the last update is below ES_ALI_TOL or the pass cap
+C ES_ALI_MAX is reached (clamped to 20 at read time, so the existing
+C forced exit still bounds the loop).  Fallback frequencies are not
+C forced to extra passes.
+C
+	        IF(ES_ALI_ON .AND. .NOT. ES_ALI_FB .AND.
+	1          ES_DJ .GT. ES_ALI_TOL .AND.
+	2          J_IT_COUNTER .LT. ES_ALI_MAX)INACCURATE=.TRUE.
 	      END IF
 C
 	      IF(J_IT_COUNTER .GT. 20)THEN
@@ -1002,6 +1092,18 @@ C
 	      	 INACCURATE=.FALSE.
 	      END IF
 	    END DO
+C
+C edited by Devin, 27-Oct-2026: accumulate the per-frequency ES-ALI
+C result for the once-per-iteration print [DO_ES_ALI].
+C
+	    IF(ES_ALI_ON)THEN
+	      ES_ALI_DJMAX=MAX(ES_ALI_DJMAX,ES_DJ)
+	      IF(ES_ALI_FB)THEN
+	        ES_ALI_NFALL=ES_ALI_NFALL+1
+	      ELSE IF(ES_DJ .GT. ES_ALI_TOL)THEN
+	        ES_ALI_NUNC=ES_ALI_NUNC+1
+	      END IF
+	    END IF
 C
 	    IF(COHERENT_ES)THEN
 	      SOURCE(1:ND)=ZETA(1:ND)+THETA(1:ND)*RJ(1:ND)
@@ -1103,6 +1205,16 @@ C
 	  END IF
 	  IF(FREQ_INDX .EQ. NCF)THEN
 	    WRITE(LUER,*)'Average number of calls to FG_J_CMF is',FLOAT(FG_COUNT)/FLOAT(NCF)
+!
+! edited by Devin, 27-Oct-2026: one-line ES-ALI summary per great
+! iteration [DO_ES_ALI]: frequencies that exited with the last RJ
+! update above ES_ALI_TOL, the worst final relative update, and the
+! count of passes that fell back to plain Lambda.
+!
+	    IF(ES_ALI_ON)WRITE(LUER,'(A,I6,A,ES10.2,A,I6)')
+	1     ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
+	2     ', max final dJ/J=',ES_ALI_DJMAX,
+	3     ', ALO fallbacks=',ES_ALI_NFALL
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
 	    IF(T1 .GT. 100.0_LDP)THEN

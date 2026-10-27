@@ -1689,6 +1689,57 @@
 !
 	LOGICAL DO_FG13_ALO
 !
+! DO_SOB_CLAMPED_LINES (VADAT [DO_SOB_CLAMPED_LINES], default F):
+! diagnostic flag -- passes the clamped SIGMA (infrastructure
+! gradient, >= -0.999) instead of SIGMA_TRUE to the Sobolev line
+! operators (SOBJBAR_SIM, SOB_RH_COUPLE, SOBEW) on the
+! DO_NONMONO_SOB path.  Under USE_LAM_ES=T the V13 continuum
+! formal solve is built on clamped SIGMA, so this makes every
+! operator feeding the SE system share one velocity gradient.
+! Purpose: test whether the ex_maxch demand floor in sigma < -1
+! zones comes from the clamped/unclamped operator inconsistency.
+! The resulting physics is biased (compressed-zone Sobolev optical
+! depths too thick) -- convergence test only, not a production
+! option.  Default F keeps the normal SIGMA_TRUE line rates.
+!
+	LOGICAL DO_SOB_CLAMPED_LINES
+!
+! DO_SOB_FG_KNOP (VADAT [DO_SOB_FG_KNOP], default F): under
+! DO_NONMONO_SOB + USE_LAM_ES=T, replace the stock FG_J_CMF_V13
+! formal solve with FG_J_CMF_NONMONO_V1 -- the sign-aware Knop
+! solver that keeps chi_hat = chi + |GAM|/dLOG_NU positive in
+! compression and couples the frequency advection term upwind by
+! the sign of GAM.  V13 clamps SIGMA_RAY to >= -0.999, so it is
+! expansion-biased wherever sigma_true < -1; the 26-Oct audit of
+! the _saw ex_maxch floor localised the stall to exactly those
+! depths, and a clamped-lines probe showed the two operators
+! disagree about the equilibrium catastrophically.  The flag also
+! routes the continuum ALO to GET_FG_ALO_DIAG (the Knop solver's
+! own diagonal), turns on DO_KNOP_REFRESH (the lagged compressing
+! branch needs it), and shares the KNOP-gated moment fill and
+! ZERO_FLUX outer-flux bookkeeping in COMP_J_BLANK.  Default F
+! keeps the validated V13 path.
+!
+	LOGICAL DO_SOB_FG_KNOP
+!
+! DO_ES_ALI (VADAT [DO_ES_ALI], default F): accelerated (ALI)
+! convergence of coherent electron scattering inside the USE_LAM_ES
+! formal-solve loop in COMP_J_BLANK.  Active only on the
+! DO_NONMONO_SOB + USE_LAM_ES=T + COHERENT_ES path with the V13
+! formal solver (not DO_SOB_FG_KNOP).  The stock loop sets RJ=TC
+! (plain Lambda iteration) and exits on the Eddington-factor test
+! alone, so an electron-scattering dominated atmosphere gets ~2
+! Lambda steps per great iteration.  With DO_ES_ALI=T each pass
+! applies an Olson-Auer-Buchler Jacobi update built on the V13
+! stored diagonal (GET_FG13_ALO_DIAG) and the loop keeps iterating
+! until the RJ update is below ES_ALI_TOL or J_IT_COUNTER reaches
+! ES_ALI_MAX (clamped to 20, the existing forced exit).  Default F
+! leaves the Lambda update and the exit test untouched.
+!
+	LOGICAL DO_ES_ALI
+	REAL(KIND=LDP) ES_ALI_TOL
+	INTEGER ES_ALI_MAX
+!
 ! BA_LUM_GATE and BA_LUM_DCHG are retained as accepted VADAT keys for
 ! restart compatibility.  They no longer affect convergence: shocks
 ! permit physical luminosity deposition between the inner and outer

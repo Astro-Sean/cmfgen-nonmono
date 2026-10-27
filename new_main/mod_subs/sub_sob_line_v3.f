@@ -133,7 +133,15 @@ C Non-local RH78 rate correction array: zeroed every call so the
 C residual subtraction below is exact zero when DO_NONLOC_SOB is off.
 C
 	  DRC_SIM=0.0_LDP
-	  IF(DO_NONMONO_SOB)THEN
+C
+C DO_SOB_CLAMPED_LINES (diagnostic, default F): route the clamped
+C SIGMA (infrastructure gradient, >= -0.999) into the line
+C operators so the Sobolev rates share the velocity gradient the
+C V13 continuum solve is built on.  Consistency probe for the
+C sigma < -1 ex_maxch demand floor, not a physics option --
+C compressed-zone Sobolev optical depths come out too thick.
+C
+	  IF(DO_NONMONO_SOB .AND. .NOT. DO_SOB_CLAMPED_LINES)THEN
 	    CALL SOBJBAR_SIM(SOURCE,CHI,CHIL,ETAL,V,SIGMA_TRUE,R,P,AQW,
 	1                  JBAR,BETA,
 	1                  ZNET_SIM,VB_SIM,VC_SIM,VB_2,VC_2,BETAC_SIM,
@@ -155,12 +163,20 @@ C DRC_SIM, applied to the STEQ residual only: it is a lagged remote
 C term with no local-population derivative, so it must not enter
 C ZNET_SIM which the BA Jacobian differentiates.  Uses the unclamped
 C SIGMA_TRUE so the resonance geometry sees the true velocity
-C gradient.  Only active in the DO_NONMONO_SOB path.
+C gradient.  Only active in the DO_NONMONO_SOB path.  Under
+C DO_SOB_CLAMPED_LINES it uses clamped SIGMA like the rest of the
+C line operators (same consistency probe, same thick-tau bias).
 C
 	  IF(DO_NONMONO_SOB .AND. DO_NONLOC_SOB)THEN
-	    CALL SOB_RH_COUPLE(DRC_SIM,ZNET_SIM,CHIL_MAT,
+	    IF(DO_SOB_CLAMPED_LINES)THEN
+	      CALL SOB_RH_COUPLE(DRC_SIM,ZNET_SIM,CHIL_MAT,
+	1              ETAL_MAT,BB_COR,NEG_OPACITY,V,SIGMA,R,FL,ND,
+	1              NUM_SIM_LINES,LUER)
+	    ELSE
+	      CALL SOB_RH_COUPLE(DRC_SIM,ZNET_SIM,CHIL_MAT,
 	1              ETAL_MAT,BB_COR,NEG_OPACITY,V,SIGMA_TRUE,R,FL,ND,
 	1              NUM_SIM_LINES,LUER)
+	    END IF
 	  END IF
 	  CALL TUNE(ITWO,'SOBOLEV')
 C
@@ -171,8 +187,10 @@ C
 C We use TA as a temporary vector which indicates the origin
 C of the line emission. Not required in this code as used only
 C for display purposes.
+C DO_SOB_CLAMPED_LINES applies here too so the reported EW uses
+C the same (test-biased) gradient as the rates.
 C
-	    IF(DO_NONMONO_SOB)THEN
+	    IF(DO_NONMONO_SOB .AND. .NOT. DO_SOB_CLAMPED_LINES)THEN
 	      CALL SOBEW(SOURCE,CHI,CHI_SCAT,CHIL,ETAL,
 	1              V,SIGMA_TRUE,R,P,AQW,HQW,TA,EW,CONT_INT,
 	1              FL,DIF,DBB,IC,THK_CONT,L_FALSE,NC,NP,ND,METHOD)

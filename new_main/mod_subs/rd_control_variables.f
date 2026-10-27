@@ -2416,6 +2416,32 @@
 	  DO_FG13_ALO=.FALSE.
 	  CALL RD_STORE_LOG(DO_FG13_ALO,'DO_FG13_ALO',L_FALSE,
 	1     'Use FG_J_CMF_V13 diagonal ALO in the SOB continuum Jacobian')
+	  DO_SOB_CLAMPED_LINES=.FALSE.
+	  CALL RD_STORE_LOG(DO_SOB_CLAMPED_LINES,'DO_SOB_CLAMPED_LINES',
+	1     L_FALSE,
+	2     'Clamp Sobolev line rates to the infrastructure SIGMA'//
+	3     ' (consistency test; biased physics)')
+	  DO_SOB_FG_KNOP=.FALSE.
+	  CALL RD_STORE_LOG(DO_SOB_FG_KNOP,'DO_SOB_FG_KNOP',L_FALSE,
+	1     'Use the Knop sign-aware formal solver for SOB+LAM_ES J')
+!
+! ES-ALI keys (27-Oct-2026): optional.  DO_ES_ALI turns on the
+! Olson-Auer-Buchler update of the coherent-ES Lambda iterate inside
+! the USE_LAM_ES loop in COMP_J_BLANK; ES_ALI_TOL is the relative
+! dJ/J convergence target per frequency and ES_ALI_MAX the cap on
+! extra passes (clamped to 20, the existing J_IT_COUNTER forced
+! exit).  Defaults preserve the stock Lambda update.
+!
+	  DO_ES_ALI=.FALSE.
+	  CALL RD_STORE_LOG(DO_ES_ALI,'DO_ES_ALI',L_FALSE,
+	1     'ALI-accelerate coherent ES in the USE_LAM_ES J loop')
+	  ES_ALI_TOL=1.0E-4_LDP
+	  CALL RD_STORE_DBLE(ES_ALI_TOL,'ES_ALI_TOL',L_FALSE,
+	1     'ES-ALI convergence target: max relative dJ per frequency')
+	  ES_ALI_MAX=20
+	  CALL RD_STORE_INT(ES_ALI_MAX,'ES_ALI_MAX',L_FALSE,
+	1     'Max J passes per frequency under ES-ALI (<=20)')
+	  IF(ES_ALI_MAX .GT. 20)ES_ALI_MAX=20
 !
 ! Residual-driven BA recall (default FALSE): while the judged
 ! residual still contracts, allow BAMAT recall past the FIX_BA
@@ -3032,7 +3058,8 @@
 ! does not leave the two sides disagreeing.
 !
 	  DO_KNOP_REFRESH=DO_NONMONO_KNOP .OR.
-	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)
+	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES) .OR.
+	1    (DO_NONMONO_SOB .AND. DO_SOB_FG_KNOP)
 	  CALL RD_STORE_LOG(DO_KNOP_REFRESH,'DO_KNOP_REFRESH',L_FALSE,
 	1     'Per-ray converge of KNOP lagged I_NEXT coupling?')
 	  CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
@@ -3296,6 +3323,43 @@
 	3   '  mom_damp_min=',MOM_DAMP_E
 	  END IF
 !
+! Rule 1b: DO_SOB_FG_KNOP (SOB + USE_LAM_ES=T routed to
+! FG_J_CMF_NONMONO_V1).  The solver carries the same lagged,
+! process-local I_NEXT coupling as the KNOP route, so the restart
+! warm-up and maturity defaults must be lifted here as well --
+! without N_LAM_RWARM a requeue takes a BA step against a zeroed
+! I_NEXT store (the 26-Oct-2026 _knp segfaults).  Explicit VADAT
+! values are respected except DO_KNOP_REFRESH: the within-sweep
+! refresh is integral to the route, matching KNOP.
+!
+	  IF(DO_NONMONO_SOB .AND. DO_SOB_FG_KNOP .AND.
+	1     .NOT. DO_NONMONO_KNOP)THEN
+	    IF(N_LAM_RWARM .EQ. 0)THEN
+	      N_LAM_RWARM=4
+	      WRITE(LUER,'(A)')' SOB-KNOP auto-set: N_LAM_RWARM=4'
+	    END IF
+	    IF(GS_REL_STABLE .LT. 2)THEN
+	      GS_REL_STABLE=2
+	      WRITE(LUER,'(A)')' SOB-KNOP auto-set: GS_REL_STABLE=2'
+	    END IF
+	    CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',
+	1     L_FALSE,L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      DO_NONMONO_FREQ_MATCH=.TRUE.
+	      CALL SET_FG_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
+	      CALL SET_MOM_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
+	      WRITE(LUER,'(A)')
+	1     ' SOB-KNOP auto-set: DO_NONMONO_FREQ_MATCH=T'
+	    END IF
+	    IF(.NOT. DO_KNOP_REFRESH)THEN
+	      DO_KNOP_REFRESH=.TRUE.
+	      CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
+	      CALL SET_MOM_RF_DIR_OPT(MOM_RF_DIR,MOM_EPS_LIM,
+	1       DO_KNOP_REFRESH,MOM_RF_OWNW)
+	      WRITE(LUER,'(A)')' SOB-KNOP auto-set: DO_KNOP_REFRESH=T'
+	    END IF
+	  END IF
+!
 ! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line
 ! routines, so GLOBAL_LINE must be SOB (or the validated all-SOB NONE
 ! form).  JFNK_COUPLED=T under SOB is rejected at its own read --
@@ -3375,9 +3439,38 @@
 !
 	      CALL GET_KEY_STRING(TMP_STRING,'DO_FG13_ALO',L_FALSE,
 	1     L_FALSE_TMP)
-	      IF(.NOT. L_FALSE_TMP)THEN
+	      IF(.NOT. L_FALSE_TMP .AND. .NOT. DO_SOB_FG_KNOP)THEN
+! Under DO_SOB_FG_KNOP the formal solve is FG_J_CMF_NONMONO_V1 and
+! do_var_cont fills the continuum diagonals from GET_FG_ALO_DIAG;
+! setting DO_FG13_ALO would echo a V13 operator that never runs.
 	        DO_FG13_ALO=.TRUE.
 	        WRITE(LUER,'(A)')' SOB auto-set: DO_FG13_ALO=T'
+	      END IF
+!
+! Loud banner for the clamped-lines consistency probe: the flag
+! biases the line physics on purpose, so an active run must not
+! be silent about it.
+!
+	      IF(DO_SOB_CLAMPED_LINES)THEN
+	        WRITE(LUER,'(A)')
+	1       ' ============================================================'
+	        WRITE(LUER,*)'DO_SOB_CLAMPED_LINES=T: Sobolev line'
+	1       ,' operators run on clamped SIGMA to match the V13'
+	2       ,' continuum solve (ex_maxch floor probe).  Line'
+	3       ,' optical depths in sigma < -1 zones are biased'
+	4       ,' thick -- test mode only, not physical output.'
+	        WRITE(LUER,'(A)')
+	1       ' ============================================================'
+	      END IF
+	      IF(DO_SOB_FG_KNOP)THEN
+	        WRITE(LUER,'(A)')
+	1       ' ============================================================'
+	        WRITE(LUER,*)'DO_SOB_FG_KNOP=T: formal J update from'
+	1       ,' FG_J_CMF_NONMONO_V1 (sign-aware upwind, chi_hat'
+	2       ,' = chi + |GAM|/dLOG_NU) instead of V13 -- the'
+	3       ,' sign-correct solver for sigma < -1 zones.'
+	        WRITE(LUER,'(A)')
+	1       ' ============================================================'
 	      END IF
 	    END IF
 !

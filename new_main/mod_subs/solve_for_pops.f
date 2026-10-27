@@ -950,7 +950,8 @@
 !
 	ITER_REASON=' '
 !
-! Knop Gauss-Seidel warm-up (DO_NONMONO_KNOP only).  The lagged
+! Knop Gauss-Seidel warm-up (DO_NONMONO_KNOP, and DO_SOB_FG_KNOP
+! which runs the same solver).  The lagged
 ! I_NEXT coupling arrays in FG_J_CMF_NONMONO_V1 are process-local and
 ! are reallocated+zeroed whenever the job is requeued, so the first
 ! N_LAM_RWARM iterations of each process must not take a BA step
@@ -963,7 +964,7 @@
 !
 	LAM_AT_ENTRY=LAMBDA_ITERATION
 	GS_FG_IMMATURE=.FALSE.
-	IF(DO_NONMONO_KNOP)THEN
+	IF(DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP)THEN
 	  CALL GET_FG_GS_MATURITY(GS_OK,GS_CHG_FILE,GS_CAP_FILE,
 	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV,
 	2      GS_NDIV,GS_NRAY,GS_NBAD_BLK,

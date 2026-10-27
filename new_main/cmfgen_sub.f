@@ -3154,7 +3154,11 @@
 ! non-monotonic models.  The routine self-guards (no-op unless the
 ! KNOP path ran this sweep and a full store was captured).
 !
-	IF(DO_NONMONO_KNOP .AND. DO_KNOP_REFRESH)
+! Gate covers DO_SOB_FG_KNOP (26-Oct-2026): SOB+LAM_ES=T routed to
+! FG_J_CMF_NONMONO_V1 runs the same lagged I_NEXT store and needs
+! the same within-sweep convergence.
+!
+	IF((DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP) .AND. DO_KNOP_REFRESH)
 	1    CALL FG_KNOP_REFRESH_V1()
 !
 ! Moment-path analogue (USE_LAM_ES=F): re-drive MOM_J_CMF_NONMONO_V1

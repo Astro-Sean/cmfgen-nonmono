@@ -1258,7 +1258,7 @@
 	            BA_QUAR_MASK(J,I)=.TRUE.
 	            BA_QUAR_COUNT=BA_QUAR_COUNT+1
 	            NQUAR_NEW=NQUAR_NEW+1
-	            WRITE(LUER,'(A,I6,A,I4,2A,ES12.4)')
+	            WRITE(LUER,'(A,I6,A,I4,3A,ES12.4)')
 	1              'BA_QUAR: persistent LAMBDA demand parks eqn'//
 	2              ' (var,depth)',J,' @',I,'  ',TRIM(EQ_DESC(J)),
 	3              '   demand%=',100.0_LDP*ABS(STEQ(J,I))

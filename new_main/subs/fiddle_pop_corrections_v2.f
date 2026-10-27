@@ -7,7 +7,8 @@
 	SUBROUTINE FIDDLE_POP_CORRECTIONS_V2(POPS,STEQ,T_MIN,CHANGE_LIM,MAX_dT_COR,
 	1              SCALE_OPT,LAMBDA_IT,LU_SUM,NT,ND)
 	USE SET_KIND_MODULE
-	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
+	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP,
+	1     DO_SOB_FG_KNOP
 	IMPLICIT NONE
 !
 ! Altered: 14-Feb-2014 -- Changed to V2 -- added MAX_dT_COR to call.
@@ -210,6 +211,21 @@
 	      IF(T1 .LT. DPTH_LIT_LIM)T1=DPTH_LIT_LIM
 	      POPS(J,I)=POPS(J,I)*(1.0_LDP-T1)
 	    END DO
+!
+! [DO_SOB_FG_KNOP] (26-Oct-2026): the Knop-route restart transient
+! demands ~1E49% corrections; a NaN STEQ row (ill-conditioned at
+! depths whose J just changed by tens of dex) would write a
+! permanent NaN into POPS and segfault the next STEQ call.  Floor
+! non-positive/non-finite corrected values: T to T_MIN, species to
+! 1.0D-100.  Flag-gated; stock path unchanged.
+!
+	    IF(DO_SOB_FG_KNOP)THEN
+	      DO J=1,NT
+	        IF(.NOT. (POPS(J,I) .GT. 0.0_LDP))THEN
+	          POPS(J,I)=MERGE(T_MIN,1.0D-100,J .EQ. NT)
+	        END IF
+	      END DO
+	    END IF
 	  END DO
 	  WRITE(6,'(A,ES12.4)')' The minimum value of scale for Major species is:',MIN_SCALE
 	END IF

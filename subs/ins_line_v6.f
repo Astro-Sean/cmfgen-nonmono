@@ -230,8 +230,11 @@
 ! Find the first line that is to be included as a blanketed line.
 !
 	LN_INDX=1
-	DO WHILE(LN_INDX .LE. N_LINES .AND.
-	1          TRANS_TYPE(LN_INDX)(1:3) .NE. 'BLA')
+	DO WHILE(LN_INDX .LE. N_LINES)
+! Fortran does not guarantee .AND. short-circuit: with every line
+! non-BLA (GLOBAL_LINE=SOB) the compound form read TRANS_TYPE
+! one past N_LINES -- caught by -check bounds, 26-Oct-2026.
+	  IF(TRANS_TYPE(LN_INDX)(1:3) .EQ. 'BLA')EXIT
 	  LN_INDX=LN_INDX+1
 	END DO
 !
@@ -392,8 +395,8 @@
 ! and determine the current extent of the red edge of the profile,
 ! allowing for velocity shifts.
 !
-	    DO WHILE( LN_INDX .LE. N_LINES .AND. FREQ(INDX) .LE.
-	1         NU_END_LINE(LN_INDX) )
+	    DO WHILE( LN_INDX .LE. N_LINES)
+	      IF(FREQ(INDX) .GT. NU_END_LINE(LN_INDX))EXIT
 	      IF(TRANS_TYPE(LN_INDX)(1:3) .EQ. 'BLA')THEN
 	        T1=NU_END_LINE(LN_INDX)/(1.0_LDP+2.0_LDP*VINF/C_KMS)
 	        CUR_RED_PROF_EXT=MIN(CUR_RED_PROF_EXT,T1)
@@ -402,9 +405,10 @@
 	    END DO
 !
 ! Find the next line that is to be included as a blanketed line.
+! Nested test -- same OOB guard as the entry scan above.
 !
-	    DO WHILE(LN_INDX .LE. N_LINES .AND.
-	1          TRANS_TYPE(LN_INDX)(1:3) .NE. 'BLA')
+	    DO WHILE(LN_INDX .LE. N_LINES)
+	      IF(TRANS_TYPE(LN_INDX)(1:3) .EQ. 'BLA')EXIT
 	       LN_INDX=LN_INDX+1
 	    END DO
 !	

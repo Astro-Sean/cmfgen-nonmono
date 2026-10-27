@@ -387,7 +387,15 @@
 ! performed, lifting the pure-Lambda continuum update.  The switch
 ! gates it so the validated all-zero default is unchanged.
 !
-	         IF(DO_FG13_ALO)CALL GET_FG13_ALO_DIAG(TA,TB,ND,ALO_OK)
+! DO_SOB_FG_KNOP (opt-in, 26-Oct-2026): J comes from
+! FG_J_CMF_NONMONO_V1, so its own stored diagonal is the
+! consistent linearization (same as the KNOP+LAM_ES branch).
+!
+	         IF(DO_SOB_FG_KNOP)THEN
+	           CALL GET_FG_ALO_DIAG(TA,TB,ND,ALO_OK)
+	         ELSE IF(DO_FG13_ALO)THEN
+	           CALL GET_FG13_ALO_DIAG(TA,TB,ND,ALO_OK)
+	         END IF
 	       ELSE
 !
 ! DO_NONMONO_SOB + USE_LAM_ES=F: J comes from MOM_J_CMF_NONMONO_V1,
