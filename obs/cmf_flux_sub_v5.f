@@ -2667,9 +2667,10 @@
 	IF(DO_SOB_FLUX_OBS)THEN
 	  CALL ADD_SOB_LINE_PROF(ETA_CMF_ST,CHI_CMF_ST,NU,NCF,
 	1        CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_LINE_POINTER,
-	2        VEC_VDOP_MIN,VEC_TRANS_TYPE,NEG_OPACITY,
-	3        NUM_SIM_LINES,N_LINE_FREQ,MAX_SIM,ND,C_KMS,
-	4        SOB_MASER_DROP,SOB_DROP_EMIS,SOB_INJ_EMIS)
+	2        VEC_VDOP_MIN,VEC_ARAD,VEC_C4,ED,
+	3        VEC_TRANS_TYPE,NEG_OPACITY,
+	4        NUM_SIM_LINES,N_LINE_FREQ,MAX_SIM,ND,C_KMS,
+	5        SOB_MASER_DROP,SOB_DROP_EMIS,SOB_INJ_EMIS)
 	END IF
 !
 ! Estimate the line EW using a Modified Sobolev approximation.
@@ -2860,9 +2861,10 @@
 !
 	SUBROUTINE ADD_SOB_LINE_PROF(ETA_ST,CHI_ST,NU,NCF,
      1	      CHIL_MAT,ETAL_MAT,CLUMP_FAC,FL_SIM,SIM_POINTER,
-     2	      VDOP_MIN,TRANS_TYPE,NEG_OPACITY,
-     3	      NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
-     4	      N_DROP,DROP_SUM,INJ_SUM)
+     2	      VDOP_MIN,ARAD_VEC,C4_VEC,ED_IN,
+     3	      TRANS_TYPE,NEG_OPACITY,
+     4	      NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
+     5	      N_DROP,DROP_SUM,INJ_SUM)
 	USE SET_KIND_MODULE
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
@@ -2878,6 +2880,9 @@
 	REAL(KIND=LDP), INTENT(IN) :: CLUMP_FAC(ND)
 	REAL(KIND=LDP), INTENT(IN) :: FL_SIM(MAX_SIM)
 	REAL(KIND=LDP), INTENT(IN) :: VDOP_MIN(N_LINES)
+	REAL(KIND=LDP), INTENT(IN) :: ARAD_VEC(N_LINES)
+	REAL(KIND=LDP), INTENT(IN) :: C4_VEC(N_LINES)
+	REAL(KIND=LDP), INTENT(IN) :: ED_IN(ND)
 	REAL(KIND=LDP), INTENT(IN) :: C_KMS
 	LOGICAL, INTENT(IN) :: NEG_OPACITY(ND)
 	INTEGER, INTENT(IN) :: SIM_POINTER(MAX_SIM)
@@ -2885,7 +2890,11 @@
 !
 	INTEGER I,K,S,LP,K0,KA,KB,LO,HI,MID
 	INTEGER N_DROP_L
-	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K,X
+	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K,X,T1
+	REAL(KIND=LDP) A_VOIGT,GAM_COL_LINE,TMP_ED,PI
+	REAL(KIND=LDP) VOIGT
+	EXTERNAL VOIGT
+	PARAMETER(PI=3.1415926535897932_LDP)
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
 !
@@ -2964,22 +2973,33 @@
 ! 1.0D-15 factor in the LINE_PROF_SIM normalization in SET_PROF_V6),
 ! so the weight carries an explicit 1.0D-15.
 !
+! The Gaussian-only path (DO_SOB_DEP_WINGS=F) shares one profile for
+! all depths, so XNORM is computed once here.  The Voigt-wing path
+! carries a depth-dependent damping parameter, so its normalization
+! is done per depth inside the loop below.
+!
 	  XNORM=0.0_LDP
-	  DO K=KA,KB
-	    X=(NU(K)-F0)/DNU_D
-	    WT=EXP(-X*X)
-	    IF(DO_SOB_DEP_WINGS .AND. ABS(X) .GT. 3.0_LDP)
-	1        WT=EXP(-9.0_LDP)*(3.0_LDP/X)**2
-	    IF(K .EQ. 1)THEN
-	      DN_K=NU(1)-NU(2)
-	    ELSE IF(K .EQ. NCF)THEN
-	      DN_K=NU(NCF-1)-NU(NCF)
-	    ELSE
-	      DN_K=0.5_LDP*(NU(K-1)-NU(K+1))
-	    END IF
-	    XNORM=XNORM+WT*DN_K
-	  END DO
-	  IF(XNORM .LE. 0.0_LDP)CYCLE
+	  IF(.NOT. DO_SOB_DEP_WINGS)THEN
+	    DO K=KA,KB
+	      X=(NU(K)-F0)/DNU_D
+	      WT=EXP(-X*X)
+	      IF(K .EQ. 1)THEN
+	        DN_K=NU(1)-NU(2)
+	      ELSE IF(K .EQ. NCF)THEN
+	        DN_K=NU(NCF-1)-NU(NCF)
+	      ELSE
+	        DN_K=0.5_LDP*(NU(K-1)-NU(K+1))
+	      END IF
+	      XNORM=XNORM+WT*DN_K
+	    END DO
+	    IF(XNORM .LE. 0.0_LDP)CYCLE
+	  END IF
+!
+! Per-line collisional damping constant, same expression as
+! SET_PROF_V6: LOC_GAM_COL = 1.55E4*|C4|^0.667, scaled by local ED.
+!
+	  IF(DO_SOB_DEP_WINGS)
+	1   GAM_COL_LINE=1.55E+04_LDP*(ABS(C4_VEC(LP))**0.667_LDP)
 !
 	  N_DROP_L=0
 	  DO I=1,ND
@@ -2991,18 +3011,59 @@
 	    IF(CHIL_MAT(I,S) .LE. 0.0_LDP .OR. NEG_OPACITY(I))THEN
 	      N_DROP=N_DROP+1
 	      N_DROP_L=N_DROP_L+1
-	      DROP_SUM=DROP_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
-	      CYCLE
+	      IF(.NOT. DO_SOB_DEP_FLOOR)THEN
+	        DROP_SUM=DROP_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
+	        CYCLE
+	      END IF
 	    END IF
 	    INJ_SUM=INJ_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
+!
+! DO_SOB_DEP_WINGS: true Voigt profile per depth with the same
+! A_VOIGT formula the stock CMF profiles use (SET_PROF_V6), so the
+! deposited wings match the damping width the blanketing solve would
+! have carried.  Normalize per depth since A_VOIGT depends on ED(I).
+!
+	    IF(DO_SOB_DEP_WINGS)THEN
+	      TMP_ED=MIN(ED_IN(I),MAX_PROF_ED)
+	      A_VOIGT=0.25E-15_LDP*(ARAD_VEC(LP)+
+	1              GAM_COL_LINE*TMP_ED)/PI/DNU_D
+	      XNORM=0.0_LDP
+	      DO K=KA,KB
+	        X=(NU(K)-F0)/DNU_D
+	        WT=VOIGT(A_VOIGT,X)
+	        IF(K .EQ. 1)THEN
+	          DN_K=NU(1)-NU(2)
+	        ELSE IF(K .EQ. NCF)THEN
+	          DN_K=NU(NCF-1)-NU(NCF)
+	        ELSE
+	          DN_K=0.5_LDP*(NU(K-1)-NU(K+1))
+	        END IF
+	        XNORM=XNORM+WT*DN_K
+	      END DO
+	      IF(XNORM .LE. 0.0_LDP)CYCLE
+	    END IF
 	    DO K=KA,KB
 	      X=(NU(K)-F0)/DNU_D
-	      WT=EXP(-X*X)
-	      IF(DO_SOB_DEP_WINGS .AND. ABS(X) .GT. 3.0_LDP)
-	1        WT=EXP(-9.0_LDP)*(3.0_LDP/X)**2
+	      IF(DO_SOB_DEP_WINGS)THEN
+	        WT=VOIGT(A_VOIGT,X)
+	      ELSE
+	        WT=EXP(-X*X)
+	      END IF
 	      WT=1.0E-15_LDP*WT/XNORM
+!
+! DO_SOB_DEP_FLOOR: masing cells (CHIL_MAT<=0 or the blend-group
+! NEG_OPACITY flag) carry real emissivity but the formal integral
+! cannot amplify; deposit them as optically thin emitters by
+! substituting SOB_DEP_CHI_FLOOR for the negative opacity.
+!
+	      IF(DO_SOB_DEP_FLOOR .AND.
+	1        (CHIL_MAT(I,S) .LE. 0.0_LDP .OR. NEG_OPACITY(I)))THEN
+	        T1=SOB_DEP_CHI_FLOOR
+	      ELSE
+	        T1=CHIL_MAT(I,S)
+	      END IF
 	      CHI_ST(I,K)=CHI_ST(I,K)+
-     1	          CHIL_MAT(I,S)*CLUMP_FAC(I)*WT
+     1	          T1*CLUMP_FAC(I)*WT
 	      ETA_ST(I,K)=ETA_ST(I,K)+
      1	          ETAL_MAT(I,S)*CLUMP_FAC(I)*WT
 	    END DO

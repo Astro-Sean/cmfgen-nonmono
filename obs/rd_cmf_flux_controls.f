@@ -214,6 +214,12 @@
 	  SOB_DEP_WING_EXT=2000.0_LDP
 	  CALL RD_STORE_DBLE(SOB_DEP_WING_EXT,'SOB_DEP_WING_EXT',L_FALSE,
 	1        'SOB deposited profile wing extent (km/s)')
+	  DO_SOB_DEP_FLOOR=.FALSE.
+	  CALL RD_STORE_LOG(DO_SOB_DEP_FLOOR,'DO_SOB_DEP_FLOOR',L_FALSE,
+	1        'Keep emissivity at masing cells, floor opacity?')
+	  SOB_DEP_CHI_FLOOR=1.0_LDP
+	  CALL RD_STORE_DBLE(SOB_DEP_CHI_FLOOR,'SOB_DEP_CHI_FLOOR',L_FALSE,
+	1        'Line opacity floor for masing deposit cells')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,

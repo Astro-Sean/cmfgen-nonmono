@@ -129,6 +129,19 @@
 	LOGICAL :: DO_SOB_DEP_WINGS=.FALSE.
 	REAL(KIND=LDP) :: SOB_DEP_WING_EXT=2000.0_LDP   !km/s of damping-wing extent
 !
+! DO_SOB_DEP_FLOOR (default F): in ADD_SOB_LINE_PROF, masing or
+! negative-opacity cells deposit their emissivity with the line
+! opacity floored at SOB_DEP_CHI_FLOOR instead of being dropped.
+! The dropped cells sit in the deep dense shell and carry the
+! P-Cygni wing emission; dropping them deletes real flux and
+! renders wings too weak.  The formal integral cannot represent
+! amplification, so the floored cells act as optically thin
+! emitters -- the standard treatment for masing cells in a
+! deposited (Sobolev-map) formal spectrum.
+!
+	LOGICAL :: DO_SOB_DEP_FLOOR=.FALSE.
+	REAL(KIND=LDP) :: SOB_DEP_CHI_FLOOR=1.0_LDP
+!
 	REAL(KIND=LDP) VTURB_FIX		!Turbelent velocity used with fixed DOPPLER profile.
 	REAL(KIND=LDP) VTURB_MIN		!Minimum turbuleb velocity
 	REAL(KIND=LDP) VTURB_MAX		!Maximum turbulent velocity (VTURB = VTURB_MIN + (VTURB_MAX-VTURB_MIN)*V(r)/VInf
