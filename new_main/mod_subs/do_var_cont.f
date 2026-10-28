@@ -88,6 +88,10 @@
 	LOGICAL ALO_OK
 	LOGICAL QOK
 	LOGICAL QMASK(ND)
+	LOGICAL TRI_OK
+	REAL(KIND=LDP) DENB(ND)
+	REAL(KIND=LDP) TRA(ND),TRB(ND),TRC(ND),TRD(ND)
+	REAL(KIND=LDP) ALO_DMIN,ALO_DMAX
 	INTEGER LUER
 	INTEGER ERROR_LU
 	EXTERNAL ERROR_LU
@@ -364,6 +368,7 @@
 	     dRSQH_DIF_d_T(:)=0.0_LDP
 	     dRSQH_DIF_d_dTdR(:)=0.0_LDP
 	     ALO_OK=.FALSE.
+	     TRI_OK=.FALSE.
 	     IF(DO_NONMONO_KNOP)THEN
 !
 ! USE_LAM_ES=T: J is the ray solution.  Its diagonal holds I_NEXT
@@ -407,10 +412,55 @@
 	       END IF
 	     END IF
 	     IF(ALO_OK)THEN
+!
+! edited by Devin, 28-Oct-2026: ES-scattering-consistent
+! amplification of the stored diagonal [DO_ES_ALI_BA].  TA/TB are
+! the bare-Lambda response dJ/dCHI, dJ/dETA; the J that returns
+! from the formal solve has been through the converged coherent-ES
+! iterate, whose effective response is larger by the Jacobi factor
+! 1/(1 - DJDETA*chi_scat) -- the same DEN DO_ES_ALI divides by in
+! the J loop.  Without it the BA step under-corrects each
+! iteration in scattering-dominated depths.  ES_ALI_BA_MIN floors
+! the denominator so an overestimated diagonal cannot run away.
+! DENB holds the multiplier so the same row amplification can be
+! applied to the tridiagonal bands below.
+!
+	       IF(DO_ES_ALI_BA)THEN
+	         DO K=1,ND
+	           DENB(K)=MAX(1.0_LDP-TB(K)*CHI_SCAT_CLUMP(K),
+	1                  ES_ALI_BA_MIN)
+	           DENB(K)=1.0_LDP/DENB(K)
+	           TA(K)=TA(K)*DENB(K)
+	           TB(K)=TB(K)*DENB(K)
+	         END DO
+	       ELSE
+	         DENB(1:ND)=1.0_LDP
+	       END IF
 	       DO K=1,ND
 	         TX(K,K,1)=TA(K)
 	         TX(K,K,2)=TB(K)
 	       END DO
+!
+! edited by Devin, 28-Oct-2026: tridiagonal Lambda* off-diagonals
+! [DO_FG13_ALO_TRI].  TRA/TRB are dJ(K)/dCHI,dETA at depth K-1;
+! TRC/TRD the same at K+1 (GET_FG13_ALO_TRI).  Effective only when
+! NUM_BNDS >= 3 -- with a diagonal BA the off-bands never reach VJ,
+! so the fill is skipped rather than wasted.  TRI_OK guards a
+! solver that never stored an operator (e.g. DO_SOB_FG_KNOP).
+!
+	       IF(DO_FG13_ALO_TRI .AND. NUM_BNDS .GE. 3)THEN
+	         CALL GET_FG13_ALO_TRI(TRA,TRB,TRC,TRD,ND,TRI_OK)
+	         IF(TRI_OK)THEN
+	           DO K=2,ND
+	             TX(K,K-1,1)=TRA(K)*DENB(K)
+	             TX(K,K-1,2)=TRB(K)*DENB(K)
+	           END DO
+	           DO K=1,ND-1
+	             TX(K,K+1,1)=TRC(K)*DENB(K)
+	             TX(K,K+1,2)=TRD(K)*DENB(K)
+	           END DO
+	         END IF
+	       END IF
 ! Confirm the fill is active once per BA iteration (do_var_cont is
 ! called per frequency; FIRST_FREQ gives one line per sweep).
 ! dJ/dCHI<0 and dJ/dETA>0 are the expected signs.
@@ -428,6 +478,23 @@
 	4         MINVAL(TA(1:ND)),MAXVAL(TA(1:ND)),']',
 	5         ' dJ/dETA diag [',
 	6         MINVAL(TB(1:ND)),MAXVAL(TB(1:ND)),']'
+	         IF(DO_FG13_ALO_TRI .AND. TRI_OK)THEN
+	           ALO_DMAX=0.0_LDP
+	           ALO_DMIN=1.0D+300
+	           DO K=1,ND-1
+	             IF(TX(K,K,2) .NE. 0.0_LDP)THEN
+	               ALO_DMAX=MAX(ALO_DMAX,ABS(TX(K,K+1,2)/TX(K,K,2)))
+	               ALO_DMIN=MIN(ALO_DMIN,ABS(TX(K,K+1,2)/TX(K,K,2)))
+	             END IF
+	             IF(TX(K+1,K+1,2) .NE. 0.0_LDP)THEN
+	               ALO_DMAX=MAX(ALO_DMAX,ABS(TX(K+1,K,2)/TX(K+1,K+1,2)))
+	               ALO_DMIN=MIN(ALO_DMIN,ABS(TX(K+1,K,2)/TX(K+1,K+1,2)))
+	             END IF
+	           END DO
+	           WRITE(LUER,'(A,2(1X,ES12.4),A)')
+	1          '  SOB ALO (FG) tri: |offdiag/diag| dJ/dETA [',
+	2          ALO_DMIN,ALO_DMAX,']'
+	         END IF
 	       END IF
 !
 ! USE_LAM_ES=F uses the moment diagonal, whose boundary rows are

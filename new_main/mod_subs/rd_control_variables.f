@@ -2443,6 +2443,22 @@
 	1     'Max J passes per frequency under ES-ALI (<=20)')
 	  IF(ES_ALI_MAX .GT. 20)ES_ALI_MAX=20
 !
+! BA-side ALI keys (28-Oct-2026): optional.  DO_ES_ALI_BA amplifies
+! the stored ALO diagonal in DO_VAR_CONT by the converged-ES Jacobi
+! factor 1/(1 - DJDETA*chi_scat), floored at ES_ALI_BA_MIN.
+! DO_FG13_ALO_TRI adds the stored off-diagonal Lambda* entries to
+! TX (effective only at NUM_BNDS>=3).
+!
+	  DO_ES_ALI_BA=.FALSE.
+	  CALL RD_STORE_LOG(DO_ES_ALI_BA,'DO_ES_ALI_BA',L_FALSE,
+	1     'ES-scattering-consistent amplification of the BA ALO')
+	  ES_ALI_BA_MIN=0.1D0
+	  CALL RD_STORE_DBLE(ES_ALI_BA_MIN,'ES_ALI_BA_MIN',L_FALSE,
+	1     'Floor on the ES-ALI BA amplification denominator')
+	  DO_FG13_ALO_TRI=.FALSE.
+	  CALL RD_STORE_LOG(DO_FG13_ALO_TRI,'DO_FG13_ALO_TRI',L_FALSE,
+	1     'Tridiagonal Lambda* off-diagonals in the SOB Jacobian')
+!
 ! Residual-driven BA recall (default FALSE): while the judged
 ! residual still contracts, allow BAMAT recall past the FIX_BA
 ! demand window.  Inert without DO_BA_RES_ACC, which supplies the
@@ -3445,6 +3461,15 @@
 ! setting DO_FG13_ALO would echo a V13 operator that never runs.
 	        DO_FG13_ALO=.TRUE.
 	        WRITE(LUER,'(A)')' SOB auto-set: DO_FG13_ALO=T'
+	      END IF
+!
+! DO_FG13_ALO_TRI needs the stored diagonal it extends -- without a
+! filled ALO the off-diagonals never reach TX.
+!
+	      IF(DO_FG13_ALO_TRI .AND. .NOT. DO_FG13_ALO .AND.
+	1         .NOT. DO_SOB_FG_KNOP)THEN
+	        WRITE(LUER,'(A)')' WARNING: DO_FG13_ALO_TRI=T but'//
+	1       ' DO_FG13_ALO=F -- the tridiagonal ALO fill is inactive'
 	      END IF
 !
 ! Loud banner for the clamped-lines consistency probe: the flag

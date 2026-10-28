@@ -1740,6 +1740,40 @@
 	REAL(KIND=LDP) ES_ALI_TOL
 	INTEGER ES_ALI_MAX
 !
+! DO_ES_ALI_BA (VADAT [DO_ES_ALI_BA], default F): apply the same
+! Olson-Auer-Buchler scattering correction DO_ES_ALI uses inside the
+! J loop to the continuum Jacobian in DO_VAR_CONT.  The stored
+! diagonal is the bare-Lambda response dJ/d(ETA,CHI); after the
+! converged ES iterate the effective response is larger by
+! 1/(1 - DJDETA*chi_scat).  Without the factor the BA linearization
+! under-corrects every iteration -- a fixed-ratio decay of the
+! dominant error mode (measured ~0.97/it on the m15 2.82d SOB
+! model).  ES_ALI_BA_MIN floors the amplification denominator
+! (default 0.1) so a diagonal Lambda* that overestimates the local
+! coupling cannot produce an unbounded step.  Active only where the
+! ALO fill runs (DO_FG13_ALO or DO_SOB_FG_KNOP paths); the
+! correction is applied per depth to every filled band, so it
+! composes with DO_FG13_ALO_TRI.  Default F leaves the
+! linearization unchanged.
+!
+	LOGICAL DO_ES_ALI_BA
+	REAL(KIND=LDP) ES_ALI_BA_MIN
+!
+! DO_FG13_ALO_TRI (VADAT [DO_FG13_ALO_TRI], default F): use the
+! off-diagonal Lambda* entries stored by FG_J_CMF_V13
+! (GET_FG13_ALO_TRI) to fill the K-1 and K+1 columns of TX in
+! DO_VAR_CONT.  The banded dJ_LOC machinery then puts the depth
+! coupling into the BA off-diagonal blocks -- effective only with
+! SOL_METH=TRI/NUM_BNDS=3; with NUM_BNDS<3 the fill is skipped and
+! the diagonal path is unchanged.  Ray-node neighbors are assigned
+! to depth neighbors (exact on the non-inserted radial grid,
+! approximate otherwise); only the direct source coefficients of
+! the formal integral are retained.  Requires DO_FG13_ALO (itself
+! auto-set under DO_NONMONO_SOB + USE_LAM_ES=T).  Default F keeps
+! the diagonal-only Jacobian.
+!
+	LOGICAL DO_FG13_ALO_TRI
+!
 ! BA_LUM_GATE and BA_LUM_DCHG are retained as accepted VADAT keys for
 ! restart compatibility.  They no longer affect convergence: shocks
 ! permit physical luminosity deposition between the inner and outer

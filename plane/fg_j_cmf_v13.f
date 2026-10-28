@@ -169,6 +169,28 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDETA(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDCHI(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: LAMSTAR_DIAG(:)
+!
+! Tridiagonal extension of the stored operator (Olson & Kunasz
+! 1987, JQSRT 38, 325): the same per-ray response weights evaluated
+! at the ray nodes adjacent to K.  Ray-node K-1 (upstream, larger
+! radius) is assigned to depth I-1 and K+1 to depth I+1 -- exact
+! for the non-inserted radial grid, approximate where the ray grid
+! carries inserted points or a tangent ray clusters nodes.  Only
+! the direct S' coefficients of the formal integral are used (A1,
+! A2 plus the one-cell propagated A0*A2 term); the source-gradient
+! (dS) couplings are ignored, matching the diagonal approximation.
+!
+! ALO_*_M(K) entries feed dJ(K)/dETA(K-1), dJ(K)/dCHI(K-1); the
+! inward I_M source S'_M applies.  ALO_*_P(K) feed dJ(K)/dETA(K+1),
+! dJ(K)/dCHI(K+1) with the outward S'_P.  do_var_cont.f consumes
+! them under opt-in DO_FG13_ALO_TRI when NUM_BNDS >= 3.
+!
+! edited by Devin, 28-Oct-2026
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDETA_M(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDCHI_M(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDETA_P(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDCHI_P(:)
 	LOGICAL, SAVE :: ALO_VALID=.FALSE.
 	INTEGER, SAVE :: ALO_ND=0
 !
@@ -360,6 +382,7 @@
 !
 	INTEGER NIR_ALO,N_OUT_LAMSTAR
 	REAL(KIND=LDP) ALO_DIM,ALO_DIP,ALO_DAV
+	REAL(KIND=LDP) ALO_M,ALO_P
 	REAL(KIND=LDP) LAMSTAR_MIN,LAMSTAR_MAX
 !
 	REAL(KIND=LDP) DBC
@@ -413,6 +436,10 @@
 	  ALLOCATE(ALO_DJDETA(ND),STAT=IOS)
 	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI(ND),STAT=IOS)
 	  IF(IOS .EQ. 0)ALLOCATE(LAMSTAR_DIAG(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDETA_M(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI_M(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDETA_P(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI_P(ND),STAT=IOS)
 	  IF(IOS .NE. 0)THEN
 	    WRITE(LUER,*)'Error allocating ALO arrays in FG_J_CMF_V13: Status=',IOS
 	    STOP
@@ -420,9 +447,14 @@
 	  ALO_ND=ND
 	ELSE IF(ALO_ND .NE. ND)THEN
 	  DEALLOCATE(ALO_DJDETA,ALO_DJDCHI,LAMSTAR_DIAG)
+	  DEALLOCATE(ALO_DJDETA_M,ALO_DJDCHI_M,ALO_DJDETA_P,ALO_DJDCHI_P)
 	  ALLOCATE(ALO_DJDETA(ND),STAT=IOS)
 	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI(ND),STAT=IOS)
 	  IF(IOS .EQ. 0)ALLOCATE(LAMSTAR_DIAG(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDETA_M(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI_M(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDETA_P(ND),STAT=IOS)
+	  IF(IOS .EQ. 0)ALLOCATE(ALO_DJDCHI_P(ND),STAT=IOS)
 	  IF(IOS .NE. 0)THEN
 	    WRITE(LUER,*)'Error re-allocating ALO arrays in FG_J_CMF_V13: Status=',IOS
 	    STOP
@@ -432,6 +464,10 @@
 	ALO_DJDETA(1:ND)=0.0_LDP
 	ALO_DJDCHI(1:ND)=0.0_LDP
 	LAMSTAR_DIAG(1:ND)=0.0_LDP
+	ALO_DJDETA_M(1:ND)=0.0_LDP
+	ALO_DJDCHI_M(1:ND)=0.0_LDP
+	ALO_DJDETA_P(1:ND)=0.0_LDP
+	ALO_DJDCHI_P(1:ND)=0.0_LDP
 	ALO_VALID=.FALSE.
 	IF(ALLOCATED(ALO_CHIHAT_RAY))THEN
 	  ALO_CHIHAT_RAY=0.0_LDP
@@ -1855,6 +1891,62 @@ C
 	1             (ALO_DIP*ALO_SPR_P_RAY(K,LS)+
 	1              ALO_DIM*ALO_SPR_M_RAY(K,LS))/ALO_CHIHAT_RAY(K,LS)
 	        END IF
+!
+! Tridiagonal off-diagonals (module comments near ALO_DJDETA_M).
+! The inward I_M(K) carries the source at ray node K-1 (mapped to
+! depth I-1): dI_M(K)/dS'(K-1) = A1(K-1) plus the term propagated
+! through I_M(K-1), A0(K-1)*dI_M(K-1)/dS'(K-1) = A0(K-1)*A2(K-2).
+! At the innermost node of a reflected ray (LS>NC) or a
+! ZERO_FLUX/PNT_SRCE inner boundary, I_P=I_M so the response
+! doubles -- same doubling the diagonal applies.  For a DIFFUSION
+! inner boundary I_P(NI)=I_CORE is independent of S', so the
+! outward half contributes nothing there.
+!
+	        IF(K .GE. 2)THEN
+	          ALO_M=A1(K-1,LS)
+	          IF(K .GE. 3)ALO_M=ALO_M+A0(K-1,LS)*A2(K-2,LS)
+	          IF(K .EQ. NIR_ALO .AND.
+	1             (LS .GT. NC .OR.
+	1              INNER_BND_METH .EQ. 'ZERO_FLUX' .OR.
+	1              INNER_BND_METH .EQ. 'PNT_SRCE'))THEN
+	            ALO_M=ALO_M
+	          ELSE
+	            ALO_M=0.5_LDP*ALO_M
+	          END IF
+	          IF(ALO_CHIHAT_RAY(K-1,LS) .GT. 0.0_LDP)THEN
+	            ALO_DJDETA_M(I)=ALO_DJDETA_M(I)+
+	1               JQW(I,LS)*ALO_M/ALO_CHIHAT_RAY(K-1,LS)
+	            ALO_DJDCHI_M(I)=ALO_DJDCHI_M(I)-
+	1               JQW(I,LS)*ALO_M*ALO_SPR_M_RAY(K-1,LS)/
+	1               ALO_CHIHAT_RAY(K-1,LS)
+	          END IF
+	        END IF
+!
+! The outward I_P(K) carries the source at ray node K+1 (mapped to
+! depth I+1): dI_P(K)/dS'(K+1) = A1(K) plus the propagated
+! A0(K)*dI_P(K+1)/dS'(K+1) = A0(K)*A2(K+1).  At K=NI-1 the
+! propagated part uses the inner-node response: A2(NI-1) when
+! I_P(NI)=I_M(NI) (reflected rays and ZERO_FLUX/PNT_SRCE), zero
+! under DIFFUSION (I_CORE independent of S').
+!
+	        IF(K .LE. NIR_ALO-1)THEN
+	          ALO_P=A1(K,LS)
+	          IF(K .LE. NIR_ALO-2)THEN
+	            ALO_P=ALO_P+A0(K,LS)*A2(K+1,LS)
+	          ELSE IF(LS .GT. NC .OR.
+	1             INNER_BND_METH .EQ. 'ZERO_FLUX' .OR.
+	1             INNER_BND_METH .EQ. 'PNT_SRCE')THEN
+	            ALO_P=ALO_P+A0(K,LS)*A2(K,LS)
+	          END IF
+	          ALO_P=0.5_LDP*ALO_P
+	          IF(ALO_CHIHAT_RAY(K+1,LS) .GT. 0.0_LDP)THEN
+	            ALO_DJDETA_P(I)=ALO_DJDETA_P(I)+
+	1               JQW(I,LS)*ALO_P/ALO_CHIHAT_RAY(K+1,LS)
+	            ALO_DJDCHI_P(I)=ALO_DJDCHI_P(I)-
+	1               JQW(I,LS)*ALO_P*ALO_SPR_P_RAY(K+1,LS)/
+	1               ALO_CHIHAT_RAY(K+1,LS)
+	          END IF
+	        END IF
 	      END IF
 	    END DO
 	  END DO
@@ -2096,6 +2188,36 @@ C
 	  IF(ALO_VALID .AND. ALO_ND .EQ. N)THEN
 	    DJDCHI(1:N)=ALO_DJDCHI(1:N)
 	    DJDETA(1:N)=ALO_DJDETA(1:N)
+	    VALID=.TRUE.
+	  END IF
+	END IF
+	RETURN
+	END
+!
+	SUBROUTINE GET_FG13_ALO_TRI(DJDCHI_M,DJDETA_M,DJDCHI_P,DJDETA_P,
+	1                         N,VALID)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_MOD_V13, ONLY:
+	1     ALO_DJDCHI_M,ALO_DJDETA_M,ALO_DJDCHI_P,ALO_DJDETA_P,
+	2     ALO_VALID,ALO_ND
+	IMPLICIT NONE
+	INTEGER N
+	REAL(KIND=LDP) DJDCHI_M(N),DJDETA_M(N)
+	REAL(KIND=LDP) DJDCHI_P(N),DJDETA_P(N)
+	LOGICAL VALID
+!
+! Accessor for the off-diagonal approximate-Lambda entries stored by
+! FG_J_CMF_V13: DJD*_M(K) holds dJ(K)/dETA(K-1) and dJ(K)/dCHI(K-1),
+! DJD*_P(K) holds dJ(K)/dETA(K+1) and dJ(K)/dCHI(K+1).  Needed by
+! DO_VAR_CONT's fixed-J branch under DO_FG13_ALO_TRI + NUM_BNDS=3.
+!
+	VALID=.FALSE.
+	IF(ALLOCATED(ALO_DJDCHI_M))THEN
+	  IF(ALO_VALID .AND. ALO_ND .EQ. N)THEN
+	    DJDCHI_M(1:N)=ALO_DJDCHI_M(1:N)
+	    DJDETA_M(1:N)=ALO_DJDETA_M(1:N)
+	    DJDCHI_P(1:N)=ALO_DJDCHI_P(1:N)
+	    DJDETA_P(1:N)=ALO_DJDETA_P(1:N)
 	    VALID=.TRUE.
 	  END IF
 	END IF
