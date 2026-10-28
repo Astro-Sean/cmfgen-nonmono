@@ -118,6 +118,17 @@
 	LOGICAL DO_SOB_FLUX_OBS
 	LOGICAL DO_CMF_EW
 !
+! DO_SOB_DEP_WINGS (default F): in ADD_SOB_LINE_PROF, continue the
+! deposited Gaussian core as 1/x^2 damping wings out to
+! SOB_DEP_WING_EXT km/s instead of truncating at 3 Doppler widths.
+! The local-Gaussian deposit reproduces only the line core; the
+! full CMF solve carries Voigt/damping wings, so without them the
+! SOB-rendered optical lines run systematically narrower than the
+! monotonic-solver render.
+!
+	LOGICAL :: DO_SOB_DEP_WINGS=.FALSE.
+	REAL(KIND=LDP) :: SOB_DEP_WING_EXT=2000.0_LDP   !km/s of damping-wing extent
+!
 	REAL(KIND=LDP) VTURB_FIX		!Turbelent velocity used with fixed DOPPLER profile.
 	REAL(KIND=LDP) VTURB_MIN		!Minimum turbuleb velocity
 	REAL(KIND=LDP) VTURB_MAX		!Maximum turbulent velocity (VTURB = VTURB_MIN + (VTURB_MAX-VTURB_MIN)*V(r)/VInf

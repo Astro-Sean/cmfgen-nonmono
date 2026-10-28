@@ -2864,6 +2864,7 @@
      3	      NUM_SIM,N_LINES,MAX_SIM,ND,C_KMS,
      4	      N_DROP,DROP_SUM,INJ_SUM)
 	USE SET_KIND_MODULE
+	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
 	INTEGER, INTENT(IN) :: NCF,ND,NUM_SIM,N_LINES,MAX_SIM
@@ -2884,7 +2885,7 @@
 !
 	INTEGER I,K,S,LP,K0,KA,KB,LO,HI,MID
 	INTEGER N_DROP_L
-	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K
+	REAL(KIND=LDP) F0,DNU_D,W,XNORM,WT,DN_K,X
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
 !
@@ -2911,6 +2912,16 @@
 	  DNU_D=F0*VDOP_MIN(LP)/C_KMS
 	  IF(DNU_D .LE. 0.0_LDP)CYCLE
 	  W=3.0_LDP*DNU_D
+!
+! DO_SOB_DEP_WINGS (default F): the full CMF solve carries Voigt/
+! damping wings on each line, so the pure-Gaussian deposit renders
+! line wings systematically too narrow.  Extend the deposit window
+! to SOB_DEP_WING_EXT km/s and continue the profile as 1/x^2 tails
+! beyond 3 Doppler widths (a standard Voigt-wing surrogate; the
+! wing amplitude inherits the line's opacity so only strong lines
+! grow visible wings).
+!
+	  IF(DO_SOB_DEP_WINGS)W=MAX(W,F0*SOB_DEP_WING_EXT/C_KMS)
 !
 ! NU decreases with index.  K0 is the last index with NU(K0) >= F0,
 ! so F0 lies in [NU(K0+1),NU(K0)).  Lines outside the grid cannot
@@ -2955,7 +2966,10 @@
 !
 	  XNORM=0.0_LDP
 	  DO K=KA,KB
-	    WT=EXP(-((NU(K)-F0)/DNU_D)**2)
+	    X=(NU(K)-F0)/DNU_D
+	    WT=EXP(-X*X)
+	    IF(DO_SOB_DEP_WINGS .AND. ABS(X) .GT. 3.0_LDP)
+	1        WT=EXP(-9.0_LDP)*(3.0_LDP/X)**2
 	    IF(K .EQ. 1)THEN
 	      DN_K=NU(1)-NU(2)
 	    ELSE IF(K .EQ. NCF)THEN
@@ -2982,7 +2996,11 @@
 	    END IF
 	    INJ_SUM=INJ_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
 	    DO K=KA,KB
-	      WT=1.0E-15_LDP*EXP(-((NU(K)-F0)/DNU_D)**2)/XNORM
+	      X=(NU(K)-F0)/DNU_D
+	      WT=EXP(-X*X)
+	      IF(DO_SOB_DEP_WINGS .AND. ABS(X) .GT. 3.0_LDP)
+	1        WT=EXP(-9.0_LDP)*(3.0_LDP/X)**2
+	      WT=1.0E-15_LDP*WT/XNORM
 	      CHI_ST(I,K)=CHI_ST(I,K)+
      1	          CHIL_MAT(I,S)*CLUMP_FAC(I)*WT
 	      ETA_ST(I,K)=ETA_ST(I,K)+

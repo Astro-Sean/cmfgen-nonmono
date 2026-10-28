@@ -208,6 +208,12 @@
 	  DO_SOB_FLUX_OBS=.FALSE.
 	  CALL RD_STORE_LOG(DO_SOB_FLUX_OBS,'DO_SOB_FLUX_OBS',L_FALSE,
 	1        'Deposit Sobolev line flux into OBS spectrum?')
+	  DO_SOB_DEP_WINGS=.FALSE.
+	  CALL RD_STORE_LOG(DO_SOB_DEP_WINGS,'DO_SOB_DEP_WINGS',L_FALSE,
+	1        'Add 1/x^2 damping wings to deposited SOB profiles?')
+	  SOB_DEP_WING_EXT=2000.0_LDP
+	  CALL RD_STORE_DBLE(SOB_DEP_WING_EXT,'SOB_DEP_WING_EXT',L_FALSE,
+	1        'SOB deposited profile wing extent (km/s)')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
