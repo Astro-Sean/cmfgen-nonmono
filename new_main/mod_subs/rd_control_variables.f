@@ -2575,6 +2575,14 @@
 	  CALL RD_STORE_LOG(GS_FOREIGN_SEED,'GS_FOREIGN_SEED',L_FALSE,
 	1     'KNOP: seed lagged field from foreign FGINEXT_GS on restart')
 !
+! KN_LUM_TRACE (29-Oct-2026): opt-in first-detection scan of STEQ_T
+! after each energy-equation accumulation site -- localizes which
+! term makes DEP_RAD_EQ (and hence RLUMST(ND)) non-finite on the
+! warmS/l14_freet restarts.  Default F: no scans.
+!
+	  CALL RD_STORE_LOG(KN_LUM_TRACE,'KN_LUM_TRACE',L_FALSE,
+	1     'Trace first non-finite STEQ_T accumulation site')
+!
 ! LUM_DIV_RWARM (29-Oct-2026): post-start calls in which the
 ! LUM_DIV_CAP stop is suppressed -- cold I_NEXT rebuild transients
 ! sit orders above any model-physical cap for tens of iterations.

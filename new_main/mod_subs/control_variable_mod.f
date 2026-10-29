@@ -1879,6 +1879,17 @@
 !
 	LOGICAL GS_FOREIGN_SEED
 !
+! KN_LUM_TRACE (VADAT [KN_LUM_TRACE], default F): scan STEQ_T for a
+! non-finite entry after each energy-equation accumulation site in
+! the real sweep and report the first site, frequency, depth, and
+! operand values that produced it.  The warmS/l14_freet restarts die
+! on the SOLVE_FOR_POPS luminosity non-finite stop because DEP_RAD_EQ
+! (=STEQ_T) is NaN at the boundary depths, but STEQ_T is built up
+! from several terms so the culprit is not identifiable from the
+! luminosity alone.  Diagnostic only; default path unchanged.
+!
+	LOGICAL KN_LUM_TRACE
+!
 ! GS_HOLD_POPS (VADAT [GS_HOLD_POPS], default F): on a GS-freeze
 ! iteration, snapshot POPS before the forced-LAMBDA SOLVEBA update
 ! and restore them afterwards, so the sweep converges the lagged

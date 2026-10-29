@@ -207,6 +207,7 @@
 	LOGICAL BA_TRACE_NEEDED,BA_TRACE_DONE,BA_DEM_EXIT_OK
 	LOGICAL BA_TRACE_ACTIVE,BA_TRACE_OFF,BA_TRACE_RELEASE
 	LOGICAL BA_STAGEB_ARM
+	LOGICAL KN_LT_DONE
 	CHARACTER(LEN=6) ARM_CAUSE
 ! edited by Devin, 16-Oct-2026: CONV_EXIT_MET is the converged-exit
 ! condition evaluated before the LST_ITERATION split so the budgeted-
@@ -525,6 +526,7 @@
 	MAXCH_SUM=0.0_LDP
 	LST_ITERATION=.FALSE.
 	CONV_EXIT_DONE=.FALSE.
+	KN_LT_DONE=.FALSE.
 	dE_RAD_DECAY=0.0_LDP 			!For non-SN models.
 	dE_SHOCK_POWER= 0.0_LDP
 	LUM_SCL_FAC=4.1274E-12_LDP              !(4*PI)**2*Dex(+20)/L(sun)
@@ -2074,6 +2076,23 @@
 	1          T2*NUST(K)*ZNET(K)
 	  END DO
 !
+! KN_LUM_TRACE (29-Oct-2026, [KN_LUM_TRACE] default F): first
+! non-finite STEQ_T entry.  Suspects here: ETAL(K)=0 via NUST
+! underflow (ZNET=1-RJ*CHIL/ETAL -> Inf, then NUST*ZNET=0*Inf) or
+! a non-finite RJ from the formal solve.
+!
+	  IF(KN_LUM_TRACE .AND. .NOT. KN_LT_DONE)THEN
+	    DO K=1,ND
+	      IF(.NOT. (ABS(STEQ_T(K)) .LE. HUGE(1.0_LDP)))THEN
+	        WRITE(LUER,'(A,I6,A,I4,5ES13.5)')
+	1      '  KN_LUM_TRACE DIE: ML=',ML,' K=',K,
+	2      NUST(K),ZNET(K),ETAL(K),CHIL(K),RJ(K)
+	        KN_LT_DONE=.TRUE.
+	        EXIT
+	      END IF
+	    END DO
+	  END IF
+!
 ! Update ionization balance equations if required.
 !
 	  MNUP=ATM(ID)%NXzV+1
@@ -2596,8 +2615,30 @@
 	  DO K=1,ND
 	    STEQ_T(K)=STEQ_T(K)+ FQW(ML)*(CHI_NOSCAT(K)*RJ(K) - ETA_NOSCAT(K))
 	  END DO
+	  IF(KN_LUM_TRACE .AND. .NOT. KN_LT_DONE)THEN
+	    DO K=1,ND
+	      IF(.NOT. (ABS(STEQ_T(K)) .LE. HUGE(1.0_LDP)))THEN
+	        WRITE(LUER,'(A,I6,A,I4,5ES13.5)')
+	1      '  KN_LUM_TRACE CONT: ML=',ML,' K=',K,
+	2      FQW(ML),CHI_NOSCAT(K),RJ(K),ETA_NOSCAT(K),STEQ_T(K)
+	        KN_LT_DONE=.TRUE.
+	        EXIT
+	      END IF
+	    END DO
+	  END IF
 	  IF(.NOT. COHERENT_ES)THEN
 	    STEQ_T(:)=STEQ_T(:)+FQW(ML)*ESEC(:)*(RJ(:)-RJ_ES(:))
+	  END IF
+	  IF(KN_LUM_TRACE .AND. .NOT. KN_LT_DONE)THEN
+	    DO K=1,ND
+	      IF(.NOT. (ABS(STEQ_T(K)) .LE. HUGE(1.0_LDP)))THEN
+	        WRITE(LUER,'(A,I6,A,I4,4ES13.5)')
+	1      '  KN_LUM_TRACE ES: ML=',ML,' K=',K,
+	2      ESEC(K),RJ(K),RJ_ES(K),STEQ_T(K)
+	        KN_LT_DONE=.TRUE.
+	        EXIT
+	      END IF
+	    END DO
 	  END IF
 !
 	  CALL COMP_VAR_JREC_V2(JREC,dJRECdT,JPHOT,JREC_CR,dJREC_CRdT,JPHOT_CR,BPHOT_CR,
@@ -2759,6 +2800,17 @@
 	      SE(ID)%STEQ(MNL,K) =SE(ID)%STEQ(MNL,K) + T2
 	      STEQ_T(K)=STEQ_T(K) - T3
 	    END DO
+	    IF(KN_LUM_TRACE .AND. .NOT. KN_LT_DONE)THEN
+	      DO K=1,ND
+	        IF(.NOT. (ABS(STEQ_T(K)) .LE. HUGE(1.0_LDP)))THEN
+	          WRITE(LUER,'(A,I6,A,I4,A,I6,3ES13.5)')
+	1        '  KN_LUM_TRACE LINE: SIM=',SIM_INDX,' K=',K,' ML=',ML,
+	2        ETAL_MAT(K,SIM_INDX),ZNET_SIM(K,SIM_INDX),STEQ_T(K)
+	          KN_LT_DONE=.TRUE.
+	          EXIT
+	        END IF
+	      END DO
+	    END IF
 	    T2=EINA(SIM_INDX)*ATM(ID)%XzV_F(MNUP_F,5)*ZNET_SIM(5,SIM_INDX)
 	  END IF
 	END DO
@@ -3316,6 +3368,29 @@
 	END IF
 !
 ! Store radiative equlibrium equation so we can check influence on radiation field.
+!
+! KN_LUM_TRACE catch-all (29-Oct-2026, [KN_LUM_TRACE] default F):
+! fires only if none of the per-site scans above caught the first
+! non-finite entry -- isolates contributions between the last
+! instrumented site and here (artificial heat, PREVENT_LOW_T, etc.).
+!
+	IF(KN_LUM_TRACE)THEN
+	  T1=0.0_LDP; L=1
+	  DO K=1,ND
+	    IF(ABS(STEQ_T(K)) .GT. T1)THEN
+	      T1=ABS(STEQ_T(K)); L=K
+	    END IF
+	    IF(.NOT. KN_LT_DONE .AND.
+	1      .NOT. (ABS(STEQ_T(K)) .LE. HUGE(1.0_LDP)))THEN
+	      WRITE(LUER,'(A,I4,ES13.5)')
+	1    '  KN_LUM_TRACE PRE-DEP: K=',K,STEQ_T(K)
+	      KN_LT_DONE=.TRUE.
+	    END IF
+	  END DO
+	  WRITE(LUER,'(A,I4,2ES13.5,A,4ES13.5)')
+	1 '  KN_LUM_TRACE PRE-DEP max: K=',L,T1,R(L)*R(L),
+	2 '  STEQ_T(1:2)=',STEQ_T(1),STEQ_T(2),T(1),T(2)
+	END IF
 !
 	DEP_RAD_EQ(1:ND)=STEQ_T(1:ND)
 ! 
