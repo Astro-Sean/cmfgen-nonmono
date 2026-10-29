@@ -2552,6 +2552,21 @@
 	1     'KNOP: release lum latch below REC*pre-runaway L_out (0=never)')
 	  IF(LUM_DIV_REC .LT. 0.0_LDP)LUM_DIV_REC=1.0_LDP
 !
+! LUM_DIV_FAC3/LUM_DIV_N3 (29-Oct-2026): drift tier for sustained
+! small-factor growth -- the l14_freet restart runaway climbed
+! ~2%/call for 300 calls, invisible to the 5x/100x streak tiers.
+! Default disabled (N3=0): a legitimate field re-equilibration can
+! look identical, so enable per run.
+!
+	  LUM_DIV_FAC3=1.005_LDP
+	  CALL RD_STORE_DBLE(LUM_DIV_FAC3,'LUM_DIV_FAC3',L_FALSE,
+	1     'KNOP: per-call growth factor for the drift streak (off)')
+	  IF(LUM_DIV_FAC3 .LE. 1.0_LDP)LUM_DIV_FAC3=1.005_LDP
+	  LUM_DIV_N3=0
+	  CALL RD_STORE_INT(LUM_DIV_N3,'LUM_DIV_N3',L_FALSE,
+	1     'KNOP: consecutive drift-growth calls before LUM_BLOCKED (0=off)')
+	  IF(LUM_DIV_N3 .LT. 0)LUM_DIV_N3=0
+!
 ! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
 ! diagnostics.  2 reproduces the pre-existing output volume
 ! (MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE plus the

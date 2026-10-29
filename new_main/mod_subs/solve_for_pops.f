@@ -358,6 +358,13 @@
 ! level before the triggering streak) so recovery requires
 ! L_out <= LUM_DIV_REC*LUM_DIV_BASE, not merely a quiet iteration.
 ! LUM_DIV_NCNT2/LUM_DIV_B2 track the slow-streak tier
+! ([LUM_DIV_FAC2]/[LUM_DIV_N2]).  LUM_DIV_NCNT3/LUM_DIV_B3 track the
+! third, lowest-factor tier ([LUM_DIV_FAC3]/[LUM_DIV_N3]): the
+! m15_2p82d_KNOP_l14_freet restart runaway grew only ~0.02-0.06x per
+! call (1.6E9 -> 1.2E10 over 300 iterations under pops-held), a drift
+! both existing tiers are blind to but which is unambiguous
+! divergence when sustained.
+!
 ! ([LUM_DIV_FAC2]/[LUM_DIV_N2]): ~10x-per-call geometric runaways
 ! never reach LUM_DIV_FAC=1E2 but still diverge.
 !
@@ -365,6 +372,8 @@
 	REAL(KIND=LDP), SAVE :: LUM_DIV_BASE=0.0_LDP
 	REAL(KIND=LDP), SAVE :: LUM_DIV_B2=0.0_LDP
 	INTEGER, SAVE :: LUM_DIV_NCNT2=0
+	REAL(KIND=LDP), SAVE :: LUM_DIV_B3=0.0_LDP
+	INTEGER, SAVE :: LUM_DIV_NCNT3=0
 !
 ! Consecutive calls whose SCRTEMP record is a clean committed
 ! iterate (no reject/masked/soft-reject/pending-arm/Newton/held-pops
@@ -573,6 +582,8 @@
 	  LUM_DIV_BASE=0.0_LDP
 	  LUM_DIV_B2=0.0_LDP
 	  LUM_DIV_NCNT2=0
+	  LUM_DIV_B3=0.0_LDP
+	  LUM_DIV_NCNT3=0
 	  N_HIST=0
 	  HIST_POS=0
 	  PLAT_CNT=0
@@ -799,8 +810,10 @@
 	    LUM_DIV_LATCH=.FALSE.
 	    LUM_DIV_NCNT=0
 	    LUM_DIV_NCNT2=0
+	    LUM_DIV_NCNT3=0
 	    LUM_DIV_BASE=0.0_LDP
 	    LUM_DIV_B2=0.0_LDP
+	    LUM_DIV_B3=0.0_LDP
 	    LUM_BLOCKED=.FALSE.
 	  END IF
 	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
@@ -829,6 +842,22 @@
 	    LUM_DIV_NCNT2=0
 	    IF(.NOT. LUM_DIV_LATCH)LUM_DIV_B2=0.0_LDP
 	  END IF
+!
+! Drift tier: sustained growth above LUM_DIV_FAC3 for LUM_DIV_N3
+! consecutive calls.  The m15_2p82d_KNOP_l14_freet cold I_NEXT
+! rebuild after a checkpoint-less restart walked L_out from 1.6E9
+! to 1.2E10 at ~2%/call over 300 iterations -- too slow for the
+! 5x/100x streak tiers, past recovery long before the 1E15 cap.
+! LUM_DIV_N3=0 disables the tier (stock default).
+!
+	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
+	1    LUM_OUT_ABS .GT. LUM_DIV_FAC3*LUM_PREV_OUT)THEN
+	    LUM_DIV_NCNT3=LUM_DIV_NCNT3+1
+	    IF(LUM_DIV_NCNT3 .EQ. 1)LUM_DIV_B3=LUM_PREV_OUT
+	  ELSE
+	    LUM_DIV_NCNT3=0
+	    IF(.NOT. LUM_DIV_LATCH)LUM_DIV_B3=0.0_LDP
+	  END IF
 	  LUM_PREV_OUT=LUM_OUT_ABS
 ! The cap stops on the absolute level, streak or not -- the observed
 ! runaway plateaued at ~6E28 with growth zero, which a streak-only
@@ -841,7 +870,8 @@
 	    STOP 'SOLVE_FOR_POPS: luminosity diverging'
 	  END IF
 	  IF(LUM_DIV_NCNT .GE. LUM_DIV_N .OR.
-	1    (LUM_DIV_N2 .GT. 0 .AND. LUM_DIV_NCNT2 .GE. LUM_DIV_N2))THEN
+	1    (LUM_DIV_N2 .GT. 0 .AND. LUM_DIV_NCNT2 .GE. LUM_DIV_N2) .OR.
+	2    (LUM_DIV_N3 .GT. 0 .AND. LUM_DIV_NCNT3 .GE. LUM_DIV_N3))THEN
 	    IF(.NOT. LUM_DIV_LATCH)THEN
 !
 ! On the first trip the recovery base is the lower of the two
@@ -851,12 +881,16 @@
 	      IF(LUM_DIV_BASE .LE. 0.0_LDP)LUM_DIV_BASE=LUM_DIV_B2
 	      IF(LUM_DIV_B2 .GT. 0.0_LDP)
 	1        LUM_DIV_BASE=MIN(LUM_DIV_BASE,LUM_DIV_B2)
+	      IF(LUM_DIV_B3 .GT. 0.0_LDP)THEN
+	        IF(LUM_DIV_BASE .LE. 0.0_LDP)LUM_DIV_BASE=LUM_DIV_B3
+	        LUM_DIV_BASE=MIN(LUM_DIV_BASE,LUM_DIV_B3)
+	      END IF
 	    END IF
 	    LUM_DIV_LATCH=.TRUE.
 	    LUM_BLOCKED=.TRUE.
 	    WRITE(LUER,'(A,ES12.4,A,I2,A,I2,A)')
 	1   '  SOLVE_FOR_POPS: luminosity runaway, L_out=',LUM_OUT_ABS,
-	2   ' streak=',LUM_DIV_NCNT,'/',LUM_DIV_NCNT2,
+	2   ' streak=',LUM_DIV_NCNT,'/',LUM_DIV_NCNT2,'/',LUM_DIV_NCNT3,
 	3   ' -- LUM_BLOCKED latched'
 	  END IF
 	END IF

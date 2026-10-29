@@ -1841,6 +1841,19 @@
 	INTEGER LUM_DIV_N2
 	REAL(KIND=LDP) LUM_DIV_REC
 !
+! LUM_DIV_FAC3/LUM_DIV_N3 (29-Oct-2026): drift tier of the same
+! guard.  Both existing tiers need per-call growth above 5x/100x;
+! the m15_2p82d_KNOP_l14_freet restart runaway grew ~2%/call for
+! 300 calls (1.6E9 -> 1.2E10, then non-finite) while pops were
+! held -- a slow drift neither tier counted.  The third tier trips
+! on LUM_DIV_N3 consecutive calls each above factor LUM_DIV_FAC3.
+! Default off (N3=0): a legitimate re-equilibration of the field
+! after a cold rebuild can also produce a sustained slow climb, so
+! enabling is a per-run policy.
+!
+	REAL(KIND=LDP) LUM_DIV_FAC3
+	INTEGER LUM_DIV_N3
+!
 ! GS_HOLD_POPS (VADAT [GS_HOLD_POPS], default F): on a GS-freeze
 ! iteration, snapshot POPS before the forced-LAMBDA SOLVEBA update
 ! and restore them afterwards, so the sweep converges the lagged
