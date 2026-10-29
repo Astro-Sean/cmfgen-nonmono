@@ -401,6 +401,7 @@
 	INTEGER X_INDX
 	INTEGER FIRST_LINE
 	INTEGER LAST_LINE
+	INTEGER, SAVE :: RLUMST_NAN_CNT=0
 !
 ! Variables to limit the computation of the continuum opacities and
 ! emissivities.
@@ -2051,7 +2052,19 @@
 	  T3=1.0_LDP/( TWOHCSQ*(FL**3) )
 	  T2=T3/GLDGU(1)
 	  DO I=1,ND
-	    ZNET(I)=1.0_LDP-RJ(I)*CHIL(I)/ETAL(I)
+!
+! edited by Devin, 29-Oct-2026: same empty-upper-level guard as the
+! ZNET_SIM accumulation.  ETAL=T2*NUST underflows to 0 where the
+! autoionizing state is empty; the net-bracket consumers all
+! multiply ZNET by NUST or ETAL (both ~0 there), so bracket=1 is the
+! physically consistent limit.  Not flag-gated: the prior result
+! was Inf/NaN.
+!
+	    IF(ETAL(I) .GT. 0.0_LDP)THEN
+	      ZNET(I)=1.0_LDP-RJ(I)*CHIL(I)/ETAL(I)
+	    ELSE
+	      ZNET(I)=1.0_LDP
+	    END IF
 	    VC(I)=(1.0_LDP+RJ(I)*T3)*NUST(I)
 	    VB(I)=-RJ(I)*T2
 	  END DO
@@ -2146,7 +2159,17 @@
 	1                      .NOT. IMPURITY_CODE)THEN
 !
 	    DO I=1,ND
-	      BETAC(I)=CHIL(I)/ETAL(I)
+!
+! edited by Devin, 29-Oct-2026: BETAC is only used as
+! NUST*BETAC and ETAL*BETAC below -- both vanish with ETAL, so 0 is
+! the consistent limit where the upper state is empty.  Avoids
+! 0*Inf on the same empty-level restarts as the ZNET guards.
+!
+	      IF(ETAL(I) .GT. 0.0_LDP)THEN
+	        BETAC(I)=CHIL(I)/ETAL(I)
+	      ELSE
+	        BETAC(I)=0.0_LDP
+	      END IF
 	    END DO
 !
 !	    INCLUDE 'VARCONT.INC'
@@ -2762,8 +2785,20 @@
 	DO SIM_INDX=1,MAX_SIM
 	  IF(RESONANCE_ZONE(SIM_INDX))THEN
 	    DO I=1,ND
-	      ZNET_SIM(I,SIM_INDX)=ZNET_SIM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)*
-	1          (1.0_LDP-RJ(I)*CHIL_MAT(I,SIM_INDX)/ETAL_MAT(I,SIM_INDX))
+!
+! edited by Devin, 29-Oct-2026: skip the bracket term where the line
+! emissivity is exactly zero (upper level empty -- thin outer depths
+! on restarts; warmS trace: SIM=16, K=2, ML=1204).  RJ*CHIL/0 = -Inf
+! made ZNET_SIM infinite and the consumers' ETAL_MAT*ZNET_SIM then
+! evaluated 0*(-Inf) = NaN, poisoning STEQ_T -> DEP_RAD_EQ ->
+! RLUMST(ND).  A resonance with no line material contributes nothing
+! to the net bracket; LINE_QW_SUM and JBAR_SIM still take the weight
+! since both are well defined at ETAL_MAT=0.  Not flag-gated: the
+! prior result was NaN, so no valid behaviour is altered.
+!
+	      IF(ETAL_MAT(I,SIM_INDX) .GT. 0.0_LDP)
+	1      ZNET_SIM(I,SIM_INDX)=ZNET_SIM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)*
+	2          (1.0_LDP-RJ(I)*CHIL_MAT(I,SIM_INDX)/ETAL_MAT(I,SIM_INDX))
 	      JBAR_SIM(I,SIM_INDX)=JBAR_SIM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)*RJ(I)
 	      LINE_QW_SUM(I,SIM_INDX)=LINE_QW_SUM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)
 	    END DO
@@ -3033,6 +3068,19 @@
 	T3=TWOHCSQ*FQW(ML)*(NU(ML)**3)
 	DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	  T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
+!
+! edited by Devin, 29-Oct-2026: temporary NaN localization.  The
+! KNOP_warmS restart dies at it864 on non-finite RLUMST(ND); print
+! the first few (frequency,depth) pairs whose flux went non-finite
+! plus the local J/CHI/T context, capped to keep OUTGEN readable.
+!
+	  IF(.NOT. (T2 .LE. HUGE(1.0_LDP)) .AND.
+	1     RLUMST_NAN_CNT .LT. 40)THEN
+	    RLUMST_NAN_CNT=RLUMST_NAN_CNT+1
+	    WRITE(LUER,'(A,I6,A,ES14.6,A,I4,A,4ES12.4)')
+	1   '  RLUMST NaN: ML=',ML,' FL=',FL,' I=',I,
+	2   ' SOB,RJ,CHI,T=',SOB(I),RJ(I),CHI(I),T(I)
+	  END IF
 	  RLUMST(I)=RLUMST(I)+T2
 	  J_INT(I)=J_INT(I)+RJ(I)*FQW(ML)*4.1274E-12_LDP
 	  H_INT(I)=H_INT(I)+H_MOM(I)*FQW(ML)*4.1274E-12_LDP
@@ -6332,8 +6380,14 @@
 	DO SIM_INDX=1,MAX_SIM
 	  IF(RESONANCE_ZONE(SIM_INDX))THEN
 	    DO I=1,ND
-	      ZNET_SIM(I,SIM_INDX)=ZNET_SIM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)*
-	1          (1.0_LDP-RJ(I)*CHIL_MAT(I,SIM_INDX)/ETAL_MAT(I,SIM_INDX))
+!
+! edited by Devin, 29-Oct-2026: eval-sweep mirror of the real-sweep
+! guard -- ETAL_MAT=0 resonances contribute no bracket term
+! (0*Inf -> NaN in STEQ_T on empty upper levels).
+!
+	      IF(ETAL_MAT(I,SIM_INDX) .GT. 0.0_LDP)
+	1      ZNET_SIM(I,SIM_INDX)=ZNET_SIM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)*
+	2          (1.0_LDP-RJ(I)*CHIL_MAT(I,SIM_INDX)/ETAL_MAT(I,SIM_INDX))
 	      JBAR_SIM(I,SIM_INDX)=JBAR_SIM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)*RJ(I)
 	      LINE_QW_SUM(I,SIM_INDX)=LINE_QW_SUM(I,SIM_INDX) + LINE_QW_SIM(I,SIM_INDX)
 	    END DO
@@ -6592,6 +6646,19 @@
 	T3=TWOHCSQ*FQW(ML)*(NU(ML)**3)
 	DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	  T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
+!
+! edited by Devin, 29-Oct-2026: temporary NaN localization.  The
+! KNOP_warmS restart dies at it864 on non-finite RLUMST(ND); print
+! the first few (frequency,depth) pairs whose flux went non-finite
+! plus the local J/CHI/T context, capped to keep OUTGEN readable.
+!
+	  IF(.NOT. (T2 .LE. HUGE(1.0_LDP)) .AND.
+	1     RLUMST_NAN_CNT .LT. 40)THEN
+	    RLUMST_NAN_CNT=RLUMST_NAN_CNT+1
+	    WRITE(LUER,'(A,I6,A,ES14.6,A,I4,A,4ES12.4)')
+	1   '  RLUMST NaN: ML=',ML,' FL=',FL,' I=',I,
+	2   ' SOB,RJ,CHI,T=',SOB(I),RJ(I),CHI(I),T(I)
+	  END IF
 	  RLUMST(I)=RLUMST(I)+T2
 	  J_INT(I)=J_INT(I)+RJ(I)*FQW(ML)*4.1274E-12_LDP
 	  H_INT(I)=H_INT(I)+H_MOM(I)*FQW(ML)*4.1274E-12_LDP
