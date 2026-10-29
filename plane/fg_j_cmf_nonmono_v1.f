@@ -5173,6 +5173,7 @@ C
 	SUBROUTINE RESTORE_FG_INEXT_GS(R,V,SIGMA,ND,NP,NCF_IN)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
+	USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED
 	IMPLICIT NONE
 	INTEGER ND,NP,NCF_IN
 	REAL(KIND=LDP) R(ND),V(ND),SIGMA(ND)
@@ -5184,9 +5185,11 @@ C
 	INTEGER, ALLOCATABLE :: CMP_F(:)
 	EXTERNAL ERROR_LU
 	LOGICAL FILE_THERE
+	LOGICAL SEED_FOREIGN
 !
 	LUER=ERROR_LU()
 	I_NEXT_GS_OK=.FALSE.
+	SEED_FOREIGN=.FALSE.
 	FG_GS_CHG_FILE=-1.0_LDP
 	FG_GS_CAP_FILE=-1
 !
@@ -5227,8 +5230,20 @@ C
 	WRITE(LUER,'(A,I8)')'  GS tag (checkpoint iter): ',TAG
 	WRITE(LUER,'(A,I8)')'  expected tag (NITSF):     ',FG_GS_TAG_EXP
 	IF(TAG .NE. FG_GS_TAG_EXP)THEN
-	  WRITE(LUER,'(A)')'  I_NEXT valid: NO (stale/foreign checkpoint)'
-	  GOTO 800
+	  IF(GS_FOREIGN_SEED)THEN
+! Tag mismatches only when the file came from a different run of the
+! same model (foreign warm transplant) or from an earlier checkpoint
+! generation than SCRTEMP.  The R/V/SIGMA/COMP_DEPTH_IDX fingerprint
+! below still gates physical compatibility, and the seed is kept
+! immature (SEED_FOREIGN clears I_NEXT_GS_OK at the success point)
+! so the warm-up re-converges the lagged map before any BA step.
+	    WRITE(LUER,'(A)')'  tag mismatch: accepting file as'//
+	1   ' foreign seed (GS_FOREIGN_SEED=T); field stays immature'
+	    SEED_FOREIGN=.TRUE.
+	  ELSE
+	    WRITE(LUER,'(A)')'  I_NEXT valid: NO (stale/foreign checkpoint)'
+	    GOTO 800
+	  END IF
 	END IF
 	IF(N_COMP_F .NE. N_COMP .OR. NP_F .NE. NP .OR.
 	1   NCF_F .NE. NCF_IN .OR. ND_F .NE. ND)THEN
@@ -5318,10 +5333,13 @@ C
 	END IF
 	CLOSE(291)
 !
-	I_NEXT_GS_OK=.TRUE.
+	I_NEXT_GS_OK=.NOT. SEED_FOREIGN
 	WRITE(LUER,'(A)')'  I_NEXT valid: YES'
 	WRITE(LUER,'(A,I8,A)')
 	1 '  RESTORED COMPLETE I_NEXT GENERATION (tag=',TAG,')'
+	IF(SEED_FOREIGN)WRITE(LUER,'(A)')
+	1 '  foreign seed: NOT treated as a validated generation'//
+	2   ' (I_NEXT_GS_OK=F; LAMBDA warm-up applies)'
 	WRITE(LUER,'(A,I6,A,3I8)')'  N_COMP=',N_COMP,
 	1 '  NP,NCF,ND=',NP,NCF_IN,ND
 	WRITE(LUER,'(A,ES10.3,A,I6)')

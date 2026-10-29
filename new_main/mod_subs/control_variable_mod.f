@@ -1854,6 +1854,18 @@
 	REAL(KIND=LDP) LUM_DIV_FAC3
 	INTEGER LUM_DIV_N3
 !
+! GS_FOREIGN_SEED (VADAT [GS_FOREIGN_SEED], default F): allow a
+! tag-mismatched FGINEXT_GS to be restored as a seed field on warm
+! restart.  The tag normally ties the stored I_NEXT generation to the
+! SCRTEMP pops generation; a fingerprint-valid file from a DIFFERENT
+! run of the same model (e.g. a converged SOB run seeded into KNOP)
+! is still a far better GS seed than a cold zero rebuild -- the
+! l14_freet and warmS restarts both diverged from I_NEXT=0.  Restored
+! seed stays immature (I_NEXT_GS_OK=F), so N_LAM_RWARM/freeze still
+! force LAMBDA until the map re-converges.
+!
+	LOGICAL GS_FOREIGN_SEED
+!
 ! GS_HOLD_POPS (VADAT [GS_HOLD_POPS], default F): on a GS-freeze
 ! iteration, snapshot POPS before the forced-LAMBDA SOLVEBA update
 ! and restore them afterwards, so the sweep converges the lagged

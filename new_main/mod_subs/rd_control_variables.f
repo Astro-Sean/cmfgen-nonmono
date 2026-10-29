@@ -2567,6 +2567,14 @@
 	1     'KNOP: consecutive drift-growth calls before LUM_BLOCKED (0=off)')
 	  IF(LUM_DIV_N3 .LT. 0)LUM_DIV_N3=0
 !
+! GS_FOREIGN_SEED (29-Oct-2026): accept a fingerprint-valid,
+! tag-mismatched FGINEXT_GS as a seed field instead of cold
+! rebuilding I_NEXT=0 (the warmS/l14_freet restart divergence).
+! Default F: stock restore unchanged.
+!
+	  CALL RD_STORE_LOG(GS_FOREIGN_SEED,'GS_FOREIGN_SEED',L_FALSE,
+	1     'KNOP: seed lagged field from foreign FGINEXT_GS on restart')
+!
 ! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
 ! diagnostics.  2 reproduces the pre-existing output volume
 ! (MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE plus the
