@@ -131,6 +131,20 @@ sweep budget runs out; a spent budget never holds the run. What
 remains is the unsatisfiable dead-stage class the floors were built
 for.
 
+## Code layout
+
+| Path | Contents |
+|---|---|
+| `new_main/` | Main program and the VADAT input readers (`mod_subs/rd_control_variables.f` registers every new key; `mod_subs/control_variable_mod.f` declares them). |
+| `new_main/subs/` | New-solver support routines (`recompute_sigma_true.f`, SOLVEBA variants, stage-B polish drivers). |
+| `plane/` | The Knop formal solver `fg_j_cmf_nonmono_v1.f`: sign-aware frequency coupling, the lagged `I_NEXT`/`J_NEXT` maps, and their checkpoint/restore. |
+| `subs/`, `newsubs/`, `com/`, `disp/` | Upstream CMFGEN source tree, carried with surgical edits only. |
+| `obs/` | Observed-frame tools: `cmf_flux` / `obs_frame` sources and the `rd_cmf_flux_controls.f` key reader. |
+| `unit_tests/` | Parser and solver-adjacent test drivers; `run_all_tests.py` runs the suite. |
+| `docs/` | README figures and their generators plus the audit notes under `docs/audits/`. |
+| `knop_solver_files/`, `jfnk_solver_files/` | Working copies of the files each feature branch touched, kept as a per-feature index; the build uses the tree sources, not these. |
+| `exe/`, `mod/`, `lib/` | Build outputs (executables, `.mod` files, libraries). `exe_dbg/`, `mod_dbg/`, `lib_dbg/` are the debug-build equivalents. |
+
 The exit test itself gates on the demanded correction, not the applied
 step, so a capped or held update cannot release the exit while demand
 remains. The test is evaluated before the final-iteration branch, so a
@@ -184,7 +198,29 @@ the flags off none of this code runs and the defaults are inert.
 | `JFNK_FD_AUTODEF` | T | Defer any JFNK admission whose FD operator image is anti-descent (`cos(F,A_FD z) < 0`), even with all thresholds at 0. Arms the precheck block (one extra residual eval per admission). `F` recovers pre-guard behaviour. |
 | `LUM_DIV_FAC` | 1.0E2 | KNOP only: per-call outer-luminosity growth factor counted as runaway. |
 | `LUM_DIV_N` | 3 | KNOP only: consecutive runaway calls before `LUM_BLOCKED` fires (pops held, damped LAMBDA only). `0` disables the guard. |
-| `LUM_DIV_CAP` | 1.0E15 | KNOP only: outer luminosity (L_sun) past which the run stops as non-convergent. |
+| `LUM_DIV_FAC2` | 5.0 | KNOP only: lower per-call growth factor for the slow-runaway streak. |
+| `LUM_DIV_N2` | 4 | KNOP only: consecutive slow-growth calls before `LUM_BLOCKED`. |
+| `LUM_DIV_REC` | 1.0 | KNOP only: once latched, `LUM_BLOCKED` holds until L_out falls below `REC` times the pre-runaway level (`0` = never release). |
+| `LUM_DIV_FAC3` | 1.005 | KNOP only: per-call growth factor for the drift tier (sustained small-factor growth). Off by default. |
+| `LUM_DIV_N3` | 0 | KNOP only: consecutive drift-growth calls before `LUM_BLOCKED`; `0` disables the tier. |
+| `LUM_DIV_CAP` | 1.0E15 | KNOP only: outer luminosity (L_sun) past which the run stops as non-convergent. The growth/cap checks are skipped during the `N_LAM_RWARM` warm-up window; the non-finite check stays armed. |
+| `N_LAM_RWARM` | 4 | KNOP only: forced LAMBDA iterations at process start so no BA step runs against a stale (zeroed) `I_NEXT`; `0` disables. |
+| `GS_FOREIGN_SEED` | F | KNOP only: on restart, accept a fingerprint-valid but tag-mismatched `FGINEXT_GS` (a checkpoint from a different run of the same model) as the lagged-field seed instead of cold-rebuilding `I_NEXT=0`. The seed stays immature (`I_NEXT_GS_OK=F`) so `N_LAM_RWARM` re-converges the map before any BA step. |
+
+SOB-path acceleration probes (`DO_NONMONO_SOB`; all default OFF, so
+the stock Lambda update is unchanged):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `DO_SOB_FG_KNOP` | F | Use the Knop sign-aware formal solver for the SOB+`USE_LAM_ES` J instead of `FG_J_CMF_V13`. |
+| `DO_SOB_CLAMPED_LINES` | F | Clamp Sobolev line rates to the infrastructure `SIGMA` (consistency test only; biased physics). |
+| `DO_FG13_ALO` | F (auto T under SOB+`USE_LAM_ES=T`) | `FG_J_CMF_V13` stores its diagonal approximate-Lambda operator for the continuum Jacobian. |
+| `DO_ES_ALI` | F | Olson-Auer-Buchler Jacobi update of the coherent-ES Lambda iterate inside the `USE_LAM_ES` J loop. |
+| `ES_ALI_TOL` | 1.0E-4 | `DO_ES_ALI` relative dJ/J convergence target per frequency. |
+| `ES_ALI_MAX` | 20 | Cap on extra J passes per frequency under `DO_ES_ALI`. |
+| `DO_ES_ALI_BA` | F | Amplify the stored ALO by the converged-ES Jacobi factor so the BA linearization sees the scattering-coupled J response. |
+| `ES_ALI_BA_MIN` | 0.1 | Floor on the `DO_ES_ALI_BA` amplification denominator. |
+| `DO_FG13_ALO_TRI` | F | Fill `TX(K,K+/-1)` with the stored off-diagonal Lambda* entries (effective only with `NUM_BNDS>=3`). |
 
 Preconditioner-audit keys (`jfnk-precond-fixes`; all default OFF so
 the default factorization path is unchanged; details in
@@ -207,6 +243,10 @@ Observation-frame (`cmf_flux`/`obs_frame`) keys:
 |---|---|---|
 | `ALLOW_SIGMA_UNDEF` | F | `T` warns instead of aborting on cells with an undefined `SIGMA_TRUE`. |
 | `SOB_SIGMA_MAX` | -1 (off) | If `>0`, clamp `|SIGMA_TRUE|` to this bound in the OBS estimator. Off keeps the same unclamped `SIGMA_TRUE` as the population solve. |
+| `DO_SOB_DEP_WINGS` | F | Continue the deposited Sobolev line profile past 3 Doppler widths as Voigt damping wings out to `SOB_DEP_WING_EXT`; matches the full CMF solve, which carries wings the pure-Gaussian deposit drops. |
+| `SOB_DEP_WING_EXT` | 2000 km/s | Wing extent for `DO_SOB_DEP_WINGS`. |
+| `DO_SOB_DEP_FLOOR` | F | Keep the emissivity of masing/negative-opacity deposit cells with their opacity floored at `SOB_DEP_CHI_FLOOR`, instead of dropping them (they carry the P-Cygni wing flux). |
+| `SOB_DEP_CHI_FLOOR` | 1.0 | Line opacity floor for masing deposit cells under `DO_SOB_DEP_FLOOR`. |
 
 ## Validation status
 
@@ -215,6 +255,36 @@ window, a mature and stable radiation field, and contracting matrix
 demand; it is not triggered by a single low correction. A clean build
 or a generated spectrum alone does not establish that the new paths
 converge or produce a valid interacting-supernova spectrum.
+
+## Numerical additions to CMFGEN
+
+A short list of what this tree adds numerically; all are off by
+default unless stated:
+
+- Sign-aware comoving-frame frequency coupling for arbitrary velocity
+  laws (Knop et al. 2009), so `sigma < -1` compression zones no
+  longer produce negative/NaN intensities.
+- Floored Sobolev optical-depth denominator in the compression zone
+  (Dessart et al. 2015), removing the `1 + sigma*mu^2 -> 0`
+  singularity.
+- Lagged-field refresh sweeps and Gauss-Seidel checkpointing, so the
+  stored `I_NEXT`/`J_NEXT` maps survive requeues and warm restarts.
+- Jacobian-free Newton-Krylov population update (GMRES with the BA
+  matrix as preconditioner only) with residual-based acceptance,
+  admission gating, and bounded budgets.
+- Trace-species demand floors and Stage-B polish sweeps, so
+  physically empty levels stop stalling the convergence exit.
+- ES-scattering ALI acceleration: Jacobi updates on the stored formal
+  J diagonal plus BA-side amplification and optional tridiagonal
+  Lambda* couplings.
+- Luminosity-runaway guards (fast, slow, and drift growth tiers plus
+  a hard cap) that hold the populations instead of letting a
+  diverging field commit.
+- Residual-acceptance rollback of failed Newton steps, per-equation
+  quarantine, and per-depth-column rollback on partial failure.
+- Observed-frame improvements: non-monotonic integration bounds,
+  deposited-line Voigt wings, and emissivity retention at masing
+  cells.
 
 ## Changes vs upstream
 
