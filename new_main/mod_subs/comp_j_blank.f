@@ -770,8 +770,13 @@ C EDDFACTOR-read previous-iteration J (warm seed), and TA is rebuilt
 C from the updated RJ at the top of every pass.  DO_ES_ALI=F leaves
 C the loop bit-identical to stock.
 C
-	  ES_ALI_ON=DO_ES_ALI .AND. DO_NONMONO_SOB .AND. USE_LAM_ES .AND.
-	1     COHERENT_ES .AND. .NOT. DO_SOB_FG_KNOP
+! edited by Devin, 29-Oct-2026: the same update applies under
+! DO_NONMONO_KNOP + USE_LAM_ES, where FG_J_CMF_V13 is also the
+! formal J solver and stores the same diagonal under DO_FG13_ALO.
+!
+	  ES_ALI_ON=DO_ES_ALI .AND. USE_LAM_ES .AND. COHERENT_ES .AND.
+	1     (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	2     .NOT. DO_SOB_FG_KNOP
 	  ES_ALI_MOM_ON=DO_ES_ALI .AND. COHERENT_ES .AND.
 	1     (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	2     .NOT. USE_LAM_ES .AND. .NOT. DO_SOB_FG_KNOP
