@@ -1854,6 +1854,19 @@
 	REAL(KIND=LDP) LUM_DIV_FAC3
 	INTEGER LUM_DIV_N3
 !
+! LUM_DIV_RWARM (29-Oct-2026): calls after process start during
+! which the absolute LUM_DIV_CAP stop is suppressed.  A cold
+! I_NEXT rebuild leaves the outer-luminosity diagnostic orders of
+! magnitude nonphysical for tens of iterations while the lagged
+! field converges (warmS: 1.05E12 at it852 decaying to 3E11 by
+! it856 against a converged-pops formal L_out of 2.5E9) -- the cap
+! reads initialization as past-recovery and kills every such
+! restart.  Streak latching and the non-finite stop stay armed in
+! the window, so a genuine runaway still holds/stops.  Default 0:
+! stock cap behaviour.
+!
+	INTEGER LUM_DIV_RWARM
+!
 ! GS_FOREIGN_SEED (VADAT [GS_FOREIGN_SEED], default F): allow a
 ! tag-mismatched FGINEXT_GS to be restored as a seed field on warm
 ! restart.  The tag normally ties the stored I_NEXT generation to the

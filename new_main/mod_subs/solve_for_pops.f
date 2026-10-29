@@ -875,12 +875,26 @@
 ! The cap stops on the absolute level, streak or not -- the observed
 ! runaway plateaued at ~6E28 with growth zero, which a streak-only
 ! test would leave running until GS_FREEZE_LIM.
+!
+! The cap stop is suppressed for the first LUM_DIV_RWARM calls of a
+! process (default 0): a cold I_NEXT rebuild leaves the outer-lum
+! diagnostic orders above any model-physical cap while the lagged
+! field converges -- initialization, not a past-recovery runaway.
+! Streak latching and the non-finite stop remain armed throughout.
+!
 	  IF(LUM_OUT_ABS .GT. LUM_DIV_CAP)THEN
-	    WRITE(LUER,'(A,ES12.4)')
-	1   '  SOLVE_FOR_POPS: luminosity diverging, L_out=',
-	2   LUM_OUT_ABS
-	    WRITE(LUER,'(A)')'  Non-convergent state; stopping.'
-	    STOP 'SOLVE_FOR_POPS: luminosity diverging'
+	    IF(ITS_SINCE_START .LE. LUM_DIV_RWARM)THEN
+	      IF(CONV_DIAG_LVL .GE. 1)
+	1     WRITE(LUER,'(A,ES12.4,A,I4)')
+	2     '  SOLVE_FOR_POPS: L_out above cap during rwarm window,',
+	3     LUM_OUT_ABS,'  call ',ITS_SINCE_START
+	    ELSE
+	      WRITE(LUER,'(A,ES12.4)')
+	1     '  SOLVE_FOR_POPS: luminosity diverging, L_out=',
+	2     LUM_OUT_ABS
+	      WRITE(LUER,'(A)')'  Non-convergent state; stopping.'
+	      STOP 'SOLVE_FOR_POPS: luminosity diverging'
+	    END IF
 	  END IF
 	  IF(LUM_DIV_NCNT .GE. LUM_DIV_N .OR.
 	1    (LUM_DIV_N2 .GT. 0 .AND. LUM_DIV_NCNT2 .GE. LUM_DIV_N2) .OR.

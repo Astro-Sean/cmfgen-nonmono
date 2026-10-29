@@ -112,7 +112,18 @@
 ! accumulate per-frequency results for the once-per-iteration print.
 ! DJDCHI_TMP/DJDETA_TMP hold the V13 stored diagonal.
 !
+! edited by Devin, 29-Oct-2026: ES_ALI_MOM_ON gates the same
+! Olson-Auer-Buchler step on the USE_LAM_ES=F branch, where J comes
+! from MOM_J_CMF_NONMONO_V1 with the scattering source lagged (TA
+! holds ETA + chi_scat*RJ from the previous iterate).  The mom
+! solver's stored diagonal (GET_MOM_ALO_DIAG) is the same bare
+! local-source response class as the V13 DJDETA, so the identical
+! DEN = 1 - DJDETA*chi_scat Jacobi factor applies.  ROLD_ES keeps
+! the iterate entering the solve since the mom call writes its
+! solution straight into RJ.
+!
 	LOGICAL ES_ALI_ON
+	LOGICAL ES_ALI_MOM_ON
 	LOGICAL ES_ALI_FB
 	LOGICAL ALO_OK
 	REAL(KIND=LDP) ES_DJ
@@ -120,6 +131,7 @@
 	REAL(KIND=LDP) DEN
 	REAL(KIND=LDP) DJDCHI_TMP(ND)
 	REAL(KIND=LDP) DJDETA_TMP(ND)
+	REAL(KIND=LDP) ROLD_ES(ND)
 	INTEGER, SAVE :: ES_ALI_NUNC
 	INTEGER, SAVE :: ES_ALI_NFALL
 	REAL(KIND=LDP), SAVE :: ES_ALI_DJMAX
@@ -760,11 +772,14 @@ C the loop bit-identical to stock.
 C
 	  ES_ALI_ON=DO_ES_ALI .AND. DO_NONMONO_SOB .AND. USE_LAM_ES .AND.
 	1     COHERENT_ES .AND. .NOT. DO_SOB_FG_KNOP
+	  ES_ALI_MOM_ON=DO_ES_ALI .AND. COHERENT_ES .AND.
+	1     (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	2     .NOT. USE_LAM_ES .AND. .NOT. DO_SOB_FG_KNOP
 	  ES_ALI_FB=.FALSE.
 	  ES_DJ=0.0_LDP
 	  DO WHILE(INACCURATE)
 C
-	     IF(ES_ALI_ON)ES_DJ=0.0_LDP
+	     IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)ES_DJ=0.0_LDP
 	     IF(COHERENT_ES)THEN
 	       TA(1:ND)=ETA_CLUMP(1:ND)+CHI_SCAT_CLUMP(1:ND)*RJ(1:ND)
 	     ELSE
@@ -1008,12 +1023,37 @@ C
 ! Oct-2026; same convention as SET_FG_NU_NEXT above).
 !
 	         CALL SET_MOM_NU_NEXT(NU_NEXT_FREQ)
+	         IF(ES_ALI_MOM_ON)ROLD_ES(1:ND)=RJ(1:ND)
 	         CALL MOM_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,
 	1              V,SIGMA,SIGMA_TRUE,R,
 	1              RJ,RSQHNU,VDOP_VEC,DELV_FRAC_MOM,
 	1              FL,dLOG_NU,INNER_BND_METH,DBB,IC,IB_STAB_FACTOR,
 	1              N_TYPE,H_CHK_OPTION,METHOD,COHERENT_ES,OUT_BC_TYPE,
 	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND,FREQ_INDX,NCF)
+	         IF(ES_ALI_MOM_ON)THEN
+!
+! edited by Devin, 29-Oct-2026: same OAB Jacobi update as the
+! USE_LAM_ES branch [DO_ES_ALI].  TA entering the solve held
+! ETA + chi_scat*ROLD_ES, so the returned RJ is Lambda_mom[ROLD_ES];
+! DEN = 1 - DJDETA*chi_scat on the mom-stored diagonal converts the
+! lagged-scattering iterate into an approximate implicit-ES solve.
+!
+	           CALL GET_MOM_ALO_DIAG(DJDCHI_TMP,DJDETA_TMP,ND,ALO_OK)
+	           IF(ALO_OK)THEN
+	             DO I=1,ND
+	               DEN=MAX(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I),
+	1                  0.01_LDP)
+	               RJNEW=ROLD_ES(I)+(RJ(I)-ROLD_ES(I))/DEN
+	               IF(RJNEW .LE. 0.0_LDP)RJNEW=RJ(I)
+	               ES_DJ=MAX(ES_DJ,
+	1                  ABS(RJNEW-ROLD_ES(I))/
+	2                  MAX(ABS(RJNEW),1.0E-300_LDP))
+	               RJ(I)=RJNEW
+	             END DO
+	           ELSE
+	             ES_ALI_FB=.TRUE.
+	           END IF
+	         END IF
 	       ELSE
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)
 	1             WRITE(LUER,*)'Calling MOM_J_CMF_V11'
@@ -1076,8 +1116,8 @@ C ES_ALI_MAX is reached (clamped to 20 at read time, so the existing
 C forced exit still bounds the loop).  Fallback frequencies are not
 C forced to extra passes.
 C
-	        IF(ES_ALI_ON .AND. .NOT. ES_ALI_FB .AND.
-	1          ES_DJ .GT. ES_ALI_TOL .AND.
+	        IF((ES_ALI_ON .OR. ES_ALI_MOM_ON) .AND. .NOT. ES_ALI_FB
+	1          .AND. ES_DJ .GT. ES_ALI_TOL .AND.
 	2          J_IT_COUNTER .LT. ES_ALI_MAX)INACCURATE=.TRUE.
 	      END IF
 C
@@ -1096,7 +1136,7 @@ C
 C edited by Devin, 27-Oct-2026: accumulate the per-frequency ES-ALI
 C result for the once-per-iteration print [DO_ES_ALI].
 C
-	    IF(ES_ALI_ON)THEN
+	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
 	      ES_ALI_DJMAX=MAX(ES_ALI_DJMAX,ES_DJ)
 	      IF(ES_ALI_FB)THEN
 	        ES_ALI_NFALL=ES_ALI_NFALL+1
@@ -1211,7 +1251,8 @@ C
 ! update above ES_ALI_TOL, the worst final relative update, and the
 ! count of passes that fell back to plain Lambda.
 !
-	    IF(ES_ALI_ON)WRITE(LUER,'(A,I6,A,ES10.2,A,I6)')
+	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)
+	1     WRITE(LUER,'(A,I6,A,ES10.2,A,I6)')
 	1     ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
 	2     ', max final dJ/J=',ES_ALI_DJMAX,
 	3     ', ALO fallbacks=',ES_ALI_NFALL

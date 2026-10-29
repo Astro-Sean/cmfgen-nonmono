@@ -2575,6 +2575,15 @@
 	  CALL RD_STORE_LOG(GS_FOREIGN_SEED,'GS_FOREIGN_SEED',L_FALSE,
 	1     'KNOP: seed lagged field from foreign FGINEXT_GS on restart')
 !
+! LUM_DIV_RWARM (29-Oct-2026): post-start calls in which the
+! LUM_DIV_CAP stop is suppressed -- cold I_NEXT rebuild transients
+! sit orders above any model-physical cap for tens of iterations.
+! Default 0 keeps the cap armed from call 1.
+!
+	  LUM_DIV_RWARM=0
+	  CALL RD_STORE_INT(LUM_DIV_RWARM,'LUM_DIV_RWARM',L_FALSE,
+	1     'KNOP: post-start calls with the LUM_DIV_CAP stop suppressed')
+!
 ! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
 ! diagnostics.  2 reproduces the pre-existing output volume
 ! (MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE plus the
