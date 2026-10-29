@@ -790,8 +790,21 @@
 	    STOP 'SOLVE_FOR_POPS: luminosity non-finite'
 	  END IF
 	END IF
+!
+! edited by Devin, 29-Oct-2026: suppress the growth/cap checks during
+! the N_LAM_RWARM warm-up window.  A cold I_NEXT rebuild (missing or
+! foreign-rejected FGINEXT_GS) feeds SOLVE_FOR_POPS a first-pass J
+! whose outer luminosity is meaningless -- the warmS warm start
+! measured 1.05E12 identically on two attempts, then the formal
+! solve settled to 1.65E9 within the same iteration.  Stopping on
+! the cap during warm-up kills every checkpoint-less restart; the
+! non-finite check above stays armed since NaN/Inf is a real fault.
+! Skipping the block also keeps the transient out of LUM_PREV_OUT,
+! so the streak baselines start from the post-warm-up field.
+!
 	IF(DO_NONMONO_KNOP .AND. LUM_DIV_N .GT. 0 .AND.
-	1   LUM_OUT_ABS .GT. 0.0_LDP)THEN
+	1   LUM_OUT_ABS .GT. 0.0_LDP .AND.
+	2   .NOT. (RD_LAMBDA .AND. ITS_SINCE_START .LE. N_LAM_RWARM))THEN
 !
 ! edited by Devin, 17-Oct-2026: latch semantics plus a slow-growth
 ! tier.  Recovery is checked first: a latched runaway releases only
