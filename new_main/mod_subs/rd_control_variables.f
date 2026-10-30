@@ -2583,6 +2583,14 @@
 	  CALL RD_STORE_LOG(KN_LUM_TRACE,'KN_LUM_TRACE',L_FALSE,
 	1     'Trace first non-finite STEQ_T accumulation site')
 !
+! KN_REPAIR_T (30-Oct-2026): opt-in repair of non-finite T in a
+! restored checkpoint -- rebuilds bad depths from the nearest finite
+! neighbor at iteration entry so a crash-poisoned SCRTEMP can
+! self-heal.  Default F: bad T still trips DBG-T and the run stops.
+!
+	  CALL RD_STORE_LOG(KN_REPAIR_T,'KN_REPAIR_T',L_FALSE,
+	1     'Repair non-finite T restored from checkpoint')
+!
 ! LUM_DIV_RWARM (29-Oct-2026): post-start calls in which the
 ! LUM_DIV_CAP stop is suppressed -- cold I_NEXT rebuild transients
 ! sit orders above any model-physical cap for tens of iterations.

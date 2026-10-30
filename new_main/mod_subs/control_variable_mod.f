@@ -1890,6 +1890,16 @@
 !
 	LOGICAL KN_LUM_TRACE
 !
+! KN_REPAIR_T (VADAT [KN_REPAIR_T], default F): when a restored
+! checkpoint carries a non-finite or non-positive T (a crash during a
+! non-finite update writes the NaN into SCRTEMP), rebuild that depth
+! from the nearest finite neighbor on iteration entry.  T is re-solved
+! the same iteration, so a poisoned checkpoint self-heals instead of
+! dying mid-sweep.  Lets a warm restart degrade gracefully to a
+! scratch-like start; default path unchanged.
+!
+	LOGICAL KN_REPAIR_T
+!
 ! GS_HOLD_POPS (VADAT [GS_HOLD_POPS], default F): on a GS-freeze
 ! iteration, snapshot POPS before the forced-LAMBDA SOLVEBA update
 ! and restore them afterwards, so the sweep converges the lagged

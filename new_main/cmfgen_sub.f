@@ -1493,6 +1493,21 @@
 	    IF(.NOT. (T(I) .GT. 0.0_LDP))THEN
 	      WRITE(LUER,'(A,A,I5,A,ES16.6,A,I6)')' DBG-T: bad T on entry,',
 	1         ' depth',I,' T=',T(I),' MAIN_COUNTER=',MAIN_COUNTER
+	      IF(KN_REPAIR_T)THEN
+	        J=0
+	        DO K=1,ND
+	          IF(T(K) .GT. 0.0_LDP)THEN
+	            IF(J.EQ.0 .OR. ABS(K-I).LT.ABS(J-I))J=K
+	          END IF
+	        END DO
+	        IF(J.EQ.0)THEN
+	          WRITE(LUER,'(A)')' KN_REPAIR_T: all depths non-finite -- stopping'
+	          STOP
+	        END IF
+	        T(I)=T(J)
+	        WRITE(LUER,'(A,I5,A,I5,A,ES16.6)')' KN_REPAIR_T: T(',I,
+	1         ') rebuilt from depth',J,' T=',T(I)
+	      END IF
 	    END IF
 	  END DO
 	END IF
