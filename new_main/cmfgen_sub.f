@@ -1491,7 +1491,7 @@
 	IF(DO_NONMONO_KNOP)THEN
 	  DO I=1,ND
 	    IF(.NOT. (T(I) .GT. 0.0_LDP))THEN
-	      WRITE(LUER,'(A,I5,A,ES16.6,A,I4)')' DBG-T: bad T on entry,',
+	      WRITE(LUER,'(A,A,I5,A,ES16.6,A,I6)')' DBG-T: bad T on entry,',
 	1         ' depth',I,' T=',T(I),' MAIN_COUNTER=',MAIN_COUNTER
 	    END IF
 	  END DO
