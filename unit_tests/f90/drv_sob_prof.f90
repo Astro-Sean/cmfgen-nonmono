@@ -19,6 +19,7 @@ program drv_sob_prof
   integer, parameter :: num_sim = 2
   real(kind=ldp) :: nu(ncf), chil(nd,max_sim), etal(nd,max_sim)
   real(kind=ldp) :: clump(nd), fl_sim(max_sim), vdop_min(n_lines)
+  real(kind=ldp) :: arad_vec(n_lines), c4_vec(n_lines), ed_in(nd)
   real(kind=ldp) :: eta_st(nd,ncf), chi_st(nd,ncf)
   real(kind=ldp) :: c_kms, drop_sum, inj_sum, integ, nu_prev
   integer :: sim_ptr(max_sim), n_drop
@@ -49,6 +50,9 @@ program drv_sob_prof
   fl_sim(1) = 10.0_ldp
   fl_sim(2) = 20.0_ldp
   vdop_min = 5000.0_ldp   !ejecta-scale width so W spans several cells
+  arad_vec = 0.0_ldp
+  c4_vec = 0.0_ldp
+  ed_in = 0.0_ldp
   c_kms = 2.99792458e5_ldp
   sim_ptr(1) = 1
   sim_ptr(2) = 2
@@ -65,7 +69,8 @@ program drv_sob_prof
   if (scen == 'maser') chil(1:8,1) = -1.0e-3_ldp ! 8/12 depths masing
 
   call add_sob_line_prof(eta_st, chi_st, nu, ncf, chil, etal, clump, &
-       fl_sim, sim_ptr, vdop_min, trans_type, neg_opacity, &
+       fl_sim, sim_ptr, vdop_min, arad_vec, c4_vec, ed_in, &
+       trans_type, neg_opacity, &
        num_sim, n_lines, max_sim, nd, c_kms, n_drop, drop_sum, inj_sum)
 
   write(*,'(a,2(1x,i6))') 'N_DROP', n_drop, nd

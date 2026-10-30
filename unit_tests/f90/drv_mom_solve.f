@@ -39,6 +39,8 @@
       CHARACTER(LEN=12) INBM6
       LOGICAL COHR,INIT,NEW_FREQ,DOMATCH
       INTEGER FIDX
+      REAL(KIND=LDP), ALLOCATABLE :: CKJ(:,:),CKH(:,:)
+      REAL(KIND=LDP) DMAX
 !
 ! Array dump helper (writes one column of doubles to tag_name.dat)
 !
@@ -91,7 +93,7 @@
         NCASE=3; SIGT=-2.0_LDP
       ELSE IF(MODE .EQ. 'vconst')THEN
         NCASE=4; SIGT=-1.0_LDP
-      ELSE IF(MODE .EQ. 'comp1')THEN
+      ELSE IF(MODE .EQ. 'comp1' .OR. MODE .EQ. 'ckpt')THEN
         NCASE=5; SIGT(10:13)=-4.0_LDP
       ELSE IF(MODE .EQ. 'comp2')THEN
         NCASE=6; SIGT(7:9)=-4.0_LDP; SIGT(15:17)=-6.0_LDP
@@ -205,6 +207,13 @@
 ! Sweeps: each call solves one frequency; the lagged J_NEXT/H_NEXT
 ! stores converge across NIT great iterations.
 !
+      IF(MODE .EQ. 'ckpt')THEN
+!
+! Checkpoint round-trip: run 2 sweeps to populate J_NEXT/H_NEXT,
+! dump, scramble the stores, restore with the matching tag, compare.
+!
+        NIT=2
+      END IF
       DO IT=1,NIT
         DO L=1,NCF
           FREQ=FRQ(L)
@@ -230,6 +239,41 @@
      1   ' MOM_GS_MAXCHG=',MOM_GS_MAXCHG,' NCROW=',
      2   MOM_SW_NCROW+MOM_SW_NROW
       END DO
+!
+      IF(MODE .EQ. 'ckpt')THEN
+        ALLOCATE(CKJ(ND_NM,NCF),CKH(ND_NM,NCF),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        CKJ=J_NEXT_FRQ(1:ND_NM,1:NCF)
+        CKH=H_NEXT_FRQ(1:ND_NM,1:NCF)
+        CALL SET_MOM_GS_TAG(7)
+        CALL DUMP_MOM_JNEXT_GS(7,R,V,SIG,ND,291)
+        J_NEXT_FRQ=-7.0_LDP
+        H_NEXT_FRQ=-7.0_LDP
+        CALL RESTORE_MOM_JNEXT_GS(R,V,ND)
+        DMAX=MAX(MAXVAL(ABS(J_NEXT_FRQ(1:ND_NM,1:NCF)-CKJ)),
+     1       MAXVAL(ABS(H_NEXT_FRQ(1:ND_NM,1:NCF)-CKH)))
+        WRITE(*,'(A,L2)')'CKPT_OK=',MOM_J_GS_OK
+        WRITE(*,'(A,ES16.8)')'CKPT_MAXDIFF=',DMAX
+!
+! Fingerprint mismatch: perturbed V endpoint must reject and zero.
+!
+        J_NEXT_FRQ=1.0_LDP
+        V(ND)=V(ND)*1.01_LDP
+        CALL RESTORE_MOM_JNEXT_GS(R,V,ND)
+        WRITE(*,'(A,L2)')'CKPT_FP_OK=',MOM_J_GS_OK
+        WRITE(*,'(A,ES16.8)')'CKPT_FP_STORE=',
+     1   MAXVAL(ABS(J_NEXT_FRQ))
+!
+! Tag mismatch: reject.
+!
+        V(ND)=V(ND)/1.01_LDP
+        J_NEXT_FRQ=1.0_LDP
+        CALL SET_MOM_GS_TAG(8)
+        CALL RESTORE_MOM_JNEXT_GS(R,V,ND)
+        WRITE(*,'(A,L2)')'CKPT_TAG_OK=',MOM_J_GS_OK
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
 !
 ! Result counters.
 !

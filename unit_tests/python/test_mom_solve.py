@@ -390,6 +390,24 @@ def main():
     rep.check("gonly: completed", "RESULT_OK" in rg.stdout)
     check_admissible(rep, "gonly", "t_gonly")
 
+    # --- Checkpoint round-trip (MOMJNXT_GS) -------------------------
+    rc = run(exe, "ckpt", "nonj", "1", "1", "diff", "none", "0",
+             "t_ckpt", cwd=WORKDIR)
+    rep.check(
+        "ckpt: round-trip restores J/H_NEXT bit-exact",
+        "CKPT_OK= T" in rc.stdout and "CKPT_MAXDIFF=  0.00000000E+00"
+        in rc.stdout,
+    )
+    rep.check(
+        "ckpt: grid fingerprint mismatch rejected, store zeroed",
+        "CKPT_FP_OK= F" in rc.stdout
+        and "CKPT_FP_STORE=  0.00000000E+00" in rc.stdout,
+    )
+    rep.check(
+        "ckpt: stale tag rejected",
+        "CKPT_TAG_OK= F" in rc.stdout,
+    )
+
     rep.summary()
 
 
