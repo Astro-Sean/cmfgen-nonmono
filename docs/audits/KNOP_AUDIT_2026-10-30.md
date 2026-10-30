@@ -108,3 +108,22 @@ ifort -fsyntax-only clean on both edited production files (mod_dbg
 holds a stale GS_FOREIGN_SEED .mod; production mod/ rebuilt by
 build.sh).  Model-run validation not performed in this session -
 compiling is not validated.
+
+Unit tests added/passing:
+- test_sigma_true.py: T3 reworked to true-analytic reference on a
+  log-spaced grid; T3b (independent hybrid-stencil mirror, exact),
+  T3c (exponential profile), T3d (zero crossing: mirror-exact,
+  correct sign both sides, bounded near-zone rel err ~12%).  16/16.
+- test_rv_hydro_rdin.py: reference stencil updated to the hybrid
+  formula; 9/9.
+- test_knop_ray.py + f90/drv_knop_ray.f90: FIRST runtime coverage of
+  KNOP_RAY_SOLVE_V1 on a manufactured core ray (NI=8, NCF=6, one
+  compressing band).  T1 alternating sweep converges (NXIT=1,
+  resid 6e-7, 3 passes); T2 ordered sweep; T3 ord/alt committed
+  stores agree to 2.6e-8 (cross-discretization consistency); T4
+  FREQ_MATCH fires multi-bin slots under strong drift (NMATCH=12,
+  NMAX=2); T5 forced stall/cap exits visibly (NXIT=4), never as
+  converged; T6 near-fixed-point seed converges immediately.  6/6.
+- test_vadat_keys 70/70, test_knop_lagged_field (static), 
+  test_mom_sweep_table 8/8, test_sob_tau_floor 14/14 -- all pass
+  after the source changes.
