@@ -955,7 +955,12 @@
 ! radiation state to the same checkpoint as SCRTEMP.  For a new model
 ! NITSF=0, which no written tag can equal -> cold start.
 !
-	IF(DO_NONMONO_KNOP)THEN
+! 30-Oct-2026 audit fix: the FG nonmono solver (and its FGINEXT_GS
+! checkpoint) also runs under DO_SOB_FG_KNOP (comp_j_blank.f), so
+! the tag must be seeded there too -- otherwise every requeue on
+! that path failed the tag test and cold-started I_NEXT.
+!
+	IF(DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP)THEN
 	  CALL SET_FG_GS_TAG(NITSF)
 	END IF
 !

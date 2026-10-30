@@ -86,9 +86,28 @@
 ! nonmono flags before calling this; CMF_FLUX_V5 calls it directly so
 ! its EW estimators cannot drift out of sync with the transfer solve.
 !
+! Derivative reconstruction (30-Oct-2026 audit): dV/dR comes from the
+! quadratic interpolant through the three-point stencil evaluated at
+! the cell centre.  The old two-point secant
+! (V(I-1)-V(I+1))/(R(I-1)-R(I+1)) is the slope at the midpoint of the
+! stencil, not at R(I); on a non-uniform grid it carries an O(dx)
+! bias proportional to the local spacing asymmetry, which shifts
+! sigma at sharp ramps and near inserted points.  The quadratic form
+! is second order on any grid and reduces to the centred difference
+! verbatim on a uniform stencil.
+!
 ! |V|>tol is tested (not V>tol): the algebraic form (R/V)dV/dR-1 is
 ! defined for V<0 and propagates the infall sign correctly into GAM.
-! Only |V|<=tol cells take the stagnation branch.
+!
+! Stagnation cells |V(i)|<=VTOL keep the SIGNED V(i) in the 1/V
+! factor: sigma = (R/V)dV/dR - 1 diverges with sign =
+! sign(V)*sign(dV/dR), so a near-zero cell still reports the side it
+! sits on correctly.  The previous T1=MIN(|V(I-1)|,|V(I+1)|)
+! substitution discarded sign(V(I)) and flipped sigma's sign for
+! V<0 stagnation cells.  An exactly-zero V(I) is the one case the
+! sigma parametrization cannot express (the GAM product stays
+! finite, ~mu^2 dV/dR/c); it is reported N_UNDEF rather than being
+! assigned an arbitrary classification.
 !
 	INTEGER ND
 	INTEGER N_UNDEF
@@ -97,7 +116,8 @@
 	REAL(KIND=LDP) V(ND)
 !
 	INTEGER I,K,N_CLAMP
-	REAL(KIND=LDP) T1,VTOL
+	REAL(KIND=LDP) VTOL,RTOL
+	REAL(KIND=LDP) HP,HM,DVDR
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
 	LOGICAL, SAVE :: VNEG_WARNED=.FALSE.
@@ -105,20 +125,14 @@
 	N_UNDEF=0
 	N_CLAMP=0
 !
-! ND<3: the interior centred difference needs I-1/I+1 and the
-! boundary blocks read V(2)/R(ND-1), so guard the degenerate grid.
-! A 1-2 cell model has no usable velocity gradient; report the cells
-! as undefined rather than reading out of bounds.
+! ND<3: the three-point stencil needs I-1/I+1 and the boundary
+! blocks read V(3)/R(ND-2), so guard the degenerate grid.
 !
 	IF(ND .LT. 3)THEN
 	  SIGMA_TRUE(1:ND)=0.0_LDP
 	  N_UNDEF=ND
 	  RETURN
 	END IF
-!
-! V<0 (true infall) is algebraically handled here and flagged
-! compressing by the solvers' masks, but no validation run has ever
-! exercised it; warn once per process rather than silently proceed.
 !
 	IF(.NOT. VNEG_WARNED .AND. MINVAL(V(1:ND)) .LT. 0.0_LDP)THEN
 	  LUER=ERROR_LU()
@@ -127,43 +141,28 @@
 	  VNEG_WARNED=.TRUE.
 	END IF
 !
-! Relative velocity floor: an absolute 1E-10 never engages for km/s
-! fields (a cell at 1E-9 km/s would take the algebraic branch and
-! return sigma ~ 1E9).  1E-6 of the peak speed marks cells whose
-! 1/V amplification is discretisation noise rather than physics.
-!
 	VTOL=1.0E-6_LDP*MAX(MAXVAL(ABS(V(1:ND))),1.0E-30_LDP)
 !
+! Relative radius floor for the spacing guards: the old absolute
+! 1E-10 test was unit-dependent (never fires on cm grids ~1E15).
+!
+	RTOL=1.0E-12_LDP
+!
 	DO I=2,ND-1
-	  IF(ABS(V(I)) .GT. VTOL .AND.
-	1     ABS(R(I-1)-R(I+1)) .GT. 1.0E-10_LDP)THEN
-	    SIGMA_TRUE(I)=(R(I)/V(I))*
-	1     (V(I-1)-V(I+1))/(R(I-1)-R(I+1))-1.0_LDP
+	  HP=R(I-1)-R(I)
+	  HM=R(I)-R(I+1)
+	  IF(MIN(HP,HM) .GT. RTOL*R(I))THEN
 !
-! edited by Devin, 28-Sep-2026: the same 1E6 bound as the stagnation
-! branch.  Cells just above VTOL (V ~ 1E-6*Vmax) can return sigma ~
-! 1E9 on a smooth profile, which poisons GAM and chi_hat; such cells
-! carry no physical gradient information anyway.
+! Non-uniform quadratic derivative at R(I).
 !
-	    IF(ABS(SIGMA_TRUE(I)) .GT. 1.0E+6_LDP)THEN
-	      SIGMA_TRUE(I)=SIGN(1.0E+6_LDP,SIGMA_TRUE(I))
-	      N_CLAMP=N_CLAMP+1
-	    END IF
-	  ELSE IF(ABS(R(I-1)-R(I+1)) .GT. 1.0E-10_LDP)THEN
-! |V|~0 (stagnation cell): the true sigma diverges as 1/V and its
-! sign flips discontinuously across the zero crossing, so no choice
-! is exact; scaling by the smaller neighbour velocity adopts the
-! sign of dV/dR (dV/dR<0 -> compressing), matching the algebraic
-! branch's classification on the V>0 side of the crossing.
-! The 1E6 cap bounds the magnitude: a stagnation cell needs only to
-! read "strongly compressing", not carry an unbounded value into
-! GAM and the chi_hat opacity.
-	    T1=MIN(ABS(V(I-1)),ABS(V(I+1)))
-	    IF(T1 .GT. VTOL)THEN
-	      SIGMA_TRUE(I)=(R(I)/T1)*
-	1       (V(I-1)-V(I+1))/(R(I-1)-R(I+1))-1.0_LDP
+	    DVDR=V(I-1)*HM/(HP*(HP+HM)) +
+	1         V(I)*(HP-HM)/(HP*HM) -
+	1         V(I+1)*HP/(HM*(HP+HM))
+	    IF(V(I) .NE. 0.0_LDP)THEN
+	      SIGMA_TRUE(I)=(R(I)/V(I))*DVDR-1.0_LDP
 	      SIGMA_TRUE(I)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
 	1       SIGMA_TRUE(I)))
+	      IF(ABS(SIGMA_TRUE(I)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
 	    ELSE
 	      SIGMA_TRUE(I)=0.0_LDP
 	      N_UNDEF=N_UNDEF+1
@@ -174,41 +173,43 @@
 	  END IF
 	END DO
 !
-! Boundary depths: one-sided differences.
+! Boundary depths: second-order one-sided quadratic differences.
 !
-	IF(ABS(V(1)) .GT. VTOL .AND.
-	1   ABS(R(1)-R(2)) .GT. 1.0E-10_LDP)THEN
-	  SIGMA_TRUE(1)=(R(1)/V(1))*
-	1   (V(1)-V(2))/(R(1)-R(2))-1.0_LDP
-	  IF(ABS(SIGMA_TRUE(1)) .GT. 1.0E+6_LDP)THEN
-	    SIGMA_TRUE(1)=SIGN(1.0E+6_LDP,SIGMA_TRUE(1))
-	    N_CLAMP=N_CLAMP+1
+	HP=R(1)-R(2)
+	HM=R(2)-R(3)
+	IF(MIN(HP,HM) .GT. RTOL*R(1))THEN
+	  DVDR=V(1)*(2.0_LDP*HP+HM)/(HP*(HP+HM)) -
+	1       V(2)*(HP+HM)/(HP*HM) +
+	1       V(3)*HP/(HM*(HP+HM))
+	  IF(V(1) .NE. 0.0_LDP)THEN
+	    SIGMA_TRUE(1)=(R(1)/V(1))*DVDR-1.0_LDP
+	    SIGMA_TRUE(1)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
+	1     SIGMA_TRUE(1)))
+	    IF(ABS(SIGMA_TRUE(1)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
+	  ELSE
+	    SIGMA_TRUE(1)=0.0_LDP
+	    N_UNDEF=N_UNDEF+1
 	  END IF
-	ELSE IF(ABS(R(1)-R(2)) .GT. 1.0E-10_LDP .AND.
-	1        ABS(V(2)) .GT. VTOL)THEN
-	  SIGMA_TRUE(1)=(R(1)/ABS(V(2)))*
-	1   (V(1)-V(2))/(R(1)-R(2))-1.0_LDP
-	  SIGMA_TRUE(1)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
-	1   SIGMA_TRUE(1)))
 	ELSE
 	  SIGMA_TRUE(1)=0.0_LDP
 	  N_UNDEF=N_UNDEF+1
 	END IF
 !
-	IF(ABS(V(ND)) .GT. VTOL .AND.
-	1   ABS(R(ND-1)-R(ND)) .GT. 1.0E-10_LDP)THEN
-	  SIGMA_TRUE(ND)=(R(ND)/V(ND))*
-	1   (V(ND-1)-V(ND))/(R(ND-1)-R(ND))-1.0_LDP
-	  IF(ABS(SIGMA_TRUE(ND)) .GT. 1.0E+6_LDP)THEN
-	    SIGMA_TRUE(ND)=SIGN(1.0E+6_LDP,SIGMA_TRUE(ND))
-	    N_CLAMP=N_CLAMP+1
+	HP=R(ND-1)-R(ND)
+	HM=R(ND-2)-R(ND-1)
+	IF(MIN(HP,HM) .GT. RTOL*R(ND))THEN
+	  DVDR=V(ND-2)*HP/(HM*(HP+HM)) -
+	1       V(ND-1)*(HP+HM)/(HP*HM) +
+	1       V(ND)*(2.0_LDP*HP+HM)/(HP*(HP+HM))
+	  IF(V(ND) .NE. 0.0_LDP)THEN
+	    SIGMA_TRUE(ND)=(R(ND)/V(ND))*DVDR-1.0_LDP
+	    SIGMA_TRUE(ND)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
+	1     SIGMA_TRUE(ND)))
+	    IF(ABS(SIGMA_TRUE(ND)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
+	  ELSE
+	    SIGMA_TRUE(ND)=0.0_LDP
+	    N_UNDEF=N_UNDEF+1
 	  END IF
-	ELSE IF(ABS(R(ND-1)-R(ND)) .GT. 1.0E-10_LDP .AND.
-	1        ABS(V(ND-1)) .GT. VTOL)THEN
-	  SIGMA_TRUE(ND)=(R(ND)/ABS(V(ND-1)))*
-	1   (V(ND-1)-V(ND))/(R(ND-1)-R(ND))-1.0_LDP
-	  SIGMA_TRUE(ND)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
-	1   SIGMA_TRUE(ND)))
 	ELSE
 	  SIGMA_TRUE(ND)=0.0_LDP
 	  N_UNDEF=N_UNDEF+1
@@ -218,12 +219,6 @@
 	  LUER=ERROR_LU()
 	  WRITE(LUER,*)'SIGMA_TRUE_CORE:',N_CLAMP,' of',ND,
 	1   'cells clamped at |sigma|=1E6 (1/V amplification)'
-!
-! Clipped cells are where the discretised gradient carried no
-! physical information; knowing WHERE they sit (a shock front vs a
-! stagnation point) matters for interpreting the solve, so report
-! the first few instead of only the count.
-!
 	  K=0
 	  DO I=1,ND
 	    IF(ABS(SIGMA_TRUE(I)) .GE. 0.999999E+6_LDP)THEN

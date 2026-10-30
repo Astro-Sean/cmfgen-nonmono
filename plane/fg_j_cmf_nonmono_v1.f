@@ -781,6 +781,10 @@
 	INTEGER KN_ND,KN_NP,KN_NC,KN_NCF,KN_ND_EXT
 	CHARACTER(LEN=12) KN_INNER_METH
 	CHARACTER(LEN=6) KN_METHOD_SAV
+! INSERT is part of the discrete operator (it selects the
+! unclamped DTAU branch in the sweep), so the refresh capture
+! must carry it alongside METHOD (30-Oct-2026 audit).
+	LOGICAL KN_INSERT_SAV
 	REAL(KIND=LDP), ALLOCATABLE :: KN_R(:),KN_P(:)
 !
 	LOGICAL KN_STORE_READY
@@ -2157,6 +2161,7 @@
 	        KN_ND_EXT=ND_EXT
 	        KN_INNER_METH=INNER_BND_METH
 	        KN_METHOD_SAV=METHOD
+	        KN_INSERT_SAV=INSERT
 	      END IF
 	    END IF
 		    IF(IOS .NE. 0)THEN
@@ -6253,8 +6258,6 @@ C
 	FG_GS_NTOT=SUM(NTT_LS)
 	FG_GS_NBAD_BLK=SUM(NBB_LS)
 	FG_GS_NTOT_BLK=SUM(NTB_LS)
-	FG_GS_NSTAL=NX_BAD(3)+NX_BAD(4)
-	FG_GS_NPLAT=NX_BAD(6)
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP FIELD ----------------------------------'
 	WRITE(LUER,'(A)')'  KNOP I_NEXT refresh (lagged coupling):'
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
@@ -6295,6 +6298,17 @@ C
 	  NX_BAD(NXT_LS(LS))=NX_BAD(NXT_LS(LS))+NBD_LS(LS)
 	  NX_RMX(NXT_LS(LS))=MAX(NX_RMX(NXT_LS(LS)),RES_LS(LS))
 	END DO
+!
+! Bug fix (30-Oct-2026 audit): FG_GS_NSTAL/NPLAT were set from
+! NX_BAD BEFORE this census filled it, so the stall/plateau share
+! the release gate reads (GET_FG_GS_MATURITY GS_NBAD_STAL/PLAT)
+! was always zero.  Not flag-gated: the counters were dead code,
+! never a working gate input.  Stall and cap exits count
+! together (both are still-contracting stop rules); plateau is
+! the IXIT=6 class.
+!
+	FG_GS_NSTAL=NX_BAD(3)+NX_BAD(4)
+	FG_GS_NPLAT=NX_BAD(6)
 	WRITE(LUER,'(A,I5,6(A,I5))')
 	1  '    ray exits: exact=',NX_CNT(0),' tol=',NX_CNT(1),
 	2  ' bulk=',NX_CNT(2),' stall=',NX_CNT(3),' cap=',NX_CNT(4),
@@ -8522,12 +8536,26 @@ C
 	    DTAU_L(I)=0.5_LDP*DZ*( CHI_L(I)+CHI_L(I+1) +
 	1      DZ*( DCHR_L(I+1)*Z(I+1,LS)/R_RAY(I+1,LS) -
 	1      DCHR_L(I)*Z(I,LS)/R_RAY(I,LS) )/6.0_LDP )
-	    IF(CHI_L(I) .LT. CHI_L(I+1))THEN
-	      DTAU_L(I)=MAX(CHI_L(I)*DZ,DTAU_L(I))
-	      DTAU_L(I)=MIN(CHI_L(I+1)*DZ,DTAU_L(I))
-	    ELSE
-	      DTAU_L(I)=MIN(CHI_L(I)*DZ,DTAU_L(I))
-	      DTAU_L(I)=MAX(CHI_L(I+1)*DZ,DTAU_L(I))
+!
+! 30-Oct-2026 audit: the min/max clamp is part of the discrete
+! operator only when the in-sweep path applies it -- the sweep
+! skips it for INSERT or METHOD(4:6)='MON' (monotone-interp
+! branches, fg_j_cmf_nonmono_v1.f METHOD block).  Applying it
+! unconditionally made the refresh solve a slightly different
+! transfer equation than the sweep on exactly those modes.
+! INSERT itself is not captured in the KN store, but METHOD's
+! MON class is recorded verbatim in KN_METHOD_SAV, so key on
+! that: identical rule to the sweep for every captured mode.
+!
+	    IF(.NOT. KN_INSERT_SAV .AND.
+	1       KN_METHOD_SAV(4:6) .NE. 'MON')THEN
+	      IF(CHI_L(I) .LT. CHI_L(I+1))THEN
+	        DTAU_L(I)=MAX(CHI_L(I)*DZ,DTAU_L(I))
+	        DTAU_L(I)=MIN(CHI_L(I+1)*DZ,DTAU_L(I))
+	      ELSE
+	        DTAU_L(I)=MIN(CHI_L(I)*DZ,DTAU_L(I))
+	        DTAU_L(I)=MAX(CHI_L(I+1)*DZ,DTAU_L(I))
+	      END IF
 	    END IF
 	  END DO
 	END IF
@@ -8705,7 +8733,14 @@ C
 	1        (S_L(NI-1)-S_L(NI-2))*DTAU_L(NI-1)/T1_DTAU
 	  END IF
 	ELSE
-	  DS_L(NI)=0.0_LDP
+!
+! NI=2 (thinnest insert-free rays): the in-sweep branch sets
+! dS(NI)=S(NI-1) (constant-slope extrapolation, e2516057); the
+! refresh must use the identical stencil or the two operators
+! disagree on exactly the rays NI=2 produces.  Bug fix, not
+! flag-gated.
+!
+	  DS_L(NI)=S_L(NI-1)
 	END IF
 !
 	DS_L(1)=( SIGN(1.0_LDP,S_L(1))+SIGN(1.0_LDP,DS_L(1)) )*
