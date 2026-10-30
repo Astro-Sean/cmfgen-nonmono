@@ -133,3 +133,49 @@ Unit tests added/passing:
   stays immature, I_NEXT_GS_OK=F).  T8: FG_KNOP_REFRESH_V1
   end-to-end over the OMP ray loop converges on the manufactured
   problem (KN_RF_RESID=6e-7); 1 vs 4 OMP threads bit-identical.
+
+
+## Zero-GAM floor analysis (mom_j_cmf_nonmono_v1.f, mandatory item)
+
+Construction (mom :2011-2013, :2132-2134):
+  T1 = 1 + sigma_true*K   (K = NMID_ON_HMID at midpoints, K_ON_J at depths)
+  GAM_FAC = SIGN(MAX(|T1|, MOM_GAM_FAC_MIN=1e-2), T1)
+  exact-zero exception: IF(T1==0) GAM_FAC=0
+
+Limit analysis: as T1 -> 0 the physical GAM = CON_GAM*T1 -> 0
+continuously; chi_hat -> chi, Q -> 0, W -> 0, EPS -> 1/(1+W) -> 1.
+The unregularised operator is SMOOTH through the resonance - a
+zero-strength coupling has no direction, so the sign flip is
+immaterial.  The floor exists to stabilise the SIGN classification
+against roundoff/noise at |T1|~0 (otherwise tiny T1 flips the upwind
+direction between iterates), at the cost of an O(1e-2) systematic
+bias in |GAM_FAC| on |T1|<1e-2 cells: chi_hat gains a spurious
+|GAM|/DLN ~ 1% of the nominal coupling, and W/Q carry a 1%
+residual coupling the true equations set to zero.
+
+Assessment: the floor is a defensible regularisation ONLY while the
+biased |GAM_FAC|*CON_GAM stays small against chi_hat - true for the
+1e-2 floor.  Two structural defects worth recording:
+(a) discontinuity: GAM_FAC jumps -1e-2 -> +1e-2 across T1=0 while
+    physics passes smoothly through zero; the matrix operator is
+    non-continuous in T1 at every resonance crossing (a W_NM jump
+    of |GAMH|*2e-2).
+(b) exact-zero exception reintroduces the very zero the floor
+    exists to remove: GAM_FAC(0)=0 between +/-1e-2 neighbours -
+    a measure-zero spike that re-creates the chi_hat=chi, W=0,
+    EPS=1 stock-decoupled state at exactly the resonance cell.
+    Harmless in probability (T1==0 exactly is rare in production,
+    though it DOES occur on structured profiles, e.g. sigma=-1 with
+    K=1), but it means the "resonance regularised" claim is not
+    uniform: at exact resonance the solve silently reverts to the
+    unregularised stock equation, and the two sides of the jump
+    disagree by O(1e-2*CON_GAM/DLN) in chi_hat.
+Recommendation (not implemented - needs controlled tests): replace
+sign*max(|T1|,floor) with a smooth bounded-below-magnitude map,
+e.g. T1 + SIGN(T1)*floor for |T1|<=floor (a 2*floor offset, still
+discontinuous in the same place), or better GAM_FAC =
+T1*(1+floor^2/(T1^2+floor^2))^0.5 which is C1, sign-preserving,
+|T1|*~1 for |T1|>>floor and +-sqrt(2)*floor at T1=0 - removes both
+the jump and the need for the exact-zero exception.  Requires the
+mom runtime driver (pending) to verify identical convergence class
+before adoption.
