@@ -186,6 +186,9 @@ the flags off none of this code runs and the defaults are inert.
 | `BA_TR_MAXSWP` | 3 | Bound on Stage-B trace-polish sweeps. `0` disables the polish entirely; the reader no longer rewrites `0` to another value. |
 | `BA_TR_ABSMAX` | 1.0E-08 | Trace convergence threshold on `BA_TR_ABS` (max committed `|dn|/POP_ATOM` over exempted rows). Under the non-monotonic flags an explicit `0` is auto-set to `1.0E-08`. |
 | `KN_ADAPT_RELAX` | T | Adaptive write-back weight for the lagged-field refresh maps (`INEXT_RELAX`/`JNEXT_RELAX` adapt to the measured contraction). `F` keeps the fixed `0.5` weight. |
+| `INEXT_RELAX` | 0.5 | Seed write-back weight for the lagged-field refresh; the adaptive omega moves it from this seed. Lower values (e.g. 0.3) damp oscillating restarts more strongly. |
+| `KN_LUM_TRACE` | F | First-detection scan of `STEQ_T` after each energy-equation accumulation site; reports the site, frequency, depth, and operands at the first non-finite entry. Diagnostic only. |
+| `KN_REPAIR_T` | F | Rebuild non-finite/non-positive `T` restored from a checkpoint at iteration entry, from the nearest finite depth. Lets a crash-poisoned `SCRTEMP` self-heal instead of stopping mid-sweep. |
 | `GS_RAW_MATURE` | F | `T` requires the raw FG sweep max change to pass `GS_MATURE_TOL` for a sweep to count toward the `GS_REL_STABLE` release streak -- a bulk-pass sweep with a high max norm resets the count instead. Recommended for KNOP runs. |
 | `JFNK_CPL_RELWAIT` | F | `T` defers the coupled JFNK tier while a call sits in the post-release damp window (`N_REL_SINCE <= GS_REL_N`); the call falls to the frozen tier or SOLVEBA. Note: a very large `GS_REL_N` defers the coupled tier indefinitely. |
 | `JFNK_REL_REACH_MAX` | 5 | Consecutive reach-gate skips after which the SOB stable-LAMBDA relief stands down (stops relaxing `JFNK_GATE_NREQ`). `0` disables the stand-down. |
