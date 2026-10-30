@@ -127,3 +127,9 @@ Unit tests added/passing:
 - test_vadat_keys 70/70, test_knop_lagged_field (static), 
   test_mom_sweep_table 8/8, test_sob_tau_floor 14/14 -- all pass
   after the source changes.
+- test_knop_ray T7: FGINEXT_GS checkpoint round-trip is bit-exact;
+  fingerprint mismatch, tag mismatch and foreign-seed paths are all
+  rejected/flagged correctly (foreign seed restores the field but
+  stays immature, I_NEXT_GS_OK=F).  T8: FG_KNOP_REFRESH_V1
+  end-to-end over the OMP ray loop converges on the manufactured
+  problem (KN_RF_RESID=6e-7); 1 vs 4 OMP threads bit-identical.

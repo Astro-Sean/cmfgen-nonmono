@@ -75,7 +75,10 @@ def parse(out):
             try:
                 d[k] = float(v)
             except ValueError:
-                d[k] = v
+                if v in ("T", "F"):
+                    d[k] = v == "T"
+                else:
+                    d[k] = v
         elif t[0] == "RESULT_OK":
             d["RESULT_OK"] = True
     return d, store
@@ -172,6 +175,61 @@ def main():
         ok,
         f"NXIT={d5.get('NXIT')} RESID={d5.get('RESID'):.3e} "
         f"NPASS={d5.get('NPASS')}",
+    )
+
+    # -- T7: checkpoint round-trip: dump/restore identical, and the
+    #    failure classes are all visible and distinguishable.
+    r = run(bin_, "ckpt", cwd=WORKDIR, check=False)
+    d6, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d6
+        and d6.get("CKPT_OK") is not False
+        and d6.get("CKPT_MAXDIFF", 1.0) == 0.0
+        and d6.get("CKPT_FP_OK") is False
+        and d6.get("CKPT_FP_STORE", 1.0) == 0.0
+        and d6.get("CKPT_TAG_OK") is False
+        and d6.get("CKPT_FOR_OK") is False
+        and d6.get("CKPT_FOR_STORE", 0.0) > 0.0
+    )
+    rep.check(
+        "T7 FGINEXT_GS round-trip + reject classes (fp, tag, foreign)",
+        ok,
+        f"diff={d6.get('CKPT_MAXDIFF')} fp_ok={d6.get('CKPT_FP_OK')} "
+        f"tag_ok={d6.get('CKPT_TAG_OK')} "
+        f"for_ok={d6.get('CKPT_FOR_OK')} "
+        f"for_store={d6.get('CKPT_FOR_STORE')}",
+    )
+
+    # -- T8: end-to-end FG_KNOP_REFRESH_V1 over the OMP ray loop:
+    #    residual lands in KN_RF_RESID, the exit census is populated,
+    #    and multi-thread output is identical to one thread.
+    d7, s1 = parse(run(bin_, "rfsh", cwd=WORKDIR, check=False).stdout)
+    import os
+    import subprocess
+
+    env = dict(os.environ, OMP_NUM_THREADS="4")
+    r8 = subprocess.run(
+        [str(bin_), "rfsh"], cwd=WORKDIR, env=env,
+        capture_output=True, text=True, timeout=300,
+    )
+    d8, s2 = parse(r8.stdout)
+    omp_diff = max(
+        abs(s1[k][j] - s2[k][j]) / max(s1[k][j], 1e-30)
+        for k in set(s1) & set(s2)
+        for j in (0, 1)
+    ) if (s1 and s2) else 9.9e9
+    ok = (
+        "RESULT_OK" in d7
+        and "RESULT_OK" in d8
+        and d7.get("RF_RESID", 1.0) < 1.0e-2
+        and d7.get("RF_NDIV", 9) == 0
+        and omp_diff < 1.0e-12
+    )
+    rep.check(
+        "T8 FG_KNOP_REFRESH_V1 end-to-end + 1 vs 4 threads identical",
+        ok,
+        f"RF_RESID={d7.get('RF_RESID'):.3e} NDIV={d7.get('RF_NDIV')} "
+        f"omp_maxdiff={omp_diff:.2e}",
     )
 
     rep.summary()

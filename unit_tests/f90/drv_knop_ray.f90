@@ -16,6 +16,7 @@
       PROGRAM DRV_KNOP_RAY
       USE SET_KIND_MODULE
       USE FG_J_CMF_NONMONO_MOD_V1
+      USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED
       IMPLICIT NONE
 !
       INTEGER ND,NDX,NCFX,NIX
@@ -28,6 +29,8 @@
       REAL(KIND=LDP) LGW(NDX)
       CHARACTER(LEN=32) CNAME
       REAL(KIND=LDP) GAMP
+      REAL(KIND=LDP) VV(ND),SG(ND),CKP(3,1,NCFX-1),CKM(3,1,NCFX-1)
+      REAL(KIND=LDP) DMAX_CK
 !
       CALL GETARG(1,CNAME)
       NCASE=1
@@ -35,6 +38,8 @@
       IF(CNAME .EQ. 'match')NCASE=3
       IF(CNAME .EQ. 'cap')  NCASE=4
       IF(CNAME .EQ. 'fixed')NCASE=5
+      IF(CNAME .EQ. 'ckpt') NCASE=9
+      IF(CNAME .EQ. 'rfsh') NCASE=10
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -196,6 +201,86 @@
           END IF
         END DO
       END DO
+!
+      IF(NCASE .EQ. 9)THEN
+!
+! Checkpoint round-trip: fingerprint arrays mirror the model grid
+! (V homologous, SIGMA=0), dump, scramble, restore, compare.
+!
+        VV=1.0E-4_LDP*RR(1:ND)
+        SG=0.0_LDP
+        FG_GS_NP=KN_NP
+        FG_GS_NCF=KN_NCF
+        CKP=I_P_DEPTH_NEXT(:,:,1:NCFX-1)
+        CKM=I_M_DEPTH_NEXT(:,:,1:NCFX-1)
+        CALL SET_FG_GS_TAG(7)
+        CALL DUMP_FG_INEXT_GS(7,RR(1:ND),VV,SG,ND,291)
+        I_P_DEPTH_NEXT=-7.0_LDP
+        I_M_DEPTH_NEXT=-7.0_LDP
+        CALL RESTORE_FG_INEXT_GS(RR(1:ND),VV,SG,ND,KN_NP,KN_NCF)
+        DMAX_CK=MAX(MAXVAL(ABS(I_P_DEPTH_NEXT(:,:,1:NCFX-1)-CKP)), &
+      MAXVAL(ABS(I_M_DEPTH_NEXT(:,:,1:NCFX-1)-CKM)))
+        WRITE(*,'(A,L2)')'CKPT_OK=',I_NEXT_GS_OK
+        WRITE(*,'(A,ES16.8)')'CKPT_MAXDIFF=',DMAX_CK
+!
+! Fingerprint mismatch: restore with a different V must reject and
+! leave the store zeroed.
+!
+        I_P_DEPTH_NEXT=1.0_LDP
+        I_M_DEPTH_NEXT=1.0_LDP
+        VV(4)=VV(4)*1.5_LDP
+        CALL RESTORE_FG_INEXT_GS(RR(1:ND),VV,SG,ND,KN_NP,KN_NCF)
+        WRITE(*,'(A,L2)')'CKPT_FP_OK=',I_NEXT_GS_OK
+        WRITE(*,'(A,ES16.8)')'CKPT_FP_STORE=', &
+      MAXVAL(ABS(I_P_DEPTH_NEXT))
+!
+! Tag mismatch without GS_FOREIGN_SEED: reject.
+!
+        VV=1.0E-4_LDP*RR(1:ND)
+        I_P_DEPTH_NEXT=1.0_LDP
+        CALL SET_FG_GS_TAG(8)
+        CALL RESTORE_FG_INEXT_GS(RR(1:ND),VV,SG,ND,KN_NP,KN_NCF)
+        WRITE(*,'(A,L2)')'CKPT_TAG_OK=',I_NEXT_GS_OK
+!
+! Tag mismatch with GS_FOREIGN_SEED=T: accepted as immature seed.
+!
+        GS_FOREIGN_SEED=.TRUE.
+        CALL RESTORE_FG_INEXT_GS(RR(1:ND),VV,SG,ND,KN_NP,KN_NCF)
+        WRITE(*,'(A,L2)')'CKPT_FOR_OK=',I_NEXT_GS_OK
+        WRITE(*,'(A,ES16.8)')'CKPT_FOR_STORE=', &
+      MAXVAL(ABS(I_P_DEPTH_NEXT))
+        GS_FOREIGN_SEED=.FALSE.
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
+!
+      IF(NCASE .EQ. 10)THEN
+!
+! End-to-end refresh: arms the capture-store guard and runs the
+! production post-sweep path (OMP ray loop, census, commit).
+!
+        DO_KNOP_REFRESH=.TRUE.
+        FREEZE_I_NEXT=.FALSE.
+        HAS_COMPRESSING=.TRUE.
+        KN_STORE_READY=.TRUE.
+        FREQ_IDX_ITER=KN_NCF-1
+        SOLUTION_METHOD='INTEGRAL'
+        CALL FG_KNOP_REFRESH_V1()
+        WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
+        WRITE(*,'(A,ES16.8)')'RF_DCHG=',FG_RF_DCHG
+        WRITE(*,'(A,I8)')'RF_NDIV=',FG_GS_NDIV
+        WRITE(*,'(A,ES16.8)')'RF_MAXCHG=',FG_GS_MAXCHG
+        WRITE(*,'(A,ES16.8)')'RF_STAL=',DBLE(FG_GS_NSTAL)
+        WRITE(*,'(A,ES16.8)')'RF_PLAT=',DBLE(FG_GS_NPLAT)
+        DO K=1,N_COMP
+          DO L=1,NCFX-1
+            WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'STORE ',K,' ',L,' ', &
+      I_P_DEPTH_NEXT(K,1,L),I_M_DEPTH_NEXT(K,1,L)
+          END DO
+        END DO
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
 !
       RESID=0.0_LDP
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
