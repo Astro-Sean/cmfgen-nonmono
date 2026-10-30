@@ -118,13 +118,75 @@ def parse(out):
 
 
 def sigma_fd(r, v):
-    """SIGMA_TRUE_CORE construction: centred interior, one-sided ends."""
+    """SIGMA_TRUE_CORE construction: hybrid log/linear quadratic on
+    non-uniform 3-point stencils (30-Oct-2026 scheme); mirrors
+    sigma_dvdr in test_sigma_true.py."""
     s = np.zeros(len(r))
     for i in range(1, len(r) - 1):
-        s[i] = (r[i] / v[i]) * (v[i - 1] - v[i + 1]) / (r[i - 1] - r[i + 1]) - 1.0
-    s[0] = (r[0] / v[0]) * (v[0] - v[1]) / (r[0] - r[1]) - 1.0
-    s[-1] = (r[-1] / v[-1]) * (v[-2] - v[-1]) / (r[-2] - r[-1]) - 1.0
-    return s
+        if (
+            v[i - 1] * v[i + 1] > 0.0
+            and v[i] * v[i - 1] > 0.0
+            and min(abs(v[i - 1]), abs(v[i]), abs(v[i + 1]))
+            > 0.1 * max(abs(v[i - 1]), abs(v[i]), abs(v[i + 1]))
+        ):
+            hp = np.log(r[i - 1] / r[i])
+            hm = np.log(r[i] / r[i + 1])
+            s[i] = (
+                np.log(abs(v[i - 1])) * hm / (hp * (hp + hm))
+                + np.log(abs(v[i])) * (hp - hm) / (hp * hm)
+                - np.log(abs(v[i + 1])) * hp / (hm * (hp + hm))
+            ) - 1.0
+        elif v[i] != 0.0:
+            hp = r[i - 1] - r[i]
+            hm = r[i] - r[i + 1]
+            s[i] = (r[i] / v[i]) * (
+                v[i - 1] * hm / (hp * (hp + hm))
+                + v[i] * (hp - hm) / (hp * hm)
+                - v[i + 1] * hp / (hm * (hp + hm))
+            ) - 1.0
+    if (
+        v[0] * v[1] > 0.0
+        and v[1] * v[2] > 0.0
+        and min(abs(v[0]), abs(v[1]), abs(v[2]))
+        > 0.1 * max(abs(v[0]), abs(v[1]), abs(v[2]))
+    ):
+        hp = np.log(r[0] / r[1])
+        hm = np.log(r[1] / r[2])
+        s[0] = (
+            np.log(abs(v[0])) * (2.0 * hp + hm) / (hp * (hp + hm))
+            - np.log(abs(v[1])) * (hp + hm) / (hp * hm)
+            + np.log(abs(v[2])) * hp / (hm * (hp + hm))
+        ) - 1.0
+    elif v[0] != 0.0:
+        hp = r[0] - r[1]
+        hm = r[1] - r[2]
+        s[0] = (r[0] / v[0]) * (
+            v[0] * (2.0 * hp + hm) / (hp * (hp + hm))
+            - v[1] * (hp + hm) / (hp * hm)
+            + v[2] * hp / (hm * (hp + hm))
+        ) - 1.0
+    if (
+        v[-1] * v[-2] > 0.0
+        and v[-2] * v[-3] > 0.0
+        and min(abs(v[-1]), abs(v[-2]), abs(v[-3]))
+        > 0.1 * max(abs(v[-1]), abs(v[-2]), abs(v[-3]))
+    ):
+        hp = np.log(r[-2] / r[-1])
+        hm = np.log(r[-3] / r[-2])
+        s[-1] = -(
+            np.log(abs(v[-3])) * hp / (hm * (hp + hm))
+            - np.log(abs(v[-2])) * (hp + hm) / (hp * hm)
+            + np.log(abs(v[-1])) * (2.0 * hp + hm) / (hp * (hp + hm))
+        ) - 1.0
+    elif v[-1] != 0.0:
+        hp = r[-2] - r[-1]
+        hm = r[-3] - r[-2]
+        s[-1] = (r[-1] / v[-1]) * (-(
+            v[-3] * hp / (hm * (hp + hm))
+            - v[-2] * (hp + hm) / (hp * hm)
+            + v[-1] * (2.0 * hp + hm) / (hp * (hp + hm))
+        )) - 1.0
+    return np.clip(s, -1.0e6, 1.0e6)
 
 
 def build():
@@ -187,7 +249,7 @@ def main():
         )
         err = np.abs(s_g - sigma_fd(r_g, v_g)).max()
         rep.check(
-            "knop: SIGMA == centred FD of returned V",
+            "knop: SIGMA == hybrid FD of returned V",
             err < 1e-8,
             f"maxerr={err:.2e}",
         )

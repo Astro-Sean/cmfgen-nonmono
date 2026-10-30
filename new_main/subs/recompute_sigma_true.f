@@ -86,15 +86,17 @@
 ! nonmono flags before calling this; CMF_FLUX_V5 calls it directly so
 ! its EW estimators cannot drift out of sync with the transfer solve.
 !
-! Derivative reconstruction (30-Oct-2026 audit): dV/dR comes from the
-! quadratic interpolant through the three-point stencil evaluated at
-! the cell centre.  The old two-point secant
-! (V(I-1)-V(I+1))/(R(I-1)-R(I+1)) is the slope at the midpoint of the
-! stencil, not at R(I); on a non-uniform grid it carries an O(dx)
-! bias proportional to the local spacing asymmetry, which shifts
-! sigma at sharp ramps and near inserted points.  The quadratic form
-! is second order on any grid and reduces to the centred difference
-! verbatim on a uniform stencil.
+! Derivative reconstruction (30-Oct-2026 audit): sigma is computed as
+! d ln|V|/d lnR - 1 = (R/V)dV/dR - 1 via the quadratic interpolant in
+! lnR through the three-point stencil.  The log-space form is EXACT
+! for any power law V ~ R^b on any grid (homologous SN profiles give
+! sigma=0 to roundoff) and equals (R/V)dV/dR for either sign of V as
+! long as the stencil carries one sign.  Where the stencil contains a
+! sign change (zero crossing / shock), ln|V| is singular there and the
+! code falls back to the linear-space quadratic derivative in R.
+! The old two-point secant (V(I-1)-V(I+1))/(R(I-1)-R(I+1)) is the
+! slope at the linear midpoint of the stencil, not at R(I); on a
+! non-uniform grid that is an O(dx) bias for both forms.
 !
 ! |V|>tol is tested (not V>tol): the algebraic form (R/V)dV/dR-1 is
 ! defined for V<0 and propagates the infall sign correctly into GAM.
@@ -152,21 +154,42 @@
 	  HP=R(I-1)-R(I)
 	  HM=R(I)-R(I+1)
 	  IF(MIN(HP,HM) .GT. RTOL*R(I))THEN
+	    IF(V(I-1)*V(I+1) .GT. 0.0_LDP .AND.
+	1       V(I)*V(I-1) .GT. 0.0_LDP .AND.
+	1       MIN(ABS(V(I-1)),ABS(V(I)),ABS(V(I+1))) .GT.
+	1       0.1_LDP*MAX(ABS(V(I-1)),ABS(V(I)),ABS(V(I+1))))THEN
 !
-! Non-uniform quadratic derivative at R(I).
+! Stencil has one sign AND |V| varies by less than a decade across
+! it: sigma = d ln|V|/d lnR - 1 via the non-uniform quadratic in
+! lnR.  Exact for V ~ R^b on any grid; HP/HM reuse the log spacings.
+! The decade gate keeps the log form off cells adjacent to a sign
+! crossing or a sharp velocity dip, where ln|V| has a kink the
+! quadratic cannot follow (the linear form is safer there and is
+! exact when V is locally linear in R).
 !
-	    DVDR=V(I-1)*HM/(HP*(HP+HM)) +
-	1         V(I)*(HP-HM)/(HP*HM) -
-	1         V(I+1)*HP/(HM*(HP+HM))
-	    IF(V(I) .NE. 0.0_LDP)THEN
+	      HP=LOG(R(I-1)/R(I))
+	      HM=LOG(R(I)/R(I+1))
+	      DVDR=LOG(ABS(V(I-1)))*HM/(HP*(HP+HM)) +
+	1           LOG(ABS(V(I)))*(HP-HM)/(HP*HM) -
+	1           LOG(ABS(V(I+1)))*HP/(HM*(HP+HM))
+	      SIGMA_TRUE(I)=DVDR-1.0_LDP
+	    ELSE IF(V(I) .NE. 0.0_LDP)THEN
+!
+! Sign change inside the stencil (shock or zero crossing): ln|V| is
+! singular here, so use the linear-space quadratic for dV/dR.
+!
+	      DVDR=V(I-1)*HM/(HP*(HP+HM)) +
+	1           V(I)*(HP-HM)/(HP*HM) -
+	1           V(I+1)*HP/(HM*(HP+HM))
 	      SIGMA_TRUE(I)=(R(I)/V(I))*DVDR-1.0_LDP
-	      SIGMA_TRUE(I)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
-	1       SIGMA_TRUE(I)))
-	      IF(ABS(SIGMA_TRUE(I)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
 	    ELSE
 	      SIGMA_TRUE(I)=0.0_LDP
 	      N_UNDEF=N_UNDEF+1
+	      CYCLE
 	    END IF
+	    SIGMA_TRUE(I)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
+	1     SIGMA_TRUE(I)))
+	    IF(ABS(SIGMA_TRUE(I)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
 	  ELSE
 	    SIGMA_TRUE(I)=0.0_LDP
 	    N_UNDEF=N_UNDEF+1
@@ -178,10 +201,23 @@
 	HP=R(1)-R(2)
 	HM=R(2)-R(3)
 	IF(MIN(HP,HM) .GT. RTOL*R(1))THEN
-	  DVDR=V(1)*(2.0_LDP*HP+HM)/(HP*(HP+HM)) -
-	1       V(2)*(HP+HM)/(HP*HM) +
-	1       V(3)*HP/(HM*(HP+HM))
-	  IF(V(1) .NE. 0.0_LDP)THEN
+	  IF(V(1)*V(2) .GT. 0.0_LDP .AND.
+	1     V(2)*V(3) .GT. 0.0_LDP .AND.
+	1     MIN(ABS(V(1)),ABS(V(2)),ABS(V(3))) .GT.
+	1     0.1_LDP*MAX(ABS(V(1)),ABS(V(2)),ABS(V(3))))THEN
+	    HP=LOG(R(1)/R(2))
+	    HM=LOG(R(2)/R(3))
+	    DVDR=LOG(ABS(V(1)))*(2.0_LDP*HP+HM)/(HP*(HP+HM)) -
+	1         LOG(ABS(V(2)))*(HP+HM)/(HP*HM) +
+	1         LOG(ABS(V(3)))*HP/(HM*(HP+HM))
+	    SIGMA_TRUE(1)=DVDR-1.0_LDP
+	    SIGMA_TRUE(1)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
+	1     SIGMA_TRUE(1)))
+	    IF(ABS(SIGMA_TRUE(1)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
+	  ELSE IF(V(1) .NE. 0.0_LDP)THEN
+	    DVDR=V(1)*(2.0_LDP*HP+HM)/(HP*(HP+HM)) -
+	1         V(2)*(HP+HM)/(HP*HM) +
+	1         V(3)*HP/(HM*(HP+HM))
 	    SIGMA_TRUE(1)=(R(1)/V(1))*DVDR-1.0_LDP
 	    SIGMA_TRUE(1)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
 	1     SIGMA_TRUE(1)))
@@ -198,11 +234,29 @@
 	HP=R(ND-1)-R(ND)
 	HM=R(ND-2)-R(ND-1)
 	IF(MIN(HP,HM) .GT. RTOL*R(ND))THEN
-	  DVDR=V(ND-2)*HP/(HM*(HP+HM)) -
-	1       V(ND-1)*(HP+HM)/(HP*HM) +
-	1       V(ND)*(2.0_LDP*HP+HM)/(HP*(HP+HM))
-	  IF(V(ND) .NE. 0.0_LDP)THEN
-	    SIGMA_TRUE(ND)=(R(ND)/V(ND))*DVDR-1.0_LDP
+	  IF(V(ND)*V(ND-1) .GT. 0.0_LDP .AND.
+	1     V(ND-1)*V(ND-2) .GT. 0.0_LDP .AND.
+	1     MIN(ABS(V(ND)),ABS(V(ND-1)),ABS(V(ND-2))) .GT.
+	1     0.1_LDP*MAX(ABS(V(ND)),ABS(V(ND-1)),ABS(V(ND-2))))THEN
+	    HP=LOG(R(ND-1)/R(ND))
+	    HM=LOG(R(ND-2)/R(ND-1))
+	    DVDR=LOG(ABS(V(ND-2)))*HP/(HM*(HP+HM)) -
+	1         LOG(ABS(V(ND-1)))*(HP+HM)/(HP*HM) +
+	1         LOG(ABS(V(ND)))*(2.0_LDP*HP+HM)/(HP*(HP+HM))
+	    SIGMA_TRUE(ND)=-DVDR-1.0_LDP
+	    SIGMA_TRUE(ND)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
+	1     SIGMA_TRUE(ND)))
+	    IF(ABS(SIGMA_TRUE(ND)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1
+	  ELSE IF(V(ND) .NE. 0.0_LDP)THEN
+!
+! The linear-space form needs the mirror of the I=1 stencil; the
+! weights carry the opposite overall sign at the inner edge (the
+! 30-Oct-2026 T1 failure caught a missing negation here).
+!
+	    DVDR=V(ND-2)*HP/(HM*(HP+HM)) -
+	1         V(ND-1)*(HP+HM)/(HP*HM) +
+	1         V(ND)*(2.0_LDP*HP+HM)/(HP*(HP+HM))
+	    SIGMA_TRUE(ND)=(R(ND)/V(ND))*(-DVDR)-1.0_LDP
 	    SIGMA_TRUE(ND)=MAX(-1.0E+6_LDP,MIN(1.0E+6_LDP,
 	1     SIGMA_TRUE(ND)))
 	    IF(ABS(SIGMA_TRUE(ND)) .GE. 1.0E+6_LDP)N_CLAMP=N_CLAMP+1

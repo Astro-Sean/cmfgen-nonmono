@@ -41,15 +41,24 @@ dS clamps, and boundaries (I_M(1)=0; I_P(NI)=I_CORE/I_M(NI)).
    KN_INSERT_SAV now captured; clamp mirrors the sweep rule.
 4. SIGMA_TRUE_CORE derivative: two-point secant is 1st-order on
    non-uniform grids (assigned stencil-midpoint slope to R(I)) and
-   1st-order one-sided at boundaries -> nonuniform quadratic (2nd
-   order) interior + boundary.  Absolute 1E-10 R-spacing guard
-   replaced by relative RTOL*R.
+   1st-order one-sided at boundaries.  New scheme: sigma =
+   d ln|V|/d lnR - 1 via the non-uniform quadratic in lnR where the
+   stencil carries one sign and |V| spans <1 decade -- EXACT for any
+   power law V ~ R^b on any grid (homologous SN ejecta gives sigma=0
+   to roundoff; the log form equals (R/V)dV/dR-1 for either sign of
+   V).  Sign-changing or near-crossing stencils (ln|V| kinked) fall
+   back to the linear-space quadratic dV/dR.  Absolute 1E-10
+   R-spacing guard replaced by relative RTOL*R.  Trade-off, measured:
+   within ~3 cells of a sign crossing the log-space cells carry
+   O(10%) magnitude error vs truth (classification sign always right);
+   a linear-secant-only scheme had the same order of error there.
 5. SIGMA_TRUE_CORE stagnation branch substituted T1=MIN|V(neighbour)|
    for V(i), discarding sign(V(i)): at V<0 near-stagnation cells the
    sigma sign flipped vs the algebraic limit, misclassifying the
-   cell's compressing direction.  Now evaluates (R/V)dV/dR-1 with the
-   signed V(i); exact V(i)=0 reports N_UNDEF instead of a fabricated
-   classification.
+   cell's compressing direction.  The signed V(i) is now carried in
+   the algebraic form; exact V(i)=0 reports N_UNDEF instead of a
+   fabricated classification (the sigma parametrization cannot
+   express the finite GAM limit ~mu^2 dV/dR/c).
 6. SET_FG_GS_TAG was gated on DO_NONMONO_KNOP only, so under
    DO_SOB_FG_KNOP the FG checkpoint always failed its tag test and
    cold-started I_NEXT every requeue.

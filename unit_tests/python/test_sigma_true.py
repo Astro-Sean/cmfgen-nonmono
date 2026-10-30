@@ -83,6 +83,92 @@ def sigma_analytic(r, v):
     return s
 
 
+def sigma_dvdr(r, v):
+    """Independent mirror of the production hybrid stencil (audit
+    30-Oct-2026): sigma = d ln|V|/d lnR - 1 via the non-uniform
+    quadratic in lnR where the stencil carries one sign and |V| spans
+    less than a decade (exact for
+    V ~ R^b on any grid); the linear-space quadratic dV/dR at sign
+    changes; zero V(i) -> undefined.  Kept in python so the test
+    double-checks the formula rather than compiling it twice."""
+    s = np.zeros(len(r))
+    for i in range(1, len(r) - 1):
+        if (
+            v[i - 1] * v[i + 1] > 0.0
+            and v[i] * v[i - 1] > 0.0
+            and min(abs(v[i - 1]), abs(v[i]), abs(v[i + 1]))
+            > 0.1 * max(abs(v[i - 1]), abs(v[i]), abs(v[i + 1]))
+        ):
+            hp = np.log(r[i - 1] / r[i])
+            hm = np.log(r[i] / r[i + 1])
+            s[i] = (
+                np.log(abs(v[i - 1])) * hm / (hp * (hp + hm))
+                + np.log(abs(v[i])) * (hp - hm) / (hp * hm)
+                - np.log(abs(v[i + 1])) * hp / (hm * (hp + hm))
+            ) - 1.0
+        elif v[i] != 0.0:
+            hp = r[i - 1] - r[i]
+            hm = r[i] - r[i + 1]
+            dvdr = (
+                v[i - 1] * hm / (hp * (hp + hm))
+                + v[i] * (hp - hm) / (hp * hm)
+                - v[i + 1] * hp / (hm * (hp + hm))
+            )
+            s[i] = (r[i] / v[i]) * dvdr - 1.0
+        else:
+            s[i] = 0.0
+    if (
+        v[0] * v[1] > 0.0
+        and v[1] * v[2] > 0.0
+        and min(abs(v[0]), abs(v[1]), abs(v[2]))
+        > 0.1 * max(abs(v[0]), abs(v[1]), abs(v[2]))
+    ):
+        hp = np.log(r[0] / r[1])
+        hm = np.log(r[1] / r[2])
+        s[0] = (
+            np.log(abs(v[0])) * (2.0 * hp + hm) / (hp * (hp + hm))
+            - np.log(abs(v[1])) * (hp + hm) / (hp * hm)
+            + np.log(abs(v[2])) * hp / (hm * (hp + hm))
+        ) - 1.0
+    elif v[0] != 0.0:
+        hp = r[0] - r[1]
+        hm = r[1] - r[2]
+        dvdr = (
+            v[0] * (2.0 * hp + hm) / (hp * (hp + hm))
+            - v[1] * (hp + hm) / (hp * hm)
+            + v[2] * hp / (hm * (hp + hm))
+        )
+        s[0] = (r[0] / v[0]) * dvdr - 1.0
+    if (
+        v[-1] * v[-2] > 0.0
+        and v[-2] * v[-3] > 0.0
+        and min(abs(v[-1]), abs(v[-2]), abs(v[-3]))
+        > 0.1 * max(abs(v[-1]), abs(v[-2]), abs(v[-3]))
+    ):
+        hp = np.log(r[-2] / r[-1])
+        hm = np.log(r[-3] / r[-2])
+        s[-1] = -(
+            np.log(abs(v[-3])) * hp / (hm * (hp + hm))
+            - np.log(abs(v[-2])) * (hp + hm) / (hp * hm)
+            + np.log(abs(v[-1])) * (2.0 * hp + hm) / (hp * (hp + hm))
+        ) - 1.0
+    elif v[-1] != 0.0:
+        hp = r[-2] - r[-1]
+        hm = r[-3] - r[-2]
+        dvdr = (
+            v[-3] * hp / (hm * (hp + hm))
+            - v[-2] * (hp + hm) / (hp * hm)
+            + v[-1] * (2.0 * hp + hm) / (hp * (hp + hm))
+        )
+        s[-1] = (r[-1] / v[-1]) * (-dvdr) - 1.0
+    return np.clip(s, -1.0e6, 1.0e6)
+
+
+def sigma_true_exact(r, v, dvdr):
+    """sigma = (R/V)dV/dR - 1 with the TRUE analytic dV/dR."""
+    return (r / v) * dvdr - 1.0
+
+
 def main():
     rep = Report("SIGMA_TRUE / RECOMPUTE_SIGMA_TRUE")
     bin_ = get_bin()
@@ -112,18 +198,107 @@ def main():
         f"interior range [{interior.min():.6f},{interior.max():.6f}]",
     )
 
-    # -- T3: beta-law profile vs analytic centred difference.
+    # -- T3: beta-law profile on a log-spaced (non-uniform) grid.
+    # The 30-Oct-2026 audit replaced the secant stencil with the
+    # non-uniform quadratic; on this grid the secant carries an O(dx)
+    # bias vs the true analytic sigma, so the reference is the true
+    # derivative, not the old stencil.  Cells where |sigma| saturates
+    # the 1e6 clip (near the r=500 singular edge) are compared against
+    # the clip, not the unbounded truth.
     r3 = np.geomspace(8.0e4, 5.0e2, nd)
     v3 = 1.0e4 * (1.0 - 5.0e2 / r3) ** 0.8 + 500.0
     f = write_rv("rv_beta.txt", r3, v3)
     arr, nun = parse_sigma(run(bin_, "core", f).stdout)
-    ref = sigma_analytic(r3, v3)
-    err = np.abs(arr[:, 2] - ref)
-    ok = nun == 0 and np.allclose(arr[:, 2], ref, rtol=0, atol=1e-12)
+    dvdr3 = 1.0e4 * 0.8 * (1.0 - 5.0e2 / r3) ** (-0.2) * 5.0e2 / r3**2
+    ref3 = sigma_true_exact(r3, v3, dvdr3)
+    ref3 = np.clip(ref3, -1.0e6, 1.0e6)
+    # Resolved-region check: near the r=500 singular edge the true
+    # dV/dR diverges and any 3-point stencil has O(10%) truncation;
+    # away from it the log-space quadratic must track truth closely.
+    resolved = (r3 > 2.0e3) & (np.abs(ref3) < 9.0e5)
+    err3 = np.abs(arr[:, 2] - ref3)[resolved]
+    rel3 = err3 / np.maximum(np.abs(ref3)[resolved], 1.0)
+    ok = nun == 0 and rel3.max() < 5.0e-3
     rep.check(
-        "T3 beta-law matches analytic centred difference",
+        "T3 beta-law on log grid vs true sigma (resolved region)",
         ok,
-        f"max err {err.max():.2e}",
+        f"max rel err {rel3.max():.2e} on {resolved.sum()} cells",
+    )
+    # the hybrid stencil must also match its independent python mirror
+    ref3s = sigma_dvdr(r3, v3)
+    err3s = np.abs(arr[:, 2] - ref3s)
+    ok = np.allclose(arr[:, 2], ref3s, rtol=0, atol=1e-8)
+    rep.check(
+        "T3b production stencil == independent hybrid mirror",
+        ok,
+        f"max err {err3s.max():.2e}",
+    )
+
+    # -- T3c: exponential profile v = a*exp(b*R) on a non-uniform
+    # grid: the quadratic stencil must track the true sigma, not just
+    # the old secant's answer.  (R/V)dV/dR - 1 = b*R - 1 exactly.
+    r3c = np.geomspace(8.0e4, 5.0e2, nd)
+    b3c = 3.0e-5
+    v3c = 2.0e3 * np.exp(b3c * r3c)
+    f = write_rv("rv_exp.txt", r3c, v3c)
+    arr, nun = parse_sigma(run(bin_, "core", f).stdout)
+    ref3c = np.clip(b3c * r3c - 1.0, -1.0e6, 1.0e6)
+    err3c = np.abs(arr[:, 2] - ref3c) / np.maximum(np.abs(ref3c), 1.0)
+    ok = nun == 0 and err3c.max() < 5.0e-2
+    rep.check(
+        "T3c exponential v on log grid vs true sigma=bR-1",
+        ok,
+        f"max rel err {err3c.max():.2e}",
+    )
+
+    # -- T3d: smooth zero crossing v = a*(R-R0): sigma=(R/V)dV/dR-1
+    # diverges at the crossing with sign sign(V)*sign(dV/dR); the
+    # signed-stagnation branch must keep that sign on both sides.
+    r3d = np.linspace(5.0e4, 1.0e3, nd)
+    r0 = 2.0e4
+    v3d = 1.5e-2 * (r3d - r0)
+    f = write_rv("rv_xing.txt", r3d, v3d)
+    arr, nun = parse_sigma(run(bin_, "core", f).stdout)
+    dvdr3d = np.full(nd, 1.5e-2)
+    ref3d = np.clip(
+        np.where(v3d != 0.0, (r3d / v3d) * dvdr3d - 1.0, 0.0),
+        -1.0e6,
+        1.0e6,
+    )
+    i_x = int(np.argmin(np.abs(v3d)))
+    # Stencil-equality vs the independent hybrid mirror, plus the
+    # classification sign on both sides of the crossing: sigma keeps
+    # the algebraic-limit sign sign(V)*sign(dV/dR).  Within ~3 cells
+    # of the crossing ln|V| is kinked and the discretization carries
+    # O(10%) magnitude error on the log-space cells (documented in
+    # the routine header); the sign and bound are what matter there.
+    ref3m = sigma_dvdr(r3d, v3d)
+    mirr_err = np.abs(arr[:, 2] - ref3m)
+    # Cells 3-5 from the crossing use the log-space branch (same
+    # sign, <1 decade) where ln|V| still carries the kink; that is
+    # the documented trade-off for power-law exactness elsewhere.
+    # Assert: mirror-exact everywhere, bounded relative error near
+    # the crossing, near-exact far from it, correct sign at +-1.
+    far = np.abs(np.arange(nd) - i_x) >= 6
+    far_err = np.abs(arr[:, 2] - ref3d)[far]
+    near = np.abs(np.arange(nd) - i_x) < 6
+    rel_near = (
+        np.abs(arr[:, 2] - ref3d)[near] / np.maximum(np.abs(ref3d)[near], 1.0)
+    )
+    ok = (
+        mirr_err.max() < 1.0e-8
+        and far_err.max() < 5.0e-2
+        and rel_near.max() < 0.15
+        and np.sign(arr[i_x - 1, 2]) == np.sign(ref3d[i_x - 1])
+        and np.sign(arr[i_x + 1, 2]) == np.sign(ref3d[i_x + 1])
+        and np.all(np.abs(arr[:, 2]) <= 1.0001e6)
+    )
+    rep.check(
+        "T3d zero crossing: mirror-exact, signed, bounded",
+        ok,
+        f"mirror {mirr_err.max():.2e} far {far_err.max():.2e} "
+        f"near-rel {rel_near.max():.2e} "
+        f"sigma(xing+/-1)={arr[i_x - 1, 2]:.2e}/{arr[i_x + 1, 2]:.2e}",
     )
 
     # -- T4: velocity reversal -> sigma < -1 at the shock, unclamped
@@ -191,12 +366,20 @@ def main():
     rep.check("T10 KNOP: work SIGMA left unclamped", ok, f"SIGMA[0]={arr[0,2]:.4f}")
 
     # -- T11: negative velocities handled (infall) without crash.
+    # Same-sign negative stencils take the log-space branch (|V|
+    # spans <1 decade here): sigma = d ln|V|/d lnR - 1, which equals
+    # (R/V)dV/dR - 1 algebraically.  Compare vs the hybrid mirror.
     v11 = -np.linspace(1.0e4, 3.0e2, nd)
     f = write_rv("rv_infall.txt", r, v11)
     arr, nun = parse_sigma(run(bin_, "core", f).stdout)
-    ref = sigma_analytic(r, v11)
-    ok = np.all(np.isfinite(arr[:, 2])) and np.allclose(
-        arr[:, 2], ref, rtol=0, atol=1e-12
+    ref = sigma_dvdr(r, v11)
+    dvdr11 = np.gradient(v11, r)
+    ref11 = np.clip(sigma_true_exact(r, v11, dvdr11), -1.0e6, 1.0e6)
+    err11 = np.abs(arr[:, 2] - ref11) / np.maximum(np.abs(ref11), 1.0)
+    ok = (
+        np.all(np.isfinite(arr[:, 2]))
+        and np.allclose(arr[:, 2], ref, rtol=0, atol=1e-12)
+        and err11.max() < 5.0e-2
     )
     rep.check("T11 negative V (infall) finite, consistent sign", ok)
 
