@@ -229,6 +229,16 @@
 !
 	REAL(KIND=LDP), ALLOCATABLE :: ETA_CMF_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: CHI_CMF_ST(:,:)
+!
+! Render copies for the two-phase DO_SOB_FLUX_OBS solve: the
+! scattering fold-in and CLUMP_FAC land on these so ETA_CMF_ST/
+! CHI_CMF_ST keep the solver-input values (continuum+BLANK, then
+! plus the deposited SOB increments) that the phase-2 ES
+! iteration reloads.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: ETA_RND_ST(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: CHI_RND_ST(:,:)
+	INTEGER SOB_PHASE,NSOB_PHASE
 	REAL(KIND=LDP), ALLOCATABLE :: RJ_CMF_ST(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: IB_J_CMF_ST(:)	!J at inner boundary
 	REAL(KIND=LDP), ALLOCATABLE :: IB_H_CMF_ST(:)	!H at inner boundary
@@ -1318,6 +1328,8 @@
 !
 	ALLOCATE (ETA_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (CHI_CMF_ST(ND,NCF),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE (ETA_RND_ST(ND,NCF),STAT=IOS)
+	IF(IOS .EQ. 0)ALLOCATE (CHI_RND_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (RJ_CMF_ST(ND,NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (IB_J_CMF_ST(NCF),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE (IB_H_CMF_ST(NCF),STAT=IOS)
@@ -1388,6 +1400,30 @@
 ! take into account incoherent electron scattering.
 !
 	IF(RD_COHERENT_ES)NUM_ES_ITERATIONS=1
+!
+! DO_SOB_FLUX_OBS two-phase solve (Dessart, Audit & Hillier 2015,
+! Sec. 3.1): deposited SOB line opacity/emissivity must be inside
+! the electron-scattering iteration, not added afterwards, since
+! line photons scattered off thermal electrons form the extended
+! emission wings of SNe IIn.  SOB_PHASE=1 solves continuum+BLANK
+! and the SOB_EW line loop deposits into ETA_CMF_ST/CHI_CMF_ST;
+! SOB_PHASE=2 re-runs the ES iteration on those line-bearing
+! arrays so the J convolution folds line light into the wings
+! before the second OBS_FRAME pass writes OBSFRAME.  The fold-in
+! and CLUMP_FAC land on the ETA_RND/CHI_RND render copies so the
+! stored arrays stay usable as the phase-2 solve input.  With
+! DO_SOB_FLUX_OBS=F there is one phase and the path is unchanged.
+!
+	NSOB_PHASE=1
+	IF(DO_SOB_FLUX_OBS)NSOB_PHASE=2
+	DO SOB_PHASE=1,NSOB_PHASE
+!
+! Restart the direct-access record counter for each phase: it is
+! only re-read from the EDDFACTOR header when ACCURATE/EDDINGTON
+! is on, so without this it would march past the ES_J_CONV file
+! end on the phase-2 frequency sweep.
+!
+	ACCESS_F=5
 	DO ES_COUNTER=1,NUM_ES_ITERATIONS
 !
 ! This forces CMF_FORM_SOL_V? to be used for OBSFLUX computation.
@@ -1408,6 +1444,22 @@
 !
 ! Open the file so it can be read in the CONTINUUM loop (read in  COMP_JCONT).
 !
+! Phase 2 runs coherent: the ES_J_CONV/EDDFACTOR record state is
+! built for a single pass through this loop and cannot be trusted
+! on re-entry.  Line photons still reach the wings because the
+! render fold-in convolves the stored RJ_CMF_ST in memory and the
+! scattered emissivity (ESEC*J_conv) lands on ETA_RND_ST at the
+! wing frequencies.
+!
+	  IF(SOB_PHASE .EQ. 2)COHERENT_ES=.TRUE.
+!
+! Same for the EDDFACTOR reuse path: phase 1 created
+! EDDFACTOR_INFO on disk, so on phase-2 re-entry the reader can
+! switch COMPUTE_EDDFAC off and read records that do not hold
+! this run's J.  Force the compute branch; a file warm start is
+! only an optimization.
+!
+	  IF(SOB_PHASE .EQ. 2)COMPUTE_EDDFAC=.TRUE.
 	  IF(.NOT. COHERENT_ES)THEN
 	    I=WORD_SIZE*(ND+1)/UNIT_SIZE
 	    IF(ACCURATE)I=WORD_SIZE*(NDEXT+1)/UNIT_SIZE
@@ -1671,7 +1723,13 @@
 	  END IF
 	END DO
 !
-	IF(ES_COUNTER .GT. 1)THEN
+!
+! On phase-2 passes (DO_SOB_FLUX_OBS) the stored arrays already
+! carry the continuum+BLANK opacities plus the deposited SOB
+! increments, so every pass takes the reload branch: recomputing
+! from OPACITIES would lose the deposited lines.
+!
+	IF(ES_COUNTER .GT. 1 .OR. SOB_PHASE .GT. 1)THEN
 	  CALL ESOPAC(ESEC,ED,ND)		!Electron scattering emission factor.
 	  CHI_SCAT=ESEC
 	  IF(INCL_RAY_SCAT)THEN
@@ -2106,7 +2164,13 @@
 ! is no need to create an ES_J_CONV file.
 !
 	COHERENT_ES=RD_COHERENT_ES
-	IF(.NOT. COHERENT_ES .AND. .NOT. USE_FIXED_J)THEN
+!
+! Phase 2 never touches ES_J_CONV: its passes are forced coherent
+! above, and this file-based convolve reads EDDFACTOR records
+! whose layout does not survive a second trip through the loop.
+!
+	IF(.NOT. COHERENT_ES .AND. .NOT. USE_FIXED_J .AND.
+	1    SOB_PHASE .EQ. 1)THEN
 	  I=ND*ND
 	  CALL COMP_J_CONV_V2(WM,I,NU,TEXT,NDEXT,NCF,LU_EDD,'EDDFACTOR',
 	1          EDD_CONT_REC,L_FALSE,L_FALSE,LU_ES,'ES_J_CONV')
@@ -2121,6 +2185,12 @@
 !
 !
 !
+!
+! OBSFLUX is the continuum+BLANK product: written only in
+! SOB_PHASE=1 so the phase-2 J (which carries deposited SOB line
+! light) does not contaminate it.
+!
+	IF(SOB_PHASE .EQ. 1)THEN
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFLUX','UNKNOWN',' ',' ',IZERO,IOS)
 	  WRITE(STRING,'(I10)')N_OBS
 	  DO WHILE(STRING(1:1) .EQ. ' ')
@@ -2131,6 +2201,7 @@
 	  CALL WRITV_V2(OBS_FLUX,N_OBS,IFOUR,'Observed intensity (Janskys)',LU_FLUX)
 	  CALL WRITV(RLUMST,ND,'Luminosity',LU_FLUX)
 	CLOSE(UNIT=LU_FLUX)
+	END IF
 !
 ! Make sure ALL frequencies have been output to CMF_FORCE_MULT
 !
@@ -2242,9 +2313,18 @@
 ! Update the emissivity for Rayleigh scattering which is is assumed to be coherent
 ! in the comoving frame.
 !
+! The fold-in lands on the ETA_RND/CHI_RND render copies: under
+! DO_SOB_FLUX_OBS the stored arrays are the phase-2 solve input
+! (base opacities plus the deposited SOB increments), so they
+! must not carry the scattered emissivity.  On the stock path
+! ETA_RND/CHI_RND receive exactly what ETA_CMF_ST/CHI_CMF_ST used
+! to, so the render is unchanged.
+!
+	ETA_RND_ST(1:ND,1:NCF)=ETA_CMF_ST(1:ND,1:NCF)
+	CHI_RND_ST(1:ND,1:NCF)=CHI_CMF_ST(1:ND,1:NCF)
 	IF(INCL_RAY_SCAT)THEN
 	  DO ML=1,NCF
-	    ETA_CMF_ST(1:ND,ML)=ETA_CMF_ST(1:ND,ML)+RAY_CMF_ST(1:ND,ML)*RJ_CMF_ST(1:ND,ML)
+	    ETA_RND_ST(1:ND,ML)=ETA_RND_ST(1:ND,ML)+RAY_CMF_ST(1:ND,ML)*RJ_CMF_ST(1:ND,ML)
 	  END DO
 	END IF
 !
@@ -2252,7 +2332,7 @@
 !
 	IF(INCL_DUST)THEN
 	  DO ML=1,NCF
-	    ETA_CMF_ST(1:ND,ML)=ETA_CMF_ST(1:ND,ML)+DUST_CMF_ST(1:ND,ML)*RJ_CMF_ST(1:ND,ML)
+	    ETA_RND_ST(1:ND,ML)=ETA_RND_ST(1:ND,ML)+DUST_CMF_ST(1:ND,ML)*RJ_CMF_ST(1:ND,ML)
 	  END DO
 	END IF
 !
@@ -2268,11 +2348,14 @@
 !
 	ESEC(1:ND)=6.65E-15_LDP*ED(1:ND)
 	DO ML=1,NCF
-	  ETA_CMF_ST(1:ND,ML)=ETA_CMF_ST(1:ND,ML) +
+	  ETA_RND_ST(1:ND,ML)=ETA_RND_ST(1:ND,ML) +
 	1                        RJ_CMF_ST(1:ND,ML)*ESEC(1:ND)
 	END DO
 !
-	DEALLOCATE (RJ_CMF_ST)
+! RJ_CMF_ST is kept until the end of the SOB_PHASE loop: the
+! phase-2 fold-in needs the newly converged J.  Deallocated after
+! the loop.
+!
 !
 ! 
 ! ***************************************************************************
@@ -2287,8 +2370,8 @@
 !
 	IF(DO_CLUMP_MODEL)THEN
 	  DO ML=1,NCF
-	    ETA_CMF_ST(:,ML)=ETA_CMF_ST(:,ML)*CLUMP_FAC(:)
-	    CHI_CMF_ST(:,ML)=CHI_CMF_ST(:,ML)*CLUMP_FAC(:)
+	    ETA_RND_ST(:,ML)=ETA_RND_ST(:,ML)*CLUMP_FAC(:)
+	    CHI_RND_ST(:,ML)=CHI_RND_ST(:,ML)*CLUMP_FAC(:)
 	  END DO
 	END IF
 !
@@ -2370,7 +2453,13 @@
 ! formal solve, so the injection stays consistent with whichever
 ! solver produced them.
 !
-	CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
+!
+! Phase-1 render only: OBSFRAME at this point is the
+! continuum+BLANK product.  The phase-2 OBS_FRAME call below the
+! SOB line loop renders the line-bearing arrays.
+!
+	IF(SOB_PHASE .EQ. 1)THEN
+	CALL OBS_FRAME_SUB_V9(ETA_RND_ST,CHI_RND_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
 	1            P_OBS,MU_AT_RMAX,HQW_AT_RMAX,NC_OBS,NP_OBS,
 	1            OBS_FREQ,OBS_FLUX,N_OBS,
@@ -2390,11 +2479,18 @@
 	  CALL WRITV_V2(OBS_FREQ,N_OBS,ISEV,TRIM(STRING),LU_FLUX)
 	  CALL WRITV_V2(OBS_FLUX,N_OBS,IFOUR,'Observed intensity (Janskys)',LU_FLUX)
 	CLOSE(UNIT=LU_FLUX)
+	END IF
 !
 ! At present the line EW's are automatically computed when the
 ! CONTINUM Flux is evaluated.
 !
 	IF(.NOT. DO_SOBOLEV_LINES)RETURN
+!
+! Phase 1 only: the EW estimates and the SOB deposit need a single
+! pass over the line list.  Deposits land in ETA_CMF_ST/CHI_CMF_ST
+! (the phase-2 solve input), not the render copies.
+!
+	IF(SOB_PHASE .EQ. 1)THEN
 !
 ! This section of the program compute the SOBOLEV line EW's. These
 ! are only approximate, and can be used to determine which lines are
@@ -2659,10 +2755,9 @@
 ! integral cannot represent amplification and a floored opacity with
 ! live emissivity produces unphysical narrow spikes.
 ! DO_SOB_FLUX_OBS defaults to F, which leaves the stored arrays and
-! OBS_FLUX untouched.  CHIL_MAT/ETAL_MAT are per-line and unclumped at
-! this point, so CLUMP_FAC is applied inside the routine, matching the
-! clumping applied to the stored continuum (see ETA_CMF_ST/CHI_CMF_ST
-! scaling above).
+! OBS_FLUX untouched.  Deposits are unclumped: ETA_CMF_ST/CHI_CMF_ST
+! now serve as the phase-2 ES-solve input, so CLUMP_FAC is applied
+! only at the render fold-in on ETA_RND_ST/CHI_RND_ST.
 !
 	IF(DO_SOB_FLUX_OBS)THEN
 	  CALL ADD_SOB_LINE_PROF(ETA_CMF_ST,CHI_CMF_ST,NU,NCF,
@@ -2742,17 +2837,19 @@
 	LINE_INDX=LINE_INDX+NUM_SIM_LINES
 !
 	END DO		!Line loop
+	END IF		!SOB_PHASE .EQ. 1
 !
-! The line loop has now written every SOB line's Doppler-profile
-! opacity/emissivity into ETA_CMF_ST/CHI_CMF_ST.  Re-run the
-! observer's-frame formal integral so OBS_FLUX carries the resolved
-! Sobolev line profiles, then rewrite OBSFRAME.  OBSFLUX (the earlier
-! COMP_OBS_V3 product) is left unchanged: it deliberately contains
-! continuum plus BLANK lines only, which is useful as a continuum
-! comparison product.  The same TA/velocity setup as the first call is
-! required because TA was reused as scratch inside the EW block.
+! Phase 2 (DO_SOB_FLUX_OBS): the ES iteration above re-ran on the
+! line-bearing ETA_CMF_ST/CHI_CMF_ST, so the converged J and its
+! electron-scattering convolution carry the line photons and the
+! ETA_RND fold-in has scattered them into the wings.  A final
+! observer's-frame pass then renders the resolved line profiles
+! into OBSFRAME.  OBSFLUX (the earlier COMP_OBS_V3 product) is
+! left as continuum plus BLANK lines only.  The same TA/velocity
+! setup as the first call is required because TA was reused as
+! scratch inside the EW block.
 !
-	IF(DO_SOB_FLUX_OBS)THEN
+	IF(SOB_PHASE .EQ. 2)THEN
 	  TMP_LOG=.FALSE.
 	  IF(PLANE_PARALLEL_NO_V .OR. PLANE_PARALLEL)TMP_LOG=.TRUE.
 	  IF(PLANE_PARALLEL_NO_V)THEN
@@ -2778,7 +2875,7 @@
 	2     ' cells); rendered SOB line flux is a lower bound.'
 	  END IF
 	  CALL TUNE(1,'OBS_FRAME_SOB')
-	  CALL OBS_FRAME_SUB_V9(ETA_CMF_ST,CHI_CMF_ST,NU,
+	  CALL OBS_FRAME_SUB_V9(ETA_RND_ST,CHI_RND_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
 	1            P_OBS,MU_AT_RMAX,HQW_AT_RMAX,NC_OBS,NP_OBS,
 	1            OBS_FREQ,OBS_FLUX,N_OBS,
@@ -2800,6 +2897,9 @@
 	    CALL WRITV_V2(OBS_FLUX,N_OBS,IFOUR,'Observed intensity (Janskys)',LU_FLUX)
 	  CLOSE(UNIT=LU_FLUX)
 	END IF
+!
+	END DO		!SOB_PHASE
+	DEALLOCATE (RJ_CMF_ST)
 !
 ! Outout the Sobolev Line-Force multiplier
 !
@@ -3012,11 +3112,11 @@
 	      N_DROP=N_DROP+1
 	      N_DROP_L=N_DROP_L+1
 	      IF(.NOT. DO_SOB_DEP_FLOOR)THEN
-	        DROP_SUM=DROP_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
+	        DROP_SUM=DROP_SUM+ETAL_MAT(I,S)
 	        CYCLE
 	      END IF
 	    END IF
-	    INJ_SUM=INJ_SUM+ETAL_MAT(I,S)*CLUMP_FAC(I)
+	    INJ_SUM=INJ_SUM+ETAL_MAT(I,S)
 !
 ! DO_SOB_DEP_WINGS: true Voigt profile per depth with the same
 ! A_VOIGT formula the stock CMF profiles use (SET_PROF_V6), so the
@@ -3063,9 +3163,9 @@
 	        T1=CHIL_MAT(I,S)
 	      END IF
 	      CHI_ST(I,K)=CHI_ST(I,K)+
-     1	          T1*CLUMP_FAC(I)*WT
+     1	          T1*WT
 	      ETA_ST(I,K)=ETA_ST(I,K)+
-     1	          ETAL_MAT(I,S)*CLUMP_FAC(I)*WT
+     1	          ETAL_MAT(I,S)*WT
 	    END DO
 	  END DO
 !
