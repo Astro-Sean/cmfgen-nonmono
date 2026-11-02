@@ -251,6 +251,22 @@
 	REAL(KIND=LDP), ALLOCATABLE :: I_P_DEPTH_NEXT(:,:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: I_M_DEPTH_NEXT(:,:,:)
 !
+! SNP_P/SNP_M (edited by Devin, 02-Nov-2026): per-frequency snapshot
+! of the stored I_NEXT column, taken on the NEW_FREQ call of each
+! frequency.  comp_j_blank re-enters this routine inside its J
+! accuracy loop with NEW_FREQ=.FALSE. (DO_ES_ALI runs ~12 calls per
+! frequency), so a relax-against-current-store write compounds per
+! re-entry while only the first call's field is ever sampled.  The
+! write below therefore relaxes against this frozen snapshot on
+! EVERY call, so the slot ends at
+!   snapshot + INEXT_RELAX*(T1_last - snapshot)
+! -- one relaxed write per frequency per sweep, but taken from the
+! last (scattering-converged) pass instead of the first.  SNP_FREQ
+! is the store-slot index the snapshot covers; -1 = unset.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: SNP_P(:,:), SNP_M(:,:)
+	INTEGER, SAVE :: SNP_FREQ=-1
+!
 ! COMP_DEPTH_IDX(K): sparse index for depth K (1..N_COMP) or 0 if not compressing.
 ! N_COMP: number of depths with SIGMA_TRUE < -1.
 !
@@ -488,6 +504,27 @@
 ! 2 non-converged reject, 3 capped commit, 4 diverged.
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_VC(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FG_RAY_DCH(:)
+!
+! FG_SEED_COMMIT / FG_RAY_SEEDED (edited by Devin, 02-Nov-2026):
+! per-ray "has committed" flag, waiving the FG_COMMIT_JUMP veto for a
+! ray that has never taken a WRITE_STORE commit.  The veto bounds
+! near-blowup overwrites of a committed generation, but on a cold or
+! foreign-seeded store the in-sweep write pre-fills the slots above
+! the 1E-28 floor BEFORE the refresh runs, so the cold-start
+! exemption in FG_JUMP_MAX can never fire and the veto then rejects
+! exactly the converged fill it was meant to let through
+! (m15_2p82d_KNOP_esB, job 12586072: 67/85 rays jump-rejected on the
+! first refresh, fixed-point 1E2-6E2 above the cold field; the store
+! then filled only by the omega~0.5 in-sweep relaxation).  Each ray
+! gets one unguarded commit -- its first -- with FG_COMMIT_CONV
+! still gating unconverged exits, so only a converged fixed-point
+! solve can land the fill.  Set to 1 on a WRITE_STORE commit and on
+! a validated FGINEXT_GS restore (a committed generation exists);
+! left 0 after a cold or foreign-seeded start.  [FG_SEED_COMMIT]=F
+! restores the unconditional veto.
+!
+	LOGICAL, SAVE :: FG_SEED_COMMIT=.TRUE.
+	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_SEEDED(:)
 !
 ! Per-ray worst-cell record: depth/freq index of the last-pass
 ! residual max (of the worse direction) and how many consecutive
@@ -1588,6 +1625,10 @@
 ! edited by Sean Brennan
 	    IF(ALLOCATED(I_P_DEPTH_NEXT))DEALLOCATE ( I_P_DEPTH_NEXT )
 	    IF(ALLOCATED(I_M_DEPTH_NEXT))DEALLOCATE ( I_M_DEPTH_NEXT )
+	    IF(ALLOCATED(SNP_P))DEALLOCATE ( SNP_P )
+	    IF(ALLOCATED(SNP_M))DEALLOCATE ( SNP_M )
+	    IF(ALLOCATED(FG_RAY_SEEDED))DEALLOCATE ( FG_RAY_SEEDED )
+	    SNP_FREQ=-1
 	    IF(ALLOCATED(COMP_DEPTH_IDX))DEALLOCATE ( COMP_DEPTH_IDX )
 !
 ! Per-ray Knop refresh store: invalid on any grid rebuild.
@@ -2134,6 +2175,14 @@
 	      IF(IOS .EQ. 0)I_P_DEPTH_NEXT=0.0_LDP
 	      IF(IOS .EQ. 0)ALLOCATE (I_M_DEPTH_NEXT(N_COMP,NP,NCF_IN),STAT=IOS )
 	      IF(IOS .EQ. 0)I_M_DEPTH_NEXT=0.0_LDP
+	      IF(IOS .EQ. 0)ALLOCATE (SNP_P(N_COMP,NP),
+	1          SNP_M(N_COMP,NP),STAT=IOS )
+	      IF(IOS .EQ. 0)ALLOCATE (FG_RAY_SEEDED(NP),STAT=IOS )
+	      IF(IOS .EQ. 0)THEN
+	        SNP_P=0.0_LDP
+	        SNP_M=0.0_LDP
+	        FG_RAY_SEEDED=0
+	      END IF
 	    END IF
 !
 ! Per-ray Knop refresh store (Oct-2026): captured per-frequency
@@ -4096,17 +4145,23 @@ C
 ! around the coupled eval sweep) sees the same Gauss-Seidel I_NEXT
 ! state as the baseline; the default path leaves it .FALSE.
 !
-! NEW_FREQ gate (edited by Devin, 19-Oct-2026): comp_j_blank re-enters
-! this routine inside its J accuracy loop with NEW_FREQ=.FALSE. after
-! the first call of each frequency.  Without the gate the store relaxes
-! again against the already-relaxed values (~1-(1-omega)^k per
-! frequency) and the FG_GS_MAXCHG/FG_GS_NCONV/FG_SW_* churn metrics the
-! freeze gate reads collect one extra sample per re-entry.  With the
-! gate the lagged store sees one relaxed write and one churn sample per
-! frequency per sweep; the re-entries still produce and return their
-! full formal solve for J -- only the store write and counters skip.
+! NEW_FREQ snapshot (edited by Devin, 02-Nov-2026): comp_j_blank
+! re-enters this routine inside its J accuracy loop with
+! NEW_FREQ=.FALSE. after the first call of each frequency (DO_ES_ALI
+! runs ~12 calls per frequency).  The stored column is snapshotted on
+! the first call and EVERY call relaxes the live slot against that
+! frozen snapshot, so the slot ends at
+!   snapshot + INEXT_RELAX*(T1_last - snapshot)
+! -- the field of the last (scattering-converged) pass, not the
+! first.  Nothing reads slot FREQ_IDX_ITER during its own frequency
+! (the compressing upwind looks at slots >= +1), so overwriting it on
+! re-entries is safe.  The FG_GS_MAXCHG/FG_GS_NCONV/FG_SW_* churn
+! metrics keep their one-sample-per-frequency census on the NEW_FREQ
+! call only (the 19-Oct-2026 gate); a stray call with a shifted
+! FREQ_IDX_ITER re-snapshots first so the base is always the
+! pre-frequency value.
 !
-	  IF(HAS_COMPRESSING .AND. NEW_FREQ .AND.
+	  IF(HAS_COMPRESSING .AND.
 	1   FREQ_IDX_ITER .GE. 1 .AND.
 	1   FREQ_IDX_ITER .LE. NCF_IN .AND.
 	1   .NOT. FREEZE_I_NEXT)THEN
@@ -4126,38 +4181,50 @@ C
 ! the refresh residual applies in MARCH (VMAX_L).
 ! edited by Devin (28-Sep-2026)
 !
-	    DO LS=1,NP
-	      VMAX_IP(LS)=MAX(1.0E-25_LDP,
+	    IF(NEW_FREQ .OR. SNP_FREQ .NE. FREQ_IDX_ITER)THEN
+	      SNP_FREQ=FREQ_IDX_ITER
+	      DO LS=1,NP
+	        VMAX_IP(LS)=MAX(1.0E-25_LDP,
 	1        MAXVAL(I_P(1:NI_RAY(LS),LS),
 	2        MASK=I_P(1:NI_RAY(LS),LS) .EQ. I_P(1:NI_RAY(LS),LS)))
-	      VMAX_IM(LS)=MAX(1.0E-25_LDP,
+	        VMAX_IM(LS)=MAX(1.0E-25_LDP,
 	1        MAXVAL(I_M(1:NI_RAY(LS),LS),
 	2        MASK=I_M(1:NI_RAY(LS),LS) .EQ. I_M(1:NI_RAY(LS),LS)))
-	    END DO
-	    KN_DUMP_NS=0
+	      END DO
+	      DO K=1,ND
+	        KC=COMP_DEPTH_IDX(K)
+	        IF(KC .GE. 1)THEN
+	          SNP_P(KC,1:NP)=I_P_DEPTH_NEXT(KC,1:NP,FREQ_IDX_ITER)
+	          SNP_M(KC,1:NP)=I_M_DEPTH_NEXT(KC,1:NP,FREQ_IDX_ITER)
+	        END IF
+	      END DO
+	    END IF
+	    IF(NEW_FREQ)KN_DUMP_NS=0
 	    DO K=1,ND
 	      KC=COMP_DEPTH_IDX(K)
 	      IF(KC .GE. 1)THEN
 	        DO LS=1,NP
 	          I=J_PNT(K,LS)
 	          IF(I .GE. 1 .AND. I .LE. NI_RAY(LS))THEN
-	            FG_SW_CAPTOT=FG_SW_CAPTOT+1
+	            IF(NEW_FREQ)FG_SW_CAPTOT=FG_SW_CAPTOT+1
 	            IF(I_P(I,LS) .EQ. I_P(I,LS) .AND.
 	1              I_P(I,LS) .GT. 0.0_LDP)THEN
 	              T1=MIN(I_P(I,LS),NONMONO_INEXT_CAP)
-	              IF(I_P(I,LS) .GT. NONMONO_INEXT_CAP)THEN
+	              IF(NEW_FREQ .AND.
+	1                I_P(I,LS) .GT. NONMONO_INEXT_CAP)THEN
 	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
 	                FG_SW_CAPPED=FG_SW_CAPPED+1
 	              END IF
 	            ELSE
 	              T1=1.0E-30_LDP
-	              IF(.NOT. (I_P(I,LS) .EQ. I_P(I,LS)))THEN
+	              IF(NEW_FREQ .AND.
+	1                .NOT. (I_P(I,LS) .EQ. I_P(I,LS)))THEN
 	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
 	                FG_SW_CAPPED=FG_SW_CAPPED+1
 	              END IF
 	            END IF
-	            T2=I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)
-	            IF(T2 .GT. 0.0_LDP)THEN
+	            T2=SNP_P(KC,LS)
+	            IF(NEW_FREQ)THEN
 !
 ! MAXCHG denominators are floored at the ray peak (same contract as
 ! MOM_GS_MAXCHG): a stored cell ~1E-300 vs a fresh 1E-38 reports
@@ -4166,37 +4233,39 @@ C
 ! gate at GS_UNSAFE_TOL forever.  Job 12255111 ran with
 ! sweep drift=1.5E263 from exactly this.
 !
-	              IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
-	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS))
-	2                FG_GS_NCONV=FG_GS_NCONV+1
-	              T4=ABS(T1-T2)/MAX(T2,1.0E-4_LDP*VMAX_IP(LS))
-	              IF(T4 .GT. FG_GS_MAXCHG)THEN
-	                FG_GS_MAXCHG=T4
-	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
-	                FG_GS_ARGL=FREQ_IDX_ITER
-	              END IF
+	              IF(T2 .GT. 0.0_LDP)THEN
+	                IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
+	1                  MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS))
+	2                  FG_GS_NCONV=FG_GS_NCONV+1
+	                T4=ABS(T1-T2)/MAX(T2,1.0E-4_LDP*VMAX_IP(LS))
+	                IF(T4 .GT. FG_GS_MAXCHG)THEN
+	                  FG_GS_MAXCHG=T4
+	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                  FG_GS_ARGL=FREQ_IDX_ITER
+	                END IF
 !
 ! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store.  A
 ! cell whose freshly solved intensity still differs from the stored
 ! value by >25% after relaxation cycles is part of the residual
 ! floor that holds the field above GS_UNSAFE_TOL.
 !
-	              IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
-	1               0.25_LDP .AND.
-	2               MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS) .AND.
-	3               KN_DUMP_NS .LT. 2000)THEN
-	                KN_DUMP_NS=KN_DUMP_NS+1
-	                WRITE(LUER,'(A,I6,A,I4,A,I4,A,I5,4(A,ES11.4))')
-	1               ' KNSTOR P f=',FREQ_IDX_ITER,' r=',LS,' k=',K,
-	2               ' i=',I,' st=',T2,' sv=',T1,' rel=',
-	3               ABS(T1-T2)/T2,' sig=',SIGMA_TRUE_IN(K)
-	              END IF
-	            ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IP(LS))THEN
-	              FG_GS_NCONV=FG_GS_NCONV+1
-	              IF(FG_GS_MAXCHG .LT. 1.0_LDP)THEN
-	                FG_GS_MAXCHG=1.0_LDP
-	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
-	                FG_GS_ARGL=FREQ_IDX_ITER
+	                IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
+	1                 0.25_LDP .AND.
+	2                 MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IP(LS) .AND.
+	3                 KN_DUMP_NS .LT. 2000)THEN
+	                  KN_DUMP_NS=KN_DUMP_NS+1
+	                  WRITE(LUER,'(A,I6,A,I4,A,I4,A,I5,4(A,ES11.4))')
+	1                 ' KNSTOR P f=',FREQ_IDX_ITER,' r=',LS,' k=',K,
+	2                 ' i=',I,' st=',T2,' sv=',T1,' rel=',
+	3                 ABS(T1-T2)/T2,' sig=',SIGMA_TRUE_IN(K)
+	                END IF
+	              ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IP(LS))THEN
+	                FG_GS_NCONV=FG_GS_NCONV+1
+	                IF(FG_GS_MAXCHG .LT. 1.0_LDP)THEN
+	                  FG_GS_MAXCHG=1.0_LDP
+	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                  FG_GS_ARGL=FREQ_IDX_ITER
+	                END IF
 	              END IF
 	            END IF
 	            IF(T2 .GT. 0.0_LDP)THEN
@@ -4205,48 +4274,52 @@ C
 	            ELSE
 	              I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)=T1
 	            END IF
-	            FG_SW_CAPTOT=FG_SW_CAPTOT+1
+	            IF(NEW_FREQ)FG_SW_CAPTOT=FG_SW_CAPTOT+1
 	            IF(I_M(I,LS) .EQ. I_M(I,LS) .AND.
 	1              I_M(I,LS) .GT. 0.0_LDP)THEN
 	              T1=MIN(I_M(I,LS),NONMONO_INEXT_CAP)
-	              IF(I_M(I,LS) .GT. NONMONO_INEXT_CAP)THEN
+	              IF(NEW_FREQ .AND.
+	1                I_M(I,LS) .GT. NONMONO_INEXT_CAP)THEN
 	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
 	                FG_SW_CAPPED=FG_SW_CAPPED+1
 	              END IF
 	            ELSE
 	              T1=1.0E-30_LDP
-	              IF(.NOT. (I_M(I,LS) .EQ. I_M(I,LS)))THEN
+	              IF(NEW_FREQ .AND.
+	1                .NOT. (I_M(I,LS) .EQ. I_M(I,LS)))THEN
 	                FG_INEXT_CAPPED=FG_INEXT_CAPPED+1
 	                FG_SW_CAPPED=FG_SW_CAPPED+1
 	              END IF
 	            END IF
-	            T2=I_M_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)
-	            IF(T2 .GT. 0.0_LDP)THEN
-	              IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
-	1                MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS))
-	2                FG_GS_NCONV=FG_GS_NCONV+1
-	              T4=ABS(T1-T2)/MAX(T2,1.0E-4_LDP*VMAX_IM(LS))
-	              IF(T4 .GT. FG_GS_MAXCHG)THEN
-	                FG_GS_MAXCHG=T4
-	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
-	                FG_GS_ARGL=FREQ_IDX_ITER
-	              END IF
-	              IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
-	1               0.25_LDP .AND.
-	2               MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS) .AND.
-	3               KN_DUMP_NS .LT. 2000)THEN
-	                KN_DUMP_NS=KN_DUMP_NS+1
-	                WRITE(LUER,'(A,I6,A,I4,A,I4,A,I5,4(A,ES11.4))')
-	1               ' KNSTOR M f=',FREQ_IDX_ITER,' r=',LS,' k=',K,
-	2               ' i=',I,' st=',T2,' sv=',T1,' rel=',
-	3               ABS(T1-T2)/T2,' sig=',SIGMA_TRUE_IN(K)
-	              END IF
-	            ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IM(LS))THEN
-	              FG_GS_NCONV=FG_GS_NCONV+1
-	              IF(FG_GS_MAXCHG .LT. 1.0_LDP)THEN
-	                FG_GS_MAXCHG=1.0_LDP
-	                FG_GS_ARGK=K;  FG_GS_ARGR=LS
-	                FG_GS_ARGL=FREQ_IDX_ITER
+	            T2=SNP_M(KC,LS)
+	            IF(NEW_FREQ)THEN
+	              IF(T2 .GT. 0.0_LDP)THEN
+	                IF(ABS(T1-T2)/T2 .GT. 0.5_LDP .AND.
+	1                  MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS))
+	2                  FG_GS_NCONV=FG_GS_NCONV+1
+	                T4=ABS(T1-T2)/MAX(T2,1.0E-4_LDP*VMAX_IM(LS))
+	                IF(T4 .GT. FG_GS_MAXCHG)THEN
+	                  FG_GS_MAXCHG=T4
+	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                  FG_GS_ARGL=FREQ_IDX_ITER
+	                END IF
+	                IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
+	1                 0.25_LDP .AND.
+	2                 MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS) .AND.
+	3                 KN_DUMP_NS .LT. 2000)THEN
+	                  KN_DUMP_NS=KN_DUMP_NS+1
+	                  WRITE(LUER,'(A,I6,A,I4,A,I4,A,I5,4(A,ES11.4))')
+	1                 ' KNSTOR M f=',FREQ_IDX_ITER,' r=',LS,' k=',K,
+	2                 ' i=',I,' st=',T2,' sv=',T1,' rel=',
+	3                 ABS(T1-T2)/T2,' sig=',SIGMA_TRUE_IN(K)
+	                END IF
+	              ELSE IF(T1 .GT. 1.0E-4_LDP*VMAX_IM(LS))THEN
+	                FG_GS_NCONV=FG_GS_NCONV+1
+	                IF(FG_GS_MAXCHG .LT. 1.0_LDP)THEN
+	                  FG_GS_MAXCHG=1.0_LDP
+	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
+	                  FG_GS_ARGL=FREQ_IDX_ITER
+	                END IF
 	              END IF
 	            END IF
 	            IF(T2 .GT. 0.0_LDP)THEN
@@ -5339,6 +5412,13 @@ C
 	CLOSE(291)
 !
 	I_NEXT_GS_OK=.NOT. SEED_FOREIGN
+!
+! A validated generation counts as committed for the per-ray
+! seed-fill veto waiver ([FG_SEED_COMMIT]); a foreign seed stays
+! unseeded so its fill still gets the one unguarded commit.
+!
+	IF(I_NEXT_GS_OK .AND. ALLOCATED(FG_RAY_SEEDED))
+	1  FG_RAY_SEEDED=1
 	WRITE(LUER,'(A)')'  I_NEXT valid: YES'
 	WRITE(LUER,'(A,I8,A)')
 	1 '  RESTORED COMPLETE I_NEXT GENERATION (tag=',TAG,')'
@@ -5373,6 +5453,7 @@ C
 	FG_GS_CAP_FILE=-1
 	IF(ALLOCATED(I_P_DEPTH_NEXT))I_P_DEPTH_NEXT=0.0_LDP
 	IF(ALLOCATED(I_M_DEPTH_NEXT))I_M_DEPTH_NEXT=0.0_LDP
+	IF(ALLOCATED(FG_RAY_SEEDED))FG_RAY_SEEDED=0
 	WRITE(LUER,'(A)')'  FALLING BACK TO LAMBDA REBUILD (I_NEXT=0)'
 	RETURN
 	END
@@ -5992,6 +6073,18 @@ C
 	RETURN
 	END
 !
+! [FG_SEED_COMMIT] setter (02-Nov-2026): see the FG_RAY_SEEDED
+! declaration in the module -- T waives the commit-jump veto until a
+! ray's first WRITE_STORE commit.
+!
+	SUBROUTINE SET_FG_SEED_COMMIT(DO_SC)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_SEED_COMMIT
+	IMPLICIT NONE
+	LOGICAL DO_SC
+	FG_SEED_COMMIT=DO_SC
+	RETURN
+	END
+!
 	SUBROUTINE FG_KNOP_REFRESH_V1()
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
@@ -6588,7 +6681,7 @@ C
 	INTEGER IXIT_M,IXIT_P
 	INTEGER*8 NB_BM,NT_BM,NB_BP,NT_BP
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
-	LOGICAL L_HOT_OVER
+	LOGICAL L_HOT_OVER,L_UNSEED
 	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
@@ -6847,8 +6940,20 @@ C
 ! (cells the store left at the floor) are excluded -- those are
 ! seeds, not overwrites.
 !
-	  JUMP=MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT),
-	1         FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT))
+!
+! Per-ray seed-fill waiver (edited by Devin, 02-Nov-2026,
+! [FG_SEED_COMMIT], default T): a ray that has never taken a
+! WRITE_STORE commit skips the jump veto for its first commit --
+! see the FG_RAY_SEEDED declaration.  JUMP stays 0 so the
+! FG_COMMIT_CONV branch below still decides on exit quality.
+!
+	  JUMP=0.0_LDP
+	  L_UNSEED=.FALSE.
+	  IF(FG_SEED_COMMIT .AND. ALLOCATED(FG_RAY_SEEDED))
+	1    L_UNSEED=(FG_RAY_SEEDED(LS) .EQ. 0)
+	  IF(.NOT. L_UNSEED)JUMP=
+	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT),
+	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT))
 	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
 !$OMP CRITICAL (FG_REJ_UPD)
 	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
@@ -6914,6 +7019,11 @@ C
 	  ELSE
 	    CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
 	    CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+!
+! First full commit of this ray -- the jump veto engages on the
+! next refresh (seed-fill waiver, [FG_SEED_COMMIT]).
+!
+	    IF(ALLOCATED(FG_RAY_SEEDED))FG_RAY_SEEDED(LS)=1
 !$OMP CRITICAL (FG_DCHG_UPD)
 	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
 !$OMP END CRITICAL (FG_DCHG_UPD)
