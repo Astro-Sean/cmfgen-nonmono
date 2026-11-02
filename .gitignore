@@ -68,3 +68,6 @@ tests/f90/test_jfnk_interface
 tests/plots/
 tests/f90/*.csv
 tests/f90/bin/
+
+# Local Devin agent config (skills); not part of the code
+.devin/
