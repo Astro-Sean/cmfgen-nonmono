@@ -93,7 +93,7 @@
 	REAL(KIND=LDP) KN_RAY_STALL_V
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
 	REAL(KIND=LDP) FG_COMMIT_NC_V
-	LOGICAL FG_COMMIT_CONV_V,FG_BULK_CONTR_V
+	LOGICAL FG_COMMIT_CONV_V,FG_BULK_CONTR_V,FG_SEED_COMMIT_V
 	REAL(KIND=LDP) MOM_DAMP_E
 	EXTERNAL GET_MOM_DAMP_MIN
 !
@@ -2251,10 +2251,13 @@
 	  CALL SET_FG_HOTPASS(KN_RAY_HOTPASSES_V,KN_HOT_TOTAL_PASSES_V)
 !
 ! FG_COMMIT_JUMP (default 50.0): whole-ray commit rollback -- a
-! refreshed store whose max |V1-V2|/max(V2,1e-4*peak) exceeds this
-! factor is rejected and the pre-refresh values stay.  Bounds the
-! committed-near-blowup class (audit: retained delta 4.19E-1 ->
-! 5.03E3) while allowing genuine factor-of-few rewrites.
+! refreshed store whose max |V1-V2|/max(V2,VMAX_S/FG_COMMIT_JUMP)
+! (VMAX_S = the ray's stored column peak at that frequency) exceeds
+! this factor is rejected and the pre-refresh values stay.  Bounds
+! the committed-near-blowup class (audit: retained delta 4.19E-1 ->
+! 5.03E3) while allowing genuine factor-of-few rewrites.  Under
+! [FG_SEED_COMMIT]=T (default) the veto is waived per ray until its
+! first WRITE_STORE commit.
 ! FG_DIV_HEAL_CAP (default 1e6): diverged-ray heal bound -- stored
 ! slots above this multiple of the per-depth median are zeroed so
 ! a poisoned slot cannot re-seed the next refresh.
@@ -2304,6 +2307,23 @@
 	1     'Require contraction before the bulk bad-fraction exit?')
 	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V,
 	1     FG_COMMIT_CONV_V,FG_COMMIT_NC_V,FG_BULK_CONTR_V)
+!
+! FG_SEED_COMMIT (02-Nov-2026, default T): waive the
+! FG_COMMIT_JUMP veto per ray until its first WRITE_STORE commit.
+! On a cold/foreign store the in-sweep write pre-fills slots above
+! the 1E-28 floor before the refresh runs, so the veto's cold-start
+! exemption in FG_JUMP_MAX never fires and the converged first fill
+! is rejected ray by ray (KNOP_esB job 12586072: 67/85 rays
+! jump-rejected at fixed-point gaps of 1E2-6E2).  Each ray gets one
+! unguarded commit; FG_COMMIT_CONV still gates exit quality.  A
+! validated FGINEXT_GS restore marks all rays seeded (a committed
+! generation exists), so requeue/restart behaviour is unchanged.
+! F restores the unconditional veto.
+!
+	  FG_SEED_COMMIT_V=.TRUE.
+	  CALL RD_STORE_LOG(FG_SEED_COMMIT_V,'FG_SEED_COMMIT',L_FALSE,
+	1     'Waive commit-jump veto until each ray first commits?')
+	  CALL SET_FG_SEED_COMMIT(FG_SEED_COMMIT_V)
 !
 ! Residual-accepted BA update (default FALSE).  The BA correction
 ! is committed only when the SE residual after the previous BA
