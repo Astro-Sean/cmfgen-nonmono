@@ -771,8 +771,16 @@ C from the updated RJ at the top of every pass.  DO_ES_ALI=F leaves
 C the loop bit-identical to stock.
 C
 ! edited by Devin, 29-Oct-2026: the same update applies under
-! DO_NONMONO_KNOP + USE_LAM_ES, where FG_J_CMF_V13 is also the
-! formal J solver and stores the same diagonal under DO_FG13_ALO.
+! DO_NONMONO_KNOP + USE_LAM_ES.
+!
+! edited by Devin, 02-Nov-2026: corrected the 29-Oct note -- under
+! DO_NONMONO_KNOP the formal solver is FG_J_CMF_NONMONO_V1, not V13,
+! and it stores its diagonal in FG_J_CMF_NONMONO_MOD_V1, so the V13
+! accessor always returned VALID=F (KNOP_fresh: 56377/56377 ES_ALI
+! fallbacks).  The update now selects the accessor matching the
+! solver dispatch below (same predicate).  Caveat under KNOP: the
+! DEN floor (0.01) is only safe when the single-scattering albedo
+! stays <= 1; pair DO_ES_ALI with KN_NO_GAIN=T.
 !
 	  ES_ALI_ON=DO_ES_ALI .AND. USE_LAM_ES .AND. COHERENT_ES .AND.
 	1     (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
@@ -947,7 +955,17 @@ C
 ! the diagonal is unavailable the pass degrades to plain RJ=TC, the
 ! frequency is counted as a fallback, and no extra passes are forced.
 !
-	         CALL GET_FG13_ALO_DIAG(DJDCHI_TMP,DJDETA_TMP,ND,ALO_OK)
+! edited by Devin, 02-Nov-2026: accessor must match the solver that
+! ran above -- FG_J_CMF_NONMONO_V1 (KNOP, or SOB+DO_SOB_FG_KNOP)
+! stores its diagonal in FG_J_CMF_NONMONO_MOD_V1, so the V13
+! accessor is invalid there.  Same predicate as the dispatch.
+!
+	         IF(DO_NONMONO_KNOP .OR.
+	1           (DO_NONMONO_SOB .AND. USE_LAM_ES .AND. DO_SOB_FG_KNOP))THEN
+	           CALL GET_FG_ALO_DIAG(DJDCHI_TMP,DJDETA_TMP,ND,ALO_OK)
+	         ELSE
+	           CALL GET_FG13_ALO_DIAG(DJDCHI_TMP,DJDETA_TMP,ND,ALO_OK)
+	         END IF
 	         IF(ALO_OK)THEN
 	           DO I=1,ND
 	             DEN=MAX(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I),
