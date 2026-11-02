@@ -45,12 +45,69 @@ def test_heal_store_zeroes_fully_poisoned_rows():
     )
 
 
-def test_sweep_store_write_gated_on_new_freq():
-    block = section(FG, "Store intensities at depth grid points", "DO K=1,ND")
+def test_sweep_store_write_snapshot_relax():
+    block = section(
+        FG,
+        "Store intensities at depth grid points",
+        "Code-audit diagnostic",
+    )
     check(
-        "in-place I_NEXT write block is gated on NEW_FREQ",
+        "I_NEXT write block is not gated on NEW_FREQ (every call writes)",
+        re.search(r"IF\(HAS_COMPRESSING \.AND\. NEW_FREQ", block) is None,
+    )
+    check(
+        "stored column is snapshotted on NEW_FREQ or slot shift",
+        "NEW_FREQ .OR. SNP_FREQ .NE. FREQ_IDX_ITER" in block,
+    )
+    check(
+        "write relaxes against the snapshot, not the live store",
+        "T2=SNP_P(KC,LS)" in block and "T2=SNP_M(KC,LS)" in block,
+    )
+    check(
+        "churn metrics stay gated on NEW_FREQ",
+        "IF(NEW_FREQ)FG_SW_CAPTOT" in block
+        and block.count("IF(NEW_FREQ)THEN") >= 2,
+    )
+    check(
+        "cap census stays gated on NEW_FREQ",
+        "IF(NEW_FREQ .AND." in block,
+    )
+
+
+def test_commit_jump_veto_seed_waiver():
+    check(
+        "FG_SEED_COMMIT defaults to TRUE",
+        "FG_SEED_COMMIT_V=.TRUE." in RD_CONTROL
+        and "FG_SEED_COMMIT=.TRUE." in FG,
+    )
+    check(
+        "per-ray seeded flag declared",
+        "FG_RAY_SEEDED(:)" in FG,
+    )
+    check(
+        "jump veto skipped while the ray is unseeded",
         re.search(
-            r"IF\(HAS_COMPRESSING \.AND\. NEW_FREQ \.AND\.", block
+            r"L_UNSEED=\(FG_RAY_SEEDED\(LS\) \.EQ\. 0\)[\s\S]{0,200}?"
+            r"IF\(\.NOT\. L_UNSEED\)JUMP=",
+            FG,
+        )
+        is not None,
+    )
+    check(
+        "WRITE_STORE commit marks the ray seeded",
+        re.search(
+            r"CALL WRITE_STORE\(FLD_P,I_P_DEPTH_NEXT,DCH_P\)[\s\S]{0,300}?"
+            r"FG_RAY_SEEDED\(LS\)=1",
+            FG,
+        )
+        is not None,
+    )
+    check(
+        "validated restore marks all rays seeded",
+        re.search(
+            r"I_NEXT_GS_OK=\.NOT\. SEED_FOREIGN[\s\S]{0,300}?"
+            r"FG_RAY_SEEDED=1",
+            FG,
         )
         is not None,
     )
@@ -532,9 +589,10 @@ def test_fg_trial_churn_arm():
 
 if __name__ == "__main__":
     test_heal_store_zeroes_fully_poisoned_rows()
-    test_sweep_store_write_gated_on_new_freq()
+    test_sweep_store_write_snapshot_relax()
     test_rollback_restore_validates_field_values()
     test_fail_closed_commit_defaults()
+    test_commit_jump_veto_seed_waiver()
     test_fg_trial_excluded_from_population_hold()
     test_rel_damp_window_default_and_raw_release_counter()
     test_pop_precondition_gate()
