@@ -57,6 +57,7 @@ OBJ = $(LIB)(adjust_r_grid_v4.o)\
       $(LIB)(solve_for_pops.o)\
       $(LIB)(jfnk_cmfgen_int_mod.o)\
       $(LIB_MOD)(jfnk_solver_v1.o)\
+      $(LIB_MOD)(jfnk_op_probe_v1.o)\
       $(LIB)(jfnk_cmfgen_interface_v1.o)\
       $(LIB)(jfnk_solve_corr_v1.o)\
       $(LIB)(sub_cmf_line.o)\
@@ -204,6 +205,13 @@ $(LIB_MOD)(jfnk_solver_v1.o) : jfnk_solver_v1.f90 $(LIB)(jfnk_cmfgen_int_mod.o)
 	$(F90) -c $(FFREE) jfnk_solver_v1.f90
 	ar $(AR_OPTION) $(LIB_MOD) jfnk_solver_v1.o
 
+# Operator-consistency probe battery (repeatability, FD/JVP/reference
+# direction sweep, additivity, homogeneity). Callback-based so the
+# same code runs the production residual and the unit-test surrogate.
+$(LIB_MOD)(jfnk_op_probe_v1.o) : jfnk_op_probe_v1.f90
+	$(F90) -c $(FFREE) jfnk_op_probe_v1.f90
+	ar $(AR_OPTION) $(LIB_MOD) jfnk_op_probe_v1.o
+
 # Shared status-sentence module for the KNOP/SOB lagged-field
 # narration (free format).  plane/mom_j_cmf_nonmono_v1.f USEs it, so
 # it must land in libmod.a during d_mod_subs, before d_plane runs.
@@ -224,6 +232,7 @@ $(LIB)(jfnk_cmfgen_interface_v1.o) : jfnk_cmfgen_interface_v1.f $(LIB_MOD)(mod_c
 
 $(LIB)(jfnk_solve_corr_v1.o) : jfnk_solve_corr_v1.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
                                   $(LIB_MOD)(steq_data_mod.o) $(LIB_MOD)(jfnk_solver_v1.o) \
+                                  $(LIB_MOD)(jfnk_op_probe_v1.o) \
                                   $(LIB)(jfnk_cmfgen_int_mod.o) $(LIB)(jfnk_cmfgen_interface_v1.o) \
                                   $(LIB)(fg_j_cmf_nonmono_v1.o)
 	$(F90) -c $(OPTION) jfnk_solve_corr_v1.f
