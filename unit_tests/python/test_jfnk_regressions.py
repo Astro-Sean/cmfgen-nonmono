@@ -112,6 +112,13 @@ check(
     re.search(r"jfnk_ptc_dtau\s*=\s*1\.0D0", init, re.IGNORECASE)
     is not None,
 )
+check(
+    "JFNK_INIT_V1 clears adaptive-JVP state per activation",
+    "JFNK_HADAPT_MODE=-1" in init
+    and "JFNK_HADAPT_REARM=.FALSE." in init
+    and "JFNK_HADAPT_MULT=1.0_LDP" in init
+    and "JFNK_LIN_STAGE=0" in init,
+)
 
 rebuild = section(
     INTERFACE,
@@ -163,6 +170,13 @@ check(
     and "JFNK_LU_READY=.FALSE." in rebuild
     and "jfnk_need_precond_refresh=1" in rebuild,
 )
+check(
+    "baseline rebuild clears adaptive-JVP state",
+    "JFNK_HADAPT_MODE=-1" in rebuild
+    and "JFNK_HADAPT_REARM=.FALSE." in rebuild
+    and "JFNK_HADAPT_MULT=1.0_LDP" in rebuild
+    and "JFNK_LIN_STAGE=0" in rebuild,
+)
 
 jvp = section(INTERFACE, "SUBROUTINE JFNK_JVP_V1", "END SUBROUTINE JFNK_JVP_V1")
 bad_residual = section(
@@ -176,6 +190,24 @@ check(
     and "jfnk_jvp_failed = .TRUE." in bad_residual
     and "JV(I) = (JFNK_W_F_PERT(I) - jfnk_fx(I)) / H_STEP"
     not in bad_residual,
+)
+check(
+    "HADAPT re-arms before applying a saved multiplier",
+    jvp.index("JFNK_HADAPT_MODE .NE. MODE_HA")
+    < jvp.index("IF(JFNK_HADAPT_MULT .NE. 1.0_LDP)")
+    and "JFNK_JVP_DIAG_DONE=.FALSE." in jvp,
+)
+check(
+    "HADAPT sweep bypasses the cheap-report direction cap",
+    "JVP_DIR_CT .LT. JFNK_JVP_NDIR .OR. JFNK_HADAPT_REARM" in jvp
+    and "JFNK_JVP_DIAG_DONE" in jvp
+    and "JVP_DIAG_DONE" not in jvp.replace("JFNK_JVP_DIAG_DONE", ""),
+)
+check(
+    "HADAPT state lives in the JFNK interface module",
+    "JFNK_HADAPT_MODE=-1" in INTMOD
+    and "JFNK_HADAPT_REARM=.FALSE." in INTMOD
+    and "JFNK_JVP_DIAG_DONE=.FALSE." in INTMOD,
 )
 
 residual = section(
@@ -368,13 +400,13 @@ check(
     and "max|BA_row|" in jvp_diag,
 )
 check(
-    "JVP diag extended block stays one-shot behind JVP_DIAG_DONE",
-    "JVP_DIAG_DONE = .TRUE." in INTERFACE
-    and ".NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND." in INTERFACE,
+    "JVP diag extended block stays one-shot unless HADAPT re-arms",
+    "JFNK_JVP_DIAG_DONE = .TRUE." in INTERFACE
+    and ".NOT. JFNK_JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND." in INTERFACE,
 )
 check(
-    "JVP dir norm line is VADAT-capped by JFNK_JVP_NDIR",
-    "JVP_DIR_CT .LT. JFNK_JVP_NDIR .AND. JFNK_FACTOR_DONE" in INTERFACE
+    "JVP dir norm line is VADAT-capped unless HADAPT re-arms",
+    "JVP_DIR_CT .LT. JFNK_JVP_NDIR .OR. JFNK_HADAPT_REARM" in INTERFACE
     and "RD_STORE_INT(JFNK_JVP_NDIR,'JFNK_JVP_NDIR'" in RD_CONTROL
     and "INTEGER JFNK_JVP_NDIR" in CVARMOD,
 )
@@ -442,6 +474,17 @@ check(
     "LOGICAL JFNK_BA_JVP" in CVARMOD
     and "RD_STORE_LOG(JFNK_BA_JVP,'JFNK_BA_JVP'" in RD_CONTROL
     and "IF(JFNK_BA_JVP .AND. JFNK_BA_BUILT" in INTERFACE,
+)
+check(
+    "phase-1 JVP diagnostics are opt-in VADAT keys",
+    "LOGICAL JFNK_LINTEST" in CVARMOD
+    and "LOGICAL JFNK_HSCAN" in CVARMOD
+    and "LOGICAL JFNK_HADAPT" in CVARMOD
+    and "REAL(KIND=LDP) JFNK_TRES_FAC" in CVARMOD
+    and "RD_STORE_LOG(JFNK_LINTEST,'JFNK_LINTEST'" in RD_CONTROL
+    and "RD_STORE_LOG(JFNK_HSCAN,'JFNK_HSCAN'" in RD_CONTROL
+    and "RD_STORE_LOG(JFNK_HADAPT,'JFNK_HADAPT'" in RD_CONTROL
+    and "RD_STORE_DBLE(JFNK_TRES_FAC,'JFNK_TRES_FAC'" in RD_CONTROL,
 )
 check(
     "banded LU factorization requires the LU preconditioner",
