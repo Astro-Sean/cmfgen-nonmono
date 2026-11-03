@@ -87,6 +87,28 @@ See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
   the release/revert arc honestly. `test_jfnk_solver.py`:
   89 passed, 0 failed.
 
+### BUG-002 (P2) - SOB_RH_GEOM cache fingerprint never covers SIGMA
+
+See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
+
+- Defect: the RH78 coupling-table cache decided validity on
+  `SUM(V)`+`SUM(R)` within 1D-25 relative, but the cached `RH_T1`/
+  `RH_T1P` entries are `|1+mu^2*sigma|` - SIGMA was never
+  fingerprinted, and a digest cannot distinguish profiles sharing a
+  sum. A same-R,V call with a new sigma reused stale resonance taus
+  and computed `DRC` on the wrong `t=GAMH/|1+mu^2 sigma|`.
+- Trigger audit: every current sigma rewrite pairs with an R or V
+  change (setup, wind-vel, NG accel, grid revision), so the stale
+  path is unreachable on present flags - P2 latent rather than
+  active. Any future sigma-touching site turns it into a silent P1.
+- Fix: element-wise fingerprint on stored copies of R,V,SIGMA
+  (`ALL(...EQ...)`); identical-input reuse is preserved (the old
+  tolerance was effectively exact-match anyway) and the compare is
+  O(ND) against the O(ND^2) rebuild.
+- Proof: multi-phase driver + `test_sob_rh_couple.py` T7 - pre-fix
+  fails two of three checks (`banners=0`, stale T1/T1P), fixed
+  passes 12/12 including the phase-3 cache-hit check.
+
 ## 3. Potential defects requiring further investigation
 
 - `ginfo == 2` hookstep-recompute returns a convergence-coded
