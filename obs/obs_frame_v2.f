@@ -7,7 +7,7 @@
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
-! Altered 05-Oct-2026 : Use ABS(V)/MAXVAL(ABS(V)) for VTURB (Devin).
+! Altered 05-Oct-2026 : Use ABS(V)/MAXVAL(ABS(V)) for VTURB.
 ! Altered 30-Apr-2020 : Now include RD_RAY option
 !                         New routine implemented to READ CHI_DATA etc.
 !                         Input file changed to OBS_FRAME_INPUT
