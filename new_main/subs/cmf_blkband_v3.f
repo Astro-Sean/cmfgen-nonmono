@@ -39,15 +39,15 @@
 !
 ! Let A[k], B[k], C[k], D[k], and E[k] be the sub-matrices (dimension N*N) of
 ! the large Block-Pentadiagonal matrix. Then
-!                               A[k]=BA( , ,DI-2,K)
-!                               B[k]=BA( , ,DI-1,K)
-!                               C[k]=BA( , ,DI,K)
-!                               D[k]=BA( , ,DI+1,K)
-!                               E[k]=BA( , ,DI+2,K)
+!                               A[k]=BA(,DI-2,K)
+!                               B[k]=BA(,DI-1,K)
+!                               C[k]=BA(,DI,K)
+!                               D[k]=BA(,DI+1,K)
+!                               E[k]=BA(,DI+2,K)
 !
 ! where DI=K if ND=NUM_BNDS, else DI=DIAG_INDX.
 !
-! Likewise we have              L[k] =STEQ( , K)
+! Likewise we have L[k] =STEQ(K)
 !
 ! Elimination defined by:
 !                  phi[1]= C^{-1) . L[1]
@@ -55,9 +55,9 @@
 !                  gamma[1]= C^{-1) . E[1]
 !                  SOL[1] = phi[1] - alpha[1].SOL[2] - gamma[1].SOL[3]
 ! Then
-!                  m[k]=C[k]-B[k].alpha[k-1] - A[k].( gamma[k-2]
+!                  m[k]=C[k]-B[k].alpha[k-1] - A[k].(gamma[k-2]
 !                                            - alpha[k-2].alpha[k-1] )
-!                  phi[k]=m[k]^{-1}(L[k] - B[k].phi[k-1]- A[k].( phi[k-2]
+!                  phi[k]=m[k]^{-1}(L[k] - B[k].phi[k-1]- A[k].(phi[k-2]
 !                                            - alpha[k-2].phi(k-1) )
 !                  alpha[k]=m[k]^{-1}(D[k]-B[k].gamma[k-1] +
 !                                            + A[k].alpha[k-2].gamma[k-1]
@@ -69,12 +69,12 @@
 !           for k=ND-1, we hace E[ND-1]==0 and hence gamma[ND-1]==0
 !           for k=ND, we have D[ND]=E[ND]=0 and hence alpha[ND]=gamma[ND]==0.
 ! Thus
-!                  m[ND]=C[ND]-B[ND].alpha[ND-1] - A[ND].( gamma[ND-2]
+!                  m[ND]=C[ND]-B[ND].alpha[ND-1] - A[ND].(gamma[ND-2]
 !                                            - alpha[ND-2].alpha[ND-1] )
 !                  phi[ND]=m[ND]^{-1}(L[ND] - B[ND].phi[ND-1]
-!                                            - A[ND].( phi[ND-2]
+!                                            - A[ND].(phi[ND-2]
 !                                            - alpha[ND-2].phi(ND-1) )
-! and              SOL(ND)=phi[ND]
+! and SOL(ND)=phi[ND]
 !
 ! The back substitution is simly obtained from the exprssion for SOL[k]
 ! since SOL[ND] is now known.
@@ -102,12 +102,12 @@
 !
 !	ALPHA, BETA are REAL
 !
-!       X=REAL   X(1+(N-1}INCX) if TRANS='N'
-!       X=REAL   X(1+{M-1}INCY) if TRANS='T'
+!       X=REAL X(1+(N-1}INCX) if TRANS='N'
+!       X=REAL X(1+{M-1}INCY) if TRANS='T'
 !	INCX = Stride for X (>0, generally 1)
 !
-!       Y=REAL   Y(1+(M-1}INCX) if TRANS='N'
-!       Y=REAL   Y(1+(N-1}INCX) if TRANS='T'
+!       Y=REAL Y(1+(M-1}INCX) if TRANS='N'
+!       Y=REAL Y(1+(N-1}INCX) if TRANS='T'
 !	INCY = Stride for Y (>0, generally 1)
 ! 
 ! ****************************************************************************
@@ -118,12 +118,12 @@
 !
 ! Perform the LU decomposition of the general matrix A where:
 !
-!		M   = Number of rows in A
-!		N   = Number of columns in A
+!		M = Number of rows in A
+!		N = Number of columns in A
 !       	IDA = First dimension of A [ > max(1,m) ]
-!  		A   = Double precision A(IDA,N)
+!  		A = Double precision A(IDA,N)
 !
-!	      IPIV  = Integer work vector with pivot
+!	      IPIV = Integer work vector with pivot
 !                   = IPIV(min[m,n])
 !
 !             Integer INFO = 0 (successful exit)
@@ -142,15 +142,15 @@
 ! previously been called, and A and IPIV must be passed to DGETRS unchanged.
 ! The solution is returned in B.
 !
-!		N      = Order of A
-!		NRHS   = Number of RHS
-!       	IDA    = First dimension of A [ > max(1,m) ]
-!  		A      = Double precision A(IDA,N)
+!		N = Order of A
+!		NRHS = Number of RHS
+!       	IDA = First dimension of A [ > max(1,m) ]
+!  		A = Double precision A(IDA,N)
 !
-!	      IPIV  = Integer work vector with pivot
+!	      IPIV = Integer work vector with pivot
 !                   = IPIV(min[m,n])
 !
-!  		B      = Double precision B(IDB,NRHS)
+!  		B = Double precision B(IDB,NRHS)
 !
 !             Integer INFO = 0 (successful exit)
 !                          = -i (i th argument has illeagal value)
@@ -169,7 +169,7 @@
 !
 !         E(I,J)=ROW_SF(I)*A(I,J)*COL_SF(J)
 !
-! To solve  a set of simultaneous equtions multiply RHS by ROW_SF before
+! To solve a set of simultaneous equtions multiply RHS by ROW_SF before
 ! solution, and by COL_SF after solution.
 !
 !
@@ -180,11 +180,11 @@
 !
 ! where:
 !               A = real A[N,NS] - Retuned with solution
-!               B = real B[N,N]  - Unchanged
+!               B = real B[N,N] - Unchanged
 !               C = real C[N,NS] - Unchanged
-!               D = real D[N,N]  - Unchanged
+!               D = real D[N,N] - Unchanged
 !               E = real E[N,NS] - Unchanged
-!               F = real F[N,N] -  Unchanged
+!               F = real F[N,N] - Unchanged
 !               WRKMAT = real A[N,NS] - Working matrix (corrupted)
 !               VEC = real VEC[N] - Working vector (passed but no longer used)
 !               ENONZERO - If FALSE, E is assumed to be zero, and E is not
@@ -272,12 +272,12 @@
 	TRI_RECALL=.FALSE.
 !
 ! The DIAG recall path reads the cached LU factors (CSCRATCH<depth>)
-! written by WRITE_BCD_MAT.  A stored BAMAT can outlive the cache:
+! written by WRITE_BCD_MAT. A stored BAMAT can outlive the cache:
 ! warm-restart staging, directory refreshes, and solves that factor
 ! via the JFNK path all write BAMAT/BAMATPNT without the BCD files.
 ! READ_BCD_MAT STOPs on a missing file, so verify every depth the
 ! recall reads and fall through to the compute path, which rebuilds
-! the factors from the loaded SE%BA.  The check mirrors the startup
+! the factors from the loaded SE%BA. The check mirrors the startup
 ! guard in cmfgen_sub.f but covers mid-run cache loss as well.
 !
 	BCD_OK=.FALSE.
@@ -355,7 +355,7 @@
 !
 	  DO K=1,ND
 !
-! Read in  LU decomposition, and other necessary data.
+! Read in LU decomposition, and other necessary data.
 !
 	    DEPTH_INDX=K
 	    CALL READ_BCD_MAT(RUB,C_MAT,RUB,ROW_SF,COL_SF,IPIVOT,
@@ -865,9 +865,9 @@ C
 	SUBROUTINE CMF_DIAG_SOLVE()
 !
 ! edited 19-Oct-2026: the DIAG compute path, factored out so
-! the TRI failure handler at 9999 can reuse it as a fallback.  Only the
+! the TRI failure handler at 9999 can reuse it as a fallback. Only the
 ! diagonal blocks C[k] are factored; GENERATE_FULL_MATRIX_V3 rebuilds
-! STEQ at each depth, so the caller does not need an intact RHS.  A
+! STEQ at each depth, so the caller does not need an intact RHS. A
 ! singular depth gets a zeroed correction and the solve continues --
 ! FLAG stays .TRUE. so SOLVEBA_V13 adjudicates via BAACC/BA_REJ.
 !
