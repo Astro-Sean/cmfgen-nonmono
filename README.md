@@ -108,13 +108,13 @@ the finish.
 This tree treats those rows as trace species and handles them in two
 stages, both off by default:
 
-1. **Demand floors.** An absolute population floor and a relative
-   floor (fraction of the largest population at the depth) exempt
-   trace rows from the convergence metric. Their corrections still
-   commit - the floors only gate the metric. The largest exempted
-   demand and the largest committed trace change are reported every
-   call, on both the stock and Newton-Krylov solve paths, so hidden
-   demand is never silent.
+1. **Demand floors.** An absolute population floor and an exit-only
+   relative floor (fraction of the largest population at the depth)
+   exempt trace rows from the convergence metric. Their corrections
+   still commit - the floors only gate the metric. The largest
+   exempted demand and the largest committed trace change are
+   reported every call, on both the stock and Newton-Krylov solve
+   paths, so hidden demand is never silent.
 
 2. **Trace polish sweeps.** When the major species converge but
    exempted rows are still moving, the run arms a polish phase and
@@ -182,7 +182,7 @@ the flags off none of this code runs and the defaults are inert.
 | Key | Default | Meaning |
 |---|---|---|
 | `BA_DEM_PFLOOR` | -1 (auto) | Absolute population floor exempting trace rows from the demand metric. `-1` resolves to `1.0E-30` under the non-monotonic flags; `0` disables; `>0` is used as set. |
-| `BA_DEM_RELFRAC` | -1 (auto) | Relative demand floor, as a fraction of the largest population row at the depth. `-1` resolves to `0.01` under the non-monotonic flags; `0` disables. |
+| `BA_EX_RELFRAC` | -1 (off) | Relative floor applied only to the converged-exit demand metric. Rows below `BA_EX_RELFRAC` times the largest population at the depth are skipped in `BA_EX_MAXCH`; the full demand still prints every call as `BA_DEM_EXR`, which can saturate or hold the exit. Replaces the removed `BA_DEM_RELFRAC`. |
 | `BA_TR_MAXSWP` | 3 | Bound on Stage-B trace-polish sweeps. `0` disables the polish entirely; the reader no longer rewrites `0` to another value. |
 | `BA_TR_ABSMAX` | 1.0E-08 | Trace convergence threshold on `BA_TR_ABS` (max committed `|dn|/POP_ATOM` over exempted rows). Under the non-monotonic flags an explicit `0` is auto-set to `1.0E-08`. |
 | `KN_ADAPT_RELAX` | T | Adaptive write-back weight for the lagged-field refresh maps (`INEXT_RELAX`/`JNEXT_RELAX` adapt to the measured contraction). `F` keeps the fixed `0.5` weight. |
@@ -285,6 +285,8 @@ default unless stated:
   diverging field commit.
 - Residual-acceptance rollback of failed Newton steps, per-equation
   quarantine, and per-depth-column rollback on partial failure.
+  Depth columns that return non-finite corrections are masked out so
+  one bad block cannot poison the whole population update.
 - Observed-frame improvements: non-monotonic integration bounds,
   deposited-line Voigt wings, and emissivity retention at masing
   cells.
@@ -311,7 +313,8 @@ correctness and build fixes that are not controlled by solver flags:
 - Rejection of inconsistent line-treatment settings by the input
   readers instead of running with mixed transfer assumptions.
 - General fixes including the non-monotonic observed-frame
-  integration bounds and headless build support.
+  integration bounds, an out-of-bounds line-table scan on all-SOB
+  decks, and headless build support.
 - Robustness hardening on the Knop formal-solver path (degenerate
   ray/frequency spacings, short-ray end slopes, deallocation
   status checks, OpenMP private hygiene); itemized status in
