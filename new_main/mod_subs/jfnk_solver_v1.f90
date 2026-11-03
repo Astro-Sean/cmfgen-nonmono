@@ -90,7 +90,7 @@ module jfnk_solver_v1_mod
    ! slowly (near root), eta_k is small and GMRES solves more accurately.
    !
    ! References:
-   !   Eisenstat & Walker (1994), SIAM J. Optim. 4, 393
+   !   Eisenstat & Walker (1996), SIAM J. Sci. Comput. 17, 16
    !   Kelley (2003), "Solving Nonlinear Equations with Newton's Method"
    !
    ! Note: the module already has a blanket SAVE statement (line above),
@@ -110,7 +110,7 @@ module jfnk_solver_v1_mod
    double precision :: jfnk_eta_prev = 0d0     ! eta at previous Newton step
    double precision :: jfnk_eta_gamma = 0.9d0  ! EW gamma parameter
    ! EW Choice 2 requires alpha in (1,2] for superlinear local
-   ! convergence (Eisenstat & Walker 1994, Thm 3.3); the previous
+   ! convergence (Eisenstat & Walker 1996, Thm 2.3); the previous
    ! alpha=0.5 contracted too slowly for the theory to apply.  The
    ! golden ratio is the reference value used by EW and Kelley.
    double precision :: jfnk_eta_alpha = 1.618033988749895d0
@@ -987,8 +987,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! could bypass the forcing-term bounds entirely).
          jfnk_eta = min(max(gtol, jfnk_eta_min), jfnk_eta_max)
       else
-         ! Eisenstat-Walker Choice 2 (Eisenstat & Walker 1994, SIAM J.
-         ! Optim. 4, 393, Eq 4.2): eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha.
+         ! Eisenstat-Walker Choice 2 (Eisenstat & Walker 1996, SIAM J.
+         ! Sci. Comput. 17, 16, Eq 2.6): eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha.
          ! Their safeguard against over-solving is on eta_{k-1}, not on
          ! the residual ratio: when gamma*eta_{k-1}^alpha > 0.1 the
          ! contraction theory still holds with
