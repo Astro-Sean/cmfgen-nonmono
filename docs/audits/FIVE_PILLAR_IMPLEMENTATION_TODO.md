@@ -1557,7 +1557,14 @@ supported configuration.
   prints.
 - Acceptance: residual evidence per method.
 - Dependencies: P5-006.
-- Completion: -
+- Completion: partial 2026-11-03 - MAT5PEN update algebra is
+  exact (test_mat5pen.py, 2e-16), so block-Thomas residuals in
+  the TRI path reduce to per-block DGETRF quality; DIAG solves
+  each depth independently by construction (P5-002). The open
+  leg is an end-to-end |Az-b| assertion through
+  CMF_BLKBAND_V3, blocked on the SE fabrication noted in
+  P5-006. Production |Az-b| prints do not exist today; adding
+  one would need a solveba_v13.f diagnostic.
 
 ### [ ] P5-008 - Test singular, masked, and ill-conditioned cases
 - Priority: P1
@@ -1570,7 +1577,13 @@ supported configuration.
 - Action: extend tests to the TRI path and masked-row cases.
 - Acceptance: tests pass with documented behaviour.
 - Dependencies: P5-006.
-- Completion: -
+- Completion: partial 2026-11-03 - DIAG singular-block handling
+  is pinned (test_cmf_blkband_pin.py, exactly-disconnected zero
+  equations routed through CMF_BLKBAND_PIN_NULL_V1). TRI-path
+  singular/masked cases sit inside CMF_BLKBAND_V3's band
+  assembly and need the same SE fabrication as P5-006;
+  MAT5PEN itself is a pure update kernel - singularity only
+  enters at the downstream DGETRF on each m[k] block.
 
 ### [ ] P5-009 - Verify interaction with the conventional population solver
 - Priority: P0
