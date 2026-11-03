@@ -1680,7 +1680,15 @@ supported configuration.
 - Acceptance: consistent solutions within tolerance or documented
   difference.
 - Dependencies: P5-009, P1-007 (baseline model).
-- Completion: -
+- Completion: partial 2026-11-03 - paired probe submitted: job
+  12669084 (`2.82days_tri`, NUM_BNDS=3 + SOL_METH=TRI) cloned
+  from the identical it620 restart state feeding the running
+  DIAG job 12667827 (`2.82days_tres`, NUM_BNDS=1 + SOL_METH=
+  DIAG). Same model, same state, both on the post-BUG-006
+  build. Hardlinks broken before submission so the TRI job
+  cannot write into DIAG-run inodes. Queued behind the two
+  running interactive jobs; comparison pending its first
+  iterations.
 
 ### [ ] P5-014 - Record runtime and memory differences
 - Priority: P3
