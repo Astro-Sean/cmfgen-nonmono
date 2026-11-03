@@ -2,7 +2,7 @@
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
-! Altered: 05-Oct-2026: Reject non-monotonic V; routine maps R(V) (Devin).
+! Altered: 05-Oct-2026: Reject non-monotonic V; routine maps R(V).
 !
 	INTEGER SM_ND
 	REAL(KIND=LDP) SM_R(SM_ND)
