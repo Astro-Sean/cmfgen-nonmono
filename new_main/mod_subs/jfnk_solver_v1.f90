@@ -161,17 +161,21 @@ module jfnk_solver_v1_mod
    !
    integer :: jfnk_gmres_max_restart = 1
    !
-   ! True-residual acceptance factor (added 22-Oct-2026, numerical-
-   ! methods review Phase 1). When > 0, a claimed LSQ convergence
-   ! (res <= tol) in gmres_m_v1 must survive an explicit
-   ! ||b - A x||_w measurement: the Hessenberg residual is only a
+   ! True-residual acceptance bound (added 22-Oct-2026, numerical-
+   ! methods review Phase 1; unconditional 03-Nov-2026). gmres_m_v1
+   ! measures ||b - A x||_w explicitly at every done-exit, and a
+   ! claimed LSQ convergence (res <= tol) is accepted only when
+   ! true_res <= JFNK_TRES_FAC*tol: the Hessenberg residual is only a
    ! model of the true residual, and with a finite-difference matvec
    ! it has been observed 150-450x low at restart (the Arnoldi basis
-   ! does not compose a fixed linear operator). Set from the
-   ! JFNK_TRES_FAC control variable via JFNK_SOLVE_CORR_V1;
-   ! 0 = off preserves the historical accept-on-hess_res path.
+   ! does not compose a fixed linear operator). Values <= 0 are
+   ! invalid -- the acceptance bound reverts to the default (1.0), so
+   ! no setting can return a convergence claim on the model residual
+   ! alone. > 1 relaxes the verified bound (weakens the inexact-
+   ! Newton guarantee; diagnostic use only). Set from the
+   ! JFNK_TRES_FAC control variable via JFNK_SOLVE_CORR_V1.
    !
-   double precision :: jfnk_gmres_tres_fac = 0d0
+   double precision :: jfnk_gmres_tres_fac = 1d0
    !
    ! Left vs right GMRES preconditioning (Arramy 2024 prefers left).
    ! Set from JFNK_LEFT_PRECOND before NEWTON_HOOK_V1.
@@ -2204,10 +2208,12 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision :: beta
    integer :: jj
    logical :: done, left_pc
-   ! ltres: a JFNK_TRES_FAC true-residual measurement was taken this
-   ! cycle -- the restart-diag block reuses it instead of spending a
-   ! second eval on the same vector.
+   ! ltres: a true-residual measurement was taken this cycle -- the
+   ! restart-diag block reuses it instead of spending a second eval
+   ! on the same vector. acc_fac is the effective acceptance bound
+   ! (jfnk_gmres_tres_fac floored to 1.0 on non-positive input).
    logical :: ltres, tres_rej
+   double precision :: acc_fac
    ! Lucky-breakdown cycle end: h(j+1,j)~0 means the Krylov space is
    ! invariant, so every later Arnoldi step is built on the zeroed
    ! v(,j+1) and can only spin until n_stag aborts the solve. End the
@@ -2915,79 +2921,82 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                jfnk_exit_reason = 'gmres_jvp_soft_exit'
                return
             end if
-            ! [JFNK_TRES_FAC] (default 0 = off): measure the true
-            ! weighted linear residual ||b - A x||_w at every done-exit
-            ! with one extra matvec. The Hessenberg LS residual is only
-            ! a model of that quantity; with a finite-difference matvec
-            ! the Arnoldi vectors need not span a fixed linear operator,
-            ! and hess_res has been observed 150-450x below the true
-            ! residual at restart (RESTART DIAG, run). A
-            ! claimed convergence (res <= tol) is accepted only when
-            ! true_res <= JFNK_TRES_FAC*tol; a rejected claim restarts
-            ! the cycle on the measured residual (bounded by the
-            ! restart cap and imx), or exits 'gmres_tres_reject' when no
+            ! [JFNK_TRES_FAC] (default 1.0; verification unconditional,
+            ! 03-Nov-2026): measure the true weighted linear residual
+            ! ||b - A x||_w at every done-exit with one extra matvec.
+            ! The Hessenberg LS residual is only a model of that
+            ! quantity; with a finite-difference matvec the Arnoldi
+            ! vectors need not span a fixed linear operator, and
+            ! hess_res has been observed 150-450x below the true
+            ! residual at restart (RESTART DIAG, run). A claimed
+            ! convergence (res <= tol) is accepted only when
+            ! true_res <= acc_fac*tol; a rejected claim restarts the
+            ! cycle on the measured residual (bounded by the restart
+            ! cap and imx), or exits 'gmres_tres_reject' when no
             ! restart headroom remains. A non-finite true_res at ANY
             ! done-exit exits 'gmres_tres_nonfinite' immediately --
             ! non-converged exits otherwise only record true_res.
+            ! acc_fac floors non-positive JFNK_TRES_FAC input to the
+            ! default 1.0, so no setting disables the check.
             tres_rej = .false.
-            if(jfnk_gmres_tres_fac > 0d0) then
-               jfnk_jvp_failed = .false.
-               call matvec(n, x, z)
-               jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
-               ! Soft fail: the step is formed; an unverifiable
-               ! verification eval hands info=1 to the caller gate
-               ! (which aborts identically) instead of discarding x.
-               if(jfnk_jvp_failed) then
-                  if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
-                     ' in TRES check -- soft exit'
-                  info = 1
-                  jfnk_exit_reason = 'gmres_jvp_soft_exit'
-                  return
-               end if
-               w = b - z
-               if(left_pc) then
-                  call psolve(n, w)
-                  if(jfnk_pc_clip_event) then
-                     if(luer > 0) write(luer,*) '  GMRES: precond'// &
-                        ' clip in TRES check -- aborting'
-                     info = 3
-                     jfnk_exit_reason = 'gmres_pc_clip_tres'
-                     return
-                  end if
-               end if
-               true_res = dsqrt(dotprd(n, w, w))
-               ltres = .true.
-               jfnk_gmres_true_res = true_res
-               jfnk_gmres_true_res_ok = .true.
-               ! info already holds the exit code here (0 on a claimed
-               ! convergence), so it cannot double as the verbose gate:
-               ! this line exists to audit exactly those claims.
-               if(luer > 0) &
-                  write(luer,'(A,I3,3(A,ES12.4))') &
-                  '  GMRES TRES: it=', its, ' hess_res=', real(res), &
-                  ' true_res=', real(true_res), ' acc_tol=', &
-                  real(jfnk_gmres_tres_fac * tol)
-               ! A non-finite true_res cannot verify ANY done-exit, and
-               ! the measured residual vector is itself non-finite: the
-               ! ordinary paths would restart the cycle and re-run
-               ! matvecs on an operator that just produced NaN/Inf (the
-               ! lb_hit stagnation bypass reaches the restart at label 2
-               ! even without a convergence claim). Exit non-converged
-               ! with a dedicated reason instead of restarting
-               ! (07/10-Nov-2026 audits). ieee_is_finite covers NaN and
-               ! Inf -- Inf already fails the > test below but belongs
-               ! to this unverifiable class, not the "too big" one.
-               if(.not. ieee_is_finite(true_res)) then
-                  if(luer > 0) write(luer,'(A)') &
-                     '  GMRES: non-finite true residual in TRES '// &
-                     'check -- exit unverifiable, not restarting'
-                  info = 1
-                  jfnk_exit_reason = 'gmres_tres_nonfinite'
-                  return
-               end if
-               if(res <= tol .and. &
-                  true_res > jfnk_gmres_tres_fac * tol) tres_rej = .true.
+            acc_fac = jfnk_gmres_tres_fac
+            if(acc_fac <= 0d0) acc_fac = 1d0
+            jfnk_jvp_failed = .false.
+            call matvec(n, x, z)
+            jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
+            ! Soft fail: the step is formed; an unverifiable
+            ! verification eval hands info=1 to the caller gate
+            ! (which aborts identically) instead of discarding x.
+            if(jfnk_jvp_failed) then
+               if(luer > 0) write(luer,*) '  GMRES: JVP failure'// &
+                  ' in TRES check -- soft exit'
+               info = 1
+               jfnk_exit_reason = 'gmres_jvp_soft_exit'
+               return
             end if
+            w = b - z
+            if(left_pc) then
+               call psolve(n, w)
+               if(jfnk_pc_clip_event) then
+                  if(luer > 0) write(luer,*) '  GMRES: precond'// &
+                     ' clip in TRES check -- aborting'
+                  info = 3
+                  jfnk_exit_reason = 'gmres_pc_clip_tres'
+                  return
+               end if
+            end if
+            true_res = dsqrt(dotprd(n, w, w))
+            ltres = .true.
+            jfnk_gmres_true_res = true_res
+            jfnk_gmres_true_res_ok = .true.
+            ! info already holds the exit code here (0 on a claimed
+            ! convergence), so it cannot double as the verbose gate:
+            ! this line exists to audit exactly those claims.
+            if(luer > 0) &
+               write(luer,'(A,I3,3(A,ES12.4))') &
+               '  GMRES TRES: it=', its, ' hess_res=', real(res), &
+               ' true_res=', real(true_res), ' acc_tol=', &
+               real(acc_fac * tol)
+            ! A non-finite true_res cannot verify ANY done-exit, and
+            ! the measured residual vector is itself non-finite: the
+            ! ordinary paths would restart the cycle and re-run
+            ! matvecs on an operator that just produced NaN/Inf (the
+            ! lb_hit stagnation bypass reaches the restart at label 2
+            ! even without a convergence claim). Exit non-converged
+            ! with a dedicated reason instead of restarting
+            ! (07/10-Nov-2026 audits). ieee_is_finite covers NaN and
+            ! Inf -- Inf already fails the > test below but belongs
+            ! to this unverifiable class, not the "too big" one.
+            if(.not. ieee_is_finite(true_res)) then
+               if(luer > 0) write(luer,'(A)') &
+                  '  GMRES: non-finite true residual in TRES '// &
+                  'check -- exit unverifiable, not restarting'
+               info = 1
+               jfnk_exit_reason = 'gmres_tres_nonfinite'
+               return
+            end if
+            if(res <= tol .and. &
+               true_res > acc_fac * tol) tres_rej = .true.
             if(tres_rej) then
                if(its == imx .or. &
                   n_restart >= jfnk_gmres_max_restart) then
@@ -3009,13 +3018,13 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             ! space, not slow progress, so a fresh basis is worth it.
             ! Restarts are bounded by imx (its keeps accumulating).
             if(res <= tol .or. its == imx .or. .not. lb_hit) then
-               ! edited, 12-Nov-2026: an info=1/2 exit hands
-               ! the caller only the Hessenberg model residual, which a
-               ! finite-difference matvec can leave orders below the
-               ! true ||b - A x||_w. Measure once here so the Newton
-               ! stagnation gate tests the real residual. Converged
-               ! exits (info=0) and cycles already measured by the TRES
-               ! check (ltres) add no extra matvec.
+               ! edited, 03-Nov-2026: safety net only -- the
+               ! unconditional TRES check above already measured every
+               ! done-exit that reaches this point (ltres), so this
+               ! fires only if a future path lands here unmeasured.
+               ! An info=1/2 exit must never hand the caller just the
+               ! Hessenberg model residual, which a finite-difference
+               ! matvec can leave orders below the true ||b - A x||_w.
                if(info /= 0 .and. .not. ltres) then
                   jfnk_jvp_failed = .false.
                   call matvec(n, x, z)
