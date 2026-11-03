@@ -533,6 +533,29 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # Phase-1 JVP diagnostics parse and land; all are diagnostic-only.
+    d = write_vadat(
+        WORKDIR / "vadat_jvp_diag",
+        {
+            "JFNK_LINTEST": "T",
+            "JFNK_HSCAN": "T",
+            "JFNK_HADAPT": "T",
+            "JFNK_TRES_FAC": "2.5D0",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "JFNK Phase-1 JVP diagnostic keys parse and land",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_LINTEST") == "T"
+        and v.get("JFNK_HSCAN") == "T"
+        and v.get("JFNK_HADAPT") == "T"
+        and abs(float(v.get("JFNK_TRES_FAC", "nan").replace("D", "E")) - 2.5)
+        < 1e-18,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # Preconditioner-audit keys parse and land on both the control
     # variables and the solver-module mirrors.
     d = write_vadat(
