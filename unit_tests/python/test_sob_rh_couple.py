@@ -243,6 +243,33 @@ def main():
                 ident_ok = False
     rep.check("dip: T1/T1P tables + mu^2 identity correct", ident_ok)
 
+    # -- T2b: W profile (two reversals) -> denser multi-resonance --
+    # structure; pair set + DRC still match the enumeration.
+    v = np.linspace(8000.0, 1000.0, ND)
+    v[8:12] = [2500.0, 1500.0, 3000.0, 4500.0]
+    v[18:22] = [2500.0, 1200.0, 2800.0, 4200.0]
+    sig = np.full(ND, -0.5)
+    path = write_case("rh_w.txt", r, v, sig, chil, etal, bbc, znet, neg)
+    pairs, drc, meta = parse(run(binary, path).stdout)
+    exp_pairs = expected_pairs(r, v, sig)
+    got = {}
+    for i, j, t1, t1p, pw in pairs:
+        got.setdefault(i - 1, []).append((j - 1, t1, t1p, pw))
+    set_got = {(i, p[0]) for i, pl in got.items() for p in pl}
+    set_exp = {(i, p[0]) for i, pl in exp_pairs.items() for p in pl}
+    drc_exp = drc_expected(exp_pairs, r, v, chil, etal, bbc, neg, FL)
+    drc_arr = np.zeros((ND, NSIM))
+    for (l, i), val in drc.items():
+        drc_arr[i - 1, l - 1] = val
+    rep.check(
+        "W profile: pair set + DRC match enumeration",
+        set_got == set_exp
+        and meta.get("tot") == len(set_exp)
+        and np.allclose(drc_arr, drc_exp, rtol=1e-9, atol=1e-30),
+        f"tot={meta.get('tot')} exp={len(set_exp)} "
+        f"max|dDRC|={np.abs(drc_arr - drc_exp).max():.2e}",
+    )
+
     # -- T3: DRC equals the formula recomputed from the tables ----
     dexp = drc_expected(exp_pairs, r, v, chil, etal, bbc, neg, FL)
     dgot = np.zeros_like(chil)
