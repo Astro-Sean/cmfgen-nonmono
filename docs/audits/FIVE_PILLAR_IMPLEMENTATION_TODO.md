@@ -1451,7 +1451,15 @@ supported configuration.
 - Action: audit assembly; confirm with manufactured input.
 - Acceptance: verified assembly + residual check.
 - Dependencies: P5-001.
-- Completion: -
+- Completion: partial 2026-11-03 - assembly audited at source:
+  the DIAG branch never touches off-diagonal storage; per depth it
+  builds the NxN block via GENERATE_FULL_MATRIX_V3
+  (BAND_INDX=DIAG_INDX), equilibrates (ROW_SF/COL_SF), LU-factors
+  with DGETRF, and solves with DGETRS (cmf_blkband_v3.f:359-393
+  recall path; compute path at :480-520). Both paths are strictly
+  depth-independent - the correct DIAG semantics. Manufactured
+  residual check still needs a driver wrapping
+  GENERATE_FULL_MATRIX_V3 + the solve.
 
 ### [ ] P5-003 - Verify TRI matrix assembly and solution
 - Priority: P0
@@ -1464,7 +1472,17 @@ supported configuration.
 - Action: audit assembly + manufactured solve.
 - Acceptance: verified.
 - Dependencies: P5-001.
-- Completion: -
+- Completion: partial 2026-11-03 - assembly audited at source:
+  per depth K, GENERATE_FULL_MATRIX_V3 builds C_MAT (diagonal
+  band, BAND_INDX=DIAG_INDX), B_MAT (sub-diagonal, DIAG_INDX-1,
+  K>1 only), D_MAT (super-diagonal, DIAG_INDX+1, K<ND only) -
+  a true block tridiagonal (cmf_blkband_v3.f:633-656). The
+  elimination is block-Thomas: MAT5PEN forms the Schur complement
+  m[k]=C_MAT-B_MAT*PREV_D_MAT and the phi' update; DGEEQU
+  equilibration + DGETRF LU per depth (:660-690); NUM_BNDS<3
+  hard-errors at :437 in addition to the VADAT guard. Band
+  boundaries are correct (no sub-band at K=1, no super-band at
+  K=ND). Manufactured solve residual check still needs a driver.
 
 ### [ ] P5-004 - Audit off-diagonal entries and boundary rows
 - Priority: P0
