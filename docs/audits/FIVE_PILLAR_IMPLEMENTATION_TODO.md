@@ -1574,7 +1574,14 @@ supported configuration.
 - Action: audit post-solve path is method-agnostic.
 - Acceptance: verified by inspection + paired run later.
 - Dependencies: P5-002, P5-003.
-- Completion: -
+- Completion: 2026-11-03 - verified by inspection: CMF_BLKBAND_V3
+  returns the correction in the single array STEQ(NT,ND) no
+  matter which branch ran, and every downstream consumer
+  (SET_POPS_D2_EQ_D1 zeroing, the BA_TRUST rollback mask,
+  MAXCH accounting, CORRECTION_SUM) operates on that array
+  without consulting the method (solveba_v13.f:1073+). The only
+  method-visible state is the SUCCESS flag and the factor caches.
+  Paired DIAG/TRI model comparison remains the runtime leg.
 
 ### [ ] P5-010 - Verify interaction with the non-monotonic Knop pathway
 - Priority: P1
@@ -1585,7 +1592,15 @@ supported configuration.
 - Action: audit KNOP-specific fills per method.
 - Acceptance: documented.
 - Dependencies: P5-004, P3-008.
-- Completion: -
+- Completion: 2026-11-03 - under DO_NONMONO_KNOP the lagged-field
+  linearization lands on the diagonal band: the FG/MOM ALO
+  diagonal terms (TX(K,K,1:2), do_var_cont.f:440-450) and the
+  dJ/dopacity cross-depth blocks via BA_UPDATE_V7 - the latter
+  are the only KNOP terms reaching the off-bands, and only under
+  NUM_BNDS>=3 (P5-004 writer (b)); the DO_FG13_ALO_TRI fill adds
+  the tridiagonal Lambda* off-diagonals when requested. With
+  NUM_BNDS=1/DIAG the off-band content simply is not assembled -
+  consistent with DIAG's depth-independent semantics.
 
 ### [ ] P5-011 - Verify interaction with the Sobolev pathway
 - Priority: P1
@@ -1595,7 +1610,17 @@ supported configuration.
 - Action: audit.
 - Acceptance: documented.
 - Dependencies: P5-004.
-- Completion: -
+- Completion: 2026-11-03 - under DO_NONMONO_SOB the line
+  linearization is strictly local: ZNET_SIM depends on
+  per-(depth,line) JBAR built from that depth's own Sobolev tau,
+  so all SOB BA terms land on the diagonal band (P2-007 audit).
+  The nonlocal RH term DRC_SIM is deliberately excluded from
+  ZNET_SIM - "it must not enter ZNET_SIM which the BA Jacobian
+  differentiates" (sub_sob_line_v3.f:164-168) - so nonlocal
+  coupling contributes nothing to any band: it is a lagged
+  remote forcing, not a Jacobian term. Method choice therefore
+  affects only the continuum/advection cross-depth terms, never
+  the SOB line rows.
 
 ### [ ] P5-012 - Establish whether JFNK uses METH_SOL or its own preconditioner
 - Priority: P0
