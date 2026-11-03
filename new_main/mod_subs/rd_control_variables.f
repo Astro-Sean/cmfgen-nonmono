@@ -10,7 +10,7 @@
 ! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
 !                            NUM_BNDS=2 with 'TRI' previously passed
 !                            validation and STOPped in CMF_BLKBAND_V3
-!                            after the BA was assembled (Devin).
+!                            after the BA was assembled.
 ! Altered : 21-Oct-2026 : USE_LAM_ES un-forced: SOB default is F
 !                            (MOM_J_CMF_NONMONO_V1 + MOM ALO), explicit
 !                            T honoured; KNOP absent-key default stays T
@@ -19,21 +19,21 @@
 !                            (LAM_ES=F), DO_FG13_ALO (LAM_ES=T),
 !                            DO_BA_RES_ACC, DO_BA_RES_REUSE, NG_ABSTAIN.
 !                            Explicit-value overrides print a banner
-!                            (Devin).
+!                           .
 ! Altered : 16-Oct-2026 : Self-consistency enforcement: the
 !                            non-monotonic/JFNK trigger flags now
 !                            auto-configure their dependent switches
 !                            (logged to LUER) instead of relying on
 !                            VADAT being consistent.  USE_LAM_ES=F and
 !                            DO_KNOP_REFRESH=F opt-ins are overridden;
-!                            INC_GRID=F is auto-set under KNOP (Devin).
+!                            INC_GRID=F is auto-set under KNOP.
 ! Altered : 07-Oct-2026 : DO_JFNK is now the shared JFNK arm key for
 !                           DO_NONMONO_KNOP and DO_NONMONO_SOB; USE_JFNK is a
 !                           deprecated alias.  JFNK_COUPLED stays KNOP-only
-!                           (Devin).
+!                          .
 ! Altered : 05-Oct-2026 : Reject legacy controls that use a multi-valued
 !                           or non-positive V coordinate under non-mono
-!                           solvers (Devin).
+!                           solvers.
 ! Altered : 03-Oct-2026 : Non-monotonic mode prerequisites enforced (dev7):
 !                            DO_NONMONO_SOB requires GLOBAL_LINE=SOB (or NONE
 !                            with all TRANS_*=SOB) and USE_LAM_ES=T;
@@ -890,7 +890,7 @@
 ! TAU_SPACE, FULL_R and OB_ONLY interpolate LOG(V) on the monotone
 ! R coordinate, which is single-valued and non-monotonic safe.
 !
-! edited by Devin, 13-Oct-2026: was (DO_HYDRO .OR. REVISE_R_GRID).
+! edited 13-Oct-2026: was (DO_HYDRO .OR. REVISE_R_GRID).
 !
 	  IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1     DO_HYDRO)THEN
@@ -1026,7 +1026,7 @@
 !
 ! GS_REL_N (default 2): post-release LAMBDA iterations held at the
 ! near-mature correction cap while the field re-lags to the moved
-! populations.  Default changed to 2 (edited by Devin, 19-Oct-2026):
+! populations.  Default changed to 2 (edited 19-Oct-2026):
 ! with N=1 only the first live step was damped and the it8-class
 ! undamped second step re-froze the field at factor-100 changes,
 ! feeding the release->refreeze alternation.
@@ -1322,7 +1322,7 @@
 	1     'FG lagged-store under-relaxation factor')
 !
 ! KN_RAY_BULK_TOL (default 6.0E-2 under DO_NONMONO_KNOP, 0 = off
-! otherwise; edited by Devin, 20-Oct-2026): residual floor on the
+! otherwise; edited 20-Oct-2026): residual floor on the
 ! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
 ! converged at residual ~5E-2 -- one capped commit step from the
 ! fixed point -- pinning the refresh max just above the maturity
@@ -1403,8 +1403,8 @@
 ! as the reach-fail fallback inside JFNK_SOLVE_CORR_V1 once the
 ! frozen tier certifies the residual unreachable.
 !
-! editted by Devin (V7-JFNK port, 02-Oct-2026)
-! editted by Devin (DO_JFNK shared SOB/KNOP switch, 07-Oct-2026)
+! edited (V7-JFNK port, 02-Oct-2026)
+! edited (DO_JFNK shared SOB/KNOP switch, 07-Oct-2026)
 ! ------------------------------------------------------------------
 !
 	  USE_JFNK_SOLVER=.FALSE.
@@ -2276,7 +2276,7 @@
 ! pre-refresh generation stays as the seed instead of committing a
 ! non-converged field bounded only by FG_COMMIT_JUMP (w19 class:
 ! cap-exit commit at residual 0.465, retained delta 21).
-! Default changed to T (edited by Devin, 19-Oct-2026): the guard
+! Default changed to T (edited 19-Oct-2026): the guard
 ! only closed the w19 drift class when the VADAT key was set by
 ! hand, so fail-open was the wrong default.  F remains available
 ! as an opt-in diagnostic.
@@ -2291,7 +2291,7 @@
 ! fraction alone) takes a capped provisional commit, each cell
 ! bounded to NC times its retained value.  w19's bulk-exit commits
 ! of 8-27x at residual ~0.47 were the luminosity ratchet.
-! Default changed to 0.05 (edited by Devin, 19-Oct-2026): the NC=0
+! Default changed to 0.05 (edited 19-Oct-2026): the NC=0
 ! pure-reject default starved the store on models where every ray
 ! exits un-converged, re-arming the cold-reseed cycle the commit
 ! gate was built to break.
@@ -2952,7 +2952,7 @@
 	  CALL RD_STORE_DBLE(MAX_LAM_COR,'MAX_LAM',L_TRUE,
 	1      'Maximum fractional change for lambda iteration ')
 !
-! edited by Devin, 17-Oct-2026: MAX_LAM/MAX_LIN sanity checks.  Values
+! edited 17-Oct-2026: MAX_LAM/MAX_LIN sanity checks.  Values
 ! <= 1 forbid any increase and deadlock the solver; MAX_LAM ~ 1D10
 ! (used on the KNOP_jfnkrel run) makes the LAMBDA cap unbounded on
 ! every path GS_LAM_CAP does not clip - warn loudly rather than stop,
@@ -3178,7 +3178,7 @@
 	  END IF
 !
 ! ------------------------------------------------------------------
-! Non-monotonic / JFNK self-consistency enforcement (Devin,
+! Non-monotonic / JFNK self-consistency enforcement (edited
 ! 16-Oct-2026).  The trigger flags DO_NONMONO_KNOP / DO_NONMONO_SOB /
 ! DO_JFNK auto-configure their dependent switches here so a model
 ! cannot run with an inconsistent combination; every override is
@@ -3233,7 +3233,7 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: FG_OPT=INT/INS'
 	    END IF
 	    IF(.NOT. USE_LAM_ES)THEN
-! edited by Devin, 21-Oct-2026: an explicit USE_LAM_ES=F is honoured
+! edited 21-Oct-2026: an explicit USE_LAM_ES=F is honoured
 ! under KNOP -- MOM_J_CMF_NONMONO_V1 is a self-consistent J-update in
 ! this mode (its ray moments come from FG_J_CMF_NONMONO_V1 on
 ! SIGMA_TRUE).  Only the absent-key default is lifted to T, the
@@ -3280,7 +3280,7 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_STABLE=2'
 	    END IF
 !
-! GS_PRECOND defaults T under KNOP (edited by Devin, 20-Oct-2026):
+! GS_PRECOND defaults T under KNOP (edited 20-Oct-2026):
 ! the m15_2p82d KNOP run held populations at ~1E10% demand while
 ! the field cycled release/refreeze.  An explicit VADAT setting is
 ! respected -- only the absent-key default is lifted.
@@ -3292,7 +3292,7 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_PRECOND=T'
 	    END IF
 !
-! GS_FREEZE_LIM defaults to 300 under KNOP (edited by Devin,
+! GS_FREEZE_LIM defaults to 300 under KNOP (edited,
 ! 20-Oct-2026): a release/refreeze limit cycle resets N_FROZEN at
 ! every release, so with no in-model cap a stuck run burns the
 ! whole requeue budget doing forced-LAMBDA iterations that cannot
@@ -3306,7 +3306,7 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_FREEZE_LIM=300'
 	    END IF
 !
-! GS_PRECOND_LIM defaults to 50 under KNOP (edited by Devin,
+! GS_PRECOND_LIM defaults to 50 under KNOP (edited,
 ! 20-Oct-2026): the precondition gate clears GS_FREEZE every call
 ! it fires on, so N_FROZEN never advances and GS_FREEZE_LIM is
 ! unreachable there.  A demand that stays above GS_PRECOND_MAX
@@ -3321,7 +3321,7 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_PRECOND_LIM=50'
 	    END IF
 !
-! GS_REL_NOPROG_LIM defaults to 10 under KNOP (edited by Devin,
+! GS_REL_NOPROG_LIM defaults to 10 under KNOP (edited,
 ! 20-Oct-2026): the release/refreeze cycle refunds the freeze
 ! clock at every release, so the cumulative no-progress count is
 ! the earliest reachable stop on the m15_2p82d-class alternation
@@ -3352,7 +3352,7 @@
 	    WRITE(LUER,'(A)')' KNOP auto-set: DO_NONMONO_FREQ_MATCH=T'
 	  END IF
 !
-! edited by Devin, 17-Oct-2026: the VADAT dump above echoes the
+! edited 17-Oct-2026: the VADAT dump above echoes the
 ! pre-auto-set values, so it showed GS_REL_STABLE=1 while the solver
 ! ran with 2 (KNOP_jfnkrel triage read the stale number).  Re-print
 ! the effective post-auto-set knobs so the log reflects what runs.
@@ -3468,7 +3468,7 @@
 	      WRITE(LUER,'(A)')' SOB auto-set: GLOBAL_LINE=SOB'
 	    END IF
 !
-! edited by Devin, 21-Oct-2026: USE_LAM_ES is no longer forced under
+! edited 21-Oct-2026: USE_LAM_ES is no longer forced under
 ! SOB.  The user asked for the moment path as the SOB default
 ! J-update: MOM_J_CMF_NONMONO_V1 with the fixed-J + GET_MOM_ALO_DIAG
 ! + GET_MOM_CELL_QUAR linearization in do_var_cont.f -- the same
