@@ -569,7 +569,11 @@ Recorded observations (no action):
 - Regression test: none applicable - no code change.
 - Resolution and validation evidence: measured 03-Nov-2026 during
   the interactive-partition stability runs (jobs 12667827 warm,
-  12667984 cold, fixed build). The warm run additionally shows
+  12667984 cold, fixed build). The pattern repeats live on the
+  fixed build: the warm run's first 10 admissions all carry the
+  same `GUARD DEFER: FD non-descent` line (cos ~5E-3 to 2E-2), and
+  the cold run's early gate defers (demand ~1E2 vs gate 3.0) show
+  the pre-Newton census in action. The warm run additionally shows
   JFNK demand decaying below the frz gate (6.6 -> 0.41 vs gate
   3.0) as the LAMBDA mode re-matures - consistent with the
   admission profile moving away from JFNK territory as the model
