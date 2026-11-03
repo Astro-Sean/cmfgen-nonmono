@@ -1662,7 +1662,15 @@ Do not conflate these statuses.
   the enforcing check.
 - Acceptance: complete matrix; every cell has status+evidence.
 - Dependencies: P4-016, P5-005.
-- Completion: -
+- Completion: 2026-11-03 - `docs/audits/VADAT_SUPPORT_MATRIX.md`
+  covers all 32 cells with PROD/TEST/SRC/REJ/UNSUP status and
+  file:line evidence for every hard gate (mutual exclusion,
+  DO_JFNK requirement, NUM_BNDS fallback, GLOBAL_LINE override,
+  JFNK_COUPLED-under-SOB rejection, SN-model LAM_ES=F rule).
+  Two cells upgraded during the audit: JFNK banded
+  preconditioner's NUM_BNDS=1 silent fallback is documented (a
+  preconditioner downgrade only); SOB+FG_KNOP marked inert under
+  USE_LAM_ES=F.
 
 ### [ ] INT-002 - Test original CMFGEN with all new flags disabled
 - Priority: P0
