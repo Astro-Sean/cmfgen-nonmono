@@ -2,9 +2,9 @@ module knop_status_mod
 !
 ! Shared status sentences for the non-monotonic lagged-field
 ! machinery (KNOP and the SOB moment path -- both drive
-! MOM_J_CMF_NONMONO_V1).  Each pure function returns one complete,
+! MOM_J_CMF_NONMONO_V1). Each pure function returns one complete,
 ! human-readable sentence of at most 200 characters; the caller
-! writes it with a plain (A) format.  Keeping the wording in one
+! writes it with a plain (A) format. Keeping the wording in one
 ! module means the sweep report, the refresh narration, the
 ! checkpoint-restore messages and the population-gate sentences all
 ! say the same thing everywhere they print.
@@ -46,7 +46,7 @@ contains
         write (str, '(i0)') x
     end function i8
 
-    ! Population-gate narration for the moment field.  Selects the
+    ! Population-gate narration for the moment field. Selects the
     ! single clause describing why the call held, released or
     ! postponed the population update; 'it' is the great-iteration
     ! counter used in the held sentence.
@@ -91,7 +91,7 @@ contains
         end if
     end function mom_state_sentence
 
-    ! Per-sweep lagged-field summary.  view='pops' describes the
+    ! Per-sweep lagged-field summary. view='pops' describes the
     ! field the population solve saw (no drift number: the census is
     ! against the stored field); view='sweep' describes the fresh
     ! solve versus the stored J_NEXT, led by the largest drift.
@@ -119,15 +119,15 @@ contains
         end if
     end function mom_sweep_sentence
 
-    ! Refresh-outcome narration.  exit_kind selects the sentence:
-    ! 'converged'  converged at a pass
-    ! 'bulk'       bulk-converged exit (n50 carries the >50% count)
-    ! 'stall'      stopped on a stall
-    ! 'diverge'    divergence abort (best carries the best residual)
-    ! 'keep_best'  unconverged, best-pass field retained
+    ! Refresh-outcome narration. exit_kind selects the sentence:
+    ! 'converged' converged at a pass
+    ! 'bulk' bulk-converged exit (n50 carries the >50% count)
+    ! 'stall' stopped on a stall
+    ! 'diverge' divergence abort (best carries the best residual)
+    ! 'keep_best' unconverged, best-pass field retained
     ! 'keep_prior' unconverged, pre-refresh field retained
-    ! 'delta'      retained-field delta written back to the store
-    ! 'done'       pass count and wall time (best carries seconds)
+    ! 'delta' retained-field delta written back to the store
+    ! 'done' pass count and wall time (best carries seconds)
     pure function mom_refresh_sentence(conv, dchg, n5, n50, &
             exit_kind, ipass, best) result(str)
         logical, intent(in) :: conv
@@ -185,7 +185,7 @@ contains
         end select
     end function mom_refresh_sentence
 
-    ! One refresh pass.  idir picks the direction name: 2 is the
+    ! One refresh pass. idir picks the direction name: 2 is the
     ! compressing direction (descending frequency order, upwind
     ! reads from J_NEXT), anything else is expanding.
     pure function mom_pass_sentence(ipass, idir, chg, ratio, n5, &
@@ -208,7 +208,7 @@ contains
             ' cells above 5%, ' // trim(i8(n50)) // ' above 50%.'
     end function mom_pass_sentence
 
-    ! Lagged-field checkpoint restore narration.  'reason' selects
+    ! Lagged-field checkpoint restore narration. 'reason' selects
     ! the rejection clause when valid is false: 'stale' (tag or
     ! foreign checkpoint), 'dims' (dimension or expanded-grid
     ! mismatch), 'data' (non-finite or negative values), 'read'
