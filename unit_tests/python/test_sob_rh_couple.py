@@ -57,7 +57,7 @@ def build():
     return bins
 
 
-def write_case(name, r, v, sig, chil, etal, bbc, znet, neg, fl=FL):
+def write_case(name, r, v, sig, chil, etal, bbc, znet, neg, fl=FL, extra_geom=None):
     path = WORKDIR / name
     with open(path, "w") as f:
         f.write(f"{ND} {NSIM} {fl:.6e}\n")
@@ -70,16 +70,35 @@ def write_case(name, r, v, sig, chil, etal, bbc, znet, neg, fl=FL):
                     f"{chil[i, l]:.17e} {etal[i, l]:.17e} "
                     f"{bbc[i, l]:.17e} {znet[i, l]:.17e}\n"
                 )
+        # Each extra (r, v, sig) block re-runs GEOM+COUPLE in-process
+        # (driver phase >= 2), exercising the cache invalidation.
+        for r2, v2, sig2 in extra_geom or []:
+            for i in range(ND):
+                f.write(f"{r2[i]:.17e} {v2[i]:.17e} {sig2[i]:.17e}\n")
     return path
 
 
 def parse(out):
-    pairs, drc, meta = [], {}, {}
+    """Split the driver dump into per-phase blocks.
+
+    The SOB_RH: rebuild banner is written inside SOB_RH_GEOM, before
+    the driver's PHASE line, so banners are carried into the block they
+    precede. A single-phase run returns one (pairs, drc, meta) tuple;
+    multi-phase runs return a list of them.
+    """
+    blocks, pairs, drc, meta, pend = [], [], {}, {}, 0
     for ln in out.splitlines():
         t = ln.split()
         if not t:
             continue
-        if t[0] == "TOTPAIRS":
+        if t[0] == "PHASE":
+            if pairs or drc or meta:
+                blocks.append((pairs, drc, meta))
+            pairs, drc, meta = [], {}, {"banners": pend}
+            pend = 0
+        elif t[0] == "SOB_RH:":
+            pend += 1
+        elif t[0] == "TOTPAIRS":
             meta["tot"] = int(t[1])
         elif t[0] == "PAIR":
             pairs.append((int(t[1]), int(t[3]), float(t[4]), float(t[5]), float(t[6])))
@@ -90,7 +109,8 @@ def parse(out):
             meta["maxdz"] = float(t[2])
         elif t[0] == "DRC":
             drc[int(t[1]), int(t[2])] = float(t[3])
-    return pairs, drc, meta
+    blocks.append((pairs, drc, meta))
+    return blocks[0] if len(blocks) == 1 else blocks
 
 
 def expected_pairs(r, v, sig):
@@ -277,6 +297,53 @@ def main():
     path = write_case("rh_etal0.txt", r, v, sig, chil, etal0, bbc, znet, neg)
     _, drc5, _ = parse(run(binary, path).stdout)
     rep.check("ETAL=0 (S_L=0): DRC all zero", all(x == 0.0 for x in drc5.values()))
+
+    # -- T7: cache invalidation on the SIGMA input (BUG-002) --------
+    # Phase 2 reuses R,V but passes sigma=-0.9: the pair selection is
+    # unchanged (it depends on R,V only) but T1=|1+mu^2*sigma| must be
+    # rebuilt. The old SUM(V)/SUM(R) fingerprint never looked at SIGMA,
+    # so phase 2 kept the phase-1 tables.
+    # Phase 3 repeats the phase-2 inputs: it must be a cache hit (no
+    # rebuild banner) with bit-identical tables.
+    sig2 = np.full(ND, -0.9)
+    path = write_case(
+        "rh_cache.txt",
+        r, v, sig, chil, etal, bbc, znet, neg,
+        extra_geom=[(r, v, sig2), (r, v, sig2)],
+    )
+    (pairs_a, _, meta_a), (pairs_b, _, meta_b), (pairs_c, _, meta_c) = parse(
+        run(binary, path).stdout
+    )
+    got_b = {}
+    for i, j, t1, t1p, pw in pairs_b:
+        got_b.setdefault(i - 1, []).append((j - 1, t1, t1p, pw))
+    set_b = {(i, p[0]) for i, pl in got_b.items() for p in pl}
+    set_a = {(i - 1, j - 1) for i, j, t1, t1p, pw in pairs_a}
+    rep.check(
+        "cache: new SIGMA keeps pair selection, triggers a rebuild",
+        set_b == set_a and meta_b.get("banners", 0) >= 1,
+        f"sel_same={set_b == set_a} banners={meta_b.get('banners')}",
+    )
+    t_ok = bool(pairs_b)
+    for i, j, t1, t1p, pw in pairs_b:
+        ii, jj = i - 1, j - 1
+        d1 = r[jj] ** 2 - r[ii] ** 2
+        d2 = r[jj] ** 2 * v[ii] ** 2 - r[ii] ** 2 * v[jj] ** 2
+        mu2 = d1 * v[jj] ** 2 / d2
+        mup2 = d1 * v[ii] ** 2 / d2
+        if abs(t1 - abs(1.0 + mu2 * sig2[ii])) > 1e-12:
+            t_ok = False
+        if abs(t1p - abs(1.0 + mup2 * sig2[jj])) > 1e-12:
+            t_ok = False
+    rep.check(
+        "cache: rebuilt T1/T1P use the new SIGMA, not the stale tables",
+        t_ok,
+    )
+    rep.check(
+        "cache: identical inputs reuse tables (no rebuild, same values)",
+        meta_c.get("banners", 0) == 0 and pairs_c == pairs_b,
+        f"banners={meta_c.get('banners')}",
+    )
 
     # -- Plot: pair map + DRC profile ------------------------------
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
