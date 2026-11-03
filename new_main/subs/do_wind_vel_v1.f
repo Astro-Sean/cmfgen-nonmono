@@ -1,6 +1,6 @@
 !
 ! Altered : 05-Oct-2026 : Reject DO_V_PARAMS wind updates under
-!                           DO_NONMONO_SOB/DO_NONMONO_KNOP (Devin).
+!                           DO_NONMONO_SOB/DO_NONMONO_KNOP.
 !
 	MODULE DO_WIND_VEL_MOD
 	USE SET_KIND_MODULE
