@@ -232,7 +232,7 @@
 ! call and keeps the same stale iterate indefinitely; the per-sweep
 ! NQUAR cannot tell that apart from transient failures, so cells at
 ! MOM_QUAR_PERSIST sweeps or older are counted separately in
-! MOM_GS_NPQUAR.  edited by Devin, 29-Sep-2026.
+! MOM_GS_NPQUAR.  edited 29-Sep-2026.
 !
 	INTEGER(KIND=2), ALLOCATABLE :: MOM_QUAR_AGE(:,:)
 	INTEGER*8, SAVE :: MOM_GS_NPQUAR=0
@@ -248,7 +248,7 @@
 ! equivalent keyed on GAMH_SIGNED_NM -- midpoint and cell-centre
 ! sigma signs differ near the transition, so J and H masks are not
 ! interchangeable there.  [DO_NONMONO_KNOP]
-! edited by Devin, 30-Sep-2026.
+! edited 30-Sep-2026.
 !
 	LOGICAL, ALLOCATABLE :: MOM_OWN_CMP(:,:)
 	LOGICAL, ALLOCATABLE :: MOM_OWN_CMPH(:,:)
@@ -488,7 +488,7 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: MOM_NU_GRID(:)
 !
 ! Fraction of cells newly re-damped in one pass that invalidates the
-! AA secant history.  edited by Devin, 28-Sep-2026: damping a handful
+! AA secant history.  edited 28-Sep-2026: damping a handful
 ! of the ~12M cells does not change the global map enough to matter,
 ! so a restart on any single damped cell would keep NHIST_AA at ~1
 ! forever and AA would never mix.  1E-4 (~1200 cells) resets only on
@@ -722,7 +722,7 @@
 ! fixed-point map then amplifies the field it reads.  Pinning makes
 ! the explicit weight identical to the implicit one -- the
 ! compressing branch's existing PSI convention -- so neither upwind
-! channel is expansive by construction.  edited by Devin,
+! channel is expansive by construction.  edited,
 ! 12-Oct-2026.
 !
 	LOGICAL MOM_GAM_PIN
@@ -736,7 +736,7 @@
 ! channels still feed the row (m15 probes, 12-Oct-2026).  The
 ! row's whole lagged contribution is scaled by
 ! min(1, excess/weight); rows whose unbounded map was already
-! contractive are untouched.  edited by Devin, 12-Oct-2026.
+! contractive are untouched.  edited 12-Oct-2026.
 !
 	LOGICAL MOM_LAG_BND
 !
@@ -750,7 +750,7 @@
 ! 13-Oct-2026: mom maxchg floored ~1E4 at sigma_t~-100 cells).  A
 ! small positive floor keeps a physical absorption anchor in the row
 ! so the bound can leave a nonzero lagged weight.  0.0 restores the
-! exact clip; ~1D-3 retains 0.1% absorption.  edited by Devin,
+! exact clip; ~1D-3 retains 0.1% absorption.  edited,
 ! 13-Oct-2026.
 !
 	REAL(KIND=LDP) MOM_ABS_FLR
@@ -771,7 +771,7 @@
 ! diagonal is a sum, so smooth rows carry a bounded extra
 ! diagonal mass (~2*HS <= 2).  Default F keeps the proven
 ! (a)+(c) behaviour; enable only for the KNOP stall test.
-! edited by Devin, 13-Oct-2026.
+! edited 13-Oct-2026.
 !
 	LOGICAL MOM_H_IMPL
 !
@@ -990,7 +990,7 @@
 	REAL(KIND=LDP)  DLNM
 	REAL(KIND=LDP) GAM_MOM, GAM_MOM_MAG, Q_MOM
 !
-! edited by Devin, 28-Sep-2026: regularize the Knop moment closure
+! edited 28-Sep-2026: regularize the Knop moment closure
 ! at the zero-GAM resonance 1 + sigma*K_on_J = 0, where the implicit
 ! diagonal PSI collapses and the fixed-point map stops contracting.
 ! The limit is dimensionless; the sign is preserved so the upwind
@@ -1556,7 +1556,7 @@
 	  K=1
 	  DO I=1,ND_SM
 !
-! edited by Devin, 29-Sep-2026: bound the march in-loop, as in
+! edited 29-Sep-2026: bound the march in-loop, as in
 ! FG_J_CMF_NONMONO_V1.  The expanded R_NM grid is built with inserted
 ! points for the non-monotonic field, so a depth that brackets no
 ! interval would otherwise walk K past ND_NM and read out of bounds
@@ -2002,7 +2002,7 @@
 ! Uses SIGMA_TRUE (unclamped) and NMID_ON_HMID (angle factor).
 ! The (1 + ...) is the full velocity-gradient factor.
 !
-! edited by Devin, 28-Sep-2026: regularize the factor 1+sigma*K at the
+! edited 28-Sep-2026: regularize the factor 1+sigma*K at the
 ! zero-GAM resonance so the sign split, chi_hat and the explicit/implicit
 ! weights stay away from zero.  The sign is preserved and the magnitude is
 ! limited from below; large-|GAM| branches are unchanged.
@@ -2124,7 +2124,7 @@
 !
 	  DO I=1,ND_NM
 !
-! edited by Devin, 28-Sep-2026: same zero-GAM regularization as the
+! edited 28-Sep-2026: same zero-GAM regularization as the
 ! midpoint factor above, so the depth-point sign split, chi_hat, Q and
 ! the explicit source all use a consistent non-zero factor.
 !
@@ -3467,7 +3467,7 @@
 !
 	      MOM_GS_NQUAR=MOM_GS_NQUAR+1
 !
-!	      edited by Devin, 29-Sep-2026: age the quarantine on the
+!	      edited 29-Sep-2026: age the quarantine on the
 !	      sweep calls only.  Refresh re-solves the same captured
 !	      inputs many times per sweep and would inflate the age.
 !
@@ -3570,7 +3570,7 @@
 !	      Requires MOM_RF_ENABLED (a refresh actually runs to own the
 !	      store) and KN_M_READY (the seeding sweep still writes).
 !
-!	      edited by Devin, 01-Oct-2026: extended to mixed grids under
+!	      edited 01-Oct-2026: extended to mixed grids under
 !	      MOM_RF_OWNW.  On an alternating schedule the refresh's
 !	      descending passes still own the compressing rows, and the
 !	      sweep's per-iteration Jacobi write re-injected the error
@@ -3990,7 +3990,7 @@
 !
 	WRITE(LUER,'(/,A)')' ----------------------- MOM_J_CMF_NONMONO_V1: GS sweep ------------------------'
 !
-! edited by Devin, 21-Oct-2026: the sweep table is written as
+! edited 21-Oct-2026: the sweep table is written as
 ! labelled sentences; the short-key legend is gone because every
 ! number now names itself.  Counts and tags are unchanged.
 !
@@ -4838,7 +4838,7 @@
 	REAL(KIND=LDP) OMG_PRV,RHO_H(4)
 	LOGICAL L_V2
 ! Per-pass max residual of this refresh for the V2 same-map omega
-! estimator (edited by Devin, 19-Oct-2026): PASS_CHG is the pass's
+! estimator (edited 19-Oct-2026): PASS_CHG is the pass's
 ! MOM_GS_MAXCHG before the counters merge, same normalization the
 ! refresh residual prints use.
 !
@@ -5393,7 +5393,7 @@
 	    PASS_NOFF=PASS_NOFF+INT(COUNT(MOM_NM_J(1:ND_NM)
 	1    .EQ. 0),8)
 !
-! edited by Devin, 14-Oct-2026: count cells whose |1+sigma*K_on_J|
+! edited 14-Oct-2026: count cells whose |1+sigma*K_on_J|
 ! sits at the MOM_GAM_FAC_MIN floor (the zero-GAM resonance, where
 ! the implicit diagonal collapses and the map stops contracting).
 ! Without this a refresh stall is unattributable: marginal stiffness
@@ -5464,13 +5464,13 @@
 	  MOM_INEXT_CAPPED=PASS_CAP
 	  MOM_NEGJ_LRG=PASS_NEG
 !
-! Same-map record (edited by Devin, 19-Oct-2026): the pass's max
+! Same-map record (edited 19-Oct-2026): the pass's max
 ! residual before best-pass/AA modification, appended in pass order
 ! for the adaptive JNEXT_RELAX estimator at the exit.
 !
 	  IF(ALLOCATED(RES_PASS))RES_PASS(IPASS)=PASS_CHG
 !
-! edited by Devin, 28-Sep-2026: best-pass selection runs here, on
+! edited 28-Sep-2026: best-pass selection runs here, on
 ! the raw map output, before the cycle check and Anderson update
 ! modify J_NEXT_FRQ -- JBEST then holds the field whose PASS_N5/
 ! PASS_N50 were actually measured.  Selection ranks by the bulk
@@ -5482,7 +5482,7 @@
 	  IF(IPASS .EQ. 1)RESID0=PASS_CHG
 	  IF(PASS_CHG .LT. MIN_RES)MIN_RES=PASS_CHG
 !
-! edited by Devin, 30-Sep-2026: rank each pass direction separately.
+! edited 30-Sep-2026: rank each pass direction separately.
 ! Under MOM_RF_OWNW the pass metrics count only that direction's
 ! owned rows, so a whole-field snapshot ranked by raw n50 is biased
 ! toward whichever direction owns fewer rows -- the other direction's
@@ -5582,7 +5582,7 @@
 ! estimates the composite-map multiplier.  0<LAMC<1 means marginal
 ! contraction, which under-relaxation only slows; Aitken instead
 ! extrapolates the geometric tail x* ~ x_k + D1*LAMC/(1-LAMC).
-! LAMC is capped at 0.9 (correction <= 9x step).  edited by Devin,
+! LAMC is capped at 0.9 (correction <= 9x step).  edited,
 ! 01-Oct-2026: a cell whose same-parity step is not contracting
 ! (LAMC<=0 sign flip without a period-2 return, or LAMC>=1 growth)
 ! can neither converge nor be extrapolated; it is one of the
@@ -5677,7 +5677,7 @@
 	1              1.0E-4_LDP*TCOL)
 	            SC=FHIST_AA(I,L,1)*WV
 !
-!	    Non-affine cell exclusion (edited by Devin, 30-Sep-2026):
+!	    Non-affine cell exclusion (edited 30-Sep-2026):
 !	    a cell whose weighted residual or secant exceeds ~100% per
 !	    composite step is outside the affine-map regime -- the
 !	    quarantine, limiter and cycle damper own those cells.  Their
@@ -5764,7 +5764,7 @@
 	          END DO
 	          FNRM=SQRT(FNRM);  DNRM=SQRT(DNRM)
 !
-! edited by Devin, 29-Sep-2026: skip the AA update when the mixed
+! edited 29-Sep-2026: skip the AA update when the mixed
 ! correction outgrows the weighted residual.  For an affine map the
 ! optimal AA step cancels the residual, ||corr|| ~ ||f||; anything
 ! larger overshoots the data and is discarded -- the observed
@@ -5816,7 +5816,7 @@
 	1                XV=T4
 	              J_NEXT_FRQ(I,L)=XV
 !
-! edited by Devin, 28-Sep-2026: drag H along by the same ratio as
+! edited 28-Sep-2026: drag H along by the same ratio as
 ! J so the retained moment pair keeps its local H/J (Eddington)
 ! content; the ratio is 1 on every fallback branch above, so H is
 ! untouched whenever J was not actually corrected.
@@ -5907,7 +5907,7 @@
 !	  the retained-vs-sweep delta, which still rejects a fixed point
 !	  sitting far from the field the populations saw.
 !
-!	  edited by Devin, 14-Oct-2026: the PASS_NHUGE bound mirrors the
+!	  edited 14-Oct-2026: the PASS_NHUGE bound mirrors the
 !	  sweep gate's unsafe tier (MOM_SW_NHUGE > MAX(50,NTOT/10000)
 !	  vetoes in SOLVE_FOR_POPS).  MOM_GS_NHUGE is reset per frequency
 !	  in the pass loop, so without an accumulator a handful of cells
@@ -5949,7 +5949,7 @@
 !	  of burning the remaining passes.  The field is still restored
 !	  below because CONVERGED stays false.
 !
-!	  edited by Devin, 30-Sep-2026: the transient floor grows with
+!	  edited 30-Sep-2026: the transient floor grows with
 !	  the AA history depth (2*MOM_AA_M+4) when MOM_RF_AA is on.  AA
 !	  only sees one composite-map iterate per even pass boundary, so
 !	  an exit at pass ~8-10 starves the Krylov window it needs to
@@ -6035,7 +6035,7 @@
 !
 	IF(.NOT. CONVERGED)THEN
 !
-! edited by Devin, 28-Sep-2026: the residual-improvement test alone
+! edited 28-Sep-2026: the residual-improvement test alone
 ! (BEST_CHG < RESID0) is nearly always true since first-pass
 ! residuals run 1E4-3E6, and it actively misfires once the best pass
 ! is chosen by bulk counts -- the bulk-best pass can carry a larger
@@ -6162,7 +6162,7 @@
 	  END DO
 	END IF
 !
-! edited by Devin, 01-Oct-2026: call-level (outer) Anderson
+! edited 01-Oct-2026: call-level (outer) Anderson
 ! acceleration.  The committed lagged store is the iterate of the
 ! outer fixed-point map (sweep+refresh composition, including the
 ! J<->Eddington coefficient drift); the inner pass AA cannot see
@@ -6419,7 +6419,7 @@
 	    IF(.NOT. (ABS(JNEXT_SAVE(I,L)) .LE. HUGE(JNEXT_SAVE)) .OR.
 	1       .NOT. (ABS(J_NEXT_FRQ(I,L)) .LE. HUGE(J_NEXT_FRQ)))THEN
 !
-!	      edited by Devin, 14-Oct-2026: a non-finite entry on either
+!	      edited 14-Oct-2026: a non-finite entry on either
 !	      side must flag the delta as fully unconverged -- without
 !	      this branch a NaN produced T4=NaN, which fails the floor
 !	      test (or silently poisons the MAX) while the gate reads
@@ -6434,7 +6434,7 @@
 	    ELSE IF(MAX(ABS(JNEXT_SAVE(I,L)),ABS(J_NEXT_FRQ(I,L))) .GT.
 	1       1.0E-4_LDP*T3)THEN
 !
-! edited by Devin, 28-Sep-2026: the floor test must see the field on
+! edited 28-Sep-2026: the floor test must see the field on
 ! both sides of the delta -- a cell tiny in JNEXT_SAVE but grown
 ! orders of magnitude in the retained field was skipped entirely,
 ! hiding exactly the blow-up this metric is meant to expose.
@@ -6505,7 +6505,7 @@
 ! and clamped to [0.05,1] -- same rule as the FG INEXT_RELAX update
 ! in FG_KNOP_REFRESH_V1.  Oct-2026.
 !
-! V2 (edited by Devin, 19-Oct-2026, [MOM_ADAPT_OMEGA_V2], default T):
+! V2 (edited 19-Oct-2026, [MOM_ADAPT_OMEGA_V2], default T):
 ! the cross-call ratio miskeys omega -- the refresh residual drifts
 ! with the populations' source update, so a converging field can
 ! read rho_est~1 whether the map oscillates (wants omega~0.5) or
@@ -6570,7 +6570,7 @@
 	2      ' factor ',DTR,'; new relaxation ',JNEXT_RELAX
 	  END IF
 !
-! Omega-consistency rescale (edited by Devin, 19-Oct-2026): the
+! Omega-consistency rescale (edited 19-Oct-2026): the
 ! outer-AA residual history FHIST_OUT holds committed deltas
 ! measured under the JNEXT_RELAX in force when each was recorded
 ! (for relax-written cells f_j = omega*(G(x_j)-x_j)), so an omega
