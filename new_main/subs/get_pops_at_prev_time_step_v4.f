@@ -15,7 +15,7 @@
 	IMPLICIT NONE
 !
 ! Altered : 05-Oct-2026 : Require positive, strictly decreasing V before
-!                             using it as the interpolation coordinate (Devin).
+!                             using it as the interpolation coordinate.
 ! Altered : 21-Mar-2007 : READ_TIME_MODEL_V1
 ! Altered : 01-Jul-2006 : Now allow outer velocity of older model to be larger than current
 !                             model, although number of grid points still must be identical.
