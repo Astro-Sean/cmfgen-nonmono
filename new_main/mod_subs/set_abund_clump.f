@@ -17,7 +17,7 @@
 	USE MOD_CMFGEN
 	IMPLICIT NONE
 !
-! Altered 05-Oct-2026 : Use ABS(V)/MAXVAL(ABS(V)) for non-mono VTURB (Devin).
+! Altered 05-Oct-2026 : Use ABS(V)/MAXVAL(ABS(V)) for non-mono VTURB.
 ! Altered 29-Jul-2023 : Update VTURB_VEC -- now allow for POW law option (LONG ver -- 15-Oct-2023).
 ! Altered 16-Apr-2023 : Added RUN2 and REX2 from Paco (Paul now uses RUNA which is
 !	                      the same option).
