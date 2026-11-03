@@ -32,7 +32,7 @@
 !   T6: tauto T-damping refreshes snrm/s_inf/snrm_tr: an accepted
 !       damped step must leave jfnk_del on the post-damp scale.
 !
-! edited by Devin, 06-Oct-2026
+! edited 06-Oct-2026
 !----------------------------------------------------------------------
 module test_prob_mod
    implicit none
