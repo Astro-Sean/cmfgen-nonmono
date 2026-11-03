@@ -127,7 +127,7 @@
 	COL_EN=HDKT*COL_EN/POP_ATOM
 !
 !
-! edited by Devin, 05-Nov-2026 (nonmono gap item 3): the adiabatic
+! edited 05-Nov-2026 (nonmono gap item 3): the adiabatic
 ! coolant's B coefficient wants the instantaneous velocity
 ! gradient.  Under the nonmono flags SIGMA can be stale -- after a
 ! TAU_SPACE regrid it is the derivative of the forced-monotone
