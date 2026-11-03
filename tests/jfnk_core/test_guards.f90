@@ -97,7 +97,7 @@ program test_guards
    use guards_prob_mod
    implicit none
    external :: f_t, df_t, df_bad, dfp_t, sub_t, gmres_m_v1, f_nan, &
-      f_flat, f_const, df_split, df_id, df_anti
+      f_flat, f_const, df_split, df_id, df_anti, df_phantom
    double precision, external :: dp_t
    integer :: nfail, info, luer, i
    !
@@ -676,7 +676,7 @@ program test_guards
       jfnk_ptc_active = .false.
       jfnk_do_line_search = .false.
       jfnk_use_left_pc = .false.
-      jfnk_gmres_tres_fac = 0d0
+      jfnk_gmres_tres_fac = 1.0d0
       jfnk_jvp_failed = .false.
       jfnk_gmres_true_res_ok = .false.
       jfnk_gmres_true_res = 0d0
@@ -713,7 +713,7 @@ program test_guards
       jfnk_ptc_active = .false.
       jfnk_do_line_search = .false.
       jfnk_use_left_pc = .false.
-      jfnk_gmres_tres_fac = 0d0
+      jfnk_gmres_tres_fac = 1.0d0
       jfnk_jvp_failed = .false.
       jfnk_x = 0d0
       info = 1
@@ -745,7 +745,7 @@ program test_guards
       jfnk_ptc_active = .false.
       jfnk_do_line_search = .false.
       jfnk_use_left_pc = .false.
-      jfnk_gmres_tres_fac = 0d0
+      jfnk_gmres_tres_fac = 1.0d0
       jfnk_jvp_failed = .false.
       jfnk_gmres_recomputed = .false.
       jfnk_gmres_true_res_ok = .false.
@@ -827,6 +827,60 @@ program test_guards
       else
          write(luer,'(A)') 'G16b: PASS (cpl cap layering)'
       end if
+   end block
+   !
+   ! -------- G17: phantom convergence claim never reaches Newton ----
+   !
+   ! df_phantom answers unit-norm Arnoldi basis calls with the
+   ! identity action, so the very first Hessenberg LS residual
+   ! collapses (h(2,1) ~ 0, lucky breakdown) and GMRES claims
+   ! convergence at it=1.  The accumulated-step calls -- the exit
+   ! true-residual measure and every restart residual -- carry
+   ! |v| = |b| = sqrt(NG) >= 3 and see zero action, so the measured
+   ! residual is the full ||b||.  fac=0 reproduces the pre-fix
+   ! default: the old code disabled verification there and accepted
+   ! the claim on hess_res alone; the fix floors non-positive input
+   ! to the default bound, rejects the claim inside GMRES, restarts
+   ! once (bounded by jfnk_gmres_max_restart=1), exits
+   ! 'gmres_tres_reject', and the caller aborts via the stagnation
+   ! gate with no Newton step committed (jfnk_nits == 0, x untouched).
+   block
+      double precision :: f0w
+      jfnk_ptc_active = .false.
+      jfnk_do_line_search = .false.
+      jfnk_use_left_pc = .false.
+      jfnk_gmres_tres_fac = 0d0
+      jfnk_gmres_max_restart = 1
+      jfnk_jvp_failed = .false.
+      jfnk_pc_clip_event = .false.
+      jfnk_gmres_true_res_ok = .false.
+      jfnk_gmres_true_res = 0d0
+      jfnk_total_jvp_evals = 0
+      jfnk_nits = 99
+      jfnk_x = 0d0
+      jfnk_exit_reason = ' '
+      info = 1
+      call newton_hook_v1(f_const, df_phantom, dfp_t, sub_t, dp_t, &
+         10, NG, 1d-9, 1d-11, 1d3, 1d-12, 1d8, 30, info, luer)
+      f0w = dsqrt(dble(NG))
+      if(jfnk_exit_reason /= 'gmres_stagnation_abort' .or. &
+         .not. jfnk_gmres_true_res_ok .or. &
+         jfnk_gmres_true_res < 0.9d0 * f0w .or. &
+         jfnk_nits /= 0 .or. any(jfnk_x /= 0d0) .or. &
+         jfnk_total_jvp_evals > 10) then
+         nfail = nfail + 1
+         write(luer,'(A,A,A,ES12.4,A,I3,A,I4)') &
+            'G17: FAIL (phantom claim committed), reason=', &
+            trim(jfnk_exit_reason), ' true_res=', jfnk_gmres_true_res, &
+            ' nits=', jfnk_nits, ' jvp_evals=', jfnk_total_jvp_evals
+      else
+         write(luer,'(A,ES12.4,A,I4)') &
+            'G17: PASS (claim rejected in GMRES, no step), true_res=', &
+            jfnk_gmres_true_res, ' jvp_evals=', jfnk_total_jvp_evals
+      end if
+      jfnk_use_left_pc = .true.
+      jfnk_gmres_max_restart = 1
+      jfnk_gmres_tres_fac = 1.0d0
    end block
    !
    if(nfail == 0) then
@@ -1010,3 +1064,17 @@ subroutine df_anti(n, v, jv)
       jv = -2d0 * v
    end if
 end subroutine df_anti
+
+subroutine df_phantom(n, v, jv)
+   implicit none
+   integer :: n
+   double precision :: v(n), jv(n)
+   ! G17: unit-norm Arnoldi basis calls see the identity action, so
+   ! the Hessenberg LS residual collapses at the first iteration and
+   ! GMRES claims convergence on a phantom.  The accumulated-step
+   ! calls (|v| >= 3: the exit true-residual measure and restart
+   ! residuals) see zero action, leaving true_res = ||b||.  This is
+   ! the convergence-claim counterpart of df_split's stagnation case.
+   jv = 0d0
+   if(dsqrt(dot_product(v, v)) < 3d0) jv = v
+end subroutine df_phantom
