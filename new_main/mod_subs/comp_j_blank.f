@@ -37,8 +37,8 @@
 	USE MOD_RAY_MOM_STORE, ONLY: HNU_AT_OB
 	IMPLICIT NONE
 !
-! Altered : 05-Oct-2026 : Keep stock CMF_FORM_SOL off the Knop path (Devin).
-! Altered : 05-Oct-2026 : Demoted solver banners to iteration subheaders (edited by Devin).
+! Altered : 05-Oct-2026 : Keep stock CMF_FORM_SOL off the Knop path.
+! Altered : 05-Oct-2026 : Demoted solver banners to iteration subheaders (edited).
 ! Altered : 05-Oct-2026 : JFNK eval hygiene: softened STOPs inside
 !                            JFNK_IN_EVAL eval sweeps; cold FOLD seed.
 ! Altered : 19-Sep-2026 : dev7 Knop integration (DO_NONMONO_KNOP): dispatch to
@@ -105,14 +105,14 @@
 	INTEGER J_IT_COUNTER
 	LOGICAL NEW_FREQ
 !
-! edited by Devin, 27-Oct-2026: ES-ALI state [DO_ES_ALI].  ES_ALI_ON
+! edited 27-Oct-2026: ES-ALI state [DO_ES_ALI].  ES_ALI_ON
 ! is the per-call gate (evaluated just before the iteration loop);
 ! ES_DJ is the max relative RJ update of the current pass; ES_ALI_FB
 ! marks a pass that fell back to plain Lambda.  The SAVE'd counters
 ! accumulate per-frequency results for the once-per-iteration print.
 ! DJDCHI_TMP/DJDETA_TMP hold the V13 stored diagonal.
 !
-! edited by Devin, 29-Oct-2026: ES_ALI_MOM_ON gates the same
+! edited 29-Oct-2026: ES_ALI_MOM_ON gates the same
 ! Olson-Auer-Buchler step on the USE_LAM_ES=F branch, where J comes
 ! from MOM_J_CMF_NONMONO_V1 with the scattering source lagged (TA
 ! holds ETA + chi_scat*RJ from the previous iterate).  The mom
@@ -233,7 +233,7 @@ C
 	      WRITE(LUER,*)'Error occurred in '//SECTION
 	      WRITE(LUER,*)'You may need to delete EDDFACTOR'
 C
-C edited by Devin, 05-Oct-2026: inside a JFNK eval sweep
+C edited 05-Oct-2026: inside a JFNK eval sweep
 C (JFNK_IN_EVAL, CONTROL_VARIABLE_MOD -- no VADAT key) a STOP would
 C kill the whole run mid-JVP.  Instead flag the eval
 C (JFNK_EVAL_BROKEN, consumed by JFNK_RAD_SWEEP_V1's epilogue, which
@@ -703,7 +703,7 @@ C
 	    END IF
 	  ELSE
 C
-C edited by Devin, 05-Oct-2026: under COMPUTE_EDDFAC the FIRST_FREQ
+C edited 05-Oct-2026: under COMPUTE_EDDFAC the FIRST_FREQ
 C block above cold-starts the f-iteration with FOLD=0; with stored
 C Eddington factors (COMPUTE_EDDFAC=F) FOLD is SAVE'd module state in
 C RADIATION_MOD and is never reset, so an eval sweep's iter-1
@@ -761,7 +761,7 @@ C
 	  INACCURATE=.TRUE.
 	  J_IT_COUNTER=0
 C
-C edited by Devin, 27-Oct-2026: ES-ALI gate [DO_ES_ALI].  The
+C edited 27-Oct-2026: ES-ALI gate [DO_ES_ALI].  The
 C Olson-Auer-Buchler update below uses the diagonal stored by
 C FG_J_CMF_V13, so it is restricted to the V13 path: DO_NONMONO_SOB +
 C USE_LAM_ES + COHERENT_ES and not DO_SOB_FG_KNOP (which runs
@@ -770,10 +770,10 @@ C EDDFACTOR-read previous-iteration J (warm seed), and TA is rebuilt
 C from the updated RJ at the top of every pass.  DO_ES_ALI=F leaves
 C the loop bit-identical to stock.
 C
-! edited by Devin, 29-Oct-2026: the same update applies under
+! edited 29-Oct-2026: the same update applies under
 ! DO_NONMONO_KNOP + USE_LAM_ES.
 !
-! edited by Devin, 02-Nov-2026: corrected the 29-Oct note -- under
+! edited 02-Nov-2026: corrected the 29-Oct note -- under
 ! DO_NONMONO_KNOP the formal solver is FG_J_CMF_NONMONO_V1, not V13,
 ! and it stores its diagonal in FG_J_CMF_NONMONO_MOD_V1, so the V13
 ! accessor always returned VALID=F (KNOP_fresh: 56377/56377 ES_ALI
@@ -944,7 +944,7 @@ C
 	3         ' are not solved'
 	       IF(ES_ALI_ON)THEN
 !
-! edited by Devin, 27-Oct-2026: Olson-Auer-Buchler Jacobi update of
+! edited 27-Oct-2026: Olson-Auer-Buchler Jacobi update of
 ! the coherent-ES iterate [DO_ES_ALI].  TA was built from the
 ! previous RJ, so TC is Lambda[RJ]; the V13 stored diagonal
 ! DJDETA = dJ/dETA converts the residual into an approximate solve
@@ -955,7 +955,7 @@ C
 ! the diagonal is unavailable the pass degrades to plain RJ=TC, the
 ! frequency is counted as a fallback, and no extra passes are forced.
 !
-! edited by Devin, 02-Nov-2026: accessor must match the solver that
+! edited 02-Nov-2026: accessor must match the solver that
 ! ran above -- FG_J_CMF_NONMONO_V1 (KNOP, or SOB+DO_SOB_FG_KNOP)
 ! stores its diagonal in FG_J_CMF_NONMONO_MOD_V1, so the V13
 ! accessor is invalid there.  Same predicate as the dispatch.
@@ -1055,7 +1055,7 @@ C
 	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND,FREQ_INDX,NCF)
 	         IF(ES_ALI_MOM_ON)THEN
 !
-! edited by Devin, 29-Oct-2026: same OAB Jacobi update as the
+! edited 29-Oct-2026: same OAB Jacobi update as the
 ! USE_LAM_ES branch [DO_ES_ALI].  TA entering the solve held
 ! ETA + chi_scat*ROLD_ES, so the returned RJ is Lambda_mom[ROLD_ES];
 ! DEN = 1 - DJDETA*chi_scat on the mom-stored diagonal converts the
@@ -1133,7 +1133,7 @@ C
 	        END DO
 	        IF(T1 .GT. ACC_EDD_FAC)INACCURATE=.TRUE.
 C
-C edited by Devin, 27-Oct-2026: under DO_ES_ALI the ES iterate keeps
+C edited 27-Oct-2026: under DO_ES_ALI the ES iterate keeps
 C passing until the last update is below ES_ALI_TOL or the pass cap
 C ES_ALI_MAX is reached (clamped to 20 at read time, so the existing
 C forced exit still bounds the loop).  Fallback frequencies are not
@@ -1156,7 +1156,7 @@ C
 	      END IF
 	    END DO
 C
-C edited by Devin, 27-Oct-2026: accumulate the per-frequency ES-ALI
+C edited 27-Oct-2026: accumulate the per-frequency ES-ALI
 C result for the once-per-iteration print [DO_ES_ALI].
 C
 	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
@@ -1269,7 +1269,7 @@ C
 	  IF(FREQ_INDX .EQ. NCF)THEN
 	    WRITE(LUER,*)'Average number of calls to FG_J_CMF is',FLOAT(FG_COUNT)/FLOAT(NCF)
 !
-! edited by Devin, 27-Oct-2026: one-line ES-ALI summary per great
+! edited 27-Oct-2026: one-line ES-ALI summary per great
 ! iteration [DO_ES_ALI]: frequencies that exited with the last RJ
 ! update above ES_ALI_TOL, the worst final relative update, and the
 ! count of passes that fell back to plain Lambda.
@@ -1424,7 +1424,7 @@ C
 	  WRITE(LUER,*)'Try a finer grid at the outer boudary (preferred choice?)'
 	  WRITE(LUER,*)'Alternatively try a different N_TYPE option'
 !
-! edited by Devin, 05-Oct-2026: under JFNK_IN_EVAL a blown-up RJ is a
+! edited 05-Oct-2026: under JFNK_IN_EVAL a blown-up RJ is a
 ! failed eval, not a fatal model error -- a STOP here kills the run
 ! mid-JVP.  Flag the eval (JFNK_EVAL_BROKEN) and return; the huge RJ
 ! was already computed and feeds the residual, and the sweep epilogue
