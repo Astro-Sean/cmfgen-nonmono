@@ -7,7 +7,7 @@ C Improved error handling (5-OCT-1983)
 C
 C Altered 05-Oct-2026 - Validate the interpolation coordinates. The
 C                       bracket walk requires strictly monotonic R and U
-C                       in the same direction (Devin).
+C                       in the same direction.
 C Altered 11-Apr-1989 - Implicit NONE INSTALLED. Main call changed to
 C                       LIN_INTERP, and LINPOP and LININT entry points
 C                       installed. All three routines are identical
