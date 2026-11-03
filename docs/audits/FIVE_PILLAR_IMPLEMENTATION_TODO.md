@@ -1539,7 +1539,14 @@ supported configuration.
 - Action: build test comparing DIAG/TRI against exact solutions.
 - Acceptance: tests pass.
 - Dependencies: P5-002, P5-003.
-- Completion: -
+- Completion: partial 2026-11-03 - `test_mat5pen.py` covers the
+  TRI Schur-complement kernel through production MAT5PEN calls:
+  all four flag combinations match A+D(F.C-E)-B.C to 2e-16, and
+  the production m[k]=C[k]-B[k].phi[k-1] update shape matches
+  DGEMM to 6e-17. The full CMF_BLKBAND_V3 driver still needs
+  SE%BA fabrication (STAT_EQ_DATA pointers + ATM links +
+  GENERATE_FULL_MATRIX_V3 inputs) - a heavier lift, flagged
+  openly here rather than approximated by a replica.
 
 ### [ ] P5-007 - Verify true matrix residuals for both methods
 - Priority: P0
