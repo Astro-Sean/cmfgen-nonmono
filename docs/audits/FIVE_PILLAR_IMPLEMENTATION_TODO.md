@@ -462,7 +462,24 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
   propagation to downstream resonances is the intended RH kernel.
 - Acceptance: written audit tying code to the paper formulation.
 - Dependencies: P2-005, P2-009.
-- Completion: -
+- Completion: 2026-11-03 - audited end to end. Source function:
+  S_L = ETAL_MAT/CHIL_MAT per (depth, sim-line); driver tests confirm
+  the formula level (ETAL=0 -> DRC=0). Escape probabilities: BETA =
+  sum_L w_L*EXF(GAM_L) with the floored tau - verified to 6e-12
+  against the analytic expression (test_sob_tau_floor T3/T7). SIGMA
+  consistency: under DO_NONMONO_SOB all three consumers (SOBJBAR_SIM
+  rates, SOBEW EW estimate, SOB_RH_COUPLE kernel) take SIGMA_TRUE;
+  DO_SOB_CLAMPED_LINES consistently switches all three back to clamped
+  SIGMA (sub_sob_line_v3.f:144-176) - a documented consistency probe,
+  not a mixed-gradient bug. Propagation: DRC_SIM enters the STEQ
+  residual only (deliberately excluded from ZNET_SIM so the BA
+  Jacobian does not differentiate a lagged remote term, per the
+  :164-168 comment). Rate assembly is antisymmetric:
+  STEQ(up)-=T2/T1, STEQ(low)+=T2/T1 with T2=ETAL*ZNET-DRC - atoms
+  conserved across the level pair; line cooling STEQ_T-=T2*T3.
+  Lambda-iteration derivatives (VB=-JBAR/ETAL, VC=JBAR*CHIL/ETAL^2)
+  are the -d(JBAR*CHIL/ETAL) pair, correctly guarded against
+  ETAL<=0 and NEG_OPACITY rows.
 
 ### [ ] P2-008 - Audit continuum interactions and scattering
 - Priority: P1
