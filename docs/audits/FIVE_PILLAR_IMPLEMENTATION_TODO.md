@@ -497,7 +497,17 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Acceptance: written validity limits; dropped-pair policy justified
   or filed as a defect.
 - Dependencies: P2-005.
-- Completion: partial.
+- Completion: 2026-11-03 - quantified on manufactured profiles. The
+  V>0 gate drops only pairs *touching* a V<=0 cell (sob_rh_couple.f:150
+  endpoint test, RH_NDROP counter prints the tally): on a profile with
+  a -200 km/s stagnation cell, 30/98 geometric coincidences (31%) are
+  dropped, all touching that cell. Pairs that straddle a stagnation
+  region with positive endpoints are kept - correct per RH78, since
+  the photon propagates freely between coincident resonances and the
+  intermediate off-resonance gas does not absorb that frequency. The
+  kernel is pairwise (no three-body term); a tuned triple coincidence
+  on one ray loses the third-extinction correction (Feldmeier &
+  Nikutta 2006 regime) - documented approximation, not a defect.
 
 ### [ ] P2-010 - Validate inner and outer boundary resonance cases
 - Priority: P1
