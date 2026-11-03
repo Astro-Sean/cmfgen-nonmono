@@ -34,7 +34,7 @@ program se_driver
    use jfnk_op_probe_mod
    implicit none
    character(len=32) :: cmd, arg
-   character(len=64) :: seqstr
+   character(len=256) :: seqstr
    character(len=1024) :: dir, xfile, vfile
    integer :: n, m, itmax, pc, expneg, ptc, ptcfix, eqscale
    integer :: k, i, idx, info, its, lu, nits, stat, im(10), kk, ios
@@ -703,10 +703,10 @@ program se_driver
       ! Each character of <seq> is one admitted call: 'F' runs
       ! newton_hook_v1 with the production LU path (info=3 on these
       ! systems -> counted failure, rung up), 'S' runs the TSVD path
-      ! (info=2 on hard -> committed best iterate, rung resets to 0),
-      ! 'R' is the reach-gate skip (info=-2 -> cheap skip, rung
-      ! unchanged).  RUNG lines report the entry rung; ADM lines report
-      ! the post-outcome rung.
+      ! (info=2 where the TSVD solve verifies -> committed best
+      ! iterate, rung resets to 0), 'R' is the reach-gate skip
+      ! (info=-2 -> cheap skip, rung unchanged).  RUNG lines report
+      ! the entry rung; ADM lines report the post-outcome rung.
       call get_command_argument(2, dir)
       call get_command_argument(3, arg); read(arg, *) rearm_every
       call get_command_argument(4, seqstr)
