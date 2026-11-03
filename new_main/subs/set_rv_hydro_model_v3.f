@@ -471,7 +471,7 @@
 	  END IF
 	END DO
 !
-! edited by Devin, 05-Nov-2026 (nonmono gap item 2): on an RDINR
+! edited 05-Nov-2026 (nonmono gap item 2): on an RDINR
 ! restart the SIGMA above is the analytic derivative of the
 ! MON_INT_FUNS_V2 cubic -- close to, but not identical with, the
 ! centred-difference sigma that RECOMPUTE_SIGMA_TRUE later stores
