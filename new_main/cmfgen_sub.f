@@ -66,12 +66,12 @@
 !                       LIN_PROF_SIM is now depth dependent -- code cannow handle depth dependent
 !                          line profiles.
 !                       Calls to AUTO_CLUMP_REV and SPECIFY_IT_CYCLE added.
-! Altered  6-Dec-2013 : When removing lines from the variation set we assume a minimum terminal
+! Altered 6-Dec-2013 : When removing lines from the variation set we assume a minimum terminal
 !                          velocity of 300 km/s. Important for plane-parallel models with Vinf=0.
 ! Altered 29-Nov-2011 : Call to STEQ_CO_MOV_DERIV changed to _V3. Done to facilitae
 !                         hadling of additional levels with time dependence.
 ! Altered 07-Nov-2011 : Now output MNL_F, MNUP_F to NETRATE and TOTRATE.
-! Altered       -2011 : Extensive alterations to handle low temperatures.
+! Altered -2011 : Extensive alterations to handle low temperatures.
 !                       Extensive alterations to include non-thermal ionizations
 ! Altered 19-Jan-2009 : SL otion inserted; rd_f_to_s_ids_v2.f now used.
 ! Altered 16-Feb-2006 : Changed and modified over 2 month period. Section solving for
@@ -123,11 +123,11 @@
 !
 	LOGICAL LST_DEPTH_ONLY
 !
-! REC_SIZE     is the (maximum) record length in bytes.
-! UNIT_SIZE    is the number of bytes per unit that is used to specify
+! REC_SIZE is the (maximum) record length in bytes.
+! UNIT_SIZE is the number of bytes per unit that is used to specify
 !                 the record length (thus RECL=REC_SIZ_LIM/UNIT_SIZE).
-! WORD_SIZE    is the number of bytes used to represent the number.
-! N_PER_REC    is the # of POPS numbers to be output per record.
+! WORD_SIZE is the number of bytes used to represent the number.
+! N_PER_REC is the # of POPS numbers to be output per record.
 !
  	INTEGER REC_SIZE
 	INTEGER UNIT_SIZE
@@ -136,7 +136,7 @@
 !
 ! 
 !
-! Logical Unit assignments. Those indicated with a # after the ! are open in
+! Logical Unit assignments. Those indicated with a # after the are open in
 !  large sections of the code. Other units generally used temprarily.
 !
 	INTEGER               LUER      	!Output/Error file.
@@ -216,7 +216,7 @@
 	LOGICAL CONV_EXIT_MET,CONV_EXIT_DONE
 	CHARACTER*80 CONV_EXIT_WHY
 !
-! Wall-clock timer for the great-iteration loop.  Each iteration's
+! Wall-clock timer for the great-iteration loop. Each iteration's
 ! elapsed time is reported when the next iteration begins; the final
 ! iteration is reported just before the routine returns.
 !
@@ -257,7 +257,7 @@
 ! Wind variablity arrays.
 !
 	REAL(KIND=LDP) POPS(NT,ND)		!Population for all species.
-	REAL(KIND=LDP) MEAN_ATOMIC_WEIGHT	!Mean atomic weight of atoms  (neutrals
+	REAL(KIND=LDP) MEAN_ATOMIC_WEIGHT	!Mean atomic weight of atoms (neutrals
 !                          		! and ions) in atomic mass units.
 	REAL(KIND=LDP) ABUND_SUM
 !
@@ -333,9 +333,9 @@
 	REAL(KIND=LDP) VC(NDMAX)		!Used for error calculations
 	REAL(KIND=LDP) H(ND)
 	REAL(KIND=LDP) Q(ND)			!FREQ DEPENDENT.
-	REAL(KIND=LDP) QH(ND)			!  "      "
+	REAL(KIND=LDP) QH(ND)			!  " "
 	REAL(KIND=LDP) GAM(ND)			!FREQ INDEPENDENT
-	REAL(KIND=LDP) GAMH(ND)			!  "      "
+	REAL(KIND=LDP) GAMH(ND)			!  " "
 ! 
 !
 ! Arrays and variables for computation of the continuum intensity
@@ -490,14 +490,14 @@
 !
 	BND_TO_FULL(J,K)=(NUM_BNDS/ND)*(DIAG_INDX-K)+K+J-DIAG_INDX
 !
-! This function computes the index L on BA( , ,?,K) corresponding
+! This function computes the index L on BA(,?,K) corresponding
 ! to the local depth variable (i.e that at K). It is equivalent
 ! to IF (NUM_BNDS .EQ. ND)THEN L=K ELSE L=DIAG END IF
 !
 	GET_DIAG(K)=(NUM_BNDS/ND)*(K-DIAG_INDX)+DIAG_INDX
 !
 ! These two functions compute the start and end indices when updating
-! VJ. eg. we do not wish to update VJ( ,1, ) if we are using the banded
+! VJ. eg. we do not wish to update VJ(1) if we are using the banded
 ! matrix since this refers to a variable beyond the outer atmosphere.
 !
 	BNDST(K)=MAX( (NUM_BNDS/ND)*(K-DIAG_INDX)+1+DIAG_INDX-K, 1 )
@@ -617,7 +617,7 @@
 
 !
 ! This section does the following :-
-!	1) If new model read/determine the new radius scale  and
+!	1) If new model read/determine the new radius scale and
 ! populations.
 !	2) If old model, populations are read in from scratch file
 ! previous radius scale etc are used. Ponit1 and point2
@@ -753,7 +753,7 @@
 !
 ! We do this in reverse order so that GIONXzV can be correctly set.
 !
-! Note Well - in GENOSICL  - T1 is returned with the ionization energy.
+! Note Well - in GENOSICL - T1 is returned with the ionization energy.
 !                            T2 is returned with screened nuclear charge.
 !                             I is returned with the number of transitions.
 !
@@ -912,7 +912,7 @@
 	END DO
 !
 ! Store atomic masses in vector of LENGTH NT for later use by line
-! calculations. G_ALL and LEVEL_ID  are no longer used due to the use
+! calculations. G_ALL and LEVEL_ID are no longer used due to the use
 ! of super levels.
 !
 	AMASS_ALL(1:NT)=0.0_LDP
@@ -950,9 +950,9 @@
 	1                 WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
 !
 ! Seed the Gauss-Seidel I_NEXT checkpoint tag in FG_J_CMF_NONMONO_V1
-! with the iteration counter restored by SCR_READ_V2.  A stored dump
+! with the iteration counter restored by SCR_READ_V2. A stored dump
 ! is accepted only when the file tag equals this NITSF, tying the GS
-! radiation state to the same checkpoint as SCRTEMP.  For a new model
+! radiation state to the same checkpoint as SCRTEMP. For a new model
 ! NITSF=0, which no written tag can equal -> cold start.
 !
 ! 30-Oct-2026 audit fix: the FG nonmono solver (and its FGINEXT_GS
@@ -1034,7 +1034,7 @@
 ! 2. The population off all levels in the FULL atom.
 ! 3. The LTE population off all super-levels.
 !
-! This is done by the following include statement, which  is a sequence of
+! This is done by the following include statement, which is a sequence of
 ! calls to the routine SUP_TO_FULL.
 !
 ! Compute the ion population at each depth.
@@ -1105,7 +1105,7 @@
 !
 	IF(VINF .EQ. 0.0_LDP)VINF=V(1)
 !
-! VINF sizes the global resonance and line-storage windows.  For a
+! VINF sizes the global resonance and line-storage windows. For a
 ! non-monotonic field the outermost cell need not contain the fastest
 ! gas, so use the full signed range rather than a boundary value.
 !
@@ -1113,7 +1113,7 @@
 	  VINF=MAXVAL(ABS(V(1:ND)))
 !
 ! The non-monotonic treatments support repeated positive speeds, not a
-! sign-changing radial flow.  Optional advection, X-ray cutoff, restart,
+! sign-changing radial flow. Optional advection, X-ray cutoff, restart,
 ! and observer-grid paths all still assume positive radial outflow, so
 ! reject V <= 0 once here rather than letting an unguarded branch fail.
 !
@@ -1315,11 +1315,11 @@
 ! edited 02-Oct-2026: SUCCESS must be initialized on the
 ! NEWMOD path -- with no prior model there is no stored BA to reuse,
 ! so the correct state is "read failed" which forces COMPUTE_BA=.TRUE.
-! below.  SUCCESS is a local left over garbage on a cold start; when it
+! below. SUCCESS is a local left over garbage on a cold start; when it
 ! came up .TRUE. COMPUTE_BA stayed .FALSE., the post-continuum re-read
 ! at label-less IF(.NOT. COMPUTE_BA) then hit a BAMATPNT that was never
 ! written ("Error opening SCRATCH/BAMATPNT ... cant read BA File",
-! JFNK_opt it1).  Not flag-gated: stock-path bug fix, deterministic
+! ). Not flag-gated: stock-path bug fix, deterministic
 ! cold start only; the .NOT. NEWMOD read still sets SUCCESS.
 !
 	SUCCESS=.FALSE.
@@ -1327,15 +1327,14 @@
           CALL READ_BA_DATA_V3(LU_BA,NION,NUM_BNDS,ND,CHK,FIXED_T,SUCCESS,'BAMAT')
 !
 ! edited 08-Oct-2026: a stored BAMAT is only trustworthy when
-! the LU-factor cache it pairs with also exists.  CMF_BLKBAND_V3 recall
+! the LU-factor cache it pairs with also exists. CMF_BLKBAND_V3 recall
 ! solves (BA_COMPUTED=F, WR_BA_INV=T) read CSCRATCH (DIAG) or
 ! BCSCRATCH+DSCRATCH (TRI) from SCRATCH_DIR and STOP when they are
-! absent.  Runs whose storing calls never pass through
+! absent. Runs whose storing calls never pass through
 ! CMF_BLKBAND+WRITE_BCD_MAT (e.g. DO_JFNK solves, which factor via the
 ! JFNK path) can hold a BAMAT with no factor cache; the first recall
-! after a warm restart then STOPs deterministically (zlaw14_jfnk it47,
-! exit 6).  Depths 1 and ND are checked so a partially written cache
-! also counts as missing.  Not flag-gated: every recall path fails
+! after a warm restart then STOPs deterministically exit 6). Depths 1 and ND are checked so a partially written cache
+! also counts as missing. Not flag-gated: every recall path fails
 ! identically on absent files.
 !
 	  IF(SUCCESS)THEN
@@ -1383,7 +1382,7 @@
 ! Removed TMIN consistency check since I now use LOG(LTE pops).
 !
 	CALL CHECK_IONS_PRESENT(ND,NUM_IONS)
-!	CALL CHECK_TMIN()
+!	CALL CHECK_TMIN
 !
 ! Temporary check
 !
@@ -1439,7 +1438,7 @@
 ! JFNK coupled-residual hook (V7 port): register the internal
 ! radiation sweep so JFNK_RESIDUAL_V1 can evaluate the fully coupled
 ! SE+radiation residual at perturbed populations while CMFGEN_SUB is
-! suspended inside SOLVE_FOR_POPS.  Only used when USE_JFNK_SOLVER=T
+! suspended inside SOLVE_FOR_POPS. Only used when USE_JFNK_SOLVER=T
 ! and JFNK_COUPLED=T; on the default path the pointer stays null and
 ! nothing here is reached.
 !
@@ -1448,8 +1447,8 @@
 ! the trial populations against the stored Eddington records; under
 ! DO_NONMONO_SOB + [JFNK_COUPLED_SOB] it also replays the
 ! SECTION='LINE' pass so the Sobolev line rates enter the residual
-! the same way they do in the production assembly.  BA/CMAT terms are
-! not touched -- COMPUTE_BA is held off inside the eval.  The driver
+! the same way they do in the production assembly. BA/CMAT terms are
+! not touched -- COMPUTE_BA is held off inside the eval. The driver
 ! verifies at activation entry that this eval residual reproduces the
 ! production-assembled STEQ residual at x=0 (JFNK-CPL consistency
 ! check in JFNK_SOLVE_CORR_V1) before Newton is allowed to use it.
@@ -1468,7 +1467,7 @@
 !
 ! Iteration-1 f-warning suppression (SUP_FCONV_IT1): while TRUE,
 ! COMP_J_BLANK counts its 'Possible error converging f' warnings
-! instead of printing them.  Re-evaluated every iteration so mid-run
+! instead of printing them. Re-evaluated every iteration so mid-run
 ! EDDFACTOR rebuilds on later iterations still print per-frequency.
 !
 	FCONV_IT1_ACTIVE=(SUPPRESS_FCONV_IT1 .AND. MAIN_COUNTER .EQ. 1)
@@ -1758,7 +1757,7 @@
 ! dev7, not flag-gated: for x=HDKT*nu/T << 1 (low frequencies at the
 ! hot inner boundary) the literal 1-EMHNUKT loses nearly all digits
 ! to cancellation; the series x*(1 - x/2 + x^2/6) is accurate to
-! ~1E-13 relative at the 1E-4 switchover.  Same fix in the two
+! ~1E-13 relative at the 1E-4 switchover. Same fix in the two
 ! mean-opacity sums below.
 !
 	    T4=1.0_LDP-EMHNUKT(ND)
@@ -1799,7 +1798,7 @@
 	  END DO
 !
 ! The luminosity of the Sun is 3.826D+33 ergs/sec. For convenience
-! DTDR will have the units  (D+04K)/(D+10cm) .
+! DTDR will have the units (D+04K)/(D+10cm) .
 !
 	  T1=LUM*7.2685E+11_LDP/R(ND)/R(ND)
 	  DTDR=T1/DTDR
@@ -1841,7 +1840,7 @@
 ! STEQ_T_SCL is the scaled sibling of STEQ_T_NO_SCL (the pair is
 ! differenced for the SL luminosity error estimate below); it was
 ! never zeroed, so the diagnostic accumulated across great
-! iterations and across JFNK eval sweeps.  (Oct-2026)
+! iterations and across JFNK eval sweeps. (Oct-2026)
 !
 	STEQ_T_SCL=0.0_LDP
         BA_ED   = 0.0_LDP
@@ -1920,7 +1919,7 @@
 !
           CALL STEQNE_V4(ED,NT,DIAG_INDX,ND,COMPUTE_BA,DST,DEND)
 !
-	END DO		!K=1,ND  - DST,DEND
+	END DO		!K=1,ND - DST,DEND
 !
 	IF(VERBOSE_OUTPUT .AND. LST_ITERATION)THEN
 	  CALL GET_LU(LU_T_EHB,'Electron energy balance')
@@ -2074,10 +2073,10 @@
 	  DO I=1,ND
 !
 ! edited 29-Oct-2026: same empty-upper-level guard as the
-! ZNET_SIM accumulation.  ETAL=T2*NUST underflows to 0 where the
+! ZNET_SIM accumulation. ETAL=T2*NUST underflows to 0 where the
 ! autoionizing state is empty; the net-bracket consumers all
 ! multiply ZNET by NUST or ETAL (both ~0 there), so bracket=1 is the
-! physically consistent limit.  Not flag-gated: the prior result
+! physically consistent limit. Not flag-gated: the prior result
 ! was Inf/NaN.
 !
 	    IF(ETAL(I) .GT. 0.0_LDP)THEN
@@ -2110,7 +2109,7 @@
 	  END DO
 !
 ! KN_LUM_TRACE (29-Oct-2026, [KN_LUM_TRACE] default F): first
-! non-finite STEQ_T entry.  Suspects here: ETAL(K)=0 via NUST
+! non-finite STEQ_T entry. Suspects here: ETAL(K)=0 via NUST
 ! underflow (ZNET=1-RJ*CHIL/ETAL -> Inf, then NUST*ZNET=0*Inf) or
 ! a non-finite RJ from the formal solve.
 !
@@ -2182,7 +2181,7 @@
 !
 ! edited 29-Oct-2026: BETAC is only used as
 ! NUST*BETAC and ETAL*BETAC below -- both vanish with ETAL, so 0 is
-! the consistent limit where the upper state is empty.  Avoids
+! the consistent limit where the upper state is empty. Avoids
 ! 0*Inf on the same empty-level restarts as the ZNET guards.
 !
 	      IF(ETAL(I) .GT. 0.0_LDP)THEN
@@ -2241,10 +2240,10 @@
 !
 ! edited 05-Nov-2026 (nonmono gap item 5): the
 ! dielectronic EW diagnostic must see the same unclamped velocity
-! gradient the transfer solve used.  SOB already passes
+! gradient the transfer solve used. SOB already passes
 ! SIGMA_TRUE; KNOP solves J on the unclamped gradient too, so the
 ! stock SIGMA (unclamped under KNOP, or a forced-monotone-cubic
-! derivative after regridding) is inconsistent here.  SIGMA_TRUE
+! derivative after regridding) is inconsistent here. SIGMA_TRUE
 ! is always allocated (cmfgen.f) and filled by
 ! RECOMPUTE_SIGMA_TRUE under either flag.
 !
@@ -2428,7 +2427,7 @@
 !	  ID=1; L=71
 !	  DO K=1,ATM(ID)%NXzV
 !	   WRITE(314,'(ES16.8,I6,4ES14.4)')FL,K,ATM(ID)%WSXzV(K,L,1),ATM(ID)%dWSXzVdT(K,L,1),
-!	1             ATM(ID)%WCRXzV(K,L,1),ATM(ID)%dWCRXzVdT(K,L,1)
+!	1 ATM(ID)%WCRXzV(K,L,1),ATM(ID)%dWCRXzVdT(K,L,1)
 !	  END DO
 !
 ! 
@@ -2559,18 +2558,18 @@
 	    END IF
 !
 ! edited 18-Oct-2026: [KN_NO_GAIN, default F, stock path
-! unchanged].  The NEG_OPAC floors above can leave CHI < CHI_SCAT,
+! unchanged]. The NEG_OPAC floors above can leave CHI < CHI_SCAT,
 ! so the formal-solver source coefficient sum
 ! (CHI_SCAT+|GAM|/dLOG_NU)/(CHI+|GAM|/dLOG_NU) exceeds 1 and the
 ! cell amplifies photons (effective scattering albedo
-! THETA=CHI_SCAT/CHI > 1).  Under the lagged KNOP coupling the
+! THETA=CHI_SCAT/CHI > 1). Under the lagged KNOP coupling the
 ! I_P/I_M_DEPTH_NEXT store recycles that gain into the next great
-! iteration, so it compounds (~8.6x/iter in job 12268434, all in
-! the 18.6 um line region).  Flooring CHI at CHI_SCAT caps every
+! iteration, so it compounds (~8.6x/iter in , all in
+! the 18.6 um line region). Flooring CHI at CHI_SCAT caps every
 ! source coefficient sum at 1, making the lagged map non-expanding
-! in the sup norm.  NEG_OPACITY/NEG_OPAC_FAC are set exactly as
+! in the sup norm. NEG_OPACITY/NEG_OPAC_FAC are set exactly as
 ! the stock branch so the BA linearization sees the line opacity
-! removed consistently.  This also suppresses real maser
+! removed consistently. This also suppresses real maser
 ! amplification at these frequencies -- accepted, since the
 ! inversions sit on high-n Rydberg and intra-n far-IR levels
 ! (NEG_OPAC: HI n=9-18, OIV/OV/OSIX) overpopulated by the
@@ -2707,7 +2706,7 @@
 	  END DO
 	END IF
 !
-! Need to fix parallization issue with update of STEQ_T_ED inside  EVALSE_QWVJ_V8
+! Need to fix parallization issue with update of STEQ_T_ED inside EVALSE_QWVJ_V8
 !
 	IF(FINAL_CONSTANT_CROSS)THEN
 	  CALL TUNE(IONE,'EVALSE')
@@ -2755,7 +2754,7 @@
 !
 ! Compute the recombination, photoionization and cooling rates.
 !
-	IF(LST_ITERATION .AND. FINAL_CONSTANT_CROSS)THEN ! .AND. .NOT.  USE_FIXED_J)THEN
+	IF(LST_ITERATION .AND. FINAL_CONSTANT_CROSS)THEN ! .AND. .NOT. USE_FIXED_J)THEN
 	  CALL TUNE(IONE,'PRRRCOOL')
 !
 	  DO ID=1,NUM_IONS-1
@@ -2808,12 +2807,12 @@
 !
 ! edited 29-Oct-2026: skip the bracket term where the line
 ! emissivity is exactly zero (upper level empty -- thin outer depths
-! on restarts; warmS trace: SIM=16, K=2, ML=1204).  RJ*CHIL/0 = -Inf
+! on restarts; trace: SIM=16, K=2, ML=1204). RJ*CHIL/0 = -Inf
 ! made ZNET_SIM infinite and the consumers' ETAL_MAT*ZNET_SIM then
 ! evaluated 0*(-Inf) = NaN, poisoning STEQ_T -> DEP_RAD_EQ ->
-! RLUMST(ND).  A resonance with no line material contributes nothing
+! RLUMST(ND). A resonance with no line material contributes nothing
 ! to the net bracket; LINE_QW_SUM and JBAR_SIM still take the weight
-! since both are well defined at ETAL_MAT=0.  Not flag-gated: the
+! since both are well defined at ETAL_MAT=0. Not flag-gated: the
 ! prior result was NaN, so no valid behaviour is altered.
 !
 	      IF(ETAL_MAT(I,SIM_INDX) .GT. 0.0_LDP)
@@ -3089,8 +3088,8 @@
 	DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	  T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
 !
-! edited 29-Oct-2026: temporary NaN localization.  The
-! KNOP_warmS restart dies at it864 on non-finite RLUMST(ND); print
+! edited 29-Oct-2026: temporary NaN localization. The
+!  restart dies on non-finite RLUMST(ND); print
 ! the first few (frequency,depth) pairs whose flux went non-finite
 ! plus the local J/CHI/T context, capped to keep OUTGEN readable.
 !
@@ -3268,10 +3267,10 @@
 ! compressing-branch wavelength coupling by re-solving each ray's
 ! full (space,frequency) intensity field on this sweep's captured
 ! opacities, then write the converged field back into
-! I_P/I_M_DEPTH_NEXT (same in-place store).  Without this, the
+! I_P/I_M_DEPTH_NEXT (same in-place store). Without this, the
 ! compressing-branch coupling advances only one frequency bin per
 ! great iteration and the GS field never matures on strongly
-! non-monotonic models.  The routine self-guards (no-op unless the
+! non-monotonic models. The routine self-guards (no-op unless the
 ! KNOP path ran this sweep and a full store was captured).
 !
 ! Gate covers DO_SOB_FG_KNOP (26-Oct-2026): SOB+LAM_ES=T routed to
@@ -3285,7 +3284,7 @@
 ! over its captured per-frequency store in alternating frequency
 ! order so the lagged J_NEXT_FRQ coupling converges within the sweep.
 ! Self-guards: no-op unless the MOM solver ran a complete sweep with
-! compressing depths.  Gate covers DO_NONMONO_SOB (12-Oct-2026): the
+! compressing depths. Gate covers DO_NONMONO_SOB (12-Oct-2026): the
 ! moment solver now runs under SOB+LAM_ES=F and its lagged coupling
 ! needs the same within-iteration refresh.
 !
@@ -3339,7 +3338,7 @@
 !
 ! Penning
 !
-!    HeI(1s_2s_3Se) + H(1s_2Se)  --->  HeI(1s2_1Se) +  H+
+!    HeI(1s_2s_3Se) + H(1s_2Se) ---> HeI(1s2_1Se) + H+
 !
 	IF(INCL_PENNING_ION)THEN
 	  CALL DO_PENNING_ION(HDKT,COMPUTE_BA,DIAG_INDX,ND)
@@ -3426,7 +3425,7 @@
 !
 ! Write pointer file and store BA, BA_ED and B_T matrices.
 !
-!	BA_T(:,:,ND)=0.0D0; STEQ_T(ND)=T(ND)-T(ND-1)
+!	BA_T(,:,ND)=0.0D0; STEQ_T(ND)=T(ND)-T(ND-1)
 !	BA_T(NT,DIAG_INDX,ND)=1.0D0
 !	IF(DIAG_INDX .NE. 1)BA_T(NT,DIAG_INDX-1,ND)=-1.0D0
 	IF(COMPUTE_BA .AND. WRBAMAT .AND. .NOT. FLUX_CAL_ONLY .AND. .NOT. LAMBDA_ITERATION)THEN
@@ -3467,10 +3466,10 @@
 !
 ! Since X_RECOM (and X_COOL) were dimensioned (ND,0:NION), and since it was
 ! initialized, we can assume X_RECOM(1,0) is zero, and hence it can be used
-! as a  dummy vector for the special case when ATM(ID-1)%INDX=0.
+! as a dummy vector for the special case when ATM(ID-1)%INDX=0.
 !
 ! NB: For the first ionization stage of a species, ATM(ID-1)%INDX will
-!     refer to the highest level of the previous ion.  By convention in
+!     refer to the highest level of the previous ion. By convention in
 !     CMFGEN this refers to a 1 level state with an INDEX of 0 (and
 !     XzV_PRES for this species is FALSE).
 !
@@ -3546,7 +3545,7 @@
 !
 ! edited 18-Oct-2026: [KN_NO_GAIN] per-iteration census
 ! of the CHI>=CHI_SCAT floor, accumulated over the frequency loop
-! above.  lambda uses the LAMVACAIR convention (2997.92458/nu for
+! above. lambda uses the LAMVACAIR convention (2997.92458/nu for
 ! nu in 1e15 Hz); the max-ratio frequency tells which transition
 ! the worst amplifier sits in.
 !
@@ -3567,7 +3566,7 @@
 !
 ! edited 18-Oct-2026: KN_NOSLOT census -- compressing
 ! ray-points (GAM<0) that kept the chi_hat absorption term but had no
-! lagged I_NEXT slot to draw the compensating source from.  These
+! lagged I_NEXT slot to draw the compensating source from. These
 ! cells act as net sinks while the fixed point is converged; a nonzero
 ! count is expected on the cold start and at compression-zone edges,
 ! but a large persistent census would flag the store depth map as
@@ -3600,7 +3599,7 @@
 	CLOSE(UNIT=LU_FLUX)
 	CALL TUNE(ITWO,'MLCF')
 !
-! We don't check the last iteration, since the observed spectrum is computed wih a 
+! We don't check the last iteration, since the observed spectrum is computed wih a
 ! different (and more accurate routine).
 !
 	IF(.NOT. LAMBDA_ITERATION .AND. .NOT. LST_ITERATION .AND. .NOT. USE_FIXED_J)THEN
@@ -3622,7 +3621,7 @@
 !
 ! dev7, not flag-gated: J_INT and ROSS_MEAN are accumulated sums that
 ! can vanish where the integrand underflows at every frequency, and
-! RLUMST can be zero on a dead cell.  Zero denominators made these
+! RLUMST can be zero on a dead cell. Zero denominators made these
 ! mean opacities Inf/NaN, which then feed TCHI and the tau scales.
 ! Zero output with the existing downstream checks is the honest
 ! result for a cell carrying no radiation field.
@@ -3888,7 +3887,7 @@
 	 END IF
 !
 ! Check to see if we have already completed this transition due to
-! a restart of the program. We do the change here ( rather than
+! a restart of the program. We do the change here (rather than
 ! "do nl=nlbegin,nt" ) so as the correct record is accessed for the
 ! continuum eddington factor.
 !
@@ -4087,7 +4086,7 @@
 !
 ! Note that both CHIL and CHIL_MAT are used by SOBJBAR_SIM to compute ZNET.
 ! The following ensures consistency. Alternative is to make positive
-! only those opacities that are negative --- then need  NEG_OPACITY indicator
+! only those opacities that are negative --- then need NEG_OPACITY indicator
 ! for each line?
 !
 	  DO SIM_INDX=1,NUM_SIM_LINES
@@ -4326,7 +4325,7 @@
 ! Include the machanical luminosity imparted to the wind by the radiation
 ! field in the total luminosity, and subtract out radioactive energy deposition..
 !
-! Altered: 28_Feb-2009: Changed J to  I in dE_RAD_DECAY.
+! Altered: 28_Feb-2009: Changed J to I in dE_RAD_DECAY.
 ! Altered: 06-Dec-2019: Normlaize in opposite directions for stars and SN.
 !
 	  T3=0.0_LDP
@@ -4447,7 +4446,7 @@
 	IF(COMPUTE_EDDFAC)WRITE(LU_EDD,REC=FINISH_REC)T1
 !
 ! One-line summary of the iteration-1 f-convergence warnings counted
-! in COMP_J_BLANK (SUP_FCONV_IT1).  The max residual shows whether
+! in COMP_J_BLANK (SUP_FCONV_IT1). The max residual shows whether
 ! the suppressed set was marginal (~ACC_F) or real.
 !
 	IF(FCONV_SUPPRESSED_CNT .GT. 0)THEN
@@ -4530,14 +4529,14 @@
 ! edited 30-Sep-2026: export the outer/inner luminosity
 ! ratio to SOLVE_FOR_POPS for the ITER_SUM / ITER_HISTORY / GS_STATE
 ! diagnostics -- RLUMST lives in RADIATION_MOD and is not visible
-! there.  Diagnostic only; a stale value on an aborted iteration is
+! there. Diagnostic only; a stale value on an aborted iteration is
 ! harmless.
 !
 	IF(ABS(RLUMST(ND)) .GT. 1.0E-30_LDP)
 	1    LUM_RATIO_OI=RLUMST(1)/RLUMST(ND)
 ! LUM_OUT_ABS feeds the SOLVE_FOR_POPS runaway detector; the ratio
 ! alone degenerates to ~0 when the inner luminosity pegs at zero
-! during a divergence (KNOP_jfnkrel: L_inner=0 while outer->6E28).
+! during a divergence (L_inner=0 while outer->6E28).
 	LUM_OUT_ABS=ABS(RLUMST(ND))
 !
 	CALL TUNE(IONE,'SOLVE_FOR_POPS')
@@ -4622,7 +4621,7 @@
 !	  IF(DON_HYDRO_REVISION)
 !	    MAIN_COUNTER=MAIN_COUNTER+1
 !	    CALL SCR_RITE_V2(R,V,SIGMA,POPS,IREC,MAIN_COUNTER,RITE_N_TIMES,
-!	1                LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
+!	1 LAST_NG,WRITE_RVSIG,NT,ND,LUSCR,NEWMOD)
 !	  END IF
 	END IF
 	IF(.TRUE. .AND. .NOT. DONE_HYDRO_REVISION)THEN
@@ -4946,7 +4945,7 @@
 ! edited 16-Oct-2026: the Stage-B/BA_DEM exit state and the
 ! converged-exit condition are evaluated here -- before the
 ! LST_ITERATION split -- so the budgeted-final iteration gets a real
-! convergence test.  Previously NUM_ITS_TO_DO hit 0 at the top of the
+! convergence test. Previously NUM_ITS_TO_DO hit 0 at the top of the
 ! loop, set LST_ITERATION, and the model wrote out and STOPped without
 ! ever reaching the exit tests in the ELSE branch (which also required
 ! NUM_ITS_TO_DO .NE. 0), so a run ending exactly on a converged
@@ -4954,25 +4953,25 @@
 !
 ! BA_DEM_EXM is the largest correction demanded this solve on rows the
 ! BA_DEM floors exempted; BA_TR_ABS is the largest committed absolute
-! trace change (|dn|/gas).  Both are written by SOLVEBA_V13, or by the
+! trace change (|dn|/gas). Both are written by SOLVEBA_V13, or by the
 ! JFNK commit path in JFNK_SOLVE_CORR_V1 (best-effort committed-change
 ! proxy), and are 0 when the floors are off -- the default path is
 ! unchanged.
 !
 ! edited 12-Nov-2026: arm on a material exempted demand as
-! well as on the absolute trace change.  Stage-B rows sit below
+! well as on the absolute trace change. Stage-B rows sit below
 ! BA_DEM_PFLOOR (1E-30), so even a 100% committed change leaves
 ! BA_TR_ABS ~1E-37, unreachable below BA_TR_ABSMAX=1E-8 -- the
 ! absolute leg alone never fired and Stage-B stayed "sweep 0/3 phase
-! no" forever while BA_DEM_EXM held at ~18%.  The demand leg covers
+! no" forever while BA_DEM_EXM held at ~18%. The demand leg covers
 ! the unsaturated material band [MAX(10*EPS,1), BA_SAT_RAW); demand
 ! below EPS is exempt noise and >= BA_SAT_RAW is the dead-stage class
-! that releases the exit instead of arming.  BA_TR_ABS remains the
+! that releases the exit instead of arming. BA_TR_ABS remains the
 ! completion/diagnostic metric.
 !
 ! Same edit, off-state fix: the truth table lives in
 ! BA_TRACE_EVAL (CONTROL_VARIABLE_MOD), shared with the ITER_SUM
-! replica in SOLVE_FOR_POPS.  BA_TR_MAXSWP=0 is the master off
+! replica in SOLVE_FOR_POPS. BA_TR_MAXSWP=0 is the master off
 ! switch and BA_DEM_PFLOOR<=0 disables the demand channel: both now
 ! set BA_TRACE_OFF, which releases the exit instead of pinning it
 ! (NEEDED .OR. DONE can never be true with the polish off, so a
@@ -4985,15 +4984,15 @@
 	  BA_TRACE_RELEASE=BA_TRACE_OFF .OR. BA_TRACE_DONE
 !
 ! edited 18-Oct-2026: [BA_EX_RELFRAC] adds a second
-! exempted-demand channel.  BA_DEM_EXR covers the rows skipped by
+! exempted-demand channel. BA_DEM_EXR covers the rows skipped by
 ! the exit-only relative floor and is released by the same
 ! small-or-saturated test as BA_DEM_EXM; it is not part of the
-! Stage-B set, so the polish budget does not release it.  Flag off
+! Stage-B set, so the polish budget does not release it. Flag off
 ! -> BA_DEM_EXR=0 and the test is identical.
 ! Known limitation (12-Nov-2026): a material unsaturated BA_DEM_EXR
 ! holds the exit without a bounded release -- the channel is
 ! exit-only by design, and folding it into Stage-B needs numerical
-! validation first.  The hold is visible on the 'exempt/trc' row and
+! validation first. The hold is visible on the 'exempt/trc' row and
 ! in CONV_EXIT_WHY, never silent.
 !
 	  BA_DEM_EXIT_OK=(BA_DEM_EXM .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
@@ -5002,7 +5001,7 @@
 	3    (BA_DEM_EXR .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	4    BA_DEM_EXR .GE. BA_SAT_RAW)
 !
-! edited 17-Oct-2026: two new guards.  BAACC_PENDING means
+! edited 17-Oct-2026: two new guards. BAACC_PENDING means
 ! the last FULL solve armed the resacc acceptance test whose verdict
 ! only exists on the NEXT solve -- exiting now writes a state the
 ! code itself treats as unjudged (NG refuses to extrapolate from it).
@@ -5020,8 +5019,8 @@
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
-! out with the Stage-B sweep budget spent.  Checked in precedence
-! order.  The "still owed" variant is only reachable on the
+! out with the Stage-B sweep budget spent. Checked in precedence
+! order. The "still owed" variant is only reachable on the
 ! LST_ITERATION path: on a non-final iteration BA_TRACE_NEEDED arms
 ! BA_STAGEB_ARM below, and .NOT. BA_STAGEB_ARM is part of the
 ! converged-exit branch's guard, so the branch that prints this
@@ -5054,7 +5053,7 @@
 ! "Convergence criteria met" unconditionally on a met gate, which
 ! contradicted CONV_EXIT_WHY when the met state still owed Stage-B
 ! (BA_STAGEB_ARM cannot arm on the final budgeted iteration, so a
-! needed polish reaches this write with the budget spent).  Non-clean
+! needed polish reaches this write with the budget spent). Non-clean
 ! exits print the reason unconditionally -- a production log must say
 ! why it stopped.
 	    IF(BA_TRACE_NEEDED)THEN
@@ -5421,20 +5420,20 @@
 ! so as to write out all relevant model data.
 !
 ! BA_TRACE_NEEDED/BA_TRACE_DONE/BA_DEM_EXIT_OK and CONV_EXIT_MET are
-! evaluated before the LST_ITERATION split (at 9999).  CONV_EXIT_MET
+! evaluated before the LST_ITERATION split (at 9999). CONV_EXIT_MET
 ! is re-evaluated here because the ramp blocks above may have forced
-! MAXCH=100 to hold the run open.  BA_STAGEB_ARM (below) reroutes the
+! MAXCH=100 to hold the run open. BA_STAGEB_ARM (below) reroutes the
 ! would-be converged exit into the ELSE continuation so the polish
-! sweep actually runs as another great iteration.  The old BA_DEM_EXM
+! sweep actually runs as another great iteration. The old BA_DEM_EXM
 ! hold is unchanged when Stage B is disabled, already converged, or
 ! unavailable under the nonmono flags.
 !
 ! Convergence-exit metric note (16-Oct-2026 audit): the exit gates on
-! raw demanded MAXCH, not the committed MAXCH_CTRL.  Under
+! raw demanded MAXCH, not the committed MAXCH_CTRL. Under
 ! [DO_NONMONO_KNOP] MAXCH_CTRL=MAXCH_APP is the applied step -- a
 ! trust-capped or GS-held call commits a small change while the
 ! linearization still demands a large correction, so gating the exit
-! on the applied metric would release on unsatisfied demand.  On JFNK
+! on the applied metric would release on unsatisfied demand. On JFNK
 ! commits MAXCH is the applied change by construction, but
 ! JFNK_UNCONVERGED_COMMIT blocks this branch unless the nonlinear
 ! target was met, so the distinction is harmless there.
@@ -5459,7 +5458,7 @@
 	6    'verdict pending on the armed BA step'
 !
 ! BA_STAGEB_ARM uses the same tests as the converged-exit branch
-! below, plus BA_TRACE_NEEDED.  When it is set the exit is skipped
+! below, plus BA_TRACE_NEEDED. When it is set the exit is skipped
 ! and the outer ELSE continuation runs one more great iteration
 ! with BA_TRACE_PHASE armed, so the Stage-B sweep actually executes
 ! instead of being armed on the way out of CMFGEN_SUB.
@@ -5482,7 +5481,7 @@
 ! frozen while the lagged radiation field is immature, so MAXCH
 ! measures a solve whose demand may be masked to zero rather than a
 ! converged state -- a held call must never count as convergence
-! (KNOP_mom_cold wrote RVTJ and exited at it6 this way with the
+! (wrote RVTJ and exited at this way with the
 ! moment sweep at refresh delta=3.1E10).
 !
 ! edited 16-Oct-2026: the BA_DEM floors exempt rows from
@@ -5490,21 +5489,21 @@
 ! real corrections when MAXCH < EPS fires the converged exit.
 ! BA_DEM_EXM reports the largest exempted demand; the exit is held
 ! only for a material hidden demand (above MAX(10*EPS,1%)) that is
-! not saturated (>= BA_SAT_RAW).  Persistent sub-percent dead-stage
+! not saturated (>= BA_SAT_RAW). Persistent sub-percent dead-stage
 ! noise (OI/OSIX re-demand ~0.3-0.9% at 1e-23-1e-39 relative pops)
 ! stays exempt -- blocking on it would re-pin the run on demands the
-! solver can never satisfy.  BA_DEM_EXM is still printed every call
-! so the hidden demand is never silent.  BA_DEM_EXM=0 whenever the
+! solver can never satisfy. BA_DEM_EXM is still printed every call
+! so the hidden demand is never silent. BA_DEM_EXM=0 whenever the
 ! floors are off, so the default path is unchanged.
 !
 ! Block-triangular trace polish (same edit): exempted rows are
-! one-way coupled trace species.  Once the major-species condition
+! one-way coupled trace species. Once the major-species condition
 ! below is met and BA_TRACE_NEEDED holds, BA_STAGEB_ARM skips this
 ! exit and the ELSE continuation below arms BA_TRACE_PHASE for one
 ! more great iteration; up to BA_TR_MAXSWP such Stage-B sweeps run
 ! with SOLVEBA_V13 committing only the exempted rows while
 ! majors/T/ED are held and the field continues its normal lagged
-! refresh.  Exit fires when the absolute trace change BA_TR_ABS
+! refresh. Exit fires when the absolute trace change BA_TR_ABS
 ! falls below BA_TR_ABSMAX, or the sweeps run out: trace state must
 ! never pin the global exit, so a spent sweep budget also releases
 ! the BA_DEM_EXM hold (what remains after the polish is the
@@ -5517,7 +5516,7 @@
 ! BA_DEM_EXIT_OK releases for small demand, saturated dead-stage
 ! demand, or a spent/needed Stage-B polish alike -- without this the
 ! converged exit looked identical whether trace demand was resolved
-! or simply unresolvable.  Reaching this branch at all means
+! or simply unresolvable. Reaching this branch at all means
 ! BA_TRACE_NEEDED was false (it would have armed instead).
 	    IF(.NOT. CONV_EXIT_DONE)THEN
 	      CONV_EXIT_DONE=.TRUE.
@@ -5534,7 +5533,7 @@
 	      BA_TRACE_PHASE=.TRUE.
 ! BA_TR_NSWP counts armed attempts (one extra great iteration each),
 ! not verified successful sweeps -- a Stage-B solve that fails or is
-! rolled back still consumes budget.  The arm cause is named
+! rolled back still consumes budget. The arm cause is named
 ! explicitly: the demand leg can fire while the absolute change is
 ! far below its threshold, which made sweeps look spurious.
 ! edited 12-Nov-2026.
@@ -5605,21 +5604,21 @@
 ! edited 22-Oct-2026: also defer while GS_FREEZE is true --
 ! a freeze-trial call runs as a damped LAMBDA call with held pops, so
 ! its quiet MAXCH_CTRL is not evidence the free map contracts and the
-! handoff must not fire on it.  GS_FREEZE is forced F outside KNOP, so
+! handoff must not fire on it. GS_FREEZE is forced F outside KNOP, so
 ! stock and SOB paths are unchanged.
 ! edited 15-Oct-2026: [DO_NONMONO_SOB]/[DO_NONMONO_KNOP]
 ! add the stable-count requirement to the one-time DO_LAM_AUTO
-! handoff.  The stock test (MAXCH_CTRL < 50) hands off on a single
+! handoff. The stock test (MAXCH_CTRL < 50) hands off on a single
 ! iteration, so a 47% LAMBDA demand still released an unrestricted
-! first full step (dirchk_lc it172->173 committed a 400% update on
-! a raw 1E7 demand).  CNT_STABLE_LAM is already counted during
+! first full step (committed a 400% update on
+! a raw 1E7 demand). CNT_STABLE_LAM is already counted during
 ! RD_LAMBDA in SOLVE_FOR_POPS (needs MAXCH_CTRL < LAM_EXIT for
 ! N_STABLE_LAM consecutive calls), so requiring it here reuses the
-! same hysteresis the post-handoff exits use.  On a model whose
+! same hysteresis the post-handoff exits use. On a model whose
 ! LAMBDA demand floors above LAM_EXIT the handoff stays closed and
 ! the periodic cnt_lam_escape / BA_PROBE_LAM probes remain the only
 ! full-step channel -- each is still bounded by BA_TRUST, resacc,
-! and BA_MAXCH_FAIL.  Default path unchanged (both flags F).
+! and BA_MAXCH_FAIL. Default path unchanged (both flags F).
 	    ELSE IF(DO_LAMBDA_AUTO .AND. RD_LAMBDA .AND.
 	1           MAXCH_CTRL .LT. 50.0_LDP .AND.
 	2           .NOT. JFNK_UNCONVERGED_COMMIT .AND.
@@ -5710,7 +5709,7 @@
 !
 ! A Stage-B sweep must re-assemble BAMAT at the held trace state:
 ! DO_VAR_CONT/UPDATE_BA_FOR_LINE assembly is gated on
-! COMPUTE_BA .AND. .NOT. LAMBDA_ITERATION.  solve_for_pops already
+! COMPUTE_BA .AND. .NOT. LAMBDA_ITERATION. solve_for_pops already
 ! forces JFNK/LAMBDA/FIX_IMPURITY off for the solve itself under
 ! BA_TRACE_PHASE; this keeps the pre-solve assembly consistent.
 !
@@ -5735,19 +5734,19 @@
 ! populations while CMFGEN_SUB is suspended inside SOLVE_FOR_POPS.
 ! An internal subroutine is the clean way to get there -- host
 ! association gives it NU/FQW/NU_EVAL_CONT, POPS-independent module
-! state, and the same loop constants without new plumbing.  The body
+! state, and the same loop constants without new plumbing. The body
 ! below is a verbatim copy of the continuum-loop preamble and the
 ! "DO ML=1,NCF" loop above, with POPS replaced by the trial
-! populations POPS_EVAL.  With GLOBAL_LINE=BLANK (KNOP) the line
+! populations POPS_EVAL. With GLOBAL_LINE=BLANK (KNOP) the line
 ! transfer is handled inside that loop (SET_LINE_OPAC + COMP_J_BLANK),
-! so no separate line pass is required.  Under DO_NONMONO_SOB with
+! so no separate line pass is required. Under DO_NONMONO_SOB with
 ! [JFNK_COUPLED_SOB]=T the sweep additionally replays the
 ! SECTION='LINE' group loop (SUB_SOB_LINE_V3 Sobolev rates on the
 ! stored field), which is what makes the coupled residual the same
 ! equation the outer iteration assembles.
 !
 ! Registered to JFNK_SWEEP_CB just before the main iteration loop;
-! only called when USE_JFNK_SOLVER=T and JFNK_COUPLED=T.  The
+! only called when USE_JFNK_SOLVER=T and JFNK_COUPLED=T. The
 ! default path is unchanged.
 ! ===================================================================
 !
@@ -5779,14 +5778,14 @@
 	EXTERNAL GEN_ASCI_OPEN, SET_LINE_BUFFERING
 !
 ! The real sweep leaves ACCESS_F at EOF (COMP_J_BLANK advances it one
-! record per frequency).  Restore the continuum-loop start cursor
+! record per frequency). Restore the continuum-loop start cursor
 ! captured by the host, and flag this as an eval so COMP_J_BLANK reads
 ! but never overwrites the lagged-J records in EDDFACTOR.
 ! The cursor is only captured inside the ACCURATE/EDDINGTON block
 ! above; with EDD_CONT=F and ACCURATE=F it stays at its -1 init
 ! value, and touching ACCESS_F here would mis-position a file the
 ! production path never initialized (order-of-operations audit,
-! 03-Oct-2026).  ACCESS_F is still saved: COMP_J_BLANK advances it one
+! 03-Oct-2026). ACCESS_F is still saved: COMP_J_BLANK advances it one
 ! record per frequency even in eval mode, so the epilogue must put
 ! back the entry value when no cursor was captured.
 !
@@ -5794,8 +5793,8 @@
 ! MOM_J_CMF_NONMONO_V1 are stateful -- MOM_QUAR_AGE is a monotone
 ! counter per (depth,frequency) cell, so every eval ages the cells it
 ! repairs and a cell can cross the MOM_QUAR_PERSIST threshold
-! mid-Newton, changing F(x) between evals of the SAME x.  XM_BAD_NM
-! and MOM_CELL_QUAR feed DO_VAR_CONT's ALO suppression.  These saves
+! mid-Newton, changing F(x) between evals of the SAME x. XM_BAD_NM
+! and MOM_CELL_QUAR feed DO_VAR_CONT's ALO suppression. These saves
 ! run before any production state below is mutated, so an allocation
 ! failure can return without needing a restore pass.
 !
@@ -5836,9 +5835,9 @@
 ! (Oct-2026 audit): MOM_GS_MAXCHG and MOM_RF_RESID_PRV feed the
 ! spectral-radius estimate that sets JNEXT_RELAX for the next
 ! production refresh, and INEXT_RELAX/KN_RF_RESID_PRV are the FG
-! pair.  Unbracketed, the number and order of residual/JVP evals
+! pair. Unbracketed, the number and order of residual/JVP evals
 ! perturbs the production write-back weight -- F(x) then depends on
-! where in the Newton sequence x sits.  Scalars, so a straight
+! where in the Newton sequence x sits. Scalars, so a straight
 ! copy costs nothing.
 !
 	MGSMAX_SAV=MOM_GS_MAXCHG
@@ -5854,9 +5853,9 @@
 ! place of a STOP (epilogue converts it to the sentinel residual).
 	JFNK_EVAL_BROKEN=.FALSE.
 !
-! EDDINGTON is the method selector passed to COMP_J_BLANK.  The line
+! EDDINGTON is the method selector passed to COMP_J_BLANK. The line
 ! section of the outer iteration leaves it at EDD_LINECONT; the
-! continuum loop this eval copies ran with EDD_CONT.  When the two
+! continuum loop this eval copies ran with EDD_CONT. When the two
 ! VADAT flags differ (e.g. JBAR_W_EDD=F, JC_W_EDD=T) the eval would
 ! otherwise solve J with a different method than the production
 ! sweep -- a silent residual inconsistency, not just lagged field.
@@ -5881,11 +5880,11 @@
 !
 ! The host already accumulated SE%BA / BA_T for this great iteration.
 ! DO_VAR_CONT and UPDATE_BA_FOR_LINE add into those arrays; a second
-! sweep would stack another copy on every residual/JVP eval.  The
+! sweep would stack another copy on every residual/JVP eval. The
 ! fallback SOLVEBA and any preconditioner refactor would then solve
 ! a BA that is N_eval times too large, and the population correction
-! runs away.  The residual only needs J and the rate sums (those
-! paths are not gated on COMPUTE_BA).  Hold the flag false for this
+! runs away. The residual only needs J and the rate sums (those
+! paths are not gated on COMPUTE_BA). Hold the flag false for this
 ! sweep and put it back before returning -- [COMPUTE_BA] is the
 ! outer iteration's flag, not a VADAT key.
 !
@@ -5894,10 +5893,10 @@
 !
 ! edited 05-Oct-2026: UP_RATE_TWO/DOWN_RATE_TWO accumulate
 ! (+=) inside TWO_PHOT_RATE and are only re-zeroed by SET_TWO_PHOT_V3
-! at the outer-iteration head, which this eval never calls.  Without a
+! at the outer-iteration head, which this eval never calls. Without a
 ! bracket, eval k saw (production leftovers + k eval contributions),
 ! so F(x) depended on eval order and every FD JVP inherited a drift
-! term that does not shrink with h.  Save the production arrays, run
+! term that does not shrink with h. Save the production arrays, run
 ! this eval on a clean base, restore before returning.
 !
 ! Each array gets its own ALLOCATED test: SET_TWO_PHOT_V3 allocates
@@ -5918,7 +5917,7 @@
 ! Same bracket for the SL line-cooling accumulators STEQ_T_SCL /
 ! STEQ_T_NO_SCL: on a last-iteration eval they accumulate a second
 ! copy of the line sums and corrupt the L-error diagnostic the host
-! writes after the sweep.  (Oct-2026)
+! writes after the sweep. (Oct-2026)
 !
 	IF(.NOT. ALLOCATED(SCL_SAV))ALLOCATE(SCL_SAV(ND))
 	IF(.NOT. ALLOCATED(NOSCL_SAV))ALLOCATE(NOSCL_SAV(ND))
@@ -5930,16 +5929,16 @@
 ! Coupled-SOB line replay ([JFNK_COUPLED_SOB], default F): under
 ! DO_NONMONO_SOB the eval must also replay the SECTION='LINE' pass so
 ! the residual contains the Sobolev line rates the production assembly
-! computes.  That replay mutates the line-module workspace below
+! computes. That replay mutates the line-module workspace below
 ! (JBAR/ZNET_SIM/CHIL_MAT/...) -- JFNK_EVAL_LSTATE_V1('S') saves every
 ! array and scalar it can write so the production state returns
-! bit-for-bit at the epilogue restore.  Runs before any eval-side
+! bit-for-bit at the epilogue restore. Runs before any eval-side
 ! mutation, same early-exit discipline as the brackets above.
 !
 ! COMPUTE_EW is forced off for the whole eval: under it SUB_CMF_LINE
 ! would read/write LU_JEW records and corrupt the production JEW
-! record trail.  EW values are last-iteration diagnostics only -- they
-! never enter the residual.  Saved by the same bracket.
+! record trail. EW values are last-iteration diagnostics only -- they
+! never enter the residual. Saved by the same bracket.
 !
 	JFNK_EVAL_SOB_LINES=DO_NONMONO_SOB .AND. JFNK_COUPLED_SOB
 	IF(JFNK_EVAL_SOB_LINES)THEN
@@ -5952,7 +5951,7 @@
 ! diagnostic (f-convergence warnings, solver banners) would hit OUTGEN
 ! once per residual/JVP eval and swamp the real iteration output.
 ! Redirect LUER to a scratch log for the sweep; the output is still
-! kept for debugging.  Reached only via JFNK_SWEEP_CB, i.e. under
+! kept for debugging. Reached only via JFNK_SWEEP_CB, i.e. under
 ! [JFNK_COUPLED] -- the real sweep never enters this subprogram.
 !
 	FLUSH(LUER)
@@ -6059,7 +6058,7 @@
 !	  ID=1; L=71
 !	  DO K=1,ATM(ID)%NXzV
 !	   WRITE(314,'(ES16.8,I6,4ES14.4)')FL,K,ATM(ID)%WSXzV(K,L,1),ATM(ID)%dWSXzVdT(K,L,1),
-!	1             ATM(ID)%WCRXzV(K,L,1),ATM(ID)%dWCRXzVdT(K,L,1)
+!	1 ATM(ID)%WCRXzV(K,L,1),ATM(ID)%dWCRXzVdT(K,L,1)
 !	  END DO
 !
 ! 
@@ -6300,7 +6299,7 @@
 	  END DO
 	END IF
 !
-! Need to fix parallization issue with update of STEQ_T_ED inside  EVALSE_QWVJ_V8
+! Need to fix parallization issue with update of STEQ_T_ED inside EVALSE_QWVJ_V8
 !
 	IF(FINAL_CONSTANT_CROSS)THEN
 	  CALL TUNE(IONE,'EVALSE')
@@ -6349,7 +6348,7 @@
 ! Compute the recombination, photoionization and cooling rates.
 !
 	IF(LST_ITERATION .AND. FINAL_CONSTANT_CROSS .AND.
-	1   .NOT. JFNK_IN_EVAL)THEN ! .AND. .NOT.  USE_FIXED_J)THEN
+	1   .NOT. JFNK_IN_EVAL)THEN ! .AND. .NOT. USE_FIXED_J)THEN
 	  CALL TUNE(IONE,'PRRRCOOL')
 !
 	  DO ID=1,NUM_IONS-1
@@ -6667,8 +6666,8 @@
 	DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	  T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
 !
-! edited 29-Oct-2026: temporary NaN localization.  The
-! KNOP_warmS restart dies at it864 on non-finite RLUMST(ND); print
+! edited 29-Oct-2026: temporary NaN localization. The
+!  restart dies on non-finite RLUMST(ND); print
 ! the first few (frequency,depth) pairs whose flux went non-finite
 ! plus the local J/CHI/T context, capped to keep OUTGEN readable.
 !
@@ -6856,11 +6855,11 @@
 !    inside a residual eval would kill the run mid-JVP.
 !  * LST_ITERATION-gated LU_NET/LU_DR/LU_HT/LU_EW/LU_NEG writes are
 !    omitted -- those are production output files, not on the LUER
-!    redirect.  The NEG_OPACITY / CHIL clamps themselves are kept
+!    redirect. The NEG_OPACITY / CHIL clamps themselves are kept
 !    verbatim so the eval sees the same opacities production does.
 !  * COMPUTE_EW was forced F at entry: SUB_CMF_LINE would otherwise
-!    read/write LU_JEW records, so no JEW file I/O can occur.  EW's
-!    are diagnostics and never enter STEQ.  (Under DO_NONMONO_SOB
+!    read/write LU_JEW records, so no JEW file I/O can occur. EW's
+!    are diagnostics and never enter STEQ. (Under DO_NONMONO_SOB
 !    every line transition is SOB type so SUB_CMF_LINE is in any
 !    case unreachable; the guard covers mixed configurations.)
 !  * COMPUTE_BA is already .FALSE. for the eval, so the DO_VAR_CONT,
@@ -6869,19 +6868,19 @@
 !  * NLBEGIN is read but never written (restart-resume pointer).
 !
 ! State matrix for this block (file, variable, eval mutation, bracket):
-!   cmfgen_sub.f   ACCESS_F        line EDD cursor advanced   JFNK_EDD epilogue
-!   cmfgen_sub.f   ACCESS_JEW      reset to 1, incremented    LSTATE bracket
-!   cmfgen_sub.f   LINE_INDX,FREQ_INDX,CONT_FREQ,FIRST_FREQ,
+!   cmfgen_sub.f ACCESS_F line EDD cursor advanced JFNK_EDD epilogue
+!   cmfgen_sub.f ACCESS_JEW reset to 1, incremented LSTATE bracket
+!   cmfgen_sub.f LINE_INDX,FREQ_INDX,CONT_FREQ,FIRST_FREQ,
 !                  THIS_FREQ_EXT,FINAL_CONSTANT_CROSS,SECTION,
 !                  AMASS,SUM_BA,EW,CONT_INT,NNM,VAR_SOB_JC,
 !                  LAST_LINE,AT_LEAST_ONE_NEG_OPAC,CHIL,ETAL,
-!                  VB,VC,NEG_OPACITY   per-group scratch      LSTATE bracket
-!   control_var    EDDINGTON       EDD_LINECONT for the pass  entry save
-!   control_var    COMPUTE_EW      forced F                   LSTATE bracket
-!   control_var    COMPUTE_BA      forced F                   entry save
-!   control_var    SOBOLEV,OVER_FREQ_DIF,NUM_OF_WEAK_LINES,
-!                  NLBEGIN,COMPUTE_NEW_CROSS                  LSTATE bracket
-!   LINE_MOD       CHIL_MAT,ETAL_MAT,BB_COR,L/U_STAR_RATIO,
+!                  VB,VC,NEG_OPACITY per-group scratch LSTATE bracket
+!   control_var EDDINGTON EDD_LINECONT for the pass entry save
+!   control_var COMPUTE_EW forced F LSTATE bracket
+!   control_var COMPUTE_BA forced F entry save
+!   control_var SOBOLEV,OVER_FREQ_DIF,NUM_OF_WEAK_LINES,
+!                  NLBEGIN,COMPUTE_NEW_CROSS LSTATE bracket
+!   LINE_MOD CHIL_MAT,ETAL_MAT,BB_COR,L/U_STAR_RATIO,
 !                  dL/dU_RAT_dT,ZNET_SIM,VB_SIM,VC_SIM,VB_2,
 !                  VC_2,BETAC_SIM,JBAR_SIM,DRC_SIM,
 !                  LINE_PROF_SIM,LINE_QW_SIM,LINE_QW_SUM,
@@ -6893,40 +6892,40 @@
 !                  LINE_STORAGE_USED,NEW_LINE_STORAGE,
 !                  USE_THIS_VAR_MAT,IMP_TRANS_VEC,
 !                  DO_THIS_TX_MATRIX,TRANS_NAME_SIM,BETA,BETAC,
-!                  NUM_SIM_LINES,TMP_MAX_SIM,SIM_INDX         LSTATE bracket
-!   LINE_VEC_MOD   LINE_LOC                                     LSTATE bracket
-!   CMF_SOB_MOD    JBAR,ZNET,PF,PROF,LFQW,JNU,HNU,F_LINE,
+!                  NUM_SIM_LINES,TMP_MAX_SIM,SIM_INDX LSTATE bracket
+!   LINE_VEC_MOD LINE_LOC LSTATE bracket
+!   CMF_SOB_MOD JBAR,ZNET,PF,PROF,LFQW,JNU,HNU,F_LINE,
 !                  G_LINE,HBC_LINE,NBC_LINE,IN_HBC_LINE,
-!                  JBLANK,HBLANK,JEW   (CMF branch only)       LSTATE bracket
-!   RADIATION_MOD  LLUMST          line luminosity sum         LSTATE bracket
-!   SOB_RH_MOD     RH_NCALL,RH_LASTREP,RH_MAXDJ,RH_MAXDZ
-!                                 diagnostic counters         LSTATE bracket
+!                  JBLANK,HBLANK,JEW (CMF branch only) LSTATE bracket
+!   RADIATION_MOD LLUMST line luminosity sum LSTATE bracket
+!   SOB_RH_MOD RH_NCALL,RH_LASTREP,RH_MAXDJ,RH_MAXDZ
+!                                 diagnostic counters LSTATE bracket
 !                 (geometry tables RH_NP/ID/T1/T1P/PW keyed on
 !                  R,V,SIGMA -- unchanged by evals -> not bracketed)
-!   STEQ_DATA_MOD  SE%STEQ,STEQ_T,STEQ_ED,STEQ_T_EHB,
-!                  SE%STEQ_ADV,SE%T_EHB   residual terms       interface
+!   STEQ_DATA_MOD SE%STEQ,STEQ_T,STEQ_ED,STEQ_T_EHB,
+!                  SE%STEQ_ADV,SE%T_EHB residual terms interface
 !                  JFNK_SAVE/RESTORE_MOD_STEQ_V1
-!   TWO_PHOT_MOD   UP/DOWN_RATE_TWO                            entry bracket
-!   MOD_MOM/FG     quarantine + refresh state                  entry bracket
-!   host scratch   I,J,K,L,ML,NL,NUP,MNL,MNUP,MNL_F,MNUP_F,
-!                  ID,LS,T1..T4,S1     loop temporaries, always
-!                  reassigned before use in production        not bracketed
-!   per-frequency  CHI,ETA,CHI_SCAT,ETA_NOSCAT,CHI_NOSCAT,
-!   workspace      ETA_CONT,CHI_CONT,ZETA,THETA,ESEC,SOURCE,RJ,
+!   TWO_PHOT_MOD UP/DOWN_RATE_TWO entry bracket
+!   MOD_MOM/FG quarantine + refresh state entry bracket
+!   host scratch I,J,K,L,ML,NL,NUP,MNL,MNUP,MNL_F,MNUP_F,
+!                  ID,LS,T1..T4,S1 loop temporaries, always
+!                  reassigned before use in production not bracketed
+!   per-frequency CHI,ETA,CHI_SCAT,ETA_NOSCAT,CHI_NOSCAT,
+!   workspace ETA_CONT,CHI_CONT,ZETA,THETA,ESEC,SOURCE,RJ,
 !                  EMHNUKT*,JREC*,SOB,H_MOM,K_MOM,RLUMST,
 !                  J_INT,H_INT,K_INT,*_MEAN,OBS_*,BAND_*,
 !                  STEQ_T_EHB(intfc),CHI_PREV*,X_RECOM,X_COOL,
-!                  ATM%* quad weights (idempotent rewrites)   not bracketed:
+!                  ATM%* quad weights (idempotent rewrites) not bracketed:
 !                  production rewrites all of these at sweep
 !                  head before any read.
-!   BA/variation   SE%BA,BA_T,TX,TVX,dZ,VJ,VCHI,VETA,STEQ_T_BF
+!   BA/variation SE%BA,BA_T,TX,TVX,dZ,VJ,VCHI,VETA,STEQ_T_BF
 !                  all writes COMPUTE_BA-gated -> never
-!                  touched inside an eval                    not bracketed
-!   ATM pops       ATM%XzV,DXzV,XzV_F   trial pops             interface
+!                  touched inside an eval not bracketed
+!   ATM pops ATM%XzV,DXzV,XzV_F trial pops interface
 !                  (JFNK_SYNC_ATM_FROM_POPS + restore)
-!   EDDFACTOR      LU_EDD records   read-only in eval          JFNK_IN_EVAL
+!   EDDFACTOR LU_EDD records read-only in eval JFNK_IN_EVAL
 !                  suppresses COMP_J_BLANK writes
-!   JEW file       LU_JEW records   never touched              COMPUTE_EW=F
+!   JEW file LU_JEW records never touched COMPUTE_EW=F
 ! ====================================================================
 !
 	IF(JFNK_EVAL_SOB_LINES .AND. .NOT. JFNK_EVAL_BROKEN)THEN
@@ -7202,7 +7201,7 @@
 40003	FORMAT(3X,1P,5E16.5)
 !
 ! Restore every array/scalar the line replay could have written (the
-! save ran at entry, before any eval-side mutation).  Skipped when the
+! save ran at entry, before any eval-side mutation). Skipped when the
 ! bracket never armed (KNOP coupled or flag off).
 !
 	IF(JFNK_EVAL_SOB_LINES)CALL JFNK_EVAL_LSTATE_V1('R',IOS_EVAL)
@@ -7215,7 +7214,7 @@
 	IF(ALLOCATED(FOLD_SAVE) .AND. ALLOCATED(FOLD))FOLD=FOLD_SAVE
 !
 ! Restore the production two-photon accumulators (zeroed at entry so
-! the eval ran on a clean base; see entry comment above).  Each array
+! the eval ran on a clean base; see entry comment above). Each array
 ! restored under its own guard -- mirrors the per-array entry saves.
 !
 	IF(ALLOCATED(UP_TWO_SAV) .AND. ALLOCATED(UP_RATE_TWO))
@@ -7252,11 +7251,11 @@
 	INEXT_RELAX=INRLX_SAV
 	KN_RF_RESID_PRV=KRFPRV_SAV
 !
-! COMP_J_BLANK leaves ACCESS_F at EOF.  The next real sweep reloads
+! COMP_J_BLANK leaves ACCESS_F at EOF. The next real sweep reloads
 ! the cursor from EDD_CONT_REC, but anything between this return and
 ! that read (a fallback that touches the file, a crash dump) would
-! hit a non-existent record.  Park it back on the first continuum
-! record.  Same >0 guard as at entry: -1 means the EDD cursor was
+! hit a non-existent record. Park it back on the first continuum
+! record. Same >0 guard as at entry: -1 means the EDD cursor was
 ! never initialized in this configuration, in which case the eval's
 ! per-frequency ACCESS_F increments are undone by writing back the
 ! entry value (COMP_J_BLANK advances the cursor even in eval mode).
@@ -7271,12 +7270,12 @@
 ! (EDDFACTOR/ES_J_CONV record mismatch or |RJ(1)|>1E30), the residual
 ! must not be trusted even where it stayed finite -- a wrong-record
 ! lagged J produces a wrong-but-finite answer that the |Y|>1D30 cap in
-! JFNK_RESIDUAL_V1 would not catch.  Poison the species SE%STEQ rows
+! JFNK_RESIDUAL_V1 would not catch. Poison the species SE%STEQ rows
 ! (never zeroed by JFNK_MASK_FIXED_UNKNOWNS, unlike the T/Ne rows, and
 ! preserved by the post-sweep JFNK_COMPUTE_STEQ_V1 call under
 ! JFNK_SKIP_SE_ZERO) so the assembled residual is capped and
 ! jfnk_resid_nbad>0 flags the eval; the driver then falls back to
-! LAMBDA/BA.  JFNK_SAVE/RESTORE_MOD_STEQ_V1 restores the production
+! LAMBDA/BA. JFNK_SAVE/RESTORE_MOD_STEQ_V1 restores the production
 ! STEQ state, so the poison cannot leak past the eval.
 !
 	IF(JFNK_EVAL_BROKEN)THEN
@@ -7307,7 +7306,7 @@
 ! Allocation-failure tail for the entry saves: no production state has
 ! been mutated at that point, so only the diagnostic and the
 ! sentinel-residual poison are needed (mirrors the broken-eval
-! epilogue path).  JFNK_EVAL_BROKEN is consumed only inside this
+! epilogue path). JFNK_EVAL_BROKEN is consumed only inside this
 ! routine's epilogue, which this return skips, so the flag itself is
 ! not toggled; LUER still points at OUTGEN here (the redirect happens
 ! later), so the message lands in OUTGEN.
@@ -7325,9 +7324,9 @@
 ! =====================================================================
 ! JFNK_EVAL_LSTATE_V1: save/restore bracket for the mutable line-module
 ! and host state that the coupled-SOB line-section replay inside
-! JFNK_RAD_SWEEP_V1 writes (see the state matrix there).  ACTION='S'
+! JFNK_RAD_SWEEP_V1 writes (see the state matrix there). ACTION='S'
 ! copies production state into persistent SAVE buffers (allocated once);
-! 'R' writes it back.  Host association gives access to the CMFGEN_SUB
+! 'R' writes it back. Host association gives access to the CMFGEN_SUB
 ! locals (CHIL, ETAL, VB, VC, NEG_OPACITY, ACCESS_JEW, EW, CONT_INT,
 ! COMPUTE_EW, NNM, VAR_SOB_JC, AMASS, SECTION, FREQ_INDX, CONT_FREQ,
 ! FIRST_FREQ, FINAL_CONSTANT_CROSS, LAST_LINE, LINE_INDX,
@@ -7350,7 +7349,7 @@
 	INTEGER, INTENT(OUT) :: IOS
 !
 ! Packed save buffers, one slot per production array, grouped by shape
-! so each save/restore is a single copy.  NR2 labels the (ND,MAX_SIM)
+! so each save/restore is a single copy. NR2 labels the (ND,MAX_SIM)
 ! slot table below; every assignment lists the array it mirrors.
 !
 	INTEGER, PARAMETER :: NR2=16
@@ -7540,7 +7539,7 @@
 !
 	ELSE
 !
-! Restore: write every saved value back.  Buffers only exist when the
+! Restore: write every saved value back. Buffers only exist when the
 ! matching save ran, so each restore is guarded on ALLOCATED.
 !
 	  IF(ALLOCATED(S_R2))THEN
