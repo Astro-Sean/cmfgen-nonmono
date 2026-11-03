@@ -23,7 +23,7 @@
 	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
 	IMPLICIT NONE
 !
-! Altered 05-Oct-2026 : Freeze prescribed R,V,SIGMA under non-mono (Devin).
+! Altered 05-Oct-2026 : Freeze prescribed R,V,SIGMA under non-mono.
 ! Altered 15-Jan-2009 : Minor bug fixed.
 !                       Populations were reset to IREC-3 iteration if NG acceleration failed.
 ! Altered 02-May-2004 : Changed to handle new SCRTEMP file format.
@@ -47,7 +47,7 @@
 	LOGICAL NG_DONE
 	LOGICAL DO_NG_VALIDITY_CHECK
 !
-! edited by Devin, 05-Oct-2026: [NG_ABSTAIN] pass-through to
+! edited 05-Oct-2026: [NG_ABSTAIN] pass-through to
 ! NG_MIT_BAND_OPT_V1 -- per-component hold instead of per-depth veto.
 ! Default F preserves the upstream behavior exactly.
 !
@@ -232,7 +232,7 @@
 	REAL(KIND=LDP) MAXDEC
 	LOGICAL NG_DONE
 !
-! edited by Devin, 05-Oct-2026: [NG_ABSTAIN] -- when T, components
+! edited 05-Oct-2026: [NG_ABSTAIN] -- when T, components
 ! with no contraction information or a non-physical extrapolation
 ! are held at their current value instead of vetoing the depth.
 !
@@ -273,7 +273,7 @@
           LOC_NBAND=NBAND
 	END IF
 !
-! edited by Devin, 05-Oct-2026: [NG_ABSTAIN] per-component hold.
+! edited 05-Oct-2026: [NG_ABSTAIN] per-component hold.
 ! The banded secant fit produces a single (A,B) pair per band; any
 ! component that does not share the band's contraction gets a bad
 ! extrapolation.  Upstream marks the whole depth bad when one of
