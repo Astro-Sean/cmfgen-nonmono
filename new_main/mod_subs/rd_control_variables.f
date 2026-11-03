@@ -14,7 +14,7 @@
 ! Altered : 21-Oct-2026 : USE_LAM_ES un-forced: SOB default is F
 !                            (MOM_J_CMF_NONMONO_V1 + MOM ALO), explicit
 !                            T honoured; KNOP absent-key default stays T
-!                            but explicit F is honoured.  New SOB
+!                            but explicit F is honoured. New SOB
 !                            absent-key auto-sets: DO_NONMONO_FREQ_MATCH
 !                            (LAM_ES=F), DO_FG13_ALO (LAM_ES=T),
 !                            DO_BA_RES_ACC, DO_BA_RES_REUSE, NG_ABSTAIN.
@@ -24,12 +24,12 @@
 !                            non-monotonic/JFNK trigger flags now
 !                            auto-configure their dependent switches
 !                            (logged to LUER) instead of relying on
-!                            VADAT being consistent.  USE_LAM_ES=F and
+!                            VADAT being consistent. USE_LAM_ES=F and
 !                            DO_KNOP_REFRESH=F opt-ins are overridden;
 !                            INC_GRID=F is auto-set under KNOP.
 ! Altered : 07-Oct-2026 : DO_JFNK is now the shared JFNK arm key for
 !                           DO_NONMONO_KNOP and DO_NONMONO_SOB; USE_JFNK is a
-!                           deprecated alias.  JFNK_COUPLED stays KNOP-only
+!                           deprecated alias. JFNK_COUPLED stays KNOP-only
 !                          .
 ! Altered : 05-Oct-2026 : Reject legacy controls that use a multi-valued
 !                           or non-positive V coordinate under non-mono
@@ -39,7 +39,7 @@
 !                            with all TRANS_*=SOB) and USE_LAM_ES=T;
 !                            DO_NONMONO_KNOP requires GLOBAL_LINE=BLANK (or NONE
 !                            with all TRANS_*=BLANK) and LAM_SET=F.
-!                            DO_BA_RES_ACC=F under KNOP warns.  Previously these
+!                            DO_BA_RES_ACC=F under KNOP warns. Previously these
 !                            were warnings only, so a mismatched VADAT ran with
 !                            the flag inactive.
 ! Altered : 13-Jan-2024 : Added MAX_NO_GREY_ITERATIONS
@@ -49,7 +49,7 @@
 ! Altered : 15-Nov-2021 : Fixed read in calls for FIX_ALL_SPEC and BC_PAR1.
 ! Altered : 14-Jul-2019 : R_PNT_SRCE, TEFF_PNT_SRCE, NC_PNT_SRCE, LOGICAL PNT_SRCE_MOD, USE_ELEC_HEAT_BAL (from osiris)
 !                            Added to ibis 14-Aug-2019
-! Altered : 26-Apr-2019 : Added        J_CHK_OPTION (CHK_J)     - Done earlier on OSIRIS.
+! Altered : 26-Apr-2019 : Added J_CHK_OPTION (CHK_J) - Done earlier on OSIRIS.
 !                               AUTO_ADD_ION_STAGES (AUTO_ADD)
 !                                  AUTO_SMOOTH_POPS (AUTO_SMOOTH)
 ! Altered : 01-Sep-2016 : Added variabe MINIMUM_ISO_POP (not required)
@@ -404,7 +404,7 @@
 ! Radius-space deposition (dev7, 13-Oct-2026): on a non-monotonic V
 ! field VLOC_SHOCK_POWER cannot identify a unique shock location, so
 ! RLOC_SHOCK_POWER (internal R units, 10^10 cm) selects a Gaussian in
-! radius instead.  RLOC<=0 keeps the original V-space deposition.
+! radius instead. RLOC<=0 keeps the original V-space deposition.
 ! The strictly-decreasing-V guard in GET_EDEP_SHOCK_POWER applies only
 ! to the V-space path.
 !
@@ -646,7 +646,7 @@
 	  CALL RD_STORE_LOG(TRAPFORJ,'TRAP_J',L_TRUE,
 	1           'Use trapazoidal weights to compute J? ')
 !
-! This section of the code should work with old VADAT  files when using a Doppler profile of
+! This section of the code should work with old VADAT files when using a Doppler profile of
 ! fixed width (the default).
 !
 	  WRITE(LUSCR,'()')
@@ -812,7 +812,7 @@
 	     STOP
 	  END IF
 !
-! Non-monotonic velocity-field options (dev7).  Optional keywords; when
+! Non-monotonic velocity-field options (dev7). Optional keywords; when
 ! FALSE (default) the original code path is executed unchanged.
 !
 !   DO_NONMONO_SOB : Dessart, Audit & Hillier (2015, arXiv:1503.05463)
@@ -841,7 +841,7 @@
 ! ALLOW_SIGMA_UNDEF (default FALSE): RECOMPUTE_SIGMA_TRUE aborts
 ! when a cell has no usable velocity gradient -- on a LAW-14 grid
 ! that means a collapsed spacing, and continuing would mark the
-! cell non-compressing without notice.  TRUE restores the
+! cell non-compressing without notice. TRUE restores the
 ! warning-only behaviour for diagnosis.
 !
 	  ALLOW_SIGMA_UNDEF=.FALSE.
@@ -866,8 +866,8 @@
 !
 ! GET_POPS_AT_PREV_TIME_STEP_* maps populations with LOG(V) and
 ! interpolates R(V), both valid only for a positive single-valued
-! Hubble-law velocity.  PURE_HUBBLE_FLOW likewise replaces the input
-! field with V proportional to R.  Reject these expansion controls
+! Hubble-law velocity. PURE_HUBBLE_FLOW likewise replaces the input
+! field with V proportional to R. Reject these expansion controls
 ! rather than discarding the non-monotonic structure.
 !
 	  IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
@@ -881,7 +881,7 @@
 	  END IF
 !
 ! Hydro adjustment can rewrite the prescribed velocity structure and
-! must stay blocked under the non-monotonic solvers.  Automatic
+! must stay blocked under the non-monotonic solvers. Automatic
 ! R-grid revision is now permitted: the only method whose R(V) map
 ! is multi-valued on a shocked field (VEL_SPACE) is rejected inside
 ! ADJUST_R_GRID_V4 itself, the interpolated-sigma STOP that assumed
@@ -902,11 +902,11 @@
 	  END IF
 !
 ! N_LAM_RWARM (default 4): forced LAMBDA iterations at process start
-! when DO_NONMONO_KNOP=T.  The Gauss-Seidel I_NEXT arrays in
+! when DO_NONMONO_KNOP=T. The Gauss-Seidel I_NEXT arrays in
 ! FG_J_CMF_NONMONO_V1 are process-local and are re-zeroed on every
 ! requeue; this forces LAMBDA for the first N_LAM_RWARM great
 ! iterations of each process so a BA step is never taken against a
-! stale (zeroed) I_NEXT.  Set 0 to disable.
+! stale (zeroed) I_NEXT. Set 0 to disable.
 !
 	  N_LAM_RWARM=4
 	  CALL RD_STORE_INT(N_LAM_RWARM,'N_LAM_RWARM',L_FALSE,
@@ -914,7 +914,7 @@
 	  IF(N_LAM_RWARM .LT. 0)N_LAM_RWARM=0
 !
 ! MOM_TRIAL_MIN (default 30): frozen-iteration count that arms the
-! marginal-release BA trial in SOLVE_FOR_POPS.  <=0 disables; the
+! marginal-release BA trial in SOLVE_FOR_POPS. <=0 disables; the
 ! trial also requires DO_BA_RES_ACC so a bad step rolls back.
 !
 	  MOM_TRIAL_MIN=30
@@ -925,7 +925,7 @@
 ! FG_TRIAL_MIN (default 30, 0 disables): frozen-iteration count
 ! that arms the FG-only marginal-release trial -- the
 ! USE_LAM_ES=T analogue of MOM_TRIAL, which can never fire with
-! MOM_RAN=F.  Requires the cured gate (no immaturity, no UNSAFE
+! MOM_RAN=F. Requires the cured gate (no immaturity, no UNSAFE
 ! share) and the resacc snapshot; accepted trials refund N_FROZEN
 ! to this floor.
 !
@@ -935,8 +935,8 @@
 	  IF(FG_TRIAL_MIN .LT. 0)FG_TRIAL_MIN=0
 !
 ! FG_TRIAL_CHURN (default 0.0 = off): store-churn multiplier under
-! which a churn-only immature FG gate still arms the trial.  0 keeps
-! the strict no-immaturity requirement; ~3 admits the m15-class
+! which a churn-only immature FG gate still arms the trial. 0 keeps
+! the strict no-immaturity requirement; ~3 admits the -class
 ! asymptote where churn sits 2-3x the bulk bound with every other
 ! gate term clean.
 !
@@ -946,10 +946,10 @@
 	  IF(FG_TRIAL_CHURN .LT. 0.0_LDP)FG_TRIAL_CHURN=0.0_LDP
 !
 ! FG_TRIAL_CHURN_MIN (default 3): consecutive churn-marginal calls
-! before the churn arm may release a trial.  A single
+! before the churn arm may release a trial. A single
 ! churn-marginal sweep could still be transient; N_FROZEN is the
 ! wrong clock because releases refund it under the same hold
-! (m15_2p82d: streak ~5-6 vs FG_TRIAL_MIN=30).  0 disables the arm.
+! (streak ~5-6 vs FG_TRIAL_MIN=30). 0 disables the arm.
 !
 	  FG_TRIAL_CHURN_MIN=3
 	  CALL RD_STORE_INT(FG_TRIAL_CHURN_MIN,'FG_TRIAL_CHURN_MIN',
@@ -957,7 +957,7 @@
 	  IF(FG_TRIAL_CHURN_MIN .LT. 0)FG_TRIAL_CHURN_MIN=0
 !
 ! GS_SETTLE_TOL (default -1 = off): settle-asymptote tolerance on
-! the lagged-field drift.  A 'cycle'-classified argmax floor at or
+! the lagged-field drift. A 'cycle'-classified argmax floor at or
 ! below this value stops refreezing the field on store churn alone;
 ! an absent key keeps the GS_MATURE_TOL behaviour bit-identical.
 !
@@ -966,10 +966,10 @@
 	1     'KNOP: drift floor at which a cycle floor may settle?')
 !
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
-! marginal-release trial.  With MAXCH above it the trial takes the
+! marginal-release trial. With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
 ! 1E7-scale demand overshoots the BA linearization so far that the
-! resacc rejects every release (m15 KNOP warm, Oct-2026).
+! resacc rejects every release (KNOP warm, Oct-2026).
 !
 	  MOM_TRIAL_LAM=0.0_LDP
 	  CALL RD_STORE_DBLE(MOM_TRIAL_LAM,'MOM_TRIAL_LAM',L_FALSE,
@@ -978,7 +978,7 @@
 !
 ! GS_FREEZE_LIM (default 0 = disabled): hard stop on consecutive
 ! forced-LAMBDA iterations while the KNOP lagged field stays
-! immature.  The submit script applies its own KNOP_STALL_MAX on
+! immature. The submit script applies its own KNOP_STALL_MAX on
 ! the GS_STATE file, so a stalled run fails even with this key off.
 !
 	  GS_FREEZE_LIM=0
@@ -987,9 +987,9 @@
 	  IF(GS_FREEZE_LIM .LT. 0)GS_FREEZE_LIM=0
 !
 ! GS_TRIAL_LIM (default 15): accepted resacc-gated BA trials the KNOP
-! marginal-release path may take between raw-mature sweeps.  Accepted
+! marginal-release path may take between raw-mature sweeps. Accepted
 ! trials refund n_frozen (reset to MOM_TRIAL_MIN); rejected ones do
-! not.  <=0 disables the refund.
+! not. <=0 disables the refund.
 !
 	  GS_TRIAL_LIM=15
 	  CALL RD_STORE_INT(GS_TRIAL_LIM,'GS_TRIAL_LIM',L_FALSE,
@@ -1016,7 +1016,7 @@
 	  IF(GS_REL_NOPROG_LIM .LT. 0)GS_REL_NOPROG_LIM=0
 !
 ! GS_REL_STABLE (default 1): consecutive sweeps passing the maturity
-! gate before the freeze releases the population update.  Guards
+! gate before the freeze releases the population update. Guards
 ! against releasing on a single marginal sweep of a churning field.
 !
 	  GS_REL_STABLE=1
@@ -1026,8 +1026,8 @@
 !
 ! GS_REL_N (default 2): post-release LAMBDA iterations held at the
 ! near-mature correction cap while the field re-lags to the moved
-! populations.  Default changed to 2 (edited 19-Oct-2026):
-! with N=1 only the first live step was damped and the it8-class
+! populations. Default changed to 2 (edited 19-Oct-2026):
+! with N=1 only the first live step was damped and the -class
 ! undamped second step re-froze the field at factor-100 changes,
 ! feeding the release->refreeze alternation.
 !
@@ -1048,16 +1048,16 @@
 ! DO_NONMONO_KNOP in the auto-set block below, explicit F
 ! respected): postpone the GS freeze while the demanded
 ! population correction entering the call is grossly
-! unconverged.  Holding populations at ~1E10% demand parks the
+! unconverged. Holding populations at ~1E10% demand parks the
 ! iteration 1E9 outside the solver's validity domain
-! (m15_2p82d KNOP release/refreeze limit cycle).
+! (KNOP release/refreeze limit cycle).
 !
 	  GS_PRECOND=L_FALSE
 	  CALL RD_STORE_LOG(GS_PRECOND,'GS_PRECOND',L_FALSE,
 	1     'KNOP: postpone freeze while pop demand is unconverged?')
 !
 ! GS_PRECOND_MAX (default 1.0E+03): percent demand threshold for
-! the precondition gate.  Entry MAXCH is the previous call's
+! the precondition gate. Entry MAXCH is the previous call's
 ! demanded maximum correction.
 !
 	  GS_PRECOND_MAX=1.0E+03_LDP
@@ -1086,11 +1086,11 @@
 ! GS_HOLD_POPS (default FALSE): on a GS-freeze iteration, roll the
 ! forced-LAMBDA population update back after SOLVEBA returns, so the
 ! great iteration converges the lagged radiation field at fixed
-! populations.  The freeze already forces LAMBDA + fixed T; without
+! populations. The freeze already forces LAMBDA + fixed T; without
 ! the rollback the populations still move, which keeps the GS fixed
-! point moving and defeats the nested iteration.  The resacc-gated
+! point moving and defeats the nested iteration. The resacc-gated
 ! MOM_TRIAL release path is excluded -- the trial exists to take a
-! real BA step.  Default F preserves the previous behavior (a capped
+! real BA step. Default F preserves the previous behavior (a capped
 ! LAMBDA update still commits during the freeze).
 !
 	  GS_HOLD_POPS=.FALSE.
@@ -1104,11 +1104,11 @@
 ! short-circuit .OR. evaluation, so evaluating it here read an
 ! undefined variable on the SOB-only path.
 !
-! MOM refresh toggles (Oct-2026).  MOM_RF_GS_DESC stays FALSE
-! (unvalidated).  MOM_RF_KEEPNEG and MOM_GATE_BULK default TRUE:
+! MOM refresh toggles (Oct-2026). MOM_RF_GS_DESC stays FALSE
+! (unvalidated). MOM_RF_KEEPNEG and MOM_GATE_BULK default TRUE:
 ! storing repaired (non-fixed-point) values reseeds the lagged
 ! read with noise, and the strict any-negJ gate cannot clear a
-! quasi-steady negJ residual (froze BA ~200 its on m15_2p82d;
+! quasi-steady negJ residual (froze BA ~200 its on ;
 ! see cmfgen_obsidian/history/convergence_issues.md section 10).
 !
 	  MOM_RF_GS_DESC=.FALSE.
@@ -1126,7 +1126,7 @@
 ! MOM_RF_BULK_EXIT (default TRUE): exit the MOM refresh once the
 ! per-pass drift meets the same bulk bounds the gate applies to
 ! the sweep, instead of burning passes until the max-norm stall
-! fires.  The retained-vs-sweep delta gate still applies to the
+! fires. The retained-vs-sweep delta gate still applies to the
 ! converged field.
 !
 	  MOM_RF_BULK_EXIT=.TRUE.
@@ -1159,7 +1159,7 @@
 ! bins), and widen the frequency-derivative stencil to match.
 ! Targets the oscillatory-eigenvalue instability identified by
 ! Ceulemans et al. 2025 when the per-cell Doppler shift exceeds
-! the frequency spacing.  Only acts where the Knop solver already
+! the frequency spacing. Only acts where the Knop solver already
 ! switches to the lagged redder upwind; expanding cells keep the
 ! implicit same-sweep coupling.
 !
@@ -1170,7 +1170,7 @@
 	  CALL SET_FG_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
 	  CALL SET_MOM_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
 !
-! MOM refresh Anderson acceleration (default TRUE, depth 3).  For
+! MOM refresh Anderson acceleration (default TRUE, depth 3). For
 ! the affine-in-lagged-field refresh map AA(m) is the GMRES
 ! residual minimization on (I-A)x=b; expose it so a run can
 ! disable AA without a rebuild.
@@ -1183,11 +1183,11 @@
 ! MOM_EPS_LIM (default TRUE): donor-cell positivity limiter on the
 ! lagged EPS midpoint transfer -- the lagged term may not debit a
 ! row past its positive RHS balance (removes the dominant negJ
-! source on advection-dominated compressing grids).  MOM_RF_DIR
+! source on advection-dominated compressing grids). MOM_RF_DIR
 ! (default 'AUTO'): refresh pass ordering; AUTO runs only the
 ! dominant coupling direction once one side holds >=90% of rows,
 ! and suppresses the stale-Jacobi in-sweep store write at
-! compressing rows on a compression-dominant grid.  RF_EN passes
+! compressing rows on a compression-dominant grid. RF_EN passes
 ! DO_KNOP_REFRESH so suppression never runs without a refresh to
 ! own the store.
 !
@@ -1201,7 +1201,7 @@
 ! MOM_RF_OWNW (default TRUE): inside a refresh pass, rows whose
 ! upwind read was stale this direction (compressing on ascending,
 ! expanding on descending) do not write the lagged store -- each row
-! only takes fresh-read GS steps.  Removes the Jacobi re-injection
+! only takes fresh-read GS steps. Removes the Jacobi re-injection
 ! floor of the alternating map; the fixed point is unchanged.
 !
 	  MOM_RF_OWNW=.TRUE.
@@ -1214,10 +1214,10 @@
 ! factors in MOM_J_CMF_NONMONO_V1 (GAM_FAC_PREV, GAMH_FAC_PREV, the
 ! Eddington boundary PSIPREV, and the EPS_PREV angle factor) at the
 ! current frequency's Eddington factors instead of the bluer
-! neighbour's.  Independent lagged evaluations let the explicit
+! neighbour's. Independent lagged evaluations let the explicit
 ! upwind weight exceed the implicit diagonal where 1+sigma*K drifts
 ! sign or magnitude across a frequency boundary -- the observed
-! m15 lagged-map gain channel (12-Oct-2026 probes).  FALSE restores
+!  lagged-map gain channel (12-Oct-2026 probes). FALSE restores
 ! the independent lagged evaluation for A/B tests.
 !
 	  MOM_GAM_PIN=.TRUE.
@@ -1228,7 +1228,7 @@
 ! source in MOM_J_CMF_NONMONO_V1 -- where the row's lagged coupling
 ! weight (upwind J, HS*H_up, EPS_PREV transfers) exceeds the
 ! diagonal excess TB-|TA|-|TC|, the lagged contribution is scaled
-! down so the lagged fixed-point map cannot amplify there.  FALSE
+! down so the lagged fixed-point map cannot amplify there. FALSE
 ! restores the unbounded source for A/B tests.
 !
 	  MOM_LAG_BND=.TRUE.
@@ -1236,13 +1236,13 @@
 	1     'Bound lagged source by per-row diagonal excess?')
 !
 ! MOM_ABS_FLR (default 0.0 = off): floor on the absorption fraction
-! 1-COH in the MOM_J_CMF_NONMONO_V1 tridiagonal diagonal.  At
+! 1-COH in the MOM_J_CMF_NONMONO_V1 tridiagonal diagonal. At
 ! ESEC>=CHI cells the clip at 0 removes the only J-independent
 ! diagonal weight; with PSI~0 near the 1+sigma*K=0 resonance the row
 ! then has no diagonal excess, MOM_LAG_BND nulls its whole lagged
 ! source, and the row sloshes between clipped and unclipped states
-! rather than converging (KNOP probes, 13-Oct-2026).  A small floor
-! (~1D-3) restores a physical absorption anchor.  0.0 keeps the
+! rather than converging (KNOP probes, 13-Oct-2026). A small floor
+! (~1D-3) restores a physical absorption anchor. 0.0 keeps the
 ! exact clip for A/B tests.
 !
 	  MOM_ABS_FLR=0.0_LDP
@@ -1250,7 +1250,7 @@
 	1     'Absorption-fraction floor in non-mono MOM diagonal')
 !
 ! MOM_H_IMPL (default FALSE): add the lagged upwind-H coupling
-! magnitude |VB|+|VC| to the MOM_J_CMF_NONMONO_V1 diagonal.  The
+! magnitude |VB|+|VC| to the MOM_J_CMF_NONMONO_V1 diagonal. The
 ! lagged H divergence is then paid for as implicit weight -- the
 ! row is damped against both neighbour and lagged reads, and the
 ! MOM_LAG_BND excess grows by the same amount, so clipped shock
@@ -1263,23 +1263,23 @@
 	1     MOM_H_IMPL)
 !
 ! MOM_FAC_RLX (default 1.0 = off): under-relax the Eddington-factor
-! update between great iterations in MOM_J_CMF_NONMONO_V1.  With
+! update between great iterations in MOM_J_CMF_NONMONO_V1. With
 ! pops held the formal-solve factor snap is the only channel that
 ! moves the lagged map's fixed point between iterations; on this
 ! model the snap displaces the map by >50% at ~2E5 cells per sweep
 ! while the refresh already converges at the old factors (KNOP cold
-! probes, 13-Oct-2026).  1.0 keeps the raw snap for A/B tests.
+! probes, 13-Oct-2026). 1.0 keeps the raw snap for A/B tests.
 !
 	  MOM_FAC_RLX=1.0_LDP
 	  CALL RD_STORE_DBLE(MOM_FAC_RLX,'MOM_FAC_RLX',L_FALSE,
 	1     'Eddington-factor under-relaxation between MOM sweeps')
 	  CALL SET_MOM_FAC_RLX(MOM_FAC_RLX)
 !
-! Refresh tuning knobs, previously compile-time parameters.  The
+! Refresh tuning knobs, previously compile-time parameters. The
 ! defaults match the built-in values, so an unchanged VADAT is
 ! bit-identical in behavior; the setters clamp to safe ranges.
 ! MOM_AA_M is the Anderson history depth (memory per pair is
-! ND_NM*NCF*8 bytes).  JNEXT_RELAX/INEXT_RELAX are the
+! ND_NM*NCF*8 bytes). JNEXT_RELAX/INEXT_RELAX are the
 ! lagged-store under-relaxation factors.
 !
 	  KN_M_TOL_V=2.0E-3_LDP
@@ -1299,7 +1299,7 @@
 ! is the successive committed-store difference, so the accelerated
 ! map includes the J<->Eddington coefficient drift the inner
 ! frozen-coefficient AA cannot see (the retained-field delta limit
-! cycle).  MOM_AA_OUT_M is the pair count; memory per pair is
+! cycle). MOM_AA_OUT_M is the pair count; memory per pair is
 ! 2*ND_NM*NCF*8 bytes.
 !
 	  MOM_AA_OUT=.TRUE.
@@ -1323,17 +1323,17 @@
 !
 ! KN_RAY_BULK_TOL (default 6.0E-2 under DO_NONMONO_KNOP, 0 = off
 ! otherwise; edited 20-Oct-2026): residual floor on the
-! bulk exit (IXIT=2).  The bad-fraction test alone let rays exit
+! bulk exit (IXIT=2). The bad-fraction test alone let rays exit
 ! converged at residual ~5E-2 -- one capped commit step from the
 ! fixed point -- pinning the refresh max just above the maturity
-! gate (m15_2p82d: 5.19-5.24E-2) and ratcheting the store through
-! WRITE_STORE_CAP.  The earlier 2.5E-2 default sat below that
-! floor, so the bulk exit never fired on m15 and floored rays
-! still hit the commit gate capped.  6.0E-2 clears the measured
-! floor so those rays commit through WRITE_STORE.  The key is
+! gate (5.19-5.24E-2) and ratcheting the store through
+! WRITE_STORE_CAP. The earlier 2.5E-2 default sat below that
+! floor, so the bulk exit never fired on and floored rays
+! still hit the commit gate capped. 6.0E-2 clears the measured
+! floor so those rays commit through WRITE_STORE. The key is
 ! KNOP-scoped: SET_FG_KN_OPTS is global, so a shared nonzero
 ! default would silently floor bulk exits on non-KNOP runs --
-! off unless the key is set explicitly.  0 disables the term.
+! off unless the key is set explicitly. 0 disables the term.
 !
 	  KN_RAY_BULK_TOL_V=0.0_LDP
 	  IF(DO_NONMONO_KNOP)KN_RAY_BULK_TOL_V=6.0E-2_LDP
@@ -1343,9 +1343,9 @@
 	1     INEXT_RELAX_V,KN_RAY_BULK_TOL_V)
 !
 ! KN_ADAPT_RELAX (default T): adaptive write-back weight for both
-! lagged stores.  The relax factor becomes the seed value; each
+! lagged stores. The relax factor becomes the seed value; each
 ! refresh call re-estimates the dominant-mode contraction rho_est
-! and moves the weight toward 1/(1+rho_est).  Set FALSE to keep the
+! and moves the weight toward 1/(1+rho_est). Set FALSE to keep the
 ! fixed INEXT_RELAX/JNEXT_RELAX behaviour.
 !
 	  KN_ADAPT_RELAX_V=.TRUE.
@@ -1367,7 +1367,7 @@
 	  CALL SET_MOM_OMEGA_V2(MOM_ADAPT_OMEGA_V2_V)
 !
 ! KN_RAY_ORDERED (default TRUE): ordered characteristic march in
-! the FG refresh (Knop Paper II ordering).  FALSE restores the
+! the FG refresh (Knop Paper II ordering). FALSE restores the
 ! alternating-direction passes.
 !
 	  KN_RAY_ORDERED=.TRUE.
@@ -1378,7 +1378,7 @@
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
-! when DO_JFNK=T.  Admitted under DO_NONMONO_KNOP or DO_NONMONO_SOB;
+! when DO_JFNK=T. Admitted under DO_NONMONO_KNOP or DO_NONMONO_SOB;
 ! admission additionally requires USE_LAM_ES=T (so JFNK is inert on
 ! the SOB default LAM_ES=F) and, under KNOP only, a mature lagged
 ! field (GS_FREEZE=F).
@@ -1386,7 +1386,7 @@
 ! JFNK_COUPLED=T evaluates the residual with a fresh formal solve
 ! at each perturbed population state (JFNK_RAD_SWEEP_V1), so the
 ! FD Jacobian-vector product probes the full dJ/dn coupling --
-! the Arramy et al. (2024, A&A 690, A12) formulation.  With
+! the Arramy et al. (2024, A&A 690, A12) formulation. With
 ! JFNK_COUPLED=F the residual uses stored (fixed-J) radiative
 ! rates plus the CMAT_RAD linearization -- the same fixed-J system
 ! SOLVEBA_V13 solves directly, run through the globalized Newton
@@ -1396,9 +1396,9 @@
 ! [JFNK_COUPLED_SOB] (default F): the eval sweep then also replays
 ! the line-frequency section (SUB_SOB_LINE_V3 Sobolev rates against
 ! the frozen field), which is what makes the coupled residual the
-! same equation the outer iteration assembles.  Without the flag,
+! same equation the outer iteration assembles. Without the flag,
 ! JFNK_COUPLED=T under SOB is reset to F with a warning -- never a
-! stop -- and the SOB path stays frozen-only.  Even when enabled
+! stop -- and the SOB path stays frozen-only. Even when enabled
 ! the coupled tier is not demand-admitted under SOB: it fires only
 ! as the reach-fail fallback inside JFNK_SOLVE_CORR_V1 once the
 ! frozen tier certifies the residual unreachable.
@@ -1412,7 +1412,7 @@
 	1     'Use JFNK population solver for non-monotonic models?')
 !
 ! USE_JFNK: pre-SOB name for the same switch, retained so existing
-! KNOP VADAT files keep working.  Either key T arms the solver; an
+! KNOP VADAT files keep working. Either key T arms the solver; an
 ! explicit F under one name cannot veto the other because the reader
 ! cannot distinguish an explicit F from an absent key.
 !
@@ -1485,8 +1485,8 @@
 !
 ! Logarithmic unknown and pseudo-time live in the solver module so
 ! the Newton loop and the residual share them without a new entry
-! in CONTROL_VARIABLE_MOD.  Defaults are the stable formulation
-! (cmfgen_obsidian/solvers/JFNK_SOLVER.md).  Absent keys keep those defaults.
+! in CONTROL_VARIABLE_MOD. Defaults are the stable formulation
+! (cmfgen_obsidian/solvers/JFNK_SOLVER.md). Absent keys keep those defaults.
 !
 	  jfnk_log_unknown=.TRUE.
 	  CALL RD_STORE_LOG(jfnk_log_unknown,'JFNK_LOGX',L_FALSE,
@@ -1628,7 +1628,7 @@
 	1     'Escalate ridge if min/max LU pivot below this (0=off)')
 !
 ! JFNK_PRECOND_REFINE is parsed but has no implementation in this
-! tree (10-Nov-2026 audit): nothing reads it past this point.  Default
+! tree (10-Nov-2026 audit): nothing reads it past this point. Default
 ! flipped to F so an explicit T warns instead of pretending the
 ! historical default did anything; JFNK_SOLVE_CORR_V1 prints the
 ! inactivity warning once per run.
@@ -1693,7 +1693,7 @@
 ! Each retry shrinks h by 10x; the 21-Oct-2026 h-sweep showed frozen
 ! FD resolution requires h_eff ~1e-6+, so retries driven by
 ! degenerate floor crossings can push h below the cancellation
-! floor.  JFNK_CLIP_RETRY=0 accepts the crossing (diagnostic use).
+! floor. JFNK_CLIP_RETRY=0 accepts the crossing (diagnostic use).
 !
 	  JFNK_CLIP_RETRY=2
 	  CALL RD_STORE_INT(JFNK_CLIP_RETRY,'JFNK_CLIP_RETRY',L_FALSE,
@@ -1740,14 +1740,14 @@
 	  END IF
 !
 ! JFNK_LSQ_LAM (default 1D-2): relative Tikhonov damping for the
-! LSQ preconditioner.  The LU solve (Dr*J*Dc)^{-1} returns huge
+! LSQ preconditioner. The LU solve (Dr*J*Dc)^{-1} returns huge
 ! corrections along near-null singular directions of the
 ! population Jacobian, which GMRES cannot use; LSQ instead solves
 ! min |J_eq y - v'|^2 + lam^2 |y|^2 per depth block via the
 ! normal equations (J_eq^T J_eq + lam^2 I) y = J_eq^T v', so
 ! unsolvable directions are damped to ~0 rather than amplified.
 ! lam is relative to max|J_eq| (which is ~1 after DGEEQU
-! equilibration).  Verified against the algebraic B^T w apply in
+! equilibration). Verified against the algebraic B^T w apply in
 ! unit_tests (rel diff < 1D-13 vs the direct solve).
 !
 	  JFNK_LSQ_LAM=1.0D-2
@@ -1757,12 +1757,12 @@
 !
 ! JFNK_REACH_GATE (default 0 = off): admission precheck that skips
 ! the Newton solve when the preconditioned step direction carries no
-! residual content.  z=M^-1 F and Jz=BA*z are evaluated before
+! residual content. z=M^-1 F and Jz=BA*z are evaluated before
 ! Newton; REACH=(2<F,Jz>-<Jz,Jz>)/<F,F> is the fraction of |F|^2 a
-! linear step can remove.  On the SOB frozen-J residual the pinned
+! linear step can remove. On the SOB frozen-J residual the pinned
 ! radiative rows leave REACH~0, so every GMRES/JVP eval is wasted;
-! the gate converts such admissions to ~one matvec.  Gate 0.1-0.5 is
-! conservative: solvable test systems reach ~1.  Frozen tier only
+! the gate converts such admissions to ~one matvec. Gate 0.1-0.5 is
+! conservative: solvable test systems reach ~1. Frozen tier only
 ! (17-Oct-2026): REACH is priced against the stored outer BA, which
 ! is not the coupled operator -- the coupled tier is exempt.
 !
@@ -1771,7 +1771,7 @@
 	1     'Skip Newton when residual reachable fraction below this')
 !
 ! JFNK_REL_REACH_MAX (default 5): consecutive reach-gate skips that
-! stand down the SOB stable-LAMBDA relief.  0 disables the stand-down.
+! stand down the SOB stable-LAMBDA relief. 0 disables the stand-down.
 !
 	  JFNK_REL_REACH_MAX=5
 	  CALL RD_STORE_INT(JFNK_REL_REACH_MAX,'JFNK_REL_REACH_MAX',
@@ -1781,7 +1781,7 @@
 !
 ! JFNK_FRZ_FAIL_LIM (default 0 = off): consecutive frozen-tier
 ! admissions without a committed Newton step before the gate holds the
-! tier on SOLVEBA.  The trigger is deliberately broad -- reach skips,
+! tier on SOLVEBA. The trigger is deliberately broad -- reach skips,
 ! guard defers, and GMRES/trust failures are all evidence that another
 ! admission is unlikely to buy anything on a radiation-pinned residual.
 ! JFNK_FRZ_FAIL_HOLD is the number of eligible calls spent in SOLVEBA
@@ -1802,14 +1802,14 @@
 !
 ! JFNK direction gates (defaults 0 = off): admission defers to the
 ! caller's SOLVEBA mode when the preconditioned direction is not a
-! usable descent direction.  All three metrics are computed in the
+! usable descent direction. All three metrics are computed in the
 ! reachability precheck from z=M^-1 F clipped to the commit bounds:
-!   JFNK_COS_MIN       - reject cos(F,A z) below this.  Tested against
+!   JFNK_COS_MIN - reject cos(F,A z) below this. Tested against
 !                        both the stored-BA image (free) and the FD
 !                        image (one extra residual eval); the FD test
 !                        catches a stored operator that reports a
 !                        descent the true Jacobian does not share.
-!   JFNK_JZ_F_MAX      - reject |A z|/|F| above this (stored and FD).
+!   JFNK_JZ_F_MAX - reject |A z|/|F| above this (stored and FD).
 !   JFNK_CLIP_FRAC_MAX - reject when the fraction of unknowns at the
 !                        commit clip bound exceeds this (denominator
 !                        JFNK_N, which includes regularized rows).
@@ -1833,10 +1833,10 @@
 !
 ! FD-image descent gates (17-Oct-2026): the stored-BA metrics above
 ! can pass while the true (finite-difference) operator maps the same
-! step anti-parallel to F -- KNOP_jfnkrel it35 passed stored REACH
-! 0.735 while cos(F,A_FD z) = -0.23.  JFNK_FD_COS_MIN gates cos on
+! step anti-parallel to F -- passed stored REACH
+! 0.735 while cos(F,A_FD z) = -0.23. JFNK_FD_COS_MIN gates cos on
 ! the FD image only; JFNK_FD_AUTODEF (default T) defers any
-! anti-descent FD image even with all thresholds at 0.  Both arm the
+! anti-descent FD image even with all thresholds at 0. Both arm the
 ! precheck block, which costs one extra residual eval per admission.
 !
 	  JFNK_FD_COS_MIN=0.05_LDP
@@ -1850,10 +1850,10 @@
 !
 ! W11 census gate (17-Oct-2026): price the frozen-tier residual's
 ! reachability from the F(0) vector and the stored BA row norms,
-! BEFORE the LU factorization and the reach-precheck JVP evals.  On
+! BEFORE the LU factorization and the reach-precheck JVP evals. On
 ! radiation-pinned residuals (deep-H rows carrying ~all of |F| with
 ! |BArow|/|F| ~ 1e8) this turns a ~78 s LU+CMAT admission into a
-! ~1-eval defer.  Frozen tier only: the coupled operator re-solves J
+! ~1-eval defer. Frozen tier only: the coupled operator re-solves J
 ! per eval so the stored-BA census cannot certify its reachability.
 ! All defaults 0 = off = pre-census behaviour.
 !
@@ -1877,7 +1877,7 @@
 	  IF(JFNK_CENSUS_PIN_FRAC .GT. 1.0_LDP)JFNK_CENSUS_PIN_FRAC=1.0_LDP
 !
 ! JFNK_DEFER_PROBE (default 0 = off): cap on deferral-path operator
-! probes.  An FD-gate deferral normally skips the isolation probes
+! probes. An FD-gate deferral normally skips the isolation probes
 ! entirely; this runs a bounded h-scanned FD-vs-BA comparison on the
 ! dominant residual rows for the first N deferrals so the cause of a
 ! deferred admission (stale stored operator vs FD cancellation vs
@@ -1891,7 +1891,7 @@
 ! W12 (17-Oct-2026): low-rank field-response enrichment of the
 ! coupled-tier preconditioner (JVP-probed J - BA_A columns at the
 ! worst stored-operator anchors, Sherman-Morrison-Woodbury apply).
-! Coupled tier only.  Default F = byte-identical to pre-enrichment.
+! Coupled tier only. Default F = byte-identical to pre-enrichment.
 !
 	  JFNK_ENRICH=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_ENRICH,'JFNK_ENRICH',L_FALSE,
@@ -1910,10 +1910,10 @@
 	1     'Arnoldi-basis enrichment instead of coordinate anchors?')
 !
 ! DO_BA_DIR_CHK (default F): diagnostic-only JFNK admission on
-! direct-BA iterations.  The demand gates are bypassed so the check
+! direct-BA iterations. The demand gates are bypassed so the check
 ! fires on the first full step, where the direction quality matters
 ! most; the structural gates (warmup, non-LAMBDA, GS-freeze,
-! USE_LAM_ES) still apply.  The activation runs the F(0) identity
+! USE_LAM_ES) still apply. The activation runs the F(0) identity
 ! test, the stored-BA reach/direction metrics and the FD-vs-stored-
 ! operator check, then defers to caller-mode SOLVEBA through the
 ! info=-2 path -- the real correction still comes from SOLVEBA_V13.
@@ -1933,7 +1933,7 @@
 	2    ' without DO_JFNK=T.'
 !
 ! JFNK_REARM_EVERY is retired (17-Oct-2026): the pause/re-arm
-! machinery was replaced by the always-try budget ladder.  The key
+! machinery was replaced by the always-try budget ladder. The key
 ! is still accepted so old VADAT files parse, but it does nothing.
 !
 	  JFNK_REARM_EVERY=10
@@ -1947,8 +1947,8 @@
 	2    'budget ladder (JFNK_RUNG_*) replaces pause/re-arm.'
 !
 ! Budget ladder rungs (17-Oct-2026): JFNK is attempted on every
-! admissible call.  Each counted failure raises JFNK_BUDGET_RUNG by
-! one (max JFNK_RUNG_MAX); a committed outcome resets it.  Per rung
+! admissible call. Each counted failure raises JFNK_BUDGET_RUNG by
+! one (max JFNK_RUNG_MAX); a committed outcome resets it. Per rung
 ! the activation budgets halve (evals third) toward these floors:
 ! nits -> MAX(MIN_NITS,nits/2), maxgmres -> MAX(MIN_GMRES,m/2),
 ! evals -> MAX(MIN_EVALS,e/3), restarts -> 1 at rung >= 2.
@@ -1974,7 +1974,7 @@
 ! JFNK_ROW_DIAG (default 10 rows; 0 = off): at each admission, print
 ! the largest |F| rows labeled by ion/level/depth together with their
 ! collisional vs stored-radiation split, Jacobian row norm, and (when
-! the reach precheck ran) the Jz_i the linear step assigns them.  The
+! the reach precheck ran) the Jz_i the linear step assigns them. The
 ! table distinguishes radiation-lag rows (|rad|>>|coll|, Jz~0) from
 ! population-driven ones, which decides whether a population-space
 ! residual (frozen or coupled) can ever reach them.
@@ -1986,14 +1986,14 @@
 	  IF(JFNK_ROW_DIAG .GT. 50)JFNK_ROW_DIAG=50
 !
 ! Freeze population-dependent occupation-probability inputs during a
-! frozen-J activation.  This changes the residual operator, so keep it
+! frozen-J activation. This changes the residual operator, so keep it
 ! opt-in and report its status in the JFNK context.
 	  JFNK_LAG_FACTORS=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_LAG_FACTORS,'JFNK_LAG_FACTORS',L_FALSE,
 	1     'Hold POPION and dissolution factors during frozen-J evals?')
 !
 ! FIX_T_AUTO damping ladder: the VARFIXT depth range becomes a
-! damped-T domain instead of a hard mask.  RE is the T-row residual
+! damped-T domain instead of a hard mask. RE is the T-row residual
 ! norm at admission; the rung advances when RE falls below
 ! JFNK_TAU_REL*RE0 after JFNK_TAU_NLOCK commits and reverts when the
 ! committed log-T step exceeds JFNK_TAU_EPS.
@@ -2065,7 +2065,7 @@
 ! the sufficient-decrease test uses the max |F| over the last
 ! JFNK_LS_NMWIN accepted iterates instead of the current |F|, which
 ! keeps the search working when the coupled residual carries sweep
-! noise.  Default T / window 4.
+! noise. Default T / window 4.
 !
 	  JFNK_LS_NM=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_LS_NM,'JFNK_LS_NM',L_FALSE,
@@ -2104,7 +2104,7 @@
 	  CALL RD_STORE_DBLE(JFNK_ROW_TINY,'JFNK_ROW_TINY',L_FALSE,
 	1     'Near-null row threshold for JFNK preconditioner blocks')
 !
-! Preconditioner audit keys (jfnk-precond-fixes).  All default to
+! Preconditioner audit keys (jfnk-precond-fixes). All default to
 ! historical behaviour; the jfnk_pc_* solver-module mirrors are set
 ! immediately below so the extracted block routines read them without
 ! a CONTROL_VARIABLE_MOD dependency.
@@ -2146,7 +2146,7 @@
 ! extrapolation on the ordered-march field iterate at pass
 ! boundaries -- accelerates the marginally contractive cells at
 ! strong compressions that otherwise stall the march short of the
-! bulk-maturity exit.  Applies to the ordered march only.
+! bulk-maturity exit. Applies to the ordered march only.
 !
 	  KN_ORD_AITKEN=.FALSE.
 	  CALL RD_STORE_LOG(KN_ORD_AITKEN,'KN_ORD_AITKEN',L_FALSE,
@@ -2168,9 +2168,9 @@
 	  CALL SET_FG_ORD_AA(KN_ORD_AA,KN_ORD_AA_M_V)
 !
 ! KN_ORD_P2DAMP (default FALSE): per-cell period-2 collapse in the
-! ordered refresh march.  After KN_ORD_P2N consecutive update-sign
+! ordered refresh march. After KN_ORD_P2N consecutive update-sign
 ! flips at a significant cell, the commit becomes the bracket
-! midpoint until KN_ORD_P2REL flip-free passes release it.  The
+! midpoint until KN_ORD_P2REL flip-free passes release it. The
 ! fixed point is unchanged -- only the relaxation path to it.
 !
 	  KN_ORD_P2DAMP=.FALSE.
@@ -2188,7 +2188,7 @@
 ! GS_UNSAFE_TOL unsafe tier in the SOLVE_FOR_POPS maturity gate for
 ! a divergence test on the refresh max residual -- unsafe only on
 ! non-finite values or growth above KN_GATE_DIV_FAC versus the
-! value KN_GATE_DIV_M refresh sweeps back.  Dormant by design:
+! value KN_GATE_DIV_M refresh sweeps back. Dormant by design:
 ! enabling changes gate policy and needs owner sign-off.
 !
 	  KN_GATE_DIVERGENCE=.FALSE.
@@ -2204,10 +2204,10 @@
 	  KN_GATE_DIV_M=MAX(1,MIN(KN_GATE_DIV_M,8))
 !
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
-! which a pass counts toward the NSTALL early exit.  Fires only on
+! which a pass counts toward the NSTALL early exit. Fires only on
 ! nearly flat passes so slowly contracting rays use more of
 ! KN_RAY_MAXPASS; 0.90 quit rays that were still contracting and
-! held nearly all unconverged cells in the m15 2.82d validation.
+! held nearly all unconverged cells in the 2.82d validation.
 !
 	  KN_RAY_STALL_V=0.98_LDP
 	  CALL RD_STORE_DBLE(KN_RAY_STALL_V,'KN_RAY_STALL',L_FALSE,
@@ -2220,7 +2220,7 @@
 ! relaxation weight is re-estimated from the per-pass residual
 ! sequence of the current refresh instead of the cross-iteration
 ! ratio, which miskeyed oscillation and marginal contraction to
-! the same omega~0.5.  F restores the cross-iteration rule.
+! the same omega~0.5. F restores the cross-iteration rule.
 !
 	  FG_ADAPT_OMEGA_V2_V=.TRUE.
 	  CALL RD_STORE_LOG(FG_ADAPT_OMEGA_V2_V,'FG_ADAPT_OMEGA_V2',
@@ -2239,7 +2239,7 @@
 ! KN_RAY_HOTPASSES (default 120) / KN_HOT_TOTAL_PASSES (default
 ! 480): extra per-ray pass budget when a stall or cap exit leaves
 ! residual only inside a contiguous hot-frequency run; the run
-! continues restricted to its window +/-2 bins.  The total bounds
+! continues restricted to its window +/-2 bins. The total bounds
 ! the refresh-wide spend so a hot-ray farm cannot dominate.
 !
 	  KN_RAY_HOTPASSES_V=120
@@ -2253,9 +2253,9 @@
 ! FG_COMMIT_JUMP (default 50.0): whole-ray commit rollback -- a
 ! refreshed store whose max |V1-V2|/max(V2,VMAX_S/FG_COMMIT_JUMP)
 ! (VMAX_S = the ray's stored column peak at that frequency) exceeds
-! this factor is rejected and the pre-refresh values stay.  Bounds
+! this factor is rejected and the pre-refresh values stay. Bounds
 ! the committed-near-blowup class (audit: retained delta 4.19E-1 ->
-! 5.03E3) while allowing genuine factor-of-few rewrites.  Under
+! 5.03E3) while allowing genuine factor-of-few rewrites. Under
 ! [FG_SEED_COMMIT]=T (default) the veto is waived per ray until its
 ! first WRITE_STORE commit.
 ! FG_DIV_HEAL_CAP (default 1e6): diverged-ray heal bound -- stored
@@ -2270,15 +2270,15 @@
 	1     L_FALSE,'Heal bound on diverged-ray poisoned store slots')
 !
 ! FG_COMMIT_CONV (17-Oct-2026, default T): fail-closed refresh
-! commits.  When T, a ray whose refresh solve exits on stall,
+! commits. When T, a ray whose refresh solve exits on stall,
 ! pass-cap or plateau (IXIT 3/4/6, residual still above KN_RAY_TOL)
 ! does not write its last iterate to the lagged store -- the
 ! pre-refresh generation stays as the seed instead of committing a
-! non-converged field bounded only by FG_COMMIT_JUMP (w19 class:
+! non-converged field bounded only by FG_COMMIT_JUMP (class:
 ! cap-exit commit at residual 0.465, retained delta 21).
 ! Default changed to T (edited 19-Oct-2026): the guard
-! only closed the w19 drift class when the VADAT key was set by
-! hand, so fail-open was the wrong default.  F remains available
+! only closed the drift class when the VADAT key was set by
+! hand, so fail-open was the wrong default. F remains available
 ! as an opt-in diagnostic.
 !
 	  FG_COMMIT_CONV_V=.TRUE.
@@ -2289,7 +2289,7 @@
 ! non-converged ray (bad exit class OR residual > KN_RAY_TOL --
 ! bulk exits are also caught, since IXIT=2 fires on the bad-cell
 ! fraction alone) takes a capped provisional commit, each cell
-! bounded to NC times its retained value.  w19's bulk-exit commits
+! bounded to NC times its retained value. 's bulk-exit commits
 ! of 8-27x at residual ~0.47 were the luminosity ratchet.
 ! Default changed to 0.05 (edited 19-Oct-2026): the NC=0
 ! pure-reject default starved the store on models where every ray
@@ -2313,9 +2313,9 @@
 ! On a cold/foreign store the in-sweep write pre-fills slots above
 ! the 1E-28 floor before the refresh runs, so the veto's cold-start
 ! exemption in FG_JUMP_MAX never fires and the converged first fill
-! is rejected ray by ray (KNOP_esB job 12586072: 67/85 rays
-! jump-rejected at fixed-point gaps of 1E2-6E2).  Each ray gets one
-! unguarded commit; FG_COMMIT_CONV still gates exit quality.  A
+! is rejected ray by ray (67/85 rays
+! jump-rejected at fixed-point gaps of 1E2-6E2). Each ray gets one
+! unguarded commit; FG_COMMIT_CONV still gates exit quality. A
 ! validated FGINEXT_GS restore marks all rays seeded (a committed
 ! generation exists), so requeue/restart behaviour is unchanged.
 ! F restores the unconditional veto.
@@ -2325,10 +2325,10 @@
 	1     'Waive commit-jump veto until each ray first commits?')
 	  CALL SET_FG_SEED_COMMIT(FG_SEED_COMMIT_V)
 !
-! Residual-accepted BA update (default FALSE).  The BA correction
+! Residual-accepted BA update (default FALSE). The BA correction
 ! is committed only when the SE residual after the previous BA
 ! step did not grow by more than BA_RES_GROW; per-depth
-! corrections above BA_TRUST are zeroed before scaling.  Cold
+! corrections above BA_TRUST are zeroed before scaling. Cold
 ! start is unaffected: LAMBDA iterations are not gated, and the
 ! first genuine BA step only arms the tracker.
 !
@@ -2362,8 +2362,8 @@
 !
 ! Per-equation quarantine (default FALSE): parks the specific
 ! (equation,depth) pairs that repeatedly fail acceptance so they
-! cannot veto the step or trip the whole-column trust mask.  See
-! CONTROL_VARIABLE_MOD for the contract.  Inert without
+! cannot veto the step or trip the whole-column trust mask. See
+! CONTROL_VARIABLE_MOD for the contract. Inert without
 ! DO_BA_RES_ACC.
 !
 	  DO_BA_QUAR=.FALSE.
@@ -2445,12 +2445,12 @@
 	  CALL RD_STORE_LOG(DO_SOB_FG_KNOP,'DO_SOB_FG_KNOP',L_FALSE,
 	1     'Use the Knop sign-aware formal solver for SOB+LAM_ES J')
 !
-! ES-ALI keys (27-Oct-2026): optional.  DO_ES_ALI turns on the
+! ES-ALI keys (27-Oct-2026): optional. DO_ES_ALI turns on the
 ! Olson-Auer-Buchler update of the coherent-ES Lambda iterate inside
 ! the USE_LAM_ES loop in COMP_J_BLANK; ES_ALI_TOL is the relative
 ! dJ/J convergence target per frequency and ES_ALI_MAX the cap on
 ! extra passes (clamped to 20, the existing J_IT_COUNTER forced
-! exit).  Defaults preserve the stock Lambda update.
+! exit). Defaults preserve the stock Lambda update.
 !
 	  DO_ES_ALI=.FALSE.
 	  CALL RD_STORE_LOG(DO_ES_ALI,'DO_ES_ALI',L_FALSE,
@@ -2463,7 +2463,7 @@
 	1     'Max J passes per frequency under ES-ALI (<=20)')
 	  IF(ES_ALI_MAX .GT. 20)ES_ALI_MAX=20
 !
-! BA-side ALI keys (28-Oct-2026): optional.  DO_ES_ALI_BA amplifies
+! BA-side ALI keys (28-Oct-2026): optional. DO_ES_ALI_BA amplifies
 ! the stored ALO diagonal in DO_VAR_CONT by the converged-ES Jacobi
 ! factor 1/(1 - DJDETA*chi_scat), floored at ES_ALI_BA_MIN.
 ! DO_FG13_ALO_TRI adds the stored off-diagonal Lambda* entries to
@@ -2481,7 +2481,7 @@
 !
 ! Residual-driven BA recall (default FALSE): while the judged
 ! residual still contracts, allow BAMAT recall past the FIX_BA
-! demand window.  Inert without DO_BA_RES_ACC, which supplies the
+! demand window. Inert without DO_BA_RES_ACC, which supplies the
 ! residual measurements; warn rather than alter the flag so the
 ! VADAT echo stays truthful.
 !
@@ -2506,7 +2506,7 @@
 	1    WRITE(LUER,*)'Warning: DO_BA_RES_REUSE=T has no effect'//
 	2    ' without DO_BA_RES_ACC.'
 !
-! Legacy keys retained so existing VADAT files remain readable.  Shock
+! Legacy keys retained so existing VADAT files remain readable. Shock
 ! deposition makes inner/outer luminosity agreement unsuitable for
 ! convergence control; both values are diagnostic-only.
 !
@@ -2529,7 +2529,7 @@
 	2    'LUM_DIV_FAC/LUM_DIV_N/LUM_DIV_CAP instead.'
 !
 ! LUM_DIV_* (17-Oct-2026, DO_NONMONO_KNOP only): sustained outer-
-! luminosity runaway detector.  Inner/outer agreement stays a
+! luminosity runaway detector. Inner/outer agreement stays a
 ! diagnostic (shock deposition makes it physically ambiguous), but
 ! factor-of-LUM_DIV_FAC growth for LUM_DIV_N consecutive calls is
 ! unambiguous divergence; LUM_DIV_CAP (L_sun) is the nonphysical
@@ -2551,9 +2551,9 @@
 !
 ! LUM_DIV_FAC2/LUM_DIV_N2 (17-Oct-2026): second, lower-factor streak.
 ! The FAC=1E2/N=3 detector misses a sustained geometric runaway of
-! ~10x per call (w19: 9.5E9 -> 5.9E14 L_sun in 7 iterations) -- the
+! ~10x per call (9.5E9 -> 5.9E14 L_sun in 7 iterations) -- the
 ! slow tier catches LUM_DIV_N2 consecutive calls each growing by
-! more than LUM_DIV_FAC2.  LUM_DIV_REC (default 1.0, 0 = never
+! more than LUM_DIV_FAC2. LUM_DIV_REC (default 1.0, 0 = never
 ! release) is the latch-recovery factor: once LUM_BLOCKED trips it
 ! holds until L_out falls back below LUM_DIV_REC times the
 ! pre-runaway level, so a single sub-threshold call cannot clear
@@ -2573,7 +2573,7 @@
 	  IF(LUM_DIV_REC .LT. 0.0_LDP)LUM_DIV_REC=1.0_LDP
 !
 ! LUM_DIV_FAC3/LUM_DIV_N3 (29-Oct-2026): drift tier for sustained
-! small-factor growth -- the l14_freet restart runaway climbed
+! small-factor growth -- the restart runaway climbed
 ! ~2%/call for 300 calls, invisible to the 5x/100x streak tiers.
 ! Default disabled (N3=0): a legitimate field re-equilibration can
 ! look identical, so enable per run.
@@ -2589,7 +2589,7 @@
 !
 ! GS_FOREIGN_SEED (29-Oct-2026): accept a fingerprint-valid,
 ! tag-mismatched FGINEXT_GS as a seed field instead of cold
-! rebuilding I_NEXT=0 (the warmS/l14_freet restart divergence).
+! rebuilding I_NEXT=0 (the / restart divergence).
 ! Default F: stock restore unchanged.
 !
 	  CALL RD_STORE_LOG(GS_FOREIGN_SEED,'GS_FOREIGN_SEED',L_FALSE,
@@ -2598,7 +2598,7 @@
 ! KN_LUM_TRACE (29-Oct-2026): opt-in first-detection scan of STEQ_T
 ! after each energy-equation accumulation site -- localizes which
 ! term makes DEP_RAD_EQ (and hence RLUMST(ND)) non-finite on the
-! warmS/l14_freet restarts.  Default F: no scans.
+! / restarts. Default F: no scans.
 !
 	  CALL RD_STORE_LOG(KN_LUM_TRACE,'KN_LUM_TRACE',L_FALSE,
 	1     'Trace first non-finite STEQ_T accumulation site')
@@ -2606,7 +2606,7 @@
 ! KN_REPAIR_T (30-Oct-2026): opt-in repair of non-finite T in a
 ! restored checkpoint -- rebuilds bad depths from the nearest finite
 ! neighbor at iteration entry so a crash-poisoned SCRTEMP can
-! self-heal.  Default F: bad T still trips DBG-T and the run stops.
+! self-heal. Default F: bad T still trips DBG-T and the run stops.
 !
 	  CALL RD_STORE_LOG(KN_REPAIR_T,'KN_REPAIR_T',L_FALSE,
 	1     'Repair non-finite T restored from checkpoint')
@@ -2621,7 +2621,7 @@
 	1     'KNOP: post-start calls with the LUM_DIV_CAP stop suppressed')
 !
 ! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
-! diagnostics.  2 reproduces the pre-existing output volume
+! diagnostics. 2 reproduces the pre-existing output volume
 ! (MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE plus the
 ! freeze dumps and the BA_RES_ACC trajectory); 1 drops the
 ! per-call trace lines and keeps ITER_SUM, ITER_MODE,
@@ -2636,7 +2636,7 @@
 	  LUM_RATIO_OI=1.0_LDP
 !
 ! The Knop chi_hat formalism is only implemented in the INTEGRAL
-! (short-characteristics) path of FG_J_CMF_NONMONO_V1.  The DIFFERENCE
+! (short-characteristics) path of FG_J_CMF_NONMONO_V1. The DIFFERENCE
 ! path does not construct chi_hat = chi + |GAM|/dLOG_NU and can be
 ! unstable for SIGMA < -1.
 !
@@ -2826,7 +2826,7 @@
 !
 ! Alternatively, we can set FIX_XzV for every ionization stage.
 !
-! NB: None of  the keywords need be present.
+! NB: None of the keywords need be present.
 !
 	  FIX_ALL_SPECIES=.FALSE.
 	  CALL RD_STORE_LOG(FIX_ALL_SPECIES,'FIX_ALL_SPEC',L_FALSE,'Fix all species?')
@@ -2897,7 +2897,7 @@
 !
 ! JFNK_TAUTO defaults to VARFIXT: FIX_T_AUTO=T switches the JFNK
 ! solver from hard-masking the variable-T range to adaptively
-! damping it.  An explicit JFNK_TAUTO key overrides.
+! damping it. An explicit JFNK_TAUTO key overrides.
 !
 	  JFNK_TAUTO=VARFIXT
 	  CALL RD_STORE_LOG(JFNK_TAUTO,'JFNK_TAUTO',JFNK_TAUTO,
@@ -2952,11 +2952,11 @@
 	  CALL RD_STORE_DBLE(MAX_LAM_COR,'MAX_LAM',L_TRUE,
 	1      'Maximum fractional change for lambda iteration ')
 !
-! edited 17-Oct-2026: MAX_LAM/MAX_LIN sanity checks.  Values
+! edited 17-Oct-2026: MAX_LAM/MAX_LIN sanity checks. Values
 ! <= 1 forbid any increase and deadlock the solver; MAX_LAM ~ 1D10
-! (used on the KNOP_jfnkrel run) makes the LAMBDA cap unbounded on
+! (used on the run) makes the LAMBDA cap unbounded on
 ! every path GS_LAM_CAP does not clip - warn loudly rather than stop,
-! since legacy pipelines set it high on purpose.  MAX_LAM < MAX_LIN
+! since legacy pipelines set it high on purpose. MAX_LAM < MAX_LIN
 ! inverts the documented intent (LAMBDA tolerates the larger step).
 !
 	  IF(MAX_LIN_COR .LE. 1.0_LDP .OR. MAX_LAM_COR .LE. 1.0_LDP)THEN
@@ -3010,7 +3010,7 @@
 ! LAMBDA<->full hysteresis: LAM_ENTER is the MAXCH_CTRL level that
 ! forces (back) into LAMBDA, LAM_EXIT is the level a LAMBDA sequence
 ! must stay under for LAM_N_STABLE consecutive iterations before a
-! full step is allowed again.  Defaulting both to LAM_VAL and the
+! full step is allowed again. Defaulting both to LAM_VAL and the
 ! stable count to 1 reproduces the legacy single-threshold switch.
 !
 	  VAL_ENTER_LAM=VAL_DO_LAM
@@ -3038,7 +3038,7 @@
 !
 ! BA_PROBE_LAM (optional, default 0 = off): while the raw-demand
 ! gate above is holding, release one probe step after this many
-! LAMBDA calls so BA_LAST_RAW can be re-measured.  Optional so
+! LAMBDA calls so BA_LAST_RAW can be re-measured. Optional so
 ! VADAT files without the key get NUM_LAM-only probing.
 !
 	  BA_PROBE_LAM=0
@@ -3131,13 +3131,13 @@
 ! DO_KNOP_REFRESH (default DO_NONMONO_KNOP): per-ray re-solve of the
 ! lagged compressing-branch coupling after each frequency sweep (Knop
 ! Paper II Sect. 3.2 ordering), replacing the one-bin-per-iteration
-! lag that cannot mature on strongly non-monotonic models.  The
+! lag that cannot mature on strongly non-monotonic models. The
 ! self-consistency pass below forces this flag T under
 ! DO_NONMONO_KNOP; under DO_NONMONO_SOB it serves the moment path
 ! (the SOB default USE_LAM_ES=F runs MOM_J_CMF_NONMONO_V1, whose
 ! lagged J_NEXT map needs the same within-sweep convergence).
 ! Read here, after USE_LAM_ES, so the default expression
-! sees the final value.  The MOM-side wiring (MOM_RF_ENABLED) is
+! sees the final value. The MOM-side wiring (MOM_RF_ENABLED) is
 ! re-synced on the post-read value so the earlier placeholder call
 ! does not leave the two sides disagreeing.
 !
@@ -3179,14 +3179,14 @@
 !
 ! ------------------------------------------------------------------
 ! Non-monotonic / JFNK self-consistency enforcement (edited
-! 16-Oct-2026).  The trigger flags DO_NONMONO_KNOP / DO_NONMONO_SOB /
+! 16-Oct-2026). The trigger flags DO_NONMONO_KNOP / DO_NONMONO_SOB /
 ! DO_JFNK auto-configure their dependent switches here so a model
 ! cannot run with an inconsistent combination; every override is
-! logged to LUER.  This block sits after the last read of every
+! logged to LUER. This block sits after the last read of every
 ! dependent key it touches (GLOBAL_LINE/LAM_SET ~744, FG_OPT ~596,
 ! USE_LAM_ES ~2347, the JFNK block ~1236-1660, the BA trace keys
 ! ~1818) and before the validation blocks below, which then re-check
-! the enforced values.  INC_GRID (ACCURATE) is read after this
+! the enforced values. INC_GRID (ACCURATE) is read after this
 ! point, so its KNOP override lives with the INC_GRID read itself.
 ! NG_ABSTAIN is likewise read after this block: its SOB absent-key
 ! auto-set stays here, and its base default is set just below so the
@@ -3197,9 +3197,9 @@
 ! One former opt-in override survives only as an absent-key default:
 ! under DO_NONMONO_KNOP an unset USE_LAM_ES defaults to T (the
 ! verified formal-solve pairing); an explicit F is honoured (the
-! MOM_J_CMF_NONMONO_V1 moment solve).  Under DO_NONMONO_SOB the
+! MOM_J_CMF_NONMONO_V1 moment solve). Under DO_NONMONO_SOB the
 ! default is F -- the user-requested moment path -- with an explicit
-! T selecting the V13 formal J.  DO_KNOP_REFRESH=F (the lagged-scheme
+! T selecting the V13 formal J. DO_KNOP_REFRESH=F (the lagged-scheme
 ! A/B comparison) is still overridden under KNOP.
 ! ------------------------------------------------------------------
 !
@@ -3209,7 +3209,7 @@
 !
 	  NG_ABSTAIN=.FALSE.
 !
-! Rule 1: DO_NONMONO_KNOP.  The Knop chi_hat formalism exists only in
+! Rule 1: DO_NONMONO_KNOP. The Knop chi_hat formalism exists only in
 ! the BLANKeted INTEGRAL path of FG_J_CMF_NONMONO_V1, so GLOBAL_LINE
 ! must be BLANK (or NONE with all TRANS_*=BLANK, still validated
 ! below), LAM_SET must stay off (it would reset GLOBAL_LINE to NONE
@@ -3236,7 +3236,7 @@
 ! edited 21-Oct-2026: an explicit USE_LAM_ES=F is honoured
 ! under KNOP -- MOM_J_CMF_NONMONO_V1 is a self-consistent J-update in
 ! this mode (its ray moments come from FG_J_CMF_NONMONO_V1 on
-! SIGMA_TRUE).  Only the absent-key default is lifted to T, the
+! SIGMA_TRUE). Only the absent-key default is lifted to T, the
 ! verified formal-solve pairing; explicit settings are never
 ! silently rewritten.
 	      CALL GET_KEY_STRING(TMP_STRING,'USE_LAM_ES',L_FALSE,
@@ -3266,7 +3266,7 @@
 	    IF(NO_VEL_FOR_CONTINUUM)THEN
 ! NOV_CONT=T with GLOBAL_LINE other than BLANK (e.g. NONE) clears
 ! CONT_VEL in COMP_J_BLANK, which silently hands the continuum to a
-! path with no KNOP coupling.  The non-monotonic run needs the
+! path with no KNOP coupling. The non-monotonic run needs the
 ! comoving continuum, so the switch must stay off here.
 	      NO_VEL_FOR_CONTINUUM=.FALSE.
 	      WRITE(LUER,'(A)')' KNOP auto-set: NOV_CONT=F'
@@ -3281,8 +3281,8 @@
 	    END IF
 !
 ! GS_PRECOND defaults T under KNOP (edited 20-Oct-2026):
-! the m15_2p82d KNOP run held populations at ~1E10% demand while
-! the field cycled release/refreeze.  An explicit VADAT setting is
+! the KNOP run held populations at ~1E10% demand while
+! the field cycled release/refreeze. An explicit VADAT setting is
 ! respected -- only the absent-key default is lifted.
 !
 	    CALL GET_KEY_STRING(TMP_STRING,'GS_PRECOND',L_FALSE,
@@ -3296,7 +3296,7 @@
 ! 20-Oct-2026): a release/refreeze limit cycle resets N_FROZEN at
 ! every release, so with no in-model cap a stuck run burns the
 ! whole requeue budget doing forced-LAMBDA iterations that cannot
-! converge (m15_2p82d: ~200 KNOP blocks with no progress).
+! converge (~200 KNOP blocks with no progress).
 ! Explicit VADAT values, including 0 = off, are respected.
 !
 	    CALL GET_KEY_STRING(TMP_STRING,'GS_FREEZE_LIM',L_FALSE,
@@ -3309,9 +3309,9 @@
 ! GS_PRECOND_LIM defaults to 50 under KNOP (edited,
 ! 20-Oct-2026): the precondition gate clears GS_FREEZE every call
 ! it fires on, so N_FROZEN never advances and GS_FREEZE_LIM is
-! unreachable there.  A demand that stays above GS_PRECOND_MAX
+! unreachable there. A demand that stays above GS_PRECOND_MAX
 ! through 50 live updates is a structural failure, not a
-! transient.  Explicit VADAT values, including 0 = off, are
+! transient. Explicit VADAT values, including 0 = off, are
 ! respected.
 !
 	    CALL GET_KEY_STRING(TMP_STRING,'GS_PRECOND_LIM',L_FALSE,
@@ -3324,8 +3324,8 @@
 ! GS_REL_NOPROG_LIM defaults to 10 under KNOP (edited,
 ! 20-Oct-2026): the release/refreeze cycle refunds the freeze
 ! clock at every release, so the cumulative no-progress count is
-! the earliest reachable stop on the m15_2p82d-class alternation
-! (~10 bad releases inside ~60 iterations).  Explicit VADAT
+! the earliest reachable stop on the -class alternation
+! (~10 bad releases inside ~60 iterations). Explicit VADAT
 ! values, including 0 = off, are respected.
 !
 	    CALL GET_KEY_STRING(TMP_STRING,'GS_REL_NOPROG_LIM',
@@ -3340,7 +3340,7 @@
 ! when the per-cell Doppler shift exceeds the frequency spacing, so
 ! the refresh residual asymptotes above KN_RAY_TOL and the field
 ! never matures (Ceulemans et al. 2025, JQSRT, arXiv:2505.08309;
-! Knop et al. 2009 II, A&A 501, 813).  An explicit VADAT setting is
+! Knop et al. 2009 II, A&A 501, 813). An explicit VADAT setting is
 ! respected -- only the absent-key default is lifted.
 !
 	  CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',L_FALSE,
@@ -3354,7 +3354,7 @@
 !
 ! edited 17-Oct-2026: the VADAT dump above echoes the
 ! pre-auto-set values, so it showed GS_REL_STABLE=1 while the solver
-! ran with 2 (KNOP_jfnkrel triage read the stale number).  Re-print
+! ran with 2 (triage read the stale number). Re-print
 ! the effective post-auto-set knobs so the log reflects what runs.
 !
 	    WRITE(LUER,'(A,I4,A,I4,3A)')
@@ -3364,7 +3364,7 @@
 !
 ! W1-W9 effective knobs (17-Oct-2026): echo the maturity-chain
 ! repair controls so the run log shows what the refresh/gate
-! actually ran with.  commit_conv/commit_nc/bulk_contr print the
+! actually ran with. commit_conv/commit_nc/bulk_contr print the
 ! effective values, so the post-19-Oct-2026 defaults (T/0.05/T)
 ! show up here whenever VADAT leaves them unset.
 !
@@ -3396,7 +3396,7 @@
 ! MOM-side accelerators (echo only): Anderson on the refresh map
 ! (MOM_RF_AA, default T), the same-map omega estimator
 ! (MOM_ADAPT_OMEGA_V2, default T) and the per-cell cycle-damp floor
-! MOM_DAMP_MIN.  These govern whether the ~1E-1 lagged-drift floor
+! MOM_DAMP_MIN. These govern whether the ~1E-1 lagged-drift floor
 ! is attacked at all; MOM_DAMP_MIN is read back through a getter
 ! because it is a solver PARAMETER, not a VADAT key.
 !
@@ -3408,11 +3408,11 @@
 	  END IF
 !
 ! Rule 1b: DO_SOB_FG_KNOP (SOB + USE_LAM_ES=T routed to
-! FG_J_CMF_NONMONO_V1).  The solver carries the same lagged,
+! FG_J_CMF_NONMONO_V1). The solver carries the same lagged,
 ! process-local I_NEXT coupling as the KNOP route, so the restart
 ! warm-up and maturity defaults must be lifted here as well --
 ! without N_LAM_RWARM a requeue takes a BA step against a zeroed
-! I_NEXT store (the 26-Oct-2026 _knp segfaults).  Explicit VADAT
+! I_NEXT store (the 26-Oct-2026 _knp segfaults). Explicit VADAT
 ! values are respected except DO_KNOP_REFRESH: the within-sweep
 ! refresh is integral to the route, matching KNOP.
 !
@@ -3444,11 +3444,11 @@
 	    END IF
 	  END IF
 !
-! Rule 2: DO_NONMONO_SOB.  SIGMA_TRUE only reaches the Sobolev line
+! Rule 2: DO_NONMONO_SOB. SIGMA_TRUE only reaches the Sobolev line
 ! routines, so GLOBAL_LINE must be SOB (or the validated all-SOB NONE
-! form).  JFNK_COUPLED=T under SOB is rejected at its own read --
+! form). JFNK_COUPLED=T under SOB is rejected at its own read --
 ! the coupled residual replays the KNOP continuum chain and never
-! recomputes the SOB line rates.  USE_LAM_ES is no longer forced
+! recomputes the SOB line rates. USE_LAM_ES is no longer forced
 ! (21-Oct-2026): the default is the moment path, so the within-sweep
 ! lag refresh (DO_KNOP_REFRESH, armed by default under LAM_ES=F) is
 ! live under SOB as well.
@@ -3469,11 +3469,11 @@
 	    END IF
 !
 ! edited 21-Oct-2026: USE_LAM_ES is no longer forced under
-! SOB.  The user asked for the moment path as the SOB default
+! SOB. The user asked for the moment path as the SOB default
 ! J-update: MOM_J_CMF_NONMONO_V1 with the fixed-J + GET_MOM_ALO_DIAG
 ! + GET_MOM_CELL_QUAR linearization in do_var_cont.f -- the same
-! recipe as KNOP+LAM_ES=F.  An explicit USE_LAM_ES=T keeps the V13
-! formal J update.  Both modes are announced loudly so the solver
+! recipe as KNOP+LAM_ES=F. An explicit USE_LAM_ES=T keeps the V13
+! formal J update. Both modes are announced loudly so the solver
 ! in use is never silent.
 !
 	    IF(.NOT. USE_LAM_ES)THEN
@@ -3494,7 +3494,7 @@
 ! DO_NONMONO_FREQ_MATCH defaults T under SOB+LAM_ES=F: the same
 ! one-bin upwind coupling argument as the KNOP auto-set applies --
 ! the moment solver's lagged J_NEXT map gains order unity when the
-! per-cell Doppler shift exceeds the frequency spacing.  Explicit
+! per-cell Doppler shift exceeds the frequency spacing. Explicit
 ! VADAT settings are respected.
 !
 	      CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',
@@ -3519,7 +3519,7 @@
 ! DO_FG13_ALO defaults T under SOB+LAM_ES=T: FG_J_CMF_V13 stores
 ! the diagonal OAB operator of the formal solve it just ran, so
 ! the continuum Jacobian gets real dJ/dCHI, dJ/dETA self-coupling
-! instead of a pure Lambda step.  Explicit settings respected.
+! instead of a pure Lambda step. Explicit settings respected.
 !
 	      CALL GET_KEY_STRING(TMP_STRING,'DO_FG13_ALO',L_FALSE,
 	1     L_FALSE_TMP)
@@ -3573,7 +3573,7 @@
 ! the unverified moment path; DO_BA_RES_REUSE recalls the stored BA
 ! matrix while the judged residual still contracts; NG_ABSTAIN keeps
 ! the contracting components of an NG correction rather than vetoing
-! the whole step.  The NG_ABSTAIN probe must stay here: its read
+! the whole step. The NG_ABSTAIN probe must stay here: its read
 ! site sits ~300 lines later, after enough other reads that the
 ! GET_KEY_STRING cursor skip no longer applies (22-Oct-2026).
 !
@@ -3599,9 +3599,9 @@
 	    END IF
 	  END IF
 !
-! Rule 3: DO_JFNK.  Arm the stable/globalized formulation when the
+! Rule 3: DO_JFNK. Arm the stable/globalized formulation when the
 ! solver is on: log unknown, pseudo-transient continuation, Armijo
-! backtracking and the Cauchy fallback.  JFNK_MAX_SEC=0 leaves no
+! backtracking and the Cauchy fallback. JFNK_MAX_SEC=0 leaves no
 ! wall-clock guard, so a stuck activation could consume the whole
 ! job; a zero value is raised to the one-hour budget.
 !
@@ -3633,13 +3633,13 @@
 	    END IF
 	  END IF
 !
-! Rule 4: trace-polish arming.  Only values left at their auto (-1)
+! Rule 4: trace-polish arming. Only values left at their auto (-1)
 ! sentinels are set; explicit user settings, including 0 = off, are
-! respected.  The demand floors exempt trace rows from the MAXCH
+! respected. The demand floors exempt trace rows from the MAXCH
 ! metric, and BA_TR_MAXSWP bounds the Stage-B polish sweeps once the
-! majors converge.  An explicit BA_TR_MAXSWP=0 stays 0 and disables
+! majors converge. An explicit BA_TR_MAXSWP=0 stays 0 and disables
 ! the polish (BA_TRACE_NEEDED requires it > 0); the previous 0 -> 5
-! rewrite made the documented disable unreachable.  Likewise an
+! rewrite made the documented disable unreachable. Likewise an
 ! explicit BA_TR_ABSMAX=0 stays 0 and disables the absolute trace
 ! gate (both BA_TRACE_NEEDED legs require it > 0); the previous
 ! 0 -> 1E-08 rewrite made that off-state unreachable.
@@ -3659,7 +3659,7 @@
 !
 ! DO_NONMONO_SOB only steers the Sobolev line routines (SUB_SOB_LINE_V3,
 ! SOBEW*) through SIGMA_TRUE; if no line is SOB-treated the flag is dead
-! code.  GLOBAL_LINE=SOB is therefore mandatory [GLOBAL_LINE].  The
+! code. GLOBAL_LINE=SOB is therefore mandatory [GLOBAL_LINE]. The
 ! GLOBAL_LINE=NONE per-species form is accepted only when every ion
 ! present has TRANS_*=SOB (equivalent setup); a CMF or BLANK species
 ! would silently keep the stock clamped-sigma treatment the flag exists
@@ -3696,11 +3696,11 @@
 ! MOM_J_CMF_NONMONO_V1 with the fixed-J + GET_MOM_ALO_DIAG
 ! linearization; an explicit T keeps the V13 formal ray solution.
 ! The moment path's runtime status on the current build is
-! unverified -- the m15 divergence probes predate the solver rework.
+! unverified -- the divergence probes predate the solver rework.
 !
 ! LAM_SET is redundant with GLOBAL_LINE=SOB (every line is already SOB)
 ! and resets GLOBAL_LINE_SWITCH to NONE at run time, which changes the
-! OVERLAP handling in CMFGEN_SUB.  Warn only.
+! OVERLAP handling in CMFGEN_SUB. Warn only.
 !
 	    IF(SET_TRANS_TYPE_BY_LAM)THEN
 	      WRITE(LUER,*)'Warning: LAM_SET=T is redundant with'
@@ -3715,9 +3715,9 @@
 	  END IF
 !
 ! DO_NONMONO_KNOP consistency checks (deferred until the solver-mode
-! flags have been read).  The Knop formal solver replaces FG_J_CMF_V13
+! flags have been read). The Knop formal solver replaces FG_J_CMF_V13
 ! on the standard (non-extended) grid, with J from the formal solution
-! (Lambda iteration).  The enforcement block above keeps T as the
+! (Lambda iteration). The enforcement block above keeps T as the
 ! absent-key default but honours an explicit USE_LAM_ES=F
 ! (MOM_J_CMF_NONMONO_V1); the stock MOM_J_CMF_V11 (clamped SIGMA,
 ! one-way PREV coupling) is never selected in KNOP mode either.
@@ -3741,7 +3741,7 @@
 	    END IF
 !
 ! The Knop solver only replaces the blanketed (continuum+line) transfer
-! in COMP_J_BLANK; GLOBAL_LINE=BLANK is therefore mandatory.  The
+! in COMP_J_BLANK; GLOBAL_LINE=BLANK is therefore mandatory. The
 ! GLOBAL_LINE=NONE per-species form is accepted only when every ion
 ! present has TRANS_*=BLANK (equivalent setup); a SOB or CMF species
 ! would silently keep the stock clamped-sigma treatment the flag exists
@@ -3774,7 +3774,7 @@
 ! LAM_SET rewrites lines outside [F_LAM_BEG,F_LAM_END] to SOB at run
 ! time and resets GLOBAL_LINE_SWITCH to NONE: those lines would get the
 ! stock clamped-sigma Sobolev treatment, inconsistent with the
-! non-monotonic field.  Not allowed under [DO_NONMONO_KNOP].
+! non-monotonic field. Not allowed under [DO_NONMONO_KNOP].
 !
 	    IF(SET_TRANS_TYPE_BY_LAM)THEN
 	      WRITE(LUER,*)'Error in RD_CONTROL_VARIABLES:'
@@ -3788,12 +3788,12 @@
 ! DO_BA_RES_ACC is not a hard requirement, but it is the verified guard:
 ! a BA step taken against an immature lagged Knop field needs the
 ! residual gate to roll back, and the GS release trials are adjudicated
-! through BAACC_PENDING -- unjudged without it.  Absent-key auto-set to
+! through BAACC_PENDING -- unjudged without it. Absent-key auto-set to
 ! T (22-Oct-2026): every validated KNOP config already sets it
 ! explicitly, and SOLVEBA_V13 handles the LAMBDA-phase calls and the
-! MOM/FG lagged-field rollback under it.  An explicit F is still
+! MOM/FG lagged-field rollback under it. An explicit F is still
 ! honoured for controlled F baselines (the warning below keeps
-! covering that case).  The GET_KEY_STRING probe is safe here -- the
+! covering that case). The GET_KEY_STRING probe is safe here -- the
 ! key's read site sits ~1200 lines earlier.
 !
 	    CALL GET_KEY_STRING(TMP_STRING,'DO_BA_RES_ACC',L_FALSE,
@@ -3811,7 +3811,7 @@
 !
 ! GET_NON_LOCAL_GAMMA_ENERGY_V2 maps NONLOCAL and cached RAD_TRANS
 ! deposition tables on V; that coordinate is multi-valued under a
-! non-monotonic field.  An uncached RAD_TRANS call instead uses
+! non-monotonic field. An uncached RAD_TRANS call instead uses
 ! GAMRAY_SUB_V3/CMF_FORMAL_REL_V4_GAM, a signed-SIGMA legacy solver.
 ! LOCAL and ABS_TRANS do not use V as an independent coordinate.
 !
@@ -3829,9 +3829,9 @@
 !
 ! All available clumping laws are parameterized by V (or spline nodes
 ! on V), so repeated velocities on a non-monotonic V(R) profile force
-! the same clumping factor onto physically different radii.  Several
+! the same clumping factor onto physically different radii. Several
 ! laws also normalize against V(1), which need not be the outer or
-! maximum velocity scale in this mode.  Reject DO_CL rather than
+! maximum velocity scale in this mode. Reject DO_CL rather than
 ! silently assigning ambiguous clumping.
 !
 	  IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND. DO_CLUMP_MODEL)THEN
@@ -3850,7 +3850,7 @@
 !
 ! DO_NONMONO_KNOP is incompatible with the enhanced-grid (ACCURATE)
 ! branch of COMP_J_BLANK, which calls MOM_J_CMF_V11 after the formal
-! transfer and is not non-monotonic safe.  Auto-set rather than STOP
+! transfer and is not non-monotonic safe. Auto-set rather than STOP
 ! (16-Oct-2026 self-consistency pass; INC_GRID is read after the main
 ! enforcement block above, so its override lives here).
 !
@@ -3889,10 +3889,10 @@
 	1      'Accuracy with which to compute the eddington factor f')
 !
 ! SUP_FCONV_IT1 (dev7): summarize rather than print the per-frequency
-! 'Possible error converging f' warnings during great iteration 1.  The
+! 'Possible error converging f' warnings during great iteration 1. The
 ! iteration-1 EDDFACTOR build starts from FOLD=0 with unrelaxed
 ! populations, so thousands of marginal warnings are expected and flood
-! OUTGEN.  Later-iteration warnings still print individually.  Default
+! OUTGEN. Later-iteration warnings still print individually. Default
 ! TRUE; set F in VADAT to restore per-frequency iteration-1 prints.
 !
 	  SUPPRESS_FCONV_IT1=.TRUE.
@@ -3917,15 +3917,15 @@
 	     STOP
 	  END IF
 !
-! NG_ABSTAIN: see CONTROL_VARIABLE_MOD.  Optional (L_FALSE); absent
-! key leaves the upstream all-or-nothing veto in place.  The base
+! NG_ABSTAIN: see CONTROL_VARIABLE_MOD. Optional (L_FALSE); absent
+! key leaves the upstream all-or-nothing veto in place. The base
 ! default is set before the enforcement block above (NG_ABSTAIN
 ! carries no module initializer), so an SOB auto-set survives this
 ! read site -- the old unconditional .FALSE. here silently undid it
-! (announced T, ran F; 22-Oct-2026).  NB: GET_KEY_STRING cannot
+! (announced T, ran F; 22-Oct-2026). NB: GET_KEY_STRING cannot
 ! re-probe this key here -- its I_DWN/I_UP cursor brackets the index
 ! just consumed by RD_STORE_LOG, so a probe immediately after the
-! read reports not-found.  Presence checks must run earlier.
+! read reports not-found. Presence checks must run earlier.
 !
 	  CALL RD_STORE_LOG(NG_ABSTAIN,'NG_ABSTAIN',L_FALSE,
 	1   'Hold non-contractive/non-positive NG components per-component?')
