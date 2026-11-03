@@ -146,8 +146,15 @@
 !
 	LN_INDX=1
 	IF(.NOT. INCL_ALL_LINES)THEN
-	  DO WHILE(LN_INDX .LE. N_LINES .AND.
-	1                       TRANS_TYPE(LN_INDX)(1:3) .NE. 'BLA')
+! Bug fix (NOT flag-gated): Fortran does not short-circuit .AND., so the
+! upstream loop read TRANS_TYPE(N_LINES+1) whenever no BLANK transition
+! exists - the case for all-SOB decks (GLOBAL_LINE=SOB with no BLANK
+! species).  Caused an out-of-bounds read (crash at it3 on the lucw wind
+! model, caught by the debug build bounds check).  EXIT form is
+! identical when a BLANK transition exists; with none, LN_INDX correctly
+! ends at N_LINES+1 meaning "all lines are non-BLANK".
+	  DO WHILE(LN_INDX .LE. N_LINES)
+	    IF(TRANS_TYPE(LN_INDX)(1:3) .EQ. 'BLA')EXIT
 	    LN_INDX=LN_INDX+1
 	  END DO
 	END IF
