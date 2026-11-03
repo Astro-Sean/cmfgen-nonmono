@@ -895,16 +895,28 @@ acceleration.
 - Dependencies: P3-010.
 - Completion: 2026-11-03.
 
-### [ ] P3-021 - Audit MOM_GAM_PIN
+### [x] P3-021 - Audit MOM_GAM_PIN
 - Priority: P1
 - Description: audit MOM_GAM_PIN - pinned GAM values option,
   semantics, defaults, interaction with the advection term.
-- Evidence: none found.
-- Files: `mom_j_cmf_nonmono_v1.f`, `rd_control_variables.f`.
-- Action: trace and document.
-- Acceptance: written audit.
+- Evidence: implementation audited (2026-11-03). Default T, wired
+  via SET_MOM_LAG_OPTS. All four lagged-factor sites pin to the
+  current-frequency evaluation when on: GAMH_FAC_PREV (~2020),
+  GAM_FAC_PREV (~2147), EPS_PREV (~2276), and the boundary
+  HBC/NBC evaluation (~2875). With the pin, PSIPREV=PSI exactly
+  and WPREV=W, so the explicit upwind weight can never exceed the
+  implicit diagonal - the documented cure for the lagged/current
+  sign-and-magnitude drift near 1+sigma*K=0 that made the
+  explicit term outweigh the implicit one (m15 probes). Off
+  restores the independent PREV evaluation (same floor + exact-zero
+  form on K_ON_J_PREV/NMID_ON_HMID_PREV/NMID_ON_J_PREV). No defect:
+  consistent sites, correct sign conventions, upstream semantics
+  preserved behind the key.
+- Files: `mom_j_cmf_nonmono_v1.f`.
+- Action: none - implementation matches documented design.
+- Acceptance: written audit above.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: 2026-11-03.
 
 ### [ ] P3-022 - Measure existing inner and outer Anderson acceleration
 - Priority: P1
