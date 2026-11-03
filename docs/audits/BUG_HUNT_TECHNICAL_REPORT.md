@@ -141,6 +141,24 @@ See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
   handled (`info=-4` -> `gmres_dgelsy_error` -> not converged), and
   the warning is identical on the pre-fix solver. Cosmetic noise in
   a deliberate invalid-input test; no production change required.
+- BUG-004 (P2 suspected): the zero-GAM resonance construction in
+  `mom_j_cmf_nonmono_v1.f` - `SIGN(MAX(|T1|,1e-2),T1)` with a
+  `T1==0 -> fac=0` exception on all four angle-factor sites.
+  Refuted as a defect. The sign flip at `1+sigma*K_ON_J=0` is the
+  physical transport-direction reversal (sign(Q), upwind stencil);
+  the floor bounds the coefficient jump at 2*MOM_GAM_FAC_MIN; the
+  exact-zero exception returns the physically correct decoupled
+  row (Q=PSI=0, chi_hat=chi) which is well-conditioned via its
+  absorption and spatial terms. Manufactured-shelf evidence:
+  36 bitwise-resonant cells fully decouple while a shelf-edge
+  T1=3.3e-16 cell takes the floor (Q=1.6e-4, ~25x below the
+  neighbouring coupling, ~4 orders below the diagonal). 85/85
+  moment unit tests pass with no J step at the resonance. The
+  construction is a documented regularization honouring the
+  exact physical limit - keep the `MOM_GAM_FAC_MIN` activation
+  census (PASS_NRES) under observation in production runs, and
+  see the register for two cosmetic observations (phantom
+  `GAMH_FAC_NM(ND)` fill; census counts exact-zero cells).
 
 ## 5. Validation gaps
 
