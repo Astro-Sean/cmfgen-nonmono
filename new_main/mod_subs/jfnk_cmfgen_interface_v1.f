@@ -433,6 +433,9 @@
 ! linearization point and must not feed the additivity defect).
 !
 	JFNK_LIN_STAGE=0
+	JFNK_HADAPT_MODE=-1
+	JFNK_HADAPT_REARM=.FALSE.
+	JFNK_HADAPT_MULT=1.0_LDP
 !
 ! W11/W12 (17-Oct-2026): per-activation state -- a stale enriched
 ! apply or census mask must not survive into a new baseline.
@@ -2275,6 +2278,15 @@
 	JFNK_ENRICH_ACTIVE=.FALSE.
 	JFNK_ENRICH_KLOC=0
 !
+! A rebuilt baseline is a different linearization point. Re-arm the
+! opt-in h-selection and operator-consistency probes so their saved
+! state cannot cross the rebuild.
+!
+	JFNK_LIN_STAGE=0
+	JFNK_HADAPT_MODE=-1
+	JFNK_HADAPT_REARM=.FALSE.
+	JFNK_HADAPT_MULT=1.0_LDP
+!
 ! Clipping parameters (must match the final update in
 ! solve_for_pops_jfnk_v1.f)
 !
@@ -2690,7 +2702,6 @@
 	DOUBLE PRECISION, ALLOCATABLE, SAVE :: JV_AN2(:)
 	DOUBLE PRECISION FD_NORM, AN_NORM, DIFF_NORM, DIF2_NORM
 	DOUBLE PRECISION RT_FD, RT_BA, RT_DEN, VREG, VTOT
-	LOGICAL, SAVE :: JVP_DIAG_DONE = .FALSE.
 	LOGICAL, SAVE :: BA_JVP_NOTED = .FALSE.
 	LOGICAL CLIP_SAV
 	INTEGER NZMAX_SAV, NPROJ_SAV, JR_L
@@ -2730,7 +2741,7 @@
 !
 	DOUBLE PRECISION, ALLOCATABLE :: DIR_LIN(:), JV_LIN(:)
 	DOUBLE PRECISION W_INF_L, DEF_INF, DEN_INF
-	INTEGER NBAD_SAV, NCLIP_SAV
+	INTEGER NBAD_SAV, NCLIP_SAV, MODE_HA
 	LOGICAL EVB_SAV
 !
 ! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
@@ -2987,11 +2998,18 @@
 	1   H_STEP = H_STEP * JFNK_PROBE_HSCALE
 !
 ! [JFNK_HADAPT] multiplier selected by the plateau finder below. The
-! sweep multipliers are relative to the post-cap H_STEP, so the
-! selected factor applies at the same point: the production eval then
-! repeats a scanned step. A selected step that still crosses a clip
-! bound is handled by the ordinary retry/validity logic below.
+! plateau is mode- and baseline-specific; frozen/coupled residuals and
+! rebuilt baselines can have different noise floors, so a stale h must
+! not silently carry over. Re-arming clears the one-shot diag gate so
+! the next post-factorization direction runs the sweep.
 !
+	MODE_HA=MERGE(1,0,JFNK_COUPLED_LOC)
+	IF(JFNK_HADAPT .AND. JFNK_HADAPT_MODE .NE. MODE_HA)THEN
+	  JFNK_HADAPT_MODE=MODE_HA
+	  JFNK_HADAPT_MULT=1.0_LDP
+	  JFNK_HADAPT_REARM=.TRUE.
+	  JFNK_JVP_DIAG_DONE=.FALSE.
+	END IF
 	IF(JFNK_HADAPT_MULT .NE. 1.0_LDP)
 	1   H_STEP = H_STEP * JFNK_HADAPT_MULT
 	IF(.NOT. (H_STEP .GT. 0.0D0) .OR.
@@ -3114,7 +3132,10 @@
 !
 ! Gate on JFNK_FACTOR_DONE, not JFNK_LU_READY: the latter only fires on
 ! the LU/SCHUR paths, so the diagnostic silently skipped JACOBI runs.
-	IF(JVP_DIR_CT .LT. JFNK_JVP_NDIR .AND. JFNK_FACTOR_DONE)THEN
+! A re-armed HADAPT sweep bypasses JFNK_JVP_NDIR because it selects the
+! production FD step rather than only reporting FD-vs-BA agreement.
+	IF((JVP_DIR_CT .LT. JFNK_JVP_NDIR .OR. JFNK_HADAPT_REARM) .AND.
+     1   JFNK_FACTOR_DONE)THEN
 	  JVP_DIR_CT = JVP_DIR_CT + 1
 	  IF(.NOT. ALLOCATED(JV_ANAL)) ALLOCATE(JV_ANAL(N))
 	  JV_ANAL(1:N) = 0.0D0
@@ -3252,10 +3273,10 @@
 ! demand rather than only after a >10% FD-BA disagreement. [JFNK_HADAPT]
 ! needs the same sweep to select its operating step.
 !
-	  IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
+	  IF(.NOT. JFNK_JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
      1    (DIFF_NORM/MAX(AN_NORM,1.0D-30) .GT. 0.1D0 .OR.
      2     JFNK_HSCAN .OR. JFNK_HADAPT))THEN
-	    JVP_DIAG_DONE = .TRUE.
+	    JFNK_JVP_DIAG_DONE = .TRUE.
 ! Fence the solver-side status flags around the probe evals below
 ! (audit 07-Nov-2026): the h-sweep trials step to 1E5*h and can end
 ! on an nbad/broken eval, and the routine exits this block without a
@@ -3440,6 +3461,7 @@
 	      CALL JFNK_H_SELECT_V1(JV_SW, SW_OK, N, 8, 0.3D0,
 	1        IBEST_HA, HAD_REL)
 	      IF(IBEST_HA .GT. 0)THEN
+	        JFNK_HADAPT_REARM=.FALSE.
 	        JFNK_HADAPT_MULT=H_ARR(IBEST_HA)
 	        JV(1:N)=JV_SW(1:N,IBEST_HA)
 ! Advance H_STEP itself to the selected step so the probes below and
@@ -3451,6 +3473,7 @@
 	2        ' heff=',H_STEP,
 	3        ' pair drift=',HAD_REL,' coupled=',JFNK_COUPLED_LOC
 	      ELSE
+	        JFNK_HADAPT_REARM=.FALSE.
 	        WRITE(JFNK_LUER,'(A,ES12.4,A)')
 	1        '    JFNK_HADAPT: no stable h plateau (best drift=',
 	2        HAD_REL,') -- flagging JVP failure'
