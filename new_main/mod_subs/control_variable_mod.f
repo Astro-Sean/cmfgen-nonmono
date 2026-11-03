@@ -2222,15 +2222,20 @@
 ! Krylov space on an unmeasured derivative.
 	LOGICAL JFNK_HADAPT
 !
-! JFNK_TRES_FAC (VADAT [JFNK_TRES_FAC], default 0 = off): GMRES
-! true-residual acceptance. When > 0, a claimed LSQ convergence
-! (res <= tol) in gmres_m_v1 is verified by an explicit residual
-! eval and accepted only when true_res <= JFNK_TRES_FAC*tol; a
-! rejected claim restarts the cycle on the measured true residual
-! (bounded by JFNK_GMRES_RST and the iteration cap) or exits with
-! jfnk_exit_reason='gmres_tres_reject'. The measured true residual
-! is also printed at every done-exit. Costs one residual eval per
-! GMRES exit.
+! JFNK_TRES_FAC (VADAT [JFNK_TRES_FAC], default 1.0): GMRES
+! true-residual acceptance bound. At every done-exit gmres_m_v1
+! measures the true weighted linear residual ||b - A x||_w with one
+! extra matvec (unconditional since 03-Nov-2026 -- the Hessenberg
+! model residual can sit 15x-450x below the measured value under an
+! FD matvec, so a claimed LSQ convergence, res <= tol, is accepted
+! only when true_res <= JFNK_TRES_FAC*tol). A rejected claim
+! restarts the cycle on the measured true residual (bounded by
+! JFNK_GMRES_RST and the iteration cap) or exits with
+! jfnk_exit_reason='gmres_tres_reject'. Values <= 0 are invalid and
+! revert to 1.0 -- no setting disables the verification; > 1
+! relaxes the verified bound, weakening the inexact-Newton
+! guarantee (diagnostic use only). Costs one residual eval per
+! GMRES done-exit.
 	REAL(KIND=LDP) JFNK_TRES_FAC
 !
 ! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
