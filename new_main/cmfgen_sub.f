@@ -5857,6 +5857,28 @@
 	INRLX_SAV=INEXT_RELAX
 	KRFPRV_SAV=KN_RF_RESID_PRV
 !
+! Coupled-SOB line-replay bracket ([JFNK_COUPLED_SOB], default F):
+! under DO_NONMONO_SOB the eval replays the SECTION='LINE' pass, so
+! JFNK_EVAL_LSTATE_V1('S') saves every line-module array and scalar the
+! replay can write. It must arm here -- with the other entry saves,
+! before the first mutation below (ACCESS_F, JFNK_IN_EVAL, EDDINGTON,
+! COMPUTE_BA, the two-photon and SL accumulator zeroing). Its guarded
+! allocation shares the GOTO 9999 early-exit tail with the saves
+! above, and that tail is only valid while no production state has
+! been touched; armed late (as it was until 03-Nov-2026), a failed
+! save returned with EDD_CONT, COMPUTE_BA=F and JFNK_IN_EVAL=T still
+! live - and JFNK_IN_EVAL has no other reset, so every later
+! production sweep would have run in eval mode (cold FOLD seed,
+! softened STOPS, lagged-J records never overwritten). COMPUTE_EW=F
+! still sits with the other eval mutations below; LSTATE must save
+! the flag before that write, which this ordering preserves.
+!
+	JFNK_EVAL_SOB_LINES=DO_NONMONO_SOB .AND. JFNK_COUPLED_SOB
+	IF(JFNK_EVAL_SOB_LINES)THEN
+	  CALL JFNK_EVAL_LSTATE_V1('S',IOS_EVAL)
+	  IF(IOS_EVAL .NE. 0)GOTO 9999
+	END IF
+!
 	ACCESS_F_SAVE=ACCESS_F
 	IF(JFNK_EDD_START_REC .GT. 0)ACCESS_F=JFNK_EDD_START_REC
 	JFNK_IN_EVAL=.TRUE.
@@ -5941,22 +5963,16 @@
 ! DO_NONMONO_SOB the eval must also replay the SECTION='LINE' pass so
 ! the residual contains the Sobolev line rates the production assembly
 ! computes. That replay mutates the line-module workspace below
-! (JBAR/ZNET_SIM/CHIL_MAT/...) -- JFNK_EVAL_LSTATE_V1('S') saves every
-! array and scalar it can write so the production state returns
-! bit-for-bit at the epilogue restore. Runs before any eval-side
-! mutation, same early-exit discipline as the brackets above.
+! (JBAR/ZNET_SIM/CHIL_MAT/...) -- JFNK_EVAL_LSTATE_V1('S') saved every
+! array and scalar it can write in the entry-save block above, so the
+! production state returns bit-for-bit at the epilogue restore.
 !
 ! COMPUTE_EW is forced off for the whole eval: under it SUB_CMF_LINE
 ! would read/write LU_JEW records and corrupt the production JEW
 ! record trail. EW values are last-iteration diagnostics only -- they
 ! never enter the residual. Saved by the same bracket.
 !
-	JFNK_EVAL_SOB_LINES=DO_NONMONO_SOB .AND. JFNK_COUPLED_SOB
-	IF(JFNK_EVAL_SOB_LINES)THEN
-	  CALL JFNK_EVAL_LSTATE_V1('S',IOS_EVAL)
-	  IF(IOS_EVAL .NE. 0)GOTO 9999
-	  COMPUTE_EW=.FALSE.
-	END IF
+	IF(JFNK_EVAL_SOB_LINES)COMPUTE_EW=.FALSE.
 !
 ! A coupled eval re-runs the whole frequency loop, so every per-frequency
 ! diagnostic (f-convergence warnings, solver banners) would hit OUTGEN
