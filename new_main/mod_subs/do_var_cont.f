@@ -413,7 +413,7 @@
 	     END IF
 	     IF(ALO_OK)THEN
 !
-! edited by Devin, 28-Oct-2026: ES-scattering-consistent
+! edited 28-Oct-2026: ES-scattering-consistent
 ! amplification of the stored diagonal [DO_ES_ALI_BA].  TA/TB are
 ! the bare-Lambda response dJ/dCHI, dJ/dETA; the J that returns
 ! from the formal solve has been through the converged coherent-ES
@@ -441,7 +441,7 @@
 	         TX(K,K,2)=TB(K)
 	       END DO
 !
-! edited by Devin, 28-Oct-2026: tridiagonal Lambda* off-diagonals
+! edited 28-Oct-2026: tridiagonal Lambda* off-diagonals
 ! [DO_FG13_ALO_TRI].  TRA/TRB are dJ(K)/dCHI,dETA at depth K-1;
 ! TRC/TRD the same at K+1 (GET_FG13_ALO_TRI).  Effective only when
 ! NUM_BNDS >= 3 -- with a diagonal BA the off-bands never reach VJ,
