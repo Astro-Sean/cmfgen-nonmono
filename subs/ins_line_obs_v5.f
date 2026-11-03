@@ -59,9 +59,9 @@
 ! Local variables.
 !
 	REAL(KIND=LDP) MAX_B_EXTENT		!Maximum blueward extent of line profile
-	REAL(KIND=LDP) MAX_R_EXTENT		!Maximum  redward extent of line profile
+	REAL(KIND=LDP) MAX_R_EXTENT		!Maximum redward extent of line profile
 	REAL(KIND=LDP) MAX_BW_EXTENT		!Maximum blueward extent of e.s. wings
-	REAL(KIND=LDP) MAX_RW_EXTENT		!Maximum  redward extent of e.s. wings
+	REAL(KIND=LDP) MAX_RW_EXTENT		!Maximum redward extent of e.s. wings
 !
 	REAL(KIND=LDP) PROF_SPACING
 	REAL(KIND=LDP) WING_SPACING
@@ -149,8 +149,8 @@
 ! Bug fix (NOT flag-gated): Fortran does not short-circuit .AND., so the
 ! upstream loop read TRANS_TYPE(N_LINES+1) whenever no BLANK transition
 ! exists - the case for all-SOB decks (GLOBAL_LINE=SOB with no BLANK
-! species).  Caused an out-of-bounds read (crash at it3 on the lucw wind
-! model, caught by the debug build bounds check).  EXIT form is
+! species). Caused an out-of-bounds read (crash at on the wind
+! model, caught by the debug build bounds check). EXIT form is
 ! identical when a BLANK transition exists; with none, LN_INDX correctly
 ! ends at N_LINES+1 meaning "all lines are non-BLANK".
 	  DO WHILE(LN_INDX .LE. N_LINES)
@@ -167,14 +167,14 @@
 ! Changed from NU_MIN/MAX_RW_EXTENT to 1.1D0*NU_MIN becaus of SN models, which
 ! can have an extremely large VINF (19-June-2009).
 !
-!	DO WHILE( FREQ(INDX) .GT. NU_MIN/MAX_RW_EXTENT )
+!	DO WHILE(FREQ(INDX) .GT. NU_MIN/MAX_RW_EXTENT )
 !	CALL TUNE(1,'DO_WHILE')
 	DO WHILE( FREQ(INDX) .GT. 1.1_LDP*NU_MIN )
 !
 ! Continuum
 !
 	  dNU=FREQ(INDX)*BIG_SPACING
-!	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),'      A'
+!	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),' A'
 !
 ! Electron scattering wings. Since dV_OBS_KMS is the same for all lines,
 ! we can exit once e.s. wing region is found.
@@ -196,7 +196,7 @@
 	    K=K+1
 	  END DO
 !	  CALL TUNE(2,'MAX_BW_EXT')
-!  	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),'      B'
+!  	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),' B'
 !
 ! Profile. As NU_STRT_LINE monotonically decreases, we can stop looking at
 !          line K when the next frequency is > NU_STRT_LINE(K). Since
@@ -220,7 +220,7 @@
 	    END DO
 	  END IF
 !	  CALL TUNE(2,'MAX_B_EXT')
-!  	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),'      C'
+!  	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),' C'
 !
 ! Doppler core. If FRAC_DOP_OBS is large, this section will be effectively
 !               ignored. This sections is primarily needed when we see
@@ -245,8 +245,8 @@
 	    END DO
 	  END IF
 !	  CALL TUNE(2,'MAX_O_EXT')
-!  	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),'      D'
-!  	  WRITE(149,'(2ES12.4,A)')FREQ(INDX),C_KMS*dNU/FREQ(INDX),'      D'
+!  	  WRITE(139,'(2ES12.4,A)')dNU,C_KMS*dNU/FREQ(INDX),' D'
+!  	  WRITE(149,'(2ES12.4,A)')FREQ(INDX),C_KMS*dNU/FREQ(INDX),' D'
 !
 	  FREQ(INDX+1)=FREQ(INDX)-dNU
 	  INDX=INDX+1
