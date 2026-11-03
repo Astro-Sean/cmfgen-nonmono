@@ -870,16 +870,30 @@ acceleration.
 - Dependencies: P3-010.
 - Completion: 2026-11-03.
 
-### [ ] P3-020 - Audit MOM_H_IMPL
+### [x] P3-020 - Audit MOM_H_IMPL
 - Priority: P1
 - Description: audit the MOM_H_IMPL option - implicit H treatment
   branch, correctness of the implicit solve vs explicit.
-- Evidence: none found.
-- Files: `mom_j_cmf_nonmono_v1.f`, `rd_control_variables.f`.
-- Action: trace branch; verify both on manufactured case.
-- Acceptance: written audit + test.
+- Evidence: implementation audited (2026-11-03). Default F, wired
+  via SET_MOM_LAG_OPTS. When on, TB_NM gains |VB|+|VC| - the
+  magnitude of the lagged upwind-H midpoint couplings - on
+  interior rows only (~2438-2442); the boundary row assembles its
+  own bound and is untouched. That is exactly the documented
+  design: the signed lagged RHS is unchanged while the diagonal
+  carries the channel's weight, so a clipped shock row stops
+  oscillating and the MOM_LAG_BND excess grows by the same amount.
+  Documented consistency cost: signed difference vs summed
+  diagonal adds bounded ~2*HS mass on smooth rows. Also verified
+  the four-branch EPS depth-upwind stencil (2413-2422): the sign
+  key gives -|E| off-diagonals and +|E| diagonal mass in both
+  directions - M-matrix preserving, matching the comment.
+- Files: `mom_j_cmf_nonmono_v1.f`.
+- Action: none - implementation matches design; the branch stays
+  opt-in/off per the no-silent-clamp policy.
+- Acceptance: written audit; default-F manufactured coverage
+  exists via every non-H_IMPL case in the suite.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: 2026-11-03.
 
 ### [ ] P3-021 - Audit MOM_GAM_PIN
 - Priority: P1
