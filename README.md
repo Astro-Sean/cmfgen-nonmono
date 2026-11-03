@@ -170,7 +170,7 @@ budgets: `JFNK_MAX_EVALS` (residual evaluations) and `JFNK_MAX_SEC`
 (wall-clock seconds per activation). `JFNK_MAX_EVALS` defaults to 0,
 meaning off. Under `DO_JFNK` a zero `JFNK_MAX_SEC` is auto-raised to
 3600 seconds, since a stalled activation could otherwise consume the
-whole job; the same auto-set arms the globalized form (unknown-norm
+whole job; the same auto-set arms the globalised form (unknown-norm
 logging, pseudo-transient continuation, Armijo line search, Cauchy
 fallback). Exhausting a budget forces the rejection path, so the
 iteration falls back to the stock update rather than aborting.
@@ -228,15 +228,15 @@ the stock Lambda update is unchanged):
 | `DO_FG13_ALO_TRI` | F | Fill `TX(K,K+/-1)` with the stored off-diagonal Lambda* entries (effective only with `NUM_BNDS>=3`). |
 
 Preconditioner-audit keys (`jfnk-precond-fixes`; all default OFF so
-the default factorization path is unchanged; audit notes under
+the default factorisation path is unchanged; audit notes under
 `docs/audits/`):
 
 | Key | Default | Meaning |
 |---|---|---|
-| `JFNK_PC_SIGN_DIAG` | F | Logging-only report at each factorization: fraction of rows with `d<0` and `sigma>0`, the `sigma/|d|` min/median/p99, and the near-cancellation count `|d+sigma| < 0.1|d|`. |
+| `JFNK_PC_SIGN_DIAG` | F | Logging-only report at each factorisation: fraction of rows with `d<0` and `sigma>0`, the `sigma/|d|` min/median/p99, and the near-cancellation count `|d+sigma| < 0.1|d|`. |
 | `JFNK_PTC_SIGNED` | F | Sign-matched PTC shift: residual term, preconditioner fold, apply rescale, and ridge all use `sign(d_i)*sigma_i` so `|d_i+shift| = |d_i|+sigma_i` on loss-dominated rows. |
-| `JFNK_REG_ZERO_COL` | F | Regularized (near-null/pop-floor) rows also get their column zeroed, so the factored block is the clean projected operator (per-depth and banded paths). |
-| `JFNK_ROW_TINY_EQUIL` | F | Scale-free near-null row test `share_i = max_J |a_iJ|/colmax_J < JFNK_ROW_TINY` replacing the raw rowmax/blockmax test; logs reclassification counts per factorization. |
+| `JFNK_REG_ZERO_COL` | F | Regularised (near-null/pop-floor) rows also get their column zeroed, so the factored block is the clean projected operator (per-depth and banded paths). |
+| `JFNK_ROW_TINY_EQUIL` | F | Scale-free near-null row test `share_i = max_J |a_iJ|/colmax_J < JFNK_ROW_TINY` replacing the raw rowmax/blockmax test; logs reclassification counts per factorisation. |
 | `JFNK_PC_RCOND_GATE` | F | Replace the `x=1` forward-error micro-test by an explicit `rcond >= JFNK_PC_RCOND_MIN` acceptance threshold and cap the ridge ladder at `JFNK_PC_ITRY_CAP` attempts per depth. |
 | `JFNK_PC_RCOND_MIN` | 1.0D-13 | rcond acceptance threshold under `JFNK_PC_RCOND_GATE`. |
 | `JFNK_PC_ITRY_CAP` | 3 | Maximum factorization attempts per depth under `JFNK_PC_RCOND_GATE` (historical ladder allows up to 9). |
@@ -319,7 +319,7 @@ correctness and build fixes that are not controlled by solver flags:
   decks, and headless build support.
 - Robustness hardening on the Knop formal-solver path (degenerate
   ray/frequency spacings, short-ray end slopes, deallocation
-  status checks, OpenMP private hygiene); itemized status in
+  status checks, OpenMP private hygiene); itemised status in
   `docs/audits/KNOP_FORMAL_SOLVER_AUDIT.md`.
 
 The `unit_tests/` suite (`unit_tests/run_all_tests.py`) compiles the
@@ -339,6 +339,17 @@ The production build produces the model executable plus the flux and
 observed-frame tools. All new behaviour is switched off unless the
 corresponding input-file options are set; see `AGENTS.md` for the
 build constraints and verification checklist.
+
+## Attribution
+
+All credit for CMFGEN itself goes to its original authors, led by
+D. John Hillier (Hillier & Miller 1998, *ApJ* 496, 407,
+[DOI](https://doi.org/10.1086/305350) |
+[ADS](https://ui.adsabs.harvard.edu/abs/1998ApJ...496..407H)), and to
+the authors of the methods this fork builds on (see References).
+This repository is a development fork; the maintainer takes no
+credit for the original code. Please cite the upstream CMFGEN papers
+and the method papers listed below, not this fork.
 
 ## References
 
