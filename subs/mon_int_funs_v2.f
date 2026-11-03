@@ -24,7 +24,7 @@ C
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 C
-C Altered 05-Oct-2026 - Require a strictly monotonic R coordinate (Devin).
+C Altered 05-Oct-2026 - Require a strictly monotonic R coordinate.
 C Altered 16-Jan-2005 - COEF(ND,1:4) was previously zero. For ease of use
 C                         elsewhere, COEF(ND,4) now contains CHI(ND) and
 C                         COEF(ND,3) contains dCHIdR for the last point. The
