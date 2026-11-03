@@ -5,9 +5,9 @@
 ! Non-monotonic moment solver using the Knop et al. (2009, A&A 501, 813)
 ! generalized-opacity split:
 !
-!   chi_hat = chi + |GAM|/dLOG_NU   (always positive generalized opacity)
-!   Q      = (GAM/dLOG_NU) / chi_hat (signed coupling coefficient)
-!   S'     = SOURCE + |Q| * J_upwind (modified source; the implicit
+!   chi_hat = chi + |GAM|/dLOG_NU (always positive generalized opacity)
+!   Q = (GAM/dLOG_NU) / chi_hat (signed coupling coefficient)
+!   S' = SOURCE + |Q| * J_upwind (modified source; the implicit
 !            diagonal PSI = |Q|*DTAUONQ already carries the sign split,
 !            so the explicit upwind term enters with positive |coeff|
 !            in both expanding and compressing regions)
@@ -16,22 +16,22 @@
 ! angle-integrated comoving-frame frequency gradient.
 !
 ! Sign-dependent upwind (Knop Paper II, Gauss-Seidel):
-!   GAM >= 0 (expanding):  upwind = J_PREV (previous/bluer frequency)
-!   GAM <  0 (compressing): upwind = J_NEXT (next/redder frequency)
+!   GAM >= 0 (expanding): upwind = J_PREV (previous/bluer frequency)
+!   GAM < 0 (compressing): upwind = J_NEXT (next/redder frequency)
 !
 ! J_NEXT is stored from the previous great iteration and converges
 ! over CMFGEN great iterations, mirroring the I_NEXT approach in
 ! FG_J_CMF_NONMONO_V1.
 !
 ! The standard MOM_J_CMF_V11 remains unchanged for monotonic velocity
-! fields.  This routine is only called when DO_NONMONO_KNOP=.TRUE.
+! fields. This routine is only called when DO_NONMONO_KNOP=.TRUE.
 !
-! Ported to dev7 19-Sep-2026.  The Jacobian variant of the earlier
+! Ported to dev7 19-Sep-2026. The Jacobian variant of the earlier
 ! non-monotonic development line (VAR_MOM_J_CMF_NONMONO_V1) and its
 ! J_NEXT_MD / STORE_J_NEXT_MD model-grid store are not carried over:
 ! that variant linearized the moment equation with the clamped SIGMA,
 ! which is inconsistent with the non-monotonic forward solve and
-! produced an all-NaN BA matrix at the first BA step.  DO_VAR_CONT
+! produced an all-NaN BA matrix at the first BA step. DO_VAR_CONT
 ! instead uses a fixed-J linearization (as under USE_LAM_ES) plus the
 ! diagonal dJ/dCHI, dJ/dETA self-coupling accumulated by
 ! FG_J_CMF_NONMONO_V1's own approximate-Lambda operator
@@ -56,7 +56,7 @@
 !
 	REAL(KIND=LDP), ALLOCATABLE :: LOG_R_SM_NM(:)
 !
-! V_SM_SV: velocity fingerprint at the last grid build.  The expanded
+! V_SM_SV: velocity fingerprint at the last grid build. The expanded
 ! sub-grid resolution (INT(|V_SM(I)-V_SM(I+1)|/T2)) and all of
 ! V_NM/SIGMA_NM/SIGMA_TRUE_NM are computed only in the build block,
 ! so a V change with R unchanged previously left the whole coupling
@@ -92,7 +92,7 @@
 !
 ! J_NEXT storage for Gauss-Seidel convergence (Knop Paper II).
 ! J_NEXT_FRQ(ND_NM,NCF) stores R^2*J at each frequency, written in-place
-! at the end of each frequency solve.  For compressing zones (GAM < 0)
+! at the end of each frequency solve. For compressing zones (GAM < 0)
 ! the upwind field is the NEXT (redder) frequency, so the solve for
 ! frequency k reads slot k+1, which still holds the previous great
 ! iteration's value (identical read-before-write pattern to the
@@ -103,7 +103,7 @@
 	LOGICAL, SAVE :: J_NEXT_VALID=.FALSE.
 !
 ! H_NEXT_FRQ(ND_NM,NCF): lagged R^2*H store, the moment-equation
-! partner of J_NEXT_FRQ.  At a compressing midpoint the explicit
+! partner of J_NEXT_FRQ. At a compressing midpoint the explicit
 ! W/(1+W)*H and EPS*J terms of the H equation must read the redder
 ! frequency (slot k+1), not RSQ{H,J}NU_PREV_NM (the bluer k-1
 ! field): the lagged map's fixed point must satisfy the correct
@@ -127,13 +127,13 @@
 ! J_NEXT_FRQ is process-local and was lost on every SLURM requeue;
 ! it is now checkpointed to MOMJNXT_GS by DUMP_MOM_JNEXT_GS (called
 ! from SCR_RITE_V2, always a complete-sweep boundary) and restored by
-! RESTORE_MOM_JNEXT_GS after allocation.  MOM_J_GS_OK is .TRUE. only
+! RESTORE_MOM_JNEXT_GS after allocation. MOM_J_GS_OK is .TRUE. only
 ! when this process restored a validated generation; MOM_GS_FILE_SEEN
 ! records that a checkpoint file existed at all (used by the warm-up
 ! gate to distinguish "mom solver not run" from "restore failed").
 ! MOM_GS_TAG_EXP is the NITSF restored by SCR_READ_V2 (SET_MOM_GS_TAG).
 !
-! MOM_GS_MAXCHG  : largest |new-old|/old relative change written into
+! MOM_GS_MAXCHG : largest |new-old|/old relative change written into
 !                  J_NEXT_FRQ during the current sweep (reset at
 !                  FREQ_INDX=1); measures how converged the lagged
 !                  field itself is.
@@ -152,9 +152,9 @@
 	REAL(KIND=LDP), SAVE :: MOM_GS_CHG_FILE=-1.0_LDP
 	INTEGER*8, SAVE :: MOM_GS_CAP_FILE=-1
 !
-! MOM_NEGJ_LRG  : count of SIGNIFICANT negative-J resets this sweep
+! MOM_NEGJ_LRG : count of SIGNIFICANT negative-J resets this sweep
 !                 (|XM| > 1D-6*max|XM|; ignores the ~1D-68 boundary
-!                 noise which is benign).  A real sign flip in the
+!                 noise which is benign). A real sign flip in the
 !                 lagged field marks the GS state immature: the
 !                 warm-up gate in SOLVE_FOR_POPS forces
 !                 LAMBDA for that iteration (audit 17-Sep-2026).
@@ -167,14 +167,14 @@
 !
 	INTEGER, SAVE :: MOM_GS_ARGI=0, MOM_GS_ARGL=0
 !
-! Per-pass drift split (CONV_DIAG_LVL>=2 diagnostic only).  The
+! Per-pass drift split (CONV_DIAG_LVL>=2 diagnostic only). The
 ! comp_j_blank F-iteration re-invokes this solver with NEW_FREQ=F at
 ! the same frequency, where the store already holds the relaxed
 ! first-pass write -- the drift there measures the under-relaxation
 ! increment rather than contraction of the store-fix map, and a
-! FREQ_INDX=1 re-call also re-fires the accumulator reset.  P1/P2
+! FREQ_INDX=1 re-call also re-fires the accumulator reset. P1/P2
 ! keep each pass's maximum so the sweep report can show which call
-! pins the metric the maturity gate reads.  Refresh re-calls are
+! pins the metric the maturity gate reads. Refresh re-calls are
 ! excluded; their residual is MOM_RF_DCHG.
 !
 	REAL(KIND=LDP), SAVE :: MOM_GS_CHG_P1=0.0_LDP
@@ -185,7 +185,7 @@
 ! direction at a fixed cell mark a period-2 limit cycle of the
 ! composite map; a stable monotone argmax marks a marginal
 ! contraction tail; a stable argmax at a boundary depth points at
-! the HBC/NBC closure row.  MOM_GS_CLS is read by the SOLVE_FOR_POPS
+! the HBC/NBC closure row. MOM_GS_CLS is read by the SOLVE_FOR_POPS
 ! settle-tolerance gate (GS_SETTLE_TOL).
 !
 	INTEGER, SAVE :: MOM_ARG_HI(4)=0, MOM_ARG_HL(4)=0
@@ -194,7 +194,7 @@
 !
 ! Bulk convergence metrics (Oct-2026): the max-norm MOM_GS_MAXCHG is
 ! pinned by a handful of roaming pathological cells even when the
-! field is converged in bulk.  MOM_GS_NBAD5/NBAD50 count cells whose
+! field is converged in bulk. MOM_GS_NBAD5/NBAD50 count cells whose
 ! relative J_NEXT_FRQ change exceeds 5%/50% this sweep, and
 ! MOM_GS_NTOT is the cell count the metric covered -- the MOM
 ! analogue of the FG side's GS_NBAD/GS_NTOT bulk-maturity inputs.
@@ -204,7 +204,7 @@
 	INTEGER*8, SAVE :: MOM_GS_NTOT=0
 !
 ! MOM_GS_NLOW: cells above the 1E-3 user-facing convergence target
-! (CONV_DIAG_LVL>=2 diagnostic only).  With NBAD5/NBAD50 already at
+! (CONV_DIAG_LVL>=2 diagnostic only). With NBAD5/NBAD50 already at
 ! 5%/50% this is the share that tells a tail-dominated max-norm
 ! floor (single pathological cell) from a bulk-stalled field.
 !
@@ -227,12 +227,12 @@
 	INTEGER*8, SAVE :: MOM_GS_NQUAR=0
 !
 ! MOM_QUAR_AGE: consecutive sweeps each (depth,frequency) cell has
-! spent quarantined under MOM_RF_KEEPNEG.  A cell that fails the
+! spent quarantined under MOM_RF_KEEPNEG. A cell that fails the
 ! post-solve guards for a structural reason is re-solved on every
 ! call and keeps the same stale iterate indefinitely; the per-sweep
 ! NQUAR cannot tell that apart from transient failures, so cells at
 ! MOM_QUAR_PERSIST sweeps or older are counted separately in
-! MOM_GS_NPQUAR.  edited 29-Sep-2026.
+! MOM_GS_NPQUAR. edited 29-Sep-2026.
 !
 	INTEGER(KIND=2), ALLOCATABLE :: MOM_QUAR_AGE(:,:)
 	INTEGER*8, SAVE :: MOM_GS_NPQUAR=0
@@ -244,22 +244,22 @@
 ! Ownership is not recoverable at pass end because Q_NM/A_BND are
 ! overwritten by each frequency solve, so the drift loop records it.
 ! MOM_KNOP_REFRESH_V1 uses it to merge each direction's best-pass
-! rows into the retained composite field.  MOM_OWN_CMPH is the H-row
+! rows into the retained composite field. MOM_OWN_CMPH is the H-row
 ! equivalent keyed on GAMH_SIGNED_NM -- midpoint and cell-centre
 ! sigma signs differ near the transition, so J and H masks are not
-! interchangeable there.  [DO_NONMONO_KNOP]
+! interchangeable there. [DO_NONMONO_KNOP]
 ! edited 30-Sep-2026.
 !
 	LOGICAL, ALLOCATABLE :: MOM_OWN_CMP(:,:)
 	LOGICAL, ALLOCATABLE :: MOM_OWN_CMPH(:,:)
 !
-! Per-sweep failure/conditioning audit counters.  The convergence
+! Per-sweep failure/conditioning audit counters. The convergence
 ! problem these expose is which subsystem fails first when the
 ! population change stalls near ~30%: a DGTSV failure, a loss of
 ! diagonal dominance, a negative/runaway J repair, or a large
 ! ESEC/CHI overshoot leave different signatures, and silently
 ! repaired fields cannot be distinguished from converged ones
-! without these counts.  Reset at FREQ_INDX=1, printed by
+! without these counts. Reset at FREQ_INDX=1, printed by
 ! DUMP_MOM_JNEXT_GS.
 !
 	INTEGER*8, SAVE :: MOM_N_DGTSV=0
@@ -268,19 +268,19 @@
 	INTEGER*8, SAVE :: MOM_N_RUNAWAY=0
 	INTEGER*8, SAVE :: MOM_TB_NONPOS=0
 !
-! Per-sweep budget on negJ rows written to unit 48.  A cold-start
+! Per-sweep budget on negJ rows written to unit 48. A cold-start
 ! sweep can reject a large fraction of the ND_NM*NCF cells, and an
 ! uncapped per-cell dump turns the CMF solve into a pure I/O job
-! (tens of GB per sweep).  Counts are exact; only the writes stop.
+! (tens of GB per sweep). Counts are exact; only the writes stop.
 !
 	INTEGER*8, SAVE :: MOM_NEGJ_DUMP=0
 	INTEGER*8, PARAMETER :: MOM_NEGJ_DUMP_MAX=20000
 !
 ! MOM_MIN_DR is the SIGNED ratio TB/(|TA|+|TC|); it answers "is the
 ! diagonal positive and dominant" and goes negative when TB<=0 (which
-! MOM_TB_NONPOS counts).  MOM_MIN_DRA is the ABS ratio
+! MOM_TB_NONPOS counts). MOM_MIN_DRA is the ABS ratio
 ! |TB|/(|TA|+|TC|); it answers "how dominant is the diagonal in
-! magnitude" and stays positive when TB flips sign.  Both are needed:
+! magnitude" and stays positive when TB flips sign. Both are needed:
 ! a negative-signed but large-magnitude row is ill-conditioned in a
 ! different way than a small-magnitude one.
 !
@@ -300,7 +300,7 @@
 !
 ! Sweep-level maturity metrics: MOM_KNOP_REFRESH_V1 overwrites the
 ! MOM_GS_* counters with its per-pass map residuals, so the values the
-! sweep produced are copied here at refresh entry.  The sweep drift
+! sweep produced are copied here at refresh entry. The sweep drift
 ! (fresh XM vs stored J_NEXT) is the field change the populations
 ! actually see between great iterations; the refresh residual is the
 ! lagged map's self-consistency error, which asymptotes on marginally
@@ -317,14 +317,14 @@
 !
 ! MOM_RF_*: post-refresh state of the retained J_NEXT_FRQ field,
 ! measured as |post-refresh - pre-refresh| on the same normalization
-! as the sweep metric.  MOM_SW_* records the sweep drift (fresh solve
+! as the sweep metric. MOM_SW_* records the sweep drift (fresh solve
 ! vs stored field, what the populations saw this iteration); MOM_RF_*
 ! records how far that sweep field was from the converged refresh
-! fixed point.  When the refresh converged, MOM_RF_* is the maturity
+! fixed point. When the refresh converged, MOM_RF_* is the maturity
 ! signal for the retained field: a converged refresh whose retained
 ! store still moved means the populations linearized against an
 ! immature field this iteration but will see the fixed point next
-! sweep.  MOM_RF_RAN latches that the refresh executed at all this
+! sweep. MOM_RF_RAN latches that the refresh executed at all this
 ! great iteration; reset at FREQ_INDX=1 on non-refresh calls.
 !
 	LOGICAL, SAVE :: MOM_RF_RAN=.FALSE.
@@ -335,9 +335,9 @@
 !
 ! MOM_NONMM_CNT: interior rows this sweep with TC_NM>0, i.e. cells
 ! where |EPS|>HU and the tridiagonal loses its M-matrix structure
-! (positive superdiagonal).  MOM_EPS_FWD: midpoints where
-! sigma*NMID_ON_J<0 took the forward EPS difference.  MOM_EPS_RAT:
-! max |EPS|/HU over the sweep.  Swept up per frequency call, reset
+! (positive superdiagonal). MOM_EPS_FWD: midpoints where
+! sigma*NMID_ON_J<0 took the forward EPS difference. MOM_EPS_RAT:
+! max |EPS|/HU over the sweep. Swept up per frequency call, reset
 ! at FREQ_INDX=1, printed by DUMP_MOM_JNEXT_GS.
 !
 	INTEGER*8, SAVE :: MOM_NONMM_CNT=0
@@ -347,18 +347,18 @@
 ! MOM_BND_HBC_FL: frequencies this sweep where the outer boundary
 ! Eddington factor measured by the formal solve was negative or NaN
 ! and the boundary row fell back to the zero-flux closure (HBC_ROW
-! block in the OUT_BC_TYPE<=1 row).  BND_FL_OPEN latches the lazy
+! block in the OUT_BC_TYPE<=1 row). BND_FL_OPEN latches the lazy
 ! open of MOM_BND_HBC_FLOOR (append-mode per-event log).
 !
 	INTEGER*8, SAVE :: MOM_BND_HBC_FL=0
 	LOGICAL, SAVE :: BND_FL_OPEN=.FALSE.
 !
 ! Under-relaxation factor for the lagged J_NEXT_FRQ Gauss-Seidel
-! write, matching INEXT_RELAX in FG_J_CMF_NONMONO_V1.  With strong
+! write, matching INEXT_RELAX in FG_J_CMF_NONMONO_V1. With strong
 ! compression the undamped update (straight replacement of the
 ! upwind J fed into the next sweep's compressing source) amplifies
 ! the SE<->RT loop; writing OLD + JNEXT_RELAX*(NEW-OLD) damps the
-! fixed-point map without moving its fixed point.  Cells with no
+! fixed-point map without moving its fixed point. Cells with no
 ! prior value (OLD<=0) are filled directly.
 !
 	REAL(KIND=LDP), SAVE :: JNEXT_RELAX=0.5_LDP
@@ -368,8 +368,8 @@
 ! INEXT_RELAX update -- the dominant-mode contraction rho_est of the
 ! outer refresh map is estimated from the ratio of successive
 ! refresh residual maxima (MOM_GS_MAXCHG), and the write-back weight
-! becomes 1/(1+rho_est).  The per-cell MOM_DAMP_NM schedule still
-! applies on top inside the refresh.  Oct-2026.
+! becomes 1/(1+rho_est). The per-cell MOM_DAMP_NM schedule still
+! applies on top inside the refresh. Oct-2026.
 !
 	LOGICAL, SAVE :: MOM_ADAPT_RELAX=.TRUE.
 ! MOM_ADAPT_OMEGA_V2 (VADAT [MOM_ADAPT_OMEGA_V2], default T, set by
@@ -377,33 +377,33 @@
 ! the median of the last ~4 per-pass residual ratios of the current
 ! refresh instead of the cross-call MOM_GS_MAXCHG ratio, which
 ! conflates source drift with map contraction (ports the FG W5
-! fix, FG_ADAPT_OMEGA_V2 in fg_j_cmf_nonmono_v1.f).  F restores the
+! fix, FG_ADAPT_OMEGA_V2 in fg_j_cmf_nonmono_v1.f). F restores the
 ! cross-call estimator under KN_ADAPT_RELAX.
 !
 	LOGICAL, SAVE :: MOM_ADAPT_OMEGA_V2=.TRUE.
 	REAL(KIND=LDP), SAVE :: MOM_RF_RESID_PRV=-1.0_LDP
 !
-! Per-cell relaxation schedule for the refresh write.  Cells whose
+! Per-cell relaxation schedule for the refresh write. Cells whose
 ! update returns near its same-parity-pass value while still making
 ! large steps are cycling (a period-2 mode of the alternating-
-! direction map); their factor is halved toward MOM_DAMP_MIN.  The
+! direction map); their factor is halved toward MOM_DAMP_MIN. The
 ! damped multiplier 1-r*(1-lambda) contracts for r < 2/(1-lambda),
 ! so a floor of 0.02 covers lambda down to ~-100; truly divergent
 ! cells (lambda > 1) cannot be damped and stay caught by the
-! runaway/abort guards.  Persisted across great iterations because
+! runaway/abort guards. Persisted across great iterations because
 ! the marginal cells track the fixed compression zone; the schedule
 ! is not checkpointed, so a requeue re-derives it over ~3 passes.
 !
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: MOM_DAMP_NM(:,:)
 	REAL(KIND=LDP), PARAMETER :: MOM_DAMP_MIN=0.02_LDP
 !
-! Vector Anderson acceleration on the composite refresh map.  At fixed
+! Vector Anderson acceleration on the composite refresh map. At fixed
 ! ETA/CHI the pass map is affine in the lagged field, so AA on the
 ! residual sequence is equivalent to GMRES on (I-A)x=b and does not
-! require the map to contract (Walker & Ni 2011 equivalence).  Because
+! require the map to contract (Walker & Ni 2011 equivalence). Because
 ! the pass direction alternates, the iterated object is the 2-pass
 ! composite map; AA history is therefore taken at even pass
-! boundaries.  MOM_AA_M secant pairs are kept.  When enabled it
+! boundaries. MOM_AA_M secant pairs are kept. When enabled it
 ! supersedes the per-cell Aitken step (double extrapolation would
 ! overshoot); the cycle-detection damp schedule still runs since AA
 ! needs a bounded raw iterate sequence to mix from.
@@ -412,12 +412,12 @@
 	INTEGER, SAVE :: MOM_AA_M=3
 !
 ! Outer (call-level) Anderson acceleration state -- applied at the
-! exit of MOM_KNOP_REFRESH_V1.  The iterates are the committed lagged
+! exit of MOM_KNOP_REFRESH_V1. The iterates are the committed lagged
 ! stores and the residuals their successive differences, so the
 ! accelerated map is the whole sweep+refresh outer composition,
 ! including the J<->Eddington coefficient drift that the inner
-! (frozen-coefficient) pass AA cannot see.  RETJ_PREV/RETH_PREV hold
-! the field the last outer map was applied to.  Gated on
+! (frozen-coefficient) pass AA cannot see. RETJ_PREV/RETH_PREV hold
+! the field the last outer map was applied to. Gated on
 ! [MOM_AA_OUT] (default T inside the DO_NONMONO_KNOP path);
 ! [MOM_AA_OUT_M] sets the history depth (default 8).
 !
@@ -450,16 +450,16 @@
 	1    FHIST_OUT(:,:,:),RETJ_PREV(:,:),RETH_PREV(:,:)
 !
 ! MOM_FAC_RLX (VADAT real, default 1.0 = off): under-relax the
-! Eddington-factor update between great iterations.  With pops held,
+! Eddington-factor update between great iterations. With pops held,
 ! J -> formal solve -> K_ON_J/NMID factors -> coefficients is the
 ! only channel that moves the lagged map's fixed point between
 ! iterations, and on this model the unrelaxed snap displaces the map
 ! by >50% at ~2E5 cells per sweep while the refresh already reaches
-! a fixed point at the old coefficients.  Blending the update into
+! a fixed point at the old coefficients. Blending the update into
 ! the previous factor store damps that composite map; the fixed
-! point itself is unchanged.  The store is per-frequency, seeded
+! point itself is unchanged. The store is per-frequency, seeded
 ! with the first call's factors and not checkpointed -- a requeue
-! re-seeds from the snap and re-relaxes.  1.0 keeps the raw formal
+! re-seeds from the snap and re-relaxes. 1.0 keeps the raw formal
 ! snap (all prior behavior).
 !
 	REAL(KIND=LDP), SAVE :: MOM_FAC_RLX=1.0_LDP
@@ -471,10 +471,10 @@
 ! set by SET_MOM_FREQ_MATCH): at compressing cells the lagged
 ! upwind frequency index is rematched to the bin containing the
 ! characteristic foot, n = |GAM|*dR/dln(nu), and the frequency
-! derivative spans n*dln(nu).  An explicit one-bin upwind is a
+! derivative spans n*dln(nu). An explicit one-bin upwind is a
 ! Courant violation in frequency space once the per-cell comoving
 ! drift exceeds the grid spacing -- the oscillatory-eigenvalue
-! regime of Ceulemans et al. 2025.  NM_J/NM_H hold the matched
+! regime of Ceulemans et al. 2025. NM_J/NM_H hold the matched
 ! index offsets (0 = off-grid, drop coupling); DLN_J/DLN_H the
 ! matched log spacings; MOM_NU_GRID caches the frequency grid so
 ! the matched span uses true log nu, with the uniform-spacing
@@ -488,16 +488,16 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: MOM_NU_GRID(:)
 !
 ! Fraction of cells newly re-damped in one pass that invalidates the
-! AA secant history.  edited 28-Sep-2026: damping a handful
+! AA secant history. edited 28-Sep-2026: damping a handful
 ! of the ~12M cells does not change the global map enough to matter,
 ! so a restart on any single damped cell would keep NHIST_AA at ~1
-! forever and AA would never mix.  1E-4 (~1200 cells) resets only on
+! forever and AA would never mix. 1E-4 (~1200 cells) resets only on
 ! a genuine map change.
 !
 	REAL(KIND=LDP), PARAMETER :: MOM_AA_DMP_FRAC=1.0E-4_LDP
 !
 ! MOM_AA_GCAP: per-cell cap on the weighted residual/secant admitted
-! to the AA Gram system.  Cells beyond ~100% relative change per
+! to the AA Gram system. Cells beyond ~100% relative change per
 ! composite step are outside the affine-map regime (quarantine,
 ! limiters, dampers are active there) and are fitted by the cycle
 ! machinery, not the global secant solve.
@@ -540,7 +540,7 @@
 ! GAM_FAC_NM / GAMH_FAC_NM are the sign-preserved, floored factors
 ! 1 + sigma*K_on_J (depth points) and 1 + AV_SIGMA*NMID_ON_HMID
 ! (midpoints) used by the Knop sign split, chi_hat, Q, W, PSI and the
-! explicit upwind source.  They are filled every call in the
+! explicit upwind source. They are filled every call in the
 ! coefficient block below; module scope is required because the
 ! allocation block only runs on grid rebuild while the factor arrays
 ! are consumed on every call.
@@ -579,9 +579,9 @@
 !
 ! ----------------------------------------------------------------------
 ! Per-frequency Knop refresh store (Oct-2026), moment-equation analog
-! of the FG_J_CMF_NONMONO_V1 per-ray refresh.  The moment solver has
+! of the FG_J_CMF_NONMONO_V1 per-ray refresh. The moment solver has
 ! the same one-bin-per-great-iteration lag: compressing depths read
-! J_NEXT_FRQ(:,k+1) written during the PREVIOUS sweep.  The refresh
+! J_NEXT_FRQ(,k+1) written during the PREVIOUS sweep. The refresh
 ! converges the coupling by re-driving MOM_J_CMF_NONMONO_V1 itself in
 ! alternating frequency order on the captured per-frequency inputs
 ! (same discretisation, DGTSV solve and fallbacks by construction).
@@ -602,10 +602,10 @@
 ! pass the compressing-depth read of slot L+1 uses the live
 ! J_NEXT_FRQ (already updated this pass) instead of the frozen
 ! JNEXT_RF_READ snapshot -- true Gauss-Seidel propagation along the
-! red-to-blue compressing characteristic.  The frozen read limits
+! red-to-blue compressing characteristic. The frozen read limits
 ! that propagation to one bin per pass, which cannot converge a
-! coupling spanning more bins than KN_M_MAXPASS.  The earlier
-! cascade divergence (job 11887664) predates the M-matrix/EPS,
+! coupling spanning more bins than KN_M_MAXPASS. The earlier
+! cascade divergence predates the M-matrix/EPS,
 ! COH-floor and HBC-floor fixes; the abort guard plus the
 ! pre-refresh restore contain a recurrence if it is still unstable.
 !
@@ -614,7 +614,7 @@
 ! rejection) keep their previous J_NEXT_FRQ iterate instead of
 ! storing the repaired value -- the repair is a display-level fix,
 ! not a fixed-point output, and storing it injects discontinuous
-! noise the lagged map then chases.  In the repair itself XM_FB_NM
+! noise the lagged map then chases. In the repair itself XM_FB_NM
 ! (the previous valid field) is already written into XM_NM, so
 ! this flag only controls whether the freeze shows up in J_NEXT_FRQ
 ! as an un-written cell vs the relaxed write of the fallback.
@@ -622,7 +622,7 @@
 ! MOM_RF_BULK_EXIT (VADAT key, default TRUE): the refresh max-norm
 ! asymptotes on a few marginally contractive compressing cells
 ! (|Q|/(chi+|Q|)->1), so the refresh otherwise burns passes until
-! the stall exit retains the same bulk-converged field.  Once the
+! the stall exit retains the same bulk-converged field. Once the
 ! per-pass drift satisfies the bulk bounds the gate applies to the
 ! sweep (fewer than 0.1% of cells moving >50%, no capped writes,
 ! negJ and quarantined fractions under 10%), exit as converged.
@@ -631,14 +631,14 @@
 ! the field the populations saw.
 !
 ! MOM_RF_ACTIVE (VADAT key, default FALSE): active-set
-! front-tracking over frequencies in the refresh.  A frequency's
+! front-tracking over frequencies in the refresh. A frequency's
 ! solve only depends on the lagged store at slot L-1 (expanding
 ! cells) and slots L+MOM_NM_{J,H}(I) (compressing cells), so a
 ! converged frequency can be skipped while its inputs are quiet.
 ! Each pass records the per-frequency max drift; the next pass
 ! keeps L active when it was hot, its L-1 input was hot, or any
 ! slot in (L,L+max NM] was hot -- a conservative dilation of the
-! hot set over every offset any compressing cell reads.  The mask
+! hot set over every offset any compressing cell reads. The mask
 ! resets to all-active each refresh because the map's frozen
 ! coefficients are rebuilt between calls.
 !
@@ -650,27 +650,26 @@
 !
 ! MOM_RF_DIR (VADAT key, default 'AUTO'): refresh pass ordering.
 ! Knop Paper II's GS solve is physically guided -- the pass follows
-! the direction information actually propagates in (r,nu) space.  On
-! a grid where nearly every coupling row is compressing (m15_2p82d:
-! sigma < -1 at all 70 depths) an ascending pass reads only the
+! the direction information actually propagates in (r,nu) space. On
+! a grid where nearly every coupling row is compressing sigma < -1 at all 70 depths) an ascending pass reads only the
 ! frozen pass-start snapshot -- a pure Jacobi step that re-injects a
 ! full pass of error -- so the alternating composite map stalls
-! (job 12045050: negJ ~2.4M/12M cells, refresh residual pinned at
-! ~1E4).  'AUTO' measures the compressing-row fraction on the sweep
+! (negJ ~2.4M/12M cells, refresh residual pinned at
+! ~1E4). 'AUTO' measures the compressing-row fraction on the sweep
 ! (MOM_SW_NCROW/MOM_SW_NROW) and runs only the dominant direction
 ! once one side holds >=90% of rows; 'ALT' forces the original
 ! alternating order, 'ASC'/'DESC' force a single direction.
 !
 ! MOM_DOM_CMP / MOM_DOM_EXP: the resolved dominance state, set at the
 ! FREQ_INDX=1 reset from the previous sweep's counters and refreshed
-! at MOM_KNOP_REFRESH entry.  The dominant-compressing state also
+! at MOM_KNOP_REFRESH entry. The dominant-compressing state also
 ! suppresses the in-sweep J_NEXT_FRQ/H_NEXT_FRQ write at compressing
 ! rows: the ascending sweep's compressing upwind read is a
 ! one-iteration-old Jacobi value, so writing the solve output back
 ! at JNEXT_RELAX erodes the refresh-converged store every great
-! iteration.  The descending refresh owns the compressing component
+! iteration. The descending refresh owns the compressing component
 ! of the lagged field; expanding rows are unaffected (their in-sweep
-! read is fresh).  Suppression requires MOM_RF_ENABLED (the
+! read is fresh). Suppression requires MOM_RF_ENABLED (the
 ! DO_KNOP_REFRESH setting): with no refresh running the suppressed
 ! cells would freeze at seed values forever.
 !
@@ -681,14 +680,14 @@
 	REAL(KIND=LDP), SAVE :: MOM_SW_FCMP=0.0_LDP
 !
 ! MOM_EPS_LIM (VADAT key, default TRUE): donor-cell positivity
-! limiter on the lagged EPS midpoint transfer.  The explicit
+! limiter on the lagged EPS midpoint transfer. The explicit
 ! lagged-frequency term scatters +-2*EPS_PREV*J_up between adjacent
 ! rows; at advection-dominated cells (|EPS|/HU ~ 20) the debit can
 ! exceed the donor row's accumulated positive RHS, returning
 ! negative J from a well-conditioned M-matrix -- the persistent negJ
-! population of job 12045050.  The transfer is capped at the donor
+! population of. The transfer is capped at the donor
 ! row's positive balance and the recipient is credited only what was
-! debited, so the pair stays conservative.  MOM_EPS_CAP counts
+! debited, so the pair stays conservative. MOM_EPS_CAP counts
 ! limited transfers.
 !
 	LOGICAL MOM_EPS_LIM
@@ -696,13 +695,13 @@
 	INTEGER*8, SAVE :: MOM_EPS_CAP_SW=0
 !
 ! MOM_RF_OWNW (VADAT key, default TRUE): pass-direction ownership of
-! lagged-store writes during MOM_KNOP_REFRESH.  On a descending pass
+! lagged-store writes during MOM_KNOP_REFRESH. On a descending pass
 ! only compressing rows (upwind slot L+1 already visited) see a fresh
 ! read; expanding rows read the not-yet-visited L-1 store, i.e. a
-! Jacobi step, and vice versa on ascending passes.  Writing the
+! Jacobi step, and vice versa on ascending passes. Writing the
 ! stale-read result back every other pass dilutes the fresh-read
 ! subset and is the residual floor of the alternating map
-! (residual ~1E4 plateau, job 12046369).  With OWNWrite each row only
+! (residual ~1E4 plateau). With OWNWrite each row only
 ! ever takes Gauss-Seidel steps in its own direction: the composite
 ! map is the per-direction GS operator instead of GS*Jacobi.
 ! MOM_RF_NSUPP counts suppressed writes per refresh pass;
@@ -715,42 +714,42 @@
 ! MOM_GAM_PIN (VADAT key, default TRUE): evaluate the lagged
 ! comoving-gradient factors (GAM_FAC_PREV, GAMH_FAC_PREV, the
 ! Eddington boundary PSIPREV) at the CURRENT frequency's Eddington
-! factors instead of the bluer neighbour's.  With independent
+! factors instead of the bluer neighbour's. With independent
 ! evaluations a sign or magnitude drift across a frequency boundary
 ! near the 1+sigma*K=0 resonance lets the explicit upwind weight
 ! exceed the implicit diagonal (PSIPREV/PSI > 1), and the lagged
-! fixed-point map then amplifies the field it reads.  Pinning makes
+! fixed-point map then amplifies the field it reads. Pinning makes
 ! the explicit weight identical to the implicit one -- the
 ! compressing branch's existing PSI convention -- so neither upwind
-! channel is expansive by construction.  edited,
+! channel is expansive by construction. edited,
 ! 12-Oct-2026.
 !
 	LOGICAL MOM_GAM_PIN
 !
 ! MOM_LAG_BND (VADAT key, default TRUE): per-row bound on the
-! lagged frequency source.  The lagged fixed-point map amplifies
+! lagged frequency source. The lagged fixed-point map amplifies
 ! wherever a row's lagged coupling weight -- upwind J coefficient,
 ! HS*H_up, and the two EPS_PREV midpoint transfers -- exceeds its
-! diagonal excess TB-|TA|-|TC|.  Shock cells violate this: PSI
+! diagonal excess TB-|TA|-|TC|. Shock cells violate this: PSI
 ! collapses at the 1+sigma*K=0 resonance while the H and EPS
-! channels still feed the row (m15 probes, 12-Oct-2026).  The
+! channels still feed the row (probes, 12-Oct-2026). The
 ! row's whole lagged contribution is scaled by
 ! min(1, excess/weight); rows whose unbounded map was already
-! contractive are untouched.  edited 12-Oct-2026.
+! contractive are untouched. edited 12-Oct-2026.
 !
 	LOGICAL MOM_LAG_BND
 !
 ! MOM_ABS_FLR (VADAT key, default 0.0 = off): lower bound on the
-! absorption fraction 1-COH in the tridiagonal diagonal.  At
+! absorption fraction 1-COH in the tridiagonal diagonal. At
 ! ESEC>=CHI cells the MAX(0,1-COH) clip removes the only
 ! J-independent diagonal weight; with PSI~0 near the 1+sigma*K=0
 ! resonance such rows have no diagonal excess, so MOM_LAG_BND nulls
 ! their entire lagged source and the row sloshes between its clipped
 ! and unclipped states instead of converging (KNOP probes,
-! 13-Oct-2026: mom maxchg floored ~1E4 at sigma_t~-100 cells).  A
+! 13-Oct-2026: mom maxchg floored ~1E4 at sigma_t~-100 cells). A
 ! small positive floor keeps a physical absorption anchor in the row
-! so the bound can leave a nonzero lagged weight.  0.0 restores the
-! exact clip; ~1D-3 retains 0.1% absorption.  edited,
+! so the bound can leave a nonzero lagged weight. 0.0 restores the
+! exact clip; ~1D-3 retains 0.1% absorption. edited,
 ! 13-Oct-2026.
 !
 	REAL(KIND=LDP) MOM_ABS_FLR
@@ -762,14 +761,14 @@
 ! the lagged source is nulled and the row oscillates between its
 ! clipped local solution and the lagged field -- the seed delta
 ! (~1E1 at the retained-vs-sweep metric) and the ~150 capped
-! writes per refresh pass both live on these rows.  Adding the
+! writes per refresh pass both live on these rows. Adding the
 ! coupling magnitude to the diagonal damps the row's response to
 ! both neighbours and lagged terms, and inside MOM_LAG_BND it
 ! raises the excess by the H weight so less of the lagged source
-! is clipped.  Consistency cost: the signed lagged term
+! is clipped. Consistency cost: the signed lagged term
 ! -HS(I-1)*H(I-1)+HS(I)*H(I) is a difference, while the added
 ! diagonal is a sum, so smooth rows carry a bounded extra
-! diagonal mass (~2*HS <= 2).  Default F keeps the proven
+! diagonal mass (~2*HS <= 2). Default F keeps the proven
 ! (a)+(c) behaviour; enable only for the KNOP stall test.
 ! edited 13-Oct-2026.
 !
@@ -782,11 +781,11 @@
 	REAL(KIND=LDP), SAVE :: MOM_LAGB_MIN=1.0_LDP
 !
 ! XM_FB_NM: previous valid R^2*J at the current frequency, assembled
-! before DGTSV overwrites XM_NM.  It is the fallback target for a
+! before DGTSV overwrites XM_NM. It is the fallback target for a
 ! failed solve or a rejected cell: the lagged GS iterate
-! J_NEXT_FRQ(:,FREQ_INDX) where positive, else the local-equilibrium
-! estimate SOURCE*R^2.  The bluer-frequency RSQJNU_PREV_NM is
-! deliberately excluded -- see the assembly block.  The old code
+! J_NEXT_FRQ(,FREQ_INDX) where positive, else the local-equilibrium
+! estimate SOURCE*R^2. The bluer-frequency RSQJNU_PREV_NM is
+! deliberately excluded -- see the assembly block. The old code
 ! restored XM_SAVE_NM (the assembled RHS)
 ! after a DGTSV failure -- a RHS is not a radiation field, so that
 ! injected source-scale values into R^2*J and propagated them through
@@ -805,10 +804,10 @@
 	LOGICAL, ALLOCATABLE :: MOM_CELL_QUAR(:)
 !
 ! Diagonal response of the moment solution on the model grid, for the
-! USE_LAM_ES=F linearization.  Neighbours and the lagged upwind
+! USE_LAM_ES=F linearization. Neighbours and the lagged upwind
 ! (J_PREV or J_NEXT) are held fixed, so a compressing row, whose
 ! diagonal carries PSI = DTAUONQ*|Q|, reports only its local source
-! response.  edited by Sean Brennan (25-Sep-2026)
+! response. edited by Sean Brennan (25-Sep-2026)
 !
 	REAL(KIND=LDP), ALLOCATABLE :: MOM_ALO_DCHI(:)
 	REAL(KIND=LDP), ALLOCATABLE :: MOM_ALO_DETA(:)
@@ -816,17 +815,17 @@
 	INTEGER :: MOM_ALO_ND=0
 !
 ! JNEXT_RF_READ: pass-start snapshot of J_NEXT_FRQ used while
-! MOM_KN_REFRESHING.  The in-sweep compressing read is pure Jacobi
+! MOM_KN_REFRESHING. The in-sweep compressing read is pure Jacobi
 ! (the previous great iteration's field); without the snapshot a
 ! descending refresh pass consumes this-pass writes -- a GS cascade
-! that amplified residuals to ~1E10 (job 11887664, 20-Sep-2026).
+! that amplified residuals to ~1E10 (20-Sep-2026).
 !
 	REAL(KIND=LDP), ALLOCATABLE :: JNEXT_RF_READ(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: HNEXT_RF_READ(:,:)
 !
-! Captured per-frequency inputs.  SM-grid arrays are the routine's
+! Captured per-frequency inputs. SM-grid arrays are the routine's
 ! arguments (ETA_SM/CHI_SM/ESEC_SM); NM-grid arrays are the
-! post-GET_MOMS Eddington factors.  All double precision: ETA/CHI are
+! post-GET_MOMS Eddington factors. All double precision: ETA/CHI are
 ! log-interpolated in the re-solve, and valid double-precision values
 ! below ~1E-38 (cold faint cells) would underflow to exact 0.0 in
 ! single precision, turning LOG(ETA) into -Inf and NaN-ing the solve.
@@ -843,7 +842,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: KN_MFREQ(:)
 !
 ! OUT_BC_TYPE is per-frequency: COMP_J_BLANK forces 1 above
-! OUT_BC_PARAM_ONE and uses RD_OUT_BC_TYPE below it.  Stored per
+! OUT_BC_PARAM_ONE and uses RD_OUT_BC_TYPE below it. Stored per
 ! frequency so the refresh replays the same boundary type the sweep
 ! used; a single scalar was only correct for RD_OUT_BC_TYPE=1.
 !
@@ -867,7 +866,7 @@
 	INTEGER KN_M_MAXPASS
 !
 ! KN_NM_MAX_INS: per-original-cell insertion cap for the expanded
-! grid.  |dV|/VDOP can request arbitrarily many sub-points in one
+! grid. |dV|/VDOP can request arbitrarily many sub-points in one
 ! interval on a strong shock; the cap keeps ND_NM bounded (and so
 ! the ND_NM x NCF lagged stores) and is reported, not silent.
 !
@@ -914,23 +913,23 @@
 !   4. Sign-dependent upwind: J_PREV (GAM>=0), J_NEXT (GAM<0)
 !   5. J_NEXT stored from previous great iteration (Gauss-Seidel)
 !   6. EPS*J_mid (sigma*NMID_ON_J*J) coupling: depth-upwind midpoint
-!      evaluation (23-Sep-2026).  The centered (J_m+J_{m+1}) form put a
+!      evaluation (23-Sep-2026). The centered (J_m+J_{m+1}) form put a
 !      positive off-diagonal on one row for EITHER sign once
 !      |EPS|>HU/HL -- a non-M-matrix whose sign-flipped solution seeded
 !      the lagged frequency couplings and blew up the outer luminosity
 !      over 2-3 great iterations (verified with THOMAS and pivoted
-!      DGTSV, jobs 11948451/11950204/11951526).  The midpoint J is now
+!      DGTSV, //). The midpoint J is now
 !      taken at the upwind node (outer node for EPS>=0, inner for
 !      EPS<0): every EPS contribution lands sign-definite, the matrix
-!      is an M-matrix again, and the term stays fully implicit.  A
+!      is an M-matrix again, and the term stays fully implicit. A
 !      deferred-correction split was also tried and abandoned: it
 !      cannot converge while the deferred part exceeds the implicit
 !      diagonal (|EPS|/HU~16-26).
 !
 ! The tridiagonal system is well-conditioned in the diffusion limit:
-!   - chi_hat > 0  =>  DTAU > 0  =>  DTAUONQ > 0
-!   - PSI = DTAUONQ * |GAM|/dLOG_NU  (always positive, no SIGMA term)
-!   - W   = |GAMH|/dLOG_NU          (always positive, no SIGMA term)
+!   - chi_hat > 0 => DTAU > 0 => DTAUONQ > 0
+!   - PSI = DTAUONQ * |GAM|/dLOG_NU (always positive, no SIGMA term)
+!   - W = |GAMH|/dLOG_NU (always positive, no SIGMA term)
 ! The signed velocity coupling enters only through the RHS source
 ! term Q*J_upwind, which cannot make the tridiagonal system singular.
 ! With the depth-upwind EPS form the full matrix is an M-matrix even
@@ -994,17 +993,17 @@
 ! at the zero-GAM resonance 1 + sigma*K_on_J = 0, where the implicit
 ! diagonal PSI collapses and the fixed-point map stops contracting.
 ! The limit is dimensionless; the sign is preserved so the upwind
-! branch is unchanged away from the resonance.  MOM_GAM_FAC_MIN
+! branch is unchanged away from the resonance. MOM_GAM_FAC_MIN
 ! moved to module scope 14-Oct-2026 (refresh diagnostics).
 !
 ! Minimum log-frequency step used in the advection coefficients.
 ! The continuum grid inserts bound-free edge doublets at dLOG_NU =
-! 2E-11 (m15 SOB: 1774 of 9665 points); every frequency-advection
+! 2E-11 (SOB: 1774 of 9665 points); every frequency-advection
 ! coefficient carries 1/DLN and reaches ~1E8x the physical terms
-! there.  V11 survives because its implicit and explicit terms
+! there. V11 survives because its implicit and explicit terms
 ! share coefficients and the row degenerates to J_k = J_{k-1}; the
 ! sign-split discretization (lagged upwind stores, EPS limiter)
-! does not.  1E-6 bounds the coefficients while leaving every real
+! does not. 1E-6 bounds the coefficients while leaving every real
 ! spacing (min ~1E-5) untouched.
 !
 	REAL(KIND=LDP), PARAMETER :: MOM_DLN_MIN=1.0E-6_LDP
@@ -1013,7 +1012,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: EPS_SCL_NM(:)
 !
 ! XLAG_NM: the lagged part of each row's assembled RHS (everything
-! except the DTAUONQ*SOURCE*R^2 local source).  LAG_SCL_NM: the
+! except the DTAUONQ*SOURCE*R^2 local source). LAG_SCL_NM: the
 ! per-row bound factor applied under MOM_LAG_BND, reused by the
 ! negative-J rebuild so the rebuild matches the equation that was
 ! actually solved.
@@ -1044,13 +1043,13 @@
 	MOM_ALO_VALID=.FALSE.
 !
 ! LUER is only assigned inside conditional blocks below; the DGTSV
-! failure report could reach it unset.  Fix it once per call.
+! failure report could reach it unset. Fix it once per call.
 !
 	LUER=ERROR_LU()
 	IF(INIT .AND. ALLOCATED(R_NM))THEN
 	  DO I=1,ND_SM
 ! R is re-derived each iteration and can differ at the few-ulp level
-! between consecutive calls with no physical change.  Rebuild only on
+! between consecutive calls with no physical change. Rebuild only on
 ! a real drift (relative change > 1e-8): bit-level noise was forcing a
 ! rebuild every INIT call, discarding and remapping the GS store
 ! unnecessarily.
@@ -1076,7 +1075,7 @@
 ! count is INT(|V_SM(I)-V_SM(I+1)|/T2), and V_COEF_NM/SIGMA_COEF_NM/
 ! SIGMA_TRUE_COEF_NM are computed only in the build block below.
 ! Without this check a V update with R unchanged left GAM, W, EPS,
-! PSI and Q evaluated on the old velocity field.  Scale the
+! PSI and Q evaluated on the old velocity field. Scale the
 ! tolerance by the peak |V| so near-zero cells do not fire on
 ! bit-level noise; 1e-6 of peak is far below the T2 sub-grid
 ! sensitivity (T2 ~ VDOP_FRAC*|VDOP|, order km/s).
@@ -1215,7 +1214,7 @@
 !
 ! Determine the number of points for the expanded R grid.
 ! We insert an EVEN number of points between grid points to resolve
-! the Doppler shift.  For non-monotonic flows, |V(I)-V(I+1)| is used
+! the Doppler shift. For non-monotonic flows, |V(I)-V(I+1)| is used
 ! (not V(I)-V(I+1)) so that velocity reversals are handled correctly.
 !
           K=1
@@ -1223,7 +1222,7 @@
 !
 ! T2=0 (all-zero VDOP) would divide by zero; a negative T2
 ! (VDOP_FRAC<0 or a negative VDOP entry) would silently skip every
-! insertion.  Neither is a recoverable grid -- stop loudly.
+! insertion. Neither is a recoverable grid -- stop loudly.
 !
 	  IF(.NOT.(T2 .GT. 0.0_LDP))THEN
 	    LUER=ERROR_LU()
@@ -1261,7 +1260,7 @@
 	     STOP
 	  END IF
 !
-! Build the expanded R grid.  Use ABS(V_SM(I)-V_SM(I+1)) for the
+! Build the expanded R grid. Use ABS(V_SM(I)-V_SM(I+1)) for the
 ! sub-point count so that velocity reversals (V(I) < V(I+1)) produce
 ! the same sub-grid resolution as the corresponding expansion.
 !
@@ -1382,7 +1381,7 @@
 	  J_NEXT_VALID=.FALSE.
 !
 ! H_NEXT_FRQ: lagged R^2*H partner of J_NEXT_FRQ for the
-! compressing-midpoint H/EPS upwind reads.  Always allocated
+! compressing-midpoint H/EPS upwind reads. Always allocated
 ! alongside J_NEXT_FRQ; its validity shares the J_NEXT_VALID flag.
 !
 	  ALLOCATE ( H_NEXT_FRQ(ND_NM,NCF_IN),STAT=IOS )
@@ -1395,7 +1394,7 @@
 !
 ! Quarantine persistence ages: 2-byte integers are enough (a cell
 ! quarantined for >32767 consecutive sweeps has long stopped
-! mattering).  Allocated with J_NEXT_FRQ so a grid rebuild resets
+! mattering). Allocated with J_NEXT_FRQ so a grid rebuild resets
 ! the ages together with the store they describe.
 !
 	  ALLOCATE ( MOM_QUAR_AGE(ND_NM,NCF_IN),STAT=IOS )
@@ -1427,7 +1426,7 @@
 	  NHIST_OUT=-1
 !
 ! Per-frequency Knop refresh store (Oct-2026): captured inputs for
-! MOM_KNOP_REFRESH_V1's alternating-direction re-solve.  Allocated
+! MOM_KNOP_REFRESH_V1's alternating-direction re-solve. Allocated
 ! unconditionally; the refresh self-guards when no compressing
 ! depths exist, but the capture is cheap and keeps the logic simple.
 !
@@ -1471,13 +1470,13 @@
 !
 ! Grid-rebuild remap: if the old expanded grid carried a valid GS
 ! store, interpolate R^2*J from R_NM_OLD onto the new R_NM for every
-! frequency.  This preserves the compressing-zone upwind field across
+! frequency. This preserves the compressing-zone upwind field across
 ! grid rebuilds; without it each rebuild zeroed J_NEXT_FRQ and the GS
 ! iteration never converged.
 !
 	  IF(HAVE_JNEXT_OLD)THEN
 ! The RDINR drift moves the model R each iteration, so the rebuilt
-! expanded grid can sit just outside the old grid's range.  MON_INTERP
+! expanded grid can sit just outside the old grid's range. MON_INTERP
 ! STOPs on out-of-range queries; clamp query points to the old
 ! endpoints (nearest-value extension -- a tiny boundary extrapolation,
 ! vastly better than zeroing the whole GS store).
@@ -1514,7 +1513,7 @@
 !
 ! GS restart (16-Sep-2026): save NCF_IN for the checkpoint dump
 ! (SCR_RITE_V2 cannot see it), then attempt to restore a validated
-! complete J_NEXT_FRQ generation from MOMJNXT_GS.  On any validation
+! complete J_NEXT_FRQ generation from MOMJNXT_GS. On any validation
 ! failure the array is left untouched, so a remapped store survives.
 ! The disk restore is skipped when the in-process remap already
 ! supplied a valid store (fresher than the checkpoint).
@@ -1557,7 +1556,7 @@
 	  DO I=1,ND_SM
 !
 ! edited 29-Sep-2026: bound the march in-loop, as in
-! FG_J_CMF_NONMONO_V1.  The expanded R_NM grid is built with inserted
+! FG_J_CMF_NONMONO_V1. The expanded R_NM grid is built with inserted
 ! points for the non-monotonic field, so a depth that brackets no
 ! interval would otherwise walk K past ND_NM and read out of bounds
 ! in an unchecked build.
@@ -1615,20 +1614,20 @@
 	END IF
 !
 ! Reset the per-sweep accumulators at the start of a sweep, BEFORE
-! this frequency's solve contributes to them.  The reset used to sit
+! this frequency's solve contributes to them. The reset used to sit
 ! in the J_NEXT update section below, so frequency 1's contributions
 ! were erased every sweep -- and on descending refresh passes (which
 ! end on FREQ_INDX=1) the whole pass's physics stats were wiped, which
 ! is why DUMP_MOM_JNEXT_GS printed sentinel/zero blocks on ~half of
-! the great iterations.  Skipped during refresh: the driver resets
+! the great iterations. Skipped during refresh: the driver resets
 ! the GS metrics per frequency and the physics stats per pass.
 !
 	IF(FREQ_INDX .EQ. 1 .AND. .NOT. MOM_KN_REFRESHING)THEN
 !
-! Compression-dominance resolution for MOM_RF_DIR.  The lagged
+! Compression-dominance resolution for MOM_RF_DIR. The lagged
 ! coupling direction is a property of the velocity field, not of any
 ! single frequency solve, so the flags are set from the previous
-! sweep's accumulated row census before it is cleared.  On the first
+! sweep's accumulated row census before it is cleared. On the first
 ! sweep the counters are zero and both flags stay false -- the
 ! alternating order and unsuppressed writes run until the census
 ! exists.
@@ -1709,19 +1708,19 @@
 !
 !	  Request the real midpoint g = N/H under N_ON_J: the compressing
 !	  branches of this routine key on GAMH_SIGNED = sign(1+sigma*g),
-!	  which is dead at g=0 (the historical fill).  Opt-in only; stock
+!	  which is dead at g=0 (the historical fill). Opt-in only; stock
 !	  callers keep the zero fill.
 !
 	  GMNR_NMJ_G=.TRUE.
 	  CALL GET_MOMS_NON_REL(R_NM, V_NM, FREQ, N_TYPE, ND_NM)
 !
 ! Sanitize the interpolated Eddington factors before they enter
-! GAM/EPS/W.  GET_MOMS_NON_REL can return NaN or unphysical values
+! GAM/EPS/W. GET_MOMS_NON_REL can return NaN or unphysical values
 ! at edges where the store is degenerate; a NaN K_ON_J or a
 ! non-finite NMID_ON_HMID then poisons the tridiagonal coefficients.
 ! Bounds: f=K/J in [1E-4,1] (isotropic 1/3 to free-streaming 1);
 ! NMID_ON_J keeps its sign (it is a signed flux-like ratio) but
-! non-finite is zeroed.  NMID_ON_HMID is g=N/H -- genuinely signed
+! non-finite is zeroed. NMID_ON_HMID is g=N/H -- genuinely signed
 ! and unbounded now that N_ON_J fills it for the direction split;
 ! only non-finite and |g|>1E12 are regularized, since this routine
 ! always takes |1+sigma*g| rather than 1+sigma*g itself.
@@ -1742,8 +1741,8 @@
 !
 ! MOM_FAC_RLX blend: this call's sanitized factors are folded into
 ! the per-frequency relaxed store and the store is fed back, so the
-! coefficients below see a damped factor trajectory.  First call per
-! slot seeds directly.  Runs on the main sweep only -- refresh
+! coefficients below see a damped factor trajectory. First call per
+! slot seeds directly. Runs on the main sweep only -- refresh
 ! re-calls read the captured KN_M factor state (already relaxed) and
 ! skip the GET_MOMS_NON_REL block entirely.
 !
@@ -1802,7 +1801,7 @@
 ! over the whole interval's coefficients (NaN poisoning the solve).
 ! MERGE with a >0 test is used instead of MAX because Fortran does
 ! not define MAX on NaN operands; the predicate rejects both
-! non-positive and non-finite inputs.  The floor maps back to ~0
+! non-positive and non-finite inputs. The floor maps back to ~0
 ! after EXP, which is the intended limit of a vanishing opacity.
 !
 	  DO I=1,ND_SM
@@ -1874,11 +1873,11 @@
 !
 	CALL QFROMF(K_ON_J,QF_NM,R_NM,TA_NM,TB_NM,ND_NM)
 !
-! Bound QF_NM to a finite positive range.  The formal-solver Eddington
+! Bound QF_NM to a finite positive range. The formal-solver Eddington
 ! factors can be degenerate at boundary depths (F ~ 0 or F <= 0 where J
 ! is tiny), in which case the (3F-1)/(R F) integral in QFROMF underflows
-! to 0 or overflows to +Inf.  QF_NM=0 divides DTAUONQ by zero; QF_NM=Inf
-! overflows the K_ON_J*QF_NM coefficient products (TC(1)=-Inf).  Both
+! to 0 or overflows to +Inf. QF_NM=0 divides DTAUONQ by zero; QF_NM=Inf
+! overflows the K_ON_J*QF_NM coefficient products (TC(1)=-Inf). Both
 ! ends are the saturated asymptotic limit of the moment equations
 ! (decoupled / optically thick), so clamping preserves the limiting
 ! behaviour while keeping the tridiagonal coefficients finite.
@@ -1915,10 +1914,10 @@
 ! FG_J_CMF_NONMONO_V1.
 !
 ! The generalized opacity is:
-!   chi_hat = chi + |GAM_MOM| / dLOG_NU   (always positive)
+!   chi_hat = chi + |GAM_MOM| / dLOG_NU (always positive)
 !
 ! The signed coupling coefficient is:
-!   Q = (GAM_MOM / dLOG_NU) / chi_hat     (signed)
+!   Q = (GAM_MOM / dLOG_NU) / chi_hat (signed)
 !
 ! The modified source is:
 !   S' = SOURCE + Q * J_upwind
@@ -1927,9 +1926,9 @@
 !   J_NEXT when GAM_MOM < 0 (compressing).
 !
 ! This split guarantees:
-!   1. chi_hat > 0  =>  DTAU > 0  (well-conditioned tridiagonal)
-!   2. PSI = DTAUONQ * |GAM_MOM|/dLOG_NU  (always positive diagonal)
-!   3. W   = |GAMH_MOM|/dLOG_NU          (always positive H-coupling)
+!   1. chi_hat > 0 => DTAU > 0 (well-conditioned tridiagonal)
+!   2. PSI = DTAUONQ * |GAM_MOM|/dLOG_NU (always positive diagonal)
+!   3. W = |GAMH_MOM|/dLOG_NU (always positive H-coupling)
 !   4. The signed Q*J_upwind enters the RHS only (cannot destabilize)
 !
 !*****************************************************************************
@@ -1947,7 +1946,7 @@
 	IF(INIT)THEN
 !
 ! At the bluest frequency no lagged frequency fields exist, so the
-! explicit (PREV) coupling arrays are zeroed.  The CURRENT-frequency
+! explicit (PREV) coupling arrays are zeroed. The CURRENT-frequency
 ! coefficients (CHI_HAT, GAM, W, EPS, Q) are physical properties of
 ! this frequency and are computed unconditionally below -- zeroing
 ! them here (as the V11-derived structure did) leaves CHI_HAT=0 on
@@ -1986,7 +1985,7 @@
 !
 ! The (1 + SIGMA * angle_factor) is the FULL comoving frequency gradient.
 ! The "1" is the V/R divergence (aberration); SIGMA * angle_factor is
-! the velocity gradient correction.  Both must be present.
+! the velocity gradient correction. Both must be present.
 !
 ! c^{-1} = 3.33564E-06 (converts km/s/cm to dimensionless)
 !
@@ -2004,7 +2003,7 @@
 !
 ! edited 28-Sep-2026: regularize the factor 1+sigma*K at the
 ! zero-GAM resonance so the sign split, chi_hat and the explicit/implicit
-! weights stay away from zero.  The sign is preserved and the magnitude is
+! weights stay away from zero. The sign is preserved and the magnitude is
 ! limited from below; large-|GAM| branches are unchanged.
 !
 	    T1=1.0_LDP+AV_SIGMA_TRUE_NM(I)*NMID_ON_HMID(I)
@@ -2019,7 +2018,7 @@
 ! Pin the lagged factor to the current-frequency evaluation: an
 ! independent 1+sigma*g_prev can carry the opposite sign or a larger
 ! magnitude near the zero-GAM resonance, which lets the lagged H
-! weight exceed the implicit (1+W) normalization.  [MOM_GAM_PIN]
+! weight exceed the implicit (1+W) normalization. [MOM_GAM_PIN]
 !
 	      GAMH_FAC_PREV_NM(I)=GAMH_FAC_NM(I)
 	    ELSE
@@ -2033,15 +2032,15 @@
 	  CON_GAM_NM(ND_NM)=3.33564E-06_LDP*V_NM(ND_NM)/R_NM(ND_NM)
 !
 ! Frequency-match bookkeeping (VADAT DO_NONMONO_FREQ_MATCH, default
-! F; set by SET_MOM_FREQ_MATCH).  At compressing cells the lagged
+! F; set by SET_MOM_FREQ_MATCH). At compressing cells the lagged
 ! frequency upwind is rematched from the adjacent bin k+1 to the
 ! bin k+n containing the characteristic foot, n = |GAM|*ds/DLN in
 ! grid bins, and the frequency derivative spans ln(nu_k/nu_{k+n}).
 ! Once the per-cell comoving drift exceeds one bin the +1 stencil
 ! extrapolates the derivative -- the oscillatory-eigenvalue regime
-! of Ceulemans et al. (2025, JQSRT 343).  NM_J/NM_H hold the
+! of Ceulemans et al. (2025, JQSRT 343). NM_J/NM_H hold the
 ! matched offsets at depth/mid points; DLN_J/DLN_H the matched log
-! spans.  The arrays are filled every call so the coefficient loops
+! spans. The arrays are filled every call so the coefficient loops
 ! read a single spacing table; with the flag off (or at expanding
 ! points) the fills reproduce the pre-match code exactly --
 ! compressing cells read k+1 over the forward spacing ln(nu_k/
@@ -2115,7 +2114,7 @@
 	END DO
 !
 ! Compute chi_hat at depth points (for DTAU and GAM); midpoint
-! values are the average of the depth-point values below.  The
+! values are the average of the depth-point values below. The
 ! earlier midpoint loop was removed: it read GAM_MAG_NM before the
 ! depth loop populated it and its result was never used.
 ! Knop et al. 2009 Paper I Eq 7: |GAM| in opacity keeps it positive.
@@ -2143,7 +2142,7 @@
 ! Same pin as the midpoint factor: PSIPREV = DTAUONQ*|GAM*GAM_FAC|
 ! now equals PSI, so the expanding explicit upwind weight cannot
 ! exceed the implicit diagonal (the compressing branch already uses
-! PSI as its coupling coefficient).  [MOM_GAM_PIN]
+! PSI as its coupling coefficient). [MOM_GAM_PIN]
 !
 	      GAM_FAC_PREV_NM(I)=GAM_FAC_NM(I)
 	    ELSE
@@ -2209,7 +2208,7 @@
 	  DO I=1,ND_NM
 	    DLNM=MAX(MOM_DLN_J(I),MOM_DLN_MIN)
 ! GAM_NM held the physical signed value above; it is deliberately
-! overwritten here with the dimensionless matrix coefficient.  The
+! overwritten here with the dimensionless matrix coefficient. The
 ! signed copy lives in GAM_SIGNED_NM -- read that for the physics.
 	    GAM_NM(I)=CON_GAM_NM(I)/CHI_HAT_NM(I)/DLNM
 	  END DO
@@ -2224,7 +2223,7 @@
 !
 ! Coupling-direction census for MOM_RF_DIR='AUTO' and the
 ! compression-dominant write suppression: count rows whose upwind
-! reads the lagged redder bin.  Refresh re-calls are excluded --
+! reads the lagged redder bin. Refresh re-calls are excluded --
 ! they re-solve the same sweep and would double-count it.
 !
 	IF(.NOT. MOM_KN_REFRESHING)THEN
@@ -2246,13 +2245,13 @@
 ! identical /(1+W) form): eliminating H from the moment pair gives a
 ! single row whose coefficients are all normalized by the CURRENT
 ! frequency's (1+W) factor -- that factor comes from the current
-! row's own diagonal elimination, not from the lagged field.  So
+! row's own diagonal elimination, not from the lagged field. So
 ! both EPS_NM and EPS_PREV_NM carry 1/(1+W_NM); WPREV_NM enters the
 ! row only as the numerator of the lagged-H coefficient
-! HS_NM = WPREV_NM/(1+W_NM) below.  Under MOM_GAM_PIN the lagged
+! HS_NM = WPREV_NM/(1+W_NM) below. Under MOM_GAM_PIN the lagged
 ! angle factor in EPS_PREV_NM is NMID_ON_J itself (pinned); with
 ! the flag off it is NMID_ON_J_PREV -- in both cases the lagged
-! content is the field the term multiplies (RSQJNU_PREV_NM).  GAMH
+! content is the field the term multiplies (RSQJNU_PREV_NM). GAMH
 ! and AV_SIGMA_TRUE are not lagged because they carry no frequency
 ! index in this discretization.
 !
@@ -2271,8 +2270,8 @@
 ! Pin the lagged angle factor to the current-frequency NMID_ON_J:
 ! same lagged/current mismatch class as GAM_FAC_PREV -- an
 ! independent sigma*n_prev evaluation lets the explicit midpoint
-! transfer outweigh the implicit EPS in TA/TB/TC.  With the pin the
-! EPS_PREV<0 fixup below is already satisfied.  [MOM_GAM_PIN]
+! transfer outweigh the implicit EPS in TA/TB/TC. With the pin the
+! EPS_PREV<0 fixup below is already satisfied. [MOM_GAM_PIN]
 !
 	        EPS_PREV_NM(I)=EPS_NM(I)
 	      ELSE
@@ -2313,11 +2312,11 @@
 !
 ! PSIPREV is now kept positive (|GAM*GAM_FAC_PREV|): Paper I's
 ! construction puts a strictly POSITIVE weight on the upwind field
-! (-xi*a*p^+/- over chi_hat > 0).  With unclamped SIGMA_TRUE the
+! (-xi*a*p^+/- over chi_hat > 0). With unclamped SIGMA_TRUE the
 ! lagged factor GAM_FAC_PREV can carry the opposite sign to the
 ! current row's Q_NM near the zero-GAM resonance, which injected a
 ! negative upwind source onto expanding rows that the Knop split
-! can never produce.  The magnitude convention (lagged Eddington
+! can never produce. The magnitude convention (lagged Eddington
 ! factor) is unchanged; only the sign is regularized.
 !
 	  PSI_NM(I)=DTAUONQ_NM(I)*ABS(Q_NM(I))
@@ -2333,11 +2332,11 @@
 	END DO
 !
 ! Compressing-midpoint fixup (the advected-frequency direction
-! reverses when GAMH_SIGNED < 0).  The explicit lagged H term then
+! reverses when GAMH_SIGNED < 0). The explicit lagged H term then
 ! reads the REDDER neighbour field, so its coefficient must carry
 ! the current-frequency weights: HS becomes W/(1+W) (the same
-! convention PSI_NM uses for the J coupling).  The sigma*n*J piece
-! is keyed on its own sign below.  Overwriting here makes the RHS
+! convention PSI_NM uses for the J coupling). The sigma*n*J piece
+! is keyed on its own sign below. Overwriting here makes the RHS
 ! assembly, the outer boundary row, the negative-J rebuild and the
 ! H reconstruction take the consistent compressing form without
 ! touching the expanding branch.
@@ -2348,7 +2347,7 @@
 !
 !	  The sigma*n*J piece carries its own direction (flux split): its
 !	  frequency upwind is sign(EPS) = sign(sigma*n), not the H-part
-!	  characteristic sign(1+sigma*g).  Where it reads the lagged
+!	  characteristic sign(1+sigma*g). Where it reads the lagged
 !	  redder field the lagged coefficient takes the current weights,
 !	  matching the PSI_NM convention for the J coupling.
 !
@@ -2363,12 +2362,12 @@
 !   explicit (PSIPREV * J_upwind in RHS, signed).
 !
 ! J_upwind = RSQJNU_PREV when Q >= 0 (expanding, standard CMFGEN)
-! J_upwind = J_NEXT_FRQ(:,FREQ_INDX+1) when Q < 0 (compressing, Knop
+! J_upwind = J_NEXT_FRQ(,FREQ_INDX+1) when Q < 0 (compressing, Knop
 ! Gauss-Seidel: next/redder frequency lagged from previous iteration)
 !
 !*****************************************************************************
 !
-! Absorption fraction floor (24-Sep-2026).  ESEC and CHI are
+! Absorption fraction floor (24-Sep-2026). ESEC and CHI are
 ! interpolated onto the expanded grid independently, so at near
 ! pure-scattering cells the ratio COH_VEC=ESEC/CHI can exceed 1.
 ! (1-COH)*DTAUONQ then subtracts from the diagonal; verified at a
@@ -2376,7 +2375,7 @@
 ! of PSI+HL+HU, leaving a near-singular row whose solution flips
 ! to a large negative J that then drags neighbours down.
 ! Absorption cannot be negative: floor the fraction at pure
-! scattering.  COH_VEC itself is left raw so the negJ record still
+! scattering. COH_VEC itself is left raw so the negJ record still
 ! shows the ESEC>CHI crossing.
 !
 	IF(N_TYPE .EQ. 'G_ONLY')THEN
@@ -2392,18 +2391,18 @@
 	  END DO
 	ELSE
 	  DO I=2,ND_NM-1
-! Depth-upwind sigma*NMID_ON_J*J midpoint term (23-Sep-2026).  The
+! Depth-upwind sigma*NMID_ON_J*J midpoint term (23-Sep-2026). The
 ! centered (J_m+J_{m+1}) average puts a positive off-diagonal on one
 ! of the two rows for EITHER sign of EPS once |EPS|>HU or HL, so the
 ! tridiagonal is not an M-matrix and the solution flips sign at the
-! shock cells.  The midpoint value is instead taken at the upwind
+! shock cells. The midpoint value is instead taken at the upwind
 ! node: EPS>=0 reads the outer node (row m gets +E*J_m on the
 ! diagonal, row m+1 gets -E*J_m on the subdiagonal), EPS<0 reads the
 ! inner node (row m gets E*J_{m+1}=-|E| on the superdiagonal, row
-! m+1 gets -E*J_{m+1}=+|E| on the diagonal).  Sign-definite for both
+! m+1 gets -E*J_{m+1}=+|E| on the diagonal). Sign-definite for both
 ! branches -- a first-order flux evaluation where the term is
 ! advection-dominated; identical to the centered form in smooth
-! zones where EPS~0 anyway.  The factor 2 keeps the V11 sum
+! zones where EPS~0 anyway. The factor 2 keeps the V11 sum
 ! convention: Jsum=(J_m+J_{m+1})=2*J_mid, so J_mid=J_up gives
 ! 2*E*J_up -- matching the converged magnitude, not half of it.
 	    TA_NM(I)=-HL_NM(I-1)
@@ -2428,7 +2427,7 @@
 	END IF
 !
 ! MOM_H_IMPL: pay for the lagged upwind-H divergence with its own
-! coupling magnitude on the diagonal.  The row keeps the same RHS
+! coupling magnitude on the diagonal. The row keeps the same RHS
 ! (the signed -HS(I-1)*H_up(I-1)+HS(I)*H_up(I) stays in XLAG_NM),
 ! but the solve sees the H channel's weight as diagonal mass: a
 ! clipped shock row stops oscillating between its clipped and
@@ -2459,9 +2458,9 @@
 !
 ! The velocity-coupling source term is handled by PSIPREV * J_upwind
 ! in the explicit frequency-coupling section below (matching V11's
-! structure).  No separate Q*J_upwind term is needed.
+! structure). No separate Q*J_upwind term is needed.
 !
-! Inner boundary condition (depth ND).  All four method rows divide
+! Inner boundary condition (depth ND). All four method rows divide
 ! by DTAU_NM(ND_NM-1); a nonpositive increment would flip the row
 ! sign or produce Inf, so reject the frequency outright.
 !
@@ -2500,7 +2499,7 @@
 ! V11: XM(I) = ... + PSIPREV(I) * RSQJNU_PREV(I)
 ! NONMONO: XM(I) = ... + coeff * J_upwind
 !   where J_upwind = RSQJNU_PREV if Q >= 0 (expanding, coeff=PSIPREV)
-!                   J_NEXT_FRQ(:,k+1) if Q < 0 (compressing, Knop GS,
+!                   J_NEXT_FRQ(,k+1) if Q < 0 (compressing, Knop GS,
 !                   coeff=PSI_NM = the diagonal |Q_k| weight, matching
 !                   FG's compressing source S + |Q_k|*I_NEXT).
 ! Equal explicit/implicit weights keep the lagged J_NEXT map
@@ -2511,7 +2510,7 @@
 ! column is taken from the pass-start snapshot JNEXT_RF_READ, not the
 ! live J_NEXT_FRQ: on a descending refresh pass slot k+1 holds a
 ! this-pass write, turning the read into a GS cascade that amplified
-! residuals to ~1E10 (job 11887664).  The snapshot restores the
+! residuals to ~1E10 . The snapshot restores the
 ! in-sweep pure-Jacobi semantics (previous generation's field).
 !
 	IF(.NOT. ALLOCATED(JUP_NM))THEN
@@ -2538,7 +2537,7 @@
 !
 ! Per-point matched read: the compressing upwind is the bin
 ! FREQ_INDX+MOM_NM_J(I) holding the characteristic foot (offset 1
-! unless DO_NONMONO_FREQ_MATCH rematched it).  The refresh snapshot
+! unless DO_NONMONO_FREQ_MATCH rematched it). The refresh snapshot
 ! vs live-GS choice below is unchanged; on descending passes slot
 ! k+n has already been visited, so the live read propagates the
 ! coupling just as the k+1 read did.
@@ -2547,7 +2546,7 @@
 	1     .NOT. (KN_M_DESC .AND.
 	2     (MOM_RF_GS_DESC .OR. MOM_DOM_CMP)))THEN
 !
-! Frozen pass-start snapshot.  On ascending passes slot L+1 has not
+! Frozen pass-start snapshot. On ascending passes slot L+1 has not
 ! been visited yet, so the snapshot is the only consistent read; on
 ! descending passes it is the Jacobi fallback used when the live-GS
 ! option is off.
@@ -2598,7 +2597,7 @@
 !
 ! A non-finite lagged R^2*H (stale restart entry or a failed earlier
 ! sweep) would enter the tridiagonal RHS unchecked; J_NEXT_FRQ gets
-! the same finite test.  Zeroing drops this cell's advected H
+! the same finite test. Zeroing drops this cell's advected H
 ! contribution rather than propagating NaN through the solve.
 !
 	    IF(.NOT. (ABS(T1) .LE. HUGE(T1)))THEN
@@ -2638,14 +2637,14 @@
 	    XLAG_NM(I)=XLAG_NM(I)+T3
 	  END DO
 !
-! Lagged EPS*(sigma n J) midpoint terms.  The advected quantity uses
+! Lagged EPS*(sigma n J) midpoint terms. The advected quantity uses
 ! the term's own frequency direction (flux split): EPS >= 0 reads the
-! bluer RSQJNU_PREV_NM, EPS < 0 the lagged redder JUP_NM.  (Under
+! bluer RSQJNU_PREV_NM, EPS < 0 the lagged redder JUP_NM. (Under
 ! N_ON_J before the NMID_ON_HMID fill, GAMH_SIGNED was always >= 0,
-! so this term was read downwind wherever sigma*n < 0.)  The
-! coefficient sign still selects the depth-upwind node.  Scattered
+! so this term was read downwind wherever sigma*n < 0.) The
+! coefficient sign still selects the depth-upwind node. Scattered
 ! per midpoint: midpoint I contributes +2E*J_up to row I and
-! -2E*J_up to row I+1.  Row 1's share is added by the boundary block
+! -2E*J_up to row I+1. Row 1's share is added by the boundary block
 ! below and row ND is replaced by the inner BC, so neither is
 ! written here.
 !
@@ -2672,16 +2671,16 @@
 	    IF(MOM_EPS_LIM)THEN
 !
 !	      Donor-cell positivity limiter on the lagged transfer (a
-!	      signed +T5 to row I, -T5 to row I+1).  The debit may not
+!	      signed +T5 to row I, -T5 to row I+1). The debit may not
 !	      exceed the donor row's current positive RHS balance: this
 !	      term is lagged-frequency auxiliary data, and at
 !	      advection-dominated cells (|EPS|/HU ~ 20) the uncapped
 !	      debit drove interior rows negative, returning negative J
 !	      from a well-conditioned M-matrix -- the persistent negJ
-!	      population of job 12045050.  The recipient is credited
+!	      population of. The recipient is credited
 !	      only the amount actually debited, so the pair stays
 !	      conservative; boundary rows (not written here) are
-!	      unaffected.  [MOM_EPS_LIM, default T]
+!	      unaffected. [MOM_EPS_LIM, default T]
 !
 	      IF(T5 .LT. 0.0_LDP .AND. I .GT. 1)THEN
 	        T4=MAX(XM_NM(I),0.0_LDP)
@@ -2702,7 +2701,7 @@
 !	      The implicit half of the same transfer sits uncapped in
 !	      TA/TB/TC: capping only this side turned a frequency
 !	      derivative into a net source/sink wherever |EPS| >> HU
-!	      (millions of events per sweep on m15).  Record the cap
+!	      (millions of events per sweep on ). Record the cap
 !	      factor so the implicit half is scaled to match below --
 !	      the pair stays a (smaller, consistent) derivative.
 !
@@ -2747,18 +2746,17 @@
 	END IF
 !
 ! Per-row bound on the lagged frequency source [MOM_LAG_BND,
-! default T].  A lagged fixed-point map amplifies wherever a row's
+! default T]. A lagged fixed-point map amplifies wherever a row's
 ! lagged coupling weight exceeds the diagonal excess
 ! TB-|TA|-|TC| (for an M-matrix row, |A^-1|_inf <= 1/excess).
 ! Shock cells violate this: PSI collapses at the 1+sigma*K=0
 ! resonance while the lagged H and EPS_PREV transfers still feed
-! the row, and the retained field then grows geometrically (m15
-! probes, 12-Oct-2026).  Scale the row's whole lagged contribution
+! the row, and the retained field then grows geometrically probes, 12-Oct-2026). Scale the row's whole lagged contribution
 ! (accumulated in XLAG_NM) by min(1, excess/weight); where the
 ! unbounded map was already contractive the factor is 1 and the
-! fixed point is unchanged.  The implicit/explicit EPS pair match
+! fixed point is unchanged. The implicit/explicit EPS pair match
 ! of MOM_EPS_LIM becomes approximate on scaled rows -- that is the
-! documented consistency cost of this bound.  LAG_SCL_NM is kept
+! documented consistency cost of this bound. LAG_SCL_NM is kept
 ! so the negative-J rebuild below applies the same factor to the
 ! same terms; the H reconstruction is left unscaled, it solves the
 ! eliminated H equation rather than the bounded J-row map.
@@ -2799,25 +2797,25 @@
 !
 ! A_BND is this row's own frequency-coupling coefficient,
 ! A_bnd = GAM(1)*(HBC + NBC*sigma_true(1)) -- the boundary Eddington
-! analogue of the interior Q_NM = GAM*(1 + sigma*K_ON_J).  The
+! analogue of the interior Q_NM = GAM*(1 + sigma*K_ON_J). The
 ! expanding-vs-compressing upwind choice must key on sign(A_bnd):
 ! near sigma(1) = -1 (or with a negative boundary Eddington) the two
 ! coefficients differ in sign, and keying on Q_NM(1) classified the
 ! row as expanding while A_bnd < 0, injecting PSIPREV*J_prev < 0 into
-! the RHS.  J(1) then tripped the negative-J rejection every sweep
+! the RHS. J(1) then tripped the negative-J rejection every sweep
 ! (originally the |XM|/10 fixer floor) and corrupted
-! HFLUX_AT_OB = HBC_CMF(1)*RJ(1) (audit 24-Sep-2026).  The
+! HFLUX_AT_OB = HBC_CMF(1)*RJ(1) (audit 24-Sep-2026). The
 ! OUT_BC_TYPE > 1 branch still keys on Q_NM(1): that row is the
 ! negated interior equation, whose coupling coefficient IS Q_NM(1).
 !
 	BND_HBC_FLOORED=.FALSE.
 	IF(OUT_BC_TYPE .LE. 1)THEN
 !
-! Boundary-Eddington floor (audit 24-Sep-2026, job 11960113): the
+! Boundary-Eddington floor (audit 24-Sep-2026): the
 ! formal solve returns HBC = HNU_AT_OB/JNU_STORE(1), which goes
 ! negative at near-zero-flux frequencies -- the thick-BC extension
 ! can emit more inward than the star emits outward (seen at
-! ~1230-1270 A and ~22 um).  A negative HBC is an unphysical
+! ~1230-1270 A and ~22 um). A negative HBC is an unphysical
 ! closure for an unilluminated atmosphere and makes this row
 ! degenerate under EITHER upwind branch: compressing gives the
 ! lagged J_next weight |A_bnd|/TB(1) > 1 (the diagonal drops below
@@ -2826,13 +2824,13 @@
 !
 ! Floor the Eddington part of the closure at zero for this row
 ! only: H(1)=0 is the physical boundary condition where the
-! measured closure is unusable.  HBC_ROW/HBC_PREV_ROW replace
+! measured closure is unusable. HBC_ROW/HBC_PREV_ROW replace
 ! HBC/HBC_PREV in A_BND, the diagonal, and PSIPREV consistently so
-! both branches stay contractive.  The .NOT.(.GE.0) test also
-! catches NaN.  HBC_CMF is untouched, so HFLUX_AT_OB keeps
-! reporting the measured flux.  Same defect class as the FEDD->1/3
+! both branches stay contractive. The .NOT.(.GE.0) test also
+! catches NaN. HBC_CMF is untouched, so HFLUX_AT_OB keeps
+! reporting the measured flux. Same defect class as the FEDD->1/3
 ! guard in FG_J_CMF_NONMONO_V1: a degenerate Eddington measurement
-! is replaced by a physical closure.  Floored frequencies are
+! is replaced by a physical closure. Floored frequencies are
 ! logged to MOM_BND_HBC_FLOOR and counted in MOM_BND_HBC_FL.
 !
 	  HBC_ROW=HBC
@@ -2842,7 +2840,7 @@
 	  IF(.NOT.(HBC_PREV_ROW .GE. 0.0_LDP))HBC_PREV_ROW=0.0_LDP
 	  IF(.NOT.(HBC_PREV_ROW .LE. 1.0_LDP))HBC_PREV_ROW=0.0_LDP
 !
-! NBC enters A_BND and PSIPREV with the same weight as HBC.  An
+! NBC enters A_BND and PSIPREV with the same weight as HBC. An
 ! unphysical N/J (negative, non-finite, or above the |mu|<=1 bound
 ! NBC<=1) leaves the row ill-conditioned even with HBC floored, so
 ! it is validated with the same counted-floor policy.
@@ -2936,14 +2934,14 @@
 	  T1=0.25_LDP*(CHI_HAT_NM(2)+CHI_HAT_NM(1))*(R_NM(2)-R_NM(1))
 	  TC_NM(1)=HU_NM(1)/T1
 ! This row is the negated interior equation, so the same ESEC>CHI
-! defect enters as +(COH-1); MIN gives -(floored absorption).  The
+! defect enters as +(COH-1); MIN gives -(floored absorption). The
 ! MOM_ABS_FLR cap on the MIN argument keeps at least that fraction of
 ! absorption in the row, matching the interior MAX floor.
 	  TB_NM(1)= (MIN(COH_VEC_NM(1),1.0_LDP-MOM_ABS_FLR)-1.0_LDP) -
 	1   (HL_NM(1)+HBC)/T1 - PSI_NM(1)
 ! Midpoint 1 sees row 1 as the outer node; this row is the negated
 ! interior row, so the depth-upwind EPS term lands negated on the
-! diagonal (EPS>=0) or negated on the superdiagonal (EPS<0).  Factor
+! diagonal (EPS>=0) or negated on the superdiagonal (EPS<0). Factor
 ! 2 as in the interior: J_mid=J_up in the Jsum=2*J_mid convention.
 	  IF(EPS_NM(1) .GE. 0.0_LDP)THEN
 	    TB_NM(1)=TB_NM(1)-2.0_LDP*EPS_NM(1)/T1
@@ -2951,7 +2949,7 @@
 	    TC_NM(1)=TC_NM(1)-2.0_LDP*EPS_NM(1)/T1
 	  END IF
 !
-! Same row bound as the interior [MOM_LAG_BND].  This row is the
+! Same row bound as the interior [MOM_LAG_BND]. This row is the
 ! negated interior equation, so the implicit excess is
 ! |TB(1)|-|TC(1)| and the lagged weight is the J-coupling
 ! coefficient plus (HS + 2|EPS_PREV|)/|T1|.
@@ -3011,7 +3009,7 @@
 	    T5=2.0_LDP*EPS_PREV_NM(1)*T4/T1
 !
 !	    Same limiter as the interior scatter: the lagged debit may
-!	    not exceed row 1's accumulated positive RHS.  Row 1 is the
+!	    not exceed row 1's accumulated positive RHS. Row 1 is the
 !	    negated equation, so the transfer lands with opposite sign.
 !	    The LAG_SCL factor applies the row bound after the cap.
 !
@@ -3032,7 +3030,7 @@
 !
 ! DGTSV (LAPACK, partial pivoting) is retained as the solve: it was
 ! introduced while the centered EPS stencil made the matrix
-! non-M-matrix, and stays because it is stencil-agnostic.  The
+! non-M-matrix, and stays because it is stencil-agnostic. The
 ! coefficient arrays are copied because DGTSV overwrites them during
 ! factorization.
 !
@@ -3051,8 +3049,8 @@
 !
 ! Previous valid field at this frequency, the fallback target for a
 ! failed solve or a rejected cell: the lagged GS iterate
-! J_NEXT_FRQ(:,FREQ_INDX) where positive, else the local-equilibrium
-! estimate SOURCE*R^2.  The bluer-frequency RSQJNU_PREV_NM is not a
+! J_NEXT_FRQ(,FREQ_INDX) where positive, else the local-equilibrium
+! estimate SOURCE*R^2. The bluer-frequency RSQJNU_PREV_NM is not a
 ! valid fallback here: on a cold sweep every failed cell would
 ! inherit its neighbour's value, which ratchets R^2*J upward along
 ! the frequency sweep and drives the iteration-1 luminosity to 1e20.
@@ -3076,7 +3074,7 @@
 	END IF
 !
 ! Matrix-quality audit: minimum |TB|/(|TA|+|TC|) over interior rows,
-! non-positive diagonals, and the ESEC/CHI overshoot.  Swept up
+! non-positive diagonals, and the ESEC/CHI overshoot. Swept up
 ! across frequencies; the sweep report shows whether the ~30% stall
 ! correlates with conditioning.
 !
@@ -3124,7 +3122,7 @@
 	3    '  diag range:',MINVAL(TB_NM),MAXVAL(TB_NM)
 !
 ! Whole-frequency quarantine: the tridiagonal couples every depth, so
-! no part of a failed solve is trustworthy.  Restore the previous
+! no part of a failed solve is trustworthy. Restore the previous
 ! valid field (not the RHS) and mark every cell bad so the GS metric
 ! counts a rejection instead of a fake converged field, and the
 ! maturity gate forces Lambda iteration.
@@ -3136,7 +3134,7 @@
 	END IF
 !
 ! Equation residual |A.x - b| / |b| on the post-solve field before
-! repairs.  Skipped on failure: XM_NM then holds the fallback field,
+! repairs. Skipped on failure: XM_NM then holds the fallback field,
 ! not a solution of this system.
 !
 	IF(GT_INFO .EQ. 0)THEN
@@ -3241,7 +3239,7 @@
 !
 ! XM_BAD_NM marks cells touched by any post-solve repair below so the
 ! J_NEXT_FRQ update can optionally (MOM_RF_KEEPNEG) keep the previous
-! iterate there instead of storing the repaired value.  The mask was
+! iterate there instead of storing the repaired value. The mask was
 ! reset before the solve so a DGTSV failure mark survives.
 !
 	IF(MINVAL(XM_NM(1:ND_NM)) .LE. 0.0_LDP .AND. VERBOSE_NM)THEN
@@ -3266,7 +3264,7 @@
 ! "tiny" even though it was 100% of the local field), and T5 raises
 ! it to 1E-3 of the cell's previous valid value so a sign flip of
 ! order the local field is always rejected while roundoff on a
-! strong cell is not.  MAXVAL is masked to exclude non-finite
+! strong cell is not. MAXVAL is masked to exclude non-finite
 ! entries.
 !
 	T4=MAXVAL(ABS(XM_NM(1:ND_NM)),
@@ -3293,7 +3291,7 @@
 ! Row diagnostics for the negJ investigation (24-Sep-2026): cells that
 ! flip negative at sigma~0 with a positive RHS imply TB<=0, which can
 ! only come from the absorption term (1-COH)*DTAUONQ when the coherent
-! fraction ESEC/CHI exceeds 1 at a thick cell.  TB/TA/TC survive the
+! fraction ESEC/CHI exceeds 1 at a thick cell. TB/TA/TC survive the
 ! solve (DGTSV works on copies).
 !
 	      WRITE(48,'(A,T38,6ES13.4)')'  TB,TA,TC,absorp,COH,DTAUONQ=',
@@ -3303,7 +3301,7 @@
 	    END IF
 	    IF(ABS(XM_NM(I)) .GT. T5)THEN
 !
-!	      Significant negative: a failed solve, not noise.  Reject the
+!	      Significant negative: a failed solve, not noise. Reject the
 !	      update to the previous valid field rather than |XM|/10,
 !	      which is an arbitrary positive value the lagged map then
 !	      chases.
@@ -3336,7 +3334,7 @@
 ! A non-finite XM_NM must not be stored: RSQJNU_NM and J_NEXT_FRQ are
 ! lagged fields read back as explicit couplings by later frequencies
 ! (and by later great iterations at compressing depths), so a stored
-! NaN/Inf injects NaN into every subsequent tridiagonal.  A failed
+! NaN/Inf injects NaN into every subsequent tridiagonal. A failed
 ! entry is rejected to the previous valid field XM_FB_NM -- zeroing
 ! dropped the lagged coupling entirely, and the old 1E40 clip stored
 ! a wrong field at a wrong scale that the next solve's RHS coupling
@@ -3345,10 +3343,10 @@
 	N_QBND=0
 !
 ! Runaway reference: the largest previous-valid value at this
-! frequency.  When no valid history exists (cold start with zero
+! frequency. When no valid history exists (cold start with zero
 ! SOURCE and zero RSQJNU_PREV) the check is skipped -- there is no
 ! scale to reject against, and a blanket floor would reject a
-! legitimate first solution.  The 1E3 bound is a hard numerical
+! legitimate first solution. The 1E3 bound is a hard numerical
 ! rejection, not a damping choice: a single GS step that moves a
 ! cell three dex above the previous valid field is a failed solve,
 ! and the retained iterate keeps the map near a valid state.
@@ -3375,7 +3373,7 @@
 	2     N_QBND,' depths'
 ! Localize the first failure: a single non-finite tridiagonal row or
 ! RHS entry propagates through the tridiagonal solve, so the first bad index
-! (not the count) identifies the source.  Also scan the matrix/RHS so
+! (not the count) identifies the source. Also scan the matrix/RHS so
 ! an upstream NaN is reported at its origin, not its first XM echo.
 	  DO I=1,ND_NM
 	    IF(.NOT. (ABS(XM_SAVE_NM(I)) .LE. HUGE(1.0_LDP)) .OR.
@@ -3396,7 +3394,7 @@
 ! which is J_NEXT_FRQ where that was positive) from the post-solve
 ! guards above, so RSQJNU_NM, JNU and the relaxed J_NEXT_FRQ write
 ! below all see the same frozen value -- the old MOM_BA_FIX block
-! that re-froze only under a flag is removed.  The unconditional
+! that re-froze only under a flag is removed. The unconditional
 ! DO_VAR_CONT suppression of the ALO diagonal at MOM_CELL_QUAR cells
 ! is the matching statement that a frozen cell has zero response.
 !
@@ -3412,7 +3410,7 @@
 !
 ! MOM_GS_MAXCHG/MOM_INEXT_CAPPED accumulate the last-sweep convergence
 ! metrics written into the GS checkpoint; a complete-but-still-moving
-! restored field does not skip the restart warm-up.  The accumulator
+! restored field does not skip the restart warm-up. The accumulator
 ! reset now lives at the top of the routine (before this frequency's
 ! solve contributes), gated off during refresh.
 !
@@ -3432,10 +3430,10 @@
 !
 !	      Non-owned rows are not part of this pass's map -- their
 !	      store write is suppressed below, so the solve-vs-store
-!	      difference persists by construction.  Counting it would
+!	      difference persists by construction. Counting it would
 !	      pin the refresh residual at the inter-direction
 !	      discrepancy forever; the row is measured on its owning
-!	      pass instead.  [MOM_RF_OWNW]
+!	      pass instead. [MOM_RF_OWNW]
 !
 	      L_SUPP=(KN_M_DESC .NEQV. (Q_NM(I) .LT. 0.0_LDP))
 	      IF(I .EQ. 1 .AND. OUT_BC_TYPE .LE. 1)L_SUPP=
@@ -3468,7 +3466,7 @@
 	      MOM_GS_NQUAR=MOM_GS_NQUAR+1
 !
 !	      edited 29-Sep-2026: age the quarantine on the
-!	      sweep calls only.  Refresh re-solves the same captured
+!	      sweep calls only. Refresh re-solves the same captured
 !	      inputs many times per sweep and would inflate the age.
 !
 	      IF(.NOT. MOM_KN_REFRESHING)THEN
@@ -3530,7 +3528,7 @@
 	    END IF
 !
 !	    Fold the cell's drift into its caller pass (first vs repeat
-!	    call at this frequency).  Refresh re-calls are excluded:
+!	    call at this frequency). Refresh re-calls are excluded:
 !	    their contraction is already read via MOM_RF_DCHG.
 !
 	    IF(.NOT. MOM_KN_REFRESHING)THEN
@@ -3552,7 +3550,7 @@
 !
 ! Under-relaxed write (JNEXT_RELAX): damps the GS fixed-point map on
 ! compressing grids where straight replacement amplifies the SE<->RT
-! loop; fixed point unchanged.  Cells with no prior value get the new
+! loop; fixed point unchanged. Cells with no prior value get the new
 ! field directly.
 !
 	  DO I=1,ND_NM
@@ -3562,7 +3560,7 @@
 !	      grid the ascending main sweep's compressing upwind read is
 !	      a one-iteration-old Jacobi value, so relaxing the store
 !	      toward that output erodes the refresh-converged field every
-!	      great iteration (m15_2p82d, job 12045050).  The descending
+!	      great iteration . The descending
 !	      refresh passes own the compressing component of the lagged
 !	      field; suppress the write at compressing rows instead.
 !	      Row 1's direction keys on A_BND under the Eddington boundary
@@ -3571,12 +3569,12 @@
 !	      store) and KN_M_READY (the seeding sweep still writes).
 !
 !	      edited 01-Oct-2026: extended to mixed grids under
-!	      MOM_RF_OWNW.  On an alternating schedule the refresh's
+!	      MOM_RF_OWNW. On an alternating schedule the refresh's
 !	      descending passes still own the compressing rows, and the
 !	      sweep's per-iteration Jacobi write re-injected the error
-!	      the refresh just removed (job 12047200: ~2M cells moved
+!	      the refresh just removed (~2M cells moved
 !	      >50% between retained field and next sweep while the
-!	      refresh residuals stayed ~1E4).  DOM_EXP is exempted
+!	      refresh residuals stayed ~1E4). DOM_EXP is exempted
 !	      because no descending pass ever owns compressing rows.
 !
 	      L_SUPP=MOM_RF_ENABLED .AND. KN_M_READY .AND.
@@ -3595,7 +3593,7 @@
 !	      ascending pass, expanding on a descending one) took a
 !	      Jacobi step; suppressing its write leaves the row at its
 !	      last fresh-read iterate, so every stored update is a
-!	      Gauss-Seidel step.  Row 1 keys on A_BND under the Eddington
+!	      Gauss-Seidel step. Row 1 keys on A_BND under the Eddington
 !	      boundary, matching the RHS assembly's upwind selector.
 !
 	      IF(MOM_KN_REFRESHING .AND. MOM_RF_OWNW)THEN
@@ -3632,7 +3630,7 @@
 	END IF
 !
 ! Record the quarantine mask on the model grid so DO_VAR_CONT can
-! zero the claimed dJ response at frozen cells.  Kept from the last
+! zero the claimed dJ response at frozen cells. Kept from the last
 ! non-refresh call: the SE Jacobian is built against the sweep solve,
 ! and refresh re-calls would otherwise overwrite it with pass masks.
 !
@@ -3646,15 +3644,15 @@
 	    MOM_CELL_QUAR(I)=XM_BAD_NM(J_INDX_NM(I))
 	  END DO
 !
-! Model-grid diagonal of this frequency's moment row.  The unknown is
+! Model-grid diagonal of this frequency's moment row. The unknown is
 ! R^2*J and the local source piece of the RHS is
-! DTAUONQ*SOURCE*R^2 with SOURCE=ETA/CHI.  Holding the off-diagonal
+! DTAUONQ*SOURCE*R^2 with SOURCE=ETA/CHI. Holding the off-diagonal
 ! depths and the lagged upwind fixed,
 !   dJ/dETA = DTAUONQ / (TB * CHI)
 !   dJ/dCHI = -SOURCE * dJ/dETA
 ! TB includes PSI = DTAUONQ*|Q|, so a compressing depth (Q<0, upwind
-! = J_NEXT) has a smaller local response.  J_NEXT itself is not
-! differentiated: it is the outer iteration.  Boundary rows are left
+! = J_NEXT) has a smaller local response. J_NEXT itself is not
+! differentiated: it is the outer iteration. Boundary rows are left
 ! at zero; they are closures, not local-source rows.
 ! edited by Sean Brennan (25-Sep-2026)
 !
@@ -3757,7 +3755,7 @@
 !
 ! Update the lagged R^2*H store with the same relaxed-write rule as
 ! J_NEXT_FRQ: compressing midpoints read slot k+1 as their upwind
-! field on the next sweep.  Drift is folded into MOM_GS_MAXCHG only:
+! field on the next sweep. Drift is folded into MOM_GS_MAXCHG only:
 ! H crosses zero legitimately, so per-cell fraction counts would be
 ! inflated by sign-change cells and could hold the maturity gate on
 ! noise; the max-norm still catches a runaway H field.
@@ -3778,7 +3776,7 @@
 !
 !	    Non-owned midpoint rows do not write the store this pass --
 !	    exclude them from the drift metric for the same reason as
-!	    the J loop above.  [MOM_RF_OWNW]
+!	    the J loop above. [MOM_RF_OWNW]
 !
 	    IF(MOM_KN_REFRESHING .AND. MOM_RF_OWNW .AND.
 	1      (KN_M_DESC .NEQV. (GAMH_SIGNED_NM(I) .LT. 0.0_LDP)))
@@ -3851,8 +3849,8 @@
 	NBC_SAVE=NBC
 !
 ! Capture the per-frequency inputs MOM_KNOP_REFRESH_V1 needs to
-! re-drive this routine.  Slot s holds frequency s (same convention
-! as J_NEXT_FRQ and the FG lagged store).  The capture is skipped
+! re-drive this routine. Slot s holds frequency s (same convention
+! as J_NEXT_FRQ and the FG lagged store). The capture is skipped
 ! during refresh re-calls: the store already holds the values being
 ! replayed, and rewriting it would corrupt later slots on a
 ! descending pass.
@@ -3937,7 +3935,7 @@
 	LUER=ERROR_LU()
 !
 ! Argmax-jitter history: the last four sweeps' (depth,freq,value)
-! tuples classify the drift floor.  Values alternating direction at
+! tuples classify the drift floor. Values alternating direction at
 ! a fixed cell mark a period-2 limit cycle of the composite map; a
 ! stable monotone argmax marks a marginal contraction tail that
 ! under-relaxation only slows; a stable argmax at a boundary depth
@@ -3965,7 +3963,7 @@
 	3      MOM_ARG_HI(4) .GE. SIZE(J_NEXT_FRQ,1)-1))
 	4     MOM_GS_CLS='bndry'
 !
-! Tabulated sweep report.  The status tag mirrors the maturity gate
+! Tabulated sweep report. The status tag mirrors the maturity gate
 ! tiers in SOLVE_FOR_POPS: [BAD] = catastrophic tier (>10% capped,
 ! >1% drifting >50%, max change >1E6, >10% negJ or quarantined),
 ! [WARN] = marginal tier (above the strict thresholds), else [OK].
@@ -3992,7 +3990,7 @@
 !
 ! edited 21-Oct-2026: the sweep table is written as
 ! labelled sentences; the short-key legend is gone because every
-! number now names itself.  Counts and tags are unchanged.
+! number now names itself. Counts and tags are unchanged.
 !
 !
 ! Boundary-row tag (CONV_DIAG_LVL>=2, diagnostic only): the drift
@@ -4013,7 +4011,7 @@
 ! re-calls the solver with NEW_FREQ=F at the same frequency, so a
 ! floor in the combined drift can be pass-2 under-measurement (the
 ! store was already relaxed toward the solve) rather than a stalled
-! store-fix map.  The row census shows the compressing-row share the
+! store-fix map. The row census shows the compressing-row share the
 ! AUTO direction split is working from.
 !
 	IF(CONV_DIAG_LVL .GE. 2)
@@ -4104,7 +4102,7 @@
 ! depth grid R_NM/R_PNT_NM, whose construction depends on the internal
 ! velocity profile -- two models can share ND_NM and R/V endpoints yet
 ! have different expanded grids, so the fingerprint is the full R_NM
-! and R_PNT_NM vectors plus the input-grid R/V endpoints.  Written to
+! and R_PNT_NM vectors plus the input-grid R/V endpoints. Written to
 ! MOMJNXT_GS.tmp then atomically renamed so a kill mid-write cannot
 ! destroy the previous valid checkpoint.
 !
@@ -4249,7 +4247,7 @@
 ! Value validation (audit 17-Sep-2026): a structurally intact file can
 ! still carry a corrupted field -- the convergence metric must be
 ! finite and non-negative, the event count non-negative, and the
-! restored R^2*J finite and non-negative everywhere.  Any violation
+! restored R^2*J finite and non-negative everywhere. Any violation
 ! rejects the whole generation: the next compressing-frequency solve
 ! would otherwise use the corrupted values as explicit source terms.
 !
@@ -4302,7 +4300,7 @@
 ! mirroring RESTORE_FG_INEXT_LATEST: when a BA step is rolled back in
 ! SOLVEBA, the lagged moment store in memory was solved on the post-step
 ! (rejected) populations, and re-solving from that seed can leave the GS
-! basin entirely.  MOMJNXT_GS on disk still holds the generation written
+! basin entirely. MOMJNXT_GS on disk still holds the generation written
 ! at the end of the rejected step's own iteration -- the field solved on
 ! the pre-step populations the rollback restores.
 !
@@ -4311,7 +4309,7 @@
 ! uses guards against a foreign checkpoint or a post-dump grid revision.
 ! A failure before the J record is read leaves the in-memory field
 ! untouched -- a stale store after a pops rollback is no worse than
-! the pops-only rollback the caller falls back to.  A failure after
+! the pops-only rollback the caller falls back to. A failure after
 ! the J record can leave the store partially overwritten, so that
 ! path invalidates and zeroes it (label 920): the next sweep
 ! rebuilds it from the restored populations.
@@ -4429,28 +4427,28 @@
 !  GET_MOM_GS_MATURITY (added 19-Sep-2026, dev7 port).
 !
 !  Return the moment-solver GS state for the N_LAM_RWARM warm-up decision
-!  in SOLVE_FOR_POPS.  Kept as a subroutine (not a module USE) because
+!  in SOLVE_FOR_POPS. Kept as a subroutine (not a module USE) because
 !  new_main/mod_subs compiles before plane/ in the library build order,
 !  so module visibility is not available there.
 !
-!    RAN      : MOM_J_CMF_NONMONO_V1 ran in this process
-!    GS_OK    : a validated MOMJNXT_GS generation was restored
+!    RAN : MOM_J_CMF_NONMONO_V1 ran in this process
+!    GS_OK : a validated MOMJNXT_GS generation was restored
 !    CHG_FILE : last-sweep max relative change recorded in the file
 !               (-1 when no checkpoint was read)
 !    CAP_FILE : capped/non-finite write count recorded in the file
-!    MAXCHG   : max relative change written into J_NEXT_FRQ this sweep
-!    CAPPED   : non-finite or runaway XM_NM rejections this sweep
-!    NEGJ     : significant negative-J resets this sweep
-!    NBAD5    : cells with relative J_NEXT_FRQ change above 5 percent
-!    NBAD50   : cells with relative change above 50 percent
-!    NTOT     : total cells the metric covered (ND_NM*NCF)
-!    NQUAR    : cells quarantined this sweep under MOM_RF_KEEPNEG
-!    NPQUAR   : quarantined cells at MOM_QUAR_PERSIST sweeps or older
+!    MAXCHG : max relative change written into J_NEXT_FRQ this sweep
+!    CAPPED : non-finite or runaway XM_NM rejections this sweep
+!    NEGJ : significant negative-J resets this sweep
+!    NBAD5 : cells with relative J_NEXT_FRQ change above 5 percent
+!    NBAD50 : cells with relative change above 50 percent
+!    NTOT : total cells the metric covered (ND_NM*NCF)
+!    NQUAR : cells quarantined this sweep under MOM_RF_KEEPNEG
+!    NPQUAR : quarantined cells at MOM_QUAR_PERSIST sweeps or older
 !               (the structurally failing subset of NQUAR)
-!    RF_RAN   : MOM_KNOP_REFRESH_V1 executed this great iteration
-!    RF_CONV  : the refresh converged (retained field is the map's
+!    RF_RAN : MOM_KNOP_REFRESH_V1 executed this great iteration
+!    RF_CONV : the refresh converged (retained field is the map's
 !               fixed point)
-!    RF_DCHG  : max relative change of the retained J_NEXT_FRQ
+!    RF_DCHG : max relative change of the retained J_NEXT_FRQ
 !               between pre- and post-refresh
 !    RF_N5/N50: cells whose retained field moved >5% / >50%
 ! ==============================================================================
@@ -4498,10 +4496,10 @@
 !
 ! When MOM_SW_NTOT > 0 the SW_* slots are the snapshot taken at the
 ! last refresh entry (written once per refresh, above) -- the sweep
-! drift seen at that pass-1 boundary.  On iterations without a
+! drift seen at that pass-1 boundary. On iterations without a
 ! refresh they describe the most recent refresh, not the live
 ! iteration; the bulk gate in SOLVE_FOR_POPS may therefore read a
-! census one iteration stale.  Fall back to the live counters only
+! census one iteration stale. Fall back to the live counters only
 ! when no refresh has ever run.
 !
 	IF(MOM_SW_NTOT .GT. 0)THEN
@@ -4530,7 +4528,7 @@
 ! SET_MOM_NU_NEXT passes nu(k+1) to the solver each call so the
 ! compressing depths can use the forward spacing ln(nu_k/nu_{k+1})
 ! (asymmetric-spacing fix, Oct-2026; same role as SET_FG_NU_NEXT in
-! FG_J_CMF_NONMONO_V1).  MOM_NU_NEXT<=0 or >= FREQ falls back to the
+! FG_J_CMF_NONMONO_V1). MOM_NU_NEXT<=0 or >= FREQ falls back to the
 ! backward spacing dLOG_NU.
 ! ==============================================================================
 !
@@ -4545,7 +4543,7 @@
 !
 ! SET_MOM_RF_OPTS: runtime wiring for the MOM refresh toggles
 ! MOM_RF_GS_DESC (live GS read on descending passes) and
-! MOM_RF_KEEPNEG (quarantine repaired cells).  Called once from
+! MOM_RF_KEEPNEG (quarantine repaired cells). Called once from
 ! RD_CONTROL_VARIABLES after the VADAT keys are read.
 !
 	SUBROUTINE SET_MOM_RF_OPTS(GS_DESC,KEEPNEG)
@@ -4609,7 +4607,7 @@
 ! ordering: AUTO/ALT/ASC/DESC), MOM_EPS_LIM (lagged-EPS positivity
 ! limiter) and MOM_RF_ENABLED (DO_KNOP_REFRESH -- the dominant-mode
 ! write suppression is only safe while a refresh actually owns the
-! compressing store).  Called once from RD_CONTROL_VARIABLES after
+! compressing store). Called once from RD_CONTROL_VARIABLES after
 ! the VADAT keys are read; an unrecognized DIR falls back to AUTO.
 !
 	SUBROUTINE SET_MOM_RF_DIR_OPT(DIR,EPSLIM,RF_EN,OWNW)
@@ -4658,7 +4656,7 @@
 	RETURN
 	END
 !
-! GET_MOM_DAMP_MIN: read-back of the cycle-damp floor.  MOM_DAMP_MIN
+! GET_MOM_DAMP_MIN: read-back of the cycle-damp floor. MOM_DAMP_MIN
 ! is a PARAMETER inside MOD_MOM_J_NONMONO_V1, and RD_CONTROL_VARIABLES
 ! (mod_subs) compiles before plane/ so it cannot USE the module --
 ! this getter keeps the VADAT echo honest if the constant moves.
@@ -4685,7 +4683,7 @@
 !
 ! SET_MOM_KN_OPTS: runtime wiring for the previously compile-time
 ! MOM refresh knobs KN_M_TOL, KN_M_MAXPASS, JNEXT_RELAX and the AA
-! history depth MOM_AA_M.  Bounds are defensive: a zero tolerance
+! history depth MOM_AA_M. Bounds are defensive: a zero tolerance
 ! or an AA depth that outgrows the local Gram workspaces would be
 ! silently wrong rather than obviously wrong.
 !
@@ -4726,7 +4724,7 @@
 ! GET_MOM_CELL_QUAR: return the quarantine mask (XM_BAD mapped to the
 ! SM grid) recorded by the last non-refresh MOM solve, for
 ! DO_VAR_CONT's unconditional ALO diagonal suppression at frozen
-! cells.  VALID=F when the solver has not yet produced a mask on an
+! cells. VALID=F when the solver has not yet produced a mask on an
 ! N-point grid.
 !
 	SUBROUTINE GET_MOM_CELL_QUAR(Q,N,VALID)
@@ -4747,7 +4745,7 @@
 	END
 !
 ! GET_MOM_ALO_DIAG: diagonal dJ/dCHI, dJ/dETA of the moment row just
-! solved, on the model grid.  VALID=F until a non-refresh solve has
+! solved, on the model grid. VALID=F until a non-refresh solve has
 ! stored them, and across a grid-size change.
 ! edited by Sean Brennan (25-Sep-2026)
 !
@@ -4775,8 +4773,8 @@
 !
 ! Post-sweep refresh of the lagged compressing-branch wavelength
 ! coupling in the moment solver -- the MOM analogue of
-! FG_KNOP_REFRESH_V1.  In the normal sweep, compressing depths read
-! J_NEXT_FRQ(:,k+1) written during the PREVIOUS great iteration, so
+! FG_KNOP_REFRESH_V1. In the normal sweep, compressing depths read
+! J_NEXT_FRQ(,k+1) written during the PREVIOUS great iteration, so
 ! red-to-blue information advances one frequency bin per iteration and
 ! the GS field cannot mature on strongly non-monotonic models.
 !
@@ -4784,15 +4782,15 @@
 ! per-frequency inputs (KN_M_* store) in alternating frequency order:
 !
 !   descending pass (L=NCF..1): compressing depths read the freshly
-!     updated J_NEXT_FRQ(:,L+1); expanding depths read the lagged
-!     bluer-neighbour field seeded from J_NEXT_FRQ(:,L-1).
-!   ascending pass (L=1..NCF):  expanding depths read the freshly
+!     updated J_NEXT_FRQ(,L+1); expanding depths read the lagged
+!     bluer-neighbour field seeded from J_NEXT_FRQ(,L-1).
+!   ascending pass (L=1..NCF): expanding depths read the freshly
 !     updated bluer field; compressing depths lag one pass.
 !
 ! Because the refresh calls the production routine, the tridiagonal
 ! assembly, boundary conditions, DGTSV solve and negative/non-finite
 ! safeguards are identical to the in-sweep discretisation by
-! construction.  MOM_KN_REFRESHING suppresses GET_MOMS_NON_REL (its
+! construction. MOM_KN_REFRESHING suppresses GET_MOMS_NON_REL (its
 ! EDDFACTOR-backed inputs exist only for the last sweep frequency)
 ! and the KN_M capture writes; the per-frequency Eddington factors
 ! and boundary data are restored from the captured store before each
@@ -4856,13 +4854,13 @@
 	CHARACTER(LEN=7) RF_ST
 	CHARACTER(LEN=21) DIR_W
 !
-! Latest RSQHNU per frequency.  Double precision is required: the
+! Latest RSQHNU per frequency. Double precision is required: the
 ! runaway guard limits XM_NM to ~1E3 times the previous valid field,
 ! which can still exceed the float32 range (~3.4E38) when the field
 ! itself is large; a REAL store overflowed to Inf and was seeded
 ! back as RSQHNU_PREV_NM, producing XMrhs=+/-Infinity rows with
-! finite matrix coefficients (TypeIIn_KNOP_TRIDIAG, 22-Sep-2026).
-! RSQJNU needs no scratch: J_NEXT_FRQ(:,L) already holds the latest
+! finite matrix coefficients (22-Sep-2026).
+! RSQJNU needs no scratch: J_NEXT_FRQ(,L) already holds the latest
 ! relaxed R^2*J.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: HRF(:,:)
@@ -4881,7 +4879,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: JBEST(:,:),HBEST(:,:)
 !
 ! Active-set front-tracking (MOM_RF_ACTIVE): per-frequency mask,
-! residual and maximum upwind offset.  SHOT_L(J) = any hot slot at
+! residual and maximum upwind offset. SHOT_L(J) = any hot slot at
 ! index >= J, giving an O(1) "hot within the matched range" test.
 !
 	LOGICAL, ALLOCATABLE :: ACT_CUR(:),ACT_NEW(:),SHOT_L(:)
@@ -4947,14 +4945,14 @@
 !
 ! Seed HRF with the in-sweep RSQHNU chain state: the only per-frequency
 ! H available is the final (reddest) one, but the first pass only reads
-! HRF(:,L-1) for expanding depths, and the in-sweep ordering already
+! HRF(,L-1) for expanding depths, and the in-sweep ordering already
 ! produced a consistent blue-to-red H chain which is approximated by
 ! the lagged values written below as the pass proceeds.
 !
 	HRF=0.0_LDP
 !
 ! One-shot store-integrity scan: a non-positive or non-finite captured
-! ETA/CHI would NaN the LOG interp in the re-solve.  Report the first
+! ETA/CHI would NaN the LOG interp in the re-solve. Report the first
 ! bad (I,L) so a poisoned slot can be traced to its capturing call.
 !
 	IF(.NOT. KN_M_RF_WARNED)THEN
@@ -5032,7 +5030,7 @@
 	NHIST_AA=0
 !
 ! Per-cell relax schedule: sized to the current grid, reset to the
-! global factor on any resize.  Not checkpointed -- a requeue
+! global factor on any resize. Not checkpointed -- a requeue
 ! re-derives the schedule within the first refresh's passes.
 !
 	LRENEW=.NOT. ALLOCATED(MOM_DAMP_NM)
@@ -5096,9 +5094,9 @@
 !
 ! Divergence containment, mirroring KNOP_RAY_SOLVE_V1: a ray whose
 ! fixed-point iteration diverges never writes back, so the in-sweep
-! field is retained.  Here the store is global, so keep a snapshot of
+! field is retained. Here the store is global, so keep a snapshot of
 ! the pre-refresh J_NEXT_FRQ plus a snapshot of the best-pass iterate
-! (JBEST/HBEST).  An unconverged refresh restores the best-pass field
+! (JBEST/HBEST). An unconverged refresh restores the best-pass field
 ! when its residual improved on the first-pass residual -- retaining
 ! the red-to-blue propagation the refresh was written to provide --
 ! and falls back to the pre-refresh field when no pass improved on
@@ -5138,11 +5136,11 @@
 	MOM_SW_CAPPED=MOM_INEXT_CAPPED
 	MOM_SW_NHUGE=MOM_GS_NHUGE
 !
-! Heal poisoned store slots once per refresh.  A non-finite entry
+! Heal poisoned store slots once per refresh. A non-finite entry
 ! (a failed early sweep or a stale checkpoint) sits in a slot that
 ! MOM_RF_OWNW write-suppression may never overwrite, so it zeroes
 ! its own lagged read -- and every downwind reader's -- every pass
-! while being recounted in PASS_CAP.  A zeroed slot reads as a
+! while being recounted in PASS_CAP. A zeroed slot reads as a
 ! dropped contribution exactly as the HUP guard already treats it,
 ! and the write path's no-prior-value branch then seeds it with the
 ! fresh solve, so the poisoned slot self-heals within one pass.
@@ -5171,14 +5169,14 @@
 ! The retained composite starts as the seed: under MOM_RF_OWNW each
 ! direction's best pass merges only its owned rows, so a direction
 ! that never improves contributes the seed values rather than
-! uninitialized storage.  [MOM_RF_OWNW]
+! uninitialized storage. [MOM_RF_OWNW]
 !
 	JBEST(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 	HBEST(1:ND_NM,1:KN_M_NCF)=H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
 !
 ! Re-resolve dominance from the sweep that just finished: the
 ! FREQ_INDX=1 flags were set from the previous sweep's census, which
-! is one iteration stale.  The counters still hold this sweep's
+! is one iteration stale. The counters still hold this sweep's
 ! totals because refresh re-calls do not accumulate.
 !
 	IF(MOM_RF_DIR .EQ. 'DESC')THEN
@@ -5193,17 +5191,17 @@
 	  MOM_DOM_EXP=(10_8*MOM_SW_NCROW .LE. MOM_SW_NROW)
 	END IF
 !
-! Temporary DO_NONMONO_KNOP diagnostic table.  The refresh can stall
+! Temporary DO_NONMONO_KNOP diagnostic table. The refresh can stall
 ! with a falling bulk residual while a small compression region grows.
 ! One row per pass ties the same-direction contraction ratio to that
 ! region and measures whether DO_NONMONO_FREQ_MATCH actually selects
-! non-adjacent upwind bins.  The stock path never calls this routine.
+! non-adjacent upwind bins. The stock path never calls this routine.
 !
 	WRITE(LUER,'(/,A)')' ------------------------------ MOM_KNOP_REFRESH -------------------------------'
 	WRITE(LUER,'(A)')'  lagged-field re-solve, direction-ordered'//
 	1    ' frequency passes'
 !
-! Report the resolved pass order.  On a dominant grid the minority
+! Report the resolved pass order. On a dominant grid the minority
 ! direction is a pure Jacobi step that re-injects a full pass of
 ! error, so only the dominant (fresh-read) direction runs -- the
 ! physically-guided ordering of Knop Paper II Sect. 3.2.
@@ -5257,11 +5255,11 @@
 ! Jacobi update for the compressing upwind read: freeze the
 ! J_{k+1} field at pass start so descending passes do not consume
 ! this-pass writes (the GS cascade diverged to ~1E10 residuals on
-! job 11887664).  The routine reads JNEXT_RF_READ while
+! ). The routine reads JNEXT_RF_READ while
 ! MOM_KN_REFRESHING is set; the write side (J_NEXT_FRQ) still gets
-! the JNEXT_RELAX-damped update inside the solver.  When
+! the JNEXT_RELAX-damped update inside the solver. When
 ! MOM_RF_GS_DESC is set, descending passes instead read the live
-! J_NEXT_FRQ(:,L+1) -- KN_M_DESC tells the solver which pass
+! J_NEXT_FRQ(,L+1) -- KN_M_DESC tells the solver which pass
 ! direction is running.
 !
 	  JNEXT_RF_READ(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
@@ -5269,13 +5267,13 @@
 !
 ! Pass order: on a dominant grid every pass runs in the direction
 ! whose upwind read is fresh (descending freshens the compressing
-! J_NEXT read; ascending freshens the expanding J_PREV read).  The
+! J_NEXT read; ascending freshens the expanding J_PREV read). The
 ! alternating schedule is kept for genuinely mixed fields, where each
-! direction owns a different row subset.  A direction whose
+! direction owns a different row subset. A direction whose
 ! same-parity drift ratio has stalled (SKIP_D) is dropped from the
 ! schedule so the still-contracting direction keeps its passes --
 ! the row subsets are disjoint under MOM_RF_OWNW, so dropping a
-! stalled direction cannot disturb the other.  The two-pass
+! stalled direction cannot disturb the other. The two-pass
 ! composite-map machinery below (cycle check, AA, same-direction
 ! stall) stays valid: in the single-direction modes both passes of a
 ! pair run the same map, so the composite is simply M^2.
@@ -5342,7 +5340,7 @@
 	    IF(.NOT. LINIT)THEN
 !
 ! Lagged bluer-neighbour state: the routine's NEW_FREQ block copies
-! *_SAVE -> *_PREV and RSQ{J,H}NU_NM -> RSQ{J,H}NU_PREV_NM.  The
+! *_SAVE -> *_PREV and RSQ{J,H}NU_NM -> RSQ{J,H}NU_PREV_NM. The
 ! Eddington PREV values are captured inputs; the J/H PREV fields are
 ! the iterated ones (latest available: this pass if L-1 was already
 ! visited, else the previous pass).
@@ -5432,9 +5430,9 @@
 ! Active-set update: keep L active next pass when its own residual
 ! was hot, its expanding input L-1 was hot, or any slot in
 ! (L,L+NMUP] -- the range every compressing cell's matched read
-! can reach -- was hot.  SHOT_L(J)=any hot index >=J turns the
-! range test into a two-point lookup.  L=1 stays active so the
-! LINIT branch of the solver always runs.  Cold cells retain their
+! can reach -- was hot. SHOT_L(J)=any hot index >=J turns the
+! range test into a two-point lookup. L=1 stays active so the
+! LINIT branch of the solver always runs. Cold cells retain their
 ! last-pass residual, so a region that re-ignites upstream pulls
 ! its readers back in one pass.
 !
@@ -5473,10 +5471,10 @@
 ! edited 28-Sep-2026: best-pass selection runs here, on
 ! the raw map output, before the cycle check and Anderson update
 ! modify J_NEXT_FRQ -- JBEST then holds the field whose PASS_N5/
-! PASS_N50 were actually measured.  Selection ranks by the bulk
+! PASS_N50 were actually measured. Selection ranks by the bulk
 ! metrics (cells drifting >50%, then >5%) rather than the max-norm
 ! residual, which is dominated by a few marginal compressing cells
-! and is non-monotone across passes.  MIN_RES keeps the smallest
+! and is non-monotone across passes. MIN_RES keeps the smallest
 ! max-norm seen purely as the divergence-abort reference.
 !
 	  IF(IPASS .EQ. 1)RESID0=PASS_CHG
@@ -5486,9 +5484,9 @@
 ! Under MOM_RF_OWNW the pass metrics count only that direction's
 ! owned rows, so a whole-field snapshot ranked by raw n50 is biased
 ! toward whichever direction owns fewer rows -- the other direction's
-! rows could regress while its side of the snapshot won.  JBEST/HBEST
+! rows could regress while its side of the snapshot won. JBEST/HBEST
 ! is now a composite: each direction's least-bad owned rows, merged
-! through the MOM_OWN_CMP map recorded by the drift loop.  Without
+! through the MOM_OWN_CMP map recorded by the drift loop. Without
 ! OWNW every row is owned by every pass and the merge degenerates to
 ! the old whole-array snapshot.
 !
@@ -5546,12 +5544,12 @@
 ! Same-parity cycle check: a cell that returns within 30 percent of
 ! its two-passes-ago value while still stepping more than 50 percent
 ! (the NBAD50 significance floor) is cycling under the alternating-
-! direction map.  Pass parity matches the upwind direction, so
-! comparing k to k-2 isolates the same composite map.  Flagged cells
-! get their relax factor halved.  The schedule is decrease-only
+! direction map. Pass parity matches the upwind direction, so
+! comparing k to k-2 isolates the same composite map. Flagged cells
+! get their relax factor halved. The schedule is decrease-only
 ! within a refresh -- letting settled cells recover here bounces
 ! them straight back into oscillation; recovery happens once per
-! call instead (above).  Snapshots keep the last four passes so the
+! call instead (above). Snapshots keep the last four passes so the
 ! same-parity subsequence (k, k-2, k-4) is available for both the
 ! cycle check and the drift extrapolation below.
 !
@@ -5579,16 +5577,16 @@
 !
 ! Same-direction drift of the composite map: D1=x_k-x_{k-2} and
 ! D2=x_{k-2}-x_{k-4} are successive same-parity steps, so LAMC
-! estimates the composite-map multiplier.  0<LAMC<1 means marginal
+! estimates the composite-map multiplier. 0<LAMC<1 means marginal
 ! contraction, which under-relaxation only slows; Aitken instead
 ! extrapolates the geometric tail x* ~ x_k + D1*LAMC/(1-LAMC).
-! LAMC is capped at 0.9 (correction <= 9x step).  edited,
+! LAMC is capped at 0.9 (correction <= 9x step). edited,
 ! 01-Oct-2026: a cell whose same-parity step is not contracting
 ! (LAMC<=0 sign flip without a period-2 return, or LAMC>=1 growth)
 ! can neither converge nor be extrapolated; it is one of the
 ! marginal-mode cells the sweep retains and cycles between calls.
 ! Halve its relax factor toward the floor instead of leaving it
-! unchecked when AA owns the Aitken branch.  D2=0 (a previously
+! unchecked when AA owns the Aitken branch. D2=0 (a previously
 ! stationary cell freshly kicked) is exempted -- the kick reflects
 ! a changed map, not a divergent mode.
 !
@@ -5620,12 +5618,12 @@
 !
 ! Anderson acceleration on the composite map at even pass boundaries.
 ! X_i = JPREV2 (the field two passes back, i.e. the previous
-! composite iterate), G_i = J_NEXT_FRQ (raw map output).  History
+! composite iterate), G_i = J_NEXT_FRQ (raw map output). History
 ! slot 1 is the newest pair (X_i, f_i=G_i-X_i); older pairs sit at
-! slots j+1.  Secants use differences against slot 1, so the Gram
+! slots j+1. Secants use differences against slot 1, so the Gram
 ! system is (f_i - f_{i-j}) . (f_i - f_{i-k}) and the correction is
 ! Sum_j gamma_j (G_i - G_{i-j}) = Sum_j gamma_j (J_NEXT - X_{i-j} -
-! f_{i-j}).  The update is capped at 10||f_i|| and falls back to the
+! f_{i-j}). The update is capped at 10||f_i|| and falls back to the
 ! raw map output on cells the extrapolation drives non-positive.
 !
 	    IF(MOM_RF_AA .AND. MOD(IPASS,2) .EQ. 0 .AND.
@@ -5633,7 +5631,7 @@
 !
 ! The cycle check above halves MOM_DAMP_NM on flagged cells, which
 ! changes the map itself: secants stored before that change belong
-! to a different operator and corrupt the AA mix.  Restart the
+! to a different operator and corrupt the AA mix. Restart the
 ! history only when a non-trivial fraction of cells was re-damped
 ! this pass -- a handful of damped cells among ~12M does not move
 ! the global map enough to matter (MOM_AA_DMP_FRAC).
@@ -5680,11 +5678,11 @@
 !	    Non-affine cell exclusion (edited 30-Sep-2026):
 !	    a cell whose weighted residual or secant exceeds ~100% per
 !	    composite step is outside the affine-map regime -- the
-!	    quarantine, limiter and cycle damper own those cells.  Their
+!	    quarantine, limiter and cycle damper own those cells. Their
 !	    secants otherwise dominate the Gram system and the mixed
 !	    gamma extrapolates the runaway rather than the marginal bulk:
 !	    with all cells included, ||corr||>2||f|| vetoed every AA step
-!	    on job 12046695 while the contracting bulk went unaccelerated.
+!	    on while the contracting bulk went unaccelerated.
 !
 	            T1X=ABS(SC)
 	            DO JJ=1,MP_AA
@@ -5714,7 +5712,7 @@
 ! Tikhonov regularisation: nearly dependent secants make the Gram
 ! matrix near-singular and DGESV returns gamma ~ O(1/rcond), which
 ! the 10*||f|| cap then rescales globally while still allowing huge
-! per-cell steps.  A small relative ridge keeps gamma bounded by
+! per-cell steps. A small relative ridge keeps gamma bounded by
 ! the data scale.
 !
 	        DTR=0.0_LDP
@@ -5765,13 +5763,13 @@
 	          FNRM=SQRT(FNRM);  DNRM=SQRT(DNRM)
 !
 ! edited 29-Sep-2026: skip the AA update when the mixed
-! correction outgrows the weighted residual.  For an affine map the
+! correction outgrows the weighted residual. For an affine map the
 ! optimal AA step cancels the residual, ||corr|| ~ ||f||; anything
 ! larger overshoots the data and is discarded -- the observed
 ! corr/f sequence (0.11, 0.51, 1.79, 4.3, ...) shows the deep
 ! windows fitting the non-affine kinks (limiter/quarantine/damping
 ! switching cells between regimes), where extrapolation amplifies
-! rather than contracts.  The raw map output is kept on a skip.
+! rather than contracts. The raw map output is kept on a skip.
 !
 	          IF(DNRM .GT. FNRM)THEN
 	            MOM_AA_SKIP=MOM_AA_SKIP+1
@@ -5901,15 +5899,15 @@
 !	  Bulk-converged exit (MOM_RF_BULK_EXIT): the max-norm above
 !	  asymptotes on marginally contractive compressing cells, so
 !	  without this the refresh burns passes until the stall exit
-!	  retains the same bulk-settled field.  The bounds match the
+!	  retains the same bulk-settled field. The bounds match the
 !	  gate's sweep criteria exactly; IPASS>=4 guarantees both sweep
-!	  directions ran at least twice.  CONVERGED=T routes the gate to
+!	  directions ran at least twice. CONVERGED=T routes the gate to
 !	  the retained-vs-sweep delta, which still rejects a fixed point
 !	  sitting far from the field the populations saw.
 !
 !	  edited 14-Oct-2026: the PASS_NHUGE bound mirrors the
 !	  sweep gate's unsafe tier (MOM_SW_NHUGE > MAX(50,NTOT/10000)
-!	  vetoes in SOLVE_FOR_POPS).  MOM_GS_NHUGE is reset per frequency
+!	  vetoes in SOLVE_FOR_POPS). MOM_GS_NHUGE is reset per frequency
 !	  in the pass loop, so without an accumulator a handful of cells
 !	  drifting >1E6 could sit under a "bulk-converged" exit and have
 !	  the locally exploded field retained.
@@ -5931,7 +5929,7 @@
 !	  Abort once the residual has exploded orders of magnitude above
 !	  the best achieved -- further passes only amplify the unstable
 !	  mode (observed: contraction for ~20 passes then a sudden
-!	  4-dex blow-up on job 11888720).  The reference is MIN_RES, the
+!	  4-dex blow-up on ). The reference is MIN_RES, the
 !	  smallest max-norm seen, since BEST_CHG now tracks the
 !	  bulk-chosen pass.
 !
@@ -5943,14 +5941,14 @@
 !
 !	  Same-direction stall check (KNOP_RAY_SOLVE_V1 pattern): the two
 !	  upwind directions alternate, so compare against the residual of
-!	  the same-direction pass two iterations back.  Two consecutive
+!	  the same-direction pass two iterations back. Two consecutive
 !	  same-direction ratios above 0.90 -- once past the transient --
 !	  mean the map is cycling rather than contracting; exit instead
-!	  of burning the remaining passes.  The field is still restored
+!	  of burning the remaining passes. The field is still restored
 !	  below because CONVERGED stays false.
 !
 !	  edited 30-Sep-2026: the transient floor grows with
-!	  the AA history depth (2*MOM_AA_M+4) when MOM_RF_AA is on.  AA
+!	  the AA history depth (2*MOM_AA_M+4) when MOM_RF_AA is on. AA
 !	  only sees one composite-map iterate per even pass boundary, so
 !	  an exit at pass ~8-10 starves the Krylov window it needs to
 !	  collapse the marginal (spectral-radius ~1) eigenspace that the
@@ -5976,10 +5974,10 @@
 !	  Per-direction stall bookkeeping: under MOM_RF_OWNW the two
 !	  directions own disjoint row subsets, and the previous shared
 !	  counter let the stalled direction abort the whole refresh
-!	  while the other was still contracting.  A stalled direction is
+!	  while the other was still contracting. A stalled direction is
 !	  dropped from the schedule (its best rows are already in the
 !	  retained composite); the refresh exits only when every active
-!	  direction has stalled.  [MOM_RF_OWNW]
+!	  direction has stalled. [MOM_RF_OWNW]
 !
 	  IF(NSTALL_D(IDIR) .GE. 2)THEN
 	    IF(.NOT. SKIP_D(IDIR))THEN
@@ -6024,12 +6022,12 @@
 ! its residual improved on the first pass: the stored lagged field
 ! then retains the wavelength propagation the refresh produced
 ! instead of reverting to the pre-refresh field and advancing one
-! frequency bin per great iteration.  A pass sequence that never
+! frequency bin per great iteration. A pass sequence that never
 ! improved on the seed restores the pre-refresh field instead -- the
 ! iterated field is then strictly worse than what the sweep saw.
 ! Every write inside the passes is already per-cell capped and
 ! NaN-guarded, so the best-pass field is bounded by the same guards
-! as the in-sweep store.  Report the best residual as the sweep
+! as the in-sweep store. Report the best residual as the sweep
 ! metric -- it measures how far the iterated field drifted from the
 ! field actually retained.
 !
@@ -6039,13 +6037,13 @@
 ! (BEST_CHG < RESID0) is nearly always true since first-pass
 ! residuals run 1E4-3E6, and it actively misfires once the best pass
 ! is chosen by bulk counts -- the bulk-best pass can carry a larger
-! max-norm than pass 1 while being far better in aggregate.  The
+! max-norm than pass 1 while being far better in aggregate. The
 ! candidate is accepted on the same lexicographic order the selector
 ! uses: n50 (the worst-cell count) must strictly improve, or hold
-! while n5 improves.  Requiring n5 non-regression jointly discarded
+! while n5 improves. Requiring n5 non-regression jointly discarded
 ! passes that fixed the worst cells while stirring the quiet bulk
 ! slightly -- the store then reverted unchanged (delta=0) and the
-! same stall repeated every iteration.  An n5 regression is still
+! same stall repeated every iteration. An n5 regression is still
 ! bounded at 1.5x so a pass cannot trade a few bad cells for broad
 ! churn, and the max-norm must stay below the same 1E3*MIN_RES
 ! runaway bound the abort uses.
@@ -6094,9 +6092,9 @@
 	  END IF
 !
 ! W16: retained-store jump guard (MOM parity with the FG W9
-! commit-jump).  A best-pass cell can sit orders above the retained
+! commit-jump). A best-pass cell can sit orders above the retained
 ! store while every aggregate test passes; committing it re-seeds
-! the next refresh from a near-blowup.  Same rule as FG_JUMP_MAX:
+! the next refresh from a near-blowup. Same rule as FG_JUMP_MAX:
 ! the write must exceed 50x its stored value AND the stored column
 ! scale (MAX(|store|)/50) to count as a jump, so seed/floor cells
 ! and ordinary reshaping still commit.
@@ -6148,7 +6146,7 @@
 	  MOM_GS_NQUAR=NQ_SV
 !
 !	  PASS_CAP counts capped writes made by passes whose field was
-!	  discarded; the metric must describe the retained field.  Recount
+!	  discarded; the metric must describe the retained field. Recount
 !	  non-finite or extreme (>=1E40, legacy-poisoned) entries in the
 !	  retained field so a genuinely poisoned store still trips the
 !	  fatal check.
@@ -6163,21 +6161,21 @@
 	END IF
 !
 ! edited 01-Oct-2026: call-level (outer) Anderson
-! acceleration.  The committed lagged store is the iterate of the
+! acceleration. The committed lagged store is the iterate of the
 ! outer fixed-point map (sweep+refresh composition, including the
 ! J<->Eddington coefficient drift); the inner pass AA cannot see
-! that drift because it accelerates a frozen-coefficient map.  The
+! that drift because it accelerates a frozen-coefficient map. The
 ! observed failure it answers is the outer limit cycle: on job
-! 12047456 the retained-vs-entry delta grew to ~2E6 cells>50% while
+! the retained-vs-entry delta grew to ~2E6 cells>50% while
 ! the inner residual floored at ~2E4 and FG maxchg plateaued at
 ! ~2E-3 -- the marginal-mode subspace wanders between calls because
-! no accelerator acts on the committed iterate sequence.  Residual
+! no accelerator acts on the committed iterate sequence. Residual
 ! f_{n-1} = committed_out - committed_in is paired with the field
 ! the map was applied to (RETJ_PREV); the secant solve, weighting,
 ! GCAP exclusion, ridge, ||corr||>||f|| rejection, per-cell cap and
-! H-ratio drag are the same as the pass-level AA.  When the raw map
+! H-ratio drag are the same as the pass-level AA. When the raw map
 ! returned the input unchanged (KEEP_BEST=F) f=0 and the update is
-! a no-op.  [MOM_AA_OUT] gates it (default T); history depth
+! a no-op. [MOM_AA_OUT] gates it (default T); history depth
 ! [MOM_AA_OUT_M] (default 8).
 !
 	LAA_OK=.FALSE.
@@ -6303,7 +6301,7 @@
 	! Contractive-retry: if the full-depth correction is rejected
 	! (||corr||>||f||, near-singular Gram) re-solve on the leading m-1
 	! window -- the secant columns are newest-first, so this drops the
-	! oldest, least relevant direction.  A bad deep solve degrades to
+	! oldest, least relevant direction. A bad deep solve degrades to
 	! the largest contractive window instead of wasting the call.
 	!
 	        MTRY=MP_AA
@@ -6405,7 +6403,7 @@
 ! When the refresh did not converge and the pre-refresh field was
 ! retained, the delta is identically zero; a retained best-pass
 ! field instead reports the real distance it moved from the field
-! the populations saw.  MOM_RF_CONV=F tells SOLVE_FOR_POPS to keep
+! the populations saw. MOM_RF_CONV=F tells SOLVE_FOR_POPS to keep
 ! gating on the sweep drift either way.
 !
 	MOM_RF_RAN=.TRUE.
@@ -6423,10 +6421,10 @@
 !	      side must flag the delta as fully unconverged -- without
 !	      this branch a NaN produced T4=NaN, which fails the floor
 !	      test (or silently poisons the MAX) while the gate reads
-!	      MOM_RF_DCHG as converged.  JNEXT_SAVE still holds any
+!	      MOM_RF_DCHG as converged. JNEXT_SAVE still holds any
 !	      poisoned pre-refresh slot the heal above zeroed in the
 !	      working field, so this also records healed cells as real
-!	      deltas.  Same pattern as the sweep drift loop.
+!	      deltas. Same pattern as the sweep drift loop.
 !
 	      MOM_RF_N5=MOM_RF_N5+1
 	      MOM_RF_N50=MOM_RF_N50+1
@@ -6501,20 +6499,20 @@
 !
 ! Adaptive JNEXT_RELAX (KN_ADAPT_RELAX, default T): rho_est is the
 ! contraction of the refresh residual between calls, so a bounded or
-! growing outer map is damped toward omega=1/(1+rho_est).  Smoothed
+! growing outer map is damped toward omega=1/(1+rho_est). Smoothed
 ! and clamped to [0.05,1] -- same rule as the FG INEXT_RELAX update
-! in FG_KNOP_REFRESH_V1.  Oct-2026.
+! in FG_KNOP_REFRESH_V1. Oct-2026.
 !
 ! V2 (edited 19-Oct-2026, [MOM_ADAPT_OMEGA_V2], default T):
 ! the cross-call ratio miskeys omega -- the refresh residual drifts
 ! with the populations' source update, so a converging field can
 ! read rho_est~1 whether the map oscillates (wants omega~0.5) or
 ! contracts marginally (wants omega~1), and the median settles at
-! ~0.5 either way, over-damping smooth contraction.  RES_PASS holds
+! ~0.5 either way, over-damping smooth contraction. RES_PASS holds
 ! the per-pass max-residual sequence of THIS refresh, so the median
 ! of its last ~4 pass ratios measures the same-map contraction
-! factor directly.  Used only when >=3 usable ratios exist; the
-! cross-call estimate is the fallback.  Ports the FG W5 fix
+! factor directly. Used only when >=3 usable ratios exist; the
+! cross-call estimate is the fallback. Ports the FG W5 fix
 ! (FG_ADAPT_OMEGA_V2, fg_j_cmf_nonmono_v1.f).
 !
 	IF(MOM_ADAPT_RELAX .AND. MOM_GS_MAXCHG .GT. 0.0_LDP .AND.
@@ -6576,11 +6574,11 @@
 ! (for relax-written cells f_j = omega*(G(x_j)-x_j)), so an omega
 ! change leaves the stored secants in the wrong units for the next
 ! call's projection -- the AA affine-map assumption degrades
-! exactly in the omega-adapting runs it targets.  Scale the
+! exactly in the omega-adapting runs it targets. Scale the
 ! retained columns by omega_new/omega_old, the same fix FG applies
 ! to AA_RH/DLT_PRV when OMEGA_RAY changes (fg_j_cmf_nonmono_v1.f,
-! "An OMEGA_RAY change alters the relaxed map").  XHIST_OUT and
-! RETJ_PREV hold unscaled iterates and are untouched.  NHIST_OUT
+! "An OMEGA_RAY change alters the relaxed map"). XHIST_OUT and
+! RETJ_PREV hold unscaled iterates and are untouched. NHIST_OUT
 ! counts the used slots; the history is SAVE, so this rescale
 ! reaches the next call.
 !
