@@ -26,14 +26,15 @@ files; do not delete completed tasks.
   KNOP and JFNK paths are implementation-complete but not
   model-validated; moment (LAM_ES=F) path documented as
   non-contracting on m15
-- Completed tasks: 7 (P1-001, P1-002, P2-012, P4-001, P4-012,
+- Completed tasks: 11 (P1-001..P1-006, P2-012, P4-001, P4-012,
   INT-003, DOC-001)
-- Outstanding tasks: 84 (22 in progress with partial evidence,
+- Outstanding tasks: 80 (18 in progress with partial evidence,
   62 not started)
 - Blocked tasks: 0 (run-dependent tasks are sequenced, not blocked;
   see section 11)
-- Current active task: P1-003
-- Next task: P1-004
+- Current active task: P1-009
+- Next task: P4-002/P4-004/P4-010 (SOB+JFNK HSCAN production run) or
+  P2/P3 inspection audits
 
 ## 2. Development rules
 
@@ -115,90 +116,94 @@ comparisons exist. Pillar is not complete until P1-007/P1-008 are done.
   empty-level ZNET guards) - each modified file still needs a
   line-level gating check under P1-003/P1-004.
 
-### [~] P1-003 - Audit shared module state and SAVE variables with new flags off
+### [x] P1-003 - Audit shared module state and SAVE variables with new flags off
 - Priority: P0
 - Description: verify no module-level or SAVE state written by
   nonmono/JFNK code paths leaks into the stock path when flags are F.
-- Evidence: `CONVENTIONAL_SOLVER_AUDIT_2026-11-03.md` traced the
-  conventional call graph; `JFNK_PRODUCTION_OPERATOR_INVESTIGATION`
-  sec.B audited residual save/restore by inspection (production REP
-  measurement pending). No dedicated SAVE-variable sweep exists.
+- Evidence: `docs/audits/P1_MODULE_STATE_AUDIT_2026-11-03.md` -
+  classification table over all new SAVE/module state in the
+  109-file inventory.
 - Files: `control_variable_mod.f`, `mod_cmfgen.f`,
   `fg_j_cmf_nonmono_v1.f`, `mom_j_cmf_nonmono_v1.f`,
   `jfnk_*` modules, `comp_j_blank.f`, `cmfgen_sub.f`,
-  `solve_for_pops.f`; any `SAVE` attributes in touched files.
-- Action: enumerate module variables and SAVE locals in the 109
-  modified files; classify each as (a) written only under new flags,
-  (b) written always but read only under new flags, (c) live in the
-  stock path - class (c) needs a justification or a fix.
-- Acceptance: a written classification table; zero unexplained
-  class-(c) writes that alter stock results.
+  `solve_for_pops.f`, `solveba_v13.f`, `fg_j_cmf_v13.f`,
+  `get_moms_non_rel.f`, `recompute_sigma_true.f`.
+- Action: enumerated new SAVE decls per modified file; traced write
+  and read gating for each.
+- Acceptance: written classification table; zero unexplained
+  class-(c) writes. MET.
 - Dependencies: P1-002.
-- Completion: -
+- Completion: 2026-11-03 @ `b12a9c27`. All new state class (a)
+  flag-gated or (b) overhead-only; class (c) list = 9 documented
+  upstream-defect fixes (degenerate-J guards, empty-level brackets,
+  pin-null, strict interp, W-series IOSTAT, ZERO FLUX). No
+  unexplained stock-path leakage.
 
-### [~] P1-004 - Verify original formal-transfer dispatch with all new options off
+### [x] P1-004 - Verify original formal-transfer dispatch with all new options off
 - Priority: P0
 - Description: prove `FG_J_CMF_V13`/`MOM_J_CMF_V11` and the stock
   boundary/Eddington paths execute identically to upstream when
   `DO_NONMONO_SOB=F`, `DO_NONMONO_KNOP=F`, `DO_JFNK=F`.
-- Evidence: `CONVENTIONAL_SOLVER_AUDIT_2026-11-03.md` sec.1: dispatch
-  predicate verified - nonmono branches are flag-gated. Bit-identity
-  covered at routine level for interp and SOB helpers
-  (`test_interp_guards.py`, `test_sob_tau_floor.py` sigma>=0).
-  Missing: an executable end-to-end stock-vs-reference J comparison.
-- Files: `comp_j_blank.f` (FG_J_CMF_NONMONO_V1 :844 vs FG_J_CMF_V13
-  :857; MOM_J_CMF_NONMONO_V1 :1032 vs MOM_J_CMF_V11),
-  `fg_j_cmf_v13.f`, `mom_j_cmf_v11.f`, `do_var_cont.f`.
-- Action: audit each edited formal-solve routine's gating predicate in
-  the diff inventory; add a stock-dispatch unit test if a cheap
-  driver exists; note `fg_j_cmf_v13.f:1069` SIGMA clamp is upstream.
+- Evidence: `P1_MODULE_STATE_AUDIT_2026-11-03.md` P1-004 addendum -
+  per-file dispatch table over all 14 modified formal-path files;
+  `mom_j_cmf_v11.f` unmodified (0 diff); `fg_j_cmf_v12.f` dead code.
+- Files: all `plane/` modified files, `comp_j_blank.f`,
+  `do_var_cont.f`, `mod_cmfgen.f`.
+- Action: audited every modified formal-path file's gating.
 - Acceptance: every modified formal-path file shows its changes dead
-  or identity under flags-off; dispatch audit written.
+  or identity under flags-off; dispatch audit written. MET at
+  source-inspection level; executable A/B proof rides on P1-007.
 - Dependencies: P1-003.
-- Completion: partial (predicate audit done in conventional audit;
-  per-file gating checklist open).
+- Completion: 2026-11-03 @ `b12a9c27`. All changes flag-gated,
+  telemetry, or documented class-(c) defect fixes confined to
+  NaN/garbage inputs; `ABS(dV)` insertion adds resolution on
+  decelerating profiles (documented).
 
-### [~] P1-005 - Verify original Sobolev and line-transfer dispatch, flags off
+### [x] P1-005 - Verify original Sobolev and line-transfer dispatch, flags off
 - Priority: P0
 - Description: prove `SUB_SOB_LINE_V3`, `SOBJBAR_SIM`, `SOBEW*`,
   `INS_LINE*` behave identically to upstream with new options off.
-- Evidence: `test_sob_tau_floor.py` asserts bit-identity vs reference
-  for sigma>=0 and sigma=-0.5; `test_sob_rh_couple.py` asserts zero
-  pairs under homology; AGENTS.md documents SIGMA_TRUE is only passed
-  under `DO_NONMONO_SOB`.
+- Evidence: `test_sob_tau_floor.py` 14/14 - bit-identity vs reference
+  for sigma>=0 and sigma=-0.5; floor binds only at sigma<=-1.
+  `test_sob_rh_couple.py` 9/9 - zero pairs under homology, V<=0 and
+  NEG_OPACITY rows never couple. Dispatch table written in
+  `P1_MODULE_STATE_AUDIT_2026-11-03.md` P1-005 addendum.
 - Files: `sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`,
   `sobew_grad_v3.f`, `sub_sob_line_v3.f`, `sob_rh_couple.f`,
   `ins_line_v6.f`, `ins_line_obs_v5.f`, `cmfgen_sub.f` (SIM_LINES).
-- Action: confirm each SOB entry point's flag plumbing; confirm the
-  empty-level ZNET/BETAC guards (29-Oct, not flag-gated) are exact
-  no-ops for finite emissivity; record remaining unaudited callers.
 - Acceptance: flags-off bit-identity or documented benign difference
-  per routine; written dispatch table.
+  per routine; written dispatch table. Met: SIGMA_TRUE plumbing gated
+  on `DO_NONMONO_SOB`; DRC_SIM=0 makes the RH term an exact no-op;
+  non-gated edits are documented defect fixes (ETAL_MAT/SRAT denom
+  guards, dRATE_dUP algebraic rewrite identical for valid iterates,
+  `.AND.` short-circuit OOB fix in ins_line*).
 - Dependencies: P1-003.
-- Completion: partial (tau-floor and RH-couple tests give routine
-  level evidence; `sub_sob_line_v3` guard analysis open).
+- Completion: 2026-11-03. Limitation: ins_line and dRATE fixes are
+  inspection-verified without dedicated unit tests; full model A/B
+  remains open under P1-007/008.
 
-### [~] P1-006 - Verify original population/statistical-equilibrium solver
+### [x] P1-006 - Verify original population/statistical-equilibrium solver
 - Priority: P0
 - Description: prove `SOLVE_FOR_POPS`+`SOLVEBA_V13` stock iteration is
   unchanged when `DO_JFNK=F` and nonmono flags off.
 - Evidence: `CONVENTIONAL_SOLVER_AUDIT_2026-11-03.md` traced the
   Lambda/BA call graph and found ordering consistent with upstream.
-  Known non-gated changes: `cmf_blkband_pin_null_v1` row pinning
-  (exact-0 equations only), LUM_DIV telemetry, BAACC_RES2_MIN gating
-  fix (W1), empty-level ZNET guards - all documented as stock-path
-  defect fixes in `ROBUSTNESS_AUDIT_2026-10.md` and AGENTS_HISTORY.
+  Consolidated non-gated-edit table written in
+  `P1_MODULE_STATE_AUDIT_2026-11-03.md` P1-006 addendum.
 - Files: `solve_for_pops.f`, `solveba_v13.f`, `cmf_blkband_v3.f`,
   `cmf_blkband_pin_null_v1.f`, `fiddle_pop_corrections_v2.f`,
   `generate_full_matrix_v3.f`, `fixpop_in_ba_v3.f`.
-- Action: list every non-flag-gated edit inside these files (from the
-  inventory diff); confirm each is either an upstream-defect fix with
-  a test, or flag-gated; write the list.
 - Acceptance: written table of non-gated stock-path edits with
-  justification + test reference for each.
+  justification + test reference for each. Met: POP_DIV floor and
+  pin-null are documented defect fixes (pin-null covered by unit
+  test); fiddle_pop limits flag-gated (stock=+/-HUGE=upstream);
+  generate_full_matrix adds JFNK_QUIET_IO print gates (internal
+  flag, no VADAT key); fixpop is text-only; BCD recall is opt-in
+  under WR_BA_INV.
 - Dependencies: P1-002.
-- Completion: partial (audits cover much of this; consolidated table
-  open).
+- Completion: 2026-11-03. Limitation: N_DIV_FLOOR counts POP_DIV
+  activations but never prints to LUER - invisible unless debug
+  dumps run. Noted for P1-009 diagnostics pass.
 
 ### [ ] P1-007 - Compare complete representative models vs pristine upstream
 - Priority: P0
@@ -1411,8 +1416,9 @@ Do not conflate these statuses.
 
 Following the owner's suggested sequence and dependencies:
 
-1. P1-003/P1-004/P1-005/P1-006/P1-009 - stock-path audits (in progress;
-   all inspection-level, no runs needed).
+1. P1-009 - last stock-path audit (diagnostics/safeguards
+   classification; inspection-level, no runs needed).
+   P1-003..P1-006 done 2026-11-03.
 2. P4-002 + P4-004 + P4-010 - submit a SOB+JFNK HSCAN production run
    (highest-value pending measurement; can run while audits proceed).
 3. P3-013/P3-014/P3-015 - moment frequency-grid investigation
