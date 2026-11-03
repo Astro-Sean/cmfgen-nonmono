@@ -1422,7 +1422,23 @@ supported configuration.
 - Action: write the dispatch chain with file:line refs.
 - Acceptance: documented trace; no silent rerouting.
 - Dependencies: none.
-- Completion: partial (dispatched located; end-to-end trace open).
+- Completion: 2026-11-03 - end-to-end trace verified, no silent
+  rerouting found. Chain: VADAT `SOL_METH` ->
+  `RD_STORE_NCHAR(METH_SOL,...)` (rd_control_variables.f:2948;
+  METH_SOL is CHARACTER*6, control_variable_mod.f:331) ->
+  NUM_BNDS<3 forces DIAG with a loud banner (:2951-2957) ->
+  `solveba_v13.f:1033` accepts only METH_SOL(1:4)='DIAG' or
+  (1:3)='TRI' and STOPs loudly on anything else (so the RD prompt's
+  PEN/GSIT/MIN options are unsupported-but-loud, not silently
+  rerouted; 'TRIDIAG' truncates to 'TRIDIA' and still hits the TRI
+  branch) -> `CMF_BLKBAND_V3` (:1041). Inside: DIAG takes the
+  per-depth LU path with CSCRATCH factor recall; TRI takes the
+  banded path (TRI_ACTIVE at :592) with BCSCRATCH/DSCRATCH recall.
+  Both recall paths verify every mid-depth cache file exists and
+  fall through to a loud recompute on a miss (19-Oct-2026
+  hardening, :285-330). FAILURE semantics: TRI failures degrade
+  like DIAG via the shared 9999 soft-fail branch keyed on
+  TRI_ACTIVE/TRI_RECALL.
 
 ### [ ] P5-002 - Verify DIAG matrix assembly and solution
 - Priority: P0
