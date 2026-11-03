@@ -11,7 +11,7 @@
 !
 ! Altered 05-Oct-2026 : VEL_SPACE rejected under DO_NONMONO_SOB /
 !                       DO_NONMONO_KNOP -- its R(V) interpolation
-!                       assumes a monotonic velocity field (Devin).
+!                       assumes a monotonic velocity field.
 ! Aleterd 20-Aug-2016 : Introduced OB_ONLY option
 ! Altered 19-Aug-2015 : Check on makig sure SIGMA > -1 (cur_hmi, 23-Jun-2105)
 ! Altered 02-Dec-2012 : Changed calls to DO_TAU_REGRID and DO_VEL_REGRID.
@@ -228,7 +228,7 @@
 	    SIGMA(I)=COEF(J,3)+T1*(2.0_LDP*COEF(J,2)+3.0_LDP*T1*COEF(J,1))
 	    SIGMA(I)=SIGMA(I)-1.0_LDP
 !
-! edited by Devin, 13-Oct-2026: sigma < -1 on the interpolated grid is
+! edited 13-Oct-2026: sigma < -1 on the interpolated grid is
 ! expected on non-monotonic velocity fields -- the reverse shock sits
 ! at V >> 0.2 km/s, so the upstream clamp/STOP below would abort a
 ! legitimate REV_RGRID revision.  Under [DO_NONMONO_SOB]/
