@@ -1494,7 +1494,21 @@ supported configuration.
 - Action: enumerate every off-band writer; check boundary rows.
 - Acceptance: written table.
 - Dependencies: P5-002, P5-003.
-- Completion: -
+- Completion: 2026-11-03 - off-band writers enumerated:
+  (a) steq_advec_v4.f:190-191 - advection dlnV coupling
+      (SE%BA(I,I,M,K)-=T1, DO_OFF_DIAG gate adds +=T2 to the
+      super-band MP1);
+  (b) do_var_cont.f:451-465 - DO_FG13_ALO_TRI writes
+      TX(K,K-1,1:2) and TX(K,K+1,1:2) from GET_FG13_ALO_TRI
+      (the tridiagonal Lambda* dJ/dCHI,dETA), NUM_BNDS>=3 gated,
+      TRI_OK guarded, and prints a once-per-sweep
+      |offdiag/diag| dJ/dETA census;
+  (c) BA_UPDATE_V7/VJ path - the dJ/dopacity cross-depth blocks
+      JFNK_USE_BANDED relies on (jfnk_cmfgen_int_mod.f:469);
+  (d) generate_full_matrix_v3.f reads them all into C_MAT/B_MAT/
+      D_MAT plus BA_ED for the energy row. Boundary rows: K=1 has
+      no sub-band fill and K=ND no super-band fill by
+      construction (cmf_blkband_v3.f:639-655).
 
 ### [ ] P5-005 - Audit NUM_BNDS restrictions and automatic DIAG fallback
 - Priority: P0
@@ -1506,7 +1520,14 @@ supported configuration.
 - Action: trace; enforce loud behaviour if silent.
 - Acceptance: documented rule; no silent reroute.
 - Dependencies: P5-001.
-- Completion: -
+- Completion: 2026-11-03 - all three NUM_BNDS guards are loud:
+  VADAT downgrade warns in block capitals and rewrites METH_SOL
+  (rd_control_variables.f:2951-2957); the in-solver guard
+  hard-errors "NUM_BNDS too small" (cmf_blkband_v3.f:437-443);
+  the ALO_TRI off-band fill is skipped with the documented
+  reason "the fill is skipped rather than wasted" and is gated
+  NUM_BNDS>=3 (do_var_cont.f:446-451) - a skip, not a reroute,
+  since the bands never reach VJ under a diagonal BA.
 
 ### [ ] P5-006 - Create manufactured matrix systems with known solutions
 - Priority: P0
@@ -1588,7 +1609,20 @@ supported configuration.
 - Action: document the preconditioner selection vs METH_SOL.
 - Acceptance: written mapping.
 - Dependencies: none.
-- Completion: -
+- Completion: 2026-11-03 - JFNK never calls CMF_BLKBAND: it runs
+  its own GMRES + preconditioner stack. `JFNK_METH_SOL=METH_SOL`
+  is recorded (jfnk_cmfgen_interface_v1.f:56) only so the
+  preconditioner can mirror the production band structure.
+  Selection: JFNK_USE_BANDED VADAT flag (default off) switches
+  between block-diagonal LU and banded LU (DGBTRF/DGBTRS,
+  jfnk_cmfgen_int_mod.f:467-473); the banded path requires
+  NUM_BNDS>1 and is silently disabled under NUM_BNDS=1 per its
+  own comment - a preconditioner-quality downgrade only, not a
+  wrong-answer path, but noted as the one quiet fallback in the
+  matrix. The conventional correction side always runs SOLVEBA
+  with METH_SOL, except under LAMBDA_ITERATION which forces
+  'DIAG' (solve_for_pops.f:1004-1007) - correct since lambda
+  steps need no cross-depth bands.
 
 ### [ ] P5-013 - Compare DIAG and TRI on identical physical models
 - Priority: P1
