@@ -357,6 +357,50 @@ def main():
             f"max cell-to-cell step {step.max():.2%}",
         )
 
+    # --- Near-degenerate frequency bin (bound-free edge doublet) ----
+    # dbl inserts FRQ(4)=FRQ(3)*exp(-1e-11): compressing rows at L=3
+    # floor MOM_DLN at 1e-6, expanding rows at L=4 get the same true
+    # backward spacing.  The limiting equation degenerates the rows
+    # to J_upwind, so across the null-width bin J must copy the
+    # upwind field: J(3) ~ J(4) once the lagged store converges.
+    dd = run(exe, "dbl", "nonj", "6", "1", "diff", "none", "0",
+             "t_dbl", cwd=WORKDIR)
+    rep.check("dbl: driver completed", "RESULT_OK" in dd.stdout)
+    rep.check(
+        "dbl: no DGTSV/non-finite failures at the doublet",
+        kv(dd.stdout, "N_DGTSV") == 0
+        and kv(dd.stdout, "N_NONF") == 0,
+    )
+    rep.check(
+        "dbl: no significant negative J",
+        kv(dd.stdout, "NEGJ_LRG") == 0,
+        f"NEGJ_LRG={kv(dd.stdout, 'NEGJ_LRG')}",
+    )
+    jp = np.loadtxt(WORKDIR / "t_dbl_jprof.txt", ndmin=2)
+    sm = np.loadtxt(WORKDIR / "t_dbl_sm.txt", skiprows=1)
+    sigt = sm[:, 3]
+    j3, j4, j5 = jp[2, 1:], jp[3, 1:], jp[4, 1:]
+    cmp_cells = sigt < -1.0
+    # Compressing rows at L=3 degenerate to J_upwind=J4 exactly:
+    # observed ~0.15% = lagged-store drift, not a coefficient error.
+    # The boundary/expanding cells carry their own row structure, so
+    # the absolute smoothness bound below covers them instead.
+    rel_cmp = np.abs(j3[cmp_cells] - j4[cmp_cells]) / np.abs(
+        j4[cmp_cells]
+    )
+    rep.check(
+        "dbl: compressing rows copy J_upwind across the doublet",
+        float(rel_cmp.max()) < 0.05,
+        f"max rel diff at compressing cells {rel_cmp.max():.2%}",
+    )
+    rep.check(
+        "dbl: doublet smoother than a real bin (null transport)",
+        float(np.abs(j3 - j4).max()) <= 2.0 * float(np.abs(j4 - j5).max() + 1e-30),
+        f"|J3-J4| {np.abs(j3 - j4).max():.3e} vs |J4-J5| "
+        f"{np.abs(j4 - j5).max():.3e}",
+    )
+    check_admissible(rep, "dbl", "t_dbl")
+
     # --- Sign-flip gauntlet and resolved shock ----------------------
     for mode in ("sigx", "jump", "strong", "dec"):
         r = run(exe, mode, "nonj", "6", "1", "diff", "none", "0",
