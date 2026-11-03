@@ -31,7 +31,7 @@
       REAL(KIND=LDP) R(ND),V(ND),SIG(ND),SIGT(ND)
       REAL(KIND=LDP) CHI(ND),ETA(ND),ESEC(ND),VDOP(ND)
       REAL(KIND=LDP) JNU(ND),RSQH(ND)
-      REAL(KIND=LDP) FREQ,DLN,V0,RC,BETA,T1,T2,S0,DLNR
+      REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
       REAL(KIND=LDP) FRQ(NCF),NU_NXT
       CHARACTER(LEN=32) MODE,NTYPE,INBM,HCHK,OUTTAG,CARG
@@ -110,6 +110,8 @@
         DO I=8,16
           SIGT(I)=-4.0_LDP*MOD(I,2)
         END DO
+      ELSE IF(MODE .EQ. 'dbl')THEN
+        NCASE=12; SIGT(10:14)=-4.0_LDP
       ELSE
         WRITE(*,'(A)')'RESULT unknown_mode=1'
         GOTO 999
@@ -154,6 +156,13 @@
       DO L=2,NCF
         FRQ(L)=FRQ(L-1)*EXP(-DLN)
       END DO
+!
+! dbl: bound-free-edge doublet probe. FRQ(4) sits 1E-11 below FRQ(3)
+! in log frequency, so the L=3 solve's compressing rows get
+! MOM_DLN ~ 1E-11 (floored at MOM_DLN_MIN) and expanding rows at
+! L=4 get the same near-null backward spacing.
+!
+      IF(MODE .EQ. 'dbl')FRQ(4)=FRQ(3)*EXP(-1.0E-11_LDP)
 !
 ! Seed MOD_RAY_MOM_STORE on the model grid (ND_STORE=ND -> identity
 ! interpolation branch in GET_MOMS_NON_REL, HN_DEF_ON_NODES=F -> the
@@ -200,6 +209,10 @@
       MOM_FREQ_MATCH=DOMATCH
       CONV_DIAG_LVL=2
 !
+      IF(MODE .EQ. 'dbl')
+     1   OPEN(UNIT=305,FILE=TRIM(OUTTAG)//'_jprof.txt',
+     2        STATUS='REPLACE')
+!
       WRITE(*,'(A,I4,A,I4)')'GRID ND=',ND,' NCF=',NCF
       WRITE(*,'(A,ES14.6,A,ES14.6)')'V(1)=',V(1),' V(ND)=',V(ND)
       WRITE(*,'(A,ES14.6)')'SIGT_MIN=',MINVAL(SIGT)
@@ -226,14 +239,24 @@
           CALL SET_MOM_NU_NEXT(NU_NXT)
           INIT=(IT .EQ. 1 .AND. L .EQ. 1)
           NEW_FREQ=.TRUE.
+! dbl: pass the true backward spacing LOG(F_{L-1}/F_L) so expanding
+! rows at the doublet see the same near-null spacing the
+! compressing rows derive from NU_NEXT.
+          IF(MODE .EQ. 'dbl' .AND. L .GT. 1)THEN
+            DLNC=LOG(FRQ(L-1)/FRQ(L))
+          ELSE
+            DLNC=DLN
+          END IF
           CALL MOM_J_CMF_NONMONO_V1(ETA,CHI,ESEC,
      1         V,SIG,SIGT,R,
      2         JNU,RSQH,
      3         VDOP,VDOP_FRAC,
-     4         FREQ,DLN,
+     4         FREQ,DLNC,
      5         INBM6,DBB,IC,IBSTAB,
      6         NTYP6,HCHK6,METH,COHR,OUTBC,
      7         INIT,NEW_FREQ,0,1,ND,FIDX,NCF)
+          IF(MODE .EQ. 'dbl' .AND. IT .EQ. NIT)
+     1         WRITE(305,'(I4,999ES16.8)')L,JNU(1:ND)
         END DO
         WRITE(*,'(A,I3,A,ES14.6,A,I8)')'IT=',IT,
      1   ' MOM_GS_MAXCHG=',MOM_GS_MAXCHG,' NCROW=',
