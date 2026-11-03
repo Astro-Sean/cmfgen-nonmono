@@ -1,7 +1,11 @@
 # JFNK production-operator correctness investigation (Phase 1)
 
-Date: 2026-11-07. Tree: `cmfgen_jfnk`, HEAD `22d63df9` + the working-tree
-changes listed in section H. Scope: establish whether the production
+Date: 2026-11-03 (file name and the original header said 2026-11-07;
+corrected - the work and the commit are both dated 03-Nov-2026).
+Tree: `cmfgen_jfnk`. The changes listed in section H were committed
+as `a1f2913c..ccc52ffd` on top of `22d63df9`; the section-H note
+"Not committed per workflow" is stale - this document now describes
+committed HEAD `ccc52ffd`. Scope: establish whether the production
 `JFNK_RESIDUAL_V1`/`JFNK_JVP_V1` pair is a sufficiently consistent linear
 operator for the existing restarted GMRES, without introducing a new
 preconditioner, Schur complement, FGMRES, or frequency solver.
@@ -267,8 +271,7 @@ Changed files: `new_main/mod_subs/jfnk_op_probe_v1.f90` (new),
 `mod_subs/Makefile` (object + rule), `unit_tests/build.sh`,
 `unit_tests/se_driver.f90` (seprobe + 2 adapters),
 `unit_tests/python/test_jfnk_opint.py` (new), `unit_tests/README.md`
-(inventory line). Not committed per workflow; the tree remains at the
-checked-out HEAD plus this diff.
+(inventory line). Committed as `a1f2913c..ccc52ffd` on 2026-11-03.
 
 ## I. Remaining limitations
 
