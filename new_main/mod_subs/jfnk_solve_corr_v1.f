@@ -4,26 +4,26 @@
 !
 ! Ported from V6 SOLVE_FOR_POPS_JFNK_V1 (bak_v6revert) and slimmed to a
 ! drop-in replacement for the single SOLVEBA call site in
-! SOLVE_FOR_POPS.  The outer mode controller (LAMBDA/full switching,
+! SOLVE_FOR_POPS. The outer mode controller (LAMBDA/full switching,
 ! GS field-maturity gating, hold_pops, resacc) is unchanged; this
 ! routine only replaces the correction solve itself.
 !
 ! Method (Knoll & Keyes 2004; Arramy, de la Cruz Rodriguez &
 ! Leenaarts 2024, A&A 690, A12):
 !   F(x) = SE residual at POPS_BASE*(1+x)
-!   J*v  ~= [F(x+eps*v) - F(x)]/eps     (Jacobian-free matvec)
+!   J*v ~= [F(x+eps*v) - F(x)]/eps (Jacobian-free matvec)
 !   Newton step globalized by the GMRES hookstep trust region,
 !   Eisenstat-Walker forcing, and an Armijo line search.
 !
 ! JFNK_COUPLED=T (VADAT): the residual re-runs the formal radiation
 ! solve at the perturbed populations (JFNK_SWEEP_CB, registered by
 ! cmfgen_sub), so the finite-difference JVP probes dJ/dn -- the fully
-! coupled SE+RTE system.  This is the Arramy-style evaluation and is
+! coupled SE+RTE system. This is the Arramy-style evaluation and is
 ! the piece V6 never had (V6's residual froze the radiation field and
 ! therefore solved only the fixed-J sub-problem).
 !
 ! JFNK_COUPLED=F: V6 semantics -- STEQ_coll(n) + stored radiative term
-! + CMAT_RAD linearization.  Retained as a debugging/fallback mode.
+! + CMAT_RAD linearization. Retained as a debugging/fallback mode.
 !
 ! Under DO_NONMONO_SOB + [JFNK_COUPLED_SOB] (both default F) the
 ! coupled tier is never demand-admitted: it fires only as the
@@ -32,7 +32,7 @@
 ! residual at x=0 reproduces the production STEQ to [JFNK_CPL_SOB_TOL].
 !
 ! On non-catastrophic stagnation this routine returns to the caller's
-! SOLVEBA_V13 mode.  Only an unrecoverable eval failure forces the
+! SOLVEBA_V13 mode. Only an unrecoverable eval failure forces the
 ! conservative Lambda safety path.
 !
 ! edited (V7-JFNK port, 02-Oct-2026)
@@ -72,9 +72,9 @@
 	LOGICAL COMPUTE_BA_A,WR_BA_INV_A,WR_PRT_INV_A,LAMBDA_A
 	LOGICAL SET_D2_A,SUCCESS,LST_ITERATION
 ! JFNK_COUPLED_IN: residual mode for THIS activation, selected by the
-! FRZ_GATE/COR_GATE tier logic in SOLVE_FOR_POPS.  F = frozen-J
+! FRZ_GATE/COR_GATE tier logic in SOLVE_FOR_POPS. F = frozen-J
 ! residual (no sweep per eval); T = coupled eval (fresh formal solve
-! per eval).  Stored in JFNK_COUPLED_LOC so residual/JVP/rebuild all
+! per eval). Stored in JFNK_COUPLED_LOC so residual/JVP/rebuild all
 ! read the same per-activation mode.
 	LOGICAL JFNK_COUPLED_IN
 !
@@ -91,8 +91,8 @@
 ! Phase timers (edited 15-Oct-2026): per-admission wall
 ! seconds for the expensive JFNK phases, printed as one line with the
 ! final diagnostics so the iteration cost can be attributed (the
-! it191 admission spent ~500 s in dirchk evals that nothing time-
-! stamped).  Bracketed with OMP_GET_WTIME, matching the iteration
+!  admission spent ~500 s in evals that nothing time-
+! stamped). Bracketed with OMP_GET_WTIME, matching the iteration
 ! timer in CMFGEN_SUB.
 !
 	REAL(KIND=LDP) OMP_GET_WTIME
@@ -138,7 +138,7 @@
 ! the row residual F_i (self-proportional equations have dF/dln n_i
 ! = -F_i, i.e. FD~O(F) while BA shows the raw outflow), the CMAT_RAD
 ! share of the BA element, the ion/level label, and the frozen
-! REPLACE flag.  A separate h-scan on the topZ self element separates
+! REPLACE flag. A separate h-scan on the topZ self element separates
 ! a small real derivative (FD stable vs h) from cancellation noise.
 !
 	INTEGER, ALLOCATABLE :: J2ID_LOC(:)
@@ -150,7 +150,7 @@
 ! 23-Oct-2026): F_PROD_SAV holds the production-assembled masked STEQ
 ! for the consistency gate -- jfnk_fx is overwritten by the adopted
 ! F_eval(0) baseline before the reach gate runs, so the check needs
-! its own copy.  CPL_FB_MIN_EVALS is the smallest budget a bounded
+! its own copy. CPL_FB_MIN_EVALS is the smallest budget a bounded
 ! coupled attempt can usefully spend: one consistency eval at x=0
 ! plus a few GMRES matvec evals.
 !
@@ -197,14 +197,14 @@
 !
 ! Budget ladder (17-Oct-2026, replaces the pause/re-arm machinery):
 ! JFNK is the convergence engine -- it is attempted on every
-! admissible call, forever, and is never retired.  A counted failure
+! admissible call, forever, and is never retired. A counted failure
 ! (catastrophic eval, GMRES stagnation without an improving best
 ! iterate, verify reject, max Newton iters) raises JFNK_BUDGET_RUNG,
 ! which trims the per-activation budgets toward the JFNK_RUNG_MIN_*
-! floors; a committed outcome resets the rung to 0.  Admission-gate
+! floors; a committed outcome resets the rung to 0. Admission-gate
 ! skips (info=-2) do not move the rung -- they are cheap by design
-! (BA_A build + Jacobi-z metrics, no factorization).  At the top
-! rung Newton still runs, at the floor budgets.  The rung itself
+! (BA_A build + Jacobi-z metrics, no factorization). At the top
+! rung Newton still runs, at the floor budgets. The rung itself
 ! lives in JFNK_CMFGEN_INT_MOD so JFNK_RETREAT_RESET_V1 can clear
 ! it on NEWMOD.
 !
@@ -288,7 +288,7 @@
 ! -----------------------------------------------------------------------
 ! Entry gating (17-Oct-2026, budget-ladder rewrite): while the caller
 ! admits JFNK, Newton is always attempted at the current rung's
-! budgets -- repeated failure trims cost, never the attempt.  Only a
+! budgets -- repeated failure trims cost, never the attempt. Only a
 ! catastrophic eval failure reroutes the call to the conservative
 ! Lambda safety solve; a finite stagnation or admission-gate skip
 ! retains the caller's SOLVEBA mode for THIS call.
@@ -296,7 +296,7 @@
 !
 ! JFNK_ANY_ITER (VADAT [JFNK_ANYITER], default F): bring-up flag --
 ! the call site fires JFNK on a LAMBDA-designated call too, so treat
-! the call as a full solve for dispatch purposes.  The committed
+! the call as a full solve for dispatch purposes. The committed
 ! update still passes through solve_for_pops' hold/reject logic.
 !
 	DO_JFNK_NOW=(.NOT. LAMBDA_A) .OR. JFNK_ANY_ITER
@@ -307,10 +307,10 @@
 ! JFNK solve
 ! =======================================================================
 !
-! Per-activation residual mode from the tier gate.  The frozen path
+! Per-activation residual mode from the tier gate. The frozen path
 ! (JFNK_COUPLED_LOC=F) builds the stored radiative term + CMAT_RAD
 ! matvec below; the coupled path re-solves radiation inside each
-! residual eval.  JFNK_COUPLED_IN=F also covers the case where the
+! residual eval. JFNK_COUPLED_IN=F also covers the case where the
 ! coupled tier was armed ([JFNK_COUPLED]=T) but only the frozen gate
 ! was satisfied this call.
 !
@@ -328,7 +328,7 @@
 	  END IF
 !
 ! Fresh-residual flag for the Newton entry eval (see
-! jfnk_solver_v1_mod).  Cleared here so a stale flag cannot survive
+! jfnk_solver_v1_mod). Cleared here so a stale flag cannot survive
 ! between activations; set after the F(0) test and by the baseline
 ! rebuild, both of which leave jfnk_fx = F(jfnk_x).
 !
@@ -342,7 +342,7 @@
 	1   '    admitted tier                   : ',
 	1     TRIM(ADJUSTL(JFNK_TAG))
 ! FIXED_T is the IN_ITS schedule flag; a FULL token leaves it false
-! even when RD_FIX_T pins every T row via MOD_FIXED_T.  Report the
+! even when RD_FIX_T pins every T row via MOD_FIXED_T. Report the
 ! effective state (schedule .OR. VADAT pin) so the banner cannot claim
 ! free T on a globally pinned solve.
 !
@@ -400,18 +400,18 @@
 	  jfnk_gmres_max_restart=JFNK_GMRES_RST
 	  jfnk_gmres_tres_fac=DBLE(JFNK_TRES_FAC)
 ! [JFNK_LGMRES] (default F): retain per-cycle corrections across
-! restarts (Baker-Jessup-Manteuffel).  Valid under both PC sides;
+! restarts (Baker-Jessup-Manteuffel). Valid under both PC sides;
 ! left PC costs one extra psolve per restart for the image map.
 ! Bug fix: the original line read jfnk_lgmres=JFNK_LGMRES, which is a
 ! no-op -- Fortran is case-insensitive, so the lhs IS the control
-! variable and the solver flag jfnk_lgmres_on was never set.  Every
+! variable and the solver flag jfnk_lgmres_on was never set. Every
 ! run with [JFNK_LGMRES]=T therefore executed plain restarted GMRES.
 	  jfnk_lgmres_on=JFNK_LGMRES
 	  jfnk_lgmres_kmax=MIN(MAX(JFNK_LGMRES_K,1),8)
 ! [JFNK_GDEFL]/[JFNK_GDEFL_K] (defaults F/4): GMRES-DR harmonic-Ritz
 ! deflation at each restart into the same augmentation slots.
 ! [JFNK_RECYC] (default F): carry the set across solves within an
-! activation.  jfnk_aug_kmax is the combined slot capacity; the
+! activation. jfnk_aug_kmax is the combined slot capacity; the
 ! solver-side bound lg_kmax=8 caps it again inside gmres_m_v1.
 	  jfnk_gdefl_on=JFNK_GDEFL
 	  jfnk_gdefl_kmax=MIN(MAX(JFNK_GDEFL_K,1),8)
@@ -427,7 +427,7 @@
 	  jfnk_cap_step_on=JFNK_CAP_STEP
 !
 ! Budget-ladder trims (17-Oct-2026): JFNK_BUDGET_RUNG shifts down
-! after each counted failure.  The trims are per-activation locals --
+! after each counted failure. The trims are per-activation locals --
 ! the VADAT control variables are never mutated (JFNK_EVAL_LIM is
 ! the activation-local eval budget consumed by JFNK_RESIDUAL_V1).
 ! Rung 0 reproduces full-budget behaviour exactly.
@@ -480,17 +480,17 @@
 	2      FIXED_T,TEMP_CHAR,COMPUTE_BA_A,JFNK_EPS_LOC)
 	  FLUSH(LUER)
 !
-! FIX_T_AUTO: adaptive damped-T domain.  When JFNK_TAUTO and the
+! FIX_T_AUTO: adaptive damped-T domain. When JFNK_TAUTO and the
 ! caller left T globally free, the VARFIXT depth range (or all depths
 ! when no range is set) stops being a hard mask: T rows stay live in
 ! F/JVP and every accepted Newton step has its T components scaled by
-! JFNK_TAU_ALPHA and capped at JFNK_TAU_DMAX.  This is the STELLA
+! JFNK_TAU_ALPHA and capped at JFNK_TAU_DMAX. This is the STELLA
 ! shock guard -- a STELLA T profile is not in NLTE equilibrium, so a
 ! free first Newton step can drive T to unphysical values.
 !
 ! RD_FIX_T is a VADAT-level global pin the IN_ITS schedule never sees:
 ! a FULL token leaves FIXED_T false even though every T row is fixed
-! (dirchk run, it473).  TAUTO must not release that pin -- with it
+! (run). TAUTO must not release that pin -- with it
 ! active the depth-range mask in JFNK_MASK_FIXED_UNKNOWNS and the
 ! T-commit skip below are bypassed, so a Newton step would update T
 ! under FIX_T=T.
@@ -518,7 +518,7 @@
 	    JFNK_TAU_DOM_END=0
 	  END IF
 !
-! Freeze the lagged I_NEXT store during JFNK evaluations.  In coupled
+! Freeze the lagged I_NEXT store during JFNK evaluations. In coupled
 ! mode the formal solver still runs, but treats the converged store as
 ! a fixed parameter -- the store is outer-iteration state, refreshed
 ! by the next real sweep after the correction is committed.
@@ -575,7 +575,7 @@
 	  END DO
 !
 ! Frozen-J mode (JFNK_COUPLED=F): split off the radiative part of the
-! assembled STEQ so the residual can supply it from storage.  In
+! assembled STEQ so the residual can supply it from storage. In
 ! coupled mode the field evaluator regenerates radiative terms inside
 ! SE%STEQ directly, so neither STEQ_RAD nor CMAT_RAD is needed.
 !
@@ -598,7 +598,7 @@
 ! module STEQ arrays with collisional-only values, and nothing
 ! restored them -- the catastrophic/stagnation SOLVEBA fallback then
 ! assembled its right-hand side (and measured the resacc residual)
-! from a STEQ missing every radiative term.  Bracket the split so the
+! from a STEQ missing every radiative term. Bracket the split so the
 ! module arrays keep the outer iteration's full STEQ for the rest of
 ! the activation; JFNK_STEQ_RAD_FLAT already holds what JFNK needs.
 !
@@ -627,7 +627,7 @@
 ! the consistency gate at the reach-fail site compares the coupled
 ! eval at x=0 against the production-assembled STEQ -- keep a masked
 ! copy now, since the F(0) adoption below overwrites jfnk_fx with the
-! eval-side baseline.  The copy itself changes no computation.
+! eval-side baseline. The copy itself changes no computation.
 !
 	  IF(DO_NONMONO_SOB .AND. JFNK_COUPLED .AND.
 	1     JFNK_COUPLED_SOB)THEN
@@ -638,10 +638,10 @@
 !
 ! F(0) identity test: in frozen mode the JFNK residual at x=0 must
 ! reproduce the outer-iteration STEQ to within rounding; otherwise the
-! residual is solving a different problem than the model state.  In
+! residual is solving a different problem than the model state. In
 ! coupled mode the eval re-solves J with the I_NEXT store frozen, so
 ! F_eval(0) legitimately differs from outer STEQ (which accumulated
-! radiative terms with the store evolving mid-sweep).  The eval
+! radiative terms with the store evolving mid-sweep). The eval
 ! residual is adopted as the Newton baseline in both modes on the
 ! F0_OK path (see below); the mismatch diagnostics stay informative
 ! either way.
@@ -682,11 +682,11 @@
 ! In coupled mode F_eval(x) is a different operator than the outer
 ! STEQ: the eval re-solves the radiation with the I_NEXT store frozen
 ! at its post-sweep state, while the outer STEQ accumulated radiative
-! terms with the store evolving mid-sweep.  The 1.0D-6 gate is only
-! meaningful in frozen mode.  For [JFNK_COUPLED] Newton must zero the
+! terms with the store evolving mid-sweep. The 1.0D-6 gate is only
+! meaningful in frozen mode. For [JFNK_COUPLED] Newton must zero the
 ! eval operator, so adopt F0_Y as the baseline residual and report
 ! the outer-STEQ discrepancy (and its worst equation) as a diagnostic;
-! the outer iteration closes the lagged-field difference.  Fail only
+! the outer iteration closes the lagged-field difference. Fail only
 ! on NaN (F0_NAN) or a non-finite eval (jfnk_resid_nbad, set inside
 ! JFNK_RESIDUAL_V1 before the cap).
 !
@@ -696,8 +696,8 @@
 ! mode it is dominated by the lagged I_NEXT store having evolved
 ! during the production sweep, which is honest physics, not a bug.
 ! Newton then solves the SE problem under the store the next real
-! sweep will actually use.  The eval itself is the operator to
-! trust; adopting it is always correct here.  The previous
+! sweep will actually use. The eval itself is the operator to
+! trust; adopting it is always correct here. The previous
 ! rel>0.5 abort fired on every live attempt (rel=44, 0.82) and no
 ! Newton step ever ran.
 !
@@ -726,7 +726,7 @@
 	      WRITE(LUER,'(A,ES12.4)')
 	1   '      F_outer at that eqn           :',jfnk_fx(JJ_TEST)
 !
-! Spread diagnostic: how many equations materially disagree.  A few
+! Spread diagnostic: how many equations materially disagree. A few
 ! far rows are the store-lag signature at compressing cells; if most
 ! of the vector moves the eval and the outer sweep are different
 ! operators -- reported as a warning only, the trust region and the
@@ -767,11 +767,11 @@
 	    END IF
 !
 ! Adopt the eval residual as the Newton baseline whenever it is
-! finite.  The FD JVP subtracts jfnk_fx from F_eval(x+h*v), so a
+! finite. The FD JVP subtracts jfnk_fx from F_eval(x+h*v), so a
 ! baseline of F_outer leaves (F_eval(0)-F_outer)/h inside every
 ! matvec: a constant vector amplified ~1/h (~7e7) that appeared as
 ! ~8e3 cross-depth entries in the COLPROBE single-column probes at
-! it354.  The evals are bitwise deterministic (repeat-vs-pristine
+!. The evals are bitwise deterministic (repeat-vs-pristine
 ! |diff|=0), so adopting F_eval(0) removes the offset exactly while
 ! changing the Newton RHS by at most the 1e-4 eval/outer discrepancy.
 !
@@ -786,7 +786,7 @@
 !
 ! jfnk_fx now holds F_eval at jfnk_x=0 (adopted in both modes on the
 ! F0_OK path so the FD JVP baseline is bitwise-consistent with the
-! operator being solved).  NEWTON_HOOK_V1 can skip its entry re-eval.
+! operator being solved). NEWTON_HOOK_V1 can skip its entry re-eval.
 ! Only mark it fresh on the F0_OK path -- Newton is skipped otherwise
 ! and a stale TRUE could leak into the next activation.
 !
@@ -806,11 +806,11 @@
 	1   '    weighted residual norm at entry   :',REAL(F_W_INIT)
 !
 ! F_W_ENTRY freezes the activation-entry residual as the commit
-! reference.  A baseline rebuild re-bases F_W_INIT onto the new
+! reference. A baseline rebuild re-bases F_W_INIT onto the new
 ! baseline's assembled operator (STEQ_RAD_FLAT absorbs CMAT_RAD*X_CORR,
 ! so the rebuilt |F(0)| is the linear model's prediction, not a
 ! measured residual), and the applied-state check below then compared
-! moved-operator vs moved-operator -- it602 rolled back a best
+! moved-operator vs moved-operator -- rolled back a best
 ! iterate that had a verified 6.04e10 < 6.32e10 entry residual
 ! because both sides of the comparison read the same phantom 1.49.
 ! Not flag-gated: commit-reference bug fix, JFNK admissions only.
@@ -855,7 +855,7 @@
 	  WRITE(LUER,'(A)')' '
 !
 ! FIX_T_AUTO: the domain T-row residual norm RE measures how far the
-! current T profile is from NLTE energy balance.  The first nonzero
+! current T profile is from NLTE energy balance. The first nonzero
 ! reading anchors RE0; rungs release while RE stays below
 ! JFNK_TAU_REL*RE0 and committed log-T steps stay under JFNK_TAU_EPS.
 !
@@ -958,7 +958,7 @@
 ! Build the BA blocks for the reach/direction gates, but DEFER the
 ! LU factorization until the gates pass (W5B, 17-Oct-2026): a
 ! reach-skip then pays only this build plus one residual eval, not
-! the per-depth LU (~minutes on a coupled model).  The factor call
+! the per-depth LU (~minutes on a coupled model). The factor call
 ! just above the Newton loop reuses this BA_A via JFNK_BA_BUILT.
 ! The build sits after F(0) adoption, masking and PTC arming so the
 ! gate diagonal folds the adopted masked baseline at the live scale
@@ -978,9 +978,9 @@
 ! Reachability precheck (JFNK_REACH_GATE>0, inverse PCs only): the
 ! preconditioned direction z=M^-1 F is projected back through the BA
 ! block and REACH=(2<F,Jz>-<Jz,Jz>)/<F,F> measures the fraction of
-! |F|^2 a linear step can remove.  On the SOB frozen-J residual the
+! |F|^2 a linear step can remove. On the SOB frozen-J residual the
 ! radiation-pinned rows leave REACH~0 -- Newton can then only burn
-! GMRES/JVP evals producing rejected ~0 steps.  Detecting that here
+! GMRES/JVP evals producing rejected ~0 steps. Detecting that here
 ! costs one apply plus one block matvec instead of tens of SE evals.
 ! JACOBI is skipped: its diagonal z underestimates reachability and
 ! would gate out solvable admissions.
@@ -989,7 +989,7 @@
 ! the same z/Jz metrics plus one FD matvec: a preconditioned step
 ! that is non-descent, outsized vs |F|, or mostly clip bounds cannot
 ! produce a useful Newton correction, so the admission defers to the
-! caller's SOLVEBA mode before GMRES/JVP evals are spent.  The block
+! caller's SOLVEBA mode before GMRES/JVP evals are spent. The block
 ! runs when any of the gates is armed; JFNK_FD_COS_MIN (default
 ! 0.05) and JFNK_FD_AUTODEF (default T) arm it by themselves so the
 ! FD descent test is on unless the user opts out.
@@ -1000,16 +1000,16 @@
 ! W11 census gate (17-Oct-2026, [JFNK_CENSUS_*], all defaults off):
 ! on radiation-pinned residuals -- the SOB frozen-J class where ~all
 ! of |F| sits in deep-H rows whose radiative lag no population step
-! can move (m15 SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
+! can move (SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
 ! ~39k pop-floor regularized rows, cos(F,Jz) ~ 1e-4) -- the frozen
 ! tier's inability is certified by data already paid for (BA_A built
-! above, F(0) adopted above).  Refusing here costs ~one residual
+! above, F(0) adopted above). Refusing here costs ~one residual
 ! eval plus the BA build instead of the LU factor plus the precheck
-! JVPs (the it35 audit paid ~78 s/admission, ~4.5 h over 210
-! admissions, for zero committed Newton steps).  JFNK_REACH_OK=F
+! JVPs (the audit paid ~78 s/admission, ~4.5 h over 210
+! admissions, for zero committed Newton steps). JFNK_REACH_OK=F
 ! reuses the existing info=-2 admission-gate path below, so the
 ! caller's BA/LAMBDA runs exactly as at HEAD and the rung ladder does
-! not move.  FROZEN tier only: a coupled eval re-solves the radiation
+! not move. FROZEN tier only: a coupled eval re-solves the radiation
 ! per residual, so the same census numbers do not imply coupled
 ! unreachability -- W12's telemetry covers that tier.
 !
@@ -1047,7 +1047,7 @@
 	      Z_CHK=jfnk_fx
 ! Jacobi z for the gate metrics: the LU is deliberately not factored
 ! yet (skip-cheap path), so price the direction with the folded
-! diagonal.  JFNK_PC_DIAG_ONLY prevents PRECOND_V1's lazy factor
+! diagonal. JFNK_PC_DIAG_ONLY prevents PRECOND_V1's lazy factor
 ! call from defeating the deferral; cleared immediately after.
 	      JFNK_PC_DIAG_ONLY=.TRUE.
 	      CALL JFNK_PRECOND_V1(JFNK_N, Z_CHK)
@@ -1056,7 +1056,7 @@
 ! The commit path clips each component of the accepted step to the
 ! log-space bound [X_MIN,X_MAX] (population clip = MAX_JFNK_COR); the
 ! unclipped direction can carry |z|~hundreds on near-null rows that the
-! commit would flatten.  Price the step the model would actually take:
+! commit would flatten. Price the step the model would actually take:
 ! Z_CLIP applies the same bounds here so the stored-BA and FD reach
 ! numbers describe that step, not the raw M^-1 F.
 !
@@ -1119,7 +1119,7 @@
 ! W24d: under JFNK_USE_BANDED the preconditioner sees the full
 ! multi-band operator while JFNK_BA_A above prices only the
 ! diagonal band -- the reach estimate is then priced on a
-! cheaper operator than the one GMRES runs.  Kept DIAG-only
+! cheaper operator than the one GMRES runs. Kept DIAG-only
 ! (the banded apply is not free here); say so once per
 ! admission so the log does not read the guard as exact.
 !
@@ -1140,11 +1140,11 @@
 !
 ! Direction gates on the stored-BA metrics (defaults 0 = off): these
 ! cost nothing extra -- z, the clip count, and Jz=BA*z are already
-! computed above.  cos(F,Jz)<COS_MIN means even the stored operator
+! computed above. cos(F,Jz)<COS_MIN means even the stored operator
 ! reports a non-descent direction; |Jz|/|F|>JZ_F_MAX means the linear
 ! response dwarfs the residual; a clip fraction above CLIP_FRAC_MAX
 ! means the step the commit would take is mostly the clip bounds, not
-! the linearization.  Deferring here avoids the COLPROBE/isolation
+! the linearization. Deferring here avoids the COLPROBE/isolation
 ! JVP evals below as well as the whole Newton attempt; the admission
 ! is charged like a reach-gate skip (fallback, not stagnation).
 !
@@ -1179,9 +1179,9 @@
 ! formally block-separable (no routine reads pops at other depths),
 ! yet a single-column FD probe produced nonzero entries at distant
 ! depths when measured AFTER a full-vector JVP had perturbed every
-! depth.  If module state leaks across evals, later JVPs inherit
+! depth. If module state leaks across evals, later JVPs inherit
 ! residue from earlier perturbations and the FD operator looks
-! dense.  Measure the top-|z| column FIRST (before any full-vector
+! dense. Measure the top-|z| column FIRST (before any full-vector
 ! JVP in this block), then repeat it at the end: equal outputs mean
 ! pure evals and real global coupling; different outputs prove
 ! eval-order contamination.
@@ -1193,8 +1193,8 @@
 ! Eval-budget headroom for the probe JVP calls below: each probe
 ! costs a full coupled sweep, and an activation near its cap would
 ! spend the remaining evals on diagnostics while the Newton solve
-! starves.  NEV_CAP=MIN(JFNK_EVAL_LIM,JFNK_MAX_EVALS) with 0 = off;
-! a probe needs >=2 evals of headroom (eval + clip retry).  Skipped
+! starves. NEV_CAP=MIN(JFNK_EVAL_LIM,JFNK_MAX_EVALS) with 0 = off;
+! a probe needs >=2 evals of headroom (eval + clip retry). Skipped
 ! probes print at CONV_DIAG_LVL>=2 and leave the flag false.
 !
 	      NEV_CAP=0
@@ -1246,7 +1246,7 @@
 !
 ! FD-vs-stored operator check (11-Oct-2026): the stored-BA REACH can
 ! report frac~1 while the finite-difference operator maps the same
-! z orthogonally (LU admission at it297: REACH=0.99998, GMRES flat).
+! z orthogonally (LU admission : REACH=0.99998, GMRES flat).
 ! One extra residual eval prices A_FD*z directly; the anatomy names
 ! the rows where stored BA and true dF/dx diverge.
 !
@@ -1276,13 +1276,13 @@
 ! almost orthogonally to F (the stored operator and dF/dx disagree).
 ! cos(F,A_FDz) and |A_FDz|/|F| are the same two metrics on the FD
 ! image of the clipped step -- the direction the nonlinear residual
-! actually sees.  Deferring here still costs only the evals already
+! actually sees. Deferring here still costs only the evals already
 ! spent above; the remaining isolation probes are skipped.
 !
 !
 ! The gates below read COS_FD/JZF_FD priced from the probe JVP;
 ! with the probe skipped those metrics are uninitialized and a
-! garbage value could veto the whole admission.  Gate the gates.
+! garbage value could veto the whole admission. Gate the gates.
 !
 	      IF(L_EVR_FDOP)THEN
 	      COS_FD=FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))
@@ -1306,10 +1306,9 @@
 ! FD descent floor (17-Oct-2026, [JFNK_FD_COS_MIN] default 0.05 +
 ! [JFNK_FD_AUTODEF] default T): the FD image is the descent test
 ! against the TRUE operator -- the stored-BA REACH passed a step
-! whose real Jacobian maps it anti-parallel to F (KNOP_jfnkrel
-! it35, cos=-0.23) and GMRES then spent 30 evals stagnating.
+! whose real Jacobian maps it anti-parallel to F , cos=-0.23) and GMRES then spent 30 evals stagnating.
 ! Deferring here costs only the evals already spent; GMRES is
-! skipped.  Independent of JFNK_COS_MIN so the stored-BA policy is
+! skipped. Independent of JFNK_COS_MIN so the stored-BA policy is
 ! untouched; set JFNK_FD_COS_MIN=0 and JFNK_FD_AUTODEF=F to recover
 ! the pre-guard behaviour.
 !
@@ -1326,15 +1325,15 @@
 	      END IF    ! L_EVR_FDOP gate on the FD direction gates
 !
 ! Deferral-path operator probe ([JFNK_DEFER_PROBE], default 0 = off;
-! diagnostic only).  The FD direction gates above defer the admission
+! diagnostic only). The FD direction gates above defer the admission
 ! before any isolation probe runs, so a repeated defer never shows
 ! WHY the stored BA and the FD operator disagree on the deferred
 ! direction (stale stored rows vs FD cancellation on huge-|F| rows vs
-! a truly unreachable direction vs clipping).  For the first
+! a truly unreachable direction vs clipping). For the first
 ! JFNK_DEFER_PROBE deferrals, re-price the same clipped direction at
 ! four h scales, the unclipped direction once, and the top-|F|
 ! Jacobian column at the same scales, and log the raw residual
-! differences per dominant row.  Solver state is untouched: the
+! differences per dominant row. Solver state is untouched: the
 ! defer decision stands, no commit runs, JFNK_PROBE_HSCALE is reset
 ! after every eval, and JV_SAV is only reused because the pass-path
 ! probes below cannot run on this branch.
@@ -1401,9 +1400,9 @@
           K_TOPF=(I_TOPF-1)/JFNK_NT+1
         END IF
 !
-! (1) Direction h-scan on the SAME Z_CLIP the gates priced.  Scale 1
+! (1) Direction h-scan on the SAME Z_CLIP the gates priced. Scale 1
 ! reuses JV_FD (the gate probe itself; JFNK_W_F_PERT still holds its
-! perturbed residual).  A derivative stable across scales is real;
+! perturbed residual). A derivative stable across scales is real;
 ! one that drifts or flips is cancellation noise.
 !
         WRITE(LUER,'(A)')'    direction A_FD*z_clip, h scan:'
@@ -1448,7 +1447,7 @@
         END DO
 !
 ! (2) Unclipped direction: separates a clipping-induced discrepancy
-! from an operator one.  JV_SAV is free on this path (the
+! from an operator one. JV_SAV is free on this path (the
 ! pristine-vs-repeat comparison it feeds runs only when the
 ! admission passed).
 !
@@ -1528,8 +1527,8 @@
           END DO
         END IF
 !
-! Per-row verdict table.  FDT holds the clipped-direction FD at each
-! scale; RFT the raw residual difference F(x+hz)-F(x).  The verdict
+! Per-row verdict table. FDT holds the clipped-direction FD at each
+! scale; RFT the raw residual difference F(x+hz)-F(x). The verdict
 ! is heuristic: a large non-monotone range in |FD| across h reads as
 ! cancellation, a monotone drift as nonlinearity, and a stable
 ! plateau materially off the stored-BA value as a stale or
@@ -1602,7 +1601,7 @@
 	    IF(JFNK_REACH_OK)THEN
 ! Isolation probes (11-Oct-2026): A_FD*z returned ~60x|F| with
 ! cos(BAz,A_FDz)~0.2 -- the stored BA misses large true-J action
-! excited by z's ~50-magnitude components.  JVP step h scales with
+! excited by z's ~50-magnitude components. JVP step h scales with
 ! 1/||v||_inf so scaling v does NOT shrink the perturbation; the
 ! informative restrictions are structural:
 !   (a) z|_(K_TOPF-1): response on the top-F row (K_TOPF) prices the
@@ -1690,10 +1689,10 @@
 !
 ! (a) column probe: JVP(e_i) returns column i of the true J
 ! (block-separable residual -- K69-only restriction gave zero response
-! at the K70 top row, so all action is within-block).  Compare
+! at the K70 top row, so all action is within-block). Compare
 ! elementwise against the stored BA column for the top-F row and the
 ! top-|z| row: names the entries where stored BA and true dF/dx
-! differ.  The BA column lives in block K_TOPF of JFNK_BA_A.
+! differ. The BA column lives in block K_TOPF of JFNK_BA_A.
 !
 	      Z_BLK = 0.0_LDP
 	      Z_BLK(I_TOPF) = 1.0_LDP
@@ -1793,7 +1792,7 @@
 	! h-scan on the topF self element (Issue 6): the topF column shows
 	! sign-flipped off-diagonal FD-vs-BA entries (HI J=18-21 at K=70),
 	! which can be genuine w-dissolution physics the BA froze out or FD
-	! cancellation noise.  Stability across decades of h separates them.
+	! cancellation noise. Stability across decades of h separates them.
 	!
 	      WRITE(LUER,'(A)')'  COLPROBE hscan (topF self):'
 	      DO IHS=1,3
@@ -1868,7 +1867,7 @@
 	2          ' J=',MOD(I_TOPF-1,JFNK_NT)+1,
 	3          ' FD=',JV_FD2(I_TOPF),' BA=',JV_FD(I_TOPF)
 !
-! Same row decomposition as the topF block.  Here J holds the
+! Same row decomposition as the topF block. Here J holds the
 ! probed depth and MOD(I_ZMAX-1,NT)+1 the probed column (I_ZMAX is
 ! the top-|z| index selected above the loop).
 !
@@ -1902,7 +1901,7 @@
 !
 ! Pristine-vs-repeat: JV_SAV holds the topZ column measured before any
 ! full-vector JVP in this block; JV_FD2 holds the same column measured
-! after several full-vector evals.  |repeat-pristine|/|pristine| near
+! after several full-vector evals. |repeat-pristine|/|pristine| near
 ! zero means the evals are pure and the cross-depth entries are real
 ! Jacobian structure; a large value proves eval-order contamination.
 !
@@ -1922,7 +1921,7 @@
 	2        ' budget-deferred'
 	      END IF
 !
-! h-scan on the topZ self element.  A derivative stable across
+! h-scan on the topZ self element. A derivative stable across
 ! decades of step size is real; one that drifts or flips is
 ! cancellation noise (row partial terms reach 1D15-1D19 against a
 ! nominal 1.5D-8 perturbation).
@@ -1976,12 +1975,12 @@
 	    END IF
 ! The REACH metric is priced against JFNK_BA_A, the outer
 ! (admission-time) BA linearization -- valid for the frozen tier,
-! whose residual is that same fixed-J system.  The coupled tier
+! whose residual is that same fixed-J system. The coupled tier
 ! re-solves J per eval, so its Newton differentiates a different
 ! operator; a stored-BA REACH would be the wrong test there and can
-! veto the only tier able to reduce a J-pinned residual.  Gate the
+! veto the only tier able to reduce a J-pinned residual. Gate the
 ! frozen tier only; the GMRES/Hookstep budget judges coupled
-! reachability.  The COS/JZ_F/CLIP direction guards above share the
+! reachability. The COS/JZ_F/CLIP direction guards above share the
 ! same stored-BA basis and have the same limitation -- they are
 ! default-off diagnostics and are left unchanged.
 !
@@ -2007,10 +2006,10 @@
 ! The precheck block above has priced the stored-BA direction the
 ! caller-mode SOLVEBA step is about to take (cos(F,Jz), |Jz|/|F|,
 ! REACH, plus the FD-vs-stored comparison when JFNK_REACH_OK stayed
-! true).  Force the reach-fail path so Newton never runs: info=-2
+! true). Force the reach-fail path so Newton never runs: info=-2
 ! exits through the admission-gate branch, which is not counted as
 ! stagnation, and the same call's SOLVEBA_V13 fallback applies the
-! real correction.  jfnk_fx_fresh must clear -- the adopted F_eval
+! real correction. jfnk_fx_fresh must clear -- the adopted F_eval
 ! baseline belongs to the skipped Newton, not to a later activation.
 !
 	    IF(DO_DIRCHK_NOW)THEN
@@ -2023,18 +2022,18 @@
 	    END IF
 !
 ! Coupled-SOB reach-fail fallback ([JFNK_COUPLED_SOB], default F;
-! 23-Oct-2026).  JFNK_REACH_SKIP means the stored-BA gates certified
+! 23-Oct-2026). JFNK_REACH_SKIP means the stored-BA gates certified
 ! this residual unreachable by a population step: |F| sits in
 ! radiation-pinned rows where the frozen operator carries no dJ/dn,
 ! so each frozen admission defers (~100 s of setup) and the lagged
-! field never gets a Newton correction.  The coupled tier is the only
+! field never gets a Newton correction. The coupled tier is the only
 ! operator carrying the full pops->opacity->formal-J->rates chain
 ! (Arramy et al. 2024), and demand alone never admits it under SOB --
-! a certified reach failure is its only entry point.  One attempt
+! a certified reach failure is its only entry point. One attempt
 ! per activation, bounded by the same eval/wall budgets plus
 ! [JFNK_CPL_SOB_MAX_EVALS]; when the remaining budget cannot afford
 ! the consistency eval plus a few GMRES matvecs the call keeps the
-! plain frozen skip.  DIRCHK admissions stay diagnostics-only.
+! plain frozen skip. DIRCHK admissions stay diagnostics-only.
 ! JFNK_PC_DIAG_ONLY is re-cleared defensively: a stuck flag would
 ! silently degrade the LU apply inside the coupled GMRES solve.
 !
@@ -2068,17 +2067,17 @@
 !
 ! A3 consistency gate: the coupled eval at x=0 must reproduce the
 ! production-assembled STEQ to [JFNK_CPL_SOB_TOL] (weighted, default
-! 1.0D-5) before Newton may differentiate it.  The eval re-solves J
+! 1.0D-5) before Newton may differentiate it. The eval re-solves J
 ! iteratively where production stored the converged J, so the gate
 ! cannot demand bitwise replay -- it exists to catch a different
 ! equation, and the top-|diff| row dump below names the rows so a
 ! systematic omission shows as a concentrated signature while
-! re-solve truncation reads as diffuse noise.  The gate is enforced
+! re-solve truncation reads as diffuse noise. The gate is enforced
 ! on the first coupled admission, and on every one when
 ! [JFNK_CPL_SOB_EACH]=T; once it has passed, later activations only
-! log the drift.  A failed enforced check detaches the sweep
+! log the drift. A failed enforced check detaches the sweep
 ! callback for the rest of the run and this call exits through the
-! identical frozen skip.  A broken eval (budget sentinel,
+! identical frozen skip. A broken eval (budget sentinel,
 ! non-finite components) is transient -- it vetoes this admission
 ! only, without latching JFNK_CPL_SOB_DEAD.
 !
@@ -2186,7 +2185,7 @@
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
 	    T_PH_PREC=OMP_GET_WTIME()-TW_PH
 !
-! Gates passed: pay for the LU factorization now.  The BA_A build
+! Gates passed: pay for the LU factorization now. The BA_A build
 ! above is reused (JFNK_BA_BUILT), so this call factors the same
 ! matrix the gate metrics priced.
 !
@@ -2198,7 +2197,7 @@
 ! W12 (17-Oct-2026, [JFNK_ENRICH], default F): with the LU in hand,
 ! price the low-rank field-response columns (K JVPs) and factor the
 ! K x K capacitance matrix -- JFNK_PRECOND_V1 then applies the SMW
-! correction on every GMRES matvec.  Coupled tier and flag-gated
+! correction on every GMRES matvec. Coupled tier and flag-gated
 ! only; on any failure the routine leaves JFNK_ENRICH_ACTIVE=F and
 ! the plain LU apply runs unchanged.
 !
@@ -2217,7 +2216,7 @@
 	          CALL JFNK_REBUILD_BASELINE_V1(BEST_X,LUER)
 !
 ! The rebuild's coupled baseline eval can return a sentinel
-! (budget/wall-clock or non-finite components).  Rebuild leaves
+! (budget/wall-clock or non-finite components). Rebuild leaves
 ! RSCALE/PTC alone and flags JFNK_EVAL_BROKEN; exit the attempt
 ! loop through the existing catastrophic/rejection path rather
 ! than running Newton on an unmeasured baseline.
@@ -2243,7 +2242,7 @@
 !
 ! The failed attempt moved the fold state (jfnk_x, dtau), and the
 ! JFNK_EQ_STRUCT_READY reset below re-harvests the equation structure
-! on the next eval.  Reuse is keyed on JFNK_BA_BUILT, so clear it
+! on the next eval. Reuse is keyed on JFNK_BA_BUILT, so clear it
 ! explicitly -- without this the factor would keep the admission
 ! gate's folded BA.
 !
@@ -2331,9 +2330,9 @@
 	    END DO
 	    T_PH_NWT=OMP_GET_WTIME()-TW_PH
 ! Best-attempt commits require at least 1D-4 relative residual
-! improvement: the coupled-SOB run (it581, job 12345334) committed
+! improvement: the coupled-SOB run committed
 ! a 0.45-MAXCH correction on a 1D-5 residual change -- noise paid
-! for with a population perturbation.  Below the floor the call
+! for with a population perturbation. Below the floor the call
 ! takes the same caller-mode path as a rejected attempt.
 !
 	    IF(.NOT. APPLY_JFNK_UPDATE .AND. .NOT. JFNK_CATASTROPHIC .AND.
@@ -2370,10 +2369,10 @@
 	  IF(JFNK_CATASTROPHIC)APPLY_JFNK_UPDATE=.FALSE.
 !
 ! If a baseline rebuild ran but produced no further correction, adopt
-! the rebuilt POPS_BASE.  That point already reduced |F|.  Do not then
+! the rebuilt POPS_BASE. That point already reduced |F|. Do not then
 ! take the Lambda SOLVEBA step as well: the two updates stack, and the
 ! second one is the clipped full-BA step that walks the model off the
-! cliff.  A catastrophic attempt must NOT adopt POPS_BASE; put ED/T/ATM
+! cliff. A catastrophic attempt must NOT adopt POPS_BASE; put ED/T/ATM
 ! back on the outer populations before the safety step.
 !
 	  IF(.NOT. APPLY_JFNK_UPDATE .AND. BASELINE_REBUILT .AND.
@@ -2385,7 +2384,7 @@
 !
 ! Same MAXCH trace exemption as SOLVEBA_V13: JFNK reports the major
 ! block (plus T/ED) to CMFGEN_SUB, while BA_TR_ABS carries the absolute
-! committed trace change used to arm Stage B.  Without this a Newton
+! committed trace change used to arm Stage B. Without this a Newton
 ! commit could leave BA_TR_ABS=0 and skip the polish entirely.
 ! BA_DEM_EXM takes the committed exempted change as the best-effort
 ! proxy for exempted demand (the JFNK residual has no STEQ), so the
@@ -2399,7 +2398,7 @@
 !
 ! edited 18-Oct-2026: [BA_EX_RELFRAC] the JFNK commit has
 ! no STEQ demand, so the exempted-demand proxies use the committed
-! change.  T2 mirrors the SOLVEBA_V13 exit-only relative floor on
+! change. T2 mirrors the SOLVEBA_V13 exit-only relative floor on
 ! the same operand (pre-step populations).
 !
 	      T2=0.0_LDP
@@ -2415,7 +2414,7 @@
 !
 ! Same exempted-row predicate as SOLVEBA_V13's demand/committed
 ! scans, on the same operands: POPS_PREV is the pre-step state, so it
-! plays the POPS_OLD role.  The
+! plays the POPS_OLD role. The
 ! PFLOOR>0 guard keeps an explicit 0 = off consistent with the BA
 ! side; without it the two solvers exempt different rows.
 ! (17-Oct-2026: BA_DEM_RELFRAC removed -- exemption is PFLOOR-only.)
@@ -2468,7 +2467,7 @@
 	    END IF
 !
 ! [JFNK_LOGX] (default T): n = n0*exp(x), clipped to
-! [1/MAX_JFNK, MAX_JFNK].  [JFNK_LOGX]=F keeps n = n0*(1+x).
+! [1/MAX_JFNK, MAX_JFNK]. [JFNK_LOGX]=F keeps n = n0*(1+x).
 ! Free-T steps are always logarithmic and also honour MAX_dT.
 !
 	    X_MAX=MAX_JFNK_COR-1.0_LDP
@@ -2586,14 +2585,14 @@
 	    END IF
 !
 ! Verify the applied state against the frozen residual before the
-! commit is allowed to stand.  The Newton accept tests all ran on
+! commit is allowed to stand. The Newton accept tests all ran on
 ! unclipped iterates, so a heavily clipped commit would otherwise be
 ! applied blind: x_app is reconstructed from the committed POPS (it
 ! therefore includes every clip bound, floor, and skipped fixed row
-! exactly) and F(x_app) is compared with the entry residual.  A
+! exactly) and F(x_app) is compared with the entry residual. A
 ! committed state that does not beat |F|_w at entry is rolled back
 ! atomically to POPS_PREV and the caller-mode BA fallback runs on the
-! restored state.  The coupled tier is skipped: one eval costs a
+! restored state. The coupled tier is skipped: one eval costs a
 ! full formal sweep, and coupled commits already carry
 ! JFNK_UNCONVERGED_COMMIT.
 !
@@ -2629,7 +2628,7 @@
 ! they exist to bound GMRES burn during the solve, but by commit
 ! time the budget is usually spent -- the sentinel Y=1e20 reads as
 ! |F|_w~1e46 under RSCALE^2 weighting and rolls back steps the line
-! search already verified (rzc2 it585).
+! search already verified .
 	          JFNK_EVAL_BYPASS=.TRUE.
 	          CALL JFNK_RESIDUAL_V1(JFNK_N,X_APP,Y_APP)
 	          JFNK_EVAL_BYPASS=.FALSE.
@@ -2684,7 +2683,7 @@
 	    DO K=1,ND
 ! Same committed-change EXR proxy as the rebuild-commit scan above:
 ! without a reset the last BA call's exit-exempted demand leaks into
-! a JFNK commit that already moved those rows.  edited,
+! a JFNK commit that already moved those rows. edited,
 ! 12-Nov-2026.
 	      T2=0.0_LDP
 	      IF(BA_EX_RELFRAC .GT. 0.0_LDP)
@@ -2783,9 +2782,9 @@
 	1     '  JFNK: CATASTROPHIC eval failure (NaN/Inf or factor '//
 	2     'breakdown), info=',JFNK_INFO
 ! A catastrophic eval failure (NaN/Inf, factor breakdown) is not
-! GMRES stagnation -- name the class.  Both are counted failures:
+! GMRES stagnation -- name the class. Both are counted failures:
 ! they bump the budget rung so the next activation costs less; a
-! committed outcome restores rung 0.  JFNK is never retired --
+! committed outcome restores rung 0. JFNK is never retired --
 ! the rung only shrinks what an attempt may spend.
 	    JFNK_BUDGET_RUNG=MIN(JFNK_BUDGET_RUNG+1,JFNK_RUNG_MAX)
 	    WRITE(LUER,'(A,I3,A,I3)')
@@ -2795,10 +2794,10 @@
 	    FIXED_T=.TRUE.
 	    COMPUTE_BA=.TRUE.
 	    TEMP_CHAR='DIAG'
-! Failed Newton must not apply MAX_LAM.  The seq run's safety step
-! followed |F| ~ 1e20.  Use the full-BA limit -- clamped by the
+! Failed Newton must not apply MAX_LAM. The seq run's safety step
+! followed |F| ~ 1e20. Use the full-BA limit -- clamped by the
 ! caller's cap: a GS-damped or BA_DAMP_CAP-bounded COR_LIM_IN must
-! survive the fallback (KNOP_jfnkrel it35: MAX_LAM_COR here let a
+! survive the fallback (MAX_LAM_COR here let a
 ! +91% free-electron step through on the GS release call and the
 ! lagged field ran away, se_res -> 2E31).
 	    T1=JFNK_FALLBACK_CAP(.TRUE.,COR_LIM_IN,.TRUE.)
@@ -2809,7 +2808,7 @@
 	4       MAIN_COUNTER,SET_D2_A)
 	  ELSE
 ! info=-2 is the reachability precheck skip: Newton never ran, so the
-! admission cost ~one matvec.  Do not count it toward stagnation; the
+! admission cost ~one matvec. Do not count it toward stagnation; the
 ! residual may become reachable at a later outer iterate.
 	    IF(VERIF_REJECT)THEN
 	      WRITE(LUER,'(A)')
@@ -2817,7 +2816,7 @@
      2       ' applied-state residual check; state restored to entry'
 ! W7 (17-Oct-2026): the rejected step must not reach the tau-rung
 ! adjudication below -- TAU_EPS_T reads jfnk_x, which still holds the
-! correction the verify check just rolled back.  Zero it and force
+! correction the verify check just rolled back. Zero it and force
 ! SUCCESS off so the step counts as a failure, not a commit.
 	      IF(ALLOCATED(jfnk_x))jfnk_x=0.0D0
 	      SUCCESS=.FALSE.
@@ -2835,7 +2834,7 @@
 	2       'mode, budget rung ',
 	3       JFNK_BUDGET_RUNG,' of ',JFNK_RUNG_MAX
 	    END IF
-! Residual callbacks restore POPS, ED, T and STEQ.  The Newton
+! Residual callbacks restore POPS, ED, T and STEQ. The Newton
 ! preconditioner is local, so a -2 admission-gate skip can reuse the
 ! outer BA; a ran attempt cannot (see the invalidation below).
 ! Restore the entry flags because called routines may update them.
@@ -2845,8 +2844,8 @@
 ! edited 12-Nov-2026: when the Newton attempt actually ran,
 ! the caller's held BA was linearized before it -- the attempt spent
 ! perturbed-state evals and OUTGEN showed the fallback (and the next
-! iteration) reusing that stale matrix (it585 fail, newmat=F on a BA
-! from it575, demand 2.41% -> 37.6%).  Force a rebuild for any
+! iteration) reusing that stale matrix (fail, newmat=F on a BA
+! from an earlier step, demand 2.41% -> 37.6%). Force a rebuild for any
 ! ran attempt; the -2 admission-gate skip never touched the state so
 ! its held BA stays valid.
 	    IF(JFNK_INFO .NE. -2)THEN
@@ -2876,7 +2875,7 @@
 !
 ! FIX_T_AUTO ladder: measure the committed log-T step this activation
 ! (jfnk_x holds the accepted correction, or the best-iterate on a
-! partial solve).  A step above JFNK_TAU_EPS reverts a rung and
+! partial solve). A step above JFNK_TAU_EPS reverts a rung and
 ! clears the commit streak; a rung releases only after JFNK_TAU_NLOCK
 ! committed activations with RE still under JFNK_TAU_REL*RE0.
 !
@@ -2945,10 +2944,10 @@
 !
 ! Phase-time summary: cmat = frozen-mode STEQ split + BA_rad build;
 ! pc = preconditioner factorization; f0 = F(0) residual test; prec =
-! reach/direction-gate precheck and dirchk diagnostics; newton =
-! NEWTON_HOOK_V1 attempts (all GMRES/JVP/line-search cost).  'other'
+! reach/direction-gate precheck and diagnostics; newton =
+! NEWTON_HOOK_V1 attempts (all GMRES/JVP/line-search cost). 'other'
 ! is the residual -- entry gating, commit/rollback, and untimed
-! bookkeeping.  Written on every JFNK admission so the phase timers
+! bookkeeping. Written on every JFNK admission so the phase timers
 ! can be diffed against the iteration wall clock.
 !
 	  WRITE(LUER,'(A,5(F8.1,A),F8.1,A)')
@@ -2965,7 +2964,7 @@
 	  JFNK_COMMITTED=APPLY_JFNK_UPDATE
 !
 ! Reach-skip streak for the SOB relief de-rate (17-Oct-2026): only
-! the JFNK_REACH_GATE skip counts; dirchk defers, guard defers, real
+! the JFNK_REACH_GATE skip counts; defers, guard defers, real
 ! Newton outcomes and stagnations are all non-reach outcomes and
 ! reset the streak, as does a committed step.
 !
@@ -2978,7 +2977,7 @@
 ! Frozen no-commit streak for the optional admission hold
 ! ([JFNK_FRZ_FAIL_LIM]): every frozen admission that ends without an
 ! applied Newton update is counted, whether the precheck skipped it or
-! GMRES/globalization failed.  Coupled activations are excluded because
+! GMRES/globalization failed. Coupled activations are excluded because
 ! the radiation-resolving operator is a different solve.
 !
 	  IF(JFNK_COMMITTED .OR. JFNK_COUPLED_LOC)THEN
@@ -3008,7 +3007,7 @@
 	JFNK_LAG_FACTORS_READY=.FALSE.
 !
 ! The banded operator/factors are no longer needed once this activation
-! commits, falls back, or defers.  Dropping them here keeps the optional
+! commits, falls back, or defers. Dropping them here keeps the optional
 ! frozen-failure hold from carrying a second-admission memory footprint.
 !
 	CALL JFNK_FREE_BANDED_STATE_V1()
@@ -3018,14 +3017,14 @@
 	CONTAINS
 !
 ! edited 17-Oct-2026: single source for the fallback
-! correction-cap mapping.  The invariant shared with SOLVE_FOR_POPS:
+! correction-cap mapping. The invariant shared with SOLVE_FOR_POPS:
 ! LAMBDA mode caps at MAX_LAM_COR, full/BA mode at MAX_LIN_COR,
 ! GS_LAM_CAP is a tighter caller bound for KNOP-forced LAMBDA calls,
 ! and a catastrophic JFNK failure deliberately uses the full-BA limit
-! (FORCE_FULL_LIM).  Every fallback answer is additionally capped by
+! (FORCE_FULL_LIM). Every fallback answer is additionally capped by
 ! COR_LIM_IN, the cap the caller requested this iteration -- a
 ! GS-damped (GS_LAM_CAP) or BA_DAMP_CAP-bounded value must survive
-! the fallback (KNOP_jfnkrel it35: an uncapped MAX_LAM_COR fallback
+! the fallback (an uncapped MAX_LAM_COR fallback
 ! passed a +91% free-electron step on the GS release call and the
 ! lagged field ran away, se_res -> 2E31).
 !
@@ -3051,7 +3050,7 @@
 !
 ! NEWMOD symmetry (17-Oct-2026, W6): a second model in one process
 ! must not inherit the JFNK budget rung or the tau ladder -- a
-! requeue zeroes all of this, so do the same here.  Called from
+! requeue zeroes all of this, so do the same here. Called from
 ! SOLVE_FOR_POPS next to the other process-local resets.
 !
 	JFNK_BUDGET_RUNG=0
@@ -3066,7 +3065,7 @@
 ! second model in one process must not inherit them -- a stale
 ! JFNK_N_RESIDUAL_EVALS would make the first activation hit the
 ! budget immediately, and a stale JFNK_T_START would produce a
-! spurious JFNK_SEC_HIT wall-clock abort.  (JFNK_MAX_EVALS itself
+! spurious JFNK_SEC_HIT wall-clock abort. (JFNK_MAX_EVALS itself
 ! lives in CONTROL_VARIABLE_MOD and is re-read on NEWMOD.)
 !
 	JFNK_EVAL_LIM=0
