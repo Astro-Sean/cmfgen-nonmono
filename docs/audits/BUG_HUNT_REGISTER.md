@@ -16,6 +16,7 @@ Status summary:
 | BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY     | REFUTED|
 | BUG-004 | P2       | Zero-GAM resonance: floored factor vs exact-zero | REFUTED|
 | BUG-005 | P2       | JFNK admissions on m15 always defer before GMRES | REFUTED|
+| BUG-006 | P3       | LSTATE save armed after first eval mutations     | FIXED  |
 
 ------------------------------------------------------------------------
 
@@ -583,6 +584,56 @@ Recorded observations (no action):
   target would have been silently accepted. GMRES does enter on
   the coupled/KNOP tier - it is the m15 frozen-SOB tier that
   structurally defers.
+
+------------------------------------------------------------------------
+
+## BUG-006 - `JFNK_EVAL_LSTATE_V1('S')` armed after first mutations
+
+- Bug ID: BUG-006
+- Severity: P3 (rare trigger: allocation failure inside the LSTATE
+  save; persistent silent corruption when it fires)
+- Status: FIXED
+- Affected source files and routines:
+  - `new_main/cmfgen_sub.f`, `JFNK_RAD_SWEEP_V1` entry-save block
+- Exact source lines: the coupled-SOB bracket armed at ~line 5976,
+  after mutations beginning at `ACCESS_F=JFNK_EDD_START_REC` (~5861).
+- Defect: `JFNK_EVAL_LSTATE_V1('S',IOS_EVAL)` was the only guarded
+  save (`GOTO 9999` on alloc failure) positioned after the eval's
+  first mutations (`ACCESS_F`, `JFNK_IN_EVAL`, `JFNK_EVAL_BROKEN`,
+  `EDDINGTON=EDD_CONT`, `COMPUTE_BA=.FALSE.`, two-photon and SL
+  accumulator zeroing). Its failure jumped to the 9999 tail, which
+  poisons `SE%STEQ` and returns without restoring - the tail's own
+  comment claims "no production state has been mutated at that
+  point", true only for the three pre-mutation determinism saves.
+  Consequence if it ever fired: `JFNK_IN_EVAL=T` leaks permanently
+  (only toggled inside this routine), so every later production
+  sweep would run in eval mode - cold FOLD seeds, softened STOPs,
+  lagged-J records never overwritten, i.e. the model evolves on a
+  frozen radiation field. `EDDINGTON`/`COMPUTE_BA` self-heal at the
+  next loop head; the zeroed accumulators lose one iteration of
+  contributions.
+- Reproduction method: ordering verified by inspection (the guarded
+  save sat ~115 lines after the first mutation). Dynamic
+  reproduction would require injecting an ALLOCATE failure inside
+  LSTATE - not feasible in-tree.
+- Fix: hoisted `JFNK_EVAL_SOB_LINES` evaluation and the
+  `LSTATE('S')` arm into the entry-save block (before
+  `ACCESS_F_SAVE`), keeping `COMPUTE_EW=.FALSE.` at its original
+  position inside the eval mutations (LSTATE must still save the
+  production flag before that write). Every guarded save now
+  precedes every mutation, so the 9999 tail's claim is true on all
+  paths. The success path is bit-identical - same saves, same
+  mutations, same order between them.
+- Regression test: source-ordering pin in
+  `unit_tests/python/test_jfnk_regressions.py` ("BUG-006: every
+  guarded entry save precedes the first mutation") - asserts the
+  LSTATE arm precedes `ACCESS_F=JFNK_EDD_START_REC` and no
+  `GOTO 9999` survives between the first mutation and the LUER
+  redirect. Verified: FAILS on the pre-fix file (assertion raised),
+  PASSES on the fixed file.
+- Validation evidence: ifort compile clean; pin fail->pass
+  confirmed by stash/restore of the pre-fix source; full suite in
+  build log.
 
 ------------------------------------------------------------------------
 
