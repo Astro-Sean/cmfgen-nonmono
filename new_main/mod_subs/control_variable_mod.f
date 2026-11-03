@@ -909,7 +909,7 @@
 ! key, SOLVE_FOR_POPS publishes the freeze state to the GS_STATE
 ! file each call so the job wrapper can apply its own limit.
 ! VADAT keyword [GS_FREEZE_LIM].  Under DO_NONMONO_KNOP an absent
-! key auto-sets 300 (edited by Devin, 20-Oct-2026); an explicit
+! key auto-sets 300 (edited 20-Oct-2026); an explicit
 ! value, including 0 = off, is respected.
 !
 	INTEGER GS_FREEZE_LIM
@@ -1464,7 +1464,7 @@
 	LOGICAL, ALLOCATABLE :: BA_QUAR_MASK(:,:)
 	INTEGER BA_QUAR_COUNT
 !
-! BA_LQ_* (edited by Devin, 21-Oct-2026): persistence counter and
+! BA_LQ_* (edited 21-Oct-2026): persistence counter and
 ! thresholds for the LAMBDA-phase quarantine extension in
 ! SOLVEBA_V13.  During population preconditioning every call is a
 ! LAMBDA step, so the reject-path parking above never runs -- a
@@ -1604,7 +1604,7 @@
 	INTEGER BA_ARG_J,BA_ARG_I
 	REAL(KIND=LDP) BA_ARG_PCT
 !
-! Block-triangular trace polish (edited by Devin, 16-Oct-2026).
+! Block-triangular trace polish (edited 16-Oct-2026).
 ! Rows exempted by the BA_DEM floors are trace species: one-way
 ! coupled (they absorb/emit but do not move J, ED, T or the major
 ! populations), so once the majors converge they are polished by
@@ -1930,7 +1930,7 @@
 ! restore finds a live hold snapshot fresher than its own and swaps
 ! restore sources.  Nonzero means the POPS_BA_SAVE/POPS_GS_SAVE
 ! overlap contract was exercised -- zero is the expected steady
-! state.  (edited by Devin, 17-Oct-2026)
+! state.  (edited 17-Oct-2026)
 !
 	INTEGER*8 :: BA_HOLD_RESTORE_REVIVAL=0_8
 !
@@ -2097,7 +2097,7 @@
 ! jfnk_solver_v1.f90 (Choice-2 eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha
 ! with the eta_{k-1} safeguard).  F restores the fixed user gtol --
 ! the fixed path stays one branch away for A/B comparison.
-! (edited by Devin, 17-Oct-2026)
+! (edited 17-Oct-2026)
 !
 	LOGICAL :: JFNK_FADAPT_V=.TRUE.
 !
@@ -2106,7 +2106,7 @@
 ! forward-difference JVP.  The perturbation path is not ported --
 ! enabling it fails closed at admission; see
 ! docs/audits/JFNK_COMPLEX_STEP.md for the port plan.
-! (edited by Devin, 17-Oct-2026)
+! (edited 17-Oct-2026)
 !
 	LOGICAL :: JFNK_FD_COMPLEX=.FALSE.
 !
@@ -2116,7 +2116,7 @@
 ! estimate.  No stored-dJ channel exists in this tree yet --
 ! enabling it warns and runs plain enrichment until the channel
 ! lands (see docs/audits/ROBUSTNESS_AUDIT_2026-10.md, W23).
-! (edited by Devin, 17-Oct-2026)
+! (edited 17-Oct-2026)
 !
 	LOGICAL :: JFNK_ENRICH_SFR=.FALSE.
 !
