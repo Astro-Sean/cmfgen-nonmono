@@ -73,8 +73,8 @@
 ! Non-monotonic velocity-field support.
 !
 ! SIGN(1,GAM(I,LS)) identifies the local frequency-flow direction:
-!   +1  => expanding flow  (T2 >= 0, standard Sobolev/CMF resonance)
-!   -1  => compressing flow (T2 < 0, reverse shock / cold dense shell)
+!   +1 => expanding flow (T2 >= 0, standard Sobolev/CMF resonance)
+!   -1 => compressing flow (T2 < 0, reverse shock / cold dense shell)
 ! GAM_MAG(I,LS) = |V/R| * |1 + SIGMA*MU^2| = |GAM| (always >= 0).
 ! Use ABS(T1)*ABS(T2), not T1*ABS(T2): T1 carries the sign of V, so
 ! inflow (V < 0) would otherwise make GAM_MAG negative and corrupt chi_hat.
@@ -85,19 +85,19 @@
 ! (Paper I: A&A 496, 295; Paper II: A&A 501, 813).
 ! chi_hat = chi + |GAM|/dLOG_NU (the generalized opacity) is kept strictly
 ! positive; the velocity-coupling term is moved into the source
-! S' = SOURCE + Q*I_upwind.  CMFGEN solves the frequency (log-nu) form of
-! the transfer equation.  Knop's 4*a*I is the I_lambda proportional term;
+! S' = SOURCE + Q*I_upwind. CMFGEN solves the frequency (log-nu) form of
+! the transfer equation. Knop's 4*a*I is the I_lambda proportional term;
 ! its I_nu analogue (+3*a_nu*I, or +4*a_nu*I under a d(nu*I)/dnu split)
 ! does NOT vanish -- only the invariant intensity I_nu/nu^3 is free of it.
 ! It is omitted here by the same convention as stock V13/V11: the ray
 ! equation carries only the GAM*dI/d(ln nu) drift term, and the dilution
 ! physics enters at the moment level via the advection terms (MOM_J_DDT)
-! or relativistic coefficients (MOM_JREL).  No S_tilde source is needed.
+! or relativistic coefficients (MOM_JREL). No S_tilde source is needed.
 ! Audit note: the 3a*I_nu term cancels identically between dI/ds and
 ! a*dI/dln(nu) in the I_nu form, so nothing is dropped; the piece of
 ! Knop's lambda-form 4*a*I that survives the split is the implicit
 ! (same-bin) part of his upwind frequency difference, which here is
-! the |GAM|/DLN absorbed into chi_hat.  Sign reversal under
+! the |GAM|/DLN absorbed into chi_hat. Sign reversal under
 ! compression is handled by the GAM<0 upwind switch, not by the term.
 ! edited by Sean Brennan
 !
@@ -105,8 +105,8 @@
 	REAL(KIND=LDP), ALLOCATABLE :: dGAMdR(:,:)
 !
 ! N_NEG_SIGMA : count of depths with Sigma < -1 (diagnostic only).
-! N_NEG_INT   : count of intensity points clamped to >= 0 (diagnostic).
-! N_NAN_JNU   : count of NaN/negative JNU_STORE points clamped (diagnostic).
+! N_NEG_INT : count of intensity points clamped to >= 0 (diagnostic).
+! N_NAN_JNU : count of NaN/negative JNU_STORE points clamped (diagnostic).
 ! edited by Sean Brennan
 !
 	INTEGER :: N_NEG_SIGMA=0
@@ -117,7 +117,7 @@
 ! so on their own they are invisible: nothing reported them and the sweep
 ! finished with the counters holding only the last frequency's value.
 ! The *_SWEEP totals below accumulate them across a whole frequency sweep
-! and are reported at the start of the next sweep.  A non-zero
+! and are reported at the start of the next sweep. A non-zero
 ! N_NEG_INT_SWEEP means the short-characteristics solution produced
 ! negative intensities that were clamped to 1.0E-30, which is the direct
 ! observable for an inconsistent source term in the compression zones.
@@ -129,7 +129,7 @@
 !
 ! V4 diagnostic (2026-09-09): Depth histogram of JNU clamping.
 ! JNU_CLAMP_DEPTH(I) counts how many times depth I had JNU_STORE clamped
-! across the current sweep.  Written to JNU_CLAMP_DIAG.txt at the end
+! across the current sweep. Written to JNU_CLAMP_DIAG.txt at the end
 ! of the first sweep of the first great iteration, then cleared.
 ! edited by Sean Brennan
 	INTEGER, ALLOCATABLE, SAVE :: JNU_CLAMP_DEPTH(:)
@@ -142,7 +142,7 @@
 ! Phase 2 first-occurrence diagnostic: prints the FIRST NaN/negative
 ! value encountered in the formal solver, with full context.
 ! FIRST_FAIL_FOUND is .TRUE. after the first print, suppressing further
-! output.  Protected by OMP CRITICAL in the parallel ray loop.
+! output. Protected by OMP CRITICAL in the parallel ray loop.
 ! edited by Sean Brennan (Phase 2 audit)
 !
 	LOGICAL, SAVE :: FIRST_FAIL_FOUND=.FALSE.
@@ -156,7 +156,7 @@
 !
 ! INEXT_MAP_PRINTED : ensures the I_NEXT depth-mapping diagnostic table
 ! (ray point -> RAY_PNT -> K2 -> COMP_DEPTH_IDX) is printed once per
-! grid definition, on the first frequency of a sweep.  Re-armed whenever
+! grid definition, on the first frequency of a sweep. Re-armed whenever
 ! NEW_R_GRID rebuilds the ray geometry (audit diagnostic, 15-Sep-2026).
 !
 	LOGICAL, SAVE :: INEXT_MAP_PRINTED=.FALSE.
@@ -176,7 +176,7 @@
 !***************************************************************************
 !***************************************************************************
 !
-! Variables specific to the DIFFERENCE equation approach for  solving the
+! Variables specific to the DIFFERENCE equation approach for solving the
 ! transfer equation.
 !	
 	REAL(KIND=LDP), ALLOCATABLE :: AV_PREV(:,:)
@@ -227,7 +227,7 @@
 !
 ! In non-monotonic flows, compressing points (GAM < 0) couple to the
 ! NEXT frequency (lower frequency, higher FREQ_INDX), not the previous
-! one.  Since CMFGEN sweeps frequencies in decreasing order, the next
+! one. Since CMFGEN sweeps frequencies in decreasing order, the next
 ! frequency has not yet been computed in the current great iteration.
 ! We use a Gauss-Seidel approach: I_NEXT comes from the PREVIOUS great
 ! iteration, stored at depth grid points for all frequencies.
@@ -235,13 +235,13 @@
 ! OPTIMIZED (A+B): Sparse depth storage + in-place write to NEXT.
 !
 ! Only depths where SIGMA_TRUE < -1 can ever have GAM < 0 (for any ray
-! angle).  We store only those N_COMP depths (Optimization A), using
+! angle). We store only those N_COMP depths (Optimization A), using
 ! COMP_DEPTH_IDX(K) to map full-depth index K -> sparse index (1..N_COMP)
 ! or 0 if the depth is not compressing.
 !
 ! The frequency sweep increments FREQ_IDX_ITER = 0, 1, ..., NCF-1 (0
-! during the first frequency; storage slot s = FREQ_IDX_ITER+1).  At step i
-! we READ NEXT[i+1] and WRITE NEXT[i].  Since NEXT[i] was already read
+! during the first frequency; storage slot s = FREQ_IDX_ITER+1). At step i
+! we READ NEXT[i+1] and WRITE NEXT[i]. Since NEXT[i] was already read
 ! at step i-1, we can write directly to NEXT, eliminating the separate
 ! CURR arrays and the INIT copy/zero (Optimization B).
 !
@@ -253,15 +253,15 @@
 !
 ! SNP_P/SNP_M (edited 02-Nov-2026): per-frequency snapshot
 ! of the stored I_NEXT column, taken on the NEW_FREQ call of each
-! frequency.  comp_j_blank re-enters this routine inside its J
+! frequency. comp_j_blank re-enters this routine inside its J
 ! accuracy loop with NEW_FREQ=.FALSE. (DO_ES_ALI runs ~12 calls per
 ! frequency), so a relax-against-current-store write compounds per
-! re-entry while only the first call's field is ever sampled.  The
+! re-entry while only the first call's field is ever sampled. The
 ! write below therefore relaxes against this frozen snapshot on
 ! EVERY call, so the slot ends at
 !   snapshot + INEXT_RELAX*(T1_last - snapshot)
 ! -- one relaxed write per frequency per sweep, but taken from the
-! last (scattering-converged) pass instead of the first.  SNP_FREQ
+! last (scattering-converged) pass instead of the first. SNP_FREQ
 ! is the store-slot index the snapshot covers; -1 = unset.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: SNP_P(:,:), SNP_M(:,:)
@@ -277,7 +277,7 @@
 ! Compression-set hysteresis (edited 29-Sep-2026): the
 ! NEW_R_GRID test below rebuilds the entire ray geometry -- and with
 ! it the I_P/I_M_DEPTH_NEXT coupling store, which is reallocated
-! zeroed -- whenever the set of compressing depths changes.  A depth
+! zeroed -- whenever the set of compressing depths changes. A depth
 ! whose SIGMA_TRUE hovers near -1 (or whose V hovers near 0) can then
 ! flap the set on each NG-acceleration/grid revision and cold-start
 ! the Gauss-Seidel field repeatedly, which the SOLVE_FOR_POPS maturity
@@ -289,7 +289,7 @@
 ! The exit side is the only physically negligible direction: at
 ! SIGMA_TRUE > -0.98 the compressing term |1+sigma*mu^2| needs mu >
 ! ~0.99 to be negative at all, so which side of the flag a marginal
-! depth sits on changes no ray source term meaningfully.  The stored
+! depth sits on changes no ray source term meaningfully. The stored
 ! mask is still built with the plain thresholds below, so the
 ! FGINEXT_GS fingerprint compare (bitwise COMP_DEPTH_IDX match) is
 ! unaffected.
@@ -314,9 +314,9 @@
 ! FREEZE_I_NEXT: when .TRUE., the in-place writes to I_P_DEPTH_NEXT /
 ! I_M_DEPTH_NEXT at the end of the formal solve are skipped, so an
 ! outer solver's finite-difference residual evaluations see the same
-! outer Gauss-Seidel I_NEXT state.  The reads of I_NEXT for
+! outer Gauss-Seidel I_NEXT state. The reads of I_NEXT for
 ! compressing points are unaffected, so perturbed residuals still
-! feel the frozen coupling.  Set by JFNK_SOLVE_CORR_V1 around its
+! feel the frozen coupling. Set by JFNK_SOLVE_CORR_V1 around its
 ! coupled residual/JVP eval sweeps ([JFNK_COUPLED]=T); the default
 ! path leaves it .FALSE.
 !
@@ -328,22 +328,22 @@
 ! I_P/I_M_DEPTH_NEXT are process-local (SAVE'd module memory) and were
 ! previously lost on every SLURM requeue, forcing the N_LAM_RWARM
 ! LAMBDA warm-up in SOLVE_FOR_POPS while I_NEXT re-converged
-! from zero.  They are now checkpointed to the unformatted file
+! from zero. They are now checkpointed to the unformatted file
 ! FGINEXT_GS by DUMP_FG_INEXT_GS, which is called from SCR_RITE_V2 at
 ! every population checkpoint (always a complete GS generation, since
 ! the frequency sweep finishes before the population solve).
 !
-! I_NEXT_GS_OK   : .TRUE. only when RESTORE_FG_INEXT_GS loaded a
+! I_NEXT_GS_OK : .TRUE. only when RESTORE_FG_INEXT_GS loaded a
 !                  validated complete generation in THIS process.
-! FG_GS_TAG_EXP  : the NITSF value SCR_READ_V2 restored at startup
+! FG_GS_TAG_EXP : the NITSF value SCR_READ_V2 restored at startup
 !                  (set by SET_FG_GS_TAG from CMFGEN_SUB); the file tag
 !                  must equal it, tying the GS state to the same
 !                  checkpoint event as SCRTEMP.
-! FG_GS_NP/NCF   : NP and NCF_IN at allocation time (saved because the
+! FG_GS_NP/NCF : NP and NCF_IN at allocation time (saved because the
 !                  dump routine, called from SCR_RITE_V2, cannot see
 !                  the routine arguments).
 !
-! FG_GS_MAXCHG  : in-sweep store drift until the per-ray refresh runs,
+! FG_GS_MAXCHG : in-sweep store drift until the per-ray refresh runs,
 !                  then the max unrelaxed refresh residual normalized by
 !                  max(old intensity, 1e-4 of the frequency-column peak).
 !                  Reset at INIT; when no refresh runs, the in-sweep
@@ -352,7 +352,7 @@
 !                  NONMONO_INEXT_CAP clamp or the non-finite floor.
 ! FG_GS_CHG_FILE / FG_GS_CAP_FILE: the refresh max residual and capped
 !                  write count recorded in the restored checkpoint file
-!                  (-1 = no file).  SOLVE_FOR_POPS uses them only to
+!                  (-1 = no file). SOLVE_FOR_POPS uses them only to
 !                  decide whether to skip the process warm-up; the fresh
 !                  bulk census still controls every live population step.
 !                  The saved max must be below GS_MATURE_TOL and the
@@ -369,7 +369,7 @@
 !
 ! Argmax of FG_GS_MAXCHG -- (model depth K, ray LS, freq) of the
 ! largest relative I_NEXT store drift this sweep -- plus the last
-! four sweeps' tuples and a classification.  CONV_DIAG_LVL>=2 only:
+! four sweeps' tuples and a classification. CONV_DIAG_LVL>=2 only:
 ! a period-2 limit cycle (alternating values at a fixed cell), a
 ! marginal contraction tail (stable argmax, monotone decay), and a
 ! boundary-carried residual read identically in the max-norm value.
@@ -382,10 +382,10 @@
 ! Same-census cap accounting (maturity-gate fix): the sweep-store
 ! loop and the refresh passes visit different cell sets, so a single
 ! FG_INEXT_CAPPED numerator against the refresh's FG_GS_NTOT
-! denominator mis-rates the cap share.  FG_SW_CAPPED counts the
+! denominator mis-rates the cap share. FG_SW_CAPPED counts the
 ! sweep cap/NaN events only, FG_SW_CAPTOT counts the sweep-store
 ! writes evaluated (the sweep census), and FG_RF_CAPPED counts the
-! refresh-pass events only.  FG_INEXT_CAPPED keeps accumulating the
+! refresh-pass events only. FG_INEXT_CAPPED keeps accumulating the
 ! total so the FGINEXT_GS checkpoint record is unchanged.
 !
 	INTEGER*8, SAVE :: FG_SW_CAPPED=0
@@ -396,7 +396,7 @@
 ! point with GAM < 0 whose bracketing depths are both non-compressing
 ! (or which runs while HAS_COMPRESSING is false) keeps
 ! chi_hat = chi + |GAM|/DLN but drops the |Q|*I_NEXT source term --
-! the cell absorbs without the compensating upwind feed.  Counted per
+! the cell absorbs without the compensating upwind feed. Counted per
 ! ray in FG_NOSLOT_RAY (LS-indexed so the OMP ray loop is race-free),
 ! summed into FG_NOSLOT_CNT once per frequency, and read once per
 ! great iteration by GET_FG_NOSLOT for the KN_NOSLOT census line.
@@ -420,16 +420,16 @@
 !
 ! FG_SW_MAXCHG / FG_SW_NCONV: the in-sweep store drift, snapshotted
 ! by FG_KNOP_REFRESH_V1 before it overwrites FG_GS_MAXCHG/NCONV
-! with the refresh fixed-point metrics.  The two semantics measure
+! with the refresh fixed-point metrics. The two semantics measure
 ! different things (sweep drift is what the populations experience;
 ! refresh residual measures lagged-map self-consistency), so the
 ! gate needs both -- MOM keeps the same split in MOM_SW_*.
 !
 ! FG_GS_NDIV: rays whose refresh solve diverged (IXIT=5) on the
-! last refresh.  Gated on ray share, not the RESID=1.0 pin the
+! last refresh. Gated on ray share, not the RESID=1.0 pin the
 ! diverged ray used to leave in MAXVAL(RES_LS).
 !
-! FG_GS_NBAD_BLK / FG_GS_NTOT_BLK: best-pass bad-cell census.  For
+! FG_GS_NBAD_BLK / FG_GS_NTOT_BLK: best-pass bad-cell census. For
 ! stall (IXIT=3) and pass-cap (IXIT=4) exits the last pass still
 ! carries above-tolerance cells that the gate reads as immature
 ! even though the ray's best pass was inside the bulk band, so the
@@ -439,7 +439,7 @@
 ! a diverged ray skips its store write, so a poisoned slot value
 ! (non-finite or > FG_DIV_HEAL_CAP * the ray's stored column peak)
 ! would re-seed and re-diverge the next refresh (MOM heals the
-! same class of slot each call).  Zeroed slots take the seeded
+! same class of slot each call). Zeroed slots take the seeded
 ! floor path on the next refresh.
 !
 ! FG_COMMIT_REJ / FG_COMMIT_JUMP: whole-ray commit rollback (W9).
@@ -456,7 +456,7 @@
 !
 ! FG_GS_NSTAL / FG_GS_NPLAT split the bulk bad-cell census by exit
 ! class: stall/cap rays (IXIT=3,4) are still slow-converging, plateau
-! rays (IXIT=6) stopped improving entirely.  The two feed different
+! rays (IXIT=6) stopped improving entirely. The two feed different
 ! unsafe-share tiers in SOLVE_FOR_POPS.
 !
 	INTEGER*8, SAVE :: FG_GS_NSTAL=0
@@ -467,16 +467,16 @@
 	REAL(KIND=LDP), SAVE :: FG_DIV_HEAL_CAP=1.0E+6_LDP
 !
 ! FG_COMMIT_CONV (VADAT [FG_COMMIT_CONV], default T): fail-closed
-! refresh commits.  When T, a ray field solve that ended on a stall,
+! refresh commits. When T, a ray field solve that ended on a stall,
 ! pass-cap or plateau exit (IXIT 3/4/6 -- residual still above
 ! KN_RAY_TOL) does not reach WRITE_STORE: the ray's lagged store
 ! keeps its pre-refresh generation instead of taking the last
-! iterate of a non-converged fixed-point solve.  Only the
+! iterate of a non-converged fixed-point solve. Only the
 ! FG_COMMIT_JUMP bound guarded those exits, so a capped ray could
-! commit a field tens of factors off the sane seed (w19 class:
-! residual 0.465 at the cap with retained delta 21).  FG_NC_REJ
-! counts these rejections separately from jump rejects.  IXIT 0
-! (exact), 1 (tol) and 2 (bulk-maturity) still commit.  Default
+! commit a field tens of factors off the sane seed (class:
+! residual 0.465 at the cap with retained delta 21). FG_NC_REJ
+! counts these rejections separately from jump rejects. IXIT 0
+! (exact), 1 (tol) and 2 (bulk-maturity) still commit. Default
 ! changed to T (edited 19-Oct-2026): fail-open was the
 ! wrong default for the drift class this guard was written for.
 !
@@ -488,11 +488,11 @@
 ! FG_COMMIT_CONV alone skips the write on bad exits, but a bulk exit
 ! (IXIT=2) is classed converged even when the residual is far above
 ! KN_RAY_TOL, so the non-converged test keys on
-! MAX(RES_M,RES_P)>KN_RAY_TOL as well as the exit code.  NC>0 writes
+! MAX(RES_M,RES_P)>KN_RAY_TOL as well as the exit code. NC>0 writes
 ! a capped provisional field (each cell bounded to NC times its
 ! retained value) instead of skipping outright: the store still
 ! tracks a contracting field but cannot ratchet by more than NC per
-! refresh.  NC=0 keeps the pure reject.  w19 committed bulk-exit
+! refresh. NC=0 keeps the pure reject. committed bulk-exit
 ! deltas of 8-27x at residual ~0.47; the geometric ratchet was the
 ! luminosity amplifier.
 ! FG_NC_CAP counts capped commits; FG_RAY_VC records the per-ray
@@ -507,20 +507,20 @@
 !
 ! FG_SEED_COMMIT / FG_RAY_SEEDED (edited 02-Nov-2026):
 ! per-ray "has committed" flag, waiving the FG_COMMIT_JUMP veto for a
-! ray that has never taken a WRITE_STORE commit.  The veto bounds
+! ray that has never taken a WRITE_STORE commit. The veto bounds
 ! near-blowup overwrites of a committed generation, but on a cold or
 ! foreign-seeded store the in-sweep write pre-fills the slots above
 ! the 1E-28 floor BEFORE the refresh runs, so the cold-start
 ! exemption in FG_JUMP_MAX can never fire and the veto then rejects
 ! exactly the converged fill it was meant to let through
-! (m15_2p82d_KNOP_esB, job 12586072: 67/85 rays jump-rejected on the
+!  (67/85 rays jump-rejected on the
 ! first refresh, fixed-point 1E2-6E2 above the cold field; the store
-! then filled only by the omega~0.5 in-sweep relaxation).  Each ray
+! then filled only by the omega~0.5 in-sweep relaxation). Each ray
 ! gets one unguarded commit -- its first -- with FG_COMMIT_CONV
 ! still gating unconverged exits, so only a converged fixed-point
-! solve can land the fill.  Set to 1 on a WRITE_STORE commit and on
+! solve can land the fill. Set to 1 on a WRITE_STORE commit and on
 ! a validated FGINEXT_GS restore (a committed generation exists);
-! left 0 after a cold or foreign-seeded start.  [FG_SEED_COMMIT]=F
+! left 0 after a cold or foreign-seeded start. [FG_SEED_COMMIT]=F
 ! restores the unconditional veto.
 !
 	LOGICAL, SAVE :: FG_SEED_COMMIT=.TRUE.
@@ -528,21 +528,21 @@
 !
 ! Per-ray worst-cell record: depth/freq index of the last-pass
 ! residual max (of the worse direction) and how many consecutive
-! passes held the same cell.  A persistent cell means one unstable
+! passes held the same cell. A persistent cell means one unstable
 ! mode dominates; a moving max means different cells reset the
-! residual each pass.  Filled for solved rays only (0 otherwise).
+! residual each pass. Filled for solved rays only (0 otherwise).
 !
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WI(:),FG_RAY_WL(:)
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_WS(:)
 !
 ! FG_BULK_CONTR (VADAT [FG_BULK_CONTR], default T): require the
 ! same-direction residual to be contracting (RATIO_OM<=KN_RAY_STALL)
-! before the bulk bad-fraction exit can fire.  Without it a ray
+! before the bulk bad-fraction exit can fire. Without it a ray
 ! whose residual is flat at 0.05-0.5 with a sub-0.1% bad fraction
 ! exits "bulk converged" at pass 6 -- before the stall/plateau
 ! classifiers (which need pass>=8) ever run -- and commits under
-! the converged label.  w19: 49/84 rays took this path at residual
-! 0.25-0.49 during the luminosity runaway.  Ordering fix; default
+! the converged label. 49/84 rays took this path at residual
+! 0.25-0.49 during the luminosity runaway. Ordering fix; default
 ! changed to T (edited 19-Oct-2026); F keeps the old exit.
 !
 	LOGICAL, SAVE :: FG_BULK_CONTR=.TRUE.
@@ -569,9 +569,9 @@
 	LOGICAL, SAVE :: FG_ADAPT_OMEGA_V2=.TRUE.
 	LOGICAL, SAVE :: FG_PLATEAU_DET=.TRUE.
 !
-! Boundary-closure audit counters.  HBC = HNU_AT_OB/JNU_STORE(1)
+! Boundary-closure audit counters. HBC = HNU_AT_OB/JNU_STORE(1)
 ! blows up when the boundary J hits its 1D-30 floor, and the moment
-! solver's outer boundary row consumes the ratio directly.  Track
+! solver's outer boundary row consumes the ratio directly. Track
 ! the worst |HBC|, the smallest boundary J, and the count of
 ! non-finite or negative closures per sweep; reported by
 ! DUMP_FG_INEXT_GS.
@@ -580,7 +580,7 @@
 	REAL(KIND=LDP), SAVE :: FG_MIN_JBND=1.0E+30_LDP
 	INTEGER*8, SAVE :: FG_N_BADHBC=0
 !
-! Boundary-intensity and identity counters.  FG_N_NEG_BND_I counts
+! Boundary-intensity and identity counters. FG_N_NEG_BND_I counts
 ! floored boundary intensities (I+ or I- < 0 or non-finite at the
 ! outer boundary); FG_N_BND_IDENT counts frequencies where the J/K
 ! boundary identities (JNU = 0.5*(JPLUS+JMIN)) fail, and
@@ -590,14 +590,14 @@
 	INTEGER*8, SAVE :: FG_N_BND_IDENT=0
 	REAL(KIND=LDP), SAVE :: FG_MAX_BND_RES=0.0_LDP
 !
-! OBS-grid restore state (added Oct-2026).  The observation-frame
+! OBS-grid restore state (added Oct-2026). The observation-frame
 ! driver CMF_FLUX builds its own frequency grid (different NCF and
 ! spacing from the model grid that wrote FGINEXT_GS), so the checkpoint
-! cannot be restored by position.  SET_FG_GS_OBS_GRID (called by
+! cannot be restored by position. SET_FG_GS_OBS_GRID (called by
 ! CMF_FLUX_SUB_V5 before its frequency loop) stores a copy of the OBS
 ! grid here; the first-call init then dispatches to
 ! RESTORE_FG_INEXT_OBS, which remaps the stored I_NEXT field in
-! frequency instead of cold-starting it.  The (KC,LS) indexing needs
+! frequency instead of cold-starting it. The (KC,LS) indexing needs
 ! no remap: OBS reads NP from RVTJ and builds rays via the same IMPAR
 ! on the same R, so compressing depths and rays coincide with the
 ! model's.
@@ -610,23 +610,23 @@
 ! from the actual non-monotonic formal solution.
 !
 ! For each ray LS and depth grid point I (ray node K=J_PNT(I,LS)):
-!   dI_M(K)/dS'(K) = A2(K-1,LS)      (K >= 2; 0 at K=1)
-!   dI_P(K)/dS'(K) = A2(K,LS)        (K <= NI-1)
+!   dI_M(K)/dS'(K) = A2(K-1,LS) (K >= 2; 0 at K=1)
+!   dI_P(K)/dS'(K) = A2(K,LS) (K <= NI-1)
 !                  = dI_M/dS' at K=NI when I_P(NI)=I_M(NI) (non-core
 !                    ray or ZERO_FLUX/PNT_SRCE inner boundary)
 !                  = 0 when I_P(NI)=I_CORE
 ! and AV(K,LS)=0.5*(I_P+I_M), so dAV/dS' = 0.5*(dI_P/dS' + dI_M/dS').
 ! With S' = ETA/chi_hat + Q*I_upwind (Q proportional to 1/chi_hat):
-!   dS'/dETA = 1/chi_hat   and   dS'/dCHI = -S'/chi_hat
+!   dS'/dETA = 1/chi_hat and dS'/dCHI = -S'/chi_hat
 ! where chi_hat = CHI_RAY (= chi + |GAM|/dLOG_NU, the opacity actually
 ! used to build DTAU on this ray).
 !
-! ALO_DJDETA(K) = sum_rays JQW * dAV/dS' / chi_hat      (dJ/dETA diag)
+! ALO_DJDETA(K) = sum_rays JQW * dAV/dS' / chi_hat (dJ/dETA diag)
 ! ALO_DJDCHI(K) = sum_rays -JQW * dAV/dS' * S' / chi_hat (dJ/dCHI diag)
-! LAMSTAR_DIAG(K) = sum_rays JQW * dAV/dS'  (dimensionless Lambda* diag)
+! LAMSTAR_DIAG(K) = sum_rays JQW * dAV/dS' (dimensionless Lambda* diag)
 !
 ! Off-diagonal terms (A0 propagation) and the non-differentiable dS
-! (Hermite-derivative) terms are neglected.  Arrays are zeroed on every
+! (Hermite-derivative) terms are neglected. Arrays are zeroed on every
 ! call (each frequency); ALO_VALID is set .TRUE. only after a completed
 ! INTEGRAL-method accumulation.
 !
@@ -663,9 +663,9 @@
 !
 ! Knop et al. 2009 (Paper I: A&A 496, 295; Paper II: A&A 501, 813)
 ! S_tilde REMOVED (07-Sep-2026): Knop's S_tilde carries the I_lambda
-! proportional term 4*a_lambda*I.  The removed code transplanted that
+! proportional term 4*a_lambda*I. The removed code transplanted that
 ! wavelength-form term into the frequency-form scheme where its
-! coefficient is wrong.  See the comment above the formal solution for
+! coefficient is wrong. See the comment above the formal solution for
 ! the full justification.
 !
 	REAL(KIND=LDP) PREVIOUS_FREQ
@@ -691,9 +691,9 @@
 !
 ! Ceiling applied when I_P/I_M_DEPTH_NEXT are stored for the next
 ! great iteration's compressing-zone source feedback (SOURCE_PRIME
-! picks up ABS(Q)*I_NEXT).  Bounds the Gauss-Seidel frequency
+! picks up ABS(Q)*I_NEXT). Bounds the Gauss-Seidel frequency
 ! coupling against runaway intensities produced by badly
-! unconverged population states.  Read from VADAT
+! unconverged population states. Read from VADAT
 ! (NONMONO_INEXT_CAP); default 1.0D20 leaves physical
 ! intensities untouched while stopping Inf/huge feedback.
 !
@@ -704,10 +704,10 @@
 ! The compressing-branch upwind field is fed back into the source on
 ! the next great iteration; on models with strong compression the
 ! undamped update (straight replacement) can drive a bounded limit
-! cycle or amplify the SE<->RT loop.  Writing
+! cycle or amplify the SE<->RT loop. Writing
 !   I_NEXT = OLD + INEXT_RELAX*(NEW - OLD)
 ! damps the fixed-point map while leaving the fully-converged fixed
-! point unchanged (NEW=OLD is still stationary).  Cells with no
+! point unchanged (NEW=OLD is still stationary). Cells with no
 ! prior value (OLD<=0) are filled directly.
 !
 	REAL(KIND=LDP) INEXT_RELAX
@@ -716,7 +716,7 @@
 ! KN_ADAPT_RELAX (VADAT [KN_ADAPT_RELAX], default T, set by
 ! SET_FG_KN_ADAPT): replace the fixed write-back weight with a
 ! spectral-radius estimate of the outer (sweep+refresh) fixed-point
-! map.  rho_est is the ratio of successive refresh residual maxima
+! map. rho_est is the ratio of successive refresh residual maxima
 ! (the dominant-mode contraction factor of the lagged map); the
 ! weight is omega = 1/(1+rho_est), so a non-contracting or
 ! sign-flipping dominant mode (rho_est >= 1) is damped to <= 1/2
@@ -733,7 +733,7 @@
 !
 ! The original lagged design advanced the compressing-branch coupling
 ! one frequency bin per great iteration: at frequency k the solver
-! read I_NEXT(k+1) written during the PREVIOUS sweep.  With ~4e4
+! read I_NEXT(k+1) written during the PREVIOUS sweep. With ~4e4
 ! frequency bins and |GAM|/dLOG_NU >> CHI inside the interaction
 ! shell, the red->blue information chain requires ~NCF great
 ! iterations to mature -- this is the structural reason the KNOP
@@ -743,11 +743,11 @@
 ! converge the wavelength boundary-value problem inside the formal
 ! solution for a fixed source function, ordering the solution to
 ! follow the information flow (blue->red where GAM>=0, red->blue
-! where GAM<0).  This block implements that scheme as a post-sweep
+! where GAM<0). This block implements that scheme as a post-sweep
 ! per-ray re-solve: during the main frequency sweep the solver stores
 ! (per frequency) the extended-grid opacity/emissivity, the
 ! scattering term, the frequencies and the sign-dependent dLOG_NU
-! values.  After the sweep, FG_KNOP_REFRESH_V1 re-solves each ray's
+! values. After the sweep, FG_KNOP_REFRESH_V1 re-solves each ray's
 ! full (space,frequency) intensity field with alternating-direction
 ! sweeps until the coupled field is converged, and writes the result
 ! back into I_P_DEPTH_NEXT/I_M_DEPTH_NEXT (the same in-place store),
@@ -760,13 +760,13 @@
 	REAL(KIND=LDP) FG_NU_NEXT
 !
 ! FG_FREQ_MATCH: VADAT DO_NONMONO_FREQ_MATCH (default F, set by
-! SET_FG_FREQ_MATCH).  At compressing ray points the lagged upwind
+! SET_FG_FREQ_MATCH). At compressing ray points the lagged upwind
 ! bin is rematched from the adjacent slot to the slot containing
 ! the characteristic foot, n = |GAM|*dZ/DLN bins along the ray, and
-! the frequency derivative spans the matched log range.  Once the
+! the frequency derivative spans the matched log range. Once the
 ! per-cell comoving drift exceeds one bin the +1 stencil
 ! extrapolates the derivative -- the oscillatory-eigenvalue regime
-! of Ceulemans et al. (2025, JQSRT 343).  NM_RAY/DLN_RAY are
+! of Ceulemans et al. (2025, JQSRT 343). NM_RAY/DLN_RAY are
 ! OMP-private per-ray work arrays, filled each frequency call;
 ! defaults (offset 1, DLN_N_SAV) reproduce the pre-match stencil.
 !
@@ -776,16 +776,16 @@
 	REAL(KIND=LDP), ALLOCATABLE :: DLN_RAY(:)
 !
 ! DO_KNOP_REFRESH: VADAT-controlled switch (default TRUE when
-! DO_NONMONO_KNOP).  Set by SET_FG_KNOP_REFRESH from
-! RD_CONTROL_VARIABLES.  FALSE reproduces the original lagged
+! DO_NONMONO_KNOP). Set by SET_FG_KNOP_REFRESH from
+! RD_CONTROL_VARIABLES. FALSE reproduces the original lagged
 ! behaviour for A/B testing.
 !
 	LOGICAL DO_KNOP_REFRESH
 !
 ! PRINT_KNOP_DEBUG: VADAT-controlled switch ([PRINT_KNOP_DEBUG],
-! default FALSE) set by SET_FG_KNOP_DEBUG.  Gates the verbose
+! default FALSE) set by SET_FG_KNOP_DEBUG. Gates the verbose
 ! diagnostic tables (e.g. the I_NEXT depth-mapping dump, O(NP*NI)
-! lines) that flood OUTGEN on fine ray grids.  The checks behind
+! lines) that flood OUTGEN on fine ray grids. The checks behind
 ! those tables still run; anomalies print an error regardless.
 !
 	LOGICAL PRINT_KNOP_DEBUG
@@ -793,7 +793,7 @@
 ! Captured per-frequency sweep inputs (allocated when the compressing
 ! store is built; sized by the actual ND_EXT/NCF_IN of the model).
 ! KN_CHI_EXT/KN_ETA_EXT are the pre-chi_hat opacity/emissivity on the
-! extended grid.  Single precision (default REAL): the full-depth,
+! extended grid. Single precision (default REAL): the full-depth,
 ! full-frequency input store needs ~2*ND_EXT*NCF_IN*4 B which is
 ! ~300 MB for a typical model -- 4x cheaper than the equivalent
 ! double store and consistent with the requested memory target.
@@ -808,7 +808,7 @@
 !
 ! Monotone-cubic coefficients (log space, extended grid) for the
 ! captured opacities -- the same kernels the in-sweep solve applies
-! via CHI_COEF/ETA_COEF.  Filled by FG_KNOP_REFRESH_V1 each call.
+! via CHI_COEF/ETA_COEF. Filled by FG_KNOP_REFRESH_V1 each call.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: KN_CHI_COEF(:,:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: KN_ETA_COEF(:,:,:)
@@ -828,7 +828,7 @@
 	LOGICAL KN_RF_WARNED
 !
 ! Convergence controls / diagnostics for the per-ray fixed-point
-! iteration.  KN_RAY_TOL: maximum relative overwrite change per pass
+! iteration. KN_RAY_TOL: maximum relative overwrite change per pass
 ! (values below 1e-25 carry no flux and are floored in the metric).
 ! KN_RAY_MAXPASS: alternating-direction pass cap per direction field.
 ! KN_MAX_THREADS: OMP thread cap for the refresh loop -- the per-ray
@@ -838,16 +838,16 @@
 	REAL(KIND=LDP) KN_RAY_TOL
 ! KN_RAY_BULK_TOL (VADAT [KN_RAY_BULK_TOL], set by SET_FG_KN_OPTS;
 ! default 6.0E-2 under DO_NONMONO_KNOP, 0 = off otherwise): residual
-! floor on the bulk exit (IXIT=2).  The bad-fraction test alone let
+! floor on the bulk exit (IXIT=2). The bad-fraction test alone let
 ! rays exit converged at residual ~5E-2 -- one capped commit step
 ! from the fixed point -- which pinned the refresh residual just
 ! above the maturity gate and ratcheted the store through
-! WRITE_STORE_CAP (m15_2p82d: 5.19-5.24E-2 vs tol 2E-3, 8-12
-! nc-capped commits per refresh).  The KNOP default sits above the
+! WRITE_STORE_CAP (5.19-5.24E-2 vs tol 2E-3, 8-12
+! nc-capped commits per refresh). The KNOP default sits above the
 ! measured 5.2E-2 floor so floored rays can still exit and commit;
 ! the earlier 2.5E-2 default left every such ray to stall/cap while
-! the commit gate refused it.  A floored bulk exit is also accepted
-! at the commit gate.  <=0 disables the new term.
+! the commit gate refused it. A floored bulk exit is also accepted
+! at the commit gate. <=0 disables the new term.
 !
 	REAL(KIND=LDP) KN_RAY_BULK_TOL
 	INTEGER KN_RAY_MAXPASS,KN_MAX_THREADS
@@ -857,27 +857,27 @@
 ! max relative change between the in-sweep lagged store (the
 ! field the populations saw) and the field committed by
 ! WRITE_STORE, using the same per-frequency peak floor as the
-! residual metrics.  FG-side analogue of MOM_RF_DCHG; the
+! residual metrics. FG-side analogue of MOM_RF_DCHG; the
 ! population gate reads it when deciding whether the refresh
 ! actually moved the field it will gate on.
 !
 	REAL(KIND=LDP) FG_RF_DCHG
 !
 ! KN_RF_TOT_MB: total refresh memory budget (MB) across all OMP
-! threads.  Each thread in KNOP_RAY_SOLVE_V1 can hold ~80 B per
+! threads. Each thread in KNOP_RAY_SOLVE_V1 can hold ~80 B per
 ! (depth,frequency) cell (8-array coefficient pack + FLD + work), so
 ! the thread count is reduced when threads*budget would exceed this.
 !
 	REAL(KIND=LDP) KN_RF_TOT_MB
 !
 ! KN_RAY_MAX_INS: per-interval cap on the Doppler-driven ray-point
-! insertion.  Unbounded INT(T1) can overflow the counter on a huge
+! insertion. Unbounded INT(T1) can overflow the counter on a huge
 ! velocity jump and produce an arbitrarily long ray.
 !
 	INTEGER KN_RAY_MAX_INS
 !
 ! KN_RAY_PACK_MB: per-thread memory cap (MB) on the pass-invariant
-! coefficient pack used by KNOP_RAY_SOLVE_V1.  The pack is
+! coefficient pack used by KNOP_RAY_SOLVE_V1. The pack is
 ! 8*NI*NCF*8 B per thread; above this cap (or on allocation failure)
 ! the per-pass BUILD_FREQ rebuild is used instead, preserving the
 ! previous behaviour exactly.
@@ -885,7 +885,7 @@
 	REAL(KIND=LDP) KN_RAY_PACK_MB
 !
 ! KN_RAY_OMEGA: under-relaxation applied to each overwrite inside the
-! refresh marches.  The unrelaxed fixed-point map develops a ~-1
+! refresh marches. The unrelaxed fixed-point map develops a ~-1
 ! eigenvalue limit cycle at isolated cells (observed: residual
 ! stalls at ~0.14, period-4 oscillation); damping the write leaves
 ! the fixed point unchanged but contracts the cycle.
@@ -893,27 +893,27 @@
 	REAL(KIND=LDP) KN_RAY_OMEGA
 !
 ! FG_ORD_SWEEP: VADAT [KN_RAY_ORDERED] (default T, set by
-! SET_FG_ORD_SWEEP).  Selects the ordered refresh march of
+! SET_FG_ORD_SWEEP). Selects the ordered refresh march of
 ! SWEEP_FLD_ORD: rows are marched along the characteristic in space
 ! and the per-row wavelength direction follows sign(GAM) -- the
 ! physically ordered Gauss-Seidel scheme of Knop et al. (2009,
-! Paper II Sec. 2).  Only the spatially downwind slope corner
+! Paper II Sec. 2). Only the spatially downwind slope corner
 ! (the lagged C terms of their Eqs. 31/32) and the deeper half of
 ! the compressing JPR interpolant stay lagged, instead of half of
-! every strong coupling each alternating pass.  Requires the
+! every strong coupling each alternating pass. Requires the
 ! coefficient pack and NI>=3; otherwise SWEEP_FLD keeps running.
 ! F restores the alternating scheme for A/B testing.
 !
 	LOGICAL FG_ORD_SWEEP
 !
 ! FG_ORD_AITKEN: VADAT [KN_ORD_AITKEN] (default F, set by
-! SET_FG_AITKEN).  When T, SWEEP_FLD_ORD applies a guarded Aitken
+! SET_FG_AITKEN). When T, SWEEP_FLD_ORD applies a guarded Aitken
 ! delta-squared extrapolation to the field iterate at each pass
 ! boundary, targeting the marginally contractive (|Q|->1) cells at
 ! strong compressions that otherwise stall the march against the
-! bulk-maturity exit.  Restarted-Aitken convention: the extrapolated
+! bulk-maturity exit. Restarted-Aitken convention: the extrapolated
 ! iterate replaces the pass result, so the next pass marches from
-! the accelerated state.  Guards: significant cells only, |delta
+! the accelerated state. Guards: significant cells only, |delta
 ! ratio|<1, positive and capped output; allocation failure disables
 ! the acceleration for that solve silently.
 !
@@ -924,7 +924,7 @@
 ! iterate inside SWEEP_FLD_ORD, mirroring the runtime-tested MOM
 ! refresh AA (mom_j_cmf_nonmono_v1.f): residual-weighted Gram
 ! system, non-affine cell exclusion, Tikhonov ridge, ||corr||>||f||
-! veto, 10|f| per-cell cap, positivity fallback.  FG_ORD_AA_M is
+! veto, 10|f| per-cell cap, positivity fallback. FG_ORD_AA_M is
 ! the secant depth [KN_ORD_AA_M, default 2]; pairs kept = M+1.
 ! On top of the MOM guards a residual-acceptance rollback restores
 ! the pre-mix iterate when the next pass does not improve.
@@ -933,14 +933,14 @@
 	INTEGER FG_ORD_AA_M
 !
 ! FG_ORD_P2DAMP: VADAT [KN_ORD_P2DAMP] (default F, set by
-! SET_FG_ORD_P2DAMP).  Per-cell period-2 collapse inside
+! SET_FG_ORD_P2DAMP). Per-cell period-2 collapse inside
 ! SWEEP_FLD_ORD: after FG_ORD_P2N [KN_ORD_P2N, default 2]
 ! consecutive sign flips of (VNEW-VOLD) at a significant cell, the
 ! commit becomes the bracket midpoint -- sqrt(VOLD*VNEW) when both
 ! endpoints are positive, 0.5*(VOLD+VNEW) otherwise -- which is the
 ! exact fixed point of a pure multiplicative lambda=-1 mode and a
-! bounded step inside the bracket in general.  Releases after
-! FG_ORD_P2REL [KN_ORD_P2REL, default 3] flip-free passes.  The
+! bounded step inside the bracket in general. Releases after
+! FG_ORD_P2REL [KN_ORD_P2REL, default 3] flip-free passes. The
 ! state costs 3 B per cell as int*1 arrays, allocated per ray
 ! solve, so the ~80 B/cell thread budget at KN_RF_TOT_MB is
 ! effectively unchanged.
@@ -949,10 +949,10 @@
 	INTEGER FG_ORD_P2N,FG_ORD_P2REL
 !
 ! KN_RAY_STALL: VADAT [KN_RAY_STALL] (default 0.98, set by
-! SET_FG_STALL_LIM).  Same-direction residual ratio above which a
-! pass counts toward the NSTALL early exit.  The 0.90 setting
+! SET_FG_STALL_LIM). Same-direction residual ratio above which a
+! pass counts toward the NSTALL early exit. The 0.90 setting
 ! quit rays still contracting at up to 10% per pass; those rays
-! held nearly all the unconverged cells in the m15 2.82d cold
+! held nearly all the unconverged cells in the 2.82d cold
 ! validation (exit census), so the default was raised toward the
 ! flat-pass limit after the KN_RAY_STALL=0.98 arm cut the
 ! unconverged fraction ~40x at matched iterations.
@@ -964,7 +964,7 @@
 !
 	INTEGER*8 KN_AA_APP,KN_AA_VETO,KN_AA_REJ,KN_AA_SNG
 ! Per-pass convergence history of the refresh (max over rays of the
-! overwrite residual at each alternating-direction pass).  Diagnostic
+! overwrite residual at each alternating-direction pass). Diagnostic
 ! only; updated under OMP CRITICAL inside SWEEP_FLD.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: KN_RES_PASS(:)
@@ -972,7 +972,7 @@
 ! Per-frequency count of (ray,field) pairs whose last completed pass
 ! still had an above-tolerance overwrite residual at that frequency.
 ! Diagnostic only; accumulated under OMP CRITICAL in
-! KNOP_RAY_SOLVE_V1 and summarised by FG_KNOP_REFRESH_V1.  Used to
+! KNOP_RAY_SOLVE_V1 and summarised by FG_KNOP_REFRESH_V1. Used to
 ! locate the strongly-coupled frequency runs for the block-GS
 ! redesign (cmfgen_obsidian/audits/BLOCK_GS_DESIGN.md).
 !
@@ -1024,8 +1024,8 @@
 !
 ! NB:
 !	F = K / J
-!	G=  N / H
-!	RSQN_ON_RSQJ(I) = RSQ_N(I)/( RSQ_J(I)+ RQS_J(I+1))
+!	G= N / H
+!	RSQN_ON_RSQJ(I) = RSQ_N(I)/(RSQ_J(I)+ RQS_J(I+1))
 !
 ! where
 !	RSQ_N=0.25*N(I)*(R(I)+R(I+1))**2
@@ -1234,7 +1234,7 @@
 ! N_NEG_SIGMA is cumulative (printed once), so it is not reset here.
 !
 ! On the first frequency of a sweep, report what the previous sweep
-! accumulated and then start fresh.  Reporting here (rather than per
+! accumulated and then start fresh. Reporting here (rather than per
 ! frequency) keeps OUTGEN small while still surfacing the counts.
 ! edited by Sean Brennan
 !
@@ -1267,8 +1267,8 @@
 	  FG_MAX_BND_RES=0.0_LDP
 	END IF
 !
-! Allocation/dimension guard for SIGMA_TRUE_IN.  The caller
-! (COMP_J_BLANK) passes SIGMA_TRUE.  If the array is unallocated or
+! Allocation/dimension guard for SIGMA_TRUE_IN. The caller
+! (COMP_J_BLANK) passes SIGMA_TRUE. If the array is unallocated or
 ! smaller than ND, the unclamped sigma profile used by the
 ! non-monotonic chi_hat formalism would be invalid, causing
 ! out-of-bounds reads or garbage in compression-zone detection.
@@ -1288,7 +1288,7 @@
 	END IF
 ! Print once per process only: on a homologous model sigma=0 is the
 ! correct answer, and repeating the warning every frequency floods
-! OUTGEN.  The single print still flags a genuinely unpopulated
+! OUTGEN. The single print still flags a genuinely unpopulated
 ! SIGMA_TRUE on a non-monotonic model.
 !
 	IF(MAXVAL(ABS(SIGMA_TRUE_IN(1:ND))) .LT. 1.0E-10_LDP .AND.
@@ -1313,8 +1313,8 @@
 !
 ! The MOD_RAY_MOM_STORE block was allocated once at the first call's
 ! ND and never resized, while ND_STORE recorded that size for
-! GET_MOMS_NON_REL.  A later call with a different ND (grid revision)
-! wrote/zeroed out of bounds and left stale radii in R_STORE.  Apply
+! GET_MOMS_NON_REL. A later call with a different ND (grid revision)
+! wrote/zeroed out of bounds and left stale radii in R_STORE. Apply
 ! the same realloc-on-change pattern as the ALO block below.
 !
 	IF(ALLOCATED(JNU_STORE))THEN
@@ -1346,9 +1346,9 @@
 	END IF
 !
 ! Diagonal-ALO storage (Olson-Auer-Buchler operator from the formal
-! solution).  Allocated at the current call's ND (ND or ND_EXT for the
-! extended-grid call).  Zeroed on EVERY call (each frequency) so a stale
-! operator can never leak between frequencies or iterations.  ALO_VALID
+! solution). Allocated at the current call's ND (ND or ND_EXT for the
+! extended-grid call). Zeroed on EVERY call (each frequency) so a stale
+! operator can never leak between frequencies or iterations. ALO_VALID
 ! is set .TRUE. only when the INTEGRAL ray sweep has completed.
 ! edited by Sean Brennan
 !
@@ -1394,7 +1394,7 @@
 ! precisely so the perturbed-pop evals cannot advance the lagged store;
 ! clearing here on every INIT made the freeze a no-op -- each eval wrote
 ! I_NEXT at perturbed pops, so F(x) depended on eval order and the FD JVP
-! inherited a drift term (~1E18 vs BA ~1E13).  JFNK_IN_EVAL is set for the
+! inherited a drift term (~1E18 vs BA ~1E13). JFNK_IN_EVAL is set for the
 ! whole eval callback (cmfgen_sub.f JFNK_RAD_SWEEP_V1); outside evals the
 ! original stale-freeze cleanup still applies.
 !
@@ -1419,7 +1419,7 @@
 ! Relative-tolerance grid test: an exact .NE. compare fires on
 ! harmless roundoff (e.g. an R grid reloaded through an ASCII
 ! restart), which rebuilds the whole ray geometry and re-maps the
-! lagged radiation state for nothing.  1E-8 relative is far tighter
+! lagged radiation state for nothing. 1E-8 relative is far tighter
 ! than any physical grid change but immune to representation noise.
 !
 	    IF(ABS(R(I)-R_EXT(ND_ADD+I)) .GT. 1.0E-8_LDP*
@@ -1434,10 +1434,10 @@
 	1       1.0E-12_LDP*MAX(1.0_LDP,ABS(VDOP_FRAC))
 	1       .OR.  OLD_SOLUTION_OPTIONS .NE. SOLUTION_OPTIONS)NEW_R_GRID=.TRUE.
 !
-! V / SIGMA_TRUE fingerprints (05-Oct-2026).  The build block copies
+! V / SIGMA_TRUE fingerprints (05-Oct-2026). The build block copies
 ! V and SIGMA_TRUE_IN into the main-grid segment of V_EXT/SIGMA_EXT,
 ! so those arrays are already the stored record -- no extra save
-! arrays are needed.  A V update at fixed R (the DO_V_PARAMS wind
+! arrays are needed. A V update at fixed R (the DO_V_PARAMS wind
 ! revision is the known path) leaves V_COEF/SIGMA_COEF, GAM, chi_hat
 ! and the ray insertion spacing on the old field while neither the
 ! R test above nor the compression-set test below necessarily fires.
@@ -1478,10 +1478,10 @@
 	      DO J=MAX(1,I-1),MIN(ND,I+1)
 !
 ! edited 29-Sep-2026: one-sided deadband on the compression
-! set.  Depths enter the set on the unchanged SIGMA_TRUE < -1 / V < 0
+! set. Depths enter the set on the unchanged SIGMA_TRUE < -1 / V < 0
 ! test, but a depth already inside the set (COMP_DEPTH_IDX(J) > 0)
 ! leaves only on a decisive exit -- SIGMA_TRUE above -1+COMP_SIG_HYST
-! or V above +COMP_V_HYST.  Without it, a depth sitting near sigma=-1
+! or V above +COMP_V_HYST. Without it, a depth sitting near sigma=-1
 ! or V=0 flaps the set every time NG acceleration or a grid revision
 ! perturbs V; each flap rebuilt the ray geometry and re-zeroed
 ! I_P/I_M_DEPTH_NEXT, so the GS field could never mature.
@@ -1555,7 +1555,7 @@
 !
 ! NM_RAY/DLN_RAY (GS I_NEXT slot-match store) sit in the unconditional
 ! allocation block but were missing here, so any grid rebuild died on
-! re-ALLOCATE with STAT=151 (already allocated).  Their contents index
+! re-ALLOCATE with STAT=151 (already allocated). Their contents index
 ! the old ray grid, so they are invalid on rebuild regardless.
 !
 	  IF(ALLOCATED(NM_RAY))DEALLOCATE ( NM_RAY )
@@ -1746,11 +1746,11 @@
 	  V_EXT(ND_ADD+1:ND_EXT)=V(1:ND)
 !
 ! Use the TRUE (unclamped) SIGMA for the main-grid portion of the extended
-! grid.  This is the single point where the true negative SIGMA values
-! (shocks, velocity reversals) enter the formal solver's physics.  All
+! grid. This is the single point where the true negative SIGMA values
+! (shocks, velocity reversals) enter the formal solver's physics. All
 ! downstream quantities (SIGMA_COEF, SIGMA_RAY, GAM, T2, resonance scan)
 ! are derived from SIGMA_EXT and therefore automatically use the
-! true values.  The SIGMA dummy is used only for the outer beta-law
+! true values. The SIGMA dummy is used only for the outer beta-law
 ! extension (THK block).
 !
 ! edited by Sean Brennan
@@ -1760,10 +1760,10 @@
 ! 05-Oct-2026: SIGMA is NOT re-clamped under
 ! DO_NONMONO_KNOP, so a shock/inversion reaching the outer edge
 ! (sigma(1) < -1) would give BETA < 0 and V_EXT would diverge as
-! R_EXT -> RMAX.  The beta law only makes sense for a coasting
+! R_EXT -> RMAX. The beta law only makes sense for a coasting
 ! outer flow; floor the exponent source at -0.999, which limits the
 ! extension to nearly constant V -- the least-wrong extrapolation
-! when the outer edge is in compression.  Warn so the user knows the
+! when the outer edge is in compression. Warn so the user knows the
 ! thick boundary rests on an approximation.
 !
 	    T1=MAX(SIGMA(1),-0.999_LDP)
@@ -1922,7 +1922,7 @@
 	    K=1
 	    DO I=1,NI_SMALL
 !
-! edited 29-Sep-2026: bound the march in-loop.  The ray
+! edited 29-Sep-2026: bound the march in-loop. The ray
 ! grid here is hand-built with inserted variable-density points, so
 ! a depth that brackets no R_RAY interval (endpoint roundoff) would
 ! otherwise walk K past NI_RAY(LS) and read out of bounds -- an
@@ -2187,7 +2187,7 @@
 !
 ! Per-ray Knop refresh store (Oct-2026): captured per-frequency
 ! sweep inputs used by FG_KNOP_REFRESH_V1 to converge the lagged
-! compressing-branch coupling after each frequency sweep.  Same
+! compressing-branch coupling after each frequency sweep. Same
 ! lifetime as the compressing store it feeds.
 !
 	    IF(IOS .EQ. 0 .AND. HAS_COMPRESSING)THEN
@@ -2220,7 +2220,7 @@
 !
 ! GS restart (16-Sep-2026): save dims for the checkpoint dump
 ! (SCR_RITE_V2 cannot see NP/NCF_IN), then attempt to restore a
-! validated complete I_NEXT generation from FGINEXT_GS.  On any
+! validated complete I_NEXT generation from FGINEXT_GS. On any
 ! validation failure the arrays stay zeroed (cold start) and
 ! I_NEXT_GS_OK stays .FALSE., so the N_LAM_RWARM LAMBDA warm-up in
 ! SOLVE_FOR_POPS still applies as the fallback.
@@ -2257,7 +2257,7 @@
 !
 ! Insert extra points into radius grid. Not all points will be used along a ray.
 ! We only insert additional points in the interval between Z(NI)=0 and Z(NI-1),
-! and between Z(NI-1) and  Z(NI-2).
+! and between Z(NI-1) and Z(NI-2).
 !
 	  FG_ERR_ON_FREQ(:)=0.0_LDP
 	  FG_ERR_TYPE(:)=0
@@ -2270,9 +2270,9 @@
 	    I_M_PREV(:,:)=0.0_LDP
 !
 ! Optimized Knop et al. 2009: in-place write to NEXT (Optimization B).
-! No CURR arrays and no INIT copy/zero needed.  The NEXT arrays already
+! No CURR arrays and no INIT copy/zero needed. The NEXT arrays already
 ! contain the intensities from the previous great iteration (written
-! in-place during the sweep).  On the first iteration, NEXT is zero
+! in-place during the sweep). On the first iteration, NEXT is zero
 ! (allocated + zeroed), so compressing points get SOURCE_PRIME = SOURCE
 ! (cold start), identical to the original behaviour.
 !
@@ -2313,8 +2313,8 @@
 	  CALL MON_INT_FUNS_V2(SIGMA_COEF,SIGMA_EXT,LOG_R_EXT,ND_EXT)
 !
 ! Non-monotonic velocity laws (shocks, cold dense shells, reverse shocks)
-! routinely give SIGMA = dlnV/dlnR - 1 < -1 in compression zones.  This is
-! EXPECTED when DO_NONMONO_KNOP is active and is not an error.  We count the
+! routinely give SIGMA = dlnV/dlnR - 1 < -1 in compression zones. This is
+! EXPECTED when DO_NONMONO_KNOP is active and is not an error. We count the
 ! offending depths for diagnostics but do not stop or warn per-point.
 !
 	  N_NEG_SIGMA=0
@@ -2342,9 +2342,9 @@
 !        (always positive opacity) and moving the velocity-coupling
 !        term into the modified source S' = SOURCE + Q*I_upwind.
 !        The signed GAM (1+SIGMA*MU^2) enters the source term via Q,
-!        not the opacity.  GAM_MAG = |GAM| is used to construct chi_hat
+!        not the opacity. GAM_MAG = |GAM| is used to construct chi_hat
 !        (line: Q=GAM_MAG/dLOG_NU; CHI_RAY=CHI_RAY+Q) and for resonance
-!        counting.  SIGMA_RAY is derived from SIGMA_EXT, which is
+!        counting. SIGMA_RAY is derived from SIGMA_EXT, which is
 !        populated from the unclamped SIGMA_TRUE_IN, so non-monotonic
 !        velocity fields (sigma < -1) are correctly handled.
 ! edited by Sean Brennan
@@ -2353,8 +2353,8 @@
 !
 ! Compute GAMMA for a NON-MONOTONIC velocity field.
 !
-! T2 = 1 + SIGMA*MU^2  is the comoving-frame frequency gradient along the ray
-!     (= d(mu*V)/dz up to the V/R prefactor).  In a monotonic wind T2 > 0.
+! T2 = 1 + SIGMA*MU^2 is the comoving-frame frequency gradient along the ray
+!     (= d(mu*V)/dz up to the V/R prefactor). In a monotonic wind T2 > 0.
 !     In compression zones (SIGMA < -1, |MU| large) T2 < 0: the flow is
 !     converging, the Sobolev resonance is approached from the opposite
 !     direction, and the naive Sobolev optical depth CHIL*R/V/T2 goes
@@ -2363,17 +2363,17 @@
 ! Non-monotonic handling (replaces the Dessart+2015 softened-|T2| guard and
 ! the SIGMA >= -0.999 clamps used in FG_J_CMF_V13):
 !
-!   * GAM(I,LS)  = T1 * T2          (TRUE SIGNED value; retained so the
+!   * GAM(I,LS) = T1 * T2 (TRUE SIGNED value; retained so the
 !                                    source-function integration can account
 !                                    for ray direction relative to the flow)
-!   * GAM_MAG(I,LS) = |T1| * |T2|      (magnitude; always >= 0; used to
+!   * GAM_MAG(I,LS) = |T1| * |T2| (magnitude; always >= 0; used to
 !                                    construct chi_hat and for DTAU guards.
 !                                    ABS(T1) is required so V < 0 is safe.)
 !   * SIGN(1,GAM(I,LS)) gives the local expanding/compressing direction.
 !
-! No |T2| floor is applied here.  At a true frequency turning point (T2=0),
+! No |T2| floor is applied here. At a true frequency turning point (T2=0),
 ! GAM=0 and GAM_MAG=0, so the velocity contribution to chi_hat correctly
-! vanishes.  Division by zero is prevented downstream by the chi_hat floor
+! vanishes. Division by zero is prevented downstream by the chi_hat floor
 ! (CHI_RAY >= 1.0E-30) and the DTAU zero-guard, not by flooring T2.
 ! edited by Sean Brennan
 !
@@ -2395,12 +2395,12 @@
 !   dCHIdR_RAY += SIGN(1,GAM) * dGAMdR / dLOG_NU
 !
 ! SIGN(1,GAM) gives the correct sign for d|GAM|/dR:
-!   GAM >= 0 (expanding):  d|GAM|/dR = +dGAM/dR
+!   GAM >= 0 (expanding): d|GAM|/dR = +dGAM/dR
 !   GAM < 0 (compressing): d|GAM|/dR = -dGAM/dR
 !
 ! This makes non-monotonic regions consistent with V13 in monotonic
 ! regions (where SIGN(1,GAM) = +1 and d|GAM|/dR = dGAM/dR, identical
-! to V13).  The DTAU clamping handles any cusps at velocity turning
+! to V13). The DTAU clamping handles any cusps at velocity turning
 ! points where d|GAM|/dR is discontinuous.
 !
 	IF(SOLUTION_METHOD .EQ. 'INTEGRAL' .AND. NI_RAY(LS) .NE. 1)THEN
@@ -2421,10 +2421,10 @@
 	    END IF
 !
 ! Ray-curvature term: MU=Z/R varies along the ray even for fixed impact
-! parameter.  dMU/dR = (1-MU^2)/(MU*R), so
+! parameter. dMU/dR = (1-MU^2)/(MU*R), so
 !   T1 * d(SIGMA*MU^2)/dR gets an extra T1 * SIGMA * 2*MU * dMU/dR
 !                             = T1 * 2*SIGMA*(1-MU^2)/R.
-! This term was missing (audit 2026-09-07, finding #15).  It is required
+! This term was missing (audit 2026-09-07, finding #15). It is required
 ! so that d(chi_hat)/dR used in the Euler-Maclaurin DTAU correction is the
 ! true derivative of |GAM| along the ray.
 ! edited (10-Sep-2026)
@@ -2437,9 +2437,9 @@
 ! Multi-root resonance scan (diagnostic + directionality bookkeeping).
 !
 ! For a non-monotonic v(r) the comoving frequency nu_cm(r) = nu_obs*(1-V/c)
-! can cross a given rest frequency multiple times along a ray.  We bracket
+! can cross a given rest frequency multiple times along a ray. We bracket
 ! every zone [I,I+1] where T2 changes sign (i.e. where d(nu_cm)/ds vanishes)
-! -- these are the resonance turning points.  No interpolation is performed
+! -- these are the resonance turning points. No interpolation is performed
 ! here; the piecewise short-characteristics integration below naturally
 ! sums the source-function contribution over each monotonic sub-interval
 ! because DTAU is built from chi_hat = chi + |GAM|/dLOG_NU (always > 0)
@@ -2464,9 +2464,9 @@
 ! Half-point GAMH for the DIFFERENCE solution method.
 !
 ! We use the TRUE SIGMA_RAY (no -0.999 clamp) so the derivative reflects the
-! real compression gradient.  GAMH is computed directly from SIGMA_RAY at
+! real compression gradient. GAMH is computed directly from SIGMA_RAY at
 ! the half-point and then clamped to non-negative (IF GAMH<0: GAMH=-GAMH)
-! so the resulting DTAU increments stay non-negative.  GAM_MAG is not used
+! so the resulting DTAU increments stay non-negative. GAM_MAG is not used
 ! here; GAMH has its own absolute-value clamp.
 !
 	IF(SOLUTION_METHOD .EQ. 'DIFFERENCE')THEN
@@ -2633,14 +2633,14 @@
 ! FREQ_IDX_ITER is 0 during the first frequency of the sweep (the
 ! INIT branch resets it and skips the NEW_FREQ increment), so during
 ! frequency k it equals k-1 and the lagged I_NEXT store holds
-! frequency s+1 in slot s.  The KN_* capture arrays instead use
+! frequency s+1 in slot s. The KN_* capture arrays instead use
 ! slot s = frequency s (LK=FREQ_IDX_ITER+1), the convention the
 ! refresh worker iterates over; the shift back to the lagged-store
-! layout happens only inside SEED_FLD/WRITE_STORE.  The
+! layout happens only inside SEED_FLD/WRITE_STORE. The
 ! sign-dependent dLOG_NU columns give expanding cells the backward
 ! spacing ln(nu_{k-1}/nu_k) = dLOG_NU and compressing cells the
 ! forward spacing ln(nu_k/nu_{k+1}); FG_NU_NEXT is nu(k+1) set by
-! SET_FG_NU_NEXT before each call.  KN_STORE_READY is armed once
+! SET_FG_NU_NEXT before each call. KN_STORE_READY is armed once
 ! the last frequency of the sweep is captured.
 !
 	  IF(ALLOCATED(KN_CHI_EXT))THEN
@@ -2938,7 +2938,7 @@ C
 ! J_PNT(1,LS)=1 is the common case -- R(1) sits on the outermost ray
 ! point -- so the unbounded average below read CV(0,LS), an
 ! out-of-bounds element that silently skewed every boundary moment
-! under THK_CONT.  CV is only filled on intervals 1:NI_RAY-1, so the
+! under THK_CONT. CV is only filled on intervals 1:NI_RAY-1, so the
 ! interpolation falls back to the nearest valid interval at both ends.
 !
 	      K=J_PNT(1,LS)
@@ -2971,7 +2971,7 @@ C
 ! Forward logarithmic spacing ln(nu_k/nu_{k+1}) for the compressing
 ! upwind coupling: a per-frequency scalar, hoisted out of the ray
 ! loops where it was re-evaluated per point (3 LOG calls per
-! compressing ray point).  FG_NU_NEXT is set per call by
+! compressing ray point). FG_NU_NEXT is set per call by
 ! SET_FG_NU_NEXT; falls back to dLOG_NU when unavailable.
 !
 	DLN_N_SAV=dLOG_NU
@@ -3020,7 +3020,7 @@ C
 ! calculation for the first frequency.
 !
 !        Knop, Hauschildt & Baron 2009 formalism:
-!          Paper I:  A&A 496, 295-298 (arXiv:0902.1876)
+!          Paper I: A&A 496, 295-298 (arXiv:0902.1876)
 !          Paper II: A&A 501, 813-820 (arXiv:0909.4264)
 !        The wavelength boundary-value problem and the sign-dependent
 !        local upwind discretisation originate in
@@ -3040,18 +3040,18 @@ C
 !
 !        where GAM = (V/R)*(1 + SIGMA*MU^2) is the signed comoving-frame
 !        frequency gradient (V in km/s, R in cm, 3.33564E-06 converts
-!        to cgs).  The frequency derivative is discretised as:
+!        to cgs). The frequency derivative is discretised as:
 !
 !          GAM * (I_upwind - I_local) / dLOG_NU
 !
 !        Splitting into implicit (opacity) and explicit (source) parts:
 !
-!          chi_hat = chi + |GAM|/dLOG_NU    (generalized opacity, always > 0)
-!          Q      = (GAM/dLOG_NU) / chi_hat (dimensionless, SIGNED)
-!          S'     = eta/chi_hat + Q * I_upwind
+!          chi_hat = chi + |GAM|/dLOG_NU (generalized opacity, always > 0)
+!          Q = (GAM/dLOG_NU) / chi_hat (dimensionless, SIGNED)
+!          S' = eta/chi_hat + Q * I_upwind
 !
-!        so the transfer equation becomes  dI/dtau_hat = I - S',
-!        with tau_hat = chi_hat * dz.  chi_hat absorbs the IMPLICIT
+!        so the transfer equation becomes dI/dtau_hat = I - S',
+!        with tau_hat = chi_hat * dz. chi_hat absorbs the IMPLICIT
 !        part of the coupling (the I_local term), while Q*I_upwind
 !        handles the EXPLICIT part (coupling to the upwind frequency).
 !
@@ -3066,11 +3066,11 @@ C
 !        Status of the 4*a*I term in the frequency formulation:
 !        Knop's 4*a_lambda*I is the intensity-proportional part of the
 !        comoving-frequency coupling exposed by the d(lambda*I)/d(lambda)
-!        split.  It does NOT vanish for I_nu -- only the invariant
+!        split. It does NOT vanish for I_nu -- only the invariant
 !        intensity I_nu/nu^3 (Chen et al. 2007, Eq 10) is free of a
-!        proportional term.  The exact O(v/c) ray equation for I_nu is
-!          dI/ds = eta - chi*I - a_nu*( dI/d(ln nu) - 3*I )
-!        with a_nu = d(ln nu)/ds = -a_lambda.  Written Knop-style the
+!        proportional term. The exact O(v/c) ray equation for I_nu is
+!          dI/ds = eta - chi*I - a_nu*(dI/d(ln nu) - 3*I )
+!        with a_nu = d(ln nu)/ds = -a_lambda. Written Knop-style the
 !        same coupling is +4*a_nu*I - a_nu*d(nu*I)/dnu; for the
 !        dI/d(ln nu) split used here the nu-form '4aI' coefficient is 3.
 !
@@ -3078,15 +3078,15 @@ C
 !        here and in stock FG_J_CMF_V13 is
 !          dI/ds = eta - chi*I + GAM * dI/d(ln nu)
 !        with GAM = (V/cR)(1 + SIGMA*mu^2) the signed O(v/c)
-!        frequency-drift coefficient.  This is the inherited CMFGEN
+!        frequency-drift coefficient. This is the inherited CMFGEN
 !        truncation, not an omission introduced by this routine; for
-!        GAM > 0 this file reduces to V13 exactly.  At the moment level
+!        GAM > 0 this file reduces to V13 exactly. At the moment level
 !        the dilution physics enters through the advection terms of
 !        MOM_J_DDT ((1/c r^3) D(r^3 J)/Dt contains 3*v*J/(c r), the
 !        exact sigma=0 counterpart) and through the relativistic
 !        coefficient structure of MOM_JREL (the gamma^2*(sigma+1)-1
 !        coefficients, the H-moment aberration term, and the
-!        INCL_ADVEC_TERMS pieces folded into CHI_J).  The
+!        INCL_ADVEC_TERMS pieces folded into CHI_J). The
 !        (1+SIGMA*K_ON_J) factors are the angular weight of the drift
 !        coefficient (1+SIGMA*mu^2); they belong to the derivative
 !        term, not to the proportional term.
@@ -3094,7 +3094,7 @@ C
 !        The S_tilde removed on 07-Sep-2026 transplanted the lambda-form
 !        4*a*I into this nu-form scheme: the literal '4' is specific to
 !        the d(lambda*I)/d(lambda) split and the term double-counted
-!        the retained drift coupling, so the removal was correct.  If
+!        the retained drift coupling, so the removal was correct. If
 !        exact Chen/Knop consistency is ever required, the term to add
 !        is +3*a_nu*I with the same sign-aware split as the drift term
 !        (absorption-side in expansion, source-side in compression);
@@ -3103,36 +3103,36 @@ C
 !        (Sean Brennan, 07-Sep-2026; justification expanded
 !         09-Oct-2026 after external review)
 !
-!        In non-monotonic flows GAM can be negative.  The Knop fix
+!        In non-monotonic flows GAM can be negative. The Knop fix
 !        (Paper I Eq 7) is to use |GAM| in the opacity (keeping it
 !        positive) while retaining the SIGNED GAM in the source via Q.
 !
-!        For expanding flow (GAM > 0):  chi_hat = chi + GAM/dLOG_NU,
-!        Q > 0 -- identical to V13.  Upwind frequency = previous (I_PREV).
+!        For expanding flow (GAM > 0): chi_hat = chi + GAM/dLOG_NU,
+!        Q > 0 -- identical to V13. Upwind frequency = previous (I_PREV).
 !        For compressing flow (GAM < 0): chi_hat = chi + |GAM|/dLOG_NU
-!        (larger than chi), Q < 0 (signed).  Upwind frequency = NEXT
+!        (larger than chi), Q < 0 (signed). Upwind frequency = NEXT
 !        (I_NEXT), because the comoving frequency reverses direction.
 !
 !        The sign-dependent upwind is the KEY difference from V13:
 !        compressing points couple to I_NEXT (the next lower frequency),
-!        not I_PREV.  Since CMFGEN sweeps frequencies in decreasing
-!        order, I_NEXT is not yet computed in the current sweep.  I_NEXT
+!        not I_PREV. Since CMFGEN sweeps frequencies in decreasing
+!        order, I_NEXT is not yet computed in the current sweep. I_NEXT
 !        therefore comes from the PREVIOUS great iteration, stored at
 !        depth grid points (I_P_DEPTH_NEXT, I_M_DEPTH_NEXT) -- a
-!        Gauss-Seidel lag across great iterations.  This lagged coupling
+!        Gauss-Seidel lag across great iterations. This lagged coupling
 !        is a CMFGEN adaptation; Paper II converges the same wavelength
 !        boundary-value problem inside the formal solution with its
 !        physically guided GS stepping (Sect. 3.2, Eqs 25-28), which
 !        FG_KNOP_REFRESH_V1 implements as the post-sweep re-solve.
 !
 !        On the first great iteration, I_NEXT = 0, so compressing
-!        points get S' = S (no coupling).  This is the cold-start
+!        points get S' = S (no coupling). This is the cold-start
 !        approximation; subsequent iterations refine I_NEXT.
 !
 !        No Q-splitting or Q limiter is needed -- the implicit
 !        absorption into chi_hat provides natural stability, and the
 !        signed Q with correct upwind direction provides the correct
-!        physics.  An intensity floor (I >= 1.0E-30) is applied after
+!        physics. An intensity floor (I >= 1.0E-30) is applied after
 !        the short-characteristics integration to catch unphysical
 !        negative/NaN overshoot from the explicit source term in
 !        extreme compression zones.
@@ -3143,9 +3143,9 @@ C
 !        Compressing cells (GAM<0) couple to the NEXT (redder)
 !        frequency, so the frequency derivative spanning (k,k+1) must
 !        use the forward spacing ln(nu_k/nu_{k+1}), not the backward
-!        dLOG_NU = ln(nu_{k-1}/nu_k).  At line edges the grid spacing
+!        dLOG_NU = ln(nu_{k-1}/nu_k). At line edges the grid spacing
 !        changes by ~10x and the wrong spacing mis-weights the Knop
-!        coupling there.  FG_NU_NEXT (nu_{k+1}) is set per call by
+!        coupling there. FG_NU_NEXT (nu_{k+1}) is set per call by
 !        SET_FG_NU_NEXT; when unavailable the old dLOG_NU is used.
 !        (Oct-2026 asymmetric-spacing fix)
 !
@@ -3155,7 +3155,7 @@ C
 !        |GAM|*dZ/DLN bins along the ray, and the frequency
 !        derivative spans the matched log range ln(nu_k/nu_{k+n}).
 !        Defaults reproduce the pre-match stencil: slot +1 and the
-!        forward spacing DLN_N_SAV.  Set before the INIT split so the
+!        forward spacing DLN_N_SAV. Set before the INIT split so the
 !        bluest frequency can use the same stencil -- at INIT only
 !        compressing cells consume it (expanding cells have no bluer
 !        upwind and keep Q=0).
@@ -3182,7 +3182,7 @@ C
 	            END IF
 	            T2=GAM_MAG(I,LS)*T1/DLN_N_SAV
 !
-! Cap K2 at the last REAL lagged-store slot.  During frequency k the
+! Cap K2 at the last REAL lagged-store slot. During frequency k the
 ! store index FREQ_IDX_ITER+K2 holds nu_{k+K2} (slot s = frequency
 ! s+1), so the largest usable offset is NCF_IN-FREQ_IDX_ITER-1: slot
 ! NCF_IN is a force-zeroed phantom beyond the last frequency.
@@ -3206,10 +3206,10 @@ C
 ! The upwind read uses store slot FREQ_IDX_ITER+K2 = frequency
 ! k+K2, so the matched log span must close on KN_FREQ index
 ! FREQ_IDX_ITER+1+K2 -- the same bin MATCH_FREQ uses in the refresh
-! worker (its NFM offset L+NNF in KN_ indexing).  The previous
+! worker (its NFM offset L+NNF in KN_ indexing). The previous
 ! FREQ_IDX_ITER+K2 index measured the span to nu_{k+K2-1}, so the
 ! in-sweep frequency derivative and the refresh operator disagreed
-! by one bin.  (Oct-2026 matched-span fix)
+! by one bin. (Oct-2026 matched-span fix)
 !
 	            IF(ALLOCATED(KN_FREQ) .AND.
 	1           FREQ_IDX_ITER+1+K2 .LE. NCF_IN)THEN
@@ -3225,7 +3225,7 @@ C
 	    IF(INIT)THEN
 	      Q(1:NI)=0.0_LDP
 !        INIT path: guard chi and eta against non-finite values from
-!        interpolation.  The .NOT.(|x| <= HUGE) test catches +Inf,
+!        interpolation. The .NOT.(|x| <= HUGE) test catches +Inf,
 !        which the old x /= x and x < 1e-30 tests both missed.
 ! edited by Sean Brennan (04-Sep-2026)
 	      DO I=1,NI
@@ -3244,10 +3244,10 @@ C
 !        Compressing cells at the bluest frequency: the upwind bin is
 !        the REDDER lagged slot (store slot 1 = frequency 2), which
 !        exists -- only expanding cells have no upwind here (blue-edge
-!        inflow is zero).  Forcing Q=0 on compressing cells drops the
+!        inflow is zero). Forcing Q=0 on compressing cells drops the
 !        advective coupling at the band edge and leaves photons unable
 !        to leave the bluest bin; apply the same chi_hat/Q treatment
-!        as interior frequencies.  On the first great iteration the
+!        as interior frequencies. On the first great iteration the
 !        lagged store is zero, so the coupling acts as pure outflow --
 !        the same cold-start approximation the interior bins use.
 !        NM_RAY/DLN_RAY are set above the INIT split, so the update is
@@ -3296,7 +3296,7 @@ C
 !
 ! DLN_C is a log-frequency spacing; a degenerate grid (duplicate
 ! frequencies) or an unseeded DLN_RAY slot can make it zero or
-! negative, and 1/DLN_C would then poison chi_hat.  Flooring it
+! negative, and 1/DLN_C would then poison chi_hat. Flooring it
 ! keeps chi_hat well above CHI_RAY -- locally opaque, the safe
 ! failure direction.
 !
@@ -3307,7 +3307,7 @@ C
 !        Guard: ensure chi_hat is strictly positive to avoid 0/0 NaN.
 !        At low-opacity boundary points both chi and |GAM| can vanish.
 !
-!        CRITICAL: The .LT. test alone does NOT catch NaN.  In IEEE-754,
+!        CRITICAL: The .LT. test alone does NOT catch NaN. In IEEE-754,
 !        NaN .LT. x is always FALSE, so a NaN chi_hat would pass through
 !        this guard, making Q, SOURCE_RAY, and DTAU all NaN.
 !        The NaN then propagates into the SE rates and STEQ.
@@ -3321,7 +3321,7 @@ C
 ! Phase 2 first-occurrence diagnostic for chi_hat failure.
 ! Edited 30-Sep-2026: the test now runs BEFORE the clamp so the
 ! reported CHI_RAY is the raw failure -- the unconditional clamp
-! previously sat above this branch and made it unreachable.  The
+! previously sat above this branch and made it unreachable. The
 ! .NOT.(|x| <= HUGE) test also catches Inf, which x /= x misses.
 !$OMP CRITICAL(FIRST_FAIL_CRIT)
                 IF(.NOT. FIRST_FAIL_FOUND)THEN
@@ -3436,10 +3436,10 @@ C
 !        to the guaranteed-positive trapezoidal estimate
 !          0.5*(CHI_RAY(I)+CHI_RAY(I+1))*dZ
 !        (the same formula used in the METHOD.EQ.'ZERO' branch) rather
-!        than an arbitrary 1.0E-10 constant.  CHI_RAY is floored at
+!        than an arbitrary 1.0E-10 constant. CHI_RAY is floored at
 !        1.0E-30 and dZ=Z(I)-Z(I+1)>0, so this fallback is always
 !        positive and preserves the actual opacity magnitude of the
-!        segment.  At a sharp velocity-gradient reversal (large |GAM|,
+!        segment. At a sharp velocity-gradient reversal (large |GAM|,
 !        extreme negative SIGMA) the true optical-depth increment can
 !        be large via the |GAM|/dLOG_NU term; substituting a near-zero
 !        constant there would falsely mark the segment as optically
@@ -3481,16 +3481,16 @@ C
       END DO
 !
 !        DTAU is now computed from chi_hat = chi + |GAM|/dLOG_NU, which
-!        is always positive.  No scaling is needed - the
+!        is always positive. No scaling is needed - the
 !        generalized opacity already contains the implicit velocity
-!        coupling.  This is identical to the V13 monotonic solver but
+!        coupling. This is identical to the V13 monotonic solver but
 !        with |GAM| instead of GAM in the opacity.
 !
 ! edited by Sean Brennan
 ! Compute the functions used to evaluate the weighted integral over the
 ! polynomial fit to the source function.
 !
-! NB:  En(I)= EXP(-DTAU) {Integral[0 to DTAU] t^n EXP(t) dt }/ DTAU^n
+! NB: En(I)= EXP(-DTAU) {Integral[0 to DTAU] t^n EXP(t) dt }/ DTAU^n
 !
 	      DO I=1,NI-1
 	        T1=DTAU(I,LS)
@@ -3543,11 +3543,11 @@ C
 ! The previous implementation included an explicit source term
 !   S_tilde = 4 * Q * dLOG_NU * I_upwind
 ! subtracted from the formal solution, following Knop et al. 2009
-! Paper I Eq 10.  This is CORRECT in Knop's WAVELENGTH formulation
+! Paper I Eq 10. This is CORRECT in Knop's WAVELENGTH formulation
 ! where the transfer equation (Eq 1) contains an explicit 4*a*I term:
 !   dI/ds = eta - chi*I - 4*a*I - a * d(lambda*I)/d(lambda)
 ! The 4*a*I term arises from expanding d(lambda*I)/d(lambda) and from
-! relativistic aberration corrections (Chen et al. 2007).  Knop's
+! relativistic aberration corrections (Chen et al. 2007). Knop's
 ! S_tilde compensates for removing this 4*a*I from the opacity.
 !
 ! CMFGEN solves the FREQUENCY (log-nu) form and, by convention, drops
@@ -3555,10 +3555,10 @@ C
 ! here and in stock FG_J_CMF_V13 is
 !   dI/ds = eta - chi*I - GAM * dI/d(ln nu)
 ! The I_lambda 4*a*I cannot be carried over as 4*Q*dLOG_NU*I -- wrong
-! coefficient for I_nu and a double-count of the drift term.  The
+! coefficient for I_nu and a double-count of the drift term. The
 ! proportional physics enters at the moment level via the advection
 ! terms (MOM_J_DDT) and the relativistic coefficient structure
-! (MOM_JREL).  See the full justification in the comment block above
+! (MOM_JREL). See the full justification in the comment block above
 ! the outward rays formal solution.
 !
 ! The coupling is discretised as
@@ -3567,9 +3567,9 @@ C
 ! source as S = eta/chi_hat + Q*I_upwind with signed Q.
 !
 ! Adding S_tilde = 4*Q*dLOG_NU*I in the frequency formulation
-! DOUBLE-COUNTS the velocity coupling.  For monotonic flow (GAM > 0)
+! DOUBLE-COUNTS the velocity coupling. For monotonic flow (GAM > 0)
 ! the non-monotonic solver would NOT reduce to V13, producing
-! inconsistent results.  The S_tilde, ALPHA_L, and BETA_L arrays
+! inconsistent results. The S_tilde, ALPHA_L, and BETA_L arrays
 ! and their computation have been removed.
 !
 ! edited by Sean Brennan (07-Sep-2026)
@@ -3605,7 +3605,7 @@ C
 !	        radial depths bracketing the ray point (audit 17-Sep-2026).
 !	        The nearest-depth lookup used previously introduced a
 !	        spatial discontinuity exactly where the velocity gradient is
-!	        strongest.  When only one bracketing depth is a compressing
+!	        strongest. When only one bracketing depth is a compressing
 !	        (stored) depth, that value is used -- the intensity at the
 !	        next frequency is only stored at compressing depths, so a
 !	        non-compressing neighbour has no I_NEXT to interpolate with.
@@ -3619,10 +3619,10 @@ C
 	2       FREQ_IDX_ITER+NM_RAY(I) .LE. NCF_IN)THEN
 !
 !	          GAM < 0 here, so the upwind point in frequency has already
-!	          been switched to the NEXT (redder) frequency.  The upwind
+!	          been switched to the NEXT (redder) frequency. The upwind
 !	          coefficient must therefore be the MAGNITUDE |GAM|/dLOG_NU
 !	          divided by chi_hat, matching the +|GAM|/dLOG_NU that
-!	          CHI_RAY already carries.  Using the signed Q here would
+!	          CHI_RAY already carries. Using the signed Q here would
 !	          flip the sign a second time and subtract the upwind
 !	          intensity from the source, driving SOURCE_PRIME (and hence
 !	          I) negative throughout every compression zone.
@@ -3652,7 +3652,7 @@ C
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)+ABS(Q(I))*INEXT_V
 	        ELSE
 !
-!	          GAM < 0 but no I_NEXT slot is available.  Drop the
+!	          GAM < 0 but no I_NEXT slot is available. Drop the
 !	          frequency coupling entirely rather than applying it with a
 !	          sign inconsistent with CHI_RAY.
 !
@@ -3723,7 +3723,7 @@ C
 	      dS(NI)=S(NI-1)
 	    END IF
 !
-! Adjust first derivatives so that function is monotonic  in each interval.
+! Adjust first derivatives so that function is monotonic in each interval.
 !
 	    dS(1)=( SIGN(ONE,S(1))+SIGN(ONE,dS(1)) )*
 	1                      MIN(ABS(S(1)),0.5_LDP*ABS(dS(1)))
@@ -3748,22 +3748,22 @@ C
 !
 !	        Non-monotonic flows can drive the short-characteristics
 !	        intensity slightly negative in compression zones where the
-!	        source-function advection term changes sign.  Enforce the
+!	        source-function advection term changes sign. Enforce the
 !	        physical bound I >= 0 by clamping to a small positive floor
-!	        (1.0E-30) and record the event for diagnostics.  This is the
+!	        (1.0E-30) and record the event for diagnostics. This is the
 !	        INT/INS safety net required by the non-monotonic solver; it
 !	        does NOT alter the opacity (DTAU is non-negative since
 !	        chi_hat = chi + |GAM|/dLOG_NU > 0) and only caps
 !	        unphysical overshoot from the explicit source term.
 !
 !	        The .NE. self-comparison catches NaN (NaN /= NaN is TRUE in
-!	        IEEE-754), which .LT. 0 alone misses.  Without this, NaN
+!	        IEEE-754), which .LT. 0 alone misses. Without this, NaN
 !	        intensities propagate into I_M_DEPTH_NEXT and contaminate
 !	        the source function of subsequent great iterations, ultimately
 !	        corrupting the BA matrix during FULL/BA iterations.
 !
 !	        Note: per-occurrence WRITE removed - it caused 20+ GB OUTGEN
-!	        files.  The N_NEG_INT counter is now incremented with
+!	        files. The N_NEG_INT counter is now incremented with
 !	        !$OMP ATOMIC to prevent the OpenMP race condition that
 !	        occurred in the parallel ray loop.
 !	        The count is still tracked for end-of-run summary diagnostics.
@@ -3832,12 +3832,12 @@ C
 	    END DO
 !
 ! Upper cap on I_M: prevent the explicit frequency coupling from
-! amplifying the intensity beyond NONMONO_INEXT_CAP.  In models with
+! amplifying the intensity beyond NONMONO_INEXT_CAP. In models with
 ! extreme velocity gradients (|SIGMA| >> 1), the cumulative growth
 ! factor sum(DTAU*Q) over all depths can be >> 1, making the explicit
-! scheme unstable.  The cap is far above any physical intensity and
-! only prevents Inf/overflow.  Applied after the negative/NaN clamp
-! so that both bounds are enforced.  The I_M_STORE cap below then
+! scheme unstable. The cap is far above any physical intensity and
+! only prevents Inf/overflow. Applied after the negative/NaN clamp
+! so that both bounds are enforced. The I_M_STORE cap below then
 ! ensures I_M_PREV (expanding-zone feedback) is also bounded.
 ! edited by Sean Brennan (14-Sep-2026)
 	    DO I=1,NI
@@ -3866,7 +3866,7 @@ C
 !	        radial depths bracketing the ray point (audit 17-Sep-2026).
 !	        The nearest-depth lookup used previously introduced a
 !	        spatial discontinuity exactly where the velocity gradient is
-!	        strongest.  When only one bracketing depth is a compressing
+!	        strongest. When only one bracketing depth is a compressing
 !	        (stored) depth, that value is used -- the intensity at the
 !	        next frequency is only stored at compressing depths, so a
 !	        non-compressing neighbour has no I_NEXT to interpolate with.
@@ -3904,7 +3904,7 @@ C
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)+ABS(Q(I))*INEXT_V
 	        ELSE
 !
-!	          GAM < 0 but no I_NEXT slot is available.  Drop the
+!	          GAM < 0 but no I_NEXT slot is available. Drop the
 !	          frequency coupling rather than applying an inconsistent sign.
 !
 	          FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
@@ -4067,10 +4067,10 @@ C
 	      END IF
 	    END DO
 !
-! Upper cap on I_P: same rationale as the I_M cap above.  Prevents
+! Upper cap on I_P: same rationale as the I_M cap above. Prevents
 ! the explicit frequency coupling from amplifying the outward-directed
 ! intensity beyond NONMONO_INEXT_CAP in models with extreme velocity
-! gradients.  Applied after the negative/NaN clamp.
+! gradients. Applied after the negative/NaN clamp.
 ! edited by Sean Brennan (14-Sep-2026)
 	    DO I=1,NI
 	      IF(I_P(I,LS) .GT. NONMONO_INEXT_CAP)I_P(I,LS)=NONMONO_INEXT_CAP
@@ -4121,7 +4121,7 @@ C
 !
 ! Cap the expanding-zone frequency feedback (I_M_PREV / I_P_PREV) at
 ! NONMONO_INEXT_CAP, matching the cap already applied to the compressing-
-! zone feedback (I_M_DEPTH_NEXT / I_P_DEPTH_NEXT) below.  Without this,
+! zone feedback (I_M_DEPTH_NEXT / I_P_DEPTH_NEXT) below. Without this,
 ! the explicit frequency coupling SOURCE_PRIME = SOURCE_RAY + Q*I_M_PREV
 ! (expanding, GAM >= 0) amplifies the intensity exponentially across
 ! frequencies when the cumulative growth factor sum(DTAU*Q) >> 1, which
@@ -4140,7 +4140,7 @@ C
 ! extension points, which are monotonic and use I_PREV upwinding).
 !
 ! edited by Sean Brennan
-! Skip the in-place I_NEXT writes when FREEZE_I_NEXT is set.  The flag
+! Skip the in-place I_NEXT writes when FREEZE_I_NEXT is set. The flag
 ! exists so a JFNK residual evaluation (JFNK_SOLVE_CORR_V1 sets it
 ! around the coupled eval sweep) sees the same Gauss-Seidel I_NEXT
 ! state as the baseline; the default path leaves it .FALSE.
@@ -4148,14 +4148,14 @@ C
 ! NEW_FREQ snapshot (edited 02-Nov-2026): comp_j_blank
 ! re-enters this routine inside its J accuracy loop with
 ! NEW_FREQ=.FALSE. after the first call of each frequency (DO_ES_ALI
-! runs ~12 calls per frequency).  The stored column is snapshotted on
+! runs ~12 calls per frequency). The stored column is snapshotted on
 ! the first call and EVERY call relaxes the live slot against that
 ! frozen snapshot, so the slot ends at
 !   snapshot + INEXT_RELAX*(T1_last - snapshot)
 ! -- the field of the last (scattering-converged) pass, not the
-! first.  Nothing reads slot FREQ_IDX_ITER during its own frequency
+! first. Nothing reads slot FREQ_IDX_ITER during its own frequency
 ! (the compressing upwind looks at slots >= +1), so overwriting it on
-! re-entries is safe.  The FG_GS_MAXCHG/FG_GS_NCONV/FG_SW_* churn
+! re-entries is safe. The FG_GS_MAXCHG/FG_GS_NCONV/FG_SW_* churn
 ! metrics keep their one-sample-per-frequency census on the NEW_FREQ
 ! call only (the 19-Oct-2026 gate); a stray call with a shifted
 ! FREQ_IDX_ITER re-snapshots first so the base is always the
@@ -4172,12 +4172,12 @@ C
 ! This block is serial (after the ray PARALLEL DOs), so the scalar
 ! accumulators cannot race.
 !
-! Column peak per ray for the >50% churn count below.  Without this
+! Column peak per ray for the >50% churn count below. Without this
 ! floor a cell whose stored value sits at the 1E-30 write floor counts
 ! as churned whenever the fresh intensity differs at all (|T1-T2|/T2
 ! exceeds 0.5 for any T1 > 1.5E-30), so FG_GS_NCONV never decays and
 ! the KNOP maturity gate in SOLVE_FOR_POPS stays shut even when every
-! significant cell is converged.  The 1E-4*peak test mirrors the one
+! significant cell is converged. The 1E-4*peak test mirrors the one
 ! the refresh residual applies in MARCH (VMAX_L).
 ! edited (28-Sep-2026)
 !
@@ -4230,7 +4230,7 @@ C
 ! MOM_GS_MAXCHG): a stored cell ~1E-300 vs a fresh 1E-38 reports
 ! relchg ~1E262 on a cell the NCONV gate already deems
 ! insignificant, and GS_MAX_ALL=MAX(...) then pins the maturity
-! gate at GS_UNSAFE_TOL forever.  Job 12255111 ran with
+! gate at GS_UNSAFE_TOL forever. ran with
 ! sweep drift=1.5E263 from exactly this.
 !
 	              IF(T2 .GT. 0.0_LDP)THEN
@@ -4244,7 +4244,7 @@ C
 	                  FG_GS_ARGL=FREQ_IDX_ITER
 	                END IF
 !
-! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store.  A
+! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store. A
 ! cell whose freshly solved intensity still differs from the stored
 ! value by >25% after relaxation cycles is part of the residual
 ! floor that holds the field above GS_UNSAFE_TOL.
@@ -4335,12 +4335,12 @@ C
 	  END IF
 !
 ! Code-audit diagnostic (15-Sep-2026): check the I_NEXT depth mapping
-! once per grid definition, on the first frequency of a sweep.  The
+! once per grid definition, on the first frequency of a sweep. The
 ! mapping itself is verified unconditionally -- a non-finite ray radius
 ! or coupling coefficient at a compressing-slot point reports an ERROR.
 ! No radius-vs-depth equality test: most ray points sit between depth
 ! nodes and the read side interpolates between the bracketing depths
-! (KC1/KC2), so R_RAY!=R(K2) is normal.  The full table (O(NP*NI)
+! (KC1/KC2), so R_RAY!=R(K2) is normal. The full table (O(NP*NI)
 ! lines) only prints when PRINT_KNOP_DEBUG=T; on fine ray grids it
 ! floods OUTGEN otherwise.
 !
@@ -4448,14 +4448,14 @@ C
 	END DO
 !
 ! Diagonal Olson-Auer-Buchler approximate Lambda operator from the
-! actual formal solution.  Loop bounds, weights JQW(I,LS) and the
+! actual formal solution. Loop bounds, weights JQW(I,LS) and the
 ! J_PNT depth->ray mapping are IDENTICAL to the JNU_STORE accumulation
 ! above, so ALO_DJD* are exactly dJ/dETA and dJ/dCHI diagonal
 ! sensitivities of the computed JNU_STORE.
 !
 ! For ray node K on ray LS:
-!   dI_M(K)/dS'(K) = A2(K-1,LS)  (K>=2; 0 at the outer boundary K=1)
-!   dI_P(K)/dS'(K) = A2(K,LS)    (K<=NI-1)
+!   dI_M(K)/dS'(K) = A2(K-1,LS) (K>=2; 0 at the outer boundary K=1)
+!   dI_P(K)/dS'(K) = A2(K,LS) (K<=NI-1)
 !   at K=NI: non-core rays (LS>NC) and ZERO_FLUX/PNT_SRCE boundaries
 !     have I_P(NI)=I_M(NI), so dI_P/dS' = dI_M/dS' = A2(NI-1,LS);
 !     core rays with DIFFUSION/RAY inner boundary have I_P(NI)=I_CORE
@@ -4533,7 +4533,7 @@ C
 	  K=J_PNT(1,LS)
 !
 ! T1/T2 are the outward/inward boundary intensities I+ = AV + CV_BOUND
-! and I- = AV - CV_BOUND.  A negative value is unphysical -- the
+! and I- = AV - CV_BOUND. A negative value is unphysical -- the
 ! formal solution produced a moment decomposition that cannot be a
 ! real intensity pair -- so the floor is now counted in
 ! FG_N_NEG_BND_I rather than silently absorbed into JMIN_OB.
@@ -4561,9 +4561,9 @@ C
 !
 ! Boundary identity audit: since AV=(I_P+I_M)/2 is accumulated with
 ! the same JQW weights, JNU_STORE(1) must equal 0.5*(JPLUS+JMIN) and
-! KNU_STORE(1) likewise.  Any residual means a floored intensity or
+! KNU_STORE(1) likewise. Any residual means a floored intensity or
 ! a corrupted CV_BOUND entered the sums -- counted as a boundary
-! failure in FG_N_BND_IDENT.  H and N are not checked this way: on
+! failure in FG_N_BND_IDENT. H and N are not checked this way: on
 ! the midpoint convention HNU_AT_OB uses H_PNT, not J_PNT, so the
 ! residual there measures definition, not corruption.
 !
@@ -4684,20 +4684,20 @@ C
 ! Compute the boundary Eddington factors.
 !
 ! Clamp only NaN and NEGATIVE JNU_STORE at all depths BEFORE computing
-! FEDD or boundary conditions.  This prevents NaN from propagating into
+! FEDD or boundary conditions. This prevents NaN from propagating into
 ! FEDD (KNU/JNU) and thence into the BA matrix via VAR_MOM_J_CMF_V12.
 ! The .NE. self-comparison catches NaN (NaN /= NaN is TRUE in IEEE-754).
 !
 ! ROOT-CAUSE FIX (2026-09-10): The previous condition JNU_STORE < 1.0E-30
 ! caught legitimately small EUV intensities (e.g. at 120 Angstrom the
-! Wien tail is far below 1.0E-30 for T ~ 5000-10000 K).  This produced
+! Wien tail is far below 1.0E-30 for T ~ 5000-10000 K). This produced
 ! ~600k false "NaN/negative JNU" clamps per sweep, all at the first
 ! (highest) CMF frequency, and the count INCREASED across great iterations
 ! because the clamped value (1.0E-30) was orders of magnitude ABOVE the
-! physical intensity, feeding back an unphysical EUV boost.  V13 only
-! checks JNU_STORE < 0 (negative), not small positive.  This change
+! physical intensity, feeding back an unphysical EUV boost. V13 only
+! checks JNU_STORE < 0 (negative), not small positive. This change
 ! matches V13: only NaN and negative values are clamped; small positive
-! values pass through unchanged.  A separate FEDD guard below prevents
+! values pass through unchanged. A separate FEDD guard below prevents
 ! division by a genuinely tiny JNU_STORE.
 !
 ! edited by Sean Brennan
@@ -4746,32 +4746,32 @@ C
 	END DO
 !
 ! edited by Sean Brennan
-! Boundary-closure audit.  Two distinct quantities share the name
+! Boundary-closure audit. Two distinct quantities share the name
 ! HBC: (i) the measured closure HNU_AT_OB/JNU_STORE(1), computed on
 ! the floored boundary J below and passed through to HBC_CMF so
 ! HFLUX_AT_OB keeps reporting the measured flux; (ii) the validated
 ! closure the moment solver's boundary row uses (HBC_ROW), where a
 ! negative or NaN value is replaced by the physical H(1)=0 closure
-! and counted in MOM_BND_HBC_FL.  Flooring J first means the
+! and counted in MOM_BND_HBC_FL. Flooring J first means the
 ! reported HBC can be finite-but-huge or negative when the formal
-! solution underflows; FG_N_BADHBC counts those cases.  The
+! solution underflows; FG_N_BADHBC counts those cases. The
 ! asymmetry is deliberate: the raw value is an observable
 ! diagnostic, the floored value is the operator input.
 !
 	FG_MIN_JBND=MIN(FG_MIN_JBND,JNU_STORE(1))
 	IF(JNU_STORE(1) .LT. 1.0E-30_LDP)JNU_STORE(1)=1.0E-30_LDP
 !
-! Inner-boundary Eddington IN_HBC = <mu*I_in>/(2*J(ND)-IC).  The old
+! Inner-boundary Eddington IN_HBC = <mu*I_in>/(2*J(ND)-IC). The old
 ! guard floored only |denom| < 1e-30, which is scale-blind: a small
 ! but nonzero signed denominator (J(ND) ~ IC/2 cancellation) produced
 ! an arbitrarily large or negative IN_HBC that then entered
 ! TB_NM(ND)=F/DTAU+IN_HBC and XM_NM(ND)=R^2*IC*(0.25+0.5*IN_HBC) in
-! the moment solver.  Floor the denominator relative to the terms
+! the moment solver. Floor the denominator relative to the terms
 ! forming it, and validate the ratio into the physical range [0,1]
 ! (|mu| <= 1); an unusable measurement falls back to 0.5, the
 ! hemispheric mean of |mu| for incident radiation -- the same
 ! degenerate-Eddington-replaced-by-physical-closure policy as the
-! MOM HBC_ROW floor.  The .NOT.(.GE.) tests also catch NaN.
+! MOM HBC_ROW floor. The .NOT.(.GE.) tests also catch NaN.
 ! (Oct-2026 IN_HBC guard fix)
 !
 	DENOM_IN=2.0_LDP*JNU_STORE(ND)-IC
@@ -4799,10 +4799,10 @@ C
 !
 ! FEDD guard (2026-09-10): With the per-depth clamp removed (only NaN
 ! and negative are clamped now), JNU_STORE can be arbitrarily small at
-! EUV frequencies.  KNU_STORE and JNU_STORE should be the same order
+! EUV frequencies. KNU_STORE and JNU_STORE should be the same order
 ! of magnitude (both ~0 at EUV), so FEDD = KNU/JNU should be ~1/3.
 ! But if JNU_STORE is exactly zero or sub-tiny while KNU is not, FEDD
-! could blow up.  Guard: if JNU_STORE < 1.0E-30, set FEDD = 1/3
+! could blow up. Guard: if JNU_STORE < 1.0E-30, set FEDD = 1/3
 ! (isotropic limit) and JNU = 1.0E-30 for downstream consumers.
 ! This matches V13's boundary floor philosophy without the per-depth
 ! clamp that caused the false EUV cascade.
@@ -4887,7 +4887,7 @@ C
 ! This is a one-shot diagnostic - it writes once and never again.
 ! edited by Sean Brennan
 ! W18: gated on CONV_DIAG_LVL>=1 -- this write ran unconditionally on
-! the production path on every cold start.  IOSTAT checked so a
+! the production path on every cold start. IOSTAT checked so a
 ! failing open never wedges the sweep.
 	IF(CONV_DIAG_LVL .GE. 1 .AND.
 	1   JNU_CLAMP_DIAG_WRITTEN .EQ. 0 .AND. N_SWEEP_CNT .GE. NCF_IN)THEN
@@ -4940,9 +4940,9 @@ C
 !  Gauss-Seidel I_NEXT restart/checkpoint routines (added 16-Sep-2026).
 !
 !  The in-place GS arrays I_P/I_M_DEPTH_NEXT hold a COMPLETE generation only
-!  between frequency sweeps.  They are checkpointed at every SCR_RITE_V2 call
+!  between frequency sweeps. They are checkpointed at every SCR_RITE_V2 call
 !  (which always runs after the population solve, i.e. long after the sweep
-!  completed), tagged with the NITSF value written to the POINT files.  On
+!  completed), tagged with the NITSF value written to the POINT files. On
 !  restart, SCR_READ_V2 returns that same NITSF and CMFGEN_SUB passes it to
 !  SET_FG_GS_TAG, so a file is accepted only if it was written by the same
 !  checkpoint event the population restart used.
@@ -4957,7 +4957,7 @@ C
 !           FG_SW_MAXCHG, FG_SW_NCONV, FG_RF_DCHG
 !           (prefix-compatible: readers pulling the original two
 !           fields still succeed on the longer record)
-!    rec 8: KN_FREQ(1:NCF_IN)      (VERSION >= 3 only; the writer's
+!    rec 8: KN_FREQ(1:NCF_IN) (VERSION >= 3 only; the writer's
 !           frequency grid -- needed so the OBS driver, which builds a
 !           different grid, can remap I_NEXT in frequency)
 !    rec 9: I_P_DEPTH_NEXT (N_COMP*NP*NCF_IN values; rec 8-10 skipped
@@ -4984,10 +4984,10 @@ C
 	REAL(KIND=LDP) NU(NCF)
 !
 ! Called by CMF_FLUX_SUB_V5 once its frequency grid is final and before
-! the formal-solve loop starts.  The OBS grid differs from the model
+! the formal-solve loop starts. The OBS grid differs from the model
 ! grid that wrote FGINEXT_GS, so the solver's first-call init must use
 ! RESTORE_FG_INEXT_OBS (frequency remap) instead of the positional
-! RESTORE_FG_INEXT_GS.  NU is copied; the caller's array stays live.
+! RESTORE_FG_INEXT_GS. NU is copied; the caller's array stays live.
 !
 	IF(ALLOCATED(GS_NU_OBS))DEALLOCATE(GS_NU_OBS)
 	ALLOCATE(GS_NU_OBS(NCF))
@@ -4998,11 +4998,11 @@ C
 	END
 !
 ! Return the restored-checkpoint maturity state for the N_LAM_RWARM
-! warm-up decision in SOLVE_FOR_POPS.  Kept as a subroutine (not a
+! warm-up decision in SOLVE_FOR_POPS. Kept as a subroutine (not a
 ! module USE) because new_main/mod_subs compiles before plane/ in the
 ! library build order, so module visibility is not available there.
 !
-!   GS_OK    : a validated FGINEXT_GS generation was restored
+!   GS_OK : a validated FGINEXT_GS generation was restored
 !   CHG_FILE : last-sweep max relative change recorded in the file
 !              (-1 when no checkpoint was read)
 !   CAP_FILE : capped/non-finite write count recorded in the file
@@ -5053,7 +5053,7 @@ C
 !
 ! Same-census cap fields: sweep-only caps against sweep-store
 ! writes, refresh-only caps against the refresh significant-cell
-! total.  SOLVE_FOR_POPS picks the pair matching whichever side
+! total. SOLVE_FOR_POPS picks the pair matching whichever side
 ! ran this iteration.
 !
 	SW_CAPPED=FG_SW_CAPPED
@@ -5092,7 +5092,7 @@ C
 !
 ! Accessor for the diagonal approximate-Lambda derivatives (dJ/dCHI,
 ! dJ/dETA at same depth) stored by FG_J_CMF_NONMONO_V1 for the current
-! frequency.  Needed by DO_VAR_CONT's fixed-J branch in new_main, which
+! frequency. Needed by DO_VAR_CONT's fixed-J branch in new_main, which
 ! compiles before plane and so cannot USE the module directly.
 !
 	VALID=.FALSE.
@@ -5119,10 +5119,10 @@ C
 	LOGICAL REN_OK
 	EXTERNAL ERROR_LU
 !
-! Skip entirely when the arrays are not allocated.  This covers the
+! Skip entirely when the arrays are not allocated. This covers the
 ! startup SCR_RITE (before the first formal solve): writing a header
 ! there would clobber a still-valid checkpoint file before the restore
-! in the first FG call could read it.  With no compressing depths the
+! in the first FG call could read it. With no compressing depths the
 ! arrays are never allocated and no file is ever written; the restore
 ! then reports "no checkpoint" and the warm-up behaves as before.
 !
@@ -5132,7 +5132,7 @@ C
 ! Report the per-sweep Gauss-Seidel convergence of the I_NEXT coupling
 ! arrays (Knop et al. 2009 Paper II pathway): the largest relative
 ! change written this sweep plus the count of capped/bad writes
-! (sweep write-back plus any refresh clamp/divergence events).  This
+! (sweep write-back plus any refresh clamp/divergence events). This
 ! report must not contain the literal string "NaN": submit_cmfgen.sh's
 ! check_outgen_for_fatal treats it as a crash signature and would
 ! veto every requeue.
@@ -5140,7 +5140,7 @@ C
 	LUER=ERROR_LU()
 !
 ! Argmax-jitter history (CONV_DIAG_LVL>=2): the last four sweeps'
-! (depth,ray,freq,value) tuples classify the drift floor.  Values
+! (depth,ray,freq,value) tuples classify the drift floor. Values
 ! alternating direction at a fixed cell mark a period-2 limit cycle
 ! of the composite map; a stable monotone argmax marks a marginal
 ! contraction tail (under-relaxation slows it but cannot shrink it);
@@ -5200,10 +5200,10 @@ C
 ! matching was not sufficient to tie the stored I_NEXT to this grid.
 !
 ! Format version 3 (Oct-2026): adds the writer's frequency grid KN_FREQ
-! between the metrics record and the intensity records.  The
+! between the metrics record and the intensity records. The
 ! observation-frame driver (cmf_flux) builds a different frequency grid
 ! than the model run, so RESTORE_FG_INEXT_OBS needs the model NU array
-! to remap the stored I_NEXT field in frequency.  KN_FREQ precedes the
+! to remap the stored I_NEXT field in frequency. KN_FREQ precedes the
 ! intensity records so the OBS restore can read the grid first and
 ! then stream each intensity array: read, remap, deallocate, keeping
 ! the transient footprint to one array.
@@ -5274,7 +5274,7 @@ C
 	WRITE(LUER,'(A)')'GS RESTART STATE (FG_J_CMF_NONMONO_V1):'
 !
 ! Hard invariant: NEWMOD (or any state where SCR_READ_V2 did not return
-! a positive NITSF) never restores GS state.  This cannot rely on the
+! a positive NITSF) never restores GS state. This cannot rely on the
 ! tag check alone: a stale file from a different model could carry any
 ! tag, so the cold-start case exits before the file is even opened.
 !
@@ -5311,7 +5311,7 @@ C
 	  IF(GS_FOREIGN_SEED)THEN
 ! Tag mismatches only when the file came from a different run of the
 ! same model (foreign warm transplant) or from an earlier checkpoint
-! generation than SCRTEMP.  The R/V/SIGMA/COMP_DEPTH_IDX fingerprint
+! generation than SCRTEMP. The R/V/SIGMA/COMP_DEPTH_IDX fingerprint
 ! below still gates physical compatibility, and the seed is kept
 ! immature (SEED_FOREIGN clears I_NEXT_GS_OK at the success point)
 ! so the warm-up re-converges the lagged map before any BA step.
@@ -5334,7 +5334,7 @@ C
 	END IF
 !
 ! Full-grid fingerprint: every element of R, V and SIGMA must be
-! identical to the file's, then the entire COMP_DEPTH_IDX map.  This
+! identical to the file's, then the entire COMP_DEPTH_IDX map. This
 ! guarantees I_NEXT(KC,LS,K) refers to the same physical depth, ray and
 ! frequency after the requeue -- endpoint/checksum matching cannot.
 ! Each unformatted READ consumes a whole record, so the file vectors
@@ -5365,7 +5365,7 @@ C
 	IF(IOS .NE. 0)GOTO 900
 !
 ! VERSION >= 3 files carry the writer's frequency grid ahead of the
-! intensity records.  On this path the grid must equal the run grid
+! intensity records. On this path the grid must equal the run grid
 ! (same NCF enforced above), so it is read only to keep the stream
 ! aligned; a non-positive or non-monotone grid marks the file corrupt.
 !
@@ -5379,7 +5379,7 @@ C
 	  DEALLOCATE(R_F)
 	END IF
 !
-! Validated header.  Read the two arrays (they share one file/write so
+! Validated header. Read the two arrays (they share one file/write so
 ! they are always the same GS generation), then the end marker.
 !
 	IF(N_COMP .GT. 0)THEN
@@ -5395,7 +5395,7 @@ C
 ! Value validation (audit 17-Sep-2026): a structurally intact file can
 ! still carry a corrupted field -- the convergence metric must be
 ! finite and non-negative, the cap/floor count non-negative, and the
-! restored intensities finite and non-negative everywhere.  Any
+! restored intensities finite and non-negative everywhere. Any
 ! violation rejects the whole generation: the next compressing-
 ! frequency solve would otherwise read the corrupted values as
 ! explicit upwind source terms.
@@ -5462,19 +5462,19 @@ C
 ! In-run rollback restore (30-Sep-2026).
 !
 ! RESTORE_FG_INEXT_GS is gated on FG_GS_TAG_EXP, the NITSF restored at
-! job start, so it can only run at INIT.  The resacc rejection in
+! job start, so it can only run at INIT. The resacc rejection in
 ! SOLVEBA needs the same restore mid-run: when a BA step is rolled
 ! back, the lagged I_NEXT field in memory was solved on the post-step
 ! (rejected) populations, and re-solving from that seed can leave the
-! GS basin entirely -- LAM_dbg it49-56: pops rollback alone left
-! se_res2 growing 439 -> 2e7 at held pops.  At the reject point the
+! GS basin entirely -- pops rollback alone left
+! se_res2 growing 439 -> 2e7 at held pops. At the reject point the
 ! FGINEXT_GS on disk still holds the generation checkpointed at the
 ! end of the step's own iteration, i.e. the field solved on the
 ! pre-step populations the rollback restores -- the consistent pair.
 !
 ! The NITSF tag check is meaningless mid-run (the file was written by
 ! this process), so this variant skips it and relies on the same
-! R/V/SIGMA/COMP_DEPTH_IDX fingerprint the INIT restore uses.  A
+! R/V/SIGMA/COMP_DEPTH_IDX fingerprint the INIT restore uses. A
 ! foreign or init-rejected FGINEXT_GS with matching dimensions can
 ! survive in the run directory (the INIT path rejects without
 ! deleting), and a velocity/grid revision between the last dump and
@@ -5527,7 +5527,7 @@ C
 !
 ! Fingerprint records: each must equal the live grid exactly (the
 ! file holds a verbatim copy of the model arrays, so bitwise equality
-! is the right test).  MOD_CMFGEN R/V/SIGMA are the arrays CMFGEN_SUB
+! is the right test). MOD_CMFGEN R/V/SIGMA are the arrays CMFGEN_SUB
 ! passes to SCR_RITE_V2, which is what DUMP_FG_INEXT_GS wrote.
 !
 	IF(.NOT. ALLOCATED(R) .OR. .NOT. ALLOCATED(V) .OR.
@@ -5583,11 +5583,11 @@ C
 	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 900
 !
 ! Value audit (edited 19-Oct-2026): replicate the INIT-path
-! check from RESTORE_FG_INEXT_GS.  This path previously accepted any
+! check from RESTORE_FG_INEXT_GS. This path previously accepted any
 ! fingerprint-matching record, so a corrupt but dimensionally valid
 ! FGINEXT_GS (or an init-rejected stale file with matching dims)
 ! could re-seed the sweep after a BA rollback -- exactly the failure
-! the INIT audit exists to prevent.  On rejection the in-memory
+! the INIT audit exists to prevent. On rejection the in-memory
 ! field is left untouched and the caller falls back, as on the other
 ! failure exits.
 !
@@ -5641,9 +5641,9 @@ C
 ! Observation-frame restore (Oct-2026).
 !
 ! cmf_flux builds its own frequency grid, so the FGINEXT_GS checkpoint
-! (written on the model grid) cannot be restored by position.  This
+! (written on the model grid) cannot be restored by position. This
 ! routine remaps the stored I_NEXT field in frequency onto the OBS grid
-! NU_OBS.  Store convention: slot s holds the field of frequency s+1
+! NU_OBS. Store convention: slot s holds the field of frequency s+1
 ! on the caller's grid, so OBS slot s is filled with the file field at
 ! NU_OBS(s+1); slot NCF_IN is never read by the sweep and is zeroed.
 ! The (KC,LS) indices carry over unchanged: cmf_flux takes NP from RVTJ
@@ -5657,7 +5657,7 @@ C
 ! lagged intensities onto a ray.
 !
 ! Requires a VERSION >= 3 checkpoint (frequency-grid record); older
-! files are rejected loudly rather than silently cold-starting.  A
+! files are rejected loudly rather than silently cold-starting. A
 ! failed restore leaves I_NEXT zeroed, i.e. the same cold start the
 ! OBS path had before this routine existed.
 !
@@ -5723,7 +5723,7 @@ C
 !
 ! No NITSF tag exists in cmf_flux (SCR_READ_V2 is not called); the
 ! R/V/SIGMA/COMP_DEPTH_IDX fingerprint ties the file to this model
-! instead.  NCF_F is expected to differ -- it sizes the file arrays.
+! instead. NCF_F is expected to differ -- it sizes the file arrays.
 !
 	WRITE(LUER,'(A,I8)')'  GS tag (checkpoint iter): ',TAG
 	IF(N_COMP_F .NE. N_COMP .OR. NP_F .NE. NP .OR.
@@ -5752,7 +5752,7 @@ C
 ! by round-trip error, so a bitwise fingerprint can never match here.
 ! Compare within a relative tolerance scaled by each vector's own
 ! maximum instead -- far above round-trip (~1e-11) yet far below any
-! real grid change.  The integer COMP_DEPTH_IDX map stays exact.
+! real grid change. The integer COMP_DEPTH_IDX map stays exact.
 !
 	IF(ANY(ABS(R_F-R) .GT. FP_TOL*MAXVAL(ABS(R))) .OR.
 	1   ANY(ABS(V_F-V) .GT. FP_TOL*MAXVAL(ABS(V))) .OR.
@@ -5789,7 +5789,7 @@ C
 	  ALLOCATE(I_F(N_COMP,NP,NCF_F),STAT=IOS)
 	  IF(IOS .NE. 0)GOTO 900
 !
-! Stream each intensity array: read, validate, remap, free.  Reading
+! Stream each intensity array: read, validate, remap, free. Reading
 ! both at once would double the transient footprint.
 !
 	  READ(291,IOSTAT=IOS)I_F
@@ -5909,13 +5909,13 @@ C
 !
 ! FG_KNOP_REFRESH_V1 is called once per great iteration from CMFGEN_SUB
 ! after the frequency sweep completes (and only when DO_NONMONO_KNOP
-! is set).  For every ray LS it re-solves the full (space,frequency)
+! is set). For every ray LS it re-solves the full (space,frequency)
 ! intensity field on the opacities captured during the sweep
 ! (KN_CHI_EXT/KN_ETA_EXT), iterating alternating-direction frequency
 ! sweeps: ascending frequency index gives expanding cells (GAM>=0) a
 ! fresh upwind at l-1, descending gives compressing cells (GAM<0) a
 ! fresh upwind at l+1 -- the Paper-II ordering that follows the
-! information flow along each characteristic.  The converged field is
+! information flow along each characteristic. The converged field is
 ! written back to I_P_DEPTH_NEXT/I_M_DEPTH_NEXT through the same
 ! under-relaxed in-place write the sweep uses, so the next great
 ! iteration's compressing cells see a converged upwind field rather
@@ -6034,7 +6034,7 @@ C
 	END
 !
 ! W1-W9 setters (17-Oct-2026): VADAT wiring for the
-! maturity-chain-repair knobs.  Same clamp-in-setter pattern as
+! maturity-chain-repair knobs. Same clamp-in-setter pattern as
 ! SET_FG_KN_OPTS.
 !
 	SUBROUTINE SET_FG_OMEGA_V2(DO_V2,DO_PLAT)
@@ -6111,7 +6111,7 @@ C
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
-! return, 0-5 as coded in KNOP_RAY_SOLVE_V1).  The residual max
+! return, 0-5 as coded in KNOP_RAY_SOLVE_V1). The residual max
 ! alone cannot say WHY rays stop short of KN_RAY_TOL: the bulk and
 ! stall exits both stop above tolerance while the population-release
 ! gate still counts their leftover bad cells, so the census shows
@@ -6156,7 +6156,7 @@ C
 	END IF
 !
 ! Monotone-cubic coefficients (log space, extended grid) for the
-! captured per-frequency opacity/emissivity.  Same kernels as the
+! captured per-frequency opacity/emissivity. Same kernels as the
 ! in-sweep CHI_COEF/ETA_COEF build.
 !
 	ALLOCATE(LG_WRK(KN_ND_EXT),STAT=IOS)
@@ -6190,7 +6190,7 @@ C
 	KN_HOT_SPENT=0
 !
 ! Per-ray commit verdict/delta: each thread writes only its own LS
-! slot inside KNOP_RAY_SOLVE_V1.  -1 marks rays that never reached
+! slot inside KNOP_RAY_SOLVE_V1. -1 marks rays that never reached
 ! the commit decision (unsolved/alloc-fail).
 !
 	IF(ALLOCATED(FG_RAY_VC))DEALLOCATE(FG_RAY_VC)
@@ -6230,7 +6230,7 @@ C
 !
 ! Global memory budget: KN_MAX_THREADS alone bounds memory only when
 ! NI*NCF is fixed; scale threads down so N_TH*(~80 B per cell) stays
-! under KN_RF_TOT_MB.  MAXVAL(NI_RAY) is the largest per-ray NI.
+! under KN_RF_TOT_MB. MAXVAL(NI_RAY) is the largest per-ray NI.
 !
 	T2=80.0_LDP*MAXVAL(NI_RAY(1:KN_NP))*KN_NCF/1.0E+6_LDP
 	IF(T2 .GT. 0.0_LDP)THEN
@@ -6256,7 +6256,7 @@ C
 ! W2 (17-Oct-2026): diverged rays report RESID=1.0 so a lone
 ! runaway cannot pin the max-norm backstop -- one diverged ray out
 ! of hundreds used to hold GS_MAXCHG=1.0 > GS_UNSAFE_TOL on every
-! iteration.  They are counted in FG_GS_NDIV and share-gated in
+! iteration. They are counted in FG_GS_NDIV and share-gated in
 ! SOLVE_FOR_POPS instead; the backstop still sees every
 ! non-diverged residual.
 !
@@ -6269,24 +6269,24 @@ C
 ! Adaptive under-relaxation of the lagged store (KN_ADAPT_RELAX,
 ! default T): the residual maxima of successive refresh calls are the
 ! dominant-mode contraction factors rho_est of the outer
-! sweep+refresh fixed-point map.  omega = 1/(1+rho_est) damps an
+! sweep+refresh fixed-point map. omega = 1/(1+rho_est) damps an
 ! expansive or sign-flipping mode (rho_est >= 1) to <= 1/2 and lets a
-! contracting map recover toward the undamped write.  INEXT_RELAX is
+! contracting map recover toward the undamped write. INEXT_RELAX is
 ! smoothed over calls so one noisy residual cannot swing it; the
 ! [0.05,1] clamp keeps the update causal (bounded damping) and
 ! prevents a collapsed residual from disabling relaxation forever.
-! VADAT INEXT_RELAX then acts as the seed value.  Oct-2026.
+! VADAT INEXT_RELAX then acts as the seed value. Oct-2026.
 !
 ! W5 (17-Oct-2026, [FG_ADAPT_OMEGA_V2], default T): the old
 ! cross-iteration ratio miskeys omega -- the refresh residual drifts
 ! with the populations' source update, so a converging field can
 ! read rho_est~1 whether the map oscillates (wants omega~0.5) or
-! contracts marginally (wants omega~1).  KN_RES_PASS holds the
+! contracts marginally (wants omega~1). KN_RES_PASS holds the
 ! per-pass max-over-rays residual sequence of THIS refresh, so the
 ! median of its last ~4 pass ratios measures the same-map
 ! contraction factor directly: oscillation (rho>1) still drives
 ! omega down, smooth contraction (rho~0.9) lets it rise toward the
-! unrelaxed commit W4 made safe.  Clamp [0.05,20] as in the old
+! unrelaxed commit W4 made safe. Clamp [0.05,20] as in the old
 ! rule; F restores the cross-iteration estimate.
 !
 	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
@@ -6334,10 +6334,10 @@ C
 	  KN_RF_RESID_PRV=KN_RF_RESID
 	END IF
 !
-! W4 (17-Oct-2026): keep both metric semantics.  The sweep churn
+! W4 (17-Oct-2026): keep both metric semantics. The sweep churn
 ! (fresh solve vs stored field -- what the populations saw) is
 ! snapshotted into FG_SW_* before FG_GS_* takes the refresh
-! fixed-point values; SOLVE_FOR_POPS now reads both.  MOM keeps
+! fixed-point values; SOLVE_FOR_POPS now reads both. MOM keeps
 ! the identical split in MOM_SW_*.
 !
 	FG_SW_MAXCHG=FG_GS_MAXCHG
@@ -6380,7 +6380,7 @@ C
 	1  '    adaptive INEXT_RELAX: omega=',INEXT_RELAX
 !
 ! Ray exit census: which stop rule ended each field solve (codes in
-! KNOP_RAY_SOLVE_V1).  Stall and cap exits leave above-tolerance
+! KNOP_RAY_SOLVE_V1). Stall and cap exits leave above-tolerance
 ! cells that the release gate still reads as immature, so their
 ! counts and bad-cell share decide whether the stall criterion or
 ! the pass cap is the refresh bottleneck.
@@ -6395,8 +6395,8 @@ C
 ! Bug fix (30-Oct-2026 audit): FG_GS_NSTAL/NPLAT were set from
 ! NX_BAD BEFORE this census filled it, so the stall/plateau share
 ! the release gate reads (GET_FG_GS_MATURITY GS_NBAD_STAL/PLAT)
-! was always zero.  Not flag-gated: the counters were dead code,
-! never a working gate input.  Stall and cap exits count
+! was always zero. Not flag-gated: the counters were dead code,
+! never a working gate input. Stall and cap exits count
 ! together (both are still-contracting stop rules); plateau is
 ! the IXIT=6 class.
 !
@@ -6436,9 +6436,9 @@ C
 	1    '    p2damped writes=',SUM(NP2_LS)
 	END IF
 !
-! Temporary DO_NONMONO_KNOP diagnostic table.  The formal refresh can
+! Temporary DO_NONMONO_KNOP diagnostic table. The formal refresh can
 ! appear converged in aggregate while one ray remains tied to a long
-! compressing-frequency stencil.  Report that ray and how often the
+! compressing-frequency stencil. Report that ray and how often the
 ! frequency matcher selected more than the adjacent upwind bin.
 !
 	LS=MAXLOC(RES_LS,DIM=1)
@@ -6455,9 +6455,9 @@ C
 ! Slot-layout limitation (edited 19-Oct-2026): the lagged
 ! store holds frequency l in slot l-1, so the refreshed frequency-1
 ! field computed in KNOP_RAY_SOLVE_V1 has no slot and is never
-! written back (WRITE_STORE loops LS2=2..NCF).  Both band edges
+! written back (WRITE_STORE loops LS2=2..NCF). Both band edges
 ! therefore carry zero lagged memory across generations -- exactly
-! where the compressing coupling is strongest.  Informational only;
+! where the compressing coupling is strongest. Informational only;
 ! the slot convention itself is unchanged.
 !
 	IF(.NOT. F1_NOSLOT_NOTE)THEN
@@ -6468,9 +6468,9 @@ C
 !
 ! Commit census + worst-ray verdict (17-Oct-2026): the exit census
 ! alone cannot show whether an above-tolerance ray's field reached
-! the store.  Verdict codes: 0 committed, 1 jump reject, 2
+! the store. Verdict codes: 0 committed, 1 jump reject, 2
 ! non-converged reject, 3 capped commit (FG_COMMIT_NC), 4 diverged,
-! -1 unsolved.  The worst ray's own exit class, verdict and
+! -1 unsolved. The worst ray's own exit class, verdict and
 ! retained delta identify which acceptance channel carries the
 ! largest residual.
 !
@@ -6496,9 +6496,9 @@ C
 	3    ' max same=',MAXVAL(FG_RAY_WS)
 	END IF
 !
-! Per-pass convergence history (max over rays).  I_M and I_P sweeps
+! Per-pass convergence history (max over rays). I_M and I_P sweeps
 ! share the array; pass counts can differ between the two fields, so
-! the trailing zeros are trimmed on print.  The pass list and the
+! the trailing zeros are trimmed on print. The pass list and the
 ! individual hot-frequency runs are debug-only; the one-line count
 ! stays in OUTGEN.
 !
@@ -6521,7 +6521,7 @@ C
 	END IF
 !
 ! Hot-frequency runs: contiguous stretches of KN_HOT_CNT>0 are the
-! block-GS candidates (cmfgen_obsidian/audits/BLOCK_GS_DESIGN.md).  A contiguous run
+! block-GS candidates (cmfgen_obsidian/audits/BLOCK_GS_DESIGN.md). A contiguous run
 ! means the marginal |Q|/(chi+|Q|) links form a solvable block;
 ! scattered hits mean the residual floor is distributed and the
 ! block structure buys little.
@@ -6564,7 +6564,7 @@ C
 ! KNOP_RAY_SOLVE_V1: fixed-point solve of the coupled wavelength
 ! transfer problem for a single ray, using the sweep-captured
 ! opacities and the same short-characteristics discretisation as the
-! in-sweep INTEGRAL path.  The field arrays are local to this routine
+! in-sweep INTEGRAL path. The field arrays are local to this routine
 ! (per-thread under the OMP loop in FG_KNOP_REFRESH_V1).
 !
 ! ==============================================================================
@@ -6580,12 +6580,12 @@ C
 	REAL(KIND=LDP) RESID
 !
 ! NBBLK/NTBLK (W3, 17-Oct-2026): best-pass bad-cell census summed
-! over the two field solves.  For stall/cap exits the last-pass
+! over the two field solves. For stall/cap exits the last-pass
 ! NBAD still counts every above-tolerance cell, so the gate reads
 ! MIN(GS_NBAD, GS_NBAD_BLK) -- the best pass is the closest the
 ! fixed-point map actually reached.
 !
-! W_LO/W_HI/NHOT (W7, 17-Oct-2026): hot-pass extension state.  When
+! W_LO/W_HI/NHOT (W7, 17-Oct-2026): hot-pass extension state. When
 ! a stall or cap exit fires with residual left only inside a
 ! contiguous hot-frequency run, the sweep continues restricted to
 ! that window (+/-2) for up to KN_RAY_HOTPASSES extra passes;
@@ -6614,12 +6614,12 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: FLD_P(:,:)
 !
 ! RES_FREQ(L): per-frequency max overwrite residual of the last
-! completed pass, accumulated inside MARCH.  Stage-1 instrumentation
+! completed pass, accumulated inside MARCH. Stage-1 instrumentation
 ! for the block-GS redesign (cmfgen_obsidian/audits/BLOCK_GS_DESIGN.md): the global
 ! max residual cannot show whether the marginal cells sit on a
 ! contiguous frequency run (a block) or are scattered -- the
 ! near-unity |Q|/(chi+|Q|) links live at frequencies whose line
-! cores overlap the compression ramp.  Folded into the module-level
+! cores overlap the compression ramp. Folded into the module-level
 ! KN_HOT_CNT histogram once per completed field solve.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: RES_FREQ(:)
@@ -6630,7 +6630,7 @@ C
 !
 ! Matched-frequency work arrays (DO_NONMONO_FREQ_MATCH): per-ray
 ! drift in ln(nu) units DRF_L = |GAM|*ds, refilled per frequency
-! into NFM_L (slot offset) and DLNM_L (log span).  MATCH_FREQ
+! into NFM_L (slot offset) and DLNM_L (log span). MATCH_FREQ
 ! fills both; defaults keep the +1 slot / KN_DLN_N(L) span.
 !
 	INTEGER, ALLOCATABLE :: NFM_L(:)
@@ -6640,7 +6640,7 @@ C
 ! below): the BUILD_FREQ outputs depend only on the captured
 ! opacities and static ray geometry, never on the iterated field, so
 ! they are built once per ray and replayed each pass for both
-! direction fields.  8*NI*NCF*8 B plus the two NCF scalars.
+! direction fields. 8*NI*NCF*8 B plus the two NCF scalars.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: PK_DTAU(:,:),PK_A0(:,:),
 	1   PK_A1(:,:),PK_A2(:,:),PK_A3(:,:),PK_A4(:,:),
@@ -6648,7 +6648,7 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: PK_ETANI(:),PK_CHINI(:)
 !
 ! SPW: 4-deep ring of the modified source S' used by the ordered
-! march (SWEEP_FLD_ORD).  A march step touches four consecutive rows
+! march (SWEEP_FLD_ORD). A march step touches four consecutive rows
 ! only, so MOD(row,4) slots never collide.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: SPW(:,:)
@@ -6660,7 +6660,7 @@ C
 !
 ! Worst-cell tracking (17-Oct-2026): MARCH records the (depth,freq)
 ! cell holding the running max residual; SWEEP_FLD counts how many
-! consecutive passes keep the same worst cell.  A persistent cell
+! consecutive passes keep the same worst cell. A persistent cell
 ! identifies a single unstable mode; a moving max identifies
 ! different cells resetting the residual each pass.
 !
@@ -6673,7 +6673,7 @@ C
 	INTEGER NP_M,NP_P
 ! Exit census of the two field solves: 0 exact (no compressing
 ! cells), 1 residual tol, 2 bulk bad-fraction, 3 same-direction
-! stall, 4 pass cap, 5 diverged.  NXIT reports the field that sets
+! stall, 4 pass cap, 5 diverged. NXIT reports the field that sets
 ! the ray residual, so the summary shows which stop rule limits the
 ! refresh -- the stall and cap exits leave cells above KN_RAY_TOL
 ! that the population-release gate still counts as immature.
@@ -6728,7 +6728,7 @@ C
 ! Per-ray-point compressing lookup, identical logic to the in-sweep
 ! I_NEXT read: ray point I sits between depth-grid points K and K+1
 ! (K=RAY_PNT-ND_ADD); only depths flagged compressing carry an I_NEXT
-! slot.  JPR* are the ray points J_PNT maps those depths to, so the
+! slot. JPR* are the ray points J_PNT maps those depths to, so the
 ! upwind interpolant reads the ray's own field at exactly the points
 ! the in-sweep code reads the sparse store.
 !
@@ -6768,7 +6768,7 @@ C
 !
 ! Per-point comoving frequency drift across the local cell, used by
 ! MATCH_FREQ to rematch the compressing upwind slot (offset 1 =
-! adjacent bin).  ds is the symmetric Z cell, same convention as
+! adjacent bin). ds is the symmetric Z cell, same convention as
 ! the in-sweep NM_RAY fill.
 !
 	  IF(I .EQ. 1)THEN
@@ -6782,7 +6782,7 @@ C
 	  DRF_L(I)=ABS(GAM(I,LS))*DRF_L(I)
 	END DO
 !
-! Build the pass-invariant coefficient pack once per ray.  Every
+! Build the pass-invariant coefficient pack once per ray. Every
 ! quantity BUILD_FREQ produces (cubic opacity evals, chi_hat, Q, SR,
 ! DCHR, DTAU, the E/A short-characteristics coefficients) depends only
 ! on the captured opacities and static ray geometry -- never on the
@@ -6872,7 +6872,7 @@ C
 !
 !	  Diverged I_M: the runaway field must not reach the store, and
 !	  I_P's inner boundary reads IM_NI from this field, so the I_P
-!	  solve is meaningless too.  Both stores keep their pre-refresh
+!	  solve is meaningless too. Both stores keep their pre-refresh
 !	  (in-sweep) state for this ray.
 !
 	  NDIV=1
@@ -6897,7 +6897,7 @@ C
 ! The I_M store is committed only after the I_P solve also succeeds:
 ! writing I_M first left the stores at different refresh generations
 ! on an I_P divergence, so the next great iteration would read a
-! mixed-generation Gauss-Seidel state.  FLD keeps the I_M result
+! mixed-generation Gauss-Seidel state. FLD keeps the I_M result
 ! buffered; FLD_P carries the I_P solve.
 !
 	ALLOCATE(FLD_P(NI,NCF),STAT=IOS)
@@ -6930,13 +6930,13 @@ C
 	  END IF
 !
 ! W9 (17-Oct-2026, [FG_COMMIT_JUMP], default 50.0): whole-ray
-! commit guard.  A runaway pass that stayed below the divergence
+! commit guard. A runaway pass that stayed below the divergence
 ! threshold would once commit a near-blowup into the store (audit:
-! retained delta 4.19E-1 -> 5.03E3).  Reject the commit when the
+! retained delta 4.19E-1 -> 5.03E3). Reject the commit when the
 ! max |V1-V2|/max(V2,1e-4*peak) over either store exceeds
 ! FG_COMMIT_JUMP; the pre-refresh slot values stay in place, so
 ! the next refresh re-seeds from the committed (sane) field.
-! Genuine factor-of-few rewrites still pass.  Direct slot fills
+! Genuine factor-of-few rewrites still pass. Direct slot fills
 ! (cells the store left at the floor) are excluded -- those are
 ! seeds, not overwrites.
 !
@@ -6944,7 +6944,7 @@ C
 ! Per-ray seed-fill waiver (edited 02-Nov-2026,
 ! [FG_SEED_COMMIT], default T): a ray that has never taken a
 ! WRITE_STORE commit skips the jump veto for its first commit --
-! see the FG_RAY_SEEDED declaration.  JUMP stays 0 so the
+! see the FG_RAY_SEEDED declaration. JUMP stays 0 so the
 ! FG_COMMIT_CONV branch below still decides on exit quality.
 !
 	  JUMP=0.0_LDP
@@ -6971,12 +6971,12 @@ C
 	8       RES_P .LE. KN_RAY_BULK_TOL))))))THEN
 !
 ! edited 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
-! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
+! commits. A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
 ! unset code) means the fixed-point solve ended above KN_RAY_TOL;
 ! committing its last iterate wrote that unconverged field into
 ! the lagged store bounded only by the FG_COMMIT_JUMP magnitude --
-! the w19 runaway class (residual 0.465 vs tol 2E-3 committed with
-! retained delta 21).  The residual test also catches the bulk
+! the runaway class (residual 0.465 vs tol 2E-3 committed with
+! retained delta 21). The residual test also catches the bulk
 ! exit: IXIT=2 fires on the bad-cell fraction alone, so a ray with
 ! residual ~0.5 and <0.1% bad cells was still classed converged.
 ! edited 20-Oct-2026: a bulk exit that also clears
@@ -6984,7 +6984,7 @@ C
 ! floored it at the residual the maturity gate's bulk rule
 ! accepts, so sending it to WRITE_STORE_CAP only parked the store
 ! one capped step from the fixed point (the 8-12 nc-capped
-! commits per refresh on m15_2p82d).  With KN_RAY_BULK_TOL<=0 the
+! commits per refresh on ). With KN_RAY_BULK_TOL<=0 the
 ! floor is off entirely -- the IXIT=2 exit fired on bad-fraction
 ! alone, so the commit test must admit it rather than require
 ! BTOL>0 (edited 20-Oct-2026: the two semantics were
@@ -6993,7 +6993,7 @@ C
 ! (per-cell change bounded by NC; the store keeps tracking a
 ! contracting field but cannot ratchet faster than NC/refresh).
 ! NC=0 skips the write: the store keeps the pre-refresh
-! generation, a sane consistent seed.  The residual still reports
+! generation, a sane consistent seed. The residual still reports
 ! RES_M/RES_P, so the maturity gate reads the ray as unconverged
 ! either way.
 !
@@ -7039,7 +7039,7 @@ C
 ! it as unconverged; NBAD/NTOT keep the last completed pass counts.
 !
 ! W2 (17-Oct-2026): heal the ray's retained stores before the next
-! refresh re-seeds from them.  A diverged ray skips the store
+! refresh re-seeds from them. A diverged ray skips the store
 ! write, so a poisoned slot value (non-finite, or >FG_DIV_HEAL_CAP
 ! times the column median) would re-seed and re-diverge the next
 ! refresh -- the mechanism that once held GS_MAXCHG=1.0 forever.
@@ -7080,7 +7080,7 @@ C
 	NBAD=NB_M+NB_P
 	NTOT=NT_M+NT_P
 !
-! W3 (17-Oct-2026): the best-pass census.  For stall/cap exits the
+! W3 (17-Oct-2026): the best-pass census. For stall/cap exits the
 ! last pass still counts every above-tolerance cell, so the gate
 ! reads MIN(GS_NBAD, GS_NBAD_BLK) -- the best pass is what the
 ! fixed-point map actually reached.
@@ -7112,10 +7112,10 @@ C
 	CONTAINS
 !
 ! ----------------------------------------------------------------
-! Warm-start the per-ray field from the lagged depth store.  The
+! Warm-start the per-ray field from the lagged depth store. The
 ! in-sweep store layout is shifted: slot s holds frequency s+1
 ! (FREQ_IDX_ITER is 0 during the first frequency's call), while FLD
-! is indexed by true frequency l.  FLD(:,1) has no stored counter-
+! is indexed by true frequency l. FLD(,1) has no stored counter-
 ! part and stays zero.
 ! ----------------------------------------------------------------
 	SUBROUTINE SEED_FLD(FLD,STORE)
@@ -7138,7 +7138,7 @@ C
 ! ----------------------------------------------------------------
 ! Alternating-direction fixed-point iteration on the coupled field.
 ! Odd passes ascend in frequency (fresh upwind for expanding cells),
-! even passes descend (fresh upwind for compressing cells).  A ray
+! even passes descend (fresh upwind for compressing cells). A ray
 ! with no usable compressing slots is exact after the first pass.
 ! ----------------------------------------------------------------
 	SUBROUTINE SWEEP_FLD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT,
@@ -7179,7 +7179,7 @@ C
 	DO
 	  NPO=NPO+1
 !
-! W7 (17-Oct-2026): hot-pass extension.  When a stall or cap exit
+! W7 (17-Oct-2026): hot-pass extension. When a stall or cap exit
 ! fires with residual left only inside a contiguous hot-frequency
 ! run, the sweep continues restricted to that window for up to
 ! KN_RAY_HOTPASSES extra passes; KN_HOT_SPENT bounds the
@@ -7244,9 +7244,9 @@ C
 !
 ! Divergence containment: a non-finite residual, or a same-direction
 ! blow-up (RES more than 1e3 above the best pass so far, checked once
-! two passes have completed), means the iteration is diverging.  Exit
+! two passes have completed), means the iteration is diverging. Exit
 ! at once: the caller skips the write-back, so the runaway field never
-! reaches the store.  No FLD copy is kept (NI*NCF*8 B per thread).
+! reaches the store. No FLD copy is kept (NI*NCF*8 B per thread).
 !
 	  IF(RES .NE. RES .OR. RES .GT. HUGE(RES) .OR.
 	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
@@ -7255,7 +7255,7 @@ C
 	    EXIT
 	  END IF
 !
-! W3 (17-Oct-2026): best-pass census.  The stall/cap exits below
+! W3 (17-Oct-2026): best-pass census. The stall/cap exits below
 ! carry NB_O/NT_O from the last pass; the gate reads
 ! MIN(GS_NBAD, GS_NBAD_BLK), so track the census of the pass the
 ! map actually reached.
@@ -7269,12 +7269,12 @@ C
 ! Adaptive relaxation keyed on the SAME-DIRECTION residual history
 ! (pass N vs N-2): alternating-direction sweeps interleave a
 ! compressing-upwind pass with an expanding-upwind pass, so the raw
-! pass-to-pass sequence can sawtooth even while each direction
-! converges geometrically.  OMEGA_RAY must never exceed 1 here:
+! pass-to-pass sequence can ooth even while each direction
+! converges geometrically. OMEGA_RAY must never exceed 1 here:
 ! MARCH applies it inside the spatial short-characteristics
 ! recurrence, where each cell relaxes from the just-relaxed upwind
 ! value, so an omega>1 error amplification compounds per cell along
-! the ray.  Knop Paper II uses plain GS/Jacobi -- no over-relaxation.
+! the ray. Knop Paper II uses plain GS/Jacobi -- no over-relaxation.
 ! Same-direction growth signals an oscillatory (-1-eigenvalue) cycle
 ! -> damp; fast contraction lets omega recover toward 1 only.
 !
@@ -7285,10 +7285,10 @@ C
 !
 ! edited 14-Oct-2026: suppress damping while the
 ! same-direction baseline (pass NPO-2) is still inside the
-! warm-start seed transient (passes 1-2).  A transient baseline
+! warm-start seed transient (passes 1-2). A transient baseline
 ! reads a spurious growth ratio and can drive OMEGA_RAY to the
 ! 0.45 floor on seeding artifacts alone, over-damping the ray for
-! the whole refresh.  Recovery toward 1 is left unfloored: it only
+! the whole refresh. Recovery toward 1 is left unfloored: it only
 ! undoes earlier damping.
 !
 	    IF(RATIO_OM .GT. 1.05_LDP .AND. NPO .GE. 5)THEN
@@ -7300,7 +7300,7 @@ C
 ! W6 (17-Oct-2026): sign-flip damping ported from SWEEP_FLD_ORD --
 ! on a period-2 limit cycle (lambda ~ -1) the signed per-cell
 ! update sum flips every pass; two consecutive flips damp
-! OMEGA_RAY.  Marginal contraction (lambda ~ +0.99) keeps its
+! OMEGA_RAY. Marginal contraction (lambda ~ +0.99) keeps its
 ! sign and is left to the stall exits.
 !
 	    IF(SGN_PRV .NE. 0.0_LDP .AND.
@@ -7317,7 +7317,7 @@ C
 !
 ! Stall detection: count consecutive same-direction comparisons with
 ! residual ratio above KN_RAY_STALL (VADAT, default 0.98 = <2%
-! improvement).  The lagged field is rebuilt from fresh opacities
+! improvement). The lagged field is rebuilt from fresh opacities
 ! every great iteration, so polishing a slowly-contracting fixed
 ! point buys little -- NSTALL>=2 (four straight passes of
 ! stagnation) exits below once past the initial transient (NPO>=8).
@@ -7332,7 +7332,7 @@ C
 	      END IF
 !
 ! W6 (17-Oct-2026, [FG_PLATEAU_DET], default T): two additions to
-! the same-direction-only stall.  (a) Plateau: three consecutive
+! the same-direction-only stall. (a) Plateau: three consecutive
 ! same-direction ratios in [0.95,1.05] -- flat, not contracting.
 ! (b) Combined-direction thrash: MAX ratio >0.98 AND the previous
 ! same-direction ratio >0.95 -- both directions stagnate, so the
@@ -7372,7 +7372,7 @@ C
 !
 !	    No compressing cells: the single pass is the exact solve, so
 !	    the pass-1 change is a seed transient, not a fixed-point
-!	    residual.  Report 0 so this ray cannot pin the gate; the
+!	    residual. Report 0 so this ray cannot pin the gate; the
 !	    per-frequency residuals are also dropped so this ray cannot
 !	    inflate KN_HOT_CNT.
 !
@@ -7390,20 +7390,20 @@ C
 !
 ! Bulk exit: once the significant-cell bad fraction is at or below
 ! the maturity-gate level, further passes only polish cells the gate
-! ignores.  Require a minimum of 6 passes so the first couple of
+! ignores. Require a minimum of 6 passes so the first couple of
 ! sweep directions cannot exit on a partially-propagated field.
 !
 ! [FG_BULK_CONTR]: the bulk test ignores the residual magnitude, so
 ! a flat noncontracting ray (RATIO_OM~1) with a sub-0.1% bad
 ! fraction exited "converged" at pass 6 -- before the stall and
-! plateau classifiers (pass>=8) could run.  w19 committed 8-27x
-! retained deltas through this door at residual 0.25-0.49.  With the
+! plateau classifiers (pass>=8) could run. committed 8-27x
+! retained deltas through this door at residual 0.25-0.49. With the
 ! flag set the exit also requires same-direction contraction;
 ! noncontracting rays fall through to the stall/plateau/cap classes.
 !
 ! [KN_RAY_BULK_TOL] (edited 20-Oct-2026): the exit is
 ! also floored on the residual itself -- the level the maturity
-! gate's bulk rule accepts.  Rays above the floor fall through to
+! gate's bulk rule accepts. Rays above the floor fall through to
 ! stall/plateau/cap, so an IXIT=2 exit now certifies the field the
 ! refresh commit gate writes unconverged-free.
 !
@@ -7416,7 +7416,7 @@ C
 	    EXIT
 	  END IF
 !
-! W7 (17-Oct-2026): hot-pass extension.  A stall or pass-cap exit
+! W7 (17-Oct-2026): hot-pass extension. A stall or pass-cap exit
 ! with residual left only inside a contiguous hot-frequency run
 ! continues restricted to that window instead of exiting -- the
 ! marginal |Q|/(chi+|Q|) modes live on contiguous compression
@@ -7448,7 +7448,7 @@ C
 !
 	IF(CLEAN_EXIT)NB_O=0
 !
-! W3 (17-Oct-2026): export the best-pass census.  Stall/cap exits
+! W3 (17-Oct-2026): export the best-pass census. Stall/cap exits
 ! carry the last-pass NB_O/NT_O; the gate takes
 ! MIN(GS_NBAD, GS_NBAD_BLK) so a ray whose best pass was inside the
 ! bulk band cannot keep the maturity gate pinned.
@@ -7463,7 +7463,7 @@ C
 ! Modified source S'(r,l) for a single cell of the ordered march.
 ! Identical stencil to SRC_PRIME: expanding cells take the same-row
 ! upwind FLD(r,l-1), compressing cells take the JPR-interpolated
-! upwind at l+NFM (matched slot under DO_NONMONO_FREQ_MATCH).  The
+! upwind at l+NFM (matched slot under DO_NONMONO_FREQ_MATCH). The
 ! caller guarantees r is inside 1..NI and uses the ring slot of r.
 ! ----------------------------------------------------------------
 	SUBROUTINE KN_ORD_SPV(FLD,R,L,SPV)
@@ -7504,7 +7504,7 @@ C
 !
 ! ----------------------------------------------------------------
 ! Fill ring slot of row R with S'(R,:) evaluated on the current FLD
-! state.  Used for the boundary rows and for the "preview" of the
+! state. Used for the boundary rows and for the "preview" of the
 ! not-yet-marched neighbour row -- the lagged C-corner source of
 ! Knop et al. (2009, Paper II Eqs. 31/32).
 ! ----------------------------------------------------------------
@@ -7536,7 +7536,7 @@ C
 ! ----------------------------------------------------------------
 ! Monotonic-parabola slope DS(r) on the SPW ring -- the SLOPES
 ! construction including the endpoint extrapolations and the
-! sign-and-min clamps.  Reads S' rows r-2..r+1 (via the secants),
+! sign-and-min clamps. Reads S' rows r-2..r+1 (via the secants),
 ! so the caller must hold those rows in the ring.
 ! ----------------------------------------------------------------
 	REAL(KIND=LDP) FUNCTION KN_ORD_DS(R,L)
@@ -7591,7 +7591,7 @@ C
 ! The only lagged quantities are the source of the one row beyond
 ! the marching front -- SP(j+1) for I_M, SP(j-1) for I_P, entering
 ! through the parabolic slope term DS -- plus compressing
-! interpolant donors JPR on the unmarched side of the front.  Both
+! interpolant donors JPR on the unmarched side of the front. Both
 ! are the corner terms Knop also leaves lagged (their C+/- coupling
 ! of Eqs. 31/32); the main |Q| wavelength link never waits a pass.
 ! The DS corner vanishes where the monotonicity clamp zeroes the
@@ -7622,9 +7622,9 @@ C
 ! FG_ORD_AITKEN (VADAT [KN_ORD_AITKEN], default F): guarded Aitken
 ! delta-squared extrapolation of the pass iterate, aimed at the
 ! marginally contractive |Q|->1 compression cells that stall the
-! march against the bulk-maturity exit.  FLD_PRV holds the last
+! march against the bulk-maturity exit. FLD_PRV holds the last
 ! committed iterate, DLT_PRV the previous pass delta; the pair of
-! consecutive deltas gives the per-cell contraction ratio.  Restart
+! consecutive deltas gives the per-cell contraction ratio. Restart
 ! convention: the extrapolated value replaces the pass result, so
 ! the next pass marches from the accelerated state.
 !
@@ -7637,15 +7637,15 @@ C
 ! pass iterate, mirroring the runtime-tested MOM refresh AA
 ! (mom_j_cmf_nonmono_v1.f) plus a residual-acceptance rollback.
 ! History pairs are (x_i, r_i=g(x_i)-x_i) where g is one relaxed
-! march; slot 1 is the newest pair.  Guards: residual-weighted
+! march; slot 1 is the newest pair. Guards: residual-weighted
 ! Gram system, exclusion of cells outside the affine regime
 ! (weighted residual/secant > AA_GCAP), Tikhonov ridge,
 ! ||corr||>1E3||f|| veto (garbage bound only -- a marginal mode's
 ! correct step is ~||f||/(1-lambda)), 10|r| per-cell step cap,
-! positivity/cap fallback.  If the pass after an applied mix does
+! positivity/cap fallback. If the pass after an applied mix does
 ! not improve,
 ! the pre-mix iterate is restored, the history cleared, and AA
-! disabled for the rest of the solve.  Collection only starts at
+! disabled for the rest of the solve. Collection only starts at
 ! NPO>=4 (past the seed transient), so fast rays never pay the
 ! (M+1)-pair memory.
 !
@@ -7662,9 +7662,9 @@ C
 !
 ! FG_ORD_P2DAMP (VADAT [KN_ORD_P2DAMP], default F): per-cell
 ! period-2 collapse for the bounded lambda~-1 modes the whole-ray
-! KN_SGN_SUM detector cannot see (the m15_2p82d kndump run pinned
+! KN_SGN_SUM detector cannot see (the run pinned
 ! the gate at a stable 0.53 max residual on ~20 near-floor cells
-! flip-flopping ~2x/~0.5x per pass).  P2_SGN holds the sign of the
+! flip-flopping ~2x/~0.5x per pass). P2_SGN holds the sign of the
 ! last update delta at each significant cell, P2_FLIP the
 ! consecutive flip count, P2_DMP the damped state (0 = off,
 ! 1..FG_ORD_P2REL = damped; counts flip-free passes until release).
@@ -7786,7 +7786,7 @@ C
 	  IF(INWARD)THEN
 !
 ! Boundary row I=1: zero incident intensity, same residual
-! accounting as MARCH.  edited 19-Oct-2026: hot-window
+! accounting as MARCH. edited 19-Oct-2026: hot-window
 ! guard matching the interior frequency loops -- on a hot pass the
 ! out-of-window columns kept reprocessing this row each pass,
 ! polluting the NTOT_CUR/RES_FREQ bookkeeping (and re-zeroing a
@@ -7850,11 +7850,11 @@ C
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 !
-! KN_DUMP: per-cell record of late-pass residual outliers.  Cells
+! KN_DUMP: per-cell record of late-pass residual outliers. Cells
 ! still changing >20% past the transient passes form the
 ! non-contractive set that pins the maturity gate; the record
 ! carries the coupling context so failing modes can be classified
-! offline.  Capped per ray so a pathological solve cannot flood
+! offline. Capped per ray so a pathological solve cannot flood
 ! the log.
 !
 	          IF(PRINT_KNOP_DEBUG .AND. T1 .GT. 0.2_LDP .AND.
@@ -7870,7 +7870,7 @@ C
 ! P2 tracking (KN_ORD_P2DAMP): the sign of this cell's update delta
 ! is kept across passes; a significant cell that flips
 ! FG_ORD_P2N times in a row rides a lambda<0 mode the bulk
-! KN_SGN_SUM cannot see.  P2_DMP counts flip-free passes while
+! KN_SGN_SUM cannot see. P2_DMP counts flip-free passes while
 ! damped, so the collapse releases once the cell settles.
 !
 	          IF(DO_P2)THEN
@@ -7920,7 +7920,7 @@ C
 	  ELSE
 !
 ! Inner boundary row I=NI: same options and accounting as the
-! outward branch of MARCH.  edited 19-Oct-2026: same
+! outward branch of MARCH. edited 19-Oct-2026: same
 ! hot-window guard as the row-1 block -- out-of-window columns
 ! must keep their stored values and stay out of the pass census.
 !
@@ -8093,7 +8093,7 @@ C
 	  NB_O=NBAD_CUR
 	  NT_O=NTOT_CUR
 !
-! Newest history residual r_k = g(x_k)-x_k (the pass delta).  On a
+! Newest history residual r_k = g(x_k)-x_k (the pass delta). On a
 ! rejected-mix pass the pair is discarded with the history below.
 !
 	  IF(DO_AA .AND. .NOT. AA_OFF .AND. ALLOCATED(AA_XH))
@@ -8101,8 +8101,8 @@ C
 !
 ! Residual acceptance for the pending AA mix: if this pass did not
 ! improve on the pre-mix residual, the accelerated iterate was
-! harmful.  Restore the pre-mix field (the slot-2 map output),
-! clear the history and stop mixing this solve.  Checked before
+! harmful. Restore the pre-mix field (the slot-2 map output),
+! clear the history and stop mixing this solve. Checked before
 ! the divergence exit so a poisoned candidate is rejected instead
 ! of marking the ray diverged.
 !
@@ -8119,10 +8119,10 @@ C
 !
 ! edited 17-Oct-2026: NB_O/NT_O were latched from the
 ! rejected-mix pass above; the bulk-exit census must describe the
-! restored iterate.  The slot-2 history pair is exactly the accepted
+! restored iterate. The slot-2 history pair is exactly the accepted
 ! step (x_pre = AA_XH(2), g(x_pre)-x_pre = AA_RH(2)), so rebuild the
 ! census with the same significance floor and tolerance the march
-! used.  Only reachable under [KN_ORD_AA]=T (default F).
+! used. Only reachable under [KN_ORD_AA]=T (default F).
 !
 	      NBAD_CUR=0
 	      NTOT_CUR=0
@@ -8151,7 +8151,7 @@ C
 	  END IF
 !
 ! Same divergence containment, relaxation adaptation and exits as
-! SWEEP_FLD.  The residual history is now a single sequence (no
+! SWEEP_FLD. The residual history is now a single sequence (no
 ! direction parity), so same-direction bookkeeping reduces to the
 ! previous pass.
 !
@@ -8177,7 +8177,7 @@ C
 ! Oscillation detector: on a period-2 limit cycle (lambda ~ -1,
 ! observed on the compressing hot blocks at a fluctuating ~0.4
 ! residual plateau) the signed per-cell residual sum flips sign
-! every pass.  A monotone marginal mode (lambda ~ +0.99) keeps its
+! every pass. A monotone marginal mode (lambda ~ +0.99) keeps its
 ! sign and is left to the stall/patience exits -- damping it would
 ! only slow a contracting tail.
 !
@@ -8192,7 +8192,7 @@ C
 ! edited 14-Oct-2026: same seed-transient floor as
 ! SWEEP_FLD -- here the residual history is a single sequence, so
 ! the baseline is NPO-1 and the floor is NPO>=4 (a baseline from
-! passes 1-2 is still the seed transient).  Applies to the
+! passes 1-2 is still the seed transient). Applies to the
 ! growth-ratio and the sign-flip damping branches alike.
 !
 	    IF(RATIO_OM .GT. 1.05_LDP .AND. NPO .GE. 4)THEN
@@ -8214,10 +8214,10 @@ C
 	      T4=0.0_LDP
 	    END IF
 !
-! An OMEGA_RAY change alters the relaxed map.  Stored pass deltas
+! An OMEGA_RAY change alters the relaxed map. Stored pass deltas
 ! are omega*(F(x)-x), so for the affine refresh map a rescale to
 ! the new omega keeps the history pairs consistent instead of
-! restarting it.  The same applies to the Aitken delta history
+! restarting it. The same applies to the Aitken delta history
 ! (DLT_PRV, KN_ORD_AITKEN): an unscaled DEL_OLD/DEL_CUR pair across
 ! an omega change mixes two different maps, so the geometric-tail
 ! assumption behind the extrapolation only holds piecewise.
@@ -8287,7 +8287,7 @@ C
 	  END IF
 ! [FG_BULK_CONTR]: same ordering fix as SWEEP_FLD -- the bulk exit
 ! must not fire on a noncontracting pass sequence; RATIO_OM here is
-! the consecutive-pass ratio.  [KN_RAY_BULK_TOL] floors the exit on
+! the consecutive-pass ratio. [KN_RAY_BULK_TOL] floors the exit on
 ! the residual here too (edited 20-Oct-2026).
 !
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
@@ -8321,13 +8321,13 @@ C
 	    END IF
 	  END IF
 !
-! Aitken delta-squared on the pass iterate (KN_ORD_AITKEN).  Applied
+! Aitken delta-squared on the pass iterate (KN_ORD_AITKEN). Applied
 ! only to cells whose last pass still moved by more than the march
 ! tolerance (the above-tolerance overwrite criterion) and whose two
 ! consecutive deltas show local contraction |d_n|<|d_{n-1}| --
 ! expanding or sign-incoherent cells are skipped, and the
 ! extrapolated value is kept only if finite, positive and below the
-! store cap.  Passes 1-2 just build the delta history (the seed ->
+! store cap. Passes 1-2 just build the delta history (the seed ->
 ! pass-1 transient is not a usable contraction estimate); the
 ! committed iterate is the extrapolated one, so the SPW ring's
 ! lagged corner terms read a consistent lagged state on the next
@@ -8354,12 +8354,12 @@ C
 	    END DO
 	  END IF
 !
-! Safeguarded type-II Anderson mix (KN_ORD_AA).  Design follows
+! Safeguarded type-II Anderson mix (KN_ORD_AA). Design follows
 ! the MOM refresh AA (mom_j_cmf_nonmono_v1.f): the Gram system is
 ! built on residuals weighted by the same normalisation as the
 ! march metric (1/MAX(|x|,1E-4*column peak)); cells outside the
 ! affine regime (weighted residual/secant > AA_GCAP) are excluded
-! from the fit and keep the raw map output.  A small ridge keeps
+! from the fit and keep the raw map output. A small ridge keeps
 ! gamma bounded on near-dependent secants; the mixed correction is
 ! vetoed when non-finite or >1E3||f|| (a marginal mode needs a step
 ! of order ||f||/(1-lambda), so the MOM-style ||corr||>||f|| bound
@@ -8446,13 +8446,13 @@ C
 ! The MOM refresh vetoes ||corr||>||f||, but that bound is wrong for
 ! the regime this accelerator targets here: on a cell contracting at
 ! rate lambda the distance to the fixed point is |r|/(1-lambda), so
-! the correct AA step exceeds ||f|| by ~1/(1-lambda).  The marginal
+! the correct AA step exceeds ||f|| by ~1/(1-lambda). The marginal
 ! KNOP rays measure lambda~0.98-0.99 (50-100x ||f||); the strict veto
-! rejected nearly every mix on arm 12186580 (vetoed ~3x applied) and
-! AA could never act on the modes it was built for.  The bound is
+! rejected nearly every mix on the armed sweep (vetoed ~3x applied) and
+! AA could never act on the modes it was built for. The bound is
 ! still needed against ill-conditioned gamma garbage, so veto only
 ! non-finite or >1E3*||f|| corrections (lambda>0.999 -- beyond what
-! KN_RAY_MAXPASS could converge anyway).  The 10|r| per-cell cap and
+! KN_RAY_MAXPASS could converge anyway). The 10|r| per-cell cap and
 ! the residual rollback remain the real safeguards.
 !
 	      IF(DNRM .NE. DNRM .OR. DNRM .GT. 1.0E+3_LDP*FNRM)THEN
@@ -8511,7 +8511,7 @@ C
 ! Rebuild the per-frequency discretisation on this ray: ray-point
 ! opacity/emissivity (same monotone-cubic kernels as the sweep),
 ! chi_hat/Q/source and the DTAU/E/A short-characteristics
-! coefficients.  Mirrors the in-sweep INTEGRAL branch exactly.
+! coefficients. Mirrors the in-sweep INTEGRAL branch exactly.
 ! ----------------------------------------------------------------
 	SUBROUTINE BUILD_FREQ(L)
 	INTEGER L
@@ -8519,8 +8519,8 @@ C
 ! The branch and the reused scalar temporaries in the original single
 ! loop created an assumed output dependence that blocked vectorisation,
 ! so every EXP ran scalar (verified with -qopt-report); the identical
-! in-sweep loop does vectorise.  Split into branch-free loops over
-! T1V and the cubic evaluations.  Ray points coinciding with grid
+! in-sweep loop does vectorise. Split into branch-free loops over
+! T1V and the cubic evaluations. Ray points coinciding with grid
 ! nodes (IGRD, built once per ray) then take the tabulated values
 ! exactly, as before.
 !
@@ -8548,11 +8548,11 @@ C
 	END DO
 !
 ! First frequency: expanding cells keep zero blue-edge inflow
-! (Q_L=0, matching the in-sweep INIT branch).  Compressing cells
+! (Q_L=0, matching the in-sweep INIT branch). Compressing cells
 ! instead keep their chi_hat/Q coupling to the lagged redder bin --
 ! the in-sweep INIT fix: forcing Q=0 there dropped the advective
 ! outflow from the bluest bin and left the refresh and sweep
-! disagreeing at the band edge.  DLNM_L comes from MATCH_FREQ(L=1)
+! disagreeing at the band edge. DLNM_L comes from MATCH_FREQ(L=1)
 ! so the matched span applies here too.
 !
 	IF(L .EQ. 1)THEN
@@ -8650,7 +8650,7 @@ C
 ! 30-Oct-2026 audit: the min/max clamp is part of the discrete
 ! operator only when the in-sweep path applies it -- the sweep
 ! skips it for INSERT or METHOD(4:6)='MON' (monotone-interp
-! branches, fg_j_cmf_nonmono_v1.f METHOD block).  Applying it
+! branches, fg_j_cmf_nonmono_v1.f METHOD block). Applying it
 ! unconditionally made the refresh solve a slightly different
 ! transfer equation than the sweep on exactly those modes.
 ! INSERT itself is not captured in the KN store, but METHOD's
@@ -8724,7 +8724,7 @@ C
 	END
 !
 ! ----------------------------------------------------------------
-! Per-point frequency-derivative spans for frequency L.  Expanding
+! Per-point frequency-derivative spans for frequency L. Expanding
 ! cells get the backward span KN_DLN_P(L) = ln(nu_{L-1}/nu_L), the
 ! same dLOG_NU the in-sweep solve uses for GAM>=0, so the refresh
 ! coefficients reproduce the sweep exactly; compressing cells get
@@ -8735,9 +8735,9 @@ C
 ! DO_NONMONO_FREQ_MATCH: remap the compressing upwind slot from the
 ! adjacent bin to the bin containing the characteristic foot and
 ! widen the frequency-derivative span accordingly (Ceulemans et
-! al. 2025).  NFM_L = slot offset (capped on-grid, >=1);
+! al. 2025). NFM_L = slot offset (capped on-grid, >=1);
 ! DLNM_L = span ln(nu_L/nu_{L+NFM}) via the captured KN_FREQ grid,
-! falling back to NFM*KN_DLN_N(L).  With the flag off compressing
+! falling back to NFM*KN_DLN_N(L). With the flag off compressing
 ! points keep the original +1 / KN_DLN_N(L) treatment.
 !
 	INTEGER L,NNF
@@ -8773,7 +8773,7 @@ C
 	END
 !
 ! ----------------------------------------------------------------
-! Modified source function S' for frequency L.  Expanding cells
+! Modified source function S' for frequency L. Expanding cells
 ! (GAM>=0) take the upwind at L-1 (fresh on ascending passes),
 ! compressing cells take the spatially-interpolated upwind at
 ! L+NFM_L(I) (matched slot; fresh on descending passes), matching
@@ -8845,9 +8845,9 @@ C
 	ELSE
 !
 ! NI=2 (thinnest insert-free rays): the in-sweep branch sets
-! dS(NI)=S(NI-1) (constant-slope extrapolation, e2516057); the
+! dS(NI)=S(NI-1) (constant-slope extrapolation); the
 ! refresh must use the identical stencil or the two operators
-! disagree on exactly the rays NI=2 produces.  Bug fix, not
+! disagree on exactly the rays NI=2 produces. Bug fix, not
 ! flag-gated.
 !
 	  DS_L(NI)=S_L(NI-1)
@@ -8866,7 +8866,7 @@ C
 !
 ! ----------------------------------------------------------------
 ! Short-characteristics march for frequency L, tracking the maximum
-! relative overwrite change into RES.  The 1e-25 metric floor keeps
+! relative overwrite change into RES. The 1e-25 metric floor keeps
 ! cells with negligible intensity (< ~1e-25) from dominating the
 ! convergence test; the field values themselves are unchanged.
 ! ----------------------------------------------------------------
@@ -8879,8 +8879,8 @@ C
 ! value and 1e-4 of the frequency-column peak: cells below ~0.01% of
 ! the column maximum carry no measurable flux and would otherwise pin
 ! the max-norm (and hence the maturity gate) at irrelevant floor
-! oscillations.  The bad-cell census uses this same normalized
-! residual, so its fraction matches the max-norm tolerance.  RESL
+! oscillations. The bad-cell census uses this same normalized
+! residual, so its fraction matches the max-norm tolerance. RESL
 ! mirrors the max restricted to this frequency for block-GS diagnostics.
 	VMAX_L=MAX(MAXVAL(FLD(1:NI,L)),1.0E-25_LDP)
 	RESL=0.0_LDP
@@ -9010,7 +9010,7 @@ C
 ! Write the converged ray field back to the lagged depth store with
 ! the same guards the in-sweep write uses, but an UNRELAXED commit
 ! (W4, 17-Oct-2026): the inner march's OMEGA_RAY is the only
-! under-relaxation on the refresh path.  NSTORE counts cells whose
+! under-relaxation on the refresh path. NSTORE counts cells whose
 ! merged change exceeded 50% (same semantics as the in-sweep
 ! FG_GS_NCONV); NCAP counts the cap/NaN floor events (same
 ! semantics as FG_INEXT_CAPPED).
@@ -9023,12 +9023,12 @@ C
 	REAL(KIND=LDP) V1,V2,DLOC
 	REAL(KIND=LDP) VMAX_F(NCF)
 !
-! Column peak per frequency for the >50% churn count.  Without this
+! Column peak per frequency for the >50% churn count. Without this
 ! floor a store cell sitting at the 1E-30 write floor counts as
 ! churned whenever the refreshed field differs at all (|V1-V2|/V2 is
 ! then >0.5 for any V1>1.5E-30), so the count never decays to zero
 ! and the maturity gate in SOLVE_FOR_POPS stays closed even when
-! every significant cell is converged.  The 1E-4*peak significance
+! every significant cell is converged. The 1E-4*peak significance
 ! test is the same one MARCH applies to the residual metrics
 ! (VMAX_L), so NSTORE and NTOT now cover the same cell population.
 ! edited 28-Sep-2026
@@ -9068,15 +9068,15 @@ C
 	        END IF
 ! Retained-field delta uses the committed value, not the raw
 ! solve output -- the gate reads the store, so the metric must
-! describe what the store actually holds.  A cell the seed left
+! describe what the store actually holds. A cell the seed left
 ! at the floor (or non-finite, healed above) counts 1.0 when the
 ! refresh writes a significant value.
 !
-! W4 (17-Oct-2026): unrelaxed commit.  The inner march already
+! W4 (17-Oct-2026): unrelaxed commit. The inner march already
 ! under-relaxes via OMEGA_RAY; applying INEXT_RELAX here double-
 ! damped every slot (effective motion ~0.22 of the map with the
 ! audited omega=0.5) and locked the marginal |Q|~1 modes at
-! per-pass contraction ~0.995.  The generation-level INEXT_RELAX
+! per-pass contraction ~0.995. The generation-level INEXT_RELAX
 ! stays on the sweep write sites only.
 !
 	        IF(V2 .GT. 0.0_LDP)THEN
@@ -9100,10 +9100,10 @@ C
 ! [FG_COMMIT_CONV]): same write-back as WRITE_STORE, but each cell's
 ! committed change is bounded by FG_COMMIT_NC times the retained
 ! value (significance floored at 1E-4 of the frequency column peak,
-! matching DLOC's own normalization).  A seed fill (V2 at/below the
+! matching DLOC's own normalization). A seed fill (V2 at/below the
 ! write floor) may inject at most NC times that significance floor
 ! -- an unconverged ray cannot drop a large value into an empty
-! slot.  NSTORE keeps its >50%-moved semantics; DMAX reports the
+! slot. NSTORE keeps its >50%-moved semantics; DMAX reports the
 ! capped delta actually committed.
 ! ----------------------------------------------------------------
 	SUBROUTINE WRITE_STORE_CAP(FLD,STORE,DMAX)
@@ -9140,7 +9140,7 @@ C
 	        V2=STORE(KC,LS,LS2-1)
 !
 ! Cap the committed change at FG_COMMIT_NC times the retained value
-! (or the significance floor when the slot held only a seed).  The
+! (or the significance floor when the slot held only a seed). The
 ! provisional write moves the store toward the refreshed field
 ! without letting an unconverged iterate ratchet it by an unbounded
 ! factor per refresh.
@@ -9172,11 +9172,11 @@ C
 	END
 !
 ! ----------------------------------------------------------------
-! W7 (17-Oct-2026): hot-pass extension test.  Returns .TRUE. and
+! W7 (17-Oct-2026): hot-pass extension test. Returns .TRUE. and
 ! sets the host-scope W_LO/W_HI window when the last-pass residual
 ! field is confined to a contiguous run of above-tolerance
 ! frequencies, the per-ray KN_RAY_HOTPASSES budget remains, and the
-! refresh-wide KN_HOT_TOTAL_PASSES cap has not been reached.  The
+! refresh-wide KN_HOT_TOTAL_PASSES cap has not been reached. The
 ! run window is extended +/-2 frequencies to cover the upwind reads
 ! of the marginal cells.
 ! ----------------------------------------------------------------
@@ -9203,12 +9203,12 @@ C
 !
 ! ----------------------------------------------------------------
 ! W9 (17-Oct-2026): max committed-write jump for the FG_COMMIT_JUMP
-! guard.  Measures max |V1-V2|/MAX(V2,column peak/FG_COMMIT_JUMP)
-! over the cells the store already holds (V2>0 and finite).  Fills
+! guard. Measures max |V1-V2|/MAX(V2,column peak/FG_COMMIT_JUMP)
+! over the cells the store already holds (V2>0 and finite). Fills
 ! into never-committed frequency columns are bounded by the
 ! sibling-ray peak at the same field frequency (VMAX_X); only a
 ! column that is at the floor for every ray (true cold start) is
-! exempt, so a fresh seed can still land.  The guard bounds the
+! exempt, so a fresh seed can still land. The guard bounds the
 ! committed-near-blowup class (audit: retained delta 4.19E-1 ->
 ! 5.03E3) while allowing genuine factor-of-few rewrites.
 ! ----------------------------------------------------------------
@@ -9221,10 +9221,10 @@ C
 	REAL(KIND=LDP) VMAX_X(NCF)
 	FG_JUMP_MAX=0.0_LDP
 !
-! Store-column peak per frequency.  The jump test is keyed on the
+! Store-column peak per frequency. The jump test is keyed on the
 ! retained store's own scale, not the new field's: a write is a
 ! suspicious jump only when it is both >FG_COMMIT_JUMP times the
-! stored value AND larger than the whole stored column peak.  The
+! stored value AND larger than the whole stored column peak. The
 ! old 1E-4*VMAX_F floor rejected every seed-replacement write
 ! (floor cells hold +1E-30, not 0, so the V2<=0 skip never saw
 ! them) and left the store frozen at its seed for the whole run.
@@ -9254,18 +9254,18 @@ C
 	          RETURN
 	        END IF
 ! WRITE_STORE floors non-positive output to 1E-30; floor-bound
-! cells are ordinary events, not whole-ray veto grounds.  Judge
+! cells are ordinary events, not whole-ray veto grounds. Judge
 ! the value actually written.
 	        V1=MAX(V1,1.0E-30_LDP)
 	        V1=MIN(V1,NONMONO_INEXT_CAP)
 ! A frequency column whose store peak is at the write floor has no
-! committed field of its own to compare against.  Fills there were
+! committed field of its own to compare against. Fills there were
 ! once exempt entirely, which let a converged-classified ray seed a
-! column with an extreme value -- the w19 it90 failure channel
-! (committed delta ~3E7 while JUMP stayed under the bound).  Fall
+! column with an extreme value -- the failure channel
+! (committed delta ~3E7 while JUMP stayed under the bound). Fall
 ! back to the sibling-ray peak at the same field frequency: rays
 ! sample the same atmosphere, so a genuine seed lands within
-! FG_COMMIT_JUMP of what neighbouring rays hold.  Only when every
+! FG_COMMIT_JUMP of what neighbouring rays hold. Only when every
 ! ray's column is at the floor (true cold start) is the fill
 ! exempt.
 	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)THEN
@@ -9301,10 +9301,10 @@ C
 	END
 !
 ! ----------------------------------------------------------------
-! W2 (17-Oct-2026): diverged-ray store heal.  A diverged ray skips
+! W2 (17-Oct-2026): diverged-ray store heal. A diverged ray skips
 ! the store write, so a poisoned slot would re-seed the next
 ! refresh and re-diverge -- the mechanism that held GS_MAXCHG=1.0
-! for the whole run.  Slots that are non-finite, non-positive, or
+! for the whole run. Slots that are non-finite, non-positive, or
 ! above FG_DIV_HEAL_CAP times the per-depth median of the sane
 ! values are zeroed; the next refresh then takes the seeded floor
 ! path for those cells (mirrors the MOM heal).
@@ -9329,7 +9329,7 @@ C
 ! Fully poisoned row (edited 19-Oct-2026): with no sane
 ! slot there is no median to build on; the old CYCLE left every
 ! NaN/negative entry in place, so SEED_FLD re-seeded NaN at residual
-! 1.0 every refresh -- the failure this heal exists to break.  Zero
+! 1.0 every refresh -- the failure this heal exists to break. Zero
 ! the whole row so the next refresh takes the seeded floor path.
 !
 	    IF(NV .EQ. 0)THEN
@@ -9343,7 +9343,7 @@ C
 	    END IF
 !
 ! Median of the sane values, insertion sort -- per-depth scale
-! reference for the poisoned-slot test.  NCF is O(100), so the
+! reference for the poisoned-slot test. NCF is O(100), so the
 ! O(N^2) cost only lands on diverged rays.
 !
 	    DO II=2,NV
