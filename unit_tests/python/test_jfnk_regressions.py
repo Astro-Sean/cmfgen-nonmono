@@ -487,6 +487,15 @@ check(
     and "RD_STORE_DBLE(JFNK_TRES_FAC,'JFNK_TRES_FAC'" in RD_CONTROL,
 )
 check(
+    "BUG-001: true-residual verification cannot be switched off",
+    "jfnk_gmres_tres_fac = 1d0" in SOLVER
+    and "acc_fac = jfnk_gmres_tres_fac" in SOLVER
+    and "if(acc_fac <= 0d0) acc_fac = 1d0" in SOLVER
+    and "if(jfnk_gmres_tres_fac > 0d0) then" not in SOLVER
+    and "JFNK_TRES_FAC=1.0_LDP" in RD_CONTROL
+    and "JFNK_TRES_FAC .LE. 0.0_LDP" in RD_CONTROL,
+)
+check(
     "banded LU factorization requires the LU preconditioner",
     "JFNK_USE_BANDED_LOC .AND. JFNK_NUM_BNDS .GT. 1 .AND." in INTERFACE
     and "JFNK_PRECOND_TYPE(1:2) .EQ. 'LU'" in INTERFACE,
