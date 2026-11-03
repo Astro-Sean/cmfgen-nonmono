@@ -1,0 +1,134 @@
+Only in .: AGENTS_HISTORY.md
+Only in .: AGENTS.md
+Only in .: build.sh
+Only in .: .devin
+Files ../cmfgen_reference/cur_cmf/disp/maingen.f and ./disp/maingen.f differ
+Files ../cmfgen_reference/cur_cmf/disp/subs/gam_abs.f and ./disp/subs/gam_abs.f differ
+Files ../cmfgen_reference/cur_cmf/disp/subs/log_mon_interp.f and ./disp/subs/log_mon_interp.f differ
+Files ../cmfgen_reference/cur_cmf/disp/subs/tst_clump_law.f and ./disp/subs/tst_clump_law.f differ
+Only in .: exe_frozen
+Files ../cmfgen_reference/cur_cmf/.gitignore and ./.gitignore differ
+Only in .: JFNK_OPERATOR_MISMATCH_DIAGNOSIS.md
+Only in .: JFNK_REVIEW.md
+Only in .: jfnk_solver_files
+Only in .: knop_solver_files
+Files ../cmfgen_reference/cur_cmf/Makefile and ./Makefile differ
+Files ../cmfgen_reference/cur_cmf/Makefile_definitions and ./Makefile_definitions differ
+Files ../cmfgen_reference/cur_cmf/misc/adjust_atm_r_grid.f and ./misc/adjust_atm_r_grid.f differ
+Files ../cmfgen_reference/cur_cmf/misc/ave_dc.f and ./misc/ave_dc.f differ
+Files ../cmfgen_reference/cur_cmf/misc/extrap_scr.f and ./misc/extrap_scr.f differ
+Files ../cmfgen_reference/cur_cmf/misc/Makefile and ./misc/Makefile differ
+Files ../cmfgen_reference/cur_cmf/misc/merge_scr.f and ./misc/merge_scr.f differ
+Files ../cmfgen_reference/cur_cmf/misc/plt_ion_mf.f and ./misc/plt_ion_mf.f differ
+Files ../cmfgen_reference/cur_cmf/misc/plt_net.f and ./misc/plt_net.f differ
+Files ../cmfgen_reference/cur_cmf/misc/plt_rates.f and ./misc/plt_rates.f differ
+Files ../cmfgen_reference/cur_cmf/misc/plt_steq.f and ./misc/plt_steq.f differ
+Files ../cmfgen_reference/cur_cmf/misc/rev_hydro_turb.f and ./misc/rev_hydro_turb.f differ
+Files ../cmfgen_reference/cur_cmf/misc/rev_rdinr.f and ./misc/rev_rdinr.f differ
+Files ../cmfgen_reference/cur_cmf/misc/rev_rvsig.f and ./misc/rev_rvsig.f differ
+Files ../cmfgen_reference/cur_cmf/misc/rewrite_old_model_data.f and ./misc/rewrite_old_model_data.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/cmfgen.f and ./new_main/cmfgen.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/cmfgen_sub.f and ./new_main/cmfgen_sub.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/Makefile and ./new_main/Makefile differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/adjust_r_grid_v4.f and ./new_main/mod_subs/adjust_r_grid_v4.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/check_param_consistency.f and ./new_main/mod_subs/check_param_consistency.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/comp_grey_v2.f and ./new_main/mod_subs/comp_grey_v2.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/comp_grey_v4.f and ./new_main/mod_subs/comp_grey_v4.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/comp_j_blank.f and ./new_main/mod_subs/comp_j_blank.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/control_variable_mod.f and ./new_main/mod_subs/control_variable_mod.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/do_var_cont.f and ./new_main/mod_subs/do_var_cont.f differ
+Only in ./new_main/mod_subs: jfnk_cmfgen_interface_v1.f
+Only in ./new_main/mod_subs: jfnk_cmfgen_int_mod.f
+Only in ./new_main/mod_subs: jfnk_op_probe_v1.f90
+Only in ./new_main/mod_subs: jfnk_solve_corr_v1.f
+Only in ./new_main/mod_subs: jfnk_solver_v1.f90
+Only in ./new_main/mod_subs: knop_status_mod.f90
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/line_mod.f and ./new_main/mod_subs/line_mod.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/Makefile and ./new_main/mod_subs/Makefile differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/mod_cmfgen.f and ./new_main/mod_subs/mod_cmfgen.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/mod_lev_dis_blk.f and ./new_main/mod_subs/mod_lev_dis_blk.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/rd_cont_j.f and ./new_main/mod_subs/rd_cont_j.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/rd_control_variables.f and ./new_main/mod_subs/rd_control_variables.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/set_abund_clump.f and ./new_main/mod_subs/set_abund_clump.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/solve_for_pops.f and ./new_main/mod_subs/solve_for_pops.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/sub_sob_line_v3.f and ./new_main/mod_subs/sub_sob_line_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/mod_subs/sup_to_full_v4.f and ./new_main/mod_subs/sup_to_full_v4.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/auto_add_ion.f and ./new_main/subs/auto_add_ion.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/check_ions_present.f and ./new_main/subs/check_ions_present.f differ
+Only in ./new_main/subs: cmf_blkband_pin_null_v1.f
+Files ../cmfgen_reference/cur_cmf/new_main/subs/cmf_blkband_v3.f and ./new_main/subs/cmf_blkband_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/do_ng_accel_band_v4.f and ./new_main/subs/do_ng_accel_band_v4.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/do_tau_regrid_v2.f and ./new_main/subs/do_tau_regrid_v2.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/do_wind_vel_v1.f and ./new_main/subs/do_wind_vel_v1.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/eval_adiabatic_v3.f and ./new_main/subs/eval_adiabatic_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/fiddle_pop_corrections_v2.f and ./new_main/subs/fiddle_pop_corrections_v2.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/fixpop_in_ba_v3.f and ./new_main/subs/fixpop_in_ba_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/generate_full_matrix_v3.f and ./new_main/subs/generate_full_matrix_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/get_edep_shock_power.f and ./new_main/subs/get_edep_shock_power.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/get_pops_at_prev_time_step_v2.f and ./new_main/subs/get_pops_at_prev_time_step_v2.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/get_pops_at_prev_time_step_v3.f and ./new_main/subs/get_pops_at_prev_time_step_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/get_pops_at_prev_time_step_v4.f and ./new_main/subs/get_pops_at_prev_time_step_v4.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/get_pops_at_prev_time_step_v5.f and ./new_main/subs/get_pops_at_prev_time_step_v5.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/Makefile and ./new_main/subs/Makefile differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/open_rw_eddfactor.f and ./new_main/subs/open_rw_eddfactor.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/rd_sn_data.f and ./new_main/subs/rd_sn_data.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/read_bcd_mat.f and ./new_main/subs/read_bcd_mat.f differ
+Only in ./new_main/subs: recompute_sigma_true.f
+Only in ./new_main/subs: rv_sn_model_snhyd.f
+Files ../cmfgen_reference/cur_cmf/new_main/subs/rv_sn_model_sniin.f and ./new_main/subs/rv_sn_model_sniin.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/set_rv_hydro_model_v3.f and ./new_main/subs/set_rv_hydro_model_v3.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/solveba_v13.f and ./new_main/subs/solveba_v13.f differ
+Files ../cmfgen_reference/cur_cmf/new_main/subs/steq_advec_v4.f and ./new_main/subs/steq_advec_v4.f differ
+Files ../cmfgen_reference/cur_cmf/newsubs/rd_rv_file_v2.f and ./newsubs/rd_rv_file_v2.f differ
+Files ../cmfgen_reference/cur_cmf/obs/cmf_flux_cntrl_var_mod.f and ./obs/cmf_flux_cntrl_var_mod.f differ
+Files ../cmfgen_reference/cur_cmf/obs/cmf_flux_sub_v5.f and ./obs/cmf_flux_sub_v5.f differ
+Files ../cmfgen_reference/cur_cmf/obs/COMP_JCONT_V4.INC and ./obs/COMP_JCONT_V4.INC differ
+Files ../cmfgen_reference/cur_cmf/obs/Makefile and ./obs/Makefile differ
+Files ../cmfgen_reference/cur_cmf/obs/mod_cmf_obs.f and ./obs/mod_cmf_obs.f differ
+Files ../cmfgen_reference/cur_cmf/obs/obs_frame_sub_v9.f and ./obs/obs_frame_sub_v9.f differ
+Files ../cmfgen_reference/cur_cmf/obs/obs_frame_v2.f and ./obs/obs_frame_v2.f differ
+Files ../cmfgen_reference/cur_cmf/obs/rd_cmf_flux_controls.f and ./obs/rd_cmf_flux_controls.f differ
+Only in .: obs_template
+Files ../cmfgen_reference/cur_cmf/opac/par_opac_sub.f and ./opac/par_opac_sub.f differ
+Only in .: pgplot_stubs
+Files ../cmfgen_reference/cur_cmf/pgplt/do_vec_op.f and ./pgplt/do_vec_op.f differ
+Files ../cmfgen_reference/cur_cmf/pgplt/mon_interp_sp.f and ./pgplt/mon_interp_sp.f differ
+Files ../cmfgen_reference/cur_cmf/pgplt/set_upper_axis.f and ./pgplt/set_upper_axis.f differ
+Files ../cmfgen_reference/cur_cmf/plane/add_dust_eta.f and ./plane/add_dust_eta.f differ
+Files ../cmfgen_reference/cur_cmf/plane/characteristics_v2.f and ./plane/characteristics_v2.f differ
+Files ../cmfgen_reference/cur_cmf/plane/characteristics_v2_gam.f and ./plane/characteristics_v2_gam.f differ
+Files ../cmfgen_reference/cur_cmf/plane/cmf_formal_rel_v4.f and ./plane/cmf_formal_rel_v4.f differ
+Files ../cmfgen_reference/cur_cmf/plane/cmf_formal_rel_v4_gam.f and ./plane/cmf_formal_rel_v4_gam.f differ
+Only in ./plane: fg_j_cmf_nonmono_v1.f
+Files ../cmfgen_reference/cur_cmf/plane/fg_j_cmf_v12.f and ./plane/fg_j_cmf_v12.f differ
+Files ../cmfgen_reference/cur_cmf/plane/fg_j_cmf_v13.f and ./plane/fg_j_cmf_v13.f differ
+Files ../cmfgen_reference/cur_cmf/plane/get_ibound.f and ./plane/get_ibound.f differ
+Files ../cmfgen_reference/cur_cmf/plane/get_jh_at_prev_time_step.f and ./plane/get_jh_at_prev_time_step.f differ
+Files ../cmfgen_reference/cur_cmf/plane/get_moms_non_rel.f and ./plane/get_moms_non_rel.f differ
+Files ../cmfgen_reference/cur_cmf/plane/Makefile and ./plane/Makefile differ
+Files ../cmfgen_reference/cur_cmf/plane/mod_ray_mom_store.f and ./plane/mod_ray_mom_store.f differ
+Only in ./plane: mom_j_cmf_nonmono_v1.f
+Only in .: .pytest_cache
+Only in .: README.md
+Files ../cmfgen_reference/cur_cmf/spec_plt/Makefile and ./spec_plt/Makefile differ
+Files ../cmfgen_reference/cur_cmf/spec_plt/plt_dfr.f and ./spec_plt/plt_dfr.f differ
+Files ../cmfgen_reference/cur_cmf/spec_plt/plt_jh_cur.f and ./spec_plt/plt_jh_cur.f differ
+Files ../cmfgen_reference/cur_cmf/spec_plt/plt_jh.f and ./spec_plt/plt_jh.f differ
+Files ../cmfgen_reference/cur_cmf/spec_plt/subs/compute_tau_radial.f and ./spec_plt/subs/compute_tau_radial.f differ
+Files ../cmfgen_reference/cur_cmf/spec_plt/subs/do_sn_shell_shift.f and ./spec_plt/subs/do_sn_shell_shift.f differ
+Files ../cmfgen_reference/cur_cmf/subs/gff.f and ./subs/gff.f differ
+Files ../cmfgen_reference/cur_cmf/subs/ins_line_obs_v5.f and ./subs/ins_line_obs_v5.f differ
+Files ../cmfgen_reference/cur_cmf/subs/ins_line_v6.f and ./subs/ins_line_v6.f differ
+Files ../cmfgen_reference/cur_cmf/subs/lin_interp.f and ./subs/lin_interp.f differ
+Files ../cmfgen_reference/cur_cmf/subs/Makefile and ./subs/Makefile differ
+Files ../cmfgen_reference/cur_cmf/subs/mon_interp.f and ./subs/mon_interp.f differ
+Files ../cmfgen_reference/cur_cmf/subs/mon_interp_fast.f and ./subs/mon_interp_fast.f differ
+Files ../cmfgen_reference/cur_cmf/subs/mon_interp_fast_v2.f and ./subs/mon_interp_fast_v2.f differ
+Files ../cmfgen_reference/cur_cmf/subs/mon_int_funs_v2.f and ./subs/mon_int_funs_v2.f differ
+Files ../cmfgen_reference/cur_cmf/subs/scr_read_v2.f and ./subs/scr_read_v2.f differ
+Files ../cmfgen_reference/cur_cmf/subs/sobew.f and ./subs/sobew.f differ
+Files ../cmfgen_reference/cur_cmf/subs/sobew_grad.f and ./subs/sobew_grad.f differ
+Files ../cmfgen_reference/cur_cmf/subs/sobew_grad_v2.f and ./subs/sobew_grad_v2.f differ
+Files ../cmfgen_reference/cur_cmf/subs/sobew_grad_v3.f and ./subs/sobew_grad_v3.f differ
+Files ../cmfgen_reference/cur_cmf/subs/sobjbar_sim.f and ./subs/sobjbar_sim.f differ
+Only in ./subs: sob_rh_couple.f
