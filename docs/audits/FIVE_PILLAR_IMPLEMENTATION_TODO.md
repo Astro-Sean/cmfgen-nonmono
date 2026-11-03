@@ -325,21 +325,35 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Completion: partial (formula known and tested; written derivation
   open).
 
-### [ ] P2-003 - Audit the denominator floor MAX(|1+sigma*mu^2|, -0.2*(1+sigma), 1E-4)
+### [~] P2-003 - Audit the denominator floor MAX(|1+sigma*mu^2|, -0.2*(1+sigma), 1E-4)
 - Priority: P0
 - Description: quantify when the floor activates and how much it
   changes tau_sob vs the unfloored expression.
-- Evidence: unit test pins the formula; no runtime activation census
-  exists.
-- Files: the four tau-floor files; OUTGEN counters if added.
-- Action: analytic quantification (mu,sigma plane region where floor
-  binds) plus - if a run is available - an opt-in activation counter
-  (diagnostic only, no result change); decide whether the counter is
-  worth code or whether the analytic report suffices.
+- Evidence: analytic audit 2026-11-03 - all four sites identical
+  (sobjbar_sim.f:124-130, sobew.f:131, sobew_grad_v2.f:137,
+  sobew_grad_v3.f:140), same Dessart 2015 citation and formula.
+  Activation region in (sigma,mu^2): sigma in (-1,0): -0.2(1+sigma)
+  is negative so the floor is MAX(|T1|,1e-4), binding only for
+  sigma<-0.9999 near mu^2=1 (measure-zero sliver). sigma=-1:
+  |1-mu^2| vanishes at the ray center, tau capped at GAMH*1e4.
+  sigma<-1.0005: floor F=0.2(|sigma|-1) binds on the mu^2 band
+  |1+sigma*mu^2|<F around mu^2=1/|sigma| (half-width F/|sigma|) -
+  for sigma=-3 that is ~27% of the mu^2 range per affected ray
+  point, tau capped at GAMH/0.4 vs the formally singular value.
+  The "error" vs the unfloored expression is the asserted physical
+  bound (finite resonance width at a vanishing LOS gradient) - the
+  unfloored expression is singular there, so the floor is the
+  regularization itself, not an approximation of a finite answer.
+  Inactive for sigma>=-0.9999, monotonic path bit-identical.
+- Files: the four tau-floor files.
+- Action: none on the formula; a print-only activation census on
+  production runs remains an available option if the P3-017-style
+  floor-population question needs a number.
 - Acceptance: documented activation region + bounded relative error
-  it introduces; any counter must be print-only.
+  it introduces (analytic report recorded; counter optional).
 - Dependencies: P2-002.
-- Completion: -
+- Completion: partial (analytic audit done 2026-11-03; production
+  activation census optional/open).
 
 ### [~] P2-004 - Validate small-gradient and sigma=-1 limits
 - Priority: P1
@@ -359,23 +373,35 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Dependencies: P2-002.
 - Completion: partial.
 
-### [ ] P2-005 - Audit resonance finding and ordering
+### [x] P2-005 - Audit resonance finding and ordering
 - Priority: P0
 - Description: verify how SOB line resonances are located/ordered
   along a ray for non-monotonic V, and that ordering logic handles
   re-entrant velocity ranges.
-- Evidence: `CONVENTIONAL_SOLVER_AUDIT_2026-11-03.md` sec.1: repeated
-  resonances along a ray are handled inside the ray optical-depth
-  integration; no dedicated finding/ordering audit exists.
-- Files: `sub_sob_line_v3.f`, `ins_line_v6.f`,
-  `cmfgen_sub.f` (SIM_LINES resonance-zone opacity), `sob_rh_couple.f`.
-- Action: trace the resonance search code; document ordering
-  assumptions; identify where monotonic-V assumptions survive in
-  indexing or delta-function placement.
-- Acceptance: written audit; any monotonic-ordering assumption either
-  justified or filed as a defect.
+- Evidence: traced 2026-11-03. There is no depth-search to order:
+  resonance "finding" is a frequency-window test - RESONANCE_ZONE
+  keys on LINE_ST_INDX_IN_NU <= FREQ_INDX < LINE_END_INDX_IN_NU
+  (set_line_opac.f:336-349). A line's Sobolev band is contiguous in
+  observer frequency, so the sweep enters/leaves each line's window
+  once regardless of the depth ordering of resonances; the repeated
+  depth resonances along a ray are picked up by the per-depth
+  CHIL_MAT/ETAL_MAT*LINE_PROF_SIM sum inside the ray quadrature
+  (cmfgen_sub.f:1730, 2497-2507). The one monotonic-V assumption -
+  window sizing via VINF=V(1) - is already corrected at
+  cmfgen_sub.f:1108-1113: under DO_NONMONO_SOB/KNOP,
+  VINF=MAXVAL(ABS(V)) so the windows cover the full signed velocity
+  range (the "2Vinf interaction" bound at 2920 stays conservative).
+  V<=0 under non-mono flags is a loud domain boundary (1120-1124);
+  par_opac_sub.f:608-614 independently rejects non-monotonic V in
+  the standalone utility (documented guard, unreachable in the main
+  path). No defect.
+- Files: `set_line_opac.f`, `cmfgen_sub.f`, `sobjbar_sim.f`,
+  `par_opac_sub.f`.
+- Action: none.
+- Acceptance: written audit above; the only monotonic-V assumption
+  found is already corrected and flag-gated.
 - Dependencies: P2-001.
-- Completion: -
+- Completion: 2026-11-03.
 
 ### [ ] P2-006 - Validate multiple resonance locations along a ray
 - Priority: P0
@@ -566,19 +592,25 @@ acceleration.
 - Dependencies: P3-001.
 - Completion: partial.
 
-### [ ] P3-005 - Validate multiple velocity reversals and strong compression
+### [~] P3-005 - Validate multiple velocity reversals and strong compression
 - Priority: P0
 - Description: numerical validation of the formal solver on
   manufactured profiles with 2+ reversals and sigma<<-1 compression.
-- Evidence: `test_knop_ray.py` covers one compressing band (NI=8,
-  NCF=6) - sweep convergence, store agreement ~3e-8, forced
-  stall/cap exits; multiple reversals not covered.
-- Files: `test_knop_ray.py`, `unit_tests/f90/drv_knop_ray*.f90`.
-- Action: extend the manufactured ray test to multi-reversal and
-  strong-compression V profiles.
+- Evidence: `test_knop_ray.py` now covers three profile classes:
+  the original single band, `rev` (two compressing bands at depths
+  3-4 and 6-7 - the GAM sign reverses twice along the ray, T9:
+  NXIT=1, RESID=6e-7, NPASS=3, NCOMP=24) and `strg` (same band at
+  GAM ~150x deeper - sigma<<-1 regime, T10: NXIT=1, RESID=1.5e-5,
+  NPASS=3, NDIV=0). Both converge with finite stores. 10/10 pass.
+  Residual: grid-scale realism gap - the manufactured ray has 8
+  depths; production reversals live on ~70-depth structures.
+- Files: `test_knop_ray.py`, `unit_tests/f90/drv_knop_ray.f90`.
+- Action: none further at unit level; production validation rolls
+  into P3-024's strong-compression model run.
 - Acceptance: new manufactured cases pass with documented limits.
 - Dependencies: P3-001..P3-004.
-- Completion: -
+- Completion: partial (manufactured multi-reversal + strong-GAM
+  coverage added and passing 2026-11-03; production-scale leg open).
 
 ### [~] P3-006 - Audit I_NEXT/J_NEXT storage and restart consistency
 - Priority: P0
