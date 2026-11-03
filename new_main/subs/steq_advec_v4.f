@@ -12,7 +12,7 @@
 	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
 	IMPLICIT NONE
 !
-! Altered 05-Oct-2026 : Reject non-positive V advection under non-mono (Devin).
+! Altered 05-Oct-2026 : Reject non-positive V advection under non-mono.
 ! Altered 18-May-2004 - Major rewrite: Assume linear only, and modifiy computation of
 !                          ion terms for ionizaton/recombination equations.
 ! Created 20-Jan-2003
