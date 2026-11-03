@@ -2987,6 +2987,7 @@
 	    END IF
 	  END IF
 	END DO
+	JFNK_PROBE_CAPPED = (H_CAP .LT. H_STEP)
 	H_STEP = MIN(H_STEP, H_CAP)
 !
 ! COLPROBE h-scan hook (see JFNK_CMFGEN_INT_MOD): a diagnostic-only
@@ -9252,3 +9253,91 @@
 	IF(ALLOCATED(A1))DEALLOCATE(A1)
 	RETURN
 	END SUBROUTINE JFNK_ASSEMBLE_ENRICH_ARN_V1
+
+!
+! JFNK_OP_JVPA_V1: adapter between the generic operator-consistency
+! battery (JFNK_OP_PROBE_MOD) and the production JVP.  Reports the
+! step the JVP actually used together with cap/retry/clip counts so
+! the battery can separate operator error from h-policy effects.
+!
+	SUBROUTINE JFNK_OP_JVPA_V1(N, V, JV, H_EFF, CAPPED, NRETR,
+	1                           NCLIP, OK)
+	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_jvp_failed
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: N
+	DOUBLE PRECISION, INTENT(IN) :: V(N)
+	DOUBLE PRECISION, INTENT(OUT) :: JV(N)
+	DOUBLE PRECISION, INTENT(OUT) :: H_EFF
+	LOGICAL, INTENT(OUT) :: CAPPED, OK
+	INTEGER, INTENT(OUT) :: NRETR, NCLIP
+	INTEGER R0, C0, F0
+	R0=JFNK_N_JVP_HRETRY
+	C0=JFNK_N_NEW_CLIP
+	F0=JFNK_N_JVP_FAILURES
+	jfnk_jvp_failed=.FALSE.
+	JFNK_PROBE_H_LAST=0.0_LDP
+	CALL JFNK_JVP_V1(N, V, JV)
+	NRETR=JFNK_N_JVP_HRETRY-R0
+	NCLIP=JFNK_N_NEW_CLIP-C0
+	H_EFF=DBLE(JFNK_PROBE_H_LAST)
+	CAPPED=JFNK_PROBE_CAPPED
+	OK=(.NOT. jfnk_jvp_failed) .AND.
+	1   (JFNK_N_JVP_FAILURES .EQ. F0) .AND. (H_EFF .GT. 0.0D0)
+	RETURN
+	END SUBROUTINE JFNK_OP_JVPA_V1
+!
+! JFNK_OP_BAMV_V1: BA diagonal-band action plus stored radiative
+! bands, the live PTC diagonal, and the fixed-row mask.  This is the
+! derivative content of the preconditioner -- the same quantity the
+! JVP diagnostic forms as JV_ANAL plus the band split -- extended
+! with the PTC term so it matches the operator GMRES actually sees
+! when pseudo-transient continuation is armed.  It is not an exact
+! Jacobian: cross-depth coupling beyond the stored bands and all
+! residual nonlinearity are absent.  Diagnostic only.
+!
+	SUBROUTINE JFNK_OP_BAMV_V1(N, V, JV)
+	USE SET_KIND_MODULE
+	USE JFNK_CMFGEN_INT_MOD
+	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ptc_active, jfnk_ptc_scale,
+	1     jfnk_ptc_scale_ready, jfnk_ptc_dtau
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: N
+	DOUBLE PRECISION, INTENT(IN) :: V(N)
+	DOUBLE PRECISION, INTENT(OUT) :: JV(N)
+	INTEGER I, II, JJ, KK, IB, L_BND
+	JV(1:N)=0.0D0
+	DO KK = 1, JFNK_ND
+	  DO II = 1, JFNK_NT
+	    DO JJ = 1, JFNK_NT
+	      JV((KK-1)*JFNK_NT + II) = JV((KK-1)*JFNK_NT + II) +
+	1        DBLE(JFNK_BA_A(II, JJ, KK)) * V((KK-1)*JFNK_NT + JJ)
+	    END DO
+	  END DO
+	END DO
+	IF(JFNK_BA_RAD_BANDS_READY)THEN
+	  DO KK = 1, JFNK_ND
+	    DO IB = 1, JFNK_NUM_BNDS
+	      IF(IB .EQ. JFNK_DIAG_INDX)CYCLE
+	      L_BND = KK + IB - JFNK_DIAG_INDX
+	      IF(L_BND .LT. 1 .OR. L_BND .GT. JFNK_ND)CYCLE
+	      DO II = 1, JFNK_NT
+	        DO JJ = 1, JFNK_NT
+	          JV((KK-1)*JFNK_NT + II) = JV((KK-1)*JFNK_NT + II) +
+	1            DBLE(JFNK_CMAT_RAD_BANDS(II, JJ, IB, KK)) *
+	2            V((L_BND-1)*JFNK_NT + JJ)
+	        END DO
+	      END DO
+	    END DO
+	  END DO
+	END IF
+	IF(jfnk_ptc_active .AND. jfnk_ptc_scale_ready)THEN
+	  DO I = 1, N
+	    JV(I) = JV(I) + jfnk_ptc_scale(I)*V(I)/
+	1        MAX(jfnk_ptc_dtau, 1.0D-8)
+	  END DO
+	END IF
+	CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV)
+	RETURN
+	END SUBROUTINE JFNK_OP_BAMV_V1
