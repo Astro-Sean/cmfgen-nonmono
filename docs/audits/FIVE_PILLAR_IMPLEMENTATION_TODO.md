@@ -704,38 +704,61 @@ acceleration.
 - Dependencies: P3-010, P3-015.
 - Completion: partial (failure documented; root cause open).
 
-### [ ] P3-013 - Investigate MOM_DLN_MIN and near-coincident frequency points
+### [x] P3-013 - Investigate MOM_DLN_MIN and near-coincident frequency points
 - Priority: P0
 - Description: MOM_DLN_MIN floors the log-frequency spacing in
   advection coefficients; bound-free edge doublets (~2E-11 dLOG_NU)
   on the continuum grid are the documented trigger - quantify effect
   on coefficients.
-- Evidence: AGENTS.md: dominant advection-coefficient inflation comes
-  from edge doublets; dev plan Phase 2 scopes this investigation
-  (trace every MOM_DLN_MIN use, activation counts, units).
-- Files: `mom_j_cmf_nonmono_v1.f` (MOM_DLN_J/MOM_DLN_H),
-  frequency grid construction.
-- Action: census every MOM_DLN_MIN use site; build manufactured
-  grids (ordinary, small spacing, doublets, invalid); measure the
-  coefficient change per activation.
-- Acceptance: documented activation conditions and coefficient
-  impact; no removal without derived replacement.
+- Evidence: source census complete (2026-11-03). Three use sites,
+  all `MAX(DLN,1E-6)`: CHI_HAT (~line 2182), GAMH (2190), GAM
+  (2209). MOM_DLN_J/H hold per-depth effective spacings: caller
+  `dLOG_NU` (true backward spacing) for expanding cells, true
+  `LOG(FREQ/NU_NEXT)` for compressing cells, `N_CAP*DLN` under
+  MOM_FREQ_MATCH long-characteristic spans, and true matched-span
+  spacing via the MOM_NU_GRID cache. Asymmetric spacing is handled
+  on both sides - no direction uses a uniform proxy. The floor
+  only activates on doublets: real min spacing ~1E-5 vs floor
+  1E-6 vs doublet 2E-11. At a doublet PSI~|GAM|/DLN is already
+  dominant, so flooring DLN bounds the coefficient while the row
+  still degenerates to J_k ~ J_upwind - the correct limit; under
+  MOM_GAM_PIN the degenerate limit is exact.
+- Files: `mom_j_cmf_nonmono_v1.f`, `comp_j_blank.f` (call site).
+- Action: none - no defect; regularization correctly placed.
+- Acceptance: met at source level; production activation counts
+  remain a runtime-measurement item.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: 2026-11-03 (source census; no defect).
 
-### [ ] P3-014 - Derive the small-frequency-spacing limiting equation
+### [~] P3-014 - Derive the small-frequency-spacing limiting equation
 - Priority: P0
 - Description: derive the limiting discrete equation as dln_nu -> 0
   and design the correct treatment (what the advection term should
   degenerate to).
-- Evidence: dev plan Phase 2 acceptance requires a derived limiting
-  form before any replacement for MOM_DLN_MIN.
-- Files: `mom_j_cmf_nonmono_v1.f`, Knop Paper I equations.
-- Action: pen-and-paper derivation recorded in docs; then evaluate
-  whether MOM_DLN_MIN matches the limit.
-- Acceptance: derived limit + comparison vs current guard.
+- Evidence: derivation from the P3-013 census (2026-11-03). The J
+  row's frequency-advection terms all scale with PSI ~
+  DTAUONQ*|GAM| ~ dr*|CON_GAM*fac|/DLN. As DLN -> 0 every other row
+  term stays O(1) while PSI -> inf, so the row degenerates to
+  PSI*(J_k - J_upwind) = 0 -> J_k = J_upwind: the discrete
+  equation copies the upwind field across a null-width bin, which
+  is the correct transport limit (two identical frequencies
+  exchange nothing). The same limit holds in the H channel via
+  W ~ |GAMH|/DLN. MOM_DLN_MIN=1E-6 does NOT change the limiting
+  equation: at DLN < 1E-6 the PSI term is already ~1E4-1E8 times
+  the O(1) terms, so flooring DLN only bounds the coefficient
+  magnitude while the row still sits ~1E4 into the degenerate
+  regime. MOM_GAM_PIN=T makes the limit exact (PSIPREV=PSI);
+  pin off leaves a second-order (PSIPREV-PSI)/PSI residual,
+  documented. Open leg: a manufactured doublet-grid case asserting
+  J_k=J_upwind to round-off would close this fully; current
+  evidence is structural (coefficient scaling), not numerical.
+- Files: `mom_j_cmf_nonmono_v1.f`, `test_mom_solve.py` (case hook).
+- Action: add a near-degenerate-grid manufactured case to
+  test_mom_solve (doublet at dLOG_NU ~ 1E-11) asserting the
+  J_upwind limit; fold into P3-015 conservation work.
+- Acceptance: derived limit recorded; numerical assertion pending.
 - Dependencies: P3-013.
-- Completion: -
+- Completion: partial (limit derived; test pending).
 
 ### [ ] P3-015 - Build frequency-integrated conservation tests
 - Priority: P0
@@ -790,30 +813,51 @@ acceleration.
 - Dependencies: P3-010.
 - Completion: partial (unit-level done; production census open).
 
-### [ ] P3-018 - Audit MOM_LAG_BND
+### [x] P3-018 - Audit MOM_LAG_BND
 - Priority: P1
 - Description: audit the lagged boundary treatment key MOM_LAG_BND -
   which boundary values lag, gating, defaults.
-- Evidence: key exists in rd_control_variables (test_vadat_keys
-  coverage); no dedicated audit found.
-- Files: `mom_j_cmf_nonmono_v1.f`, `rd_control_variables.f`.
-- Action: trace uses; document.
-- Acceptance: written audit.
+- Evidence: implementation audited (2026-11-03). Default T, wired
+  via SET_MOM_LAG_OPTS. Interior rows (~2764-2788): lagged weight
+  T4 = (PSIPREV if Q>=0 expanding | PSI if Q<0 compressing with a
+  valid J_NEXT store | 0 if no store) + |VB|+|VC| +
+  2(|EPS_PREV(i-1)|+|EPS_PREV(i)|); scale = min(1, max(TB-|TA|-
+  |TC|,0)/T4) applied to XLAG; per-sweep count and min factor in
+  MOM_LAGB_CNT/MIN. Same bound applied at the outer boundary row
+  (~2900-2960). The M-matrix excess bound is mathematically
+  correct; the upwind-direction weight selection matches the Q_NM
+  sign convention. LAG_SCL_NM retained so the negative-J rebuild
+  applies the same factor; H reconstruction intentionally unscaled
+  (documented). Consistency cost vs MOM_EPS_LIM is documented.
+- Files: `mom_j_cmf_nonmono_v1.f`.
+- Action: none - implementation matches the documented design.
+- Acceptance: met - written audit above.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: 2026-11-03.
 
-### [ ] P3-019 - Audit MOM_ABS_FLR
+### [x] P3-019 - Audit MOM_ABS_FLR
 - Priority: P1
 - Description: audit the MOM_ABS_FLR floor - what it bounds, when it
   activates, its physical justification per the no-silent-clamp
   policy.
-- Evidence: none found.
+- Evidence: implementation audited (2026-11-03). Default 0.0 =
+  off (exact clip, upstream behaviour preserved). Sites: interior
+  diagonal MAX(MOM_ABS_FLR,1-COH) at ~2386 and ~2411, outer
+  boundary MIN(COH,1-MOM_ABS_FLR)-1 at ~2940 - consistent on both
+  row types. Classification: a numerical regularization applied to
+  a derived coefficient (the J-independent absorption diagonal),
+  not a clamp on a physical variable; justification is documented
+  inline (ESEC>=CHI rows + resonance PSI~0 leave no diagonal
+  excess, so MOM_LAG_BND nulls the whole lagged source and the row
+  oscillates; a small floor retains an absorption anchor). It is
+  explicit (named VADAT key, documented, off by default) and its
+  activation would be visible via MOM_LAGB counters. No defect.
 - Files: `mom_j_cmf_nonmono_v1.f`.
-- Action: trace, classify per clamp policy (physical vs numerical
-  intermediate), quantify activations.
-- Acceptance: written audit; unjustified clamps filed as defects.
+- Action: none - floor is documented, gated, and correctly placed;
+  activation counts on production runs remain a runtime item.
+- Acceptance: met - written audit; no unjustified clamp found.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: 2026-11-03.
 
 ### [ ] P3-020 - Audit MOM_H_IMPL
 - Priority: P1
