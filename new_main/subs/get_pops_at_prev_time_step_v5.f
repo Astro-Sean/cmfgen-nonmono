@@ -15,7 +15,7 @@
 	IMPLICIT NONE
 !
 ! Altered : 05-Oct-2026 : Require positive, strictly decreasing V before
-!                             using it as the interpolation coordinate (Devin).
+!                             using it as the interpolation coordinate.
 ! Altered : 01-Sep-2016 : TIME_SEQ_NO changed from integer to real. In this version TIME_SEQ_NO is not
 !                             used.
 ! Altered : 22-Nov-2011 : Changed to V5 -- added POPS to call. Old population of unavailable
