@@ -107,12 +107,12 @@
 	REAL(KIND=LDP)  VLOC_SHOCK_POWER       !Velocity at which we dump the shock power
 	REAL(KIND=LDP)  DVLOC_SHOCK_POWER      !Gaussian width for the shock power deposition profile
 !
-! dev7, 13-Oct-2026: radius-space deposition alternative.  On a
+! dev7, 13-Oct-2026: radius-space deposition alternative. On a
 ! non-monotonic V the velocity coordinate is multi-valued, so a shock
-! cannot be located unambiguously by VLOC_SHOCK_POWER.  RLOC > 0 (in
+! cannot be located unambiguously by VLOC_SHOCK_POWER. RLOC > 0 (in
 ! 10^10 cm, the internal R units) deposits a Gaussian centred on that
 ! radius instead; the V-space path and its single-valued-V guard are
-! then bypassed.  RLOC<=0 selects the original V-space deposition.
+! then bypassed. RLOC<=0 selects the original V-space deposition.
 !
 	REAL(KIND=LDP)  RLOC_SHOCK_POWER       !Radius (1e10 cm) to dump shock power; <=0 = use VLOC
 	REAL(KIND=LDP)  DRLOC_SHOCK_POWER      !Gaussian width (1e10 cm) for radius deposition
@@ -307,7 +307,7 @@
 !
 !***************************************************************************************
 !
-! Method to handle N moment  (N_ON_J, MIXED, or G_ONLY)
+! Method to handle N moment (N_ON_J, MIXED, or G_ONLY)
 !
 	CHARACTER(LEN=6)  N_TYPE
 	CHARACTER(LEN=10) J_CHK_OPTION
@@ -322,7 +322,7 @@
 	REAL(KIND=LDP) DELV_FRAC_MOM
 !
 ! Indicate solution method used to ocmpute the Eddington factors by FG_J_CMF_V?.
-! Options is usually  INT/INS (or DIFF/INS).
+! Options is usually INT/INS (or DIFF/INS).
 !
 	CHARACTER(LEN=10) FG_SOL_OPTIONS
 !
@@ -408,14 +408,14 @@
 	INTEGER DEEP
 	REAL(KIND=LDP) ACC_EDD_FAC
 !
-! SUPPRESS_FCONV_IT1 (dev7, diagnostic-volume control).  When TRUE, the
+! SUPPRESS_FCONV_IT1 (dev7, diagnostic-volume control). When TRUE, the
 ! per-frequency 'Possible error converging f - T1' warnings in
 ! COMP_J_BLANK are counted instead of written during great iteration 1,
 ! and CMFGEN_SUB prints a single count + max-residual line at the end of
-! the iteration.  Iteration 1 builds EDDFACTOR from FOLD=0 with
+! the iteration. Iteration 1 builds EDDFACTOR from FOLD=0 with
 ! unrelaxed populations, so the f fixed-point can exceed its pass cap at
-! thousands of frequencies and flood OUTGEN.  Warnings on later
-! iterations (mid-run EDDFACTOR rebuilds) are unaffected.  VADAT keyword
+! thousands of frequencies and flood OUTGEN. Warnings on later
+! iterations (mid-run EDDFACTOR rebuilds) are unaffected. VADAT keyword
 ! [SUP_FCONV_IT1]; default TRUE, set F in VADAT to restore upstream
 ! per-frequency printing on iteration 1.
 !
@@ -535,11 +535,11 @@
 !
 ! VAL_ENTER_LAM / VAL_EXIT_LAM / N_STABLE_LAM (VADAT [LAM_ENTER],
 ! [LAM_EXIT], [LAM_N_STABLE]): hysteresis for the LAMBDA<->full mode
-! switch.  A full step enters LAMBDA only when MAXCH_CTRL exceeds
+! switch. A full step enters LAMBDA only when MAXCH_CTRL exceeds
 ! VAL_ENTER_LAM; a LAMBDA sequence exits to full only after
 ! MAXCH_CTRL has stayed below VAL_EXIT_LAM for N_STABLE_LAM
-! consecutive (unforced) iterations.  CNT_STABLE_LAM counts the
-! qualifying iterations.  Defaults reproduce the old single
+! consecutive (unforced) iterations. CNT_STABLE_LAM counts the
+! qualifying iterations. Defaults reproduce the old single
 ! threshold: both thresholds = LAM_VAL, N_STABLE_LAM=1.
 !
 	REAL(KIND=LDP) VAL_ENTER_LAM
@@ -548,11 +548,11 @@
 	INTEGER CNT_STABLE_LAM
 !
 ! LAM_STABLE_PROVEN (no VADAT key): latched copy of the stability
-! proof CNT_STABLE_LAM >= N_STABLE_LAM represents.  The live count is
+! proof CNT_STABLE_LAM >= N_STABLE_LAM represents. The live count is
 ! zeroed by the same stable-exit release that makes the next call
 ! non-LAMBDA, so a consumer that needs the proof on the released
 ! call (the JFNK hysteresis relief in SOLVE_FOR_POPS) cannot read it
-! from the counter.  Set wherever the count earns the threshold,
+! from the counter. Set wherever the count earns the threshold,
 ! cleared on the same instability resets that zero the count.
 !
 	LOGICAL LAM_STABLE_PROVEN
@@ -567,27 +567,27 @@
 !
 ! BA_ENTER_RAW (VADAT [BA_ENTER_RAW], optional, default 1.0D30 =
 ! disabled) and BA_LAST_RAW: raw-demand gate on the LAMBDA->full
-! merit exit.  BA_LAST_RAW records the raw (pre-limitation) MAXCH of
-! the most recent non-LAMBDA SOLVEBA call.  On the non-monotonic
+! merit exit. BA_LAST_RAW records the raw (pre-limitation) MAXCH of
+! the most recent non-LAMBDA SOLVEBA call. On the non-monotonic
 ! paths (DO_NONMONO_SOB, DO_NONMONO_KNOP) the LAMBDA iterate can sit
 ! below LAM_EXIT while the BA
 ! direction is still non-contractive -- every admitted full step
 ! then demands a saturated ~1E5-1E7% decrease at the stiff inner
 ! cells and rebounds the SE residual several-fold (the
-! lam_stable_exit/maxch_above_enter limit cycle).  When the gate is
+! lam_stable_exit/maxch_above_enter limit cycle). When the gate is
 ! enabled a merit exit is held while the last observed BA demand is
 ! still >= BA_ENTER_RAW; the NUM_LAM escape still fires, so each
 ! escape doubles as a probe that refreshes BA_LAST_RAW and re-opens
-! the gate once the Newton direction contracts.  Default leaves the
+! the gate once the Newton direction contracts. Default leaves the
 ! schedule unchanged on every path.
 !
 ! BA_PROBE_LAM (VADAT [BA_PROBE_LAM], optional, default 0 = off):
 ! while the raw-demand gate is holding, release one ordinary full
 ! step (bounded by BA_TRUST/resacc like any exit) once the hold has
-! persisted for BA_PROBE_LAM LAMBDA calls.  BA_LAST_RAW only
+! persisted for BA_PROBE_LAM LAMBDA calls. BA_LAST_RAW only
 ! refreshes on a non-LAMBDA call, so without a probe the gate can
 ! never learn that the BA direction has begun to contract -- the
-! NUM_LAM escape is the only re-open channel.  A failed probe
+! NUM_LAM escape is the only re-open channel. A failed probe
 ! demotes and resets CNT_LAM, so probing cannot spam; the probe
 ! cadence shortens NUM_LAM, it never extends it.
 !
@@ -600,13 +600,13 @@
 ! (MAXCH >= BA_SAT_RAW) is kept in full mode instead of demoted, and
 ! the next non-LAMBDA call's per-variable correction factor is
 ! clamped to MIN(MAX_LIN_COR,BA_DAMP_CAP) while BA_LAST_RAW stays
-! saturated.  A capped step still moves the model along the BA
+! saturated. A capped step still moves the model along the BA
 ! direction; the damped cap bounds each excursion to ~(BA_DAMP_CAP-1)
-! while the demand is re-measured every call.  Consecutive saturated
+! while the demand is re-measured every call. Consecutive saturated
 ! steps are bounded by BA_SAT_LIM -- clamped to 8 in
 ! RD_CONTROL_VARIABLES when BA_DAMP_CAP is armed but BA_SAT_LIM is
-! unset -- then ba_sat_demote fires.  Residual acceptance stays
-! active on every step.  Optional so VADAT files without the key are
+! unset -- then ba_sat_demote fires. Residual acceptance stays
+! active on every step. Optional so VADAT files without the key are
 ! unaffected.
 !
 	REAL(KIND=LDP) BA_DAMP_CAP
@@ -615,8 +615,8 @@
 ! [T_REL_CHG] default 3.0): after a LAMBDA->full exit, keep FIXED_T
 ! set regardless of RD_FIX_T until N_ACC_FULL accepted non-LAMBDA,
 ! non-rejected, converged iterations have accumulated AND MAXCH_CTRL falls
-! below T_REL_CHG, then restore RD_FIX_T.  T_HELD_PHASE marks the
-! hold as active; both are reset on (re)entry to LAMBDA.  The hold
+! below T_REL_CHG, then restore RD_FIX_T. T_HELD_PHASE marks the
+! hold as active; both are reset on (re)entry to LAMBDA. The hold
 ! lets the population Jacobian re-baseline after a LAMBDA window
 ! before temperature corrections resume.
 !
@@ -740,51 +740,51 @@
 	LOGICAL WRITE_RATES
 	LOGICAL WRITE_JH
 !
-! Non-monotonic velocity-field option (dev7).  When TRUE, the code uses
+! Non-monotonic velocity-field option (dev7). When TRUE, the code uses
 ! the Dessart, Audit & Hillier (2015, arXiv:1503.05463) approach for
 ! non-monotonic velocity fields: standard CMF formal solver with a
-! Sobolev line treatment.  VADAT keyword [DO_NONMONO_SOB]; default FALSE
-! preserves the original code path.  Requires GLOBAL_LINE=SOB (or NONE
+! Sobolev line treatment. VADAT keyword [DO_NONMONO_SOB]; default FALSE
+! preserves the original code path. Requires GLOBAL_LINE=SOB (or NONE
 ! with all TRANS_*=SOB) and USE_LAM_ES=T; RD_CONTROL_VARIABLES aborts
 ! otherwise (03-Oct-2026).
 !
 	LOGICAL DO_NONMONO_SOB
 !
-! Non-local Sobolev coupling (dev7).  When TRUE, and DO_NONMONO_SOB is
+! Non-local Sobolev coupling (dev7). When TRUE, and DO_NONMONO_SOB is
 ! also TRUE, the escape-probability line treatment adds the Rybicki &
 ! Hummer (1978, ApJ 219, 654) coupling between distant Sobolev points:
 ! photons emitted at one resonance are re-absorbed at a remote depth
-! where the projected velocity along the ray matches.  Implemented in
+! where the projected velocity along the ray matches. Implemented in
 ! SOB_RH_COUPLE (subs/sob_rh_couple.f) as a correction to ZNET_SIM.
 ! VADAT keyword [DO_NONLOC_SOB]; default FALSE preserves the local
 ! escape-probability path.
 !
 	LOGICAL DO_NONLOC_SOB
 !
-! ALLOW_SIGMA_UNDEF (dev audit F4, Oct-2026).  When FALSE (default),
+! ALLOW_SIGMA_UNDEF (dev audit F4, Oct-2026). When FALSE (default),
 ! RECOMPUTE_SIGMA_TRUE aborts if SIGMA_TRUE_CORE leaves any cell
 ! undefined (degenerate R spacing or a fully stagnant neighbourhood
 ! both return sigma=0, which silently marks the cell
-! non-compressing and removes it from the compressing census).  On
+! non-compressing and removes it from the compressing census). On
 ! a LAW-14 hydro grid an undefined cell signals a collapsed grid
-! spacing, so the default is fail-closed.  Set TRUE to downgrade
-! the abort to the previous warning-only behaviour.  VADAT keyword
+! spacing, so the default is fail-closed. Set TRUE to downgrade
+! the abort to the previous warning-only behaviour. VADAT keyword
 ! [ALLOW_SIGMA_UNDEF]; optional, and has effect only under
 ! DO_NONMONO_SOB or DO_NONMONO_KNOP.
 !
 	LOGICAL ALLOW_SIGMA_UNDEF
 !
-! Non-monotonic velocity-field option (dev7).  When TRUE, COMP_J_BLANK
+! Non-monotonic velocity-field option (dev7). When TRUE, COMP_J_BLANK
 ! calls FG_J_CMF_NONMONO_V1, the Knop et al. (2009) formal solver for
-! non-monotonic velocity fields, in place of FG_J_CMF_V13.  The solver
+! non-monotonic velocity fields, in place of FG_J_CMF_V13. The solver
 ! keeps |GAM| in the generalized opacity and the signed coupling in a
 ! lagged source term, so compression zones (sigma < -1) transfer
-! correctly.  Both J-update modes are supported: USE_LAM_ES=T takes J
+! correctly. Both J-update modes are supported: USE_LAM_ES=T takes J
 ! from the formal solution (Lambda iteration); USE_LAM_ES=F calls
 ! MOM_J_CMF_NONMONO_V1, the non-monotonic VEF moment solver with the
-! same chi_hat formalism.  The stock MOM_J_CMF_V11 is never selected:
+! same chi_hat formalism. The stock MOM_J_CMF_V11 is never selected:
 ! its clamped SIGMA is inconsistent with the non-monotonic ray/moment
-! solution.  Mutually exclusive with DO_NONMONO_SOB.  Requires
+! solution. Mutually exclusive with DO_NONMONO_SOB. Requires
 ! GLOBAL_LINE=BLANK (or NONE with all TRANS_*=BLANK), LAM_SET=F, and
 ! INC_GRID=F; RD_CONTROL_VARIABLES aborts otherwise (03-Oct-2026).
 ! VADAT keyword [DO_NONMONO_KNOP]; default FALSE preserves the
@@ -792,17 +792,17 @@
 !
 	LOGICAL DO_NONMONO_KNOP
 !
-! KN_NO_GAIN (18-Oct-2026, job 12268434).  When TRUE, and
+! KN_NO_GAIN (18-Oct-2026). When TRUE, and
 ! DO_NONMONO_KNOP is also TRUE, CMFGEN_SUB floors CHI at CHI_SCAT
-! after the stock NEG_OPAC fixups.  The SRCE_CHK/ESEC_CHK floors
+! after the stock NEG_OPAC fixups. The SRCE_CHK/ESEC_CHK floors
 ! can leave total CHI below CHI_SCAT, which makes the source
 ! coefficient sum (CHI_SCAT+|GAM|/dLOG_NU)/(CHI+|GAM|/dLOG_NU)
-! exceed 1 -- the cell is a net photon amplifier.  FG_J_CMF_V13
+! exceed 1 -- the cell is a net photon amplifier. FG_J_CMF_V13
 ! is bounded because nothing carries across great iterations, but
 ! the KNOP solver recycles the amplified intensity through the
 ! lagged I_P/I_M_DEPTH_NEXT store, so the gain compounds every
-! iteration (8.6x/iter observed in w19, all in the 18.6 um line
-! region).  Flooring CHI at CHI_SCAT keeps every source coefficient
+! iteration (8.6x/iter observed in , all in the 18.6 um line
+! region). Flooring CHI at CHI_SCAT keeps every source coefficient
 ! sum <= 1, so the lagged map is non-expanding in the sup norm.
 ! The cost is suppressed stimulated-emission (maser) amplification
 ! at those frequencies -- acceptable, since the inversions sit on
@@ -824,26 +824,26 @@
 	REAL(KIND=LDP) :: KN_NOGAIN_NU=0.0_LDP
 !
 ! N_LAM_RWARM: forced LAMBDA iterations at process start when
-! DO_NONMONO_KNOP=T.  The Gauss-Seidel I_NEXT arrays in
+! DO_NONMONO_KNOP=T. The Gauss-Seidel I_NEXT arrays in
 ! FG_J_CMF_NONMONO_V1 are process-local and are re-zeroed on every
 ! requeue; this forces LAMBDA for the first N_LAM_RWARM great
 ! iterations of each process so a BA step is never taken against a
-! stale (zeroed) I_NEXT.  Skipped when a mature FGINEXT_GS checkpoint
-! restored the field.  VADAT keyword [N_LAM_RWARM]; default 4, 0
+! stale (zeroed) I_NEXT. Skipped when a mature FGINEXT_GS checkpoint
+! restored the field. VADAT keyword [N_LAM_RWARM]; default 4, 0
 ! disables.
 !
 	INTEGER N_LAM_RWARM
 !
 ! MOM_TRIAL_MIN (default 30): first frozen iteration at which the
-! marginal-release path may attempt a resacc-gated BA step.  A MOM
+! marginal-release path may attempt a resacc-gated BA step. A MOM
 ! lagged field that is frozen only on the marginal drift terms (no
 ! capped writes, no runaway cell, >50% drift confined to <1% of
 ! cells, negJ/quar fractions bounded) is mature enough to try a BA
 ! step: DO_BA_RES_ACC arms the residual acceptance on that call and
 ! rolls the step back if the SE residual grows, so the trial cannot
-! silently damage the model.  N_FROZEN keeps counting through the
+! silently damage the model. N_FROZEN keeps counting through the
 ! trial, so KNOP_STALL_MAX still bounds a run that never matures.
-! Set <=0 to disable marginal release.  Without DO_BA_RES_ACC the
+! Set <=0 to disable marginal release. Without DO_BA_RES_ACC the
 ! trial never fires -- an unchecked BA step on a marginal field is
 ! exactly the failure the gate exists to prevent.
 ! VADAT keyword [MOM_TRIAL_MIN].
@@ -852,10 +852,10 @@
 !
 ! FG_TRIAL_MIN (default 30, 0 disables): frozen-iteration count that
 ! arms the FG-only marginal-release trial in SOLVE_FOR_POPS (W8,
-! 17-Oct-2026).  Under USE_LAM_ES=T MOM never ran so MOM_TRIAL can
+! 17-Oct-2026). Under USE_LAM_ES=T MOM never ran so MOM_TRIAL can
 ! never fire; this arm releases a damped LAMBDA probe (T1=GS_LAM_CAP)
 ! once the share-gated FG gate shows no immaturity and no UNSAFE
-! census and the resacc snapshot is armed.  Accepted trials refund
+! census and the resacc snapshot is armed. Accepted trials refund
 ! N_FROZEN to FG_TRIAL_MIN; rejected trials keep the clock.
 ! VADAT keyword [FG_TRIAL_MIN].
 !
@@ -863,10 +863,9 @@
 !
 ! FG_TRIAL_CHURN (default 0.0 = off): multiplier on the store-churn
 ! bulk bound that lets the FG-only trial arm when churn is the ONLY
-! remaining GS_FG_IMMATURE driver.  The lagged-map fixed point can
+! remaining GS_FG_IMMATURE driver. The lagged-map fixed point can
 ! sit 0.2-0.3% of cells above 50% per sweep while the bad-cell share
-! and residual are already inside their bounds (m15_2p82d it851-860:
-! nbad frac 4-8E-4 < 1E-3 but churn 1.3-2.1E6 of 6.5E8 cells ~ 2-3x
+! and residual are already inside their bounds nbad frac 4-8E-4 < 1E-3 but churn 1.3-2.1E6 of 6.5E8 cells ~ 2-3x
 ! the bound) -- a flat boolean veto then holds populations forever.
 ! With FG_TRIAL_CHURN > 0 a trial may fire when the cured gate is
 ! clean except GS_NCONV_ALL <= FG_TRIAL_CHURN*MAX(50,GS_NTOT/1000);
@@ -878,20 +877,20 @@
 !
 ! FG_TRIAL_CHURN_MIN (default 3): consecutive churn-marginal calls
 ! (gate immature only via store churn, inside the FG_TRIAL_CHURN
-! factor) before the churn arm may release a trial.  The arm uses
+! factor) before the churn arm may release a trial. The arm uses
 ! its own streak rather than N_FROZEN -- releases refund the
 ! freeze clock, so a churn-only hold never reaches FG_TRIAL_MIN on
-! the field class this arm exists for.  0 disables the arm.
+! the field class this arm exists for. 0 disables the arm.
 ! VADAT keyword [FG_TRIAL_CHURN_MIN].
 !
 	INTEGER FG_TRIAL_CHURN_MIN
 !
 ! GS_SETTLE_TOL (default -1 = off): settle-asymptote tolerance for
-! the KNOP maturity gate.  The argmax-jitter classification
+! the KNOP maturity gate. The argmax-jitter classification
 ! (MOM_GS_CLS/FG_GS_CLS) distinguishes a period-2 limit cycle of the
 ! composite map from a genuinely moving field; with a positive
 ! tolerance, a 'cycle' floor at or below it no longer refreezes the
-! field on the store-churn term alone.  Drift above the tolerance
+! field on the store-churn term alone. Drift above the tolerance
 ! still forces LAMBDA and every GS_UNSAFE backstop stays live.
 ! VADAT keyword [GS_SETTLE_TOL].
 !
@@ -899,31 +898,31 @@
 !
 ! GS_FREEZE_LIM (default 0 = disabled): no-progress great iterations
 ! spent in the KNOP forced-LAMBDA freeze before SOLVE_FOR_POPS
-! stops the model as non-convergent.  The count survives the
+! stops the model as non-convergent. The count survives the
 ! release/refreeze cycle -- it resets only when a release makes
 ! real demand progress, not at every release the way N_FROZEN
-! does.  The freeze itself stays uncapped -- a field that cannot
+! does. The freeze itself stays uncapped -- a field that cannot
 ! mature must not take BA steps -- but a run that never matures
 ! should fail loudly rather than burn requeues and report as a
-! completed model.  Independent of this
+! completed model. Independent of this
 ! key, SOLVE_FOR_POPS publishes the freeze state to the GS_STATE
 ! file each call so the job wrapper can apply its own limit.
-! VADAT keyword [GS_FREEZE_LIM].  Under DO_NONMONO_KNOP an absent
+! VADAT keyword [GS_FREEZE_LIM]. Under DO_NONMONO_KNOP an absent
 ! key auto-sets 300 (edited 20-Oct-2026); an explicit
 ! value, including 0 = off, is respected.
 !
 	INTEGER GS_FREEZE_LIM
 !
 ! GS_TRIAL_LIM (default 15): accepted resacc-gated trial releases the
-! marginal MOM path may take between raw-mature sweeps.  An accepted
+! marginal MOM path may take between raw-mature sweeps. An accepted
 ! trial refunds the freeze clock -- N_FROZEN resets to MOM_TRIAL_MIN
 ! -- because the field demonstrated the marginal state and the resacc
 ! net committed the step: real progress the GS_FREEZE_LIM /
-! KNOP_STALL watchdogs should not count against the run.  Rejected
+! KNOP_STALL watchdogs should not count against the run. Rejected
 ! releases do not refund, so a churning run still hits the stall
-! limit.  At GS_TRIAL_LIM accepted trials the marginal-release path
+! limit. At GS_TRIAL_LIM accepted trials the marginal-release path
 ! is vetoed; the freeze resumes and the stall limit applies as
-! before.  Set <=0 to disable the refund entirely (N_FROZEN then
+! before. Set <=0 to disable the refund entirely (N_FROZEN then
 ! counts every frozen iteration, restoring the original behaviour).
 ! VADAT keyword [GS_TRIAL_LIM].
 !
@@ -931,7 +930,7 @@
 !
 ! GS_RELEASE_LIM (default 0 = disabled): total rejected trial
 ! releases (N_TRIALS_REJ) before SOLVE_FOR_POPS stops the model as
-! non-convergent.  An accepted release refunds N_FROZEN, so the
+! non-convergent. An accepted release refunds N_FROZEN, so the
 ! freeze->release->refreeze cycle can run forever under
 ! GS_FREEZE_LIM alone; rejected releases are counted nowhere else.
 ! VADAT keyword [GS_RELEASE_LIM].
@@ -940,57 +939,57 @@
 !
 ! GS_REL_NOPROG_LIM (default 0 = disabled): releases that produced
 ! no demand progress or that re-poisoned the field (N_REL_NOPROG)
-! before SOLVE_FOR_POPS stops the model as non-convergent.  The
+! before SOLVE_FOR_POPS stops the model as non-convergent. The
 ! release/refreeze limit cycle resets the consecutive counters at
 ! every release, so this cumulative count reaches its bound first
-! on the m15_2p82d-class alternation.  VADAT keyword
-! [GS_REL_NOPROG_LIM].  Under DO_NONMONO_KNOP an absent key
+! on the -class alternation. VADAT keyword
+! [GS_REL_NOPROG_LIM]. Under DO_NONMONO_KNOP an absent key
 ! auto-sets to 10; explicit VADAT values are respected.
 !
 	INTEGER GS_REL_NOPROG_LIM
 !
 ! GS_REL_STABLE (default 1): consecutive sweeps that must pass the
 ! KNOP maturity gate before SOLVE_FOR_POPS releases the population
-! update.  A single mature-looking sweep can be a coincidence of the
+! update. A single mature-looking sweep can be a coincidence of the
 ! churning field -- a release on one marginal sweep lets the update
 ! re-poison the field and the freeze/release cycle repeats without
-! converging.  Requiring a stable streak confirms the lagged field
-! is a fixed point before the populations move.  VADAT keyword
+! converging. Requiring a stable streak confirms the lagged field
+! is a fixed point before the populations move. VADAT keyword
 ! [GS_REL_STABLE].
 !
 	INTEGER GS_REL_STABLE
 !
 ! GS_REL_N (default 1): number of consecutive LAMBDA iterations
 ! after a GS-freeze release that keep the near-mature correction
-! cap.  The first released step carries the deferred correction
+! cap. The first released step carries the deferred correction
 ! accumulated while pops were held; the following steps still see a
 ! field re-lagging to the moved populations, so they stay damped
-! too.  Only LAMBDA steps are damped -- BA steps are covered by the
-! residual-acceptance net.  VADAT keyword [GS_REL_N].
+! too. Only LAMBDA steps are damped -- BA steps are covered by the
+! residual-acceptance net. VADAT keyword [GS_REL_N].
 !
 	INTEGER GS_REL_N
 !
 ! GS_RAW_MATURE (default FALSE): require the raw FG sweep max change
 ! to pass GS_MATURE_TOL for a sweep to count toward the GS_REL_STABLE
-! release streak.  The default bulk rule can mark a sweep mature while
+! release streak. The default bulk rule can mark a sweep mature while
 ! the max-norm is still ~5E-2 (a small fraction of cells above
 ! tolerance); releasing on that let the first unheld step re-poison
-! the field (KNOP_jfnkrel it35-40, se_res -> 2E31).  With the flag
+! the field (se_res -> 2E31). With the flag
 ! set, a bulk-pass-but-max-high sweep resets the consecutive count --
-! release then waits for a genuinely quiet field.  Opt-in: the bulk
-! exception remains the default release discriminator.  VADAT keyword
+! release then waits for a genuinely quiet field. Opt-in: the bulk
+! exception remains the default release discriminator. VADAT keyword
 ! [GS_RAW_MATURE].
 !
 	LOGICAL GS_RAW_MATURE
 !
 ! GS_PRECOND (default FALSE standalone; auto-set TRUE under
 ! DO_NONMONO_KNOP, explicit F respected): population-precondition
-! gate on the freeze decision in SOLVE_FOR_POPS.  The hold/freeze
+! gate on the freeze decision in SOLVE_FOR_POPS. The hold/freeze
 ! machinery assumes the entered populations are close enough to
 ! convergence that holding them lets the lagged field settle; on
-! m15_2p82d the hold was applied at ~1E10% demanded correction --
+!  the hold was applied at ~1E10% demanded correction --
 ! far outside the SE linearization -- and the release/refreeze
-! cycle never moved the demand.  When the entry MAXCH (the
+! cycle never moved the demand. When the entry MAXCH (the
 ! previous call's demand) exceeds GS_PRECOND_MAX (default
 ! 1.0E+03 percent) the freeze is postponed for that call so a
 ! live LAMBDA update keeps working the demand down.
@@ -1003,16 +1002,16 @@
 	INTEGER GS_PRECOND_LIM
 !
 ! JFNK_CPL_RELWAIT (default FALSE): hold the coupled JFNK tier during
-! the GS release window.  The first live iterations after a freeze
+! the GS release window. The first live iterations after a freeze
 ! carry the deferred SE correction and a field re-lagging to moved
 ! populations; admitting JFNK-CPL there couples a marginal field to a
-! perturbative solve (KNOP_jfnkrel it35: admitted on the release call,
+! perturbative solve (admitted on the release call,
 ! GMRES stagnated, and the fallback step re-poisoned the field).
 ! When TRUE, an otherwise-admitted coupled call inside the damped
 ! window (N_REL_SINCE <= GS_REL_N) is deferred and falls to the
-! frozen tier or plain SOLVEBA.  Note: with GS_REL_N very large the
+! frozen tier or plain SOLVEBA. Note: with GS_REL_N very large the
 ! coupled tier never admits -- intended for configs that use a
-! short damp window.  Policy change: alters admission timing.
+! short damp window. Policy change: alters admission timing.
 ! VADAT keyword [JFNK_CPL_RELWAIT].
 !
 	LOGICAL JFNK_CPL_RELWAIT
@@ -1022,32 +1021,32 @@
 ! The relief exists to let the frozen tier fire at all under SOB, but
 ! the frozen tier cannot reduce a radiation-pinned residual, so once
 ! the reach gate has rejected a run of admissions the relief defers
-! to the outer BA/LAMBDA loop.  0 = never suppress (pre-17-Oct-2026
-! behaviour).  VADAT keyword [JFNK_REL_REACH_MAX].
+! to the outer BA/LAMBDA loop. 0 = never suppress (pre-17-Oct-2026
+! behaviour). VADAT keyword [JFNK_REL_REACH_MAX].
 !
 	INTEGER JFNK_REL_REACH_MAX
 !
 ! JFNK_FRZ_FAIL_LIM (default 0 = off): consecutive frozen-tier
 ! admissions that end without a committed Newton step before the
-! admission gate holds JFNK on the caller's SOLVEBA path.  This is a
+! admission gate holds JFNK on the caller's SOLVEBA path. This is a
 ! cost control, not a convergence criterion: the fixed-T population
 ! residual can remain unreachable even when GMRES and its
-! preconditioner are behaving correctly.  JFNK_FRZ_FAIL_HOLD (default
+! preconditioner are behaving correctly. JFNK_FRZ_FAIL_HOLD (default
 ! 10) is the number of eligible frozen calls spent in SOLVEBA before
-! one probe admission is allowed again.  VADAT keywords
+! one probe admission is allowed again. VADAT keywords
 ! [JFNK_FRZ_FAIL_LIM], [JFNK_FRZ_FAIL_HOLD].
 !
 	INTEGER JFNK_FRZ_FAIL_LIM
 	INTEGER JFNK_FRZ_FAIL_HOLD
 !
-! DO_KNOP_REFRESH: per-ray Knop refresh (Oct-2026).  When TRUE and
+! DO_KNOP_REFRESH: per-ray Knop refresh (Oct-2026). When TRUE and
 ! DO_NONMONO_KNOP=T, CMFGEN_SUB calls FG_KNOP_REFRESH_V1 after each
 ! frequency sweep to converge the compressing-branch wavelength
 ! coupling internally (alternating-direction per-ray re-solve on the
 ! sweep-captured opacities), replacing the one-frequency-bin-per-
-! great-iteration lag that prevented GS maturity.  VADAT keyword
+! great-iteration lag that prevented GS maturity. VADAT keyword
 ! [DO_KNOP_REFRESH]; default DO_NONMONO_KNOP (set FALSE to recover
-! the lagged behaviour for A/B tests).  Initialized FALSE so the
+! the lagged behaviour for A/B tests). Initialized FALSE so the
 ! SET_MOM_RF_DIR_OPT wiring that runs before the VADAT read sees a
 ! defined value; the effective value is re-wired after USE_LAM_ES
 ! is read (rd_control_variables.f).
@@ -1055,17 +1054,17 @@
 	LOGICAL :: DO_KNOP_REFRESH=.FALSE.
 !
 ! MOM_RF_GS_DESC (default FALSE): on descending MOM_KNOP_REFRESH
-! passes, compressing depths read the live J_NEXT_FRQ(:,L+1) --
+! passes, compressing depths read the live J_NEXT_FRQ(,L+1) --
 ! updated this pass -- instead of the frozen pass-start snapshot.
 ! True Gauss-Seidel propagation along the red-to-blue compressing
 ! characteristic; the snapshot caps that propagation at one bin per
-! pass.  VADAT keyword [MOM_RF_GS_DESC].
+! pass. VADAT keyword [MOM_RF_GS_DESC].
 !
 ! MOM_RF_KEEPNEG (default TRUE): cells whose MOM solution hit a
 ! post-solve repair (significant negJ, non-finite or runaway
 ! rejection) keep the previous J_NEXT_FRQ iterate instead of storing
 ! the repaired value, so the lagged read is not reseeded with repair
-! noise.  VADAT keyword [MOM_RF_KEEPNEG].
+! noise. VADAT keyword [MOM_RF_KEEPNEG].
 !
 	LOGICAL MOM_RF_GS_DESC
 	LOGICAL MOM_RF_KEEPNEG
@@ -1074,7 +1073,7 @@
 ! the fraction of cells still moving (nbad5/nbad50 vs NTOT, capped
 ! writes, max change vs GS_UNSAFE_TOL, negJ fraction <10%) instead
 ! of the max-norm + any-negJ test that permanently freezes BA on
-! strongly compressed grids.  Mirrors the FG-side bulk criterion.
+! strongly compressed grids. Mirrors the FG-side bulk criterion.
 ! VADAT keyword [MOM_GATE_BULK].
 !
 	LOGICAL MOM_GATE_BULK
@@ -1091,12 +1090,12 @@
 ! DO_NONMONO_KNOP when the VADAT key is absent): at compressing
 ! points the lagged upwind frequency is rematched to the bin the
 ! photon actually occupies one cell upwind, n = |GAM|*ds/dln(nu)
-! bins, instead of always the adjacent bin.  The frequency
+! bins, instead of always the adjacent bin. The frequency
 ! derivative then spans n*dln(nu), which is what the discretization
 ! needs when the per-cell Doppler shift exceeds one grid bin (the
 ! oscillatory-eigenvalue regime of Ceulemans et al. 2025, JQSRT).
 ! Implemented in FG_J_CMF_NONMONO_V1 and MOM_J_CMF_NONMONO_V1;
-! expanding cells and the monotonic path are unchanged.  VADAT
+! expanding cells and the monotonic path are unchanged. VADAT
 ! keyword [DO_NONMONO_FREQ_MATCH].
 !
 	LOGICAL DO_NONMONO_FREQ_MATCH
@@ -1106,20 +1105,20 @@
 ! PSIPREV, EPS_PREV) are evaluated with the current frequency's
 ! Eddington factors, so the explicit upwind weight equals the
 ! implicit diagonal weight and the lagged map cannot gain through a
-! PSIPREV/PSI ratio.  VADAT keyword [MOM_GAM_PIN].
+! PSIPREV/PSI ratio. VADAT keyword [MOM_GAM_PIN].
 !
 	LOGICAL MOM_GAM_PIN
 !
 ! MOM_LAG_BND (default TRUE): per-row bound on the lagged frequency
-! source in MOM_J_CMF_NONMONO_V1.  Where a row's lagged coupling
+! source in MOM_J_CMF_NONMONO_V1. Where a row's lagged coupling
 ! weight exceeds its diagonal excess TB-|TA|-|TC|, the lagged RHS
 ! contribution is scaled down so the lagged fixed-point map stays
-! non-expansive row by row.  VADAT keyword [MOM_LAG_BND].
+! non-expansive row by row. VADAT keyword [MOM_LAG_BND].
 !
 	LOGICAL MOM_LAG_BND
 !
 ! MOM_ABS_FLR (default 0.0 = off): lower bound on the absorption
-! fraction 1-COH in the MOM_J_CMF_NONMONO_V1 diagonal.  ESEC>=CHI
+! fraction 1-COH in the MOM_J_CMF_NONMONO_V1 diagonal. ESEC>=CHI
 ! cells otherwise lose their only J-independent diagonal weight, so
 ! MOM_LAG_BND nulls their lagged source entirely and the row can
 ! slosh between clipped and unclipped states instead of converging.
@@ -1130,12 +1129,12 @@
 !
 ! MOM_H_IMPL (default FALSE): add |VB|+|VC| -- the magnitude of the
 ! lagged upwind-H midpoint couplings -- to the MOM_J_CMF_NONMONO_V1
-! diagonal.  The H channel is then paid for as implicit weight: the
+! diagonal. The H channel is then paid for as implicit weight: the
 ! row is damped against neighbour and lagged reads, and the
 ! MOM_LAG_BND excess grows by the same amount so less of the lagged
-! source is clipped.  Targets the KNOP shock-cell stall where
+! source is clipped. Targets the KNOP shock-cell stall where
 ! clipped rows (zero diagonal excess) oscillate between their
-! clipped and unclipped fixed points.  VADAT keyword [MOM_H_IMPL].
+! clipped and unclipped fixed points. VADAT keyword [MOM_H_IMPL].
 !
 	LOGICAL MOM_H_IMPL
 !
@@ -1143,19 +1142,19 @@
 ! Eddington-factor update between great iterations in
 ! MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
 ! snap is the only channel moving the lagged map's fixed point per
-! iteration.  1.0 keeps the raw snap.  VADAT keyword [MOM_FAC_RLX].
+! iteration. 1.0 keeps the raw snap. VADAT keyword [MOM_FAC_RLX].
 !
 	REAL(KIND=LDP) MOM_FAC_RLX
 !
 ! MOM_TRIAL_LAM (default 0.0 = off): MAXCH demand above which a
 ! fired MOM_TRIAL release in SOLVE_FOR_POPS takes a damped LAMBDA
-! step (cap GS_LAM_CAP) instead of the resacc-gated BA step.  At
-! demand ~1E7 the BA linearization is invalid: the observed m15
+! step (cap GS_LAM_CAP) instead of the resacc-gated BA step. At
+! demand ~1E7 the BA linearization is invalid: the observed
 ! cycle was release -> capped BA step -> SE residual +37x -> resacc
 ! rollback -> refreeze, net zero progress, while LAMBDA-scheduled
 ! releases taking the factor-3 step improved the residual ~6x per
-! call.  Below the threshold the resacc-BA trial still gives the
-! quadratic near-solution step the gate was built for.  VADAT
+! call. Below the threshold the resacc-BA trial still gives the
+! quadratic near-solution step the gate was built for. VADAT
 ! keyword [MOM_TRIAL_LAM].
 !
 	REAL(KIND=LDP) MOM_TRIAL_LAM
@@ -1164,21 +1163,21 @@
 ! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
 ! and the per-row wavelength direction follows sign(GAM), the
 ! physically ordered Gauss-Seidel of Knop et al. (2009, Paper II
-! Sec. 2).  Only the lagged slope corner and the downwind half of
+! Sec. 2). Only the lagged slope corner and the downwind half of
 ! the compressing interpolant stay lagged, replacing the
 ! alternating-direction passes that leave half of each strong
-! coupling stale every pass.  F restores them for A/B tests.
+! coupling stale every pass. F restores them for A/B tests.
 ! Requires the refresh coefficient pack and NI>=3 per ray; the
-! alternating scheme is the automatic fallback otherwise.  VADAT
+! alternating scheme is the automatic fallback otherwise. VADAT
 ! keyword [KN_RAY_ORDERED].
 !
 	LOGICAL KN_RAY_ORDERED
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
-! iterate at pass boundaries inside SWEEP_FLD_ORD.  Targets the
+! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
 ! marginally contractive |Q|->1 compression cells that stall the
-! march short of the bulk-maturity exit.  VADAT [KN_ORD_AITKEN].
+! march short of the bulk-maturity exit. VADAT [KN_ORD_AITKEN].
 !
 	LOGICAL KN_ORD_AITKEN
 !
@@ -1187,22 +1186,22 @@
 ! SWEEP_FLD_ORD, using the same guarded mix as the MOM refresh AA
 ! (mom_j_cmf_nonmono_v1.f) plus a residual-acceptance rollback.
 ! Replaces the KN_ORD_AITKEN experiment, which depth-1 secant
-! divergence made unsafe on the seed transient.  KN_ORD_AA_M sets
-! the secant depth (pairs kept = M+1).  VADAT [KN_ORD_AA] and
+! divergence made unsafe on the seed transient. KN_ORD_AA_M sets
+! the secant depth (pairs kept = M+1). VADAT [KN_ORD_AA] and
 ! [KN_ORD_AA_M].
 !
 	LOGICAL KN_ORD_AA
 !
 ! KN_ORD_P2DAMP (default FALSE): per-cell period-2 collapse inside
-! SWEEP_FLD_ORD.  Tracks the sign of (VNEW-VOLD) at each significant
+! SWEEP_FLD_ORD. Tracks the sign of (VNEW-VOLD) at each significant
 ! cell; after KN_ORD_P2N consecutive sign flips the committed value
 ! becomes the bracket midpoint (geometric when both endpoints are
 ! strictly positive, arithmetic otherwise) instead of the relaxed
-! VNEW.  Damping releases after KN_ORD_P2REL consecutive flip-free
-! passes so converged cells are not slowed.  Targets the bounded
+! VNEW. Damping releases after KN_ORD_P2REL consecutive flip-free
+! passes so converged cells are not slowed. Targets the bounded
 ! lambda~-1 oscillation the whole-ray KN_SGN_SUM detector cannot
-! see (m15_2p82d kndump arm: ~20 near-floor cells flip-flopped
-! ~2x/~0.5x at a stable 0.53 max residual from it125-136).  VADAT
+! see (arm: ~20 near-floor cells flip-flopped
+! ~2x/~0.5x at a stable 0.53 max residual from ). VADAT
 ! [KN_ORD_P2DAMP], [KN_ORD_P2N], [KN_ORD_P2REL].
 !
 	LOGICAL KN_ORD_P2DAMP
@@ -1213,11 +1212,11 @@
 ! the absolute GS_MAXCHG>GS_UNSAFE_TOL unsafe tier in SOLVE_FOR_POPS
 ! with a divergence test -- unsafe only when the refresh max
 ! residual grows by more than KN_GATE_DIV_FAC against the value
-! recorded KN_GATE_DIV_M refresh sweeps back, or is non-finite.  A
+! recorded KN_GATE_DIV_M refresh sweeps back, or is non-finite. A
 ! bounded stationary residual (the 0.53 period-2 asymptote above)
-! then counts as mature rather than runaway.  There is no absolute
+! then counts as mature rather than runaway. There is no absolute
 ! backstop in this variant: a large but stable residual passes.
-! Enabling is a gate policy change for the run owner.  VADAT
+! Enabling is a gate policy change for the run owner. VADAT
 ! [KN_GATE_DIVERGENCE], [KN_GATE_DIV_FAC], [KN_GATE_DIV_M].
 !
 	LOGICAL KN_GATE_DIVERGENCE
@@ -1226,17 +1225,17 @@
 !
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
-! SWEEP_FLD/SWEEP_FLD_ORD.  0.90 quit rays still contracting at up
+! SWEEP_FLD/SWEEP_FLD_ORD. 0.90 quit rays still contracting at up
 ! to 10% per pass; the exit census showed those rays held nearly
 ! all unconverged cells, so the default now fires only on nearly
 ! flat passes (KN_RAY_STALL=0.98 arm cut the unconverged fraction
-! ~40x at matched iterations).  VADAT [KN_RAY_STALL].
+! ~40x at matched iterations). VADAT [KN_RAY_STALL].
 !
 	REAL(KIND=LDP) KN_RAY_STALL
 !
 ! MOM_RF_AA (default TRUE): vector Anderson acceleration on the
 ! MOM refresh composite map, using the MOM_AA_M most recent
-! iterate/residual pairs.  For the affine-in-lagged-field refresh
+! iterate/residual pairs. For the affine-in-lagged-field refresh
 ! map AA(m) is equivalent to the GMRES residual minimization on
 ! (I-A)x=b, so a separate GMRES pass is not currently warranted.
 ! VADAT keyword [MOM_RF_AA].
@@ -1244,11 +1243,11 @@
 	LOGICAL MOM_RF_AA
 !
 ! MOM_AA_OUT (default TRUE): call-level Anderson acceleration on the
-! committed lagged J_NEXT_FRQ field.  The inner AA accelerates the
+! committed lagged J_NEXT_FRQ field. The inner AA accelerates the
 ! frozen-coefficient refresh map; this one accelerates the outer
 ! sweep+refresh composition, whose iterates still carry the
-! J<->Eddington coefficient drift.  Pairs cost 2*ND_NM*NCF*8 bytes
-! each and MOM_AA_OUT_M of them are kept.  VADAT keywords
+! J<->Eddington coefficient drift. Pairs cost 2*ND_NM*NCF*8 bytes
+! each and MOM_AA_OUT_M of them are kept. VADAT keywords
 ! [MOM_AA_OUT] and [MOM_AA_OUT_M].
 !
 	LOGICAL MOM_AA_OUT
@@ -1257,9 +1256,9 @@
 ! per-pass bulk drift meets the same bounds the maturity gate
 ! applies to the sweep (<=0.1% of cells >50%, no capped writes,
 ! negJ/quarantined <=10%), instead of iterating to the max-norm
-! stall.  The converged flag then routes the gate to the
+! stall. The converged flag then routes the gate to the
 ! retained-vs-sweep delta, so a fixed point far from the field the
-! populations saw is still rejected.  VADAT keyword
+! populations saw is still rejected. VADAT keyword
 ! [MOM_RF_BULK_EXIT].
 !
 	LOGICAL MOM_RF_BULK_EXIT
@@ -1267,28 +1266,28 @@
 ! MOM_RF_ACTIVE (default FALSE): active-set front-tracking over
 ! frequencies in the MOM refresh -- skip frequencies whose own
 ! residual and all upwind read slots stayed below KN_M_TOL on the
-! previous pass.  VADAT keyword [MOM_RF_ACTIVE].
+! previous pass. VADAT keyword [MOM_RF_ACTIVE].
 !
 	LOGICAL MOM_RF_ACTIVE
 !
 ! MOM_EPS_LIM (default TRUE): donor-cell positivity limiter on the
 ! lagged EPS midpoint transfer in the Knop moment solver -- the
 ! lagged auxiliary term may not debit a row past its accumulated
-! positive RHS.  VADAT keyword [MOM_EPS_LIM].
+! positive RHS. VADAT keyword [MOM_EPS_LIM].
 !
 ! MOM_RF_DIR (default 'AUTO'): pass ordering for MOM_KNOP_REFRESH.
 ! AUTO measures the compressing-row fraction on the sweep and runs
 ! only the dominant coupling direction once one side holds >=90% of
 ! rows (the physically-guided ordering of Knop Paper II Sect. 3.2);
 ! ALT keeps the original alternating order, ASC/DESC force a
-! direction.  VADAT keyword [MOM_RF_DIR].
+! direction. VADAT keyword [MOM_RF_DIR].
 !
 ! MOM_RF_OWNW (default TRUE): pass-direction ownership of
 ! lagged-store writes inside MOM_KNOP_REFRESH -- a row whose upwind
 ! read was stale this pass (compressing rows on an ascending pass,
 ! expanding on a descending one) does not write back, so each row
-! only takes fresh-read Gauss-Seidel steps.  Removes the residual
-! floor of the alternating GS*Jacobi map.  VADAT keyword
+! only takes fresh-read Gauss-Seidel steps. Removes the residual
+! floor of the alternating GS*Jacobi map. VADAT keyword
 ! [MOM_RF_OWNW].
 !
 	LOGICAL MOM_EPS_LIM
@@ -1297,7 +1296,7 @@
 !
 ! DO_BA_RES_ACC (default FALSE): residual-accepted BA update.
 ! SOLVEBA_V13 measures the max statistical-equilibrium residual
-! (the STEQ right-hand side at entry) into BA_SE_RES.  After the
+! (the STEQ right-hand side at entry) into BA_SE_RES. After the
 ! solve, a
 ! BA step is committed only when the residual measured at the
 ! post-step state does not exceed BA_RES_GROW times the residual
@@ -1307,10 +1306,10 @@
 ! A second bound, BA_RES_HARD times the smallest residual seen
 ! since the tracker armed (BAACC_RES_MIN), closes the slow-growth
 ! loophole: a run of accepted 1.4x steps would otherwise diverge
-! without ever tripping the per-step ratio.  Independently, any
+! without ever tripping the per-step ratio. Independently, any
 ! depth whose requested correction exceeds the current trust
 ! radius is zeroed, which blocks the stale-inverse
-! 1e12-correction pathology.  The radius adapts like a textbook
+! 1e12-correction pathology. The radius adapts like a textbook
 ! trust region: BA_TRUST_CUR starts at BA_TRUST, halves on each
 ! rejection, and recovers by 1.25x on each acceptance.
 ! VADAT keywords [DO_BA_RES_ACC], [BA_RES_GROW], [BA_RES_HARD],
@@ -1322,31 +1321,31 @@
 	REAL(KIND=LDP) BA_TRUST
 !
 ! BA_NREJ_LIM (default 20): consecutive rejected BA steps at which
-! SOLVEBA_V13 stops the model.  BA_TRUST_CUR floors at 1.0, so
+! SOLVEBA_V13 stops the model. BA_TRUST_CUR floors at 1.0, so
 ! without a cap a model whose linearization cannot produce an
 ! acceptable step alternates LAMBDA and rejected-BA corrections
-! forever and completes un-converged.  VADAT keyword
+! forever and completes un-converged. VADAT keyword
 ! [BA_NREJ_LIM]; <=0 disables.
 !
 	INTEGER BA_NREJ_LIM
 !
 ! BA_RES_SAT (default 1E30): saturation level for the max-residual
-! channel.  When the armed step's pre-step residual is already at or
+! channel. When the armed step's pre-step residual is already at or
 ! above this value, the channel is measuring a degenerate equation
 ! (the ~1E262 inner-boundary rows on the Dessart runs), not step
 ! quality -- a bounded correction cannot move it and any overflow
-! above it trips the growth test spuriously.  In that regime only
-! the RES2 rank channel judges the step.  VADAT keyword
+! above it trips the growth test spuriously. In that regime only
+! the RES2 rank channel judges the step. VADAT keyword
 ! [BA_RES_SAT]; <=0 disables the exemption (legacy behaviour).
 !
 	REAL(KIND=LDP) BA_RES_SAT
 !
 ! Internal state for the residual-accepted BA update (not VADAT
-! keys).  The variables are maintained by SOLVEBA_V13 and the
+! keys). The variables are maintained by SOLVEBA_V13 and the
 ! rejection flag is consumed by SOLVE_FOR_POPS.
 !
 	REAL(KIND=LDP) BA_SE_RES
-! BA_SE_RES2: rank-based second residual channel.  It is the K-th
+! BA_SE_RES2: rank-based second residual channel. It is the K-th
 ! largest per-depth column max of |STEQ|, so a persistent residual
 ! floor spanning fewer than K depth columns (the degenerate
 ! inner-boundary equations, ~1E262 on the Dessart run) cannot mask
@@ -1356,18 +1355,17 @@
 ! BA_COL_RES: per-depth copy of SOLVEBA_V13's column-max residual
 ! (COL_RES), refreshed every call since 15-Oct-2026 -- including
 ! calls with DO_BA_RES_ACC off, which previously left the residual
-! channels at zero.  Read by the ITER_SUM per-depth summary in
+! channels at zero. Read by the ITER_SUM per-depth summary in
 ! SOLVE_FOR_POPS under CONV_DIAG_LVL.
 	REAL(KIND=LDP), ALLOCATABLE :: BA_COL_RES(:)
 	LOGICAL BAACC_PENDING
 	LOGICAL BA_STEP_REJECTED
 ! BA_SNAPSHOT_MISSING: set by SOLVEBA_V13 when the POPS_BA_SAVE arm
 ! allocation fails (or is otherwise unavailable) while DO_BA_RES_ACC
-! is armed.  A BA step taken without a snapshot cannot be rolled
+! is armed. A BA step taken without a snapshot cannot be rolled
 ! back, so SOLVE_FOR_POPS demotes to a bounded LAMBDA update until
 ! the flag clears -- an unchecked BA step on a marginal lagged field
-! is the failure the resacc net exists to prevent (LAM_dbg it39-48:
-! alloc failed silently, unchecked steps wrecked the field).
+! is the failure the resacc net exists to prevent alloc failed silently, unchecked steps wrecked the field).
 	LOGICAL BA_SNAPSHOT_MISSING
 	REAL(KIND=LDP) BAACC_RES_PREV
 	REAL(KIND=LDP) BAACC_RES_MIN
@@ -1380,19 +1378,19 @@
 !
 ! BA_REJ_FRAC (VADAT [BA_REJ_FRAC], default 0.25): fraction of depth
 ! columns allowed to fail the per-depth residual test before an
-! armed BA step is rolled back wholesale.  The observed failure is
+! armed BA step is rolled back wholesale. The observed failure is
 ! localized -- a handful of stiff cells at compression depths drive
-! the rebound while the rest of the step contracted (m15: H2:lev1
+! the rebound while the rest of the step contracted (H2:lev1
 ! @d70, CV:1s_2p_1Po@d13) -- and damping alone does not fix it:
 ! the rebound is set by the direction, not the step size (SOB v2
-! it509, a +50% capped step still rebounded the residual 120x).
+! , a +50% capped step still rebounded the residual 120x).
 ! With 0 < frac <= 1 a step that fails at a minority of depths is
 ! partially accepted: the failing columns are restored from
 ! POPS_BA_SAVE, their fresh corrections are masked to zero, and the
-! rest of the step stands.  The RES2 rank channel (K-th largest
+! rest of the step stands. The RES2 rank channel (K-th largest
 ! per-depth column residual) remains the bulk veto: a step that
 ! degrades the grid broadly still rolls back whole, as does one
-! failing more than frac*ND columns.  FRAC<=0 restores the legacy
+! failing more than frac*ND columns. FRAC<=0 restores the legacy
 ! whole-state decision on any failed channel.
 !
 	REAL(KIND=LDP) BA_REJ_FRAC
@@ -1403,14 +1401,14 @@
 ! each call for BA_SE_RES/BA_SE_RES2, so the masked test reuses it.
 ! BA_RBK_MASK marks columns rolled back this call; SOLVEBA zeroes
 ! their fresh STEQ before scaling (those corrections were linearized
-! at the rejected populations and cannot be trusted).  BA_PART_THIS
+! at the rejected populations and cannot be trusted). BA_PART_THIS
 ! flags a masked rollback to SOLVE_FOR_POPS: like BA_STEP_REJECTED
 ! it forces a BA recompute, but it does not demote to LAMBDA -- the
 ! accepted columns made progress and demoting is what recreates the
-! FULL/LAMBDA alternation the mask exists to break.  BA_NREJ_SOFT
+! FULL/LAMBDA alternation the mask exists to break. BA_NREJ_SOFT
 ! counts armed steps whose residual grew but whose follow-up call
 ! was LAMBDA: no rollback there (undoing after a Lambda step
-! reproduces the it33 cycle), but the trust radius still contracts
+! reproduces the cycle), but the trust radius still contracts
 ! and the event is logged rather than counted as acceptance.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: BAACC_COL_PREV(:)
@@ -1421,7 +1419,7 @@
 !
 ! BA_SOFT_THIS flags a LAMBDA-follow-up soft rejection on this call:
 ! the armed step was judged degraded but not undone, so its record
-! is a committed-but-bad iterate in the SCRTEMP history.  Consumed
+! is a committed-but-bad iterate in the SCRTEMP history. Consumed
 ! (and cleared) by SOLVE_FOR_POPS like BA_STEP_REJECTED -- its only
 ! current use is the NG window-cleanliness counter, since a
 ! divergent-but-committed iterate corrupts the secant fit exactly
@@ -1430,33 +1428,33 @@
 	LOGICAL BA_SOFT_THIS
 !
 ! DO_BA_QUAR (default FALSE, VADAT [DO_BA_QUAR]): per-equation
-! quarantine inside the residual-accepted BA step.  Masked
+! quarantine inside the residual-accepted BA step. Masked
 ! acceptance rolls back a whole depth column when any one of its
 ! equations fails the residual test, and the trust mask zeroes a
 ! whole column when any variable's |STEQ| demand exceeds
-! BA_TRUST_CUR; on the m15 2.82d SOB run a handful of stiff
+! BA_TRUST_CUR; on the 2.82d SOB run a handful of stiff
 ! inner-ejecta equations (CV:1s_2s_1Se/1s_2p_1Po at d68-69, the NeV
 ! ground-term and HII ionization equations at d70-75) demand
 ! >=99.999% annihilation every armed step, which parked the trust
 ! radius at its floor, zeroed ~60 of 76 columns per armed solve,
-! and vetoed every full step.  With DO_BA_QUAR the offending
+! and vetoed every full step. With DO_BA_QUAR the offending
 ! (equation,depth) pair is parked instead: its residual is excluded
 ! from COL_RES/BA_SE_RES/BA_SE_RES2 so it can no longer veto
 ! acceptance, and its correction is zeroed on non-LAMBDA solves
 ! before the trust test so it can no longer trip the whole column.
 ! LAMBDA calls still update it, so a parked variable keeps
-! contracting under fixed-point iteration.  The set is populated by
+! contracting under fixed-point iteration. The set is populated by
 ! measured failure only: every over-trust population variable in a
 ! trust-masked column, and the worst residual equation of each
-! rollback-masked column.  ED (J=NT-1) and T (J=NT) are never
-! parked.  BA_QUAR_MAX (VADAT, default 25) bounds the set -- a
+! rollback-masked column. ED (J=NT-1) and T (J=NT) are never
+! parked. BA_QUAR_MAX (VADAT, default 25) bounds the set -- a
 ! parked equation is invisible to the acceptance test, so the blind
-! spot stays bounded; <=0 disables growth.  Parked demand is logged
+! spot stays bounded; <=0 disables growth. Parked demand is logged
 ! in BA13-TRACE so the suppression is not silent, and it stays out
 ! of MAXCH: a parked equation is declared out of play for both
 ! acceptance and the demand metric, and its LAMBDA-call correction
 ! still counts toward MAXCH on Lambda iterations so no false
-! converged exit is manufactured.  Inert unless DO_BA_RES_ACC; the
+! converged exit is manufactured. Inert unless DO_BA_RES_ACC; the
 ! default path is unchanged.
 !
 	LOGICAL DO_BA_QUAR
@@ -1466,13 +1464,13 @@
 !
 ! BA_LQ_* (edited 21-Oct-2026): persistence counter and
 ! thresholds for the LAMBDA-phase quarantine extension in
-! SOLVEBA_V13.  During population preconditioning every call is a
+! SOLVEBA_V13. During population preconditioning every call is a
 ! LAMBDA step, so the reject-path parking above never runs -- a
 ! degenerate row (ill-conditioned level whose demanded correction
 ! stays beyond BA_LQ_DEM percent for BA_LQ_PAT consecutive calls)
 ! kept churning at the MAX_LAM clamp and pinned MAXCH forever on the
-! m15_2p82d_KNOP cold start.  Such rows are parked into
-! BA_QUAR_MASK like the BA-path offenders.  Inert unless
+!  cold start. Such rows are parked into
+! BA_QUAR_MASK like the BA-path offenders. Inert unless
 ! DO_BA_RES_ACC and DO_BA_QUAR are both set.
 !
 	INTEGER, ALLOCATABLE :: BA_LQ_HIT(:,:)
@@ -1486,13 +1484,12 @@
 	LOGICAL BA_RAW_REJECTED
 !
 ! BA_RDLAM_PROBE: armed by SOLVE_FOR_POPS when an [BA_PROBE_LAM]-cadence
-! bounded trial should run inside the RD_LAMBDA phase.  Without it the
+! bounded trial should run inside the RD_LAMBDA phase. Without it the
 ! DO_LAM_AUTO stable-exit gate has no escape when the LAMBDA attractor
-! floors above LAM_EXIT -- the model parks in LAMBDA to NUM_ITS (m15
-! SOB run: demand floored ~45% and rebounded while stable=0/3).
+! floors above LAM_EXIT -- the model parks in LAMBDA to NUM_ITS SOB run: demand floored ~45% and rebounded while stable=0/3).
 ! CMFGEN_SUB reads the flag to skip the RD_LAMBDA -> LAMBDA_ITERATION
 ! re-imposition for exactly one call; SOLVE_FOR_POPS consumes it at
-! entry.  BA_RDLAM_ACCEPT is armed when that probe survives residual
+! entry. BA_RDLAM_ACCEPT is armed when that probe survives residual
 ! acceptance on the next call; it pins CNT_STABLE_LAM at N_STABLE_LAM
 ! so the ordinary DO_LAM_AUTO switch performs the handoff (keeping the
 ! IN_ITS DO_LAM_IT write and the FIXED_T/FIX_IMPURITY restore). A clean
@@ -1509,17 +1506,17 @@
 !
 ! DO_BA_RES_REUSE (default FALSE, VADAT [DO_BA_RES_REUSE]):
 ! residual-driven BA-matrix recall policy, active only with
-! DO_BA_RES_ACC.  The legacy FIX_BA scheme reads staleness from the
+! DO_BA_RES_ACC. The legacy FIX_BA scheme reads staleness from the
 ! demanded correction (MAXCH_CTRL <= VAL_FIX_BA); demand mixes
 ! refused (masked or trust-capped) demand with real demand, so it
-! cannot distinguish a stale Jacobian from a stiff iterate.  This
+! cannot distinguish a stale Jacobian from a stiff iterate. This
 ! policy instead reads the resacc judgment: an armed step whose
 ! measured RES2 ratio BA_JUDGE_RATIO <= BA_REUSE_TOL (default 0.9,
 ! i.e. at least 10% contraction, VADAT [BA_REUSE_TOL]) contracted
 ! meaningfully against the stored linearization and supports one
 ! more recall; BA_REUSE_NSTALL (default 2, VADAT
 ! [BA_REUSE_NSTALL]) consecutive judged steps without meaningful
-! contraction force a rebuild.  Rejections and the MAXCH_SUM drift
+! contraction force a rebuild. Rejections and the MAXCH_SUM drift
 ! trigger still force COMPUTE_BA=T -- the residual test can only
 ! extend recall, it can never veto a rebuild those paths demand.
 ! BA_JUDGED/BA_JUDGE_RATIO are written by SOLVEBA_V13 when an armed
@@ -1535,7 +1532,7 @@
 ! NG_MIT_BAND_OPT_V1 holds (rather than vetoes) any component whose
 ! newest stored difference is zero -- a resacc-restored or otherwise
 ! held column carries no contraction information -- and any
-! component the secant would extrapolate non-positive.  Upstream the
+! component the secant would extrapolate non-positive. Upstream the
 ! whole depth is vetoed for one bad component (>3 bad depths cancels
 ! the acceleration); on this model family a single oscillating level
 ! (OSIX et al., outer shell) vetoed ~50 of 70 depths every attempt.
@@ -1545,15 +1542,15 @@
 !
 ! BA saturation demotion (nonmono paths, disabled by default):
 ! counts consecutive non-LAMBDA calls whose raw correction demand
-! stays at or above BA_SAT_RAW.  An applied correction pinned on
+! stays at or above BA_SAT_RAW. An applied correction pinned on
 ! the limitation cap while the raw demand never relaxes is
-! marching, not converging -- LAM_dbg it36-47 committed 12 straight
+! marching, not converging -- committed 12 straight
 ! full steps at the 1E7 sentinel with SE_RES2 flat, until the
-! lagged field crossed its basin edge.  Residual rejection can
+! lagged field crossed its basin edge. Residual rejection can
 ! only fire after the cliff, so SOLVE_FOR_POPS demotes to LAMBDA
 ! and halves BA_TRUST_CUR when the count reaches BA_SAT_LIM.
 ! Extended KNOP -> SOB on 4-Oct-2026: the count also bounds
-! [BA_DAMP_CAP] damped-full runs under SOB.  VADAT keywords
+! [BA_DAMP_CAP] damped-full runs under SOB. VADAT keywords
 ! [BA_SAT_LIM], [BA_SAT_RAW]; BA_SAT_LIM<=0 disables.
 !
 	INTEGER BA_SAT_LIM
@@ -1564,7 +1561,7 @@
 ! population floor for the demanded-correction metric in SOLVEBA_V13.
 ! -1 leaves the reader free to auto-set the floor under
 ! DO_NONMONO_SOB/DO_NONMONO_KNOP; an explicit 0 disables it and any
-! positive value is used as-is.  Rows
+! positive value is used as-is. Rows
 ! whose current population sits below the floor are skipped in the
 ! DECREASE/INCREASE scan and the MAXCH_APP committed scan -- their
 ! corrections still commit normally, but a floor-level demanding a
@@ -1575,18 +1572,18 @@
 !
 	REAL(KIND=LDP) BA_DEM_PFLOOR
 !
-! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor.  It
+! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor. It
 ! exempted trace rows from the MAXCH/demand metric at a populated
-! depth, which let the SOB l14 run report ~0.1% demand while ~700
+! depth, which let the SOB run report ~0.1% demand while ~700
 ! rows per depth still demanded >0.1% corrections -- the converged
 ! exit fired on an unconverged system and the written model state is
-! not reliable.  BA_DEM_PFLOOR remains (it only exempts rows that
-! are physically empty in absolute terms).  The VADAT key is no
+! not reliable. BA_DEM_PFLOOR remains (it only exempts rows that
+! are physically empty in absolute terms). The VADAT key is no
 ! longer recognized.
 !
 ! BA_DEM_EXM (diagnostic export, not a VADAT key): largest demanded
 ! correction over the rows the BA_DEM floors exempted this call,
-! written by SOLVEBA_V13 on the same percent scale as MAXCH.  It
+! written by SOLVEBA_V13 on the same percent scale as MAXCH. It
 ! exists so a hidden-but-large trace-species demand is visible in
 ! OUTGEN/MODCTL instead of silently dropping out of the metric;
 ! the metric itself is unchanged.
@@ -1596,7 +1593,7 @@
 ! BA_ARG_J / BA_ARG_I / BA_ARG_PCT (diagnostic export, not VADAT):
 ! (row,depth) and percent size of the dominant demanded correction
 ! this call -- the JINC/IINC vs JDEC/IDEC winner, written by
-! SOLVEBA_V13 every call including LAMBDA.  SOLVE_FOR_POPS reads it
+! SOLVEBA_V13 every call including LAMBDA. SOLVE_FOR_POPS reads it
 ! for the same-cell LAMBDA churn streak (early N_CHURN_STREAK bump
 ! under KNOP); the demand argmax locates the applied correction
 ! because a LAMBDA update applies STEQ scaled.
@@ -1609,14 +1606,14 @@
 ! coupled (they absorb/emit but do not move J, ED, T or the major
 ! populations), so once the majors converge they are polished by
 ! Stage-B sweeps that update ONLY the exempted rows in SOLVEBA_V13
-! while the field and majors are held.  Relative change is the wrong
+! while the field and majors are held. Relative change is the wrong
 ! convergence metric over ~50 decades of population, so Stage B is
 ! judged on the absolute committed change BA_TR_ABS = max |dn| over
 ! trace rows, normalized by POP_ATOM (fraction of the local gas).
 !
 ! BA_TR_MAXSWP (VADAT [BA_TR_MAXSWP], default 3): maximum Stage-B
 ! sweeps after the major-species MAXCH<EPS condition is met; 0
-! disables the polish entirely.  Sweeps exhausted -> the exit fires
+! disables the polish entirely. Sweeps exhausted -> the exit fires
 ! regardless of trace state: trace species must never pin the run.
 ! BA_TR_ABSMAX (VADAT [BA_TR_ABSMAX], default 1.0D-8): trace
 ! convergence threshold on BA_TR_ABS.
@@ -1638,13 +1635,13 @@
 ! skipped when SOLVEBA_V13 computes BA_EX_MAXCH, the demand the
 ! exit gates on; MAXCH itself, the committed scan, the histogram,
 ! and the level-check vectors keep every row, so the full demand
-! stays printed and nothing leaves the applied corrections.  This
+! stays printed and nothing leaves the applied corrections. This
 ! replaces the removed BA_DEM_RELFRAC, which exempted the same rows
 ! from the reported metric and let a converged exit fire while
-! ~700 rows/depth still demanded >0.1% invisibly.  With the exit
+! ~700 rows/depth still demanded >0.1% invisibly. With the exit
 ! variant the hidden demand is exported every call as BA_DEM_EXR
 ! and saturates/holds the exit through the same BA_DEM_EXIT_OK test
-! as BA_DEM_EXM.  BA_EX_MAXCH is the raw max over non-exempted
+! as BA_DEM_EXM. BA_EX_MAXCH is the raw max over non-exempted
 ! rows (no NV-th-largest reduction), so it is never looser than
 ! MAXCH; when the flag is off BA_EX_MAXCH=MAXCH and BA_DEM_EXR=0
 ! and the default path is unchanged.
@@ -1655,22 +1652,22 @@
 !
 ! BA_MAXCH_FAIL (VADAT [BA_MAXCH_FAIL], default 1.0D30 = off):
 ! same-call hard rejection for a committed non-LAMBDA step in
-! SOLVEBA_V13.  The residual-acceptance net (DO_BA_RES_ACC) judges a
+! SOLVEBA_V13. The residual-acceptance net (DO_BA_RES_ACC) judges a
 ! step on the NEXT call, so a run with resacc off -- or any call the
 ! net is not armed on -- has no path that vetoes a committed update:
 ! the scale limits bound each correction but never refuse it
-! (m15_2p82d dirchk_lc it173 committed a 400% change on a raw 1.0E+7
-! demand with zero rejects).  When the committed change MAXCH_APP
+! (committed a 400% change on a raw 1.0E+7
+! demand with zero rejects). When the committed change MAXCH_APP
 ! exceeds BA_MAXCH_FAIL, or any population came out non-finite, POPS
 ! is restored to the pre-step snapshot and BA_STEP_REJECTED is
 ! raised; SOLVE_FOR_POPS then forces a BA recompute and demotes via
-! the existing BA_REJ_THIS path.  Inert at the default.
+! the existing BA_REJ_THIS path. Inert at the default.
 !
 ! Interaction with MAX_LIN: MAX_LIN_COR clips each correction at a
 ! factor MAX_LIN (a 5 clip permits ~400% committed changes), so a
 ! BA_MAXCH_FAIL below the clip ceiling rejects every step that had
 ! to be clipped -- which is the intended use: a clipped step is by
-! construction distrusted.  Set BA_MAXCH_FAIL above the ceiling to
+! construction distrusted. Set BA_MAXCH_FAIL above the ceiling to
 ! let clipped steps commit, or leave it off to clip-and-commit as
 ! before.
 !
@@ -1681,10 +1678,10 @@
 ! stores per frequency to restore continuum self-coupling (dJ/dCHI,
 ! dJ/dETA diagonals in TX) on the DO_NONMONO_SOB + USE_LAM_ES path.
 ! Without it that path runs a pure Lambda iteration for every
-! continuum term (m15 endgame contracts at ~0.9986/iteration).  The
+! continuum term (endgame contracts at ~0.9986/iteration). The
 ! diagonal is the consistent linearization of the forward solve V13
 ! actually performs; off-diagonal propagation and the dS terms are
-! neglected, as in the Knop solver's FG ALO.  Opt-in: default F keeps
+! neglected, as in the Knop solver's FG ALO. Opt-in: default F keeps
 ! the validated all-zero continuum Jacobian.
 !
 	LOGICAL DO_FG13_ALO
@@ -1693,14 +1690,14 @@
 ! diagnostic flag -- passes the clamped SIGMA (infrastructure
 ! gradient, >= -0.999) instead of SIGMA_TRUE to the Sobolev line
 ! operators (SOBJBAR_SIM, SOB_RH_COUPLE, SOBEW) on the
-! DO_NONMONO_SOB path.  Under USE_LAM_ES=T the V13 continuum
+! DO_NONMONO_SOB path. Under USE_LAM_ES=T the V13 continuum
 ! formal solve is built on clamped SIGMA, so this makes every
 ! operator feeding the SE system share one velocity gradient.
 ! Purpose: test whether the ex_maxch demand floor in sigma < -1
 ! zones comes from the clamped/unclamped operator inconsistency.
 ! The resulting physics is biased (compressed-zone Sobolev optical
 ! depths too thick) -- convergence test only, not a production
-! option.  Default F keeps the normal SIGMA_TRUE line rates.
+! option. Default F keeps the normal SIGMA_TRUE line rates.
 !
 	LOGICAL DO_SOB_CLAMPED_LINES
 !
@@ -1709,31 +1706,31 @@
 ! formal solve with FG_J_CMF_NONMONO_V1 -- the sign-aware Knop
 ! solver that keeps chi_hat = chi + |GAM|/dLOG_NU positive in
 ! compression and couples the frequency advection term upwind by
-! the sign of GAM.  V13 clamps SIGMA_RAY to >= -0.999, so it is
+! the sign of GAM. V13 clamps SIGMA_RAY to >= -0.999, so it is
 ! expansion-biased wherever sigma_true < -1; the 26-Oct audit of
 ! the _saw ex_maxch floor localised the stall to exactly those
 ! depths, and a clamped-lines probe showed the two operators
-! disagree about the equilibrium catastrophically.  The flag also
+! disagree about the equilibrium catastrophically. The flag also
 ! routes the continuum ALO to GET_FG_ALO_DIAG (the Knop solver's
 ! own diagonal), turns on DO_KNOP_REFRESH (the lagged compressing
 ! branch needs it), and shares the KNOP-gated moment fill and
-! ZERO_FLUX outer-flux bookkeeping in COMP_J_BLANK.  Default F
+! ZERO_FLUX outer-flux bookkeeping in COMP_J_BLANK. Default F
 ! keeps the validated V13 path.
 !
 	LOGICAL DO_SOB_FG_KNOP
 !
 ! DO_ES_ALI (VADAT [DO_ES_ALI], default F): accelerated (ALI)
 ! convergence of coherent electron scattering inside the USE_LAM_ES
-! formal-solve loop in COMP_J_BLANK.  Active only on the
+! formal-solve loop in COMP_J_BLANK. Active only on the
 ! DO_NONMONO_SOB + USE_LAM_ES=T + COHERENT_ES path with the V13
-! formal solver (not DO_SOB_FG_KNOP).  The stock loop sets RJ=TC
+! formal solver (not DO_SOB_FG_KNOP). The stock loop sets RJ=TC
 ! (plain Lambda iteration) and exits on the Eddington-factor test
 ! alone, so an electron-scattering dominated atmosphere gets ~2
-! Lambda steps per great iteration.  With DO_ES_ALI=T each pass
+! Lambda steps per great iteration. With DO_ES_ALI=T each pass
 ! applies an Olson-Auer-Buchler Jacobi update built on the V13
 ! stored diagonal (GET_FG13_ALO_DIAG) and the loop keeps iterating
 ! until the RJ update is below ES_ALI_TOL or J_IT_COUNTER reaches
-! ES_ALI_MAX (clamped to 20, the existing forced exit).  Default F
+! ES_ALI_MAX (clamped to 20, the existing forced exit). Default F
 ! leaves the Lambda update and the exit test untouched.
 !
 	LOGICAL DO_ES_ALI
@@ -1742,18 +1739,18 @@
 !
 ! DO_ES_ALI_BA (VADAT [DO_ES_ALI_BA], default F): apply the same
 ! Olson-Auer-Buchler scattering correction DO_ES_ALI uses inside the
-! J loop to the continuum Jacobian in DO_VAR_CONT.  The stored
+! J loop to the continuum Jacobian in DO_VAR_CONT. The stored
 ! diagonal is the bare-Lambda response dJ/d(ETA,CHI); after the
 ! converged ES iterate the effective response is larger by
-! 1/(1 - DJDETA*chi_scat).  Without the factor the BA linearization
+! 1/(1 - DJDETA*chi_scat). Without the factor the BA linearization
 ! under-corrects every iteration -- a fixed-ratio decay of the
-! dominant error mode (measured ~0.97/it on the m15 2.82d SOB
-! model).  ES_ALI_BA_MIN floors the amplification denominator
+! dominant error mode (measured ~0.97/it on the 2.82d SOB
+! model). ES_ALI_BA_MIN floors the amplification denominator
 ! (default 0.1) so a diagonal Lambda* that overestimates the local
-! coupling cannot produce an unbounded step.  Active only where the
+! coupling cannot produce an unbounded step. Active only where the
 ! ALO fill runs (DO_FG13_ALO or DO_SOB_FG_KNOP paths); the
 ! correction is applied per depth to every filled band, so it
-! composes with DO_FG13_ALO_TRI.  Default F leaves the
+! composes with DO_FG13_ALO_TRI. Default F leaves the
 ! linearization unchanged.
 !
 	LOGICAL DO_ES_ALI_BA
@@ -1762,22 +1759,22 @@
 ! DO_FG13_ALO_TRI (VADAT [DO_FG13_ALO_TRI], default F): use the
 ! off-diagonal Lambda* entries stored by FG_J_CMF_V13
 ! (GET_FG13_ALO_TRI) to fill the K-1 and K+1 columns of TX in
-! DO_VAR_CONT.  The banded dJ_LOC machinery then puts the depth
+! DO_VAR_CONT. The banded dJ_LOC machinery then puts the depth
 ! coupling into the BA off-diagonal blocks -- effective only with
 ! SOL_METH=TRI/NUM_BNDS=3; with NUM_BNDS<3 the fill is skipped and
-! the diagonal path is unchanged.  Ray-node neighbors are assigned
+! the diagonal path is unchanged. Ray-node neighbors are assigned
 ! to depth neighbors (exact on the non-inserted radial grid,
 ! approximate otherwise); only the direct source coefficients of
-! the formal integral are retained.  Requires DO_FG13_ALO (itself
-! auto-set under DO_NONMONO_SOB + USE_LAM_ES=T).  Default F keeps
+! the formal integral are retained. Requires DO_FG13_ALO (itself
+! auto-set under DO_NONMONO_SOB + USE_LAM_ES=T). Default F keeps
 ! the diagonal-only Jacobian.
 !
 	LOGICAL DO_FG13_ALO_TRI
 !
 ! BA_LUM_GATE and BA_LUM_DCHG are retained as accepted VADAT keys for
-! restart compatibility.  They no longer affect convergence: shocks
+! restart compatibility. They no longer affect convergence: shocks
 ! permit physical luminosity deposition between the inner and outer
-! boundaries.  SOLVE_FOR_POPS reports the ratio and drift as diagnostic
+! boundaries. SOLVE_FOR_POPS reports the ratio and drift as diagnostic
 ! values only.
 !
 	LOGICAL BA_LUM_GATE
@@ -1785,12 +1782,12 @@
 !
 ! POPS_BA_SAVE: pre-step population snapshot taken at the start of
 ! each non-LAMBDA SOLVEBA call, so a residual-rejected BA step can
-! be rolled back on the next call.  Allocated (NT,ND) on first use.
+! be rolled back on the next call. Allocated (NT,ND) on first use.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: POPS_BA_SAVE(:,:)
 !
 ! Convergence diagnostics + phased iteration control (dev7,
-! 30-Sep-2026 session).  Everything here is either off by default
+! 30-Sep-2026 session). Everything here is either off by default
 ! or identical to the pre-existing path when left at its default.
 !
 ! CONV_DIAG_LVL (VADAT [CONV_DIAG_LVL], default 2): verbosity of the
@@ -1807,7 +1804,7 @@
 ! LUM_RATIO_OI: outer/inner radiative luminosity ratio
 ! RLUMST(1)/RLUMST(ND), set in CMFGEN_SUB just before the
 ! SOLVE_FOR_POPS call (RLUMST lives in RADIATION_MOD).
-! Diagnostic only.  LUM_OUT_ABS: |RLUMST(ND)| itself -- the runaway
+! Diagnostic only. LUM_OUT_ABS: |RLUMST(ND)| itself -- the runaway
 ! detector needs the absolute value because the ratio degenerates
 ! when the inner luminosity pegs at zero.
 !
@@ -1818,8 +1815,8 @@
 ! luminosity grew by more than LUM_DIV_FAC over the previous call
 ! counts toward LUM_DIV_N consecutive-growth trips of LUM_BLOCKED;
 ! beyond LUM_DIV_CAP (L_sun units) the state is past recovery and
-! SOLVE_FOR_POPS stops as non-convergent.  Defaults bound a
-! KNOP_jfnkrel-class runaway (5.7E9 -> 6.2E28 L_sun in 5 calls)
+! SOLVE_FOR_POPS stops as non-convergent. Defaults bound a
+! -class runaway (5.7E9 -> 6.2E28 L_sun in 5 calls)
 ! inside ~5 iterations instead of a full frozen-cycle budget.
 ! LUM_DIV_N=0 disables the guard entirely.
 !
@@ -1828,9 +1825,9 @@
 	REAL(KIND=LDP) LUM_DIV_CAP
 !
 ! LUM_DIV_FAC2/LUM_DIV_N2 (17-Oct-2026): slow-streak tier of the
-! same guard.  FAC=1E2/N=3 only sees abrupt jumps; a sustained
-! geometric runaway of ~10x per call (w19: 9.5E9 -> 5.9E14 L_sun in
-! 7 iterations) never increments it.  The second tier trips on
+! same guard. FAC=1E2/N=3 only sees abrupt jumps; a sustained
+! geometric runaway of ~10x per call (9.5E9 -> 5.9E14 L_sun in
+! 7 iterations) never increments it. The second tier trips on
 ! LUM_DIV_N2 consecutive calls each above factor LUM_DIV_FAC2.
 ! LUM_DIV_REC is the latch-recovery factor: once tripped,
 ! LUM_BLOCKED stays latched until L_out falls below
@@ -1842,10 +1839,10 @@
 	REAL(KIND=LDP) LUM_DIV_REC
 !
 ! LUM_DIV_FAC3/LUM_DIV_N3 (29-Oct-2026): drift tier of the same
-! guard.  Both existing tiers need per-call growth above 5x/100x;
-! the m15_2p82d_KNOP_l14_freet restart runaway grew ~2%/call for
+! guard. Both existing tiers need per-call growth above 5x/100x;
+! the restart runaway grew ~2%/call for
 ! 300 calls (1.6E9 -> 1.2E10, then non-finite) while pops were
-! held -- a slow drift neither tier counted.  The third tier trips
+! held -- a slow drift neither tier counted. The third tier trips
 ! on LUM_DIV_N3 consecutive calls each above factor LUM_DIV_FAC3.
 ! Default off (N3=0): a legitimate re-equilibration of the field
 ! after a cold rebuild can also produce a sustained slow climb, so
@@ -1855,25 +1852,25 @@
 	INTEGER LUM_DIV_N3
 !
 ! LUM_DIV_RWARM (29-Oct-2026): calls after process start during
-! which the absolute LUM_DIV_CAP stop is suppressed.  A cold
+! which the absolute LUM_DIV_CAP stop is suppressed. A cold
 ! I_NEXT rebuild leaves the outer-luminosity diagnostic orders of
 ! magnitude nonphysical for tens of iterations while the lagged
-! field converges (warmS: 1.05E12 at it852 decaying to 3E11 by
-! it856 against a converged-pops formal L_out of 2.5E9) -- the cap
+! field converges (1.05E12 at decaying to 3E11 by
+!  against a converged-pops formal L_out of 2.5E9) -- the cap
 ! reads initialization as past-recovery and kills every such
-! restart.  Streak latching and the non-finite stop stay armed in
-! the window, so a genuine runaway still holds/stops.  Default 0:
+! restart. Streak latching and the non-finite stop stay armed in
+! the window, so a genuine runaway still holds/stops. Default 0:
 ! stock cap behaviour.
 !
 	INTEGER LUM_DIV_RWARM
 !
 ! GS_FOREIGN_SEED (VADAT [GS_FOREIGN_SEED], default F): allow a
 ! tag-mismatched FGINEXT_GS to be restored as a seed field on warm
-! restart.  The tag normally ties the stored I_NEXT generation to the
+! restart. The tag normally ties the stored I_NEXT generation to the
 ! SCRTEMP pops generation; a fingerprint-valid file from a DIFFERENT
 ! run of the same model (e.g. a converged SOB run seeded into KNOP)
 ! is still a far better GS seed than a cold zero rebuild -- the
-! l14_freet and warmS restarts both diverged from I_NEXT=0.  Restored
+!  and restarts both diverged from I_NEXT=0. Restored
 ! seed stays immature (I_NEXT_GS_OK=F), so N_LAM_RWARM/freeze still
 ! force LAMBDA until the map re-converges.
 !
@@ -1882,20 +1879,20 @@
 ! KN_LUM_TRACE (VADAT [KN_LUM_TRACE], default F): scan STEQ_T for a
 ! non-finite entry after each energy-equation accumulation site in
 ! the real sweep and report the first site, frequency, depth, and
-! operand values that produced it.  The warmS/l14_freet restarts die
+! operand values that produced it. The / restarts die
 ! on the SOLVE_FOR_POPS luminosity non-finite stop because DEP_RAD_EQ
 ! (=STEQ_T) is NaN at the boundary depths, but STEQ_T is built up
 ! from several terms so the culprit is not identifiable from the
-! luminosity alone.  Diagnostic only; default path unchanged.
+! luminosity alone. Diagnostic only; default path unchanged.
 !
 	LOGICAL KN_LUM_TRACE
 !
 ! KN_REPAIR_T (VADAT [KN_REPAIR_T], default F): when a restored
 ! checkpoint carries a non-finite or non-positive T (a crash during a
 ! non-finite update writes the NaN into SCRTEMP), rebuild that depth
-! from the nearest finite neighbor on iteration entry.  T is re-solved
+! from the nearest finite neighbor on iteration entry. T is re-solved
 ! the same iteration, so a poisoned checkpoint self-heals instead of
-! dying mid-sweep.  Lets a warm restart degrade gracefully to a
+! dying mid-sweep. Lets a warm restart degrade gracefully to a
 ! scratch-like start; default path unchanged.
 !
 	LOGICAL KN_REPAIR_T
@@ -1905,10 +1902,10 @@
 ! and restore them afterwards, so the sweep converges the lagged
 ! coupling field at fixed populations (Knop Paper II nested
 ! iteration ordering -- the field is a fixed point for the current
-! populations, not a moving target).  GS_POPS_HELD records that the
+! populations, not a moving target). GS_POPS_HELD records that the
 ! current call rolled its update back; GS_ATTEMPT_APP keeps the
 ! attempted committed change for the diagnostics; POPS_GS_SAVE is
-! the pre-solve snapshot, allocated (NT,ND) on first use.  The T and
+! the pre-solve snapshot, allocated (NT,ND) on first use. The T and
 ! ED rows are held as well -- the freeze is meant to be a
 ! transfer-only sweep.
 !
@@ -1918,7 +1915,7 @@
 ! GS_FREEZE (22-Oct-2026): promoted from a SOLVE_FOR_POPS local so
 ! CMFGEN_SUB can refuse the one-time DO_LAM_AUTO handoff while the
 ! lagged field is still immature -- a damped freeze-trial call's
-! quiet MAXCH_CTRL is not convergence evidence.  Re-derived every
+! quiet MAXCH_CTRL is not convergence evidence. Re-derived every
 ! SOLVE_FOR_POPS call (reset .FALSE. at entry, KNOP-only), so no
 ! stale state survives between calls.
 !
@@ -1928,9 +1925,9 @@
 !
 ! BA_HOLD_RESTORE_REVIVAL: bumped by SOLVEBA_V13 when a whole-grid BA
 ! restore finds a live hold snapshot fresher than its own and swaps
-! restore sources.  Nonzero means the POPS_BA_SAVE/POPS_GS_SAVE
+! restore sources. Nonzero means the POPS_BA_SAVE/POPS_GS_SAVE
 ! overlap contract was exercised -- zero is the expected steady
-! state.  (edited 17-Oct-2026)
+! state. (edited 17-Oct-2026)
 !
 	INTEGER*8 :: BA_HOLD_RESTORE_REVIVAL=0_8
 !
@@ -1941,7 +1938,7 @@
 ! as a deprecated alias): route the population correction solve
 ! inside SOLVE_FOR_POPS to the JFNK Newton-Krylov solver
 ! (JFNK_SOLVE_CORR_V1) instead of the direct SOLVEBA_V13
-! factorization.  Requires DO_NONMONO_KNOP=T or DO_NONMONO_SOB=T;
+! factorization. Requires DO_NONMONO_KNOP=T or DO_NONMONO_SOB=T;
 ! default preserves the original path bit-for-bit.
 !
 ! JFNK_COUPLED (VADAT [JFNK_COUPLED], default F): the frontier
@@ -1949,27 +1946,27 @@
 ! FRESH formal solution at the perturbed populations (each residual
 ! evaluation re-runs the opacity -> COMP_J_BLANK -> radiative-rate
 ! chain via JFNK_SWEEP_CB -> JFNK_RAD_SWEEP_V1), so the
-! finite-difference JVP probes the full dJ/dn coupling.  This is
+! finite-difference JVP probes the full dJ/dn coupling. This is
 ! the Arramy et al. (2024, A&A 690, A12) formulation: Newton on the
-! coupled SE+RTE system.  When F, the residual uses the stored
+! coupled SE+RTE system. When F, the residual uses the stored
 ! (fixed-J) radiative rates -- the same fixed-J system SOLVEBA
 ! solves exactly, run through the globalized Newton machinery.
 !
 ! JFNK_COUPLED_SOB (VADAT [JFNK_COUPLED_SOB], default F): admit
-! JFNK_COUPLED under DO_NONMONO_SOB.  The sweep callback then also
+! JFNK_COUPLED under DO_NONMONO_SOB. The sweep callback then also
 ! replays the line-frequency section (SET_LINE_OPAC bookkeeping is
 ! already part of the continuum loop; the replay adds the
 ! SECTION='LINE' pass: SUB_SOB_LINE_V3 Sobolev rates plus the
 ! line-group continuum solve) so the coupled residual is the same
-! equation the outer iteration assembles.  Even with the flag on,
+! equation the outer iteration assembles. Even with the flag on,
 ! the coupled tier is never demand-admitted under SOB -- it fires
 ! only as the reach-fail fallback when the frozen tier certifies
-! the residual unreachable.  Default F keeps the reader forcing
+! the residual unreachable. Default F keeps the reader forcing
 ! JFNK_COUPLED=F and the SOB path frozen-only, bit-identical.
 !
 ! JFNK_CPL_SOB_MAX_EVALS (VADAT [JFNK_CPL_SOB_MAX_EVALS], default
 ! 0 = inherit): residual-eval cap for a coupled-SOB activation,
-! layered over the effective JFNK_MAX_EVALS/rung trim.  A
+! layered over the effective JFNK_MAX_EVALS/rung trim. A
 ! reach-fail fallback is denied when the remaining cap cannot
 ! afford the consistency eval plus a few GMRES matvecs.
 !
@@ -1978,10 +1975,10 @@
 ! coupled-SOB activation instead of only the first.
 !
 ! JFNK_CPL_SOB_TOL (VADAT [JFNK_CPL_SOB_TOL], default 1.0D-5):
-! weighted relative tolerance of the consistency check.  The
+! weighted relative tolerance of the consistency check. The
 ! coupled eval re-solves J iteratively while production stored
 ! J from the same fixed point, so an exact bitwise match is
-! unreachable -- the observed re-solve noise floor is ~1D-8.  The
+! unreachable -- the observed re-solve noise floor is ~1D-8. The
 ! gate exists to catch a different equation (missing replay
 ! terms give O(1) row errors), not solver truncation.
 !
@@ -2001,7 +1998,7 @@
 ! Convergence and phased-T gates must not count it as solved.
 	LOGICAL :: JFNK_UNCONVERGED_COMMIT=.FALSE.
 ! Same runtime class (no VADAT key): true only when the driver's JFNK
-! branch actually committed a Newton correction this call.  Admission
+! branch actually committed a Newton correction this call. Admission
 ! alone -- demand/reach/direction-gate defers, stagnation fallbacks,
 ! cooldown calls -- ends in an ordinary caller-mode BA step, whose
 ! SCRTEMP record is a valid Lambda-map iterate and must not contaminate
@@ -2011,26 +2008,26 @@
 ! only -- lets the JFNK correction solve fire on a LAMBDA-designated
 ! call, so the machinery (residual/JVP/preconditioner path) can be
 ! exercised without waiting for the mode controller to release a full
-! iteration.  The applied update still passes through the normal
+! iteration. The applied update still passes through the normal
 ! commit/hold/resacc logic, so a Lambda-hold iteration discards it.
 	LOGICAL JFNK_ANY_ITER
-! JFNK_IN_EVAL: internal runtime flag (no VADAT key).  Set only while
+! JFNK_IN_EVAL: internal runtime flag (no VADAT key). Set only while
 ! JFNK_RAD_SWEEP_V1 re-runs the continuum sweep for a trial residual
-! evaluation.  COMP_J_BLANK checks it to suppress its WRITE(LU_EDD)
+! evaluation. COMP_J_BLANK checks it to suppress its WRITE(LU_EDD)
 ! updates of the lagged-J store in EDDFACTOR -- evals must read the
 ! outer-iteration records but never overwrite them, else perturbed
 ! trial J pollutes the J initial guess for the next real sweep.
 	LOGICAL JFNK_IN_EVAL
 ! JFNK_EVAL_BROKEN: internal runtime flag (no VADAT key), companion of
-! JFNK_IN_EVAL.  COMP_J_BLANK sets it in place of a STOP when a
+! JFNK_IN_EVAL. COMP_J_BLANK sets it in place of a STOP when a
 ! data-integrity or blowup check fails inside an eval sweep -- a STOP
 ! there would kill the whole run mid-JVP instead of flagging the eval.
 ! JFNK_RAD_SWEEP_V1 consumes it in its epilogue by forcing a sentinel
 ! residual (SE%STEQ), which JFNK_RESIDUAL_V1's |Y|>1D30 cap turns into
-! jfnk_resid_nbad>0, so the driver falls back to LAMBDA/BA.  Cleared at
+! jfnk_resid_nbad>0, so the driver falls back to LAMBDA/BA. Cleared at
 ! each sweep entry; meaningless outside JFNK_IN_EVAL=T regions.
 	LOGICAL JFNK_EVAL_BROKEN
-! JFNK_QUIET_IO: internal runtime flag (no VADAT key).  Set inside the
+! JFNK_QUIET_IO: internal runtime flag (no VADAT key). Set inside the
 ! JFNK-internal routines that re-enter GENERATE_FULL_MATRIX_V3
 ! (JFNK_ASSEMBLE_STEQ_V1, JFNK_BUILD_BA_RAD_V1, the preconditioner
 ! build) to suppress the BA_ASCI depth dumps -- without it every
@@ -2044,14 +2041,14 @@
 ! JFNK_LGMRES / JFNK_LGMRES_K (VADAT [JFNK_LGMRES]/[JFNK_LGMRES_K],
 ! defaults F/2): retain up to K per-cycle solution corrections and
 ! augment each restart's least-squares over them (Baker, Jessup &
-! Manteuffel 2005).  Experimental; right-preconditioned solves only.
+! Manteuffel 2005). Experimental; right-preconditioned solves only.
 	LOGICAL JFNK_LGMRES
 	INTEGER JFNK_LGMRES_K
 ! JFNK_GDEFL / JFNK_GDEFL_K (VADAT, defaults F/4): GMRES-DR deflated
 ! restarting -- at each restart, keep the smallest-|theta| harmonic
 ! Ritz directions of the completed cycle in the shared augmentation
-! slots (Morgan 2002; GCRO-DR, Parks et al. 2006).  One jj x jj DGEEV
-! per restart, no extra residual evals.  JFNK_RECYC (default F)
+! slots (Morgan 2002; GCRO-DR, Parks et al. 2006). One jj x jj DGEEV
+! per restart, no extra residual evals. JFNK_RECYC (default F)
 ! carries the retained set across GMRES solves within an activation.
 ! JFNK_CYCSTALL (default F) exits the Krylov solve after
 ! JFNK_CYCSTALL_N (default 2) consecutive cycles that each trim the
@@ -2066,11 +2063,11 @@
 	INTEGER JFNK_CYCSTALL_N
 ! JFNK_CAP_STEP (VADAT [JFNK_CAP_STEP], default F): when the finished
 ! Newton step exceeds the |s|_inf cap, clip only the over-bound
-! components instead of uniformly shrinking the whole direction.  With
+! components instead of uniformly shrinking the whole direction. With
 ! an accurate banded preconditioner the exact Newton step's inf-norm is
 ! set by weakly-coupled rows; uniform scaling then discards most of the
 ! usable correction on every other row, which is what forced the long
-! clipped-ratchet sequences on the m15 2.82d SOB runs.
+! clipped-ratchet sequences on the 2.82d SOB runs.
 	LOGICAL JFNK_CAP_STEP
 	REAL(KIND=LDP) JFNK_GTOL
 	REAL(KIND=LDP) JFNK_GMRES_STAG
@@ -2095,7 +2092,7 @@
 ! JFNK_FADAPT_V (VADAT [JFNK_FADAPT], default T): selects the
 ! Eisenstat-Walker adaptive GMRES forcing term inside
 ! jfnk_solver_v1.f90 (Choice-2 eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha
-! with the eta_{k-1} safeguard).  F restores the fixed user gtol --
+! with the eta_{k-1} safeguard). F restores the fixed user gtol --
 ! the fixed path stays one branch away for A/B comparison.
 ! (edited 17-Oct-2026)
 !
@@ -2103,7 +2100,7 @@
 !
 ! JFNK_FD_COMPLEX (VADAT [JFNK_FDCPLX], default F): request the
 ! complex-step JVP mode (Martins & Ning 2021) in place of the
-! forward-difference JVP.  The perturbation path is not ported --
+! forward-difference JVP. The perturbation path is not ported --
 ! enabling it fails closed at admission; see
 ! docs/audits/JFNK_COMPLEX_STEP.md for the port plan.
 ! (edited 17-Oct-2026)
@@ -2113,7 +2110,7 @@
 ! JFNK_ENRICH_SFR (VADAT [JFNK_ESFR], default F): request the
 ! source-function-response enrichment term (Arramy et al. 2024,
 ! eqs. 55-61) using the previous Newton update's stored dJ/dn
-! estimate.  No stored-dJ channel exists in this tree yet --
+! estimate. No stored-dJ channel exists in this tree yet --
 ! enabling it warns and runs plain enrichment until the channel
 ! lands (see docs/audits/ROBUSTNESS_AUDIT_2026-10.md, W23).
 ! (edited 17-Oct-2026)
@@ -2123,10 +2120,10 @@
 ! JFNK_ENRICH_ARN (VADAT [JFNK_ENRICH_ARN], default F): replace the
 ! coordinate-anchor enrichment basis with a short Arnoldi pass on the
 ! preconditioned operator J M0^-1 started from the normalized
-! residual.  Each step probes J along u_i = M0^-1 v_i (one JVP), so
+! residual. Each step probes J along u_i = M0^-1 v_i (one JVP), so
 ! the rank-K update is exact on the subspace GMRES actually explores
 ! -- the coordinate anchors failed to rotate the stalled direction
-! (Oct-2026 experiment, jte_cpl_enrich it603).  No effect unless
+! (Oct-2026 experiment). No effect unless
 ! JFNK_ENRICH is also T.
 !
 	LOGICAL :: JFNK_ENRICH_ARN=.FALSE.
@@ -2136,27 +2133,27 @@
 	REAL(KIND=LDP) JFNK_COR_GATE
 ! JFNK_FRZ_GATE (VADAT [JFNK_FRZ_GATE], default 0=off): two-stage
 ! admission for the cheaper frozen-J Newton (JFNK_COUPLED=F residual
-! semantics -- no radiation re-solve per eval).  When set, JFNK fires
+! semantics -- no radiation re-solve per eval). When set, JFNK fires
 ! with the frozen residual once the demanded correction drops below
 ! FRZ_GATE; the coupled eval is admitted only when MAXCH also falls
-! below JFNK_COR_GATE.  Default 0 reproduces the original single-gate
+! below JFNK_COR_GATE. Default 0 reproduces the original single-gate
 ! behavior (one admission point, mode = [JFNK_COUPLED]).
 	REAL(KIND=LDP) JFNK_FRZ_GATE
 ! JFNK_GATE_NREQ (VADAT [JFNK_GATE_NREQ], default 1): hysteresis on
 ! the admission gates -- Newton fires only after this many
 ! consecutive correction solves below the applicable gate, so a
 ! single lucky low-MAXCH Lambda step cannot admit JFNK while the
-! field is still drifting.  Default 1 reproduces the instantaneous
+! field is still drifting. Default 1 reproduces the instantaneous
 ! gate.
 	INTEGER JFNK_GATE_NREQ
 ! JFNK_DEEPDIAG (VADAT [JFNK_DEEPDIAG], default F): run the
 ! compression-zone diagnostic suite (linearity probe, FD-eps sweep,
 ! FD-vs-BA audit, T-column audit) once per process at the first JFNK
-! activation.  Costs ~12 residual evaluations -- a full formal sweep
+! activation. Costs ~12 residual evaluations -- a full formal sweep
 ! each under JFNK_COUPLED=T -- so it is opt-in only.
 	LOGICAL JFNK_DEEPDIAG
 ! JFNK_MAX_EVALS (VADAT [JFNK_MAX_EVALS], default 0=off): per-
-! activation residual-evaluation budget.  A coupled eval is a full
+! activation residual-evaluation budget. A coupled eval is a full
 ! formal sweep; an activation that exhausts the budget gets a
 ! sentinel residual so Newton rejects and the driver falls back to
 ! the best-iterate/Lambda path instead of burning sweeps.
@@ -2171,13 +2168,13 @@
 	INTEGER JFNK_CLIP_RETRY
 !
 ! JFNK_JVP_NDIR (VADAT [JFNK_JVP_NDIR], default 4): number of JVPs per
-! process that get the FD-vs-BA norm line in JFNK_JVP_V1.  Tests
+! process that get the FD-vs-BA norm line in JFNK_JVP_V1. Tests
 ! whether BA agreement on one Krylov direction holds across the
 ! subspace; the expensive extended block still fires once at most.
 	INTEGER JFNK_JVP_NDIR
 !
 ! JFNK_BA_JVP (VADAT [JFNK_BA_JVP], default F): replace the FD JVP with
-! the analytic BA diagonal-band matvec.  Diagnostic: tests whether FD
+! the analytic BA diagonal-band matvec. Diagnostic: tests whether FD
 ! h-adaptivity makes the effective Krylov operator nonlinear.
 	LOGICAL JFNK_BA_JVP
 !
@@ -2185,9 +2182,9 @@
 ! run the JVP operator-consistency probes in JFNK_JVP_V1 on the first
 ! post-factorization GMRES direction u -- repeatability (same-state
 ! re-eval), finite-h curvature (Jv at 2*h vs 2*Jv), and additivity
-! (J(u+vs) - Ju - Jvs on a unit synthetic direction vs).  All probes
+! (J(u+vs) - Ju - Jvs on a unit synthetic direction vs). All probes
 ! run at the same jfnk_x and the same effective h the production image
-! used.  Diagnostic only; 4 extra residual evals per admission.
+! used. Diagnostic only; 4 extra residual evals per admission.
 	LOGICAL JFNK_LINTEST
 !
 ! JFNK_HSCAN (VADAT [JFNK_HSCAN], default F): force the one-shot
@@ -2198,34 +2195,34 @@
 	LOGICAL JFNK_HSCAN
 !
 ! JFNK_HADAPT (VADAT [JFNK_HADAPT], default F): adaptive FD-step
-! selection.  Forces the same one-shot h-sweep as JFNK_HSCAN, then
+! selection. Forces the same one-shot h-sweep as JFNK_HSCAN, then
 ! picks the sweep multiplier whose JVP best agrees with its adjacent
 ! neighbor (the stable region between truncation error at large h and
-! cancellation noise at small h).  The selected multiplier scales the
+! cancellation noise at small h). The selected multiplier scales the
 ! post-cap step of every later JVP this run, and the returned image is
-! the sweep value at the selected step.  If no adjacent pair agrees
+! the sweep value at the selected step. If no adjacent pair agrees
 ! within the 30% tolerance the direction is FD-unresolvable: the JVP
 ! is flagged failed so the driver defers Newton rather than building a
 ! Krylov space on an unmeasured derivative.
 	LOGICAL JFNK_HADAPT
 !
 ! JFNK_TRES_FAC (VADAT [JFNK_TRES_FAC], default 0 = off): GMRES
-! true-residual acceptance.  When > 0, a claimed LSQ convergence
+! true-residual acceptance. When > 0, a claimed LSQ convergence
 ! (res <= tol) in gmres_m_v1 is verified by an explicit residual
 ! eval and accepted only when true_res <= JFNK_TRES_FAC*tol; a
 ! rejected claim restarts the cycle on the measured true residual
 ! (bounded by JFNK_GMRES_RST and the iteration cap) or exits with
-! jfnk_exit_reason='gmres_tres_reject'.  The measured true residual
-! is also printed at every done-exit.  Costs one residual eval per
+! jfnk_exit_reason='gmres_tres_reject'. The measured true residual
+! is also printed at every done-exit. Costs one residual eval per
 ! GMRES exit.
 	REAL(KIND=LDP) JFNK_TRES_FAC
 !
 ! JFNK_MAX_SEC (VADAT [JFNK_MAX_SEC], default 0 = off): per-activation
-! wall-clock budget in seconds, measured from JFNK_INIT_V1.  Checked
+! wall-clock budget in seconds, measured from JFNK_INIT_V1. Checked
 ! alongside the eval budget in JFNK_RESIDUAL_V1 -- an activation that
 ! overruns returns the sentinel residual so the trust region rejects
-! and the caller's LAMBDA/BA path takes over.  Guards against the
-! it191 failure mode (~615 s spent on an admission that did no Newton
+! and the caller's LAMBDA/BA path takes over. Guards against the
+!  failure mode (~615 s spent on an admission that did no Newton
 ! work) when the eval count is not the cost driver.
 !
 	REAL(KIND=LDP) JFNK_MAX_SEC
@@ -2245,7 +2242,7 @@
 ! (infeasible), the block form is ND*(4/3)*NT^3 once per activation.
 	LOGICAL JFNK_BANDED_TDMA
 ! JFNK_SEC_R (default 0=off): rank of the Broyden/secant preconditioner
-! update.  Pairs (u_i, J*u_i) measured by the JVP are stored and the
+! update. Pairs (u_i, J*u_i) measured by the JVP are stored and the
 ! applied inverse is corrected so B'(J*u_i) = u_i on the recorded
 ! span -- an exact inverse where the BA model is worst.
 	INTEGER JFNK_SEC_R
@@ -2253,7 +2250,7 @@
 	REAL(KIND=LDP) JFNK_ROW_TINY
 	REAL(KIND=LDP) JFNK_LSQ_LAM
 !
-! Preconditioner audit keys (jfnk-precond-fixes, Oct-2026).  All
+! Preconditioner audit keys (jfnk-precond-fixes, Oct-2026). All
 ! default to the historical behaviour; each is a flagged fix
 ! described in docs/audits/JFNK_PRECOND_AUDIT.md.
 !
@@ -2281,18 +2278,18 @@
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
 !
 ! JFNK_FD_COS_MIN (VADAT [JFNK_FD_COS_MIN], default 0.05): descent
-! floor on the FINITE-DIFFERENCE image cos(F,A_FD z) only.  The FD
+! floor on the FINITE-DIFFERENCE image cos(F,A_FD z) only. The FD
 ! image prices the true operator the residual re-solve produces;
 ! stored-BA REACH/COS can pass while the true direction is
-! anti-descent (KNOP_jfnkrel it35: REACH frac 0.735 with
-! cos(F,A_FD z) = -0.23).  Kept separate from JFNK_COS_MIN so the
+! anti-descent (REACH frac 0.735 with
+! cos(F,A_FD z) = -0.23). Kept separate from JFNK_COS_MIN so the
 ! stored-BA policy is untouched.
 !
 ! JFNK_FD_AUTODEF (VADAT [JFNK_FD_AUTODEF], default T): defer any
 ! admission whose clipped-step FD image is anti-descent
-! (cos(F,A_FD z) < 0) even when every threshold is off.  Arming this
+! (cos(F,A_FD z) < 0) even when every threshold is off. Arming this
 ! also enables the precheck block (one extra residual eval per
-! admission).  Opt-out for A/B against the pre-guard behaviour.
+! admission). Opt-out for A/B against the pre-guard behaviour.
 !
 	REAL(KIND=LDP) JFNK_FD_COS_MIN
 	LOGICAL JFNK_FD_AUTODEF
@@ -2300,22 +2297,22 @@
 ! DO_BA_DIR_CHK (default FALSE, VADAT [DO_BA_DIR_CHK]): diagnostic-only
 ! admission of the JFNK precheck machinery on direct-BA iterations.
 ! Requires DO_JFNK (the residual evaluator, stored-BA capture and
-! preconditioner only exist under JFNK arming).  On every structurally
+! preconditioner only exist under JFNK arming). On every structurally
 ! eligible call -- non-LAMBDA, field not GS-frozen, USE_LAM_ES, past
 ! warmup -- SOLVE_FOR_POPS admits JFNK regardless of the demand gates,
 ! JFNK_SOLVE_CORR_V1 runs the F(0) identity test, the stored-BA
 ! reach/direction metrics and the FD-vs-stored-operator check, then
 ! exits through the info=-2 path so caller-mode SOLVEBA still takes
-! the real step.  The point: resacc measures the outcome of a BA step
+! the real step. The point: resacc measures the outcome of a BA step
 ! one call late, but cannot say whether the stored matrix predicted
 ! it; cos(BAz,A_FDz) and |A_FDz|/|F| price the linearization itself
-! at the exact state the BA step linearizes.  Frozen-J tier only --
+! at the exact state the BA step linearizes. Frozen-J tier only --
 ! the operator question does not need a formal sweep per eval.
 !
 	LOGICAL DO_BA_DIR_CHK
 !
 ! BA_DIRCHK_MAX (VADAT [BA_DIRCHK_MAX], default 1): cap on dirchk
-! defer events.  Each armed admission spends a
+! defer events. Each armed admission spends a
 ! fresh BA factorization plus ~12 residual/JVP evals on diagnostics
 ! (~500 s vs ~113 s for a Lambda call), which is a one-time
 ! investigation cost -- after the cap the dirchk defer disengages
@@ -2331,7 +2328,7 @@
 	INTEGER JFNK_REARM_EVERY
 ! Budget ladder (17-Oct-2026): JFNK is attempted on every admissible
 ! call at every rung; failures only trim per-activation budgets toward
-! the RUNG_MIN floors, never retire the solver.  JFNK_RUNG_MAX is the
+! the RUNG_MIN floors, never retire the solver. JFNK_RUNG_MAX is the
 ! top rung (full floor trim); the MIN_* keys bound how far nits,
 ! GMRES iters, and residual evals shrink per halving/thirding step.
 	INTEGER JFNK_RUNG_MAX
@@ -2341,16 +2338,16 @@
 	INTEGER JFNK_ROW_DIAG
 ! JFNK_LAG_FACTORS (VADAT, default F) holds POPION and the level-
 ! dissolution coefficients at the activation baseline during frozen-J
-! residual evaluations.  The default residual and all coupled evals
+! residual evaluations. The default residual and all coupled evals
 ! keep the existing factor refresh behavior.
 	LOGICAL JFNK_LAG_FACTORS
 !
-! JFNK_TAUTO: adaptive damped-T domain inside the JFNK solve.  When
+! JFNK_TAUTO: adaptive damped-T domain inside the JFNK solve. When
 ! active the VARFIXT depth range is not hard-masked: the T rows of F
 ! carry the energy residual, the JVP differentiates T, and every
 ! accepted Newton step has its T components scaled by the current
 ! ladder damping (JFNK_TAU_ALPHA in JFNK_CMFGEN_INT_MOD) and capped
-! at JFNK_TAU_DMAX.  This is the STELLA-shock guard: a STELLA T
+! at JFNK_TAU_DMAX. This is the STELLA-shock guard: a STELLA T
 ! profile is not in NLTE equilibrium, so the energy residual starts
 ! huge and a free Newton step would drive T to unphysical values.
 ! JFNK_TAUTO defaults to VARFIXT (VADAT FIX_T_AUTO) so the existing
@@ -2366,18 +2363,18 @@
 !
 ! W11 census gate (17-Oct-2026): admission-time census of the F(0)
 ! residual against the stored BA row norms, computed before the LU
-! factorization.  On the SOB frozen-J residual class the radiation-
+! factorization. On the SOB frozen-J residual class the radiation-
 ! pinned rows leave ~98% of |F| in equations the population-space
-! Newton cannot move (m15 SOB 2.82d audit: |BArow|/|F| ~ 1e8-1e9,
+! Newton cannot move (SOB 2.82d audit: |BArow|/|F| ~ 1e8-1e9,
 ! ~39k pop-floor rows), and the reach gate only proves it after the
-! expensive CMAT+LU work.  All three keys default 0 = off, which
+! expensive CMAT+LU work. All three keys default 0 = off, which
 ! reproduces the pre-census behaviour exactly; the gate fires on the
 ! FROZEN tier only (the coupled operator re-solves J per eval, so the
 ! same census does not certify its reachability).
-!   JFNK_CENSUS_STIFF_CUT  - row-stiffness cutoff r_i = |BA_i|.inf /
+!   JFNK_CENSUS_STIFF_CUT - row-stiffness cutoff r_i = |BA_i|.inf /
 !                            max(|F_i|, floor); rows above count stiff
 !   JFNK_CENSUS_STIFF_FRAC - defer when the stiff-row fraction exceeds
-!   JFNK_CENSUS_PIN_FRAC   - defer when the share of |F| carried by
+!   JFNK_CENSUS_PIN_FRAC - defer when the share of |F| carried by
 !                            regularized (near-null / pop-floor) rows
 !                            exceeds this
 !
@@ -2386,19 +2383,19 @@
 	REAL(KIND=LDP) JFNK_CENSUS_PIN_FRAC
 !
 ! W12 (17-Oct-2026): low-rank field-response enrichment of the
-! coupled-tier preconditioner.  The stored BA lacks the dJ/dn
+! coupled-tier preconditioner. The stored BA lacks the dJ/dn
 ! response (the frozen-operator gap of ApJ 2001 10.1086/304873);
 ! JFNK_ENRICH adds a rank-K correction Delta = W E^T assembled from
 ! K Jacobian-vector probes (J e_c - BA_A e_c) at the anchor unknowns
 ! where the stored operator is worst, applied as
 ! z -> z - U (I + E^T U)^-1 E^T z after the base M0^-1 solve.
-!   JFNK_ENRICH         - default F (off = byte-identical apply)
-!   JFNK_ENRICH_K       - anchor count, clamped 2..64
+!   JFNK_ENRICH - default F (off = byte-identical apply)
+!   JFNK_ENRICH_K - anchor count, clamped 2..64
 !   JFNK_ENRICH_PERCENT - cap on extra coupled evals per activation,
 !                         percent of the activation eval budget;
 !                         past it the enrichment is abandoned and the
 !                         plain preconditioner runs (0 = off)
-!   JFNK_ENRICH_ARN     - default F; T swaps the anchor basis for an
+!   JFNK_ENRICH_ARN - default F; T swaps the anchor basis for an
 !                         Arnoldi pass on J M0^-1 (same K, same cap)
 !
 	LOGICAL JFNK_ENRICH
@@ -2406,11 +2403,11 @@
 	REAL(KIND=LDP) JFNK_ENRICH_PERCENT
 !
 ! JFNK_DEFER_PROBE (default 0 = off): diagnostic-only cap on
-! deferral-path operator probes.  When an FD-gate deferral fires,
+! deferral-path operator probes. When an FD-gate deferral fires,
 ! the first JFNK_DEFER_PROBE deferred admissions run a multi-h
 ! FD-vs-BA comparison on the residual-dominant rows (direction
 ! h-scan on the clipped step, raw-vs-clipped direction, and a
-! top-|F| column probe).  Pure diagnostics -- the admission still
+! top-|F| column probe). Pure diagnostics -- the admission still
 ! defers and no Newton state changes.
 !
 	INTEGER JFNK_DEFER_PROBE
@@ -2418,27 +2415,27 @@
 	CONTAINS
 !
 ! BA_TRACE_EVAL (12-Nov-2026): single source of the Stage-B
-! trace-polish state machine.  CMFGEN_SUB and SOLVE_FOR_POPS both
+! trace-polish state machine. CMFGEN_SUB and SOLVE_FOR_POPS both
 ! call it, so the arming/release truth table cannot drift between
 ! the driver and the ITER_SUM replica.
 !
 ! States:
 !   ACTIVE = nonmono path .AND. BA_TR_MAXSWP>0 .AND.
 !            BA_DEM_PFLOOR>0 -- the polish can arm.
-!   OFF    = nonmono path .AND. (BA_TR_MAXSWP<=0 .OR.
+!   OFF = nonmono path .AND. (BA_TR_MAXSWP<=0 .OR.
 !            BA_DEM_PFLOOR<=0) -- the polish is disabled and the
 !            exempted-demand channel releases the exit.
 !            BA_TR_MAXSWP=0 is the master off switch;
 !            BA_DEM_PFLOOR<=0 switches off the demand channel.
 !   NEEDED = ACTIVE .AND. sweeps remain .AND.
-!            ( material unsaturated exempted demand
+!            (material unsaturated exempted demand
 !              [MAX(10*EPS,1), BA_SAT_RAW) .OR.
 !              (BA_TR_ABSMAX>0 .AND. BA_TR_ABS>BA_TR_ABSMAX) ).
 !            BA_TR_ABSMAX=0 disables only the absolute-change leg;
 !            the demand leg still arms.
-!   DONE   = nonmono path .AND. BA_TR_MAXSWP>0 .AND. budget spent.
+!   DONE = nonmono path .AND. BA_TR_MAXSWP>0 .AND. budget spent.
 !
-! At the call sites RELEASE = OFF .OR. DONE.  NEEDED also releases
+! At the call sites RELEASE = OFF .OR. DONE. NEEDED also releases
 ! the exempted-demand leg of BA_DEM_EXIT_OK: the would-be exit is
 ! diverted into a sweep by BA_STAGEB_ARM instead.
 !
