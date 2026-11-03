@@ -13,7 +13,7 @@
 ! Required by the DO_NONMONO_SOB path (Dessart, Audit & Hillier 2015,
 ! arXiv:1503.05463): the Sobolev optical depth must see the true
 ! velocity gradient, including dv/dr < 0 at shocks and cold dense
-! shells.  DO_NONMONO_KNOP needs the same array: the Knop chi_hat and
+! shells. DO_NONMONO_KNOP needs the same array: the Knop chi_hat and
 ! sign-dependent upwind are built from the unclamped gradient.
 !
 ! Under DO_NONMONO_SOB the work array SIGMA is re-clamped to >= -0.999:
@@ -21,7 +21,7 @@
 ! so sigma < -1 leaks into the stock infrastructure (MOM_J_CMF_V11 builds
 ! W=GAMH*(1+sigma*NMID_ON_HMID) and EPS~1/(1+W) -- sign flips/poles),
 ! while the Sobolev line routines take SIGMA_TRUE with their own
-! Dessart+2015 tau floor.  Clamping here, at the only refresh point,
+! Dessart+2015 tau floor. Clamping here, at the only refresh point,
 ! restores the sigma >= -1 invariant those routines assume.
 ! The clamp is not applied under DO_NONMONO_KNOP: the Knop solvers read
 ! SIGMA_TRUE for all sigma-dependent physics and the unclamped SIGMA
@@ -61,7 +61,7 @@
 !
 ! Fail closed by default (Oct-2026 audit): an undefined cell on a
 ! hydro-driven grid means a collapsed spacing, and continuing would
-! drop it from the compressing census silently.  VADAT key
+! drop it from the compressing census silently. VADAT key
 ! ALLOW_SIGMA_UNDEF=T downgrades to the former warning-only path.
 !
 	  IF(.NOT. ALLOW_SIGMA_UNDEF)THEN
@@ -82,16 +82,16 @@
 	IMPLICIT NONE
 !
 ! Shared worker: unclamped sigma for every cell, independent of the
-! CONTROL_VARIABLE_MOD flags.  RECOMPUTE_SIGMA_TRUE gates on the
+! CONTROL_VARIABLE_MOD flags. RECOMPUTE_SIGMA_TRUE gates on the
 ! nonmono flags before calling this; CMF_FLUX_V5 calls it directly so
 ! its EW estimators cannot drift out of sync with the transfer solve.
 !
 ! Derivative reconstruction (30-Oct-2026 audit): sigma is computed as
 ! d ln|V|/d lnR - 1 = (R/V)dV/dR - 1 via the quadratic interpolant in
-! lnR through the three-point stencil.  The log-space form is EXACT
+! lnR through the three-point stencil. The log-space form is EXACT
 ! for any power law V ~ R^b on any grid (homologous SN profiles give
 ! sigma=0 to roundoff) and equals (R/V)dV/dR for either sign of V as
-! long as the stencil carries one sign.  Where the stencil contains a
+! long as the stencil carries one sign. Where the stencil contains a
 ! sign change (zero crossing / shock), ln|V| is singular there and the
 ! code falls back to the linear-space quadratic derivative in R.
 ! The old two-point secant (V(I-1)-V(I+1))/(R(I-1)-R(I+1)) is the
@@ -104,9 +104,9 @@
 ! Stagnation cells |V(i)|<=VTOL keep the SIGNED V(i) in the 1/V
 ! factor: sigma = (R/V)dV/dR - 1 diverges with sign =
 ! sign(V)*sign(dV/dR), so a near-zero cell still reports the side it
-! sits on correctly.  The previous T1=MIN(|V(I-1)|,|V(I+1)|)
+! sits on correctly. The previous T1=MIN(|V(I-1)|,|V(I+1)|)
 ! substitution discarded sign(V(I)) and flipped sigma's sign for
-! V<0 stagnation cells.  An exactly-zero V(I) is the one case the
+! V<0 stagnation cells. An exactly-zero V(I) is the one case the
 ! sigma parametrization cannot express (the GAM product stays
 ! finite, ~mu^2 dV/dR/c); it is reported N_UNDEF rather than being
 ! assigned an arbitrary classification.
@@ -161,7 +161,7 @@
 !
 ! Stencil has one sign AND |V| varies by less than a decade across
 ! it: sigma = d ln|V|/d lnR - 1 via the non-uniform quadratic in
-! lnR.  Exact for V ~ R^b on any grid; HP/HM reuse the log spacings.
+! lnR. Exact for V ~ R^b on any grid; HP/HM reuse the log spacings.
 ! The decade gate keeps the log form off cells adjacent to a sign
 ! crossing or a sharp velocity dip, where ln|V| has a kink the
 ! quadratic cannot follow (the linear form is safer there and is
