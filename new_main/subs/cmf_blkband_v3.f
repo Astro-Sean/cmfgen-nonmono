@@ -24,7 +24,7 @@
 ! Altered 19-Oct-2026 : TRI failures now degrade like the DIAG path: a
 !                         factor-recall failure falls through to the compute
 !                         path, and a compute failure retries the call with
-!                         the diagonal blocks only (edited by Devin).
+!                         the diagonal blocks only (edited).
 ! Altered 01-Mar-2023: Removed superfulous IFAIL variable from calls to MAT5PEN.
 ! Altered 15-Nov-2021: Changed RUB to matrix to avoid scale/matrix conflicts in calls.
 ! Altered 28-Jan-2001: Based on CMF_BLKBAND_V2
@@ -225,7 +225,7 @@
 !
 	LOGICAL, PARAMETER :: L_TRUE=.TRUE.
 !
-! edited by Devin, 19-Oct-2026: the "Beginning TRI solution" banner was
+! edited 19-Oct-2026: the "Beginning TRI solution" banner was
 ! unconditional stdout noise on every TRI call; gate it.
 !
 	LOGICAL, PARAMETER :: TRI_VERBOSE=.FALSE.
@@ -286,7 +286,7 @@
 	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',BCD_DIR)
 	  IF(LEN_TRIM(BCD_DIR) .EQ. 0)BCD_DIR='SCRATCH/'
 !
-! edited by Devin, 19-Oct-2026: the recall reads every CSCRATCH<k>;
+! edited 19-Oct-2026: the recall reads every CSCRATCH<k>;
 ! READ_BCD_MAT STOPs on a missing mid-depth file, so verify all depths
 ! rather than the two boundaries and fall through to the compute path.
 !
@@ -309,7 +309,7 @@
 	  CALL GET_ENVIRONMENT_VARIABLE('SCRATCH_DIR',BCD_DIR)
 	  IF(LEN_TRIM(BCD_DIR) .EQ. 0)BCD_DIR='SCRATCH/'
 !
-! edited by Devin, 19-Oct-2026: the TRI recall reads BCSCRATCH<k> for
+! edited 19-Oct-2026: the TRI recall reads BCSCRATCH<k> for
 ! every depth and DSCRATCH<k> for k=1..ND-1; same mid-depth check as
 ! the DIAG path above.
 !
@@ -623,7 +623,7 @@
 	  DEPTH_INDX=K
 	  CALL TUNE(1,'TRI_GEN')
 C
-C edited by Devin, 19-Oct-2026: LAST_MATRIX flags the diagonal-band
+C edited 19-Oct-2026: LAST_MATRIX flags the diagonal-band
 C build for FIXPOP_IN_BA_V3's "held fixed" summary, but it was set on
 C the B_MAT (off-diagonal) call at K=ND while the C_MAT call saw it
 C false.  Compute it explicitly per depth so it cannot stay latched.
@@ -746,7 +746,7 @@ C
 C
 	END DO
 C
-C edited by Devin, 19-Oct-2026: STEQ_STORE holds the assembled RHS
+C edited 19-Oct-2026: STEQ_STORE holds the assembled RHS
 C snapshot taken before the forward elimination overwrote STEQ with
 C phi[k] -- same content as the DIAG path dump.  It must stay ahead
 C of the failure handler, which reads STEQ_STORE to reseed the DIAG
@@ -793,7 +793,7 @@ C
 	WRITE(LUER,100)K,IFAIL
 100	FORMAT(1x,'depth=',I3,10x,'IFAIL=',I3)
 C
-C edited by Devin, 19-Oct-2026: TRI failures used to return FLAG=.FALSE.,
+C edited 19-Oct-2026: TRI failures used to return FLAG=.FALSE.,
 C and SOLVEBA_V13 then STOPped the run on a single bad block.  The DIAG
 C path survives the identical failure (zeroed correction at the failed
 C depth, FLAG stays .TRUE.) so the BAACC/BA_REJ machinery in SOLVEBA_V13
@@ -864,7 +864,7 @@ C
 !
 	SUBROUTINE CMF_DIAG_SOLVE()
 !
-! edited by Devin, 19-Oct-2026: the DIAG compute path, factored out so
+! edited 19-Oct-2026: the DIAG compute path, factored out so
 ! the TRI failure handler at 9999 can reuse it as a fallback.  Only the
 ! diagonal blocks C[k] are factored; GENERATE_FULL_MATRIX_V3 rebuilds
 ! STEQ at each depth, so the caller does not need an intact RHS.  A
