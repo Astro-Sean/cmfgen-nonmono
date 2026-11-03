@@ -35,14 +35,14 @@
 ! SOLVEBA_V13 mode.  Only an unrecoverable eval failure forces the
 ! conservative Lambda safety path.
 !
-! editted by Devin (V7-JFNK port, 02-Oct-2026)
+! edited (V7-JFNK port, 02-Oct-2026)
 ! Altered 15-Oct-2026 : BA_DIRCHK_MAX caps the dirchk defer count so
-!                          real Newton admission resumes (edited by Devin).
+!                          real Newton admission resumes (edited).
 ! Altered 16-Oct-2026 : Applied-change metrics use the BA_DEM trace
 !                          mask and export BA_TR_ABS for Stage B;
 !                          commits also export BA_DEM_EXM so the
 !                          Stage-B exit gate sees exempted demand on
-!                          JFNK iterations (edited by Devin).
+!                          JFNK iterations (edited).
 ! Altered 05-Oct-2026 : Demoted JFNK banners to iteration subheaders.
 !
 	SUBROUTINE JFNK_SOLVE_CORR_V1(SOL,POPS,POP_ATOM_A,DIAG_INDX,NT,
@@ -88,7 +88,7 @@
 	EXTERNAL ERROR_LU
 	CHARACTER*11 JFNK_TAG
 !
-! Phase timers (edited by Devin, 15-Oct-2026): per-admission wall
+! Phase timers (edited 15-Oct-2026): per-admission wall
 ! seconds for the expensive JFNK phases, printed as one line with the
 ! final diagnostics so the iteration cost can be attributed (the
 ! it191 admission spent ~500 s in dirchk evals that nothing time-
@@ -525,7 +525,7 @@
 !
 	  FREEZE_I_NEXT=.TRUE.
 !
-! edited by Devin, 05-Oct-2026: disarm any pending BA residual-
+! edited 05-Oct-2026: disarm any pending BA residual-
 ! acceptance arm. This is reachable only with [DO_JFNK]=T (default F),
 ! which requires [DO_NONMONO_KNOP] or [DO_NONMONO_SOB]=T; the default
 ! path is unchanged.
@@ -814,7 +814,7 @@
 ! iterate that had a verified 6.04e10 < 6.32e10 entry residual
 ! because both sides of the comparison read the same phantom 1.49.
 ! Not flag-gated: commit-reference bug fix, JFNK admissions only.
-! edited by Devin, 23-Oct-2026.
+! edited 23-Oct-2026.
 !
 	  F_W_ENTRY=F_W_INIT
 	  WRITE(LUER,'(A,ES12.4)')
@@ -2307,7 +2307,7 @@
 	      END IF
 	      IF(JFNK_CATASTROPHIC .OR. JFNK_INFO .EQ. 4 .OR.
 	1         JFNK_INFO .EQ. 3)THEN
-! editted by Devin, 04-Oct-2026: info=3 (Krylov/JVP/preconditioner
+! edited, 04-Oct-2026: info=3 (Krylov/JVP/preconditioner
 ! abort, or trust radius exhausted) is deterministic for this
 ! baseline -- the retry would re-factor the same BA at the same
 ! point and replay the identical failure, so leave the restart
@@ -2397,7 +2397,7 @@
 	    BA_DEM_EXR=0.0_LDP
 	    DO K=1,ND
 !
-! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] the JFNK commit has
+! edited 18-Oct-2026: [BA_EX_RELFRAC] the JFNK commit has
 ! no STEQ demand, so the exempted-demand proxies use the committed
 ! change.  T2 mirrors the SOLVEBA_V13 exit-only relative floor on
 ! the same operand (pre-step populations).
@@ -2646,7 +2646,7 @@
 ! (F_W_ENTRY), not F_W_INIT: the attempt loop re-bases F_W_INIT
 ! after each baseline rebuild, so a post-rebuild check against it
 ! cannot answer "did this activation improve the model state".
-! edited by Devin, 23-Oct-2026.
+! edited 23-Oct-2026.
 	        IF(.NOT. X_APP_OK .OR. jfnk_resid_nbad .GT. 0 .OR.
      1           .NOT. (F_APP .LT. F_W_ENTRY))THEN
 	          WRITE(LUER,'(A)')
@@ -2684,7 +2684,7 @@
 	    DO K=1,ND
 ! Same committed-change EXR proxy as the rebuild-commit scan above:
 ! without a reset the last BA call's exit-exempted demand leaks into
-! a JFNK commit that already moved those rows.  edited by Devin,
+! a JFNK commit that already moved those rows.  edited,
 ! 12-Nov-2026.
 	      T2=0.0_LDP
 	      IF(BA_EX_RELFRAC .GT. 0.0_LDP)
@@ -2842,7 +2842,7 @@
 	    LAMBDA_A=LAMBDA_SAVE
 	    FIXED_T=FIXED_T_SAVE
 	    COMPUTE_BA_A=COMPUTE_BA_SAVE
-! edited by Devin, 12-Nov-2026: when the Newton attempt actually ran,
+! edited 12-Nov-2026: when the Newton attempt actually ran,
 ! the caller's held BA was linearized before it -- the attempt spent
 ! perturbed-state evals and OUTGEN showed the fallback (and the next
 ! iteration) reusing that stale matrix (it585 fail, newmat=F on a BA
@@ -3017,7 +3017,7 @@
 !
 	CONTAINS
 !
-! edited by Devin, 17-Oct-2026: single source for the fallback
+! edited 17-Oct-2026: single source for the fallback
 ! correction-cap mapping.  The invariant shared with SOLVE_FOR_POPS:
 ! LAMBDA mode caps at MAX_LAM_COR, full/BA mode at MAX_LIN_COR,
 ! GS_LAM_CAP is a tighter caller bound for KNOP-forced LAMBDA calls,
