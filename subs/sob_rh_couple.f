@@ -57,7 +57,10 @@ C
 C
 C Cached coupling geometry.  The tables depend only on R, V and SIGMA,
 C which are fixed during an iteration sweep, so they are rebuilt only
-C when the velocity or radius signature changes.
+C when any of the three input arrays changes.  The signature is an
+C element-wise copy of the inputs: a scalar digest (the old SUM check)
+C cannot distinguish profiles that share a sum, and it did not cover
+C SIGMA at all even though RH_T1/RH_T1P cache |1+mu^2*SIGMA|.
 C
 	INTEGER :: RH_ND=0
 	INTEGER :: RH_TOTPAIRS=0
@@ -65,8 +68,9 @@ C
 	INTEGER :: RH_LASTREP=0
 	REAL(KIND=LDP) :: RH_MAXDJ=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDZ=0.0_LDP
-	REAL(KIND=LDP) :: RH_VSUM=-1.0_LDP
-	REAL(KIND=LDP) :: RH_RSUM=-1.0_LDP
+	REAL(KIND=LDP), ALLOCATABLE :: RH_RSAV(:)	!R at last build
+	REAL(KIND=LDP), ALLOCATABLE :: RH_VSAV(:)	!V at last build
+	REAL(KIND=LDP), ALLOCATABLE :: RH_SSAV(:)	!SIGMA at last build
 	INTEGER, ALLOCATABLE :: RH_NP(:)	!# partners per depth
 	INTEGER, ALLOCATABLE :: RH_ID(:,:)	!partner depth index
 	REAL(KIND=LDP), ALLOCATABLE :: RH_T1(:,:)	!|1+mu^2 sigma| at I
@@ -94,22 +98,31 @@ C
 	INTEGER RH_NDROP
 	REAL(KIND=LDP) D1,D2,MU2,MUP2,UPS
 	REAL(KIND=LDP) WJ(ND)
-	REAL(KIND=LDP) VSUM,RSUM
 C
-	VSUM=SUM(V)
-	RSUM=SUM(R)
-	IF(RH_ND .EQ. ND .AND.
-	1   ABS(VSUM-RH_VSUM) .LT. 1.0D-25*MAX(1.0_LDP,ABS(VSUM)) .AND.
-	2   ABS(RSUM-RH_RSUM) .LT. 1.0D-25*MAX(1.0_LDP,ABS(RSUM)))RETURN
+C Reuse the cached tables only when every input is bit-identical to the
+C call that built them (BUG-002).  The old 1D-25-sum fingerprint could
+C not see a profile change whose sum is preserved, and it never looked
+C at SIGMA -- a stale T1/T1P then feeds wrong resonance taus into DRC.
+C Element-wise equality is O(ND), far cheaper than the O(ND^2) rebuild.
+C The RH_ND test gates the comparison: ALL() on an unallocated array is
+C undefined, and the saved arrays exist only after a build.
+C
+	IF(RH_ND .EQ. ND)THEN
+	  IF(ALL(R .EQ. RH_RSAV) .AND. ALL(V .EQ. RH_VSAV) .AND.
+	1     ALL(SIGMA .EQ. RH_SSAV))RETURN
+	END IF
 C
 	IF(ALLOCATED(RH_NP))THEN
-	  DEALLOCATE(RH_NP,RH_ID,RH_T1,RH_T1P,RH_PW)
+	  DEALLOCATE(RH_NP,RH_ID,RH_T1,RH_T1P,RH_PW,
+	1             RH_RSAV,RH_VSAV,RH_SSAV)
 	END IF
 	ALLOCATE(RH_NP(ND),RH_ID(ND,ND),RH_T1(ND,ND),
 	1         RH_T1P(ND,ND),RH_PW(ND,ND))
+	ALLOCATE(RH_RSAV(ND),RH_VSAV(ND),RH_SSAV(ND))
 	RH_ND=ND
-	RH_VSUM=VSUM
-	RH_RSUM=RSUM
+	RH_RSAV=R
+	RH_VSAV=V
+	RH_SSAV=SIGMA
 	RH_NP=0
 	RH_TOTPAIRS=0
 	RH_NDROP=0
