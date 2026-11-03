@@ -12,6 +12,7 @@ Status summary:
 | Bug ID  | Severity | Title                                            | Status |
 |---------|----------|--------------------------------------------------|--------|
 | BUG-001 | P0       | GMRES convergence claim accepted on hess_res     | FIXED  |
+| BUG-002 | P2       | SOB_RH_GEOM cache fingerprint misses SIGMA        | FIXED  |
 | BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY     | REFUTED|
 
 ------------------------------------------------------------------------
@@ -241,7 +242,133 @@ gates.
 
 ------------------------------------------------------------------------
 
-## BUG-003 - MKL "Parameter 4 was incorrect on entry to DGELSY" warning
+## BUG-002 - SOB_RH_GEOM cache fingerprint never covers SIGMA and is
+##          not injective for R,V
+
+- Severity: P2 (latent wrong-results defect; no live trigger found in
+  the current call graph - see "Production trigger" below)
+- Status: FIXED (regression fails on the pre-fix source, passes on
+  the fixed source)
+- Reported: 2026-11-03 (adversarial bug hunt, Phase 2)
+- Fixed: 2026-11-03 @ working tree (pre-commit)
+
+### Affected source files and routines
+
+- `subs/sob_rh_couple.f`
+  - `SOB_RH_MOD` cached-signature scalars `RH_VSUM`/`RH_RSUM`
+    (pre-fix lines ~68-69)
+  - `SOB_RH_GEOM` fingerprint check + rebuild block (pre-fix lines
+    ~99-115)
+
+### Exact source lines (pre-fix, HEAD `addf2fcd`)
+
+- `sob_rh_couple.f:99-103` - `VSUM=SUM(V); RSUM=SUM(R)` then early
+  `RETURN` when both sums match their saved values within
+  `1.0D-25*MAX(1,|sum|)` and `RH_ND.EQ.ND`.
+- `sob_rh_couple.f:152-153` - the cached tables this fingerprint
+  guards include `RH_T1(I,K)=|1+MU2*SIGMA(I)|` and
+  `RH_T1P(I,K)=|1+MUP2*SIGMA(J)|` - i.e. the tables depend on SIGMA,
+  which the fingerprint never examined.
+
+### Suspected defect (confirmed)
+
+Two defects in the cache-validity decision:
+
+1. SIGMA is not fingerprinted at all. `SOB_RH_COUPLE` passes either
+   `SIGMA` (DO_SOB_CLAMPED_LINES) or `SIGMA_TRUE`; the pair tables
+   cache `|1+mu^2*sigma|` at both endpoints. A call with bit-identical
+   R,V but a different sigma returns early and silently reuses stale
+   resonance-tau tables, so `DRC` is computed with the wrong
+   `t=GAMH/|1+mu^2 sigma|` and therefore the wrong remote-resonance
+   absorption rate.
+2. `SUM` is not injective. Two distinct V (or R) profiles sharing a
+   sum also pass the fingerprint, leaving the whole pair selection
+   (mu^2 acceptance) and weights stale. Essentially unreachable by
+   chance at bitwise level, but correctness depended on luck, not
+   construction.
+
+### Physical / numerical consequence
+
+The RH78 remote-pumping correction `DRC_l` feeds `T2=ETAL*ZNET-DRC`
+in `SUB_SOB_LINE_V3`. A stale table multiplies each couple by the
+wrong Sobolev optical depth - the error is order-unity in `t` and
+exponential in `EXPONX(t)`, so even a modest sigma drift corrupts
+the correction by a large factor, silently (no diagnostic; the
+"SOB_RH: N pairs" rebuild banner simply never prints).
+
+### Production trigger assessment
+
+Audited all writers of the sigma inputs and all `RECOMPUTE_SIGMA_TRUE`
+call sites (`cmfgen_sub.f` ~1135/~4650, `solve_for_pops.f` ~3664/3781):
+every sigma rewrite is paired with an R or V change (model setup,
+`DO_WIND_VEL_V1`, NG acceleration, `ADJUST_R_GRID_V4`), so the stale
+path is not reachable on current flags. The sigma argument itself is
+fixed per run (flag-selected), so no alternating-input path exists.
+Severity therefore P2 (latent): any future sigma-touching call site -
+a probe path, an alternating sigma source, a mid-run re-clamp - turns
+this into a silent P1 wrong-results defect. The fix removes the whole
+class rather than the observed instance.
+
+### Reproduction method
+
+`unit_tests/f90/drv_sob_rh.f90` extended: after the initial
+geometry+couple it re-reads ND-line R V SIGMA blocks and re-runs
+GEOM+COUPLE in the same process, each dump tagged `PHASE n`. The
+`SOB_RH:` rebuild banner (printed inside GEOM only on rebuild) gives
+a direct rebuild-vs-stale witness.
+
+`test_sob_rh_couple.py` T7: phase 1 (r,v,sig=-0.5), phase 2 (same
+r,v, sig=-0.9), phase 3 (identical to 2). Pair selection depends only
+on R,V so the pair set must be unchanged while T1/T1P must rebuild on
+the new sigma.
+
+### Pre-fix behaviour (verified)
+
+On the stashed pre-fix `sob_rh_couple.f`: phase 2 produces `banners=0`
+(no rebuild) and T1/T1P still hold `|1+mu^2*(-0.5)|` - both new
+checks FAIL. Phase 3 passes trivially (stale tables equal stale
+tables).
+
+### Resolution
+
+`SOB_RH_MOD` now stores element-wise copies `RH_RSAV/RH_VSAV/RH_SSAV`
+of all three inputs; `SOB_RH_GEOM` returns early only when
+`RH_ND.EQ.ND` AND `ALL(R.EQ.RH_RSAV).AND.ALL(V.EQ.RH_VSAV).AND.
+ALL(SIGMA.EQ.RH_SSAV)` (nested IF - `ALL()` on an unallocated array
+is undefined). Bit-identical reuse is exactly what the old
+`1D-25*MAX(1,|sum|)` tolerance implemented in practice, so the cache
+behaviour on the intended fast path is unchanged; the O(ND) compare
+is negligible next to the O(ND^2) rebuild it guards. Fixes defect 1
+(SIGMA is now fingerprinted) and defect 2 (equality is injective -
+any changed element rebuilds).
+
+### Regression tests
+
+`test_sob_rh_couple.py` T7 (three checks):
+
+- phase-2 same-selection + rebuild banner: FAIL on pre-fix
+  (`banners=0`), PASS on fixed.
+- phase-2 T1/T1P equal `|1+mu^2*sigma_new|` per pair: FAIL on
+  pre-fix (stale -0.5 values), PASS on fixed.
+- phase-3 identical inputs: cache hit (`banners=0`) and bit-identical
+  dumped tables - PASS on both, confirms the intended fast path is
+  preserved.
+
+Suite: 12 passed / 0 failed on fixed source; 10 passed / 2 failed on
+pre-fix (the two defect-discriminating checks).
+
+### Remaining notes / follow-ups
+
+- The untracked `knop_solver_files/sob_rh_couple.f` staging copy is
+  byte-identical to the pre-fix source and was not touched; it is
+  outside git and outside `build.sh`. If it feeds an external KNOP
+  package build it should be re-synced from `subs/`.
+- Fingerprint discipline for the wider tree: any other cached table
+  keyed on inputs should compare all inputs, not digests - worth a
+  sweep in Phase 4 (DUMP/RESTORE_*_GS tag+fingerprint items already
+  flagged in the TODO around P4-012/INT).
+
+------------------------------------------------------------------------
 
 - Severity: P3 (diagnostic)
 - Status: REFUTED - no defect; warning is MKL's arg-check on a
