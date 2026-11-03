@@ -37,6 +37,7 @@ program se_driver
    character(len=1024) :: dir, xfile, vfile
    integer :: n, m, itmax, pc, expneg, ptc, ptcfix, eqscale
    integer :: k, i, idx, info, its, lu, nits, stat, im(10), kk, ios
+   integer :: r1, r2
    integer :: krow
    integer :: stag, cool, cyc, wait_i, rearm_every
    integer :: ta_nlock, rung, ncom
@@ -340,6 +341,19 @@ program se_driver
       end do
       write(*, '(A,ES24.16)') 'MZDIFF ', &
          sqrt(sum((mz-f)**2)) / max(sqrt(sum(f*f)), 1d-300)
+      ! Per-depth block residuals.  The aggregate MZDIFF cannot say
+      ! which depth block produced a meaningless solve; the worst
+      ! block is what limits the preconditioner, so emit each block's
+      ! own backward error with its accepted ridge-ladder index.
+      do k = 1, se_nd
+         r1 = (k-1)*se_nt + 1
+         r2 = k*se_nt
+         write(*, '(A,I0,1X,ES24.16,1X,I0)') 'MZDK ', k, &
+            sqrt(sum((mz(r1:r2)-f(r1:r2))**2)) / &
+            max(sqrt(sum(f(r1:r2)*f(r1:r2))), 1d-300), &
+            lu_info_k(k)
+      end do
+      write(*, '(A,I0)') 'LUBAD ', count(.not. lu_ok)
       ! reg-row projection then full pipeline via se_psolve for
       ! the post-stage comparison
       do k = 1, se_nd
