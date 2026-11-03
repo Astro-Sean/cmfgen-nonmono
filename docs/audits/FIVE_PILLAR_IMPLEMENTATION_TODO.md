@@ -1141,6 +1141,13 @@ optional. Probe exists (`jfnk_op_probe_v1.f90`, `JFNK_HSCAN`,
   preconditioning, and the caller gate (`true_res < 0.9*ref_norm`,
   `true_res > |F|` skip) behaves as audited.
 - Evidence: audit sec.D verified by source; runtime unverified.
+  Re-verified post-BUG-001 (2026-11-03): EW Choice-2 uses
+  eta_k = gamma*(|F_k|/|F_{k-1}|)^alpha with the eta_{k-1}
+  safeguard (Oct-2026 fix), clamped [eta_min,eta_max] on all paths;
+  gres = eta*ref_norm with ref_norm = ||M^{-1}F||_w under left-PC
+  (09-Sep fix); true_res is measured as ||M^{-1}(b-Ax)||_w - same
+  units - so the 0.9*ref_norm dual gate and the true_res > ref_norm
+  skip are unit-consistent. jfnk_tol shares the dp weighted norm.
 - Files: `jfnk_solver_v1.f90`, `newton_hook_v1`.
 - Action: runtime record from P4-004 runs; confirm no path accepts a
   step on hess_res.
@@ -1188,20 +1195,29 @@ optional. Probe exists (`jfnk_op_probe_v1.f90`, `JFNK_HSCAN`,
 - Dependencies: P4-004, P4-005.
 - Completion: -
 
-### [ ] P4-015 - Verify coupled-J radiation sweep restores all state
+### [~] P4-015 - Verify coupled-J radiation sweep restores all state
 - Priority: P0
 - Description: verify `JFNK_RAD_SWEEP_V1` save/restore actually
   returns bit-identical state (radiation, line, moment/Knop refresh,
   Eddington-record ACCESS_F, file cursors) after an eval.
-- Evidence: audit sec.A: explicit bracket lists audited by
-  inspection; REP rows on production will measure it.
+- Evidence: inspection leg re-verified 2026-11-03: the bracket is
+  symmetric and comprehensive (STEQ x6, POPS/ED/T/ATM, ACCESS_F,
+  EDDINGTON, FOLD, COMPUTE_BA, two-photon + SL accumulators, MOM
+  quarantine + refresh scalars, LSTATE line-module workspace, JEW
+  via COMPUTE_EW). One ordering defect found and fixed: BUG-006 -
+  `JFNK_EVAL_LSTATE_V1('S')` armed after the first eval mutations,
+  so its guarded alloc-failure path skipped restores and would
+  have leaked `JFNK_IN_EVAL=T` permanently. Hoisted into the
+  entry-save block; ordering pin added and verified fail->pass.
+  REP/REPP bit-identical measurement on production remains open.
 - Files: `cmfgen_sub.f:5755` sweep, `jfnk_cmfgen_interface_v1.f`.
 - Action: production REP/REPP under coupled admission (P4-003)
   directly tests this; inspect restore lists against mutated arrays
   once more on current source.
 - Acceptance: measured + inspection-verified restore.
 - Dependencies: P4-003.
-- Completion: -
+- Completion: partial (inspection leg done + BUG-006 fixed
+  2026-11-03; REP/REPP production measurement open).
 
 ### [~] P4-016 - Verify JFNK admission across Sobolev and Knop configurations
 - Priority: P0
