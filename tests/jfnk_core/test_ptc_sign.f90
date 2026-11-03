@@ -22,7 +22,7 @@
 ! verdict (helps/hurts/no difference) is reported in the audit doc,
 ! not asserted, since either outcome is information.
 !
-! edited by Devin, 22-Oct-2026
+! edited 22-Oct-2026
 !----------------------------------------------------------------------
 module test_ptc_sign_mod
    implicit none
