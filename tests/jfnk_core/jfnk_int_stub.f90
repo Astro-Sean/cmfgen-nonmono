@@ -4,7 +4,7 @@
 ! new_main/mod_subs/jfnk_solver_v1.f90 imports; the production
 ! interface module pulls in the whole CMFGEN model state, which the
 ! test does not need.
-! edited by Devin, 06-Oct-2026
+! edited 06-Oct-2026
 !----------------------------------------------------------------------
 module jfnk_cmfgen_int_mod
    implicit none
