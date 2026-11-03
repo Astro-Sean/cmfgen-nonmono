@@ -167,11 +167,13 @@ each evaluation.
 
 Each activation is bounded by iteration and restart caps plus two
 budgets: `JFNK_MAX_EVALS` (residual evaluations) and `JFNK_MAX_SEC`
-(wall-clock seconds per activation). Both default to 0, meaning off;
-when `DO_JFNK` is set with no wall-clock budget the input reader
-prints a warning that a stalled activation could consume the job.
-Exhausting a budget forces the rejection path, so the iteration falls
-back to the stock update rather than aborting.
+(wall-clock seconds per activation). `JFNK_MAX_EVALS` defaults to 0,
+meaning off. Under `DO_JFNK` a zero `JFNK_MAX_SEC` is auto-raised to
+3600 seconds, since a stalled activation could otherwise consume the
+whole job; the same auto-set arms the globalized form (unknown-norm
+logging, pseudo-transient continuation, Armijo line search, Cauchy
+fallback). Exhausting a budget forces the rejection path, so the
+iteration falls back to the stock update rather than aborting.
 
 ## VADAT keys for the trace-exemption and polish machinery
 
@@ -226,8 +228,8 @@ the stock Lambda update is unchanged):
 | `DO_FG13_ALO_TRI` | F | Fill `TX(K,K+/-1)` with the stored off-diagonal Lambda* entries (effective only with `NUM_BNDS>=3`). |
 
 Preconditioner-audit keys (`jfnk-precond-fixes`; all default OFF so
-the default factorization path is unchanged; details in
-`docs/audits/JFNK_PRECOND_AUDIT.md`):
+the default factorization path is unchanged; audit notes under
+`docs/audits/`):
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -322,8 +324,8 @@ correctness and build fixes that are not controlled by solver flags:
 
 The `unit_tests/` suite (`unit_tests/run_all_tests.py`) compiles the
 production parsers and solver-adjacent sources against small drivers;
-`test_vadat_keys.py` covers the non-monotonic flag contract and the
-JFNK VADAT keys.
+`python/test_vadat_keys.py` covers the non-monotonic flag contract
+and the JFNK VADAT keys.
 
 ## Building and running
 
