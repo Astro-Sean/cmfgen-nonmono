@@ -116,6 +116,17 @@ Recommendation:
 - Do not claim the current optional `JFNK_TRES_FAC` closes the issue until its
   default, cost, and relation to the forcing term are tested.
 
+Progress (same day, surrogate level): harness T22 now measures JVP
+cycle-linearity on the production FD rule against the surrogate residual.
+Homogeneity `JV(a v) = a JV(v)` is bitwise exact (the `h*v` displacement is
+invariant under `v -> a v`), and the additivity defect
+`||FD(v1+v2) - FD(v1) - FD(v2)||` stays within 7.5x the same-direction
+FD-vs-exact error over `eps` from `1e-8` to `1e-2` on all four surrogate
+specs and both `x=0` and `x=x*/2`. On the surrogate the direction-dependent
+step does not detach the effective operator beyond the FD method's own
+error. Production-interface additivity on frozen and coupled residuals
+remains open - it needs a residual evaluator bound to a real model state.
+
 Literature: Knoll & Keyes (2004); Eisenstat & Walker (1996); Saad & Schultz
 (1986); Pernice & Walker (1998).
 
@@ -316,7 +327,9 @@ a benchmark for this checkout.
    evidence exposes a separate failure.
 2. Finish JFNK operator tests: directional derivative, additivity, repeat
    noise, current h adaptation, clip/retry behavior, and explicit residual
-   checks in both frozen and coupled modes.
+   checks in both frozen and coupled modes. (Partial: surrogate-level
+   additivity/homogeneity coverage added as T22 03-Nov-2026; production-
+   interface coverage is still open.)
 3. Decide the default true-residual policy from those measurements and the
    Eisenstat-Walker forcing term. Verify any change in an analytic GMRES case
    and a production residual driver.
