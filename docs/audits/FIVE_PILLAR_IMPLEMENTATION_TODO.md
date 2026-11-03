@@ -1047,7 +1047,15 @@ acceleration.
   residual reduction vs unaccelerated map on a manufactured case.
 - Acceptance: measured AA effectiveness report.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: partial 2026-11-03 - instrumentation verified at
+  source: MOM_AA_APP/SKIP/SNG (inner, MOM_AA_M=3 secant pairs) and
+  MOM_AA_OUT_APP/REJ/SNG (outer, MOM_AA_OUT_M=8) print at every
+  refresh epilogue plus per-application `AA m= ||f||= ||corr||=`
+  lines (mom_j_cmf_nonmono_v1.f:6486-6497). The measurement leg is
+  runtime-bound: AA only accumulates across >=M secant calls, the
+  unit drivers are single-call (no history), and the running m15
+  jobs use USE_LAM_ES=T (FG path - AA lives in the moment refresh
+  only). Needs a LAM_ES=F model or a multi-call driver loop.
 
 ### [~] P3-023 - Lagged-field maturity gates vs actual radiation consistency
 - Priority: P0
