@@ -577,7 +577,7 @@
 !
 	  CALL RD_CMF_FLUX_CONTROLS(ND,LUMOD,LUER)
 !
-! edited by Devin, 05-Nov-2026 (nonmono gap item 7): fail closed at
+! edited 05-Nov-2026 (nonmono gap item 7): fail closed at
 ! the OBS entry.  A model written by a KNOP (or otherwise
 ! non-monotonic) population run carries sigma < -1 and/or a
 ! non-strictly-decreasing V in RVTJ.  This executable has confirmed
