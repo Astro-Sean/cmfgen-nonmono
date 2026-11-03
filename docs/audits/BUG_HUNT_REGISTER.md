@@ -14,6 +14,7 @@ Status summary:
 | BUG-001 | P0       | GMRES convergence claim accepted on hess_res     | FIXED  |
 | BUG-002 | P2       | SOB_RH_GEOM cache fingerprint misses SIGMA        | FIXED  |
 | BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY     | REFUTED|
+| BUG-004 | P2       | Zero-GAM resonance: floored factor vs exact-zero | REFUTED|
 
 ------------------------------------------------------------------------
 
@@ -370,6 +371,8 @@ pre-fix (the two defect-discriminating checks).
 
 ------------------------------------------------------------------------
 
+## BUG-003 - MKL "Parameter 4 was incorrect on entry to DGELSY" warning
+
 - Severity: P3 (diagnostic)
 - Status: REFUTED - no defect; warning is MKL's arg-check on a
   deliberately NaN-poisoned input, handled correctly downstream.
@@ -405,6 +408,114 @@ The dgelsy error return is handled: `info=-4` maps to
 `tests/f90` harness (fires identically on the pre-fix solver). No
 production change required. A NaN-free variant of T7 could silence
 the warning but is out of scope for this fix.
+
+------------------------------------------------------------------------
+
+## BUG-004 - Zero-GAM resonance: `SIGN(MAX(ABS(T1),1e-2),T1)` floor
+##          plus the `T1==0 -> fac=0` exception in MOM_J_CMF_NONMONO_V1
+
+- Severity: P2 suspected (a discontinuous internal coefficient could
+  produce a discontinuous or wrong discrete equation at the
+  `1 + sigma*K_ON_J = 0` comoving-transport resonance)
+- Status: REFUTED - verified regularization, not a defect; the
+  exception returns the physically correct decoupled limit and the
+  discontinuity is bounded at 2*MOM_GAM_FAC_MIN in the factor.
+- Reported: 2026-11-03 (audit directive, Phase 3)
+- Closed: 2026-11-03
+
+### Affected source and suspected defect
+
+`plane/mom_j_cmf_nonmono_v1.f`, four factor sites (midpoint current
+~2004-2012 and lagged ~2020-2030, depth current ~2126-2135 and
+lagged ~2145-2155), all computing
+
+  T1 = 1 + SIGMA_TRUE*K_ON_J            (depth points)
+  T1 = 1 + AV_SIGMA_TRUE*NMID_ON_HMID   (midpoints)
+  FAC = SIGN(MAX(ABS(T1),MOM_GAM_FAC_MIN),T1)
+  IF(T1 .EQ. 0.0_LDP)FAC = 0.0_LDP
+
+with `MOM_GAM_FAC_MIN = 1.0E-2_LDP`. The suspicion: as T1 -> 0+ or
+0- the factor jumps to +0.01/-0.01, while exactly at T1=0 the
+exception drops it to 0 - a notch in the coefficient at the
+resonance, and a sign flip across it.
+
+### Investigation
+
+Traced every consumer of the factors: GAM_SIGNED -> CHI_HAT -> Q_NM,
+PSI/PSIPREV (J coupling), W/WPREV -> EPS/HU/HL/HS (H coupling and
+eliminated diagonal), the boundary row (line ~2873), and the census
+counters.
+
+- The sign flip at T1=0 is inherent, not an artifact: sign(T1) is
+  the physical comoving transport direction, so sign(Q) and the
+  upwind stencil must change there. The floor only bounds the
+  jump magnitude at 2*MOM_GAM_FAC_MIN.
+- The `T1==0` exception returns the physically correct limit:
+  GAM_SIGNED=0 -> CHI_HAT=CHI -> Q=0 -> PSI=PSIPREV=0, i.e. the row
+  decouples entirely from frequency transport where the comoving
+  gradient vanishes. That is the right equation at the resonance.
+- It does not reintroduce the "implicit diagonal collapse" the
+  floor guards against: at exact resonance the row still carries
+  the absorption term and the spatial HU/HL couplings; the
+  manufactured shelf solves cleanly.
+- Consistent at all four sites and under MOM_GAM_PIN
+  (PREV = current); the GAM_NM signed->dimensionless overwrite at
+  ~line 2213 is dual-use but every post-overwrite read wants the
+  coefficient, so no aliasing bug.
+- Angle factors are sanitized upstream: K_ON_J clamped to
+  [1e-4,1], non-finite NMID_ON_J/NMID_ON_HMID zeroed,
+  |NMID_ON_HMID| capped at 1e12, so T1 is always finite and the
+  resonance location is physical.
+- The sign conventions check out: sign(Q)=sign(T1) marks
+  compressing rows; EPS keys on sign(sigma*NMID_ON_J)
+  independently of the H direction (documented flux split); the
+  compressing-midpoint fixup HS=W/(1+W) keys on GAMH_SIGNED<0.
+
+### Quantitative evidence (t_zero manufactured case)
+
+A prescribed sigma=-3.0 shelf (K_ON_J=1/3) lands 36 cells on
+bitwise T1=0: all decouple (Q=PSI=0). The shelf-edge cell computes
+T1=3.3e-16 (round-off, not bitwise zero) and takes the floor
+fac=+0.01 -> Q=1.6e-4, vs Q~4e-3 and 1.7e-2 at the adjacent
+non-shelf cells - i.e. the worst-case notch is ~25x below the
+neighbouring coupling and ~4 orders below the row diagonal
+(DTAUONQ ~ 3.7). `test_mom_solve.py`: 85/85 PASS - exact resonance
+present, Q=0 there, floor bounded off-resonance, no solver
+failure, no step discontinuity in J.
+
+### Disposition
+
+No defect at the construction level. On real grids a bitwise
+T1=0 is a measure-zero event (sigma must equal -1/K_ON_J exactly);
+where it occurs, exact decoupling is the correct physics. The
+floor is the regularization that keeps near-resonant rows coupled
+at 1% of the local coefficient, and the exception honours the
+exact limit. Both are exercised and verified.
+
+Scope note: this refutes the claim that the discontinuous factor
+is a wrong-result defect. The resonance-adjacent band is real in
+production: m15 sweep dumps (cmfgen_obsidian, LAM_ES=F record)
+show depths 1-8 at 1+sigma*K ~ +-0.04 - inside the floor band -
+with the upwind direction flipping between frequencies, and those
+rows dominate the negative-J quarantine dump. Whether the floor
+contributes to the documented LAM_ES=F lagged-map non-contraction
+is the open question - that belongs to P3-012/P3-017, not to a
+coefficient-defect claim, since the floor is doing its documented
+job there.
+
+Recorded observations (no action):
+
+- `GAMH_FAC_NM(ND_NM)=1.0` (~line 2030) is a phantom last-midpoint
+  fill; W_NM(ND_NM) is never computed (all loops run to ND_NM-1),
+  so the value is never consumed.
+- `PASS_NRES` counts bitwise-zero cells in the <=floor census; the
+  diagnostic conflates "at floor" with "exactly resonant" by ~one
+  cell per event. Cosmetic.
+- If a production model ever shows an ill-conditioned row at an
+  exactly-resonant cell, the open design question is whether the
+  exception should take +-0.01 instead of 0 - but the correct
+  fix would be the decoupled row itself, which is already what the
+  code assembles.
 
 ------------------------------------------------------------------------
 
