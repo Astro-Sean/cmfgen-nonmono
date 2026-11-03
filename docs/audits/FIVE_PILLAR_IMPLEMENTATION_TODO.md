@@ -552,7 +552,19 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Action: manufactured boundary-resonance cases in unit tests.
 - Acceptance: boundary cases pass with documented behaviour.
 - Dependencies: P2-006.
-- Completion: -
+- Completion: 2026-11-03 - audited at source; no off-by-one found.
+  Frequency edge: the zone is [LINE_ST,LINE_END] inclusive and
+  END_RES_ZONE fires at FREQ_INDX==LINE_END (set_line_opac.f:341-346)
+  with no range restriction, so a window ending on the last grid
+  frequency still terminates correctly. Windows are built by
+  marching the grid and inserting frequencies (ins_line_v6.f:380-390),
+  so ST/END always land on real grid points; a BLANK line whose
+  window misses the grid leaves indices 0 and hits a hard STOP with
+  diagnostics (:445-460) - loud, not silent. Spatial edge: the
+  inner-boundary CHI(ND) add is handled in its own block
+  (cmfgen_sub.f:1731). A dedicated manufactured test would duplicate
+  the grid-construction machinery; the :445 check already makes any
+  boundary miss a fatal error in every production run.
 
 ### [ ] P2-011 - Compare with an independent reference calculation
 - Priority: P1
