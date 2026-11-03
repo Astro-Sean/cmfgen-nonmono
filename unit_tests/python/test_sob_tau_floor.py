@@ -243,6 +243,64 @@ def main():
         "T6 sobjsim sigma=-1: 1e-4 bound matches formula", err < 1e-9, f"err={err:.2e}"
     )
 
+    # -- T7: sigma just below -1 (-1.0001): the -0.2*(1+sigma) term is
+    # 2e-5 < 1e-4, so only the 1e-4 arm regularizes the near-radial
+    # pole band.  Near-radial rays (mu^2 -> 1 at outer depths, and
+    # small p_frac rays) sit in the band |1+sigma*mu^2| < 1e-4.
+    case, r7, p7, w7, gamh7 = write_case(
+        "case_sim_m1eps.txt", -1.0001, p_frac=[0.01, 0.05, 0.10, 0.30], chil0=1.0e9
+    )
+    a7, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case).stdout)
+    b7, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim", case).stdout)
+    beta7 = beta_predict(-1.0001, r7, p7, w7, gamh7, floor=True)
+    beta7_ref = beta_predict(-1.0001, r7, p7, w7, gamh7, floor=False)
+    err7 = np.abs(a7[:, 0] - beta7).max()
+    err7r = np.abs(b7[:, 0] - beta7_ref).max()
+    rep.check(
+        "T7 sobjsim sigma=-1.0001: 1e-4-only arm matches formula",
+        err7 < 1e-9 and err7r < 1e-9 and np.all(np.isfinite(a7[:, 0])),
+        f"err={err7:.2e} err_ref={err7r:.2e}",
+    )
+
+    # -- T8: continuity across the pole entry at sigma=-1.  BETA is an
+    # angle average, so the singular ray band contributes O(1e-4/GAMH)
+    # and the floored value varies continuously through sigma=-1.
+    betas, betas_ref = [], []
+    for sig8 in (-0.999, -1.0, -1.001):
+        case8, r8, p8, w8, gamh8 = write_case(
+            f"case_sim_c{abs(sig8)}.txt",
+            sig8,
+            p_frac=[0.01, 0.05, 0.10, 0.30],
+            chil0=1.0e9,
+        )
+        a8, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case8).stdout)
+        b8, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim", case8).stdout)
+        betas.append(a8[:, 0])
+        betas_ref.append(b8[:, 0])
+    d_lo = np.abs(betas[1] - betas[0]).max()
+    d_hi = np.abs(betas[2] - betas[1]).max()
+    d_lo_ref = np.abs(betas_ref[1] - betas_ref[0]).max()
+    d_hi_ref = np.abs(betas_ref[2] - betas_ref[1]).max()
+    rep.check(
+        "T8 sobjsim: bounded BETA change across sigma=-1",
+        d_lo < 1e-2 and d_hi < 1e-2 and abs(d_hi - d_hi_ref) < 1e-4,
+        f"|B(-1)-B(-0.999)|={d_lo:.2e} |B(-1.001)-B(-1)|={d_hi:.2e} "
+        f"(ref {d_lo_ref:.2e}/{d_hi_ref:.2e})",
+    )
+
+    # -- T9: sigma=0 (homologous): T1=1 exactly, so BETA = sum w*EXF(GAMH)
+    # and the run is bit-identical to the unfloored reference.
+    case9, r9, p9, w9, gamh9 = write_case("case_sim_zero.txt", 0.0)
+    a9, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case9).stdout)
+    b9, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim", case9).stdout)
+    beta9 = (exponx(gamh9[:, None]) * w9[None, :]).sum(axis=1)
+    err9 = np.abs(a9[:, 0] - beta9).max()
+    rep.check(
+        "T9 sobjsim sigma=0: BETA == EXF(GAMH), identical to upstream",
+        err9 < 1e-9 and np.array_equal(a9[:, 0], b9[:, 0]),
+        f"err={err9:.2e} maxdiff={np.abs(a9[:,0]-b9[:,0]).max():.2e}",
+    )
+
     # -- Plot: BETA(I) new vs ref vs analytic for sigma=-2.
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
     pred = beta_predict(-2.0, r, p, w, gamh, floor=True)
