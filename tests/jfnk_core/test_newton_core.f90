@@ -452,7 +452,77 @@ program test_newton_core
    jfnk_gmres_max_restart = 1
    matvec_nan_at = -1
    matvec_inf_at = -1
+   !
+   ! T4j: the verification is unconditional -- a biased claim must be
+   ! rejected at the default bound (fac = 1.0) exactly as T4b rejected
+   ! it at 1.5, and restarts stay bounded by JFNK_GMRES_RST.
+   !
+   jfnk_gmres_tres_fac = 1.0d0
+   matvec_bias = .true.
+   jfnk_exit_reason = ' '
+   jfnk_total_jvp_evals = 0
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   nevals_b = jfnk_total_jvp_evals
+   write(luer,'(A,I3,A,I4,A,A)') &
+      'T4j: info=', info, '  evals=', nevals_b, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject' .and. &
+      nevals_b <= 40) then
+      write(luer,'(A)') 'T4j: PASS'
+   else
+      write(luer,'(A)') 'T4j: FAIL'
+      nfail = nfail + 1
+   end if
+   !
+   ! T4k: non-positive JFNK_TRES_FAC is invalid input -- the
+   ! acceptance bound reverts to the default 1.0, so 0 cannot switch
+   ! verification off.  A consistent matvec still converges normally
+   ! at fac=0 (floor keeps valid solves working); the biased case
+   ! must still be rejected rather than converged on hess_res.
+   !
    jfnk_gmres_tres_fac = 0d0
+   matvec_bias = .false.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   maxerr = maxval(abs(x_g - xs))
+   write(luer,'(A,I3,A,ES12.4,A)') &
+      'T4k(consistent): info=', info, '  max|x-xs|=', maxerr, &
+      '  exit='//trim(jfnk_exit_reason)
+   if(info == 0 .and. maxerr < 1.0d-6 .and. &
+      jfnk_exit_reason == 'gmres_converged') then
+      write(luer,'(A)') 'T4k(consistent): PASS'
+   else
+      write(luer,'(A)') 'T4k(consistent): FAIL'
+      nfail = nfail + 1
+   end if
+   matvec_bias = .true.
+   jfnk_exit_reason = ' '
+   x_g = 0d0
+   res_g = 1.0d-10
+   its_g = 60
+   info = 1
+   call gmres_m_v1(10, NN, x_g, b_g, df_lin, dfp_id, dp_test, &
+                   h_g, v_g, res_g, 0d0, pred_g, its_g, info, luer)
+   write(luer,'(A,I3,A,A)') &
+      'T4k(biased): info=', info, '  exit='//trim(jfnk_exit_reason)
+   if(info /= 0 .and. jfnk_exit_reason == 'gmres_tres_reject') then
+      write(luer,'(A)') 'T4k(biased): PASS'
+   else
+      write(luer,'(A)') 'T4k(biased): FAIL'
+      nfail = nfail + 1
+   end if
+   matvec_bias = .false.
+   jfnk_gmres_tres_fac = 1.0d0
    !
    ! ---------------- T5: scale-relative runaway cap ------------------
    !
@@ -585,7 +655,7 @@ program test_newton_core
    jfnk_pc_clip_event = .false.
    jfnk_gmres_max_restart = 4
    jfnk_gmres_stag_tol = 1.0d-6
-   jfnk_gmres_tres_fac = 0d0
+   jfnk_gmres_tres_fac = 1.0d0
    jfnk_lgmres_on = .true.
    jfnk_lgmres_kmax = 2
    matvec_bias = .false.
@@ -907,6 +977,15 @@ program test_newton_core
    jfnk_cycstall_on = .false.
    jfnk_runaway_fac = 1.0d30     ! isolate: only the inf-cap varies
    jfnk_step_inf_cap = 2.3d0
+   !
+   ! The decoupled row-1 FD matvec has a true-residual floor near |F|:
+   ! the Krylov model converges (hess_res ~ 0.88|F|) while the measured
+   ! residual cannot leave ~|F|, so strict fac=1.0 rejects every claim
+   ! and Newton aborts before the A/B can run.  The comparison is about
+   ! step disposition, not solve acceptance -- the documented fac>1
+   ! relaxation admits claims verified against a looser bound while the
+   ! true-residual measurement still runs.
+   jfnk_gmres_tres_fac = 1.5d0
    cap_row1 = .true.
    xbase = 0d0
    !
@@ -953,6 +1032,7 @@ program test_newton_core
    jfnk_cap_step_on = .false.
    jfnk_step_inf_cap = 10d0
    jfnk_runaway_fac = 1.0d2
+   jfnk_gmres_tres_fac = 1.0d0
    cap_row1 = .false.
    !
    if(nfail == 0) then
