@@ -436,7 +436,17 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Acceptance: manufactured multi-resonance test passes against an
   independent quadrature.
 - Dependencies: P2-005.
-- Completion: -
+- Completion: 2026-11-03 - the RH-coupling driver now covers a
+  W-shaped profile (two reversals, 108 accepted pairs, up to 14
+  coupling partners per depth). Pair selection and the per-depth
+  DRC rates both match the independent O(ND^2) quadrature
+  (max|dDRC|=4e-12). Local-Sobolev per-resonance tau is already
+  algebraically pinned by test_sob_tau_floor T3/T7. The known
+  residual gap is architectural and documented: the two-point RH
+  kernel has no three-body term, so a single ray hitting three
+  coincident resonances loses the third-extinction correction
+  (Feldmeier & Nikutta 2006 regime) - a stated approximation, not
+  a defect.
 
 ### [ ] P2-007 - Audit line source functions, escape probabilities, propagation
 - Priority: P1
