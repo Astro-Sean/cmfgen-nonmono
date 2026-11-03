@@ -22,6 +22,7 @@ fi
 $FC $FLAGS \
    "$TD/jfnk_int_mod_stub.f90" \
    "$TREE/new_main/mod_subs/jfnk_solver_v1.f90" \
+   "$TREE/new_main/mod_subs/jfnk_op_probe_v1.f90" \
    "$TD/se_prob_mod.f90" \
    "$TD/se_driver.f90" \
    $LIBS \
