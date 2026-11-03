@@ -22,7 +22,7 @@
 !                          Changed to V4.
 ! Altered: 16-Jan-2000 : Changed to V2; Call to OBS_FRAME_V2 changed.
 ! Altered: 04-Jan-2000 : We now check that arrays can be allocated.
-! Altered: 05-Oct-2026 : Reject non-monotonic V; stock CMF solver only (Devin).
+! Altered: 05-Oct-2026 : Reject non-monotonic V; stock CMF solver only.
 ! Finalized: 5-Jan-1999
 !
 ! NCF_MAX is the maximum number of continuum points (which will include line
