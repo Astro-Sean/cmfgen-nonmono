@@ -26,13 +26,14 @@ files; do not delete completed tasks.
   KNOP and JFNK paths are implementation-complete but not
   model-validated; moment (LAM_ES=F) path documented as
   non-contracting on m15
-- Completed tasks: 11 (P1-001..P1-006, P2-012, P4-001, P4-012,
-  INT-003, DOC-001)
-- Outstanding tasks: 80 (18 in progress with partial evidence,
+- Completed tasks: 12 (P1-001..P1-006, P1-009, P2-012, P4-001,
+  P4-012, INT-003, DOC-001)
+- Outstanding tasks: 79 (17 in progress with partial evidence,
   62 not started)
 - Blocked tasks: 0 (run-dependent tasks are sequenced, not blocked;
   see section 11)
-- Current active task: P1-009
+- Current active task: none - P1 stock-path audit chain complete
+  (P1-007/008 need cluster runs)
 - Next task: P4-002/P4-004/P4-010 (SOB+JFNK HSCAN production run) or
   P2/P3 inspection audits
 
@@ -239,24 +240,30 @@ comparisons exist. Pillar is not complete until P1-007/P1-008 are done.
 - Dependencies: P1-007.
 - Completion: -
 
-### [~] P1-009 - New diagnostics/safeguards do not change legacy results
+### [x] P1-009 - New diagnostics/safeguards do not change legacy results
 - Priority: P1
 - Description: verify counters, census prints, watchdogs, and guard
   conversions added by this fork are observation-only on the stock
   path (no result dependence).
 - Evidence: `ROBUSTNESS_AUDIT_2026-10.md` lists each guard's intent;
-  W6 fail-closed conversions documented; f-cap census counters are
-  print-only by inspection. No consolidated proof.
+  consolidated classification table written in
+  `P1_MODULE_STATE_AUDIT_2026-11-03.md` P1-009 addendum.
 - Files: `control_variable_mod.f` counters, `solve_for_pops.f`
-  (LUM_DIV, GS_*), `cmfgen_sub.f` (DBG-T, f-cap census),
-  `solveba_v13.f` (BA quarantine - gated on DO_BA_RES_ACC+DO_BA_QUAR).
-- Action: classify each diagnostic as write-only-print vs
-  state-affecting; for state-affecting ones cite the VADAT gate.
+  (LUM_DIV, GS_*), `cmfgen_sub.f` (CONV_EXIT, f-cap census),
+  `solveba_v13.f` (BA_DEM_EXM/EXR, BAACC, BA_EX_MAXCH).
 - Acceptance: written table; zero ungated result-affecting
-  diagnostics.
+  diagnostics. Met with two documented exceptions:
+  (1) `MAIN_COUNTER.NE.LAST_NG` moved into CONV_EXIT_MET - refuses
+  converged exit on the extrapolated post-NG call; the ELSE
+  continuation then runs where upstream ran a no-op (result-relevant
+  only for AUTO-mode models meeting EPS post-NG; documented in
+  source). (2) `SCRWF` now captures SCR_RITE_V2's WRITFAIL instead
+  of clobbering NEWMOD - defect fix. All other counters/state are
+  print-only or inert in stock (BA_TRACE L_NM-gated, BA_DEM floors
+  off by default, BA_EX_MAXCH=MAXCH, MAXCH_CTRL=MAXCH).
 - Dependencies: P1-003.
-- Completion: partial (audit lists exist; consolidated classification
-  open).
+- Completion: 2026-11-03. Gap: N_DIV_FLOOR counts cmf_blkband
+  divisor-floor activations but never prints to LUER.
 
 ## 5. Pillar 2 - DO_NONMONO_SOB
 
@@ -1416,9 +1423,9 @@ Do not conflate these statuses.
 
 Following the owner's suggested sequence and dependencies:
 
-1. P1-009 - last stock-path audit (diagnostics/safeguards
-   classification; inspection-level, no runs needed).
-   P1-003..P1-006 done 2026-11-03.
+1. P1-009 - diagnostics/safeguards classification done 2026-11-03.
+
+   All P1 stock-path audits done; remaining P1 items need runs.
 2. P4-002 + P4-004 + P4-010 - submit a SOB+JFNK HSCAN production run
    (highest-value pending measurement; can run while audits proceed).
 3. P3-013/P3-014/P3-015 - moment frequency-grid investigation
