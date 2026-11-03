@@ -69,6 +69,9 @@ new paths converge or produce a valid interacting-supernova
 spectrum. Current runtime status is tracked in `AGENTS_HISTORY.md`
 and the audit notes under `docs/audits/`.
 
+See [`docs/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md`](docs/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md)
+for the staged investigation plan and acceptance tests.
+
 ## Attribution
 
 All credit for CMFGEN itself goes to its original authors, led by
