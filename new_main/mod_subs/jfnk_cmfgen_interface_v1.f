@@ -3,11 +3,11 @@
 ! JFNK solver (jfnk_solver_v1.f90).
 !
 ! This file provides the callback routines needed by newton_hook_v1:
-!   - JFNK_RESIDUAL_V1:  F(x) = STEQ_coll(n0*(1+x)) + STEQ_rad(n0)
-!                        + CMAT_RAD * x_frac   (frozen-J, linearized rad)
-!   - JFNK_JVP_V1:       J*v = [F(n+eps*v) - F(n)] / eps
-!   - JFNK_PRECOND_V1:   z = M^{-1} * v  (fixed-J BA preconditioner)
-!   - JFNK_DOT_V1:       d = a . b
+!   - JFNK_RESIDUAL_V1: F(x) = STEQ_coll(n0*(1+x)) + STEQ_rad(n0)
+!                        + CMAT_RAD * x_frac (frozen-J, linearized rad)
+!   - JFNK_JVP_V1: J*v = [F(n+eps*v) - F(n)] / eps
+!   - JFNK_PRECOND_V1: z = M^{-1} * v (fixed-J BA preconditioner)
+!   - JFNK_DOT_V1: d = a . b
 !
 ! POPS, ED, T are accessed via MOD_CMFGEN (ED, T) and via the
 ! JFNK_CMFGEN_INT_MOD module (POPS_BASE, POPS_SAVE).
@@ -61,16 +61,16 @@
 	JFNK_BANDED_LU_READY = .FALSE.
 	JFNK_BTD_READY = .FALSE.
 !
-! Wire JFNK_USE_BANDED_LOC from the VADAT control variable.  When T,
+! Wire JFNK_USE_BANDED_LOC from the VADAT control variable. When T,
 ! the solver builds banded BA_rad and uses a banded LU preconditioner.
 ! Requires NUM_BNDS > 1 (SOL_METH=TRI); if NUM_BNDS=1 (DIAG), banded
 ! mode is silently disabled because there are no off-diagonal bands.
 !
 ! The banded LU captures cross-depth J-coupling from the VJ array
 ! (dJ/dopacity via BA_UPDATE_V7) which populates the off-diagonal
-! BA bands in the full Jacobian.  This provides a better
+! BA bands in the full Jacobian. This provides a better
 ! preconditioner than block-diagonal LU when the radiative coupling
-! between adjacent depths is significant.  No selective J-variation
+! between adjacent depths is significant. No selective J-variation
 ! is required — the off-diagonal bands are populated by the standard
 ! BA_UPDATE_V7 path whenever NUM_BNDS>1.
 !
@@ -85,7 +85,7 @@
 ! the BA_RAD/RAD flags were reset above, but the preconditioner and
 ! RSCALE cache flags could survive between initialisations and let
 ! JFNK_PRECOND_V1 use a stale BA diagonal / RSCALE from a previous
-! model.  Invalidate all *_READY flags up front; they are re-set as
+! model. Invalidate all *_READY flags up front; they are re-set as
 ! the corresponding structures are rebuilt.
 !
 	JFNK_RSCALE_READY = .FALSE.
@@ -95,15 +95,15 @@
 !
 ! Disarm the pseudo-transient scale/anchor (numerical audit, 2026-10):
 ! both are per-activation state frozen from this activation's F(0) by
-! JFNK_SET_PTC_SCALE_V1.  Left armed from the previous activation, the
+! JFNK_SET_PTC_SCALE_V1. Left armed from the previous activation, the
 ! F(0) test eval below runs before the re-arm, so the stale anchor
 ! x0 adds (0 - x0)*s/dtau to F(0): frozen mode then fails the
 ! identity test on every second and later activation, and coupled
 ! mode adopts the contaminated baseline so every FD JVP inherits the
-! constant divided by h.  A stale jfnk_ptc_scale sized for a previous
-! N (R-grid revision) would also be indexed past its end.  Clearing
+! constant divided by h. A stale jfnk_ptc_scale sized for a previous
+! N (R-grid revision) would also be indexed past its end. Clearing
 ! the readiness flags makes the residual eval skip the PTC term until
-! the driver measures the new baseline.  dtau also persists across
+! the driver measures the new baseline. dtau also persists across
 ! activations (it grows toward jfnk_ptc_dtau_max), so reset it with
 ! the rest of the per-activation state rather than trusting every
 ! later fold site to re-arm before it reads s/dtau.
@@ -120,9 +120,9 @@
 	JFNK_SEC_READY = .FALSE.
 !
 ! The banded operator and block-Thomas factors are activation-local and
-! dominate the interactive-node footprint.  Release the previous admission
+! dominate the interactive-node footprint. Release the previous admission
 ! before this one allocates its evaluation workspace; retaining them let
-! job 12366624 OOM on the second admission at iteration 760.
+!  OOM on the second admission at iteration.
 !
 	CALL JFNK_FREE_BANDED_STATE_V1()
 !
@@ -180,11 +180,11 @@
 	END IF
 !
 ! Reallocate NION-shaped arrays if the ion set changed while the
-! grid stayed the same (ChatGPT audit fix #5, 2026-09-09).  In a
+! grid stayed the same (ChatGPT audit fix #5, 2026-09-09). In a
 ! model-grid workflow the atomic model (NION) can change between
 ! epochs even when NT/ND are identical; without this the
 ! DIERECOM/DIECOOL/ADDRECOM and SE_STEQ_OFFSET arrays keep stale
-! dimensions/state from the previous model.  JFNK_NION has already
+! dimensions/state from the previous model. JFNK_NION has already
 ! been set to the new NION above, so compare the allocated second
 ! dimension against it.
 !
@@ -265,7 +265,7 @@
 	IF(IOS.NE.0) STOP 'JFNK_INIT_V1: alloc STEQ_T_EHB_SAVE failed'
 !
 ! V4 audit fix (Finding #4, 2026-09-08): Allocate per-ion STEQ save
-! buffer and offset array.  The per-ion SE(ID)%STEQ arrays have variable
+! buffer and offset array. The per-ion SE(ID)%STEQ arrays have variable
 ! first dimension (SE(ID)%N_SE varies by ion), so we pack them into a
 ! single flat buffer with an offset array tracking each ion's start.
 ! JFNK_SE_STEQ_OFFSET(ID) = start index for ion ID in the flat buffer.
@@ -302,7 +302,7 @@
 !
 ! Per-ion advective/EHB STEQ save buffers (order-of-operations audit,
 ! 03-Oct-2026): SE%STEQ_ADV and SE%T_EHB are each dimensioned (ND)
-! per ion, so NION*ND flat buffers suffice.  Same size-check realloc
+! per ion, so NION*ND flat buffers suffice. Same size-check realloc
 ! pattern as JFNK_SE_STEQ_ION_SAVE above.
 !
 	IF(ALLOCATED(JFNK_SE_ADV_SAVE))THEN
@@ -443,7 +443,7 @@
 !
 ! Fix #6 (review 2026-09-11): Reset the ridge-floor SAVE state so
 ! that the first model does not determine the floor for subsequent
-! models.  Without this, jfnk_ridge_floor_set=.TRUE. from a previous
+! models. Without this, jfnk_ridge_floor_set=.TRUE. from a previous
 ! model causes JFNK_FACTOR_PRECOND_V1 to skip the floor capture,
 ! inheriting a stale ridge floor.
 !
@@ -455,10 +455,10 @@
 
 !
 ! JFNK_FREE_BANDED_STATE_V1: release activation-local banded operator
-! and factor storage.  JFNK_FACTOR_PRECOND_V1 rebuilds both on every
+! and factor storage. JFNK_FACTOR_PRECOND_V1 rebuilds both on every
 ! admission, so retaining the previous LUAB/BTD blocks only leaves the
 ! next factorization competing with stale tens-of-GB SAVE arrays under
-! an interactive memory cap.  With JFNK_USE_BANDED=F only the diagonal
+! an interactive memory cap. With JFNK_USE_BANDED=F only the diagonal
 ! CMAT block exists and is rebuilt; the LUAB/BTD arrays never do.
 !
 	SUBROUTINE JFNK_FREE_BANDED_STATE_V1()
@@ -498,12 +498,12 @@
 !
 ! This normalizes each residual element so that species with small STEQ
 ! (trace elements like Fe) contribute equally to the norm as species
-! with large STEQ (dominant elements like H).  Without this scaling,
+! with large STEQ (dominant elements like H). Without this scaling,
 ! the JFNK solver may converge H while ignoring Fe.
 !
 ! The scaling is computed once from the initial STEQ and reused for
-! the entire JFNK solve.  It is applied in JFNK_DOT_V1 as a weighted
-! dot product:  dot = sum (RSCALE(i) * A(i)) * (RSCALE(i) * B(i))
+! the entire JFNK solve. It is applied in JFNK_DOT_V1 as a weighted
+! dot product: dot = sum (RSCALE(i) * A(i)) * (RSCALE(i) * B(i))
 !
 ! added 2026-09-07
 !
@@ -526,7 +526,7 @@
 	LOGICAL, SAVE :: WARNED_LSPC = .FALSE.
 	EXTERNAL ERROR_LU, JFNK_RSCALE_BRANCH_V1
 !
-! Production default is Euclidean (RSCALE=1).  The 1/sqrt(|STEQ|)
+! Production default is Euclidean (RSCALE=1). The 1/sqrt(|STEQ|)
 ! weighting (SQRT_STEQ) and the diagnostic sqrt(|D|/(|D|+ridge))
 ! option (DIAG_RDG) remain available via VADAT JFNK_RSCALE.
 ! Full-system audit (2026-09-10): Euclidean reduced the unweighted
@@ -537,7 +537,7 @@
 	JFNK_RSCALE(1:N) = 1.0_LDP
 !
 ! The dispatch moved into jfnk_rscale_branch_v1 (jfnk_solver_v1.f90)
-! so the unit tests exercise the exact branch order.  F7 fix: the
+! so the unit tests exercise the exact branch order. F7 fix: the
 ! 8-character 'DIAG_RDG' test must precede the 4-character 'DIAG'
 ! prefix or DIAG_RDG is unreachable.
 !
@@ -545,8 +545,8 @@
 !
 ! Audit F6: under left preconditioning the Arnoldi vectors live in
 ! correction space (M^-1 r) while the weights computed here are
-! built from residual-space quantities (STEQ, BA diagonal).  The
-! weighted JFNK_DOT_V1 inner product then mixes spaces.  Euclidean
+! built from residual-space quantities (STEQ, BA diagonal). The
+! weighted JFNK_DOT_V1 inner product then mixes spaces. Euclidean
 ! (RSCALE=1, the default) is invisible to the mismatch; warn once
 ! for any non-trivial mode rather than silently trusting the norm.
 !
@@ -666,7 +666,7 @@
 ! When JFNK_EQ_STRUCT_READY=F (baseline eval after an admission or
 ! rebuild reset) harvest the REPLACE/ZERO_STEQ decisions GENERATE
 ! makes per depth; perturbed evals replay the frozen set so the FD
-! JVP differentiates a fixed equation structure.  Freezing at the
+! JVP differentiates a fixed equation structure. Freezing at the
 ! baseline is also the equation structure the stored BA was built
 ! with, keeping M and the FD operator structurally consistent.
 !
@@ -706,17 +706,17 @@
 !
 ! GENERATE_FULL_MATRIX_V3 already writes the charge and energy equations:
 !   STEQ_VEC(NT-1) = STEQ_ED(K)
-!   STEQ_VEC(NT)   = STEQ_T(K)  (or STEQ_T_EHB when USE_ELEC_HEAT_BAL)
+!   STEQ_VEC(NT) = STEQ_T(K) (or STEQ_T_EHB when USE_ELEC_HEAT_BAL)
 ! Do not add STEQ_ED / STEQ_T again: that doubled F_ED(0) and F_T(0)
 ! relative to the outer-iteration STEQ (and mixed STEQ_T into the EHB
-! equation).  Species equations are assembled only from SE(ID)%STEQ.
+! equation). Species equations are assembled only from SE(ID)%STEQ.
 !
 	END SUBROUTINE JFNK_ASSEMBLE_STEQ_V1
 
 
 !
 ! JFNK_SYNC_ATM_FROM_POPS: Unpack POPS into ATM(ID)%XzV / DXzV and
-! recompute LTE / full-atom populations.  CMFGEN stores super-level
+! recompute LTE / full-atom populations. CMFGEN stores super-level
 ! populations both in the packed POPS array and in ATM(ID)%XzV;
 ! STEQ_MULTI_V10 reads ATM, so POPS_WORK must be copied before any
 ! collisional residual evaluation.
@@ -769,7 +769,7 @@
 !
 !
 !
-! Copy the occupation-probability inputs after the baseline sync.  The
+! Copy the occupation-probability inputs after the baseline sync. The
 ! BA includes direct ED and ion-density columns, but not derivatives of
 ! these aggregate dissolution factors.
 	SUBROUTINE JFNK_CAPTURE_LAG_FACTORS_V1(OK)
@@ -822,7 +822,7 @@
 ! code path that calls JFNK_COMPUTE_STEQ_V1 or a JFNK eval sweep, both
 ! of which rewrite the module-level STEQ state at trial populations.
 ! Covers the full set: STEQ_T, STEQ_ED, STEQ_T_EHB, per-ion SE%STEQ,
-! SE%STEQ_ADV and SE%T_EHB.  Order-of-operations audit (03-Oct-2026):
+! SE%STEQ_ADV and SE%T_EHB. Order-of-operations audit (03-Oct-2026):
 ! the advective and EHB per-ion arrays were not in the original
 ! residual save/restore, so they leaked perturbed values to
 ! GENERATE_FULL_MATRIX_V3 / SOLVEBA_V13's resacc metric between evals.
@@ -903,7 +903,7 @@
 !
 ! The full BA from the outer iteration is saved, a collisional-only
 ! BA is computed, both are expanded to NT x NT, and the difference
-! is stored.  The outer-iteration BA is then restored so the GMRES
+! is stored. The outer-iteration BA is then restored so the GMRES
 ! preconditioner still sees the full Jacobian.
 !
 ! edited by Sean Brennan (V4, 2026-09)
@@ -956,7 +956,7 @@
 !
 ! Allocate banded BA_rad storage when JFNK_USE_BANDED=T.
 ! JFNK_CMAT_RAD_BANDS(NT, NT, NUM_BNDS, ND) stores the radiative BA
-! block for each (band, depth) pair.  Only allocated when banded mode
+! block for each (band, depth) pair. Only allocated when banded mode
 ! is requested to avoid memory overhead in the default DIAG path.
 !
 	IF(JFNK_USE_BANDED_LOC)THEN
@@ -982,7 +982,7 @@
 !
 	IOS=0
 ! Banded mode stores the same diagonal rad block in
-! JFNK_CMAT_RAD_BANDS(:,:,DIAG,:).  Keeping JFNK_CMAT_RAD as well
+! JFNK_CMAT_RAD_BANDS(,:,DIAG,:). Keeping JFNK_CMAT_RAD as well
 ! duplicates ~NT^2*ND storage and pushed the TDMA diagnostic over the
 ! interactive-node memory cap; the non-banded residual still needs it.
 	IF(JFNK_USE_BANDED_LOC)THEN
@@ -1045,8 +1045,8 @@
 ! --- Expand the full (radiative+collisional) BA into NT x NT blocks ---
 !
 ! When JFNK_USE_BANDED=T, loop over all NUM_BNDS bands and store each
-! NT×NT block in JFNK_CMAT_RAD_BANDS.  The diagonal band is always
-! passed first (required by GENERATE_FULL_MATRIX_V3).  Off-diagonal
+! NT×NT block in JFNK_CMAT_RAD_BANDS. The diagonal band is always
+! passed first (required by GENERATE_FULL_MATRIX_V3). Off-diagonal
 ! bands carry cross-depth J-coupling from VJ (dJ/dopacity at
 ! neighbouring depths, written into SE(ID)%BA off-diagonal bands by
 ! the moment/ALO update in ba_update_v7) plus advection coupling
@@ -1076,7 +1076,7 @@
 	    JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
 	  END DO
 !
-! Zero NaN/Inf in BA_full before storing in CMAT_RAD.  The outer
+! Zero NaN/Inf in BA_full before storing in CMAT_RAD. The outer
 ! iteration's SE(ID)%BA has NaN at compression depths because
 ! VAR_MOM_J_CMF_V12 writes NaN to KI/BA when SIGMA_TRUE < -1.
 ! The mask zeros NaN in TX/TVX but not in SE(ID)%BA or KI.
@@ -1196,10 +1196,10 @@
 !
 ! Fix #3 (09-Sep-2026): JFNK_COMPUTE_STEQ_V1 unconditionally zeroes and
 ! recomputes SE(ID)%STEQ, STEQ_T, STEQ_ED, STEQ_T_EHB (and STEQ_ADV /
-! T_EHB).  Without save/restore, those module-level globals are left
+! T_EHB). Without save/restore, those module-level globals are left
 ! holding the collisional-only residual at baseline populations,
 ! corrupting any code that inspects them before the next full outer
-! STEQ computation.  Shared helper, same bracket as JFNK_RESIDUAL_V1.
+! STEQ computation. Shared helper, same bracket as JFNK_RESIDUAL_V1.
 !
 	CALL JFNK_SAVE_MOD_STEQ_V1()
 !
@@ -1227,7 +1227,7 @@
 	    JFNK_CMAT_RAD(:,:,K) = JFNK_CMAT_RAD(:,:,K) - JFNK_C_MAT
 	  END IF
 !
-! Accumulate coll/rad norms for the audit summary.  JFNK_C_MAT is
+! Accumulate coll/rad norms for the audit summary. JFNK_C_MAT is
 ! the collisional block; CMAT_RAD holds BA_full - BA_coll after the
 ! subtraction above.
 !
@@ -1341,7 +1341,7 @@
 ! JFNK_BA_RAD_MATVEC_V1: y = CMAT_RAD * x_frac
 !
 ! x is the JFNK state (log pops / ED / T under [JFNK_LOGX]=T, else
-! fractional pops / ED with log T).  Every column is converted to the
+! fractional pops / ED with log T). Every column is converted to the
 ! actual fractional change exp(x)-1 (or x in the linear map) so the BA
 ! scaling CMAT*(dn/n, dT/T) matches the residual's n(x) map.
 !
@@ -1361,9 +1361,9 @@
 	Y = 0.0D0
 	IF(.NOT. JFNK_BA_RAD_READY) RETURN
 !
-! Banded matvec: y = sum over bands of CMAT_RAD_BANDS(:,:,B,K) * x(L)
+! Banded matvec: y = sum over bands of CMAT_RAD_BANDS(,:,B,K) * x(L)
 ! where L = BND_TO_FULL(B,K) is the variable depth for band B at
-! observation depth K.  Cross-depth J-coupling enters through the
+! observation depth K. Cross-depth J-coupling enters through the
 ! off-diagonal bands (B .NE. DIAG_INDX).
 !
 ! BND_TO_FULL(B,K) = K + B - DIAG_INDX
@@ -1371,7 +1371,7 @@
 ! Fix #4 (review 2026-09-11): the old formula used integer division
 ! (NUM_BNDS/ND)*(DIAG_INDX-K) which is always 0 for NUM_BNDS << ND.
 ! It worked by accident for the 3-band case but is not a valid
-! general band mapping.  The correct offset is simply K + B -
+! general band mapping. The correct offset is simply K + B -
 ! DIAG_INDX, assuming DIAG_INDX = (NUM_BNDS+1)/2 = BAND_HALF + 1.
 !
 	IF(JFNK_BA_RAD_BANDS_READY)THEN
@@ -1381,7 +1381,7 @@
 	      L = K + IB - JFNK_DIAG_INDX
 	      IF(L .LT. 1 .OR. L .GT. JFNK_ND) CYCLE
 ! CMAT_RAD is d(STEQ)/d(frac), so XFRAC must be the actual fractional
-! change.  Under [JFNK_LOGX]=T the residual map is n=n0*exp(x), giving
+! change. Under [JFNK_LOGX]=T the residual map is n=n0*exp(x), giving
 ! frac=exp(x)-1 -- using x directly (as the T column once did for all)
 ! is only first-order correct and errs by (exp(x)-1)/x at finite x.
 ! The +/-40 clip matches the residual's population bound.
@@ -1413,7 +1413,7 @@
 	  RETURN
 	END IF
 !
-! DIAG-only matvec (legacy): y(K) = CMAT_RAD(:,:,K) * x(K)
+! DIAG-only matvec (legacy): y(K) = CMAT_RAD(,:,K) * x(K)
 ! Same frac conversion as the banded path above.
 !
 	DO K = 1, JFNK_ND
@@ -1447,7 +1447,7 @@
 
 !
 ! JFNK_COMPUTE_STEQ_V1: Recompute SE(ID)%STEQ from the current POPS
-! with J frozen.  Uses module-level ED, T from MOD_CMFGEN.
+! with J frozen. Uses module-level ED, T from MOD_CMFGEN.
 !
 ! edited by Sean Brennan (V4, 2026-09)
 !
@@ -1560,7 +1560,7 @@
 ! The original call passed only 6 arguments, with LST_ITERATION_IN
 ! (a LOGICAL) mapped to LU_OUT (an INTEGER), and WRITE_RATES missing.
 ! This is a type mismatch and missing-argument bug that could cause
-! runtime crashes or corrupt I/O.  Fixed to pass LUER and .FALSE.
+! runtime crashes or corrupt I/O. Fixed to pass LUER and .FALSE.
 !
 	CALL STEQ_BA_TWO_PHOT_RATE_V3(POPS_IN, NT, ND,
 	1       DIAG_INDX, COMPUTE_BA_IN, LUER, .FALSE.)
@@ -1582,9 +1582,9 @@
 
 !
 ! JFNK_SET_PTC_SCALE_V1: freeze the pseudo-time weight s_i = max(|F_i|, floor)
-! from the baseline residual.  s is held fixed for the rest of the
+! from the baseline residual. s is held fixed for the rest of the
 ! Newton loop so the finite-difference derivative of (x - x0)*s/dtau is
-! exactly s/dtau.  Called after F(0) is adopted, and again when a
+! exactly s/dtau. Called after F(0) is adopted, and again when a
 ! coupled rebuild moves the baseline.
 !
 ! edited 06-Oct-2026 (SER anchor fix): also (re)set the
@@ -1604,7 +1604,7 @@
 	DOUBLE PRECISION FMAX, FLOOR_USE
 !
 ! The scale is a fold input: any cached BA_A carries the old scale in
-! its diagonal, so a re-arm invalidates the cache.  Clear it on entry
+! its diagonal, so a re-arm invalidates the cache. Clear it on entry
 ! so the allocation-failure returns below cannot leave a stale folded
 ! matrix marked built.
 !
@@ -1684,10 +1684,10 @@
 !
 ! Audit 17-Sep-2026 (issue 4): count constraint crossings that are NEW
 ! relative to the baseline Newton point jfnk_x -- i.e. a clip that is
-! inactive at jfnk_x but active at the perturbed point X.  The residual
+! inactive at jfnk_x but active at the perturbed point X. The residual
 ! is nonsmooth at the population floor and the T-exp cap, so a FD JVP
 ! that crosses such a boundary no longer approximates the smooth
-! Jacobian.  JFNK_N_NEW_CLIP is read by JFNK_JVP_V1, which retries the
+! Jacobian. JFNK_N_NEW_CLIP is read by JFNK_JVP_V1, which retries the
 ! finite difference with a smaller step.
 !
 	INTEGER N_NEW_CLIP_LOC
@@ -1698,12 +1698,12 @@
 !
 ! FRAC, STEQ_MAT, and YRAD are now persistent module workspace
 ! (JFNK_W_FRAC, JFNK_W_STEQ_MAT, JFNK_W_YRAD) to avoid stack
-! allocation.  audit §3, 09-Sep-2026.
+! allocation. audit §3, 09-Sep-2026.
 !
 	LUER = ERROR_LU()
 !
 ! Cleared at entry; any sentinel or non-finite return below sets it
-! again.  Baseline adopters (JFNK_REBUILD_BASELINE_V1) key on this
+! again. Baseline adopters (JFNK_REBUILD_BASELINE_V1) key on this
 ! rather than re-measuring the vector themselves.
 !
 	JFNK_EVAL_BROKEN=.FALSE.
@@ -1712,11 +1712,11 @@
 ! the activation-local JFNK_EVAL_LIM so the driver can trim it per
 ! budget rung without mutating the control): a coupled
 ! eval is a full formal sweep, so an activation that exhausts the
-! budget is spending more than a failed solve is worth.  Return a
+! budget is spending more than a failed solve is worth. Return a
 ! sentinel residual (no sweep): GMRES aborts on the JVP NaN-count
 ! path and trial steps see |F| huge, so the Newton loop rejects,
 ! the trust region collapses, and the driver takes the
-! best-iterate/Lambda fallback instead of burning sweeps.  The
+! best-iterate/Lambda fallback instead of burning sweeps. The
 ! counter resets in JFNK_INIT_V1, so the budget is per-activation.
 !
 ! The cap the driver actually intends is the tighter of the
@@ -1741,9 +1741,9 @@
 !
 ! Wall-clock budget (VADAT [JFNK_MAX_SEC], default 0 = off): same
 ! sentinel path as the eval budget, but measured in elapsed seconds
-! since JFNK_INIT_V1 stamped JFNK_T_START.  Covers admissions whose
-! cost is not eval-counted (it191 burned ~500 s in dirchk precheck
-! work with zero Newton-level evals).  edited 15-Oct-2026.
+! since JFNK_INIT_V1 stamped JFNK_T_START. Covers admissions whose
+! cost is not eval-counted (burned ~500 s in precheck
+! work with zero Newton-level evals). edited 15-Oct-2026.
 !
 	IF(JFNK_MAX_SEC .GT. 0.0_LDP .AND. .NOT. JFNK_EVAL_BYPASS .AND.
 	1     OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC)THEN
@@ -1765,7 +1765,7 @@
 ! CMAT_RAD) are only built in frozen mode, so the previous
 ! collisional-only fallback evaluated a different operator and the
 ! coupled-mode F(0) adoption masked the mismatch (order-of-operations
-! audit, 03-Oct-2026).  Treat as a broken eval -- same sentinel the
+! audit, 03-Oct-2026). Treat as a broken eval -- same sentinel the
 ! exhausted-budget path returns, before any state is touched, so the
 ! driver aborts on F(0) and takes the LAMBDA fallback.
 !
@@ -1780,7 +1780,7 @@
 	  RETURN
 	END IF
 !
-! Task 3: Parallelize depth-wise loops.  Each K writes a distinct
+! Task 3: Parallelize depth-wise loops. Each K writes a distinct
 ! column of FRAC / POPS_WORK / STEQ_MAT and a distinct block of Y,
 ! so there are no inter-iteration data dependencies.
 !
@@ -1794,8 +1794,8 @@
 !
 ! Alias-safe copy of X: JFNK_BA_RAD_MATVEC_V1 (below) reads X after Y
 ! has been written, so if X and Y alias (as in the F(0) identity test),
-! the BA_RAD term would be corrupted.  Save X into module workspace
-! immediately, before any Y writes occur.  Fix #5 (09-Sep-2026).
+! the BA_RAD term would be corrupted. Save X into module workspace
+! immediately, before any Y writes occur. Fix #5 (09-Sep-2026).
 !
 	DO IDX = 1, N
 	  JFNK_W_X_SAVE(IDX) = REAL(X(IDX), KIND=LDP)
@@ -1815,7 +1815,7 @@
 ! with a floor at 1.0E-100 to prevent negative/zero populations.
 !
 ! For temperature (index NT), when JFNK_FIXED_T_LOC=.FALSE.:
-!   T_new = T_base * exp(x)    (log-transform, added 2026-09-07)
+!   T_new = T_base * exp(x) (log-transform, added 2026-09-07)
 !
 ! The log-transform is used for temperature because:
 !   1. It guarantees T > 0 for any finite x (no negative temperatures)
@@ -1823,9 +1823,9 @@
 !      (x = ln 2 ≈ 0.69) is the same magnitude as a factor of 2 decrease
 !      (x = -ln 2 ≈ -0.69)
 !   3. At shock fronts, temperature can change by orders of magnitude
-!      between adjacent depth points.  The linear formulation T*(1+x)
+!      between adjacent depth points. The linear formulation T*(1+x)
 !      requires |x| < 1 to keep T positive, which limits the correction
-!      to a factor of 2.  The log-transform exp(x) allows arbitrarily
+!      to a factor of 2. The log-transform exp(x) allows arbitrarily
 !      large corrections while maintaining positivity.
 !   4. The Newton correction x is naturally O(1) in log space because
 !      the STEQ for T is d(ln T)/d(ln T) = 1, so the Jacobian is
@@ -1839,7 +1839,7 @@
 ! Populations (J=1..NT-2) and Ne (J=NT-1).
 ! [JFNK_LOGX] (default T): x = ln(n/n0), so n = n0*exp(x).
 ! The map stays positive without the 1e-100 floor, which made F
-! non-differentiable wherever a trial step crossed it.  The +/-40
+! non-differentiable wherever a trial step crossed it. The +/-40
 ! bound only stops exp from overflowing; a crossing of that bound
 ! is counted so the finite-difference step is retried.
 ! [JFNK_LOGX]=F keeps n = n0*(1+x) with the floor.
@@ -1890,7 +1890,7 @@
 	  END IF
 !
 ! V4 audit fix (2026-09-07): Support partial FIXED_T depth range
-! (audit finding #11).  T is fixed when:
+! (audit finding #11). T is fixed when:
 !   - JFNK_FIXED_T_LOC=.TRUE. (global), OR
 !   - JFNK_FIX_T_D_ST > 0 AND K is in [ST, END] (partial VARFIXT range)
 	  IF(JFNK_FIXED_T_LOC)THEN
@@ -1906,7 +1906,7 @@
 !   Log-transform for temperature: T_new = T_base * exp(x)
 !   This replaces the old T_new = T_base * (1 + x) which could produce
 !   negative temperatures when |x| > 1 (common at shock fronts).
-!   The exp() guarantees T > 0 for any finite x.
+!   The exp guarantees T > 0 for any finite x.
 ! The existing 1 K residual floor is nonsmooth. Under
 ! [USE_JFNK_SOLVER] (default F), count a crossing only if the
 ! temperature at jfnk_x was above the floor.
@@ -1939,16 +1939,16 @@
 !
 ! Save STEQ arrays before recomputation (added 2026-09-07):
 ! JFNK_COMPUTE_STEQ_V1 modifies SE(ID)%STEQ, STEQ_T, STEQ_ED, and
-! STEQ_T_EHB.  These are module-level state in STEQ_DATA_MOD that may
+! STEQ_T_EHB. These are module-level state in STEQ_DATA_MOD that may
 ! be read by other code paths (Ng acceleration, diagnostics, the outer
-! great iteration) between JFNK evaluations.  We save the module-level
+! great iteration) between JFNK evaluations. We save the module-level
 ! 1D arrays and the flat assembled STEQ vector here, and restore them
 ! after the residual is assembled, so the perturbed STEQ values do not
 ! leak to those code paths.
 !
 ! Note: The per-ion SE(ID)%STEQ arrays have variable dimensions (NX
 ! varies by ion), so they are packed into a flat buffer inside
-! JFNK_SAVE_MOD_STEQ_V1 along with STEQ_ADV / T_EHB.  This makes the
+! JFNK_SAVE_MOD_STEQ_V1 along with STEQ_ADV / T_EHB. This makes the
 ! residual evaluation fully side-effect-free (Finding #4, 2026-09-08;
 ! extended 03-Oct-2026 for the advective/EHB arrays).
 !
@@ -1957,7 +1957,7 @@
 ! Coupled residual (V7 port, 02-Oct-2026; Arramy et al. 2024 style):
 ! re-run the formal radiation sweep at the perturbed populations so
 ! F(x) contains the full pops -> opacity/emissivity -> J -> rates -> SE
-! chain, and the finite-difference JVP probes dJ/dn.  The lagged Knop
+! chain, and the finite-difference JVP probes dJ/dn. The lagged Knop
 ! I_NEXT store is frozen (FREEZE_I_NEXT=T, set by the driver) so the
 ! sweep is a deterministic function of the trial populations -- the
 ! store is outer-iteration state, refreshed by the next real sweep
@@ -1966,9 +1966,9 @@
 ! Ordering: the sweep accumulates radiative terms into SE%STEQ (which
 ! the zeroing below clears first) and fills the TWO_PHOT_MOD rates that
 ! STEQ_BA_TWO_PHOT_RATE_V3 consumes inside JFNK_COMPUTE_STEQ_V1, so the
-! sweep MUST run before the compute_steq call.  JFNK_SKIP_SE_ZERO then
+! sweep MUST run before the compute_steq call. JFNK_SKIP_SE_ZERO then
 ! keeps compute_steq's collisional/additive terms on top of the
-! radiative ones.  The frozen-J additions (JFNK_STEQ_RAD_FLAT and the
+! radiative ones. The frozen-J additions (JFNK_STEQ_RAD_FLAT and the
 ! CMAT_RAD matvec) are skipped automatically: JFNK_RAD_READY and
 ! JFNK_BA_RAD_READY are only set in frozen mode.
 !
@@ -2001,7 +2001,7 @@
 	CALL JFNK_ASSEMBLE_STEQ_V1(JFNK_W_STEQ_MAT, JFNK_NT, JFNK_ND,
 	1     JFNK_NION, JFNK_NUM_BNDS, JFNK_DIAG_INDX, POPS_WORK)
 !
-! STEQ_MAT range diagnostic.  Printed once on the first residual eval
+! STEQ_MAT range diagnostic. Printed once on the first residual eval
 ! (baseline residual scale) and again only when a NaN/Inf is present —
 ! not on every JVP eval, which flooded OUTGEN (audit, 2026-09-11).
 	BLOCK
@@ -2081,11 +2081,11 @@
 	END IF
 !
 ! CMFGEN MAXCH analogue: the largest relative correction still
-! demanded by any population row.  |F_i|/|BA_ii| prices row i in
+! demanded by any population row. |F_i|/|BA_ii| prices row i in
 ! log-population units, so converged rows (the F-dominated HI levels
-! that carry the Euclidean norm) drop out of this metric.  Done here,
+! that carry the Euclidean norm) drop out of this metric. Done here,
 ! before the pseudo-time term is added, so the metric sees F rather
-! than G.  Non-finite entries are skipped; the NaN guard below caps
+! than G. Non-finite entries are skipped; the NaN guard below caps
 ! them for the solver.
 !
 	jfnk_maxch_est = -1.0_LDP
@@ -2114,12 +2114,12 @@
 ! x_k (SER form, Kelley & Keyes 1998; edited 06-Oct-2026).
 ! The term vanishes at the anchor, so G(x_k) = F(x_k): the residual
 ! newton_hook_v1 stores is F after jfnk_ptc_strip_v1, and all Newton
-! norms act on |F|.  Previously the term was x_i*s_i/dtau -- anchored
+! norms act on |F|. Previously the term was x_i*s_i/dtau -- anchored
 ! at the solve baseline x = 0 -- which pulled later iterates back and
-! could report |G| convergence with F /= 0.  A finite-difference JVP of
+! could report |G| convergence with F /= 0. A finite-difference JVP of
 ! G is still J plus the constant diagonal s/dtau, so the JFNK_PRECOND_V1
-! diagonal correction is unchanged.  Large dtau drops the term and G is
-! F.  Added before the fixed-unknown mask so those rows stay zero.
+! diagonal correction is unchanged. Large dtau drops the term and G is
+! F. Added before the fixed-unknown mask so those rows stay zero.
 ! Skipped until JFNK_SET_PTC_SCALE_V1 has run (the F(0) identity test
 ! is one such call); a missing/mismatched anchor falls back to x0 = 0.
 !
@@ -2144,18 +2144,18 @@
 	  END IF
 	END IF
 !
-! Fixed T / Ne are not Newton unknowns.  Zero those residual components
+! Fixed T / Ne are not Newton unknowns. Zero those residual components
 ! so GMRES does not try to satisfy a singular BA row.
 ! edited by Sean Brennan (08-Sep-2026)
 	CALL JFNK_MASK_FIXED_UNKNOWNS(N, Y)
 !
 ! NaN/Inf policy: do not zero individual components (GMRES would treat
-! those equations as already converged).  Cap each bad component at
+! those equations as already converged). Cap each bad component at
 ! +/-1D20 (sign kept where defined) so |F| stays huge and the Hookstep
 ! trust region shrinks, while the finite components keep their values.
 ! The previous whole-vector overwrite (Y=1D20 everywhere) erased the
 ! finite entries, made the F(0) test report rel=1 for every failure,
-! and hid which equation actually blew up.  jfnk_resid_nbad records
+! and hid which equation actually blew up. jfnk_resid_nbad records
 ! the count for the driver so the F(0) test can abort on a broken
 ! eval rather than on a large lagged-field offset.
 !
@@ -2218,13 +2218,13 @@
 ! starts from a genuinely new physical state.
 !
 ! Fix #2 (review 2026-09-11): the previous retry loop rebuilt the
-! preconditioner from the SAME POPS_BASE, producing the same BA.  This
+! preconditioner from the SAME POPS_BASE, producing the same BA. This
 ! subroutine applies the best correction found so far to POPS_BASE
 ! (with the same clipping as the final population update), then
 ! recomputes everything, giving the next attempt new information.
 !
 ! The radiative STEQ is linearized: STEQ_RAD_new = STEQ_RAD_old +
-! CMAT_RAD_old * x_corr.  After the update, CMAT_RAD is rebuilt from
+! CMAT_RAD_old * x_corr. After the update, CMAT_RAD is rebuilt from
 ! the new POPS_BASE via JFNK_BUILD_BA_RAD_V1.
 !
 	SUBROUTINE JFNK_REBUILD_BASELINE_V1(X_CORR, LUER)
@@ -2345,41 +2345,41 @@
 !
 ! POPS_WORK must follow POPS_BASE here: JFNK_FACTOR_PRECOND_V1 (step 7)
 ! builds the BA blocks with POPS_WORK as the scaling argument, and the
-! residual restores ATM from POPS_WORK between evals.  Left at the old
+! residual restores ATM from POPS_WORK between evals. Left at the old
 ! baseline it silently factors the preconditioner at pre-rebuild
-! populations.  The coupled branch already does this copy.
+! populations. The coupled branch already does this copy.
 !
 	CALL JFNK_SYNC_ATM_FROM_POPS(POPS_BASE)
 	POPS_WORK = POPS_BASE
 !
 ! Coupled mode ([JFNK_COUPLED]=T): F is the radiation sweep at
-! POPS_BASE.  The frozen-J steps below replace F with collisions
-! only, then set JFNK_BA_RAD_READY.  The next coupled eval would add
+! POPS_BASE. The frozen-J steps below replace F with collisions
+! only, then set JFNK_BA_RAD_READY. The next coupled eval would add
 ! that matvec on top of a sweep that already contains the radiative
 ! rates, so Newton differentiates the wrong operator and the step
-! that gets committed does not reduce the real residual.  Re-evaluate
-! the coupled residual instead.  POPS_WORK must match POPS_BASE first:
+! that gets committed does not reduce the real residual. Re-evaluate
+! the coupled residual instead. POPS_WORK must match POPS_BASE first:
 ! the residual restores ATM from POPS_WORK on the way out.
 !
 	IF(JFNK_COUPLED_LOC)THEN
 	  POPS_WORK=POPS_BASE
 	  X_CORR_FULL=0.0D0
 !
-! The baseline eval must measure pure F at the new POPS_BASE.  The
+! The baseline eval must measure pure F at the new POPS_BASE. The
 ! PTC anchor still holds the previous Newton attempt's last accepted
 ! iterate, so an armed PTC term would add (0 - x0_old)*s/dtau to
 ! jfnk_fx here and the JVP numerators would inherit the offset
-! divided by h.  JFNK_SET_PTC_SCALE_V1 below re-arms with the new
+! divided by h. JFNK_SET_PTC_SCALE_V1 below re-arms with the new
 ! scale and a zero anchor.
 !
 	  jfnk_ptc_scale_ready=.FALSE.
 	  CALL JFNK_RESIDUAL_V1(JFNK_NT*JFNK_ND,X_CORR_FULL,jfnk_fx)
 !
 ! A broken eval (budget/wall-clock sentinel or non-finite components)
-! returns Y=1D20 sentinels.  Adopting that through RSCALE and the
+! returns Y=1D20 sentinels. Adopting that through RSCALE and the
 ! PTC mass-shift scale freezes s~1D20 for the whole activation --
 ! the same failure the F(0) gate in the driver (jfnk_solve_corr_v1)
-! already rejects.  Return before RSCALE/PTC are re-based on the
+! already rejects. Return before RSCALE/PTC are re-based on the
 ! sentinel; the driver reads JFNK_EVAL_BROKEN and exits through
 ! JFNK_CATASTROPHIC, so no update commits from this baseline.
 !
@@ -2432,11 +2432,11 @@
 	  END DO
 	END IF
 !
-! Step 4: Recompute collisional STEQ at new POPS_BASE.  Bracketed:
+! Step 4: Recompute collisional STEQ at new POPS_BASE. Bracketed:
 ! compute_steq rewrites the module STEQ arrays; leaving the
 ! collisional-only state in place would give a fallback SOLVEBA a
 ! right-hand side missing every radiative term (order-of-operations
-! audit, 03-Oct-2026).  The module arrays therefore stay at the outer
+! audit, 03-Oct-2026). The module arrays therefore stay at the outer
 ! iteration's full STEQ; only jfnk_fx tracks the new baseline.
 !
 	CALL JFNK_SAVE_MOD_STEQ_V1()
@@ -2468,7 +2468,7 @@
 ! from STEQ_coll + STEQ_RAD, so fixed T/Ne rows can hold large values.
 ! JFNK_SET_PTC_SCALE_V1 floors every scale entry at 1e-8*max|F0|, and
 ! the factor's FMAX_PTC uses the same max, so one fixed-row residual
-! would over-regularize every free row.  The admission path and the
+! would over-regularize every free row. The admission path and the
 ! coupled branch above mask before arming; this path does the same.
 !
 	CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_NT * JFNK_ND, jfnk_fx)
@@ -2479,7 +2479,7 @@
 ! so the matrix factored below must carry the new baseline's fold.
 ! jfnk_fx holds the new masked F(0), so the scale re-arms on the
 ! correct baseline; jfnk_x=0 makes the log-coordinate sigma*exp(-x)
-! factor unity on the new anchor.  dtau restarts at 1 for the new
+! factor unity on the new anchor. dtau restarts at 1 for the new
 ! Newton sequence on this baseline.
 !
 	jfnk_x = 0.0D0
@@ -2519,14 +2519,14 @@
 !
 ! Fix #10 (review 2026-09-11): The residual uses T_new = T_base * exp(x)
 ! but the BA matrix may have been built for the linear formulation
-! T_new = T_base * (1+x).  At x=0 both give the same Jacobian
+! T_new = T_base * (1+x). At x=0 both give the same Jacobian
 ! (dT/dx = T_base), but the BA might be missing a factor of T if it
 ! was built as dSTEQ/dT rather than dSTEQ/dT * T.
 !
 ! This test:
 ! 1. Computes F(0) and F(x_T * e_T) for a small x_T
 ! 2. FD Jacobian T-column: J_FD = (F(x_T) - F(0)) / x_T
-! 3. BA Jacobian T-column: J_BA = JFNK_BA_A(:, NT, K)
+! 3. BA Jacobian T-column: J_BA = JFNK_BA_A(, NT, K)
 ! 4. Reports max |J_FD - J_BA| / max(|J_FD|, |J_BA|) per depth
 !
 ! A relative error >> 1 indicates the BA T-column is inconsistent with
@@ -2632,16 +2632,16 @@
 !   J*v = (F(x_pert) - F(x)) / h
 !
 ! This is the correct finite-difference approximation of the directional
-! derivative J*v.  It is consistent with:
+! derivative J*v. It is consistent with:
 !   - the GMRES RHS (jfnk_fx = raw physical F(x))
 !   - the preconditioner (JFNK_PRECOND_V1 = plain M^{-1} in physical space)
 !   - the inner product (JFNK_DOT_V1 = RSCALE-weighted, applied uniformly)
 !
 ! Previous bug (fixed 2026-09-09): the JVP used a per-element scaling
 ! SI = max(|x_i|, 1), producing diag(1/SI)*J*diag(SI)*v — a similarity-
-! transformed operator that is NOT J*v.  This was inconsistent with the
+! transformed operator that is NOT J*v. This was inconsistent with the
 ! untransformed RHS and preconditioner, so GMRES solved the wrong linear
-! system.  The system was correct only on Newton step 0 (jfnk_x=0, SI=1),
+! system. The system was correct only on Newton step 0 (jfnk_x=0, SI=1),
 ! then degraded as different species accumulated different correction
 ! sizes — matching the reported "works on iteration 0/1, then degrades"
 ! symptom.
@@ -2720,13 +2720,13 @@
 !
 ! Cancellation-floor SNR table (h-sweep extension): per worst row, the
 ! estimated eval noise floor eps_mach*max|BA_row| and the |dF| signal
-! at each scanned h.  BRM_ARR stores the row max at selection time
+! at each scanned h. BRM_ARR stores the row max at selection time
 ! (ROWMAX_A is reused inside the h loop for a different quantity).
 !
 	DOUBLE PRECISION BRM_ARR(3), SNR_H(3,8)
 !
 ! [JFNK_LINTEST] probe scratch: synthetic second direction and probe
-! JVP image.  Allocated lazily inside the probe block.
+! JVP image. Allocated lazily inside the probe block.
 !
 	DOUBLE PRECISION, ALLOCATABLE :: DIR_LIN(:), JV_LIN(:)
 	DOUBLE PRECISION W_INF_L, DEF_INF, DEN_INF
@@ -2768,14 +2768,14 @@
 	END IF
 !
 ! [JFNK_BA_JVP, default F] Analytic-matvec experiment: return the BA
-! diagonal-band action instead of a finite difference.  The FD JVP
+! diagonal-band action instead of a finite difference. The FD JVP
 ! picks an adaptive h (and clip-retries) per call, so the effective
-! operator is mildly nonlinear in v; on the npq_dbg run the Hessenberg
+! operator is mildly nonlinear in v; on the run the Hessenberg
 ! LS residual diverged from the true residual by 150-450x at restart
 ! (RESTART DIAG), i.e. the Krylov basis does not compose linearly.
 ! BA_A*v is exactly linear and already carries the PTC fold, matching
 ! the operator the FD path approximates (BA-A agrees with FD to ~2% on
-! the resolved-window directions).  Requires JFNK_BA_BUILT: the first
+! the resolved-window directions). Requires JFNK_BA_BUILT: the first
 ! JVP follows the preconditioner factorization on every admission.
 ! Default F keeps the Jacobian-free matvec unchanged.
 !
@@ -2792,7 +2792,7 @@
 	  END DO
 !
 ! Off-diagonal bands: add the cross-depth coupling when banded storage
-! is armed ([JFNK_USE_BANDED], requires NUM_BNDS>1).  BA_A alone is the
+! is armed ([JFNK_USE_BANDED], requires NUM_BNDS>1). BA_A alone is the
 ! diagonal band; CMAT_RAD_BANDS holds the rad-part bands but collisional
 ! terms are within-depth, so B .NE. DIAG_INDX entries equal the full
 ! off-diagonal operator (BA_ADV_TERM advection and any ALO writes).
@@ -2820,7 +2820,7 @@
 ! Non-finite guard for the analytic path (audit 07-Nov-2026): this
 ! branch returns before the FD-path NaN/Inf check below, so apply the
 ! same policy here -- a NaN in BA_A would otherwise reach GMRES as a
-! valid-looking zeroed or NaN action.  >N/10 bad entries fails the
+! valid-looking zeroed or NaN action. >N/10 bad entries fails the
 ! JVP (GMRES aborts); fewer are zeroed individually.
 !
 	  JFNK_N_JVP_NAN = 0
@@ -2874,13 +2874,13 @@
 ! Optimal forward-difference step (2026-09-11): h ~ sqrt(eps_mach)
 ! balances truncation error O(h) against cancellation error O(eps/h).
 ! 03-Oct-2026: JFNK_EPS_JVP_LOC (VADAT [JFNK_EPS]) is honored again as
-! a floor in COUPLED mode.  The coupled residual is produced by
+! a floor in COUPLED mode. The coupled residual is produced by
 ! an iterative formal solve and carries an evaluation-noise floor
 ! ~delta_F, so the FD step must scale as h ~ sqrt(delta_F/|F|), not
 ! sqrt(eps_mach) (Kelley; Pernice & Walker 2008 on approximate
-! function values).  JFNK_EPS~1e-3..1e-2 is the intended setting for
+! function values). JFNK_EPS~1e-3..1e-2 is the intended setting for
 ! coupled evals on the iterative Knop sweep.
-! 21-Oct-2026: the same floor is now honored in frozen mode too.  The
+! 21-Oct-2026: the same floor is now honored in frozen mode too. The
 ! frozen residual is deterministic arithmetic on stored arrays, but the
 ! stiff inner-boundary SE rows cancel ~1e19 inflow/outflow terms down
 ! to ~1e12 residuals, so the per-eval rounding floor is ~1e4 in
@@ -2898,10 +2898,10 @@
 !
 ! This is the true directional derivative of F at x in direction v.
 ! No per-element SI scaling — the matvec, preconditioner, and RHS all
-! operate in the same physical space.  The RSCALE weighting in
+! operate in the same physical space. The RSCALE weighting in
 ! JFNK_DOT_V1 provides the species-scale equalization for the GMRES
 ! inner product, and the diagonal BA preconditioner provides it for the
-! Krylov solve.  Baking a second, inconsistent scaling into the matvec
+! Krylov solve. Baking a second, inconsistent scaling into the matvec
 ! (as the previous SI-transformed code did) breaks the algebraic
 ! consistency of the GMRES system.
 !
@@ -2910,14 +2910,14 @@
 	H_STEP = EPS0 * MAX(XNORM, 1.0D0) / VNORM
 !
 ! Safeguard (revised 17-Sep-2026, audit issue 5): keep ONLY the upper
-! cap.  The previous MAX(H_STEP,1D-12) floor was not harmless: for a
+! cap. The previous MAX(H_STEP,1D-12) floor was not harmless: for a
 ! huge ||v||_inf it inflated ||h*v|| to a percent-scale perturbation,
 ! far above the FD scale and deep into the nonlinear clipping regime
-! of the residual.  With no floor, ||h*v||_inf = EPS0*max(1,||x||) by
+! of the residual. With no floor, ||h*v||_inf = EPS0*max(1,||x||) by
 ! construction (the cap only binds for small ||v||, making ||h*v||
 ! even smaller), so the perturbation is always at the intended scale.
 ! Instead of a floor, require the resulting perturbation to be usable:
-! positive, finite, and no larger than the state norm itself.  An
+! positive, finite, and no larger than the state norm itself. An
 ! underflowed or oversized step means the direction is unusable --
 ! flag JVP failure rather than silently taking a bad derivative.
 !
@@ -2926,7 +2926,7 @@
 !
 ! Oct-2026 fix: the previous cap MAX(1D-4,EPS0)*MAX(XNORM,1)/VNORM
 ! could never bind -- H_STEP is already EPS0*MAX(XNORM,1)/VNORM and
-! EPS0 <= MAX(1D-4,EPS0).  Replace it with a cap that can shrink:
+! EPS0 <= MAX(1D-4,EPS0). Replace it with a cap that can shrink:
 ! Under [USE_JFNK_SOLVER] (default F), log unknowns clip at |x|>40
 ! (populations/ED) or |x|>50 (T); the temperature update also floors
 ! T at 1 K in either unknown mode. A perturbation that crosses one of
@@ -2980,16 +2980,16 @@
 !
 ! COLPROBE h-scan hook (see JFNK_CMFGEN_INT_MOD): a diagnostic-only
 ! multiplier applied after the safety cap so probes can step across
-! the FD cancellation floor.  The 0/Inf and ||h*v|| checks below
+! the FD cancellation floor. The 0/Inf and ||h*v|| checks below
 ! still apply to the scaled step.
 !
 	IF(JFNK_PROBE_HSCALE .NE. 1.0_LDP)
 	1   H_STEP = H_STEP * JFNK_PROBE_HSCALE
 !
-! [JFNK_HADAPT] multiplier selected by the plateau finder below.  The
+! [JFNK_HADAPT] multiplier selected by the plateau finder below. The
 ! sweep multipliers are relative to the post-cap H_STEP, so the
 ! selected factor applies at the same point: the production eval then
-! repeats a scanned step.  A selected step that still crosses a clip
+! repeats a scanned step. A selected step that still crosses a clip
 ! bound is handled by the ordinary retry/validity logic below.
 !
 	IF(JFNK_HADAPT_MULT .NE. 1.0_LDP)
@@ -3006,10 +3006,10 @@
 	END IF
 !
 ! Audit 17-Sep-2026 (issue 4): the residual is nonsmooth at the
-! population floor and the T-exp cap.  If the perturbation h*v crossed
+! population floor and the T-exp cap. If the perturbation h*v crossed
 ! a constraint that was inactive at jfnk_x (counted by the residual in
 ! JFNK_N_NEW_CLIP), the FD difference contains a clipped, artificial
-! derivative.  Retry with h reduced by 10x -- up to two retries; if a
+! derivative. Retry with h reduced by 10x -- up to two retries; if a
 ! crossing persists the derivative is still usable at the smaller
 ! step, so the last attempt is kept (GMRES tolerates inexactness).
 !
@@ -3046,18 +3046,18 @@
 	  JFNK_N_JVP_HRETRY = JFNK_N_JVP_HRETRY + 1
 !
 ! edited 05-Oct-2026: do not shrink the perturbation
-! norm h*||v|| below EPS0*max(1,||x||) in coupled mode.  The
+! norm h*||v|| below EPS0*max(1,||x||) in coupled mode. The
 ! noise-aware JFNK_EPS_JVP_LOC sets that scale from the residual
 ! evaluation noise (Pernice & Walker; see the EPS0 block above).
 ! Comparing h alone is wrong because h is inversely proportional to
-! ||v||.  Frozen residuals keep deterministic arithmetic and may
+! ||v||. Frozen residuals keep deterministic arithmetic and may
 ! continue shrinking on a clip retry.
 !
 	  IF(JFNK_COUPLED_LOC .AND.
 	1       H_STEP*0.1D0*VNORM .LT.
 	2       EPS0*MAX(XNORM,1.0D0))THEN
 !
-! Oct-2026 fix: do not silently keep a clipped derivative.  If the
+! Oct-2026 fix: do not silently keep a clipped derivative. If the
 ! clip-margin cap above could not prevent a crossing at the EPS0
 ! floor (non-log unknowns, or a trial state already at the bound),
 ! the FD difference is contaminated by the nonsmooth clip and the
@@ -3098,16 +3098,16 @@
 	CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV)
 !
 ! One-time diagnostic: Compare FD JVP with the UNTRANSFORMED analytical
-! BA diagonal-band action.  The previous self-check applied the same SI
+! BA diagonal-band action. The previous self-check applied the same SI
 ! transform to the analytical side, so it "passed" even when the matvec
-! was the wrong operator.  Now the self-check compares FD J*v against
+! was the wrong operator. Now the self-check compares FD J*v against
 ! the diagonal-band BA * v, so a large discrepancy indicates genuine
 ! finite-difference error, a bug in the residual evaluation, or an
 ! off-diagonal-band (cross-depth) contribution exceeding the gap.
 !
 ! [JFNK_JVP_NDIR, default 4] repeats the cheap FD-vs-BA norm line on
 ! the first few JVPs of the process -- a single direction cannot show
-! whether BA agreement is uniform across the Krylov subspace.  The
+! whether BA agreement is uniform across the Krylov subspace. The
 ! expensive extended block (worst rows, h-sweep, baseline/negative/
 ! repeat evals) stays one-shot and fires only on the first direction
 ! whose mismatch exceeds 10%.
@@ -3119,14 +3119,14 @@
 	  IF(.NOT. ALLOCATED(JV_ANAL)) ALLOCATE(JV_ANAL(N))
 	  JV_ANAL(1:N) = 0.0D0
 ! Analytical side: JV_ANAL = BA_diag * v -- the DIAGONAL-BAND action
-! only.  JFNK_BA_A holds the within-depth NT x NT block; the cross-depth
+! only. JFNK_BA_A holds the within-depth NT x NT block; the cross-depth
 ! J-coupling/advection bands stored in SE(ID)%BA off-diagonal bands are
 ! only extracted when JFNK_USE_BANDED=T (default F, inactive in the
-! experiment runs).  The FD side is a full residual re-eval and carries
+! experiment runs). The FD side is a full residual re-eval and carries
 ! any true cross-depth derivative, so |FD-BA_diag*v| bounds the omitted
-! band contribution on the tested direction.  The ridge
+! band contribution on the tested direction. The ridge
 ! (JFNK_BA_RIDGE_ADD) is an artificial regularization added only to the
-! preconditioner diagonal, not to the physical Jacobian.  Subtracting
+! preconditioner diagonal, not to the physical Jacobian. Subtracting
 ! it from the analytical comparison would make a correct FD J*v appear
 ! to disagree with the analytical side (review §7).
 	  DO KK = 1, JFNK_ND
@@ -3143,9 +3143,9 @@
 ! Under [JFNK_USE_BANDED] also form the full-band analytic action
 ! (BA_A diagonal + CMAT_RAD_BANDS off-diagonals): the diag-only diff
 ! above then splits into band content (BA_full - BA_diag) and true
-! model error (FD - BA_full).  The split answers which wall the
+! model error (FD - BA_full). The split answers which wall the
 ! preconditioner faces -- width the bands already store, or
-! linearization the BA never had.  23-Oct-2026.
+! linearization the BA never had. 23-Oct-2026.
 !
 	  IF(JFNK_BA_RAD_BANDS_READY)THEN
 	    IF(.NOT. ALLOCATED(JV_AN2)) ALLOCATE(JV_AN2(N))
@@ -3169,7 +3169,7 @@
 	  END IF
 	  CALL JFNK_MASK_FIXED_UNKNOWNS(N, JV_ANAL)
 !
-! JFNK_BA_A is the physical BA (no ridge).  Local ridge is applied
+! JFNK_BA_A is the physical BA (no ridge). Local ridge is applied
 ! only to the LU copy used as a preconditioner.
 !
 	  FD_NORM = 0.0D0
@@ -3195,11 +3195,11 @@
 !
 ! Round-trip audit (04-Nov-2026): feed the measured J*v products back
 ! through M^{-1} and check whether v returns on reachable (non-reg,
-! non-fixed) rows.  The PC audit's ||M*z-v|| cannot separate apply
+! non-fixed) rows. The PC audit's ||M*z-v|| cannot separate apply
 ! error from factor-time model edits (ridge, reg-row substitution,
 ! PTC fold); w = M^{-1} J v with the verified FD product answers the
 ! operator-level question GMRES cares about: is M^{-1} an inverse of
-! the Krylov operator on this direction?  The extra applies share
+! the Krylov operator on this direction? The extra applies share
 ! solver state with the live GMRES (clip flag, ZMAX/reg counters), so
 ! save and restore them -- a clip triggered here must not abort the
 ! real solve.
@@ -3249,7 +3249,7 @@
 ! [JFNK_HSCAN, default F] forces the extended block on the first
 ! post-factor direction regardless of the mismatch trigger, so a
 ! plateau-state run gets the h-sweep + cancellation-floor table on
-! demand rather than only after a >10% FD-BA disagreement.  [JFNK_HADAPT]
+! demand rather than only after a >10% FD-BA disagreement. [JFNK_HADAPT]
 ! needs the same sweep to select its operating step.
 !
 	  IF(.NOT. JVP_DIAG_DONE .AND. JFNK_LUER .GT. 0 .AND.
@@ -3259,7 +3259,7 @@
 ! Fence the solver-side status flags around the probe evals below
 ! (audit 07-Nov-2026): the h-sweep trials step to 1E5*h and can end
 ! on an nbad/broken eval, and the routine exits this block without a
-! final healthy eval on every path.  JFNK_RESIDUAL_V1 restores the
+! final healthy eval on every path. JFNK_RESIDUAL_V1 restores the
 ! CMFGEN state itself, so only nbad/N_NEW_CLIP/EVAL_BROKEN need
 ! restoring here; the residual-eval accounting is intentionally kept.
 	    NBAD_SAV=jfnk_resid_nbad
@@ -3275,14 +3275,14 @@
 ! Extended audit (30-Oct-2026, gates-off experiment follow-up): the
 ! gates-off run measured |FD|/|BA*v| ~ 36 on a GMRES basis direction
 ! while the deferred-admission probe saw ~0.1% agreement on the gate's
-! proxy direction.  DIFF_NORM is an inf-norm, so first locate the
+! proxy direction. DIFF_NORM is an inf-norm, so first locate the
 ! worst components -- a single pinned-row artifact reads differently
-! from a broad stiff-row gap.  Then re-evaluate the SAME direction at
+! from a broad stiff-row gap. Then re-evaluate the SAME direction at
 ! h*0.1 and h*10 on the same state snapshot: a truncation-error gap
 ! shrinks ~linearly with h, while a structural BA misspecification
 ! (analytic STEQ_coll block vs the true derivative of the assembled
-! residual) is h-invariant.  PTC enters both sides identically so it
-! cancels in the comparison.  The h*10 point may cross clip bounds the
+! residual) is h-invariant. PTC enters both sides identically so it
+! cancels in the comparison. The h*10 point may cross clip bounds the
 ! host h was chosen to avoid -- flagged nbad rather than trusted.
 ! Costs two residual evals, once per process.
 !
@@ -3412,7 +3412,7 @@
 ! Per-row values at the worst components: a cancellation-floor row
 ! shows raw |DF_i| pinned near the eval noise floor (~1e4 on the stiff
 ! inner-boundary rows) at every h, while a resolved row's |DF_i| grows
-! ~linearly in h.  FD_h vs BA*v sign agreement is printed explicitly.
+! ~linearly in h. FD_h vs BA*v sign agreement is printed explicitly.
 	      DO ISEL=1,3
 	        IF(ITOP_ARR(ISEL) .GT. 0)WRITE(JFNK_LUER,
      1        '(A,I8,3(A,ES13.5))')
@@ -3423,17 +3423,17 @@
 	    END DO
 !
 ! [JFNK_HADAPT] plateau selection (10-Nov-2026 audit): HSCAN only
-! reports the sweep; this picks the operating step from it.  Adjacent
+! reports the sweep; this picks the operating step from it. Adjacent
 ! multipliers whose JVPs agree within 30% mark the stable region
 ! between truncation error (large h) and cancellation noise (small h);
 ! the selector returns the upper member, more noise-immune with the
-! agreement bounding truncation drift.  The returned image becomes
+! agreement bounding truncation drift. The returned image becomes
 ! the sweep value at the selected step, and the multiplier is kept in
 ! JFNK_HADAPT_MULT so every later JVP repeats that step on its own
-! direction.  No agreeing pair means the direction is not FD-
+! direction. No agreeing pair means the direction is not FD-
 ! resolvable at any scanned h -- flag the JVP failed so the driver
 ! defers Newton instead of building a Krylov space on an unmeasured
-! derivative.  The mode is logged because frozen and coupled
+! derivative. The mode is logged because frozen and coupled
 ! residuals carry different noise floors and need not share a step.
 !
 	    IF(JFNK_HADAPT)THEN
@@ -3468,9 +3468,9 @@
 ! noise floor is ~eps_mach times the row's gross rate scale;
 ! max|BA_row| is the stored surrogate for that scale (no gross-rate
 ! vector exists -- for a rate row |BA_ii| is already the outflow
-! total).  A row whose |dF_i| never exceeds ~30x the floor over the
+! total). A row whose |dF_i| never exceeds ~30x the floor over the
 ! whole sweep cannot be resolved by the forward difference at any
-! scanned h; one that crosses it has a resolved window.  SNR_H holds
+! scanned h; one that crosses it has a resolved window. SNR_H holds
 ! |dF_i| at each scanned multiplier; h points skipped on nbad read
 ! as 0.
 !
@@ -3503,12 +3503,12 @@
 ! Repeatability / baseline / direction tests (22-Oct-2026 review):
 ! the ~1/h gap means an h-independent offset contaminates the
 ! perturbed-minus-baseline difference, but three mechanisms produce
-! that signature and they must be separated.  (i) Stale stored
+! that signature and they must be separated. (i) Stale stored
 ! baseline: if a fresh eval at the SAME x disagrees with jfnk_fx,
 ! the JVP numerator carries an h-independent offset with no physics
-! switch involved.  (ii) Switch at the state: a smooth row returns
+! switch involved. (ii) Switch at the state: a smooth row returns
 ! the same derivative forward and backward; a threshold crossing is
-! antisymmetric around the post-jump slope.  (iii) Nondeterministic
+! antisymmetric around the post-jump slope. (iii) Nondeterministic
 ! eval: repeating the SAME perturbed eval must return the same F if
 ! the module-state restore path is complete.
 !
@@ -3580,7 +3580,7 @@
 ! NaN/Inf guard for the JVP result (revised 2026-09-07):
 !
 ! The original code silently replaced each NaN/Inf element with 0.0,
-! which masked real numerical failures.  A zero JVP element tells GMRES
+! which masked real numerical failures. A zero JVP element tells GMRES
 ! that the Jacobian has zero sensitivity in that direction, causing
 ! premature convergence or stagnation.
 !
@@ -3588,7 +3588,7 @@
 !   1. Count the number of NaN/Inf entries in the JVP.
 !   2. If the fraction of bad entries exceeds JFNK_JVP_NAN_FRAC (default
 !      10%), the entire JVP is set to zero and a failure counter is
-!      incremented.  GMRES will see a zero JVP and the Newton step will
+!      incremented. GMRES will see a zero JVP and the Newton step will
 !      be rejected by the trust-region logic (pred <= 0), causing the
 !      trust region to shrink.
 !   3. If only a few entries are bad (below the threshold), they are
@@ -3604,10 +3604,10 @@
 !
 	IF(JFNK_N_JVP_NAN .GT. 0)THEN
 	  IF(JFNK_N_JVP_NAN .GT. (N / 10))THEN
-! Too many NaN entries — the JVP is unreliable.  Audit 17-Sep-2026:
+! Too many NaN entries — the JVP is unreliable. Audit 17-Sep-2026:
 ! do NOT silently hand GMRES a zero J*v (GMRES interprets that as a
 ! genuine zero-action direction, producing artificial happy
-! breakdown/stagnation).  Raise the explicit failure flag; GMRES
+! breakdown/stagnation). Raise the explicit failure flag; GMRES
 ! aborts the Krylov solve (info=3) and Newton rejects the direction,
 ! shrinks the trust region, and requests a preconditioner refresh.
 ! JV is still zeroed as a last-resort value for any caller that
@@ -3620,7 +3620,7 @@
 	1      'JFNK_JVP_V1: ', JFNK_N_JVP_NAN, ' NaN/Inf in JVP (N=',
 	1      N, ') — JVP FAILED, GMRES will abort this solve'
 	  ELSE
-! Few bad entries — zero them individually.  This is safe because the
+! Few bad entries — zero them individually. This is safe because the
 ! remaining entries still provide useful directional information to GMRES.
 	    DO I = 1, N
 	      IF(JV(I) .NE. JV(I)) JV(I) = 0.0D0
@@ -3631,27 +3631,27 @@
 !
 ! [JFNK_LINTEST, default F] JVP operator-consistency probe (Phase-1
 ! review, Nov-2026): GMRES builds its Krylov space on the assumption
-! that the matvec applies ONE fixed linear operator at jfnk_x.  The
+! that the matvec applies ONE fixed linear operator at jfnk_x. The
 ! FD JVP is only approximately linear -- clip retries can shrink the
 ! effective step inside a call, and the residual's nonsmooth branches
 ! (population floor, T-exp cap, FIXPOP row swaps) make the action
 ! state- and scale-dependent, so columns of the Arnoldi recurrence can
-! come from different effective operators.  Once per activation, on
+! come from different effective operators. Once per activation, on
 ! the first post-factorization direction u whose production image is
 ! valid, this measures at the SAME final H_STEP the production JV
 ! used:
-!   repeat     |Jrep(u)-Ju| / |Ju|            eval-noise floor
-!   homogene   |J(2u)-2Ju| / |2Ju|            step-scale dependence
-!   additive   |J(u+vs)-Ju-Jvs|/(|Ju|+|Jvs|)  cross-direction defect
+!   repeat |Jrep(u)-Ju| / |Ju| eval-noise floor
+!   homogene |J(2u)-2Ju| / |2Ju| step-scale dependence
+!   additive |J(u+vs)-Ju-Jvs|/(|Ju|+|Jvs|) cross-direction defect
 ! with vs a flat direction on all free unknowns scaled so that
 ! |vs|_inf = |u|_inf: H_STEP was selected for the production |u|_inf,
 ! so an unscaled vs would perturb the state by 1/|u|_inf too much and
 ! the defect would measure clip/floor branches rather than operator
-! nonlinearity (07-Nov-2026 audit).  All probes run at
+! nonlinearity (07-Nov-2026 audit). All probes run at
 ! the current jfnk_x, so jfnk_x motion between Newton iterates cannot
-! contaminate the comparison.  Probe evals reuse the W_* scratch after
+! contaminate the comparison. Probe evals reuse the W_* scratch after
 ! JV is final; JFNK_RESIDUAL_V1 restores POPS/ATM/STEQ module state
-! itself, so only the solver-side counters are fenced.  A broken probe
+! itself, so only the solver-side counters are fenced. A broken probe
 ! eval skips only its own line; JV, h selection and flags are
 ! untouched -- diagnostic only.
 !
@@ -3765,14 +3765,14 @@
 
 !
 ! JFNK_SEC_RECORD_V1: store a measured (u, J*u) pair for the rank-r
-! Broyden preconditioner update [JFNK_SEC_R, default 0].  The BA
+! Broyden preconditioner update [JFNK_SEC_R, default 0]. The BA
 ! model demonstrably misses the true operator on the dominant rows
 ! (23-Oct-2026: FD-vs-BA ~1E4 on the He II compression rows, and
 ! JFNK_BA_JVP directions leave the true residual unchanged), so the
 ! correction is built from the JVP's own measurements instead.
 ! Recording is capped at JFNK_SEC_R pairs per baseline; JFNK_INIT_V1
 ! and JFNK_REBUILD_BASELINE_V1 clear the store when the operator
-! re-bases.  D columns are built lazily in JFNK_PRECOND_V1 because
+! re-bases. D columns are built lazily in JFNK_PRECOND_V1 because
 ! they need the factored base map.
 !
 	SUBROUTINE JFNK_SEC_RECORD_V1(N, U, JV)
@@ -3819,11 +3819,11 @@
 ! as the JFNK preconditioner M ~= J.
 !
 ! JFNK_PRECOND_TYPE selects the factorization stored per depth K:
-!   'LU'    -- DGEEQU-equilibrated DGETRF of JFNK_BA_A(:,:,K) into
+!   'LU' -- DGEEQU-equilibrated DGETRF of JFNK_BA_A(,:,K) into
 !              JFNK_LU_FAC, with a ridge retry ladder on pivot
 !              failure (JFNK_BA_RIDGE_FAC, JFNK_RIDGE_PIV) and DGECON
 !              rcond recorded in JFNK_LU_RCOND.
-!   'LSQ'   -- the same block solved by least squares (JFNK_LSQ_LAM
+!   'LSQ' -- the same block solved by least squares (JFNK_LSQ_LAM
 !              Tikhonov term) when the LU is rank-deficient.
 !   'SCHUR' -- population-block LSQ with the ED/T rows Schur-
 !              complemented out.
@@ -3837,7 +3837,7 @@
 !
 ! JFNK_PRECOND_V1 applies whichever factorization this routine left
 ! in JFNK_LU_FAC / JFNK_BANDED_LUAB (so DGETRS/DGBTRS/DGELS are live
-! paths, not dead code).  JFNK_LU_READY reports whether any usable
+! paths, not dead code). JFNK_LU_READY reports whether any usable
 ! factorization exists; the reach/direction precheck in
 ! JFNK_SOLVE_CORR_V1 requires it.
 !
@@ -3893,7 +3893,7 @@
 	LOGICAL REBUILD_BA
 	DOUBLE PRECISION X_PTC
 !
-! W24c: per-depth backward-error micro-test workspace.  MTST keeps
+! W24c: per-depth backward-error micro-test workspace. MTST keeps
 ! the pre-factorization block so the synthetic-RHS check below
 ! prices the exact matrix the apply path sees (same contract as the
 ! banded path's solve-residual test).
@@ -3934,7 +3934,7 @@
 	JFNK_QUIET_IO = .TRUE.
 !
 ! A fresh factorization changes the base map B, so the stored
-! correction columns D_i = u_i - B(J*u_i) are stale.  The recorded
+! correction columns D_i = u_i - B(J*u_i) are stale. The recorded
 ! pairs themselves still measure the same baseline operator and are
 ! kept; JFNK_PRECOND_V1 rebuilds D lazily on the next apply.
 !
@@ -3945,7 +3945,7 @@
 !
 ! Capture the user-supplied ridge as the relaxation floor on the first
 ! factorization, so the relaxation path cannot push the ridge below the
-! value the user chose.  Added 2026-09-10.
+! value the user chose. Added 2026-09-10.
 !
 	IF(.NOT. jfnk_ridge_floor_set)THEN
 	  jfnk_ridge_floor = MAX(JFNK_BA_RIDGE_FAC, 0.0_LDP)
@@ -3995,8 +3995,8 @@
 !
 ! Allocate LU factorization workspace (used when JFNK_PRECOND_TYPE='LU').
 ! JFNK_LU_FAC stores the equilibrated, LU-factored BA matrix per depth.
-! JFNK_IPIV stores the pivot indices.  JFNK_ROW_SF / JFNK_COL_SF store
-! the DGEEQU row/column scaling factors.  'LSQ' shares this workspace:
+! JFNK_IPIV stores the pivot indices. JFNK_ROW_SF / JFNK_COL_SF store
+! the DGEEQU row/column scaling factors. 'LSQ' shares this workspace:
 ! LU_FAC then holds the Cholesky factor of J_eq^T J_eq + lam^2 I and
 ! IPIV is unused.
 !
@@ -4064,8 +4064,8 @@
 	  END IF
 !
 ! Per-depth LU diagnostics (pivot ratio, DGECON rcond, accepted retry
-! index).  Written on every successful DGETRF -- missing the alloc here
-! segfaulted the first JFNK-CPL admission on the m15 KNOP probe.
+! index). Written on every successful DGETRF -- missing the alloc here
+! segfaulted the first JFNK-CPL admission on the KNOP probe.
 !
 	  IF(ALLOCATED(JFNK_LU_PIVRAT))THEN
 	    IF(SIZE(JFNK_LU_PIVRAT) .NE. JFNK_ND) DEALLOCATE(JFNK_LU_PIVRAT,
@@ -4112,9 +4112,9 @@
 !
 ! JFNK_BA_BUILT reuse (17-Oct-2026): the admission path already ran
 ! the build below with DO_FACTOR=.FALSE.; factoring now reuses that
-! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice.  The gate
+! BA_A instead of paying GENERATE_FULL_MATRIX_V3 twice. The gate
 ! build runs after F(0) adoption, masking and PTC arming, so its fold
-! state is the one the real factor needs.  Any change to the fold
+! state is the one the real factor needs. Any change to the fold
 ! inputs (scale re-arm, baseline rebuild, GMRES refresh request,
 ! attempt-retry rebuild) clears JFNK_BA_BUILT and forces the rebuild
 ! branch.
@@ -4125,13 +4125,13 @@
 	  JFNK_BA_DIAG_READY = .FALSE.
 !
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
-! JFNK_SET_PTC_SCALE_V1.  The admission build runs after F(0)
+! JFNK_SET_PTC_SCALE_V1. The admission build runs after F(0)
 ! adoption, masking and PTC arming at dtau=1; the immediate real
-! factor reuses it.  Later refresh factors rebuild because the fold
+! factor reuses it. Later refresh factors rebuild because the fold
 ! state changed (JFNK_BA_BUILT cleared by the scale re-arm, baseline
 ! rebuild, the refresh request in JFNK_DIAGNOSTIC_V1, or the
 ! attempt-retry rebuild in JFNK_SOLVE_CORR_V1), so the folded shift
-! then follows the live dtau and x.  For log unknowns,
+! then follows the live dtau and x. For log unknowns,
 ! BA is in fractional units, so the PTC diagonal uses sigma*exp(-x).
 ! This routine is reached only under [USE_JFNK_SOLVER] (default F);
 ! the stock population path is unchanged.
@@ -4169,7 +4169,7 @@
 	    JFNK_PRECOND_DIAG(J, K) = JFNK_C_MAT(J, J)
 	  END DO
 !
-! Store the physical BA block with no global ridge.  Regularization
+! Store the physical BA block with no global ridge. Regularization
 ! is applied per depth only if equilibrated LU fails.
 ! edited by Sean Brennan (10-Sep-2026)
 !
@@ -4179,14 +4179,14 @@
 	  JFNK_BA_A(:,:,K) = JFNK_C_MAT
 !
 ! [JFNK_PTC_SIGNED] (default F): capture the sign of each raw BA
-! diagonal before the fold.  BA rate rows are predominantly
+! diagonal before the fold. BA rate rows are predominantly
 ! loss-dominated (d < 0), so the unsigned +sigma shift moves those
 ! diagonals toward zero -- anti-damping -- and can push a row through
-! zero into sign reversal.  The signed convention folds
+! zero into sign reversal. The signed convention folds
 ! sign(d_i)*sigma_i so |d_i + shift| = |d_i| + sigma_i for every row.
 ! Rows whose |d_i| falls below the JFNK_ROW_TINY block floor cannot
 ! decide a sign reliably and take +1 (the regularized-row class;
-! identity substitution dominates them anyway).  The array is
+! identity substitution dominates them anyway). The array is
 ! refreshed on each BA rebuild and read by the residual PTC term and
 ! the apply rescale, keeping G and its preconditioner model
 ! consistent; before the first factorization READY=F gives the
@@ -4219,13 +4219,13 @@
 	    JFNK_PTC_SGN_READY = .TRUE.
 	  END IF
 !
-! Fold s_i into the factored diagonal.  Bare BA is nearly singular
+! Fold s_i into the factored diagonal. Bare BA is nearly singular
 ! on thousands of weak rows; the LU then emits z ~ 1e2..1e5 along
 ! directions where the FD operator holds the s floor, and the
 ! post-solve D/(D+sig) rescale cannot repair an exploded LU
-! direction.  With s inside the matrix every block is diagonally
+! direction. With s inside the matrix every block is diagonally
 ! bounded, the ROW_TINY regularization mostly empties, and the
-! preconditioned step matches the FD operator.  If dtau later
+! preconditioned step matches the FD operator. If dtau later
 ! grows, the shift retained here overestimates the live one --
 ! over-damped on weak rows but bounded, which is the safe side.
 !
@@ -4261,10 +4261,10 @@
 	    END DO
 	  END IF
 !
-! Frozen-row reduction.  The apply solves the full NT block then
+! Frozen-row reduction. The apply solves the full NT block then
 ! zeroes z on frozen components (T, or Ne when FIXED_NE), which
 ! discards the column terms the LU solve already accounted for and
-! leaves ~16% residual on population rows.  Solve the reduced system
+! leaves ~16% residual on population rows. Solve the reduced system
 ! instead: zero the frozen row/column off-diagonals and set the
 ! diagonal to 1, so z_p = A_pp^{-1} v_p (s_T=0 enforced) and the
 ! post-solve projection is a no-op on the answer.
@@ -4316,7 +4316,7 @@
 !
 	ELSE
 ! [USE_JFNK_SOLVER] defaults to F, so the stock population path is
-! unchanged.  The cache stays valid only for the active JFNK baseline;
+! unchanged. The cache stays valid only for the active JFNK baseline;
 ! restore its diagonal before any factor path reads it.
 !
 	  DO K = 1, JFNK_ND
@@ -4328,7 +4328,7 @@
 	END IF   ! JFNK_BA_BUILT reuse guard
 !
 ! The matrix above now belongs to the current baseline whether the
-! rebuild branch ran or the cache was reused.  Without this, a factor
+! rebuild branch ran or the cache was reused. Without this, a factor
 ! that started from JFNK_BA_BUILT=.FALSE. (post-rebuild path) left it
 ! false and every later factor call regenerated the full BA.
 !
@@ -4337,7 +4337,7 @@
 ! DO_FACTOR=.FALSE. (17-Oct-2026, W5B): BA_A plus the folded
 ! diagonals are everything the reach/direction gates read; stop
 ! before the LU/SCHUR/banded factorizations so a gate skip never
-! pays for them.  JFNK_BA_BUILT stays set across the activation
+! pays for them. JFNK_BA_BUILT stays set across the activation
 ! (and through the follow-up real factor call) so restarts that
 ! keep the baseline refactor the same matrix; only
 ! JFNK_INIT_V1/JFNK_REBUILD_BASELINE_V1 clear it.
@@ -4350,10 +4350,10 @@
 	END IF
 !
 ! ── Equilibrated depth-block LU ────────────────────────────────────
-! M_K = BA(:,:,K).  Attempt DGEEQU + DGETRF with zero ridge first.
+! M_K = BA(,:,K). Attempt DGEEQU + DGETRF with zero ridge first.
 ! If a block is singular/unsafe, add a local ridge
 !   λ_K = ε × max(|diag_K|, 1)
-! and increase ε until factorization succeeds.  Jacobi fallback is
+! and increase ε until factorization succeeds. Jacobi fallback is
 ! per-depth, not a global abort.
 !
 	N_OK = 0
@@ -4379,11 +4379,11 @@
 	    JFNK_DEPTH_RIDGE(K) = 0.0_LDP
 !
 ! [JFNK_POP_FL] (default 0 = off): freeze the Newton correction on
-! near-empty levels.  Rows with n_i < JFNK_POP_FL * (ion total at this
-! depth) dominated the top-|z| list on the m15 probe (high-lying Fe/Ar/
+! near-empty levels. Rows with n_i < JFNK_POP_FL * (ion total at this
+! depth) dominated the top-|z| list on the probe (high-lying Fe/Ar/
 ! Ca/Ne/O levels, rad/F ~ 1): their BA rows are near-null, the LU solve
 ! returns |z|~hundreds of dex, and the commit clip flattens the answer
-! anyway.  Marking them regularized gives an identity row in the factor
+! anyway. Marking them regularized gives an identity row in the factor
 ! and z_i = 0 at apply, so Newton leaves them on the outer iteration.
 ! The residual row itself is unchanged -- this only bounds the step.
 ! The mask is built once per depth here; the factorization retry loop
@@ -4412,7 +4412,7 @@
 !
 ! Per-depth factorization lives in jfnk_solver_v1.f90
 ! (jfnk_pc_factor_block_v1) so the unit tests run the identical
-! production code.  It fills the persistent LU_FAC/IPIV/ROW_SF/COL_SF
+! production code. It fills the persistent LU_FAC/IPIV/ROW_SF/COL_SF
 ! slices the apply path reads and returns the regularized-row mask,
 ! per-row ridge, rcond and pivot-ratio diagnostics.
 !
@@ -4482,7 +4482,7 @@
 	4        JFNK_POP_FLOOR, ')'
 !
 ! edited, 08-Oct-2026: report the 5 depths carrying the
-! most regularized rows.  A concentration at compression depths
+! most regularized rows. A concentration at compression depths
 ! would implicate the BA_full NaN-zeroing path as the null-row
 ! source; a uniform spread points to structural rank deficiency
 ! (redundant SE / conservation equations) instead.
@@ -4524,10 +4524,10 @@
 ! Per-depth population sub-block (rows 1..NT-2) factored with the
 ! same ridge/reg/normal-equations chain as 'LSQ' but WITHOUT row
 ! equilibration: rsf weighting changes the least-squares fit and
-! corrupts Jnn^{-1} JnT (unit-test t_schur).  The T
+! corrupts Jnn^{-1} JnT (unit-test t_schur). The T
 ! column/row of the raw BA block is eliminated into a dense ND x ND
 ! Schur complement S = JTT - JTn Jnn^{-1} JnT, factored once by
-! DGETRF.  S is diagonal in depth for v1 -- cross-depth T coupling is
+! DGETRF. S is diagonal in depth for v1 -- cross-depth T coupling is
 ! carried by the banded path, not duplicated here.
 !
 	JFNK_SCHUR_OK = .FALSE.
@@ -4642,7 +4642,7 @@
 	  END DO
 !
 ! Extract the raw T coupling blocks and form the dense Schur
-! complement.  JTN reads the raw BA row (unaugmented, unscaled);
+! complement. JTN reads the raw BA row (unaugmented, unscaled);
 ! the same applies to JNT and JTT.
 !
 	  DO K = 1, JFNK_ND
@@ -4681,14 +4681,14 @@
 !
 ! ── Banded LU preconditioner (JFNK_USE_BANDED=T) ────────────────────
 ! Assemble the full NT*ND × NT*ND banded BA matrix in LAPACK banded
-! storage format and factor with DGBTRF.  This captures cross-depth
+! storage format and factor with DGBTRF. This captures cross-depth
 ! J-coupling from the off-diagonal BA bands (radiative VJ/dJ-dopacity
 ! coupling and advection), providing a better preconditioner than
 ! block-diagonal LU when cross-depth coupling is significant.
 !
 ! Banded storage: AB(KL+KU+1+i-j, j) = A(i, j)
-! KL = KU = (NUM_BNDS/2) * NT  (sub/super-diagonal bandwidth)
-! DGBTRF needs LDAB=2*KL+KU+1 for pivot headroom.  The TDMA branch
+! KL = KU = (NUM_BNDS/2) * NT (sub/super-diagonal bandwidth)
+! DGBTRF needs LDAB=2*KL+KU+1 for pivot headroom. The TDMA branch
 ! never calls DGBTRF, so it uses the compact KL+KU+1 layout -- the
 ! extra KL*N rows cost ~3.8 GB here and pushed the interactive run
 ! over its node memory limit before factorization.
@@ -4705,13 +4705,13 @@
 ! active type, not just on JFNK_USE_BANDED: the apply path prefers a
 ! ready banded LU over any other preconditioner, so a JACOBI/LSQ/SCHUR
 ! run would otherwise pay the ~3*KL*N banded allocation (>>20 GB on
-! this model: SIGBUS on viper nodes at page touch, 21-Oct-2026 npq_dbg
+! this model: SIGBUS on viper nodes at page touch, 21-Oct-2026
 ! crash) and then silently apply a different preconditioner than the
-! one requested.  [JFNK_BANDED_TDMA] is the explicit exception: with
+! one requested. [JFNK_BANDED_TDMA] is the explicit exception: with
 ! PRECOND=JACOBI it still assembles the banded blocks, while skipping
 ! the per-depth LU allocation/factorization so the block-Thomas solve
 ! can fit the 30G interactive cap; a TDMA failure then falls back to
-! the requested Jacobi map.  CMAT_RAD_BANDS is still armed by
+! the requested Jacobi map. CMAT_RAD_BANDS is still armed by
 ! JFNK_BUILD_BA_RAD_V1 under JFNK_USE_BANDED regardless of this gate,
 ! so the analytic banded JVP keeps the full operator under JACOBI.
 !
@@ -4730,14 +4730,14 @@
 	  IF(JFNK_BANDED_TDMA)
 	1   LDAB_B = JFNK_BANDED_KL + JFNK_BANDED_KU + 1
 !
-! Diagonal row offset for the active LUAB layout.  The DGBTRF array
+! Diagonal row offset for the active LUAB layout. The DGBTRF array
 ! stores A(i,j) at AB(KL+KU+1+i-j, j); the compact [JFNK_BANDED_TDMA]
 ! array drops the KL pivoting headroom rows and must use
-! AB(KU+1+i-j, j) instead.  Every LUAB index below goes through
+! AB(KU+1+i-j, j) instead. Every LUAB index below goes through
 ! DIA_ROFF+1: the earlier single KL+KU+1 offset pushed every i>j
 ! entry past the compact LDAB, so the guarded assembly silently
 ! discarded the lower triangle (and every lower off-diagonal block)
-! and the block-Thomas factor only ever saw the upper band.  Found
+! and the block-Thomas factor only ever saw the upper band. Found
 ! on the btdc run (24-Oct-2026): superbands reported max|L|=0 and
 ! the vacuous 5E-14 backward error measured the truncated array
 ! against itself.
@@ -4772,9 +4772,9 @@
 ! For each depth K, first call the diagonal band with
 ! USE_PASSED_REP=.FALSE. to determine the correct REPLACE for
 ! that depth (which ground-state equations are replaced by
-! ionization equations).  Then call all bands with
+! ionization equations). Then call all bands with
 ! USE_PASSED_REP=.TRUE. so the same REPLACE is used for all
-! bands at this depth.  The off-diagonal bands capture the
+! bands at this depth. The off-diagonal bands capture the
 ! cross-depth J-coupling (dJ/dopacity via VJ) and advection
 ! coupling (BA_ADV_TERM) from the BA matrix.
 !
@@ -4830,14 +4830,14 @@
 	      END IF
 !
 ! Frozen-row reduction, mirroring the per-depth JFNK_BA_A block
-! above.  The analytic JVP sees T (and Ne under FIX_NE) as masked
+! above. The analytic JVP sees T (and Ne under FIX_NE) as masked
 ! unknowns: JFNK_MASK_FIXED_UNKNOWNS kills their input and output
 ! components, so the JVP operator has zero T/Ne row and column.
 ! Without the same reduction here LUAB keeps the real energy/
 ! charge rows and the dF/dT, dF/dNe columns: the solve then lets
 ! those stiff columns shift the population components of z, and
 ! masking z on output cannot undo it -- J*M^-1 measured on F was
-! |Jz-v|/|v| ~ 3.6E+05 (bte/btf audit, 24-Oct-2026).  Off-diagonal
+! |Jz-v|/|v| ~ 3.6E+05 (bte/btf audit, 24-Oct-2026). Off-diagonal
 ! blocks also get the row/column zeroed; the diagonal block keeps
 ! the identity row so the row is not all-zero for equilibration.
 !
@@ -4886,7 +4886,7 @@
 ! Equilibrate the banded matrix before factorization.
 ! The full BA has extreme dynamic range (row scale 1E-12 to 1E+42),
 ! so equilibration is essential for the banded LU to produce a
-! useful preconditioner.  Without it, the banded matrix is nearly
+! useful preconditioner. Without it, the banded matrix is nearly
 ! singular and the Newton step is in the null space.
 !
 ! DGBEQU computes ROW_SF and COL_SF such that
@@ -4895,7 +4895,7 @@
 !
 ! DGBEQU fails (info>0) if any row or column is entirely zero.
 ! The BA has zero rows for fixed variables (T, NE) — set their
-! diagonal to 1.0 before equilibration so DGBEQU succeeds.  These
+! diagonal to 1.0 before equilibration so DGBEQU succeeds. These
 ! rows produce x_i = b_i which is then masked to zero by
 ! JFNK_MASK_FIXED_UNKNOWNS.
 !
@@ -4908,12 +4908,12 @@
 	    N_ZROW = 0; N_ZCOL = 0; N_REG_B = 0
 !
 ! Block maximum over the assembled banded matrix (headroom rows are
-! zeroed at allocation).  Rows whose max|A_ij| is below
+! zeroed at allocation). Rows whose max|A_ij| is below
 ! JFNK_ROW_TINY*blockmax are replaced by the identity row, matching
-! the per-depth LU path.  Under [JFNK_ROW_TINY_EQUIL] the raw test is
+! the per-depth LU path. Under [JFNK_ROW_TINY_EQUIL] the raw test is
 ! replaced by the same scale-free share criterion used in the
 ! per-depth routine (share_i = max_J |A_iJ|/colmax_J < ROW_TINY).
-! Preconditioner only.  Repaired rows/columns
+! Preconditioner only. Repaired rows/columns
 ! are recorded in JFNK_ROW_REG so the apply side projects them to
 ! zero (linear) instead of returning z_i ~ v_i.
 ! edited by Sean Brennan (2026-10)
@@ -5052,27 +5052,27 @@
 	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc BANDED_COL_SF'
 	  END IF
 !
-! Equilibrate the banded matrix.  IMPORTANT (fix 2026-09-11):
+! Equilibrate the banded matrix. IMPORTANT (fix 2026-09-11):
 ! DGBEQU uses the COMPACT banded layout AB(KU+1+i-j,j) with
 ! LDAB=KL+KU+1, while DGBTRF/DGBTRS use the expanded layout
 ! AB(KL+KU+1+i-j,j) with LDAB=2*KL+KU+1 (KL rows of pivoting
-! headroom).  Calling DGBEQU on a DGBTRF-layout array reads the
+! headroom). Calling DGBEQU on a DGBTRF-layout array reads the
 ! matrix shifted up by KL rows — it then reports "row i is exactly
 ! zero" (info=i) for rows that are zero only in the headroom, and
 ! equilibration is silently skipped, leaving DGBTRF to factor a
-! matrix with ~1E54 dynamic range.  The resulting LU is numerically
+! matrix with ~1E54 dynamic range. The resulting LU is numerically
 ! meaningless and GMRES steps land in the near-null space.
 !
 ! The correct options are (a) pass the shifted base pointer
 ! LUAB(KL+1,1) so DGBEQU's KU+1+i-j lands on KL+KU+1+i-j, or
 ! (b) compute the row/column maxima directly on the stored band.
 ! Option (b) is used here: it is transparent, O(N*bandwidth), and
-! avoids sequence-association subtleties.  DIA_ROFF selects the
+! avoids sequence-association subtleties. DIA_ROFF selects the
 ! active layout (KL+KU for DGBTRF storage, KU under
 ! [JFNK_BANDED_TDMA]).
 !
 ! Algorithm (same as DGBEQU): R(i)=1/max_j|A(i,j)| on the raw band,
-! then C(j)=1/max_i|R(i)*A(i,j)| on the row-scaled band.  The solve
+! then C(j)=1/max_i|R(i)*A(i,j)| on the row-scaled band. The solve
 ! then uses b'=R*b, A_eq=D_r*A*D_c, x=C*y (already coded in
 ! JFNK_PRECOND_V1).
 !
@@ -5159,9 +5159,9 @@
 	    END DO
 	  END IF
 !
-! Factor the banded matrix.  Try zero ridge first; if DGBTRF fails,
+! Factor the banded matrix. Try zero ridge first; if DGBTRF fails,
 ! add a global ridge proportional to the maximum diagonal element
-! and retry once.  This avoids unnecessary regularization when the
+! and retry once. This avoids unnecessary regularization when the
 ! matrix is already well-conditioned.
 !
 	  IF(JFNK_BANDED_TDMA)THEN
@@ -5169,12 +5169,12 @@
 ! --- Block-Thomas factorization [JFNK_BANDED_TDMA, default F] ---
 ! DGBTRF on the assembled banded matrix costs O(N*KL*KU) ~ 3E15
 ! flops here (N=NT*ND~1.3E5, KL=KU~2NT) -- infeasible per JFNK
-! activation.  The block recurrence is ND*(4/3)*NT^3 (seconds once
-! per activation) with O(ND*NT^2) applies.  Blocks are extracted
+! activation. The block recurrence is ND*(4/3)*NT^3 (seconds once
+! per activation) with O(ND*NT^2) applies. Blocks are extracted
 ! from the scaled LUAB, so the identical row-reg'd, equilibrated
 ! operator is factored; the residual check measures the
 ! componentwise backward error against the scaled LUAB (ARAW is
-! not allocated under TDMA).  Ridge retries add to the LUAB
+! not allocated under TDMA). Ridge retries add to the LUAB
 ! diagonal -- the same convention as the DGBTRF retry (ridge on
 ! the matrix actually factored).
 !
@@ -5189,10 +5189,10 @@
 ! Superblock form (23-Oct-2026): a matrix with band half-width MB
 ! depths is exactly block-tridiagonal in superblocks of MB*NT rows.
 ! For NUM_BNDS=3, MB=1 and the superblocks are the depth blocks
-! themselves.  Wider NUM_BNDS (5,11,15 -- MB=2,5,7 all divide ND=70)
+! themselves. Wider NUM_BNDS (5,11,15 -- MB=2,5,7 all divide ND=70)
 ! widens the stored TX/dJ_LOC coupling that BA_UPDATE fills
 ! (BNDST:BNDEND scale with NUM_BNDS), so the same solve reaches
-! cross-depth structure the tridiagonal truncates.  Requires
+! cross-depth structure the tridiagonal truncates. Requires
 ! MOD(ND,MB)=0; the guard below leaves BTD_READY=F and the apply
 ! falls back to the per-depth LU.
 !
@@ -5228,7 +5228,7 @@
 	      DO
 ! Extract L/D/U from the scaled band on superblock boundaries:
 ! global row i=(K-1)*NTS+II, col j=(L-1)*NTS+JJ lives at
-! LUAB(DIA_ROFF+1+i-j, j).  D_NRM/L_NRM/U_NRM report the superband
+! LUAB(DIA_ROFF+1+i-j, j). D_NRM/L_NRM/U_NRM report the superband
 ! content so a run shows whether the stored coupling reaches the
 ! requested width without needing the BA_JVP probe.
 	        D_NRM_B = 0.0_LDP
@@ -5419,7 +5419,7 @@
 ! Componentwise backward error (Oettli-Prager): r_i / (|A||x| + |b|)_i.
 ! The raw ||Ax-b||/||b|| is meaningless here: with rows spanning
 ! 1E-44..1E+11, ||x||~1E+44 for b=1, so even a perfect LU shows a
-! huge absolute residual.  The componentwise form is ~machine
+! huge absolute residual. The componentwise form is ~machine
 ! epsilon for a correct factorization regardless of scaling.
 	          RN = 0.0D0; BN = 0.0D0
 	          DO I_C = 1, JFNK_BANDED_N
@@ -5488,10 +5488,10 @@
 	    END IF
 !
 ! DGBTRF failed — restore the pristine assembled matrix and retry
-! with a global ridge.  DGBTRF overwrites LUAB in place with partial
+! with a global ridge. DGBTRF overwrites LUAB in place with partial
 ! LU factors, so adding a ridge to the factorized array (the old
 ! code) re-factored garbage on the retry — exactly the ill-conditioned
-! case the retry exists for.  Rebuild sequence:
+! case the retry exists for. Rebuild sequence:
 !   LUAB = ARAW (pristine, unscaled, post zero-row fix)
 !   compute max diagonal from the restored raw matrix
 !   add ridge to the raw diagonal
@@ -5552,7 +5552,7 @@
 
 !
 ! JFNK_PRECOND_V1: Apply diagonal (Jacobi) BA preconditioner.
-! z = V / diag(BA + ridge).  Zero entries where |z| > ZMAX.
+! z = V / diag(BA + ridge). Zero entries where |z| > ZMAX.
 !
 ! edited by Sean Brennan (08-Sep-2026)
 !
@@ -5601,11 +5601,11 @@
 ! make M^{-1} depend on the input vector, so the GMRES Krylov
 ! construction (which assumes a linear operator) is invalid -- the
 ! event flags jfnk_pc_clip_event and GMRES aborts the solve rather
-! than silently solving a different problem.  Finite components of
+! than silently solving a different problem. Finite components of
 ! any magnitude pass through unclipped (revised 08-Oct-2026): with
 ! factor-time null rows projected by JFNK_ROW_REG, a huge finite z
 ! is faithful output of a badly conditioned block, and clipping it
-! would itself be the nonlinearity.  Deterministic small-diagonal
+! would itself be the nonlinearity. Deterministic small-diagonal
 ! zeroing is linear (independent of v) and is not counted.
 !
 	NZCLIP = 0
@@ -5627,16 +5627,16 @@
 	END IF
 !
 ! The preconditioner applies plain M^{-1} (physical-space BA solve).
-! RSCALE must NOT be applied here.  In weighted-norm GMRES the weight
+! RSCALE must NOT be applied here. In weighted-norm GMRES the weight
 ! (RSCALE) only enters the inner product (JFNK_DOT_V1); the
 ! preconditioner operates on physical-space vectors, matching the
 ! physical-space matvec (JFNK_JVP_V1) and residual (JFNK_RESIDUAL_V1).
 !
 ! The earlier "R*M^{-1}*R^{-1}" transform (audit Finding #5 suggestion)
 ! was incorrect: it is only valid if ALL GMRES vectors are scaled by
-! RSCALE (fully scaled space with Euclidean inner product).  Since the
+! RSCALE (fully scaled space with Euclidean inner product). Since the
 ! code keeps vectors physical and only weights the inner product, the
-! correct preconditioner is plain M^{-1}.  The R*M^{-1}*R^{-1} form
+! correct preconditioner is plain M^{-1}. The R*M^{-1}*R^{-1} form
 ! corrupted the Krylov space and caused JFNK to fail on the first
 ! Newton step (runaway |s|, non-descent, or trust-region collapse).
 !
@@ -5660,7 +5660,7 @@
 ! deferred until the reach/direction gates pass, so apply the
 ! folded-diagonal (Jacobi) map directly and return -- the lazy
 ! factorization below must not fire here or the deferral pays for
-! itself anyway.  JFNK_BA_RIDGE_ADD is still zero at this point
+! itself anyway. JFNK_BA_RIDGE_ADD is still zero at this point
 ! (ridges are decided by LU failures), so the gate prices the raw
 ! folded diagonal.
 	  DO K = 1, JFNK_ND
@@ -5684,7 +5684,7 @@
 !
 ! ── Banded LU solve (JFNK_USE_BANDED=T) ────────────────────────────
 ! When the banded LU factorization succeeded, solve the full
-! NT*ND system with DGBTRS.  This captures cross-depth J-coupling
+! NT*ND system with DGBTRS. This captures cross-depth J-coupling
 ! (dJ/dopacity and advection) in the preconditioner, improving
 ! GMRES convergence when the off-diagonal BA bands are significant.
 !
@@ -5710,7 +5710,7 @@
 	      END DO
 	    END IF
 ! Project regularized null rows/cols to zero -- a linear map, so
-! M^{-1} stays consistent.  (The banded path has no |z| clip at all,
+! M^{-1} stays consistent. (The banded path has no |z| clip at all,
 ! so without this a repaired row returned z_i ~ v_i, which can be
 ! ~1e12 when the residual is large.)
 	    IF(ALLOCATED(JFNK_ROW_REG))THEN
@@ -5750,7 +5750,7 @@
 	  END IF
 ! Superblock dims must match the factor: a band half-width MB depth
 ! matrix is block-tridiagonal in superblocks of MB*NT (see the
-! factor branch).  V(N) reshapes to v(NTS,NDS) across the call.
+! factor branch). V(N) reshapes to v(NTS,NDS) across the call.
 	  CALL JFNK_BTD_APPLY_V1(
 	1     MAX(JFNK_NUM_BNDS/2,1)*JFNK_NT,
 	2     JFNK_ND/MAX(JFNK_NUM_BNDS/2,1),
@@ -5787,7 +5787,7 @@
 ! edited, 05-Oct-2026: the banded branch used to RETURN
 ! above, skipping the shared post-processing at the end of the
 ! routine (log-unknown exp(-x) rescale, PTC diagonal correction,
-! final fixed-unknown mask).  A successful DGBTRS now flags
+! final fixed-unknown mask). A successful DGBTRS now flags
 ! BANDED_APPLIED and falls through so a banded apply sees identical
 ! post-processing to the LU path; only the per-depth solve/pack
 ! block is bypassed because the banded solve already wrote V.
@@ -5802,13 +5802,13 @@
 !
 ! ── Full BA block LU solve with equilibration ─────────────────────
 ! For each depth K, solves (BA_full + ridge) * step = v exactly per
-! depth block (up to LU roundoff).  The ROW_SF/COL_SF equilibration
+! depth block (up to LU roundoff). The ROW_SF/COL_SF equilibration
 ! only improves the conditioning of the LU factorization (DGETRF)
-! and does NOT change the linear system being solved.  The sequence
+! and does NOT change the linear system being solved. The sequence
 ! is:
-!   1. Scale RHS:  v' = ROW_SF * v
-!   2. DGETRS:     LU_equilibrated * y = v'  →  y = (BA_equil)^{-1} v'
-!   3. Scale sol:  step = COL_SF * y
+!   1. Scale RHS: v' = ROW_SF * v
+!   2. DGETRS: LU_equilibrated * y = v' → y = (BA_equil)^{-1} v'
+!   3. Scale sol: step = COL_SF * y
 ! which recovers step = (BA_full + ridge)^{-1} * v exactly.
 ! (Finding 5, review 2026-09-10: corrected misleading comment that
 !  described the preconditioner as an approximate scaled matrix; it
@@ -5816,8 +5816,8 @@
 !
 ! For 'LSQ' the factored operator is (J_eq^T J_eq + lam^2 I), so
 ! the solve is instead
-!   1. w   = ROW_SF * v'                (= ROW_SF^2 v)
-!   2. rhs = COL_SF * B^T w             (= J_eq^T v')
+!   1. w = ROW_SF * v' (= ROW_SF^2 v)
+!   2. rhs = COL_SF * B^T w (= J_eq^T v')
 !   3. DPOTRS: y = (J_eq^T J_eq + lam^2 I)^{-1} rhs
 !   4. step = COL_SF * y
 ! where B is the ridged, reg-substituted block before equilibration.
@@ -5846,7 +5846,7 @@
 !
 ! Per-depth apply lives in jfnk_solver_v1.f90
 ! (jfnk_pc_apply_block_v1) so the unit tests run the identical
-! production code.  It covers the LU solve, the LSQ normal-equation
+! production code. It covers the LU solve, the LSQ normal-equation
 ! solve, the Jacobi fallback, and the reg/fixed/nonfinite projection
 ! accounting; the counters feed the same reductions as before.
 !
@@ -5870,7 +5870,7 @@
 ! ── Two-level (n,T) Schur apply ───────────────────────────────────
 ! z_n = Jnn^-1 v_n (per-depth LSQ pop block); eliminate the T column
 ! into the dense Schur complement, solve S z_T = v_T - JTn z_n, then
-! back-substitute z_n -= Jnn^-1 JnT z_T.  All arithmetic lives in
+! back-substitute z_n -= Jnn^-1 JnT z_T. All arithmetic lives in
 ! JFNK_SCHUR_APPLY_V1 (jfnk_solver_v1.f90) so the unit-test driver
 ! runs the identical production code.
 !
@@ -5920,12 +5920,12 @@
 ! Preconditioner ridge (ChatGPT audit fix #4, 2026-09-09):
 ! JFNK_FACTOR_PRECOND_V1 builds the BA diagonal with a ridge
 !   RIDGE_ADD = MAX(MAX_VAL,1) * JFNK_BA_RIDGE_FAC
-! and stores it in JFNK_BA_RIDGE_ADD(K).  The previous code here
+! and stores it in JFNK_BA_RIDGE_ADD(K). The previous code here
 ! independently used MAX(JFNK_BA_RIDGE_FAC,1E-2)*MAX(ABS(DIAG),1),
 ! so the actual preconditioner was NOT the matrix that was built:
 ! it imposed a 1% ridge even when the configured ridge was zero,
 ! and used a per-row |DIAG| scale instead of the global MAX_VAL
-! scale.  Use the stored ridge so M^{-1} matches the factored M.
+! scale. Use the stored ridge so M^{-1} matches the factored M.
 	      DIAG_USE = JFNK_BA_DIAG(J, K) + JFNK_BA_RIDGE_ADD(J, K)
 	      IF(ABS(DIAG_USE) .GT. 1.0E-30_LDP)THEN
 	        Jacobi = JFNK_W_V_SAVE(J, K) / DIAG_USE
@@ -5953,7 +5953,7 @@
 	END IF
 ! Audit 17-Sep-2026 fix: a nonlinear preconditioner event (NaN->0 or
 ! |z|>1D8 clip) makes M^{-1} depend on the input, invalidating the
-! Krylov linearity assumption.  Flag it; GMRES aborts (info=3).
+! Krylov linearity assumption. Flag it; GMRES aborts (info=3).
 	IF(NZCLIP .GT. 0)jfnk_pc_clip_event = .TRUE.
 !
 ! Pack the preconditioned vector back into V.
@@ -5983,22 +5983,22 @@
 !
 	END IF   ! .NOT. BANDED_APPLIED
 !
-! Log unknown: BA was built for a fractional correction.  At x = 0
-! that derivative equals dF/d(ln n).  Later, divide the BA solution
+! Log unknown: BA was built for a fractional correction. At x = 0
+! that derivative equals dF/d(ln n). Later, divide the BA solution
 ! by exp(x) so the chain rule is in the preconditioner.
 !
 ! edited, 05-Oct-2026: pseudo-time continuation adds the
 ! fixed diagonal sigma_i = s_i/jfnk_ptc_dtau to the Jacobian (the
 ! G = F + (x - x_k)*s/dtau term in JFNK_RESIDUAL_V1), so the consistent
-! preconditioner is (J + sigma)^{-1}.  The previous blend
-!   z = (1-alp)*Z_BA + alp*b/sigma,  alp = sigma/(sigma+|d'|),
+! preconditioner is (J + sigma)^{-1}. The previous blend
+!   z = (1-alp)*Z_BA + alp*b/sigma, alp = sigma/(sigma+|d'|),
 ! is wrong in the scalar limit: with Z_BA = b/d' (d' is the signed
 ! preconditioner diagonal, including ridge or banded row repair) it
-! returns 2*b/(d'+sigma) for d' > 0 and 0 for d' < 0.  BA rate rows are predominantly loss-dominated (d' < 0),
+! returns 2*b/(d'+sigma) for d' > 0 and 0 for d' < 0. BA rate rows are predominantly loss-dominated (d' < 0),
 ! so the blend annihilated the preconditioner output on much of the
-! vector.  Rescale the BA solve instead:
+! vector. Rescale the BA solve instead:
 !   z_i = Z_BA_i * d'_i / (d'_i + sigma_i*exp(-x_i)).
-! which is scalar-exact for either sign of d'.  jfnk_ptc_dtau ->
+! which is scalar-exact for either sign of d'. jfnk_ptc_dtau ->
 ! infinity sends sigma -> 0 and the factor to 1 (pure BA solve);
 ! the live factor stores this shift in fractional units when PTC is
 ! folded, so this scalar path is skipped. Otherwise s_i and dtau are
@@ -6044,7 +6044,7 @@
 	      IF(ABS(D_PC) .GT. 1.0D-30)THEN
 ! [JFNK_PTC_SIGNED]: the scalar rescale uses the same per-row sign as
 ! the fold, so the denominator is |D|+sig in magnitude on d<0 rows
-! instead of crossing zero near sig ~ |d|.  READY=F is the unsigned
+! instead of crossing zero near sig ~ |d|. READY=F is the unsigned
 ! historical path.
 	        DENOM_PC = D_PC + SIG_EFF_PC
 	        IF(JFNK_PTC_SGN_READY)DENOM_PC = D_PC +
@@ -6082,20 +6082,20 @@
 ! passes through here, so scaling the T components of the output by
 ! the current ladder alpha down-weights the energy rows inside the
 ! preconditioned operator and biases GMRES toward population-space
-! descent while T stays live (not zeroed).  Step-level damping in
+! descent while T stays live (not zeroed). Step-level damping in
 ! JFNK_TAUTO_DAMP_V1 is still the hard bound.
 !
 	CALL JFNK_TAUTO_SCALE_V1(N, V)
 !
 ! W12 (17-Oct-2026, [JFNK_ENRICH], default F): Sherman-Morrison-
-! Woodbury tail of the enriched apply.  The base solve above produced
+! Woodbury tail of the enriched apply. The base solve above produced
 ! z1 = M0^-1 v (full path, same as the U columns were built with);
 ! the enriched output is
 !   z = z1 - U (I + E^T U)^-1 E^T z1,
 ! with U = M0^-1 W the JVP-probed field-response columns assembled by
-! JFNK_ASSEMBLE_ENRICH_V1 and S = I + E^T U already factored.  Linear
+! JFNK_ASSEMBLE_ENRICH_V1 and S = I + E^T U already factored. Linear
 ! in v, so Krylov consistency is preserved; K <= 64 keeps the tail
-! at O(K^2 + K*n).  Coupled tier only -- ACTIVE is set solely by the
+! at O(K^2 + K*n). Coupled tier only -- ACTIVE is set solely by the
 ! coupled-tri assembly.
 !
 	IF(JFNK_ENRICH_ACTIVE .AND. JFNK_ENRICH_KLOC .GT. 0)THEN
@@ -6134,16 +6134,16 @@
 	  END BLOCK
 	END IF
 !
-! [JFNK_SEC_R, default 0] rank-r Broyden/secant update.  The BA model
+! [JFNK_SEC_R, default 0] rank-r Broyden/secant update. The BA model
 ! misses the true operator's action on the residual-dominant rows
 ! (FD-vs-BA ~1E4 there, 23-Oct-2026), so no BA-derived factorization
 ! can converge those directions; the correction adds the measured
 ! pairs instead: B'v = Bv + D*(G^-1 JV^T v) with G = JV^T JV and
 ! D_i = u_i - B(J*u_i), giving B'(J*u_i) = u_i exactly on the
-! recorded span.  The D columns are built lazily at first use because
+! recorded span. The D columns are built lazily at first use because
 ! they need the factored base map; the recursive apply calls run
 ! under JFNK_SEC_BASE so they return the uncorrected B and cannot
-! re-enter this block.  Linear in v, so Krylov consistency is kept.
+! re-enter this block. Linear in v, so Krylov consistency is kept.
 !
 	IF(JFNK_SEC_R .GT. 0 .AND. .NOT. JFNK_SEC_BASE)THEN
 	  IF(JFNK_SEC_N .GT. JFNK_SEC_BUILT_N)THEN
@@ -6181,7 +6181,7 @@
 ! their own intermediate results, but the log/PTC rescale, T-ladder
 ! scaling and the enrichment backsolve run afterwards -- Z_BA*EXP(-x),
 ! RHS/SIG and the E-column correction can still overflow or return NaN
-! on a block the factor stage accepted.  A non-finite component
+! on a block the factor stage accepted. A non-finite component
 ! reaching GMRES corrupts the Krylov basis, so scan the delivered
 ! vector once here: zero the bad entries (the only safe action inside
 ! a matvec) and raise the clip flag, which aborts the solve rather
@@ -6241,9 +6241,9 @@
 
 !
 ! Scale the T components of a preconditioned vector by the current
-! FIX_T_AUTO ladder alpha.  Unlike the mask, the components stay
+! FIX_T_AUTO ladder alpha. Unlike the mask, the components stay
 ! nonzero: the energy equation keeps its weight in the preconditioned
-! system, just reduced.  Only applied when JFNK_TAUTO_ACTIVE and
+! system, just reduced. Only applied when JFNK_TAUTO_ACTIVE and
 ! JFNK_TAU_PCW; harmless no-op otherwise.
 !
 	SUBROUTINE JFNK_TAUTO_SCALE_V1(N, VEC)
@@ -6268,7 +6268,7 @@
 !
 ! JFNK_DOT_V1: Weighted dot product for the JFNK solver.
 !
-! Computes  dot = sum_i (RSCALE(i) * A(i)) * (RSCALE(i) * B(i))
+! Computes dot = sum_i (RSCALE(i) * A(i)) * (RSCALE(i) * B(i))
 !
 ! The per-element residual scaling RSCALE normalizes each residual
 ! element to O(1) so that all species contribute equally to the norm.
@@ -6291,7 +6291,7 @@
 !
 	S = 0.0D0
 	IF(JFNK_RSCALE_READY)THEN
-! Task 4: SIMD reduction for the weighted inner product.  The SA/SB
+! Task 4: SIMD reduction for the weighted inner product. The SA/SB
 ! temporaries are inlined so the reduction expression is explicit and
 ! the compiler can vectorize without private-temporary analysis.
 ! KIND=LDP precision is preserved: DBLE(JFNK_RSCALE(I)) casts the
@@ -6325,7 +6325,7 @@
 ! residual weighting on GMRES convergence.
 !
 ! This is a DIAGNOSTIC ONLY — it does not modify any production
-! solver state.  Called once after the preconditioner is factored
+! solver state. Called once after the preconditioner is factored
 ! and RSCALE is computed.
 !
 ! edited by Sean Brennan (10-Oct-2026)
@@ -6414,7 +6414,7 @@
 ! A = BA_k (true Jacobian, no ridge)
 ! M = BA_k + ridge*I (preconditioner)
 !
-! JFNK_BA_A includes the ridge on its diagonal.  Subtract it to
+! JFNK_BA_A includes the ridge on its diagonal. Subtract it to
 ! get the true Jacobian A.
 !
 	DO J = 1, JFNK_NT
@@ -6502,7 +6502,7 @@
 	CALL DGETRS(NO_TRANS, JFNK_NT, 1, M_LU, JFNK_NT, IPIV_TOY, B_VEC,
 	1   JFNK_NT, INFO_LU)
 !
-! B_VEC now holds M^{-1}*A*v.  Compare to v.
+! B_VEC now holds M^{-1}*A*v. Compare to v.
 !
 	T1 = 0.0_LDP; T2 = 0.0_LDP; RES = 0.0_LDP
 	DO I = 1, JFNK_NT
@@ -6581,7 +6581,7 @@
 	  WRITE(LUER,'(A,ES12.4)') '    Initial ||r||_w = ', RES0
 !
 	  DO J = 1, MIN(MAXITS, M_TOY)
-!     w = A * M^{-1} * v_j  (right preconditioning)
+!     w = A * M^{-1} * v_j (right preconditioning)
 	    DO I = 1, JFNK_NT
 	      V_VEC(I) = V_BASIS(I, J)
 	    END DO
@@ -6783,9 +6783,9 @@
 	FLUSH(LUER)
 !
 ! Save left_pc setting and force right preconditioning for the RSCALE
-! comparison below.  T1/T2 are reused as RSCALE scratch inside the
+! comparison below. T1/T2 are reused as RSCALE scratch inside the
 ! loop, so the flag must live in its own logical -- the old real
-! save was clobbered by the min() pass and the restore read the
+! save was clobbered by the min pass and the restore read the
 ! RSCALE minimum instead of the saved state.
 !
 	SAVE_LEFT_PC = jfnk_use_left_pc
@@ -7037,7 +7037,7 @@
 ! Relaxation (audit §13, 09-Sep-2026): when GMRES used few iterations
 ! (well below the refresh threshold), relax the ridge back down so
 ! the preconditioner does not drift permanently away from the physical
-! BA.  The ridge only increases when GMRES is struggling, and decreases
+! BA. The ridge only increases when GMRES is struggling, and decreases
 ! when GMRES is converging easily.
 !
 	IF(jfnk_need_precond_refresh .NE. 0)THEN
@@ -7221,9 +7221,9 @@
 	CALL JFNK_PRECOND_V1(N, Z_TEST)
 !
 ! Compute M*z using JFNK_BA_A (diagonal band; PTC fold is already in
-! BA_A because S_PTC is added to BA_A before LU_FAC copies it).  This
+! BA_A because S_PTC is added to BA_A before LU_FAC copies it). This
 ! raw-BA check is superseded by the factored-M check below, which adds
-! the stored ridge and identity reg-rows.  Neither reconstructs the
+! the stored ridge and identity reg-rows. Neither reconstructs the
 ! banded path: under JFNK_USE_BANDED=T the factored matrix also carries
 ! the off-diagonal SE(ID)%BA bands, which would read here as a false
 ! residual.
@@ -7256,9 +7256,9 @@
 	1    ' ||z||_inf=', Z_NORM,
 	1    ' ||Mz-v||_inf=', R_NORM
 !
-! Row-resolved decomposition.  The apply projects frozen rows
+! Row-resolved decomposition. The apply projects frozen rows
 ! (J=NT T, J=NT-1 Ne) out of z, so the full-space metric mixes the
-! intended projection with real LU error.  Report the residual on
+! intended projection with real LU error. Report the residual on
 ! population rows alone and the share of v carried by the frozen
 ! rows to separate the two.
 !
@@ -7295,11 +7295,11 @@
 	1    '  PC accuracy (v=F, pop rows): ||Mz-v||_inf=', R_NORM_P,
 	1    ' |v|_inf on T/Ne rows=', V_NORM_T
 !
-! Reg-row split.  JFNK_ROW_REG rows were substituted by the identity
+! Reg-row split. JFNK_ROW_REG rows were substituted by the identity
 ! before factoring, so BA_A*z - v on those rows mixes the original
 ! row coefficients with an identity-row solve result: a structural
-! audit mismatch, not apply error.  The non-reg pop-row residual is
-! the honest apply check.  The weighted |F|^2 share on reg rows is
+! audit mismatch, not apply error. The non-reg pop-row residual is
+! the honest apply check. The weighted |F|^2 share on reg rows is
 ! the part of the Krylov residual that J*M^{-1} can never reduce
 ! (the preconditioned operator row is near-null there); if that
 ! share is O(1), GMRES stagnation is structural, not an apply bug.
@@ -7314,10 +7314,10 @@
 	END IF
 !
 ! Same check against the matrix that was actually factored:
-! M_mod = BA_A + ridge on the diagonal, identity on reg rows.  The
+! M_mod = BA_A + ridge on the diagonal, identity on reg rows. The
 ! BA_A-based residual above conflates apply error with the intended
 ! model modification (ridge contributes ~1E-4*|BA_ii|*|z_i| on stiff
-! rows, which alone can reach 1E22+).  A small residual here means the
+! rows, which alone can reach 1E22+). A small residual here means the
 ! LU apply is correct and the mismatch lives in the model difference.
 !
 	R_TEST = 0.0_LDP
@@ -7363,7 +7363,7 @@
 ! (post-chain), so the delivered operator is P*M^{-1}, not M^{-1}.
 ! On a non-reg row i the residual picks up the truncated reg-column
 ! coupling: M_mod*(P z) - v = -sum_{j reg} BA_A(i,j)*v_j, since the
-! identity substitution gives z_j = v_j in the solve.  Recompute the
+! identity substitution gives z_j = v_j in the solve. Recompute the
 ! residual with the pre-projection vector (z on non-reg rows, v on
 ! reg rows): if the apply is exactly "solve then project", this
 ! restores the small-solve residual and exposes the column coupling
@@ -7415,14 +7415,14 @@
 	1    '  PC accuracy (v=F, pre-projection z): |Mz-v|_inf=', R_NORM,
 	1    ' non-reg pop rows=', R_NORM_NR
 !
-! Banded J*M^{-1} check.  The checks above reconstruct M from
+! Banded J*M^{-1} check. The checks above reconstruct M from
 ! JFNK_BA_A plus the stored ridge and reg-row identities; they do
 ! not see the off-diagonal SE(ID)%BA bands or the CMAT_RAD blocks
 ! the banded JVP uses, so under JFNK_USE_BANDED they conflate apply
-! error with missing bands.  Here the same analytic matvec the
+! error with missing bands. Here the same analytic matvec the
 ! GMRES JVP uses is applied to the delivered z = M^{-1} F: if the
 ! factored banded operator equals the JVP operator, |Jz - v| sits
-! at the backward-error level modulo reg-row projection.  This is
+! at the backward-error level modulo reg-row projection. This is
 ! the decisive check for the compact-TDMA layout, where a wrong
 ! storage offset silently drops matrix content while the factor's
 ! own backward-error check still passes.
@@ -7490,7 +7490,7 @@
 	1    R_NORM_NR
 !
 ! Localize the worst mismatch: report the (depth, row) of the
-! largest |Jz-v| component and of the largest |z| component.  The
+! largest |Jz-v| component and of the largest |z| component. The
 ! argmax row identifies which part of the operator disagrees with
 ! the JVP (e.g. frozen T/Ne rows before the LUAB frozen-row
 ! reduction, or specific depth blocks with dropped band content).
@@ -7565,7 +7565,7 @@
 !=======================================================================
 ! JFNK_COMP_DIAGNOSTIC_V1: Comprehensive compression-zone diagnostic.
 !
-! Called once at the first JFNK Newton iteration.  Performs:
+! Called once at the first JFNK Newton iteration. Performs:
 !   1. Residual linearity test (is F(x) linear in x?)
 !   2. FD JVP convergence study (EPS = 1e-4 .. 1e-8)
 !   3. FD-vs-BA decomposition (per-depth worst discrepancies)
@@ -8121,10 +8121,10 @@
 !
 !
 !
-! JFNK_ROW_ANATOMY_V1: residual anatomy at admission.  Prints the
+! JFNK_ROW_ANATOMY_V1: residual anatomy at admission. Prints the
 ! collisional / stored-radiation split of F, the per-ion rollup of
 ! |F|^2, and the top JFNK_ROW_DIAG rows labeled by ion, level and
-! depth.  Jz_i (the row content of the linear preconditioned step) is
+! depth. Jz_i (the row content of the linear preconditioned step) is
 ! printed when the reach precheck supplies it: a large |F_i| with
 ! Jz_i ~ 0 marks a row no population step can reach, which is what
 ! separates radiation-lag rows from population-driven ones and
@@ -8133,7 +8133,7 @@
 ! jfnk_fx = coll + rad at admission (x=0), so coll_i = F_i - rad_i is
 ! exact without touching JFNK_W_STEQ_MAT -- the preconditioner reuses
 ! that buffer as scratch, so reading it here would print solve
-! internals, not the collisional STEQ.  Unweighted (physical) norms
+! internals, not the collisional STEQ. Unweighted (physical) norms
 ! are used: RSCALE rescaling would hide which equations actually
 ! carry the residual.
 !
@@ -8168,7 +8168,7 @@
 !
 ! Variable index J follows the POPS ordering: levels
 ! EQXzV..EQXzV+NXzV-1 belong to ion ID; the highest stage of each
-! species contributes its single conservation row at EQXzV.  J=NT-1
+! species contributes its single conservation row at EQXzV. J=NT-1
 ! is the charge (Ne) row and J=NT the energy (T) row.
 !
 	ALLOCATE(J2ID(JFNK_NT))
@@ -8348,25 +8348,25 @@
 ! but BEFORE the LU factorization and any reach-precheck JVP evals.
 ! On radiation-pinned residuals -- the SOB frozen-J class where ~all
 ! of |F| sits in deep-H rows whose radiative lag no population step
-! can move (m15 SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
+! can move (SOB 2.82d: |BArow|/|F| ~ 1e8-1e9 on the top rows,
 ! ~39k pop-floor regularized rows, cos(F,Jz) ~ 1e-4) -- this certifies
 ! the frozen tier's inability for ~one residual eval plus the BA build
 ! instead of ~78 s of CMAT+LU per admission.
 !
 ! Metrics returned:
-!   R_MAX/R_MED  - max/median row-stiffness r_i = |BA_i|.inf /
+!   R_MAX/R_MED - max/median row-stiffness r_i = |BA_i|.inf /
 !                  max(|F_i|, 1e-8*|F|max) (inf-norm rows of the
 !                  built, PTC-folded JFNK_BA_A)
-!   STIFF_FR     - fraction of all N rows with r_i > JFNK_CENSUS_STIFF_CUT
-!   PIN_N        - rows that factor-time regularization would mask
+!   STIFF_FR - fraction of all N rows with r_i > JFNK_CENSUS_STIFF_CUT
+!   PIN_N - rows that factor-time regularization would mask
 !                  (ROW_TINY near-null + JFNK_POP_FL population floor,
 !                  replicated here on the unfactored block)
-!   PIN_FSH      - share of |F| (unweighted l1) on those pinned rows
-!   FTOP_FR      - share of |F|^2 held by the top 1% of rows
+!   PIN_FSH - share of |F| (unweighted l1) on those pinned rows
+!   FTOP_FR - share of |F|^2 held by the top 1% of rows
 !
 ! The pinned-row mask is also stored in JFNK_CENSUS_REG for the W12
 ! anchor selection (enrichment must not anchor on structurally-zero
-! directions).  DO_PRINT gates the OUTGEN block (CONV_DIAG_LVL>=1).
+! directions). DO_PRINT gates the OUTGEN block (CONV_DIAG_LVL>=1).
 !
 	SUBROUTINE JFNK_RESIDUAL_CENSUS_V1(LUER,R_MAX,R_MED,STIFF_FR,
 	1    PIN_N,PIN_FSH,FTOP_FR,DO_PRINT)
@@ -8438,7 +8438,7 @@
 	END DO
 	FFL=1.0D-8*FMAX
 !
-! Pinned-row mask + stiffness, per depth.  Replicates the factor-time
+! Pinned-row mask + stiffness, per depth. Replicates the factor-time
 ! tests on the unfactored block: near-null row vs JFNK_ROW_TINY*BLKMAX,
 ! then the JFNK_POP_FL population floor per ion.
 !
@@ -8592,27 +8592,27 @@
 ! Here the same response is added as a bounded rank-K update built
 ! from Jacobian-vector products only:
 !
-!   anchors   : K unknowns e_c at the rows where the stored operator
+!   anchors : K unknowns e_c at the rows where the stored operator
 !               is worst -- top-|F| rows ranked by census stiffness
 !               r_i = |BA_i|.inf/|F_i| (JFNK_CENSUS_REG rows excluded:
 !               pop-floor regularized directions are structurally
 !               zero and anchoring them wastes evals / reintroduces
 !               the clipped flail the census documents).
-!   columns   : W(:,m) = J e_c - BA_A e_c.  The FD column comes from
+!   columns : W(,m) = J e_c - BA_A e_c. The FD column comes from
 !               JFNK_JVP_V1 (exact coupled J action, the SAME state
 !               and PTC-folded BA_A the LU was built from -- the
 !               compare is self-consistent under the fold because
 !               BA_A already carries it).
-!   apply     : with U = M0^-1 W and S = I + E^T U (K x K, factored
+!   apply : with U = M0^-1 W and S = I + E^T U (K x K, factored
 !               once), JFNK_PRECOND_V1 applies
-!               z -> z - U S^-1 E^T z  (Sherman-Morrison-Woodbury on
+!               z -> z - U S^-1 E^T z (Sherman-Morrison-Woodbury on
 !               the left-preconditioned operator, O(K^2+K*n) per GMRES
 !               iteration).
 !
 ! Cost is K coupled residual evals (one JVP per anchor) plus two
 ! telemetry JVPs, bounded by JFNK_ENRICH_PERCENT of the activation
 ! eval budget; past the cap the enrichment is abandoned and the
-! plain LU runs.  No production state is touched: the JVPs respect
+! plain LU runs. No production state is touched: the JVPs respect
 ! the e7d5d43 eval-bracket contract and FREEZE_I_NEXT holds for the
 ! whole admission window.
 !
@@ -8645,7 +8645,7 @@
 !
 ! W23 [JFNK_ESFR, default F]: the source-function-response term
 ! (Arramy et al. 2024 eqs. 55-61) needs the previous committed
-! Newton update's stored dJ/dn per anchor row.  No stored-dJ
+! Newton update's stored dJ/dn per anchor row. No stored-dJ
 ! channel exists in this tree, so the flag warns once per assembly
 ! and runs the plain anchor enrichment until the channel lands
 ! (audit doc W23); enabling it never silently changes the basis.
@@ -8685,7 +8685,7 @@
 !
 ! Eval cap: JFNK_ENRICH_PERCENT bounds the extra coupled evals this
 ! activation spends on enrichment, as a percent of the activation
-! budget (JFNK_EVAL_LIM, else JFNK_MAX_EVALS).  <=0 = uncapped.
+! budget (JFNK_EVAL_LIM, else JFNK_MAX_EVALS). <=0 = uncapped.
 !
 	NEV0=JFNK_N_RESIDUAL_EVALS
 	NEV_CAP=HUGE(1)
@@ -8727,7 +8727,7 @@
 	END DO
 !
 ! Anchor candidates: non-regularized, non-fixed rows ordered by |F_i|
-! (top 4*KWANT pool), then ranked by stiffness r_i.  Anchoring on the
+! (top 4*KWANT pool), then ranked by stiffness r_i. Anchoring on the
 ! residual-heavy rows is what inserts the missing dJ/dn response in
 ! the directions F actually lives.
 !
@@ -8780,7 +8780,7 @@
 !
 ! W24b: one ALLOCATE per array -- a shared STAT=IOS leaves the
 ! earlier siblings partially allocated on failure, so the DEALLOCATE
-! list below must only touch what the run actually owns.  Unallocated
+! list below must only touch what the run actually owns. Unallocated
 ! members of the group are safe to deallocate by name.
 !
 	IOS=0
@@ -8854,9 +8854,9 @@
 	1     '    anchor idx=',II,' K=',K,' J=',J,
 	2     '  max|dA|=',DMET,'  |dA|/|BAcol|=',DMET/MAX(FFL,1.0D-300)
 !
-! U(:,m) = M0^-1 W(:,m) through the full existing apply (LU +
+! U(,m) = M0^-1 W(,m) through the full existing apply (LU +
 ! post-processing), so the enrichment corrects the operator GMRES
-! actually sees.  JFNK_ENRICH_ACTIVE is still F here, so the apply is
+! actually sees. JFNK_ENRICH_ACTIVE is still F here, so the apply is
 ! the plain M0^-1.
 !
 	  CALL JFNK_PRECOND_V1(N,WRK)
@@ -8887,7 +8887,7 @@
 	JFNK_ENRICH_ACTIVE=.TRUE.
 !
 ! Direction telemetry: does the enriched preconditioner repair the
-! stored operator's descent failure on F?  Price cos(F, A z) with the
+! stored operator's descent failure on F? Price cos(F, A z) with the
 ! plain and the enriched apply -- two coupled evals, counted under
 ! the same cap.
 !
@@ -8964,13 +8964,13 @@
 ! Residual-informed enrichment ([JFNK_ENRICH_ARN], default F).
 !
 ! The coordinate-anchor basis failed on the first coupled test
-! (jte_cpl_enrich it603/605): most columns of J-BA at anchor rows are
+! (/605): most columns of J-BA at anchor rows are
 ! ~3E-7 of |BAcol| and the correction did not rotate the stalled
-! direction.  This variant instead runs K steps of Arnoldi on the
+! direction. This variant instead runs K steps of Arnoldi on the
 ! right-preconditioned operator A_p = J M0^-1 seeded with the
-! normalized residual v_1 = F/|F|.  Each step is one PC apply
+! normalized residual v_1 = F/|F|. Each step is one PC apply
 ! (u_i = M0^-1 v_i, no eval) plus one JVP (w_i = J u_i, one coupled
-! eval).  Since u_i was produced by the same apply GMRES uses,
+! eval). Since u_i was produced by the same apply GMRES uses,
 ! M u_i = v_i to LU accuracy, so q_i = w_i - v_i is the exact probe
 ! of the operator gap (J - M) u_i along the directions the Krylov
 ! method actually explores.
@@ -8980,12 +8980,12 @@
 !    M' = M + Q T^-1 QP^T
 ! satisfies M' u_i = J u_i exactly on the retained subspace -- i.e.
 ! the enriched preconditioner reproduces J on every direction the
-! stall was measured in.  If GMRES still fails under M', the
+! stall was measured in. If GMRES still fails under M', the
 ! explored subspace itself cannot support progress, which is a
 ! stronger diagnostic than the coordinate test provided.
 !
 ! Apply side (JFNK_PRECOND_V1, SMW tail):
-!    z -> z - U0 (I + QP^T U0)^-1 QP^T z,   U0 = M0^-1 Q T^-1,
+!    z -> z - U0 (I + QP^T U0)^-1 QP^T z, U0 = M0^-1 Q T^-1,
 ! identical in form to the coordinate path with E^T replaced by QP^T.
 !
 	JFNK_ENRICH_ACTIVE=.FALSE.
@@ -9027,7 +9027,7 @@
 	2   ' (entry at',NEV0,')'
 	END IF
 !
-! v_1 = normalized masked residual.  A masked-near-zero F means
+! v_1 = normalized masked residual. A masked-near-zero F means
 ! nothing is reachable this activation -- bail to the plain LU.
 !
 	WN=jfnk_fx(1:N)
@@ -9070,7 +9070,7 @@
 !
 ! MGS of the probe u_i into QP (P = QP T): dependent directions carry
 ! no new constraint, and a singular T would make T^-1 meaningless, so
-! a collapse ends the basis.  The pair is still counted -- QD(:,I) is
+! a collapse ends the basis. The pair is still counted -- QD(,I) is
 ! stored before the test so the eval is not wasted if M is kept.
 !
 	  UNRM=SQRT(DOT_PRODUCT(U,U))
@@ -9090,7 +9090,7 @@
 	  QP(:,M)=U/NRM
 !
 ! Arnoldi continuation: v_{m+1} = w_i orthogonalized against the
-! completed basis.  A collapsing residual means J M0^-1 closed on
+! completed basis. A collapsing residual means J M0^-1 closed on
 ! the probed subspace -- the best possible outcome for this pass.
 !
 	  WN=W
@@ -9114,7 +9114,7 @@
 	END DO
 	IF(M .LE. 0)GOTO 100
 !
-! UU = Q T^-1 with T upper-triangular; U0(:,j) = M0^-1 UU(:,j) via
+! UU = Q T^-1 with T upper-triangular; U0(,j) = M0^-1 UU(,j) via
 ! the plain apply (still JFNK_ENRICH_ACTIVE=F).
 !
 	TI=0.0D0
