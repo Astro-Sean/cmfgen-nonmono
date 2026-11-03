@@ -305,6 +305,15 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Acceptance: an equation-by-equation mapping doc; owner-intent
   question answered in writing.
 - Dependencies: none.
+- Completion: 2026-11-03 - `SOBOLEV_DAH2015_EQUATION_MAP.md` maps
+  every Sec-3.1 element to code lines. The only extension past the
+  paper's stated recipe is the `1D-4` arm of the tau floor (bounds
+  the sigma -> -1 case where the paper's own -0.2*(1+sigma) floor
+  vanishes). The OCR'd paper text drops the floor's minus sign;
+  -0.2*(1+sigma) is the only reading that is positive for sigma<-1
+  and matches all four code comments. The nonmono-J routine the
+  paper describes maps to the Knop/moment stack - a superset, not
+  a divergence.
 - Completion: partial (attribution recorded; equation map open).
 
 ### [~] P2-002 - Derive and document the implemented Sobolev optical-depth equation
@@ -322,8 +331,11 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Acceptance: single documented expression + per-file line refs;
   mismatches (if any) filed as defects.
 - Dependencies: P2-001.
-- Completion: partial (formula known and tested; written derivation
-  open).
+- Completion: partial (formula known and tested 2026-11-03; all four
+  sites confirmed bit-identical at sobjbar_sim.f:124-130,
+  sobew.f:131, sobew_grad_v2.f:137, sobew_grad_v3.f:140 - same
+  GAM=GAMH/T1 with T1=MAX(|1+sigma*mu^2|,-0.2*(1+sigma),1e-4) for
+  sigma<0 else |T1|. Written derivation into P2-001 doc open).
 
 ### [~] P2-003 - Audit the denominator floor MAX(|1+sigma*mu^2|, -0.2*(1+sigma), 1E-4)
 - Priority: P0
