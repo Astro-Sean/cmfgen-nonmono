@@ -235,6 +235,7 @@
 !
 	INTEGER DEPTH_INDX
 	INTEGER BAND_INDX
+	INTEGER N_PIN
 !
         INTEGER I,J,K,JJ
 	INTEGER N_DIV_FLOOR
@@ -898,6 +899,16 @@ C
 	    FIRST_MATRIX=.FALSE.
 !
 	    STEQ_STORE(:,K)=STEQ(:,K)
+!
+! An exactly uncoupled variable with a zero residual has no equation or
+! effect on the remaining equations. Set its correction to zero so one
+! null variable does not make DGETRF discard the whole depth block.
+! This is not flag-gated: ordinary matrices retain the upstream solve,
+! and only this exact 0=0 subproblem gets a chosen null-space value.
+!
+	    CALL CMF_BLKBAND_PIN_NULL_V1(C_MAT,STEQ(1,K),N,N_PIN)
+	    IF(N_PIN .GT. 0)WRITE(LUER,'(A,I3,A,I4)')
+	1    ' CMF_BLKBAND: pinned',N_PIN,' uncoupled zero rows at depth ',K
 !
 !	  WRITE(TMP_STR,'(I2)')K; TMP_STR='BA_ASCI_N_D'//ADJUSTL(TMP_STR)
 !	  OPEN(UNIT=96,FILE=TMP_STR,STATUS='UNKNOWN')
