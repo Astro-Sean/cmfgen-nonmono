@@ -12,6 +12,8 @@
 !   match  conv + DO_NONMONO_FREQ_MATCH -> NMATCH>0 multi-bin slots
 !   cap    tight tolerance + 4 passes -> pass-cap exit (NXIT=4)
 !   fixed  store seeded with a self-consistent field -> small resid
+!   rev    two compressing bands -> sign-reversal upwind coverage
+!   strg   deep-negative GAM band -> strong-compression regime
 !
       PROGRAM DRV_KNOP_RAY
       USE SET_KIND_MODULE
@@ -38,6 +40,8 @@
       IF(CNAME .EQ. 'match')NCASE=3
       IF(CNAME .EQ. 'cap')  NCASE=4
       IF(CNAME .EQ. 'fixed')NCASE=5
+      IF(CNAME .EQ. 'rev')  NCASE=6
+      IF(CNAME .EQ. 'strg') NCASE=7
       IF(CNAME .EQ. 'ckpt') NCASE=9
       IF(CNAME .EQ. 'rfsh') NCASE=10
 !
@@ -97,10 +101,31 @@
       IF(NCASE .EQ. 3)GAMP=2.0E-5_LDP
       IF(NCASE .EQ. 4)GAMP=4.0E-6_LDP
       DO I=1,NIX
-        IF(I .GE. 3 .AND. I .LE. 5)THEN
-          GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+        IF(NCASE .EQ. 6)THEN
+! Two compressing bands (depths 3-4 and 6-7) separated by an
+! expanding cell: the velocity-gradient sign reverses twice along
+! the ray, exercising the sign-dependent upwind pick in both
+! directions on a single profile.
+          IF((I .GE. 3 .AND. I .LE. 4) .OR. &
+      (I .GE. 6 .AND. I .LE. 7))THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
+        ELSE IF(NCASE .EQ. 7)THEN
+! Strong compression: same single band, GAM ~150x deeper negative -
+! the sigma << -1 regime.
+          IF(I .GE. 3 .AND. I .LE. 5)THEN
+            GAM(I,1)=-6.0E-4_LDP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
         ELSE
-          GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          IF(I .GE. 3 .AND. I .LE. 5)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
         END IF
         GAM_MAG(I,1)=ABS(GAM(I,1))
         dGAMdR(I,1)=0.3_LDP*GAM(I,1)/RR(I)
