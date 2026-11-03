@@ -15,6 +15,7 @@ Status summary:
 | BUG-002 | P2       | SOB_RH_GEOM cache fingerprint misses SIGMA        | FIXED  |
 | BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY     | REFUTED|
 | BUG-004 | P2       | Zero-GAM resonance: floored factor vs exact-zero | REFUTED|
+| BUG-005 | P2       | JFNK admissions on m15 always defer before GMRES | REFUTED|
 
 ------------------------------------------------------------------------
 
@@ -516,6 +517,72 @@ Recorded observations (no action):
   exception should take +-0.01 instead of 0 - but the correct
   fix would be the decoupled row itself, which is already what the
   code assembles.
+
+------------------------------------------------------------------------
+
+## BUG-005 - JFNK admissions on m15 always defer before GMRES
+
+- Bug ID: BUG-005
+- Severity: P2 (measured production behaviour, investigated as a
+  suspected utility/correctness gap)
+- Status: REFUTED - not a defect; the guard is doing its designed
+  job. The measurement matters for the open P4 runtime legs.
+- Affected source files and routines:
+  - `new_main/mod_subs/jfnk_solve_corr_v1.f` (admission, GUARD
+    DEFER / reach test, "skipping Newton" path)
+  - `new_main/mod_subs/jfnk_solver_v1.f90` (GMRES entry that is
+    never reached on m15)
+- Suspected defect: that the JFNK tier either runs GMRES on m15
+  (so the BUG-001 fix changes production answers) or that the
+  defer is a spurious rejection of a reachable solve.
+- Measured behaviour: across both surviving production OUTGENs,
+  every JFNK admission deferred before Newton:
+  - `m15_2p82d_SOB_l14_lte_adp/.../OUTGEN`: 36 admits, 36 defers
+  - `m15_2p82d_SOB_l14_lte_adp2/.../OUTGEN`: 119 admits, 119 defers
+  - All 155 defers carry `GUARD DEFER: FD non-descent
+    cos(F,Az) < fd_cos_min=5.00E-02`, with measured cos(F,Az)
+    spanning ~1E-3 to ~1E-2 (occasionally negative). Each
+    deferred admission costs ~4 residual evals (F(0) test +
+    census + reach eval), is explicitly not counted against the
+    FSM rungs ("retaining caller mode (not counted, rung
+    unchanged)"), and the outer iteration then advances via the
+    LAMBDA/BA step.
+  - The defer is physical: the JFNK CENSUS at it485 shows the
+    dominant residual rows are radiation-pinned HI Lyman levels
+    at the outer boundary; the reach eval reports
+    |Jz|/|F| = 26 - no population step can reach the residual
+    while J is frozen. The FD-probed JVP direction being
+    non-descent is the correct diagnosis for this state.
+- Physical or numerical consequence: on m15 (SOB + USE_LAM_ES=T +
+  FIX_T), the BUG-001 true-residual path is structurally
+  unreachable - GMRES cannot emit `gmres_tres_reject` exits that
+  never happen. Production validation of the fix on m15 therefore
+  reduces to (a) stability of the admit/defer cycle under the
+  fixed build and (b) surrogate/probe evidence for the GMRES path
+  itself. A model where the reach test passes (earlier-stage
+  demand, or a tier with T free) remains the only route to
+  production tres counts.
+- Reproduction method: grep of `JFNK ADMIT` vs `skipping Newton`
+  in both validation OUTGENs (155/155); per-admission diagnostics
+  quoted from it485.
+- Regression test: none applicable - no code change.
+- Resolution and validation evidence: measured 03-Nov-2026 during
+  the interactive-partition stability runs (jobs 12667827 warm,
+  12667984 cold, fixed build). The warm run additionally shows
+  JFNK demand decaying below the frz gate (6.6 -> 0.41 vs gate
+  3.0) as the LAMBDA mode re-matures - consistent with the
+  admission profile moving away from JFNK territory as the model
+  converges conventionally.
+- Cross-reference (where GMRES does run): the vault JFNK note
+  records the `jte_lgmres_ab` run (coupled tier, KNOP path)
+  reaching iteration 912 with 189 admissions, one commit, and
+  measured true/Hessenberg residual ratios of 1.09, 1.13 and 1.95
+  on its coupled solves. Those ratios are the BUG-001 exposure:
+  under the old default (`JFNK_TRES_FAC=0`, acceptance on the
+  Hessenberg estimate) claims with true residual up to ~2x the
+  target would have been silently accepted. GMRES does enter on
+  the coupled/KNOP tier - it is the m15 frozen-SOB tier that
+  structurally defers.
 
 ------------------------------------------------------------------------
 
