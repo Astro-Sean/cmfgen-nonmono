@@ -494,7 +494,22 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
   ray; document assumptions.
 - Acceptance: written audit.
 - Dependencies: P2-005.
-- Completion: -
+- Completion: 2026-11-03 - audited. Lines and continuum share one
+  ray integration: inside RESONANCE_ZONE the code adds
+  CHI += CHIL_MAT*LINE_PROF_SIM and ETA += ETAL_MAT*LINE_PROF_SIM
+  (cmfgen_sub.f:2506-2507, inner-boundary block :1731), so the line
+  rides the continuum's own (non-monotonic) rays with a mixed
+  source function S=ETA/CHI - no separate line-only transfer.
+  The net-rate bracket is the standard CMFGEN form
+  ZNET += QW*(1 - RJ*CHIL/ETAL) with RJ the combined continuum+line
+  comoving J (:2821); the ETAL_MAT>0 guard there is a documented
+  NaN fix for depopulated upper levels, not flag-gated because the
+  prior result was NaN. Electron scattering enters through
+  CHI_SCAT/ESEC in the SOBEW EW path and the continuum CHI;
+  NEG_OPACITY rows flatten CHIL_MAT to 1/NUM_SIM_LINES (:4095).
+  Assumption recorded: line photons interact with the continuum
+  only through this shared-opacity architecture - there is no
+  continuum-vs-line ray ordering question to audit (P2-005).
 
 ### [~] P2-009 - Audit DO_NONLOC_SOB and coupling between resonance points
 - Priority: P1
