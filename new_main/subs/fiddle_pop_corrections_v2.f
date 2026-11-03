@@ -158,12 +158,12 @@
 ! The per-element apply-clamp bounds for this depth are needed before
 ! the scale scan under the non-monotonic modes: a demanded correction
 ! can exceed anything the clamp would ever apply (e.g. STEQ=-1E70 from
-! an ill-conditioned row on the m15_2p82d KNOP cold start), and letting
+! an ill-conditioned row on the KNOP cold start), and letting
 ! that row bound SCALE froze every other correction at the depth
-! (SCALE~1E-69, it28).  The clamp already enforces the identical bound
+! (SCALE~1E-69). The clamp already enforces the identical bound
 ! on the row itself, so its contribution to the column scale is
 ! redundant for it and destructive for the rest -- cap each row's
-! contribution at the applied bound.  Stock path is unchanged.
+! contribution at the applied bound. Stock path is unchanged.
 !
 	    IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
 	      T3=(POP_LIM(I)-1.0_LDP)/POP_LIM(I)
@@ -215,9 +215,9 @@
 ! [DO_SOB_FG_KNOP] (26-Oct-2026): the Knop-route restart transient
 ! demands ~1E49% corrections; a NaN STEQ row (ill-conditioned at
 ! depths whose J just changed by tens of dex) would write a
-! permanent NaN into POPS and segfault the next STEQ call.  Floor
+! permanent NaN into POPS and segfault the next STEQ call. Floor
 ! non-positive/non-finite corrected values: T to T_MIN, species to
-! 1.0D-100.  Flag-gated; stock path unchanged.
+! 1.0D-100. Flag-gated; stock path unchanged.
 !
 	    IF(DO_SOB_FG_KNOP)THEN
 	      DO J=1,NT
