@@ -4,6 +4,7 @@
 	1              BA_COMPUTED,WR_BA_INV,WR_PRT_INV,LAMBDA_IT,
 	1              MAIN_COUNTER,SET_POPS_D2_EQ_D1)
 	USE SET_KIND_MODULE
+	USE, INTRINSIC :: IEEE_ARITHMETIC
 	USE CONTROL_VARIABLE_MOD, ONLY: LTE_MODEL,
 	1     DO_BA_RES_ACC,BA_RES_GROW,BA_RES_HARD,BA_TRUST,
 	2     BA_TRUST_CUR,BA_SE_RES,
@@ -555,8 +556,8 @@
 	      IF(BA_RES_SAT .GT. 0.0_LDP .AND.
 	1        BAACC_COL_PREV(I) .GE. BA_RES_SAT)CYCLE
 	      IF(COL_RES(I) .GT. 0.5_LDP*HUGE(1.0_LDP) .OR.
-	1        COL_RES(I) .GT. BA_RES_GROW*BAACC_COL_PREV(I) .OR.
-	2        COL_RES(I) .GT. BA_RES_HARD*BAACC_COL_MIN(I))THEN
+	1        COL_RES(I)/BA_RES_GROW .GT. BAACC_COL_PREV(I) .OR.
+	2        COL_RES(I)/BA_RES_HARD .GT. BAACC_COL_MIN(I))THEN
 	        BA_RBK_MASK(I)=.TRUE.
 	        NFAIL=NFAIL+1
 	      END IF
@@ -572,15 +573,21 @@
 ! itself -- a whole-state rollback there would throw away a mostly
 ! good step.
 !
+! Growth tests use X/G .GT. P rather than X .GT. G*P (identical for
+! G=BA_RES_GROW,BA_RES_HARD >= 1, clamped in RD_CONTROL_VARIABLES):
+! the *_MIN trackers start at HUGE, so G*P overflowed to +Inf on the
+! first armed call.  Harmless in production, but it aborted -fpe0
+! debug runs before they reached the real fault.  Not flag-gated;
+! results are unchanged.  edited 03-Nov-2026
 	  REJ_BULK=.NOT. (BA_SE_RES2 .LE. HUGE(1.0_LDP)) .OR.
 	1    BA_SE_RES2 .GT. HUGE(1.0_LDP)*0.5_LDP .OR.
-	2    BA_SE_RES2 .GT. BA_RES_GROW*BAACC_RES2_PREV .OR.
-	3    BA_SE_RES2 .GT. BA_RES_HARD*BAACC_RES2_MIN
+	2    BA_SE_RES2/BA_RES_GROW .GT. BAACC_RES2_PREV .OR.
+	3    BA_SE_RES2/BA_RES_HARD .GT. BAACC_RES2_MIN
 	  REJ_MAX=(BA_RES_SAT .LE. 0.0_LDP .OR. BAACC_RES_PREV .LT.
 	1    BA_RES_SAT) .AND.
 	2    (.NOT. (BA_SE_RES .LE. HUGE(1.0_LDP)) .OR.
-	3     BA_SE_RES .GT. BA_RES_GROW*BAACC_RES_PREV .OR.
-	4     BA_SE_RES .GT. BA_RES_HARD*BAACC_RES_MIN)
+	3     BA_SE_RES/BA_RES_GROW .GT. BAACC_RES_PREV .OR.
+	4     BA_SE_RES/BA_RES_HARD .GT. BAACC_RES_MIN)
 	  REJ_STATE=.FALSE.
 	  REJ_PART=.FALSE.
 	  WLD_REJ=.FALSE.
@@ -1083,6 +1090,7 @@
 	IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN
 	  COUNT(2)=0
 	  COUNT(3)=0
+	  COUNT(4)=0
 	  LMASK_OK=.FALSE.
 	  IF(ALLOCATED(BA_RBK_MASK))THEN
 	    IF(SIZE(BA_RBK_MASK) .EQ. ND)LMASK_OK=.TRUE.
@@ -1114,7 +1122,20 @@
 ! rejected populations and must not be applied.  The pre-mask
 ! demand is recorded so it can stay visible in MAXCH below.
 !
-	    IF(LMASK_OK .AND. BA_RBK_MASK(I))THEN
+! Bug fix (still gated on DO_BA_RES_ACC like the rest of this block):
+! a non-finite STEQ entry means the solve produced a bad block -
+! e.g. a singular depth block under the banded (NUM_BNDS=3) solve
+! smearing one failed column across neighbors.  IEEE comparisons
+! make the MAXVAL trust test skip NaN, so without this check the
+! column applied unbounded and NaN'd the whole population update
+! (lucw TRI it2 crash: gff.f bounds fault downstream in comp_opac).
+! Zeroing the column is the same recovery the over-trust path uses:
+! the depth keeps its previous populations this call.
+	    IF(.NOT. ALL(IEEE_IS_FINITE(STEQ(1:NT,I))))THEN
+	      STEQ(:,I)=0.0_LDP
+	      L_ANY_MASK=.TRUE.
+	      COUNT(4)=COUNT(4)+1
+	    ELSE IF(LMASK_OK .AND. BA_RBK_MASK(I))THEN
 	      STEQ_MASKED_MAX=MAX(STEQ_MASKED_MAX,
 	1        MAXVAL(ABS(STEQ(1:NT,I))))
 	      STEQ(:,I)=0.0_LDP
@@ -1167,6 +1188,11 @@
 	    WRITE(LUER,'(A,I6,A)')
 	1      'BA_RES_ACC: masked ',COUNT(3),
 	2      ' rolled-back depth corrections'
+	  END IF
+	  IF(COUNT(4) .NE. 0)THEN
+	    WRITE(LUER,'(A,I6,A)')
+	1      'BA_RES_ACC: zeroed ',COUNT(4),
+	2      ' depth corrections with non-finite STEQ (solve fault)'
 	  END IF
 	END IF
 !
