@@ -44,11 +44,11 @@
 !
 ! Altered 16-Oct-2026 : Stage-B trace polish admits a material hidden
 !                          demand instead of holding without sweeping
-!                          (edited by Devin).
+!                          (edited).
 ! Altered 15-Oct-2026 : DO_LAM_AUTO handoff under nonmono flags requires
-!                          CNT_STABLE_LAM >= N_STABLE_LAM (edited by Devin).
-! Altered 05-Oct-2026 : Sized non-monotonic VINF from MAXVAL(ABS(V)) (edited by Devin).
-! Altered 05-Oct-2026 : Kept the star iteration separator and added a setup subheader (edited by Devin).
+!                          CNT_STABLE_LAM >= N_STABLE_LAM (edited).
+! Altered 05-Oct-2026 : Sized non-monotonic VINF from MAXVAL(ABS(V)) (edited).
+! Altered 05-Oct-2026 : Kept the star iteration separator and added a setup subheader (edited).
 ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)
 ! Altered 02-Aug-2024 : Minor cleaning. Changed minimum valuer for RLUMST & warning output.
 ! Altered 17-Aug-2019 : Default for DO_T_AUTO is now TRUE. Incorporated into IBIS versions.
@@ -209,7 +209,7 @@
 	LOGICAL BA_STAGEB_ARM
 	LOGICAL KN_LT_DONE
 	CHARACTER(LEN=6) ARM_CAUSE
-! edited by Devin, 16-Oct-2026: CONV_EXIT_MET is the converged-exit
+! edited 16-Oct-2026: CONV_EXIT_MET is the converged-exit
 ! condition evaluated before the LST_ITERATION split so the budgeted-
 ! final iteration gets a convergence test; CONV_EXIT_DONE makes the
 ! exit-reason report print once per run.
@@ -1312,7 +1312,7 @@
 !
 	CHK=.FALSE.
 !
-! edited by Devin, 02-Oct-2026: SUCCESS must be initialized on the
+! edited 02-Oct-2026: SUCCESS must be initialized on the
 ! NEWMOD path -- with no prior model there is no stored BA to reuse,
 ! so the correct state is "read failed" which forces COMPUTE_BA=.TRUE.
 ! below.  SUCCESS is a local left over garbage on a cold start; when it
@@ -1326,7 +1326,7 @@
 	IF(.NOT. NEWMOD)THEN
           CALL READ_BA_DATA_V3(LU_BA,NION,NUM_BNDS,ND,CHK,FIXED_T,SUCCESS,'BAMAT')
 !
-! edited by Devin, 08-Oct-2026: a stored BAMAT is only trustworthy when
+! edited 08-Oct-2026: a stored BAMAT is only trustworthy when
 ! the LU-factor cache it pairs with also exists.  CMF_BLKBAND_V3 recall
 ! solves (BA_COMPUTED=F, WR_BA_INV=T) read CSCRATCH (DIAG) or
 ! BCSCRATCH+DSCRATCH (TRI) from SCRATCH_DIR and STOP when they are
@@ -2073,7 +2073,7 @@
 	  T2=T3/GLDGU(1)
 	  DO I=1,ND
 !
-! edited by Devin, 29-Oct-2026: same empty-upper-level guard as the
+! edited 29-Oct-2026: same empty-upper-level guard as the
 ! ZNET_SIM accumulation.  ETAL=T2*NUST underflows to 0 where the
 ! autoionizing state is empty; the net-bracket consumers all
 ! multiply ZNET by NUST or ETAL (both ~0 there), so bracket=1 is the
@@ -2180,7 +2180,7 @@
 !
 	    DO I=1,ND
 !
-! edited by Devin, 29-Oct-2026: BETAC is only used as
+! edited 29-Oct-2026: BETAC is only used as
 ! NUST*BETAC and ETAL*BETAC below -- both vanish with ETAL, so 0 is
 ! the consistent limit where the upper state is empty.  Avoids
 ! 0*Inf on the same empty-level restarts as the ZNET guards.
@@ -2239,7 +2239,7 @@
 ! want to assume the line opacity is zero --- since dielectronic
 ! transition.
 !
-! edited by Devin, 05-Nov-2026 (nonmono gap item 5): the
+! edited 05-Nov-2026 (nonmono gap item 5): the
 ! dielectronic EW diagnostic must see the same unclamped velocity
 ! gradient the transfer solve used.  SOB already passes
 ! SIGMA_TRUE; KNOP solves J on the unclamped gradient too, so the
@@ -2558,7 +2558,7 @@
 	      END DO
 	    END IF
 !
-! edited by Devin, 18-Oct-2026: [KN_NO_GAIN, default F, stock path
+! edited 18-Oct-2026: [KN_NO_GAIN, default F, stock path
 ! unchanged].  The NEG_OPAC floors above can leave CHI < CHI_SCAT,
 ! so the formal-solver source coefficient sum
 ! (CHI_SCAT+|GAM|/dLOG_NU)/(CHI+|GAM|/dLOG_NU) exceeds 1 and the
@@ -2806,7 +2806,7 @@
 	  IF(RESONANCE_ZONE(SIM_INDX))THEN
 	    DO I=1,ND
 !
-! edited by Devin, 29-Oct-2026: skip the bracket term where the line
+! edited 29-Oct-2026: skip the bracket term where the line
 ! emissivity is exactly zero (upper level empty -- thin outer depths
 ! on restarts; warmS trace: SIM=16, K=2, ML=1204).  RJ*CHIL/0 = -Inf
 ! made ZNET_SIM infinite and the consumers' ETAL_MAT*ZNET_SIM then
@@ -3089,7 +3089,7 @@
 	DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	  T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
 !
-! edited by Devin, 29-Oct-2026: temporary NaN localization.  The
+! edited 29-Oct-2026: temporary NaN localization.  The
 ! KNOP_warmS restart dies at it864 on non-finite RLUMST(ND); print
 ! the first few (frequency,depth) pairs whose flux went non-finite
 ! plus the local J/CHI/T context, capped to keep OUTGEN readable.
@@ -3544,7 +3544,7 @@
 	1   ' (outer)',RLUMST(ND),' (inner)'
 	FLUSH(LUER)
 !
-! edited by Devin, 18-Oct-2026: [KN_NO_GAIN] per-iteration census
+! edited 18-Oct-2026: [KN_NO_GAIN] per-iteration census
 ! of the CHI>=CHI_SCAT floor, accumulated over the frequency loop
 ! above.  lambda uses the LAMVACAIR convention (2997.92458/nu for
 ! nu in 1e15 Hz); the max-ratio frequency tells which transition
@@ -3565,7 +3565,7 @@
 	  KN_NOGAIN_RMAX=0.0_LDP; KN_NOGAIN_NU=0.0_LDP
 	END IF
 !
-! edited by Devin, 18-Oct-2026: KN_NOSLOT census -- compressing
+! edited 18-Oct-2026: KN_NOSLOT census -- compressing
 ! ray-points (GAM<0) that kept the chi_hat absorption term but had no
 ! lagged I_NEXT slot to draw the compensating source from.  These
 ! cells act as net sinks while the fixed point is converged; a nonzero
@@ -4527,7 +4527,7 @@
 	  END IF
 	END IF
 !
-! edited by Devin, 30-Sep-2026: export the outer/inner luminosity
+! edited 30-Sep-2026: export the outer/inner luminosity
 ! ratio to SOLVE_FOR_POPS for the ITER_SUM / ITER_HISTORY / GS_STATE
 ! diagnostics -- RLUMST lives in RADIATION_MOD and is not visible
 ! there.  Diagnostic only; a stale value on an aborted iteration is
@@ -4943,7 +4943,7 @@
 ! 
 9999	CONTINUE
 !
-! edited by Devin, 16-Oct-2026: the Stage-B/BA_DEM exit state and the
+! edited 16-Oct-2026: the Stage-B/BA_DEM exit state and the
 ! converged-exit condition are evaluated here -- before the
 ! LST_ITERATION split -- so the budgeted-final iteration gets a real
 ! convergence test.  Previously NUM_ITS_TO_DO hit 0 at the top of the
@@ -4959,7 +4959,7 @@
 ! proxy), and are 0 when the floors are off -- the default path is
 ! unchanged.
 !
-! edited by Devin, 12-Nov-2026: arm on a material exempted demand as
+! edited 12-Nov-2026: arm on a material exempted demand as
 ! well as on the absolute trace change.  Stage-B rows sit below
 ! BA_DEM_PFLOOR (1E-30), so even a 100% committed change leaves
 ! BA_TR_ABS ~1E-37, unreachable below BA_TR_ABSMAX=1E-8 -- the
@@ -4984,7 +4984,7 @@
 	1    BA_TRACE_NEEDED,BA_TRACE_DONE)
 	  BA_TRACE_RELEASE=BA_TRACE_OFF .OR. BA_TRACE_DONE
 !
-! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] adds a second
+! edited 18-Oct-2026: [BA_EX_RELFRAC] adds a second
 ! exempted-demand channel.  BA_DEM_EXR covers the rows skipped by
 ! the exit-only relative floor and is released by the same
 ! small-or-saturated test as BA_DEM_EXM; it is not part of the
@@ -5002,7 +5002,7 @@
 	3    (BA_DEM_EXR .LT. MAX(10.0_LDP*EPS,1.0_LDP) .OR.
 	4    BA_DEM_EXR .GE. BA_SAT_RAW)
 !
-! edited by Devin, 17-Oct-2026: two new guards.  BAACC_PENDING means
+! edited 17-Oct-2026: two new guards.  BAACC_PENDING means
 ! the last FULL solve armed the resacc acceptance test whose verdict
 ! only exists on the NEXT solve -- exiting now writes a state the
 ! code itself treats as unjudged (NG refuses to extrapolate from it).
@@ -5050,7 +5050,7 @@
 	IF(LST_ITERATION)THEN
 !
 	  IF(CONV_EXIT_MET)THEN
-! edited by Devin, 12-Nov-2026: the status line used to print
+! edited 12-Nov-2026: the status line used to print
 ! "Convergence criteria met" unconditionally on a met gate, which
 ! contradicted CONV_EXIT_WHY when the met state still owed Stage-B
 ! (BA_STAGEB_ARM cannot arm on the final budgeted iteration, so a
@@ -5478,14 +5478,14 @@
                COMPUTE_BA=.TRUE.
 	       CALL UPDATE_KEYWORD(L_FALSE,'[FIX_T]','VADAT',L_TRUE,L_TRUE,LUIN)
 !
-! edited by Devin, 12-Oct-2026: GS_POPS_HELD means populations were
+! edited 12-Oct-2026: GS_POPS_HELD means populations were
 ! frozen while the lagged radiation field is immature, so MAXCH
 ! measures a solve whose demand may be masked to zero rather than a
 ! converged state -- a held call must never count as convergence
 ! (KNOP_mom_cold wrote RVTJ and exited at it6 this way with the
 ! moment sweep at refresh delta=3.1E10).
 !
-! edited by Devin, 16-Oct-2026: the BA_DEM floors exempt rows from
+! edited 16-Oct-2026: the BA_DEM floors exempt rows from
 ! MAXCH, so a species below the relative floor can still be demanding
 ! real corrections when MAXCH < EPS fires the converged exit.
 ! BA_DEM_EXM reports the largest exempted demand; the exit is held
@@ -5513,7 +5513,7 @@
 	  ELSE IF(CONV_EXIT_MET .AND. NUM_ITS_TO_DO .NE. 0 .AND.
 	1      .NOT. BA_STAGEB_ARM)THEN
 	    BA_TRACE_PHASE=.FALSE.
-! edited by Devin, 16-Oct-2026: name the exit route once per run.
+! edited 16-Oct-2026: name the exit route once per run.
 ! BA_DEM_EXIT_OK releases for small demand, saturated dead-stage
 ! demand, or a spent/needed Stage-B polish alike -- without this the
 ! converged exit looked identical whether trace demand was resolved
@@ -5537,7 +5537,7 @@
 ! rolled back still consumes budget.  The arm cause is named
 ! explicitly: the demand leg can fire while the absolute change is
 ! far below its threshold, which made sweeps look spurious.
-! edited by Devin, 12-Nov-2026.
+! edited 12-Nov-2026.
 	      BA_TR_NSWP=BA_TR_NSWP+1
 	      ARM_CAUSE='abs   '
 	      IF(BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP) .AND.
@@ -5602,12 +5602,12 @@
 ! populations. Defer this handoff while GS_POPS_HELD is true. The guard
 ! is gated by DO_NONMONO_KNOP, which defaults F, so the stock path stays
 ! unchanged.
-! edited by Devin, 22-Oct-2026: also defer while GS_FREEZE is true --
+! edited 22-Oct-2026: also defer while GS_FREEZE is true --
 ! a freeze-trial call runs as a damped LAMBDA call with held pops, so
 ! its quiet MAXCH_CTRL is not evidence the free map contracts and the
 ! handoff must not fire on it.  GS_FREEZE is forced F outside KNOP, so
 ! stock and SOB paths are unchanged.
-! edited by Devin, 15-Oct-2026: [DO_NONMONO_SOB]/[DO_NONMONO_KNOP]
+! edited 15-Oct-2026: [DO_NONMONO_SOB]/[DO_NONMONO_KNOP]
 ! add the stable-count requirement to the one-time DO_LAM_AUTO
 ! handoff.  The stock test (MAXCH_CTRL < 50) hands off on a single
 ! iteration, so a 47% LAMBDA demand still released an unrestricted
@@ -5627,7 +5627,7 @@
 	4            (.NOT. GS_POPS_HELD .AND. .NOT. GS_FREEZE)) .AND.
 	5           (.NOT. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .OR.
 	6            CNT_STABLE_LAM .GE. N_STABLE_LAM))THEN
-! edited by Devin, 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
+! edited 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
 ! the start of full iterations is visible in OUTGEN.
 	       WRITE(LUER,'(A,I5,A,ES12.4)')
 	1       ' DO_LAM_AUTO: switching to full iterations at iter ',
@@ -5677,7 +5677,7 @@
 	    IF(BA_RDLAM_PROBE .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	1         .NOT. R_GRID_REVISED)THEN
 !
-! edited by Devin, 11-Oct-2026: one [BA_PROBE_LAM]-cadence bounded
+! edited 11-Oct-2026: one [BA_PROBE_LAM]-cadence bounded
 ! full call inside the RD_LAMBDA phase (see solve_for_pops.f).
 ! Skip the RD_LAMBDA -> LAMBDA re-impose for this call only and give
 ! the trial the post-handoff T/impurity treatment; resacc judges it
@@ -5892,7 +5892,7 @@
 	COMPUTE_BA_SAVE=COMPUTE_BA
 	COMPUTE_BA=.FALSE.
 !
-! edited by Devin, 05-Oct-2026: UP_RATE_TWO/DOWN_RATE_TWO accumulate
+! edited 05-Oct-2026: UP_RATE_TWO/DOWN_RATE_TWO accumulate
 ! (+=) inside TWO_PHOT_RATE and are only re-zeroed by SET_TWO_PHOT_V3
 ! at the outer-iteration head, which this eval never calls.  Without a
 ! bracket, eval k saw (production leftovers + k eval contributions),
@@ -6189,7 +6189,7 @@
 	      END DO
 	    END IF
 !
-! edited by Devin, 18-Oct-2026: same [KN_NO_GAIN] CHI>=CHI_SCAT
+! edited 18-Oct-2026: same [KN_NO_GAIN] CHI>=CHI_SCAT
 ! floor as in the main iteration loop above; applied to this
 ! post-iteration pass so the final spectrum is not a maser spike.
 !
@@ -6401,7 +6401,7 @@
 	  IF(RESONANCE_ZONE(SIM_INDX))THEN
 	    DO I=1,ND
 !
-! edited by Devin, 29-Oct-2026: eval-sweep mirror of the real-sweep
+! edited 29-Oct-2026: eval-sweep mirror of the real-sweep
 ! guard -- ETAL_MAT=0 resonances contribute no bracket term
 ! (0*Inf -> NaN in STEQ_T on empty upper levels).
 !
@@ -6667,7 +6667,7 @@
 	DO I=1,ND		              !(4*PI)**2*Dex(+20)/L(sun)
 	  T2=SOB(I)*FQW(ML)*4.1274E-12_LDP
 !
-! edited by Devin, 29-Oct-2026: temporary NaN localization.  The
+! edited 29-Oct-2026: temporary NaN localization.  The
 ! KNOP_warmS restart dies at it864 on non-finite RLUMST(ND); print
 ! the first few (frequency,depth) pairs whose flux went non-finite
 ! plus the local J/CHI/T context, capped to keep OUTGEN readable.
