@@ -93,7 +93,7 @@
 	PI=4.0_LDP*ATAN(1.0_LDP)
 	CHI(1:ND)=ROSSMEAN(1:ND)
 !
-! edited by Devin, 05-Nov-2026 (nonmono gap item 4): the grey
+! edited 05-Nov-2026 (nonmono gap item 4): the grey
 ! solvers below build monotonic-expansion moment structures whose
 ! 1+sigma*g terms sign-flip or divide near a pole when sigma < -1.
 ! The grey path is a T-revision diagnostic only -- it never feeds
