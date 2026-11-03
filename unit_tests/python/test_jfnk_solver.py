@@ -33,13 +33,17 @@ SE_DIR = TREE / "unit_tests"
 #   mild/T3 -- the check asserts demanded |s|_inf > 1e3 (hardness of
 #     the fixture); a mild system converging with a small demanded
 #     step is correct behaviour, so this is a fixture expectation.
-#   */T4 -- "core LU solve residual <10%" is a known preconditioner
-#     quality gap documented in the harness output (LSQ LU path).
+#   */T21 -- per-depth LU residual on the surrogate SE blocks.  The
+#     mild/hard/shock blocks reach cond ~1e23..1e39, so an accepted
+#     dgetrf can still return a meaningless solve.  Expected failure
+#     tracking the documented per-depth LU quality gap; T4 carries
+#     the machinery checks (factor status, finite output, pipeline
+#     consistency, LSQ identity) that do pass on every spec.
 XFAIL = {
     ("mild", "T3"),
-    ("mild", "T4"),
-    ("hard", "T4"),
-    ("shock", "T4"),
+    ("mild", "T21"),
+    ("hard", "T21"),
+    ("shock", "T21"),
 }
 
 
