@@ -31,7 +31,7 @@
 	    IF(STOP_IF_BAD_PARAM)STOP
 	  END IF
 !
-! edited by Devin, 22-Oct-2026: the DO_NONMONO_* flags legitimately
+! edited 22-Oct-2026: the DO_NONMONO_* flags legitimately
 ! run SN models with all three off -- under USE_LAM_ES=F the J update
 ! comes from MOM_J_CMF_NONMONO_V1 (Knop sign-split moment solve on
 ! SIGMA_TRUE), and rd_control_variables announces that pairing with
