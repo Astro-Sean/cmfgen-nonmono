@@ -1715,10 +1715,10 @@
 	  JFNK_HADAPT=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_HADAPT,'JFNK_HADAPT',L_FALSE,
 	1     'Pick the FD step from the h-sweep plateau (implies h-sweep)')
-	  JFNK_TRES_FAC=0.0_LDP
+	  JFNK_TRES_FAC=1.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_TRES_FAC,'JFNK_TRES_FAC',L_FALSE,
-	1     'GMRES true-residual acceptance factor (0=off)')
-	  IF(JFNK_TRES_FAC .LT. 0.0_LDP)JFNK_TRES_FAC=0.0_LDP
+	1     'GMRES true-residual acceptance factor (<=0 -> 1.0)')
+	  IF(JFNK_TRES_FAC .LE. 0.0_LDP)JFNK_TRES_FAC=1.0_LDP
 	  JFNK_MAX_SEC=0.0_LDP
 	  CALL RD_STORE_DBLE(JFNK_MAX_SEC,'JFNK_MAX_SEC',L_FALSE,
 	1     'Wall-clock seconds per JFNK activation (0=off)')
