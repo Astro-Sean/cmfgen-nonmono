@@ -31,25 +31,25 @@
 !
 ! Altered 20-Oct-2026 : BA13-TRACE also emits at CONV_DIAG_LVL=1
 !                          under DO_NONMONO_KNOP, decimated to every
-!                          10th great iteration (edited by Devin).
+!                          10th great iteration (edited).
 ! Altered 16-Oct-2026 : Largest exempted (floor-hidden) demand is
 !                          exported as BA_DEM_EXM and named in OUTGEN;
 !                          the MAXCH metric itself is unchanged
-!                          (edited by Devin).
+!                          (edited).
 ! Altered 15-Oct-2026 : SE residual measured on every call (not only
 !                          under DO_BA_RES_ACC); BA_COL_RES exported
-!                          for the ITER_SUM depth profile (edited by Devin).
+!                          for the ITER_SUM depth profile (edited).
 ! Altered 15-Oct-2026 : BA_MAXCH_FAIL same-call rejection of a committed
-!                          catastrophic full step (edited by Devin).
+!                          catastrophic full step (edited).
 ! Altered 07-Oct-2026 : Per-equation quarantine (DO_BA_QUAR) under the masked residual
-!                          acceptance (edited by Devin).
-! Altered 07-Oct-2026 : Held-call and residual-progress accounting for BA_NREJ_CONSEC (edited by Devin).
-! Altered 05-Oct-2026 : Subheader for the per-iteration population-update report (edited by Devin).
+!                          acceptance (edited).
+! Altered 07-Oct-2026 : Held-call and residual-progress accounting for BA_NREJ_CONSEC (edited).
+! Altered 05-Oct-2026 : Subheader for the per-iteration population-update report (edited).
 ! Altered 03-Oct-2026 : Per-depth masked acceptance (BA_REJ_FRAC) and honest accounting of armed
-!                          steps on LAMBDA follow-ups (edited by Devin).
-! Altered 01-Oct-2026 : Residual acceptance metric reads assembled SE residual, not the STEQ dummy (edited by Devin).
-! Altered 01-Oct-2026 : Saturated-residual exemption for the acceptance test (edited by Devin).
-! Altered 29-Sep-2026 : Hard stop at BA_NREJ_LIM consecutive rejections (edited by Devin).
+!                          steps on LAMBDA follow-ups (edited).
+! Altered 01-Oct-2026 : Residual acceptance metric reads assembled SE residual, not the STEQ dummy (edited).
+! Altered 01-Oct-2026 : Saturated-residual exemption for the acceptance test (edited).
+! Altered 29-Sep-2026 : Hard stop at BA_NREJ_LIM consecutive rejections (edited).
 ! Altered 08-Dec-2013 : No longer scale the temperature when D2 EQ D1 -- Not T(2)=T(1)
 ! Altered 17-Feb-2016 : Added LTE_MODEL option.
 ! Created 14-Feb-2014 : Changed to V13 -- added MAX_dT_COR to call.
@@ -211,7 +211,7 @@
 ! BA_PROBE_LAM trial is the exception: its follow-up restores the saved
 ! populations and radiation state, then skips the stale Lambda solve.
 !
-! edited by Devin, 03-Oct-2026: per-depth masked acceptance
+! edited 03-Oct-2026: per-depth masked acceptance
 ! ([BA_REJ_FRAC], default 0.25; <=0 restores the legacy all-or-
 ! nothing test).  The observed failures are local: a few stiff
 ! cells at compression depths drive the residual rebound while
@@ -231,7 +231,7 @@
 ! residual halves the trust radius and increments BA_NREJ_SOFT
 ! instead of silently clearing the flag as an acceptance.
 !
-! edited by Devin, 01-Oct-2026: when the armed step's pre-step
+! edited 01-Oct-2026: when the armed step's pre-step
 ! residual is already at/above BA_RES_SAT (default 1E30), the max
 ! channel is measuring a degenerate equation, not step quality --
 ! a bounded correction cannot move it, and any overflow above the
@@ -241,7 +241,7 @@
 ! the RES2 rank channel judges the step; BA_RES_SAT <= 0 restores
 ! the legacy all-channel test.
 !
-! edited by Devin, 15-Oct-2026: the residual MEASUREMENT below runs
+! edited 15-Oct-2026: the residual MEASUREMENT below runs
 ! on every call, not only under DO_BA_RES_ACC.  The ITER_SUM 'se
 ! residual' channel reads BA_SE_RES/BA_SE_RES2; with resacc off it
 ! printed 0.000E+00 on every iteration (m15 dirchk_lc its 170+),
@@ -252,7 +252,7 @@
 ! when resacc is off and changes no solver behaviour.
 !
 !
-! edited by Devin, 01-Oct-2026: STEQ is output-only scratch at this
+! edited 01-Oct-2026: STEQ is output-only scratch at this
 ! point -- the caller (SOLVE_FOR_POPS) passes uninitialized automatic
 ! storage (local SOL array) and the residual is only assembled into
 ! it inside CMF_BLKBAND_V3 below (GENERATE_FULL_MATRIX_V3 copies
@@ -414,7 +414,7 @@
 	    END IF
 	  END IF
 !
-! edited by Devin, 30-Sep-2026: second channel blind to a persistent
+! edited 30-Sep-2026: second channel blind to a persistent
 ! residual floor.  BA_SE_RES saturates at the degenerate inner-
 ! boundary equations (~1E262 on the Dessart run), so growth anywhere
 ! below the floor was invisible -- an accepted BA step collapsed OI/
@@ -425,7 +425,7 @@
 ! the channel live on small grids without dropping a large fraction
 ! of the model.
 !
-! edited by Devin, 03-Oct-2026: rank a copy, not COL_RES itself --
+! edited 03-Oct-2026: rank a copy, not COL_RES itself --
 ! the masked acceptance test below reads COL_RES per column and the
 ! MAXLOC decimation used to erase the top entries in place.
 !
@@ -467,7 +467,7 @@
 !
 	  IF(DO_BA_RES_ACC)THEN
 !
-! edited by Devin, 29-Sep-2026: residual trajectory every call, not
+! edited 29-Sep-2026: residual trajectory every call, not
 ! just on rejection -- needed to see whether accepted steps still
 ! grow the residual below the BA_RES_GROW/BA_RES_HARD thresholds.
 ! RES_LOC names the (variable,depth) with the largest residual --
@@ -505,7 +505,7 @@
 	1    '    held-snapshot restore revivals  :',
 	2    BA_HOLD_RESTORE_REVIVAL
 	  END IF
-! edited by Devin, 29-Sep-2026: a non-finite residual (NaN or Inf in
+! edited 29-Sep-2026: a non-finite residual (NaN or Inf in
 ! STEQ) fails every comparison below and so was silently accepted --
 ! the pending flag cleared and the trust radius grew after a poisoned
 ! step.  .NOT.(X .LE. HUGE) catches both Inf and NaN and counts them
@@ -522,7 +522,7 @@
 ! Other LAMBDA follow-ups are still evaluated but do not count as an
 ! acceptance when they show degradation.
 !
-! edited by Devin, 03-Oct-2026: judge the armed step per depth
+! edited 03-Oct-2026: judge the armed step per depth
 ! column.  Column I fails when its entry residual exceeds
 ! BA_RES_GROW times its own pre-step value or BA_RES_HARD times its
 ! own best-seen value; the BA_RES_SAT exemption applies per column
@@ -531,7 +531,7 @@
 ! to HUGE above -- always fails the 0.5*HUGE floor even when its
 ! stored previous value was itself clamped.
 !
-! edited by Devin, 07-Oct-2026: skip adjudication while the caller
+! edited 07-Oct-2026: skip adjudication while the caller
 ! discards this call's correction.  Under a population hold
 ! (GS_POPS_HELD, set by SOLVE_FOR_POPS before the call) POPS is
 ! restored to the pre-solve snapshot after SOLVEBA returns, so a
@@ -621,7 +621,7 @@
 	    END IF
 	  END IF
 !
-! edited by Devin, 07-Oct-2026: progress exemption for the
+! edited 07-Oct-2026: progress exemption for the
 ! consecutive-rejection streak.  A masked or soft-judged step
 ! that still lowered either residual channel is the partially-
 ! committed case the mask exists for (m15_2p82d_jfnk_cpl: every
@@ -658,7 +658,7 @@
 ! established soft-reject behaviour to avoid the full/lam cycle.
 ! The flag is armed only by BA_PROBE_LAM on non-monotonic paths.
 !
-! edited by Devin, 13-Oct-2026: gate on REJ_STATE, not WLD_REJ.
+! edited 13-Oct-2026: gate on REJ_STATE, not WLD_REJ.
 !
 	  IF(BAACC_PENDING .AND. LAMBDA_IT .AND.
 	1     BAACC_RDLAM_PROBE .AND. REJ_STATE)THEN
@@ -680,7 +680,7 @@
 	      BA_NREJ_SOFT=BA_NREJ_SOFT+1
 	      BA_SOFT_THIS=.TRUE.
 	      BA_TRUST_CUR=MAX(1.0_LDP,0.5_LDP*BA_TRUST_CUR)
-! edited by Devin, 04-Oct-2026: count the soft rejection toward
+! edited 04-Oct-2026: count the soft rejection toward
 ! BA_NREJ_CONSEC.  In the alternating FULL/LAMBDA regime every
 ! rejected armed step was judged on a LAMBDA follow-up, so it was
 ! committed unconditionally while nrej stayed 0 and the run
@@ -785,7 +785,7 @@
 	    BAACC_PENDING=.FALSE.
 	    BAACC_RDLAM_PROBE=.FALSE.
 !
-! edited by Devin, 07-Oct-2026: quarantine each masked column's worst
+! edited 07-Oct-2026: quarantine each masked column's worst
 ! residual equation ([DO_BA_QUAR]).  A column that failed residual
 ! acceptance has at least one equation the linearized step made
 ! worse; parking it lets the column's other variables take their
@@ -884,7 +884,7 @@
 	    IF(BA_NREJ_CONSEC .GE. 3)WRITE(LUER,'(A,I3)')
 	1      'BA_RES_ACC: consecutive rejections =',BA_NREJ_CONSEC
 !
-! edited by Devin, 29-Sep-2026: unbounded consecutive rejections
+! edited 29-Sep-2026: unbounded consecutive rejections
 ! mean the linearized model cannot produce an acceptable step at
 ! any trust radius -- BA_TRUST_CUR floors at 1.0, so the trust-
 ! region mechanism on its own alternates LAMBDA and rejected BA
@@ -902,7 +902,7 @@
 	    BAACC_RDLAM_PROBE=.FALSE.
 	    STEQ=0.0_LDP
 	    SUCCESS=.TRUE.
-! edited by Devin, 29-Sep-2026: cap the reported MAXCH -- an exploded
+! edited 29-Sep-2026: cap the reported MAXCH -- an exploded
 ! residual (seen at 1E262 on the Dessart run) otherwise exceeds the
 ! MAX_CHNG guard and terminates the model with a misleading "bad
 ! initial populations" STOP instead of letting the trust radius
@@ -939,7 +939,7 @@
 	      IOS=0
 	    END IF
 !
-! edited by Devin, 03-Oct-2026: the masked acceptance test needs a
+! edited 03-Oct-2026: the masked acceptance test needs a
 ! per-depth residual history and mask alongside the snapshot.  Each
 ! array gets the same alloc/realloc treatment; a failure anywhere in
 ! the chain leaves IOS nonzero so BA_SNAPSHOT_MISSING still reports
@@ -974,7 +974,7 @@
 	      IF(IOS .EQ. 0)BA_RBK_MASK(1:ND)=.FALSE.
 	    END IF
 !
-! edited by Devin, 07-Oct-2026: [DO_BA_QUAR] storage.  The mask is
+! edited 07-Oct-2026: [DO_BA_QUAR] storage.  The mask is
 ! persistent state -- quarantine must survive between armed calls,
 ! unlike the per-call BA_RBK_MASK -- so only a fresh or resized
 ! allocation is initialized.
@@ -1042,7 +1042,7 @@
 	1              DIAG_INDX,NT,NION,NUM_BNDS,ND,
 	1              BA_COMPUTED,LOC_WR_BA_INV,WR_PRT_INV)
 !
-! edited by Devin, 30-Sep-2026: record the linear-solve path --
+! edited 30-Sep-2026: record the linear-solve path --
 ! newmat=F with wrinv=T means the correction came from a stored
 ! inverse applied to a new residual, i.e. a stale Jacobian.  That
 ! distinction decides whether the large corrections are a matrix
@@ -1097,7 +1097,7 @@
 	  END IF
 	  DO I=1,ND
 !
-! edited by Devin, 07-Oct-2026: per-equation quarantine
+! edited 07-Oct-2026: per-equation quarantine
 ! ([DO_BA_QUAR]).  Parked equations are suppressed FIRST, before
 ! the trust test, so a parked variable's saturated demand can no
 ! longer zero the whole column.  Suppression applies on non-LAMBDA
@@ -1145,7 +1145,7 @@
 	      STEQ_MASKED_MAX=MAX(STEQ_MASKED_MAX,
 	1        MAXVAL(ABS(STEQ(1:NT,I))))
 !
-! edited by Devin, 07-Oct-2026: an over-trust column is still
+! edited 07-Oct-2026: an over-trust column is still
 ! zeroed -- this call's direction was solved jointly and cannot be
 ! partially trusted -- but under [DO_BA_QUAR] the population
 ! variables carrying the over-trust demand are parked so the next
@@ -1196,7 +1196,7 @@
 	  END IF
 	END IF
 !
-! edited by Devin, 13-Oct-2026: a partially rejected rdlam probe is
+! edited 13-Oct-2026: a partially rejected rdlam probe is
 ! adjudicated on a LAMBDA call, so the .NOT. LAMBDA_IT block above is
 ! skipped and its mask-zeroing never runs.  The restored columns must
 ! still be held here: the Lambda correction at a masked column was
@@ -1251,7 +1251,7 @@
 	1   WRITE(LUER,*)'Warning -- using  LIMIT option for LAMBDA iteration in SOLVEBA_V13.f'
 	END IF
 !
-! edited by Devin, 21-Oct-2026: LAMBDA-phase quarantine extension
+! edited 21-Oct-2026: LAMBDA-phase quarantine extension
 ! ([DO_BA_QUAR] -- inert without DO_BA_RES_ACC as before).  During
 ! population preconditioning every call is a LAMBDA step, so the
 ! reject-path parking above never runs -- on m15_2p82d_KNOP_np a
@@ -1357,7 +1357,7 @@
 ! populated-depth trace rows escape the MAXCH metric (SOB l14 it242:
 ! ~700/depth >0.1% while MAXCH printed 0.08%).
 !
-! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] exit-only relative
+! edited 18-Oct-2026: [BA_EX_RELFRAC] exit-only relative
 ! floor.  T2EX uses the old RELFRAC predicate but feeds only
 ! EX_DEC/EX_INC, which become BA_EX_MAXCH -- the demand the
 ! converged-exit gate tests.  DECREASE/INCREASE (MAXCH) are
@@ -1372,7 +1372,7 @@
 	    K=LOG10(T1)+1; K=MIN(7,K)
 	    IF(K > 0)COUNT(1:K)=COUNT(1:K)+1
 !
-! edited by Devin, 11-Oct-2026: [BA_DEM_PFLOOR] skip floor-level rows
+! edited 11-Oct-2026: [BA_DEM_PFLOOR] skip floor-level rows
 ! in the demanded-correction metric.  A population already below the
 ! floor demands relative corrections that carry no physical
 ! information (its rates/opacities are all negligible), yet an
@@ -1401,7 +1401,7 @@
 	END DO
 	CLOSE(LU_SUM)
 !
-! edited by Devin, 16-Oct-2026: the exempted rows' largest demand is
+! edited 16-Oct-2026: the exempted rows' largest demand is
 ! exported as BA_DEM_EXM so a floor-hidden correction (e.g. a trace
 ! species below the relative floor) is still visible in OUTGEN and
 ! can gate the convergence exit in CMFGEN_SUB.  STEQ is fractional;
@@ -1427,7 +1427,7 @@
 	1   '          --- iteration ',MAIN_COUNTER
 	END IF
 !
-! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] BA_DEM_EXR is the
+! edited 18-Oct-2026: [BA_EX_RELFRAC] BA_DEM_EXR is the
 ! largest demand over the rows the exit-only relative floor skips
 ! (the PFLOOR rows are already covered by BA_DEM_EXM).  Exported on
 ! the same percent scale and printed every call so the demand the
@@ -1511,7 +1511,7 @@
 	END IF
 	MAXCH=MAX(MAXCH,DECREASE)
 !
-! edited by Devin, 04-Oct-2026: a column zeroed by the trust mask
+! edited 04-Oct-2026: a column zeroed by the trust mask
 ! (or held by the roll-back mask) is a refused correction, not a
 ! satisfied one -- its demand must stay visible.  Without this a
 ! fully masked step reported MAXCH=0 and tripped the MAXCH<EPS
@@ -1530,7 +1530,7 @@
 	MAX_DEC_VEC=0.0_LDP
 	DO J=1,ND
 !
-! edited by Devin, 13-Oct-2026: [BA_DEM_PFLOOR] must gate
+! edited 13-Oct-2026: [BA_DEM_PFLOOR] must gate
 ! this scan too.  When DO_LEVEL_CHK is true the NV-th largest STEQ value
 ! replaces MAXCH below, so floor-level rows skipped by the demand scan
 ! would still pin the metric whenever they fill all NV slots (the X_SOB
@@ -1584,7 +1584,7 @@
 !
 	DO_LEVEL_CHK=.FALSE.
 !
-! edited by Devin, 12-Oct-2026: a masked column contributes STEQ=0
+! edited 12-Oct-2026: a masked column contributes STEQ=0
 ! here, so a fully masked step satisfies the "<10% nearly everywhere"
 ! test and line ~1234 overwrites MAXCH with 0 -- discarding the
 ! STEQ_MASKED_MAX boost above.  KNOP_mom_cold exited "converged" at
@@ -1603,7 +1603,7 @@
 	  MAXCH=100.0_LDP*MAXCH
 	END IF
 !
-! edited by Devin, 18-Oct-2026: [BA_EX_RELFRAC] the exit demand over
+! edited 18-Oct-2026: [BA_EX_RELFRAC] the exit demand over
 ! non-exempted rows, on the same new-population scale as MAXCH.  It
 ! is the raw max (no DO_LEVEL_CHK NV-th-largest reduction), so the
 ! converged exit is never looser than the reported metric.  The
@@ -1630,22 +1630,22 @@
 	WRITE(6,'(A,10ES10.2)')' DEC_VEC: ',MAX_DEC_VEC(1:10)
 	WRITE(6,'(A,10ES10.2)')' INC_VEC: ',MAX_INC_VEC(1:10)
 !
-! edited by Devin, 29-Sep-2026: locate the variable index driving the
+! edited 29-Sep-2026: locate the variable index driving the
 ! largest corrections.  The depth-only print hides whether the same
 ! population variable oscillates between BA and LAMBDA iterations;
 ! J=NT is the temperature row.  Variable-to-species mapping uses the
 ! per-ion SE block offsets in MODEL_SPEC/STEQ ordering.
 !
-! edited by Devin, 30-Sep-2026: osc=T flags the case where this BA
+! edited 30-Sep-2026: osc=T flags the case where this BA
 ! iteration's worst increase sits on the same (variable,depth) as the
 ! previous BA iteration's worst decrease (or vice versa) -- the
 ! signature of a Newton overshoot bouncing a single level.
 !
-! edited by Devin, 06-Oct-2026: the trace now prints as a labelled
+! edited 06-Oct-2026: the trace now prints as a labelled
 ! section (----- NAME it ----- header + aligned rows), matching the
 ! BA_RES_ACC / ITER SUMMARY block style; fields unchanged.
 !
-! edited by Devin, 20-Oct-2026: under DO_NONMONO_KNOP the block
+! edited 20-Oct-2026: under DO_NONMONO_KNOP the block
 ! also emits at CONV_DIAG_LVL=1, decimated to every 10th great
 ! iteration -- the species driving the non-exempted max demand
 ! stays named without the full level-2 log volume.
@@ -1804,7 +1804,7 @@
 ! depth STEQ(NT,ND).  T3 must accumulate the maximum T correction
 ! over the whole atmosphere.  Only the SCALE_OPT='GLOBAL' branch is
 ! affected -- LOCAL, NONE and MAJOR are unchanged.
-! Edited by Devin, 19-Oct-2026: the hardcoded 0.2 cap replaced by
+! Edited, 19-Oct-2026: the hardcoded 0.2 cap replaced by
 ! MAX_dT_COR, matching the LOCAL and MAJOR branches; identical
 ! behaviour at the default MAX_dT_COR=0.2.
 !
@@ -1833,7 +1833,7 @@
 !
 	IF(LTE_MODEL)CALL SET_POPS_TO_PURE_LTE(POPS,NT,ND)
 !
-! edited by Devin, 16-Oct-2026: Stage-B trace polish.  When
+! edited 16-Oct-2026: Stage-B trace polish.  When
 ! BA_TRACE_PHASE is armed by CMFGEN_SUB (majors converged, trace
 ! deltas still above BA_TR_ABSMAX) the committed update is restricted
 ! to the BA_DEM-floor-exempted rows; majors, ED and T are restored
@@ -1860,7 +1860,7 @@
 	2  MAIN_COUNTER
 	END IF
 !
-! edited by Devin, 29-Sep-2026: report the maximum population change
+! edited 29-Sep-2026: report the maximum population change
 ! actually committed after FIDDLE_POP_CORRECTIONS_V2 / scale limits.
 ! The raw STEQ-based MAXCH can be 1.0E+7 for a pre-limit decrease that
 ! leaves the population at a finite floor; using the committed change
@@ -1890,7 +1890,7 @@
 	  DO I=1,ND
 	    DO J=1,NT
 !
-! edited by Devin, 11-Oct-2026: same [BA_DEM_PFLOOR] exemption as the
+! edited 11-Oct-2026: same [BA_DEM_PFLOOR] exemption as the
 ! demand scan above -- a committed change on a floor-level row is
 ! equally uninformative for the mode decision.  (17-Oct-2026: the
 ! [BA_DEM_RELFRAC] POPS_OLD.LT.T2 skip was removed with the key.)
@@ -1919,7 +1919,7 @@
 	  END IF
 	  MAXCH_APP=MIN(1.0E+07_LDP,MAX(MAXCH_APP,DECREASE))
 !
-! edited by Devin, 15-Oct-2026: [BA_MAXCH_FAIL] (default 1.0D30 =
+! edited 15-Oct-2026: [BA_MAXCH_FAIL] (default 1.0D30 =
 ! off) same-call rejection of a committed non-LAMBDA step.  The
 ! scale limits bound each correction but never refuse the update,
 ! and residual acceptance (DO_BA_RES_ACC) can only judge it next
@@ -1958,7 +1958,7 @@
 	    END IF
 	  END IF
 !
-! edited by Devin, 16-Oct-2026: BA_TR_ABS -- the absolute
+! edited 16-Oct-2026: BA_TR_ABS -- the absolute
 ! committed change on the floor-exempted (trace) rows, normalized by
 ! POP_ATOM.  Relative change is meaningless across ~50 decades of
 ! population: 100% of 1E-55 carries no information, while a few
@@ -1992,7 +1992,7 @@
 !
 	CONTAINS
 !
-! edited by Devin, 30-Sep-2026: map a global equation index J to a
+! edited 30-Sep-2026: map a global equation index J to a
 ! readable species:level label.  Each ion's equations start at
 ! ATM(ID)%EQXzV (set_ba_storage.f); the first NXzV of that block are
 ! level populations, the rest are ionization/conservation equations
@@ -2032,7 +2032,7 @@
 	      NAME=TRIM(ION_ID(BEST))//':'//
 	1        TRIM(ATM(BEST)%XzVLEVNAME_F(L))
 !
-! edited by Devin, 02-Oct-2026: XzVLEVNAME_F is allocated for every
+! edited 02-Oct-2026: XzVLEVNAME_F is allocated for every
 ! ion but only filled for species whose atomic file supplies level
 ! names; an unfilled entry is NUL bytes, which TRIM leaves in place
 ! so the empty-name fallback below never fired and OUTGEN received
@@ -2054,7 +2054,7 @@
 	  RETURN
 	END FUNCTION EQ_DESC
 !
-! edited by Devin, 07-Oct-2026: worst unquarantined residual
+! edited 07-Oct-2026: worst unquarantined residual
 ! equation at depth I under [DO_BA_QUAR].  Mirrors the entry column
 ! scan above: row N_SE is the species conservation residual mapped
 ! to EQ_SPECIES, and the ionization row at EQXzV folds in STEQ_ADV.
