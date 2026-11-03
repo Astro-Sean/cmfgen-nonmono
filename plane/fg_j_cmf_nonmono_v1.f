@@ -251,7 +251,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: I_P_DEPTH_NEXT(:,:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: I_M_DEPTH_NEXT(:,:,:)
 !
-! SNP_P/SNP_M (edited by Devin, 02-Nov-2026): per-frequency snapshot
+! SNP_P/SNP_M (edited 02-Nov-2026): per-frequency snapshot
 ! of the stored I_NEXT column, taken on the NEW_FREQ call of each
 ! frequency.  comp_j_blank re-enters this routine inside its J
 ! accuracy loop with NEW_FREQ=.FALSE. (DO_ES_ALI runs ~12 calls per
@@ -274,7 +274,7 @@
 	INTEGER, ALLOCATABLE :: COMP_DEPTH_IDX(:)
 	INTEGER, SAVE :: N_COMP=0
 !
-! Compression-set hysteresis (edited by Devin, 29-Sep-2026): the
+! Compression-set hysteresis (edited 29-Sep-2026): the
 ! NEW_R_GRID test below rebuilds the entire ray geometry -- and with
 ! it the I_P/I_M_DEPTH_NEXT coupling store, which is reallocated
 ! zeroed -- whenever the set of compressing depths changes.  A depth
@@ -392,7 +392,7 @@
 	INTEGER*8, SAVE :: FG_SW_CAPTOT=0
 	INTEGER*8, SAVE :: FG_RF_CAPPED=0
 !
-! Compressing-cell sink census (edited by Devin, 18-Oct-2026): a ray
+! Compressing-cell sink census (edited 18-Oct-2026): a ray
 ! point with GAM < 0 whose bracketing depths are both non-compressing
 ! (or which runs while HAS_COMPRESSING is false) keeps
 ! chi_hat = chi + |GAM|/DLN but drops the |Q|*I_NEXT source term --
@@ -477,7 +477,7 @@
 ! residual 0.465 at the cap with retained delta 21).  FG_NC_REJ
 ! counts these rejections separately from jump rejects.  IXIT 0
 ! (exact), 1 (tol) and 2 (bulk-maturity) still commit.  Default
-! changed to T (edited by Devin, 19-Oct-2026): fail-open was the
+! changed to T (edited 19-Oct-2026): fail-open was the
 ! wrong default for the drift class this guard was written for.
 !
 	LOGICAL, SAVE :: FG_COMMIT_CONV=.TRUE.
@@ -505,7 +505,7 @@
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_VC(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FG_RAY_DCH(:)
 !
-! FG_SEED_COMMIT / FG_RAY_SEEDED (edited by Devin, 02-Nov-2026):
+! FG_SEED_COMMIT / FG_RAY_SEEDED (edited 02-Nov-2026):
 ! per-ray "has committed" flag, waiving the FG_COMMIT_JUMP veto for a
 ! ray that has never taken a WRITE_STORE commit.  The veto bounds
 ! near-blowup overwrites of a committed generation, but on a cold or
@@ -543,7 +543,7 @@
 ! classifiers (which need pass>=8) ever run -- and commits under
 ! the converged label.  w19: 49/84 rays took this path at residual
 ! 0.25-0.49 during the luminosity runaway.  Ordering fix; default
-! changed to T (edited by Devin, 19-Oct-2026); F keeps the old exit.
+! changed to T (edited 19-Oct-2026); F keeps the old exit.
 !
 	LOGICAL, SAVE :: FG_BULK_CONTR=.TRUE.
 !
@@ -1066,10 +1066,10 @@
 !
 ! Altered 05-Oct-2026: V and SIGMA_TRUE fingerprints added to the NEW_R_GRID test so a
 !                         velocity update at fixed R cannot leave the ray geometry on a
-!                         stale field (edited by Devin).
+!                         stale field (edited).
 ! Altered 29-Sep-2026: One-sided hysteresis on the compressing-depth set used by the
 !                         NEW_R_GRID test; in-loop bound checks on the J_PNT/H_PNT
-!                         ray-bracket searches (edited by Devin).
+!                         ray-bracket searches (edited).
 ! Altered 19-Aug-2015: Added check that SIGMA> -1.0D0; Some code improvements (cur_hmi, 28-Jun-2015).
 ! Altered 30-Dec-2013: Fixed expressions for HPLUS_OB and HPLUS_IB: Change OMP schedule to dynamic.
 ! Altered 08-Jan-2012: Changed to V12. Added REXT_FAC to call.
@@ -1389,7 +1389,7 @@
 !
 ! V4 audit fix (2026-09-07): reset FREEZE_I_NEXT on INIT so a leftover
 ! .TRUE. cannot suppress I_NEXT writes in the next formal solve.
-! edited by Devin, 05-Oct-2026: must NOT clear during a JFNK eval sweep.
+! edited 05-Oct-2026: must NOT clear during a JFNK eval sweep.
 ! The driver arms FREEZE_I_NEXT once per activation (jfnk_solve_corr_v1.f)
 ! precisely so the perturbed-pop evals cannot advance the lagged store;
 ! clearing here on every INIT made the freeze a no-op -- each eval wrote
@@ -1477,7 +1477,7 @@
 	      COMP_REQUIRED=.FALSE.
 	      DO J=MAX(1,I-1),MIN(ND,I+1)
 !
-! edited by Devin, 29-Sep-2026: one-sided deadband on the compression
+! edited 29-Sep-2026: one-sided deadband on the compression
 ! set.  Depths enter the set on the unchanged SIGMA_TRUE < -1 / V < 0
 ! test, but a depth already inside the set (COMP_DEPTH_IDX(J) > 0)
 ! leaves only on a decisive exit -- SIGMA_TRUE above -1+COMP_SIG_HYST
@@ -1757,7 +1757,7 @@
 	  SIGMA_EXT(ND_ADD+1:ND_EXT)=SIGMA_TRUE_IN(1:ND)
 	  IF(THK)THEN
 !
-! 05-Oct-2026 (Devin): SIGMA is NOT re-clamped under
+! 05-Oct-2026: SIGMA is NOT re-clamped under
 ! DO_NONMONO_KNOP, so a shock/inversion reaching the outer edge
 ! (sigma(1) < -1) would give BETA < 0 and V_EXT would diverge as
 ! R_EXT -> RMAX.  The beta law only makes sense for a coasting
@@ -1922,7 +1922,7 @@
 	    K=1
 	    DO I=1,NI_SMALL
 !
-! edited by Devin, 29-Sep-2026: bound the march in-loop.  The ray
+! edited 29-Sep-2026: bound the march in-loop.  The ray
 ! grid here is hand-built with inserted variable-density points, so
 ! a depth that brackets no R_RAY interval (endpoint roundoff) would
 ! otherwise walk K past NI_RAY(LS) and read out of bounds -- an
@@ -2427,7 +2427,7 @@
 ! This term was missing (audit 2026-09-07, finding #15).  It is required
 ! so that d(chi_hat)/dR used in the Euler-Maclaurin DTAU correction is the
 ! true derivative of |GAM| along the ray.
-! edited by Devin (10-Sep-2026)
+! edited (10-Sep-2026)
 !
 	    dGAMdR(I,LS)=dGAMdR(I,LS)+
 	1       T1*2.0_LDP*SIGMA_RAY(I)*(1.0_LDP-MU**2)/R_RAY(I,LS)
@@ -4145,7 +4145,7 @@ C
 ! around the coupled eval sweep) sees the same Gauss-Seidel I_NEXT
 ! state as the baseline; the default path leaves it .FALSE.
 !
-! NEW_FREQ snapshot (edited by Devin, 02-Nov-2026): comp_j_blank
+! NEW_FREQ snapshot (edited 02-Nov-2026): comp_j_blank
 ! re-enters this routine inside its J accuracy loop with
 ! NEW_FREQ=.FALSE. after the first call of each frequency (DO_ES_ALI
 ! runs ~12 calls per frequency).  The stored column is snapshotted on
@@ -4179,7 +4179,7 @@ C
 ! the KNOP maturity gate in SOLVE_FOR_POPS stays shut even when every
 ! significant cell is converged.  The 1E-4*peak test mirrors the one
 ! the refresh residual applies in MARCH (VMAX_L).
-! edited by Devin (28-Sep-2026)
+! edited (28-Sep-2026)
 !
 	    IF(NEW_FREQ .OR. SNP_FREQ .NE. FREQ_IDX_ITER)THEN
 	      SNP_FREQ=FREQ_IDX_ITER
@@ -5582,7 +5582,7 @@ C
 	READ(291,IOSTAT=IOS)ENDM
 	IF(IOS .NE. 0 .OR. ENDM .NE. -MAGIC)GOTO 900
 !
-! Value audit (edited by Devin, 19-Oct-2026): replicate the INIT-path
+! Value audit (edited 19-Oct-2026): replicate the INIT-path
 ! check from RESTORE_FG_INEXT_GS.  This path previously accepted any
 ! fingerprint-matching record, so a corrupt but dimensionally valid
 ! FGINEXT_GS (or an init-rejected stale file with matching dims)
@@ -6009,7 +6009,7 @@ C
 ! SET_FG_KN_OPTS: runtime wiring for the previously compile-time
 ! FG refresh knobs KN_RAY_TOL, KN_RAY_MAXPASS, the lagged-store
 ! relaxation factor INEXT_RELAX and the bulk-exit residual floor
-! KN_RAY_BULK_TOL (edited by Devin, 20-Oct-2026).
+! KN_RAY_BULK_TOL (edited 20-Oct-2026).
 !
 	SUBROUTINE SET_FG_KN_OPTS(TOL,MAXP,RLX,BTOL)
 	USE SET_KIND_MODULE
@@ -6408,7 +6408,7 @@ C
 	3  ' div=',NX_CNT(5),' plat=',NX_CNT(6)
 !
 ! Floored bulk exits are now distinguishable from the stall/cap
-! stop rules by their residual ceiling (edited by Devin,
+! stop rules by their residual ceiling (edited,
 ! 20-Oct-2026): a bulk count with maxres <= KN_RAY_BULK_TOL is
 ! converged-class, anything above it failed the floor and exited
 ! through a different class instead.
@@ -6452,7 +6452,7 @@ C
 	1  '    matched/compress=',SUM(NMT_LS),'/',SUM(NCM_LS)
 	WRITE(LUER,'(A,I6)')'    max offset=',MAXVAL(NMX_LS)
 !
-! Slot-layout limitation (edited by Devin, 19-Oct-2026): the lagged
+! Slot-layout limitation (edited 19-Oct-2026): the lagged
 ! store holds frequency l in slot l-1, so the refreshed frequency-1
 ! field computed in KNOP_RAY_SOLVE_V1 has no slot and is never
 ! written back (WRITE_STORE loops LS2=2..NCF).  Both band edges
@@ -6685,7 +6685,7 @@ C
 	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
-! NCAP/NNEG are separate census channels (edited by Devin,
+! NCAP/NNEG are separate census channels (edited,
 ! 19-Oct-2026): NNEG counts only the negative/NaN floor writes,
 ! while the NONMONO_INEXT_CAP hits count into NCAP -- they were
 ! previously folded into NNEG, inflating the NNG_LS "clamped"
@@ -6941,7 +6941,7 @@ C
 ! seeds, not overwrites.
 !
 !
-! Per-ray seed-fill waiver (edited by Devin, 02-Nov-2026,
+! Per-ray seed-fill waiver (edited 02-Nov-2026,
 ! [FG_SEED_COMMIT], default T): a ray that has never taken a
 ! WRITE_STORE commit skips the jump veto for its first commit --
 ! see the FG_RAY_SEEDED declaration.  JUMP stays 0 so the
@@ -6970,7 +6970,7 @@ C
 	7      (IXIT_P .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
 	8       RES_P .LE. KN_RAY_BULK_TOL))))))THEN
 !
-! edited by Devin, 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
+! edited 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
 ! commits.  A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
 ! unset code) means the fixed-point solve ended above KN_RAY_TOL;
 ! committing its last iterate wrote that unconverged field into
@@ -6979,7 +6979,7 @@ C
 ! retained delta 21).  The residual test also catches the bulk
 ! exit: IXIT=2 fires on the bad-cell fraction alone, so a ray with
 ! residual ~0.5 and <0.1% bad cells was still classed converged.
-! edited by Devin, 20-Oct-2026: a bulk exit that also clears
+! edited 20-Oct-2026: a bulk exit that also clears
 ! [KN_RAY_BULK_TOL] counts as converged here -- the sweep already
 ! floored it at the residual the maturity gate's bulk rule
 ! accepts, so sending it to WRITE_STORE_CAP only parked the store
@@ -6987,7 +6987,7 @@ C
 ! commits per refresh on m15_2p82d).  With KN_RAY_BULK_TOL<=0 the
 ! floor is off entirely -- the IXIT=2 exit fired on bad-fraction
 ! alone, so the commit test must admit it rather than require
-! BTOL>0 (edited by Devin, 20-Oct-2026: the two semantics were
+! BTOL>0 (edited 20-Oct-2026: the two semantics were
 ! inconsistent, bulk exits fired and were never accepted).
 ! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
 ! (per-cell change bounded by NC; the store keeps tracking a
@@ -7283,7 +7283,7 @@ C
 	  IF(RES_PREV(IDIR) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(IDIR)
 !
-! edited by Devin, 14-Oct-2026: suppress damping while the
+! edited 14-Oct-2026: suppress damping while the
 ! same-direction baseline (pass NPO-2) is still inside the
 ! warm-start seed transient (passes 1-2).  A transient baseline
 ! reads a spurious growth ratio and can drive OMEGA_RAY to the
@@ -7401,7 +7401,7 @@ C
 ! flag set the exit also requires same-direction contraction;
 ! noncontracting rays fall through to the stall/plateau/cap classes.
 !
-! [KN_RAY_BULK_TOL] (edited by Devin, 20-Oct-2026): the exit is
+! [KN_RAY_BULK_TOL] (edited 20-Oct-2026): the exit is
 ! also floored on the residual itself -- the level the maturity
 ! gate's bulk rule accepts.  Rays above the floor fall through to
 ! stall/plateau/cap, so an IXIT=2 exit now certifies the field the
@@ -7786,7 +7786,7 @@ C
 	  IF(INWARD)THEN
 !
 ! Boundary row I=1: zero incident intensity, same residual
-! accounting as MARCH.  edited by Devin, 19-Oct-2026: hot-window
+! accounting as MARCH.  edited 19-Oct-2026: hot-window
 ! guard matching the interior frequency loops -- on a hot pass the
 ! out-of-window columns kept reprocessing this row each pass,
 ! polluting the NTOT_CUR/RES_FREQ bookkeeping (and re-zeroing a
@@ -7920,7 +7920,7 @@ C
 	  ELSE
 !
 ! Inner boundary row I=NI: same options and accounting as the
-! outward branch of MARCH.  edited by Devin, 19-Oct-2026: same
+! outward branch of MARCH.  edited 19-Oct-2026: same
 ! hot-window guard as the row-1 block -- out-of-window columns
 ! must keep their stored values and stay out of the pass census.
 !
@@ -8117,7 +8117,7 @@ C
 	      KN_AA_REJ=KN_AA_REJ+1
 !$OMP END CRITICAL (KN_AA_UPD)
 !
-! edited by Devin, 17-Oct-2026: NB_O/NT_O were latched from the
+! edited 17-Oct-2026: NB_O/NT_O were latched from the
 ! rejected-mix pass above; the bulk-exit census must describe the
 ! restored iterate.  The slot-2 history pair is exactly the accepted
 ! step (x_pre = AA_XH(2), g(x_pre)-x_pre = AA_RH(2)), so rebuild the
@@ -8189,7 +8189,7 @@ C
 	    END IF
 	    KN_SGN_PREV=KN_SGN_SUM
 !
-! edited by Devin, 14-Oct-2026: same seed-transient floor as
+! edited 14-Oct-2026: same seed-transient floor as
 ! SWEEP_FLD -- here the residual history is a single sequence, so
 ! the baseline is NPO-1 and the floor is NPO>=4 (a baseline from
 ! passes 1-2 is still the seed transient).  Applies to the
@@ -8288,7 +8288,7 @@ C
 ! [FG_BULK_CONTR]: same ordering fix as SWEEP_FLD -- the bulk exit
 ! must not fire on a noncontracting pass sequence; RATIO_OM here is
 ! the consecutive-pass ratio.  [KN_RAY_BULK_TOL] floors the exit on
-! the residual here too (edited by Devin, 20-Oct-2026).
+! the residual here too (edited 20-Oct-2026).
 !
 	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
@@ -8921,7 +8921,7 @@ C
 !
 ! Signed per-cell update for the W6 sign-flip detector in
 ! SWEEP_FLD (same metric the ORD loop accumulates inline).
-! edited by Devin, 19-Oct-2026: the accumulator must carry the
+! edited 19-Oct-2026: the accumulator must carry the
 ! SIGNED delta -- DCELL is ABS and made SGN_ACC monotone, so the
 ! SGN_ACC*SGN_PRV<0 test could never fire and the unordered sweep
 ! had no period-2 damping.
@@ -9031,7 +9031,7 @@ C
 ! every significant cell is converged.  The 1E-4*peak significance
 ! test is the same one MARCH applies to the residual metrics
 ! (VMAX_L), so NSTORE and NTOT now cover the same cell population.
-! edited by Devin, 28-Sep-2026
+! edited 28-Sep-2026
 !
 	DO LS2=1,NCF
 	  VMAX_F(LS2)=MAX(1.0E-25_LDP,
@@ -9326,7 +9326,7 @@ C
 	      END IF
 	    END DO
 !
-! Fully poisoned row (edited by Devin, 19-Oct-2026): with no sane
+! Fully poisoned row (edited 19-Oct-2026): with no sane
 ! slot there is no median to build on; the old CYCLE left every
 ! NaN/negative entry in place, so SEED_FLD re-seeded NaN at residual
 ! 1.0 every refresh -- the failure this heal exists to break.  Zero
