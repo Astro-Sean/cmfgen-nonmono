@@ -632,6 +632,13 @@
 !
 	REAL(KIND=LDP), SAVE :: JFNK_PROBE_H_LAST=0.0_LDP
 !
+! JFNK_PROBE_CAPPED: .TRUE. when the constraint-margin cap (H_CAP)
+! reduced the most recent JVP step below the nominal EPS-scaled
+! value. Diagnostic only; read by JFNK_OP_JVPA_V1 so the probe
+! battery can tag directions whose step was boundary-limited.
+!
+	LOGICAL, SAVE :: JFNK_PROBE_CAPPED=.FALSE.
+!
 ! JFNK_HADAPT_MULT: post-cap FD-step multiplier selected by the
 ! [JFNK_HADAPT] plateau finder in JFNK_JVP_V1. 1.0 until the sweep
 ! runs; the selected value applies only while the residual mode and
