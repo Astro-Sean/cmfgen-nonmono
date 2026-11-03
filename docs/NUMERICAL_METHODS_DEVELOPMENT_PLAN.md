@@ -132,7 +132,9 @@ notes under `docs/audits/`.
 - Extend manufactured production-source tests to measure repeat-evaluation
   noise, directional additivity, positive/negative perturbation agreement,
   and the JVP error over a perturbation sweep. Exercise masks, near-boundary
-  states, and branch changes.
+  states, and branch changes. (Progress 03-Nov-2026: surrogate additivity
+  and homogeneity now measured by T22; production-interface residual
+  coverage still open.)
 - Compare cycle-fixed perturbation policies with the current policy using the
   same set of Krylov directions. If a direction crosses a nonsmooth constraint,
   record the event and test a clean cycle restart. Do not quietly mix
