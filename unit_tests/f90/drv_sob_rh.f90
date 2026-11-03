@@ -13,6 +13,11 @@
 ! diagnostic counters.  Geometry+module access makes the test a real
 ! check of the production pair selection, not a reimplementation.
 !
+! Any extra ND-line R V SIGMA blocks after the line data re-run
+! GEOM+COUPLE inside the same process, each dump tagged with a
+! PHASE n line -- the SOB_RH_MOD cache must invalidate when the
+! inputs change between calls (BUG-002 regression hook).
+!
       PROGRAM DRV_SOB_RH
       USE SET_KIND_MODULE
       USE SOB_RH_MOD
@@ -24,7 +29,7 @@
       REAL(KIND=LDP), ALLOCATABLE :: ZNET(:,:), DRC(:,:)
       LOGICAL NEG(NDX)
       CHARACTER(LEN=256) :: CFILE
-      INTEGER ND, NSIM, I, J, K, L, LU, IOS
+      INTEGER ND, NSIM, I, J, K, L, LU, IOS, NPH
       REAL(KIND=LDP) FL
 !
       CALL GET_COMMAND_ARGUMENT(1,CFILE)
@@ -45,29 +50,44 @@
           READ(10,*)CHIL(I,L),ETAL(I,L),BBC(I,L),ZNET(I,L)
         END DO
       END DO
-      CLOSE(10)
 !
       LU=6
-      CALL SOB_RH_GEOM(R,V,SIGMA,ND,LU)
+      NPH=1
 !
-      WRITE(*,'(a,i8)')'TOTPAIRS ',RH_TOTPAIRS
-      DO I=1,ND
-        DO K=1,RH_NP(I)
-          J=RH_ID(I,K)
-          WRITE(*,'(a,3i6,3(1x,es24.16e3))')'PAIR ',I,K,J, &
-        RH_T1(I,K),RH_T1P(I,K),RH_PW(I,K)
-        END DO
-      END DO
+      DO
+        CALL SOB_RH_GEOM(R,V,SIGMA,ND,LU)
 !
-      CALL SOB_RH_COUPLE(DRC,ZNET,CHIL,ETAL,BBC,NEG, &
-        V,SIGMA,R,FL,ND,NSIM,LU)
-!
-      WRITE(*,'(a,2i8)')'NCALL_ND ',RH_NCALL,RH_ND
-      WRITE(*,'(a,2(1x,es24.16e3))')'MAXDJZ ',RH_MAXDJ,RH_MAXDZ
-      DO L=1,NSIM
+        WRITE(*,'(a,i3)')'PHASE ',NPH
+        WRITE(*,'(a,i8)')'TOTPAIRS ',RH_TOTPAIRS
         DO I=1,ND
-          WRITE(*,'(a,2i6,1x,es24.16e3)')'DRC ',L,I,DRC(I,L)
+          DO K=1,RH_NP(I)
+            J=RH_ID(I,K)
+            WRITE(*,'(a,3i6,3(1x,es24.16e3))')'PAIR ',I,K,J, &
+          RH_T1(I,K),RH_T1P(I,K),RH_PW(I,K)
+          END DO
         END DO
+!
+        CALL SOB_RH_COUPLE(DRC,ZNET,CHIL,ETAL,BBC,NEG, &
+          V,SIGMA,R,FL,ND,NSIM,LU)
+!
+        WRITE(*,'(a,2i8)')'NCALL_ND ',RH_NCALL,RH_ND
+        WRITE(*,'(a,2(1x,es24.16e3))')'MAXDJZ ',RH_MAXDJ,RH_MAXDZ
+        DO L=1,NSIM
+          DO I=1,ND
+            WRITE(*,'(a,2i6,1x,es24.16e3)')'DRC ',L,I,DRC(I,L)
+          END DO
+        END DO
+!
+! Optional next phase: ND more R V SIGMA rows, reusing the line data.
+!
+        NPH=NPH+1
+        IOS=0
+        DO I=1,ND
+          READ(10,*,IOSTAT=IOS)R(I),V(I),SIGMA(I)
+          IF(IOS .NE. 0)EXIT
+        END DO
+        IF(IOS .NE. 0)EXIT
       END DO
+      CLOSE(10)
 !
       END
