@@ -1,5 +1,5 @@
 !
-! Altered  05-Oct-2026: VINF consistency check uses peak speed (edited by Devin).
+! Altered  05-Oct-2026: VINF consistency check uses peak speed (edited).
 ! Routine to read in the Radius grid to be utilized. The velocity and
 ! and sigma (dlnv/dlnr-1) must also be given.
 !
