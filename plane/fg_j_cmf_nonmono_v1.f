@@ -3363,19 +3363,27 @@ C
 	      END DO
 !        Dimensionless signed coupling: Q = (GAM/dLOG_NU) / chi_hat
 !
-!        NaN guards on ETA_RAY and GAM: if the cubic interpolation
-!        produced NaN (e.g. from extreme population values or
-!        coefficient overflow), the source and Q would be NaN.
-!        Replace NaN with zero - this gives a zero source contribution,
-!        which is physically neutral (no emission, no coupling).
+!        NaN/Inf guards on ETA_RAY and GAM: if the cubic interpolation
+!        produced a non-finite value (extreme populations, coefficient
+!        overflow), the source and Q would be non-finite too. Replace
+!        with zero - a zero source contribution is physically neutral
+!        (no emission, no coupling). The .NOT.(|x| <= HUGE) form is
+!        required: the old x /= x test caught NaN but let an EXP
+!        overflow (+Inf ETA at the boundary) through to SOURCE_RAY,
+!        matching the cold-run boundary-cell failure.
 !
-! edited by Sean Brennan (04-Sep-2026)
+! edited by Sean Brennan (04-Sep-2026); Inf coverage added 03-Nov-2026
 	      DO I=1,NI
-	        IF(ETA_RAY(I) .NE. ETA_RAY(I))ETA_RAY(I)=0.0_LDP
-	        IF(GAM(I,LS) .NE. GAM(I,LS))GAM(I,LS)=0.0_LDP
-	        IF(GAM_MAG(I,LS) .NE. GAM_MAG(I,LS))GAM_MAG(I,LS)=0.0_LDP
-	        IF(dGAMdR(I,LS) .NE. dGAMdR(I,LS))dGAMdR(I,LS)=0.0_LDP
-	        IF(dCHIdR_RAY(I) .NE. dCHIdR_RAY(I))dCHIdR_RAY(I)=0.0_LDP
+	        IF(.NOT.(ABS(ETA_RAY(I)) .LE. HUGE(ETA_RAY(I))))
+	1          ETA_RAY(I)=0.0_LDP
+	        IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))
+	1          GAM(I,LS)=0.0_LDP
+	        IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))
+	1          GAM_MAG(I,LS)=0.0_LDP
+	        IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))
+	1          dGAMdR(I,LS)=0.0_LDP
+	        IF(.NOT.(ABS(dCHIdR_RAY(I)) .LE. HUGE(dCHIdR_RAY(I))))
+	1          dCHIdR_RAY(I)=0.0_LDP
 	      END DO
 	      DO I=1,NI
 	        DLN_C=dLOG_NU
@@ -3383,11 +3391,13 @@ C
 	        Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
 	      END DO
 	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
-!        Final guard: if Q or SOURCE_RAY is still NaN (shouldn't happen
-!        after the above guards, but belt-and-suspenders), zero them.
+!        Final guard: if Q or SOURCE_RAY is still non-finite (shouldn't
+!        happen after the above guards, but belt-and-suspenders), zero
+!        them. Same Inf coverage as above: Inf .NE. Inf is false.
 	      DO I=1,NI
-	        IF(Q(I) .NE. Q(I))Q(I)=0.0_LDP
-	        IF(SOURCE_RAY(I) .NE. SOURCE_RAY(I))SOURCE_RAY(I)=0.0_LDP
+	        IF(.NOT.(ABS(Q(I)) .LE. HUGE(Q(I))))Q(I)=0.0_LDP
+	        IF(.NOT.(ABS(SOURCE_RAY(I)) .LE. HUGE(SOURCE_RAY(I))))
+	1          SOURCE_RAY(I)=0.0_LDP
 	      END DO
 !
 ! edited by Sean Brennan
