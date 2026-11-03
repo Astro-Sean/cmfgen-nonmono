@@ -159,9 +159,10 @@ notes under `docs/audits/`.
 - The BA matrix is called an analytic JVP only for residual modes where the
   directional derivative test supports that claim. Otherwise it remains a
   preconditioner or explicitly approximate operator.
-- LU solve-residual tests no longer rely on XFAIL for cases classified as
+- ~~LU solve-residual tests no longer rely on XFAIL for cases classified as
   correctness checks. Any retained diagnostic limitation has a separate,
-  explained expectation.
+  explained expectation.~~ (done 03-Nov-2026: T4 machinery gates pass on
+  all specs; T21 keeps the near-singular residual census as a named XFAIL.)
 - The chosen preconditioner shows a measured benefit on a named case without
   worsening the physical nonlinear residual or changing the solved equations.
 - With JFNK disabled, the stock population path remains unchanged.
