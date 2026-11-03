@@ -9,7 +9,7 @@
 ! arrays in the caller (SOLVE_FOR_POPS_JFNK_V1 / cmfgen_sub.f).
 ! The callbacks access them through this module.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	MODULE JFNK_CMFGEN_INT_MOD
 	USE SET_KIND_MODULE
@@ -141,7 +141,7 @@
 	LOGICAL, SAVE :: JFNK_CPL_SOB_DEAD=.FALSE.
 	LOGICAL, SAVE :: JFNK_CPL_SOB_CHK_DONE=.FALSE.
 ! Runaway |z| threshold after M^{-1}; default 10 matches MAX_JFNK.
-! editted by Sean Brennan (08-Sep-2026)
+! edited by Sean Brennan (08-Sep-2026)
 	REAL(KIND=LDP), SAVE :: JFNK_PRECOND_ZMAX=1.0E1_LDP
 !
 ! Diagonal of the full fixed-J BA at baseline (NT x ND), captured when
@@ -321,7 +321,7 @@
 ! Per-element residual scaling vector.
 ! Production default is Euclidean (RSCALE=1).  SQRT_STEQ and DIAG_RDG
 ! remain diagnostic options via VADAT JFNK_RSCALE.
-! editted by Sean Brennan (10-Sep-2026)
+! edited by Sean Brennan (10-Sep-2026)
 !
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_RSCALE(:)
 	LOGICAL, SAVE :: JFNK_RSCALE_READY=.FALSE.
@@ -596,7 +596,7 @@
 !
 ! JFNK_T_START: wall-clock stamp (OMP_GET_WTIME) of the current
 ! activation, set in JFNK_INIT_V1; JFNK_RESIDUAL_V1 reads it for the
-! [JFNK_MAX_SEC] elapsed-time abort (edited by Devin, 15-Oct-2026).
+! [JFNK_MAX_SEC] elapsed-time abort (edited 15-Oct-2026).
 !
 	DOUBLE PRECISION, SAVE :: JFNK_T_START=0.0D0
 	LOGICAL, SAVE :: JFNK_SEC_HIT=.FALSE.
