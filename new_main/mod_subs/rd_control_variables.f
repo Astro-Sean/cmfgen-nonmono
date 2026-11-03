@@ -2463,6 +2463,22 @@
 	1     'Max J passes per frequency under ES-ALI (<=20)')
 	  IF(ES_ALI_MAX .GT. 20)ES_ALI_MAX=20
 !
+! Pairing caveat (03-Nov-2026 audit follow-up): the OAB Jacobi
+! update in COMP_J_BLANK floors its denominator at 0.01, which is
+! only safe when the single-scattering albedo stays <= 1. Under
+! KNOP the gain channel can violate that at masing depths;
+! KN_NO_GAIN=T removes it. Warn rather than force -- the user may
+! want gain physics and accept the risk.
+!
+	  IF(DO_ES_ALI .AND. DO_NONMONO_KNOP .AND.
+	1     .NOT. KN_NO_GAIN)THEN
+	    WRITE(LUER,'(A)')
+	1   ' Warning: DO_ES_ALI under DO_NONMONO_KNOP without'
+	2   ,' KN_NO_GAIN=T -- the OAB denominator floor (0.01)'
+	3   ,' is only safe when the single-scattering albedo'
+	4   ,' stays <= 1; gain depths can violate it.'
+	  END IF
+!
 ! BA-side ALI keys (28-Oct-2026): optional. DO_ES_ALI_BA amplifies
 ! the stored ALO diagonal in DO_VAR_CONT by the converged-ES Jacobi
 ! factor 1/(1 - DJDETA*chi_scat), floored at ES_ALI_BA_MIN.
@@ -3511,8 +3527,9 @@
 	      WRITE(LUER,*)'SOB field solver: FG_J_CMF_V13 formal-solve J'
 	1     ,' update (explicit USE_LAM_ES=T; the SOB default is F).'
 	2     ,' V13 is built on clamped SIGMA, so it is expansion-'
-	3     ,' biased in compression zones; the verified'
-	4     ,' non-monotonic formal solver is DO_NONMONO_KNOP.'
+	3     ,' biased in compression zones; DO_SOB_FG_KNOP=T runs'
+	4     ,' the Knop solver on this route, and DO_NONMONO_KNOP'
+	5     ,' is the verified all-Knop alternative.'
 	      WRITE(LUER,'(A)')
 	1     ' ============================================================'
 !
@@ -3853,10 +3870,14 @@
 ! transfer and is not non-monotonic safe. Auto-set rather than STOP
 ! (16-Oct-2026 self-consistency pass; INC_GRID is read after the main
 ! enforcement block above, so its override lives here).
+! DO_NONMONO_SOB carries the same exposure: the ACCURATE branch
+! dispatches only V13/MOM_V11, so USE_LAM_ES is ignored and neither
+! non-monotonic solver ever runs. Covered by the same override
+! (03-Nov-2026 audit follow-up).
 !
-	  IF(DO_NONMONO_KNOP .AND. ACCURATE)THEN
+	  IF((DO_NONMONO_KNOP .OR. DO_NONMONO_SOB) .AND. ACCURATE)THEN
 	    ACCURATE=.FALSE.
-	    WRITE(LUER,'(A)')' KNOP auto-set: INC_GRID=F - the'//
+	    WRITE(LUER,'(A)')' nonmono auto-set: INC_GRID=F - the'//
 	1   ' enhanced-grid branch calls MOM_J_CMF_V11 after the'//
 	2   ' formal transfer and is not non-monotonic safe.'
 	  END IF
