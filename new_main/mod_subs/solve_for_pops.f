@@ -16,43 +16,43 @@
 	USE KNOP_STATUS_MOD
 	IMPLICIT NONE
 !
-! Altered:   20-Oct-2026 : No-progress totals N_FROZEN_TOT /
+! Altered: 20-Oct-2026 : No-progress totals N_FROZEN_TOT /
 !                          N_PRECOND_TOT survive release refunds so
 !                          GS_FREEZE_LIM / GS_PRECOND_LIM can fire on
 !                          a release/refreeze cycle; GS_REL_NOPROG_LIM
 !                          stops on counted no-progress releases
 !                          (edited).
-! Altered:   20-Oct-2026 : FG_TRIAL_CHURN arm -- a churn-only immature
+! Altered: 20-Oct-2026 : FG_TRIAL_CHURN arm -- a churn-only immature
 !                          FG gate inside the factor may still release
 !                          the resacc-judged LAMBDA trial
 !                          (edited).
-! Altered:   20-Oct-2026 : Release-progress audit flags and counts
+! Altered: 20-Oct-2026 : Release-progress audit flags and counts
 !                          no-progress frozen->live transitions
 !                          (edited).
-! Altered:   20-Oct-2026 : GS_PRECOND demand gate postpones the freeze
+! Altered: 20-Oct-2026 : GS_PRECOND demand gate postpones the freeze
 !                          while the population demand is grossly
 !                          unconverged (edited).
-! Altered:   17-Oct-2026 : LUM_BLOCKED is a latch with baseline recovery;
+! Altered: 17-Oct-2026 : LUM_BLOCKED is a latch with baseline recovery;
 !                          added the LUM_DIV_FAC2/LUM_DIV_N2 slow-streak
 !                          tier (edited).
-! Altered:   17-Oct-2026 : ITER_SUM gains the trace-side channels and a live
+! Altered: 17-Oct-2026 : ITER_SUM gains the trace-side channels and a live
 !                          converged-exit gate verdict (edited).
-! Altered:   16-Oct-2026 : Stage-B trace polish forces the BA dispatch so
+! Altered: 16-Oct-2026 : Stage-B trace polish forces the BA dispatch so
 !                          SOLVEBA_V13 can hold majors/T/ED (edited).
-! Altered:   15-Oct-2026 : BA_DIRCHK_MAX drops the dirchk admission bypass
+! Altered: 15-Oct-2026 : BA_DIRCHK_MAX drops the dirchk admission bypass
 !                          after the diagnostic budget is spent (edited).
-! Altered:   05-Oct-2026 : Added population-solve subheader to OUTGEN (edited).
-! Altered:   26-Apr-2019 : Added "CALL SMOOTH_POPS_AS_WE_ITERATE" (done earlier on OSIRIS).
-! Altered:   18-Nov-2016 : Before doing AV, check NG acceleration was not done recently.
-! Altered:   01-Apr-2015 : Changed ESTAU call to ESTAU_V2 to take clumping to account.
-! Altered:   21-Jan-2014 : Changed to CALL SOLVEBA_V12 - now pass MAIN_COUNTER.
-! Aleterd:   31-Dec-2013 : No longer set COMPUTE_BA=T when T_MIN_BA_EXTRAP is true. We may need to
+! Altered: 05-Oct-2026 : Added population-solve subheader to OUTGEN (edited).
+! Altered: 26-Apr-2019 : Added "CALL SMOOTH_POPS_AS_WE_ITERATE" (done earlier on OSIRIS).
+! Altered: 18-Nov-2016 : Before doing AV, check NG acceleration was not done recently.
+! Altered: 01-Apr-2015 : Changed ESTAU call to ESTAU_V2 to take clumping to account.
+! Altered: 21-Jan-2014 : Changed to CALL SOLVEBA_V12 - now pass MAIN_COUNTER.
+! Aleterd: 31-Dec-2013 : No longer set COMPUTE_BA=T when T_MIN_BA_EXTRAP is true. We may need to
 !                            change this.
-! Altered:   26-Mar-2012 : Changed to CALL SOLVEBA_V11. Has POP_ATOM.
-! Altered:   12-Mar-2012 : Changed to CALL SOLVEBA_V10. Allows populations at depth 2 to be
+! Altered: 26-Mar-2012 : Changed to CALL SOLVEBA_V11. Has POP_ATOM.
+! Altered: 12-Mar-2012 : Changed to CALL SOLVEBA_V10. Allows populations at depth 2 to be
 !                            equated to those at depth 1.
-! Altered:   18-May-2010 : Change to allow BA to be held fixed after a LAMBDA iteration.
-! Altered:   23-Feb-2007 : Call to SOLVEBA_V8 changed to SOLVEBA_V9; LAM_SCALE_OPT inserted
+! Altered: 18-May-2010 : Change to allow BA to be held fixed after a LAMBDA iteration.
+! Altered: 23-Feb-2007 : Call to SOLVEBA_V8 changed to SOLVEBA_V9; LAM_SCALE_OPT inserted
 !                            into SOLVEBA_V9 call.
 ! Finalized: 15-Feb-2006
 !
@@ -122,11 +122,11 @@
 ! W1-W9 (17-Oct-2026, KNOP maturity-chain repair):
 !
 ! GS_NDIV / GS_NRAY: diverged-ray count and solved-ray count, gated
-! on share not on the RESID=1.0 pin (W2).  GS_NBAD_BLK: best-pass
+! on share not on the RESID=1.0 pin (W2). GS_NBAD_BLK: best-pass
 ! bad census; the bulk rule reads MIN(GS_NBAD,GS_NBAD_BLK) (W3).
 ! GS_SW_MAXCHG / GS_SW_NCONV / GS_RF_DCHG: sweep-semantics drift
 ! and retained-field delta, kept separate from the refresh
-! fixed-point metrics (W4).  GS_UNSAFE is the catastrophic
+! fixed-point metrics (W4). GS_UNSAFE is the catastrophic
 ! backstop tier (>10% capped cells, >1% diverged rays, >10% raw
 ! bad cells); GS_PIN is the strict-freeze tier (>0.1% capped).
 ! FG_TRIAL mirrors MOM_TRIAL for the USE_LAM_ES=T path (W8).
@@ -147,9 +147,9 @@
 	INTEGER*8 GS_NBAD_STAL,GS_NBAD_PLAT
 	LOGICAL GS_UNSAFE,GS_PIN,FG_TRIAL
 ! GS_FG_PRECHURN: GS_FG_IMMATURE evaluated before the store-churn OR
-! (snapshot, not a saved state).  FG_CHURN_MARG: immature ONLY via
+! (snapshot, not a saved state). FG_CHURN_MARG: immature ONLY via
 ! churn and inside the [FG_TRIAL_CHURN] factor (edited,
-! 20-Oct-2026).  N_CHURN_STREAK counts consecutive churn-marginal
+! 20-Oct-2026). N_CHURN_STREAK counts consecutive churn-marginal
 ! calls and gates the churn arm in place of N_FROZEN: the freeze
 ! streak stays ~5-6 under the release/refreeze cycle, far short of
 ! FG_TRIAL_MIN, so the arm could never fire on the field class it
@@ -160,7 +160,7 @@
 ! Same-cell LAMBDA churn streak: consecutive LAMBDA calls that apply
 ! >10% to one (row,depth) cell are the local-limit-cycle signature
 ! the store-churn census can miss when the field never refresh-
-! converges (GS_NTOT=0 disarms FG_CHURN_MARG).  A streak >= 2 bumps
+! converges (GS_NTOT=0 disarms FG_CHURN_MARG). A streak >= 2 bumps
 ! N_CHURN_STREAK early and waives the arm's GS_NTOT>0 requirement.
 !
 	INTEGER, SAVE :: LST_CHG_J=0,LST_CHG_I=0,N_SAMECELL=0
@@ -191,13 +191,13 @@
 	REAL(KIND=LDP), PARAMETER :: GS_UNSAFE_TOL=0.5_LDP
 !
 ! GS_LAM_CAP / GS_LAM_TRANSIENT: maturity-scaled LAMBDA correction
-! limit on frozen (immature-field) iterations.  MAX_LAM_COR=100 is
+! limit on frozen (immature-field) iterations. MAX_LAM_COR=100 is
 ! calibrated for the cold-start LTE->NLTE relaxation, where factor-100
-! corrections are legitimate.  Once the lagged field is nearly mature
+! corrections are legitimate. Once the lagged field is nearly mature
 ! the SE solve is linearizing about a field that is still drifting,
 ! so the same allowance lets a single compression-depth update
-! re-poison the store for ~10 iterations (MOM run 12007252, it65:
-! +688% at depth 50 -> sweep nbad50 44k -> 598k).  When the bulk
+! re-poison the store for ~10 iterations (MOM run :
+! +688% at depth 50 -> sweep nbad50 44k -> 598k). When the bulk
 ! churn fraction falls below GS_LAM_TRANSIENT the field is in the
 ! near-mature regime and the correction is capped at factor
 ! GS_LAM_CAP; above it the run is in gross transient and keeps
@@ -207,10 +207,10 @@
 	REAL(KIND=LDP), PARAMETER :: GS_LAM_TRANSIENT=0.02_LDP
 	REAL(KIND=LDP) GS_CHURN
 !
-! Convergence diagnostics (dev7, 30-Sep-2026 session).  FIXT_WAS and
+! Convergence diagnostics (dev7, 30-Sep-2026 session). FIXT_WAS and
 ! BA_REJ_THIS record the state the just-run SOLVEBA actually used, so
 ! the ITER_SUM report survives the mode controller overwriting the
-! next-iteration flags.  The HIST_* ring buffers feed the
+! next-iteration flags. The HIST_* ring buffers feed the
 ! CONV_PLATEAU detector.
 !
 	LOGICAL FIXT_WAS
@@ -233,13 +233,13 @@
 ! lagged coupling field is immature, the SOLVEBA update is skipped
 ! entirely so the great iteration becomes a transfer-only sweep that
 ! converges the wavelength boundary-value problem for FIXED
-! populations.  N_FROZEN drives escalation, not the update choice:
+! populations. N_FROZEN drives escalation, not the update choice:
 ! the freeze itself is uncapped by default (the field must mature on
 ! its own), but GS_STATE is published for the wrapper watchdog and
-! GS_FREEZE_LIM can stop the model outright.  A forced SE update on
+! GS_FREEZE_LIM can stop the model outright. A forced SE update on
 ! a field still moving by ~1e6
 ! kicked the lagged coupling to ~1e16 and blew up the next formal
-! solve (KNOP_MOM_TFIT it16-19, 20-Sep-2026), so the SE update now
+! solve (KNOP_MOM_TFIT , 20-Sep-2026), so the SE update now
 ! waits for real maturity rather than a counter.
 !
 ! GS_FREEZE now lives in CONTROL_VARIABLE_MOD (22-Oct-2026) so
@@ -250,30 +250,30 @@
 	INTEGER, SAVE :: N_TRIAL_ACC=0
 ! Release-cycle accounting (17-Oct-2026): accepted trials refund
 ! N_FROZEN, so the freeze->release->refreeze loop could cycle
-! forever under GS_FREEZE_LIM.  N_TRIALS_REJ counts rejected
+! forever under GS_FREEZE_LIM. N_TRIALS_REJ counts rejected
 ! resacc-gated releases for the GS_RELEASE_LIM stop; N_RELEASES_TOT
-! counts accepted ones for telemetry.  Both ride GS_STATE.
+! counts accepted ones for telemetry. Both ride GS_STATE.
 	INTEGER, SAVE :: N_TRIALS_REJ=0
 	INTEGER, SAVE :: N_RELEASES_TOT=0
 ! GS_RAW_RELEASES_TOT (edited 19-Oct-2026) counts raw-cure
 ! freeze releases -- the frozen->live transition, not the trial arms
-! N_RELEASES_TOT tracks.  The release->immature->refreeze alternation
+! N_RELEASES_TOT tracks. The release->immature->refreeze alternation
 ! resets N_FROZEN at every release, so neither the freeze streak nor
 ! the trial counters ever see it; this counter makes the cycle
-! visible in GS_STATE.  8-byte so a long alternation cannot overflow.
+! visible in GS_STATE. 8-byte so a long alternation cannot overflow.
 	INTEGER*8, SAVE :: GS_RAW_RELEASES_TOT=0
 	LOGICAL TRIAL_FIRED
 !
 ! GS_WAS_FROZEN records the previous call's freeze state so the first
-! live update after a frozen stretch can be damped.  While pops are
+! live update after a frozen stretch can be damped. While pops are
 ! held the deferred SE correction keeps growing against the maturing
 ! field (attempted max stays ~1e9+); releasing it under the cold-start
 ! MAX_LAM_COR cap commits a factor-100 change at depth and re-poisons
-! the field the freeze just converged (LAM_dbg it7: maxapp=1e7 ->
-! se2 16 -> 5e7 -> refreeze, repeated identically twice).  The
+! the field the freeze just converged(maxapp=1e7 ->
+! se2 16 -> 5e7 -> refreeze, repeated identically twice). The
 ! release step uses GS_LAM_CAP instead -- a field that just cleared
 ! the maturity gate is in the near-mature regime that cap was
-! calibrated for.  N_REL_SINCE counts consecutive live-update calls
+! calibrated for. N_REL_SINCE counts consecutive live-update calls
 ! after a frozen stretch so the GS_REL_N damp window covers the
 ! whole re-lag transient, not just the first step.
 !
@@ -284,31 +284,31 @@
 ! GS_FREEZE under the [GS_PRECOND] demand gate -- the entry MAXCH
 ! (previous call's demand) exceeded GS_PRECOND_MAX, so holding the
 ! populations would park the iteration orders of magnitude outside
-! the SE linearization's validity (m15_2p82d KNOP: 1.5E10% demand
+! the SE linearization's validity (KNOP: 1.5E10% demand
 ! held 5 of 6 calls; the released step, capped at 200%, never moved
-! it).  The flag keeps the call out of the post-release damp-window
+! it). The flag keeps the call out of the post-release damp-window
 ! bookkeeping below: the frozen->live edge it crosses is a gate
 ! override, not a field release, so it must neither consume
-! N_REL_SINCE nor take the GS_LAM_CAP release cap.  N_PRECOND
+! N_REL_SINCE nor take the GS_LAM_CAP release cap. N_PRECOND
 ! counts consecutive preconditioned calls for the [GS_PRECOND_LIM]
 ! structural-failure stop and rides GS_STATE across requeues.
 !
 	LOGICAL, SAVE :: GS_PRECOND_ACT=.FALSE.
 	INTEGER, SAVE :: N_PRECOND=0
 ! Best demand seen during the current above-threshold preconditioning
-! stretch (edited 21-Oct-2026).  N_PRECOND_TOT is the
+! stretch (edited 21-Oct-2026). N_PRECOND_TOT is the
 ! no-progress total for [GS_PRECOND_LIM], so a call that still beats
 ! the stretch best by the same 10% margin the release audit uses is
 ! progress and must not count -- a cold start that is working the
 ! demand down needs more than GS_PRECOND_LIM calls to reach
 ! GS_PRECOND_MAX, and was being stopped mid-contraction on
-! m15_2p82d_KNOP_np.  HUGE start means the first gated call always
+!. HUGE start means the first gated call always
 ! records progress; reset to HUGE whenever the gate opens.
 	REAL(KIND=LDP), SAVE :: GS_PC_BEST=HUGE(1.0_LDP)
 !
 ! Release-progress audit (edited 20-Oct-2026):
 ! GS_JUST_REL arms on each frozen->live transition; the next call
-! judges the release.  If the demand entering that call (MAXCH =
+! judges the release. If the demand entering that call (MAXCH =
 ! the release call's demand) has not fallen at least 10% below the
 ! release-time demand GS_REL_DEM, or the post-release sweep still
 ! drifted above GS_UNSAFE_TOL, the release made no progress --
@@ -324,11 +324,11 @@
 ! consecutive counters N_FROZEN/N_PRECOND reset at every release
 ! or gate transition -- exactly the alternation GS_FREEZE_LIM /
 ! GS_PRECOND_LIM exist to catch, so those stops were unreachable
-! on the m15_2p82d release/refreeze cycle.  These totals
+! on the release/refreeze cycle. These totals
 ! accumulate frozen and preconditioned calls and reset ONLY on
 ! measured demand progress (a release judged progressive by the
 ! GS_JUST_REL block, or MAXCH back under GS_PRECOND_MAX while the
-! precondition feature runs).  Both ride GS_STATE across requeues
+! precondition feature runs). Both ride GS_STATE across requeues
 ! like the streaks.
 !
 	INTEGER*8, SAVE :: N_FROZEN_TOT=0
@@ -336,7 +336,7 @@
 !
 ! Luminosity is diagnostic only in shocked models: local deposition
 ! and mechanical-to-radiative conversion mean the inner and outer
-! luminosities need not agree or settle together.  Keep the ratio and
+! luminosities need not agree or settle together. Keep the ratio and
 ! call-to-call drift in OUTGEN, but never use either in mode selection,
 ! correction damping, population holds, or Newton admission.
 !
@@ -351,16 +351,16 @@
 	INTEGER, SAVE :: LUM_DIV_NCNT=0
 !
 ! Latch state for the runaway detector (edited,
-! 17-Oct-2026).  LUM_BLOCKED used to be recomputed per call, so one
+! 17-Oct-2026). LUM_BLOCKED used to be recomputed per call, so one
 ! call with growth below LUM_DIV_FAC cleared the hold while L_out
-! was still catastrophically high.  LUM_DIV_LATCH now persists once
+! was still catastrophically high. LUM_DIV_LATCH now persists once
 ! tripped; LUM_DIV_BASE records the pre-runaway luminosity (the
 ! level before the triggering streak) so recovery requires
 ! L_out <= LUM_DIV_REC*LUM_DIV_BASE, not merely a quiet iteration.
 ! LUM_DIV_NCNT2/LUM_DIV_B2 track the slow-streak tier
-! ([LUM_DIV_FAC2]/[LUM_DIV_N2]).  LUM_DIV_NCNT3/LUM_DIV_B3 track the
+! ([LUM_DIV_FAC2]/[LUM_DIV_N2]). LUM_DIV_NCNT3/LUM_DIV_B3 track the
 ! third, lowest-factor tier ([LUM_DIV_FAC3]/[LUM_DIV_N3]): the
-! m15_2p82d_KNOP_l14_freet restart runaway grew only ~0.02-0.06x per
+!  restart runaway grew only ~0.02-0.06x per
 ! call (1.6E9 -> 1.2E10 over 300 iterations under pops-held), a drift
 ! both existing tiers are blind to but which is unambiguous
 ! divergence when sustained.
@@ -377,17 +377,17 @@
 !
 ! Consecutive calls whose SCRTEMP record is a clean committed
 ! iterate (no reject/masked/soft-reject/pending-arm/Newton/held-pops
-! record).  NG requires 4 clean records before firing -- see the
+! record). NG requires 4 clean records before firing -- see the
 ! bookkeeping block after BA_PART_WAS below.
 !
 	INTEGER, SAVE :: NG_CLEAN=0
 !
 ! NG_DEFERRED marks a NEXT_NG=MAIN_COUNTER+1 target armed by the
-! NG_CLEAN deferral itself.  Auxiliary SCRTEMP writes below (R-grid
+! NG_CLEAN deferral itself. Auxiliary SCRTEMP writes below (R-grid
 ! revision, AV averaging) bump MAIN_COUNTER between the deferral
 ! and the due call and can step over the +1 target, leaving NEXT_NG
 ! permanently below MAIN_COUNTER so the upstream .EQ. fire test
-! never fires.  The flag widens the due test to .LE. for deferred
+! never fires. The flag widens the due test to .LE. for deferred
 ! targets only; sentinel values (1000/1500/2000, far future) and
 ! every other scheduler assignment keep the upstream .EQ.
 ! semantics, and any reschedule clears it.
@@ -395,21 +395,21 @@
 	LOGICAL, SAVE :: NG_DEFERRED=.FALSE.
 !
 ! NG_DEM_PRE (edited 15-Oct-2026): the demanded MAXCH on
-! the call that fired the last NG acceleration.  ITER_SUM prints it
+! the call that fired the last NG acceleration. ITER_SUM prints it
 ! against the next call's demand so an acceleration that pushed the
-! model backwards (m15: MAXCH 5.3 -> 13.0 across it181) is visible
+! model backwards (MAXCH 5.3 -> 13.0 across ) is visible
 ! as a rebound instead of two unrelated numbers.
 !
 	REAL(KIND=LDP), SAVE :: NG_DEM_PRE=-1.0_LDP
 !
 ! BA_MATRIX_STORED records that a call was entered with
 ! LAMBDA_ITERATION=F and COMPUTE_BA=T -- i.e. an iteration whose SE
-! phase actually ran STORE_BA_DATA_V3 and wrote BAMAT.  The fix-BA
+! phase actually ran STORE_BA_DATA_V3 and wrote BAMAT. The fix-BA
 ! logic below can switch COMPUTE_BA off so later phases recall the
 ! stored matrix; flipping it off in the same call that first left
 ! LAMBDA mode (MOM_TRIAL flips the flag mid-call, after the SE phase
 ! already ran under LAMBDA) recalls a BAMAT that was never written
-! and stops the run (MOM_dbg it31: "cant read BA File").
+! and stops the run ("cant read BA File").
 !
 	LOGICAL, SAVE :: BA_MATRIX_STORED=.FALSE.
 	LOGICAL, SAVE :: PREV_COMPUTE_ENT=.FALSE.
@@ -418,10 +418,10 @@
 ! BA_REUSE_STALL counts consecutive judged recall steps (armed
 ! steps committed under a recalled matrix) whose RES2 ratio
 ! exceeded BA_REUSE_TOL -- the stored BA matrix stopped producing
-! meaningful contraction.  A flat judgment on a fresh-matrix step
+! meaningful contraction. A flat judgment on a fresh-matrix step
 ! does not count: rebuilding an already-current matrix cannot fix
-! a hard nonlinear step.  At BA_REUSE_NSTALL the FIX_BA override
-! below forces one rebuild.  SUM_FIRED records that the MAXCH_SUM
+! a hard nonlinear step. At BA_REUSE_NSTALL the FIX_BA override
+! below forces one rebuild. SUM_FIRED records that the MAXCH_SUM
 ! drift trigger fired this call: accumulated population movement
 ! large enough to invalidate the linearization is not overridden
 ! by residual evidence.
@@ -460,8 +460,8 @@
 	EXTERNAL GET_MOM_GS_CLS,GET_FG_GS_CLS
 !
 ! KN_GATE_DIVERGENCE prototype state: ring of the last GD_MMAX
-! refresh sweeps' max residuals.  SAVE so the history persists
-! across calls.  On a warm restart two paths exist (GS_RWARM_SKIP):
+! refresh sweeps' max residuals. SAVE so the history persists
+! across calls. On a warm restart two paths exist (GS_RWARM_SKIP):
 ! replay N_LAM_RWARM sweeps before the ring can arm the growth
 ! test, or -- when the GS state file restores a mature field --
 ! skip the replay and let the ring refill from live sweeps.
@@ -488,7 +488,7 @@
 !
 ! JFNK_COUPLED_THIS: residual mode selected for THIS call by the
 ! two-tier admission below (coupled eval only when the tighter
-! COR_GATE tier is satisfied).  JFNK_GATE_IN is the effective
+! COR_GATE tier is satisfied). JFNK_GATE_IN is the effective
 ! frozen-tier gate (FRZ_GATE when set, else COR_GATE).
 ! JFNK_FRZ_HITS / JFNK_CPL_HITS count consecutive sub-gate solves for
 ! the JFNK_GATE_NREQ hysteresis (audit cmfgen_obsidian/audits/JFNK_SOLVER_AUDIT finding C1).
@@ -502,18 +502,18 @@
 	INTEGER, SAVE :: JFNK_CPL_HITS=0
 !
 ! JFNK_FRZ_HOLD: eligible frozen-tier calls still assigned to SOLVEBA
-! after [JFNK_FRZ_FAIL_LIM] consecutive no-commit admissions.  The hold
+! after [JFNK_FRZ_FAIL_LIM] consecutive no-commit admissions. The hold
 ! is local to the admission gate; the failure streak itself is exported
 ! by JFNK_CMFGEN_INT_MOD.
 !
 	INTEGER, SAVE :: JFNK_FRZ_HOLD=0
 !
 ! JFNK_LAST_DEM: demanded correction at the previous call, used by
-! the demand-contraction term in the gate hits.  Newton is only a
+! the demand-contraction term in the gate hits. Newton is only a
 ! useful admission while the outer map is demonstrably contracting;
 ! a sub-gate demand that is rebounding (field re-poisoned by the
 ! last committed step, a post-Lambda transition transient) is not a
-! basin signal.  JFNK_DEM_RISE bounds the tolerated call-to-call
+! basin signal. JFNK_DEM_RISE bounds the tolerated call-to-call
 ! demand growth: the ~5x/iter contraction on this model family is
 ! far above noise, and a factor 1.5 rebound is the signature of a
 ! rejected/re-poisoned step rather than endgame jitter.
@@ -537,7 +537,7 @@
 	JFNK_UNCONVERGED_COMMIT=.FALSE.
 	JFNK_COMMITTED=.FALSE.
 !
-! Consume the rd_lam probe arm into a call-local flag.  CMFGEN_SUB
+! Consume the rd_lam probe arm into a call-local flag. CMFGEN_SUB
 ! already read BA_RDLAM_PROBE to leave LAMBDA_ITERATION false for this
 ! call; clearing the module flag here lets its end-of-iteration
 ! re-impose restore LAMBDA for the next call, and a demote before the
@@ -614,7 +614,7 @@
 ! Entry flags: at call time these still hold the values the previous
 ! call's controller assigned, i.e. the mode the just-finished
 ! iteration ran under -- including whether its SE phase stored
-! BAMAT.  Capture before the KNOP/mode blocks rewrite them for the
+! BAMAT. Capture before the KNOP/mode blocks rewrite them for the
 ! next iteration.
 !
 	LAMBDA_ENT=LAMBDA_ITERATION
@@ -622,7 +622,7 @@
 !
 ! edited 30-Sep-2026: N_FROZEN is process-local, so a
 ! requeue inside a frozen stretch silently reset both GS_FREEZE_LIM
-! and the wrapper's n_frozen stall watchdog.  On the first call of a
+! and the wrapper's n_frozen stall watchdog. On the first call of a
 ! restarted segment, adopt the streak recorded in GS_STATE by the
 ! previous segment -- but only when that record describes the
 ! immediately preceding iteration (a stale file from an abandoned
@@ -773,8 +773,8 @@
 ! Inner/outer agreement stays diagnostic -- shocked models
 ! legitimately disagree -- but sustained superlinear growth of the
 ! absolute outer luminosity is unambiguous divergence
-! (KNOP_jfnkrel: 5.7E9 -> 6.2E28 L_sun in ~5 calls, then ~60 dead
-! iterations until GS_FREEZE_LIM).  LUM_BLOCKED revives the dormant
+! (5.7E9 -> 6.2E28 L_sun in ~5 calls, then ~60 dead
+! iterations until GS_FREEZE_LIM). LUM_BLOCKED revives the dormant
 ! hold/trial-veto plumbing below; past LUM_DIV_CAP the state is not
 ! recoverable, so stop rather than burn the frozen-cycle budget.
 !
@@ -782,7 +782,7 @@
 !
 ! A NaN/Inf luminosity fails every .GT. test below: the streak
 ! counter would reset and LUM_PREV_OUT would latch NaN, leaving
-! the runaway invisible while it keeps feeding POPS.  Fail closed.
+! the runaway invisible while it keeps feeding POPS. Fail closed.
 !
 	  IF(.NOT. (ABS(LUM_OUT_ABS) .LE. HUGE(1.0_LDP)))THEN
 	    WRITE(LUER,'(A)')
@@ -792,11 +792,11 @@
 	END IF
 !
 ! edited 29-Oct-2026: suppress the growth/cap checks during
-! the N_LAM_RWARM warm-up window.  A cold I_NEXT rebuild (missing or
+! the N_LAM_RWARM warm-up window. A cold I_NEXT rebuild (missing or
 ! foreign-rejected FGINEXT_GS) feeds SOLVE_FOR_POPS a first-pass J
-! whose outer luminosity is meaningless -- the warmS warm start
+! whose outer luminosity is meaningless -- the warm start
 ! measured 1.05E12 identically on two attempts, then the formal
-! solve settled to 1.65E9 within the same iteration.  Stopping on
+! solve settled to 1.65E9 within the same iteration. Stopping on
 ! the cap during warm-up kills every checkpoint-less restart; the
 ! non-finite check above stays armed since NaN/Inf is a real fault.
 ! Skipping the block also keeps the transient out of LUM_PREV_OUT,
@@ -807,11 +807,11 @@
 	2   .NOT. (RD_LAMBDA .AND. ITS_SINCE_START .LE. N_LAM_RWARM))THEN
 !
 ! edited 17-Oct-2026: latch semantics plus a slow-growth
-! tier.  Recovery is checked first: a latched runaway releases only
+! tier. Recovery is checked first: a latched runaway releases only
 ! when L_out falls back below LUM_DIV_REC*LUM_DIV_BASE (the
 ! luminosity level just before the triggering streak), so a single
 ! sub-threshold call can no longer clear LUM_BLOCKED at a still-
-! runaway luminosity.  LUM_DIV_REC=0 disables release -- the cap or
+! runaway luminosity. LUM_DIV_REC=0 disables release -- the cap or
 ! GS_FREEZE_LIM ends the run.
 !
 	  IF(LUM_DIV_LATCH .AND. LUM_DIV_REC .GT. 0.0_LDP .AND.
@@ -844,7 +844,7 @@
 !
 ! Slow-streak tier: sustained growth above LUM_DIV_FAC2 for
 ! LUM_DIV_N2 consecutive calls is the same divergence signature at
-! a lower per-call factor -- the w19 runaway grew ~10x per call and
+! a lower per-call factor -- the runaway grew ~10x per call and
 ! never touched LUM_DIV_FAC=1E2.
 !
 	  IF(LUM_PREV_OUT .GT. 0.0_LDP .AND.
@@ -857,7 +857,7 @@
 	  END IF
 !
 ! Drift tier: sustained growth above LUM_DIV_FAC3 for LUM_DIV_N3
-! consecutive calls.  The m15_2p82d_KNOP_l14_freet cold I_NEXT
+! consecutive calls. The cold I_NEXT
 ! rebuild after a checkpoint-less restart walked L_out from 1.6E9
 ! to 1.2E10 at ~2%/call over 300 iterations -- too slow for the
 ! 5x/100x streak tiers, past recovery long before the 1E15 cap.
@@ -995,7 +995,7 @@
 ! KNOP-forced LAMBDA calls while the lagged field is immature; the
 ! catastrophic JFNK fallback intentionally caps at MAX_LIN_COR.
 ! JFNK_FALLBACK_CAP (jfnk_solve_corr_v1.f) encodes the same mapping on
-! the JFNK side.  SOLVEBA_V13 only consumes the cap (CHANGE_LIM), so
+! the JFNK side. SOLVEBA_V13 only consumes the cap (CHANGE_LIM), so
 ! correctness lives entirely at these call sites.
 !
 	IF(LAMBDA_ITERATION)THEN
@@ -1012,11 +1012,11 @@
 	ITER_REASON=' '
 !
 ! Knop Gauss-Seidel warm-up (DO_NONMONO_KNOP, and DO_SOB_FG_KNOP
-! which runs the same solver).  The lagged
+! which runs the same solver). The lagged
 ! I_NEXT coupling arrays in FG_J_CMF_NONMONO_V1 are process-local and
 ! are reallocated+zeroed whenever the job is requeued, so the first
 ! N_LAM_RWARM iterations of each process must not take a BA step
-! against a stale radiation field.  This gate also covers the cold
+! against a stale radiation field. This gate also covers the cold
 ! start of a new model (ITS_SINCE_START counts from 1).
 !
 ! The warm-up is skipped when a validated, MATURE GS generation was
@@ -1055,9 +1055,9 @@
 	1               MOM_CHG_FILE .GE. 0.0_LDP .AND.
 	1               MOM_CHG_FILE .LT. GS_MATURE_TOL .AND.
 	1               MOM_CAP_FILE .EQ. 0))
-! The warm-up applies only while DO_LAM_IT is set.  With DO_LAM_IT
+! The warm-up applies only while DO_LAM_IT is set. With DO_LAM_IT
 ! false the stock cycle owns the first iteration: a full BA step,
-! large correction included.  Forcing Lambda here would skip it.
+! large correction included. Forcing Lambda here would skip it.
 !
 	  IF(RD_LAMBDA .AND. ITS_SINCE_START .LE. N_LAM_RWARM .AND.
 	1     .NOT. GS_RWARM_SKIP)THEN
@@ -1074,12 +1074,12 @@
 	    CALL APPEND_ITER_REASON(ITER_REASON,'gs_warmup')
 	  END IF
 !
-! edited 20-Oct-2026: judge the last release.  On the
+! edited 20-Oct-2026: judge the last release. On the
 ! call after a frozen->live transition, demand progress is the
 ! entry MAXCH against the release-time demand GS_REL_DEM, and the
 ! field answer is the just-finished sweep drift -- a release that
 ! re-poisoned the field (raw drift above GS_UNSAFE_TOL, the
-! 6.5-52 kicks of the m15_2p82d limit cycle) or that left the
+! 6.5-52 kicks of the limit cycle) or that left the
 ! demand within 10% of its release value made no progress.
 ! Log-only accounting; the counter prints in the frozen-call GS
 ! dump below.
@@ -1112,37 +1112,37 @@
 ! still moving by more than GS_UNSAFE_TOL, or cap/negative-J events
 ! were recorded on the last sweep, the radiation field feeding the BA
 ! matrix is not the converged formal solution -- force LAMBDA for this
-! iteration.  FORCE_LAMBDA also stops the mode controller below from
+! iteration. FORCE_LAMBDA also stops the mode controller below from
 ! re-requesting BA on the next call while the field stays immature.
 !
 ! Bulk-aware maturity: the refresh's max-norm is pinned by a handful
 ! of marginally-contractive cells (|Q|->1 at strong compressions)
-! even when the bulk field is converged.  When the refresh ran this
+! even when the bulk field is converged. When the refresh ran this
 ! iteration (GS_NTOT>0), the field counts as mature when fewer than
 ! ~0.1% of significant cells remain above KN_RAY_TOL and the max
-! residual is not in runaway territory.  Without refresh data the
+! residual is not in runaway territory. Without refresh data the
 ! original max-norm criterion applies unchanged.
 !
 ! Store drift (GS_NCONV): the refresh can converge to its tolerance
 ! while still moving the lagged I_NEXT store by >50% at millions of
 ! cells -- the fixed point exists but sits far from the field the
 ! in-sweep solve just used, so the next sweep reads a substantially
-! different coupling field.  That is immaturity by the same >0.1%
+! different coupling field. That is immaturity by the same >0.1%
 ! bulk rule, and it is the condition the residual-only gate missed
 ! when a BA/stale-BA SE update committed corrections against the
-! churning field (LAM run it126-131 blow-up, Sep-2026).
+! churning field (LAM run blow-up, Sep-2026).
 !
 !
 ! KN_GATE_DIVERGENCE (default F): prototype unsafe-tier variant
 ! that tests residual growth instead of the absolute GS_UNSAFE_TOL
-! bound.  A bounded, stationary max residual -- e.g. the period-2
-! limit cycle KNDUMP showed holding ~0.53 across it125-136 on
-! m15_2p82d -- reads as an asymptote, not runaway.  Unsafe
+! bound. A bounded, stationary max residual -- e.g. the period-2
+! limit cycle KNDUMP showed holding ~0.53 across on
+!  -- reads as an asymptote, not runaway. Unsafe
 ! requires a non-finite value or growth by more than
 ! KN_GATE_DIV_FAC against the residual from KN_GATE_DIV_M refresh
-! sweeps back.  The ring fills only when the refresh ran, and the
+! sweeps back. The ring fills only when the refresh ran, and the
 ! variant has no absolute backstop: a large but stable residual
-! passes.  Dormant by design; enabling is a gate policy change.
+! passes. Dormant by design; enabling is a gate policy change.
 !
 	  GDIV_UNSAFE=.FALSE.
 	  IF(KN_GATE_DIVERGENCE .AND. GS_NTOT .GT. 0)THEN
@@ -1163,12 +1163,12 @@
 !
 ! W1-W9 (17-Oct-2026): the gate below reads three metric families
 ! now kept separate by the refresh rewrite:
-!   max-norm   GS_MAX_ALL = MAX(refresh residual, sweep drift,
+!   max-norm GS_MAX_ALL = MAX(refresh residual, sweep drift,
 !              retained-field delta) -- the backstop.
-!   bad cells  GS_NBAD_EFF = MIN(last-pass census, best-pass census)
+!   bad cells GS_NBAD_EFF = MIN(last-pass census, best-pass census)
 !              -- stall/cap exits carried their stale last-pass
 !              counts forever (W3).
-!   churn      GS_NCONV_ALL = MAX(refresh churn, sweep churn) --
+!   churn GS_NCONV_ALL = MAX(refresh churn, sweep churn) --
 !              the refresh used to clobber the sweep metric (W4).
 !
 ! The share tiers W1 adds: UNSAFE is the catastrophic backstop
@@ -1191,7 +1191,7 @@
 	  END IF
 ! Same-census cap share: refresh cap/NaN/divergence events against
 ! the refresh significant-cell census when the refresh ran; sweep
-! cap events against the sweep-store write count otherwise.  The
+! cap events against the sweep-store write count otherwise. The
 ! mixed census made the share tiers latch on a contracting field.
 !
 	  IF(GS_NTOT .GT. 0)THEN
@@ -1239,9 +1239,9 @@
 ! [GS_SETTLE_TOL] (default -1 = off): a 'cycle'-classified argmax
 ! floor at or below the tolerance is an asymptote of the composite
 ! map, not a moving field, so the churn term alone must not refreeze
-! it.  A cycle floor above the tolerance still forces the LAMBDA
+! it. A cycle floor above the tolerance still forces the LAMBDA
 ! phase even when churn is quiet, and every GS_UNSAFE backstop is
-! untouched.  Absent key = bit-identical gate.
+! untouched. Absent key = bit-identical gate.
 !
 	  L_SETTLE=GS_SETTLE_TOL .GT. 0.0_LDP .AND.
 	1    (GS_CLS_MOM .EQ. 'cycle' .OR. GS_CLS_FG .EQ. 'cycle') .AND.
@@ -1261,10 +1261,10 @@
 ! [FG_TRIAL_CHURN] arm (edited 20-Oct-2026): when the gate
 ! is immature ONLY through the store-churn term, and churn is within
 ! FG_TRIAL_CHURN times the bulk bound, the FG marginal-release trial
-! may still arm.  The refresh limit cycle floors the residual at
+! may still arm. The refresh limit cycle floors the residual at
 ! ~0.05-0.15 while churn asymptotes 2-3x above the bound
-! (m15_2p82d it851-860), so the flat veto otherwise guarantees a
-! permanent hold.  The trial stays resacc-judged -- a release that
+! , so the flat veto otherwise guarantees a
+! permanent hold. The trial stays resacc-judged -- a release that
 ! re-poisons the field rolls back like any other rejected trial.
 !
 	  FG_CHURN_MARG=GS_FG_IMMATURE .AND. (.NOT. GS_FG_PRECHURN) .AND.
@@ -1278,7 +1278,7 @@
 ! single churn-marginal sweep could still be a transient -- but
 ! N_FROZEN is the wrong clock here: releases refund it to ~5-6,
 ! far under FG_TRIAL_MIN (30), so the churn arm was dead on the
-! m15-class field it targets.  [FG_TRIAL_CHURN_MIN] sets the
+! -class field it targets. [FG_TRIAL_CHURN_MIN] sets the
 ! streak threshold.
 !
 	  IF(FG_CHURN_MARG .OR. N_SAMECELL .GE. 2)THEN
@@ -1289,7 +1289,7 @@
 !
 ! Plateau exits (IXIT=6) are a different failure mode from
 ! stall/cap: the map stopped improving entirely, so their bad
-! cells are a fixed-point floor, not a slow transient.  A plateau
+! cells are a fixed-point floor, not a slow transient. A plateau
 ! share above 1% marks the field unsafe; MIN(NBAD,NBAD_BLK)
 ! still prices the stall/cap class the same way as before.
 !
@@ -1302,20 +1302,20 @@
 ! judged by the fraction of cells still drifting between sweeps, not
 ! the refresh residual -- the refresh measures lagged-map
 ! self-consistency, which asymptotes on marginally contractive
-! compressing cells even while the stored field settles.  The sweep
+! compressing cells even while the stored field settles. The sweep
 ! drift (fresh solve vs stored field) is what the populations
-! actually experience.  negJ and quarantined cells are counted as
+! actually experience. negJ and quarantined cells are counted as
 ! fractions: under MOM_RF_KEEPNEG repaired values never reach the
 ! stored field, so a bounded rate is a closure diagnostic, not field
-! corruption.  Runaway backstops: capped writes, >0.1% of cells
+! corruption. Runaway backstops: capped writes, >0.1% of cells
 ! drifting >50%, any cell drifting >10x stored, or negJ or
-! quarantined fractions >10%.  edited 28-Sep-2026: the
+! quarantined fractions >10%. edited 28-Sep-2026: the
 ! former MOM_MAXCHG>1E2 term tested a clobbered slot -- after an
 ! unconverged refresh MOM_GS_MAXCHG holds the retained-pass
 ! residual (asymptote ~1E3 on marginal cells), not the sweep drift
 ! the test intended, so it froze the gate unconditionally.
 ! Exploded refresh residuals are already caught inside the refresh
-! by the 1E3*MIN_RES abort and the >1E40 retention scan.  The freeze
+! by the 1E3*MIN_RES abort and the >1E40 retention scan. The freeze
 ! additionally waits until fewer than 10% of cells still drift by
 ! >5% between sweeps.
 !
@@ -1340,14 +1340,14 @@
 	    ELSE
 !
 ! edited 30-Sep-2026: split the non-converged gate into a
-! hard UNSAFE tier and a marginal tier.  UNSAFE is the catastrophic
+! hard UNSAFE tier and a marginal tier. UNSAFE is the catastrophic
 ! backstop only -- >10% of cells with capped writes, >1% of cells
 ! drifting >50%, a cell drifting >10x in one sweep, or >10%
-! negJ/quarantined.  The strict maturity terms (>0.1% of cells
+! negJ/quarantined. The strict maturity terms (>0.1% of cells
 ! drifting >50%, any cell >10%, >10% drifting >5%, >0.1% capped
 ! writes) stay in FREEZE_B: they still block the transition, but
 ! through the marginal-release check below rather than as an
-! unconditional veto.  The old single-tier test kept the FreeNe M15
+! unconditional veto. The old single-tier test kept the FreeNe M15
 ! run frozen >150 iterations on ~0.12% drifting cells that asymptote
 ! but never converge under the one-bin upwind.
 !
@@ -1356,21 +1356,21 @@
 ! quarantine-repair path writes ~2000-4000 bounded cells per sweep
 ! (0.02-0.35% of NTOT) by design, so UNSAFE never cleared and
 ! MOM_TRIAL could never fire: a guaranteed stall under the marginal
-! freeze.  Capped writes now follow the same scheme as negJ/quar:
+! freeze. Capped writes now follow the same scheme as negJ/quar:
 ! >10% of cells is the catastrophic veto, >0.1% keeps the marginal
 ! tier frozen.
 !
 ! Same treatment for MOM_SW_MAXCHG: it is a single-cell max, not a
-! bulk statistic.  The marginal MOM field shows a wandering argmax
+! bulk statistic. The marginal MOM field shows a wandering argmax
 ! (a different optically-thin tail cell each sweep, spikes to ~5e3)
 ! while 99.9% of cells are mature -- under the old >1e3 veto the
-! trial could never fire.  edited 30-Sep-2026 (later):
+! trial could never fire. edited 30-Sep-2026 (later):
 ! the >1e6 single-cell backstop had the same defect one tier up --
 ! a handful of bounded-but-bad resonance cells (1+sigma*K ~ 0 at the
-! inner boundary, m15_2p82d depths ~209-212) sit at 1e6-1e7 while the
+! inner boundary, depths ~209-212) sit at 1e6-1e7 while the
 ! field around them contracts, so mx<1e6 stayed F indefinitely.
 ! Collapse means many exploded cells, so UNSAFE now counts them:
-! MOM_SW_NHUGE (drift >1e6) must exceed ~0.01% of cells.  A single
+! MOM_SW_NHUGE (drift >1e6) must exceed ~0.01% of cells. A single
 ! nonfinite cell still vetoes via the 1e30 sentinel.
 !
 	      MOM_UNSAFE_B=(MOM_SW_CAPPED .GT. MAX(50_8,MOM_SW_NTOT/10))
@@ -1395,7 +1395,7 @@
 	1      (MOM_MAXCHG .GT. GS_MATURE_TOL)
 	  END IF
 !
-! Same limit as the warm-up.  Under DO_LAM_IT=F an immature field
+! Same limit as the warm-up. Under DO_LAM_IT=F an immature field
 ! does not rewrite a scheduled BA step into Lambda; the mode
 ! controller inserts the Lambda iterations after the step, once
 ! MAXCH is known.
@@ -1427,10 +1427,9 @@
 !
 ! Fail-closed resacc: DO_BA_RES_ACC promises rollback on residual
 ! growth, but the POPS_BA_SAVE arm failed (alloc failure under a
-! memory cap).  A BA step taken now could not be rolled back -- the
-! exact unchecked-step failure this gate exists for (LAM_dbg
-! it39-48: silent alloc failure left every FULL step unguarded; one
-! committed correction wrecked pops and field past recovery).  Take
+! memory cap). A BA step taken now could not be rolled back -- the
+! exact unchecked-step failure this gate exists for: silent alloc failure left every FULL step unguarded; one
+! committed correction wrecked pops and field past recovery). Take
 ! a bounded LAMBDA update instead, at the near-mature cap rather
 ! than MAX_LAM_COR -- under persistent demotion a factor-100 step
 ! would recreate the wreck the freeze/release machinery prevents.
@@ -1451,7 +1450,7 @@
 !
 ! Luminosity runaway (LUM_DIV_*): the last steps drove the outer
 ! luminosity nonphysical; a BA or full-MAX_LAM step against this
-! state can only amplify it.  Same recipe as the snapshot demote --
+! state can only amplify it. Same recipe as the snapshot demote --
 ! damped LAMBDA at the near-mature cap so the field can settle while
 ! the detector below holds populations.
 !
@@ -1470,7 +1469,7 @@
 !
 ! Knop Paper-II nested iteration: the wavelength boundary-value
 ! problem should be converged before the populations take a BA step
-! (Paper II, Sect. 3.2).  When the just-completed sweep still shows an
+! (Paper II, Sect. 3.2). When the just-completed sweep still shows an
 ! immature lagged coupling field, this call runs a forced-LAMBDA
 ! iteration instead of a BA step -- SOLVEBA is never skipped outright.
 ! Populations still
@@ -1492,8 +1491,8 @@
 ! GS_RAW_MATURE (VADAT, default F): a bulk-pass sweep with the raw
 ! max change still above GS_MATURE_TOL does not count toward release.
 ! The bulk exception tolerates a small fraction of drifting cells,
-! but a max-norm of ~5E-2 still released on KNOP_jfnkrel it34 and the
-! first unheld step detonated the lagged field.  Reset rather than
+! but a max-norm of ~5E-2 still released on and the
+! first unheld step detonated the lagged field. Reset rather than
 ! merely hold the count: the GS_REL_STABLE test is consecutive.
 	  IF(GS_RAW_IMMATURE .OR.
 	1    (GS_RAW_MATURE .AND. GS_MAXCHG .GT. GS_MATURE_TOL))THEN
@@ -1505,8 +1504,8 @@
 ! Stability hold (GS_REL_STABLE, default 1): a single mature-looking
 ! sweep is not proof the lagged field is a fixed point -- a churning
 ! field can pass the bulk gate transiently, and the live update it
-! releases then re-poisons the field (LAM_dbg it7 release cycle,
-! twice).  Require the gate to pass on GS_REL_STABLE consecutive
+! releases then re-poisons the field (release cycle,
+! twice). Require the gate to pass on GS_REL_STABLE consecutive
 ! calls; the extra held sweeps still run the forced-LAMBDA path so
 ! the field keeps converging at fixed pops.
 !
@@ -1523,16 +1522,16 @@
 	  END IF
 !
 ! edited 20-Oct-2026: population-precondition gate
-! (VADAT [GS_PRECOND], auto-set T under DO_NONMONO_KNOP).  The
+! (VADAT [GS_PRECOND], auto-set T under DO_NONMONO_KNOP). The
 ! freeze/hold machinery assumes the entered populations are close
 ! enough to convergence that holding them lets the lagged field
-! settle; on m15_2p82d the hold was applied at ~1E10% demanded
+! settle; on the hold was applied at ~1E10% demanded
 ! correction -- orders of magnitude outside the SE linearization
 ! -- and the release/refreeze cycle never moved the demand.
 ! When the entry MAXCH (the previous call's demanded maximum
 ! correction, same semantics as the JFNK demand gates below)
 ! exceeds [GS_PRECOND_MAX] the freeze is postponed for this call
-! so a live update keeps working the demand down.  With GS_FREEZE
+! so a live update keeps working the demand down. With GS_FREEZE
 ! cleared here the GS_HOLD_POPS rollback and the whole
 ! frozen-call path below are bypassed automatically; the gate
 ! acts from the second call onward since MAXCH arrives as the
@@ -1583,7 +1582,7 @@
 	    N_PRECOND=0
 ! edited 20-Oct-2026: with the precondition feature on,
 ! demand back inside GS_PRECOND_MAX means the gate did its job --
-! clear both no-progress totals.  Gated on GS_PRECOND so a stock
+! clear both no-progress totals. Gated on GS_PRECOND so a stock
 ! (precond=F) run keeps the strict accumulate-only totals.
 	    IF(GS_PRECOND .AND. MAXCH .LE. GS_PRECOND_MAX)THEN
 	      N_PRECOND_TOT=0_8
@@ -1598,10 +1597,10 @@
 ! GS_RAW_MATURE nudge (17-Oct-2026): the KNOP auto-set leaves
 ! GS_RAW_MATURE=F, so a bulk-pass sweep with raw max still in the
 ! 0.05-0.5 marginal band can release while the field is still
-! moving (it34-class release-then-blow-up).  One-time warning;
+! moving (-class release-then-blow-up). One-time warning;
 ! the default is unchanged -- the marginal-release machinery
 ! (W3 best-pass census, W8 FG_TRIAL) is the remediation, not a
-! default change.  Preconditioned calls are excluded (edited by
+! default change. Preconditioned calls are excluded (edited by
 ! edited, 20-Oct-2026): the gate postponed the freeze rather than
 ! releasing a hold, so 'releasing' would misreport the step.
 !
@@ -1638,7 +1637,7 @@
 !
 ! edited 21-Oct-2026: lead the sweep report with the
 ! population-gate sentence so the hold (or its absence) is stated
-! before the census numbers.  The tag stays greppable.
+! before the census numbers. The tag stays greppable.
 !
 	    IF(MOM_RAN)THEN
 	      IF(MOM_UNSAFE_B)THEN
@@ -1661,7 +1660,7 @@
 ! edited 17-Oct-2026: the sweep drift can reach
 ! 1E263 on a detonating sweep -- ES12.4 drops the 'E' for a
 ! 3-digit exponent (printed "1.7030+263"), so this line uses
-! ES13.4.  The nbad line below passes the ' / ' literal: the
+! ES13.4. The nbad line below passes the ' / ' literal: the
 ! previous (A,I14,A,I14) form had no argument for the second
 ! A descriptor and printed GS_NBAD_BLK's raw bytes.
 !
@@ -1677,7 +1676,7 @@
 ! edited 21-Oct-2026: the moment-field rows are written
 ! as sentences through KNOP_STATUS_MOD so an OUTGEN reader does
 ! not need the column legend -- same wording the solver-side
-! narration uses.  The numbers are identical; only the prose
+! narration uses. The numbers are identical; only the prose
 ! changed.
 !
 	    WRITE(LUER,'(2A)')'    ',
@@ -1692,15 +1691,15 @@
 	2   MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
 	    END IF
 !
-! edited 30-Sep-2026: marginal-release BA trial.  When the
+! edited 30-Sep-2026: marginal-release BA trial. When the
 ! freeze is driven only by the marginal MOM drift terms the field
 ! has settled except for a small asymptoting subset that Lambda
-! alone cannot converge.  Releasing the iteration lets the mode
+! alone cannot converge. Releasing the iteration lets the mode
 ! controller take a BA step with DO_BA_RES_ACC armed: residual
 ! growth rolls the step back and demotes to LAMBDA next call, so
-! the trial is self-throttling.  The release requires the resacc
+! the trial is self-throttling. The release requires the resacc
 ! net -- an unchecked BA step on a marginal field is the failure
-! this gate exists to prevent.  N_FROZEN still counts the iteration
+! this gate exists to prevent. N_FROZEN still counts the iteration
 ! as frozen, so KNOP_STALL_MAX / GS_FREEZE_LIM still bound a run
 ! whose field never matures.
 !
@@ -1755,7 +1754,7 @@
 	    END IF
 !
 ! W8 (17-Oct-2026): FG-only marginal-release arm ([FG_TRIAL_MIN],
-! default 30, 0 disables).  Mirrors MOM_TRIAL for the
+! default 30, 0 disables). Mirrors MOM_TRIAL for the
 ! USE_LAM_ES=T path where MOM never ran: arms only when the cured
 ! gate sees no immaturity and no UNSAFE census (a PIN-tier cap
 ! share or the GS_REL_STABLE hold is the marginal condition the
@@ -1795,10 +1794,10 @@
 !
 ! At 1E7-scale demand the resacc-gated BA step below is rejected
 ! every time (the linearization extrapolates orders of magnitude
-! past validity; m15 KNOP warm looped release->blow-up->rollback).
+! past validity; KNOP warm looped release->blow-up->rollback).
 ! The factor-3 LAMBDA probe is the same contractive step the
 ! schedule takes on LAMBDA-mode releases; on this model it cut
-! the SE residual ~6x in one call.  No resacc arm rides on a
+! the SE residual ~6x in one call. No resacc arm rides on a
 ! LAMBDA call, but the step cannot run away: its correction cap
 ! is the near-mature limit the freeze path already uses.
 !
@@ -1816,7 +1815,7 @@
 !
 ! The SOLVEBA call below uses the ENTRY LAMBDA_ITERATION/T1 -- the
 ! mode controller further down only sets the mode for the NEXT
-! iteration.  Without these assignments a "released" trial would
+! iteration. Without these assignments a "released" trial would
 ! still take a LAMBDA solve (LAMBDA_IT=T keeps resacc disarmed) but
 ! with the entry T1=MAX_LAM_COR cap instead of GS_LAM_CAP.
 !
@@ -1830,12 +1829,12 @@
 	    ELSE IF(FG_TRIAL)THEN
 !
 ! W8 (17-Oct-2026, [FG_TRIAL_MIN], default 30, 0 disables): the
-! FG-only marginal-release arm.  Under USE_LAM_ES=T MOM_RAN is
+! FG-only marginal-release arm. Under USE_LAM_ES=T MOM_RAN is
 ! false, so MOM_TRIAL can never fire and a field frozen only by
 ! the marginal tier (PIN-tier cap share, or the stability hold)
-! used to ride GS_FREEZE_LIM to a non-convergent stop.  The arm
+! used to ride GS_FREEZE_LIM to a non-convergent stop. The arm
 ! requires the W1-W3-cured gate to see no immaturity and no
-! UNSAFE-tier census, plus the resacc net.  The trial is the
+! UNSAFE-tier census, plus the resacc net. The trial is the
 ! damped LAMBDA probe (T1=GS_LAM_CAP), resacc-judged by the same
 ! accepted/rejected refund machinery as MOM_TRIAL.
 !
@@ -1900,11 +1899,11 @@
 	    END IF
 	  END IF
 !
-! Stock cycle (DO_LAM_IT=F).  A scheduled BA step is kept, including
+! Stock cycle (DO_LAM_IT=F). A scheduled BA step is kept, including
 ! a large first correction: the freeze above would have rewritten it
-! as Lambda.  A scheduled Lambda step is not rewritten, but while the
+! as Lambda. A scheduled Lambda step is not rewritten, but while the
 ! lagged I_NEXT field is immature its correction stays at GS_LAM_CAP.
-! Clearing that cap (m15 JFNK seq, it2) let a factor-1e5 update
+! Clearing that cap (JFNK seq, ) let a factor-1e5 update
 ! through and the next sweep's luminosity rose from 2e10 to 2e16.
 ! FORCE_LAMBDA is cleared so NUM_LAM can still return to BA.
 ! DO_LAM_IT=T leaves the freeze as written above.
@@ -1932,10 +1931,10 @@
 ! Release damping (GS_REL_N, default 1): the first live LAMBDA
 ! update after a frozen stretch carries the deferred correction
 ! accumulated while pops were held -- under MAX_LAM_COR that step
-! re-poisons the field the freeze just converged (LAM_dbg it7,
+! re-poisons the field the freeze just converged (,
 ! twice) -- and the next few steps still see a field re-lagging to
-! the moved populations (the undamped it8 step committed another
-! factor-100 and re-froze the run).  Keep GS_LAM_CAP, the
+! the moved populations (the undamped step committed another
+! factor-100 and re-froze the run). Keep GS_LAM_CAP, the
 ! near-mature limit the freeze path already uses once churn is
 ! below GS_LAM_TRANSIENT, for the whole GS_REL_N-iteration window.
 ! MOM_TRIAL releases keep MAX_LIN_COR and non-LAMBDA releases are
@@ -1967,11 +1966,11 @@
 ! auto-set 300 under KNOP): the field staying immature this long
 ! is a structural failure, not a transient -- stop loudly rather
 ! than consume the full requeue budget doing forced-LAMBDA
-! iterations that cannot converge.  N_FROZEN_TOT counts frozen
+! iterations that cannot converge. N_FROZEN_TOT counts frozen
 ! calls without resetting at releases -- releases refund
 ! N_FROZEN, so a release/refreeze cycle kept the consecutive
-! count under the bound forever on m15_2p82d.  Only measured
-! demand progress clears the total.  Wording changed from
+! count under the bound forever on. Only measured
+! demand progress clears the total. Wording changed from
 ! 'consecutive' to 'no-progress' (edited 20-Oct-2026).
 !
 	  IF(GS_FREEZE_LIM .GT. 0 .AND.
@@ -1986,7 +1985,7 @@
 ! Same structural-failure stop for the precondition path (edited
 ! edited 20-Oct-2026): a demand that stays above
 ! GS_PRECOND_MAX through GS_PRECOND_LIM no-progress live updates
-! is not converging under the postponed hold either.  The gate
+! is not converging under the postponed hold either. The gate
 ! clears GS_FREEZE, so N_FROZEN stayed 0 and GS_FREEZE_LIM was
 ! unreachable here; N_PRECOND_TOT survives the alternating
 ! preconditioned/frozen pattern and is the counter the limit
@@ -2032,7 +2031,7 @@
 	    N_REL_SINCE=N_REL_SINCE+1
 ! Count the raw-cure release once per frozen->live transition; the
 ! trial arms fire while GS_FREEZE is still .TRUE. so they never
-! reach this branch (edited 19-Oct-2026).  The
+! reach this branch (edited 19-Oct-2026). The
 ! transition also arms the release-progress audit above (edited
 ! edited 20-Oct-2026): GS_REL_DEM snapshots the entry demand
 ! -- still the last frozen call's value here, before SOLVEBA
@@ -2050,15 +2049,15 @@
 ! non-LAMBDA mode, cleared whenever a LAMBDA iteration is imposed).
 ! The KNOP gates above can force LAMBDA after a BA phase has already
 ! set FIX_IMPURITY=T; without this reset the forced-LAMBDA sweep would
-! freeze trace ions instead of relaxing them.  MOD_FIX_IMPURITY was
+! freeze trace ions instead of relaxing them. MOD_FIX_IMPURITY was
 ! snapshotted before the gates and must be cleared directly.
 !
 ! Same snapshot-ordering issue for MOD_FIXED_T: the gates set
 ! FIXED_T=.TRUE. but MOD_FIXED_T/MOD_FIX_T_D_ST/MOD_FIX_T_D_END were
-! computed above from the incoming FIXED_T/RD_FIX_T.  With
+! computed above from the incoming FIXED_T/RD_FIX_T. With
 ! MOD_FIXED_T=F the R.E. row is not held fixed -- the LAMBDA solve
 ! then hits a degenerate T equation (singular BA -> SOLVEBA STOP) or
-! a garbage T correction.  Force the full-depth fix the gates intend.
+! a garbage T correction. Force the full-depth fix the gates intend.
 !
 	IF(FORCE_LAMBDA)THEN
 	  FIX_IMPURITY=.FALSE.
@@ -2072,11 +2071,11 @@
 ! turns the GS-freeze iteration into a true transfer-only sweep --
 ! the lagged coupling field is converged at fixed populations
 ! (Knop Paper II nested iteration) rather than against a target
-! that moves inside the same iteration.  The forced-LAMBDA SOLVEBA
+! that moves inside the same iteration. The forced-LAMBDA SOLVEBA
 ! still runs so the STEQ diagnostics show the attempted update;
-! the committed correction is rolled back below.  The MOM_TRIAL
+! the committed correction is rolled back below. The MOM_TRIAL
 ! release path is excluded: a released trial exists to take a real
-! resacc-gated BA step.  FG_TRIAL is excluded too (edited,
+! resacc-gated BA step. FG_TRIAL is excluded too (edited,
 ! 19-Oct-2026): under the hold an FG trial call snapshotted and
 ! restored POPS, so its probe was discarded while still counting
 ! as an accepted release -- a trial during a pop-hold does not
@@ -2103,7 +2102,7 @@
 ! No alloc ran: IOS still holds the last I/O status from the previous
 ! call (ITER_HISTORY append, GS_STATE read at restart), and a stale
 ! nonzero would silently skip the hold while reporting an alloc
-! failure that never happened.  Same fix as the POPS_BA_SAVE block
+! failure that never happened. Same fix as the POPS_BA_SAVE block
 ! in SOLVEBA_V13.
 !
 	    IOS=0
@@ -2120,28 +2119,28 @@
 !
 ! USE_JFNK_SOLVER (VADAT [DO_JFNK], default F; [USE_JFNK] deprecated
 ! alias): route the correction solve through the Jacobian-Free
-! Newton-Krylov solver instead of the direct BA factorization.  Only
+! Newton-Krylov solver instead of the direct BA factorization. Only
 ! fires on a full (non-LAMBDA) call after JFNK_WARMUP calls, so the
 ! LAMBDA/frozen-field warmup and all GS/resacc gating above are
-! untouched.  JFNK_SOLVE_CORR_V1 falls back internally to a
-! LAMBDA-mode SOLVEBA_V13 on failure.  Admitted under DO_NONMONO_KNOP
-! or DO_NONMONO_SOB.  The coupled tier is demand-admitted only under
+! untouched. JFNK_SOLVE_CORR_V1 falls back internally to a
+! LAMBDA-mode SOLVEBA_V13 on failure. Admitted under DO_NONMONO_KNOP
+! or DO_NONMONO_SOB. The coupled tier is demand-admitted only under
 ! KNOP: under SOB [JFNK_COUPLED_SOB] (default F) arms it solely as
 ! the reach-fail fallback inside JFNK_SOLVE_CORR_V1, so SOB calls
 ! here always enter on the frozen-J residual.
 !
 ! JFNK_ANY_ITER (VADAT [JFNK_ANYITER], default F): bring-up/debug
-! only -- fire the JFNK solve even on a LAMBDA-designated call.  The
+! only -- fire the JFNK solve even on a LAMBDA-designated call. The
 ! commit/hold logic below still applies, so a hold_pops iteration
 ! discards the result harmlessly.
 !
 ! Newton is not started while the lagged I_NEXT field is immature.
-! The seq run called JFNK at it9 with |F| ~ 1e20 and F(0) rel=44,
-! then the failure path took another MAX_LAM step.  SOLVEBA still
+! The seq run called JFNK at with |F| ~ 1e20 and F(0) rel=44,
+! then the failure path took another MAX_LAM step. SOLVEBA still
 ! runs; JFNK waits until GS_FG_IMMATURE clears.
 !
 ! edited 03-Oct-2026: the field test now keys on
-! GS_FREEZE rather than the raw GS_FG_IMMATURE flag.  GS_FREEZE
+! GS_FREEZE rather than the raw GS_FG_IMMATURE flag. GS_FREEZE
 ! subsumes it and additionally holds Newton (a) through the
 ! N_MATURE/GS_REL_STABLE consecutive-mature-sweep stability window
 ! and (b) on MOM_TRIAL marginal-field releases, where the machinery
@@ -2151,7 +2150,7 @@
 ! edited 05-Oct-2026: admission also requires USE_LAM_ES.
 ! The eval-time lagged-field freeze covers only the Knop I_NEXT
 ! store (FREEZE_I_NEXT, armed in JFNK_SOLVE_CORR_V1, honoured in
-! FG_J_CMF_NONMONO_V1).  Under USE_LAM_ES=F the J update runs
+! FG_J_CMF_NONMONO_V1). Under USE_LAM_ES=F the J update runs
 ! MOM_J_CMF_NONMONO_V1, whose J_NEXT_FRQ/H_NEXT_FRQ lagged stores
 ! are written in place on every sweep with no freeze -- each JFNK
 ! residual/JVP eval would overwrite the lagged field the committed
@@ -2159,14 +2158,13 @@
 !
 ! edited 17-Oct-2026: under DO_NONMONO_SOB the frozen-J
 ! residual is the same fixed-J system SOLVEBA solves directly -- the
-! frozen tier can never accelerate a radiation-pinned residual (m15
-! SOB_l14_jfnkrel: 186 admits, 0 GMRES, every one a reach-gate skip).
+! frozen tier can never accelerate a radiation-pinned residual: 186 admits, 0 GMRES, every one a reach-gate skip).
 ! For that model class consider disabling the relief/DO_JFNK, or cap
 ! the wasted admissions via JFNK_REL_REACH_MAX.
 ! 23-Oct-2026: with [JFNK_COUPLED_SOB]=T the frozen-tier reach
 ! failure instead arms the coupled tier inside JFNK_SOLVE_CORR_V1 --
 ! the tier whose evals re-solve J and can move a radiation-pinned
-! residual.  Admission still enters on the frozen tier; the flip
+! residual. Admission still enters on the frozen tier; the flip
 ! happens only after unreachability is certified and the consistency
 ! check passes.
 !
@@ -2185,27 +2183,27 @@
 	4          .AND. .NOT. RDLAM_PROBE_THIS
 !
 ! JFNK_COR_GATE (VADAT [JFNK_COR_GATE], default 0=off): do not start
-! Newton while the demanded correction is still large.  At entry
+! Newton while the demanded correction is still large. At entry
 ! MAXCH holds the previous call's raw demanded maximum correction --
 ! a saturated demand (1e7 sentinel or ~1e10) means the iterate is
 ! far outside the basin where the finite-difference JVP is usable
-! (m15 JFNK_opt it11: demand ~1e10%, |F|_w=2.7e13, GMRES never got
+! (demand ~1e10%, |F|_w=2.7e13, GMRES never got
 ! past its first matvec, and the unprotected MAX_LIN_COR safety
-! step then pushed se_res to 2.5e23).  Deferred calls take the
+! step then pushed se_res to 2.5e23). Deferred calls take the
 ! normal SOLVEBA path, which keeps resacc rollback protection on
-! full steps.  JFNK stays armed and self-admits once the staged
+! full steps. JFNK stays armed and self-admits once the staged
 ! LAMBDA/full map brings the demand under the gate.
 !
 ! Two-tier admission (audit cmfgen_obsidian/audits/JFNK_SOLVER_AUDIT, 03-Oct-2026): a
-! coupled eval costs a full formal sweep (~250-400 s on m15), so the
+! coupled eval costs a full formal sweep (~250-400 s on ), so the
 ! coupled residual is held for the tighter COR_GATE tier while the
 ! cheaper frozen-J Newton (no re-solve per eval; BA is the near-exact
 ! Jacobian of the frozen residual) is admitted at the looser
-! JFNK_FRZ_GATE.  With FRZ_GATE=0 the frozen tier uses COR_GATE and
-! behavior reduces to the original single gate.  JFNK_GATE_NREQ adds
+! JFNK_FRZ_GATE. With FRZ_GATE=0 the frozen tier uses COR_GATE and
+! behavior reduces to the original single gate. JFNK_GATE_NREQ adds
 ! hysteresis: the demand must stay sub-gate for NREQ consecutive
 ! solves, so one lucky low-MAXCH step cannot fire Newton on a field
-! that is still drifting.  Counter semantics: MAXCH at entry is the
+! that is still drifting. Counter semantics: MAXCH at entry is the
 ! previous call's demanded correction, so the hits count how long
 ! the state has remained inside the basin.
 !
@@ -2213,7 +2211,7 @@
 	IF(JFNK_GATE_IN .LE. 0.0_LDP)JFNK_GATE_IN=JFNK_COR_GATE
 !
 ! edited 03-Oct-2026: hysteresis counters advance only on
-! calls that are otherwise JFNK-eligible.  During warmup,
+! calls that are otherwise JFNK-eligible. During warmup,
 ! LAMBDA-designated, GS-frozen, or USE_LAM_ES=F calls the demanded
 ! correction is measured against a field that is not the operator
 ! the Newton solve would see (and under freeze the deferred SE
@@ -2230,9 +2228,9 @@
 !
 ! Demand-contraction term (edited 03-Oct-2026): a sub-
 ! gate demand is only a basin signal while the demanded correction
-! is not rebounding.  MAXCH here is the previous call's demand;
+! is not rebounding. MAXCH here is the previous call's demand;
 ! JFNK_LAST_DEM is the one before it, so the ratio measures the
-! outer map's actual contraction.  A rebounding demand -- field
+! outer map's actual contraction. A rebounding demand -- field
 ! re-poisoned by the last committed step, or the post-Lambda-exit
 ! transient where the first full solve re-demands a large
 ! correction -- resets the count even below the gate, so Newton
@@ -2241,14 +2239,14 @@
 ! predecessor and tests the level only.
 !
 ! edited 04-Oct-2026: gate on the last non-LAMBDA demand
-! (BA_LAST_RAW), not MAXCH.  MAXCH here is the previous call's
+! (BA_LAST_RAW), not MAXCH. MAXCH here is the previous call's
 ! demand; in the alternating regime that call is always a LAMBDA
 ! solve whose small demand reflects the LAMBDA attractor, not the
-! operator Newton would see (opt run admitted JFNK at it73 on a
+! operator Newton would see (opt run admitted JFNK at on a
 ! 95% LAMBDA demand while the last full demand was 4.8E4% and
-! |F|=2.2E12 vs target 2.2E8).  BA_LAST_RAW refreshes only at the
+! |F|=2.2E12 vs target 2.2E8). BA_LAST_RAW refreshes only at the
 ! end of non-LAMBDA calls, so the level and contraction tests now
-! measure the same operator.  Before the first full call
+! measure the same operator. Before the first full call
 ! BA_LAST_RAW is 0; fall back to MAXCH there.
 !
 	  JFNK_DEM_IN=BA_LAST_RAW
@@ -2281,15 +2279,15 @@
 	IF(JFNK_THIS)THEN
 !
 ! JFNK_CPL_RELWAIT (VADAT, default F; edited 17-Oct-2026):
-! hold the coupled tier through the post-release damp window.  The
+! hold the coupled tier through the post-release damp window. The
 ! first live sweeps after a GS freeze carry the deferred SE
 ! correction and a field re-lagging to moved populations -- admitting
 ! JFNK-CPL there couples a marginal field to a perturbative solve
-! (KNOP_jfnkrel it35: admitted on the release call, stagnated, and
+! (admitted on the release call, stagnated, and
 ! the LAMBDA fallback then re-poisoned the field, se_res -> 2E31).
 ! N_REL_SINCE was already incremented above, so 1 marks the first
 ! live call; the damped window spans N_REL_SINCE <= GS_REL_N.
-! Frozen-tier admission below is unaffected.  NOTE: a config with a
+! Frozen-tier admission below is unaffected. NOTE: a config with a
 ! very large GS_REL_N defers the coupled tier indefinitely.
 !
 	  IF(DO_NONMONO_KNOP .AND. JFNK_CPL_RELWAIT .AND.
@@ -2310,7 +2308,7 @@
 ! Under DO_NONMONO_SOB the coupled tier is never demand-admitted
 ! ([JFNK_COUPLED_SOB], 23-Oct-2026): a full-sweep eval per JVP is too
 ! expensive to fire on a demand signal that has not first certified
-! the frozen tier cannot help.  SOB coupled admissions arise only
+! the frozen tier cannot help. SOB coupled admissions arise only
 ! from the reach-fail fallback inside JFNK_SOLVE_CORR_V1.
 !
 	  ELSE IF(JFNK_COUPLED .AND. .NOT. DO_NONMONO_SOB .AND.
@@ -2320,20 +2318,20 @@
 	  END IF
 	  IF(.NOT. JFNK_COUPLED_THIS)THEN
 ! Frozen tier: admit only when the effective gate is satisfied and
-! the hysteresis count is met.  GATE_IN=0 means no gating at all
+! the hysteresis count is met. GATE_IN=0 means no gating at all
 ! (legacy behavior with COR_GATE=0).
 !
 ! edited 16-Oct-2026: hysteresis relief under
-! DO_NONMONO_SOB.  In the LAMBDA-dominated regime every LAMBDA-
+! DO_NONMONO_SOB. In the LAMBDA-dominated regime every LAMBDA-
 ! designated call is JFNK-ineligible and resets JFNK_FRZ_HITS above,
 ! so a JFNK_GATE_NREQ>1 count is unreachable however quiet the
 ! demand -- the stable-exit release then runs plain SOLVEBA and JFNK
-! never fires (m15 SOB_l14_jfnk OUTGEN: LAMBDA-designated defer on
-! every eligible-era call).  When the LAMBDA-mode controller has
+! never fires (OUTGEN: LAMBDA-designated defer on
+! every eligible-era call). When the LAMBDA-mode controller has
 ! already proven stability (MAXCH_CTRL below VAL_EXIT_LAM for
 ! N_STABLE_LAM consecutive calls -- the same condition that releases
 ! this call to full) one sub-gate, contracting full-call demand is
-! enough.  The demand level and contraction tests are unchanged;
+! enough. The demand level and contraction tests are unchanged;
 ! only the multi-call hit count is relaxed.
 !
 	    JFNK_NREQ_EFF=JFNK_GATE_NREQ
@@ -2346,10 +2344,10 @@
 !
 ! The relief is further de-rated by reachability (17-Oct-2026): under
 ! SOB a frozen-J Newton cannot reduce a radiation-pinned residual (it
-! is the same fixed-J system SOLVEBA solves directly).  Once
+! is the same fixed-J system SOLVEBA solves directly). Once
 ! JFNK_REACH_SKIP_STREAK consecutive admissions have been skipped by
 ! the reach gate, the relief stands down and leaves the outer
-! BA/LAMBDA loop to advance the lag.  JFNK_REL_REACH_MAX=0 restores
+! BA/LAMBDA loop to advance the lag. JFNK_REL_REACH_MAX=0 restores
 ! the original unconditional relief.
 ! 23-Oct-2026: the de-rate yields to a viable coupled-SOB fallback
 ! ([JFNK_COUPLED_SOB]=T, callback attached, check not failed) -- a
@@ -2396,9 +2394,9 @@
 !
 ! Optional no-commit hold ([JFNK_FRZ_FAIL_LIM], default 0 = off): the
 ! demand gate can stay satisfied while every frozen admission stalls on
-! the radiation-pinned residual.  After a run of such outcomes, spend
+! the radiation-pinned residual. After a run of such outcomes, spend
 ! JFNK_FRZ_FAIL_HOLD eligible calls in the caller's SOLVEBA path before
-! probing the frozen tier again.  The streak is written at the JFNK
+! probing the frozen tier again. The streak is written at the JFNK
 ! outcome; coupled admissions clear the hold because they test a
 ! different operator.
 !
@@ -2434,23 +2432,23 @@
 	IF(JFNK_COUPLED_THIS)JFNK_FRZ_HOLD=0
 !
 ! DO_BA_DIR_CHK (VADAT [DO_BA_DIR_CHK], default F; requires DO_JFNK):
-! diagnostic-only JFNK admission on direct-BA iterations.  The demand
+! diagnostic-only JFNK admission on direct-BA iterations. The demand
 ! gates above are bypassed -- the check exists to price the stored-BA
 ! direction exactly where the real BA step linearizes, which is
-! precisely the high-demand first full step the gates defer.  The
+! precisely the high-demand first full step the gates defer. The
 ! structural gates (warmup, non-LAMBDA, GS-freeze under KNOP,
 ! USE_LAM_ES, not a rd_lam probe) still apply: outside them the
-! stored operator is not the one SOLVEBA is about to use.  Frozen-J
+! stored operator is not the one SOLVEBA is about to use. Frozen-J
 ! tier only; JFNK_SOLVE_CORR_V1 exits through the info=-2 path after
 ! the direction metrics, so caller-mode SOLVEBA_V13 takes the real
-! step on the same call.  The deferred call then counts toward the
-! NG window like the BA iterate it is.  The no-commit hold still
+! step on the same call. The deferred call then counts toward the
+! NG window like the BA iterate it is. The no-commit hold still
 ! applies: a diagnostic bypass must not defeat the failure cooldown.
 !
 ! edited 15-Oct-2026: the [BA_DIRCHK_MAX] cap disengages
 ! the bypass once the diagnostic budget is spent -- after
 ! JFNK_DIRCHK_N defer events the admission reverts to the ordinary
-! demand gates so a real Newton step can run.  -1 (default) keeps
+! demand gates so a real Newton step can run. -1 (default) keeps
 ! the uncapped behaviour.
 !
 	IF(DO_BA_DIR_CHK .AND. .NOT. JFNK_THIS .AND.
@@ -2476,7 +2474,7 @@
 ! POPS_OLD row restore that leaves only exempted trace rows free.
 ! A Newton or LAMBDA dispatch would update the full vector and undo
 ! the major-state freeze, so BA_TRACE_PHASE always takes the direct
-! BA path.  FIX_IMPURITY is cleared for the same reason: it is the
+! BA path. FIX_IMPURITY is cleared for the same reason: it is the
 ! inverse mask and would freeze the trace block Stage B is solving.
 !
 	IF(BA_TRACE_PHASE)THEN
@@ -2490,7 +2488,7 @@
 ! edited 03-Oct-2026: the non-demand defer paths were
 ! silent -- an armed JFNK that sat out on field maturity or a
 ! LAMBDA designation printed nothing, which made gate verification
-! from OUTGEN alone impossible.  The demand-gate deferral above
+! from OUTGEN alone impossible. The demand-gate deferral above
 ! already prints its own line; a call that reached that check had
 ! LAMBDA_ITERATION=F and GS_FREEZE=F by construction, so the
 ! branches here cannot double-report it.
@@ -2543,17 +2541,17 @@
 	  END IF
 	END IF
 !
-! edited 03-Oct-2026: [BA_DAMP_CAP] damped-full cap.  When
+! edited 03-Oct-2026: [BA_DAMP_CAP] damped-full cap. When
 ! the previous non-LAMBDA step's raw demand saturated (BA_LAST_RAW
 ! >= BA_SAT_RAW), every full step takes the tighter BA_DAMP_CAP
 ! factor bound instead of MAX_LIN_COR: the model keeps advancing
 ! along the BA direction but in bounded increments, so a saturated
 ! direction costs damped steps instead of a demote-plus-LAMBDA
-! window per probe.  Enforced here -- just before the solve -- so
+! window per probe. Enforced here -- just before the solve -- so
 ! the MOM_TRIAL and GS-keep-BA branches above cannot leak an
-! uncapped cap through.  Telemetry-driven: BA_LAST_RAW refreshes on
+! uncapped cap through. Telemetry-driven: BA_LAST_RAW refreshes on
 ! every non-LAMBDA call, so the cap releases itself once the demand
-! drops below BA_SAT_RAW.  Inert unless [BA_DAMP_CAP] > 0.
+! drops below BA_SAT_RAW. Inert unless [BA_DAMP_CAP] > 0.
 !
 	IF(.NOT. LAMBDA_ITERATION .AND. BA_DAMP_CAP .GT. 0.0_LDP .AND.
 	1   (BA_LAST_RAW .GE. BA_SAT_RAW .OR. RDLAM_PROBE_THIS))
@@ -2561,7 +2559,7 @@
 !
 ! Banner record of which SE solve this great iteration dispatches
 ! to, so the mode mix is greppable from OUTGEN without cross-
-! referencing the mode-controller transitions.  Printed once per
+! referencing the mode-controller transitions. Printed once per
 ! great iteration: additional SE calls within the same iteration
 ! (e.g. the T-update solve) reuse the first dispatch type.
 !
@@ -2650,7 +2648,7 @@
 ! population change was committed) and is safe because the current
 ! LAMBDA update is held while either the GS field or ratio gate is
 ! unstable. SOL still holds the attempted corrections, so the
-! STEQ/DEC_VEC/INC_VEC dumps show what the solve proposed.  Raw
+! STEQ/DEC_VEC/INC_VEC dumps show what the solve proposed. Raw
 ! MAXCH likewise stays at the attempted value for the reports.
 !
 	IF(GS_POPS_HELD)THEN
@@ -2659,9 +2657,8 @@
 ! POPS=POPS_BA_SAVE (the pre-step state of the rejected step).
 ! POPS_GS_SAVE was snapshotted above BEFORE the solve, i.e. on the
 ! post-step populations the rejection just rolled back -- restoring
-! it here would re-commit the wrecked state and freeze it in.  The
-! hold must not overwrite a BA rollback (m15_2p82d_knop_LAM_apu
-! exploded at it64 exactly this way).
+! it here would re-commit the wrecked state and freeze it in. The
+! hold must not overwrite a BA rollback exploded at exactly this way).
 	  IF(.NOT. BA_STEP_REJECTED)POPS=POPS_GS_SAVE
 	  MAXCH_APP=0.0_LDP
 	  IF(LUM_POPS_HELD)THEN
@@ -2680,7 +2677,7 @@
 ! edited 30-Sep-2026: record the temperature-fix state the
 ! solve actually ran under (MOD_FIXED_T folds in RD_FIX_T and the
 ! gate-forced fixes) before the mode controller updates FIXED_T for
-! the next call.  Feeds MODE_NOW in the GS_STATE/ITER_SUM reports.
+! the next call. Feeds MODE_NOW in the GS_STATE/ITER_SUM reports.
 !
 	FIXT_WAS=MOD_FIXED_T
 !
@@ -2701,7 +2698,7 @@
 !
 ! edited 30-Sep-2026: report the physical context (radius,
 ! velocity, clamped and unclamped velocity gradient) at the depth
-! where SOLVEBA proposes its largest correction.  If the worst
+! where SOLVEBA proposes its largest correction. If the worst
 ! corrections sit where SIGMA_TRUE is most negative (the
 ! compression/velocity-jump region) that localises the instability
 ! to the non-monotonic structure rather than a single level.
@@ -2729,7 +2726,7 @@
 !
 ! DO_BA_RES_ACC rejection path: SOLVEBA_V13 rolled POPS back to the
 ! pre-step snapshot because the SE residual grew by more than
-! BA_RES_GROW.  The stored BA matrix produced the bad step, so it
+! BA_RES_GROW. The stored BA matrix produced the bad step, so it
 ! must be rebuilt rather than reused next iteration.
 !
 ! BA_REJ_THIS keeps the rejection visible to the mode controller
@@ -2744,12 +2741,12 @@
 	  CALL APPEND_ITER_REASON(ITER_REASON,'ba_rejected')
 	END IF
 !
-! edited 03-Oct-2026: masked (partial) rollback.  SOLVEBA
+! edited 03-Oct-2026: masked (partial) rollback. SOLVEBA
 ! restored the failing depth columns and zeroed their fresh
-! corrections; the rest of the step stands.  Force a BA recompute
+! corrections; the rest of the step stands. Force a BA recompute
 ! -- the stored matrix produced the rejected columns -- but do NOT
 ! demote: the committed columns made progress and the LAMBDA demote
-! is what recreates the alternation the mask exists to break.  The
+! is what recreates the alternation the mask exists to break. The
 ! partial step also does not count toward the N_FULL_TREL phased
 ! temperature release below (BA_PART_WAS is consumed there).
 !
@@ -2763,7 +2760,7 @@
 ! Same-cell LAMBDA churn streak (KNOP only): consecutive LAMBDA
 ! calls applying >10% to the same (row,depth) cell are the local
 ! limit-cycle signature the bulk churn census misses when the field
-! sits below every share threshold.  A rejected step applied
+! sits below every share threshold. A rejected step applied
 ! nothing, and a non-LAMBDA (or JFNK) call breaks the run.
 !
 	IF(DO_NONMONO_KNOP .AND. LAMBDA_ITERATION .AND.
@@ -2801,7 +2798,7 @@
 ! so an unjudged-then-clean verdict here is the contraction evidence
 ! the stable-exit gate exists to find: arm BA_RDLAM_ACCEPT so the
 ! counting block below pins CNT_STABLE_LAM at N_STABLE_LAM and the
-! ordinary DO_LAM_AUTO handoff fires.  A rejected/masked probe leaves
+! ordinary DO_LAM_AUTO handoff fires. A rejected/masked probe leaves
 ! the gate closed; the next probe is BA_PROBE_LAM calls away.
 !
 	  IF(RD_LAMBDA .AND. .NOT. BA_RAW_REJECTED)
@@ -2814,7 +2811,7 @@
 ! BAACC_PENDING is only armed inside SOLVEBA_V13 on non-LAMBDA calls,
 ! and any arm from an earlier call was already adjudicated at the top
 ! of this call's solve, so a set arm here means this call committed an
-! unjudged full step.  The previous form also required .NOT. LAM_WAS,
+! unjudged full step. The previous form also required .NOT. LAM_WAS,
 ! but LAM_WAS is only assigned at the mode controller below, so it
 ! tested the PREVIOUS call's mode: every first full call after a
 ! LAMBDA window (probe, stable exit, cnt_lam escape) skipped the arm
@@ -2825,23 +2822,23 @@
 	1   DO_BA_RES_ACC .AND. BAACC_PENDING)
 	1   BA_RAW_TRIAL_PENDING=.TRUE.
 !
-! edited 05-Oct-2026: NG window bookkeeping.  The banded
+! edited 05-Oct-2026: NG window bookkeeping. The banded
 ! secant fit in NGACCEL assumes the last 4 SCRTEMP records are
-! committed iterates of a (locally) linearly convergent map.  Resacc
+! committed iterates of a (locally) linearly convergent map. Resacc
 ! breaks that contract: a rejected step's record is already on disk
 ! before the residual judgment vetoes it, and the rejecting call
 ! appends a restored duplicate, so the window holds sign-reversing
-! difference pairs.  A population-held call (GS_POPS_HELD) has the
+! difference pairs. A population-held call (GS_POPS_HELD) has the
 ! same defect: POPS is restored to the pre-solve snapshot above, so
 ! the SCRTEMP write below appends a duplicate of the previous
 ! record and the window gains a zero-difference pair the fit was
-! never meant to see.  NG_CLEAN counts calls since the last
+! never meant to see. NG_CLEAN counts calls since the last
 ! non-contracting record -- full reject, masked rollback, LAMBDA
 ! follow-up soft reject, an armed-but-unjudged step (BAACC_PENDING,
 ! whose commit is only decided next call), a committed JFNK Newton
 ! iterate (not a Lambda-map iterate; extrapolating across it
-! extrapolates the wrong map), or a held-pops record.  The NG fire
-! test below defers until 4 clean records exist.  Upstream has no
+! extrapolates the wrong map), or a held-pops record. The NG fire
+! test below defers until 4 clean records exist. Upstream has no
 ! resacc/hold/JFNK machinery so all six conditions are always false
 ! and the upstream path is unchanged.
 !
@@ -2849,8 +2846,8 @@
 ! JFNK_THIS, the admission flag -- true on every eligible call while
 ! DO_JFNK is armed, including defers, cooldown calls, and stagnation
 ! fallbacks whose SCRTEMP record is an ordinary caller-mode BA
-! iterate.  With an admitting gate that reset the window on every
-! call and NG could never fire.  JFNK_COMMITTED marks only calls
+! iterate. With an admitting gate that reset the window on every
+! call and NG could never fire. JFNK_COMMITTED marks only calls
 ! that ended in a committed Newton correction, so deferred JFNK
 ! calls now count toward the window like the BA steps they were.
 !
@@ -2862,11 +2859,11 @@
 	END IF
 	BA_SOFT_THIS=.FALSE.
 !
-! edited 30-Sep-2026: accepted-trial refund.  A resacc-netted
+! edited 30-Sep-2026: accepted-trial refund. A resacc-netted
 ! marginal release that the net did NOT roll back is real progress --
 ! the field reached the marginal tier and the committed step was
 ! safe, so the GS_FREEZE_LIM/KNOP_STALL clocks should not keep
-! counting it as "frozen with no progress".  Refund N_FROZEN to
+! counting it as "frozen with no progress". Refund N_FROZEN to
 ! MOM_TRIAL_MIN (not zero): the post-release field is re-immature by
 ! construction, so the next trial still requires the field to
 ! re-demonstrate the marginal tier before it fires, but the run is
@@ -2878,7 +2875,7 @@
 ! The release counters (N_RELEASES_TOT/N_TRIALS_REJ) count events,
 ! not the GS_TRIAL_LIM pulse budget -- they also bound the cycle
 ! when GS_TRIAL_LIM is 0 (unbounded pulses) but releases still fire
-! through the raw-mature path.  GS_RELEASE_LIM stops the model on
+! through the raw-mature path. GS_RELEASE_LIM stops the model on
 ! repeated rejection: the field never matures under a release.
 !
 	IF(TRIAL_FIRED)THEN
@@ -2914,7 +2911,7 @@
 	  END IF
 	END IF
 !
-! edited 30-Sep-2026: mode this call actually ran.  The
+! edited 30-Sep-2026: mode this call actually ran. The
 ! KNOP gates above can override the entry mode before SOLVEBA, so
 ! compose it from the live flags here -- before the mode controller
 ! below updates them for the next call.
@@ -2938,9 +2935,9 @@
 ! submit_cmfgen.sh reads GS_STATE after batch.sh and refuses to
 ! requeue -- or to report a finished run as converged -- when the
 ! model ends a segment still deep inside the forced-LAMBDA freeze
-! (KNOP_STALL_MAX, default 60).  Written every call so the file
+! (KNOP_STALL_MAX, default 60). Written every call so the file
 ! always reflects the last completed iteration; n_frozen=0 is the
-! unfrozen state.  n_frozen stays the first key because the wrapper
+! unfrozen state. n_frozen stays the first key because the wrapper
 ! greps '^n_frozen=' with -m1.
 !
 	IF(DO_NONMONO_KNOP)THEN
@@ -2992,10 +2989,10 @@
 ! edited 29-Sep-2026: under DO_NONMONO_KNOP the control
 ! metric is the post-limitation committed correction (MAXCH_APP), so
 ! that a raw 1.0E+7 sentinel from a safely capped population decrease
-! does not force an unnecessary Lambda step.  Computed here -- before
+! does not force an unnecessary Lambda step. Computed here -- before
 ! the FIX_BA block -- so the BA-recompute tests below share the
 ! committed-change metric; a raw sentinel would otherwise pin
-! COMPUTE_BA=T and grow MAXCH_SUM forever.  NG scheduling further
+! COMPUTE_BA=T and grow MAXCH_SUM forever. NG scheduling further
 ! down deliberately keeps the raw MAXCH: a capped-but-huge step is a
 ! valid reason to defer extrapolation.
 !
@@ -3021,7 +3018,7 @@
 ! and COMPUTE_BA=T had its SE phase store a fresh BAMAT this run --
 ! only then is switching COMPUTE_BA off safe, since the recall path
 ! in CMFGEN_SUB trusts BAMATPNT's (unconditionally stamped) success
-! flag.  Without this guard the first call to leave LAMBDA mode via
+! flag. Without this guard the first call to leave LAMBDA mode via
 ! a mid-call release (MOM_TRIAL) flips COMPUTE_BA off with no BAMAT
 ! ever written, and the next iteration stops on "cant read BA File".
 !
@@ -3080,21 +3077,21 @@
 	END IF
 !
 ! edited 15-Oct-2026: residual-driven BA recall
-! ([DO_BA_RES_REUSE], default F; requires DO_BA_RES_ACC).  The
+! ([DO_BA_RES_REUSE], default F; requires DO_BA_RES_ACC). The
 ! legacy scheme reads staleness from the demanded correction
 ! (MAXCH_CTRL <= VAL_FIX_BA): demand mixes refused (masked or
 ! trust-capped) demand with real demand, so it cannot tell a stale
-! Jacobian from a stiff iterate.  The resacc judgment is the direct
+! Jacobian from a stiff iterate. The resacc judgment is the direct
 ! measure: an armed step whose RES2 ratio BA_JUDGE_RATIO stayed
 ! <= BA_REUSE_TOL contracted against the stored linearization and
 ! supports one more recall, even above the VAL_FIX_BA demand
-! threshold.  BA_REUSE_NSTALL consecutive stalled judgments force
-! one rebuild.  Rejection and the MAXCH_SUM drift trigger (both
+! threshold. BA_REUSE_NSTALL consecutive stalled judgments force
+! one rebuild. Rejection and the MAXCH_SUM drift trigger (both
 ! above) still force COMPUTE_BA=T and are honored here via
 ! BA_REJ_THIS/BA_PART_WAS/SUM_FIRED -- the residual test can only
-! extend recall, never veto a rebuild.  Recall still requires a
+! extend recall, never veto a rebuild. Recall still requires a
 ! stored matrix (BA_MATRIX_STORED, cleared on grid revision),
-! WRBAMAT_RDIN, a non-LAMBDA next call, and CON_SCL_T=0.  The
+! WRBAMAT_RDIN, a non-LAMBDA next call, and CON_SCL_T=0. The
 ! recall assignment is a hard L_FALSE like the FIX_BA recall above:
 ! COMPUTE_BARDIN is the COMP_BA VADAT value (T in production), so
 ! assigning it here would leave COMPUTE_BA=T and silently defeat
@@ -3219,7 +3216,7 @@
 	IF(NEXT_NG .NE. I)NG_DEFERRED=.FALSE.
 !
 ! We switch between LINEARIZATION and LAMBDA iterations until the
-! maximum percentage change is less  than VAL_DO_LAM. RD_CNT_LAM iterations
+! maximum percentage change is less than VAL_DO_LAM. RD_CNT_LAM iterations
 ! are performed per full linearization. RD_LAMBDA overrides this section if
 ! TRUE. We only do a LAMBDA iteration with T fixed. NB --- FIX_IMPURITY
 ! is a soft option --- is removed when convergence nearly obtained.
@@ -3241,10 +3238,10 @@
 !
 ! Saturated-demand demotion: a non-LAMBDA step whose raw correction
 ! demand stays at the sentinel means the applied update rides the
-! limitation cap -- marching rather than contracting.  The count is
+! limitation cap -- marching rather than contracting. The count is
 ! keyed to the entry mode so the step this call committed decides.
 ! Residual acceptance cannot anticipate the basin cliff (SE_RES2
-! stayed flat through LAM_dbg it36-47 while demand stayed pinned),
+! stayed flat through while demand stayed pinned),
 ! so the demand trend is the only pre-cliff signal available.
 !
 ! edited 22-Oct-2026: exclude JFNK calls -- a JFNK step
@@ -3260,10 +3257,10 @@
 	END IF
 !
 ! edited 03-Oct-2026: record the raw demand of every
-! non-LAMBDA step for the BA_ENTER_RAW merit-exit gate below.  The
+! non-LAMBDA step for the BA_ENTER_RAW merit-exit gate below. The
 ! raw value -- not MAXCH_APP -- is what diagnoses a non-contractive
 ! BA direction: a saturated decrease stays huge even when the
-! committed update was capped to a few percent.  Recording is
+! committed update was capped to a few percent. Recording is
 ! unconditional telemetry; the gate itself is inert unless the
 ! VADAT [BA_ENTER_RAW] key is set and a nonmono flag
 ! (DO_NONMONO_SOB or DO_NONMONO_KNOP) is on.
@@ -3271,7 +3268,7 @@
 ! edited 05-Oct-2026: a successful JFNK call returns the
 ! applied correction in MAXCH, not the raw demand -- writing it here
 ! would open the demand gate and JFNK admission on an applied-step
-! value.  Keep the last BA-measured demand until a real SOLVEBA
+! value. Keep the last BA-measured demand until a real SOLVEBA
 ! re-measures (conservative direction: gates stay held).
 !
 	IF(.NOT. LAM_WAS .AND. .NOT. JFNK_THIS)BA_LAST_RAW=MAXCH
@@ -3282,24 +3279,24 @@
 ! edited 29-Sep-2026: the KNOP mode decision uses the
 ! post-limitation applied correction (MAXCH_APP) so that a raw
 ! 1.0E+7 sentinel from a safely capped population decrease does not
-! force an unnecessary Lambda step.  MAXCH_CTRL is set above the
+! force an unnecessary Lambda step. MAXCH_CTRL is set above the
 ! FIX_BA block; raw MAXCH is retained for NG scheduling and the
 ! printed diagnostic.
 !
 ! edited 30-Sep-2026: hysteresis replaces the single
-! VAL_DO_LAM switch.  With defaults (LAM_ENTER=LAM_EXIT=LAM_VAL,
+! VAL_DO_LAM switch. With defaults (LAM_ENTER=LAM_EXIT=LAM_VAL,
 ! LAM_N_STABLE=1) the behavior is identical to the legacy block: one
 ! below-threshold iteration exits LAMBDA and one at/above-threshold
-! full step re-enters it.  When the thresholds differ, a full step
+! full step re-enters it. When the thresholds differ, a full step
 ! in the dead band VAL_EXIT <= MAXCH_CTRL < VAL_ENTER stays full,
 ! and a LAMBDA sequence must string N_STABLE_LAM quiet iterations
 ! together before releasing -- a single lucky iteration can no
-! longer flip the mode.  CNT_STABLE_LAM is reset on entry and by a
+! longer flip the mode. CNT_STABLE_LAM is reset on entry and by a
 ! forced-LAMBDA window so freeze iterations never count toward the
 ! stability requirement.
 !
 ! edited: DO_LAM_AUTO's initial non-monotonic handoff uses
-! the same applied-change stability count as later LAMBDA exits.  A
+! the same applied-change stability count as later LAMBDA exits. A
 ! forced/frozen or luminosity-drifting call cannot establish readiness.
 	IF(FORCE_LAMBDA)THEN
 	  CNT_STABLE_LAM=0
@@ -3325,17 +3322,17 @@
 	  END IF
 !
 ! edited 11-Oct-2026: [BA_PROBE_LAM]-cadence bounded probe
-! inside the RD_LAMBDA phase.  The stable-exit gate above has no
+! inside the RD_LAMBDA phase. The stable-exit gate above has no
 ! escape when the LAMBDA attractor floors above VAL_EXIT_LAM -- the
-! m15 SOB run parked at ~45% demand with stable=0/3 while every
-! probe/escape path sits behind .NOT. RD_LAMBDA.  Reuse CNT_LAM
+!  SOB run parked at ~45% demand with stable=0/3 while every
+! probe/escape path sits behind .NOT. RD_LAMBDA. Reuse CNT_LAM
 ! (unused before handoff) as the cadence counter and fire one full
 ! call when it is armed: residual acceptance must judge the trial
 ! (DO_BA_RES_ACC) and a factor bound must hold it (BA_DAMP_CAP), the
 ! demand must sit in the band where a bounded step is informative
 ! (VAL_EXIT_LAM <= MAXCH_CTRL < VAL_ENTER_LAM -- below the exit a
 ! normal stable count may still hand off; above the enter the model
-! is still churning), and no force/hold may be active.  CMFGEN_SUB
+! is still churning), and no force/hold may be active. CMFGEN_SUB
 ! sees BA_RDLAM_PROBE and leaves the call full; resacc adjudicates it
 ! next call, so a bad direction costs one capped step, not a phase.
 !
@@ -3353,9 +3350,9 @@
 !
 ! A resacc-accepted probe is sustained evidence that a full step
 ! contracts here, so keep the exit count pinned; the demand-level
-! reset above would otherwise disarm it on the same call.  cmfgen_sub
+! reset above would otherwise disarm it on the same call. cmfgen_sub
 ! still requires MAXCH < 50 for the switch, so the arm only matters
-! while the LAMBDA demand stays sane.  Dead once RD_LAMBDA clears.
+! while the LAMBDA demand stays sane. Dead once RD_LAMBDA clears.
 !
 	  IF(BA_RDLAM_ACCEPT)THEN
 	    CNT_STABLE_LAM=N_STABLE_LAM
@@ -3383,7 +3380,7 @@
 !
 ! BA_LUM_GATE: the pops are quiet enough to leave LAMBDA but the
 ! inner-boundary luminosity is still drifting -- a BA step here is
-! armed against a transient inner state (LAM_alt it13-35: lum
+! armed against a transient inner state (lum
 ! excursion -28.6 -> -0.5 over ~20 its while maxraw rode the cap).
 ! Hold the exit; CNT_STABLE_LAM stays armed so the first
 ! lum-settled call exits without re-earning the stability count.
@@ -3397,14 +3394,14 @@
 	1       CNT_LAM .GE. MAX(BA_PROBE_LAM, RD_CNT_LAM))THEN
 !
 ! edited 03-Oct-2026: held-gate probe (VADAT
-! [BA_PROBE_LAM], default 0 = off).  BA_LAST_RAW only refreshes on a
+! [BA_PROBE_LAM], default 0 = off). BA_LAST_RAW only refreshes on a
 ! non-LAMBDA call, so a held gate can never learn that the BA
 ! direction has started to contract -- without this the only
 ! re-open channel is the NUM_LAM escape (SOB v2: the 1e7 probe at
-! it515 held every merit exit, next probe ~it715).  After
+!  held every merit exit, next probe ~). After
 ! BA_PROBE_LAM held LAMBDA calls, release one ordinary full step
 ! with the same actions as lam_stable_exit -- resacc and BA_TRUST
-! bound it identically.  If it demotes, CNT_LAM resets and the next
+! bound it identically. If it demotes, CNT_LAM resets and the next
 ! probe is BA_PROBE_LAM calls away, so probing cannot spam; if it
 ! is accepted the gate re-opens on the refreshed BA_LAST_RAW.
 !
@@ -3429,7 +3426,7 @@
 !
 ! edited 03-Oct-2026: BA_ENTER_RAW demand gate (nonmono
 ! paths; extended SOB -> KNOP 3-Oct-2026 after the opt Knop run
-! showed the identical cycle).  The LAMBDA iterate is quiet but the
+! showed the identical cycle). The LAMBDA iterate is quiet but the
 ! last full step's raw demand is still saturated, so quiet is the
 ! LAMBDA attractor, not evidence the Newton map contracts --
 ! releasing now just re-arms the exit/demote limit cycle.
@@ -3444,7 +3441,7 @@
 ! "stable", CNT_STABLE_LAM re-armed to 1 before the else-branch
 ! could run, and CNT_LAM stayed 0 -- so both the NUM_LAM escape
 ! and the BA_PROBE_LAM probe were dead code and an armed
-! BA_ENTER_RAW locked LAMBDA mode permanently.  Now each held
+! BA_ENTER_RAW locked LAMBDA mode permanently. Now each held
 ! call counts, and BA_PROBE_LAM (or NUM_LAM) releases a probe
 ! full step that re-measures BA_LAST_RAW.
 !
@@ -3481,7 +3478,7 @@
 ! edited 22-Oct-2026: a cadence escape is not a proven
 ! stable exit -- clear the latched proof so a stale
 ! LAM_STABLE_PROVEN cannot arm the SOB stable-LAMBDA JFNK relief
-! (JFNK_NREQ_EFF -> 1) on this unearned release.  The flag is
+! (JFNK_NREQ_EFF -> 1) on this unearned release. The flag is
 ! inert outside DO_NONMONO_SOB, so the stock path is unchanged.
 !
 	          LAM_STABLE_PROVEN=.FALSE.
@@ -3546,16 +3543,16 @@
 	        BA_TRUST_CUR=MAX(1.0_LDP,0.5_LDP*BA_TRUST_CUR)
 	        CALL APPEND_ITER_REASON(ITER_REASON,'ba_sat_demote')
 !
-! edited 03-Oct-2026: [BA_DAMP_CAP] damped-full mode.  A
+! edited 03-Oct-2026: [BA_DAMP_CAP] damped-full mode. A
 ! step whose raw demand is saturated stays in full mode instead of
 ! demoting: the next call re-measures the BA direction under the
 ! BA_DAMP_CAP factor bound, so the model progresses in small
 ! increments rather than paying a demote-plus-LAMBDA window per
-! probe.  The test is on the raw MAXCH (not MAXCH_CTRL) so a small
+! probe. The test is on the raw MAXCH (not MAXCH_CTRL) so a small
 ! damped applied correction cannot slip into the stay-full branch
-! and release T.  The run length is bounded by ba_sat_demote above
+! and release T. The run length is bounded by ba_sat_demote above
 ! (BA_SAT_LIM, default 8 when the cap is armed) and each step still
-! passes residual acceptance.  Inert unless [BA_DAMP_CAP] > 0.
+! passes residual acceptance. Inert unless [BA_DAMP_CAP] > 0.
 !
 	     ELSE IF(BA_DAMP_CAP .GT. 0.0_LDP .AND.
 	1        MAXCH .GE. BA_SAT_RAW)THEN
@@ -3599,7 +3596,7 @@
 	END IF
 !
 ! edited 29-Sep-2026: trace the LAMBDA/full-iteration mode
-! controller each iteration.  The Dessart SOB run ping-pongs BA<->LAMBDA
+! controller each iteration. The Dessart SOB run ping-pongs BA<->LAMBDA
 ! because the rescaled decrease term (100*x/(1-x)) lifts MAXCH above
 ! VAL_DO_LAM on every BA step; this block records the decision inputs
 ! so the cycle can be diagnosed from OUTGEN.
@@ -3670,7 +3667,7 @@
 ! grid -- its depth-column indices no longer map to the same radii, so
 ! a FIX_BA/N_FIX_BA recall would apply corrections to the wrong cells.
 ! Clear the stored flag; the next full iteration rebuilds on the new
-! grid.  Not flag-gated: a stale matrix is wrong on every path that
+! grid. Not flag-gated: a stale matrix is wrong on every path that
 ! revises the grid (upstream gap -- the post-regrid call is forced
 ! LAMBDA in cmfgen_sub.f, which does not store, so the flag only ever
 ! protects WRBAMAT recalls on later calls).
@@ -3743,7 +3740,7 @@
 ! LAST_LAMBDA, so without it a queued NG extrapolation could fire on
 ! a KNOP warm-up iteration (FORCE_LAMBDA=T, GS_FREEZE=F if the field
 ! was restored mature) and commit a population kick across an I_NEXT
-! reinit.  The AV/UNDO paths are already protected implicitly via
+! reinit. The AV/UNDO paths are already protected implicitly via
 ! MAIN_COUNTER .NE. LAST_LAMBDA.
 !
 ! edited 05-Oct-2026: the deferral below arms
@@ -3751,9 +3748,9 @@
 ! revision or AV averaging, which bump MAIN_COUNTER) can step over
 ! the +1 target before the due call, leaving NEXT_NG permanently
 ! below MAIN_COUNTER -- the upstream .EQ. test then never matches
-! and NG silently never fires.  NG_DEFERRED marks targets this
+! and NG silently never fires. NG_DEFERRED marks targets this
 ! branch armed itself; only for those is the due test widened to
-! .LE. .  Sentinel values (1000/1500/2000) and every other
+! .LE. . Sentinel values (1000/1500/2000) and every other
 ! scheduling site keep the upstream .EQ. semantics, so the stock
 ! path is unchanged.
 !
@@ -3764,9 +3761,9 @@
 	  IF(NG_CLEAN .LT. 4)THEN
 ! The 4-record SCRTEMP window still holds a rejected, rolled-back,
 ! or unjudged (BAACC_PENDING) record; extrapolating it can only
-! produce a vetoed acceleration.  Deferring by one call (not 8)
+! produce a vetoed acceleration. Deferring by one call (not 8)
 ! lets NG fire as soon as the window ages clean -- with resacc on,
-! reject-dense phases would otherwise burn every attempt.  Upstream
+! reject-dense phases would otherwise burn every attempt. Upstream
 ! path is unchanged: NG_CLEAN never stays <4 without resacc/JFNK.
 ! NG_DEFERRED records that this branch armed the +1 so a stepped-
 ! over target is still honoured (see the due test above).
@@ -3797,7 +3794,7 @@
 	      COMPUTE_BA=.TRUE.
 ! edited 17-Oct-2026: ng_kick is a demote branch like the
 ! resacc/saturation demotes below -- it must clear the same
-! hysteresis state.  A surviving LAM_STABLE_PROVEN would short-
+! hysteresis state. A surviving LAM_STABLE_PROVEN would short-
 ! circuit the stable-LAMBDA relief (and the stable-exit gate) on the
 ! next FULL call with a proof earned before the extrapolation.
 	      CNT_STABLE_LAM=0
@@ -3829,7 +3826,7 @@
 !
 ! edited 22-Oct-2026: the regrid forces a LAMBDA demote, so
 ! it must clear the same stability state the other demote branches
-! do (cf. ng_kick above).  A CNT_STABLE_LAM/LAM_STABLE_PROVEN pair
+! do (cf. ng_kick above). A CNT_STABLE_LAM/LAM_STABLE_PROVEN pair
 ! earned before the R-grid changed would arm the stable-exit and
 ! the SOB stable-LAMBDA JFNK relief on the first post-regrid call.
 ! Both are inert outside the nonmono modes.
@@ -3882,7 +3879,7 @@
 !
 ! edited 30-Sep-2026: one-line convergence record per
 ! great iteration plus a matching ITER_HISTORY file and a plateau
-! detector.  Emitted on every call that runs a dev path, including
+! detector. Emitted on every call that runs a dev path, including
 ! CONV_DIAG_LVL=0 -- the point of the level control is to strip the
 ! per-call trace noise, not the summary.
 !
@@ -3981,7 +3978,7 @@
 	3    '  frozen=',GS_FREEZE,'  held=',GS_POPS_HELD
 !
 ! Status tags mirror the gate thresholds above: [BAD] is the
-! catastrophic tier and [WARN] the marginal tier.  Luminosity carries
+! catastrophic tier and [WARN] the marginal tier. Luminosity carries
 ! [INFO] because shocks make inner/outer agreement non-convergent.
 !
 	  POP_ST='[OK]   '
@@ -4006,11 +4003,11 @@
 	2    'all cells / excl. worst cols'
 !
 ! edited 17-Oct-2026: trace-side channels and the
-! converged-exit verdict.  Under the major/trace split
+! converged-exit verdict. Under the major/trace split
 ! ([BA_DEM_PFLOOR]) the 'pops' row reads only the
 ! non-exempted demand, so MAXCH < EPS can print while exempted rows
 ! still demand percent-level-or-larger corrections -- the major
-! channels alone cannot say whether the system is converged.  The
+! channels alone cannot say whether the system is converged. The
 ! tests below share CMFGEN_SUB's BA_TRACE_* state (BA_TRACE_EVAL)
 ! and mirror BA_DEM_EXIT_OK / CONV_EXIT_MET, so the
 ! 'conv exit' row names every gate that is holding and [MET] means
@@ -4056,10 +4053,10 @@
 !
 ! Per-depth residual profile (edited 15-Oct-2026): under
 ! CONV_DIAG_LVL list the five depths carrying the largest column-max
-! SE residual and each one's share of the column sum.  BA_COL_RES
+! SE residual and each one's share of the column sum. BA_COL_RES
 ! is exported by SOLVEBA_V13 on every call, so this also covers
 ! LAMBDA calls and resacc-off runs where the residual used to be
-! invisible (m15 dirchk_lc printed se residual 0 while the JFNK
+! invisible (printed se residual 0 while the JFNK
 ! |F|_max was ~1E12, concentrated at depths 66-70 and He II).
 !
 	  IF(CONV_DIAG_LVL .GE. 1 .AND. ALLOCATED(BA_COL_RES)
@@ -4120,7 +4117,7 @@
 !
 ! JFNK gate-state row: demand vs both tier gates plus the
 ! consecutive-hit counters, so an OUTGEN grep of ITER_SUM blocks
-! alone reconstructs why Newton did or did not fire.  [ARMED] =
+! alone reconstructs why Newton did or did not fire. [ARMED] =
 ! admitted this call (coupled flag disambiguates the tier),
 ! [DEFER] = armed but gated out, [OFF] = still inside JFNK_WARMUP.
 !
@@ -4177,7 +4174,7 @@
 ! A gate that fails on a logical flag (pops-held, resacc-pending,
 ! lambda-state, hydro-revision, jfnk-unconverged, on-NG) has no
 ! continuous margin, so the dex figure reads the numeric channels
-! only.  [MET] implies 100% -- all gates passed.
+! only. [MET] implies 100% -- all gates passed.
 !
 	  CONV_NPASS=0
 	  IF(CONV_LAM_OK)CONV_NPASS=CONV_NPASS+1
@@ -4261,7 +4258,7 @@
 !
 ! Plateau detector: flag a stall only when the committed correction,
 ! the second-channel SE residual and the GS drift fraction all sit
-! inside a 1.5x window over the last PLAT_WIN calls.  A held-pops
+! inside a 1.5x window over the last PLAT_WIN calls. A held-pops
 ! sweep (MAXCH_APP=0) and a path without resacc (BA_SE_RES2=0) drop
 ! the corresponding test instead of manufacturing a flat zero
 ! series.
