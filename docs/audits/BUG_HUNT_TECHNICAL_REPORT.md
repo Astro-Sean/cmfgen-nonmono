@@ -159,6 +159,18 @@ See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
   census (PASS_NRES) under observation in production runs, and
   see the register for two cosmetic observations (phantom
   `GAMH_FAC_NM(ND)` fill; census counts exact-zero cells).
+- BUG-005 (P2 measured): every JFNK admission on the surviving m15
+  production runs defers before Newton - 155/155 across the `adp`
+  (36) and `adp2` (119) OUTGENs, all on `GUARD DEFER: FD
+  non-descent cos(F,Az) < fd_cos_min=5.00E-02` with measured
+  cos(F,Az) ~1E-3..1E-2. The dominant residual rows are
+  radiation-pinned outer-boundary HI levels; the reach eval gives
+  |Jz|/|F| = 26, so no population step can reach the residual
+  while J is frozen. The defer is the guard working as designed
+  (not counted against FSM rungs, ~4 residual evals each), but it
+  means GMRES - and therefore the BUG-001 tres path - has never
+  run on m15. Production tres counts are structurally zero there;
+  surrogate probes remain the only GMRES exercise.
 
 ## 5. Validation gaps
 
@@ -168,7 +180,13 @@ See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
 - No production-model run yet exercises the new default; build-level
   verification plus surrogate/regression evidence is what exists.
   `tres_rej`/`tres_nonfinite` counts from real interacting-SN models
-  remain the open physical-impact measurement.
+  remain the open physical-impact measurement. As of 03-Nov-2026
+  two interactive-partition m15 runs are in flight on the fixed
+  build (job 12667827 warm restart at it620+; job 12667984 cold
+  start): they validate stability of the admit/defer cycle, but
+  per BUG-005 they are not expected to emit tres exits - the
+  deferred-admission pattern means GMRES never enters on this
+  model state.
 - Complete unit suite + `build.sh`: recorded in the build log for
   this change set.
 
