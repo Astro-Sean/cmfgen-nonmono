@@ -40,6 +40,10 @@ Tests:
       mild/hard/shock blocks are near-singular (cond ~1e23..1e39), so
       an accepted dgetrf can still return a meaningless solve; the
       per-depth backward error attributes the gap to its block
+  T22 JVP cycle-linearity on the surrogate residual: homogeneity
+      JV(a v) == a JV(v) is exact under the production h-rule, and
+      the additivity defect is held to a small multiple of the
+      same-direction FD-vs-exact error
 
 Usage:  python3 test_se_solver.py [--quick]
 Exit status: number of failed tests.
@@ -288,6 +292,79 @@ def t21_near_singular(spec):
     ok = worst < 0.1
     return ok, f"worst per-depth LU residual {worst:.2e}", \
         {"worst": worst}
+
+
+def _jvp_fd_exact(spec, v, eps, xfile):
+    """(FD image, exact image) of the production JVP on direction v."""
+    vfile = TD / "systems" / "_pv.txt"
+    np.savetxt(vfile, v, fmt="%.16e")
+    out = run_cli("sejvp", spec["dir"], vfile, eps, xfile)
+    rows = parse_vec(out, "JV")
+    fd = np.array([rows[i][0] for i in range(spec["n"])])
+    ex = np.array([rows[i][1] for i in range(spec["n"])])
+    return fd, ex
+
+
+def t22_jvp_additivity(spec):
+    """Cycle-linearity of the production FD JVP on the surrogate.
+
+    GMRES assembles one Arnoldi basis from per-direction images, so the
+    FD operator must behave as one fixed linear map across the cycle:
+    when the Krylov-residual/linear-residual gap was first seen, a
+    direction-dependent effective operator was a prime suspect
+    (03-Nov-2026 audit).  Two measurable signatures:
+
+    * homogeneity: with h = eps*max(1,|x|inf)/|v|inf the perturbed
+      displacement h*v is invariant under v -> a v, so JV(a v) == a
+      JV(v) must hold to roundoff;
+    * additivity: ||FD(v1+v2) - FD(v1) - FD(v2)|| should stay within a
+      small multiple of the same-direction FD-vs-exact error - the
+      direction-dependent h makes the FD operator only as nonlinear
+      as the method is inaccurate, while a genuinely inconsistent
+      operator (branch flips, per-direction step policies, stale
+      baselines) detaches the defect from that error entirely.
+    """
+    rng = np.random.default_rng(11)
+    cls = spec["meta"]["row_class"]
+    i_ryd = cls.index("ryd") if "ryd" in cls else 0
+    i_lev = cls.index("lev") if "lev" in cls else 0
+    pairs = []
+    for tag, irow in (("rand+ryd", i_ryd), ("rand+lev", i_lev)):
+        v1 = rng.uniform(-1, 1, spec["n"])
+        v1 = v1 / np.linalg.norm(v1)
+        v2 = np.zeros(spec["n"])
+        v2[irow] = 1.0
+        pairs.append((tag, v1, v2))
+    xfile = TD / "systems" / "_xmid.txt"
+    np.savetxt(xfile, np.clip(0.5 * spec["xstar"], -80, 80), fmt="%.16e")
+    ok = True
+    worst_ratio = 0.0
+    worst_hom = 0.0
+    print(f"    {'point':>6s} {'pair':>9s} {'eps':>8s} "
+          f"{'defect':>10s} {'fd-vs-ex':>10s} {'ratio':>7s} "
+          f"{'hom(2v)':>9s}")
+    for pt, xf in (("x=0", 0), ("x=x*/2", xfile)):
+        for tag, v1, v2 in pairs:
+            for eps in (1e-8, 1e-6, 1e-4, 1e-2):
+                fd1, _ = _jvp_fd_exact(spec, v1, eps, xf)
+                fd2, _ = _jvp_fd_exact(spec, v2, eps, xf)
+                fds, exs = _jvp_fd_exact(spec, v1 + v2, eps, xf)
+                fd2x, _ = _jvp_fd_exact(spec, 2.0 * v1, eps, xf)
+                defect = np.linalg.norm(fds - fd1 - fd2) / \
+                    max(np.linalg.norm(fds), 1e-300)
+                acc = np.linalg.norm(fds - exs) / \
+                    max(np.linalg.norm(exs), 1e-300)
+                hom = np.linalg.norm(fd2x - 2.0 * fd1) / \
+                    max(np.linalg.norm(fd2x), 1e-300)
+                ratio = defect / max(acc, 1e-300)
+                worst_ratio = max(worst_ratio, ratio)
+                worst_hom = max(worst_hom, hom)
+                ok = ok and ratio < 10.0 and hom < 1e-12
+                print(f"    {pt:>6s} {tag:>9s} {eps:8.0e} "
+                      f"{defect:10.2e} {acc:10.2e} {ratio:7.2f} "
+                      f"{hom:9.2e}")
+    return ok, f"worst defect/error {worst_ratio:.2f}, " \
+        f"worst homogeneity {worst_hom:.2e}", {"worst": worst_ratio}
 
 
 def t5_gmres(spec):
@@ -936,7 +1013,8 @@ def main():
                         ("T15", t15_stale_baseline),
                         ("T16", t16_structure_freeze),
                         ("T17", t17_repeat_determinism),
-                        ("T21", t21_near_singular)):
+                        ("T21", t21_near_singular),
+                        ("T22", t22_jvp_additivity)):
             label = {"T0": "identity", "T1": "anatomy", "T2": "FD JVP",
                      "T3": "demanded step", "T4": "preconditioner",
                      "T5": "GMRES", "T6": "Newton end-to-end",
@@ -946,7 +1024,8 @@ def main():
                      "T13": "tauto ladder", "T14": "JVP tauto",
                      "T15": "stale baseline", "T16": "struct freeze",
                      "T17": "repeat determinism",
-                     "T21": "LU residual census"}[tag]
+                     "T21": "LU residual census",
+                     "T22": "JVP linearity"}[tag]
             print(f"  [{tag} {label}]")
             try:
                 if tag == "T0":
