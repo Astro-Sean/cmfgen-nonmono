@@ -1122,6 +1122,15 @@ optional. Probe exists (`jfnk_op_probe_v1.f90`, `JFNK_HSCAN`,
 - Acceptance: measured basis for the production setting (bound
   semantics decided + unit-verified; runtime counts open).
 - Dependencies: P4-004.
+- Runtime note (2026-11-03, BUG-005): on m15 the tres path is
+  structurally unreachable - 155/155 production JFNK admissions
+  defer on the FD non-descent guard before GMRES enters
+  (radiation-pinned frozen-J rows, |Jz|/|F|~26). tres_rej counts
+  on m15 will read 0 regardless of the setting; a model where the
+  reach test passes is needed for a nonzero measurement. Two
+  interactive-partition stability runs on the fixed build are in
+  flight (jobs 12667827 warm, 12667984 cold) - expected to
+  reproduce the admit/defer pattern rather than tres exits.
 - Completion: partial (policy decided and unit-verified 2026-11-03;
   production counts open).
 
@@ -1210,7 +1219,14 @@ optional. Probe exists (`jfnk_op_probe_v1.f90`, `JFNK_HSCAN`,
 - Acceptance: documented matrix; all unsupported combos hard-stop or
   warn.
 - Dependencies: none.
-- Completion: partial (parser-level verified; matrix doc open).
+- Runtime note (2026-11-03, BUG-005): on m15 the admitted frozen
+  tier always defers before GMRES (155/155 on FD non-descent).
+  Admission happens; Newton-level work does not. The admission
+  matrix is therefore only exercised through the defer path in
+  production - gate-hit counting, mode retention, and rung
+  accounting verified correct in OUTGEN traces.
+- Completion: partial (parser-level verified; matrix doc open;
+  production admission measured 2026-11-03 - always defers on m15).
 
 ### [ ] P4-017 - Compare conventional vs JFNK solutions on identical models
 - Priority: P0
