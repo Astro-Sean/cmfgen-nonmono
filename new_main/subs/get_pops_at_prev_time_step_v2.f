@@ -14,7 +14,7 @@
 	IMPLICIT NONE
 !
 ! Altered : 05-Oct-2026 : Require positive, strictly decreasing V before
-!                             using it as the interpolation coordinate (Devin).
+!                             using it as the interpolation coordinate.
 ! Altered : 01-Jul-2006 : Now allow outer velocity of older model to be larger than current
 !                           model, although number of grid points still must be identical.
 ! Altered : 23-Jun-2006 : Removed R, V from call as in MOD_CMFGEN
