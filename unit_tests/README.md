@@ -23,6 +23,7 @@ error text.
 
 | test file | production file(s) under test | what is asserted |
 |---|---|---|
+| `test_cmf_blkband_pin.py` | `new_main/subs/cmf_blkband_pin_null_v1.f` | Pins only exactly disconnected zero equations with zero RHS; preserves nonzero residual rows, zero-column equations, and near-zero live entries |
 | `test_sigma_true.py` | `new_main/subs/recompute_sigma_true.f` | SIGMA_TRUE_CORE flag gating, unclamped `R/V dV/dR-1`, boundary cells, stagnation and `ND<3` edge cases, new-vs-reference identity when flag off |
 | `test_sob_tau_floor.py` | `subs/sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`, `sobew_grad_v3.f` | sigma>=0 and sigma=-0.5 bit-identical to reference; sigma<-1 hits the Dessart+2015 tau floor; analytic BETA check against SOBJBAR_SIM; finite output |
 | `test_interp_guards.py` | `subs/lin_interp.f`, `mon_interp.f`, `mon_interp_fast.f`, `mon_interp_fast_v2.f`, `mon_int_funs_v2.f` | valid-path bit-identity vs reference for all five routines; aborts on non-monotonic/repeated/reversed grids, out-of-range targets, `ND`/`NIN` too small |
