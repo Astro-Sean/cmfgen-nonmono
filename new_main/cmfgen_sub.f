@@ -1129,9 +1129,10 @@
 ! For DO_NONMONO_SOB, fill the unclamped velocity-gradient array used by
 ! the Sobolev line routines (Dessart, Audit & Hillier 2015).
 ! DO_NONMONO_KNOP also needs SIGMA_TRUE for the Knop formal solver.
+! With both flags off the routine only evaluates the unclamped gradient
+! on a scratch copy and warns if the input is non-monotonic.
 !
-	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)
-	1      CALL RECOMPUTE_SIGMA_TRUE(SIGMA_TRUE,SIGMA,R,V,ND)
+	CALL RECOMPUTE_SIGMA_TRUE(SIGMA_TRUE,SIGMA,R,V,ND)
 !
 ! 
 !
@@ -4457,6 +4458,19 @@
 	END IF
 	FCONV_SUPPRESSED_CNT=0
 	FCONV_SUPPRESSED_MAX=0.0_LDP
+!
+! Total f-iteration cap exits for this great iteration, all iterations
+! (the suppressed iteration-1 subset is included in this count). A
+! nonzero census means some frequencies left an unconverged
+! electron-scattering source in the rates used by the SE solve.
+!
+	IF(FCONV_CAP_CNT .GT. 0)THEN
+	  WRITE(LUER,'(A,I6,A,1P,E10.3)')
+	1    ' f-iteration cap exits this iteration:',FCONV_CAP_CNT,
+	2    '  max |dF| at exit=',FCONV_CAP_T1
+	END IF
+	FCONV_CAP_CNT=0
+	FCONV_CAP_T1=0.0_LDP
 	FLUSH(UNIT=LU_EDD)
 	IF(.NOT. COHERENT_ES)CLOSE(UNIT=LU_ES)
 	COMPUTE_JEW=.FALSE.
@@ -4632,11 +4646,8 @@
 ! Keep SIGMA_TRUE consistent with the revised R and V (DO_NONMONO_SOB,
 ! DO_NONMONO_KNOP).
 !
-	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
-	  IF(DONE_HYDRO_REVISION .OR. CHK)THEN
-	    CALL RECOMPUTE_SIGMA_TRUE(SIGMA_TRUE,SIGMA,R,V,ND)
-	  END IF
-	END IF
+	IF(DONE_HYDRO_REVISION .OR. CHK)
+	1      CALL RECOMPUTE_SIGMA_TRUE(SIGMA_TRUE,SIGMA,R,V,ND)
 !
 	IF(DONE_HYDRO_REVISION .OR. CHK)THEN
 	    LAMBDA_ITERATION=.TRUE.
