@@ -232,6 +232,44 @@ def main():
         f"omp_maxdiff={omp_diff:.2e}",
     )
 
+    # -- T9: two compressing bands separated by an expanding cell -
+    #    the gradient sign reverses twice along the ray, so the
+    #    sign-dependent upwind pick runs in both directions on one
+    #    profile. Solver must still converge with finite stores.
+    r = run(bin_, "rev", cwd=WORKDIR, check=False)
+    d9, s9 = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d9
+        and d9.get("NXIT", -1) in (0, 1, 2)
+        and d9.get("RESID", 1e9) < 1.0e-1
+        and all(abs(v) < 1e30 for v in s9.values() for v in v)
+    )
+    rep.check(
+        "T9 multi-reversal profile converges (two GAM bands)",
+        ok,
+        f"NXIT={d9.get('NXIT')} RESID={d9.get('RESID'):.3e} "
+        f"NPASS={d9.get('NPASS')} NCOMP={d9.get('NCOMP')}",
+    )
+
+    # -- T10: strong compression - same band geometry, GAM ~150x
+    #    deeper negative (sigma << -1 regime). Converged exit,
+    #    finite stores, no divergence census.
+    r = run(bin_, "strg", cwd=WORKDIR, check=False)
+    d10, s10 = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d10
+        and d10.get("NXIT", -1) in (0, 1, 2)
+        and d10.get("RESID", 1e9) < 1.0e-1
+        and d10.get("NDIV", 9) == 0
+        and all(abs(v) < 1e30 for v in s10.values() for v in v)
+    )
+    rep.check(
+        "T10 strong-compression band converges (GAM ~ 150x)",
+        ok,
+        f"NXIT={d10.get('NXIT')} RESID={d10.get('RESID'):.3e} "
+        f"NPASS={d10.get('NPASS')} NDIV={d10.get('NDIV')}",
+    )
+
     rep.summary()
 
 
