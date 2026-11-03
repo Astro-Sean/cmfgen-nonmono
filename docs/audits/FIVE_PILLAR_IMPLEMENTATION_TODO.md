@@ -1051,11 +1051,24 @@ acceleration.
   source: MOM_AA_APP/SKIP/SNG (inner, MOM_AA_M=3 secant pairs) and
   MOM_AA_OUT_APP/REJ/SNG (outer, MOM_AA_OUT_M=8) print at every
   refresh epilogue plus per-application `AA m= ||f||= ||corr||=`
-  lines (mom_j_cmf_nonmono_v1.f:6486-6497). The measurement leg is
-  runtime-bound: AA only accumulates across >=M secant calls, the
-  unit drivers are single-call (no history), and the running m15
-  jobs use USE_LAM_ES=T (FG path - AA lives in the moment refresh
-  only). Needs a LAM_ES=F model or a multi-call driver loop.
+  lines (mom_j_cmf_nonmono_v1.f:6486-6497). Gate map: inner AA
+  fires only on even IPASS>=2 with ALLOCATED(XHIST_AA), restarts
+  history when >MOM_AA_DMP_FRAC of cells re-damp that pass, caps
+  each cell's correction at 10||f_i||, drags H by the J ratio
+  (mom_j_cmf_nonmono_v1.f:5629-5830); outer AA is the analogous
+  iterate-space path (MOM_AA_OUT). Driver probe: 4 and 8 outer
+  iterations of `mom_solve comp1` emitted zero LUER inner-pass
+  lines - the cold calls take the LAMBDA-rebuild warmup branch
+  (mom_j_cmf_nonmono_v1.f:4170-4294) rather than multi-pass GS
+  sweeps, so the even-IPASS>=2 AA gate never engages under the
+  driver's cadence. Manufactured AA evidence needs a driver
+  seeded with a valid J_NEXT_GS checkpoint (the `ckpt` mode
+  dumps/restores one - tried it, the restored call still takes
+  the no-report path: zero `refresh pass` lines means the whole
+  IPASS report/AA block is bypassed by an enclosing branch
+  before mom_j_cmf_nonmono_v1.f:5213, not entered per-call) or
+  a LAM_ES=F model run. Both m15 jobs are USE_LAM_ES=T (FG
+  path - AA lives in the moment refresh only).
 
 ### [~] P3-023 - Lagged-field maturity gates vs actual radiation consistency
 - Priority: P0
