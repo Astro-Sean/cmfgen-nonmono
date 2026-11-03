@@ -11,7 +11,7 @@
 ! T-linear: the apply must be a fixed linear operator in v (GMRES
 ! Krylov consistency), for every flag combination.
 !
-! added by Devin, 22-Oct-2026 (jfnk-precond-fixes)
+! added 22-Oct-2026 (jfnk-precond-fixes)
 !----------------------------------------------------------------------
 program test_precond_blocks
    use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
