@@ -13,7 +13,7 @@
 !
 !If the following options hold, we use Eddington factors and the enhanced grid.
 !
-!       CONT_VEL=.FALSE.  & THIS_FREQ_EXT=.TRUE.
+!       CONT_VEL=.FALSE. & THIS_FREQ_EXT=.TRUE.
 !
 !If the following options hold, we use Eddington factors and the regular grid.
 !
@@ -105,20 +105,20 @@
 	INTEGER J_IT_COUNTER
 	LOGICAL NEW_FREQ
 !
-! edited 27-Oct-2026: ES-ALI state [DO_ES_ALI].  ES_ALI_ON
+! edited 27-Oct-2026: ES-ALI state [DO_ES_ALI]. ES_ALI_ON
 ! is the per-call gate (evaluated just before the iteration loop);
 ! ES_DJ is the max relative RJ update of the current pass; ES_ALI_FB
-! marks a pass that fell back to plain Lambda.  The SAVE'd counters
+! marks a pass that fell back to plain Lambda. The SAVE'd counters
 ! accumulate per-frequency results for the once-per-iteration print.
 ! DJDCHI_TMP/DJDETA_TMP hold the V13 stored diagonal.
 !
 ! edited 29-Oct-2026: ES_ALI_MOM_ON gates the same
 ! Olson-Auer-Buchler step on the USE_LAM_ES=F branch, where J comes
 ! from MOM_J_CMF_NONMONO_V1 with the scattering source lagged (TA
-! holds ETA + chi_scat*RJ from the previous iterate).  The mom
+! holds ETA + chi_scat*RJ from the previous iterate). The mom
 ! solver's stored diagonal (GET_MOM_ALO_DIAG) is the same bare
 ! local-source response class as the V13 DJDETA, so the identical
-! DEN = 1 - DJDETA*chi_scat Jacobi factor applies.  ROLD_ES keeps
+! DEN = 1 - DJDETA*chi_scat Jacobi factor applies. ROLD_ES keeps
 ! the iterate entering the solve since the mom call writes its
 ! solution straight into RJ.
 !
@@ -652,8 +652,8 @@ C
 	    END DO
 !
 ! At the bluest frequency FL_OLD is undefined, so dLOG_NU cannot be
-! evaluated as LOG(FL_OLD/FL).  The correct one-sided spacing is
-! LOG(FL/NU_NEXT_FREQ) (NU_NEXT_FREQ set by CMFGEN_SUB).  Without this
+! evaluated as LOG(FL_OLD/FL). The correct one-sided spacing is
+! LOG(FL/NU_NEXT_FREQ) (NU_NEXT_FREQ set by CMFGEN_SUB). Without this
 ! the non-monotonic chi_hat = chi + |GAM|/dLOG_NU sees a garbage/zero
 ! dLOG_NU at frequency 1 and produces a non-finite moment solution.
 ! Gated on DO_NONMONO_KNOP, and on DO_NONMONO_SOB with USE_LAM_ES=F
@@ -674,7 +674,7 @@ C
 	    FG_COUNT=0
 !
 ! ES-ALI per-iteration counters [DO_ES_ALI]; reset with FG_COUNT so
-! the NCF print covers exactly one great iteration.  Inert when the
+! the NCF print covers exactly one great iteration. Inert when the
 ! feature is off.
 !
 	    ES_ALI_NUNC=0
@@ -776,9 +776,9 @@ C
 ! edited 02-Nov-2026: corrected the 29-Oct note -- under
 ! DO_NONMONO_KNOP the formal solver is FG_J_CMF_NONMONO_V1, not V13,
 ! and it stores its diagonal in FG_J_CMF_NONMONO_MOD_V1, so the V13
-! accessor always returned VALID=F (KNOP_fresh: 56377/56377 ES_ALI
-! fallbacks).  The update now selects the accessor matching the
-! solver dispatch below (same predicate).  Caveat under KNOP: the
+! accessor always returned VALID=F (56377/56377 ES_ALI
+! fallbacks). The update now selects the accessor matching the
+! solver dispatch below (same predicate). Caveat under KNOP: the
 ! DEN floor (0.01) is only safe when the single-scattering albedo
 ! stays <= 1; pair DO_ES_ALI with KN_NO_GAIN=T.
 !
@@ -846,7 +846,7 @@ C
 !
 ! Pass nu(k+1) to the solver so the compressing branch uses the
 ! forward spacing ln(nu_k/nu_{k+1}) (asymmetric-spacing fix,
-! Oct-2026).  NU_NEXT_FREQ is set by CMFGEN_SUB each frequency.
+! Oct-2026). NU_NEXT_FREQ is set by CMFGEN_SUB each frequency.
 !
 	         CALL SET_FG_NU_NEXT(NU_NEXT_FREQ)
 	         CALL FG_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
@@ -945,20 +945,20 @@ C
 	       IF(ES_ALI_ON)THEN
 !
 ! edited 27-Oct-2026: Olson-Auer-Buchler Jacobi update of
-! the coherent-ES iterate [DO_ES_ALI].  TA was built from the
+! the coherent-ES iterate [DO_ES_ALI]. TA was built from the
 ! previous RJ, so TC is Lambda[RJ]; the V13 stored diagonal
 ! DJDETA = dJ/dETA converts the residual into an approximate solve
 ! of J = Lambda[ETA + chi_scat J]:
 ! RJNEW = RJ + (TC-RJ)/DEN with DEN = 1 - DJDETA*chi_scat, floored
 ! at 0.01; a non-positive RJNEW falls back to the Lambda value TC.
-! ES_DJ records the max relative update for the exit test below.  If
+! ES_DJ records the max relative update for the exit test below. If
 ! the diagonal is unavailable the pass degrades to plain RJ=TC, the
 ! frequency is counted as a fallback, and no extra passes are forced.
 !
 ! edited 02-Nov-2026: accessor must match the solver that
 ! ran above -- FG_J_CMF_NONMONO_V1 (KNOP, or SOB+DO_SOB_FG_KNOP)
 ! stores its diagonal in FG_J_CMF_NONMONO_MOD_V1, so the V13
-! accessor is invalid there.  Same predicate as the dispatch.
+! accessor is invalid there. Same predicate as the dispatch.
 !
 	         IF(DO_NONMONO_KNOP .OR.
 	1           (DO_NONMONO_SOB .AND. USE_LAM_ES .AND. DO_SOB_FG_KNOP))THEN
@@ -985,10 +985,10 @@ C
 	       END IF
 !
 ! Fill Eddington factors (K_ON_J, NMID_ON_J, NMID_ON_HMID) from the
-! ray moments stored by FG_J_CMF_NONMONO_V1.  Normally these are
+! ray moments stored by FG_J_CMF_NONMONO_V1. Normally these are
 ! filled by MOM_J_CMF_V11, which is NOT called when USE_LAM_ES=T.
 ! Gated on DO_NONMONO_KNOP: USE_LAM_ES is a standard CMFGEN option
-! and the stock path is unchanged without the flag.  DO_SOB_FG_KNOP
+! and the stock path is unchanged without the flag. DO_SOB_FG_KNOP
 ! runs the same ray solver, so its stored moments feed here too.
 !
 	       IF(DO_NONMONO_KNOP .OR.
@@ -1007,9 +1007,9 @@ C
 	          HFLUX_AT_IB=0.0_LDP
 ! With ZERO_FLUX now live, the generic branch that sets HFLUX_AT_OB is
 ! skipped; under USE_LAM_ES the Eddington factor HBC_CMF(1) is stale
-! because MOM_J_CMF is never called.  The Knop ray solve measures the
+! because MOM_J_CMF is never called. The Knop ray solve measures the
 ! emergent flux directly, so use HNU_AT_OB for the SOB/RLUMST outer
-! boundary.  Stock path (DO_NONMONO_KNOP=F) is unchanged.
+! boundary. Stock path (DO_NONMONO_KNOP=F) is unchanged.
 	          IF(DO_NONMONO_KNOP .OR.
 	1            (DO_NONMONO_SOB .AND. DO_SOB_FG_KNOP))
 	1            HFLUX_AT_OB=HNU_AT_OB
@@ -1029,14 +1029,14 @@ C
 	     ELSE
 	       IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
 !	        Non-monotonic moment solver (Knop et al. 2009 Paper I
-!	        generalized opacity split).  Uses SIGMA_TRUE (unclamped) and sign-
+!	        generalized opacity split). Uses SIGMA_TRUE (unclamped) and sign-
 !	        dependent upwind (J_PREV for GAM>=0, J_NEXT for GAM<0).
 !	        Called under DO_NONMONO_KNOP, and under DO_NONMONO_SOB when
 !	        the opt-in USE_LAM_ES=F moment path is active (12-Oct-2026):
 !	        MOM_J_CMF_V11 assumes expanding flow and diverges on this
-!	        velocity field.  V13 still runs each frequency above, so
+!	        velocity field. V13 still runs each frequency above, so
 !	        GET_MOMS_NON_REL inside the solver reads fresh N_ON_J ray
-!	        moments.  Default (no non-mono flag) keeps MOM_J_CMF_V11.
+!	        moments. Default (no non-mono flag) keeps MOM_J_CMF_V11.
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)
 	1             WRITE(LUER,*)'Field solver: moment equations'//
 	2             ' (MOM_J_CMF_NONMONO_V1)'
@@ -1056,7 +1056,7 @@ C
 	         IF(ES_ALI_MOM_ON)THEN
 !
 ! edited 29-Oct-2026: same OAB Jacobi update as the
-! USE_LAM_ES branch [DO_ES_ALI].  TA entering the solve held
+! USE_LAM_ES branch [DO_ES_ALI]. TA entering the solve held
 ! ETA + chi_scat*ROLD_ES, so the returned RJ is Lambda_mom[ROLD_ES];
 ! DEN = 1 - DJDETA*chi_scat on the mom-stored diagonal converts the
 ! lagged-scattering iterate into an approximate implicit-ES solve.
@@ -1426,7 +1426,7 @@ C
 !
 ! edited 05-Oct-2026: under JFNK_IN_EVAL a blown-up RJ is a
 ! failed eval, not a fatal model error -- a STOP here kills the run
-! mid-JVP.  Flag the eval (JFNK_EVAL_BROKEN) and return; the huge RJ
+! mid-JVP. Flag the eval (JFNK_EVAL_BROKEN) and return; the huge RJ
 ! was already computed and feeds the residual, and the sweep epilogue
 ! forces the sentinel so JFNK_RESIDUAL_V1's |Y|>1D30 cap rejects it.
 ! All per-frequency bookkeeping (ACCESS_F advance, suppressed LU_EDD
