@@ -884,6 +884,34 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # SOL_METH=TRI with NUM_BNDS<3: the parser must loudly downgrade
+    # to DIAG (rd_control_variables.f:2951-2957), not run TRI on a
+    # one-band Jacobian.  NUM_BNDS=30 baseline: TRI parses as TRI.
+    d = write_vadat(WORKDIR / "vadat_sol_tri_nb1", {"SOL_METH": "TRI"})
+    import subprocess
+
+    p_lo = subprocess.run(
+        [str(exe), "1"], cwd=d, capture_output=True, text=True, timeout=60
+    )
+    p_hi = subprocess.run(
+        [str(exe), "30"], cwd=d, capture_output=True, text=True, timeout=60
+    )
+    v_lo, v_hi = parse(p_lo.stdout), parse(p_hi.stdout)
+    rep.check(
+        "SOL_METH=TRI + NUM_BNDS<3 loudly downgrades to DIAG",
+        "RESULT_OK" in p_lo.stdout
+        and "NUM_BNDS of at least 3" in p_lo.stdout
+        and v_lo.get("METH_SOL") == "DIAG",
+        p_lo.stdout[-400:] if "RESULT_OK" not in p_lo.stdout else "",
+    )
+    rep.check(
+        "SOL_METH=TRI + NUM_BNDS=30 keeps TRI",
+        "RESULT_OK" in p_hi.stdout
+        and "NUM_BNDS of at least 3" not in p_hi.stdout
+        and v_hi.get("METH_SOL") == "TRI",
+        p_hi.stdout[-400:] if "RESULT_OK" not in p_hi.stdout else "",
+    )
+
     return rep.summary()
 
 
