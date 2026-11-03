@@ -56,7 +56,7 @@
 	IMPLICIT NONE
 !
 ! Altered 05-Oct-2026 : Require positive, strictly decreasing V before using
-!                             LOG(V) as an interpolation coordinate (Devin).
+!                             LOG(V) as an interpolation coordinate.
 ! Altered 14-Jan -2010 : Code stops when NU too small, and fixed array access violation.
 ! Altered 26-July-2008 : Allow NU > NU(old).
 ! Altered 17-July-2008 : Fixed DELTA_TIME_SECS which was wrong when ND and ND_OLD
