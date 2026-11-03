@@ -1850,6 +1850,9 @@ register status only.
 | BUG-001 | P0       | GMRES `info=0` convergence accepted on hess_res   | FIXED  |
 | BUG-002 | P2       | SOB_RH_GEOM cache fingerprint misses SIGMA        | FIXED  |
 | BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY      | REFUTED|
+| BUG-004 | P2       | Zero-GAM resonance: floored factor vs exact-zero  | REFUTED|
+| BUG-005 | P2       | JFNK admissions on m15 always defer before GMRES  | REFUTED|
+| BUG-006 | P3       | LSTATE save armed after first eval mutations      | FIXED  |
 
 - BUG-001 (P0, FIXED 2026-11-03): `JFNK_TRES_FAC` defaulted to `0`,
   disabling true-residual verification; an `info=0 gmres_converged`
