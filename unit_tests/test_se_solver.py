@@ -16,7 +16,8 @@ Tests:
   T1  residual norm anatomy: which rows hold ||F||
   T2  FD JVP error vs eps (production step rule), global + per-class
   T3  demanded Newton step: exact J0 s = -F0 via scipy, |s|_inf, SVD
-  T4  preconditioner accuracy: MZDIFF / ZCORE vs expneg, ptcfix, x!=0
+  T4  preconditioner machinery: LU status, finite output, post-stage
+      consistency, LSQ apply identity vs expneg, ptcfix, x!=0
   T5  production GMRES on J s = -F(0): pc variants
   T6  production newton_hook_v1 end-to-end: mild should converge,
       hard reproduces the production stall; variant table
@@ -35,6 +36,10 @@ Tests:
       finite stagnation
   T20 evaluation telemetry: report residual callbacks made inside JVPs
       separately from Newton-level residual calls
+  T21 per-depth LU residual census on the surrogate SE blocks.  The
+      mild/hard/shock blocks are near-singular (cond ~1e23..1e39), so
+      an accepted dgetrf can still return a meaningless solve; the
+      per-depth backward error attributes the gap to its block
 
 Usage:  python3 test_se_solver.py [--quick]
 Exit status: number of failed tests.
@@ -201,7 +206,18 @@ def t3_demand(spec, f):
 
 
 def t4_precond(spec):
-    """Preconditioner accuracy: core solve + post-stage effect."""
+    """Preconditioner machinery: LU status, finite output, consistency.
+
+    Gates on what the apply chain must deliver regardless of system
+    conditioning: every depth block factored (LUBAD=0), a finite
+    correction vector, and the LSQ algebraic apply matching a direct
+    solve.  ZCORE is printed but not gated: stages 5-7 (expneg, PTC
+    fix, clipping) legitimately rescale the raw core solve, so a ~1
+    difference records that the post-stages acted, not a defect.
+    The per-depth residual quality that fails on near-singular blocks
+    is asserted separately in T21 so this check no longer mixes a real
+    machinery defect into a conditioning expectation.
+    """
     rows = []
     # x=0: production chain vs switches
     for expneg, ptc, ptcfix, tag in (
@@ -220,10 +236,11 @@ def t4_precond(spec):
         kv = parse_keyvals(out)
         rows.append(("x=x*/2", tag, kv))
     print(f"    {'point':>7s} {'variant':>22s} {'MZDIFF':>9s} "
-          f"{'ZINF':>10s} {'ZCORE(post vs core)':>18s}")
+          f"{'ZINF':>10s} {'LUBAD':>5s} {'ZCORE(post vs core)':>18s}")
     for pt, tag, kv in rows:
         print(f"    {pt:>7s} {tag:>22s} {kv['MZDIFF']:9.2e} "
-              f"{kv['ZINF']:10.2e} {kv['ZCORE']:18.2e}")
+              f"{kv['ZINF']:10.2e} {kv['LUBAD']:5.0f} "
+              f"{kv['ZCORE']:18.2e}")
     # algebraic B^T w apply (production LSQ form) vs direct solve;
     # rowtiny nonzero exercises the reg-row correction branch
     lsq_ok = True
@@ -232,8 +249,45 @@ def t4_precond(spec):
         kv = parse_keyvals(out)
         print(f"    lsqchk rowtiny={rt:8.0e}: RELDIFF {kv['RELDIFF']:.2e}")
         lsq_ok = lsq_ok and kv["RELDIFF"] < 1e-10
-    ok = all(r[2]["MZDIFF"] < 0.1 for r in rows) and lsq_ok
-    return ok, "core LU solve residual <10%", {"rows": rows}
+    ok = (all(r[2]["LUBAD"] == 0 for r in rows)
+          and all(np.isfinite(r[2]["ZINF"]) for r in rows)
+          and lsq_ok)
+    return ok, "all depths factored, finite z, LSQ apply identity", \
+        {"rows": rows}
+
+
+def t21_near_singular(spec):
+    """Per-depth LU residual census on near-singular blocks.
+
+    The surrogate SE blocks reach cond ~1e23..1e39.  A dgetrf that
+    finds no exact zero pivot is accepted by the ridge ladder, yet the
+    solve it returns can be meaningless (|z| ~ 1e35 with |f| ~ 1e6).
+    Split from T4 (03-Nov-2026 audit): this check gates on the worst
+    per-depth backward error across the same six variants, so a real
+    residual-quality failure stays visible on the specs where it
+    happens instead of hiding inside one aggregate norm.
+    """
+    xfile = TD / "systems" / "_xmid.txt"
+    np.savetxt(xfile, np.clip(0.5 * spec["xstar"], -80, 80), fmt="%.16e")
+    worst = 0.0
+    print(f"    {'variant':>22s} {'depth':>5s} {'residual':>10s} "
+          f"{'ridge':>5s}")
+    for expneg, ptc, ptcfix, xf, tag in (
+            (1, 0, 0, 0, "prod: expneg on"),
+            (0, 0, 0, 0, "expneg off"),
+            (0, 1, 1, 0, "expneg off + ptc fix"),
+            (1, 1, 1, 0, "prod + ptc"),
+            (1, 0, 0, xfile, "x*/2 expneg on"),
+            (0, 0, 0, xfile, "x*/2 expneg off")):
+        out = run_cli("sepc", spec["dir"], 2, expneg, ptc, ptcfix, xf)
+        for k, vals in sorted(parse_vec(out, "MZDK").items()):
+            resid, itry = vals[0], vals[1]
+            worst = max(worst, resid)
+            print(f"    {tag:>22s} {k + 1:5d} {resid:10.2e} "
+                  f"{itry:5.0f}")
+    ok = worst < 0.1
+    return ok, f"worst per-depth LU residual {worst:.2e}", \
+        {"worst": worst}
 
 
 def t5_gmres(spec):
@@ -881,7 +935,8 @@ def main():
                         ("T14", t14_jvp_tauto),
                         ("T15", t15_stale_baseline),
                         ("T16", t16_structure_freeze),
-                        ("T17", t17_repeat_determinism)):
+                        ("T17", t17_repeat_determinism),
+                        ("T21", t21_near_singular)):
             label = {"T0": "identity", "T1": "anatomy", "T2": "FD JVP",
                      "T3": "demanded step", "T4": "preconditioner",
                      "T5": "GMRES", "T6": "Newton end-to-end",
@@ -890,7 +945,8 @@ def main():
                      "T11": "budget ladder", "T12": "STELLA shock",
                      "T13": "tauto ladder", "T14": "JVP tauto",
                      "T15": "stale baseline", "T16": "struct freeze",
-                     "T17": "repeat determinism"}[tag]
+                     "T17": "repeat determinism",
+                     "T21": "LU residual census"}[tag]
             print(f"  [{tag} {label}]")
             try:
                 if tag == "T0":
