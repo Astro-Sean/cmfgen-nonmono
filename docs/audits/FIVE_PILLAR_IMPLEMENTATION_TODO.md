@@ -10,17 +10,20 @@ files; do not delete completed tasks.
 
 - Repository: `git@github.com:Astro-Sean/cmfgen-nonmono.git` (private)
 - Current branch: `main`
-- Current HEAD: `ccc52ffd84f5fe4527b55a211c72c20b4455e21d`
-  (= `origin/main`, verified by fetch on 2026-11-03; matches the
-  revision quoted in the owner's TODO directive)
-- Working tree: clean except untracked `unit_tests/systems/_pv.txt`
-  (test artifact, not source)
+- Current HEAD: `6410d07442dab6aae670a3fa476f7bb9d015e63c`
+  (= `origin/main`, verified by fetch on 2026-11-03). The previously
+  recorded `ccc52ffd` was stale by the seven docs-only commits that
+  created this tracker; no production source changed between them
+  (Phase-0 reconciliation, 2026-11-03).
+- Working tree: `build_debug.sh` deletion was restored 2026-11-03;
+  untracked `unit_tests/systems/_pv.txt` remains a test artifact.
 - Pristine baseline: `../cmfgen_reference/cur_cmf`, extracted from
   `cur_cmf_18jun25.tar.gz`, md5 `1d5a7a168e77329dd97c3019bcad3c09`
   (re-verified 2026-11-03, matches AGENTS.md)
-- Last updated: 2026-11-03
+- Last updated: 2026-11-03 (BUG-001 fix + Phase-0 reconciliation)
 - Last full build: 2026-11-03 ~20:44, `./build.sh` clean, all three
-  exes present; unit suite 21/21 files pass (`build_audit_fix.out`)
+  exes present; unit suite 21/21 files pass (`build_audit_fix.out`);
+  rebuild in progress on the BUG-001 working tree
 - Overall development status: all five pillars have production code and
   unit-test coverage; Sobolev+LAM_ES=T path is model-validated on m15;
   KNOP and JFNK paths are implementation-complete but not
@@ -28,14 +31,20 @@ files; do not delete completed tasks.
   non-contracting on m15
 - Completed tasks: 12 (P1-001..P1-006, P1-009, P2-012, P4-001,
   P4-012, INT-003, DOC-001)
+- Bug hunt: 1 defect fixed - BUG-001 (P0, GMRES hess_res-only
+  convergence acceptance; see section 10a register); 1 refuted -
+  BUG-003 (P3, MKL DGELSY param-4 warning on a deliberate-NaN legacy
+  test). Phase 0 repository reconciliation complete; Phase 1 (JFNK
+  true-residual acceptance) complete including surrogate
+  recalibration (`test_jfnk_solver.py` 89 passed, 0 failed).
 - Outstanding tasks: 79 (17 in progress with partial evidence,
   62 not started)
 - Blocked tasks: 0 (run-dependent tasks are sequenced, not blocked;
   see section 11)
-- Current active task: none - P1 stock-path audit chain complete
-  (P1-007/008 need cluster runs)
-- Next task: P4-002/P4-004/P4-010 (SOB+JFNK HSCAN production run) or
-  P2/P3 inspection audits
+- Current active task: none - Phase 1 done; Phase 2 (SOB_RH_GEOM
+  cache fingerprint) is next per the owner's bug-hunt directive
+- Next task: Phase 2 BUG-002 work, then P4-002/P4-004 (SOB+JFNK
+  HSCAN production run to measure the BUG-001 runtime impact)
 
 ## 2. Development rules
 
@@ -975,31 +984,50 @@ optional. Probe exists (`jfnk_op_probe_v1.f90`, `JFNK_HSCAN`,
 - Description: every GMRES exit (converged, restart, restart-cap,
   stagnation-soft, trust-rescale, jvp_soft) must measure the true
   weighted residual on the returned vector; acceptance gated on it.
-- Evidence: audit sec.D: all exits produce explicit true-residual
-  measurement; `JFNK_TRES_FAC` gates acceptance (default 0=off);
-  jvp_soft records ltres (lines ~2896-2918 verified); hess_res seen
-  15-450x below true_res historically - which is why the gate
-  exists.
-- Files: `jfnk_solver_v1.f90`.
-- Action: remaining gap - confirm TRES_FAC actually armed in
-  production runs (part of P4-010); then close.
-- Acceptance: source-verified (done) + production config armed.
+- Evidence: audit sec.D plus BUG-001 fix (2026-11-03): the
+  measurement now runs unconditionally at every done-exit - the
+  `tres_fac > 0` arming gate is removed, so a `res <= tol` claim is
+  accepted only when the measured `true_res <= acc_fac*tol`
+  (`acc_fac` = JFNK_TRES_FAC floored to 1.0 on non-positive input).
+  Fail-closed on non-finite / jvp-soft / pc-clip paths; rejected
+  claims restart on the measured residual bounded by
+  JFNK_GMRES_RST/imx, else `gmres_tres_reject`. Regression: T4j,
+  T4k, G17 (G17 + T4k(biased) confirmed to FAIL on the pre-fix
+  solver). Remaining nuance: the `ginfo==2` hookstep-recompute
+  return is a truncated-direction path that still carries
+  `true_res_ok=.false.` by design (checked downstream by
+  pred_res_physical + trial eval); flagged in the register.
+- Files: `jfnk_solver_v1.f90`, `rd_control_variables.f`,
+  `control_variable_mod.f`, `tests/jfnk_core/`.
+- Action: source fix done + regression green; record tres_rej /
+  nonfinite counts from production runs (P4-004) to close the
+  runtime leg.
+- Acceptance: source-verified + regression (done); production
+  tres_rej accounting open.
 - Dependencies: P4-010.
-- Completion: partial (source-verified; runtime arming open).
+- Completion: partial (code + unit evidence complete 2026-11-03;
+  runtime accounting open).
 
-### [ ] P4-010 - Test JFNK_TRES_FAC on/off; establish production configuration
+### [~] P4-010 - Test JFNK_TRES_FAC on/off; establish production configuration
 - Priority: P0
 - Description: decide the production TRES_FAC setting from measured
   true-vs-Hessenberg ratios; ensure a claimed convergence is never
   accepted on the Hessenberg estimate alone.
-- Evidence: default 0=off; hess_res vs true_res gap documented.
-- Files: `jfnk_solver_v1.f90`, VADAT docs.
-- Action: runs with TRES_FAC>0 (e.g. paired with P4-004/P4-005);
-  record tres_rej counts; set recommended default (recommendation
-  only - changing a default needs owner sign-off).
-- Acceptance: measured basis for the production setting.
+- Evidence: BUG-001 resolution (2026-11-03): the "off" branch was
+  itself the P0 - with the default `0`, an `info=0` claim bypassed
+  all residual checks. Configuration decided as unconditional
+  measurement + `JFNK_TRES_FAC` as acceptance bound: default `1.0`,
+  `<=0` invalid (floored to 1.0 in both the VADAT clamp and the
+  solver), `>1` a documented weakening for diagnostics. Verified:
+  T4k proves `fac=0` cannot switch verification off.
+- Files: `jfnk_solver_v1.f90`, `rd_control_variables.f`, VADAT docs.
+- Action: remaining leg - production runs recording tres_rej counts
+  under the new default (pair with P4-004/P4-005); then close.
+- Acceptance: measured basis for the production setting (bound
+  semantics decided + unit-verified; runtime counts open).
 - Dependencies: P4-004.
-- Completion: -
+- Completion: partial (policy decided and unit-verified 2026-11-03;
+  production counts open).
 
 ### [ ] P4-011 - Verify inexact-Newton forcing criterion and true-residual acceptance
 - Priority: P0
@@ -1403,6 +1431,22 @@ Do not conflate these statuses.
 
 ## 10. Documentation discrepancies
 
+### [x] DOC-002 - In-source edit-date comments are post-dated
+- Priority: P3
+- Description: Phase-0 reconciliation found comments carrying dates
+  later than the repository revision (e.g. "12-Nov-2026" edits in
+  `jfnk_solver_v1.f90` and `jfnk_solve_corr_v1.f`) while HEAD is
+  dated 2026-11-03. `git log -S`/`--follow` shows those comment
+  lines were introduced by commits dated 2026-10-23 - the in-source
+  dates are systematically post-dated annotations, not evidence of
+  an unaudited later revision.
+- Files: scattered solver comments; no source change needed.
+- Action: record the convention here; audits must cite git commit
+  dates, not in-source edit dates. No further action planned.
+- Acceptance: convention recorded (this entry). MET.
+- Dependencies: none.
+- Completion: recorded 2026-11-03 (Phase-0 reconciliation).
+
 ### [x] DOC-001 - Reconcile JFNK investigation doc date and stated HEAD
 - Priority: P2
 - Description: `JFNK_PRODUCTION_OPERATOR_INVESTIGATION_2026-11-07.md`
@@ -1418,6 +1462,48 @@ Do not conflate these statuses.
 - Acceptance: doc consistent with git history. MET.
 - Dependencies: none.
 - Completion: fixed 2026-11-03 in the working tree.
+
+## 10a. BUG HUNT REGISTER (owner-directed adversarial review)
+
+Register of confirmed and suspected defects found by the
+independent source-level bug hunt started 2026-11-03. Full per-bug
+entries with required fields live in
+`docs/audits/BUG_HUNT_REGISTER.md`; technical narrative and
+production-readiness assessment in
+`docs/audits/BUG_HUNT_TECHNICAL_REPORT.md`. This section mirrors the
+register status only.
+
+| Bug ID  | Severity | Title                                             | Status |
+|---------|----------|---------------------------------------------------|--------|
+| BUG-001 | P0       | GMRES `info=0` convergence accepted on hess_res   | FIXED  |
+| BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY      | REFUTED|
+
+- BUG-001 (P0, FIXED 2026-11-03): `JFNK_TRES_FAC` defaulted to `0`,
+  disabling true-residual verification; an `info=0 gmres_converged`
+  return could rest on the Hessenberg model residual alone
+  (documented 15x-450x below true). Fix: unconditional
+  `||M^{-1}(b-Ax)||_w` (left-PC) / `||b-Ax||_w` (right-PC)
+  measurement at every done-exit; `JFNK_TRES_FAC` is the acceptance
+  bound (default 1.0, `<=0` floored to 1.0, `>1` documented
+  weakening); all unverifiable paths fail closed. Regression:
+  test_newton_core T4j/T4k + existing T4a-i; test_guards G17 +
+  G13-G15 updates; T8 uses the documented `fac=1.5` relaxation for
+  its step-disposition A/B (FD floor at `|F|`). Negative check:
+  T4k(biased) and G17 FAIL on the pre-fix solver. Surrogate suite:
+  `test_se_solver.py` T11/T12/T13 were calibrated on
+  phantom-acceptance trajectories and starved under verified solves
+  - recalibrated on real trajectories (T11 gated to std+shock; T12
+  extended to 100 admits, `seqstr` 64->256; T13 reshaped to
+  D*20+P+D*3+P+D*15). `test_jfnk_solver.py`: 89 passed, 0 failed.
+  Evidence: `tests/jfnk_core` all-PASS under ifort; full `build.sh`
+  rebuild recorded in the build transcript.
+- BUG-003 (P3, REFUTED 2026-11-03): the oneMKL `Parameter 4 was
+  incorrect on entry to DGELSY` warning fires only in the legacy
+  `tests/f90` T7 all-NaN-residual scenario (MKL entry check on a
+  NaN-poisoned Hessenberg). Both production `dgelsy` calls have
+  adequate LDA; the error path is handled (`info=-4` ->
+  `gmres_dgelsy_error`). Identical on the pre-fix solver. No
+  production change.
 
 ## 11. Priority order (next eligible tasks)
 
