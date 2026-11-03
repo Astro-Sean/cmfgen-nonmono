@@ -183,32 +183,31 @@ supports a block-frequency solve.
 
 ### 4. LU and preconditioner diagnostics
 
-Classification: high-priority numerical investigation.
+Classification: resolved on the surrogate harness, same day.
 
-`test_jfnk_solver.py` marks T4 as an expected failure with the description
+`test_jfnk_solver.py` marked T4 as an expected failure with the description
 "core LU solve residual <10%". In the hard surrogate, the measured `MZDIFF`
-was `1.68e11` and `ZINF` was about `1e35`. This is a failed preconditioner
-application-quality check and should not be reported as an ordinary pass.
-However, the metric includes rows that the test preconditioner deliberately
-projects to zero after regularization, so it is not by itself a clean LU
-backward-error measurement. The separate least-squares apply identity checks
-were near roundoff (`RELDIFF` at or below `4.1e-16` in the hard case).
+was `1.68e11` and `ZINF` was about `1e35`. The single aggregate norm mixed
+machinery checks (factorization status, output finiteness, apply algebra)
+with the conditioning quality gap into one ambiguous verdict.
 
-The existing `test_precond_blocks` includes a backward-error calculation, but
-the displayed result is not an asserted threshold. The current evidence does
-not isolate factorization accuracy from row projection, regularization,
-ill-conditioning, or an inconsistent test matrix.
+Resolution: `se_driver`'s `sepc` now emits per-depth block residuals
+(`MZDK`, with the accepted ridge-ladder index) and the unfactored-depth
+count (`LUBAD`). T4 gates the machinery contract that must hold on any
+system - all depths factored, finite `z`, the LSQ algebraic apply matching
+a direct solve - and passes on all four surrogate specs. The new T21 gates
+the worst per-depth backward error across the six apply variants: it passes
+on `std` (2.4e-2) and remains an expected failure on `mild`, `hard`, and
+`shock` (3.9e8, 1.0e12, 4.8e13), where the per-depth blocks reach cond
+~1e23..1e39 and an accepted `dgetrf` still returns a meaningless solve.
+The gap is now attributed to its block rather than averaged into one norm;
+`ZCORE` remains printed but is not gated, since post-stage rescaling
+legitimately moves the raw core solve by O(1).
 
-Recommendation:
-
-- Split the test into an exact factor/apply backward-error test on active
-  rows, a separate projected-row residual report, and a preconditioner quality
-  test against the full residual.
-- Assert factorization and solve status, finite output, and scaled backward
-  error on well-conditioned known systems. Keep near-singular systems as
-  separate conditioning tests.
-- Preserve the production physical residual; a poor preconditioner is not a
-  reason to regularize or replace that residual.
+The remaining open question is unchanged: whether the production
+preconditioner on a real model has the same per-depth conditioning profile
+as the surrogate. The surrogate gap does not by itself justify changing
+the production factor ladder.
 
 Literature: Knoll & Keyes (2004); Benzi, Golub & Liesen (2005).
 
@@ -321,9 +320,10 @@ a benchmark for this checkout.
 3. Decide the default true-residual policy from those measurements and the
    Eisenstat-Walker forcing term. Verify any change in an analytic GMRES case
    and a production residual driver.
-4. Replace the ambiguous LU XFAIL measurement with separate factor-solve,
-   projected-row, and preconditioner-quality tests. Keep genuine failed cases
-   visible.
+4. ~~Replace the ambiguous LU XFAIL measurement with separate factor-solve,
+   projected-row, and preconditioner-quality tests~~ (done 03-Nov-2026:
+   `sepc` per-depth `MZDK`/`LUBAD` emission, T4 split into machinery gates
+   and the T21 residual census; genuine failures kept as named XFAILs).
 5. Derive and test the small-frequency-interval and zero-GAM limits, including
    frequency-integrated balance and threshold sweeps.
 6. Profile coupling and solver costs before extending depth bands, Schur
