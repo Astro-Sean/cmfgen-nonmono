@@ -14,6 +14,7 @@ INTMOD = (ROOT / "new_main/mod_subs/jfnk_cmfgen_int_mod.f").read_text()
 CVARMOD = (ROOT / "new_main/mod_subs/control_variable_mod.f").read_text()
 BLKBAND = (ROOT / "new_main/subs/cmf_blkband_v3.f").read_text()
 RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
+CMFGEN_SUB = (ROOT / "new_main/cmfgen_sub.f").read_text()
 
 
 def section(source, start, end):
@@ -507,4 +508,21 @@ check(
     and "jfnk_gmres_max_restart=JFNK_GMRES_RST" in SOLVE_CORR
     and "jfnk_gmres_max_restart = 1" in SOLVER
     and "n_restart > jfnk_gmres_max_restart" in SOLVER,
+)
+
+
+sweep = section(
+    CMFGEN_SUB,
+    "SUBROUTINE JFNK_RAD_SWEEP_V1",
+    "END SUBROUTINE JFNK_RAD_SWEEP_V1",
+)
+check(
+    "BUG-006: every guarded entry save precedes the first mutation",
+    sweep.index("CALL JFNK_EVAL_LSTATE_V1('S'")
+    < sweep.index("ACCESS_F=JFNK_EDD_START_REC")
+    and sweep.index("ACCESS_F=JFNK_EDD_START_REC")
+    < sweep.index("JFNK_IN_EVAL=.TRUE.")
+    and sweep.rindex("GOTO 9999", 0, sweep.index("ACCESS_F=JFNK_EDD_START_REC"))
+    > -1
+    and "GOTO 9999" not in section(sweep, "ACCESS_F=JFNK_EDD_START_REC", "FLUSH(LUER)"),
 )
