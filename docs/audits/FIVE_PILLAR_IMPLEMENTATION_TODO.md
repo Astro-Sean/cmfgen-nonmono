@@ -383,7 +383,14 @@ validated, optical-depth safeguard effects quantified. Reuse/extend
 - Acceptance: test cases at/around sigma=-1 and sigma=0 pass with the
   documented limits.
 - Dependencies: P2-002.
-- Completion: partial.
+- Completion: 2026-11-03 - `test_sob_tau_floor.py` now covers all three
+  limit surfaces: T7 sigma=-1.0001 exercises the pure-1e-4 arm on
+  near-radial rays (BETA matches floored formula to 6e-12, ref matches
+  unclamped); T8 straddles the pole entry at sigma=-1 with near-radial
+  rays - the floored response is bounded (~2-4e-3 absolute on BETA)
+  and tracks the unbounded reference to 1e-5, so the pole entering
+  the angle grid adds no numerical jump; T9 sigma=0 is bit-identical
+  to upstream with BETA == EXF(GAMH) exactly (6e-14). 17/17 pass.
 
 ### [x] P2-005 - Audit resonance finding and ordering
 - Priority: P0
