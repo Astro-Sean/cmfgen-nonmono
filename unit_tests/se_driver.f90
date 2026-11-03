@@ -31,6 +31,7 @@
 program se_driver
    use se_prob_mod
    use jfnk_solver_v1_mod
+   use jfnk_op_probe_mod
    implicit none
    character(len=32) :: cmd, arg
    character(len=64) :: seqstr
@@ -914,6 +915,25 @@ program se_driver
       end do
       jfnk_tauto_on = .false.
 
+   case ('seprobe')
+      ! Operator-consistency battery on the surrogate residual:
+      ! seprobe <dir> -- runs JFNK_OP_PROBE_V1 with se_f / se_jvp_fd /
+      ! se_jexact callbacks so the same probe code that audits the
+      ! production residual is exercised and verified here.
+      call get_command_argument(2, dir)
+      call get_command_argument(3, arg)
+      read(arg, *) se_eps
+      call se_load(dir, stat)
+      if (stat /= 0) stop 2
+      n = se_n
+      allocate(x(n), f(n))
+      jfnk_x = 0d0
+      jfnk_ptc_active = .false.
+      call se_f(n, jfnk_x, f)
+      x = jfnk_x
+      call jfnk_op_probe_v1(6, n, x, f, se_nt, se_nd, se_f, &
+                            se_op_jvpa, se_op_bamv, se_dp, 'surr')
+
    case default
       write(*, '(A)') 'unknown command: ' // trim(cmd)
       stop 64
@@ -1019,5 +1039,35 @@ contains
       jfnk_ptc_anchor_ready = .true.
       jfnk_ptc_dtau = 1d0
    end subroutine se_arm_ptc
+
+   subroutine se_op_jvpa(nn, v, jv, h_eff, capped, nretr, nclip, ok)
+      ! Probe adapter for the surrogate FD JVP: returns the step the
+      ! se_eps rule produces so the battery can compare policy and
+      ! operator errors the same way it does on production.
+      use, intrinsic :: ieee_arithmetic
+      implicit none
+      integer, intent(in) :: nn
+      double precision, intent(in) :: v(nn)
+      double precision, intent(out) :: jv(nn), h_eff
+      logical, intent(out) :: capped, ok
+      integer, intent(out) :: nretr, nclip
+      call se_jvp_fd(nn, v, jv)
+      h_eff = se_eps*max(1d0, maxval(abs(jfnk_x)))/maxval(abs(v))
+      capped = .false.
+      nretr = 0
+      nclip = 0
+      ok = all(ieee_is_finite(jv))
+   end subroutine se_op_jvpa
+
+   subroutine se_op_bamv(nn, v, jv)
+      ! Surrogate reference action: the exact assembled Jacobian
+      ! se_jexact at the current baseline. On production this slot
+      ! carries the approximate BA action instead.
+      implicit none
+      integer, intent(in) :: nn
+      double precision, intent(in) :: v(nn)
+      double precision, intent(out) :: jv(nn)
+      call se_jexact(nn, jfnk_x, v, jv)
+   end subroutine se_op_bamv
 
 end program se_driver
