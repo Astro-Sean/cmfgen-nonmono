@@ -16,39 +16,39 @@
 !   - Eisenstat-Walker forcing terms for adaptive GMRES tolerance
 !
 ! The solver is Jacobian-free: it never constructs the full Jacobian
-! matrix.  The Jacobian-vector product J*v is approximated by:
+! matrix. The Jacobian-vector product J*v is approximated by:
 !   J*v ≈ [F(x + eps*v) - F(x)] / eps
 ! where F is the residual function and eps is a finite-difference step.
 !
 ! NOTE (review §5): the JVP captures the exact directional derivative
 ! of the implemented frozen-J residual, including nonlinear collisional,
 ! electron-density and temperature dependencies where those dependencies
-! are explicitly evaluated by the residual.  It does NOT capture
+! are explicitly evaluated by the residual. It does NOT capture
 ! dF_rad/dT or other radiation-dependent nonlinearities because those
 ! have been replaced by the frozen linear CMAT_RAD representation.
-! For fixed J, fixed T, this is the correct Jacobian.  For free T,
+! For fixed J, fixed T, this is the correct Jacobian. For free T,
 ! the Jacobian is approximate (see review §4).
 !
 ! The preconditioner M is applied as z = M^{-1} * v.
 ! Both LEFT and RIGHT preconditioning are supported; the default is
 ! LEFT (jfnk_use_left_pc = .true.), following Arramy et al. (2024).
-!   LEFT:  Krylov subspace K(M^{-1}A, M^{-1}r), initial residual IS
-!          preconditioned.  The GMRES stopping tolerance must be
+!   LEFT: Krylov subspace K(M^{-1}A, M^{-1}r), initial residual IS
+!          preconditioned. The GMRES stopping tolerance must be
 !          measured in ||M^{-1}r|| units (see EW forcing-term fix in
 !          newton_hook_v1).
 !   RIGHT: Krylov subspace K(A*M^{-1}, r), initial residual is NOT
-!          preconditioned.  The preconditioner is applied to each
+!          preconditioned. The preconditioner is applied to each
 !          Arnoldi basis vector before the matvec, and to the Krylov
 !          solution before adding to x.
 ! For CMFGEN non-monotonic V4, M is the fixed-J BA matrix
 ! (equilibrated depth-block LU with local adaptive ridge).
 ! Fix #9 (review 2026-09-11): the default is LEFT preconditioning
-! (jfnk_use_left_pc = .true.).  The production V1 configuration is:
+! (jfnk_use_left_pc = .true.). The production V1 configuration is:
 !   GMRES:
 !     preconditioning = LEFT
-!     inner product    = EUCLIDEAN (RSCALE-weighted via JFNK_DOT_V1)
-!     operator         = J (frozen, finite-difference JVP)
-!     preconditioner   = M^{-1} (equilibrated depth-block BA LU)
+!     inner product = EUCLIDEAN (RSCALE-weighted via JFNK_DOT_V1)
+!     operator = J (frozen, finite-difference JVP)
+!     preconditioner = M^{-1} (equilibrated depth-block BA LU)
 !
 ! edited by Sean Brennan (V4, 2026-09)
 !----------------------------------------------------------------------
@@ -63,7 +63,7 @@ module jfnk_solver_v1_mod
    double precision              :: jfnk_tol        ! current |F(x)|
    ! Estimated max relative population correction still required,
    ! max_i |F_i|/|BA_ii| over population rows, refreshed by each
-   ! JFNK_RESIDUAL_V1 call.  JFNK_MAXCH_TOL>0 adds it as a second
+   ! JFNK_RESIDUAL_V1 call. JFNK_MAXCH_TOL>0 adds it as a second
    ! convergence test so a residual norm dominated by already-
    ! converged rows cannot stall an otherwise-finished solve.
    double precision              :: jfnk_maxch_est = -1d0
@@ -75,18 +75,18 @@ module jfnk_solver_v1_mod
    !
    ! Eisenstat-Walker forcing term state (added 2026-09-07):
    ! The forcing term eta_k controls how accurately GMRES solves the
-   ! inner linear system J*s = -F at each Newton step.  Instead of a
+   ! inner linear system J*s = -F at each Newton step. Instead of a
    ! fixed tolerance, eta_k adapts based on the Newton convergence rate:
    !
    !   eta_k = gamma * (|F_k| / |F_{k-1}|)^alpha
    !
    ! with safeguards:
-   !   eta_k = max(eta_k, 0.5 * |F_k| / |F_{k-1}|)   (prevent over-solving)
-   !   eta_k = min(eta_k, eta_max)                    (cap at user max)
-   !   eta_k = max(eta_k, eta_min)                    (floor for stability)
+   !   eta_k = max(eta_k, 0.5 * |F_k| / |F_{k-1}|) (prevent over-solving)
+   !   eta_k = min(eta_k, eta_max) (cap at user max)
+   !   eta_k = max(eta_k, eta_min) (floor for stability)
    !
    ! When |F| is decreasing rapidly (far from root), eta_k is large and
-   ! GMRES stops early (inexact Newton is fine).  When |F| is decreasing
+   ! GMRES stops early (inexact Newton is fine). When |F| is decreasing
    ! slowly (near root), eta_k is small and GMRES solves more accurately.
    !
    ! References:
@@ -94,7 +94,7 @@ module jfnk_solver_v1_mod
    !   Kelley (2003), "Solving Nonlinear Equations with Newton's Method"
    !
    ! Note: the module already has a blanket SAVE statement (line above),
-   ! so module variables are implicitly saved.  The per-variable SAVE
+   ! so module variables are implicitly saved. The per-variable SAVE
    ! attributes that were here are redundant and rejected by
    ! gfortran -std=f2008; removed per ChatGPT audit fix #3 (2026-09-09).
    double precision :: jfnk_tol_prev = 0d0    ! |F| at previous Newton step
@@ -102,7 +102,7 @@ module jfnk_solver_v1_mod
    ! jfnk_ew_adapt (VADAT [JFNK_FADAPT], default T): T keeps the
    ! adaptive EW Choice-2 forcing term below; F restores the fixed
    ! user gtol each Newton step -- the fixed path stays one branch
-   ! away for A/B comparison.  (17-Oct-2026)
+   ! away for A/B comparison. (17-Oct-2026)
    logical :: jfnk_ew_adapt = .true.
    ! eta_prev stores the previous Newton step's forcing term: the
    ! Choice-2 safeguard eta_k >= gamma*eta_{k-1}^alpha needs it.
@@ -111,11 +111,11 @@ module jfnk_solver_v1_mod
    double precision :: jfnk_eta_gamma = 0.9d0  ! EW gamma parameter
    ! EW Choice 2 requires alpha in (1,2] for superlinear local
    ! convergence (Eisenstat & Walker 1996, Thm 2.3); the previous
-   ! alpha=0.5 contracted too slowly for the theory to apply.  The
+   ! alpha=0.5 contracted too slowly for the theory to apply. The
    ! golden ratio is the reference value used by EW and Kelley.
    double precision :: jfnk_eta_alpha = 1.618033988749895d0
    ! Floor matches the bottom of the range Arramy et al. (2024,
-   ! A&A 690, A12) found useful for multilevel NLTE.  Below this,
+   ! A&A 690, A12) found useful for multilevel NLTE. Below this,
    ! GMRES spends formal solutions without improving the Newton step.
    ! eta_max=0.9 is the standard EW cap; 0.1 forced GMRES to solve
    ! every Newton step far more accurately than inexact-Newton
@@ -153,21 +153,21 @@ module jfnk_solver_v1_mod
    !
    integer :: jfnk_max_gmres_its = 0
    !
-   ! Maximum GMRES restarts per solve (added 22-Oct-2026).  Guards
+   ! Maximum GMRES restarts per solve (added 22-Oct-2026). Guards
    ! against restart storms on an invariant Krylov space; default 1
-   ! preserves the historical cap.  The total iteration count is still
-   ! bounded by imx regardless of this cap.  Set from the JFNK_GMRES_RST
+   ! preserves the historical cap. The total iteration count is still
+   ! bounded by imx regardless of this cap. Set from the JFNK_GMRES_RST
    ! control variable via JFNK_SOLVE_CORR_V1.
    !
    integer :: jfnk_gmres_max_restart = 1
    !
    ! True-residual acceptance factor (added 22-Oct-2026, numerical-
-   ! methods review Phase 1).  When > 0, a claimed LSQ convergence
+   ! methods review Phase 1). When > 0, a claimed LSQ convergence
    ! (res <= tol) in gmres_m_v1 must survive an explicit
    ! ||b - A x||_w measurement: the Hessenberg residual is only a
    ! model of the true residual, and with a finite-difference matvec
    ! it has been observed 150-450x low at restart (the Arnoldi basis
-   ! does not compose a fixed linear operator).  Set from the
+   ! does not compose a fixed linear operator). Set from the
    ! JFNK_TRES_FAC control variable via JFNK_SOLVE_CORR_V1;
    ! 0 = off preserves the historical accept-on-hess_res path.
    !
@@ -183,7 +183,7 @@ module jfnk_solver_v1_mod
    !
    integer :: jfnk_last_gmres_its = 0
    ! 2026-09-13 TR-units fix: norm of the step returned by the last
-   ! gmres_m_v1 call in the units the hookstep constrains.  Under left
+   ! gmres_m_v1 call in the units the hookstep constrains. Under left
    ! PC that is ||y|| = ||s||_w (V orthonormal in dotprd); under right
    ! PC it is sqrt(y' G y) = ||s||_w with G = Z' W Z, so the
    ! trust-region radius is in physical-step units either way.
@@ -192,10 +192,10 @@ module jfnk_solver_v1_mod
    ! edited, 12-Nov-2026: true preconditioned linear residual
    ! ||M^{-1}(b - A x)||_w measured inside gmres_m_v1, exported so the
    ! newton_hook_v1 stagnation gate can test the real residual rather
-   ! than the Hessenberg least-squares model residual.  With a finite-
+   ! than the Hessenberg least-squares model residual. With a finite-
    ! difference matvec the Krylov basis need not span a fixed linear
    ! operator; OUTGEN showed hess_res 15x-450x below true_res on exits
-   ! this gate used to accept.  _ok marks whether the last gmres_m_v1
+   ! this gate used to accept. _ok marks whether the last gmres_m_v1
    ! exit carried a measurement.
    double precision :: jfnk_gmres_true_res = 0d0
    logical :: jfnk_gmres_true_res_ok = .false.
@@ -204,7 +204,7 @@ module jfnk_solver_v1_mod
    double precision :: jfnk_pc_ref_frac = 0.8d0
    !
    ! Ridge floor: the relaxation path in jfnk_cmfgen_interface_v1.f will
-   ! not relax JFNK_BA_RIDGE_FAC below this value.  Captured at first
+   ! not relax JFNK_BA_RIDGE_FAC below this value. Captured at first
    ! factorization so a user-supplied ridge (e.g. 0.1) is preserved
    ! instead of being relaxed back to the historical 1e-2 floor.
    ! Added 2026-09-10.
@@ -259,7 +259,7 @@ module jfnk_solver_v1_mod
    ! Line-search globalization control (added 2026-09-10, review §3):
    ! When the full Newton step (α=1) increases the residual, backtrack
    ! with α = β, β^2, β^3, ... until the Armijo sufficient-decrease
-   ! condition is met.  This avoids re-solving GMRES when the Newton
+   ! condition is met. This avoids re-solving GMRES when the Newton
    ! direction is good but the step is too large.
    !
    ! References:
@@ -274,7 +274,7 @@ module jfnk_solver_v1_mod
    ! Non-monotone line search (Li & Fukushima 2000, Appl. Math.
    ! Comput.; Grippo-Lampariello-Lucidi reference norm): when the
    ! coupled residual carries evaluation noise, a monotone Armijo test
-   ! rejects steps whose true decrease is masked by sweep noise.  The
+   ! rejects steps whose true decrease is masked by sweep noise. The
    ! reference norm is the max of the last jfnk_ls_nmwin_s ACCEPTED
    ! |F| values (ring buffer below), so a bounded temporary increase
    ! still satisfies the descent condition.
@@ -287,7 +287,7 @@ module jfnk_solver_v1_mod
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
    ! fallback direction with its own simple sufficient-decrease line
-   ! search.  This gives "Newton when Newton works; stabilized
+   ! search. This gives "Newton when Newton works; stabilized
    ! residual correction when it doesn't."
    !
    logical          :: jfnk_do_cauchy = .true.  ! enable Cauchy fallback
@@ -297,10 +297,10 @@ module jfnk_solver_v1_mod
    ! (= MAX_JFNK_COR semantics: factor-10 fractional population change);
    ! jfnk_runaway_fac is the catastrophic weighted-step norm, measured
    ! relative to ref_norm = ||M^{-1} F||_w, above which the step is
-   ! rejected and the trust radius shrunk.  The reference must be
+   ! rejected and the trust radius shrunk. The reference must be
    ! relative: under a non-Euclidean JFNK_RSCALE the absolute norm
    ! scale is arbitrary (|F|_w ~ 1e10 under DIAG), so an absolute cap
-   ! either always fires or never does.  A Newton step satisfies
+   ! either always fires or never does. A Newton step satisfies
    ! |s|_w ~ |M^{-1} F|_w; 100x that is genuine singular-inverse
    ! garbage (the 1e31 class this check was added for).
    !
@@ -312,21 +312,21 @@ module jfnk_solver_v1_mod
    !
    ! Logarithmic unknown and pseudo-transient continuation.
    ! Set from VADAT [JFNK_LOGX] and [JFNK_PTC] in RD_CONTROL_VARIABLES
-   ! (both default T).  See cmfgen_obsidian/solvers/JFNK_SOLVER.md.
+   ! (both default T). See cmfgen_obsidian/solvers/JFNK_SOLVER.md.
    !
-   ! jfnk_log_unknown: x = ln(n/n0).  The step cap is then ln(MAX_JFNK),
+   ! jfnk_log_unknown: x = ln(n/n0). The step cap is then ln(MAX_JFNK),
    ! written into jfnk_step_inf_cap by the driver.
    ! jfnk_ptc_active: G(x) = F(x) + (x - x0)*s/dtau, s_i =
-   ! jfnk_ptc_scale(i).  dtau grows when |F| falls and shrinks when it
+   ! jfnk_ptc_scale(i). dtau grows when |F| falls and shrinks when it
    ! does not.
    !
    ! edited 06-Oct-2026 (SER anchor fix): the pseudo-time term
    ! is now anchored at jfnk_ptc_x0 = x_k, the current Newton iterate --
    ! switched evolution relaxation, Kelley & Keyes (1998, SIAM J. Numer.
-   ! Anal. 35, 508) and Knoll & Keyes (2004, JCP 193, 357 Sec 4.2).  The
+   ! Anal. 35, 508) and Knoll & Keyes (2004, JCP 193, 357 Sec 4.2). The
    ! previous form anchored at the solve baseline x0 = 0, so the term
    ! pulled later iterates back toward x = 0 and a converged |G| could
-   ! hide F(x) = -(x)*s/dtau /= 0.  newton_hook_v1 re-anchors x0 at each
+   ! hide F(x) = -(x)*s/dtau /= 0. newton_hook_v1 re-anchors x0 at each
    ! accepted iterate and strips the term from every residual it reads,
    ! so jfnk_fx/jfnk_tol and all Newton logic see F and |F|.
    !
@@ -337,9 +337,9 @@ module jfnk_solver_v1_mod
    !
    ! FIX_T_AUTO adaptive damped-T step guard (generic: the driver names
    ! a variable block [dst,dend] of the row index jt inside a repeating
-   ! record of length nt).  When on, every Newton direction leaving
+   ! record of length nt). When on, every Newton direction leaving
    ! GMRES and every Cauchy direction has its T components scaled by
-   ! jfnk_tauto_alpha and capped at +-jfnk_tauto_dmax.  The damping acts
+   ! jfnk_tauto_alpha and capped at +-jfnk_tauto_dmax. The damping acts
    ! on the step only; the residual, JVP and preconditioner still see
    ! the live T columns, so the Krylov operator keeps the true
    ! temperature subspace (directive: never zero the T columns when T
@@ -354,7 +354,7 @@ module jfnk_solver_v1_mod
    integer          :: jfnk_tauto_dend  = 0
    double precision, allocatable :: jfnk_ptc_scale(:)
    logical :: jfnk_ptc_scale_ready = .false.
-   ! Anchor x_k for the pseudo-time term (above).  JFNK_SET_PTC_SCALE_V1
+   ! Anchor x_k for the pseudo-time term (above). JFNK_SET_PTC_SCALE_V1
    ! allocates it at 0 (the baseline x = 0 is the first anchor);
    ! newton_hook_v1 re-anchors at each accepted iterate via
    ! jfnk_ptc_set_anchor_v1.
@@ -362,7 +362,7 @@ module jfnk_solver_v1_mod
    logical :: jfnk_ptc_anchor_ready = .false.
    !
    ! Set by JFNK_RESIDUAL_V1 on every call: number of residual
-   ! components that were NaN or |F|>1D30 before capping.  The F(0)
+   ! components that were NaN or |F|>1D30 before capping. The F(0)
    ! identity test in JFNK_SOLVE_CORR_V1 uses it to tell a broken
    ! eval (non-finite entries) from an honest lagged-field offset,
    ! which the uniform |F|>magnitude comparison cannot do.
@@ -370,13 +370,13 @@ module jfnk_solver_v1_mod
    integer :: jfnk_resid_nbad = 0
    !
    ! Explicit Krylov-failure signalling (audit 17-Sep-2026).
-   ! jfnk_jvp_failed    : set by JFNK_JVP_V1 when the finite-difference
+   ! jfnk_jvp_failed : set by JFNK_JVP_V1 when the finite-difference
    !                      JVP produced too many NaN/Inf entries to trust.
    !                      Replaces the old "JV=0" convention, which GMRES
    !                      misread as a genuine zero-action direction
    !                      (artificial happy breakdown / stagnation).
    ! jfnk_pc_clip_event : set by JFNK_PRECOND_V1 when the |z|>1D8 hard
-   !                      clip or a NaN->0 write fires.  Clipping makes
+   !                      clip or a NaN->0 write fires. Clipping makes
    !                      M^{-1} nonlinear, which invalidates the GMRES
    !                      Krylov construction -- the solve is aborted
    !                      (info=3) and a preconditioner refresh requested
@@ -393,20 +393,20 @@ module jfnk_solver_v1_mod
    ! coefficients for a new trust radius on the unchanged Arnoldi basis.
    ! newton_hook_v1 tests this flag -- not ginfo -- to skip the descent
    ! check on recompute passes, because gmres_m_v1 resets info=0 before
-   ! returning so ginfo==2 never survives to the check.  Cleared at the
+   ! returning so ginfo==2 never survives to the check. Cleared at the
    ! top of each Newton iteration, like the failure flags above.
    !
    logical :: jfnk_gmres_recomputed = .false.
    !
    ! Last completed Arnoldi cycle of gmres_m_v1 (basis dimension jj and
-   ! residual norm beta).  The info==2 hookstep recompute combines these
+   ! residual norm beta). The info==2 hookstep recompute combines these
    ! with the caller's h/v arrays, so they must describe that caller's
-   ! basis.  They live at module scope -- not as gmres_m_v1 SAVE
+   ! basis. They live at module scope -- not as gmres_m_v1 SAVE
    ! variables -- because diagnostic callers
    ! (jfnk_gmres_dim_experiment_v1 runs gmres_m_v1 with m_test up to
    ! 40 > production m) would otherwise leave a stale pair behind: a
    ! recompute pass would then index y(1:jj), h(1:jj+1,1:jj) and
-   ! v(:,1:jj) past the caller's m-sized arrays.  Any external
+   ! v(,1:jj) past the caller's m-sized arrays. Any external
    ! gmres_m_v1 caller must save and restore this pair.
    ! (numerical audit fix, 2026-10)
    !
@@ -421,7 +421,7 @@ module jfnk_solver_v1_mod
    ! to the physical step via s = Z y with Z = M^{-1} V, so
    ! ||s||_w^2 = y' G y with G = Z' W Z (dotprd inner product).
    ! hook_step_g_v1 constrains this G-norm instead of ||y||, keeping
-   ! the trust radius in physical-step units.  Stored per completed
+   ! the trust radius in physical-step units. Stored per completed
    ! Arnoldi cycle like the jj/beta pair above -- any external
    ! gmres_m_v1 caller must save/restore them the same way.
    !
@@ -431,19 +431,19 @@ module jfnk_solver_v1_mod
    ! Cycle-start residual of the previous restart cycle (23-Oct-2026,
    ! LGMRES diagnosis): Baker-Jessup-Manteuffel stagnation shows up as
    ! a repeating/alternating residual direction across cycles, so the
-   ! restart diag reports |<r_c, r_{c-1}>|/(|r_c||r_{c-1}|).  Purely
+   ! restart diag reports |<r_c, r_{c-1}>|/(|r_c||r_{c-1}|). Purely
    ! diagnostic -- never enters the solve.
    !
    double precision, allocatable :: jfnk_gmres_rprev(:)
    !
    ! LGMRES augmentation state (23-Oct-2026; Baker, Jessup &
    ! Manteuffel 2005, "A Technique for Accelerating the Convergence of
-   ! Restarted GMRES").  The coupled-SOB solve shows exactly the
+   ! Restarted GMRES"). The coupled-SOB solve shows exactly the
    ! cyclic restart stagnation that paper targets: the cycle-1
    ! residual drops ~12% while cycles 2+ make <1% each and the
    ! restart-boundary residual direction returns cos(r_c,r_{c-1}) ~
    ! 0.99 -- every restart rebuilds the same Krylov space because the
-   ! converged directions were discarded with the basis.  LGMRES keeps
+   ! converged directions were discarded with the basis. LGMRES keeps
    ! the last K per-cycle solution corrections z_i = x_e - x_s and
    ! solves each restart's least-squares over V_m + span(z_i) jointly.
    ! The image A z_i = r_s - r_e is a residual difference already in
@@ -451,7 +451,7 @@ module jfnk_solver_v1_mod
    !
    ! Right-preconditioning only: the physical step s = Z y + D c
    ! appends d_i in step space, equivalent to t-space vectors M d_i --
-   ! no forward M action is needed.  With JFNK_LEFTPC=T the flag is
+   ! no forward M action is needed. With JFNK_LEFTPC=T the flag is
    ! ignored and a note prints once per solve.
    !
    ! [JFNK_LGMRES] default F: plain restarted GMRES unchanged.
@@ -469,14 +469,14 @@ module jfnk_solver_v1_mod
    !
    ! [JFNK_GDEFL] (default F): GMRES-DR deflated restarting (Morgan
    ! 2002, SISC 24(1) 20-37; Parks et al. 2006, SISC 28(5) 1651-1674
-   ! for the GCRO-DR sequence version).  At each restart the smallest-
+   ! for the GCRO-DR sequence version). At each restart the smallest-
    ! |theta| harmonic Ritz pairs of the completed cycle's Hessenberg
    ! block are extracted and their Arnoldi images written into the
    ! same augmentation slots the LGMRES retention uses, so the next
    ! cycle's least-squares keeps the eigenmodes restarted GMRES
-   ! forgets -- the restart-angle ~0.99 stall class.  A complex pair
+   ! forgets -- the restart-angle ~0.99 stall class. A complex pair
    ! keeps both real vectors, so the live count can exceed
-   ! [JFNK_GDEFL_K] (default 4, clamped 1..8) by one.  jfnk_aug_kmax
+   ! [JFNK_GDEFL_K] (default 4, clamped 1..8) by one. jfnk_aug_kmax
    ! is the combined augmentation capacity (LGMRES + GDEFL slots),
    ! hard bound 8 matching the lg_kmax workspace bound in gmres_m_v1.
    ! [JFNK_RECYC] (default F) additionally carries the retained set
@@ -500,7 +500,7 @@ module jfnk_solver_v1_mod
    !
    ! GMRES stagnation criterion (audit 17-Sep-2026): an iteration counts
    ! as non-improving unless it reduces the residual by more than this
-   ! relative factor.  The previous 1D-14 threshold only fired on
+   ! relative factor. The previous 1D-14 threshold only fired on
    ! machine-level stalls; with finite-difference JVP noise, gains
    ! below ~1D-3 are within the noise floor and not worth continuing
    ! for (3 consecutive non-improving iterations still trigger the
@@ -510,8 +510,8 @@ module jfnk_solver_v1_mod
    !
    ! One-shot diagnostic flag (Finding 3, review 2026-09-10):
    ! When .true., jfnk_newton_diagnostic_v1 and jfnk_gmres_dim_experiment_v1
-   ! are called on the first Newton step.  Set from JFNK_DIAGNOSTIC VADAT
-   ! key via solve_for_pops_jfnk_v1.f.  Default .false. for production.
+   ! are called on the first Newton step. Set from JFNK_DIAGNOSTIC VADAT
+   ! key via solve_for_pops_jfnk_v1.f. Default .false. for production.
    !
    logical          :: jfnk_diagnostic_flag = .false.
    !
@@ -522,7 +522,7 @@ module jfnk_solver_v1_mod
 contains
    !
    ! jfnk_pc_set_options_v1: copy the parsed VADAT values into the
-   ! solver-module mirrors.  rd_control_variables.f cannot import the
+   ! solver-module mirrors. rd_control_variables.f cannot import the
    ! mirrors directly: their names collide with the
    ! CONTROL_VARIABLE_MOD declarations (ifort #6405), so the sync goes
    ! through this routine.
@@ -544,9 +544,9 @@ contains
 !
    ! jfnk_eval_cap_v1: effective per-activation residual-eval cap.
    ! JFNK_EVAL_LIM (int_mod) is the activation-local budget the driver
-   ! trims per rung; JFNK_MAX_EVALS is the VADAT control.  The
+   ! trims per rung; JFNK_MAX_EVALS is the VADAT control. The
    ! sentinel in JFNK_RESIDUAL_V1 must see the tighter of the two,
-   ! with 0 disabling a cap independently.  Pure so the unit tests
+   ! with 0 disabling a cap independently. Pure so the unit tests
    ! can lock the semantics directly.
    !
    pure integer function jfnk_eval_cap_v1(eval_lim, max_evals) &
@@ -559,9 +559,9 @@ contains
    end function jfnk_eval_cap_v1
 !
    ! jfnk_cpl_sob_cap_v1: effective residual-eval cap for a coupled-SOB
-   ! activation ([JFNK_CPL_SOB_MAX_EVALS], default 0 = inherit).  Layers
+   ! activation ([JFNK_CPL_SOB_MAX_EVALS], default 0 = inherit). Layers
    ! the coupled cap over the usual eval_lim/max_evals pair; 0 disables
-   ! a cap independently at each level.  (23-Oct-2026)
+   ! a cap independently at each level. (23-Oct-2026)
    !
    pure integer function jfnk_cpl_sob_cap_v1(eval_lim, max_evals, &
         cpl_max) result(cap)
@@ -572,13 +572,13 @@ contains
    end function jfnk_cpl_sob_cap_v1
 !
    ! jfnk_cpl_sob_admit_v1: reach-fail fallback admission predicate
-   ! ([JFNK_COUPLED_SOB], default F; 23-Oct-2026).  The coupled tier
+   ! ([JFNK_COUPLED_SOB], default F; 23-Oct-2026). The coupled tier
    ! fires under SOB only when the frozen tier just certified the
    ! residual unreachable (reach_skip), the activation is not already
    ! coupled, no fallback fired yet this activation, the admission is
-   ! not a dirchk diagnostic call, the coupled-SOB config is armed,
+   ! not a diagnostic call, the coupled-SOB config is armed,
    ! the consistency check has not latched dead, and the sweep
-   ! callback is registered.  Extracted pure so the unit tests lock
+   ! callback is registered. Extracted pure so the unit tests lock
    ! the gate semantics; JFNK_SOLVE_CORR_V1 calls it at the skip site.
    !
    pure logical function jfnk_cpl_sob_admit_v1(reach_skip, &
@@ -597,11 +597,11 @@ end module jfnk_solver_v1_mod
 
 !----------------------------------------------------------------------
 ! JFNK_PTC_SET_ANCHOR_V1: re-anchor the pseudo-time term at x (the
-! current Newton iterate x_k).  SER form (Kelley & Keyes 1998; Knoll &
+! current Newton iterate x_k). SER form (Kelley & Keyes 1998; Knoll &
 ! Keyes 2004 Sec 4.2): G(x) = F(x) + (x - x_k)*s/dtau vanishes at the
 ! anchor, so the stored residual at the linearization point is F, not
 ! G -- all Newton norms, ared/pred, EW forcing and the SER dtau update
-! then act on |F|.  No-op unless the PTC machinery is armed
+! then act on |F|. No-op unless the PTC machinery is armed
 ! ([JFNK_PTC], default T; USE_JFNK=F never reaches this).
 ! edited 06-Oct-2026
 !----------------------------------------------------------------------
@@ -630,8 +630,8 @@ end subroutine jfnk_ptc_set_anchor_v1
 
 !----------------------------------------------------------------------
 ! JFNK_PTC_STRIP_V1: g := g - (x - x0)*s/dtau, so that g = F(x) when the
-! residual callback returned g = G(x).  newton_hook_v1 calls it after
-! every residual evaluation so jfnk_fx/jfnk_tol are F and |F|.  No-op
+! residual callback returned g = G(x). newton_hook_v1 calls it after
+! every residual evaluation so jfnk_fx/jfnk_tol are F and |F|. No-op
 ! unless the PTC term was actually included (same readiness gate as
 ! JFNK_RESIDUAL_V1, plus a matching anchor and sizes).
 ! edited 06-Oct-2026
@@ -657,11 +657,11 @@ end subroutine jfnk_ptc_strip_v1
 
 
 !----------------------------------------------------------------------
-! JFNK_PTC_STRIP_DIR_V1: js := js - s*scale/dtau.  The finite-difference
+! JFNK_PTC_STRIP_DIR_V1: js := js - s*scale/dtau. The finite-difference
 ! JVP of G is J_F*s + s*scale/dtau (the anchor offset cancels in the
 ! difference); stripping recovers the F-Jacobian action so the physical
 ! predicted residual ||F - J_F*s|| and the descent test <F, J_F*s> are
-! consistent with the stripped ared.  The GMRES operator itself keeps
+! consistent with the stripped ared. The GMRES operator itself keeps
 ! the diagonal -- it correctly solves (J_F + D/dtau) s = F(x_k).
 ! Same readiness gate as jfnk_ptc_strip_v1.
 ! edited 06-Oct-2026
@@ -687,7 +687,7 @@ end subroutine jfnk_ptc_strip_dir_v1
 
 !----------------------------------------------------------------------
 ! JFNK_ALLOC_WORKSPACE: Allocate or resize persistent workspace arrays
-! for newton_hook_v1 and gmres_m_v1.  Called at the start of
+! for newton_hook_v1 and gmres_m_v1. Called at the start of
 ! newton_hook_v1 to ensure workspace is available.
 ! audit §3, 09-Sep-2026
 !----------------------------------------------------------------------
@@ -723,11 +723,11 @@ end subroutine jfnk_alloc_workspace
 !   - Finite-difference Jacobian-vector products
 !
 ! Interface (matches the JFNK-Hookstep reference pattern):
-!   f(n,x, y)       — residual: y = F(x)
-!   df(n,x, y)      — JVP: y = J(x)*x_vec  (finite difference internally)
-!   dfp(n, x)       — preconditioner: x = M^{-1} * x  (in-place)
-!   sub()           — called at end of each Newton iteration (diagnostics)
-!   dp(n,a,b)       — dot product: d = a.b
+!   f(n,x, y) — residual: y = F(x)
+!   df(n,x, y) — JVP: y = J(x)*x_vec (finite difference internally)
+!   dfp(n, x) — preconditioner: x = M^{-1} * x (in-place)
+!   sub — called at end of each Newton iteration (diagnostics)
+!   dp(n,a,b) — dot product: d = a.b
 !
 ! edited by Sean Brennan (V4, 2026-09)
 !----------------------------------------------------------------------
@@ -788,7 +788,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    !
    ! V4 descent check (2026-09-09):
    ! If the GMRES direction is not a descent direction (<F,Js>_w <= 0),
-   ! tighten the forcing term and re-solve.  This prevents the
+   ! tighten the forcing term and re-solve. This prevents the
    ! Eisenstat-Walker formula from producing too-loose tolerances
    ! (eta ~ 0.9) that yield non-descent directions with poor
    ! preconditioners.
@@ -809,13 +809,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! J_s = J*s (one extra JVP per candidate step), F_pred = F(x) - J*s.
    ! Used to compute pred_res_physical = ||F - J*s||_w in the SAME
    ! weighted physical norm as tol_ = ||F||_w, so that ared/pred is
-   ! dimensionally consistent.  The Hessenberg least-squares residual
+   ! dimensionally consistent. The Hessenberg least-squares residual
    ! from GMRES (pred_res) lives in the preconditioned space
    ! ||M^{-1}(F - J*s)|| and must NOT be used in ared/pred.
    !
    double precision, allocatable, save :: J_s(:), F_pred(:)
    !
-   ! (Re)allocate if N changed.  The stat= variables must be reset
+   ! (Re)allocate if N changed. The stat= variables must be reset
    ! before each conditional allocate: on a re-entry where the arrays
    ! already hold the right shape, no allocate runs and a stale nonzero
    ! ios_nw/ginfo would otherwise fabricate an alloc failure.
@@ -855,12 +855,12 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! Right preconditioning is supported (2026-10, right-PC TR-units
    ! fix): gmres_m_v1 stores the preconditioned basis Z = M^{-1} V and
    ! its Gram G = Z' W Z, and hook_step_g_v1 constrains ||s||_w =
-   ! sqrt(y' G y).  This supersedes the 17-Sep-2026 audit disable
+   ! sqrt(y' G y). This supersedes the 17-Sep-2026 audit disable
    ! (issue 16), which forced LEFT because the hookstep then bounded
    ! ||y|| = ||M s||_w instead of the physical step norm.
    !
    !
-   ! Initial residual.  The driver's F(0) test and the baseline
+   ! Initial residual. The driver's F(0) test and the baseline
    ! rebuild both leave jfnk_fx = F(jfnk_x) already -- when they did,
    ! skip the re-eval (a full formal sweep in coupled mode).
    !
@@ -872,7 +872,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! edited 06-Oct-2026 (SER anchor fix): the entry eval
       ! carries the pseudo-time term whenever it was added by the
       ! residual (anchor = 0 from JFNK_SET_PTC_SCALE_V1); strip it so
-      ! jfnk_fx/jfnk_tol are F and |F|.  No-op when PTC is off.
+      ! jfnk_fx/jfnk_tol are F and |F|. No-op when PTC is off.
       call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
    end if
    jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
@@ -887,7 +887,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    !
    ! 2026-09-13 TR-units fix: for M≈J the full Newton step has
    ! ||y|| ≈ ||F||_w, so |F|/10 capped every first step to a 10%
-   ! residual reduction.  Start at 2*|F| instead.
+   ! residual reduction. Start at 2*|F| instead.
    if(del < 0d0)  jfnk_del = 2d0 * jfnk_tol
    ! Auto trust-region (del<0) must not discard a user-supplied mxdl:
    ! only expand the cap when the caller did not set one (mxdl<=0).
@@ -906,7 +906,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    tol__ = 1d99
    !
    ! edited 06-Oct-2026 (SER anchor fix): anchor the
-   ! pseudo-time term at the entry iterate x_k.  The entry eval above
+   ! pseudo-time term at the entry iterate x_k. The entry eval above
    ! already ran with anchor 0 (jfnk_x = 0 there in production, so
    ! G = F anyway); this makes the anchor explicit for later evals.
    call jfnk_ptc_set_anchor_v1(n, x_)
@@ -932,7 +932,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       descent_retry_count = 0
       !
-      ! Audit 17-Sep-2026: per-iteration failure flags.  Any matvec
+      ! Audit 17-Sep-2026: per-iteration failure flags. Any matvec
       ! (JVP) or psolve (preconditioner) call below can set these;
       ! GMRES aborts with info=3 on either, and the post-solve handler
       ! rejects the direction and requests a preconditioner refresh.
@@ -943,7 +943,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! hookstep-recalculation flag consumed by the descent check below.
       jfnk_gmres_recomputed = .false.
       !
-      ! edited, 04-Oct-2026: also catch jfnk_del == 0.  The
+      ! edited, 04-Oct-2026: also catch jfnk_del == 0. The
       ! shrink producers (0.5*min(del_try, snrm_tr)) yield exactly 0
       ! whenever GMRES returned no step (snrm_tr = 0), and a zero
       ! radius slipped the old jfnk_del > 0 test: hookstep then saw
@@ -965,7 +965,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! inner GMRES system when the Newton iteration is far from the root.
       !
       ! On the first Newton step (jfnk_nits == 0), we use the user-specified
-      ! gtol as the initial forcing term.  On subsequent steps, we compute:
+      ! gtol as the initial forcing term. On subsequent steps, we compute:
       !
       !   eta_k = gamma * (|F_k| / |F_{k-1}|)^alpha
       !
@@ -992,11 +992,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! Their safeguard against over-solving is on eta_{k-1}, not on
          ! the residual ratio: when gamma*eta_{k-1}^alpha > 0.1 the
          ! contraction theory still holds with
-         ! eta_k = max(eta_k, gamma*eta_{k-1}^alpha).  The previous code
+         ! eta_k = max(eta_k, gamma*eta_{k-1}^alpha). The previous code
          ! used max(eta_k, 0.5*|F_k|/|F_{k-1}|) -- a ratio safeguard that
          ! EW show is NOT covered by the Choice-2 convergence proof and
          ! that pins eta near the contraction rate, defeating the
-         ! adaptive tolerance.  (Oct-2026 EW fix)
+         ! adaptive tolerance. (Oct-2026 EW fix)
          jfnk_eta = jfnk_eta_gamma * &
             (jfnk_tol / jfnk_tol_prev)**jfnk_eta_alpha
          eta_sav = jfnk_eta_gamma * jfnk_eta_prev**jfnk_eta_alpha
@@ -1008,15 +1008,15 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       jfnk_eta_prev = jfnk_eta
       !
       ! Bug fix (09-Sep-2026): EW forcing-term tolerance must be in the
-      ! same units as the GMRES residual.  Under left preconditioning
+      ! same units as the GMRES residual. Under left preconditioning
       ! (the default, jfnk_use_left_pc=.true.), GMRES measures
-      ! ||M^{-1}(b - Ax)||, not ||b - Ax||.  Using jfnk_tol (=||F||,
+      ! ||M^{-1}(b - Ax)||, not ||b - Ax||. Using jfnk_tol (=||F||,
       ! physical units) as the reference makes gres off by the
       ! conditioning of M, so GMRES can quit far too early or grind
       ! far too long relative to the intended inexact-Newton accuracy.
       !
       ! Fix: compute ref_norm = ||M^{-1} F(x)|| via one extra psolve
-      ! call when left-pc is active.  This is cheap (one preconditioner
+      ! call when left-pc is active. This is cheap (one preconditioner
       ! application per Newton step, vs m applications per GMRES cycle).
       !
       if(jfnk_use_left_pc) then
@@ -1032,7 +1032,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ! The clip is a pure function of the (unchanged) LU factors
             ! and the input vector; shrinking del cannot change it
             ! (del is only consulted after GMRES completes), and the
-            ! refresh flag is only consumed via sub() on accepted
+            ! refresh flag is only consumed via sub on accepted
             ! steps, so every "refresh + retry" replayed a bit-
             ! identical psolve and burned n_reject_max for nothing.
             if(info == 1) write(luer,'(A)') &
@@ -1052,7 +1052,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       gres     = jfnk_eta * ref_norm
       gdel     = jfnk_del
       ! jfnk_gits is both the iteration budget in and the used count
-      ! out of gmres_m_v1.  A ginfo==2 hookstep recompute performs no
+      ! out of gmres_m_v1. A ginfo==2 hookstep recompute performs no
       ! Arnoldi work, so the prior solve's count is deliberately
       ! retained rather than re-armed to m.
       if(ginfo /= 2) jfnk_gits = m
@@ -1080,9 +1080,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       end if
       !
       ! V4 descent check (2026-09-09):
-      ! Wrap the GMRES solve in a retry loop.  If the resulting direction
+      ! Wrap the GMRES solve in a retry loop. If the resulting direction
       ! is not a descent direction (<F,Js>_w <= 0), tighten the forcing
-      ! term and re-solve.  This prevents the Eisenstat-Walker formula
+      ! term and re-solve. This prevents the Eisenstat-Walker formula
       ! from producing too-loose tolerances (eta ~ 0.9) that yield
       ! non-descent directions with poor preconditioners.
       !
@@ -1103,13 +1103,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! Audit 17-Sep-2026: Krylov-solve failure (info=3 from gmres_m_v1).
       ! A matvec produced a non-finite JVP action, or the preconditioner
-      ! clipped mid-solve making M^{-1} nonlinear.  The partially built
+      ! clipped mid-solve making M^{-1} nonlinear. The partially built
       ! Krylov space (and any step s derived from it) is unusable -- do
       ! NOT let it reach the step-cap/runaway/hookstep code, and do NOT
       ! reuse the space (ginfo=1 forces a fresh GMRES next pass).
       !
       if(ginfo == 3) then
-         ! edited, 04-Oct-2026: abort instead of retry.  The
+         ! edited, 04-Oct-2026: abort instead of retry. The
          ! failure (JVP non-finite or precond clip) is a deterministic
          ! function of x_, fx_ and the unchanged preconditioner --
          ! neither a halved del (only consulted inside the completed
@@ -1128,14 +1128,14 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       end if
       !
       ! Bug fix: do NOT overwrite ginfo (GMRES return status) with info
-      ! (Newton verbose flag).  ginfo must retain the GMRES status (0,
+      ! (Newton verbose flag). ginfo must retain the GMRES status (0,
       ! 1, or 2) for the hookstep recalculation logic at the top of the
-      ! next Newton iteration.  The old code had "ginfo = info" which
+      ! next Newton iteration. The old code had "ginfo = info" which
       ! always set ginfo=1, preventing the hookstep recalculation path
       ! (ginfo=2) from ever being taken.
       !
-      ! |s| in the RSCALE-weighted inner product.  The hookstep bounds
-      ! Krylov coefficients, not the physical step after M^{-1}.  A
+      ! |s| in the RSCALE-weighted inner product. The hookstep bounds
+      ! Krylov coefficients, not the physical step after M^{-1}. A
       ! singular DIAG BA inverse can yield |s| ~ 1e31 with pred = 0,
       ! which previously set del = |s|/2 and looped forever (nits stuck
       ! at 0, F evaluated at POPS*(1+1e31)).
@@ -1165,14 +1165,14 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! pred_res is the Hessenberg least-squares residual in the units
       ! GMRES actually solves -- ||M^{-1}(F - J*s)|| under the forced
       ! left preconditioning -- so it must be compared against
-      ! ref_norm = ||M^{-1}F||, not tol_ = ||F||_w.  The two differ by
+      ! ref_norm = ||M^{-1}F||, not tol_ = ||F||_w. The two differ by
       ! the conditioning of M, which made the old gate fire (or not
       ! fire) on the wrong threshold.
       ! edited, 12-Nov-2026: the Hessenberg residual is only a
       ! Krylov-space model; under a finite-difference matvec the basis
       ! need not span a fixed operator, and OUTGEN showed hess_res
       ! 15x-450x below the measured true_res on exits this gate used to
-      ! accept.  Require the measured value below the same threshold,
+      ! accept. Require the measured value below the same threshold,
       ! and treat a missing/non-finite measurement as unverifiable --
       ! abort rather than commit the solve to a bad direction.
       if(ginfo == 1 .and. pred_res < 0.9d0 * ref_norm .and. &
@@ -1200,11 +1200,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! The DIAG BA preconditioner with ridge produces Newton steps with
       ! huge |s_inf| (up to 400+) for species with small BA diagonal.
       ! The RSCALE-weighted trust region doesn't penalize these because
-      ! RSCALE is small for trace species.  Previously the runaway check
+      ! RSCALE is small for trace species. Previously the runaway check
       ! rejected the ENTIRE step, causing trust-region collapse.
       !
       ! Fix: scale the ENTIRE step by min(1, S_MAX_SCALE/s_inf) instead
-      ! of rejecting it.  This preserves the Newton direction (unlike
+      ! of rejecting it. This preserves the Newton direction (unlike
       ! per-element clipping which changes the direction) while limiting
       ! the maximum fractional change to S_MAX_SCALE per component.
       ! A small step in an approximately-correct direction can still
@@ -1220,7 +1220,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ! direction is dominated by a few weakly-coupled rows and
             ! the rescale throws away the usable correction on every
             ! bounded row -- the clipped-ratchet pattern seen on the
-            ! m15 2.82d SOB runs.  The commit path already clips the
+            !  2.82d SOB runs. The commit path already clips the
             ! accumulated correction component-wise, so this only moves
             ! the same bound upstream into the trial step.
             where(abs(s) > jfnk_step_inf_cap)
@@ -1236,7 +1236,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          else
 ! jfnk_step_inf_cap (default 10.0d0 = MAX_JFNK_COR, 1.0D1): steps larger
 ! than a factor-of-10 population correction are unphysical for the
-! clipping that is applied after the Newton update.  Scale the whole
+! clipping that is applied after the Newton update. Scale the whole
 ! step back so the inf-norm equals the maximum allowed correction
 ! (audit 2026-09-10).
             scale_fac = jfnk_step_inf_cap / s_inf
@@ -1259,7 +1259,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! jfnk_tauto_damp_v1 modifies the T components of s in place;
       ! the norms below must describe the step actually taken, not the
-      ! pre-damping candidate.  snrm_tr = snrm: the damped s IS the
+      ! pre-damping candidate. snrm_tr = snrm: the damped s IS the
       ! trust-region-constrained quantity from here on (the Cauchy
       ! path already recomputes its own cauchy_nrm).
       !
@@ -1267,24 +1267,24 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       s_inf = maxval(abs(s))
       snrm_tr = snrm
       !
-      ! Weighted |s| can still explode if RSCALE is large.  Reject if
+      ! Weighted |s| can still explode if RSCALE is large. Reject if
       ! the overall weighted norm is truly catastrophic -- i.e. far
-      ! above the ||M^{-1} F||_w scale the step is built at.  An
+      ! above the ||M^{-1} F||_w scale the step is built at. An
       ! absolute cap is meaningless under non-Euclidean RSCALE (this
       ! model: |F|_w ~ 5e10, every step read as "runaway" and the
-      ! solver aborted before a single trial F evaluation).  Not
+      ! solver aborted before a single trial F evaluation). Not
       ! flag-gated: the relative check reproduces the intended
       ! semantics under every JFNK_RSCALE mode.
       if(snrm > jfnk_runaway_fac * max(ref_norm, 1.0d-30)) then
          !
          ! Fix (2026-09-11): the retry must produce a DIFFERENT, smaller
-         ! trial step.  Previously this halved del_try — the trust-region
+         ! trial step. Previously this halved del_try — the trust-region
          ! radius, initialised to ~|F|/10 — which is typically orders of
-         ! magnitude larger than |s|.  The hookstep constraint in
+         ! magnitude larger than |s|. The hookstep constraint in
          ! gmres_m_v1/hook_step_v1 only binds when del < |s|, so halving
          ! del_try changed nothing; and with ginfo=1 the next pass
          ! re-solved the SAME unconstrained GMRES system, returning a
-         ! bit-identical step that was rejected again.  The loop was
+         ! bit-identical step that was rejected again. The loop was
          ! therefore guaranteed to burn all n_reject_max retries and
          ! abort without ever testing a constrained step.
          !
@@ -1316,9 +1316,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! V4 audit fix (2026-09-09): Compute the PHYSICAL predicted residual
       ! ||F - J*s||_w using one extra JVP, instead of using the Hessenberg
-      ! least-squares residual from GMRES.  Under left preconditioning, the
+      ! least-squares residual from GMRES. Under left preconditioning, the
       ! Hessenberg residual is ||M^{-1}(F - J*s)||, which is in a different
-      ! norm/space than ||F||_w.  Using it as pred_res in ared/pred mixes
+      ! norm/space than ||F||_w. Using it as pred_res in ared/pred mixes
       ! physical and preconditioned norms, causing the trust region to
       ! collapse even when the Newton direction is good.
       !
@@ -1334,7 +1334,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
       !
       ! Audit 17-Sep-2026: if this JVP failed, J_s is unreliable and so
-      ! is pred_res_physical / dir_deriv.  Same failure path as a
+      ! is pred_res_physical / dir_deriv. Same failure path as a
       ! Krylov abort: reject, shrink, fresh GMRES next pass.
       !
       if(jfnk_jvp_failed) then
@@ -1351,7 +1351,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          return
       end if
       ! edited 06-Oct-2026 (SER anchor fix): df returns the
-      ! FD action of G, J_G*s = J_F*s + s*scale/dtau.  Strip the
+      ! FD action of G, J_G*s = J_F*s + s*scale/dtau. Strip the
       ! diagonal so F_pred, pred_res_physical, norm_Js and dir_deriv
       ! are in F terms, consistent with the stripped ared.
       call jfnk_ptc_strip_dir_v1(n, s, J_s)
@@ -1373,13 +1373,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! V4 descent check (2026-09-09):
       ! If the GMRES direction is not a descent direction (<F,Js>_w <= 0),
-      ! tighten the forcing term and re-solve.  This is a standard
+      ! tighten the forcing term and re-solve. This is a standard
       ! inexact-Newton technique that prevents the Eisenstat-Walker
       ! formula from producing too-loose tolerances (eta ~ 0.9) that
       ! yield non-descent directions with poor preconditioners.
       !
       ! The descent check uses the PHYSICAL inner product <F, J*s>_w,
-      ! not the preconditioned one.  A direction can be a descent
+      ! not the preconditioned one. A direction can be a descent
       ! direction in the preconditioned norm but not in the physical
       ! norm when M is a poor approximation of J.
       !
@@ -1390,7 +1390,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! ginfo cannot identify those passes -- gmres_m_v1 resets info=0
       ! before returning from its info==2 recompute path, so the old
       ! ginfo /= 2 test never fired and recompute passes were needlessly
-      ! re-solved.  The module flag jfnk_gmres_recomputed survives the
+      ! re-solved. The module flag jfnk_gmres_recomputed survives the
       ! return and is used instead.
       !
       dir_deriv = dp(n, fx_, J_s)
@@ -1405,7 +1405,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! A converged solve with |F-Js|>|F| is ordinary overshoot on a
       ! curved residual -- the retry shortens the step and recovers
       ! (T2 Rosenbrock regressed to an infinite stall when this gate
-      ! used pred_res_physical).  The step still reaches the trial
+      ! used pred_res_physical). The step still reaches the trial
       ! eval below, where the ared <= 0 rejection shrinks del and
       ! requests a hookstep recompute on the existing basis at no eval
       ! cost.
@@ -1483,9 +1483,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ared = tol_ - jfnk_tol
       pred = tol_ - pred_res_physical
       !
-      ! V4 audit fix (2026-09-09): Safe ared/pred ratio.  If pred is
+      ! V4 audit fix (2026-09-09): Safe ared/pred ratio. If pred is
       ! negligibly small (|pred| <= pred_floor), the linearized model
-      ! predicts essentially zero reduction.  Do NOT invent a large
+      ! predicts essentially zero reduction. Do NOT invent a large
       ! rho — instead classify as "negligible predicted reduction" and
       ! use a conservative trust-region response (reject step, shrink
       ! trust radius, reuse Krylov space via ginfo=2).
@@ -1502,7 +1502,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          !
          ! V4 A/B production diagnostic (2026-09-09):
          ! Comprehensive per-Newton-iteration output for clean m=10 vs
-         ! m=20 comparison.  Reports all quantities needed to determine
+         ! m=20 comparison. Reports all quantities needed to determine
          ! whether the nonlinear solve progresses or stalls.
          !
          dir_deriv = dp(n, fx_, J_s)
@@ -1590,7 +1590,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! If the residual is NaN/Inf, the descent check (pred <= 0) may
       ! fire first (when pred is finite but <= 0), taking the generic
       ! "shrink and retry" path without ever reaching the explicit NaN
-      ! branch below.  This undercounts jfnk_nan_rejects.  Fix: check
+      ! branch below. This undercounts jfnk_nan_rejects. Fix: check
       ! for NaN/Inf here, ahead of the descent check.
       !
       if(jfnk_tol /= jfnk_tol .or. jfnk_tol > 1d30) then
@@ -1603,7 +1603,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! Constrain below the rejected step (same fix as the runaway
          ! branch, 2026-09-11): halving del_try does not bind when
          ! del >> |s|, and ginfo=1 re-solved the identical unconstrained
-         ! step.  ginfo=2 recomputes a constrained hookstep from the
+         ! step. ginfo=2 recomputes a constrained hookstep from the
          ! existing Krylov space.
          jfnk_del = 0.5d0 * min(del_try, snrm_tr)   ! 2026-09-13 TR-units fix
          n_reject = n_reject + 1
@@ -1620,7 +1620,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! V4 audit fix (2026-09-09): The `pred <= 0` descent test was
       ! removed earlier because it was based on the (wrong) preconditioned
-      ! Hessenberg residual.  Now that pred uses the physical predicted
+      ! Hessenberg residual. Now that pred uses the physical predicted
       ! residual, pred <= 0 has real mathematical meaning: the linearized
       ! model does not predict a reduction in the physical residual norm.
       ! However, we let the standard trust-region ratio logic (ared < 0
@@ -1629,8 +1629,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! than a dedicated pred<=0 branch with ginfo=1 (full GMRES restart).
       !
       ! V4 audit fix (2026-09-09): Removed the duplicated NaN/Inf check
-      ! that was here.  The primary NaN check above (before the descent
-      ! comment block) is sufficient.  The second copy was a stale
+      ! that was here. The primary NaN check above (before the descent
+      ! comment block) is sufficient. The second copy was a stale
       ! leftover from before the descent test was removed.
       !
       !================================================================
@@ -1648,7 +1648,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! This avoids re-solving GMRES when the Newton direction is good
       ! but the full step is too large — exactly the situation observed
       ! in the A/B tests (optimal α ~ 10⁻³, full step increases ||F||
-      ! by 26×).  Each backtracking step costs one residual evaluation,
+      ! by 26×). Each backtracking step costs one residual evaluation,
       ! vs m JVPs for a GMRES re-solve.
       !
       ! If the line search fails, try the Cauchy (preconditioned-residual)
@@ -1662,7 +1662,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          dphi_0 = -dir_deriv           ! < 0 for descent direction
          !
          ! Non-monotone reference (Oct-2026): phi_ref replaces phi_0 in
-         ! the sufficient-decrease test.  With jfnk_ls_nonmono=F this
+         ! the sufficient-decrease test. With jfnk_ls_nonmono=F this
          ! collapses to the monotone Armijo test.
          !
          phi_ref = phi_0
@@ -1708,7 +1708,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! jfnk_x/jfnk_fx/jfnk_tol holding the LAST failed Armijo trial.
          ! The Cauchy fallback and the trust-region acceptance tests
          ! below would then evaluate that stale trial state instead of
-         ! the Newton point.  Restore the Newton state unconditionally.
+         ! the Newton point. Restore the Newton state unconditionally.
          !
          if(.not. ls_accepted) then
             jfnk_x   = x_
@@ -1724,11 +1724,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! Cauchy (preconditioned-residual) fallback (review §3, item 3)
       !================================================================
       ! When the Newton line search fails (or the Newton direction is
-      ! not a descent direction), try d_C = M⁻¹F as a fallback.  This
+      ! not a descent direction), try d_C = M⁻¹F as a fallback. This
       ! is a damped Jacobi / preconditioned steepest-descent step that
       ! uses the existing preconditioner and does NOT require GMRES.
       !
-      ! The step is x_new = x − α·d_C where d_C = M⁻¹F.  We use a simple
+      ! The step is x_new = x − α·d_C where d_C = M⁻¹F. We use a simple
       ! sufficient-decrease test ||F(x−α·d_C)|| < ||F(x)|| (no Armijo,
       ! since computing <F, J·d_C> would need an extra JVP).
       !
@@ -1861,7 +1861,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          end if
          !
          ! Audit 17-Sep-2026 (critical #1): a failed Cauchy search left
-         ! jfnk_x/jfnk_fx/jfnk_tol holding the LAST failed trial.  The
+         ! jfnk_x/jfnk_fx/jfnk_tol holding the LAST failed trial. The
          ! trust-region tests below would then evaluate that stale
          ! state instead of the Newton point -- restore it and report
          ! ared=0 so the rejection logic sees the true situation.
@@ -1911,8 +1911,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       else if(pred_negligible) then
          ! V4 audit fix (2026-09-09): Predicted reduction is negligible.
          ! The linearized model does not predict a reduction in the
-         ! physical residual norm.  Reject the step and shrink the trust
-         ! radius.  Reuse the Krylov space (ginfo=2) for efficiency.
+         ! physical residual norm. Reject the step and shrink the trust
+         ! radius. Reuse the Krylov space (ginfo=2) for efficiency.
          if(info == 1) write(luer,*) '  JFNK: pred negligible, &
             &shrinking trust region'
          jfnk_x = x_
@@ -1925,11 +1925,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ginfo   = 2
       else if(ared <= 0d0) then
          ! edited, 12-Nov-2026: a trial that fails to reduce
-         ! |F| is a rejection, not a retry.  ared == 0 used to land in
+         ! |F| is a rejection, not a retry. ared == 0 used to land in
          ! the rho < 0.75 branch below, which retries without touching
          ! n_reject -- OUTGEN showed it halving del from ~6 to 1e-8
          ! over hundreds of zero-progress trials until
-         ! trust_region_too_small.  Count it as a rejection so
+         ! trust_region_too_small. Count it as a rejection so
          ! no-progress ends the solve in n_reject_max passes instead of
          ! crawling the del floor; ared < 0 (norm increase) takes the
          ! same path it always did.
@@ -1964,10 +1964,10 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_del = 0.7d0 * snrm_tr
          ! edited 05-Oct-2026 (retry-pass base-point fix):
          ! restore the module state to the linearization point before
-         ! the recompute pass.  JFNK_JVP_V1 differentiates F at jfnk_x
+         ! the recompute pass. JFNK_JVP_V1 differentiates F at jfnk_x
          ! against jfnk_fx; leaving the trial here made the next pass's
          ! pred-residual JVP (and any descent-retry GMRES) evaluate J at
-         ! the wrong base point against b = fx_.  The trial itself is
+         ! the wrong base point against b = fx_. The trial itself is
          ! kept in x__/fx__/tol__/del__ for the "accept previous" branch.
          jfnk_x   = x_
          jfnk_fx  = fx_
@@ -2012,11 +2012,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       jfnk_tol_prev = tol_
       !
       ! Pseudo-time (Knoll & Keyes 2004; SER update of Kelley & Keyes
-      ! 1998).  Grow dtau when |F| fell, so the added term
+      ! 1998). Grow dtau when |F| fell, so the added term
       ! (x - x_k)*s/dtau fades and the iteration becomes Newton.
-      ! Shrink it when |F| did not fall.  jfnk_tol/jfnk_tol_prev are
+      ! Shrink it when |F| did not fall. jfnk_tol/jfnk_tol_prev are
       ! |F| -- the strip above removed the pseudo-time term from every
-      ! residual this routine reads.  One line per accepted iteration;
+      ! residual this routine reads. One line per accepted iteration;
       ! the sweep chatter stays in JFNK_EVAL.log.
       !
       if(jfnk_ptc_active) then
@@ -2101,7 +2101,7 @@ end subroutine newton_hook_v1
 ! Solves A*x = b for x, subject to |x| < delta (hookstep).
 !
 ! Right preconditioning (legacy): A*M^{-1}*u = b, x = M^{-1}*u
-!   - Initial residual: r = b - A*x  (not preconditioned)
+!   - Initial residual: r = b - A*x (not preconditioned)
 !   - Arnoldi: z = M^{-1}*v_j, w = A*z
 !   - Update: x += M^{-1}*V*y
 !
@@ -2109,10 +2109,10 @@ end subroutine newton_hook_v1
 !   M^{-1}*A*x = M^{-1}*b
 !   - Initial residual: r = M^{-1}*(b - A*x)
 !   - Arnoldi: w = A*v_j, w = M^{-1}*w
-!   - Update: x += V*y  (no final psolve)
+!   - Update: x += V*y (no final psolve)
 !
 ! Bug fix (09-Sep-2026): del (trust radius) is now INTENT(IN) and the
-! predicted residual norm is returned separately as pred_res.  Previously
+! predicted residual norm is returned separately as pred_res. Previously
 ! del was INTENT(INOUT) and was overwritten by hook_step_v1 with the
 ! predicted residual, which:
 !   (a) corrupted the trust radius on GMRES restart (goto 1)
@@ -2144,7 +2144,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_cycstall_frac, jfnk_cycstall_nmax
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
-   ! (JFNK_N_PRECOND_APPLIES).  Incrementing here double-counted every
+   ! (JFNK_N_PRECOND_APPLIES). Incrementing here double-counted every
    ! psolve call.
    implicit none
    integer,          intent(in)    :: m, n
@@ -2157,7 +2157,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! res is dual-use: on entry it carries the caller's weighted
    ! residual target (gres = eta*ref_norm), captured into tol below;
    ! on exit it returns the final Hessenberg LS residual of the last
-   ! cycle.  newton_hook_v1 reads pred_res, not res, for its logic.
+   ! cycle. newton_hook_v1 reads pred_res, not res, for its logic.
    double precision, intent(inout) :: res
    double precision, intent(in)    :: del
    double precision, intent(out)   :: pred_res
@@ -2170,7 +2170,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision :: h_(m+1, m), y(m+1), p(m+1), work(6*m+16)
    double precision :: s_tmp  ! re-orthogonalization scratch
    ! LGMRES work (23-Oct-2026): hard bound KMAX=8 matches the VADAT
-   ! clamp on JFNK_LGMRES_K.  The augmented LS is (j+1+k) x (j+k) --
+   ! clamp on JFNK_LGMRES_K. The augmented LS is (j+1+k) x (j+k) --
    ! dense, because the appended image columns are full -- so it goes
    ! through DGELSY like the Hessenberg system, and the hookstep takes
    ! an augmented Gram built once per cycle end.
@@ -2185,9 +2185,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    double precision :: lg_rho, lg_scale
    logical :: lg_active, lg_have_last, gd_active
    ! aug_cap: actual slot capacity this solve (LGMRES + GDEFL combined,
-   ! bounded by the lg_kmax workspace bound).  jvp_soft: a JVP failure
+   ! bounded by the lg_kmax workspace bound). jvp_soft: a JVP failure
    ! killed a Krylov column mid-cycle -- the cycle closes on the valid
-   ! basis and exits through the soft-exit path.  res_prev_end /
+   ! basis and exits through the soft-exit path. res_prev_end /
    ! n_cycstall back the [JFNK_CYCSTALL] per-cycle contraction guard.
    integer :: aug_cap
    logical :: jvp_soft
@@ -2210,7 +2210,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    logical :: ltres, tres_rej
    ! Lucky-breakdown cycle end: h(j+1,j)~0 means the Krylov space is
    ! invariant, so every later Arnoldi step is built on the zeroed
-   ! v(:,j+1) and can only spin until n_stag aborts the solve.  End the
+   ! v(,j+1) and can only spin until n_stag aborts the solve. End the
    ! cycle, take the LSQ step, and let the j==m restart path re-seed
    ! the basis from the true residual.
    logical :: lb_hit
@@ -2259,7 +2259,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! formation below, one extra psolve per restart for left-PC.
    ! Augmentation runs when either retention scheme is armed:
    ! [JFNK_LGMRES] fills slots from completed-cycle steps, [JFNK_GDEFL]
-   ! from harmonic Ritz extraction at each restart.  The capacity is
+   ! from harmonic Ritz extraction at each restart. The capacity is
    ! the driver-set combined bound, rebuilt here when a direct caller
    ! (unit tests) left jfnk_aug_kmax at its zero default.
    lg_active = jfnk_lgmres_on .or. jfnk_gdefl_on
@@ -2333,7 +2333,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! Hookstep recalculation with new del
    !
    ! edited, 04-Oct-2026: only valid when a completed Arnoldi
-   ! cycle left a basis (jj > 0).  Early returns that never reach the
+   ! cycle left a basis (jj > 0). Early returns that never reach the
    ! jj assignment -- DGELSY error, near-zero beta, JVP/clip abort --
    ! used to reach this branch with a stale or uninitialized jj and
    ! index h(1:j+1,1:j) over a Krylov space that does not belong to
@@ -2415,7 +2415,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    jfnk_gmres_x_cycle_start = x
    del_cycle = del
    !
-   ! Initial residual: r = b - A*x  (then left-precondition if requested)
+   ! Initial residual: r = b - A*x (then left-precondition if requested)
    !
    beta = dsqrt(dotprd(n, x, x))
    if(beta == 0d0)  w = 0d0
@@ -2426,7 +2426,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       ! failure instead of interpreting a zeroed JV as zero action.
       ! Softened (gdefl work): on a restart the accumulated x already
       ! holds the completed cycles' step -- return it through the
-      ! inexact-direction gate instead of discarding the solve.  A
+      ! inexact-direction gate instead of discarding the solve. A
       ! failure on the very first residual still aborts (x is the
       ! input guess; nothing to salvage).
       if(jfnk_jvp_failed) then
@@ -2446,7 +2446,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    w = b - w
    !
    ! LGMRES diagnosis (23-Oct-2026): the physical residual at cycle
-   ! start is what the next Arnoldi basis is built on.  If successive
+   ! start is what the next Arnoldi basis is built on. If successive
    ! cycles restart on nearly the same direction (cos ~ +-1), the
    ! Baker-Jessup-Manteuffel augmentation mechanism is the relevant
    ! cure; a small cosine means each cycle explores fresh space and
@@ -2467,9 +2467,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    end if
    ! [JFNK_GDEFL] deflated restart (Morgan 2002, GMRES-DR): extract
    ! the smallest-|theta| harmonic Ritz directions of the completed
-   ! cycle into the augmentation slots.  Must run BEFORE the LGMRES
+   ! cycle into the augmentation slots. Must run BEFORE the LGMRES
    ! append below (its vectors occupy the leading slots) and before
-   ! v(:,1)/h are overwritten by the new cycle -- the completed
+   ! v(,1)/h are overwritten by the new cycle -- the completed
    ! basis and (jj+1) x jj Hessenberg block are still intact here.
    ! Extraction costs one jj x jj DGEEV; no JVPs.
    !
@@ -2481,10 +2481,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! LGMRES: pair the completed cycle's step d = x_e - x_s (saved at
    ! the update below) with its operator image, recovered from the
    ! residual difference r_s - r_e = rprev - w -- no extra matvec.
-   ! rprev is still the previous cycle's start residual here.  A
+   ! rprev is still the previous cycle's start residual here. A
    ! non-finite or empty pair is dropped; at capacity the oldest
    ! vector leaves (FIFO, the recent corrections carry the direction
-   ! GMRES is circling).  Under left PC the Arnoldi operator is
+   ! GMRES is circling). Under left PC the Arnoldi operator is
    ! B = M^{-1}A, so the stored image needs one psolve on the true
    ! residual difference (cheap vs a JVP; still before the r0 psolve).
    if(jfnk_lgmres_on .and. lg_have_last .and. n_restart > 0) then
@@ -2533,7 +2533,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    if(beta < 1d-30) then
       ! Bug fix (09-Sep-2026): beta near zero means the current x (or s)
       ! already solves the system — that's convergence, not a
-      ! preconditioner failure.  Previously this incremented
+      ! preconditioner failure. Previously this incremented
       ! jfnk_precond_fails, polluting diagnostics every time GMRES got
       ! a trivially-easy solve.
       if(info == 1) write(luer,*) &
@@ -2555,7 +2555,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
          ! JVP soft-fail: only this direction is unevaluable (budget
          ! sentinel, clip floor, non-finite perturbed eval); the
-         ! accumulated step is still valid.  The failed matvec left
+         ! accumulated step is still valid. The failed matvec left
          ! w = JV = 0, so the MGS below leaves column j dead and
          ! DGELSY ignores it -- the cycle closes on the completed
          ! basis and exits through the soft-exit path rather than
@@ -2583,8 +2583,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             return
          end if
       else
-         ! Right: w = A * M^{-1} * v_j.  Keep z_j = M^{-1} v_j and the
-         ! j-th Gram column G(:,j) = Z' W z_j -- the hookstep bounds
+         ! Right: w = A * M^{-1} * v_j. Keep z_j = M^{-1} v_j and the
+         ! j-th Gram column G(,j) = Z' W z_j -- the hookstep bounds
          ! ||s||_w = sqrt(y' G y) and the step is s = Z y, so no second
          ! psolve is needed at step formation.
          z = v(:,j)
@@ -2604,7 +2604,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          jfnk_total_jvp_evals = jfnk_total_jvp_evals + 1
          ! Same soft-fail as the left-PC site: the failed matvec left
          ! w = 0, so column j goes dead in the least-squares and the
-         ! cycle closes on the completed basis.  z_j and its Gram
+         ! cycle closes on the completed basis. z_j and its Gram
          ! column were stored before the matvec and stay valid.
          if(jfnk_jvp_failed) then
             if(its == 1) then
@@ -2643,9 +2643,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       !
       ! Lucky-breakdown guard (09-Sep-2026): if h(j+1,j) is numerically
       ! zero, the exact solution already lies in the current Krylov
-      ! subspace (a "happy breakdown").  Dividing by zero injects NaNs
-      ! into v(:,j+1), silently corrupting the rest of the solve.
-      ! Fix: skip the divide, set v(:,j+1)=0, and let the least-squares
+      ! subspace (a "happy breakdown"). Dividing by zero injects NaNs
+      ! into v(,j+1), silently corrupting the rest of the solve.
+      ! Fix: skip the divide, set v(,j+1)=0, and let the least-squares
       ! residual (res) naturally collapse to ~0, triggering done.
       !
       if(h(j+1,j) < 1d-14 * beta) then
@@ -2663,10 +2663,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
       if(lg_active .and. jfnk_lgmres_n > 0) then
          !
          ! LGMRES (Baker-Jessup-Manteuffel 2005): append the retained
-         ! correction images A z_i to the LS as dense columns.  The
+         ! correction images A z_i to the LS as dense columns. The
          ! basis is [V_{j+1}, q_1..q_k] with q_i the orthonormalized
          ! complement of A z_i; column j+i holds [V' A z_i ; R_i]
-         ! where R is the (lower-triangular) q-expansion.  A z_i is
+         ! where R is the (lower-triangular) q-expansion. A z_i is
          ! stored from the restart pairing, so no matvec is needed.
          ! The complement must be re-orthogonalized each iteration
          ! because V_{j+1} grows -- n-dot cost is trivial vs a JVP.
@@ -2737,10 +2737,10 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          !
          ! DGELSY workspace (ChatGPT audit fix #1, 2026-09-09): the
          ! least-squares solve for the GMRES y-coefficients needs ~5*M
-         ! workspace for this rank-deficient Hessenberg problem.  The
+         ! workspace for this rank-deficient Hessenberg problem. The
          ! original 4*M+1 was undersized and could overwrite adjacent
          ! stack memory inside GMRES, producing otherwise-inexplicable
-         ! crashes around the Newton-loop return/deallocation.  Use a
+         ! crashes around the Newton-loop return/deallocation. Use a
          ! generous 6*M+16 (matches the declaration above).
          !
          call dgelsy(j+1, j, 1, h_, m+1, p, m+1, piv, 1.0d-14, rank, work, &
@@ -2784,9 +2784,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             if(lg_active .and. jfnk_lgmres_n > 0) then
                ! LGMRES hookstep: the step is V y + D c (left-PC) or
                ! Z y + D c (right-PC), so the ||s||_w constraint needs
-               ! the Gram of the combined basis.  Under left PC the
+               ! the Gram of the combined basis. Under left PC the
                ! basis is V itself (W-orthonormal, Gram = I); under
-               ! right PC it is the stored Z'WZ.  Cross and aug-aug
+               ! right PC it is the stored Z'WZ. Cross and aug-aug
                ! blocks are built once per cycle end -- k*j dotprd
                ! calls, trivial vs a JVP.
                lg_k = jfnk_lgmres_n
@@ -2871,14 +2871,14 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          jj = j
          ! Checkpoint the completed cycle for the info==2 hookstep
          ! recompute: caller's h/v hold this basis and beta is this
-         ! cycle's starting residual norm.  (2026-10 audit fix)
+         ! cycle's starting residual norm. (2026-10 audit fix)
          jfnk_gmres_jj   = j
          jfnk_gmres_beta = beta
          if(done .or. jvp_soft) then
             !
             ! JVP soft-fail exit (gdefl work): a killed column closed
             ! the cycle above and x already holds the step built from
-            ! the completed basis.  Measure the true residual when the
+            ! the completed basis. Measure the true residual when the
             ! operator still evaluates -- an eval that fails leaves the
             ! direction unverifiable and the caller's stagnation gate
             ! falls back to the same abort the old hard exit produced.
@@ -2886,7 +2886,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             if(jvp_soft) then
                ! Steps accumulate across cycles, so x can exceed the
                ! trust radius even though each cycle's step was
-               ! hookstep-bounded.  Rescale like the restart-cap exit
+               ! hookstep-bounded. Rescale like the restart-cap exit
                ! before the caller sees the direction.
                if(del > 0d0) then
                   x_cycle_norm = dsqrt(max(0d0, dotprd(n, x, x)))
@@ -2917,16 +2917,16 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
             end if
             ! [JFNK_TRES_FAC] (default 0 = off): measure the true
             ! weighted linear residual ||b - A x||_w at every done-exit
-            ! with one extra matvec.  The Hessenberg LS residual is only
+            ! with one extra matvec. The Hessenberg LS residual is only
             ! a model of that quantity; with a finite-difference matvec
             ! the Arnoldi vectors need not span a fixed linear operator,
             ! and hess_res has been observed 150-450x below the true
-            ! residual at restart (RESTART DIAG, npq_dbg run).  A
+            ! residual at restart (RESTART DIAG, run). A
             ! claimed convergence (res <= tol) is accepted only when
             ! true_res <= JFNK_TRES_FAC*tol; a rejected claim restarts
             ! the cycle on the measured residual (bounded by the
             ! restart cap and imx), or exits 'gmres_tres_reject' when no
-            ! restart headroom remains.  A non-finite true_res at ANY
+            ! restart headroom remains. A non-finite true_res at ANY
             ! done-exit exits 'gmres_tres_nonfinite' immediately --
             ! non-converged exits otherwise only record true_res.
             tres_rej = .false.
@@ -2972,9 +2972,9 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                ! ordinary paths would restart the cycle and re-run
                ! matvecs on an operator that just produced NaN/Inf (the
                ! lb_hit stagnation bypass reaches the restart at label 2
-               ! even without a convergence claim).  Exit non-converged
+               ! even without a convergence claim). Exit non-converged
                ! with a dedicated reason instead of restarting
-               ! (07/10-Nov-2026 audits).  ieee_is_finite covers NaN and
+               ! (07/10-Nov-2026 audits). ieee_is_finite covers NaN and
                ! Inf -- Inf already fails the > test below but belongs
                ! to this unverifiable class, not the "too big" one.
                if(.not. ieee_is_finite(true_res)) then
@@ -3012,8 +3012,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                ! edited, 12-Nov-2026: an info=1/2 exit hands
                ! the caller only the Hessenberg model residual, which a
                ! finite-difference matvec can leave orders below the
-               ! true ||b - A x||_w.  Measure once here so the Newton
-               ! stagnation gate tests the real residual.  Converged
+               ! true ||b - A x||_w. Measure once here so the Newton
+               ! stagnation gate tests the real residual. Converged
                ! exits (info=0) and cycles already measured by the TRES
                ! check (ltres) add no extra matvec.
                if(info /= 0 .and. .not. ltres) then
@@ -3069,7 +3069,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! The Hessenberg least-squares residual `res` is computed with
          ! dot_product (Euclidean) on the coefficient vector, while the
          ! Arnoldi basis V is orthonormal in the weighted (dotprd) inner
-         ! product.  If V loses orthogonality, res underestimates the
+         ! product. If V loses orthogonality, res underestimates the
          ! true weighted physical residual ||F - J*s||_w.
          !
          ! Compute the true residual explicitly and compare.
@@ -3115,7 +3115,7 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          ! A cycle that trims the LS residual by less than
          ! jfnk_cycstall_frac is re-solving a nearly invariant space --
          ! the JVP budget is better spent on the inexact direction
-         ! than on jfnk_cycstall_nmax more identical cycles.  Exit via
+         ! than on jfnk_cycstall_nmax more identical cycles. Exit via
          ! info=1 like the other non-converged exits; the caller's
          ! true-residual gate decides whether the partial direction
          ! is usable.
@@ -3140,12 +3140,12 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
          !
          ! Restart cap: a Krylov space that goes invariant because the
          ! preconditioned operator cannot reach the residual tail stays
-         ! invariant on restart.  Cycles then die in ~2 its and restart
-         ! storm accumulates bad LSQ steps until imx.  The cap is a
+         ! invariant on restart. Cycles then die in ~2 its and restart
+         ! storm accumulates bad LSQ steps until imx. The cap is a
          ! storm guard only -- set [JFNK_GMRES_RST] above 1 when the
          ! goal is to exercise the full JFNK_MAXGMRES budget; the
          ! true-residual diagnostic above prints at every restart so
-         ! a persistently flat cycle is recorded, not hidden.  On
+         ! a persistently flat cycle is recorded, not hidden. On
          ! exceeding the cap, fall back to the caller's
          ! inexact-direction path via info=1.
          n_restart = n_restart + 1
@@ -3216,22 +3216,22 @@ end subroutine gmres_m_v1
 ! of the preconditioned operator B that restarted GMRES discards and
 ! re-discovers each cycle (Morgan 2002, SISC 24(1) 20-37; the
 ! Parks et al. 2006 GCRO-DR uses the same machinery for sequences of
-! systems).  The retained directions fill the augmentation slots the
+! systems). The retained directions fill the augmentation slots the
 ! LGMRES machinery already consumes, so the next cycle's dense
 ! least-squares sees span[V_jj g_i] jointly with the new Krylov
 ! space.
 !
 ! Harmonic Ritz problem (Morgan 2002 eq. 4.1): the pairs (theta, g)
 ! are eigenpairs of Hhat = H + h_{jj+1,jj}^2 f e_jj^T with
-! f = H^{-T} e_jj.  The retained step-space direction is V_jj g under
+! f = H^{-T} e_jj. The retained step-space direction is V_jj g under
 ! left PC and Z g = M^{-1} V_jj g under right PC -- matching the
-! [V D]/[Z D] step the augmented LS builds.  Its operator image is
+! [V D]/[Z D] step the augmented LS builds. Its operator image is
 ! V_{jj+1} H_bar g by the Arnoldi relation B V_jj = V_{jj+1} H_bar,
-! so extraction needs no extra matvecs.  A complex-conjugate pair
+! so extraction needs no extra matvecs. A complex-conjugate pair
 ! contributes its real 2-d invariant span (two vectors).
 !
 ! [JFNK_GDEFL] (default F) gates the caller site; [JFNK_GDEFL_K]
-! bounds the mode count.  All failures (singular H, dgeev error,
+! bounds the mode count. All failures (singular H, dgeev error,
 ! non-finite vectors) degrade to "keep the existing set" -- the
 ! augmented LS only treats the set as constraint directions.
 !----------------------------------------------------------------------
@@ -3309,7 +3309,7 @@ subroutine jfnk_gdefl_extract_v1(n, m, jj, h, ldh, v, ldv, dotprd, &
    end do
    !
    ! Collect real coefficient vectors: one per real eigenvalue, two
-   ! per complex-conjugate pair (the real invariant span).  A partner
+   ! per complex-conjugate pair (the real invariant span). A partner
    ! is dropped only when the slot budget is spent.
    !
    used = .false.
@@ -3404,8 +3404,8 @@ subroutine hook_step_v1(j, h, m, beta, del, y, pred_res)
    double precision :: dq_dmu, dmu
    integer :: info, i, i_ms
    !
-   ! Guard: j=0 means no GMRES iterations were done.  There is no
-   ! least-squares problem to solve.  Return a zero step to let the
+   ! Guard: j=0 means no GMRES iterations were done. There is no
+   ! least-squares problem to solve. Return a zero step to let the
    ! Newton loop evaluate the residual and decide what to do next.
    ! Without this guard, DGESVD is called with LDVT=0 < max(1,N)=1,
    ! causing "Intel MKL ERROR: Parameter 11 was incorrect on entry
@@ -3432,7 +3432,7 @@ subroutine hook_step_v1(j, h, m, beta, del, y, pred_res)
    !
    ! Singular-value threshold (ChatGPT audit fix #2, 2026-09-09):
    ! The Hessenberg least-squares system can be rank-deficient when
-   ! fixed T/Ne variables and masked equations remove unknowns.  A zero
+   ! fixed T/Ne variables and masked equations remove unknowns. A zero
    ! (or near-zero) singular value makes q = p/s inject Inf/NaN, which
    ! then corrupts the trust-region step and the predicted residual.
    ! DGESVD returns singular values in descending order, so s(1) is the
@@ -3449,7 +3449,7 @@ subroutine hook_step_v1(j, h, m, beta, del, y, pred_res)
       mu = 0d0
    else
       ! Moré-Sorensen (1983): Newton iteration on the secular equation
-      !   phi(mu) = 1/||q(mu)|| - 1/del = 0,   q_i = s_i p_i/(mu + s_i^2)
+      !   phi(mu) = 1/||q(mu)|| - 1/del = 0, q_i = s_i p_i/(mu + s_i^2)
       ! with
       !   d||q||/dmu = -(1/||q||) * sum_i q_i^2 / (mu + s_i^2)
       !   mu_new = mu + ||q||*(1 - ||q||/del) / (d||q||/dmu)
@@ -3502,9 +3502,9 @@ end subroutine hook_step_v1
 ! Used under right preconditioning: the physical step is s = Z y with
 ! Z = M^{-1} V, and G = Z' W Z makes the constraint ||s||_w rather
 ! than ||y|| = ||M s||_w (the "TR norm invalid" issue noted in the
-! 17-Sep-2026 audit).  Cholesky G = R' R maps to the Euclidean
+! 17-Sep-2026 audit). Cholesky G = R' R maps to the Euclidean
 ! problem in yhat = R y:
-!   min ||beta e1 - H R^{-1} yhat||   s.t.  ||yhat|| <= del,
+!   min ||beta e1 - H R^{-1} yhat|| s.t. ||yhat|| <= del,
 ! solved by the standard hook_step_v1, then y = R^{-1} yhat.
 !
 ! A numerically singular G (preconditioner collapse, e.g. a psolve
@@ -3538,10 +3538,10 @@ subroutine hook_step_g_v1(j, h, m, beta, del, g, ldg, y, pred_res)
    end do
    call dpotrf('U', j, r, j, info)
    if(info /= 0) then
-      ! Fallback: Euclidean hookstep in y-units.  This is not the
+      ! Fallback: Euclidean hookstep in y-units. This is not the
       ! physical ||s||_w norm the G-factorization was built to
       ! constrain -- the step is still bounded by del, but in the
-      ! wrong metric.  Rare: the ridge above already absorbs
+      ! wrong metric. Rare: the ridge above already absorbs
       ! near-dependent Z columns.
       call hook_step_v1(j, h, m, beta, del, y, pred_res)
       return
@@ -3859,11 +3859,11 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
    !
    m_tests = (/5, 10, 20, 40/)
    !
-   ! Save state that GMRES might modify.  The test solves below leave
+   ! Save state that GMRES might modify. The test solves below leave
    ! jfnk_gmres_jj/jfnk_gmres_beta describing the LAST test's basis in
    ! h_test/v_test (with m_test up to 40 > production m); without the
    ! restore, a later info==2 hookstep recompute would read/write past
-   ! the caller's m-sized h/v/y arrays.  (2026-10 audit fix)
+   ! the caller's m-sized h/v/y arrays. (2026-10 audit fix)
    if(allocated(save_jfnk_x)) then
       if(size(save_jfnk_x) .ne. n) deallocate(save_jfnk_x, &
      &   save_jfnk_fx)
@@ -4073,11 +4073,11 @@ end subroutine jfnk_gmres_dim_experiment_v1
 
 
 !----------------------------------------------------------------------
-! JFNK_TAUTO_DAMP_V1: FIX_T_AUTO step guard.  Scales the temperature
+! JFNK_TAUTO_DAMP_V1: FIX_T_AUTO step guard. Scales the temperature
 ! components of a Newton/Cauchy direction by jfnk_tauto_alpha and caps
-! each at +-jfnk_tauto_dmax.  T components sit at flat index
+! each at +-jfnk_tauto_dmax. T components sit at flat index
 ! i = (k-1)*jfnk_tauto_nt + jfnk_tauto_jt for k in [dst,dend]; all
-! other components (populations, Ne) pass through unchanged.  Called
+! other components (populations, Ne) pass through unchanged. Called
 ! on the finished physical step AFTER the Krylov solve and before the
 ! trial eval, so the line search, JVP prediction and commit all see
 ! the same bounded candidate.
@@ -4168,7 +4168,7 @@ end subroutine jfnk_blk_lsq_solve
 ! where Jnn^{-1} JnT is evaluated with the same per-depth LSQ block
 ! solve used at apply time (chol/braw/ridge/reg/rsf/csf as above).
 ! np_ = nt-2 population rows per depth; T sits at flat row nt,
-! Ne at nt-1.  S is nd x nd; factored in place by DGETRF.
+! Ne at nt-1. S is nd x nd; factored in place by DGETRF.
 !----------------------------------------------------------------------
 subroutine jfnk_schur_form_v1(nd, nt, np_, jt, chol, braw, ridge, &
      reg, rsf, csf, s, sipiv, info)
@@ -4208,9 +4208,9 @@ end subroutine jfnk_schur_form_v1
 ! JFNK_SCHUR_APPLY_V1: two-level (n,T) Schur-complement preconditioner
 ! apply z = M^{-1} v on the flat state vector v(nd*nt).
 !
-!   z_n(k) = Jnn(k)^{-1} v_n(k)          (LSQ block solve, pops only)
-!   t(k)   = v_T(k) - JTn(k) . z_n(k)
-!   z_T    = S^{-1} t                    (dense nd x nd DGETRS)
+!   z_n(k) = Jnn(k)^{-1} v_n(k) (LSQ block solve, pops only)
+!   t(k) = v_T(k) - JTn(k) . z_n(k)
+!   z_T = S^{-1} t (dense nd x nd DGETRS)
 !   z_n(k) = z_n(k) - Jnn(k)^{-1} (JnT(k) z_T(k))
 !
 ! T is written to row nt of each depth block, Ne (nt-1) zeroed; reg
@@ -4285,7 +4285,7 @@ end subroutine jfnk_schur_apply_v1
 ! a(n,n) arrives already carrying the PTC fold and the frozen T/Ne
 ! identity substitution: those write the persistent JFNK_BA_A /
 ! JFNK_BA_DIAG which the banded path, the Jacobi fallback and the
-! admission gates also read, so they stay in the caller.  pre_reg is
+! admission gates also read, so they stay in the caller. pre_reg is
 ! the caller-built population-floor mask (needs POPS_BASE/ATM); this
 ! routine treats its rows exactly like detected near-null rows.
 !
@@ -4387,9 +4387,9 @@ end subroutine jfnk_schur_apply_v1
          lu(1:n,1:n) = a(1:n,1:n)
          if(jfnk_pc_signed)then
 ! [JFNK_PTC_SIGNED]: the ridge must increase |d|, so it follows the
-! sign of the post-fold diagonal (d_i*(1+ridge) form).  A positive
+! sign of the post-fold diagonal (d_i*(1+ridge) form). A positive
 ! ridge added to a loss-dominated d<0 row instead shrinks |d| and can
-! push the pivot through zero.  For |d_i| below the 1e-30*scale_k
+! push the pivot through zero. For |d_i| below the 1e-30*scale_k
 ! floor the sign is ambiguous by definition; sign(x,0)=x keeps +ridge
 ! on an exactly-zero diagonal, matching the unsigned path there.
             do i = 1, n
@@ -4403,14 +4403,14 @@ end subroutine jfnk_schur_apply_v1
             end do
          end if
 !
-! Near-null row detection.  Default (historical): test the raw row
+! Near-null row detection. Default (historical): test the raw row
 ! against the block maximum, which is dominated by the stiffest rows
 ! so a full-rank row in different units can be misclassified.
 ! [JFNK_ROW_TINY_EQUIL] (F3): scale-free test -- a row counts as
 ! null only when every entry is negligible relative to its column
-! maximum, share_i = max_j |a_ij|/colmax_j < row_tiny.  A row in
+! maximum, share_i = max_j |a_ij|/colmax_j < row_tiny. A row in
 ! small units that still owns its column keeps share ~1; a genuinely
-! null row keeps share ~0.  DGEEQU factors cannot express this: its
+! null row keeps share ~0. DGEEQU factors cannot express this: its
 ! column scaling normalizes the row-scaled matrix, leaving a small
 ! row's absolute magnitude dominant anyway.
 !
@@ -4472,7 +4472,7 @@ end subroutine jfnk_schur_apply_v1
 !
 ! Substitute identity for regularized rows (and, under
 ! [JFNK_REG_ZERO_COL], columns) in the factored block only -- the
-! residual and JVP never see the substitution.  Column zeroing
+! residual and JVP never see the substitution. Column zeroing
 ! removes the stale coupling of the regularized unknown into the
 ! other equations; without it the projected solve error grows
 ! linearly with the column magnitude (unit test T-regcol).
@@ -4516,7 +4516,7 @@ end subroutine jfnk_schur_apply_v1
 ! must be the maximum ROW sum; the pre-fix code supplied the maximum
 ! column sum (1-norm), which on unsymmetric blocks underestimates
 ! rcond by an order-dependent factor (~9x at n=50, ~240x at n=800 in
-! the unit test).  rcond is diagnostic only today, so this changes
+! the unit test). rcond is diagnostic only today, so this changes
 ! logged values, not control flow.
             anorm_k = 0.0d0
             do i = 1, n
@@ -4531,8 +4531,8 @@ end subroutine jfnk_schur_apply_v1
          end if
          if(info_k == 0)then
 !
-! Acceptance test.  Default: synthetic-RHS forward-error micro-test
-! (b = M*1 must return x=1 to 1e-4).  [JFNK_PC_RCOND_GATE] (F5): the
+! Acceptance test. Default: synthetic-RHS forward-error micro-test
+! (b = M*1 must return x=1 to 1e-4). [JFNK_PC_RCOND_GATE] (F5): the
 ! micro-test is a hidden condition-number gate (~1e13) since the true
 ! backward error stays ~1e-17; the gate instead compares the DGECON
 ! reciprocal condition estimate against JFNK_PC_RCOND_MIN directly.
@@ -4597,7 +4597,7 @@ end subroutine jfnk_schur_apply_v1
                  ridge_piv > 0.0d0 .and. pivrat < ridge_piv)then
 ! DGETRF can return INFO=0 on a near-singular block whose smallest
 ! pivot still avoids an exact zero; the solve inherits the full
-! amplification.  With JFNK_RIDGE_PIV>0 the successful-but-ill-
+! amplification. With JFNK_RIDGE_PIV>0 the successful-but-ill-
 ! conditioned factorization is rejected so the ladder escalates.
                lu_ok = .false.
                ridge_used = 0.0d0
@@ -4627,12 +4627,12 @@ end subroutine jfnk_schur_apply_v1
 ! ----------------------------------------------------------------------
 ! jfnk_pc_apply_block_v1: apply of ONE depth block, extracted verbatim
 ! from JFNK_PRECOND_V1 so the unit tests run the identical production
-! code.  v(n) is the input right-hand side on entry and the
+! code. v(n) is the input right-hand side on entry and the
 ! preconditioned output on return; rhs(n) is an unmodified copy of the
-! input used by the Jacobi fallback.  fixed(n) is the caller-built
+! input used by the Jacobi fallback. fixed(n) is the caller-built
 ! fixed-unknown mask (frozen T/Ne rows), reg(n) the factorization's
 ! regularized-row mask; both project z_i = 0, which is linear and keeps
-! M^{-1} a consistent operator for GMRES.  Nonfinite outputs are zeroed
+! M^{-1} a consistent operator for GMRES. Nonfinite outputs are zeroed
 ! and counted in nzclip -- the only nonlinearity, and the caller aborts
 ! the GMRES cycle when nzclip grows (jfnk_pc_clip_event).
 !
@@ -4681,7 +4681,7 @@ end subroutine jfnk_schur_apply_v1
       end do
       if(lsq_mode)then
          allocate(w_lsq(n))
-! w = ROW_SF v' and rhs = B^T w.  B = A + ridge + reg-row substitution
+! w = ROW_SF v' and rhs = B^T w. B = A + ridge + reg-row substitution
 ! expanded as B^T w = A^T w + D_r w + sum_{i reg} w_i (e_i - A(i,:)^T)
 ! - w_i D_r(i) e_i so no second n x n block is needed.
          do j = 1, n
@@ -4754,8 +4754,8 @@ end subroutine jfnk_schur_apply_v1
 ! ----------------------------------------------------------------------
 ! jfnk_rscale_branch_v1: JFNK_RSCALE mode dispatch, extracted as a
 ! pure function so the unit tests exercise the exact production
-! branch order.  F7: the pre-fix chain tested mode(1:4)=='DIAG'
-! before 'DIAG_RDG', which made DIAG_RDG unreachable.  The specific
+! branch order. F7: the pre-fix chain tested mode(1:4)=='DIAG'
+! before 'DIAG_RDG', which made DIAG_RDG unreachable. The specific
 ! 8-character match must be tested before the 4-character prefix.
 ! Return codes: 0 EUCLIDEAN (default), 1 SQRT_STE, 2 DIAG, 3 DIAG_RDG.
 ! ----------------------------------------------------------------------
@@ -4781,7 +4781,7 @@ end subroutine jfnk_schur_apply_v1
 ! sgn_i = sign(d_i) when |d_i| clears the floor (the caller supplies
 ! the ROW_TINY-style floor), else +1: a numerically zero diagonal
 ! cannot decide a sign, and such rows are regularized anyway, so +1
-! reproduces the unsigned shift on them.  Shared by the residual PTC
+! reproduces the unsigned shift on them. Shared by the residual PTC
 ! term, the factorization fold and the apply rescale so all three use
 ! the same convention.
 ! ----------------------------------------------------------------------
@@ -4802,10 +4802,10 @@ end subroutine jfnk_schur_apply_v1
    end subroutine jfnk_pc_sign_vec_v1
 !
 ! ----------------------------------------------------------------------
-! jfnk_pc_sign_stats_v1: [JFNK_PC_SIGN_DIAG] report data.  For rows
+! jfnk_pc_sign_stats_v1: [JFNK_PC_SIGN_DIAG] report data. For rows
 ! with d < 0 and sigma > 0 (the unsigned-shift cancellation class),
 ! collect the ratio sigma/|d| and count the rows where the unsigned
-! fold nearly annihilates the diagonal (|d+sigma| < 0.1|d|).  The
+! fold nearly annihilates the diagonal (|d+sigma| < 0.1|d|). The
 ! caller prints; this routine only reduces the arrays.
 ! ----------------------------------------------------------------------
    subroutine jfnk_pc_sign_stats_v1(d, sig, n, n_neg, n_cancel, &
@@ -4886,11 +4886,11 @@ end subroutine jfnk_schur_apply_v1
 
 !----------------------------------------------------------------------
 ! JFNK_PC_FINAL_GUARD_V1: last-chance finite-output scan on the fully
-! post-processed preconditioner result (10-Nov-2026 audit).  The
+! post-processed preconditioner result (10-Nov-2026 audit). The
 ! per-depth apply guards its own intermediate values, but the
 ! log-unknown rescale, PTC diagonal rescale, T-ladder scaling and the
 ! enrichment backsolve run afterwards and can still overflow or return
-! NaN on a block the factor stage accepted.  Non-finite entries are
+! NaN on a block the factor stage accepted. Non-finite entries are
 ! zeroed -- the only safe value inside a matvec -- and counted so the
 ! caller can raise jfnk_pc_clip_event and abort the Krylov solve
 ! rather than silently deliver a nonlinear M^{-1}.
@@ -4916,13 +4916,13 @@ end subroutine jfnk_schur_apply_v1
 
 !----------------------------------------------------------------------
 ! JFNK_H_SELECT_V1: plateau selector for [JFNK_HADAPT] (10-Nov-2026
-! audit).  jv_sw holds the JVPs sampled by the h-sweep (one column per
+! audit). jv_sw holds the JVPs sampled by the h-sweep (one column per
 ! multiplier; ok_sw marks evals that survived the residual checks).
 ! A forward difference inside the stable region between truncation
 ! error (large h) and residual noise (small h) changes little across a
 ! decade; noise-dominated points fluctuate randomly and truncation-
 ! dominated points drift systematically, so the best adjacent-pair
-! agreement locates the plateau.  imult returns the upper member of
+! agreement locates the plateau. imult returns the upper member of
 ! the best pair -- the more noise-immune endpoint, with agreement
 ! bounding the truncation drift -- or 0 when no adjacent pair agrees
 ! within tol, meaning the direction is not FD-resolvable at any
@@ -4962,15 +4962,15 @@ end subroutine jfnk_schur_apply_v1
 
 !----------------------------------------------------------------------
 ! JFNK_BTD_FACTOR_V1: block-Thomas factorization of a scaled
-! block-tridiagonal matrix for [JFNK_BANDED_TDMA].  The DGBTRF path on
+! block-tridiagonal matrix for [JFNK_BANDED_TDMA]. The DGBTRF path on
 ! the assembled banded matrix costs O(N*KL*KU) ~ 3E15 flops at
-! NT~2E3/ND~70 -- infeasible per JFNK activation.  The block
+! NT~2E3/ND~70 -- infeasible per JFNK activation. The block
 ! recurrence costs ND*(4/3)*NT^3 (~seconds once per activation) and
-! each apply is O(ND*NT^2).  lu_out arrives holding the diagonal
+! each apply is O(ND*NT^2). lu_out arrives holding the diagonal
 ! blocks D_k and returns the pivoted LU factors of the modified
 ! diagonals D~_k = D_k - al_k c_{k-1}; c_out arrives holding the
 ! uppers U_k and returns c_k = D~_k^{-1} U_k; al holds the lowers
-! (read-only).  nfail returns the failing depth index, 0 on success
+! (read-only). nfail returns the failing depth index, 0 on success
 ! -- the caller retries with a ridge or falls back to the per-depth
 ! LU.
 !----------------------------------------------------------------------
@@ -5013,9 +5013,9 @@ end subroutine jfnk_schur_apply_v1
 
 !----------------------------------------------------------------------
 ! JFNK_BTD_APPLY_V1: in-place block-Thomas solve M x = b using the
-! factors from jfnk_btd_factor_v1.  Forward sweep overwrites v_k with
+! factors from jfnk_btd_factor_v1. Forward sweep overwrites v_k with
 ! D~_k^{-1}(v_k - L_k v_{k-1}); backward sweep completes
-! v_k = w_k - c_k v_{k+1}.  In-place is safe because each block is
+! v_k = w_k - c_k v_{k+1}. In-place is safe because each block is
 ! consumed only by its immediate neighbour in sweep order.
 !----------------------------------------------------------------------
    subroutine jfnk_btd_apply_v1(nt, nd, al, lu_f, c_f, ipiv, v, &
@@ -5048,7 +5048,7 @@ end subroutine jfnk_schur_apply_v1
    end subroutine jfnk_btd_apply_v1
 !======================================================================
 ! jfnk_secant_gram_v1: build and factor G = JV^T JV for the rank-r
-! Broyden preconditioner update [JFNK_SEC_R].  The corrected inverse
+! Broyden preconditioner update [JFNK_SEC_R]. The corrected inverse
 ! B'v = Bv + D*(G^-1 JV^T v) with D_i = u_i - B(J*u_i) satisfies
 ! B'(J*u_i) = u_i exactly on the recorded span, so the factorization
 ! must not fail on near-dependent JV columns: a relative ridge on the
@@ -5075,7 +5075,7 @@ end subroutine jfnk_schur_apply_v1
       nfail = info
    end subroutine jfnk_secant_gram_v1
 !======================================================================
-! jfnk_secant_apply_v1: vout += D*(G^-1 JV^T vin).  JV^T must act on
+! jfnk_secant_apply_v1: vout += D*(G^-1 JV^T vin). JV^T must act on
 ! the apply's original argument (vin), not on the base-applied vout:
 ! B'v = Bv + D*(G^-1 JV^T v) with v the input, so B'(J*u_i) = u_i.
 !----------------------------------------------------------------------
