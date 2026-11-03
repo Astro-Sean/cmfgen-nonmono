@@ -31,12 +31,14 @@ files; do not delete completed tasks.
   non-contracting on m15
 - Completed tasks: 12 (P1-001..P1-006, P1-009, P2-012, P4-001,
   P4-012, INT-003, DOC-001)
-- Bug hunt: 1 defect fixed - BUG-001 (P0, GMRES hess_res-only
-  convergence acceptance; see section 10a register); 1 refuted -
-  BUG-003 (P3, MKL DGELSY param-4 warning on a deliberate-NaN legacy
-  test). Phase 0 repository reconciliation complete; Phase 1 (JFNK
-  true-residual acceptance) complete including surrogate
-  recalibration (`test_jfnk_solver.py` 89 passed, 0 failed).
+- Bug hunt: 2 defects fixed - BUG-001 (P0, GMRES hess_res-only
+  convergence acceptance), BUG-002 (P2, SOB_RH_GEOM cache
+  fingerprint missed SIGMA); 1 refuted - BUG-003 (P3, MKL DGELSY
+  param-4 warning on a deliberate-NaN legacy test). See section 10a
+  register. Phase 0 repository reconciliation complete; Phase 1
+  (JFNK true-residual acceptance) complete including surrogate
+  recalibration (`test_jfnk_solver.py` 89 passed, 0 failed); Phase 2
+  (SOB_RH_GEOM cache) complete at the unit level.
 - Outstanding tasks: 79 (17 in progress with partial evidence,
   62 not started)
 - Blocked tasks: 0 (run-dependent tasks are sequenced, not blocked;
@@ -1476,6 +1478,7 @@ register status only.
 | Bug ID  | Severity | Title                                             | Status |
 |---------|----------|---------------------------------------------------|--------|
 | BUG-001 | P0       | GMRES `info=0` convergence accepted on hess_res   | FIXED  |
+| BUG-002 | P2       | SOB_RH_GEOM cache fingerprint misses SIGMA        | FIXED  |
 | BUG-003 | P3       | MKL "Parameter 4" warning on entry to DGELSY      | REFUTED|
 
 - BUG-001 (P0, FIXED 2026-11-03): `JFNK_TRES_FAC` defaulted to `0`,
@@ -1497,6 +1500,18 @@ register status only.
   D*20+P+D*3+P+D*15). `test_jfnk_solver.py`: 89 passed, 0 failed.
   Evidence: `tests/jfnk_core` all-PASS under ifort; full `build.sh`
   rebuild recorded in the build transcript.
+- BUG-002 (P2, FIXED 2026-11-03): `SOB_RH_GEOM` decided cache
+  validity on `SUM(V)`+`SUM(R)` at 1D-25 relative, but the cached
+  `RH_T1`/`RH_T1P` are `|1+mu^2*sigma|` - SIGMA was never
+  fingerprinted, and the digest cannot distinguish profiles sharing
+  a sum. Same-R,V call with new sigma silently reused stale
+  resonance taus -> wrong `DRC`. Latent: all current sigma rewrites
+  pair with R or V changes. Fix: element-wise fingerprint on stored
+  copies of all three inputs (`ALL(...EQ...)`, nested under the ND
+  check so `ALL` never sees an unallocated array). Regression:
+  multi-phase `drv_sob_rh` + T7 in `test_sob_rh_couple.py` - 2 of 3
+  new checks FAIL on pre-fix (no rebuild, stale T1/T1P), 12/12 PASS
+  on fixed including the phase-3 cache-hit check.
 - BUG-003 (P3, REFUTED 2026-11-03): the oneMKL `Parameter 4 was
   incorrect on entry to DGELSY` warning fires only in the legacy
   `tests/f90` T7 all-NaN-residual scenario (MKL entry check on a
