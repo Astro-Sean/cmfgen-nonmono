@@ -301,7 +301,7 @@ C
 	IMPLICIT NONE
 C
 C Altered 05-Oct-2026 : Validate strictly monotonic input and ordered
-C                         output coordinates before interpolation (Devin).
+C                         output coordinates before interpolation.
 C Altered 24-May-1996 : ERROR_LU installed
 C Created 01-Apr-1992 : Code may need recoding for optimal speed, and for
 C                         vectorization.
