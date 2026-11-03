@@ -424,6 +424,15 @@
 	INTEGER :: FCONV_SUPPRESSED_CNT=0
 	REAL(KIND=LDP) :: FCONV_SUPPRESSED_MAX=0.0_LDP
 !
+! Census of f-iteration forced exits (all iterations, not just the
+! iteration-1 suppressed set): an exit at the pass cap leaves an
+! unconverged electron-scattering source in the rates, so it is counted
+! rather than only warned about. Reset and reported once per great
+! iteration next to the suppressed-count summary in CMFGEN_SUB.
+!
+	INTEGER :: FCONV_CAP_CNT=0
+	REAL(KIND=LDP) :: FCONV_CAP_T1=0.0_LDP
+!
 	LOGICAL EXTEND_FRM_SOL
 	LOGICAL INSERT_FREQ_FRM_SOL
 !
@@ -2192,6 +2201,13 @@
 ! 8-point h-sweep, baseline/direction/repeat evals, and the per-row
 ! cancellation-floor SNR table) on the first post-factor direction
 ! even when the FD-vs-BA mismatch stays below the 10% trigger.
+! Also runs the activation-level operator-consistency battery
+! (JFNK_OP_PROBE_V1) right after the deferred preconditioner
+! factorization: baseline/perturbed residual repeatability, a
+! 13-direction FD/JVP/BA sweep with per-direction h-scans, and
+! additivity/homogeneity defects, all emitted as OPPROBE lines.
+! Roughly 100 residual evals per admission -- expensive under
+! JFNK_COUPLED where each eval is a radiation sweep.
 	LOGICAL JFNK_HSCAN
 !
 ! JFNK_HADAPT (VADAT [JFNK_HADAPT], default F): adaptive FD-step
