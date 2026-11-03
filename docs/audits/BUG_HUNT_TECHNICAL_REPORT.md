@@ -206,12 +206,16 @@ See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
   verification plus surrogate/regression evidence is what exists.
   `tres_rej`/`tres_nonfinite` counts from real interacting-SN models
   remain the open physical-impact measurement. As of 03-Nov-2026
-  two interactive-partition m15 runs are in flight on the fixed
-  build (job 12667827 warm restart at it620+; job 12667984 cold
-  start): they validate stability of the admit/defer cycle, but
-  per BUG-005 they are not expected to emit tres exits - the
-  deferred-admission pattern means GMRES never enters on this
-  model state.
+  three interactive-partition m15 runs are in flight on the fixed
+  build: job 12667827 (warm DIAG restart at it620+, confirms the
+  BUG-005 defer cycle live - 15 admits/14 defers + 1 skip-Newton,
+  zero tres exits, converging through full iterations), job
+  12667984 (cold start, LAMBDA phase at it~38, hours from first
+  JFNK admission), and job 12669084 (warm TRI probe cloned from
+  the same it620 state, NUM_BNDS=3 + SOL_METH=TRI, queued for the
+  P5-013/014 paired-method comparison). Per BUG-005 the DIAG jobs
+  are not expected to emit tres exits - the deferred-admission
+  pattern means GMRES never enters on this model state.
 - Complete unit suite + `build.sh`: recorded in the build log for
   this change set.
 
