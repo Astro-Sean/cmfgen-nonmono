@@ -43,7 +43,46 @@
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
 !
-	IF(.NOT. DO_NONMONO_SOB .AND. .NOT. DO_NONMONO_KNOP)RETURN
+! Stock-mode detection state: the compressing-cell check below runs
+! on a scratch copy so SIGMA_TRUE stays a DO_NONMONO_*-only array.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: SIG_CHK(:)
+	INTEGER N_COMP,N_WORST
+	LOGICAL, SAVE :: MONO_WARNED=.FALSE.
+!
+! With both nonmono flags off the unclamped gradient is still
+! evaluated once per call: the stock solvers do not see sigma < -1
+! (FG_J_CMF_V13 pins SIGMA_RAY at -0.999; MOM_J_CMF_V11 builds
+! 1+W poles), so a compressing input is silently transferred on a
+! different velocity field than the one supplied. Warn once so the
+! result is not mistaken for a non-monotonic solution.
+!
+	IF(.NOT. DO_NONMONO_SOB .AND. .NOT. DO_NONMONO_KNOP)THEN
+	  ALLOCATE(SIG_CHK(ND))
+	  CALL SIGMA_TRUE_CORE(SIG_CHK,R,V,ND,N_UNDEF)
+	  N_COMP=0
+	  N_WORST=1
+	  DO I=1,ND
+	    IF(SIG_CHK(I) .LT. -0.999_LDP)N_COMP=N_COMP+1
+	    IF(SIG_CHK(I) .LT. SIG_CHK(N_WORST))N_WORST=I
+	  END DO
+	  IF(N_COMP .GT. 0 .AND. .NOT. MONO_WARNED)THEN
+	    LUER=ERROR_LU()
+	    WRITE(LUER,'(A)')' ********** WARNING: non-monotonic velocity field **********'
+	    WRITE(LUER,'(A,I6,A,I6,A)')
+	1     ' ',N_COMP,' of',ND,' depths have sigma_true < -0.999'
+	    WRITE(LUER,'(A,I6,A,3ES14.6)')
+	1     ' worst at depth',N_WORST,': R,V,sigma_true=',
+	2     R(N_WORST),V(N_WORST),SIG_CHK(N_WORST)
+	    WRITE(LUER,'(A)')
+	1     ' the conventional path solves transfer on a clamped'
+	2   //' gradient; set DO_NONMONO_SOB or DO_NONMONO_KNOP if'
+	3   //' the compression is physical'
+	    MONO_WARNED=.TRUE.
+	  END IF
+	  DEALLOCATE(SIG_CHK)
+	  RETURN
+	END IF
 !
 	IF(DO_NONMONO_SOB)THEN
 	  DO I=1,ND
