@@ -12,7 +12,7 @@
 ! POPS, ED, T are accessed via MOD_CMFGEN (ED, T) and via the
 ! JFNK_CMFGEN_INT_MOD module (POPS_BASE, POPS_SAVE).
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_INIT_V1(NT, ND, NION, NUM_BNDS, DIAG_INDX, LUER,
 	1                        POPS, ED_IN, T_IN, Z_POP_IN,
@@ -531,7 +531,7 @@
 ! option (DIAG_RDG) remain available via VADAT JFNK_RSCALE.
 ! Full-system audit (2026-09-10): Euclidean reduced the unweighted
 ! STEQ residual ~54%; 1/sqrt(|STEQ|) reduced it ~0%.
-! editted by Sean Brennan (10-Sep-2026)
+! edited by Sean Brennan (10-Sep-2026)
 !
 	LUER = ERROR_LU()
 	JFNK_RSCALE(1:N) = 1.0_LDP
@@ -629,7 +629,7 @@
 !
 ! JFNK_ASSEMBLE_STEQ_V1: Assemble SE(ID)%STEQ into a flat vector.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_ASSEMBLE_STEQ_V1(STEQ_OUT, NT, ND, NION, NUM_BNDS,
 	1                                 DIAG_INDX, POPS)
@@ -721,7 +721,7 @@
 ! STEQ_MULTI_V10 reads ATM, so POPS_WORK must be copied before any
 ! collisional residual evaluation.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_SYNC_ATM_FROM_POPS(POPS_IN)
 	USE SET_KIND_MODULE
@@ -906,7 +906,7 @@
 ! is stored.  The outer-iteration BA is then restored so the GMRES
 ! preconditioner still sees the full Jacobian.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_BUILD_BA_RAD_V1()
 	USE SET_KIND_MODULE
@@ -931,7 +931,7 @@
 	INTEGER LUER, ERROR_LU
 	EXTERNAL ERROR_LU
 !
-! editted by Devin, 08-Oct-2026: coll/rad norm split diagnostic.
+! edited, 08-Oct-2026: coll/rad norm split diagnostic.
 ! The preconditioner factors BA_full = BA_coll + BA_rad (the outer-
 ! iteration BA is restored at the end of this routine), so the
 ! interesting audit question is which part dominates and on which
@@ -1345,7 +1345,7 @@
 ! actual fractional change exp(x)-1 (or x in the linear map) so the BA
 ! scaling CMAT*(dn/n, dT/T) matches the residual's n(x) map.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_BA_RAD_MATVEC_V1(X, Y)
 	USE SET_KIND_MODULE
@@ -1449,7 +1449,7 @@
 ! JFNK_COMPUTE_STEQ_V1: Recompute SE(ID)%STEQ from the current POPS
 ! with J frozen.  Uses module-level ED, T from MOD_CMFGEN.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_COMPUTE_STEQ_V1(NT, ND, NION, NUM_BNDS, DIAG_INDX,
 	1                               POPS_IN, COMPUTE_BA_IN,
@@ -1587,7 +1587,7 @@
 ! exactly s/dtau.  Called after F(0) is adopted, and again when a
 ! coupled rebuild moves the baseline.
 !
-! edited by Devin, 06-Oct-2026 (SER anchor fix): also (re)set the
+! edited 06-Oct-2026 (SER anchor fix): also (re)set the
 ! pseudo-time anchor jfnk_ptc_x0 to 0 -- the baseline x = 0 is the
 ! first anchor, and newton_hook_v1 re-anchors at each accepted iterate
 ! (Kelley & Keyes 1998; Knoll & Keyes 2004 Sec 4.2).
@@ -1656,7 +1656,7 @@
 ! (CMAT already scaled by POPS so x is a fractional correction;
 ! temperature uses x_frac(NT) = exp(x_T)-1).
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_RESIDUAL_V1(N, X, Y)
 	USE SET_KIND_MODULE
@@ -1743,7 +1743,7 @@
 ! sentinel path as the eval budget, but measured in elapsed seconds
 ! since JFNK_INIT_V1 stamped JFNK_T_START.  Covers admissions whose
 ! cost is not eval-counted (it191 burned ~500 s in dirchk precheck
-! work with zero Newton-level evals).  edited by Devin, 15-Oct-2026.
+! work with zero Newton-level evals).  edited 15-Oct-2026.
 !
 	IF(JFNK_MAX_SEC .GT. 0.0_LDP .AND. .NOT. JFNK_EVAL_BYPASS .AND.
 	1     OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC)THEN
@@ -2111,7 +2111,7 @@
 ! Pseudo-time term (Knoll & Keyes 2004 Sec 4.2; [JFNK_PTC], default T).
 ! G_i = F_i + (x_i - x0_i) * s_i / dtau, with s_i frozen from |F| at the
 ! baseline and x0 = jfnk_ptc_x0 the anchor -- the current Newton iterate
-! x_k (SER form, Kelley & Keyes 1998; edited by Devin, 06-Oct-2026).
+! x_k (SER form, Kelley & Keyes 1998; edited 06-Oct-2026).
 ! The term vanishes at the anchor, so G(x_k) = F(x_k): the residual
 ! newton_hook_v1 stores is F after jfnk_ptc_strip_v1, and all Newton
 ! norms act on |F|.  Previously the term was x_i*s_i/dtau -- anchored
@@ -2146,7 +2146,7 @@
 !
 ! Fixed T / Ne are not Newton unknowns.  Zero those residual components
 ! so GMRES does not try to satisfy a singular BA row.
-! editted by Sean Brennan (08-Sep-2026)
+! edited by Sean Brennan (08-Sep-2026)
 	CALL JFNK_MASK_FIXED_UNKNOWNS(N, Y)
 !
 ! NaN/Inf policy: do not zero individual components (GMRES would treat
@@ -2659,7 +2659,7 @@
 !      problems and always a perturbation of the CORRECT operator,
 !      not a completely wrong operator.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_JVP_V1(N, V, JV)
 	USE SET_KIND_MODULE
@@ -2905,7 +2905,7 @@
 ! (as the previous SI-transformed code did) breaks the algebraic
 ! consistency of the GMRES system.
 !
-! editted by Sean Brennan (09-Sep-2026)
+! edited by Sean Brennan (09-Sep-2026)
 !
 	H_STEP = EPS0 * MAX(XNORM, 1.0D0) / VNORM
 !
@@ -3045,7 +3045,7 @@
 	  IF(JFNK_N_NEW_CLIP .EQ. 0)EXIT
 	  JFNK_N_JVP_HRETRY = JFNK_N_JVP_HRETRY + 1
 !
-! edited by Devin, 05-Oct-2026: do not shrink the perturbation
+! edited 05-Oct-2026: do not shrink the perturbation
 ! norm h*||v|| below EPS0*max(1,||x||) in coupled mode.  The
 ! noise-aware JFNK_EPS_JVP_LOC sets that scale from the residual
 ! evaluation noise (Pernice & Walker; see the EPS0 block above).
@@ -3841,9 +3841,9 @@
 ! factorization exists; the reach/direction precheck in
 ! JFNK_SOLVE_CORR_V1 requires it.
 !
-! editted by Sean Brennan (09-Sep-2026)
+! edited by Sean Brennan (09-Sep-2026)
 ! header rewritten to match the LU/LSQ/banded implementation
-! (edited by Devin, 15-Oct-2026)
+! (edited 15-Oct-2026)
 !
 	SUBROUTINE JFNK_FACTOR_PRECOND_V1(DO_FACTOR)
 	USE SET_KIND_MODULE
@@ -4171,7 +4171,7 @@
 !
 ! Store the physical BA block with no global ridge.  Regularization
 ! is applied per depth only if equilibrated LU fails.
-! editted by Sean Brennan (10-Sep-2026)
+! edited by Sean Brennan (10-Sep-2026)
 !
 	  DO I = 1, JFNK_NT
 	    JFNK_BA_RIDGE_ADD(I, K) = 0.0_LDP
@@ -4481,7 +4481,7 @@
 	3        ' frozen on population floor (JFNK_POP_FL=',
 	4        JFNK_POP_FLOOR, ')'
 !
-! editted by Devin, 08-Oct-2026: report the 5 depths carrying the
+! edited, 08-Oct-2026: report the 5 depths carrying the
 ! most regularized rows.  A concentration at compression depths
 ! would implicate the BA_full NaN-zeroing path as the null-row
 ! source; a uniform spread points to structural rank deficiency
@@ -5554,7 +5554,7 @@
 ! JFNK_PRECOND_V1: Apply diagonal (Jacobi) BA preconditioner.
 ! z = V / diag(BA + ridge).  Zero entries where |z| > ZMAX.
 !
-! editted by Sean Brennan (08-Sep-2026)
+! edited by Sean Brennan (08-Sep-2026)
 !
 	RECURSIVE SUBROUTINE JFNK_PRECOND_V1(N, V)
 	USE SET_KIND_MODULE
@@ -5640,7 +5640,7 @@
 ! corrupted the Krylov space and caused JFNK to fail on the first
 ! Newton step (runaway |s|, non-descent, or trust-region collapse).
 !
-! editted by Sean Brennan (09-Sep-2026)
+! edited by Sean Brennan (09-Sep-2026)
 !
 ! Task 3: Parallelize the depth-wise unpack/compute/pack loops.
 ! Each K writes a distinct column of STEQ_MAT / V_SAVE and a distinct
@@ -5784,7 +5784,7 @@
 	  END IF
 	END IF
 !
-! editted by Devin, 05-Oct-2026: the banded branch used to RETURN
+! edited, 05-Oct-2026: the banded branch used to RETURN
 ! above, skipping the shared post-processing at the end of the
 ! routine (log-unknown exp(-x) rescale, PTC diagonal correction,
 ! final fixed-unknown mask).  A successful DGBTRS now flags
@@ -5987,7 +5987,7 @@
 ! that derivative equals dF/d(ln n).  Later, divide the BA solution
 ! by exp(x) so the chain rule is in the preconditioner.
 !
-! editted by Devin, 05-Oct-2026: pseudo-time continuation adds the
+! edited, 05-Oct-2026: pseudo-time continuation adds the
 ! fixed diagonal sigma_i = s_i/jfnk_ptc_dtau to the Jacobian (the
 ! G = F + (x - x_k)*s/dtau term in JFNK_RESIDUAL_V1), so the consistent
 ! preconditioner is (J + sigma)^{-1}.  The previous blend
@@ -6207,7 +6207,7 @@
 ! Zero T and/or Ne Newton components when those variables are fixed.
 ! Called on residuals, JVPs, and preconditioner vectors so GMRES never
 ! sees a singular FIX_T / FIX_NE BA row as an unknown.
-! editted by Sean Brennan (08-Sep-2026)
+! edited by Sean Brennan (08-Sep-2026)
 !
 	SUBROUTINE JFNK_MASK_FIXED_UNKNOWNS(N, VEC)
 	USE SET_KIND_MODULE
@@ -6278,7 +6278,7 @@
 ! If JFNK_RSCALE_READY is .FALSE. (scaling not yet computed), the
 ! function falls back to the unweighted dot product.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 ! CORRECTION (2026-09-07): Added per-element residual scaling.
 !
 	DOUBLE PRECISION FUNCTION JFNK_DOT_V1(N, A, B)
@@ -6328,7 +6328,7 @@
 ! solver state.  Called once after the preconditioner is factored
 ! and RSCALE is computed.
 !
-! editted by Sean Brennan (10-Oct-2026)
+! edited by Sean Brennan (10-Oct-2026)
 !
 	SUBROUTINE JFNK_GMRES_AUDIT_V1(TEST_K)
 	USE SET_KIND_MODULE
@@ -6686,7 +6686,7 @@
 ! DIAGNOSTIC ONLY — does not modify production solver state.
 ! The production JFNK solve proceeds normally after this audit.
 !
-! editted by Sean Brennan (10-Oct-2026)
+! edited by Sean Brennan (10-Oct-2026)
 !
 	SUBROUTINE JFNK_RSCALE_AUDIT_V1()
 	USE SET_KIND_MODULE
@@ -6968,7 +6968,7 @@
 !
 ! JFNK_DIAGNOSTIC_V1: Called at the end of each Newton iteration.
 !
-! editted by Sean Brennan (V4, 2026-09)
+! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_DIAGNOSTIC_V1()
 	USE SET_KIND_MODULE
