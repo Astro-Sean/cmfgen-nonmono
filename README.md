@@ -1,6 +1,7 @@
 # CMFGEN with non-monotonic velocity fields
 
-> **Warning: this code is under active development.** Solver
+> **Warning: this code is under active development (03-Nov-2026).**
+> Solver
 > behaviour, input keys and outputs change between commits. Nothing
 > here should be treated as production-ready or science-validated.
 
