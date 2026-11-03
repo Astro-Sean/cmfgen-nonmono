@@ -109,6 +109,31 @@ See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
   fails two of three checks (`banners=0`, stale T1/T1P), fixed
   passes 12/12 including the phase-3 cache-hit check.
 
+### BUG-006 (P3) - `JFNK_EVAL_LSTATE_V1('S')` armed after first mutations
+
+See `BUG_HUNT_REGISTER.md` for the full entry. Summary:
+
+- Defect: the coupled-SOB entry save (`GOTO 9999` on alloc failure)
+  was the only guarded save positioned after the eval's first
+  mutations in `JFNK_RAD_SWEEP_V1`. Its failure path skipped all
+  restores - `JFNK_IN_EVAL=T` would leak permanently (only toggled
+  inside this routine), putting every later production sweep in
+  eval mode: cold FOLD seeds, softened STOPs, lagged-J records
+  never overwritten. `EDDINGTON`/`COMPUTE_BA` self-heal at the
+  loop head; the zeroed two-photon/SL accumulators lose one
+  iteration.
+- Trigger: an ALLOCATE failure inside `JFNK_EVAL_LSTATE_V1('S')` -
+  rare, but the consequence is persistent silent corruption rather
+  than a crash.
+- Fix: hoisted the `LSTATE('S')` arm (and `JFNK_EVAL_SOB_LINES`)
+  into the entry-save block before `ACCESS_F_SAVE`; `COMPUTE_EW=F`
+  stays in the eval mutations since LSTATE must save the flag
+  first. Every guarded save now precedes every mutation, which is
+  the invariant the 9999 tail assumes. Success path bit-identical.
+- Proof: source-ordering pin in `test_jfnk_regressions.py`
+  ("every guarded entry save precedes the first mutation") fails
+  on the pre-fix ordering, passes on the fix; ifort compile clean.
+
 ## 3. Potential defects requiring further investigation
 
 - `ginfo == 2` hookstep-recompute returns a convergence-coded
