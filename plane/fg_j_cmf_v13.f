@@ -164,7 +164,7 @@
 ! ALO_DJDCHI(K) = sum_rays -JQW * dAV/dS' * S' / chi_hat (dJ/dCHI diag)
 ! LAMSTAR_DIAG(K) = sum_rays JQW * dAV/dS'  (dimensionless Lambda* diag)
 !
-! edited by Devin, 12-Oct-2026
+! edited 12-Oct-2026
 !
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDETA(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDCHI(:)
@@ -185,7 +185,7 @@
 ! dJ(K)/dCHI(K+1) with the outward S'_P.  do_var_cont.f consumes
 ! them under opt-in DO_FG13_ALO_TRI when NUM_BNDS >= 3.
 !
-! edited by Devin, 28-Oct-2026
+! edited 28-Oct-2026
 !
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDETA_M(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: ALO_DJDCHI_M(:)
@@ -430,7 +430,7 @@
 ! or iterations.  ALO_VALID is set .TRUE. only after a completed
 ! INTEGRAL-method accumulation.
 !
-! edited by Devin, 12-Oct-2026
+! edited 12-Oct-2026
 !
 	IF(.NOT. ALLOCATED(ALO_DJDETA))THEN
 	  ALLOCATE(ALO_DJDETA(ND),STAT=IOS)
@@ -1539,7 +1539,7 @@ C
 	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
 	    END IF
 !
-! edited by Devin, 12-Oct-2026: capture the opacity actually used to
+! edited 12-Oct-2026: capture the opacity actually used to
 ! build DTAU (chi_hat = CHI + GAM/dLOG_NU; plain CHI under INIT) for
 ! the serial ALO diagonal below.
 !
