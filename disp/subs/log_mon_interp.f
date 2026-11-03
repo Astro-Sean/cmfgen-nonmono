@@ -22,7 +22,7 @@
 	IMPLICIT NONE
 !
 ! Altered 05-Oct-2026 : Validate positive/monotonic coordinates before
-!                         taking LOG(X) and interpolating (Devin).
+!                         taking LOG(X) and interpolating.
 ! Altered 24-May-1996 : ERROR_LU installed
 ! Created 01-Apr-1992 : Code may need recoding for optimal speed, and for
 !                         vectorization.
