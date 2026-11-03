@@ -651,8 +651,11 @@ def t11_strike(spec):
     rung (capped at the argument), a commit resets to 0, a reach-skip
     is exempt -- and Newton runs on EVERY admission (no pause state).
     Requires a spec where the LU admission fails (info=3) and the
-    TSVD admission reaches a committed best iterate (info=2) -- only
-    'hard' does both."""
+    TSVD admission reaches a committed best iterate (info=2).
+    Post-BUG-001, GMRES convergence claims must survive a true-residual
+    check: on 'hard' the TSVD solve no longer verifies (info=3), so the
+    commit leg cannot fire there -- 'std' and 'shock' still produce
+    info=2 commits and satisfy both preconditions."""
     ok = True
     notes = []
 
@@ -730,11 +733,12 @@ def t12_shock(spec):
         out = run_cli("setauto", spec["dir"], seq, a0, 0.3, 0.1, 0.5, 2)
         return _auto_admissions(out)[0]
 
-    damped = run("D" * 44, 0.05)
+    # Post-BUG-001, GMRES claims must verify against the true residual;
+    # on this spec most admissions abort (info=3) and commit only
+    # partial verified progress, so the march needs ~100 admissions to
+    # reach the floor instead of the ~40 the unverified solves managed.
+    damped = run("D" * 100, 0.05)
     free = run("D", 1.0)
-
-    # The guarded Newton path rejects many early shocks, so the bounded
-    # march is longer than the old least-squares-only fixture allowed.
     xts = np.array([damped[i]["xt"] for i in sorted(damped)])
     a = (len(damped) >= 40 and np.all(xts <= xs_t + 0.05)
          and np.all(xts >= -1e-12))
@@ -773,15 +777,27 @@ def t13_tauto_fsm(spec):
     """FIX_T_AUTO ladder FSM: rung 1 holds while committed |dx_T|inf
     exceeds eps; RELEASE fires once RE < rel*RE0 with the commit
     streak met; an outer-iteration T re-shock reverts a rung and
-    clears the streak (the production JFNK_SOLVE_CORR_V1 replica)."""
+    clears the streak (the production JFNK_SOLVE_CORR_V1 replica).
+
+    Post-BUG-001 the solves verify every GMRES convergence claim
+    against the true residual, so on this pathological fixture most
+    'D' admissions abort (info=3) and committed best iterates are
+    rare -- a plain 'D' run can starve the ladder for tens of
+    admissions.  The sequence below inserts a 'P' re-shock after the
+    first commits and a second 'P' after the release: the perturbed
+    admits produce the info=2 commits and the eps_t>eps recovery step
+    the release/revert machinery consumes, while rel=0.7 (vs 0.3)
+    keeps the release window where those commits actually land."""
     tr = _t_rows(spec)
     xs_t = float(np.abs(spec["xstar"][tr]).max())
     if xs_t == 0.0:
         return True, "skipped: no T shock (x*_T=0)", {}
     notes = []
     ok = True
-    out = run_cli("setauto", spec["dir"], "D" * 44 + "P" + "D" * 4,
-                  0.05, 0.3, 0.1, 0.5, 2)
+    rel_lim = 0.7
+    out = run_cli("setauto", spec["dir"],
+                  "D" * 20 + "P" + "D" * 3 + "P" + "D" * 15,
+                  0.05, rel_lim, 0.1, 0.5, 2)
     adm, trans = _auto_admissions(out)
 
     # The guarded solve rejects several shock iterates before it can
@@ -794,9 +810,10 @@ def t13_tauto_fsm(spec):
     per_i = int(per[-1].split()[1]) if per else 0
     post_i = per_i + 1
 
-    # rung 1 holds until the first release.
+    # rung 1 holds until the first release ('P' perturbation indices
+    # emit PERT lines, not AUTO rows -- they are not admissions).
     a = bool(rel) and all(
-        adm[i]["rung"] == 1 for i in range(1, rel_i)
+        adm[i]["rung"] == 1 for i in range(1, rel_i) if i in adm
     )
     ok &= a
     notes.append(f"rung 1 locked until release: {a}")
@@ -819,8 +836,8 @@ def t13_tauto_fsm(spec):
     # no rung-1 admission may have all three release conditions met
     # (commit streak + RE below rel*RE0 + eps below the threshold)
     viol = [i for i in range(1, rel_i)
-            if adm[i]["rung"] == 1 and adm[i]["nc"] >= 2
-            and adm[i]["re"] <= 0.3 * adm[i]["re0"]
+            if i in adm and adm[i]["rung"] == 1 and adm[i]["nc"] >= 2
+            and adm[i]["re"] <= rel_lim * adm[i]["re0"]
             and adm[i]["eps"] <= 0.1]
     a = rel_i > 0 and len(viol) == 0
     ok &= a
@@ -1006,8 +1023,8 @@ def main():
                         ("T6", None), ("T7", None),
                         ("T8", t8_masked), ("T9", t9_jvp_stiff),
                         ("T10", t10_lsq_grid),
-                        ("T11", t11_strike if spec["meta"]["hard"]
-                         else None),
+                        ("T11", t11_strike if spec["dir"].name
+                         in ("std", "shock") else None),
                         ("T12", t12_shock), ("T13", t13_tauto_fsm),
                         ("T14", t14_jvp_tauto),
                         ("T15", t15_stale_baseline),
@@ -1039,9 +1056,11 @@ def main():
                     ok, msg, aux = t6_newton(spec, spec["xstar"])
                 elif tag == "T7":
                     ok, msg, aux = t7_floor(spec, F0)
-                elif tag == "T11" and not spec["meta"]["hard"]:
-                    ok, msg = True, "skipped: needs 'hard' (LU fails, " \
-                        "TSVD commits)"
+                elif tag == "T11" and spec["dir"].name \
+                        not in ("std", "shock"):
+                    ok, msg = True, "skipped: needs a spec where LU " \
+                        "fails and TSVD commits ('std'/'shock' " \
+                        "post-BUG-001)"
                 else:
                     ok, msg, aux = fn(spec)
             except subprocess.CalledProcessError as e:
