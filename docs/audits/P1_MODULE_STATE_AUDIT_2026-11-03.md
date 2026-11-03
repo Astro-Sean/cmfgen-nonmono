@@ -134,3 +134,45 @@ Conclusion: no unconditional physics change enters the stock BA
 iteration; every non-gated edit is a documented defect fix confined
 to inputs where upstream produced Inf/NaN or read out of bounds, or
 is print/telemetry-only.
+
+## P1-009 addendum - diagnostics and safeguards classification
+
+Print-only (no result dependence):
+
+| Diagnostic | Note |
+|---|---|
+| `RLUMST_NAN_CNT` | Bounds NaN report prints at 40 per site (cmfgen_sub:3098,6686). |
+| `KN_NOSLOT_CNT`/`GET_FG_NOSLOT` | Reads counter, prints once if >0. |
+| `KN_LT_DONE` | One-shot print flag under KN_LUM_TRACE (opt-in). |
+| `CONV_EXIT_DONE`/`CONV_EXIT_WHY`/`CONV_DIAG_LVL` | Exit-reason reporting; CONV_DIAG_LVL is a VADAT diag level. |
+| `BA_TR_NSWP`/`ARM_CAUSE`/Stage-B prints | Under BA_TRACE_PHASE, which requires L_NM. |
+| `BA_DEM_EXM`/`BA_DEM_EXR` per-call prints | Telemetry; the values also feed the exit gate below. |
+| `SCRWF` | Surfaces SCR_RITE_V2's pre-existing WRITFAIL out-arg which upstream passed as NEWMOD (clobbering it). Fork prints a torn-checkpoint error; NEWMOD is no longer overwritten. Defect fix. |
+| f-cap census counters, `JFNK_QUIET_IO` | Print gates only; JFNK_QUIET_IO is internal (set inside JFNK evals). |
+| `N_DIV_FLOOR` | Counted + sets FLAG but never printed to LUER - see gap below. |
+
+State-affecting, inert in stock (each cites its gate):
+
+| State | Stock value | Gate |
+|---|---|---|
+| `BA_TRACE_NEEDED/DONE/OFF` | all F | `BA_TRACE_EVAL`: `T_ACTIVE=L_NM .AND. BA_TR_MAXSWP>0 .AND. BA_DEM_PFLOOR>0` (control_variable_mod:2463). |
+| `BA_STAGEB_ARM`, `BA_TRACE_PHASE` | F | `BA_TRACE_NEEDED` conjunct. |
+| `BA_DEM_EXM`/`BA_DEM_EXR` | 0 | STEQ_EXM accumulates only where `POPS<BA_DEM_PFLOOR` (default -1); EXR only under `BA_EX_RELFRAC>0` (default -1). |
+| `BA_EX_MAXCH` | =MAXCH | set at solveba:1614; diverges only under `BA_EX_RELFRAC>0`. |
+| `BA_DEM_EXIT_OK` | T | 0 < MAX(10*EPS,1) on both channels when the above are 0. |
+| `BAACC_PENDING` | F | DO_BA_RES_ACC (default F; auto-set only under DO_NONMONO_SOB/KNOP). |
+| `GS_POPS_HELD`/`LUM_POPS_HELD`/`POPS_GS_SAVE` | F/unused | `GS_HOLD_POPS` (default F) `.OR. LUM_BLOCKED`; LUM_BLOCKED is `DO_NONMONO_KNOP.AND.LUM_DIV_N>0`. |
+| `JFNK_UNCONVERGED_COMMIT` | F | JFNK-scoped; all conjuncts are `.NOT. JFNK_UNCONVERGED_COMMIT`=T in stock. |
+| `MAXCH_CTRL` | =MAXCH | solve_for_pops:3002 (`DO_NONMONO_KNOP` uses MAXCH_APP). |
+
+State-affecting, visible in stock (deliberate defect fixes):
+
+| Change | Classification |
+|---|---|
+| `MAIN_COUNTER.NE.LAST_NG` moved into `CONV_EXIT_MET` | Exit-correctness fix: upstream skipped only `NUM_ITS_TO_DO=1` on the post-NG call but still consumed the converged branch (suppressing the ELSE continuation). The fork refuses to certify a converged exit on an extrapolated NG state and takes the ELSE continuation that call - the mode switches (USE_FIXED_J/DO_LAMBDA_AUTO unfix at MAXCH<50), SPECIFY_IT_CYCLE, and IN_ITS re-read run where upstream ran a no-op. Result-relevant only for AUTO-mode models meeting EPS on a post-NG call; documented in cmfgen_sub:5017-5020 and 5537-5540. |
+| `NUM_ITS_TO_DO=1` unconditional in converged branch | Reachable-equivalent: the branch cannot fire post-NG, so the pin always lands on a re-measured state (upstream pinned on the same call). |
+
+Verdict: zero ungated result-affecting diagnostics beyond the two
+documented exit-path fixes above. Gap recorded for the
+diagnostics pass: `N_DIV_FLOOR` activations are counted but never
+surfaced to LUER (only visible via FLAG-triggered dumps).
