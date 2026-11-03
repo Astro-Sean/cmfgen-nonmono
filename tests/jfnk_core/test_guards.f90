@@ -60,7 +60,7 @@
 !        coupled cap over the activation/global caps.
 !       (12-Nov-2026 fix).
 !
-! edited by Devin, Oct-2026
+! edited Oct-2026
 !----------------------------------------------------------------------
 
 ! Test problem identical in shape to test_newton_core's: a known-root
