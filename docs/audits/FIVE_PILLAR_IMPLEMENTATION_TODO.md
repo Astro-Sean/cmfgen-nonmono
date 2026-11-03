@@ -33,12 +33,15 @@ files; do not delete completed tasks.
   P4-012, INT-003, DOC-001)
 - Bug hunt: 2 defects fixed - BUG-001 (P0, GMRES hess_res-only
   convergence acceptance), BUG-002 (P2, SOB_RH_GEOM cache
-  fingerprint missed SIGMA); 1 refuted - BUG-003 (P3, MKL DGELSY
-  param-4 warning on a deliberate-NaN legacy test). See section 10a
-  register. Phase 0 repository reconciliation complete; Phase 1
-  (JFNK true-residual acceptance) complete including surrogate
-  recalibration (`test_jfnk_solver.py` 89 passed, 0 failed); Phase 2
-  (SOB_RH_GEOM cache) complete at the unit level.
+  fingerprint missed SIGMA); 2 refuted - BUG-003 (P3, MKL DGELSY
+  param-4 warning on a deliberate-NaN legacy test), BUG-004 (P2,
+  zero-GAM resonance floor + exact-zero exception - verified
+  regularization). See section 10a register. Phase 0 repository
+  reconciliation complete; Phase 1 (JFNK true-residual acceptance)
+  complete including surrogate recalibration (`test_jfnk_solver.py`
+  89 passed, 0 failed); Phase 2 (SOB_RH_GEOM cache) complete at the
+  unit level; Phase 3 (zero-GAM discontinuity, P3-016) complete -
+  no defect, unit-level P3-017 evidence recorded.
 - Outstanding tasks: 79 (17 in progress with partial evidence,
   62 not started)
 - Blocked tasks: 0 (run-dependent tasks are sequenced, not blocked;
@@ -749,33 +752,43 @@ acceleration.
 - Dependencies: P3-013, P3-014.
 - Completion: -
 
-### [ ] P3-016 - Investigate the 1 + sigma*K_ON_J = 0 resonance
+### [x] P3-016 - Investigate the 1 + sigma*K_ON_J = 0 resonance
 - Priority: P0
 - Description: the moment equations have a resonance where
   1+sigma*K_ON_J crosses zero (compression); trace it through
   closure, angular terms, boundaries, iteration.
-- Evidence: dev plan Phase 2 question; the K_ON_J factors come live
-  from ray moments; no dedicated analysis yet.
-- Files: `mom_j_cmf_nonmono_v1.f`, `get_moms_non_rel.f`.
-- Action: locate the coefficient, derive behaviour on each side,
-  manufactured case straddling the resonance.
-- Acceptance: resonance handling described mathematically and
-  tested; no larger regularisation accepted as fix.
+- Evidence: completed as BUG-004 (register) - REFUTED. All four
+  factor sites traced (depth/midpoint, current/lagged, incl.
+  MOM_GAM_PIN); consumers traced through CHI_HAT, Q, PSI/PSIPREV,
+  W/EPS/HU/HL/HS, the boundary row, and the census. The sign flip
+  is the physical transport-direction reversal; the floor bounds
+  the jump at 2*MOM_GAM_FAC_MIN; the T1==0 exception returns the
+  physically correct decoupled row. t_zero manufactured shelf: 36
+  bitwise-resonant cells decouple (Q=PSI=0), shelf-edge T1=3.3e-16
+  cell floors at +0.01 (Q=1.6e-4). 85/85 moment unit tests pass.
+- Files: `mom_j_cmf_nonmono_v1.f`, `get_moms_non_rel.f`,
+  `test_mom_solve.py`.
+- Action: done - no change made; regularization verified.
+- Acceptance: met - resonance handling documented in BUG-004 and
+  exercised by the t_zero case; no regularisation enlarged.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: 2026-11-03.
 
-### [ ] P3-017 - Quantify the effect of MOM_GAM_FAC_MIN
+### [~] P3-017 - Quantify the effect of MOM_GAM_FAC_MIN
 - Priority: P1
 - Description: measure where MOM_GAM_FAC_MIN binds and its effect on
   the advection coefficient and solution.
-- Evidence: named in dev plan as a guard not to remove without
-  derived replacement; no census.
+- Evidence: unit-level evidence from BUG-004: the floor bounds
+  |fac|>=1e-2 off exact resonance; measured Q=1.6e-4 at a
+  floor-band cell vs 4e-3-1.7e-2 off-shelf; PASS_NRES census
+  already counts <=floor cells per pass (incl. exact-zero).
+  Production-model activation counts still unmeasured.
 - Files: `mom_j_cmf_nonmono_v1.f`.
-- Action: activation census + coefficient-impact analysis like
-  P3-013.
-- Acceptance: documented.
+- Action: production leg - record PASS_NRES / floor-band census
+  from a real interacting-SN model.
+- Acceptance: documented activation counts on production data.
 - Dependencies: P3-010.
-- Completion: -
+- Completion: partial (unit-level done; production census open).
 
 ### [ ] P3-018 - Audit MOM_LAG_BND
 - Priority: P1
