@@ -968,6 +968,49 @@
 !
 	INTEGER GS_REL_STABLE
 !
+! GS_DRIFT_DIAG (default FALSE): opt-in per-iteration field-drift
+! diagnostic in SOLVE_FOR_POPS. Prints, for both the ray (FG) and
+! moment (MOM) lagged stores, the three drift quantities the
+! maturity gate consumes separately -- raw sweep drift (fresh
+! solve vs stored field, unrelaxed), refresh residual, and the
+! retained-field delta of the committed store -- plus the adaptive
+! relaxation factor, residual-history state, drift argmax cell,
+! censuses, and freeze/release state. Diagnostic only; no solver
+! state is changed. Exists because the headline GS_MAXCHG channel
+! silently switches semantics across the iteration (sweep drift
+! before the refresh, refresh residual after it), so a single
+! number cannot show raw vs relaxed progress. VADAT keyword
+! [GS_DRIFT_DIAG].
+!
+	LOGICAL GS_DRIFT_DIAG
+!
+! POP_AUDIT (default FALSE): opt-in per-iteration species/ion/level
+! population census printed at the end of SOLVE_FOR_POPS, after the
+! committed POPS are final for the call. For every present species
+! it sums the super-level rows of each model ion plus the terminal
+! ion's single density row, compares the total with POP_SPECIES
+! (the right-hand side the species-conservation equation at
+! EQ_SPECIES enforces), and flags negative or non-finite values,
+! ion-sum vs DXzV mismatch, and the conservation residual per
+! species and depth. Optional per-level dump adds level fraction,
+! LTE population and departure coefficient b=n/n_LTE from
+! ATM(ID)%XzVLTE. Diagnostic only; reads POPS and module data,
+! changes nothing. Filters are index based so any species or
+! ionization stage can be isolated without species-specific code:
+! [POP_AUDIT_SPEC] = species index (0 = all), [POP_AUDIT_ION] =
+! ionization-stage index within the species (0 = all; stage 1 is
+! the lowest ionization stage, the last stage is the terminal ion),
+! [POP_AUDIT_D] = depth index (0 = all depths), [POP_AUDIT_LEV] =
+! per-level detail for the filtered ions (default FALSE). VADAT
+! keywords [POP_AUDIT], [POP_AUDIT_SPEC], [POP_AUDIT_ION],
+! [POP_AUDIT_D], [POP_AUDIT_LEV].
+!
+	LOGICAL POP_AUDIT
+	LOGICAL POP_AUDIT_LEV
+	INTEGER POP_AUDIT_SPEC
+	INTEGER POP_AUDIT_ION
+	INTEGER POP_AUDIT_D
+!
 ! GS_REL_N (default 1): number of consecutive LAMBDA iterations
 ! after a GS-freeze release that keep the near-mature correction
 ! cap. The first released step carries the deferred correction
