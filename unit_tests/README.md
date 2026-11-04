@@ -46,6 +46,7 @@ error text.
 | `test_mom_solve.py` | `plane/mom_j_cmf_nonmono_v1.f` via `drv_mom_solve.f` | discrete moment operator on manufactured atmospheres with controlled compression bands; doublet-spacing limit (compressing rows copy J_upwind), multi-reversal and strong-compression convergence |
 | `test_mom_sweep_table.py` | `plane/mom_j_cmf_nonmono_v1.f` | GS-sweep report formats: MOM_MIN_DRA/MOM_MAX_COH argument counts match their descriptors (pre-fix formats dropped values) |
 | `test_rv_hydro_rdin.py` | `new_main/subs/set_rv_hydro_model_v3.f` (VEL_LAW=11 RDINR branch) | R-grid read from RDINR, rescale to hydro inner edge, V rebuild; malformed-input rejections |
+| `test_lam_handoff.py` | `new_main/mod_subs/lam_handoff_mod.f90` (via `drv_lam_handoff.f90`) + source pins in `solve_for_pops.f`, `cmfgen_sub.f`, `rd_control_variables.f`, `check_param_consistency.f` | LAM_FIELD_GATE held/frozen/raw-immature/maturity-window legs on and off the lagged-field routes; LAM_STABLE_STEP earn/reset/pin semantics incl. field-not-ready and forced/blocked pin vetoes; LAM_HANDOFF_OK stock-vs-nonmono predicates (stock keeps single `MAXCH_CTRL < 50`); HAS_LAGGED_FIELD census gate covers SOB+LAM_ES=F; latch clears, T-hold arm, blocked-handoff diagnostic, dead BA_PROBE_LAM consistency warning |
 
 ## Supporting files
 
