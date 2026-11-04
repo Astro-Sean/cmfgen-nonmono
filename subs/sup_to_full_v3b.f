@@ -253,6 +253,13 @@
 ! population of the C2 levels in the full atom matches the corresponding
 ! super level. This correction will generally be small.
 !
+! Guard added 07-Nov-2026: when a super level carries exactly zero
+! population, every reconstructed member is zero and C2_S/SUM is 0/0,
+! silently putting NaN into XzV_F (and from there into the line
+! opacity/emissivity star ratios). When the super level is populated
+! but all reconstructed members underflowed to zero, the members are
+! split evenly so that the ion total is still conserved.
+!
 	  DO L=1,NC2_S
 	    SUM(L)=0.0_LDP
 	  END DO
@@ -265,7 +272,11 @@
 	    L=F_TO_S_MAP_C2(I)
 !	    WRITE(6,*)L,SUM(L),EDGEC2_F(1)
 !	    FLUSH(UNIT=6)
-	    C2_F(I,K)=C2_F(I,K)*(C2_S(L,K)/SUM(L))
+	    IF(SUM(L) .NE. 0.0_LDP)THEN
+	      C2_F(I,K)=C2_F(I,K)*(C2_S(L,K)/SUM(L))
+	    ELSE IF(C2_S(L,K) .GT. 0.0_LDP .AND. CNT(L) .GT. 0)THEN
+	      C2_F(I,K)=C2_S(L,K)/CNT(L)
+	    END IF
 	  END DO
 !
 	END DO
