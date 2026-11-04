@@ -35,6 +35,7 @@
 	USE RADIATION_MOD
 	USE CONTROL_VARIABLE_MOD
 	USE MOD_RAY_MOM_STORE, ONLY: HNU_AT_OB
+	USE ITER_LEDGER_MOD
 	IMPLICIT NONE
 !
 ! Altered : 05-Oct-2026 : Keep stock CMF_FORM_SOL off the Knop path.
@@ -104,6 +105,16 @@
 	INTEGER I
 	INTEGER J_IT_COUNTER
 	LOGICAL NEW_FREQ
+!
+! T-06 ledger stage timer (audit F-22/F-24): the solver call sites
+! below bracket each J solve with OMP_GET_WTIME into LEDG_T_RAD so
+! the ITER_LEDGER row can attribute radiation-solve wall time per
+! great iteration. Guarded by LEDG_ACTIVE; stock path pays only the
+! predicate test.
+!
+	REAL(KIND=LDP) TW
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 ! edited 27-Oct-2026: ES-ALI state [DO_ES_ALI]. ES_ALI_ON
 ! is the per-call gate (evaluated just before the iteration loop);
@@ -446,6 +457,7 @@ C
 C NB Using TA for ETA, TC for JNU_VEC, and TB for HNU_VEC
 C
 	     CALL TUNE(IONE,'FG_J_CMF_ACC')
+	     IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	     CALL FG_J_CMF_V13(TA,CHIEXT,ESECEXT,
 	1            VEXT,SIGMAEXT,REXT,PEXT,TC,FEDD,
 	1            AQWEXT,HQWEXT,KQWEXT,NQWEXT,HMIDQWEXT,NMIDQWEXT,
@@ -454,6 +466,10 @@ C
 	1            VDOP_VEC_EXT,DELV_FRAC_FG,REXT_FAC,
 	1            METHOD,FG_SOL_OPTIONS,THK_CONT,
 	1            FIRST_FREQ,NEW_FREQ,NCEXT,NPEXT,NDEXT)
+	     IF(LEDG_ACTIVE)THEN
+	       LEDG_N_FG=LEDG_N_FG+1
+	       LEDG_T_RAD=LEDG_T_RAD+OMP_GET_WTIME()-TW
+	     END IF
 	     CALL TUNE(ITWO,'FG_J_CMF_ACC')
 	     FG_COUNT=FG_COUNT+1
 C
@@ -464,11 +480,16 @@ C
 	1            ESECEXT(1:NDEXT)*RJEXT_ES(1:NDEXT)
 	     END IF
 	     CALL TUNE(IONE,'MOM_J_CMF_ACC')
+	     IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	     CALL MOM_J_CMF_V11(TA,CHIEXT,ESECEXT,VEXT,SIGMAEXT,REXT,
 	1  	       RJEXT,RSQHNU,VDOP_VEC_EXT,DELV_FRAC_MOM,
 	1              FL,dLOG_NU,INNER_BND_METH,DBB,IC,IB_STAB_FACTOR,
 	1              N_TYPE,H_CHK_OPTION,METHOD,COHERENT_ES,OUT_BC_TYPE,
 	1              FIRST_FREQ,NEW_FREQ,NCEXT,NPEXT,NDEXT)
+	     IF(LEDG_ACTIVE)THEN
+	       LEDG_N_MOM=LEDG_N_MOM+1
+	       LEDG_T_RAD=LEDG_T_RAD+OMP_GET_WTIME()-TW
+	     END IF
 	     CALL TUNE(ITWO,'MOM_J_CMF_ACC')
              IF(.NOT. DIF)HFLUX_AT_IB=0.5_LDP*IC*(0.5_LDP+INBC)-INBC*RJEXT(NDEXT)
              HFLUX_AT_OB=HBC_CMF(1)*RJEXT(1)
@@ -853,6 +874,7 @@ C
 ! Oct-2026). NU_NEXT_FREQ is set by CMFGEN_SUB each frequency.
 !
 	         CALL SET_FG_NU_NEXT(NU_NEXT_FREQ)
+	         IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	         CALL FG_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
 	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,
@@ -860,12 +882,17 @@ C
 	1                  VDOP_VEC,DELV_FRAC_FG,REXT_FAC,
 	1                  METHOD,FG_SOL_OPTIONS,THK_CONT,
 	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND,SIGMA_TRUE,NCF)
+	         IF(LEDG_ACTIVE)THEN
+	           LEDG_N_FG=LEDG_N_FG+1
+	           LEDG_T_RAD=LEDG_T_RAD+OMP_GET_WTIME()-TW
+	         END IF
 	       ELSE
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)THEN
 	           IF(DO_NONMONO_SOB)WRITE(LUER,'(/,A)')
 	1            ' --------------------------------- SOB SOLVER ---------------------------------'
 	           WRITE(LUER,*)'Calling FG_J_CMF_V13 in COMP_J_BLANK'
 	         END IF
+	         IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	         CALL FG_J_CMF_V13(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
 	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,
@@ -873,6 +900,10 @@ C
 	1                  VDOP_VEC,DELV_FRAC_FG,REXT_FAC,
 	1                  METHOD,FG_SOL_OPTIONS,THK_CONT,
 	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND)
+	         IF(LEDG_ACTIVE)THEN
+	           LEDG_N_FG=LEDG_N_FG+1
+	           LEDG_T_RAD=LEDG_T_RAD+OMP_GET_WTIME()-TW
+	         END IF
 	       END IF
 !
 	     END IF
@@ -1051,12 +1082,17 @@ C
 !
 	         CALL SET_MOM_NU_NEXT(NU_NEXT_FREQ)
 	         IF(ES_ALI_MOM_ON)ROLD_ES(1:ND)=RJ(1:ND)
+	         IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	         CALL MOM_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,
 	1              V,SIGMA,SIGMA_TRUE,R,
 	1              RJ,RSQHNU,VDOP_VEC,DELV_FRAC_MOM,
 	1              FL,dLOG_NU,INNER_BND_METH,DBB,IC,IB_STAB_FACTOR,
 	1              N_TYPE,H_CHK_OPTION,METHOD,COHERENT_ES,OUT_BC_TYPE,
 	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND,FREQ_INDX,NCF)
+	         IF(LEDG_ACTIVE)THEN
+	           LEDG_N_MOM=LEDG_N_MOM+1
+	           LEDG_T_RAD=LEDG_T_RAD+OMP_GET_WTIME()-TW
+	         END IF
 	         IF(ES_ALI_MOM_ON)THEN
 !
 ! edited 29-Oct-2026: same OAB Jacobi update as the
@@ -1084,11 +1120,16 @@ C
 	       ELSE
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)
 	1             WRITE(LUER,*)'Calling MOM_J_CMF_V11'
+	         IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	         CALL MOM_J_CMF_V11(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,
 	1              RJ,RSQHNU,VDOP_VEC,DELV_FRAC_MOM,
 	1              FL,dLOG_NU,INNER_BND_METH,DBB,IC,IB_STAB_FACTOR,
 	1              N_TYPE,H_CHK_OPTION,METHOD,COHERENT_ES,OUT_BC_TYPE,
 	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND)
+	         IF(LEDG_ACTIVE)THEN
+	           LEDG_N_MOM=LEDG_N_MOM+1
+	           LEDG_T_RAD=LEDG_T_RAD+OMP_GET_WTIME()-TW
+	         END IF
 	       END IF
 	       IF(INNER_BND_METH .EQ. 'PNT_SRCE')THEN
 	          HFLUX_AT_IB=0.0_LDP
