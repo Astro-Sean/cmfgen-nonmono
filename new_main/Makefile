@@ -48,6 +48,7 @@ MODS= $(LIB_DIR)libmod.a(mod_cmfgen.o)\
       $(LIB_DIR)libmod.a(opac_mod.o)\
       $(LIB_DIR)libmod.a(radiation_mod.o)\
       $(LIB_DIR)libmod.a(steq_data_mod.o)\
+      $(LIB_DIR)libmod.a(iter_ledger_mod.o)\
       $(LIB_DIR)libmod.a(var_rad_mod.o)
 
 cmfgen.o : cmfgen.f $(MODS) $(USR)
