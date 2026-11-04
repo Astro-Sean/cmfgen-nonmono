@@ -26,7 +26,28 @@ when its acceptance tests pass - compiling does not count.
   model (`DO_NONMONO_*=F`) output unchanged.
 - Tests: TEST 14 (below) plus one mature-field control.
 - Dependencies: none.
-- Status: [ ] Not started
+- Status: [x] Complete (04-Nov-2026)
+- Resolution: reuses the T-14 verdict `LAM_FIELD_NOT_READY`
+  (`LAM_FIELD_GATE`, lam_handoff_mod.f90) published per SOLVE_FOR_POPS
+  call via CONTROL_VARIABLE_MOD. Both CONV_EXIT_MET blocks (9999 and the
+  LST_ITERATION copy) gained `.AND. .NOT. LAM_FIELD_NOT_READY`; the
+  deferred-exit diagnostic mirrors it so "only resacc pending" stays
+  true. The verdict = held .OR. frozen .OR. (HAS_LAGGED_FIELD .AND.
+  (raw-immature .OR. N_MATURE < GS_REL_STABLE)); forced F on stock and
+  plain SOB+LAM_ES=T, so those exits are bit-identical. RD_LAMBDA runs
+  inherit the term (no opt-out) -- an immature lagged field is not a
+  converged model on any route. Also closes a KNOP gap: GS_FREEZE
+  without GS_HOLD_POPS froze the field but never held pops, so the old
+  GS_POPS_HELD conjunct alone let it exit.
+- Tests: `test_iter_conv_gate` 13/13 (T-01 XFAILs flipped to positive
+  assertions: conjunct in both blocks, diagnostic mirror, unconditional
+  per-call assignment, stock reduction); suite 29/30
+  (test_interp_guards login-node OMP limit, clean under
+  OMP_NUM_THREADS=4). Build clean, cmfgen_dev.exe relinked.
+- Deviations: planned inline predicate (.NOT.(GS_FG_IMMATURE .OR.
+  MOM_UNSAFE_B)) replaced by the published verdict -- those locals
+  cannot leave SOLVE_FOR_POPS and the verdict already carries them plus
+  the stability window. No new VADAT key.
 
 ### T-02 SOB + USE_LAM_ES=F field-maturity coverage
 - Priority: P1
@@ -43,7 +64,35 @@ when its acceptance tests pass - compiling does not count.
 - Tests: unit test driving `solve_for_pops` with a synthetic immature MOM
   census under SOB; runtime check on the m15 moment model.
 - Dependencies: T-01 (shared predicate).
-- Status: [ ] Not started
+- Status: [x] Complete (04-Nov-2026)
+- Resolution: the lighter coverage was chosen - the KNOP freeze machinery
+  stays KNOP-scoped; SOB+LAM_ES=F gets the maturity census, the demote
+  gate, and the handoff field-readiness block.
+- Implementation: new derived route flag `HAS_LAGGED_FIELD`
+  (`control_variable_mod.f`, assigned in `rd_control_variables.f` after
+  the USE_LAM_ES/DO_SOB_FG_KNOP auto-set rules) =
+  `DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP .OR.
+  (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)`. The maturity-getter block in
+  `solve_for_pops.f` opened from `DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP`
+  to `HAS_LAGGED_FIELD`, so `MOM_RAN`, `MOM_UNSAFE_B`, `MOM_FREEZE_B`,
+  `GS_RAW_IMMATURE` and `N_MATURE` are live on the moment route; the
+  `gs_immature_demote` MOM leg demotes a scheduled BA step under
+  `RD_LAMBDA`; the `no_refresh` token stays FG-route-scoped (SOB-mom
+  never runs the FG solver). New `LAM_FIELD_NOT_READY`
+  (`LAM_FIELD_GATE` in the new `lam_handoff_mod.f90`) =
+  `GS_POPS_HELD .OR. GS_FREEZE .OR. GS_RAW_IMMATURE .OR.
+  N_MATURE < GS_REL_STABLE` on lagged-field routes, `.FALSE.`
+  elsewhere; it gates the DO_LAM_AUTO handoff, the stability counter,
+  and the BA_PROBE_LAM probe arm.
+- Tests: `test_lam_handoff` (51 checks on the production module via
+  `drv_lam_handoff` + source pins); `test_iter_conv_gate` T-02 XFAIL
+  flipped to positive assertions (11/11, T-01 XFAIL remains);
+  `test_vadat_keys` 75/75. Runtime smoke: knop_mom model restarted
+  under the rebuilt exe (1 iteration clean on the lagged-field route).
+- Deviations: no freeze machinery under SOB-mom - `GS_FREEZE` stays
+  forced-F there; maturity reaches the mode controller through the
+  demote and handoff gates only. KNOP behavior is preserved by the
+  gate terms already implied by GS_FREEZE.
 
 ### T-03 JFNK on the moment pathway
 - Priority: P1
@@ -93,6 +142,45 @@ when its acceptance tests pass - compiling does not count.
 - Tests: unit test for the gate; regression on the warm model.
 - Dependencies: none.
 - Status: [ ] Not started
+
+### T-14 Lambda-to-full handoff field-readiness gate
+- Priority: P1
+- Findings: F-16 follow-up (session audit, 04-Nov-2026): the DO_LAM_AUTO
+  handoff tested population stability (`CNT_STABLE_LAM >= N_STABLE_LAM`)
+  and, under KNOP only, held/frozen state - population stability alone
+  could release a churning lagged field on the SOB moment route, and an
+  accepted-probe latch could re-arm the count after a rejection.
+- Files: `new_main/mod_subs/lam_handoff_mod.f90` (new),
+  `new_main/cmfgen_sub.f`, `new_main/mod_subs/solve_for_pops.f`,
+  `new_main/mod_subs/control_variable_mod.f`,
+  `new_main/mod_subs/rd_control_variables.f`,
+  `new_main/mod_subs/check_param_consistency.f`, both Makefiles,
+  `unit_tests/f90/drv_lam_handoff.f90`,
+  `unit_tests/python/test_lam_handoff.py`.
+- Implementation: handoff predicate and stability-counter step extracted
+  to `LAM_HANDOFF_MOD` (`LAM_HANDOFF_OK`, `LAM_STABLE_STEP`,
+  `LAM_FIELD_GATE`) so production and the unit driver share the code.
+  Nonmono handoff now requires `STABLE_OK .AND. .NOT.
+  LAM_FIELD_NOT_READY` on top of the unchanged stock terms; stock keeps
+  the single-iteration `MAXCH_CTRL < 50` test. The counter resets on
+  field-not-ready; the accepted-probe pin fires only while the field is
+  ready and not on forced/blocked calls. `BA_RDLAM_ACCEPT` clears on a
+  rejected/masked verdict, at the handoff, and on an IN_ITS re-arm.
+  Successful handoff arms `T_HELD_PHASE`/`N_ACC_FULL`/`FIXED_T` when
+  `N_FULL_TREL > 0` (same recipe as the post-LAMBDA exits; default 0
+  leaves stock unchanged). Blocked handoffs print the blocking term once
+  per streak (`LAM_FIELD_BLK` latch, `lam_field_hold` ledger token);
+  accepted handoffs print stable count, probe flag and field readiness
+  at `CONV_DIAG_LVL >= 1`. `check_param_consistency` warns when
+  `BA_PROBE_LAM > 0` cannot fire (`DO_BA_RES_ACC=F` or
+  `BA_DAMP_CAP <= 0`).
+- Tests: `test_lam_handoff` 51/51 (driver + source pins);
+  `test_vadat_keys` 75/75 (incl. both sides of the dead-key warning);
+  build suite 29/30 files (`test_interp_guards` fails on the login
+  node's OMP thread limit - environment, verified clean with
+  `OMP_NUM_THREADS=1`). Runtime smoke: knop_mom restart under the
+  rebuilt exe.
+- Status: [x] Complete (04-Nov-2026)
 
 ## Group 2: numerical verification
 

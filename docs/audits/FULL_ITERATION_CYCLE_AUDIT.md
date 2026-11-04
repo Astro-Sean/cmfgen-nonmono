@@ -285,7 +285,8 @@ a missing snapshot the immature-field BA commit is unchecked. The
 `BA_SNAPSHOT_MISSING` demote path exists, but only routes to LAMBDA when
 resacc was armed. Potential defect for resacc-off configs.
 
-**F-16 [High, A] Field maturity has no gate under SOB + moment.**
+**F-16 [High, A - resolved 04-Nov-2026] Field maturity has no gate under
+SOB + moment.**
 `GS_FREEZE` is set only inside `IF(DO_NONMONO_KNOP)` (solve_for_pops.f:1518).
 Under `DO_NONMONO_SOB && !USE_LAM_ES`, the moment lagged field can be
 immature with no freeze, no demote, no hold - only `MAX_CHNG` and resacc.
@@ -293,6 +294,13 @@ This is exactly the configuration documented FAIL at runtime (200K
 quarantined cells/sweep). Whether the moment store should share the KNOP
 freeze machinery is an open architectural question; the current state is a
 coverage gap.
+
+*Resolution (T-02/T-14, 04-Nov-2026): the census block is now gated on
+`HAS_LAGGED_FIELD`, which covers SOB+LAM_ES=F, so `MOM_RAN`/`MOM_UNSAFE_B`
+demote a scheduled BA step and `LAM_FIELD_NOT_READY` blocks the
+DO_LAM_AUTO handoff until `N_MATURE >= GS_REL_STABLE` clean sweeps.
+`GS_FREEZE` itself stays KNOP-scoped; the freeze machinery was not
+ported. See FULL_ITERATION_CYCLE_TODO T-14.*
 
 **F-17 [Medium, P] Refresh failure vs maturity reporting.**
 `FG_KNOP_REFRESH_V1`/`MOM_KNOP_REFRESH_V1` exit on stall/cap/plateau;
