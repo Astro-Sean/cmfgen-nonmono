@@ -6128,6 +6128,7 @@ C
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
 	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
+	USE ITER_LEDGER_MOD
 	IMPLICIT NONE
 !
 	INTEGER LUER,ERROR_LU
@@ -6395,6 +6396,9 @@ C
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
 	1  '    residual max=',KN_RF_RESID,'  (tol',KN_RAY_TOL,')'
 	WRITE(LUER,'(A,I6)')'    passes<=',MAXVAL(NPS_LS)
+! T-06 ledger: total per-ray passes this refresh fed to the
+! ITER_LEDGER np_rf column (audit F-22/F-24).
+	IF(LEDG_ACTIVE)LEDG_NP_RF=LEDG_NP_RF+SUM(NPS_LS)
 	WRITE(LUER,'(A,I8)')'    diverged rays=',SUM(NDV_LS)
 	WRITE(LUER,'(A,I8)')'    clamp events=',SUM(NNG_LS)
 	WRITE(LUER,'(A,I14,A,I14,A,ES9.2)')
