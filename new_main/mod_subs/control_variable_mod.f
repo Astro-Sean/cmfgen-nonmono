@@ -566,6 +566,39 @@
 !
 	LOGICAL LAM_STABLE_PROVEN
 !
+! HAS_LAGGED_FIELD (derived, no VADAT key): TRUE on the routes whose
+! J update runs against a lagged radiation coupling field --
+! DO_NONMONO_KNOP (FG I_NEXT and/or MOM J_NEXT stores),
+! DO_SOB_FG_KNOP (FG store) and DO_NONMONO_SOB + USE_LAM_ES=F (MOM
+! store). Set once in RD_CONTROL_VARIABLES after the auto-set rules
+! that can rewrite USE_LAM_ES/DO_SOB_FG_KNOP. It gates the
+! maturity-getter block and the field-readiness term of the
+! DO_LAM_AUTO handoff; plain SOB+LAM_ES=T and the stock path carry
+! no lagged field, so the flag stays F there.
+!
+	LOGICAL HAS_LAGGED_FIELD
+!
+! LAM_FIELD_NOT_READY (no VADAT key): per-call verdict set in
+! SOLVE_FOR_POPS -- the coupled populations/radiation state is not
+! mature enough to release unrestricted full iterations. On the
+! lagged-field routes it is GS_POPS_HELD .OR. GS_FREEZE .OR.
+! GS_RAW_IMMATURE .OR. N_MATURE < GS_REL_STABLE; under KNOP that
+! reduces to the held/frozen terms the handoff already tested
+! (GS_FREEZE covers the raw-immature/stability-window terms), while
+! under SOB+LAM_ES=F and DO_SOB_FG_KNOP it is the only channel by
+! which the field state reaches the handoff. Stays .FALSE. when
+! HAS_LAGGED_FIELD is F.
+!
+	LOGICAL LAM_FIELD_NOT_READY
+!
+! LAM_FIELD_BLK (no VADAT key): once-per-streak latch for the
+! SOLVE_FOR_POPS "stable count met but field not ready" OUTGEN
+! diagnostic. Set when the first blocked call of a streak prints,
+! cleared when the block clears or at the DO_LAM_AUTO handoff, so
+! each blocked episode names its blocking term exactly once.
+!
+	LOGICAL LAM_FIELD_BLK
+!
 ! FRESH_BA_EXIT (VADAT [FRESH_BA_EXIT], default F): when a LAMBDA
 ! sequence exits to a full step, force COMPUTE_BA and WRBAMAT for
 ! the next iteration so the full step runs against a Jacobian built
