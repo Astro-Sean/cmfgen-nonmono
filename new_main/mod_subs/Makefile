@@ -32,6 +32,7 @@ MOD = $(LIB_MOD)(mod_cmfgen.o)\
       $(LIB_MOD)(two_phot_mod.o)\
       $(LIB_MOD)(knop_status_mod.o)\
       $(LIB_MOD)(iter_ledger_mod.o)\
+      $(LIB_MOD)(lam_handoff_mod.o)\
       $(LIB_MOD)(var_rad_mod.o)
 
 OBJ = $(LIB)(adjust_r_grid_v4.o)\
@@ -190,7 +191,8 @@ $(LIB)(set_new_model_estimates.o) : set_new_model_estimates.f $(LIB)(opac_mod.o)
 	ar $(AR_OPTION) $(LIB) set_new_model_estimates.o
                                                                                                                       
 $(LIB)(solve_for_pops.o) : solve_for_pops.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
-                                  $(LIB_MOD)(ang_qw_mod.o) $(LIB_MOD)(knop_status_mod.o) $(LIB_MOD)(iter_ledger_mod.o)
+                                  $(LIB_MOD)(ang_qw_mod.o) $(LIB_MOD)(knop_status_mod.o) $(LIB_MOD)(iter_ledger_mod.o)\
+                                  $(LIB_MOD)(lam_handoff_mod.o)
 	$(F90) -c $(OPTION) solve_for_pops.f
 	ar $(AR_OPTION) $(LIB) solve_for_pops.o
 
@@ -226,6 +228,13 @@ $(LIB_MOD)(knop_status_mod.o) : knop_status_mod.f90
 $(LIB_MOD)(iter_ledger_mod.o) : iter_ledger_mod.f90
 	$(F90) -c $(FFREE) iter_ledger_mod.f90
 	ar $(AR_OPTION) $(LIB_MOD) iter_ledger_mod.o
+
+# RD_LAMBDA -> full-iteration handoff predicate and stability-count
+# step (LAM_FIELD gate). USEd by solve_for_pops.f (mod_subs) and
+# new_main/cmfgen_sub.f.
+$(LIB_MOD)(lam_handoff_mod.o) : lam_handoff_mod.f90
+	$(F90) -c $(FFREE) lam_handoff_mod.f90
+	ar $(AR_OPTION) $(LIB_MOD) lam_handoff_mod.o
 
 $(LIB)(jfnk_cmfgen_int_mod.o) : jfnk_cmfgen_int_mod.f $(LIB_MOD)(mod_cmfgen.o)
 	$(F90) -c $(OPTION) jfnk_cmfgen_int_mod.f
