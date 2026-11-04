@@ -605,6 +605,29 @@ def main():
         and v.get("jfnk_itry_cap") == "5",
     )
 
+    # BA_PROBE_LAM > 0 without the probe prerequisites is a dead key:
+    # check_param_consistency must warn (not abort) that the probe can
+    # never fire. Template carries DO_BA_RES_ACC=F, BA_DAMP_CAP=0.
+    d = write_vadat(WORKDIR / "vadat_probe_dead", {"BA_PROBE_LAM": "3"})
+    p = run_vadat(exe, d)
+    rep.check(
+        "BA_PROBE_LAM dead-key warns but parses",
+        "RESULT_OK" in p.stdout and "cannot fire" in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # Fully armed probe config: no dead-key warning.
+    d = write_vadat(
+        WORKDIR / "vadat_probe_armed",
+        {"BA_PROBE_LAM": "3", "DO_BA_RES_ACC": "T", "BA_DAMP_CAP": "5.0D0"},
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "BA_PROBE_LAM armed config: no dead-key warning",
+        "RESULT_OK" in p.stdout and "cannot fire" not in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # Coupled-SOB fallback keys parse and land; the tolerance
     # accepts an explicit value and keeps its 1D-5 default otherwise.
     d = write_vadat(
