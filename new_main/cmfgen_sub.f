@@ -42,6 +42,7 @@
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_SWEEP_CB,JFNK_EDD_START_REC,
 	1    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS
 	USE ITER_LEDGER_MOD
+	USE LAM_HANDOFF_MOD
 	IMPLICIT NONE
 !
 ! Altered 16-Oct-2026 : Stage-B trace polish admits a material hidden
@@ -5049,12 +5050,23 @@
 ! (18-Oct-2026: the demand gate uses BA_EX_MAXCH, which equals
 ! MAXCH when [BA_EX_RELFRAC] is off.)
 !
+! edited: .NOT. LAM_FIELD_NOT_READY joins the exit conjuncts
+! (audit T-01/F-01). BA_EX_MAXCH and BA_DEM_EXIT_OK price the
+! population demand only; on the lagged-field routes
+! (HAS_LAGGED_FIELD: KNOP, DO_SOB_FG_KNOP, SOB+LAM_ES=F) a quiet
+! demand is not proof the lagged radiation field is mature --
+! the verdict carries raw immaturity and the N_MATURE/GS_REL_STABLE
+! window, and a held field (GS_POPS_HELD alone did not cover a
+! GS_FREEZE without GS_HOLD_POPS) or frozen field is not a
+! converged one. Set per SOLVE_FOR_POPS call; forced F on stock
+! and plain SOB+LAM_ES=T, so those paths are unchanged.
+!
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
-	5    (MAIN_COUNTER .NE. LAST_NG)
+	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_READY
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
@@ -5477,22 +5489,29 @@
 ! JFNK_UNCONVERGED_COMMIT blocks this branch unless the nonlinear
 ! target was met, so the distinction is harmless there.
 !
+! .NOT. LAM_FIELD_NOT_READY (audit T-01/F-01): demanded-population
+! quiet is not lagged-field maturity -- see the same conjunct at
+! the 9999 exit above for the full rationale.
+!
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
-	5    (MAIN_COUNTER .NE. LAST_NG)
+	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_READY
 !
 ! Deferred-exit diagnostic: when every other gate passes but the
 ! resacc verdict is still pending, name the one-iteration deferral
-! so a triage does not read it as a stall.
+! so a triage does not read it as a stall. LAM_FIELD_NOT_READY is
+! mirrored so the "only resacc pending" claim stays true when an
+! immature lagged field is also blocking (same term as the gate).
 !
 	  IF(.NOT. CONV_EXIT_MET .AND. BAACC_PENDING .AND.
 	1    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	2    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3    .NOT. GS_POPS_HELD .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.
-	4    CONV_DIAG_LVL .GE. 1)
+	4    .NOT. LAM_FIELD_NOT_READY .AND.
+	5    CONV_DIAG_LVL .GE. 1)
 	5    WRITE(LUER,'(A)')' Converged exit deferred: resacc '//
 	6    'verdict pending on the armed BA step'
 !
@@ -5658,22 +5677,54 @@
 ! the periodic cnt_lam_escape / BA_PROBE_LAM probes remain the only
 ! full-step channel -- each is still bounded by BA_TRUST, resacc,
 ! and BA_MAXCH_FAIL. Default path unchanged (both flags F).
-	    ELSE IF(DO_LAMBDA_AUTO .AND. RD_LAMBDA .AND.
-	1           MAXCH_CTRL .LT. 50.0_LDP .AND.
-	2           .NOT. JFNK_UNCONVERGED_COMMIT .AND.
-	3           (.NOT. DO_NONMONO_KNOP .OR.
-	4            (.NOT. GS_POPS_HELD .AND. .NOT. GS_FREEZE)) .AND.
-	5           (.NOT. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .OR.
-	6            CNT_STABLE_LAM .GE. N_STABLE_LAM))THEN
+! edited: predicate moved to LAM_HANDOFF_OK (LAM_HANDOFF_MOD) and
+! extended with LAM_FIELD_NOT_READY -- under KNOP it reduces to the
+! GS_POPS_HELD/GS_FREEZE terms it replaces (GS_FREEZE already carries
+! the immature/not-yet-mature lagged state there); on the SOB
+! lagged-field routes it adds the missing hold/immature/maturity-
+! window coverage; on stock and plain SOB+LAM_ES=T it is always F,
+! so those paths keep the stock predicate exactly.
+	    ELSE IF(LAM_HANDOFF_OK(DO_LAMBDA_AUTO,RD_LAMBDA,MAXCH_CTRL,
+	1           JFNK_UNCONVERGED_COMMIT,
+	2           (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP),
+	3           (CNT_STABLE_LAM .GE. N_STABLE_LAM),
+	4           LAM_FIELD_NOT_READY))THEN
 ! edited 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
 ! the start of full iterations is visible in OUTGEN.
 	       WRITE(LUER,'(A,I5,A,ES12.4)')
 	1       ' DO_LAM_AUTO: switching to full iterations at iter ',
 	2       MAIN_COUNTER,' (MAXCH_CTRL=',MAXCH_CTRL,')'
+	       IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	1          CONV_DIAG_LVL .GE. 1)THEN
+	         WRITE(LUER,'(A,I0,A,I0,A,L1,A,L1)')
+	1         '  LAM_HANDOFF: stable count ',CNT_STABLE_LAM,'/',
+	2         N_STABLE_LAM,' probe_accept=',BA_RDLAM_ACCEPT,
+	3         ' field_ready=',.NOT. LAM_FIELD_NOT_READY
+	       END IF
 	       CALL UPDATE_KEYWORD(L_FALSE,'[DO_LAM_IT]','IN_ITS',L_TRUE,L_TRUE,LUIN)
 	       RD_LAMBDA=.FALSE.
 	       LAMBDA_ITERATION=.FALSE.
 	       FIXED_T=RD_FIX_T
+!
+! BA_RDLAM_ACCEPT is only meaningful inside RD_LAMBDA -- a stale pin
+! surviving the phase could re-arm the counter if a later demote
+! re-enters it. The blocking-streak latch resets for the same
+! reason: the next blocked episode must print again.
+!
+	       BA_RDLAM_ACCEPT=.FALSE.
+	       LAM_FIELD_BLK=.FALSE.
+!
+! Match the post-LAMBDA exits in SOLVE_FOR_POPS: when N_FULL_TREL
+! is armed, the first full iterations after this switch hold T
+! until N_ACC_FULL accepted steps accumulate and MAXCH_CTRL falls
+! below T_REL_CHG. Default N_FULL_TREL=0 leaves the stock path
+! unchanged.
+!
+	       IF(N_FULL_TREL .GT. 0)THEN
+	         T_HELD_PHASE=.TRUE.
+	         N_ACC_FULL=0
+	         FIXED_T=.TRUE.
+	       END IF
 !
 ! CNT_LAM now counts probe-cadence calls during RD_LAMBDA as well;
 ! restart it so the post-handoff probe cadence begins at the handoff.
@@ -5730,6 +5781,17 @@
 	      LAMBDA_ITERATION=.TRUE.
 	      FIX_IMPURITY=.FALSE.
 	      FIXED_T=.TRUE.
+!
+! On a user re-arm of RD_LAMBDA through IN_ITS (OLD_RD_LAMBDA F ->
+! T), stale latches from the previous phase must not leak in: an
+! old accepted-probe pin would re-arm the stability count against
+! a field state it never measured, and an old blocking-streak
+! latch would silence the diagnostic for the new episode.
+!
+	      IF(.NOT. OLD_RD_LAMBDA)THEN
+	        BA_RDLAM_ACCEPT=.FALSE.
+	        LAM_FIELD_BLK=.FALSE.
+	      END IF
 !
 ! Don't wish to change ITERATION cycle values unless we have to.
 !
