@@ -151,7 +151,7 @@ $(LIB)(fg_j_cmf_v12.o) : fg_j_cmf_v12.f $(LIB)(mod_ray_mom_store.o)
 	$(F90) -c $(OPTION) fg_j_cmf_v12.f
 	ar $(AR_OPTION) $(LIB) fg_j_cmf_v12.o
 
-$(LIB)(fg_j_cmf_nonmono_v1.o) : fg_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o)
+$(LIB)(fg_j_cmf_nonmono_v1.o) : fg_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)iter_ledger_mod.mod
 	$(F90) -c $(OPTION) fg_j_cmf_nonmono_v1.f
 	ar $(AR_OPTION) $(LIB) fg_j_cmf_nonmono_v1.o
 
@@ -167,7 +167,7 @@ $(LIB)(mom_j_cmf_v8.o) : mom_j_cmf_v8.f $(LIB)(mod_ray_mom_store.o)
 	$(F90) -c $(OPTION) mom_j_cmf_v8.f
 	ar $(AR_OPTION) $(LIB) mom_j_cmf_v8.o
 
-$(LIB)(mom_j_cmf_nonmono_v1.o) : mom_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)knop_status_mod.mod
+$(LIB)(mom_j_cmf_nonmono_v1.o) : mom_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)knop_status_mod.mod $(MOD_DIR)iter_ledger_mod.mod
 	$(F90) -c $(OPTION) mom_j_cmf_nonmono_v1.f
 	ar $(AR_OPTION) $(LIB) mom_j_cmf_nonmono_v1.o
 
