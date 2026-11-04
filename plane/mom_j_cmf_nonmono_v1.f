@@ -4496,11 +4496,10 @@
 !
 ! When MOM_SW_NTOT > 0 the SW_* slots are the snapshot taken at the
 ! last refresh entry (written once per refresh, above) -- the sweep
-! drift seen at that pass-1 boundary. On iterations without a
-! refresh they describe the most recent refresh, not the live
-! iteration; the bulk gate in SOLVE_FOR_POPS may therefore read a
-! census one iteration stale. Fall back to the live counters only
-! when no refresh has ever run.
+! drift seen at that pass-1 boundary. MOM_SW_NTOT is zeroed at the
+! FREQ_INDX=1 reset each sweep, so on an iteration without a
+! refresh it stays 0 and the live MOM_GS_* counters are returned:
+! no stale census can reach the bulk gate.
 !
 	IF(MOM_SW_NTOT .GT. 0)THEN
 	  SW_MAXCHG=MOM_SW_MAXCHG
@@ -4521,6 +4520,31 @@
 	  SW_CAPPED=MOM_INEXT_CAPPED
 	  SW_NHUGE=MOM_GS_NHUGE
 	END IF
+	RETURN
+	END
+!
+! GET_MOM_GS_RELAX: read-back for the GS_DRIFT_DIAG line in
+! SOLVE_FOR_POPS -- the adaptive sweep-write factor, the residual
+! history that drives it, whether the refresh ran/converged this
+! iteration, and the in-sweep drift argmax cell. Diagnostic only;
+! exports solver state unchanged.
+!
+	SUBROUTINE GET_MOM_GS_RELAX(OMEGA,RESID_PRV,RF_RAN,RF_CONV,
+	1                           ARGI,ARGL)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY:
+	1     JNEXT_RELAX,MOM_RF_RESID_PRV,MOM_RF_RAN,MOM_RF_CONV,
+	2     MOM_GS_ARGI,MOM_GS_ARGL
+	IMPLICIT NONE
+	REAL(KIND=LDP) OMEGA,RESID_PRV
+	LOGICAL RF_RAN,RF_CONV
+	INTEGER ARGI,ARGL
+	OMEGA=JNEXT_RELAX
+	RESID_PRV=MOM_RF_RESID_PRV
+	RF_RAN=MOM_RF_RAN
+	RF_CONV=MOM_RF_CONV
+	ARGI=MOM_GS_ARGI
+	ARGL=MOM_GS_ARGL
 	RETURN
 	END
 !
