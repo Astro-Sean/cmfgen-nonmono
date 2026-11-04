@@ -111,7 +111,32 @@ when its acceptance tests pass - compiling does not count.
 - Tests: eval-freeze determinism test (repeat F(x), same residual);
   consistency-check test for the closed path.
 - Dependencies: none for the decision; T-09 for eval determinism testing.
-- Status: [ ] Not started
+- Status: [x] Complete (04-Nov-2026)
+- Resolution: closed, not ported. The freeze cost alone is small
+  (~4 guard sites mirroring FREEZE_I_NEXT: two in-sweep J_NEXT_FRQ/
+  H_NEXT_FRQ writes, MOM_KNOP_REFRESH_V1 early return, INIT reset),
+  but useful admission under LAM_ES=F additionally requires
+  coupled-only admission (frozen tier = the fixed-J system SOLVEBA
+  already solves, F-03 generalizes to every nonmono route), a new
+  direct coupled trigger for SOB-mom (the only current trigger is
+  frozen-reach certification), and a determinism audit over the MOM
+  module state beyond the existing eval bracket (J_NEXT_VALID, NM
+  upwind maps, BC state, sweep census). Substantial change for
+  unproven gain: every coupled eval costs a full MOM sweep (F-22).
+- Implementation: `check_param_consistency.f` now hard-stops on
+  `USE_JFNK_SOLVER .AND. .NOT. USE_LAM_ES` -- exactly the MOM-store
+  routes (DO_JFNK already requires a nonmono flag; DO_SOB_FG_KNOP
+  forces LAM_ES=T; stock cannot arm DO_JFNK). Message names the
+  missing MOM eval freeze and both remedies. Stale comments updated
+  at rd_control_variables.f:1420 and solve_for_pops.f:2186; the
+  admission leg and defer print remain as unreachable backstop.
+- Tests: `test_vadat_keys` 77/77 -- new abort cases for explicit
+  LAM_ES=F and the SOB default-F trap under DO_JFNK=T; the two
+  honoured-F cases gained DO_JFNK=F to stay legal. No production
+  config combines DO_JFNK=T with LAM_ES=F (checked all resolved
+  yamls), so no live run changes behaviour.
+- Deviations: none vs the close-path acceptance; the eval-freeze
+  determinism test is moot under this outcome.
 
 ### T-04 SOB frozen-tier self-suppression
 - Priority: P2

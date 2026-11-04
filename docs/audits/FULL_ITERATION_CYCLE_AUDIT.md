@@ -352,13 +352,27 @@ operator. Acceptable while flagged; each needs an activation-rate diagnostic
 
 ### JFNK integration
 
-**F-02 [High, A] JFNK permanently gated to `USE_LAM_ES`.**
+**F-02 [High, A - resolved 04-Nov-2026] JFNK permanently gated to
+`USE_LAM_ES`.**
 `solve_for_pops.f:2182, 2496-2506`: the moment lagged store (`J_NEXT_FRQ`/
 `H_NEXT_FRQ`) has no equivalent of `FREEZE_I_NEXT`, so each residual/JVP eval
 would overwrite the coupling field the committed iterate relies on. The
 moment pathway - the non-monotonic default under SOB and one of two KNOP
 paths - can never use Newton. Closing this requires a MOM-side eval freeze
 (or coupled evals that fully re-converge the store before committing).
+
+*Resolution (T-03, 04-Nov-2026): the combination is closed, not ported.
+A MOM eval freeze alone is small (~4 guard sites), but useful admission
+under LAM_ES=F additionally needs a coupled-only admission rewrite (the
+frozen tier is the same fixed-J system SOLVEBA solves - F-03), a new
+direct coupled trigger for the SOB-mom route (the current trigger is
+frozen-reach certification), and a determinism audit over the MOM
+module state. That is a substantial architecture change for unproven
+gain, so `CHECK_PARAM_CONSISTENCY` now stops on
+`USE_JFNK_SOLVER .AND. .NOT. USE_LAM_ES` with a clear message instead
+of the armed-but-always-deferred state. The defer reason in
+`solve_for_pops` remains as unreachable backstop. See
+FULL_ITERATION_CYCLE_TODO T-03.*
 
 **F-03 [Medium, A] Frozen tier is useless under SOB.**
 Frozen-J Newton solves the same fixed-J system SOLVEBA does; on a
