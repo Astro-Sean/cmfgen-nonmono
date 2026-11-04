@@ -110,7 +110,34 @@ when its acceptance tests pass - compiling does not count.
   reconcile with OUTGEN counters; zero output when nonmono flags are off.
 - Tests: ledger-parse unit test; runtime smoke.
 - Dependencies: none.
-- Status: [ ] Not started
+- Status: [x] Complete
+- Implementation: `new_main/mod_subs/iter_ledger_mod.f90` (new
+  `ITER_LEDGER_MOD`: counters/timers + CSV writer + `/proc/self/status`
+  VmHWM reader); instrumented `cmfgen_sub.f` (arm at label 20000,
+  FG/MOM refresh call+time), `comp_j_blank.f` (all six J-solver call
+  sites incl. EDDFAC ACC pair), `solve_for_pops.f` (stage timer,
+  freeze-edge counter, row write next to ITER_HISTORY),
+  `fg_j_cmf_nonmono_v1.f`/`mom_j_cmf_nonmono_v1.f` (refresh pass
+  totals). Emits `ITER_LEDGER` (one CSV row per SOLVE_FOR_POPS call):
+  iter/mode/next/ba/frozen/held/reason, n_fg, n_mom, n_rf, np_rf,
+  ba_build, ba_reuse, jfnk, jfnk_cpl, jfnk_ev, jfnk_jvp, n_rej, n_dem,
+  n_frz, n_frozen, n_rel, n_raw_rel, maxch, maxch_app, maxatt, se_res,
+  se_res2, trust, t_iter, t_rad, t_rf, t_pops, rss_mb.
+- Commits: `7571268b` (module), `0d828b26` (cmfgen_sub), `c878e3c1`
+  (comp_j_blank), `3fb58aab` (solve_for_pops), `0f039ef4` (fg refresh),
+  `81a55d89` (mom refresh), `fa40090d`/`e02559e2`/`d5851a26` (build),
+  `cbd61634`/`04d7a3df` (test), `c4f26144`/`233626a7`/`84789e95`/
+  `6905ae9f` (test build lists).
+- Verification: `./build.sh` clean, all three exes relinked
+  (cmfgen_dev, cmf_flux, obs_frame); suite 28/28 with
+  `OMP_NUM_THREADS=4` (test_interp_guards hits a 256-thread fork limit
+  on the login node without the cap - environment, unrelated);
+  `test_iter_ledger` 28/28 checks incl. no-file-when-unarmed.
+- Deviations: JFNK evals counted via `JFNK_N_RESIDUAL_EVALS`/JVP deltas
+  snapshotted at reset rather than instrumenting the eval interior -
+  the sweeps already route through the counted COMP_J_BLANK sites.
+  Model-run reconciliation still pending (needs a real run; covered by
+  T-08 runtime smoke).
 
 ### T-07 Transient-guard influence census
 - Priority: P3
