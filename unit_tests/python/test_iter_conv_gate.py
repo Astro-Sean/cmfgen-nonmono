@@ -5,17 +5,19 @@ NUMERICAL_VERIFICATION_TEST_PLAN TEST 11/14 (source level): the
 convergence exit must not fire on small population demands while the
 lagged radiation field is still evolving.
 
-Checks pin the CURRENT gate structure (PASS) and the documented
-defects (XFAIL -- each asserts the defect is still present, so it
-fails loudly the moment T-01/T-02 lands and must then be flipped to
-the positive assertion):
+Checks pin the current gate structure. Both audit defects this file
+tracked are now landed and asserted positively:
 
-  T-01 F-01: CONV_EXIT_MET on nonmono paths carries no radiation-
-             maturity conjunct.
-  T-02 F-16: the GS/MOM maturity census in SOLVE_FOR_POPS opens only
-             under DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP, so the
-             SOB+USE_LAM_ES=F moment path runs with no immature-
-             field protection.
+  T-01 F-01: FIXED. Both CONV_EXIT_MET blocks conjunct .NOT.
+             LAM_FIELD_NOT_READY -- the per-call field-readiness
+             verdict (held/frozen/raw-immature/stability window)
+             published by SOLVE_FOR_POPS; the deferred-exit
+             diagnostic mirrors it. Forced F on stock and plain
+             SOB+LAM_ES=T, so those gates are unchanged.
+  T-02 F-16: FIXED. The census block opens under HAS_LAGGED_FIELD,
+             which covers DO_NONMONO_SOB + USE_LAM_ES=F alongside
+             KNOP and DO_SOB_FG_KNOP, so the moment field's maturity
+             now reaches the demote gate and the handoff field gate.
 
 Static only: CONV_EXIT_MET and the census gate cannot be exercised
 standalone.
@@ -60,11 +62,6 @@ def conv_blocks(text):
 BLOCKS = conv_blocks(CMF)
 JOINED = "\n".join(BLOCKS)
 
-MATURITY_RE = re.compile(
-    r"FIELD_MATURE|FIELD_IMMATURE|GS_FG_IMMATURE|MOM_FREEZE_B|"
-    r"MOM_UNSAFE_B|RF_MATURE|GS_FIELD"
-)
-
 
 def test_conv_exit_structure():
     REP.check(
@@ -87,49 +84,94 @@ def test_maturity_predicates_exist():
         REP.check(f"maturity predicate {tok} computed", tok in POPS)
 
 
-def test_T01_exit_lacks_maturity_xfail():
-    # Defect F-01 present => PASS; flips FAIL when T-01 lands, at
-    # which point this check is rewritten to assert the conjunct.
+def test_T01_exit_maturity_conjunct():
+    # F-01 landed: both exit blocks carry .NOT. LAM_FIELD_NOT_READY,
+    # the per-call verdict from LAM_FIELD_GATE (held .OR. frozen
+    # .OR. HAS_LAGGED_FIELD .AND. (raw-immature .OR. under the
+    # N_MATURE/GS_REL_STABLE window)). Forced F off the lagged-field
+    # routes, so stock and SOB+LAM_ES=T are unchanged.
     REP.check(
-        "XFAIL T-01: no CONV_EXIT_MET block references a field-"
-        "maturity predicate",
-        not any(MATURITY_RE.search(b) for b in BLOCKS),
+        "T-01: every CONV_EXIT_MET block gates on LAM_FIELD_NOT_READY",
+        len(BLOCKS) >= 2
+        and all(".NOT. LAM_FIELD_NOT_READY" in b for b in BLOCKS),
     )
-    m = re.search(
-        r"CONV_EXIT_MET[^!]*?DO_NONMONO[^!]*?(MATURE|IMMATURE)", CMF, re.S
-    )
+    # The deferred-exit diagnostic mirrors the term so its "only
+    # resacc pending" claim stays true under an immature field.
     REP.check(
-        "XFAIL T-01: no nonmono-scoped maturity term in the exit gate",
-        m is None,
+        "T-01: deferred-exit diagnostic mirrors the maturity term",
+        re.search(
+            r"CONV_EXIT_MET \.AND\. BAACC_PENDING[\s\S]{0,300}?"
+            r"\.NOT\. LAM_FIELD_NOT_READY",
+            CMF,
+        )
+        is not None,
+    )
+    # The verdict is published per call, unconditionally (before the
+    # RD_LAMBDA branches), so the gate never reads a stale value.
+    REP.check(
+        "T-01: verdict assigned unconditionally each SOLVE_FOR_POPS call",
+        re.search(
+            r"LAM_FIELD_NOT_READY=LAM_FIELD_GATE\(HAS_LAGGED_FIELD,"
+            r"GS_POPS_HELD,\s*\n\s*1\s+GS_FREEZE,GS_RAW_IMMATURE,"
+            r"N_MATURE,GS_REL_STABLE\)",
+            POPS,
+        )
+        is not None,
+    )
+    # On stock the gate reduces to held/frozen flags -- both forced F
+    # off KNOP -- so the new conjunct cannot alter the stock exit.
+    REP.check(
+        "T-01: LAM_FIELD_GATE reduces to held/frozen without lagged field",
+        re.search(
+            r"LAM_FIELD_GATE=HELD \.OR\. FREEZE",
+            (TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text(),
+        )
+        is not None,
     )
 
 
-def test_T02_sob_mom_outside_census_xfail():
-    # F-16: the census block opens under KNOP/DO_SOB_FG_KNOP only.
+def test_T02_sob_mom_census_fixed():
+    # F-16 landed: the census block opens under HAS_LAGGED_FIELD,
+    # which RD_CONTROL_VARIABLES derives as KNOP .OR. SOB_FG_KNOP
+    # .OR. (SOB .AND. .NOT. USE_LAM_ES) -- the SOB moment route is
+    # covered. The getters are pure read-backs so the widened gate
+    # only admits the metrics; GS_FREEZE stays forced-F off KNOP.
     gate = re.search(
-        r"IF\(DO_NONMONO_KNOP \.OR\. DO_SOB_FG_KNOP\)THEN\s*\n\s*"
-        r"CALL GET_FG_GS_MATURITY",
+        r"IF\(HAS_LAGGED_FIELD\)THEN\s*\n\s*CALL GET_FG_GS_MATURITY",
         POPS,
     )
     REP.check(
-        "XFAIL T-02: maturity census still KNOP-scoped "
-        "(SOB+LAM_ES=F uncovered)",
+        "T-02: maturity census gated on HAS_LAGGED_FIELD "
+        "(SOB+LAM_ES=F covered)",
         gate is not None,
     )
-    sob_demote = "mom_immature_demote" in POPS or re.search(
-        r"DO_NONMONO_SOB[^\n]*\n[^!]*?MOM_(UNSAFE_B|FREEZE_B)", POPS
+    # The demote gate judges the moment leg on the widened block:
+    # MOM_RAN .AND. MOM_UNSAFE_B demotes a scheduled BA step.
+    sob_demote = re.search(
+        r"MOM_RAN \.AND\. MOM_UNSAFE_B", POPS
     )
     REP.check(
-        "XFAIL T-02: no SOB-path demote/census on the moment field",
-        not sob_demote,
+        "T-02: moment-field demote gate live on the census block",
+        sob_demote is not None,
+    )
+    # The lagged-field route flag must include the SOB moment route.
+    rcv = (TREE / "new_main" / "mod_subs" / "rd_control_variables.f").read_text()
+    REP.check(
+        "T-02: HAS_LAGGED_FIELD includes SOB .AND. .NOT. USE_LAM_ES",
+        re.search(
+            r"HAS_LAGGED_FIELD=DO_NONMONO_KNOP[\s\S]{0,200}?"
+            r"DO_NONMONO_SOB \.AND\. \.NOT\. USE_LAM_ES",
+            rcv,
+        )
+        is not None,
     )
 
 
 def main():
     test_conv_exit_structure()
     test_maturity_predicates_exist()
-    test_T01_exit_lacks_maturity_xfail()
-    test_T02_sob_mom_outside_census_xfail()
+    test_T01_exit_maturity_conjunct()
+    test_T02_sob_mom_census_fixed()
     return REP.summary()
 
 
