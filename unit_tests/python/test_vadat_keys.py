@@ -235,15 +235,27 @@ def main():
         ),
         (
             "DO_NONMONO_SOB + USE_LAM_ES=F honoured (moment solver)",
-            {"USE_LAM_ES": "F"},
+            {"USE_LAM_ES": "F", "DO_JFNK": "F"},
             True,
             "SOB field solver: MOM_J_CMF_NONMONO_V1",
         ),
         (
             "DO_NONMONO_SOB + USE_LAM_ES absent defaults to F",
-            {"USE_LAM_ES": None},
+            {"USE_LAM_ES": None, "DO_JFNK": "F"},
             True,
             "SOB field solver: MOM_J_CMF_NONMONO_V1",
+        ),
+        (
+            "DO_JFNK + explicit USE_LAM_ES=F aborts (no MOM eval freeze)",
+            {"USE_LAM_ES": "F"},
+            False,
+            "DO_JFNK=T requires USE_LAM_ES=T",
+        ),
+        (
+            "DO_JFNK + absent USE_LAM_ES aborts (SOB default F)",
+            {"USE_LAM_ES": None},
+            False,
+            "DO_JFNK=T requires USE_LAM_ES=T",
         ),
         (
             "DO_NONMONO_KNOP + GLOBAL_LINE=SOB auto-sets to BLANK",
