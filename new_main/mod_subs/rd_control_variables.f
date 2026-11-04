@@ -1418,9 +1418,11 @@
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
 ! when DO_JFNK=T. Admitted under DO_NONMONO_KNOP or DO_NONMONO_SOB;
-! admission additionally requires USE_LAM_ES=T (so JFNK is inert on
-! the SOB default LAM_ES=F) and, under KNOP only, a mature lagged
-! field (GS_FREEZE=F).
+! admission additionally requires USE_LAM_ES=T and, under KNOP
+! only, a mature lagged field (GS_FREEZE=F). USE_LAM_ES=F is no
+! longer a silent hold-out: CHECK_PARAM_CONSISTENCY stops the run
+! on DO_JFNK+LAM_ES=F (T-03/F-02, 04-Nov-2026) because the MOM
+! J_NEXT/H_NEXT lagged store has no eval freeze.
 !
 ! JFNK_COUPLED=T evaluates the residual with a fresh formal solve
 ! at each perturbed population state (JFNK_RAD_SWEEP_V1), so the
