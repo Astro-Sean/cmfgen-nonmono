@@ -39,7 +39,9 @@
 	USE UPDATE_KEYWORD_INTERFACE
 	USE VAR_RAD_MOD
 	USE EDDFAC_REC_DEFS_MOD
-	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_SWEEP_CB,JFNK_EDD_START_REC
+	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_SWEEP_CB,JFNK_EDD_START_REC,
+	1    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS
+	USE ITER_LEDGER_MOD
 	IMPLICIT NONE
 !
 ! Altered 16-Oct-2026 : Stage-B trace polish admits a material hidden
@@ -222,6 +224,7 @@
 !
 	REAL(KIND=LDP) T_GIT_START
 	REAL(KIND=LDP) OMP_GET_WTIME
+	REAL(KIND=LDP) TW
 	LOGICAL GIT_CLK_SET
 	EXTERNAL OMP_GET_WTIME
 !
@@ -1478,6 +1481,17 @@
 	2  OMP_GET_WTIME()-T_GIT_START,' [s]'
 	T_GIT_START=OMP_GET_WTIME()
 	GIT_CLK_SET=.TRUE.
+!
+! T-06 iteration ledger (audit F-22/F-24): arm the per-iteration
+! work counters at the top of each great iteration so COMP_J_BLANK,
+! the KNOP refreshes and SOLVE_FOR_POPS can accumulate against a
+! common origin; the ITER_LEDGER row is written inside
+! SOLVE_FOR_POPS. Off under stock flags -- LEDG_ACTIVE stays .FALSE.
+! and every instrumented site short-circuits.
+!
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)
+	1  CALL LEDG_ITER_RESET(OMP_GET_WTIME(),
+	2    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS)
 !
 	WRITE(LUER,'(A)')' '
 	WRITE(LUER,'(X,80A)')('*',I=1,80)
@@ -3279,7 +3293,14 @@
 ! the same within-sweep convergence.
 !
 	IF((DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP) .AND. DO_KNOP_REFRESH)
-	1    CALL FG_KNOP_REFRESH_V1()
+	1    THEN
+	  TW=OMP_GET_WTIME()
+	  CALL FG_KNOP_REFRESH_V1()
+	  IF(LEDG_ACTIVE)THEN
+	    LEDG_T_RF=LEDG_T_RF+OMP_GET_WTIME()-TW
+	    LEDG_N_RF=LEDG_N_RF+1
+	  END IF
+	END IF
 !
 ! Moment-path analogue (USE_LAM_ES=F): re-drive MOM_J_CMF_NONMONO_V1
 ! over its captured per-frequency store in alternating frequency
@@ -3290,7 +3311,14 @@
 ! needs the same within-iteration refresh.
 !
 	IF((DO_NONMONO_KNOP .OR. DO_NONMONO_SOB) .AND. DO_KNOP_REFRESH)
-	1    CALL MOM_KNOP_REFRESH_V1()
+	1    THEN
+	  TW=OMP_GET_WTIME()
+	  CALL MOM_KNOP_REFRESH_V1()
+	  IF(LEDG_ACTIVE)THEN
+	    LEDG_T_RF=LEDG_T_RF+OMP_GET_WTIME()-TW
+	    LEDG_N_RF=LEDG_N_RF+1
+	  END IF
+	END IF
 !
 	WRITE(LUER,*)' '
 	WRITE(LUER,*)'Number of weak lines is',NUM_OF_WEAK_LINES
