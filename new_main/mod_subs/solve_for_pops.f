@@ -16,6 +16,7 @@
 	3    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS
 	USE KNOP_STATUS_MOD
 	USE ITER_LEDGER_MOD
+	USE LAM_HANDOFF_MOD
 	IMPLICIT NONE
 !
 ! Altered: 20-Oct-2026 : No-progress totals N_FROZEN_TOT /
@@ -739,6 +740,7 @@
 	GS_NCONV_ALL=0_8
 	GS_UNSAFE=.FALSE.
 	GS_PIN=.FALSE.
+	GS_RAW_IMMATURE=.FALSE.
 	FG_TRIAL=.FALSE.
 	TRIAL_MIN_USED=0
 	GS_CHURN=0.0_LDP
@@ -1037,9 +1039,17 @@
 ! restored from the FGINEXT_GS checkpoint: I_NEXT_GS_OK plus a last-
 ! sweep relative change below GS_MATURE_TOL and no capped writes.
 !
+! Gate is HAS_LAGGED_FIELD (edited): the KNOP and DO_SOB_FG_KNOP
+! coverage above is unchanged; DO_NONMONO_SOB + USE_LAM_ES=F joins
+! the block so its lagged MOM J_NEXT/H_NEXT store reaches the
+! maturity predicates, the demote gate, and the handoff field
+! readiness check. The getters are pure read-backs; GS_FREEZE stays
+! forced-F outside KNOP below, so the freeze/hold machinery itself
+! does not activate on the SOB routes.
+!
 	LAM_AT_ENTRY=LAMBDA_ITERATION
 	GS_FG_IMMATURE=.FALSE.
-	IF(DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP)THEN
+	IF(HAS_LAGGED_FIELD)THEN
 	  CALL GET_FG_GS_MATURITY(GS_OK,GS_CHG_FILE,GS_CAP_FILE,
 	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV,
 	2      GS_NDIV,GS_NRAY,GS_NBAD_BLK,
@@ -1233,7 +1243,14 @@
 	    GS_FG_IMMATURE=(GS_SW_CAPTOT .GT. 0_8 .AND.
 	1      GS_NCONV_ALL .GT. MAX(50_8,GS_SW_CAPTOT/1000)) .OR.
 	2      (GS_MAX_ALL .GT. GS_UNSAFE_TOL)
-	    CALL APPEND_ITER_REASON(ITER_REASON,'no_refresh')
+!
+! 'no_refresh' marks a call where the FG refresh was expected but did
+! not run. Under SOB+LAM_ES=F the FG solver never runs at all --
+! GS_NTOT stays 0 by design -- so the token is gated to the routes
+! that carry an FG lagged store.
+!
+	    IF(DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP)
+	1      CALL APPEND_ITER_REASON(ITER_REASON,'no_refresh')
 	  ELSE IF(GS_FG_IMMATURE)THEN
 	    IF(KN_GATE_DIVERGENCE)THEN
 	      GS_FG_IMMATURE=(GS_NBAD_EFF .GT.
@@ -2864,8 +2881,13 @@
 ! ordinary DO_LAM_AUTO handoff fires. A rejected/masked probe leaves
 ! the gate closed; the next probe is BA_PROBE_LAM calls away.
 !
-	  IF(RD_LAMBDA .AND. .NOT. BA_RAW_REJECTED)
-	1    BA_RDLAM_ACCEPT=.TRUE.
+! edited: clear the latch on a rejected/masked verdict too. The
+! pin used to survive a later rejection -- the sentinel demand reset
+! the count and the still-armed latch re-armed it on the same call,
+! so evidence of contraction outlived a failed re-test. CMFGEN_SUB
+! also clears it when RD_LAMBDA ends.
+!
+	  IF(RD_LAMBDA)BA_RDLAM_ACCEPT=.NOT. BA_RAW_REJECTED
 	END IF
 	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1   BA_SNAPSHOT_MISSING)BA_RAW_REJECTED=.TRUE.
@@ -3361,6 +3383,16 @@
 ! edited: DO_LAM_AUTO's initial non-monotonic handoff uses
 ! the same applied-change stability count as later LAMBDA exits. A
 ! forced/frozen or luminosity-drifting call cannot establish readiness.
+!
+! Field-readiness verdict for this call, evaluated after the
+! freeze/hold bookkeeping so all inputs are the final call state.
+! On the lagged-field routes it carries GS_RAW_IMMATURE and the
+! N_MATURE/GS_REL_STABLE window; without a lagged field it reduces
+! to the held/frozen flags and stays .FALSE. on stock and plain
+! SOB+LAM_ES=T runs.
+!
+	LAM_FIELD_NOT_READY=LAM_FIELD_GATE(HAS_LAGGED_FIELD,GS_POPS_HELD,
+	1   GS_FREEZE,GS_RAW_IMMATURE,N_MATURE,GS_REL_STABLE)
 	IF(FORCE_LAMBDA)THEN
 	  CNT_STABLE_LAM=0
 	  LAM_STABLE_PROVEN=.FALSE.
@@ -3375,14 +3407,9 @@
 ! damped probe would otherwise latch LAM_STABLE_PROVEN and open the
 ! one-time handoff against a still-churning lagged field).
 !
-	  IF(FORCE_LAMBDA .OR. LUM_BLOCKED .OR.
-	1      MAXCH_CTRL .GE. VAL_EXIT_LAM)THEN
-	    CNT_STABLE_LAM=0
-	    LAM_STABLE_PROVEN=.FALSE.
-	  ELSE IF(.NOT. GS_FREEZE)THEN
-	    CNT_STABLE_LAM=CNT_STABLE_LAM+1
-	    IF(CNT_STABLE_LAM .GE. N_STABLE_LAM)LAM_STABLE_PROVEN=.TRUE.
-	  END IF
+	  CALL LAM_STABLE_STEP(FORCE_LAMBDA,LUM_BLOCKED,GS_FREEZE,
+	1    LAM_FIELD_NOT_READY,MAXCH_CTRL,VAL_EXIT_LAM,N_STABLE_LAM,
+	2    BA_RDLAM_ACCEPT,CNT_STABLE_LAM,LAM_STABLE_PROVEN)
 !
 ! edited 11-Oct-2026: [BA_PROBE_LAM]-cadence bounded probe
 ! inside the RD_LAMBDA phase. The stable-exit gate above has no
@@ -3405,21 +3432,44 @@
 	2     CNT_LAM .GE. BA_PROBE_LAM .AND.
 	3     MAXCH_CTRL .GE. VAL_EXIT_LAM .AND.
 	4     MAXCH_CTRL .LT. VAL_ENTER_LAM .AND.
-	5     .NOT. FORCE_LAMBDA .AND. .NOT. LUM_BLOCKED)THEN
+	5     .NOT. FORCE_LAMBDA .AND. .NOT. LUM_BLOCKED .AND.
+	6     .NOT. LAM_FIELD_NOT_READY)THEN
 	    BA_RDLAM_PROBE=.TRUE.
 	    CNT_LAM=0
 	    CALL APPEND_ITER_REASON(ITER_REASON,'rdlam_probe')
 	  END IF
 !
-! A resacc-accepted probe is sustained evidence that a full step
-! contracts here, so keep the exit count pinned; the demand-level
-! reset above would otherwise disarm it on the same call. cmfgen_sub
-! still requires MAXCH < 50 for the switch, so the arm only matters
-! while the LAMBDA demand stays sane. Dead once RD_LAMBDA clears.
+! The resacc-accepted-probe pin lives inside LAM_STABLE_STEP, which
+! only applies it while the field reports ready. cmfgen_sub still
+! requires MAXCH < 50 for the switch, so the pin only matters while
+! the LAMBDA demand stays sane. Dead once RD_LAMBDA clears.
 !
-	  IF(BA_RDLAM_ACCEPT)THEN
-	    CNT_STABLE_LAM=N_STABLE_LAM
-	    LAM_STABLE_PROVEN=.TRUE.
+! When the stability proof is complete but the field gate blocks the
+! handoff, name the blocking term once per blocking streak (the
+! CMFGEN_SUB gate fires on the same call state). LAM_FIELD_BLK
+! rearms whenever the block clears so the next episode prints again.
+!
+	  IF(LAM_STABLE_PROVEN .AND. LAM_FIELD_NOT_READY)THEN
+	    CALL APPEND_ITER_REASON(ITER_REASON,'lam_field_hold')
+	    IF(.NOT. LAM_FIELD_BLK .AND. CONV_DIAG_LVL .GE. 1)THEN
+	      LAM_FIELD_BLK=.TRUE.
+	      IF(GS_POPS_HELD)THEN
+	        WRITE(LUER,'(A)')'  LAM_HANDOFF: stable count met;'//
+	1        ' blocked by held populations (GS_POPS_HELD)'
+	      ELSE IF(GS_FREEZE)THEN
+	        WRITE(LUER,'(A)')'  LAM_HANDOFF: stable count met;'//
+	1        ' blocked by field freeze (GS_FREEZE)'
+	      ELSE IF(GS_RAW_IMMATURE)THEN
+	        WRITE(LUER,'(A)')'  LAM_HANDOFF: stable count met;'//
+	1        ' blocked by immature lagged field (GS_RAW_IMMATURE)'
+	      ELSE
+	        WRITE(LUER,'(A,I0,A,I0)')'  LAM_HANDOFF: stable count'//
+	1        ' met; blocked: mature sweeps ',N_MATURE,
+	2        ' < GS_REL_STABLE ',GS_REL_STABLE
+	      END IF
+	    END IF
+	  ELSE
+	    LAM_FIELD_BLK=.FALSE.
 	  END IF
 	END IF
 	IF(.NOT. RD_LAMBDA .AND. .NOT. FORCE_LAMBDA)THEN
@@ -3429,10 +3479,14 @@
 ! GS_FREEZE trial call runs as a damped LAMBDA call with held pops;
 ! its quiet MAXCH_CTRL is not evidence the free map contracts.
 ! GS_FREEZE is forced F outside DO_NONMONO_KNOP, so stock and SOB
-! paths are unchanged.
+! paths are unchanged. LAM_FIELD_NOT_READY adds the same exclusion
+! on the lagged-field routes: a call earning a quiet demand against
+! an immature lagged store does not count toward release here
+! either. It is always F on stock and plain SOB+LAM_ES=T.
 !
 	     IF(MAXCH_CTRL .LT. VAL_EXIT_LAM)THEN
-	        IF(.NOT. GS_FREEZE)CNT_STABLE_LAM=CNT_STABLE_LAM+1
+	        IF(.NOT. GS_FREEZE .AND. .NOT. LAM_FIELD_NOT_READY)
+	1         CNT_STABLE_LAM=CNT_STABLE_LAM+1
 	     ELSE
 	        CNT_STABLE_LAM=0
 	        LAM_STABLE_PROVEN=.FALSE.
