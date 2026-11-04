@@ -113,5 +113,31 @@
 	2     ' BA_DAMP_CAP > 0'
 	END IF
 !
+! DO_JFNK + USE_LAM_ES=F is a permanently dead combination (audit
+! T-03/F-02, closed 04-Nov-2026): admission in SOLVE_FOR_POPS requires
+! USE_LAM_ES because the eval-time lagged-field freeze covers only
+! the Knop I_NEXT store (FREEZE_I_NEXT in FG_J_CMF_NONMONO_V1). The
+! MOM_J_CMF_NONMONO_V1 J_NEXT_FRQ/H_NEXT_FRQ store -- the J path on
+! every nonmono LAM_ES=F route -- has no equivalent, so each
+! residual/JVP eval would overwrite the committed lagged coupling.
+! Opening it needs a MOM eval freeze plus coupled-only admission
+! (the frozen tier is the same fixed-J system SOLVEBA solves) and a
+! fresh determinism audit of the MOM module state -- substantial
+! work for unproven gain, so the combination is rejected here
+! instead of reporting armed-but-always-deferred. DO_JFNK already
+! requires a nonmono flag, and DO_SOB_FG_KNOP forces USE_LAM_ES=T,
+! so this predicate is exactly the MOM-store routes. Stock configs
+! are untouched (USE_JFNK_SOLVER is F there or already stopped).
+!
+	IF(USE_JFNK_SOLVER .AND. .NOT. USE_LAM_ES)THEN
+	  WRITE(LUER,*)'Error in control parameters in VADAT'
+	  WRITE(LUER,*)'DO_JFNK=T requires USE_LAM_ES=T: the JFNK'//
+	1     ' residual evals have no freeze for the'//
+	2     ' MOM_J_CMF_NONMONO_V1 J_NEXT/H_NEXT lagged store.'
+	  WRITE(LUER,*)'Set USE_LAM_ES=T (Knop formal or V13 path),'//
+	1     ' or set DO_JFNK=F.'
+	  STOP
+	END IF
+!
 	RETURN
 	END	
