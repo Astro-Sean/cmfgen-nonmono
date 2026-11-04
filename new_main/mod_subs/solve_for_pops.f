@@ -2557,6 +2557,50 @@
 	1   (BA_LAST_RAW .GE. BA_SAT_RAW .OR. RDLAM_PROBE_THIS))
 	2   T1=MIN(T1,BA_DAMP_CAP)
 !
+! GS_DRIFT_DIAG (VADAT [GS_DRIFT_DIAG], default F): one compact
+! field-drift record per call, placed after the freeze decision so
+! the controller state is final. The single GS_MAXCHG/MOM_MAXCHG
+! channels switch semantics across the iteration (raw sweep drift
+! before the refresh, refresh residual after it), so the line
+! separates the three quantities the gate consumes -- sw = raw
+! unrelaxed fresh-vs-stored sweep drift, res = refresh residual
+! (post-refresh value of MAXCHG), rf = retained-field delta of the
+! committed store -- plus the adaptive omega and its residual
+! history, the drift argmax cell, the churn censuses, and the
+! freeze/release state. Diagnostic only; reads module state
+! through the existing maturity getters and the GET_*_GS_RELAX
+! accessors, changes nothing.
+!
+	IF(GS_DRIFT_DIAG .AND.
+	1   (DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP))THEN
+	  BLOCK
+	    REAL(KIND=LDP) FG_OM,FG_PRV,MOM_OM,MOM_PRV
+	    INTEGER FG_AK,FG_AR,FG_AL,MOM_AI,MOM_AL
+	    LOGICAL MOM_RFR,MOM_RFC
+	    CALL GET_FG_GS_RELAX(FG_OM,FG_PRV,FG_AK,FG_AR,FG_AL)
+	    CALL GET_MOM_GS_RELAX(MOM_OM,MOM_PRV,MOM_RFR,MOM_RFC,
+	1         MOM_AI,MOM_AL)
+	    WRITE(LUER,'(A,I6)')' GS_DRIFT it=',MAIN_COUNTER
+	    WRITE(LUER,'(A,3ES12.4,A,2ES12.4)')
+	1     '   ray sw/res/rf =',GS_SW_MAXCHG,GS_MAXCHG,GS_RF_DCHG,
+	2     '  om/prv =',FG_OM,FG_PRV
+	    WRITE(LUER,'(A,3I8,A,2I12,A,I6)')
+	1     '   ray arg(kc,ray,frq) =',FG_AK,FG_AR,FG_AL,
+	2     '  nconv/ntot =',GS_NCONV,GS_NTOT,'  ndiv =',GS_NDIV
+	    WRITE(LUER,'(A,3ES12.4,A,2ES12.4)')
+	1     '   mom sw/res/rf =',MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG,
+	2     '  om/prv =',MOM_OM,MOM_PRV
+	    WRITE(LUER,'(A,2L2,A,2I8,A,2I12)')
+	1     '   mom ran/conv =',MOM_RFR,MOM_RFC,
+	2     '  arg(dep,frq) =',MOM_AI,MOM_AL,
+	3     '  nbad50/ntot =',MOM_SW_NBAD50,MOM_SW_NTOT
+	    WRITE(LUER,'(A,2L2,A,I4,A,I4,A,ES12.4,A,L2)')
+	1     '   freeze/justrel =',GS_FREEZE,GS_JUST_REL,
+	2     '  nmat =',N_MATURE,'/',GS_REL_STABLE,
+	3     '  maxch =',MAXCH,'  lam =',LAMBDA_ITERATION
+	  END BLOCK
+	END IF
+!
 ! Banner record of which SE solve this great iteration dispatches
 ! to, so the mode mix is greppable from OUTGEN without cross-
 ! referencing the mode-controller transitions. Printed once per
@@ -4294,6 +4338,141 @@
 	    PLAT_CNT=0
 	  END IF
 	END IF
+!
+! POP_AUDIT (VADAT [POP_AUDIT], default F): species/ion/level
+! census of the committed POPS at the end of the call. Reads POPS
+! and module state only.
+!
+	IF(POP_AUDIT)CALL POP_AUDIT_V1(POPS,NT,ND,MAIN_COUNTER,LUER)
+!
+	RETURN
+	END
+!
+! POP_AUDIT_V1: general per-iteration population audit driven by
+! [POP_AUDIT] and the [POP_AUDIT_SPEC/_ION/_D/_LEV] filters. For
+! each present species it sums the super-level POPS rows of every
+! model ion (rows EQXzV..EQXzV+NXzV-1) plus the terminal ion's
+! single density row (EQXzV), and reports each ion's share of the
+! species total, the ATM(ID)%DXzV copy against its aliased POPS row
+! (DXzV(ID) is the next ion's density, aliased to row
+! EQXzV(ID)+NXzV(ID) = EQXzV(ID+1); a mismatch flags stale ATM
+! state vs POPS), negative or non-finite level counts, and the
+! residual against POP_SPECIES --
+! the right-hand side the species-conservation equation at
+! EQ_SPECIES(ISPEC) enforces. Stage filtering ([POP_AUDIT_ION])
+! restricts the printed ion lines only; the conservation sum always
+! spans every stage of the species so the reported residual is the
+! true equation residual. Per-level lines ([POP_AUDIT_LEV]) add
+! each super-level's share of its ion, the LTE population from
+! ATM(ID)%XzVLTE, and the departure coefficient b=n_L/n_LTE; the
+! LTE array reflects the last EVAL_LTE state, so b values are
+! tagged approximate when the field is mid-iteration. Diagnostic
+! only; no solver state is modified.
+!
+	SUBROUTINE POP_AUDIT_V1(POPS,NT,ND,ITER,LU)
+	USE SET_KIND_MODULE
+	USE MOD_CMFGEN
+	USE CONTROL_VARIABLE_MOD
+	IMPLICIT NONE
+!
+	INTEGER NT,ND,ITER,LU
+	REAL(KIND=LDP) POPS(NT,ND)
+!
+	INTEGER ISPEC,ID,K,L,JSTG,R0,NLVL
+	INTEGER NNEG,NNON,JNEG,JNON
+	REAL(KIND=LDP) TOT,SUM_ION,RESID,PLEV,PLTE,BDEP
+	REAL(KIND=LDP) PMIN,PMAX,T1
+	LOGICAL HAVE_LTE,ION_SHOW,SPEC_SHOW
+!
+	DO ISPEC=1,NUM_SPECIES
+	  SPEC_SHOW=SPECIES_PRES(ISPEC)
+	  IF(POP_AUDIT_SPEC .GT. 0)SPEC_SHOW=SPEC_SHOW .AND.
+	1     (ISPEC .EQ. POP_AUDIT_SPEC)
+	  IF(.NOT. SPEC_SHOW)CYCLE
+!
+	  DO K=1,ND
+	    IF(POP_AUDIT_D .GT. 0 .AND. K .NE. POP_AUDIT_D)CYCLE
+!
+	    TOT=0.0_LDP
+	    NNEG=0; NNON=0
+	    WRITE(LU,'(A,I6,A,I3,A,A10,A,I4)')' POP_AUDIT it=',ITER,
+	1     '  spec=',ISPEC,SPECIES(ISPEC),'   d=',K
+!
+	    DO ID=SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)
+	      JSTG=ID-SPECIES_BEG_ID(ISPEC)+1
+	      ION_SHOW=(POP_AUDIT_ION .EQ. 0 .OR. JSTG .EQ.
+	1        POP_AUDIT_ION)
+	      JNEG=0; JNON=0
+	      IF(ATM(ID)%XzV_PRES)THEN
+	        R0=ATM(ID)%EQXzV
+	        NLVL=ATM(ID)%NXzV
+	        SUM_ION=0.0_LDP
+	        PMIN=HUGE(T1); PMAX=-HUGE(T1)
+	        DO L=1,NLVL
+	          PLEV=POPS(R0+L-1,K)
+	          SUM_ION=SUM_ION+PLEV
+	          IF(PLEV .LT. 0.0_LDP)JNEG=JNEG+1
+	          IF(PLEV-PLEV .NE. 0.0_LDP)JNON=JNON+1
+	          PMIN=MIN(PMIN,PLEV); PMAX=MAX(PMAX,PLEV)
+	        END DO
+	      ELSE
+	        R0=ATM(ID)%EQXzV
+	        SUM_ION=POPS(R0,K)
+	        IF(SUM_ION .LT. 0.0_LDP)JNEG=1
+	        IF(SUM_ION-SUM_ION .NE. 0.0_LDP)JNON=1
+	        PMIN=SUM_ION; PMAX=SUM_ION
+	      END IF
+	      NNEG=NNEG+JNEG; NNON=NNON+JNON
+	      TOT=TOT+SUM_ION
+!
+	      IF(ION_SHOW)THEN
+	        IF(ATM(ID)%XzV_PRES)THEN
+	          T1=ATM(ID)%DXzV(K)-POPS(R0+NLVL,K)
+	          WRITE(LU,'(4X,A,A12,A,I2,5(1X,ES13.5),A,2I3)')
+	1           '  ION ',ION_ID(ID),' stg=',JSTG,
+	2           SUM_ION,ATM(ID)%DXzV(K),T1,PMIN,PMAX,
+	3           '  nneg/nf=',JNEG,JNON
+	        ELSE
+	          WRITE(LU,'(4X,A,A12,A,I2,1X,ES13.5,A,2I3)')
+	1           '  TERM',ION_ID(ID),' stg=',JSTG,
+	2           SUM_ION,'   nneg/nf=',JNEG,JNON
+	        END IF
+!
+	        IF(POP_AUDIT_LEV .AND. ATM(ID)%XzV_PRES)THEN
+	          HAVE_LTE=ALLOCATED(ATM(ID)%XzVLTE)
+	          DO L=1,ATM(ID)%NXzV
+	            PLEV=POPS(R0+L-1,K)
+	            IF(HAVE_LTE)THEN
+	              PLTE=ATM(ID)%XzVLTE(L,K)
+	              IF(PLTE .GT. 0.0_LDP)THEN
+	                BDEP=PLEV/PLTE
+	              ELSE
+	                BDEP=0.0_LDP
+	              END IF
+	              WRITE(LU,'(8X,A,I4,3(1X,ES13.5))')
+	1               '  lev=',L,PLEV,
+	2               PLEV/MAX(SUM_ION,1.0E-99_LDP),BDEP
+	            ELSE
+	              WRITE(LU,'(8X,A,I4,2(1X,ES13.5))')
+	1               '  lev=',L,PLEV,
+	2               PLEV/MAX(SUM_ION,1.0E-99_LDP)
+	            END IF
+	          END DO
+	        END IF
+	      END IF
+	    END DO
+!
+	    IF(POP_SPECIES(K,ISPEC) .GT. 0.0_LDP)THEN
+	      RESID=(TOT-POP_SPECIES(K,ISPEC))/
+	1       POP_SPECIES(K,ISPEC)
+	    ELSE
+	      RESID=TOT-POP_SPECIES(K,ISPEC)
+	    END IF
+	    WRITE(LU,'(4X,A,3(1X,ES13.5),A,2I4)')
+	1     '  TOT  sum/POP_SPECIES/resid=',TOT,
+	2     POP_SPECIES(K,ISPEC),RESID,'   nneg/nf=',NNEG,NNON
+	  END DO
+	END DO
 !
 	RETURN
 	END
