@@ -4830,6 +4830,7 @@
 	USE MOD_MOM_J_NONMONO_V1
 	USE MOD_RAY_MOM_STORE
 	USE KNOP_STATUS_MOD
+	USE ITER_LEDGER_MOD
 	IMPLICIT NONE
 !
 	INTEGER LUER,ERROR_LU
@@ -6510,6 +6511,10 @@
 	WRITE(LUER,'(/,2A)')' ------------- ',
 	1  TRIM(MOM_REFRESH_SENTENCE(.FALSE.,0.0_LDP,0_8,0_8,'done',
 	2  MIN(IPASS,KN_M_MAXPASS),OMP_GET_WTIME()-T0))
+! T-06 ledger: passes this refresh fed to the ITER_LEDGER np_rf
+! column (audit F-22/F-24). Same MIN() the 'done' line reports.
+	IF(LEDG_ACTIVE)LEDG_NP_RF=LEDG_NP_RF+
+	1  MIN(IPASS,KN_M_MAXPASS)
 	WRITE(LUER,'(3(A,I4))')
 	1  '    inner Aitken acceleration: applied ',MOM_AA_APP,
 	2  ', skipped ',MOM_AA_SKIP,', solve failures ',MOM_AA_SNG
