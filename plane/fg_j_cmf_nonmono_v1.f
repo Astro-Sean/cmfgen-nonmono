@@ -2294,6 +2294,13 @@
 !
 	    FG_SW_MAXCHG=0.0_LDP
 	    FG_SW_NCONV=0
+!
+! FG_RF_DCHG clears here too: it is only rewritten inside
+! FG_KNOP_REFRESH_V1, so a refresh-skipped iteration would
+! otherwise report last iteration's retained delta through
+! GET_FG_GS_MATURITY (MOM_RF_DCHG is cleared the same way).
+!
+	    FG_RF_DCHG=0.0_LDP
 	    FG_GS_NDIV=0
 	    FG_GS_NBAD_BLK=-1
 	    FG_GS_NTOT_BLK=0
@@ -5069,6 +5076,28 @@ C
 	SW_CAPPED=FG_SW_CAPPED
 	SW_CAPTOT=FG_SW_CAPTOT
 	RF_CAPPED=FG_RF_CAPPED
+	RETURN
+	END
+!
+! GET_FG_GS_RELAX: read-back for the GS_DRIFT_DIAG line in
+! SOLVE_FOR_POPS -- the adaptive sweep-write factor, the
+! cross-iteration residual history that drives it, and the
+! in-sweep drift argmax cell. Diagnostic only; exports solver
+! state unchanged.
+!
+	SUBROUTINE GET_FG_GS_RELAX(OMEGA,RESID_PRV,ARGK,ARGR,ARGL)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     INEXT_RELAX,KN_RF_RESID_PRV,
+	2     FG_GS_ARGK,FG_GS_ARGR,FG_GS_ARGL
+	IMPLICIT NONE
+	REAL(KIND=LDP) OMEGA,RESID_PRV
+	INTEGER ARGK,ARGR,ARGL
+	OMEGA=INEXT_RELAX
+	RESID_PRV=KN_RF_RESID_PRV
+	ARGK=FG_GS_ARGK
+	ARGR=FG_GS_ARGR
+	ARGL=FG_GS_ARGL
 	RETURN
 	END
 !
