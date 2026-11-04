@@ -35,6 +35,10 @@ follows the stock upstream path.
 - **Trace-species handling**: demand floors plus a Stage-B polish
   phase stop physically empty levels from stalling the convergence
   exit.
+- **Population audit diagnostics** (`POP_AUDIT` VADAT key): a
+  per-iteration census of every species and ionisation stage, with
+  conservation residuals and departure coefficients, for tracking
+  down suspect ionisation balances.
 - General correctness fixes in the population solve, the
   observed-frame tools and the build.
 
