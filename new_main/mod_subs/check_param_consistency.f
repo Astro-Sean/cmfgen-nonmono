@@ -100,5 +100,18 @@
 	  STOP
 	END IF
 !
+! The [BA_PROBE_LAM] escape probe arms only when residual acceptance
+! judges the trial (DO_BA_RES_ACC) and a factor bound holds it
+! (BA_DAMP_CAP); without both, the key reads >0 yet no probe can
+! ever fire. Warn rather than stop -- the run is legal, the dead
+! key is just misleading in OUTGEN.
+!
+	IF(BA_PROBE_LAM .GT. 0 .AND.
+	1   (.NOT. DO_BA_RES_ACC .OR. BA_DAMP_CAP .LE. 0.0_LDP))THEN
+	  WRITE(LUER,*)TRIM(ER_LAB),' BA_PROBE_LAM > 0 but the probe'//
+	1     ' cannot fire: it requires DO_BA_RES_ACC=T and'//
+	2     ' BA_DAMP_CAP > 0'
+	END IF
+!
 	RETURN
 	END	
