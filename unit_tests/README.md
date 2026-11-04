@@ -25,6 +25,7 @@ error text.
 |---|---|---|
 | `test_cmf_blkband_pin.py` | `new_main/subs/cmf_blkband_pin_null_v1.f` | Pins only exactly disconnected zero equations with zero RHS; preserves nonzero residual rows, zero-column equations, and near-zero live entries |
 | `test_sigma_true.py` | `new_main/subs/recompute_sigma_true.f` | SIGMA_TRUE_CORE flag gating, unclamped `R/V dV/dR-1`, boundary cells, stagnation and `ND<3` edge cases, new-vs-reference identity when flag off |
+| `test_velocity_profiles.py` | `new_main/subs/recompute_sigma_true.f` (`SIGMA_TRUE_CORE`, `RECOMPUTE_SIGMA_TRUE`) | V001-V012 manufactured profile registry (`velocity_profiles.py`): analytic dV/dR vs complex-step; production sigma vs analytic sigma and vs an independent stencil mirror (bitwise); sign-change and compression census on every sweep (resolution, shock position/width/strength, close reversals, seeded perturbation, linear grid); h^2 refinement rate; degenerate inputs (V=0, collapsed spacing, reversed grid, infall pocket) flagged loudly via N_UNDEF/aborts |
 | `test_sob_tau_floor.py` | `subs/sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`, `sobew_grad_v3.f` | sigma>=0 and sigma=-0.5 bit-identical to reference; sigma<-1 hits the Dessart+2015 tau floor; analytic BETA check against SOBJBAR_SIM; finite output |
 | `test_interp_guards.py` | `subs/lin_interp.f`, `mon_interp.f`, `mon_interp_fast.f`, `mon_interp_fast_v2.f`, `mon_int_funs_v2.f` | valid-path bit-identity vs reference for all five routines; aborts on non-monotonic/repeated/reversed grids, out-of-range targets, `ND`/`NIN` too small |
 | `test_rd_rv_file.py` | `newsubs/rd_rv_file_v2.f` | `NONMONO_V` VINF check against `MAXVAL(ABS(V))` (not `V(1)`); interior-peak profiles; 10% tolerance edges; `VINF<0.1` bypass; all-zero V, non-decreasing R and R-scaling rejections; old-behaviour adapter comparison |
@@ -51,6 +52,11 @@ error text.
 - `common.py` -- compiler discovery (ifort preferred, gfortran
   fallback), per-test object/link caching, process runner,
   denormal-tolerant comparison, `Report` pass/fail collector.
+- `velocity_profiles.py` -- common manufactured velocity-profile
+  library (V001-V012) shared by every non-mono solver test:
+  analytic R/V/dV/dR/sigma, gradient sign changes, compression
+  regions, parameter sweeps, seeded perturbations, rvfile writer,
+  and a Python mirror of the production hybrid sigma stencil.
 - `f90/drv_*.f90` -- one CLI driver per test (read fixtures, call the
   production routine, print machine-parseable output).
 - `f90/adapt_*.f` -- signature adapters where new and reference
@@ -66,7 +72,8 @@ error text.
 
 `sigma_true_nonmono.png`, `sob_tau_floor.png`, `interp_guards.png`,
 `rd_rv_vinf_profiles.png`, `sob_rh_couple.png`, `ng_abstain.png`,
-`rv_sniin.png`, `rv_snhyd.png`, `edep_shock.png`
+`rv_sniin.png`, `rv_snhyd.png`, `edep_shock.png`,
+`velocity_profiles.png`
 
 Plots are diagnostics only -- every assertion is numeric.
 
