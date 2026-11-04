@@ -44,6 +44,7 @@ HELPERS = [
     "new_main/mod_subs/jfnk_solver_v1.f90",
     "new_main/mod_subs/check_param_consistency.f",
     "newsubs/rd_store_log.f",
+    "new_main/mod_subs/iter_ledger_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
     "unit_tests/f90/stub_vadat.f",
