@@ -965,6 +965,45 @@
 	  CALL RD_STORE_DBLE(GS_SETTLE_TOL,'GS_SETTLE_TOL',L_FALSE,
 	1     'KNOP: drift floor at which a cycle floor may settle?')
 !
+! GS_DRIFT_DIAG (default FALSE): per-iteration field-drift
+! diagnostic line in SOLVE_FOR_POPS -- separates raw sweep drift,
+! refresh residual, and the committed retained-field delta that
+! the single GS_MAXCHG headline conflates, plus omega, residual
+! history, argmax cell, censuses, and freeze/release state.
+!
+	  GS_DRIFT_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(GS_DRIFT_DIAG,'GS_DRIFT_DIAG',L_FALSE,
+	1     'KNOP: per-iteration raw/relaxed field-drift diagnostic?')
+!
+! POP_AUDIT (default FALSE): per-iteration species/ion/level
+! population census at the end of SOLVE_FOR_POPS. Sums each ion's
+! super-level rows plus the terminal ion's density row, compares
+! with POP_SPECIES, and reports negative/non-finite values, ion-sum
+! vs DXzV mismatch, and the per-species conservation residual.
+! Index filters keep it general for any model atom: _SPEC selects
+! the species index, _ION the stage index within the species, _D
+! the depth index (0 = all), _LEV adds per-level fractions, LTE
+! populations and departure coefficients for filtered ions.
+!
+	  POP_AUDIT=.FALSE.
+	  CALL RD_STORE_LOG(POP_AUDIT,'POP_AUDIT',L_FALSE,
+	1     'Per-iteration species/ion population audit?')
+	  POP_AUDIT_SPEC=0
+	  CALL RD_STORE_INT(POP_AUDIT_SPEC,'POP_AUDIT_SPEC',L_FALSE,
+	1     'Species index to audit (0 = all)')
+	  POP_AUDIT_ION=0
+	  CALL RD_STORE_INT(POP_AUDIT_ION,'POP_AUDIT_ION',L_FALSE,
+	1     'Ionization-stage index within species (0 = all)')
+	  POP_AUDIT_D=0
+	  CALL RD_STORE_INT(POP_AUDIT_D,'POP_AUDIT_D',L_FALSE,
+	1     'Depth index to audit (0 = all)')
+	  POP_AUDIT_LEV=.FALSE.
+	  CALL RD_STORE_LOG(POP_AUDIT_LEV,'POP_AUDIT_LEV',L_FALSE,
+	1     'Per-level detail for audited ions?')
+	  IF(POP_AUDIT_SPEC .LT. 0)POP_AUDIT_SPEC=0
+	  IF(POP_AUDIT_ION .LT. 0)POP_AUDIT_ION=0
+	  IF(POP_AUDIT_D .LT. 0)POP_AUDIT_D=0
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial. With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
