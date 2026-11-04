@@ -2442,6 +2442,9 @@
 	  BA_RDLAM_ACCEPT=.FALSE.
 	  BAACC_RDLAM_PROBE_ARM=.FALSE.
 	  BAACC_RDLAM_PROBE=.FALSE.
+	  HAS_LAGGED_FIELD=.FALSE.
+	  LAM_FIELD_NOT_READY=.FALSE.
+	  LAM_FIELD_BLK=.FALSE.
 	  BA_NREJ_SOFT=0
 	  BA_SAT_LIM=0
 	  CALL RD_STORE_INT(BA_SAT_LIM,'BA_SAT_LIM',L_FALSE,
@@ -3654,6 +3657,17 @@
 	      WRITE(LUER,'(A)')' SOB auto-set: NG_ABSTAIN=T'
 	    END IF
 	  END IF
+!
+! HAS_LAGGED_FIELD: derived route flag, read by SOLVE_FOR_POPS and
+! the DO_LAM_AUTO handoff in CMFGEN_SUB. Set here -- after Rule 2,
+! which is the last auto-set able to rewrite USE_LAM_ES or
+! DO_SOB_FG_KNOP -- so it reflects the final solver pairing. The
+! SOB+LAM_ES=F moment path carries the same lagged J_NEXT/H_NEXT
+! store as KNOP+LAM_ES=F, and DO_SOB_FG_KNOP carries the FG I_NEXT
+! store; plain SOB+LAM_ES=T (V13) solves in-sweep and has none.
+!
+	  HAS_LAGGED_FIELD=DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP .OR.
+	1    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)
 !
 ! Rule 3: DO_JFNK. Arm the stable/globalized formulation when the
 ! solver is on: log unknown, pseudo-transient continuation, Armijo
