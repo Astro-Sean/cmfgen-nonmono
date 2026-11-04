@@ -31,7 +31,9 @@ follows the stock upstream path.
 - **Newton-Krylov population solve** (Knoll & Keyes 2004; Arramy et
   al. 2024): an opt-in GMRES update for stalled models where the
   stock Newton step overshoots, with residual-based acceptance and
-  bounded budgets.
+  bounded budgets. Admission requires the formal-J path
+  (`USE_LAM_ES=T`); input checks reject `DO_JFNK` on the
+  moment-store route.
 - **Trace-species handling**: demand floors plus a Stage-B polish
   phase stop physically empty levels from stalling the convergence
   exit.
@@ -39,6 +41,10 @@ follows the stock upstream path.
   per-iteration census of every species and ionisation stage, with
   conservation residuals and departure coefficients, for tracking
   down suspect ionisation balances.
+- **Iteration diagnostics**: `ITER_HISTORY` plus a machine-readable
+  `ITER_LEDGER` row per great iteration on the non-monotonic paths,
+  recording solver call counts, refresh and stage timings,
+  freeze/release events and memory use.
 - General correctness fixes in the population solve, the
   observed-frame tools and the build.
 
