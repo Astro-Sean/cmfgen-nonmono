@@ -20,10 +20,14 @@ files; do not delete completed tasks.
 - Pristine baseline: `../cmfgen_reference/cur_cmf`, extracted from
   `cur_cmf_18jun25.tar.gz`, md5 `1d5a7a168e77329dd97c3019bcad3c09`
   (re-verified 2026-11-03, matches AGENTS.md)
-- Last updated: 2026-11-03 (BUG-001 fix + Phase-0 reconciliation)
+- Last updated: 2026-11-04 (numerical-verification TASK 1: V001-V012
+  profile library + SIGMA_TRUE_CORE manufactured validation)
 - Last full build: 2026-11-03 ~20:44, `./build.sh` clean, all three
   exes present; unit suite 21/21 files pass (`build_audit_fix.out`);
   rebuild in progress on the BUG-001 working tree
+- Unit suite re-run 2026-11-04 after TASK 1: 23/23 files pass
+  (`run_all_tests.py`, ifort); new files are tests/library only - no
+  production source changed
 - Overall development status: all five pillars have production code and
   unit-test coverage; Sobolev+LAM_ES=T path is model-validated on m15;
   KNOP and JFNK paths are implementation-complete but not
@@ -46,10 +50,13 @@ files; do not delete completed tasks.
   62 not started)
 - Blocked tasks: 0 (run-dependent tasks are sequenced, not blocked;
   see section 11)
-- Current active task: none - Phase 1 done; Phase 2 (SOB_RH_GEOM
-  cache fingerprint) is next per the owner's bug-hunt directive
-- Next task: Phase 2 BUG-002 work, then P4-002/P4-004 (SOB+JFNK
-  HSCAN production run to measure the BUG-001 runtime impact)
+- Current active task: numerical-verification programme (owner
+  directive): TASK 1 of 8 complete 2026-11-04; TASK 2 (KNOP
+  formal-transfer manufactured tests) is next per the plan order -
+  see section 12
+- Next task: TASK 2 (KN001-KN014) per
+  `docs/audits/NUMERICAL_VERIFICATION_TEST_PLAN.md`; in parallel the
+  pending-run items of section 11 (P4-002/P4-004 HSCAN et al.)
 
 ## 2. Development rules
 
@@ -1937,3 +1944,41 @@ Blocked/pending-run items: P4-002..P4-008 (awaiting HSCAN run data),
 P1-007/P1-008 (awaiting reference build + A/B run), P3-009/P3-024
 (awaiting numerical work on KNOP stall), P5-013/P5-014 (awaiting
 baseline model).
+
+## 12. Numerical verification test programme (plan cross-reference)
+
+The owner-directed verification plan lives in
+`docs/audits/NUMERICAL_VERIFICATION_TEST_PLAN.md`. Its test IDs are
+the verification legs for the tasks below; the plan doc carries the
+per-test fields (input, expected result, independent reference,
+tolerance + justification, failure modes, type, status). Work order:
+TASK 1 done; TASKS 2-8 pending, one at a time.
+
+| plan IDs | scope | verifies these tracker tasks |
+|----------|-------|------------------------------|
+| V001-V012 | manufactured velocity profiles + SIGMA_TRUE_CORE | INT-008 input set; feeds every P2/P3/P5 manufactured test |
+| KN001-KN014 | KNOP formal transfer | P3-001..P3-009, P3-023, INT-004 |
+| M001-M017 | KNOP moment solver | P3-010..P3-024 (M011->P3-015 residual, M014->P3-022, M016->P3-023) |
+| S001-S020 | non-mono Sobolev | P2-001..P2-011 (S010-S013->P2-006, S017-S019->P2-009) |
+| J001-J028 | JFNK core + production operator | P4-001..P4-019 (J011/J012->P4-002/003, J028->P4-004/005) |
+| T001-T019 | DIAG/TRI matrix solve | P5-002..P5-008 (T019->P5-007) |
+| C01-C22 | configuration dispatch matrix | INT-001, P4-016, P5-005, P5-012 |
+| I001-I010 | integration model suite | INT-002..INT-011, P1-007/P1-008, P3-009, P3-024, P5-013 |
+
+### TASK 1 completion record (2026-11-04)
+
+- Deliverables: `unit_tests/velocity_profiles.py` (V001-V012
+  registry: analytic R/V/dV/dR/sigma, gradient sign changes,
+  compression regions, resolution/shock/strength sweeps, seeded
+  perturbation, rvfile writer, independent mirror of the production
+  hybrid stencil) and `unit_tests/python/test_velocity_profiles.py`
+  driving `SIGMA_TRUE_CORE`/`RECOMPUTE_SIGMA_TRUE` through the
+  existing `drv_sigma_true.f90`.
+- Result: 103/103 checks PASS; full suite 23/23 files PASS.
+- Key evidence: analytic vs complex-step ~1e-14; production vs
+  mirror bitwise; h^2 refinement confirmed (ratios 3.4-4.0); census
+  correct on every sweep; degenerate inputs fail loudly (N_UNDEF /
+  aborts), none silent.
+- Evidence class: stage 4 (manufactured-system) for the
+  velocity-gradient kernel. All later tasks take their velocity
+  inputs from this registry.
