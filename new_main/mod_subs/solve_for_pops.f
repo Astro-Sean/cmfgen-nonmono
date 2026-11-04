@@ -12,8 +12,10 @@
 	USE CONTROL_VARIABLE_MOD
 	USE JFNK_CMFGEN_INT_MOD, ONLY: JFNK_REACH_SKIP_STREAK,
 	1    JFNK_FRZ_FAIL_STREAK,JFNK_BA_SRC_IT,
-	2    JFNK_SWEEP_CB,JFNK_CPL_SOB_DEAD
+	2    JFNK_SWEEP_CB,JFNK_CPL_SOB_DEAD,
+	3    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS
 	USE KNOP_STATUS_MOD
+	USE ITER_LEDGER_MOD
 	IMPLICIT NONE
 !
 ! Altered: 20-Oct-2026 : No-progress totals N_FROZEN_TOT /
@@ -67,6 +69,13 @@
 	REAL(KIND=LDP) POPS(NT,ND)
 	REAL(KIND=LDP) MAXCH
 	REAL(KIND=LDP) MAXCH_APP
+!
+! T-06 ledger stage timer (audit F-22/F-24): LEDG_T_P0 arms the
+! population-solve stage at entry; the ITER_LEDGER row next to
+! ITER_HISTORY closes it. Guarded by LEDG_ACTIVE.
+!
+	REAL(KIND=LDP) OMP_GET_WTIME
+	EXTERNAL OMP_GET_WTIME
 !
 	INTEGER MAIN_COUNTER
 	INTEGER IREC
@@ -610,6 +619,11 @@
 	  GS_DIV_NH=0
 	END IF
 	ITS_SINCE_START=ITS_SINCE_START+1
+!
+! T-06 ledger (audit F-22/F-24): arm the population-solve stage
+! timer; the row written below closes it.
+!
+	IF(LEDG_ACTIVE)LEDG_T_P0=OMP_GET_WTIME()
 !
 ! Entry flags: at call time these still hold the values the previous
 ! call's controller assigned, i.e. the mode the just-finished
@@ -2042,6 +2056,11 @@
 	      GS_REL_DEM=MAXCH
 	    END IF
 	  END IF
+! T-06 ledger: count freeze entries on the false->true edge;
+! GS_WAS_FROZEN still holds the previous call's state here, and the
+! adopted GS_STATE value keeps the edge correct after a requeue.
+	  IF(LEDG_ACTIVE .AND. GS_FREEZE .AND. .NOT. GS_WAS_FROZEN)
+	1   LEDG_N_FRZ=LEDG_N_FRZ+1
 	  GS_WAS_FROZEN=GS_FREEZE
 	END IF
 !
@@ -4298,6 +4317,31 @@
 	3    DBLE(MOM_SW_NQUAR)/DBLE(MAX(MOM_SW_NTOT,1_8)),
 	4    DBLE(MOM_SW_CAPPED),DBLE(MOM_NPQUAR),BA_DEM_EXM,BA_TR_ABS
 	    CLOSE(LU_GS)
+	  END IF
+!
+! T-06 iteration ledger (audit F-22/F-24): one CSV row per call on
+! the nonmono paths only -- the ITER_HISTORY gate above also admits
+! resacc-only stock runs, but the ledger must stay silent there.
+! ba_build/ba_reuse read the entry flags (LAMBDA_ENT/COMPUTE_ENT)
+! captured before this call's controller rewrote the next-call
+! mode: a non-LAMBDA call entered with COMPUTE_BA=T assembled the
+! matrix during the sweep; entered with F it recalled the stored
+! BAMAT. LAMBDA calls touch neither. n_dem counts the '*demote'
+! tokens ITER_REASON accumulated this call, n_frz the freeze
+! entries, n_rej the rejected/masked commit flags.
+!
+	  IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	    CALL LEDG_WRITE_ITER(OMP_GET_WTIME(),
+	1      MAIN_COUNTER,MODE_NOW,MODE_NEXT,BA_CH,ITER_REASON,
+	2      GS_FREEZE,GS_POPS_HELD,
+	3      MERGE(1,0,.NOT. LAMBDA_ENT .AND. COMPUTE_ENT),
+	4      MERGE(1,0,.NOT. LAMBDA_ENT .AND. .NOT. COMPUTE_ENT),
+	5      JFNK_THIS,JFNK_COUPLED_THIS,
+	6      JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS,
+	7      MERGE(1,0,BA_REJ_THIS)+MERGE(1,0,BA_PART_WAS),
+	8      N_FROZEN,N_RELEASES_TOT,GS_RAW_RELEASES_TOT,
+	9      MAXCH,MAXCH_APP,GS_ATTEMPT_APP,
+	1      BA_SE_RES,BA_SE_RES2,BA_TRUST_CUR)
 	  END IF
 !
 ! Plateau detector: flag a stall only when the committed correction,
