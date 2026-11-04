@@ -2191,6 +2191,9 @@
 ! are written in place on every sweep with no freeze -- each JFNK
 ! residual/JVP eval would overwrite the lagged field the committed
 ! iterate relies on, corrupting the in-sweep coupling.
+! 04-Nov-2026 (T-03/F-02): that combination is now a hard stop in
+! CHECK_PARAM_CONSISTENCY, so the USE_LAM_ES leg and the defer
+! print below are unreachable backstop, not live policy.
 !
 ! edited 17-Oct-2026: under DO_NONMONO_SOB the frozen-J
 ! residual is the same fixed-J system SOLVEBA solves directly -- the
