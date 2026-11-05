@@ -2782,9 +2782,11 @@
 !
 ! Temporary diagnostic: localise the origin of a bad temperature
 ! solution (T lives in POPS(NT,:); SOL(NT,:) is its correction).
-! KNOP-path only: the stock iteration sequence is unchanged.
+! KNOP-path originally; extended to the SOB path so a bad T-sol
+! is localised on the non-mono Sobolev models too.
 !
-	IF(DO_NONMONO_KNOP .AND. CONV_DIAG_LVL .GE. 2)THEN
+	IF((DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)
+	1   .AND. CONV_DIAG_LVL .GE. 2)THEN
 	  DO I=1,ND
 	    IF(.NOT. (ABS(SOL(NT,I)) .LE. HUGE(1.0_LDP)) .OR.
 	1       .NOT. (POPS(NT,I) .GT. 0.0_LDP))THEN
