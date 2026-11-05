@@ -262,11 +262,51 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   resonance argmax persists as predicted (largest change ~2E4,
   same-direction contraction ratio ~0.92) -- structural limitation
   remains; convergence outcome still pending further iterations.
-- [ ] solve_for_pops chain: how demand 2.76E6 persists for 50 preconditioning
-  iterations; which levels/depths dominate; whether BA consumes the unsafe field.
-- [ ] Restart integrity of J_NEXT_FRQ / MOM_NU_GRID / MOM_QUAR_AGE.
-- [ ] Confirm whether J(mom)/J(ray) mismatch is widespread or one boundary cell.
-- [ ] Numerical tests A-J.
+
+  it58-it59 UPDATE: negJ still 0 through every sweep including a
+  diverged refresh. The it58 pass table pins the runaway anatomy:
+  every pass's worst cell sits at GAM ~ +/-5E-8 (floored resonance
+  rows, sigT ~ -2 to -5, wandering depth+freq), while the bulk
+  contracts monotonically (>50% movers 39795->8198, >5%
+  386856->100051 over passes 1-4) and the max-norm jumps 4.0E4 ->
+  5.2E8 in one pass. A FIXED subset of 133967 cells hits the GAM
+  floor every pass (was 417842 originally -- the resonance set
+  itself shrank) -- ~1.1% of cells, grid-determined, the residual
+  metric's ill-conditioned class. AA stayed bounded (||corr||=25).
+  The runaway/stall aborts use max-norm, which the code's own
+  comment already flags as 'dominated by a few marginal
+  compressing cells and non-monotone' -- so the gates measure the
+  pathological tail while the bulk converges. Separately the
+  mom-vs-stored >50% census GROWS between outer iterations
+  (520K->1.1M): the pops/LAMBDA steps drive the field harder as
+  the holds release. Persistent-quar census declines 198K->166K
+  (healing). VER5: MOM_QUAR_AGE now travels in the checkpoint;
+  both readers bounded VER 3..5 and reset ages on reject;
+  RESTORE_MOM_JNEXT_LATEST would have rejected all VER5 files
+  (fixed before any run produced one). Driver ckpt mode asserts
+  the age round-trip (CKPT_AGE_OK) and the reject reset
+  (CKPT_FP_AGE0); interactive job 12723442: 100/100 + FP-trap.
+
+- [x] solve_for_pops chain: unsafe field from it1; exempted
+  demand non-monotone 5E3..3E15 on trace levels (CaI/FeI/Sk2);
+  BA consumes the lagged store, n_precond counts live-LAMBDA
+  calls to the 50 limit. Recorded above.
+- [x] Restart integrity of J_NEXT_FRQ / MOM_NU_GRID / MOM_QUAR_AGE:
+  VER5 carries ages; NU_GRID re-derives; readers bounded + reset.
+- [x] H-rec vs assembled EPS sign check (T2 tail): implicit
+  weights W/HS/PSI/PSIPREV are all magnitudes; physical sign
+  lives only in the explicit EPS (via AV_SIGMA_TRUE) and the
+  signed H flux. Consistent; MOM_GAM_PIN=T active so
+  EPS_PREV=EPS_NM. No sign defect.
+- [~] J(mom)/J(ray) census: new JCMP line prints; first LST-
+  ITERATION sample shows 0 cells above 50% -- pending more data.
+- [~] Numerical tests A-J: driver covers A/B/C/F/J subsets; D/E
+  need refresh-ordering wiring / variable-ND driver builds.
+- [ ] DESIGN DECISION NEEDED on the runaway gate: options are a
+  trimmed/percentile residual norm (N50 census already computed),
+  excluding the floored subset from max-norm, a larger
+  GAM_FAC_MIN, or accepting stall+retain as the bounded recovery.
+  Evidence favours a hybrid bulk+max gate; flagged, not changed.
 
 ## 3. Source map (verified line numbers, commit 3de42aae)
 
