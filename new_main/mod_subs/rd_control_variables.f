@@ -1173,6 +1173,16 @@
 	1     'Exit MOM refresh on bulk-drift criteria?')
 	  CALL SET_MOM_RF_BULK(MOM_RF_BULK_EXIT)
 !
+! MOM_RF_DIV_BULK (default TRUE): require the bulk >50% census to
+! regress as well as the max-norm runaway bound before aborting a
+! refresh pass as divergent -- a lone resonance-floor argmax can
+! spike PASS_CHG while the bulk still contracts.
+!
+	  MOM_RF_DIV_BULK=.TRUE.
+	  CALL RD_STORE_LOG(MOM_RF_DIV_BULK,'MOM_RF_DIV_BULK',L_FALSE,
+	1     'Require bulk regression for the MOM divergence abort?')
+	  CALL SET_MOM_RF_DIVB(MOM_RF_DIV_BULK)
+!
 ! MOM_RF_ACTIVE (default FALSE, experimental): skip refresh solves
 ! at frequencies whose residual and upwind read slots stayed below
 ! tolerance on the previous pass.
