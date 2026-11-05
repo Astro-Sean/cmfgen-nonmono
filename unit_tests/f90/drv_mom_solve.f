@@ -40,6 +40,7 @@
       LOGICAL COHR,INIT,NEW_FREQ,DOMATCH
       INTEGER FIDX
       REAL(KIND=LDP), ALLOCATABLE :: CKJ(:,:),CKH(:,:)
+      INTEGER(KIND=2), ALLOCATABLE :: CKQ(:,:)
       REAL(KIND=LDP) DMAX
 !
 ! Array dump helper (writes one column of doubles to tag_name.dat)
@@ -343,19 +344,31 @@
       END IF
 !
       IF(MODE .EQ. 'ckpt')THEN
-        ALLOCATE(CKJ(ND_NM,NCF),CKH(ND_NM,NCF),STAT=IOS)
+        ALLOCATE(CKJ(ND_NM,NCF),CKH(ND_NM,NCF),CKQ(ND_NM,NCF),STAT=IOS)
         IF(IOS .NE. 0)GOTO 999
         CKJ=J_NEXT_FRQ(1:ND_NM,1:NCF)
         CKH=H_NEXT_FRQ(1:ND_NM,1:NCF)
+! Seed a nonzero quarantine-age pattern so the VER5 age record is
+! exercised: the round-trip must restore it and a rejected restore
+! must reset it alongside the field.
+        DO L=1,NCF
+          DO I=1,ND_NM
+            MOM_QUAR_AGE(I,L)=MOD(I+L,5)
+          END DO
+        END DO
+        CKQ=MOM_QUAR_AGE(1:ND_NM,1:NCF)
         CALL SET_MOM_GS_TAG(7)
         CALL DUMP_MOM_JNEXT_GS(7,R,V,SIG,ND,291)
         J_NEXT_FRQ=-7.0_LDP
         H_NEXT_FRQ=-7.0_LDP
+        MOM_QUAR_AGE=0_2
         CALL RESTORE_MOM_JNEXT_GS(R,V,ND)
         DMAX=MAX(MAXVAL(ABS(J_NEXT_FRQ(1:ND_NM,1:NCF)-CKJ)),
      1       MAXVAL(ABS(H_NEXT_FRQ(1:ND_NM,1:NCF)-CKH)))
         WRITE(*,'(A,L2)')'CKPT_OK=',MOM_J_GS_OK
         WRITE(*,'(A,ES16.8)')'CKPT_MAXDIFF=',DMAX
+        WRITE(*,'(A,L2)')'CKPT_AGE_OK=',
+     1       ALL(MOM_QUAR_AGE(1:ND_NM,1:NCF) .EQ. CKQ)
 !
 ! Fingerprint mismatch: perturbed V endpoint must reject and zero.
 !
@@ -365,6 +378,8 @@
         WRITE(*,'(A,L2)')'CKPT_FP_OK=',MOM_J_GS_OK
         WRITE(*,'(A,ES16.8)')'CKPT_FP_STORE=',
      1   MAXVAL(ABS(J_NEXT_FRQ))
+        WRITE(*,'(A,L2)')'CKPT_FP_AGE0=',
+     1   ALL(MOM_QUAR_AGE .EQ. 0_2)
 !
 ! Tag mismatch: reject.
 !
