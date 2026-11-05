@@ -1359,15 +1359,24 @@
 ! actually saw (the RF delta), not by the pre-refresh sweep drift.
 ! NBAD/NEGJ/NQUAR/CAPPED already hold the final converged pass values.
 !
+! edited moment-audit: MOM_NPQUAR (cells quarantined
+! MOM_QUAR_PERSIST+ consecutive sweeps) arms UNSAFE above 1% and
+! keeps FREEZE_B armed above 0.1%. A persistently quarantined cell
+! is a structural hole, not a transient repair -- it is consumed as
+! upwind data while excluded from the drift metric, so a repaired
+! field with >1% permanent holes is not a valid converged solution.
+!
 	      MOM_UNSAFE_B=(MOM_CAPPED .GT. MAX(50_8,MOM_SW_NTOT/10))
 	1        .OR.
 	2        (MOM_RF_N50 .GT. MAX(50_8,MOM_SW_NTOT/1000)) .OR.
 	3        (MOM_RF_DCHG .GT. 1.0E+1_LDP) .OR.
 	4        (MOM_NEGJ .GT. MOM_SW_NTOT/10) .OR.
-	5        (MOM_NQUAR .GT. MOM_SW_NTOT/10)
+	5        (MOM_NQUAR .GT. MOM_SW_NTOT/10) .OR.
+	6        (MOM_NPQUAR .GT. MAX(50_8,MOM_SW_NTOT/100))
 	      MOM_BROAD=MOM_RF_N5 .GT. MOM_SW_NTOT/10
 	      MOM_FREEZE_B=MOM_UNSAFE_B .OR. MOM_BROAD .OR.
-	1        (MOM_SW_BNDFL .GT. 0)
+	1        (MOM_SW_BNDFL .GT. 0) .OR.
+	2        (MOM_NPQUAR .GT. MAX(50_8,MOM_SW_NTOT/1000))
 	    ELSE
 !
 ! edited 30-Sep-2026: split the non-converged gate into a
@@ -1404,19 +1413,26 @@
 ! MOM_SW_NHUGE (drift >1e6) must exceed ~0.01% of cells. A single
 ! nonfinite cell still vetoes via the 1e30 sentinel.
 !
+! MOM_NPQUAR terms as above: >1% persistently quarantined cells is a
+! structural failure (UNSAFE); >0.1% keeps the marginal freeze armed
+! so the field cannot mature while permanent holes remain. edited,
+! moment-audit.
+!
 	      MOM_UNSAFE_B=(MOM_SW_CAPPED .GT. MAX(50_8,MOM_SW_NTOT/10))
 	1        .OR.
 	2        (MOM_SW_NBAD50 .GT. MAX(50_8,MOM_SW_NTOT/100)) .OR.
 	3        (MOM_SW_NHUGE .GT. MAX(50_8,MOM_SW_NTOT/10000)) .OR.
 	4        (MOM_SW_MAXCHG .GT. 1.0E+25_LDP) .OR.
 	5        (MOM_SW_NEGJ .GT. MOM_SW_NTOT/10) .OR.
-	6        (MOM_SW_NQUAR .GT. MOM_SW_NTOT/10)
+	6        (MOM_SW_NQUAR .GT. MOM_SW_NTOT/10) .OR.
+	7        (MOM_NPQUAR .GT. MAX(50_8,MOM_SW_NTOT/100))
 	      MOM_BROAD=MOM_SW_NBAD5 .GT. MOM_SW_NTOT/10
 	      MOM_FREEZE_B=MOM_UNSAFE_B .OR. MOM_BROAD .OR.
 	1        (MOM_SW_NBAD50 .GT. MAX(50_8,MOM_SW_NTOT/1000)) .OR.
 	2        (MOM_SW_MAXCHG .GT. 1.0E+1_LDP) .OR.
 	3        (MOM_SW_CAPPED .GT. MAX(50_8,MOM_SW_NTOT/1000)) .OR.
-	4        (MOM_SW_BNDFL .GT. 0)
+	4        (MOM_SW_BNDFL .GT. 0) .OR.
+	5        (MOM_NPQUAR .GT. MAX(50_8,MOM_SW_NTOT/1000))
 	    END IF
 	  ELSE
 	    MOM_UNSAFE_B=(MOM_CAPPED .GT. 0) .OR. (MOM_NEGJ .GT. 0) .OR.
