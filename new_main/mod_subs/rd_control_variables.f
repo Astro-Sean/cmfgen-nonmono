@@ -2508,6 +2508,9 @@
 	1     L_FALSE,
 	2     'Clamp Sobolev line rates to the infrastructure SIGMA'//
 	3     ' (consistency test; biased physics)')
+	  SOB_RH_TEST_S1=.FALSE.
+	  CALL RD_STORE_LOG(SOB_RH_TEST_S1,'SOB_RH_TEST_S1',L_FALSE,
+	1     'SOB_RH unit-source bounding test (diagnostic only)')
 	  DO_SOB_FG_KNOP=.FALSE.
 	  CALL RD_STORE_LOG(DO_SOB_FG_KNOP,'DO_SOB_FG_KNOP',L_FALSE,
 	1     'Use the Knop sign-aware formal solver for SOB+LAM_ES J')
