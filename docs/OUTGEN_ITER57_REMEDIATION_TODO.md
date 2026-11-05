@@ -113,8 +113,12 @@ A task is done only when its stated evidence exists, never on compile alone.
 - [~] D ascending vs descending: sweep-direction census covered by
       test_mom_sweep_table; same-fixed-point verification needs the
       refresh driver callable from a unit driver (not yet wired).
-- [ ] E grid refinement invariance: ND is a compile-time parameter in
-      drv_mom_solve -- needs a runtime-ND driver variant.
+- [x] E grid refinement invariance: ND/NCF are -D defines on
+      drv_mom_solve (default 24/8, -fpp/-cpp added to common.py);
+      the seed band is defined in fractional depth. ND=48 vs ND=24
+      gives the same mechanism and bound behaviour (SEED_XMNEG
+      23 -> 31, XMSAVE_MIN=0, NEGJ_T=0, field positive) --
+      job 12729428, mom_solve 106/106.
 - [~] F quarantine persistence: seed mode injects invalid cells and
       asserts repair counters; NPQUAR gate coverage is at
       source-assert level in test_knop_lagged_field.
