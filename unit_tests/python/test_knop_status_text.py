@@ -317,7 +317,7 @@ def test_machine_contracts_unchanged():
         "mom_n5f mom_n50f mom_negjf mom_quarf" in POPS,
     )
     check("checkpoint MAGIC kept", "MAGIC=20260916" in MOM)
-    check("checkpoint VER records kept", "VER .NE. 3" in MOM)
+    check("checkpoint VER records kept", "VER .GT. 5" in MOM)
     check(
         "VADAT echo keys kept",
         "RD_STORE_LOG" in RD_CONTROL,
