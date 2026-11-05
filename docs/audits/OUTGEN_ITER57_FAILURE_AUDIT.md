@@ -312,8 +312,10 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   lives only in the explicit EPS (via AV_SIGMA_TRUE) and the
   signed H flux. Consistent; MOM_GAM_PIN=T active so
   EPS_PREV=EPS_NM. No sign defect.
-- [~] J(mom)/J(ray) census: new JCMP line prints; first LST-
-  ITERATION sample shows 0 cells above 50% -- pending more data.
+- [x] J(mom)/J(ray) census (T5): WIDESPREAD mismatch. The census
+  is LST_ITERATION-gated; the it57-62 zero readings are RJ=TC copy
+  iterations, not agreement. The live compare at it63: 3.18M cells
+  >50% rel-diff (27% of the field), worst at depth 62, nu=199.6.
 - [~] Numerical tests A-J: driver now covers A (v11 mode: stock
   V11 vs non-mono on homo input, MAXREL 5.9%), B (comp1/zsrc/
   zedg/seed), C (comp2 double reversal), D (rfd mode: production
