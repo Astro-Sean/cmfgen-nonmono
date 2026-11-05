@@ -66,18 +66,17 @@ A task is done only when its stated evidence exists, never on compile alone.
 - [x] C6 persistent quarantine now gates: MOM_NPQUAR >1% arms
       MOM_UNSAFE_B, >0.1% keeps MOM_FREEZE_B armed, in both gate
       branches (solve_for_pops.f ~1360, ~1416).
-- [~] C7 job 12719316 running (warm restart at it57, fixed exe,
-      MOM_XM_POS=T): ITERATION EVIDENCE -- 0 negative J_NEXT all
-      passes/iters (was ~4500/pass); bound fires ~24200 neg-RHS
-      rows/sweep; quar ~260K model cells (was ~450K); FCMP 98.6%
-      compressing (was stale 0.000); off-grid reads 165 (was
-      vacuous 0). it57 pops HELD under warmup+freeze; it58 refresh
-      diverged pass 4 (5.2E8 vs best 4.0E4) and was correctly
-      aborted, demand>limit so live LAMBDA resumed. negJ=0
-      throughout; pquar rebuilds over sweeps (198K->242K). The
-      zero-GAM resonance conditioning persists as the separate
-      limitation -- the runaway channel is unchanged by the fix.
-      Continuing to monitor.
+- [x] C7 job 12719316 COMPLETE (warm restart at it57, pre-C8 exe):
+      negJ 0 on every sweep (was 137K-797K); negative-RHS bound
+      fires 16.7K-24K rows/sweep and falling; quar 452K->94K;
+      pquar 198K->80K declining; refresh stalls ~1.3E4 (was 1.61E6
+      detonation); ran it57->it63, 75% converged, graceful
+      budget-exhausted end, no GS_PRECOND_LIM. The bound removed
+      the first failure channel; the field stayed [BAD] via the
+      separate non-contraction limitation. Run dir restart state
+      was cleaned after the job; the pipeline relaunched the model
+      cold-start as job 12725201 on the VER5+C8 exe (pending
+      QOSGrpCpuLimit) -- the end-to-end C8 exercise.
 - [~] T7 follow-on: VER5 checkpoint carries MOM_QUAR_AGE; fixed
       RESTORE_MOM_JNEXT_LATEST to accept VER5 + read the age
       record (was rejecting all VER5 rollback restores), and both
