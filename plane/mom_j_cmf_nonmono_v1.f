@@ -774,11 +774,34 @@
 !
 	LOGICAL MOM_H_IMPL
 !
+! MOM_XM_POS (VADAT key, default TRUE): bound the net lagged debit
+! at each interior row by that row's local source balance, so the
+! assembled RHS cannot go negative. The physical equation has a
+! non-negative fixed point under non-negative source and boundary
+! data; a negative RHS arises only from the lagged operator split
+! (H-divergence + EPS scatter + upwind J) at compressing,
+! absorption-dominated rows with ~zero local source -- a solver
+! artefact, not physics (production it57: MOM_J_NONMONO_ERRORS
+! showed XM_SAVE < 0 before DGTSV at such rows, and the fallback
+! rebuild already applies this bound to its EPS term). Policy is
+! the same donor-balance cap as MOM_EPS_LIM: the lagged debit may
+! not exceed the row's positive local contribution; rows the bound
+! does not touch keep the exact assembled RHS. F restores the old
+! path for A/B tests. edited, moment-audit.
+!
+	LOGICAL MOM_XM_POS
+!
 ! LAGB diagnostics: rows scaled this sweep, and the smallest scale
 ! applied (1.0 = the bound was inactive everywhere).
 !
 	INTEGER*8, SAVE :: MOM_LAGB_CNT=0
 	REAL(KIND=LDP), SAVE :: MOM_LAGB_MIN=1.0_LDP
+!
+! MOM_XMNEG: interior rows whose assembled RHS was negative and got
+! the MOM_XM_POS bound this sweep -- first-failure census for the
+! lagged-debit mechanism above.
+!
+	INTEGER*8, SAVE :: MOM_XMNEG=0
 !
 ! XM_FB_NM: previous valid R^2*J at the current frequency, assembled
 ! before DGTSV overwrites XM_NM. It is the fallback target for a
@@ -889,6 +912,7 @@
 	DATA MOM_LAG_BND /.TRUE./
 	DATA MOM_ABS_FLR /0.0_LDP/
 	DATA MOM_H_IMPL /.FALSE./
+	DATA MOM_XM_POS /.TRUE./
 	DATA KN_M_READY /.FALSE./
 	DATA KN_M_RF_WARNED /.FALSE./
 	DATA KN_M_ANYCMP /.FALSE./
@@ -1643,6 +1667,13 @@
 	    MOM_DOM_CMP=(10_8*MOM_SW_NCROW .GE. 9_8*MOM_SW_NROW)
 	    MOM_DOM_EXP=(10_8*MOM_SW_NCROW .LE. MOM_SW_NROW)
 	  END IF
+!
+!	  The AUTO branch above sets FCMP, but a VADAT-forced
+!	  MOM_RF_DIR skips it and leaves the stale 0.0 in the sweep
+!	  report -- compute the census share unconditionally.
+!
+	  IF(MOM_SW_NROW .GT. 0_8)
+	1    MOM_SW_FCMP=DBLE(MOM_SW_NCROW)/DBLE(MOM_SW_NROW)
 	  MOM_SW_NCROW=0;  MOM_SW_NROW=0
 	  MOM_EPS_CAP=0;  MOM_EPS_CAP_SW=0
 	  MOM_SW_NSUPP=0
@@ -1693,6 +1724,7 @@
 	  MOM_N_SIGBIG=0
 	  MOM_LAGB_CNT=0
 	  MOM_LAGB_MIN=1.0_LDP
+	  MOM_XMNEG=0
 	END IF
 !
 !
@@ -2783,6 +2815,27 @@
 	      XM_NM(I)=XM_NM(I)-(1.0_LDP-T3)*XLAG_NM(I)
 	      MOM_LAGB_CNT=MOM_LAGB_CNT+1
 	      MOM_LAGB_MIN=MIN(MOM_LAGB_MIN,T3)
+	    END IF
+	  END DO
+	END IF
+!
+! MOM_XM_POS: cap the net lagged debit at the row's local source
+! balance so the assembled RHS stays non-negative [default T]. The
+! local contribution DTAUONQ*SOURCE*R^2 is non-negative, so a
+! negative XM here means lagged auxiliary data (H-divergence, EPS
+! scatter, upwind J) outweighed the source -- the same imbalance
+! MOM_EPS_LIM caps for the EPS term and the fallback rebuild caps
+! for its EPS row. Without the cap, absorption-dominated
+! compressing rows (|TA|+|TC| << TB) return negative J from an
+! otherwise well-conditioned solve, feeding the negJ/quarantine
+! census. Capped rows land on XM=0 (debit limited to the balance),
+! not a floor on the field. edited, moment-audit.
+!
+	IF(MOM_XM_POS)THEN
+	  DO I=2,ND_NM-1
+	    IF(XM_NM(I) .LT. 0.0_LDP)THEN
+	      XM_NM(I)=0.0_LDP
+	      MOM_XMNEG=MOM_XMNEG+1
 	    END IF
 	  END DO
 	END IF
@@ -4051,9 +4104,10 @@
 	2    ' non-monotonic rows; ',MOM_EPS_FWD,
 	3    ' forward-epsilon midpoints; largest |EPS|/HU ',
 	4    MOM_EPS_RAT,'; epsilon-cap hits ',MOM_EPS_CAP_SW
-	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3)')
+	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3,A,I10)')
 	1    'lagbnd',MOM_LAGB_CNT,' boundary-lag cells,'//
-	2    ' smallest lag ',MOM_LAGB_MIN
+	2    ' smallest lag ',MOM_LAGB_MIN,
+	3    '; negative RHS rows ',MOM_XMNEG
 	WRITE(LUER,'(4X,A10,2X,2(A,ES10.3,A,I5,A,I5),A)')
 	1    'matrix','smallest DR ',MOM_MIN_DR,' at (',MOM_MIN_DR_I,',',
 	2    MOM_MIN_DR_L,'); smallest DR|a| ',MOM_MIN_DRA,' at (',
@@ -4653,17 +4707,18 @@
 ! MOM_ABS_FLR, called once from RD_CONTROL_VARIABLES after the VADAT
 ! keys are read.
 !
-	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND,ABSFLR,HIMPL)
+	SUBROUTINE SET_MOM_LAG_OPTS(GAMPIN,LAGBND,ABSFLR,HIMPL,XMPOS)
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1, ONLY:
-	1     MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,MOM_H_IMPL
+	1     MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,MOM_H_IMPL,MOM_XM_POS
 	IMPLICIT NONE
-	LOGICAL GAMPIN,LAGBND,HIMPL
+	LOGICAL GAMPIN,LAGBND,HIMPL,XMPOS
 	REAL(KIND=LDP) ABSFLR
 	MOM_GAM_PIN=GAMPIN
 	MOM_LAG_BND=LAGBND
 	MOM_ABS_FLR=MAX(ABSFLR,0.0_LDP)
 	MOM_H_IMPL=HIMPL
+	MOM_XM_POS=XMPOS
 	RETURN
 	END
 !
@@ -5276,6 +5331,7 @@
 	  MOM_N_SIGBIG=0
 	  MOM_LAGB_CNT=0
 	  MOM_LAGB_MIN=1.0_LDP
+	  MOM_XMNEG=0
 !
 ! Jacobi update for the compressing upwind read: freeze the
 ! J_{k+1} field at pass start so descending passes do not consume
@@ -5413,8 +5469,14 @@
 	1    .LT. 0.0_LDP),8)
 	    PASS_NMATCH=PASS_NMATCH+INT(COUNT(MOM_NM_J(1:ND_NM)
 	1    .GT. 1),8)
-	    PASS_NOFF=PASS_NOFF+INT(COUNT(MOM_NM_J(1:ND_NM)
-	1    .EQ. 0),8)
+!
+!	    Off-grid reads: compressing rows whose lagged upwind slot
+!	    FREQ_INDX+MOM_NM_J lands past the red edge get JUP=0 with no
+!	    record -- the old MOM_NM_J==0 test could never fire since the
+!	    match table is always >= 1.
+!
+	    PASS_NOFF=PASS_NOFF+INT(COUNT(GAM_SIGNED_NM(1:ND_NM)
+	1    .LT. 0.0_LDP .AND. (L+MOM_NM_J(1:ND_NM)) .GT. KN_M_NCF),8)
 !
 ! edited 14-Oct-2026: count cells whose |1+sigma*K_on_J|
 ! sits at the MOM_GAM_FAC_MIN floor (the zero-GAM resonance, where
@@ -5887,11 +5949,12 @@
 	2    PASS_ARGL,'):',' nu=',PASS_NU,' R=',PASS_R,' V=',
 	3    PASS_V,' sigT=',PASS_SIGT,' GAM=',PASS_GAM,
 	4    ' Q=',PASS_Q
-	  WRITE(LUER,'(4X,A11,2X,6(I10,A),I6)')
+	  WRITE(LUER,'(4X,A11,2X,7(I10,A),I6)')
 	1    'repairs',PASS_NEG,' negative J_NEXT, ',PASS_NQ,
 	2    ' quarantined, ',PASS_CAP,' capped; ',PASS_NMATCH,
 	3    ' frequency matches of ',PASS_NCMP,'; ',PASS_NOFF,
-	4    ' off-grid reads; largest bin offset ',PASS_NMAX
+	4    ' off-grid reads; ',MOM_XMNEG,
+	5    ' neg-RHS rows; largest bin offset ',PASS_NMAX
 	  IF(MOM_EPS_CAP .GT. 0_8)WRITE(LUER,'(4X,A11,2X,A,I10,A)')
 	1    'eps-limit','epsilon limit reached in ',MOM_EPS_CAP,
 	2    ' cells'
