@@ -441,7 +441,7 @@
       OPEN(UNIT=304,FILE=TRIM(OUTTAG)//'_sm.txt',STATUS='REPLACE')
       WRITE(304,'(A)')'# I R V SIGT CHI JNU J_INDX'
       DO I=1,ND
-        WRITE(304,'(I6,6ES25.16,I6)')I,R(I),V(I),SIGT(I),CHI(I),
+        WRITE(304,'(I6,5ES25.16,I6)')I,R(I),V(I),SIGT(I),CHI(I),
      1   JNU(I),J_INDX_NM(I)
       END DO
       CLOSE(304)
