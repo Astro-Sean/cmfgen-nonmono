@@ -51,7 +51,14 @@ FL = 1.0
 def build():
     md = BINDIR / "obj_rh_mod"
     help_objs = compile_objs("rh_help", HELPERS, moddir=md)
-    mod_obj = compile_objs("rh_mod", [TREE / "subs" / "sob_rh_couple.f"], moddir=md)
+    mod_obj = compile_objs(
+        "rh_mod",
+        [
+            TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
+            TREE / "subs" / "sob_rh_couple.f",
+        ],
+        moddir=md,
+    )
     drv_obj = compile_objs("rh_drv", [F90DIR / "drv_sob_rh.f90"], moddir=md)
     bins = link("sobrh", help_objs + mod_obj + drv_obj, moddir=md)
     return bins
@@ -370,6 +377,35 @@ def main():
         "cache: identical inputs reuse tables (no rebuild, same values)",
         meta_c.get("banners", 0) == 0 and pairs_c == pairs_b,
         f"banners={meta_c.get('banners')}",
+    )
+
+    # -- T8: SOB_RH_RELAX damps the applied term toward the --------
+    # computed term across calls; the fixed point is unchanged.
+    # The same geometry fed twice as extra phases gives identical
+    # computed DRC each call, so applied_k = (1-(1-w)^k) * computed.
+    w = 0.5
+    path = write_case(
+        "rh_relax.txt",
+        r, v, sig, chil, etal, bbc, znet, neg,
+        extra_geom=[(r, v, sig), (r, v, sig)],
+    )
+    blocks = parse(run(binary, path, str(w)).stdout)
+    drc_ph = []
+    for _, dd, _ in blocks:
+        arr = np.zeros((ND, NSIM))
+        for (l, i), val in dd.items():
+            arr[i - 1, l - 1] = val
+        drc_ph.append(arr)
+    d_full = drc_expected(exp_pairs, r, v, chil, etal, bbc, neg, FL)
+    ok = len(drc_ph) == 3
+    for k, arr in enumerate(drc_ph, start=1):
+        expect = (1.0 - (1.0 - w) ** k) * d_full
+        if not np.allclose(arr, expect, rtol=1e-9, atol=1e-30):
+            ok = False
+    rep.check(
+        "relax: applied DRC approaches computed as 1-(1-w)^k",
+        ok,
+        f"phases={len(drc_ph)}",
     )
 
     # -- Plot: pair map + DRC profile ------------------------------
