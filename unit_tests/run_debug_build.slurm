@@ -5,7 +5,7 @@
 #SBATCH --time=1:55:00
 #SBATCH --partition=interactive
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 #SBATCH --chdir=/viper/ptmp1/sbrennan/SN2024pba/cmfgen_jfnk
 
