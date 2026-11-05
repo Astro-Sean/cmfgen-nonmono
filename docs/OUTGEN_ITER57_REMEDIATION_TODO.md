@@ -27,8 +27,14 @@ A task is done only when its stated evidence exists, never on compile alone.
       n_precond counted each live-LAMBDA call (50 -> STOP). BA reads
       the same lagged field the formal solve stored -- the unstable
       input is the moment field, not a BA consistency defect.
-- [ ] T5 J(mom)/J(ray) compare: determine if mismatch is boundary-only or
-      widespread; produce per-frequency/depth worst-cell diagnostic data.
+- [x] T5 J(mom)/J(ray) compare: WIDESPREAD, not boundary-only. The
+      LST_ITERATION-gated census in comp_j_blank compares RJ (moment
+      field) vs TC (NEWJSOLD Rybicki/ray J). it57-62 readings are 0
+      because the J-loop assigned RJ=TC on those iterations (copies,
+      not independent fields); the live compare at it63 shows
+      3,182,787 cells >50% rel-diff (27% of the 11.95M field), worst
+      cell at depth 62, nu=199.6 -- the moment and formal fields
+      disagree broadly once the field is unsafe.
 - [x] T6 Geometry/grid. Evidence: RDINR 1:1 mapping; RSTAR/RMAX
       consistent; mom grid T2=1.0*minVDOP vs formal T2=0.5*minVDOP
       (formal grid finer ~2x; both same interpolation mechanism);
