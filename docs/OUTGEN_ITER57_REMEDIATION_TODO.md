@@ -161,11 +161,12 @@ A task is done only when its stated evidence exists, never on compile alone.
       Re-verified on the interactive partition (job 12720091):
       mom_solve 98/98, sweep_table 8/8, vadat_keys 77/77,
       iter_conv_gate 13/13, knop_ray 10/10.
-- [~] V2 FP traps on synthetic drivers done: drv_mom_solve rebuilt
-      with -check all -fpe0 on the interactive partition; seed case
-      runs clean, bound fires (SEED_XMNEG=41, NEGJ_T=0), exposed and
-      fixed a format item-count bug in the _sm.txt dump. Full
-      build_debug.sh exe run still open.
+- [x] V2 done: drv_mom_solve under -check all -fpe0 on the
+      interactive partition (seed clean, bound fires, exposed and
+      fixed the _sm.txt format item-count bug); full
+      build_debug.sh exe built clean on interactive job 12729507
+      (exe_dbg/cmfgen_dev.exe, rc=0, only deprecation remarks and
+      the known executable-stack linker warning).
 
 ## Run-severity findings already verified (see audit doc)
 
