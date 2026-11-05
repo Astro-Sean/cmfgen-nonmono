@@ -86,7 +86,14 @@ A task is done only when its stated evidence exists, never on compile alone.
       section 1b. NOT yet demonstrated on the real model (C7).
 - [x] V5 Full run_all_tests.py sweep: 30/30 test files pass
       (post C4/C6, incl. all gate and VADAT source-pin tests).
-- [ ] V2 Debug exe + FP traps on synthetic drivers.
+      Re-verified on the interactive partition (job 12720091):
+      mom_solve 98/98, sweep_table 8/8, vadat_keys 77/77,
+      iter_conv_gate 13/13, knop_ray 10/10.
+- [~] V2 FP traps on synthetic drivers done: drv_mom_solve rebuilt
+      with -check all -fpe0 on the interactive partition; seed case
+      runs clean, bound fires (SEED_XMNEG=41, NEGJ_T=0), exposed and
+      fixed a format item-count bug in the _sm.txt dump. Full
+      build_debug.sh exe run still open.
 
 ## Run-severity findings already verified (see audit doc)
 
