@@ -163,6 +163,59 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   if the 620->1.6E6 residual runaway persists it is a separate
   amplification channel (runaway cap 1E3/pass permits 1E3 growth per
   pass on an unstable row).
+- [x] Runaway channel characterised (it54 record): the diverged
+  pass-16 residual 1.61E6 coexists with a bounded outer-AA fixed-point
+  norm ||f||=8.4E1; the AA extrapolation itself produced
+  ||corr||=2.8E20 and was rejected on every depth with 85264 cells
+  excluded. So the explosion lives in a small cell subset amplified
+  through the refresh map/AA extrapolate, not the field mean. The
+  417842 GAM-floor cells are a constant structural subset and the
+  prime suspect gain channel. Best-pass rejection worked (retained
+  field moved 0.0), but each AA attempt can still detonate a pass.
+- [x] T7 restart integrity: MOMJNXT_GS checkpoint carried J_NEXT_FRQ,
+  H_NEXT_FRQ, grid fingerprints and sweep metrics (VER3/4) but NOT
+  MOM_QUAR_AGE -- every requeue zeroed the quarantine-age census, so
+  a persistently frozen cell masqueraded as a transient failure for
+  MOM_QUAR_PERSIST=3 sweeps, exactly when the C6 gate needs history.
+  FIXED: VER5 adds the MOM_QUAR_AGE record (dump requires it
+  allocated; restore validates dims against the J_NEXT_FRQ records
+  and accepts VER 3/4/5). MOM_NU_GRID and MOM_DAMP_NM are per-call
+  caches that re-derive each sweep -- correctly not checkpointed.
+- [x] Runaway cell class identified from per-pass OUTGEN rows: the
+  "worst cell" reported each refresh pass is always a zero-GAM
+  resonance row (sigT -1.6 to -136, |GAM| < 1E-4 -- 1+sigma*K ~ 0),
+  wandering between passes (depths 24..177). 417842 cells hit the
+  GAM_FAC_MIN floor every sweep. Meanwhile the bulk metrics contract
+  steadily (cells >5%: 4.8M at pass 1 -> 16.9K at pass 16). So the
+  refresh map contracts in bulk while a wandering resonance cell
+  keeps the max-norm residual at 1E2..1E4 and occasionally throws
+  it to 1E6 -- the 620->1.6E6 detonation is one such throw, not a
+  global divergence. The pass-16 abort (>1E3 x MIN_RES) is a correct
+  backstop; the stall check handles non-contraction separately.
+  Structural limitation (open): conditioning of the 1+sigma*K~0 rows
+  in the lagged map -- flag-gated remedies need a different
+  discretisation, not another repair.
+- [x] C5 recovery policy assessment: the existing tiered machinery
+  already implements the task's A-D split -- UNSAFE (structural
+  veto), FREEZE_B (marginal hold), MOM_TRIAL (rollback-armed
+  release), GS_PRECOND_LIM (bounded terminal). Diagnostic arms are
+  reported by the census lines below the [BAD] sentence. What was
+  missing is a field-side repair action: MOM_XM_POS removes the
+  negative-RHS feed, NPQUAR gating stops frozen cells reading as
+  mature, VER5 carries quarantine history across requeues. If C7
+  shows the field still cannot recover, the remaining lever is the
+  resonance-row conditioning above, not another gate.
+- [x] T6 geometry/grid: RDINR maps SN_HYDRO_DATA 1:1 (ND=70, no
+  remapping); RSTAR/RMAX consistent (outer/inner = 8.61). Both
+  solvers expand the grid by the same velocity-cap mechanism with
+  different fractions: T2_mom = 1.0*min(VDOP) vs T2_fg = 0.5*min(VDOP),
+  so the FORMAL grid is the finer one (~2x subdivisions). Under the
+  near-total compression of this model the two solves literally see
+  different sigma resolutions -- a real asymmetry that J(mom)/J(ray)
+  disagreements near steep gradients will partly reflect; the C4
+  census now quantifies it. IB_METH=DIFFUSION at tau_inner=39.3 is
+  below the pipeline's <50 warning heuristic but still optically
+  thick; not implicated in the failure signature.
 - [x] The `XM_SAVE -> boundary rows` restore at ~3219 is NOT a defect:
   it puts back the original assembled RHS at rows the rebuild loop
   skipped (boundary rows), before the second DGTSV. Correct.
@@ -200,7 +253,15 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
 - [x] C7 submitted: job 12719316, warm restart from SCRTEMP it57 on
   the rebuilt cmfgen_dev.exe (MOM_XM_POS=T default). OUTGEN and
   MOM_J_NONMONO_ERRORS preserved as *.it57_orig for comparison.
-  Awaiting result.
+  EARLY RESULT (first refresh, same frequency pass): negative
+  J_NEXT 4548->4416 orig vs 0 every pass new; quarantined ~6500 ->
+  ~3300; neg-RHS bound fires ~24200 rows/pass; off-grid reads now
+  reported (165, was vacuous 0); capped writes up ~4700 -> ~7900
+  (the ex-negative cells now take the bounded cap path). VER4
+  checkpoint restored cleanly (tag=56). The wandering GAM-floor
+  resonance argmax persists as predicted (largest change ~2E4,
+  same-direction contraction ratio ~0.92) -- structural limitation
+  remains; convergence outcome still pending further iterations.
 - [ ] solve_for_pops chain: how demand 2.76E6 persists for 50 preconditioning
   iterations; which levels/depths dominate; whether BA consumes the unsafe field.
 - [ ] Restart integrity of J_NEXT_FRQ / MOM_NU_GRID / MOM_QUAR_AGE.
