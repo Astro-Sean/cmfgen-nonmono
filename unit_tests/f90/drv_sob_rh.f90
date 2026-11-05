@@ -21,6 +21,7 @@
       PROGRAM DRV_SOB_RH
       USE SET_KIND_MODULE
       USE SOB_RH_MOD
+      USE CONTROL_VARIABLE_MOD
       IMPLICIT NONE
 !
       INTEGER, PARAMETER :: NDX=64, MS=4
@@ -29,12 +30,12 @@
       REAL(KIND=LDP), ALLOCATABLE :: ZNET(:,:), DRC(:,:)
       LOGICAL NEG(NDX)
       CHARACTER(LEN=256) :: CFILE
-      INTEGER ND, NSIM, I, J, K, L, LU, IOS, NPH
+      INTEGER ND, NSIM, I, J, K, L, LU, IOST, NPH
       REAL(KIND=LDP) FL
 !
       CALL GET_COMMAND_ARGUMENT(1,CFILE)
-      OPEN(10,FILE=TRIM(CFILE),STATUS='OLD',ACTION='READ',IOSTAT=IOS)
-      IF(IOS .NE. 0)THEN
+      OPEN(10,FILE=TRIM(CFILE),STATUS='OLD',ACTION='READ',IOSTAT=IOST)
+      IF(IOST .NE. 0)THEN
         WRITE(*,*)'cannot open ',TRIM(CFILE)
         STOP
       END IF
@@ -53,6 +54,15 @@
 !
       LU=6
       NPH=1
+!
+! Optional second argument sets SOB_RH_RELAX (default 1.0, the
+! unrelaxed legacy step).  Extra geometry phases then show the
+! applied term relaxing toward the same computed term each call.
+!
+      SOB_RH_RELAX=1.0_LDP
+      CALL GET_COMMAND_ARGUMENT(2,CFILE)
+      IF(LEN_TRIM(CFILE) .GT. 0)READ(CFILE,*)SOB_RH_RELAX
+      WRITE(*,'(a,1x,es24.16e3)')'RELAX ',SOB_RH_RELAX
 !
       DO
         CALL SOB_RH_GEOM(R,V,SIGMA,ND,LU)
@@ -81,12 +91,12 @@
 ! Optional next phase: ND more R V SIGMA rows, reusing the line data.
 !
         NPH=NPH+1
-        IOS=0
+        IOST=0
         DO I=1,ND
-          READ(10,*,IOSTAT=IOS)R(I),V(I),SIGMA(I)
-          IF(IOS .NE. 0)EXIT
+          READ(10,*,IOSTAT=IOST)R(I),V(I),SIGMA(I)
+          IF(IOST .NE. 0)EXIT
         END DO
-        IF(IOS .NE. 0)EXIT
+        IF(IOST .NE. 0)EXIT
       END DO
       CLOSE(10)
 !
