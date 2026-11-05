@@ -356,11 +356,12 @@ C
 	    T4=FL_SIM(SIM_INDX)*EMLIN
 	    DO K=1,ND
 	      L=GET_DIAG(K)
-C Same domain guard for the source-function ratio: any non-positive
-C denominator would feed Inf/NaN into the line cross-terms below.
-	      IF(ETAL_MAT(K,SIM_INDX) .GT. 0.0_LDP .AND.
-	1         BB_COR(K,SIM_INDX) .GT. 0.0_LDP .AND.
-	2         CHIL(K) .GT. 0.0_LDP)THEN
+C Same domain guard for the source-function ratio: only a zero
+C denominator is singular; negative CHIL (inverted populations) is a
+C physical input upstream evaluated, so test .NE. rather than .GT.
+	      IF(ETAL_MAT(K,SIM_INDX) .NE. 0.0_LDP .AND.
+	1         BB_COR(K,SIM_INDX) .NE. 0.0_LDP .AND.
+	2         CHIL(K) .NE. 0.0_LDP)THEN
 	        SRAT=(ETAL(K)/ETAL_MAT(K,SIM_INDX)/BB_COR(K,SIM_INDX))*
 	1          (CHIL_MAT(K,SIM_INDX)/CHIL(K))
 	      ELSE
