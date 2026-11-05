@@ -96,7 +96,7 @@
 	REAL(KIND=LDP), SAVE :: FL_OLD
 	REAL(KIND=LDP) BNUE
 	REAL(KIND=LDP) S1
-	REAL(KIND=LDP) T1,T2
+	REAL(KIND=LDP) T1,T2,T3
 !
 ! FG_COUNT is used to determine the average number of calls to FG_J_CMF_V10 per
 ! frequency.
@@ -146,6 +146,24 @@
 	INTEGER, SAVE :: ES_ALI_NUNC
 	INTEGER, SAVE :: ES_ALI_NFALL
 	REAL(KIND=LDP), SAVE :: ES_ALI_DJMAX
+!
+! J(mom)/J(ray) worst-cell census across all depths, accumulated over
+! the LST_ITERATION frequency sweep [J_COMP diagnostic]. J_COMP rows
+! carry only the two boundary cells; the gate that fires the
+! 'differ by more than' warnings reads just RJ(1) at the LAST
+! frequency, so one pathological boundary cell and a widespread
+! interior mismatch are indistinguishable. These accumulators record
+! the worst all-depth relative and absolute discrepancy, their
+! (freq,depth) locations, and the count of cells above 50%, so the
+! report can separate a single bad cell from a global failure.
+! Reset at FIRST_FREQ of each LST_ITERATION sweep. edited,
+! moment-audit.
+!
+	REAL(KIND=LDP), SAVE :: JCMP_W_REL=0.0_LDP
+	REAL(KIND=LDP), SAVE :: JCMP_W_ABS=0.0_LDP
+	REAL(KIND=LDP), SAVE :: JCMP_W_NU=0.0_LDP
+	INTEGER, SAVE :: JCMP_W_I=0
+	INTEGER, SAVE :: JCMP_N50=0
 !
 ! See COMP_J_CONT.INC to see earlier changes to this routine.
 !
@@ -1297,6 +1315,11 @@ C
 	    T2=ABS(RJ(ND))+ABS(TC(ND))
 	    IF(T2 .NE. 0)T2=200.0_LDP*(RJ(ND)-TC(ND))/T2
 	    IF(FIRST_FREQ)THEN
+	      JCMP_W_REL=0.0_LDP
+	      JCMP_W_ABS=0.0_LDP
+	      JCMP_W_NU=0.0_LDP
+	      JCMP_W_I=0
+	      JCMP_N50=0
 	      OPEN(UNIT=LU_JCOMP,STATUS='UNKNOWN',FILE='J_COMP')
 	      WRITE(LU_JCOMP,'(A)')' '
 	      WRITE(LU_JCOMP,'(A)')'Comparison of J at Outer and Inner',
@@ -1311,7 +1334,32 @@ C
 	1                       FREQ_INDX,FL,
 	1                       RJ(1),TC(1),T1,HBC_CMF(1),
 	1                       RJ(ND),TC(ND),T2
-	    IF(FREQ_INDX .EQ. NCF)CLOSE(UNIT=LU_JCOMP)
+!
+!	    All-depth census: worst relative and absolute J(mom)-J(ray)
+!	    discrepancy and the count of cells above 50%. Answers whether
+!	    a reported boundary mismatch is one bad cell or a widespread
+!	    field disagreement. edited, moment-audit.
+!
+	    DO I=1,ND
+	      T3=ABS(RJ(I))+ABS(TC(I))
+	      IF(T3 .NE. 0)THEN
+	        T3=ABS(200.0_LDP*(RJ(I)-TC(I))/T3)
+	        IF(T3 .GT. JCMP_W_REL)THEN
+	          JCMP_W_REL=T3
+	          JCMP_W_I=I
+	          JCMP_W_NU=FL
+	        END IF
+	        IF(T3 .GT. 50.0_LDP)JCMP_N50=JCMP_N50+1
+	      END IF
+	      T3=ABS(RJ(I)-TC(I))
+	      IF(T3 .GT. JCMP_W_ABS)JCMP_W_ABS=T3
+	    END DO
+	    IF(FREQ_INDX .EQ. NCF)THEN
+	      WRITE(LU_JCOMP,'(/,A,ES10.3,A,I5,A,ES10.3,A,I10)')
+	1       ' Worst all-depth |%diff| ',JCMP_W_REL,' at depth ',
+	2       JCMP_W_I,' nu ',JCMP_W_NU,'; cells above 50% ',JCMP_N50
+	      CLOSE(UNIT=LU_JCOMP)
+	    END IF
 	  END IF
 	  IF(FREQ_INDX .EQ. NCF)THEN
 	    WRITE(LUER,*)'Average number of calls to FG_J_CMF is',FLOAT(FG_COUNT)/FLOAT(NCF)
@@ -1328,8 +1376,11 @@ C
 	3     ', ALO fallbacks=',ES_ALI_NFALL
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
+	    WRITE(LUER,'(A,ES10.3,A,I5,A,ES10.3,A,I10)')
+	1     ' JCOMP census: worst |%diff| ',JCMP_W_REL,' at depth ',
+	2     JCMP_W_I,' nu ',JCMP_W_NU,'; cells above 50% ',JCMP_N50
 	    IF(T1 .GT. 100.0_LDP)THEN
-	      WRITE(LUER,'(/,A)')' Error --- J(mom) and J(ray) differ by more than 1000% for last frequency'
+	      WRITE(LUER,'(/,A)')' Error --- J(mom) and J(ray) differ by more than 100% for last frequency'
 	      WRITE(LUER,'(A)')' It is STRONGLY suggested that you use a finer grid at the outer boundary'
 	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error and/or use plt_jh'
 	    ELSE IF(T1 .GT. 50.0_LDP)THEN
