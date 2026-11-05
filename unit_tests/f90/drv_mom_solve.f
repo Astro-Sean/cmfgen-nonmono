@@ -29,7 +29,7 @@
       PARAMETER (ND=24,NCF=8)
       INTEGER I,L,IT,IOS,NIT,NCASE,OUTBC
       REAL(KIND=LDP) R(ND),V(ND),SIG(ND),SIGT(ND)
-      REAL(KIND=LDP) CHI(ND),ETA(ND),ESEC(ND),VDOP(ND)
+      REAL(KIND=LDP) CHI(ND),ETA(ND),ESEC(ND),VDOP(ND),CHI_L(ND)
       REAL(KIND=LDP) JNU(ND),RSQH(ND)
       REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
@@ -112,6 +112,12 @@
         END DO
       ELSE IF(MODE .EQ. 'dbl')THEN
         NCASE=12; SIGT(10:14)=-4.0_LDP
+      ELSE IF(MODE .EQ. 'zsrc')THEN
+        NCASE=13; SIGT(10:13)=-4.0_LDP
+      ELSE IF(MODE .EQ. 'zedg')THEN
+        NCASE=14; SIGT(10:13)=-4.0_LDP
+      ELSE IF(MODE .EQ. 'seed')THEN
+        NCASE=15; SIGT(10:13)=-4.0_LDP
       ELSE
         WRITE(*,'(A)')'RESULT unknown_mode=1'
         GOTO 999
@@ -149,6 +155,36 @@
         ESEC(I)=0.6_LDP*CHI(I)
         VDOP(I)=50.0_LDP
       END DO
+!
+! zsrc: zero-emissivity compression band. The production iter-57 dump
+! (MOM_J_NONMONO_ERRORS) shows the first negative-J cells sit at
+! compressing depths with ETA ~ 1E-133; the lagged H/EPS debit then
+! drives the assembled RHS negative. This mode reproduces that state:
+! comp1 geometry with ETA~0 inside the band only.
+!
+      IF(MODE .EQ. 'zsrc')ETA(10:13)=1.0E-30_LDP
+!
+! zedg: same compression band and zero in-band source as zsrc, plus a
+! frequency-dependent opacity edge: at even frequencies the band is
+! opaque (CHI*EDGEFAC) so its J/H field is small inside the band and
+! large outside. At an odd (transparent) frequency, compressing rows
+! read the upwind redder store at that steeply-dropping field -- the
+! production configuration behind the negative assembled RHS in
+! MOM_J_NONMONO_ERRORS. ETA for the band stays zero at all
+! frequencies.
+!
+      IF(MODE .EQ. 'zedg')ETA(10:13)=1.0E-30_LDP
+!
+! seed: comp1 geometry + zero in-band source. After one warm sweep the
+! lagged redder store is overwritten with a crafted state matching the
+! production failure record (MOM_J_NONMONO_ERRORS): J at the upwind
+! bin ~0 inside the band while the lagged H carries a strong
+! inward-growing negative flux there. A single transparent-frequency
+! solve then shows whether the assembled RHS goes negative at the
+! band, which is the verified first-failure mechanism of the it57
+! model (negative XM_SAVE before the solve, not a DGTSV defect).
+!
+      IF(MODE .EQ. 'seed')ETA(10:13)=1.0E-30_LDP
 !
 ! Frequency grid (blue -> red).
 !
@@ -247,7 +283,13 @@
           ELSE
             DLNC=DLN
           END IF
-          CALL MOM_J_CMF_NONMONO_V1(ETA,CHI,ESEC,
+!
+!         zedg: opaque compression band at even frequencies only.
+!
+          CHI_L(1:ND)=CHI(1:ND)
+          IF(MODE .EQ. 'zedg' .AND. MOD(L,2) .EQ. 0)
+     1       CHI_L(10:13)=CHI(10:13)*1.0E+4_LDP
+          CALL MOM_J_CMF_NONMONO_V1(ETA,CHI_L,ESEC,
      1         V,SIG,SIGT,R,
      2         JNU,RSQH,
      3         VDOP,VDOP_FRAC,
@@ -262,6 +304,43 @@
      1   ' MOM_GS_MAXCHG=',MOM_GS_MAXCHG,' NCROW=',
      2   MOM_SW_NCROW+MOM_SW_NROW
       END DO
+!
+      IF(MODE .EQ. 'seed')THEN
+!
+! Inject the production failure state: at the upwind redder bin (L+1)
+! J is ~0 inside the band while H is a negative flux growing in
+! magnitude inward across the band -- so the lagged H-divergence
+! HS(I)*H(I)-HS(I-1)*H(I-1) is a debit at every band row and the
+! local source is zero. Then solve the transparent frequency L=1
+! once and report the assembled RHS and solved field in the band.
+!
+        J_NEXT_FRQ(1:ND_NM,2)=0.0_LDP
+        DO I=1,ND_NM-1
+          T1=MIN(MAX((DBLE(I)-40.0_LDP)/20.0_LDP,0.0_LDP),1.0_LDP)
+          H_NEXT_FRQ(I,2)=-2.0E-4_LDP*T1
+        END DO
+!
+! Optically thick band at the seeded frequency too: the production
+! negative-J rows were absorption-dominated (|TA|+|TC| << TB), so the
+! diffusion coupling cannot lift the negative RHS back to J>0.
+!
+        CHI_L(1:ND)=CHI(1:ND)
+        CHI_L(10:13)=CHI(10:13)*1.0E+4_LDP
+        FREQ=FRQ(1); FIDX=1; NU_NXT=FRQ(2)
+        CALL SET_MOM_NU_NEXT(NU_NXT)
+        INIT=.FALSE.; NEW_FREQ=.TRUE.
+        CALL MOM_J_CMF_NONMONO_V1(ETA,CHI_L,ESEC,
+     1       V,SIG,SIGT,R,
+     2       JNU,RSQH,
+     3       VDOP,VDOP_FRAC,
+     4       FREQ,DLN,
+     5       INBM6,DBB,IC,IBSTAB,
+     6       NTYP6,HCHK6,METH,COHR,OUTBC,
+     7       INIT,NEW_FREQ,0,1,ND,FIDX,NCF)
+        WRITE(*,'(A,ES16.8E3)')'SEED_XMSAVE_MIN=',MINVAL(XM_SAVE_NM)
+        WRITE(*,'(A,ES16.8E3)')'SEED_RSQJ_MIN=',MINVAL(RSQJNU_NM)
+        WRITE(*,'(A,I10)')'SEED_XMNEG=',MOM_XMNEG
+      END IF
 !
       IF(MODE .EQ. 'ckpt')THEN
         ALLOCATE(CKJ(ND_NM,NCF),CKH(ND_NM,NCF),STAT=IOS)
