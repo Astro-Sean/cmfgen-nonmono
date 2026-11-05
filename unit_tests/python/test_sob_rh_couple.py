@@ -51,7 +51,14 @@ FL = 1.0
 def build():
     md = BINDIR / "obj_rh_mod"
     help_objs = compile_objs("rh_help", HELPERS, moddir=md)
-    mod_obj = compile_objs("rh_mod", [TREE / "subs" / "sob_rh_couple.f"], moddir=md)
+    mod_obj = compile_objs(
+        "rh_mod",
+        [
+            TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
+            TREE / "subs" / "sob_rh_couple.f",
+        ],
+        moddir=md,
+    )
     drv_obj = compile_objs("rh_drv", [F90DIR / "drv_sob_rh.f90"], moddir=md)
     bins = link("sobrh", help_objs + mod_obj + drv_obj, moddir=md)
     return bins
