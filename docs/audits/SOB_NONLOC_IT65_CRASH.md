@@ -87,16 +87,53 @@ depths 11-20). Findings:
   out-of-balance state (consistent with `SOB_RH` `dJ/J` 6.8E7 /
   `dRATE` 2.3E8 corrections).
 
-## 6. Open questions
+## 6. Producer analysis — how NaN enters the depth-11 RHS
 
-- Whether the NaN entered the depth-11 matrix block from a `SOB_RH`
-  rate correction (overflow/0/0) or from a depth-11 population that was
-  already degenerate when the matrix was assembled — needs a rerun with
-  the extended diagnostics on an earlier checkpoint or a finiteness
-  check inside the STEQ assembly.
-- Whether a finiteness guard on the STEQ column before correction
-  application (diagnosed abort rather than silent repair) is the right
-  minimal defence — it converts checkpoint poisoning into a stop at the
+`SOB_RH_COUPLE` (subs/sob_rh_couple.f) returns `DRC(ND,NSIM)` which
+`sub_sob_line_v3.f:324-328` subtracts directly into the SE residual:
+`T2 = ETAL_MAT*ZNET_SIM - DRC_SIM`, then `STEQ(MNUP,K) -= T2/T1`,
+`STEQ(MNL,K) += T2/T1`, `STEQ_T(K) -= T2*T3`. A single non-finite
+`DRC(11,L)` poisons all of depth 11's residual rows including the
+temperature row -- which is exactly how `T(11)` went NaN in the solve.
+
+Three holes let a non-finite DRC through:
+
+1. `DRATE = DJ*CHIL_MAT/BB_COR` (sob_rh_couple.f:250) is guarded only
+   by `BB_COR .EQ. 0`. `BB_COR = T1/T2` (cmfgen_sub.f:4078-4080) is a
+   Planck rescaling ratio; at cold depths `T1 = FL^3/(exp(HDKT*FL/T)-1)`
+   collapses exponentially for high-FL lines, so `BB_COR` can land in
+   the denormal-but-nonzero range -> `DRATE` overflows to Inf.
+   Diagnostics agree: `max dJ/J` stayed ~1-20 while `max dRATE` hit
+   2.3E8 -- the blow-up is in the /BB_COR conditioning, not the kernel
+   sum itself.
+2. `DJ .LE. 0` (line 248) never catches NaN (NaN comparisons fail), so
+   a NaN DJ from an Inf*0 product in the partner sum also passes.
+3. `DRC` accumulates with no finiteness check; `RH_MAXDZ` logs only the
+   per-correction max, never the accumulated value, so an Inf build-up
+   is invisible in the reported diagnostics.
+
+Same guard weakness class at sub_sob_line_v3.f:362 (`SRAT` divides by
+`BB_COR` guarded only `.GT. 0`).
+
+Driver sequencing: `dRATE` printed 1E7-1E8 across it55-64 -- the
+conditioning degraded steadily until a DRATE crossed to Inf/NaN at
+it64's final solve. Outer-atmosphere population explosion (exempted
+demand 2.1E20% at depth 8) was running in parallel and is the likely
+reason BB_COR/S_L reached the bad range at depth 11.
+
+## 7. Open questions
+
+- Confirm which hole fired first (denormal `BB_COR` overflow vs
+  `Inf*0` in the `DJ` sum) — a finiteness check on `DRATE`/`DJ`
+  reporting line/depth would name it on the next reproduction.
+- Whether a finiteness guard on `DRC` before `STEQ` injection
+  (diagnosed abort rather than silent repair) is the right minimal
+  defence — it converts checkpoint poisoning into a stop at the
   actual defect site.
+- The deeper physical question: whether `dRATE` ~1E8 corrections are
+  legitimate thick-coupling pumping or a discrete-kernel artefact of
+  the RH78 two-point sum (the `mu^2<=1` cut bounds `D2` only relative
+  to velocities; `UPS=1/SQRT(D1*D2)` can still be huge for close
+  pairs).
 - The other three SOB validation models (`sob_diag`, `sob_jfnk`,
   `sob_tri`) completed cleanly — non-local coupling is the differentiator.
