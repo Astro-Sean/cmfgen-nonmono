@@ -248,6 +248,18 @@ C
 	    IF(DJ .LE. 0.0_LDP)CYCLE
 	    IF(BB_COR(I,L) .EQ. 0.0_LDP)CYCLE
 	    DRATE=DJ*CHIL_MAT(I,L)/BB_COR(I,L)
+C A non-finite correction must not enter DRC silently: it poisons the
+C STEQ residual for the whole depth (m15_2p82d_VAL_sob_nonloc died this
+C way -- an all-NaN STEQ column at depth 11).  Report the culprit
+C values and stop so the producer can be traced, instead of letting a
+C NaN sail through the .LE./.GT. style guards into POPS.
+	    IF(.NOT. (ABS(DRATE) .LE. HUGE(1.0_LDP)))THEN
+	      WRITE(LU,'(A,2I8,A,1P3E14.6,A,I6)')
+	1     ' SOB_RH: non-finite DRATE at I,L=',I,L,
+	2     ' DJ,CHIL,BB_COR=',DJ,CHIL_MAT(I,L),BB_COR(I,L),
+	3     ' NPART=',RH_NP(I)
+	      STOP 'SOB_RH: non-finite DRATE'
+	    END IF
 	    DRC(I,L)=DRC(I,L)+DRATE
 	    RH_NCALL=RH_NCALL+1
 	    RH_MAXDZ=MAX(RH_MAXDZ,ABS(DRATE))
