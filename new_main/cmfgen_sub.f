@@ -1506,9 +1506,11 @@
 !
 ! Temporary diagnostic: catch a bad temperature entering the iteration
 ! (T(1)=NaN crashed GFF_VEC inside the DTDR opacity block).
-! KNOP-path only: the stock iteration sequence is unchanged.
+! KNOP-path originally; extended to the SOB path after the
+! sob_nonloc run hit the same NaN-T -> GFF_VEC table-index
+! segfault -- the stock iteration sequence is unchanged.
 !
-	IF(DO_NONMONO_KNOP)THEN
+	IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
 	  DO I=1,ND
 	    IF(.NOT. (T(I) .GT. 0.0_LDP))THEN
 	      WRITE(LUER,'(A,A,I5,A,ES16.6,A,I6)')' DBG-T: bad T on entry,',
