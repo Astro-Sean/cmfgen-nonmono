@@ -44,6 +44,7 @@ if IFORT:
         "-diag-disable=10448,10412,10434,5462,5199,7712,7346",
         "-warn",
         "none",
+        "-fpp",
     ]
     OMP = ["-qopenmp"]
     MODFLAG = "-module"
@@ -58,6 +59,7 @@ elif GFORT:
         "-w",
         "-fallow-argument-mismatch",
         "-std=legacy",
+        "-cpp",
     ]
     OMP = ["-fopenmp"]
     MODFLAG = "-J"
@@ -94,7 +96,7 @@ def compile_driver(name, sources, extra_flags=None, moddir=None):
     return binary
 
 
-def compile_objs(name, sources, moddir=None):
+def compile_objs(name, sources, moddir=None, extra_flags=None):
     """Compile `sources` to .o files inside bin/obj_<name>/ (no link).
     Used when the same driver must link against alternative objects
     (new vs reference source files with identical routine names)."""
@@ -107,7 +109,10 @@ def compile_objs(name, sources, moddir=None):
         src = Path(src)
         obj = objdir / (src.stem + ".o")
         if not obj.exists() or obj.stat().st_mtime <= src.stat().st_mtime:
-            cmd = [FC, *FFLAGS, *OMP, MODFLAG, str(md), "-c", str(src), "-o", str(obj)]
+            cmd = [
+                FC, *FFLAGS, *OMP, MODFLAG, str(md),
+                *(extra_flags or []), "-c", str(src), "-o", str(obj),
+            ]
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode != 0:
                 print(f"  compile {src} failed:")
