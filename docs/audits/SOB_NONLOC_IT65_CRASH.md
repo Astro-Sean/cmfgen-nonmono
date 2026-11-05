@@ -87,40 +87,41 @@ depths 11-20). Findings:
   out-of-balance state (consistent with `SOB_RH` `dJ/J` 6.8E7 /
   `dRATE` 2.3E8 corrections).
 
-## 6. Producer analysis — how NaN enters the depth-11 RHS
+## 6. Producer analysis -- CORRECTED
 
-`SOB_RH_COUPLE` (subs/sob_rh_couple.f) returns `DRC(ND,NSIM)` which
-`sub_sob_line_v3.f:324-328` subtracts directly into the SE residual:
-`T2 = ETAL_MAT*ZNET_SIM - DRC_SIM`, then `STEQ(MNUP,K) -= T2/T1`,
-`STEQ(MNL,K) += T2/T1`, `STEQ_T(K) -= T2*T3`. A single non-finite
-`DRC(11,L)` poisons all of depth 11's residual rows including the
-temperature row -- which is exactly how `T(11)` went NaN in the solve.
+**The DRC-injection hypothesis is disproved.** STEQ_VALS holds the
+it64 residual dumps written just before the final solve: the full
+`STEQ ARRAY` and the radiative-equilibrium row contain no NaN or
+Inf anywhere (depth 11 is a finite -2.57E5). `DRC` enters only the
+residual via `T2 = ETAL*ZNET - DRC` (sub_sob_line_v3.f:324-328) and
+is deliberately kept out of the BA matrix, so the residual was
+finite when the solve ran. The all-NaN `SOL(:,11)` column was
+produced inside the BA matrix assembly or the CMF_BLKBAND_V3
+block solve -- most consistent with a singular or NaN-poisoned
+depth-11 block (a depth-local defect gives exactly an all-NaN
+column at that depth and nothing elsewhere). The earlier claims
+below are retained for the record but the mechanism link is
+unproven:
 
-Three holes let a non-finite DRC through:
+- `BB_COR = T1/T2` (cmfgen_sub.f:4078-4080) cannot go denormal:
+  `FL` is the mean of `FL_SIM` over the line group (cmfgen_sub.f
+  ~3901) and lines in a group sit close in frequency, so the ratio
+  stays O(1). The denormal-BB_COR path is not available here.
+- `dRATE` is an absolute rate in emissivity units; comparing its
+  magnitude to the dimensionless `dJ/J` is meaningless, so the
+  "blow-up is in /BB_COR" inference was unsound.
+- `DRC` still has no finiteness check, and `DJ .LE. 0` cannot catch
+  a NaN DJ -- those holes remain real, but there is no evidence
+  they fired in this crash.
 
-1. `DRATE = DJ*CHIL_MAT/BB_COR` (sob_rh_couple.f:250) is guarded only
-   by `BB_COR .EQ. 0`. `BB_COR = T1/T2` (cmfgen_sub.f:4078-4080) is a
-   Planck rescaling ratio; at cold depths `T1 = FL^3/(exp(HDKT*FL/T)-1)`
-   collapses exponentially for high-FL lines, so `BB_COR` can land in
-   the denormal-but-nonzero range -> `DRATE` overflows to Inf.
-   Diagnostics agree: `max dJ/J` stayed ~1-20 while `max dRATE` hit
-   2.3E8 -- the blow-up is in the /BB_COR conditioning, not the kernel
-   sum itself.
-2. `DJ .LE. 0` (line 248) never catches NaN (NaN comparisons fail), so
-   a NaN DJ from an Inf*0 product in the partner sum also passes.
-3. `DRC` accumulates with no finiteness check; `RH_MAXDZ` logs only the
-   per-correction max, never the accumulated value, so an Inf build-up
-   is invisible in the reported diagnostics.
+What stands: the non-finite `DRATE` stop and the dominance census
+are diagnostic tripwires; the post-solve `STEQ` finite check in
+SOLVEBA_V13 stops at the first invalid state with depth/level
+location; the restart from the it63 SCRTEMP record reproduces the
+it64 solve cleanly for localisation.
 
-Same guard weakness class at sub_sob_line_v3.f:362 (`SRAT` divides by
-`BB_COR` guarded only `.GT. 0`).
-
-Driver sequencing: `dRATE` printed 1E7-2.6E8 across the WHOLE run
-(587 report lines) -- not a late degradation but the steady-state
-magnitude of the nonlocal correction on this model. Meanwhile
-`max dJ/J` stayed ~10-20 with occasional spikes to 1E3-1E5, so the
-huge dRATE is the `/BB_COR` rescaling amplified by CHIL rather than a
-runaway kernel sum.
+Driver sequencing (unchanged): `dRATE` printed 1E7-2.6E8 across the
+WHOLE run -- steady-state magnitude, not degradation.
 
 Coupling topology: 4,830 pairs over 70 depths (~69 partners per
 depth -- near all-to-all; RH_NDROP=0, no V<=0 depths). The mu^2<=1
