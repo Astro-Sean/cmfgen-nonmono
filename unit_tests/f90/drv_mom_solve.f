@@ -26,7 +26,13 @@
       IMPLICIT NONE
 !
       INTEGER ND,NCF
-      PARAMETER (ND=24,NCF=8)
+#ifndef ND_IN
+#define ND_IN 24
+#endif
+#ifndef NCF_IN
+#define NCF_IN 8
+#endif
+      PARAMETER (ND=ND_IN,NCF=NCF_IN)
       INTEGER I,L,IT,IOS,NIT,NCASE,OUTBC
       REAL(KIND=LDP) R(ND),V(ND),SIG(ND),SIGT(ND)
       REAL(KIND=LDP) CHI(ND),ETA(ND),ESEC(ND),VDOP(ND),CHI_L(ND)
@@ -39,6 +45,7 @@
       CHARACTER(LEN=12) INBM6
       LOGICAL COHR,INIT,NEW_FREQ,DOMATCH
       INTEGER FIDX
+      INTEGER IB1,IB2
       REAL(KIND=LDP), ALLOCATABLE :: CKJ(:,:),CKH(:,:)
       INTEGER(KIND=2), ALLOCATABLE :: CKQ(:,:)
       REAL(KIND=LDP) DMAX
@@ -86,6 +93,13 @@
 !
       NCASE=0
       SIGT=0.0_LDP
+!
+! Compression-band edges as grid fractions: cells 10-13 at ND=24.
+! Defined in fractional depth so the seed case probes the same
+! physical configuration under grid refinement (test E).
+!
+      IB1=NINT(9.0_LDP*DBLE(ND-1)/23.0_LDP)+1
+      IB2=NINT(12.0_LDP*DBLE(ND-1)/23.0_LDP)+1
       IF(MODE .EQ. 'homo')THEN
         NCASE=1
       ELSE IF(MODE .EQ. 'beta')THEN
@@ -118,7 +132,7 @@
       ELSE IF(MODE .EQ. 'zedg')THEN
         NCASE=14; SIGT(10:13)=-4.0_LDP
       ELSE IF(MODE .EQ. 'seed')THEN
-        NCASE=15; SIGT(10:13)=-4.0_LDP
+        NCASE=15; SIGT(IB1:IB2)=-4.0_LDP
       ELSE
         WRITE(*,'(A)')'RESULT unknown_mode=1'
         GOTO 999
@@ -185,7 +199,7 @@
 ! band, which is the verified first-failure mechanism of the it57
 ! model (negative XM_SAVE before the solve, not a DGTSV defect).
 !
-      IF(MODE .EQ. 'seed')ETA(10:13)=1.0E-30_LDP
+      IF(MODE .EQ. 'seed')ETA(IB1:IB2)=1.0E-30_LDP
 !
 ! Frequency grid (blue -> red).
 !
@@ -317,7 +331,8 @@
 !
         J_NEXT_FRQ(1:ND_NM,2)=0.0_LDP
         DO I=1,ND_NM-1
-          T1=MIN(MAX((DBLE(I)-40.0_LDP)/20.0_LDP,0.0_LDP),1.0_LDP)
+          T1=MIN(MAX((DBLE(I)/DBLE(ND_NM)-0.44_LDP)/0.22_LDP,
+     1       0.0_LDP),1.0_LDP)
           H_NEXT_FRQ(I,2)=-2.0E-4_LDP*T1
         END DO
 !
@@ -326,7 +341,7 @@
 ! diffusion coupling cannot lift the negative RHS back to J>0.
 !
         CHI_L(1:ND)=CHI(1:ND)
-        CHI_L(10:13)=CHI(10:13)*1.0E+4_LDP
+        CHI_L(IB1:IB2)=CHI(IB1:IB2)*1.0E+4_LDP
         FREQ=FRQ(1); FIDX=1; NU_NXT=FRQ(2)
         CALL SET_MOM_NU_NEXT(NU_NXT)
         INIT=.FALSE.; NEW_FREQ=.TRUE.
