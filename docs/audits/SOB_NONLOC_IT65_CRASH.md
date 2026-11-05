@@ -115,25 +115,43 @@ Three holes let a non-finite DRC through:
 Same guard weakness class at sub_sob_line_v3.f:362 (`SRAT` divides by
 `BB_COR` guarded only `.GT. 0`).
 
-Driver sequencing: `dRATE` printed 1E7-1E8 across it55-64 -- the
-conditioning degraded steadily until a DRATE crossed to Inf/NaN at
-it64's final solve. Outer-atmosphere population explosion (exempted
-demand 2.1E20% at depth 8) was running in parallel and is the likely
-reason BB_COR/S_L reached the bad range at depth 11.
+Driver sequencing: `dRATE` printed 1E7-2.6E8 across the WHOLE run
+(587 report lines) -- not a late degradation but the steady-state
+magnitude of the nonlocal correction on this model. Meanwhile
+`max dJ/J` stayed ~10-20 with occasional spikes to 1E3-1E5, so the
+huge dRATE is the `/BB_COR` rescaling amplified by CHIL rather than a
+runaway kernel sum.
+
+Coupling topology: 4,830 pairs over 70 depths (~69 partners per
+depth -- near all-to-all; RH_NDROP=0, no V<=0 depths). The mu^2<=1
+window admits essentially every pair on this velocity field. Each
+pair's contribution is bounded (the trapezoid weight cancels the
+UPS edge), but the acknowledged missing third-resonance extinction
+makes every pair a bounded overestimate -- compounding ~69 per depth
+into systematically inflated remote pumping. Outer depths can
+legitimately be remote-pumping dominated, but a systematic 10-20%
+overestimate x 69 partners is enough to push DRC past the local
+rate, escalate populations in the SE solve, and set up the observed
+outer-atmosphere explosion (depths 6-11) that preceded the NaN
+tip-over.
+
+To quantify the systematic-vs-edge question a dominance census was
+added: RH_NDOM counts (I,L) cells where |DRC|>|ETAL*ZNET| and
+reports alongside the existing max dJ/J / dRATE line. A large census
+means the lagged remote term is driving the residual rather than
+perturbing it -- the artefact signature.
 
 ## 7. Open questions
 
 - Confirm which hole fired first (denormal `BB_COR` overflow vs
-  `Inf*0` in the `DJ` sum) — a finiteness check on `DRATE`/`DJ`
-  reporting line/depth would name it on the next reproduction.
-- Whether a finiteness guard on `DRC` before `STEQ` injection
-  (diagnosed abort rather than silent repair) is the right minimal
-  defence — it converts checkpoint poisoning into a stop at the
-  actual defect site.
-- The deeper physical question: whether `dRATE` ~1E8 corrections are
-  legitimate thick-coupling pumping or a discrete-kernel artefact of
-  the RH78 two-point sum (the `mu^2<=1` cut bounds `D2` only relative
-  to velocities; `UPS=1/SQRT(D1*D2)` can still be huge for close
-  pairs).
+  `Inf*0` in the `DJ` sum) — the `DRATE` finiteness stop now prints
+  I, L, DJ, CHIL, BB_COR, NPART on reproduction (resubmit 12724112).
+- The dominance census (RH_NDOM) will show whether the remote
+  correction is systematically exceeding the local rate (artefact)
+  or only at edge cells (plausible physics).
+- If systematic dominance is confirmed: the fix is the missing
+  third-resonance exp(-t'') extinction (Feldmeier & Nikutta), or a
+  physically-motivated bound on DRC relative to the attainable
+  remote flux — not an ad-hoc cap.
 - The other three SOB validation models (`sob_diag`, `sob_jfnk`,
   `sob_tri`) completed cleanly — non-local coupling is the differentiator.
