@@ -101,11 +101,12 @@ A task is done only when its stated evidence exists, never on compile alone.
       Interactive job 12723631: 100/100 + FP-trap; exe relinked.
       The running C7 job predates this build -- a requeue would
       exercise it on the real model.
-- [~] Census growth chased: the mom-vs-stored >50% count peaked
-      at it59 (1.1M) then retreated at it60 (999K); quar 143K,
-      pquar 125K approaching the 119.5K release arm. Demands are
-      ordinary 1E2-1E3% trace churn at varying depths. Read as
-      hold-release catch-up, not a new instability -- watch only.
+- [x] Census growth chased to run end: the mom-vs-stored >50%
+      count peaked at it59 (1.1M) then broadly declined with small
+      upticks (999K -> 1.00M -> 822K -> 836K at it60-63); quar
+      143K -> 94K and pquar 125K -> 80K declined throughout and
+      were still falling when the budget stopped the run. Read as
+      hold-release catch-up, not a new instability.
 
 ## Numerical tests (unit_tests/, extend drv_mom_solve/drv_mom_sweep)
 
