@@ -83,6 +83,24 @@ A task is done only when its stated evidence exists, never on compile alone.
       record (was rejecting all VER5 rollback restores), and both
       readers now reset ages on the reject path. Driver ckpt mode
       asserts the age round-trip and the reject reset.
+- [x] C8 residual gate (user choice: bulk+max hybrid):
+      MOM_RF_DIV_BULK (VADAT, default T) requires the abort pass
+      to regress on both metrics -- max-norm beyond 1E3*MIN_RES
+      and N50 above the same direction's best. A lone
+      resonance-floor argmax is logged as a tolerated excursion
+      (MOM_RF_NDIVSKP); with no per-direction best yet the
+      max-norm test stands alone; capped/non-finite writes still
+      trip a true detonation through N50. At it58 pass 4
+      N50=8198 was already under the bulk-exit bound, so a gated
+      refresh can now reach the bulk exit instead of aborting.
+      Interactive job 12723631: 100/100 + FP-trap; exe relinked.
+      The running C7 job predates this build -- a requeue would
+      exercise it on the real model.
+- [~] Census growth chased: the mom-vs-stored >50% count peaked
+      at it59 (1.1M) then retreated at it60 (999K); quar 143K,
+      pquar 125K approaching the 119.5K release arm. Demands are
+      ordinary 1E2-1E3% trace churn at varying depths. Read as
+      hold-release catch-up, not a new instability -- watch only.
 
 ## Numerical tests (unit_tests/, extend drv_mom_solve/drv_mom_sweep)
 
