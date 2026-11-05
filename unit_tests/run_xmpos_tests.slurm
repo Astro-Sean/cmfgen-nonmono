@@ -25,7 +25,8 @@ export LD_LIBRARY_PATH="${MKLROOT}/lib/intel64:${MKLROOT}/lib:${LD_LIBRARY_PATH:
 echo "=== unit tests covering the XM_POS bound and gate changes"
 for t in test_mom_solve test_mom_sweep_table test_vadat_keys \
          test_knop_lagged_field test_iter_conv_gate \
-         test_gs_drift_diag test_knop_status_text test_knop_ray; do
+         test_gs_drift_diag test_knop_status_text test_knop_ray \
+         test_sob_rh_couple; do
   echo "================ $t"
   python3 "python/$t.py"
   rc=$?
