@@ -1356,6 +1356,15 @@
 !
 	LOGICAL MOM_RF_BULK_EXIT
 !
+! MOM_RF_DIV_BULK (default TRUE): gate the refresh divergence
+! abort on the bulk census as well as the max-norm runaway bound.
+! A pass only aborts when it sits beyond the bound AND above the
+! same direction's best >50% cell count, so a lone resonance-
+! floor argmax cannot kill a bulk-contracting iterate. VADAT
+! keyword [MOM_RF_DIV_BULK].
+!
+	LOGICAL MOM_RF_DIV_BULK
+!
 ! MOM_RF_ACTIVE (default FALSE): active-set front-tracking over
 ! frequencies in the MOM refresh -- skip frequencies whose own
 ! residual and all upwind read slots stayed below KN_M_TOL on the
