@@ -3951,7 +3951,12 @@
 !    rec 5: MOM_GS_CHG_FILE, MOM_GS_CAP_FILE sweep metrics
 !    rec 6: J_NEXT_FRQ (ND_NM*NCF_IN values)
 !    rec 7: H_NEXT_FRQ (VER 4 only; VER 3 files end after rec 6)
-!    rec 8: END_MAGIC
+!    rec 8: MOM_QUAR_AGE (VER 5 only; the per-cell quarantine-age
+!           census, so a restart does not present a persistently
+!           frozen cell as a fresh transient failure -- without it
+!           MOM_QUAR_PERSIST sweeps of history are lost on every
+!           requeue)
+!    rec 9: END_MAGIC
 !  Any failure leaves J_NEXT_FRQ zeroed, J_NEXT_VALID .FALSE. and
 !  MOM_J_GS_OK .FALSE. -> LAMBDA warm-up fallback.
 ! ==============================================================================
@@ -3976,7 +3981,7 @@
 	INTEGER IOS,I,ND_NM_F,LUER,ERROR_LU
 	CHARACTER(LEN=7) SW_ST,SV_ST,BND_TAG
 	CHARACTER(LEN=20) RF_DIR_W
-	INTEGER, PARAMETER :: MAGIC=20260916, VER=4
+	INTEGER, PARAMETER :: MAGIC=20260916, VER=5
 	LOGICAL REN_OK
 	EXTERNAL ERROR_LU
 !
@@ -4180,6 +4185,19 @@
 ! VER 4: the lagged R^2*H partner store travels with J_NEXT_FRQ so a
 ! restored generation keeps both upwind fields consistent.
 	IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)H_NEXT_FRQ
+! VER 5: the quarantine-age census travels with the field. Without
+! it every requeue zeroes MOM_QUAR_AGE and a persistently frozen
+! cell masquerades as a transient failure for MOM_QUAR_PERSIST
+! sweeps. Require it allocated like the grid fingerprints above --
+! a checkpoint without it is internally inconsistent. edited,
+! moment-audit.
+	IF(IOS .EQ. 0)THEN
+	  IF(ALLOCATED(MOM_QUAR_AGE))THEN
+	    WRITE(LU,IOSTAT=IOS)MOM_QUAR_AGE
+	  ELSE
+	    IOS=-1
+	  END IF
+	END IF
 	IF(IOS .EQ. 0)WRITE(LU,IOSTAT=IOS)-MAGIC
 	CLOSE(LU)
 !
@@ -4241,9 +4259,10 @@
 	READ(292,IOSTAT=IOS)MAG,VER,TAG
 ! VER 3 files carry J_NEXT_FRQ only; VER 4 adds the H_NEXT_FRQ record.
 ! A VER 3 restore leaves the H store cold -- it is rebuilt from the
-! first sweep, cheaper than discarding the whole J generation.
+! first sweep, cheaper than discarding the whole J generation. VER 5
+! adds MOM_QUAR_AGE.
 	IF(IOS .NE. 0 .OR. MAG .NE. MAGIC .OR.
-	1   (VER .NE. 3 .AND. VER .NE. 4))GOTO 900
+	1   VER .LT. 3 .OR. VER .GT. 5)GOTO 900
 	READ(292,IOSTAT=IOS)ND_NM_F,NCF_F,ND_F
 	IF(IOS .NE. 0)GOTO 900
 	READ(292,IOSTAT=IOS)R1_F,RND_F,V1_F,VND_F
@@ -4291,8 +4310,22 @@
 !
 	READ(292,IOSTAT=IOS)J_NEXT_FRQ
 	IF(IOS .NE. 0)GOTO 900
-	IF(VER .EQ. 4)THEN
+	IF(VER .GE. 4)THEN
 	  READ(292,IOSTAT=IOS)H_NEXT_FRQ
+	  IF(IOS .NE. 0)GOTO 900
+	END IF
+! VER 5: restore the quarantine-age census alongside the field. The
+! dims are already validated against J_NEXT_FRQ (ND_NM_F, NCF_F), so
+! a mismatched or missing array is rebuilt at file size. edited,
+! moment-audit.
+	IF(VER .GE. 5)THEN
+	  IF(ALLOCATED(MOM_QUAR_AGE))THEN
+	    IF(SIZE(MOM_QUAR_AGE,1) .NE. ND_NM_F .OR.
+	1      SIZE(MOM_QUAR_AGE,2) .NE. NCF_F)DEALLOCATE(MOM_QUAR_AGE)
+	  END IF
+	  IF(.NOT. ALLOCATED(MOM_QUAR_AGE))
+	1    ALLOCATE(MOM_QUAR_AGE(ND_NM_F,NCF_F),STAT=IOS)
+	  IF(IOS .EQ. 0)READ(292,IOSTAT=IOS)MOM_QUAR_AGE
 	  IF(IOS .NE. 0)GOTO 900
 	END IF
 	READ(292,IOSTAT=IOS)ENDM
