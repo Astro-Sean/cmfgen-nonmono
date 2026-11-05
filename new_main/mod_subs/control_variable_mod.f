@@ -1814,6 +1814,20 @@
 !
 	LOGICAL SOB_RH_TEST_S1
 !
+! SOB_RH_RELAX (VADAT [SOB_RH_RELAX], default 1.0): under-relaxation
+! factor for the lagged RH78 remote term applied by SOB_RH_COUPLE.
+! The remote absorption is computed from the current populations and
+! feeds back through S_L on the next call; on the m15 2.82d velocity
+! field that lagged map does not contract -- the OIV trace-level
+! demand at depths 9-11 grew from 1E20 to 1E39 across iterations.
+! With RELAX < 1 the applied term is relaxed across calls:
+! applied = applied + RELAX*(computed - applied).  The converged
+! fixed point is unchanged -- the damping acts on the lagged update
+! step, not on the remote flux itself.  1.0 keeps the legacy full
+! step.
+!
+	REAL(KIND=LDP) SOB_RH_RELAX
+!
 ! DO_SOB_FG_KNOP (VADAT [DO_SOB_FG_KNOP], default F): under
 ! DO_NONMONO_SOB + USE_LAM_ES=T, replace the stock FG_J_CMF_V13
 ! formal solve with FG_J_CMF_NONMONO_V1 -- the sign-aware Knop
