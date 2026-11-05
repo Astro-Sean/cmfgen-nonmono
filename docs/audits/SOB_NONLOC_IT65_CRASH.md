@@ -184,15 +184,14 @@ the next call; where remote absorption dominates the local rates the
 population response amplifies the next computed DRC -- a
 non-contractive fixed-point map.
 
-Fix applied: `SOB_RH_RELAX` (VADAT, default 1.0) under-relaxes the
-applied term across calls, applied = applied + w*(computed-applied).
-The converged fixed point is unchanged -- the flag damps the
-iteration path, not the remote flux.  The self-report now also
-prints the (I,L) location of the largest DRATE and JRAT, plus the
-computed-applied lag when relaxation is active.  Unit coverage:
-`test_sob_rh_couple.py` T8 verifies applied_k = (1-(1-w)^k)*computed
-across three phases; suite 14/14.
+A `SOB_RH_RELAX` under-relaxation of the applied term across calls
+was tried and withdrawn the same day: SOB_RH_COUPLE is invoked once
+per Sobolev line group from SUB_SOB_LINE_V3, so a single cached
+last-applied array mixed the remote terms of different transitions.
+A correct cross-call relaxation needs per-transition storage across
+the full simultaneous set, which is not a surgical change.  Reverts:
+the VADAT key, the flag, the couple-side relaxation, and its unit
+coverage (5 revert commits on 2026-11-05).
 
-The resubmit runs with `SOB_RH_RELAX=0.2`.  If the lagged map still
-does not contract, the next correction is path extinction along the
-chord (third-resonance and continuum), not a cap on the term.
+The next correction is path extinction along the chord
+(third-resonance and continuum), not a cap on the term.
