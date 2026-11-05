@@ -630,6 +630,20 @@
 ! (MOM_RF_*), which still rejects a fixed point that sits far from
 ! the field the populations saw.
 !
+! MOM_RF_DIV_BULK (VADAT key, default TRUE): bulk gate on the
+! divergence abort. The max-norm runaway bound can fire on a lone
+! resonance-floor argmax while the >50% census still contracts --
+! the floored 1+sigK~0 rows are ill-conditioned by construction,
+! so one wandering cell can spike PASS_CHG orders of magnitude
+! with the bulk untouched. With this flag the abort requires the
+! pass to regress on both metrics: max-norm beyond the runaway
+! bound and N50 above the same direction's best. A pass that
+! explodes in max but still improves the bulk census is logged as
+! a tolerated excursion (MOM_RF_NDIVSKP); with no per-direction
+! best yet, the pure max-norm test applies. Non-finite writes are
+! still capped per cell, so a true bulk detonation always trips
+! N50 and aborts.
+!
 ! MOM_RF_ACTIVE (VADAT key, default FALSE): active-set
 ! front-tracking over frequencies in the refresh. A frequency's
 ! solve only depends on the lagged store at slot L-1 (expanding
@@ -646,7 +660,9 @@
 	LOGICAL MOM_RF_GS_DESC
 	LOGICAL MOM_RF_KEEPNEG
 	LOGICAL MOM_RF_BULK_EXIT
+	LOGICAL MOM_RF_DIV_BULK
 	LOGICAL MOM_RF_ACTIVE
+	INTEGER*8, SAVE :: MOM_RF_NDIVSKP=0
 !
 ! MOM_RF_DIR (VADAT key, default 'AUTO'): refresh pass ordering.
 ! Knop Paper II's GS solve is physically guided -- the pass follows
@@ -901,6 +917,7 @@
 	DATA MOM_RF_GS_DESC /.FALSE./
 	DATA MOM_RF_KEEPNEG /.TRUE./
 	DATA MOM_RF_BULK_EXIT /.TRUE./
+	DATA MOM_RF_DIV_BULK /.TRUE./
 	DATA MOM_RF_ACTIVE /.FALSE./
 	DATA MOM_RF_DIR /'AUTO'/
 	DATA MOM_RF_OWNW /.TRUE./
@@ -4717,6 +4734,18 @@
 	RETURN
 	END
 !
+! SET_MOM_RF_DIVB: runtime wiring for MOM_RF_DIV_BULK, called once
+! from RD_CONTROL_VARIABLES after the VADAT key is read.
+!
+	SUBROUTINE SET_MOM_RF_DIVB(DO_DIV)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_RF_DIV_BULK
+	IMPLICIT NONE
+	LOGICAL DO_DIV
+	MOM_RF_DIV_BULK=DO_DIV
+	RETURN
+	END
+!
 ! SET_MOM_RF_ACT: runtime wiring for MOM_RF_ACTIVE, called once
 ! from RD_CONTROL_VARIABLES after the VADAT key is read.
 !
@@ -6069,10 +6098,27 @@
 !	  smallest max-norm seen, since BEST_CHG now tracks the
 !	  bulk-chosen pass.
 !
+!	  MOM_RF_DIV_BULK: the max bound alone aborts on a lone
+!	  resonance-floor argmax (the floored 1+sigK~0 rows wander
+!	  between passes while the >50% census contracts). Require the
+!	  bulk census to regress too -- the pass must sit above the
+!	  same direction's best N50 as well as the runaway bound. A
+!	  suppressed abort is counted and logged; with no per-
+!	  direction best yet the max-norm test stands alone.
+!
 	  IF(IPASS .GE. 3 .AND. PASS_CHG .GT. 1.0E+3_LDP*MIN_RES)THEN
-	    WRITE(LUER,'(2A)')' [BAD]  ',TRIM(MOM_REFRESH_SENTENCE(
-	1      .FALSE.,PASS_CHG,0_8,0_8,'diverge',IPASS,MIN_RES))
-	    EXIT
+	    IF(MOM_RF_DIV_BULK .AND. BESTV_D(IDIR) .AND.
+	1      PASS_N50 .LE. BEST_N50_D(IDIR))THEN
+	      MOM_RF_NDIVSKP=MOM_RF_NDIVSKP+1
+	      WRITE(LUER,'(A,I4,A,ES12.4,A,I10,A)')
+	1      ' [WARN] pass',IPASS,' max-norm excursion',PASS_CHG,
+	2      ' tolerated:',PASS_N50,' cells above 50% still at or'//
+	3      ' below the direction best'
+	    ELSE
+	      WRITE(LUER,'(2A)')' [BAD]  ',TRIM(MOM_REFRESH_SENTENCE(
+	1        .FALSE.,PASS_CHG,0_8,0_8,'diverge',IPASS,MIN_RES))
+	      EXIT
+	    END IF
 	  END IF
 !
 !	  Same-direction stall check (KNOP_RAY_SOLVE_V1 pattern): the two
