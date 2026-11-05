@@ -67,14 +67,22 @@ A task is done only when its stated evidence exists, never on compile alone.
       MOM_UNSAFE_B, >0.1% keeps MOM_FREEZE_B armed, in both gate
       branches (solve_for_pops.f ~1360, ~1416).
 - [~] C7 job 12719316 running (warm restart at it57, fixed exe,
-      MOM_XM_POS=T): FIRST ITERATION EVIDENCE -- 0 negative J_NEXT
-      all passes (was ~4500/pass); bound fires ~24200 neg-RHS
-      rows/sweep; quarantined ~3300/pass (was ~6500); FCMP reports
-      98.6% compressing (was stale 0.000); off-grid reads 165 (was
-      vacuous 0); pops HELD under warmup+freeze rather than live
-      LAMBDA. Still [BAD] (drift spike 1.4E20 transient) and
-      refresh stalls on the resonance argmax -- continuing to
-      monitor whether unsafe clears and the model advances.
+      MOM_XM_POS=T): ITERATION EVIDENCE -- 0 negative J_NEXT all
+      passes/iters (was ~4500/pass); bound fires ~24200 neg-RHS
+      rows/sweep; quar ~260K model cells (was ~450K); FCMP 98.6%
+      compressing (was stale 0.000); off-grid reads 165 (was
+      vacuous 0). it57 pops HELD under warmup+freeze; it58 refresh
+      diverged pass 4 (5.2E8 vs best 4.0E4) and was correctly
+      aborted, demand>limit so live LAMBDA resumed. negJ=0
+      throughout; pquar rebuilds over sweeps (198K->242K). The
+      zero-GAM resonance conditioning persists as the separate
+      limitation -- the runaway channel is unchanged by the fix.
+      Continuing to monitor.
+- [~] T7 follow-on: VER5 checkpoint carries MOM_QUAR_AGE; fixed
+      RESTORE_MOM_JNEXT_LATEST to accept VER5 + read the age
+      record (was rejecting all VER5 rollback restores), and both
+      readers now reset ages on the reject path. Driver ckpt mode
+      asserts the age round-trip and the reject reset.
 
 ## Numerical tests (unit_tests/, extend drv_mom_solve/drv_mom_sweep)
 
