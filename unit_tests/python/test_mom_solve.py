@@ -435,6 +435,37 @@ def main():
     rep.check("gonly: completed", "RESULT_OK" in rg.stdout)
     check_admissible(rep, "gonly", "t_gonly")
 
+    # --- Seeded lagged-state reproduction of the it57 failure -------
+    # 'seed' injects the production first-failure state (zero in-band
+    # source, absorption-dominated compressing rows, upwind redder bin
+    # with J~0 and a negative-divergence H) then solves the transparent
+    # frequency once. The MOM_XM_POS bound must keep the assembled RHS
+    # non-negative, so no negative J can be produced.
+    r = run(exe, "seed", "nonj", "3", "1", "diff", "none", "0",
+            "t_seed", cwd=WORKDIR)
+    rep.check("seed: driver completed", "RESULT_OK" in r.stdout)
+    rep.check(
+        "seed: bound fired (lagged debit exceeded local source)",
+        kv(r.stdout, "SEED_XMNEG") > 0,
+        f"SEED_XMNEG={kv(r.stdout, 'SEED_XMNEG')}",
+    )
+    rep.check(
+        "seed: assembled RHS non-negative after MOM_XM_POS bound",
+        kv(r.stdout, "SEED_XMSAVE_MIN") >= 0.0,
+        f"SEED_XMSAVE_MIN={kv(r.stdout, 'SEED_XMSAVE_MIN')}",
+    )
+    rep.check(
+        "seed: no negative J returned by the solve",
+        kv(r.stdout, "NEGJ_LRG") == 0 and kv(r.stdout, "NEGJ_T") == 0,
+        f"NEGJ_LRG={kv(r.stdout, 'NEGJ_LRG')} "
+        f"NEGJ_T={kv(r.stdout, 'NEGJ_T')}",
+    )
+    rep.check(
+        "seed: solved field stays positive (dark absorbing cells)",
+        kv(r.stdout, "SEED_RSQJ_MIN") > 0.0,
+        f"SEED_RSQJ_MIN={kv(r.stdout, 'SEED_RSQJ_MIN')}",
+    )
+
     # --- Checkpoint round-trip (MOMJNXT_GS) -------------------------
     rc = run(exe, "ckpt", "nonj", "1", "1", "diff", "none", "0",
              "t_ckpt", cwd=WORKDIR)
