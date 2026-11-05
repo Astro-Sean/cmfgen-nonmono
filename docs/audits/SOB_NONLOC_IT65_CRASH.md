@@ -64,13 +64,39 @@ inside it65 setup after `T 15 F`).
   from an earlier `SCRTEMP`, to localise the it64 routine that first
   writes the NaN.
 
-## 5. Open questions
+## 5. First invalid state — it64's solve returned an all-NaN depth column
 
-- Which routine first writes NaN into `POPS(NT,11)` during it64 —
-  T-solve under exploding populations, a `SOB_RH`-driven rate
-  correction, or propagation from a NaN population? Needs a rerun with
-  the extended diagnostics on an earlier checkpoint.
-- Whether `SOB_RH` `dRATE`/`dJ/J` magnitudes of 1E7-1E8 are the driver
-  or a further symptom of the outer-atmosphere divergence.
+`SCRATCH/STEQ_VALS` preserves the per-iteration `STEQ SOLUTION ARRAY`
+dumps (WR2D_V2 format `I(J)#` = `STEQ(I, J..J+9)`; `(11)` page covers
+depths 11-20). Findings:
+
+- The last dump (it64's final applied LAMBDA solve) contains exactly
+  1839 NaN values, all in the first column of the `(11)` page:
+  `STEQ(I,11) = NaN` for every one of the 1839 unknowns. The whole
+  depth-11 column came back NaN; depths 12-20 are finite.
+- All 63 earlier dumps are NaN-free — the corruption first appears in
+  it64's final solve.
+- Correction application (`locsolut.f`, `solveba_v*.f`) computes
+  `POPS(J,I)*(1-STEQ(J,I)*SCALE)`. Every scale-limit test uses `.GT.`/
+  `.LT.` comparisons which a NaN operand fails, so a NaN `STEQ` element
+  is applied unclamped: `POPS(:,11)` (all levels plus `POPS(NT,11)`=T)
+  went NaN, then `SCRTEMP` carried the poisoned depth to it65.
+- The same file's `&` "Radiative Equlibrium Equation" dump shows the
+  depth-11 RE residual already at `-9.7E5`, growing to `-5.4E7` by
+  depth 20 — the depth-11 matrix block was being fed a wildly
+  out-of-balance state (consistent with `SOB_RH` `dJ/J` 6.8E7 /
+  `dRATE` 2.3E8 corrections).
+
+## 6. Open questions
+
+- Whether the NaN entered the depth-11 matrix block from a `SOB_RH`
+  rate correction (overflow/0/0) or from a depth-11 population that was
+  already degenerate when the matrix was assembled — needs a rerun with
+  the extended diagnostics on an earlier checkpoint or a finiteness
+  check inside the STEQ assembly.
+- Whether a finiteness guard on the STEQ column before correction
+  application (diagnosed abort rather than silent repair) is the right
+  minimal defence — it converts checkpoint poisoning into a stop at the
+  actual defect site.
 - The other three SOB validation models (`sob_diag`, `sob_jfnk`,
   `sob_tri`) completed cleanly — non-local coupling is the differentiator.
