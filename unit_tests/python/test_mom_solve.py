@@ -308,6 +308,31 @@ def main():
         f"trajectory {[f'{c:.2e}' for c in chgs]}",
     )
 
+    # --- Test C: multiple compression regions ------------------------
+    # comp2 puts two disjoint sigma<-1 bands on the profile; each
+    # reverses dV/dR sign locally (V climbs inward through the
+    # band), so the case exercises multiple velocity reversals.
+    rc2 = run(exe, "comp2", "nonj", "4", "1", "diff", "none", "0",
+              "t_comp2", cwd=WORKDIR)
+    rep.check("comp2: driver completed", "RESULT_OK" in rc2.stdout)
+    check_coefficients(rep, "comp2", "t_comp2")
+    residual_check(rep, "comp2", "t_comp2")
+    check_admissible(rep, "comp2", "t_comp2")
+    dc2 = load("t_comp2")
+    dvdr = np.diff(dc2["v"]) / np.diff(dc2["r"])
+    neg = dvdr < 0
+    runs = int(neg[0]) + int(np.sum(neg[1:] & ~neg[:-1]))
+    rep.check(
+        "comp2: V carries two disjoint reversal regions",
+        runs >= 2,
+        f"reversal runs={runs}",
+    )
+    rep.check(
+        "comp2: compressing rows on the expanded grid",
+        int((dc2["q"] < 0).sum()) > 0,
+        f"{int((dc2['q'] < 0).sum())} rows",
+    )
+
     # --- Zero-GAM resonance: sigma_true = -1/K band ------------------
     dz = run(exe, "zero", "nonj", "6", "1", "diff", "none", "0",
              "t_zero", cwd=WORKDIR)
