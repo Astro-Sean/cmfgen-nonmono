@@ -1298,8 +1298,21 @@
 	  MOM_H_IMPL=.FALSE.
 	  CALL RD_STORE_LOG(MOM_H_IMPL,'MOM_H_IMPL',L_FALSE,
 	1     'Implicit weight for lagged H coupling in MOM diagonal?')
+!
+! MOM_XM_POS (default TRUE): bound the net lagged debit at each
+! interior row by the row's local source balance so the assembled
+! RHS cannot go negative. The physical fixed point is non-negative
+! under non-negative source/boundary data; a negative RHS is a
+! lagged-split artefact at compressing absorption-dominated cells
+! (it57: XM_SAVE<0 before DGTSV in MOM_J_NONMONO_ERRORS). Same
+! donor-balance policy as MOM_EPS_LIM, applied to the total lagged
+! contribution. F restores the old path for A/B tests.
+!
+	  MOM_XM_POS=.TRUE.
+	  CALL RD_STORE_LOG(MOM_XM_POS,'MOM_XM_POS',L_FALSE,
+	1     'Bound net lagged debit by local RHS balance in MOM?')
 	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,
-	1     MOM_H_IMPL)
+	1     MOM_H_IMPL,MOM_XM_POS)
 !
 ! MOM_FAC_RLX (default 1.0 = off): under-relax the Eddington-factor
 ! update between great iterations in MOM_J_CMF_NONMONO_V1. With
