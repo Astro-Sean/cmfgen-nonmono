@@ -167,11 +167,18 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   pass-16 residual 1.61E6 coexists with a bounded outer-AA fixed-point
   norm ||f||=8.4E1; the AA extrapolation itself produced
   ||corr||=2.8E20 and was rejected on every depth with 85264 cells
-  excluded. So the explosion lives in a small cell subset amplified
-  through the refresh map/AA extrapolate, not the field mean. The
-  417842 GAM-floor cells are a constant structural subset and the
-  prime suspect gain channel. Best-pass rejection worked (retained
-  field moved 0.0), but each AA attempt can still detonate a pass.
+  excluded. Residual semantics verified (line ~3590): PASS_CHG is the
+  post-repair solved field's relative drift vs the stored iterate,
+  denominator max(|T1|, 1E-4*column-peak). The runaway cap (line
+  ~3441) rejects only |XM_NM| > 1E3*max(XM_FB, 1E-3*peak), so a cell
+  at ~1E-6 of the column peak may jump to 1E-3*peak -- a 1E6 local
+  gain that legally passes the cap and lands in the residual. That
+  is the 620->1.6E6 single-pass throw: one dark cell filling toward
+  the peak, not a measurement defect. The peak floor is deliberate
+  (shadowed cells must be allowed to fill); whether the residual
+  should weight such fills differently is a policy question, not a
+  bug. The 417842 GAM-floor cells remain the prime suspect gain
+  channel. Best-pass rejection worked (retained field moved 0.0).
 - [x] T7 restart integrity: MOMJNXT_GS checkpoint carried J_NEXT_FRQ,
   H_NEXT_FRQ, grid fingerprints and sweep metrics (VER3/4) but NOT
   MOM_QUAR_AGE -- every requeue zeroed the quarantine-age census, so
@@ -250,17 +257,24 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   BA consumes the same lagged field the formal solve wrote (RJ store)
   -- consistency mechanism present, the field itself was unstable.
 - [x] V5 full unit sweep: 30/30 test files pass post C4/C6.
-- [x] C7 submitted: job 12719316, warm restart from SCRTEMP it57 on
-  the rebuilt cmfgen_dev.exe (MOM_XM_POS=T default). OUTGEN and
-  MOM_J_NONMONO_ERRORS preserved as *.it57_orig for comparison.
-  EARLY RESULT (first refresh, same frequency pass): negative
-  J_NEXT 4548->4416 orig vs 0 every pass new; quarantined ~6500 ->
-  ~3300; neg-RHS bound fires ~24200 rows/pass; off-grid reads now
-  reported (165, was vacuous 0); capped writes up ~4700 -> ~7900
-  (the ex-negative cells now take the bounded cap path). VER4
-  checkpoint restored cleanly (tag=56). The wandering GAM-floor
-  resonance argmax persists as predicted (largest change ~2E4,
-  same-direction contraction ratio ~0.92) -- structural limitation
+- [x] C7 COMPLETE: job 12719316 warm-restarted at it57 (VER4
+  checkpoint restored tag=56) on the rebuilt exe and ran to it63
+  (75% converged, graceful 'iteration budget exhausted' end -- no
+  GS_PRECOND_LIM). FINAL vs original signature: negJ 137K-797K/
+  sweep -> 0 on every sweep; quar ~452K -> 94K and DECLINING;
+  pquar 198K -> 80K declining (frozen cells recovering);
+  negative-RHS bound fires 16.7K-24K rows/sweep (~0.15% of cells,
+  falling); refresh residual ~1.3E4 (stalled) vs the 1.61E6
+  detonation; capped == quar (94318) so every quarantined cell now
+  registers a capped write. The bound verifiably removed the first
+  failure channel on the real model. The field stayed [BAD] (836K
+  cells >50% drift, maxchg up to 1.3E26): the non-contractive
+  lagged map is a separate documented limitation (peak-floor
+  runaway cap, ~418K GAM-floor resonance cells, lagbnd=0 on 6.8M
+  cells). OUTGEN and MOM_J_NONMONO_ERRORS preserved as *.it57_orig.
+  The run predated the C8 MOM_RF_DIV_BULK build; the pipeline has
+  since relaunched the model cold-start as job 12725201 on the
+  VER5+C8 exe.
   remains; convergence outcome still pending further iterations.
 
   it58-it59 UPDATE: negJ still 0 through every sweep including a
