@@ -138,6 +138,8 @@
 	INTEGER I,J,K,IINC,IDEC,IOS,LU_SUM
 	INTEGER JINC,JDEC
 	INTEGER RES_LOC(2)
+	INTEGER NFIN,IFIN,JFIN
+	REAL(KIND=LDP) VFIN
 	INTEGER RES2_COL
 	INTEGER ISPEC,ID,JJ
 	REAL(KIND=LDP) COL_RES(ND)
@@ -1059,6 +1061,33 @@
 	    IF(.NOT. SUCCESS)THEN
 	      WRITE(LUER,*)'Error in CMF_BLKBAND_V3 - shutting code down'
 	      STOP
+	    END IF
+!
+! Finite check on the fresh solve output: an Inf/NaN correction applied
+! to POPS poisons the whole depth silently -- the sob_nonloc crash was
+! an all-NaN STEQ(:,11) column reaching SCRTEMP, then GFF_VEC indexing
+! with INT(NaN).  Stop with the culprit location instead of letting the
+! NaN sail through the scale guards (every .GT./.LT. test fails on NaN).
+!
+	    NFIN=0
+	    DO J=1,ND
+	      DO I=1,NT
+	        IF(.NOT. (ABS(STEQ(I,J)) .LE. HUGE(1.0_LDP)))THEN
+	          NFIN=NFIN+1
+	          IF(NFIN .EQ. 1)THEN
+	            IFIN=I
+	            JFIN=J
+	            VFIN=STEQ(I,J)
+	          END IF
+	        END IF
+	      END DO
+	    END DO
+	    IF(NFIN .GT. 0)THEN
+	      WRITE(LUER,'(A,I8,A,I5,A,I4,A,ES16.6,A,I8)')
+	1      ' SOLVEBA: non-finite STEQ output -- it=',MAIN_COUNTER,
+	2      ' level=',IFIN,' depth=',JFIN,' STEQ=',VFIN,
+	3      ' nbad=',NFIN
+	      STOP 'SOLVEBA: non-finite STEQ'
 	    END IF
 !
 	  CALL TUNE(ITWO,'BLKBAND')
