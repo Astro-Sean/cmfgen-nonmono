@@ -314,12 +314,14 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   EPS_PREV=EPS_NM. No sign defect.
 - [~] J(mom)/J(ray) census: new JCMP line prints; first LST-
   ITERATION sample shows 0 cells above 50% -- pending more data.
-- [~] Numerical tests A-J: driver covers A/B/C/E/F/J subsets; D
-  needs refresh-ordering wiring. E verified: ND/NCF are now -D
-  defines (default 24/8); the seed band is fractional, so ND=48
-  probes the same physical case -- the bound fires at both
-  resolutions (XMNEG 23 -> 31 rows), RHS non-negative, no
-  negative J, solved field positive (job 12729428, 106/106).
+- [~] Numerical tests A-J: driver now covers A (v11 mode: stock
+  V11 vs non-mono on homo input, MAXREL 5.9%), B (comp1/zsrc/
+  zedg/seed), C (comp2 double reversal), D (rfd mode: production
+  MOM_KNOP_REFRESH_V1 under forced ASC vs DESC, MAXREL 3.5%),
+  E (ND=48 seed2x, mechanism invariant), F (gate-level only --
+  no driver mode produces quarantine post-fix), G (production-
+  path only), H (gate tests), I (inbm diff/zfx), J (ckpt VER5
+  round-trip). Jobs 12729428/12729477/12729502, mom_solve 130/130.
 - [x] Runaway gate resolved (bulk+max hybrid, implemented):
   MOM_RF_DIV_BULK (default T) requires the abort pass to regress
   on max-norm beyond 1E3*MIN_RES AND N50 above the same
