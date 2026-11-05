@@ -1803,6 +1803,17 @@
 !
 	LOGICAL DO_SOB_CLAMPED_LINES
 !
+! SOB_RH_TEST_S1 (VADAT [SOB_RH_TEST_S1], default F): diagnostic --
+! SOB_RH_COUPLE additionally accumulates the partner sum with unit
+! source function S=1 at every depth. The remote mean intensity at I
+! cannot physically exceed the brightest coupled emitter, so a
+! unit-source dJ above ~1 means the discrete two-point kernel is
+! overcounting (missing third-resonance extinction). Reported as
+! 'max dJ(S=1)' alongside the normal diagnostics. No effect on the
+! physics when off.
+!
+	LOGICAL SOB_RH_TEST_S1
+!
 ! DO_SOB_FG_KNOP (VADAT [DO_SOB_FG_KNOP], default F): under
 ! DO_NONMONO_SOB + USE_LAM_ES=T, replace the stock FG_J_CMF_V13
 ! formal solve with FG_J_CMF_NONMONO_V1 -- the sign-aware Knop
