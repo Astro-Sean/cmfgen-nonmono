@@ -103,18 +103,21 @@ A task is done only when its stated evidence exists, never on compile alone.
 
 ## Numerical tests (unit_tests/, extend drv_mom_solve/drv_mom_sweep)
 
-- [~] A monotonic control: `homo` mode exercises the non-mono solver
-      on monotonic input and verifies the discrete operator; a direct
-      A/B against stock MOM_J_CMF_V11 needs a second linked driver.
+- [x] A monotonic control: `v11` mode drives stock MOM_J_CMF_V11 on
+      the homo atmosphere alongside the non-mono solve; the two agree
+      to V11_MAXREL=0.059 (grid-expansion regrid residual). Job
+      12729502, mom_solve 130/130.
 - [x] B single compression region: `comp1` (sigma<-1 band, coefficient
       and convergence checks) + `zedg`/`zsrc`/`seed` variants.
 - [x] C multiple reversals: `comp2` (two disjoint sigma<-1 bands)
       now exercised -- the test asserts two separate dV/dR sign
       reversals on the built profile plus coefficient/admissibility
       checks (reversal runs=2, 120 compressing rows). Job 12729448.
-- [~] D ascending vs descending: sweep-direction census covered by
-      test_mom_sweep_table; same-fixed-point verification needs the
-      refresh driver callable from a unit driver (not yet wired).
+- [x] D ascending vs descending: `rfd` mode calls the production
+      MOM_KNOP_REFRESH_V1 (argument-free, drives from KN_M_* capture)
+      under forced DESC and ASC orders from the same lagged store;
+      committed fields agree to RF_ASCDESC_MAXREL=0.035. Job
+      12729477.
 - [x] E grid refinement invariance: ND/NCF are -D defines on
       drv_mom_solve (default 24/8, -fpp/-cpp added to common.py);
       the seed band is defined in fractional depth. ND=48 vs ND=24
