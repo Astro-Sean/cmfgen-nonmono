@@ -156,3 +156,43 @@ perturbing it -- the artefact signature.
   remote flux — not an ad-hoc cap.
 - The other three SOB validation models (`sob_diag`, `sob_jfnk`,
   `sob_tri`) completed cleanly — non-local coupling is the differentiator.
+
+## 8. it66 resubmit -- kernel exonerated, lagged-map diagnosis (2026-11-05)
+
+The 4-CPU resubmit (job 12729722) ran past the it65 crash point to
+it66+ without a SIGSEGV, but the upstream divergence persists
+unchanged: the OIV:2s2_4p_2Po[1/2] exempted demand at depths 9-11
+oscillates between 1E20 and 1E39 per iteration, and `maxraw`
+flip-flops ~1E15/1E22 on non-exempted rows in the same region.
+
+Two new pieces of evidence change the picture:
+
+- `SOB_RH_TEST_S1=T` shows `max dJ(S=1)` flat at ~0.2 while
+  `max dJ/J` reaches 5E7.  The two-point kernel is a contraction in
+  source space (remote dJ bounded well below the brightest emitter),
+  so the blow-up is not geometric overcounting.
+- An offline replica of the pair selection on the run's R,V grid
+  reproduces the 4,830 pairs exactly and finds only 382 (8%) with a
+  third resonance between the endpoints; the geometric weights at the
+  problem depths are at the median and come mostly from adjacent
+  cells.  Missing third-resonance extinction is real but cannot be
+  the dominant inflation channel.
+
+The remaining mechanism is the lagged feedback itself: DRC is
+computed from the current populations and re-enters through S_L on
+the next call; where remote absorption dominates the local rates the
+population response amplifies the next computed DRC -- a
+non-contractive fixed-point map.
+
+Fix applied: `SOB_RH_RELAX` (VADAT, default 1.0) under-relaxes the
+applied term across calls, applied = applied + w*(computed-applied).
+The converged fixed point is unchanged -- the flag damps the
+iteration path, not the remote flux.  The self-report now also
+prints the (I,L) location of the largest DRATE and JRAT, plus the
+computed-applied lag when relaxation is active.  Unit coverage:
+`test_sob_rh_couple.py` T8 verifies applied_k = (1-(1-w)^k)*computed
+across three phases; suite 14/14.
+
+The resubmit runs with `SOB_RH_RELAX=0.2`.  If the lagged map still
+does not contract, the next correction is path extinction along the
+chord (third-resonance and continuum), not a cap on the term.
