@@ -663,6 +663,7 @@
 	LOGICAL MOM_RF_DIV_BULK
 	LOGICAL MOM_RF_ACTIVE
 	INTEGER*8, SAVE :: MOM_RF_NDIVSKP=0
+	INTEGER*8, SAVE :: MOM_RF_NCONSEC=0
 !
 ! MOM_RF_DIR (VADAT key, default 'AUTO'): refresh pass ordering.
 ! Knop Paper II's GS solve is physically guided -- the pass follows
@@ -818,6 +819,13 @@
 ! lagged-debit mechanism above.
 !
 	INTEGER*8, SAVE :: MOM_XMNEG=0
+!
+! MOM_XMWORST: largest |negative XM| clipped by MOM_XM_POS this sweep.
+! The bound discards lagged debit; this tracks how much, so the cost
+! of the safeguard can be measured against the row scale instead of
+! assumed negligible.
+!
+	REAL(KIND=LDP), SAVE :: MOM_XMWORST=0.0_LDP
 !
 ! XM_FB_NM: previous valid R^2*J at the current frequency, assembled
 ! before DGTSV overwrites XM_NM. It is the fallback target for a
@@ -1742,6 +1750,7 @@
 	  MOM_LAGB_CNT=0
 	  MOM_LAGB_MIN=1.0_LDP
 	  MOM_XMNEG=0
+	  MOM_XMWORST=0.0_LDP
 	END IF
 !
 !
@@ -2851,6 +2860,7 @@
 	IF(MOM_XM_POS)THEN
 	  DO I=2,ND_NM-1
 	    IF(XM_NM(I) .LT. 0.0_LDP)THEN
+	      MOM_XMWORST=MAX(MOM_XMWORST,-XM_NM(I))
 	      XM_NM(I)=0.0_LDP
 	      MOM_XMNEG=MOM_XMNEG+1
 	    END IF
@@ -4126,10 +4136,11 @@
 	2    ' non-monotonic rows; ',MOM_EPS_FWD,
 	3    ' forward-epsilon midpoints; largest |EPS|/HU ',
 	4    MOM_EPS_RAT,'; epsilon-cap hits ',MOM_EPS_CAP_SW
-	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3,A,I10)')
+	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3,A,I10,A,ES12.4)')
 	1    'lagbnd',MOM_LAGB_CNT,' boundary-lag cells,'//
 	2    ' smallest lag ',MOM_LAGB_MIN,
-	3    '; negative RHS rows ',MOM_XMNEG
+	3    '; negative RHS rows ',MOM_XMNEG,
+	4    ' worst clipped ',MOM_XMWORST
 	WRITE(LUER,'(4X,A10,2X,2(A,ES10.3,A,I5,A,I5),A)')
 	1    'matrix','smallest DR ',MOM_MIN_DR,' at (',MOM_MIN_DR_I,',',
 	2    MOM_MIN_DR_L,'); smallest DR|a| ',MOM_MIN_DRA,' at (',
@@ -5275,6 +5286,7 @@
 	BEST_CHG_D=HUGE(1.0_LDP)
 	BEST_N5_D=HUGE(0_8);  BEST_N50_D=HUGE(0_8)
 	LAST_N50=0_8
+	MOM_RF_NCONSEC=0
 	KN_M_DESC=.FALSE.
 	N5_SV=MOM_GS_NBAD5;  N50_SV=MOM_GS_NBAD50
 	NQ_SV=MOM_GS_NQUAR
@@ -5409,6 +5421,7 @@
 	  MOM_LAGB_CNT=0
 	  MOM_LAGB_MIN=1.0_LDP
 	  MOM_XMNEG=0
+	  MOM_XMWORST=0.0_LDP
 !
 ! Jacobi update for the compressing upwind read: freeze the
 ! J_{k+1} field at pass start so descending passes do not consume
@@ -6108,17 +6121,22 @@
 !
 	  IF(IPASS .GE. 3 .AND. PASS_CHG .GT. 1.0E+3_LDP*MIN_RES)THEN
 	    IF(MOM_RF_DIV_BULK .AND. BESTV_D(IDIR) .AND.
-	1      PASS_N50 .LE. BEST_N50_D(IDIR))THEN
+	1      PASS_N50 .LE. BEST_N50_D(IDIR) .AND.
+	2      PASS_CHG .LE. 1.0E+6_LDP*MIN_RES .AND.
+	3      MOM_RF_NCONSEC .LT. 3)THEN
 	      MOM_RF_NDIVSKP=MOM_RF_NDIVSKP+1
-	      WRITE(LUER,'(A,I4,A,ES12.4,A,I10,A)')
+	      MOM_RF_NCONSEC=MOM_RF_NCONSEC+1
+	      WRITE(LUER,'(A,I4,A,ES12.4,A,I10,A,I3,A)')
 	1      ' [WARN] pass',IPASS,' max-norm excursion',PASS_CHG,
 	2      ' tolerated:',PASS_N50,' cells above 50% still at or'//
-	3      ' below the direction best'
+	3      ' below the direction best; streak ',MOM_RF_NCONSEC,'/3'
 	    ELSE
 	      WRITE(LUER,'(2A)')' [BAD]  ',TRIM(MOM_REFRESH_SENTENCE(
 	1        .FALSE.,PASS_CHG,0_8,0_8,'diverge',IPASS,MIN_RES))
 	      EXIT
 	    END IF
+	  ELSE
+	    MOM_RF_NCONSEC=0
 	  END IF
 !
 !	  Same-direction stall check (KNOP_RAY_SOLVE_V1 pattern): the two
