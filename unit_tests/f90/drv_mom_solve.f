@@ -47,6 +47,9 @@
       INTEGER FIDX
       INTEGER IB1,IB2
       REAL(KIND=LDP), ALLOCATABLE :: CKJ(:,:),CKH(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: JRF0(:,:),HRF0(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: JDSC(:,:),JASC(:,:)
+      REAL(KIND=LDP) JV(ND),HSC(ND),V11MAX,V11REL
       INTEGER(KIND=2), ALLOCATABLE :: CKQ(:,:)
       REAL(KIND=LDP) DMAX
 !
@@ -100,7 +103,8 @@
 !
       IB1=NINT(9.0_LDP*DBLE(ND-1)/23.0_LDP)+1
       IB2=NINT(12.0_LDP*DBLE(ND-1)/23.0_LDP)+1
-      IF(MODE .EQ. 'homo')THEN
+      V11MAX=0.0_LDP
+      IF(MODE .EQ. 'homo' .OR. MODE .EQ. 'v11')THEN
         NCASE=1
       ELSE IF(MODE .EQ. 'beta')THEN
         NCASE=2
@@ -108,7 +112,8 @@
         NCASE=3; SIGT=-2.0_LDP
       ELSE IF(MODE .EQ. 'vconst')THEN
         NCASE=4; SIGT=-1.0_LDP
-      ELSE IF(MODE .EQ. 'comp1' .OR. MODE .EQ. 'ckpt')THEN
+      ELSE IF(MODE .EQ. 'comp1' .OR. MODE .EQ. 'ckpt' .OR.
+     1        MODE .EQ. 'rfd')THEN
         NCASE=5; SIGT(10:13)=-4.0_LDP
       ELSE IF(MODE .EQ. 'comp2')THEN
         NCASE=6; SIGT(7:9)=-4.0_LDP; SIGT(15:17)=-6.0_LDP
@@ -312,6 +317,25 @@
      5         INBM6,DBB,IC,IBSTAB,
      6         NTYP6,HCHK6,METH,COHR,OUTBC,
      7         INIT,NEW_FREQ,0,1,ND,FIDX,NCF)
+!
+!         v11: A/B against the stock upstream solver on the same
+!         monotonic input -- the non-mono discretisation must reduce
+!         to V11 where sigma_true >= -1 everywhere.
+!
+          IF(MODE .EQ. 'v11')THEN
+            CALL MOM_J_CMF_V11(ETA,CHI_L,ESEC,
+     1         V,SIG,R,
+     2         JV,HSC,
+     3         VDOP,VDOP_FRAC,
+     4         FREQ,DLNC,
+     5         INBM6,DBB,IC,IBSTAB,
+     6         NTYP6,HCHK6,METH,COHR,OUTBC,
+     7         INIT,NEW_FREQ,0,1,ND)
+            T1=MAXVAL(ABS(JNU))
+            V11REL=MAXVAL(ABS(JV-JNU)/
+     1         (ABS(JNU)+1.0E-4_LDP*MAX(T1,1.0E-30_LDP)))
+            V11MAX=MAX(V11MAX,V11REL)
+          END IF
           IF(MODE .EQ. 'dbl' .AND. IT .EQ. NIT)
      1         WRITE(305,'(I4,999ES16.8)')L,JNU(1:ND)
         END DO
@@ -319,6 +343,9 @@
      1   ' MOM_GS_MAXCHG=',MOM_GS_MAXCHG,' NCROW=',
      2   MOM_SW_NCROW+MOM_SW_NROW
       END DO
+!
+      IF(MODE .EQ. 'v11')
+     1   WRITE(*,'(A,ES16.8E3)')'V11_MAXREL=',V11MAX
 !
       IF(MODE .EQ. 'seed')THEN
 !
@@ -356,6 +383,40 @@
         WRITE(*,'(A,ES16.8E3)')'SEED_XMSAVE_MIN=',MINVAL(XM_SAVE_NM)
         WRITE(*,'(A,ES16.8E3)')'SEED_RSQJ_MIN=',MINVAL(RSQJNU_NM)
         WRITE(*,'(A,I10)')'SEED_XMNEG=',MOM_XMNEG
+      END IF
+!
+      IF(MODE .EQ. 'rfd')THEN
+!
+! Test D: refresh-order invariance. The sweep above leaves
+! J_NEXT_FRQ populated and KN_M_READY set; re-drive the captured
+! state through MOM_KNOP_REFRESH_V1 under forced descending and
+! ascending pass orders from the same lagged store. Both orders
+! converge the same lagged map, so the committed stores must agree
+! to the refresh exit tolerance -- a direction-dependent fixed
+! point would mean the traversal order itself is doing physics.
+!
+        ALLOCATE(JRF0(ND_NM,NCF),HRF0(ND_NM,NCF),
+     1   JDSC(ND_NM,NCF),JASC(ND_NM,NCF),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        JRF0(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+        HRF0(1:ND_NM,1:NCF)=H_NEXT_FRQ(1:ND_NM,1:NCF)
+        CALL SET_MOM_RF_DIR_OPT('DESC',.TRUE.,.TRUE.,.TRUE.)
+        CALL MOM_KNOP_REFRESH_V1()
+        JDSC(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+        J_NEXT_FRQ(1:ND_NM,1:NCF)=JRF0
+        H_NEXT_FRQ(1:ND_NM,1:NCF)=HRF0
+        CALL SET_MOM_RF_DIR_OPT('ASC ',.TRUE.,.TRUE.,.TRUE.)
+        CALL MOM_KNOP_REFRESH_V1()
+        JASC(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+        T1=MAXVAL(ABS(JRF0))
+        WRITE(*,'(A,ES16.8E3)')'RF_ASCDESC_MAXDIFF=',
+     1    MAXVAL(ABS(JASC-JDSC))/MAX(T1,1.0E-30_LDP)
+        WRITE(*,'(A,ES16.8E3)')'RF_ASCDESC_MAXREL=',
+     1    MAXVAL(ABS(JASC-JDSC)/
+     2    (ABS(JDSC)+1.0E-4_LDP*MAX(T1,1.0E-30_LDP)))
+        WRITE(*,'(A,F4.1)')'RF_FINISHED=',
+     1    MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
+        DEALLOCATE(JRF0,HRF0,JDSC,JASC)
       END IF
 !
       IF(MODE .EQ. 'ckpt')THEN
