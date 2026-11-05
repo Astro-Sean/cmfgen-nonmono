@@ -67,9 +67,15 @@ C
 	INTEGER :: RH_NCALL=0
 	INTEGER :: RH_LASTREP=0
 	INTEGER :: RH_NDOM=0
+	INTEGER :: RH_IMXD=0	!depth of max |DRATE| this block
+	INTEGER :: RH_LMXD=0	!line of max |DRATE| this block
+	INTEGER :: RH_IMXJ=0	!depth of max dJ/J this block
+	INTEGER :: RH_LMXJ=0	!line of max dJ/J this block
 	REAL(KIND=LDP) :: RH_MAXDJ=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDJ1=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDZ=0.0_LDP
+	REAL(KIND=LDP) :: RH_RLXDEC=0.0_LDP	!max applied DRC decrement
+	REAL(KIND=LDP), ALLOCATABLE :: RH_DPREV(:,:)	!applied DRC last call
 	REAL(KIND=LDP), ALLOCATABLE :: RH_RSAV(:)	!R at last build
 	REAL(KIND=LDP), ALLOCATABLE :: RH_VSAV(:)	!V at last build
 	REAL(KIND=LDP), ALLOCATABLE :: RH_SSAV(:)	!SIGMA at last build
@@ -211,6 +217,7 @@ C
 	INTEGER I,J,L,K
 	REAL(KIND=LDP) GAMH_L(ND),S_L(ND)
 	REAL(KIND=LDP) CFAC,TI,TJ,DJ,DJ1,DRATE,RH_JRAT
+	REAL(KIND=LDP) OMEGA,T1
 	REAL(KIND=LDP) EXPONX
 	EXTERNAL EXPONX
 C
@@ -273,7 +280,11 @@ C NaN sail through the .LE./.GT. style guards into POPS.
 	    END IF
 	    DRC(I,L)=DRC(I,L)+DRATE
 	    RH_NCALL=RH_NCALL+1
-	    RH_MAXDZ=MAX(RH_MAXDZ,ABS(DRATE))
+	    IF(ABS(DRATE) .GT. RH_MAXDZ)THEN
+	      RH_MAXDZ=ABS(DRATE)
+	      RH_IMXD=I
+	      RH_LMXD=L
+	    END IF
 C Dominance census in intensity units: count cells where the remote
 C dJ exceeds the local mean intensity, i.e. the lagged coupling is
 C larger than what it corrects -- the artefact signature of the
@@ -283,11 +294,43 @@ C detailed balance makes it trivially true on thick lines.
 	    IF(S_L(I) .GT. 0.0_LDP .AND.
 	1       ZNET_SIM(I,L) .LT. 1.0_LDP)THEN
 	      RH_JRAT=DJ/((1.0_LDP-ZNET_SIM(I,L))*S_L(I)*BB_COR(I,L))
-	      RH_MAXDJ=MAX(RH_MAXDJ,RH_JRAT)
+	      IF(RH_JRAT .GT. RH_MAXDJ)THEN
+	        RH_MAXDJ=RH_JRAT
+	        RH_IMXJ=I
+	        RH_LMXJ=L
+	      END IF
 	      IF(RH_JRAT .GT. 1.0_LDP)RH_NDOM=RH_NDOM+1
 	    END IF
 	  END DO
 	END DO
+C
+C Under-relax the lagged term across calls (SOB_RH_RELAX).  The remote
+C absorption is computed from the current populations and re-enters
+C through S_L on the next call; on this velocity field that lagged
+C map does not contract -- the applied term oscillates or grows
+C without bound, which showed up as exempted trace-level demands
+C growing 1E20 -> 1E39 at depths 9-11 on m15_2p82d_VAL_sob_nonloc.
+C Relaxing the step damps the iteration path only: when the solve
+C converges the applied term equals the computed term identically,
+C so the fixed point is untouched.  RH_DPREV is iteration-scratch
+C state and intentionally not checkpointed.
+C
+	OMEGA=SOB_RH_RELAX
+	IF(OMEGA .LT. 1.0_LDP)THEN
+	  OMEGA=MAX(OMEGA,1.0D-30)
+	  IF(ALLOCATED(RH_DPREV))THEN
+	    IF(SIZE(RH_DPREV,1) .NE. ND .OR.
+	1       SIZE(RH_DPREV,2) .NE. NSIM)DEALLOCATE(RH_DPREV)
+	  END IF
+	  IF(.NOT. ALLOCATED(RH_DPREV))THEN
+	    ALLOCATE(RH_DPREV(ND,NSIM))
+	    RH_DPREV=0.0_LDP
+	  END IF
+	  T1=MAXVAL(ABS(DRC-RH_DPREV))
+	  DRC=RH_DPREV+OMEGA*(DRC-RH_DPREV)
+	  RH_RLXDEC=(1.0_LDP-OMEGA)*T1
+	  RH_DPREV=DRC
+	END IF
 C
 C Self-paced strength report: the geometry rebuild trigger never
 C fires when R,V are frozen by the hydro input, so report every
@@ -295,21 +338,31 @@ C fixed block of applied corrections instead.
 C
 	IF(RH_NCALL-RH_LASTREP .GE. 500000)THEN
 	  IF(SOB_RH_TEST_S1)THEN
-	    WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
-	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dJ(S=1)=',RH_MAXDJ1,
-	2    ' max dRATE=',RH_MAXDZ,' over',RH_NCALL-RH_LASTREP,
-	3    ' corrections;',RH_NDOM,' dominant (dJ>J_local)'
+	    WRITE(LU,'(A,1PD10.3,A,2I6,A,1PD10.3,A,1PD10.3,A,2I6,A,I8,
+	1    A,I8,A)')
+	2    ' SOB_RH: max dJ/J=',RH_MAXDJ,' @',RH_IMXJ,RH_LMXJ,
+	3    ' max dJ(S=1)=',RH_MAXDJ1,' max dRATE=',RH_MAXDZ,
+	4    ' @',RH_IMXD,RH_LMXD,' over',RH_NCALL-RH_LASTREP,
+	5    ' corrections;',RH_NDOM,' dominant (dJ>J_local)'
 	    RH_MAXDJ1=0.0_LDP
 	  ELSE
-	    WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
-	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dRATE=',RH_MAXDZ,
-	2    ' over',RH_NCALL-RH_LASTREP,' corrections;',
-	3    RH_NDOM,' dominant (dJ>J_local)'
+	    WRITE(LU,'(A,1PD10.3,A,2I6,A,1PD10.3,A,2I6,A,I8,A,I8,A)')
+	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' @',RH_IMXJ,RH_LMXJ,
+	2    ' max dRATE=',RH_MAXDZ,' @',RH_IMXD,RH_LMXD,
+	3    ' over',RH_NCALL-RH_LASTREP,' corrections;',
+	4    RH_NDOM,' dominant (dJ>J_local)'
 	  END IF
+	  IF(SOB_RH_RELAX .LT. 1.0_LDP)WRITE(LU,'(A,1PD10.3,A,1PD10.3)')
+	1   ' SOB_RH: relax=',SOB_RH_RELAX,
+	2   ' computed-applied lag max=',RH_RLXDEC
 	  RH_LASTREP=RH_NCALL
 	  RH_MAXDJ=0.0_LDP
 	  RH_MAXDZ=0.0_LDP
 	  RH_NDOM=0
+	  RH_IMXD=0
+	  RH_LMXD=0
+	  RH_IMXJ=0
+	  RH_LMXJ=0
 	END IF
 C
 	RETURN
