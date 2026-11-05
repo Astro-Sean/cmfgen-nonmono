@@ -475,9 +475,17 @@ def main():
         in rc.stdout,
     )
     rep.check(
+        "ckpt: round-trip restores the quarantine-age census",
+        "CKPT_AGE_OK= T" in rc.stdout,
+    )
+    rep.check(
         "ckpt: grid fingerprint mismatch rejected, store zeroed",
         "CKPT_FP_OK= F" in rc.stdout
         and "CKPT_FP_STORE=  0.00000000E+00" in rc.stdout,
+    )
+    rep.check(
+        "ckpt: rejected restore resets the quarantine ages",
+        "CKPT_FP_AGE0= T" in rc.stdout,
     )
     rep.check(
         "ckpt: stale tag rejected",
