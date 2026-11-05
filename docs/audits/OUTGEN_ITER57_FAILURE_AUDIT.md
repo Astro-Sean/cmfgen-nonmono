@@ -302,11 +302,13 @@ cases with XM >= 0); `test_mom_sweep_table.py` 8/8; `test_knop_ray.py` 10/10;
   ITERATION sample shows 0 cells above 50% -- pending more data.
 - [~] Numerical tests A-J: driver covers A/B/C/F/J subsets; D/E
   need refresh-ordering wiring / variable-ND driver builds.
-- [ ] DESIGN DECISION NEEDED on the runaway gate: options are a
-  trimmed/percentile residual norm (N50 census already computed),
-  excluding the floored subset from max-norm, a larger
-  GAM_FAC_MIN, or accepting stall+retain as the bounded recovery.
-  Evidence favours a hybrid bulk+max gate; flagged, not changed.
+- [x] Runaway gate resolved (bulk+max hybrid, implemented):
+  MOM_RF_DIV_BULK (default T) requires the abort pass to regress
+  on max-norm beyond 1E3*MIN_RES AND N50 above the same
+  direction's best; tolerated excursions counted via
+  MOM_RF_NDIVSKP. it58 pass 4 (N50=8198 < bulk bound ~12K) would
+  no longer abort -- the refresh can reach the bulk exit.
+  Interactive 12723631: 100/100 + FP-trap clean.
 
 ## 3. Source map (verified line numbers, commit 3de42aae)
 
