@@ -68,6 +68,7 @@ C
 	INTEGER :: RH_LASTREP=0
 	INTEGER :: RH_NDOM=0
 	REAL(KIND=LDP) :: RH_MAXDJ=0.0_LDP
+	REAL(KIND=LDP) :: RH_MAXDJ1=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDZ=0.0_LDP
 	REAL(KIND=LDP), ALLOCATABLE :: RH_RSAV(:)	!R at last build
 	REAL(KIND=LDP), ALLOCATABLE :: RH_VSAV(:)	!V at last build
@@ -185,6 +186,7 @@ C
 	1                BB_COR,NEG_OPACITY,V,SIGMA,R,FL,ND,NSIM,LU)
 	USE SET_KIND_MODULE
 	USE SOB_RH_MOD
+	USE CONTROL_VARIABLE_MOD
 	IMPLICIT NONE
 C
 C Apply the RH78 coupling correction as a separate rate-space term.
@@ -208,7 +210,7 @@ C
 C
 	INTEGER I,J,L,K
 	REAL(KIND=LDP) GAMH_L(ND),S_L(ND)
-	REAL(KIND=LDP) CFAC,TI,TJ,DJ,DRATE
+	REAL(KIND=LDP) CFAC,TI,TJ,DJ,DJ1,DRATE,RH_JRAT
 	REAL(KIND=LDP) EXPONX
 	EXTERNAL EXPONX
 C
@@ -238,14 +240,22 @@ C
 	    IF(NEG_OPACITY(I))CYCLE
 	    IF(GAMH_L(I) .LE. 0.0_LDP)CYCLE
 	    DJ=0.0_LDP
+	    DJ1=0.0_LDP
 	    DO K=1,RH_NP(I)
 	      J=RH_ID(I,K)
 	      IF(NEG_OPACITY(J) .OR. S_L(J) .LE. 0.0_LDP)CYCLE
 	      TI=GAMH_L(I)/RH_T1(I,K)
 	      TJ=GAMH_L(J)/RH_T1P(I,K)
 	      DJ=DJ+RH_PW(I,K)*GAMH_L(J)*S_L(J)*EXPONX(TI)*EXPONX(TJ)
+	      IF(SOB_RH_TEST_S1)THEN
+	        DJ1=DJ1+RH_PW(I,K)*GAMH_L(J)*EXPONX(TI)*EXPONX(TJ)
+	      END IF
 	    END DO
 	    DJ=0.5_LDP*DJ
+	    IF(SOB_RH_TEST_S1)THEN
+	      DJ1=0.5_LDP*DJ1
+	      RH_MAXDJ1=MAX(RH_MAXDJ1,DJ1)
+	    END IF
 	    IF(DJ .LE. 0.0_LDP)CYCLE
 	    IF(BB_COR(I,L) .EQ. 0.0_LDP)CYCLE
 	    DRATE=DJ*CHIL_MAT(I,L)/BB_COR(I,L)
@@ -264,17 +274,17 @@ C NaN sail through the .LE./.GT. style guards into POPS.
 	    DRC(I,L)=DRC(I,L)+DRATE
 	    RH_NCALL=RH_NCALL+1
 	    RH_MAXDZ=MAX(RH_MAXDZ,ABS(DRATE))
-C Dominance census: a remote correction larger than the local net rate
-C means the lagged term is driving the SE residual rather than
-C perturbing it -- the signature of the two-point kernel overestimating
-C at multi-resonance crossings rather than a physical coupling.
-	    IF(ABS(DRC(I,L)) .GT. ABS(ETAL_MAT(I,L)*ZNET_SIM(I,L)))THEN
-	      RH_NDOM=RH_NDOM+1
-	    END IF
+C Dominance census in intensity units: count cells where the remote
+C dJ exceeds the local mean intensity, i.e. the lagged coupling is
+C larger than what it corrects -- the artefact signature of the
+C two-point kernel overestimating at multi-resonance crossings.
+C The rate-space version |DRC|>|ETAL*ZNET| was dropped: ZNET~0 at
+C detailed balance makes it trivially true on thick lines.
 	    IF(S_L(I) .GT. 0.0_LDP .AND.
 	1       ZNET_SIM(I,L) .LT. 1.0_LDP)THEN
-	      RH_MAXDJ=MAX(RH_MAXDJ,
-	1       DJ/((1.0_LDP-ZNET_SIM(I,L))*S_L(I)*BB_COR(I,L)))
+	      RH_JRAT=DJ/((1.0_LDP-ZNET_SIM(I,L))*S_L(I)*BB_COR(I,L))
+	      RH_MAXDJ=MAX(RH_MAXDJ,RH_JRAT)
+	      IF(RH_JRAT .GT. 1.0_LDP)RH_NDOM=RH_NDOM+1
 	    END IF
 	  END DO
 	END DO
@@ -284,10 +294,18 @@ C fires when R,V are frozen by the hydro input, so report every
 C fixed block of applied corrections instead.
 C
 	IF(RH_NCALL-RH_LASTREP .GE. 500000)THEN
-	  WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
-	1  ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dRATE=',RH_MAXDZ,
-	2  ' over',RH_NCALL-RH_LASTREP,' corrections;',
-	3  RH_NDOM,' dominant (|DRC|>|ETA*ZNET|)'
+	  IF(SOB_RH_TEST_S1)THEN
+	    WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
+	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dJ(S=1)=',RH_MAXDJ1,
+	2    ' max dRATE=',RH_MAXDZ,' over',RH_NCALL-RH_LASTREP,
+	3    ' corrections;',RH_NDOM,' dominant (dJ>J_local)'
+	    RH_MAXDJ1=0.0_LDP
+	  ELSE
+	    WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
+	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dRATE=',RH_MAXDZ,
+	2    ' over',RH_NCALL-RH_LASTREP,' corrections;',
+	3    RH_NDOM,' dominant (dJ>J_local)'
+	  END IF
 	  RH_LASTREP=RH_NCALL
 	  RH_MAXDJ=0.0_LDP
 	  RH_MAXDZ=0.0_LDP
