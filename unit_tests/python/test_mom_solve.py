@@ -466,6 +466,49 @@ def main():
         f"SEED_RSQJ_MIN={kv(r.stdout, 'SEED_RSQJ_MIN')}",
     )
 
+    # --- Test E: grid refinement invariance of the seed mechanism ---
+    # Same seed case rebuilt at ND=48 (fractional band doubles in
+    # width). The negative-RHS mechanism must engage at both
+    # resolutions and the bound must keep the solve admissible.
+    objs2x = compile_objs(
+        "mom_solve_nd2x",
+        [TREE / h for h in HELPERS]
+        + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_solve.f"],
+        extra_flags=["-DND_IN=48"],
+    )
+    exe2x = link("mom_solve_nd2x", objs2x)
+    r2 = run(exe2x, "seed", "nonj", "3", "1", "diff", "none", "0",
+             "t_seed2x", cwd=WORKDIR)
+    rep.check("seed2x: driver completed at ND=48",
+              "RESULT_OK" in r2.stdout,
+              r2.stdout[-200:] if "RESULT_OK" not in r2.stdout else "")
+    rep.check(
+        "seed2x: bound fires under grid refinement",
+        kv(r2.stdout, "SEED_XMNEG") > 0,
+        f"SEED_XMNEG={kv(r2.stdout, 'SEED_XMNEG')}",
+    )
+    rep.check(
+        "seed2x: refined band has at least as many bound rows",
+        kv(r2.stdout, "SEED_XMNEG") >= kv(r.stdout, "SEED_XMNEG"),
+        f"ND24={kv(r.stdout, 'SEED_XMNEG')} "
+        f"ND48={kv(r2.stdout, 'SEED_XMNEG')}",
+    )
+    rep.check(
+        "seed2x: assembled RHS non-negative at ND=48",
+        kv(r2.stdout, "SEED_XMSAVE_MIN") >= 0.0,
+        f"SEED_XMSAVE_MIN={kv(r2.stdout, 'SEED_XMSAVE_MIN')}",
+    )
+    rep.check(
+        "seed2x: no negative J at ND=48",
+        kv(r2.stdout, "NEGJ_T") == 0,
+        f"NEGJ_T={kv(r2.stdout, 'NEGJ_T')}",
+    )
+    rep.check(
+        "seed2x: solved field stays positive at ND=48",
+        kv(r2.stdout, "SEED_RSQJ_MIN") > 0.0,
+        f"SEED_RSQJ_MIN={kv(r2.stdout, 'SEED_RSQJ_MIN')}",
+    )
+
     # --- Checkpoint round-trip (MOMJNXT_GS) -------------------------
     rc = run(exe, "ckpt", "nonj", "1", "1", "diff", "none", "0",
              "t_ckpt", cwd=WORKDIR)
