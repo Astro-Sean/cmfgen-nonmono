@@ -55,6 +55,8 @@ HELPERS = [
     "new_main/mod_subs/iter_ledger_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
+    "subs/thomas.f",
+    "plane/mom_j_cmf_v11.f",
 ]
 
 CGAM = 3.33564e-6  # 1/c in the code's km/s/cm units
@@ -281,6 +283,19 @@ def main():
     residual_check(rep, "homo", "t_homo")
     check_admissible(rep, "homo", "t_homo")
 
+    # --- Test A: stock V11 A/B on monotonic input --------------------
+    # 'v11' runs MOM_J_CMF_V11 alongside the non-mono solver on the
+    # homo atmosphere; on sigma_true >= -1 input the non-mono
+    # discretisation must agree with the upstream solve.
+    rv11 = run(exe, "v11", "nonj", "3", "1", "diff", "none", "0",
+               "t_v11", cwd=WORKDIR)
+    rep.check("v11: driver completed", "RESULT_OK" in rv11.stdout)
+    rep.check(
+        "v11: non-mono solve matches stock V11 on monotonic input",
+        kv(rv11.stdout, "V11_MAXREL") < 0.5,
+        f"V11_MAXREL={kv(rv11.stdout, 'V11_MAXREL')}",
+    )
+
     # --- Upwind direction: compressing cells read the lagged map ---
     # J_NEXT_FRQ column k+1 feeds the compressing cells of solve k.
     # With MOM_GAM_PIN the explicit weight equals PSI; check the store
@@ -331,6 +346,26 @@ def main():
         "comp2: compressing rows on the expanded grid",
         int((dc2["q"] < 0).sum()) > 0,
         f"{int((dc2['q'] < 0).sum())} rows",
+    )
+
+    # --- Test D: refresh-order invariance ----------------------------
+    # 'rfd' drives MOM_KNOP_REFRESH_V1 under forced descending and
+    # ascending pass orders from the same lagged store; both orders
+    # converge the same lagged map, so the committed fields must
+    # agree to the refresh exit tolerance.
+    rd = run(exe, "rfd", "nonj", "3", "1", "diff", "none", "0",
+             "t_rfd", cwd=WORKDIR)
+    rep.check("rfd: driver completed", "RESULT_OK" in rd.stdout)
+    rep.check(
+        "rfd: both refreshes ran and exited",
+        kv(rd.stdout, "RF_FINISHED") > 0.5,
+        rd.stdout[-200:] if kv(rd.stdout, "RF_FINISHED") < 0.5 else "",
+    )
+    rep.check(
+        "rfd: ASC and DESC orders agree on the fixed point",
+        kv(rd.stdout, "RF_ASCDESC_MAXREL") < 0.5,
+        f"RF_ASCDESC_MAXREL={kv(rd.stdout, 'RF_ASCDESC_MAXREL')} "
+        f"RF_ASCDESC_MAXDIFF={kv(rd.stdout, 'RF_ASCDESC_MAXDIFF')}",
     )
 
     # --- Zero-GAM resonance: sigma_true = -1/K band ------------------
