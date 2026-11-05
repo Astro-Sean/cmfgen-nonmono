@@ -1223,6 +1223,14 @@
 !
 	LOGICAL MOM_H_IMPL
 !
+! MOM_XM_POS (default TRUE): bound the net lagged debit at each
+! interior row of MOM_J_CMF_NONMONO_V1 by the row's local source
+! balance, so the assembled RHS cannot go negative. Targeted at the
+! it57 signature XM_SAVE<0 at compressing absorption-dominated
+! cells. VADAT keyword [MOM_XM_POS].
+!
+	LOGICAL MOM_XM_POS
+!
 ! MOM_FAC_RLX (default 1.0 = off): under-relaxation weight for the
 ! Eddington-factor update between great iterations in
 ! MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
