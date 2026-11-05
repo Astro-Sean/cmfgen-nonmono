@@ -66,6 +66,7 @@ C
 	INTEGER :: RH_TOTPAIRS=0
 	INTEGER :: RH_NCALL=0
 	INTEGER :: RH_LASTREP=0
+	INTEGER :: RH_NDOM=0
 	REAL(KIND=LDP) :: RH_MAXDJ=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDZ=0.0_LDP
 	REAL(KIND=LDP), ALLOCATABLE :: RH_RSAV(:)	!R at last build
@@ -263,6 +264,13 @@ C NaN sail through the .LE./.GT. style guards into POPS.
 	    DRC(I,L)=DRC(I,L)+DRATE
 	    RH_NCALL=RH_NCALL+1
 	    RH_MAXDZ=MAX(RH_MAXDZ,ABS(DRATE))
+C Dominance census: a remote correction larger than the local net rate
+C means the lagged term is driving the SE residual rather than
+C perturbing it -- the signature of the two-point kernel overestimating
+C at multi-resonance crossings rather than a physical coupling.
+	    IF(ABS(DRC(I,L)) .GT. ABS(ETAL_MAT(I,L)*ZNET_SIM(I,L)))THEN
+	      RH_NDOM=RH_NDOM+1
+	    END IF
 	    IF(S_L(I) .GT. 0.0_LDP .AND.
 	1       ZNET_SIM(I,L) .LT. 1.0_LDP)THEN
 	      RH_MAXDJ=MAX(RH_MAXDJ,
@@ -276,12 +284,14 @@ C fires when R,V are frozen by the hydro input, so report every
 C fixed block of applied corrections instead.
 C
 	IF(RH_NCALL-RH_LASTREP .GE. 500000)THEN
-	  WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,I8,A)')
+	  WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
 	1  ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dRATE=',RH_MAXDZ,
-	2  ' over',RH_NCALL-RH_LASTREP,' corrections'
+	2  ' over',RH_NCALL-RH_LASTREP,' corrections;',
+	3  RH_NDOM,' dominant (|DRC|>|ETA*ZNET|)'
 	  RH_LASTREP=RH_NCALL
 	  RH_MAXDJ=0.0_LDP
 	  RH_MAXDZ=0.0_LDP
+	  RH_NDOM=0
 	END IF
 C
 	RETURN
