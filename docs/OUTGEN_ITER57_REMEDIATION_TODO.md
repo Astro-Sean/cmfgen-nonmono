@@ -108,8 +108,10 @@ A task is done only when its stated evidence exists, never on compile alone.
       A/B against stock MOM_J_CMF_V11 needs a second linked driver.
 - [x] B single compression region: `comp1` (sigma<-1 band, coefficient
       and convergence checks) + `zedg`/`zsrc`/`seed` variants.
-- [~] C multiple reversals: `dbl` mode covers a double compression
-      band; a true velocity-reversal profile is not yet a case.
+- [x] C multiple reversals: `comp2` (two disjoint sigma<-1 bands)
+      now exercised -- the test asserts two separate dV/dR sign
+      reversals on the built profile plus coefficient/admissibility
+      checks (reversal runs=2, 120 compressing rows). Job 12729448.
 - [~] D ascending vs descending: sweep-direction census covered by
       test_mom_sweep_table; same-fixed-point verification needs the
       refresh driver callable from a unit driver (not yet wired).
