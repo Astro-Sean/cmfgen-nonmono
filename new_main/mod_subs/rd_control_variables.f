@@ -3454,7 +3454,7 @@
 ! ran with 2 (triage read the stale number). Re-print
 ! the effective post-auto-set knobs so the log reflects what runs.
 !
-	    WRITE(LUER,'(A,I4,A,I4,3A)')
+	    WRITE(LUER,'(A,I4,A,I4,4A)')
 	1   ' KNOP effective (post auto-set): N_LAM_RWARM=',N_LAM_RWARM,
 	2   '  GS_REL_STABLE=',GS_REL_STABLE,'  GLOBAL_LINE=',
 	3   GLOBAL_LINE_SWITCH(1:5),'  FG_OPT=',FG_SOL_OPTIONS(1:7)
