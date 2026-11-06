@@ -19,6 +19,11 @@
 !   hchk : none | av | max
 !   match: 0/1 -> MOM_FREQ_MATCH
 !   tag  : output file prefix (written to cwd)
+!   Optional: arg9 = ESEC/CHI albedo (default 0.6), arg10 = CHI
+!   multiplier (advection-dominated thin limit), arg11 = log opacity
+!   modulation across frequency (blanketing analogue), arg12 =
+!   per-sweep ray-store drift amplitude (moving-fixed-point
+!   emulation of the production coefficient update).
 !
       PROGRAM DRV_MOM_SOLVE
       USE SET_KIND_MODULE
@@ -40,6 +45,7 @@
       REAL(KIND=LDP) CHI(ND),ETA(ND),ESEC(ND),VDOP(ND),CHI_L(ND)
       REAL(KIND=LDP) JNU(ND),RSQH(ND)
       REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
+      REAL(KIND=LDP) ALB,CHISCL,CHIWAV,PERT,PFAC
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
       REAL(KIND=LDP) FRQ(NCF),NU_NXT
       CHARACTER(LEN=32) MODE,NTYPE,INBM,HCHK,OUTTAG,CARG
@@ -67,6 +73,49 @@
       DOMATCH=(I .NE. 0)
       CALL GETARG(8,OUTTAG)
       IF(LEN_TRIM(OUTTAG) .EQ. 0)OUTTAG='mom'
+!
+! Optional arg 9: scattering albedo ESEC/CHI (default 0.6). The
+! production m15 wind is electron-scattering dominated (albedo -> 1),
+! where the lagged fixed-point map goes marginal; the sweep lets the
+! driver measure the contraction rate against (1-albedo) instead of
+! hardcoding the 0.4-absorption regime.
+!
+      ALB=0.6_LDP
+      CALL GETARG(9,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)ALB
+!
+! Optional arg 10: CHI multiplier. Scaling opacity down moves the
+! compressing rows toward the advection-dominated limit, where
+! chi_hat loses its chi floor, Q -> GAM_FAC/(GAM_FAC sign) ~ +/-1,
+! and the lagged map degenerates toward a frequency shift. The
+! production worst cells sit in this thin compressing regime.
+!
+      CHISCL=1.0_LDP
+      CALL GETARG(10,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)CHISCL
+!
+! Optional arg 11: log-space opacity-modulation amplitude across
+! frequency (blanketing analogue): CHI_L *= EXP(CHIWAV*SIN(2 pi L/97)).
+! Production line blanketing swings opacity by decades over tens of
+! bins, so adjacent-frequency J fields differ steeply and a matched
+! lagged read spans that gradient.
+!
+      CHIWAV=0.0_LDP
+      CALL GETARG(11,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)CHIWAV
+!
+! Optional arg 12: per-sweep Eddington-drift amplitude. Production
+! rebuilds the ray store from the formal solve every great
+! iteration, so the lagged map's coefficients -- and its fixed
+! point -- move between sweeps. PERT scales JNU/KNU/HNU/NNU by
+! 1+PERT*sin(7.31*IT+depth-index phase) each sweep before the
+! frequency loop: a deterministic moving target for measuring the
+! residual floor a contracting map sustains under coefficient
+! drift.
+!
+      PERT=0.0_LDP
+      CALL GETARG(12,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)PERT
 !
       NTYP6='N_ON_J'
       IF(NTYPE .EQ. 'gonly')NTYP6='G_ONLY'
@@ -172,9 +221,9 @@
 !
       S0=1.0E-4_LDP
       DO I=1,ND
-        CHI(I)=2.0_LDP*(R(1)/R(I))**1.5_LDP
+        CHI(I)=CHISCL*2.0_LDP*(R(1)/R(I))**1.5_LDP
         ETA(I)=CHI(I)*S0*(1.0_LDP+0.2_LDP*(R(1)-R(I))/R(1))
-        ESEC(I)=0.6_LDP*CHI(I)
+        ESEC(I)=ALB*CHI(I)
         VDOP(I)=50.0_LDP
       END DO
 !
@@ -286,6 +335,26 @@
         NIT=2
       END IF
       DO IT=1,NIT
+        IF(PERT .NE. 0.0_LDP .AND. IT .GT. 1)THEN
+          DO I=1,ND
+            PFAC=1.0_LDP+PERT*SIN(7.31_LDP*IT+0.37_LDP*I)
+            JNU_STORE(I)=JNU_STORE(I)*PFAC
+            KNU_STORE(I)=FJ*JNU_STORE(I)
+          END DO
+          DO I=1,ND
+            T1=0.5_LDP*(JNU_STORE(MAX(1,I-1))+JNU_STORE(MIN(ND,I)))
+            HNU_STORE(I)=HF*T1
+            NNU_STORE(I)=GF*HNU_STORE(I)
+          END DO
+          HNU_AT_OB=HNU_STORE(1)
+          NNU_AT_OB=NNU_STORE(1)
+          HNU_AT_IB=HF*JNU_STORE(ND)
+          NNU_AT_IB=GF*HNU_AT_IB
+          HBC=HNU_AT_OB/JNU_STORE(1)
+          NBC=NNU_AT_OB/JNU_STORE(1)
+          JPLUS_IB=JNU_STORE(ND)*0.9_LDP
+          JMIN_IB=JNU_STORE(ND)*0.1_LDP
+        END IF
         DO L=1,NCF
           FREQ=FRQ(L)
           FIDX=L
@@ -309,6 +378,9 @@
 !         zedg: opaque compression band at even frequencies only.
 !
           CHI_L(1:ND)=CHI(1:ND)
+          IF(CHIWAV .NE. 0.0_LDP)
+     1       CHI_L(1:ND)=CHI_L(1:ND)*EXP(CHIWAV*
+     2         SIN(6.283185307_LDP*DBLE(L)/97.0_LDP))
           IF(MODE .EQ. 'zedg' .AND. MOD(L,2) .EQ. 0)
      1       CHI_L(10:13)=CHI(10:13)*1.0E+4_LDP
           CALL MOM_J_CMF_NONMONO_V1(ETA,CHI_L,ESEC,
@@ -509,6 +581,22 @@
       WRITE(*,'(A,I10)')'EPS_CAP=',MOM_EPS_CAP
       WRITE(*,'(A,ES14.6)')'JMIN=',MINVAL(JNU(1:ND))
       WRITE(*,'(A,ES14.6)')'JMAX=',MAXVAL(JNU(1:ND))
+!
+! Localize the drift argmax: the metric is relative to
+! max(|J_old|, 1E-4*column peak), so an argmax sitting on a
+! near-empty cell means the reported drift is a metric floor, not a
+! physically significant field error.
+!
+      IF(ALLOCATED(J_NEXT_FRQ) .AND. MOM_GS_ARGI .GT. 0 .AND.
+     1   MOM_GS_ARGL .GT. 0)THEN
+        WRITE(*,'(A,2I8)')'ARGCELL=',MOM_GS_ARGI,MOM_GS_ARGL
+        WRITE(*,'(A,ES14.6)')'ARGJ=',
+     1   J_NEXT_FRQ(MOM_GS_ARGI,MOM_GS_ARGL)
+        WRITE(*,'(A,ES14.6)')'ARGCOLMAX=',
+     1   MAXVAL(ABS(J_NEXT_FRQ(1:ND_NM,MOM_GS_ARGL)))
+      END IF
+      WRITE(*,'(A,ES14.6)')'STORE_MINJ=',MINVAL(J_NEXT_FRQ)
+      WRITE(*,'(A,ES14.6)')'STORE_MAXJ=',MAXVAL(J_NEXT_FRQ)
 !
 ! Dumps: internal coefficient arrays on the expanded grid.
 !
