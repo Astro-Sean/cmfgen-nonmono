@@ -1144,16 +1144,20 @@
 ! undefined variable on the SOB-only path.
 !
 ! MOM refresh toggles (Oct-2026). MOM_RF_GS_DESC stays FALSE
-! (unvalidated). MOM_RF_KEEPNEG and MOM_GATE_BULK default TRUE:
-! storing repaired (non-fixed-point) values reseeds the lagged
-! read with noise, and the strict any-negJ gate cannot clear a
-! quasi-steady negJ residual (froze BA ~200 its on ;
+! (unvalidated). MOM_GATE_BULK defaults TRUE. MOM_RF_KEEPNEG was
+! default TRUE because storing repaired (non-fixed-point) values
+! reseeds the lagged read with noise, and the strict any-negJ gate
+! cannot clear a quasi-steady negJ residual (froze BA ~200 its on ;
 ! see cmfgen_obsidian/history/convergence_issues.md section 10).
+! 06-Nov-2026: flipped to FALSE -- on the globally-compressing
+! m15 2.82d model the refresh stall carries unphysical negative J
+! into STEQ every iteration; flooring the repaired cells is the
+! smaller poison there.
 !
 	  MOM_RF_GS_DESC=.FALSE.
 	  CALL RD_STORE_LOG(MOM_RF_GS_DESC,'MOM_RF_GS_DESC',L_FALSE,
 	1     'Live J_NEXT read on descending MOM refresh passes?')
-	  MOM_RF_KEEPNEG=.TRUE.
+	  MOM_RF_KEEPNEG=.FALSE.
 	  CALL RD_STORE_LOG(MOM_RF_KEEPNEG,'MOM_RF_KEEPNEG',L_FALSE,
 	1     'Keep prior J_NEXT iterate at MOM-repaired cells?')
 	  CALL SET_MOM_RF_OPTS(MOM_RF_GS_DESC,MOM_RF_KEEPNEG)
@@ -1183,11 +1187,13 @@
 	1     'Require bulk regression for the MOM divergence abort?')
 	  CALL SET_MOM_RF_DIVB(MOM_RF_DIV_BULK)
 !
-! MOM_RF_ACTIVE (default FALSE, experimental): skip refresh solves
-! at frequencies whose residual and upwind read slots stayed below
-! tolerance on the previous pass.
+! MOM_RF_ACTIVE (was default FALSE, experimental; default TRUE
+! since 06-Nov-2026): skip refresh solves at frequencies whose
+! residual and upwind read slots stayed below tolerance on the
+! previous pass. Thins the refresh to non-converged frequencies,
+! the practical form of a cadence control.
 !
-	  MOM_RF_ACTIVE=.FALSE.
+	  MOM_RF_ACTIVE=.TRUE.
 	  CALL RD_STORE_LOG(MOM_RF_ACTIVE,'MOM_RF_ACTIVE',L_FALSE,
 	1     'Active-set front-tracking in MOM refresh?')
 	  CALL SET_MOM_RF_ACT(MOM_RF_ACTIVE)
@@ -1233,17 +1239,20 @@
 ! lagged EPS midpoint transfer -- the lagged term may not debit a
 ! row past its positive RHS balance (removes the dominant negJ
 ! source on advection-dominated compressing grids). MOM_RF_DIR
-! (default 'AUTO'): refresh pass ordering; AUTO runs only the
-! dominant coupling direction once one side holds >=90% of rows,
-! and suppresses the stale-Jacobi in-sweep store write at
-! compressing rows on a compression-dominant grid. RF_EN passes
-! DO_KNOP_REFRESH so suppression never runs without a refresh to
-! own the store.
+! (default 'ALT ' since 06-Nov-2026, was 'AUTO'): refresh pass
+! ordering. AUTO runs only the dominant coupling direction once one
+! side holds >=90% of rows; on a globally-compressing model that
+! leaves the expanding-owned minority permanently stale and
+! re-kicks the refresh fixed point every pass. ALT sweeps both
+! directions so those rows get fresh reads; MOM_RF_OWNW still
+! suppresses the stale-Jacobi writes that motivated single-
+! direction schedules. RF_EN passes DO_KNOP_REFRESH so suppression
+! never runs without a refresh to own the store.
 !
 	  MOM_EPS_LIM=.TRUE.
 	  CALL RD_STORE_LOG(MOM_EPS_LIM,'MOM_EPS_LIM',L_FALSE,
 	1     'Positivity-limited lagged EPS transfer in MOM solve?')
-	  MOM_RF_DIR='AUTO'
+	  MOM_RF_DIR='ALT '
 	  CALL RD_STORE_CHAR(MOM_RF_DIR,'MOM_RF_DIR',L_FALSE,
 	1     'MOM refresh pass order: AUTO, ALT, ASC or DESC')
 !
@@ -1324,15 +1333,17 @@
 	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,
 	1     MOM_H_IMPL,MOM_XM_POS)
 !
-! MOM_FAC_RLX (default 1.0 = off): under-relax the Eddington-factor
-! update between great iterations in MOM_J_CMF_NONMONO_V1. With
-! pops held the formal-solve factor snap is the only channel that
-! moves the lagged map's fixed point between iterations; on this
-! model the snap displaces the map by >50% at ~2E5 cells per sweep
-! while the refresh already converges at the old factors (KNOP cold
-! probes, 13-Oct-2026). 1.0 keeps the raw snap for A/B tests.
+! MOM_FAC_RLX (default 0.25 since 06-Nov-2026, was 1.0 = off):
+! under-relax the Eddington-factor update between great iterations
+! in MOM_J_CMF_NONMONO_V1. With pops held the formal-solve factor
+! snap is the only channel that moves the lagged map's fixed point
+! between iterations; on this model the snap displaces the map by
+! >50% at ~2E5 cells per sweep while the refresh already converges
+! at the old factors (KNOP cold probes, 13-Oct-2026). The 0.25
+! blend slows that kick -- the m15 2.82d stall was fed by it.
+! 1.0 keeps the raw snap for A/B tests.
 !
-	  MOM_FAC_RLX=1.0_LDP
+	  MOM_FAC_RLX=0.25_LDP
 	  CALL RD_STORE_DBLE(MOM_FAC_RLX,'MOM_FAC_RLX',L_FALSE,
 	1     'Eddington-factor under-relaxation between MOM sweeps')
 	  CALL SET_MOM_FAC_RLX(MOM_FAC_RLX)
