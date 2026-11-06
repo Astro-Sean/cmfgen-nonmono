@@ -1671,7 +1671,17 @@
 ! the great iterations. Skipped during refresh: the driver resets
 ! the GS metrics per frequency and the physics stats per pass.
 !
-	IF(FREQ_INDX .EQ. 1 .AND. .NOT. MOM_KN_REFRESHING)THEN
+! edited 05-Nov-2026: NEW_FREQ gate added. The INACCURATE loop
+! re-calls this routine at FREQ_INDX=1 with NEW_FREQ=F, so the
+! ungated reset ran ~14 times per sweep -- it zeroed the census after
+! frequency 1's own first call counted (wiping that frequency's
+! cells) and re-decided the AUTO direction split from a partial
+! single-frequency census on every re-call. One reset per sweep is
+! the intended scope; the per-call census increments are now gated
+! the same way below.
+!
+	IF(NEW_FREQ .AND. FREQ_INDX .EQ. 1 .AND.
+	1     .NOT. MOM_KN_REFRESHING)THEN
 !
 ! Compression-dominance resolution for MOM_RF_DIR. The lagged
 ! coupling direction is a property of the velocity field, not of any
@@ -1704,15 +1714,8 @@
 	  MOM_SW_NSUPP=0
 	  MOM_GS_MAXCHG=0.0_LDP
 !
-!	  The repeat call at FREQ_INDX=1 (NEW_FREQ=F) re-enters this
-!	  block and already re-zeroes MOM_GS_MAXCHG; gating the
-!	  diagnostic split on NEW_FREQ keeps pass-1 history intact so
-!	  both passes can be compared in the sweep report.
-!
-	  IF(NEW_FREQ)THEN
-	    MOM_GS_CHG_P1=0.0_LDP
-	    MOM_GS_CHG_P2=0.0_LDP
-	  END IF
+	  MOM_GS_CHG_P1=0.0_LDP
+	  MOM_GS_CHG_P2=0.0_LDP
 	  MOM_INEXT_CAPPED=0
 	  MOM_NEGJ_LRG=0
 	  MOM_GS_NBAD5=0;  MOM_GS_NBAD50=0
@@ -2282,9 +2285,13 @@
 ! Coupling-direction census for MOM_RF_DIR='AUTO' and the
 ! compression-dominant write suppression: count rows whose upwind
 ! reads the lagged redder bin. Refresh re-calls are excluded --
-! they re-solve the same sweep and would double-count it.
+! they re-solve the same sweep and would double-count it. The
+! INACCURATE J-iteration re-calls are excluded too (05-Nov-2026):
+! the share fed AUTO and the printed census should describe the
+! fresh solve, not a call-weighted average over the J loop that
+! can disagree with the last call's ownership split.
 !
-	IF(.NOT. MOM_KN_REFRESHING)THEN
+	IF(NEW_FREQ .AND. .NOT. MOM_KN_REFRESHING)THEN
 	  MOM_SW_NCROW=MOM_SW_NCROW+
 	1    INT(COUNT(Q_NM(1:ND_NM) .LT. 0.0_LDP),8)
 	  MOM_SW_NROW=MOM_SW_NROW+INT(ND_NM,8)
@@ -3354,7 +3361,13 @@
 	  IF(XM_NM(I) .LT. 0.0_LDP)THEN
 	    T5=MAX(T4,1.0E-3_LDP*ABS(XM_FB_NM(I)))
 	    IF(ABS(XM_NM(I)) .GT. T5)THEN
-	      MOM_NEGJ_LRG=MOM_NEGJ_LRG+1
+!
+!	      Sweep-census scope (see the J_NEXT drift block below): the
+!	      INACCURATE re-calls recount this cell on every J-iteration
+!	      pass, so only the first call at each frequency counts.
+!
+	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)
+	1        MOM_NEGJ_LRG=MOM_NEGJ_LRG+1
 	    ELSE
 	      MOM_N_NEGJ_T=MOM_N_NEGJ_T+1
 	    END IF
@@ -3495,8 +3508,20 @@
 ! solve contributes), gated off during refresh.
 !
 	IF(FREQ_INDX .GE. 1 .AND. FREQ_INDX .LE. NCF_IN)THEN
-	  MOM_INEXT_CAPPED=MOM_INEXT_CAPPED+N_QBND
-	  IF(BND_HBC_FLOORED)MOM_BND_HBC_FL=MOM_BND_HBC_FL+1
+!
+! Census scope: the comp_j_blank INACCURATE loop re-calls this routine
+! at the same frequency with NEW_FREQ=F, and the counters below reset
+! only at FREQ_INDX=1, so ungated accumulation counts each cell once
+! per J-iteration call (~14x per sweep) rather than once per sweep.
+! The sweep metrics describe the fresh solve vs the stored field, so
+! the first call at each frequency is the measuring call; repeat-call
+! drift still folds into MOM_GS_CHG_P2 below. Refresh re-calls count
+! on every call -- each pass call is the unit the pass metrics read.
+!
+	  IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
+	    MOM_INEXT_CAPPED=MOM_INEXT_CAPPED+N_QBND
+	    IF(BND_HBC_FLOORED)MOM_BND_HBC_FL=MOM_BND_HBC_FL+1
+	  END IF
 !
 !	  Denominator floor: the larger of the cell's previous value and
 !	  1e-4 of this frequency's column peak, so cells carrying a
@@ -3543,13 +3568,19 @@
 !	      repair, not field drift -- count separately and exclude
 !	      from the residual metrics.
 !
-	      MOM_GS_NQUAR=MOM_GS_NQUAR+1
+	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)
+	1        MOM_GS_NQUAR=MOM_GS_NQUAR+1
 !
 !	      edited 29-Sep-2026: age the quarantine on the
 !	      sweep calls only. Refresh re-solves the same captured
 !	      inputs many times per sweep and would inflate the age.
+!	      edited 05-Nov-2026: NEW_FREQ gate added -- the
+!	      INACCURATE re-calls at the same frequency ticked the
+!	      age once per J-iteration call, so the MOM_QUAR_PERSIST
+!	      "consecutive sweeps" threshold fired inside a single
+!	      sweep on transient in-loop failures.
 !
-	      IF(.NOT. MOM_KN_REFRESHING)THEN
+	      IF(NEW_FREQ .AND. .NOT. MOM_KN_REFRESHING)THEN
 	        IF(MOM_QUAR_AGE(I,FREQ_INDX) .LT. 32767_2)
 	1          MOM_QUAR_AGE(I,FREQ_INDX)=
 	2            MOM_QUAR_AGE(I,FREQ_INDX)+1_2
@@ -3563,12 +3594,14 @@
 !	      drift measure would read converged on a failed solve.
 !	      Count the rejection as a >50% event.
 !
-	      MOM_GS_NBAD5=MOM_GS_NBAD5+1
-	      MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	      T5=1.0_LDP
-	      IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
-	        MOM_GS_MAXCHG=1.0_LDP
-	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
+	        MOM_GS_NBAD5=MOM_GS_NBAD5+1
+	        MOM_GS_NBAD50=MOM_GS_NBAD50+1
+	        IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
+	          MOM_GS_MAXCHG=1.0_LDP
+	          MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	        END IF
 	      END IF
 	    ELSE IF(.NOT.(ABS(T1) .LE. HUGE(T1)) .OR.
 	1       .NOT.(ABS(T2) .LE. HUGE(T2)))THEN
@@ -3576,34 +3609,40 @@
 !	      Non-finite entry in either field: flag the sweep as fully
 !	      unconverged rather than letting NaN propagate through MAX.
 !
-	      MOM_GS_MAXCHG=MAX(MOM_GS_MAXCHG,1.0E+30_LDP)
-	      MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
-	      MOM_GS_NBAD5=MOM_GS_NBAD5+1
-	      MOM_GS_NBAD50=MOM_GS_NBAD50+1
-	      MOM_GS_NHUGE=MOM_GS_NHUGE+1
 	      T5=1.0E+30_LDP
+	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
+	        MOM_GS_MAXCHG=MAX(MOM_GS_MAXCHG,1.0E+30_LDP)
+	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	        MOM_GS_NBAD5=MOM_GS_NBAD5+1
+	        MOM_GS_NBAD50=MOM_GS_NBAD50+1
+	        MOM_GS_NHUGE=MOM_GS_NHUGE+1
+	      END IF
 	    ELSE IF(ABS(T1) .GT. 1.0E-28_LDP)THEN
 !
 !	      Denominator floor prevents a vanishing old value from
 !	      producing an arbitrarily large (or non-finite) ratio.
 !
 	      T4=ABS(T2-T1)/MAX(ABS(T1),1.0E-4_LDP*T3)
-	      IF(T4 .GT. 1.0E-3_LDP)MOM_GS_NLOW=MOM_GS_NLOW+1
-	      IF(T4 .GT. 0.05_LDP)MOM_GS_NBAD5=MOM_GS_NBAD5+1
-	      IF(T4 .GT. 0.5_LDP)MOM_GS_NBAD50=MOM_GS_NBAD50+1
-	      IF(T4 .GT. 1.0E+6_LDP)MOM_GS_NHUGE=MOM_GS_NHUGE+1
 	      T5=T4
-	      IF(T4 .GT. MOM_GS_MAXCHG)THEN
-	        MOM_GS_MAXCHG=T4
-	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
+	        IF(T4 .GT. 1.0E-3_LDP)MOM_GS_NLOW=MOM_GS_NLOW+1
+	        IF(T4 .GT. 0.05_LDP)MOM_GS_NBAD5=MOM_GS_NBAD5+1
+	        IF(T4 .GT. 0.5_LDP)MOM_GS_NBAD50=MOM_GS_NBAD50+1
+	        IF(T4 .GT. 1.0E+6_LDP)MOM_GS_NHUGE=MOM_GS_NHUGE+1
+	        IF(T4 .GT. MOM_GS_MAXCHG)THEN
+	          MOM_GS_MAXCHG=T4
+	          MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	        END IF
 	      END IF
 	    ELSE IF(ABS(T2) .GT. 1.0E-4_LDP*T3)THEN
-	      MOM_GS_NBAD5=MOM_GS_NBAD5+1
-	      MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	      T5=1.0_LDP
-	      IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
-	        MOM_GS_MAXCHG=1.0_LDP
-	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
+	        MOM_GS_NBAD5=MOM_GS_NBAD5+1
+	        MOM_GS_NBAD50=MOM_GS_NBAD50+1
+	        IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
+	          MOM_GS_MAXCHG=1.0_LDP
+	          MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	        END IF
 	      END IF
 	    END IF
 !
@@ -4010,6 +4049,7 @@
 	CHARACTER(LEN=20) RF_DIR_W
 	INTEGER, PARAMETER :: MAGIC=20260916, VER=5
 	LOGICAL REN_OK
+	REAL(KIND=LDP) SW_DRIFT
 	EXTERNAL ERROR_LU
 !
 	IF(.NOT. ALLOCATED(J_NEXT_FRQ))RETURN
@@ -4018,6 +4058,17 @@
 ! coupling (Knop et al. 2009 Paper II pathway) to OUTGEN.
 !
 	LUER=ERROR_LU()
+!
+! edited 05-Nov-2026: report the sweep drift, not the refresh
+! residual. MOM_KNOP_REFRESH_V1 snapshots the pre-refresh metric into
+! MOM_SW_MAXCHG and then overwrites MOM_GS_MAXCHG with the refresh
+! residual for the adaptive relaxation -- when a refresh ran, the
+! value sitting in MOM_GS_MAXCHG is the residual of the retained
+! pass, not the drift this table (and its restored sweep counts)
+! describes. ITER_SUM already reads MOM_SW_MAXCHG.
+!
+	SW_DRIFT=MOM_GS_MAXCHG
+	IF(MOM_RF_RAN)SW_DRIFT=MOM_SW_MAXCHG
 !
 ! Argmax-jitter history: the last four sweeps' (depth,freq,value)
 ! tuples classify the drift floor. Values alternating direction at
@@ -4028,7 +4079,7 @@
 !
 	MOM_ARG_HI(1:3)=MOM_ARG_HI(2:4);  MOM_ARG_HI(4)=MOM_GS_ARGI
 	MOM_ARG_HL(1:3)=MOM_ARG_HL(2:4);  MOM_ARG_HL(4)=MOM_GS_ARGL
-	MOM_ARG_HV(1:3)=MOM_ARG_HV(2:4);  MOM_ARG_HV(4)=MOM_GS_MAXCHG
+	MOM_ARG_HV(1:3)=MOM_ARG_HV(2:4);  MOM_ARG_HV(4)=SW_DRIFT
 	MOM_GS_CLS=' '
 	IF(MOM_ARG_HI(4) .GT. 0 .AND. MOM_ARG_HI(4) .EQ. MOM_ARG_HI(3)
 	1     .AND. MOM_ARG_HL(4) .EQ. MOM_ARG_HL(3))THEN
@@ -4056,12 +4107,12 @@
 	SW_ST='[OK]   '
 	IF(MOM_INEXT_CAPPED .GT. MAX(50_8,MOM_GS_NTOT/10) .OR.
 	1   MOM_GS_NBAD50 .GT. MAX(50_8,MOM_GS_NTOT/100) .OR.
-	2   MOM_GS_MAXCHG .GT. 1.0E+6_LDP .OR.
+	2   SW_DRIFT .GT. 1.0E+6_LDP .OR.
 	3   MOM_NEGJ_LRG .GT. MOM_GS_NTOT/10 .OR.
 	4   MOM_GS_NQUAR .GT. MOM_GS_NTOT/10)THEN
 	  SW_ST='[BAD]  '
 	ELSE IF(MOM_GS_NBAD50 .GT. MAX(50_8,MOM_GS_NTOT/1000) .OR.
-	1   MOM_GS_MAXCHG .GT. 1.0E+1_LDP .OR.
+	1   SW_DRIFT .GT. 1.0E+1_LDP .OR.
 	2   MOM_INEXT_CAPPED .GT. MAX(50_8,MOM_GS_NTOT/1000) .OR.
 	3   MOM_GS_NBAD5 .GT. MOM_GS_NTOT/10 .OR.
 	4   MOM_BND_HBC_FL .GT. 0)THEN
@@ -4088,7 +4139,7 @@
 	1   (MOM_GS_ARGI .LE. 2 .OR.
 	2    MOM_GS_ARGI .GE. SIZE(J_NEXT_FRQ,1)-1))BND_TAG='bnd_row'
 	WRITE(LUER,'(4X,A10,2X,A,ES10.3,3(A,I10),A,1X,A,2X,A)')
-	1    'drift','lagged J_NEXT drift ',MOM_GS_MAXCHG,' (',
+	1    'drift','lagged J_NEXT drift ',SW_DRIFT,' (',
 	2    MOM_GS_NBAD5,' cells above 5%, ',MOM_GS_NBAD50,
 	3    ' above 50% of ',MOM_GS_NTOT,' total) ',SW_ST,BND_TAG
 !
@@ -4985,6 +5036,7 @@
 	INTEGER IT1,J,PASS_ARGI,PASS_ARGL
 	INTEGER*8 PASS_CAP,PASS_NEG
 	INTEGER*8 PASS_N5,PASS_N50,PASS_NQ,N5_SV,N50_SV,NQ_SV
+	INTEGER ARGI_SV,ARGL_SV
 	INTEGER*8 PASS_NHUGE,PASS_NRES
 	INTEGER*8 PASS_NCMP,PASS_NMATCH,PASS_NOFF
 	INTEGER*8 BEST_N5,BEST_N50
@@ -5290,6 +5342,7 @@
 	KN_M_DESC=.FALSE.
 	N5_SV=MOM_GS_NBAD5;  N50_SV=MOM_GS_NBAD50
 	NQ_SV=MOM_GS_NQUAR
+	ARGI_SV=MOM_GS_ARGI;  ARGL_SV=MOM_GS_ARGL
 !
 ! Snapshot the sweep-level maturity metrics before the pass loop
 ! resets them: the sweep drift (fresh solve vs stored field) is the
@@ -6181,14 +6234,31 @@
 !
 	  IF(NSTALL_D(IDIR) .GE. 2)THEN
 	    IF(.NOT. SKIP_D(IDIR))THEN
+!
+!	      Under MOM_DOM_CMP/MOM_DOM_EXP the other direction is not in
+!	      the schedule -- saying it 'continues' is wrong; the refresh
+!	      exits on the same pass.
+!
 	      IF(IDIR .EQ. 2)THEN
-	        WRITE(LUER,'(A,I4,A)')' [WARN] Compressing direction'//
-	1        ' stalled - dropping it after pass',IPASS,
-	2        '; the expanding direction continues.'
+	        IF(MOM_DOM_CMP)THEN
+	          WRITE(LUER,'(A,I4,A)')' [WARN] Compressing direction'//
+	1          ' stalled - dropping it after pass',IPASS,
+	2          '; no other direction is scheduled.'
+	        ELSE
+	          WRITE(LUER,'(A,I4,A)')' [WARN] Compressing direction'//
+	1          ' stalled - dropping it after pass',IPASS,
+	2          '; the expanding direction continues.'
+	        END IF
 	      ELSE
-	        WRITE(LUER,'(A,I4,A)')' [WARN] Expanding direction'//
-	1        ' stalled - dropping it after pass',IPASS,
-	2        '; the compressing direction continues.'
+	        IF(MOM_DOM_EXP)THEN
+	          WRITE(LUER,'(A,I4,A)')' [WARN] Expanding direction'//
+	1          ' stalled - dropping it after pass',IPASS,
+	2          '; no other direction is scheduled.'
+	        ELSE
+	          WRITE(LUER,'(A,I4,A)')' [WARN] Expanding direction'//
+	1          ' stalled - dropping it after pass',IPASS,
+	2          '; the compressing direction continues.'
+	        END IF
 	      END IF
 	    END IF
 	    SKIP_D(IDIR)=.TRUE.
@@ -6344,6 +6414,14 @@
 	  MOM_GS_NBAD5=N5_SV
 	  MOM_GS_NBAD50=N50_SV
 	  MOM_GS_NQUAR=NQ_SV
+!
+!	  The passes re-solve every frequency, so the argmax they leave
+!	  behind points at a refresh call, not the sweep drift. Restore
+!	  the sweep argmax with the sweep counts so the post-report
+!	  'worst cell' describes the same metric as MOM_SW_MAXCHG.
+!
+	  MOM_GS_ARGI=ARGI_SV
+	  MOM_GS_ARGL=ARGL_SV
 !
 !	  PASS_CAP counts capped writes made by passes whose field was
 !	  discarded; the metric must describe the retained field. Recount
