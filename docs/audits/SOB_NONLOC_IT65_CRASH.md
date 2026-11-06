@@ -225,3 +225,16 @@ Unit coverage (`test_sob_rh_couple.py`, 16 checks): analytic
 exp(-c0*chord) recovery under uniform CHI, DRC~0 under opaque CHI,
 `EXTINCT=F` restoring the pre-fix kernel bit-for-bit, and an opaque
 two-cell shell extinguishing only chord-crossing pairs.
+
+## 10. Resubmit verification (2026-11-06)
+
+Job 12737879 (interactive partition, fresh LTE cold start):
+`SOB_RH` diagnostics confirm the extinction is active and the lagged
+map now contracts -- `max dJ/J` bounded ~0.6-2.0 through it133 (was
+1.4E8 at the crash), `max dJ(S=1)` ~0.011 (was 0.2), `max dRATE`
+~2E2-6E3 (was 2.6E7), dominant census 0-30 per 500K corrections
+(was thousands).  `max chord tau` reaches ~5800 with ~40% of the
+geometric pair weight surviving.  The run passed both former crash
+points (it65 and the it132 `CMF_BLKBAND_V3` ifail=528 site) with
+demands at ~1% and declining.  The population solve is no longer
+being overdriven by remote pumping.
