@@ -10,7 +10,7 @@ C distant point r where the projected gas velocity along the same ray
 C matches.  The local escape probability then underestimates the true
 C line mean intensity; each line receives an extra contribution
 C
-C    dJ(r) = 0.5 * INT dr' r' v(r') GAMH_l(r') S_l(r') K(r,r')
+C    dJ(r) = 0.5 * INT dr' r' v(r') GAMH_l(r') S_l(r') K(r,r') ATT(r,r')
 C
 C    K(r,r') = [(1-e^-t)/t] [(1-e^-t')/t'] / SQRT[(r^2-r'^2)(r^2v'^2-r'^2v^2)]
 C
@@ -18,6 +18,7 @@ C with t = GAMH_l(r)/|1+mu^2 sigma(r)|, t' the same quantity at r', and
 C
 C    mu^2  = (r'^2-r^2) v'^2 / (r'^2 v^2 - r^2 v'^2)
 C    mu'^2 = (r'^2-r^2) v^2  / (r'^2 v^2 - r^2 v'^2)
+C    ATT   = exp(-tau_chord), continuum transmission between r and r'
 C
 C Only pairs with 0 < mu^2 <= 1 and 0 < mu'^2 <= 1 couple; the mu^2<=1
 C cut also bounds the kernel away from its (integrable) edge
@@ -36,9 +37,12 @@ C derivative; folding it in there injected an O(dJ/S) error into the
 C Jacobian and destabilized SOLVEBA (verified on TypeIIn 10d).
 C
 C Notes and deliberate limitations:
-C  - Two-point (RH78) kernel only.  Directions crossing a third
-C    resonance need the extra exp(-t'') extinction of Feldmeier &
-C    Nikutta; without it the coupling there is a bounded overestimate.
+C  - Continuum extinction along the chord is included through
+C    ATT = exp(-tau_chord) with the CHI at the line-group frequency
+C    (DO_SOB_RH_EXTINCT, default T).  A ray crossing a third LINE
+C    resonance still needs the extra exp(-t'') extinction of
+C    Feldmeier & Nikutta; without it the coupling there remains a
+C    bounded overestimate.
 C  - The kernel uses the UNCLAMPED |1+mu^2 sigma|: at the coupling
 C    angles t -> infinity merely damps the term, which is the correct
 C    non-monotonic limit.  The Dessart, Audit & Hillier floor is a
@@ -67,9 +71,16 @@ C
 	INTEGER :: RH_NCALL=0
 	INTEGER :: RH_LASTREP=0
 	INTEGER :: RH_NDOM=0
+	INTEGER :: RH_IMXD=0	!depth of max |DRATE| this block
+	INTEGER :: RH_LMXD=0	!line of max |DRATE| this block
+	INTEGER :: RH_IMXJ=0	!depth of max dJ/J this block
+	INTEGER :: RH_LMXJ=0	!line of max dJ/J this block
 	REAL(KIND=LDP) :: RH_MAXDJ=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDJ1=0.0_LDP
 	REAL(KIND=LDP) :: RH_MAXDZ=0.0_LDP
+	REAL(KIND=LDP) :: RH_MAXTAU=0.0_LDP	!max chord tau this call
+	REAL(KIND=LDP) :: RH_WTOT=0.0_LDP	!unattenuated pair weight
+	REAL(KIND=LDP) :: RH_WATT=0.0_LDP	!attenuated pair weight
 	REAL(KIND=LDP), ALLOCATABLE :: RH_RSAV(:)	!R at last build
 	REAL(KIND=LDP), ALLOCATABLE :: RH_VSAV(:)	!V at last build
 	REAL(KIND=LDP), ALLOCATABLE :: RH_SSAV(:)	!SIGMA at last build
@@ -78,6 +89,8 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: RH_T1(:,:)	!|1+mu^2 sigma| at I
 	REAL(KIND=LDP), ALLOCATABLE :: RH_T1P(:,:)	!|1+mu'^2 sigma| at J
 	REAL(KIND=LDP), ALLOCATABLE :: RH_PW(:,:)	!w_J*R_J*V_J*Upsilon1
+	REAL(KIND=LDP), ALLOCATABLE :: RH_P2(:,:)	!ray impact param^2
+	REAL(KIND=LDP), ALLOCATABLE :: RH_ATT(:,:)	!exp(-tau_chord) per pair
 C
 	END MODULE SOB_RH_MOD
 C
@@ -115,11 +128,11 @@ C
 	END IF
 C
 	IF(ALLOCATED(RH_NP))THEN
-	  DEALLOCATE(RH_NP,RH_ID,RH_T1,RH_T1P,RH_PW,
+	  DEALLOCATE(RH_NP,RH_ID,RH_T1,RH_T1P,RH_PW,RH_P2,RH_ATT,
 	1             RH_RSAV,RH_VSAV,RH_SSAV)
 	END IF
 	ALLOCATE(RH_NP(ND),RH_ID(ND,ND),RH_T1(ND,ND),
-	1         RH_T1P(ND,ND),RH_PW(ND,ND))
+	1         RH_T1P(ND,ND),RH_PW(ND,ND),RH_P2(ND,ND),RH_ATT(ND,ND))
 	ALLOCATE(RH_RSAV(ND),RH_VSAV(ND),RH_SSAV(ND))
 	RH_ND=ND
 	RH_RSAV=R
@@ -167,6 +180,8 @@ C
 	    RH_T1(I,K)=MAX(ABS(1.0_LDP+MU2*SIGMA(I)),1.0D-30)
 	    RH_T1P(I,K)=MAX(ABS(1.0_LDP+MUP2*SIGMA(J)),1.0D-30)
 	    RH_PW(I,K)=WJ(J)*R(J)*V(J)*UPS
+	    RH_P2(I,K)=R(I)*R(I)*(1.0_LDP-MU2)
+	    RH_ATT(I,K)=1.0_LDP
 	    RH_TOTPAIRS=RH_TOTPAIRS+1
 	  END DO
 	END DO
@@ -183,7 +198,7 @@ C
 C
 C
 	SUBROUTINE SOB_RH_COUPLE(DRC,ZNET_SIM,CHIL_MAT,ETAL_MAT,
-	1                BB_COR,NEG_OPACITY,V,SIGMA,R,FL,ND,NSIM,LU)
+	1                BB_COR,NEG_OPACITY,V,SIGMA,R,CHI_EXT,FL,ND,NSIM,LU)
 	USE SET_KIND_MODULE
 	USE SOB_RH_MOD
 	USE CONTROL_VARIABLE_MOD
@@ -192,12 +207,23 @@ C
 C Apply the RH78 coupling correction as a separate rate-space term.
 C For each line l the remote-resonance contribution
 C
-C    dJ_l(I) = 0.5*SUM_K PW*GAMH_l(J)*S_l(J)*EXF(t_I)*EXF(t_J)
+C    dJ_l(I) = 0.5*SUM_K PW*GAMH_l(J)*S_l(J)*EXF(t_I)*EXF(t_J)*ATT_K
 C
 C is computed over the partner list of depth I, then returned as
 C DRC_l = CHIL_l*dJ_l/BB_COR_l (the extra absorption rate, same units
 C as ETAL_l*ZNET_l).  ZNET_SIM is read only for diagnostics and is
 C not modified.
+C
+C ATT_K = exp(-tau_chord) is the continuum transmission between the
+C two resonance points (Rybicki & Hummer 1978; Feldmeier & Nikutta
+C 2006).  The two-point kernel without it lets deep emission pump
+C optically thin outer cells at full strength -- on m15_2p82d the
+C remote term then exceeded the local mean intensity by ~1E8 and
+C drove the population solve non-contractive (audit
+C SOB_NONLOC_IT65_CRASH.md).  Between the endpoints the photon is off
+C line centre, so the path opacity is the continuum CHI_EXT at the
+C line-group frequency; intermediate line resonances (the ~8%
+C three-point cases) are a separate, still missing, shielding term.
 C
 	INTEGER ND,NSIM,LU
 	REAL(KIND=LDP) DRC(ND,NSIM)
@@ -205,18 +231,59 @@ C
 	REAL(KIND=LDP) CHIL_MAT(ND,NSIM)
 	REAL(KIND=LDP) ETAL_MAT(ND,NSIM)
 	REAL(KIND=LDP) BB_COR(ND,NSIM)
-	REAL(KIND=LDP) V(ND),SIGMA(ND),R(ND),FL
+	REAL(KIND=LDP) V(ND),SIGMA(ND),R(ND),CHI_EXT(ND),FL
 	LOGICAL NEG_OPACITY(ND)
 C
 	INTEGER I,J,L,K
+	INTEGER K1,K2,JJ
 	REAL(KIND=LDP) GAMH_L(ND),S_L(ND)
 	REAL(KIND=LDP) CFAC,TI,TJ,DJ,DJ1,DRATE,RH_JRAT
+	REAL(KIND=LDP) TAU,P,SA,SB
 	REAL(KIND=LDP) EXPONX
 	EXTERNAL EXPONX
 C
 	CALL SOB_RH_GEOM(R,V,SIGMA,ND,LU)
 	DRC=0.0_LDP
 	IF(RH_TOTPAIRS .EQ. 0)RETURN
+C
+C Chord continuum optical depth per accepted pair.  The admitted
+C pairs all have V>0, which forces the signed resonance condition
+C V*mu_dir to match at both ends -- the two points then sit on the
+C same leg of their ray and r varies monotonically along the
+C segment, so the path tau is a single-pass shell sum.  (A mu^2-only
+C acceptance can also pair endpoints across the periapsis; the
+C monotonic sum then under-reads the true chord -- under-shielding,
+C never over-shielding.)  Trapezoid rule in path coordinate with
+C nodes at the shell radii, matching the WJ quadrature convention.
+C CHI_EXT varies with the iterate, so RH_ATT is refilled every call;
+C only its storage lives with the geometry cache.  [DO_SOB_RH_EXTINCT]
+C
+	RH_MAXTAU=0.0_LDP
+	RH_WTOT=0.0_LDP
+	RH_WATT=0.0_LDP
+	IF(DO_SOB_RH_EXTINCT)THEN
+	  DO I=1,ND
+	    DO K=1,RH_NP(I)
+	      J=RH_ID(I,K)
+	      P=SQRT(MAX(RH_P2(I,K),0.0_LDP))
+	      TAU=0.0_LDP
+	      K1=MIN(I,J)
+	      K2=MAX(I,J)
+	      DO JJ=K1,K2-1
+	        SA=SQRT(MAX((R(JJ)-P)*(R(JJ)+P),0.0_LDP))
+	        SB=SQRT(MAX((R(JJ+1)-P)*(R(JJ+1)+P),0.0_LDP))
+	        TAU=TAU+0.5_LDP*(CHI_EXT(JJ)+CHI_EXT(JJ+1))*
+	1             ABS(SA-SB)
+	      END DO
+	      RH_ATT(I,K)=EXP(-MIN(TAU,7.0E2_LDP))
+	      RH_MAXTAU=MAX(RH_MAXTAU,TAU)
+	      RH_WTOT=RH_WTOT+RH_PW(I,K)
+	      RH_WATT=RH_WATT+RH_ATT(I,K)*RH_PW(I,K)
+	    END DO
+	  END DO
+	ELSE
+	  RH_ATT=1.0_LDP
+	END IF
 C
 	CFAC=3.0E-10_LDP/FL
 	DO L=1,NSIM
@@ -246,9 +313,11 @@ C
 	      IF(NEG_OPACITY(J) .OR. S_L(J) .LE. 0.0_LDP)CYCLE
 	      TI=GAMH_L(I)/RH_T1(I,K)
 	      TJ=GAMH_L(J)/RH_T1P(I,K)
-	      DJ=DJ+RH_PW(I,K)*GAMH_L(J)*S_L(J)*EXPONX(TI)*EXPONX(TJ)
+	      DJ=DJ+RH_PW(I,K)*GAMH_L(J)*S_L(J)*RH_ATT(I,K)*
+	1          EXPONX(TI)*EXPONX(TJ)
 	      IF(SOB_RH_TEST_S1)THEN
-	        DJ1=DJ1+RH_PW(I,K)*GAMH_L(J)*EXPONX(TI)*EXPONX(TJ)
+	        DJ1=DJ1+RH_PW(I,K)*GAMH_L(J)*RH_ATT(I,K)*
+	1            EXPONX(TI)*EXPONX(TJ)
 	      END IF
 	    END DO
 	    DJ=0.5_LDP*DJ
@@ -273,7 +342,11 @@ C NaN sail through the .LE./.GT. style guards into POPS.
 	    END IF
 	    DRC(I,L)=DRC(I,L)+DRATE
 	    RH_NCALL=RH_NCALL+1
-	    RH_MAXDZ=MAX(RH_MAXDZ,ABS(DRATE))
+	    IF(ABS(DRATE) .GT. RH_MAXDZ)THEN
+	      RH_MAXDZ=ABS(DRATE)
+	      RH_IMXD=I
+	      RH_LMXD=L
+	    END IF
 C Dominance census in intensity units: count cells where the remote
 C dJ exceeds the local mean intensity, i.e. the lagged coupling is
 C larger than what it corrects -- the artefact signature of the
@@ -283,7 +356,11 @@ C detailed balance makes it trivially true on thick lines.
 	    IF(S_L(I) .GT. 0.0_LDP .AND.
 	1       ZNET_SIM(I,L) .LT. 1.0_LDP)THEN
 	      RH_JRAT=DJ/((1.0_LDP-ZNET_SIM(I,L))*S_L(I)*BB_COR(I,L))
-	      RH_MAXDJ=MAX(RH_MAXDJ,RH_JRAT)
+	      IF(RH_JRAT .GT. RH_MAXDJ)THEN
+	        RH_MAXDJ=RH_JRAT
+	        RH_IMXJ=I
+	        RH_LMXJ=L
+	      END IF
 	      IF(RH_JRAT .GT. 1.0_LDP)RH_NDOM=RH_NDOM+1
 	    END IF
 	  END DO
@@ -295,21 +372,31 @@ C fixed block of applied corrections instead.
 C
 	IF(RH_NCALL-RH_LASTREP .GE. 500000)THEN
 	  IF(SOB_RH_TEST_S1)THEN
-	    WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
-	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dJ(S=1)=',RH_MAXDJ1,
-	2    ' max dRATE=',RH_MAXDZ,' over',RH_NCALL-RH_LASTREP,
-	3    ' corrections;',RH_NDOM,' dominant (dJ>J_local)'
+	    WRITE(LU,'(A,1PD10.3,A,2I6,A,1PD10.3,A,1PD10.3,A,2I6)')
+	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' @',RH_IMXJ,RH_LMXJ,
+	2    ' max dJ(S=1)=',RH_MAXDJ1,' max dRATE=',RH_MAXDZ,
+	3    ' @',RH_IMXD,RH_LMXD
 	    RH_MAXDJ1=0.0_LDP
 	  ELSE
-	    WRITE(LU,'(A,1PD10.3,A,1PD10.3,A,I8,A,I8,A)')
-	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' max dRATE=',RH_MAXDZ,
-	2    ' over',RH_NCALL-RH_LASTREP,' corrections;',
-	3    RH_NDOM,' dominant (dJ>J_local)'
+	    WRITE(LU,'(A,1PD10.3,A,2I6,A,1PD10.3,A,2I6)')
+	1    ' SOB_RH: max dJ/J=',RH_MAXDJ,' @',RH_IMXJ,RH_LMXJ,
+	2    ' max dRATE=',RH_MAXDZ,' @',RH_IMXD,RH_LMXD
 	  END IF
+	  WRITE(LU,'(A,I8,A,I8,A)')' SOB_RH: over',
+	1    RH_NCALL-RH_LASTREP,' corrections;',RH_NDOM,
+	2    ' dominant (dJ>J_local)'
+	  IF(DO_SOB_RH_EXTINCT .AND. RH_WTOT .GT. 0.0_LDP)
+	1    WRITE(LU,'(A,1PD10.3,A,0PF8.4)')
+	2    ' SOB_RH: max chord tau=',RH_MAXTAU,
+	3    ' att-weighted pair fraction=',RH_WATT/RH_WTOT
 	  RH_LASTREP=RH_NCALL
 	  RH_MAXDJ=0.0_LDP
 	  RH_MAXDZ=0.0_LDP
 	  RH_NDOM=0
+	  RH_IMXD=0
+	  RH_LMXD=0
+	  RH_IMXJ=0
+	  RH_LMXJ=0
 	END IF
 C
 	RETURN
