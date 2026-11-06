@@ -931,7 +931,7 @@
 	    END IF
 	    LUM_DIV_LATCH=.TRUE.
 	    LUM_BLOCKED=.TRUE.
-	    WRITE(LUER,'(A,ES12.4,A,I2,A,I2,A)')
+	    WRITE(LUER,'(A,ES12.4,A,I2,A,I2,A,I2,A)')
 	1   '  SOLVE_FOR_POPS: luminosity runaway, L_out=',LUM_OUT_ABS,
 	2   ' streak=',LUM_DIV_NCNT,'/',LUM_DIV_NCNT2,'/',LUM_DIV_NCNT3,
 	3   ' -- LUM_BLOCKED latched'
