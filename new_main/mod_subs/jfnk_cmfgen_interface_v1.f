@@ -4325,7 +4325,7 @@
 	    CALL JFNK_PC_SIGN_STATS_V1(D_SD, SIG_SD, N_SD,
 	1       N_NEG_SD, N_CANCEL_SD, RMIN_SD, RMED_SD, RP99_SD)
 	    IF(LUER .GT. 0)THEN
-	      WRITE(LUER,'(A,F7.4,A,I8,A,I8)')
+	      WRITE(LUER,'(A,F7.4,A,I8,A,I8,A)')
 	1        '  JFNK: PTC sign diag - frac rows d<0 & sig>0 =',
 	2        DBLE(N_NEG_SD)/MAX(DBLE(N_SD),1.0D0),
 	3        ' (', N_NEG_SD, ' of', N_SD, ')'
@@ -5753,7 +5753,7 @@
 	  ELSE
 ! Banded solve failed -- fall through to per-depth LU/Jacobi.
 	    IF(JFNK_LUER .GT. 0)THEN
-	      WRITE(JFNK_LUER,'(A,I6)')
+	      WRITE(JFNK_LUER,'(A,I6,A)')
 	1        '  JFNK: DGBTRS failed (info=', LU_INFO,
 	2        ') -- Jacobi fallback'
 	    END IF
@@ -5801,7 +5801,7 @@
 	    BANDED_APPLIED = .TRUE.
 	  ELSE
 	    IF(JFNK_LUER .GT. 0)THEN
-	      WRITE(JFNK_LUER,'(A,I6)')
+	      WRITE(JFNK_LUER,'(A,I6,A)')
 	1        '  JFNK: BTD solve failed (nfail=', LU_INFO,
 	2        ') -- Jacobi fallback'
 	    END IF
@@ -7065,7 +7065,7 @@
 ! when GMRES is converging easily.
 !
 	IF(jfnk_need_precond_refresh .NE. 0)THEN
-	  WRITE(JFNK_LUER,'(A,I4,A,F5.2)')
+	  WRITE(JFNK_LUER,'(A,I4,A,F5.2,A)')
 	1    '  JFNK: REBUILDING PRECONDITIONER (GMRES its=',
 	1    jfnk_last_gmres_its, ' frac=', JFNK_PC_REFRESH_FRAC, ')'
 ! This is the live-dtau/x refresh: dtau and the iterate have moved
@@ -8813,7 +8813,7 @@
 	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_S(KWANT,KWANT),STAT=IOS)
 	IF(IOS .EQ. 0)ALLOCATE(JFNK_ENRICH_IPIV(KWANT),STAT=IOS)
 	IF(IOS .NE. 0)THEN
-	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4)')
+	  IF(LUER .GT. 0)WRITE(LUER,'(A,I8,A,I4,A)')
 	1   '  JFNK ENRICH: state alloc failed (N=',N,' K=',KWANT,
 	2   ') -- plain LU runs'
 	  IF(ALLOCATED(JFNK_ENRICH_IDX))DEALLOCATE(JFNK_ENRICH_IDX)
