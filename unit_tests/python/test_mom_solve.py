@@ -368,6 +368,25 @@ def main():
         f"RF_ASCDESC_MAXDIFF={kv(rd.stdout, 'RF_ASCDESC_MAXDIFF')}",
     )
 
+    # --- Repeat-call census scope ------------------------------------
+    # 'recall' mimics the comp_j_blank INACCURATE loop: a second call
+    # at each frequency with NEW_FREQ=F. The sweep census measures the
+    # fresh solve vs the stored field once per frequency, so the bad-
+    # cell counts must stay within the cell total -- a per-call census
+    # recounts compressing rows (frozen store -> identical drift) and
+    # pushes past NTOT, the production over-count seen in OUTGEN.
+    rc = run(exe, "recall", "nonj", "1", "1", "diff", "none", "0",
+             "t_recall", cwd=WORKDIR)
+    rep.check("recall: driver completed", "RESULT_OK" in rc.stdout)
+    rep.check(
+        "recall: bad-cell census stays within the cell total",
+        0 <= kv(rc.stdout, "GS_NBAD5") <= kv(rc.stdout, "GS_NTOT")
+        and 0 <= kv(rc.stdout, "GS_NBAD50") <= kv(rc.stdout, "GS_NTOT"),
+        f"GS_NBAD5={kv(rc.stdout, 'GS_NBAD5')} "
+        f"GS_NBAD50={kv(rc.stdout, 'GS_NBAD50')} "
+        f"GS_NTOT={kv(rc.stdout, 'GS_NTOT')}",
+    )
+
     # --- Zero-GAM resonance: sigma_true = -1/K band ------------------
     dz = run(exe, "zero", "nonj", "6", "1", "diff", "none", "0",
              "t_zero", cwd=WORKDIR)
