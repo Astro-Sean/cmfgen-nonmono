@@ -803,6 +803,22 @@
 !
 	LOGICAL DO_NONLOC_SOB
 !
+! DO_SOB_RH_EXTINCT (VADAT [DO_SOB_RH_EXTINCT], default T): when TRUE,
+! SOB_RH_COUPLE multiplies each remote pair term by exp(-tau_chord),
+! the continuum transmission along the chord between the two
+! resonance points (Rybicki & Hummer 1978; Feldmeier & Nikutta 2006).
+! Without it the two-point kernel treats every coupled pair as an
+! unobstructed ray, so deep emitters pump optically thin outer cells
+! at full strength; on m15_2p82d the uncorrected term exceeded the
+! local mean intensity by ~1E8 and drove the population solve
+! non-contractive (docs/audits/SOB_NONLOC_IT65_CRASH.md).  The path
+! opacity is the continuum CHI at the line-group frequency;
+! intermediate line resonances are a separate, still missing,
+! shielding term.  Set FALSE only for A/B tests against the
+! uncorrected kernel.  No effect unless DO_NONLOC_SOB is TRUE.
+!
+	LOGICAL DO_SOB_RH_EXTINCT
+!
 ! ALLOW_SIGMA_UNDEF (dev audit F4, Oct-2026). When FALSE (default),
 ! RECOMPUTE_SIGMA_TRUE aborts if SIGMA_TRUE_CORE leaves any cell
 ! undefined (degenerate R spacing or a fully stagnant neighbourhood
