@@ -6324,19 +6324,19 @@
 	3    BEST_CHG .LE. 1.0E+3_LDP*MIN_RES
 	  IF(BEST_VALID .AND. .NOT. KEEP_BEST)THEN
 	    IF(BEST_N50 .GT. N50_SV)THEN
-	      WRITE(LUER,'(A,2I12,A,2I12,2A)')
+	      WRITE(LUER,'(A,2I12,A,2I12,3A)')
 	1        ' MOM_KNOP_REFRESH: best-pass field rejected ('//
 	2        'above-50% count regressed: ',BEST_N5,' above 5%, ',
 	3        BEST_N50,' above 50% vs the sweep''s ',N5_SV,N50_SV,
 	4        ')','  [WARN]'
 	    ELSE IF(BEST_N5 .GT. N5_SV+N5_SV/2)THEN
-	      WRITE(LUER,'(A,2I12,A,2I12,2A)')
+	      WRITE(LUER,'(A,2I12,A,2I12,3A)')
 	1        ' MOM_KNOP_REFRESH: best-pass field rejected ('//
 	2        'above-5% churn beyond 1.5x: ',BEST_N5,' above 5%, ',
 	3        BEST_N50,' above 50% vs the sweep''s ',N5_SV,N50_SV,
 	4        ')','  [WARN]'
 	    ELSE IF(BEST_N5 .GT. N5_SV)THEN
-	      WRITE(LUER,'(A,2I12,A,2I12,2A)')
+	      WRITE(LUER,'(A,2I12,A,2I12,3A)')
 	1        ' MOM_KNOP_REFRESH: best-pass field rejected (no'//
 	2        ' bulk improvement: ',BEST_N5,' above 5%, ',
 	3        BEST_N50,' above 50% vs the sweep''s ',N5_SV,N50_SV,
