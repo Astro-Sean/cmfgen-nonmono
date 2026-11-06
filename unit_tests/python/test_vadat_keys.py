@@ -487,6 +487,28 @@ def main():
         "RESULT_OK" in p.stdout and v.get("DO_NONLOC_SOB") == "T",
     )
 
+    # DO_SOB_RH_EXTINCT defaults T; explicit F parses and warns.
+    d = write_vadat(WORKDIR / "vadat_ext_def", {"DO_NONLOC_SOB": "T"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_SOB_RH_EXTINCT defaults T",
+        "RESULT_OK" in p.stdout and v.get("DO_SOB_RH_EXTINCT") == "T",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_ext_off",
+        {"DO_NONLOC_SOB": "T", "DO_SOB_RH_EXTINCT": "F"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_SOB_RH_EXTINCT=F parses with A/B warning",
+        "RESULT_OK" in p.stdout
+        and v.get("DO_SOB_RH_EXTINCT") == "F"
+        and "unobstructed two-point kernel" in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # VEL_LAW=13 selects SN_HYDRO_MODEL.
     d = write_vadat(WORKDIR / "vadat_v13", {"VEL_LAW": "13"})
     p = run_vadat(exe, d)
