@@ -1247,9 +1247,9 @@
 !
 	LOGICAL MOM_XM_POS
 !
-! MOM_FAC_RLX (default 1.0 = off): under-relaxation weight for the
-! Eddington-factor update between great iterations in
-! MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
+! MOM_FAC_RLX (default 0.25, was 1.0 = off): under-relaxation
+! weight for the Eddington-factor update between great iterations
+! in MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
 ! snap is the only channel moving the lagged map's fixed point per
 ! iteration. 1.0 keeps the raw snap. VADAT keyword [MOM_FAC_RLX].
 !
