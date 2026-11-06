@@ -393,7 +393,7 @@
 	  END IF
 	END DO
 	IF(T1 .LT. 1.0E-4_LDP)THEN
-	  WRITE(LUER,'(A,ES12.4,A,I6,A,ES12.4)')
+	  WRITE(LUER,'(A,ES12.4,A,I6,A,ES12.4,A)')
 	1   'RV_SN_MODEL_SNHYD: tightest cell dR/R-1=',T1,
 	2   ' at I=',I0,' (feature insertion floor is',
 	3   U_GAP_FAC,' of a uniform cell)'
