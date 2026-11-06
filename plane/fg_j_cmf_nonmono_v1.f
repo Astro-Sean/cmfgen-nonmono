@@ -4913,7 +4913,7 @@ C
 	1   ACTION='WRITE',IOSTAT=IOS)
 	  IF(IOS .NE. 0)GOTO 9998
 	  WRITE(999,'(A)')' ========== JNU Clamp Diagnostic (first sweep, first great iteration) =========='
-	  WRITE(999,'(A,I8,A,I6)')'Total clamped: ',N_NAN_JNU_SWEEP,' over ',N_SWEEP_CNT,' frequencies'
+	  WRITE(999,'(A,I8,A,I6,A)')'Total clamped: ',N_NAN_JNU_SWEEP,' over ',N_SWEEP_CNT,' frequencies'
 	  WRITE(999,*)
 	  WRITE(999,'(A)')' ---------- Depth histogram (depth, count, fraction of frequencies) ------------'
 	  IF(ALLOCATED(JNU_CLAMP_DEPTH))THEN
@@ -6168,7 +6168,7 @@ C
 	IF(.NOT. ALLOCATED(I_P_DEPTH_NEXT))RETURN
 	IF(.NOT. KN_STORE_READY)THEN
 	  IF(.NOT. KN_RF_WARNED)THEN
-	    WRITE(LUER,'(A,I8,A,I8)')'FG_KNOP_REFRESH: capture store'
+	    WRITE(LUER,'(A,I8,A,I8,A)')'FG_KNOP_REFRESH: capture store'
 	1      //' not armed (FREQ_IDX_ITER=',FREQ_IDX_ITER,
 	2      ', NCF=',KN_NCF,') -- refresh skipped'
 	    KN_RF_WARNED=.TRUE.
@@ -6179,7 +6179,7 @@ C
 ! increment), so a complete sweep ends at KN_NCF-1.
 	IF(FREQ_IDX_ITER .NE. KN_NCF-1)THEN
 	  IF(.NOT. KN_RF_WARNED)THEN
-	    WRITE(LUER,'(A,I8,A,I8)')'FG_KNOP_REFRESH: incomplete sweep'
+	    WRITE(LUER,'(A,I8,A,I8,A)')'FG_KNOP_REFRESH: incomplete sweep'
 	1      //' (FREQ_IDX_ITER=',FREQ_IDX_ITER,', NCF=',KN_NCF,
 	2      ') -- refresh skipped'
 	    KN_RF_WARNED=.TRUE.
