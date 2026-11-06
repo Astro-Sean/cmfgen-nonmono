@@ -195,3 +195,33 @@ coverage (5 revert commits on 2026-11-05).
 
 The next correction is path extinction along the chord
 (third-resonance and continuum), not a cap on the term.
+
+## 9. Continuum chord extinction (2026-11-06)
+
+Section 8 closed with "path extinction along the chord".  Offline
+analysis of the run's R/V grid with a source-weighted replica showed
+the dominant remote partners at the problem depths (I=6-11) sit in
+the dense inner ejecta; their chords cross continuum optical depths
+of ~300-400, so the unobstructed two-point kernel overestimates
+their contribution by ~100x at the crash cells.
+
+`SOB_RH_COUPLE` now multiplies each accepted pair term by
+`ATT = exp(-tau_chord)`, the continuum transmission between the two
+resonance points, using the `CHI` at the line-group frequency
+(same opacity table the continuum transfer uses).  The chord tau is
+a trapezoid sum in the path coordinate `s = sqrt(r^2 - p^2)` with
+nodes at the shell radii; `p^2 = R_I^2 (1 - mu^2)` is cached per
+pair with the geometry (new `RH_P2`/`RH_ATT` tables).  New VADAT
+key `DO_SOB_RH_EXTINCT` (default T) gates it; F recovers the
+unobstructed kernel for A/B tests.  Intermediate LINE resonances
+(third-point extinction, ~8% of pairs) remain unimplemented -- the
+term is still a bounded overestimate in those directions.
+
+Reporting: the `SOB_RH:` line now tags the (I,L) of `max dJ/J` and
+`max dRATE`, and a second line reports `max chord tau` and the
+attenuated pair-weight fraction per report block.
+
+Unit coverage (`test_sob_rh_couple.py`, 16 checks): analytic
+exp(-c0*chord) recovery under uniform CHI, DRC~0 under opaque CHI,
+`EXTINCT=F` restoring the pre-fix kernel bit-for-bit, and an opaque
+two-cell shell extinguishing only chord-crossing pairs.
