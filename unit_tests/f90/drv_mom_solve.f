@@ -9,7 +9,9 @@
 ! Usage: drv_mom_solve <mode> <ntype> <niter> <outbc> <inbm> <hchk>
 !                      <match> <tag>
 !   mode : homo | beta | dec | comp1 | comp2 | strong | jump | zero |
-!          sigx | vconst | compw
+!          sigx | vconst | compw | recall (comp1 + NEW_FREQ=F recall
+!          per frequency -- the comp_j_blank INACCURATE pattern; the
+!         sweep census must not exceed GS_NTOT)
 !   ntype: nonj | gonly
 !   niter: number of sweeps over all NCF frequencies
 !   outbc: 1 (Eddington closure) or 2 (negated interior row)
@@ -113,7 +115,7 @@
       ELSE IF(MODE .EQ. 'vconst')THEN
         NCASE=4; SIGT=-1.0_LDP
       ELSE IF(MODE .EQ. 'comp1' .OR. MODE .EQ. 'ckpt' .OR.
-     1        MODE .EQ. 'rfd')THEN
+     1        MODE .EQ. 'rfd' .OR. MODE .EQ. 'recall')THEN
         NCASE=5; SIGT(10:13)=-4.0_LDP
       ELSE IF(MODE .EQ. 'comp2')THEN
         NCASE=6; SIGT(7:9)=-4.0_LDP; SIGT(15:17)=-6.0_LDP
@@ -318,6 +320,23 @@
      6         NTYP6,HCHK6,METH,COHR,OUTBC,
      7         INIT,NEW_FREQ,0,1,ND,FIDX,NCF)
 !
+!         recall: mimic the comp_j_blank INACCURATE loop, which
+!         re-calls the solver at the same frequency with NEW_FREQ=F.
+!         The sweep census (GS_NBAD5 etc.) must stay within the cell
+!         count -- a per-call census would recount compressing rows
+!         (frozen store -> identical drift) and inflate past NTOT.
+!
+          IF(MODE .EQ. 'recall')THEN
+            CALL MOM_J_CMF_NONMONO_V1(ETA,CHI_L,ESEC,
+     1           V,SIG,SIGT,R,
+     2           JNU,RSQH,
+     3           VDOP,VDOP_FRAC,
+     4           FREQ,DLNC,
+     5           INBM6,DBB,IC,IBSTAB,
+     6           NTYP6,HCHK6,METH,COHR,OUTBC,
+     7           .FALSE.,.FALSE.,0,1,ND,FIDX,NCF)
+          END IF
+!
 !         v11: A/B against the stock upstream solver on the same
 !         monotonic input -- the non-mono discretisation must reduce
 !         to V11 where sigma_true >= -1 everywhere.
@@ -472,6 +491,10 @@
 !
       WRITE(*,'(A,I6)')'ND_NM=',ND_NM
       WRITE(*,'(A,ES14.6)')'GS_MAXCHG=',MOM_GS_MAXCHG
+      WRITE(*,'(A,I10)')'GS_NBAD5=',MOM_GS_NBAD5
+      WRITE(*,'(A,I10)')'GS_NBAD50=',MOM_GS_NBAD50
+      WRITE(*,'(A,I10)')'GS_NTOT=',MOM_GS_NTOT
+      WRITE(*,'(A,I10)')'GS_NQUAR=',MOM_GS_NQUAR
       WRITE(*,'(A,I10)')'NEGJ_LRG=',MOM_NEGJ_LRG
       WRITE(*,'(A,I10)')'NEGJ_T=',MOM_N_NEGJ_T
       WRITE(*,'(A,I10)')'N_DGTSV=',MOM_N_DGTSV
