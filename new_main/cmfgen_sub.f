@@ -2317,7 +2317,12 @@
 !
 	  JFNK_EDD_START_REC=ACCESS_F
 	END IF
-	WRITE(6,*)EDDINGTON,ACCESS_F,COMPUTE_EDDFAC	
+! edited 06-Nov-2026: label the EDDFACT cursor echo - the upstream
+! list-directed write printed an unlabeled "T  15 T" line every
+! iteration (print-hygiene fix, not flag-gated, no value change).
+!
+	WRITE(LUER,'(A,L2,A,I10,A,L2)')'  EDDINGTON=',EDDINGTON,
+	1   ' ACCESS_F=',ACCESS_F,' COMPUTE_EDDFAC=',COMPUTE_EDDFAC
 !
 ! Decide whether to use an file with old J values to provide an initial
 ! estimate of J with incoherent electron scattering. The options
@@ -5693,7 +5698,7 @@
 	4           LAM_FIELD_NOT_READY))THEN
 ! edited 29-Sep-2026: mark the one-time DO_LAM_AUTO switch so
 ! the start of full iterations is visible in OUTGEN.
-	       WRITE(LUER,'(A,I5,A,ES12.4)')
+	       WRITE(LUER,'(A,I5,A,ES12.4,A)')
 	1       ' DO_LAM_AUTO: switching to full iterations at iter ',
 	2       MAIN_COUNTER,' (MAXCH_CTRL=',MAXCH_CTRL,')'
 	       IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
