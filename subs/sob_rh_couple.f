@@ -188,7 +188,7 @@ C
 C
 	WRITE(LU,'(A,I8,A,I5,A)')' SOB_RH: ',RH_TOTPAIRS,
 	1  ' non-local coupling pairs over',ND,' depths'
-	IF(RH_NDROP .GT. 0)WRITE(LU,'(A,I8,A)')
+	IF(RH_NDROP .GT. 0)WRITE(LU,'(A,I8,2A)')
 	1  ' SOB_RH: ',RH_NDROP,' pairs dropped at V<=0 depths',
 	2  ' (non-expanding regions are not coupled)'
 C
