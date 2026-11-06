@@ -510,6 +510,101 @@ def test_no_progress_stops():
     )
 
 
+def test_mom_sweep_census_counts_first_call_only():
+    """The comp_j_blank INACCURATE loop re-calls MOM_J_CMF_NONMONO_V1
+    at the same frequency with NEW_FREQ=F, so ungated counters counted
+    each cell ~14x per sweep (drift census exceeded NTOT, and
+    MOM_QUAR_AGE crossed MOM_QUAR_PERSIST inside one sweep). The
+    sweep census belongs to the first (fresh-solve) call only.
+    """
+    block = section(
+        MOM,
+        "Census scope: the comp_j_blank INACCURATE loop",
+        "Fold the cell's drift into its caller pass",
+    )
+    check(
+        "drift census gated on NEW_FREQ or refresh calls",
+        block.count("IF(NEW_FREQ .OR. MOM_KN_REFRESHING)") >= 6,
+    )
+    check(
+        "quarantine age ticks once per sweep, not per call",
+        "IF(NEW_FREQ .AND. .NOT. MOM_KN_REFRESHING)THEN" in block,
+    )
+    check(
+        "capped/boundary counters share the census gate",
+        "MOM_INEXT_CAPPED=MOM_INEXT_CAPPED+N_QBND"
+        in block.split("END IF")[0],
+    )
+    check(
+        "significant-negative-J counter gated the same way",
+        re.search(
+            r"IF\(NEW_FREQ \.OR\. MOM_KN_REFRESHING\)\s*\n"
+            r"\s*1\s+MOM_NEGJ_LRG=MOM_NEGJ_LRG\+1",
+            MOM,
+        )
+        is not None,
+    )
+    check(
+        "pass-1/pass-2 fold kept outside the census gate",
+        "MOM_GS_CHG_P2=MAX(MOM_GS_CHG_P2,T5)" in MOM
+        and ".NOT. MOM_KN_REFRESHING" in section(
+            MOM,
+            "Fold the cell's drift into its caller pass",
+            "END DO",
+        ),
+    )
+
+
+def test_mom_sweep_report_reads_sweep_drift():
+    """MOM_KNOP_REFRESH_V1 overwrites MOM_GS_MAXCHG with the refresh
+    residual (BEST_CHG) for the adaptive relaxation; the sweep table
+    must print MOM_SW_MAXCHG alongside the restored sweep counts or
+    'drift' and ITER_SUM describe different quantities.
+    """
+    body = section(MOM, "SUBROUTINE DUMP_MOM_JNEXT_GS", "Per-pass split")
+    check(
+        "sweep drift falls back to MOM_SW_MAXCHG after a refresh",
+        "IF(MOM_RF_RAN)SW_DRIFT=MOM_SW_MAXCHG" in body,
+    )
+    check(
+        "drift line prints SW_DRIFT with the sweep counts",
+        "'lagged J_NEXT drift ',SW_DRIFT" in body,
+    )
+    check(
+        "argmax history and status verdicts use SW_DRIFT",
+        "MOM_ARG_HV(4)=SW_DRIFT" in body
+        and body.count("SW_DRIFT .GT.") >= 2,
+    )
+    check(
+        "refresh restores the sweep argmax with the sweep counts",
+        "ARGI_SV=MOM_GS_ARGI" in MOM
+        and "MOM_GS_ARGI=ARGI_SV" in MOM
+        and "MOM_GS_ARGL=ARGL_SV" in MOM,
+    )
+
+
+def test_mom_stall_text_matches_direction_schedule():
+    check(
+        "compressing-stall text conditional on the schedule",
+        re.search(
+            r"IF\(MOM_DOM_CMP\)THEN[\s\S]{0,400}?"
+            r"' stalled - dropping it after pass',IPASS,[\s\S]{0,200}?"
+            r"no other direction is scheduled",
+            MOM,
+        )
+        is not None,
+    )
+    check(
+        "expanding-stall text conditional on the schedule",
+        re.search(
+            r"IF\(MOM_DOM_EXP\)THEN[\s\S]{0,400}?"
+            r"no other direction is scheduled",
+            MOM,
+        )
+        is not None,
+    )
+
+
 def test_fg_trial_churn_arm():
     check(
         "FG_TRIAL_CHURN declared in control_variable_mod",
@@ -606,5 +701,8 @@ if __name__ == "__main__":
     test_solveba_global_temperature_cap_uses_max_dt_cor()
     test_mom_adapt_omega_v2_vadat_wiring()
     test_no_progress_stops()
+    test_mom_sweep_census_counts_first_call_only()
+    test_mom_sweep_report_reads_sweep_drift()
+    test_mom_stall_text_matches_direction_schedule()
     test_fg_trial_churn_arm()
     print("all KNOP lagged-field checks passed")
