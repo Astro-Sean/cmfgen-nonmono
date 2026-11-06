@@ -991,7 +991,7 @@ C
 	         CALL OUT_JH(TA,RSQHNU,T1,T2,FL,NCF,R,V,ND,FIRST_FREQ,'NORMAL')
 	       END IF
 	     ELSE IF(USE_LAM_ES)THEN
-	       IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)WRITE(LUER,*)
+	       IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)WRITE(LUER,'(A)')
 	1         'Field solver: ray solutions with lambda'//
 	2         ' iteration (USE_LAM_ES); the moment equations'//
 	3         ' are not solved'
