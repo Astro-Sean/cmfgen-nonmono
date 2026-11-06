@@ -757,7 +757,7 @@
 	      F0_OK=.FALSE.
 	      WRITE(LUER,'(A)')
 	1   '  ERROR: F(0) from JFNK_RESIDUAL_V1 differs from outer STEQ.'
-	      WRITE(LUER,'(A,ES10.2)')
+	      WRITE(LUER,'(A,ES10.2,A)')
 	1   '  JFNK residual inconsistent with CMFGEN STEQ (rel=',F0_REL,')'
 	      WRITE(LUER,'(A)')
 	1   '  Skipping Newton solve -- falling back to LAMBDA/BA.'
@@ -1693,7 +1693,7 @@
 	        IF(ALLOCATED(JFNK_CMAT_RAD))
 	1         CMR_LOC=DBLE(JFNK_CMAT_RAD(JROW,JROW,KROW))
 	        BADG_LOC=JFNK_BA_A(JROW,JROW,KROW)
-	        WRITE(LUER,'(I4,I9,I6,I6,ES12.4,2X,A12,I5,4ES12.4)')
+	        WRITE(LUER,'(I4,I9,I6,I6,ES12.4,2X,A12,I5,5ES12.4)')
 	1          K,I_ZMAX,KROW,JROW,Z_CHK(I_ZMAX),LBL_LOC,LEV_LOC,
 	2          POP_LOC,NLTE_LOC,jfnk_fx(I_ZMAX),CMR_LOC,BADG_LOC
 	      END DO
@@ -2115,7 +2115,7 @@
 	        JJ_W=MAXLOC(ABS(FB_D),1)
 	        CPL_CHK_ACTIVE=JFNK_CPL_SOB_EACH .OR.
 	1          .NOT. JFNK_CPL_SOB_CHK_DONE
-	        WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	        WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
 	1       '  JFNK-CPL consistency: |F_eval-F_prod|_w=',REAL(FB_D2),
 	2       '  rel=',REAL(FB_REL),'  tol=',REAL(JFNK_CPL_SOB_TOL)
 	        WRITE(LUER,'(A,I10,A,I8,A,I4)')
@@ -2263,7 +2263,7 @@
 	          BEST_X=0.0D0
 	          FLUSH(LUER)
 	        ELSE
-	          WRITE(LUER,'(A,I3,A,I3)')
+	          WRITE(LUER,'(A,I3,A,I3,A)')
 	1           '  JFNK: REBUILDING PRECONDITIONER (attempt ',
 	2           JFNK_ATTEMPT,'/',JFNK_MAX_RESTART_LOC,')'
 !
@@ -2377,7 +2377,7 @@
 	1         '    solver status                    : apply'
 	2         //' best attempt'
 	      ELSE
-	        WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	        WRITE(LUER,'(A,ES12.4,A,ES12.4,A)')
 	1       '    best attempt below 1D-4 improvement floor (',
 	2       REAL(BEST_F_W),' vs ',REAL(F_W_INIT),
 	3       ') -- retaining caller mode'
@@ -2662,7 +2662,7 @@
 	          CALL JFNK_MASK_FIXED_UNKNOWNS(JFNK_N,Y_APP)
 	          CALL jfnk_ptc_strip_v1(JFNK_N,X_APP,Y_APP)
 	          F_APP=SQRT(JFNK_DOT_V1(JFNK_N,Y_APP,Y_APP))
-	          WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	          WRITE(LUER,'(A,ES12.4,A,ES12.4,A)')
      1          '    |F|_w at applied state    :',F_APP,
      2          '   (entry',F_W_ENTRY,')'
 	        ELSE
