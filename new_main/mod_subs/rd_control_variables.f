@@ -2511,9 +2511,20 @@
 	  SOB_RH_TEST_S1=.FALSE.
 	  CALL RD_STORE_LOG(SOB_RH_TEST_S1,'SOB_RH_TEST_S1',L_FALSE,
 	1     'SOB_RH unit-source bounding test (diagnostic only)')
+	  DO_SOB_RH_EXTINCT=.TRUE.
+	  CALL RD_STORE_LOG(DO_SOB_RH_EXTINCT,'DO_SOB_RH_EXTINCT',L_FALSE,
+	1     'Extinct remote Sobolev pairs by continuum chord tau?')
 	  DO_SOB_FG_KNOP=.FALSE.
 	  CALL RD_STORE_LOG(DO_SOB_FG_KNOP,'DO_SOB_FG_KNOP',L_FALSE,
 	1     'Use the Knop sign-aware formal solver for SOB+LAM_ES J')
+!
+! DO_SOB_RH_EXTINCT is inert unless DO_NONLOC_SOB is on; an explicit F
+! without the coupling is a no-op, so warn only for the A/B case.
+!
+	  IF(DO_NONLOC_SOB .AND. .NOT. DO_SOB_RH_EXTINCT)THEN
+	    WRITE(LUER,*)'Warning: DO_SOB_RH_EXTINCT=F -- remote pairs use'
+	    WRITE(LUER,*)'the unobstructed two-point kernel; A/B test only.'
+	  END IF
 !
 ! ES-ALI keys (27-Oct-2026): optional. DO_ES_ALI turns on the
 ! Olson-Auer-Buchler update of the coherent-ES Lambda iterate inside
@@ -3809,6 +3820,10 @@
 	    IF(DO_NONLOC_SOB)THEN
 	      WRITE(LUSCR,'(A)')' DO_NONLOC_SOB=T: Rybicki-Hummer 1978'//
 	1         ' non-local coupling added to Sobolev net rates'
+	      IF(.NOT. DO_SOB_RH_EXTINCT)THEN
+	        WRITE(LUSCR,'(A)')'   DO_SOB_RH_EXTINCT=F: remote pairs'//
+	1           ' unobstructed (A/B test only)'
+	      END IF
 	    END IF
 	  END IF
 !
