@@ -7,8 +7,10 @@ on the expanded grid, then dumps every internal coefficient array.
 This test recomputes each coefficient from first principles (the Knop
 et al. 2009 Paper I split, V11 moment structure) and compares against
 the production values; it also checks field admissibility, the
-tridiagonal residual, the lagged fixed-point drift, and the zero-GAM
-resonance behaviour (MOM_GAM_FAC_MIN floor + exact-zero exception).
+tridiagonal residual, the lagged fixed-point drift, the zero-GAM
+resonance behaviour (MOM_GAM_FAC_MIN floor + exact-zero exception),
+and the contraction regime of the lagged map (thin compressing rows
+-> marginal shift map; ray-store drift -> sustained bounded floor).
 """
 
 import sys
@@ -321,6 +323,57 @@ def main():
         "comp1: lagged-map drift contracts over sweeps",
         len(chgs) >= 4 and chgs[-1] < chgs[1],
         f"trajectory {[f'{c:.2e}' for c in chgs]}",
+    )
+
+    # --- Contraction regime: thin compressing rows -> marginal map --
+    # chi -> 0 strips chi_hat of its opacity floor, so the frequency
+    # coupling |Q| -> |GAM_FAC|/(matched span) ~ 1 and the lagged
+    # fixed-point map degenerates toward a comoving-advection shift
+    # (spectral radius -> 1).  MOM_LAG_BND bounds the lagged source at
+    # each row's diagonal excess, which keeps the map non-expansive
+    # but cannot contract it.  The production m15 MOM path sits in
+    # this regime (thin compressing outer wind + 56K-frequency
+    # chains); the measured tail behaviour at test scale:
+    #
+    #   * fixed coefficients, thin: converges, but the contraction
+    #     ratio degrades toward 1 as chi drops (audit measured
+    #     ~0.55/sweep at chi=1 vs ~0.85/sweep at chi=1e-3, NCF=512).
+    #   * coefficients drifting between sweeps (the PERT emulation of
+    #     the production ray-store rebuild): the fixed point moves
+    #     faster than the marginal tail contracts -> a sustained,
+    #     oscillating residual floor -- "bounded non-contraction".
+    #
+    # These cases pin the regime: the thin control must still
+    # converge, the drift case must stay bounded but non-convergent.
+    dtc = run(exe, "compw", "nonj", "40", "1", "diff", "none", "1",
+              "t_thinfix", "0.9", "0.01", "0.0", "0.0", cwd=WORKDIR)
+    rep.check("thinfix: driver completed", "RESULT_OK" in dtc.stdout)
+    chg_t = [float(l.split("MOM_GS_MAXCHG=")[1].split()[0])
+             for l in dtc.stdout.splitlines() if l.startswith("IT=")]
+    rep.check(
+        "thinfix: thin compressing map still contracts at fixed coeff",
+        len(chg_t) >= 10 and chg_t[-1] < 1.0e-5,
+        f"final {chg_t[-1]:.2e}",
+    )
+
+    dtd = run(exe, "compw", "nonj", "40", "1", "diff", "none", "1",
+              "t_thindrft", "0.9", "0.01", "0.0", "0.05", cwd=WORKDIR)
+    rep.check("thindrft: driver completed", "RESULT_OK" in dtd.stdout)
+    chg_d = [float(l.split("MOM_GS_MAXCHG=")[1].split()[0])
+             for l in dtd.stdout.splitlines() if l.startswith("IT=")]
+    tail = chg_d[-20:]
+    n_osc = sum(
+        1 for a, b in zip(tail[:-1], tail[1:]) if b > 1.05 * a
+    )
+    rep.check(
+        "thindrft: coefficient drift stalls the map at a bounded floor",
+        1.0e-3 < chg_d[-1] < 1.0e+2 and n_osc >= 5,
+        f"final {chg_d[-1]:.2e}, {n_osc} upward steps in tail",
+    )
+    rep.check(
+        "thindrft: LAG_BND engaged on compressing rows (bounded map)",
+        kv(dtd.stdout, "LAGB_CNT") > 0,
+        f"LAGB_CNT={kv(dtd.stdout, 'LAGB_CNT')}",
     )
 
     # --- Test C: multiple compression regions ------------------------
