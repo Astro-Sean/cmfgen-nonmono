@@ -449,8 +449,9 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: XHIST_OUT(:,:,:),
 	1    FHIST_OUT(:,:,:),RETJ_PREV(:,:),RETH_PREV(:,:)
 !
-! MOM_FAC_RLX (VADAT real, default 1.0 = off): under-relax the
-! Eddington-factor update between great iterations. With pops held,
+! MOM_FAC_RLX (VADAT real, default 0.25, was 1.0 = off): under-
+! relax the Eddington-factor update between great iterations. With
+! pops held,
 ! J -> formal solve -> K_ON_J/NMID factors -> coefficients is the
 ! only channel that moves the lagged map's fixed point between
 ! iterations, and on this model the unrelaxed snap displaces the map
@@ -462,7 +463,7 @@
 ! re-seeds from the snap and re-relaxes. 1.0 keeps the raw formal
 ! snap (all prior behavior).
 !
-	REAL(KIND=LDP), SAVE :: MOM_FAC_RLX=1.0_LDP
+	REAL(KIND=LDP), SAVE :: MOM_FAC_RLX=0.25_LDP
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FACR_KONJ(:,:),
 	1    FACR_NMJ(:,:),FACR_NMH(:,:)
 	LOGICAL, ALLOCATABLE, SAVE :: FACR_SEED(:)
@@ -923,11 +924,11 @@
 	DATA MOM_KN_REFRESHING /.FALSE./
 	DATA KN_M_DESC /.FALSE./
 	DATA MOM_RF_GS_DESC /.FALSE./
-	DATA MOM_RF_KEEPNEG /.TRUE./
+	DATA MOM_RF_KEEPNEG /.FALSE./
 	DATA MOM_RF_BULK_EXIT /.TRUE./
 	DATA MOM_RF_DIV_BULK /.TRUE./
-	DATA MOM_RF_ACTIVE /.FALSE./
-	DATA MOM_RF_DIR /'AUTO'/
+	DATA MOM_RF_ACTIVE /.TRUE./
+	DATA MOM_RF_DIR /'ALT '/
 	DATA MOM_RF_OWNW /.TRUE./
 	DATA MOM_DOM_CMP /.FALSE./
 	DATA MOM_DOM_EXP /.FALSE./
