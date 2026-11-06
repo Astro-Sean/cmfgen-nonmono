@@ -14,7 +14,10 @@ tables are the production ones; Python then verifies:
   * no pairs for homologous V=aR (D2=0 exactly);
   * V<=0 rows never appear as target or partner;
   * DRC equals CHIL*dJ/BB_COR recomputed from the dumped tables;
-  * NEG_OPACITY and S_L<=0 suppress contributions; BB_COR=0 is safe.
+  * NEG_OPACITY and S_L<=0 suppress contributions; BB_COR=0 is safe;
+  * continuum chord extinction (DO_SOB_RH_EXTINCT): analytic uniform-
+    CHI attenuation, opaque-medium suppression, EXTINCT=F recovery,
+    and shell-localized crossing pairs.
 """
 
 import sys
@@ -64,11 +67,17 @@ def build():
     return bins
 
 
-def write_case(name, r, v, sig, chil, etal, bbc, znet, neg, fl=FL, extra_geom=None):
+def write_case(
+    name, r, v, sig, chil, etal, bbc, znet, neg, fl=FL,
+    chi=None, extinct=True, extra_geom=None,
+):
     path = WORKDIR / name
+    chi = np.zeros(len(r)) if chi is None else chi
     with open(path, "w") as f:
         f.write(f"{ND} {NSIM} {fl:.6e}\n")
         f.write(" ".join("T" if x else "F" for x in neg) + "\n")
+        f.write(("T" if extinct else "F") + "\n")
+        f.write(" ".join(f"{x:.6e}" for x in chi) + "\n")
         for i in range(ND):
             f.write(f"{r[i]:.17e} {v[i]:.17e} {sig[i]:.17e}\n")
         for l in range(NSIM):
@@ -116,6 +125,8 @@ def parse(out):
             meta["maxdz"] = float(t[2])
         elif t[0] == "DRC":
             drc[int(t[1]), int(t[2])] = float(t[3])
+        elif t[0] == "ATT":
+            meta.setdefault("att", {})[int(t[1]), int(t[2])] = float(t[3])
     blocks.append((pairs, drc, meta))
     return blocks[0] if len(blocks) == 1 else blocks
 
@@ -157,7 +168,23 @@ def exponx(x):
     return out
 
 
-def drc_expected(pairs, r, v, chil, etal, bbc, neg, fl):
+def chord_tau(r, v, i, j, chi):
+    """Replicate the production trapezoid: continuum tau along the
+    chord between resonance points i and j, summed shell by shell in
+    the path coordinate s=sqrt(r^2-p^2)."""
+    d1 = r[j] ** 2 - r[i] ** 2
+    d2 = r[j] ** 2 * v[i] ** 2 - r[i] ** 2 * v[j] ** 2
+    mu2 = d1 * v[j] ** 2 / d2
+    p = r[i] * np.sqrt(max(1.0 - mu2, 0.0))
+    tau = 0.0
+    for k in range(min(i, j), max(i, j)):
+        sa = np.sqrt(max((r[k] - p) * (r[k] + p), 0.0))
+        sb = np.sqrt(max((r[k + 1] - p) * (r[k + 1] + p), 0.0))
+        tau += 0.5 * (chi[k] + chi[k + 1]) * abs(sa - sb)
+    return tau
+
+
+def drc_expected(pairs, r, v, chil, etal, bbc, neg, fl, chi=None, extinct=True):
     nd, nsim = chil.shape
     cfac = 3.0e-10 / fl
     drc = np.zeros_like(chil)
@@ -171,9 +198,12 @@ def drc_expected(pairs, r, v, chil, etal, bbc, neg, fl):
             for j, t1, t1p, pw in plist:
                 if neg[j] or sl[j] <= 0.0:
                     continue
+                att = 1.0
+                if extinct and chi is not None:
+                    att = np.exp(-min(chord_tau(r, v, i, j, chi), 700.0))
                 ti = gamh[i] / t1
                 tj = gamh[j] / t1p
-                dj += pw * gamh[j] * sl[j] * exponx(ti) * exponx(tj)
+                dj += pw * gamh[j] * sl[j] * att * exponx(ti) * exponx(tj)
             dj *= 0.5
             if dj <= 0.0 or bbc[i, l] == 0.0:
                 continue
@@ -378,6 +408,89 @@ def main():
         meta_c.get("banners", 0) == 0 and pairs_c == pairs_b,
         f"banners={meta_c.get('banners')}",
     )
+
+    # -- T8: uniform CHI -> analytic chord attenuation -------------
+    # With CHI=c0 the trapezoid telescopes to c0*|s_i - s_j| on the
+    # (same-leg) admitted pairs, so ATT has a closed form.
+    chi_c = np.full(ND, 1.0e-4)
+    path = write_case(
+        "rh_att_uniform.txt", r, v, sig, chil, etal, bbc, znet, neg, chi=chi_c
+    )
+    pairs_a, drc_a, meta_a = parse(run(binary, path).stdout)
+    att_map = meta_a.get("att", {})
+    att_ok = bool(att_map)
+    for i, j, t1, t1p, pw in pairs_a:
+        ii, jj = i - 1, j - 1
+        k = [n for n, (pi, pj, *_x) in enumerate(
+            [p for p in pairs_a if p[0] == i]) if pj == j][0] + 1
+        d1 = r[jj] ** 2 - r[ii] ** 2
+        d2 = r[jj] ** 2 * v[ii] ** 2 - r[ii] ** 2 * v[jj] ** 2
+        mu2 = d1 * v[jj] ** 2 / d2
+        p = r[ii] * np.sqrt(1.0 - mu2)
+        s_i = np.sqrt((r[ii] - p) * (r[ii] + p))
+        s_j = np.sqrt((r[jj] - p) * (r[jj] + p))
+        att_exp = np.exp(-min(1.0e-4 * abs(s_i - s_j), 700.0))
+        if abs(att_map[i, k] - att_exp) > 1e-9:
+            att_ok = False
+    dexp_a = drc_expected(
+        exp_pairs, r, v, chil, etal, bbc, neg, FL, chi=chi_c
+    )
+    dgot_a = np.zeros_like(chil)
+    for (l, i), x in drc_a.items():
+        dgot_a[i - 1, l - 1] = x
+    err_a = np.abs(dgot_a - dexp_a).max() / max(1.0, np.abs(dexp_a).max())
+    rep.check(
+        "uniform CHI: ATT=exp(-c0*chord) analytic; DRC consistent",
+        att_ok and err_a < 1e-12,
+        f"att_ok={att_ok} relerr={err_a:.2e}",
+    )
+
+    # -- T9: opaque CHI kills the remote term; EXTINCT=F restores --
+    chi_big = np.full(ND, 1.0e-1)
+    path = write_case(
+        "rh_att_big.txt", r, v, sig, chil, etal, bbc, znet, neg, chi=chi_big
+    )
+    _, drc_big, _ = parse(run(binary, path).stdout)
+    path = write_case(
+        "rh_att_off.txt", r, v, sig, chil, etal, bbc, znet, neg,
+        chi=chi_big, extinct=False,
+    )
+    _, drc_off, _ = parse(run(binary, path).stdout)
+    dexp_off = drc_expected(exp_pairs, r, v, chil, etal, bbc, neg, FL)
+    dgot_off = np.zeros_like(chil)
+    for (l, i), x in drc_off.items():
+        dgot_off[i - 1, l - 1] = x
+    err_off = np.abs(dgot_off - dexp_off).max() / max(1.0, np.abs(dexp_off).max())
+    rep.check(
+        "opaque CHI: DRC~0; EXTINCT=F recovers unobstructed kernel",
+        max(abs(x) for x in drc_big.values()) < 1e-30 and err_off < 1e-12,
+        f"max|DRC|={max(abs(x) for x in drc_big.values()):.2e} "
+        f"relerr_off={err_off:.2e}",
+    )
+
+    # -- T10: opaque shell extinguishes only crossing pairs --------
+    chi_sh = np.zeros(ND)
+    chi_sh[10] = 1.0e2  # one opaque cell in the middle of the grid
+    chi_sh[11] = 1.0e2
+    path = write_case(
+        "rh_att_shell.txt", r, v, sig, chil, etal, bbc, znet, neg, chi=chi_sh
+    )
+    pairs_s, _, meta_s = parse(run(binary, path).stdout)
+    att_map = meta_s.get("att", {})
+    sh_ok = bool(att_map)
+    for n, (i, j, t1, t1p, pw) in enumerate(pairs_s):
+        ii, jj = i - 1, j - 1
+        k = [m for m, (pi, pj, *_x) in enumerate(
+            [p for p in pairs_s if p[0] == i]) if pj == j][0] + 1
+        # the trapezoid nodes include both endpoint cells, so an
+        # opaque cell attenuates whenever it lies in [min, max]
+        crosses = min(ii, jj) <= 11 and max(ii, jj) >= 10
+        got = att_map[i, k]
+        if crosses and got > 1e-6:
+            sh_ok = False
+        if not crosses and abs(got - 1.0) > 1e-12:
+            sh_ok = False
+    rep.check("opaque shell: only chord-crossing pairs attenuated", sh_ok)
 
     # -- Plot: pair map + DRC profile ------------------------------
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
