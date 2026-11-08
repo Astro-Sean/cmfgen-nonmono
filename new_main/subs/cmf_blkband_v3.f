@@ -1008,15 +1008,14 @@ C
 !
 	    IF(POP_AUDIT)THEN
 	      IF(.NOT. ALLOCATED(CN_WORK))THEN
-	        ALLOCATE(CN_WORK(N),CN_IWORK(N),STAT=IOS)
+	        ALLOCATE(CN_WORK(2*N),CN_IWORK(N),STAT=IOS)
 	      ELSE
 	        IOS=0
 	      END IF
 	      IF(IOS .EQ. 0)THEN
 	        CALL DGECON(N,C_MAT,N,CN_ANORM,CN_RCOND,
 	1       CN_WORK,CN_IWORK,CN_INFO)
-	        WRITE(LUER,'(A,I4,A,I6,A,3(1X,ES11.3),A,3(1X,ES11.3),'
-	2       //'A,ES11.3)')
+	        WRITE(LUER,'(A,I4,A,I6,6(A,ES11.3))')
 	1       ' RUNAWAY d=',K,' nflr=',NFLR,
 	2       '  colmin_u=',CN_UMIN,' colmax_u=',CN_UMAX,
 	3       ' row_cnd=',ROW_CND,' col_cnd=',COL_CND,' maxval=',MAX_VAL,
