@@ -111,4 +111,6 @@
       WRITE(*,'(A,L2)')'jfnk_rcond_gate=',jfnk_rcond_gate
       WRITE(*,'(A,ES12.5)')'jfnk_rcond_min=',jfnk_rcond_min
       WRITE(*,'(A,I5)')'jfnk_itry_cap=',jfnk_itry_cap
+      WRITE(*,'(A,ES12.5)')'POP_RUNAWAY_DEM=',POP_RUNAWAY_DEM
+      WRITE(*,'(A,I5)')'POP_RUNAWAY_TOPN=',POP_RUNAWAY_TOPN
       END

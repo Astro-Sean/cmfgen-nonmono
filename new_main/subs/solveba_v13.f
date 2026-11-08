@@ -22,7 +22,8 @@
 	3     BA_DEM_EXM,BA_TRACE_PHASE,BA_TR_ABS,POPS_GS_SAVE,
 	4     BA_HOLD_RESTORE_REVIVAL,BA_EX_RELFRAC,BA_EX_MAXCH,
 	5     BA_DEM_EXR,BA_LQ_HIT,BA_LQ_DEM,BA_LQ_PAT,
-	6     BA_ARG_J,BA_ARG_I,BA_ARG_PCT
+	6     BA_ARG_J,BA_ARG_I,BA_ARG_PCT,
+	7     POP_RUNAWAY_DEM,POP_RUNAWAY_TOPN
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -154,6 +155,17 @@
 	INTEGER, SAVE :: PV_JI=0,PV_II=0,PV_JD=0,PV_ID=0
 	LOGICAL OSC_FL
 	INTEGER COUNT(7)
+!
+! Item-1 [POP_RUNAWAY_DEM]/[POP_RUNAWAY_TOPN] census locals. RW_J/RW_I
+! hold the picked (equation,depth) channels for dedup; JX/IX are the
+! running argmax, NK the dedup loop, IDW/LEW the EQ_LOC decode,
+! ILO/IHI the ion-stage row range, FLG/CGF the floor/conservation
+! flags, L_DUP the dedup test.
+!
+	INTEGER JX,IX,NK,IDW,LEW,ILO,IHI,FLG,CGF
+	REAL(KIND=LDP) RW_MAX,RW_T1,RW_NOLD,RW_IONF,RW_APP,RW_DEN
+	INTEGER, ALLOCATABLE :: RW_J(:),RW_I(:)
+	LOGICAL L_DUP
 	LOGICAL LOC_WR_BA_INV
 	LOGICAL DO_LEVEL_CHK
 !
@@ -2014,6 +2026,106 @@
 	    WRITE(LUER,9216)ITRC,BA_TR_ABS,TRIM(EQ_DESC(JTRC)),
 	1   '          --- iteration ',MAIN_COUNTER
 	  END IF
+!
+! edited 08-Nov-2026: [POP_RUNAWAY_DEM] / [POP_RUNAWAY_TOPN]
+! Item-1 diagnostic (hypothesis H1). When the largest demanded
+! correction on a level/conservation row reaches POP_RUNAWAY_DEM
+! percent, name the top POP_RUNAWAY_TOPN (equation,depth) channels.
+! STEQ(J,I) is the demanded fractional correction (+ve = decrease)
+! after the band solve; POPS vs POPS_OLD gives the change actually
+! committed (post scale-limit, post BA_TRACE_PHASE hold, post any
+! BA_MAXCH_FAIL restore). The floor flag tests the 1E-30 /
+! BA_DEM_PFLOOR population level the JFNK audit found hosting the
+! near-null SE columns; cons marks non-level conservation rows.
+! Diagnostic only -- reads STEQ/POPS/POPS_OLD, writes OUTGEN,
+! changes nothing. Runs on LAMBDA and BA calls alike.
+!
+	  IF(POP_RUNAWAY_DEM .GT. 0.0_LDP .AND.
+	1     POP_RUNAWAY_TOPN .GT. 0)THEN
+	    RW_MAX=0.0_LDP
+	    DO I=1,ND
+	      DO J=1,NT-2
+	        RW_MAX=MAX(RW_MAX,ABS(STEQ(J,I)))
+	      END DO
+	    END DO
+	    IF(100.0_LDP*RW_MAX .GE. POP_RUNAWAY_DEM)THEN
+	      WRITE(LUER,'(A,I6,A,ES12.4,A,ES12.4,A,I4)')
+	1       ' RUNAWAY it=',MAIN_COUNTER,' maxdem%= ',
+	2       100.0_LDP*RW_MAX,' thresh%= ',POP_RUNAWAY_DEM,
+	3       ' topn=',POP_RUNAWAY_TOPN
+	      ALLOCATE(RW_J(POP_RUNAWAY_TOPN),RW_I(POP_RUNAWAY_TOPN),
+	1         STAT=IOS)
+	      IF(IOS .EQ. 0)THEN
+	        DO K=1,POP_RUNAWAY_TOPN
+	          RW_T1=0.0_LDP
+	          JX=0
+	          IX=0
+	          DO I=1,ND
+	            DO J=1,NT-2
+	              L_DUP=.FALSE.
+	              DO NK=1,K-1
+	                IF(J .EQ. RW_J(NK) .AND. I .EQ. RW_I(NK))
+	1               L_DUP=.TRUE.
+	              END DO
+	              IF(L_DUP)CYCLE
+	              IF(ABS(STEQ(J,I)) .GT. RW_T1)THEN
+	                RW_T1=ABS(STEQ(J,I))
+	                JX=J
+	                IX=I
+	              END IF
+	            END DO
+	          END DO
+	          IF(JX .EQ. 0)EXIT
+	          RW_J(K)=JX
+	          RW_I(K)=IX
+!
+! Decode the channel: EQ_LOC returns the owning ion and the
+! 1-based level index (LEW<=0 for conservation/ion-eq rows, whose
+! POPS entry is not a level population).
+!
+	          CALL EQ_LOC(JX,IDW,LEW)
+	          RW_NOLD=POPS_OLD(JX,IX)
+	          IF(LEW .GT. 0)THEN
+	            ILO=ATM(IDW)%EQXzV
+	            IHI=MIN(ILO+ATM(IDW)%NXzV-1,NT-2)
+	            RW_DEN=0.0_LDP
+	            DO JJ=ILO,IHI
+	              RW_DEN=RW_DEN+POPS_OLD(JJ,IX)
+	            END DO
+	            IF(RW_DEN .GT. 0.0_LDP .AND. RW_NOLD .GT. 0.0_LDP)
+	1           THEN
+	              RW_IONF=RW_NOLD/RW_DEN
+	            ELSE
+	              RW_IONF=-1.0_LDP
+	            END IF
+	            FLG=0
+	            IF(RW_NOLD .LE. 1.0E-30_LDP)FLG=1
+	            IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
+	1           RW_NOLD .LT. BA_DEM_PFLOOR)FLG=1
+	          ELSE
+	            RW_IONF=-1.0_LDP
+	            FLG=0
+	            CGF=1
+	          END IF
+	          IF(LEW .LE. 0)CGF=1
+	          IF(RW_NOLD .GT. 0.0_LDP)THEN
+	            RW_APP=(POPS(JX,IX)-RW_NOLD)/RW_NOLD
+	          ELSE
+	            RW_APP=0.0_LDP
+	            IF(POPS(JX,IX) .GT. 0.0_LDP)RW_APP=1.0E7_LDP
+	          END IF
+	          WRITE(LUER,'(A,I4,A,I4,A,A,A,ES12.4,A,ES12.4,'
+	2         //'A,ES12.4,A,ES12.4,A,I1,A,I1)')
+	1         ' RUNAWAY d=',IX,' eq=',JX,' ',TRIM(EQ_DESC(JX)),
+	2         ' n=',RW_NOLD,' ionf=',RW_IONF,
+	3         ' dem%= ',100.0_LDP*STEQ(JX,IX),
+	4         ' app%= ',100.0_LDP*RW_APP,
+	5         ' fl=',FLG,' cons=',CGF
+	        END DO
+	        DEALLOCATE(RW_J,RW_I)
+	      END IF
+	    END IF
+	  END IF
 	  DEALLOCATE(POPS_OLD)
 	END IF
 !
@@ -2082,6 +2194,35 @@
 	  END IF
 	  RETURN
 	END FUNCTION EQ_DESC
+!
+! edited 08-Nov-2026: decode a global equation index to (ion ID,
+! 1-based level). LEW<=0 marks a non-level row (ion-eq / species
+! conservation). Mirrors the EQ_DESC ownership scan so the RUNAWAY
+! census can form the ion-stage fraction and the conservation flag
+! without re-parsing the label string.
+!
+	SUBROUTINE EQ_LOC(J,IDW,LEW)
+	  USE MOD_CMFGEN, ONLY: ATM
+	  INTEGER J,IDW,LEW
+	  INTEGER ID,BEST,L
+	  IDW=0
+	  LEW=0
+	  IF(J .LE. 0 .OR. J .GT. NT-2)RETURN
+	  BEST=0
+	  L=NT
+	  DO ID=1,NION
+	    IF(ATM(ID)%EQXzV .GT. 0 .AND. ATM(ID)%EQXzV .LE. J .AND.
+	1       J-ATM(ID)%EQXzV .LT. L)THEN
+	      BEST=ID
+	      L=J-ATM(ID)%EQXzV
+	    END IF
+	  END DO
+	  IF(BEST .EQ. 0)RETURN
+	  L=L+1
+	  IDW=BEST
+	  IF(L .LE. ATM(BEST)%NXzV)LEW=L
+	  RETURN
+	END SUBROUTINE EQ_LOC
 !
 ! edited 07-Oct-2026: worst unquarantined residual
 ! equation at depth I under [DO_BA_QUAR]. Mirrors the entry column

@@ -19,6 +19,7 @@
 	1                           DIAG_INDX,N,NION,NUM_BNDS,ND,
 	1                           BA_COMPUTED,WR_BA_INV,WR_PRT_INV)
 	USE SET_KIND_MODULE
+	USE CONTROL_VARIABLE_MOD, ONLY: POP_AUDIT,BA_DEM_PFLOOR
 	IMPLICIT NONE
 !
 ! Altered 19-Oct-2026 : TRI failures now degrade like the DIAG path: a
@@ -240,6 +241,15 @@
         INTEGER I,J,K,JJ
 	INTEGER N_DIV_FLOOR
 	REAL(KIND=LDP) POP_DIV
+!
+! Item-1 [POP_AUDIT] column census locals (edited 08-Nov-2026):
+! NFLR counts the floor-pinned unknowns at this depth, CN_* hold the
+! per-column max-|C_MAT| extrema before (U) and after (E)
+! DGEEQU equilibration. A near-null column at a floor population is
+! the H1/H2 signature the RUNAWAY channel list cannot see.
+!
+	INTEGER NFLR,JC
+	REAL(KIND=LDP) CN_T1,CN_UMIN,CN_UMAX,CN_EMIN,CN_EMAX
         INTEGER IOS,IFAIL
 	CHARACTER*10 DESC
 	LOGICAL ANONZERO,ENONZERO
@@ -910,6 +920,28 @@ C
 	    IF(N_PIN .GT. 0)WRITE(LUER,'(A,I3,A,I4)')
 	1    ' CMF_BLKBAND: pinned',N_PIN,' uncoupled zero rows at depth ',K
 !
+! Item-1 [POP_AUDIT] census, part 1 (edited 08-Nov-2026): count the
+! floor-pinned unknowns and take the per-column max-|C_MAT| extrema
+! on the unequilibrated block. Opt-in and read-only; the solve below
+! is untouched. The floor threshold is the larger of the absolute
+! 1E-30 population floor and BA_DEM_PFLOOR so the count matches the
+! rows the demand metric already exempts.
+!
+	    IF(POP_AUDIT)THEN
+	      NFLR=0
+	      DO J=1,N-2
+	        IF(POPS(J,K) .LE. MAX(1.0E-30_LDP,BA_DEM_PFLOOR))
+	1       NFLR=NFLR+1
+	      END DO
+	      CN_UMIN=0.0_LDP
+	      CN_UMAX=0.0_LDP
+	      DO JC=1,N
+	        CN_T1=MAXVAL(ABS(C_MAT(:,JC)))
+	        IF(JC .EQ. 1 .OR. CN_T1 .LT. CN_UMIN)CN_UMIN=CN_T1
+	        CN_UMAX=MAX(CN_UMAX,CN_T1)
+	      END DO
+	    END IF
+!
 !	  WRITE(TMP_STR,'(I2)')K; TMP_STR='BA_ASCI_N_D'//ADJUSTL(TMP_STR)
 !	  OPEN(UNIT=96,FILE=TMP_STR,STATUS='UNKNOWN')
 !           CALL WR2D_MA(POPS(1,K),N,1,'POPS_D1',96)
@@ -931,6 +963,27 @@ C
 	        C_MAT(I,J)=C_MAT(I,J)*ROW_SF(I)*COL_SF(J)
 	      END DO
 	    END DO
+!
+! Item-1 [POP_AUDIT] census, part 2 (edited 08-Nov-2026): the same
+! column extrema on the DGEEQU-equilibrated block, then one
+! RUNAWAY-prefixed line per depth. colmin/colmax bracket the
+! assembled Jacobian's weakest and strongest columns; a colmin that
+! collapses toward zero while nflr is large is the floor-pinned
+! null-column signature behind the 1E7 demand cap (H1).
+!
+	    IF(POP_AUDIT)THEN
+	      CN_EMIN=0.0_LDP
+	      CN_EMAX=0.0_LDP
+	      DO JC=1,N
+	        CN_T1=MAXVAL(ABS(C_MAT(:,JC)))
+	        IF(JC .EQ. 1 .OR. CN_T1 .LT. CN_EMIN)CN_EMIN=CN_T1
+	        CN_EMAX=MAX(CN_EMAX,CN_T1)
+	      END DO
+	      WRITE(LUER,'(A,I4,A,I6,A,4(1X,ES11.3))')
+	1     ' RUNAWAY d=',K,' nflr=',NFLR,
+	2     '  colmin_u=',CN_UMIN,' colmax_u=',CN_UMAX,
+	3     ' colmin_e=',CN_EMIN,' colmax_e=',CN_EMAX
+	    END IF
 	    CALL TUNE(1,'DGERTF')
 	    CALL DGETRF(N,N,C_MAT,N,IPIVOT,IFAIL)
 	    CALL TUNE(2,'DGERTF')

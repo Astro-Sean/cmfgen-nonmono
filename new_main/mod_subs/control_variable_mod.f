@@ -1691,6 +1691,20 @@
 !
 	REAL(KIND=LDP) BA_DEM_PFLOOR
 !
+! POP_RUNAWAY_DEM / POP_RUNAWAY_TOPN (VADAT, defaults 1.0E3 percent /
+! 10): Item-1 runaway-channel census in SOLVEBA_V13. When the largest
+! demanded fractional correction on any level/conservation row
+! exceeds POP_RUNAWAY_DEM percent, the top POP_RUNAWAY_TOPN channels
+! print to OUTGEN prefixed 'RUNAWAY ' with the species:level label
+! (EQ_DESC), depth, pre-update population, ion-stage fraction,
+! demanded and applied fractional corrections, the 1E-30-floor flag
+! and the conservation-row flag. Diagnostic only; DEM<=0 disables the
+! scan. Exists to name the exact (species,ion,level,depth) channels
+! that pin MAXCH at the trust cap on the KNOP stall (hypothesis H1).
+!
+	REAL(KIND=LDP) POP_RUNAWAY_DEM
+	INTEGER POP_RUNAWAY_TOPN
+!
 ! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor. It
 ! exempted trace rows from the MAXCH/demand metric at a populated
 ! depth, which let the SOB run report ~0.1% demand while ~700

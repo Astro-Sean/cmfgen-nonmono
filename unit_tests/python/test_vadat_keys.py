@@ -908,6 +908,40 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # POP_RUNAWAY_DEM/TOPN (Item-1 runaway census) parse and land;
+    # absent-key defaults are 1.0E3 percent / 10 channels.
+    d = write_vadat(WORKDIR / "vadat_runaway_def", {})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "POP_RUNAWAY defaults parse and land",
+        "RESULT_OK" in p.stdout
+        and abs(
+            float(v.get("POP_RUNAWAY_DEM", "nan").replace("D", "E"))
+            - 1000.0
+        )
+        < 1e-6
+        and v.get("POP_RUNAWAY_TOPN") == "10",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_runaway",
+        {"POP_RUNAWAY_DEM": "5.0D4", "POP_RUNAWAY_TOPN": "25"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "POP_RUNAWAY_DEM/TOPN parse and land",
+        "RESULT_OK" in p.stdout
+        and abs(
+            float(v.get("POP_RUNAWAY_DEM", "nan").replace("D", "E"))
+            - 50000.0
+        )
+        < 1e-3
+        and v.get("POP_RUNAWAY_TOPN") == "25",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # RLOC/DRLOC opt-in keys parse and land.
     d = write_vadat(
         WORKDIR / "vadat_rloc",

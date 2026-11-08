@@ -1020,6 +1020,21 @@
 	  IF(POP_AUDIT_ION .LT. 0)POP_AUDIT_ION=0
 	  IF(POP_AUDIT_D .LT. 0)POP_AUDIT_D=0
 !
+! POP_RUNAWAY_DEM / POP_RUNAWAY_TOPN (defaults 1.0E3 percent / 10):
+! Item-1 runaway-channel census in SOLVEBA_V13 -- see
+! CONTROL_VARIABLE_MOD. DEM<=0 disables the scan; TOPN bounds the
+! per-call channel count and is clamped so a stray value cannot
+! allocate an unbounded index array.
+!
+	  POP_RUNAWAY_DEM=1.0E3_LDP
+	  CALL RD_STORE_DBLE(POP_RUNAWAY_DEM,'POP_RUNAWAY_DEM',L_FALSE,
+	1     'Demanded-correction percent that arms the RUNAWAY census?')
+	  POP_RUNAWAY_TOPN=10
+	  CALL RD_STORE_INT(POP_RUNAWAY_TOPN,'POP_RUNAWAY_TOPN',L_FALSE,
+	1     'Top-N RUNAWAY channels printed per call?')
+	  POP_RUNAWAY_DEM=MAX(POP_RUNAWAY_DEM,0.0_LDP)
+	  POP_RUNAWAY_TOPN=MAX(0,MIN(POP_RUNAWAY_TOPN,200))
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial. With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
