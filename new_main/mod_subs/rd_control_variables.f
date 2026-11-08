@@ -7,6 +7,16 @@
 	2     jfnk_pc_set_options_v1
 	IMPLICIT NONE
 !
+! Altered : 08-Nov-2026 : Under DO_NONMONO_KNOP the three
+!                            stability-required settings are now
+!                            forced T even over explicit VADAT
+!                            values: USE_LAM_ES (the MOM moment path
+!                            never converged under KNOP), KN_NO_GAIN
+!                            (gain compounds in the lagged store),
+!                            DO_NONMONO_FREQ_MATCH (compressing
+!                            upwind read off the characteristic
+!                            foot). Explicit F prints a
+!                            KNOP override banner.
 ! Altered : 19-Oct-2026 : Force METH_SOL='DIAG' whenever NUM_BNDS<3:
 !                            NUM_BNDS=2 with 'TRI' previously passed
 !                            validation and STOPped in CMF_BLKBAND_V3
@@ -14,7 +24,9 @@
 ! Altered : 21-Oct-2026 : USE_LAM_ES un-forced: SOB default is F
 !                            (MOM_J_CMF_NONMONO_V1 + MOM ALO), explicit
 !                            T honoured; KNOP absent-key default stays T
-!                            but explicit F is honoured. New SOB
+!                            but explicit F is honoured (KNOP F
+!                            honouring superseded 08-Nov-2026 -- now
+!                            forced T). New SOB
 !                            absent-key auto-sets: DO_NONMONO_FREQ_MATCH
 !                            (LAM_ES=F), DO_FG13_ALO (LAM_ES=T),
 !                            DO_BA_RES_ACC, DO_BA_RES_REUSE, NG_ABSTAIN.
@@ -830,6 +842,10 @@
 	  CALL RD_STORE_LOG(DO_NONMONO_KNOP,'DO_NONMONO_KNOP',L_FALSE,
 	1     'Use Knop et al. 2009 non-monotonic formal solver?')
 !
+! KN_NO_GAIN is forced T under DO_NONMONO_KNOP in the Rule-1
+! enforcement block below; the read-site default only stands on
+! non-KNOP runs, where the flag is never consulted.
+!
 	  KN_NO_GAIN=.FALSE.
 	  CALL RD_STORE_LOG(KN_NO_GAIN,'KN_NO_GAIN',L_FALSE,
 	1     'KNOP: floor CHI at CHI_SCAT (no net photon gain)?')
@@ -1207,9 +1223,10 @@
 	1     'Print verbose KNOP solver diagnostics to OUTGEN?')
 	  CALL SET_FG_KNOP_DEBUG(PRINT_KNOP_DEBUG)
 !
-! DO_NONMONO_FREQ_MATCH (default FALSE here; the KNOP auto-set
-! below lifts it to T when the key is absent): rematch the lagged
-! upwind frequency index at compressing points to the bin
+! DO_NONMONO_FREQ_MATCH (default FALSE here; the KNOP enforcement
+! block below forces it to T, overriding even an explicit F -- see
+! Rule 1): rematch the lagged upwind frequency index at
+! compressing points to the bin
 ! containing the photon's characteristic foot (per-cell drift in
 ! bins), and widen the frequency-derivative stencil to match.
 ! Targets the oscillatory-eigenvalue instability identified by
@@ -2555,21 +2572,11 @@
 	1     'Max J passes per frequency under ES-ALI (<=20)')
 	  IF(ES_ALI_MAX .GT. 20)ES_ALI_MAX=20
 !
-! Pairing caveat (03-Nov-2026 audit follow-up): the OAB Jacobi
-! update in COMP_J_BLANK floors its denominator at 0.01, which is
-! only safe when the single-scattering albedo stays <= 1. Under
-! KNOP the gain channel can violate that at masing depths;
-! KN_NO_GAIN=T removes it. Warn rather than force -- the user may
-! want gain physics and accept the risk.
-!
-	  IF(DO_ES_ALI .AND. DO_NONMONO_KNOP .AND.
-	1     .NOT. KN_NO_GAIN)THEN
-	    WRITE(LUER,'(A)')
-	1   ' Warning: DO_ES_ALI under DO_NONMONO_KNOP without'
-	2   ,' KN_NO_GAIN=T -- the OAB denominator floor (0.01)'
-	3   ,' is only safe when the single-scattering albedo'
-	4   ,' stays <= 1; gain depths can violate it.'
-	  END IF
+! edited 08-Nov-2026: removed the DO_ES_ALI + DO_NONMONO_KNOP
+! without KN_NO_GAIN read-time warning. KN_NO_GAIN is now forced T
+! under KNOP in the Rule-1 enforcement block below (the NEG_OPAC
+! gain channel compounds in the lagged store), so the unpaired
+! combination can no longer occur and the warning was dead code.
 !
 ! BA-side ALI keys (28-Oct-2026): optional. DO_ES_ALI_BA amplifies
 ! the stored ALO diagonal in DO_VAR_CONT by the converged-ES Jacobi
@@ -3292,7 +3299,7 @@
 ! cannot run with an inconsistent combination; every override is
 ! logged to LUER. This block sits after the last read of every
 ! dependent key it touches (GLOBAL_LINE/LAM_SET ~744, FG_OPT ~596,
-! USE_LAM_ES ~2347, the JFNK block ~1236-1660, the BA trace keys
+! USE_LAM_ES ~3238, the JFNK block ~1236-1660, the BA trace keys
 ! ~1818) and before the validation blocks below, which then re-check
 ! the enforced values. INC_GRID (ACCURATE) is read after this
 ! point, so its KNOP override lives with the INC_GRID read itself.
@@ -3302,13 +3309,16 @@
 ! would miss the key -- the GET_KEY_STRING cursor brackets the index
 ! just consumed).
 !
-! One former opt-in override survives only as an absent-key default:
-! under DO_NONMONO_KNOP an unset USE_LAM_ES defaults to T (the
-! verified formal-solve pairing); an explicit F is honoured (the
-! MOM_J_CMF_NONMONO_V1 moment solve). Under DO_NONMONO_SOB the
-! default is F -- the user-requested moment path -- with an explicit
-! T selecting the V13 formal J. DO_KNOP_REFRESH=F (the lagged-scheme
-! A/B comparison) is still overridden under KNOP.
+! Three settings are now forced T under DO_NONMONO_KNOP, overriding
+! even explicit VADAT F with a banner (08-Nov-2026): USE_LAM_ES
+! (the MOM_J_CMF_NONMONO_V1 moment path never converged on the KNOP
+! route), KN_NO_GAIN (the gain channel compounds in the lagged
+! store) and DO_NONMONO_FREQ_MATCH (correctness -- the compressing
+! upwind read otherwise lands off the characteristic foot). Under
+! DO_NONMONO_SOB the USE_LAM_ES default is F -- the user-requested
+! moment path -- with an explicit T selecting the V13 formal J.
+! DO_KNOP_REFRESH=F (the lagged-scheme A/B comparison) is still
+! overridden under KNOP.
 ! ------------------------------------------------------------------
 !
 ! NG_ABSTAIN has no module initializer; its read site carries no
@@ -3323,8 +3333,11 @@
 ! below), LAM_SET must stay off (it would reset GLOBAL_LINE to NONE
 ! and hand edge lines to the clamped-sigma Sobolev routines), and
 ! FG_OPT=DIFF is rejected outright at its own read (no recovery).
-! N_LAM_RWARM and GS_REL_STABLE are raised only when left at their
-! floor values; higher explicit settings are respected.
+! USE_LAM_ES, KN_NO_GAIN and DO_NONMONO_FREQ_MATCH are forced T --
+! they are stability/correctness requirements of this route, not
+! knobs (see the per-key notes below). N_LAM_RWARM and
+! GS_REL_STABLE are raised only when left at their floor values;
+! higher explicit settings are respected.
 !
 	  IF(DO_NONMONO_KNOP)THEN
 	    IF(GLOBAL_LINE_SWITCH(1:5) .NE. 'BLANK' .AND.
@@ -3341,23 +3354,51 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: FG_OPT=INT/INS'
 	    END IF
 	    IF(.NOT. USE_LAM_ES)THEN
-! edited 21-Oct-2026: an explicit USE_LAM_ES=F is honoured
-! under KNOP -- MOM_J_CMF_NONMONO_V1 is a self-consistent J-update in
-! this mode (its ray moments come from FG_J_CMF_NONMONO_V1 on
-! SIGMA_TRUE). Only the absent-key default is lifted to T, the
-! verified formal-solve pairing; explicit settings are never
-! silently rewritten.
+! edited 08-Nov-2026: explicit USE_LAM_ES=F is no longer honoured
+! under KNOP -- the MOM_J_CMF_NONMONO_V1 moment path never
+! converged on this route: its lagged J_NEXT map is expansive
+! there (adaptive JNEXT_RELAX contraction factor 1.24, every
+! refresh non-converged, NaN in SOLVEBA at it1478 on m15_2p82d,
+! job 12747893, 06-Nov-2026; TypeIIn same verdict). The MOM code
+! stays reachable under DO_NONMONO_SOB; under KNOP the key is
+! forced T so the run always takes the verified
+! FG_J_CMF_NONMONO_V1 formal-solve pairing.
 	      CALL GET_KEY_STRING(TMP_STRING,'USE_LAM_ES',L_FALSE,
 	1     L_FALSE_TMP)
+	      USE_LAM_ES=.TRUE.
 	      IF(.NOT. L_FALSE_TMP)THEN
-	        USE_LAM_ES=.TRUE.
 	        WRITE(LUER,'(A)')' KNOP auto-set: USE_LAM_ES=T'
 	      ELSE
 	        WRITE(LUER,'(A)')
 	1       ' ============================================================'
-	        WRITE(LUER,*)'KNOP field solver: MOM_J_CMF_NONMONO_V1'
-	1       ,' moment solve -- explicit USE_LAM_ES=F honoured,'
-	2       ,' no override applied.'
+	        WRITE(LUER,'(A)')
+	1       ' KNOP override: explicit USE_LAM_ES=F -> T'//
+	2       ' (MOM lagged map expansive under KNOP)'
+	        WRITE(LUER,'(A)')
+	1       ' ============================================================'
+	      END IF
+	    END IF
+	    IF(.NOT. KN_NO_GAIN)THEN
+! edited 08-Nov-2026: explicit KN_NO_GAIN=F is no longer honoured
+! under KNOP. With F, cells where the NEG_OPAC floors leave
+! CHI < CHI_SCAT give a source coefficient sum > 1, so the cell
+! amplifies photons and the lagged I_P/I_M_DEPTH_NEXT store
+! compounds that gain each great iteration (8.6x/iter measured;
+! the KNOP_fresh 02-Nov-2026 run diverged to L_out ~1e29 with
+! KN_NO_GAIN=F). The floor makes the lagged map non-expanding in
+! sup norm. Non-KNOP runs are untouched -- the flag only acts
+! under KNOP.
+	      CALL GET_KEY_STRING(TMP_STRING,'KN_NO_GAIN',L_FALSE,
+	1     L_FALSE_TMP)
+	      KN_NO_GAIN=.TRUE.
+	      IF(.NOT. L_FALSE_TMP)THEN
+	        WRITE(LUER,'(A)')' KNOP auto-set: KN_NO_GAIN=T'
+	      ELSE
+	        WRITE(LUER,'(A)')
+	1       ' ============================================================'
+	        WRITE(LUER,'(A)')
+	1       ' KNOP override: explicit KN_NO_GAIN=F -> T'//
+	2       ' (gain compounds in the lagged store)'
 	        WRITE(LUER,'(A)')
 	1       ' ============================================================'
 	      END IF
@@ -3443,21 +3484,32 @@
 	      WRITE(LUER,'(A)')' KNOP auto-set: GS_REL_NOPROG_LIM=10'
 	    END IF
 !
-! DO_NONMONO_FREQ_MATCH defaults T under KNOP: with one-bin upwind
-! coupling at compressing points the lagged map gain approaches 1
-! when the per-cell Doppler shift exceeds the frequency spacing, so
-! the refresh residual asymptotes above KN_RAY_TOL and the field
-! never matures (Ceulemans et al. 2025, JQSRT, arXiv:2505.08309;
-! Knop et al. 2009 II, A&A 501, 813). An explicit VADAT setting is
-! respected -- only the absent-key default is lifted.
+! DO_NONMONO_FREQ_MATCH is forced T under KNOP (edited
+! 08-Nov-2026): with F every compressing upwind read uses the
+! adjacent bin, and on m15 the per-cell Doppler drift reaches ~330
+! bins, so the read is at the wrong frequency and sits in the
+! oscillatory-eigenvalue regime (Ceulemans et al. 2025, JQSRT,
+! arXiv:2505.08309; Knop et al. 2009 II, A&A 501, 813). This is a
+! correctness requirement backed by theory -- no failed run is yet
+! attributed to F. Explicit F is overridden with a banner.
 !
-	  CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',L_FALSE,
-	1     L_FALSE_TMP)
-	  IF(DO_NONMONO_KNOP .AND. .NOT. L_FALSE_TMP)THEN
+	  IF(DO_NONMONO_KNOP .AND. .NOT. DO_NONMONO_FREQ_MATCH)THEN
+	    CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',
+	1     L_FALSE,L_FALSE_TMP)
 	    DO_NONMONO_FREQ_MATCH=.TRUE.
 	    CALL SET_FG_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
 	    CALL SET_MOM_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
-	    WRITE(LUER,'(A)')' KNOP auto-set: DO_NONMONO_FREQ_MATCH=T'
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      WRITE(LUER,'(A)')' KNOP auto-set: DO_NONMONO_FREQ_MATCH=T'
+	    ELSE
+	      WRITE(LUER,'(A)')
+	1     ' ============================================================'
+	      WRITE(LUER,'(A)')
+	1     ' KNOP override: explicit DO_NONMONO_FREQ_MATCH=F -> T'//
+	2     ' (upwind read off the characteristic foot)'
+	      WRITE(LUER,'(A)')
+	1     ' ============================================================'
+	    END IF
 	  END IF
 !
 ! edited 17-Oct-2026: the VADAT dump above echoes the
@@ -3580,7 +3632,8 @@
 ! SOB. The user asked for the moment path as the SOB default
 ! J-update: MOM_J_CMF_NONMONO_V1 with the fixed-J + GET_MOM_ALO_DIAG
 ! + GET_MOM_CELL_QUAR linearization in do_var_cont.f -- the same
-! recipe as KNOP+LAM_ES=F. An explicit USE_LAM_ES=T keeps the V13
+! recipe as the (now closed, 08-Nov-2026) KNOP+LAM_ES=F route. An
+! explicit USE_LAM_ES=T keeps the V13
 ! formal J update. Both modes are announced loudly so the solver
 ! in use is never silent.
 !
@@ -3713,7 +3766,8 @@
 ! which is the last auto-set able to rewrite USE_LAM_ES or
 ! DO_SOB_FG_KNOP -- so it reflects the final solver pairing. The
 ! SOB+LAM_ES=F moment path carries the same lagged J_NEXT/H_NEXT
-! store as KNOP+LAM_ES=F, and DO_SOB_FG_KNOP carries the FG I_NEXT
+! store as the closed (08-Nov-2026) KNOP+LAM_ES=F route, and
+! DO_SOB_FG_KNOP carries the FG I_NEXT
 ! store; plain SOB+LAM_ES=T (V13) solves in-sweep and has none.
 !
 	  HAS_LAGGED_FIELD=DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP .OR.
@@ -3841,19 +3895,15 @@
 ! DO_NONMONO_KNOP consistency checks (deferred until the solver-mode
 ! flags have been read). The Knop formal solver replaces FG_J_CMF_V13
 ! on the standard (non-extended) grid, with J from the formal solution
-! (Lambda iteration). The enforcement block above keeps T as the
-! absent-key default but honours an explicit USE_LAM_ES=F
-! (MOM_J_CMF_NONMONO_V1); the stock MOM_J_CMF_V11 (clamped SIGMA,
-! one-way PREV coupling) is never selected in KNOP mode either.
+! (Lambda iteration). The enforcement block above forces
+! USE_LAM_ES=T under KNOP (08-Nov-2026): the MOM_J_CMF_NONMONO_V1
+! route never converged there, and the stock MOM_J_CMF_V11
+! (clamped SIGMA, one-way PREV coupling) is never selected in KNOP
+! mode either.
 !
 	  IF(DO_NONMONO_KNOP)THEN
-	    IF(USE_LAM_ES)THEN
-	      WRITE(LUSCR,'(A)')' DO_NONMONO_KNOP=T: Knop et al. 2009'//
-	1       ' formal solver (FG_J_CMF_NONMONO_V1, USE_LAM_ES=T)'
-	    ELSE
-	      WRITE(LUSCR,'(A)')' DO_NONMONO_KNOP=T: Knop non-monotonic'//
-	1       ' moment solver (MOM_J_CMF_NONMONO_V1, USE_LAM_ES=F)'
-	    END IF
+	    WRITE(LUSCR,'(A)')' DO_NONMONO_KNOP=T: Knop et al. 2009'//
+	1     ' formal solver (FG_J_CMF_NONMONO_V1, USE_LAM_ES=T)'
 	    IF(USE_FIXED_J .OR. USE_FORMAL_REL .OR. USE_J_REL .OR.
 	1      USE_DJDT_RTE .OR. PLANE_PARALLEL .OR.
 	1      PLANE_PARALLEL_NO_V)THEN

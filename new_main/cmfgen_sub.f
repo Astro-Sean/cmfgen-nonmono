@@ -2580,8 +2580,10 @@
 	      END DO
 	    END IF
 !
-! edited 18-Oct-2026: [KN_NO_GAIN, default F, stock path
-! unchanged]. The NEG_OPAC floors above can leave CHI < CHI_SCAT,
+! edited 18-Oct-2026: [KN_NO_GAIN; forced T under
+! DO_NONMONO_KNOP since 08-Nov-2026 -- the flag only acts under
+! KNOP, so non-KNOP runs are unchanged]. The NEG_OPAC floors
+! above can leave CHI < CHI_SCAT,
 ! so the formal-solver source coefficient sum
 ! (CHI_SCAT+|GAM|/dLOG_NU)/(CHI+|GAM|/dLOG_NU) exceeds 1 and the
 ! cell amplifies photons (effective scattering albedo

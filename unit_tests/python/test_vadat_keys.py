@@ -393,7 +393,8 @@ def main():
         and int(v.get("GS_REL_STABLE", "0")) >= 2,
     )
 
-    # KNOP + explicit FREQ_MATCH=F is respected (overridable).
+    # KNOP + explicit FREQ_MATCH=F is overridden to T (forced since
+    # 08-Nov-2026 -- correctness requirement, not a knob).
     d = write_vadat(
         WORKDIR / "vadat_knop_fm_off",
         {
@@ -407,10 +408,95 @@ def main():
     p = run_vadat(exe, d)
     v = parse(p.stdout)
     rep.check(
-        "KNOP explicit FREQ_MATCH=F respected",
+        "KNOP explicit FREQ_MATCH=F overridden to T",
         "RESULT_OK" in p.stdout
-        and v.get("DO_NONMONO_FREQ_MATCH") == "F"
-        and "auto-set: DO_NONMONO_FREQ_MATCH" not in p.stdout,
+        and v.get("DO_NONMONO_FREQ_MATCH") == "T"
+        and "KNOP override: explicit DO_NONMONO_FREQ_MATCH=F -> T" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # KNOP + explicit USE_LAM_ES=F is overridden to T (the MOM path
+    # never converged on the KNOP route).
+    d = write_vadat(
+        WORKDIR / "vadat_knop_lames_off",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+            "USE_LAM_ES": "F",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP explicit USE_LAM_ES=F overridden to T",
+        "RESULT_OK" in p.stdout
+        and v.get("USE_LAM_ES") == "T"
+        and "KNOP override: explicit USE_LAM_ES=F -> T" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # KNOP + absent KN_NO_GAIN auto-sets T.
+    d = write_vadat(
+        WORKDIR / "vadat_knogain_absent",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP absent KN_NO_GAIN auto-set T",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_NO_GAIN") == "T"
+        and "KNOP auto-set: KN_NO_GAIN=T" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # KNOP + explicit KN_NO_GAIN=F is overridden to T.
+    d = write_vadat(
+        WORKDIR / "vadat_knogain_off",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+            "KN_NO_GAIN": "F",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP explicit KN_NO_GAIN=F overridden to T",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_NO_GAIN") == "T"
+        and "KNOP override: explicit KN_NO_GAIN=F -> T" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # KNOP + explicit KN_NO_GAIN=T lands with no auto-set/override.
+    d = write_vadat(
+        WORKDIR / "vadat_knogain_on",
+        {
+            "DO_NONMONO_SOB": "F",
+            "DO_NONMONO_KNOP": "T",
+            "GLOBAL_LINE": "BLANK",
+            "LAM_SET": "F",
+            "KN_NO_GAIN": "T",
+        },
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "KNOP explicit KN_NO_GAIN=T kept, no override",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_NO_GAIN") == "T"
+        and "auto-set: KN_NO_GAIN" not in p.stdout
+        and "override: explicit KN_NO_GAIN" not in p.stdout,
         p.stdout[-300:],
     )
 

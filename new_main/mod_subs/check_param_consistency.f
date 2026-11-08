@@ -34,10 +34,11 @@
 ! edited 22-Oct-2026: the DO_NONMONO_* flags legitimately
 ! run SN models with all three off -- under USE_LAM_ES=F the J update
 ! comes from MOM_J_CMF_NONMONO_V1 (Knop sign-split moment solve on
-! SIGMA_TRUE), and rd_control_variables announces that pairing with
-! the 'explicit USE_LAM_ES=F honoured' banner.  Exempt the nonmono
-! modes so an honoured F is not rejected here; other SN checks and
-! the stock path are unchanged.
+! SIGMA_TRUE), which rd_control_variables announces as the SOB
+! field solver.  Under KNOP, USE_LAM_ES is forced T in the Rule-1
+! enforcement block (08-Nov-2026), so only SOB can arrive here
+! with F.  Exempt the nonmono modes so an honoured F is not
+! rejected here; other SN checks and the stock path are unchanged.
 !
 	  IF(.NOT. USE_J_REL .AND. .NOT. USE_DJDT_RTE .AND.
 	1     .NOT. USE_LAM_ES .AND.

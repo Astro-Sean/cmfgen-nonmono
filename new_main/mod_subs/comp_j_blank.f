@@ -823,7 +823,8 @@ C
 ! fallbacks). The update now selects the accessor matching the
 ! solver dispatch below (same predicate). Caveat under KNOP: the
 ! DEN floor (0.01) is only safe when the single-scattering albedo
-! stays <= 1; pair DO_ES_ALI with KN_NO_GAIN=T.
+! stays <= 1; KN_NO_GAIN is forced T under KNOP since
+! 08-Nov-2026, so the pairing holds there automatically.
 !
 	  ES_ALI_ON=DO_ES_ALI .AND. USE_LAM_ES .AND. COHERENT_ES .AND.
 	1     (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.

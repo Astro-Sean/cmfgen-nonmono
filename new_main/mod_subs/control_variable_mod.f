@@ -866,8 +866,9 @@
 ! at those frequencies -- acceptable, since the inversions sit on
 ! high-n Rydberg / intra-n far-IR levels (HI n=9-18, O IV-VI)
 ! overpopulated by the recombination cascade on transient iterates.
-! VADAT keyword [KN_NO_GAIN]; optional, default FALSE preserves
-! the stock path.
+! VADAT keyword [KN_NO_GAIN]; forced TRUE under DO_NONMONO_KNOP in
+! RD_CONTROL_VARIABLES (08-Nov-2026). The flag only acts under
+! KNOP, so non-KNOP (stock) runs are unchanged.
 !
 	LOGICAL KN_NO_GAIN
 !
