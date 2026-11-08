@@ -662,7 +662,18 @@
 ! allocate them once for each band. Factor of 1.05 is used to expand the
 ! window slightly.
 !
-	    MAX_VMU=MAXVAL(VMU_RAY)
+!
+! dev7: use MAXVAL(ABS(VMU_RAY)), not the signed max.  The Doppler
+! reach of nu_obs is set by the largest |VMU| on the ray; on a
+! non-monotonic field a strong negative-V excursion can make
+! MINVAL(VMU_RAY) more negative than MAXVAL(VMU_RAY) is positive, so
+! the signed max under-covers the blue (high-frequency) CMF window
+! and the per-frequency edge clamps then substitute boundary opacity.
+! For monotonic outflow the mirrored far-side ray makes |VMU|
+! symmetric, so MAXVAL(ABS) reduces to MAXVAL(VMU) and the window is
+! unchanged.
+!
+	    MAX_VMU=MAXVAL(ABS(VMU_RAY))
 	    T2=1.0_LDP+1.2_LDP*MAX_VMU
 	    IF(DO_REL_CORRECTIONS)THEN
 !	       T2=(MAXVAL((1.0D0-VMU_RAY)*GAM_RAY) -1.0D0)*1.05D0+1.0D0
