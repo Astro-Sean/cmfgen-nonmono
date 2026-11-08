@@ -242,14 +242,20 @@
 	INTEGER N_DIV_FLOOR
 	REAL(KIND=LDP) POP_DIV
 !
-! Item-1 [POP_AUDIT] column census locals (edited 08-Nov-2026):
-! NFLR counts the floor-pinned unknowns at this depth, CN_* hold the
-! per-column max-|C_MAT| extrema before (U) and after (E)
-! DGEEQU equilibration. A near-null column at a floor population is
-! the H1/H2 signature the RUNAWAY channel list cannot see.
+! Item-1 [POP_AUDIT] column census locals (edited 08-Nov-2026,
+! revised 08-Nov-2026): NFLR counts the floor-pinned unknowns at this
+! depth, CN_UMIN/CN_UMAX hold the per-column max-|C_MAT| extrema on the
+! UNEQUILIBRATED block (the equilibrated extrema are ~1 by DGEEQU
+! construction and carry no information). CN_ANORM is the 1-norm of the
+! equilibrated block fed to DGECON for a real reciprocal condition
+! estimate CN_RCOND; ROW_CND/COL_CND/MAX_VAL come free from DGEEQU. A
+! near-null column at a floor population is the H1/H2 signature the
+! RUNAWAY channel list cannot see.
 !
-	INTEGER NFLR,JC
-	REAL(KIND=LDP) CN_T1,CN_UMIN,CN_UMAX,CN_EMIN,CN_EMAX
+	INTEGER NFLR,JC,CN_INFO
+	REAL(KIND=LDP) CN_T1,CN_UMIN,CN_UMAX,CN_ANORM,CN_RCOND
+	REAL(KIND=LDP), ALLOCATABLE :: CN_WORK(:)
+	INTEGER, ALLOCATABLE :: CN_IWORK(:)
         INTEGER IOS,IFAIL
 	CHARACTER*10 DESC
 	LOGICAL ANONZERO,ENONZERO
@@ -964,25 +970,20 @@ C
 	      END DO
 	    END DO
 !
-! Item-1 [POP_AUDIT] census, part 2 (edited 08-Nov-2026): the same
-! column extrema on the DGEEQU-equilibrated block, then one
-! RUNAWAY-prefixed line per depth. colmin/colmax bracket the
-! assembled Jacobian's weakest and strongest columns; a colmin that
-! collapses toward zero while nflr is large is the floor-pinned
-! null-column signature behind the 1E7 demand cap (H1).
+! Item-1 [POP_AUDIT] census, part 2 (revised 08-Nov-2026): record the
+! 1-norm of the equilibrated block for the DGECON condition estimate
+! taken after DGETRF below. The per-column equilibrated extrema that
+! used to print here are ~1 by DGEEQU construction and carried no
+! information; ROW_CND/COL_CND/MAX_VAL from DGEEQU and the DGECON
+! reciprocal estimate replace them. The RUNAWAY line is deferred until
+! after DGETRF so it can carry rcond.
 !
 	    IF(POP_AUDIT)THEN
-	      CN_EMIN=0.0_LDP
-	      CN_EMAX=0.0_LDP
+	      CN_ANORM=0.0_LDP
 	      DO JC=1,N
-	        CN_T1=MAXVAL(ABS(C_MAT(:,JC)))
-	        IF(JC .EQ. 1 .OR. CN_T1 .LT. CN_EMIN)CN_EMIN=CN_T1
-	        CN_EMAX=MAX(CN_EMAX,CN_T1)
+	        CN_T1=SUM(ABS(C_MAT(:,JC)))
+	        CN_ANORM=MAX(CN_ANORM,CN_T1)
 	      END DO
-	      WRITE(LUER,'(A,I4,A,I6,A,4(1X,ES11.3))')
-	1     ' RUNAWAY d=',K,' nflr=',NFLR,
-	2     '  colmin_u=',CN_UMIN,' colmax_u=',CN_UMAX,
-	3     ' colmin_e=',CN_EMIN,' colmax_e=',CN_EMAX
 	    END IF
 	    CALL TUNE(1,'DGERTF')
 	    CALL DGETRF(N,N,C_MAT,N,IPIVOT,IFAIL)
@@ -995,6 +996,32 @@ C
 	      WRITE(LUER,*)'IFAIL=',IFAIL
 	      STEQ(:,K)=0.0_LDP
 	      GOTO 500			!9999
+	    END IF
+!
+! Item-1 [POP_AUDIT] census, part 3 (revised 08-Nov-2026): C_MAT now
+! holds the LU factors of the equilibrated block, so DGECON gives a
+! real reciprocal 1-norm condition estimate (O(N^2), opt-in only).
+! One RUNAWAY-prefixed line per depth carries nflr, the
+! unequilibrated column extrema, the DGEEQU scaling diagnostics and
+! rcond. A colmin_u collapse or rcond -> 0 while nflr is large is the
+! floor-pinned null-column signature behind the 1E7 demand cap (H1).
+!
+	    IF(POP_AUDIT)THEN
+	      IF(.NOT. ALLOCATED(CN_WORK))THEN
+	        ALLOCATE(CN_WORK(N),CN_IWORK(N),STAT=IOS)
+	      ELSE
+	        IOS=0
+	      END IF
+	      IF(IOS .EQ. 0)THEN
+	        CALL DGECON(N,C_MAT,N,CN_ANORM,CN_RCOND,
+	1       CN_WORK,CN_IWORK,CN_INFO)
+	        WRITE(LUER,'(A,I4,A,I6,A,3(1X,ES11.3),A,3(1X,ES11.3),'
+	2       //'A,ES11.3)')
+	1       ' RUNAWAY d=',K,' nflr=',NFLR,
+	2       '  colmin_u=',CN_UMIN,' colmax_u=',CN_UMAX,
+	3       ' row_cnd=',ROW_CND,' col_cnd=',COL_CND,' maxval=',MAX_VAL,
+	4       ' rcond=',CN_RCOND
+	      END IF
 	    END IF
 	    IF(WR_BA_INV)THEN
 	      CALL WRITE_BCD_MAT(RUB,C_MAT,RUB,ROW_SF,COL_SF,IPIVOT,
