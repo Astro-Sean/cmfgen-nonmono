@@ -136,6 +136,14 @@
 ! Allocatable, not automatic: NT*ND is too large to trust to the stack
 ! on nodes with a limited stack size.
 	REAL(KIND=LDP), ALLOCATABLE :: POPS_OLD(:,:)
+!
+! Item-1 fix (08-Nov-2026): STEQ_RAW snapshots the demanded
+! corrections after the band solve but BEFORE the trust/mask block
+! zeroes over-trust columns, so the RUNAWAY census can still name the
+! channels that were thrown away. Allocated only when the census is
+! armed; a local allocatable auto-frees on RETURN.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: STEQ_RAW(:,:)
 	INTEGER I,J,K,IINC,IDEC,IOS,LU_SUM
 	INTEGER JINC,JDEC
 	INTEGER RES_LOC(2)
@@ -1126,6 +1134,20 @@
 ! corrections. BA_TRUST_CUR halves on each rejected step and
 ! recovers 1.25x per accepted step, up to BA_TRUST.
 !
+!
+! edited 08-Nov-2026: snapshot the demanded corrections into
+! STEQ_RAW before the trust/mask block below zeroes over-trust,
+! rolled-back and non-finite columns. The RUNAWAY census reads
+! STEQ_RAW so it still reports the channels whose demand was large
+! enough to trip the cap -- exactly the runaway population the
+! census exists to name (H1). STEQ itself is left untouched; only
+! the diagnostic copy is taken. Runs on LAMBDA and BA calls alike.
+!
+	IF(POP_RUNAWAY_DEM .GT. 0.0_LDP)THEN
+	  ALLOCATE(STEQ_RAW(NT,ND),STAT=IOS)
+	  IF(IOS .EQ. 0)STEQ_RAW=STEQ
+	END IF
+!
 	STEQ_MASKED_MAX=0.0_LDP
 	L_ANY_MASK=.FALSE.
 	IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN
@@ -2031,21 +2053,23 @@
 ! Item-1 diagnostic (hypothesis H1). When the largest demanded
 ! correction on a level/conservation row reaches POP_RUNAWAY_DEM
 ! percent, name the top POP_RUNAWAY_TOPN (equation,depth) channels.
-! STEQ(J,I) is the demanded fractional correction (+ve = decrease)
-! after the band solve; POPS vs POPS_OLD gives the change actually
-! committed (post scale-limit, post BA_TRACE_PHASE hold, post any
-! BA_MAXCH_FAIL restore). The floor flag tests the 1E-30 /
-! BA_DEM_PFLOOR population level the JFNK audit found hosting the
-! near-null SE columns; cons marks non-level conservation rows.
-! Diagnostic only -- reads STEQ/POPS/POPS_OLD, writes OUTGEN,
-! changes nothing. Runs on LAMBDA and BA calls alike.
+! STEQ_RAW(J,I) is the demanded fractional correction (+ve =
+! decrease) snapshotted after the band solve but BEFORE the
+! trust/mask block zeroes over-trust columns, so the runaway depths
+! the cap discards are still visible here; POPS vs POPS_OLD gives
+! the change actually committed (post scale-limit, post
+! BA_TRACE_PHASE hold, post any BA_MAXCH_FAIL restore). The floor
+! flag tests the 1E-30 / BA_DEM_PFLOOR population level the JFNK
+! audit found hosting the near-null SE columns; cons marks non-level
+! conservation rows. Diagnostic only -- reads STEQ_RAW/POPS/POPS_OLD,
+! writes OUTGEN, changes nothing. Runs on LAMBDA and BA calls alike.
 !
-	  IF(POP_RUNAWAY_DEM .GT. 0.0_LDP .AND.
+	  IF(POP_RUNAWAY_DEM .GT. 0.0_LDP .AND. ALLOCATED(STEQ_RAW) .AND.
 	1     POP_RUNAWAY_TOPN .GT. 0)THEN
 	    RW_MAX=0.0_LDP
 	    DO I=1,ND
 	      DO J=1,NT-2
-	        RW_MAX=MAX(RW_MAX,ABS(STEQ(J,I)))
+	        RW_MAX=MAX(RW_MAX,ABS(STEQ_RAW(J,I)))
 	      END DO
 	    END DO
 	    IF(100.0_LDP*RW_MAX .GE. POP_RUNAWAY_DEM)THEN
@@ -2068,8 +2092,8 @@
 	1               L_DUP=.TRUE.
 	              END DO
 	              IF(L_DUP)CYCLE
-	              IF(ABS(STEQ(J,I)) .GT. RW_T1)THEN
-	                RW_T1=ABS(STEQ(J,I))
+	              IF(ABS(STEQ_RAW(J,I)) .GT. RW_T1)THEN
+	                RW_T1=ABS(STEQ_RAW(J,I))
 	                JX=J
 	                IX=I
 	              END IF
@@ -2085,6 +2109,7 @@
 !
 	          CALL EQ_LOC(JX,IDW,LEW)
 	          RW_NOLD=POPS_OLD(JX,IX)
+	          CGF=0
 	          IF(LEW .GT. 0)THEN
 	            ILO=ATM(IDW)%EQXzV
 	            IHI=MIN(ILO+ATM(IDW)%NXzV-1,NT-2)
@@ -2107,7 +2132,6 @@
 	            FLG=0
 	            CGF=1
 	          END IF
-	          IF(LEW .LE. 0)CGF=1
 	          IF(RW_NOLD .GT. 0.0_LDP)THEN
 	            RW_APP=(POPS(JX,IX)-RW_NOLD)/RW_NOLD
 	          ELSE
@@ -2118,7 +2142,7 @@
 	2         //'A,ES12.4,A,ES12.4,A,I1,A,I1)')
 	1         ' RUNAWAY d=',IX,' eq=',JX,' ',TRIM(EQ_DESC(JX)),
 	2         ' n=',RW_NOLD,' ionf=',RW_IONF,
-	3         ' dem%= ',100.0_LDP*STEQ(JX,IX),
+	3         ' dem%= ',100.0_LDP*STEQ_RAW(JX,IX),
 	4         ' app%= ',100.0_LDP*RW_APP,
 	5         ' fl=',FLG,' cons=',CGF
 	        END DO
