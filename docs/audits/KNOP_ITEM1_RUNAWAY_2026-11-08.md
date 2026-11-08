@@ -7,6 +7,22 @@ populations give the per-depth SE block an approximate null space, so
 exit gate can never pass. This note adds the instrumentation that
 names the exact channels; it does not yet fix anything.
 
+> **Revision (same day, post-review).** Review of the first cut found
+> the channel census read `STEQ` *after* the trust/mask block had
+> already zeroed over-trust columns, so it could only report demands
+> below the `BA_TRUST` cap - precisely not the runaway depths. The
+> census now reads `STEQ_RAW`, a snapshot taken after the band solve
+> and before the masking. Three smaller defects were also fixed:
+> `CGF` is now initialised for level rows (it printed stale/garbage
+> for exactly the rows being classified); the equilibrated column
+> extrema were dropped (they are ~1 by `DGEEQU` construction) in favour
+> of the free `DGEEQU` `ROW_CND`/`COL_CND`/`MAX_VAL` outputs plus a real
+> `DGECON` reciprocal condition estimate; and the per-depth census was
+> confirmed to sit on the DIAG route that production actually takes
+> (`NUM_BNDS=1` forces `METH_SOL='DIAG'`). The all-or-nothing
+> trust-column zeroing itself is deferred to Item 2 pending this
+> corrected census confirming the mechanism.
+
 ## What was added
 
 Two opt-in VADAT keys (defaults preserve current behaviour):
@@ -38,8 +54,11 @@ Field meanings:
   was computed against).
 - `ionf`: `n` as a fraction of the owning ion's level-row total at
   that depth (`-1` for non-level rows).
-- `dem%`: demanded fractional correction `100*STEQ(J,I)` (signed;
-  `+` = decrease). This is the *raw* demand, including rows the
+- `dem%`: demanded fractional correction `100*STEQ_RAW(J,I)` (signed;
+  `+` = decrease). `STEQ_RAW` is a snapshot of `STEQ` taken after the
+  band solve but **before** the trust/mask block zeroes over-trust
+  columns, so the runaway depths the `BA_TRUST` cap discards are still
+  visible. This is the *raw* demand, including rows the
   `BA_DEM_PFLOOR` metric exempts - that is the point of the census.
 - `app%`: applied fractional change actually committed,
   `(POPS-POPS_OLD)/POPS_OLD`, so scale limits, the Stage-B trace
@@ -58,22 +77,29 @@ conservation flag do not re-parse the label string.
 `new_main/subs/cmf_blkband_v3.f`, gated by the existing `POP_AUDIT`
 logical (now imported from `CONTROL_VARIABLE_MOD`). For every depth
 `K` of the DIAG band solve, after `GENERATE_FULL_MATRIX_V3` +
-`CMF_BLKBAND_PIN_NULL_V1` and again after `DGEEQU` equilibration:
+`CMF_BLKBAND_PIN_NULL_V1`, after `DGEEQU` equilibration, and after
+`DGETRF`:
 
 - `nflr`: count of unknowns `J=1..N-2` with
   `POPS(J,K) <= max(1E-30, BA_DEM_PFLOOR)`;
-- `colmin_u/colmax_u`, `colmin_e/colmax_e`: min/max over columns of
-  `max_i |C_MAT(i,j)|` on the unequilibrated and equilibrated block.
+- `colmin_u/colmax_u`: min/max over columns of `max_i |C_MAT(i,j)|` on
+  the **unequilibrated** block (the equilibrated column extrema are
+  ~1 by `DGEEQU` construction and carry no information);
+- `row_cnd/col_cnd/maxval`: the `DGEEQU` scaling diagnostics, free;
+- `rcond`: reciprocal 1-norm condition estimate of the equilibrated
+  block from `DGECON` on the `DGETRF` LU factors (O(N^2), opt-in).
 
 One line per depth:
-`RUNAWAY d=<K> nflr=<>  colmin_u=<> colmax_u=<> colmin_e=<> colmax_e=<>`.
+`RUNAWAY d=<K> nflr=<>  colmin_u=<> colmax_u=<> row_cnd=<> col_cnd=<>
+ maxval=<> rcond=<>`.
 
-This is the cheap column-norm proxy the JFNK audit (section F)
-called for: a column whose norm collapses toward `1E-16..1E-22` of
-the block scale while `nflr` is large is the floor-pinned null column
-behind the demand cap. No SVD, no factorisation change; the solve is
-untouched. TRI path is not instrumented (DIAG is the production
-route); noted as a limitation.
+This is the cheap conditioning proxy the JFNK audit (section F)
+called for: a `colmin_u` collapse or `rcond -> 0` while `nflr` is
+large is the floor-pinned null-column signature behind the demand cap.
+No SVD, no factorisation change; the solve is untouched. TRI path is
+not instrumented, but the production `MODEL_SPEC` sets `NUM_BNDS=1`,
+which forces `METH_SOL='DIAG'`, so `CMF_DIAG_SOLVE` is the live route
+here; TRI coverage noted as a limitation.
 
 ## Files changed
 
@@ -90,22 +116,28 @@ route); noted as a limitation.
 
 ## Verification
 
-- `ifort -extend-source` syntax compile of all four edited `.f`
-  files: clean.
-- `python3 unit_tests/python/test_vadat_keys.py`: **85 passed,
-  0 failed** (includes the two new POP_RUNAWAY cases).
-- Full `./build.sh` + `unit_tests/run_all_tests.py`: not yet run end
-  to end in this session; targeted compiles above cover the edited
-  translation units.
+- `ifort -extend-source` syntax compile of the edited `.f` files:
+  clean.
+- `make DEBUG=nodebug all`: clean (exit 0); `DGECON` resolves from
+  MKL LAPACK.
+- `python3 unit_tests/run_all_tests.py`: **30/30 test files passed**
+  (incl. `test_vadat_keys.py` 85/85 and `test_cmf_blkband_pin.py`).
+- Surrogate-level only; no production model run yet.
 
 ## What to collect from the next run
 
 - `RUNAWAY it=` header + channel lines: which (species,ion,level,
   depth) channels carry the 1E7 demand, their `n`, `ionf`, `fl`,
-  `cons`.
-- `RUNAWAY d=` per-depth lines (need `POP_AUDIT=T`): `nflr` and the
-  `colmin/colmax` column-norm extrema - confirms whether the weakest
-  columns sit on floor populations (H1) before Item 2 masks them.
+  `cons`. `dem%` is now the **pre-zeroing** demand, so the channels
+  behind the `BA_TRUST` cap finally appear.
+- `RUNAWAY d=` per-depth lines (need `POP_AUDIT=T`): `nflr`,
+  `colmin_u/colmax_u`, `row_cnd/col_cnd/maxval`, `rcond` - confirms
+  whether the weakest/most ill-conditioned columns sit on floor
+  populations (H1) before Item 2 masks them.
+- The pre-existing over-trust evidence that motivated the fix:
+  `BA_RES_ACC: over-trust demand quarantines eqn`, the `COUNT(2)`
+  summary, and `BA_RES_ACC: zeroed ... depth corrections` - count how
+  many depth columns are being discarded per call.
 - Cross-check against the existing `pops demand/applied`,
   `worst margin (exm)`, and `BA_DEM_EXM/EXR` lines.
 
