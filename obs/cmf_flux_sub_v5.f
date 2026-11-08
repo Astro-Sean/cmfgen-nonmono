@@ -1254,7 +1254,21 @@
 ! Compute the turbulent velocity and MINIMUM Doppler velocity as a function of depth.
 ! For the later, the iron mass of 55.8amu is assumed.
 !
-	  TA(1:NDEXT)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)*VEXT(1:NDEXT)/VEXT(1)
+! Same normalization as the LAW_V1 branch above.  VEXT comes from a
+! log-plane interpolation and, on a non-monotonic field, VEXT(1) can
+! be zero, negative, or smaller than an interior |VEXT|, any of
+! which makes VEXT/VEXT(1) leave [0,1] and corrupts the turbulent
+! velocity and hence every Doppler width on the extended grid.  For
+! a monotonic outflow VEXT(1) is the largest velocity so this reduces
+! to the historical expression.
+!
+	  T2=MAXVAL(ABS(VEXT(1:NDEXT)))
+	  IF(T2 .GT. 1.0E-12_LDP)THEN
+	    TA(1:NDEXT)=VTURB_MIN+(VTURB_MAX-VTURB_MIN)*
+	1       MIN(1.0_LDP,ABS(VEXT(1:NDEXT))/T2)
+	  ELSE
+	    TA(1:NDEXT)=VTURB_MIN
+	  END IF
 	  VDOP_VEC_EXT(1:NDEXT)=SQRT( TA(1:NDEXT)**2 + 2.96_LDP*TEXT(1:NDEXT) )
 !
 ! Note that the F2DAEXT vectors (here used as dummy variables) must be at least
