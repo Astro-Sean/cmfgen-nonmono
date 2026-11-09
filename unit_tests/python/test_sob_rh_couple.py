@@ -31,20 +31,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from common import (
-    BINDIR,
     F90DIR,
     PLOTDIR,
     TREE,
     WORKDIR,
     Report,
-    compile_objs,
-    link,
+    compile_and_link_prod,
     run,
 )
 
 HELPERS = [
     TREE / "tools" / "set_kind_module.f",
     TREE / "subs" / "exponx.f",
+    TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
+    TREE / "subs" / "sob_rh_couple.f",
 ]
 
 ND, NSIM = 30, 2
@@ -52,19 +52,9 @@ FL = 1.0
 
 
 def build():
-    md = BINDIR / "obj_rh_mod"
-    help_objs = compile_objs("rh_help", HELPERS, moddir=md)
-    mod_obj = compile_objs(
-        "rh_mod",
-        [
-            TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
-            TREE / "subs" / "sob_rh_couple.f",
-        ],
-        moddir=md,
+    return compile_and_link_prod(
+        "sobrh", HELPERS + [F90DIR / "drv_sob_rh.f90"]
     )
-    drv_obj = compile_objs("rh_drv", [F90DIR / "drv_sob_rh.f90"], moddir=md)
-    bins = link("sobrh", help_objs + mod_obj + drv_obj, moddir=md)
-    return bins
 
 
 def write_case(
