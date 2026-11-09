@@ -6,11 +6,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, compile_driver, run
+from common import F90DIR, TREE, compile_and_link_prod, run
 
 
 def main():
-    binary = compile_driver(
+    binary = compile_and_link_prod(
         "drv_cmf_blkband_pin",
         [
             TREE / "tools" / "set_kind_module.f",
