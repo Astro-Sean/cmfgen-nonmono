@@ -25,7 +25,8 @@
 program test_pc_quality
    use jfnk_solver_v1_mod, only: jfnk_pc_set_options_v1, &
       jfnk_pc_tiny_equil, jfnk_rcond_gate, jfnk_rcond_min, &
-      jfnk_itry_cap, jfnk_ridge_floor
+      jfnk_itry_cap, jfnk_ridge_floor, jfnk_pc_qual_v2, &
+      jfnk_pc_qual_tol
    implicit none
    integer, parameter :: N = 12, LUER = 6
    double precision :: a(N,N), lu(N,N), rsf(N), csf(N), rrg(N)
@@ -96,6 +97,36 @@ program test_pc_quality
       ' ||I-MinvA||=', err_m
    call jfnk_pc_set_options_v1(.false., .false., .false., .false., &
                              1.0d-13, 3)
+   ! Q2c: the JFNK_PC_QUAL probe must reject this block -- the
+   ! direction u is damped ~5e3x below any ridge the ladder tries.
+   jfnk_pc_qual_v2 = .true.
+   jfnk_pc_qual_tol = 0.5d0
+   call factor_and_apply_err(a, N, lsq_mode, lu_ok, itry_used, &
+                             ridge_used, rcond, err_m)
+   jfnk_pc_qual_v2 = .false.
+   write(luer,'(A,L3,A,I3)') &
+      'Q2c: qual-gate lu_ok=', lu_ok, ' itry=', itry_used
+   if(.not. lu_ok) then
+      write(luer,'(A)') 'Q2c: PASS (blindspot block rejected)'
+   else
+      write(luer,'(A)') 'Q2c: FAIL (blindspot still accepted)'
+      nfail = nfail + 1
+   end if
+   ! Q2d: same gate, well-conditioned block -- must still accept.
+   call gen_wellcond(a, N)
+   jfnk_pc_qual_v2 = .true.
+   call factor_and_apply_err(a, N, lsq_mode, lu_ok, itry_used, &
+                             ridge_used, rcond, err_m)
+   jfnk_pc_qual_v2 = .false.
+   write(luer,'(A,L3,A,I3,A,ES10.2)') &
+      'Q2d: qual-gate lu_ok=', lu_ok, ' itry=', itry_used, &
+      ' ||I-MinvA||=', err_m
+   if(lu_ok .and. itry_used == 0) then
+      write(luer,'(A)') 'Q2d: PASS (well-conditioned accepted at 0)'
+   else
+      write(luer,'(A)') 'Q2d: FAIL (false rejection)'
+      nfail = nfail + 1
+   end if
    !
    ! ============ Q3: exact-zero row -> reg projection ============
    !
