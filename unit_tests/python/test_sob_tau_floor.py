@@ -30,13 +30,16 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    link_prod,
     max_meaningful_diff,
+    prod_objs,
+    ref_close,
     run,
 )
 
@@ -77,24 +80,36 @@ def exponx(x):
 
 def build():
     """Compile helpers + driver once, each sob file twice (new/ref)."""
-    help_objs = compile_objs("sob_help", HELPERS)
+    md = BINDIR / "obj_sob_help"
+    help_objs = prod_objs(HELPERS)
     drv_obj = compile_objs(
-        "sob_drv", [F90DIR / "drv_sob_floor.f90"], moddir=BINDIR / "obj_sob_help"
+        "sob_drv",
+        [F90DIR / "drv_sob_floor.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
+    )
+    new_objs = prod_objs(
+        [TREE / "subs" / fname for fname in ROUTINES.values()]
     )
     bins = {}
-    for tag, root in (("new", TREE), ("ref", REF)):
-        sob = []
-        for key, fname in ROUTINES.items():
-            sob += compile_objs(
-                f"sob_{tag}_{key}",
-                [root / "subs" / fname],
-                moddir=BINDIR / "obj_sob_help",
-            )
+    for tag in ("new", "ref"):
+        if tag == "new":
+            sob = list(new_objs)
+        else:
+            sob = []
+            for key, fname in ROUTINES.items():
+                sob += compile_objs(
+                    f"sob_{tag}_{key}",
+                    [REF / "subs" / fname],
+                    prod=True,
+                    moddir=md,
+                    extra_flags=PROD_MOD_INC,
+                )
         for key in ROUTINES:
-            bins[(key, tag)] = link(
+            bins[(key, tag)] = link_prod(
                 f"sobfloor_{tag}",
                 help_objs + drv_obj + sob,
-                moddir=BINDIR / "obj_sob_help",
+                moddir=md,
             )
     return bins
 
@@ -165,11 +180,11 @@ def main():
         case, r, p, w, gamh = write_case(f"case_{key}_pos.txt", 2.0)
         a, _ = parse_rows(run(bins[(key, "new")], key, case).stdout)
         b, _ = parse_rows(run(bins[(key, "ref")], key, case).stdout)
-        ok = np.array_equal(a, b) or max_meaningful_diff(a, b) == 0.0
+        ok, maxrel = ref_close(a, b)
         rep.check(
             f"T1 {key}: sigma=+2 identical to upstream",
             ok,
-            f"maxdiff={np.abs(a - b).max():.2e}",
+            f"maxrel={maxrel:.2e}",
         )
 
     # -- T2: sigma=-0.5 (> -1): floor can never engage, still identical.
@@ -177,11 +192,11 @@ def main():
         case, r, p, w, gamh = write_case(f"case_{key}_mhalf.txt", -0.5)
         a, _ = parse_rows(run(bins[(key, "new")], key, case).stdout)
         b, _ = parse_rows(run(bins[(key, "ref")], key, case).stdout)
-        ok = np.array_equal(a, b) or max_meaningful_diff(a, b) == 0.0
+        ok, maxrel = ref_close(a, b)
         rep.check(
             f"T2 {key}: sigma=-0.5 identical to upstream",
             ok,
-            f"maxdiff={np.abs(a - b).max():.2e}",
+            f"maxrel={maxrel:.2e}",
         )
 
     # -- T3: sigma=-2 (< -1): new BETA matches the floored formula
@@ -297,7 +312,7 @@ def main():
     err9 = np.abs(a9[:, 0] - beta9).max()
     rep.check(
         "T9 sobjsim sigma=0: BETA == EXF(GAMH), identical to upstream",
-        err9 < 1e-9 and np.array_equal(a9[:, 0], b9[:, 0]),
+        err9 < 1e-9 and ref_close(a9[:, 0], b9[:, 0])[0],
         f"err={err9:.2e} maxdiff={np.abs(a9[:,0]-b9[:,0]).max():.2e}",
     )
 
