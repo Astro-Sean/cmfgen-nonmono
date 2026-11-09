@@ -24,7 +24,8 @@
 	5     BA_DEM_EXR,BA_LQ_HIT,BA_LQ_DEM,BA_LQ_PAT,
 	6     BA_ARG_J,BA_ARG_I,BA_ARG_PCT,
 	7     POP_RUNAWAY_DEM,POP_RUNAWAY_TOPN,POP_TRACE_MAXFAC,
-	8     POP_MASK_FLOOR
+	8     POP_MASK_FLOOR,POP_MASK_PROBE,BA_MASK_N,BA_MASK_MAX,
+	9     BA_MASK_J,BA_MASK_I,BA_MASK_STREAK
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -217,6 +218,28 @@
 	END IF
 	NQUAR_NEW=0
 	STEQ_QMAX=0.0_LDP
+!
+! edited 09-Nov-2026: [POP_MASK_FLOOR] recovery-probe streak.
+! BA_MASK_STREAK(J,I) counts consecutive calls a floor-pinned level
+! row was masked; every POP_MASK_PROBE-th masked call the row is
+! left unmasked once so a temporarily underpopulated level can
+! recover. Sized like BA_LQ_HIT, allocated whenever the floor mask
+! is armed regardless of DO_BA_RES_ACC/DO_BA_QUAR. A size change
+! reallocates and re-zeros, matching the BA_LQ_HIT pattern.
+!
+	IF(POP_MASK_FLOOR .GT. 0.0_LDP)THEN
+	  IF(.NOT. ALLOCATED(BA_MASK_STREAK))THEN
+	    ALLOCATE(BA_MASK_STREAK(NT,ND),STAT=IOS)
+	    IF(IOS .EQ. 0)BA_MASK_STREAK(1:NT,1:ND)=0
+	  ELSE IF(SIZE(BA_MASK_STREAK,1) .NE. NT .OR.
+	1     SIZE(BA_MASK_STREAK,2) .NE. ND)THEN
+	    DEALLOCATE(BA_MASK_STREAK)
+	    ALLOCATE(BA_MASK_STREAK(NT,ND),STAT=IOS)
+	    IF(IOS .EQ. 0)BA_MASK_STREAK(1:NT,1:ND)=0
+	  ELSE
+	    IOS=0
+	  END IF
+	END IF
 !
 ! Residual-accepted BA update (VADAT DO_BA_RES_ACC, default F).
 ! STEQ enters as the statistical-equilibrium residual; its max
@@ -1151,6 +1174,35 @@
 !
 	STEQ_MASKED_MAX=0.0_LDP
 	L_ANY_MASK=.FALSE.
+!
+! edited 09-Nov-2026: [POP_MASK_FLOOR] unified floor-level
+! handler. Runs on EVERY call here -- after the band solve and the
+! STEQ_RAW snapshot, before the resacc trust/mask block and before
+! the demand scans -- so floor-pinned levels are masked consistently
+! on LAMBDA and BA calls alike. The previous form sat inside
+! DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT and never fired on the KNOP
+! stall, which is all LAMBDA calls. POP_FLOOR_STEP owns the mask,
+! the masked-demand accounting (BA_MASK_*) and the recovery-probe
+! streak; it self-guards on POP_MASK_FLOOR>0. On the BA path the
+! mask still lands before the trust test, so a floor level cannot
+! trip the all-or-nothing column mask; on LAMBDA it lands before
+! the EXM/EXR/MAXCH scans.
+!
+	CALL POP_FLOOR_STEP()
+!
+! Masked-demand report (edited 09-Nov-2026): name the largest
+! suppressed floor-level residual every call so a masked equation
+! is never silent in OUTGEN. BA_MASK_* is reset inside
+! POP_FLOOR_STEP even when the mask is off.
+!
+	IF(BA_MASK_N .GT. 0)THEN
+	  WRITE(LUER,'(A,I6,A,A,A,I4,A,ES12.4)')
+	1    'POP_MASK: suppressed ',BA_MASK_N,
+	2    ' floor-level corrections; largest ',
+	3    TRIM(EQ_DESC(BA_MASK_J)),' @d',BA_MASK_I,
+	4    '  dem%= ',100.0_LDP*BA_MASK_MAX
+	END IF
+!
 	IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN
 	  COUNT(2)=0
 	  COUNT(3)=0
@@ -1160,26 +1212,6 @@
 	    IF(SIZE(BA_RBK_MASK) .EQ. ND)LMASK_OK=.TRUE.
 	  END IF
 	  DO I=1,ND
-!
-! edited 09-Nov-2026: [POP_MASK_FLOOR] Item-2 post-solve floor
-! mask. A level whose population sits below the floor gives the
-! POPS-scaled SE block an approximate null column, so the solve
-! demands order-1E7 corrections the BA_DEM floors exempt from MAXCH
-! yet still export as exempted demand -- the Item-1 census
-! (KNOP_ITEM1_RUNAWAY_2026-11-08) pinned this as the KNOP stall.
-! Masking here -- after the band solve, before every demand metric
-! and the commit -- zeroes the floor level's correction so it is
-! held at its floor value and contributes nothing to MAXCH,
-! BA_DEM_EXM/EXR, or the applied update. A matrix-level pin was
-! tried first and crashed the coupled block (job 12868544); this
-! post-solve form cannot perturb the factorisation. Level rows
-! J=1..NT-2 only; ED/T rows are untouched. 0 disables.
-!
-	    IF(POP_MASK_FLOOR .GT. 0.0_LDP)THEN
-	      DO J=1,NT-2
-	        IF(POPS(J,I) .LT. POP_MASK_FLOOR)STEQ(J,I)=0.0_LDP
-	      END DO
-	    END IF
 !
 ! edited 07-Oct-2026: per-equation quarantine
 ! ([DO_BA_QUAR]). Parked equations are suppressed FIRST, before
@@ -2195,6 +2227,71 @@
 	RETURN
 !
 	CONTAINS
+!
+! edited 09-Nov-2026: [POP_MASK_FLOOR] unified floor-level
+! handler, called once per SOLVEBA_V13 call after the band solve
+! (and the STEQ_RAW snapshot) but before the resacc trust/mask block
+! and the demand scans, so floor-pinned levels are treated
+! identically on LAMBDA and BA calls. The earlier form lived inside
+! DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT and never ran on the KNOP
+! stall, which is all LAMBDA calls.
+!
+! For each level row J=1..NT-2 with POPS(J,I) < POP_MASK_FLOOR the
+! demanded correction is floor-pinned: the level is held at its
+! floor value and its suppressed demand is accumulated into the
+! BA_MASK_* diagnostics so a masked equation can never satisfy the
+! converged exit silently. A per-(row,depth) streak in
+! BA_MASK_STREAK gives recovery eligibility: after POP_MASK_PROBE
+! consecutive masked calls the row is left unmasked for one call so
+! a temporarily underpopulated level can climb back above the floor;
+! the usual MAX_LAM/MAX_LIN clamps still bound that update. If the
+! level stays below the floor, masking resumes. POP_MASK_PROBE<=0
+! masks every call with no probe. ED/T and conservation rows are
+! never touched. STEQ/POPS/NT/ND are host-associated; the Item-2
+! controls and BA_MASK_* state come from CONTROL_VARIABLE_MOD.
+!
+	SUBROUTINE POP_FLOOR_STEP()
+	USE SET_KIND_MODULE
+	USE CONTROL_VARIABLE_MOD, ONLY: POP_MASK_FLOOR,POP_MASK_PROBE,
+	1   BA_MASK_N,BA_MASK_MAX,BA_MASK_J,BA_MASK_I,BA_MASK_STREAK
+	IMPLICIT NONE
+	INTEGER I,J
+	REAL(KIND=LDP) DEM
+	LOGICAL L_STREAK
+	BA_MASK_N=0
+	BA_MASK_MAX=0.0_LDP
+	BA_MASK_J=0
+	BA_MASK_I=0
+	IF(POP_MASK_FLOOR .LE. 0.0_LDP)RETURN
+	L_STREAK=ALLOCATED(BA_MASK_STREAK)
+	DO I=1,ND
+	  DO J=1,NT-2
+	    IF(POPS(J,I) .GE. POP_MASK_FLOOR)THEN
+	      IF(L_STREAK)BA_MASK_STREAK(J,I)=0
+	      CYCLE
+	    END IF
+!
+! floor-pinned level row: recovery probe or mask
+!
+	    IF(L_STREAK .AND. POP_MASK_PROBE .GT. 0 .AND.
+	1       BA_MASK_STREAK(J,I) .GE. POP_MASK_PROBE)THEN
+	      BA_MASK_STREAK(J,I)=0
+	    ELSE
+	      DEM=ABS(STEQ(J,I))
+	      IF(DEM .GT. 0.0_LDP)THEN
+	        BA_MASK_N=BA_MASK_N+1
+	        IF(DEM .GT. BA_MASK_MAX)THEN
+	          BA_MASK_MAX=DEM
+	          BA_MASK_J=J
+	          BA_MASK_I=I
+	        END IF
+	      END IF
+	      STEQ(J,I)=0.0_LDP
+	      IF(L_STREAK)BA_MASK_STREAK(J,I)=BA_MASK_STREAK(J,I)+1
+	    END IF
+	  END DO
+	END DO
+	END SUBROUTINE POP_FLOOR_STEP
 !
 ! edited 30-Sep-2026: map a global equation index J to a
 ! readable species:level label. Each ion's equations start at
