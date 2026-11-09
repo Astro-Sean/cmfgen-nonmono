@@ -783,13 +783,17 @@
 	1                  METHOD,FIRST_FREQ,NEW_FREQ,NC,NP,ND)
 	       INBC=0.0_LDP
 	     ELSE
-	        IF(DO_NONMONO_KNOP)THEN
+	        IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
 !	          Knop et al. (2009) CMF formal solver for non-monotonic
 !	          velocity fields: required when sigma < -1, where V12
-!	          aborts.  Uses the unclamped SIGMA_TRUE; SIGMA stays
-!	          clamped for the moment equations and infrastructure.
-!	          SET_FG_NU_NEXT passes nu(ML+1) so compressing cells use
-!	          the correct upwind slot on the OBS grid.
+!	          aborts or returns expansion-biased intensities.  Applies
+!	          to DO_NONMONO_SOB renders as well: a SOB model on a
+!	          genuinely non-monotonic field would otherwise have its
+!	          final IPLUS computed by the monotonic solver.  Uses the
+!	          unclamped SIGMA_TRUE; SIGMA stays clamped for the
+!	          moment equations and infrastructure.  SET_FG_NU_NEXT
+!	          passes nu(ML+1) so compressing cells use the correct
+!	          upwind slot on the OBS grid.
 	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
 	1               'Calling FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
 	          CALL SET_FG_NU_NEXT(NU(MIN(ML+1,NCF)))
