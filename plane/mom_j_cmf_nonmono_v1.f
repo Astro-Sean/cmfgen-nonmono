@@ -167,6 +167,24 @@
 !
 	INTEGER, SAVE :: MOM_GS_ARGI=0, MOM_GS_ARGL=0
 !
+! Symmetric-drift diagnostic (09-Nov-2026 audit; diagnostic only --
+! no gate reads it). The one-sided MOM_GS_MAXCHG divides by
+! max(|old|,1E-4*old column peak), so a cell the stored field held
+! at floor while the fresh solve filled it prints 1E4-1E31 when the
+! same change is order-unity under
+! |new-old|/max(|new|,|old|,1E-4*peak_scale),
+! peak_scale=max(old column peak,fresh column peak,1E-28). A
+! normalization-inflated maximum then reads MOM_GS_MAXSYM~1 with a
+! floor-scale argmax triple, while a genuine runaway keeps both
+! metrics large. MOM_GS_ARGV(1:3) records (old stored value, fresh
+! value, column peak) at the MOM_GS_MAXCHG argmax cell, so the
+! printed maximum carries its own denominator context. MOM_SW_MAXSYM
+! is the refresh-entry snapshot with the same role as
+! MOM_SW_MAXCHG.
+!
+	REAL(KIND=LDP), SAVE :: MOM_GS_MAXSYM=0.0_LDP
+	REAL(KIND=LDP), SAVE :: MOM_GS_ARGV(3)=0.0_LDP
+!
 ! Per-pass drift split (CONV_DIAG_LVL>=2 diagnostic only). The
 ! comp_j_blank F-iteration re-invokes this solver with NEW_FREQ=F at
 ! the same frequency, where the store already holds the relaxed
@@ -314,6 +332,7 @@
 	INTEGER*8, SAVE :: MOM_SW_NQUAR=0
 	INTEGER*8, SAVE :: MOM_SW_CAPPED=0
 	INTEGER*8, SAVE :: MOM_SW_NHUGE=0
+	REAL(KIND=LDP), SAVE :: MOM_SW_MAXSYM=0.0_LDP
 !
 ! MOM_RF_*: post-refresh state of the retained J_NEXT_FRQ field,
 ! measured as |post-refresh - pre-refresh| on the same normalization
@@ -1029,7 +1048,7 @@
 	INTEGER ERROR_LU,LUER
 	EXTERNAL ERROR_LU
 !
-	REAL(KIND=LDP) T1,T2,T3,T4,T5
+	REAL(KIND=LDP) T1,T2,T3,T3F,T4,T5,T6
 	REAL(KIND=LDP) A_BND
 	REAL(KIND=LDP) HBC_ROW,HBC_PREV_ROW
 	REAL(KIND=LDP) NBC_ROW,NBC_PREV_ROW
@@ -1714,6 +1733,7 @@
 	  MOM_EPS_CAP=0;  MOM_EPS_CAP_SW=0
 	  MOM_SW_NSUPP=0
 	  MOM_GS_MAXCHG=0.0_LDP
+	  MOM_GS_MAXSYM=0.0_LDP
 !
 	  MOM_GS_CHG_P1=0.0_LDP
 	  MOM_GS_CHG_P2=0.0_LDP
@@ -1726,6 +1746,7 @@
 	  MOM_GS_NPQUAR=0
 	  MOM_GS_NTOT=INT(ND_NM,8)*INT(NCF_IN,8)
 	  MOM_GS_ARGI=0;  MOM_GS_ARGL=0
+	  MOM_GS_ARGV(1:3)=0.0_LDP
 	  MOM_SW_NTOT=0
 	  MOM_RF_RAN=.FALSE.
 	  MOM_RF_CONV=.FALSE.
@@ -3531,6 +3552,13 @@
 !
 	  T3=MAX(MAXVAL(ABS(J_NEXT_FRQ(1:ND_NM,FREQ_INDX))),
 	1    1.0E-28_LDP)
+!
+!	  Fresh column peak for the symmetric diagnostic. Finite mask:
+!	  a runaway-but-finite cell still counts (it is the solve's
+!	  answer); Inf/NaN do not.
+!
+	  T3F=MAX(MAXVAL(ABS(XM_NM(1:ND_NM)),
+	1    MASK=ABS(XM_NM(1:ND_NM)) .LE. HUGE(XM_NM)),1.0E-28_LDP)
 	  DO I=1,ND_NM
 	    IF(MOM_KN_REFRESHING .AND. MOM_RF_OWNW)THEN
 !
@@ -3560,8 +3588,10 @@
 !
 !	    T5 = this cell's drift contribution for the per-pass split
 !	    folded after the branch chain (CONV_DIAG_LVL>=2 diagnostic).
+!	    T6 = the same cell's symmetric drift for MOM_GS_MAXSYM.
 !
 	    T5=0.0_LDP
+	    T6=0.0_LDP
 	    IF(XM_BAD_NM(I) .AND. MOM_RF_KEEPNEG)THEN
 !
 !	      Quarantined cell: the stored value is frozen by
@@ -3596,12 +3626,15 @@
 !	      Count the rejection as a >50% event.
 !
 	      T5=1.0_LDP
+	      T6=1.0_LDP
 	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
 	        MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	        MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	        IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
 	          MOM_GS_MAXCHG=1.0_LDP
 	          MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	          MOM_GS_ARGV(1)=T1;  MOM_GS_ARGV(2)=T2
+	          MOM_GS_ARGV(3)=T3
 	        END IF
 	      END IF
 	    ELSE IF(.NOT.(ABS(T1) .LE. HUGE(T1)) .OR.
@@ -3611,9 +3644,12 @@
 !	      unconverged rather than letting NaN propagate through MAX.
 !
 	      T5=1.0E+30_LDP
+	      T6=1.0_LDP
 	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
 	        MOM_GS_MAXCHG=MAX(MOM_GS_MAXCHG,1.0E+30_LDP)
 	        MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	        MOM_GS_ARGV(1)=T1;  MOM_GS_ARGV(2)=T2
+	        MOM_GS_ARGV(3)=T3
 	        MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	        MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	        MOM_GS_NHUGE=MOM_GS_NHUGE+1
@@ -3625,6 +3661,8 @@
 !
 	      T4=ABS(T2-T1)/MAX(ABS(T1),1.0E-4_LDP*T3)
 	      T5=T4
+	      T6=ABS(T2-T1)/MAX(MAX(ABS(T1),ABS(T2)),
+	1        1.0E-4_LDP*MAX(T3,T3F))
 	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
 	        IF(T4 .GT. 1.0E-3_LDP)MOM_GS_NLOW=MOM_GS_NLOW+1
 	        IF(T4 .GT. 0.05_LDP)MOM_GS_NBAD5=MOM_GS_NBAD5+1
@@ -3633,16 +3671,22 @@
 	        IF(T4 .GT. MOM_GS_MAXCHG)THEN
 	          MOM_GS_MAXCHG=T4
 	          MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	          MOM_GS_ARGV(1)=T1;  MOM_GS_ARGV(2)=T2
+	          MOM_GS_ARGV(3)=T3
 	        END IF
 	      END IF
 	    ELSE IF(ABS(T2) .GT. 1.0E-4_LDP*T3)THEN
 	      T5=1.0_LDP
+	      T6=ABS(T2-T1)/MAX(MAX(ABS(T1),ABS(T2)),
+	1        1.0E-4_LDP*MAX(T3,T3F))
 	      IF(NEW_FREQ .OR. MOM_KN_REFRESHING)THEN
 	        MOM_GS_NBAD5=MOM_GS_NBAD5+1
 	        MOM_GS_NBAD50=MOM_GS_NBAD50+1
 	        IF(MOM_GS_MAXCHG .LT. 1.0_LDP)THEN
 	          MOM_GS_MAXCHG=1.0_LDP
 	          MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	          MOM_GS_ARGV(1)=T1;  MOM_GS_ARGV(2)=T2
+	          MOM_GS_ARGV(3)=T3
 	        END IF
 	      END IF
 	    END IF
@@ -3658,6 +3702,14 @@
 	        MOM_GS_CHG_P2=MAX(MOM_GS_CHG_P2,T5)
 	      END IF
 	    END IF
+!
+!	    Symmetric drift folded over the same counting gate as
+!	    MOM_GS_MAXCHG; quarantined cells keep their T6=0 default, so
+!	    they stay excluded exactly as the one-sided metric excludes
+!	    them.
+!
+	    IF((NEW_FREQ .OR. MOM_KN_REFRESHING) .AND.
+	1      T6 .GT. MOM_GS_MAXSYM)MOM_GS_MAXSYM=T6
 !
 !	    A cell that solved cleanly (or was repaired under the default
 !	    non-KEEPNEG path, which writes the repaired value and so is
@@ -3883,15 +3935,23 @@
 	IF(FREQ_INDX .GE. 1 .AND. FREQ_INDX .LE. NCF_IN)THEN
 	  T3=MAX(MAXVAL(ABS(H_NEXT_FRQ(1:ND_NM-1,FREQ_INDX))),
 	1    1.0E-28_LDP)
+	  T3F=MAX(MAXVAL(ABS(RSQHNU_NM(1:ND_NM-1)),
+	1    MASK=ABS(RSQHNU_NM(1:ND_NM-1)) .LE. HUGE(RSQHNU_NM)),
+	2    1.0E-28_LDP)
 	  DO I=1,ND_NM-1
 	    T1=H_NEXT_FRQ(I,FREQ_INDX)
 	    T2=RSQHNU_NM(I)
 	    IF(ABS(T1) .GT. 1.0E-28_LDP)THEN
 	      T4=ABS(T2-T1)/MAX(ABS(T1),1.0E-4_LDP*T3)
+	      T6=ABS(T2-T1)/MAX(MAX(ABS(T1),ABS(T2)),
+	1        1.0E-4_LDP*MAX(T3,T3F))
 	    ELSE IF(ABS(T2) .GT. 1.0E-4_LDP*T3)THEN
 	      T4=1.0_LDP
+	      T6=ABS(T2-T1)/MAX(MAX(ABS(T1),ABS(T2)),
+	1        1.0E-4_LDP*MAX(T3,T3F))
 	    ELSE
 	      T4=0.0_LDP
+	      T6=0.0_LDP
 	    END IF
 !
 !	    Non-owned midpoint rows do not write the store this pass --
@@ -3899,12 +3959,17 @@
 !	    the J loop above. [MOM_RF_OWNW]
 !
 	    IF(MOM_KN_REFRESHING .AND. MOM_RF_OWNW .AND.
-	1      (KN_M_DESC .NEQV. (GAMH_SIGNED_NM(I) .LT. 0.0_LDP)))
-	2      T4=0.0_LDP
+	1      (KN_M_DESC .NEQV. (GAMH_SIGNED_NM(I) .LT. 0.0_LDP)))THEN
+	      T4=0.0_LDP
+	      T6=0.0_LDP
+	    END IF
 	    IF(T4 .GT. MOM_GS_MAXCHG)THEN
 	      MOM_GS_MAXCHG=T4
 	      MOM_GS_ARGI=I;  MOM_GS_ARGL=FREQ_INDX
+	      MOM_GS_ARGV(1)=T1;  MOM_GS_ARGV(2)=T2
+	      MOM_GS_ARGV(3)=T3
 	    END IF
+	    IF(T6 .GT. MOM_GS_MAXSYM)MOM_GS_MAXSYM=T6
 	    IF(.NOT. MOM_KN_REFRESHING)THEN
 	      IF(NEW_FREQ)THEN
 	        MOM_GS_CHG_P1=MAX(MOM_GS_CHG_P1,T4)
@@ -4640,7 +4705,8 @@
 	2                             NTOT,NQUAR,SW_MAXCHG,SW_NBAD5,
 	3                             SW_NBAD50,SW_NTOT,SW_NEGJ,SW_NQUAR,
 	4                             SW_CAPPED,SW_BNDFL,RF_RAN,RF_CONV,
-	5                             RF_DCHG,RF_N5,RF_N50,NPQUAR,SW_NHUGE)
+	5                             RF_DCHG,RF_N5,RF_N50,NPQUAR,SW_NHUGE,
+	6                             SW_MAXSYM,SW_ARGI,SW_ARGL,SW_ARGV)
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1, ONLY:
 	1     MOM_J_RAN,MOM_J_GS_OK,MOM_GS_CHG_FILE,MOM_GS_CAP_FILE,
@@ -4649,10 +4715,13 @@
 	4     MOM_SW_MAXCHG,MOM_SW_NBAD5,MOM_SW_NBAD50,MOM_SW_NTOT,
 	5     MOM_SW_NEGJ,MOM_SW_NQUAR,MOM_SW_CAPPED,MOM_BND_HBC_FL,
 	6     MOM_RF_RAN,MOM_RF_CONV,MOM_RF_DCHG,MOM_RF_N5,MOM_RF_N50,
-	7     MOM_GS_NPQUAR,MOM_GS_NHUGE,MOM_SW_NHUGE
+	7     MOM_GS_NPQUAR,MOM_GS_NHUGE,MOM_SW_NHUGE,MOM_GS_MAXSYM,
+	8     MOM_SW_MAXSYM,MOM_GS_ARGI,MOM_GS_ARGL,MOM_GS_ARGV
 	IMPLICIT NONE
 	LOGICAL RAN,GS_OK,RF_RAN,RF_CONV
-	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG
+	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG,SW_MAXSYM
+	REAL(KIND=LDP) SW_ARGV(3)
+	INTEGER SW_ARGI,SW_ARGL
 	INTEGER*8 CAP_FILE,CAPPED,NEGJ,NBAD5,NBAD50,NTOT,NQUAR,NPQUAR
 	INTEGER*8 SW_NBAD5,SW_NBAD50,SW_NTOT,SW_NEGJ,SW_NQUAR,SW_CAPPED
 	INTEGER*8 SW_BNDFL,SW_NHUGE
@@ -4692,6 +4761,7 @@
 	  SW_NQUAR=MOM_SW_NQUAR
 	  SW_CAPPED=MOM_SW_CAPPED
 	  SW_NHUGE=MOM_SW_NHUGE
+	  SW_MAXSYM=MOM_SW_MAXSYM
 	ELSE
 	  SW_MAXCHG=MOM_GS_MAXCHG
 	  SW_NBAD5=MOM_GS_NBAD5
@@ -4701,7 +4771,18 @@
 	  SW_NQUAR=MOM_GS_NQUAR
 	  SW_CAPPED=MOM_INEXT_CAPPED
 	  SW_NHUGE=MOM_GS_NHUGE
+	  SW_MAXSYM=MOM_GS_MAXSYM
 	END IF
+!
+! The argmax triple reads the live slots: MOM_KNOP_REFRESH_V1
+! restores MOM_GS_ARGI/ARGL/ARGV to the sweep argmax on the
+! unconverged path, so the cell named here always matches the
+! metric MOM_SW_MAXCHG/MOM_SW_MAXSYM describe (and on a converged
+! refresh it is the residual argmax, matching MOM_GS_MAXCHG).
+!
+	SW_ARGI=MOM_GS_ARGI
+	SW_ARGL=MOM_GS_ARGL
+	SW_ARGV(1:3)=MOM_GS_ARGV(1:3)
 	RETURN
 	END
 !
@@ -5038,6 +5119,7 @@
 	INTEGER*8 PASS_CAP,PASS_NEG
 	INTEGER*8 PASS_N5,PASS_N50,PASS_NQ,N5_SV,N50_SV,NQ_SV
 	INTEGER ARGI_SV,ARGL_SV
+	REAL(KIND=LDP) ARGV_SV(3)
 	INTEGER*8 PASS_NHUGE,PASS_NRES
 	INTEGER*8 PASS_NCMP,PASS_NMATCH,PASS_NOFF
 	INTEGER*8 BEST_N5,BEST_N50
@@ -5344,6 +5426,7 @@
 	N5_SV=MOM_GS_NBAD5;  N50_SV=MOM_GS_NBAD50
 	NQ_SV=MOM_GS_NQUAR
 	ARGI_SV=MOM_GS_ARGI;  ARGL_SV=MOM_GS_ARGL
+	ARGV_SV(1:3)=MOM_GS_ARGV(1:3)
 !
 ! Snapshot the sweep-level maturity metrics before the pass loop
 ! resets them: the sweep drift (fresh solve vs stored field) is the
@@ -5351,6 +5434,7 @@
 ! produces measure map self-consistency instead.
 !
 	MOM_SW_MAXCHG=MOM_GS_MAXCHG
+	MOM_SW_MAXSYM=MOM_GS_MAXSYM
 	MOM_SW_NBAD5=MOM_GS_NBAD5
 	MOM_SW_NBAD50=MOM_GS_NBAD50
 	MOM_SW_NTOT=MOM_GS_NTOT
@@ -5528,12 +5612,14 @@
 	      IF(.NOT. ACT_CUR(L))CYCLE
 	    END IF
 	    MOM_GS_MAXCHG=0.0_LDP
+	    MOM_GS_MAXSYM=0.0_LDP
 	    MOM_INEXT_CAPPED=0
 	    MOM_NEGJ_LRG=0
 	    MOM_GS_NBAD5=0;  MOM_GS_NBAD50=0
 	    MOM_GS_NHUGE=0
 	    MOM_GS_NQUAR=0
 	    MOM_GS_ARGI=0;  MOM_GS_ARGL=0
+	    MOM_GS_ARGV(1:3)=0.0_LDP
 !
 ! Current-frequency Eddington/boundary state from the captured store.
 !
@@ -6423,6 +6509,7 @@
 !
 	  MOM_GS_ARGI=ARGI_SV
 	  MOM_GS_ARGL=ARGL_SV
+	  MOM_GS_ARGV(1:3)=ARGV_SV(1:3)
 !
 !	  PASS_CAP counts capped writes made by passes whose field was
 !	  discarded; the metric must describe the retained field. Recount
