@@ -36,6 +36,8 @@
 	INTEGER I
 	INTEGER ISPEC
 	INTEGER ID
+	LOGICAL L_FALSE_TMP
+	EXTERNAL GET_KEY_STRING
 !
 !
 !
@@ -674,6 +676,43 @@
 	  CALL RD_STORE_LOG(PRINT_KNOP_DEBUG,'PRINT_KNOP_DEBUG',L_FALSE,
 	1      'Print verbose KNOP solver diagnostics?')
 	  CALL SET_FG_KNOP_DEBUG(PRINT_KNOP_DEBUG)
+!
+! DO_NONMONO_FREQ_MATCH: obs-side mirror of the VADAT auto-sets in
+! RD_CONTROL_VARIABLES (correctness, not a knob).  Both nonmono
+! solvers read the lagged J_NEXT one frequency bin upwind; the OBS
+! frequency grid differs in NCF and spacing from the model grid, so
+! the upwind foot lands between bins and must be interpolated in
+! frequency (Ceulemans et al. 2025, JQSRT, arXiv:2505.08309).  The
+! population run forces T under DO_NONMONO_KNOP and under
+! DO_NONMONO_SOB + USE_LAM_ES=F (the MOM_J_CMF_NONMONO_V1 path the
+! OBS moment dispatch now also calls); the same rule applies here:
+! absent key -> auto-set T, explicit F -> overridden with a banner.
+! SOB + USE_LAM_ES=T keeps F, matching the population auto-set
+! (that route runs the stock FG_J_CMF_V12/13 pair).
+!
+	  DO_NONMONO_FREQ_MATCH=.FALSE.
+	  CALL RD_STORE_LOG(DO_NONMONO_FREQ_MATCH,'DO_NONMONO_FREQ_MATCH',
+	1     L_FALSE,'Interpolate lagged J_NEXT across frequency?')
+	  IF((DO_NONMONO_KNOP .OR.
+	1     (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)) .AND.
+	2     .NOT. DO_NONMONO_FREQ_MATCH)THEN
+	    CALL GET_KEY_STRING(TMP_STRING,'DO_NONMONO_FREQ_MATCH',
+	1     L_FALSE,L_FALSE_TMP)
+	    DO_NONMONO_FREQ_MATCH=.TRUE.
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      WRITE(LUER,'(A)')' OBS auto-set: DO_NONMONO_FREQ_MATCH=T'
+	    ELSE
+	      WRITE(LUER,'(A)')
+	1     ' ============================================================'
+	      WRITE(LUER,'(A)')
+	1     ' OBS override: explicit DO_NONMONO_FREQ_MATCH=F -> T'//
+	2     ' (upwind read off the characteristic foot)'
+	      WRITE(LUER,'(A)')
+	1     ' ============================================================'
+	    END IF
+	  END IF
+	  CALL SET_FG_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
+	  CALL SET_MOM_FREQ_MATCH(DO_NONMONO_FREQ_MATCH)
 
 	  WRITE(LUMOD,'()')
 	  CALL RD_STORE_LOG(ACCURATE,'INC_GRID',L_TRUE,'Increase grid size to improve accuracy? ')
