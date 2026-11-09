@@ -24,11 +24,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, Report, compile_driver, run
+from common import (
+    BINDIR,
+    F90DIR,
+    PROD_MOD_INC,
+    TREE,
+    Report,
+    compile_objs,
+    link_prod,
+    prod_objs,
+    require_fresh_archives,
+    run,
+)
 
-TREE_SRC = [
+PROD_SRC = [
     # Module sources whose data cmf_flux_sub_v5 references; their
-    # .mod files land in the isolated bin/mod, not the build's mod/.
+    # production .mod files in mod/ satisfy the fresh driver compile.
     TREE / "tools" / "set_kind_module.f",
     TREE / "dust" / "dust_mod.f",
     TREE / "new_main" / "mod_subs" / "mod_lev_dis_blk.f",
@@ -47,8 +58,11 @@ TREE_SRC = [
     TREE / "obs" / "obs_frame_sub_v9.f",
     TREE / "obs" / "comp_ew_abs_ew.f",
     TREE / "obs" / "check_cmf_flux_param_consis.f",
-    F90DIR / "drv_sob_prof.f90",
-    # Archives as positional link inputs (must follow the objects).
+]
+
+# Archives as positional link inputs (must follow the objects); their
+# members resolve unresolved symbols from the wider cmf_flux call tree.
+LIBS = [
     TREE / "lib" / "libsubs.a",
     TREE / "lib" / "libdisp.a",
     TREE / "lib" / "libmod.a",
@@ -61,11 +75,16 @@ TREE_SRC = [
 
 
 def get_bin():
-    return compile_driver(
+    require_fresh_archives()
+    md = BINDIR / "obj_sob_prof"
+    objs = prod_objs(PROD_SRC)
+    objs += compile_objs(
         "drv_sob_prof",
-        TREE_SRC,
-        extra_flags=[f"-I{TREE}/mod"],
+        [F90DIR / "drv_sob_prof.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
     )
+    return link_prod("drv_sob_prof", objs + LIBS, moddir=md)
 
 
 def field(out, tag, idx):
