@@ -2257,6 +2257,12 @@
 	  JFNK_PC_ITRY_CAP=3
 	  CALL RD_STORE_INT(JFNK_PC_ITRY_CAP,'JFNK_PC_ITRY_CAP',
 	1     L_FALSE,'Ridge-ladder cap per depth under RCOND_GATE')
+	  JFNK_PC_QUAL=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PC_QUAL,'JFNK_PC_QUAL',
+	1     L_FALSE,'Acceptance probe on M^-1 A along a probe direction?')
+	  JFNK_PC_QUAL_TOL=0.5D0
+	  CALL RD_STORE_DBLE(JFNK_PC_QUAL_TOL,'JFNK_PC_QUAL_TOL',
+	1     L_FALSE,'Max allowed M^-1 A direction loss for JFNK_PC_QUAL')
 	  JFNK_PC_PAR_FACTOR=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_PC_PAR_FACTOR,'JFNK_PC_PAR_FACTOR',
 	1     L_FALSE,'Depth-parallel preconditioner factorization?'//
@@ -2267,7 +2273,8 @@
 ! (ifort #6405).
 	  CALL JFNK_PC_SET_OPTIONS_V1(JFNK_PTC_SIGNED,
 	1     JFNK_REG_ZERO_COL, JFNK_ROW_TINY_EQUIL,
-	2     JFNK_PC_RCOND_GATE, JFNK_PC_RCOND_MIN, JFNK_PC_ITRY_CAP)
+	2     JFNK_PC_RCOND_GATE, JFNK_PC_RCOND_MIN, JFNK_PC_ITRY_CAP,
+	3     JFNK_PC_QUAL, JFNK_PC_QUAL_TOL)
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march field iterate at pass
