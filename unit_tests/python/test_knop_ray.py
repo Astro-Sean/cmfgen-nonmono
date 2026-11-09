@@ -393,6 +393,11 @@ def main():
             x = x[:-4] + "E" + x[-4:]
         return float(x)
 
+    _BLOCKS = (
+        "DBS", "DBR", "DBSA", "DBRA", "DBSI", "DBRI",
+        "DBSD", "DBRD", "JMAP", "GAMV",
+    )
+
     def _db(text):
         # Every row must be well-formed and unique. A duplicate or
         # malformed record is a hard failure, not a silent overwrite.
@@ -400,15 +405,23 @@ def main():
         errs = []
         for ln in text.splitlines():
             t = ln.split()
+            if not t:
+                continue
             if len(t) < 3:
+                if t[0] in _BLOCKS:
+                    errs.append(f"malformed {t[0]} record: {ln!r}")
                 continue
             key = None
-            if t[0] in ("DBSI", "DBRI"):
-                key = (t[0], int(t[1]), int(t[2]))
-                want = 3 if t[0] == "DBSI" else 5
+            if t[0] in ("DBSI", "DBRI", "DBSD", "DBRD"):
+                want = {"DBSI": 3, "DBRI": 5, "DBSD": 1, "DBRD": 1}[t[0]]
+                try:
+                    key = (t[0], int(t[1]), int(t[2]))
+                    val = [int(x) for x in t[3:]]
+                except ValueError:
+                    errs.append(f"{t[0]} malformed: {ln!r}")
+                    continue
                 if len(t) != want + 3:
                     errs.append(f"{t[0]} {(t[1], t[2])} width {len(t)-3}")
-                val = [int(x) for x in t[3:]]
             elif t[0] in ("DBS", "DBR", "DBSA", "DBRA"):
                 key = (t[0], int(t[1]), int(t[2]))
                 val = [_f(x) for x in _F.findall(ln)]
@@ -419,14 +432,37 @@ def main():
                     )
                 if not all(abs(v) < 1e30 for v in val):
                     errs.append(f"{t[0]} {(t[1], t[2])} nonfinite")
-            elif t[0] == "JMAP" and len(t) == 4:
-                d.setdefault("JMAP", {})[int(t[1])] = (
-                    int(t[2]),
-                    int(t[3]),
-                )
+            elif t[0] == "JMAP":
+                if len(t) != 4:
+                    errs.append(f"JMAP {t[1:2]} width {len(t)-1}!=3")
+                    continue
+                try:
+                    k = int(t[1])
+                    jv = (int(t[2]), int(t[3]))
+                except ValueError:
+                    errs.append(f"JMAP malformed: {ln!r}")
+                    continue
+                if k in d.setdefault("JMAP", {}):
+                    errs.append(f"duplicate JMAP {k}")
+                if not (0 <= jv[0] <= 10**4 and 0 <= jv[1] <= 10**4):
+                    errs.append(f"JMAP {k} invalid depth {jv}")
+                d["JMAP"][k] = jv
                 continue
-            elif t[0] == "GAMV" and len(t) == 3:
-                d.setdefault("GAMV", {})[int(t[1])] = float(t[2])
+            elif t[0] == "GAMV":
+                if len(t) != 3:
+                    errs.append(f"GAMV {t[1:2]} width {len(t)-1}!=2")
+                    continue
+                try:
+                    k = int(t[1])
+                    gv = float(t[2])
+                except ValueError:
+                    errs.append(f"GAMV malformed: {ln!r}")
+                    continue
+                if k in d.setdefault("GAMV", {}):
+                    errs.append(f"duplicate GAMV {k}")
+                if not abs(gv) < 1e30:
+                    errs.append(f"GAMV {k} nonfinite")
+                d["GAMV"][k] = gv
                 continue
             else:
                 continue
@@ -454,9 +490,15 @@ def main():
         ni = max(i for i, _ in d["DBS"])
         ncf = max(l for _, l in d["DBS"])
         grid = {(i, l) for i in range(1, ni + 1) for l in range(1, ncf + 1)}
-        for blk in ("DBS", "DBR"):
-            if set(d[blk]) != grid:
-                return False, f"{blk} coverage {len(d[blk])} != {len(grid)}"
+        for blk in ("DBS", "DBR", "DBSD", "DBRD"):
+            if set(d.get(blk, {})) != grid:
+                return False, f"{blk} coverage {len(d.get(blk, {}))} != {len(grid)}"
+        jk = sorted(d.get("JMAP", {}))
+        gk = sorted(d.get("GAMV", {}))
+        if not jk or jk != list(range(1, max(jk) + 1)):
+            return False, "JMAP non-contiguous or missing rows"
+        if not gk or gk != list(range(1, max(gk) + 1)):
+            return False, "GAMV non-contiguous or missing rows"
         agrid = {(i, l) for i in range(1, ni) for l in range(1, ncf + 1)}
         for blk in ("DBSA", "DBRA"):
             if set(d[blk]) != grid:
@@ -522,6 +564,25 @@ def main():
         row2dep = {v[0]: k for k, v in jm.items() if v[0] > 0}
         slot2dep = {v[1]: k for k, v in jm.items() if v[1] > 0}
         gam = d.get("GAMV", {})
+        # Donor-access counter: a cell with GAM=0 must never enter the
+        # expanding-donor branch on either path (0*NaN is NaN, so the
+        # read itself is the defect, not just the contribution). A
+        # positive-GAM cell must read at every l>1; a compressing cell
+        # uses the lagged I_NEXT branch instead and must not trip this
+        # counter. If the .GT.0 guards were reverted to .GE. the zero
+        # cells would trip immediately.
+        for (i, l) in grid:
+            g = gam.get(i)
+            if g is None:
+                continue
+            ns = d["DBSD"][(i, l)][0]
+            nr = d["DBRD"][(i, l)][0]
+            if g == 0.0 and (ns != 0 or nr != 0):
+                return False, f"donor read at GAM=0 cell {(i, l)}"
+            if g < 0.0 and (ns != 0 or nr != 0):
+                return False, f"expanding-donor read at GAM<0 {(i, l)}"
+            if g > 0.0 and l > 1 and (ns <= 0 or nr <= 0):
+                return False, f"missing donor read at GAM>0 {(i, l)}"
         worst = {}
         worst_abs = {}
         nfail = []
@@ -597,12 +658,12 @@ def main():
             det = f"{len(nfail)} fails [{nfail[0]}] | " + det
         return not nfail, det
 
-    for tag in ("ab", "abx", "ab2"):
+    for tag in ("ab", "abx", "ab2", "abz"):
         rr = run(bin_, tag, cwd=WORKDIR, check=False)
         ok, det = _abcheck(rr.stdout, tag)
         rep.check(
             f"T14 {tag}: refresh == in-sweep operator "
-            f"({'ordered' if tag == 'ab' else 'alternating' if tag == 'abx' else 'noncentral'})",
+            f"({'ordered' if tag == 'ab' else 'alternating' if tag == 'abx' else 'noncentral' if tag == 'ab2' else 'zerocell'})",
             ok,
             det[:160],
         )
@@ -658,12 +719,31 @@ def main():
     d_micro = _sdiff(store_map["gpp"], store_map["gpn0"])
 
     fails = []
-    # Exact zero: no coupling coefficient, no donor read.
+    # Exact zero: no coupling coefficient AND no donor access. The
+    # KN_DBG_NDON counter increments inside each .GT.0 donor-read
+    # site (sweep minus/plus and both refresh helpers), so a zero
+    # cell can only trip it if the exact-zero guard is bypassed --
+    # under the old .GE.0 branch these counts would be nonzero.
     z = dbg["gzz"]
     for l in range(1, 7):
         r = z["DBR"].get((4, l))
         if r is None or r[1] != 0.0 or r[4] != r[10] or r[5] != r[10]:
             fails.append(f"gzz cell4 l{l} coupling present")
+        # The gzz path runs only the refresh (no sweep dump), so the
+        # DBRD counter carries the read evidence here; the sweep-side
+        # guard is pinned by the abz case through _abcheck. gzz has
+        # exact zeros at cells 4 and 5.
+        for i in (4, 5):
+            if z["DBRD"].get((i, l), [1])[0] != 0:
+                fails.append(f"gzz cell{i} l{l} donor read")
+    # Counter liveness: every expanding cell must show reads on the
+    # refresh path at l>1, or a dead counter could fake the zeros.
+    for i, g in z.get("GAMV", {}).items():
+        if g <= 0.0:
+            continue
+        for l in range(2, 7):
+            if z["DBRD"].get((i, l), [0])[0] <= 0:
+                fails.append(f"gzz expanding cell {i} l{l} no read")
     # Continuity: separate dimensionless measures per quantity.
     #   e_chih = |chih - chih0| / chih0      (local opacity scale)
     #   e_q    = |q| / q_scale               q_scale = |GAM1|/(dlnm*chih0)
