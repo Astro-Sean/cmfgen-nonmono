@@ -33,7 +33,7 @@ WORK.mkdir(parents=True, exist_ok=True)
 
 
 def run_driver(mode):
-    binpath = common.compile_driver(
+    binpath = common.compile_and_link_prod(
         "drv_iter_ledger",
         [
             common.TREE / "tools" / "set_kind_module.f",
