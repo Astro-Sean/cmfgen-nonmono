@@ -1172,6 +1172,8 @@
 !
 	INTEGER LUER,ERROR_LU
 	EXTERNAL ERROR_LU
+	LOGICAL KN_COUPLING_OK
+	EXTERNAL KN_COUPLING_OK
 	INTEGER KN_DUMP_NS
 !
 ! Local variables.
@@ -3260,8 +3262,14 @@ C
 !        NM_RAY/DLN_RAY are set above the INIT split, so the update is
 !        valid without the HAS_COMPRESSING store census.
 !
+!        KN_COUPLING_OK drops the coupling entirely where no donor
+!        slot can exist (the mask-gap case of the no-slot source
+!        branch); keeping only the implicit outflow there created a
+!        sink the discretisation never wrote down.
+!
 	      DO I=1,NI
-	        IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	        IF(GAM(I,LS) .LT. 0.0_LDP .AND.
+	1          KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND))THEN
 	          DLN_C=DLN_RAY(I)
 	          IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
 	          T1=GAM_MAG(I,LS)/DLN_C
@@ -3280,9 +3288,12 @@ C
 	      END DO
 	      DO I=1,NI
 	        IF(GAM(I,LS) .LT. 0.0_LDP)THEN
-	          DLN_C=DLN_RAY(I)
-	          IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
-	          Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
+	          Q(I)=0.0_LDP
+	          IF(KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND))THEN
+	            DLN_C=DLN_RAY(I)
+	            IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
+	            Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
+	          END IF
 	        END IF
 	      END DO
 	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
@@ -3307,9 +3318,18 @@ C
 ! keeps chi_hat well above CHI_RAY -- locally opaque, the safe
 ! failure direction.
 !
+! KN_COUPLING_OK (audit 20-Nov-2026): a compressing point whose
+! bracketing depths hold no lagged slot cannot supply the explicit
+! upwind inflow, so the implicit outflow is dropped with it --
+! both sides of the coupling or neither. Boundary points whose
+! matched foot lands off-grid keep the outflow (KN_COUPLING_OK
+! returns T there).
+!
 	        IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
-	        Q(I)=GAM_MAG(I,LS)/DLN_C
-	        CHI_RAY(I)=CHI_RAY(I)+Q(I)
+	        IF(KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND))THEN
+	          Q(I)=GAM_MAG(I,LS)/DLN_C
+	          CHI_RAY(I)=CHI_RAY(I)+Q(I)
+	        END IF
 	      END DO
 !        Guard: ensure chi_hat is strictly positive to avoid 0/0 NaN.
 !        At low-opacity boundary points both chi and |GAM| can vanish.
@@ -3361,12 +3381,18 @@ C
 !        This matches V13 where GAM is non-negative in monotonic flow.
 !        The DTAU clamping below handles any cusps at velocity turning
 !        points where d|GAM|/dR is discontinuous.
+!        The same KN_COUPLING_OK gate as the chi_hat term: a dropped
+!        coupling has no |GAM| term to differentiate. The DLN_C floor
+!        mirrors the chi_hat loop so a bad spacing cannot poison the
+!        derivative while chi_hat itself was guarded.
 ! edited by Sean Brennan
 	      DO I=1,NI
 	        DLN_C=dLOG_NU
 	        IF(GAM(I,LS) .LT. 0.0_LDP)DLN_C=DLN_RAY(I)
-	        dCHIdR_RAY(I)=dCHIdR_RAY(I)+
-	1           SIGN(1.0_LDP,GAM(I,LS))*dGAMdR(I,LS)/DLN_C
+	        IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
+	        IF(KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND))dCHIdR_RAY(I)=
+	1          dCHIdR_RAY(I)+
+	2           SIGN(1.0_LDP,GAM(I,LS))*dGAMdR(I,LS)/DLN_C
 	      END DO
 !        Dimensionless signed coupling: Q = (GAM/dLOG_NU) / chi_hat
 !
@@ -3395,7 +3421,12 @@ C
 	      DO I=1,NI
 	        DLN_C=dLOG_NU
 	        IF(GAM(I,LS) .LT. 0.0_LDP)DLN_C=DLN_RAY(I)
-	        Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
+	        IF(.NOT.(DLN_C .GT. 0.0_LDP))DLN_C=1.0E-30_LDP
+	        IF(KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND))THEN
+	          Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))
+	        ELSE
+	          Q(I)=0.0_LDP
+	        END IF
 	      END DO
 	      SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)
 !        Final guard: if Q or SOURCE_RAY is still non-finite (shouldn't
@@ -3671,7 +3702,9 @@ C
 !
 !	          GAM < 0 but no I_NEXT slot is available. Drop the
 !	          frequency coupling entirely rather than applying it with a
-!	          sign inconsistent with CHI_RAY.
+!	          sign inconsistent with CHI_RAY. KN_COUPLING_OK already
+!	          kept the matching |GAM|/DLN term out of CHI_RAY for this
+!	          cell, so both sides of the coupling are absent together.
 !
 	          FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)
@@ -3681,7 +3714,8 @@ C
 !	        never dropped below -1, so I_NEXT was not allocated, yet cubic
 !	        interpolation of SIGMA_RAY can still overshoot below -1.
 !	        Signed Q*I_PREV would subtract the upwind intensity (Q<0).
-!	        Drop frequency coupling, matching the no-slot branch above.
+!	        Drop frequency coupling, matching the no-slot branch above;
+!	        KN_COUPLING_OK removes the chi_hat side of it as well.
 	        FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	        SOURCE_PRIME(I)=SOURCE_RAY(I)
 	      END IF
@@ -3923,13 +3957,16 @@ C
 !
 !	          GAM < 0 but no I_NEXT slot is available. Drop the
 !	          frequency coupling rather than applying an inconsistent sign.
+!	          KN_COUPLING_OK already kept the matching |GAM|/DLN term out
+!	          of CHI_RAY for this cell, so both sides are absent together.
 !
 	          FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)
 	        END IF
 	      ELSE
 !	        GAM < 0 without I_NEXT storage (cubic SIGMA overshoot).
-!	        Drop frequency coupling rather than applying signed Q*I_PREV.
+!	        Drop frequency coupling rather than applying signed Q*I_PREV;
+!	        KN_COUPLING_OK removes the chi_hat side of it as well.
 	        FG_NOSLOT_RAY(LS)=FG_NOSLOT_RAY(LS)+1
 	        SOURCE_PRIME(I)=SOURCE_RAY(I)
 	      END IF
@@ -4950,6 +4987,53 @@ C
 9998	WRITE(LUER,'(A)')'JNU_CLAMP_DIAG.txt open failed -- diagnostic skipped'
 !
 9997	CONTINUE
+	RETURN
+	END
+!
+! ==============================================================================
+!  Compressing-branch coupling gate (audit fix, 20-Nov-2026).
+!
+!  Whether the +|GAM|/dln(nu) frequency coupling stays in the discrete
+!  operator for a GAM<0 ray point. Before this gate existed the code
+!  kept the implicit outflow in chi_hat while the source dropped the
+!  explicit upwind inflow whenever the lagged donor slot was missing,
+!  which put a sink into the equation that the discretisation never
+!  wrote down. The coupling is kept only when the donor read in the
+!  SOURCE_PRIME build can actually return a value, so both sides of
+!  the coupling are present or absent together. A point with no donor
+!  falls back to the plain chi operator (the field is taken locally
+!  flat in frequency), the only consistent closure left.
+!
+!  Two cases keep the term. (a) FREQ_IDX_ITER+NM2 beyond the last
+!  stored slot is a real red-edge boundary: outflow only, inflow
+!  zero -- unreachable while NM_RAY is capped on-grid, kept for
+!  safety. (b) a COMP_DEPTH_IDX slot on either bracketing depth.
+!  HAS_COMPRESSING=F means no sparse store exists at all, so every
+!  compressing point reverts.
+!
+!  GAM, RAY_PNT, COMP_DEPTH_IDX, FREQ_IDX_ITER, ND_ADD and
+!  HAS_COMPRESSING are shared module state inside the OMP ray loop;
+!  NM_RAY is OMP-private and ND/NCF_IN are routine arguments there, so
+!  the caller passes those values in. [DO_NONMONO_KNOP] only.
+! ==============================================================================
+!
+	LOGICAL FUNCTION KN_COUPLING_OK(I2,LS,NM2,NCF2,ND2)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1
+	IMPLICIT NONE
+	INTEGER I2,LS,NM2,NCF2,ND2,K2
+	KN_COUPLING_OK=.TRUE.
+	IF(GAM(I2,LS) .GE. 0.0_LDP)RETURN
+	IF(FREQ_IDX_ITER+NM2 .GT. NCF2)RETURN
+	KN_COUPLING_OK=.FALSE.
+	IF(.NOT. HAS_COMPRESSING)RETURN
+	K2=RAY_PNT(I2,LS)-ND_ADD
+	IF(K2 .GE. 1 .AND. K2 .LE. ND2)THEN
+	  IF(COMP_DEPTH_IDX(K2) .GE. 1)KN_COUPLING_OK=.TRUE.
+	END IF
+	IF(K2+1 .GE. 1 .AND. K2+1 .LE. ND2)THEN
+	  IF(COMP_DEPTH_IDX(K2+1) .GE. 1)KN_COUPLING_OK=.TRUE.
+	END IF
 	RETURN
 	END
 !
@@ -6861,6 +6945,12 @@ C
 	IF(HAVE_PACK)THEN
 	  DO L=1,NCF
 	    CALL BUILD_FREQ(L)
+!
+! A non-finite coefficient build already flagged DIVERGED inside
+! BUILD_FREQ; leave the pack half-filled, take the diverged-ray exit
+! so no repaired operator is committed.
+!
+	    IF(DIVERGED)EXIT
 	    NCOMP=NCOMP+INT(COUNT(GAM(1:NI,LS) .LT. 0.0_LDP),8)
 	    NMATCH=NMATCH+INT(COUNT(NFM_L(1:NI) .GT. 1),8)
 	    NMAX=MAX(NMAX,MAXVAL(NFM_L(1:NI)))
@@ -6875,6 +6965,10 @@ C
 	    PK_ETANI(L)=ETA_L(NI)
 	    PK_CHINI(L)=CHI_L(NI)
 	  END DO
+	  IF(DIVERGED)THEN
+	    NDIV=1
+	    GOTO 800
+	  END IF
 	END IF
 !
 ! The ordered march (KN_RAY_ORDERED) indexes the pack per (row,
@@ -7270,12 +7364,22 @@ C
 	      CHI_L(NI)=PK_CHINI(L)
 	    ELSE
 	      CALL BUILD_FREQ(L)
+!
+! A non-finite coefficient build flags DIVERGED inside BUILD_FREQ --
+! stop this frequency loop at once so MARCH never consumes a repaired
+! operator; the exit below hands the ray the diverged-ray treatment.
+!
+	      IF(DIVERGED)EXIT
 	    END IF
 	    CALL MATCH_FREQ(L)
 	    CALL SRC_PRIME(FLD,L)
 	    CALL SLOPES()
 	    CALL MARCH(FLD,L,INWARD,RES)
 	  END DO
+	  IF(DIVERGED)THEN
+	    IXIT=5
+	    EXIT
+	  END IF
 	  NB_O=NBAD_CUR; NT_O=NTOT_CUR
 	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
 	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
@@ -8602,42 +8706,78 @@ C
 	  CALL MATCH_FREQ(L)
 	  DO I=1,NI
 	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
-	1      CHI_L(I) .LT. 1.0E-30_LDP)CHI_L(I)=1.0E-30_LDP
-	    IF(.NOT.(ABS(ETA_L(I)) .LE. HUGE(ETA_L(I))))
-	1      ETA_L(I)=0.0_LDP
-	    IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))
-	1      GAM(I,LS)=0.0_LDP
-	    IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))
-	1      GAM_MAG(I,LS)=0.0_LDP
-	    IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))
-	1      dGAMdR(I,LS)=0.0_LDP
+	1      CHI_L(I) .LT. 1.0E-30_LDP)THEN
+	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))
+	1        DIVERGED=.TRUE.
+	      CHI_L(I)=1.0E-30_LDP
+	    END IF
+	    IF(.NOT.(ABS(ETA_L(I)) .LE. HUGE(ETA_L(I))))THEN
+	      ETA_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))THEN
+	      GAM(I,LS)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))THEN
+	      GAM_MAG(I,LS)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))THEN
+	      dGAMdR(I,LS)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
 	  END DO
 	  DO I=1,NI
 	    Q_L(I)=0.0_LDP
-	    IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	    IF(GAM(I,LS) .LT. 0.0_LDP .AND. KN_RF_COUPLING(I,L))THEN
 	      DLN=DLNM_L(I)
-	      IF(.NOT.(DLN .GT. 0.0_LDP))DLN=1.0E-30_LDP
+!
+! A non-positive matched span is a degenerate frequency grid -- the
+! 1/DLN term would be infinite or signed. Flag the build as failed
+! the same way the value guards do; the floor only keeps the locals
+! finite for the abandoned solve.
+!
+	      IF(.NOT.(DLN .GT. 0.0_LDP))THEN
+	        DLN=1.0E-30_LDP
+	        DIVERGED=.TRUE.
+	      END IF
 	      CHI_L(I)=CHI_L(I)+GAM_MAG(I,LS)/DLN
 	      DCHR_L(I)=DCHR_L(I)-dGAMdR(I,LS)/DLN
 	    END IF
 	  END DO
 	  DO I=1,NI
 	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
-	1      CHI_L(I) .LT. 1.0E-30_LDP)CHI_L(I)=1.0E-30_LDP
-	    IF(.NOT.(ABS(DCHR_L(I)) .LE. HUGE(DCHR_L(I))))
-	1      DCHR_L(I)=0.0_LDP
+	1      CHI_L(I) .LT. 1.0E-30_LDP)THEN
+	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))
+	1        DIVERGED=.TRUE.
+	      CHI_L(I)=1.0E-30_LDP
+	    END IF
+	    IF(.NOT.(ABS(DCHR_L(I)) .LE. HUGE(DCHR_L(I))))THEN
+	      DCHR_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
 	  END DO
 	  DO I=1,NI
-	    IF(GAM(I,LS) .LT. 0.0_LDP)THEN
+	    IF(GAM(I,LS) .LT. 0.0_LDP .AND. KN_RF_COUPLING(I,L))THEN
 	      DLN=DLNM_L(I)
-	      IF(.NOT.(DLN .GT. 0.0_LDP))DLN=1.0E-30_LDP
+	      IF(.NOT.(DLN .GT. 0.0_LDP))THEN
+	        DLN=1.0E-30_LDP
+	        DIVERGED=.TRUE.
+	      END IF
 	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
 	    END IF
 	    SR_L(I)=ETA_L(I)/CHI_L(I)
 	  END DO
 	  DO I=1,NI
-	    IF(.NOT.(ABS(Q_L(I)) .LE. HUGE(Q_L(I))))Q_L(I)=0.0_LDP
-	    IF(.NOT.(ABS(SR_L(I)) .LE. HUGE(SR_L(I))))SR_L(I)=0.0_LDP
+	    IF(.NOT.(ABS(Q_L(I)) .LE. HUGE(Q_L(I))))THEN
+	      Q_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(SR_L(I)) .LE. HUGE(SR_L(I))))THEN
+	      SR_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
 	  END DO
 	ELSE
 !
@@ -8646,35 +8786,92 @@ C
 ! coefficient loops read it.
 !
 	  CALL MATCH_FREQ(L)
+!
+! KN_RF_COUPLING gates the +|GAM|/DLN term for compressing cells:
+! where SRC_PRIME cannot read an upwind donor the outflow is dropped
+! with the inflow, mirroring the sweep's KN_COUPLING_OK. The DLN
+! floor matches the in-sweep chi_hat loop -- a non-positive span
+! would otherwise poison chi_hat while its own guards passed.
+!
 	  DO I=1,NI
 	    DLN=DLNM_L(I)
-	    Q_L(I)=GAM_MAG(I,LS)/DLN
-	    CHI_L(I)=CHI_L(I)+Q_L(I)
+	    IF(.NOT.(DLN .GT. 0.0_LDP))THEN
+	      DLN=1.0E-30_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(KN_RF_COUPLING(I,L))THEN
+	      Q_L(I)=GAM_MAG(I,LS)/DLN
+	      CHI_L(I)=CHI_L(I)+Q_L(I)
+	    END IF
 	  END DO
 	  DO I=1,NI
-	    IF(CHI_L(I) .NE. CHI_L(I) .OR. CHI_L(I) .LT. 1.0E-30_LDP)
-	1      CHI_L(I)=1.0E-30_LDP
+	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
+	1      CHI_L(I) .LT. 1.0E-30_LDP)THEN
+	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))
+	1        DIVERGED=.TRUE.
+	      CHI_L(I)=1.0E-30_LDP
+	    END IF
 	  END DO
 	  DO I=1,NI
 	    DLN=DLNM_L(I)
-	    DCHR_L(I)=DCHR_L(I)+
+	    IF(.NOT.(DLN .GT. 0.0_LDP))THEN
+	      DLN=1.0E-30_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(KN_RF_COUPLING(I,L))DCHR_L(I)=DCHR_L(I)+
 	1      SIGN(1.0_LDP,GAM(I,LS))*dGAMdR(I,LS)/DLN
 	  END DO
+!
+! Non-finite inputs mean the captured store produced an operator the
+! sweep could not have solved -- flag the ray as failed (DIVERGED)
+! so the refresh rejects it instead of polishing a repaired value
+! into a committed field. Sub-floor finite values still take the
+! documented clamps.
+!
 	  DO I=1,NI
-	    IF(ETA_L(I) .NE. ETA_L(I))ETA_L(I)=0.0_LDP
-	    IF(GAM(I,LS) .NE. GAM(I,LS))GAM(I,LS)=0.0_LDP
-	    IF(GAM_MAG(I,LS) .NE. GAM_MAG(I,LS))GAM_MAG(I,LS)=0.0_LDP
-	    IF(dGAMdR(I,LS) .NE. dGAMdR(I,LS))dGAMdR(I,LS)=0.0_LDP
-	    IF(DCHR_L(I) .NE. DCHR_L(I))DCHR_L(I)=0.0_LDP
+	    IF(.NOT.(ABS(ETA_L(I)) .LE. HUGE(ETA_L(I))))THEN
+	      ETA_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))THEN
+	      GAM(I,LS)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))THEN
+	      GAM_MAG(I,LS)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))THEN
+	      dGAMdR(I,LS)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(DCHR_L(I)) .LE. HUGE(DCHR_L(I))))THEN
+	      DCHR_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
 	  END DO
 	  DO I=1,NI
 	    DLN=DLNM_L(I)
-	    Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
+	    IF(.NOT.(DLN .GT. 0.0_LDP))THEN
+	      DLN=1.0E-30_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(KN_RF_COUPLING(I,L))THEN
+	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
+	    ELSE
+	      Q_L(I)=0.0_LDP
+	    END IF
 	    SR_L(I)=ETA_L(I)/CHI_L(I)
 	  END DO
 	  DO I=1,NI
-	    IF(Q_L(I) .NE. Q_L(I))Q_L(I)=0.0_LDP
-	    IF(SR_L(I) .NE. SR_L(I))SR_L(I)=0.0_LDP
+	    IF(.NOT.(ABS(Q_L(I)) .LE. HUGE(Q_L(I))))THEN
+	      Q_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
+	    IF(.NOT.(ABS(SR_L(I)) .LE. HUGE(SR_L(I))))THEN
+	      SR_L(I)=0.0_LDP
+	      DIVERGED=.TRUE.
+	    END IF
 	  END DO
 	END IF
 !
@@ -8713,9 +8910,13 @@ C
 	  END DO
 	END IF
 	DO I=1,NI-1
-	  IF(DTAU_L(I) .NE. DTAU_L(I) .OR. DTAU_L(I) .LT. 0.0_LDP)
-	1    DTAU_L(I)=0.5_LDP*(CHI_L(I)+CHI_L(I+1))*
+	  IF(.NOT.(ABS(DTAU_L(I)) .LE. HUGE(DTAU_L(I))) .OR.
+	1    DTAU_L(I) .LT. 0.0_LDP)THEN
+	    IF(.NOT.(ABS(DTAU_L(I)) .LE. HUGE(DTAU_L(I))))
+	1      DIVERGED=.TRUE.
+	    DTAU_L(I)=0.5_LDP*(CHI_L(I)+CHI_L(I+1))*
 	1       (Z(I,LS)-Z(I+1,LS))
+	  END IF
 	END DO
 !
 	DO I=1,NI-1
@@ -8763,6 +8964,40 @@ C
 	    A4L(I)=DTAU_L(I)*(E3L(I)-E2L(I))
 	  END IF
 	END DO
+!
+! Final belt check on the march coefficients: every A entry is a pure
+! function of the (now finite) DTAU/E set, so a non-finite value here
+! can only come from an overflow the per-term guards missed. Same
+! fail-closed rule -- the ray reports as diverged rather than march a
+! repaired operator into a commit.
+!
+	DO I=1,NI-1
+	  IF(.NOT.(ABS(A0L(I)) .LE. HUGE(A0L(I))) .OR.
+	1     .NOT.(ABS(A1L(I)) .LE. HUGE(A1L(I))) .OR.
+	2     .NOT.(ABS(A2L(I)) .LE. HUGE(A2L(I))) .OR.
+	3     .NOT.(ABS(A3L(I)) .LE. HUGE(A3L(I))) .OR.
+	4     .NOT.(ABS(A4L(I)) .LE. HUGE(A4L(I))))DIVERGED=.TRUE.
+	END DO
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! Refresh-side mirror of the sweep's KN_COUPLING_OK gate (audit
+! 20-Nov-2026): whether a compressing ray point may carry the
+! +|GAM|/dln(nu) coupling in the coefficients built by BUILD_FREQ.
+! The donor read in SRC_PRIME needs an IKC sparse slot and an
+! on-grid matched slot; if either is absent the upwind inflow is
+! dropped there, so the implicit outflow must be dropped here or the
+! operator gains a sink it never discretised. A matched foot beyond
+! the last frequency is a red-edge boundary instead: outflow kept,
+! inflow zero. Expanding cells always keep the term.
+! ----------------------------------------------------------------
+	LOGICAL FUNCTION KN_RF_COUPLING(I2,L2)
+	INTEGER I2,L2
+	KN_RF_COUPLING=.TRUE.
+	IF(GAM(I2,LS) .GE. 0.0_LDP)RETURN
+	IF(L2+NFM_L(I2) .GT. NCF)RETURN
+	KN_RF_COUPLING=(IKC1(I2) .EQ. 1 .OR. IKC2(I2) .EQ. 1)
 	RETURN
 	END
 !
