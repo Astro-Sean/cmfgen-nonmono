@@ -57,8 +57,12 @@ unit_tests/plots/
 unit_tests/work/
 tests/jfnk_core/test_newton_core
 tests/jfnk_core/test_guards
+tests/jfnk_core/test_gmres_edge
+tests/jfnk_core/test_nm_window
+tests/jfnk_core/test_pc_quality
 tests/jfnk_core/test_precond_blocks
 tests/jfnk_core/test_ptc_sign
+tests/jfnk_core/test_schur
 tests/jfnk_core/test_trace_state
 tests/f90/mod/
 tests/f90/mod2/
