@@ -33,12 +33,16 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    is_prod_source,
+    link_prod,
+    prod_obj,
+    prod_objs,
     run,
 )
 
@@ -57,22 +61,40 @@ C = 0.6  # shared contraction factor
 
 
 def build():
-    help_objs = compile_objs("ng_help", HELPERS)
+    md = BINDIR / "obj_ng_help"
+    help_objs = prod_objs([h for h in HELPERS if is_prod_source(h)])
+    help_objs += compile_objs(
+        "ng_stub",
+        [h for h in HELPERS if not is_prod_source(h)],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
+    )
     drv_obj = compile_objs(
-        "ng_drv", [F90DIR / "drv_ng.f90"], moddir=BINDIR / "obj_ng_help"
+        "ng_drv",
+        [F90DIR / "drv_ng.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
     )
     bins = {}
-    for tag, root in (("new", TREE), ("ref", REF)):
-        objs = compile_objs(
-            f"ng_{tag}",
-            [
-                root / "new_main" / "subs" / "do_ng_accel_band_v4.f",
-                F90DIR / f"adapt_ng_{tag}.f",
-            ],
-            moddir=BINDIR / "obj_ng_help",
+    for tag in ("new", "ref"):
+        if tag == "new":
+            objs = [prod_obj(TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f")]
+        else:
+            objs = compile_objs(
+                f"ng_{tag}_src",
+                [REF / "new_main" / "subs" / "do_ng_accel_band_v4.f"],
+                prod=True,
+                moddir=md,
+                extra_flags=PROD_MOD_INC,
+            )
+        objs += compile_objs(
+            f"ng_{tag}_adp",
+            [F90DIR / f"adapt_ng_{tag}.f"],
+            moddir=md,
+            extra_flags=PROD_MOD_INC,
         )
-        bins[tag] = link(
-            f"ng_{tag}", help_objs + drv_obj + objs, moddir=BINDIR / "obj_ng_help"
+        bins[tag] = link_prod(
+            f"ng_{tag}", help_objs + drv_obj + objs, moddir=md
         )
     return bins
 
