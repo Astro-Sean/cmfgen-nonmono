@@ -37,7 +37,7 @@ REP = common.Report("test_lam_handoff (RD_LAMBDA handoff hardening)")
 WORK = common.WORKDIR / "lam_handoff"
 WORK.mkdir(parents=True, exist_ok=True)
 
-binpath = common.compile_driver(
+binpath = common.compile_and_link_prod(
     "drv_lam_handoff",
     [
         common.TREE / "tools" / "set_kind_module.f",
