@@ -843,12 +843,12 @@
 	2   KN_DBG_SPP(:,:),KN_DBG_WX(:,:),KN_DBG_DLNM(:,:),
 	3   KN_DBG_IMPR(:,:),KN_DBG_IPPR(:,:),
 	4   KN_DBG_A0(:,:),KN_DBG_A1(:,:),KN_DBG_A2(:,:),
-	5   KN_DBG_A3(:,:),KN_DBG_A4(:,:),
+	5   KN_DBG_A3(:,:),KN_DBG_A4(:,:),KN_DBG_SR(:,:),
 	4   KR_DBG_CHIH(:,:),KR_DBG_Q(:,:),KR_DBG_DCHR(:,:),
 	5   KR_DBG_DTAU(:,:),KR_DBG_WX(:,:),KR_DBG_DLNM(:,:),
 	6   KR_DBG_SPM(:,:),KR_DBG_SPP(:,:),KR_DBG_A0(:,:),
 	7   KR_DBG_A1(:,:),KR_DBG_A2(:,:),KR_DBG_A3(:,:),KR_DBG_A4(:,:),
-	8   KR_DBG_FLDM(:,:),KR_DBG_FLDP(:,:)
+	8   KR_DBG_FLDM(:,:),KR_DBG_FLDP(:,:),KR_DBG_SR(:,:)
 !
 	LOGICAL KN_STORE_READY
 	LOGICAL KN_RF_WARNED
@@ -4029,6 +4029,7 @@ C
 	        KN_DBG_DTAU(I,FREQ_IDX_ITER+1)=DTAU(I,LS)
 	        KN_DBG_SPM(I,FREQ_IDX_ITER+1)=ALO_SPR_M_RAY(I,LS)
 	        KN_DBG_SPP(I,FREQ_IDX_ITER+1)=ALO_SPR_P_RAY(I,LS)
+	        KN_DBG_SR(I,FREQ_IDX_ITER+1)=SOURCE_RAY(I)
 	        KN_DBG_NM(I,FREQ_IDX_ITER+1)=NM_RAY(I)
 	        KN_DBG_DLNM(I,FREQ_IDX_ITER+1)=DLN_RAY(I)
 	        KN_DBG_IMPR(I,FREQ_IDX_ITER+1)=I_M_PREV(I,LS)
@@ -9126,6 +9127,7 @@ C
 	    KR_DBG_JPR1(I,L)=JPR1(I)
 	    KR_DBG_JPR2(I,L)=JPR2(I)
 	    KR_DBG_WX(I,L)=WINX(I)
+	    KR_DBG_SR(I,L)=SR_L(I)
 	  END DO
 	  DO I=1,NI-1
 	    KR_DBG_A0(I,L)=A0L(I)
