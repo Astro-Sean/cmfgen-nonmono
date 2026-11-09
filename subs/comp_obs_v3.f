@@ -16,6 +16,12 @@
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 !
+! Altered 09-Nov-2026 : NU_STORE shuffle retains CMF frequencies up to
+!                       OBS_FREQ*MAX_FREQ_CONV_FAC rather than OBS_FREQ.
+!                       Rays with FREQ_CONV_FAC>1 need CMF frequencies
+!                       above OBS_FREQ; the old 2-entry margin dropped
+!                       them once the store filled (OBS job 12893194
+!                       'CMF_FREQ outside range' STOP).
 ! Altered 22-Jan-2025 : Changed call to V3
 !                       Added P and WRITE_IP to call.
 ! Altered 03-Apr-2006 : Changed to handle plane parallel atmosphere where
@@ -48,6 +54,7 @@
 	REAL(KIND=LDP), SAVE, ALLOCATABLE :: FREQ_CONV_FAC(:)
 	REAL(KIND=LDP), SAVE, ALLOCATABLE :: INTEN_CONV_FAC(:)
 	REAL(KIND=LDP), SAVE :: MIN_FREQ_CONV_FAC
+	REAL(KIND=LDP), SAVE :: MAX_FREQ_CONV_FAC
 !
 	REAL(KIND=LDP) VINF			!
 	REAL(KIND=LDP) RMAX			!Radius at outer boundary.
@@ -154,6 +161,7 @@
 	    END DO
 	  END IF
 	  MIN_FREQ_CONV_FAC=MINVAL(FREQ_CONV_FAC)
+	  MAX_FREQ_CONV_FAC=MAXVAL(FREQ_CONV_FAC)
 	END IF
 !
 	IF(OBS_INDX .GT. N_OBS)RETURN		!Finished
@@ -163,14 +171,18 @@
 ! sufficient storage locations that we can still store the required CMF
 ! frequencies to enable the observer's frame fluxes to be computed.
 !
-! The L+2 ensures that there are 2 CMF frequencies greater than OBS_FREQ.
+! The L+2 ensures that there are 2 CMF frequencies greater than
+! OBS_FREQ*MAX_FREQ_CONV_FAC.  The retention top must cover the highest
+! CMF frequency any ray needs, OBS_FREQ*FREQ_CONV_FAC(LS); for rays with
+! FREQ_CONV_FAC>1 (mu below ~beta/2) that exceeds OBS_FREQ itself.
 ! NST_CMF-4 ensures that we retain 5 frequencies in the array. This check
 ! should only arrise if the spacing in the OBSERVER frequencies are very
 ! different to those in the co-moving frame.
 !
 	IF(NEXT_ST_LOC .GT. NST_CMF)THEN
 	  L=1
-	  DO WHILE ( NU_STORE(L+2) .GT. OBS_FREQ(OBS_INDX) .AND.
+	  DO WHILE ( NU_STORE(L+2) .GT.
+	1             OBS_FREQ(OBS_INDX)*MAX_FREQ_CONV_FAC .AND.
 	1                L .LT. NST_CMF-4)
 	    L=L+1
 	  END DO
@@ -244,11 +256,13 @@
 	    END DO
 !
 ! The NU_STORE(NEXT_ST_LOC-2) gate above guarantees coverage down to
-! OBS_FREQ*MIN_FREQ_CONV_FAC, but says nothing about the top of the
-! stored range: for rays with FREQ_CONV_FAC>1 (mu near 0), CMF_FREQ
-! can exceed NU_STORE(1).  Without this check the search above would
-! return ML_ST=ML_END=1 and LIN_INT would divide by zero, emitting a
-! silent NaN flux.
+! OBS_FREQ*MIN_FREQ_CONV_FAC, and the shuffle retention above keeps the
+! top at OBS_FREQ*MAX_FREQ_CONV_FAC once the store fills.  This check is
+! the residual backstop: it still fires if the CMF grid itself never
+! reached the needed frequency (MAX_CF too low) or the window could not
+! fit in NST_CMF.  Without it the search above would return
+! ML_ST=ML_END=1 and LIN_INT would divide by zero, emitting a silent
+! NaN flux.
 !
 	    IF(CMF_FREQ .GT. NU_STORE(1) .OR.
 	1       CMF_FREQ .LT. NU_STORE(NEXT_ST_LOC-1))THEN
@@ -257,7 +271,8 @@
 	      WRITE(LUER,*)'NU_STORE(1)=',NU_STORE(1)
 	      WRITE(LUER,*)'NU_STORE(NEXT_ST_LOC-1)=',NU_STORE(NEXT_ST_LOC-1)
 	      WRITE(LUER,*)'OBS_FREQ=',OBS_FREQ(OBS_INDX),' VINF=',VINF
-	      WRITE(LUER,*)'Increase CMF frequency coverage at the top'
+	      WRITE(LUER,*)'Increase CMF frequency coverage at the top,'
+	      WRITE(LUER,*)'or enlarge NST_CMF if the window cannot fit'
 	      STOP
 	    END IF
 !
