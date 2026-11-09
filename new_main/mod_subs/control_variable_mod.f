@@ -1715,16 +1715,18 @@
 ! exempted demand pins the converged-exit gates and the
 ! release/refreeze cycle never matures (GS_REL_NOPROG_LIM stop).
 !
-! [POP_MASK_FLOOR]: absolute population floor for masking a level
-! unknown out of the per-depth SE solve in CMF_DIAG_SOLVE. A level
-! row J with POPS(J,K) < POP_MASK_FLOOR is pinned like FIXPOP holds
-! a population fixed -- its equation row is replaced by the identity
-! (delta_J = 0) and its column decoupled, on the POPS-scaled matrix
-! before DGEEQU. The level is held at its floor value for the call,
-! produces no demanded correction, and contributes nothing to
-! BA_DEM_EXM/EXR. Only level rows J=1..N-2 are masked; ED/T and the
-! conservation rows are never touched. 0 disables (default path
-! unchanged).
+! [POP_MASK_FLOOR]: absolute population floor for holding a level
+! correction out of the committed update in SOLVEBA_V13. A level row
+! J with POPS(J,K) < POP_MASK_FLOOR is treated as floor-pinned: its
+! demanded correction is suppressed for the call so the level is
+! held at its floor value and contributes nothing to the applied
+! update. The shipped form is a POST-SOLVE mask on STEQ (the matrix
+! pin described in earlier revisions was tried first and crashed the
+! coupled block, job 12868544); it does not remove the level from
+! the factorisation, so the block conditioning is unchanged and the
+! surviving corrections are a projection, not the exact Newton step.
+! Only level rows J=1..N-2 are masked; ED/T and the conservation rows
+! are never touched. 0 disables (default path unchanged).
 !
 ! [POP_TRACE_MAXFAC]: per-row cap on the demanded fractional
 ! correction |STEQ| for level rows, applied in SOLVEBA_V13 before
@@ -1733,8 +1735,28 @@
 ! to POP_TRACE_MAXFAC so a single runaway trace level cannot force
 ! the all-or-nothing column mask. 0 disables.
 !
+! POP_MASK_PROBE (VADAT, default 10): recovery eligibility for a
+! floor-masked level. A masked row carries a per-(row,depth) streak
+! in BA_MASK_STREAK; after POP_MASK_PROBE consecutive masked calls
+! one call is allowed through unmasked (the correction still passes
+! the usual MAX_LAM/MAX_LIN clamps) so a temporarily underpopulated
+! level can climb back above the floor. POP_MASK_PROBE<=0 masks on
+! every call with no probe.
+!
+! BA_MASK_N / BA_MASK_MAX / BA_MASK_J / BA_MASK_I (diagnostic
+! export): masked-demand accounting written by SOLVEBA_V13 on every
+! call the floor mask runs. They count the level rows whose demanded
+! correction was suppressed this call and name the largest such
+! residual, so a masked equation can never satisfy the converged
+! exit silently. BA_MASK_STREAK is the per-(row,depth) probe counter.
+!
 	REAL(KIND=LDP) POP_MASK_FLOOR
 	REAL(KIND=LDP) POP_TRACE_MAXFAC
+	INTEGER POP_MASK_PROBE
+	INTEGER BA_MASK_N
+	REAL(KIND=LDP) BA_MASK_MAX
+	INTEGER BA_MASK_J,BA_MASK_I
+	INTEGER, ALLOCATABLE :: BA_MASK_STREAK(:,:)
 !
 ! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor. It
 ! exempted trace rows from the MAXCH/demand metric at a populated
