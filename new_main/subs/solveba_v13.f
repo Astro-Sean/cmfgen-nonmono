@@ -1167,9 +1167,23 @@
 ! census exists to name (H1). STEQ itself is left untouched; only
 ! the diagnostic copy is taken. Runs on LAMBDA and BA calls alike.
 !
-	IF(POP_RUNAWAY_DEM .GT. 0.0_LDP)THEN
+!
+! edited 09-Nov-2026: STEQ_RAW is now taken unconditionally, not
+! only under POP_RUNAWAY_DEM. The convergence-facing demand metrics
+! below read STEQ_RAW so a correction suppressed or clipped by a
+! safeguard (floor mask, quarantine, POP_TRACE_MAXFAC, trust) can
+! never make an unsatisfied equation look converged; STEQ alone is
+! reserved for the applied update returned to the caller.
+!
+	IF(.NOT. ALLOCATED(STEQ_RAW))THEN
 	  ALLOCATE(STEQ_RAW(NT,ND),STAT=IOS)
 	  IF(IOS .EQ. 0)STEQ_RAW=STEQ
+	ELSE IF(SIZE(STEQ_RAW,1) .NE. NT .OR. SIZE(STEQ_RAW,2) .NE. ND)THEN
+	  DEALLOCATE(STEQ_RAW)
+	  ALLOCATE(STEQ_RAW(NT,ND),STAT=IOS)
+	  IF(IOS .EQ. 0)STEQ_RAW=STEQ
+	ELSE
+	  STEQ_RAW=STEQ
 	END IF
 !
 	STEQ_MASKED_MAX=0.0_LDP
@@ -1502,7 +1516,7 @@
 	  IF(BA_EX_RELFRAC .GT. 0.0_LDP)
 	1   T2EX=BA_EX_RELFRAC*MAXVAL(POPS(1:NT-2,I))
 	  DO J=1,NT
-	    T1=1.0E+06_LDP*ABS(STEQ(J,I))+1.0E-31_LDP		!to ensure non-zero.
+	    T1=1.0E+06_LDP*ABS(STEQ_RAW(J,I))+1.0E-31_LDP		!to ensure non-zero.
 	    K=LOG10(T1)+1; K=MIN(7,K)
 	    IF(K > 0)COUNT(1:K)=COUNT(1:K)+1
 !
@@ -1518,18 +1532,18 @@
 !
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. J .LE. NT-2 .AND.
 	1     POPS(J,I) .LT. BA_DEM_PFLOOR)CYCLE
-	    IF(STEQ(J,I) .GT. DECREASE)THEN
-	      DECREASE=STEQ(J,I)
+	    IF(STEQ_RAW(J,I) .GT. DECREASE)THEN
+	      DECREASE=STEQ_RAW(J,I)
 	      IDEC=I
 	      JDEC=J
-	    ELSE IF(STEQ(J,I) .LT. INCREASE)THEN
-	      INCREASE=STEQ(J,I)
+	    ELSE IF(STEQ_RAW(J,I) .LT. INCREASE)THEN
+	      INCREASE=STEQ_RAW(J,I)
 	      IINC=I
 	      JINC=J
 	    END IF
 	    IF(J .LE. NT-2 .AND. POPS(J,I) .LT. T2EX)CYCLE
-	    IF(STEQ(J,I) .GT. EX_DEC)EX_DEC=STEQ(J,I)
-	    IF(STEQ(J,I) .LT. EX_INC)EX_INC=STEQ(J,I)
+	    IF(STEQ_RAW(J,I) .GT. EX_DEC)EX_DEC=STEQ_RAW(J,I)
+	    IF(STEQ_RAW(J,I) .LT. EX_INC)EX_INC=STEQ_RAW(J,I)
 	  END DO
 	  WRITE(LU_SUM,'(8I8)')I,COUNT(7:1:-1)
 	END DO
@@ -1547,8 +1561,8 @@
 	  DO J=1,NT-2
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND.
 	1       POPS(J,I) .LT. BA_DEM_PFLOOR)THEN
-	      IF(ABS(STEQ(J,I)) .GT. STEQ_EXM)THEN
-	        STEQ_EXM=ABS(STEQ(J,I))
+	      IF(ABS(STEQ_RAW(J,I)) .GT. STEQ_EXM)THEN
+	        STEQ_EXM=ABS(STEQ_RAW(J,I))
 	        IEXM=I
 	        JEXM=J
 	      END IF
@@ -1578,8 +1592,8 @@
 	      IF(POPS(J,I) .LT. T2EX .AND.
 	1        (BA_DEM_PFLOOR .LE. 0.0_LDP .OR.
 	2         POPS(J,I) .GE. BA_DEM_PFLOOR))THEN
-	        IF(ABS(STEQ(J,I)) .GT. EXR_VAL)THEN
-	          EXR_VAL=ABS(STEQ(J,I))
+	        IF(ABS(STEQ_RAW(J,I)) .GT. EXR_VAL)THEN
+	          EXR_VAL=ABS(STEQ_RAW(J,I))
 	          IEXR=I
 	          JEXR=J
 	        END IF
@@ -1677,7 +1691,7 @@
 	  DO I=1,NT
 	    IF(BA_DEM_PFLOOR .GT. 0.0_LDP .AND. I .LE. NT-2 .AND.
 	1     POPS(I,J) .LT. BA_DEM_PFLOOR)CYCLE
-	    T1=STEQ(I,J)
+	    T1=STEQ_RAW(I,J)
 	    IF(T1 .LE. 0.0_LDP)THEN
 	      IF(T1 .LT. MAX_INC_VEC(NV))THEN
 	        DO K=NV-1,1,-1
@@ -1692,7 +1706,7 @@
 	          END IF
 	        END DO
 	      END IF
-	    ELSE IF(STEQ(I,J) .GT. 0.0_LDP)THEN
+	    ELSE IF(STEQ_RAW(I,J) .GT. 0.0_LDP)THEN
 	      IF(T1 .GT. MAX_DEC_VEC(NV))THEN
 	        DO K=NV-1,1,-1
 	          IF(T1 .LT. MAX_DEC_VEC(K))THEN
