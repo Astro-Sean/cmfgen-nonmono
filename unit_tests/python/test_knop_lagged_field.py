@@ -682,7 +682,87 @@ def test_fg_trial_churn_arm():
     )
 
 
+def test_knop_blue_boundary_compressing_coupling():
+    """L=1 (bluest frequency) must keep the compressing upwind coupling.
+
+    Regression pin for dc41573a: at the first frequency expanding cells
+    have no bluer upwind (Q=0 is the correct inflow boundary), but
+    compressing cells couple to the redder lagged bin, so the sweep
+    INIT branch and the refresh BUILD_FREQ L=1 branch must both apply
+    the chi_hat/Q treatment to GAM<0 cells.  Forcing Q=0 there dropped
+    the advective outflow and left the refresh and sweep disagreeing
+    at the band edge.
+    """
+    build_freq = section(FG, "SUBROUTINE BUILD_FREQ", "SUBROUTINE MATCH_FREQ")
+    l1 = section(build_freq, "IF(L .EQ. 1)THEN", "ELSE")
+    check(
+        "refresh L=1 calls MATCH_FREQ for the matched span",
+        "CALL MATCH_FREQ(L)" in l1,
+    )
+    check(
+        "refresh L=1 adds |GAM|/DLN to chi_hat for GAM<0",
+        "CHI_L(I)=CHI_L(I)+GAM_MAG(I,LS)/DLN" in l1,
+    )
+    check(
+        "refresh L=1 sets signed Q=GAM/(DLN*chi_hat) for GAM<0",
+        "Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))" in l1,
+    )
+    check(
+        "refresh L=1 keeps Q_L=0 default for expanding cells",
+        re.search(r"Q_L\(I\)=0\.0_LDP[\s\S]*?IF\(GAM\(I,LS\) \.LT\.", l1)
+        is not None,
+    )
+    src_prime = section(FG, "SUBROUTINE SRC_PRIME", "SUBROUTINE SLOPES")
+    check(
+        "compressing source uses ABS(Q)*redder upwind",
+        "SP_L(I)=SR_L(I)+ABS(Q_L(I))*INEXT_V" in src_prime,
+    )
+    check(
+        "compressing upwind reads the matched redder slot L+NFM",
+        "FLD(JPR1(I),L+NFM_L(I))" in src_prime,
+    )
+    sweep_init = section(
+        FG,
+        "Compressing cells at the bluest frequency",
+        "SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)",
+    )
+    check(
+        "sweep INIT adds |GAM|/DLN to chi_hat for GAM<0",
+        "CHI_RAY(I)=CHI_RAY(I)+T1" in sweep_init
+        and "T1=GAM_MAG(I,LS)/DLN_C" in sweep_init,
+    )
+    check(
+        "sweep INIT sets signed Q=GAM/(DLN*chi_hat) for GAM<0",
+        "Q(I)=GAM(I,LS)/(DLN_C*CHI_RAY(I))" in sweep_init,
+    )
+
+
+def test_mom_gam_fac_floor_discontinuity_pin():
+    """Pin the current MOM_GAM_FAC_MIN floor location (audit Phase 2).
+
+    Documents where the sign-preserving 1+sigma*K floor is applied so a
+    future stabilisation separation updates this test.  The floor is
+    load-bearing for fixed-point convergence (PSI collapse at the
+    zero-GAM resonance); it is NOT yet split into physical vs
+    regularised coefficients.
+    """
+    check(
+        "MOM_GAM_FAC_MIN parameter present",
+        "MOM_GAM_FAC_MIN=1.0E-2_LDP" in MOM,
+    )
+    check(
+        "depth-point factor floored with sign preservation",
+        MOM.count("SIGN(MAX(ABS(T1),MOM_GAM_FAC_MIN),T1)") >= 2,
+    )
+    check(
+        "exact-zero factor reset to zero",
+        MOM.count("IF(T1 .EQ. 0.0_LDP)") >= 2,
+    )
+
+
 if __name__ == "__main__":
+    test_knop_blue_boundary_compressing_coupling()
+    test_mom_gam_fac_floor_discontinuity_pin()
     test_heal_store_zeroes_fully_poisoned_rows()
     test_sweep_store_write_snapshot_relax()
     test_rollback_restore_validates_field_values()
