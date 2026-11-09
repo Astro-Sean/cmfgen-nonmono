@@ -1048,8 +1048,12 @@
 	  POP_TRACE_MAXFAC=0.0_LDP
 	  CALL RD_STORE_DBLE(POP_TRACE_MAXFAC,'POP_TRACE_MAXFAC',L_FALSE,
 	1     'Per-row fractional-correction cap for level populations?')
+	  POP_MASK_PROBE=10
+	  CALL RD_STORE_INT(POP_MASK_PROBE,'POP_MASK_PROBE',L_FALSE,
+	1     'Masked calls before a floor level gets one recovery update?')
 	  POP_MASK_FLOOR=MAX(POP_MASK_FLOOR,0.0_LDP)
 	  POP_TRACE_MAXFAC=MAX(POP_TRACE_MAXFAC,0.0_LDP)
+	  POP_MASK_PROBE=MAX(0,POP_MASK_PROBE)
 !
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial. With MAXCH above it the trial takes the
