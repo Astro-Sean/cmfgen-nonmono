@@ -31,46 +31,74 @@ import numpy as np
 
 # ----------------------------------------------------------------------
 # CONFIG: sources and compile line.
-# Replace FORTRAN_SOURCES with your own module(s) when plugging in a
-# different JFNK implementation; the driver only needs the module
-# symbols it USEs (jfnk_solver_v1_mod) plus the stub int_mod.
+# The solver under test is the production object extracted verbatim
+# from lib/libmod.a (unit_tests/common.py prod_obj, freshness-checked
+# against its source).  Only the stub int_mod and the CLI driver
+# compile here; both link with the production link line.  ifort is
+# required - the production .o/.mod files are ifort artifacts.
 # ----------------------------------------------------------------------
 TREE = Path(__file__).resolve().parents[2]
 TESTDIR = Path(__file__).resolve().parents[1]
-FORTRAN_SOURCES = [
-    TESTDIR / "f90" / "jfnk_int_mod_stub.f90",
-    TREE / "new_main" / "mod_subs" / "jfnk_solver_v1.f90",
-    TESTDIR / "f90" / "jfnk_cli_driver.f90",
-]
+STUB_SRC = TESTDIR / "f90" / "jfnk_int_mod_stub.f90"
+DRIVER_SRC = TESTDIR / "f90" / "jfnk_cli_driver.f90"
+SOLVER_SRC = TREE / "new_main" / "mod_subs" / "jfnk_solver_v1.f90"
 BINARY = TESTDIR / "f90" / "bin" / "jfnk_cli"
 OUTDIR = TESTDIR / "plots" / "harness"
 
 IFORT = shutil.which("ifort")
-GFORT = shutil.which("gfortran")
-if IFORT:
-    COMPILE = [
-        IFORT, "-qopenmp", "-mkl", "-O0", "-g", "-traceback",
-        "-diag-disable=10448,10412,10434",
-        "-module", str(BINARY.parent),
-    ]
-elif GFORT:
-    COMPILE = [GFORT, "-fopenmp", "-O0", "-g", "-fbacktrace",
-               "-llapack", "-lblas", f"-J{BINARY.parent}"]
-else:
-    sys.exit("no Fortran compiler found (need ifort or gfortran)")
+if not IFORT:
+    sys.exit(
+        "jfnk_harness: ifort required - the solver under test is the "
+        "production ifort object from lib/libmod.a"
+    )
+
+
+def _prod_mod_mtime():
+    return max(
+        (p.stat().st_mtime for p in (TREE / "mod").glob("*.mod")),
+        default=0.0,
+    )
 
 
 def ensure_binary():
-    """Compile the solver + CLI driver once (cached by mtime)."""
+    """Link the production solver .o with freshly compiled test
+    sources (cached by mtime)."""
+    sys.path.insert(0, str(TREE / "unit_tests"))
+    from common import prod_obj
+
+    solver_o = Path(prod_obj(SOLVER_SRC))
+    deps = [STUB_SRC, DRIVER_SRC, solver_o]
     if BINARY.exists():
-        newest = max(p.stat().st_mtime for p in FORTRAN_SOURCES)
-        if BINARY.stat().st_mtime > newest:
+        newest = max(p.stat().st_mtime for p in deps)
+        if (
+            BINARY.stat().st_mtime > newest
+            and BINARY.stat().st_mtime > _prod_mod_mtime()
+        ):
             return
     BINARY.parent.mkdir(parents=True, exist_ok=True)
-    cmd = COMPILE + [str(p) for p in FORTRAN_SOURCES] + [
-        "-o", str(BINARY)]
+    cmd = [
+        IFORT,
+        "-qopenmp",
+        "-mkl",
+        "-O0",
+        "-g",
+        "-traceback",
+        "-diag-disable=10448,10412,10434",
+        f"-I{TREE}/mod",
+        "-module",
+        str(BINARY.parent),
+        str(STUB_SRC),
+        str(DRIVER_SRC),
+        str(solver_o),
+        "-o",
+        str(BINARY),
+    ]
     print("compile:", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    # cwd=BINARY.parent: ifort resolves .mod files from the cwd ahead
+    # of -I paths; compiling inside the module dir keeps stray .mod
+    # files in the caller's directory from shadowing production
+    # module interfaces.
+    subprocess.run(cmd, check=True, cwd=BINARY.parent)
 
 
 def run_cli(*args):
