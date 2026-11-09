@@ -21,8 +21,7 @@ from common import (
     TREE,
     WORKDIR,
     Report,
-    compile_objs,
-    link,
+    compile_and_link_prod,
     run,
 )
 
@@ -58,12 +57,11 @@ HELPERS = [
 
 def main():
     rep = Report("MOM_J_CMF_NONMONO_V1 GS-sweep table")
-    objs = compile_objs(
+    exe = compile_and_link_prod(
         "mom_sweep",
         [TREE / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_sweep.f90"],
     )
-    exe = link("mom_sweep", objs)
     p = run(exe, cwd=WORKDIR)
     rep.check(
         "driver ran the sweep report",
