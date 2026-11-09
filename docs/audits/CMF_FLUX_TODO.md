@@ -125,6 +125,40 @@ Status legend: `[x]` done+verified, `[~]` in progress, `[ ]` open.
 - **Remaining: confirm on live output; add wavelength-range coverage
   report to T7 if needed.**
 
+### T5d — COMP_OBS NU_STORE retention window — DONE (code), live OBS rerun open
+- Finding (confirmed live defect, latent upstream): `COMP_OBS_V2`/`V3`
+  store solved CMF intensities in `NU_STORE`/`IPLUS_STORE`, a sliding
+  window of `NST_CMF` entries (20000 OBS / 6000 population).  When full,
+  the shuffle kept only ~2 entries above `OBS_FREQ(OBS_INDX)`.  Rays
+  with `FREQ_CONV_FAC>1` (mu below ~beta/2) need CMF frequencies up to
+  `OBS_FREQ*MAX_FREQ_CONV_FAC` -- for VINF~27,000 km/s that is ~9% above
+  `OBS_FREQ` -- so once the store filled the required entries had been
+  discarded.  Before the T5c-era guard this interpolated a degenerate
+  bracket into a silent NaN flux; after it, OBS jobs 12893194/12893195
+  (`SN_A_p2p85r150_SOB_d39` pair) STOPped with `CMF_FREQ outside range`
+  at `CMF_FREQ=1.47719 > NU_STORE(1)=1.47151`.
+- Correction (`subs/comp_obs_v2.f`, `subs/comp_obs_v3.f`): save
+  `MAX_FREQ_CONV_FAC=MAXVAL(FREQ_CONV_FAC)` at init next to
+  `MIN_FREQ_CONV_FAC`, and raise the shuffle retention top from
+  `OBS_FREQ(OBS_INDX)` to `OBS_FREQ(OBS_INDX)*MAX_FREQ_CONV_FAC`.  The
+  `NU_STORE(NEXT_ST_LOC-2)` bottom gate is unchanged; the
+  `CMF_FREQ outside range` STOP remains as backstop for genuine
+  `MAX_CF` undercoverage or `NST_CMF` overflow (message now names both).
+  `OBS_FREQ` is strictly decreasing, so a top retained for the current
+  bin also covers all later bins.
+- Tests: `unit_tests/python/test_comp_obs_retain.py` + new driver
+  `unit_tests/f90/drv_comp_obs_retain.f90` -- NST=64, 250 CMF freqs, a
+  mu=-0.5 ray (`conv~1.055`): old criterion reproduces the production
+  STOP signature, fixed criterion completes all 40 bins with fluxes
+  matching an independent evaluation to 2.8e-16.  `test_comp_obs.py`
+  still 6/6.
+- Limits: window width roughly doubles (log range
+  `MAX_CONV/MIN_CONV` ~0.15-0.18 for VINF~3e4 km/s); `NST_CMF` headroom
+  is ample at 20000 but only ~3x at 6000 for the population path --
+  a too-small window fails loudly (`NST_CMF too small`), not silently.
+  **Remaining: interactive-partition OBS rerun of the failed
+  `SN_A_p2p85r150_SOB_d39` job to confirm end-to-end.**
+
 ### T10 — Recommended input guide + docs + regression run — DONE
 - `docs/audits/CMF_FLUX_OPTIMAL_INPUT_SETUP.md` written: separate
   KNOP / SOB / monotonic configurations, trap inventory
