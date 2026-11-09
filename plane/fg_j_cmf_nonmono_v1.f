@@ -850,6 +850,14 @@
 	7   KR_DBG_A1(:,:),KR_DBG_A2(:,:),KR_DBG_A3(:,:),KR_DBG_A4(:,:),
 	8   KR_DBG_FLDM(:,:),KR_DBG_FLDP(:,:),KR_DBG_SR(:,:)
 !
+! KN_DBG_NDON(i,l): donor-access counter for the expanding-frequency
+! branch. Incremented inside each .GT.0 donor-read site, so a cell
+! with GAM=0 can only trip it if the exact-zero guard is bypassed.
+! Allocated only by unit-test drivers; production leaves it
+! unallocated and pays nothing.
+!
+	INTEGER, ALLOCATABLE :: KN_DBG_NDON(:,:)
+!
 	LOGICAL KN_STORE_READY
 	LOGICAL KN_RF_WARNED
 !
@@ -3679,8 +3687,19 @@ C
 !
 ! edited by Sean Brennan
 	    DO I=1,NI
-	      IF(GAM(I,LS) .GE. 0.0_LDP)THEN
+	      IF(GAM(I,LS) .EQ. 0.0_LDP)THEN
+!
+!	       Exact zero: no frequency coupling exists, so no donor may be
+!	       read at all -- 0*NaN is NaN in IEEE arithmetic, and an
+!	       untouched or stale donor slot would contaminate the source.
+!
+	        SOURCE_PRIME(I)=SOURCE_RAY(I)
+	      ELSE IF(GAM(I,LS) .GT. 0.0_LDP)THEN
 	        SOURCE_PRIME(I)=SOURCE_RAY(I)+Q(I)*I_M_PREV(I,LS)
+	        IF(ALLOCATED(KN_DBG_NDON) .AND. LS .EQ. KN_DBG_LS .AND.
+	1            FREQ_IDX_ITER+1 .LE. SIZE(KN_DBG_NDON,2))
+	2            KN_DBG_NDON(I,FREQ_IDX_ITER+1)=
+	3              KN_DBG_NDON(I,FREQ_IDX_ITER+1)+1
 	      ELSE IF(HAS_COMPRESSING)THEN
 	        K=RAY_PNT(I,LS)-ND_ADD
 !
@@ -3943,8 +3962,19 @@ C
 !
 ! edited by Sean Brennan
 	    DO I=1,NI
-	      IF(GAM(I,LS) .GE. 0.0_LDP)THEN
+	      IF(GAM(I,LS) .EQ. 0.0_LDP)THEN
+!
+!	       Exact zero: no frequency coupling exists, so no donor may be
+!	       read at all -- 0*NaN is NaN in IEEE arithmetic, and an
+!	       untouched or stale donor slot would contaminate the source.
+!
+	        SOURCE_PRIME(I)=SOURCE_RAY(I)
+	      ELSE IF(GAM(I,LS) .GT. 0.0_LDP)THEN
 	        SOURCE_PRIME(I)=SOURCE_RAY(I)+Q(I)*I_P_PREV(I,LS)
+	        IF(ALLOCATED(KN_DBG_NDON) .AND. LS .EQ. KN_DBG_LS .AND.
+	1            FREQ_IDX_ITER+1 .LE. SIZE(KN_DBG_NDON,2))
+	2            KN_DBG_NDON(I,FREQ_IDX_ITER+1)=
+	3              KN_DBG_NDON(I,FREQ_IDX_ITER+1)+1
 	      ELSE IF(HAS_COMPRESSING)THEN
 	        K=RAY_PNT(I,LS)-ND_ADD
 !
@@ -7725,9 +7755,20 @@ C
 	SUBROUTINE KN_ORD_SPV(FLD,R,L,SPV)
 	REAL(KIND=LDP) FLD(NI,NCF),SPV
 	INTEGER R,L,NNF2
-	IF(GAM(R,LS) .GE. 0.0_LDP)THEN
+	IF(GAM(R,LS) .EQ. 0.0_LDP)THEN
+!
+!	  Exact zero: no frequency coupling exists, so no donor may be
+!	  read at all -- 0*NaN is NaN in IEEE arithmetic.
+!
 	  SPV=PK_SR(R,L)
-	  IF(L .GT. 1)SPV=PK_SR(R,L)+PK_Q(R,L)*FLD(R,L-1)
+	ELSE IF(GAM(R,LS) .GT. 0.0_LDP)THEN
+	  SPV=PK_SR(R,L)
+	  IF(L .GT. 1)THEN
+	    IF(ALLOCATED(KN_DBG_NDON) .AND. LS .EQ. KN_DBG_LS .AND.
+	1        L .LE. SIZE(KN_DBG_NDON,2))
+	2        KN_DBG_NDON(R,L)=KN_DBG_NDON(R,L)+1
+	    SPV=PK_SR(R,L)+PK_Q(R,L)*FLD(R,L-1)
+	  END IF
 	ELSE
 	  NNF2=1
 	  IF(FG_FREQ_MATCH .AND. L .LT. NCF .AND.
@@ -9220,9 +9261,20 @@ C
 	REAL(KIND=LDP) FLD(NI,NCF)
 	INTEGER L
 	DO I=1,NI
-	  IF(GAM(I,LS) .GE. 0.0_LDP)THEN
+	  IF(GAM(I,LS) .EQ. 0.0_LDP)THEN
+!
+!	    Exact zero: no frequency coupling exists, so no donor may be
+!	    read at all -- 0*NaN is NaN in IEEE arithmetic.
+!
+	    SP_L(I)=SR_L(I)
+	  ELSE IF(GAM(I,LS) .GT. 0.0_LDP)THEN
 	    INEXT_V=0.0_LDP
-	    IF(L .GT. 1)INEXT_V=FLD(I,L-1)
+	    IF(L .GT. 1)THEN
+	      INEXT_V=FLD(I,L-1)
+	      IF(ALLOCATED(KN_DBG_NDON) .AND. LS .EQ. KN_DBG_LS .AND.
+	1          L .LE. SIZE(KN_DBG_NDON,2))
+	2          KN_DBG_NDON(I,L)=KN_DBG_NDON(I,L)+1
+	    END IF
 	    SP_L(I)=SR_L(I)+Q_L(I)*INEXT_V
 	  ELSE IF(L+NFM_L(I) .LE. NCF)THEN
 	    IF(IKC1(I) .EQ. 1 .AND. IKC2(I) .EQ. 1)THEN
