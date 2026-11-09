@@ -232,6 +232,17 @@
 !
 	LOGICAL :: ALLOW_NONMONO_OBS=.FALSE.
 !
+! DO_NONMONO_FREQ_MATCH (default F in this file, matching the
+! population-side VADAT default in RD_CONTROL_VARIABLES): under
+! DO_NONMONO_SOB + USE_LAM_ES=F the population run auto-sets this
+! T so MOM_J_CMF_NONMONO_V1 interpolates the lagged J_NEXT when
+! the compressing forward neighbour differs in frequency spacing.
+! The OBS reader forwards it to SET_MOM_FREQ_MATCH so the OBS
+! moment solve uses the same coupling.  Under DO_NONMONO_KNOP it
+! is forwarded to SET_FG_FREQ_MATCH for the same reason.
+!
+	LOGICAL :: DO_NONMONO_FREQ_MATCH=.FALSE.
+!
 	LOGICAL PLANE_PARALLEL_NO_V
 	LOGICAL PLANE_PARALLEL
 	LOGICAL INCL_INCID_RAD
