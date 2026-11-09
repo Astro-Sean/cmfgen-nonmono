@@ -271,6 +271,75 @@ def main():
         f"NPASS={d10.get('NPASS')} NDIV={d10.get('NDIV')}",
     )
 
+    # -- T11: donor-mask drop equivalence (audit P2). 'gap' puts a
+    #    compressing GAM cell at ray point 5 with no sparse donor slot
+    #    in its bracket, so the whole frequency coupling is dropped
+    #    there. 'gapr' gives the same cell GAM=0, which produces the
+    #    identical discrete operator: plain chi, zero Q, no upwind
+    #    term. Both must converge and commit the same store.
+    r = run(bin_, "gap", cwd=WORKDIR, check=False)
+    dg, sg = parse(r.stdout)
+    r = run(bin_, "gapr", cwd=WORKDIR, check=False)
+    dr, sr = parse(r.stdout)
+    common = set(sg) & set(sr)
+    if common:
+        dd = max(
+            abs(sg[k][j] - sr[k][j]) / max(sr[k][j], 1e-30)
+            for k in common
+            for j in (0, 1)
+        )
+    else:
+        dd = 9.9e9
+    ok = (
+        "RESULT_OK" in dg
+        and "RESULT_OK" in dr
+        and dg.get("NXIT", -1) in (0, 1, 2)
+        and dr.get("NXIT", -1) in (0, 1, 2)
+        and dd < 5.0e-2
+    )
+    rep.check(
+        "T11 dropped coupling == never-coupled operator (gap vs gapr)",
+        ok,
+        f"NXIT={dg.get('NXIT')}/{dr.get('NXIT')} "
+        f"RESID={dg.get('RESID'):.3e}/{dr.get('RESID'):.3e} "
+        f"max rel store diff {dd:.2e}",
+    )
+
+    # -- T12: NaN opacity in the captured store must fail the ray
+    #    (diverged exit, residual pinned at 1), never commit a
+    #    repaired field.
+    r = run(bin_, "nanchi", cwd=WORKDIR, check=False)
+    dn, sn = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in dn
+        and dn.get("NXIT", -1) == 5
+        and dn.get("NDIV", 0) == 1
+        and dn.get("RESID", 0.0) == 1.0
+    )
+    rep.check(
+        "T12 NaN CHI fails the ray closed (no commit)",
+        ok,
+        f"NXIT={dn.get('NXIT')} RESID={dn.get('RESID'):.3e} "
+        f"NDIV={dn.get('NDIV')}",
+    )
+
+    # -- T13: infinite GAM likewise: Inf slipped past the old
+    #    NaN-only guards into DTAU and the march coefficients.
+    r = run(bin_, "infgam", cwd=WORKDIR, check=False)
+    di, si = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in di
+        and di.get("NXIT", -1) == 5
+        and di.get("NDIV", 0) == 1
+        and di.get("RESID", 0.0) == 1.0
+    )
+    rep.check(
+        "T13 Inf GAM fails the ray closed (no commit)",
+        ok,
+        f"NXIT={di.get('NXIT')} RESID={di.get('RESID'):.3e} "
+        f"NDIV={di.get('NDIV')}",
+    )
+
     rep.summary()
 
 
