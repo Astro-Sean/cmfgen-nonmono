@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """JFNK solver regression tests -- drives the two existing standalone
-harnesses that compile the production new_main/mod_subs/
-jfnk_solver_v1.f90 unchanged:
+harnesses that link the production jfnk_solver_v1.o extracted
+verbatim from lib/libmod.a (freshness-checked):
 
   * tests/jfnk_core/test_newton_core.f90 -- Newton/GMRES/hookstep core
     on a stiff analytic problem with a known root, plus restart and
@@ -114,7 +114,7 @@ def run_se(rep):
 
 
 def main():
-    rep = Report("JFNK solver (production jfnk_solver_v1.f90)")
+    rep = Report("JFNK solver (production jfnk_solver_v1.o)")
     run_core(rep)
     run_se(rep)
     return rep.summary()
