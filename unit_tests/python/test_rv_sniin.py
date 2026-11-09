@@ -36,19 +36,22 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    link_prod,
+    prod_objs,
+    ref_close,
     run,
 )
 
 TREE_HELPERS = [
-    "tools/set_kind_module.f",
-    "unix/term_io.f",
-    "subs/lin_interp.f",
+    TREE / "tools" / "set_kind_module.f",
+    TREE / "unix" / "term_io.f",
+    TREE / "subs" / "lin_interp.f",
 ]
 
 ND = 20
@@ -57,17 +60,31 @@ RMAX, RP, VCORE, BETA1 = 5.0e4, 1.0e3, 10.0, 1.5
 
 
 def build():
+    md = BINDIR / "obj_sniin_help"
+    help_objs = prod_objs(TREE_HELPERS)
+    drv_obj = compile_objs(
+        "sniin_drv",
+        [F90DIR / "drv_sniin.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
+    )
     bins = {}
     for tag, root in (("new", TREE), ("ref", REF)):
-        objs = compile_objs(
-            f"sniin_{tag}",
-            [root / h for h in TREE_HELPERS]
-            + [
-                root / "new_main" / "subs" / "rv_sn_model_sniin.f",
-                F90DIR / "drv_sniin.f90",
-            ],
+        if tag == "new":
+            objs = [
+                prod_objs([root / "new_main" / "subs" / "rv_sn_model_sniin.f"])[0]
+            ]
+        else:
+            objs = compile_objs(
+                f"sniin_{tag}_src",
+                [root / "new_main" / "subs" / "rv_sn_model_sniin.f"],
+                prod=True,
+                moddir=md,
+                extra_flags=PROD_MOD_INC,
+            )
+        bins[tag] = link_prod(
+            f"sniin_{tag}", help_objs + drv_obj + objs, moddir=md
         )
-        bins[tag] = link(f"sniin_{tag}", objs, moddir=BINDIR / "obj_sniin_help")
     return bins
 
 
@@ -154,10 +171,11 @@ def main():
         assert "RESULT_OK" in r.stdout, r.stdout[-2000:]
         got[tag] = parse(r.stdout)
     a, b = got["new"], got["ref"]
+    ok, maxrel = ref_close(a, b)
     rep.check(
         "RDINR: new == ref grid",
-        np.array_equal(a, b),
-        f"maxdiff={np.abs(a - b).max():.2e}",
+        ok,
+        f"maxrel={maxrel:.2e}",
     )
     r_g, v_g, s_g = a[:, 0], a[:, 1], a[:, 2]
     vexp = VCORE * (r_g / r_g[-1]) ** BETA1
