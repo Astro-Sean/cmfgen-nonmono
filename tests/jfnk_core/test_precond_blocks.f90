@@ -164,7 +164,15 @@ subroutine old_factor(a, n, pre_reg, row_tiny, ridge_piv, lsq_lam, &
             gn_work(i,i) = gn_work(i,i) + lsq_l2
          end do
          lu = gn_work
-         mtst = lu
+! mirror of the production fix: DSYRK fills the lower triangle
+! only; mtst needs the symmetric matrix and lu's upper is zeroed.
+         mtst = gn_work
+         do j = 1, n
+            do i = j+1, n
+               mtst(j,i) = gn_work(i,j)
+               lu(j,i) = 0.0d0
+            end do
+         end do
          call dpotrf('L', n, lu, n, info_k)
       else
          anorm_k = 0.0d0
@@ -423,8 +431,9 @@ subroutine t_ident_factor(nfail)
 ! rcond is exempt from the bit-compare: old_factor supplies the
 ! 1-norm to DGECON('I') (the F4 defect); the extracted routine now
 ! supplies the matching infinity norm, so the values legitimately
-! differ (diagnostic only).
-            if(ok1)then
+! differ (diagnostic only). LSQ mode never computes rcond by design
+! (rcond=-1), so the presence check is LU-only.
+            if(ok1 .and. .not. lsq)then
                if(rcond2 <= 0.0d0)then
                   print *, 'T-IDENT FAIL rcond not set'
                   nfail = nfail + 1; cycle
