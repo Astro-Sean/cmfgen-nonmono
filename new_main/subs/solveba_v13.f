@@ -23,7 +23,8 @@
 	4     BA_HOLD_RESTORE_REVIVAL,BA_EX_RELFRAC,BA_EX_MAXCH,
 	5     BA_DEM_EXR,BA_LQ_HIT,BA_LQ_DEM,BA_LQ_PAT,
 	6     BA_ARG_J,BA_ARG_I,BA_ARG_PCT,
-	7     POP_RUNAWAY_DEM,POP_RUNAWAY_TOPN
+	7     POP_RUNAWAY_DEM,POP_RUNAWAY_TOPN,POP_TRACE_MAXFAC,
+	8     POP_MASK_FLOOR
 	USE MOD_CMFGEN, ONLY: NUM_SPECIES,SPECIES_BEG_ID,
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
@@ -1160,6 +1161,26 @@
 	  END IF
 	  DO I=1,ND
 !
+! edited 09-Nov-2026: [POP_MASK_FLOOR] Item-2 post-solve floor
+! mask. A level whose population sits below the floor gives the
+! POPS-scaled SE block an approximate null column, so the solve
+! demands order-1E7 corrections the BA_DEM floors exempt from MAXCH
+! yet still export as exempted demand -- the Item-1 census
+! (KNOP_ITEM1_RUNAWAY_2026-11-08) pinned this as the KNOP stall.
+! Masking here -- after the band solve, before every demand metric
+! and the commit -- zeroes the floor level's correction so it is
+! held at its floor value and contributes nothing to MAXCH,
+! BA_DEM_EXM/EXR, or the applied update. A matrix-level pin was
+! tried first and crashed the coupled block (job 12868544); this
+! post-solve form cannot perturb the factorisation. Level rows
+! J=1..NT-2 only; ED/T rows are untouched. 0 disables.
+!
+	    IF(POP_MASK_FLOOR .GT. 0.0_LDP)THEN
+	      DO J=1,NT-2
+	        IF(POPS(J,I) .LT. POP_MASK_FLOOR)STEQ(J,I)=0.0_LDP
+	      END DO
+	    END IF
+!
 ! edited 07-Oct-2026: per-equation quarantine
 ! ([DO_BA_QUAR]). Parked equations are suppressed FIRST, before
 ! the trust test, so a parked variable's saturated demand can no
@@ -1176,6 +1197,24 @@
 	        IF(BA_QUAR_MASK(J,I))THEN
 	          STEQ_QMAX=MAX(STEQ_QMAX,ABS(STEQ(J,I)))
 	          STEQ(J,I)=0.0_LDP
+	        END IF
+	      END DO
+	    END IF
+!
+! edited 09-Nov-2026: [POP_TRACE_MAXFAC] Item-2 per-row
+! correction cap. The trust test below quarantines a whole depth
+! column when its largest |STEQ| exceeds BA_TRUST_CUR, so a single
+! runaway trace level freezes every population at that depth. This
+! clamps each level row's demanded fractional correction to
+! POP_TRACE_MAXFAC first (sign preserved), so the offending row
+! still moves -- bounded -- while the rest of the column is free to
+! update and no longer trips the all-or-nothing column mask. Level
+! rows J=1..NT-2 only; ED/T rows are untouched. 0 disables.
+!
+	    IF(POP_TRACE_MAXFAC .GT. 0.0_LDP)THEN
+	      DO J=1,NT-2
+	        IF(ABS(STEQ(J,I)) .GT. POP_TRACE_MAXFAC)THEN
+	          STEQ(J,I)=SIGN(POP_TRACE_MAXFAC,STEQ(J,I))
 	        END IF
 	      END DO
 	    END IF
