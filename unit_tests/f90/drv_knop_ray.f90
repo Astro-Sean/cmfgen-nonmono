@@ -16,6 +16,7 @@
 !   strg   deep-negative GAM band -> strong-compression regime
 !
       PROGRAM DRV_KNOP_RAY
+      USE, INTRINSIC :: IEEE_ARITHMETIC
       USE SET_KIND_MODULE
       USE FG_J_CMF_NONMONO_MOD_V1
       USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED
@@ -44,6 +45,10 @@
       IF(CNAME .EQ. 'strg') NCASE=7
       IF(CNAME .EQ. 'ckpt') NCASE=9
       IF(CNAME .EQ. 'rfsh') NCASE=10
+      IF(CNAME .EQ. 'gap')  NCASE=11
+      IF(CNAME .EQ. 'gapr') NCASE=12
+      IF(CNAME .EQ. 'nanchi')NCASE=13
+      IF(CNAME .EQ. 'infgam')NCASE=14
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -59,6 +64,12 @@
       KN_ND_EXT=NDX
       ND_ADD=0
       N_COMP=3
+!
+! gap/gapr: mask covers depths 3-4 only, so a compressing ray point
+! bracketed by unmasked depths has no lagged donor and must have its
+! whole frequency coupling dropped (both sides of the operator).
+!
+      IF(NCASE .EQ. 11 .OR. NCASE .EQ. 12)N_COMP=2
 !
       ALLOCATE(NI_RAY(1),RAY_PNT(NIX,1),R_RAY(NIX,1),Z(NIX,1), &
       R_EXT(NDX),LOG_R_EXT(NDX),KN_R(ND),KN_P(1), &
@@ -91,7 +102,7 @@
       END DO
       COMP_DEPTH_IDX(3)=1
       COMP_DEPTH_IDX(4)=2
-      COMP_DEPTH_IDX(5)=3
+      IF(N_COMP .GE. 3)COMP_DEPTH_IDX(5)=3
 !
 ! Signed GAM: expansion outside, compression band over depths 3-5
 ! (magnitudes give |Q| ~ O(0.3) for the conv case).  dGAMdR feeds
@@ -131,6 +142,26 @@
         dGAMdR(I,1)=0.3_LDP*GAM(I,1)/RR(I)
       END DO
 !
+! gapr: point 5 is made exactly non-compressing (GAM=0). Its
+! coefficient operator is then identical to the 'gap' case, where
+! GAM(5)<0 has no donor slot and the whole coupling is dropped --
+! the committed fields must agree to solve tolerance.
+!
+      IF(NCASE .EQ. 12)THEN
+        GAM(5,1)=0.0_LDP
+        GAM_MAG(5,1)=0.0_LDP
+        dGAMdR(5,1)=0.0_LDP
+      END IF
+!
+! infgam: a non-finite GAM must fail the coefficient build, not be
+! repaired into a committed field.
+!
+      IF(NCASE .EQ. 14)THEN
+        GAM(4,1)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+        GAM_MAG(4,1)=ABS(GAM(4,1))
+        dGAMdR(4,1)=GAM(4,1)
+      END IF
+!
 ! Opacity/emissivity: smooth positive fields with a mild frequency
 ! dependence so each bin sees a slightly different transfer problem.
 ! The capture store is single precision in production; mirror that.
@@ -153,6 +184,18 @@
         END DO
         CALL MON_INT_FUNS_V2(KN_ETA_COEF(1,1,L),LGW,LOG_R_EXT,NDX)
       END DO
+!
+! nanchi: a captured NaN opacity must fail the coefficient build at
+! frequency 3 (node-matched ray point 4 reads the tabulated NaN
+! directly), not be repaired into a committed field.
+!
+      IF(NCASE .EQ. 13)THEN
+        KN_CHI_EXT(4,3)=IEEE_VALUE(0.0,IEEE_QUIET_NAN)
+        DO K=1,NDX
+          LGW(K)=LOG(MAX(DBLE(KN_CHI_EXT(K,3)),1.0E-300_LDP))
+        END DO
+        CALL MON_INT_FUNS_V2(KN_CHI_COEF(1,1,3),LGW,LOG_R_EXT,NDX)
+      END IF
 !
       KN_FREQ(1)=6.0E15_LDP
       DO L=2,NCFX
