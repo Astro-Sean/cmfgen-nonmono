@@ -34,20 +34,22 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    link_prod,
+    prod_objs,
     run,
 )
 
 HELPERS = [
-    "tools/set_kind_module.f",
-    "unix/term_io.f",
-    "subs/lin_interp.f",
-    "subs/mon_interp.f",
-    "subs/mon_int_funs_v2.f",
+    TREE / "tools" / "set_kind_module.f",
+    TREE / "unix" / "term_io.f",
+    TREE / "subs" / "lin_interp.f",
+    TREE / "subs" / "mon_interp.f",
+    TREE / "subs" / "mon_int_funs_v2.f",
 ]
 
 NX = 60
@@ -56,15 +58,15 @@ OLD_AGE = 39.0
 
 
 def build():
-    objs = compile_objs(
-        "snhyd",
-        [TREE / h for h in HELPERS]
-        + [
-            TREE / "new_main" / "subs" / "rv_sn_model_snhyd.f",
-            F90DIR / "drv_snhyd.f90",
-        ],
+    md = BINDIR / "obj_snhyd"
+    objs = prod_objs(HELPERS + [TREE / "new_main" / "subs" / "rv_sn_model_snhyd.f"])
+    objs += compile_objs(
+        "snhyd_drv",
+        [F90DIR / "drv_snhyd.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
     )
-    return link("snhyd", objs, moddir=BINDIR / "obj_snhyd")
+    return link_prod("snhyd", objs, moddir=md)
 
 
 def write_snhyd(d, r, v, sig, dens, kap, temp=None, age=OLD_AGE, mass_frac=True):
