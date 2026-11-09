@@ -1584,7 +1584,12 @@
 ! I_NEXT coupling in frequency instead of restoring by position or
 ! cold-starting it.
 !
-	IF(DO_NONMONO_KNOP)CALL SET_FG_GS_OBS_GRID(NU,NCF)
+! Same registration for DO_NONMONO_SOB: the render below now routes
+! SOB models through FG_J_CMF_NONMONO_V1 (V12 cannot represent
+! sigma<-1 cells), so its lagged I_NEXT needs the OBS-grid remap too.
+!
+	IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)
+	1    CALL SET_FG_GS_OBS_GRID(NU,NCF)
 !
 ! Enter loop for each continuum frequency.
 !
