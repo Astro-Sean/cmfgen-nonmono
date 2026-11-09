@@ -3054,7 +3054,15 @@
 	     SOB(1)=HFLUX_AT_OB; SOB(ND)=HFLUX_AT_IB
 	     SOB(1:ND)=SOB(1:ND)*R(ND)*R(ND)
 	   END IF
-	   CALL COMP_OBS_V2(IPLUS,FL,
+!
+! COMP_OBS_V2 keeps SAVE'd state (OBS_INDX, NU_STORE cursor), so a
+! trial IPLUS during a JFNK eval sweep would write a trial entry into
+! OBS_FLUX and corrupt the storage/interpolation state the production
+! pass relies on.  Skip the call under JFNK_IN_EVAL; the production
+! sweep always has JFNK_IN_EVAL=F so behaviour there is unchanged.
+!
+	   IF(.NOT. JFNK_IN_EVAL)
+	1   CALL COMP_OBS_V2(IPLUS,FL,
 	1           IPLUS_STORE,NU_STORE,NST_CMF,
 	1           MU_AT_RMAX,HQW_AT_RMAX,OBS_FREQ,OBS_FLUX,N_OBS,
 	1           V_AT_RMAX,RMAX_OBS,'IPLUS','LIN_INT',DO_FULL_REL_OBS,
@@ -6733,7 +6741,15 @@
 	     SOB(1)=HFLUX_AT_OB; SOB(ND)=HFLUX_AT_IB
 	     SOB(1:ND)=SOB(1:ND)*R(ND)*R(ND)
 	   END IF
-	   CALL COMP_OBS_V2(IPLUS,FL,
+!
+! COMP_OBS_V2 keeps SAVE'd state (OBS_INDX, NU_STORE cursor), so a
+! trial IPLUS during a JFNK eval sweep would write a trial entry into
+! OBS_FLUX and corrupt the storage/interpolation state the production
+! pass relies on.  Skip the call under JFNK_IN_EVAL; the production
+! sweep always has JFNK_IN_EVAL=F so behaviour there is unchanged.
+!
+	   IF(.NOT. JFNK_IN_EVAL)
+	1   CALL COMP_OBS_V2(IPLUS,FL,
 	1           IPLUS_STORE,NU_STORE,NST_CMF,
 	1           MU_AT_RMAX,HQW_AT_RMAX,OBS_FREQ,OBS_FLUX,N_OBS,
 	1           V_AT_RMAX,RMAX_OBS,'IPLUS','LIN_INT',DO_FULL_REL_OBS,
