@@ -72,6 +72,9 @@ error text.
 | `test_iter_conv_gate.py` | `new_main/subs/solve_for_pops.f`, `cmfgen_sub.f` (source-text pins) | convergence exit cannot fire while the lagged radiation field is immature: both CONV_EXIT_MET blocks conjunct `.NOT. LAM_FIELD_NOT_READY`; census block opens under HAS_LAGGED_FIELD covering SOB+LAM_ES=F |
 | `test_pop_audit.py` | `new_main/mod_subs/control_variable_mod.f`, `rd_control_variables.f`, `solve_for_pops.f` (source-text pins) | POP_AUDIT VADAT keys declared/parsed; audit called under flag; routine iterates SPECIES_BEG_ID..SPECIES_END_ID, treats terminal XzV_PRES=F ion slot as one density row, sums every stage, compares against POP_SPECIES |
 | `test_popoxy_conservation.py` | model `POP*`/POPOXY output files (no Fortran build) | per-species population file conservation: finite non-negative populations, per-stage sums consistent with totals, ion fractions in [0,1], closed species accounting at every depth; skips cleanly without a file |
+| `test_comp_obs_v3_retain.py` | `obs/comp_obs_v3.f` (via `drv_comp_obs_v3_retain.f90`) | same NU_STORE retention fix as V2, exercised through COMP_OBS_V3: all observer bins produced, retained-window fluxes match independent evaluation |
+| `test_sp_mon_interp.py` | `pgplt/do_vec_op.f` (`SP_MON_INTERP`), `pgplt/mon_interp_sp.f` (`MON_INTERP_SP`) via `drv_sp_mon.f90` | 05-Oct-2026 grid-validation guards on both single-precision monotone interpolators: valid increasing/decreasing grids complete, repeated endpoints, reversed/non-monotonic input, unordered output and out-of-range targets all STOP; linear column reproduced to ~2e-7 |
+| `test_alteration_coverage.py` | every build input vs `../cmfgen_reference/cur_cmf` (no Fortran build) | self-checking manifest: each altered source is registered as exec/pin/gap/exempt; unregistered alterations, stale entries and missing covering tests all fail; known gaps printed loudly |
 
 ## Supporting files
 
