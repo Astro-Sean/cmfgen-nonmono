@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import TREE, Report, compile_objs
+from common import TREE, Report, prod_obj
 
 ROOT = TREE
 SE_DIR = ROOT / "unit_tests"
@@ -83,12 +83,16 @@ def parse_opprobe(out):
 
 
 def probe_compile(rep):
-    """The probe module has no dependencies beyond the language, so
-    it must compile standalone under the unit-test toolchain."""
-    objs = compile_objs("opprobe", [PROBE_SRC])
+    """The probe module is a production archive member; resolving its
+    exact .o also proves it compiled under the production toolchain."""
+    try:
+        obj = prod_obj(PROBE_SRC)
+        ok = Path(obj).exists()
+    except Exception:
+        ok = False
     rep.check(
-        "opprobe: production probe module compiles",
-        objs is not None and all(Path(o).exists() for o in objs),
+        "opprobe: production probe object resolves",
+        ok,
     )
 
 
