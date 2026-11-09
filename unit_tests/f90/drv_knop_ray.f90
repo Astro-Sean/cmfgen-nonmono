@@ -31,7 +31,7 @@
       REAL(KIND=LDP) RR(NDX),LGR(NDX)
       REAL(KIND=LDP) LGW(NDX)
       CHARACTER(LEN=32) CNAME
-      REAL(KIND=LDP) GAMP
+      REAL(KIND=LDP) GAMP,T1
       REAL(KIND=LDP) VV(ND),SG(ND),CKP(3,1,NCFX-1),CKM(3,1,NCFX-1)
       REAL(KIND=LDP) DMAX_CK
 !
@@ -51,6 +51,16 @@
       IF(CNAME .EQ. 'infgam')NCASE=14
       IF(CNAME .EQ. 'ab')    NCASE=15
       IF(CNAME .EQ. 'abx')   NCASE=22
+      IF(CNAME .EQ. 'ab2')   NCASE=32
+      IF(CNAME .EQ. 'gzp1')  NCASE=23
+      IF(CNAME .EQ. 'gzn1')  NCASE=24
+      IF(CNAME .EQ. 'gzp2')  NCASE=25
+      IF(CNAME .EQ. 'gzn2')  NCASE=26
+      IF(CNAME .EQ. 'gzp3')  NCASE=27
+      IF(CNAME .EQ. 'gzn3')  NCASE=28
+      IF(CNAME .EQ. 'gzp4')  NCASE=29
+      IF(CNAME .EQ. 'gzn4')  NCASE=30
+      IF(CNAME .EQ. 'gzb')   NCASE=31
       IF(CNAME .EQ. 'gpos')  NCASE=16
       IF(CNAME .EQ. 'gneg')  NCASE=17
       IF(CNAME .EQ. 'gpp')   NCASE=18
@@ -62,9 +72,11 @@
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
 ! lives in a contained routine with its own locals.
 !
-      IF(NCASE .EQ. 15)CALL DRV_AB(.TRUE.)
-      IF(NCASE .EQ. 22)CALL DRV_AB(.FALSE.)
-      IF(NCASE .EQ. 15 .OR. NCASE .EQ. 22)GOTO 999
+      IF(NCASE .EQ. 15)CALL DRV_AB(.TRUE.,1,1)
+      IF(NCASE .EQ. 22)CALL DRV_AB(.FALSE.,1,1)
+      IF(NCASE .EQ. 32)CALL DRV_AB(.TRUE.,2,2)
+      IF(NCASE .EQ. 15 .OR. NCASE .EQ. 22 .OR. &
+      NCASE .EQ. 32)GOTO 999
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -192,6 +204,35 @@
 ! gcr: linear glide through zero between cells 4 and 5 -- a resolved
 ! gradient reversal with no discontinuous coefficients.
           GAM(I,1)=GAMP*0.3_LDP*(DBLE(I)-4.5_LDP)
+        ELSE IF(NCASE .GE. 23 .AND. NCASE .LE. 30)THEN
+! gz[pn][1-4]: resolved +/- perturbations of GAM(4) across zero at
+! magnitudes 1e-2..1e-5 of GAMP (odd=positive, even=negative). The
+! |GAM|/DLN contribution at 1e-2*GAMP is ~1e-7 vs CHI ~ 1e-3 -- a
+! measurable operator change at 8-digit resolution, converging to
+! the zero-coupling operator as the magnitude falls.
+          IF(I .EQ. 4)THEN
+            T1=1.0E-2_LDP*10.0_LDP**(-DBLE((NCASE-23)/2))
+            IF(MOD(NCASE,2) .EQ. 0)T1=-T1
+            GAM(I,1)=T1*GAMP
+          ELSE IF(I .EQ. 3 .OR. I .EQ. 5)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
+        ELSE IF(NCASE .EQ. 31)THEN
+! gzb: exact zero at cell 4 between opposite-sign neighbours
+! (expanding at 3, compressing at 5) -- the crossing sits inside the
+! compressing bracket, so both bracket ends must keep their own
+! upwind rules while cell 4 carries no coupling.
+          IF(I .EQ. 4)THEN
+            GAM(I,1)=0.0_LDP
+          ELSE IF(I .EQ. 3)THEN
+            GAM(I,1)=GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE IF(I .EQ. 5)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
         ELSE
           IF(I .GE. 3 .AND. I .LE. 5)THEN
             GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
@@ -412,6 +453,35 @@
       END IF
 !
       RESID=0.0_LDP
+!
+! GAM-crossing cases also dump the refresh-side operator: the
+! coefficient-level assertions in test_knop_ray (audit follow-up B)
+! read CHI_HAT/Q/SP/SR cell by cell, which the committed store alone
+! cannot express.
+!
+      IF(NCASE .GE. 16)THEN
+        KN_DBG_LS=1
+        ALLOCATE(KR_DBG_CHIH(ND,NCFX),KR_DBG_Q(ND,NCFX), &
+        KR_DBG_DCHR(ND,NCFX),KR_DBG_DTAU(ND,NCFX), &
+        KR_DBG_WX(ND,NCFX),KR_DBG_DLNM(ND,NCFX), &
+        KR_DBG_SPM(ND,NCFX),KR_DBG_SPP(ND,NCFX), &
+        KR_DBG_NFM(ND,NCFX),KR_DBG_IKC1(ND,NCFX), &
+        KR_DBG_IKC2(ND,NCFX),KR_DBG_JPR1(ND,NCFX), &
+        KR_DBG_JPR2(ND,NCFX),KR_DBG_SR(ND,NCFX), &
+        KR_DBG_A0(ND,NCFX),KR_DBG_A1(ND,NCFX), &
+        KR_DBG_A2(ND,NCFX),KR_DBG_A3(ND,NCFX),KR_DBG_A4(ND,NCFX), &
+        KR_DBG_FLDM(ND,NCFX),KR_DBG_FLDP(ND,NCFX),STAT=IOS)
+        KR_DBG_CHIH=-1.0_LDP; KR_DBG_Q=-1.0_LDP
+        KR_DBG_DCHR=-1.0_LDP; KR_DBG_DTAU=-1.0_LDP
+        KR_DBG_WX=-1.0_LDP; KR_DBG_DLNM=-1.0_LDP
+        KR_DBG_SPM=-1.0_LDP; KR_DBG_SPP=-1.0_LDP
+        KR_DBG_NFM=-1; KR_DBG_IKC1=-1; KR_DBG_IKC2=-1
+        KR_DBG_JPR1=-1; KR_DBG_JPR2=-1; KR_DBG_SR=-1.0_LDP
+        KR_DBG_A0=-1.0_LDP; KR_DBG_A1=-1.0_LDP; KR_DBG_A2=-1.0_LDP
+        KR_DBG_A3=-1.0_LDP; KR_DBG_A4=-1.0_LDP
+        KR_DBG_FLDM=-1.0_LDP; KR_DBG_FLDP=-1.0_LDP
+      END IF
+!
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
       NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK)
 !
@@ -428,6 +498,23 @@
       WRITE(*,'(A,I6)')'NXIT=',NXIT
       WRITE(*,'(A,I8)')'NBAD=',NBAD
       WRITE(*,'(A,I8)')'NTOT=',NTOT
+      IF(NCASE .GE. 16 .AND. ALLOCATED(KR_DBG_CHIH))THEN
+        DO L=1,NCFX
+          DO I=1,ND
+            WRITE(*,'(A,I2,A,I2,A,11ES16.8)')'DBR ',I,' ',L,' ', &
+      KR_DBG_CHIH(I,L),KR_DBG_Q(I,L),KR_DBG_DCHR(I,L), &
+      KR_DBG_DTAU(I,L),KR_DBG_SPM(I,L),KR_DBG_SPP(I,L), &
+      KR_DBG_WX(I,L),KR_DBG_DLNM(I,L),KR_DBG_FLDM(I,L), &
+      KR_DBG_FLDP(I,L),KR_DBG_SR(I,L)
+            WRITE(*,'(A,I2,A,I2,A,5I6)')'DBRI ',I,' ',L,' ', &
+      KR_DBG_NFM(I,L),KR_DBG_IKC1(I,L),KR_DBG_IKC2(I,L), &
+      KR_DBG_JPR1(I,L),KR_DBG_JPR2(I,L)
+          END DO
+        END DO
+        DO I=1,ND
+          WRITE(*,'(A,I2,A,ES16.8)')'GAMV ',I,' ',GAM(I,1)
+        END DO
+      END IF
       DO K=1,N_COMP
         DO L=1,NCFX-1
           WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'STORE ',K,' ',L,' ', &
@@ -452,10 +539,11 @@
 ! steep localised rise through depths 3-5 so sigma_true < -1 there and
 ! the solver's own mask construction flags them compressing.
 ! ----------------------------------------------------------------------
-      SUBROUTINE DRV_AB(ORDSW)
+      SUBROUTINE DRV_AB(ORDSW,NRAYS,LSDBG)
       LOGICAL ORDSW
+      INTEGER NRAYS,LSDBG
       INTEGER NDA,NPA,NCFA
-      PARAMETER (NDA=8,NPA=1,NCFA=6)
+      PARAMETER (NDA=8,NPA=2,NCFA=6)
       REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
       REAL(KIND=LDP) ETA_M(NDA,NCFA),CHI_M(NDA,NCFA),ESC_M(NDA,NCFA)
       REAL(KIND=LDP) JNU_A(NDA),FEDD_A(NDA),IPLUS_A(NPA)
@@ -516,6 +604,7 @@
       DLOGA=LOG(1.0_LDP/0.75_LDP)
 !
       PA(1)=0.0_LDP
+      PA(2)=1.2E4_LDP
 !
 ! Doppler refinement is a resolution knob, not the physics under
 ! test: a large VDOP with a coarse fraction keeps the ray on the
@@ -565,7 +654,7 @@
       FG_DIV_HEAL_CAP=1.0E+6_LDP
       FG_BULK_CONTR=.FALSE.
       FG_ADAPT_OMEGA_V2=.FALSE.
-      KN_DBG_LS=1
+      KN_DBG_LS=LSDBG
       ALLOCATE(KN_DBG_CHIH(NDA,NCFA),KN_DBG_Q(NDA,NCFA), &
       KN_DBG_DCHR(NDA,NCFA),KN_DBG_DTAU(NDA,NCFA), &
       KN_DBG_SPM(NDA,NCFA),KN_DBG_SPP(NDA,NCFA), &
@@ -573,13 +662,13 @@
       KN_DBG_IMPR(NDA,NCFA),KN_DBG_IPPR(NDA,NCFA), &
       KN_DBG_NM(NDA,NCFA),KN_DBG_KC1(NDA,NCFA),KN_DBG_KC2(NDA,NCFA), &
       KN_DBG_A0(NDA,NCFA),KN_DBG_A1(NDA,NCFA),KN_DBG_A2(NDA,NCFA), &
-      KN_DBG_A3(NDA,NCFA),KN_DBG_A4(NDA,NCFA), &
+      KN_DBG_A3(NDA,NCFA),KN_DBG_A4(NDA,NCFA),KN_DBG_SR(NDA,NCFA), &
       KR_DBG_CHIH(NDA,NCFA),KR_DBG_Q(NDA,NCFA), &
       KR_DBG_DCHR(NDA,NCFA),KR_DBG_DTAU(NDA,NCFA), &
       KR_DBG_WX(NDA,NCFA),KR_DBG_DLNM(NDA,NCFA), &
       KR_DBG_SPM(NDA,NCFA),KR_DBG_SPP(NDA,NCFA), &
       KR_DBG_A0(NDA,NCFA),KR_DBG_A1(NDA,NCFA),KR_DBG_A2(NDA,NCFA), &
-      KR_DBG_A3(NDA,NCFA),KR_DBG_A4(NDA,NCFA), &
+      KR_DBG_A3(NDA,NCFA),KR_DBG_A4(NDA,NCFA),KR_DBG_SR(NDA,NCFA), &
       KR_DBG_FLDM(NDA,NCFA),KR_DBG_FLDP(NDA,NCFA), &
       KR_DBG_NFM(NDA,NCFA),KR_DBG_IKC1(NDA,NCFA), &
       KR_DBG_IKC2(NDA,NCFA),KR_DBG_JPR1(NDA,NCFA), &
@@ -594,13 +683,14 @@
       KN_DBG_IMPR=-1.0_LDP; KN_DBG_IPPR=-1.0_LDP
       KN_DBG_NM=-1; KN_DBG_KC1=-1; KN_DBG_KC2=-1
       KN_DBG_A0=-1.0_LDP; KN_DBG_A1=-1.0_LDP; KN_DBG_A2=-1.0_LDP
-      KN_DBG_A3=-1.0_LDP; KN_DBG_A4=-1.0_LDP
+      KN_DBG_A3=-1.0_LDP; KN_DBG_A4=-1.0_LDP; KN_DBG_SR=-1.0_LDP
       KR_DBG_CHIH=-1.0_LDP; KR_DBG_Q=-1.0_LDP; KR_DBG_DCHR=-1.0_LDP
       KR_DBG_DTAU=-1.0_LDP; KR_DBG_WX=-1.0_LDP; KR_DBG_DLNM=-1.0_LDP
       KR_DBG_SPM=-1.0_LDP; KR_DBG_SPP=-1.0_LDP
       KR_DBG_A0=-1.0_LDP; KR_DBG_A1=-1.0_LDP; KR_DBG_A2=-1.0_LDP
       KR_DBG_A3=-1.0_LDP; KR_DBG_A4=-1.0_LDP
       KR_DBG_FLDM=-1.0_LDP; KR_DBG_FLDP=-1.0_LDP
+      KR_DBG_SR=-1.0_LDP
       KR_DBG_NFM=-1; KR_DBG_IKC1=-1; KR_DBG_IKC2=-1
       KR_DBG_JPR1=-1; KR_DBG_JPR2=-1
 !
@@ -624,7 +714,7 @@
       JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
       INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
       IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
-      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NPA,NDA,SGT,NCFA)
+      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NRAYS,NDA,SGT,NCFA)
         END DO
       END DO
 !
@@ -640,11 +730,11 @@
       END DO
       DO I=1,NDA
         DO L=1,NCFA
-          WRITE(*,'(A,I2,A,I2,A,10ES16.8)')'DBS ',I,' ',L,' ', &
+          WRITE(*,'(A,I2,A,I2,A,11ES16.8)')'DBS ',I,' ',L,' ', &
       KN_DBG_CHIH(I,L),KN_DBG_Q(I,L),KN_DBG_DCHR(I,L), &
       KN_DBG_DTAU(I,L),KN_DBG_SPM(I,L),KN_DBG_SPP(I,L), &
       KN_DBG_WX(I,L),KN_DBG_DLNM(I,L),KN_DBG_IMPR(I,L), &
-      KN_DBG_IPPR(I,L)
+      KN_DBG_IPPR(I,L),KN_DBG_SR(I,L)
           WRITE(*,'(A,I2,A,I2,A,3I6)')'DBSI ',I,' ',L,' ', &
       KN_DBG_NM(I,L),KN_DBG_KC1(I,L),KN_DBG_KC2(I,L)
           WRITE(*,'(A,I2,A,I2,A,5ES16.8)')'DBSA ',I,' ',L,' ', &
@@ -678,11 +768,11 @@
       END DO
       DO I=1,NDA
         DO L=1,NCFA
-          WRITE(*,'(A,I2,A,I2,A,10ES16.8)')'DBR ',I,' ',L,' ', &
+          WRITE(*,'(A,I2,A,I2,A,11ES16.8)')'DBR ',I,' ',L,' ', &
       KR_DBG_CHIH(I,L),KR_DBG_Q(I,L),KR_DBG_DCHR(I,L), &
       KR_DBG_DTAU(I,L),KR_DBG_SPM(I,L),KR_DBG_SPP(I,L), &
       KR_DBG_WX(I,L),KR_DBG_DLNM(I,L),KR_DBG_FLDM(I,L), &
-      KR_DBG_FLDP(I,L)
+      KR_DBG_FLDP(I,L),KR_DBG_SR(I,L)
           WRITE(*,'(A,I2,A,I2,A,5I6)')'DBRI ',I,' ',L,' ', &
       KR_DBG_NFM(I,L),KR_DBG_IKC1(I,L),KR_DBG_IKC2(I,L), &
       KR_DBG_JPR1(I,L),KR_DBG_JPR2(I,L)
@@ -690,6 +780,13 @@
       KR_DBG_A0(I,L),KR_DBG_A1(I,L),KR_DBG_A2(I,L), &
       KR_DBG_A3(I,L),KR_DBG_A4(I,L)
         END DO
+      END DO
+      DO K=1,NDA
+        WRITE(*,'(A,I2,A,2I6)')'JMAP ',K,' ',J_PNT(K,LSDBG), &
+      COMP_DEPTH_IDX(K)
+      END DO
+      DO I=1,NI_RAY(LSDBG)
+        WRITE(*,'(A,I2,A,ES16.8)')'GAMV ',I,' ',GAM(I,LSDBG)
       END DO
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
