@@ -824,6 +824,32 @@
 	LOGICAL KN_INSERT_SAV
 	REAL(KIND=LDP), ALLOCATABLE :: KN_R(:),KN_P(:)
 !
+! Debug/audit coefficient dumps (KNOP audit phase 2). Per-(ray point,
+! frequency) copies of the discrete operator as actually built by the
+! production code: KN_DBG_* hold the in-sweep values (FG_J_CMF_NONMONO_V1),
+! KR_DBG_* the refresh values (KNOP_RAY_SOLVE_V1). The refresh contained
+! routines cannot be probed from outside, and the audit's coefficient A/B
+! requires the real built coefficients rather than a re-implementation.
+! Allocated only by unit-test drivers -- production leaves them
+! unallocated, so the guarded write sites cost nothing there.
+! KN_DBG_LS selects the ray (-1 = off).
+!
+	INTEGER KN_DBG_LS
+	INTEGER, ALLOCATABLE :: KN_DBG_NM(:,:),KN_DBG_KC1(:,:),
+	1   KN_DBG_KC2(:,:),KR_DBG_NFM(:,:),KR_DBG_IKC1(:,:),
+	2   KR_DBG_IKC2(:,:),KR_DBG_JPR1(:,:),KR_DBG_JPR2(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: KN_DBG_CHIH(:,:),KN_DBG_Q(:,:),
+	1   KN_DBG_DCHR(:,:),KN_DBG_DTAU(:,:),KN_DBG_SPM(:,:),
+	2   KN_DBG_SPP(:,:),KN_DBG_WX(:,:),KN_DBG_DLNM(:,:),
+	3   KN_DBG_IMPR(:,:),KN_DBG_IPPR(:,:),
+	4   KN_DBG_A0(:,:),KN_DBG_A1(:,:),KN_DBG_A2(:,:),
+	5   KN_DBG_A3(:,:),KN_DBG_A4(:,:),
+	4   KR_DBG_CHIH(:,:),KR_DBG_Q(:,:),KR_DBG_DCHR(:,:),
+	5   KR_DBG_DTAU(:,:),KR_DBG_WX(:,:),KR_DBG_DLNM(:,:),
+	6   KR_DBG_SPM(:,:),KR_DBG_SPP(:,:),KR_DBG_A0(:,:),
+	7   KR_DBG_A1(:,:),KR_DBG_A2(:,:),KR_DBG_A3(:,:),KR_DBG_A4(:,:),
+	8   KR_DBG_FLDM(:,:),KR_DBG_FLDP(:,:)
+!
 	LOGICAL KN_STORE_READY
 	LOGICAL KN_RF_WARNED
 !
@@ -997,6 +1023,7 @@
 	DATA KN_RAY_STALL /0.98_LDP/
 	DATA KN_AA_APP /0_8/,KN_AA_VETO /0_8/,KN_AA_REJ /0_8/,
 	1     KN_AA_SNG /0_8/
+	DATA KN_DBG_LS /-1/
 	DATA KN_RAY_MAXPASS /60/
 	DATA KN_MAX_THREADS /16/
 	DATA KN_RAY_PACK_MB /2048.0_LDP/
@@ -1623,6 +1650,14 @@
 	    IF(ALLOCATED(ALO_CHIHAT_RAY))DEALLOCATE ( ALO_CHIHAT_RAY )
 	    IF(ALLOCATED(ALO_SPR_M_RAY))DEALLOCATE ( ALO_SPR_M_RAY )
 	    IF(ALLOCATED(ALO_SPR_P_RAY))DEALLOCATE ( ALO_SPR_P_RAY )
+!
+! Bug fix, not flag-gated: FG_NOSLOT_RAY is allocated in the INTEGRAL
+! block below but was missing from this rebuild teardown, so the
+! re-ALLOCATE after a compression-set change STOPped with
+! "Error allocating INTEGRAL block ... Status=151" (array already
+! allocated).  Seen on the SN_A_*_amr OBS runs (09-Nov-2026).
+!
+	    IF(ALLOCATED(FG_NOSLOT_RAY))DEALLOCATE ( FG_NOSLOT_RAY )
 !
 ! edited by Sean Brennan
 	    IF(ALLOCATED(I_P_DEPTH_NEXT))DEALLOCATE ( I_P_DEPTH_NEXT )
@@ -3975,6 +4010,53 @@ C
 ! Capture the outward modified source S'_P for the diagonal ALO.
 !
 	    ALO_SPR_P_RAY(1:NI,LS)=SOURCE_PRIME(1:NI)
+!
+! Audit dump (unit tests only): the discrete operator as built for
+! this (ray, frequency), written per (I, FREQ_IDX_ITER+1) so a driver
+! can compare it with the refresh's KR_DBG_* build coefficient by
+! coefficient. KC1/KC2/W_INEXT are rederived from the same mask the
+! SP build used rather than plumbed out of those loops; the formula
+! is identical by construction. Guarded on allocation so production
+! pays nothing for it.
+!
+	    IF(ALLOCATED(KN_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
+	1      NI .LE. SIZE(KN_DBG_CHIH,1) .AND.
+	2      FREQ_IDX_ITER+1 .LE. SIZE(KN_DBG_CHIH,2))THEN
+	      DO I=1,NI
+	        KN_DBG_CHIH(I,FREQ_IDX_ITER+1)=CHI_RAY(I)
+	        KN_DBG_Q(I,FREQ_IDX_ITER+1)=Q(I)
+	        KN_DBG_DCHR(I,FREQ_IDX_ITER+1)=dCHIdR_RAY(I)
+	        KN_DBG_DTAU(I,FREQ_IDX_ITER+1)=DTAU(I,LS)
+	        KN_DBG_SPM(I,FREQ_IDX_ITER+1)=ALO_SPR_M_RAY(I,LS)
+	        KN_DBG_SPP(I,FREQ_IDX_ITER+1)=ALO_SPR_P_RAY(I,LS)
+	        KN_DBG_NM(I,FREQ_IDX_ITER+1)=NM_RAY(I)
+	        KN_DBG_DLNM(I,FREQ_IDX_ITER+1)=DLN_RAY(I)
+	        KN_DBG_IMPR(I,FREQ_IDX_ITER+1)=I_M_PREV(I,LS)
+	        KN_DBG_IPPR(I,FREQ_IDX_ITER+1)=I_P_PREV(I,LS)
+	        KC1=0; KC2=0
+	        K=RAY_PNT(I,LS)-ND_ADD
+	        IF(K .GE. 1 .AND. K .LE. ND)KC1=COMP_DEPTH_IDX(K)
+	        IF(K+1 .GE. 1 .AND. K+1 .LE. ND)KC2=COMP_DEPTH_IDX(K+1)
+	        KN_DBG_KC1(I,FREQ_IDX_ITER+1)=KC1
+	        KN_DBG_KC2(I,FREQ_IDX_ITER+1)=KC2
+	        W_INEXT=0.0_LDP
+	        IF(KC1 .GE. 1 .AND. KC2 .GE. 1)THEN
+	          IF(ABS(R(K+1)-R(K)) .GT. 1.0E-14_LDP*
+	1          MAX(ABS(R(K)),ABS(R(K+1)),R(1)))THEN
+	            W_INEXT=(R_RAY(I,LS)-R(K))/(R(K+1)-R(K))
+	            W_INEXT=MAX(0.0_LDP,MIN(1.0_LDP,W_INEXT))
+	          END IF
+	        END IF
+	        KN_DBG_WX(I,FREQ_IDX_ITER+1)=W_INEXT
+	      END DO
+	      DO I=1,NI-1
+	        KN_DBG_A0(I,FREQ_IDX_ITER+1)=A0(I,LS)
+	        KN_DBG_A1(I,FREQ_IDX_ITER+1)=A1(I,LS)
+	        KN_DBG_A2(I,FREQ_IDX_ITER+1)=A2(I,LS)
+	        KN_DBG_A3(I,FREQ_IDX_ITER+1)=A3(I,LS)
+	        KN_DBG_A4(I,FREQ_IDX_ITER+1)=A4(I,LS)
+	      END DO
+	    END IF
 !
 ! S_tilde computation REMOVED -- see comment above (frequency formulation
 ! has no 4*a*I term, so no explicit S_tilde source is needed).
@@ -7168,6 +7250,17 @@ C
 	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=MAX(DCH_M,DCH_P)
 	  END IF
 	END IF
+!
+! Audit dump: the committed full-ray fields for this solve (the
+! sparse store only keeps compressing depths, so the conservation
+! checker cannot reconstruct transport sums without these).
+!
+	IF(ALLOCATED(KR_DBG_FLDM) .AND. LS .EQ. KN_DBG_LS .AND.
+	1    NI .LE. SIZE(KR_DBG_FLDM,1) .AND.
+	2    NCF .LE. SIZE(KR_DBG_FLDM,2))THEN
+	  KR_DBG_FLDM(1:NI,1:NCF)=FLD(1:NI,1:NCF)
+	  KR_DBG_FLDP(1:NI,1:NCF)=FLD_P(1:NI,1:NCF)
+	END IF
 	DEALLOCATE(FLD,FLD_P)
 !
 800	CONTINUE
@@ -7373,6 +7466,21 @@ C
 	    END IF
 	    CALL MATCH_FREQ(L)
 	    CALL SRC_PRIME(FLD,L)
+!
+! Audit dump: S' as applied to this direction's march on this pass.
+! The last pass's values are the ones the committed field was built
+! against; the ordered path builds SPV per row instead and is not
+! covered here.
+!
+	    IF(ALLOCATED(KR_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
+	1      NI .LE. SIZE(KR_DBG_CHIH,1) .AND.
+	2      L .LE. SIZE(KR_DBG_CHIH,2))THEN
+	      IF(INWARD)THEN
+	        KR_DBG_SPM(1:NI,L)=SP_L(1:NI)
+	      ELSE
+	        KR_DBG_SPP(1:NI,L)=SP_L(1:NI)
+	      END IF
+	    END IF
 	    CALL SLOPES()
 	    CALL MARCH(FLD,L,INWARD,RES)
 	  END DO
@@ -7969,6 +8077,15 @@ C
 	        IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	        CALL KN_ORD_SPV(FLD,J,L,SPJ)
 	        SPW(L,MOD(J-1,4)+1)=SPJ
+	        IF(ALLOCATED(KR_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
+	1          NI .LE. SIZE(KR_DBG_CHIH,1) .AND.
+	2          L .LE. SIZE(KR_DBG_CHIH,2))THEN
+	          IF(INWARD)THEN
+	            KR_DBG_SPM(J,L)=SPJ
+	          ELSE
+	            KR_DBG_SPP(J,L)=SPJ
+	          END IF
+	        END IF
 	        DSD=KN_ORD_DS(J-1,L)
 	        DSU=KN_ORD_DS(J,L)
 	        VNEW=FLD(J-1,L)*PK_A0(J-1,L)+
@@ -8158,6 +8275,15 @@ C
 	        IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	        CALL KN_ORD_SPV(FLD,J,L,SPJ)
 	        SPW(L,MOD(J-1,4)+1)=SPJ
+	        IF(ALLOCATED(KR_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
+	1          NI .LE. SIZE(KR_DBG_CHIH,1) .AND.
+	2          L .LE. SIZE(KR_DBG_CHIH,2))THEN
+	          IF(INWARD)THEN
+	            KR_DBG_SPM(J,L)=SPJ
+	          ELSE
+	            KR_DBG_SPP(J,L)=SPJ
+	          END IF
+	        END IF
 	        DSU=KN_ORD_DS(J+1,L)
 	        DSD=KN_ORD_DS(J,L)
 	        VNEW=FLD(J+1,L)*PK_A0(J,L)+
@@ -8978,6 +9104,37 @@ C
 	3     .NOT.(ABS(A3L(I)) .LE. HUGE(A3L(I))) .OR.
 	4     .NOT.(ABS(A4L(I)) .LE. HUGE(A4L(I))))DIVERGED=.TRUE.
 	END DO
+!
+! Audit dump (unit tests only): the refresh-side discrete operator
+! for this frequency, parallel to the sweep's KN_DBG_* dump. The
+! donor geometry (IKC/JPR/WINX) is written every column -- it is
+! built once per ray outside the frequency loop, so the values are
+! simply repeated.
+!
+	IF(ALLOCATED(KR_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
+	1    NI .LE. SIZE(KR_DBG_CHIH,1) .AND.
+	2    L .LE. SIZE(KR_DBG_CHIH,2))THEN
+	  DO I=1,NI
+	    KR_DBG_CHIH(I,L)=CHI_L(I)
+	    KR_DBG_Q(I,L)=Q_L(I)
+	    KR_DBG_DCHR(I,L)=DCHR_L(I)
+	    KR_DBG_DTAU(I,L)=DTAU_L(I)
+	    KR_DBG_NFM(I,L)=NFM_L(I)
+	    KR_DBG_DLNM(I,L)=DLNM_L(I)
+	    KR_DBG_IKC1(I,L)=IKC1(I)
+	    KR_DBG_IKC2(I,L)=IKC2(I)
+	    KR_DBG_JPR1(I,L)=JPR1(I)
+	    KR_DBG_JPR2(I,L)=JPR2(I)
+	    KR_DBG_WX(I,L)=WINX(I)
+	  END DO
+	  DO I=1,NI-1
+	    KR_DBG_A0(I,L)=A0L(I)
+	    KR_DBG_A1(I,L)=A1L(I)
+	    KR_DBG_A2(I,L)=A2L(I)
+	    KR_DBG_A3(I,L)=A3L(I)
+	    KR_DBG_A4(I,L)=A4L(I)
+	  END DO
+	END IF
 	RETURN
 	END
 !
