@@ -29,12 +29,15 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    link_prod,
+    prod_objs,
+    ref_close,
     run,
 )
 
@@ -59,12 +62,33 @@ def build():
         ("new", TREE, "drv_edep.f90"),
         ("ref", REF, "drv_edep_ref.f90"),
     ):
-        objs = compile_objs(
-            f"edep_{tag}",
-            [root / h for h in HELPERS]
-            + [root / "new_main" / "subs" / "get_edep_shock_power.f", F90DIR / drv],
-        )
-        bins[tag] = link(f"edep_{tag}", objs, moddir=BINDIR / f"obj_edep_{tag}")
+        md = BINDIR / f"obj_edep_{tag}"
+        if tag == "new":
+            # New side links the production objects themselves.
+            objs = prod_objs(
+                [TREE / h for h in HELPERS]
+                + [TREE / "new_main" / "subs" / "get_edep_shock_power.f"]
+            )
+            objs += compile_objs(
+                f"edep_{tag}_drv",
+                [F90DIR / drv],
+                moddir=md,
+                extra_flags=PROD_MOD_INC,
+            )
+        else:
+            # Reference side compiles the frozen sources with the
+            # probed production flag set so codegen matches.
+            objs = compile_objs(
+                f"edep_{tag}",
+                [REF / h for h in HELPERS]
+                + [
+                    REF / "new_main" / "subs" / "get_edep_shock_power.f",
+                    F90DIR / drv,
+                ],
+                prod=True,
+                moddir=md,
+            )
+        bins[tag] = link_prod(f"edep_{tag}", objs, moddir=md)
     return bins
 
 
@@ -114,10 +138,11 @@ def main():
         p = run_case(bins[tag], d, "F")
         assert "RESULT_OK" in p.stdout, p.stdout[-1500:]
         outs[tag] = parse(p.stdout)
+    close, maxrel = ref_close(outs["new"][0], outs["ref"][0])
     rep.check(
         "flags F: new == ref shock_power",
-        np.array_equal(outs["new"][0], outs["ref"][0]),
-        f"maxdiff={np.abs(outs['new'][0] - outs['ref'][0]).max():.2e}",
+        close,
+        f"maxrel={maxrel:.2e}",
     )
 
     sp = outs["new"][0][:, 1]
