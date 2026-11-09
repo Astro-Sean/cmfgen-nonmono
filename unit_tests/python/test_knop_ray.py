@@ -340,6 +340,159 @@ def main():
         f"NDIV={di.get('NDIV')}",
     )
 
+    # -- T14: formal-solver/refresh operator A/B (audit phase 2, task
+    #    5). 'ab' drives FG_J_CMF_NONMONO_V1 itself for six outer
+    #    iterations on the manufactured problem, dumps the discrete
+    #    operator per (cell, frequency), then runs the refresh over
+    #    the captured store. 'abx' is the same comparison with the
+    #    ordered refresh path disabled (alternating SWEEP_FLD).
+    #    Field-independent coefficients must agree to the span
+    #    evaluation (~1e-6); index maps and interpolation weights
+    #    must be identical; the red-edge cell (compressing, last
+    #    frequency) must show the same pure-outflow closure.
+    import re as _re
+
+    _F = _re.compile(r"[+-]?\d+\.\d+(?:E[+-]\d+|[+-]\d{3,})")
+
+    def _f(x):
+        if "E" not in x:
+            x = x[:-4] + "E" + x[-4:]
+        return float(x)
+
+    def _db(text):
+        d = {}
+        for ln in text.splitlines():
+            t = ln.split()
+            if len(t) < 4 or t[0] not in ("DBS", "DBR", "DBSA", "DBRA",
+                                        "DBSI", "DBRI"):
+                continue
+            if t[0] in ("DBSI", "DBRI"):
+                vals = [float(x) for x in t[3:]]
+            else:
+                vals = [_f(x) for x in _F.findall(ln)]
+            d.setdefault(t[0], {})[(int(t[1]), int(t[2]))] = vals
+        return d
+
+    def _abdiffs(text):
+        d = _db(text)
+        coef = [0.0] * 4
+        nmap = 0
+        for i in range(1, 8):
+            for l in range(1, 7):
+                s = d["DBS"].get((i, l))
+                r = d["DBR"].get((i, l))
+                if not s or not r:
+                    continue
+                for j in range(4):
+                    coef[j] = max(
+                        coef[j],
+                        abs(s[j] - r[j]) / max(abs(r[j]), 1e-30),
+                    )
+                a = d["DBSI"].get((i, l))
+                b = d["DBRI"].get((i, l))
+                if a and b:
+                    if int(a[0]) != int(b[0]):
+                        nmap += 1
+                    # sweep KC are sparse-store slots, refresh IKC the
+                    # availability flags for the same bracket ends --
+                    # the raw indices differ by convention (JPR is the
+                    # ray-row of the bracketing depth via J_PNT, which
+                    # is not identity on the production grid), so the
+                    # meaningful equality is donor availability.
+                    if (a[1] >= 1) != (int(b[1]) == 1):
+                        nmap += 1
+                    if (a[2] >= 1) != (int(b[2]) == 1):
+                        nmap += 1
+        amax = 0.0
+        for i in range(1, 8):
+            for l in range(1, 7):
+                s = d["DBSA"].get((i, l))
+                r = d["DBRA"].get((i, l))
+                if not s or not r:
+                    continue
+                for j in range(5):
+                    amax = max(
+                        amax,
+                        abs(s[j] - r[j]) / max(abs(r[j]), 1e-30),
+                    )
+        red = None
+        s = d["DBS"].get((5, 6))
+        r = d["DBR"].get((5, 6))
+        a = d["DBSI"].get((5, 6))
+        b = d["DBRI"].get((5, 6))
+        if s and r and a and b:
+            red = (
+                max(
+                    abs(s[j] - r[j]) / max(abs(r[j]), 1e-30)
+                    for j in range(4)
+                ),
+                int(a[0]),
+                int(b[0]),
+            )
+        return coef, amax, nmap, red
+
+    for tag in ("ab", "abx"):
+        rr = run(bin_, tag, cwd=WORKDIR, check=False)
+        coef, amax, nmap, red = _abdiffs(rr.stdout)
+        ok = (
+            "RESULT_OK" in rr.stdout
+            and max(coef) < 1.0e-6
+            and amax < 1.0e-5
+            and nmap == 0
+            and red is not None
+            and red[0] < 1.0e-6
+            and red[1] == 1
+            and red[2] == 1
+        )
+        rep.check(
+            f"T14 {tag}: refresh == in-sweep operator "
+            f"({'ordered' if tag == 'ab' else 'alternating'})",
+            ok,
+            f"chih/q/dchr/dtau max={max(coef):.2e} A0-A4 max={amax:.2e} "
+            f"index mismatches={nmap} red-edge={red}",
+        )
+
+    # -- T15: GAM zero-crossing continuity (audit phase 2, task 2).
+    #    gpp/gpn0 put GAM(4) at +/-1e-9*GAMP: the discrete operator is
+    #    continuous in |GAM| with the sign flipping only the upwind
+    #    pick, so the committed stores must be bit-identical. gzz is
+    #    the exact-zero neighbour; its field must sit within the
+    #    fixed-point tolerance of gpp (no jump). All six profiles
+    #    must converge with no divergence, floor, or cap census.
+    store_map = {}
+    dgam = {}
+    for tag in ("gpos", "gneg", "gpp", "gpn0", "gzz", "gcr"):
+        rr = run(bin_, tag, cwd=WORKDIR, check=False)
+        dgam[tag], store_map[tag] = parse(rr.stdout)
+
+    def _sdiff(a, b):
+        common = set(a) & set(b)
+        if not common:
+            return 9.9e9
+        return max(
+            abs(a[k][j] - b[k][j]) / max(b[k][j], 1e-30)
+            for k in common
+            for j in (0, 1)
+        )
+
+    clean = all(
+        "RESULT_OK" in dgam[t]
+        and dgam[t].get("NDIV", 9) == 0
+        and dgam[t].get("NNEG", 9) == 0
+        and dgam[t].get("NCAP", 9) == 0
+        and dgam[t].get("NXIT", -1) in (0, 1, 2)
+        for t in dgam
+    )
+    d_micro = _sdiff(store_map["gpp"], store_map["gpn0"])
+    d_zero = _sdiff(store_map["gpp"], store_map["gzz"])
+    ok = clean and d_micro == 0.0 and d_zero < 2.0e-2
+    rep.check(
+        "T15 GAM sign flip is continuous (microstep identical, "
+        "exact-zero within tol)",
+        ok,
+        f"clean={clean} microstep={d_micro:.2e} exact0={d_zero:.2e}",
+    )
+
     rep.summary()
 
 
