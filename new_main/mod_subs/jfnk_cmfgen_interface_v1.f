@@ -4678,6 +4678,22 @@
 	    IF(.NOT. JFNK_LU_OK(K)) N_FAIL = N_FAIL + 1
 	  END DO
 !
+! A failed DPOTRF leaves a partial factor in JFNK_LU_FAC; DPOTRS
+! cannot report a non-PD factor (its INFO covers argument errors
+! only), so the Schur chain would silently propagate the garbage
+! into S and every z (unit test test_schur S3, 11-Nov-2026).
+! Substitute the identity factor: blk_lsq then returns B'w -- a
+! damped gradient step, the same regularization class as a reg row.
+!
+	  DO K = 1, JFNK_ND
+	    IF(.NOT. JFNK_LU_OK(K))THEN
+	      JFNK_LU_FAC(:,:,K) = 0.0_LDP
+	      DO I = 1, JFNK_NT
+	        JFNK_LU_FAC(I,I,K) = 1.0_LDP
+	      END DO
+	    END IF
+	  END DO
+!
 ! Extract the raw T coupling blocks and form the dense Schur
 ! complement. JTN reads the raw BA row (unaugmented, unscaled);
 ! the same applies to JNT and JTT.
