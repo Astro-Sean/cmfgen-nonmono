@@ -42,7 +42,7 @@ checkfc:
 	@if [ "$(FC_BASE)" != ifort ] && [ "$(FC_BASE)" != gfortran ]; then \
 	  echo "unsupported FC '$(FC)' - use ifort or gfortran"; exit 1; fi
 
-test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state test_nm_window test_pc_quality test_schur
+test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state test_nm_window test_pc_quality test_schur test_gmres_edge
 	./test_newton_core
 	./test_guards
 	./test_precond_blocks
@@ -51,6 +51,7 @@ test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_
 	./test_nm_window
 	./test_pc_quality
 	./test_schur
+	./test_gmres_edge
 
 test_newton_core: jfnk_int_stub.o jfnk_solver_v1.o test_newton_core.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
@@ -91,6 +92,12 @@ test_schur: jfnk_int_stub.o jfnk_solver_v1.o test_schur.o
 test_schur.o: test_schur.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
+test_gmres_edge: jfnk_int_stub.o jfnk_solver_v1.o test_gmres_edge.o
+	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
+
+test_gmres_edge.o: test_gmres_edge.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
+	$(FC) $(FFLAGS) -I$(PMOD) -c $<
+
 # Stage-B state machine: links the production control_variable_mod.o
 # from lib/libmod.a so BA_TRACE_EVAL is tested, not a mirror.  Its
 # .mod is staged into pmod/ like the solver's.
@@ -123,7 +130,7 @@ test_newton_core.o: test_newton_core.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
 clean:
-	rm -f *.o *.mod test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state test_nm_window test_pc_quality test_schur
+	rm -f *.o *.mod test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state test_nm_window test_pc_quality test_schur test_gmres_edge
 	rm -rf $(PMOD)
 
 .PHONY: test clean checkfc
