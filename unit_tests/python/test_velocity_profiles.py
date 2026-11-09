@@ -46,7 +46,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
+from common import (
+    F90DIR,
+    PLOTDIR,
+    TREE,
+    WORKDIR,
+    Report,
+    compile_and_link_prod,
+    run,
+)
 from velocity_profiles import (
     complex_step_dvdr,
     make_profile,
@@ -91,7 +99,7 @@ EXACT_LAW = {"V001", "V003"}
 
 
 def get_bin():
-    return compile_driver(
+    return compile_and_link_prod(
         "drv_sigma_true", TREE_SRC + [F90DIR / "drv_sigma_true.f90"]
     )
 
