@@ -19,7 +19,7 @@
 	1                           DIAG_INDX,N,NION,NUM_BNDS,ND,
 	1                           BA_COMPUTED,WR_BA_INV,WR_PRT_INV)
 	USE SET_KIND_MODULE
-	USE CONTROL_VARIABLE_MOD, ONLY: POP_AUDIT,BA_DEM_PFLOOR
+	USE CONTROL_VARIABLE_MOD, ONLY: POP_AUDIT,BA_DEM_PFLOOR,POP_MASK_FLOOR
 	IMPLICIT NONE
 !
 ! Altered 19-Oct-2026 : TRI failures now degrade like the DIAG path: a
@@ -252,7 +252,7 @@
 ! near-null column at a floor population is the H1/H2 signature the
 ! RUNAWAY channel list cannot see.
 !
-	INTEGER NFLR,JC,CN_INFO
+	INTEGER NFLR,JC,CN_INFO,NMASK
 	REAL(KIND=LDP) CN_T1,CN_UMIN,CN_UMAX,CN_ANORM,CN_RCOND
 	REAL(KIND=LDP), ALLOCATABLE :: CN_WORK(:)
 	INTEGER, ALLOCATABLE :: CN_IWORK(:)
@@ -959,6 +959,15 @@ C
 ! using DGEEQU sot the the maximum row and column values are approximately
 ! unity.
 !
+!
+! edited 09-Nov-2026: [POP_MASK_FLOOR] was prototyped here as a
+! matrix-level unknown mask (pin the level's equation row before
+! DGEEQU) but abandoned: pinning tens of floor levels per depth
+! over-constrains the coupled block and crashes the band solve
+! (exit 174 on the m15 fast KNOP run, job 12868544). The mask now
+! lives in SOLVEBA_V13 as a post-solve correction/demand mask,
+! which cannot perturb the factorisation. This block is inert.
+!
 	    CALL TUNE(1,'DGEEQU')
 	    CALL DGEEQU(N,N,C_MAT,N,ROW_SF,COL_SF,
 	1               ROW_CND,COL_CND,MAX_VAL,IFAIL)
@@ -1013,7 +1022,7 @@ C
 	        IOS=0
 	      END IF
 	      IF(IOS .EQ. 0)THEN
-	        CALL DGECON(N,C_MAT,N,CN_ANORM,CN_RCOND,
+	        CALL DGECON('1',N,C_MAT,N,CN_ANORM,CN_RCOND,
 	1       CN_WORK,CN_IWORK,CN_INFO)
 	        WRITE(LUER,'(A,I4,A,I6,6(A,ES11.3))')
 	1       ' RUNAWAY d=',K,' nflr=',NFLR,
