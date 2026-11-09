@@ -1705,6 +1705,37 @@
 	REAL(KIND=LDP) POP_RUNAWAY_DEM
 	INTEGER POP_RUNAWAY_TOPN
 !
+! POP_MASK_FLOOR / POP_TRACE_MAXFAC (VADAT, defaults 0 = off):
+! Item-2 floor-pinned population handling. The Item-1 census
+! (KNOP_ITEM1_RUNAWAY_2026-11-08) confirmed hypothesis H1 on the
+! m15 KNOP stall: levels whose population sits at the 1E-30 floor
+! give the POPS-scaled SE block an approximate null column, so
+! SOLVEBA_V13 demands order-1E7 corrections that the BA_DEM floors
+! then exempt from MAXCH yet still export as BA_DEM_EXM/EXR -- the
+! exempted demand pins the converged-exit gates and the
+! release/refreeze cycle never matures (GS_REL_NOPROG_LIM stop).
+!
+! [POP_MASK_FLOOR]: absolute population floor for masking a level
+! unknown out of the per-depth SE solve in CMF_DIAG_SOLVE. A level
+! row J with POPS(J,K) < POP_MASK_FLOOR is pinned like FIXPOP holds
+! a population fixed -- its equation row is replaced by the identity
+! (delta_J = 0) and its column decoupled, on the POPS-scaled matrix
+! before DGEEQU. The level is held at its floor value for the call,
+! produces no demanded correction, and contributes nothing to
+! BA_DEM_EXM/EXR. Only level rows J=1..N-2 are masked; ED/T and the
+! conservation rows are never touched. 0 disables (default path
+! unchanged).
+!
+! [POP_TRACE_MAXFAC]: per-row cap on the demanded fractional
+! correction |STEQ| for level rows, applied in SOLVEBA_V13 before
+! the commit. Where BA_TRUST quarantines a whole depth column when
+! its largest |STEQ| exceeds the cap, this clamps each offending row
+! to POP_TRACE_MAXFAC so a single runaway trace level cannot force
+! the all-or-nothing column mask. 0 disables.
+!
+	REAL(KIND=LDP) POP_MASK_FLOOR
+	REAL(KIND=LDP) POP_TRACE_MAXFAC
+!
 ! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor. It
 ! exempted trace rows from the MAXCH/demand metric at a populated
 ! depth, which let the SOB run report ~0.1% demand while ~700
