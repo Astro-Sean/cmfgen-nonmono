@@ -737,6 +737,200 @@ def test_knop_blue_boundary_compressing_coupling():
     )
 
 
+def test_ord_sweep_dispatch_fallback():
+    """Both field directions must dispatch SWEEP_FLD when ordered is off.
+
+    Pillar-1 pin: ORD_SWEEP requires FG_ORD_SWEEP, a live coefficient
+    pack, NI>=3, and a successful SPW allocation.  In every disabling
+    configuration the fallback for BOTH the inward (I_M) and outward
+    (I_P) solves is the plain alternating SWEEP_FLD -- never a blind
+    SWEEP_FLD_ORD call that would read an unallocated pack or SPW.
+    """
+    ray = section(FG, "SUBROUTINE KNOP_RAY_SOLVE_V1", "CONTAINS")
+    check(
+        "ORD_SWEEP needs FG_ORD_SWEEP + pack + NI>=3",
+        "ORD_SWEEP=FG_ORD_SWEEP .AND. HAVE_PACK .AND. NI .GE. 3" in ray,
+    )
+    check(
+        "SPW allocation failure drops ordered sweep",
+        re.search(
+            r"ALLOCATE\(SPW\(NCF,4\),STAT=IOS\)[\s\S]*?"
+            r"IF\(IOS \.NE\. 0\)ORD_SWEEP=\.FALSE\.",
+            ray,
+        )
+        is not None,
+    )
+    disp = re.findall(
+        r"IF\(ORD_SWEEP\)THEN[\s\S]{0,200}?ELSE[\s\S]{0,200}?END IF", ray
+    )
+    check("two ordered/fallback dispatch sites (I_M and I_P)", len(disp) == 2)
+    for d in disp:
+        check(
+            "ordered branch calls SWEEP_FLD_ORD",
+            "CALL SWEEP_FLD_ORD" in d,
+        )
+        check(
+            "fallback branch calls SWEEP_FLD (not SWEEP_FLD_ORD)",
+            "ELSE\n\t  CALL SWEEP_FLD(" in d,
+        )
+    sweep = section(FG, "SUBROUTINE SWEEP_FLD(FLD", "SUBROUTINE KN_ORD_SPV")
+    pack_refs = [
+        ln.strip()
+        for ln in sweep.splitlines()
+        if re.search(r"\bPK_", ln)
+    ]
+    guarded = section(sweep, "IF(HAVE_PACK)THEN", "END IF")
+    check(
+        "SWEEP_FLD reads the pack only inside the HAVE_PACK guard",
+        len(pack_refs) > 0 and all(p in guarded for p in pack_refs),
+    )
+    check(
+        "fallback path never touches SPW",
+        "SPW" not in sweep,
+    )
+    march = section(FG, "SUBROUTINE MARCH(FLD", "SUBROUTINE WRITE_STORE")
+    check(
+        "MARCH never touches the pack or SPW",
+        "PK_" not in march and "SPW" not in march,
+    )
+
+
+def test_missing_donor_consistent_drop():
+    """A missing lagged donor drops BOTH sides of the coupling.
+
+    Pillar-2 pin: the previous code kept the +|GAM|/DLN outflow in
+    chi_hat while the source dropped the upwind inflow, which wrote a
+    sink the discretisation never contained.  The sweep gate
+    KN_COUPLING_OK and the refresh gate KN_RF_COUPLING must now hold
+    the chi_hat increment, its DCHR derivative, and the signed-Q term
+    out of the operator for donor-less compressing cells, and the
+    no-slot source path must fall back to SOURCE_RAY alone.
+    """
+    check(
+        "sweep coupling gate exists",
+        "LOGICAL FUNCTION KN_COUPLING_OK(I2,LS,NM2,NCF2,ND2)" in FG,
+    )
+    chi_hat = section(
+        FG, "Generalized opacity: chi_hat", "Guard: ensure chi_hat"
+    )
+    check(
+        "sweep chi_hat term gated on the donor",
+        "KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND)" in chi_hat,
+    )
+    dchr = section(
+        FG,
+        "Update dCHIdR_RAY to include the derivative",
+        "Dimensionless signed coupling",
+    )
+    check(
+        "sweep dCHIdR term gated on the donor",
+        "KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND)" in dchr,
+    )
+    signed_q = section(
+        FG,
+        "Dimensionless signed coupling: Q =",
+        "SOURCE_RAY(1:NI)=ETA_RAY(1:NI)/CHI_RAY(1:NI)",
+    )
+    check(
+        "sweep signed-Q gated and zeroed for dropped cells",
+        "KN_COUPLING_OK(I,LS,NM_RAY(I),NCF_IN,ND)" in signed_q
+        and "Q(I)=0.0_LDP" in signed_q,
+    )
+    build_freq = section(FG, "SUBROUTINE BUILD_FREQ", "SUBROUTINE MATCH_FREQ")
+    check(
+        "refresh coupling gate exists",
+        "LOGICAL FUNCTION KN_RF_COUPLING(I2,L2)" in FG,
+    )
+    check(
+        "refresh chi_hat/DCHR/Q gated on the donor",
+        build_freq.count("KN_RF_COUPLING(I,L)") >= 5,
+    )
+    check(
+        "refresh gate keeps boundary outflow (foot off-grid)",
+        re.search(
+            r"IF\(L2\+NFM_L\(I2\) \.GT\. NCF\)RETURN", FG
+        )
+        is not None,
+    )
+    check(
+        "sweep no-slot source path still drops to SOURCE_RAY",
+        FG.count("SOURCE_PRIME(I)=SOURCE_RAY(I)") >= 2,
+    )
+
+
+def test_build_freq_fail_closed():
+    """Non-finite coefficient builds must fail the ray, not be repaired.
+
+    Pillar-3 pin: BUILD_FREQ's L>1 branch previously used NaN-only
+    tests so +Inf slipped into DTAU and the march coefficients and was
+    committed as a plausible field.  Every value guard now uses the
+    finite test, and any non-finite input flags DIVERGED so the ray
+    takes the diverged-ray exit (RESID=1, no store commit) rather than
+    polishing a repaired operator into a converged refresh.
+    """
+    build_freq = section(FG, "SUBROUTINE BUILD_FREQ", "SUBROUTINE MATCH_FREQ")
+    check(
+        "no NaN-only guards remain in BUILD_FREQ",
+        ".NE. CHI_L(I)" not in build_freq
+        and ".NE. ETA_L(I)" not in build_freq
+        and ".NE. Q_L(I)" not in build_freq
+        and ".NE. SR_L(I)" not in build_freq
+        and ".NE. DTAU_L(I)" not in build_freq
+        and ".NE. DCHR_L(I)" not in build_freq,
+    )
+    check(
+        "non-finite values flag the ray as diverged",
+        build_freq.count("DIVERGED=.TRUE.") >= 8,
+    )
+    check(
+        "matched-span floor flags the failed build",
+        build_freq.count("DIVERGED=.TRUE.\n\t      END IF") >= 3
+        or build_freq.count("DIVERGED=.TRUE.") >= 8,
+    )
+    check(
+        "march coefficients get a final finite check",
+        re.search(
+            r"ABS\(A0L\(I\)\) \.LE\. HUGE\(A0L\(I\)\)[\s\S]*?DIVERGED",
+            build_freq,
+        )
+        is not None,
+    )
+    ray = section(FG, "SUBROUTINE KNOP_RAY_SOLVE_V1", "CONTAINS")
+    check(
+        "pack build aborts on a flagged ray",
+        re.search(
+            r"CALL BUILD_FREQ\(L\)[\s\S]{0,400}?IF\(DIVERGED\)EXIT",
+            ray,
+        )
+        is not None,
+    )
+    check(
+        "flagged pack build takes the diverged-ray exit",
+        re.search(
+            r"IF\(DIVERGED\)THEN[\s\S]{0,100}?NDIV=1[\s\S]{0,100}?GOTO 800",
+            ray,
+        )
+        is not None,
+    )
+    sweep = section(FG, "SUBROUTINE SWEEP_FLD(FLD", "SUBROUTINE KN_ORD_SPV")
+    check(
+        "no-pack sweep aborts a flagged build",
+        re.search(
+            r"CALL BUILD_FREQ\(L\)[\s\S]{0,400}?IF\(DIVERGED\)EXIT",
+            sweep,
+        )
+        is not None,
+    )
+    check(
+        "flagged build exits the pass loop as diverged",
+        re.search(
+            r"IF\(DIVERGED\)THEN[\s\S]{0,60}?IXIT=5[\s\S]{0,60}?EXIT",
+            sweep,
+        )
+        is not None,
+    )
+
+
 def test_mom_gam_fac_floor_discontinuity_pin():
     """Pin the current MOM_GAM_FAC_MIN floor location (audit Phase 2).
 
@@ -761,6 +955,9 @@ def test_mom_gam_fac_floor_discontinuity_pin():
 
 
 if __name__ == "__main__":
+    test_ord_sweep_dispatch_fallback()
+    test_missing_donor_consistent_drop()
+    test_build_freq_fail_closed()
     test_knop_blue_boundary_compressing_coupling()
     test_mom_gam_fac_floor_discontinuity_pin()
     test_heal_store_zeroes_fully_poisoned_rows()
