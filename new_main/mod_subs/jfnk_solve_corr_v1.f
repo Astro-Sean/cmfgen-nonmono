@@ -124,7 +124,7 @@
 	DOUBLE PRECISION BEST_F_W,BEST_F_INF
 	LOGICAL JFNK_REACH_OK,JFNK_REACH_SKIP
 	INTEGER OPP_NBAD,OPP_NCLIP
-	LOGICAL OPP_EVB
+	LOGICAL OPP_EVB,OPP_BYP_SAV
 	CHARACTER*3 OPP_MODE
 	DOUBLE PRECISION REACH_VAL,FF2_DP,FJZ_DP,JJZ_DP
 	DOUBLE PRECISION COS_BA,JZF_BA,CLIP_FR,COS_FD,JZF_FD
@@ -986,11 +986,20 @@
 	      OPP_NBAD=jfnk_resid_nbad
 	      OPP_NCLIP=JFNK_N_NEW_CLIP
 	      OPP_EVB=JFNK_EVAL_BROKEN
+	      OPP_BYP_SAV=JFNK_EVAL_BYPASS
 	      OPP_MODE='frz'
 	      IF(JFNK_COUPLED_LOC)OPP_MODE='cpl'
+! The battery's ~100 evals are measurement overhead, not solver work:
+! without the bypass they consume the JFNK_EVAL_LIM/MAX_EVALS budget
+! mid-probe, turn later JVPs into budget sentinels, and can force the
+! admission's own rejection path -- the diagnostic would corrupt the
+! admission it is measuring. The wall-clock cap is bypassed too; the
+! battery cost is the explicit price of enabling JFNK_HSCAN.
+	      JFNK_EVAL_BYPASS=.TRUE.
 	      CALL JFNK_OP_PROBE_V1(LUER, JFNK_N, jfnk_x, jfnk_fx,
 	1         JFNK_NT, JFNK_ND, JFNK_RESIDUAL_V1, JFNK_OP_JVPA_V1,
 	2         JFNK_OP_BAMV_V1, JFNK_DOT_V1, OPP_MODE)
+	      JFNK_EVAL_BYPASS=OPP_BYP_SAV
 	      jfnk_resid_nbad=OPP_NBAD
 	      JFNK_N_NEW_CLIP=OPP_NCLIP
 	      JFNK_EVAL_BROKEN=OPP_EVB
