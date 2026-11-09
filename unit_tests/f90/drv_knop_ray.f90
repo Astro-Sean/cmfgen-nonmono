@@ -49,6 +49,22 @@
       IF(CNAME .EQ. 'gapr') NCASE=12
       IF(CNAME .EQ. 'nanchi')NCASE=13
       IF(CNAME .EQ. 'infgam')NCASE=14
+      IF(CNAME .EQ. 'ab')    NCASE=15
+      IF(CNAME .EQ. 'abx')   NCASE=22
+      IF(CNAME .EQ. 'gpos')  NCASE=16
+      IF(CNAME .EQ. 'gneg')  NCASE=17
+      IF(CNAME .EQ. 'gpp')   NCASE=18
+      IF(CNAME .EQ. 'gpn0')  NCASE=19
+      IF(CNAME .EQ. 'gzz')   NCASE=20
+      IF(CNAME .EQ. 'gcr')   NCASE=21
+!
+! The A/B case drives the production in-sweep solver itself
+! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
+! lives in a contained routine with its own locals.
+!
+      IF(NCASE .EQ. 15)CALL DRV_AB(.TRUE.)
+      IF(NCASE .EQ. 22)CALL DRV_AB(.FALSE.)
+      IF(NCASE .EQ. 15 .OR. NCASE .EQ. 22)GOTO 999
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -131,6 +147,51 @@
           ELSE
             GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
           END IF
+        ELSE IF(NCASE .EQ. 16)THEN
+! gpos: expansion everywhere -- no compressing cell exists, the
+! frequency coupling runs purely on the live upwind branch.
+          GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+        ELSE IF(NCASE .EQ. 17)THEN
+! gneg: compression everywhere -- only the masked depths 3-5 can
+! supply donors; the rest exercise the donor-drop gate.
+          GAM(I,1)=-GAMP*(0.5_LDP+0.1_LDP*I)
+        ELSE IF(NCASE .EQ. 18)THEN
+! gpp: GAM(4) one micro-step on the expanding side of zero -- twin of
+! gpn0 for the sign-crossing continuity check.
+          IF(I .EQ. 4)THEN
+            GAM(I,1)=1.0E-9_LDP*GAMP
+          ELSE IF(I .EQ. 3 .OR. I .EQ. 5)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
+        ELSE IF(NCASE .EQ. 19)THEN
+! gpn0: GAM(4) one micro-step on the compressing side. The discrete
+! operator is continuous in |GAM| with the sign flipping only the
+! upwind pick, so the committed field must match gpp's to the tiny
+! coupling magnitude.
+          IF(I .EQ. 4)THEN
+            GAM(I,1)=-1.0E-9_LDP*GAMP
+          ELSE IF(I .EQ. 3 .OR. I .EQ. 5)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
+        ELSE IF(NCASE .EQ. 20)THEN
+! gzz: exact zeros at adjacent cells 4-5 -- SIGN(1,0)=+1 picks the
+! expanding branch there; with |GAM|=0 both the chi_hat term and the
+! coupling vanish and SP must reduce to SR.
+          IF(I .EQ. 3)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE IF(I .EQ. 4 .OR. I .EQ. 5)THEN
+            GAM(I,1)=0.0_LDP
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
+        ELSE IF(NCASE .EQ. 21)THEN
+! gcr: linear glide through zero between cells 4 and 5 -- a resolved
+! gradient reversal with no discontinuous coefficients.
+          GAM(I,1)=GAMP*0.3_LDP*(DBLE(I)-4.5_LDP)
         ELSE
           IF(I .GE. 3 .AND. I .LE. 5)THEN
             GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
@@ -375,4 +436,263 @@
       END DO
       WRITE(*,'(A)')'RESULT_OK'
 999   CONTINUE
+!
+      CONTAINS
+!
+! ----------------------------------------------------------------------
+! A/B driver (KNOP audit task 5). Runs the production in-sweep solver
+! FG_J_CMF_NONMONO_V1 on a manufactured non-monotonic model -- no ray
+! arrays are filled here because the solver builds them itself -- then
+! lets the production refresh FG_KNOP_REFRESH_V1 re-solve the captured
+! coefficients. KN_DBG_* and KR_DBG_* then hold the two operators'
+! coefficients side by side and the committed stores can be compared
+! slot by slot.
+!
+! Manufactured velocity: mostly wind-like (V decreasing inward), with a
+! steep localised rise through depths 3-5 so sigma_true < -1 there and
+! the solver's own mask construction flags them compressing.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_AB(ORDSW)
+      LOGICAL ORDSW
+      INTEGER NDA,NPA,NCFA
+      PARAMETER (NDA=8,NPA=1,NCFA=6)
+      REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
+      REAL(KIND=LDP) ETA_M(NDA,NCFA),CHI_M(NDA,NCFA),ESC_M(NDA,NCFA)
+      REAL(KIND=LDP) JNU_A(NDA),FEDD_A(NDA),IPLUS_A(NPA)
+      REAL(KIND=LDP) JQW_A(NDA,NPA),HQW_A(NDA,NPA),KQW_A(NDA,NPA)
+      REAL(KIND=LDP) NQW_A(NDA,NPA),HMID_A(NDA,NPA),NMID_A(NDA,NPA)
+      REAL(KIND=LDP) VDOP_A(NDA),FRQV(NCFA),INBC_A,HBC_A
+      REAL(KIND=LDP) LVR(NDA),BUMP,V0,DLOGA,FREQ_A,DBB_A,IC_A
+      REAL(KIND=LDP) VDOP_F,REXT_A,DCH
+      CHARACTER*6 METH_A
+      CHARACTER(LEN=8) SOPT_A
+      CHARACTER(LEN=12) IBND_A
+      LOGICAL THK_A,INIT_A,NEWF_A
+      INTEGER NC_A,NITER,ITR
+      REAL(KIND=LDP) SMAX
+!
+      RA=(/8.0E4_LDP,6.4E4_LDP,5.0E4_LDP,3.9E4_LDP, &
+      3.0E4_LDP,2.2E4_LDP,1.5E4_LDP,1.0E4_LDP/)
+!
+! V(R): smooth expansion envelope V0*(R/R1)^0.6 times a localised dip
+! that turns V around through depths 3-5 (V increasing inward there).
+! sigma_true = dlnV/dlnR - 1 by centred log differences, one-sided at
+! the ends -- the same convention RECOMPUTE_SIGMA_TRUE applies.
+!
+      V0=3.0E3_LDP
+      DO I=1,NDA
+        BUMP=1.0_LDP-0.55_LDP*EXP(-((DBLE(I)-4.0_LDP)/1.1_LDP)**2)
+        VA(I)=V0*(RA(I)/RA(1))**0.6_LDP*BUMP
+      END DO
+      LVR=LOG(VA)
+      SGT(1)=(LVR(1)-LVR(2))/(LOG(RA(1))-LOG(RA(2)))-1.0_LDP
+      DO I=2,NDA-1
+        SGT(I)=(LVR(I-1)-LVR(I+1))/(LOG(RA(I-1))-LOG(RA(I+1)))-1.0_LDP
+      END DO
+      SGT(NDA)=(LVR(NDA-1)-LVR(NDA))/(LOG(RA(NDA-1))-LOG(RA(NDA))) &
+      -1.0_LDP
+      SGA=MAX(SGT,-0.999_LDP)
+!
+      DO I=1,NDA
+        WRITE(*,'(A,I2,3ES16.8)')'VMOD ',I,RA(I),VA(I),SGT(I)
+      END DO
+!
+! Opacity/emissivity profiles as smooth functions of depth with a mild
+! frequency tilt -- same functional family as the ray cases.
+!
+      DO L=1,NCFA
+        DO I=1,NDA
+          CHI_M(I,L)=1.0E-3_LDP*(1.0_LDP+0.05_LDP*L)* &
+      (RA(1)/RA(I))**2
+          ETA_M(I,L)=2.0E-6_LDP*(1.0_LDP+0.02_LDP*L)*(RA(1)/RA(I))
+          ESC_M(I,L)=0.0_LDP
+        END DO
+      END DO
+!
+      FRQV(1)=6.0E15_LDP
+      DO L=2,NCFA
+        FRQV(L)=FRQV(L-1)*0.75_LDP
+      END DO
+      DLOGA=LOG(1.0_LDP/0.75_LDP)
+!
+      PA(1)=0.0_LDP
+!
+! Doppler refinement is a resolution knob, not the physics under
+! test: a large VDOP with a coarse fraction keeps the ray on the
+! eight model depths (no sub-inserts), so the debug dumps can stay
+! sized (NDA,NCFA).
+!
+      VDOP_A=1.0E5_LDP
+      VDOP_F=0.5_LDP
+      REXT_A=1.0_LDP
+      DBB_A=0.0_LDP
+      IC_A=0.0_LDP
+      METH_A='ZERO'
+      SOPT_A='INT'
+      IBND_A='ZERO_FLUX'
+      THK_A=.FALSE.
+      NEWF_A=.TRUE.
+      NC_A=0
+!
+! Flags and debug plumbing. FG_FREQ_MATCH exercises the matched-offset
+! path end to end; KN_DBG_LS selects the dumped ray.
+!
+      FG_FREQ_MATCH=.TRUE.
+! ab exercises the ordered refresh (pack + SPW); abx forces the
+! alternating SWEEP_FLD path so the same operator is compared under
+! both sweep strategies.
+!
+      FG_ORD_SWEEP=ORDSW
+      DO_KNOP_REFRESH=.TRUE.
+      FREEZE_I_NEXT=.FALSE.
+      FG_ORD_AITKEN=.FALSE.
+      FG_ORD_AA=.FALSE.
+      FG_ORD_P2DAMP=.FALSE.
+      KN_RAY_TOL=2.0E-3_LDP
+      KN_RAY_MAXPASS=60
+      KN_RAY_BULK_TOL=0.0_LDP
+      KN_RAY_OMEGA=1.0_LDP
+      KN_RAY_STALL=0.98_LDP
+      KN_RAY_HOTPASSES=0
+      KN_HOT_TOTAL_PASSES=0
+      KN_ADAPT_RELAX=.FALSE.
+      INEXT_RELAX=0.5_LDP
+      KN_RAY_PACK_MB=2048.0_LDP
+      NONMONO_INEXT_CAP=1.0E+20_LDP
+      FG_COMMIT_CONV=.TRUE.
+      FG_COMMIT_NC=0.05_LDP
+      FG_COMMIT_JUMP=50.0_LDP
+      FG_DIV_HEAL_CAP=1.0E+6_LDP
+      FG_BULK_CONTR=.FALSE.
+      FG_ADAPT_OMEGA_V2=.FALSE.
+      KN_DBG_LS=1
+      ALLOCATE(KN_DBG_CHIH(NDA,NCFA),KN_DBG_Q(NDA,NCFA), &
+      KN_DBG_DCHR(NDA,NCFA),KN_DBG_DTAU(NDA,NCFA), &
+      KN_DBG_SPM(NDA,NCFA),KN_DBG_SPP(NDA,NCFA), &
+      KN_DBG_WX(NDA,NCFA),KN_DBG_DLNM(NDA,NCFA), &
+      KN_DBG_IMPR(NDA,NCFA),KN_DBG_IPPR(NDA,NCFA), &
+      KN_DBG_NM(NDA,NCFA),KN_DBG_KC1(NDA,NCFA),KN_DBG_KC2(NDA,NCFA), &
+      KN_DBG_A0(NDA,NCFA),KN_DBG_A1(NDA,NCFA),KN_DBG_A2(NDA,NCFA), &
+      KN_DBG_A3(NDA,NCFA),KN_DBG_A4(NDA,NCFA), &
+      KR_DBG_CHIH(NDA,NCFA),KR_DBG_Q(NDA,NCFA), &
+      KR_DBG_DCHR(NDA,NCFA),KR_DBG_DTAU(NDA,NCFA), &
+      KR_DBG_WX(NDA,NCFA),KR_DBG_DLNM(NDA,NCFA), &
+      KR_DBG_SPM(NDA,NCFA),KR_DBG_SPP(NDA,NCFA), &
+      KR_DBG_A0(NDA,NCFA),KR_DBG_A1(NDA,NCFA),KR_DBG_A2(NDA,NCFA), &
+      KR_DBG_A3(NDA,NCFA),KR_DBG_A4(NDA,NCFA), &
+      KR_DBG_FLDM(NDA,NCFA),KR_DBG_FLDP(NDA,NCFA), &
+      KR_DBG_NFM(NDA,NCFA),KR_DBG_IKC1(NDA,NCFA), &
+      KR_DBG_IKC2(NDA,NCFA),KR_DBG_JPR1(NDA,NCFA), &
+      KR_DBG_JPR2(NDA,NCFA),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT aballoc_fail=1'
+        RETURN
+      END IF
+      KN_DBG_CHIH=-1.0_LDP; KN_DBG_Q=-1.0_LDP; KN_DBG_DCHR=-1.0_LDP
+      KN_DBG_DTAU=-1.0_LDP; KN_DBG_SPM=-1.0_LDP; KN_DBG_SPP=-1.0_LDP
+      KN_DBG_WX=-1.0_LDP; KN_DBG_DLNM=-1.0_LDP
+      KN_DBG_IMPR=-1.0_LDP; KN_DBG_IPPR=-1.0_LDP
+      KN_DBG_NM=-1; KN_DBG_KC1=-1; KN_DBG_KC2=-1
+      KN_DBG_A0=-1.0_LDP; KN_DBG_A1=-1.0_LDP; KN_DBG_A2=-1.0_LDP
+      KN_DBG_A3=-1.0_LDP; KN_DBG_A4=-1.0_LDP
+      KR_DBG_CHIH=-1.0_LDP; KR_DBG_Q=-1.0_LDP; KR_DBG_DCHR=-1.0_LDP
+      KR_DBG_DTAU=-1.0_LDP; KR_DBG_WX=-1.0_LDP; KR_DBG_DLNM=-1.0_LDP
+      KR_DBG_SPM=-1.0_LDP; KR_DBG_SPP=-1.0_LDP
+      KR_DBG_A0=-1.0_LDP; KR_DBG_A1=-1.0_LDP; KR_DBG_A2=-1.0_LDP
+      KR_DBG_A3=-1.0_LDP; KR_DBG_A4=-1.0_LDP
+      KR_DBG_FLDM=-1.0_LDP; KR_DBG_FLDP=-1.0_LDP
+      KR_DBG_NFM=-1; KR_DBG_IKC1=-1; KR_DBG_IKC2=-1
+      KR_DBG_JPR1=-1; KR_DBG_JPR2=-1
+!
+! In-sweep great iterations: each frequency call solves with the
+! lagged donor store from the previous generation; iterating the
+! outer loop contracts the Picard map toward the fixed point the
+! refresh targets directly.
+!
+      NITER=6
+      DO ITR=1,NITER
+        DO L=1,NCFA
+          IF(L .LT. NCFA)THEN
+            CALL SET_FG_NU_NEXT(FRQV(L+1))
+          ELSE
+            CALL SET_FG_NU_NEXT(FRQV(NCFA)*0.75_LDP)
+          END IF
+          INIT_A=(ITR .EQ. 1 .AND. L .EQ. 1)
+          IF(ITR .GT. 1 .AND. L .EQ. 1)INIT_A=.TRUE.
+          CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L),ESC_M(1,L), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NPA,NDA,SGT,NCFA)
+        END DO
+      END DO
+!
+! Committed in-sweep store (the lagged map's contraction point) and
+! the sweep-side coefficient dump are now resident; snapshot the
+! store before the refresh overwrites it.
+!
+      DO K=1,N_COMP
+        DO L=1,NCFA-1
+          WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'SWSTOR ',K,' ',L,' ', &
+      I_P_DEPTH_NEXT(K,1,L),I_M_DEPTH_NEXT(K,1,L)
+        END DO
+      END DO
+      DO I=1,NDA
+        DO L=1,NCFA
+          WRITE(*,'(A,I2,A,I2,A,10ES16.8)')'DBS ',I,' ',L,' ', &
+      KN_DBG_CHIH(I,L),KN_DBG_Q(I,L),KN_DBG_DCHR(I,L), &
+      KN_DBG_DTAU(I,L),KN_DBG_SPM(I,L),KN_DBG_SPP(I,L), &
+      KN_DBG_WX(I,L),KN_DBG_DLNM(I,L),KN_DBG_IMPR(I,L), &
+      KN_DBG_IPPR(I,L)
+          WRITE(*,'(A,I2,A,I2,A,3I6)')'DBSI ',I,' ',L,' ', &
+      KN_DBG_NM(I,L),KN_DBG_KC1(I,L),KN_DBG_KC2(I,L)
+          WRITE(*,'(A,I2,A,I2,A,5ES16.8)')'DBSA ',I,' ',L,' ', &
+      KN_DBG_A0(I,L),KN_DBG_A1(I,L),KN_DBG_A2(I,L), &
+      KN_DBG_A3(I,L),KN_DBG_A4(I,L)
+        END DO
+      END DO
+!
+! Refresh pass over the captured coefficients, starting from the
+! in-sweep committed store -- the Picard step the in-sweep map is an
+! outer iteration of.
+!
+      ALLOCATE(KN_RES_PASS(2*(60+120)),KN_HOT_CNT(NCFA),STAT=IOS)
+      IF(IOS .NE. 0)RETURN
+      KN_RES_PASS=0.0_LDP
+      KN_HOT_CNT=0
+      KN_HOT_SPENT=0_8
+      HAS_COMPRESSING=.TRUE.
+      KN_STORE_READY=.TRUE.
+      FREQ_IDX_ITER=KN_NCF-1
+      SOLUTION_METHOD='INTEGRAL'
+      CALL FG_KNOP_REFRESH_V1()
+      WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
+      WRITE(*,'(A,I8)')'RF_NDIV=',FG_GS_NDIV
+      WRITE(*,'(A,ES16.8)')'RF_MAXCHG=',FG_GS_MAXCHG
+      DO K=1,N_COMP
+        DO L=1,NCFA-1
+          WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'RFSTOR ',K,' ',L,' ', &
+      I_P_DEPTH_NEXT(K,1,L),I_M_DEPTH_NEXT(K,1,L)
+        END DO
+      END DO
+      DO I=1,NDA
+        DO L=1,NCFA
+          WRITE(*,'(A,I2,A,I2,A,10ES16.8)')'DBR ',I,' ',L,' ', &
+      KR_DBG_CHIH(I,L),KR_DBG_Q(I,L),KR_DBG_DCHR(I,L), &
+      KR_DBG_DTAU(I,L),KR_DBG_SPM(I,L),KR_DBG_SPP(I,L), &
+      KR_DBG_WX(I,L),KR_DBG_DLNM(I,L),KR_DBG_FLDM(I,L), &
+      KR_DBG_FLDP(I,L)
+          WRITE(*,'(A,I2,A,I2,A,5I6)')'DBRI ',I,' ',L,' ', &
+      KR_DBG_NFM(I,L),KR_DBG_IKC1(I,L),KR_DBG_IKC2(I,L), &
+      KR_DBG_JPR1(I,L),KR_DBG_JPR2(I,L)
+          WRITE(*,'(A,I2,A,I2,A,5ES16.8)')'DBRA ',I,' ',L,' ', &
+      KR_DBG_A0(I,L),KR_DBG_A1(I,L),KR_DBG_A2(I,L), &
+      KR_DBG_A3(I,L),KR_DBG_A4(I,L)
+        END DO
+      END DO
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+      END SUBROUTINE DRV_AB
+!
       END
