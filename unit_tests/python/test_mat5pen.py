@@ -20,7 +20,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from common import F90DIR, TREE, WORKDIR, Report, compile_driver, run
+from common import (
+    F90DIR,
+    PROD_MOD_INC,
+    TREE,
+    WORKDIR,
+    Report,
+    compile_objs,
+    link_prod,
+    prod_objs,
+    run,
+)
 
 N, NR = 5, 3
 
@@ -59,13 +69,20 @@ def parse_a(out):
 
 def main():
     rep = Report("MAT5PEN block-Thomas kernel")
-    binary = compile_driver(
+    drv_obj = compile_objs(
+        "mat5pen_drv",
+        [F90DIR / "drv_mat5pen.f90"],
+        extra_flags=PROD_MOD_INC,
+    )
+    binary = link_prod(
         "drv_mat5pen",
-        [
-            TREE / "tools" / "set_kind_module.f",
-            TREE / "subs" / "mat5pen.f",
-            F90DIR / "drv_mat5pen.f90",
-        ],
+        prod_objs(
+            [
+                TREE / "tools" / "set_kind_module.f",
+                TREE / "subs" / "mat5pen.f",
+            ]
+        )
+        + drv_obj,
     )
 
     rng = np.random.default_rng(11)
