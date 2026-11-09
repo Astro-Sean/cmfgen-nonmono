@@ -27,12 +27,15 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    link_prod,
+    prod_obj,
+    prod_objs,
     run,
 )
 
@@ -48,19 +51,36 @@ RMAX, RP = 1.0e4, 1.0e2  # file radii already in final units
 
 
 def build():
-    help_objs = compile_objs("rv_help", HELPERS)
+    md = BINDIR / "obj_rv_help"
+    help_objs = prod_objs(HELPERS)
     drv_obj = compile_objs(
-        "rv_drv", [F90DIR / "drv_rd_rv.f90"], moddir=BINDIR / "obj_rv_help"
+        "rv_drv",
+        [F90DIR / "drv_rd_rv.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
     )
     bins = {}
-    for tag, root in (("new", TREE), ("ref", REF)):
-        objs = compile_objs(
-            f"rv_{tag}",
-            [root / "newsubs" / "rd_rv_file_v2.f", F90DIR / f"adapt_rd_rv_{tag}.f"],
-            moddir=BINDIR / "obj_rv_help",
+    for tag in ("new", "ref"):
+        if tag == "new":
+            objs = [
+                prod_obj(TREE / "newsubs" / "rd_rv_file_v2.f"),
+            ]
+        else:
+            objs = compile_objs(
+                f"rv_{tag}_src",
+                [REF / "newsubs" / "rd_rv_file_v2.f"],
+                prod=True,
+                moddir=md,
+                extra_flags=PROD_MOD_INC,
+            )
+        objs += compile_objs(
+            f"rv_{tag}_adp",
+            [F90DIR / f"adapt_rd_rv_{tag}.f"],
+            moddir=md,
+            extra_flags=PROD_MOD_INC,
         )
-        bins[tag] = link(
-            f"rdrv_{tag}", help_objs + drv_obj + objs, moddir=BINDIR / "obj_rv_help"
+        bins[tag] = link_prod(
+            f"rdrv_{tag}", help_objs + drv_obj + objs, moddir=md
         )
     return bins
 
