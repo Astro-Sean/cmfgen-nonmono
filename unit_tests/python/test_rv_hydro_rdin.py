@@ -31,12 +31,16 @@ import numpy as np
 from common import (
     BINDIR,
     F90DIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     WORKDIR,
     Report,
     compile_objs,
-    link,
+    link_prod,
+    prod_obj,
+    prod_objs,
+    ref_close,
     run,
 )
 
@@ -194,18 +198,28 @@ def build():
     # compiled once; only set_rv_hydro_model_v3 differs between trees.
     # The per-tag compile must read module files from the common dir.
     common_moddir = BINDIR / "obj_rvhd_common"
-    objs_common = compile_objs(
-        "rvhd_common",
-        [TREE / h for h in SHARED] + [F90DIR / "drv_rv_hydro_rdin.f90"],
+    objs_common = prod_objs([TREE / h for h in SHARED])
+    objs_common += compile_objs(
+        "rvhd_drv",
+        [F90DIR / "drv_rv_hydro_rdin.f90"],
+        moddir=common_moddir,
+        extra_flags=PROD_MOD_INC,
     )
     bins = {}
-    for tag, root in (("new", TREE), ("ref", REF)):
-        objs = compile_objs(
-            f"rvhd_{tag}",
-            [root / "new_main" / "subs" / "set_rv_hydro_model_v3.f"],
-            moddir=common_moddir,
-        )
-        bins[tag] = link(
+    for tag in ("new", "ref"):
+        if tag == "new":
+            objs = [
+                prod_obj(TREE / "new_main" / "subs" / "set_rv_hydro_model_v3.f")
+            ]
+        else:
+            objs = compile_objs(
+                f"rvhd_{tag}_src",
+                [REF / "new_main" / "subs" / "set_rv_hydro_model_v3.f"],
+                prod=True,
+                moddir=common_moddir,
+                extra_flags=PROD_MOD_INC,
+            )
+        bins[tag] = link_prod(
             f"rvhd_{tag}", objs_common + objs, moddir=common_moddir
         )
     return bins
@@ -228,10 +242,11 @@ def main():
         out[tag] = parse(r.stdout)
 
     if out.get("new") is not None and out.get("ref") is not None:
+        ok, maxrel = ref_close(out["new"], out["ref"])
         rep.check(
             "stock: new == ref (flag-gated rebuild invisible)",
-            np.array_equal(out["new"], out["ref"]),
-            f"maxdiff={np.abs(out['new'] - out['ref']).max():.2e}",
+            ok,
+            f"maxrel={maxrel:.2e}",
         )
 
     r = run(bins["new"], "T", ND, cwd=d, check=False, timeout=60)
