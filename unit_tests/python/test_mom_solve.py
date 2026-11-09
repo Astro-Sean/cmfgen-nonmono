@@ -25,8 +25,7 @@ from common import (
     TREE,
     WORKDIR,
     Report,
-    compile_objs,
-    link,
+    compile_and_link_prod,
     run,
 )
 
@@ -67,12 +66,11 @@ MOM_DLN_MIN = 1.0e-6
 
 
 def build():
-    objs = compile_objs(
+    return compile_and_link_prod(
         "mom_solve",
         [TREE / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_solve.f"],
     )
-    return link("mom_solve", objs)
 
 
 def load(tag):
@@ -602,13 +600,12 @@ def main():
     # Same seed case rebuilt at ND=48 (fractional band doubles in
     # width). The negative-RHS mechanism must engage at both
     # resolutions and the bound must keep the solve admissible.
-    objs2x = compile_objs(
+    exe2x = compile_and_link_prod(
         "mom_solve_nd2x",
         [TREE / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_solve.f"],
         extra_flags=["-DND_IN=48"],
     )
-    exe2x = link("mom_solve_nd2x", objs2x)
     r2 = run(exe2x, "seed", "nonj", "3", "1", "diff", "none", "0",
              "t_seed2x", cwd=WORKDIR)
     rep.check("seed2x: driver completed at ND=48",
