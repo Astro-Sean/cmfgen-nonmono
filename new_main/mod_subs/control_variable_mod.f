@@ -2482,6 +2482,13 @@
 	LOGICAL JFNK_PC_RCOND_GATE
 	REAL(KIND=LDP) JFNK_PC_RCOND_MIN
 	INTEGER JFNK_PC_ITRY_CAP
+! JFNK_PC_QUAL (default F): extra acceptance probe on the LU block
+! factorization -- solves M^-1 A v on a fixed non-constant direction
+! and rejects when any non-reg component deviates by more than
+! JFNK_PC_QUAL_TOL (default 0.5). Catches M^-1 A annihilating a
+! near-null direction of A, which the b=M*1 micro-test cannot see.
+	LOGICAL JFNK_PC_QUAL
+	REAL(KIND=LDP) JFNK_PC_QUAL_TOL
 	LOGICAL JFNK_PC_PAR_FACTOR
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
