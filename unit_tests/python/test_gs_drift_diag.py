@@ -75,8 +75,8 @@ def test_diag_block_separates_raw_relaxed_retained():
         "GS_SW_MAXCHG,GS_MAXCHG,GS_RF_DCHG" in block,
     )
     check(
-        "mom line prints sweep drift, maxchg, retained delta",
-        "MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG" in block,
+        "mom line prints sweep drift, maxchg, retained delta, symmetric",
+        "MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG,MOM_SW_MAXSYM" in block,
     )
     check(
         "relaxation factors and residual histories reported",
