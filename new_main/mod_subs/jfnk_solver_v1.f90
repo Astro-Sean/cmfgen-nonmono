@@ -774,7 +774,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    logical          :: ls_accepted
    double precision :: phi_0, dphi_0, phi_alpha, alpha_ls, dtau_was
    double precision :: phi_ref   ! non-monotone LS reference (Oct-2026)
-   integer          :: ls_step
+   integer          :: ls_step, nm_k
    !
    ! Cauchy direction safeguards (audit 17-Sep-2026): the
    ! preconditioned-residual direction d_C = M^{-1}F now gets the same
@@ -1671,9 +1671,16 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          !
          phi_ref = phi_0
          if(jfnk_ls_nonmono) then
+            ! The history is an 8-slot ring written at nmidx; the
+            ! window must read the last nmwin_s PUSHED entries, so
+            ! walk back from nmidx. Reading slots 1..nmwin_s instead
+            ! sees a stale rotating subset once the ring wraps
+            ! (unit test test_nm_window, 11-Nov-2026 audit).
             do i = 1, min(jfnk_ls_nmwin_s, size(jfnk_ls_nmhist))
-               if(jfnk_ls_nmhist(i) > 0d0) &
-                  phi_ref = max(phi_ref, 0.5d0 * jfnk_ls_nmhist(i)**2)
+               nm_k = mod(jfnk_ls_nmidx - i + size(jfnk_ls_nmhist), &
+                    size(jfnk_ls_nmhist)) + 1
+               if(jfnk_ls_nmhist(nm_k) > 0d0) &
+                  phi_ref = max(phi_ref, 0.5d0 * jfnk_ls_nmhist(nm_k)**2)
             end do
             ! Cap a stale history reference so a trial cannot claim an
             ! unbounded increase. [USE_JFNK_SOLVER] defaults to F.
@@ -4518,7 +4525,20 @@ end subroutine jfnk_schur_apply_v1
                gn_work(i,i) = gn_work(i,i) + lsq_l2
             end do
             lu(1:n,1:n) = gn_work(1:n,1:n)
-            mtst(1:n,1:n) = lu(1:n,1:n)
+! DSYRK writes only the lower triangle of gn_work; its upper
+! triangle is uninitialized heap memory. MTST is what the b=M*1
+! acceptance micro-test rowsums, so its upper triangle must be the
+! mirror of the lower. Without this the micro-test can never pass
+! under JFNK_PRECOND=LSQ and every depth falls back to Jacobi.
+! The LU factor returned to the caller gets the same treatment so
+! no stale heap bytes survive in the output array.
+            mtst(1:n,1:n) = gn_work(1:n,1:n)
+            do j = 1, n
+               do i = j+1, n
+                  mtst(j,i) = gn_work(i,j)
+                  lu(j,i) = 0.0d0
+               end do
+            end do
             call dpotrf('L', n, lu, n, info_k)
          else
 ! F4: DGECON below is called with NORM='I' (infinity norm), so ANORM
