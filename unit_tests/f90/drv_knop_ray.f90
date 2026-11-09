@@ -52,6 +52,7 @@
       IF(CNAME .EQ. 'ab')    NCASE=15
       IF(CNAME .EQ. 'abx')   NCASE=22
       IF(CNAME .EQ. 'ab2')   NCASE=32
+      IF(CNAME .EQ. 'abz')   NCASE=33
       IF(CNAME .EQ. 'gzp1')  NCASE=23
       IF(CNAME .EQ. 'gzn1')  NCASE=24
       IF(CNAME .EQ. 'gzp2')  NCASE=25
@@ -75,8 +76,9 @@
       IF(NCASE .EQ. 15)CALL DRV_AB(.TRUE.,1,1)
       IF(NCASE .EQ. 22)CALL DRV_AB(.FALSE.,1,1)
       IF(NCASE .EQ. 32)CALL DRV_AB(.TRUE.,2,2)
+      IF(NCASE .EQ. 33)CALL DRV_AB(.TRUE.,1,1)
       IF(NCASE .EQ. 15 .OR. NCASE .EQ. 22 .OR. &
-      NCASE .EQ. 32)GOTO 999
+      NCASE .EQ. 32 .OR. NCASE .EQ. 33)GOTO 999
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -214,6 +216,17 @@
             T1=1.0E-2_LDP*10.0_LDP**(-DBLE((NCASE-23)/2))
             IF(MOD(NCASE,2) .EQ. 0)T1=-T1
             GAM(I,1)=T1*GAMP
+          ELSE IF(I .EQ. 3 .OR. I .EQ. 5)THEN
+            GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
+          ELSE
+            GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
+          END IF
+        ELSE IF(NCASE .EQ. 33)THEN
+! abz: the ab profile with GAM(4)=0 exactly -- runs the production
+! sweep plus refresh under DRV_AB so KN_DBG_NDON can prove the
+! zero cell takes no expanding-donor read on either path.
+          IF(I .EQ. 4)THEN
+            GAM(I,1)=0.0_LDP
           ELSE IF(I .EQ. 3 .OR. I .EQ. 5)THEN
             GAM(I,1)=-GAMP*(1.0_LDP+0.3_LDP*I)
           ELSE
@@ -470,7 +483,8 @@
         KR_DBG_JPR2(ND,NCFX),KR_DBG_SR(ND,NCFX), &
         KR_DBG_A0(ND,NCFX),KR_DBG_A1(ND,NCFX), &
         KR_DBG_A2(ND,NCFX),KR_DBG_A3(ND,NCFX),KR_DBG_A4(ND,NCFX), &
-        KR_DBG_FLDM(ND,NCFX),KR_DBG_FLDP(ND,NCFX),STAT=IOS)
+        KR_DBG_FLDM(ND,NCFX),KR_DBG_FLDP(ND,NCFX), &
+        KN_DBG_NDON(ND,NCFX),STAT=IOS)
         KR_DBG_CHIH=-1.0_LDP; KR_DBG_Q=-1.0_LDP
         KR_DBG_DCHR=-1.0_LDP; KR_DBG_DTAU=-1.0_LDP
         KR_DBG_WX=-1.0_LDP; KR_DBG_DLNM=-1.0_LDP
@@ -480,6 +494,7 @@
         KR_DBG_A0=-1.0_LDP; KR_DBG_A1=-1.0_LDP; KR_DBG_A2=-1.0_LDP
         KR_DBG_A3=-1.0_LDP; KR_DBG_A4=-1.0_LDP
         KR_DBG_FLDM=-1.0_LDP; KR_DBG_FLDP=-1.0_LDP
+        KN_DBG_NDON=0
       END IF
 !
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
@@ -509,6 +524,8 @@
             WRITE(*,'(A,I2,A,I2,A,5I6)')'DBRI ',I,' ',L,' ', &
       KR_DBG_NFM(I,L),KR_DBG_IKC1(I,L),KR_DBG_IKC2(I,L), &
       KR_DBG_JPR1(I,L),KR_DBG_JPR2(I,L)
+            WRITE(*,'(A,I2,A,I2,A,I6)')'DBRD ',I,' ',L,' ', &
+      KN_DBG_NDON(I,L)
           END DO
         END DO
         DO I=1,ND
@@ -672,7 +689,7 @@
       KR_DBG_FLDM(NDA,NCFA),KR_DBG_FLDP(NDA,NCFA), &
       KR_DBG_NFM(NDA,NCFA),KR_DBG_IKC1(NDA,NCFA), &
       KR_DBG_IKC2(NDA,NCFA),KR_DBG_JPR1(NDA,NCFA), &
-      KR_DBG_JPR2(NDA,NCFA),STAT=IOS)
+      KR_DBG_JPR2(NDA,NCFA),KN_DBG_NDON(NDA,NCFA),STAT=IOS)
       IF(IOS .NE. 0)THEN
         WRITE(*,'(A)')'RESULT aballoc_fail=1'
         RETURN
@@ -693,6 +710,7 @@
       KR_DBG_SR=-1.0_LDP
       KR_DBG_NFM=-1; KR_DBG_IKC1=-1; KR_DBG_IKC2=-1
       KR_DBG_JPR1=-1; KR_DBG_JPR2=-1
+      KN_DBG_NDON=0
 !
 ! In-sweep great iterations: each frequency call solves with the
 ! lagged donor store from the previous generation; iterating the
@@ -740,6 +758,8 @@
           WRITE(*,'(A,I2,A,I2,A,5ES16.8)')'DBSA ',I,' ',L,' ', &
       KN_DBG_A0(I,L),KN_DBG_A1(I,L),KN_DBG_A2(I,L), &
       KN_DBG_A3(I,L),KN_DBG_A4(I,L)
+          WRITE(*,'(A,I2,A,I2,A,I6)')'DBSD ',I,' ',L,' ', &
+      KN_DBG_NDON(I,L)
         END DO
       END DO
 !
@@ -779,6 +799,8 @@
           WRITE(*,'(A,I2,A,I2,A,5ES16.8)')'DBRA ',I,' ',L,' ', &
       KR_DBG_A0(I,L),KR_DBG_A1(I,L),KR_DBG_A2(I,L), &
       KR_DBG_A3(I,L),KR_DBG_A4(I,L)
+          WRITE(*,'(A,I2,A,I2,A,I6)')'DBRD ',I,' ',L,' ', &
+      KN_DBG_NDON(I,L)
         END DO
       END DO
       DO K=1,NDA
