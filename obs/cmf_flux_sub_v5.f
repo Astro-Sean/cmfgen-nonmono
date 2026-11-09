@@ -623,6 +623,33 @@
 	    END IF
 	  END IF
 !
+! edited 09-Nov-2026: the ACCURATE extended grid has no
+! non-monotonic treatment.  EXTEND_VTSIGMA interpolates V, T and
+! SIGMA in the log plane -- undefined for V<=0, and geometric
+! interpolation smooths a reversal -- SIGMAEXT then floors
+! sigma+1 at 1e-4, erasing the compression signature the nonmono
+! flags exist to keep, and the extended-grid FG/MOM solvers
+! assume monotonic sigma.  Reject INC_GRID=T whenever the RVTJ
+! field is genuinely non-monotonic (N_NONMONO_OBS>0): this covers
+! velocity reversals AND sigma < -1 compression, on every flag
+! that let the detector pass (DO_NONMONO_SOB, DO_NONMONO_KNOP
+! already rejects INC_GRID at the key level, ALLOW_NONMONO_OBS
+! produces garbage here rather than an inspectable spectrum).
+! A monotonic model keeps ACCURATE under every flag because the
+! check is on the field, not the flag.
+!
+	  IF(ACCURATE .AND. N_NONMONO_OBS .GT. 0)THEN
+	    WRITE(LUER,'(A)')'Error in CMF_FLUX_SUB_V5:'
+	    WRITE(LUER,'(A)')'INC_GRID=T (ACCURATE) is not supported'
+	1     //' on a non-monotonic velocity field:'
+	    WRITE(LUER,'(A)')'EXTEND_VTSIGMA interpolates log(V)'
+	1     //' (invalid for V<=0, smooths reversals), SIGMAEXT'
+	    WRITE(LUER,'(A)')'floors sigma+1 at 1e-4, and the'
+	1     //' extended-grid solvers assume monotonic sigma.'
+	    WRITE(LUER,'(A)')'Set INC_GRID=F.'
+	    STOP
+	  END IF
+!
 ! Under the nonmono flags only, derive the unclamped velocity
 ! gradient the OBS paths consume: SIGMA_TRUE feeds the Sobolev EW
 ! estimator (Dessart et al. 2015, Sec. 3.1) under DO_NONMONO_SOB
@@ -1143,6 +1170,28 @@
 	1               OBS_PRO_EXT_RAT,ES_WING_EXT,VTURB_MAX)
 	  WRITE(LUER,*)'Finished calling INS_LINE_OBS_V4'
 	CALL TUNE(2,'INS_LINE_OBS')
+!
+! OBSFRAME/OBSFLUX silently become garbage if the observer grid is
+! non-monotonic, duplicated, or non-finite (the bracket hunts in
+! OBS_FRAME_SUB_V9 assume strictly decreasing frequencies).  Check
+! once here, before the solve, rather than at write time.
+!
+	DO ML=1,N_OBS
+	  IF(OBS_FREQ(ML) .NE. OBS_FREQ(ML) .OR.
+	1     OBS_FREQ(ML) .LE. 0.0_LDP .OR.
+	2     OBS_FREQ(ML) .GT. HUGE(OBS_FREQ))THEN
+	    WRITE(LUER,*)'Error: OBS_FREQ not finite at ML=',ML,
+	1     OBS_FREQ(ML)
+	    STOP
+	  END IF
+	  IF(ML .GT. 1)THEN
+	    IF(OBS_FREQ(ML) .GE. OBS_FREQ(ML-1))THEN
+	      WRITE(LUER,*)'Error: OBS_FREQ not strictly decreasing',
+	1       ' at ML=',ML,OBS_FREQ(ML-1),OBS_FREQ(ML)
+	      STOP
+	    END IF
+	  END IF
+	END DO
 !
 	CALL TUNE(1,'SET_PROF_STORE')
 	WRITE(LUER,*)'Setting pofile storage'
@@ -2205,6 +2254,7 @@
 ! light) does not contaminate it.
 !
 	IF(SOB_PHASE .EQ. 1)THEN
+	CALL CHK_OBS_FLUX(OBS_FLUX,N_OBS,'OBSFLUX',LUER)
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFLUX','UNKNOWN',' ',' ',IZERO,IOS)
 	  WRITE(STRING,'(I10)')N_OBS
 	  DO WHILE(STRING(1:1) .EQ. ' ')
@@ -2484,6 +2534,7 @@
 	1            IB_J_CMF_ST,IB_H_CMF_ST,
 	1            (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND. DIF)
 !
+	CALL CHK_OBS_FLUX(OBS_FLUX,N_OBS,'OBSFRAME phase 1',LUER)
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
 	  WRITE(STRING,'(I10)')N_OBS
 	  DO WHILE(STRING(1:1) .EQ. ' ')
@@ -2901,6 +2952,7 @@
 	1            (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND. DIF)
 	  CALL TUNE(2,'OBS_FRAME_SOB')
 !
+	  CALL CHK_OBS_FLUX(OBS_FLUX,N_OBS,'OBSFRAME phase 2',LUER)
 	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
 	    WRITE(STRING,'(I10)')N_OBS
 	    DO WHILE(STRING(1:1) .EQ. ' ')
@@ -3194,5 +3246,43 @@
 	  END IF
 	END DO
 !
+	RETURN
+	END
+!
+! Validate OBS_FLUX before it is written to OBSFRAME/OBSFLUX.
+! NaN/Inf is fatal -- every downstream product inherits it.  A
+! negative bin is censused, not aborted: a deep trough plus an
+! edge-clamp substitution can leave a marginally negative value,
+! but a large count means the render is broken.
+!
+	SUBROUTINE CHK_OBS_FLUX(OBS_FLUX,N_OBS,TAG,LUER)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER N_OBS,LUER
+	REAL(KIND=LDP) OBS_FLUX(N_OBS)
+	CHARACTER(LEN=*) TAG
+	INTEGER I,N_NEG
+	REAL(KIND=LDP) FMIN
+!
+	N_NEG=0
+	FMIN=0.0_LDP
+	DO I=1,N_OBS
+	  IF(OBS_FLUX(I) .NE. OBS_FLUX(I) .OR.
+	1     OBS_FLUX(I) .GT. HUGE(OBS_FLUX) .OR.
+	2     OBS_FLUX(I) .LT. -HUGE(OBS_FLUX))THEN
+	    WRITE(LUER,*)'Error: OBS_FLUX not finite in ',TAG,
+	1     ' at ML=',I,OBS_FLUX(I)
+	    STOP
+	  END IF
+	  IF(OBS_FLUX(I) .LT. 0.0_LDP)THEN
+	    N_NEG=N_NEG+1
+	    FMIN=MIN(FMIN,OBS_FLUX(I))
+	  END IF
+	END DO
+	IF(N_NEG .GT. 0)THEN
+	  WRITE(LUER,'(A,I8,3A,ES14.6)')
+	1   'Warning:',N_NEG,' negative OBS_FLUX bins in ',TAG,
+	2   '; most negative =',FMIN
+	END IF
 	RETURN
 	END
