@@ -1,17 +1,33 @@
-# unit_tests -- production-file regression tests for the modified CMFGEN/JFNK tree
+# unit_tests -- production-object regression tests for the modified CMFGEN/JFNK tree
 
-Every test is a Python script that compiles the **exact production
-Fortran files** from this tree (the repo root, parent of
-`unit_tests/`; `common.py:TREE`) and, where the signature allows, the
-pristine reference in `../cmfgen_reference/cur_cmf/` (`common.py:REF`)
-together with a small CLI driver in `f90/`, runs the binary, and
-asserts on its output.  No Python reimplementation of production code.
+Every test is a Python script that exercises the **exact production
+object files** of this tree (the repo root, parent of `unit_tests/`;
+`common.py:TREE`): production sources resolve to the `.o` the
+production build produced - a sibling `.o` where the build keeps one
+(e.g. `obs/`), else the member extracted verbatim from `lib/*.a`
+(`common.py:prod_obj`, cached under `bin/prod_obj/`).  Only test-only
+code compiles fresh: `f90/` drivers, stubs and signature adapters.
+Reference-tree sources (`common.py:REF` =
+`../cmfgen_reference/cur_cmf/`) compile fresh with the probed
+production flag set (`prod_comp_flags`) so new-vs-reference numerical
+comparisons are apples-to-apples; last-bit differences between a
+shipped `-O3` object and a separately compiled reference are asserted
+through `ref_close` (ULP-level), never silently.
+
+Prerequisites: a completed production build (`make DEBUG=nodebug all`
+or `./build.sh`) so `lib/*.a`, sibling `.o`s and `mod/*.mod` exist and
+are fresh, plus `ifort` (the production compiler - gfortran cannot
+consume the ifort objects/module files).  Stale objects fail loudly:
+`prod_obj` compares member/source timestamps from the archive headers
+and `require_fresh_archives` guards tests that link whole archives.
 
 Run everything:
 
 ```bash
 python3 unit_tests/run_all_tests.py        # exit status = # failed files
 python3 unit_tests/python/test_<name>.py   # single test
+bash unit_tests/build.sh                   # rebuild the se_driver harness
+bash tests/f90/build_and_run.sh            # JFNK solver/interface suites
 ```
 
 Binaries land in `bin/` (rebuilt only when sources change), fixtures
@@ -24,16 +40,16 @@ error text.
 | test file | production file(s) under test | what is asserted |
 |---|---|---|
 | `test_cmf_blkband_pin.py` | `new_main/subs/cmf_blkband_pin_null_v1.f` | Pins only exactly disconnected zero equations with zero RHS; preserves nonzero residual rows, zero-column equations, and near-zero live entries |
-| `test_sigma_true.py` | `new_main/subs/recompute_sigma_true.f` | SIGMA_TRUE_CORE flag gating, unclamped `R/V dV/dR-1`, boundary cells, stagnation and `ND<3` edge cases, new-vs-reference identity when flag off |
+| `test_sigma_true.py` | `new_main/subs/recompute_sigma_true.f` | SIGMA_TRUE_CORE flag gating, unclamped `R/V dV/dR-1`, boundary cells, stagnation and `ND<3` edge cases, new-vs-reference agreement when flag off |
 | `test_velocity_profiles.py` | `new_main/subs/recompute_sigma_true.f` (`SIGMA_TRUE_CORE`, `RECOMPUTE_SIGMA_TRUE`) | V001-V012 manufactured profile registry (`velocity_profiles.py`): analytic dV/dR vs complex-step; production sigma vs analytic sigma and vs an independent stencil mirror (bitwise); sign-change and compression census on every sweep (resolution, shock position/width/strength, close reversals, seeded perturbation, linear grid); h^2 refinement rate; degenerate inputs (V=0, collapsed spacing, reversed grid, infall pocket) flagged loudly via N_UNDEF/aborts |
-| `test_sob_tau_floor.py` | `subs/sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`, `sobew_grad_v3.f` | sigma>=0 and sigma=-0.5 bit-identical to reference; sigma<-1 hits the Dessart+2015 tau floor; analytic BETA check against SOBJBAR_SIM; finite output |
-| `test_interp_guards.py` | `subs/lin_interp.f`, `mon_interp.f`, `mon_interp_fast.f`, `mon_interp_fast_v2.f`, `mon_int_funs_v2.f` | valid-path bit-identity vs reference for all five routines; aborts on non-monotonic/repeated/reversed grids, out-of-range targets, `ND`/`NIN` too small |
+| `test_sob_tau_floor.py` | `subs/sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`, `sobew_grad_v3.f` | sigma>=0 and sigma=-0.5 match reference within ULP; sigma<-1 hits the Dessart+2015 tau floor; analytic BETA check against SOBJBAR_SIM; finite output |
+| `test_interp_guards.py` | `subs/lin_interp.f`, `mon_interp.f`, `mon_interp_fast.f`, `mon_interp_fast_v2.f`, `mon_int_funs_v2.f` | valid-path agreement with reference within ULP for all five routines; aborts on non-monotonic/repeated/reversed grids, out-of-range targets, `ND`/`NIN` too small |
 | `test_rd_rv_file.py` | `newsubs/rd_rv_file_v2.f` | `NONMONO_V` VINF check against `MAXVAL(ABS(V))` (not `V(1)`); interior-peak profiles; 10% tolerance edges; `VINF<0.1` bypass; all-zero V, non-decreasing R and R-scaling rejections; old-behaviour adapter comparison |
 | `test_sob_rh_couple.py` | `subs/sob_rh_couple.f` (new file) | zero pairs under homology; pair count/symmetry vs independent geometry; `mu^2` identity; DRC net-rate term vs recomputed value; suppression of `V<=0`/negative-opacity rows; `BB_COR=0`/`ETAL=0` safety |
 | `test_ng_abstain.py` | `new_main/subs/do_ng_accel_band_v4.f` | `NG_ABSTAIN` per-component hold on zero-diff and non-positive extrapolation; siblings still accelerate; upstream whole-depth veto preserved when flag off; history restoration; vacuous guard |
-| `test_rv_sniin.py` | `new_main/subs/rv_sn_model_sniin.f` | RDINR beta-law path bit-identical new-vs-ref; corrected SIGMA centred-difference denominator verified exactly against the analytic formula (reference matches the old formula, `|delta|~12`); uninitialized-V coordinate into LIN_INTERP aborts via the strict guards |
+| `test_rv_sniin.py` | `new_main/subs/rv_sn_model_sniin.f` | RDINR beta-law path matches reference within ULP; corrected SIGMA centred-difference denominator verified exactly against the analytic formula (reference matches the old formula, `|delta|~12`); uninitialized-V coordinate into LIN_INTERP aborts via the strict guards |
 | `test_rv_snhyd.py` | `new_main/subs/rv_sn_model_snhyd.f` (new file, VEL_LAW=13) | all new guards abort (ND, missing/malformed SN_HYDRO_DATA, non-decreasing input R, `V<=0`, non-positive expansion factor, non-decreasing expanded R, TAU_OPT=1 with no positive Kappa); endpoints pinned to expanded hydro profile; monotone-cubic V on nodes; homologous V -> SIGMA=0; beta-law -> SIGMA~BETA-1; velocity reversal keeps `SIGMA<-1` under both TAU_OPT |
-| `test_edep_shock.py` | `new_main/subs/get_edep_shock_power.f` | flags-off path bit-identical to reference including non-monotonic V (legacy tolerance); `DO_NONMONO_SOB`/`DO_NONMONO_KNOP`/`both` abort on non-positive or non-decreasing V and accept monotone V; Gaussian deposition profile shape/location; 4*pi normalization vs prescribed power; upstream `clump_fac=0` and `sum(wrk)=0` guards |
+| `test_edep_shock.py` | `new_main/subs/get_edep_shock_power.f` | flags-off path matches reference within ULP including non-monotonic V (legacy tolerance); `DO_NONMONO_SOB`/`DO_NONMONO_KNOP`/`both` abort on non-positive or non-decreasing V and accept monotone V; Gaussian deposition profile shape/location; 4*pi normalization vs prescribed power; upstream `clump_fac=0` and `sum(wrk)=0` guards |
 | `test_sob_prof.py` | `obs/cmf_flux_sub_v5.f` (`ADD_SOB_LINE_PROF`) | stored Doppler core integrates to CHIL*CLUMP; off-grid SOB line named and skipped; >10% masing-depth drop warns per line and counts N_DROP; non-monotonic NU aborts before deposition |
 | `test_obs_nonmono_dispatch.py` | `obs/cmf_flux_sub_v5.f`, `obs/COMP_JCONT_V4.INC`, `obs/obs_frame_sub_v9.f`, `obs/rd_cmf_flux_controls.f`, `obs/cmf_flux_cntrl_var_mod.f` (source-text pins) | INC_GRID abort on genuinely non-monotonic V (field-detected, not flag-only); SOB+LAM_ES=F moment dispatch to MOM_J_CMF_NONMONO_V1 (SET_MOM_NU_NEXT, SIGMA_TRUE, FREQ_INDX/NCF, boundary controls) with stock V8 preserved; FIRST_FREQ one-sided dLOG_NU; DO_NONMONO_FREQ_MATCH absent-key auto-set / explicit-F override forwarded to SET_FG_FREQ_MATCH+SET_MOM_FREQ_MATCH; OBS_FRAME edge-clamp census at all three clamp sites + report; OBS_FREQ strictly-decreasing abort; CHK_OBS_FLUX at OBSFLUX/OBSFRAME phase-1/2 writes; two-phase SOB_FLUX_OBS invariants (phase-2 reload branch, coherent-ES/EDDFAC forcing, OBSFLUX phase-1 only, maser-drop counters) |
 | `test_vadat_keys.py` | `new_main/mod_subs/rd_control_variables.f` (+ real `rd_store_log.f`, `control_variable_mod.f`, `jfnk_solver_v1.f90`, `check_param_consistency.f`, `fg_j_cmf_nonmono_v1.f`, `mom_j_cmf_nonmono_v1.f`) | a production VADAT parses; every new non-mono/LAM/BA/JFNK key round-trips into the module store; mutual exclusion; GLOBAL_LINE/USE_LAM_ES/LAM_SET prerequisites abort; DO_JFNK non-mono gate; JFNK_COUPLED KNOP-only; USE_JFNK deprecated alias; JFNK_LAG_FACTORS/JFNK_FRZ_GATE/JFNK_GATE_NREQ round-trip; DO_NONLOC_SOB auto-off; DO_CL/GAMRAY_TRANS legacy-coordinate rejections; IB_METH whitelist + case normalization; VEL_LAW=13 -> SN_HYDRO_MODEL |
@@ -48,12 +64,26 @@ error text.
 | `test_mom_sweep_table.py` | `plane/mom_j_cmf_nonmono_v1.f` | GS-sweep report formats: MOM_MIN_DRA/MOM_MAX_COH argument counts match their descriptors (pre-fix formats dropped values) |
 | `test_rv_hydro_rdin.py` | `new_main/subs/set_rv_hydro_model_v3.f` (VEL_LAW=11 RDINR branch) | R-grid read from RDINR, rescale to hydro inner edge, V rebuild; malformed-input rejections |
 | `test_lam_handoff.py` | `new_main/mod_subs/lam_handoff_mod.f90` (via `drv_lam_handoff.f90`) + source pins in `solve_for_pops.f`, `cmfgen_sub.f`, `rd_control_variables.f`, `check_param_consistency.f` | LAM_FIELD_GATE held/frozen/raw-immature/maturity-window legs on and off the lagged-field routes; LAM_STABLE_STEP earn/reset/pin semantics incl. field-not-ready and forced/blocked pin vetoes; LAM_HANDOFF_OK stock-vs-nonmono predicates (stock keeps single `MAXCH_CTRL < 50`); HAS_LAGGED_FIELD census gate covers SOB+LAM_ES=F; latch clears, T-hold arm, blocked-handoff diagnostic, dead BA_PROBE_LAM consistency warning |
+| `test_iter_ledger.py` | `new_main/mod_subs/iter_ledger_mod.f90` (via `drv_iter_ledger.f90`) | per-iteration work ledger CSV: header once, one row per write, counters/timers/state reconcile with caller values, `n_dem` counts `*demote` tokens, JFNK eval/JVP deltas vs reset snapshot, positive RSS on Linux, no file before `LEDG_ITER_RESET` (stock path silent) |
+| `test_sup_to_full.py` | `subs/sup_to_full_v3b.f` (via `drv_sup_to_full.f90`) | super-level -> full-atom mapping invariants: exact population conservation, departure-coefficient sharing (`INT_SEQ=0`), LTE input returns LTE populations, zero-population super level yields zeros without NaN, extreme contrasts stay finite |
+| `test_comp_obs.py` | `obs/comp_obs_v2.f` (via `drv_comp_obs.f90`) | COMP_OBS_V2 flux audit: zero-velocity limit equals CMF result, relativistic transform vs independently evaluated expectation, coverage/non-finite diagnostics STOP loudly, Jy normalization scales with RMAX |
+| `test_comp_obs_retain.py` | `obs/comp_obs_v2.f` | NU_STORE retention fix: rays with FREQ_CONV_FAC>1 keep the CMF frequencies they need (old ~2-frequency store STOPped 'CMF_FREQ outside range'); fluxes still match independent evaluation |
+| `test_gs_drift_diag.py` | `new_main/subs/solve_for_pops.f`, GS relax accessors (source-text pins) | GS_DRIFT_DIAG VADAT key declared/parsed; diagnostic separates raw sweep drift, refresh residual and retained-field delta with omega/residual-history/argmax/census/freeze state; FG_RF_DCHG reset at sweep entry; MOM_SW_* snapshot cannot go stale |
+| `test_iter_conv_gate.py` | `new_main/subs/solve_for_pops.f`, `cmfgen_sub.f` (source-text pins) | convergence exit cannot fire while the lagged radiation field is immature: both CONV_EXIT_MET blocks conjunct `.NOT. LAM_FIELD_NOT_READY`; census block opens under HAS_LAGGED_FIELD covering SOB+LAM_ES=F |
+| `test_pop_audit.py` | `new_main/mod_subs/control_variable_mod.f`, `rd_control_variables.f`, `solve_for_pops.f` (source-text pins) | POP_AUDIT VADAT keys declared/parsed; audit called under flag; routine iterates SPECIES_BEG_ID..SPECIES_END_ID, treats terminal XzV_PRES=F ion slot as one density row, sums every stage, compares against POP_SPECIES |
+| `test_popoxy_conservation.py` | model `POP*`/POPOXY output files (no Fortran build) | per-species population file conservation: finite non-negative populations, per-stage sums consistent with totals, ion fractions in [0,1], closed species accounting at every depth; skips cleanly without a file |
 
 ## Supporting files
 
-- `common.py` -- compiler discovery (ifort preferred, gfortran
-  fallback), per-test object/link caching, process runner,
-  denormal-tolerant comparison, `Report` pass/fail collector.
+- `common.py` -- compiler discovery (ifort required for production
+  objects), production-object resolution (`prod_obj`/`prod_objs`:
+  sibling `.o` or `lib/*.a` member with archive-header timestamp
+  freshness), production flag/link probing from the tree Makefiles
+  (`prod_comp_flags`, `prod_link_flags`, `link_prod`),
+  `compile_and_link_prod` mixed-source builds, whole-archive
+  freshness (`require_fresh_archives`), per-test object/link caching,
+  process runner, `ref_close` ULP comparison, `Report` pass/fail
+  collector.
 - `velocity_profiles.py` -- common manufactured velocity-profile
   library (V001-V012) shared by every non-mono solver test:
   analytic R/V/dV/dR/sigma, gradient sign changes, compression
