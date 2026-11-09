@@ -18,7 +18,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, WORKDIR, Report, compile_objs, link, run
+from common import (
+    F90DIR,
+    TREE,
+    WORKDIR,
+    Report,
+    compile_and_link_prod,
+    run,
+)
 
 HELPERS = [
     "tools/set_kind_module.f",
@@ -52,10 +59,9 @@ HELPERS = [
 
 
 def build():
-    objs = compile_objs(
+    return compile_and_link_prod(
         "knray", [TREE / h for h in HELPERS] + [F90DIR / "drv_knop_ray.f90"]
     )
-    return link("knray", objs)
 
 
 def parse(out):
