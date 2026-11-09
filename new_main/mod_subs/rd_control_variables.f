@@ -1035,6 +1035,22 @@
 	  POP_RUNAWAY_DEM=MAX(POP_RUNAWAY_DEM,0.0_LDP)
 	  POP_RUNAWAY_TOPN=MAX(0,MIN(POP_RUNAWAY_TOPN,200))
 !
+! POP_MASK_FLOOR / POP_TRACE_MAXFAC (defaults 0 = off): Item-2
+! floor-pinned population handling -- see CONTROL_VARIABLE_MOD.
+! MASK_FLOOR is an absolute population floor below which a level
+! unknown is pinned out of the per-depth SE solve; TRACE_MAXFAC is
+! a per-row fractional-correction cap. Both are clamped non-negative
+! so a stray value cannot mask everything or zero the corrections.
+!
+	  POP_MASK_FLOOR=0.0_LDP
+	  CALL RD_STORE_DBLE(POP_MASK_FLOOR,'POP_MASK_FLOOR',L_FALSE,
+	1     'Population floor below which a level is masked out of the SE solve?')
+	  POP_TRACE_MAXFAC=0.0_LDP
+	  CALL RD_STORE_DBLE(POP_TRACE_MAXFAC,'POP_TRACE_MAXFAC',L_FALSE,
+	1     'Per-row fractional-correction cap for level populations?')
+	  POP_MASK_FLOOR=MAX(POP_MASK_FLOOR,0.0_LDP)
+	  POP_TRACE_MAXFAC=MAX(POP_TRACE_MAXFAC,0.0_LDP)
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial. With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
