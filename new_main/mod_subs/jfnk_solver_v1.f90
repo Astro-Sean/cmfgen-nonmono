@@ -237,6 +237,15 @@ module jfnk_solver_v1_mod
    !    JFNK_PC_RCOND_MIN] replace the x=1 forward-error micro-test by
    !    an explicit reciprocal-condition threshold and cap the ridge
    !    ladder attempts per depth.
+   ! jfnk_pc_qual_v2/qual_tol: [JFNK_PC_QUAL] second acceptance probe.
+   !    The x=1 micro-test solves M x = M*1, which returns x=1 for ANY
+   !    numerically stable solve -- it cannot see M^-1 A annihilating
+   !    a near-null direction of A (the audit blindspot, test Q2). The
+   !    probe instead solves against A*v for a deterministic non-
+   !    constant v and rejects when any non-reg component loses more
+   !    than qual_tol of its direction (default 0.5 = damped >2x).
+   !    LU path only: LSQ's Tikhonov damping is directional damping by
+   !    design, so direction loss there is intended, not a defect.
    !
    logical :: jfnk_pc_signed = .false.
    logical :: jfnk_pc_reg_zerocol = .false.
@@ -244,6 +253,8 @@ module jfnk_solver_v1_mod
    logical :: jfnk_rcond_gate = .false.
    double precision :: jfnk_rcond_min = 1.0d-13
    integer :: jfnk_itry_cap = 3
+   logical :: jfnk_pc_qual_v2 = .false.
+   double precision :: jfnk_pc_qual_tol = 0.5d0
    !
    ! Persistent workspace for newton_hook_v1 and gmres_m_v1 (audit §3,
    ! 09-Sep-2026): replaces large automatic arrays that were on the stack.
@@ -532,18 +543,22 @@ contains
    ! through this routine.
    !
    subroutine jfnk_pc_set_options_v1(ptc_signed, reg_zerocol, &
-        tiny_equil, rcond_gate, rcond_min, itry_cap)
+        tiny_equil, rcond_gate, rcond_min, itry_cap, qual, qual_tol)
       implicit none
       logical, intent(in) :: ptc_signed, reg_zerocol, tiny_equil, &
            rcond_gate
       double precision, intent(in) :: rcond_min
       integer, intent(in) :: itry_cap
+      logical, intent(in), optional :: qual
+      double precision, intent(in), optional :: qual_tol
       jfnk_pc_signed = ptc_signed
       jfnk_pc_reg_zerocol = reg_zerocol
       jfnk_pc_tiny_equil = tiny_equil
       jfnk_rcond_gate = rcond_gate
       jfnk_rcond_min = rcond_min
       jfnk_itry_cap = itry_cap
+      if(present(qual)) jfnk_pc_qual_v2 = qual
+      if(present(qual_tol)) jfnk_pc_qual_tol = qual_tol
    end subroutine jfnk_pc_set_options_v1
 !
    ! jfnk_eval_cap_v1: effective per-activation residual-eval cap.
@@ -4314,7 +4329,8 @@ end subroutine jfnk_schur_apply_v1
         rcond, pivrat, itry_used, ridge_used, lu_ok)
       use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
-           jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
+           jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap, &
+           jfnk_pc_qual_v2, jfnk_pc_qual_tol
       use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
       implicit none
       integer, intent(in) :: n, luer
@@ -4612,6 +4628,43 @@ end subroutine jfnk_schur_apply_v1
                   if(info_g == 0) rcond = rcond_k
                end if
             end if
+!
+! [JFNK_PC_QUAL] (11-Nov-2026 audit): the tests above only prove the
+! factorization solves stably; b=M*1 returns x=1 for ANY stable M,
+! so M^-1 A annihilating a near-null direction of A passes unseen
+! (unit test test_pc_quality Q2). Solve against A*v for a fixed
+! non-constant probe direction and reject when the recovered vector
+! deviates by more than qual_tol on any non-reg component. LU only:
+! LSQ's Tikhonov damping is intentional direction attenuation.
+!
+            if(jfnk_pc_qual_v2 .and. .not. lsq_mode)then
+               do i = 1, n
+                  x_tst(i) = sin(2.17d0 * i + 0.3d0)
+               end do
+               do i = 1, n
+                  s_tmp = 0.0d0
+                  do j = 1, n
+                     s_tmp = s_tmp + a(i,j) * x_tst(j)
+                  end do
+                  b_tst(i) = s_tmp * rsf(i)
+               end do
+               call dgetrs('N', n, 1, lu, n, ipiv, b_tst, n, info_g)
+               if(info_g /= 0)then
+                  ridge_used = 0.0d0
+                  cycle
+               end if
+               anorm_k = 0.0d0
+               s_tmp = maxval(abs(x_tst(1:n)))
+               do i = 1, n
+                  b_tst(i) = b_tst(i) * csf(i)
+                  if(.not. reg(i)) anorm_k = max(anorm_k, &
+                       abs(b_tst(i) - x_tst(i)))
+               end do
+               if(anorm_k > jfnk_pc_qual_tol * max(s_tmp, 1.0d-30))then
+                  ridge_used = 0.0d0
+                  cycle
+               end if
+            end if
             lu_ok = .true.
             ridge_used = ridge_add
             itry_used = itry
@@ -4622,6 +4675,12 @@ end subroutine jfnk_schur_apply_v1
                piv_max = max(piv_max, abs(lu(i,i)))
             end do
             pivrat = piv_min / max(piv_max, 1.0d-300)
+! pivrat reads the POST-equilibration pivots: DGEEQU+partial
+! pivoting self-normalize the factorization, so the ratio stays ~1
+! even when the raw block spans 1e-14 in its diagonal (unit test
+! test_pc_quality Q6). The gate is therefore nearly untriggerable;
+! JFNK_PC_QUAL measures the quantity it was meant to protect
+! (||I - M^-1 A|| on a probe direction).
             if(.not. lsq_mode .and. &
                  ridge_piv > 0.0d0 .and. pivrat < ridge_piv)then
 ! DGETRF can return INFO=0 on a near-singular block whose smallest
