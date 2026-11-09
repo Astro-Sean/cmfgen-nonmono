@@ -125,6 +125,25 @@ Status legend: `[x]` done+verified, `[~]` in progress, `[ ]` open.
 - **Remaining: confirm on live output; add wavelength-range coverage
   report to T7 if needed.**
 
+### T10 — Recommended input guide + docs + regression run — DONE
+- `docs/audits/CMF_FLUX_OPTIMAL_INPUT_SETUP.md` written: separate
+  KNOP / SOB / monotonic configurations, trap inventory
+  (`NON_MONO_SOLVER` dead key, `SOB_SIGMA_MAX` now clamps the OBS
+  moment solve too, stale cached grids), common settings marked
+  mandatory/physics/numerical/unverified, output semantics and the
+  Jy-at-1-kpc distance scaling.
+- Obsidian updates (09-Nov-2026): `reference/VADAT keys.md` (OBS
+  freq-match key, INC_GRID rejection, stale "KNOP OBS removed" claim
+  corrected), `physics/Model pipeline.md` (OBS solver consistency
+  pass), `solvers/Sobolev non-mono solver.md` (dispatch-fix banner).
+- Committed and pushed `8224a00b..4e5a64a6` (10 commits, one per
+  file). Untracked pre-existing edits (`test_knop_lagged_field.py`
+  and run products) left in place.
+- Regression run: `unit_tests/run_all_tests.py` -> **31/31 files
+  pass**, including `test_obs_nonmono_dispatch.py`.
+- Limits: T6 model-based validation ladder still unrun; all source
+  and build evidence only.
+
 ### T6 — Validation suite A-J (Phase 7) — REQUIRED before claiming correctness
 - A static atmosphere vs known RT solution.
 - B monotonic vs stock/reference `cmf_flux.exe` (regression for T2/T3).
