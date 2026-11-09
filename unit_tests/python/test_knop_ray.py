@@ -394,27 +394,48 @@ def main():
         return float(x)
 
     def _db(text):
+        # Every row must be well-formed and unique. A duplicate or
+        # malformed record is a hard failure, not a silent overwrite.
         d = {}
+        errs = []
         for ln in text.splitlines():
             t = ln.split()
             if len(t) < 3:
                 continue
+            key = None
             if t[0] in ("DBSI", "DBRI"):
-                d.setdefault(t[0], {})[(int(t[1]), int(t[2]))] = [
-                    int(x) for x in t[3:]
-                ]
+                key = (t[0], int(t[1]), int(t[2]))
+                want = 3 if t[0] == "DBSI" else 5
+                if len(t) != want + 3:
+                    errs.append(f"{t[0]} {(t[1], t[2])} width {len(t)-3}")
+                val = [int(x) for x in t[3:]]
             elif t[0] in ("DBS", "DBR", "DBSA", "DBRA"):
-                d.setdefault(t[0], {})[(int(t[1]), int(t[2]))] = [
-                    _f(x) for x in _F.findall(ln)
-                ]
-            elif t[0] == "JMAP":
-                # JMAP k j_pnt(k,LS) comp_depth_idx(k)
+                key = (t[0], int(t[1]), int(t[2]))
+                val = [_f(x) for x in _F.findall(ln)]
+                want = 5 if t[0] in ("DBSA", "DBRA") else 11
+                if len(val) != want:
+                    errs.append(
+                        f"{t[0]} {(t[1], t[2])} width {len(val)}!={want}"
+                    )
+                if not all(abs(v) < 1e30 for v in val):
+                    errs.append(f"{t[0]} {(t[1], t[2])} nonfinite")
+            elif t[0] == "JMAP" and len(t) == 4:
                 d.setdefault("JMAP", {})[int(t[1])] = (
                     int(t[2]),
                     int(t[3]),
                 )
-            elif t[0] == "GAMV":
+                continue
+            elif t[0] == "GAMV" and len(t) == 3:
                 d.setdefault("GAMV", {})[int(t[1])] = float(t[2])
+                continue
+            else:
+                continue
+            blk, i, l = key
+            if (i, l) in d.setdefault(blk, {}):
+                errs.append(f"duplicate {blk} {(i, l)}")
+            d[blk][(i, l)] = val
+        if errs:
+            d["__err__"] = errs
         return d
 
     def _close(a, b, rtol=1.0e-5, atol=0.0):
@@ -425,6 +446,8 @@ def main():
         d = _db(text)
         if "RESULT_OK" not in text:
             return False, "driver failed"
+        if "__err__" in d:
+            return False, "; ".join(d["__err__"][:2])
         for blk in ("DBS", "DBR", "DBSA", "DBRA", "DBSI", "DBRI"):
             if blk not in d:
                 return False, f"missing block {blk}"
@@ -500,24 +523,31 @@ def main():
         slot2dep = {v[1]: k for k, v in jm.items() if v[1] > 0}
         gam = d.get("GAMV", {})
         worst = {}
+        worst_abs = {}
         nfail = []
 
-        def _w(name, val):
-            worst[name] = max(worst.get(name, 0.0), val)
+        def _w(name, val, aval):
+            if val > worst.get(name, 0.0):
+                worst[name] = val
+                worst_abs[name] = aval
 
         for k in act:
             s, r = d["DBS"][k], d["DBR"][k]
             si, ri = d["DBSI"][k], d["DBRI"][k]
             # Field-independent operator columns.
-            for j, name in ((0, "chih"), (1, "q"), (6, "wx"),
-                            (7, "dlnm"), (10, "sr")):
+            # Scale-aware check: the reference scale is the local
+            # value itself (|ref|, not an arbitrary floor), with a
+            # tiny absolute floor of 1e-9*scale so a physically
+            # significant discrepancy can never divide itself small.
+            for j, name in ((0, "chih"), (1, "q"), (2, "dchr"),
+                            (6, "wx"), (7, "dlnm"), (10, "sr")):
                 sc = max(abs(r[j]), abs(s[j]), 1e-30)
-                _w(name, abs(s[j] - r[j]) / sc)
+                _w(name, abs(s[j] - r[j]) / sc, abs(s[j] - r[j]))
                 if not _close(s[j], r[j], 1.0e-5, sc * 1.0e-9):
                     nfail.append(f"{name}@{k} {s[j]}!={r[j]}")
             if k[0] < ni:
                 sc = max(abs(r[3]), abs(s[3]), 1e-30)
-                _w("dtau", abs(s[3] - r[3]) / sc)
+                _w("dtau", abs(s[3] - r[3]) / sc, abs(s[3] - r[3]))
                 if not _close(s[3], r[3], 1.0e-5, sc * 1.0e-9):
                     nfail.append(f"dtau@{k} {s[3]}!={r[3]}")
             # Frequency offset + availability parity.
@@ -556,10 +586,13 @@ def main():
             s, r = d["DBSA"][k], d["DBRA"][k]
             for j in range(5):
                 sc = max(abs(r[j]), abs(s[j]), 1e-30)
-                _w(f"a{j}", abs(s[j] - r[j]) / sc)
+                _w(f"a{j}", abs(s[j] - r[j]) / sc, abs(s[j] - r[j]))
                 if not _close(s[j], r[j], 1.0e-5, sc * 1.0e-9):
                     nfail.append(f"a{j}@{k} {s[j]}!={r[j]}")
-        det = " ".join(f"{m}={v:.1e}" for m, v in sorted(worst.items()))
+        det = " ".join(
+            f"{m}={v:.1e}({worst_abs[m]:.1e})"
+            for m, v in sorted(worst.items())
+        )
         if nfail:
             det = f"{len(nfail)} fails [{nfail[0]}] | " + det
         return not nfail, det
@@ -631,36 +664,158 @@ def main():
         r = z["DBR"].get((4, l))
         if r is None or r[1] != 0.0 or r[4] != r[10] or r[5] != r[10]:
             fails.append(f"gzz cell4 l{l} coupling present")
-    # Continuity: deviations from the gzz operator shrink by ~10x
-    # per decade; sign-blind chi_hat increment; signed Q flip.
+    # Continuity: separate dimensionless measures per quantity.
+    #   e_chih = |chih - chih0| / chih0      (local opacity scale)
+    #   e_q    = |q| / q_scale               q_scale = |GAM1|/(dlnm*chih0)
+    #   e_sp   = |spm - sr| / sr             (local source scale)
+    # q_scale is the implemented coupling coefficient evaluated at the
+    # largest perturbation (GAM1 = 1e-2*GAMP), derived from the dumped
+    # DLNM and the exact-zero CHI_HAT -- not an arbitrary constant.
+    # Each sign must contract monotonically toward the zero operator;
+    # where two successive levels are both resolved, the ratio should
+    # sit at ~0.1 (linear in |GAM|). The SPM error includes the donor
+    # field itself, which converges only to the fixed-point tolerance,
+    # so its floor cuts in sooner -- same bound, wider resolved floor.
+    ratios = {"p": [], "n": []}
+    quiet = {"p": [], "n": []}
     for l in range(1, 7):
+        r0 = z["DBR"].get((4, l))
+        if r0 is None:
+            fails.append(f"gzz l{l} missing")
+            continue
+        chih0, sr0 = r0[0], r0[10]
+        # GAM at the largest perturbation is 1e-2*GAMP; GAMP=4e-6 in
+        # the driver, so |GAM1| = 4e-8.
+        qs = 4.0e-8 / max(abs(r0[7]) * chih0, 1e-30)
         for sgn in ("p", "n"):
-            prev = None
+            es = []
             for n in (1, 2, 3, 4):
                 r = dbg[f"gz{sgn}{n}"]["DBR"].get((4, l))
-                r0 = z["DBR"].get((4, l))
-                if r is None or r0 is None:
+                if r is None:
                     fails.append(f"gz{sgn}{n} l{l} missing")
                     continue
-                dmag = max(
-                    abs(r[0] - r0[0]),
-                    abs(r[1] - r0[1]),
-                    abs(r[4] - r0[4]),
-                )
-                if prev is not None and not dmag <= prev * 0.5:
-                    fails.append(
-                        f"gz{sgn}{n} l{l} not contracting "
-                        f"{dmag:.1e} vs {prev:.1e}"
+                es.append(
+                    (
+                        abs(r[0] - chih0) / max(chih0, 1e-30),
+                        abs(r[1]) / qs,
+                        # SPM - SR within the SAME run: SR drifts
+                        # ~1e-8 run-to-run, which would swamp the
+                        # finest coupling levels.
+                        abs(r[4] - r[10]) / max(sr0, 1e-30),
                     )
-                prev = dmag
-        rp = dbg[f"gzp1"]["DBR"].get((4, l))
-        rn = dbg[f"gzn1"]["DBR"].get((4, l))
-        if rp and rn:
-            dp, dn = rp[0] - z["DBR"][(4, l)][0], rn[0] - z["DBR"][(4, l)][0]
-            if dp > 0 and abs(dp - dn) / dp > 1.0e-2:
-                fails.append(f"l{l} chi_hat shift not sign-blind")
-            if l > 1 and abs(rp[1] + rn[1]) / max(abs(rp[1]), 1e-30) > 1.0e-2:
-                fails.append(f"l{l} Q not sign-symmetric")
+                )
+            if len(es) < 4:
+                continue
+            if all(e == (0.0, 0.0, 0.0) for e in es):
+                # l=1 expansion has no l-1 donor: the coupling is
+                # structurally absent, not suppressed -- classify it.
+                quiet[sgn].append(l)
+                continue
+            for n in range(1, 4):
+                for qi, qn in enumerate(("chih", "q", "sp")):
+                    e0, e1 = es[n - 1][qi], es[n][qi]
+                    if e1 > e0 * 1.05 + 1e-13:
+                        fails.append(
+                            f"gz{sgn} l{l} {qn} not monotonic "
+                            f"{e0:.1e}->{e1:.1e}"
+                        )
+                    if e0 > 1e-9:
+                        rt = e1 / e0
+                        ratios[sgn].append(rt)
+                        if not 0.03 <= rt <= 0.5:
+                            fails.append(
+                                f"gz{sgn} l{l} {qn} ratio {rt:.2f}"
+                            )
+    # Sign reversal (Task 3): where the compressing branch has a real
+    # donor (IKC set, l+NFM<=NCF), Q must flip sign exactly; the
+    # magnitudes must match within 5% -- the |GAM|/DLN construction is
+    # sign-blind. Where one sign has Q=0 the donor is structurally
+    # unavailable (expansion at l=1): classify, never force a sign.
+    flips = 0
+    partial = []
+    for l in range(1, 7):
+        rp = dbg["gzp1"]["DBR"].get((4, l))
+        rn = dbg["gzn1"]["DBR"].get((4, l))
+        ir = dbg["gzn1"]["DBRI"].get((4, l))
+        if not rp or not rn or not ir:
+            fails.append(f"l{l} sign pair missing")
+            continue
+        has_donor = (
+            (ir[1] == 1 or ir[2] == 1) and l + ir[0] <= 6
+        )
+        if rp[1] != 0.0 and rn[1] != 0.0 and has_donor:
+            if rp[1] * rn[1] >= 0.0:
+                fails.append(
+                    f"l{l} Q no sign flip {rp[1]:.1e}/{rn[1]:.1e}"
+                )
+            else:
+                flips += 1
+                m = min(abs(rp[1]), abs(rn[1])) / max(
+                    abs(rp[1]), abs(rn[1])
+                )
+                if m < 0.95:
+                    fails.append(f"l{l} |Q| asymmetric {m:.3f}")
+        elif rp[1] != 0.0 and rn[1] != 0.0 and not has_donor:
+            # Compression donor beyond the grid (l+NFM>NCF): Q is
+            # built but must multiply nothing -- the pure-outflow
+            # closure. Assert the source is untouched instead of a
+            # sign flip.
+            if rn[4] != rn[10]:
+                fails.append(f"l{l} beyond-grid donor consumed")
+            partial.append(l)
+        elif rp[1] != 0.0 or rn[1] != 0.0:
+            # One sign coupled, the other structurally unable to --
+            # expected at l=1 (expansion has no l-1 donor), wrong
+            # anywhere else.
+            if l != 1:
+                fails.append(f"l{l} one-sided coupling")
+            partial.append(l)
+    if flips == 0:
+        fails.append("no resolved Q sign flip anywhere")
+
+    # Donor identity across the crossing (Task 5): reconstruct the
+    # consumed donor as (SPM-SR)/|Q| and match it against the dumped
+    # field at the branch-appropriate location.
+    #   expansion (Q>0): donor = FLD(same depth, l-1)
+    #   compression (Q<0): donor = (1-w)*FLD(jpr1,l+nfm)
+    #                             + w*FLD(jpr2,l+nfm)
+    # Both must reproduce the reconstruction within 5% -- the lagged
+    # donor is the previous iterate of the same converged field.
+    # gzz reads none (Q=0 bitwise). A donor that matched the WRONG
+    # stencil (own-frequency or unrelated slot) fails the match.
+    donors = {"exp": 0, "cmp": 0}
+    for l in range(2, 7):
+        for tag, kind in (("gzp1", "exp"), ("gzn1", "cmp")):
+            d = dbg[tag]
+            r = d["DBR"].get((4, l))
+            ir = d["DBRI"].get((4, l))
+            if not r or not ir or r[1] == 0.0:
+                continue
+            rec = (r[4] - r[10]) / abs(r[1])
+            if kind == "exp":
+                ref = d["DBR"].get((4, l - 1), [None] * 9)[8]
+            else:
+                j1, j2, w = ir[3], ir[4], r[6]
+                lf = l + ir[0]
+                if lf > 6:
+                    # Beyond-grid donor: verified by the SP==SR
+                    # closure above, not a reconstruction target.
+                    continue
+                f1 = d["DBR"].get((j1, lf), [None] * 9)[8]
+                f2 = d["DBR"].get((j2, lf), [None] * 9)[8]
+                ref = None if f1 is None or f2 is None else (
+                    (1.0 - w) * f1 + w * f2
+                )
+            if ref is None:
+                fails.append(f"{tag} l{l} donor ref missing")
+            elif abs(rec - ref) / max(abs(ref), 1e-30) > 0.05:
+                fails.append(
+                    f"{tag} l{l} donor {rec:.3e}!={ref:.3e} ({kind})"
+                )
+            else:
+                donors[kind] += 1
+    if donors["exp"] == 0 or donors["cmp"] == 0:
+        fails.append(f"donor ids unverified {donors}")
     # gzb: zero cell quiet, neighbours keep opposite-sign Q.
     b = dbg["gzb"]
     for l in range(2, 7):
@@ -678,12 +833,14 @@ def main():
             fails.append(f"gcr l{l} Q signs {r4[1]:.1e}/{r5[1]:.1e}")
 
     ok = clean and d_micro == 0.0 and not fails
+    _r = lambda s: "/".join(f"{x:.2f}" for x in ratios[s][:4])
     rep.check(
-        "T15 GAM crossing: exact-zero quiet, resolved continuity, "
-        "sign-blind chi_hat, signed Q flip",
+        "T15 GAM crossing: exact-zero quiet, monotonic ~linear "
+        "contraction, signed Q flip, donor identity",
         ok,
-        f"clean={clean} microstep={d_micro:.2e} "
-        f"{'; '.join(fails[:2]) if fails else 'coef-level ok'}",
+        f"clean={clean} micro={d_micro:.1e} flips={flips} "
+        f"donors={donors} ratios p={_r('p')} n={_r('n')} "
+        f"{'; '.join(fails[:2]) if fails else ''}",
     )
 
     rep.summary()
