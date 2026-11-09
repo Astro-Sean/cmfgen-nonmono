@@ -2742,7 +2742,7 @@
 	DOUBLE PRECISION, ALLOCATABLE :: DIR_LIN(:), JV_LIN(:)
 	DOUBLE PRECISION W_INF_L, DEF_INF, DEN_INF
 	INTEGER NBAD_SAV, NCLIP_SAV, MODE_HA
-	LOGICAL EVB_SAV
+	LOGICAL EVB_SAV, BYP_SAV
 !
 ! W22 [JFNK_FDCPLX, default F]: the complex-step JVP (Martins & Ning
 ! 2021) needs the perturbation carried through the residual in
@@ -3287,6 +3287,12 @@
 	    NBAD_SAV=jfnk_resid_nbad
 	    NCLIP_SAV=JFNK_N_NEW_CLIP
 	    EVB_SAV=JFNK_EVAL_BROKEN
+! The sweep/repeat/baseline probe evals below are measurement
+! overhead: letting them consume the eval budget can turn later
+! production JVPs into budget sentinels. Bypass for the block's
+! duration and restore on every exit path below.
+	    BYP_SAV=JFNK_EVAL_BYPASS
+	    JFNK_EVAL_BYPASS=.TRUE.
 	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A)')
      1      '  JVP DIAGNOSTIC (FD vs BA diagonal-band action):'
 	    DO I = 1, MIN(10, N)
@@ -3484,6 +3490,7 @@
 	        jfnk_resid_nbad=NBAD_SAV
 	        JFNK_N_NEW_CLIP=NCLIP_SAV
 	        JFNK_EVAL_BROKEN=EVB_SAV
+	        JFNK_EVAL_BYPASS=BYP_SAV
 	        RETURN
 	      END IF
 	    END IF
@@ -3598,6 +3605,7 @@
 	    jfnk_resid_nbad=NBAD_SAV
 	    JFNK_N_NEW_CLIP=NCLIP_SAV
 	    JFNK_EVAL_BROKEN=EVB_SAV
+	    JFNK_EVAL_BYPASS=BYP_SAV
 	  END IF
 	END IF
 !
@@ -3688,6 +3696,10 @@
 	  NBAD_SAV=jfnk_resid_nbad
 	  NCLIP_SAV=JFNK_N_NEW_CLIP
 	  EVB_SAV=JFNK_EVAL_BROKEN
+! The LINTEST probe evals are measurement overhead -- same budget
+! bypass as the JVP diagnostic block above.
+	  BYP_SAV=JFNK_EVAL_BYPASS
+	  JFNK_EVAL_BYPASS=.TRUE.
 	  W_INF_L=0.0D0
 	  DO I=1,N
 	    W_INF_L=MAX(W_INF_L,ABS(JV(I)))
@@ -3778,6 +3790,7 @@
 	  jfnk_resid_nbad=NBAD_SAV
 	  JFNK_N_NEW_CLIP=NCLIP_SAV
 	  JFNK_EVAL_BROKEN=EVB_SAV
+	  JFNK_EVAL_BYPASS=BYP_SAV
 	END IF
 !
 	CALL JFNK_SEC_RECORD_V1(N, JFNK_W_V_USE, JV)
