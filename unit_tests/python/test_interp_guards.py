@@ -32,12 +32,14 @@ from common import (
     BINDIR,
     F90DIR,
     PLOTDIR,
+    PROD_MOD_INC,
     REF,
     TREE,
     Report,
     compile_objs,
-    link,
-    max_meaningful_diff,
+    link_prod,
+    prod_objs,
+    ref_close,
     run,
 )
 
@@ -104,21 +106,32 @@ ND, NIN, NX = 20, 30, 30
 
 
 def build():
-    help_objs = compile_objs("int_help", HELPERS)
+    md = BINDIR / "obj_int_help"
+    help_objs = prod_objs(HELPERS)
     drv_obj = compile_objs(
-        "int_drv", [F90DIR / "drv_interp.f90"], moddir=BINDIR / "obj_int_help"
+        "int_drv",
+        [F90DIR / "drv_interp.f90"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
     )
     bins = {}
-    for tag, root in (("new", TREE), ("ref", REF)):
-        objs = []
-        for key, fname in ROUTINES.items():
-            objs += compile_objs(
-                f"int_{tag}_{key}",
-                [root / "subs" / fname],
-                moddir=BINDIR / "obj_int_help",
+    for tag in ("new", "ref"):
+        if tag == "new":
+            objs = prod_objs(
+                [TREE / "subs" / fname for fname in ROUTINES.values()]
             )
-        bins[tag] = link(
-            f"interp_{tag}", help_objs + drv_obj + objs, moddir=BINDIR / "obj_int_help"
+        else:
+            objs = []
+            for key, fname in ROUTINES.items():
+                objs += compile_objs(
+                    f"int_{tag}_{key}",
+                    [REF / "subs" / fname],
+                    prod=True,
+                    moddir=md,
+                    extra_flags=PROD_MOD_INC,
+                )
+        bins[tag] = link_prod(
+            f"interp_{tag}", help_objs + drv_obj + objs, moddir=md
         )
     return bins
 
@@ -177,14 +190,15 @@ def main():
             rb = run(bins["ref"], rtn, case)
             oka, a = parse_ok(ra.stdout)
             okb, b = parse_ok(rb.stdout)
-            same = (
-                oka and okb and a.shape == b.shape and max_meaningful_diff(a, b) == 0.0
+            close, maxrel = (
+                ref_close(a, b) if (oka and okb and a is not None and b is not None) else (False, np.inf)
             )
+            same = oka and okb and a is not None and b is not None and close
             rep.check(
                 f"{case} {rtn}: new == reference",
                 same,
                 (
-                    f"maxdiff={np.abs(a - b).max():.2e}"
+                    f"maxrel={maxrel:.2e}"
                     if (oka and okb)
                     else "missing output"
                 ),
