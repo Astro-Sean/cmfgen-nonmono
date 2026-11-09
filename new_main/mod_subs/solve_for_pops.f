@@ -185,6 +185,17 @@
 	INTEGER*8 MOM_SW_NEGJ,MOM_SW_NQUAR,MOM_SW_CAPPED
 	INTEGER*8 MOM_SW_NHUGE
 	INTEGER*8 MOM_SW_BNDFL
+!
+! Symmetric-drift diagnostic (09-Nov-2026; diagnostic only, no gate
+! reads it): MOM_SW_MAXSYM is the fresh-vs-stored max change under
+! |new-old|/max(|new|,|old|,1E-4*max(old col peak,fresh col peak,
+! 1E-28)); a one-sided MOM_SW_MAXCHG inflated by a floor-denominator
+! cell reads ~1 here with a floor-scale argmax triple.
+! MOM_SW_ARGV(1:3) = (stored, fresh, old col peak) at the
+! MOM_SW_MAXCHG argmax cell (MOM_SW_ARGI, MOM_SW_ARGL).
+!
+	REAL(KIND=LDP) MOM_SW_MAXSYM,MOM_SW_ARGV(3)
+	INTEGER MOM_SW_ARGI,MOM_SW_ARGL
 	LOGICAL MOM_RF_RAN,MOM_RF_CONV
 	REAL(KIND=LDP) MOM_RF_DCHG
 	INTEGER*8 MOM_RF_N5,MOM_RF_N50
@@ -765,6 +776,10 @@
 	MOM_SW_CAPPED=0
 	MOM_SW_NHUGE=0
 	MOM_SW_BNDFL=0
+	MOM_SW_MAXSYM=0.0_LDP
+	MOM_SW_ARGV(1:3)=0.0_LDP
+	MOM_SW_ARGI=0
+	MOM_SW_ARGL=0
 	MOM_RF_RAN=.FALSE.
 	MOM_RF_CONV=.FALSE.
 	MOM_RF_DCHG=0.0_LDP
@@ -1063,7 +1078,8 @@
 	4      MOM_SW_NTOT,MOM_SW_NEGJ,MOM_SW_NQUAR,MOM_SW_CAPPED,
 	5      MOM_SW_BNDFL,
 	6      MOM_RF_RAN,MOM_RF_CONV,MOM_RF_DCHG,MOM_RF_N5,MOM_RF_N50,
-	7      MOM_NPQUAR,MOM_SW_NHUGE)
+	7      MOM_NPQUAR,MOM_SW_NHUGE,
+	8      MOM_SW_MAXSYM,MOM_SW_ARGI,MOM_SW_ARGL,MOM_SW_ARGV)
 	  CALL GET_MOM_GS_CLS(GS_CLS_MOM)
 	  CALL GET_FG_GS_CLS(GS_CLS_FG)
 !
@@ -1454,10 +1470,10 @@
 	      WRITE(LUER,'(A)')
 	1     'SOLVE_FOR_POPS: lagged radiation field not stable'
 	      WRITE(LUER,'(A,ES12.4,A,I8,A,I14,A)')
-	1     '    ray solve: largest drift ',GS_MAXCHG,'; ',GS_CAPPED,
+	1     '    ray solve: residual/sweep max ',GS_MAXCHG,'; ',GS_CAPPED,
 	2     ' capped writes; ',GS_NCONV,' cells changed by more than 50%'
 	      WRITE(LUER,'(A,ES12.4,A,I8,A,I8,A)')
-	1     '    moment solve: largest drift ',MOM_MAXCHG,'; ',
+	1     '    moment solve: residual/sweep max ',MOM_MAXCHG,'; ',
 	2     MOM_CAPPED,' capped writes; ',MOM_NEGJ,
 	3     ' negative-J cells repaired'
 	      WRITE(LUER,'(A)')
@@ -1702,7 +1718,7 @@
 	    WRITE(LUER,'(A,I8)')'    no-progress releases       : ',
 	1   N_REL_NOPROG
 	    WRITE(LUER,'(A,2ES12.4)')
-	1   '    largest drift, ray / moment : ',GS_MAXCHG,MOM_MAXCHG
+	1   '    residual/sweep max, ray / moment : ',GS_MAXCHG,MOM_MAXCHG
 !
 ! edited 17-Oct-2026: the sweep drift can reach
 ! 1E263 on a detonating sweep -- ES12.4 drops the 'E' for a
@@ -1733,6 +1749,19 @@
 	1   TRIM(MOM_SWEEP_SENTENCE('sweep',MOM_SW_MAXCHG,
 	2   MOM_SW_NBAD5,MOM_SW_NBAD50,MOM_SW_NEGJ,MOM_SW_NQUAR,
 	3   0_8,0_8))
+!
+! edited 09-Nov-2026: symmetric drift and the argmax cell's raw
+! magnitudes. The one-sided max above divides by the stored value,
+! so a floor cell can print 1E4-1E31; the symmetric number and the
+! (stored,fresh,col-peak) triple let the reader tell a
+! normalization artifact from a genuine field change at a glance.
+! Diagnostic only.
+!
+	    WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,I6,A,I6,3(A,ES11.4))')
+	1   'sym','symmetric drift ',MOM_SW_MAXSYM,
+	2   '; argmax cell (dep,frq) ',MOM_SW_ARGI,', ',MOM_SW_ARGL,
+	3   '; stored/fresh/colpeak ',MOM_SW_ARGV(1),' / ',
+	4   MOM_SW_ARGV(2),' / ',MOM_SW_ARGV(3)
 	    IF(MOM_RF_RAN)WRITE(LUER,'(2A)')'    ',
 	1   TRIM(MOM_REFRESH_SENTENCE(MOM_RF_CONV,MOM_RF_DCHG,
 	2   MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
@@ -2642,13 +2671,15 @@
 	    WRITE(LUER,'(A,3I8,A,2I12,A,I6)')
 	1     '   ray arg(kc,ray,frq) =',FG_AK,FG_AR,FG_AL,
 	2     '  nconv/ntot =',GS_NCONV,GS_NTOT,'  ndiv =',GS_NDIV
-	    WRITE(LUER,'(A,3ES12.4,A,2ES12.4)')
-	1     '   mom sw/res/rf =',MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG,
+	    WRITE(LUER,'(A,4ES12.4,A,2ES12.4)')
+	1     '   mom sw/res/rf/sym =',MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG,MOM_SW_MAXSYM,
 	2     '  om/prv =',MOM_OM,MOM_PRV
-	    WRITE(LUER,'(A,2L2,A,2I8,A,2I12)')
+	    WRITE(LUER,'(A,2L2,A,2I8,A,2I12,A,3ES12.4)')
 	1     '   mom ran/conv =',MOM_RFR,MOM_RFC,
 	2     '  arg(dep,frq) =',MOM_AI,MOM_AL,
-	3     '  nbad50/ntot =',MOM_SW_NBAD50,MOM_SW_NTOT
+	3     '  nbad50/ntot =',MOM_SW_NBAD50,MOM_SW_NTOT,
+	4     '  arg old/new/colpk =',MOM_SW_ARGV(1),MOM_SW_ARGV(2),
+	5     MOM_SW_ARGV(3)
 	    WRITE(LUER,'(A,2L2,A,I4,A,I4,A,ES12.4,A,L2)')
 	1     '   freeze/justrel =',GS_FREEZE,GS_JUST_REL,
 	2     '  nmat =',N_MATURE,'/',GS_REL_STABLE,
@@ -4233,10 +4264,22 @@
 	    ELSE
 	      NBAD_STR='       n/a'
 	    END IF
-	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,A,1X,A,I10,1X,A,I6,'//
-	1    '2X,A,1X,A)')
-	2    'fg',GS_MAXCHG,'bad=',NBAD_STR,'churn=',GS_NCONV,
-	3    'capped=',GS_CAPPED,FG_ST,'lagged field drift'
+!
+! edited 09-Nov-2026: the fg row used to print GS_MAXCHG under the
+! label 'lagged field drift' -- after a refresh that slot holds
+! KN_RF_RESID (the lagged-map fixed-point residual), not the
+! fresh-vs-stored sweep drift. Print it as fg_rf with the sweep
+! drift alongside (sw=), and fall back to the bare name when no
+! refresh census exists (GS_NBAD=-1 sentinel: refresh never ran or
+! no compressing cells).
+!
+	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,ES10.3,1X,A,A,1X,A,I10,'//
+	1    '1X,A,I6,2X,A,1X,A)')
+	2    MERGE('fg_rf','fg   ',GS_NBAD .GE. 0),GS_MAXCHG,
+	3    ' sw=',GS_SW_MAXCHG,'bad=',NBAD_STR,'churn=',GS_NCONV,
+	4    'capped=',GS_CAPPED,FG_ST,
+	5    MERGE('refresh residual','sweep drift     ',
+	6    GS_NBAD .GE. 0)
 	    IF(MOM_RAN)THEN
 	      MOM_ST='[OK]   '
 	      IF(MOM_UNSAFE_B)THEN
@@ -4244,12 +4287,20 @@
 	      ELSE IF(MOM_FREEZE_B)THEN
 	        MOM_ST='[WARN] '
 	      END IF
-	      WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,I10,1X,A,I10,1X,A,I10,'//
-	1      '1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I10,2X,A)')
-	2      'mom',MOM_SW_MAXCHG,' >5%:',MOM_SW_NBAD5,
-	3      ' >50%:',MOM_SW_NBAD50,'/',MOM_SW_NTOT,
-	4      ' negJ:',MOM_SW_NEGJ,' quar:',MOM_SW_NQUAR,
-	5      ' pquar:',MOM_NPQUAR,' capped:',MOM_SW_CAPPED,MOM_ST
+!
+! edited 09-Nov-2026: ' sym:' is the symmetric companion of the
+! one-sided drift -- a 1E23 max printed from a floor-denominator
+! cell reads ~1 here, so the pair separates a normalization
+! artifact from a genuine field change. The argmax cell's raw
+! magnitudes sit on the 'sym' row of the KNOP field block above.
+!
+	      WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,ES10.3,1X,A,I10,'//
+	1      '1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I10,1X,A,I10,'//
+	2      '2X,A)')
+	3      'mom',MOM_SW_MAXCHG,' sym:',MOM_SW_MAXSYM,' >5%:',
+	4      MOM_SW_NBAD5,' >50%:',MOM_SW_NBAD50,'/',MOM_SW_NTOT,
+	5      ' negJ:',MOM_SW_NEGJ,' quar:',MOM_SW_NQUAR,
+	6      ' pquar:',MOM_NPQUAR,' capped:',MOM_SW_CAPPED,MOM_ST
 	    END IF
 	  END IF
 !
@@ -4372,13 +4423,21 @@
 	  OPEN(NEWUNIT=LU_GS,FILE='ITER_HISTORY',STATUS='UNKNOWN',
 	1    POSITION='APPEND',IOSTAT=IOS)
 	  IF(IOS .EQ. 0)THEN
+!
+! edited 09-Nov-2026: fg_d was GS_MAXCHG -- the refresh residual
+! when a refresh ran, misread as sweep drift. Renamed fg_rfd (same
+! position, same value). The three new columns go at the END so a
+! restarted run appending to an old-format file keeps every old
+! name at its old position: fg_swd (sweep drift), fg_rfdel
+! (retained-field delta), mom_symd (symmetric companion of mom_d).
+!
 	    IF(.NOT. HIST_EXIST)WRITE(LU_GS,'(A)')'# iter mode next ba'//
 	1    ' froz held maxraw maxapp maxatt se se2 trust nrej lum'//
-	2    ' fg_d fg_badf fg_churnf fg_cap'//
+	2    ' fg_rfd fg_badf fg_churnf fg_cap'//
 	3    ' mom_d mom_n5f mom_n50f mom_negjf mom_quarf'//
-	4    ' mom_cap mom_pquar exm trabs'
+	4    ' mom_cap mom_pquar exm trabs fg_swd fg_rfdel mom_symd'
 	    WRITE(LU_GS,'(I6,1X,A11,1X,A11,1X,A6,2(1X,L1),'//
-	1    '6(1X,ES11.4),1X,I4,14(1X,ES11.4))')
+	1    '6(1X,ES11.4),1X,I4,17(1X,ES11.4))')
 	2    MAIN_COUNTER,MODE_NOW,MODE_NEXT,BA_CH,GS_FREEZE,
 	3    GS_POPS_HELD,
 	4    MAXCH,MAXCH_APP,GS_ATTEMPT_APP,BA_SE_RES,BA_SE_RES2,
@@ -4390,7 +4449,8 @@
 	1    DBLE(MOM_SW_NBAD50)/DBLE(MAX(MOM_SW_NTOT,1_8)),
 	2    DBLE(MOM_SW_NEGJ)/DBLE(MAX(MOM_SW_NTOT,1_8)),
 	3    DBLE(MOM_SW_NQUAR)/DBLE(MAX(MOM_SW_NTOT,1_8)),
-	4    DBLE(MOM_SW_CAPPED),DBLE(MOM_NPQUAR),BA_DEM_EXM,BA_TR_ABS
+	4    DBLE(MOM_SW_CAPPED),DBLE(MOM_NPQUAR),BA_DEM_EXM,BA_TR_ABS,
+	5    GS_SW_MAXCHG,GS_RF_DCHG,MOM_SW_MAXSYM
 	    CLOSE(LU_GS)
 	  END IF
 !
