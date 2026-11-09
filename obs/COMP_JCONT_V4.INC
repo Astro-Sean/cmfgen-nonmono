@@ -666,6 +666,21 @@
 	    HBC_CMF(:)=0.0_LDP		!1:3
 	    NBC_CMF(:)=0.0_LDP		!1:3
 	    FG_COUNT=0.0_LDP
+!
+! edited 09-Nov-2026: under DO_NONMONO_SOB + USE_LAM_ES=F the OBS
+! moment solve is MOM_J_CMF_NONMONO_V1, whose generalized opacity
+! chi_hat = chi + |GAM|/dLOG_NU consumes dLOG_NU even at the
+! bluest frequency, where FL_OLD is undefined.  Use the forward
+! one-sided spacing ln(nu_1/nu_2), the same fix COMP_J_BLANK
+! applies for this solver.  The other moment branches skip the
+! frequency-coupling coefficients under INIT, so only the
+! nonmono path needs the guard.
+!
+	    IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES .AND.
+	1       NU(MIN(ML+1,NCF)) .GT. 0.0_LDP .AND.
+	2       NU(MIN(ML+1,NCF)) .LT. FL)THEN
+	      dLOG_NU=LOG(FL/NU(MIN(ML+1,NCF)))
+	    END IF
 	  ELSE
 	    dLOG_NU=LOG(FL_OLD/FL)
 	    DO I=1,ND
@@ -865,12 +880,38 @@
 	       CALL GET_RSQH_REL(RSQHNU, R, V, FL, ND)
 	       IF(L .LT. 3)FOLD(1:ND)=0.0_LDP
 	     ELSE
-	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling MOM_J_CMF_V8'
-	       CALL MOM_J_CMF_V8(TA,CHI_CLUMP,TB,V,SIGMA,R,
+	       IF(DO_NONMONO_SOB)THEN
+!	         Knop sign-split moment solver [DO_NONMONO_SOB]: the
+!	         field solver the population run used under
+!	         DO_NONMONO_SOB + USE_LAM_ES=F.  MOM_J_CMF_V8 divides
+!	         by 1+sigma*K_ON_J and couples every cell to the bluer
+!	         frequency -- both invalid where the flow compresses
+!	         (sigma < -1) -- so on a non-monotonic SOB model it
+!	         returns a J inconsistent with the populations.  This
+!	         branch is only reached with USE_LAM_ES=F (the T branch
+!	         takes RJ from the formal solve above).  Arguments
+!	         mirror the COMP_J_BLANK call; TA/TB/COHERENT keep the
+!	         OBS convention (incoherent ES folded into ETA, only
+!	         the coherent scatterers in TB).  SET_MOM_NU_NEXT passes
+!	         nu(ML+1) for the compressing forward spacing.
+	         IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
+	1            'Calling MOM_J_CMF_NONMONO_V1 (Knop et al. 2009)'
+	         CALL SET_MOM_NU_NEXT(NU(MIN(ML+1,NCF)))
+	         CALL MOM_J_CMF_NONMONO_V1(TA,CHI_CLUMP,TB,
+	1              V,SIGMA,SIGMA_TRUE,R,
+	1              RJ,RSQHNU,VDOP_VEC,DELV_FRAC_MOM,
+	1              FL,dLOG_NU,
+	1              INNER_BND_METH,DBB,IC,IB_STAB_FACTOR,
+	1              N_TYPE,H_CHK_OPTION,METHOD,L_TRUE,IONE,
+	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND,FREQ_INDX,NCF)
+	       ELSE
+	         IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling MOM_J_CMF_V8'
+	         CALL MOM_J_CMF_V8(TA,CHI_CLUMP,TB,V,SIGMA,R,
 	1  	       RJ,RSQHNU,VDOP_VEC,DELV_FRAC_MOM,
 	1              FL,dLOG_NU,DIF,DBB,IC,
 	1              N_TYPE,METHOD,L_TRUE,IONE,
 	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND)
+	       END IF
                IF(.NOT. DIF)HFLUX_AT_OB=0.5_LDP*IC*(0.5_LDP+INBC)-INBC*RJ(ND)
                HFLUX_AT_OB=HBC_CMF(1)*RJ(1)
 	     END IF
