@@ -35,13 +35,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
-    BINDIR,
     F90DIR,
     TREE,
     WORKDIR,
     Report,
-    compile_objs,
-    link,
+    compile_and_link_prod,
     run,
 )
 
@@ -86,12 +84,11 @@ HELPERS = [
 
 
 def build():
-    objs = compile_objs(
+    return compile_and_link_prod(
         "vadat",
         [TREE / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_vadat.f90"],
     )
-    return link("vadat", objs, moddir=BINDIR / "obj_vadat")
 
 
 def write_vadat(d, mutations):
