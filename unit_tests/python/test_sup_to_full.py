@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from common import F90DIR, TREE, Report, compile_driver, run
+from common import F90DIR, TREE, Report, compile_and_link_prod, run
 
 
 SOURCES = [
@@ -36,7 +36,7 @@ SOURCES = [
 
 def main():
     rep = Report("sup_to_full mapping")
-    binary = compile_driver("drv_sup_to_full", SOURCES)
+    binary = compile_and_link_prod("drv_sup_to_full", SOURCES)
     out = run(binary).stdout
 
     for tag in ("A", "B", "C", "D", "E"):
