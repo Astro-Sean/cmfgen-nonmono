@@ -197,6 +197,24 @@
 	INTEGER WORD_SIZE,N_PER_REC,ACCESS_F
 	INTEGER IST,IEND
 !
+! Edge-clamp census: the frequency hunts below clamp the local CMF
+! frequency T1 to the SM_FREQ_CMF window edge when the observer-frame
+! Doppler reach lands just outside the tabulated window (within the
+! 2% guard; beyond it the code aborts).  The clamp substitutes the
+! window-edge opacity for the true frequency bracket -- harmless
+! round-off on a well-padded grid, physically wrong if it recurs or
+! reaches past the full FREQ_CMF bounds.  Count the clamps and keep
+! the worst overshoot vs the window and vs the whole grid, so a
+! coverage gap shows in the log instead of a silently degraded
+! spectrum.  Updated under !$OMP CRITICAL inside the ML loop.
+!
+	INTEGER N_EDGE_CLAMP
+	INTEGER CLAMP_ML_WORST
+	INTEGER CLAMP_LS_WORST
+	INTEGER CLAMP_I_WORST
+	REAL(KIND=LDP) CLAMP_FRAC_MAX
+	REAL(KIND=LDP) CLAMP_GRID_MAX
+!
 	REAL(KIND=LDP) MAX_VMU
 	REAL(KIND=LDP) T1,T2,T3,T4
 	REAL(KIND=LDP) RPHOT
@@ -414,6 +432,17 @@
 !
 	NP_TMP=NP-1
 	IF(PLANE_PARALLEL)NP_TMP=NC
+!
+! Zero the edge-clamp census (see declarations above); reported after
+! the LS loop.
+!
+	N_EDGE_CLAMP=0
+	CLAMP_FRAC_MAX=0.0_LDP
+	CLAMP_GRID_MAX=0.0_LDP
+	CLAMP_ML_WORST=0
+	CLAMP_LS_WORST=0
+	CLAMP_I_WORST=0
+!
 	DO 50000 LS=1,NP_TMP
 !
 	  IF(PLANE_PARALLEL)THEN
@@ -811,6 +840,18 @@
 !
 	        IF(T1 .GE. 0.98_LDP*SM_FREQ_CMF(SM_NCF))THEN
 	          K=SM_NCF
+	          T3=(SM_FREQ_CMF(SM_NCF)-T1)/SM_FREQ_CMF(SM_NCF)
+	          T4=MAX(0.0_LDP,(FREQ_CMF(NCF)-T1)/FREQ_CMF(NCF))
+!$OMP CRITICAL (CLAMP_CENSUS)
+	          N_EDGE_CLAMP=N_EDGE_CLAMP+1
+	          CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
+	          IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	            CLAMP_GRID_MAX=T4
+	            CLAMP_ML_WORST=ML
+	            CLAMP_LS_WORST=LS
+	            CLAMP_I_WORST=1
+	          END IF
+!$OMP END CRITICAL (CLAMP_CENSUS)
 	          T1=SM_FREQ_CMF(SM_NCF)
 	          EXIT
 	        END IF
@@ -867,6 +908,18 @@
 !
 	          IF(T1 .LE. 1.02_LDP*SM_FREQ_CMF(1))THEN
 	            K=2
+	            T3=(T1-SM_FREQ_CMF(1))/SM_FREQ_CMF(1)
+	            T4=MAX(0.0_LDP,(T1-FREQ_CMF(1))/FREQ_CMF(1))
+!$OMP CRITICAL (CLAMP_CENSUS)
+	            N_EDGE_CLAMP=N_EDGE_CLAMP+1
+	            CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
+	            IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	              CLAMP_GRID_MAX=T4
+	              CLAMP_ML_WORST=ML
+	              CLAMP_LS_WORST=LS
+	              CLAMP_I_WORST=I
+	            END IF
+!$OMP END CRITICAL (CLAMP_CENSUS)
 	            T1=SM_FREQ_CMF(1)
 	            EXIT
 	          END IF
@@ -901,6 +954,18 @@
 !
 	          IF(T1 .GE. 0.98_LDP*SM_FREQ_CMF(SM_NCF))THEN
 	            K=SM_NCF
+	            T3=(SM_FREQ_CMF(SM_NCF)-T1)/SM_FREQ_CMF(SM_NCF)
+	            T4=MAX(0.0_LDP,(FREQ_CMF(NCF)-T1)/FREQ_CMF(NCF))
+!$OMP CRITICAL (CLAMP_CENSUS)
+	            N_EDGE_CLAMP=N_EDGE_CLAMP+1
+	            CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
+	            IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	              CLAMP_GRID_MAX=T4
+	              CLAMP_ML_WORST=ML
+	              CLAMP_LS_WORST=LS
+	              CLAMP_I_WORST=I
+	            END IF
+!$OMP END CRITICAL (CLAMP_CENSUS)
 	            T1=SM_FREQ_CMF(SM_NCF)
 	            EXIT
 	          END IF
@@ -1441,6 +1506,27 @@
 	     END DO
 	   CLOSE(UNIT=82)
 	 END IF
+!
+! Edge-clamp census report.  A nonzero count means at least one
+! observer-frame frequency sampled the window-edge opacity instead
+! of a true bracket.  When the worst clamp also fell outside the
+! full FREQ_CMF grid the substitution is physical -- warn so the
+! user widens MIN_CF/MAX_CF rather than trusting the edge bins.
+!
+	IF(N_EDGE_CLAMP .GT. 0)THEN
+	  WRITE(LUER,'(A,I8,2(A,ES10.3))')
+	1     'OBS_FRAME CMF edge clamps:',N_EDGE_CLAMP,
+	2     '  max frac outside SM window =',CLAMP_FRAC_MAX,
+	3     '  max frac outside FREQ_CMF =',CLAMP_GRID_MAX
+	  WRITE(LUER,'(A,3I8)')
+	1     '  worst (ML,LS,ray point) =',
+	2     CLAMP_ML_WORST,CLAMP_LS_WORST,CLAMP_I_WORST
+	  IF(CLAMP_GRID_MAX .GT. 0.0_LDP)THEN
+	    WRITE(LUER,'(A)')'Warning: observer-frame Doppler reach'
+	1     //' exceeded the CMF frequency grid; boundary opacity'
+	2     //' substituted.  Widen MIN_CF/MAX_CF.'
+	  END IF
+	END IF
 !
 	CALL TUNE(2,'OBS_FRAME_SUB')
 !
