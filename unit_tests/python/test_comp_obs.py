@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import F90DIR, TREE, Report, compile_objs, link, run
+from common import F90DIR, TREE, Report, compile_and_link_prod, run
 
 HELPERS = [
     "tools/set_kind_module.f",
@@ -66,10 +66,9 @@ def parse_obsf(out):
 
 
 def build():
-    objs = compile_objs(
+    return compile_and_link_prod(
         "cobs", [TREE / h for h in HELPERS] + [F90DIR / "drv_comp_obs.f90"]
     )
-    return link("cobs", objs)
 
 
 def main():
