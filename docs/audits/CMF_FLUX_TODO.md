@@ -51,34 +51,79 @@ Status legend: `[x]` done+verified, `[~]` in progress, `[ ]` open.
 
 ---
 
-## Open tasks (one at a time)
+### T4 — Resolve OBS-vs-population `RJ` solver mismatch (audit 4.5) — RESOLVED (code), runtime A/B open
+- Finding (confirmed source defect): under `DO_NONMONO_SOB+USE_LAM_ES=F`
+  the population solve uses `MOM_J_CMF_NONMONO_V1` (Knop sign-split,
+  `SIGMA_TRUE`, lagged `J_NEXT`) while `COMP_JCONT_V4.INC` called
+  `MOM_J_CMF_V8`. `V8` divides by `1+sigma*K_ON_J` and couples every cell
+  to the bluer frequency only, so on reversing/`sigma<-1` regions the OBS
+  continuum `J` feeding the emissivity was not the population field.
+- Correction (`obs/COMP_JCONT_V4.INC`, non-extended branch):
+  `IF(DO_NONMONO_SOB)` inside the `USE_LAM_ES=F` leg calls
+  `SET_MOM_NU_NEXT(NU(MIN(ML+1,NCF)))` then `MOM_J_CMF_NONMONO_V1` with the
+  `COMP_J_BLANK` argument order (`SIGMA,SIGMA_TRUE`, `INNER_BND_METH`,
+  `IB_STAB_FACTOR`, `H_CHK_OPTION`, `FREQ_INDX`, `NCF`); `COHERENT=L_TRUE`
+  and `TB` keep the OBS convention (incoherent ES folded into `ETA`, only
+  coherent scatterers in `ESEC`). Stock `MOM_J_CMF_V8` retained in the
+  `ELSE` for `DO_NONMONO_SOB=F`. Ray moments still come from the
+  `FG_J_CMF_V12` formal solve that precedes the moment call, matching the
+  population V13 pairing.
+- Companion fix (same file, `FIRST_FREQ` block): one-sided
+  `dLOG_NU=LOG(FL/NU(MIN(ML+1,NCF)))` under
+  `DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES`; the nonmono solver reads
+  `dLOG_NU` in `chi_hat` even under `INIT` while `FL_OLD` is undefined at
+  `ML=1`. Mirrors the `COMP_J_BLANK` fix. Other branches never read
+  `dLOG_NU` at `FIRST_FREQ`.
+- Companion change (`obs/rd_cmf_flux_controls.f`,
+  `obs/cmf_flux_cntrl_var_mod.f`): `DO_NONMONO_FREQ_MATCH` read +
+  forwarded to `SET_FG_FREQ_MATCH`/`SET_MOM_FREQ_MATCH`, with the same
+  auto-set as `RD_CONTROL_VARIABLES`: absent key -> T under
+  `DO_NONMONO_KNOP` or `DO_NONMONO_SOB+USE_LAM_ES=F`, explicit F
+  overridden with a banner. Without it the OBS grid (different NCF and
+  spacing) reads the lagged `J_NEXT` off the characteristic foot.
+- Lagged-field state: `J_NEXT_FRQ`/`H_NEXT_FRQ` cold-start guarded
+  (`J_NEXT_VALID=F`) on the first OBS pass and refill through the ES
+  iterations; `RESTORE_MOM_JNEXT_GS` also picks up a `MOMJNXT_GS`
+  checkpoint when present in the run directory.
+- Verified: `make all` clean (ifort -O3+AVX512), `exe/cmf_flux.exe`
+  relinked 09-Nov 11:30, `nm` shows `mom_j_cmf_nonmono_v1` symbols and
+  the new `Calling MOM_J_CMF_NONMONO_V1` string. Source pins:
+  `unit_tests/python/test_obs_nonmono_dispatch.py` (37 checks).
+- **Remaining: numerical A/B on a converged non-monotonic SOB model —
+  OBS `RJ` under the new dispatch vs `USE_LAM_ES=T` (V12/V13 formal J)
+  and vs the population `RJ`; monotonic regression must show V8-path
+  bit-identical behaviour with the flag off.**
 
-### T4 — Resolve OBS-vs-population `RJ` solver mismatch (audit 4.5) — HIGH
-- Question: under `DO_NONMONO_SOB+USE_LAM_ES=F`, OBS uses `MOM_J_CMF_V8`
-  while the population solve uses `MOM_J_CMF_NONMONO_V1`. Does `V8` assume
-  monotonic `sigma` and give a different `J`?
-- Steps: (a) read `mom_j_cmf_v8.f` sigma handling vs `mom_j_cmf_nonmono_v1.f`;
-  (b) run a non-monotonic SOB model through OBS with `USE_LAM_ES=F` and
-  compare `RJ_CMF_ST`/flux against the `USE_LAM_ES=T` (`V12`/`V13`, same
-  formal solution) result; (c) if divergent, route the OBS moment solve to
-  `MOM_J_CMF_NONMONO_V1` under `DO_NONMONO_SOB` (small dispatch change in
-  `COMP_JCONT_V4.INC`, mirroring the `DO_NONMONO_KNOP` precedent).
-- Test: monotonic regression (must be bit-identical when flags off) +
-  non-monotonic A/B.
-- Files: `obs/COMP_JCONT_V4.INC`, possibly `plane/mom_j_cmf_v8.f`.
+### T5 — Reject `ACCURATE` for non-monotonic `V` (audit 4.3/4.4) — RESOLVED (code), runtime test open
+- Implemented in `obs/cmf_flux_sub_v5.f` directly after the non-mono
+  detector: `IF(ACCURATE .AND. N_NONMONO_OBS .GT. 0) STOP` naming
+  `EXTEND_VTSIGMA` `log(V)` interpolation, the `SIGMAEXT` `sigma+1`
+  floor, and the monotonic-sigma extended solvers.
+- Check depends on the detected field (`N_NONMONO_OBS>0` = any reversal
+  or `sigma<-1`), not on a flag, so it also closes the
+  `ALLOW_NONMONO_OBS` escape; `DO_NONMONO_KNOP`'s `INC_GRID=F` key-level
+  rejection in `rd_cmf_flux_controls.f` is unchanged.
+- Monotonic `ACCURATE=T` unaffected under every flag.
+- **Remaining: runtime matrix (monotonic+ACCURATE runs; reversing
+  field+SOB+ACCURATE aborts; reversing+SOB+ACCURATE=F proceeds).**
 
-### T5 — Reject `ACCURATE` for non-monotonic `V` (audit 4.3/4.4) — MEDIUM
-- `EXTEND_VTSIGMA` uses `LOG(V)`; breaks for `V<=0` and geometrically
-  smooths reversals; extended solvers assume monotonic `sigma`.
-- Precedent: `DO_NONMONO_KNOP` already forces `INC_GRID=F`.
-- Steps: in `CMF_FLUX_SUB_V5`, after the nonmono detector, if
-  `ACCURATE .AND. N_NONMONO_OBS>0` (with a nonmono flag set) `STOP` with a
-  clear message — OR scope it to `V<=0`/reversal in the interpolation
-  stencil. Decide whether `DO_NONMONO_SOB` on a *monotonic* field may keep
-  `ACCURATE` (probably yes; the detector only fires on real reversals).
-- Test: monotonic `ACCURATE=T` must still run; non-monotonic `ACCURATE=T`
-  must fail explicitly, not silently.
-- Files: `obs/cmf_flux_sub_v5.f` or `obs/rd_cmf_flux_controls.f`.
+### T5b — OBS_FRAME edge-clamp census (audit 4.2 follow-up) — DONE (code)
+- `obs/obs_frame_sub_v9.f`: all three bounded clamp sites (loc 1, loc 2,
+  loc 2b) now update `N_EDGE_CLAMP`, `CLAMP_FRAC_MAX` (vs SM window) and
+  `CLAMP_GRID_MAX` (vs full `FREQ_CMF`), tracking worst `(ML,LS,I)` under
+  `!$OMP CRITICAL`; report printed after the LS loop, with a
+  `MIN_CF/MAX_CF` warning only when a clamp landed outside the real grid.
+  Silent boundary-opacity substitution is now visible in the log.
+- **Remaining: exercise on a non-monotonic model to confirm counts.**
+
+### T5c — OBS output sanity checks — DONE (code)
+- `obs/cmf_flux_sub_v5.f`: `OBS_FREQ` checked finite and strictly
+  decreasing after `INS_LINE_OBS_V4` (abort on violation — the bracket
+  hunts assume monotonic decreasing); new `CHK_OBS_FLUX` aborts on
+  NaN/Inf and censuses negative bins before the `OBSFLUX` and both
+  `OBSFRAME` writes. Negative bins are reported, not repaired.
+- **Remaining: confirm on live output; add wavelength-range coverage
+  report to T7 if needed.**
 
 ### T6 — Validation suite A-J (Phase 7) — REQUIRED before claiming correctness
 - A static atmosphere vs known RT solution.
