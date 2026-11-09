@@ -184,6 +184,12 @@
 ! We ensure that the vector can be stored into the array.
 !
 	DO LS=1,NP
+	  IF(NEW_IPLUS(LS) .NE. NEW_IPLUS(LS) .OR.
+	1     ABS(NEW_IPLUS(LS)) .GT. HUGE(1.0_LDP))THEN
+	    WRITE(LUER,*)'Error in COMP_OBS --- non-finite CMF intensity'
+	    WRITE(LUER,*)'NEW_IPLUS(',LS,')=',NEW_IPLUS(LS),' NEW_NU=',NEW_NU
+	    STOP
+	  END IF
 	  IF(NEW_IPLUS(LS) .LE. 0.0_LDP)NEW_IPLUS(LS)=0.0_LDP
 	  IPLUS_STORE(NEXT_ST_LOC,LS)=NEW_IPLUS(LS)
 	END DO
@@ -220,6 +226,24 @@
 	      IF(CMF_FREQ .LT. NU_STORE(ML))ML_ST=ML
 	      IF(CMF_FREQ .GE. NU_STORE(ML))ML_END=ML
 	    END DO
+!
+! The NU_STORE(NEXT_ST_LOC-2) gate above guarantees coverage down to
+! OBS_FREQ*MIN_FREQ_CONV_FAC, but says nothing about the top of the
+! stored range: for rays with FREQ_CONV_FAC>1 (mu near 0), CMF_FREQ
+! can exceed NU_STORE(1).  Without this check the search above would
+! return ML_ST=ML_END=1 and LIN_INT would divide by zero, emitting a
+! silent NaN flux.
+!
+	    IF(CMF_FREQ .GT. NU_STORE(1) .OR.
+	1       CMF_FREQ .LT. NU_STORE(NEXT_ST_LOC-1))THEN
+	      WRITE(LUER,*)'Error in COMP_OBS --- CMF_FREQ outside range'
+	      WRITE(LUER,*)'CMF_FREQ=',CMF_FREQ,' for ray LS=',LS
+	      WRITE(LUER,*)'NU_STORE(1)=',NU_STORE(1)
+	      WRITE(LUER,*)'NU_STORE(NEXT_ST_LOC-1)=',NU_STORE(NEXT_ST_LOC-1)
+	      WRITE(LUER,*)'OBS_FREQ=',OBS_FREQ(OBS_INDX),' VINF=',VINF
+	      WRITE(LUER,*)'Increase CMF frequency coverage at the top'
+	      STOP
+	    END IF
 !
 ! Now ready for interpolation.
 !
