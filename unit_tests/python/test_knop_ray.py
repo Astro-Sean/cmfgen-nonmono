@@ -1138,6 +1138,98 @@ def main():
         f"retained_M(1,1)={_rf1:.2e}",
     )
 
+    # -- T22: omega pool on a contracting positive-mode sample set
+    #    (audit Issue 2, test T25). rho~0.6 across 40 samples: the
+    #    heuristic target is 1/(1+rho_p90)=1/1.62=0.617, so the
+    #    smoothed update lands halfway from the 0.75 seed to that
+    #    target -- lightly damped, never boosted past it.
+    r = run(bin_, "ompos", cwd=WORKDIR, check=False)
+    d22, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d22
+        and d22.get("OM_NSAM", 0) == 40
+        and abs(d22.get("OM_P90", 0.0) - 0.62) < 1e-10
+        and abs(d22.get("OM_NEW", 0.0) - 0.5 * (0.75 + 1.0 / 1.62))
+        < 1e-6
+    )
+    rep.check(
+        "T22 omega pool: contracting pool damps toward "
+        "1/(1+rho_p90)",
+        ok,
+        f"NSAM={d22.get('OM_NSAM')} P90={d22.get('OM_P90')} "
+        f"OM_NEW={d22.get('OM_NEW'):.4e}",
+    )
+
+    # -- T23: unsigned near-unity/expansive magnitudes -- the
+    #    signature a sign-flipping or diverging mode leaves (audit
+    #    Issue 2, test T26). omega must move below the seed toward
+    #    1/(1+1.2)=0.4545 -- damping, never amplification.
+    r = run(bin_, "omneg", cwd=WORKDIR, check=False)
+    d23, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d23
+        and d23.get("OM_NSAM", 0) == 40
+        and abs(d23.get("OM_P90", 0.0) - 1.2) < 1e-10
+        and abs(d23.get("OM_NEW", 0.0) - 0.5 * (0.75 + 1.0 / 2.2))
+        < 1e-6
+        and d23.get("OM_NEW", 1.0) < d23.get("OM_PREV", 0.0)
+    )
+    rep.check(
+        "T23 omega pool: expansive-ratio pool damps omega below "
+        "seed",
+        ok,
+        f"P90={d23.get('OM_P90')} OM_NEW={d23.get('OM_NEW'):.4e} "
+        f"prev={d23.get('OM_PREV')}",
+    )
+
+    # -- T24: small-sample protection (audit Issue 5, tests T27
+    #    + T28). One valid sample or 8 samples (4 rays both
+    #    directions) is below the KN_RHO_MIN_SAM=10 floor -- the
+    #    pool must not update omega at all and must report the
+    #    coverage.
+    r1 = run(bin_, "omone", cwd=WORKDIR, check=False)
+    d24a, _ = parse(r1.stdout)
+    r2 = run(bin_, "omfew", cwd=WORKDIR, check=False)
+    d24b, _ = parse(r2.stdout)
+    ok = (
+        "RESULT_OK" in d24a
+        and "RESULT_OK" in d24b
+        and d24a.get("OM_NSAM", -1) == 1
+        and d24a.get("OM_NEW") == d24a.get("OM_PREV")
+        and d24b.get("OM_NSAM", -1) == 8
+        and d24b.get("OM_NEW") == d24b.get("OM_PREV")
+    )
+    rep.check(
+        "T24 omega pool: 1 and 8 samples retain previous omega "
+        "(min_sam=10)",
+        ok,
+        f"L1: nsam={d24a.get('OM_NSAM')} "
+        f"om={d24a.get('OM_NEW')} | "
+        f"L8: nsam={d24b.get('OM_NSAM')} om={d24b.get('OM_NEW')}",
+    )
+
+    # -- T25: P90 outlier + diverged-ray rejection (audit Issue 5).
+    #    40 sane samples ~0.55-0.75, one ray at rho=100/95, two
+    #    diverged rays at 400/500. NSAM must be 42 (diverged out),
+    #    P90 lands on the sane mass (~0.74), and omega must not be
+    #    dragged to the 1/(1+100)=0.01 floor.
+    r = run(bin_, "omout", cwd=WORKDIR, check=False)
+    d25, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d25
+        and d25.get("OM_NSAM", 0) == 42
+        and 0.6 < d25.get("OM_P90", 0.0) < 1.0
+        and d25.get("OM_NEW", 0.0) > 0.5
+        and d25.get("OM_MAX", 0.0) >= 95.0
+    )
+    rep.check(
+        "T25 omega pool: P90 ignores the 100x outlier and diverged "
+        "rays",
+        ok,
+        f"NSAM={d25.get('OM_NSAM')} P90={d25.get('OM_P90')} "
+        f"MAX={d25.get('OM_MAX')} OM_NEW={d25.get('OM_NEW'):.4e}",
+    )
+
     rep.summary()
 
 
