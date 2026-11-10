@@ -922,6 +922,16 @@
 !
 	REAL(KIND=LDP) FG_RF_DCHG
 !
+! FG_RF_PEND (audit Issue 3): max relative change the refresh
+! PROPOSED but did not retain -- the FG_RAY_DCH of every ray whose
+! commit was vetoed (jump-reject or non-converged reject). A ray
+! whose converged field never reached the store means the retained
+! field still owes that delta, so the maturity export must see it:
+! GET_FG_GS_MATURITY folds this into RF_DCHG and GS_MAX_ALL then
+! cannot read mature on an unretained generation.
+!
+	REAL(KIND=LDP) FG_RF_PEND
+!
 ! KN_RF_TOT_MB: total refresh memory budget (MB) across all OMP
 ! threads. Each thread in KNOP_RAY_SOLVE_V1 can hold ~80 B per
 ! (depth,frequency) cell (8-array coefficient pack + FLD + work), so
@@ -1065,6 +1075,7 @@
 	DATA KN_ND /0/,KN_NP /0/,KN_NC /0/,KN_NCF /0/,KN_ND_EXT /0/
 	DATA KN_RF_RESID /0.0_LDP/
 	DATA FG_RF_DCHG /0.0_LDP/
+	DATA FG_RF_PEND /0.0_LDP/
 !
 	CONTAINS
 !
@@ -2505,6 +2516,7 @@
 ! GET_FG_GS_MATURITY (MOM_RF_DCHG is cleared the same way).
 !
 	    FG_RF_DCHG=0.0_LDP
+	    FG_RF_PEND=0.0_LDP
 	    FG_GS_NDIV=0
 	    FG_GS_NBAD_BLK=-1
 	    FG_GS_NTOT_BLK=0
@@ -5391,7 +5403,7 @@ C
 	1     I_NEXT_GS_OK,FG_GS_CHG_FILE,FG_GS_CAP_FILE,
 	2     FG_GS_MAXCHG,FG_INEXT_CAPPED,FG_GS_NBAD,FG_GS_NTOT,
 	3     FG_GS_NCONV,FG_GS_NP,FG_GS_NDIV,FG_GS_NBAD_BLK,
-	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,
+	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,FG_RF_PEND,
 	5     FG_GS_NSTAL,FG_GS_NPLAT,
 	6     FG_SW_CAPPED,FG_SW_CAPTOT,FG_RF_CAPPED
 	IMPLICIT NONE
@@ -5420,7 +5432,12 @@ C
 	NBAD_BLK=FG_GS_NBAD_BLK
 	SW_MAXCHG=FG_SW_MAXCHG
 	SW_NCONV=FG_SW_NCONV
-	RF_DCHG=FG_RF_DCHG
+! A converged ray whose commit was vetoed still owes the retained
+! field its proposed delta, so RF_DCHG exports committed-or-pending
+! (audit Issue 3): GS_MAX_ALL cannot read mature while an accepted
+! fixed point sits unwritten in a rejected verdict.
+!
+	RF_DCHG=MAX(FG_RF_DCHG,FG_RF_PEND)
 	NBAD_STAL=FG_GS_NSTAL
 	NBAD_PLAT=FG_GS_NPLAT
 !
@@ -6606,6 +6623,7 @@ C
 	NBB_LS=0_8; NTB_LS=0_8
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 	FG_RF_DCHG=0.0_LDP
+	FG_RF_PEND=0.0_LDP
 	KN_HOT_SPENT=0
 !
 ! Per-ray commit verdict/delta: each thread writes only its own LS
@@ -6811,8 +6829,9 @@ C
 	1  '    hot-pass budget spent=',INT(MIN(KN_HOT_SPENT,2**30_8)),
 	2  '  cap=',KN_HOT_TOTAL_PASSES
 	WRITE(LUER,'(A,F9.1,A)')'    t=',T1_W,' s'
-	WRITE(LUER,'(A,ES12.4)')'    retained-field delta: max=',
-	1  FG_RF_DCHG
+	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1  '    retained-field delta: max=',FG_RF_DCHG,
+	2  ' pending=',FG_RF_PEND
 	IF(KN_ADAPT_RELAX)WRITE(LUER,'(A,ES10.3)')
 	1  '    adaptive INEXT_RELAX: omega=',INEXT_RELAX
 !
@@ -6912,6 +6931,16 @@ C
 ! largest residual.
 !
 	IF(ALLOCATED(FG_RAY_VC))THEN
+!
+! Audit Issue 3: pending delta of unretained verdicts. A jump or
+! non-converged rejection holds its proposed field delta in
+! FG_RAY_DCH but writes nothing to the store; that delta is what
+! the retained field still owes, so it must reach the maturity
+! export (RF_DCHG) or GS_MAX_ALL can read mature on an old store.
+!
+	  FG_RF_PEND=MAX(0.0_LDP,
+	1    MAXVAL(FG_RAY_DCH,
+	2    MASK=(FG_RAY_VC .EQ. 1) .OR. (FG_RAY_VC .EQ. 2)))
 	  WRITE(LUER,'(6(A,I5),A,I5,A,I5,A)')
 	1    '    commit verdicts: committed=',COUNT(FG_RAY_VC.EQ.0),
 	2    '  jump-rej=',COUNT(FG_RAY_VC.EQ.1),
@@ -6925,6 +6954,8 @@ C
 	2    '  max=',MAXVAL(FG_RAY_DCH),
 	3    '  committed-max=',
 	4    MAX(0.0_LDP,MAXVAL(FG_RAY_DCH,MASK=FG_RAY_VC.EQ.0))
+	  WRITE(LUER,'(A,ES11.3)')
+	1    '    pending-ray delta: max=',FG_RF_PEND
 	END IF
 	IF(ALLOCATED(FG_RAY_WI))THEN
 	  WRITE(LUER,'(A,I5,A,I5,A,I4,A,I4)')
