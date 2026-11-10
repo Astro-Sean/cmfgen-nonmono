@@ -1286,6 +1286,49 @@ def main():
         f"GS_RFD={_d27b.get('GS_RFD'):.3e}",
     )
 
+    # -- T28: active but unbuilt ray fails closed (audit Issue 5,
+    #    test T31). 'ni0' gives ray 1 NI=0 -- a construction failure
+    #    that never produced a field. It must report RESID=1.0 into
+    #    the residual max so the gate stays immature, while the other
+    #    two rays commit normally.
+    d28, s28 = parse(run(bin_, "ni0", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d28
+        and s28.get(("vc", 1), (0, 0.0))[0] == -1
+        and s28.get(("vc", 2), (0, 0.0))[0] == 0
+        and abs(d28.get("RF_RESID", 0.0) - 1.0) < 1.0e-12
+        and abs(d28.get("RF_MAXCHG", 0.0) - 1.0) < 1.0e-12
+        and d28.get("GS_OK", True) is False
+    )
+    rep.check(
+        "T28 unbuilt ray (NI=0) fails closed: residual max=1.0, "
+        "gate stays immature",
+        ok,
+        f"VC1={s28.get(('vc', 1), ('?', 0.0))[0]} "
+        f"RF_RESID={d28.get('RF_RESID'):.3e} "
+        f"GS_OK={d28.get('GS_OK')}",
+    )
+
+    # -- T29: legitimately inactive ray is excluded (audit Issue 5,
+    #    test T32). 'ni1' gives ray 1 NI=1 -- a single-point geometry
+    #    with no marchable domain. It keeps the plain unsolved verdict
+    #    and a zero residual, so the residual max reads only the
+    #    converged active rays.
+    d29, s29 = parse(run(bin_, "ni1", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d29
+        and s29.get(("vc", 1), (0, 0.0))[0] == -1
+        and s29.get(("vc", 2), (0, 0.0))[0] == 0
+        and d29.get("RF_RESID", 1.0) < 1.0e-6
+    )
+    rep.check(
+        "T29 single-point ray (NI=1) excluded: unsolved verdict, "
+        "residual max from active rays only",
+        ok,
+        f"VC1={s29.get(('vc', 1), ('?', 0.0))[0]} "
+        f"RF_RESID={d29.get('RF_RESID'):.3e}",
+    )
+
     rep.summary()
 
 
