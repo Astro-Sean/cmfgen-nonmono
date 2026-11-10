@@ -4,7 +4,14 @@ Sequential task list for the field-drift / radiation-field convergence
 audit. One task at a time; a task is complete only when the listed
 verification ran, not merely when code compiles.
 
-Companion document: `docs/audits/FIELD_DRIFT_AUDIT.md`.
+> **Supersession note (10-Nov-2026):** this TODO documents the
+> 03-Nov-2026 audit cycle (`docs/audits/FIELD_DRIFT_AUDIT.md`). The
+> authoritative current audit is
+> `docs/audits/FG_FIELD_DRIFT_AUDIT.md`, which covers the
+> 10-Nov-2026 critical-source-audit and fail-safe cycles
+> (`7220b616`->`e6e8f47a`, `e6e8f47a`->`280c4a44`). Findings below
+> that the newer audit re-classified are marked inline; the
+> historical record is preserved.
 
 ## Status log
 
@@ -160,15 +167,18 @@ in the audit so a future driver has oracles.
 
 ### 9. Validation (PARTIAL - PASS WITH LIMITATIONS)
 
+Counts below are the state at this audit stage (03-Nov-2026);
+later stages are recorded per revision in the reconciliation
+section and in FG_FIELD_DRIFT_AUDIT.md.
+
 Run and results:
 
 - `python python/test_gs_drift_diag.py` - 16/16 PASS (new static test).
 - `python python/test_vadat_keys.py` - 73/73 PASS; compiles
   `rd_control_variables.f` + `control_variable_mod.f` for real,
   so both edits are compile-verified.
-- `python python/test_knop_ray.py` - 10/10 PASS; compiles
-  `fg_j_cmf_nonmono_v1.f` and drives `FG_KNOP_REFRESH_V1` and the
-  FGINEXT_GS checkpoint round-trip end-to-end.
+- `python python/test_knop_ray.py` - 10/10 PASS at this stage
+  (now 41/41 after the 10-Nov-2026 cycles).
 - `python python/test_mom_solve.py` - 93/93 PASS; compiles
   `mom_j_cmf_nonmono_v1.f` including checkpoint and store paths.
 
@@ -188,19 +198,62 @@ Not run:
 
 ### 10. Documentation (DONE)
 
-`docs/audits/FIELD_DRIFT_AUDIT.md` written.
+`docs/audits/FIELD_DRIFT_AUDIT.md` written (the 03-Nov-2026 audit;
+the 10-Nov-2026 critical-source cycle is in
+`docs/audits/FG_FIELD_DRIFT_AUDIT.md`, now the authoritative doc).
 `cmfgen_obsidian/control/Field maturity and GS freeze.md` gained a
 `GS_DRIFT_DIAG` section (VADAT keys and diagnostic output are
 required-note changes per AGENTS.md).
 
 ## Open items
 
-- [ ] Compile `solve_for_pops.f` via `./build.sh` or incremental
-      make to close the syntax check on the diagnostic block.
-- [ ] Numeric driver tests for the ten synthetic cases (needs the
-      pure-metric extraction P2 or a refresh-harness driver).
-- [ ] sbatch validation runs across the five velocity profiles with
-      `GS_DRIFT_DIAG=T`, logging the full channel set in audit
-      section 10.
+Status below reconciled against FG_FIELD_DRIFT_AUDIT.md
+(10-Nov-2026 cycles, HEAD `280c4a44` at time of writing).
+
+- [x] Compile `solve_for_pops.f` - DONE: clean object builds
+      throughout the 10-Nov-2026 cycles (solve_for_pops.o archived
+      after each edit).
+- [~] Numeric driver tests for the ten synthetic cases - PARTIAL:
+      test_knop_ray.py now covers 41 cases incl. refresh/abort/
+      parity probes; the explicit zero-seed, perturbed-seed and
+      multi-refresh store-convergence cases remain listed as gaps
+      in FG_FIELD_DRIFT_AUDIT.md Pillar 7.
+- [ ] sbatch validation runs - STILL OPEN, now the dominant owed
+      item: model-level run_model_grid verification of the
+      Nov-10 fixes (field residuals, sweep drift, retained/pending
+      deltas, rejected/diverged counts, population changes, JFNK
+      residual history, emergent spectrum), plus 1-thread vs
+      multi-thread reproducibility. Required before the drift
+      question can be called closed.
 - [ ] Decide whether the headline "largest drift" print should be
       relabeled raw-vs-residual (P1, cosmetic; not done).
+
+## Reconciliation with FG_FIELD_DRIFT_AUDIT.md (10-Nov-2026)
+
+The newer audit re-derived the same machinery on `7220b616` and
+labels the KN_RES_PASS findings differently:
+
+1. Task 4's "adaptive-omega category mismatch" (inner-map ratio
+   feeding the outer store write) corresponds to the newer
+   audit's **A2 - modelling assumption, not a proven defect**: the
+   estimator now measures a well-defined inner-map dominant-mode
+   rate; whether it proxies the outer map's slow mode is assumed,
+   not proven. No inner/outer map equivalence is claimed anywhere.
+2. The KN_RES_PASS estimator defects in the newer audit:
+   - **A1** (FIXED 10-Nov-2026): successive-slot maxima compared
+     different ray/direction subsets; replaced by per-ray same-
+     direction `RHO_WIN` rings -> `RHO_M/RHO_P` -> pooled P90 ->
+     `INEXT_RELAX`. `KN_RES_PASS` is telemetry-only now.
+   - **A3** (FIXED 10-Nov-2026): `KN_RES_PASS` updated before the
+     divergence check could fold NaN/huge residuals in; the update
+     now sits below the divergence check in both sweeps.
+3. Task 5's defect list (FG_RF_DCHG reset, headline metric
+   switching, normalization asymmetry) is from this cycle's own
+   audit and is preserved as historical record; the newer audit's
+   ranked findings (A1-A3, C1-C4, B1, D1) supersede it for current
+   status.
+4. Test counts: this TODO's figures (10/10, 73/73, 16/16, 93/93)
+   are the 03-Nov-2026 stage. Current: test_knop_ray.py 41/41,
+   test_iter_ledger.py 31/31, test_mom_aa_state.py 62/62,
+   test_vadat_keys.py 85/85 - see FG_FIELD_DRIFT_AUDIT.md and
+   AUDIT_LOG.md for per-revision detail.
