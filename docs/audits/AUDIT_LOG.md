@@ -29,6 +29,7 @@ never inferred from a lower one.
 | FG fail-safe follow-up | same doc, appended cycle | `e6e8f47a` | `8fe9f4dc`..`280c4a44` (10-Nov-2026): `KN_JMP_SIBREF_V1` ISTAT, `FG_RF_FAILED` fail-closed maturity, `FG_JMP_FAIL_INJ` hook, eval-bracket push moved past last early exit |
 | SOB great-iteration acceleration | [ACCELERATION_AUDIT.md](ACCELERATION_AUDIT.md) + [ACCELERATION_TODO.md](ACCELERATION_TODO.md) | `280c4a44` | D1 `6b1fa6d4`..`9901e33b`, D1a `1a21f41b`..`c77114b5` (10-Nov-2026): ITER_LEDGER accel columns (contract v2+v3), ITER_SUM `accel` row, `GET_MOM_AA_STATE` + `MOM_AA_RST`, stale-counter gate on `MOM_RF_RAN`, outer AA decoupled from `MOM_RF_AA` |
 | Population-solver integrity fixes | [POPULATION_SOLVER_FIXES_2026-11-09.md](POPULATION_SOLVER_FIXES_2026-11-09.md) | `5c59a53f` | FINDING 2 `STEQ_RAW` raw-demand metrics landed (see doc); FINDING 1 quarantine and FINDING 3 floor-pin analysis only |
+| Full iteration-cycle audit | [FULL_ITERATION_CYCLE_AUDIT.md](FULL_ITERATION_CYCLE_AUDIT.md) + [FULL_ITERATION_CYCLE_TODO.md](FULL_ITERATION_CYCLE_TODO.md) | `30b596bd` | T-01/T-02/T-03/T-06/T-14 and related landed through 04-Nov-2026 (incl. `lam_handoff_mod.f90`, ITER_LEDGER instrumentation) | Open: T-04 SOB frozen-tier self-suppression, T-05 resacc-off path, T-07 transient-guard census, T-08..T-11 integration test matrix, T-12 BA_DEM_EXR bounded release, T-13 MAXCH semantics doc |
 
 ## Per-audit validation status (10-Nov-2026)
 
@@ -37,6 +38,7 @@ never inferred from a lower one.
 | FG drift (both cycles) | PASS | PASS | PASS - test_knop_ray 41/41, pin suites green | PASS - member objects compiled and archived each phase | NOT STARTED - run_model_grid job owed; 1 vs N-thread and emergent-spectrum checks still outstanding | NOT STARTED |
 | SOB acceleration | PASS - Phases 1-6 audited | PASS - D1+D1a diagnostics landed | PASS - test_iter_ledger 31/31, test_mom_aa_state 62/62, test_knop_ray 41/41 | PASS - incremental member compiles (`solve_for_pops.o`, `iter_ledger_mod.o`, `mom_j_cmf_nonmono_v1.o`, `rd_control_variables.o`); full `./build.sh` not re-run this cycle | NOT STARTED - benchmark arms E1-E7 not submitted | NOT STARTED - Phase-8 validation not started |
 | Population fixes | PASS | IN PROGRESS - FINDING 2 core landed; FINDING 1 analysis only; FINDING 3 partially done | NOT STARTED - cap-vs-raw and floor-semantics tests still owed | IN PROGRESS - `ifort -fsyntax-only` clean on `solveba_v13.f`; full `./build.sh` + `run_all_tests.py` pending per the audit doc | NOT STARTED - fast-model A/B/C pending | NOT STARTED |
+| Full iteration-cycle | PASS | IN PROGRESS - see TODO row above | IN PROGRESS - T-06 ledger landed; T-08..T-11 integration matrix not started | NOT STARTED for this cycle | NOT STARTED | NOT STARTED |
 
 ### Population-solver outstanding items (from POPULATION_SOLVER_FIXES_2026-11-09.md)
 
