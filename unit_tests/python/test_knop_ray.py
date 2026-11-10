@@ -929,6 +929,107 @@ def main():
         f"{'; '.join(fails[:2]) if fails else ''}",
     )
 
+    # -- T16: same-map contraction export (audit A1). 'slw' grinds a
+    #    slowly-converging alternating solve over 14 allowed passes,
+    #    so the post-transient ratio history (NPO>=5, same-direction
+    #    baseline NPO-2) accumulates and RHO_M/RHO_P report each
+    #    field solve's median asymptotic rate. The fast 'conv'/'ord'
+    #    runs must report exactly 0: a solve that exits inside the
+    #    seed transient contributes no sample -- that is the property
+    #    the old KN_RES_PASS max-envelope violated by comparing
+    #    maxima over changing ray subsets. ('d' is clobbered by the
+    #    T15 donor loop, so 'conv' is re-run here.)
+    d, _ = parse(run(bin_, "conv", cwd=WORKDIR, check=False).stdout)
+    r = run(bin_, "slw", cwd=WORKDIR, check=False)
+    d16, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d16
+        and d16.get("NPASS", 0) >= 5
+        and 0.0 < d16.get("RHO_M", 0.0) < 50.0
+        and 0.0 < d16.get("RHO_P", 0.0) < 50.0
+        and d.get("RHO_M", 9.9) == 0.0
+        and d.get("RHO_P", 9.9) == 0.0
+        and d2.get("RHO_M", 9.9) == 0.0
+        and d2.get("RHO_P", 9.9) == 0.0
+    )
+    rep.check(
+        "T16 same-map contraction export: grinding alt solve reports "
+        "finite RHO_M/RHO_P, transient exits report 0",
+        ok,
+        f"NPASS={d16.get('NPASS')} RHO_M={d16.get('RHO_M'):.3e} "
+        f"RHO_P={d16.get('RHO_P'):.3e} "
+        f"conv={d.get('RHO_M')}/{d.get('RHO_P')} "
+        f"ord={d2.get('RHO_M')}/{d2.get('RHO_P')}",
+    )
+
+    # -- T17: same export on the ordered march (single residual
+    #    sequence, baseline NPO-1, seed-transient floor NPO>=4).
+    r = run(bin_, "slwo", cwd=WORKDIR, check=False)
+    d17, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d17
+        and d17.get("NPASS", 0) >= 4
+        and 0.0 < d17.get("RHO_M", 0.0) < 50.0
+        and 0.0 < d17.get("RHO_P", 0.0) < 50.0
+    )
+    rep.check(
+        "T17 same-map contraction export: grinding ord solve",
+        ok,
+        f"NPASS={d17.get('NPASS')} RHO_M={d17.get('RHO_M'):.3e} "
+        f"RHO_P={d17.get('RHO_P'):.3e}",
+    )
+
+    # -- T18: end-to-end refresh with KN_ADAPT_RELAX +
+    #    FG_ADAPT_OMEGA_V2: the pooled per-ray median ratios must
+    #    reach the omega update (diagnostic line prints at
+    #    CONV_DIAG_LVL>=2) and leave INEXT_RELAX inside its
+    #    [0.05, 1] bounds, with no ray diverged.
+    r = run(bin_, "rfa", cwd=WORKDIR, check=False)
+    d18, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d18
+        and "omega est: rho_p90=" in r.stdout
+        and d18.get("RF_NDIV", 9) == 0
+        and 0.0 < d18.get("RF_RESID", 0.0) < 1.0e30
+        and 0.05 <= d18.get("RF_INEXT_RELAX", -1.0) <= 1.0
+    )
+    rep.check(
+        "T18 refresh adaptive omega: pooled per-ray estimate runs, "
+        "INEXT_RELAX stays in bounds",
+        ok,
+        f"RF_RESID={d18.get('RF_RESID'):.3e} "
+        f"NDIV={d18.get('RF_NDIV')} "
+        f"INEXT_RELAX={d18.get('RF_INEXT_RELAX'):.4e} "
+        f"diag={'omega est' in r.stdout}",
+    )
+
+    # -- T19: same-census cap numerator (audit C1). 'capx' sets
+    #    NONMONO_INEXT_CAP below the field scale so the march caps
+    #    cells on every one of its 14 grinding passes. NCAP keeps the
+    #    all-pass telemetry sum; NCAP_LST must report only the last
+    #    pass plus commit-phase events -- the same census the gate's
+    #    NTOT denominator counts (capped cells stay significant:
+    #    CAP=1e-4 >> 1e-4*VMAX floor). The pre-fix numerator was
+    #    ~pass-multiplicity x this value plus a divergence flag.
+    r = run(bin_, "capx", cwd=WORKDIR, check=False)
+    d19, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d19
+        and d19.get("NCAP", 0) > 0
+        and d19.get("NPASS", 0) >= 2
+        and 0 < d19.get("NCAP_LST", -1) <= d19.get("NTOT", -1)
+        and d19.get("NCAP_LST", 0) < d19.get("NCAP", 0)
+        and 0 <= d19.get("NNG_LST", -1) <= d19.get("NNEG", -1)
+    )
+    rep.check(
+        "T19 same-census cap numerator: last-pass+commit count "
+        "bounded by cell census, all-pass NCAP separates",
+        ok,
+        f"NPASS={d19.get('NPASS')} NCAP={d19.get('NCAP')} "
+        f"NCAP_LST={d19.get('NCAP_LST')} NTOT={d19.get('NTOT')} "
+        f"NNG={d19.get('NNEG')} NNG_LST={d19.get('NNG_LST')}",
+    )
+
     rep.summary()
 
 
