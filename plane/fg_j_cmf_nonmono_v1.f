@@ -10256,9 +10256,10 @@ C
 	    END DO
 	    VMED=VSORT((NV+1)/2)
 	    DO LS2=1,NCF-1
-	      IF(.NOT. (STORE(KC,LS,LS2) .GT. 0.0_LDP) .OR.
-	1         .NOT. (STORE(KC,LS,LS2) .LT. HUGE(STORE)) .OR.
-	2         STORE(KC,LS,LS2) .GT. FG_DIV_HEAL_CAP*VMED)THEN
+	      IF(STORE(KC,LS,LS2) .NE. 0.0_LDP .AND.
+	1         (.NOT. (STORE(KC,LS,LS2) .GT. 0.0_LDP) .OR.
+	2         .NOT. (STORE(KC,LS,LS2) .LT. HUGE(STORE)) .OR.
+	3         STORE(KC,LS,LS2) .GT. FG_DIV_HEAL_CAP*VMED))THEN
 	        STORE(KC,LS,LS2)=0.0_LDP
 	        NHL=NHL+1
 	      END IF
