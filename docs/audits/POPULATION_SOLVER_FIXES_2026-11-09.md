@@ -5,6 +5,16 @@ FINDING 3 analysed with concrete next steps. Build/test/fast-model
 validation pending at time of writing. Baseline audited:
 `5c59a53f` (post Item-2 floor-mask commits).
 
+> **Tracking note (10-Nov-2026):** this audit is indexed in
+> [AUDIT_LOG.md](AUDIT_LOG.md) with per-level validation status.
+> Outstanding work (none verified complete): BA_QUAR bounded
+> quarantine age, periodic raw-residual reassessment, justified
+> release criteria, quarantine diagnostics, re-quarantine
+> protection; POP_TRACE_MAXFAC raw-vs-applied diagnostic pair and
+> cap-vs-raw unit tests; POP_MASK_FLOOR semantics/conservation/
+> disabled-path tests and the matrix-pin decision; full
+> `./build.sh`, `run_all_tests.py`, and fast-model validation.
+
 Governing requirement: the population solver must converge the
 original statistical-equilibrium system, not a modified system that
 looks converged only because difficult equations were suppressed.
