@@ -465,6 +465,10 @@
 	1    MOM_AA_SNG=0_8
 	INTEGER*8, SAVE :: MOM_AA_OUT_APP=0_8,MOM_AA_OUT_REJ=0_8,
 	1    MOM_AA_OUT_SNG=0_8
+! MOM_AA_RST counts damp-triggered inner-AA history restarts
+! (NHIST_AA=0 inside a refresh): the ledger column that exposes
+! how often the map change invalidated the secant window.
+	INTEGER*8, SAVE :: MOM_AA_RST=0_8
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: XHIST_OUT(:,:,:),
 	1    FHIST_OUT(:,:,:),RETJ_PREV(:,:),RETH_PREV(:,:)
 !
@@ -4866,6 +4870,40 @@
 	RETURN
 	END
 !
+! GET_MOM_AA_STATE: per-iteration accelerator census for the
+! ITER_LEDGER accelerator columns (audit D1). Returns the inner
+! and outer AA counters of the most recent refresh call, the outer
+! history allocation-fail latch, and the arming flags, so a caller
+! outside MOD_MOM_J_NONMONO_V1 can distinguish AA-applied, AA-
+! skipped, AA-singular, AA-alloc-fail and AA-history-restart states
+! without reading module storage. Flags (not counters) report the
+! armed state; counters report the last refresh's activity and are
+! zero when no refresh ran.
+!
+	SUBROUTINE GET_MOM_AA_STATE(AA_ON,AAPP,ASKIP,ASNG,ARST,
+	1   AA_OUT_ON,AAPP_O,AREJ_O,ASNG_O,AFAIL,FREQM)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_RF_AA,MOM_AA_OUT,
+	1   MOM_AA_APP,MOM_AA_SKIP,MOM_AA_SNG,MOM_AA_RST,
+	2   MOM_AA_OUT_APP,MOM_AA_OUT_REJ,MOM_AA_OUT_SNG,
+	3   MOM_AA_OUT_FAIL,MOM_FREQ_MATCH
+	IMPLICIT NONE
+	LOGICAL AA_ON,AA_OUT_ON,AFAIL,FREQM
+	INTEGER*8 AAPP,ASKIP,ASNG,ARST,AAPP_O,AREJ_O,ASNG_O
+	AA_ON=MOM_RF_AA
+	AAPP=MOM_AA_APP
+	ASKIP=MOM_AA_SKIP
+	ASNG=MOM_AA_SNG
+	ARST=MOM_AA_RST
+	AA_OUT_ON=MOM_AA_OUT
+	AAPP_O=MOM_AA_OUT_APP
+	AREJ_O=MOM_AA_OUT_REJ
+	ASNG_O=MOM_AA_OUT_SNG
+	AFAIL=MOM_AA_OUT_FAIL
+	FREQM=MOM_FREQ_MATCH
+	RETURN
+	END
+!
 ! SET_MOM_RF_BULK: runtime wiring for MOM_RF_BULK_EXIT, called once
 ! from RD_CONTROL_VARIABLES after the VADAT key is read.
 !
@@ -5286,6 +5324,7 @@
 	MOM_KN_REFRESHING=.TRUE.
 	MOM_AA_APP=0_8; MOM_AA_SKIP=0_8; MOM_AA_SNG=0_8
 	MOM_AA_OUT_APP=0_8; MOM_AA_OUT_REJ=0_8; MOM_AA_OUT_SNG=0_8
+	MOM_AA_RST=0_8
 	T0=OMP_GET_WTIME()
 !
 	ALLOCATE(JNEXT_RF_READ(ND_NM,KN_M_NCF),
@@ -5956,6 +5995,7 @@
 	      IF(DBLE(NDMP) .GT. MOM_AA_DMP_FRAC*
 	1        DBLE(ND_NM)*DBLE(KN_M_NCF))THEN
 	        NHIST_AA=0
+	        MOM_AA_RST=MOM_AA_RST+1
 	        WRITE(LUER,'(A,I12,A)')
 	1          '    AA history restarted (',NDMP,
 	2          ' cells re-damped this pass)'
@@ -6856,9 +6896,10 @@
 ! column (audit F-22/F-24). Same MIN() the 'done' line reports.
 	IF(LEDG_ACTIVE)LEDG_NP_RF=LEDG_NP_RF+
 	1  MIN(IPASS,KN_M_MAXPASS)
-	WRITE(LUER,'(3(A,I4))')
+	WRITE(LUER,'(4(A,I4))')
 	1  '    inner Aitken acceleration: applied ',MOM_AA_APP,
-	2  ', skipped ',MOM_AA_SKIP,', solve failures ',MOM_AA_SNG
+	2  ', skipped ',MOM_AA_SKIP,', solve failures ',MOM_AA_SNG,
+	3  ', history restarts ',MOM_AA_RST
 	IF(MOM_AA_OUT)THEN
 	  WRITE(LUER,'(3(A,I4),A,A3)')
 	1    '    outer Aitken acceleration: applied ',MOM_AA_OUT_APP,
