@@ -249,10 +249,12 @@
 !
 	LOGICAL NG_TRY_THIS,NG_OK_THIS,NG_DEF_THIS
 	LOGICAL LEDG_AA_ON,LEDG_AA_OUT_ON,LEDG_AA_FAIL,LEDG_FREQM
+	LOGICAL LEDG_RF_RAN
 	INTEGER*8 LEDG_AA_APP,LEDG_AA_SKIP,LEDG_AA_SNG,LEDG_AA_RST
 	INTEGER*8 LEDG_AAO_APP,LEDG_AAO_REJ,LEDG_AAO_SNG
-	CHARACTER NG_CH,JF_CH
-	CHARACTER*64 ACC_CH
+	CHARACTER NG_CH,JF_CH,RF_CH,FM_CH
+	CHARACTER*32 AAI_CH,AAO_CH
+	CHARACTER*96 ACC_CH
 	REAL(KIND=LDP) GS_DRIFT_FRAC
 	CHARACTER*12 MODE_NOW,MODE_NEXT
 	CHARACTER*64 ITER_REASON
@@ -4168,8 +4170,9 @@
 	    WRITE(LUER,'(A)')'   accel          = ng:-|d|r|A'//
 	1    ' (not due/deferred/rejected/applied),'//
 	2    ' jfnk:-|a|A (idle/admitted/committed),'//
-	3    ' aa=off or app/skip/sng/rst + outer app/rej/sng,'//
-	4    ' AOFAIL=outer alloc fail, freqm=freq matcher'
+	3    ' rf=y|n refresh ran,'//
+	4    ' aa/oa: off|on(-|app/skip/sng/rst | app/rej/sng),'//
+	5    ' +AOF=outer alloc fail, fm=freq matcher'
 	  END IF
 !
 	  WRITE(LUER,'(A,I5,3(A,A),2(A,L2))')
@@ -4177,16 +4180,20 @@
 	2    ' -> ',TRIM(MODE_NEXT),'  ba=',TRIM(BA_CH),
 	3    '  frozen=',GS_FREEZE,'  held=',GS_POPS_HELD
 !
-! Audit D1 accelerator census. The getter is called here (before
-! ITER_SUM) so the same LEDG_AA_* values feed both the accel row
-! and the ITER_LEDGER write below; MOM_RF_RAN was set by the
-! GET_MOM_GS_MATURITY call at entry, so 'aa=off' means the moment
-! refresh did not run this call (USE_LAM_ES=T or FG-solver path),
-! not that AA is unarmed.
+! Audit D1/D2 accelerator census. The getter is called here
+! (before ITER_SUM) so the same LEDG_AA_* values feed both the
+! accel row and the ITER_LEDGER write below. RF_RAN is the
+! refresh-executed latch (reset at mom-solver entry, set only
+! after the refresh self-guards pass); AA counters are already
+! zeroed by the getter when it is false, so a formal-J or
+! guarded-out call cannot report a previous iteration's AA
+! activity. The enabled flags and the alloc-fail latch are
+! reported regardless.
 !
 	  CALL GET_MOM_AA_STATE(LEDG_AA_ON,LEDG_AA_APP,LEDG_AA_SKIP,
 	1    LEDG_AA_SNG,LEDG_AA_RST,LEDG_AA_OUT_ON,LEDG_AAO_APP,
-	2    LEDG_AAO_REJ,LEDG_AAO_SNG,LEDG_AA_FAIL,LEDG_FREQM)
+	2    LEDG_AAO_REJ,LEDG_AAO_SNG,LEDG_AA_FAIL,LEDG_FREQM,
+	3    LEDG_RF_RAN)
 !
 ! Status tags mirror the gate thresholds above: [BAD] is the
 ! catastrophic tier and [WARN] the marginal tier. Luminosity carries
@@ -4213,14 +4220,16 @@
 	1    'se residual',BA_SE_RES,BA_SE_RES2,SE_ST,
 	2    'all cells / excl. worst cols'
 !
-! Audit D1 accelerator-state row: one scannable line naming which
-! accelerators fired this call. ng codes: '-' not due, 'd'
-! deferred by the NG_CLEAN window, 'r' fired but rejected/
-! cancelled, 'A' committed. jfnk codes: '-' not admitted, 'a'
-! admitted only, 'A' committed Newton. aa slot: 'aa=off' when the
-! moment refresh did not run (formal-J path), otherwise
-! app/skip/sng/rst and outer app/rej/sng counts; AOFAIL marks the
-! outer-history allocation latch, freqm the frequency matcher.
+! Audit D2 accelerator-state row: enabled state and activity are
+! reported separately so a zero count cannot masquerade as
+! 'disabled'. ng codes: '-' not due, 'd' deferred by the NG_CLEAN
+! window, 'r' fired but rejected/cancelled, 'A' committed. jfnk
+! codes: '-' not admitted, 'a' admitted only, 'A' committed
+! Newton. rf is the moment-refresh executed latch; aa/oa carry
+! off|on and, only when the refresh ran, the activity counts
+! (inner app/skip/sng/rst, outer app/rej/sng). +AOF marks the
+! outer-history allocation latch, fm the frequency matcher. An
+! enabled-but-idle accelerator reads 'aa:on -' vs 'aa:off'.
 !
 	  NG_CH='-'
 	  IF(NG_TRY_THIS)THEN
@@ -4231,16 +4240,31 @@
 	  JF_CH='-'
 	  IF(JFNK_THIS)JF_CH='a'
 	  IF(JFNK_COMMITTED)JF_CH='A'
-	  IF(MOM_RF_RAN)THEN
-	    WRITE(ACC_CH,'(4(A,I0),3(A,I0))')
-	1      'aa=',LEDG_AA_APP,'/',LEDG_AA_SKIP,'/',LEDG_AA_SNG,
-	2      '/',LEDG_AA_RST,' o=',LEDG_AAO_APP,'/',LEDG_AAO_REJ,
-	3      '/',LEDG_AAO_SNG
+	  RF_CH='n'
+	  IF(LEDG_RF_RAN)RF_CH='y'
+	  FM_CH='off'
+	  IF(LEDG_FREQM)FM_CH='on'
+	  IF(.NOT. LEDG_AA_ON)THEN
+	    AAI_CH='aa:off'
+	  ELSE IF(.NOT. LEDG_RF_RAN)THEN
+	    AAI_CH='aa:on -'
 	  ELSE
-	    ACC_CH='aa=off'
+	    WRITE(AAI_CH,'(A,I0,3(A,I0))')
+	1      'aa:on ',LEDG_AA_APP,'/',LEDG_AA_SKIP,'/',
+	2      LEDG_AA_SNG,'/',LEDG_AA_RST
 	  END IF
-	  IF(LEDG_AA_FAIL)ACC_CH=TRIM(ACC_CH)//' AOFAIL'
-	  IF(LEDG_FREQM)ACC_CH=TRIM(ACC_CH)//' freqm'
+	  IF(.NOT. LEDG_AA_OUT_ON)THEN
+	    AAO_CH='oa:off'
+	  ELSE IF(.NOT. LEDG_RF_RAN)THEN
+	    AAO_CH='oa:on -'
+	  ELSE
+	    WRITE(AAO_CH,'(A,I0,2(A,I0))')
+	1      'oa:on ',LEDG_AAO_APP,'/',LEDG_AAO_REJ,'/',
+	2      LEDG_AAO_SNG
+	  END IF
+	  IF(LEDG_AA_FAIL)AAO_CH=TRIM(AAO_CH)//'+AOF'
+	  WRITE(ACC_CH,'(4A)')'rf=',RF_CH,' ',TRIM(AAI_CH),' ',
+	1    TRIM(AAO_CH),' fm=',FM_CH
 	  WRITE(LUER,'(4X,A14,2X,4A)')
 	1    'accel','ng=',NG_CH,' jfnk=',JF_CH,' ',TRIM(ACC_CH)
 !
@@ -4562,7 +4586,9 @@
 	4      MERGE(1,0,JFNK_COMMITTED),
 	5      LEDG_AA_APP,LEDG_AA_SKIP,LEDG_AA_SNG,LEDG_AA_RST,
 	6      LEDG_AAO_APP,LEDG_AAO_REJ,LEDG_AAO_SNG,
-	7      MERGE(1,0,LEDG_AA_FAIL),MERGE(1,0,LEDG_FREQM))
+	7      MERGE(1,0,LEDG_AA_FAIL),MERGE(1,0,LEDG_FREQM),
+	8      MERGE(1,0,LEDG_RF_RAN),MERGE(1,0,LEDG_AA_ON),
+	9      MERGE(1,0,LEDG_AA_OUT_ON))
 	  END IF
 !
 ! Plateau detector: flag a stall only when the committed correction,
