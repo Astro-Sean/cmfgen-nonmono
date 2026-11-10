@@ -19,7 +19,7 @@
       USE, INTRINSIC :: IEEE_ARITHMETIC
       USE SET_KIND_MODULE
       USE FG_J_CMF_NONMONO_MOD_V1
-      USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED
+      USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED,CONV_DIAG_LVL
       IMPLICIT NONE
 !
       INTEGER ND,NDX,NCFX,NIX
@@ -27,7 +27,8 @@
       INTEGER I,K,L,LS,IOS,NCASE
       INTEGER NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
       INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
-      REAL(KIND=LDP) RESID
+      INTEGER*8 NCAP_LST,NNG_LST
+      REAL(KIND=LDP) RESID,RHO_M,RHO_P
       REAL(KIND=LDP) RR(NDX),LGR(NDX)
       REAL(KIND=LDP) LGW(NDX)
       CHARACTER(LEN=32) CNAME
@@ -68,6 +69,10 @@
       IF(CNAME .EQ. 'gpn0')  NCASE=19
       IF(CNAME .EQ. 'gzz')   NCASE=20
       IF(CNAME .EQ. 'gcr')   NCASE=21
+      IF(CNAME .EQ. 'slw')   NCASE=34
+      IF(CNAME .EQ. 'slwo')  NCASE=35
+      IF(CNAME .EQ. 'rfa')   NCASE=36
+      IF(CNAME .EQ. 'capx')  NCASE=37
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -338,7 +343,7 @@
       KN_HOT_SPENT=0_8
 !
       FG_FREQ_MATCH=(NCASE .EQ. 3)
-      FG_ORD_SWEEP=(NCASE .EQ. 2)
+      FG_ORD_SWEEP=(NCASE .EQ. 2 .OR. NCASE .EQ. 35)
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
@@ -361,6 +366,31 @@
       FG_DIV_HEAL_CAP=1.0E+6_LDP
       FG_BULK_CONTR=.FALSE.
       FG_ADAPT_OMEGA_V2=.FALSE.
+!
+! slw/slwo/rfa (34-36): a non-converging ray that grinds the full
+! pass budget so the per-solve contraction-history export (audit A1)
+! accumulates post-transient samples; stall/plateau exits are
+! disabled or the run stops before the estimator sees anything.
+! 'rfa' also turns the refresh-level adaptive relaxation on so the
+! pooled P90 estimate and the omega update run end to end.
+!
+      IF(NCASE .GE. 34)THEN
+        KN_RAY_TOL=1.0E-14_LDP
+        KN_RAY_MAXPASS=14
+        KN_RAY_STALL=1.1_LDP
+        FG_PLATEAU_DET=.FALSE.
+      END IF
+      IF(NCASE .EQ. 36)THEN
+        KN_ADAPT_RELAX=.TRUE.
+        FG_ADAPT_OMEGA_V2=.TRUE.
+        CONV_DIAG_LVL=2
+      END IF
+!
+! capx (37, audit C1): a low NONMONO_INEXT_CAP makes the march cap
+! cells every pass, so the all-pass NCAP and the same-census
+! NCAP_LST must separate by the pass multiplicity.
+!
+      IF(NCASE .EQ. 37)NONMONO_INEXT_CAP=1.0E-4_LDP
 !
       I_P_DEPTH_NEXT=0.0_LDP
       I_M_DEPTH_NEXT=0.0_LDP
@@ -437,7 +467,7 @@
         GOTO 999
       END IF
 !
-      IF(NCASE .EQ. 10)THEN
+      IF(NCASE .EQ. 10 .OR. NCASE .EQ. 36)THEN
 !
 ! End-to-end refresh: arms the capture-store guard and runs the
 ! production post-sweep path (OMP ray loop, census, commit).
@@ -455,6 +485,7 @@
         WRITE(*,'(A,ES16.8)')'RF_MAXCHG=',FG_GS_MAXCHG
         WRITE(*,'(A,ES16.8)')'RF_STAL=',DBLE(FG_GS_NSTAL)
         WRITE(*,'(A,ES16.8)')'RF_PLAT=',DBLE(FG_GS_NPLAT)
+        WRITE(*,'(A,ES16.8)')'RF_INEXT_RELAX=',INEXT_RELAX
         DO K=1,N_COMP
           DO L=1,NCFX-1
             WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'STORE ',K,' ',L,' ', &
@@ -498,10 +529,13 @@
       END IF
 !
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
-      NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK)
+      NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK, &
+      RHO_M,RHO_P,NCAP_LST,NNG_LST)
 !
       WRITE(*,'(A,I4)')'RESULT resid_ok=',1
       WRITE(*,'(A,ES16.8)')'RESID=',RESID
+      WRITE(*,'(A,ES16.8)')'RHO_M=',RHO_M
+      WRITE(*,'(A,ES16.8)')'RHO_P=',RHO_P
       WRITE(*,'(A,I8)')'NSTORE=',NSTORE
       WRITE(*,'(A,I6)')'NPASS=',NPASS
       WRITE(*,'(A,I8)')'NCAP=',NCAP
@@ -513,6 +547,8 @@
       WRITE(*,'(A,I6)')'NXIT=',NXIT
       WRITE(*,'(A,I8)')'NBAD=',NBAD
       WRITE(*,'(A,I8)')'NTOT=',NTOT
+      WRITE(*,'(A,I10)')'NCAP_LST=',NCAP_LST
+      WRITE(*,'(A,I10)')'NNG_LST=',NNG_LST
       IF(NCASE .GE. 16 .AND. ALLOCATED(KR_DBG_CHIH))THEN
         DO L=1,NCFX
           DO I=1,ND
