@@ -71,7 +71,10 @@ EXPECTED_COLS = (
     "jfnk,jfnk_cpl,jfnk_ev,jfnk_jvp,n_rej,n_dem,n_frz,"
     "n_frozen,n_rel,n_raw_rel,"
     "maxch,maxch_app,maxatt,se_res,se_res2,trust,"
-    "t_iter,t_rad,t_rf,t_pops,rss_mb"
+    "t_iter,t_rad,t_rf,t_pops,rss_mb,"
+    "ng_try,ng_ok,ng_def,ng_cln,jfnk_cmt,"
+    "aa_app,aa_skip,aa_sng,aa_rst,"
+    "aao_app,aao_rej,aao_sng,aao_fail,freqm"
 ).split(",")
 REP.check("header written once", len([l for l in text if l.startswith("#")]) == 1)
 REP.check("header columns", cols == EXPECTED_COLS,
@@ -110,6 +113,19 @@ if len(rows) == 2:
               and abs(float(a["t_rad"]) - 55.25) < 0.5
               and abs(float(a["t_rf"]) - 12.5) < 0.5
               and abs(float(a["t_pops"]) - 100.0) < 0.5)
+    # Accelerator columns (audit D1): caller-passed NG/JFNK-commit
+    # and MOM AA census land verbatim; row 2 exercises the committed
+    # Newton + aao_fail/freqm distinction.
+    REP.check("row1 accel cols",
+              a["ng_try"] == "1" and a["ng_ok"] == "1"
+              and a["ng_def"] == "0" and a["ng_cln"] == "4"
+              and a["jfnk_cmt"] == "0")
+    REP.check("row1 aa cols",
+              a["aa_app"] == "3" and a["aa_skip"] == "1"
+              and a["aa_sng"] == "0" and a["aa_rst"] == "2"
+              and a["aao_app"] == "2" and a["aao_rej"] == "1"
+              and a["aao_sng"] == "0" and a["aao_fail"] == "0"
+              and a["freqm"] == "1")
 
     # Row 2: second write reuses the same reset -> eval deltas are
     # still measured against the iteration-start snapshot, not the
@@ -123,6 +139,11 @@ if len(rows) == 2:
     REP.check("row2 no demote token", b["n_dem"] == "0")
     REP.check("row2 reject counted", b["n_rej"] == "1")
     REP.check("row2 t_iter", abs(float(b["t_iter"]) - 260.0) < 0.5)
+    REP.check("row2 accel cols",
+              b["ng_try"] == "1" and b["ng_ok"] == "0"
+              and b["ng_def"] == "0" and b["ng_cln"] == "3"
+              and b["jfnk_cmt"] == "1"
+              and b["aao_fail"] == "1" and b["freqm"] == "0")
 
     # RSS: positive MB on Linux, or -1 where /proc is unavailable.
     rss = float(a["rss_mb"])
