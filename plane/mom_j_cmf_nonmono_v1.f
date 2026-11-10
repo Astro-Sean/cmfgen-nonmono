@@ -437,8 +437,10 @@
 ! including the J<->Eddington coefficient drift that the inner
 ! (frozen-coefficient) pass AA cannot see. RETJ_PREV/RETH_PREV hold
 ! the field the last outer map was applied to. Gated on
-! [MOM_AA_OUT] (default T inside the DO_NONMONO_KNOP path);
-! [MOM_AA_OUT_M] sets the history depth (default 8).
+! [MOM_AA_OUT] alone (default T inside the DO_NONMONO_KNOP path);
+! [MOM_AA_OUT_M] sets the history depth (default 8). The outer AA
+! is independent of MOM_RF_AA: it accelerates the across-call map
+! on its own history and needs nothing from the inner pass AA.
 !
 	LOGICAL, SAVE :: MOM_AA_OUT=.TRUE.
 	INTEGER, SAVE :: MOM_AA_OUT_M=8
@@ -454,8 +456,11 @@
 	INTEGER, SAVE :: MOM_AA_OUT_FND=0,MOM_AA_OUT_FNCF=0,
 	1    MOM_AA_OUT_FM=0
 !
-! Per-refresh AA tallies (reset at the top of each
-! MOM_KNOP_REFRESH_V1 call): inner AA is the within-pass
+! Per-refresh AA tallies (reset inside MOM_KNOP_REFRESH_V1 after
+! the self-guard block, so a guarded-out call leaves the previous
+! refresh's values in place -- GET_MOM_AA_STATE gates them on
+! MOM_RF_RAN rather than clearing them here, keeping the reset
+! order unchanged): inner AA is the within-pass
 ! Anderson on the frozen-map iterate; outer AA is the
 ! across-call Anderson on the committed lagged store.
 ! The OUTGEN summary needs aggregates, not per-pass prints,
@@ -4871,36 +4876,52 @@
 	END
 !
 ! GET_MOM_AA_STATE: per-iteration accelerator census for the
-! ITER_LEDGER accelerator columns (audit D1). Returns the inner
-! and outer AA counters of the most recent refresh call, the outer
-! history allocation-fail latch, and the arming flags, so a caller
-! outside MOD_MOM_J_NONMONO_V1 can distinguish AA-applied, AA-
-! skipped, AA-singular, AA-alloc-fail and AA-history-restart states
-! without reading module storage. Flags (not counters) report the
-! armed state; counters report the last refresh's activity and are
-! zero when no refresh ran.
+! ITER_LEDGER accelerator columns (audit D1/D2). Returns the
+! configured inner/outer AA enabled flags, the outer history
+! allocation-fail latch, the FREQ_MATCH flag, the refresh-executed
+! flag, and the AA counters of the refresh that ran THIS call.
+! The enabled flags and AFAIL are configuration/latch state and are
+! always reported live; the counters are activity state and are
+! zeroed whenever MOM_RF_RAN is false, because the reset at the top
+! of MOM_KNOP_REFRESH_V1 sits after the self-guard early returns --
+! an iteration in which the refresh self-guarded (or never ran,
+! e.g. the USE_LAM_ES=T formal-J path) would otherwise report the
+! previous refresh's counters. RF_RAN itself is latched by the
+! refresh only after all guards pass, so it is a per-call 'refresh
+! executed' signal, not 'refresh callable'.
 !
 	SUBROUTINE GET_MOM_AA_STATE(AA_ON,AAPP,ASKIP,ASNG,ARST,
-	1   AA_OUT_ON,AAPP_O,AREJ_O,ASNG_O,AFAIL,FREQM)
+	1   AA_OUT_ON,AAPP_O,AREJ_O,ASNG_O,AFAIL,FREQM,RF_RAN)
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_RF_AA,MOM_AA_OUT,
 	1   MOM_AA_APP,MOM_AA_SKIP,MOM_AA_SNG,MOM_AA_RST,
 	2   MOM_AA_OUT_APP,MOM_AA_OUT_REJ,MOM_AA_OUT_SNG,
-	3   MOM_AA_OUT_FAIL,MOM_FREQ_MATCH
+	3   MOM_AA_OUT_FAIL,MOM_FREQ_MATCH,MOM_RF_RAN
 	IMPLICIT NONE
-	LOGICAL AA_ON,AA_OUT_ON,AFAIL,FREQM
+	LOGICAL AA_ON,AA_OUT_ON,AFAIL,FREQM,RF_RAN
 	INTEGER*8 AAPP,ASKIP,ASNG,ARST,AAPP_O,AREJ_O,ASNG_O
 	AA_ON=MOM_RF_AA
-	AAPP=MOM_AA_APP
-	ASKIP=MOM_AA_SKIP
-	ASNG=MOM_AA_SNG
-	ARST=MOM_AA_RST
 	AA_OUT_ON=MOM_AA_OUT
-	AAPP_O=MOM_AA_OUT_APP
-	AREJ_O=MOM_AA_OUT_REJ
-	ASNG_O=MOM_AA_OUT_SNG
 	AFAIL=MOM_AA_OUT_FAIL
 	FREQM=MOM_FREQ_MATCH
+	RF_RAN=MOM_RF_RAN
+	IF(MOM_RF_RAN)THEN
+	  AAPP=MOM_AA_APP
+	  ASKIP=MOM_AA_SKIP
+	  ASNG=MOM_AA_SNG
+	  ARST=MOM_AA_RST
+	  AAPP_O=MOM_AA_OUT_APP
+	  AREJ_O=MOM_AA_OUT_REJ
+	  ASNG_O=MOM_AA_OUT_SNG
+	ELSE
+	  AAPP=0_8
+	  ASKIP=0_8
+	  ASNG=0_8
+	  ARST=0_8
+	  AAPP_O=0_8
+	  AREJ_O=0_8
+	  ASNG_O=0_8
+	END IF
 	RETURN
 	END
 !
@@ -6581,11 +6602,17 @@
 ! GCAP exclusion, ridge, ||corr||>||f|| rejection, per-cell cap and
 ! H-ratio drag are the same as the pass-level AA. When the raw map
 ! returned the input unchanged (KEEP_BEST=F) f=0 and the update is
-! a no-op. [MOM_AA_OUT] gates it (default T); history depth
-! [MOM_AA_OUT_M] (default 8).
+! a no-op. [MOM_AA_OUT] gates it alone (default T); history depth
+! [MOM_AA_OUT_M] (default 8). The gate does not include MOM_RF_AA:
+! the outer block uses only its own history (XHIST_OUT/FHIST_OUT/
+! RETJ_PREV/RETH_PREV) on the committed lagged-store map, a fixed
+! point distinct from the inner two-pass map, so there is no
+! numerical requirement that the inner AA be enabled too
+! (audit D2; a MOM_RF_AA=F+MOM_AA_OUT=T config now actually gets
+! the outer acceleration it asked for).
 !
 	LAA_OK=.FALSE.
-	IF(MOM_RF_AA .AND. MOM_AA_OUT)THEN
+	IF(MOM_AA_OUT)THEN
 	  IF(MOM_AA_OUT_FAIL .AND.
 	1     (MOM_AA_OUT_FND .NE. ND_NM .OR.
 	2      MOM_AA_OUT_FNCF .NE. KN_M_NCF .OR.
