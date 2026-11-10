@@ -17,6 +17,14 @@
 	USE EDDFAC_REC_DEFS_MOD
 	IMPLICIT NONE
 !
+! Altered: 10-Nov-2026 : Call FG_KNOP_REFRESH_V1 after each non-final
+!                          ES sweep under DO_NONMONO_KNOP so the
+!                          lagged compressing-branch I_NEXT coupling
+!                          converges (Knop et al. 2009b, Paper II,
+!                          Sect. 3.2); without it the OBS render solves
+!                          every sweep with a cold-started I_NEXT.
+!                          MOM_KNOP_REFRESH_V1 mirrors it for the
+!                          opt-in SOB+USE_LAM_ES=F moment route.
 ! Altered: 06-Nov-2026 : Restore the KNOP OBS path removed 13-Oct-2026:
 !                          DO_NONMONO_KNOP registers the OBS frequency
 !                          grid (SET_FG_GS_OBS_GRID -> RESTORE_FG_INEXT_OBS)
@@ -1582,14 +1590,30 @@
 ! The FGINEXT_GS checkpoint was written on the model frequency grid
 ! (different NCF and spacing), so the solver init remaps the lagged
 ! I_NEXT coupling in frequency instead of restoring by position or
-! cold-starting it.
+! cold-starting it.  DO_NONMONO_SOB alone no longer registers
+! (10-Nov-2026): its OBS formal J is the clamped-SIGMA V12, which
+! carries no lagged I_NEXT; the opt-in SOB+USE_LAM_ES=F moment route
+! uses MOM_J_CMF_NONMONO_V1, whose lagged store is process-local and
+! needs no OBS-grid remap.
 !
-! Same registration for DO_NONMONO_SOB: the render below now routes
-! SOB models through FG_J_CMF_NONMONO_V1 (V12 cannot represent
-! sigma<-1 cells), so its lagged I_NEXT needs the OBS-grid remap too.
+	IF(DO_NONMONO_KNOP)THEN
+	  CALL SET_FG_GS_OBS_GRID(NU,NCF)
 !
-	IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)
-	1    CALL SET_FG_GS_OBS_GRID(NU,NCF)
+! Refresh memory budget (10-Nov-2026): the OBS exe does not read
+! VADAT, and OBS grids are ~6x finer than the population grid, so
+! the per-thread refresh worker pack can exceed the 32 GB module
+! default and force FG_KNOP_REFRESH_V1 serial.  CMF_KN_RF_MB
+! (megabytes, same units as KN_RF_TOT_MB) raises it when the job
+! exports it; unset or unparseable leaves the default.  Nonmono
+! only: stock path unchanged.
+!
+	  CALL GET_ENVIRONMENT_VARIABLE('CMF_KN_RF_MB',STRING,
+	1      LENGTH=I,STATUS=J)
+	  IF(J .EQ. 0 .AND. I .GT. 0)THEN
+	    READ(STRING(1:I),*,IOSTAT=K)T1
+	    IF(K .EQ. 0)CALL SET_FG_RF_MB(T1)
+	  END IF
+	END IF
 !
 ! Enter loop for each continuum frequency.
 !
@@ -2167,6 +2191,43 @@
 10000	CONTINUE
 	T1=1.0D0; WRITE(LU_EDD,REC=FINISH_REC)T1
 	CALL TUNE(ITWO,'MLCF')
+!
+! Knop Paper-II per-ray refresh on the OBS sweep (10-Nov-2026): the
+! compressing-branch upwind field I_NEXT is lagged across sweeps, and
+! the OBS path has no great-iteration loop for it to mature over.
+! Without this call every sweep runs with a cold-started I_NEXT=0, so
+! the |GAM|/dLOG_NU term inside chi_hat acts as a pure sink wherever
+! it rivals CHI (fine OBS frequency spacing under compressing cells):
+! the rendered continuum and the ESEC*J scattered emissivity collapse
+! while the lines keep their emissivity, giving artificially strong,
+! narrow cores.  Mirrors the cmfgen_sub.f call; the routine
+! self-guards (no-op unless FG_J_CMF_NONMONO_V1 ran a complete sweep)
+! and honors DO_KNOP_REFRESH (module default T; the OBS exe does not
+! read VADAT).  Only a sweep another sweep will read needs it, so it
+! is skipped on the last ES iteration; NUM_ES>=2 is therefore
+! required for any coupling maturity.  Gated to DO_NONMONO_KNOP --
+! the only OBS route that runs FG_J_CMF_NONMONO_V1 (10-Nov-2026):
+! SOB renders on the clamped V12 carry no I_NEXT to refresh.
+! Stock path unchanged.
+! edited by Sean Brennan
+!
+	IF(DO_NONMONO_KNOP .AND.
+	1    ES_COUNTER .LT. NUM_ES_ITERATIONS)THEN
+	  CALL FG_KNOP_REFRESH_V1()
+	END IF
+!
+! Moment-path mirror (10-Nov-2026): a DO_NONMONO_SOB render run with
+! USE_LAM_ES=F drives MOM_J_CMF_NONMONO_V1, whose J_NEXT/H_NEXT
+! lagged map needs the same within-sweep convergence; the gate
+! mirrors the population pairing (.NOT. USE_LAM_ES) so the default
+! SOB render on V12 does not pay for a call that can never arm.
+! Mirrors the cmfgen_sub.f pairing; stock path unchanged.
+! edited by Sean Brennan
+!
+	IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES .AND.
+	1    ES_COUNTER .LT. NUM_ES_ITERATIONS)THEN
+	  CALL MOM_KNOP_REFRESH_V1()
+	END IF
 !
 ! NB: We use K here, rather than ACCESS_F, so that we don't corrupt EDDFACTOR if
 !      evaluate EW is set to TRUE.
