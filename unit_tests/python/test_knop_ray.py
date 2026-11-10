@@ -69,12 +69,30 @@ def parse(out):
     store = {}
     import re
 
+    def _f(x):
+        # ES16.8 drops the E on 3-digit exponents: '1.79+308'.
+        if "E" not in x:
+            x = x[:-4] + "E" + x[-4:]
+        return float(x)
+
     for ln in out.splitlines():
         t = ln.split()
         if not t:
             continue
         if t[0] == "STORE":
             store[(int(t[1]), int(t[2]))] = (float(t[3]), float(t[4]))
+            continue
+        if t[0] == "RSTORE":
+            store[("r", int(t[1]), int(t[2]), int(t[3]))] = (
+                float(t[4]),
+                float(t[5]),
+            )
+            continue
+        if t[0] == "SREF":
+            store[("sref", int(t[1]))] = (float(t[2]), float(t[3]))
+            continue
+        if t[0] == "VC":
+            store[("vc", int(t[1]))] = (int(t[2]), _f(t[3]))
             continue
         m = re.match(r"^(\w+)=\s*(\S+)", ln)
         if m:
@@ -1028,6 +1046,96 @@ def main():
         f"NPASS={d19.get('NPASS')} NCAP={d19.get('NCAP')} "
         f"NCAP_LST={d19.get('NCAP_LST')} NTOT={d19.get('NTOT')} "
         f"NNG={d19.get('NNEG')} NNG_LST={d19.get('NNG_LST')}",
+    )
+
+    # -- T20: OpenMP determinism of the jump guard (audit Issue 1,
+    #    test T23). 'jmpx' runs a three-ray refresh where ray 1 has a
+    #    floored frequency-1 column and ray 2 carries +Inf there: the
+    #    sibling reference is snapped before the parallel loop, so the
+    #    veto verdict, per-ray deltas, committed stores and census
+    #    must be identical at 1, 2 and 4 threads.
+    import os as _os
+    import subprocess as _sp
+
+    def _jmpx(nth):
+        env = dict(_os.environ, OMP_NUM_THREADS=str(nth))
+        return _sp.run(
+            [str(bin_), "jmpx"], cwd=WORKDIR, env=env,
+            capture_output=True, text=True, timeout=300,
+        )
+
+    _runs = {}
+    for _nth in (1, 2, 4):
+        _r = _jmpx(_nth)
+        _d, _s = parse(_r.stdout)
+        _runs[_nth] = (_d, _s)
+    _d1, _s1 = _runs[1]
+    _det_ok = "RESULT_OK" in _d1 and all(
+        "RESULT_OK" in _runs[n][0] for n in (2, 4)
+    )
+    _mism = []
+    for _n in (2, 4):
+        _dn, _sn = _runs[_n]
+        if _sn.keys() != _s1.keys():
+            _mism.append(f"{_n}t keys")
+        for _k in _s1:
+            if _s1[_k] != _sn.get(_k):
+                _mism.append(f"{_k}@{_n}t")
+        for _kk in ("RF_JREJ", "RF_NCREJ", "RF_NCCAP", "RF_DCHG"):
+            if _d1.get(_kk) != _dn.get(_kk):
+                _mism.append(f"{_kk}@{_n}t")
+    rep.check(
+        "T20 jump guard OMP deterministic: verdicts/deltas/stores "
+        "identical at 1, 2, 4 threads",
+        _det_ok and not _mism,
+        f"JREJ={_d1.get('RF_JREJ')} VC1={_s1.get(('vc', 1))} "
+        f"mismatches={_mism[:4]}",
+    )
+
+    # -- T21: sibling-reference finite-value protection (audit Issue
+    #    1, test T24). 'sibref' drives KN_JMP_SIBREF_V1 on a three-ray
+    #    store whose middle ray carries +Inf (freq 2), NaN (freq 3)
+    #    and a finite-huge 1e200 column (freq 4): the reference must
+    #    stay finite, equal the sane-ray peak, and return -1 only on
+    #    the all-floored column. 'jmpx' then proves the veto still
+    #    fires on the floored ray (VC=1) with the Inf sibling present
+    #    -- under the old MAX scan that ray committed unvetted.
+    r = run(bin_, "sibref", cwd=WORKDIR, check=False)
+    d21, s21 = parse(r.stdout)
+    _sr = {k[1]: v for k, v in s21.items() if k[0] == "sref"}
+    _exp_m = {2: 1.43e-4, 3: 1.56e-4, 4: 1.69e-4, 5: 1.82e-4}
+    ok = (
+        "RESULT_OK" in d21
+        and _sr.get(1) == (-1.0, -1.0)
+        and _sr.get(6) == (-1.0, -1.0)
+        and all(
+            abs(_sr[l][0] - v) <= 1e-10 and abs(_sr[l][1] - 2 * v) <= 1e-10
+            for l, v in _exp_m.items()
+        )
+        and all(abs(_sr[l][0]) < 1e30 for l in _exp_m)
+    )
+    rep.check(
+        "T21a sibref excludes Inf/NaN, median kills finite-huge "
+        "sibling, -1 on all-floored column",
+        ok,
+        f"SREF={ {l: _sr.get(l) for l in (1, 2, 4, 5, 6)} }",
+    )
+    r = run(bin_, "jmpx", cwd=WORKDIR, check=False)
+    d21b, s21b = parse(r.stdout)
+    _vc1 = s21b.get(("vc", 1), (0, 0.0))[0]
+    _rf1 = s21b.get(("r", 1, 1, 1), (1.0, 1.0))[1]
+    ok = (
+        "RESULT_OK" in d21b
+        and _vc1 == 1
+        and d21b.get("RF_JREJ", 0) >= 1
+        and _rf1 == 1.0e-30
+    )
+    rep.check(
+        "T21b jump veto still fires on floored ray with Inf sibling "
+        "(retained store untouched)",
+        ok,
+        f"VC1={_vc1} RF_JREJ={d21b.get('RF_JREJ')} "
+        f"retained_M(1,1)={_rf1:.2e}",
     )
 
     rep.summary()
