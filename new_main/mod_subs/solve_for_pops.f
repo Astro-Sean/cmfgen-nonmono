@@ -1229,10 +1229,16 @@
 	    GS_NBAD_EFF=GS_NBAD
 	    GS_NCONV_ALL=GS_NCONV
 	  END IF
-! Same-census cap share: refresh cap/NaN/divergence events against
-! the refresh significant-cell census when the refresh ran; sweep
-! cap events against the sweep-store write count otherwise. The
-! mixed census made the share tiers latch on a contracting field.
+! Same-census cap share: refresh last-pass + commit-phase cap and
+! floor events against the refresh significant-cell census when the
+! refresh ran; sweep cap events against the sweep-store write count
+! otherwise. Audit C1 (Nov-2026): the numerator previously summed
+! cap/floor events over EVERY field-solver pass plus the 0/1
+! diverged-ray flag while the denominator is a single-pass census,
+! so a grinding ray reported ~NPASS times its true share (and a
+! diverged ray +1 cell) -- enough to latch UNSAFE/PIN on a
+! contracting field. Diverged rays still tier separately via
+! GS_NDIV below.
 !
 	  IF(GS_NTOT .GT. 0)THEN
 	    GS_CAP_NUM=GS_RF_CAPPED
