@@ -96,6 +96,8 @@ error text.
 | `test_set_upper_axis.py` | `pgplt/set_upper_axis.f` via `drv_set_upper_axis.f90` | ED positive/strictly-increasing guard before the XV inversion: flat, decreasing, negative and zero ED all STOP with the labelled error; a valid deck returns NXED and the label |
 | `test_par_opac.py` | `opac/par_opac_sub.f` via `drv_par_opac.f90` + `stub_par_opac_deps.f90` | non-monotonic V rejected at entry (stock CMF solvers only): flat, reversed and negative V all STOP with the error in OUT_FLUX; monotonic V passes the guard (dies later on missing model state, as expected) |
 | `test_tau_regrid.py` | `new_main/subs/do_tau_regrid_v2.f` via `drv_tau_regrid.f90` | prod-vs-ref: FLUX_MEAN(1)=0 leaves TAU_OLD(1) at the floored TA value (ref puts LOG10(0)=-Inf in and dies); endpoints preserved, ordered finite grid out; identical result on a normal deck |
+| `test_adiabatic.py` | `new_main/subs/eval_adiabatic_v3.f` via `drv_adiab.f90` | SIGMA_TRUE selection under DO_NONMONO_SOB/KNOP: the AD_CR_V ratio (3+sigma) proves the flag-on paths use SIGMA_TRUE, an unallocated SIGMA_TRUE falls back to SIGMA identical to flag-off, and the flag-off deck stays finite |
+| `test_ave_dc.py` | `misc/ave_dc.f` via shipped `exe/ave_dc.exe` | V-coordinate guards on the shipped binary with real OSCDAT fixtures: nonpositive/flat V1 and V2 each die with their labelled error; identical V grids complete and write ED=sqrt(ED1*ED2) at every depth |
 | `test_alteration_coverage.py` | every build input vs `../cmfgen_reference/cur_cmf` (no Fortran build) | self-checking manifest: each altered source is registered as exec/pin/gap/exempt; unregistered alterations, stale entries and missing covering tests all fail; known gaps printed loudly |
 
 ## Supporting files
