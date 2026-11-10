@@ -2,6 +2,19 @@
 ! Program section to compute the continuum intensity. Opacities must have
 ! previuosly been evaluated.
 !
+! Altered 10-Nov-2026 - Dispatch to FG_J_CMF_NONMONO_V1 only on
+!                         DO_NONMONO_KNOP.  A DO_NONMONO_SOB population
+!                         was converged on the clamped-SIGMA
+!                         FG_J_CMF_V13 (the OBS render runs V12, its
+!                         upstream twin), so its Sobolev-non-monotonic
+!                         spectrum renders with that solver; routing
+!                         it through the Knop solver (10-Nov) gave a
+!                         UV-heavy SED with collapsed red continuum and
+!                         20-60x stronger line cores (cold I_NEXT on
+!                         the OBS grid).  The Knop solver on the SOB
+!                         populations is now the DO_NONMONO_KNOP warm
+!                         start (run_model_grid warm_restart_from),
+!                         where the flag matches the population solver.
 ! Altered 06-Nov-2026 - Restore the DO_NONMONO_KNOP dispatch removed
 !                         13-Oct-2026: FG_J_CMF_NONMONO_V1 replaces V12
 !                         in the non-extended CMF branch, the OBSFLUX
@@ -783,17 +796,20 @@
 	1                  METHOD,FIRST_FREQ,NEW_FREQ,NC,NP,ND)
 	       INBC=0.0_LDP
 	     ELSE
-	        IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
+	        IF(DO_NONMONO_KNOP)THEN
 !	          Knop et al. (2009) CMF formal solver for non-monotonic
 !	          velocity fields: required when sigma < -1, where V12
-!	          aborts or returns expansion-biased intensities.  Applies
-!	          to DO_NONMONO_SOB renders as well: a SOB model on a
-!	          genuinely non-monotonic field would otherwise have its
-!	          final IPLUS computed by the monotonic solver.  Uses the
-!	          unclamped SIGMA_TRUE; SIGMA stays clamped for the
-!	          moment equations and infrastructure.  SET_FG_NU_NEXT
+!	          aborts or returns expansion-biased intensities.
+!	          DO_NONMONO_KNOP populations are converged on this solver
+!	          (or its moment partner), so the render must use it too.
+!	          Uses the unclamped SIGMA_TRUE; SIGMA stays clamped for
+!	          the moment equations and infrastructure.  SET_FG_NU_NEXT
 !	          passes nu(ML+1) so compressing cells use the correct
 !	          upwind slot on the OBS grid.
+!	          DO_NONMONO_SOB alone renders with V12 (10-Nov-2026, see
+!	          history): SOB populations converge on the clamped-SIGMA
+!	          FG_J_CMF_V13 formal J, and the Knop solver's cold I_NEXT
+!	          on the fine OBS grid distorted the spectrum.
 	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
 	1               'Calling FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
 	          CALL SET_FG_NU_NEXT(NU(MIN(ML+1,NCF)))
