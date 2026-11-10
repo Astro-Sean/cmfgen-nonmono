@@ -1351,6 +1351,56 @@ def main():
         f"RF_HEAL={d30.get('RF_HEAL')}",
     )
 
+    # -- T31: JFNK eval bracket restores production telemetry
+    #    (audit Issue 7, test T34). 'esav' pushes a sentinel set,
+    #    clobbers every field with eval-side junk, pops, and must
+    #    read the sentinels back exactly.
+    d31, _ = parse(run(bin_, "esav", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d31
+        and d31.get("EV_MAXCHG") == 1.25
+        and d31.get("EV_SWMX") == 0.75
+        and d31.get("EV_RFD") == 3.5
+        and d31.get("EV_RFP") == 2.5
+        and d31.get("EV_NCONV") == 42.0
+        and d31.get("EV_NBAD") == 7.0
+        and d31.get("EV_NSTAL") == 3.0
+        and d31.get("EV_NDIV") == 2.0
+        and d31.get("EV_HEAL") == 9.0
+        and d31.get("EV_JREJ") == 4.0
+        and d31.get("EV_HOT") == 11.0
+        and d31.get("EV_SRDY") is True
+        and d31.get("EV_FRQ") == 4.0
+    )
+    rep.check(
+        "T31 eval push/pop restores the full FG census",
+        ok,
+        f"MAXCHG={d31.get('EV_MAXCHG')} NCONV={d31.get('EV_NCONV')} "
+        f"SRDY={d31.get('EV_SRDY')} FRQ={d31.get('EV_FRQ')}",
+    )
+
+    # -- T32: sweep/refresh DTAU parity across METHOD classes
+    #    (audit B1, test T35). 'pmon' (MON-class captured method)
+    #    and 'pnom' (plain) run the same refresh; with the
+    #    INTEGRAL-path clamp now unconditional, every output must
+    #    be identical between the two.
+    _om = run(bin_, "pmon", cwd=WORKDIR, check=False).stdout
+    _on = run(bin_, "pnom", cwd=WORKDIR, check=False).stdout
+    d32a, s32a = parse(_om)
+    d32b, s32b = parse(_on)
+    ok = (
+        "RESULT_OK" in d32a
+        and "RESULT_OK" in d32b
+        and _om.replace("pmon", "x") == _on.replace("pnom", "x")
+    )
+    rep.check(
+        "T32 MON-class vs plain captured method: identical "
+        "refresh operator (DTAU clamp parity)",
+        ok,
+        f"RESID {d32a.get('RF_RESID'):.4e} vs "
+        f"{d32b.get('RF_RESID'):.4e}",
+    )
+
     rep.summary()
 
 
