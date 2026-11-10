@@ -19,6 +19,11 @@ Pins the OBS-side changes made 09-Nov-2026:
    three clamp sites and the post-loop report.
 6. CHK_OBS_FLUX guards before the OBSFLUX/OBSFRAME writes and the
    OBS_FREQ strictly-decreasing check after INS_LINE_OBS_V4.
+7. COMP_JCONT_V4.INC FG dispatch (10-Nov-2026): FG_J_CMF_NONMONO_V1
+   is gated on DO_NONMONO_KNOP alone -- a DO_NONMONO_SOB population
+   was converged on the clamped-SIGMA V13 formal J, so its OBS render
+   must use the clamped V12, not the Knop solver (cold I_NEXT on the
+   fine OBS grid distorted the spectrum).
 """
 
 import re
@@ -266,6 +271,45 @@ def test_sob_phase_guards():
     )
 
 
+def test_fg_dispatch_knop_only():
+    """FG_J_CMF_NONMONO_V1 runs only under DO_NONMONO_KNOP."""
+    # Anchor on the dispatch call itself: an earlier guard block also
+    # opens with IF(DO_NONMONO_KNOP)THEN (the INC_GRID rejection).
+    call_pos = INC.index("'Calling FG_J_CMF_NONMONO_V1")
+    gate_pos = INC.rindex("IF(DO_NONMONO_KNOP)THEN", 0, call_pos)
+    v12_pos = INC.index("CALL FG_J_CMF_V12", call_pos)
+    body = INC[gate_pos:v12_pos + len("CALL FG_J_CMF_V12")]
+    check(
+        "Knop formal solver called inside the KNOP gate",
+        "CALL FG_J_CMF_NONMONO_V1" in body,
+    )
+    gate_line = body.splitlines()[0]
+    check(
+        "gate does not include DO_NONMONO_SOB",
+        "DO_NONMONO_SOB" not in gate_line,
+    )
+    check(
+        "SOB-alone falls through to clamped V12",
+        "CALL FG_J_CMF_V12" in body,
+    )
+    # The SET_FG_GS_OBS_GRID registration and the OBS refresh gates
+    # must match the same routing or the lagged store is never used.
+    check(
+        "OBS grid registration gated on KNOP only",
+        "IF(DO_NONMONO_KNOP)THEN\n\t  CALL SET_FG_GS_OBS_GRID"
+        in SUB,
+    )
+    check(
+        "FG refresh gated on KNOP only",
+        "IF(DO_NONMONO_KNOP .AND.\n\t1    ES_COUNTER"
+        in SUB,
+    )
+    check(
+        "MOM refresh gated on SOB + not USE_LAM_ES",
+        "IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES .AND." in SUB,
+    )
+
+
 def main():
     test_inc_grid_rejection()
     test_moment_dispatch()
@@ -274,6 +318,7 @@ def main():
     test_edge_clamp_census()
     test_output_checks()
     test_sob_phase_guards()
+    test_fg_dispatch_knop_only()
     print("all obs nonmono dispatch checks passed")
 
 
