@@ -442,3 +442,38 @@ DTAU clamp parity under METHOD<>'ZERO' (B1 fix verification).
    cells.
 8. C2, D2 (latent, NDIETOT=0 on m15), NI<2 census, GS_NBAD_STAL, label
    defect, REAL capture, PK_DTAU(NI), OMP race (minor).
+
+## Nov-2026 critical-source-audit cycle (main 7220b616 -> f8c04ca3)
+
+An independent source audit was verified issue-by-issue against
+`main` at `7220b616`; every confirmed item was corrected in its own
+phase with regression coverage in test_knop_ray.py (T19-T32) and
+drv_knop_ray.f90 (sibref/jmpx/jmp2/om*/ni0/ni1/heal/esav/pmon/pnom).
+
+- FG_JUMP_MAX OpenMP race (CONFIRMED): sibling store columns were
+  read inside the parallel ray loop, and the `.EQ.` NaN test let
+  +Inf through. Immutable per-frequency sibling references
+  (`JMP_SIB_M/P` via `KN_JMP_SIBREF_V1`) are now built before the
+  ray loop; verdicts/stores bit-identical at 1/2/4 threads.
+- INEXT_RELAX controller (valid criticism): the pooled same-map
+  ratio is an inner-map diagnostic used empirically for outer
+  damping; `KN_OMEGA_POOL_V1` now retains the previous omega below
+  KN_RHO_MIN_SAM=10 samples (the P90 index degenerates to the pool
+  max below that) and reports coverage.
+- Jump-rejected false maturity (CONFIRMED): verdict-1/2 rays
+  contributed nothing to FG_RF_DCHG; new FG_RF_PEND folds the max
+  pending rejected delta into RF_DCHG at GET_FG_GS_MATURITY.
+- Unsolved early returns (CONFIRMED): NI<1/NCF<2 now fail closed
+  (NXIT=-2, RESID=1.0); NI=1 remains a plain unsolved census entry.
+- HEAL_STORE census (CONFIRMED): zero slots no longer counted.
+- JFNK eval telemetry (CONFIRMED): eval sweeps' INIT pass cleared
+  the FG census; FG_EVAL_STATE_PUSH_V1/POP_V1 now bracket the whole
+  telemetry set in JFNK_RAD_SWEEP_V1.
+- B1 DTAU (latent defect, was miscited): BUILD_FREQ skipped the
+  clamp under INSERT/MON per the DIFFERENCE-path rule; the
+  INTEGRAL-path sibling clamps unconditionally, so the refresh now
+  does too. Inactive under METHOD='ZERO'; pmon/pnom now identical.
+
+Unit status: test_knop_ray.py 36/36 plus all pin suites green.
+Model-level verification through run_model_grid.py is still owed
+before the drift question can be called closed on production runs.
