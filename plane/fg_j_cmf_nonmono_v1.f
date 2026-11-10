@@ -6179,6 +6179,23 @@ C
 	RETURN
 	END
 !
+! OBS-exe hook (10-Nov-2026): cmf_flux does not read VADAT, so the
+! refresh memory budget is set from the CMF_KN_RF_MB environment
+! variable at the OBS-grid registration site.  OBS grids are ~6x
+! finer than the population grid, so the per-thread ~80 B/cell
+! worker pack can exceed the 32 GB default and force the refresh
+! serial; population-path callers keep the DATA default.  MB<=0
+! leaves the budget unchanged.
+!
+	SUBROUTINE SET_FG_RF_MB(MB)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RF_TOT_MB
+	IMPLICIT NONE
+	REAL(KIND=LDP) MB
+	IF(MB .GT. 0.0_LDP)KN_RF_TOT_MB=MB
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_KNOP_DEBUG(DO_DBG)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: PRINT_KNOP_DEBUG
 	IMPLICIT NONE
