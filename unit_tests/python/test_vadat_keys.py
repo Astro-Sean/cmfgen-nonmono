@@ -237,10 +237,10 @@ def main():
             "SOB field solver: MOM_J_CMF_NONMONO_V1",
         ),
         (
-            "DO_NONMONO_SOB + USE_LAM_ES absent defaults to F",
+            "DO_NONMONO_SOB + USE_LAM_ES absent auto-sets T",
             {"USE_LAM_ES": None, "DO_JFNK": "F"},
             True,
-            "SOB field solver: MOM_J_CMF_NONMONO_V1",
+            "SOB auto-set: USE_LAM_ES=T",
         ),
         (
             "DO_JFNK + explicit USE_LAM_ES=F aborts (no MOM eval freeze)",
@@ -249,10 +249,10 @@ def main():
             "DO_JFNK=T requires USE_LAM_ES=T",
         ),
         (
-            "DO_JFNK + absent USE_LAM_ES aborts (SOB default F)",
+            "DO_JFNK + absent USE_LAM_ES passes (SOB default T)",
             {"USE_LAM_ES": None},
-            False,
-            "DO_JFNK=T requires USE_LAM_ES=T",
+            True,
+            "SOB auto-set: USE_LAM_ES=T",
         ),
         (
             "DO_NONMONO_KNOP + GLOBAL_LINE=SOB auto-sets to BLANK",
