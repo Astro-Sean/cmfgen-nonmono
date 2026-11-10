@@ -325,7 +325,12 @@ committed per call, and FREQ_MATCH arming - i.e. Phase-2 items
 1-12 and the Phase-4 NG questions are answerable from the ledger
 alone on the next np/LAM_ES=F run.
 
-## 11. D2 diagnostic corrections (10-Nov-2026)
+## 11. D1a diagnostic corrections (10-Nov-2026)
+
+(Committed as `1a21f41b`..`c77114b5`; labelled "D2" in the first
+draft of this section and in the pre-reconciliation AUDIT_LOG -
+renamed to D1a so "D2" consistently means the outstanding OUTGEN
+summary task in ACCELERATION_TODO.md.)
 
 ChatGPT review of the D1 instrumentation found two reporting
 defects; both corrected. No solver physics or algorithm change.
