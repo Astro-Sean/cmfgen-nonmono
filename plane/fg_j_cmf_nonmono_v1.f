@@ -6549,9 +6549,9 @@ C
 ! gate still counts their leftover bad cells, so the census shows
 ! which stop rule actually limits refresh maturity.
 !
-	INTEGER NX_CNT(-1:6)
-	INTEGER*8 NX_BAD(-1:6)
-	REAL(KIND=LDP) NX_RMX(-1:6)
+	INTEGER NX_CNT(-2:6)
+	INTEGER*8 NX_BAD(-2:6)
+	REAL(KIND=LDP) NX_RMX(-2:6)
 !
 	LUER=ERROR_LU()
 	IF(.NOT. DO_KNOP_REFRESH)RETURN
@@ -6882,6 +6882,9 @@ C
 	IF(NX_CNT(-1) .GT. 0)THEN
 	  WRITE(LUER,'(A,I5)')'    ray exits: unsolved=',NX_CNT(-1)
 	END IF
+	IF(NX_CNT(-2) .GT. 0)THEN
+	  WRITE(LUER,'(A,I5)')'    ray exits: FAILED build=',NX_CNT(-2)
+	END IF
 	IF(FG_ORD_AA)THEN
 	  WRITE(LUER,'(4(A,I8))')
 	1    '    AA: applied=',KN_AA_APP,' vetoed=',KN_AA_VETO,
@@ -7195,7 +7198,21 @@ C
 	KN_DUMP_N=0
 	NI=NI_RAY(LS)
 	NCF=KN_NCF
-	IF(NI .LT. 2 .OR. NCF .LT. 2)RETURN
+!
+! Unsolved-ray classes (audit Issue 4): a ray with no points or too
+! few frequency bins is a construction failure -- it never produced
+! a field, so it must fail closed: a residual of 1.0 keeps the
+! refresh residual immature and blocks the population release on a
+! field that was never built. NI=1 is a legitimate single-point
+! geometry (no march is possible, but no transfer domain exists
+! either) and stays in the plain unsolved census with RESID=0.
+!
+	IF(NI .LT. 1 .OR. NCF .LT. 2)THEN
+	  NXIT=-2
+	  RESID=1.0_LDP
+	  RETURN
+	END IF
+	IF(NI .EQ. 1)RETURN
 !
 	ALLOCATE(CHI_L(NI),ETA_L(NI),DCHR_L(NI),Q_L(NI),SR_L(NI),
 	1   SP_L(NI),S_L(NI),DS_L(NI),DTAU_L(NI),
