@@ -109,6 +109,8 @@ error text.
 | `test_adj_r4.py` | `new_main/mod_subs/adjust_r_grid_v4.f` via `drv_adj_r4.f90` | GRID_METH=VEL_SPACE rejected under DO_NONMONO_SOB/KNOP (R(V) interp needs monotonic V); the interpolated sigma<-1 clamp/STOP is skipped under the same flags but preserved flag-off on a reversal deck |
 | `test_steq_adv.py` | `new_main/subs/steq_advec_v4.f` via `drv_steq_adv.f90` | INC_ADV=T + non-positive V rejected under DO_NONMONO_SOB/KNOP (backward-difference stencil assumes radial outflow); flag-off and positive-V paths pass the guard |
 | `test_gfm.py` | `new_main/subs/generate_full_matrix_v3.f` via `drv_gfm.f90` | BA_ASCI dumps at K=5/K=ND suppressed under JFNK_QUIET_IO (JFNK evals re-enter once per matvec); flag-off writes both files |
+| `test_fpc.py` | `new_main/subs/fiddle_pop_corrections_v2.f` via `drv_fpc.f90` | nonmono scale-scan cap: a 1E70 STEQ row freezes the column in stock (SCALE~1E-70) but the nonmono cap rescues the other corrections while the big row hits its own apply clamp identically; DO_SOB_FG_KNOP floors NaN POPS to 1e-100/T_MIN, stock propagates NaN |
+| `test_grey.py` | `new_main/mod_subs/comp_grey_v2.f`, `comp_grey_v4.f` via `drv_grey.f90` | SIGMA_GREY work-copy clamp to >= -0.999 under SOB/KNOP (grey moment solvers pole at sigma<-1): count message at CONV_DIAG_LVL>=1, suppressed at 0, SIGMA verified untouched, flag-off stock path bit-identical |
 | `test_alteration_coverage.py` | every build input vs `../cmfgen_reference/cur_cmf` (no Fortran build) | self-checking manifest: each altered source is registered as exec/pin/gap/exempt; unregistered alterations, stale entries and missing covering tests all fail; known gaps printed loudly |
 
 ## Supporting files
