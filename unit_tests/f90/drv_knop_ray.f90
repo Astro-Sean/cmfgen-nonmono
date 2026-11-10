@@ -27,7 +27,7 @@
 !
       INTEGER ND,NDX,NCFX,NIX
       PARAMETER (ND=8,NDX=8,NCFX=6,NIX=8)
-      INTEGER I,K,L,LS,IOS,NCASE,KNP,NRF,IRF
+      INTEGER I,K,L,LS,IOS,I2,NCASE,KNP,NRF,IRF
       INTEGER NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
       INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
       INTEGER*8 NCAP_LST,NNG_LST
@@ -37,6 +37,7 @@
       CHARACTER(LEN=32) CNAME
       REAL(KIND=LDP) GAMP,T1
       REAL(KIND=LDP) VV(ND),SG(ND),CKP(3,1,NCFX-1),CKM(3,1,NCFX-1)
+      REAL(KIND=LDP) CHI_D(8),DCH_D(8),Z_D(8),R_D(8),DT_D(8)
       REAL(KIND=LDP) DMAX_CK
 !
       CALL GETARG(1,CNAME)
@@ -91,6 +92,10 @@
       IF(CNAME .EQ. 'esav')  NCASE=50
       IF(CNAME .EQ. 'pmon')  NCASE=51
       IF(CNAME .EQ. 'pnom')  NCASE=52
+      IF(CNAME .EQ. 'sfail') NCASE=53
+      IF(CNAME .EQ. 'rfail') NCASE=54
+      IF(CNAME .EQ. 'scold') NCASE=55
+      IF(CNAME .EQ. 'dtau')  NCASE=56
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -504,8 +509,9 @@
           END DO
         END DO
         ALLOCATE(JMP_SIB_M(KN_NCF),JMP_SIB_P(KN_NCF),STAT=IOS)
-        CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M)
-        CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P)
+        CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M,IOS)
+        CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P,IOS)
+        WRITE(*,'(A,I3)')'SSTAT=',IOS
         DO L=1,KN_NCF
           WRITE(*,'(A,I2,A,2ES16.8)')'SREF ',L,' ', &
       JMP_SIB_M(L),JMP_SIB_P(L)
@@ -562,6 +568,66 @@
         WRITE(*,'(A,ES16.8)')'EV_HOT=',DBLE(KN_HOT_SPENT)
         WRITE(*,'(A,L2)')'EV_SRDY=',KN_STORE_READY
         WRITE(*,'(A,I8)')'EV_FRQ=',FREQ_IDX_ITER
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
+!
+      IF(NCASE .EQ. 56)THEN
+!
+! dtau: exercise the shared non-ZERO DTAU operator
+! (KN_DTAU_INT_V1) directly -- the same routine the INTEGRAL
+! sweep block and the refresh BUILD_FREQ both call. Profile A is
+! monotone increasing CHI with a steep kink (the clamp must bind
+! where the cubic overshoots), profile B is non-monotone.
+!
+        DO I=1,8
+          R_D(I)=1.0_LDP+0.5_LDP*(I-1)
+          Z_D(I)=DBLE(9-I)
+        END DO
+        CHI_D=(/1.0_LDP,2.0_LDP,4.0_LDP,16.0_LDP,32.0_LDP, &
+                64.0_LDP,128.0_LDP,256.0_LDP/)
+        DCH_D=0.0_LDP
+        DCH_D(1:7)=CHI_D(2:8)-CHI_D(1:7)
+        DCH_D(8)=DCH_D(7)
+        CALL KN_DTAU_INT_V1(8,CHI_D,DCH_D,Z_D,R_D,DT_D)
+        DO I=1,7
+          WRITE(*,'(A,I2,A,3ES16.8)')'DTA ',I,' ',DT_D(I), &
+      CHI_D(I)*(Z_D(I)-Z_D(I+1)),CHI_D(I+1)*(Z_D(I)-Z_D(I+1))
+        END DO
+        CHI_D=(/1.0_LDP,8.0_LDP,2.0_LDP,64.0_LDP,4.0_LDP, &
+                32.0_LDP,16.0_LDP,128.0_LDP/)
+        DCH_D=0.0_LDP
+        DCH_D(1:7)=CHI_D(2:8)-CHI_D(1:7)
+        DCH_D(8)=DCH_D(7)
+        CALL KN_DTAU_INT_V1(8,CHI_D,DCH_D,Z_D,R_D,DT_D)
+        DO I=1,7
+          WRITE(*,'(A,I2,A,3ES16.8)')'DTB ',I,' ',DT_D(I), &
+      CHI_D(I)*(Z_D(I)-Z_D(I+1)),CHI_D(I+1)*(Z_D(I)-Z_D(I+1))
+        END DO
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
+!
+      IF(NCASE .EQ. 53 .OR. NCASE .EQ. 55)THEN
+!
+! sfail/scold: probe the sibling-reference status contract. sfail
+! arms the injectable alloc-failure hook -- ISTAT must come back 1
+! (never conflated with a cold start). scold floors every sibling
+! store -- a genuine cold start: ISTAT=0, every REF entry -1.
+!
+        IF(NCASE .EQ. 53)FG_JMP_FAIL_INJ=.TRUE.
+        IF(NCASE .EQ. 55)THEN
+          I_M_DEPTH_NEXT=0.0_LDP
+          I_P_DEPTH_NEXT=0.0_LDP
+        END IF
+        ALLOCATE(JMP_SIB_M(KN_NCF),JMP_SIB_P(KN_NCF),STAT=IOS)
+        CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M,IOS)
+        CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P,I2)
+        WRITE(*,'(A,2I3)')'SSTAT=',IOS,I2
+        DO L=1,KN_NCF
+          WRITE(*,'(A,I2,A,2ES16.8)')'SREF ',L,' ', &
+      JMP_SIB_M(L),JMP_SIB_P(L)
+        END DO
         WRITE(*,'(A)')'RESULT_OK'
         GOTO 999
       END IF
@@ -670,6 +736,7 @@
 ! End-to-end refresh: arms the capture-store guard and runs the
 ! production post-sweep path (OMP ray loop, census, commit).
 !
+        IF(NCASE .EQ. 54)FG_JMP_FAIL_INJ=.TRUE.
         DO_KNOP_REFRESH=.TRUE.
         FREEZE_I_NEXT=.FALSE.
         HAS_COMPRESSING=.TRUE.
@@ -692,6 +759,7 @@
         WRITE(*,'(A,ES16.8)')'RF_PLAT=',DBLE(FG_GS_NPLAT)
         WRITE(*,'(A,ES16.8)')'RF_INEXT_RELAX=',INEXT_RELAX
         WRITE(*,'(A,I8)')'RF_HEAL=',FG_DIV_HEAL
+        WRITE(*,'(A,L2)')'RF_FAIL=',FG_RF_FAILED
         WRITE(*,'(A,I8)')'RF_JREJ=',FG_COMMIT_REJ
         WRITE(*,'(A,I8)')'RF_NCREJ=',FG_NC_REJ
         WRITE(*,'(A,I8)')'RF_NCCAP=',FG_NC_CAP
@@ -765,8 +833,8 @@
         WRITE(*,'(A)')'RESULT_FAIL sibref_alloc'
         GOTO 999
       END IF
-      CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M)
-      CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P)
+      CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M,IOS)
+      CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P,IOS)
 !
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
       NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK, &
