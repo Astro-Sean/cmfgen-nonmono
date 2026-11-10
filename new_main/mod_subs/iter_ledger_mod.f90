@@ -143,24 +143,49 @@
 ! survives requeues like ITER_HISTORY). WT is the caller's
 ! OMP_GET_WTIME() at write time.
 !
-! Column contract (v1):
+! Column contract (v2; v1 columns unchanged at old positions,
+! accelerator columns appended at the end):
 !  iter,mode,next,ba,frozen,held,reason,
 !  n_fg,n_mom,n_rf,np_rf,ba_build,ba_reuse,
 !  jfnk,jfnk_cpl,jfnk_ev,jfnk_jvp,n_rej,n_dem,n_frz,
 !  n_frozen,n_rel,n_raw_rel,
 !  maxch,maxch_app,maxatt,se_res,se_res2,trust,
-!  t_iter,t_rad,t_rf,t_pops,rss_mb
+!  t_iter,t_rad,t_rf,t_pops,rss_mb,
+!  ng_try,ng_ok,ng_def,ng_cln,jfnk_cmt,
+!  aa_app,aa_skip,aa_sng,aa_rst,
+!  aao_app,aao_rej,aao_sng,aao_fail,freqm
+!
+! Accelerator columns (audit D1): ng_try is 1 when the NG schedule
+! reached a due call this iteration, ng_ok 1 when the banded secant
+! committed, ng_def 1 when the NG_CLEAN window deferred the due
+! call, ng_cln the clean-record count after this call's update.
+! jfnk_cmt is 1 when a Newton correction was committed (vs the
+! admitted-but-skipped case jfnk=1,jfnk_cmt=0). The aa_* fields
+! carry the MOM refresh's inner-AA counters and aao_* the outer-AA
+! counters of the last refresh this call (0 when the refresh did
+! not run); aa_rst counts damp-triggered history restarts,
+! aao_fail the outer-history allocation latch, freqm the
+! MOM_FREQ_MATCH flag. Together with t_rad/t_rf/t_pops the row
+! distinguishes which accelerator is armed, which actually
+! committed, and which stage owns the wall time.
 !
       SUBROUTINE LEDG_WRITE_ITER(WT, &
            ITER,MODE_NOW,MODE_NEXT,BA_CH,REASON,FROZEN,HELD, &
            N_BA_BUILD,N_BA_REUSE,JADM,JCOUPLED,JEV_NOW,JJV_NOW, &
            N_REJ,N_FROZEN,N_REL,N_RAW_REL, &
-           MAXCH,MAXCH_APP,MAXATT,SE_RES,SE_RES2,TRUST)
+           MAXCH,MAXCH_APP,MAXATT,SE_RES,SE_RES2,TRUST, &
+           NG_TRY,NG_OK,NG_DEF,NG_CLN,JFNK_CMT, &
+           AA_APP,AA_SKIP,AA_SNG,AA_RST, &
+           AAO_APP,AAO_REJ,AAO_SNG,AAO_FAIL,FREQM)
       REAL(KIND=LDP) WT
       INTEGER ITER,N_BA_BUILD,N_BA_REUSE
       INTEGER N_REJ,N_FROZEN,N_REL
       INTEGER*8 N_RAW_REL
       INTEGER JEV_NOW,JJV_NOW
+      INTEGER NG_TRY,NG_OK,NG_DEF,NG_CLN,JFNK_CMT
+      INTEGER*8 AA_APP,AA_SKIP,AA_SNG,AA_RST
+      INTEGER*8 AAO_APP,AAO_REJ,AAO_SNG
+      INTEGER AAO_FAIL,FREQM
       LOGICAL FROZEN,HELD,JADM,JCOUPLED
       REAL(KIND=LDP) MAXCH,MAXCH_APP,MAXATT,SE_RES,SE_RES2,TRUST
       CHARACTER(LEN=*) MODE_NOW,MODE_NEXT,BA_CH,REASON
@@ -202,10 +227,14 @@
         'jfnk,jfnk_cpl,jfnk_ev,jfnk_jvp,n_rej,n_dem,n_frz,'// &
         'n_frozen,n_rel,n_raw_rel,'// &
         'maxch,maxch_app,maxatt,se_res,se_res2,trust,'// &
-        't_iter,t_rad,t_rf,t_pops,rss_mb'
+        't_iter,t_rad,t_rf,t_pops,rss_mb,'// &
+        'ng_try,ng_ok,ng_def,ng_cln,jfnk_cmt,'// &
+        'aa_app,aa_skip,aa_sng,aa_rst,'// &
+        'aao_app,aao_rej,aao_sng,aao_fail,freqm'
 !
       WRITE(LU,'(I0,",",A,",",A,",",A,",",I0,",",I0,",",A,",",'// &
-        '16(I0,","),6(ES12.4,","),4(F12.2,","),F12.1)') &
+        '16(I0,","),6(ES12.4,","),4(F12.2,","),F12.1,",",'// &
+        '5(I0,","),4(I0,","),3(I0,","),I0,",",I0)') &
         ITER,TRIM(MODE_NOW),TRIM(MODE_NEXT),TRIM(BA_CH),F_I,H_I, &
         TRIM(REASON), &
         LEDG_N_FG,LEDG_N_MOM,LEDG_N_RF,LEDG_NP_RF, &
@@ -214,7 +243,10 @@
         R_I,LEDG_COUNT_TOKEN(REASON,'demote'),LEDG_N_FRZ, &
         N_FROZEN,N_REL,N_RAW_REL, &
         MAXCH,MAXCH_APP,MAXATT,SE_RES,SE_RES2,TRUST, &
-        T_ITER,LEDG_T_RAD,LEDG_T_RF,T_POPS,RSS
+        T_ITER,LEDG_T_RAD,LEDG_T_RF,T_POPS,RSS, &
+        NG_TRY,NG_OK,NG_DEF,NG_CLN,JFNK_CMT, &
+        AA_APP,AA_SKIP,AA_SNG,AA_RST, &
+        AAO_APP,AAO_REJ,AAO_SNG,AAO_FAIL,FREQM
       CLOSE(LU)
       RETURN
       END SUBROUTINE LEDG_WRITE_ITER
