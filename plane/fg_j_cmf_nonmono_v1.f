@@ -508,6 +508,19 @@
 	INTEGER, ALLOCATABLE, SAVE :: FG_RAY_VC(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FG_RAY_DCH(:)
 !
+! JMP_SIB_M/JMP_SIB_P (edited, OMP-race audit): immutable per-field-
+! frequency sibling reference scales for the FG_JUMP_MAX floor-column
+! veto. FG_KNOP_REFRESH_V1 fills them once from the retained stores
+! BEFORE the parallel ray loop, so the guard no longer reads sibling
+! columns while other threads are committing into them. Per frequency
+! the reference is the median of the per-ray column peaks over finite
+! positive slots -- a single poisoned or floor-valued ray cannot set
+! (or disable) the scale for the whole ray set. -1 marks a column
+! with no sane sample (true cold start; the fill stays exempt).
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JMP_SIB_M(:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JMP_SIB_P(:)
+!
 ! FG_SEED_COMMIT / FG_RAY_SEEDED (edited 02-Nov-2026):
 ! per-ray "has committed" flag, waiving the FG_COMMIT_JUMP veto for a
 ! ray that has never taken a WRITE_STORE commit. The veto bounds
@@ -1043,6 +1056,77 @@
 	DATA KN_ND /0/,KN_NP /0/,KN_NC /0/,KN_NCF /0/,KN_ND_EXT /0/
 	DATA KN_RF_RESID /0.0_LDP/
 	DATA FG_RF_DCHG /0.0_LDP/
+!
+	CONTAINS
+!
+! ==============================================================================
+!
+! KN_JMP_SIBREF_V1 (OMP-race audit, Issue 1): build the immutable
+! sibling reference scale FG_JUMP_MAX uses for floor-column fills.
+! For each field frequency the per-ray column peak is taken over the
+! compressing-depth slots of every ray, and the reference is the
+! median of the finite positive peaks -- the old concurrent MAX let
+! one Inf sibling disable the veto for the whole ray set and raced
+! the committing threads. Called once per direction before the
+! parallel loop; the result must not change while the rays solve.
+! -1 marks a column with no sane sample, the same cold-start
+! exemption the scan had before. Lives in the module so its
+! assumed-shape dummies have an explicit interface at every call
+! site (refresh + test driver).
+!
+	SUBROUTINE KN_JMP_SIBREF_V1(STORE,REF)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	REAL(KIND=LDP) STORE(:,:,:)
+	REAL(KIND=LDP) REF(:)
+	INTEGER LS2,RS,KS2,KC2,NOK,I2,J2
+	REAL(KIND=LDP) V2,VT
+	REAL(KIND=LDP), ALLOCATABLE :: VPK(:)
+!
+	REF(1)=-1.0_LDP
+	ALLOCATE(VPK(KN_NP),STAT=I2)
+	IF(I2 .NE. 0)THEN
+	  REF=-1.0_LDP
+	  RETURN
+	END IF
+	DO LS2=2,SIZE(REF)
+	  NOK=0
+	  DO RS=1,KN_NP
+	    VT=0.0_LDP
+	    DO KS2=1,KN_ND
+	      KC2=COMP_DEPTH_IDX(KS2)
+	      IF(KC2 .GE. 1)THEN
+	        V2=STORE(KC2,RS,LS2-1)
+	        IF(ABS(V2) .LE. HUGE(V2))VT=MAX(VT,V2)
+	      END IF
+	    END DO
+! A floor-valued peak carries no committed field -- counting it would
+! relax the veto exactly where it is needed (a floored ray among sane
+! siblings). Only rays with a real peak set the reference scale.
+	    IF(VT .GT. 1.0E-28_LDP .AND. VT .LE. HUGE(VT))THEN
+	      NOK=NOK+1
+	      VPK(NOK)=VT
+	    END IF
+	  END DO
+	  IF(NOK .EQ. 0)THEN
+	    REF(LS2)=-1.0_LDP
+	    CYCLE
+	  END IF
+	  DO I2=2,NOK
+	    VT=VPK(I2)
+	    J2=I2-1
+	    DO WHILE(J2 .GE. 1)
+	      IF(VPK(J2) .LE. VT)EXIT
+	      VPK(J2+1)=VPK(J2)
+	      J2=J2-1
+	    END DO
+	    VPK(J2+1)=VT
+	  END DO
+	  REF(LS2)=VPK((NOK+1)/2)
+	END DO
+	DEALLOCATE(VPK)
+	RETURN
+	END SUBROUTINE KN_JMP_SIBREF_V1
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -6485,6 +6569,18 @@ C
 	ALLOCATE(KN_HOT_CNT(KN_NCF),STAT=IOS)
 	IF(IOS .EQ. 0)KN_HOT_CNT=0
 !
+! Snapshot the sibling reference scales for the FG_JUMP_MAX floor
+! veto before the parallel loop: every KNOP_RAY_SOLVE_V1 thread then
+! reads the same frozen values instead of racing sibling columns that
+! other threads are committing into (OMP-race audit, Issue 1).
+!
+	IF(ALLOCATED(JMP_SIB_M))DEALLOCATE(JMP_SIB_M)
+	IF(ALLOCATED(JMP_SIB_P))DEALLOCATE(JMP_SIB_P)
+	ALLOCATE(JMP_SIB_M(KN_NCF),JMP_SIB_P(KN_NCF),STAT=IOS)
+	IF(IOS .NE. 0)RETURN
+	CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M)
+	CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P)
+!
 ! One ray per thread: each thread owns column LS of the shared module
 ! arrays (GAM, RAY_PNT, I_*_DEPTH_NEXT), so no atomics are needed.
 ! KN_MAX_THREADS bounds the per-thread NI*NCF work-array memory.
@@ -7274,8 +7370,8 @@ C
 	  IF(FG_SEED_COMMIT .AND. ALLOCATED(FG_RAY_SEEDED))
 	1    L_UNSEED=(FG_RAY_SEEDED(LS) .EQ. 0)
 	  IF(.NOT. L_UNSEED)JUMP=
-	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT),
-	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT))
+	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M),
+	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P))
 	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
 !$OMP CRITICAL (FG_REJ_UPD)
 	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
@@ -9931,13 +10027,13 @@ C
 ! committed-near-blowup class (audit: retained delta 4.19E-1 ->
 ! 5.03E3) while allowing genuine factor-of-few rewrites.
 ! ----------------------------------------------------------------
-	REAL(KIND=LDP) FUNCTION FG_JUMP_MAX(FLD,STORE)
+	REAL(KIND=LDP) FUNCTION FG_JUMP_MAX(FLD,STORE,REF)
 	REAL(KIND=LDP) FLD(NI,NCF)
 	REAL(KIND=LDP) STORE(:,:,:)
-	INTEGER KS,KS2,LS2,JP2,RS,KC2
-	REAL(KIND=LDP) V1,V2,VX
+	REAL(KIND=LDP) REF(:)
+	INTEGER KS,LS2,JP2
+	REAL(KIND=LDP) V1,V2
 	REAL(KIND=LDP) VMAX_S(NCF)
-	REAL(KIND=LDP) VMAX_X(NCF)
 	FG_JUMP_MAX=0.0_LDP
 !
 ! Store-column peak per frequency. The jump test is keyed on the
@@ -9950,14 +10046,13 @@ C
 !
 	DO LS2=1,NCF
 	  VMAX_S(LS2)=0.0_LDP
-	  VMAX_X(LS2)=-1.0_LDP
 	END DO
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
 	  IF(KC .GE. 1)THEN
 	    DO LS2=2,NCF
 	      V2=STORE(KC,LS,LS2-1)
-	      IF(V2 .EQ. V2)VMAX_S(LS2)=MAX(VMAX_S(LS2),V2)
+	      IF(ABS(V2) .LE. HUGE(V2))VMAX_S(LS2)=MAX(VMAX_S(LS2),V2)
 	    END DO
 	  END IF
 	END DO
@@ -9968,7 +10063,7 @@ C
 	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
 	      DO LS2=2,NCF
 	        V1=FLD(JP2,LS2)
-	        IF(V1 .NE. V1)THEN
+	        IF(.NOT.(ABS(V1) .LE. HUGE(V1)))THEN
 	          FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	          RETURN
 	        END IF
@@ -9982,34 +10077,21 @@ C
 ! once exempt entirely, which let a converged-classified ray seed a
 ! column with an extreme value -- the failure channel
 ! (committed delta ~3E7 while JUMP stayed under the bound). Fall
-! back to the sibling-ray peak at the same field frequency: rays
-! sample the same atmosphere, so a genuine seed lands within
-! FG_COMMIT_JUMP of what neighbouring rays hold. Only when every
-! ray's column is at the floor (true cold start) is the fill
-! exempt.
+! back to the sibling reference snapped before the parallel loop
+! (KN_JMP_SIBREF_V1): rays sample the same atmosphere, so a
+! genuine seed lands within FG_COMMIT_JUMP of the median ray
+! peak. REF<=0 means no sane sibling sample (true cold start)
+! and the fill stays exempt.
 	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)THEN
-	          IF(VMAX_X(LS2) .LT. 0.0_LDP)THEN
-	            VX=0.0_LDP
-	            DO RS=1,KN_NP
-	              DO KS2=1,KN_ND
-	                KC2=COMP_DEPTH_IDX(KS2)
-	                IF(KC2 .GE. 1)THEN
-	                  V2=STORE(KC2,RS,LS2-1)
-	                  IF(V2 .EQ. V2)VX=MAX(VX,V2)
-	                END IF
-	              END DO
-	            END DO
-	            VMAX_X(LS2)=VX
-	          END IF
-	          IF(VMAX_X(LS2) .GT. 1.0E-28_LDP .AND.
-	1          V1 .GT. FG_COMMIT_JUMP*VMAX_X(LS2))THEN
+	          IF(REF(LS2) .GT. 1.0E-28_LDP .AND.
+	1          V1 .GT. FG_COMMIT_JUMP*REF(LS2))THEN
 	            FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	            RETURN
 	          END IF
 	          CYCLE
 	        END IF
 	        V2=STORE(KC,LS,LS2-1)
-	        IF(V2 .LE. 0.0_LDP .OR. V2 .NE. V2)CYCLE
+	        IF(V2 .LE. 0.0_LDP .OR. .NOT.(ABS(V2) .LE. HUGE(V2)))CYCLE
 	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,ABS(V1-V2)/
 	1          MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP))
 	      END DO
