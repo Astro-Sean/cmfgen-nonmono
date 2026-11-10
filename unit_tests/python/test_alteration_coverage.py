@@ -286,11 +286,11 @@ COVERAGE = {
         "spectroscopy/plotting library (libspec.a), not cmfgen_dev.exe"),
 
     # ------------- shipped tools that rewrite model data ----------------
-    "misc/adjust_atm_r_grid.f": ("gap",
-        "rewrites atmosphere grid; untested"),
+    "misc/adjust_atm_r_grid.f": ("exec", [
+        UT + "test_adj_grid.py"]),
     "misc/ave_dc.f": ("exec", [UT + "test_ave_dc.py"]),
     "misc/extrap_scr.f": ("exec", [UT + "test_extrap_scr.py"]),
-    "misc/merge_scr.f": ("gap", "scratch-file merge tool; untested"),
+    "misc/merge_scr.f": ("exec", [UT + "test_merge_scr.py"]),
     "misc/rev_hydro_turb.f": ("exec", [
         UT + "test_rev_hydro_turb.py"]),
     "misc/rev_rdinr.f": ("exec", [
