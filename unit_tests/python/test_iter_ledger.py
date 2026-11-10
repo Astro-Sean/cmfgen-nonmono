@@ -74,7 +74,8 @@ EXPECTED_COLS = (
     "t_iter,t_rad,t_rf,t_pops,rss_mb,"
     "ng_try,ng_ok,ng_def,ng_cln,jfnk_cmt,"
     "aa_app,aa_skip,aa_sng,aa_rst,"
-    "aao_app,aao_rej,aao_sng,aao_fail,freqm"
+    "aao_app,aao_rej,aao_sng,aao_fail,freqm,"
+    "aa_ran,aa_en,aao_en"
 ).split(",")
 REP.check("header written once", len([l for l in text if l.startswith("#")]) == 1)
 REP.check("header columns", cols == EXPECTED_COLS,
@@ -125,7 +126,9 @@ if len(rows) == 2:
               and a["aa_sng"] == "0" and a["aa_rst"] == "2"
               and a["aao_app"] == "2" and a["aao_rej"] == "1"
               and a["aao_sng"] == "0" and a["aao_fail"] == "0"
-              and a["freqm"] == "1")
+              and a["freqm"] == "1"
+              and a["aa_ran"] == "1" and a["aa_en"] == "1"
+              and a["aao_en"] == "1")
 
     # Row 2: second write reuses the same reset -> eval deltas are
     # still measured against the iteration-start snapshot, not the
@@ -143,7 +146,9 @@ if len(rows) == 2:
               b["ng_try"] == "1" and b["ng_ok"] == "0"
               and b["ng_def"] == "0" and b["ng_cln"] == "3"
               and b["jfnk_cmt"] == "1"
-              and b["aao_fail"] == "1" and b["freqm"] == "0")
+              and b["aao_fail"] == "1" and b["freqm"] == "0"
+              and b["aa_ran"] == "0" and b["aa_en"] == "1"
+              and b["aao_en"] == "0")
 
     # RSS: positive MB on Linux, or -1 where /proc is unavailable.
     rss = float(a["rss_mb"])
