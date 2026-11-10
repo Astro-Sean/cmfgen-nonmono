@@ -239,6 +239,20 @@
 	LOGICAL BA_PART_WAS
 	LOGICAL PLATEAU_NOW
 	LOGICAL HIST_EXIST
+! Per-call accelerator state for the ITER_LEDGER accelerator
+! columns (audit D1). NG_TRY_THIS/NG_OK_THIS/NG_DEF_THIS record
+! whether the NG schedule reached a due call, committed, or armed
+! the NG_CLEAN deferral this call; NG_DEFERRED itself is the
+! persistent flag. JFNK_COMMITTED already marks the committed-
+! Newton outcome. LEDG_AA_* carry the MOM refresh AA census from
+! GET_MOM_AA_STATE (last refresh this call; zeros when none ran).
+!
+	LOGICAL NG_TRY_THIS,NG_OK_THIS,NG_DEF_THIS
+	LOGICAL LEDG_AA_ON,LEDG_AA_OUT_ON,LEDG_AA_FAIL,LEDG_FREQM
+	INTEGER*8 LEDG_AA_APP,LEDG_AA_SKIP,LEDG_AA_SNG,LEDG_AA_RST
+	INTEGER*8 LEDG_AAO_APP,LEDG_AAO_REJ,LEDG_AAO_SNG
+	CHARACTER NG_CH,JF_CH
+	CHARACTER*64 ACC_CH
 	REAL(KIND=LDP) GS_DRIFT_FRAC
 	CHARACTER*12 MODE_NOW,MODE_NEXT
 	CHARACTER*64 ITER_REASON
@@ -557,6 +571,9 @@
 	TRIAL_FIRED=.FALSE.
 	JFNK_UNCONVERGED_COMMIT=.FALSE.
 	JFNK_COMMITTED=.FALSE.
+	NG_TRY_THIS=.FALSE.
+	NG_OK_THIS=.FALSE.
+	NG_DEF_THIS=.FALSE.
 !
 ! Consume the rd_lam probe arm into a call-local flag. CMFGEN_SUB
 ! already read BA_RDLAM_PROBE to leave LAMBDA_ITERATION false for this
@@ -3933,6 +3950,7 @@
 	1       .NOT. GS_FREEZE .AND. .NOT. FORCE_LAMBDA .AND.
 	1       (NEXT_NG .EQ. MAIN_COUNTER .OR.
 	2        (NG_DEFERRED .AND. NEXT_NG .LE. MAIN_COUNTER)) )THEN
+	  NG_TRY_THIS=.TRUE.
 	  IF(NG_CLEAN .LT. 4)THEN
 ! The 4-record SCRTEMP window still holds a rejected, rolled-back,
 ! or unjudged (BAACC_PENDING) record; extrapolating it can only
@@ -3944,10 +3962,12 @@
 ! over target is still honoured (see the due test above).
 	    NEXT_NG=MAIN_COUNTER+1
 	    NG_DEFERRED=.TRUE.
+	    NG_DEF_THIS=.TRUE.
 	  ELSE
 	  CALL DO_NG_BAND_ACCEL_V4(POPS,R,V,SIGMA,R_OLD,
 	1         NT,ND,NG_BAND_WIDTH,NG_DONE,T1,T2,
 	1         DO_NG_VALIDITY_CHECK,NG_ABSTAIN,LUSCR,LUER)
+	  NG_OK_THIS=NG_DONE
 	  IF(NG_DONE)THEN
 ! DO_NG_BAND_ACCEL_V4 extrapolates R, V and SIGMA together with the
 ! populations, so the unclamped gradient used by the non-monotonic
@@ -4145,12 +4165,28 @@
 	2    ' [BAD] unsafe/failed, [HELD] pops frozen,'//
 	3    ' [INFO] diagnostic only, [REJ] BA rejected'//
 	4    ' (ba=MASKED = partial rollback)'
+	    WRITE(LUER,'(A)')'   accel          = ng:-|d|r|A'//
+	1    ' (not due/deferred/rejected/applied),'//
+	2    ' jfnk:-|a|A (idle/admitted/committed),'//
+	3    ' aa=off or app/skip/sng/rst + outer app/rej/sng,'//
+	4    ' AOFAIL=outer alloc fail, freqm=freq matcher'
 	  END IF
 !
 	  WRITE(LUER,'(A,I5,3(A,A),2(A,L2))')
 	1    ' ITER_SUM: it=',MAIN_COUNTER,'  mode=',TRIM(MODE_NOW),
 	2    ' -> ',TRIM(MODE_NEXT),'  ba=',TRIM(BA_CH),
 	3    '  frozen=',GS_FREEZE,'  held=',GS_POPS_HELD
+!
+! Audit D1 accelerator census. The getter is called here (before
+! ITER_SUM) so the same LEDG_AA_* values feed both the accel row
+! and the ITER_LEDGER write below; MOM_RF_RAN was set by the
+! GET_MOM_GS_MATURITY call at entry, so 'aa=off' means the moment
+! refresh did not run this call (USE_LAM_ES=T or FG-solver path),
+! not that AA is unarmed.
+!
+	  CALL GET_MOM_AA_STATE(LEDG_AA_ON,LEDG_AA_APP,LEDG_AA_SKIP,
+	1    LEDG_AA_SNG,LEDG_AA_RST,LEDG_AA_OUT_ON,LEDG_AAO_APP,
+	2    LEDG_AAO_REJ,LEDG_AAO_SNG,LEDG_AA_FAIL,LEDG_FREQM)
 !
 ! Status tags mirror the gate thresholds above: [BAD] is the
 ! catastrophic tier and [WARN] the marginal tier. Luminosity carries
@@ -4176,6 +4212,37 @@
 	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,A)')
 	1    'se residual',BA_SE_RES,BA_SE_RES2,SE_ST,
 	2    'all cells / excl. worst cols'
+!
+! Audit D1 accelerator-state row: one scannable line naming which
+! accelerators fired this call. ng codes: '-' not due, 'd'
+! deferred by the NG_CLEAN window, 'r' fired but rejected/
+! cancelled, 'A' committed. jfnk codes: '-' not admitted, 'a'
+! admitted only, 'A' committed Newton. aa slot: 'aa=off' when the
+! moment refresh did not run (formal-J path), otherwise
+! app/skip/sng/rst and outer app/rej/sng counts; AOFAIL marks the
+! outer-history allocation latch, freqm the frequency matcher.
+!
+	  NG_CH='-'
+	  IF(NG_TRY_THIS)THEN
+	    NG_CH='r'
+	    IF(NG_DEF_THIS)NG_CH='d'
+	    IF(NG_OK_THIS)NG_CH='A'
+	  END IF
+	  JF_CH='-'
+	  IF(JFNK_THIS)JF_CH='a'
+	  IF(JFNK_COMMITTED)JF_CH='A'
+	  IF(MOM_RF_RAN)THEN
+	    WRITE(ACC_CH,'(4(A,I0),3(A,I0))')
+	1      'aa=',LEDG_AA_APP,'/',LEDG_AA_SKIP,'/',LEDG_AA_SNG,
+	2      '/',LEDG_AA_RST,' o=',LEDG_AAO_APP,'/',LEDG_AAO_REJ,
+	3      '/',LEDG_AAO_SNG
+	  ELSE
+	    ACC_CH='aa=off'
+	  END IF
+	  IF(LEDG_AA_FAIL)ACC_CH=TRIM(ACC_CH)//' AOFAIL'
+	  IF(LEDG_FREQM)ACC_CH=TRIM(ACC_CH)//' freqm'
+	  WRITE(LUER,'(4X,A14,2X,4A)')
+	1    'accel','ng=',NG_CH,' jfnk=',JF_CH,' ',TRIM(ACC_CH)
 !
 ! edited 17-Oct-2026: trace-side channels and the
 ! converged-exit verdict. Under the major/trace split
@@ -4472,6 +4539,13 @@
 ! entries, n_rej the rejected/masked commit flags.
 !
 	  IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+!
+! Audit D1 accelerator census: LEDG_AA_* was loaded before
+! ITER_SUM. The MOM refresh counters report the last refresh's AA
+! activity (zeros under USE_LAM_ES=T, where the moment solver
+! never runs); the NG flags report this call's schedule outcome;
+! JFNK_COMMITTED separates admitted from committed Newton calls.
+!
 	    CALL LEDG_WRITE_ITER(OMP_GET_WTIME(),
 	1      MAIN_COUNTER,MODE_NOW,MODE_NEXT,BA_CH,ITER_REASON,
 	2      GS_FREEZE,GS_POPS_HELD,
@@ -4482,7 +4556,13 @@
 	7      MERGE(1,0,BA_REJ_THIS)+MERGE(1,0,BA_PART_WAS),
 	8      N_FROZEN,N_RELEASES_TOT,GS_RAW_RELEASES_TOT,
 	9      MAXCH,MAXCH_APP,GS_ATTEMPT_APP,
-	1      BA_SE_RES,BA_SE_RES2,BA_TRUST_CUR)
+	1      BA_SE_RES,BA_SE_RES2,BA_TRUST_CUR,
+	2      MERGE(1,0,NG_TRY_THIS),MERGE(1,0,NG_OK_THIS),
+	3      MERGE(1,0,NG_DEF_THIS),NG_CLEAN,
+	4      MERGE(1,0,JFNK_COMMITTED),
+	5      LEDG_AA_APP,LEDG_AA_SKIP,LEDG_AA_SNG,LEDG_AA_RST,
+	6      LEDG_AAO_APP,LEDG_AAO_REJ,LEDG_AAO_SNG,
+	7      MERGE(1,0,LEDG_AA_FAIL),MERGE(1,0,LEDG_FREQM))
 	  END IF
 !
 ! Plateau detector: flag a stall only when the committed correction,
