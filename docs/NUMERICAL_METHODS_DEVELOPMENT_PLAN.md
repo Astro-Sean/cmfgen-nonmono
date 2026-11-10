@@ -2,6 +2,16 @@
 
 ## Purpose and status
 
+> **Status: historical baseline (10-Nov-2026 note).** The source
+> snapshot below (`e4c8f02b`, 03-Nov-2026) is preserved for
+> provenance and is NOT a current audit of `main`. Current
+> findings and outstanding work are tracked in
+> [audits/AUDIT_LOG.md](audits/AUDIT_LOG.md) and the dated audit
+> documents under `docs/audits/`. Each phase must revalidate the
+> relevant implementation and tests against the current checkout
+> before work begins; completed items below are annotated inline
+> with their evidence dates.
+
 This plan turns the proposed convergence review into a sequence of
 investigations with implementation limits and acceptance tests. It is a
 research plan, not evidence that any solver change improves a physical model.
