@@ -291,14 +291,14 @@ COVERAGE = {
     "misc/ave_dc.f": ("exec", [UT + "test_ave_dc.py"]),
     "misc/extrap_scr.f": ("gap", "scratch-file extrapolation tool; untested"),
     "misc/merge_scr.f": ("gap", "scratch-file merge tool; untested"),
-    "misc/rev_hydro_turb.f": ("gap",
-        "rewrites hydro turbulence data; untested"),
-    "misc/rev_rdinr.f": ("gap",
-        "rewrites inner radii; untested"),
-    "misc/rev_rvsig.f": ("gap",
-        "rewrites velocity/sigma data; untested"),
-    "misc/rewrite_old_model_data.f": ("gap",
-        "rewrites stored model data; untested"),
+    "misc/rev_hydro_turb.f": ("exec", [
+        UT + "test_rev_hydro_turb.py"]),
+    "misc/rev_rdinr.f": ("exec", [
+        UT + "test_rev_rdinr.py"]),
+    "misc/rev_rvsig.f": ("exec", [
+        UT + "test_rev_rvsig.py"]),
+    "misc/rewrite_old_model_data.f": ("exec", [
+        UT + "test_rewrite_old_model.py"]),
 
     # ------------- compiled but not reachable from shipped executables --
     "new_main/subs/get_pops_at_prev_time_step_v2.f": ("exempt",
