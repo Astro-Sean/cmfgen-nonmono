@@ -27,7 +27,7 @@
 !
       INTEGER ND,NDX,NCFX,NIX
       PARAMETER (ND=8,NDX=8,NCFX=6,NIX=8)
-      INTEGER I,K,L,LS,IOS,NCASE,KNP
+      INTEGER I,K,L,LS,IOS,NCASE,KNP,NRF,IRF
       INTEGER NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
       INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
       INTEGER*8 NCAP_LST,NNG_LST
@@ -84,6 +84,7 @@
       IF(CNAME .EQ. 'omone') NCASE=43
       IF(CNAME .EQ. 'omfew') NCASE=44
       IF(CNAME .EQ. 'omout') NCASE=45
+      IF(CNAME .EQ. 'jmp2')  NCASE=46
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -120,6 +121,7 @@
       KNP=1
       IF(NCASE .EQ. 36)KNP=6
       IF(NCASE .GE. 38 .AND. NCASE .LE. 40)KNP=3
+      IF(NCASE .EQ. 46)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -491,12 +493,14 @@
         GOTO 999
       END IF
 !
-      IF(NCASE .EQ. 40)THEN
+      IF(NCASE .EQ. 40 .OR. NCASE .EQ. 46)THEN
 !
-! jmpx: ray 1 has a floored frequency-1 column, ray 2 carries +Inf
-! there, ray 3 holds a small sane peak. The refresh must exclude the
-! Inf sibling, take ray 3 as the reference, and jump-reject ray 1's
-! ~1E-4 fill (>> 50*1E-9) while rays 2 and 3 commit normally.
+! jmpx/jmp2: ray 1 has a floored frequency-1 column, ray 2 carries
+! +Inf there, ray 3 holds a small sane peak. The refresh must
+! exclude the Inf sibling, take ray 3 as the reference, and
+! jump-reject ray 1's ~1E-4 fill (>> 50*1E-9) while rays 2 and 3
+! commit normally. jmp2 runs the refresh twice for the repeated-
+! rejection maturity check.
 !
         DO K=1,N_COMP
           I_M_DEPTH_NEXT(K,1,1)=1.0E-30_LDP
@@ -577,9 +581,14 @@
         FG_GS_NP=KN_NP
         FG_GS_NCF=KN_NCF
         SOLUTION_METHOD='INTEGRAL'
+        NRF=1
+        IF(NCASE .EQ. 46)NRF=2
+        DO IRF=1,NRF
+        IF(NRF .GT. 1)WRITE(*,'(A,I2)')'RF_PASS ',IRF
         CALL FG_KNOP_REFRESH_V1()
         WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
         WRITE(*,'(A,ES16.8)')'RF_DCHG=',FG_RF_DCHG
+        WRITE(*,'(A,ES16.8)')'RF_PEND=',FG_RF_PEND
         WRITE(*,'(A,I8)')'RF_NDIV=',FG_GS_NDIV
         WRITE(*,'(A,ES16.8)')'RF_MAXCHG=',FG_GS_MAXCHG
         WRITE(*,'(A,ES16.8)')'RF_STAL=',DBLE(FG_GS_NSTAL)
@@ -608,6 +617,8 @@
       I_P_DEPTH_NEXT(K,LS,L),I_M_DEPTH_NEXT(K,LS,L)
             END DO
           END DO
+        END DO
+        CALL DRV_MATURITY()
         END DO
         WRITE(*,'(A)')'RESULT_OK'
         GOTO 999
@@ -1055,5 +1066,30 @@
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
       END SUBROUTINE DRV_OMEGA
+!
+! ----------------------------------------------------------------------
+! Maturity read-back (audit Issue 3): calls the production
+! GET_FG_GS_MATURITY so the test sees the RF_DCHG the release gate
+! in SOLVE_FOR_POPS is actually fed -- committed-or-pending after
+! the fold, not the committed-only store delta.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_MATURITY()
+      LOGICAL GS_OK_T
+      REAL(KIND=LDP) GS_CHG_T,GS_MAX_T,GS_SWM_T,GS_RFD_T
+      INTEGER GS_CAPF_T,GS_CAPP_T,GS_NDIV_T,GS_NRAY_T
+      INTEGER*8 GS_NBAD_T,GS_NTOT_T,GS_NCONV_T,GS_NBLK_T,GS_SWN_T
+      INTEGER*8 GS_NSTL_T,GS_NPLT_T
+      INTEGER*8 GS_SWC_T,GS_SWT_T,GS_RFC_T
+!
+      CALL GET_FG_GS_MATURITY(GS_OK_T,GS_CHG_T,GS_CAPF_T, &
+      GS_MAX_T,GS_CAPP_T,GS_NBAD_T,GS_NTOT_T,GS_NCONV_T, &
+      GS_NDIV_T,GS_NRAY_T,GS_NBLK_T, &
+      GS_SWM_T,GS_SWN_T,GS_RFD_T, &
+      GS_NSTL_T,GS_NPLT_T, &
+      GS_SWC_T,GS_SWT_T,GS_RFC_T)
+      WRITE(*,'(A,L2)')'GS_OK=',GS_OK_T
+      WRITE(*,'(A,ES16.8)')'GS_RFD=',GS_RFD_T
+      RETURN
+      END SUBROUTINE DRV_MATURITY
 !
       END
