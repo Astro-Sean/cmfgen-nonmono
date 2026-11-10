@@ -107,6 +107,8 @@ error text.
 | `test_merge_scr.py` | `misc/merge_scr.f` compiled with production flags (no shipped exe) + `mk_scr.f90` fixtures | same guard set as extrap_scr on the merge twin: flat/nonpositive V per dir, expansion reorder on a backwards age, NEW_SCRTEMP on valid decks |
 | `test_adj_grid.py` | `misc/adjust_atm_r_grid.f` via `drv_adj_grid.f90` | OLD_V positivity/ordering guard before the V-coordinate connection search: flat and negative OLD_V die labelled; a valid deck returns a positive strictly decreasing R grid |
 | `test_adj_r4.py` | `new_main/mod_subs/adjust_r_grid_v4.f` via `drv_adj_r4.f90` | GRID_METH=VEL_SPACE rejected under DO_NONMONO_SOB/KNOP (R(V) interp needs monotonic V); the interpolated sigma<-1 clamp/STOP is skipped under the same flags but preserved flag-off on a reversal deck |
+| `test_steq_adv.py` | `new_main/subs/steq_advec_v4.f` via `drv_steq_adv.f90` | INC_ADV=T + non-positive V rejected under DO_NONMONO_SOB/KNOP (backward-difference stencil assumes radial outflow); flag-off and positive-V paths pass the guard |
+| `test_gfm.py` | `new_main/subs/generate_full_matrix_v3.f` via `drv_gfm.f90` | BA_ASCI dumps at K=5/K=ND suppressed under JFNK_QUIET_IO (JFNK evals re-enter once per matvec); flag-off writes both files |
 | `test_alteration_coverage.py` | every build input vs `../cmfgen_reference/cur_cmf` (no Fortran build) | self-checking manifest: each altered source is registered as exec/pin/gap/exempt; unregistered alterations, stale entries and missing covering tests all fail; known gaps printed loudly |
 
 ## Supporting files
