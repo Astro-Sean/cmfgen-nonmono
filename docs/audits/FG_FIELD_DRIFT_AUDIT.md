@@ -477,3 +477,18 @@ drv_knop_ray.f90 (sibref/jmpx/jmp2/om*/ni0/ni1/heal/esav/pmon/pnom).
 Unit status: test_knop_ray.py 36/36 plus all pin suites green.
 Model-level verification through run_model_grid.py is still owed
 before the drift question can be called closed on production runs.
+
+## Follow-up audit corrections (e6e8f47a -> next)
+
+- KN_JMP_SIBREF_V1 alloc failure no longer masquerades as cold
+  start: ISTAT out-arg (0/1/2), REF=-1 means cold start only.
+- FG_RF_FAILED flags an aborted refresh (sibref or work-array
+  allocation failure); GET_FG_GS_MATURITY exports RF_DCHG>=1.0 so
+  the population gate fails closed instead of releasing on small
+  sweep metrics.
+- DTAU parity hardened: KN_DTAU_INT_V1 is now the single shared
+  cubic+clamp operator behind both the INTEGRAL sweep block and
+  BUILD_FREQ (T37 pins bounds on monotone and non-monotone chi).
+- Eval bracket ordering: push moved after the last entry early
+  exit; no exit path can bypass pop (T36 pin).
+- test_knop_ray.py 41/41; model-level run still owed.
