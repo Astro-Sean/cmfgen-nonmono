@@ -521,6 +521,17 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JMP_SIB_M(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JMP_SIB_P(:)
 !
+! FG_RF_FAILED / FG_JMP_FAIL_INJ (Nov-2026 fail-safe audit):
+! FG_RF_FAILED is set when the refresh cannot complete a stage it
+! was asked to run (sibling-reference allocation failure, missing
+! work arrays); GET_FG_GS_MATURITY folds it into RF_DCHG so the
+! population gate can never read an unvalidated field as mature.
+! FG_JMP_FAIL_INJ is the unit-test hook that drives the failure
+! branches deterministically; it stays .FALSE. in production.
+!
+	LOGICAL, SAVE :: FG_RF_FAILED=.FALSE.
+	LOGICAL, SAVE :: FG_JMP_FAIL_INJ=.FALSE.
+!
 ! KN_RHO_MIN_SAM (audit Issue 5): minimum pooled sample count the
 ! adaptive-omega P90 index needs before it is a quantile at all. The
 ! index (9*L+9)/10 equals L for every L < 10, so a "P90" over fewer
@@ -1122,20 +1133,42 @@
 ! exemption the scan had before. Lives in the module so its
 ! assumed-shape dummies have an explicit interface at every call
 ! site (refresh + test driver).
+! ISTAT (Nov-2026 fail-safe audit): 0 = reference computed (per-
+! column -1 entries are genuine cold starts), 1 = allocation
+! failure, 2 = malformed input (REF too small). A failure is never
+! reported through REF itself: REF=-1 means cold start only, so an
+! alloc failure can no longer masquerade as the floor exemption.
 !
-	SUBROUTINE KN_JMP_SIBREF_V1(STORE,REF)
+	SUBROUTINE KN_JMP_SIBREF_V1(STORE,REF,ISTAT)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 	REAL(KIND=LDP) STORE(:,:,:)
 	REAL(KIND=LDP) REF(:)
+	INTEGER ISTAT
 	INTEGER LS2,RS,KS2,KC2,NOK,I2,J2
 	REAL(KIND=LDP) V2,VT
 	REAL(KIND=LDP), ALLOCATABLE :: VPK(:)
 !
+	ISTAT=0
+	IF(SIZE(REF) .LT. 2)THEN
+	  ISTAT=2
+	  RETURN
+	END IF
 	REF(1)=-1.0_LDP
-	ALLOCATE(VPK(KN_NP),STAT=I2)
+!
+! FG_JMP_FAIL_INJ is the test-hook for the allocation-failure path
+! (audit T36): with it armed the work array is never allocated and
+! the routine reports ISTAT=1 exactly as a real STAT= failure
+! would, without depending on exhausting machine memory.
+!
+	IF(FG_JMP_FAIL_INJ)THEN
+	  I2=1
+	ELSE
+	  ALLOCATE(VPK(KN_NP),STAT=I2)
+	END IF
 	IF(I2 .NE. 0)THEN
 	  REF=-1.0_LDP
+	  ISTAT=1
 	  RETURN
 	END IF
 	DO LS2=2,SIZE(REF)
@@ -1354,6 +1387,41 @@
 	FG_ERR_CNT=FG_EVAL_ECNT
 	RETURN
 	END SUBROUTINE FG_EVAL_STATE_POP_V1
+!
+! KN_DTAU_INT_V1 (Nov-2026 audit, Task 2): the non-ZERO-method
+! DTAU operator -- Euler-Maclaurin-corrected trapezoid with the
+! unconditional min/max clamp the SOLUTION_METHOD='INTEGRAL' sweep
+! block and the refresh BUILD_FREQ must share. Both callers pass
+! the same chi_hat (CHI plus its |GAM|/DLN coupling increment
+! already folded in), the ray-column Z and R, and get the same
+! discrete optical-depth column back; the clamp is unconditional
+! because the frequency-derivative term in chi_hat cannot be
+! regularised by monotonic CHI interpolation. Sharing one routine
+! makes sweep/refresh parity a construction fact, not a test
+! coincidence.
+!
+	SUBROUTINE KN_DTAU_INT_V1(NI,CHI,DCHI,Z,R,DTAU)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER NI
+	REAL(KIND=LDP) CHI(NI),DCHI(NI),Z(NI),R(NI),DTAU(NI)
+	INTEGER I
+	REAL(KIND=LDP) DZ
+	DO I=1,NI-1
+	  DZ=Z(I)-Z(I+1)
+	  DTAU(I)=0.5_LDP*DZ*( CHI(I)+CHI(I+1) +
+	1    DZ*( DCHI(I+1)*Z(I+1)/R(I+1) -
+	1    DCHI(I)*Z(I)/R(I) )/6.0_LDP )
+	  IF( CHI(I) .LT. CHI(I+1) )THEN
+	    DTAU(I)=MAX(CHI(I)*DZ,DTAU(I))
+	    DTAU(I)=MIN(CHI(I+1)*DZ,DTAU(I))
+	  ELSE
+	    DTAU(I)=MIN(CHI(I)*DZ,DTAU(I))
+	    DTAU(I)=MAX(CHI(I+1)*DZ,DTAU(I))
+	  END IF
+	END DO
+	RETURN
+	END SUBROUTINE KN_DTAU_INT_V1
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -3818,19 +3886,12 @@ C
 	          DTAU(I,LS)=0.5_LDP*(CHI_RAY(I)+CHI_RAY(I+1))*dZ
 	        END DO
 	      ELSE
-	        DO I=1,NI-1
-	          dZ=Z(I,LS)-Z(I+1,LS)
-	          DTAU(I,LS)=0.5_LDP*dZ*( CHI_RAY(I)+CHI_RAY(I+1) +
-	1            dZ*( dCHIdR_RAY(I+1)*Z(I+1,LS)/R_RAY(I+1,LS) -
-	1            dCHIdR_RAY(I)*Z(I,LS)/R_RAY(I,LS) )/6.0_LDP )
-	          IF( CHI_RAY(I) .LT. CHI_RAY(I+1) )THEN
-	            DTAU(I,LS)=MAX(CHI_RAY(I)*dZ,DTAU(I,LS))
-	            DTAU(I,LS)=MIN(CHI_RAY(I+1)*dZ,DTAU(I,LS))
-	          ELSE
-	            DTAU(I,LS)=MIN(CHI_RAY(I)*dZ,DTAU(I,LS))
-	            DTAU(I,LS)=MAX(CHI_RAY(I+1)*dZ,DTAU(I,LS))
-	          END IF
-	        END DO
+!        Shared with the refresh BUILD_FREQ via KN_DTAU_INT_V1
+!        (Nov-2026 audit): the Euler-Maclaurin form with the
+!        unconditional clamp this path has always applied; the
+!        refresh now runs the identical discrete operator.
+	        CALL KN_DTAU_INT_V1(NI,CHI_RAY,dCHIdR_RAY,
+	1          Z(1,LS),R_RAY(1,LS),DTAU(1,LS))
 	      END IF
 !
 !        DTAU NaN guard: ensure DTAU is non-negative and finite.
@@ -5548,7 +5609,7 @@ C
 	2     FG_GS_MAXCHG,FG_INEXT_CAPPED,FG_GS_NBAD,FG_GS_NTOT,
 	3     FG_GS_NCONV,FG_GS_NP,FG_GS_NDIV,FG_GS_NBAD_BLK,
 	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,FG_RF_PEND,
-	5     FG_GS_NSTAL,FG_GS_NPLAT,
+	5     FG_GS_NSTAL,FG_GS_NPLAT,FG_RF_FAILED,
 	6     FG_SW_CAPPED,FG_SW_CAPTOT,FG_RF_CAPPED
 	IMPLICIT NONE
 	LOGICAL GS_OK
@@ -5582,6 +5643,14 @@ C
 ! fixed point sits unwritten in a rejected verdict.
 !
 	RF_DCHG=MAX(FG_RF_DCHG,FG_RF_PEND)
+!
+! Fail closed on an aborted refresh (Nov-2026 audit): an allocation
+! failure in the sibling-reference stage left the retained field
+! unvalidated. Export a residual of 1.0 -- a real "not refreshed"
+! state, above every tolerance -- so GS_MAX_ALL can never read
+! mature on a field that was never built.
+!
+	IF(FG_RF_FAILED)RF_DCHG=MAX(RF_DCHG,1.0_LDP)
 	NBAD_STAL=FG_GS_NSTAL
 	NBAD_PLAT=FG_GS_NPLAT
 !
@@ -6671,7 +6740,7 @@ C
 	REAL(KIND=LDP) OMP_GET_WTIME
 	EXTERNAL OMP_GET_MAX_THREADS,OMP_GET_WTIME
 !
-	INTEGER LS,L,I,J,K,IOS,N_TH
+	INTEGER LS,L,I,J,K,IOS,IOS2,N_TH
 	REAL(KIND=LDP) T0,T1_W,T2
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
 	INTEGER, ALLOCATABLE :: NST_LS(:),NPS_LS(:),NCP_LS(:)
@@ -6768,6 +6837,7 @@ C
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 	FG_RF_DCHG=0.0_LDP
 	FG_RF_PEND=0.0_LDP
+	FG_RF_FAILED=.FALSE.
 	KN_HOT_SPENT=0
 !
 ! Per-ray commit verdict/delta: each thread writes only its own LS
@@ -6795,7 +6865,10 @@ C
 	IF(ALLOCATED(KN_RES_PASS))DEALLOCATE(KN_RES_PASS)
 	ALLOCATE(KN_RES_PASS(2*(KN_RAY_MAXPASS+KN_RAY_HOTPASSES)),
 	1   STAT=IOS)
-	IF(IOS .NE. 0)RETURN
+	IF(IOS .NE. 0)THEN
+	  FG_RF_FAILED=.TRUE.
+	  RETURN
+	END IF
 	KN_RES_PASS=0.0_LDP
 !
 	IF(ALLOCATED(KN_HOT_CNT))DEALLOCATE(KN_HOT_CNT)
@@ -6810,9 +6883,27 @@ C
 	IF(ALLOCATED(JMP_SIB_M))DEALLOCATE(JMP_SIB_M)
 	IF(ALLOCATED(JMP_SIB_P))DEALLOCATE(JMP_SIB_P)
 	ALLOCATE(JMP_SIB_M(KN_NCF),JMP_SIB_P(KN_NCF),STAT=IOS)
-	IF(IOS .NE. 0)RETURN
-	CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M)
-	CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P)
+	IF(FG_JMP_FAIL_INJ)IOS=1
+	IF(IOS .NE. 0)THEN
+!
+! Fail closed (Nov-2026 audit): a refresh that cannot allocate its
+! sibling references did not run -- it must mark the field as
+! unvalidated, not return silently and let small sweep metrics
+! release the populations against a stale store.
+!
+	  FG_RF_FAILED=.TRUE.
+	  WRITE(LUER,'(A)')'  KN-refresh aborted: JMP_SIB '//
+	1    'allocation failed; field flagged unvalidated'
+	  RETURN
+	END IF
+	CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M,IOS)
+	CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P,IOS2)
+	IF(IOS .NE. 0 .OR. IOS2 .NE. 0)THEN
+	  FG_RF_FAILED=.TRUE.
+	  WRITE(LUER,'(A,2I3)')'  KN-refresh aborted: sibling '//
+	1    'reference failed (',IOS,',',IOS2,')'
+	  RETURN
+	END IF
 !
 ! One ray per thread: each thread owns column LS of the shared module
 ! arrays (GAM, RAY_PNT, I_*_DEPTH_NEXT), so no atomics are needed.
@@ -9604,31 +9695,16 @@ C
 	    DTAU_L(I)=0.5_LDP*(CHI_L(I)+CHI_L(I+1))*DZ
 	  END DO
 	ELSE
-	  DO I=1,NI-1
-	    DZ=Z(I,LS)-Z(I+1,LS)
-	    DTAU_L(I)=0.5_LDP*DZ*( CHI_L(I)+CHI_L(I+1) +
-	1      DZ*( DCHR_L(I+1)*Z(I+1,LS)/R_RAY(I+1,LS) -
-	1      DCHR_L(I)*Z(I,LS)/R_RAY(I,LS) )/6.0_LDP )
 !
-! DTAU clamp parity (audit B1, corrected Nov-2026): the refresh
-! ray solve mirrors the SOLUTION_METHOD='INTEGRAL' sweep block,
-! which applies the min/max clamp unconditionally -- the comment
-! there notes monotonic CHI interpolation cannot help because
-! CHI_RAY (and here CHI_L) carries the |GAM|/DLN frequency-
-! derivative coupling term built above. The previous version of
-! this guard keyed the skip on INSERT / METHOD(4:6)='MON', which
-! is the DIFFERENCE-path rule; under those modes the refresh was
-! solving a slightly different transfer equation than the sweep.
-! Clamp unconditionally to match the INTEGRAL-path operator.
+! Shared with the SOLUTION_METHOD='INTEGRAL' sweep block via
+! KN_DTAU_INT_V1 (Nov-2026 audit Task 2): same Euler-Maclaurin
+! form, same unconditional clamp -- the |GAM|/DLN coupling folded
+! into CHI_L above cannot be regularised by monotonic CHI
+! interpolation. One routine means sweep/refresh parity is a
+! construction fact (audit B1 close-out).
 !
-	    IF(CHI_L(I) .LT. CHI_L(I+1))THEN
-	      DTAU_L(I)=MAX(CHI_L(I)*DZ,DTAU_L(I))
-	      DTAU_L(I)=MIN(CHI_L(I+1)*DZ,DTAU_L(I))
-	    ELSE
-	      DTAU_L(I)=MIN(CHI_L(I)*DZ,DTAU_L(I))
-	      DTAU_L(I)=MAX(CHI_L(I+1)*DZ,DTAU_L(I))
-	    END IF
-	  END DO
+	  CALL KN_DTAU_INT_V1(NI,CHI_L,DCHR_L,
+	1    Z(1,LS),R_RAY(1,LS),DTAU_L)
 	END IF
 	DO I=1,NI-1
 	  IF(.NOT.(ABS(DTAU_L(I)) .LE. HUGE(DTAU_L(I))) .OR.
