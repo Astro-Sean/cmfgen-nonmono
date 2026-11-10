@@ -72,7 +72,8 @@
 	REAL(KIND=LDP) T1,T2
 	INTEGER I,J,K,ID
 	INTEGER LUER,ERROR_LU
-	EXTERNAL ERROR_LU
+	LOGICAL JFNK_T_FIXED_MODE_V1
+	EXTERNAL ERROR_LU,JFNK_T_FIXED_MODE_V1
 	CHARACTER*11 JFNK_TAG
 !
 ! Solver settings (validated copies of the control variables)
@@ -88,6 +89,7 @@
 	LOGICAL APPLY_JFNK_UPDATE,JFNK_CATASTROPHIC
 	LOGICAL BASELINE_REBUILT,F0_OK,DO_JFNK_NOW
 	LOGICAL COMMITTED_BASELINE
+	LOGICAL JFNK_T_FIXED_MODE
 	LOGICAL LAMBDA_SAVE,FIXED_T_SAVE,COMPUTE_BA_SAVE
 	LOGICAL WR_BA_INV_SAVE,WR_PRT_INV_SAVE
 	LOGICAL JFNK_LAG_FACTORS_OK
@@ -222,6 +224,8 @@
 	END IF
 !
 	IF(DO_JFNK_NOW)THEN
+	  JFNK_T_FIXED_MODE=JFNK_T_FIXED_MODE_V1(
+	1      FIXED_T,RD_FIX_T,JFNK_FIXED_T)
 !
 ! =======================================================================
 ! JFNK solve
@@ -262,7 +266,7 @@
 	1   '    admitted tier                   : ',
 	1     TRIM(ADJUSTL(JFNK_TAG))
 	  WRITE(LUER,'(A,L2)')
-	1   '    T free to vary                  :',.NOT. FIXED_T
+	1   '    T free to vary                  :',.NOT. JFNK_T_FIXED_MODE
 	  WRITE(LUER,'(A,L2)')
 	1   '    Ne free to vary                 :',.NOT. FIXED_NE
 	  WRITE(LUER,'(A,L2)')
@@ -273,13 +277,13 @@
 	1   '    population change clip          :',MAX_JFNK_COR
 	  WRITE(LUER,'(A,ES10.3)')
 	1   '    temperature change clip         :',MDT_A
-	  IF(.NOT. FIXED_T)THEN
+	  IF(.NOT. JFNK_T_FIXED_MODE)THEN
 	    WRITE(LUER,'(A)')
 	1   '    NOTE: free-T JFNK; the frozen-J residual'
 	    WRITE(LUER,'(A)')
 	1   '    linearizes the radiation about T0 only.'
 	  END IF
-	  IF(MOD_FIX_T_D_ST .GT. 0 .AND. .NOT. FIXED_T)THEN
+	  IF(MOD_FIX_T_D_ST .GT. 0 .AND. .NOT. JFNK_T_FIXED_MODE)THEN
 	    WRITE(LUER,'(A,I4,A,I4)')
 	1     '    T held fixed over depths ',
 	2     MOD_FIX_T_D_ST,' to ',MOD_FIX_T_D_END
@@ -334,7 +338,7 @@
 !
 	  CALL JFNK_INIT_V1(NT,ND,NION,NUM_BNDS,DIAG_INDX,LUER,
 	1      POPS,ED,T,Z_POP,DO_LEV_DISSOLUTION,
-	2      FIXED_T,TEMP_CHAR,COMPUTE_BA_A,JFNK_EPS_LOC)
+	2      JFNK_T_FIXED_MODE,TEMP_CHAR,COMPUTE_BA_A,JFNK_EPS_LOC)
 	  FLUSH(LUER)
 !
 ! FIX_T_AUTO: adaptive damped-T domain.  When JFNK_TAUTO and the
@@ -1442,12 +1446,12 @@
 	    NCLIP_ED=0
 	    MINSCALE_J=1.0_LDP
 	    WRITE(LUER,'(A,L2)')
-	1     '    T free to vary              :',.NOT. FIXED_T
+	1     '    T free to vary              :',.NOT. JFNK_T_FIXED_MODE
 	    WRITE(LUER,'(A,L2)')
 	1     '    Ne free to vary             :',.NOT. FIXED_NE
 	    WRITE(LUER,'(A,2ES10.2)')
 	1     '    pop/Ne unknown clip bounds  :',X_MIN,X_MAX
-	    IF(.NOT. FIXED_T)THEN
+	    IF(.NOT. JFNK_T_FIXED_MODE)THEN
 	      WRITE(LUER,'(A,2ES10.2)')
 	1       '    T unknown clip bounds       :',X_T_MIN,X_T_MAX
 	    END IF
@@ -1475,7 +1479,7 @@
 	          IF(POPS(J,K) .LT. 1.0E-100_LDP)POPS(J,K)=1.0E-100_LDP
 	        END IF
 	      END DO
-	      IF(.NOT. FIXED_T)THEN
+	      IF(.NOT. JFNK_T_FIXED_MODE)THEN
 	        IF(MOD_FIX_T_D_ST .GT. 0 .AND.
 	1          K .GE. MOD_FIX_T_D_ST .AND.
 	2          K .LE. MOD_FIX_T_D_END)THEN
