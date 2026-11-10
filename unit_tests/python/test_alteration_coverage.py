@@ -192,10 +192,10 @@ COVERAGE = {
         "main program; SIGMA_TRUE allocation runs only in full model runs"),
     "new_main/mod_subs/adjust_r_grid_v4.f": ("exec", [
         UT + "test_adj_r4.py"]),
-    "new_main/mod_subs/comp_grey_v2.f": ("gap",
-        "grey-temperature update; untested"),
-    "new_main/mod_subs/comp_grey_v4.f": ("gap",
-        "grey-temperature update; untested"),
+    "new_main/mod_subs/comp_grey_v2.f": ("exec",
+        [UT + "test_grey.py"]),
+    "new_main/mod_subs/comp_grey_v4.f": ("exec",
+        [UT + "test_grey.py"]),
     "new_main/mod_subs/do_var_cont.f": ("exec",
         [UT + "test_dvc.py"]),
     "new_main/mod_subs/line_mod.f": ("exec",
@@ -217,8 +217,8 @@ COVERAGE = {
         [UT + "test_do_wind_vel.py"]),
     "new_main/subs/eval_adiabatic_v3.f": ("exec", [
         UT + "test_adiabatic.py"]),
-    "new_main/subs/fiddle_pop_corrections_v2.f": ("gap",
-        "population-correction fiddling; untested"),
+    "new_main/subs/fiddle_pop_corrections_v2.f": ("exec",
+        [UT + "test_fpc.py"]),
     "new_main/subs/fixpop_in_ba_v3.f": ("exempt",
         "diff is diagnostic-message wording only ('this call' "
         "suffix); no behavior changed"),
