@@ -1401,6 +1401,103 @@ def main():
         f"{d32b.get('RF_RESID'):.4e}",
     )
 
+    # -- T33-T35: sibling-reference status contract (Nov-2026
+    #    fail-safe audit T36-T39). 'sfail' injects a VPK allocation
+    #    failure -- ISTAT=1, never a cold start. 'scold' floors
+    #    every sibling -- ISTAT=0 with all -1 references, the
+    #    legitimate exemption. 'jmpx' (T21b) already pins the valid
+    #    reference path with a floor-valued target ray.
+    d33, s33 = parse(run(bin_, "sfail", cwd=WORKDIR, check=False).stdout)
+    ok = "RESULT_OK" in d33 and d33.get("SSTAT") == 1.0
+    rep.check(
+        "T33 VPK allocation failure reports ISTAT=1, not cold start",
+        ok,
+        f"SSTAT={d33.get('SSTAT')}",
+    )
+    d34, s34 = parse(run(bin_, "scold", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d34
+        and d34.get("SSTAT") == 0.0
+        and all(
+            s34.get(("sref", l), (0.0,))[0] == -1.0 for l in range(1, 7)
+        )
+    )
+    rep.check(
+        "T34 genuine cold start: ISTAT=0, all references -1",
+        ok,
+        f"SSTAT={d34.get('SSTAT')} srefs={s34.get(('sref', 2))}",
+    )
+
+    # -- T35: failed refresh fails closed through the maturity gate
+    #    (audit T37+T40). 'rfail' injects the JMP_SIB allocation
+    #    failure inside the refresh; raw residuals stay small but
+    #    FG_RF_FAILED forces RF_DCHG=1.0, so GS_OK stays false.
+    d35, _ = parse(run(bin_, "rfail", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d35
+        and d35.get("RF_FAIL") is True
+        and d35.get("GS_OK") is False
+        and abs(d35.get("GS_RFD", 0.0) - 1.0) < 1.0e-12
+    )
+    rep.check(
+        "T35 aborted refresh flags failure and cannot read mature",
+        ok,
+        f"RF_FAIL={d35.get('RF_FAIL')} GS_OK={d35.get('GS_OK')} "
+        f"GS_RFD={d35.get('GS_RFD'):.2e}",
+    )
+
+    # -- T36: JFNK eval bracket exit-path pin (audit Task 3). In
+    #    JFNK_RAD_SWEEP_V1 the PUSH must sit after the last GOTO-9999
+    #    early exit and before eval mode arms; the POP must come
+    #    later in the shared epilogue. Guards the ordering a source
+    #    restructure could silently break.
+    _sub = (TREE / "new_main" / "cmfgen_sub.f").read_text()
+    _body = _sub.split("SUBROUTINE JFNK_RAD_SWEEP_V1")[1]
+    _p_push = _body.find("CALL FG_EVAL_STATE_PUSH_V1")
+    _p_eval = _body.find("JFNK_IN_EVAL=.TRUE.")
+    _p_pop = _body.find("CALL FG_EVAL_STATE_POP_V1")
+    _p_mid9999 = _body.find("GOTO 9999", _p_push, _p_pop)
+    ok = (
+        _p_push > 0
+        and _p_eval > _p_push
+        and _p_pop > _p_eval
+        and _p_mid9999 == -1
+    )
+    rep.check(
+        "T36 eval push armed after last early-exit, popped in "
+        "epilogue, no bypass exits",
+        ok,
+        f"push@{_p_push} eval@{_p_eval} pop@{_p_pop} "
+        f"mid-exit@{_p_mid9999}",
+    )
+
+    # -- T37: shared DTAU operator (audit Task 2). KN_DTAU_INT_V1
+    #    is now the single routine behind both the INTEGRAL sweep
+    #    block and the refresh BUILD_FREQ -- parity by construction.
+    #    'dtau' probes it on a steep monotone profile and a
+    #    non-monotone one; every cell must sit inside the min/max
+    #    neighbour bounds (the unconditional clamp), and the second
+    #    cell of profile A must hit the upper bound exactly (cubic
+    #    overshoot clamped).
+    _o37 = run(bin_, "dtau", cwd=WORKDIR, check=False).stdout
+    _bounded = True
+    _hit_upper = False
+    for ln in _o37.splitlines():
+        t = ln.split()
+        if t and t[0] in ("DTA", "DTB"):
+            dt, lo, hi = float(t[2]), float(t[3]), float(t[4])
+            if not (min(lo, hi) - 1e-9 <= dt <= max(lo, hi) + 1e-9):
+                _bounded = False
+            if t[0] == "DTA" and t[1] == "2" and abs(dt - hi) < 1e-9:
+                _hit_upper = True
+    ok = _bounded and _hit_upper and "RESULT_OK" in _o37
+    rep.check(
+        "T37 shared DTAU operator: cubic+clamp, bounds enforced "
+        "on monotone and non-monotone chi",
+        ok,
+        f"bounded={_bounded} upper-clamp={_hit_upper}",
+    )
+
     rep.summary()
 
 
