@@ -1424,12 +1424,15 @@
 ! is the successive committed-store difference, so the accelerated
 ! map includes the J<->Eddington coefficient drift the inner
 ! frozen-coefficient AA cannot see (the retained-field delta limit
-! cycle). MOM_AA_OUT_M is the pair count; memory per pair is
-! 2*ND_NM*NCF*8 bytes.
+! cycle). Independent of MOM_RF_AA: the outer block carries its own
+! history and Gram state (audit D2), so MOM_RF_AA=F+MOM_AA_OUT=T
+! accelerates the across-call map only. MOM_AA_OUT_M is the pair
+! count; memory per pair is 2*ND_NM*NCF*8 bytes.
 !
 	  MOM_AA_OUT=.TRUE.
 	  CALL RD_STORE_LOG(MOM_AA_OUT,'MOM_AA_OUT',L_FALSE,
-	1     'Call-level Anderson acceleration on MOM lagged field?')
+	1     'Call-level Anderson acceleration on MOM lagged field'//
+	2     ' (independent of MOM_RF_AA)?')
 	  MOM_AA_OUT_M_V=8
 	  CALL RD_STORE_INT(MOM_AA_OUT_M_V,'MOM_AA_OUT_M',L_FALSE,
 	1     'Anderson history depth for the call-level MOM map')
