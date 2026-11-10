@@ -100,6 +100,11 @@ def parse(out):
             try:
                 d[k] = float(v)
             except ValueError:
+                try:
+                    d[k] = _f(v)
+                    continue
+                except (ValueError, IndexError):
+                    pass
                 if v in ("T", "F"):
                     d[k] = v == "T"
                 else:
@@ -1228,6 +1233,57 @@ def main():
         ok,
         f"NSAM={d25.get('OM_NSAM')} P90={d25.get('OM_P90')} "
         f"MAX={d25.get('OM_MAX')} OM_NEW={d25.get('OM_NEW'):.4e}",
+    )
+
+    # -- T26: converged-but-rejected ray cannot read mature (audit
+    #    Issue 3, test T29). 'jmpx' ray 1 converges (RF_RESID ~
+    #    1e-15) but its field is jump-vetoed: the retained store
+    #    keeps the floor value, RF_PEND carries the proposed delta,
+    #    and the maturity getter must export it as RF_DCHG so
+    #    GS_MAX_ALL sees the field as grossly immature -- never the
+    #    converged-looking residual alone.
+    r = run(bin_, "jmpx", cwd=WORKDIR, check=False)
+    d26, s26 = parse(r.stdout)
+    _rf1 = s26.get(("r", 1, 1, 1), (1.0, 1.0))[1]
+    ok = (
+        "RESULT_OK" in d26
+        and d26.get("RF_RESID", 1.0) < 1.0e-10
+        and s26.get(("vc", 1), (0, 0.0))[0] == 1
+        and d26.get("RF_PEND", 0.0) > 50.0
+        and d26.get("GS_RFD", 0.0) >= d26.get("RF_PEND", 1.0)
+        and _rf1 == 1.0e-30
+    )
+    rep.check(
+        "T26 converged ray, jump-vetoed field: maturity export "
+        "carries the pending delta",
+        ok,
+        f"RESID={d26.get('RF_RESID'):.3e} PEND={d26.get('RF_PEND'):.3e} "
+        f"GS_RFD={d26.get('GS_RFD'):.3e} retained={_rf1:.1e}",
+    )
+
+    # -- T27: repeated rejection keeps the field immature (audit
+    #    Issue 3, test T30). 'jmp2' runs the same refresh twice; the
+    #    second pass still rejects every ray and the pending delta
+    #    persists, so the gate can never settle on the old store.
+    r = run(bin_, "jmp2", cwd=WORKDIR, check=False)
+    d27, s27 = parse(r.stdout)
+    _pass2 = r.stdout.split("RF_PASS  2")[-1]
+    _d27b, _s27b = parse(_pass2)
+    ok = (
+        "RESULT_OK" in d27
+        and r.stdout.count("RF_PASS") == 2
+        and d27.get("RF_JREJ", 0) >= 6
+        and s27.get(("vc", 1), (0, 0.0))[0] == 1
+        and _d27b.get("RF_PEND", 0.0) > 50.0
+        and _d27b.get("GS_RFD", 0.0) >= _d27b.get("RF_PEND", 1.0)
+    )
+    rep.check(
+        "T27 two refreshes, still rejected, still immature "
+        "(pending delta persists)",
+        ok,
+        f"JREJ={d27.get('RF_JREJ')} "
+        f"pass2 PEND={_d27b.get('RF_PEND'):.3e} "
+        f"GS_RFD={_d27b.get('GS_RFD'):.3e}",
     )
 
     rep.summary()
