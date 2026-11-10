@@ -88,6 +88,9 @@
       IF(CNAME .EQ. 'ni0')   NCASE=47
       IF(CNAME .EQ. 'ni1')   NCASE=48
       IF(CNAME .EQ. 'heal')  NCASE=49
+      IF(CNAME .EQ. 'esav')  NCASE=50
+      IF(CNAME .EQ. 'pmon')  NCASE=51
+      IF(CNAME .EQ. 'pnom')  NCASE=52
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -390,6 +393,13 @@
       KN_METHOD_SAV='ZERO'
       KN_INSERT_SAV=.FALSE.
 !
+! pmon/pnom: non-ZERO captured method, MON-class vs plain. The
+! refresh BUILD_FREQ clamps DTAU unconditionally now (INTEGRAL-
+! path parity), so the two must run the identical operator.
+!
+      IF(NCASE .EQ. 51)KN_METHOD_SAV='XYZMON'
+      IF(NCASE .EQ. 52)KN_METHOD_SAV='XYZ   '
+!
       ALLOCATE(KN_RES_PASS(2*(60+120)),KN_HOT_CNT(NCFX),STAT=IOS)
       IF(IOS .NE. 0)GOTO 999
       KN_RES_PASS=0.0_LDP
@@ -500,6 +510,58 @@
           WRITE(*,'(A,I2,A,2ES16.8)')'SREF ',L,' ', &
       JMP_SIB_M(L),JMP_SIB_P(L)
         END DO
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
+!
+      IF(NCASE .EQ. 50)THEN
+!
+! esav: JFNK eval-bracket fidelity. Sentinel-fill a representative
+! spread of the pushed fields (scalars, census tallies, flags,
+! counters), push, overwrite with eval-side junk, pop -- every
+! printed field must come back to the production sentinel.
+!
+        FG_GS_MAXCHG=1.25_LDP
+        FG_SW_MAXCHG=0.75_LDP
+        FG_RF_DCHG=3.5_LDP
+        FG_RF_PEND=2.5_LDP
+        FG_GS_NCONV=42_8
+        FG_GS_NBAD=7_8
+        FG_GS_NSTAL=3_8
+        FG_GS_NDIV=2
+        FG_DIV_HEAL=9
+        FG_COMMIT_REJ=4
+        KN_HOT_SPENT=11_8
+        KN_STORE_READY=.TRUE.
+        FREQ_IDX_ITER=4
+        CALL FG_EVAL_STATE_PUSH_V1()
+        FG_GS_MAXCHG=999.0_LDP
+        FG_SW_MAXCHG=888.0_LDP
+        FG_RF_DCHG=0.0_LDP
+        FG_RF_PEND=0.0_LDP
+        FG_GS_NCONV=0_8
+        FG_GS_NBAD=0_8
+        FG_GS_NSTAL=0_8
+        FG_GS_NDIV=0
+        FG_DIV_HEAL=0
+        FG_COMMIT_REJ=0
+        KN_HOT_SPENT=0_8
+        KN_STORE_READY=.FALSE.
+        FREQ_IDX_ITER=0
+        CALL FG_EVAL_STATE_POP_V1()
+        WRITE(*,'(A,ES16.8)')'EV_MAXCHG=',FG_GS_MAXCHG
+        WRITE(*,'(A,ES16.8)')'EV_SWMX=',FG_SW_MAXCHG
+        WRITE(*,'(A,ES16.8)')'EV_RFD=',FG_RF_DCHG
+        WRITE(*,'(A,ES16.8)')'EV_RFP=',FG_RF_PEND
+        WRITE(*,'(A,ES16.8)')'EV_NCONV=',DBLE(FG_GS_NCONV)
+        WRITE(*,'(A,ES16.8)')'EV_NBAD=',DBLE(FG_GS_NBAD)
+        WRITE(*,'(A,ES16.8)')'EV_NSTAL=',DBLE(FG_GS_NSTAL)
+        WRITE(*,'(A,ES16.8)')'EV_NDIV=',DBLE(FG_GS_NDIV)
+        WRITE(*,'(A,ES16.8)')'EV_HEAL=',DBLE(FG_DIV_HEAL)
+        WRITE(*,'(A,ES16.8)')'EV_JREJ=',DBLE(FG_COMMIT_REJ)
+        WRITE(*,'(A,ES16.8)')'EV_HOT=',DBLE(KN_HOT_SPENT)
+        WRITE(*,'(A,L2)')'EV_SRDY=',KN_STORE_READY
+        WRITE(*,'(A,I8)')'EV_FRQ=',FREQ_IDX_ITER
         WRITE(*,'(A)')'RESULT_OK'
         GOTO 999
       END IF
