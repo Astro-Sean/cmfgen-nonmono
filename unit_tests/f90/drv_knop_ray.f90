@@ -14,6 +14,9 @@
 !   fixed  store seeded with a self-consistent field -> small resid
 !   rev    two compressing bands -> sign-reversal upwind coverage
 !   strg   deep-negative GAM band -> strong-compression regime
+!   sibref three-ray poisoned store -> KN_JMP_SIBREF_V1 reference
+!   rf3    three identical rays -> per-ray refresh census
+!   jmpx   floored ray + Inf sibling -> sibling-ref jump veto
 !
       PROGRAM DRV_KNOP_RAY
       USE, INTRINSIC :: IEEE_ARITHMETIC
@@ -24,7 +27,7 @@
 !
       INTEGER ND,NDX,NCFX,NIX
       PARAMETER (ND=8,NDX=8,NCFX=6,NIX=8)
-      INTEGER I,K,L,LS,IOS,NCASE
+      INTEGER I,K,L,LS,IOS,NCASE,KNP
       INTEGER NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
       INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
       INTEGER*8 NCAP_LST,NNG_LST
@@ -73,6 +76,9 @@
       IF(CNAME .EQ. 'slwo')  NCASE=35
       IF(CNAME .EQ. 'rfa')   NCASE=36
       IF(CNAME .EQ. 'capx')  NCASE=37
+      IF(CNAME .EQ. 'sibref')NCASE=38
+      IF(CNAME .EQ. 'rf3')   NCASE=39
+      IF(CNAME .EQ. 'jmpx')  NCASE=40
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -93,7 +99,11 @@
       LGR=LOG(RR)
 !
       KN_ND=ND
-      KN_NP=1
+! sibref/rf3/jmpx run a three-ray set so the sibling-reference
+! snapshot and the jump veto operate across real sibling columns.
+      KNP=1
+      IF(NCASE .GE. 38)KNP=3
+      KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
       KN_ND_EXT=NDX
@@ -106,35 +116,40 @@
 !
       IF(NCASE .EQ. 11 .OR. NCASE .EQ. 12)N_COMP=2
 !
-      ALLOCATE(NI_RAY(1),RAY_PNT(NIX,1),R_RAY(NIX,1),Z(NIX,1), &
-      R_EXT(NDX),LOG_R_EXT(NDX),KN_R(ND),KN_P(1), &
-      J_PNT(ND,1),COMP_DEPTH_IDX(ND), &
-      GAM(NIX,1),GAM_MAG(NIX,1),dGAMdR(NIX,1), &
+      ALLOCATE(NI_RAY(KNP),RAY_PNT(NIX,KNP),R_RAY(NIX,KNP), &
+      Z(NIX,KNP), &
+      R_EXT(NDX),LOG_R_EXT(NDX),KN_R(ND),KN_P(KNP), &
+      J_PNT(ND,KNP),COMP_DEPTH_IDX(ND), &
+      GAM(NIX,KNP),GAM_MAG(NIX,KNP),dGAMdR(NIX,KNP), &
       KN_CHI_EXT(NDX,NCFX),KN_ETA_EXT(NDX,NCFX), &
       KN_CHI_COEF(NDX,4,NCFX),KN_ETA_COEF(NDX,4,NCFX), &
       KN_FREQ(NCFX),KN_DLN_P(NCFX),KN_DLN_N(NCFX), &
       KN_IC(NCFX),KN_DBB(NCFX), &
-      I_P_DEPTH_NEXT(N_COMP,1,NCFX), &
-      I_M_DEPTH_NEXT(N_COMP,1,NCFX),STAT=IOS)
+      I_P_DEPTH_NEXT(N_COMP,KNP,NCFX), &
+      I_M_DEPTH_NEXT(N_COMP,KNP,NCFX),STAT=IOS)
       IF(IOS .NE. 0)THEN
         WRITE(*,'(A)')'RESULT alloc_fail=1'
         GOTO 999
       END IF
 !
-      NI_RAY(1)=NIX
-      DO I=1,NIX
-        RAY_PNT(I,1)=I
-        R_RAY(I,1)=RR(I)
-        Z(I,1)=RR(I)
+      NI_RAY=NIX
+      DO LS=1,KNP
+        DO I=1,NIX
+          RAY_PNT(I,LS)=I
+          R_RAY(I,LS)=RR(I)
+          Z(I,LS)=RR(I)
+        END DO
       END DO
       R_EXT=RR
       LOG_R_EXT=LGR
       KN_R=RR
-      KN_P(1)=0.0_LDP
-      DO K=1,ND
-        J_PNT(K,1)=K
-        COMP_DEPTH_IDX(K)=0
+      KN_P=0.0_LDP
+      DO LS=1,KNP
+        DO K=1,ND
+          J_PNT(K,LS)=K
+        END DO
       END DO
+      COMP_DEPTH_IDX=0
       COMP_DEPTH_IDX(3)=1
       COMP_DEPTH_IDX(4)=2
       IF(N_COMP .GE. 3)COMP_DEPTH_IDX(5)=3
@@ -282,6 +297,15 @@
         dGAMdR(4,1)=GAM(4,1)
       END IF
 !
+! Multi-ray cases give every ray the same atmosphere so a genuine
+! solve lands on the same field the sibling reference reports.
+!
+      DO LS=2,KNP
+        GAM(:,LS)=GAM(:,1)
+        GAM_MAG(:,LS)=GAM_MAG(:,1)
+        dGAMdR(:,LS)=dGAMdR(:,1)
+      END DO
+!
 ! Opacity/emissivity: smooth positive fields with a mild frequency
 ! dependence so each bin sees a slightly different transfer problem.
 ! The capture store is single precision in production; mirror that.
@@ -399,21 +423,77 @@
 ! the analytic fixed point of a two-bin coupled solve so the pass
 ! residual starts small (seed-consistency check).
 !
-      DO K=1,N_COMP
-        DO L=1,NCFX-1
-          IF(NCASE .EQ. 5)THEN
-            I_M_DEPTH_NEXT(K,1,L)=1.190E-3_LDP* &
+      DO LS=1,KNP
+        DO K=1,N_COMP
+          DO L=1,NCFX-1
+            IF(NCASE .EQ. 5)THEN
+              I_M_DEPTH_NEXT(K,LS,L)=1.190E-3_LDP* &
       (0.977_LDP)**(L-1)*(0.78_LDP)**(K-1)
-            I_P_DEPTH_NEXT(K,1,L)=1.173E-3_LDP* &
+              I_P_DEPTH_NEXT(K,LS,L)=1.173E-3_LDP* &
       (0.977_LDP)**(L-1)*(0.78_LDP)**(K-1)
-          ELSE
-            I_M_DEPTH_NEXT(K,1,L)= &
+            ELSE
+              I_M_DEPTH_NEXT(K,LS,L)= &
       1.0E-4_LDP*(1.0_LDP+0.1_LDP*L)*(1.0_LDP+0.1_LDP*K)
-            I_P_DEPTH_NEXT(K,1,L)= &
+              I_P_DEPTH_NEXT(K,LS,L)= &
       2.0E-4_LDP*(1.0_LDP+0.1_LDP*L)*(1.0_LDP+0.1_LDP*K)
-          END IF
+            END IF
+          END DO
         END DO
       END DO
+!
+      IF(NCASE .EQ. 38)THEN
+!
+! sibref: probe KN_JMP_SIBREF_V1 on a three-ray store with a
+! poisoned middle ray -- +Inf (freq 2), NaN (freq 3), finite-huge
+! (freq 4) and an all-floored column (freq 5). The reference must
+! stay finite, equal the median of the sane ray peaks, and return
+! -1 where no sane sibling exists.
+!
+        DO K=1,N_COMP
+          I_M_DEPTH_NEXT(K,2,2)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+          I_P_DEPTH_NEXT(K,2,2)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+          I_M_DEPTH_NEXT(K,2,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          I_P_DEPTH_NEXT(K,2,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          I_M_DEPTH_NEXT(K,2,4)=1.0E200_LDP
+          I_P_DEPTH_NEXT(K,2,4)=1.0E200_LDP
+        END DO
+        DO LS=1,KNP
+          DO K=1,N_COMP
+            I_M_DEPTH_NEXT(K,LS,5)=0.0_LDP
+            I_P_DEPTH_NEXT(K,LS,5)=0.0_LDP
+          END DO
+        END DO
+        ALLOCATE(JMP_SIB_M(KN_NCF),JMP_SIB_P(KN_NCF),STAT=IOS)
+        CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M)
+        CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P)
+        DO L=1,KN_NCF
+          WRITE(*,'(A,I2,A,2ES16.8)')'SREF ',L,' ', &
+      JMP_SIB_M(L),JMP_SIB_P(L)
+        END DO
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
+!
+      IF(NCASE .EQ. 40)THEN
+!
+! jmpx: ray 1 has a floored frequency-1 column, ray 2 carries +Inf
+! there, ray 3 holds a small sane peak. The refresh must exclude the
+! Inf sibling, take ray 3 as the reference, and jump-reject ray 1's
+! ~1E-4 fill (>> 50*1E-9) while rays 2 and 3 commit normally.
+!
+        DO K=1,N_COMP
+          I_M_DEPTH_NEXT(K,1,1)=1.0E-30_LDP
+          I_P_DEPTH_NEXT(K,1,1)=1.0E-30_LDP
+          I_M_DEPTH_NEXT(K,3,1)=1.0E-9_LDP
+          I_P_DEPTH_NEXT(K,3,1)=1.0E-9_LDP
+        END DO
+        I_M_DEPTH_NEXT(1,2,1)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+        I_P_DEPTH_NEXT(1,2,1)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+        I_M_DEPTH_NEXT(2,2,1)=1.0E-9_LDP
+        I_M_DEPTH_NEXT(3,2,1)=1.0E-9_LDP
+        I_P_DEPTH_NEXT(2,2,1)=1.0E-9_LDP
+        I_P_DEPTH_NEXT(3,2,1)=1.0E-9_LDP
+      END IF
 !
       IF(NCASE .EQ. 9)THEN
 !
@@ -467,7 +547,7 @@
         GOTO 999
       END IF
 !
-      IF(NCASE .EQ. 10 .OR. NCASE .EQ. 36)THEN
+      IF(NCASE .EQ. 10 .OR. NCASE .EQ. 36 .OR. NCASE .GE. 39)THEN
 !
 ! End-to-end refresh: arms the capture-store guard and runs the
 ! production post-sweep path (OMP ray loop, census, commit).
@@ -477,6 +557,8 @@
         HAS_COMPRESSING=.TRUE.
         KN_STORE_READY=.TRUE.
         FREQ_IDX_ITER=KN_NCF-1
+        FG_GS_NP=KN_NP
+        FG_GS_NCF=KN_NCF
         SOLUTION_METHOD='INTEGRAL'
         CALL FG_KNOP_REFRESH_V1()
         WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
@@ -486,10 +568,28 @@
         WRITE(*,'(A,ES16.8)')'RF_STAL=',DBLE(FG_GS_NSTAL)
         WRITE(*,'(A,ES16.8)')'RF_PLAT=',DBLE(FG_GS_NPLAT)
         WRITE(*,'(A,ES16.8)')'RF_INEXT_RELAX=',INEXT_RELAX
+        WRITE(*,'(A,I8)')'RF_JREJ=',FG_COMMIT_REJ
+        WRITE(*,'(A,I8)')'RF_NCREJ=',FG_NC_REJ
+        WRITE(*,'(A,I8)')'RF_NCCAP=',FG_NC_CAP
+        IF(ALLOCATED(FG_RAY_VC))THEN
+          DO LS=1,KN_NP
+            WRITE(*,'(A,I2,A,I3,A,ES16.8)')'VC ',LS,' ', &
+      FG_RAY_VC(LS),' ',FG_RAY_DCH(LS)
+          END DO
+        END IF
         DO K=1,N_COMP
           DO L=1,NCFX-1
             WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'STORE ',K,' ',L,' ', &
       I_P_DEPTH_NEXT(K,1,L),I_M_DEPTH_NEXT(K,1,L)
+          END DO
+        END DO
+        DO LS=1,KN_NP
+          DO K=1,N_COMP
+            DO L=1,NCFX-1
+              WRITE(*,'(A,I2,A,I2,A,I2,A,2ES16.8)') &
+      'RSTORE ',LS,' ',K,' ',L,' ', &
+      I_P_DEPTH_NEXT(K,LS,L),I_M_DEPTH_NEXT(K,LS,L)
+            END DO
           END DO
         END DO
         WRITE(*,'(A)')'RESULT_OK'
@@ -527,6 +627,20 @@
         KR_DBG_FLDM=-1.0_LDP; KR_DBG_FLDP=-1.0_LDP
         KN_DBG_NDON=0
       END IF
+!
+! FG_JUMP_MAX now reads its sibling reference from the JMP_SIB
+! snapshot arrays (built by FG_KNOP_REFRESH_V1 in production); a
+! direct ray-solve call must fill them the same way.
+!
+      IF(ALLOCATED(JMP_SIB_M))DEALLOCATE(JMP_SIB_M)
+      IF(ALLOCATED(JMP_SIB_P))DEALLOCATE(JMP_SIB_P)
+      ALLOCATE(JMP_SIB_M(KN_NCF),JMP_SIB_P(KN_NCF),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT_FAIL sibref_alloc'
+        GOTO 999
+      END IF
+      CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M)
+      CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P)
 !
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
       NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK, &
