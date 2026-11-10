@@ -3290,9 +3290,13 @@
 ! Paper II Sect. 3.2 ordering), replacing the one-bin-per-iteration
 ! lag that cannot mature on strongly non-monotonic models. The
 ! self-consistency pass below forces this flag T under
-! DO_NONMONO_KNOP; under DO_NONMONO_SOB it serves the moment path
-! (the SOB default USE_LAM_ES=F runs MOM_J_CMF_NONMONO_V1, whose
-! lagged J_NEXT map needs the same within-sweep convergence).
+! DO_NONMONO_KNOP; under DO_NONMONO_SOB it serves the opt-in
+! moment path (explicit USE_LAM_ES=F runs MOM_J_CMF_NONMONO_V1,
+! whose lagged J_NEXT map needs the same within-sweep convergence).
+! Read here, after USE_LAM_ES but before the SOB absent-key
+! auto-set below, so an absent key still arms the refresh for the
+! moment route it would have taken pre-flip; under the T default
+! the refresh machinery stays armed but inert (no lagged store).
 ! Read here, after USE_LAM_ES, so the default expression
 ! sees the final value. The MOM-side wiring (MOM_RF_ENABLED) is
 ! re-synced on the post-read value so the earlier placeholder call
@@ -3357,8 +3361,9 @@
 ! route), KN_NO_GAIN (the gain channel compounds in the lagged
 ! store) and DO_NONMONO_FREQ_MATCH (correctness -- the compressing
 ! upwind read otherwise lands off the characteristic foot). Under
-! DO_NONMONO_SOB the USE_LAM_ES default is F -- the user-requested
-! moment path -- with an explicit T selecting the V13 formal J.
+! DO_NONMONO_SOB the USE_LAM_ES default is T since 10-Nov-2026
+! (absent key auto-set below; explicit F still selects the moment
+! path as an opt-in experiment).
 ! DO_KNOP_REFRESH=F (the lagged-scheme A/B comparison) is still
 ! overridden under KNOP.
 ! ------------------------------------------------------------------
@@ -3651,9 +3656,11 @@
 ! form). JFNK_COUPLED=T under SOB is rejected at its own read --
 ! the coupled residual replays the KNOP continuum chain and never
 ! recomputes the SOB line rates. USE_LAM_ES is no longer forced
-! (21-Oct-2026): the default is the moment path, so the within-sweep
+! over explicit values: an absent key defaults T since 10-Nov-2026
+! (V13 formal J, the validated SOB solver), while explicit F keeps
+! the MOM_J_CMF_NONMONO_V1 moment path -- for which the within-sweep
 ! lag refresh (DO_KNOP_REFRESH, armed by default under LAM_ES=F) is
-! live under SOB as well.
+! live.
 !
 	  IF(DO_NONMONO_SOB)THEN
 	    IF(GLOBAL_LINE_SWITCH(1:3) .NE. 'SOB' .AND.
@@ -3670,27 +3677,46 @@
 	      WRITE(LUER,'(A)')' SOB auto-set: GLOBAL_LINE=SOB'
 	    END IF
 !
-! edited 21-Oct-2026: USE_LAM_ES is no longer forced under
-! SOB. The user asked for the moment path as the SOB default
-! J-update: MOM_J_CMF_NONMONO_V1 with the fixed-J + GET_MOM_ALO_DIAG
-! + GET_MOM_CELL_QUAR linearization in do_var_cont.f -- the same
-! recipe as the (now closed, 08-Nov-2026) KNOP+LAM_ES=F route. An
-! explicit USE_LAM_ES=T keeps the V13
-! formal J update. Both modes are announced loudly so the solver
+! edited 10-Nov-2026: an absent USE_LAM_ES key now defaults T under
+! SOB -- the V13 formal J is the solver the SOB populations are
+! validated against (the 21-Oct F default's moment path failed to
+! contract on m15, job 12316397).  An explicit VADAT F is still
+! honoured as the opt-in moment experiment.  The probe sits here,
+! hundreds of reads past the USE_LAM_ES consume at ~3286, where
+! the GET_KEY_STRING cursor can still reach back to the key (a
+! probe adjacent to the read reports absent even when present).
+!
+	    IF(.NOT. USE_LAM_ES)THEN
+	      CALL GET_KEY_STRING(TMP_STRING,'USE_LAM_ES',L_FALSE,
+	1     L_FALSE_TMP)
+	      IF(.NOT. L_FALSE_TMP)THEN
+	        USE_LAM_ES=.TRUE.
+	        WRITE(LUER,'(A)')' SOB auto-set: USE_LAM_ES=T'
+	      END IF
+	    END IF
+!
+! edited 10-Nov-2026: USE_LAM_ES=T is again the SOB default
+! J-update (the proven m15 recipe, job 12001805 / VAL_sob_jfnk).
+! The 21-Oct-2026 F default routed SOB populations to
+! MOM_J_CMF_NONMONO_V1, which failed to contract on m15
+! (job 12316397, 22-Oct-2026).  An explicit USE_LAM_ES=F still
+! selects the moment path as an opt-in experiment; the pipeline
+! stamps T when the key is absent (run_model_grid /
+! prepare_VADAT).  Both modes are announced loudly so the solver
 ! in use is never silent.
 !
 	    IF(.NOT. USE_LAM_ES)THEN
 	      WRITE(LUER,'(A)')
 	1     ' ============================================================'
 	      WRITE(LUER,*)'SOB field solver: MOM_J_CMF_NONMONO_V1 moment'
-	1     ,' solve (USE_LAM_ES=F, the SOB default).  J satisfies'
+	1     ,' solve (USE_LAM_ES=F, opt-in experiment).  J satisfies'
 	2     ,' the sign-split moment equation on SIGMA_TRUE and'
 	3     ,' the continuum Jacobian carries the MOM diagonal ALO.'
 	4     ,' FG_J_CMF_V13 still runs each frequency to feed'
 	5     ,' K_ON_J/N_ON_J ray moments.  Known risk: bound-free'
 	6     ,' edge doublets shrink dLOG_NU and inflate the'
-	7     ,' advection coefficients.  USE_LAM_ES=T selects the'
-	8     ,' V13 formal J update.'
+	7     ,' advection coefficients.  USE_LAM_ES=T (the SOB default)'
+	8     ,' selects the V13 formal J update.'
 	      WRITE(LUER,'(A)')
 	1     ' ============================================================'
 !
@@ -3712,7 +3738,7 @@
 	      WRITE(LUER,'(A)')
 	1     ' ============================================================'
 	      WRITE(LUER,*)'SOB field solver: FG_J_CMF_V13 formal-solve J'
-	1     ,' update (explicit USE_LAM_ES=T; the SOB default is F).'
+	1     ,' update (USE_LAM_ES=T, the SOB default since 10-Nov-2026).'
 	2     ,' V13 is built on clamped SIGMA, so it is expansion-'
 	3     ,' biased in compression zones; DO_SOB_FG_KNOP=T runs'
 	4     ,' the Knop solver on this route, and DO_NONMONO_KNOP'
@@ -3907,12 +3933,13 @@
 	      STOP
 	    END IF
 !
-! The enforcement block above no longer forces USE_LAM_ES under SOB
-! (21-Oct-2026): F is the default and takes continuum J from
+! USE_LAM_ES under SOB (10-Nov-2026): an absent key auto-sets T
+! above, so continuum J comes from the V13 formal ray solution on
+! clamped SIGMA -- the solver the SOB populations are validated
+! against.  An explicit F takes continuum J from
 ! MOM_J_CMF_NONMONO_V1 with the fixed-J + GET_MOM_ALO_DIAG
-! linearization; an explicit T keeps the V13 formal ray solution.
-! The moment path's runtime status on the current build is
-! unverified -- the divergence probes predate the solver rework.
+! linearization; that opt-in path failed to contract on m15
+! (job 12316397) and its runtime status is unverified.
 !
 ! LAM_SET is redundant with GLOBAL_LINE=SOB (every line is already SOB)
 ! and resets GLOBAL_LINE_SWITCH to NONE at run time, which changes the
