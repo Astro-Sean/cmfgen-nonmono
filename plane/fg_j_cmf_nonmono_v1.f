@@ -521,6 +521,15 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JMP_SIB_M(:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JMP_SIB_P(:)
 !
+! KN_RHO_MIN_SAM (audit Issue 5): minimum pooled sample count the
+! adaptive-omega P90 index needs before it is a quantile at all. The
+! index (9*L+9)/10 equals L for every L < 10, so a "P90" over fewer
+! than 10 samples is just the pool maximum -- one outlying ray
+! swinges the whole update. Below the threshold the controller
+! keeps the previous INEXT_RELAX and reports the coverage instead.
+!
+	INTEGER, PARAMETER :: KN_RHO_MIN_SAM=10
+!
 ! FG_SEED_COMMIT / FG_RAY_SEEDED (edited 02-Nov-2026):
 ! per-ray "has committed" flag, waiving the FG_COMMIT_JUMP veto for a
 ! ray that has never taken a WRITE_STORE commit. The veto bounds
@@ -1127,6 +1136,69 @@
 	DEALLOCATE(VPK)
 	RETURN
 	END SUBROUTINE KN_JMP_SIBREF_V1
+!
+! ==============================================================================
+!
+! KN_OMEGA_POOL_V1 (audit Issues 2 + 5): pool the non-diverged rays'
+! per-direction same-map contraction ratios, take the P90 quantile
+! and map it to the next INEXT_RELAX target. The ratios describe the
+! INNER per-ray field solve, not the outer lagged-store map, so the
+! omega = 1/(1+rho) update is a damping heuristic: it suppresses
+! expansive or oscillating modes (rho >= 1 -> omega <= 1/2) without
+! claiming the optimal-underrelaxation formula of a signed
+! eigenvalue analysis. Below KN_RHO_MIN_SAM samples the P90 index is
+! just the pool maximum, so the controller keeps OMEGA_PREV and
+! reports coverage instead of letting one ray set the update.
+!
+	SUBROUTINE KN_OMEGA_POOL_V1(RHOM,RHOP,NDV,OMEGA_PREV,OMEGA_NEW,
+	1    NSAM,RHO_P90,RHO_MED,RHO_MX)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER NDV(:)
+	REAL(KIND=LDP) RHOM(:),RHOP(:)
+	REAL(KIND=LDP) OMEGA_PREV,OMEGA_NEW,RHO_P90,RHO_MED,RHO_MX
+	INTEGER NSAM
+	INTEGER I2,K2,NRAY
+	REAL(KIND=LDP) T2
+	REAL(KIND=LDP), ALLOCATABLE :: POOL(:)
+!
+	NRAY=SIZE(NDV)
+	OMEGA_NEW=OMEGA_PREV
+	NSAM=0
+	RHO_P90=0.0_LDP; RHO_MED=0.0_LDP; RHO_MX=0.0_LDP
+	ALLOCATE(POOL(2*NRAY),STAT=I2)
+	IF(I2 .NE. 0)RETURN
+	DO I2=1,NRAY
+	  IF(NDV(I2) .EQ. 0)THEN
+	    IF(RHOM(I2) .GT. 0.0_LDP)THEN
+	      NSAM=NSAM+1; POOL(NSAM)=RHOM(I2)
+	    END IF
+	    IF(RHOP(I2) .GT. 0.0_LDP)THEN
+	      NSAM=NSAM+1; POOL(NSAM)=RHOP(I2)
+	    END IF
+	  END IF
+	END DO
+	IF(NSAM .GE. KN_RHO_MIN_SAM)THEN
+	  DO I2=1,NSAM-1
+	    DO K2=I2+1,NSAM
+	      IF(POOL(K2) .LT. POOL(I2))THEN
+	        T2=POOL(I2)
+	        POOL(I2)=POOL(K2)
+	        POOL(K2)=T2
+	      END IF
+	    END DO
+	  END DO
+	  RHO_MX=POOL(NSAM)
+	  RHO_MED=POOL((NSAM+1)/2)
+	  T2=POOL(MIN(NSAM,(9*NSAM+9)/10))
+	  RHO_P90=MIN(MAX(T2,0.05_LDP),20.0_LDP)
+	  OMEGA_NEW=0.5_LDP*OMEGA_PREV+
+	1    0.5_LDP*MIN(1.0_LDP,
+	2    MAX(0.05_LDP,1.0_LDP/(1.0_LDP+RHO_P90)))
+	END IF
+	DEALLOCATE(POOL)
+	RETURN
+	END SUBROUTINE KN_OMEGA_POOL_V1
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -6450,7 +6522,6 @@ C
 	INTEGER*8, ALLOCATABLE :: NCL_LS(:),NNL_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RHO_M_LS(:),RHO_P_LS(:)
-	REAL(KIND=LDP), ALLOCATABLE :: RHO_POOL(:)
 	REAL(KIND=LDP) RHO_H(4),RHO_MX
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
@@ -6659,44 +6730,22 @@ C
 !
 	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
 	  IF(FG_ADAPT_OMEGA_V2)THEN
-	    ALLOCATE(RHO_POOL(2*KN_NP),STAT=IOS)
-	    IF(IOS .EQ. 0)THEN
-	      L=0
-	      DO I=1,KN_NP
-	        IF(NDV_LS(I) .EQ. 0)THEN
-	          IF(RHO_M_LS(I) .GT. 0.0_LDP)THEN
-	            L=L+1; RHO_POOL(L)=RHO_M_LS(I)
-	          END IF
-	          IF(RHO_P_LS(I) .GT. 0.0_LDP)THEN
-	            L=L+1; RHO_POOL(L)=RHO_P_LS(I)
-	          END IF
-	        END IF
-	      END DO
-	      IF(L .GT. 0)THEN
-	        DO I=1,L-1
-	          DO K=I+1,L
-	            IF(RHO_POOL(K) .LT. RHO_POOL(I))THEN
-	              T2=RHO_POOL(I)
-	              RHO_POOL(I)=RHO_POOL(K)
-	              RHO_POOL(K)=T2
-	            END IF
-	          END DO
-	        END DO
-	        RHO_MX=RHO_POOL(L)
-	        RHO_H(1)=RHO_POOL((L+1)/2)
-	        T2=RHO_POOL(MIN(L,(9*L+9)/10))
-	        T2=MIN(MAX(T2,0.05_LDP),20.0_LDP)
-	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A,ES10.3,A,
+	    CALL KN_OMEGA_POOL_V1(RHO_M_LS,RHO_P_LS,NDV_LS,
+	1      INEXT_RELAX,T2,L,RHO_H(2),RHO_H(1),RHO_MX)
+	    IF(CONV_DIAG_LVL .GE. 2)THEN
+	      IF(L .GE. KN_RHO_MIN_SAM)THEN
+	        WRITE(LUER,'(A,ES10.3,A,
 	1        ES10.3,A,ES10.3,A,I5,A,ES10.3)')
-	2        '    omega est: rho_p90=',T2,' rho_med=',RHO_H(1),
+	2        '    omega est: rho_p90=',RHO_H(2),' rho_med=',RHO_H(1),
 	3        ' rho_max=',RHO_MX,' n_ray=',L,
-	4        ' applied omega=',0.5_LDP*INEXT_RELAX+
-	5        0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
-	        INEXT_RELAX=0.5_LDP*INEXT_RELAX+
-	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
+	4        ' applied omega=',T2
+	      ELSE
+	        WRITE(LUER,'(A,I5,A,I3,A,ES10.3)')
+	1        '    omega est: n_ray=',L,' < min_sam=',KN_RHO_MIN_SAM,
+	2        ' retained omega=',INEXT_RELAX
 	      END IF
-	      DEALLOCATE(RHO_POOL)
 	    END IF
+	    INEXT_RELAX=T2
 	  ELSE IF(KN_RF_RESID_PRV .GT. 0.0_LDP)THEN
 	    T2=KN_RF_RESID/KN_RF_RESID_PRV
 	    T2=MIN(MAX(T2,0.0_LDP),50.0_LDP)
