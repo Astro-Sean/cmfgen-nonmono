@@ -57,6 +57,7 @@ OBJ = $(LIB)(adjust_r_grid_v4.o)\
       $(LIB)(jfnk_cmfgen_int_mod.o)\
       $(LIB_MOD)(jfnk_solver_v1.o)\
       $(LIB)(jfnk_cmfgen_interface_v1.o)\
+      $(LIB)(jfnk_t_fixed_mode_v1.o)\
       $(LIB)(jfnk_solve_corr_v1.o)\
       $(LIB)(sub_cmf_line.o)\
       $(LIB)(sub_sob_line_v3.o)\
@@ -214,7 +215,11 @@ $(LIB)(jfnk_cmfgen_interface_v1.o) : jfnk_cmfgen_interface_v1.f $(LIB_MOD)(mod_c
 	$(F90) -c $(OPTION) jfnk_cmfgen_interface_v1.f
 	ar $(AR_OPTION) $(LIB) jfnk_cmfgen_interface_v1.o
 
-$(LIB)(jfnk_solve_corr_v1.o) : jfnk_solve_corr_v1.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
+$(LIB)(jfnk_t_fixed_mode_v1.o) : jfnk_t_fixed_mode_v1.f
+	$(F90) -c $(OPTION) jfnk_t_fixed_mode_v1.f
+	ar $(AR_OPTION) $(LIB) jfnk_t_fixed_mode_v1.o
+
+$(LIB)(jfnk_solve_corr_v1.o) : jfnk_solve_corr_v1.f jfnk_t_fixed_mode_v1.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
                                   $(LIB_MOD)(steq_data_mod.o) $(LIB_MOD)(jfnk_solver_v1.o) \
                                   $(LIB)(jfnk_cmfgen_int_mod.o) $(LIB)(jfnk_cmfgen_interface_v1.o) \
                                   $(LIB)(fg_j_cmf_nonmono_v1.o)
