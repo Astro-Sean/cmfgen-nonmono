@@ -215,7 +215,8 @@ COVERAGE = {
         [UT + "test_tau_regrid.py"]),
     "new_main/subs/do_wind_vel_v1.f": ("exec",
         [UT + "test_do_wind_vel.py"]),
-    "new_main/subs/eval_adiabatic_v3.f": ("gap", "adiabatic eval; untested"),
+    "new_main/subs/eval_adiabatic_v3.f": ("exec", [
+        UT + "test_adiabatic.py"]),
     "new_main/subs/fiddle_pop_corrections_v2.f": ("gap",
         "population-correction fiddling; untested"),
     "new_main/subs/fixpop_in_ba_v3.f": ("gap",
@@ -287,8 +288,7 @@ COVERAGE = {
     # ------------- shipped tools that rewrite model data ----------------
     "misc/adjust_atm_r_grid.f": ("gap",
         "rewrites atmosphere grid; untested"),
-    "misc/ave_dc.f": ("gap",
-        "averages model data on a V coordinate; V-guard untested"),
+    "misc/ave_dc.f": ("exec", [UT + "test_ave_dc.py"]),
     "misc/extrap_scr.f": ("gap", "scratch-file extrapolation tool; untested"),
     "misc/merge_scr.f": ("gap", "scratch-file merge tool; untested"),
     "misc/rev_hydro_turb.f": ("gap",
