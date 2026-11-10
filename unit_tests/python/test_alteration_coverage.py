@@ -289,7 +289,7 @@ COVERAGE = {
     "misc/adjust_atm_r_grid.f": ("gap",
         "rewrites atmosphere grid; untested"),
     "misc/ave_dc.f": ("exec", [UT + "test_ave_dc.py"]),
-    "misc/extrap_scr.f": ("gap", "scratch-file extrapolation tool; untested"),
+    "misc/extrap_scr.f": ("exec", [UT + "test_extrap_scr.py"]),
     "misc/merge_scr.f": ("gap", "scratch-file merge tool; untested"),
     "misc/rev_hydro_turb.f": ("exec", [
         UT + "test_rev_hydro_turb.py"]),
