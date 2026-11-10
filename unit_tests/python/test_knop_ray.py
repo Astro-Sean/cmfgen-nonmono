@@ -1329,6 +1329,28 @@ def main():
         f"RF_RESID={d29.get('RF_RESID'):.3e}",
     )
 
+    # -- T30: heal census counts only real modifications (audit
+    #    Issue 6, test T33). 'heal' diverges one ray whose I_M rows
+    #    carry {valid, valid, zero, negative, +Inf} and whose I_P
+    #    rows carry {valid, zero, NaN, negative, above-cap}. Only
+    #    the nonzero invalid slots may be counted: 3 depths x (2+3)
+    #    = 15, not 21 (which would include the four zero slots).
+    d30, s30 = parse(run(bin_, "heal", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d30
+        and s30.get(("vc", 1), (0, 0.0))[0] == 4
+        and d30.get("RF_NDIV", 0) == 1
+        and d30.get("RF_HEAL", 0.0) == 15.0
+    )
+    rep.check(
+        "T30 diverged-ray heal counts actual modifications only "
+        "(zero slots excluded)",
+        ok,
+        f"VC1={s30.get(('vc', 1), ('?', 0.0))[0]} "
+        f"NDIV={d30.get('RF_NDIV')} "
+        f"RF_HEAL={d30.get('RF_HEAL')}",
+    )
+
     rep.summary()
 
 
