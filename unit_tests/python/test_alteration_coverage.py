@@ -190,8 +190,8 @@ COVERAGE = {
     # ------------- link path: shipped, no test coverage yet ------------
     "new_main/cmfgen.f": ("gap",
         "main program; SIGMA_TRUE allocation runs only in full model runs"),
-    "new_main/mod_subs/adjust_r_grid_v4.f": ("gap",
-        "grid revision under nonmono flags; needs model state"),
+    "new_main/mod_subs/adjust_r_grid_v4.f": ("exec", [
+        UT + "test_adj_r4.py"]),
     "new_main/mod_subs/comp_grey_v2.f": ("gap",
         "grey-temperature update; untested"),
     "new_main/mod_subs/comp_grey_v4.f": ("gap",
