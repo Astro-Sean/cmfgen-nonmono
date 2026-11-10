@@ -188,8 +188,11 @@ COVERAGE = {
         UT + "test_obs_nonmono_dispatch.py"]),
 
     # ------------- link path: shipped, no test coverage yet ------------
-    "new_main/cmfgen.f": ("gap",
-        "main program; SIGMA_TRUE allocation runs only in full model runs"),
+    "new_main/cmfgen.f": ("exempt",
+        "one-line ALLOCATE(SIGMA_TRUE(ND)) in the main program "
+        "setup block; runs only in full model runs -- SIGMA_TRUE "
+        "semantics are covered by drivers that allocate it "
+        "directly"),
     "new_main/mod_subs/adjust_r_grid_v4.f": ("exec", [
         UT + "test_adj_r4.py"]),
     "new_main/mod_subs/comp_grey_v2.f": ("exec",
@@ -250,7 +253,9 @@ COVERAGE = {
         "relativistic formal solver GAM; untested"),
     "plane/fg_j_cmf_v12.f": ("gap", "V12 formal J; untested"),
     "plane/fg_j_cmf_v13.f": ("gap",
-        "V13 formal J + DO_FG13_ALO diagonal store; needs model state"),
+        "V13 solver body needs model state; the DO_FG13_ALO store "
+        "and GET_FG13_ALO_DIAG/TRI accessors are exercised by "
+        "test_dvc.py"),
     "plane/get_ibound.f": ("exec",
         [UT + "test_get_ibound.py"]),
     "plane/get_jh_at_prev_time_step.f": ("exec",
