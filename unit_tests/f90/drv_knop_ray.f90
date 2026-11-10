@@ -85,6 +85,8 @@
       IF(CNAME .EQ. 'omfew') NCASE=44
       IF(CNAME .EQ. 'omout') NCASE=45
       IF(CNAME .EQ. 'jmp2')  NCASE=46
+      IF(CNAME .EQ. 'ni0')   NCASE=47
+      IF(CNAME .EQ. 'ni1')   NCASE=48
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -121,7 +123,7 @@
       KNP=1
       IF(NCASE .EQ. 36)KNP=6
       IF(NCASE .GE. 38 .AND. NCASE .LE. 40)KNP=3
-      IF(NCASE .EQ. 46)KNP=3
+      IF(NCASE .GE. 46)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -152,6 +154,14 @@
       END IF
 !
       NI_RAY=NIX
+!
+! ni0/ni1: ray 1 is a degenerate ray. NI=0 is a construction failure
+! (the refresh must fail closed on it); NI=1 is a legitimate
+! single-point geometry with no marchable transfer domain and stays
+! in the plain unsolved census.
+!
+      IF(NCASE .EQ. 47)NI_RAY(1)=0
+      IF(NCASE .EQ. 48)NI_RAY(1)=1
       DO LS=1,KNP
         DO I=1,NIX
           RAY_PNT(I,LS)=I
