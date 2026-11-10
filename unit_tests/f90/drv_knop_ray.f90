@@ -87,6 +87,7 @@
       IF(CNAME .EQ. 'jmp2')  NCASE=46
       IF(CNAME .EQ. 'ni0')   NCASE=47
       IF(CNAME .EQ. 'ni1')   NCASE=48
+      IF(CNAME .EQ. 'heal')  NCASE=49
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -123,7 +124,7 @@
       KNP=1
       IF(NCASE .EQ. 36)KNP=6
       IF(NCASE .GE. 38 .AND. NCASE .LE. 40)KNP=3
-      IF(NCASE .GE. 46)KNP=3
+      IF(NCASE .GE. 46 .AND. NCASE .LE. 48)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -526,6 +527,30 @@
         I_P_DEPTH_NEXT(3,2,1)=1.0E-9_LDP
       END IF
 !
+      IF(NCASE .EQ. 49)THEN
+!
+! heal: a diverged ray carries a mixed poisoned store. I_M rows hold
+! {1e-9, 1e-9, 0, -5, +Inf}: the zero slot is already healed and must
+! not count; the negative and Inf slots do (2 per row). I_P rows
+! hold {1e-9, 0, NaN, -7, 1e200}: NaN, negative and above-cap slots
+! count (3 per row), the zero does not. GAM Inf forces the
+! divergence so the heal path runs. Expect FG_DIV_HEAL = 3*(2+3)=15.
+!
+        GAM(4,1)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+        DO K=1,N_COMP
+          I_M_DEPTH_NEXT(K,1,1)=1.0E-9_LDP
+          I_M_DEPTH_NEXT(K,1,2)=1.0E-9_LDP
+          I_M_DEPTH_NEXT(K,1,3)=0.0_LDP
+          I_M_DEPTH_NEXT(K,1,4)=-5.0_LDP
+          I_M_DEPTH_NEXT(K,1,5)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+          I_P_DEPTH_NEXT(K,1,1)=1.0E-9_LDP
+          I_P_DEPTH_NEXT(K,1,2)=0.0_LDP
+          I_P_DEPTH_NEXT(K,1,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          I_P_DEPTH_NEXT(K,1,4)=-7.0_LDP
+          I_P_DEPTH_NEXT(K,1,5)=1.0E200_LDP
+        END DO
+      END IF
+!
       IF(NCASE .EQ. 9)THEN
 !
 ! Checkpoint round-trip: fingerprint arrays mirror the model grid
@@ -604,6 +629,7 @@
         WRITE(*,'(A,ES16.8)')'RF_STAL=',DBLE(FG_GS_NSTAL)
         WRITE(*,'(A,ES16.8)')'RF_PLAT=',DBLE(FG_GS_NPLAT)
         WRITE(*,'(A,ES16.8)')'RF_INEXT_RELAX=',INEXT_RELAX
+        WRITE(*,'(A,I8)')'RF_HEAL=',FG_DIV_HEAL
         WRITE(*,'(A,I8)')'RF_JREJ=',FG_COMMIT_REJ
         WRITE(*,'(A,I8)')'RF_NCREJ=',FG_NC_REJ
         WRITE(*,'(A,I8)')'RF_NCCAP=',FG_NC_CAP
