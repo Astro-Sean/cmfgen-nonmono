@@ -5973,9 +5973,11 @@
 ! them with trial-side values. PUSH snapshots the full set so the
 ! epilogue can restore exactly what production had -- without it
 ! the gate and the FGINEXT_GS checkpoint read eval-side state
-! (audit D1).
+! (audit D1). The call sits AFTER the last GOTO-9999 early exit
+! (Nov-2026 audit): every path that can leave without POP runs
+! before the push is armed, so a pushed state can never be
+! orphaned.
 !
-	CALL FG_EVAL_STATE_PUSH_V1()
 !
 ! Coupled-SOB line-replay bracket ([JFNK_COUPLED_SOB], default F):
 ! under DO_NONMONO_SOB the eval replays the SECTION='LINE' pass, so
@@ -5998,6 +6000,8 @@
 	  CALL JFNK_EVAL_LSTATE_V1('S',IOS_EVAL)
 	  IF(IOS_EVAL .NE. 0)GOTO 9999
 	END IF
+!
+	CALL FG_EVAL_STATE_PUSH_V1()
 !
 	ACCESS_F_SAVE=ACCESS_F
 	IF(JFNK_EDD_START_REC .GT. 0)ACCESS_F=JFNK_EDD_START_REC
