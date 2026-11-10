@@ -385,8 +385,11 @@
 ! denominator mis-rates the cap share. FG_SW_CAPPED counts the
 ! sweep cap/NaN events only, FG_SW_CAPTOT counts the sweep-store
 ! writes evaluated (the sweep census), and FG_RF_CAPPED counts the
-! refresh-pass events only. FG_INEXT_CAPPED keeps accumulating the
-! total so the FGINEXT_GS checkpoint record is unchanged.
+! refresh last-pass + commit-phase events only (audit C1, Nov-2026:
+! was the all-pass sum plus the diverged-ray flag, a mixed census
+! that inflated the share by the pass multiplicity). FG_INEXT_CAPPED
+! keeps accumulating the total so the FGINEXT_GS checkpoint record
+! is unchanged.
 !
 	INTEGER*8, SAVE :: FG_SW_CAPPED=0
 	INTEGER*8, SAVE :: FG_SW_CAPTOT=0
@@ -6360,8 +6363,11 @@ C
 	INTEGER*8, ALLOCATABLE :: NBD_LS(:),NTT_LS(:),NMT_LS(:),NCM_LS(:)
 	INTEGER*8, ALLOCATABLE :: NP2_LS(:)
 	INTEGER*8, ALLOCATABLE :: NBB_LS(:),NTB_LS(:)
+	INTEGER*8, ALLOCATABLE :: NCL_LS(:),NNL_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
-	REAL(KIND=LDP) RHO_H(4)
+	REAL(KIND=LDP), ALLOCATABLE :: RHO_M_LS(:),RHO_P_LS(:)
+	REAL(KIND=LDP), ALLOCATABLE :: RHO_POOL(:)
+	REAL(KIND=LDP) RHO_H(4),RHO_MX
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
@@ -6433,9 +6439,13 @@ C
 	1   NCP_LS(KN_NP),NNG_LS(KN_NP),NBD_LS(KN_NP),NTT_LS(KN_NP),
 	2   NDV_LS(KN_NP),NMX_LS(KN_NP),NMT_LS(KN_NP),NCM_LS(KN_NP),
 	3   NXT_LS(KN_NP),NP2_LS(KN_NP),NBB_LS(KN_NP),NTB_LS(KN_NP),
-	4   STAT=IOS)
+	4   RHO_M_LS(KN_NP),RHO_P_LS(KN_NP),
+	5   NCL_LS(KN_NP),NNL_LS(KN_NP),
+	6   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 	RES_LS=0.0_LDP
+	RHO_M_LS=0.0_LDP; RHO_P_LS=0.0_LDP
+	NCL_LS=0_8; NNL_LS=0_8
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
 	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1; NP2_LS=0_8
 	NBB_LS=0_8; NTB_LS=0_8
@@ -6497,7 +6507,8 @@ C
 	  CALL KNOP_RAY_SOLVE_V1(LS,RES_LS(LS),NST_LS(LS),
 	1    NPS_LS(LS),NCP_LS(LS),NNG_LS(LS),NBD_LS(LS),NTT_LS(LS),
 	2    NDV_LS(LS),NMT_LS(LS),NCM_LS(LS),NMX_LS(LS),NXT_LS(LS),
-	3    NP2_LS(LS),NBB_LS(LS),NTB_LS(LS))
+	3    NP2_LS(LS),NBB_LS(LS),NTB_LS(LS),
+	4    RHO_M_LS(LS),RHO_P_LS(LS),NCL_LS(LS),NNL_LS(LS))
 	END DO
 !$OMP END PARALLEL DO
 	T1_W=OMP_GET_WTIME()-T0
@@ -6535,49 +6546,60 @@ C
 ! cross-iteration ratio miskeys omega -- the refresh residual drifts
 ! with the populations' source update, so a converging field can
 ! read rho_est~1 whether the map oscillates (wants omega~0.5) or
-! contracts marginally (wants omega~1). KN_RES_PASS holds the
-! per-pass max-over-rays residual sequence of THIS refresh, so the
-! median of its last ~4 pass ratios measures the same-map
-! contraction factor directly: oscillation (rho>1) still drives
-! omega down, smooth contraction (rho~0.9) lets it rise toward the
-! unrelaxed commit W4 made safe. Clamp [0.05,20] as in the old
-! rule; F restores the cross-iteration estimate.
+! contracts marginally (wants omega~1).
+!
+! A1 (FG_FIELD_DRIFT_AUDIT): the first same-map fix read the
+! KN_RES_PASS max-envelope -- its successive slots are maxima over
+! different ray/direction subsets as rays exit, enter hot mode or
+! diverge, so their ratios are not contraction factors of any one
+! map. RHO_M_LS/RHO_P_LS now carry each field solve's own median
+! post-transient same-direction pass ratio (the inner map's
+! asymptotic rate), and the omega update reads the 90th percentile
+! of that pool: the dominant (slowest/oscillating) mode the
+! lagged-store damping must counter, without the subset mixing or
+! the single-ray sensitivity of a plain max. KN_RES_PASS is still
+! filled below for telemetry only. F restores the cross-iteration
+! estimate.
 !
 	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
-	  IF(FG_ADAPT_OMEGA_V2 .AND. ALLOCATED(KN_RES_PASS))THEN
-	    J=SIZE(KN_RES_PASS)
-	    DO WHILE(J .GT. 1)
-	      IF(KN_RES_PASS(J) .GT. 0.0_LDP)EXIT
-	      J=J-1
-	    END DO
-	    IF(J .GE. 3 .AND. KN_RES_PASS(J-1) .GT. 0.0_LDP)THEN
+	  IF(FG_ADAPT_OMEGA_V2)THEN
+	    ALLOCATE(RHO_POOL(2*KN_NP),STAT=IOS)
+	    IF(IOS .EQ. 0)THEN
 	      L=0
-	      DO I=MAX(2,J-3),J
-	        IF(KN_RES_PASS(I-1) .GT. 0.0_LDP)THEN
-	          L=L+1
-	          RHO_H(L)=KN_RES_PASS(I)/KN_RES_PASS(I-1)
+	      DO I=1,KN_NP
+	        IF(NDV_LS(I) .EQ. 0)THEN
+	          IF(RHO_M_LS(I) .GT. 0.0_LDP)THEN
+	            L=L+1; RHO_POOL(L)=RHO_M_LS(I)
+	          END IF
+	          IF(RHO_P_LS(I) .GT. 0.0_LDP)THEN
+	            L=L+1; RHO_POOL(L)=RHO_P_LS(I)
+	          END IF
 	        END IF
 	      END DO
 	      IF(L .GT. 0)THEN
 	        DO I=1,L-1
 	          DO K=I+1,L
-	            IF(RHO_H(K) .LT. RHO_H(I))THEN
-	              T2=RHO_H(I)
-	              RHO_H(I)=RHO_H(K)
-	              RHO_H(K)=T2
+	            IF(RHO_POOL(K) .LT. RHO_POOL(I))THEN
+	              T2=RHO_POOL(I)
+	              RHO_POOL(I)=RHO_POOL(K)
+	              RHO_POOL(K)=T2
 	            END IF
 	          END DO
 	        END DO
-	        T2=RHO_H((L+1)/2)
+	        RHO_MX=RHO_POOL(L)
+	        RHO_H(1)=RHO_POOL((L+1)/2)
+	        T2=RHO_POOL(MIN(L,(9*L+9)/10))
 	        T2=MIN(MAX(T2,0.05_LDP),20.0_LDP)
-	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A,ES10.3,A,I4,
-	1        A,ES10.3)')
-	2        '    omega est: rho=',T2,' window passes=',L,
-	3        ' applied omega=',0.5_LDP*INEXT_RELAX+
-	4        0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
+	        IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A,ES10.3,A,
+	1        ES10.3,A,ES10.3,A,I5,A,ES10.3)')
+	2        '    omega est: rho_p90=',T2,' rho_med=',RHO_H(1),
+	3        ' rho_max=',RHO_MX,' n_ray=',L,
+	4        ' applied omega=',0.5_LDP*INEXT_RELAX+
+	5        0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
 	        INEXT_RELAX=0.5_LDP*INEXT_RELAX+
 	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
 	      END IF
+	      DEALLOCATE(RHO_POOL)
 	    END IF
 	  ELSE IF(KN_RF_RESID_PRV .GT. 0.0_LDP)THEN
 	    T2=KN_RF_RESID/KN_RF_RESID_PRV
@@ -6598,8 +6620,20 @@ C
 	FG_SW_NCONV=FG_GS_NCONV
 	FG_GS_MAXCHG=KN_RF_RESID
 	FG_GS_NCONV=SUM(NST_LS)
-	FG_RF_CAPPED=SUM(NCP_LS)+SUM(NNG_LS)+SUM(NDV_LS)
-	FG_INEXT_CAPPED=FG_INEXT_CAPPED+FG_RF_CAPPED
+!
+! C1 (Nov-2026): same-census cap numerator. NCP_LS/NNG_LS accumulate
+! cap/floor events over EVERY pass of the field solve while the
+! gate divides by the last-pass cell census FG_GS_NTOT, so a ray
+! that ran 30 passes reported ~30x its last-pass events. NCL_LS/
+! NNL_LS carry only the last pass plus the commit-phase events --
+! one event per retained cell, the units the gate divides by.
+! FG_INEXT_CAPPED keeps the cumulative all-pass accounting for
+! checkpoint comparability; NDV stays out of the numerator here
+! (the gate tiers diverged rays separately via FG_GS_NDIV).
+!
+	FG_RF_CAPPED=SUM(NCL_LS)+SUM(NNL_LS)
+	FG_INEXT_CAPPED=FG_INEXT_CAPPED+
+	1  SUM(NCP_LS)+SUM(NNG_LS)+SUM(NDV_LS)
 	FG_GS_NDIV=SUM(NDV_LS)
 	FG_GS_NBAD=SUM(NBD_LS)
 	FG_GS_NTOT=SUM(NTT_LS)
@@ -6615,6 +6649,7 @@ C
 	IF(LEDG_ACTIVE)LEDG_NP_RF=LEDG_NP_RF+SUM(NPS_LS)
 	WRITE(LUER,'(A,I8)')'    diverged rays=',SUM(NDV_LS)
 	WRITE(LUER,'(A,I8)')'    clamp events=',SUM(NNG_LS)
+	WRITE(LUER,'(A,I14)')'    same-census cap/floor=',FG_RF_CAPPED
 	WRITE(LUER,'(A,I14,A,I14,A,ES9.2)')
 	1  '    unconverged cells=',FG_GS_NBAD,' of',FG_GS_NTOT,
 	2  '   frac=',DBLE(FG_GS_NBAD)/MAX(1_8,FG_GS_NTOT)
@@ -6812,7 +6847,7 @@ C
 	END IF
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
-	2   NBB_LS,NTB_LS)
+	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS)
 	RETURN
 	END
 !
@@ -6827,14 +6862,16 @@ C
 ! ==============================================================================
 !
 	SUBROUTINE KNOP_RAY_SOLVE_V1(LS,RESID,NSTORE,NPASS,NCAP,NNEG,
-	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK)
+	1   NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK,
+	2   RHO_M,RHO_P,NCAP_LST,NNG_LST)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
 	IMPLICIT NONE
 !
 	INTEGER LS,NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
 	INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
-	REAL(KIND=LDP) RESID
+	INTEGER*8 NCAP_LST,NNG_LST
+	REAL(KIND=LDP) RESID,RHO_M,RHO_P
 !
 ! NBBLK/NTBLK (W3, 17-Oct-2026): best-pass bad-cell census summed
 ! over the two field solves. For stall/cap exits the last-pass
@@ -6866,6 +6903,20 @@ C
 	INTEGER I,K,KC,L,JPT,IOS
 	INTEGER, ALLOCATABLE :: IKC1(:),IKC2(:),JPR1(:),JPR2(:),IGRD(:)
 	INTEGER NGRD
+!
+! Per-pass clamp census (audit C1): the maturity gate's cap share
+! divides FG_RF_CAPPED by the LAST-pass significant-cell census
+! (NTT_LS), so the numerator must carry the same census: clamp and
+! negative-floor events of the final pass of each direction's solve
+! plus the commit-phase caps in WRITE_STORE/WRITE_STORE_CAP.
+! NCP_P/NNG_P reset at each pass top (MARCH and the ordered loop
+! bump them beside the cumulative NCAP/NNEG); the sweep tails
+! capture them per direction; the commit writers bump NCP_C.
+! NCAP_LST/NNG_LST then bound the gate's share by the cells that
+! are actually capped on the committed field, not by transient
+! events of passes that were superseded.
+!
+	INTEGER*8 NCP_P,NNG_P,NCL_M,NNL_M,NCL_P,NNL_P,NCP_C
 	REAL(KIND=LDP), ALLOCATABLE :: WINX(:),IM_NI(:),T1V(:)
 	REAL(KIND=LDP), ALLOCATABLE :: FLD(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: FLD_P(:,:)
@@ -6953,6 +7004,10 @@ C
 	NMATCH=0; NCOMP=0
 	NXIT=-1; IXIT_M=-1; IXIT_P=-1
 	RES_M=0.0_LDP; RES_P=0.0_LDP; NP_M=0; NP_P=0
+	RHO_M=0.0_LDP; RHO_P=0.0_LDP
+	NCL_M=0_8; NNL_M=0_8; NCL_P=0_8; NNL_P=0_8
+	NCP_P=0_8; NNG_P=0_8; NCP_C=0_8
+	NCAP_LST=0_8; NNG_LST=0_8
 	NBBLK=0_8; NTBLK=0_8; NB_BM=0_8; NT_BM=0_8
 	NB_BP=0_8; NT_BP=0_8
 	NP2=0_8; NP2_CNT=0_8
@@ -7358,6 +7413,14 @@ C
 	NBAD=NB_M+NB_P
 	NTOT=NT_M+NT_P
 !
+! Same-census clamp totals (audit C1): last-pass events of each
+! direction's solve plus the commit-phase caps - the numerator the
+! maturity gate divides by NTOT. The cumulative NCAP/NNEG keep the
+! all-pass telemetry meaning.
+!
+	NCAP_LST=NCL_M+NCL_P+NCP_C
+	NNG_LST=NNL_M+NNL_P
+!
 ! W3 (17-Oct-2026): the best-pass census. For stall/cap exits the
 ! last pass still counts every above-tolerance cell, so the gate
 ! reads MIN(GS_NBAD, GS_NBAD_BLK) -- the best pass is what the
@@ -7429,6 +7492,16 @@ C
 	REAL(KIND=LDP) BEST_RES
 	INTEGER*8 BEST_NB,BEST_NT
 	REAL(KIND=LDP) RATIO_PV(2)
+! RHO_WIN/RHO_SRT: ring of post-transient same-direction residual
+! ratios for this field solve, and a sort copy for the exported
+! median. FG_KNOP_REFRESH_V1 medians these per-ray samples for the
+! INEXT_RELAX spectral-radius estimate (audit A1): every element is
+! a same-map, same-direction contraction sample, unlike the old
+! KN_RES_PASS max-envelope whose successive slots compared different
+! rays. Only ratios whose baseline pass cleared the seed transient
+! (NPO>=5, the same floor the damping branch uses) enter.
+	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
+	INTEGER NRHO,JW,KW
 	LOGICAL ASC,HOTMODE,L_PLAT
 	NPO=0
 	NSTALL=0
@@ -7442,6 +7515,7 @@ C
 	RES_PREV(1)=0.0_LDP; RES_PREV(2)=0.0_LDP
 	RATIO_PV(1)=0.0_LDP; RATIO_PV(2)=0.0_LDP
 	RATIO_OM=0.0_LDP
+	RHO_WIN=0.0_LDP
 	WRC_I=0; WRC_L=0; WRC_PI=0; WRC_PL=0; WRC_SAME=0
 !
 ! SGN_PRV/NOSC_FL are host variables: without this reset the first
@@ -7478,6 +7552,7 @@ C
 	  RES=0.0_LDP
 	  RES_FREQ(1:NCF)=0.0_LDP
 	  NBAD_CUR=0; NTOT_CUR=0
+	  NCP_P=0_8; NNG_P=0_8
 	  SGN_ACC=0.0_LDP
 	  IF(ASC)THEN
 	    LB=1; LE=NCF; LDI=1
@@ -7537,13 +7612,6 @@ C
 	    EXIT
 	  END IF
 	  NB_O=NBAD_CUR; NT_O=NTOT_CUR
-	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
-	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
-!$OMP CRITICAL (KN_RES_UPD)
-	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
-!$OMP END CRITICAL (KN_RES_UPD)
-	    END IF
-	  END IF
 !
 ! Divergence containment: a non-finite residual, or a same-direction
 ! blow-up (RES more than 1e3 above the best pass so far, checked once
@@ -7556,6 +7624,18 @@ C
 	    DIVERGED=.TRUE.
 	    IXIT=5
 	    EXIT
+	  END IF
+!
+! KN_RES_PASS feeds the INEXT_RELAX spectral-radius estimate; a
+! diverging pass's residual must not enter it (audit A3). With a NaN
+! RES the MAX above was implementation-defined before this move.
+!
+	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
+	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
+!$OMP CRITICAL (KN_RES_UPD)
+	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
+!$OMP END CRITICAL (KN_RES_UPD)
+	    END IF
 	  END IF
 !
 ! W3 (17-Oct-2026): best-pass census. The stall/cap exits below
@@ -7585,6 +7665,18 @@ C
 	  IF(.NOT. ASC)IDIR=2
 	  IF(RES_PREV(IDIR) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(IDIR)
+!
+! Same-direction, same-map contraction sample for the refresh-level
+! estimator (audit A1). The NPO>=5 floor keeps the seed transient
+! out; hot-mode passes run a window-restricted map whose ratio does
+! not measure the full march, and an infinite ratio can precede the
+! divergence trip, so guard it the same way the census guards RES.
+!
+	    IF(NPO .GE. 5 .AND. .NOT. HOTMODE .AND.
+	1     ABS(RATIO_OM) .LE. HUGE(RATIO_OM))THEN
+	      RHO_WIN(1:5)=RHO_WIN(2:6)
+	      RHO_WIN(6)=RATIO_OM
+	    END IF
 !
 ! edited 14-Oct-2026: suppress damping while the
 ! same-direction baseline (pass NPO-2) is still inside the
@@ -7759,6 +7851,47 @@ C
 	NB_B=BEST_NB
 	NT_B=BEST_NT
 	IF(CLEAN_EXIT)NB_B=0_8
+!
+! Export the median same-direction contraction ratio for this field
+! solve into the host's RHO_M/RHO_P (audit A1). A solve that exited
+! inside the seed transient contributes nothing (RHO stays 0), so
+! the refresh pool only ever sees asymptotic rates.
+!
+	NRHO=0
+	DO JW=1,6
+	  IF(RHO_WIN(JW) .GT. 0.0_LDP)THEN
+	    NRHO=NRHO+1
+	    RHO_SRT(NRHO)=RHO_WIN(JW)
+	  END IF
+	END DO
+	IF(NRHO .GT. 0)THEN
+	  DO JW=1,NRHO-1
+	    DO KW=JW+1,NRHO
+	      IF(RHO_SRT(KW) .LT. RHO_SRT(JW))THEN
+	        TW=RHO_SRT(JW)
+	        RHO_SRT(JW)=RHO_SRT(KW)
+	        RHO_SRT(KW)=TW
+	      END IF
+	    END DO
+	  END DO
+	  IF(INWARD)THEN
+	    RHO_M=RHO_SRT((NRHO+1)/2)
+	  ELSE
+	    RHO_P=RHO_SRT((NRHO+1)/2)
+	  END IF
+	END IF
+!
+! Same-census clamp export (audit C1): NCP_P/NNG_P hold this
+! solve's last-pass cap/floor events; the refresh gate divides
+! their sum by the last-pass cell census, so the units match.
+!
+	IF(INWARD)THEN
+	  NCL_M=NCP_P
+	  NNL_M=NNG_P
+	ELSE
+	  NCL_P=NCP_P
+	  NNL_P=NNG_P
+	END IF
 	RETURN
 	END
 !
@@ -7929,6 +8062,12 @@ C
 	REAL(KIND=LDP) BEST_RES
 	INTEGER*8 BEST_NB,BEST_NT
 	REAL(KIND=LDP) RATIO_PV
+! RHO_WIN/RHO_SRT: same role as in SWEEP_FLD (audit A1) -- ring of
+! post-transient consecutive-pass residual ratios and a sort copy
+! for the exported median. The residual history is a single
+! sequence here (baseline NPO-1), so the floor is NPO>=4.
+	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
+	INTEGER NRHO,JW,KW
 	LOGICAL HOTMODE
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
@@ -8003,6 +8142,7 @@ C
 	RES_PREV(1)=0.0_LDP
 	RES_PREV(2)=0.0_LDP
 	RATIO_OM=0.0_LDP
+	RHO_WIN=0.0_LDP
 	WRC_I=0; WRC_L=0; WRC_PI=0; WRC_PL=0; WRC_SAME=0
 	KN_SGN_SUM=0.0_LDP
 	KN_SGN_PREV=0.0_LDP
@@ -8088,6 +8228,8 @@ C
 	  RES_FREQ(1:NCF)=0.0_LDP
 	  NBAD_CUR=0
 	  NTOT_CUR=0
+	  NCP_P=0_8
+	  NNG_P=0_8
 	  KN_SGN_SUM=0.0_LDP
 !
 ! Column peaks at pass start for the significance floor, same role
@@ -8154,10 +8296,12 @@ C
 	        IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	          VNEW=1.0E-30_LDP
 	          NNEG=NNEG+1
+	          NNG_P=NNG_P+1
 	        END IF
 	        IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	          VNEW=NONMONO_INEXT_CAP
 	          NCAP=NCAP+1
+	          NCP_P=NCP_P+1
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -8270,10 +8414,12 @@ C
 	      IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	        VNEW=1.0E-30_LDP
 	        NNEG=NNEG+1
+	        NNG_P=NNG_P+1
 	      END IF
 	      IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	        VNEW=NONMONO_INEXT_CAP
 	        NCAP=NCAP+1
+	        NCP_P=NCP_P+1
 	      END IF
 	      VOLD=FLD(NI,L)
 	      T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -8352,10 +8498,12 @@ C
 	        IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	          VNEW=1.0E-30_LDP
 	          NNEG=NNEG+1
+	          NNG_P=NNG_P+1
 	        END IF
 	        IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	          VNEW=NONMONO_INEXT_CAP
 	          NCAP=NCAP+1
+	          NCP_P=NCP_P+1
 	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
@@ -8474,13 +8622,6 @@ C
 	      NT_O=NTOT_CUR
 	    END IF
 	  END IF
-	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
-	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
-!$OMP CRITICAL (KN_RES_UPD)
-	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
-!$OMP END CRITICAL (KN_RES_UPD)
-	    END IF
-	  END IF
 !
 ! Same divergence containment, relaxation adaptation and exits as
 ! SWEEP_FLD. The residual history is now a single sequence (no
@@ -8494,6 +8635,17 @@ C
 	    EXIT
 	  END IF
 !
+! KN_RES_PASS feeds the INEXT_RELAX spectral-radius estimate; a
+! diverging pass's residual must not enter it (audit A3).
+!
+	  IF(ALLOCATED(KN_RES_PASS) .AND. .NOT. HOTMODE)THEN
+	    IF(NPO .LE. SIZE(KN_RES_PASS))THEN
+!$OMP CRITICAL (KN_RES_UPD)
+	      KN_RES_PASS(NPO)=MAX(KN_RES_PASS(NPO),RES)
+!$OMP END CRITICAL (KN_RES_UPD)
+	    END IF
+	  END IF
+!
 ! W3 (17-Oct-2026): best-pass census, same role as SWEEP_FLD --
 ! stall/cap exits carry the last-pass NB_O; the gate reads
 ! MIN(GS_NBAD, GS_NBAD_BLK).
@@ -8505,6 +8657,16 @@ C
 	  END IF
 	  IF(RES_PREV(1) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(1)
+!
+! Same-map contraction sample for the refresh-level estimator
+! (audit A1). Single-sequence baseline NPO-1, so the seed-transient
+! floor is NPO>=4; hot-mode passes run a window-restricted map.
+!
+	    IF(NPO .GE. 4 .AND. .NOT. HOTMODE .AND.
+	1     ABS(RATIO_OM) .LE. HUGE(RATIO_OM))THEN
+	      RHO_WIN(1:5)=RHO_WIN(2:6)
+	      RHO_WIN(6)=RATIO_OM
+	    END IF
 !
 ! Oscillation detector: on a period-2 limit cycle (lambda ~ -1,
 ! observed on the compressing hot blocks at a fluctuating ~0.4
@@ -8836,6 +8998,45 @@ C
 	NB_B=BEST_NB
 	NT_B=BEST_NT
 	IF(CLEAN_EXIT)NB_B=0_8
+!
+! Export the median consecutive-pass contraction ratio, same role
+! as the SWEEP_FLD tail (audit A1).
+!
+	NRHO=0
+	DO JW=1,6
+	  IF(RHO_WIN(JW) .GT. 0.0_LDP)THEN
+	    NRHO=NRHO+1
+	    RHO_SRT(NRHO)=RHO_WIN(JW)
+	  END IF
+	END DO
+	IF(NRHO .GT. 0)THEN
+	  DO JW=1,NRHO-1
+	    DO KW=JW+1,NRHO
+	      IF(RHO_SRT(KW) .LT. RHO_SRT(JW))THEN
+	        TW=RHO_SRT(JW)
+	        RHO_SRT(JW)=RHO_SRT(KW)
+	        RHO_SRT(KW)=TW
+	      END IF
+	    END DO
+	  END DO
+	  IF(INWARD)THEN
+	    RHO_M=RHO_SRT((NRHO+1)/2)
+	  ELSE
+	    RHO_P=RHO_SRT((NRHO+1)/2)
+	  END IF
+	END IF
+!
+! Same-census clamp export (audit C1): NCP_P/NNG_P hold this
+! solve's last-pass cap/floor events; the refresh gate divides
+! their sum by the last-pass cell census, so the units match.
+!
+	IF(INWARD)THEN
+	  NCL_M=NCP_P
+	  NNL_M=NNG_P
+	ELSE
+	  NCL_P=NCP_P
+	  NNL_P=NNG_P
+	END IF
 	RETURN
 	END
 !
@@ -9409,10 +9610,12 @@ C
 	    IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	      VNEW=1.0E-30_LDP
 	      NNEG=NNEG+1
+	      NNG_P=NNG_P+1
 	    END IF
 	    IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	      VNEW=NONMONO_INEXT_CAP
 	      NCAP=NCAP+1
+	      NCP_P=NCP_P+1
 	    END IF
 	    VOLD=FLD(I+1,L)
 	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -9460,10 +9663,12 @@ C
 	  IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	    VNEW=1.0E-30_LDP
 	    NNEG=NNEG+1
+	    NNG_P=NNG_P+1
 	  END IF
 	  IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	    VNEW=NONMONO_INEXT_CAP
 	    NCAP=NCAP+1
+	    NCP_P=NCP_P+1
 	  END IF
 	  VOLD=FLD(NI,L)
 	  DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -9484,10 +9689,12 @@ C
 	    IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	      VNEW=1.0E-30_LDP
 	      NNEG=NNEG+1
+	      NNG_P=NNG_P+1
 	    END IF
 	    IF(VNEW .GT. NONMONO_INEXT_CAP)THEN
 	      VNEW=NONMONO_INEXT_CAP
 	      NCAP=NCAP+1
+	      NCP_P=NCP_P+1
 	    END IF
 	    VOLD=FLD(I,L)
 	    DCELL=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
@@ -9558,11 +9765,14 @@ C
 	          IF(V1 .GT. NONMONO_INEXT_CAP)THEN
 	            V1=NONMONO_INEXT_CAP
 	            NCAP=NCAP+1
+	            NCP_C=NCP_C+1
 	          END IF
 	        ELSE
 	          V1=1.0E-30_LDP
-	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2)))
-	1            NCAP=NCAP+1
+	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2)))THEN
+	            NCAP=NCAP+1
+	            NCP_C=NCP_C+1
+	          END IF
 	        END IF
 	        V2=STORE(KC,LS,LS2-1)
 	        IF(V2 .GT. 0.0_LDP)THEN
@@ -9637,11 +9847,14 @@ C
 	          IF(V1 .GT. NONMONO_INEXT_CAP)THEN
 	            V1=NONMONO_INEXT_CAP
 	            NCAP=NCAP+1
+	            NCP_C=NCP_C+1
 	          END IF
 	        ELSE
 	          V1=1.0E-30_LDP
-	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2)))
-	1            NCAP=NCAP+1
+	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2)))THEN
+	            NCAP=NCAP+1
+	            NCP_C=NCP_C+1
+	          END IF
 	        END IF
 	        V2=STORE(KC,LS,LS2-1)
 !
