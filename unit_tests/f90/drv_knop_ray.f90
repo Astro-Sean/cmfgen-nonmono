@@ -79,6 +79,11 @@
       IF(CNAME .EQ. 'sibref')NCASE=38
       IF(CNAME .EQ. 'rf3')   NCASE=39
       IF(CNAME .EQ. 'jmpx')  NCASE=40
+      IF(CNAME .EQ. 'ompos') NCASE=41
+      IF(CNAME .EQ. 'omneg') NCASE=42
+      IF(CNAME .EQ. 'omone') NCASE=43
+      IF(CNAME .EQ. 'omfew') NCASE=44
+      IF(CNAME .EQ. 'omout') NCASE=45
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -91,6 +96,14 @@
       IF(NCASE .EQ. 15 .OR. NCASE .EQ. 22 .OR. &
       NCASE .EQ. 32 .OR. NCASE .EQ. 33)GOTO 999
 !
+! The omega-pool cases exercise the adaptive-relaxation estimator
+! directly on synthetic sample sets; no ray grid is needed.
+!
+      IF(NCASE .GE. 41 .AND. NCASE .LE. 45)THEN
+        CALL DRV_OMEGA(NCASE)
+        GOTO 999
+      END IF
+!
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
 !
@@ -101,8 +114,12 @@
       KN_ND=ND
 ! sibref/rf3/jmpx run a three-ray set so the sibling-reference
 ! snapshot and the jump veto operate across real sibling columns.
+! rfa needs >=KN_RHO_MIN_SAM=10 pooled ratio samples, so it runs
+! six rays (12 samples) or the omega estimator takes the small-
+! sample retain path it was added to guard.
       KNP=1
-      IF(NCASE .GE. 38)KNP=3
+      IF(NCASE .EQ. 36)KNP=6
+      IF(NCASE .GE. 38 .AND. NCASE .LE. 40)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -963,5 +980,80 @@
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
       END SUBROUTINE DRV_AB
+!
+! ----------------------------------------------------------------------
+! Omega-pool probe (audit Issues 2 + 5, tests T25-T28). Feeds
+! KN_OMEGA_POOL_V1 synthetic per-ray contraction samples and prints
+! the returned omega, sample count and pooled statistics so the
+! python side can check the small-sample retain path, the P90
+! outlier rejection and the damped-vs-recovered regimes.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_OMEGA(NCS)
+      INTEGER NCS
+      INTEGER NRAY,I2,NDV_T(40)
+      REAL(KIND=LDP) RHOM_T(40),RHOP_T(40)
+      REAL(KIND=LDP) OM0,OM1,RHO_P90,RHO_MED,RHO_MX
+      INTEGER NSAM
+!
+      NRAY=0
+      NDV_T=0
+      RHOM_T=0.0_LDP; RHOP_T=0.0_LDP
+      OM0=0.75_LDP
+      IF(NCS .EQ. 41)THEN
+! ompos: slowly contracting positive-mode pool (rho < 1). The
+! heuristic should recover omega toward 1/(1+rho_p90), lightly
+! damped against the seed.
+        NRAY=20
+        DO I2=1,NRAY
+          RHOM_T(I2)=0.60_LDP
+          RHOP_T(I2)=0.62_LDP
+        END DO
+      ELSE IF(NCS .EQ. 42)THEN
+! omneg: near-unity and expansive magnitudes -- the signature a
+! sign-flipping or diverging mode leaves in an unsigned ratio.
+! omega must be damped below the seed.
+        NRAY=20
+        DO I2=1,NRAY
+          RHOM_T(I2)=1.05_LDP+0.005_LDP*I2
+          RHOP_T(I2)=1.20_LDP
+        END DO
+      ELSE IF(NCS .EQ. 43)THEN
+! omone: a single valid sample must not update omega.
+        NRAY=1
+        RHOM_T(1)=0.7_LDP
+      ELSE IF(NCS .EQ. 44)THEN
+! omfew: 8 samples (4 rays, both directions) is still below the
+! P90 minimum -- retain the seed.
+        NRAY=4
+        DO I2=1,NRAY
+          RHOM_T(I2)=0.4_LDP
+          RHOP_T(I2)=0.9_LDP
+        END DO
+      ELSE IF(NCS .EQ. 45)THEN
+! omout: 40 sane samples + one 100x outlier + 2 diverged rays.
+! The P90 index must ignore the outlier and the diverged rays.
+        NRAY=23
+        DO I2=1,20
+          RHOM_T(I2)=0.55_LDP+0.01_LDP*I2
+          RHOP_T(I2)=0.55_LDP+0.01_LDP*I2
+        END DO
+        RHOM_T(21)=100.0_LDP
+        RHOP_T(21)=95.0_LDP
+        NDV_T(22)=1; NDV_T(23)=1
+        RHOM_T(22)=500.0_LDP; RHOP_T(22)=500.0_LDP
+        RHOM_T(23)=400.0_LDP; RHOP_T(23)=400.0_LDP
+      END IF
+!
+      CALL KN_OMEGA_POOL_V1(RHOM_T,RHOP_T,NDV_T,OM0,OM1, &
+      NSAM,RHO_P90,RHO_MED,RHO_MX)
+      WRITE(*,'(A,ES16.8)')'OM_PREV=',OM0
+      WRITE(*,'(A,ES16.8)')'OM_NEW=',OM1
+      WRITE(*,'(A,I8)')'OM_NSAM=',NSAM
+      WRITE(*,'(A,ES16.8)')'OM_P90=',RHO_P90
+      WRITE(*,'(A,ES16.8)')'OM_MED=',RHO_MED
+      WRITE(*,'(A,ES16.8)')'OM_MAX=',RHO_MX
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+      END SUBROUTINE DRV_OMEGA
 !
       END
