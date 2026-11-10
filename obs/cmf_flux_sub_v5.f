@@ -3064,6 +3064,9 @@
 ! these arrays at each ray point's local comoving frequency.  Called
 ! per blend group when DO_SOB_FLUX_OBS=T; with the default F the
 ! stored arrays are left untouched.
+! A copy also lives in ADD_SOB_LINE_PROF.INC so the unit tests can
+! compile the routine without linking the full CMF_FLUX driver;
+! keep the two in sync.
 !
 ! The profile is a normalized Doppler core of width
 ! FL_SIM*VDOP_MIN/C_KMS evaluated on the (descending) CMF grid NU.
