@@ -5876,7 +5876,8 @@
 	1   MOM_QUAR_AGE,XM_BAD_NM,MOM_CELL_QUAR,
 	2   MOM_GS_MAXCHG,JNEXT_RELAX,MOM_RF_RESID_PRV
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
-	1   INEXT_RELAX,KN_RF_RESID_PRV
+	1   INEXT_RELAX,KN_RF_RESID_PRV,
+	2   FG_EVAL_STATE_PUSH_V1,FG_EVAL_STATE_POP_V1
 	IMPLICIT NONE
 	REAL(KIND=LDP), INTENT(IN) :: POPS_EVAL(:,:)
 	INTEGER :: IOS_EVAL
@@ -5963,6 +5964,18 @@
 	JNRLX_SAV=JNEXT_RELAX
 	INRLX_SAV=INEXT_RELAX
 	KRFPRV_SAV=KN_RF_RESID_PRV
+!
+! The five scalar saves above do not cover the FG maturity
+! telemetry: this eval's first FG_J_CMF_NONMONO_V1 call runs INIT,
+! which clears the whole census (FG_GS_MAXCHG, the bad/stall/
+! plateau counts, the commit/divergence/heal tallies, the
+! retained-field deltas), and the eval frequencies then refill
+! them with trial-side values. PUSH snapshots the full set so the
+! epilogue can restore exactly what production had -- without it
+! the gate and the FGINEXT_GS checkpoint read eval-side state
+! (audit D1).
+!
+	CALL FG_EVAL_STATE_PUSH_V1()
 !
 ! Coupled-SOB line-replay bracket ([JFNK_COUPLED_SOB], default F):
 ! under DO_NONMONO_SOB the eval replays the SECTION='LINE' pass, so
@@ -7392,6 +7405,13 @@
 	JNEXT_RELAX=JNRLX_SAV
 	INEXT_RELAX=INRLX_SAV
 	KN_RF_RESID_PRV=KRFPRV_SAV
+!
+! Restore the full FG maturity census pushed at entry (the five
+! scalars above are the overlapping relaxation state, kept for
+! the original comment chain; POP covers the same fields plus the
+! census, deltas and tallies the eval cleared or refilled).
+!
+	CALL FG_EVAL_STATE_POP_V1()
 !
 ! COMP_J_BLANK leaves ACCESS_F at EOF. The next real sweep reloads
 ! the cursor from EDD_CONT_REC, but anything between this return and
