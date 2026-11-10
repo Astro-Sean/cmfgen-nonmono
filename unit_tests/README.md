@@ -105,6 +105,7 @@ error text.
 | `test_extrap_scr.py` | `misc/extrap_scr.f` via shipped `exe/extrap_scr.exe` + `mk_scr.f90` fixture writer | real SCRTEMP checkpoints written through production SCR_RITE_V2: flat or nonpositive V rejected per model dir, a backwards SN_AGE answer makes R+V*T1 reorder and hits the expansion guard, two valid decks produce NEW_SCRTEMP |
 | `test_merge_scr.py` | `misc/merge_scr.f` compiled with production flags (no shipped exe) + `mk_scr.f90` fixtures | same guard set as extrap_scr on the merge twin: flat/nonpositive V per dir, expansion reorder on a backwards age, NEW_SCRTEMP on valid decks |
 | `test_adj_grid.py` | `misc/adjust_atm_r_grid.f` via `drv_adj_grid.f90` | OLD_V positivity/ordering guard before the V-coordinate connection search: flat and negative OLD_V die labelled; a valid deck returns a positive strictly decreasing R grid |
+| `test_adj_r4.py` | `new_main/mod_subs/adjust_r_grid_v4.f` via `drv_adj_r4.f90` | GRID_METH=VEL_SPACE rejected under DO_NONMONO_SOB/KNOP (R(V) interp needs monotonic V); the interpolated sigma<-1 clamp/STOP is skipped under the same flags but preserved flag-off on a reversal deck |
 | `test_alteration_coverage.py` | every build input vs `../cmfgen_reference/cur_cmf` (no Fortran build) | self-checking manifest: each altered source is registered as exec/pin/gap/exempt; unregistered alterations, stale entries and missing covering tests all fail; known gaps printed loudly |
 
 ## Supporting files
