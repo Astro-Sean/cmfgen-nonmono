@@ -4,6 +4,17 @@ Each item lists source files/routines and acceptance criteria.
 Status: [ ] open, [~] in progress, [x] done, [-] dropped/blocked.
 Audit basis: ACCELERATION_AUDIT.md (rev 280c4a44, 10-Nov-2026).
 
+Naming: D1 = initial per-iteration accelerator ledger;
+D1a = ledger state-accuracy corrections (the "D1b"/"D2" label used
+in earlier drafts and the AUDIT_LOG before this reconciliation);
+D2 = the final OUTGEN aggregate accelerator summary (still open).
+
+Status (10-Nov-2026): ledger v3 (aa_ran, aa_en, aao_en) implemented;
+GET_MOM_AA_STATE state/activity separation implemented;
+stale-counter suppression via MOM_RF_RAN implemented; outer AA
+independence from MOM_RF_AA implemented; final OUTGEN aggregate
+summary NOT IMPLEMENTED (D2 open).
+
 ## Diagnostics (no solver change)
 
 - [x] D1 - Per-iteration accelerator ledger columns (done 10-Nov-2026)
@@ -31,7 +42,7 @@ Audit basis: ACCELERATION_AUDIT.md (rev 280c4a44, 10-Nov-2026).
   drv_iter_ledger + test_iter_ledger updated and green; zero output
   on the stock path (LEDG_ACTIVE guard unchanged).
 
-- [x] D1b - Ledger state accuracy follow-up (done 10-Nov-2026)
+- [x] D1a - Ledger state accuracy corrections (done 10-Nov-2026)
   Files: plane/mom_j_cmf_nonmono_v1.f (GET_MOM_AA_STATE + RF_RAN
          gate, outer gate decoupled to MOM_AA_OUT alone),
          new_main/mod_subs/iter_ledger_mod.f90 (v3: aa_ran,aa_en,
