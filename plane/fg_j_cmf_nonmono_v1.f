@@ -584,6 +584,35 @@
 	INTEGER, SAVE :: KN_HOT_TOTAL_PASSES=480
 	INTEGER*8, SAVE :: KN_HOT_SPENT=0
 !
+! FG_EVAL_* snapshot block (JFNK eval bracket, audit D1). A JFNK
+! residual/JVP eval runs a full production sweep whose INIT pass
+! clears every maturity census above and whose frequency passes
+! then accumulate eval-side values; the entry save in
+! JFNK_RAD_SWEEP_V1 covered only the five relaxation scalars.
+! FG_EVAL_STATE_PUSH_V1/POP_V1 bracket the eval span so production
+! telemetry comes back exactly, whatever the eval left behind.
+!
+	REAL(KIND=LDP), SAVE :: FG_EVAL_MAXCHG,FG_EVAL_SWMX
+	REAL(KIND=LDP), SAVE :: FG_EVAL_RFD,FG_EVAL_RFP,FG_EVAL_RFRES
+	REAL(KIND=LDP), SAVE :: FG_EVAL_INRLX,FG_EVAL_RFPRV
+	REAL(KIND=LDP), SAVE :: FG_EVAL_ARGV(4)
+	REAL(KIND=LDP), SAVE :: FG_EVAL_EFRQ(1000)
+	INTEGER, SAVE :: FG_EVAL_ARGK,FG_EVAL_ARGR,FG_EVAL_ARGL
+	INTEGER, SAVE :: FG_EVAL_ARGHK(4),FG_EVAL_ARGHR(4)
+	INTEGER, SAVE :: FG_EVAL_ARGHL(4)
+	INTEGER, SAVE :: FG_EVAL_NDIV,FG_EVAL_HEAL,FG_EVAL_JREJ
+	INTEGER, SAVE :: FG_EVAL_NCR,FG_EVAL_NCC,FG_EVAL_CAPF
+	INTEGER, SAVE :: FG_EVAL_FRQ,FG_EVAL_ECNT
+	INTEGER, SAVE :: FG_EVAL_ETYP(1000)
+	INTEGER*8, SAVE :: FG_EVAL_NCNV,FG_EVAL_INCP
+	INTEGER*8, SAVE :: FG_EVAL_SWCP,FG_EVAL_SWCT,FG_EVAL_RFCP
+	INTEGER*8, SAVE :: FG_EVAL_NBD,FG_EVAL_NTT,FG_EVAL_SWNC
+	INTEGER*8, SAVE :: FG_EVAL_NBB,FG_EVAL_NTB
+	INTEGER*8, SAVE :: FG_EVAL_NST,FG_EVAL_NPL
+	INTEGER*8, SAVE :: FG_EVAL_HOT,FG_EVAL_NOS
+	LOGICAL, SAVE :: FG_EVAL_SRDY
+	CHARACTER(LEN=6), SAVE :: FG_EVAL_CLS
+!
 ! W5 (17-Oct-2026): FG_ADAPT_OMEGA_V2=T prices rho_est from the
 ! per-pass residual sequence of the current refresh (same-map
 ! contraction) instead of the cross-iteration KN_RF_RESID ratio,
@@ -1210,6 +1239,121 @@
 	DEALLOCATE(POOL)
 	RETURN
 	END SUBROUTINE KN_OMEGA_POOL_V1
+!
+! FG_EVAL_STATE_PUSH_V1 / FG_EVAL_STATE_POP_V1 (audit D1):
+! bracket a JFNK eval sweep. The eval's INIT pass clears every
+! maturity census the production sweep built up, and its
+! frequency passes then accumulate eval-side residuals into the
+! same module fields -- the entry save in JFNK_RAD_SWEEP_V1 only
+! covered the relaxation scalars. PUSH captures the full
+! telemetry set before the eval span; POP writes it back after,
+! so GET_FG_GS_MATURITY and the checkpoint writers read
+! production values, never eval ones. The COMMON copy covers the
+! error-record census the INIT pass also clears.
+!
+	SUBROUTINE FG_EVAL_STATE_PUSH_V1()
+	IMPLICIT NONE
+	INTEGER N_ERR_MAX,FG_ERR_CNT
+	PARAMETER (N_ERR_MAX=1000)
+	REAL(KIND=LDP) FG_ERR_ON_FREQ
+	INTEGER FG_ERR_TYPE
+	COMMON /FG_J_CMF_ERR/FG_ERR_ON_FREQ(N_ERR_MAX),
+	1                    FG_ERR_TYPE(N_ERR_MAX),FG_ERR_CNT
+!
+	FG_EVAL_MAXCHG=FG_GS_MAXCHG
+	FG_EVAL_SWMX=FG_SW_MAXCHG
+	FG_EVAL_RFD=FG_RF_DCHG
+	FG_EVAL_RFP=FG_RF_PEND
+	FG_EVAL_RFRES=KN_RF_RESID
+	FG_EVAL_INRLX=INEXT_RELAX
+	FG_EVAL_RFPRV=KN_RF_RESID_PRV
+	FG_EVAL_ARGK=FG_GS_ARGK
+	FG_EVAL_ARGR=FG_GS_ARGR
+	FG_EVAL_ARGL=FG_GS_ARGL
+	FG_EVAL_ARGHK=FG_ARG_HK
+	FG_EVAL_ARGHR=FG_ARG_HR
+	FG_EVAL_ARGHL=FG_ARG_HL
+	FG_EVAL_ARGV=FG_ARG_HV
+	FG_EVAL_CLS=FG_GS_CLS
+	FG_EVAL_NCNV=FG_GS_NCONV
+	FG_EVAL_INCP=FG_INEXT_CAPPED
+	FG_EVAL_SWCP=FG_SW_CAPPED
+	FG_EVAL_SWCT=FG_SW_CAPTOT
+	FG_EVAL_RFCP=FG_RF_CAPPED
+	FG_EVAL_NBD=FG_GS_NBAD
+	FG_EVAL_NTT=FG_GS_NTOT
+	FG_EVAL_SWNC=FG_SW_NCONV
+	FG_EVAL_NDIV=FG_GS_NDIV
+	FG_EVAL_NBB=FG_GS_NBAD_BLK
+	FG_EVAL_NTB=FG_GS_NTOT_BLK
+	FG_EVAL_NST=FG_GS_NSTAL
+	FG_EVAL_NPL=FG_GS_NPLAT
+	FG_EVAL_HEAL=FG_DIV_HEAL
+	FG_EVAL_JREJ=FG_COMMIT_REJ
+	FG_EVAL_NCR=FG_NC_REJ
+	FG_EVAL_NCC=FG_NC_CAP
+	FG_EVAL_CAPF=FG_GS_CAP_FILE
+	FG_EVAL_HOT=KN_HOT_SPENT
+	FG_EVAL_NOS=FG_NOSLOT_CNT
+	FG_EVAL_SRDY=KN_STORE_READY
+	FG_EVAL_FRQ=FREQ_IDX_ITER
+	FG_EVAL_EFRQ=FG_ERR_ON_FREQ
+	FG_EVAL_ETYP=FG_ERR_TYPE
+	FG_EVAL_ECNT=FG_ERR_CNT
+	RETURN
+	END SUBROUTINE FG_EVAL_STATE_PUSH_V1
+!
+	SUBROUTINE FG_EVAL_STATE_POP_V1()
+	IMPLICIT NONE
+	INTEGER N_ERR_MAX,FG_ERR_CNT
+	PARAMETER (N_ERR_MAX=1000)
+	REAL(KIND=LDP) FG_ERR_ON_FREQ
+	INTEGER FG_ERR_TYPE
+	COMMON /FG_J_CMF_ERR/FG_ERR_ON_FREQ(N_ERR_MAX),
+	1                    FG_ERR_TYPE(N_ERR_MAX),FG_ERR_CNT
+!
+	FG_GS_MAXCHG=FG_EVAL_MAXCHG
+	FG_SW_MAXCHG=FG_EVAL_SWMX
+	FG_RF_DCHG=FG_EVAL_RFD
+	FG_RF_PEND=FG_EVAL_RFP
+	KN_RF_RESID=FG_EVAL_RFRES
+	INEXT_RELAX=FG_EVAL_INRLX
+	KN_RF_RESID_PRV=FG_EVAL_RFPRV
+	FG_GS_ARGK=FG_EVAL_ARGK
+	FG_GS_ARGR=FG_EVAL_ARGR
+	FG_GS_ARGL=FG_EVAL_ARGL
+	FG_ARG_HK=FG_EVAL_ARGHK
+	FG_ARG_HR=FG_EVAL_ARGHR
+	FG_ARG_HL=FG_EVAL_ARGHL
+	FG_ARG_HV=FG_EVAL_ARGV
+	FG_GS_CLS=FG_EVAL_CLS
+	FG_GS_NCONV=FG_EVAL_NCNV
+	FG_INEXT_CAPPED=FG_EVAL_INCP
+	FG_SW_CAPPED=FG_EVAL_SWCP
+	FG_SW_CAPTOT=FG_EVAL_SWCT
+	FG_RF_CAPPED=FG_EVAL_RFCP
+	FG_GS_NBAD=FG_EVAL_NBD
+	FG_GS_NTOT=FG_EVAL_NTT
+	FG_SW_NCONV=FG_EVAL_SWNC
+	FG_GS_NDIV=FG_EVAL_NDIV
+	FG_GS_NBAD_BLK=FG_EVAL_NBB
+	FG_GS_NTOT_BLK=FG_EVAL_NTB
+	FG_GS_NSTAL=FG_EVAL_NST
+	FG_GS_NPLAT=FG_EVAL_NPL
+	FG_DIV_HEAL=FG_EVAL_HEAL
+	FG_COMMIT_REJ=FG_EVAL_JREJ
+	FG_NC_REJ=FG_EVAL_NCR
+	FG_NC_CAP=FG_EVAL_NCC
+	FG_GS_CAP_FILE=FG_EVAL_CAPF
+	KN_HOT_SPENT=FG_EVAL_HOT
+	FG_NOSLOT_CNT=FG_EVAL_NOS
+	KN_STORE_READY=FG_EVAL_SRDY
+	FREQ_IDX_ITER=FG_EVAL_FRQ
+	FG_ERR_ON_FREQ=FG_EVAL_EFRQ
+	FG_ERR_TYPE=FG_EVAL_ETYP
+	FG_ERR_CNT=FG_EVAL_ECNT
+	RETURN
+	END SUBROUTINE FG_EVAL_STATE_POP_V1
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -9466,25 +9610,23 @@ C
 	1      DZ*( DCHR_L(I+1)*Z(I+1,LS)/R_RAY(I+1,LS) -
 	1      DCHR_L(I)*Z(I,LS)/R_RAY(I,LS) )/6.0_LDP )
 !
-! 30-Oct-2026 audit: the min/max clamp is part of the discrete
-! operator only when the in-sweep path applies it -- the sweep
-! skips it for INSERT or METHOD(4:6)='MON' (monotone-interp
-! branches, fg_j_cmf_nonmono_v1.f METHOD block). Applying it
-! unconditionally made the refresh solve a slightly different
-! transfer equation than the sweep on exactly those modes.
-! INSERT itself is not captured in the KN store, but METHOD's
-! MON class is recorded verbatim in KN_METHOD_SAV, so key on
-! that: identical rule to the sweep for every captured mode.
+! DTAU clamp parity (audit B1, corrected Nov-2026): the refresh
+! ray solve mirrors the SOLUTION_METHOD='INTEGRAL' sweep block,
+! which applies the min/max clamp unconditionally -- the comment
+! there notes monotonic CHI interpolation cannot help because
+! CHI_RAY (and here CHI_L) carries the |GAM|/DLN frequency-
+! derivative coupling term built above. The previous version of
+! this guard keyed the skip on INSERT / METHOD(4:6)='MON', which
+! is the DIFFERENCE-path rule; under those modes the refresh was
+! solving a slightly different transfer equation than the sweep.
+! Clamp unconditionally to match the INTEGRAL-path operator.
 !
-	    IF(.NOT. KN_INSERT_SAV .AND.
-	1       KN_METHOD_SAV(4:6) .NE. 'MON')THEN
-	      IF(CHI_L(I) .LT. CHI_L(I+1))THEN
-	        DTAU_L(I)=MAX(CHI_L(I)*DZ,DTAU_L(I))
-	        DTAU_L(I)=MIN(CHI_L(I+1)*DZ,DTAU_L(I))
-	      ELSE
-	        DTAU_L(I)=MIN(CHI_L(I)*DZ,DTAU_L(I))
-	        DTAU_L(I)=MAX(CHI_L(I+1)*DZ,DTAU_L(I))
-	      END IF
+	    IF(CHI_L(I) .LT. CHI_L(I+1))THEN
+	      DTAU_L(I)=MAX(CHI_L(I)*DZ,DTAU_L(I))
+	      DTAU_L(I)=MIN(CHI_L(I+1)*DZ,DTAU_L(I))
+	    ELSE
+	      DTAU_L(I)=MIN(CHI_L(I)*DZ,DTAU_L(I))
+	      DTAU_L(I)=MAX(CHI_L(I+1)*DZ,DTAU_L(I))
 	    END IF
 	  END DO
 	END IF
