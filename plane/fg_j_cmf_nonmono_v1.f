@@ -323,6 +323,15 @@
 ! edited by Sean Brennan (V4, 2026-10)
 	LOGICAL, SAVE :: FREEZE_I_NEXT=.FALSE.
 !
+! KNOP_DIAG_NO_REGRID: diagnostic-only test hook (P1-T1b). When set,
+! the INIT-time compression-set hysteresis check below is skipped so
+! a fixed SIGMA_TRUE_IN/V profile cannot trigger a spurious
+! NEW_R_GRID rebuild that deallocates and zeroes I_P/I_M_DEPTH_NEXT
+! mid-sweep. Default .FALSE. leaves production behaviour unchanged;
+! only the drv_knop_ray unit-test driver sets it.
+!
+	LOGICAL, SAVE :: KNOP_DIAG_NO_REGRID=.FALSE.
+!
 ! Gauss-Seidel restart/checkpoint state (added 16-Sep-2026).
 !
 ! I_P/I_M_DEPTH_NEXT are process-local (SAVE'd module memory) and were
@@ -1901,7 +1910,7 @@
 	      END IF
 	    END DO
 	  END IF
-	  IF(.NOT. NEW_R_GRID)THEN
+	  IF(.NOT. NEW_R_GRID .AND. .NOT. KNOP_DIAG_NO_REGRID)THEN
 	    DO I=1,ND
 	      COMP_REQUIRED=.FALSE.
 	      DO J=MAX(1,I-1),MIN(ND,I+1)
