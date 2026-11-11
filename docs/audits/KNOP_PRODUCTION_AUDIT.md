@@ -94,14 +94,17 @@ produced convergence.
   (C2), jump-rejected false maturity via `FG_RF_PEND` (C4), JFNK
   eval telemetry bracketing (D1), OMP race, unsolved-ray census.
 - The drift plateau itself is **genuine non-contraction of the
-  discretised map** on marginally contractive cells
-  (`|1+sigma*K| -> 0` resonance cells in the compression zone),
-  not a measurement artefact - "the expected behaviour of the
-  discretized map" per the audit.  Whether the *outer*
-  population-coupled map is also expansive (A2) is open; the
-  audit's own words: "if a model still drifts at measured rho <<
-  1, the outer map itself is expansive and the remedy is
-  structural."
+  discretised map**, not a measurement artefact.  CORRECTED
+  11-Nov-2026 by `KNOP_SECOND_PASS_AUDIT.md` Pillar 1: the marginal
+  (`|Q| -> 1`) cells are the **strong-coupling compressing** cells
+  (`|GAM|/(DLN*CHI) -> infinity`), not the `|1+sigma*K| -> 0`
+  near-zero-`GAM` cells - those have `|Q| -> 0` and contract at the
+  relaxation rate.  The earlier phrasing here ("marginally
+  contractive ... `|1+sigma*K| -> 0` resonance cells") named the wrong
+  limit and is retracted.  Whether the *outer* population-coupled map
+  is also expansive (A2) is open; the audit's own words: "if a model
+  still drifts at measured rho << 1, the outer map itself is
+  expansive and the remedy is structural."
 - `INEXT_RELAX` adaptive omega now pools per-ray P90
   contraction - `#status/partial`, "no model run yet" at commit
   time; FRESH_knop is the first real exercise and it stalled.
@@ -164,7 +167,7 @@ authoritative for OBS):
 | subsystem | correctness | convergence | runtime evidence | verdict |
 |---|---|---|---|---|
 | `FG_J_CMF_NONMONO_V1` discretisation | verified vs papers | n/a (per-solve) | manufactured + live sweeps | PASS WITH LIMITATIONS |
-| Lagged `I_NEXT` store + refresh | operator identity 2.6E-8, checkpoint bit-exact | **non-contractive on marginal cells; stall observed live** | FRESH_knop it124 STOP | FAIL (convergence) |
+| Lagged `I_NEXT` store + refresh | operator identity 2.6E-8, checkpoint bit-exact | **stall observed live; suspected marginal contraction on `|Q|->1` strong-coupling cells (mechanism corrected by second-pass audit, intrinsic non-contraction unproven - P1-T1)** | FRESH_knop it124 STOP | FAIL (convergence) |
 | GS freeze/maturity/watchdog | guards fire correctly | catches stalls but cannot fix them | FRESH_knop, VAL_knop_formal | PASS (as guard) / FAIL (as cure) |
 | Population SE/BA coupling | ordering audited | runaway/null-space mode open (H1) | VAL_knop_formal L-divergence | FAIL |
 | Accelerators (ES_ALI/BA/resacc/JFNK) | math audited | unverified benefit on KNOP | J-loop clean on FRESH_knop | PARTIAL - safe, not a fix |
@@ -233,7 +236,9 @@ Until then the honest status tag for `DO_NONMONO_KNOP` is
   `CONVENTIONAL_SOLVER_AUDIT_2026-11-03.md`,
   `FULL_ITERATION_CYCLE_AUDIT.md`,
   `JFNK_PRODUCTION_OPERATOR_INVESTIGATION_2026-11-07.md`,
-  `CMF_FLUX_KNOP_CONVERGENCE_AUDIT.md`
+  `CMF_FLUX_KNOP_CONVERGENCE_AUDIT.md`,
+  `KNOP_SECOND_PASS_AUDIT.md` + `KNOP_SECOND_PASS_TODO.md`
+  (mechanism corrections: `|Q|->1` strong coupling, not near-zero-GAM)
 - Vault: `audits/KNOP_CONVERGENCE_STRATEGY.md`,
   `audits/KNOP_MATH_AUDIT.md`, `audits/BLOCK_GS_DESIGN.md`,
   `audits/MOM_KNOP_STIFFNESS_AUDIT.md`, `solvers/Knop formal solver.md`,
