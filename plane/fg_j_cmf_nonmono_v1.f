@@ -332,6 +332,20 @@
 !
 	LOGICAL, SAVE :: KNOP_DIAG_NO_REGRID=.FALSE.
 !
+! FREEZE_I_PREV: diagnostic-only causal hook (P1-T1e). When set, the
+! NEW_FREQ branch skips the I_*_STORE -> I_*_PREV copy, so I_*_PREV
+! keeps its INIT-zeroed value for the whole sweep. Expanding cells then
+! see SOURCE_PRIME = SOURCE_RAY (the Q*I_*_PREV frequency-feedback term
+! is ablated), while compressing cells still read the lagged
+! I_*_DEPTH_NEXT store unchanged. Used to test whether the weak
+! same-slot Jacobian edges measured in P1-T1b/P1-T1d are mediated by
+! the expanding I_PREV channel: if they vanish under FREEZE_I_PREV they
+! are I_PREV-mediated; if they persist they route through another path.
+! Default .FALSE. leaves production behaviour unchanged; only the
+! drv_knop_ray unit-test driver sets it.
+!
+	LOGICAL, SAVE :: FREEZE_I_PREV=.FALSE.
+!
 ! Gauss-Seidel restart/checkpoint state (added 16-Sep-2026).
 !
 ! I_P/I_M_DEPTH_NEXT are process-local (SAVE'd module memory) and were
@@ -3001,8 +3015,10 @@
 	    AV_PREV(:,:)=AV_STORE(:,:)
 	    CV_PREV(:,:)=CV_STORE(:,:)
 	  ELSE IF(SOLUTION_METHOD .EQ. 'INTEGRAL')THEN
-	    I_P_PREV(:,:)=I_P_STORE(:,:)
-	    I_M_PREV(:,:)=I_M_STORE(:,:)
+	    IF(.NOT. FREEZE_I_PREV)THEN
+	      I_P_PREV(:,:)=I_P_STORE(:,:)
+	      I_M_PREV(:,:)=I_M_STORE(:,:)
+	    END IF
 	  END IF
 	  IF(FREQ .GE. PREVIOUS_FREQ)THEN
 	    WRITE(ERROR_LU(),*)'Error in FG_J_CMF_NONMONO_V1'
