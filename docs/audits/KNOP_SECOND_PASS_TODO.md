@@ -74,6 +74,30 @@ question.
   shown to be a separate fixed-point operator (opposite frequency
   directions in one `FLD`) whose convergence - not nilpotence - sets
   seed-independence; multi-seed production recheck still open.
+- **P1-T1e** Final validation: production dependency cycles, state
+  completeness, refresh convergence.  PART 1 **DONE 12-Nov-2026**
+  (`KNOP_PRODUCTION_CYCLE_AUDIT.md`): exhaustive caller trace found
+  exactly two production `FG_J_CMF_NONMONO_V1` sites
+  (`comp_j_blank.f:897`, `obs/COMP_JCONT_V4.INC:816`), both complete
+  `ML=1..NCF` sweeps with `FIRST_FREQ=(ML==1)`; only `cmfgen_sub.f`
+  2663/6404 reach KNOP (other calls pass `SECTION!=CONTINUUM`).
+  `FREQ_IDX_ITER=0` guaranteed at every sweep start; no partial/resumed
+  sweep exists; checkpoint/restart touches only `I_*_DEPTH_NEXT` (never
+  `I_*_PREV`/`I_*_STORE`/`FREQ_IDX_ITER`); `I_STORE`/`I_PREV` correctly
+  stay out of the state vector - no path leaks stale state.  `NEW_FREQ=F`
+  on inner F-passes is by design (reuses `AV_PREV`/`CV_PREV`, solver
+  accepts same-frequency re-entry).  PART 2 **DONE (structural)**:
+  same-slot edges proven I_PREV-mediated by elimination (compressing
+  read strictly slot-ascending, parabolic stencil spatial, `NM_RAY>=1`;
+  expanding `I_PREV` is the only same-slot pathway); P/M asymmetry and
+  FD repeatability support it; `FREEZE_I_PREV` empirical hook specified
+  but not added.  PARTS 3-6 production dependency graph + SCC +
+  nilpotency reassessment **BLOCKED** - need a production checkpoint;
+  design fixed in the audit doc.  PART 7 refresh convergence **PARTIAL**
+  (`KNOP_REFRESH_CONVERGENCE_AUDIT.md`): mechanism + exit semantics
+  traced; manufactured `J_full=0` shows clean convergence for tested
+  seeds; multi-seed/tolerance/cap production recheck specified but needs
+  `FLD`-level residual instrumentation not yet present.
 - **P1-T2** Add a per-cell coefficient dump (argmax cell's
   `V/R, SIGMA, MU, GAM, CHI, CHI_HAT, DLN, Q, I_NEXT, S`) to the
   `KNOP FIELD` block or a side file, gated by a debug flag, so the
