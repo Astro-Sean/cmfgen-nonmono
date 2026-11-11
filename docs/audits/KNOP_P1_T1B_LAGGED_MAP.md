@@ -105,11 +105,19 @@ compressing ray point (verified `NM=1` at rays 4-7).  Frequency `L`
 output slot s  depends on  input slot s+1      (read = write + NM, NM>=1)
 ```
 
-Every compressing read is strictly slot-ascending.  There is no path by
-which an output slot depends on an input at the same or a lower slot, so
-the transport Jacobian `J_T` is strictly upper-triangular in the slot
-ordering and therefore **nilpotent**: all 30 eigenvalues are exactly
-zero, and `J_T^5 = 0` on the five-slot chain.
+Every compressing read is strictly slot-ascending.  The *compressing*
+sub-graph is therefore a pure slot-shift.  A later state-completeness
+audit (`KNOP_P1_T1B_STATE_COMPLETENESS_AUDIT.md`) showed the expanding
+`I_PREV` chain adds weak same-slot (`~1e-3`, P channel) and lower-slot
+(`~1e-6`) edges between different compressing depths; these are
+one-directional dead ends that close no cycle.  The **full** dependency
+graph (compressing + expanding + parabolic stencil + `I_P(NI)=I_M(NI)`
+boundary) is nonetheless a verified DAG - Tarjan SCC finds no
+non-trivial component and no self-loop at any threshold - so `J_T` is
+nilpotent: all 30 eigenvalues are exactly zero, and `J_T^5 = 0` on the
+five-slot chain.  The nilpotent conclusion is complete for this
+manufactured fixed-opacity model; whether a production compressing /
+expanding geometry can populate a cycle is the open PART-3 question.
 
 Measured (`p1t1b_Jswp_w10`, `omega=1` so `J = J_T` directly):
 
@@ -229,6 +237,14 @@ is a nonlinear-robustness choice, not a contraction requirement.
 - **M-channel weakness.**  Inward lagged coupling measured `~1e-9`;
   whether that is generic or specific to this model's geometry was not
   isolated.  It does not affect the nilpotent conclusion.
+- **Expanding `I_PREV` and cross-channel paths.**  The expanding
+  previous-frequency donor (`I_*_PREV`) introduces weak same/lower-slot
+  edges, and `I_P(NI)=I_M(NI)` is a live M->P path on non-core /
+  `ZERO_FLUX` / `PNT_SRCE` rays.  Neither populated a cycle in this
+  model (zero cross-channel Jacobian entries; same-slot edges
+  one-directional), but a production velocity field with different
+  expanding/compressing ordering could.  See
+  `KNOP_P1_T1B_STATE_COMPLETENESS_AUDIT.md` PARTS 2-5.
 
 ## 6. Method validation
 
