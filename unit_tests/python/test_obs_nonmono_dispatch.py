@@ -310,6 +310,40 @@ def test_fg_dispatch_knop_only():
     )
 
 
+def test_knop_es_refresh_guard():
+    """NUM_ES<2 or COH_ES under KNOP must fail closed; OBS must print
+    the I_NEXT maturity census after the ES loop."""
+    body = section(
+        RDC,
+        "IF(NUM_ES_ITERATIONS .LT. 2 .OR. RD_COHERENT_ES)THEN",
+        "STOP",
+    )
+    check(
+        "NUM_ES guard gated on the effective sweep count",
+        "NUM_ES_ITERATIONS .LT. 2 .OR. RD_COHERENT_ES" in body,
+    )
+    check(
+        "guard sits inside the DO_NONMONO_KNOP block",
+        RDC.index("IF(DO_NONMONO_KNOP)THEN")
+        < RDC.index("NUM_ES_ITERATIONS .LT. 2 .OR. RD_COHERENT_ES")
+        < RDC.index("END IF", RDC.index("NUM_ES_ITERATIONS .LT. 2")),
+    )
+    check(
+        "maturity getter called after the ES loop",
+        SUB.index("END DO		!ES_COUNTER")
+        < SUB.index("CALL GET_FG_GS_MATURITY"),
+    )
+    check(
+        "maturity diagnostic gated on DO_NONMONO_KNOP",
+        "IF(DO_NONMONO_KNOP)THEN\n\t  CALL GET_FG_GS_MATURITY"
+        in SUB,
+    )
+    check(
+        "maturity variables declared",
+        "GS_OK_OBS" in SUB and "GS_RF_DCHG_OBS" in SUB,
+    )
+
+
 def main():
     test_inc_grid_rejection()
     test_moment_dispatch()
@@ -319,6 +353,7 @@ def main():
     test_output_checks()
     test_sob_phase_guards()
     test_fg_dispatch_knop_only()
+    test_knop_es_refresh_guard()
     print("all obs nonmono dispatch checks passed")
 
 
