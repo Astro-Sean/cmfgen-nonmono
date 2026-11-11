@@ -105,13 +105,20 @@ repeatable, amplitude-independent, and far above the ~1e-11 noise floor.
 No floor/cap/monotonicity branch transition is implicated (the gains
 are smooth and the relaxed-map eigenstructure `1-omega` was exact).
 
-**Empirical confirmation path (specified, not run):** a
-`FREEZE_I_PREV` diagnostic flag (default `.FALSE.`, same pattern as
-`KNOP_DIAG_NO_REGRID`) that holds `I_*_PREV` at baseline during the
-expanding `SOURCE_PRIME` read would make the same-slot edges vanish if
-the pathway is correct. This is a diagnostic-only hook; it was not
-added in this audit to keep the diff minimal. The structural elimination
-above already establishes the mechanism. **[MATH + MANUF]**
+**Empirical confirmation (RUN, P1-T1f):** the `FREEZE_I_PREV`
+diagnostic flag (default `.FALSE.`, same pattern as
+`KNOP_DIAG_NO_REGRID`) was added and the `p1t1bf` driver case reran
+the identical `p1t1b` sweep Jacobian with the expanding `I_*_PREV`
+feedback ablated. Result (`KNOP_PREV_ABLATION_AUDIT.md`): every
+same-slot edge collapsed to exactly `0.0` - P `out(KC1,S)<-in(KC2,S)`
+~4.8e-4 -> 0, M `out(KC3,S)<-in(KC2,S)` ~3e-9 -> 0, at both FD
+amplitudes with ~1e-11 repeatability; off-diagonal nonzeros fell
+30->16 (the surviving edges are the direct compressing
+`I_*_DEPTH_NEXT` reads). The same-slot dependencies are therefore
+**experimentally confirmed `I_PREV`-mediated**, upgrading the
+structural-elimination argument above from inference to measurement.
+This is a channel-ablation causal test on the manufactured model; it
+does not bear on production nilpotency. **[MATH + MANUF]**
 
 Genuine small edges are retained in the graph; nothing was thresholded
 away in the analysis.
