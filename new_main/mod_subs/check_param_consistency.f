@@ -140,5 +140,36 @@
 	  STOP
 	END IF
 !
+! edited 11-Nov-2026: DO_ES_ALI_BA presumes the converged-ES J
+! iterate that only the DO_ES_ALI OAB update produces; armed
+! alone it amplifies the BA diagonal by a factor the iterated map
+! never earned (ES_ALI_BA_AUDIT.md section 3.3.1). Reject the
+! pairing here rather than warn -- the combination is a user
+! error, not a legal-but-misleading key.
+!
+	IF(DO_ES_ALI_BA .AND. .NOT. DO_ES_ALI)THEN
+	  WRITE(LUER,*)'Error in control parameters in VADAT'
+	  WRITE(LUER,*)'DO_ES_ALI_BA=T requires DO_ES_ALI=T: the BA'//
+	1     ' amplification factor 1/(1-DJDETA*chi_scat) is only'
+	  WRITE(LUER,*)'valid for the ES-relaxed J that the ES-ALI'//
+	1     ' J-loop update converges; without it the Jacobian is'
+	  WRITE(LUER,*)'heuristic. Set DO_ES_ALI=T or DO_ES_ALI_BA=F.'
+	  STOP
+	END IF
+!
+! Same audit: DO_ES_ALI itself is inert whenever none of its two
+! gates can fire -- COHERENT_ES off, no nonmono flag, or
+! DO_SOB_FG_KNOP (excluded pending the albedo-floor argument).
+! Warn rather than stop: the run is legal, the key is just dead.
+!
+	IF(DO_ES_ALI .AND.
+	1   (.NOT. COHERENT_ES .OR.
+	2    .NOT. (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .OR.
+	3    DO_SOB_FG_KNOP))THEN
+	  WRITE(LUER,*)TRIM(ER_LAB),' DO_ES_ALI=T but no ES-ALI'//
+	1     ' gate can engage (needs COH_ES=T, DO_NONMONO_SOB or'//
+	2     ' DO_NONMONO_KNOP, and not DO_SOB_FG_KNOP)'
+	END IF
+!
 	RETURN
 	END	
