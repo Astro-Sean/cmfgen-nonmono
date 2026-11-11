@@ -1930,8 +1930,11 @@
 ! (GET_FG13_ALO_DIAG / GET_FG_ALO_DIAG / GET_MOM_ALO_DIAG) and the
 ! loop keeps iterating until the RJ update is below ES_ALI_TOL or
 ! J_IT_COUNTER reaches ES_ALI_MAX (clamped to 20, the existing
-! forced exit). Default F leaves the Lambda update and the exit
-! test untouched.
+! forced exit). VADAT default F; under DO_NONMONO_SOB an absent key
+! auto-sets T (11-Nov-2026, warm-arm evidence in
+! docs/audits/SOB_ACCELERATION_RESULTS.md) provided COHERENT_ES and
+! not DO_SOB_FG_KNOP -- an explicit F remains the opt-out. Explicit
+! F elsewhere leaves the Lambda update and the exit test untouched.
 !
 	LOGICAL DO_ES_ALI
 	REAL(KIND=LDP) ES_ALI_TOL
