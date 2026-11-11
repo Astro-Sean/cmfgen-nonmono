@@ -44,6 +44,36 @@ question.
   not approach 1; the radiation `I_NEXT` map cannot sustain drift.**
   Caveat: populations held fixed, so the outer population-opacity map
   (P5) remains the drift suspect.
+- **P1-T1c** Production dependency-graph verification + outer
+  population-opacity drift.  PARTS 1-2 **DONE 12-Nov-2026**
+  (`KNOP_PRODUCTION_DEPENDENCY_GRAPH.md`): full trace of every
+  `I_*_DEPTH_NEXT`/`I_*_PREV` read/write, `I_*_PREV` classified as a
+  within-sweep recomputed copy (not independent persistent state), the
+  expanding branch traced separately, channel coupling reduced to the
+  `I_P(NI)=I_M(NI)` inner boundary, and rays shown to be independent.
+  Dependency rules admit backward edges via the expanding `I_*_PREV`
+  chain, so cycles are structurally possible; but the manufactured
+  `J_T` graph is a verified DAG at every threshold (Tarjan SCC, max
+  chain 6).  PART 3 production spot-check and PART 4 multi-seed refresh
+  test **OPEN** (need a production checkpoint).  PARTS 5-6 frozen-opacity
+  and population-feedback experiments **OPEN** - designs in
+  `KNOP_OUTER_POPULATION_OPACITY_DRIFT.md`; Arm A (frozen opacity) is
+  the decisive split between radiation-side and population-opacity-side
+  drift.
+- **P1-T1d** State-completeness audit of the `30x30` Jacobian.
+  **DONE 12-Nov-2026** (`KNOP_P1_T1B_STATE_COMPLETENESS_AUDIT.md`):
+  confirms the Jacobian is the COMPLETE fixed-opacity store->store map,
+  not conditional.  `I_STORE`/`I_PREV` are within-sweep slaves
+  (`I_PREV=0` cold boundary; `I_STORE` flushed before read), and
+  `MAP_F` snapshot/restores all slaved arrays each call.  Expanding
+  `I_PREV` feedback is inside the sweep and measured as weak same-slot
+  (~1e-3) / backward (~1e-6) edges between compressing depths - real but
+  acyclic dead ends; zero cross-channel entries; no self-loops; graph
+  still a verified DAG.  Nilpotency is VALID+COMPLETE for the
+  manufactured model, CONDITIONAL/OPEN for production geometry.  Refresh
+  shown to be a separate fixed-point operator (opposite frequency
+  directions in one `FLD`) whose convergence - not nilpotence - sets
+  seed-independence; multi-seed production recheck still open.
 - **P1-T2** Add a per-cell coefficient dump (argmax cell's
   `V/R, SIGMA, MU, GAM, CHI, CHI_HAT, DLN, Q, I_NEXT, S`) to the
   `KNOP FIELD` block or a side file, gated by a debug flag, so the
