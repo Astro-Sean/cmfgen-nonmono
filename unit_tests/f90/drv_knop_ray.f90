@@ -98,6 +98,7 @@
       IF(CNAME .EQ. 'scold') NCASE=55
       IF(CNAME .EQ. 'dtau')  NCASE=56
       IF(CNAME .EQ. 'p1t1')  NCASE=57
+      IF(CNAME .EQ. 'p1t1b') NCASE=58
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -111,6 +112,10 @@
       NCASE .EQ. 32 .OR. NCASE .EQ. 33)GOTO 999
       IF(NCASE .EQ. 57)THEN
         CALL DRV_P1T1
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 58)THEN
+        CALL DRV_P1T1B
         GOTO 999
       END IF
 !
@@ -1486,6 +1491,7 @@
       RETURN
       END SUBROUTINE DRV_P1T1
 !
+!
 ! ----------------------------------------------------------------------
 ! Omega-pool probe (audit Issues 2 + 5, tests T25-T28). Feeds
 ! KN_OMEGA_POOL_V1 synthetic per-ray contraction samples and prints
@@ -1587,3 +1593,723 @@
       END SUBROUTINE DRV_MATURITY
 !
       END
+
+! ----------------------------------------------------------------------
+! P1-T1b global radiation-map Jacobian (diagnostic only). One map
+! application F(X) is the complete production ordered radiation
+! iteration on the same manufactured |Q|->1 model as DRV_P1T1: the
+! frequency sweep (INIT at L=1, NEW_FREQ=T per frequency, the normal
+! in-sweep relaxed I_NEXT store update with FREEZE_I_NEXT=F) followed
+! by the production post-sweep FG_KNOP_REFRESH_V1. The state vector X
+! is the set of lagged-store elements the map actually writes:
+! I_P/I_M_DEPTH_NEXT at compressing (KC,ray,slot) for slot=1..NCF-1.
+! I_*_PREV/I_*_STORE are slaved, not independent state: INIT zeroes
+! PREV, each NEW_FREQ copies STORE into PREV, and STORE is rewritten
+! at the end of every frequency call before the next NEW_FREQ reads
+! it, so no previous-sweep value of either array can reach the next
+! sweep. Store slot NCF is never written by the sweep or the refresh
+! and stays identically zero, so it is excluded as a constant
+! boundary input rather than dynamic state.
+!
+! Jacobian variants: IV=1 full map (sweep+refresh, omega=0.5),
+! IV=2 sweep only (omega=0.5), IV=3 sweep only (omega=1.0) for the
+! (1-w)I + w J_T algebraic cross-check. Dense central finite
+! differences at two amplitudes; LAPACK dgeev for the spectrum;
+! direct nonlinear iteration for the transient-growth check.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_P1T1B
+      USE SET_KIND_MODULE
+      USE FG_J_CMF_NONMONO_MOD_V1
+      INTEGER NDA,NPA,NCFA
+      PARAMETER (NDA=8,NPA=2,NCFA=6)
+      REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
+      REAL(KIND=LDP) ETA_M(NDA,NCFA),CHI_M(NDA,NCFA),ESC_M(NDA,NCFA)
+      REAL(KIND=LDP) JNU_A(NDA),FEDD_A(NDA),IPLUS_A(NPA)
+      REAL(KIND=LDP) JQW_A(NDA,NPA),HQW_A(NDA,NPA),KQW_A(NDA,NPA)
+      REAL(KIND=LDP) NQW_A(NDA,NPA),HMID_A(NDA,NPA),NMID_A(NDA,NPA)
+      REAL(KIND=LDP) VDOP_A(NDA),FRQV(NCFA),INBC_A,HBC_A
+      REAL(KIND=LDP) LVR(NDA),BUMP,V0,DLOGA,DBB_A,IC_A
+      REAL(KIND=LDP) VDOP_F,REXT_A,DEPF
+      CHARACTER*6 METH_A
+      CHARACTER(LEN=8) SOPT_A
+      CHARACTER(LEN=12) IBND_A
+      LOGICAL THK_A,INIT_A,NEWF_A
+      INTEGER NC_A,NITER,ITR,L,I,LSDBG,IOS,NRAYS
+      REAL(KIND=LDP) SMAX
+!
+! P1-T1b map/Jacobian work arrays. POSP/POSM map (KC,slot) to the X
+! index or 0; WKCH lists the writable compressing slots. XPR/XFP/JW
+! are FD scratch; the SP*/SM* arrays snapshot the slaved
+! I_*_STORE/I_*_PREV donors so every MAP_F call starts from identical
+! bookkeeping state.
+!
+      INTEGER NCOMP,NSNP,NSLOT,NW,NX,LWK8
+      INTEGER, ALLOCATABLE :: POSP(:,:),POSM(:,:),WKCH(:),FDIF(:)
+      REAL(KIND=LDP), ALLOCATABLE :: XO(:),XNEW(:),X0V(:),FX0(:)
+      REAL(KIND=LDP), ALLOCATABLE :: XPR(:),XFP(:),JW(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: STO_P(:,:,:),STO_M(:,:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: SPSP(:,:),SMSP(:,:),SMPP(:,:), &
+      SMMP(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: J1(:,:),J2(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: RESV(:)
+      REAL(KIND=LDP), ALLOCATABLE :: A8(:,:),VR8(:,:),WK8(:),WR8(:), &
+      WI8(:),VL8(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: VDOM(:),VPT(:)
+      REAL(KIND=LDP) EPSV,AMPF,XFLOOR,RN,RD,TNRM,EMOD,RNPRV
+      INTEGER KC,SL,J,IV,IA,INFO8,IMX,JP,K
+      INTEGER*8 NEVAL
+      INTEGER IRFI(3)
+      REAL(KIND=LDP) OMV(3)
+      CHARACTER(LEN=8) VNAME(3)
+!
+      LSDBG=1
+      NRAYS=1
+      RA=(/8.0E4_LDP,6.4E4_LDP,5.0E4_LDP,3.9E4_LDP, &
+      3.0E4_LDP,2.2E4_LDP,1.5E4_LDP,1.0E4_LDP/)
+      V0=3.0E3_LDP
+      DO I=1,NDA
+        BUMP=1.0_LDP-0.55_LDP*EXP(-((DBLE(I)-4.0_LDP)/1.1_LDP)**2)
+        VA(I)=V0*(RA(I)/RA(1))**0.6_LDP*BUMP
+      END DO
+      LVR=LOG(VA)
+      SGT(1)=(LVR(1)-LVR(2))/(LOG(RA(1))-LOG(RA(2)))-1.0_LDP
+      DO I=2,NDA-1
+        SGT(I)=(LVR(I-1)-LVR(I+1))/(LOG(RA(I-1))-LOG(RA(I+1)))-1.0_LDP
+      END DO
+      SGT(NDA)=(LVR(NDA-1)-LVR(NDA))/(LOG(RA(NDA-1))-LOG(RA(NDA))) &
+      -1.0_LDP
+      SGA=MAX(SGT,-0.999_LDP)
+!
+      DO L=1,NCFA
+        DO I=1,NDA
+          CHI_M(I,L)=1.0E-3_LDP*(1.0_LDP+0.05_LDP*L)* &
+      (RA(1)/RA(I))**2
+          ETA_M(I,L)=2.0E-6_LDP*(1.0_LDP+0.02_LDP*L)*(RA(1)/RA(I))
+          ESC_M(I,L)=0.0_LDP
+        END DO
+      END DO
+!
+      DEPF=1.0E-1_LDP
+      CHI_M(2,:)=CHI_M(2,:)*DEPF
+      CHI_M(3,:)=CHI_M(3,:)*1.0E-3_LDP
+      CHI_M(4,:)=CHI_M(4,:)*1.0E-5_LDP
+      CHI_M(5,:)=CHI_M(5,:)*1.0E-7_LDP
+!
+      FRQV(1)=6.0E15_LDP
+      DO L=2,NCFA
+        FRQV(L)=FRQV(L-1)*0.75_LDP
+      END DO
+      DLOGA=LOG(1.0_LDP/0.75_LDP)
+!
+      PA(1)=0.0_LDP
+      PA(2)=1.2E4_LDP
+      VDOP_A=1.0E5_LDP
+      VDOP_F=0.5_LDP
+      REXT_A=1.0_LDP
+      DBB_A=0.0_LDP
+      IC_A=0.0_LDP
+      METH_A='ZERO'
+      SOPT_A='INT'
+      IBND_A='ZERO_FLUX'
+      THK_A=.FALSE.
+      NEWF_A=.TRUE.
+      NC_A=0
+!
+      FG_FREQ_MATCH=.TRUE.
+      FG_ORD_SWEEP=.TRUE.
+      DO_KNOP_REFRESH=.TRUE.
+      FREEZE_I_NEXT=.FALSE.
+!
+! P1-T1b: suppress the INIT-time compression-set hysteresis rebuild.
+! SIGMA_TRUE_IN/V are identical on every MAP_F call, so the compressing
+! set cannot physically change; without this the check misfires at the
+! set boundary and NEW_R_GRID deallocates+zeroes I_*_DEPTH_NEXT each
+! sweep, leaving the lagged coupling dead (F independent of X).
+!
+      KNOP_DIAG_NO_REGRID=.TRUE.
+      FG_ORD_AITKEN=.FALSE.
+      FG_ORD_AA=.FALSE.
+      FG_ORD_P2DAMP=.FALSE.
+      KN_RAY_TOL=2.0E-3_LDP
+      KN_RAY_MAXPASS=60
+      KN_RAY_BULK_TOL=0.0_LDP
+      KN_RAY_OMEGA=1.0_LDP
+      KN_RAY_STALL=0.98_LDP
+      KN_RAY_HOTPASSES=0
+      KN_HOT_TOTAL_PASSES=0
+      KN_ADAPT_RELAX=.FALSE.
+      INEXT_RELAX=0.5_LDP
+      KN_RAY_PACK_MB=2048.0_LDP
+      NONMONO_INEXT_CAP=1.0E+20_LDP
+      FG_COMMIT_CONV=.TRUE.
+      FG_COMMIT_NC=0.05_LDP
+      FG_COMMIT_JUMP=50.0_LDP
+      FG_DIV_HEAL_CAP=1.0E+6_LDP
+      FG_BULK_CONTR=.FALSE.
+      FG_ADAPT_OMEGA_V2=.FALSE.
+      KN_DBG_LS=LSDBG
+      ALLOCATE(KN_DBG_CHIH(NDA,NCFA),KN_DBG_Q(NDA,NCFA), &
+      KN_DBG_DCHR(NDA,NCFA),KN_DBG_DTAU(NDA,NCFA), &
+      KN_DBG_SPM(NDA,NCFA),KN_DBG_SPP(NDA,NCFA), &
+      KN_DBG_WX(NDA,NCFA),KN_DBG_DLNM(NDA,NCFA), &
+      KN_DBG_IMPR(NDA,NCFA),KN_DBG_IPPR(NDA,NCFA), &
+      KN_DBG_NM(NDA,NCFA),KN_DBG_KC1(NDA,NCFA),KN_DBG_KC2(NDA,NCFA), &
+      KN_DBG_A0(NDA,NCFA),KN_DBG_A1(NDA,NCFA),KN_DBG_A2(NDA,NCFA), &
+      KN_DBG_A3(NDA,NCFA),KN_DBG_A4(NDA,NCFA),KN_DBG_SR(NDA,NCFA), &
+      KN_DBG_INEXTM(NDA,NCFA),KN_DBG_INEXTP(NDA,NCFA), &
+      KN_DBG_NDON(NDA,NCFA), &
+      KR_DBG_CHIH(NDA,NCFA),KR_DBG_Q(NDA,NCFA), &
+      KR_DBG_DCHR(NDA,NCFA),KR_DBG_DTAU(NDA,NCFA), &
+      KR_DBG_WX(NDA,NCFA),KR_DBG_DLNM(NDA,NCFA), &
+      KR_DBG_SPM(NDA,NCFA),KR_DBG_SPP(NDA,NCFA), &
+      KR_DBG_A0(NDA,NCFA),KR_DBG_A1(NDA,NCFA), &
+      KR_DBG_A2(NDA,NCFA),KR_DBG_A3(NDA,NCFA),KR_DBG_A4(NDA,NCFA), &
+      KR_DBG_FLDM(NDA,NCFA),KR_DBG_FLDP(NDA,NCFA), &
+      KR_DBG_SR(NDA,NCFA), &
+      KR_DBG_NFM(NDA,NCFA),KR_DBG_IKC1(NDA,NCFA), &
+      KR_DBG_IKC2(NDA,NCFA),KR_DBG_JPR1(NDA,NCFA), &
+      KR_DBG_JPR2(NDA,NCFA),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1balloc_fail=1'
+        RETURN
+      END IF
+      KN_DBG_CHIH=-1.0_LDP; KN_DBG_Q=-1.0_LDP; KN_DBG_DCHR=-1.0_LDP
+      KN_DBG_DTAU=-1.0_LDP; KN_DBG_SPM=-1.0_LDP; KN_DBG_SPP=-1.0_LDP
+      KN_DBG_WX=-1.0_LDP; KN_DBG_DLNM=-1.0_LDP
+      KN_DBG_IMPR=-1.0_LDP; KN_DBG_IPPR=-1.0_LDP
+      KN_DBG_NM=-1; KN_DBG_KC1=-1; KN_DBG_KC2=-1
+      KN_DBG_A0=-1.0_LDP; KN_DBG_A1=-1.0_LDP; KN_DBG_A2=-1.0_LDP
+      KN_DBG_A3=-1.0_LDP; KN_DBG_A4=-1.0_LDP; KN_DBG_SR=-1.0_LDP
+      KN_DBG_INEXTM=-1.0_LDP; KN_DBG_INEXTP=-1.0_LDP
+      KN_DBG_NDON=0
+      KR_DBG_NFM=-1; KR_DBG_IKC1=-1; KR_DBG_IKC2=-1
+      KR_DBG_JPR1=-1; KR_DBG_JPR2=-1
+      KR_DBG_CHIH=-1.0_LDP; KR_DBG_Q=-1.0_LDP; KR_DBG_DCHR=-1.0_LDP
+      KR_DBG_DTAU=-1.0_LDP; KR_DBG_WX=-1.0_LDP; KR_DBG_DLNM=-1.0_LDP
+      KR_DBG_SPM=-1.0_LDP; KR_DBG_SPP=-1.0_LDP
+      KR_DBG_A0=-1.0_LDP; KR_DBG_A1=-1.0_LDP; KR_DBG_A2=-1.0_LDP
+      KR_DBG_A3=-1.0_LDP; KR_DBG_A4=-1.0_LDP; KR_DBG_SR=-1.0_LDP
+      KR_DBG_FLDM=-1.0_LDP; KR_DBG_FLDP=-1.0_LDP
+!
+! Deterministic solver inputs. The QW arrays are read-only inputs
+! that feed only the diagnostic J-moment outputs (JNU_STORE -> FEDD,
+! JPLUS_*, LAMSTAR_DIAG), never the intensity/store path, so unit
+! weights are safe and keep JNU_STORE nonzero for the FEDD quotient.
+! The JNU/FEDD/IPLUS/HBC dummies are solver outputs re-initialised
+! so no previous evaluation's values can leak into the next call.
+!
+      JQW_A=1.0_LDP; HQW_A=1.0_LDP; KQW_A=1.0_LDP
+      NQW_A=1.0_LDP; HMID_A=1.0_LDP; NMID_A=1.0_LDP
+      JNU_A=0.0_LDP; FEDD_A=0.0_LDP; IPLUS_A=0.0_LDP
+      INBC_A=0.0_LDP; HBC_A=0.0_LDP
+!
+! Cold start: one full production map application from the zeroed
+! store so the coupling arrays are allocated and populated. This is
+! iteration 1 of the fixed-point sequence X^(n+1)=F(X^(n)).
+!
+      DO L=1,NCFA
+        IF(L .LT. NCFA)THEN
+          CALL SET_FG_NU_NEXT(FRQV(L+1))
+        ELSE
+          CALL SET_FG_NU_NEXT(FRQV(NCFA)*0.75_LDP)
+        END IF
+        INIT_A=(L .EQ. 1)
+        CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L),ESC_M(1,L), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NRAYS,NDA,SGT,NCFA)
+      END DO
+      CALL FG_KNOP_REFRESH_V1()
+!
+! Snapshot the post-cold store as the inactive-element baseline and
+! build the active-state index. The store is (N_COMP,NP,NCF_IN); this
+! driver runs one ray (NP=1), so only LS=1 is indexed.
+!
+      IF(.NOT. ALLOCATED(I_P_DEPTH_NEXT))THEN
+        WRITE(*,'(A)')'RESULT p1t1bstore_missing=1'
+        RETURN
+      END IF
+      NCOMP=SIZE(I_P_DEPTH_NEXT,1)
+      NSNP=SIZE(I_P_DEPTH_NEXT,2)
+      NSLOT=SIZE(I_P_DEPTH_NEXT,3)
+      IF(NSNP .NE. 1)THEN
+        WRITE(*,'(A)')'RESULT p1t1bnp_unsupported=1'
+        RETURN
+      END IF
+      ALLOCATE(STO_P(NCOMP,NSNP,NSLOT),STO_M(NCOMP,NSNP,NSLOT), &
+      POSP(NCOMP,NSLOT),POSM(NCOMP,NSLOT),WKCH(NCOMP),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1bidx_alloc_fail=1'
+        RETURN
+      END IF
+      STO_P=I_P_DEPTH_NEXT
+      STO_M=I_M_DEPTH_NEXT
+!
+! Writable (KC,slot) set: the sweep writes slot FIDX for FIDX=1..NCF-1
+! at every compressing physical depth K whose J_PNT(K,1) lands on a
+! valid ray point -- exactly the write gate in the store-update block.
+! A compressing depth failing that gate is never written, so its slot
+! is a constant input, not state; including it would inject spurious
+! unit eigenvalues into J.
+!
+      NW=0
+      POSP=0; POSM=0
+      DO K=1,NDA
+        KC=COMP_DEPTH_IDX(K)
+        IF(KC .GE. 1)THEN
+          I=J_PNT(K,1)
+          IF(I .GE. 1 .AND. I .LE. NI_RAY(1))THEN
+            NW=NW+1
+            WKCH(NW)=KC
+          END IF
+        END IF
+      END DO
+!
+! Active slots are 1..NSLOT-1: slot NSLOT is never written by the
+! sweep or the refresh and stays at its zero initial value.
+!
+      NX=2*NW*(NSLOT-1)
+      J=0
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          POSP(WKCH(I),SL)=J
+        END DO
+      END DO
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          POSM(WKCH(I),SL)=J
+        END DO
+      END DO
+      IF(J .NE. NX)THEN
+        WRITE(*,'(A)')'RESULT p1t1bidx_mismatch=1'
+        RETURN
+      END IF
+      ALLOCATE(XO(NX),XNEW(NX),X0V(NX),FX0(NX),XPR(NX),XFP(NX), &
+      RESV(64),J1(NX,NX),J2(NX,NX),JW(NX,NX),VDOM(NX),VPT(NX),FDIF(NX), &
+      SPSP(SIZE(I_P_STORE,1),SIZE(I_P_STORE,2)), &
+      SMSP(SIZE(I_M_STORE,1),SIZE(I_M_STORE,2)), &
+      SMPP(SIZE(I_P_PREV,1),SIZE(I_P_PREV,2)), &
+      SMMP(SIZE(I_M_PREV,1),SIZE(I_M_PREV,2)),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1bx_alloc_fail=1'
+        RETURN
+      END IF
+      SPSP=I_P_STORE
+      SMSP=I_M_STORE
+      SMPP=I_P_PREV
+      SMMP=I_M_PREV
+!
+! Dump the state indexing for the python side.
+!
+      OPEN(91,FILE='p1t1b_idx.txt',STATUS='REPLACE')
+      WRITE(91,'(A,4I8)')'P1BIDX ',NX,NW,NSLOT,NCOMP
+      J=0
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          WRITE(91,'(A,I8,1X,A1,1X,2I6)')'ELEM',J,'P',WKCH(I),SL
+        END DO
+      END DO
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          WRITE(91,'(A,I8,1X,A1,1X,2I6)')'ELEM',J,'M',WKCH(I),SL
+        END DO
+      END DO
+      CLOSE(91)
+!
+! Warm-up: iterate the full production map from the cold-sweep state.
+! Record ||F(X)-X|| per application; X0 is the final iterate.
+!
+      NWARM=30
+      CALL PACK_X(X0V)
+      NEVAL=0
+      DO ITR=2,NWARM
+        CALL MAP_F(X0V,XNEW,1)
+        NEVAL=NEVAL+1
+        RN=0.0_LDP
+        DO J=1,NX
+          RN=RN+(XNEW(J)-X0V(J))**2
+        END DO
+        RN=SQRT(RN)
+        IF(ITR .LE. 64)RESV(ITR)=RN
+        X0V=XNEW
+      END DO
+!
+! Baseline repeatability: two evaluations at X0 must agree.
+!
+      CALL MAP_F(X0V,XO,1)
+      NEVAL=NEVAL+1
+      CALL MAP_F(X0V,XNEW,1)
+      NEVAL=NEVAL+1
+      RD=0.0_LDP; TNRM=0.0_LDP
+      DO J=1,NX
+        RD=MAX(RD,ABS(XNEW(J)-XO(J)))
+        TNRM=MAX(TNRM,ABS(XO(J)))
+      END DO
+      WRITE(*,'(A,ES16.8)')'P1B_REP_MAXDIFF=',RD
+      WRITE(*,'(A,ES16.8)')'P1B_REP_XNORM=',TNRM
+      WRITE(*,'(A,ES16.8)')'P1B_REP_REL=',RD/MAX(TNRM,1.0E-30_LDP)
+      FX0=XO
+!
+      OPEN(92,FILE='p1t1b_resid.txt',STATUS='REPLACE')
+      WRITE(92,'(A,I4,A,ES16.8)')'WARMUP_ITER NITER_EVALS',NWARM-1
+      DO ITR=2,MIN(NWARM,64)
+        WRITE(92,'(A,I4,A,ES16.8)')'RES ',ITR,' ',RESV(ITR)
+      END DO
+      WRITE(92,'(A,ES16.8)')'X0_NORM ',TNRM
+      WRITE(92,'(A,ES16.8)')'FX0_NORM ',MAXVAL(ABS(FX0))
+      WRITE(92,'(A,ES16.8)')'REP_MAXDIFF ',RD
+      WRITE(92,'(A,ES16.8)')'REP_REL ',RD/MAX(TNRM,1.0E-30_LDP)
+      CLOSE(92)
+      OPEN(93,FILE='p1t1b_X0.txt',STATUS='REPLACE')
+      DO J=1,NX
+        WRITE(93,'(I8,ES25.16)')J,X0V(J)
+      END DO
+      CLOSE(93)
+!
+! Dump the warm-store KN_DBG/KR_DBG coefficient state for the
+! boundary-incidence analysis (geometry is store-independent, so the
+! post-warm-up capture is representative).
+!
+      DO I=1,NI_RAY(LSDBG)
+        DO L=1,NCFA
+          WRITE(*,'(A,I2,A,I2,A,11ES16.8)')'DBS ',I,' ',L,' ', &
+      KN_DBG_CHIH(I,L),KN_DBG_Q(I,L),KN_DBG_DCHR(I,L), &
+      KN_DBG_DTAU(I,L),KN_DBG_SPM(I,L),KN_DBG_SPP(I,L), &
+      KN_DBG_WX(I,L),KN_DBG_DLNM(I,L),KN_DBG_IMPR(I,L), &
+      KN_DBG_IPPR(I,L),KN_DBG_SR(I,L)
+          WRITE(*,'(A,I2,A,I2,A,3I6)')'DBSI ',I,' ',L,' ', &
+      KN_DBG_NM(I,L),KN_DBG_KC1(I,L),KN_DBG_KC2(I,L)
+          WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'DBSN ',I,' ',L,' ', &
+      KN_DBG_INEXTM(I,L),KN_DBG_INEXTP(I,L)
+          WRITE(*,'(A,I2,A,I2,A,5I6)')'DBRI ',I,' ',L,' ', &
+      KR_DBG_NFM(I,L),KR_DBG_IKC1(I,L),KR_DBG_IKC2(I,L), &
+      KR_DBG_JPR1(I,L),KR_DBG_JPR2(I,L)
+        END DO
+      END DO
+      DO K=1,NDA
+        WRITE(*,'(A,I2,A,2I6)')'JMAP ',K,' ',J_PNT(K,LSDBG), &
+      COMP_DEPTH_IDX(K)
+      END DO
+!
+! Dense Jacobian for the three variants. Two amplitudes per column;
+! central difference where X0_j-eps stays positive, forward where the
+! positivity floor forbids the minus side.
+!
+      IRFI(1)=1; IRFI(2)=0; IRFI(3)=0
+      OMV(1)=0.5_LDP; OMV(2)=0.5_LDP; OMV(3)=1.0_LDP
+      VNAME(1)='fullw05'; VNAME(2)='swp_w05'; VNAME(3)='swp_w10'
+      XFLOOR=1.0E-3_LDP
+      LWK8=8*NX
+!
+      DO IV=1,3
+        INEXT_RELAX=OMV(IV)
+        CALL MAP_F(X0V,FX0,IRFI(IV))
+        NEVAL=NEVAL+1
+!
+! Two amplitudes: 1E-4 and 1E-5 times the per-element scale floor.
+! JW holds the current amplitude's Jacobian; J1/J2 keep both for the
+! consistency check and the dgeev call below.
+!
+        DO IA=1,2
+          AMPF=10.0_LDP**(-(IA+3))
+          JW=0.0_LDP
+          DO J=1,NX
+            EPSV=AMPF*MAX(ABS(X0V(J)),XFLOOR)
+            XPR=X0V
+            XPR(J)=XPR(J)+EPSV
+            CALL MAP_F(XPR,XFP,IRFI(IV))
+            NEVAL=NEVAL+1
+            IF(X0V(J)-EPSV .GE. 0.0_LDP)THEN
+              FDIF(J)=0
+              XPR=X0V
+              XPR(J)=XPR(J)-EPSV
+              CALL MAP_F(XPR,XO,IRFI(IV))
+              NEVAL=NEVAL+1
+              DO JP=1,NX
+                JW(JP,J)=(XFP(JP)-XO(JP))/(2.0_LDP*EPSV)
+              END DO
+            ELSE
+!
+! Forward difference where the minus perturbation would take the
+! store element negative; FDIF flags the column for the python side.
+!
+              FDIF(J)=1
+              DO JP=1,NX
+                JW(JP,J)=(XFP(JP)-FX0(JP))/EPSV
+              END DO
+            END IF
+          END DO
+          IF(IA .EQ. 1)THEN
+            J1=JW
+          ELSE
+            J2=JW
+          END IF
+!
+! Dump this variant/amp Jacobian (list-directed; python parses the
+! whitespace-separated rows).
+!
+          OPEN(94,FILE='p1t1b_J'//TRIM(VNAME(IV))//'_a'// &
+          ACHAR(48+IA)//'.txt',STATUS='REPLACE')
+          DO JP=1,NX
+            WRITE(94,*) (JW(JP,J),J=1,NX)
+          END DO
+          CLOSE(94)
+        END DO
+!
+! Column consistency between the two amplitudes for this variant:
+! max elementwise |J1-J2|, max elementwise |J|, their ratio, the
+! column max of J2, and the forward-difference flag.
+!
+        OPEN(95,FILE='p1t1b_cons_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        DO J=1,NX
+          RN=0.0_LDP; RD=0.0_LDP
+          DO JP=1,NX
+            RN=MAX(RN,ABS(J1(JP,J)-J2(JP,J)))
+            RD=MAX(RD,MAX(ABS(J1(JP,J)),ABS(J2(JP,J))))
+          END DO
+          WRITE(95,'(I8,4ES16.8,1X,I2)')J,RN,RD, &
+      RN/MAX(RD,1.0E-30_LDP),MAXVAL(ABS(J2(:,J))),FDIF(J)
+        END DO
+        CLOSE(95)
+!
+! LAPACK dgeev on the finer-amplitude Jacobian (LDP is real*8 kind).
+! Eigenvalues dump in natural order; the python side sorts by
+! modulus and forms residuals against the dumped J.
+!
+        ALLOCATE(A8(NX,NX),VR8(NX,NX),WK8(LWK8),WR8(NX),WI8(NX), &
+        VL8(1,NX),STAT=IOS)
+        IF(IOS .NE. 0)THEN
+          WRITE(*,'(A)')'RESULT p1t1bdgeev_alloc=1'
+          RETURN
+        END IF
+        A8=J2
+        CALL DGEEV('N','V',NX,A8,NX,WR8,WI8,VL8,1,VR8,NX,WK8,LWK8, &
+        INFO8)
+        WRITE(*,'(A,I2,A,I8)')'P1B_DGEEV IV INFO NEL',IV,INFO8,NX
+        OPEN(96,FILE='p1t1b_eig_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        DO J=1,NX
+          EMOD=SQRT(WR8(J)**2+WI8(J)**2)
+          WRITE(96,'(I8,3ES25.16)')J,WR8(J),WI8(J),EMOD
+        END DO
+        CLOSE(96)
+!
+! Dominant right eigenvector of the full-map Jacobian feeds the
+! nonlinear-iteration perturbation. For a complex pair the stored VR
+! column is the real part of the pair; documented approximation.
+!
+        IF(IV .EQ. 1)THEN
+          IMX=1
+          EMOD=-1.0_LDP
+          DO J=1,NX
+            RD=SQRT(WR8(J)**2+WI8(J)**2)
+            IF(RD .GT. EMOD)THEN
+              EMOD=RD; IMX=J
+            END IF
+          END DO
+          TNRM=0.0_LDP
+          DO J=1,NX
+            VDOM(J)=VR8(J,IMX)
+            TNRM=TNRM+VDOM(J)**2
+          END DO
+          TNRM=SQRT(TNRM)
+          IF(TNRM .GT. 0.0_LDP)VDOM=VDOM/TNRM
+          WRITE(*,'(A,I4,A,3ES16.8)')'P1B_DOMEIG K WR WI MOD',IMX, &
+      WR8(IMX),WI8(IMX),SQRT(WR8(IMX)**2+WI8(IMX)**2)
+        END IF
+        DEALLOCATE(A8,VR8,WK8,WR8,WI8,VL8)
+      END DO
+      INEXT_RELAX=0.5_LDP
+      WRITE(*,'(A,I8)')'P1B_NEVAL ',NEVAL
+!
+! Direct nonlinear iteration on the full production map. Three
+! perturbation types around X0: dominant-eigenvector aligned, broad
+! (all-ones), and the largest stored outward-channel element. delta
+! is 1E-3*||X0||_2. Per step we record ||X_{n+1}-X0||,
+! ||X_{n+1}-X_n|| and the step-to-step contraction ratio; the first
+! ratio of each type is meaningless (RNPRV=0) and is ignored on the
+! python side.
+!
+      TNRM=0.0_LDP
+      DO J=1,NX
+        TNRM=TNRM+X0V(J)**2
+      END DO
+      TNRM=SQRT(TNRM)
+!
+! Localised perturbation: the largest stored outward-channel element,
+! i.e. the strongest compressing cell's lagged field. P1-T1 showed
+! the outward channel carries the near-unity gain.
+!
+      IMX=1
+      EMOD=-1.0_LDP
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          JP=POSP(WKCH(I),SL)
+          IF(JP .GT. 0 .AND. ABS(X0V(JP)) .GT. EMOD)THEN
+            EMOD=ABS(X0V(JP)); IMX=JP
+          END IF
+        END DO
+      END DO
+!
+      OPEN(97,FILE='p1t1b_nl.txt',STATUS='REPLACE')
+      DO IRF=0,1
+      DO IV=1,3
+!
+! Build the perturbation vector for this type.
+!
+        VPT=0.0_LDP
+        IF(IV .EQ. 1)THEN
+          VPT=VDOM
+        ELSE IF(IV .EQ. 2)THEN
+          VPT=1.0_LDP
+        ELSE
+          VPT(IMX)=1.0_LDP
+        END IF
+        RN=0.0_LDP
+        DO J=1,NX
+          RN=RN+VPT(J)**2
+        END DO
+        RN=SQRT(RN)
+        IF(RN .GT. 0.0_LDP)VPT=VPT/RN
+        XNEW=X0V+VPT*(1.0E-3_LDP*TNRM)
+        RNPRV=0.0_LDP
+!
+        DO J=1,25
+          CALL MAP_F(XNEW,XO,IRF)
+          NEVAL=NEVAL+1
+          RD=0.0_LDP; RN=0.0_LDP
+          DO JP=1,NX
+            RD=RD+(XO(JP)-X0V(JP))**2
+            RN=RN+(XO(JP)-XNEW(JP))**2
+          END DO
+          RD=SQRT(RD); RN=SQRT(RN)
+          WRITE(97,'(I2,I2,I4,3ES16.8)')IRF,IV,J,RD,RN, &
+      RN/MAX(RNPRV,1.0E-30_LDP)
+          RNPRV=RN
+          XNEW=XO
+        END DO
+      END DO
+      END DO
+      CLOSE(97)
+!
+      DEALLOCATE(XO,XNEW,X0V,FX0,XPR,XFP,STO_P,STO_M,J1,J2,JW, &
+      RESV,VDOM,VPT,WKCH,POSP,POSM,FDIF,SPSP,SMSP,SMPP,SMMP)
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+!
+! ------------------------------------------------------------------
+! MAP_F: evaluate the complete ordered radiation map. Restores the
+! slaved bookkeeping arrays to their post-cold-sweep snapshot,
+! installs XV into the lagged store over the inactive-element
+! baseline, runs the production frequency sweep with the normal
+! in-sweep relaxed store update, optionally runs the production
+! post-sweep refresh, then packs the resulting active store
+! elements into XO. Loop variables are local so the host's DO-loop
+! counters are not clobbered.
+! IRF=1 includes FG_KNOP_REFRESH_V1 (full production map);
+! IRF=0 stops after the sweep (bare lagged map).
+! ------------------------------------------------------------------
+      CONTAINS
+!
+      SUBROUTINE MAP_F(XV,XO,IRF)
+      REAL(KIND=LDP) XV(:),XO(:)
+      INTEGER IRF
+      INTEGER L2,I2,SL2,J2,JP2
+      LOGICAL LI,LF
+!
+! I_*_STORE/I_*_PREV are slaved: PREV is zeroed at INIT and copied
+! from STORE at each NEW_FREQ, STORE is rewritten at the end of every
+! frequency call before the next NEW_FREQ reads it. Restoring them
+! to the post-cold snapshot only guarantees identical starting
+! bookkeeping; no previous-sweep value can reach the next sweep.
+!
+      I_P_STORE=SPSP
+      I_M_STORE=SMSP
+      I_P_PREV=SMPP
+      I_M_PREV=SMMP
+!
+! Same deterministic inputs as the cold sweep: the QW arrays feed
+! only diagnostic J-moment outputs, and the output dummies are
+! re-initialised so no previous evaluation leaks into this one.
+!
+      JQW_A=1.0_LDP; HQW_A=1.0_LDP; KQW_A=1.0_LDP
+      NQW_A=1.0_LDP; HMID_A=1.0_LDP; NMID_A=1.0_LDP
+      JNU_A=0.0_LDP; FEDD_A=0.0_LDP; IPLUS_A=0.0_LDP
+      INBC_A=0.0_LDP; HBC_A=0.0_LDP
+      I_P_DEPTH_NEXT=STO_P
+      I_M_DEPTH_NEXT=STO_M
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          JP2=POSP(WKCH(I2),SL2)
+          IF(JP2 .GT. 0) &
+      I_P_DEPTH_NEXT(WKCH(I2),1,SL2)=XV(JP2)
+          JP2=POSM(WKCH(I2),SL2)
+          IF(JP2 .GT. 0) &
+      I_M_DEPTH_NEXT(WKCH(I2),1,SL2)=XV(JP2)
+        END DO
+      END DO
+      DO L2=1,NCFA
+        IF(L2 .LT. NCFA)THEN
+          CALL SET_FG_NU_NEXT(FRQV(L2+1))
+        ELSE
+          CALL SET_FG_NU_NEXT(FRQV(NCFA)*0.75_LDP)
+        END IF
+        LI=(L2 .EQ. 1)
+        LF=.TRUE.
+        CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L2),CHI_M(1,L2),ESC_M(1,L2), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L2),DLOGA, &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,LI,LF,NC_A,NRAYS,NDA,SGT,NCFA)
+      END DO
+      IF(IRF .EQ. 1)CALL FG_KNOP_REFRESH_V1()
+!
+! Pack the post-map store into XO (slot-major order, matching POSP).
+!
+      J2=0
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_P_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_M_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE MAP_F
+!
+! PACK_X: extract the current store's active elements into XO
+! (no map evaluation; local loop variables only).
+!
+      SUBROUTINE PACK_X(XO)
+      REAL(KIND=LDP) XO(:)
+      INTEGER L2,I2,SL2,J2
+      J2=0
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_P_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_M_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE PACK_X
+!
+      END SUBROUTINE DRV_P1T1B
