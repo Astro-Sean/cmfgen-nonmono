@@ -2628,13 +2628,24 @@
 ! factor 1/(1 - DJDETA*chi_scat), floored at ES_ALI_BA_MIN.
 ! DO_FG13_ALO_TRI adds the stored off-diagonal Lambda* entries to
 ! TX (effective only at NUM_BNDS>=3).
+! edited 11-Nov-2026: DO_ES_ALI_BA now requires DO_ES_ALI=T
+! (CHECK_PARAM_CONSISTENCY hard-stops the pairing) -- the factor
+! presumes the ES-relaxed J iterate only the ES-ALI J-loop update
+! produces. The two denominator floors differ by design pending
+! E-matrix evidence: 0.01 hardcoded in the COMP_J_BLANK J loop
+! (100x cap) vs ES_ALI_BA_MIN here (10x cap); the run-total
+! counters ES_ALI_NFLOOR / ES_ALI_BA_NFLOOR record whether either
+! ever engages on a real model.
 !
 	  DO_ES_ALI_BA=.FALSE.
 	  CALL RD_STORE_LOG(DO_ES_ALI_BA,'DO_ES_ALI_BA',L_FALSE,
-	1     'ES-scattering-consistent amplification of the BA ALO')
+	1     'ES-scattering-consistent amplification of the BA ALO'//
+	2     ' (requires DO_ES_ALI=T)')
 	  ES_ALI_BA_MIN=0.1D0
 	  CALL RD_STORE_DBLE(ES_ALI_BA_MIN,'ES_ALI_BA_MIN',L_FALSE,
 	1     'Floor on the ES-ALI BA amplification denominator')
+	  ES_ALI_NFLOOR=0
+	  ES_ALI_BA_NFLOOR=0
 	  DO_FG13_ALO_TRI=.FALSE.
 	  CALL RD_STORE_LOG(DO_FG13_ALO_TRI,'DO_FG13_ALO_TRI',L_FALSE,
 	1     'Tridiagonal Lambda* off-diagonals in the SOB Jacobian')
