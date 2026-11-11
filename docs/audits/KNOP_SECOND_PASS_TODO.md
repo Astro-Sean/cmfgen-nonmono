@@ -32,6 +32,18 @@ question.
   coherent multi-cell perturbation — to test whether the *network*
   gain (not just the local cell) approaches or exceeds 1 once
   population feedback and cross-frequency store sharing are included.
+  **DONE 11-Nov-2026** (`KNOP_P1_T1B_LAGGED_MAP.md`): dense `30x30`
+  central-FD Jacobian of the full lagged-store map (`knray p1t1b`,
+  `DRV_P1T1B`).  The transport Jacobian is **nilpotent** — every
+  compressing read targets `write_slot + NM_RAY` (`NM_RAY >= 1`), an
+  acyclic frequency-ladder shift, so all eigenvalues are `0` and the
+  relaxed map has spectral radius `1 - INEXT_RELAX = 0.5` (measured
+  contraction `0.500015` in direct iteration).  The full production map
+  (sweep + `FG_KNOP_REFRESH_V1`) is exactly seed-independent (`J = 0`);
+  the store is slaved to the fixed opacities.  **The network gain does
+  not approach 1; the radiation `I_NEXT` map cannot sustain drift.**
+  Caveat: populations held fixed, so the outer population-opacity map
+  (P5) remains the drift suspect.
 - **P1-T2** Add a per-cell coefficient dump (argmax cell's
   `V/R, SIGMA, MU, GAM, CHI, CHI_HAT, DLN, Q, I_NEXT, S`) to the
   `KNOP FIELD` block or a side file, gated by a debug flag, so the
