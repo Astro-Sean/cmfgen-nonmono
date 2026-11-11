@@ -429,6 +429,8 @@
 	         DO K=1,ND
 	           DENB(K)=MAX(1.0_LDP-TB(K)*CHI_SCAT_CLUMP(K),
 	1                  ES_ALI_BA_MIN)
+	           IF(1.0_LDP-TB(K)*CHI_SCAT_CLUMP(K)
+	1          .LE. ES_ALI_BA_MIN)ES_ALI_BA_NFLOOR=ES_ALI_BA_NFLOOR+1
 	           DENB(K)=1.0_LDP/DENB(K)
 	           TA(K)=TA(K)*DENB(K)
 	           TB(K)=TB(K)*DENB(K)
@@ -471,13 +473,14 @@
 ! concatenates adjacent negatives -- production OUTGEN printed
 ! -1.6086-164.  ES14.4E3 always emits the E and 1X keeps a
 ! separator.
-	         WRITE(LUER,'(A,2(1X,ES14.4E3),2A,2(1X,ES14.4E3),A)')
+	         WRITE(LUER,'(A,2(1X,ES14.4E3),2A,2(1X,ES14.4E3),2A,I10)')
 	1         '  '//TRIM(MERGE('KNOP','SOB ',DO_NONMONO_KNOP))//
 	2         ' ALO ('//TRIM(MERGE('FG ','MOM',USE_LAM_ES))//
 	3         '): dJ/dCHI diag [',
 	4         MINVAL(TA(1:ND)),MAXVAL(TA(1:ND)),']',
 	5         ' dJ/dETA diag [',
-	6         MINVAL(TB(1:ND)),MAXVAL(TB(1:ND)),']'
+	6         MINVAL(TB(1:ND)),MAXVAL(TB(1:ND)),']',
+	7         ' ES_ALI_BA floor hits run=',ES_ALI_BA_NFLOOR
 	         IF(DO_FG13_ALO_TRI .AND. TRI_OK)THEN
 	           ALO_DMAX=0.0_LDP
 	           ALO_DMIN=1.0D+300
