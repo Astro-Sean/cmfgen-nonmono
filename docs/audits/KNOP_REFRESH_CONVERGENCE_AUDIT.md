@@ -121,9 +121,16 @@ dominant), or numerical floor (`NONMONO_INEXT_CAP`/1e-30 binding).
 - Manufactured `J_full=0`: clean convergence demonstrated for tested
   seeds **[MANUF]**.
 - Production multi-seed / tolerance / cap recheck: **SPECIFIED, NOT
-  RUN** - needs a production checkpoint and the `FLD`-level residual
-  instrumentation (the committed-store dump at unit 291 does not expose
-  internal `FLD`).
+  RUN** - needs a production checkpoint. The internal `FLD`/`FLD_P`
+  fields ARE exposed per-ray via `KR_DBG_FLDM`/`KR_DBG_FLDP`
+  (`KNOP_RAY_SOLVE_V1`, gated on `KN_DBG_LS`), and the per-pass
+  residual, `NBAD`/`NTOT`, `IXIT` exit, cap status and commit verdict
+  (`FG_RAY_VC`) are all returned - see `KNOP_REFRESH_FLd_RESIDUAL_AUDIT.md`
+  for the full telemetry map. The single remaining instrumentation gap
+  is the independent `L2` fixed-point residual
+  `q = ||FLD - REFRESH_OPERATOR(FLD)|| / max(||FLD||, scale_floor)`;
+  the existing `RES_M`/`RES_P` is the last-pass max-overwrite residual,
+  not an independent operator re-evaluation.
 
 The correct current statement: the refresh commits a seed-independent
 store **where its per-ray field solve converges cleanly**; whether that
