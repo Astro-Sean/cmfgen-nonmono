@@ -99,6 +99,7 @@
       IF(CNAME .EQ. 'dtau')  NCASE=56
       IF(CNAME .EQ. 'p1t1')  NCASE=57
       IF(CNAME .EQ. 'p1t1b') NCASE=58
+      IF(CNAME .EQ. 'p1t1bf')NCASE=58
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -1727,6 +1728,12 @@
 ! sweep, leaving the lagged coupling dead (F independent of X).
 !
       KNOP_DIAG_NO_REGRID=.TRUE.
+! P1-T1e: 'p1t1bf' reruns the identical Jacobian with FREEZE_I_PREV=T
+! so the expanding I_PREV frequency-feedback channel is ablated
+! (I_PREV stays at its INIT-zeroed value). Comparing the same-slot
+! entries against the normal 'p1t1b' run isolates whether those edges
+! are I_PREV-mediated. Diagnostic only; production default is .FALSE.
+      FREEZE_I_PREV=(CNAME .EQ. 'p1t1bf')
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
