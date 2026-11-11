@@ -30,6 +30,8 @@
 !   sobfgk  : SOB + LAM_ES + SOB_FG_KNOP -> FG store used
 !   sobmom  : SOB + LAM_ES=F + mom store -> moment diagonal used
 !   esali   : FG store + DO_ES_ALI_BA    -> Jacobi amplification
+!   esalif  : esali with DJDETA straddling the ES_ALI_BA_MIN floor
+!             -> DENB capped at 1/MIN, floor-hit counter = 2
 !   tri     : SOB + DO_FG13_ALO + TRI store -> off-diag fill
 !
       PROGRAM DRV_DVC
@@ -109,7 +111,9 @@
       USE_J_REL=.FALSE.; USE_DJDT_RTE=.FALSE.; DIF=.FALSE.
       DO_CLUMP_MODEL=.FALSE.; DO_SRCE_VAR_ONLY=.FALSE.
       INCLUDE_dSLdT=.FALSE.; COMPUTE_NEW_CROSS=.FALSE.
-      DO_ES_ALI_BA=(CASE .EQ. 'esali'); ES_ALI_BA_MIN=0.05_LDP
+      DO_ES_ALI_BA=(CASE .EQ. 'esali' .OR. CASE .EQ. 'esalif')
+      ES_ALI_BA_MIN=0.05_LDP
+      ES_ALI_BA_NFLOOR=0
       DO_FG13_ALO_TRI=(CASE .EQ. 'tri')
       DO_FG13_ALO=(CASE .EQ. 'fg13' .OR. CASE .EQ. 'tri')
       DO_SOB_FG_KNOP=(CASE .EQ. 'sobfgk')
@@ -119,14 +123,18 @@
       DO_NONMONO_KNOP=.NOT. DO_NONMONO_SOB
       USE_LAM_ES=(CASE .EQ. 'fg' .OR. CASE .EQ. 'fg13' &
      &     .OR. CASE .EQ. 'sobfgk' .OR. CASE .EQ. 'tri' &
-     &     .OR. CASE .EQ. 'esali')
+     &     .OR. CASE .EQ. 'esali' .OR. CASE .EQ. 'esalif')
 !
       IF(CASE .EQ. 'fg' .OR. CASE .EQ. 'esali' &
-     &     .OR. CASE .EQ. 'sobfgk')THEN
+     &     .OR. CASE .EQ. 'sobfgk' .OR. CASE .EQ. 'esalif')THEN
         ALLOCATE(ALO_DJDCHI(ND),ALO_DJDETA(ND))
         ALO_DJDCHI=(/ -1.0E-02_LDP,-2.0E-02_LDP, &
      &                -3.0E-02_LDP,-4.0E-02_LDP /)
-        ALO_DJDETA=(/ 0.4_LDP,0.5_LDP,0.6_LDP,0.7_LDP /)
+        IF(CASE .EQ. 'esalif')THEN
+          ALO_DJDETA=(/ 0.4_LDP,3.1666667_LDP,4.0_LDP,0.7_LDP /)
+        ELSE
+          ALO_DJDETA=(/ 0.4_LDP,0.5_LDP,0.6_LDP,0.7_LDP /)
+        END IF
         ALO_VALID=.TRUE.; ALO_ND=ND
       END IF
       IF(CASE .EQ. 'mom' .OR. CASE .EQ. 'momquar' &
@@ -170,5 +178,6 @@
       WRITE(*,'(A,4ES14.6)')'TX4M ',(TX(I+1,I,4),I=1,ND-1),0.0_LDP
       WRITE(*,'(A,4ES14.6)')'TX4P ',0.0_LDP,(TX(I,I+1,4),I=1,ND-1)
       WRITE(*,'(A,4ES14.6)')'VJD ',(VJ(1,I,I),I=1,ND)
+      WRITE(*,'(A,I10)')'NFLOOR ',ES_ALI_BA_NFLOOR
       WRITE(*,'(A)')'DONE_'
       END
