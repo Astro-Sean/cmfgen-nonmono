@@ -96,16 +96,21 @@ coupling is widespread.  The argmax cells sit at depths 3-5; under the
 ### Verdict on Pillar 1
 
 The residual plateau is **not** caused by near-zero-`GAM` cells -
-those decouple and contract.  It is caused by the `|Q| -> 1`
-strong-coupling compressing cells that dominate the grid (94%
-compressing) together with the outer population-field coupling
-(`se_res ~ 1.65E+13`, concentrated in the worst columns; `se_res2 ~
-3.8E+10` after excluding them).  Whether the discretised operator is
-intrinsically non-contractive on these cells, or merely slow, is
-**[HYP]** - it requires the finite-difference `I_NEXT` sensitivity
-measurement described in `KNOP_SECOND_PASS_TODO.md` P1-T1.  What is
-confirmed is that the *stated* mechanism (near-zero-`GAM`) is
-mathematically incorrect.
+those decouple and contract.  The `|Q| -> 1` strong-coupling
+compressing cells that dominate the grid (94% compressing) do carry a
+near-unity *local* store gain (`g ~ 0.97`, effective relaxed gain
+`~0.985`; see `KNOP_P1_T1_FIELD_SENSITIVITY.md`).  However the follow-up
+global map measurement (`KNOP_P1_T1B_LAGGED_MAP.md`, P1-T1b) shows that
+gain is a per-hop transmission on an **acyclic** frequency ladder: the
+lagged store read always targets a strictly higher slot than the one
+being written (`read = write + NM_RAY`, `NM_RAY >= 1`), so the transport
+Jacobian is nilpotent (all eigenvalues `0`) and the relaxed map has
+spectral radius `1 - INEXT_RELAX = 0.5`.  **There is no near-unity or
+amplifying radiation-store mode**; the field-maturity stall is not
+explained by the lagged `I_NEXT` iteration and must be sought in the
+outer population-opacity coupling (Pillar 5) or refresh convergence.
+What remains confirmed is that the *stated* mechanism (near-zero-`GAM`)
+is mathematically incorrect.
 
 ---
 
@@ -396,12 +401,15 @@ sweep/refresh operators agree to `2.6e-8`, and checkpoints are
 bit-exact.  The convergence failures arise from an **inadequately
 conditioned coupled system** with three compounding ingredients:
 
-1. **Field side (suspected)**: `|Q| -> 1` strong-coupling compressing
-   cells (94% of the grid) give near-unity gain per frequency hop -
-   the leading candidate for a marginally contractive lagged map.
-   This is the suspected mechanism, not a proven non-contractive
-   iteration mode; P1-T1 (finite-difference `I_NEXT` sensitivity)
-   remains outstanding.  (Pillar 1 - corrected mechanism.)
+1. **Field side - resolved (P1-T1 + P1-T1b)**: `|Q| -> 1`
+   strong-coupling compressing cells do give near-unity *local* gain
+   per frequency hop, but the global lagged-store map is **nilpotent**
+   (transport Jacobian spectral radius `0`; relaxed map `rho =
+   1-INEXT_RELAX = 0.5`).  The acyclic slot-shift structure means the
+   radiation `I_NEXT` iteration cannot sustain a non-contractive mode.
+   The field-maturity stall is therefore **not** a radiation-store
+   effect; it points back to the population-opacity outer iteration.
+   (Pillar 1 - mechanism corrected and closed.)
 2. **Population side**: `C_MAT *= POPS` column scaling produces
    approximate null columns at floor populations, yielding
    `1E21-1E53` correction demands and, on `VAL_knop_formal`, a
@@ -425,8 +433,9 @@ verdict: **KNOP is not production-ready**; `DO_NONMONO_SOB` +
 | Item | Class |
 |---|---|
 | `\|Q\|->0` as `GAM->0`; near-zero-GAM cells contractive | MATH confirmed; prior phrase retracted |
-| `\|Q\|->1` strong-compression marginal contraction | MATH confirmed (mechanism) |
-| Field residual plateau = intrinsic non-contraction | HYP (needs P1-T1 FD measurement) |
+| `\|Q\|->1` strong-compression marginal contraction | MATH confirmed (local gain real) |
+| Lagged `I_NEXT` store map non-contractive (network gain >= 1) | REFUTED - map is nilpotent, `rho = 1-INEXT_RELAX` (P1-T1b) |
+| Full production radiation map seed-dependent | REFUTED - refresh gives `J = 0`, store slaved to populations (P1-T1b) |
 | `KN_NO_GAIN` modifies physical extinction / suppresses real gain | MATH + APPROX confirmed |
 | `+3 a_nu I` omitted by V13 convention | APPROX confirmed |
 | Header "cancels identically" comment | MATH defect (doc, open) |
