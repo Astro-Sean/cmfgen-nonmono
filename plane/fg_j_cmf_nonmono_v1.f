@@ -3744,7 +3744,7 @@ C
 ! keeps chi_hat well above CHI_RAY -- locally opaque, the safe
 ! failure direction.
 !
-! KN_COUPLING_OK (audit 20-Nov-2026): a compressing point whose
+! KN_COUPLING_OK (audit 10-Nov-2026): a compressing point whose
 ! bracketing depths hold no lagged slot cannot supply the explicit
 ! upwind inflow, so the implicit outflow is dropped with it --
 ! both sides of the coupling or neither. Boundary points whose
@@ -5480,7 +5480,7 @@ C
 	END
 !
 ! ==============================================================================
-!  Compressing-branch coupling gate (audit fix, 20-Nov-2026).
+!  Compressing-branch coupling gate (audit fix, 10-Nov-2026).
 !
 !  Whether the +|GAM|/dln(nu) frequency coupling stays in the discrete
 !  operator for a GAM<0 ray point. Before this gate existed the code
@@ -9812,7 +9812,7 @@ C
 !
 ! ----------------------------------------------------------------
 ! Refresh-side mirror of the sweep's KN_COUPLING_OK gate (audit
-! 20-Nov-2026): whether a compressing ray point may carry the
+! 10-Nov-2026): whether a compressing ray point may carry the
 ! +|GAM|/dln(nu) coupling in the coefficients built by BUILD_FREQ.
 ! The donor read in SRC_PRIME needs an IKC sparse slot and an
 ! on-grid matched slot; if either is absent the upwind inflow is
