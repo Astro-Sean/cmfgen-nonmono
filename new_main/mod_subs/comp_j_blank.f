@@ -1024,6 +1024,8 @@ C
 	           DO I=1,ND
 	             DEN=MAX(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I),
 	1                0.01_LDP)
+	             IF(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I)
+	1            .LE. 0.01_LDP)ES_ALI_NFLOOR=ES_ALI_NFLOOR+1
 	             RJNEW=RJ(I)+(TC(I)-RJ(I))/DEN
 	             IF(RJNEW .LE. 0.0_LDP)RJNEW=TC(I)
 	             ES_DJ=MAX(ES_DJ,
@@ -1125,6 +1127,8 @@ C
 	             DO I=1,ND
 	               DEN=MAX(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I),
 	1                  0.01_LDP)
+	               IF(1.0_LDP-DJDETA_TMP(I)*CHI_SCAT_CLUMP(I)
+	1              .LE. 0.01_LDP)ES_ALI_NFLOOR=ES_ALI_NFLOOR+1
 	               RJNEW=ROLD_ES(I)+(RJ(I)-ROLD_ES(I))/DEN
 	               IF(RJNEW .LE. 0.0_LDP)RJNEW=RJ(I)
 	               ES_DJ=MAX(ES_DJ,
@@ -1368,13 +1372,19 @@ C
 ! edited 27-Oct-2026: one-line ES-ALI summary per great
 ! iteration [DO_ES_ALI]: frequencies that exited with the last RJ
 ! update above ES_ALI_TOL, the worst final relative update, and the
-! count of passes that fell back to plain Lambda.
+! count of passes that fell back to plain Lambda. edited 11-Nov-2026:
+! appended the run-total DEN-floor activation census
+! (ES_ALI_NFLOOR) so a run shows whether the 0.01 denominator floor
+! ever engages; ES_ALI_BA_NFLOOR is printed alongside for the
+! DO_VAR_CONT side (accumulated there, cumulative here).
 !
 	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)
-	1     WRITE(LUER,'(A,I6,A,ES10.2,A,I6)')
+	1     WRITE(LUER,'(A,I6,A,ES10.2,A,I6,A,I10,A,I10)')
 	1     ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
 	2     ', max final dJ/J=',ES_ALI_DJMAX,
-	3     ', ALO fallbacks=',ES_ALI_NFALL
+	3     ', ALO fallbacks=',ES_ALI_NFALL,
+	4     ', J-floor hits run=',ES_ALI_NFLOOR,
+	5     ', BA-floor hits run=',ES_ALI_BA_NFLOOR
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
 	    WRITE(LUER,'(A,ES10.3,A,I5,A,ES10.3,A,I10)')
