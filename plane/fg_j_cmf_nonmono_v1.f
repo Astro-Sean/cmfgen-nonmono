@@ -915,6 +915,16 @@
 	7   KR_DBG_A1(:,:),KR_DBG_A2(:,:),KR_DBG_A3(:,:),KR_DBG_A4(:,:),
 	8   KR_DBG_FLDM(:,:),KR_DBG_FLDP(:,:),KR_DBG_SR(:,:)
 !
+! KN_DBG_INEXTM/KN_DBG_INEXTP(i,l): the lagged I_NEXT value actually
+! interpolated from the store for inward/outward compressing cells.
+! Set to the store read inside the compressing branch only; left at the
+! driver-initialised sentinel elsewhere so a gated (no-slot) cell is
+! distinguishable from an active cell whose store happens to read ~0.
+! Allocated only by unit-test drivers; production leaves them
+! unallocated and pays nothing.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: KN_DBG_INEXTM(:,:),KN_DBG_INEXTP(:,:)
+!
 ! KN_DBG_NDON(i,l): donor-access counter for the expanding-frequency
 ! branch. Incremented inside each .GT.0 donor-read site, so a cell
 ! with GAM=0 can only trip it if the exact-zero guard is bypassed.
@@ -4127,6 +4137,9 @@ C
 	          ELSE
 	            INEXT_V=I_M_DEPTH_NEXT(KC2,LS,FREQ_IDX_ITER+NM_RAY(I))
 	          END IF
+	          IF(ALLOCATED(KN_DBG_INEXTM) .AND. LS .EQ. KN_DBG_LS .AND.
+	1         FREQ_IDX_ITER+1 .LE. SIZE(KN_DBG_INEXTM,2))
+	2         KN_DBG_INEXTM(I,FREQ_IDX_ITER+1)=INEXT_V
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)+ABS(Q(I))*INEXT_V
 	        ELSE
 !
@@ -4393,6 +4406,9 @@ C
 	          ELSE
 	            INEXT_V=I_P_DEPTH_NEXT(KC2,LS,FREQ_IDX_ITER+NM_RAY(I))
 	          END IF
+	          IF(ALLOCATED(KN_DBG_INEXTP) .AND. LS .EQ. KN_DBG_LS .AND.
+	1         FREQ_IDX_ITER+1 .LE. SIZE(KN_DBG_INEXTP,2))
+	2         KN_DBG_INEXTP(I,FREQ_IDX_ITER+1)=INEXT_V
 	          SOURCE_PRIME(I)=SOURCE_RAY(I)+ABS(Q(I))*INEXT_V
 	        ELSE
 !
