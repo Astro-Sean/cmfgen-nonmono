@@ -29,7 +29,8 @@
 !                            forced T). New SOB
 !                            absent-key auto-sets: DO_NONMONO_FREQ_MATCH
 !                            (LAM_ES=F), DO_FG13_ALO (LAM_ES=T),
-!                            DO_BA_RES_ACC, DO_BA_RES_REUSE, NG_ABSTAIN.
+!                            DO_BA_RES_ACC, DO_BA_RES_REUSE, NG_ABSTAIN,
+!                            DO_ES_ALI (COHERENT_ES, not SOB_FG_KNOP).
 !                            Explicit-value overrides print a banner
 !                           .
 ! Altered : 16-Oct-2026 : Self-consistency enforcement: the
@@ -3840,6 +3841,27 @@
 	    IF(.NOT. L_FALSE_TMP)THEN
 	      NG_ABSTAIN=.TRUE.
 	      WRITE(LUER,'(A)')' SOB auto-set: NG_ABSTAIN=T'
+	    END IF
+!
+! DO_ES_ALI joins the accelerator set (11-Nov-2026): the warm-arm
+! experiments (docs/audits/SOB_ACCELERATION_RESULTS.md) showed the
+! OAB J-loop update collapses the ES-scattering-dominated tail that
+! plain Lambda leaves pinned, while DO_ES_ALI_BA added nothing
+! beyond it and stays opt-in. Absent-key only; an explicit VADAT F
+! remains the opt-out. The probe sits behind the two conditions
+! every ES_ALI gate shares (COHERENT_ES, not DO_SOB_FG_KNOP) so the
+! auto-set cannot arm a dead key and trip the
+! CHECK_PARAM_CONSISTENCY inert-gate warning. Both USE_LAM_ES
+! routes carry a stored diagonal (V13 on T, MOM on F), so no
+! solver-mode condition is needed here.
+!
+	    IF(COHERENT_ES .AND. .NOT. DO_SOB_FG_KNOP)THEN
+	      CALL GET_KEY_STRING(TMP_STRING,'DO_ES_ALI',L_FALSE,
+	1     L_FALSE_TMP)
+	      IF(.NOT. L_FALSE_TMP)THEN
+	        DO_ES_ALI=.TRUE.
+	        WRITE(LUER,'(A)')' SOB auto-set: DO_ES_ALI=T'
+	      END IF
 	    END IF
 	  END IF
 !
