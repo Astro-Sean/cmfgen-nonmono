@@ -162,6 +162,25 @@ def main():
     rep.check("esali completes", "DONE_" in out)
     denb = [1.0 / max(1.0 - d * CHI_SCAT, 0.05) for d in DJDE_FG]
     diag_expect(rep, out, DJDC_FG, DJDE_FG, denb=denb, tag="esali")
+    rep.check("esali floor hits = 0",
+              bool(re.search(r"NFLOOR\s+0\s*$", out, re.M)),
+              "expected no floor activation below the cap")
+
+    # esalif: DJDETA straddles the floor -- K=2 sits exactly at
+    # 1-x=ES_ALI_BA_MIN, K=3 beyond it. DENB must cap at 1/MIN=20
+    # on both (continuity at the boundary) and the counter must
+    # record exactly the two floored depths.
+    out = run(exe, "esalif").stdout
+    rep.check("esalif completes", "DONE_" in out)
+    djde_f = (0.4, 3.1666667, 4.0, 0.7)
+    denb_f = [1.0 / max(1.0 - d * CHI_SCAT, 0.05) for d in djde_f]
+    rep.check("esalif DENB capped at 1/MIN on floored depths",
+              close(denb_f[1], 20.0) and close(denb_f[2], 20.0),
+              f"{denb_f[1:]}")
+    diag_expect(rep, out, DJDC_FG, djde_f, denb=denb_f, tag="esalif")
+    rep.check("esalif floor hits = 2",
+              bool(re.search(r"NFLOOR\s+2\s*$", out, re.M)),
+              "expected exactly depths 2,3 floored")
 
     # DO_FG13_ALO_TRI: TX(K,K+-1,1:2) = TRA/TRC * DENB(K), DENB=1
     out = run(exe, "tri").stdout
