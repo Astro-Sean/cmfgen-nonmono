@@ -22,7 +22,8 @@
       USE, INTRINSIC :: IEEE_ARITHMETIC
       USE SET_KIND_MODULE
       USE FG_J_CMF_NONMONO_MOD_V1
-      USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED,CONV_DIAG_LVL
+      USE CONTROL_VARIABLE_MOD, ONLY: GS_FOREIGN_SEED,CONV_DIAG_LVL, &
+      JFNK_IN_EVAL
       IMPLICIT NONE
 !
       INTEGER ND,NDX,NCFX,NIX
@@ -96,6 +97,7 @@
       IF(CNAME .EQ. 'rfail') NCASE=54
       IF(CNAME .EQ. 'scold') NCASE=55
       IF(CNAME .EQ. 'dtau')  NCASE=56
+      IF(CNAME .EQ. 'p1t1')  NCASE=57
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -107,6 +109,10 @@
       IF(NCASE .EQ. 33)CALL DRV_AB(.TRUE.,1,1)
       IF(NCASE .EQ. 15 .OR. NCASE .EQ. 22 .OR. &
       NCASE .EQ. 32 .OR. NCASE .EQ. 33)GOTO 999
+      IF(NCASE .EQ. 57)THEN
+        CALL DRV_P1T1
+        GOTO 999
+      END IF
 !
 ! The omega-pool cases exercise the adaptive-relaxation estimator
 ! directly on synthetic sample sets; no ray grid is needed.
@@ -1157,6 +1163,328 @@
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
       END SUBROUTINE DRV_AB
+!
+! ----------------------------------------------------------------------
+! P1-T1 field-sensitivity probe. Drives the production in-sweep solver
+! (FG_J_CMF_NONMONO_V1) on a manufactured non-monotonic model whose
+! compressing cells reach |Q| -> 1 (opacity depressed in the reversal
+! zone so |GAM|/DLN >> CHI). Dumps, for the selected ray and every
+! frequency, the in-sweep operator coefficients (KN_DBG_*) plus the
+! production I_M/I_P intensities so a python re-march can be validated
+! cell-by-cell before finite-differencing the lagged I_NEXT channel.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_P1T1
+      INTEGER NDA,NPA,NCFA
+      PARAMETER (NDA=8,NPA=2,NCFA=6)
+      REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
+      REAL(KIND=LDP) ETA_M(NDA,NCFA),CHI_M(NDA,NCFA),ESC_M(NDA,NCFA)
+      REAL(KIND=LDP) JNU_A(NDA),FEDD_A(NDA),IPLUS_A(NPA)
+      REAL(KIND=LDP) JQW_A(NDA,NPA),HQW_A(NDA,NPA),KQW_A(NDA,NPA)
+      REAL(KIND=LDP) NQW_A(NDA,NPA),HMID_A(NDA,NPA),NMID_A(NDA,NPA)
+      REAL(KIND=LDP) VDOP_A(NDA),FRQV(NCFA),INBC_A,HBC_A
+      REAL(KIND=LDP) LVR(NDA),BUMP,V0,DLOGA,DBB_A,IC_A
+      REAL(KIND=LDP) VDOP_F,REXT_A,DEPF
+      CHARACTER*6 METH_A
+      CHARACTER(LEN=8) SOPT_A
+      CHARACTER(LEN=12) IBND_A
+      LOGICAL THK_A,INIT_A,NEWF_A
+      INTEGER NC_A,NITER,ITR,L,I,LSDBG,IOS,NRAYS
+      REAL(KIND=LDP) SMAX
+      REAL(KIND=LDP), ALLOCATABLE :: IM0(:,:),IP0(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: SP0(:,:),SM0(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: KQ0(:),KIM0(:),KIP0(:)
+      INTEGER, ALLOCATABLE :: KKC10(:),KKC20(:),KNM0(:)
+      REAL(KIND=LDP) EPSV,OLDV,DIMV,DIPV,GAIN,AMPF,RMAX
+      INTEGER KC,SL,FS,I2,IA,IMX
+!
+      LSDBG=1
+      NRAYS=1
+      RA=(/8.0E4_LDP,6.4E4_LDP,5.0E4_LDP,3.9E4_LDP, &
+      3.0E4_LDP,2.2E4_LDP,1.5E4_LDP,1.0E4_LDP/)
+      V0=3.0E3_LDP
+      DO I=1,NDA
+        BUMP=1.0_LDP-0.55_LDP*EXP(-((DBLE(I)-4.0_LDP)/1.1_LDP)**2)
+        VA(I)=V0*(RA(I)/RA(1))**0.6_LDP*BUMP
+      END DO
+      LVR=LOG(VA)
+      SGT(1)=(LVR(1)-LVR(2))/(LOG(RA(1))-LOG(RA(2)))-1.0_LDP
+      DO I=2,NDA-1
+        SGT(I)=(LVR(I-1)-LVR(I+1))/(LOG(RA(I-1))-LOG(RA(I+1)))-1.0_LDP
+      END DO
+      SGT(NDA)=(LVR(NDA-1)-LVR(NDA))/(LOG(RA(NDA-1))-LOG(RA(NDA))) &
+      -1.0_LDP
+      SGA=MAX(SGT,-0.999_LDP)
+!
+! Opacity: base profile times a depth-dependent depression centred on
+! the reversal zone (depths 3-5) so the compressing cells reach
+! |GAM|/DLN >> CHI and |Q| -> 1. DEPF is the multiplicative factor.
+!
+      DO L=1,NCFA
+        DO I=1,NDA
+          CHI_M(I,L)=1.0E-3_LDP*(1.0_LDP+0.05_LDP*L)* &
+      (RA(1)/RA(I))**2
+          ETA_M(I,L)=2.0E-6_LDP*(1.0_LDP+0.02_LDP*L)*(RA(1)/RA(I))
+          ESC_M(I,L)=0.0_LDP
+        END DO
+      END DO
+!
+      DEPF=1.0E-1_LDP
+      CHI_M(2,:)=CHI_M(2,:)*DEPF
+      CHI_M(3,:)=CHI_M(3,:)*1.0E-3_LDP
+      CHI_M(4,:)=CHI_M(4,:)*1.0E-5_LDP
+      CHI_M(5,:)=CHI_M(5,:)*1.0E-7_LDP
+!
+      FRQV(1)=6.0E15_LDP
+      DO L=2,NCFA
+        FRQV(L)=FRQV(L-1)*0.75_LDP
+      END DO
+      DLOGA=LOG(1.0_LDP/0.75_LDP)
+!
+      PA(1)=0.0_LDP
+      PA(2)=1.2E4_LDP
+      VDOP_A=1.0E5_LDP
+      VDOP_F=0.5_LDP
+      REXT_A=1.0_LDP
+      DBB_A=0.0_LDP
+      IC_A=0.0_LDP
+      METH_A='ZERO'
+      SOPT_A='INT'
+      IBND_A='ZERO_FLUX'
+      THK_A=.FALSE.
+      NEWF_A=.TRUE.
+      NC_A=0
+!
+      FG_FREQ_MATCH=.TRUE.
+      FG_ORD_SWEEP=.TRUE.
+      DO_KNOP_REFRESH=.TRUE.
+      FREEZE_I_NEXT=.FALSE.
+      FG_ORD_AITKEN=.FALSE.
+      FG_ORD_AA=.FALSE.
+      FG_ORD_P2DAMP=.FALSE.
+      KN_RAY_TOL=2.0E-3_LDP
+      KN_RAY_MAXPASS=60
+      KN_RAY_BULK_TOL=0.0_LDP
+      KN_RAY_OMEGA=1.0_LDP
+      KN_RAY_STALL=0.98_LDP
+      KN_RAY_HOTPASSES=0
+      KN_HOT_TOTAL_PASSES=0
+      KN_ADAPT_RELAX=.FALSE.
+      INEXT_RELAX=0.5_LDP
+      KN_RAY_PACK_MB=2048.0_LDP
+      NONMONO_INEXT_CAP=1.0E+20_LDP
+      FG_COMMIT_CONV=.TRUE.
+      FG_COMMIT_NC=0.05_LDP
+      FG_COMMIT_JUMP=50.0_LDP
+      FG_DIV_HEAL_CAP=1.0E+6_LDP
+      FG_BULK_CONTR=.FALSE.
+      FG_ADAPT_OMEGA_V2=.FALSE.
+      KN_DBG_LS=LSDBG
+      ALLOCATE(KN_DBG_CHIH(NDA,NCFA),KN_DBG_Q(NDA,NCFA), &
+      KN_DBG_DCHR(NDA,NCFA),KN_DBG_DTAU(NDA,NCFA), &
+      KN_DBG_SPM(NDA,NCFA),KN_DBG_SPP(NDA,NCFA), &
+      KN_DBG_WX(NDA,NCFA),KN_DBG_DLNM(NDA,NCFA), &
+      KN_DBG_IMPR(NDA,NCFA),KN_DBG_IPPR(NDA,NCFA), &
+      KN_DBG_NM(NDA,NCFA),KN_DBG_KC1(NDA,NCFA),KN_DBG_KC2(NDA,NCFA), &
+      KN_DBG_A0(NDA,NCFA),KN_DBG_A1(NDA,NCFA),KN_DBG_A2(NDA,NCFA), &
+      KN_DBG_A3(NDA,NCFA),KN_DBG_A4(NDA,NCFA),KN_DBG_SR(NDA,NCFA), &
+      KN_DBG_INEXTM(NDA,NCFA),KN_DBG_INEXTP(NDA,NCFA), &
+      KN_DBG_NDON(NDA,NCFA),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1alloc_fail=1'
+        RETURN
+      END IF
+      KN_DBG_CHIH=-1.0_LDP; KN_DBG_Q=-1.0_LDP; KN_DBG_DCHR=-1.0_LDP
+      KN_DBG_DTAU=-1.0_LDP; KN_DBG_SPM=-1.0_LDP; KN_DBG_SPP=-1.0_LDP
+      KN_DBG_WX=-1.0_LDP; KN_DBG_DLNM=-1.0_LDP
+      KN_DBG_IMPR=-1.0_LDP; KN_DBG_IPPR=-1.0_LDP
+      KN_DBG_NM=-1; KN_DBG_KC1=-1; KN_DBG_KC2=-1
+      KN_DBG_A0=-1.0_LDP; KN_DBG_A1=-1.0_LDP; KN_DBG_A2=-1.0_LDP
+      KN_DBG_A3=-1.0_LDP; KN_DBG_A4=-1.0_LDP; KN_DBG_SR=-1.0_LDP
+      KN_DBG_INEXTM=-1.0_LDP; KN_DBG_INEXTP=-1.0_LDP
+      KN_DBG_NDON=0
+!
+! In-sweep great iterations. On the last iteration, dump the
+! production I_M/I_P intensities for the selected ray after each
+! frequency call so the python re-march can be validated against the
+! same solve state that produced the KN_DBG coefficients.
+!
+      NITER=8
+      DO ITR=1,NITER
+        DO L=1,NCFA
+          IF(L .LT. NCFA)THEN
+            CALL SET_FG_NU_NEXT(FRQV(L+1))
+          ELSE
+            CALL SET_FG_NU_NEXT(FRQV(NCFA)*0.75_LDP)
+          END IF
+          INIT_A=(ITR .EQ. 1 .AND. L .EQ. 1)
+          IF(ITR .GT. 1 .AND. L .EQ. 1)INIT_A=.TRUE.
+          CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L),ESC_M(1,L), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NRAYS,NDA,SGT,NCFA)
+          IF(ITR .EQ. NITER)THEN
+            DO I=1,NI_RAY(LSDBG)
+              WRITE(*,'(A,I3,A,I3,A,2ES16.8)')'IMP ',L,' ',I,' ', &
+      I_M(I,LSDBG),I_P(I,LSDBG)
+            END DO
+          END IF
+        END DO
+      END DO
+!
+      DO K=1,N_COMP
+        DO L=1,NCFA-1
+          WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'SWSTOR ',K,' ',L,' ', &
+      I_P_DEPTH_NEXT(K,1,L),I_M_DEPTH_NEXT(K,1,L)
+        END DO
+      END DO
+      DO I=1,NDA
+        DO L=1,NCFA
+          WRITE(*,'(A,I2,A,I2,A,11ES16.8)')'DBS ',I,' ',L,' ', &
+      KN_DBG_CHIH(I,L),KN_DBG_Q(I,L),KN_DBG_DCHR(I,L), &
+      KN_DBG_DTAU(I,L),KN_DBG_SPM(I,L),KN_DBG_SPP(I,L), &
+      KN_DBG_WX(I,L),KN_DBG_DLNM(I,L),KN_DBG_IMPR(I,L), &
+      KN_DBG_IPPR(I,L),KN_DBG_SR(I,L)
+          WRITE(*,'(A,I2,A,I2,A,3I6)')'DBSI ',I,' ',L,' ', &
+      KN_DBG_NM(I,L),KN_DBG_KC1(I,L),KN_DBG_KC2(I,L)
+          WRITE(*,'(A,I2,A,I2,A,5ES16.8)')'DBSA ',I,' ',L,' ', &
+      KN_DBG_A0(I,L),KN_DBG_A1(I,L),KN_DBG_A2(I,L), &
+      KN_DBG_A3(I,L),KN_DBG_A4(I,L)
+          WRITE(*,'(A,I2,A,I2,A,I6)')'DBSD ',I,' ',L,' ', &
+      KN_DBG_NDON(I,L)
+          WRITE(*,'(A,I2,A,I2,A,2ES16.8)')'DBSN ',I,' ',L,' ', &
+      KN_DBG_INEXTM(I,L),KN_DBG_INEXTP(I,L)
+        END DO
+      END DO
+      DO K=1,NDA
+        WRITE(*,'(A,I2,A,2I6)')'JMAP ',K,' ',J_PNT(K,LSDBG), &
+      COMP_DEPTH_IDX(K)
+      END DO
+      DO I=1,NI_RAY(LSDBG)
+        WRITE(*,'(A,I2,A,ES16.8)')'GAMV ',I,' ',GAM(I,LSDBG)
+      END DO
+!
+! ---- P1-T1 finite-difference probe (diagnostic only) ----
+! Re-run the frequency sweep with FREEZE_I_NEXT=T so the lagged I_NEXT
+! store stays fixed at its post-warmup value. For each compressing
+! cell, perturb the store elements it reads and re-solve the same
+! frequency with NEW_FREQ=F to measure dI_formal/dI_NEXT. JFNK_IN_EVAL
+! keeps the L=1 INIT from disarming the freeze. I_*_STORE (the
+! previous-frequency upwind donor) is restored after each frequency so
+! the next frequency's I_*_PREV stays clean.
+!
+      ALLOCATE(IM0(SIZE(I_M,1),SIZE(I_M,2)),IP0(SIZE(I_P,1),SIZE(I_P,2)),&
+      SP0(SIZE(I_P_STORE,1),SIZE(I_P_STORE,2)),SM0(SIZE(I_M_STORE,1),&
+      SIZE(I_M_STORE,2)),KQ0(NDA),KIM0(NDA),KIP0(NDA),KKC10(NDA),&
+      KKC20(NDA),KNM0(NDA),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1fd_alloc_fail=1'
+        RETURN
+      END IF
+      JFNK_IN_EVAL=.TRUE.
+      FREEZE_I_NEXT=.TRUE.
+      DO L=1,NCFA
+        IF(L .LT. NCFA)THEN
+          CALL SET_FG_NU_NEXT(FRQV(L+1))
+        ELSE
+          CALL SET_FG_NU_NEXT(FRQV(NCFA)*0.75_LDP)
+        END IF
+        INIT_A=(L .EQ. 1)
+        CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L),ESC_M(1,L), &
+    VA,SGA,RA,PA, &
+    JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+    INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
+    IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+    METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NRAYS,NDA,SGT,NCFA)
+        IM0=I_M; IP0=I_P; SP0=I_P_STORE; SM0=I_M_STORE
+!
+! Snapshot the KN_DBG diagnostics for this frequency before any
+! perturbation: each re-solve overwrites KN_DBG(:,L) for every cell,
+! so the baseline values must be captured up front.
+!
+        KQ0=KN_DBG_Q(:,L); KIM0=KN_DBG_INEXTM(:,L)
+        KIP0=KN_DBG_INEXTP(:,L); KKC10=KN_DBG_KC1(:,L)
+        KKC20=KN_DBG_KC2(:,L); KNM0=KN_DBG_NM(:,L)
+!
+! Probe compressing cells (Q<0 selects the I_NEXT branch). For each,
+! perturb the lagged store coherently and re-solve at fixed frequency.
+!
+        DO I=1,NI_RAY(LSDBG)
+          IF(KQ0(I) .LT. -0.3_LDP .AND. KKC10(I) .GE. 1)THEN
+            FS=FREQ_IDX_ITER+KNM0(I)
+            IF(FS .LT. 1 .OR. FS .GT. UBOUND(I_P_DEPTH_NEXT,3))THEN
+              WRITE(*,'(A,I3,A,I3,A,I3,A,I3)')'FDSKIP ',L,' ',I,' ', &
+          FS,' ',UBOUND(I_P_DEPTH_NEXT,3)
+              CYCLE
+            END IF
+            KC=KKC10(I); SL=KKC20(I)
+            IF(KC .LT. 1 .OR. KC .GT. N_COMP)THEN
+              WRITE(*,'(A,I3,A,I3,A,I3)')'FDSKIP ',L,' ',I,' ',KC
+              CYCLE
+            END IF
+            IF(SL .LT. 1 .OR. SL .GT. N_COMP)SL=0
+            DO IA=1,2
+              AMPF=10.0_LDP**(-(IA+3))
+!
+! Direction P: perturb I_P_DEPTH_NEXT, measure I_P response.
+!
+              EPSV=AMPF*MAX(ABS(IP0(I,LSDBG)),1.0E-30_LDP)
+              OLDV=I_P_DEPTH_NEXT(KC,LSDBG,FS)
+              I_P_DEPTH_NEXT(KC,LSDBG,FS)=OLDV+EPSV
+              IF(SL .GE. 1 .AND. SL .NE. KC) &
+          I_P_DEPTH_NEXT(SL,LSDBG,FS)=I_P_DEPTH_NEXT(SL,LSDBG,FS)+EPSV
+              CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L), &
+          ESC_M(1,L),VA,SGA,RA,PA,JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A, &
+          HMID_A,NMID_A,INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA,IBND_A,DBB_A, &
+          IC_A,VDOP_A,VDOP_F,REXT_A,METH_A,SOPT_A,THK_A,.FALSE., &
+          .FALSE.,NC_A,NRAYS,NDA,SGT,NCFA)
+              DIPV=I_P(I,LSDBG)-IP0(I,LSDBG)
+              IMX=MAXLOC(ABS(I_P(1:NI_RAY(LSDBG),LSDBG)- &
+          IP0(1:NI_RAY(LSDBG),LSDBG)),DIM=1)
+              RMAX=MAXVAL(ABS(I_P(1:NI_RAY(LSDBG),LSDBG)- &
+          IP0(1:NI_RAY(LSDBG),LSDBG)))
+              I_P_DEPTH_NEXT(KC,LSDBG,FS)=OLDV
+              IF(SL .GE. 1 .AND. SL .NE. KC) &
+          I_P_DEPTH_NEXT(SL,LSDBG,FS)=I_P_DEPTH_NEXT(SL,LSDBG,FS)-EPSV
+              GAIN=DIPV/EPSV
+              WRITE(*,*)'FDRP',L,I,FS,EPSV,KNM0(I),KQ0(I),KIP0(I), &
+          IP0(I,LSDBG),DIPV,GAIN,IMX,RMAX
+!
+! Direction M: perturb I_M_DEPTH_NEXT, measure I_M response.
+!
+              EPSV=AMPF*MAX(ABS(IM0(I,LSDBG)),1.0E-30_LDP)
+              OLDV=I_M_DEPTH_NEXT(KC,LSDBG,FS)
+              I_M_DEPTH_NEXT(KC,LSDBG,FS)=OLDV+EPSV
+              IF(SL .GE. 1 .AND. SL .NE. KC) &
+          I_M_DEPTH_NEXT(SL,LSDBG,FS)=I_M_DEPTH_NEXT(SL,LSDBG,FS)+EPSV
+              CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L), &
+          ESC_M(1,L),VA,SGA,RA,PA,JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A, &
+          HMID_A,NMID_A,INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA,IBND_A,DBB_A, &
+          IC_A,VDOP_A,VDOP_F,REXT_A,METH_A,SOPT_A,THK_A,.FALSE., &
+          .FALSE.,NC_A,NRAYS,NDA,SGT,NCFA)
+              DIMV=I_M(I,LSDBG)-IM0(I,LSDBG)
+              IMX=MAXLOC(ABS(I_M(1:NI_RAY(LSDBG),LSDBG)- &
+          IM0(1:NI_RAY(LSDBG),LSDBG)),DIM=1)
+              RMAX=MAXVAL(ABS(I_M(1:NI_RAY(LSDBG),LSDBG)- &
+          IM0(1:NI_RAY(LSDBG),LSDBG)))
+              I_M_DEPTH_NEXT(KC,LSDBG,FS)=OLDV
+              IF(SL .GE. 1 .AND. SL .NE. KC) &
+          I_M_DEPTH_NEXT(SL,LSDBG,FS)=I_M_DEPTH_NEXT(SL,LSDBG,FS)-EPSV
+              GAIN=DIMV/EPSV
+              WRITE(*,*)'FDRM',L,I,FS,EPSV,KNM0(I),KQ0(I),KIM0(I), &
+          IM0(I,LSDBG),DIMV,GAIN,IMX,RMAX
+            END DO
+          END IF
+        END DO
+        I_P_STORE=SP0; I_M_STORE=SM0
+      END DO
+      FREEZE_I_NEXT=.FALSE.
+      JFNK_IN_EVAL=.FALSE.
+      DEALLOCATE(IM0,IP0,SP0,SM0,KQ0,KIM0,KIP0,KKC10,KKC20,KNM0)
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+      END SUBROUTINE DRV_P1T1
 !
 ! ----------------------------------------------------------------------
 ! Omega-pool probe (audit Issues 2 + 5, tests T25-T28). Feeds
