@@ -217,6 +217,100 @@ Status legend: `[x]` done+verified, `[~]` in progress, `[ ]` open.
 
 ---
 
+## KNOP observer-frame convergence audit (2026-11-11)
+
+Full report: `CMF_FLUX_KNOP_CONVERGENCE_AUDIT.md`. Read-only source
+audit plus inspection of existing run products; no production solver
+changes made.
+
+### T11 — KNOP OBS `I_NEXT` trace and checkpoint audit — DONE (source)
+- Traced `FG_J_CMF_NONMONO_V1` slot convention (slot `s` = frequency
+  `s+1`), compressing upwind read at `FREQ_IDX_ITER+NM_RAY`, sweep
+  write-back relaxation, `SET_FG_GS_OBS_GRID` +
+  `RESTORE_FG_INEXT_OBS` remap (VER>=3, fingerprint-validated,
+  log-linear in frequency), `FG_KNOP_REFRESH_V1` guards and per-ray
+  `KNOP_RAY_SOLVE_V1` (MATCH_FREQ machinery present).
+- Confirmed the refresh is mathematically the Paper II Gauss-Seidel
+  re-solve on captured `KN_CHI_EXT`/`KN_ETA_EXT`.
+
+### T12 — NUM_ES gating defect — CONFIRMED (source), fix open
+- `NUM_ES_ITERATIONS=1` under `DO_NONMONO_KNOP=T` passes every
+  Fortran check (`rd_cmf_flux_controls.f` KNOP block,
+  `check_cmf_flux_param_consis.f`); the refresh gate
+  `ES_COUNTER .LT. NUM_ES_ITERATIONS` then never fires, so the
+  spectrum is produced on a cold `I_NEXT`. Only the Python pipeline
+  (`prepare_CMF_PARAM.py` companion `NUM_ES>=2`) prevents it;
+  `RD_COHERENT_ES` forcing `NUM_ES=1` hits the same hole.
+- Acceptance for fix: `NUM_ES<2` under KNOP either STOPs (fail
+  closed) or auto-bumps with a banner; a regression test exercises
+  the check; OBS run with `NUM_ES=1` cannot silently produce a
+  cold-field spectrum.
+
+### T13 — Missing `FGINEXT_GS` for SOB populations — CONFIRMED
+- `I_P_DEPTH_NEXT` exists only inside `FG_J_CMF_NONMONO_V1`; SOB
+  `USE_LAM_ES=T` populations (V13) never allocate it, so
+  `DUMP_FG_INEXT_GS` writes nothing and every KNOP OBS render of a
+  SOB model cold-starts. Verified: no `FGINEXT_GS` in
+  `m15_2p82d_VAL_sob_jfnk/cmfgen/2.82days/`.
+- Acceptance: either document KNOP-OBS-on-SOB as cold-start
+  diagnostic only (C4), or define a warm-start path (e.g. accept a
+  `MOMJNXT_GS`/equivalent field or run one population-side KNOP
+  refresh sweep before OBS).
+
+### T14 — Solver-match gap for KNOP+USE_LAM_ES=F — CONFIRMED (source)
+- OBS forces `USE_LAM_ES=T` under `DO_NONMONO_KNOP`, so populations
+  converged on `MOM_J_CMF_NONMONO_V1` have no matched OBS renderer.
+- Acceptance: decide policy - extend OBS KNOP to allow the moment
+  path, or reject `DO_NONMONO_KNOP+USE_LAM_ES=F` at the VADAT reader
+  for population runs intended for OBS rendering. Document either
+  way in the Obsidian vault.
+
+### T15 — Runtime A/B on `m15_2p82d_VAL_sob_jfnk` — PARTIALLY DONE
+- Existing pair (2026-11-10): `obs/` (KNOP=T, BLANK, NUM_ES=3,
+  cold start) vs `obs_blank/` (stock, BLANK, NUM_ES=2): median
+  OBSFLUX intensity 4.63e4 vs 4.41e5 (~9.5x suppression), line
+  peaks comparable - reproduces the reported symptom.
+- Open: NUM_ES=2 and NUM_ES=5 KNOP variants (TEST B/D) on the same
+  populations; SOB-matched render (`obs_sob/` pattern under
+  `m15_2p82d_FRESH_sob`); per the audit's metric list (continuum in
+  line-free windows, RLUMST luminosity, line peak/EW/FWHM, ES wings,
+  CMF J spot checks, I_NEXT max/RMS change, edge-clamp counts).
+- Acceptance: continuum recovery vs NUM_ES curve; if it does not
+  recover, escalate to S1/S2 suspects (refresh residual export
+  needed first - see T16).
+
+### T16 — Export KNOP I_NEXT residual diagnostics to OBS — OPEN
+- `GET_FG_GS_MATURITY` already exports `I_NEXT_GS_OK`,
+  `FG_GS_MAXCHG`, `FG_GS_NCONV`, `FG_RF_DCHG`, `FG_SW_NCONV`, exit
+  census; only the population driver consumes it. Add a post-ES-loop
+  print in `cmf_flux_sub_v5.f` under `DO_NONMONO_KNOP`.
+- Acceptance: OBS log shows the maturity block; distinguishes
+  "refresh never ran" / "ran, unconverged" / "converged" for T15
+  interpretation. Regression: unit test on getter + live OBS run.
+
+### T17 — Adaptive KNOP refresh — PROPOSED, gated on T15/T16
+- Replace fixed `ES_COUNTER < NUM_ES` gate with residual-driven
+  refresh loop (`R_NEXT` over all rays/freqs/depths, physically
+  justified `I_FLOOR` e.g. the existing `1E-4*ray_peak` significance
+  floor). Requires Pillar-8 validation ladder first; behaviour
+  change, new control key, Obsidian update.
+
+### T18 — KNOP-population end-to-end render — BLOCKED
+- No converged KNOP population exists (all validation runs
+  63-75%). The intended warm-start path (valid `FGINEXT_GS` ->
+  `RESTORE_FG_INEXT_OBS` remap) is untested on a real converged
+  model. Depends on the population-side convergence work, not on
+  this audit.
+
+### T19 — Physical validation ladder for KNOP formal solve — OPEN
+- Continuum-only transport, single/overlapping lines, velocity
+  reversal, `SIGMA_TRUE < -1` compression, multiple resonances/ray,
+  coherent/incoherent ES, frequency-grid refinement; luminosity
+  conservation and no artificial `|GAM|/dLOG_NU` sink vs the Knop
+  Paper I/II reference solution. Feeds T6 and T17.
+
+---
+
 ## Standing constraints
 
 - Preserve stock monotonic behaviour; new controls default to existing
