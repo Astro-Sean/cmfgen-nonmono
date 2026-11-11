@@ -1662,6 +1662,11 @@
       INTEGER IRFI(3)
       REAL(KIND=LDP) OMV(3)
       CHARACTER(LEN=8) VNAME(3)
+      CHARACTER(LEN=32) CARG
+!
+! CNAME is not host-associated into this routine, so read the case
+! name locally; 'p1t1bf' selects the FREEZE_I_PREV ablation below.
+      CALL GETARG(1,CARG)
 !
       LSDBG=1
       NRAYS=1
@@ -1733,7 +1738,7 @@
 ! (I_PREV stays at its INIT-zeroed value). Comparing the same-slot
 ! entries against the normal 'p1t1b' run isolates whether those edges
 ! are I_PREV-mediated. Diagnostic only; production default is .FALSE.
-      FREEZE_I_PREV=(CNAME .EQ. 'p1t1bf')
+      FREEZE_I_PREV=(CARG .EQ. 'p1t1bf')
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
@@ -2015,6 +2020,7 @@
       LWK8=8*NX
 !
       DO IV=1,3
+        IF(CARG .EQ. 'p1t1bf' .AND. IV .NE. 2) CYCLE
         INEXT_RELAX=OMV(IV)
         CALL MAP_F(X0V,FX0,IRFI(IV))
         NEVAL=NEVAL+1
@@ -2168,6 +2174,7 @@
       OPEN(97,FILE='p1t1b_nl.txt',STATUS='REPLACE')
       DO IRF=0,1
       DO IV=1,3
+        IF(CARG .EQ. 'p1t1bf' .AND. IV .NE. 2) CYCLE
 !
 ! Build the perturbation vector for this type.
 !
