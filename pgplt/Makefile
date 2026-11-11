@@ -115,6 +115,14 @@ $(LIB)(get_line_id.o)        : get_line_id.f      $(LIB)(line_id_mod.o)  $(COL)
 $(LIB)(rd_line_ids.o)        : rd_line_ids.f      $(LIB)(line_id_mod.o)  $(COL) 
 
 $(LIB)(gramon_pgplot.o)         : gramon_pgplot.f       $(LIB)(mod_curve_data.o) $(LIB)(line_id_mod.o) $(GEN) $(COL) 
+# gramon_pgplot.f is one ~3.6k-line subroutine; ifort -O3 spends
+# ~5 min in the optimizer where -O2 takes ~3 s, and interactive
+# plotting sees no gain.  Compile this object a level down; every
+# other pgplt source keeps $(FG).  FG_O2 is expanded at parse time
+# so the target-specific FG below cannot recurse into itself, and
+# branches whose FG has no -O3 (gcc -O, debug -O0) are untouched.
+FG_O2 := $(subst -O3,-O2,$(FG))
+$(LIB)(gramon_pgplot.o): FG = $(FG_O2)
 $(LIB)(curve.o)                 : curve.f                  $(LIB)(mod_curve_data.o) $(GEN)
 $(LIB)(curve_lab.o)             : curve_lab.f              $(LIB)(mod_curve_data.o) $(GEN)
 $(LIB)(vectorpen.o)             : vectorpen.f              $(LIB)(mod_curve_data.o) $(GEN)
