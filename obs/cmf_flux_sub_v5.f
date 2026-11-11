@@ -384,6 +384,17 @@
 	LOGICAL LST_ITERATION
 	LOGICAL LST_DEPTH_ONLY
 !
+! KNOP I_NEXT maturity export (GET_FG_GS_MATURITY) for the post-ES
+! diagnostic under DO_NONMONO_KNOP.
+!
+	LOGICAL GS_OK_OBS
+	REAL(KIND=LDP) GS_CHG_OBS,GS_MAXCHG_OBS
+	REAL(KIND=LDP) GS_SW_MAXCHG_OBS,GS_RF_DCHG_OBS
+	INTEGER GS_CAP_OBS,GS_CAPPED_OBS,GS_NDIV_OBS,GS_NRAY_OBS
+	INTEGER*8 GS_NBAD_OBS,GS_NTOT_OBS,GS_NCONV_OBS,GS_NBAD_BLK_OBS
+	INTEGER*8 GS_SW_NCONV_OBS,GS_NSTAL_OBS,GS_NPLAT_OBS
+	INTEGER*8 GS_SW_CAPPED_OBS,GS_SW_CAPTOT_OBS,GS_RF_CAPPED_OBS
+!
 !
 !
 ! X-ray variables.
@@ -2311,6 +2322,36 @@
 	END IF
 !
 	END DO		!ES_COUNTER
+!
+! KNOP I_NEXT maturity diagnostic (11-Nov-2026): the OBS path has no
+! great-iteration loop, so the lagged compressing-upwind field only
+! matures through FG_KNOP_REFRESH_V1 between ES sweeps. Print the
+! same census the population driver reads (GET_FG_GS_MATURITY) so a
+! cold or unconverged field shows up in the OBS log instead of only
+! as a suppressed continuum in OBSFLUX. Diagnostic only; no solver
+! state is changed. Gated to DO_NONMONO_KNOP -- the only OBS route
+! that runs FG_J_CMF_NONMONO_V1. Stock path unchanged.
+! edited by Sean Brennan
+!
+	IF(DO_NONMONO_KNOP)THEN
+	  CALL GET_FG_GS_MATURITY(GS_OK_OBS,GS_CHG_OBS,GS_CAP_OBS,
+	1    GS_MAXCHG_OBS,GS_CAPPED_OBS,GS_NBAD_OBS,GS_NTOT_OBS,
+	2    GS_NCONV_OBS,GS_NDIV_OBS,GS_NRAY_OBS,GS_NBAD_BLK_OBS,
+	3    GS_SW_MAXCHG_OBS,GS_SW_NCONV_OBS,GS_RF_DCHG_OBS,
+	4    GS_NSTAL_OBS,GS_NPLAT_OBS,
+	5    GS_SW_CAPPED_OBS,GS_SW_CAPTOT_OBS,GS_RF_CAPPED_OBS)
+	  WRITE(LUER,'(/,A)')
+	1    ' ------------- KNOP I_NEXT maturity (OBS) -------------'
+	  WRITE(LUER,'(A,L1)')'    checkpoint restored     : ',GS_OK_OBS
+	  WRITE(LUER,'(A,ES12.4)')'    file max rel change  : ',GS_CHG_OBS
+	  WRITE(LUER,'(A,I18)')'    file cap/bad writes : ',GS_CAP_OBS
+	  WRITE(LUER,'(A,ES12.4)')'    sweep max rel change: ',GS_MAXCHG_OBS
+	  WRITE(LUER,'(A,I18)')'    sweep cap/bad writes: ',GS_CAPPED_OBS
+	  WRITE(LUER,'(A,I18)')'    cells >50% change   : ',GS_NCONV_OBS
+	  WRITE(LUER,'(A,ES12.4)')'    refresh resid dchg : ',GS_RF_DCHG_OBS
+	  WRITE(LUER,'(A,I18)')'    sweep cells >50%    : ',GS_SW_NCONV_OBS
+	  WRITE(LUER,'(A)')' ----------------------------------------------------'
+	END IF
 !
 !
 !
