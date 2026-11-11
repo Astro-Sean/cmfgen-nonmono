@@ -641,6 +641,25 @@
 	      WRITE(LUER,*)'FG_J_CMF_NONMONO_V1.'
 	      STOP
 	    END IF
+!
+! The lagged I_NEXT field only matures through FG_KNOP_REFRESH_V1,
+! which runs between ES sweeps (cmf_flux_sub_v5.f). NUM_ES<2 gives
+! a single cold-started sweep in which |GAM|/dLOG_NU acts as an
+! opacity sink and collapses the continuum; RD_COHERENT_ES forces
+! NUM_ES_ITERATIONS=1 at run time, the same hole through another
+! key. Fail closed rather than emit a wrong spectrum; the pipeline
+! companion already sets NUM_ES>=2, so this only catches
+! hand-edited params.
+!
+	    IF(NUM_ES_ITERATIONS .LT. 2 .OR. RD_COHERENT_ES)THEN
+	      WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
+	      WRITE(LUER,*)'DO_NONMONO_KNOP=T requires NUM_ES>=2 and'
+	      WRITE(LUER,*)'COH_ERENT_ES=F.'
+	      WRITE(LUER,*)'I_NEXT is only refreshed between ES'
+	      WRITE(LUER,*)'iterations; NUM_ES<2 or COH_ERENT_ES=T'
+	      WRITE(LUER,*)'leaves the lagged field cold-started.'
+	      STOP
+	    END IF
 	  END IF
 !
 !
