@@ -9,14 +9,29 @@ question.
 
 ## P1 - field non-contraction (highest value)
 
-- **P1-T1** Finite-difference `I_NEXT` sensitivity on the argmax cells.
-  Perturb `I_NEXT` at the worst residual cells (`d=3-5, r~80, f~1249`;
-  `worst cell i=109 l=1469`, `worst ray=12 ni=139`) by a small
-  relative amount, re-run one refresh, and measure `dI_solved`.  Compare
-  the measured gain to the analytical `|Q|`.  This decides whether the
-  plateau is intrinsic non-contraction (`|Q|->1`) or slow contraction.
-  Requires a debug build or a targeted dump of `GAM/GAM_MAG/CHI/DLN/Q/
-  I_NEXT/S` at those cells - none exists today.
+- **P1-T1** Finite-difference `I_NEXT` sensitivity — **DONE 11-Nov-2026**
+  on a manufactured `|Q|->1` compressing model (`p1t1` driver case).
+  Confirmed by **two independent methods**: (a) `p1t1_analyze.py`
+  re-march validated to ~1e-8 against production `I_M`/`I_P`, and (b) a
+  direct production-solver store perturbation (`FREEZE_I_NEXT=T` +
+  `NEW_FREQ=F` re-solve, two amplitudes).  Result: outward
+  formal-solve gain `g=dI/dI_NEXT -> ~0.97` at `|Q|=0.998` (vs <=7e-2
+  all other channels, inward `~1.3e-3`); effective store gain
+  `(1-relax)+relax*g ~ 0.985` at `INEXT_RELAX=0.5` — essentially
+  non-contractive.  Strong-coupling hypothesis **supported** for the
+  outward `I_P` channel.  L=1 (bluest freq, `I_*_PREV=0` boundary) shows
+  a non-local outward response (peak depth I=3) and an
+  amplitude-independent inward step — flagged as a boundary artefact,
+  not the smooth mode.  See `KNOP_P1_T1_FIELD_SENSITIVITY.md`.  Remaining
+  optional refinement: repeat on production `FRESH_knop` argmax cells
+  (`d=3-5, f~1249`) with a warm store to confirm `g` there.
+- **P1-T1b** Global lagged-map eigenvalue.  The P1-T1 gain `~0.985` is a
+  local single-cell estimate.  Build the dominant-eigenvalue estimate
+  over the full `(compressing cell × frequency × ray)` store — either a
+  matrix-free power iteration through the production sweep or a
+  coherent multi-cell perturbation — to test whether the *network*
+  gain (not just the local cell) approaches or exceeds 1 once
+  population feedback and cross-frequency store sharing are included.
 - **P1-T2** Add a per-cell coefficient dump (argmax cell's
   `V/R, SIGMA, MU, GAM, CHI, CHI_HAT, DLN, Q, I_NEXT, S`) to the
   `KNOP FIELD` block or a side file, gated by a debug flag, so the
