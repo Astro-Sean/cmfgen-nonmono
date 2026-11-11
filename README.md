@@ -45,6 +45,14 @@ follows the stock upstream path.
   `ITER_LEDGER` row per great iteration on the non-monotonic paths,
   recording solver call counts, refresh and stage timings,
   freeze/release events and memory use.
+- **ES accelerated Lambda iteration** (`DO_ES_ALI`, `DO_ES_ALI_BA`):
+  an Olson-Auer-Buchler Jacobi step on the stored approximate-Lambda
+  diagonal converges the coherent electron-scattering J loop in a
+  few passes instead of the ~2 Lambda steps per iteration the stock
+  update allows, with an optional matching factor for the continuum
+  BA Jacobian. `DO_ES_ALI_BA` requires `DO_ES_ALI`; denominator
+  floor activations are counted in `ES_ALI_NFLOOR` and
+  `ES_ALI_BA_NFLOOR`.
 - General correctness fixes in the population solve, the
   observed-frame tools and the build.
 
