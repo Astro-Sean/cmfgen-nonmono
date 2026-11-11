@@ -1917,38 +1917,57 @@
 	LOGICAL DO_SOB_FG_KNOP
 !
 ! DO_ES_ALI (VADAT [DO_ES_ALI], default F): accelerated (ALI)
-! convergence of coherent electron scattering inside the USE_LAM_ES
-! formal-solve loop in COMP_J_BLANK. Active only on the
-! DO_NONMONO_SOB + USE_LAM_ES=T + COHERENT_ES path with the V13
-! formal solver (not DO_SOB_FG_KNOP). The stock loop sets RJ=TC
-! (plain Lambda iteration) and exits on the Eddington-factor test
-! alone, so an electron-scattering dominated atmosphere gets ~2
-! Lambda steps per great iteration. With DO_ES_ALI=T each pass
-! applies an Olson-Auer-Buchler Jacobi update built on the V13
-! stored diagonal (GET_FG13_ALO_DIAG) and the loop keeps iterating
-! until the RJ update is below ES_ALI_TOL or J_IT_COUNTER reaches
-! ES_ALI_MAX (clamped to 20, the existing forced exit). Default F
-! leaves the Lambda update and the exit test untouched.
+! convergence of coherent electron scattering inside the J loop in
+! COMP_J_BLANK. Two gates cover the nonmono routes: ES_ALI_ON on
+! USE_LAM_ES=T (V13 solver under DO_NONMONO_SOB, KNOP solver under
+! DO_NONMONO_KNOP; excluded under DO_SOB_FG_KNOP) and ES_ALI_MOM_ON
+! on USE_LAM_ES=F (MOM_J_CMF_NONMONO_V1 diagonal). The stock loop
+! sets RJ=TC (plain Lambda iteration) and exits on the
+! Eddington-factor test alone, so an electron-scattering dominated
+! atmosphere gets ~2 Lambda steps per great iteration. With
+! DO_ES_ALI=T each pass applies an Olson-Auer-Buchler Jacobi
+! update built on the solver's stored diagonal
+! (GET_FG13_ALO_DIAG / GET_FG_ALO_DIAG / GET_MOM_ALO_DIAG) and the
+! loop keeps iterating until the RJ update is below ES_ALI_TOL or
+! J_IT_COUNTER reaches ES_ALI_MAX (clamped to 20, the existing
+! forced exit). Default F leaves the Lambda update and the exit
+! test untouched.
 !
 	LOGICAL DO_ES_ALI
 	REAL(KIND=LDP) ES_ALI_TOL
 	INTEGER ES_ALI_MAX
 !
+! ES_ALI_NFLOOR / ES_ALI_BA_NFLOOR: run-total census of
+! denominator-floor activations in the two OAB factors. The J-loop
+! DEN floor is hardcoded 0.01 in COMP_J_BLANK (up to a 100x
+! accelerated step where DJDETA*chi_scat -> 1); the BA side floors
+! at ES_ALI_BA_MIN (default 0.1, up to 10x). The asymmetry is
+! deliberate pending E-matrix evidence (ES_ALI_BA_AUDIT.md D6) --
+! the counters exist so a run can show whether either floor ever
+! engages on a real model. Incremented per (depth,pass) hit;
+! printed in the per-sweep ES_ALI summary as running totals.
+!
+	INTEGER :: ES_ALI_NFLOOR=0
+	INTEGER :: ES_ALI_BA_NFLOOR=0
+!
 ! DO_ES_ALI_BA (VADAT [DO_ES_ALI_BA], default F): apply the same
 ! Olson-Auer-Buchler scattering correction DO_ES_ALI uses inside the
-! J loop to the continuum Jacobian in DO_VAR_CONT. The stored
-! diagonal is the bare-Lambda response dJ/d(ETA,CHI); after the
-! converged ES iterate the effective response is larger by
-! 1/(1 - DJDETA*chi_scat). Without the factor the BA linearization
-! under-corrects every iteration -- a fixed-ratio decay of the
-! dominant error mode (measured ~0.97/it on the 2.82d SOB
-! model). ES_ALI_BA_MIN floors the amplification denominator
-! (default 0.1) so a diagonal Lambda* that overestimates the local
-! coupling cannot produce an unbounded step. Active only where the
-! ALO fill runs (DO_FG13_ALO or DO_SOB_FG_KNOP paths); the
-! correction is applied per depth to every filled band, so it
-! composes with DO_FG13_ALO_TRI. Default F leaves the
-! linearization unchanged.
+! J loop to the continuum Jacobian in DO_VAR_CONT. Requires
+! DO_ES_ALI=T (CHECK_PARAM_CONSISTENCY stops otherwise): the factor
+! presumes the ES-relaxed J iterate that only the ES-ALI J-loop
+! update produces. The stored diagonal is the bare-Lambda response
+! dJ/d(ETA,CHI); after the converged ES iterate the effective
+! response is larger by 1/(1 - DJDETA*chi_scat). Without the factor
+! the BA linearization under-corrects every iteration -- a
+! fixed-ratio decay of the dominant error mode (measured ~0.97/it
+! on the 2.82d SOB model). ES_ALI_BA_MIN floors the amplification
+! denominator (default 0.1, cap 10x) where the J-loop DEN floor is
+! 0.01 (cap 100x) -- the asymmetry is deliberate pending
+! E-matrix evidence; ES_ALI_BA_NFLOOR counts activations.
+! Active only where the ALO fill runs (DO_FG13_ALO or
+! DO_SOB_FG_KNOP paths); the correction is applied per depth to
+! every filled band, so it composes with DO_FG13_ALO_TRI. Default F
+! leaves the linearization unchanged.
 !
 	LOGICAL DO_ES_ALI_BA
 	REAL(KIND=LDP) ES_ALI_BA_MIN
