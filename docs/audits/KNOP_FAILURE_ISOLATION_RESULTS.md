@@ -337,12 +337,117 @@ for the two new diagnostic call sites).
 
 PENDING RUNTIME: production-geometry census values from arms R/M/C.
 
-## 5. Results for R, M and C - PENDING RUNTIME
+## 5. Results for R, M and C - IN PROGRESS (refreshes 1-3, its 125-127)
 
-To be filled from OUTGEN once the arms produce refresh summaries:
-I_P/I_M_DEPTH_NEXT deltas, GS_MAXCHG trajectories, KN_Q_LS residuals,
-per-ray pass counts, failed/diverged rays, commit rejections,
-luminosity, energy balance, KN_COEF_FP/KN_COEF_FPR/KN_COEF_FP_DRIFT.
+Extraction tooling: `scripts/parse_knop_iso.py` (workspace, not in
+this repo) parses each arm's OUTGEN into refresh-aligned records
+keyed by refresh sequence with the enclosing great iteration;
+ITER_SUM rows capture mode/frozen/held, pops demand/applied/status,
+se residual, lum diag, fg_rf row, conv-exit gates, model
+convergence and wall time.
+
+### Interim observations (its 125-127, all arms pops-held)
+
+- ALL four arms show `frozen=T held=T` and `pops [HELD]` with
+  `pops_applied=0.0` in ITER_SUM. This is inherited checkpoint
+  state, not the diagnostic flags: the parent FRESH_knop run held
+  pops through it123, released at it124 (`frozen=F held=F`,
+  applied=38.43), and re-froze at it125; `GS_STATE restart`
+  (solve_for_pops.f ~line 741) adopts `n_frozen`/`frozen` from the
+  checkpoint. Arm C is therefore NOT yet a clean coupled control -
+  its populations follow the normal release cycle and will update
+  only on release iterations, while arms M/R/R2 (KN_MAT_FREEZE)
+  hold every call.
+- Consequence for interpretation: until arm C's first pop-release
+  iteration, M and C are expected to be bit-identical (confirmed:
+  every refresh metric matches through refresh 3). The M-vs-C
+  comparison becomes meaningful only after C releases pops.
+- R-vs-M IS already informative: with pops held in both, the only
+  difference is refresh-side coefficient evolution (frozen
+  snapshots vs live rebuilds carrying the J-dependent
+  `CHI_SCAT*RJ` term). Early trend favors R: rf_resid
+  3.317e-2 -> 3.044e-2 (R) vs 3.317e-2 -> 3.109e-2 (M/C) by
+  refresh 3; unconverged cells 24143 (R) vs 19760 (M/C) - mixed,
+  not yet decisive.
+- R-vs-R2 seed sensitivity: the 0.1% I_NEXT perturbation shows at
+  refresh 1 (rf_resid 3.406e-2 vs 3.317e-2, worst_ray 5 vs 7) and
+  decays to near-identity by refresh 3 (3.098e-2 vs 3.044e-2).
+  One seed direction only; does not prove seed independence.
+- Q residual ~3.09 in all arms at refresh 1, ~3.09 at refresh 3 -
+  essentially static while production rf_resid falls ~10%. Exit
+  census: exact=48, tol=18-20, bulk=14-18, zero stall/cap/div;
+  1 unsolved ray throughout; worst ray passes=6-7 of max 12.
+  bulk_floor=6.0e-2 vs bulk maxres=3.3e-2 - bulk exits are below
+  their residual floor.
+- Production refresh residual (KN_RF_RESID, the `fg_rf` row) is
+  ~3.0-3.4e-2 vs tol 2.0e-3 - ~16x tolerance, [WARN] maturity
+  status, conv-exit gates 50% (worst margin ~2.9 dex, ex_maxch).
+- Per-refresh wall time ~480-565 s; per-iteration ~700-1000 s.
+  40 requested its projects to ~10-12 h plus walltime requeues.
+- Executable for all arms: cmfgen_dev.exe md5
+  8afd859176ca0177c9de31fc6a400ffc (predates the corrected
+  FNV-1a checksum; only sum fingerprints appear - expected).
+  `coef fp ... rebuilt drift=0.0 armed refreshes=1` in arm R
+  confirms the freeze armed once and sums stayed identical
+  (sum-level evidence only; element-level hash unavailable in
+  this exe).
+- March census: ord rays=84, unordered=0 in every refresh of every
+  arm - the ordered march covers the whole production ray set.
+
+### Refreshes 4-6 (its 128-130)
+
+- M and C remain BIT-IDENTICAL through all six refreshes; arm C is
+  still `frozen=T held=T` at it130, so the M/C differentiator has
+  not yet switched on. The population release cycle inherited
+  from the parent run has not recurred inside the arm window.
+- R-vs-R2: the 0.1% seed difference has decayed to the printed
+  precision by refresh 4-6 (rf_resid 3.099e-2 both; unconverged
+  19830 vs 15772 at seq4, 16464/18345 vs ~18175 at seq5-6 -
+  residual-level differences of a few percent persist).
+- rf_resid is NOT monotone: R dips to 2.658e-2 at seq5 then
+  returns to 3.099e-2 at seq6; M/C sit at 3.109-3.110e-2 for
+  seq2-6. All arms remain ~15x the 2.0e-3 tolerance.
+- Q residual stays ~3.09 in every arm and refresh - static while
+  rf_resid moves. Exit census drifts toward exact/tol exits
+  (bulk falls 18->9-16); a single stall exit appeared in M/C at
+  seq6; no cap/div exits anywhere.
+- Unconverged-cell counts keep falling in all arms (R 16464,
+  M/C 5258 at seq6) while the max residual stays pinned - the
+  residual is controlled by a shrinking set of cells/rays.
+- cell50 (cells above 50% of column peak) is 0 for R seq6 and
+  M/C seq4-6 - the pinned residual sits on cells below half the
+  column peak, consistent with floor-normalized DCELL on weak
+  columns rather than bright-cell error.
+
+### Phase 4 Q-location instrumentation (landed, future runs only)
+
+The running arms' exe (8afd8591) cannot emit per-ray Q detail, so
+a diagnostic-only extension was added to
+`plane/fg_j_cmf_nonmono_v1.f` behind the existing `KN_Q_RESID`
+control (default F, zero cost when off):
+
+- `KN_QA_Q/VOLD/VN/VM` (NM,2) and `KN_QA_J/L` (NM,2) module arrays
+  store, per ray and channel (1=inward/M, 2=outward/P), the
+  one-pass residual, the sweep argmax cell (depth,freq) from the
+  WRC tracker, the pre-pass production field value, the post-pass
+  scratch value, and the column peak VMAXF(L) reconstructed from
+  the untouched production field (identical to the sweep's own
+  VMAXF because FLD_Q was an exact copy on entry).
+- `FG_KNOP_REFRESH_V1` prints `q argmax ray/ch/same-as-prod-
+  worst/prod resid/passes`, `q argmax j,l/vold/vnew/vmaxf/
+  denom/floor-dom`, and a sorted per-ray-max distribution
+  (max,p50,p95,p99 + counts above 1e-2/1e-1/1). The floor-dom
+  flag answers whether the Q max sits on a cell below the
+  1e-4*VMAXF significance floor.
+- No sweep, march, commit, tolerance or relaxation logic was
+  touched; capture happens after each channel's verify pass and
+  before the shared-state restore. Compiles clean under
+  production flags (only pre-existing NB_Q/NT_Q kind warnings on
+  the original verify call sites).
+
+PENDING: pop-release iteration in arm C (the M/C differentiator),
+longer refresh trajectories, commit/maturity evolution, and a
+future instrumented run to populate the Q argmax fields.
 
 Pre-registered interpretation (from the work order):
 
