@@ -1380,3 +1380,47 @@ Required gates and current state:
 The continuation is diagnostic-only by design and must not be
 launched until gates 1-4 close; gate 7 ideally also wants an
 explicit neutrality demonstration for the new binary.
+
+## 14. Arm snapshot metrics at it152-155 (recorded 2026-11-12 ~15:45)
+
+Point-in-time record while all four arms continue RUNNING on
+vipc2132 (~5.5 h wall, single thread each). Values are the last
+complete refresh of each arm; M and C are expected to remain
+bit-identical while populations stay held. These are snapshot
+metrics, not terminal metrics - the arms have no natural
+termination in view (IN_ITS=10000) and may be stopped at a later
+iteration boundary; the continuation seed is the latest complete
+checkpoint regardless.
+
+| quantity | R (it152) | R2 (it152) | M (it155) | C (it154) |
+|---|---|---|---|---|
+| KN_RF_RESID | 0.03306 | 0.02972 | 0.005566 | 0.005823 |
+| Q max | 325.046 | 325.049 | 80.584 | 80.584 |
+| unconverged cells | 8441 | 7729 | 146 | 148 |
+| exits exact/tol/bulk | 48/20/16 | 48/20/16 | 25/53/6 | 33/45/6 |
+| verdicts committed/jump-rej/unsolved | 83/1/1 | 83/1/1 | 83/1/1 | 83/1/1 |
+| retained_max | 0.4054 | 0.4073 | 0.1290 | 0.1253 |
+| pops held | yes | yes | yes | yes |
+| argmax cell | (54,30,8712) cycle | (54,30,8712) cycle | (3,82,1636) cycle/margnl | = M |
+
+Reading:
+
+- R/R2 are in a stationary plateau: Q saturated ~325 for 10+
+  refreshes, rf_resid oscillating in a narrow band, exit census
+  frozen. No further information expected from continued
+  running; the frozen-coefficient failure mode is fully
+  characterized.
+- M's rf_resid stopped falling near it150 and is drifting back
+  up (0.00557 -> 0.00636 -> 0.00557 over its152-155); Q
+  plateaued at ~80.6; unconverged count still slowly declining
+  (187 -> 146) and the exit census is shifting toward
+  tolerance-class exits (exact 41 -> 25, tol 36 -> 53). The
+  argmax remains pinned at model depth 3, ray 82, store slot
+  1636 (f column overflows to ****; value 5.6-6.4e-3, class
+  alternating cycle/margnl). This is a stalled floor near
+  3x the 2e-3 tolerance, not convergence.
+- C remains bit-identical to M; populations never released on
+  any arm, so the population-feedback question is unresolved by
+  construction on this trajectory.
+- M's latest complete checkpoint is the continuation seed
+  candidate; no need to wait for natural termination.
