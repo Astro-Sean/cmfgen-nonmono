@@ -1283,6 +1283,43 @@
 !
 	LOGICAL KN_RAY_ORDERED
 !
+! KN_FREEZE_COEF (default FALSE): diagnostic-only fixed-coefficient
+! mode for the KNOP refresh (failure isolation, P1-T1c arm R). When
+! T, the KN_CHI_EXT/KN_ETA_EXT snapshots captured during the first
+! complete frequency sweep are held fixed, so every
+! FG_KNOP_REFRESH_V1 call rebuilds KN_CHI_COEF/KN_ETA_COEF from
+! identical inputs and the refresh fixed-point operator no longer
+! sees population-opacity drift. The main per-frequency formal solve
+! still uses the live CHI_EXT/ETA_EXT; only the refresh's coefficient
+! snapshot is pinned. Default F preserves production behaviour. VADAT
+! keyword [KN_FREEZE_COEF].
+!
+	LOGICAL KN_FREEZE_COEF
+!
+! KN_Q_RESID (default FALSE): diagnostic-only independent
+! fixed-point residual for the KNOP refresh (failure isolation,
+! P1-T1c). When T, each ray re-applies one sweep pass to a scratch
+! copy of each channel's converged field after the production
+! solve; the pass residual measures ||T(FLD)-FLD|| for the map
+! that ran, independent of GS_MAXCHG (store drift) and of the
+! solver's own last-pass RES. Costs one extra pass per channel
+! per ray. Default F preserves production behaviour and cost.
+! VADAT keyword [KN_Q_RESID].
+!
+	LOGICAL KN_Q_RESID
+!
+! KN_MAT_FREEZE (default FALSE): diagnostic-only matter freeze
+! for the KNOP failure isolation (P1-T1c arm M). When T, every
+! SOLVE_FOR_POPS call takes the GS_POPS_HELD path: SOLVEBA still
+! runs for diagnostics but POPS is restored afterwards, so
+! populations, electron density and all matter-derived opacity
+! inputs stay at their checkpoint values while the radiation
+! field and the J-dependent source terms evolve normally.
+! Default F preserves production behaviour. VADAT keyword
+! [KN_MAT_FREEZE].
+!
+	LOGICAL KN_MAT_FREEZE
+!
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
 ! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
