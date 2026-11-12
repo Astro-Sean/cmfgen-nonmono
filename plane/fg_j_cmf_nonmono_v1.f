@@ -7822,7 +7822,7 @@ C
 ! report instead of folding them into the -1 sentinel pool.
 !
 	  IF(ALLOCATED(KN_QS_STAT))THEN
-	    WRITE(LUER,'(A,7(I8))')
+	    WRITE(LUER,'(A,A,7(I8))')
 	1    '    q ray census eval,div,ni<2,allocF,nofld,rayalloc,',
 	2    'unreached=',
 	3    COUNT(KN_QS_STAT .EQ. 1),COUNT(KN_QS_STAT .EQ. 2),
