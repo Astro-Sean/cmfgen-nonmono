@@ -1498,6 +1498,71 @@ def main():
         f"bounded={_bounded} upper-clamp={_hit_upper}",
     )
 
+    # -- T38: P1-T1g refresh repeatability (DRV_REPL). Snapshot the
+    #    lagged stores + FG_RAY_SEEDED, run FG_KNOP_REFRESH_V1, restore,
+    #    re-run, compare every committed store element and the per-ray
+    #    commit verdicts. At OMP_NUM_THREADS=1 the refresh must be a
+    #    bit-identical deterministic function of its captured inputs.
+    #    'repl' stresses the shared hot-pass budget unordered, 'replo'
+    #    adds the ordered sweep, 'replc' is the converging baseline.
+    import os as _os2
+    import subprocess as _sp2
+
+    def _repl(tag, nth):
+        env = dict(_os2.environ, OMP_NUM_THREADS=str(nth))
+        return _sp2.run(
+            [str(bin_), tag], cwd=WORKDIR, env=env,
+            capture_output=True, text=True, timeout=300,
+        )
+
+    _repl_ok = True
+    _repl_det = {}
+    for _tag in ("replc", "repl", "replo"):
+        _r = _repl(_tag, 1)
+        _d, _s = parse(_r.stdout)
+        _repl_det[_tag] = _d
+        _ok = (
+            "RESULT_OK" in _d
+            and _d.get("REPL_MAXABS") == 0.0
+            and _d.get("REPL_MAXREL") == 0.0
+            and _d.get("REPL_RMS") == 0.0
+            and _d.get("REPL_NMIS_P") == 0.0
+            and _d.get("REPL_NMIS_M") == 0.0
+            and _d.get("REPL_VCDIF") == 0.0
+            and _d.get("REPL_FRQFP") == 0.0
+            and _d.get("REPL_RES1") == _d.get("REPL_RES2")
+        )
+        _repl_ok = _repl_ok and _ok
+    rep.check(
+        "T38 refresh repeatability: capture->run->restore->rerun is "
+        "bit-identical at 1 thread (replc/repl/replo)",
+        _repl_ok,
+        " ".join(
+            f"{t}:maxabs={_repl_det[t].get('REPL_MAXABS')}"
+            f" vcdif={_repl_det[t].get('REPL_VCDIF')}"
+            for t in ("replc", "repl", "replo")
+        ),
+    )
+
+    # 'replh' contends the shared KN_HOT_SPENT budget across 3 rays
+    # with KN_HOT_TOTAL_PSES=2. The TRY_HOT gate-check and the
+    # CRITICAL increment are non-atomic, so pass 1 can overshoot the
+    # cap (HOT1 > cap) under SCHEDULE(DYNAMIC). The committed fixed
+    # point must still be reproducible; record the observed spend as
+    # evidence the race exists without asserting a specific count.
+    _rh = _repl("replh", 4)
+    _rd, _rs = parse(_rh.stdout)
+    rep.check(
+        "T38b hot-stress refresh: committed stores reproducible under "
+        "shared-budget OMP race (overshoot permitted)",
+        "RESULT_OK" in _rd
+        and _rd.get("REPL_MAXABS") == 0.0
+        and _rd.get("REPL_VCDIF") == 0.0
+        and _rd.get("REPL_FRQFP") == 0.0,
+        f"hot1={_rd.get('REPL_HOT1')} spent={_rd.get('REPL_HOTSPENT')} "
+        f"maxabs={_rd.get('REPL_MAXABS')}",
+    )
+
     rep.summary()
 
 
