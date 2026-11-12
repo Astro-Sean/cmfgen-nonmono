@@ -1,9 +1,12 @@
 # SOBEW_GRAD family short-ray stale-GAM audit
 
-Base commit: `cd0f4374f1be07645a6a79f205a48f4285ea864b` (HEAD now
-`247c9ad6`, knop-only) plus the uncommitted working-tree fix. See
-SOBEW_SHORT_RAY_GAM_AUDIT.md section 0 for the repository-state
-reconciliation.
+Base commit (pre-fix): `cd0f4374f1be07645a6a79f205a48f4285ea864b`.
+Corrections committed on main: `e5e0aae966d42292a3b6b6220ded6ed91a726023`
+(`sobew_grad`), `b93f3377dd60771aae06ac2935a7583745589130`
+(`sobew_grad_v2`), `686a5718a64d91c80ac55cfd43ea1757b76fa9c8`
+(`sobew_grad_v3`). HEAD at review close:
+`e6ed21a74dcc8760cdf65f2c1c91978851b24519`. See
+SOBEW_SHORT_RAY_GAM_AUDIT.md section 0 for the full revision history.
 
 ## 1. Scope
 
@@ -39,7 +42,12 @@ obs/disp `ABS_EW` and `FORCE_MULT` outputs.
 Fork (all four files, pre- and post-fix): `T1 = ABS(1+sigma*mu^2)`
 with `T1 = MAX(ABS(T1), -0.2*(1+sigma), 1e-4)` for `sigma<0` — the
 adopted `tau_S = GAMH/|1+sigma*mu^2|` prescription (Lamers,
-Cerruti-Sola & Perinotto 1987; DAH15 floor retained verbatim).
+H. J. G. L. M., Cerruti-Sola, M., & Perinotto, M. 1987, ApJ, 314,
+726-738; the `-0.2*(1+sigma)` / `1e-4` denominator floor is a
+CMFGEN-specific numerical safeguard on top of that prescription, not
+part of the published DAH15 expression - DAH15: Dessart, Audit &
+Hillier 2015, MNRAS, 449, 4304-4325, DOI: 10.1093/mnras/stv609 -
+and is retained verbatim).
 
 Reference tree:
 
@@ -73,21 +81,28 @@ EXPONX:181; `sobew_grad_v2.f` 88/108/127/130/233; `sobew_grad_v3.f`
 
 ## 5. Test results
 
-`python/test_sobew_short_ray.py` — 8 checks per routine (see
+`python/test_sobew_short_ray.py` — 8 LINE_FLUX checks per routine
+plus 3 FORCE_MULT checks per gradient routine, 41 total (see
 SOBEW_SHORT_RAY_GAM_TESTS.md):
 
-- `sobewg2`: 8/8 PASS (all via new-vs-ref ratio discrimination).
-- `sobewg3`: 8/8 PASS.
-- `sobewg1`: 8/8 PASS — `sigma=+2`, `sigma=-1`, negative-GAMH checks
-  use the ref ratio; `sigma=-1.05`/`sigma=-2` checks use the absolute
-  current-ray prediction because the reference v1's signed denominator
-  makes its output nonfinite/meaningless there (meas-vs-pred agreement
-  ~2e-9, e.g. T1: pred 1.7308527831516e12 vs meas
-  1.7308527831476e12).
+- `sobewg2`: 11/11 PASS.
+- `sobewg3`: 11/11 PASS.
+- `sobewg1`: 11/11 PASS — `sigma=+2`, `sigma=-1`, negative-GAMH checks
+  use the ref ratio; `sigma=-1.05`/`sigma=-2` LINE_FLUX checks use the
+  absolute current-ray prediction because the reference v1's signed
+  denominator makes its output nonfinite/meaningless there
+  (meas-vs-pred agreement ~2e-9, e.g. T1: pred 1.7308527831516e12 vs
+  meas 1.7308527831476e12); its F1 force check runs at `sigma=-0.5`
+  where signed==ABS and the reference is interpretable.
 
 Force diagnostics: `GLINE` accumulates `TB*EXPONX(GAM)*HAQW`, so the
 same stale-GAM values fed `FORCE_MULT`; the fix corrects both EW and
-force outputs on the two outermost rays.
+force outputs on the two outermost rays. The F1-F3 checks isolate the
+NI=2 ray with `HAQW`: `fm_new(1)/fm_ref(1)` then equals the
+independently predicted `EXPONX(GAM_new)/EXPONX(GAM_stale)` ratio
+(measured 1.5161 vs predicted 1.5161 at `sigma=-1.05`), and a
+negative-GAMH case verifies the force stays finite and correctly
+signed.
 
 ## 6. Output impact
 
