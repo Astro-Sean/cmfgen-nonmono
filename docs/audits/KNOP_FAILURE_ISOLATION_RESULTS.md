@@ -1726,3 +1726,125 @@ diagnostics (VC 1/2) and the diverged sentinel (VC 4).
   bitwise-neutrality verdict for the exe actually used and
   (b) the neutrality question being settled single-threaded if
   the 2-thread noise floor is nonzero.
+
+## 18. Phase-3 continuation: A2 postmortem, thread-count correction, exe-pair neutrality (2026-11-12 ~17:10)
+
+### 18.1 A2 control job 13075411 - cold start, killed
+
+The watch_A2 control (clone of watch_A config, diag exe
+b4686fa1, warm_restart_from FRESH_knop it125) was submitted
+manually after the earlier pipeline attempt failed at inline
+SN_HYDRO_DATA conversion (missing .swd). It ran on viper07
+but COLD-STARTED: OUTGEN shows
+
+    Error opening POINT1 in SCR_READ
+    Error opening POINT2 in SCR_READ
+    Current great iteration count is       1
+
+SCRATCH restart failed at the Fortran open, so the run
+iterated from LTE iteration 1 (iteration 1 alone took 2149 s)
+and could never reach the it125 state needed for a noise-floor
+comparison. Job cancelled ~45 min in; it was consuming a
+compute slot for zero information. Probable cause: the
+checkpoint files were staged into the run dir by hand around
+the same time the job was submitted, and the SCR_READ open
+ran before the copies were visible/complete - a staging race
+in the manual fallback path, not a checkpoint-content defect
+(the same FRESH_knop checkpoint warm-started watch_A/B
+cleanly through the full pipeline). Post-run the dir's
+POINT1/POINT2/SCRTEMP/MODEL/CUR_MODEL_DATA contain A2's own
+iteration-1/2 records; they no longer match the source
+checkpoint and the dir is not reusable as a restart seed.
+
+### 18.2 Thread-count correction - "single thread" never happened
+
+Every config in this experiment sets cpus_per_task: 1 with
+descriptions claiming single-thread execution. The generated
+slurm resolves OMP_NUM_THREADS = max(request, scheduler
+allocation) and viper grants a core PAIR minimum: batch.log
+on every job shows "CPUs: 2 (requested=1 allocated=2)" and
+"Using 2 OpenMP threads (launcher-resolved)". This applies
+retroactively to ALL FOUR iso arms (iso_M/.out confirms 2
+effective threads) and to watch_A/B. Consequences:
+
+- The four-arm trajectories already contain whatever
+  run-to-run FP nondeterminism 2-thread execution produces.
+- The watch_A/B ulp-level FGINEXT_GS difference cannot be
+  attributed to watch logic OR to threads without a
+  same-config replicate - which is what QF2 below supplies.
+- True single-thread execution is not available on this
+  cluster through the current launcher; the noise floor must
+  be measured, not assumed zero. If QF==QF2 bitwise, the
+  2-thread path is empirically deterministic for this
+  workload and bitwise comparisons remain meaningful.
+
+### 18.3 Exe-pair neutrality experiment - SUBMITTED
+
+Design (supersedes the watch_A-checkpoint second pair planned
+in 16.3): three jobs on partition=small, all warm-restarting
+from the iso_M it157 checkpoint (FGINEXT_GS md5
+893143f3c47405f23d4c7aca57d64080 verified staged in each dir),
+identical VADAT including KN_Q_RESID=T, KN_WATCH_CELL=T at
+(K=3,LS=82,SLOT=1636), KN_MAT_FREEZE=T, KN_FREEZE_COEF=F
+(now explicit), init_num_its=2:
+
+| arm | exe | md5 | FINAL job | role |
+|---|---|---|---|---|
+| neut_QC | cmfgen_qcells_install | 34f5c1d29877f4145756dda87d25135f | 13077575 | old diagnostic build |
+| neut_QF | cmfgen_qfix_install | f7e996d32e169b2d1b617d166d32fc44 | 13077577 | new diagnostic build |
+| neut_QF2 | cmfgen_qfix_install | f7e996d32e169b2d1b617d166d32fc44 | 13077583 | qfix replicate = noise floor |
+
+qcells provenance: the 34f5c1d2 exe was recovered from the
+login-node /tmp/cmfgen_qcells_install to shared storage at
+/viper/ptmp1/sbrennan/SN2024pba/cmfgen_qcells_install (com/
+lib/mod/obs_template symlinked into cmfgen_jfnk, same layout
+as qfix); md5 re-verified after copy.
+
+Submission path: SN_HYDRO_DATA (md5
+ea6c5d5bd2d1c0ae785d70d4c9a56053, identical across iso_M /
+watch_A / watch_A2) was pre-seeded into each
+<model>/cmfgen/2.82days/ so run_model_grid.py takes the
+use_existing_sn_hydro skip-conversion branch
+(run_model_grid.py ~12145) - the same path watch_A/B took.
+This avoids both the missing-.swd conversion failure and any
+manual staging. All three FINAL jobs were PENDING on
+QOSGrpCpuLimit at submission time (~17:05); OBS dependents
+13077576/78/84 queued afterok.
+
+Comparison plan on completion: byte-compare FGINEXT_GS,
+GS_STATE, MODEL, CUR_MODEL_DATA across the three dirs;
+OUTGEN compared after stripping KN_*/KNOP diagnostic record
+blocks and timestamp/path/timing lines. Verdicts:
+
+- QF == QF2 bitwise AND QC == QF bitwise -> diagnostics
+  numerically neutral at this noise floor; M continuation
+  authorized on f7e996d3.
+- QF != QF2 -> nonzero run-to-run noise; QC-vs-QF must then
+  be compared against the observed noise magnitude (ulp-level
+  FGINEXT_GS scatter with identical GS_STATE would still
+  support neutrality; any O(1) or GS_STATE difference fails).
+- QC != QF beyond the QF-vs-QF2 noise -> ordered-branch
+  accumulation or the added prints perturbed the trajectory;
+  continuation blocked pending source review.
+
+First check on job start (before any comparison): OUTGEN
+"great iteration count" must read ~157, not 1 - the A2
+failure mode. If any arm cold-starts, kill and re-stage.
+
+### 18.4 Unit tests re-verified on current source
+
+python3 test_knop_ray.py: 43 passed, 0 failed.
+python3 test_knop_lagged_field.py: all checks passed
+(includes the ordered-branch KN_Q_ACCUM site coverage from
+a37425a2).
+python3 test_knop_status_text.py: all checks passed.
+
+### 18.5 Mcont config state
+
+configs/dessart_m15_2p82d_KNOP_Mcont.yaml updated: explicit
+KN_FREEZE_COEF: F added to vadat_overrides (was relying on
+the .FALSE. default); SN_HYDRO_DATA pre-seeded. Still NOT
+submitted - gated on the 18.3 neutrality verdict. All other
+settings unchanged from the iso_M clone (KN_MAT_FREEZE=T,
+KN_Q_RESID=T, watch at K=3/LS=82/SLOT=1636, init_num_its=12,
+partition=small via the standard pipeline path).
