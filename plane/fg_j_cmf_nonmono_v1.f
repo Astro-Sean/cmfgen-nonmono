@@ -1218,6 +1218,19 @@
 !
 	LOGICAL, SAVE :: KN_Q_RESID
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_Q_LS(:)
+!
+! Per-ray, per-channel Q detail (diagnostic). Channel index 1 is
+! the inward (M) verify pass and 2 the outward (P) pass. KN_QA_J/L
+! locate the argmax cell (depth,freq) via the sweep's WRC tracker;
+! KN_QA_VOLD is the pre-pass production field value, KN_QA_VN the
+! post-pass scratch value and KN_QA_VM the column peak the sweep's
+! VMAXF used, so floor dominance of the DCELL denominator
+! MAX(VOLD,1.0E-4*VMAXF(L)) is auditable after the fact. KN_Q_LS
+! stays the per-ray max over channels for distribution statistics.
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QA_Q(:,:),KN_QA_VOLD(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QA_VN(:,:),KN_QA_VM(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_QA_J(:,:),KN_QA_L(:,:)
 	DATA KN_Q_RESID /.FALSE./
 !
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
@@ -7213,7 +7226,9 @@ C
 	EXTERNAL OMP_GET_MAX_THREADS,OMP_GET_WTIME
 !
 	INTEGER LS,L,I,J,K,IOS,IOS2,N_TH
-	REAL(KIND=LDP) T0,T1_W,T2
+	INTEGER IQ_R,IQ_C,IQ_W,IQ_N,IQ_K
+	REAL(KIND=LDP) T0,T1_W,T2,IQ_T,IQ_A
+	REAL(KIND=LDP), ALLOCATABLE :: QS_TMP(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
 	INTEGER, ALLOCATABLE :: NST_LS(:),NPS_LS(:),NCP_LS(:)
 	INTEGER, ALLOCATABLE :: NNG_LS(:),NDV_LS(:),NMX_LS(:)
@@ -7339,6 +7354,14 @@ C
 	  IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
 	  ALLOCATE(KN_Q_LS(KN_NP),STAT=IOS2)
 	  IF(IOS2 .EQ. 0)KN_Q_LS=-1.0_LDP
+	  ALLOCATE(KN_QA_Q(KN_NP,2),KN_QA_VOLD(KN_NP,2),
+	1   KN_QA_VN(KN_NP,2),KN_QA_VM(KN_NP,2),
+	2   KN_QA_J(KN_NP,2),KN_QA_L(KN_NP,2),STAT=IOS2)
+	  IF(IOS2 .EQ. 0)THEN
+	    KN_QA_Q=-1.0_LDP; KN_QA_VOLD=-1.0_LDP
+	    KN_QA_VN=-1.0_LDP; KN_QA_VM=-1.0_LDP
+	    KN_QA_J=0; KN_QA_L=0
+	  END IF
 	END IF
 	RES_LS=0.0_LDP
 	RHO_M_LS=0.0_LDP; RHO_P_LS=0.0_LDP
@@ -7683,7 +7706,64 @@ C
 	  WRITE(LUER,'(A,ES12.5,A,I8)')
 	1    '    independent q residual max=',T2,
 	2    '  rays reported=',COUNT(KN_Q_LS .GE. 0.0_LDP)
-	END IF
+!
+! Q argmax attribution: global max over the per-ray per-channel
+! table, its depth/frequency cell, the pre/post-pass values and
+! column peak there, the production worst ray for comparison,
+! and the per-ray max distribution. The denominator audit shows
+! whether the max sits on a floor-dominated cell
+! (VOLD < 1e-4*VMAXF) rather than a significant-intensity cell.
+!
+	  IF(ALLOCATED(KN_QA_Q))THEN
+	    IQ_T=-1.0_LDP; IQ_R=0; IQ_C=0
+	    DO I=1,SIZE(KN_QA_Q,1)
+	      DO J=1,2
+	        IF(KN_QA_Q(I,J) .GT. IQ_T)THEN
+	          IQ_T=KN_QA_Q(I,J); IQ_R=I; IQ_C=J
+	        END IF
+	      END DO
+	    END DO
+	    IF(IQ_R .GT. 0)THEN
+	      IQ_W=MAXLOC(RES_LS,DIM=1)
+	      WRITE(LUER,'(A,I4,A,I1,A,L2,A,ES11.3,A,I6)')
+	1      '    q argmax ray=',IQ_R,' ch=',IQ_C,
+	2      ' same-as-prod-worst=',IQ_R .EQ. IQ_W,
+	3      ' prod resid=',RES_LS(IQ_R),
+	4      ' passes=',NPS_LS(IQ_R)
+	      WRITE(LUER,'(A,I6,1X,I8,A,4(ES12.5),A,L1)')
+	1      '    q argmax j,l=',KN_QA_J(IQ_R,IQ_C),
+	2      KN_QA_L(IQ_R,IQ_C),
+	3      ' vold,vnew,vmaxf,denom=',KN_QA_VOLD(IQ_R,IQ_C),
+	4      KN_QA_VN(IQ_R,IQ_C),KN_QA_VM(IQ_R,IQ_C),
+	5      MAX(KN_QA_VOLD(IQ_R,IQ_C),
+	6      1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)),
+	7      ' floor-dom=',KN_QA_VOLD(IQ_R,IQ_C)
+	8      .LT. 1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)
+	    END IF
+	    ALLOCATE(QS_TMP(SIZE(KN_Q_LS)),STAT=IOS2)
+	    IF(IOS2 .EQ. 0)THEN
+	      QS_TMP=KN_Q_LS
+	      DO I=2,SIZE(QS_TMP)
+	        IQ_A=QS_TMP(I); J=I-1
+	        DO WHILE(J .GE. 1 .AND. QS_TMP(J) .GT. IQ_A)
+	          QS_TMP(J+1)=QS_TMP(J); J=J-1
+	        END DO
+	        QS_TMP(J+1)=IQ_A
+	      END DO
+	      IQ_N=SIZE(QS_TMP)
+	      WRITE(LUER,'(A,4(ES11.3),A,3(I8))')
+	1      '    q dist max,p50,p95,p99=',
+	2      QS_TMP(IQ_N),QS_TMP(MAX(1,(IQ_N+1)/2)),
+	3      QS_TMP(MAX(1,(95*IQ_N+99)/100)),
+	4      QS_TMP(MAX(1,(99*IQ_N+99)/100)),
+	5      ' n>1e-2,1e-1,1=',
+	6      COUNT(KN_Q_LS .GT. 1.0E-2_LDP),
+	7      COUNT(KN_Q_LS .GT. 1.0E-1_LDP),
+	8      COUNT(KN_Q_LS .GT. 1.0_LDP)
+	      DEALLOCATE(QS_TMP)
+	    END IF
+	  END IF
+	  END IF
 !
 ! Frozen-coefficient fingerprint (diagnostic): the raw snapshot
 ! sums captured at the freeze arm and the rebuilt-coefficient drift
@@ -7834,6 +7914,8 @@ C
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
 	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS)
 	IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
+	IF(ALLOCATED(KN_QA_Q))DEALLOCATE(KN_QA_Q,KN_QA_VOLD,KN_QA_VN,
+	1  KN_QA_VM,KN_QA_J,KN_QA_L)
 	RETURN
 	END
 !
@@ -8432,6 +8514,22 @@ C
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
 	    END IF
 	    Q_M=RES_Q
+!
+! Argmax capture for the M (inward) verify pass: WRC_I/WRC_L hold
+! the sweep's last new-max (depth,freq); FLD still carries the
+! pre-pass production values and VMAXF(L) is reconstructed from
+! the same column max the sweep used on entry.
+!
+	    IF(ALLOCATED(KN_QA_Q) .AND. RES_Q .GT. 0.0_LDP .AND.
+	1     WRC_I .GT. 0 .AND. WRC_L .GE. 1 .AND.
+	2     WRC_L .LE. NCF)THEN
+	      KN_QA_J(LS,1)=WRC_I; KN_QA_L(LS,1)=WRC_L
+	      KN_QA_Q(LS,1)=Q_M
+	      KN_QA_VOLD(LS,1)=FLD(WRC_I,WRC_L)
+	      KN_QA_VN(LS,1)=FLD_Q(WRC_I,WRC_L)
+	      KN_QA_VM(LS,1)=MAX(MAXVAL(FLD(1:NI,WRC_L)),
+	1       1.0E-25_LDP)
+	    END IF
 	    FLD_Q=FLD_P
 	    IF(ORD_SWEEP)THEN
 	      CALL SWEEP_FLD_ORD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
@@ -8441,6 +8539,20 @@ C
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
 	    END IF
 	    Q_P=RES_Q
+!
+! Same argmax capture for the P (outward) verify pass; WRC_I/WRC_L
+! now carry the P sweep's argmax because it ran last.
+!
+	    IF(ALLOCATED(KN_QA_Q) .AND. RES_Q .GT. 0.0_LDP .AND.
+	1     WRC_I .GT. 0 .AND. WRC_L .GE. 1 .AND.
+	2     WRC_L .LE. NCF)THEN
+	      KN_QA_J(LS,2)=WRC_I; KN_QA_L(LS,2)=WRC_L
+	      KN_QA_Q(LS,2)=Q_P
+	      KN_QA_VOLD(LS,2)=FLD_P(WRC_I,WRC_L)
+	      KN_QA_VN(LS,2)=FLD_Q(WRC_I,WRC_L)
+	      KN_QA_VM(LS,2)=MAX(MAXVAL(FLD_P(1:NI,WRC_L)),
+	1       1.0E-25_LDP)
+	    END IF
 	    DEALLOCATE(FLD_Q)
 	    IF(ALLOCATED(KN_Q_LS))KN_Q_LS(LS)=MAX(Q_M,Q_P)
 	  END IF
