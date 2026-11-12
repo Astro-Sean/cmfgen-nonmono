@@ -1150,6 +1150,22 @@
 	DATA FG_RF_DCHG /0.0_LDP/
 	DATA FG_RF_PEND /0.0_LDP/
 !
+! KNOP_DUMP_TOPO: diagnostic-only topology-checkpoint hook (P1-T1h).
+! When set, FG_KNOP_REFRESH_V1 calls DUMP_KNOP_TOPO_V1 once, at the
+! serial point just before the OpenMP ray loop (after the frozen
+! KN_CHI_COEF/KN_ETA_COEF rebuild and the JMP_SIB sibling references
+! are built). The dump serialises only the geometry/ray/frequency/
+! dimension/configuration state needed to rebuild the fixed-opacity
+! transport dependency TOPOLOGY plus store fingerprints; it omits the
+! ~300 MB opacity packs because they set Jacobian weights, not the
+! sparsity pattern. Default .FALSE. leaves production behaviour
+! unchanged; only diagnostic drivers set it. The checkpoint is a
+! topology record, not a portable offline operator checkpoint. It is
+! declared last so existing module-variable offsets are preserved.
+!
+	LOGICAL, SAVE :: KNOP_DUMP_TOPO
+	DATA KNOP_DUMP_TOPO /.FALSE./
+!
 	CONTAINS
 !
 ! ==============================================================================
@@ -6768,6 +6784,208 @@ C
 	RETURN
 	END
 !
+	! ----------------------------------------------------------------------
+	! DUMP_KNOP_TOPO_V1 (P1-T1h): compact production topology checkpoint.
+	! Diagnostic-only. Serialises the minimum state needed to rebuild the
+	! fixed-opacity transport dependency TOPOLOGY -- ray/depth geometry,
+	! frequency grid and matching inputs, dimensions, configuration and
+	! store fingerprints -- WITHOUT the ~300 MB opacity packs
+	! (KN_CHI_COEF/KN_ETA_COEF/KN_CHI_EXT/KN_ETA_EXT are deliberately
+	! excluded: they set Jacobian weights, not the sparsity pattern).
+	!
+	! This is a TOPOLOGY checkpoint, not a portable offline transport
+	! checkpoint: it cannot reproduce the operator outside the live run.
+	! Format follows DUMP_FG_INEXT_GS: unformatted sequential,
+	! magic+version+kind tag, .tmp -> atomic rename, IOSTAT checks.
+	! Read back with scipy.io.FortranFile (one record per item).
+	! ----------------------------------------------------------------------
+	SUBROUTINE DUMP_KNOP_TOPO_V1(N_TH)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1
+	USE IFPORT
+	IMPLICIT NONE
+	INTEGER LU,IOS,ITAG,N_TH
+	INTEGER, PARAMETER :: MAGIC=20261120, VER=1, KTOPO=1
+	INTEGER ICNF(11), LCFG(17)
+	REAL(KIND=LDP) RCF(11), FPW(10)
+	INTEGER APRS_I,APRS_R
+	!
+	! Bail out (writing nothing) when the core topology arrays are not
+	! built; the caller treats a missing KNOP_TOPO file as 'no checkpoint'.
+	!
+	IF(.NOT. ALLOCATED(GAM) .OR. .NOT. ALLOCATED(Z) .OR.
+	1   .NOT. ALLOCATED(R_RAY) .OR. .NOT. ALLOCATED(J_PNT) .OR.
+	2   .NOT. ALLOCATED(RAY_PNT) .OR. .NOT. ALLOCATED(NI_RAY) .OR.
+	3   .NOT. ALLOCATED(KN_FREQ) .OR. .NOT. ALLOCATED(KN_R) .OR.
+	4   .NOT. ALLOCATED(KN_P))RETURN
+	!
+	! ---- header: magic, format version, checkpoint-kind tag ----
+	!
+	OPEN(NEWUNIT=LU,FILE='KNOP_TOPO.tmp',FORM='UNFORMATTED',
+	1   STATUS='REPLACE',IOSTAT=IOS)
+	IF(IOS .NE. 0)RETURN
+	WRITE(LU,IOSTAT=IOS)MAGIC,VER,KTOPO
+	!
+	! ---- precision metadata (kind params a reader needs to decode) --
+	!
+	ITAG=KIND(0.0_LDP)
+	WRITE(LU,IOSTAT=IOS)ITAG,KIND(0.0),KIND(0)
+	!
+	! ---- dimensions ----
+	!
+	WRITE(LU,IOSTAT=IOS)KN_ND,KN_NP,KN_NC,KN_NCF,KN_ND_EXT,
+	1   N_COMP,UBOUND(RAY_PNT,1)
+	!
+	! ---- integer configuration ----
+	!
+	ICNF(1)=KN_RAY_MAXPASS
+	ICNF(2)=KN_MAX_THREADS
+	ICNF(3)=KN_RAY_MAX_INS
+	ICNF(4)=FG_ORD_AA_M
+	ICNF(5)=FG_ORD_P2N
+	ICNF(6)=FG_ORD_P2REL
+	ICNF(7)=KN_RAY_HOTPASSES
+	ICNF(8)=KN_HOT_TOTAL_PASSES
+	ICNF(9)=FREQ_IDX_ITER
+	ICNF(10)=ND_ADD
+	ICNF(11)=N_TH
+	WRITE(LU,IOSTAT=IOS)ICNF
+	!
+	! ---- real configuration (LDP) ----
+	!
+	RCF(1)=INEXT_RELAX
+	RCF(2)=KN_RAY_TOL
+	RCF(3)=KN_RAY_BULK_TOL
+	RCF(4)=KN_RAY_OMEGA
+	RCF(5)=KN_RAY_STALL
+	RCF(6)=KN_RF_TOT_MB
+	RCF(7)=KN_RAY_PACK_MB
+	RCF(8)=FG_COMMIT_JUMP
+	RCF(9)=FG_COMMIT_NC
+	RCF(10)=FG_DIV_HEAL_CAP
+	RCF(11)=NONMONO_INEXT_CAP
+	WRITE(LU,IOSTAT=IOS)RCF
+	!
+	! ---- logical configuration, packed 0/1 ----
+	!
+	LCFG(1)=MERGE(1,0,DO_KNOP_REFRESH)
+	LCFG(2)=MERGE(1,0,FREEZE_I_NEXT)
+	LCFG(3)=MERGE(1,0,FREEZE_I_PREV)
+	LCFG(4)=MERGE(1,0,HAS_COMPRESSING)
+	LCFG(5)=MERGE(1,0,KN_STORE_READY)
+	LCFG(6)=MERGE(1,0,KN_ADAPT_RELAX)
+	LCFG(7)=MERGE(1,0,FG_FREQ_MATCH)
+	LCFG(8)=MERGE(1,0,FG_ORD_SWEEP)
+	LCFG(9)=MERGE(1,0,FG_ORD_AITKEN)
+	LCFG(10)=MERGE(1,0,FG_ORD_AA)
+	LCFG(11)=MERGE(1,0,FG_ORD_P2DAMP)
+	LCFG(12)=MERGE(1,0,FG_COMMIT_CONV)
+	LCFG(13)=MERGE(1,0,FG_SEED_COMMIT)
+	LCFG(14)=MERGE(1,0,FG_BULK_CONTR)
+	LCFG(15)=MERGE(1,0,FG_PLATEAU_DET)
+	LCFG(16)=MERGE(1,0,KN_INSERT_SAV)
+	LCFG(17)=MERGE(1,0,PRINT_KNOP_DEBUG)
+	WRITE(LU,IOSTAT=IOS)LCFG
+	!
+	! ---- character configuration ----
+	!
+	WRITE(LU,IOSTAT=IOS)SOLUTION_METHOD
+	WRITE(LU,IOSTAT=IOS)KN_INNER_METH
+	WRITE(LU,IOSTAT=IOS)KN_METHOD_SAV
+	!
+	! ---- array presence masks (bit per array, fixed write order) --
+	! APRS_I bits: 0 COMP_DEPTH_IDX,1 J_PNT,2 RAY_PNT,3 NI_RAY,
+	!   4 MAX_LS,5 NM_RAY.  APRS_R bits: 0 GAM,1 GAM_MAG,2 dGAMdR,
+	!   3 R_RAY,4 Z,5 DLN_RAY,6 KN_FREQ,7 KN_DLN_P,8 KN_DLN_N,
+	!   9 KN_DBB,10 KN_IC,11 KN_R,12 KN_P.
+	!
+	APRS_I=0; APRS_R=0
+	IF(ALLOCATED(COMP_DEPTH_IDX))APRS_I=IBSET(APRS_I,0)
+	IF(ALLOCATED(J_PNT))APRS_I=IBSET(APRS_I,1)
+	IF(ALLOCATED(RAY_PNT))APRS_I=IBSET(APRS_I,2)
+	IF(ALLOCATED(NI_RAY))APRS_I=IBSET(APRS_I,3)
+	IF(ALLOCATED(MAX_LS))APRS_I=IBSET(APRS_I,4)
+	IF(ALLOCATED(NM_RAY))APRS_I=IBSET(APRS_I,5)
+	IF(ALLOCATED(GAM))APRS_R=IBSET(APRS_R,0)
+	IF(ALLOCATED(GAM_MAG))APRS_R=IBSET(APRS_R,1)
+	IF(ALLOCATED(dGAMdR))APRS_R=IBSET(APRS_R,2)
+	IF(ALLOCATED(R_RAY))APRS_R=IBSET(APRS_R,3)
+	IF(ALLOCATED(Z))APRS_R=IBSET(APRS_R,4)
+	IF(ALLOCATED(DLN_RAY))APRS_R=IBSET(APRS_R,5)
+	IF(ALLOCATED(KN_FREQ))APRS_R=IBSET(APRS_R,6)
+	IF(ALLOCATED(KN_DLN_P))APRS_R=IBSET(APRS_R,7)
+	IF(ALLOCATED(KN_DLN_N))APRS_R=IBSET(APRS_R,8)
+	IF(ALLOCATED(KN_DBB))APRS_R=IBSET(APRS_R,9)
+	IF(ALLOCATED(KN_IC))APRS_R=IBSET(APRS_R,10)
+	IF(ALLOCATED(KN_R))APRS_R=IBSET(APRS_R,11)
+	IF(ALLOCATED(KN_P))APRS_R=IBSET(APRS_R,12)
+	WRITE(LU,IOSTAT=IOS)APRS_I,APRS_R
+	!
+	! ---- integer arrays, fixed order ----
+	!
+	IF(BTEST(APRS_I,0))WRITE(LU,IOSTAT=IOS)COMP_DEPTH_IDX
+	IF(BTEST(APRS_I,1))WRITE(LU,IOSTAT=IOS)J_PNT
+	IF(BTEST(APRS_I,2))WRITE(LU,IOSTAT=IOS)RAY_PNT
+	IF(BTEST(APRS_I,3))WRITE(LU,IOSTAT=IOS)NI_RAY
+	IF(BTEST(APRS_I,4))WRITE(LU,IOSTAT=IOS)MAX_LS
+	IF(BTEST(APRS_I,5))WRITE(LU,IOSTAT=IOS)NM_RAY
+	!
+	! ---- real arrays (LDP), fixed order ----
+	!
+	IF(BTEST(APRS_R,0))WRITE(LU,IOSTAT=IOS)GAM
+	IF(BTEST(APRS_R,1))WRITE(LU,IOSTAT=IOS)GAM_MAG
+	IF(BTEST(APRS_R,2))WRITE(LU,IOSTAT=IOS)dGAMdR
+	IF(BTEST(APRS_R,3))WRITE(LU,IOSTAT=IOS)R_RAY
+	IF(BTEST(APRS_R,4))WRITE(LU,IOSTAT=IOS)Z
+	IF(BTEST(APRS_R,5))WRITE(LU,IOSTAT=IOS)DLN_RAY
+	IF(BTEST(APRS_R,6))WRITE(LU,IOSTAT=IOS)KN_FREQ
+	IF(BTEST(APRS_R,7))WRITE(LU,IOSTAT=IOS)KN_DLN_P
+	IF(BTEST(APRS_R,8))WRITE(LU,IOSTAT=IOS)KN_DLN_N
+	IF(BTEST(APRS_R,9))WRITE(LU,IOSTAT=IOS)KN_DBB
+	IF(BTEST(APRS_R,10))WRITE(LU,IOSTAT=IOS)KN_IC
+	IF(BTEST(APRS_R,11))WRITE(LU,IOSTAT=IOS)KN_R
+	IF(BTEST(APRS_R,12))WRITE(LU,IOSTAT=IOS)KN_P
+	!
+	! ---- input store fingerprints (values NOT serialised) ---------
+	! Per channel: sum, sum|x|, sum x^2, max|x|, count nonzero. A
+	! missing store writes -1 sentinels so the reader can tell an
+	! absent store from a zeroed one.
+	!
+	FPW=0.0_LDP
+	IF(ALLOCATED(I_P_DEPTH_NEXT))THEN
+	  FPW(1)=SUM(I_P_DEPTH_NEXT)
+	  FPW(2)=SUM(ABS(I_P_DEPTH_NEXT))
+	  FPW(3)=SUM(I_P_DEPTH_NEXT*I_P_DEPTH_NEXT)
+	  FPW(4)=MAXVAL(ABS(I_P_DEPTH_NEXT))
+	  FPW(5)=DBLE(COUNT(I_P_DEPTH_NEXT .NE. 0.0_LDP))
+	ELSE
+	  FPW(1:5)=-1.0_LDP
+	END IF
+	IF(ALLOCATED(I_M_DEPTH_NEXT))THEN
+	  FPW(6)=SUM(I_M_DEPTH_NEXT)
+	  FPW(7)=SUM(ABS(I_M_DEPTH_NEXT))
+	  FPW(8)=SUM(I_M_DEPTH_NEXT*I_M_DEPTH_NEXT)
+	  FPW(9)=MAXVAL(ABS(I_M_DEPTH_NEXT))
+	  FPW(10)=DBLE(COUNT(I_M_DEPTH_NEXT .NE. 0.0_LDP))
+	ELSE
+	  FPW(6:10)=-1.0_LDP
+	END IF
+	WRITE(LU,IOSTAT=IOS)FPW
+	!
+	! ---- end marker ----
+	!
+	WRITE(LU,IOSTAT=IOS)-MAGIC
+	CLOSE(LU)
+	!
+	! Atomic rename only on a clean write; a torn .tmp is left behind
+	! and any previous valid checkpoint stays in place.
+	!
+	IF(IOS .EQ. 0)THEN
+	  ITAG=RENAMEFILEQQ('KNOP_TOPO.tmp','KNOP_TOPO')
+	END IF
+	RETURN
+	END SUBROUTINE DUMP_KNOP_TOPO_V1
+!
 	SUBROUTINE FG_KNOP_REFRESH_V1()
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1
@@ -6961,6 +7179,15 @@ C
 	IF(T2 .GT. 0.0_LDP)THEN
 	  N_TH=MIN(N_TH,MAX(1,INT(KN_RF_TOT_MB/T2)))
 	END IF
+!
+! P1-T1h topology checkpoint: serial point. KN_CHI_COEF/KN_ETA_COEF
+! are frozen and JMP_SIB references are built; N_TH is final. Runs
+! once per refresh, before any ray work, so the dump reflects the
+! exact input topology the ray loop is about to see. Diagnostic-only
+! (KNOP_DUMP_TOPO, default .FALSE.); a failed/absent dump never
+! perturbs the solve.
+!
+	IF(KNOP_DUMP_TOPO)CALL DUMP_KNOP_TOPO_V1(N_TH)
 	T0=OMP_GET_WTIME()
 !$OMP PARALLEL DO NUM_THREADS(N_TH) SCHEDULE(DYNAMIC)
 !$OMP& DEFAULT(SHARED) PRIVATE(LS)
