@@ -1317,7 +1317,8 @@ history; 1636 from the user trace).
 | Field frequency index L | 1637 | `FREQ_IDX_ITER` is 0-based; `L = FREQ_IDX_ITER+1` |
 | Matched donor slot | `L + NFM_L(i)` per cell | `DO_NONMONO_FREQ_MATCH=T` forced under KNOP; `NFM_L>=1` so the upwind donor differs from the destination slot - this is donor remapping, NOT a different store slot |
 | Store slot (M and P) | 1636 | `WRITE_STORE`/`WRITE_STORE_CAP` write `STORE(KC,LS,LS2-1)`; slot `s` holds field `s+1`; `KN_WATCH_SLOT=1636` is in range (`NCF=56377`) |
-| Physical frequency / wavelength | PENDING | the nu grid value at index 1637 is not in the current OUTGEN; the continuation's KN_QA/GS argmax and watch records plus `KN_FREQ` will pin it |
+| Physical frequency | nu = 7.3691905E+16 Hz (73.69E15 in table units) | `CONT_FREQ` row `ML=1637` (= field index L, same 56377-point grid ordering); the argmax history itself prints `f=1636` on the `(3,82,1636)` entries, independently corroborating the user trace |
+| Wavelength | Lam = 40.68 Ang | same `CONT_FREQ` row |
 
 `KN_WATCH_SLOT=1636` remains the correct destination-store slot
 for the continuation. The matched-donor distinction matters for
@@ -1347,8 +1348,8 @@ Required gates and current state:
 4. Q argmax identified with new instrumentation - PENDING: the
    new cell-level/coincidence/census output exists only in the
    `34f5c1d2` diagnostic exe, which no running arm uses.
-5. Frequency/store mapping verified - PASS at source level
-   (13.4); physical nu/wavelength still PENDING runtime data.
+5. Frequency/store mapping verified - PASS: slot=1636,
+   field L=1637, nu=7.369e16 Hz, Lam=40.68 Ang (13.4).
 6. Diagnostic exe provenance recorded - PARTIAL: `34f5c1d2`
    provenance = `88dcf220` + the diagnostic diff in 13.2
    (committed with this section); complete-exe provenance for
