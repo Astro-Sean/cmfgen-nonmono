@@ -1,37 +1,28 @@
 # SOBEW-family short-ray stale-GAM audit
 
-Base commit for the fix work: `cd0f4374f1be07645a6a79f205a48f4285ea864b`
-("knop iso: decisive arm split - M/C converging, R/R2 stuck").
-Current HEAD at time of writing: `247c9ad68c146b418d35dc7be890a9cba314f399`
-- three knop commits (`control_variable_mod.f`,
-`rd_control_variables.f`, `fg_j_cmf_nonmono_v1.f` only) that do not
-touch the sobew/test files. The fix diff is unchanged by them.
+Source revision history relevant to this audit:
 
-## 0. Repository-state reconciliation
+- Audit baseline (pre-fix): `cd0f4374f1be07645a6a79f205a48f4285ea864b`
+  ("knop iso: decisive arm split - M/C converging, R/R2 stuck"). The
+  four sobew routines at this SHA carry the stale-GAM defect.
+- Source correction commits (main, in order):
+  `099435c7cdc0403bdc61fba63302deb8da11045c` (`sobew`),
+  `e5e0aae966d42292a3b6b6220ded6ed91a726023` (`sobew_grad`),
+  `b93f3377dd60771aae06ac2935a7583745589130` (`sobew_grad_v2`),
+  `686a5718a64d91c80ac55cfd43ea1757b76fa9c8` (`sobew_grad_v3`).
+- Test harness and regression commits: `98bca2f6` (driver),
+  `2c633986` (this suite), `d30c8a25` (tau-floor link list).
+- Main HEAD at the time this review closed:
+  `e6ed21a74dcc8760cdf65f2c1c91978851b24519`.
 
-The requested baseline `a029fd37` is one commit behind `cd0f4374`;
-`cd0f4374` adds only `docs/audits/KNOP_FAILURE_ISOLATION_RESULTS.md`, so
-`subs/sobew.f` is identical on both commits.
+## 0. Repository-state reconciliation (historical note)
 
-**The earlier "implemented" fix was never committed.** It exists as
-uncommitted working-tree changes on top of `cd0f4374`:
-
-```
- M subs/sobew.f                        (the NI=1/2 GAM fix)
- M unit_tests/f90/drv_sob_floor.f90    (exact-shape AQW/HAQW/etc.)
- ?? unit_tests/python/test_sobew_short_ray.py
- ?? audits/                            (audit documents)
-```
-
-That is why a fetch of the GitHub commit `cd0f4374` shows the old code:
-the remote tree at that SHA is genuinely unfixed; the fix is local
-only. This task continues on the same working tree. No commits, resets,
-rebases, or clean operations were performed by this task. The
-pre-existing knop work (`control_variable_mod.f`,
-`rd_control_variables.f`, `fg_j_cmf_nonmono_v1.f`) that was uncommitted
-when the fix was written has since been committed externally as
-`1c875cd5`, `86fca689`, `247c9ad6`; it does not overlap the sobew/test
-files.
+The fix was originally developed as uncommitted working-tree changes
+on top of `cd0f4374`, which is why a fetch of that SHA showed the
+pre-fix code. The correction has since been committed to main in the
+four commits listed above and independently reviewed and accepted.
+No further source modification was made in the final cleanup pass
+beyond the test-harness `fm` initialisation.
 
 ## 1. The defect (verified, reproduced)
 
@@ -75,9 +66,15 @@ short rays exist.
     sigma >= 0: T1 = |1 + sigma*mu^2|
 
 Standard LOS-gradient form (`dv_los/ds = (V/R)(1+sigma*mu^2)`;
-Lamers, Cerruti-Sola & Perinotto 1987, ApJ 314, 726), identical to the
-`SOBJBAR_SIM` prescription. No new floor; `GAMH` (incl. sign)
-unchanged.
+Lamers, H. J. G. L. M., Cerruti-Sola, M., & Perinotto, M. 1987, ApJ,
+314, 726-738), identical to the `SOBJBAR_SIM` prescription. The
+`max(|1+sigma*mu^2|, -0.2*(1+sigma), 1.0e-4)` regularisation is a
+numerical safeguard introduced in this CMFGEN implementation of the
+non-monotonic Sobolev treatment; it is motivated by the transfer
+problems discussed in Dessart, Audit & Hillier 2015 (MNRAS, 449,
+4304-4325, DOI: 10.1093/mnras/stv609) but the 1.0e-4 bound itself is
+not part of the published DAH15 expression. No new floor was added by
+this fix; `GAMH` (incl. sign) unchanged.
 
 **Upstream inconsistency found:** the *reference* `sobew_grad.f` uses a
 **signed** denominator `GAMH/(1+sigma*mu^2)` (no `ABS`), while ref
@@ -148,12 +145,18 @@ Fixed: all 2D arrays are now `allocatable`, allocated at exact
 `(nd,np)` / `(nd,nsim)` after the header read. A `sobewg1` branch was
 added to exercise `SOBEW_GRAD`. `test_sob_tau_floor.py` gained a
 `LINK_ONLY` object (`sobew_grad.f`) so the shared driver resolves.
+A final-cleanup pass also added `fm = 0.0_ldp` before each
+`SOBEW_GRAD*` call: `FORCE_MULT` is accumulated into
+(`FORCE_MULT(I)=FORCE_MULT(I)+GLINE(I)*...`) without internal
+initialisation, so the driver must not rely on the state of an
+uninitialised local array.
 
 ## 8. Results
 
-- `python/test_sobew_short_ray.py`: **32 passed, 0 failed** (8 checks
-  per routine: NI=1, NI=2, NI>2-identity, ordering, monotonic sigma,
-  sigma=-1, negative GAMH, sigma=-2). See SOBEW_SHORT_RAY_GAM_TESTS.md.
+- `python/test_sobew_short_ray.py`: **41 passed, 0 failed** (8
+  LINE_FLUX checks per routine plus 3 FORCE_MULT checks per gradient
+  routine: NI=2-isolated fm(1) at sigma=-1.05 (or -0.5 for sobewg1),
+  sigma=+2, and negative GAMH). See SOBEW_SHORT_RAY_GAM_TESTS.md.
 - `python/test_sob_tau_floor.py`: **17 passed, 0 failed** (regression).
 
 ## 9. Limitations
