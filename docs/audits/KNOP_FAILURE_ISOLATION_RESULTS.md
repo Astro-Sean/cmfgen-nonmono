@@ -424,6 +424,53 @@ convergence and wall time.
   KN_QA_* argmax output (VOLD vs 1e-4*VMAXF) is required for
   that determination and is not available in this exe.
 
+### Refreshes 10-13 (its 134-137) - DECISIVE ARM SPLIT
+
+The arms have separated decisively:
+
+- **M and C (live refresh-side coefficients, pops held):
+  CONVERGING.** rf_resid fell 0.0311 -> 0.0163 (it133) ->
+  0.0056 (it134-137), now ~2.8x the 2.0e-3 tolerance and flat.
+  Unconverged cells collapsed 5258 -> 378. Q ~3.07-3.09. Still
+  `held=T pops_applied=0.0` - this convergence is achieved with
+  FROZEN populations, so population release is not required for
+  the radiation field to converge.
+- **R and R2 (frozen refresh-side coefficient snapshots):
+  STUCK/DESTABILIZING.** rf_resid pinned ~0.030-0.031
+  (~15x tol) through it137; unconverged ~8-11k cells; and the
+  independent Q residual JUMPED from ~3.09 to ~10.0-10.6 at
+  seq11-13 - the one-pass map defect tripled while M/C's stayed
+  ~3.07. R2's rf_resid (0.0297) remains slightly below R's
+  (0.0310).
+- M/C remain bit-identical through it136 (C's it137 ITER_SUM
+  also held=T); the population gate is still closed but is now
+  moot for the radiation-convergence question - M already
+  demonstrates convergence without pop updates.
+
+INTERPRETATION (restricted table): this matches classification
+**D** - "R stalls while M converges: investigate whether the
+frozen first-pass coefficient snapshot is itself a poor or
+destabilising approximation." Under the verified semantics,
+KN_FREEZE_COEF freezes ONLY the refresh-side KN_CHI_EXT/
+KN_ETA_EXT snapshots (which carry the live J-dependent
+CHI_SCAT*RJ term); the main per-frequency formal solve keeps
+live coefficients in BOTH arms. The split therefore isolates
+the REFRESH-SIDE coefficient evolution: letting the snapshots
+track the evolving J-dependent scattering source is necessary
+for the lagged refresh map to contract; freezing them at their
+first-pass values makes the refresh operator non-contractive
+(or far weaker) even though the primary solve is unchanged.
+
+Caveats: (a) pops are still held in ALL arms, so population
+feedback remains untested - C has not released; (b) M's
+convergence is at the REFRESH-residual level (KN_RF_RESID/
+fg_rf = 0.0056): the in-sweep store drift (sw_maxchg ~0.23,
+GS_MAXCHG argmax ~1.6-3.1e-2) remains well above the 2.0e-3
+field-maturity tolerance, so the production convergence gate
+is NOT yet satisfied and physical validation is not
+established; (c) one warm-restart window from it125 - not a
+cold-start claim.
+
 ### Refreshes 7-8 (its 131-132, continuing)
 
 - C remains `frozen=T held=T`, `pops_applied=0.0` through it131 -
