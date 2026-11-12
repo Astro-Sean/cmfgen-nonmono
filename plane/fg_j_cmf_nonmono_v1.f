@@ -8813,8 +8813,9 @@ C
 !
 ! KN_QC accumulation: armed for the duration of the two verify
 ! passes only. KN_Q_ACC_CH=1 tags the inward (M) pass and 2 the
-! outward (P) pass; MARCH appends every computed DCELL to the
-! per-channel histogram and cell argmax while armed.
+! outward (P) pass; MARCH and the inline SWEEP_FLD_ORD march
+! append every computed DCELL to the per-channel histogram and
+! cell statistics while armed.
 !
 	    KN_Q_ACC=.TRUE.; KN_Q_ACC_CH=1
 	    IF(ORD_SWEEP)THEN
@@ -9787,6 +9788,7 @@ C
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
+	        IF(KN_Q_ACC)CALL KN_Q_ACCUM(T1)
 	      END IF
 	      FLD(1,L)=0.0_LDP
 	    END DO
@@ -9839,6 +9841,7 @@ C
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
+	        IF(KN_Q_ACC)CALL KN_Q_ACCUM(T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
 	          KN_SGN_SUM=KN_SGN_SUM+
@@ -9957,6 +9960,7 @@ C
 	      END IF
 	      RES=MAX(RES,T1)
 	      RES_FREQ(L)=MAX(RES_FREQ(L),T1)
+	      IF(KN_Q_ACC)CALL KN_Q_ACCUM(T1)
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
 	        IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
@@ -10041,6 +10045,7 @@ C
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
+	        IF(KN_Q_ACC)CALL KN_Q_ACCUM(T1)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
 	          KN_SGN_SUM=KN_SGN_SUM+
@@ -11246,8 +11251,11 @@ C
 !
 ! ----------------------------------------------------------------
 ! KN_QC cell-level accumulator (diagnostic, [KN_Q_RESID] only):
-! called from MARCH at each DCELL site while KN_Q_ACC is armed
-! during a verify pass. Accumulates the exact per-cell normalized
+! called from MARCH and SWEEP_FLD_ORD at each DCELL site while
+! KN_Q_ACC is armed during a verify pass. The ordered march
+! computes its residuals inline (no MARCH call), so without the
+! four gated sites there the production ordered census produced
+! zero cell samples. Accumulates the exact per-cell normalized
 ! defect into the channel histogram, exact threshold counts and
 ! exact max; the cell argmax itself is recovered at summary time
 ! from the KN_QA_* per-ray argmax table. A NaN DCELL is counted
