@@ -198,6 +198,61 @@ def parse(out):
     return ew, cf, np.array([lf[i] for i in sorted(lf)])
 
 
+def parse_fm(out):
+    """FORCE_MULT column from a grad-routine run (driver prints
+    `i fm(i) line_flux(i)`).  Not used for sobew, which has no fm."""
+    fm = {}
+    for ln in out.splitlines():
+        t = ln.split()
+        if t and t[0].lstrip("-").isdigit() and len(t) >= 3:
+            fm[int(t[0]) - 1] = float(t[1])
+    return np.array([fm[i] for i in sorted(fm)])
+
+
+def gam_stale_signed(i, r, p, gamh, sigma):
+    """Stale GAM under the reference sobew_grad (v1) semantics, which
+    uses a signed 1+sigma*mu^2 denominator (no ABS, no floor)."""
+    ls = NC + ND - 3  # last NI>2 ray, 0-indexed
+    z2 = r[i] ** 2 - p[ls] ** 2
+    return gamh[i] / (1.0 + sigma * z2 / r[i] ** 2)
+
+
+def force_check(i, ls_iso, bins, rt, case, r, p, gamh, sigma,
+                stale_signed=False):
+    """FORCE_MULT(i) stale-vs-current discriminator.
+
+    FORCE_MULT(i) = K*R(i)^2*CHIL(i)/ESEC(i) * GLINE(i), and
+    GLINE(i) = sum_ls TB(i,ls)*EXPONX(GAM(i,ls))*HAQW(i,ls).  When a
+    single ray carries all the HAQW weight, TB(i) (the transfer
+    solution, independent of GAM and of the weights) and the
+    K*R^2*CHIL/ESEC factor cancel exactly in the new/ref ratio,
+    leaving a pure EXPONX(GAM_new)/EXPONX(GAM_stale) prediction that
+    is computed independently from the ray geometry.  The NI=2 ray is
+    used rather than NI=1 because a tangent ray has TB=0 at its
+    tangent depth, so the only nonzero force on an isolated short ray
+    sits at depth 1 above the tangent point.  `stale_signed` selects
+    the reference v1 signed denominator.
+    """
+    fm_n = parse_fm(run(bins["new"], rt, case).stdout)
+    fm_r = parse_fm(run(bins["ref"], rt, case).stdout)
+    g_c = gam_at(i, ls_iso, r, p, gamh, sigma, False, True)
+    if stale_signed:
+        g_s = gam_stale_signed(i, r, p, gamh, sigma)
+    else:
+        g_s = gam_at(i, ls_iso, r, p, gamh, sigma, True, False)
+    pred = float(
+        exponx(np.array([g_c]))[0] / exponx(np.array([g_s]))[0]
+    )
+    ok = (
+        np.isfinite(fm_n[i])
+        and np.isfinite(fm_r[i])
+        and fm_r[i] != 0.0
+        and abs(fm_n[i] / fm_r[i] / pred - 1.0) < 1e-3
+    )
+    meas = fm_n[i] / fm_r[i] if fm_r[i] != 0.0 else float("nan")
+    return ok, meas, pred, fm_n, fm_r, g_c, g_s
+
+
 def lf_pred(i, cf_printed, r, p, w, gamh, sigma, noes, etal0):
     """Absolute LINE_FLUX(i) prediction for the fixed (current-ray,
     floored) build, using the printed CONT_FLUX for normalization.
@@ -378,6 +433,53 @@ def run_suite(rep, bins, rt, cases):
         f"pred={pred:.4f} meas={meas:.4f} [{mode}]",
     )
 
+    # -- F1-F3: FORCE_MULT on an isolated NI=2 tangent ray (sobewg*
+    # only; sobew has no force output).  Depth 1 is the only depth with
+    # nonzero GLINE: at the tangent depth (i=2) TB=0 under the hollow
+    # boundary, and deeper indices are not reached.  The new/ref fm(1)
+    # ratio is the independently predicted EXPONX(GAM) ratio; a buggy
+    # build returns 1.0 and fails.  Upstream sobewg1 uses a signed
+    # denominator, which goes NaN for sigma<-1 and has no absolute
+    # fallback here (fm needs the unknown TB), so sobewg1 runs F1 at
+    # sigma=-0.5 where signed==ABS and the ref stays interpretable.
+    if rt != "sobew":
+        tag = "fm_m05" if rt == "sobewg1" else "fm_m105"
+        sig = -0.5 if rt == "sobewg1" else -1.05
+        case, r, p, w, gamh, noes = cases[tag]
+        ok, meas, pred, fn, fr, gc_, gs_ = force_check(
+            0, NP - 2, bins, rt, case, r, p, gamh, sig
+        )
+        ok = ok and np.all(fn[1:] == 0.0) and np.all(fr[1:] == 0.0)
+        rep.check(
+            f"{rt} F1 fm(1) NI=2 ray uses current-ray GAM",
+            ok,
+            f"pred={pred:.4f} meas={meas:.4f} fm_new={fn[0]:.3e} "
+            f"fm_ref={fr[0]:.3e} (GAM new={gc_:.3f} stale={gs_:.3f})",
+        )
+
+        case, r, p, w, gamh, noes = cases["fm_pos"]
+        ok, meas, pred, fn, fr, gc_, gs_ = force_check(
+            0, NP - 2, bins, rt, case, r, p, gamh, 2.0
+        )
+        rep.check(
+            f"{rt} F2 fm(1) sigma=+2 uses current-ray GAM",
+            ok,
+            f"pred={pred:.4f} meas={meas:.4f} fm_new={fn[0]:.3e} "
+            f"fm_ref={fr[0]:.3e}",
+        )
+
+        case, r, p, w, gamh, noes = cases["fm_neg"]
+        ok, meas, pred, fn, fr, gc_, gs_ = force_check(
+            0, NP - 2, bins, rt, case, r, p, gamh, 2.0
+        )
+        ok = ok and fn[0] < 0.0 and fr[0] < 0.0
+        rep.check(
+            f"{rt} F3 fm(1) negative GAMH: force finite and signed",
+            ok,
+            f"pred={pred:.4f} meas={meas:.4f} fm_new={fn[0]:.3e} "
+            f"fm_ref={fr[0]:.3e}",
+        )
+
 
 def main():
     rep = Report("SOBEW short-ray GAM (NI=1,2): SOBEW + GRAD family")
@@ -437,6 +539,20 @@ def main():
         ),
         "pos": write_case("sr_pos.txt", 2.0, 1.0e9),
         "neg": write_case("sr_neg.txt", 2.0, -1.0e9),
+        # FORCE_MULT cases: only the NI=2 tangent ray carries weight,
+        # so GLINE is a single TB*EXPONX(GAM)*HAQW term at depth 1.
+        "fm_m105": write_case(
+            "sr_fm_m105.txt", -1.05, 1.0e9, w_map={NP - 2: 1.0}
+        ),
+        "fm_m05": write_case(
+            "sr_fm_m05.txt", -0.5, 1.0e9, w_map={NP - 2: 1.0}
+        ),
+        "fm_pos": write_case(
+            "sr_fm_pos.txt", 2.0, 1.0e9, w_map={NP - 2: 1.0}
+        ),
+        "fm_neg": write_case(
+            "sr_fm_neg.txt", 2.0, -1.0e9, w_map={NP - 2: 1.0}
+        ),
     }
 
     for rt in ROUTINES:
