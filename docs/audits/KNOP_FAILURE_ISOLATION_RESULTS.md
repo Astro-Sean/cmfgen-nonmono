@@ -749,3 +749,125 @@ priority. If all arms stall identically, the refresh operator or
 production geometry is implicated and Phase 4's dependency census
 becomes the priority. No solver changes until the evidence report
 is reviewed.
+
+## 11. M-arm continuation and watch-cell telemetry - IN PROGRESS
+
+Authorized follow-up: determine whether the live-coefficient M
+pathway reaches full radiation-field maturity with populations
+held, and trace the commit behaviour of the maturity-controlling
+cell. No production solver, convergence, relaxation or population
+changes are part of this work.
+
+### 11.1 Watch-cell diagnostic (implemented, committed)
+
+Source commits: `1c875cd5` (capture + call-site records),
+`86fca689` (control-variable declarations), `247c9ad6` (VADAT
+reads), `5a60e316` (write-format fix). All changes are
+diagnostic-only and default off.
+
+VADAT keys: `KN_WATCH_CELL` (logical, default F),
+`KN_WATCH_K`, `KN_WATCH_LS`, `KN_WATCH_SLOT` (integers). When
+`KN_WATCH_K>0` and the logical is T, `SET_FG_WATCH_CELL` arms the
+capture; K<=0 disables.
+
+Capture points:
+
+- `WRITE_STORE` and `WRITE_STORE_CAP` record, at the matching
+  (geometry index KS, ray LS, store slot LS2-1): the raw proposed
+  field `FLD(JP2,LS2)`, the committed value `V1` after any cap,
+  the retained store value `V2` read before the write,
+  `VMAX_F(LS2)`, the DLOC denominator `MAX(V2,1.0E-4*VMAX_F)`,
+  the resulting `DLOC`, and the post-write `STORE` value.
+- `KNOP_RAY_SOLVE_V1` prints one record per solve for the armed
+  ray after the whole commit decision chain, so jump-rejected and
+  non-converged-rejected rays (which never reach either write
+  routine) still report their `FG_RAY_VC` verdict plus exit class
+  (`NXIT`), pass count (`NPASS`) and residual.
+- Channel attribution uses `KN_WC_CH`, set to 1 before the M
+  channel write call and 2 before the P channel call, both gated
+  on `LS==KN_WATCH_LS`.
+
+Index verification (source-traced, not assumed): the GS_MAXCHG
+argmax prints `(d,r,f)=(54,30,8712)`. `d=54` is the geometry index
+K into the compressing-depth arrays; the physical depth is
+`COMP_DEPTH_IDX(54)` and the ray point is `J_PNT(54,30)`. The
+printed `f=8712` is `FREQ_IDX_ITER` (0-based during the sweep);
+the field frequency index is `FREQ_IDX_ITER+1=8713` and the store
+slot written is `LS2-1 = FREQ_IDX_ITER = 8712`. The watch target
+is therefore `KN_WATCH_K=54, KN_WATCH_LS=30,
+KN_WATCH_SLOT=8712`.
+
+OpenMP safety: the parallel ray loop gives each ray to exactly
+one thread, and every capture write is gated on
+`LS==KN_WATCH_LS`, so only the armed ray's thread touches the
+`KN_WC_*` state - no cross-thread capture race. The print block
+runs inside `!$OMP CRITICAL(KN_WATCH_CRIT)` so concurrent ray
+solves cannot interleave OUTGEN lines. Read-only: no floating
+point operation, store update or convergence decision is altered;
+with `KN_WATCH_CELL=F` the added work is four predictable branches
+per store write.
+
+A format-string defect (A-descriptor/item count mismatch) was
+found and fixed before any instrumented run (`5a60e316`); the
+first diagnostic build `3854b948` was discarded unused.
+
+### 11.2 Executable provenance
+
+- Pinned production executable (running arms R/R2/M/C):
+  `exe/cmfgen_dev.exe` md5 `8afd859176ca0177c9de31fc6a400ffc`,
+  restored bit-identical after every diagnostic build and
+  re-verified after the latest build.
+- Diagnostic executable: md5 `9d64ca53971fbe4c409c819bba070f29`,
+  staged at `/tmp/cmfgen_diag_install/exe/cmfgen_dev.exe` with
+  `com/`, `lib/`, `mod/`, `obs_template/` symlinked from the
+  production tree so `cmfdist` resolves. Source state: main through
+  `5a60e316` plus concurrent uncommitted tree state at build time
+  (see 11.4).
+- Build note: a filesystem bus error during the build corrupted
+  53 small members of `lib/libsubs.a`; all were recompiled from
+  source and re-archived, the archive re-scanned clean (zero
+  non-ELF members), and `make cmfgen` then completed with exit 0.
+  Unit tests `test_knop_ray`, `test_knop_lagged_field`,
+  `test_knop_status_text`: 35/35 pass.
+
+### 11.3 Numerical-neutrality validation - RUNNING
+
+Two identical warm-restart runs from the FRESH_knop it125
+checkpoint, single thread, `KN_MAT_FREEZE=T`, `KN_Q_RESID=T`,
+`init_num_its=2`, on the interactive partition:
+
+- watch_A (control): `KN_WATCH_CELL` absent (default off), job
+  `13071411`.
+- watch_B (instrumented): `KN_WATCH_CELL=T`, `KN_WATCH_K=54`,
+  `KN_WATCH_LS=30`, `KN_WATCH_SLOT=8712`, job `13071413`.
+
+Both use the diagnostic executable `9d64ca53`. Pass criterion:
+bitwise-identical numerical state (FGINEXT_GS store, GS_STATE,
+OUTGEN numerical diagnostics, commit decisions) between A and B.
+The watch_B `KN_WATCH` record itself is expected output, not a
+numerical difference. If any numerical difference appears, the
+continuation is blocked pending investigation.
+
+### 11.4 Concurrent-tree caveat
+
+A second working process is active in this repository: it
+modified `subs/sobew*.f` and `unit_tests/` files during the
+diagnostic build window and landed audit commits (`16adf737`
+through `e6ed21a7`) plus `5a60e316` (the watch-format fix,
+which swept up the pending source edit). The diagnostic
+executable therefore contains whatever `sobew*` state existed at
+link time; both neutrality arms share that state, so the A/B
+comparison remains valid for the watch diagnostic itself. The
+sobew changes are unrelated to the KNOP paths under test.
+
+### 11.5 Arm status at time of writing
+
+M reached it145 (rf_resid ~0.0056-0.0057, unconverged cells
+~200, pops still `held=T`, `pops_applied=0.0`). R/R2 remain
+pinned near rf_resid ~0.030 with Q ~10. The M continuation will
+use M's final checkpoint once the arm terminates, with
+`KN_FREEZE_COEF=F`, `KN_MAT_FREEZE=T`, `KN_Q_RESID=T`, the watch
+cell armed at (54,30,8712), single thread, and no changes to
+`KN_RAY_TOL`, `KN_RAY_MAXPASS`, `KN_RAY_BULK_TOL`,
+`INEXT_RELAX`, `FG_COMMIT_NC`, `FG_COMMIT_JUMP` or population
+solver tolerances.
