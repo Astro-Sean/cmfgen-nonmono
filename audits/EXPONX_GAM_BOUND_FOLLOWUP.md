@@ -5,7 +5,7 @@ The SOBEW short-ray correction discussed in the sibling audit docs
 landed on main as `099435c7`/`e5e0aae9`/`b93f3377`/`686a5718`; HEAD at
 review close: `e6ed21a74dcc8760cdf65f2c1c91978851b24519`. Cleanup
 snapshot: `c37467c483eeca47545d728b8eba31d370fee8d9`. Current main
-HEAD: `c6c4eac55c3065582dc1f1df34c4d857dfa0f8fa`. This document
+HEAD: `9f4a301b9f51b0dbf8aeb0e7adcacafd5681b604`. This document
 remains analysis-only: EXPONX, d_EXPONX_dX, CHECK_LINE_OPAC, the
 negative-opacity policy and the SOBJBAR_SIM physical treatment are
 all unmodified.

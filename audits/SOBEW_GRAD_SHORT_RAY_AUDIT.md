@@ -8,7 +8,7 @@ Corrections committed on main: `e5e0aae966d42292a3b6b6220ded6ed91a726023`
 commits are audit docs only):
 `e6ed21a74dcc8760cdf65f2c1c91978851b24519`. Cleanup snapshot:
 `c37467c483eeca47545d728b8eba31d370fee8d9`. Current main HEAD:
-`c6c4eac55c3065582dc1f1df34c4d857dfa0f8fa`. See
+`9f4a301b9f51b0dbf8aeb0e7adcacafd5681b604`. See
 SOBEW_SHORT_RAY_GAM_AUDIT.md section 0 for the full revision history.
 
 ## 1. Scope

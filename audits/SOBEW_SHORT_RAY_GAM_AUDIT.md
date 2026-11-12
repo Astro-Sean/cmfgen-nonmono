@@ -25,7 +25,7 @@ Source revision history relevant to this audit:
   later commits are audit docs only):
   `e6ed21a74dcc8760cdf65f2c1c91978851b24519`.
 - Cleanup snapshot: `c37467c483eeca47545d728b8eba31d370fee8d9`.
-- Current main HEAD: `c6c4eac55c3065582dc1f1df34c4d857dfa0f8fa`.
+- Current main HEAD: `9f4a301b9f51b0dbf8aeb0e7adcacafd5681b604`.
 
 ## 0. Repository-state reconciliation (historical note)
 
