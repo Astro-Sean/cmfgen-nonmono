@@ -9,7 +9,7 @@
 ! new-vs-reference comparison.
 !
 ! Usage: drv_sob_floor <routine> <casefile>
-!   routine: sobjsim | sobew | sobewg2 | sobewg3
+!   routine: sobjsim | sobew | sobewg1 | sobewg2 | sobewg3
 !
 ! casefile:
 !   line1: ND NC NP NSIM
@@ -39,13 +39,13 @@ program drv_sob_floor
 
   real(kind=ldp) :: r(ndmax), v(ndmax), sig(ndmax)
   real(kind=ldp) :: chi(ndmax), esec(ndmax), chil(ndmax), etal(ndmax)
-  real(kind=ldp) :: src(ndmax), p(npmax), aqw(ndmax, npmax)
-  real(kind=ldp) :: haqw(ndmax, npmax)
-  real(kind=ldp) :: chilm(ndmax, nsmax), etalm(ndmax, nsmax)
-  real(kind=ldp) :: bbcor(ndmax, nsmax)
-  real(kind=ldp) :: jbar(ndmax), beta(ndmax), znet(ndmax, nsmax)
-  real(kind=ldp) :: vb(ndmax, nsmax), vc(ndmax, nsmax)
-  real(kind=ldp) :: vb2(ndmax), vc2(ndmax), betac(ndmax, nsmax)
+  real(kind=ldp) :: src(ndmax), p(npmax)
+  real(kind=ldp), allocatable :: aqw(:, :), haqw(:, :)
+  real(kind=ldp), allocatable :: chilm(:, :), etalm(:, :)
+  real(kind=ldp), allocatable :: bbcor(:, :), znet(:, :)
+  real(kind=ldp), allocatable :: vb(:, :), vc(:, :), betac(:, :)
+  real(kind=ldp) :: jbar(ndmax), beta(ndmax)
+  real(kind=ldp) :: vb2(ndmax), vc2(ndmax)
   real(kind=ldp) :: line_flux(ndmax), fm(ndmax), ew, emiss_ew, cflux
 
   call get_command_argument(1, routine)
@@ -59,6 +59,12 @@ program drv_sob_floor
   read(lu,*) nd, nc, np, nsim
   read(lu,*) fl, dif, thick, die, dbb, xic, rlum
   read(lu,*) method, ibnd
+! 2D arrays must match the (ND,*)/(ND,*) leading dimension the
+! production routines declare; fixed-size (NDMAX,*) arrays scramble
+! column-major indexing when ND < NDMAX.
+  allocate(aqw(nd, np), haqw(nd, np), chilm(nd, nsim), &
+           etalm(nd, nsim), bbcor(nd, nsim), znet(nd, nsim), &
+           vb(nd, nsim), vc(nd, nsim), betac(nd, nsim))
   do i = 1, nd
      read(lu,*) r(i), v(i), sig(i), chi(i), esec(i), chil(i), &
                 etal(i), src(i)
@@ -97,6 +103,14 @@ program drv_sob_floor
      write(*,'(a,2(1x,es24.16e3))') 'EW_CF ', ew, cflux
      do i = 1, nd
         write(*,'(i6,1x,es24.16e3)') i, line_flux(i)
+     end do
+  else if (routine == 'sobewg1') then
+     call sobew_grad(src, chi, esec, chil, etal, v, sig, r, p, &
+                fm, rlum, aqw, haqw, line_flux, ew, cflux, &
+                fl, dif, dbb, xic, thick, die, nc, np, nd, method)
+     write(*,'(a,2(1x,es24.16e3))') 'EW_CF ', ew, cflux
+     do i = 1, nd
+        write(*,'(i6,2(1x,es24.16e3))') i, fm(i), line_flux(i)
      end do
   else if (routine == 'sobewg2') then
      call sobew_grad_v2(src, chi, esec, chil, etal, v, sig, r, p, &
