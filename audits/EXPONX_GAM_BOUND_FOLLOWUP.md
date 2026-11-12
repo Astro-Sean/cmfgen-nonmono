@@ -1,6 +1,12 @@
 # Follow-up: the claimed GAM >= -5000 lower bound
 
-Work commit: `cd0f4374f1be07645a6a79f205a48f4285ea864b` (HEAD at time of writing: `247c9ad6`, knop-only commits on top).
+Work commit (original analysis): `cd0f4374f1be07645a6a79f205a48f4285ea864b`.
+The SOBEW short-ray correction discussed in the sibling audit docs
+landed on main as `099435c7`/`e5e0aae9`/`b93f3377`/`686a5718`; HEAD at
+review close: `e6ed21a74dcc8760cdf65f2c1c91978851b24519`. This document
+remains analysis-only and unchanged in substance: EXPONX,
+d_EXPONX_dX, CHECK_LINE_OPAC, the negative-opacity policy and the
+SOBJBAR_SIM physical treatment are all unmodified.
 Read-only analysis; no implementation change. Corrects and refines the
 bound discussion in `EXPONX_NEGATIVE_OPACITY_AUDIT.md` /
 `EXPONX_RECOMMENDATIONS.md`.
