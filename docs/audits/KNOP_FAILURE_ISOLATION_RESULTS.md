@@ -811,18 +811,45 @@ A format-string defect (A-descriptor/item count mismatch) was
 found and fixed before any instrumented run (`5a60e316`); the
 first diagnostic build `3854b948` was discarded unused.
 
+### 11.1a Diagnostic-completeness pass (Phase 2, commit `6ce9a623`)
+
+Review of the first telemetry revision found three gaps; all are
+now closed diagnostic-only:
+
+- Exit class: `NXIT` is the residual-setting exit, not the
+  per-channel solver class. The record now prints `IXIT_M`,
+  `IXIT_P` and `NXIT` separately (classes: 0 exact, 1 tol,
+  2 bulk, 3 stall, 4 cap, 5 diverged, 6 plateau), plus the ray
+  commit delta `FG_RAY_DCH(LS)` next to the verdict.
+- Two caps separated: `KN_WC_V1I` rebuilds the value after
+  `NONMONO_INEXT_CAP`/sanitize and before the
+  `FG_COMMIT_NC` provisional limiter, reconstructed arithmetically
+  from the raw `FLD` value inside the capture block (mirrors the
+  cap logic; no extra pass over the cell loop). `KN_WC_FL` records
+  bit0 = NONMONO_INEXT_CAP fired, bit1 = sanitize-to-floor path,
+  bit2 = FG_COMMIT_NC fired (WRITE_STORE_CAP only; WRITE_STORE
+  has no NC step so bit2 stays clear there).
+- DLOC branch: `KN_WC_BR` marks 0 = `V2>0` (the printed `den` is
+  the real `MAX(V2,1E-4*VMAX_F)` DLOC denominator) vs 1 =
+  `V2<=0` (DLOC is the 0/1 floor test; `den` then holds the
+  `1E-4*VMAX_F` significance floor, not a DLOC denominator).
+
 ### 11.2 Executable provenance
 
 - Pinned production executable (running arms R/R2/M/C):
   `exe/cmfgen_dev.exe` md5 `8afd859176ca0177c9de31fc6a400ffc`,
   restored bit-identical after every diagnostic build and
   re-verified after the latest build.
-- Diagnostic executable: md5 `9d64ca53971fbe4c409c819bba070f29`,
-  staged at `/tmp/cmfgen_diag_install/exe/cmfgen_dev.exe` with
-  `com/`, `lib/`, `mod/`, `obs_template/` symlinked from the
-  production tree so `cmfdist` resolves. Source state: main through
-  `5a60e316` plus concurrent uncommitted tree state at build time
-  (see 11.4).
+- Diagnostic executable: md5 `b4686fa157edb8c94b0dc098636d91a3`
+  (supersedes `9d64ca53`, which lacked the Phase-2 completeness
+  fields; the earlier `3854b948` build was discarded for the
+  format defect), staged at `/tmp/cmfgen_diag_install/exe/
+  cmfgen_dev.exe` with `com/`, `lib/`, `mod/`, `obs_template/`
+  symlinked from the production tree so `cmfdist` resolves. The
+  batch script resolves `CMFGEN_PROG` at exec time, so the
+  already-queued neutrality jobs pick up this exe automatically.
+  Source state: main through `6ce9a623` plus concurrent uncommitted
+  tree state at build time (see 11.4).
 - Build note: a filesystem bus error during the build corrupted
   53 small members of `lib/libsubs.a`; all were recompiled from
   source and re-archived, the archive re-scanned clean (zero
@@ -862,12 +889,36 @@ sobew changes are unrelated to the KNOP paths under test.
 
 ### 11.5 Arm status at time of writing
 
-M reached it145 (rf_resid ~0.0056-0.0057, unconverged cells
-~200, pops still `held=T`, `pops_applied=0.0`). R/R2 remain
-pinned near rf_resid ~0.030 with Q ~10. The M continuation will
-use M's final checkpoint once the arm terminates, with
-`KN_FREEZE_COEF=F`, `KN_MAT_FREEZE=T`, `KN_Q_RESID=T`, the watch
-cell armed at (54,30,8712), single thread, and no changes to
-`KN_RAY_TOL`, `KN_RAY_MAXPASS`, `KN_RAY_BULK_TOL`,
-`INEXT_RELAX`, `FG_COMMIT_NC`, `FG_COMMIT_JUMP` or population
-solver tolerances.
+M reached it146 (rf_resid ~0.0056, unconverged cells ~200-250,
+pops still `held=T`, `pops_applied=0.0`). R/R2 remain pinned near
+rf_resid ~0.030 with the deep argmax (54,30,8712) in `cycle`
+class. Two new measurements change the continuation picture:
+
+- M's GS_MAXCHG argmax has localized on a shallow cell
+  `(d,r)=(3,82)` since ~it139 at value ~5.6e-3, now `cycle`
+  class (alternating 5.58/5.74e-3 at it145-146). The frequency
+  column overflows the argmax-history I-field to `****`, so the
+  printed record cannot confirm FREQ_IDX_ITER; the user-supplied
+  value 1636 is used as the continuation watch slot (store slot =
+  FREQ_IDX_ITER per the verified mapping). The argmax is currently
+  stable on this cell; a single-cell watch suffices while it
+  persists - retarget if it migrates again.
+- M's independent one-pass Q residual is now growing on the same
+  trajectory shape seen in R/R2: 3.09 -> 5.26 -> 10.96 -> 15.35
+  -> ~20.7 and holding (it139-146), while rf_resid stays ~0.0056
+  and unconverged cells stay ~200. The running executable
+  predates the KN_QA_* argmax instrumentation, so the Q argmax
+  ray/cell/denominator is not available for the live arms; the
+  diagnostic exe used by the continuation emits it. Whether this
+  Q growth is the same floor-normalized weak-column defect or a
+  genuine one-pass-map divergence is exactly what the completed
+  telemetry plus Q argmax output must resolve.
+
+The M continuation will use M's final checkpoint once the arm
+terminates, with `KN_FREEZE_COEF=F`, `KN_MAT_FREEZE=T`,
+`KN_Q_RESID=T`, the watch cell armed at (K=3, LS=82,
+SLOT=1636), single thread, and no changes to `KN_RAY_TOL`,
+`KN_RAY_MAXPASS`, `KN_RAY_BULK_TOL`, `INEXT_RELAX`,
+`FG_COMMIT_NC`, `FG_COMMIT_JUMP` or population solver tolerances.
+It launches only after the A/B neutrality comparison passes and
+is reviewed.
