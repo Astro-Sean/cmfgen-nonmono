@@ -1166,6 +1166,75 @@
 	LOGICAL, SAVE :: KNOP_DUMP_TOPO
 	DATA KNOP_DUMP_TOPO /.FALSE./
 !
+! KN_FREEZE_COEF: diagnostic-only fixed-coefficient mode (failure
+! isolation). When T, the KN_CHI_EXT/KN_ETA_EXT snapshots captured
+! during the frequency sweep are written only on the first complete
+! pass and then held fixed, so every FG_KNOP_REFRESH_V1 call rebuilds
+! KN_CHI_COEF/KN_ETA_COEF from identical inputs. The main sweep still
+! uses the live CHI_EXT/ETA_EXT; only the refresh's coefficient
+! snapshot is pinned, which isolates the refresh fixed-point operator
+! from population-opacity drift. KN_COEF_FROZEN marks that the first
+! capture completed. SAVE vars reinitialise on a fresh process, so a
+! warm restart captures checkpoint-consistent coefficients once and
+! freezes them thereafter. Default .FALSE. preserves production
+! behaviour; set via SET_FG_FREEZE_COEF ([KN_FREEZE_COEF]).
+!
+	LOGICAL, SAVE :: KN_FREEZE_COEF
+	LOGICAL, SAVE :: KN_COEF_FROZEN
+	DATA KN_FREEZE_COEF /.FALSE./
+	DATA KN_COEF_FROZEN /.FALSE./
+!
+! KN_CENS_*: ordered-march branch census (failure isolation). Each
+! ray's KNOP_RAY_SOLVE_V1 runs under OpenMP and solves the I_M
+! (inward) and I_P (outward) fields through either SWEEP_FLD_ORD (when
+! ORD_SWEEP = FG_ORD_SWEEP .AND. HAVE_PACK .AND. NI>=3 holds) or the
+! alternating SWEEP_FLD. These counters record the branch actually
+! taken per channel so branch use is auditable post hoc rather than
+! inferred from the input flag. Reset once per FG_KNOP_REFRESH_V1
+! call before the ray loop; accumulated with OMP atomics.
+!
+	INTEGER*8, SAVE :: KN_CENS_ORD_RAY
+	INTEGER*8, SAVE :: KN_CENS_UNO_RAY
+	INTEGER*8, SAVE :: KN_CENS_SFM
+	INTEGER*8, SAVE :: KN_CENS_SFOM
+	INTEGER*8, SAVE :: KN_CENS_SFP
+	INTEGER*8, SAVE :: KN_CENS_SFOP
+	DATA KN_CENS_ORD_RAY /0_8/,KN_CENS_UNO_RAY /0_8/
+	DATA KN_CENS_SFM /0_8/,KN_CENS_SFOM /0_8/
+	DATA KN_CENS_SFP /0_8/,KN_CENS_SFOP /0_8/
+!
+! KN_Q_RESID: diagnostic-only independent fixed-point residual
+! (failure isolation, P1-T1c). When T, each ray's KNOP_RAY_SOLVE_V1
+! re-applies exactly one sweep pass to a scratch copy of each
+! channel's converged field after the production solve and commit
+! decisions are final; the pass residual is ||T(FLD)-FLD|| for the
+! map the solve ran, measured without touching the lagged store.
+! Distinct from GS_MAXCHG (store-to-store drift across refreshes)
+! and from RES_M/RES_P (the production solve's own last-pass
+! change). KN_Q_LS carries the per-ray max over the two channels;
+! FG_KNOP_REFRESH_V1 reports its max in the refresh summary.
+! Default .FALSE. preserves production behaviour and cost; set via
+! SET_FG_Q_RESID ([KN_Q_RESID]).
+!
+	LOGICAL, SAVE :: KN_Q_RESID
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_Q_LS(:)
+	DATA KN_Q_RESID /.FALSE./
+!
+! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
+! freeze arm event the raw KN_CHI_EXT/KN_ETA_EXT snapshots are
+! summed into KN_COEF_FP(1:2); each refresh then re-sums the
+! rebuilt KN_CHI_COEF/KN_ETA_COEF into KN_COEF_FPR and reports the
+! drift against the first refresh. Identical inputs give a
+! bitwise-identical sum, so any nonzero drift proves the freeze
+! leaked. KN_COEF_FP_N counts armed refreshes.
+!
+	REAL(KIND=LDP), SAVE :: KN_COEF_FP(2),KN_COEF_FPR(2),KN_COEF_FPB(2)
+	REAL(KIND=LDP), SAVE :: KN_COEF_FP_DRIFT
+	INTEGER, SAVE :: KN_COEF_FP_N
+	DATA KN_COEF_FP /0.0_LDP,0.0_LDP/,KN_COEF_FPR /0.0_LDP,0.0_LDP/
+	DATA KN_COEF_FPB /0.0_LDP,0.0_LDP/
+	DATA KN_COEF_FP_DRIFT /0.0_LDP/,KN_COEF_FP_N /0/
+!
 	CONTAINS
 !
 ! ==============================================================================
@@ -3132,8 +3201,17 @@
 	  IF(ALLOCATED(KN_CHI_EXT))THEN
 	    LK=FREQ_IDX_ITER+1
 	    IF(LK .GE. 1 .AND. LK .LE. KN_NCF)THEN
-	      KN_CHI_EXT(1:ND_EXT,LK)=CHI_EXT(1:ND_EXT)
-	      KN_ETA_EXT(1:ND_EXT,LK)=ETA_EXT(1:ND_EXT)
+!
+! KN_FREEZE_COEF (diagnostic): once the first complete coefficient
+! snapshot is captured, hold KN_CHI_EXT/KN_ETA_EXT fixed so every
+! refresh rebuilds identical KN_CHI_COEF/KN_ETA_COEF. The frequency/
+! spacing captures below are geometry, not matter state, and stay
+! live so KN_STORE_READY and the refresh indexing are unaffected.
+!
+	      IF(.NOT. KN_COEF_FROZEN)THEN
+	        KN_CHI_EXT(1:ND_EXT,LK)=CHI_EXT(1:ND_EXT)
+	        KN_ETA_EXT(1:ND_EXT,LK)=ETA_EXT(1:ND_EXT)
+	      END IF
 	      KN_FREQ(LK)=FREQ
 	      KN_DLN_P(LK)=dLOG_NU
 	      IF(FG_NU_NEXT .GT. 0.0_LDP .AND.
@@ -3144,7 +3222,22 @@
 	      END IF
 	      KN_DBB(LK)=DBB
 	      KN_IC(LK)=IC
-	      IF(LK .EQ. KN_NCF)KN_STORE_READY=.TRUE.
+	      IF(LK .EQ. KN_NCF)THEN
+	        KN_STORE_READY=.TRUE.
+	        IF(KN_FREEZE_COEF)THEN
+	          KN_COEF_FROZEN=.TRUE.
+!
+! Fingerprint the raw snapshots at the arm event: every slot
+! 1..KN_NCF was captured this pass, so the sums are complete and
+! deterministic. The refresh compares its rebuilt-coefficient
+! sums against the first armed refresh to prove the freeze held.
+!
+	          KN_COEF_FP(1)=SUM(DBLE(KN_CHI_EXT(1:ND_EXT,1:KN_NCF)))
+	          KN_COEF_FP(2)=SUM(DBLE(KN_ETA_EXT(1:ND_EXT,1:KN_NCF)))
+	          KN_COEF_FP_N=0
+	          KN_COEF_FP_DRIFT=0.0_LDP
+	        END IF
+	      END IF
 	    END IF
 	  END IF
 !
@@ -6666,6 +6759,22 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_FREEZE_COEF(DO_FZ)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_FREEZE_COEF
+	IMPLICIT NONE
+	LOGICAL DO_FZ
+	KN_FREEZE_COEF=DO_FZ
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_Q_RESID(DO_Q)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_Q_RESID
+	IMPLICIT NONE
+	LOGICAL DO_Q
+	KN_Q_RESID=DO_Q
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_AITKEN(DO_AIT)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AITKEN
 	IMPLICIT NONE
@@ -7079,6 +7188,22 @@ C
 	END DO
 	DEALLOCATE(LG_WRK)
 !
+! Frozen-coefficient fingerprint (diagnostic): re-sum the rebuilt
+! interpolation coefficients and track the drift against the first
+! armed refresh. KN_FREEZE_COEF pins KN_CHI_EXT/KN_ETA_EXT, so the
+! sums must be bitwise identical every refresh; any nonzero drift
+! means a live coefficient leaked into the refresh operator.
+!
+	IF(KN_COEF_FROZEN)THEN
+	  KN_COEF_FP_N=KN_COEF_FP_N+1
+	  KN_COEF_FPR(1)=SUM(KN_CHI_COEF(1:KN_ND_EXT,1:4,1:KN_NCF))
+	  KN_COEF_FPR(2)=SUM(KN_ETA_COEF(1:KN_ND_EXT,1:4,1:KN_NCF))
+	  IF(KN_COEF_FP_N .EQ. 1)KN_COEF_FPB=KN_COEF_FPR
+	  KN_COEF_FP_DRIFT=MAX(KN_COEF_FP_DRIFT,
+	1    MAX(ABS(KN_COEF_FPR(1)-KN_COEF_FPB(1)),
+	2        ABS(KN_COEF_FPR(2)-KN_COEF_FPB(2))))
+	END IF
+!
 	ALLOCATE(RES_LS(KN_NP),NST_LS(KN_NP),NPS_LS(KN_NP),
 	1   NCP_LS(KN_NP),NNG_LS(KN_NP),NBD_LS(KN_NP),NTT_LS(KN_NP),
 	2   NDV_LS(KN_NP),NMX_LS(KN_NP),NMT_LS(KN_NP),NCM_LS(KN_NP),
@@ -7087,6 +7212,16 @@ C
 	5   NCL_LS(KN_NP),NNL_LS(KN_NP),
 	6   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
+!
+! KN_Q_RESID (diagnostic): per-ray scratch for the independent
+! fixed-point residual; each ray owns its LS slot so the parallel
+! loop needs no reduction. -1 marks rays that never reported.
+!
+	IF(KN_Q_RESID)THEN
+	  IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
+	  ALLOCATE(KN_Q_LS(KN_NP),STAT=IOS2)
+	  IF(IOS2 .EQ. 0)KN_Q_LS=-1.0_LDP
+	END IF
 	RES_LS=0.0_LDP
 	RHO_M_LS=0.0_LDP; RHO_P_LS=0.0_LDP
 	NCL_LS=0_8; NNL_LS=0_8
@@ -7188,6 +7323,13 @@ C
 ! perturbs the solve.
 !
 	IF(KNOP_DUMP_TOPO)CALL DUMP_KNOP_TOPO_V1(N_TH)
+!
+! Ordered-march branch census: zero the per-refresh counters before
+! the parallel ray loop; KNOP_RAY_SOLVE_V1 accumulates them.
+!
+	KN_CENS_ORD_RAY=0_8; KN_CENS_UNO_RAY=0_8
+	KN_CENS_SFM=0_8; KN_CENS_SFOM=0_8
+	KN_CENS_SFP=0_8; KN_CENS_SFOP=0_8
 	T0=OMP_GET_WTIME()
 !$OMP PARALLEL DO NUM_THREADS(N_TH) SCHEDULE(DYNAMIC)
 !$OMP& DEFAULT(SHARED) PRIVATE(LS)
@@ -7398,6 +7540,46 @@ C
 	1    '    p2damped writes=',SUM(NP2_LS)
 	END IF
 !
+! Ordered-march branch census: the effective per-ray branch actually
+! executed this refresh (ORD_SWEEP folds FG_ORD_SWEEP, HAVE_PACK,
+! NI>=3 and the SPW alloc fallback), plus per-channel solve counts so
+! SWEEP_FLD vs SWEEP_FLD_ORD use is auditable rather than inferred
+! from the KN_RAY_ORDERED input flag.
+!
+	WRITE(LUER,'(2(A,I8))')
+	1  '    march census: ord rays=',KN_CENS_ORD_RAY,
+	2  '  unordered rays=',KN_CENS_UNO_RAY
+	WRITE(LUER,'(A,4I10)')
+	1  '    solves M ord, M uno, P ord, P uno=',
+	2  KN_CENS_SFOM,KN_CENS_SFM,KN_CENS_SFOP,KN_CENS_SFP
+!
+! KN_Q_RESID (diagnostic): the independent fixed-point residual --
+! max over rays of the one-pass map application on each channel's
+! converged field. Compare against the refresh residual above
+! (solver's own last-pass change) and the retained-field delta
+! (store-to-store drift): a large q with small refresh residual
+! means the committed field is not a fixed point of the map.
+!
+	IF(KN_Q_RESID .AND. ALLOCATED(KN_Q_LS))THEN
+	  T2=MAXVAL(KN_Q_LS)
+	  WRITE(LUER,'(A,ES12.5,A,I8)')
+	1    '    independent q residual max=',T2,
+	2    '  rays reported=',COUNT(KN_Q_LS .GE. 0.0_LDP)
+	END IF
+!
+! Frozen-coefficient fingerprint (diagnostic): the raw snapshot
+! sums captured at the freeze arm and the rebuilt-coefficient drift
+! accumulated since the first armed refresh. Drift must stay 0.0;
+! any nonzero value means live coefficients leaked into the
+! refresh operator despite KN_FREEZE_COEF.
+!
+	IF(KN_COEF_FROZEN)THEN
+	  WRITE(LUER,'(A,2(ES16.8),A,ES10.3,A,I6)')
+	1    '    coef fp raw=',KN_COEF_FP(1),KN_COEF_FP(2),
+	2    ' rebuilt drift=',KN_COEF_FP_DRIFT,
+	3    ' armed refreshes=',KN_COEF_FP_N
+	END IF
+!
 ! Temporary DO_NONMONO_KNOP diagnostic table. The formal refresh can
 ! appear converged in aggregate while one ray remains tied to a long
 ! compressing-frequency stencil. Report that ray and how often the
@@ -7530,6 +7712,7 @@ C
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
 	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS)
+	IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
 	RETURN
 	END
 !
@@ -7602,6 +7785,18 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: WINX(:),IM_NI(:),T1V(:)
 	REAL(KIND=LDP), ALLOCATABLE :: FLD(:,:)
 	REAL(KIND=LDP), ALLOCATABLE :: FLD_P(:,:)
+!
+! KN_Q_RESID scratch (diagnostic): FLD_Q is the copy the one-pass
+! verify map runs on; the SV slots hold the host-shared sweep
+! outputs that a verify pass would otherwise overwrite before the
+! ray's result args are finalised.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: FLD_Q(:,:)
+	REAL(KIND=LDP) RES_Q,Q_M,Q_P,RHOS_SV(2)
+	INTEGER NP_Q,NB_Q,NT_Q,IXQ_Q,NPCS_SV,NNGS_SV
+	INTEGER*8 NB_BQ,NT_BQ,NPT2_SV,NCLS_SV(4)
+	INTEGER WRC_SV(8)
+	LOGICAL LDVS_SV,LCES_SV
 !
 ! RES_FREQ(L): per-frequency max overwrite residual of the last
 ! completed pass, accumulated inside MARCH. Stage-1 instrumentation
@@ -7862,6 +8057,20 @@ C
 	  IF(IOS .NE. 0)ORD_SWEEP=.FALSE.
 	END IF
 !
+! Ordered-march branch census: record the effective per-ray branch
+! actually taken (ORD_SWEEP already folds FG_ORD_SWEEP, HAVE_PACK and
+! the NI>=3 floor, plus the SPW allocation fallback above) so the
+! refresh summary can report real branch usage rather than the input
+! flag. Atomic because rays run under OpenMP.
+!
+	IF(ORD_SWEEP)THEN
+!$OMP ATOMIC
+	  KN_CENS_ORD_RAY=KN_CENS_ORD_RAY+1_8
+	ELSE
+!$OMP ATOMIC
+	  KN_CENS_UNO_RAY=KN_CENS_UNO_RAY+1_8
+	END IF
+!
 ! ---------------- I_M (inward) field ----------------
 !
 	ALLOCATE(FLD(NI,NCF),STAT=IOS)
@@ -7875,10 +8084,14 @@ C
 	W_LO=0; W_HI=0; NHOT=0
 	IF(ORD_SWEEP)THEN
 	  CALL SWEEP_FLD_ORD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M,
-	1     NB_BM,NT_BM)
+	1     NB_BM,NT_BM,.FALSE.)
+!$OMP ATOMIC
+	  KN_CENS_SFOM=KN_CENS_SFOM+1_8
 	ELSE
 	  CALL SWEEP_FLD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M,
-	1     NB_BM,NT_BM)
+	1     NB_BM,NT_BM,.FALSE.)
+!$OMP ATOMIC
+	  KN_CENS_SFM=KN_CENS_SFM+1_8
 	END IF
 !
 ! Worst-cell record of the I_M sweep; the I_P sweep below overwrites
@@ -7930,10 +8143,14 @@ C
 	W_LO=0; W_HI=0; NHOT=0
 	IF(ORD_SWEEP)THEN
 	  CALL SWEEP_FLD_ORD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P,
-	1     NB_BP,NT_BP)
+	1     NB_BP,NT_BP,.FALSE.)
+!$OMP ATOMIC
+	  KN_CENS_SFOP=KN_CENS_SFOP+1_8
 	ELSE
 	  CALL SWEEP_FLD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P,
-	1     NB_BP,NT_BP)
+	1     NB_BP,NT_BP,.FALSE.)
+!$OMP ATOMIC
+	  KN_CENS_SFP=KN_CENS_SFP+1_8
 	END IF
 	IF(DIVERGED)THEN
 	  NDIV=1
@@ -8060,6 +8277,61 @@ C
 	  KR_DBG_FLDM(1:NI,1:NCF)=FLD(1:NI,1:NCF)
 	  KR_DBG_FLDP(1:NI,1:NCF)=FLD_P(1:NI,1:NCF)
 	END IF
+!
+! KN_Q_RESID (diagnostic, [KN_Q_RESID]): independent fixed-point
+! residual. With OMEGA_RAY<1 the committed field is not the raw
+! map output, so the production RES understates the true
+! fixed-point gap; re-apply exactly one sweep pass to a scratch
+! copy of each channel's field and record that pass residual.
+! The L_QP hook inside SWEEP_FLD/SWEEP_FLD_ORD exits after the
+! first completed pass, so the verify costs one pass per channel
+! and never reaches the store. Production outputs above are
+! final; host-shared sweep outputs a verify pass would overwrite
+! (clamp census, worst-cell record, rho export, p2damp count,
+! exit flags) are saved and restored.
+!
+	IF(KN_Q_RESID .AND. NDIV .EQ. 0 .AND.
+	1   ALLOCATED(FLD) .AND. ALLOCATED(FLD_P))THEN
+	  LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT
+	  WRC_SV(1)=WRC_I; WRC_SV(2)=WRC_L; WRC_SV(3)=WRC_PI
+	  WRC_SV(4)=WRC_PL; WRC_SV(5)=WRC_SAME
+	  WRC_SV(6)=WRC_IM; WRC_SV(7)=WRC_LM; WRC_SV(8)=WRC_SM
+	  NCLS_SV(1)=NCL_M; NCLS_SV(2)=NNL_M
+	  NCLS_SV(3)=NCL_P; NCLS_SV(4)=NNL_P
+	  NPCS_SV=NCAP; NNGS_SV=NNEG; NPT2_SV=NP2_CNT
+	  RHOS_SV(1)=RHO_M; RHOS_SV(2)=RHO_P
+	  ALLOCATE(FLD_Q(NI,NCF),STAT=IOS)
+	  IF(IOS .EQ. 0)THEN
+	    FLD_Q=FLD
+	    IF(ORD_SWEEP)THEN
+	      CALL SWEEP_FLD_ORD(FLD_Q,.TRUE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	    ELSE
+	      CALL SWEEP_FLD(FLD_Q,.TRUE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	    END IF
+	    Q_M=RES_Q
+	    FLD_Q=FLD_P
+	    IF(ORD_SWEEP)THEN
+	      CALL SWEEP_FLD_ORD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	    ELSE
+	      CALL SWEEP_FLD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	    END IF
+	    Q_P=RES_Q
+	    DEALLOCATE(FLD_Q)
+	    IF(ALLOCATED(KN_Q_LS))KN_Q_LS(LS)=MAX(Q_M,Q_P)
+	  END IF
+	  DIVERGED=LDVS_SV; CLEAN_EXIT=LCES_SV
+	  WRC_I=WRC_SV(1); WRC_L=WRC_SV(2); WRC_PI=WRC_SV(3)
+	  WRC_PL=WRC_SV(4); WRC_SAME=WRC_SV(5)
+	  WRC_IM=WRC_SV(6); WRC_LM=WRC_SV(7); WRC_SM=WRC_SV(8)
+	  NCL_M=NCLS_SV(1); NNL_M=NCLS_SV(2)
+	  NCL_P=NCLS_SV(3); NNL_P=NCLS_SV(4)
+	  NCAP=NPCS_SV; NNEG=NNGS_SV; NP2_CNT=NPT2_SV
+	  RHO_M=RHOS_SV(1); RHO_P=RHOS_SV(2)
+	END IF
 	DEALLOCATE(FLD,FLD_P)
 !
 800	CONTINUE
@@ -8179,9 +8451,9 @@ C
 ! with no usable compressing slots is exact after the first pass.
 ! ----------------------------------------------------------------
 	SUBROUTINE SWEEP_FLD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT,
-	1   NB_B,NT_B)
+	1   NB_B,NT_B,L_QP)
 	REAL(KIND=LDP) FLD(NI,NCF),RES
-	LOGICAL INWARD
+	LOGICAL INWARD,L_QP
 	INTEGER NPO,LB,LE,LDI,IXIT
 	INTEGER*8 NB_O,NT_O,NB_B,NT_B
 	INTEGER NSTALL,NPLAT(2)
@@ -8319,6 +8591,17 @@ C
 	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
 	    DIVERGED=.TRUE.
 	    IXIT=5
+	    EXIT
+	  END IF
+!
+! KN_Q_RESID verify pass (diagnostic): L_QP requests exactly one
+! map application. Exit here with the completed first-pass
+! residual so the caller measures ||T(FLD)-FLD|| on a scratch
+! field; placing the exit before KN_RES_PASS/RHO_WIN keeps the
+! verify out of the production solve's telemetry.
+!
+	  IF(L_QP)THEN
+	    IXIT=9
 	    EXIT
 	  END IF
 !
@@ -8746,9 +9029,9 @@ C
 ! ordering is fixed by the characteristic, not by pass parity.
 ! ----------------------------------------------------------------
 	SUBROUTINE SWEEP_FLD_ORD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT,
-	1   NB_B,NT_B)
+	1   NB_B,NT_B,L_QP)
 	REAL(KIND=LDP) FLD(NI,NCF),RES
-	LOGICAL INWARD
+	LOGICAL INWARD,L_QP
 	INTEGER NPO,IXIT
 	INTEGER*8 NB_O,NT_O,NB_B,NT_B
 	INTEGER NSTALL,J,L,LB,LE,LDI
@@ -9328,6 +9611,16 @@ C
 	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
 	    DIVERGED=.TRUE.
 	    IXIT=5
+	    EXIT
+	  END IF
+!
+! KN_Q_RESID verify pass (diagnostic): same one-pass exit as
+! SWEEP_FLD -- L_QP stops after the first completed pass so the
+! caller can measure the map residual on a scratch field without
+! touching KN_RES_PASS or the RHO_WIN contraction samples.
+!
+	  IF(L_QP)THEN
+	    IXIT=9
 	    EXIT
 	  END IF
 !
