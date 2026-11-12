@@ -70,6 +70,30 @@ C Zero AV vector.
 C
 	  AV(1:NI)=0.0
 C
+	  CALL ZALONGP(R,Z,P(LS),NI)
+C
+C NB: GAM is the angle dependent SOBOLEV optical depth.
+C Computed before the NI-specific branches so the short rays (NI=1,2)
+C use the current ray's Z, matching the SOBJBAR_SIM ordering.
+C
+C Dessart, Audit & Hillier (2015, arXiv:1503.05463) guard: for
+C sigma < 0 the factor |1+sigma*mu^2| (mu^2=Z^2/R^2) can vanish along a
+C ray, so the Sobolev optical depth is floored via
+C MAX(|1+sigma*mu^2|, -0.2*(1+sigma)); 1D-4 bounds the sigma=-1 case.
+C Inactive for sigma >= -1, so monotonic flows are unchanged.
+C Matches the guard already in SOBEW_GRAD_V2/V3 (this routine is not
+C currently called, but should not carry the unguarded form).
+C
+	    DO I=1,NI
+	      T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
+	      IF(SIGMA(I) .LT. 0.0_LDP)THEN
+	        T1=MAX(ABS(T1),-0.2_LDP*(1.0_LDP+SIGMA(I)),1.0D-4)
+	      ELSE
+	        T1=ABS(T1)
+	      END IF
+	      GAM(I)=GAMH(I)/T1
+	    END DO
+C
 C SOURCE(1) is the boundary continuum source function. NB: If THICK it is
 C           not obvious what you mean by the FLUX going to the observer.
 C           Is it Iplus or Iplus-Ibound? Hopefully the outer boundary is
@@ -90,7 +114,6 @@ C
 	    AV(1)=IBOUND
 	    TB(1)=0.0_LDP			!Flux at grid point.
 	  ELSE IF(NI .EQ. 2)THEN
-	    CALL ZALONGP(R,Z,P(LS),NI)
 	    CALL NORDTAU(DTAU,CHI,Z,R,dCHIdR,NI)
 	    E1=EXP(-DTAU(1))
 	    E2=1.0_LDP-(1.0_LDP-E1)/DTAU(1)
@@ -104,29 +127,6 @@ C
             TB(2)=0.0_LDP
 	    TB(1)=AV(1)-IBOUND
 	  ELSE
-C
-	    CALL ZALONGP(R,Z,P(LS),NI)
-C
-C NB: GAM is the angle dependent SOBOLEV optical depth.
-C
-C
-C Dessart, Audit & Hillier (2015, arXiv:1503.05463) guard: for
-C sigma < 0 the factor |1+sigma*mu^2| (mu^2=Z^2/R^2) can vanish along a
-C ray, so the Sobolev optical depth is floored via
-C MAX(|1+sigma*mu^2|, -0.2*(1+sigma)); 1D-4 bounds the sigma=-1 case.
-C Inactive for sigma >= -1, so monotonic flows are unchanged.
-C Matches the guard already in SOBEW_GRAD_V2/V3 (this routine is not
-C currently called, but should not carry the unguarded form).
-C
-	    DO I=1,NI
-	      T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
-	      IF(SIGMA(I) .LT. 0.0_LDP)THEN
-	        T1=MAX(ABS(T1),-0.2_LDP*(1.0_LDP+SIGMA(I)),1.0D-4)
-	      ELSE
-	        T1=ABS(T1)
-	      END IF
-	      GAM(I)=GAMH(I)/T1
-	    END DO
 C
 	    IF(DIF .AND. LS .LE. NC)THEN
 	      DBC=DBB*SQRT(R(ND)*R(ND)-P(LS)*P(LS))/R(ND)/CHI(ND)
