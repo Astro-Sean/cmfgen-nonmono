@@ -2196,8 +2196,16 @@
 !
 	LUM_POPS_HELD=LUM_BLOCKED
 	GS_POPS_HELD=.FALSE.
+!
+! KN_MAT_FREEZE (diagnostic, [KN_MAT_FREEZE], default F): force the
+! population hold on every call for the KNOP failure-isolation arm M
+! -- SOLVEBA still runs so the attempted update and STEQ diagnostics
+! stay live, but POPS is restored afterwards and matter-derived
+! opacity inputs remain at their checkpoint values while the
+! radiation field evolves. F preserves production behaviour.
+!
 	IF((GS_HOLD_POPS .AND. GS_FREEZE .AND. .NOT. MOM_TRIAL .AND.
-	1   .NOT. FG_TRIAL) .OR. LUM_POPS_HELD)THEN
+	1   .NOT. FG_TRIAL) .OR. LUM_POPS_HELD .OR. KN_MAT_FREEZE)THEN
 	  IF(.NOT. ALLOCATED(POPS_GS_SAVE))THEN
 	    ALLOCATE(POPS_GS_SAVE(NT,ND),STAT=IOS)
 	  ELSE IF(SIZE(POPS_GS_SAVE,1) .NE. NT .OR.
