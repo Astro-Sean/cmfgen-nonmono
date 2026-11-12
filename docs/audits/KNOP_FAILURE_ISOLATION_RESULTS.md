@@ -1118,6 +1118,22 @@ called PASS until both jobs run and their outputs compare. If
 the jobs remain starved, the gate stays open; the M-arm
 continuation remains blocked regardless (13.6).
 
+Update 2026-11-12 ~15:30: the first scheduled attempt FAILED in
+7 s on both arms - batch.log shows `nice: '/tmp/cmfgen_diag_
+install/exe/cmfgen_dev.exe': No such file or directory`. Cause:
+/tmp is node-local; the job landed on viper07 where the install
+did not exist. The identical b4686fa1 exe plus com/lib/mod/
+obs_template symlinks was re-staged at the shared path
+/viper/ptmp1/sbrennan/SN2024pba/cmfgen_diag_install (md5
+re-verified), the cmfdist export in all four slurm scripts
+(SINGLE_FINAL+OBS for A and B) was repointed, and the chain was
+resubmitted: watch_A FINAL 13073518 / OBS 13073519, watch_B
+FINAL 13073520 / OBS 13073521 (afterok). Original jobs
+13071411/13 FAILED, dependents 13071412/14 cancelled by the
+afterok dependency. Experiment design unchanged: same exe md5,
+same inputs, same watch keys; only the install path moved to a
+shared filesystem.
+
 ### 13.2 Q-residual reporting corrected - diagnostic-only rebuild
 
 ChatGPT's review identified that the existing Q output could not
