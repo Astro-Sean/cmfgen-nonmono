@@ -1232,6 +1232,31 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QA_VN(:,:),KN_QA_VM(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: KN_QA_J(:,:),KN_QA_L(:,:)
 !
+! KN_QC_* cell-level Q statistics (diagnostic): every DCELL
+! computed inside MARCH during the verify passes is accumulated
+! per channel (1=M inward, 2=P outward), so the distribution
+! answers whether the one-pass map defect is localized or
+! population-wide rather than reporting only per-ray maxima.
+! KN_QC_HIST bins log10(DCELL) at 0.1 dex from 1e-30 to 1e10
+! (bins 3..402), bin 1 holds DCELL<=0 and bin 403 holds
+! DCELL>=1e10; reported quantiles are bin-edge estimates with
+! ~+/-12% relative resolution, while KN_QC_MAX, the threshold
+! counts KN_QC_NT and the cell argmax table KN_QA_* are exact.
+! KN_Q_ACC gates the accumulation so production passes pay only
+! one predictable branch per DCELL site; KN_Q_ACC_CH selects the
+! channel. KN_QS_STAT records each ray's verify outcome:
+! 0 unreached, 1 evaluated, 2 diverged-skip, 3 degenerate/NI<2
+! early return, 4 verify-alloc failure, 5 field not allocated,
+! 6 ray-local alloc failure.
+!
+	INTEGER*8, ALLOCATABLE, SAVE :: KN_QC_HIST(:,:)
+	INTEGER*8, SAVE :: KN_QC_N(2)=0_8
+	INTEGER*8, SAVE :: KN_QC_NT(2,3)=0_8
+	REAL(KIND=LDP), SAVE :: KN_QC_MAX(2)=0.0_LDP
+	LOGICAL, SAVE :: KN_Q_ACC = .FALSE.
+	INTEGER, SAVE :: KN_Q_ACC_CH = 0
+	INTEGER, ALLOCATABLE, SAVE :: KN_QS_STAT(:)
+!
 ! KN_WATCH_CELL (diagnostic, [KN_WATCH_CELL]): per-cell commit
 ! telemetry for one geometry/ray/frequency target. When armed via
 ! SET_FG_WATCH_CELL, WRITE_STORE and WRITE_STORE_CAP capture the
@@ -7276,6 +7301,8 @@ C
 !
 	INTEGER LS,L,I,J,K,IOS,IOS2,N_TH
 	INTEGER IQ_R,IQ_C,IQ_W,IQ_N,IQ_K
+	INTEGER IQ_B1,IQ_B2,IQ_B3
+	INTEGER*8 IQ_C1
 	REAL(KIND=LDP) T0,T1_W,T2,IQ_T,IQ_A
 	REAL(KIND=LDP), ALLOCATABLE :: QS_TMP(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
@@ -7410,6 +7437,19 @@ C
 	    KN_QA_Q=-1.0_LDP; KN_QA_VOLD=-1.0_LDP
 	    KN_QA_VN=-1.0_LDP; KN_QA_VM=-1.0_LDP
 	    KN_QA_J=0; KN_QA_L=0
+	  END IF
+!
+! Cell-level accumulators: per-refresh fresh census. KN_QS_STAT
+! marks each ray's verify outcome (0 = never reached the verify
+! block); the KN_QC_* arrays collect every MARCH DCELL during the
+! two verify passes per ray.
+!
+	  ALLOCATE(KN_QS_STAT(KN_NP),KN_QC_HIST(2,403),STAT=IOS2)
+	  IF(IOS2 .EQ. 0)THEN
+	    KN_QS_STAT=0
+	    KN_QC_HIST=0_8
+	    KN_QC_N=0_8; KN_QC_NT=0_8; KN_QC_MAX=0.0_LDP
+	    KN_Q_ACC=.FALSE.; KN_Q_ACC_CH=0
 	  END IF
 	END IF
 	RES_LS=0.0_LDP
@@ -7756,6 +7796,24 @@ C
 	1    '    independent q residual max=',T2,
 	2    '  rays reported=',COUNT(KN_Q_LS .GE. 0.0_LDP)
 !
+! Ray census: KN_QS_STAT separates evaluated rays (1) from
+! diverged skips (2), degenerate/NI<2 early returns (3),
+! verify-alloc failures (4), missing-field skips (5), ray-local
+! alloc failures (6) and rays that never reached the verify
+! block (0). "rays reported" above counts KN_Q_LS>=0, which is
+! the evaluated set; this census says why the rest did not
+! report instead of folding them into the -1 sentinel pool.
+!
+	  IF(ALLOCATED(KN_QS_STAT))THEN
+	    WRITE(LUER,'(A,7(I8))')
+	1    '    q ray census eval,div,ni<2,allocF,nofld,rayalloc,',
+	2    'unreached=',
+	3    COUNT(KN_QS_STAT .EQ. 1),COUNT(KN_QS_STAT .EQ. 2),
+	4    COUNT(KN_QS_STAT .EQ. 3),COUNT(KN_QS_STAT .EQ. 4),
+	5    COUNT(KN_QS_STAT .EQ. 5),COUNT(KN_QS_STAT .EQ. 6),
+	6    COUNT(KN_QS_STAT .EQ. 0)
+	  END IF
+!
 ! Q argmax attribution: global max over the per-ray per-channel
 ! table, its depth/frequency cell, the pre/post-pass values and
 ! column peak there, the production worst ray for comparison,
@@ -7774,42 +7832,159 @@ C
 	    END DO
 	    IF(IQ_R .GT. 0)THEN
 	      IQ_W=MAXLOC(RES_LS,DIM=1)
-	      WRITE(LUER,'(A,I4,A,I1,A,L2,A,ES11.3,A,I6)')
-	1      '    q argmax ray=',IQ_R,' ch=',IQ_C,
-	2      ' same-as-prod-worst=',IQ_R .EQ. IQ_W,
-	3      ' prod resid=',RES_LS(IQ_R),
-	4      ' passes=',NPS_LS(IQ_R)
+!
+! Coincidence classification (diagnostic): the Q argmax cell is
+! (ray IQ_R, channel IQ_C, ray-local depth KN_QA_J, field
+! frequency KN_QA_L). The production refresh residual argmax is
+! ray IQ_W with per-ray worst cell (FG_RAY_WI,FG_RAY_WL) in the
+! same depth/freq index space; the production residual does not
+! record a channel, so channel coincidence is reported as n/a.
+! Same ray alone is NOT coincidence.
+!
+	      IF(IQ_W .LE. 0 .OR. RES_LS(IQ_W) .LE. 0.0_LDP)THEN
+	        WRITE(LUER,'(A,I4,A,I1,A,A)')
+	1        '    q argmax ray=',IQ_R,' ch=',IQ_C,
+	2        ' prod-coincidence=NO-VALID-PROD-ARGMAX'
+	      ELSE IF(ALLOCATED(FG_RAY_WI) .AND. ALLOCATED(FG_RAY_WL)
+	1     .AND. IQ_R .EQ. IQ_W .AND.
+	2     KN_QA_J(IQ_R,IQ_C) .EQ. FG_RAY_WI(IQ_W) .AND.
+	3     KN_QA_L(IQ_R,IQ_C) .EQ. FG_RAY_WL(IQ_W))THEN
+	        WRITE(LUER,'(A,I4,A,I1,A,ES11.3,A,I6)')
+	1        '    q argmax ray=',IQ_R,' ch=',IQ_C,
+	2        ' prod-coincidence=SAME-RAY-SAME-CELL prod resid=',
+	3        RES_LS(IQ_W),' passes=',NPS_LS(IQ_R)
+	      ELSE IF(IQ_R .EQ. IQ_W)THEN
+	        WRITE(LUER,'(A,I4,A,I1,A,I6,I6,A,I6,I6,A,ES11.3,A,I6)')
+	1        '    q argmax ray=',IQ_R,' ch=',IQ_C,
+	2        ' prod-coincidence=SAME-RAY-DIFF-CELL q(j,l)=',
+	3        KN_QA_J(IQ_R,IQ_C),KN_QA_L(IQ_R,IQ_C),
+	4        ' prod(j,l)=',FG_RAY_WI(IQ_W),FG_RAY_WL(IQ_W),
+	5        ' resid=',RES_LS(IQ_W),' passes=',NPS_LS(IQ_R)
+	      ELSE
+	        WRITE(LUER,'(A,I4,A,I1,A,I6,I6,A,I6,I6,I6,A,ES11.3,A,I6)')
+	1        '    q argmax ray=',IQ_R,' ch=',IQ_C,
+	2        ' prod-coincidence=DIFF-RAY q(j,l)=',
+	3        KN_QA_J(IQ_R,IQ_C),KN_QA_L(IQ_R,IQ_C),
+	4        ' prod ray,j,l=',IQ_W,FG_RAY_WI(IQ_W),
+	5        FG_RAY_WL(IQ_W),' resid=',RES_LS(IQ_W),
+	6        ' passes=',NPS_LS(IQ_R)
+	      END IF
+!
+! Cycle/GS-argmax comparison: the store-drift argmax
+! (FG_GS_ARGK model-depth K, FG_GS_ARGR ray, FG_GS_ARGL
+! zero-based FREQ_IDX_ITER) is compared against the Q argmax cell
+! (ray IQ_R, ray-local depth KN_QA_J, field freq KN_QA_L). The
+! depth spaces differ: J_PNT(model_depth,ray) returns the ray
+! point whose radius equals R(model_depth) to 1e-12, so the GS
+! cell maps to ray-local index J_PNT(FG_GS_ARGK,IQ_R); equality
+! with KN_QA_J is exact cell coincidence. A Q argmax sitting on
+! an inserted (non-model-depth) ray point can never match, which
+! is correct - it is a different physical location. The freq
+! spaces also differ by one: FG_GS_ARGL is the 0-based sweep
+! index while KN_QA_L is the 1-based field index. FG_GS_CLS is
+! the argmax-trajectory class of the store residual.
+!
+	      IF(ALLOCATED(J_PNT) .AND. FG_GS_ARGK .GE. 1 .AND.
+	1     FG_GS_ARGK .LE. SIZE(J_PNT,1) .AND.
+	2     IQ_R .LE. SIZE(J_PNT,2))THEN
+	        IQ_K=J_PNT(FG_GS_ARGK,IQ_R)
+	      ELSE
+	        IQ_K=-1
+	      END IF
+	      WRITE(LUER,'(A,L2,A,A3,A,3(I6),A,I6,A,I6)')
+	1      '    q argmax gs-cell-match=',
+	2      (IQ_K .GT. 0 .AND. FG_GS_ARGR .EQ. IQ_R .AND.
+	3      IQ_K .EQ. KN_QA_J(IQ_R,IQ_C) .AND.
+	4      FG_GS_ARGL .EQ. KN_QA_L(IQ_R,IQ_C)-1),
+	5      ' gs-cls=[',FG_GS_CLS,'] gs-argmax k,r,f=',
+	6      FG_GS_ARGK,FG_GS_ARGR,FG_GS_ARGL,
+	7      ' qmap raypt k=',IQ_K,' f=',KN_QA_L(IQ_R,IQ_C)-1
 	      WRITE(LUER,'(A,I6,1X,I8,A,4(ES12.5),A,L1)')
 	1      '    q argmax j,l=',KN_QA_J(IQ_R,IQ_C),
 	2      KN_QA_L(IQ_R,IQ_C),
-	3      ' vold,vnew,vmaxf,denom=',KN_QA_VOLD(IQ_R,IQ_C),
-	4      KN_QA_VN(IQ_R,IQ_C),KN_QA_VM(IQ_R,IQ_C),
-	5      MAX(KN_QA_VOLD(IQ_R,IQ_C),
-	6      1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)),
-	7      ' floor-dom=',KN_QA_VOLD(IQ_R,IQ_C)
-	8      .LT. 1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)
+	3      ' vold,vnew,vmaxf,denom=',
+	4      KN_QA_VOLD(IQ_R,IQ_C),KN_QA_VN(IQ_R,IQ_C),
+	5      KN_QA_VM(IQ_R,IQ_C),
+	6      MAX(KN_QA_VOLD(IQ_R,IQ_C),
+	7      1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)),
+	8      ' floor-dom=',KN_QA_VOLD(IQ_R,IQ_C)
+	9      .LT. 1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)
+	      WRITE(LUER,'(A,ES12.5)')'    exact-defect=',IQ_T
 	    END IF
-	    ALLOCATE(QS_TMP(SIZE(KN_Q_LS)),STAT=IOS2)
-	    IF(IOS2 .EQ. 0)THEN
-	      QS_TMP=KN_Q_LS
-	      DO I=2,SIZE(QS_TMP)
+	    ALLOCATE(QS_TMP(COUNT(KN_Q_LS .GE. 0.0_LDP)),STAT=IOS2)
+	    IF(IOS2 .EQ. 0 .AND. SIZE(QS_TMP) .GT. 0)THEN
+!
+! Per-ray maximum distribution: KN_Q_LS holds one value per ray
+! (max over channels and cells of that ray's one-pass defect).
+! This is NOT a cell-level distribution; the -1 sentinel for
+! unreported rays is excluded before sorting so the quantiles
+! describe only evaluated rays. The cell-level distribution is
+! reported separately from KN_QC_HIST below.
+!
+	      IQ_N=0
+	      DO I=1,SIZE(KN_Q_LS)
+	        IF(KN_Q_LS(I) .GE. 0.0_LDP)THEN
+	          IQ_N=IQ_N+1; QS_TMP(IQ_N)=KN_Q_LS(I)
+	        END IF
+	      END DO
+	      DO I=2,IQ_N
 	        IQ_A=QS_TMP(I); J=I-1
 	        DO WHILE(J .GE. 1 .AND. QS_TMP(J) .GT. IQ_A)
 	          QS_TMP(J+1)=QS_TMP(J); J=J-1
 	        END DO
 	        QS_TMP(J+1)=IQ_A
 	      END DO
-	      IQ_N=SIZE(QS_TMP)
-	      WRITE(LUER,'(A,4(ES11.3),A,3(I8))')
-	1      '    q dist max,p50,p95,p99=',
+	      WRITE(LUER,'(A,4(ES11.3),A,3(I8),A,I8)')
+	1      '    q dist per-ray-max,p50,p95,p99=',
 	2      QS_TMP(IQ_N),QS_TMP(MAX(1,(IQ_N+1)/2)),
 	3      QS_TMP(MAX(1,(95*IQ_N+99)/100)),
 	4      QS_TMP(MAX(1,(99*IQ_N+99)/100)),
 	5      ' n>1e-2,1e-1,1=',
-	6      COUNT(KN_Q_LS .GT. 1.0E-2_LDP),
-	7      COUNT(KN_Q_LS .GT. 1.0E-1_LDP),
-	8      COUNT(KN_Q_LS .GT. 1.0_LDP)
+	6      COUNT(QS_TMP(1:IQ_N) .GT. 1.0E-2_LDP),
+	7      COUNT(QS_TMP(1:IQ_N) .GT. 1.0E-1_LDP),
+	8      COUNT(QS_TMP(1:IQ_N) .GT. 1.0_LDP),
+	9      ' nrays=',IQ_N
 	      DEALLOCATE(QS_TMP)
+	    END IF
+!
+! Cell-level distribution (diagnostic): every DCELL computed in
+! MARCH during the verify passes, accumulated per channel into
+! KN_QC_HIST (0.1 dex bins, bin centres reported; threshold
+! counts and max are exact). p50/p95/p99 are bin-edge estimates
+! with ~+/-0.05 dex resolution; ch=1 is the inward (M) pass,
+! ch=2 the outward (P) pass.
+!
+	    IF(ALLOCATED(KN_QC_HIST))THEN
+	      DO J=1,2
+	        IF(KN_QC_N(J) .GT. 0_8)THEN
+!
+! Single cumulative scan per channel: first bin whose cumulative
+! count reaches each quantile target (50/95/99 percent of the
+! evaluated samples). Bin centres are reported via KN_Q_BINREP;
+! the resolution is one 0.1-dex bin (~+/-12% relative).
+!
+	          IQ_C1=0_8; IQ_B1=0; IQ_B2=0; IQ_B3=0
+	          DO I=1,403
+	            IQ_C1=IQ_C1+KN_QC_HIST(J,I)
+	            IF(IQ_B1 .EQ. 0 .AND. IQ_C1*2 .GE. KN_QC_N(J))
+	1           IQ_B1=I
+	            IF(IQ_B2 .EQ. 0 .AND. IQ_C1*20 .GE. KN_QC_N(J)*19)
+	1           IQ_B2=I
+	            IF(IQ_B3 .EQ. 0 .AND. IQ_C1*100 .GE. KN_QC_N(J)*99)
+	1           IQ_B3=I
+	            IF(IQ_B1 .GT. 0 .AND. IQ_B2 .GT. 0 .AND.
+	1           IQ_B3 .GT. 0)EXIT
+	          END DO
+	          WRITE(LUER,'(A,I1,A,I8,A,ES12.5,A,3(ES11.3),A,3(I8))')
+	1        '    q cells ch=',J,' samples=',KN_QC_N(J),
+	2        ' max=',KN_QC_MAX(J),
+	3        ' p50,p95,p99=',
+	4        KN_Q_BINREP(IQ_B1),KN_Q_BINREP(IQ_B2),
+	5        KN_Q_BINREP(IQ_B3),
+	6        ' n>1e-2,1e-1,1=',
+	7        KN_QC_NT(J,1),KN_QC_NT(J,2),KN_QC_NT(J,3)
+	        END IF
+	      END DO
 	    END IF
 	  END IF
 	  END IF
@@ -7965,7 +8140,32 @@ C
 	IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
 	IF(ALLOCATED(KN_QA_Q))DEALLOCATE(KN_QA_Q,KN_QA_VOLD,KN_QA_VN,
 	1  KN_QA_VM,KN_QA_J,KN_QA_L)
+	IF(ALLOCATED(KN_QS_STAT))DEALLOCATE(KN_QS_STAT,KN_QC_HIST)
+	KN_Q_ACC=.FALSE.; KN_Q_ACC_CH=0
 	RETURN
+!
+! ----------------------------------------------------------------
+! KN_Q_BINREP (diagnostic): representative value of a KN_QC_HIST
+! bin index for the cell-level quantile report. Bins 3..402 are
+! 0.1-dex log bins; the centre of bin IB is
+! 10**(-29.95+(IB-3)*0.1). Edge bins report their boundary value:
+! bin 1 -> 0 (DCELL<=0 or NaN excluded upstream), bin 2 -> 1e-30
+! (underflow side), bin 403 -> 1e10 (saturated side).
+! ----------------------------------------------------------------
+	CONTAINS
+	REAL(KIND=LDP) FUNCTION KN_Q_BINREP(IB)
+	INTEGER IB
+	IF(IB .LE. 1)THEN
+	  KN_Q_BINREP=0.0_LDP
+	ELSE IF(IB .EQ. 2)THEN
+	  KN_Q_BINREP=1.0E-30_LDP
+	ELSE IF(IB .GE. 403)THEN
+	  KN_Q_BINREP=1.0E10_LDP
+	ELSE
+	  KN_Q_BINREP=10.0_LDP**(-29.95_LDP+(IB-3)*0.1_LDP)
+	END IF
+	RETURN
+	END
 	END
 !
 ! ==============================================================================
@@ -8160,9 +8360,13 @@ C
 	IF(NI .LT. 1 .OR. NCF .LT. 2)THEN
 	  NXIT=-2
 	  RESID=1.0_LDP
+	  IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=3
 	  RETURN
 	END IF
-	IF(NI .EQ. 1)RETURN
+	IF(NI .EQ. 1)THEN
+	  IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=3
+	  RETURN
+	END IF
 !
 	ALLOCATE(CHI_L(NI),ETA_L(NI),DCHR_L(NI),Q_L(NI),SR_L(NI),
 	1   SP_L(NI),S_L(NI),DS_L(NI),DTAU_L(NI),
@@ -8176,6 +8380,7 @@ C
 	1   '  FG-KNOP refresh alloc failed: ray LS=',LS,
 	2   ' NI=',NI,' bytes~',27_8*NI+3_8*NCF
 	  RESID=1.0_LDP
+	  IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=6
 	  RETURN
 	END IF
 	RES_FREQ=0.0_LDP
@@ -8579,6 +8784,19 @@ C
 ! (clamp census, worst-cell record, rho export, p2damp count,
 ! exit flags) are saved and restored.
 !
+!
+! Ray census marks: rays skipped by the verify gate get an
+! explicit status so the summary can separate diverged rays,
+! missing-field rays and evaluated rays instead of folding them
+! into the -1 sentinel pool.
+!
+	IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))THEN
+	  IF(NDIV .NE. 0)THEN
+	    KN_QS_STAT(LS)=2
+	  ELSE IF(.NOT. (ALLOCATED(FLD) .AND. ALLOCATED(FLD_P)))THEN
+	    KN_QS_STAT(LS)=5
+	  END IF
+	END IF
 	IF(KN_Q_RESID .AND. NDIV .EQ. 0 .AND.
 	1   ALLOCATED(FLD) .AND. ALLOCATED(FLD_P))THEN
 	  LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT
@@ -8592,6 +8810,13 @@ C
 	  ALLOCATE(FLD_Q(NI,NCF),STAT=IOS)
 	  IF(IOS .EQ. 0)THEN
 	    FLD_Q=FLD
+!
+! KN_QC accumulation: armed for the duration of the two verify
+! passes only. KN_Q_ACC_CH=1 tags the inward (M) pass and 2 the
+! outward (P) pass; MARCH appends every computed DCELL to the
+! per-channel histogram and cell argmax while armed.
+!
+	    KN_Q_ACC=.TRUE.; KN_Q_ACC_CH=1
 	    IF(ORD_SWEEP)THEN
 	      CALL SWEEP_FLD_ORD(FLD_Q,.TRUE.,RES_Q,NP_Q,NB_Q,NT_Q,
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
@@ -8616,6 +8841,7 @@ C
 	      KN_QA_VM(LS,1)=MAX(MAXVAL(FLD(1:NI,WRC_L)),
 	1       1.0E-25_LDP)
 	    END IF
+	    KN_Q_ACC_CH=2
 	    FLD_Q=FLD_P
 	    IF(ORD_SWEEP)THEN
 	      CALL SWEEP_FLD_ORD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
@@ -8625,6 +8851,7 @@ C
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
 	    END IF
 	    Q_P=RES_Q
+	    KN_Q_ACC=.FALSE.
 !
 ! Same argmax capture for the P (outward) verify pass; WRC_I/WRC_L
 ! now carry the P sweep's argmax because it ran last.
@@ -8641,6 +8868,9 @@ C
 	    END IF
 	    DEALLOCATE(FLD_Q)
 	    IF(ALLOCATED(KN_Q_LS))KN_Q_LS(LS)=MAX(Q_M,Q_P)
+	    IF(ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=1
+	  ELSE IF(ALLOCATED(KN_QS_STAT))THEN
+	    KN_QS_STAT(LS)=4
 	  END IF
 	  DIVERGED=LDVS_SV; CLEAN_EXIT=LCES_SV
 	  WRC_I=WRC_SV(1); WRC_L=WRC_SV(2); WRC_PI=WRC_SV(3)
@@ -10893,6 +11123,7 @@ C
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
+	    IF(KN_Q_ACC)CALL KN_Q_ACCUM(DCELL)
 	  END IF
 	  FLD(1,L)=0.0_LDP
 	  DO I=1,NI-1
@@ -10916,6 +11147,7 @@ C
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
+	    IF(KN_Q_ACC)CALL KN_Q_ACCUM(DCELL)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
 !
@@ -10969,6 +11201,7 @@ C
 	  END IF
 	  RES=MAX(RES,DCELL)
 	  RESL=MAX(RESL,DCELL)
+	  IF(KN_Q_ACC)CALL KN_Q_ACCUM(DCELL)
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
 	    IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
@@ -10995,6 +11228,7 @@ C
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
+	    IF(KN_Q_ACC)CALL KN_Q_ACCUM(DCELL)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
 ! Signed accumulation, same as the inward branch above: the
@@ -11007,6 +11241,46 @@ C
 	  END DO
 	END IF
 	RES_FREQ(L)=RESL
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_QC cell-level accumulator (diagnostic, [KN_Q_RESID] only):
+! called from MARCH at each DCELL site while KN_Q_ACC is armed
+! during a verify pass. Accumulates the exact per-cell normalized
+! defect into the channel histogram, exact threshold counts and
+! exact max; the cell argmax itself is recovered at summary time
+! from the KN_QA_* per-ray argmax table. A NaN DCELL is counted
+! in KN_QC_N but excluded from the distribution (every ordering
+! comparison on NaN is false, so only the histogram needed a
+! guard). Bins: 1 = DCELL<=0 or NaN, 2 = (0,1e-30), 3..402 =
+! log10(DCELL) in [-30,10) at 0.1 dex, 403 = >=1e10.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_Q_ACCUM(DX)
+	REAL(KIND=LDP) DX
+	INTEGER IB
+	KN_QC_N(KN_Q_ACC_CH)=KN_QC_N(KN_Q_ACC_CH)+1_8
+	IF(DX .GT. KN_QC_MAX(KN_Q_ACC_CH))KN_QC_MAX(KN_Q_ACC_CH)=DX
+	IF(DX .GT. 1.0E-2_LDP)
+	1   KN_QC_NT(KN_Q_ACC_CH,1)=KN_QC_NT(KN_Q_ACC_CH,1)+1_8
+	IF(DX .GT. 1.0E-1_LDP)
+	1   KN_QC_NT(KN_Q_ACC_CH,2)=KN_QC_NT(KN_Q_ACC_CH,2)+1_8
+	IF(DX .GT. 1.0_LDP)
+	1   KN_QC_NT(KN_Q_ACC_CH,3)=KN_QC_NT(KN_Q_ACC_CH,3)+1_8
+	IF(DX .EQ. DX)THEN
+	  IF(DX .LE. 0.0_LDP)THEN
+	    IB=1
+	  ELSE IF(DX .LT. 1.0E-30_LDP)THEN
+	    IB=2
+	  ELSE IF(DX .GE. 1.0E10_LDP)THEN
+	    IB=403
+	  ELSE
+	    IB=3+INT((LOG10(DX)+30.0_LDP)/0.1_LDP)
+	    IF(IB .LT. 3)IB=3
+	    IF(IB .GT. 402)IB=402
+	  END IF
+	  KN_QC_HIST(KN_Q_ACC_CH,IB)=KN_QC_HIST(KN_Q_ACC_CH,IB)+1_8
+	END IF
 	RETURN
 	END
 !
