@@ -76,10 +76,14 @@ C NB: GAM is the angle dependent SOBOLEV optical depth.
 C Computed before the NI-specific branches so the short rays (NI=1,2)
 C use the current ray's Z, matching the SOBJBAR_SIM ordering.
 C
-C Dessart, Audit & Hillier (2015, arXiv:1503.05463) guard: for
-C sigma < 0 the factor |1+sigma*mu^2| (mu^2=Z^2/R^2) can vanish along a
-C ray, so the Sobolev optical depth is floored via
-C MAX(|1+sigma*mu^2|, -0.2*(1+sigma)); 1D-4 bounds the sigma=-1 case.
+C For sigma < 0 the physical Sobolev angular-gradient factor
+C |1+sigma*mu^2| (mu^2=Z^2/R^2) can vanish along a ray, so the
+C Sobolev optical depth is regularised via
+C MAX(|1+sigma*mu^2|, -0.2*(1+sigma)) - the adopted non-monotonic
+C regularisation, motivated by the transfer problems in Dessart,
+C Audit & Hillier (2015, arXiv:1503.05463). The extra 1D-4 minimum
+C is a CMFGEN-specific numerical safeguard for the sigma=-1 case;
+C it is not part of the published DAH15 expression.
 C Inactive for sigma >= -1, so monotonic flows are unchanged.
 C Matches the guard already in SOBEW_GRAD_V2/V3 (this routine is not
 C currently called, but should not carry the unguarded form).

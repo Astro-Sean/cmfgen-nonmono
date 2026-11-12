@@ -3,8 +3,16 @@
 Base commit (pre-fix): `cd0f4374f1be07645a6a79f205a48f4285ea864b`.
 Source correction committed on main: `099435c7` (`sobew`),
 `e5e0aae9` (`sobew_grad`), `b93f3377` (`sobew_grad_v2`),
-`686a5718` (`sobew_grad_v3`). HEAD at review close:
-`e6ed21a74dcc8760cdf65f2c1c91978851b24519`.
+`686a5718` (`sobew_grad_v3`).
+Test/driver commits: `98bca2f630edafdf4af6aac8f8c18232ba38e813`,
+`5e1584e48b114d973c7fab0964ccb38ae4046d9b` (driver);
+`2c633986840c89fefd87c24bb98af144cfad53e8`,
+`187e8a102603af6333ffcef6f8abb8da2d4e9b21`,
+`d30c8a259bb042cf1c93ce73242036c291d31d82` (tests).
+HEAD at review close (source+test state; later commits are audit
+docs only): `e6ed21a74dcc8760cdf65f2c1c91978851b24519`.
+Cleanup snapshot: `c37467c483eeca47545d728b8eba31d370fee8d9`.
+Current main HEAD: `c6c4eac55c3065582dc1f1df34c4d857dfa0f8fa`.
 
 ## Test file
 

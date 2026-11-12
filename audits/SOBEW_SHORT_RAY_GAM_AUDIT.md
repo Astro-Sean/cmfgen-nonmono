@@ -10,10 +10,22 @@ Source revision history relevant to this audit:
   `e5e0aae966d42292a3b6b6220ded6ed91a726023` (`sobew_grad`),
   `b93f3377dd60771aae06ac2935a7583745589130` (`sobew_grad_v2`),
   `686a5718a64d91c80ac55cfd43ea1757b76fa9c8` (`sobew_grad_v3`).
-- Test harness and regression commits: `98bca2f6` (driver),
-  `2c633986` (this suite), `d30c8a25` (tau-floor link list).
-- Main HEAD at the time this review closed:
+- Test and driver commits:
+  `98bca2f630edafdf4af6aac8f8c18232ba38e813`
+  (driver ray-array sizing + `sobewg1` branch),
+  `5e1584e48b114d973c7fab0964ccb38ae4046d9b`
+  (driver `fm=0` before the `SOBEW_GRAD*` calls),
+  `2c633986840c89fefd87c24bb98af144cfad53e8`
+  (stale-ray GAM coverage on all four routines),
+  `187e8a102603af6333ffcef6f8abb8da2d4e9b21`
+  (`FORCE_MULT` stale-ray checks),
+  `d30c8a259bb042cf1c93ce73242036c291d31d82`
+  (tau-floor `LINK_ONLY` for `sobew_grad.f`).
+- HEAD at the time this review closed (test+source state;
+  later commits are audit docs only):
   `e6ed21a74dcc8760cdf65f2c1c91978851b24519`.
+- Cleanup snapshot: `c37467c483eeca47545d728b8eba31d370fee8d9`.
+- Current main HEAD: `c6c4eac55c3065582dc1f1df34c4d857dfa0f8fa`.
 
 ## 0. Repository-state reconciliation (historical note)
 
@@ -22,7 +34,9 @@ on top of `cd0f4374`, which is why a fetch of that SHA showed the
 pre-fix code. The correction has since been committed to main in the
 four commits listed above and independently reviewed and accepted.
 No further source modification was made in the final cleanup pass
-beyond the test-harness `fm` initialisation.
+beyond the test-harness `fm` initialisation
+(`5e1584e48b114d973c7fab0964ccb38ae4046d9b`). The cleanup snapshot is
+`c37467c483eeca47545d728b8eba31d370fee8d9`.
 
 ## 1. The defect (verified, reproduced)
 

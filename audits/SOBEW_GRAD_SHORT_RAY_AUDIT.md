@@ -4,8 +4,11 @@ Base commit (pre-fix): `cd0f4374f1be07645a6a79f205a48f4285ea864b`.
 Corrections committed on main: `e5e0aae966d42292a3b6b6220ded6ed91a726023`
 (`sobew_grad`), `b93f3377dd60771aae06ac2935a7583745589130`
 (`sobew_grad_v2`), `686a5718a64d91c80ac55cfd43ea1757b76fa9c8`
-(`sobew_grad_v3`). HEAD at review close:
-`e6ed21a74dcc8760cdf65f2c1c91978851b24519`. See
+(`sobew_grad_v3`). HEAD at review close (source+test state; later
+commits are audit docs only):
+`e6ed21a74dcc8760cdf65f2c1c91978851b24519`. Cleanup snapshot:
+`c37467c483eeca47545d728b8eba31d370fee8d9`. Current main HEAD:
+`c6c4eac55c3065582dc1f1df34c4d857dfa0f8fa`. See
 SOBEW_SHORT_RAY_GAM_AUDIT.md section 0 for the full revision history.
 
 ## 1. Scope
