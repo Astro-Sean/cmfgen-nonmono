@@ -1526,3 +1526,78 @@ per-ray quantity reported via worst_ray/FG_RAY_WI/WL.
   production inner residual; whether the STORE is still
   drifting is a separate question the continuation's
   Layer-D before/after checksums must answer.
+
+## 16. Four-arm termination, checkpoints and Phase-3 work order (2026-11-12 ~16:00)
+
+### 16.1 Arm termination
+
+All four isolation arms were stopped cleanles at iteration
+boundaries on 2026-11-12 ~15:51 after ~5h52m wall each
+(scancel; sacct state CANCELLED). Chained OBS dependents
+13065895/97/99 cancelled with them (afterok could never fire).
+This was a diagnostic failure-isolation experiment, NOT a
+converged model: no arm satisfied any production maturity
+criterion. Final complete iterations and snapshot metrics are
+in section 14; last observed: R it154 rf=0.0331 q=325.0 unc=8471;
+R2 it153 rf=0.0297 q=325.0 unc=6977; M it157 rf=0.00556 q=80.58
+unc=150; C it157 identical to M (pops never released).
+
+### 16.2 Checkpoint provenance (md5, post-termination verified)
+
+| arm | last it | FGINEXT_GS md5 | GS_STATE md5 |
+|---|---|---|---|
+| R | 154 | f91c6ac546d451300f76d0a3f0ff85f2 | e424f08454331b5fc23b9293c78b6323 |
+| R2 | 153 | 331ad8b7996e2869cab7364ebd52ed0e | e93fa601891e1da587fcfe46f62e2fe1 |
+| M | 157 | 893143f3c47405f23d4c7aca57d64080 | 109b0f5c795b2c5a9db680b5d983469a |
+| C | 157 | c5a95d9a763b3869fee71927f09075fb* | 109b0f5c795b2c5a9db680b5d983469a |
+
+*M's FGINEXT_GS mtime 15:48:27 predates the checksum pass
+(~15:49:40) so it is a complete post-boundary file; C's
+FGINEXT_GS mtime 15:50 may have been mid-write during the
+checksum pass - re-checksum recorded separately, C is not the
+continuation seed. GS_STATE post-cancel md5s are identical to
+the pre-cancel values for all four arms, confirming no
+write was in flight at kill time. M and C GS_STATE are
+bit-identical, consistent with their bit-identical trajectories.
+
+The M continuation seed is the it157 checkpoint in
+cmfgen_validation/m15_2p82d_KNOP_iso_M/cmfgen/2.82days/.
+
+### 16.3 Phase-3 diagnostic build
+
+Source commits b5bca528 (ordered-march KN_QC sites) +
+a37425a2 (regression test). The ordered march
+(SWEEP_FLD_ORD) computes residuals inline and never calls
+MARCH, so the KN_QC cell histogram collected zero samples on
+the production ordered census; four gated KN_Q_ACCUM sites
+now mirror the MARCH placement at every residual-contributing
+cell (inward boundary, inward interior, outward boundary,
+outward interior). The Anderson-acceleration census block is
+deliberately not accumulated (different metric). Diagnostics
+remain off by default (KN_Q_ACC armed only around the two
+verify passes); all production floating-point arithmetic and
+ordering unchanged - the only added work is one predictable
+branch per residual site plus the accumulator call when armed.
+
+test_knop_lagged_field.py: new
+ test_qcell_histogram_covers_ordered_march (8 checks: four
+sites, RES_FREQ adjacency, AA block exclusion, MARCH sites
+intact, arm/disarm pairing) - all PASS; pytest
+ test_knop_ray + test_knop_status_text + lagged_field: 36/36
+PASS. Diagnostic exe md5
+ad8e1e05bb306727d53ecfee36de7801 staged at
+/viper/ptmp1/sbrennan/SN2024pba/cmfgen_qfix_install (com/lib/
+mod/obs_template symlinked); pinned production 8afd8591
+restored bit-identical after build.
+
+Numerical-neutrality of ad8e1e05 vs the previous Q-diagnostic
+exe 34f5c1d2 (/tmp/cmfgen_qcells_install, source 24c95ec1+docs)
+is NOT yet proven: the source diff is the four diagnostic-only
+accumulation sites plus comments, but the required paired
+KN_Q_RESID=T byte-comparison runs are queued behind the
+watch A/B jobs on interactive. The watch A/B jobs
+13073518/13073520 (resubmitted after the /tmp node-local path
+failure, now RUNNING on viper07) compare b4686fa1 watch-off vs
+watch-on; a second pair comparing 34f5c1d2 vs ad8e1e05 will be
+submitted from the post-run watch_A checkpoint once the A/B
+pair completes.
