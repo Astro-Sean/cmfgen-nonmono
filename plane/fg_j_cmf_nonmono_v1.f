@@ -7910,6 +7910,22 @@ C
 	8      ' floor-dom=',KN_QA_VOLD(IQ_R,IQ_C)
 	9      .LT. 1.0E-4_LDP*KN_QA_VM(IQ_R,IQ_C)
 	      WRITE(LUER,'(A,ES12.5)')'    exact-defect=',IQ_T
+!
+! Production-side context for the same ray (Task-2 audit): the
+! ray's own last-pass residual, exit class and pass count, the
+! boundary flag of the argmax cell, and the absolute update
+! normalized by the column peak so floor-dominated cells can be
+! judged by physical magnitude rather than the denominator alone.
+!
+	      WRITE(LUER,'(A,ES11.3,A,I3,A,I3,A,L1,A,ES11.3)')
+	1      '    prod ray resid/ixit/npas=',RES_LS(IQ_R),
+	2      '/',NXT_LS(IQ_R),'/',NPS_LS(IQ_R),
+	3      ' bnd=',
+	4      (IQ_C .EQ. 2 .AND. KN_QA_J(IQ_R,IQ_C) .EQ.
+	5      NI_RAY(IQ_R)) .OR.
+	6      (IQ_C .EQ. 1 .AND. KN_QA_J(IQ_R,IQ_C) .EQ. 1),
+	7      ' |dv|/vmaxf=',ABS(KN_QA_VN(IQ_R,IQ_C)
+	8      -KN_QA_VOLD(IQ_R,IQ_C))/KN_QA_VM(IQ_R,IQ_C)
 	    END IF
 	    ALLOCATE(QS_TMP(COUNT(KN_Q_LS .GE. 0.0_LDP)),STAT=IOS2)
 	    IF(IOS2 .EQ. 0 .AND. SIZE(QS_TMP) .GT. 0)THEN
@@ -8748,6 +8764,20 @@ C
 	1   '   verdict=',FG_RAY_VC(LS)
 	  IF(ALLOCATED(FG_RAY_DCH))WRITE(LUER,'(A,ES12.4)')
 	1   '   ray-dch=',FG_RAY_DCH(LS)
+!
+! Sibling-reference context for the jump veto (audit Layer C):
+! FG_JUMP_MAX reads REF(LS2) with LS2 running 2..NCF against
+! STORE(...,LS2-1), so the watch slot s maps to index s+1. The
+! veto compares each proposed cell to this cross-ray median
+! scale only on floor-dominated columns, so printing it shows
+! whether the sibling reference can move the verdict at the
+! watched cell.
+!
+	  IF(ALLOCATED(JMP_SIB_M) .AND. ALLOCATED(JMP_SIB_P) .AND.
+	1   KN_WATCH_SLOT+1 .LE. KN_NCF)
+	1   WRITE(LUER,'(A,2(1X,ES13.5))')
+	2   '   sibref m/p@slot=',JMP_SIB_M(KN_WATCH_SLOT+1),
+	3   JMP_SIB_P(KN_WATCH_SLOT+1)
 	  DO I=1,2
 	    IF(KN_WC_HIT(I))THEN
 	      WRITE(LUER,'(A,I2,8(1X,ES13.5),2(1X,I4))')
