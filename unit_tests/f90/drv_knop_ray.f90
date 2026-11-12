@@ -100,6 +100,10 @@
       IF(CNAME .EQ. 'p1t1')  NCASE=57
       IF(CNAME .EQ. 'p1t1b') NCASE=58
       IF(CNAME .EQ. 'p1t1bf')NCASE=58
+      IF(CNAME .EQ. 'repl')  NCASE=59
+      IF(CNAME .EQ. 'replo') NCASE=60
+      IF(CNAME .EQ. 'replc') NCASE=61
+      IF(CNAME .EQ. 'replh') NCASE=62
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -145,6 +149,7 @@
       IF(NCASE .EQ. 36)KNP=6
       IF(NCASE .GE. 38 .AND. NCASE .LE. 40)KNP=3
       IF(NCASE .GE. 46 .AND. NCASE .LE. 48)KNP=3
+      IF(NCASE .GE. 59 .AND. NCASE .LE. 62)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -739,6 +744,45 @@
         WRITE(*,'(A,ES16.8)')'CKPT_FOR_STORE=', &
       MAXVAL(ABS(I_P_DEPTH_NEXT))
         GS_FOREIGN_SEED=.FALSE.
+        WRITE(*,'(A)')'RESULT_OK'
+        GOTO 999
+      END IF
+!
+! P1-T1g repeatability probe: snapshot the refresh input state, run
+! the production refresh twice with a restore in between, and compare
+! every committed store element. 'repl'/'replo' force the hot-pass
+! budget and a non-converging tolerance so the shared KN_HOT_SPENT
+! counter and the commit vetoes are exercised under OMP; 'replo' adds
+! the ordered sweep. 'replc' keeps the converging baseline. Cases
+! 59-61 are >=39 so they must exit here before the rfsh block.
+!
+      IF(NCASE .GE. 59 .AND. NCASE .LE. 62)THEN
+        IF(NCASE .EQ. 60)FG_ORD_SWEEP=.TRUE.
+        IF(NCASE .LE. 60)THEN
+          KN_RAY_TOL=1.0E-14_LDP
+          KN_RAY_MAXPASS=14
+          KN_RAY_STALL=1.1_LDP
+          KN_RAY_HOTPASSES=120
+          KN_HOT_TOTAL_PASSES=480
+          FG_PLATEAU_DET=.FALSE.
+        END IF
+! 'replh' (62) stresses the shared OMP hot-pass budget: a near-zero
+! per-frequency tolerance keeps every ray's hot window open and a tiny
+! refresh-wide KN_HOT_TOTAL_PASSES forces the rays to compete for a
+! handful of hot passes, so SCHEDULE(DYNAMIC) ordering decides which
+! rays get them. If the two DRV_REPL passes disagree, the shared
+! budget is a genuine cross-ray, schedule-dependent edge.
+!
+        IF(NCASE .EQ. 62)THEN
+          KN_RAY_TOL=1.0E-30_LDP
+          KN_RAY_MAXPASS=4
+          KN_RAY_STALL=0.0_LDP
+          KN_RAY_HOTPASSES=60
+          KN_HOT_TOTAL_PASSES=2
+          KN_ADAPT_RELAX=.FALSE.
+          FG_PLATEAU_DET=.FALSE.
+        END IF
+        CALL DRV_REPL()
         WRITE(*,'(A)')'RESULT_OK'
         GOTO 999
       END IF
@@ -1592,6 +1636,184 @@
       WRITE(*,'(A,ES16.8)')'GS_RFD=',GS_RFD_T
       RETURN
       END SUBROUTINE DRV_MATURITY
+!
+! ----------------------------------------------------------------------
+! P1-T1g repeatability probe (diagnostic only). Snapshots the complete
+! refresh input state (lagged stores + per-ray seed flags), runs the
+! production FG_KNOP_REFRESH_V1, restores the snapshot, re-runs, and
+! compares every committed store element plus the per-ray commit
+! verdicts. A bit-identical second pass proves the refresh is a
+! deterministic function of its captured inputs on this configuration;
+! drift identifies state a store-only snapshot misses. KN_HOT_SPENT is
+! recorded after each pass: it is the shared OMP hot-pass budget and
+! the only refresh input that can couple rays through scheduling.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_REPL()
+      IMPLICIT NONE
+!
+      INTEGER LS,K,L,IOSR,NX_DIF
+      INTEGER, ALLOCATABLE :: SEE_IN(:),VC1(:),VC2(:)
+      REAL(KIND=LDP), ALLOCATABLE :: SP_IN(:,:,:),SM_IN(:,:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: SP_O1(:,:,:),SM_O1(:,:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: SP_O2(:,:,:),SM_O2(:,:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: RPMX(:)
+      REAL(KIND=LDP) DMAXA,DMAXR,RMS,FRQ0,FRQ1,V1,V2,FD,DN,RES1
+      INTEGER NMIS_P,NMIS_M
+      INTEGER*8 HSP1
+!
+      INTEGER OMP_GET_MAX_THREADS
+      EXTERNAL OMP_GET_MAX_THREADS
+!
+! Refresh entry gates identical to the production post-sweep path.
+!
+      DO_KNOP_REFRESH=.TRUE.
+      FREEZE_I_NEXT=.FALSE.
+      HAS_COMPRESSING=.TRUE.
+      KN_STORE_READY=.TRUE.
+      FREQ_IDX_ITER=KN_NCF-1
+      SOLUTION_METHOD='INTEGRAL'
+!
+! Arm the per-ray seed-fill state the production path maintains; the
+! jump veto engages only on rays already seeded, so seed them all.
+!
+      IF(ALLOCATED(FG_RAY_SEEDED))DEALLOCATE(FG_RAY_SEEDED)
+      ALLOCATE(FG_RAY_SEEDED(KN_NP),STAT=IOSR)
+      IF(IOSR .EQ. 0)FG_RAY_SEEDED=1
+!
+      ALLOCATE(SP_IN(N_COMP,KN_NP,KN_NCF),SM_IN(N_COMP,KN_NP,KN_NCF), &
+               SP_O1(N_COMP,KN_NP,KN_NCF),SM_O1(N_COMP,KN_NP,KN_NCF), &
+               SP_O2(N_COMP,KN_NP,KN_NCF),SM_O2(N_COMP,KN_NP,KN_NCF), &
+               SEE_IN(KN_NP),VC1(KN_NP),VC2(KN_NP),RPMX(KN_NP), &
+               STAT=IOSR)
+      IF(IOSR .NE. 0)THEN
+        WRITE(*,'(A)')'REPL_FAIL alloc'
+        RETURN
+      END IF
+      VC1=-99
+      VC2=-99
+      SP_IN=I_P_DEPTH_NEXT
+      SM_IN=I_M_DEPTH_NEXT
+      SEE_IN=FG_RAY_SEEDED
+!
+! Input fingerprint over the frozen KN_* opacity, the frequency grid
+! and the ray geometry. Recomputed before pass 2 to prove the kernel
+! left its inputs untouched; the GAM_MAG/dGAMdR sanitisation in
+! BUILD_FREQ is the only in-place geometry write and must be a no-op
+! on finite manufactured data.
+!
+      FRQ0=0.0_LDP
+      DO L=1,KN_NCF
+        FRQ0=FRQ0+KN_FREQ(L)+KN_DLN_P(L)+KN_DLN_N(L)+KN_DBB(L)+KN_IC(L)
+      END DO
+      DO K=1,SIZE(KN_CHI_EXT,1)
+        DO L=1,KN_NCF
+          FRQ0=FRQ0+DBLE(KN_CHI_EXT(K,L))+DBLE(KN_ETA_EXT(K,L))
+        END DO
+      END DO
+      DO LS=1,KN_NP
+        DO K=1,SIZE(GAM_MAG,1)
+          FRQ0=FRQ0+GAM_MAG(K,LS)+dGAMdR(K,LS)+GAM(K,LS)
+        END DO
+      END DO
+!
+! ---- refresh pass 1 ----
+!
+      CALL FG_KNOP_REFRESH_V1()
+      SP_O1=I_P_DEPTH_NEXT
+      SM_O1=I_M_DEPTH_NEXT
+      RES1=KN_RF_RESID
+      HSP1=KN_HOT_SPENT
+      IF(ALLOCATED(FG_RAY_VC))VC1=FG_RAY_VC
+      WRITE(*,'(A,I4)')'REPL_OMP=',OMP_GET_MAX_THREADS()
+      WRITE(*,'(A,I8)')'REPL_HOT1=',HSP1
+!
+! ---- restore and refresh pass 2 ----
+!
+      I_P_DEPTH_NEXT=SP_IN
+      I_M_DEPTH_NEXT=SM_IN
+      FG_RAY_SEEDED=SEE_IN
+!
+      FRQ1=0.0_LDP
+      DO L=1,KN_NCF
+        FRQ1=FRQ1+KN_FREQ(L)+KN_DLN_P(L)+KN_DLN_N(L)+KN_DBB(L)+KN_IC(L)
+      END DO
+      DO K=1,SIZE(KN_CHI_EXT,1)
+        DO L=1,KN_NCF
+          FRQ1=FRQ1+DBLE(KN_CHI_EXT(K,L))+DBLE(KN_ETA_EXT(K,L))
+        END DO
+      END DO
+      DO LS=1,KN_NP
+        DO K=1,SIZE(GAM_MAG,1)
+          FRQ1=FRQ1+GAM_MAG(K,LS)+dGAMdR(K,LS)+GAM(K,LS)
+        END DO
+      END DO
+      WRITE(*,'(A,ES16.8)')'REPL_FRQFP=',ABS(FRQ1-FRQ0)
+!
+      CALL FG_KNOP_REFRESH_V1()
+      SP_O2=I_P_DEPTH_NEXT
+      SM_O2=I_M_DEPTH_NEXT
+      IF(ALLOCATED(FG_RAY_VC))VC2=FG_RAY_VC
+!
+! ---- element-wise compare over the writable store slots ----
+! Store slot s holds frequency s+1; slot KN_NCF is never written and
+! stays at its seed, so it is excluded as a constant boundary input.
+!
+      DMAXA=0.0_LDP
+      DMAXR=0.0_LDP
+      RMS=0.0_LDP
+      DN=0.0_LDP
+      NMIS_P=0
+      NMIS_M=0
+      RPMX=0.0_LDP
+      DO LS=1,KN_NP
+        DO K=1,N_COMP
+          DO L=1,KN_NCF-1
+            V1=SP_O1(K,LS,L)
+            V2=SP_O2(K,LS,L)
+            FD=ABS(V1-V2)
+            DMAXA=MAX(DMAXA,FD)
+            IF(ABS(V1) .GT. 1.0E-30_LDP) &
+               DMAXR=MAX(DMAXR,FD/MAX(ABS(V1),1.0E-30_LDP))
+            RMS=RMS+FD*FD
+            DN=DN+1.0_LDP
+            RPMX(LS)=MAX(RPMX(LS),FD)
+            IF(FD .GT. 1.0E-12_LDP*MAX(1.0_LDP,ABS(V1)))NMIS_P=NMIS_P+1
+            V1=SM_O1(K,LS,L)
+            V2=SM_O2(K,LS,L)
+            FD=ABS(V1-V2)
+            DMAXA=MAX(DMAXA,FD)
+            IF(ABS(V1) .GT. 1.0E-30_LDP) &
+               DMAXR=MAX(DMAXR,FD/MAX(ABS(V1),1.0E-30_LDP))
+            RMS=RMS+FD*FD
+            DN=DN+1.0_LDP
+            RPMX(LS)=MAX(RPMX(LS),FD)
+            IF(FD .GT. 1.0E-12_LDP*MAX(1.0_LDP,ABS(V1)))NMIS_M=NMIS_M+1
+          END DO
+        END DO
+      END DO
+      IF(DN .GT. 0.0_LDP)RMS=SQRT(RMS/DN)
+!
+      NX_DIF=0
+      IF(ALLOCATED(VC1) .AND. ALLOCATED(FG_RAY_VC) .AND. &
+         SIZE(VC1) .EQ. SIZE(FG_RAY_VC))NX_DIF=COUNT(VC1 .NE. VC2)
+!
+      WRITE(*,'(A,ES16.8)')'REPL_MAXABS=',DMAXA
+      WRITE(*,'(A,ES16.8)')'REPL_MAXREL=',DMAXR
+      WRITE(*,'(A,ES16.8)')'REPL_RMS=',RMS
+      WRITE(*,'(A,I8)')'REPL_NMIS_P=',NMIS_P
+      WRITE(*,'(A,I8)')'REPL_NMIS_M=',NMIS_M
+      WRITE(*,'(A,I8)')'REPL_VCDIF=',NX_DIF
+      WRITE(*,'(A,I8)')'REPL_HOTSPENT=',KN_HOT_SPENT
+      WRITE(*,'(A,ES16.8)')'REPL_RES1=',RES1
+      WRITE(*,'(A,ES16.8)')'REPL_RES2=',KN_RF_RESID
+      DO LS=1,KN_NP
+        WRITE(*,'(A,I3,A,ES16.8)')'REPL_RAYMX ',LS,' ',RPMX(LS)
+      END DO
+!
+      DEALLOCATE(SP_IN,SM_IN,SP_O1,SM_O1,SP_O2,SM_O2, &
+                 SEE_IN,VC1,VC2,RPMX)
+      RETURN
+      END SUBROUTINE DRV_REPL
 !
       END
 
