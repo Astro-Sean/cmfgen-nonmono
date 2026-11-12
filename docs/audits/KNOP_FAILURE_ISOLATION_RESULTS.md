@@ -1861,3 +1861,96 @@ submitted - gated on the 18.3 neutrality verdict. All other
 settings unchanged from the iso_M clone (KN_MAT_FREEZE=T,
 KN_Q_RESID=T, watch at K=3/LS=82/SLOT=1636, init_num_its=12,
 partition=small via the standard pipeline path).
+
+## 19. Neutrality rerun after census-format fix (2026-11-12 ~18:40)
+
+### 19.1 First exe-pair attempt failed in diagnostic output
+
+All three 18.3 jobs warm-started correctly ("great iteration
+count is 158", second count 2 = the two configured its) and
+produced identical pre-crash telemetry, then died at ~13 min
+with Slurm exit 61:0:
+
+    forrtl: severe (61): format/variable-type mismatch
+    unit 6, file .../OUTGEN
+    fg_knop_refresh_v, line 7825, source fg_j_cmf_nonmono_v1.f
+
+Root cause: the KN_QS_STAT census WRITE used format
+'(A,7(I8))' but passed TWO character items
+('q ray census eval,div,ni<2,allocF,nofld,rayalloc,' and
+'unreached=') plus seven integers. The second string fell on
+an I8 descriptor. Diagnostic-only defect; no solver state was
+at risk, but no run could complete an iteration, so no
+neutrality verdict was possible. Job IDs: QC 13077575,
+QF 13077577, QF2 13077583 (OBS 13077576/78/84 never ran).
+
+A full audit of every WRITE added by the 24c95ec1..HEAD
+diagnostic diff found this the ONLY format/item mismatch;
+the census was simply the first new-format write to execute.
+
+### 19.2 Fix and rebuild
+
+Commit 6f341c99 changes the format to '(A,A,7(I8))' - one
+extra A descriptor for the second label string. No numerical
+code touched.
+
+Two fixed builds were produced to preserve the intended
+old-vs-new source comparison:
+
+- qfix2  md5 6f7b902145f5fd11b18f50fd66b17df1
+  source = HEAD 6f341c99 (24c95ec1 + all Phase-3 diagnostics
+  + format fix). Staged at cmfgen_qfix_install.
+- qcellsfix md5 2ce56fca968364c9d2418558eac6a866
+  source = 24c95ec1 file + the identical one-line format
+  fix. Staged at cmfgen_qcellsfix_install. This replaces
+  the original 34f5c1d2 qcells exe for neutrality purposes:
+  34f5c1d2 carries the census bug and cannot complete an
+  iteration, so it can never provide the FGINEXT_GS
+  byte-compare the gate requires.
+
+Pinned production exe 8afd8591 restored after each build;
+tree-consistent rebuild of HEAD reproduced 6f7b9021
+bit-identically (deterministic build confirmed).
+
+### 19.3 Neutrality rerun - SUBMITTED
+
+configs/dessart_m15_2p82d_KNOP_neut2_{QC,QF,QF2}.yaml, all
+warm from the same iso_M it157 checkpoint (FGINEXT_GS
+893143f3c47405f23d4c7aca57d64080 verified staged in all
+three), identical VADAT_INIT to the failed arms,
+NUM_ITS=2, partition=small:
+
+| arm | exe | FINAL job | OBS job |
+|-----|-----|-----------|---------|
+| neut2_QC  | qcellsfix 2ce56fca | 13080449 | 13080455 |
+| neut2_QF  | qfix2     6f7b9021 | 13080450 | 13080461 |
+| neut2_QF2 | qfix2     6f7b9021 | 13080451 | 13080462 |
+
+QF2 is the same-exe replicate = run-to-run noise floor
+(2 OpenMP threads per the 18.2 correction). Comparison
+plan unchanged from 18.3: byte-compare FGINEXT_GS,
+GS_STATE, MODEL, CUR_MODEL_DATA; OUTGEN after stripping
+diagnostic record blocks. First check on start remains the
+"great iteration count ~157/158" warm-start verification.
+
+### 19.4 Pre-crash telemetry from the failed arms (for the record)
+
+Despite exiting at the census write, all three failed runs
+emitted identical solver telemetry before the crash:
+
+- 84 ordered inward + 84 ordered outward solves, 0 unordered
+- independent Q residual max = 8.05854E+01, q rays = 84
+- production refresh residual max = 3.3013E-02 (tol 2e-3)
+- retained-field delta max = 6.8338E-01
+- adaptive relaxation omega = 5.370E-01
+- 103,520 unconverged cells of 623,470,296
+- 365 store cells above 50% change; 1 unsolved ray
+- Q watch record: ray 82, cell mapping K=3, LS=82, slot=1636
+
+This is the first complete ordered-branch Q census on the
+iso_M it157 state and already shows the raw-map defect
+(Q~80.6) sitting ~2400x above the committed refresh
+residual (~0.033) - the inner-sweep vs store-to-store
+distinction of section 15 in action. The fixed builds will
+now add the per-cell KN_QC histogram and argmax
+attribution on top of this.
