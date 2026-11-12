@@ -1235,6 +1235,22 @@
 	DATA KN_COEF_FPB /0.0_LDP,0.0_LDP/
 	DATA KN_COEF_FP_DRIFT /0.0_LDP/,KN_COEF_FP_N /0/
 !
+! KN_COEF_HSH*: 64-bit FNV-1a hash over the bit patterns of the
+! rebuilt KN_CHI_COEF/KN_ETA_COEF, computed each armed refresh.
+! Global sums (KN_COEF_FPR) can conceal local change through
+! cancellation or slot permutation; the hash changes on any element
+! difference with probability ~1-2^-64 per refresh. KN_COEF_HSHB
+! holds the first armed refresh's hash; KN_COEF_HSH_BAD counts
+! armed refreshes whose hash differed (a changed hash means the
+! rebuild was not bitwise reproducible - a leak or nondeterminism,
+! not a magnitude). INTEGER*8 multiply wraps mod 2^64, which is
+! fine for a diagnostic checksum.
+!
+	INTEGER*8, SAVE :: KN_COEF_HSH(2),KN_COEF_HSHB(2)
+	INTEGER*8, SAVE :: KN_COEF_HSH_BAD
+	DATA KN_COEF_HSH /0_8,0_8/,KN_COEF_HSHB /0_8,0_8/
+	DATA KN_COEF_HSH_BAD /0_8/
+!
 	CONTAINS
 !
 ! ==============================================================================
@@ -7202,6 +7218,30 @@ C
 	  KN_COEF_FP_DRIFT=MAX(KN_COEF_FP_DRIFT,
 	1    MAX(ABS(KN_COEF_FPR(1)-KN_COEF_FPB(1)),
 	2        ABS(KN_COEF_FPR(2)-KN_COEF_FPB(2))))
+!
+! Element-wise checksum: FNV-1a over the raw bit patterns so a
+! local change anywhere in either array flips the hash even when
+! the global sums above cancel it. Baseline is the first armed
+! refresh; KN_COEF_HSH_BAD counts mismatches.
+!
+	  KN_COEF_HSH(1)=1469598103934665603_8
+	  KN_COEF_HSH(2)=1469598103934665603_8
+	  DO L=1,KN_NCF
+	    DO J=1,4
+	      DO I=1,KN_ND_EXT
+	        KN_COEF_HSH(1)=IEOR(KN_COEF_HSH(1),
+	1        TRANSFER(KN_CHI_COEF(I,J,L),KN_COEF_HSH(1)))
+	        KN_COEF_HSH(1)=KN_COEF_HSH(1)*1099511628211_8
+	        KN_COEF_HSH(2)=IEOR(KN_COEF_HSH(2),
+	1        TRANSFER(KN_ETA_COEF(I,J,L),KN_COEF_HSH(2)))
+	        KN_COEF_HSH(2)=KN_COEF_HSH(2)*1099511628211_8
+	      END DO
+	    END DO
+	  END DO
+	  IF(KN_COEF_FP_N .EQ. 1)KN_COEF_HSHB=KN_COEF_HSH
+	  IF(KN_COEF_HSH(1) .NE. KN_COEF_HSHB(1) .OR.
+	1    KN_COEF_HSH(2) .NE. KN_COEF_HSHB(2))
+	1    KN_COEF_HSH_BAD=KN_COEF_HSH_BAD+1_8
 	END IF
 !
 	ALLOCATE(RES_LS(KN_NP),NST_LS(KN_NP),NPS_LS(KN_NP),
@@ -7578,6 +7618,9 @@ C
 	1    '    coef fp raw=',KN_COEF_FP(1),KN_COEF_FP(2),
 	2    ' rebuilt drift=',KN_COEF_FP_DRIFT,
 	3    ' armed refreshes=',KN_COEF_FP_N
+	  WRITE(LUER,'(A,2(I20),A,I8)')
+	1    '    coef hash chi,eta=',KN_COEF_HSH(1),KN_COEF_HSH(2),
+	2    ' mismatched refreshes=',KN_COEF_HSH_BAD
 	END IF
 !
 ! Temporary DO_NONMONO_KNOP diagnostic table. The formal refresh can
