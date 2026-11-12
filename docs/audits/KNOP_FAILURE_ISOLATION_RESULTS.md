@@ -228,43 +228,57 @@ The armed-refresh fingerprint has two tiers:
   element-wise identical across refreshes. They do prove the
   *aggregate* opacity/emissivity budget is stable, which is still
   useful for detecting gross leaks.
-- `KN_COEF_HSH`/`KN_COEF_HSHB`/`KN_COEF_HSH_BAD` (commit
-  `f67034a1`, post-arm-launch): a 64-bit FNV-1a
-  checksum over the raw bit patterns of `KN_CHI_COEF` and
-  `KN_ETA_COEF`, computed element-by-element each armed refresh
-  inside the same `KN_COEF_FROZEN` block. `KN_COEF_HSHB` stores
-  the first armed refresh's hash; `KN_COEF_HSH_BAD` counts armed
-  refreshes whose hash differed. The refresh summary prints both
-  hashes and the mismatch count. O(1) memory - no second
-  full-size coefficient copy is allocated (the arrays are
-  ND_EXT x 4 x NCF per species, ~16M reals each; a baseline copy
-  would double refresh-side coefficient memory for a diagnostic).
-
-Checksum semantics and limits:
-
-- A changed hash proves the rebuilt arrays differed bitwise
-  somewhere; it does not localize the change. A matching hash is
-  strong but not a proof of identity - collisions exist in
-  principle (~2^-64 per pairwise comparison for an ideal hash;
-  FNV-1a is not cryptographic and adversarial inputs could
-  collide, though solver-produced coefficient drift is not
-  adversarial). For this diagnostic the relevant question is
-  binary - "did anything change?" - and the hash answers it with
-  failure probability far below any physical significance
-  threshold.
-- Element-wise max-abs/max-rel diff with index reporting (the
-  audit's preferred diagnostic) was rejected as the primary
-  instrument because it requires retaining a full baseline copy
-  of both coefficient arrays across refreshes. If a hash mismatch
-  ever fires, the localization step is an offline diff of the
-  frozen `KN_CHI_EXT`/`KN_ETA_EXT` snapshots (or a one-off
-  instrumented rebuild), not a permanent allocation.
+- Element-wise checksum, two revisions:
+  - `f67034a1` (post-arm-launch, superseded): a **custom
+    word-wise** checksum mislabeled as FNV-1a - it XORed each
+    whole 64-bit `TRANSFER` image as one word against a truncated
+    offset basis (`1469598103934665603`, not the spec value,
+    because the true basis exceeds signed INTEGER*8 range). It
+    detected local change but was not the published algorithm.
+  - Corrected standard 64-bit FNV-1a (this commit cycle): module
+    procedures `KN_FNV1A_I1`/`KN_FNV1A_COEF`/`KN_FNV1A_MIX8` in
+    `plane/fg_j_cmf_nonmono_v1.f`. Offset basis
+    `0xCBF29CE484222325` via BOZ literal (spec value, bit pattern
+    preserved as signed int64), prime `0x100000001B3`, and every
+    byte of each `REAL(LDP)` element mixed least-significant-byte
+    first after `TRANSFER` to INTEGER*8 (STORAGE_SIZE=64 verified
+    in the test driver). Array extents are mixed first so the
+    hashed sequence is unambiguous; CHI and ETA are hashed through
+    separate calls. O(1) auxiliary memory - no second
+    full-size coefficient copy. Verified by
+    `unit_tests/f90/drv_fnv1a.f90` + `test_fnv1a.py`: published
+    FNV-1a vectors ("", "a", "foobar") pass, all 8 byte positions
+    detected, compensating-pair change detected with bitwise-
+    identical global sum, 12/12 driver checks.
+- Integer arithmetic caveat: the recurrence needs mod-2^64
+  arithmetic. Fortran leaves signed overflow processor-dependent;
+  ifort implements two's-complement wrap for INTEGER*8, which is
+  exactly FNV-1a's arithmetic, and the production flags carry no
+  integer-overflow trap. This is compiler-specific reliance -
+  stated in the source comments and verified empirically by the
+  spec vectors under the production flags; a compiler change in
+  overflow semantics would fail the vectors loudly.
+- Collision limits: FNV-1a is a non-cryptographic checksum. A
+  matching checksum is high-confidence evidence of bitwise
+  equality (~2^-64 per comparison for an ideal hash; FNV-1a is
+  weaker against adversarial inputs, though solver-produced
+  coefficient drift is not adversarial) - it is a diagnostic, not
+  a formal proof. Element-wise max-abs/max-rel diff with index
+  reporting remains the fallback if a mismatch ever fires
+  (offline diff of the frozen snapshots; no permanent baseline
+  copy allocated).
 - IMPORTANT: the running arms R/R2/M/C execute the executable
-  built before this checksum existed (md5 8afd8591...). Their
-  OUTGEN will contain only the sum-based fingerprints. The hash
+  built before either checksum existed (md5 8afd8591...). Their
+  OUTGEN will contain only the sum-based fingerprints. Checksum
   lines appear in the refresh summary only for runs built after
-  this commit; treat "hash absent" in arm output as expected, not
-  as a missing diagnostic.
+  this commit; treat "checksum absent" in arm output as expected,
+  not as a missing diagnostic. `exe/cmfgen_dev.exe` was restored
+  bit-identical after the validation build for exactly this
+  reason; `exe/cmf_flux.exe` was relinked by the same build
+  (md5 now 526d6301) - its executed code paths are unchanged by
+  this diagnostic (the flux tool never enters the KNOP refresh),
+  but the pinned-md5 provenance no longer matches for OBS-stage
+  invocations.
 
 ### Upstream ETA construction (Phase 2 trace)
 
