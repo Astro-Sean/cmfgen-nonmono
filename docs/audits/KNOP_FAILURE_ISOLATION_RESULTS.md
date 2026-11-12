@@ -1549,16 +1549,17 @@ unc=150; C it157 identical to M (pops never released).
 | R | 154 | f91c6ac546d451300f76d0a3f0ff85f2 | e424f08454331b5fc23b9293c78b6323 |
 | R2 | 153 | 331ad8b7996e2869cab7364ebd52ed0e | e93fa601891e1da587fcfe46f62e2fe1 |
 | M | 157 | 893143f3c47405f23d4c7aca57d64080 | 109b0f5c795b2c5a9db680b5d983469a |
-| C | 157 | c5a95d9a763b3869fee71927f09075fb* | 109b0f5c795b2c5a9db680b5d983469a |
+| C | 157 | 980b258cb5ddb460eca5c6df642ff921 | 109b0f5c795b2c5a9db680b5d983469a |
 
-*M's FGINEXT_GS mtime 15:48:27 predates the checksum pass
-(~15:49:40) so it is a complete post-boundary file; C's
-FGINEXT_GS mtime 15:50 may have been mid-write during the
-checksum pass - re-checksum recorded separately, C is not the
-continuation seed. GS_STATE post-cancel md5s are identical to
-the pre-cancel values for all four arms, confirming no
-write was in flight at kill time. M and C GS_STATE are
-bit-identical, consistent with their bit-identical trajectories.
+*C's FGINEXT_GS was re-checksummed after termination: the first
+pass value c5a95d9a763b3869fee71927f09075fb was read while the
+file was still flushing; the post-termination value in the table
+is authoritative. M's FGINEXT_GS mtime 15:48:27 predates the
+checksum pass (~15:49:40) so it is a complete post-boundary
+file. GS_STATE post-cancel md5s are identical to the pre-cancel
+values for all four arms, confirming no write was in flight at
+kill time. M and C GS_STATE are bit-identical, consistent with
+their bit-identical trajectories.
 
 The M continuation seed is the it157 checkpoint in
 cmfgen_validation/m15_2p82d_KNOP_iso_M/cmfgen/2.82days/.
@@ -1601,3 +1602,127 @@ failure, now RUNNING on viper07) compare b4686fa1 watch-off vs
 watch-on; a second pair comparing 34f5c1d2 vs ad8e1e05 will be
 submitted from the post-run watch_A checkpoint once the A/B
 pair completes.
+
+## 17. Watch A/B neutrality result and Phase-3 instrumentation (2026-11-12 ~17:30)
+
+### 17.1 Watch A/B pair executed - INCONCLUSIVE at bitwise level
+
+The resubmitted watch jobs completed on viper07 in ~26 min each
+(jobs 13073518 watch-off / 13073520 watch-on, exe md5
+b4686fa157edb8c94b0dc098636d91a3 via cmfdist=
+/viper/ptmp1/sbrennan/SN2024pba/cmfgen_diag_install,
+init_num_its=2 from the it125 FRESH_knop checkpoint).
+
+- config_resolved.yaml diff: only the four KN_WATCH_* keys
+  (CELL=K=54,L=30,SLOT=8712) plus model paths differ.
+- OUTGEN: numerically identical after removing the 10 KN_WATCH
+  record blocks and timestamp/path/timing lines.
+- GS_STATE: bit-identical (md5 d8aebc3556ca57bca8393f65496f9d75
+  both arms).
+- FGINEXT_GS: md5 differs (fc2a98d4 vs 097c0834). Byte-level
+  comparison: 59,837 differing bytes across 987 of 5,367 chunks,
+  all at 1-3 ulp in float64 (rel diff ~1-3e-16), concentrated in
+  denormal-tiny store values (~1e-34). No O(1) differences.
+
+Interpretation: the differences are consistent with run-to-run
+floating-point nondeterminism, NOT with a watch-logic defect -
+but the experiment cannot prove that, because both jobs ran with
+2 OpenMP threads (cpus_per_task=1 requested, allocator granted
+2; batch.log "Using 2 OpenMP threads (launcher-resolved)").
+Dynamic scheduling plus shared FP accumulators can produce ulp
+variation run to run (the KN_HOT_SPENT overshoot race documented
+in the audit log is the same class). A watch-off repeat (job
+13075411, watch_A2 config cloned from watch_A, same exe and
+restart) is running as the noise-floor control:
+
+- If A2 == A bitwise, the 2-thread runs are deterministic and
+  the B-vs-A difference would have to be watch-caused -> FAIL.
+- If A2 != A, the pair is inconclusive at bitwise level and the
+  neutrality claim must be re-tested single-threaded.
+
+Dependent OBS jobs 13073519/13073521 remain queued (afterok);
+they are observer-spectrum post-processing, not neutrality
+evidence.
+
+### 17.2 Ordered-branch Q histogram - verified on current source
+
+b5bca528 added four gated KN_Q_ACCUM sites inside
+SWEEP_FLD_ORD's inline march (inward boundary, inward interior,
+outward boundary, outward interior), mirroring the four MARCH
+sites; a37425a2 added
+ test_qcell_histogram_covers_ordered_march. Verified on the
+current tree: test_knop_lagged_field reports "SWEEP_FLD_ORD has
+four gated KN_Q_ACCUM sites", "MARCH keeps its four unordered
+KN_Q_ACCUM sites" and "Anderson census block does not feed the
+cell histogram" - all PASS; test_knop_ray 43/43 PASS. The
+accumulator arms only around the two L_QP verify passes
+(KN_Q_ACC=.TRUE. before the M pass, .FALSE. after the P pass),
+so production residuals are never accumulated and each cell is
+counted once per channel per verify pass.
+
+### 17.3 Phase-3 diagnostic build f7e996d3
+
+Source commit 4a37e175 (on top of 3c41b335 sibling-reference
+watch prints). New diagnostic-only captures, all inside the
+existing [KN_Q_RESID] scope and off by default:
+
+- KN_PA_RES/KN_PA_IX/KN_PA_NP/KN_PA_OMG (KN_NP,2): per-ray,
+  per-channel production context - RES_M/RES_P, IXIT_M/IXIT_P,
+  NP_M/NP_P and the OMEGA_RAY value each sweep left at exit.
+  Written once per ray right after each production sweep call,
+  before the opposite direction's sweep resets OMEGA_RAY; the
+  outward value is taken before the divergence branch so a
+  diverged P still records its last completed pass.
+- Q-argmax report extended: per-channel prod
+  res/ixit/npas/omega lines, per-channel Q maxima
+  (KN_QA_Q(:,1)=Q_M, (:,2)=Q_P), and the sibling-reference
+  scale JMP_SIB_M/P at the argmax frequency (channel 1 -> M,
+  channel 2 -> P, 1-based field index KN_QA_L).
+
+Build: make KEEP_EXE=1 cmfgen (viper_intel_nodebug), warnings
+unchanged (pre-existing #6075 NB_Q/NT_Q actual-argument notices
+at the Q call sites). exe md5
+f7e996d32e169b2d1b617d166d32fc44 staged at
+/viper/ptmp1/sbrennan/SN2024pba/cmfgen_qfix_install (lib/mod/
+com/obs_template symlinked into the tree); pinned production
+8afd8591 restored bit-identical after build (backup
+cmfgen_pinned_8afd8591.exe.bak). This supersedes ad8e1e05 for
+any future diagnostic run.
+
+Still NOT captured (deferred, needs sweep-internal state or a
+second targeted continuation): MATCH_FREQ donor map values
+(NFM_L/DLNM_L/KN_FREQ/GAM/JPR1/JPR2/WINX) at the Q argmax, and
+in-refresh before/after I_M/I_P_DEPTH_NEXT store checksums
+(Layer D). The donor map is static per (ray-point,frequency)
+so it can be reconstructed offline once the continuation
+reports the argmax cell.
+
+### 17.4 Residual semantics - status vs work order
+
+Section 15 remains the authoritative definition set and already
+covers every Task-1 item: KN_RF_RESID = MAXVAL(RES_LS) over
+non-diverged rays (per-ray production inner-sweep residual on
+the last completed pass, div-masked); FG_GS_MAXCHG = KN_RF_RESID
+at refresh end; KN_Q_RESID = one raw sweep pass at
+OMEGA_RAY=KN_RAY_OMEGA=1.0 on the post-production scratch field
+via the L_QP early exit, no commit machinery; FG_RF_DCHG = max
+retained WRITE_STORE/_CAP delta over verdicts 0/3;
+FG_RF_PEND = max JUMP veto metric over verdicts 1/2 (proposed-
+but-unretained, veto normalization - NOT a DLOC-normalized
+store delta). The verdict->FG_RAY_DCH map in 15.2 separates
+retained-change quantities (VC 0/3) from veto/pending
+diagnostics (VC 1/2) and the diverged sentinel (VC 4).
+
+### 17.5 Gate status
+
+- Numerical neutrality of the diagnostic builds: NOT PROVEN.
+  b4686fa1 watch A/B executed but FGINEXT_GS differs at ulp
+  level under 2-thread runs; A2 control pending. The newer
+  builds (34f5c1d2 -> ad8e1e05 -> f7e996d3) have source diffs
+  that are diagnostic-only by inspection but no paired
+  byte-comparison has run yet.
+- Four-arm experiment: terminated, checksums recorded (16.2).
+- M continuation: NOT AUTHORIZED. Still gated on (a) a
+  bitwise-neutrality verdict for the exe actually used and
+  (b) the neutrality question being settled single-threaded if
+  the 2-thread noise floor is nonzero.
