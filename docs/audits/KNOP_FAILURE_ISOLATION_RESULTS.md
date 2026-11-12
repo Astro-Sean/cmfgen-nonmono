@@ -414,12 +414,111 @@ convergence and wall time.
 - Unconverged-cell counts keep falling in all arms (R 16464,
   M/C 5258 at seq6) while the max residual stays pinned - the
   residual is controlled by a shrinking set of cells/rays.
-- cell50 (cells above 50% of column peak) is 0 for R seq6 and
-  M/C seq4-6 - the pinned residual sits on cells below half the
-  column peak, consistent with floor-normalized DCELL on weak
-  columns rather than bright-cell error.
+- cell50 (cells above 50% relative change AND above the
+  1e-4*peak significance floor) is 0 for R seq6 and M/C
+  seq4-6. NOTE: this is the GS_NCONV churn census, not a
+  floor-dominance test - the floor criterion is
+  VOLD < 1e-4*VMAXF(L), a much weaker threshold. cell50=0
+  only shows no LARGE relative moves persist; it does not by
+  itself prove the pinned residual is floor-dominated. The
+  KN_QA_* argmax output (VOLD vs 1e-4*VMAXF) is required for
+  that determination and is not available in this exe.
 
-### Phase 4 Q-location instrumentation (landed, future runs only)
+### Refreshes 7+ (its 131+, continuing)
+
+- C remains `frozen=T held=T` through it130 (latest complete
+  ITER_SUM at time of writing); the population-release gate has
+  NOT opened inside the arm window so far. M/C remain
+  bit-identical; the M-vs-C comparison stays inconclusive until
+  C's first `held=F`/`pops_applied>0` iteration.
+
+### GS_MAXCHG argmax trajectories (Phase 4, from existing output)
+
+The `argmax history (d,r,f)=v` line (CONV_DIAG_LVL>=2, already
+active) records the sweep-store drift argmax per great iteration
+with a 4-deep history and a cycle/margnl/bndry classifier
+(`FG_GS_ARGK/ARGR/ARGL`, `FG_ARG_H*`, `FG_GS_CLS`). Parsed
+trajectories:
+
+- R and R2 converge onto ONE persistent cell: (d=54, r=30,
+  f=8712) from it127/128 onward, classified `cycle` (period-2
+  limit cycle at a fixed cell), value oscillating
+  3.04->3.10->2.66->3.10->3.10 e-2. The same cell controls the
+  maturity residual for 5+ consecutive iterations.
+- M and C (identical while pops held) show a WANDERING argmax:
+  (51,32,1175) -> (8,76,1372) -> (3,82,1249) -> (5,80,1249) ->
+  (4,81,1249) pinned at 3.110e-2. No persistent cell; the max
+  drift moves among shallow depths (d=3-5), ray ~80-82,
+  frequency 1249.
+- Arm differentiation: frozen refresh-side coefficients (R/R2)
+  condense the drift onto a single deep-cell 2-cycle; live
+  coefficient snapshots (M/C) produce a moving, non-localized
+  argmax plateaued at the same ~3.1e-2 magnitude. This is the
+  first clean R-vs-M behavioral split in the experiment.
+- The argmax sweep-drift value (~3.1e-2) matches rf_resid
+  (~3.1e-2) in magnitude, consistent with both metrics reading
+  the same underlying store drift.
+
+### Commit-path audit (Phase 4, source + output)
+
+Commit machinery (`plane/fg_j_cmf_nonmono_v1.f`):
+
+- `WRITE_STORE` commits converged-ray fields: per cell
+  V1=fresh FLD(JP2,LS2), V2=retained STORE(KC,LS,LS2-1),
+  DLOC=|V1-V2|/MAX(V2,1e-4*VMAX_F(LS2)); unrelaxed write
+  (INEXT_RELAX stays on sweep sites only, W4 17-Oct-2026).
+- `WRITE_STORE_CAP` commits non-converged rays under
+  FG_COMMIT_CONV=T with each cell's change bounded by
+  FG_COMMIT_NC x retained (seed fills capped at NC x the
+  significance floor).
+- `FG_COMMIT_JUMP=50` rolls back a whole ray whose committed
+  store change exceeds the bound; `FG_RAY_VC` records the
+  per-ray verdict (0 committed, 1 jump-rej, 2 nc-rej, 3 capped,
+  4 div, -1 unsolved) and `FG_RAY_DCH` the per-ray delta.
+- Per refresh the arms show 2-4 jump-rejections + ~1 capped +
+  1 unsolved ray of 85; committed ~80-82. The outer residual is
+  therefore NOT produced by wholesale commit failure - most
+  rays commit every refresh.
+
+MISSING QUANTITIES (existing output does not expose; no new
+instrumentation added per instructions):
+
+- `FG_RAY_VC`/`FG_RAY_DCH` for the ARGMAX ray specifically
+  (r=30 in R/R2, r~80 in M/C): only aggregate verdict counts and
+  the RES_LS-argmax ray's (worst_ray=5-12) values print.
+- Per-cell proposed V1 vs retained V2 and relative change at
+  the argmax cell (d=54,r=30,f=8712 -> store slot f-1=8711):
+  computed inside WRITE_STORE/_CAP but never printed per cell.
+  The KNSTOR debug line (st/sv/rel) is gated on
+  PRINT_KNOP_DEBUG and a >0.25 relchg threshold that the
+  ~0.031 argmax would not meet anyway.
+- The argmax ray's exit class and pass count (per-ray exit
+  class is not stored; only the aggregate census prints).
+
+### R-vs-R2 seed sensitivity (Phase 5, quantified)
+
+Refresh-aligned |R - R2| over 7 refreshes:
+
+- rf_resid: 9e-4 down to 5e-6, rising again to ~1.3e-3 by
+  seq7 (~0.02%-14% of the ~0.031 level) - the perturbation has
+  NOT fully decayed; residual differences fluctuate.
+- q_max: ~1.3e-3 absolute (~0.04% of 3.09), one refresh 2.8e-4.
+- retained_max: 3e-4 to 1.28 absolute - seq7 shows an O(1)
+  store-delta difference between seeds.
+- fp_drift=0.0 both arms (frozen coefficient sums identical -
+  expected; sum-level only, element-wise hash unavailable in
+  this exe).
+- commit_rejects identical counts every refresh.
+- unconverged cells differ by 85-6400 cells refresh-to-refresh.
+
+Conclusion: one uniform 0.1% seed perturbation produces
+percent-level trajectory differences that persist and
+occasionally O(1) store-delta differences - the fixed point,
+if it exists, is not reached identically from these two seeds.
+This tests ONLY this perturbation direction; it does not prove
+or disprove general seed independence or uniqueness.
+
+### Phase 4 instrumentation (landed, future runs only)
 
 The running arms' exe (8afd8591) cannot emit per-ray Q detail, so
 a diagnostic-only extension was added to
