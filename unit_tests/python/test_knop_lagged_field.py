@@ -760,10 +760,20 @@ def test_ord_sweep_dispatch_fallback():
         )
         is not None,
     )
-    disp = re.findall(
-        r"IF\(ORD_SWEEP\)THEN[\s\S]{0,200}?ELSE[\s\S]{0,200}?END IF", ray
-    )
-    check("two ordered/fallback dispatch sites (I_M and I_P)", len(disp) == 2)
+    disp = [
+        d
+        for d in re.findall(
+            r"IF\(ORD_SWEEP\)THEN[\s\S]{0,200}?ELSE[\s\S]{0,200}?END IF",
+            ray,
+        )
+        if "CALL SWEEP_FLD" in d
+    ]
+    # Four sweep-dispatch sites: production I_M and I_P solves plus the
+    # two KN_Q_RESID diagnostic verify passes (M and P channels), which
+    # must mirror the same effective branch so the measured residual is
+    # the production map. The per-ray census IF/ELSE on ORD_SWEEP is not
+    # a sweep dispatch and is filtered out above.
+    check("four ordered/fallback dispatch sites", len(disp) == 4)
     for d in disp:
         check(
             "ordered branch calls SWEEP_FLD_ORD",
@@ -771,7 +781,7 @@ def test_ord_sweep_dispatch_fallback():
         )
         check(
             "fallback branch calls SWEEP_FLD (not SWEEP_FLD_ORD)",
-            "ELSE\n\t  CALL SWEEP_FLD(" in d,
+            re.search(r"ELSE\s+CALL SWEEP_FLD\(", d) is not None,
         )
     sweep = section(FG, "SUBROUTINE SWEEP_FLD(FLD", "SUBROUTINE KN_ORD_SPV")
     pack_refs = [
