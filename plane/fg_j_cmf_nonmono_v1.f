@@ -1238,12 +1238,20 @@
 ! proposed/capped/retained/committed values, the DLOC denominator
 ! and the post-write store value at (K,LS,slot); the commit block
 ! in KNOP_RAY_SOLVE_V1 prints them once per channel with the ray
-! verdict, exit class and pass count, and covers rejected rays
-! that never reach either write routine. Only the armed ray's
-! thread touches the capture state, so the parallel ray loop is
-! race-free; the print itself runs under OMP CRITICAL. Read-only:
-! no floating point operation or store update is altered.
-! Default off.
+! verdict, per-channel exit classes (IXIT_M/IXIT_P), the
+! residual-setting NXIT, pass count, and covers rejected rays
+! that never reach either write routine. KN_WC_V1I rebuilds the
+! post-INEXT/pre-commit-cap value from the raw field and
+! KN_WC_FL records which limiter fired (bit0 NONMONO_INEXT_CAP,
+! bit1 sanitize-to-floor, bit2 FG_COMMIT_NC; bit2 only set on the
+! WRITE_STORE_CAP path where that limiter exists). KN_WC_BR marks
+! the DLOC branch: 0 = V2>0 (denominator MAX(V2,floor) is the
+! real DLOC denominator), 1 = V2<=0 (DLOC is the 0/1 floor test
+! and KN_WC_DEN then holds the 1E-4*VMAX_F significance floor,
+! not a DLOC denominator). Only the armed ray's thread touches
+! the capture state, so the parallel ray loop is race-free; the
+! print itself runs under OMP CRITICAL. Read-only: no floating
+! point operation or store update is altered. Default off.
 !
 	LOGICAL, SAVE :: KN_WATCH_ON
 	INTEGER, SAVE :: KN_WATCH_K=0,KN_WATCH_LS=0,KN_WATCH_SLOT=0
@@ -1252,7 +1260,10 @@
 	REAL(KIND=LDP), SAVE :: KN_WC_VMX(2),KN_WC_DEN(2)
 	REAL(KIND=LDP), SAVE :: KN_WC_DLOC(2),KN_WC_VPOST(2)
 	LOGICAL, SAVE :: KN_WC_HIT(2)
+	REAL(KIND=LDP), SAVE :: KN_WC_V1I(2)
+	INTEGER, SAVE :: KN_WC_FL(2),KN_WC_BR(2)
 	DATA KN_WATCH_ON /.FALSE./,KN_WC_HIT /.FALSE.,.FALSE./
+	DATA KN_WC_FL /0,0/,KN_WC_BR /0,0/
 	DATA KN_Q_RESID /.FALSE./
 !
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
@@ -8522,18 +8533,23 @@ C
 !$OMP CRITICAL(KN_WATCH_CRIT)
 	  WRITE(LUER,'(A,3I6,1X,ES12.4)')
 	1   ' KN_WATCH ray/ixit/npas/resid=',LS,NXIT,NPASS,RESID
+	  WRITE(LUER,'(A,3I4)')
+	1   '   exit ixitM/ixitP/nxit=',IXIT_M,IXIT_P,NXIT
 	  WRITE(LUER,'(A,5I8)')
 	1   '   geom K/LS/slot->KC/JP2=',KN_WATCH_K,KN_WATCH_LS,
 	2   KN_WATCH_SLOT,COMP_DEPTH_IDX(KN_WATCH_K),
 	3   J_PNT(KN_WATCH_K,KN_WATCH_LS)
 	  IF(ALLOCATED(FG_RAY_VC))WRITE(LUER,'(A,I4)')
 	1   '   verdict=',FG_RAY_VC(LS)
+	  IF(ALLOCATED(FG_RAY_DCH))WRITE(LUER,'(A,ES12.4)')
+	1   '   ray-dch=',FG_RAY_DCH(LS)
 	  DO I=1,2
 	    IF(KN_WC_HIT(I))THEN
-	      WRITE(LUER,'(A,I2,7(1X,ES13.5))')
-	1     '   ch v1raw v1cap v2 vmxf den dloc vpost=',I,
-	2     KN_WC_V1R(I),KN_WC_V1C(I),KN_WC_V2(I),KN_WC_VMX(I),
-	3     KN_WC_DEN(I),KN_WC_DLOC(I),KN_WC_VPOST(I)
+	      WRITE(LUER,'(A,I2,8(1X,ES13.5),2(1X,I4))')
+	1     '   ch v1raw v1i v1cap v2 vmxf den dloc vpost=',I,
+	2     KN_WC_V1R(I),KN_WC_V1I(I),KN_WC_V1C(I),KN_WC_V2(I),
+	3     KN_WC_VMX(I),KN_WC_DEN(I),KN_WC_DLOC(I),KN_WC_VPOST(I)
+	4     ,KN_WC_FL(I),KN_WC_BR(I)
 	    END IF
 	  END DO
 !$OMP END CRITICAL(KN_WATCH_CRIT)
@@ -11086,8 +11102,27 @@ C
 	          KN_WC_V1C(KN_WC_CH)=V1
 	          KN_WC_V2(KN_WC_CH)=V2
 	          KN_WC_VMX(KN_WC_CH)=VMAX_F(LS2)
+!
+! KN_WATCH completeness: rebuild the post-INEXT value and the
+! limiter flags from the raw field, mirroring the cap block
+! above. This path has no FG_COMMIT_NC step, so bit2 stays
+! clear; V1I equals V1C here by construction.
+!
+	          KN_WC_V1I(KN_WC_CH)=FLD(JP2,LS2)
+	          KN_WC_FL(KN_WC_CH)=0
+	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2) .AND.
+	1         FLD(JP2,LS2) .GT. 0.0_LDP))THEN
+	            KN_WC_V1I(KN_WC_CH)=1.0E-30_LDP
+	            KN_WC_FL(KN_WC_CH)=KN_WC_FL(KN_WC_CH)+2
+	          ELSE IF(FLD(JP2,LS2) .GT. NONMONO_INEXT_CAP)THEN
+	            KN_WC_V1I(KN_WC_CH)=NONMONO_INEXT_CAP
+	            KN_WC_FL(KN_WC_CH)=KN_WC_FL(KN_WC_CH)+1
+	          END IF
+	          KN_WC_BR(KN_WC_CH)=MERGE(0,1,V2 .GT. 0.0_LDP)
 	          KN_WC_DEN(KN_WC_CH)=
 	1         MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	          IF(V2 .LE. 0.0_LDP)
+	1         KN_WC_DEN(KN_WC_CH)=1.0E-4_LDP*VMAX_F(LS2)
 	          KN_WC_DLOC(KN_WC_CH)=DLOC
 	          KN_WC_VPOST(KN_WC_CH)=STORE(KC,LS,LS2-1)
 	          KN_WC_HIT(KN_WC_CH)=.TRUE.
@@ -11178,10 +11213,37 @@ C
 	          KN_WC_V1C(KN_WC_CH)=V1
 	          KN_WC_V2(KN_WC_CH)=V2
 	          KN_WC_VMX(KN_WC_CH)=VMAX_F(LS2)
+!
+! KN_WATCH completeness: rebuild the post-INEXT/pre-cap value
+! and the limiter flags from the raw field, mirroring the cap
+! block above so the record shows which limiter fired. This
+! path has no FG_COMMIT_NC step, so bit2 stays clear.
+!
+	          KN_WC_V1I(KN_WC_CH)=FLD(JP2,LS2)
+	          KN_WC_FL(KN_WC_CH)=0
+	          IF(.NOT. (FLD(JP2,LS2) .EQ. FLD(JP2,LS2) .AND.
+	1         FLD(JP2,LS2) .GT. 0.0_LDP))THEN
+	            KN_WC_V1I(KN_WC_CH)=1.0E-30_LDP
+	            KN_WC_FL(KN_WC_CH)=KN_WC_FL(KN_WC_CH)+2
+	          ELSE IF(FLD(JP2,LS2) .GT. NONMONO_INEXT_CAP)THEN
+	            KN_WC_V1I(KN_WC_CH)=NONMONO_INEXT_CAP
+	            KN_WC_FL(KN_WC_CH)=KN_WC_FL(KN_WC_CH)+1
+	          END IF
+	          KN_WC_BR(KN_WC_CH)=MERGE(0,1,V2 .GT. 0.0_LDP)
 	          KN_WC_DEN(KN_WC_CH)=
 	1         MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	          IF(V2 .LE. 0.0_LDP)
+	1         KN_WC_DEN(KN_WC_CH)=1.0E-4_LDP*VMAX_F(LS2)
 	          KN_WC_DLOC(KN_WC_CH)=DLOC
 	          KN_WC_VPOST(KN_WC_CH)=STORE(KC,LS,LS2-1)
+!
+! This path carries the FG_COMMIT_NC provisional limiter; bit2
+! records whether |V1_post-INEXT - V2| exceeded its bound. The
+! test mirrors the limiter above using the rebuilt V1I.
+!
+	          IF(ABS(KN_WC_V1I(KN_WC_CH)-V2) .GT.
+	1         FG_COMMIT_NC*MAX(V2,1.0E-4_LDP*VMAX_F(LS2)))
+	2         KN_WC_FL(KN_WC_CH)=KN_WC_FL(KN_WC_CH)+4
 	          KN_WC_HIT(KN_WC_CH)=.TRUE.
 	        END IF
 	      END DO
