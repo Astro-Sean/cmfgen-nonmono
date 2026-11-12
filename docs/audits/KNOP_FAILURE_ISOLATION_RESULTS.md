@@ -1028,3 +1028,338 @@ vs tolerance 2e-3 (~3x), GS_MAXCHG argmax ~5.6e-3 in `cycle`
 class, sw_maxchg nonzero, Q now ~59 and rising, populations
 held. No convergence gate is satisfied; "converging" describes
 only the early refresh-residual trend, which has itself stalled.
+
+## 13. Phase-2 work order: Q-diagnostic completeness, A/B neutrality evidence, residual definitions
+
+Scope: diagnostic-only. No solver equation, convergence threshold,
+commit rule, sweep ordering, population or opacity path was
+modified. Source revision at time of writing: `88dcf220` plus the
+diagnostic diff in `plane/fg_j_cmf_nonmono_v1.f` described in 13.2
+(committed together with this section).
+
+### 13.1 A/B neutrality experiment - PENDING (jobs never executed)
+
+Scheduler state (verified 2026-11-12 ~14:30):
+
+- watch_A job `13071411` PENDING (reason Priority); chained
+  dependent `13071412` PENDING (Dependency).
+- watch_B job `13071413` PENDING (reason ReqNodeNotAvail, may be
+  reserved); chained dependent `13071414` PENDING (Dependency).
+- Neither job has ever executed: no batch output, no OUTGEN, no
+  iteration count. All runtime comparisons (1.4) are BLOCKED on
+  scheduling, not on missing evidence.
+
+Pre-execution evidence (all verified directly):
+
+- Executable resolution: `batch.sh` sets
+  `CMFGEN_PROG=$cmfdist/exe/cmfgen_dev.exe` and the submitted
+  `run_cmfgen_SINGLE_FINAL.slurm` exports
+  `cmfdist=/tmp/cmfgen_diag_install`. Both jobs (and their chained
+  dependents, same script) will therefore exec
+  `/tmp/cmfgen_diag_install/exe/cmfgen_dev.exe`, currently md5
+  `b4686fa157edb8c94b0dc098636d91a3` (verified by md5sum on the
+  resolved path, not inferred from the submit script). The path
+  was NOT overwritten while preparing the new diagnostic build
+  (13.2), so the A/B experiment keeps the intended binary.
+- Slurm script diff A vs B: only `--job-name`, `--chdir`, the
+  SN_HYDRO_DATA path check, the requeue job name and the
+  `config_resolved.yaml` path differ - all path substitutions.
+  `batch.sh` is byte-identical (same SHA-256 in both dirs).
+- `config_resolved.yaml` diff: `model_name`/`model_dir` path
+  strings plus exactly the four permitted keys on watch_B:
+  `KN_WATCH_CELL: T`, `KN_WATCH_K: 54`, `KN_WATCH_LS: 30`,
+  `KN_WATCH_SLOT: 8712`.
+- Input checksums (SHA-256 over every regular file in each
+  `cmfgen/2.82days/` run dir plus `config_resolved.yaml`): all
+  numerical inputs are byte-identical between A and B. Key
+  values: `FGINEXT_GS` =
+  `7f080ec99da83f317d92a7a10e06c449f422a54f51ef1f1f89eddba46a3e23ce`,
+  also identical to
+  `m15_2p82d_FRESH_knop/cmfgen/2.82days/FGINEXT_GS` - same warm
+  restart generation (the it125 checkpoint copy). `MODEL`,
+  `VADAT_INIT`, `IN_ITS`, `SN_HYDRO_DATA`, `T_IN`, `RDINR`,
+  `NUC_DECAY_DATA`, `CUR_MODEL_DATA`, `ca2_col_data_filtered`,
+  `arnaud_rothenflug.dat`, `POINT1`, `POINT2`, `SCRTEMP`, `obs/`
+  contents, `batch.sh`, `submit_cmfgen.sh` all match. Only
+  `audit_report.*`, `MODEL_SPEC.audit.md`, the three generated
+  `.slurm` files and `config_resolved.yaml` differ (job metadata,
+  paths, watch keys).
+- Compiler/runtime: identical batch environment (module
+  intel/2024.0, mkl/2026.0, python-waterboa/2024.06, pinned
+  MKL `LD_LIBRARY_PATH`), `--cpus-per-task=1`, and the same
+  `CPUS_REQ`/`squeue %C` resolution logic -> single-thread
+  execution expected for both arms.
+- Executable provenance: `git diff 6ce9a623..88dcf220 --
+  plane/fg_j_cmf_nonmono_v1.f` is EMPTY - the KNOP solver,
+  KN_Q/KN_QA/KN_QC/KN_WATCH source in `b4686fa1` corresponds
+  exactly to committed `6ce9a623` state for that file. The only
+  `.f` changes in the range are comment-only (`sobew*.f` in
+  `2e5922ff`, `sobjbar_sim.f` in `05c20d44`). Provenance of the
+  complete executable (every archive member at link time,
+  including the documented bus-error member rebuild) is
+  **NOT PROVEN** - an MD5 cannot establish it.
+
+Neutrality verdict per criterion:
+
+| Criterion | Status |
+|---|---|
+| Identical executable MD5 at exec time | PENDING - same resolved path verified; runtime exec not yet observed |
+| Verified executable provenance | PARTIAL - KNOP file PROVEN equivalent to `6ce9a623`; complete exe NOT PROVEN |
+| Identical restart/input checksums | PASS (pre-execution) |
+| Identical compiler/runtime/thread | PASS (by identical script; runtime confirmation pending) |
+| Byte-identical persistent state | PENDING - no execution |
+| Identical convergence metrics | PENDING - no execution |
+| Identical commit decisions/counters | PENDING - no execution |
+| No unexplained differences | PENDING - no execution |
+
+Overall: **NOT PROVEN**. The experiment is correctly configured
+and all pre-execution evidence passes, but the gate cannot be
+called PASS until both jobs run and their outputs compare. If
+the jobs remain starved, the gate stays open; the M-arm
+continuation remains blocked regardless (13.6).
+
+### 13.2 Q-residual reporting corrected - diagnostic-only rebuild
+
+ChatGPT's review identified that the existing Q output could not
+distinguish a localized defect from population-wide growth and
+that the percentile block sorted the `-1` unreported-ray
+sentinel into the distribution. `plane/fg_j_cmf_nonmono_v1.f`
+now carries a diagnostic-only diff (committed together with
+this section):
+
+- Ray census `KN_QS_STAT(LS)`: 0 unreached, 1 evaluated,
+  2 diverged-skip, 3 degenerate/`NI<2` early return,
+  4 verify-alloc failure, 5 field not allocated,
+  6 ray-local alloc failure. Printed as
+  `q ray census eval,div,ni<2,allocF,nofld,rayalloc,unreached=`.
+- Per-ray percentile block now excludes `KN_Q_LS < 0` before
+  sorting (previously the `-1` sentinel biased p50/p95/p99
+  downward whenever any ray was unreported) and is labelled
+  `q dist per-ray-max` - explicitly a distribution of per-ray
+  MAXIMUM residuals, not a cell distribution.
+- Cell-level statistics `KN_QC_*`: every `DCELL` computed in
+  `MARCH` during the two verify passes is accumulated per
+  channel (1=M inward, 2=P outward) into `KN_QC_HIST` (0.1-dex
+  log bins, 1e-30..1e10 plus under/overflow edges), exact
+  threshold counts `KN_QC_NT` (>1e-2, >1e-1, >1), exact
+  `KN_QC_MAX`, and sample count `KN_QC_N` (INTEGER*8; the full
+  `NP*NI*NCF*2` domain is never materialized). Accumulation is
+  gated by `KN_Q_ACC`/`KN_Q_ACC_CH`, armed only around the two
+  verify `SWEEP_FLD`/`SWEEP_FLD_ORD` calls inside the
+  `KN_Q_RESID` block; production passes evaluate one predictable
+  branch per DCELL site and are otherwise untouched. Printed as
+  `q cells ch= samples= max= p50,p95,p99= n>1e-2,1e-1,1=`; the
+  quantiles are bin-centre estimates (+/-0.05 dex), thresholds
+  and max are exact. NaN DCELLs count in `KN_QC_N` but are
+  excluded from the histogram.
+- Argmax telemetry extended: the Q argmax now prints the exact
+  local normalized defect `|VNEW-VOLD|/DEN` with
+  `DEN=MAX(VOLD,1E-4*VMAXF)`, the explicit floor test
+  `VOLD < 1E-4*VMAXF` (recorded as `floor-dom=` with both
+  operands printed - floor dominance is no longer inferred from
+  VOLD being small relative to the column peak), and a
+  production-coincidence classification comparing ray, ray-local
+  depth and field frequency against `FG_RAY_WI/WL` (the
+  production worst-cell record, same index space):
+  `NO-VALID-PROD-ARGMAX` / `SAME-RAY-SAME-CELL` /
+  `SAME-RAY-DIFF-CELL` / `DIFF-RAY`. Same ray alone is not
+  reported as coincidence; the production residual records no
+  channel so channel coincidence is n/a.
+- Cycle-class comparison: the store-drift argmax
+  (`FG_GS_ARGK` model-depth, `FG_GS_ARGR` ray, `FG_GS_ARGL`
+  zero-based `FREQ_IDX_ITER`) is mapped into the Q cell's index
+  space. `J_PNT(model_depth,ray)` returns the ray point whose
+  radius equals `R(model_depth)` to 1e-12 (verified at the
+  J_PNT fill, bounds-checked fill), so the GS depth maps to ray
+  point `J_PNT(FG_GS_ARGK,IQ_R)`; the frequency maps as
+  `KN_QA_L-1` (field index is 1-based, sweep index 0-based).
+  `gs-cell-match=` is exact triple coincidence; `gs-cls=`
+  prints the argmax-trajectory class. An earlier revision of
+  this comparison indexed `J_PNT` with the ray-local depth
+  (wrong direction, potential out-of-bounds since inserted ray
+  points can exceed `ND`); corrected before build.
+- Removed dead per-channel argmax arrays (`KN_QC_RAY/J/L/Q/
+  VOLD/VN/VM/DEN/FLOOR`) allocated but never populated; the
+  per-channel argmax is recovered from the existing `KN_QA_*`
+  table.
+
+Diff audit: every changed executable-region line is either a
+gated diagnostic mark, an allocation/deallocation, an
+`IF(KN_Q_ACC)CALL KN_Q_ACCUM(DCELL)` placed AFTER the existing
+`RES`/`RESL` max updates at the four MARCH DCELL sites, or a
+summary WRITE. The `IF(NI .EQ. 1)RETURN` early exit was
+restructured to a block adding only the gated status mark -
+control flow identical. No sweep equation, residual formula,
+commit path, threshold, ordering or coefficient handling was
+touched.
+
+Build and validation:
+
+- `ifort` syntax/object compile clean (only pre-existing
+  #6075 dummy-arg warnings on the verify-pass SWEEP calls).
+- `make cmfgen` exit 0; new diagnostic executable md5
+  `34f5c1d29877f4145756dda87d25135f`, staged at
+  `/tmp/cmfgen_qcells_install/exe/cmfgen_dev.exe` (com/lib/mod/
+  obs_template symlinked like the existing diag install) and
+  preserved as `/tmp/cmfgen_qcells_diag.exe`.
+- Pinned production `exe/cmfgen_dev.exe` restored bit-identical:
+  md5 `8afd859176ca0177c9de31fc6a400ffc` re-verified after the
+  build. `/tmp/cmfgen_diag_install` (`b4686fa1`) untouched, so
+  the pending A/B jobs keep their specified binary.
+- Unit tests on the final source: `test_knop_ray` 43/43 PASS,
+  `test_knop_lagged_field` all PASS (130 checks),
+  `test_knop_status_text` all PASS.
+- Provenance of `34f5c1d2`: built from working tree = `88dcf220`
+  + the diagnostic diff described in 13.2, which is committed
+  together with this documentation - the exe's source state is
+  reproducible from that commit alone.
+
+### 13.3 Residual definitions - precise statements
+
+Production refresh residual (`RES_LS` -> `KN_RF_RESID`):
+
+- `RES_M`/`RES_P` are the values returned by the production
+  `SWEEP_FLD`/`SWEEP_FLD_ORD` calls on the committed-direction
+  fields `FLD`/`FLD_P` (inward/outward). Each is the maximum
+  `DCELL` of the LAST completed pass of that inner solve, where
+  `DCELL = |VNEW-VOLD|/MAX(VOLD,1E-4*VMAXF)` is computed inside
+  `MARCH` BEFORE the `OMEGA_RAY` relaxation is applied to the
+  stored update - i.e. the raw pre-relaxation proposed change,
+  normalized by the same MARCH denominator as Q.
+- `RESID = MAX(RES_M,RES_P)` per ray -> `RES_LS(LS)`; diverged
+  rays (`NDIV=1`) are pinned to `RESID=1.0` and excluded from
+  `KN_RF_RESID` by the `NDV_LS` mask (line ~7589). The refresh
+  residual is `MAXVAL(RES_LS)` - a per-ray maximum over the last
+  production pass of the inner ray solve.
+- It is measured on the last completed production pass of the
+  ray's own field iteration. It does NOT measure store-to-store
+  drift across refreshes, does NOT include cross-ray commits,
+  commit rejection/capping/healing, or frequency-ladder shifts
+  (the grid is static), and by itself does not establish
+  convergence of the complete refresh/store-to-store map.
+- Effective relaxation actually used: `KN_RAY_OMEGA` (default
+  1.0, not overridden in the arm VADATs) seeds `OMEGA_RAY` at
+  each sweep entry; the production sweep then adapts it
+  pass-to-pass (x0.7 on growth, x1.15 on contraction, floor
+  0.45, cap 1.0) - so "OMEGA_RAY=1.0" describes the verify pass
+  only, not necessarily every production pass. `INEXT_RELAX`
+  (default 0.5, adapted per refresh from the pooled contraction
+  samples at ~line 7645) relaxes the commit/store update, a
+  different knob on a different map.
+
+Independent Q residual (`KN_Q_RESID` -> `KN_Q_LS`):
+
+- After the production solve returns, the verify block copies
+  the committed field (`FLD_Q=FLD` for the M channel,
+  `FLD_Q=FLD_P` for P) and calls the SAME
+  `SWEEP_FLD`/`SWEEP_FLD_ORD` routine with `L_QP=.TRUE.`.
+  `L_QP` exits after exactly one completed pass (`IXIT=9`)
+  BEFORE the OMEGA-adaptation block and before the
+  `KN_RES_PASS`/`RHO_WIN` telemetry writes, so the verify pass
+  neither pollutes production relaxation statistics nor
+  iterates to convergence.
+- The scratch pass therefore uses: the same sweep equations and
+  ordering as production; the same module coefficient arrays
+  (`KN_CHI_COEF`/`KN_ETA_COEF` state as left by the production
+  solve / `KN_FREEZE_COEF` snapshots); the same
+  `MATCH_FREQ`/`SRC_PRIME`/`NFM_L`/`DLNM_L` matched-frequency
+  machinery (recomputed per frequency inside the sweep);
+  `OMEGA_RAY = KN_RAY_OMEGA` for its single pass (no adaptation
+  occurs before the `L_QP` exit); and the scratch field is
+  discarded - nothing is committed to `I_M/I_P_DEPTH_NEXT`.
+- Q per ray = `MAX(Q_M,Q_P)` where each is the sweep's returned
+  pass-1 residual = max `DCELL` over cells/frequencies of that
+  one map application on the scratch copy.
+- Answers to the five dependency questions, for BOTH residuals:
+  1. Cross-ray store commits: NEITHER - both measure inside one
+     ray's field solve before WRITE_STORE/WRITE_STORE_CAP.
+  2. Frequency-ladder shifts: NEITHER - the frequency grid is
+     static within a refresh; `DO_NONMONO_FREQ_MATCH` remaps
+     donor READS (`L+NFM_L`), it does not move slots.
+  3. Spatial interpolation of matched-frequency donors: BOTH -
+     `SRC_PRIME` reads `FLD(JPR,L+NFM_L)` with `JPR1/JPR2`
+     interpolation weights inside MARCH, identically in
+     production and verify passes.
+  4. Full store seed -> ray solve -> commit -> next refresh
+     chain: NEITHER - that is the outer fixed-point map and
+     requires comparing successive committed store generations
+     (e.g. `FGINEXT_GS` fingerprints or GS_STATE drift).
+  5. Commit rejection/capping/healing: NEITHER directly - the
+     production ray residual is computed before the commit
+     verdicts; Q never reaches commit. Indirectly, rejected
+     cells keep their store values, so both residuals measure a
+     field that already reflects past gating.
+- Neither Q nor the production ray residual is a complete outer
+  fixed-point residual; do not compare their absolute values as
+  the same norm.
+
+Correction to 12.1: `DO_NONMONO_FREQ_MATCH` is not merely
+"unset" - under `DO_NONMONO_KNOP` it is FORCED T
+(`rd_control_variables.f` ~3453, banner-forced even over
+explicit F), and M's OUTGEN prints `freq_match= T`. The
+conclusion drawn there still holds (the grid is static and slot
+indices are stable across refreshes) but the mechanism is
+active donor remapping, present identically in production and Q
+passes.
+
+### 13.4 M watch-cell mapping - verified, one correction
+
+Reported M argmax: model-depth `d=3`, ray `r=82`,
+`f=FREQ_IDX_ITER=1636` (I-field overflow `****` in the printed
+history; 1636 from the user trace).
+
+| Quantity | Value | Basis |
+|---|---|---|
+| Model depth K | 3 | argmax `d` is the model-depth index (12.1) |
+| Sparse store row KC | 3 | `COMP_DEPTH_IDX(K)=K`: OUTGEN prints `compressing points=70 of ND=70`, so every depth is in the compressing set and the sequential numbering is the identity map |
+| Ray LS | 82 | argmax `r` |
+| Ray-local point | `J_PNT(3,82)` | runtime value; not printed by the running exe - the continuation's watch print reports it (the watch record prints `J_PNT(K,LS)` per 12.1) |
+| Field frequency index L | 1637 | `FREQ_IDX_ITER` is 0-based; `L = FREQ_IDX_ITER+1` |
+| Matched donor slot | `L + NFM_L(i)` per cell | `DO_NONMONO_FREQ_MATCH=T` forced under KNOP; `NFM_L>=1` so the upwind donor differs from the destination slot - this is donor remapping, NOT a different store slot |
+| Store slot (M and P) | 1636 | `WRITE_STORE`/`WRITE_STORE_CAP` write `STORE(KC,LS,LS2-1)`; slot `s` holds field `s+1`; `KN_WATCH_SLOT=1636` is in range (`NCF=56377`) |
+| Physical frequency / wavelength | PENDING | the nu grid value at index 1637 is not in the current OUTGEN; the continuation's KN_QA/GS argmax and watch records plus `KN_FREQ` will pin it |
+
+`KN_WATCH_SLOT=1636` remains the correct destination-store slot
+for the continuation. The matched-donor distinction matters for
+interpretation: the watch record captures the DESTINATION cell;
+the donor it reads may sit at a different frequency slot.
+
+### 13.5 M-arm status at time of writing
+
+Still RUNNING (job `13065896`, ~4.5 h wall at last check),
+iteration ~149, `pops_held=T`, `KN_MAT_FREEZE=T`. Q max reached
+~79.0 and is still climbing (3.09 -> 5.26 -> 10.96 -> ~20.7 ->
+58.9 -> 79.0 across its139-149); `rf_resid` ~0.0056-0.0059 flat;
+`q_rays=84` constant; GS argmax remains `(3,82,****)` in
+`cycle`/`margnl` classes. Final metrics (5.1) remain PENDING
+until the arm terminates; M is NOT converged and meets no
+production maturity criterion (12.4 stands).
+
+### 13.6 Continuation gate status - NOT AUTHORIZED
+
+Required gates and current state:
+
+1. A/B neutrality PASS - FAILS TO CLOSE: jobs never executed;
+   verdict NOT PROVEN (13.1).
+2. All four arms terminated - FAILS: R/R2/M/C all RUNNING with
+   dependent requeue jobs queued.
+3. Final M metrics recorded - PENDING (arm live).
+4. Q argmax identified with new instrumentation - PENDING: the
+   new cell-level/coincidence/census output exists only in the
+   `34f5c1d2` diagnostic exe, which no running arm uses.
+5. Frequency/store mapping verified - PASS at source level
+   (13.4); physical nu/wavelength still PENDING runtime data.
+6. Diagnostic exe provenance recorded - PARTIAL: `34f5c1d2`
+   provenance = `88dcf220` + the diagnostic diff in 13.2
+   (committed with this section); complete-exe provenance for
+   `b4686fa1` remains NOT PROVEN.
+7. Diagnostic neutrality/unit checks for new code - DONE:
+   compile clean, diff verified diagnostic-only, KNOP suites
+   pass; a dedicated A/B neutrality run for `34f5c1d2` vs
+   `b4686fa1` has NOT been performed (the Q additions are
+   write-only diagnostics gated on `KN_Q_RESID`, but neutrality
+   is asserted, not yet demonstrated).
+
+The continuation is diagnostic-only by design and must not be
+launched until gates 1-4 close; gate 7 ideally also wants an
+explicit neutrality demonstration for the new binary.
