@@ -1800,6 +1800,19 @@ login-node /tmp/cmfgen_qcells_install to shared storage at
 lib/mod/obs_template symlinked into cmfgen_jfnk, same layout
 as qfix); md5 re-verified after copy.
 
+Source-diff audit (Task 4 steps 1-2): git diff 24c95ec1..HEAD
+on plane/fg_j_cmf_nonmono_v1.f removes only 4 comment lines
+(the stale "MARCH appends every computed DCELL" description)
+and adds 114 lines, all inside KN_Q_ACC / KN_Q_RESID /
+KN_PA_* / KN_WATCH / JMP_SIB diagnostic scopes (ordered-branch
+KN_Q_ACCUM sites, per-channel production context captures,
+extended Q-argmax prints, sibling-reference prints). No
+production arithmetic line is added, removed or reordered;
+the remaining diff hunks are IF/END IF structure and WRITE
+continuations inside those scopes. Combined with the pending
+byte-comparison, this is the diagnostic-only evidence the
+work order requires.
+
 Submission path: SN_HYDRO_DATA (md5
 ea6c5d5bd2d1c0ae785d70d4c9a56053, identical across iso_M /
 watch_A / watch_A2) was pre-seeded into each
