@@ -1232,6 +1232,17 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QA_VN(:,:),KN_QA_VM(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: KN_QA_J(:,:),KN_QA_L(:,:)
 !
+! Per-ray production-solve context for the Q argmax report
+! (diagnostic, same [KN_Q_RESID] scope): channel 1 is the inward
+! (M) sweep and 2 the outward (P) sweep. KN_PA_RES/IX/NP/OMG hold
+! RES_M/RES_P, IXIT_M/IXIT_P, NP_M/NP_P and the OMEGA_RAY value
+! each sweep left at exit, so the production side of the
+! stage-mismatched comparison is reported per channel instead of
+! only as the RES_LS max. Each ray writes only its own LS slot.
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_PA_RES(:,:),KN_PA_OMG(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_PA_IX(:,:),KN_PA_NP(:,:)
+!
 ! KN_QC_* cell-level Q statistics (diagnostic): every DCELL
 ! computed inside MARCH during the verify passes is accumulated
 ! per channel (1=M inward, 2=P outward), so the distribution
@@ -7438,6 +7449,12 @@ C
 	    KN_QA_VN=-1.0_LDP; KN_QA_VM=-1.0_LDP
 	    KN_QA_J=0; KN_QA_L=0
 	  END IF
+	  ALLOCATE(KN_PA_RES(KN_NP,2),KN_PA_OMG(KN_NP,2),
+	1   KN_PA_IX(KN_NP,2),KN_PA_NP(KN_NP,2),STAT=IOS2)
+	  IF(IOS2 .EQ. 0)THEN
+	    KN_PA_RES=-1.0_LDP; KN_PA_OMG=-1.0_LDP
+	    KN_PA_IX=-1; KN_PA_NP=-1
+	  END IF
 !
 ! Cell-level accumulators: per-refresh fresh census. KN_QS_STAT
 ! marks each ray's verify outcome (0 = never reached the verify
@@ -7926,6 +7943,40 @@ C
 	6      (IQ_C .EQ. 1 .AND. KN_QA_J(IQ_R,IQ_C) .EQ. 1),
 	7      ' |dv|/vmaxf=',ABS(KN_QA_VN(IQ_R,IQ_C)
 	8      -KN_QA_VOLD(IQ_R,IQ_C))/KN_QA_VM(IQ_R,IQ_C)
+!
+! Per-channel production context for the same ray (Task-2
+! audit): KN_PA_* hold each direction's own terminal residual,
+! exit class, pass count and adapted OMEGA_RAY, sampled before
+! the Q verify passes ran. Channel 1 is inward (M), 2 outward
+! (P); -1 marks a direction that never completed.
+!
+	      IF(ALLOCATED(KN_PA_RES))THEN
+	        WRITE(LUER,'(A,ES11.3,1X,I3,1X,I5,1X,ES10.3)')
+	1        '    prod M res/ixit/npas/omega=',KN_PA_RES(IQ_R,1),
+	2        KN_PA_IX(IQ_R,1),KN_PA_NP(IQ_R,1),KN_PA_OMG(IQ_R,1)
+	        WRITE(LUER,'(A,ES11.3,1X,I3,1X,I5,1X,ES10.3)')
+	1        '    prod P res/ixit/npas/omega=',KN_PA_RES(IQ_R,2),
+	2        KN_PA_IX(IQ_R,2),KN_PA_NP(IQ_R,2),KN_PA_OMG(IQ_R,2)
+	      END IF
+	      WRITE(LUER,'(A,2(1X,ES11.3))')
+	1      '    q ray chmax M/P=',KN_QA_Q(IQ_R,1),KN_QA_Q(IQ_R,2)
+!
+! Sibling-reference scale at the Q argmax frequency (audit
+! Layer C): the jump veto reads JMP_SIB_M for the inward field
+! and JMP_SIB_P for the outward field at the 1-based field index
+! KN_QA_L, and only consults it on floor-dominated columns.
+!
+	      IF(ALLOCATED(JMP_SIB_M) .AND. ALLOCATED(JMP_SIB_P) .AND.
+	1     KN_QA_L(IQ_R,IQ_C) .GE. 1 .AND.
+	2     KN_QA_L(IQ_R,IQ_C) .LE. KN_NCF)THEN
+	        IF(IQ_C .EQ. 1)THEN
+	          WRITE(LUER,'(A,ES13.5)')
+	1        '    sibref@qargmax=',JMP_SIB_M(KN_QA_L(IQ_R,IQ_C))
+	        ELSE
+	          WRITE(LUER,'(A,ES13.5)')
+	1        '    sibref@qargmax=',JMP_SIB_P(KN_QA_L(IQ_R,IQ_C))
+	        END IF
+	      END IF
 	    END IF
 	    ALLOCATE(QS_TMP(COUNT(KN_Q_LS .GE. 0.0_LDP)),STAT=IOS2)
 	    IF(IOS2 .EQ. 0 .AND. SIZE(QS_TMP) .GT. 0)THEN
@@ -8156,6 +8207,8 @@ C
 	IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
 	IF(ALLOCATED(KN_QA_Q))DEALLOCATE(KN_QA_Q,KN_QA_VOLD,KN_QA_VN,
 	1  KN_QA_VM,KN_QA_J,KN_QA_L)
+	IF(ALLOCATED(KN_PA_RES))DEALLOCATE(KN_PA_RES,KN_PA_OMG,
+	1  KN_PA_IX,KN_PA_NP)
 	IF(ALLOCATED(KN_QS_STAT))DEALLOCATE(KN_QS_STAT,KN_QC_HIST)
 	KN_Q_ACC=.FALSE.; KN_Q_ACC_CH=0
 	RETURN
@@ -8572,6 +8625,16 @@ C
 ! with the larger residual.
 !
 	WRC_IM=WRC_I; WRC_LM=WRC_L; WRC_SM=WRC_SAME
+!
+! Production-context capture (diagnostic): OMEGA_RAY here is the
+! inward sweep's terminal adapted value; the outward sweep below
+! resets it at its own head, so the per-channel record must be
+! taken before that call. Read-only w.r.t. the solve.
+!
+	IF(ALLOCATED(KN_PA_RES))THEN
+	  KN_PA_RES(LS,1)=RES_M; KN_PA_IX(LS,1)=IXIT_M
+	  KN_PA_NP(LS,1)=NP_M; KN_PA_OMG(LS,1)=OMEGA_RAY
+	END IF
 	IF(DIVERGED)THEN
 !
 !	  Diverged I_M: the runaway field must not reach the store, and
@@ -8624,6 +8687,15 @@ C
 	1     NB_BP,NT_BP,.FALSE.)
 !$OMP ATOMIC
 	  KN_CENS_SFP=KN_CENS_SFP+1_8
+	END IF
+!
+! Same production-context capture for the outward sweep; taken
+! before the divergence branch so a diverged P still records its
+! last completed pass state.
+!
+	IF(ALLOCATED(KN_PA_RES))THEN
+	  KN_PA_RES(LS,2)=RES_P; KN_PA_IX(LS,2)=IXIT_P
+	  KN_PA_NP(LS,2)=NP_P; KN_PA_OMG(LS,2)=OMEGA_RAY
 	END IF
 	IF(DIVERGED)THEN
 	  NDIV=1
