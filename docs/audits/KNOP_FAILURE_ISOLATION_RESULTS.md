@@ -922,3 +922,109 @@ SLOT=1636), single thread, and no changes to `KN_RAY_TOL`,
 `FG_COMMIT_NC`, `FG_COMMIT_JUMP` or population solver tolerances.
 It launches only after the A/B neutrality comparison passes and
 is reviewed.
+
+## 12. Phase-2 review: index mapping and the growing Q residual
+
+### 12.1 M watch-cell index mapping - VERIFIED from source
+
+The GS_MAXCHG argmax record `(d,r,f)` is written at
+`fg_j_cmf_nonmono_v1.f:5086-5087,5109-5110,5146-5147,5163` as
+`FG_GS_ARGK=K`, `FG_GS_ARGR=LS`, `FG_GS_ARGL=FREQ_IDX_ITER`,
+inside the in-sweep I_NEXT write-back. Verified chain:
+
+- `K` iterates `DO K=1,ND` with `KC=COMP_DEPTH_IDX(K)` (line
+  ~5037); `KN_ND=ND` (line 2904), so `d` is the model-depth index
+  in exactly the same convention `WRITE_STORE` uses for `KS`
+  (`DO KS=1,KN_ND`, `KC=COMP_DEPTH_IDX(KS)`, line ~11040). The
+  watch print reports `COMP_DEPTH_IDX(K)` (sparse store index)
+  and `J_PNT(K,LS)` so the physical location is unambiguous.
+  Correction to section 11: `d` is the model-depth index K, not
+  a separate "geometry index"; the sparse store row is
+  `COMP_DEPTH_IDX(d)`.
+- `f` is `FREQ_IDX_ITER`, the 0-based sweep index. The lagged
+  store `I_M_DEPTH_NEXT`/`I_P_DEPTH_NEXT` is allocated
+  `(N_COMP,NP,NCF_IN)` (line 2871) and is written at third index
+  `FREQ_IDX_ITER` directly (lines ~5168,5174).
+- `WRITE_STORE`/`WRITE_STORE_CAP` are called with those arrays
+  as `STORE` and write `STORE(KC,LS,LS2-1)` for `LS2=2..NCF`, so
+  store slot `s = LS2-1`. Matching `s = FREQ_IDX_ITER` gives
+  `LS2 = FREQ_IDX_ITER+1`, i.e. slot `s` holds field frequency
+  `s+1`. For the M argmax `FREQ_IDX_ITER=1636` the watch slot is
+  `KN_WATCH_SLOT=1636` (slot < NCF~56k, in range).
+- Caveat: the argmax-history f column overflows its I-field to
+  `****` for M/C, so 1636 rests on the user's trace, not the
+  printed record; the continuation's own KN_QA/GS argmax output
+  will confirm the live slot before interpretation.
+- Frequency ladder: `DO_NONMONO_FREQ_MATCH` is not set in the M
+  VADAT (auto-set applies only to the SOB LAM_ES=F path), so the
+  grid is static; slot indices are stable across refreshes
+  regardless.
+
+### 12.2 What Q measures vs what the refresh residual measures
+
+- `KN_Q_RESID` (Q): for each ray and channel, one scratch
+  `SWEEP_FLD`/`SWEEP_FLD_ORD` pass is applied to a copy of the
+  committed field at `OMEGA_RAY=1.0` (no relaxation, pre-exit
+  checks bypassed for the measurement). `DCELL =
+  |VNEW-VOLD|/MAX(VOLD,1E-4*VMAXF)` per cell; Q is the per-ray
+  maximum over cells and frequencies. It measures the defect of
+  ONE sweep-map application on the CURRENT committed field -
+  the raw fixed-point residual of the inner iteration, with no
+  commit, no cross-ray store write-back, and no outer
+  relaxation.
+- Refresh residual (`KN_RF_RESID`/`GS_MAXCHG` family): the
+  store-to-store change across a complete refresh - the
+  committed `I_NEXT` delta after per-ray solves, commit
+  verdicts, caps and rejects. It measures the outer
+  fixed-point map including cross-ray commits.
+- Neither diagnostic includes population updates (held in all
+  arms) nor frequency-ladder shifts (static grid). They are
+  different norms on different maps: Q is per-ray max relative
+  defect of one sweep pass; the refresh residual is the
+  committed store drift. Absolute values are not comparable.
+
+### 12.3 The Q growth is NOT M-specific - measured
+
+| it | R rf_resid | R Q | M rf_resid | M Q |
+|----|-----------|------|-----------|------|
+| 136| 0.0308 | 10.6 | 0.00559 | 3.09 |
+| 140| 0.0308 | 28.4 | 0.00558 | 10.96 |
+| 142| 0.0308 | 324.4| 0.00558 | 20.66 |
+| 146| 0.0308 | 325.0| 0.00558 | 20.67 |
+| 147| - | - | 0.00589 | 58.9 |
+
+Both arms now show the same phenomenon at different rates: the
+one-pass map defect grows by orders of magnitude while the
+committed refresh residual stays flat and unconverged cells
+stay ~200 (M) or ~8k (R). `q_rays=84` is constant - every ray
+reports a Q value, so the max is not a census artifact.
+
+Working interpretation (hypothesis, not proven): the commit
+machinery - `FG_COMMIT_NC` provisional caps, jump rejects,
+non-converged rejects - is suppressing exactly the store updates
+that would repair the cells the one-pass map flags. The
+committed store therefore sits near a fixed point of the
+GATED map (flat rf_resid, stable unconverged count) while the
+raw sweep-map defect on that store grows (Q). If true, Q growth
+is a symptom of commit gating, not of a new instability, and the
+watch-cell record at the maturity cell (verdict + capped/rejected
++ V1I/V1C/V2/DLOC) is the decisive measurement. Alternatives not
+yet excluded: floor-normalized weak-column dominance (needs the
+KN_QA denominator), a genuine one-pass-map instability the
+commit path was always masking, or transient amplification in a
+non-normal operator (Trefethen & Embree 2005 - possible, not
+established).
+
+Discrimination requires the KN_QA_* output (argmax ray/channel/
+depth/freq, VOLD/VNEW/VMAXF/denominator, floor-dom flag, p50/
+p95/p99 distribution, threshold counts) which only the
+diagnostic executable emits - the running arms' exe predates it.
+The continuation will supply it.
+
+### 12.4 M maturity status - explicit
+
+M has NOT reached production maturity: rf_resid ~0.0056-0.0059
+vs tolerance 2e-3 (~3x), GS_MAXCHG argmax ~5.6e-3 in `cycle`
+class, sw_maxchg nonzero, Q now ~59 and rising, populations
+held. No convergence gate is satisfied; "converging" describes
+only the early refresh-residual trend, which has itself stalled.
