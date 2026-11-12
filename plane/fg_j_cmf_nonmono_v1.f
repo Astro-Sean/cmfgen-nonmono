@@ -8520,9 +8520,9 @@ C
 !
 	IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)THEN
 !$OMP CRITICAL(KN_WATCH_CRIT)
-	  WRITE(LUER,'(A,I4,A,I4,A,I4,A,I6,A,ES12.4)')
+	  WRITE(LUER,'(A,3I6,1X,ES12.4)')
 	1   ' KN_WATCH ray/ixit/npas/resid=',LS,NXIT,NPASS,RESID
-	  WRITE(LUER,'(A,I4,A,I4,A,I4,A,I4,A,I4)')
+	  WRITE(LUER,'(A,5I8)')
 	1   '   geom K/LS/slot->KC/JP2=',KN_WATCH_K,KN_WATCH_LS,
 	2   KN_WATCH_SLOT,COMP_DEPTH_IDX(KN_WATCH_K),
 	3   J_PNT(KN_WATCH_K,KN_WATCH_LS)
@@ -8530,7 +8530,7 @@ C
 	1   '   verdict=',FG_RAY_VC(LS)
 	  DO I=1,2
 	    IF(KN_WC_HIT(I))THEN
-	      WRITE(LUER,'(A,I1,A,7(ES14.5))')
+	      WRITE(LUER,'(A,I2,7(1X,ES13.5))')
 	1     '   ch v1raw v1cap v2 vmxf den dloc vpost=',I,
 	2     KN_WC_V1R(I),KN_WC_V1C(I),KN_WC_V2(I),KN_WC_VMX(I),
 	3     KN_WC_DEN(I),KN_WC_DLOC(I),KN_WC_VPOST(I)
