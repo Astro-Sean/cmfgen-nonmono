@@ -1320,6 +1320,23 @@
 !
 	LOGICAL KN_MAT_FREEZE
 !
+! KN_WATCH_CELL / KN_WATCH_K / KN_WATCH_LS / KN_WATCH_SLOT
+! (diagnostic, default off): per-cell commit telemetry for the
+! KNOP failure isolation. When KN_WATCH_K>0, WRITE_STORE and
+! WRITE_STORE_CAP capture the proposed/capped/retained/committed
+! values, the DLOC denominator and the post-write store value at
+! geometry index KN_WATCH_K, ray KN_WATCH_LS and store slot
+! KN_WATCH_SLOT (the printed argmax f is FREQ_IDX_ITER, which
+! equals the store slot; field frequency = slot+1). The commit
+! block prints one record per solve with the ray verdict, exit
+! class and pass count, including rejected rays that never reach
+! either write routine. Read-only; default off preserves
+! production behaviour and cost. VADAT keywords [KN_WATCH_CELL],
+! [KN_WATCH_K], [KN_WATCH_LS], [KN_WATCH_SLOT].
+!
+	LOGICAL KN_WATCH_CELL
+	INTEGER KN_WATCH_K,KN_WATCH_LS,KN_WATCH_SLOT
+!
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
 ! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
