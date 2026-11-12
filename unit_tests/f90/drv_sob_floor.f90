@@ -105,6 +105,7 @@ program drv_sob_floor
         write(*,'(i6,1x,es24.16e3)') i, line_flux(i)
      end do
   else if (routine == 'sobewg1') then
+     fm = 0.0_ldp
      call sobew_grad(src, chi, esec, chil, etal, v, sig, r, p, &
                 fm, rlum, aqw, haqw, line_flux, ew, cflux, &
                 fl, dif, dbb, xic, thick, die, nc, np, nd, method)
@@ -113,6 +114,7 @@ program drv_sob_floor
         write(*,'(i6,2(1x,es24.16e3))') i, fm(i), line_flux(i)
      end do
   else if (routine == 'sobewg2') then
+     fm = 0.0_ldp
      call sobew_grad_v2(src, chi, esec, chil, etal, v, sig, r, p, &
                 fm, rlum, aqw, haqw, line_flux, ew, cflux, &
                 fl, ibnd, dbb, xic, thick, die, nc, np, nd, method)
@@ -121,6 +123,7 @@ program drv_sob_floor
         write(*,'(i6,2(1x,es24.16e3))') i, fm(i), line_flux(i)
      end do
   else if (routine == 'sobewg3') then
+     fm = 0.0_ldp
      call sobew_grad_v3(src, chi, esec, chil, etal, v, sig, r, p, &
                 fm, rlum, aqw, haqw, line_flux, ew, emiss_ew, cflux, &
                 fl, ibnd, dbb, xic, thick, die, nc, np, nd, method)
