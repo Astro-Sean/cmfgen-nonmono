@@ -424,13 +424,62 @@ convergence and wall time.
   KN_QA_* argmax output (VOLD vs 1e-4*VMAXF) is required for
   that determination and is not available in this exe.
 
-### Refreshes 7+ (its 131+, continuing)
+### Refreshes 7-8 (its 131-132, continuing)
 
-- C remains `frozen=T held=T` through it130 (latest complete
-  ITER_SUM at time of writing); the population-release gate has
-  NOT opened inside the arm window so far. M/C remain
-  bit-identical; the M-vs-C comparison stays inconclusive until
-  C's first `held=F`/`pops_applied>0` iteration.
+- C remains `frozen=T held=T`, `pops_applied=0.0` through it131 -
+  the population-release gate has NOT opened inside the arm
+  window so far. M/C remain bit-identical; the M-vs-C comparison
+  stays inconclusive until C's first `held=F`/`pops_applied>0`
+  iteration.
+- Argmax update at it131: M/C's wandering argmax has now
+  LOCALIZED onto (d=4, r=81, f=1249)=3.110e-2 for two
+  consecutive iterations with `cycle` class at it131 - the
+  shallow-cell wander may be settling into its own persistent
+  cell, distinct from R/R2's deep cell (54,30,8712).
+- R/R2 retained_max jumped to ~63-64 at seq7 (was 0.4-5.9) while
+  rf_resid stays ~0.030/0.031 and unconverged ~12-15k cells -
+  a large committed store delta coexists with the pinned
+  residual; R2's rf_resid (0.0297) now sits slightly below R's
+  (0.0310), an ordering not seen earlier.
+- M/C unconverged cells down to 3946 with retained_max 0.096 -
+  the best cell-level convergence of any arm, still with
+  rf_resid pinned at 0.0311.
+
+### Store-slot mapping verification (Phase 7 prep)
+
+Traced in source (`fg_j_cmf_nonmono_v1.f`):
+
+- `FREQ_IDX_ITER` is a ZERO-BASED sweep counter: during field
+  frequency k (1-based), FREQ_IDX_ITER = k-1 (lines 242-243,
+  3305-3319). The printed argmax f=8712 is FREQ_IDX_ITER, so
+  the field frequency is k=8713.
+- `WRITE_STORE`/`WRITE_STORE_CAP` write `STORE(KC,LS,LS2-1)`
+  for LS2=2..NCF - field frequency LS2 lands in store slot
+  LS2-1, and frequency 1 has no slot. Therefore argmax
+  FREQ_IDX_ITER=8712 -> field k=8713 -> store slot 8712. The
+  printed f value coincides with the store slot index, but
+  only because slot = k-1 = FREQ_IDX_ITER; the mapping is
+  verified, not assumed.
+- Argmax `d`=54 is the geometry index K (1..KN_ND), NOT the
+  model depth: model depth = COMP_DEPTH_IDX(54), ray point =
+  J_PNT(54,LS). Argmax `r`=30 is the ray index LS.
+- Commits are PER-RAY inside KNOP_RAY_SOLVE_V1 (~lines
+  8439-8459): WRITE_STORE for converged rays,
+  WRITE_STORE_CAP for non-converged under FG_COMMIT_CONV,
+  per channel (I_M_DEPTH_NEXT / I_P_DEPTH_NEXT stores).
+
+Minimal-diagnostics feasibility (for the recommended
+follow-up, NOT implemented): a gated watch-cell inside
+WRITE_STORE/_CAP can capture, at (KS==K_t, LS2-1==slot_t) for
+the target ray, V1 (proposed post-cap), V2 (pre-commit
+retained), DLOC (relative change + denominator), the post-write
+STORE value, and the call-site verdict - all read-only
+captures behind a VADAT-gated logical, ~15 lines, no numerical
+state touched. Validation = bit-compare OUTGEN/store dumps
+instrumented vs uninstrumented on a short run. The same capture
+in both WRITE_STORE and WRITE_STORE_CAP covers accepted and
+capped paths; rejected rays never reach either routine, so the
+verdict print at the call site covers the rejected case.
 
 ### GS_MAXCHG argmax trajectories (Phase 4, from existing output)
 
