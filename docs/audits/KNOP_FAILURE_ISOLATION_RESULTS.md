@@ -1424,3 +1424,105 @@ Reading:
   construction on this trajectory.
 - M's latest complete checkpoint is the continuation seed
   candidate; no need to wait for natural termination.
+
+## 15. Residual-semantics correction (source audit at e87f0e7b, 2026-11-12)
+
+ChatGPT's independent source review identified a terminology
+error in sections 12-14: KN_RF_RESID and the gated FG_GS_MAXCHG
+are per-ray PRODUCTION INNER-SWEEP residuals, not committed
+store-to-store drift. Verified assignments below; this section
+is the authoritative definition set. Earlier sections' measured
+values are unchanged - only their interpretation was wrong.
+
+### 15.1 The five quantities, exactly
+
+- KN_RF_RESID (printed `residual max=` in the KNOP FIELD
+  block): `MAXVAL(RES_LS)` over rays with `NDV_LS==0`
+  (non-diverged), line ~7589. `RES_LS(LS)` is the value
+  returned by `KNOP_RAY_SOLVE_V1` = `MAX(RES_M,RES_P)` (line
+  ~8907), the per-channel last-completed-pass DCELL maximum of
+  the production ordered/unordered march inside
+  SWEEP_FLD/MARCH, with `DCELL=|VNEW-VOLD|/MAX(VOLD,
+  1E-4*VMAXF)`. It is an INNER per-ray sweep residual measured
+  on the last production pass. It contains no commit machinery,
+  no cross-ray store write-back and no outer relaxation.
+- FG_GS_MAXCHG: reassigned `=KN_RF_RESID` at refresh end
+  (line ~7659) for the maturity export; identical value, same
+  semantics. NOT store drift.
+- FG_SW_MAXCHG: snapshot of the pre-reassignment
+  FG_GS_MAXCHG - the I_NEXT sweep-write-back churn maximum
+  `|T1-T2|/MAX(T2,1E-4*VMAX_IP)` accumulated inside
+  FG_J_CMF_NONMONO_V1 (lines ~5079-5189) where T1 is the fresh
+  formal-solve intensity and T2 the lagged store value, printed
+  per completed frequency sweep by DUMP_FG_INEXT_GS
+  (`max rel. change=` + `argmax history`). This is the
+  lagged-store update residual of the formal-solve path,
+  pre-commit and pre-relaxation (the write applies
+  INEXT_RELAX). It is the closest existing quantity to a
+  store-update metric, but it is not the post-commit retained
+  delta either.
+- FG_RF_DCHG: `MAX(FG_RF_DCHG,DCH_M,DCH_P)` updated only in
+  the verdict-0 (normal commit) and verdict-3 (capped commit)
+  branches (lines ~8701,8724). DCH_M/DCH_P are the maxima
+  returned by WRITE_STORE/WRITE_STORE_CAP = actual retained
+  store deltas. True committed-change metric over retained
+  writes only.
+- FG_RF_PEND: `MAXVAL(FG_RAY_DCH, MASK=VC==1 .OR. VC==2)`
+  (line ~8054). For rejected rays FG_RAY_DCH holds JUMP =
+  FG_JUMP_MAX - the veto metric `max |V1-V2|/
+  MAX(V2,VMAX_S/FG_COMMIT_JUMP)` with the floor-column sibling
+  reference (lines ~11571-11650). So FG_RF_PEND is the largest
+  normalized PROPOSED-BUT-UNRETAINED change among jump/nc
+  rejected rays, measured with veto-specific normalization -
+  not a DLOC-normalized store delta, and not a vector norm.
+
+### 15.2 Commit verdict -> FG_RAY_DCH map (verified)
+
+| FG_RAY_VC | meaning | FG_RAY_DCH |
+|---|---|---|
+| 0 | normal commit (WRITE_STORE) | MAX(DCH_M,DCH_P) actual retained |
+| 1 | jump reject | JUMP veto metric (nothing written) |
+| 2 | nc reject (FG_COMMIT_NC=0) | JUMP veto metric (nothing written) |
+| 3 | capped commit (WRITE_STORE_CAP) | MAX(DCH_M,DCH_P) actual retained |
+| 4 | diverged | 0.0 |
+| -1 | unsolved | unset/0 |
+
+### 15.3 Argmax tuple correction
+
+FG_GS_ARGK/ARGR/ARGL (printed as `argmax history (d,r,f)=v`)
+are the sweep-write-back CHURN argmax coordinates - model
+depth K, ray LS, FREQ_IDX_ITER store slot - paired with the
+churn max value at DUMP time. They are NOT the KN_RF_RESID
+argmax coordinates. The production residual's own worst cell
+is `FG_RAY_WI/WL` of the worst ray (RES_LS argmax ray). All
+(d,r,f) tuples quoted in sections 11-14 - including M's
+(3,82,1636) and R/R2's (54,30,8712) - are CHURN argmax cells:
+the locations where the fresh formal-solve intensity most
+exceeds the lagged store. That is arguably the right place to
+watch store drift, but the label "refresh-residual argmax"
+was wrong; the production-residual argmax cell is a different,
+per-ray quantity reported via worst_ray/FG_RAY_WI/WL.
+
+### 15.4 Consequences for earlier interpretation
+
+- Section 12.2's claim that the refresh residual "measures
+  the outer fixed-point map including cross-ray commits" was
+  wrong: KN_RF_RESID measures only the last-pass inner
+  per-ray production residual. Cross-ray commits enter
+  FG_RF_DCHG (retained deltas), FG_SW_MAXCHG (write-back
+  churn) and FG_RF_PEND (vetoed proposals) - three different
+  quantities, none a complete store-to-store vector norm.
+- The Q-vs-KN_RF_RESID comparison in 12.3 remains valid as a
+  comparison of two inner-sweep diagnostics sampled at
+  different stages (post-production field + one extra pass at
+  OMEGA_RAY=1.0 vs last production pass at adapted omega),
+  but the "commit gating" hypothesis must be re-stated: the
+  committed store CAN diverge from the raw map even though
+  KN_RF_RESID stays flat, because KN_RF_RESID never saw the
+  store at all. The store-level evidence for/against gating
+  now lives in FG_SW_MAXCHG/FG_RF_DCHG/FG_RF_PEND and the
+  watch-cell records, not in KN_RF_RESID.
+- M's "stalled floor" statement stands but refers to the
+  production inner residual; whether the STORE is still
+  drifting is a separate question the continuation's
+  Layer-D before/after checksums must answer.
