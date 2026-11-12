@@ -1504,6 +1504,40 @@
 	1     'Ordered (Knop) march in the FG refresh?')
 	  CALL SET_FG_ORD_SWEEP(KN_RAY_ORDERED)
 !
+! KN_FREEZE_COEF (default FALSE): diagnostic-only fixed-coefficient
+! mode for the KNOP refresh (failure isolation, P1-T1c arm R). T
+! pins the KN_CHI_EXT/KN_ETA_EXT snapshots captured on the first
+! complete frequency sweep so every refresh rebuilds identical
+! KN_CHI_COEF/KN_ETA_COEF; isolates the refresh fixed-point operator
+! from population-opacity drift. F preserves production behaviour.
+!
+	  KN_FREEZE_COEF=.FALSE.
+	  CALL RD_STORE_LOG(KN_FREEZE_COEF,'KN_FREEZE_COEF',L_FALSE,
+	1     'Freeze KNOP refresh coefficient snapshots?')
+	  CALL SET_FG_FREEZE_COEF(KN_FREEZE_COEF)
+!
+! KN_Q_RESID (default FALSE): diagnostic-only independent
+! fixed-point residual for the KNOP refresh (failure isolation,
+! P1-T1c). T re-applies one sweep pass per channel on a scratch
+! copy of each converged ray field and reports the pass residual
+! as the independent q; F preserves production behaviour.
+!
+	  KN_Q_RESID=.FALSE.
+	  CALL RD_STORE_LOG(KN_Q_RESID,'KN_Q_RESID',L_FALSE,
+	1     'Independent fixed-point residual in the KNOP refresh?')
+	  CALL SET_FG_Q_RESID(KN_Q_RESID)
+!
+! KN_MAT_FREEZE (default FALSE): diagnostic-only matter freeze for
+! the KNOP failure isolation (P1-T1c arm M). T holds POPS at its
+! checkpoint values every SOLVE_FOR_POPS call (the GS_POPS_HELD
+! path: SOLVEBA still runs for diagnostics, the committed
+! correction is rolled back) so matter-derived opacities stay
+! fixed while the radiation field evolves. F preserves production.
+!
+	  KN_MAT_FREEZE=.FALSE.
+	  CALL RD_STORE_LOG(KN_MAT_FREEZE,'KN_MAT_FREEZE',L_FALSE,
+	1     'Freeze populations for the KNOP isolation arms?')
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
