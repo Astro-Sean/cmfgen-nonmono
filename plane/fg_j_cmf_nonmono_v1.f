@@ -1231,6 +1231,28 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QA_Q(:,:),KN_QA_VOLD(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QA_VN(:,:),KN_QA_VM(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: KN_QA_J(:,:),KN_QA_L(:,:)
+!
+! KN_WATCH_CELL (diagnostic, [KN_WATCH_CELL]): per-cell commit
+! telemetry for one geometry/ray/frequency target. When armed via
+! SET_FG_WATCH_CELL, WRITE_STORE and WRITE_STORE_CAP capture the
+! proposed/capped/retained/committed values, the DLOC denominator
+! and the post-write store value at (K,LS,slot); the commit block
+! in KNOP_RAY_SOLVE_V1 prints them once per channel with the ray
+! verdict, exit class and pass count, and covers rejected rays
+! that never reach either write routine. Only the armed ray's
+! thread touches the capture state, so the parallel ray loop is
+! race-free; the print itself runs under OMP CRITICAL. Read-only:
+! no floating point operation or store update is altered.
+! Default off.
+!
+	LOGICAL, SAVE :: KN_WATCH_ON
+	INTEGER, SAVE :: KN_WATCH_K=0,KN_WATCH_LS=0,KN_WATCH_SLOT=0
+	INTEGER, SAVE :: KN_WC_CH=0
+	REAL(KIND=LDP), SAVE :: KN_WC_V1R(2),KN_WC_V1C(2),KN_WC_V2(2)
+	REAL(KIND=LDP), SAVE :: KN_WC_VMX(2),KN_WC_DEN(2)
+	REAL(KIND=LDP), SAVE :: KN_WC_DLOC(2),KN_WC_VPOST(2)
+	LOGICAL, SAVE :: KN_WC_HIT(2)
+	DATA KN_WATCH_ON /.FALSE./,KN_WC_HIT /.FALSE.,.FALSE./
 	DATA KN_Q_RESID /.FALSE./
 !
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
@@ -6892,6 +6914,22 @@ C
 	RETURN
 	END
 !
+! SET_FG_WATCH_CELL (diagnostic, [KN_WATCH_CELL]): arm the
+! per-cell commit telemetry on geometry index KW, ray LS and
+! store slot SLOT (field frequency = slot+1 for slot>=1; the
+! printed argmax f is FREQ_IDX_ITER = field-1 = slot). K<=0
+! disables. Read-only capture; no numerical state touched.
+!
+	SUBROUTINE SET_FG_WATCH_CELL(KW,LSW,SLOTW)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_WATCH_ON,KN_WATCH_K,
+	1   KN_WATCH_LS,KN_WATCH_SLOT
+	IMPLICIT NONE
+	INTEGER KW,LSW,SLOTW
+	KN_WATCH_K=KW; KN_WATCH_LS=LSW; KN_WATCH_SLOT=SLOTW
+	KN_WATCH_ON=KW .GT. 0 .AND. LSW .GT. 0 .AND. SLOTW .GE. 0
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_AITKEN(DO_AIT)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AITKEN
 	IMPLICIT NONE
@@ -8436,7 +8474,9 @@ C
 ! either way.
 !
 	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
+	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
 	      CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
+	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
 	      CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !$OMP CRITICAL (FG_CAP_UPD)
 	      FG_NC_CAP=FG_NC_CAP+1
@@ -8455,7 +8495,9 @@ C
 	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
 	    END IF
 	  ELSE
+	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
 	    CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
+	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
 	    CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !
 ! First full commit of this ray -- the jump veto engages on the
@@ -8468,6 +8510,34 @@ C
 	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=0
 	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=MAX(DCH_M,DCH_P)
 	  END IF
+	END IF
+!
+! KN_WATCH_CELL (diagnostic): one record per solve for the armed
+! ray - exit class, pass count, residual, geometry mapping and
+! whichever channel captures fired. Placed after the whole commit
+! decision chain so rejected rays (which never reach either write
+! routine) still print their verdict.
+!
+	IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)THEN
+!$OMP CRITICAL(KN_WATCH_CRIT)
+	  WRITE(LUER,'(A,I4,A,I4,A,I4,A,I6,A,ES12.4)')
+	1   ' KN_WATCH ray/ixit/npas/resid=',LS,NXIT,NPASS,RESID
+	  WRITE(LUER,'(A,I4,A,I4,A,I4,A,I4,A,I4)')
+	1   '   geom K/LS/slot->KC/JP2=',KN_WATCH_K,KN_WATCH_LS,
+	2   KN_WATCH_SLOT,COMP_DEPTH_IDX(KN_WATCH_K),
+	3   J_PNT(KN_WATCH_K,KN_WATCH_LS)
+	  IF(ALLOCATED(FG_RAY_VC))WRITE(LUER,'(A,I4)')
+	1   '   verdict=',FG_RAY_VC(LS)
+	  DO I=1,2
+	    IF(KN_WC_HIT(I))THEN
+	      WRITE(LUER,'(A,I1,A,7(ES14.5))')
+	1     '   ch v1raw v1cap v2 vmxf den dloc vpost=',I,
+	2     KN_WC_V1R(I),KN_WC_V1C(I),KN_WC_V2(I),KN_WC_VMX(I),
+	3     KN_WC_DEN(I),KN_WC_DLOC(I),KN_WC_VPOST(I)
+	    END IF
+	  END DO
+!$OMP END CRITICAL(KN_WATCH_CRIT)
+	  KN_WC_HIT=.FALSE.
 	END IF
 !
 ! Audit dump: the committed full-ray fields for this solve (the
@@ -11009,6 +11079,19 @@ C
 	          STORE(KC,LS,LS2-1)=V1
 	        END IF
 	        DMAX=MAX(DMAX,DLOC)
+	        IF(KN_WATCH_ON .AND. KN_WC_CH .GE. 1 .AND.
+	1       KS .EQ. KN_WATCH_K .AND. LS .EQ. KN_WATCH_LS .AND.
+	2       LS2-1 .EQ. KN_WATCH_SLOT)THEN
+	          KN_WC_V1R(KN_WC_CH)=FLD(JP2,LS2)
+	          KN_WC_V1C(KN_WC_CH)=V1
+	          KN_WC_V2(KN_WC_CH)=V2
+	          KN_WC_VMX(KN_WC_CH)=VMAX_F(LS2)
+	          KN_WC_DEN(KN_WC_CH)=
+	1         MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	          KN_WC_DLOC(KN_WC_CH)=DLOC
+	          KN_WC_VPOST(KN_WC_CH)=STORE(KC,LS,LS2-1)
+	          KN_WC_HIT(KN_WC_CH)=.TRUE.
+	        END IF
 	      END DO
 	    END IF
 	  END IF
@@ -11088,6 +11171,19 @@ C
 	          STORE(KC,LS,LS2-1)=V1
 	        END IF
 	        DMAX=MAX(DMAX,DLOC)
+	        IF(KN_WATCH_ON .AND. KN_WC_CH .GE. 1 .AND.
+	1       KS .EQ. KN_WATCH_K .AND. LS .EQ. KN_WATCH_LS .AND.
+	2       LS2-1 .EQ. KN_WATCH_SLOT)THEN
+	          KN_WC_V1R(KN_WC_CH)=FLD(JP2,LS2)
+	          KN_WC_V1C(KN_WC_CH)=V1
+	          KN_WC_V2(KN_WC_CH)=V2
+	          KN_WC_VMX(KN_WC_CH)=VMAX_F(LS2)
+	          KN_WC_DEN(KN_WC_CH)=
+	1         MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	          KN_WC_DLOC(KN_WC_CH)=DLOC
+	          KN_WC_VPOST(KN_WC_CH)=STORE(KC,LS,LS2-1)
+	          KN_WC_HIT(KN_WC_CH)=.TRUE.
+	        END IF
 	      END DO
 	    END IF
 	  END IF
