@@ -1235,16 +1235,15 @@
 	DATA KN_COEF_FPB /0.0_LDP,0.0_LDP/
 	DATA KN_COEF_FP_DRIFT /0.0_LDP/,KN_COEF_FP_N /0/
 !
-! KN_COEF_HSH*: 64-bit FNV-1a hash over the bit patterns of the
-! rebuilt KN_CHI_COEF/KN_ETA_COEF, computed each armed refresh.
-! Global sums (KN_COEF_FPR) can conceal local change through
-! cancellation or slot permutation; the hash changes on any element
-! difference with probability ~1-2^-64 per refresh. KN_COEF_HSHB
-! holds the first armed refresh's hash; KN_COEF_HSH_BAD counts
-! armed refreshes whose hash differed (a changed hash means the
-! rebuild was not bitwise reproducible - a leak or nondeterminism,
-! not a magnitude). INTEGER*8 multiply wraps mod 2^64, which is
-! fine for a diagnostic checksum.
+! KN_COEF_HSH*: 64-bit standard FNV-1a checksum (see KN_FNV1A_COEF)
+! over every byte of the rebuilt KN_CHI_COEF/KN_ETA_COEF, computed
+! each armed refresh. Global sums (KN_COEF_FPR) can conceal local
+! change through cancellation or slot permutation; the checksum
+! changes on any element difference with probability ~1-2^-64 per
+! refresh. KN_COEF_HSHB holds the first armed refresh's checksum;
+! KN_COEF_HSH_BAD counts armed refreshes whose checksum differed
+! (a changed checksum means the rebuild was not bitwise
+! reproducible - a leak or nondeterminism, not a magnitude).
 !
 	INTEGER*8, SAVE :: KN_COEF_HSH(2),KN_COEF_HSHB(2)
 	INTEGER*8, SAVE :: KN_COEF_HSH_BAD
@@ -1556,6 +1555,95 @@
 	END DO
 	RETURN
 	END SUBROUTINE KN_DTAU_INT_V1
+!
+! KN_FNV1A_* : standard 64-bit FNV-1a checksum (Fowler-Noll-Vo
+! specification) over the raw byte representation of array
+! elements. Offset basis 0xCBF29CE484222325 and prime
+! 0x100000001B3 are the published spec values; both exceed or sit
+! near signed INTEGER*8 range, so the basis enters through a BOZ
+! literal whose bit pattern is the spec value.
+!
+! Integer arithmetic: Fortran leaves integer overflow
+! processor-dependent, but the FNV recurrence needs arithmetic mod
+! 2^64. ifort implements two's-complement wrap for INTEGER*8, which
+! supplies exactly that; production flags carry no integer-overflow
+! checking that would trap it. This reliance is compiler-specific
+! and is verified empirically: unit_tests/f90/drv_fnv1a.f90 runs
+! the published FNV-1a test vectors through this code compiled
+! with the production flags, so any change in overflow semantics
+! fails the vectors loudly rather than silently.
+!
+! Byte coverage: each REAL(LDP) element is TRANSFERred to
+! INTEGER*8 (verified 64-bit == STORAGE_SIZE of REAL(LDP) in the
+! test driver) and all 8 bytes are mixed, least-significant byte
+! first, via ISHFT+IAND. Every stored bit participates; no bits
+! are omitted. TRANSFER exposes the processor storage order, so
+! the checksum is reproducible on a given executable/platform -
+! all the diagnostic requires - but is not a cross-platform
+! stable hash.
+!
+	PURE INTEGER*8 FUNCTION KN_FNV1A_I1(B) RESULT(H)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER(SELECTED_INT_KIND(2)), INTENT(IN) :: B(:)
+	INTEGER*8 :: W
+	INTEGER :: K
+!
+	H=INT(Z'CBF29CE484222325',8)
+	DO K=1,SIZE(B)
+	  W=IAND(INT(B(K),8),255_8)
+	  H=IEOR(H,W)
+	  H=H*1099511628211_8
+	END DO
+	END FUNCTION KN_FNV1A_I1
+!
+	PURE INTEGER*8 FUNCTION KN_FNV1A_COEF(A) RESULT(H)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	REAL(KIND=LDP), INTENT(IN) :: A(:,:,:)
+	INTEGER*8 :: W,ID(3)
+	INTEGER :: I,J,K,L
+!
+	H=INT(Z'CBF29CE484222325',8)
+!
+! Mix the extents first so the hashed sequence is unambiguous:
+! two arrays of different shapes cannot produce the same element
+! stream by accident.
+!
+	ID(1)=INT(SIZE(A,1),8)
+	ID(2)=INT(SIZE(A,2),8)
+	ID(3)=INT(SIZE(A,3),8)
+	DO K=1,3
+	  W=ID(K)
+	  CALL KN_FNV1A_MIX8(H,W)
+	END DO
+	DO L=1,SIZE(A,3)
+	  DO J=1,SIZE(A,2)
+	    DO I=1,SIZE(A,1)
+	      W=TRANSFER(A(I,J,L),W)
+	      CALL KN_FNV1A_MIX8(H,W)
+	    END DO
+	  END DO
+	END DO
+	END FUNCTION KN_FNV1A_COEF
+!
+!	SUBROUTINE KN_FNV1A_MIX8(HH,VV) : mix all 8 bytes of a 64-bit
+!	word, least-significant byte first. Shared by the dimension
+!	prefix and the per-element loop so the FNV step is defined once.
+!
+	PURE SUBROUTINE KN_FNV1A_MIX8(HH,VV)
+	IMPLICIT NONE
+	INTEGER*8, INTENT(INOUT) :: HH
+	INTEGER*8, INTENT(IN) :: VV
+	INTEGER*8 :: B
+	INTEGER :: KB
+!
+	DO KB=0,7
+	  B=IAND(ISHFT(VV,-8*KB),255_8)
+	  HH=IEOR(HH,B)
+	  HH=HH*1099511628211_8
+	END DO
+	END SUBROUTINE KN_FNV1A_MIX8
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -7219,25 +7307,15 @@ C
 	1    MAX(ABS(KN_COEF_FPR(1)-KN_COEF_FPB(1)),
 	2        ABS(KN_COEF_FPR(2)-KN_COEF_FPB(2))))
 !
-! Element-wise checksum: FNV-1a over the raw bit patterns so a
-! local change anywhere in either array flips the hash even when
-! the global sums above cancel it. Baseline is the first armed
-! refresh; KN_COEF_HSH_BAD counts mismatches.
+! Element-wise checksum: standard 64-bit FNV-1a over every byte of
+! the rebuilt KN_CHI_COEF/KN_ETA_COEF bit patterns (module
+! procedures KN_FNV1A_COEF/KN_FNV1A_MIX8). A local change anywhere
+! flips the hash even when the global sums above cancel it.
+! Baseline is the first armed refresh; KN_COEF_HSH_BAD counts
+! mismatches.
 !
-	  KN_COEF_HSH(1)=1469598103934665603_8
-	  KN_COEF_HSH(2)=1469598103934665603_8
-	  DO L=1,KN_NCF
-	    DO J=1,4
-	      DO I=1,KN_ND_EXT
-	        KN_COEF_HSH(1)=IEOR(KN_COEF_HSH(1),
-	1        TRANSFER(KN_CHI_COEF(I,J,L),KN_COEF_HSH(1)))
-	        KN_COEF_HSH(1)=KN_COEF_HSH(1)*1099511628211_8
-	        KN_COEF_HSH(2)=IEOR(KN_COEF_HSH(2),
-	1        TRANSFER(KN_ETA_COEF(I,J,L),KN_COEF_HSH(2)))
-	        KN_COEF_HSH(2)=KN_COEF_HSH(2)*1099511628211_8
-	      END DO
-	    END DO
-	  END DO
+	  KN_COEF_HSH(1)=KN_FNV1A_COEF(KN_CHI_COEF)
+	  KN_COEF_HSH(2)=KN_FNV1A_COEF(KN_ETA_COEF)
 	  IF(KN_COEF_FP_N .EQ. 1)KN_COEF_HSHB=KN_COEF_HSH
 	  IF(KN_COEF_HSH(1) .NE. KN_COEF_HSHB(1) .OR.
 	1    KN_COEF_HSH(2) .NE. KN_COEF_HSHB(2))
