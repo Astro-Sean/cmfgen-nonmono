@@ -1538,6 +1538,27 @@
 	  CALL RD_STORE_LOG(KN_MAT_FREEZE,'KN_MAT_FREEZE',L_FALSE,
 	1     'Freeze populations for the KNOP isolation arms?')
 !
+! KN_WATCH_CELL (default off): diagnostic-only per-cell commit
+! telemetry for the KNOP failure isolation. Arms the read-only
+! capture in WRITE_STORE/WRITE_STORE_CAP at the (K,LS,slot)
+! target plus the per-solve verdict/exit record in
+! KNOP_RAY_SOLVE_V1. Defaults K=0 (disabled); the M-arm
+! maturity cell is K=54, LS=30, slot=8712.
+!
+	  KN_WATCH_CELL=.FALSE.
+	  KN_WATCH_K=0; KN_WATCH_LS=0; KN_WATCH_SLOT=0
+	  CALL RD_STORE_LOG(KN_WATCH_CELL,'KN_WATCH_CELL',L_FALSE,
+	1     'Arm KNOP watch-cell commit telemetry?')
+	  CALL RD_STORE_INT(KN_WATCH_K,'KN_WATCH_K',L_FALSE,
+	1     'KNOP watch-cell geometry index K')
+	  CALL RD_STORE_INT(KN_WATCH_LS,'KN_WATCH_LS',L_FALSE,
+	1     'KNOP watch-cell ray index LS')
+	  CALL RD_STORE_INT(KN_WATCH_SLOT,'KN_WATCH_SLOT',L_FALSE,
+	1     'KNOP watch-cell store slot')
+	  CALL SET_FG_WATCH_CELL(MERGE(KN_WATCH_K,0,KN_WATCH_CELL),
+	1     MERGE(KN_WATCH_LS,0,KN_WATCH_CELL),
+	2     MERGE(KN_WATCH_SLOT,0,KN_WATCH_CELL))
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
