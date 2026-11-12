@@ -170,6 +170,6 @@ question.
 - **P7-T1** Amend `KNOP_FORMAL_SOLVER_AUDIT.md` items 19-20 to state
   explicitly that the "end-to-end integration test" is execution-only
   (output produced), not convergence - matching F-23 in the production
-  audit.
+  audit.  **DONE 12-Nov-2026**: correction note added under item 20.
 - **P7-T2** Done in this audit: future-dated `20-Nov-2026` comments at
   `fg_j_cmf_nonmono_v1.f` ~3747, ~5483, ~9814 corrected to `10-Nov-2026`.
