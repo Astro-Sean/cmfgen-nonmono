@@ -97,6 +97,15 @@ DEFERRED (documented, not changed).
     itself (DO_NONMONO_KNOP=T through `run_model_grid.py`); see
     AGENTS.md verification checklist.
 
+    Correction (12-Nov-2026, per KNOP_SECOND_PASS_AUDIT.md Pillar 7 /
+    P7-T1): this item is EXECUTION integration only.  The w19 run
+    drove the VADAT->solver->output path to completion and produced
+    diagnostics, but it did not converge.  No KNOP model has
+    converged end to end (KNOP_PRODUCTION_AUDIT.md F-23), so this
+    must not be read as a convergence-validation test.  The phrase
+    "end-to-end integration test" here means the pipeline executes;
+    convergence-behaviour integration remains unestablished.
+
 ## Documentation
 
 21. `FREQ_IDX_ITER` convention - VERIFIED. Comments at the KN_*
