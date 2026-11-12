@@ -964,7 +964,49 @@ def test_mom_gam_fac_floor_discontinuity_pin():
     )
 
 
+def test_qcell_histogram_covers_ordered_march():
+    """KN_QC cell statistics must sample the ordered march too.
+
+    SWEEP_FLD_ORD computes its per-cell residuals inline and never
+    calls MARCH, so the KN_Q_ACCUM sites added for the unordered
+    path alone left the production ordered census with zero cell
+    samples. Each ordered residual site must accumulate exactly
+    the cells that feed RES, once per channel per verify pass.
+    """
+    ord_body = section(FG, "SUBROUTINE SWEEP_FLD_ORD", "SUBROUTINE BUILD_FREQ")
+    sites = [
+        m.start()
+        for m in re.finditer(r"IF\(KN_Q_ACC\)CALL KN_Q_ACCUM\(T1\)", ord_body)
+    ]
+    check("SWEEP_FLD_ORD has four gated KN_Q_ACCUM sites", len(sites) == 4)
+    for pos in sites:
+        prefix = ord_body[max(0, pos - 400) : pos]
+        check(
+            "each site follows a RES_FREQ update on the same T1",
+            prefix.rstrip().endswith("RES_FREQ(L)=MAX(RES_FREQ(L),T1)"),
+        )
+    aa_block = section(ord_body, "AA_RH(J,L,2)", "END IF")
+    check(
+        "Anderson census block does not feed the cell histogram",
+        "KN_Q_ACCUM" not in aa_block,
+    )
+    march_body = section(FG, "SUBROUTINE MARCH", "SUBROUTINE KN_Q_ACCUM")
+    check(
+        "MARCH keeps its four unordered KN_Q_ACCUM sites",
+        len(re.findall(r"IF\(KN_Q_ACC\)CALL KN_Q_ACCUM\(DCELL\)", march_body))
+        == 4,
+    )
+    verify = section(FG, "KN_QC accumulation: armed", "Same argmax capture")
+    check(
+        "KN_Q_ACC armed once and disarmed after both verify calls",
+        verify.count("KN_Q_ACC=.TRUE.") == 1
+        and verify.count("KN_Q_ACC=.FALSE.") == 1
+        and verify.index("KN_Q_ACC=.TRUE.") < verify.index("KN_Q_ACC=.FALSE."),
+    )
+
+
 if __name__ == "__main__":
+    test_qcell_histogram_covers_ordered_march()
     test_ord_sweep_dispatch_fallback()
     test_missing_donor_consistent_drop()
     test_build_freq_fail_closed()
