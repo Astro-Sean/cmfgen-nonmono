@@ -63,6 +63,10 @@ ROUTINES = {
     "sobewg3": "sobew_grad_v3.f",
 }
 
+# Objects the driver references but which are not exercised by this
+# suite's ROUTINES loop (linked only so the driver resolves).
+LINK_ONLY = ["sobew_grad.f"]
+
 ND, NC, NP, NSIM = 25, 4, 4, 1
 
 
@@ -90,6 +94,7 @@ def build():
     )
     new_objs = prod_objs(
         [TREE / "subs" / fname for fname in ROUTINES.values()]
+        + [TREE / "subs" / f for f in LINK_ONLY]
     )
     bins = {}
     for tag in ("new", "ref"):
@@ -105,6 +110,13 @@ def build():
                     moddir=md,
                     extra_flags=PROD_MOD_INC,
                 )
+            sob += compile_objs(
+                f"sob_{tag}_linkonly",
+                [REF / "subs" / f for f in LINK_ONLY],
+                prod=True,
+                moddir=md,
+                extra_flags=PROD_MOD_INC,
+            )
         for key in ROUTINES:
             bins[(key, tag)] = link_prod(
                 f"sobfloor_{tag}",
