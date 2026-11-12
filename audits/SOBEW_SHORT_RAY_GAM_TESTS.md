@@ -1,9 +1,10 @@
 # SOBEW-family short-ray GAM: test description and results
 
-Base commit: `cd0f4374f1be07645a6a79f205a48f4285ea864b` (HEAD now
-`247c9ad6`; three knop-only commits, no sobew/test overlap). The fix
-exists as uncommitted working-tree changes; see
-SOBEW_SHORT_RAY_GAM_AUDIT.md section 0.
+Base commit (pre-fix): `cd0f4374f1be07645a6a79f205a48f4285ea864b`.
+Source correction committed on main: `099435c7` (`sobew`),
+`e5e0aae9` (`sobew_grad`), `b93f3377` (`sobew_grad_v2`),
+`686a5718` (`sobew_grad_v3`). HEAD at review close:
+`e6ed21a74dcc8760cdf65f2c1c91978851b24519`.
 
 ## Test file
 
@@ -14,7 +15,12 @@ SOBEW_SHORT_RAY_GAM_AUDIT.md section 0.
   `sobew_grad_v2.f`, `sobew_grad_v3.f`, `sobjbar_sim.f`;
 - ref: the same five routines compiled from `cmfgen_reference`
   (pristine upstream: identical stale-GAM bug in all four EW routines,
-  no DAH15 floor, and a *signed* denominator in `sobew_grad.f`).
+  no denominator floor, and a *signed* denominator in `sobew_grad.f`).
+
+Throughout, "floored" means this implementation's own
+`max(|1+sigma*mu^2|, -0.2*(1+sigma), 1e-4)` denominator regularisation
+- a numerical safeguard of this codebase, not part of the published
+Dessart, Audit & Hillier 2015 expression.
 
 Helpers (production objects per AGENTS.md policy):
 `zalongp.f`, `nordtau.f`, `tcompd.f`, `xvecd.f`, `thomas.f`,
@@ -32,7 +38,8 @@ and the `(T3,T4)` brackets exactly, so each `LINE_FLUX(i)` is
 predictable under both current-ray (floored) and stale-ray
 (unfloored) semantics.
 
-## Checks: 8 per routine x 4 routines = 32, all pass
+## Checks: 8 LINE_FLUX checks x 4 routines + 3 FORCE_MULT checks
+x 3 gradient routines = 41, all pass
 
 | # | content |
 |---|---------|
@@ -44,6 +51,36 @@ predictable under both current-ray (floored) and stale-ray
 | T6 | `sigma=-1`: NI=1 discriminator, 1e-4 floor retained |
 | T7 | negative `GAMH` at `sigma=+2`: EXPONX gain + sign retained |
 | T8 | `sigma=-2` (< -1): NI=1 floored current-ray GAM |
+| F1 | `sigma=-1.05` (-0.5 for `sobewg1`), NI=2 ray isolated: `fm(1)` new/ref ratio vs the EXPONX(GAM) ratio; fm(i>=2) must be exactly 0 |
+| F2 | `sigma=+2`, NI=2 isolated: `fm(1)` discriminator |
+| F3 | `sigma=+2`, `chil=-1e9` (negative GAMH): `fm(1)` finite, negative, discriminated |
+
+### FORCE_MULT discriminator (F1-F3, sobewg* only)
+
+`FORCE_MULT(i) = K*R(i)^2*CHIL(i)/ESEC(i) * GLINE(i)` with
+`GLINE(i) = sum_ls TB(i,ls)*EXPONX(GAM(i,ls))*HAQW(i,ls)` and
+`K = 16e20*pi^2/RLUM/3.845e33` shared by all three gradient routines
+(`sobew_grad_v2.f:241,300-302`; identical in v1 and v3). With a single
+weighted ray, `TB(i)` (the transfer solution, independent of GAM) and
+the K-factor cancel exactly in the new/ref ratio, leaving the pure
+`EXPONX(GAM_new)/EXPONX(GAM_stale)` prediction. A buggy build returns
+meas=1.0 and fails (verified: meas=1.0000 vs pred=1.5161).
+
+Depth choice: the discrimination runs at `i=1`, not the tangent depth.
+A tangent ray has `TB=0` at its deepest point under the hollow inner
+boundary, so `GLINE(2)=0` on the isolated NI=2 ray and `fm(i>=2)` is
+exactly zero - asserted inside F1. The NI=1 ray (tangent at R(1))
+gives no force signal at all, so the force checks use NI=2; NI=1 is
+already covered by the LINE_FLUX checks.
+
+The driver initialises `fm = 0.0_ldp` before each `SOBEW_GRAD*` call
+(`FORCE_MULT` accumulates without internal zeroing).
+
+For `sobewg1` at `sigma<-1` the reference produces NaN `fm`
+(signed denominator) and no absolute force prediction is possible
+because `TB` is not independently computable; F1 for `sobewg1`
+therefore runs at `sigma=-0.5`, where `1+sigma*mu^2 > 0` everywhere so
+signed==ABS and the reference is interpretable.
 
 Two discriminator modes:
 
@@ -98,7 +135,7 @@ Also corrected while developing the absolute check: `s_sum` omits the
 
 ```
 cd unit_tests
-python3 python/test_sobew_short_ray.py   # 32 passed, 0 failed
+python3 python/test_sobew_short_ray.py   # 41 passed, 0 failed
 python3 python/test_sob_tau_floor.py     # 17 passed, 0 failed
 ```
 
@@ -114,5 +151,13 @@ check row.
   to keep `CONT_FLUX` nonzero.
 - `NI` is positional; the ordering test uses non-tangent `P` for the
   last two rays deliberately.
+- The force checks are ratio-mode only: an absolute `fm` prediction
+  needs `TB(i)` per ray, which would mean re-implementing the
+  two-point and `TCOMPD` transfer solves in the harness. The ratio
+  cancels `TB` exactly, so the check is still a genuine numerical
+  discrimination rather than a finite-output test.
+- The NI=1 ray cannot be exercised through `fm` (its only depth is
+  the tangent point, where `TB=0`); NI=1 coverage stays on the
+  LINE_FLUX checks.
 - `sobewg1`/`sobewg3` have no production callers; they are exercised
   for completeness and consistency, not because a live path failed.
