@@ -40,6 +40,7 @@
       REAL(KIND=LDP) VV(ND),SG(ND),CKP(3,1,NCFX-1),CKM(3,1,NCFX-1)
       REAL(KIND=LDP) CHI_D(8),DCH_D(8),Z_D(8),R_D(8),DT_D(8)
       REAL(KIND=LDP) DMAX_CK
+      LOGICAL LEX
 !
       CALL GETARG(1,CNAME)
       NCASE=1
@@ -104,6 +105,7 @@
       IF(CNAME .EQ. 'replo') NCASE=60
       IF(CNAME .EQ. 'replc') NCASE=61
       IF(CNAME .EQ. 'replh') NCASE=62
+      IF(CNAME .EQ. 'topo')  NCASE=63
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -150,6 +152,7 @@
       IF(NCASE .GE. 38 .AND. NCASE .LE. 40)KNP=3
       IF(NCASE .GE. 46 .AND. NCASE .LE. 48)KNP=3
       IF(NCASE .GE. 59 .AND. NCASE .LE. 62)KNP=3
+      IF(NCASE .EQ. 63)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -787,12 +790,16 @@
         GOTO 999
       END IF
 !
-      IF(NCASE .EQ. 10 .OR. NCASE .EQ. 36 .OR. NCASE .GE. 39)THEN
+      IF(NCASE .EQ. 10 .OR. NCASE .EQ. 36 .OR. NCASE .EQ. 63 .OR. &
+     &    NCASE .GE. 39)THEN
 !
 ! End-to-end refresh: arms the capture-store guard and runs the
 ! production post-sweep path (OMP ray loop, census, commit).
 !
         IF(NCASE .EQ. 54)FG_JMP_FAIL_INJ=.TRUE.
+! 'topo' (63) arms the P1-T1h compact topology checkpoint: the
+! refresh writes KNOP_TOPO at the serial point before the ray loop.
+        IF(NCASE .EQ. 63)KNOP_DUMP_TOPO=.TRUE.
         DO_KNOP_REFRESH=.TRUE.
         FREEZE_I_NEXT=.FALSE.
         HAS_COMPRESSING=.TRUE.
@@ -842,6 +849,10 @@
         END DO
         CALL DRV_MATURITY()
         END DO
+        IF(NCASE .EQ. 63)THEN
+          INQUIRE(FILE='KNOP_TOPO',EXIST=LEX)
+          WRITE(*,'(A,L2)')'TOPO_FILE=',LEX
+        END IF
         WRITE(*,'(A)')'RESULT_OK'
         GOTO 999
       END IF
