@@ -1343,6 +1343,47 @@
 	DATA KN_WC_FL /0,0/,KN_WC_BR /0,0/
 	DATA KN_Q_RESID /.FALSE./
 !
+! KN_NOCP_PROBE (diagnostic, [KN_NOCP_PROBE], default FALSE) +
+! KN_NOCP_PROBE_LS (default 83): phase-5.2 experiment on the
+! no-compressing fast exit. When armed for ray LS, the sweep's
+! .NOT. HAS_CP forced-clean-exit shortcut is bypassed so the ray
+! runs the ordinary residual-tolerance/stall/plateau/cap
+! iteration, and the commit block skips every I_NEXT store write
+! for that ray (normal and capped paths) so the measured
+! candidate cannot repair the latch it is diagnosing. All other
+! rays keep the production fast exit and commit policy. The ray
+! index is validated against KN_NP at refresh start; an
+! out-of-range index simply never matches a ray.
+!
+	LOGICAL, SAVE :: KN_NOCP_PROBE
+	INTEGER, SAVE :: KN_NOCP_PROBE_LS=83
+	DATA KN_NOCP_PROBE /.FALSE./
+!
+! KN_NOP_* pass telemetry (diagnostic, armed whenever
+! KN_NOCP_PROBE_LS names a valid ray): per-pass records for the
+! probe ray only, written by NOP_PASS inside the ray solve.
+! KN_NOP_RES/AI/AL/AD/OMG/RAT are (pass,direction) with
+! direction 1=inward (M), 2=outward (P); KN_NOP_CT holds five
+! cumulative DCELL threshold counts (>KN_RAY_TOL, >1E-2, >1E-1,
+! >1, >10) per pass. KN_NOP_NP/IX/RS carry the final per-
+! direction pass count, exit class and residual. Only the armed
+! ray's thread writes these arrays, so the parallel ray loop is
+! race-free; the report prints serially after the solve.
+!
+	INTEGER, SAVE :: KN_NOP_MAXP=0
+	LOGICAL, SAVE :: KN_NOP_ARM=.FALSE.,KN_NOP_OVF=.FALSE.
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_RES(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_AD(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_OMG(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_RAT(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_NOP_AI(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_NOP_AL(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_NOP_CT(:,:,:)
+	LOGICAL, ALLOCATABLE, SAVE :: KN_NOP_HOT(:,:)
+	INTEGER, SAVE :: KN_NOP_NREC(2)=0
+	INTEGER, SAVE :: KN_NOP_NP(2)=0,KN_NOP_IX(2)=0
+	REAL(KIND=LDP), SAVE :: KN_NOP_RS(2)=0.0_LDP
+!
 ! KN_JUMP_DIAG (diagnostic, [KN_JUMP_DIAG], default FALSE):
 ! veto-trigger attribution for FG_JUMP_MAX. Each call records the
 ! single cell responsible for its return value into the calling
@@ -2113,6 +2154,19 @@
 	  HH=HH*1099511628211_8
 	END DO
 	END SUBROUTINE KN_FNV1A_MIX8
+!
+! KN_NOCP_PROBE_RAY (diagnostic, phase 5.2): single definition of
+! "is this the armed no-compressing probe ray". True only when the
+! VADAT flag is on and LS equals the armed index; an out-of-range
+! index can never match a real ray, so invalid values fail safe.
+! The sweep bypass and the commit no-write guard both key on this
+! predicate so the two cannot drift apart.
+!
+	PURE LOGICAL FUNCTION KN_NOCP_PROBE_RAY(LS)
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: LS
+	KN_NOCP_PROBE_RAY = KN_NOCP_PROBE .AND. LS .EQ. KN_NOCP_PROBE_LS
+	END FUNCTION KN_NOCP_PROBE_RAY
 !
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
@@ -7372,6 +7426,22 @@ C
 	RETURN
 	END
 !
+! SET_FG_NOCP_PROBE (diagnostic, [KN_NOCP_PROBE]/[KN_NOCP_PROBE_LS]):
+! arm the no-compressing fast-exit probe for one ray. LS_P<=0 is
+! stored verbatim; KN_NOCP_PROBE_RAY can then never match a real
+! ray, so a bad index fails safe instead of probing the wrong ray.
+!
+	SUBROUTINE SET_FG_NOCP_PROBE(DO_P,LS_P)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1   KN_NOCP_PROBE,KN_NOCP_PROBE_LS
+	IMPLICIT NONE
+	LOGICAL DO_P
+	INTEGER LS_P
+	KN_NOCP_PROBE=DO_P
+	KN_NOCP_PROBE_LS=LS_P
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_AITKEN(DO_AIT)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AITKEN
 	IMPLICIT NONE
@@ -7733,6 +7803,7 @@ C
 	INTEGER*8, ALLOCATABLE :: NCL_LS(:),NNL_LS(:)
 	REAL(KIND=LDP), ALLOCATABLE :: LG_WRK(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RHO_M_LS(:),RHO_P_LS(:)
+	REAL(KIND=LDP) KN_NOP_SM0,KN_NOP_SP0,KN_NOP_SM1,KN_NOP_SP1
 	REAL(KIND=LDP) RHO_H(4),RHO_MX
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
@@ -7994,6 +8065,52 @@ C
 	END IF
 	KN_RES_PASS=0.0_LDP
 !
+! KN_NOCP_PROBE (diagnostic, phase 5.2): arm the per-pass
+! telemetry only when the VADAT flag names a ray inside this
+! model's ray set. An out-of-range index leaves the probe
+! disarmed, so no ray can ever match it. The probe ray's thread
+! is the only writer of the (pass,direction) arrays; every other
+! ray keeps the production fast exit and commit policy.
+!
+	KN_NOP_ARM=.FALSE.
+	IF(ALLOCATED(KN_NOP_RES))DEALLOCATE(KN_NOP_RES)
+	IF(ALLOCATED(KN_NOP_AD))DEALLOCATE(KN_NOP_AD)
+	IF(ALLOCATED(KN_NOP_OMG))DEALLOCATE(KN_NOP_OMG)
+	IF(ALLOCATED(KN_NOP_RAT))DEALLOCATE(KN_NOP_RAT)
+	IF(ALLOCATED(KN_NOP_AI))DEALLOCATE(KN_NOP_AI)
+	IF(ALLOCATED(KN_NOP_AL))DEALLOCATE(KN_NOP_AL)
+	IF(ALLOCATED(KN_NOP_CT))DEALLOCATE(KN_NOP_CT)
+	IF(ALLOCATED(KN_NOP_HOT))DEALLOCATE(KN_NOP_HOT)
+	IF(KN_NOCP_PROBE .AND. KN_NOCP_PROBE_LS .GE. 1 .AND.
+	1   KN_NOCP_PROBE_LS .LE. KN_NP)THEN
+	  KN_NOP_MAXP=KN_RAY_MAXPASS+KN_RAY_HOTPASSES+16
+	  ALLOCATE(KN_NOP_RES(KN_NOP_MAXP,2),KN_NOP_AD(KN_NOP_MAXP,2),
+	1   KN_NOP_OMG(KN_NOP_MAXP,2),KN_NOP_RAT(KN_NOP_MAXP,2),
+	2   KN_NOP_AI(KN_NOP_MAXP,2),KN_NOP_AL(KN_NOP_MAXP,2),
+	3   KN_NOP_CT(KN_NOP_MAXP,2,5),KN_NOP_HOT(KN_NOP_MAXP,2),
+	4   STAT=IOS)
+	  IF(IOS .EQ. 0)THEN
+	    KN_NOP_RES=0.0_LDP; KN_NOP_AD=0.0_LDP
+	    KN_NOP_OMG=0.0_LDP; KN_NOP_RAT=-1.0_LDP
+	    KN_NOP_AI=0; KN_NOP_AL=0; KN_NOP_CT=0; KN_NOP_HOT=.FALSE.
+	    KN_NOP_ARM=.TRUE.
+	  END IF
+	END IF
+!
+! KN_NOCP_PROBE store checksums (diagnostic): the probe ray must
+! not write I_M_DEPTH_NEXT or I_P_DEPTH_NEXT through any path
+! (commit, capped commit, heal). The retained-generation sums for
+! the target ray are taken before and after the parallel loop;
+! a nonzero delta means a write escaped the guard.
+!
+	IF(KN_NOP_ARM .AND. ALLOCATED(I_M_DEPTH_NEXT) .AND.
+	1   ALLOCATED(I_P_DEPTH_NEXT))THEN
+	  KN_NOP_SM0=SUM(I_M_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))
+	  KN_NOP_SP0=SUM(I_P_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))
+	ELSE
+	  KN_NOP_SM0=-1.0_LDP; KN_NOP_SP0=-1.0_LDP
+	END IF
+!
 	IF(ALLOCATED(KN_HOT_CNT))DEALLOCATE(KN_HOT_CNT)
 	ALLOCATE(KN_HOT_CNT(KN_NCF),STAT=IOS)
 	IF(IOS .EQ. 0)KN_HOT_CNT=0
@@ -8135,6 +8252,25 @@ C
 	4    RHO_M_LS(LS),RHO_P_LS(LS),NCL_LS(LS),NNL_LS(LS))
 	END DO
 !$OMP END PARALLEL DO
+!
+! KN_NOCP_PROBE store verification (diagnostic): print the
+! retained-generation checksums for the probe ray taken before
+! and after the solve. Identical sums prove no commit, capped
+! commit or heal wrote the target ray's store slices; the ray's
+! KN-NOP pass report carries the measured candidate instead.
+!
+	IF(KN_NOP_ARM .AND. KN_NOP_SM0 .GE. 0.0_LDP .AND.
+	1   ALLOCATED(I_M_DEPTH_NEXT) .AND. ALLOCATED(I_P_DEPTH_NEXT))
+	1   THEN
+	  KN_NOP_SM1=SUM(I_M_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))
+	  KN_NOP_SP1=SUM(I_P_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))
+	  WRITE(LUER,'(A,I4,A,2ES16.8,A,2ES16.8,A,2ES10.3)')
+	1   '  KN-NOP store ray=',KN_NOCP_PROBE_LS,
+	2   ' before M/P=',KN_NOP_SM0,KN_NOP_SP0,
+	3   ' after M/P=',KN_NOP_SM1,KN_NOP_SP1,
+	4   ' delta M/P=',KN_NOP_SM1-KN_NOP_SM0,
+	5   KN_NOP_SP1-KN_NOP_SP0
+	END IF
 !
 ! Reduce the per-ray Q cell statistics into the channel totals.
 ! Every in-flight ray wrote only its own LS slice, so the sums
@@ -9038,6 +9174,14 @@ C
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
 	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS)
+	IF(ALLOCATED(KN_NOP_RES))DEALLOCATE(KN_NOP_RES)
+	IF(ALLOCATED(KN_NOP_AD))DEALLOCATE(KN_NOP_AD)
+	IF(ALLOCATED(KN_NOP_OMG))DEALLOCATE(KN_NOP_OMG)
+	IF(ALLOCATED(KN_NOP_RAT))DEALLOCATE(KN_NOP_RAT)
+	IF(ALLOCATED(KN_NOP_AI))DEALLOCATE(KN_NOP_AI)
+	IF(ALLOCATED(KN_NOP_AL))DEALLOCATE(KN_NOP_AL)
+	IF(ALLOCATED(KN_NOP_CT))DEALLOCATE(KN_NOP_CT)
+	IF(ALLOCATED(KN_NOP_HOT))DEALLOCATE(KN_NOP_HOT)
 	IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
 	IF(ALLOCATED(KN_QA_Q))DEALLOCATE(KN_QA_Q,KN_QA_VOLD,KN_QA_VN,
 	1  KN_QA_VM,KN_QA_J,KN_QA_L)
@@ -9222,6 +9366,22 @@ C
 !
 	INTEGER WRC_I,WRC_L,WRC_PI,WRC_PL,WRC_SAME
 	INTEGER WRC_IM,WRC_LM,WRC_SM
+!
+! KN_NOCP_PROBE host state (diagnostic, phase 5.2): L_NOPROBE is
+! the per-ray predicate result; NOP_CC accumulates the five
+! per-pass DCELL threshold counts inside the same significance
+! gate NBAD_CUR uses; NOP_OMG_SNAP holds the OMEGA_RAY value a
+! pass started with (the pass-end damping has already rewritten
+! OMEGA_RAY by the time NOP_PASS runs); WRC_ADEL is the absolute
+! update at the current worst cell; NOP_VC keeps the would-be
+! commit verdict after FG_RAY_VC is overwritten with the probe
+! code.
+!
+	REAL(KIND=LDP) WRC_ADEL
+	INTEGER NOP_CC(5)
+	REAL(KIND=LDP) NOP_OMG_SNAP
+	LOGICAL L_NOPROBE,NOP_RAT_FRESH
+	INTEGER NOP_VC,JJ
 	REAL(KIND=LDP) DCELL
 	INTEGER*8 NBAD_CUR,NTOT_CUR,NB_M,NB_P,NT_M,NT_P
 	INTEGER*8 NP2_CNT
@@ -9263,6 +9423,12 @@ C
 	DCH_M=0.0_LDP; DCH_P=0.0_LDP
 	W_LO=0; W_HI=0; NHOT=0
 	SGN_ACC=0.0_LDP; SGN_PRV=0.0_LDP; NOSC_FL=0
+	L_NOPROBE=KN_NOCP_PROBE_RAY(LS)
+	NOP_CC=0; NOP_VC=-1; NOP_OMG_SNAP=0.0_LDP
+	WRC_ADEL=0.0_LDP
+	IF(L_NOPROBE)THEN
+	  KN_NOP_NREC=0; KN_NOP_OVF=.FALSE.
+	END IF
 	LUER=ERROR_LU()
 	KN_DUMP_N=0
 	NI=NI_RAY(LS)
@@ -9657,9 +9823,11 @@ C
 !
 	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
 	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
-	      CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
+	      IF(.NOT. L_NOPROBE)
+	1    CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
 	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
-	      CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+	      IF(.NOT. L_NOPROBE)
+	1    CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !$OMP CRITICAL (FG_CAP_UPD)
 	      FG_NC_CAP=FG_NC_CAP+1
 !$OMP END CRITICAL (FG_CAP_UPD)
@@ -9678,14 +9846,17 @@ C
 	    END IF
 	  ELSE
 	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
-	    CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
+	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
 	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
-	    CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !
 ! First full commit of this ray -- the jump veto engages on the
-! next refresh (seed-fill waiver, [FG_SEED_COMMIT]).
+! next refresh (seed-fill waiver, [FG_SEED_COMMIT]). A probe ray
+! measures the candidate but must not mark itself seeded: the
+! store keeps its pre-refresh generation either way.
 !
-	    IF(ALLOCATED(FG_RAY_SEEDED))FG_RAY_SEEDED(LS)=1
+	    IF(ALLOCATED(FG_RAY_SEEDED) .AND. .NOT. L_NOPROBE)
+	1    FG_RAY_SEEDED(LS)=1
 !$OMP CRITICAL (FG_DCHG_UPD)
 	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
 !$OMP END CRITICAL (FG_DCHG_UPD)
@@ -9694,51 +9865,19 @@ C
 	  END IF
 	END IF
 !
-! KN_WATCH_CELL (diagnostic): one record per solve for the armed
-! ray - exit class, pass count, residual, geometry mapping and
-! whichever channel captures fired. Placed after the whole commit
-! decision chain so rejected rays (which never reach either write
-! routine) still print their verdict.
+! KN_NOCP_PROBE (diagnostic): every store write above was
+! suppressed for the probe ray, so a would-be commit verdict
+! (0) would falsely claim a write happened. Record the
+! decision the chain reached in NOP_VC for the pass report,
+! then mark the ray with the probe code 7. The jump veto
+! value JUMP and the KN-JT records still show what the
+! candidate would have faced.
 !
-	IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)THEN
-!$OMP CRITICAL(KN_WATCH_CRIT)
-	  WRITE(LUER,'(A,3I6,1X,ES12.4)')
-	1   ' KN_WATCH ray/ixit/npas/resid=',LS,NXIT,NPASS,RESID
-	  WRITE(LUER,'(A,3I4)')
-	1   '   exit ixitM/ixitP/nxit=',IXIT_M,IXIT_P,NXIT
-	  WRITE(LUER,'(A,5I8)')
-	1   '   geom K/LS/slot->KC/JP2=',KN_WATCH_K,KN_WATCH_LS,
-	2   KN_WATCH_SLOT,COMP_DEPTH_IDX(KN_WATCH_K),
-	3   J_PNT(KN_WATCH_K,KN_WATCH_LS)
-	  IF(ALLOCATED(FG_RAY_VC))WRITE(LUER,'(A,I4)')
-	1   '   verdict=',FG_RAY_VC(LS)
-	  IF(ALLOCATED(FG_RAY_DCH))WRITE(LUER,'(A,ES12.4)')
-	1   '   ray-dch=',FG_RAY_DCH(LS)
-!
-! Sibling-reference context for the jump veto (audit Layer C):
-! FG_JUMP_MAX reads REF(LS2) with LS2 running 2..NCF against
-! STORE(...,LS2-1), so the watch slot s maps to index s+1. The
-! veto compares each proposed cell to this cross-ray median
-! scale only on floor-dominated columns, so printing it shows
-! whether the sibling reference can move the verdict at the
-! watched cell.
-!
-	  IF(ALLOCATED(JMP_SIB_M) .AND. ALLOCATED(JMP_SIB_P) .AND.
-	1   KN_WATCH_SLOT+1 .LE. KN_NCF)
-	1   WRITE(LUER,'(A,2(1X,ES13.5))')
-	2   '   sibref m/p@slot=',JMP_SIB_M(KN_WATCH_SLOT+1),
-	3   JMP_SIB_P(KN_WATCH_SLOT+1)
-	  DO I=1,2
-	    IF(KN_WC_HIT(I))THEN
-	      WRITE(LUER,'(A,I2,8(1X,ES13.5),2(1X,I4))')
-	1     '   ch v1raw v1i v1cap v2 vmxf den dloc vpost=',I,
-	2     KN_WC_V1R(I),KN_WC_V1I(I),KN_WC_V1C(I),KN_WC_V2(I),
-	3     KN_WC_VMX(I),KN_WC_DEN(I),KN_WC_DLOC(I),KN_WC_VPOST(I)
-	4     ,KN_WC_FL(I),KN_WC_BR(I)
-	    END IF
-	  END DO
-!$OMP END CRITICAL(KN_WATCH_CRIT)
-	  KN_WC_HIT=.FALSE.
+	IF(L_NOPROBE)THEN
+	  IF(ALLOCATED(FG_RAY_VC))THEN
+	    NOP_VC=FG_RAY_VC(LS)
+	    FG_RAY_VC(LS)=7
+	  END IF
 	END IF
 !
 ! Audit dump: the committed full-ray fields for this solve (the
@@ -9875,8 +10014,15 @@ C
 ! heal (mom_j_cmf_nonmono_v1.f).
 !
 	IF(NDIV .EQ. 1)THEN
-	  CALL HEAL_STORE(I_M_DEPTH_NEXT)
-	  CALL HEAL_STORE(I_P_DEPTH_NEXT)
+!
+! KN_NOCP_PROBE: the heal is also a store write; a diverged
+! probe ray keeps its retained generation like every other
+! suppressed write.
+!
+	  IF(.NOT. L_NOPROBE)THEN
+	    CALL HEAL_STORE(I_M_DEPTH_NEXT)
+	    CALL HEAL_STORE(I_P_DEPTH_NEXT)
+	  END IF
 	  RESID=1.0_LDP
 	  NXIT=5
 	  IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=4
@@ -9923,6 +10069,106 @@ C
 !
 	NBBLK=NB_BM+NB_BP
 	NTBLK=NT_BM+NT_BP
+!
+! KN_WATCH_CELL (diagnostic): one record per solve for the armed
+! ray - exit class, pass count, residual, geometry mapping and
+! whichever channel captures fired. Placed after the result-arg
+! finalisation above so NXIT/NPASS/RESID carry their committed
+! values; the earlier placement printed the pre-finalisation
+! sentinels (-1/0/0) on every ray, which read as an unsolved ray
+! even when both sweeps had exited cleanly.
+!
+	IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)THEN
+!$OMP CRITICAL(KN_WATCH_CRIT)
+	  WRITE(LUER,'(A,3I6,1X,ES12.4)')
+	1   ' KN_WATCH ray/ixit/npas/resid=',LS,NXIT,NPASS,RESID
+	  WRITE(LUER,'(A,3I4)')
+	1   '   exit ixitM/ixitP/nxit=',IXIT_M,IXIT_P,NXIT
+	  WRITE(LUER,'(A,5I8)')
+	1   '   geom K/LS/slot->KC/JP2=',KN_WATCH_K,KN_WATCH_LS,
+	2   KN_WATCH_SLOT,COMP_DEPTH_IDX(KN_WATCH_K),
+	3   J_PNT(KN_WATCH_K,KN_WATCH_LS)
+	  IF(ALLOCATED(FG_RAY_VC))WRITE(LUER,'(A,I4)')
+	1   '   verdict=',FG_RAY_VC(LS)
+	  IF(ALLOCATED(FG_RAY_DCH))WRITE(LUER,'(A,ES12.4)')
+	1   '   ray-dch=',FG_RAY_DCH(LS)
+!
+! Sibling-reference context for the jump veto (audit Layer C):
+! FG_JUMP_MAX reads REF(LS2) with LS2 running 2..NCF against
+! STORE(...,LS2-1), so the watch slot s maps to index s+1. The
+! veto compares each proposed cell to this cross-ray median
+! scale only on floor-dominated columns, so printing it shows
+! whether the sibling reference can move the verdict at the
+! watched cell.
+!
+	  IF(ALLOCATED(JMP_SIB_M) .AND. ALLOCATED(JMP_SIB_P) .AND.
+	1   KN_WATCH_SLOT+1 .LE. KN_NCF)
+	1   WRITE(LUER,'(A,2(1X,ES13.5))')
+	2   '   sibref m/p@slot=',JMP_SIB_M(KN_WATCH_SLOT+1),
+	3   JMP_SIB_P(KN_WATCH_SLOT+1)
+	  DO I=1,2
+	    IF(KN_WC_HIT(I))THEN
+	      WRITE(LUER,'(A,I2,8(1X,ES13.5),2(1X,I4))')
+	1     '   ch v1raw v1i v1cap v2 vmxf den dloc vpost=',I,
+	2     KN_WC_V1R(I),KN_WC_V1I(I),KN_WC_V1C(I),KN_WC_V2(I),
+	3     KN_WC_VMX(I),KN_WC_DEN(I),KN_WC_DLOC(I),KN_WC_VPOST(I)
+	4     ,KN_WC_FL(I),KN_WC_BR(I)
+	    END IF
+	  END DO
+!$OMP END CRITICAL(KN_WATCH_CRIT)
+	  KN_WC_HIT=.FALSE.
+	END IF
+!
+! KN_NOCP_PROBE report (diagnostic, phase 5.2): the armed ray's
+! per-pass history for both directional solves. NP_M/NP_P are the
+! per-direction pass counts; NPASS above is their maximum, not a
+! total. Dir 1 is the INWARD=.TRUE. solve (RES_M/NP_M), dir 2 the
+! INWARD=.FALSE. solve (RES_P/NP_P). RATM1=-1 marks a pass whose
+! same-direction ratio guard did not run; OMG is the OMEGA_RAY
+! the pass started with; CT columns count significant cells above
+! KN_RAY_TOL, 1E-2, 1E-1, 1 and 10; AI/AL is the worst cell and
+! AD its absolute update |VNEW-VOLD|. NOP_VC is the commit
+! verdict the chain reached before the probe suppression
+! (7 = probe code now stored in FG_RAY_VC). The refresh-level
+! store checksum printed by FG_KNOP_REFRESH_V1 confirms the
+! retained generation was not touched.
+!
+	IF(L_NOPROBE)THEN
+	  KN_NOP_NP(1)=NP_M; KN_NOP_NP(2)=NP_P
+	  KN_NOP_IX(1)=IXIT_M; KN_NOP_IX(2)=IXIT_P
+	  KN_NOP_RS(1)=RES_M; KN_NOP_RS(2)=RES_P
+	  WRITE(LUER,'(A,I4,A,2I4,A,2ES12.4)')
+	1   '  KN-NOP ray probe-only ls=',LS,' npM,npP=',NP_M,NP_P,
+	2   ' resM,resP=',RES_M,RES_P
+	  WRITE(LUER,'(A,I4,A,2I4,A,I4,A,ES12.4,A,ES12.4)')
+	1   '    ixitM,ixitP,nxit=',IXIT_M,IXIT_P,NXIT,
+	2   ' npass(max)=',NPASS,' resid=',RESID,' jump=',JUMP
+	  WRITE(LUER,'(A,I4)',advance='no')
+	1   '    would-be verdict='
+	  IF(NOP_VC .GE. 0)THEN
+	    WRITE(LUER,'(I4)',advance='no') NOP_VC
+	  ELSE
+	    WRITE(LUER,'(A)',advance='no') ' n/a'
+	  END IF
+	  WRITE(LUER,'(A)')
+	1   ' (7=probe suppressed; 0=commit 1=jump-veto 2=nc-rej 3=capped)'
+	  DO J=1,2
+	    WRITE(LUER,'(A,I2,A,I4)')
+	1     '    dir',J,' passes recorded (sweep np=',KN_NOP_NP(J),'):'
+	    DO JJ=1,KN_NOP_NREC(J)
+	      WRITE(LUER,'(A,I4,A,4(1X,ES11.3))')
+	1     '      p',JJ,' res/ad/omg/rat=',KN_NOP_RES(JJ,J),
+	2     KN_NOP_AD(JJ,J),KN_NOP_OMG(JJ,J),KN_NOP_RAT(JJ,J)
+	      WRITE(LUER,'(A,I4,1X,I5,A,5(1X,I8),A,L1)')
+	1     '        j/L=',KN_NOP_AI(JJ,J),KN_NOP_AL(JJ,J),
+	2     ' ct>tol/1e-2/1e-1/1/10=',KN_NOP_CT(JJ,J,1),
+	3     KN_NOP_CT(JJ,J,2),KN_NOP_CT(JJ,J,3),KN_NOP_CT(JJ,J,4),
+	4     KN_NOP_CT(JJ,J,5),' hot=',KN_NOP_HOT(JJ,J)
+	    END DO
+	  END DO
+	  IF(KN_NOP_OVF)WRITE(LUER,'(A)')
+	1   '    KN-NOP WARNING: pass count exceeded telemetry cap'
+	END IF
 !
 900	CONTINUE
 	NP2=NP2_CNT
@@ -10010,8 +10256,10 @@ C
 	RES_PREV(1)=0.0_LDP; RES_PREV(2)=0.0_LDP
 	RATIO_PV(1)=0.0_LDP; RATIO_PV(2)=0.0_LDP
 	RATIO_OM=0.0_LDP
+	NOP_RAT_FRESH=.FALSE.
 	RHO_WIN=0.0_LDP
 	WRC_I=0; WRC_L=0; WRC_PI=0; WRC_PL=0; WRC_SAME=0
+	WRC_ADEL=0.0_LDP
 !
 ! SGN_PRV/NOSC_FL are host variables: without this reset the first
 ! pass of the I_P sweep compares its sign against the I_M sweep's
@@ -10025,6 +10273,12 @@ C
 	BEST_NB=0_8; BEST_NT=0_8
 	DO
 	  NPO=NPO+1
+!
+! KN_NOCP_PROBE (diagnostic): snapshot the relaxation the pass is
+! about to use; the pass-end damping rewrites OMEGA_RAY before
+! NOP_PASS runs, so the used value must be taken here.
+!
+	  IF(L_NOPROBE)NOP_OMG_SNAP=OMEGA_RAY
 !
 ! W7 (17-Oct-2026): hot-pass extension. When a stall or cap exit
 ! fires with residual left only inside a contiguous hot-frequency
@@ -10171,6 +10425,7 @@ C
 	  IF(.NOT. ASC)IDIR=2
 	  IF(RES_PREV(IDIR) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(IDIR)
+	    NOP_RAT_FRESH=.TRUE.
 !
 ! Same-direction, same-map contraction sample for the refresh-level
 ! estimator (audit A1). The NPO>=5 floor keeps the seed transient
@@ -10269,7 +10524,16 @@ C
 	    WRC_SAME=1
 	  END IF
 	  WRC_PI=WRC_I; WRC_PL=WRC_L
-	  IF(.NOT. HAS_CP)THEN
+!
+! KN_NOCP_PROBE (diagnostic, phase 5.2): record this completed
+! pass before the exit tests. A probe ray skips only the
+! forced-clean .NOT. HAS_CP shortcut below; the residual-tolerance,
+! bulk, stall, plateau, hot-pass and cap exits all still apply,
+! so the probe measures whether the ordinary iteration converges
+! without the shortcut rather than creating a new criterion.
+!
+	  IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE)
+	  IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN
 !
 !	    No compressing cells: the single pass is the exact solve, so
 !	    the pass-1 change is a seed transient, not a fixed-point
@@ -10648,8 +10912,10 @@ C
 	RES_PREV(1)=0.0_LDP
 	RES_PREV(2)=0.0_LDP
 	RATIO_OM=0.0_LDP
+	NOP_RAT_FRESH=.FALSE.
 	RHO_WIN=0.0_LDP
 	WRC_I=0; WRC_L=0; WRC_PI=0; WRC_PL=0; WRC_SAME=0
+	WRC_ADEL=0.0_LDP
 	KN_SGN_SUM=0.0_LDP
 	KN_SGN_PREV=0.0_LDP
 	OMEGA_RAY=KN_RAY_OMEGA
@@ -10694,6 +10960,12 @@ C
 !
 	DO
 	  NPO=NPO+1
+!
+! KN_NOCP_PROBE (diagnostic): snapshot the relaxation the pass is
+! about to use; the pass-end damping rewrites OMEGA_RAY before
+! NOP_PASS runs, so the used value must be taken here.
+!
+	  IF(L_NOPROBE)NOP_OMG_SNAP=OMEGA_RAY
 !
 ! W7 (17-Oct-2026): hot-pass extension spend accounting, same rule
 ! as SWEEP_FLD -- up to KN_RAY_HOTPASSES extra passes per ray,
@@ -10762,6 +11034,7 @@ C
 	        IF(T1 .GT. RES)THEN
 	          WRC_I=1
 	          WRC_L=L
+	          WRC_ADEL=VOLD
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
@@ -10815,12 +11088,14 @@ C
 	        IF(T1 .GT. RES)THEN
 	          WRC_I=J
 	          WRC_L=L
+	          WRC_ADEL=ABS(VNEW-VOLD)
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
+	          IF(L_NOPROBE)CALL NOP_CELL(T1)
 	          KN_SGN_SUM=KN_SGN_SUM+
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
@@ -10934,12 +11209,14 @@ C
 	      IF(T1 .GT. RES)THEN
 	        WRC_I=NI
 	        WRC_L=L
+	        WRC_ADEL=ABS(VNEW-VOLD)
 	      END IF
 	      RES=MAX(RES,T1)
 	      RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	      IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
+	        IF(L_NOPROBE)CALL NOP_CELL(T1)
 	        IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	        IF(DO_P2)THEN
 	          SGN_P=0_1
@@ -11019,12 +11296,14 @@ C
 	        IF(T1 .GT. RES)THEN
 	          WRC_I=J
 	          WRC_L=L
+	          WRC_ADEL=ABS(VNEW-VOLD)
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
+	          IF(L_NOPROBE)CALL NOP_CELL(T1)
 	          KN_SGN_SUM=KN_SGN_SUM+
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
@@ -11177,6 +11456,7 @@ C
 	  END IF
 	  IF(RES_PREV(1) .GT. 0.0_LDP)THEN
 	    RATIO_OM=RES/RES_PREV(1)
+	    NOP_RAT_FRESH=.TRUE.
 !
 ! Same-map contraction sample for the refresh-level estimator
 ! (audit A1). Single-sequence baseline NPO-1, so the seed-transient
@@ -11280,7 +11560,16 @@ C
 	    WRC_SAME=1
 	  END IF
 	  WRC_PI=WRC_I; WRC_PL=WRC_L
-	  IF(.NOT. HAS_CP)THEN
+!
+! KN_NOCP_PROBE (diagnostic, phase 5.2): record this completed
+! pass before the exit tests. A probe ray skips only the
+! forced-clean .NOT. HAS_CP shortcut below; the residual-tolerance,
+! bulk, stall, plateau, hot-pass and cap exits all still apply,
+! so the probe measures whether the ordinary iteration converges
+! without the shortcut rather than creating a new criterion.
+!
+	  IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE)
+	  IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN
 !
 !	    No compressing cells: pass 1 still carries the stale slope
 !	    corner of the seed, so confirm on a second pass before a
@@ -12102,6 +12391,7 @@ C
 	    IF(DCELL .GT. RES)THEN
 	      WRC_I=1
 	      WRC_L=L
+	      WRC_ADEL=ABS(VNEW-VOLD)
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
@@ -12126,12 +12416,14 @@ C
 	    IF(DCELL .GT. RES)THEN
 	      WRC_I=I+1
 	      WRC_L=L
+	      WRC_ADEL=ABS(VNEW-VOLD)
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
 	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
+	      IF(L_NOPROBE)CALL NOP_CELL(DCELL)
 !
 ! Signed per-cell update for the W6 sign-flip detector in
 ! SWEEP_FLD (same metric the ORD loop accumulates inline).
@@ -12180,12 +12472,14 @@ C
 	  IF(DCELL .GT. RES)THEN
 	    WRC_I=NI
 	    WRC_L=L
+	    WRC_ADEL=ABS(VNEW-VOLD)
 	  END IF
 	  RES=MAX(RES,DCELL)
 	  RESL=MAX(RESL,DCELL)
 	  IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
+	    IF(L_NOPROBE)CALL NOP_CELL(DCELL)
 	    IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
 	  END IF
 	  FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
@@ -12207,12 +12501,14 @@ C
 	    IF(DCELL .GT. RES)THEN
 	      WRC_I=I
 	      WRC_L=L
+	      WRC_ADEL=ABS(VNEW-VOLD)
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
 	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
+	      IF(L_NOPROBE)CALL NOP_CELL(DCELL)
 ! Signed accumulation, same as the inward branch above: the
 ! detector needs sign alternation, not magnitude.
 	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
@@ -12223,6 +12519,66 @@ C
 	  END DO
 	END IF
 	RES_FREQ(L)=RESL
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_NOCP_PROBE pass telemetry (diagnostic, phase 5.2): NOP_CELL
+! accumulates the per-pass DCELL threshold census inside the same
+! significance gate NBAD_CUR/NTOT_CUR use, so the counts describe
+! the maturity-gate cell population rather than floor noise.
+! Thresholds: KN_RAY_TOL, 1E-2, 1E-1, 1, 10 on the normalized
+! residual. Called only under L_NOPROBE, so production rays pay
+! one predictable branch per significant cell.
+!
+	SUBROUTINE NOP_CELL(T1V)
+	REAL(KIND=LDP) T1V
+	IF(T1V .GT. KN_RAY_TOL)NOP_CC(1)=NOP_CC(1)+1
+	IF(T1V .GT. 1.0E-2_LDP)NOP_CC(2)=NOP_CC(2)+1
+	IF(T1V .GT. 1.0E-1_LDP)NOP_CC(3)=NOP_CC(3)+1
+	IF(T1V .GT. 1.0E+0_LDP)NOP_CC(4)=NOP_CC(4)+1
+	IF(T1V .GT. 1.0E+1_LDP)NOP_CC(5)=NOP_CC(5)+1
+	RETURN
+	END
+!
+! NOP_PASS records one completed march pass for the probe ray.
+! Direction index: 1 = the INWARD=.TRUE. solve that fills RES_M/
+! NP_M, 2 = the INWARD=.FALSE. solve that fills RES_P/NP_P (the
+! two KNOP_RAY_SOLVE_V1 sweep calls). KN_NOP_RES/AD/OMG/RAT are
+! (pass,direction); KN_NOP_AI/AL the pass argmax (ray point,
+! frequency); KN_NOP_CT the five threshold counts. Only the
+! probe ray's thread ever calls this, so the module arrays need
+! no reduction. A pass beyond KN_NOP_MAXP sets KN_NOP_OVF and
+! stops recording rather than writing out of bounds.
+!
+	SUBROUTINE NOP_PASS(NPO_D,RES_D,INW_D,HOT_D)
+	INTEGER NPO_D,NPD
+	REAL(KIND=LDP) RES_D
+	LOGICAL INW_D,HOT_D
+	NPD=MERGE(1,2,INW_D)
+	IF(NPO_D .GT. KN_NOP_MAXP)THEN
+	  KN_NOP_OVF=.TRUE.
+	  RETURN
+	END IF
+	KN_NOP_RES(NPO_D,NPD)=RES_D
+	KN_NOP_AD(NPO_D,NPD)=WRC_ADEL
+	KN_NOP_OMG(NPO_D,NPD)=NOP_OMG_SNAP
+	KN_NOP_HOT(NPO_D,NPD)=HOT_D
+!
+! RATIO_OM keeps its previous value when the same-direction guard
+! did not run this pass, so record -1 rather than a stale ratio.
+!
+	IF(NOP_RAT_FRESH)THEN
+	  KN_NOP_RAT(NPO_D,NPD)=RATIO_OM
+	ELSE
+	  KN_NOP_RAT(NPO_D,NPD)=-1.0_LDP
+	END IF
+	NOP_RAT_FRESH=.FALSE.
+	KN_NOP_AI(NPO_D,NPD)=WRC_I
+	KN_NOP_AL(NPO_D,NPD)=WRC_L
+	KN_NOP_CT(NPO_D,NPD,1:5)=NOP_CC(1:5)
+	NOP_CC=0
+	KN_NOP_NREC(NPD)=KN_NOP_NREC(NPD)+1
 	RETURN
 	END
 !
