@@ -1954,3 +1954,128 @@ residual (~0.033) - the inner-sweep vs store-to-store
 distinction of section 15 in action. The fixed builds will
 now add the per-cell KN_QC histogram and argmax
 attribution on top of this.
+
+## 20. Phase 4: KN_QC race fix and Q-argmax store mapping (2026-11-13)
+
+Diagnostic-only phase. No transfer, population, opacity,
+frequency-matching, sweep-ordering, relaxation, threshold or
+commit-rule changes. Production executable untouched.
+
+### 20.1 Source audit: KN_QC histogram race (confirmed defect)
+
+KNOP_RAY_SOLVE_V1 runs inside the OpenMP per-ray loop
+(SCHEDULE(DYNAMIC), PRIVATE(LS)). The old cell-histogram
+instrumentation armed shared module state per ray:
+
+    KN_Q_ACC=.TRUE.; KN_Q_ACC_CH=1   (M verify)
+    KN_Q_ACC_CH=2                    (P verify)
+    KN_Q_ACC=.FALSE.                 (disarm)
+
+while KN_Q_ACCUM updated shared KN_QC_HIST/KN_QC_N/KN_QC_NT/
+KN_QC_MAX with no synchronisation. Three races resulted:
+
+1. one ray could arm the gate while another was still inside
+   its production sweep, so production DCELL values could
+   enter the histogram;
+2. the shared channel selector could be flipped mid-accumulation
+   by another ray, misclassifying M/P samples;
+3. concurrent unsynchronised counter/histogram/max updates
+   could lose or corrupt samples.
+
+Consequence: every cell-level histogram, percentile and
+channel maximum printed by the qcells/qfix builds (including
+the p50~1e-9 / p99~1e4 / max~4e4-7e4 distribution quoted in
+earlier sections) is INVALID evidence and must not be used
+for interpretation. The per-ray KN_QA_* argmax table, the
+KN_Q_LS per-ray maxima and all production telemetry are
+unaffected (they were already per-ray or reduced serially).
+
+### 20.2 Race-free implementation
+
+- Accumulation is now gated locally by the L_QP
+  verify-pass argument at each of the eight DCELL sites
+  (four ordered in SWEEP_FLD_ORD on T1, four unordered in
+  MARCH on DCELL). Production passes (L_QP false) can never
+  enter the histogram; the verify block no longer arms any
+  shared state.
+- KN_Q_ACCUM(DX,L_IN) resolves the channel locally
+  (inward -> 1, outward -> 2) and writes only the caller
+  ray's own LS slice: KN_QC_N_RAY(LS,CH),
+  KN_QC_NT_RAY(LS,CH,:), KN_QC_HIST_RAY(LS,CH,:),
+  KN_QC_MAX_RAY(LS,CH). LS is the private parallel index,
+  unique per in-flight ray, so no two workers ever share a
+  slice.
+- MARCH gained an L_QP dummy argument; SWEEP_FLD forwards
+  it. SWEEP_FLD_ORD already carried L_QP.
+- After !$OMP END PARALLEL DO a serial block reduces the
+  per-ray arrays into the existing global KN_QC_N/KN_QC_NT/
+  KN_QC_HIST/KN_QC_MAX that the report already reads, so
+  output format is unchanged.
+- KN_QC_MAX per channel is now MAXVAL over rays, consistent
+  with the max DCELL any ray supplied.
+
+### 20.3 Tests and build
+
+unit_tests/python/test_knop_lagged_field.py: the ordered-site
+test was updated to the L_QP gate and three new checks were
+added (gating, race-free layout, argmax mapping diagnostics).
+All 30 checks pass; test_knop_ray.py 43/43;
+test_knop_status_text.py all pass. make KEEP_EXE=1 cmfgen
+builds clean (one fix needed during bring-up: fixed-form
+continuation labels must stay single-digit; two-digit labels
+landed in the statement field).
+
+Honest limit: these are source-pattern tests. They prove the
+shared gate is gone and every site is L_QP-gated, but do not
+by themselves prove runtime thread safety; the structural
+argument (private LS slice per worker + serial reduction) is
+the safety claim.
+
+### 20.4 Q-argmax inverse J_PNT mapping (implemented, pending run)
+
+New serial diagnostics in the Q argmax report block:
+
+- qmap2: scans K=1..ND for J_PNT(K,IQ_R)=KN_QA_J and prints
+  every match with COMP_DEPTH_IDX(K); classes A (no model
+  depth maps to the ray point), B (matches but all compact
+  rows <=0), C (writable, first K/CDI reported). Context
+  line prints RAY_PNT(j,ray), R_RAY(j,ray), KN_R(K).
+- qstore: for class C reads the committed store at
+  (CDI,LS,L-1) as the retained value, prints ray verdict
+  FG_RAY_VC, and pairs it with a pre-refresh snapshot.
+- KN_QARG_* module scalars carry the previous refresh's
+  argmax cell; at the top of each refresh the mapping is
+  re-resolved and the store value saved BEFORE the ray loop
+  commits, giving a true before/retained pair when the
+  (frozen) argmax is unchanged. First refresh reports
+  retained only; second refresh onward reports the delta.
+- VMAX_RAW fix: KN_QA_VM now stores the unfloored column
+  max; the report prints vmaxraw and vmaxf=MAX(raw,1e-25)
+  and the denominator uses the floored value, so the
+  1e-25 floor can no longer masquerade as the column peak.
+
+Interpretation note for the standing argmax (ray 83, ch2,
+j=2, L=1330, slot 1329): whether J_PNT(K,83)=2 has any
+solution with COMP_DEPTH_IDX(K)>0 decides Case A vs B/C of
+the work-order decision tree. The mapping is exact integer
+comparison on the same arrays the store writer uses, so the
+answer is deterministic once the diagnostic runs.
+
+### 20.5 One-refresh measurement: pending
+
+The diagnostic executable is built but the one-refresh run
+from the iso_M it157 checkpoint has not yet been submitted.
+Recipe: stage a run dir identical to neut2_QF (same yaml,
+VADAT_INIT, warm FGINEXT_GS 893143f3), swap in the Phase-4
+exe, keep KN_FREEZE_COEF=F, KN_MAT_FREEZE=T, KN_Q_RESID=T,
+limit to enough great iterations for two refreshes (the
+second supplies the before/retained pair). The currently
+running neut2 jobs continue unaffected on their pinned
+exes.
+
+Deferred per work order: full shadow-map comparison
+(production candidate vs committed vs bypass-commit scratch)
+is not implemented; if the local before/retained pair is
+inconclusive a separate design is proposed, scratch-only,
+never written to production I_NEXT, with cost estimated
+before any full-array copy.
