@@ -815,6 +815,16 @@
 !$OMP END CRITICAL
 	    STOP
 	  END IF
+!
+! dev7: INDX is PRIVATE, so each thread's contents are undefined on
+! region entry even though ifort inherits the allocation bounds.  The
+! ML loop writes every element before reading it (INDX(1) at the loc-1
+! hunt, INDX(I) inside the I sweep), but that write-before-read
+! invariant depends on control flow across the whole sweep.  A defined
+! start value here keeps the invariant local, matching the serial fill
+! above the region.
+!
+	  INDX(1:NRAY)=1
 !$OMP DO
 	  DO 40000 ML=1+(OUT_ML-1)*NOS_INC,MIN(NOS,OUT_ML*NOS_INC)
 !
@@ -825,6 +835,38 @@
 	    K=1   !INDX(1)
 	    INDX(1)=1
 	    T1=OBS_FREQ(ML)*(1.0_LDP-VMU_RAY(1))*GAM_RAY(1)
+!
+! dev7: the down-hunt below cannot see T1 above the band edge: it
+! leaves K=1 and the interpolation reads SM_FREQ_CMF(0).  VMU_RAY(1)>0
+! (outward velocity at the front surface) keeps T1 red of the edge on
+! supernova models, but nothing enforces that here.  Symmetric clamp
+! with K=2 so T2=1 selects the boundary opacity, mirroring the I>1
+! blue-edge guard below; a grossly off-grid T1 still aborts.
+!
+	    IF(T1 .GT. SM_FREQ_CMF(1))THEN
+	      IF(T1 .LE. 1.02_LDP*SM_FREQ_CMF(1))THEN
+	        K=2
+	        T3=(T1-SM_FREQ_CMF(1))/SM_FREQ_CMF(1)
+	        T4=MAX(0.0_LDP,(T1-FREQ_CMF(1))/FREQ_CMF(1))
+!$OMP CRITICAL (CLAMP_CENSUS)
+	        N_EDGE_CLAMP=N_EDGE_CLAMP+1
+	        CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
+	        IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	          CLAMP_GRID_MAX=T4
+	          CLAMP_ML_WORST=ML
+	          CLAMP_LS_WORST=LS
+	          CLAMP_I_WORST=1
+	        END IF
+!$OMP END CRITICAL (CLAMP_CENSUS)
+	        T1=SM_FREQ_CMF(1)
+	      ELSE
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V5'
+	        WRITE(LUER,*)'Bad K indx (loc 1, blue edge): T1=',T1
+	        WRITE(LUER,*)T1,SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	        WRITE(LUER,*)'LS, OUT_ML, ML=',LS,OUT_ML,ML
+	        STOP
+	      END IF
+	    END IF
 	    DO WHILE(T1 .LT. SM_FREQ_CMF(K))
 	      K=K+1
 	      IF(K .GT. SM_NCF)THEN
