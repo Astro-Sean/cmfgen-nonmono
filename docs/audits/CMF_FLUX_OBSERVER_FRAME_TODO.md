@@ -171,7 +171,16 @@ compiles.
 - Tests: synthetic line list with one of each class; totals reconcile.
 - Acceptance: every transition in the model has exactly one recorded
   treatment; off-grid lines reported (already logged).
-- Status: OPEN
+- Status: DONE. A census now runs in cmf_flux_sub_v5.f right after
+  VEC_TRANS_TYPE is finalized (before INS_LINE_V5): counts
+  BLANK/SOB/other, names every transition whose type matches neither
+  channel (invisible to both - e.g. a 'CMF' type, which no inserter
+  in the tree blanketed, upstream included), and warns when SOB
+  lines exist with DO_SOB_FLUX_OBS=F (EW estimates only, no observed
+  flux - upstream semantics). Double-treatment is excluded by
+  construction: INS_LINE_V5 inserts only 'BLANK', the deposit only
+  'SOB', and each line belongs to one blend group. Static pins in
+  test_obs_nonmono_dispatch.py:test_trans_type_census.
 
 ### P4.2 Deposition edge cases
 - Tests: positive/negative opacity, maser, blends, off-grid,
@@ -181,7 +190,14 @@ compiles.
 - Acceptance: integrated deposited chi/eta match independent calc
   within tolerance; truncated-edge profiles not renormalized as if
   complete (report truncation fraction).
-- Status: OPEN
+- Status: MOSTLY DONE. Covered by test_sob_flux_obs (nonuniform NU,
+  integral = CHIL*1e-15 vs independent quadrature at FP tolerance,
+  clump-independence, maser/blend-repair drops, off-grid and
+  non-SOB skips, positive deposit) and test_sob_prof (off-grid
+  naming, >10% masing-drop report, non-monotonic NU abort). STILL
+  OPEN: DO_SOB_DEP_WINGS Voigt path (per-depth A_VOIGT and
+  normalization) has no manufactured test; profile truncation at
+  grid edges is not reported.
 
 ## P5. Non-monotonic frequency coverage (Priority 5)
 
