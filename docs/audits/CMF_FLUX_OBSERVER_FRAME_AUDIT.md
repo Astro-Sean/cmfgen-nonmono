@@ -172,20 +172,23 @@ integrate along the ray (`OBS_INT_METHOD` = STAU or ETAZ), then
 
 ## 3. Confirmed defects (source level)
 
-**D1. ETAZ inner-boundary asymmetry (Pillar 3).**
+**D1. ETAZ inner-boundary asymmetry (Pillar 3). FIXED**
 `OBS_FRAME_SUB_V9` with `DO_IB_DIFF_FLUX` injects the diffusion
 boundary intensity `I_nu(mu) = J_nu + 3*mu*H_nu` (relativistically
 transformed `*NU_ON_NU0^3`) only in the `STAU` integration branch
 (`obs_frame_sub_v9.f:~1191-1210`): when the ray foot reaches the inner
 boundary (`SM_NRAY == NRAY`) `PAR_FLUX` is initialized from
 `IB_J_CMF/IB_H_CMF` interpolated at the local comoving frequency. The
-`ETAZ` branch (`:~1243-1263`) initializes `PAR_FLUX=0` for the same
-geometry - the boundary-originating intensity is silently dropped, so
-`INT_METH=ETAZ` under `DIF` loses the inner-boundary flux on every
-ray that intersects the core. Not yet reproduced numerically; the
-correct ETAZ boundary term must be derived from the emissivity-form
-formal solution (boundary intensity * attenuation to the surface), not
-copied from STAU.
+`ETAZ` branch (`:~1243-1263`) initialized `PAR_FLUX=0` for the same
+geometry - the boundary-originating intensity was silently dropped, so
+`INT_METH=ETAZ` under `DIF` lost the inner-boundary flux on every ray
+that intersects the core. Fix: the ETAZ branch now seeds
+`PAR_FLUX = I_IB * exp(-TAU(IEND))` for rays with
+`DO_IB_DIFF_FLUX .AND. SM_NRAY==NRAY .AND. LS<=NC`, i.e. the same
+interpolated J+3muH seed attenuated by the whole-ray optical depth
+built from the same corrected DTAU. Manufactured tests show thin-model
+STAU/ETAZ agreement at 5e-9 and convergence of the thick-model
+difference with ray resolution (9.6% -> 3.9% at 4x insertions).
 
 **D2. ADD_SOB_LINE_PROF production vs .INC divergence (Pillar 4/5).**
 Two implementations exist with different clumping conventions and
@@ -206,16 +209,19 @@ production renderer no longer uses (and would over-weight line
 opacity by `CLUMP_FAC`). The production convention (unclumped deposit)
 is the self-consistent one.
 
-**D3. Blue-edge guard asymmetry at loc 1 (Pillar 6, latent).**
-The loc-1 frequency hunt (`obs_frame_sub_v9.f:824-866`) only hunts K
-upwards (red direction). If `T1 >= SM_FREQ_CMF(1)` the loop is
+**D3. Blue-edge guard asymmetry at loc 1 (Pillar 6, latent). FIXED**
+The loc-1 frequency hunt (`obs_frame_sub_v9.f:824-866`) only hunted K
+upwards (red direction). If `T1 >= SM_FREQ_CMF(1)` the loop was
 skipped, `K=1`, and `T2=(T1-SM_FREQ_CMF(1))/(SM_FREQ_CMF(0)-...)`
-reads `SM_FREQ_CMF(0)` - out of bounds. The I>1 path has the
-symmetric blue-edge clamp (:899-924); loc 1 does not. In practice
+read `SM_FREQ_CMF(0)` - out of bounds. The I>1 path has the
+symmetric blue-edge clamp (:899-924); loc 1 did not. In practice
 `VMU_RAY(1) = z*v(1)/(r(1)*c) > 0` on every ray (front surface,
-outward flow) so `T1 < OBS_FREQ <= SM_FREQ_CMF(1)` and the hole does
-not fire on supernova models; it is unguarded, not unreachable. Fix:
-add the symmetric blue-edge clamp/abort at loc 1.
+outward flow) so `T1 < OBS_FREQ <= SM_FREQ_CMF(1)` and the hole did
+not fire on supernova models; it was unguarded, not unreachable. Fix:
+loc 1 now mirrors the I>1 clamp (K=2, T1 clamped to the band edge,
+census increment, abort beyond the 2% margin). Side effect: every
+stored `INDX` is now in [2,SM_NCF], so the boundary lookup
+`K=INDX(SM_NRAY)` cannot read element 0 (closes the P2.4 hole).
 
 ## 4. Potential defects / numerical risks
 
@@ -239,12 +245,17 @@ per-thread reinitialization of the `K=1` start (line :825 hardcodes
 `K=1`, fine). Verdict: probably correct by write-before-read, but an
 explicit `INDX(1:NRAY)=1` per-thread after :804 (or FIRSTPRIVATE) is
 cheap insurance and removes reliance on control-flow analysis.
-UNVERIFIED by OpenMP runtime matrix (1/2/4/8 threads x repeat).
+VERIFIED AND FIXED: per-thread `INDX=1` init added (commit
+`d1e09a31`); a 16-frequency driver case gives bitwise-identical output
+at OMP_NUM_THREADS=1/2/4/8 (x2 reps), and a bounds/uninit/fpe0 build
+runs clean.
 
 **P2. `K=INDX(SM_NRAY)` validity at the inner boundary (:1200).**
 Read of `SM_FREQ_CMF(K-1)` with `K=INDX(SM_NRAY)`; K=1 would read
-element 0 (same class as D3). Guarded indirectly by window margins;
-no explicit bound.
+element 0 (same class as D3). RESOLVED: with the loc-1 blue-edge
+clamp every stored INDX lies in [2,SM_NCF], so K>=2 and
+`J-1 = STRT_INDX_CMF+K-2 >= STRT_INDX_CMF >= 1`. No element-0 read
+reachable.
 
 **P3. `IB_H_CMF_ST` provenance.** As above, H is analytic
 `DBB/(3*chi(ND))` while J is solved. Under DIF this is the diffusion
