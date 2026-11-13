@@ -75,10 +75,52 @@ suppresses saturated contributions ~1000x.
   is a code-only extension, see
   `SOBOLEV_DAH2015_EQUATION_MAP.md`). The mathematics is correct;
   the input array was wrong for this model class.
-- Recomputed sigma_true for this model: range -130.2 to -1.037
-  (worst compression depth 62). Minimum |1+sigma_true| over depths
-  is 0.037. The clamped path therefore inflated |GAM| by a factor
-  37 to ~129,000 depending on depth, before angular quadrature.
+- Production `SIGMA_TRUE_CORE` values for this model: range
+  -155.6105 to -1.0370, worst compression at depth 62, N_UNDEF=0.
+  (A simple centred-difference estimate gives -130 at depth 62; the
+  production value -155.6 comes from the log-space quadratic
+  stencil and is the number the code actually uses.)
+
+### 2a. Angular census: the real minimum T1
+
+The radial-ray value 0.037 (= |1+sigma_true(1)|) is NOT the minimum
+seen by the estimator. `SOBEW_GRAD_V2` loops `LS=1..NP` (NP=85:
+P(1)=0, 14 core rays equally spaced in mu at R(ND), 70 tangential
+rays at shell radii, `IMPAR`) and evaluates
+`T1 = 1 + sigma(I)*mu(I,LS)^2` with `mu^2 = 1-(P(LS)/R(I))^2` at
+every shell along every ray. For sigma < -1 the raw factor
+vanishes at mu^2 = 1/|sigma|, so the angular minimum sits at the
+zero-gradient direction, not at mu=1.
+
+Full census over all 3,535 (depth, ray) samples using the
+production sigma_true array and the exact IMPAR grid:
+
+- Global minimum T1 = **7.3939e-3** at ray 36, depth 1
+  (mu=0.9855, sigma_true=-1.0370): the raw factor is -7.2e-3 and
+  the `-0.2*(1+sigma) = 0.007394` floor arm governs. This is the
+  DAH15 floor, not the CMFGEN 1e-4 cap - at sigma ~ -1.037 the
+  floor arm (0.0074) is larger than 1e-4.
+- The minimum occurs where |sigma_true| is smallest above 1
+  (outer depths 1-2), because the floor arm `-0.2*(1+sigma)`
+  grows with compression: at depth 62 (sigma=-155.6) the arm is
+  30.92, so T1 >= 30.92 there on every ray.
+- Verified in production: an instrumented `cmf_flux` build writing
+  per-call min T1 / min-max GAM over all 119,074 EW calls on the
+  converged model reports min T1 = 7.393938e-3 at exactly ray 36,
+  depth 1 - identical to the offline census.
+- Consequences for GAM: most negative production GAM = **-2.87**
+  (H I recombination region ~1.5e6 A, ray 52, depth 15); largest
+  positive GAM = 7.2e7 (FUV resonance lines at depths 17-25,
+  benign: EXPONX(1e7)=1e-7). 0 NaN / 0 Inf across all calls. The
+  previous bound argument still holds: surviving negative-opacity
+  cells satisfy |T2| <= 0.5, so |GAM| <= 0.5/0.0074 ~ 68 worst
+  case -> EXPONX(-68) ~ 3e27, finite (IEEE overflow needs
+  |GAM| > ~709). The actual maximum is far below the bound.
+- The old (clamped) path's minimum over the same census was
+  1.0e-3 on near-radial rays - the per-sample |GAM| inflation is
+  ray- and depth-dependent, roughly 37x at depth 1 rising to
+  ~1.5e5x at depth 62 for mu -> 1, while tangential rays could be
+  under-amplified instead. There is no single global factor.
 
 ## 3. The change (`obs/cmf_flux_sub_v5.f`)
 
@@ -88,9 +130,12 @@ untouched:
 1. The `SIGMA_TRUE` derivation block now runs under
    `DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR.
    (DO_SOBOLEV_LINES .AND. N_NONMONO_OBS .GT. 0)`. The fail-closed
-   abort on undefined cells stays gated on the two nonmono flags;
-   the EW-only extension warns instead (a stock model never enters
-   the block).
+   abort on `N_SIG_UNDEF>0` applies on every path that derives
+   `SIGMA_TRUE`, including the EW-only extension: a warning plus
+   `SIGMA_TRUE=0` would let an apparently complete EW through on
+   cells where no gradient was measured. `ALLOW_SIGMA_UNDEF=T`
+   (default F) remains the explicit override, now printing that
+   the affected EWs are incomplete and potentially biased.
 2. The EW call selector changes from `ELSE IF(DO_NONMONO_SOB)` to
    `ELSE IF(ALLOCATED(SIGMA_TRUE))`, passing `SIGMA_TRUE` to
    `SOBEW_GRAD_V2` whenever it has been derived.
@@ -169,16 +214,23 @@ statistical-equilibrium equations. The whole block sits after
 - `unit_tests/python/test_sob_tau_floor.py`: 17/17 PASS
   (sigma = +2 identical, sigma = -0.5 identical, sigma <= -1 floor
   cases) - unchanged.
+- `unit_tests/python/test_sobew_angular_floor.py` (new): 10/10
+  PASS - sigma=-1.037 zero-gradient ray lands on the 0.0074 floor
+  arm (not the radial 0.037), radial ray gives 0.037, sigma=-155.6
+  dominated by the 30.92 arm over a mu sweep, degenerate profile
+  flags N_UNDEF=1, the OBS abort is ungated (fail-closed), the m15
+  profile is fully defined with the recorded sigma_true range, and
+  a monotonic power law is defined with sigma_true=-1.7.
 - Monotonic equivalence (Test A): by construction - a monotonic
   field never allocates `SIGMA_TRUE`, so the same object code takes
   the same `SIGMA` call. No monotonic production model exists in
   `cmfgen_validation` to re-verify end-to-end; the claim rests on
   the unreachable branch, the untouched `SIGMA` call, and the two
   untouched routines' unit suites.
-- Near-zero projected gradient (Test D): sigma_true ~ -1 cells are
-  the residual risk, not sigma = -0.999. Minimum floored T1 here is
-  0.037 (DAH15 floor inactive since |1+sigma| > -0.2*(1+sigma));
-  GAM stays bounded and the output is finite everywhere.
+- Near-zero projected gradient: the minimum floored T1 over the
+  production quadrature is 7.39e-3 at the zero-gradient direction
+  (sigma_true ~ -1.04), NOT the radial 0.037. Production census:
+  most negative GAM -2.87, largest positive 7.2e7, 0 NaN/0 Inf.
 - Negative GAM / EXPONX (unchanged): verified numerically above;
   inversions are retained (negative CHIL is not touched).
 
@@ -194,8 +246,10 @@ statistical-equilibrium equations. The whole block sits after
   against the relevant physical scale lengths (density,
   population-gradient scales), the local Sobolev estimate itself is
   questionable. Near a velocity extremum the true sigma < -1
-  region still yields the smallest T1 (0.037 here); those cells
-  dominate the corrected EW of inverted lines. The corrected EW is
+  region still yields the smallest T1 (7.39e-3 on this grid, at
+  the zero-gradient direction rather than the radial ray); those
+  cells dominate the corrected EW of inverted lines. The corrected
+  EW is
   a diagnostic estimate, not a substitute for non-local transfer of
   a genuinely masing transition (Rybicki & Hummer 1978 non-local
   resonance treatment is the relevant machinery where needed).
