@@ -25,7 +25,10 @@ compiles.
 - Tests: manufactured driver calling `OBS_FRAME_SUB_V9` with a
   truncated-tau atmosphere; `-check bounds` (ifort) build.
 - Acceptance: no uninitialized-index path reachable; bounds-clean run.
-- Status: OPEN
+- Status: DONE. Explicit per-thread `INDX=1` init added after the
+  conditional allocate; INDX write-before-read verified across all
+  branches. Committed `d1e09a31`. Bounds/uninit/fpe0 build clean at
+  1/4/8 threads.
 
 ### P1.2 OpenMP reproducibility matrix
 - Problem: no repeat-run evidence at OMP_NUM_THREADS = 1/2/4/8.
@@ -36,7 +39,9 @@ compiles.
   reduction-free accumulate; the CLAMP_CENSUS criticals only count).
 - Acceptance: NaN/Inf-free, bounds-clean, spectra equal within
   tolerance across thread counts.
-- Status: OPEN (depends on P1.1)
+- Status: DONE. 16-frequency case added to `drv_obs_frame_ib.f`
+  (`8f4b19da`); all outputs bitwise identical (md5) at 1/2/4/8
+  threads x2 reps, including the new ETAZ paths.
 
 ## P2. Inner-boundary transfer (Priority 2)
 
@@ -58,7 +63,14 @@ compiles.
   tolerance.
 - Acceptance: tests A-G pass; STAU=ETAZ within tolerance on a shared
   atmosphere with DIF=T.
-- Status: OPEN
+- Status: DONE. ETAZ branch now seeds `I_IB * exp(-TAU(IEND))` for
+  `DO_IB_DIFF_FLUX .AND. SM_NRAY==NRAY .AND. LS<=NC` rays, built from
+  the same interpolated IB_J/IB_H, foot mu, and NU_ON_NU0^3 factor as
+  STAU. Manufactured tests in `test_obs_frame_ib.py`: thin STAU/ETAZ
+  agree to 5e-9; doubled moments scale exactly 2x; thick model agrees
+  at 9.6% (coarse ray) closing to 3.9% at 4x insertions - quadrature,
+  not a missing term; negative-chi fallback and reversing-V cases
+  finite.
 
 ### P2.2 IB_H provenance check (P3)
 - Problem: `IB_H_CMF_ST = DBB/(3*CHI(ND))` analytic while
@@ -77,14 +89,19 @@ compiles.
   :899-924 (bounded guard + census + abort beyond).
 - Tests: unit test with `T1 > SM_FREQ_CMF(1)` injected; bounds build.
 - Acceptance: no element-0 read on any input; census counts the clamp.
-- Status: OPEN
+- Status: DONE. Loc-1 blue-edge guard added mirroring the I>1 branch
+  (K=2 + T1 clamp + census, abort beyond 2% margin). Committed
+  `d1e09a31`; pin test updated for the fourth census site (`3c12e629`).
 
 ### P2.4 `K=INDX(SM_NRAY)` lower-bound guard (P2)
 - File/routine: `obs_frame_sub_v9.f:1200-1203`.
 - Problem: `SM_FREQ_CMF(K-1)` unguarded for K=1.
 - Solution: same clamp pattern; or assert `2 <= K <= SM_NCF`.
 - Acceptance: bounds-clean with K=1 manufactured input.
-- Status: OPEN
+- Status: DONE. Resolved by construction: with the loc-1 blue-edge
+  guard, every stored `INDX` value is in [2,SM_NCF], so
+  `K=INDX(SM_NRAY) >= 2` and `J-1 = STRT_INDX_CMF+K-2 >= STRT >= 1`.
+  No element-0 read reachable; bounds build clean.
 
 ## P3. Clumping consistency (Priority 3)
 
