@@ -20,6 +20,10 @@ C   sl X - single call with uniform V=X under DO_REL_CORRECTIONS;
 C          used to exercise the superluminal rejection path.
 C   nan  - single call with a quiet NaN inside V; used to exercise
 C          the non-finite rejection path.
+C   char GEOM - GEOM=sph|pp: single-ray boundary-seed table over
+C          beta={0,+-0.1,+-0.3} x mu_obs={1,0.8,0.3,0.1} for both
+C          STAU and ETAZ (P7 Part C characteristic check).
+C   pp   - full-grid plane-parallel relativistic battery (P7 Part D).
 C
       INTEGER, PARAMETER :: ND=5
       INTEGER, PARAMETER :: NCF=4
@@ -49,13 +53,21 @@ C
       REAL(KIND=LDP) :: PI_L
       REAL(KIND=LDP) :: C_KMS,SPEED_OF_LIGHT
       REAL(KIND=LDP) :: V0,BETA,GAM,DOPP,MUO,MUC,MUR,T1,T2,T3,T4
+      REAL(KIND=LDP) :: MUOVR
       REAL(KIND=LDP), PARAMETER :: BETAB(6)=
      1  (/0.9_LDP,0.5_LDP,0.1_LDP,-0.1_LDP,-0.5_LDP,-0.9_LDP/)
       REAL(KIND=LDP), PARAMETER :: BETAA(5)=
      1  (/0.9_LDP,0.3_LDP,0.0_LDP,-0.3_LDP,-0.9_LDP/)
       REAL(KIND=LDP), PARAMETER :: MUTAB(7)=
      1  (/1.0_LDP,0.8_LDP,0.5_LDP,0.2_LDP,0.0_LDP,-0.4_LDP,-0.9_LDP/)
-      INTEGER :: I,J,NC,N_INS_OBS,NBAD
+      REAL(KIND=LDP), PARAMETER :: BETA_CASE(5)=
+     1  (/0.0_LDP,0.1_LDP,-0.1_LDP,0.3_LDP,-0.3_LDP/)
+      REAL(KIND=LDP), PARAMETER :: MU_CASE(4)=
+     1  (/1.0_LDP,0.8_LDP,0.3_LDP,0.1_LDP/)
+      REAL(KIND=LDP), PARAMETER :: MU_PP(8)=
+     1  (/1.0_LDP,0.85_LDP,0.7_LDP,0.55_LDP,0.4_LDP,
+     2    0.25_LDP,0.15_LDP,0.05_LDP/)
+      INTEGER :: I,J,IB,IM,NC,N_INS_OBS,NBAD,NPASS
       LOGICAL :: WRITE_RTAU
       LOGICAL :: WRITE_IP
       LOGICAL :: WRITE_DFR
@@ -227,6 +239,137 @@ C
      4    WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
      5    IB_J_CMF,IB_H_CMF,.FALSE.)
         WRITE(*,*)'NAN mode completed unexpectedly'
+        STOP
+      END IF
+C
+      IF(MODE .EQ. 'char')THEN
+C
+C Single-ray boundary-seed dump (P7 Part C).  Each call isolates one
+C core ray so OBS_FLUX = norm * HQW * I_seed for that ray's boundary
+C cosine.  SARG='sph' places the ray at P=R(ND)*sqrt(1-mu^2) so the
+C boundary cosine is exactly mu; SARG='pp' fixes the cosine directly
+C through MU_AT_RMAX.  A dummy limb ray at LS=2 carries zero weight:
+C the spherical loop runs to NP_TMP=NP-1 only.  CHI=1E-8 and ETA=0
+C make the diffusion seed the whole signal with attenuation ~1E-8.
+C The table written here is verified against an independent boosted-
+C distribution oracle in test_obs_frame_rel.py.
+C
+        ETA_CMF=0.0_LDP
+        CHI_CMF=1.0E-8_LDP
+        FREQ_CMF=(/70.0_LDP,6.0_LDP,1.0_LDP,0.25_LDP/)
+        DO_IB=.TRUE.
+        NPASS=2
+        NC=1
+        P(2)=R(1)
+        MU_AT_RMAX(2)=0.0_LDP
+        HQW_AT_RMAX(2)=0.0_LDP
+        PLANE_PARALLEL=(SARG .EQ. 'pp')
+        IF(PLANE_PARALLEL)THEN
+          OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/char_pp.txt',
+     1         STATUS='REPLACE')
+        ELSE
+          OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/char_sph.txt',
+     1         STATUS='REPLACE')
+        END IF
+        NBAD=0
+        CALL GET_COMMAND_ARGUMENT(4,FNAME)
+        IF(LEN_TRIM(FNAME) .GT. 0)THEN
+          READ(FNAME,*)MUOVR
+          NBAD=-1
+        END IF
+        DO IM=1,2
+          IF(IM .EQ. 1)THEN
+            INT_METHOD='STAU'
+          ELSE
+            INT_METHOD='ETAZ'
+          END IF
+          DO IB=1,5
+            BETA=BETA_CASE(IB)
+            V=BETA*C_KMS
+            DO J=1,4
+              MUO=MU_CASE(J)
+              IF(NBAD .EQ. -1)MUO=MUOVR
+              P(1)=R(ND)*SQRT(MAX(0.0_LDP,1.0_LDP-MUO*MUO))
+              MU_AT_RMAX(1)=MUO
+              HQW_AT_RMAX(1)=1.0_LDP
+              OBS_FLUX=0.0_LDP
+              CALL OBS_V9(ETA_CMF,CHI_CMF,
+     1          FREQ_CMF,R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,
+     2          NC,NPASS,OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3          TAU_MAX,ES_DTAU,N_INS_OBS,INT_METHOD,TAU_REF,
+     4          WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5          IB_J_CMF,IB_H_CMF,DO_IB)
+              WRITE(LU_OUT,'(A4,4(ES25.17,1X))')INT_METHOD,BETA,MUO,
+     1          OBS_FLUX(1),OBS_FLUX(2)
+              IF(NBAD .EQ. -1)EXIT
+            END DO
+          END DO
+        END DO
+        CLOSE(LU_OUT)
+        STOP
+      END IF
+C
+      IF(MODE .EQ. 'pp')THEN
+C
+C Full-grid plane-parallel relativistic run (P7 Part D).  Eight rays
+C at fixed cosines on [0.05,1]; NC=NP so every ray is a seed-eligible
+C core ray (NP_TMP=NC in PP).  HQW is a trapezoid in mu, dumped to
+C ppgrid.txt so the python side integrates the same weights.  The
+C battery covers V=0/+20000/-20000 under DO_REL and V=0/+20000 without
+C it; OMP reproducibility is checked by re-running the exe.
+C
+        ETA_CMF=0.0_LDP
+        CHI_CMF=1.0E-8_LDP
+        DO_IB=.TRUE.
+        PLANE_PARALLEL=.TRUE.
+        NPASS=8
+        NC=8
+        DO I=1,8
+          MU_AT_RMAX(I)=MU_PP(I)
+          P(I)=R(ND)*SQRT(MAX(0.0_LDP,1.0_LDP-MU_PP(I)**2))
+        END DO
+        HQW_AT_RMAX(1)=MU_PP(1)*(MU_PP(1)-MU_PP(2))
+        DO I=2,7
+          HQW_AT_RMAX(I)=MU_PP(I)*0.5_LDP*(MU_PP(I-1)-MU_PP(I+1))
+        END DO
+        HQW_AT_RMAX(8)=MU_PP(8)*(MU_PP(7)-MU_PP(8))
+        OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/ppgrid.txt',
+     1       STATUS='REPLACE')
+        DO I=1,8
+          WRITE(LU_OUT,'(3(ES25.17,1X))')P(I),MU_AT_RMAX(I),
+     1      HQW_AT_RMAX(I)
+        END DO
+        CLOSE(LU_OUT)
+        DO I=1,5
+          IF(I .LE. 2)THEN
+            V=20000.0_LDP
+            IF(I .EQ. 2)V=-20000.0_LDP
+            DO_REL=.TRUE.
+          ELSE IF(I .EQ. 3)THEN
+            V=0.0_LDP
+            DO_REL=.TRUE.
+          ELSE
+            V=0.0_LDP
+            IF(I .EQ. 5)V=20000.0_LDP
+            DO_REL=.FALSE.
+          END IF
+          OBS_FLUX=0.0_LDP
+          CALL OBS_V9(ETA_CMF,CHI_CMF,
+     1      FREQ_CMF,R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,
+     2      NC,NPASS,OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,INT_METHOD,TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,DO_IB)
+          IF(I .EQ. 1)FNAME='/flux_pp_rel_p.txt'
+          IF(I .EQ. 2)FNAME='/flux_pp_rel_m.txt'
+          IF(I .EQ. 3)FNAME='/flux_pp_rel_0.txt'
+          IF(I .EQ. 4)FNAME='/flux_pp_norel_0.txt'
+          IF(I .EQ. 5)FNAME='/flux_pp_norel_p.txt'
+          OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//TRIM(FNAME),
+     1         STATUS='REPLACE')
+          WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+          CLOSE(LU_OUT)
+        END DO
         STOP
       END IF
 C
