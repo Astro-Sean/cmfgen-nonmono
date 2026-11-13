@@ -15,11 +15,20 @@ Drivers (all call the REAL production routines):
             assert non-negative and finite.
     linepair    J_cont = B(T) and J_line = B(T)+A*Gaussian, both
             convolved by the real routine; baseline-subtracted
-            excess measured for peak, integrated excess, FWHM,
-            negative excursions, at two grid resolutions.
+            excess measured on the FULL domain for peak,
+            integrated excess in dlnnu and dnu, output wing
+            fraction, FWHM, negative excursions, at two grid
+            resolutions.
+    linext      same pair on the extended (appended-node) grid;
+            boundary sensitivity of the smeared feature and of
+            the integrated excess.
     bndp/bnd    same field on the production grid and an extended
-            grid; the extended result restricted to the shared
-            interval is the reference for boundary distortion.
+            grid whose production-spacing nodes are appended
+            beyond both ends; features are ALIVE at both
+            production bounds so the one-sided endpoint stencils
+            and the unshifted/non-interpolated endpoint treatment
+            are probed, and the extended result restricted to the
+            shared nodes is the boundary reference.
     tempu   J = B(T_TEST) with T(k)=T_TEST uniform: isolates the
             beta(T)=1.84E-3*sqrt(T) width dependence.
     edge    bound-free-like step: positivity, recorded max rel.
@@ -191,16 +200,16 @@ def sig_mask(rj, floor=1e-4):
     return np.abs(rj) > floor * np.abs(rj).max()
 
 
-def fwhm(nu, y):
-    """Full width at half maximum of a positive bump on nu."""
-    i = np.argmax(y)
-    half = 0.5 * y[i]
-    above = y >= half
-    if not above.any():
-        return 0.0, i
-    lo = np.where(above[: i + 1])[0].min()
-    hi = np.where(above[i:])[0].max() + i
-    return abs(nu[hi] - nu[lo]), i
+def fwhm_ln_axis(nu, exc):
+    """Full width at half maximum of a positive excess on the
+    ln(nu) axis - the coordinate the redistribution operator
+    actually acts in."""
+    lnu = np.log(nu)
+    m = exc > 0.5 * exc.max()
+    if not m.any():
+        return 0.0
+    ii = np.where(m)[0]
+    return abs(lnu[ii.max()] - lnu[ii.min()])
 
 
 def build_vadat(path, num_es, coh_es, knop=True):
@@ -282,12 +291,23 @@ def main():
         conv_bin, out_dir, "linepair", "512", "2", "0.4", "50",
         cwd=out_dir,
     )
-    # boundary: production grid vs extended grid (finer spacing
-    # over a wider domain).
+    # boundary: production grid vs extended grid with the
+    # production log spacing appended beyond both ends (identical
+    # production nodes).  linext is the same extension applied
+    # to the line feature - it isolates the finite-boundary
+    # influence on the smeared excess and its integrals.
     run(conv_bin, out_dir, "bndp", "256", cwd=out_dir)
     run(conv_bin, out_dir, "bnd", "256", cwd=out_dir)
     run(conv_bin, out_dir, "bndp", "512", cwd=out_dir)
     run(conv_bin, out_dir, "bnd", "512", cwd=out_dir)
+    run(
+        conv_bin, out_dir, "linext", "256", "2", "0.4", "50",
+        cwd=out_dir,
+    )
+    run(
+        conv_bin, out_dir, "linext", "512", "2", "0.4", "50",
+        cwd=out_dir,
+    )
 
     # -- planck preservation ---------------------------------------------
     nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_planck.txt")
@@ -320,9 +340,32 @@ def main():
         )
 
     # -- narrow-feature smearing (baseline-subtracted) ----------------------
+    # The redistribution operator is formulated in ln(nu) (the
+    # two-exponential Helmholtz fit of Rybicki & Hummer 1994,
+    # A&A 290, 553, convolves the log coordinate), so the honest
+    # integration measure is d ln nu; d nu is reported alongside.
+    # Neither integral is ASSERTED conserved: the interior column
+    # sums of the discrete operator are -H = 1, but the one-sided
+    # endpoint rows do not share that property, and the final
+    # B/B_es rescale is applied pointwise.  Integral agreement is
+    # therefore a measured property of this implementation on
+    # this domain - what is bounded below is the measured drift,
+    # not a physical conservation law.
+
+    def ln_sigma(nu_, exc_):
+        """Actual feature width in ln(nu): second moment of the
+        excess profile about its peak.  The manufactured feature
+        is Gaussian in nu, not in ln nu, so sigma_nu/nu0 is only
+        a local approximation of the width the operator sees."""
+        lnu_ = np.log(nu_)
+        pk_ = lnu_[np.argmax(exc_)]
+        w_ = np.trapezoid(exc_, x=lnu_)
+        return np.sqrt(np.trapezoid(exc_ * (lnu_ - pk_) ** 2, x=lnu_) / w_)
+
     smear_resp = {}
     for n, dnu_in in ((256, 0.4), (512, 0.4)):
         d = np.loadtxt(out_dir / f"esconv_linepair{n:05d}.txt")
+        dx = np.loadtxt(out_dir / f"esconv_linext{n:05d}.txt")
         ncf = int(d[:, 0].max())
         nd = d.shape[0] // ncf
         nu = d[:, 1].reshape(nd, ncf)[0]
@@ -330,19 +373,40 @@ def main():
         jbar_cont = d[:, 4].reshape(nd, ncf)
         j_line = d[:, 5].reshape(nd, ncf)
         jbar_line = d[:, 6].reshape(nd, ncf)
+        n_e = int(dx[:, 0].max())
+        next_ = (n_e - ncf) // 2
+        nu_e = dx[:, 1].reshape(nd, n_e)[0]
+        exc_in_e = dx[:, 5].reshape(nd, n_e)[0] - dx[:, 3].reshape(
+            nd, n_e
+        )[0]
+        exc_out_e = dx[:, 6].reshape(nd, n_e)[0] - dx[:, 4].reshape(
+            nd, n_e
+        )[0]
         k = 0  # outer depth row carries the strongest field
         exc_in = j_line[k] - j_cont[k]
         exc_out = jbar_line[k] - jbar_cont[k]
         feat = exc_in > 0.05 * exc_in.max()
-        w_in, ipk = fwhm(nu, exc_in)
-        w_out, _ = fwhm(nu, np.maximum(exc_out, 0.0))
-        # nu decreases with ML; integrate on the ascending axis.
-        int_in = np.trapezoid(exc_in[feat][::-1], x=np.log(nu[feat][::-1]))
-        int_out = np.trapezoid(
-            exc_out[feat][::-1], x=np.log(nu[feat][::-1])
+        lnu = np.log(nu)
+        asc = np.argsort(nu)
+        asc_e = np.argsort(nu_e)
+        # Full-domain integrals in both measures, input and output.
+        int_in_l = np.trapezoid(exc_in[asc], x=lnu[asc])
+        int_out_l = np.trapezoid(exc_out[asc], x=lnu[asc])
+        int_in_n = np.trapezoid(exc_in[asc], x=nu[asc])
+        int_out_n = np.trapezoid(exc_out[asc], x=nu[asc])
+        int_out_el = np.trapezoid(
+            exc_out_e[asc_e], x=np.log(nu_e)[asc_e]
         )
-        dlnnu = np.abs(np.diff(np.log(nu))).mean()
-        sigma_lnnu = dnu_in / 2.0
+        # Output excess outside the input 5%-of-peak footprint.
+        inside = np.trapezoid(
+            exc_out[asc][feat[asc]], x=lnu[asc][feat[asc]]
+        )
+        wing_frac = 1.0 - inside / int_out_l
+        w_in = fwhm_ln_axis(nu, exc_in)
+        w_out = fwhm_ln_axis(nu, np.maximum(exc_out, 0.0))
+        dlnnu = np.abs(np.diff(lnu)).mean()
+        sig_loc = dnu_in / 2.0          # local approx sigma_nu/nu0
+        sig_act = ln_sigma(nu, exc_in)  # measured width in ln nu
         nu0 = nu[np.argmax(exc_in)]
         de = exc_out - exc_in
         core = np.abs(nu - nu0) < 0.5 * dnu_in
@@ -351,14 +415,17 @@ def main():
         )
         smear_resp[n] = np.abs(de).max() / exc_in.max()
         rep.check(
-            f"linepair {n}: feature resolved (>=4 pts/sigma)",
-            sigma_lnnu / dlnnu >= 4.0,
-            f"sigma_ln_nu={sigma_lnnu:.3f} dln_nu={dlnnu:.4f}",
+            f"linepair {n}: feature resolved in ln nu "
+            "(>=4 pts/sigma)",
+            sig_act / dlnnu >= 4.0,
+            f"sigma_ln(local {sig_loc:.3f}, actual {sig_act:.3f}) "
+            f"dln_nu={dlnnu:.4f} pts/sig={sig_act / dlnnu:.1f}",
         )
         # Genuine smearing signature for a second-derivative
         # operator: the peak drops, the line core is depleted, the
-        # wings gain.  FWHM growth is unmeasurable at this kernel
-        # width (~1e-3 in ln nu at 1e4 K) and is not asserted.
+        # wings gain.  FWHM growth is below the grid cell here
+        # (kernel width ~1e-3 in ln nu at 1e4 K << dln_nu), so the
+        # width change is reported as unresolved, not asserted.
         rep.check(
             f"linepair {n}: smearing signature "
             "(peak drop, core depletion, wing lift)",
@@ -368,18 +435,47 @@ def main():
             f"peak {exc_in.max():.4e}->{exc_out.max():.4e} "
             f"core_dex {de[core].mean():+.3e} "
             f"wing_dex {de[wing].mean():+.3e} "
-            f"max|dexc|/pk {smear_resp[n]:.3e} "
-            f"fwhm {w_in:.3f}->{w_out:.3f}",
+            f"max|dexc|/pk {smear_resp[n]:.3e}",
         )
-        # Integral conservation is a measured property of the
-        # implementation, not an axiom of the underlying
-        # redistribution integral; the Helmholtz solve plus the
-        # Planck scale does not exactly conserve.
         rep.check(
-            f"linepair {n}: integrated excess ~conserved (<5%)",
-            abs(int_out - int_in) / abs(int_in) < 0.05,
-            f"int {int_in:.4e}->{int_out:.4e} "
-            f"({(int_out - int_in) / int_in:+.2e})",
+            f"linepair {n}: FWHM measured "
+            f"({'resolved' if abs(w_out - w_in) >= 2 * dlnnu else 'unresolved: below grid cell'})",
+            w_out >= w_in - 2.0 * dlnnu,
+            f"fwhm_ln {w_in:.4f}->{w_out:.4f} dln_nu={dlnnu:.4f}",
+        )
+        # Full-domain integral drift, reported in both measures.
+        # The bound is a regression bound on the measured drift
+        # (~4e-6 at both resolutions), not a conservation axiom.
+        rep.check(
+            f"linepair {n}: full-domain integral drift bounded (<1e-2)",
+            abs(int_out_l / int_in_l - 1.0) < 1e-2,
+            f"dlnnu: {int_in_l:.4e}->{int_out_l:.4e} "
+            f"({int_out_l / int_in_l - 1.0:+.3e})  "
+            f"dnu: {int_in_n:.4e}->{int_out_n:.4e} "
+            f"({int_out_n / int_in_n - 1.0:+.3e})",
+        )
+        rep.check(
+            f"linepair {n}: output wing fraction outside input mask",
+            0.0 < wing_frac < 0.5,
+            f"{wing_frac:.3f} of int(exc_out) dlnnu beyond the "
+            f">5% input footprint",
+        )
+        # Finite-boundary sensitivity: the same pair on the
+        # extended grid.  Boundary influence is bounded both on
+        # the full-domain integral and on the shared nodes.
+        rep.check(
+            f"linepair {n}: integral stable vs extended domain (<1e-3)",
+            abs(int_out_el / int_out_l - 1.0) < 1e-3,
+            f"prod {int_out_l:.4e} ext {int_out_el:.4e} "
+            f"({int_out_el / int_out_l - 1.0:+.3e})",
+        )
+        xe_i = exc_out_e[next_ : next_ + ncf]
+        dxc = np.abs(exc_out - xe_i) / np.maximum(np.abs(xe_i), 1e-300)
+        mxc = np.abs(xe_i) > 1e-6 * np.abs(xe_i).max()
+        rep.check(
+            f"linepair {n}: shared-node exc stable vs extended (<1e-2)",
+            dxc[mxc].max() < 1e-2,
+            f"max rel {dxc[mxc].max():.3e} ({mxc.sum()} sig pts)",
         )
         rep.check(
             f"linepair {n}: no strong negative ringing",
@@ -401,7 +497,13 @@ def main():
     # production ends, so the interior production nodes coincide
     # exactly - the comparison isolates the boundary treatment
     # (one-sided -2/Delta^2 stencil rows + unshifted, non-
-    # interpolated endpoints), not resolution/interp differences.
+    # interpolated endpoints + the B/B_es rescale) rather than
+    # resolution/interp differences.  Manufactured features sit
+    # ALIVE at both production bounds: a Gaussian near nu=0.045
+    # (significant field and curvature where the lower one-sided
+    # stencil acts) and one near nu=260 (a live field inside the
+    # Wien-dead Planck zone, which exercises the endpoint
+    # rescale path).
     for ncfp in ("256", "512"):
         dp = np.loadtxt(out_dir / f"esconv_bndp{int(ncfp):05d}.txt")
         de = np.loadtxt(out_dir / f"esconv_bnd{int(ncfp):05d}.txt")
@@ -413,9 +515,7 @@ def main():
         jp = dp[:, 4].reshape(nd, n_p)
         nu_e = de[:, 1].reshape(nd, n_e)[0]
         je = de[:, 4].reshape(nd, n_e)
-        k = 0
-        je_i = je[k, next_ : next_ + n_p]
-        ref = jp[k]
+        je_i = je[:, next_ : next_ + n_p]
         # Interior nodes must coincide exactly by construction.
         rep.check(
             f"bnd {ncfp}: extended interior nodes match production",
@@ -423,12 +523,6 @@ def main():
             <= 1e-12 * nu_p.max(),
             f"max node offset {np.abs(nu_e[next_:next_+n_p]-nu_p).max():.3e}",
         )
-        drel = np.abs(ref - je_i) / np.maximum(np.abs(je_i), 1e-300)
-        jmax = ref.max()
-        # Explicit edge regions: the outer 6 production nodes at
-        # each end, plus a significant-J mask.  Reported against
-        # the interior floor (middle 60% of the domain) so the
-        # edge excess over the interior is what is bounded.
         lnu = np.log(nu_p)
         span = lnu.max() - lnu.min()
         edge_lo = np.zeros(n_p, bool)
@@ -438,26 +532,78 @@ def main():
         mid = (lnu > lnu.min() + 0.2 * span) & (
             lnu < lnu.max() - 0.2 * span
         )
-        sig = ref > 1e-4 * jmax
-        floor = drel[mid & sig]
-        floor_max = floor.max() if floor.any() else 0.0
-        # Tolerance from grid refinement is recorded in the
-        # audit: the reported numbers at 256 and 512 show whether
-        # the edge discrepancy is resolution-driven.
+        # Interior floor first (middle 60%, all depths), then
+        # per-edge statistics over ALL depth rows: max/rms rel
+        # discrepancy vs the extended reference, significant-point
+        # count (on the extended field), positivity, and ringing
+        # (sign changes of the signed discrepancy across the zone).
+        floor_max = 0.0
+        for k in range(nd):
+            ext = je_i[k]
+            sig_i = mid & (np.abs(ext) > 1e-6 * np.abs(ext).max())
+            if sig_i.any():
+                di = np.abs(jp[k] - ext) / np.maximum(np.abs(ext), 1e-300)
+                floor_max = max(floor_max, di[sig_i].max())
+        edge_stats = {}
         for tag, zone in (("upper", edge_hi), ("lower", edge_lo)):
-            m = zone & (ref > 1e-6 * jmax)
-            rep.check(
-                f"bnd {ncfp} {tag}: edge discrepancy vs extended",
-                True,
-                f"max {drel[m].max() if m.any() else 0.0:.3e} "
-                f"rms {np.sqrt((drel[m] ** 2).mean()) if m.any() else 0.0:.3e} "
-                f"interior floor {floor_max:.3e} ({m.sum()} sig pts)",
-            )
+            mx = rms = rat_max = 0.0
+            nsig = 0
+            sign_changes = 0
+            for k in range(nd):
+                ref = jp[k]
+                ext = je_i[k]
+                sig = zone & (np.abs(ext) > 1e-6 * np.abs(ext).max())
+                drel = np.abs(ref - ext) / np.maximum(np.abs(ext), 1e-300)
+                if sig.any():
+                    mx = max(mx, drel[sig].max())
+                    rms = max(
+                        rms, np.sqrt((drel[sig] ** 2).mean())
+                    )
+                    nsig += int(sig.sum())
+                    rat_max = max(
+                        rat_max,
+                        (ref[sig] / np.maximum(ext[sig], 1e-300)).max(),
+                    )
+                dd = (ref - ext)[zone]
+                dd = dd[dd != 0.0]
+                if dd.size > 1:
+                    sign_changes = max(
+                        sign_changes,
+                        int((np.diff(np.sign(dd)) != 0).sum()),
+                    )
+            edge_stats[tag] = (mx, rms, nsig, rat_max, sign_changes)
+        # Interior floor (middle 60%, all depths).
         rep.check(
             f"bnd {ncfp}: interior consistency vs extended domain",
-            floor_max < 5e-2,
-            f"max interior discrepancy {floor_max:.3e} "
-            f"({(mid & sig).sum()} sig pts)",
+            floor_max < 5e-3,
+            f"max interior discrepancy {floor_max:.3e}",
+        )
+        # Lower edge: live feature, Rayleigh-Jeans-side rescale
+        # active.  Measured ~2e-4 max at both resolutions and
+        # resolution-stable, so the bound is set at 5x the worst
+        # measured value - a real stencil-error acceptance, not a
+        # recorded diagnostic.
+        mx, rms, nsig, rat_max, sc = edge_stats["lower"]
+        rep.check(
+            f"bnd {ncfp} lower: edge discrepancy vs extended (<1e-3)",
+            mx < 1e-3 and rms < 3e-4,
+            f"max {mx:.3e} rms {rms:.3e} nsig={nsig} "
+            f"maxratio {rat_max:.4f} signchanges={sc}",
+        )
+        # Upper edge: the convolved field is SUPPRESSED, never
+        # amplified, in the Wien-dead Planck zone - the B/B_es
+        # rescale with denormal B_es at the non-interpolated
+        # endpoint crushes J to <=1e-2 of the extended reference
+        # (documented production limitation).  What is asserted is
+        # the suppression-only, non-ringing, non-negative
+        # character; the measured magnitude is reported.
+        mx, rms, nsig, rat_max, sc = edge_stats["upper"]
+        rep.check(
+            f"bnd {ncfp} upper: no amplification or ringing "
+            "(documented suppression)",
+            rat_max < 1.0 + 1e-2 and sc <= 3,
+            f"max drel {mx:.3e} rms {rms:.3e} nsig={nsig} "
+            f"maxratio {rat_max:.4f} signchanges={sc}",
         )
         rep.check(
             f"bnd {ncfp}: output finite and non-negative",
