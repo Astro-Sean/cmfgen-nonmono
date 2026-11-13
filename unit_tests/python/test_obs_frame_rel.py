@@ -94,6 +94,41 @@ def ib_predict(pgrid, wgrid, nc, beta, aberrated=True, chi=1.0e-6):
     return total * JY_CONST * R1**2
 
 
+def seed_oracle_boosted(mu_obs, beta, j0=1.0, h0=0.2, nmu=400001):
+    """Independent inner-boundary seed oracle (P7 Part C).
+
+    Builds the interior diffusion field I'(mu') = J + 3 mu' H on a
+    dense comoving-direction grid, then maps every comoving photon
+    direction FORWARD into the lab frame with
+    mu = (mu' + beta)/(1 + beta mu') and carries its intensity with
+    the I_nu/nu^3 invariant, I_lab(mu) = I'(mu') [gam (1+beta mu')]^3.
+    The lab-frame distribution is then interpolated at the ray's
+    boundary cosine.  This never evaluates the inverse aberration
+    used in the code: it reconstructs which comoving photon lands on
+    the lab ray from the forward map alone.  Also returns the
+    comoving direction that maps to mu_obs (the photon's interior
+    hemisphere)."""
+    mu_p = np.linspace(-1.0, 1.0, nmu)
+    i_cmf = j0 + 3.0 * mu_p * h0
+    gam = 1.0 / np.sqrt(1.0 - beta * beta)
+    mu_lab = (mu_p + beta) / (1.0 + beta * mu_p)
+    i_lab = i_cmf * (gam * (1.0 + beta * mu_p)) ** 3
+    i_seed = np.interp(mu_obs, mu_lab, i_lab)
+    mu_cmf = np.interp(mu_obs, mu_lab, mu_p)
+    return i_seed, mu_cmf
+
+
+def seed_tau_sph(p, beta, chi=1.0e-8):
+    """Near-side attenuation of the boundary seed for the spherical
+    manufactured model (uniform chi, constant V): tau = chi * int
+    gam (1 - beta mu(z)) dz from the boundary crossing to R(1)."""
+    gam = 1.0 / np.sqrt(1.0 - beta * beta)
+    zb = np.sqrt(RND**2 - p**2)
+    z1 = np.sqrt(R1**2 - p**2)
+    z = np.linspace(zb, z1, 2001)
+    return chi * np.trapezoid(gam * (1.0 - beta * z / np.hypot(p, z)), z)
+
+
 def main():
     rep = Report("OBS frame relativistic transformations (P7)")
     out_dir = WORKDIR / "obs_frame_rel"
@@ -101,6 +136,10 @@ def main():
     for stale in out_dir.glob("flux_*.txt"):
         stale.unlink()
     for stale in out_dir.glob("quad_grid.txt"):
+        stale.unlink()
+    for stale in out_dir.glob("char_*.txt"):
+        stale.unlink()
+    for stale in out_dir.glob("ppgrid.txt"):
         stale.unlink()
 
     objs = compile_objs(
@@ -112,6 +151,9 @@ def main():
     run(binary, out_dir, "quad", cwd=out_dir)
     prop = run(binary, out_dir, "prop", cwd=out_dir)
     run(binary, out_dir, "run", cwd=out_dir, timeout=900)
+    run(binary, out_dir, "char", "sph", cwd=out_dir, timeout=600)
+    run(binary, out_dir, "char", "pp", cwd=out_dir, timeout=600)
+    run(binary, out_dir, "pp", cwd=out_dir, timeout=300)
 
     # --- Property checks: closed-form Doppler, round-trip, invariants
     for tag in ("doppler_closed_form", "aberration_roundtrip", "invariant"):
@@ -262,6 +304,211 @@ def main():
         f"stau_p={ib_rel_p} etaz_p={ib_etaz_p} "
         f"stau_m={ib_rel_m} etaz_m={ib_etaz_m}",
     )
+
+    # --- TEST 11 (Part C): manufactured characteristics -------------
+    # Per-ray boundary seeds at beta = 0,+-0.1,+-0.3 and
+    # mu_obs = 1.0,0.8,0.3,0.1 for both STAU and ETAZ.  The oracle
+    # boosts the interior diffusion distribution forward into the lab
+    # frame on a dense direction grid - it never evaluates the
+    # inverse-aberration expression used in the code.
+    char_rows = {}
+    for geom in ("sph", "pp"):
+        rows = np.loadtxt(
+            out_dir / f"char_{geom}.txt",
+            dtype={
+                "names": ("method", "beta", "mu", "f1", "f2"),
+                "formats": ("S4", "f8", "f8", "f8", "f8"),
+            },
+        )
+        char_rows[geom] = rows
+        n_bad = 0
+        worst = ""
+        for r in rows:
+            meth, beta, mu, f1, f2 = (
+                r["method"].decode(),
+                r["beta"],
+                r["mu"],
+                r["f1"],
+                r["f2"],
+            )
+            i_seed, mu_cmf = seed_oracle_boosted(mu, beta)
+            gam = 1.0 / np.sqrt(1.0 - beta * beta)
+            if geom == "sph":
+                p = RND * np.sqrt(max(0.0, 1.0 - mu * mu))
+                tau = seed_tau_sph(p, beta)
+            else:
+                tau = 1.0e-8 * gam * (1.0 - beta * mu) * (R1 - RND) / mu
+            expect = JY_CONST * R1**2 * i_seed * np.exp(-tau)
+            ok1 = np.isclose(f1, expect, rtol=2.0e-4, atol=0.0)
+            ok2 = np.isclose(f2, expect, rtol=2.0e-4, atol=0.0)
+            if not (ok1 and ok2):
+                n_bad += 1
+                worst = (
+                    f"{meth} beta={beta:+.1f} mu={mu:.1f} got=({f1:.9e},"
+                    f"{f2:.9e}) expect={expect:.9e} mu_cmf={mu_cmf:+.4f}"
+                )
+        rep.check(
+            f"Part C: all 40 {geom} single-ray seeds match the "
+            "forward-boosted diffusion-field oracle (STAU+ETAZ, "
+            "beta=0/+-0.1/+-0.3 x mu=1.0/0.8/0.3/0.1)",
+            n_bad == 0,
+            f"bad={n_bad} worst: {worst or 'none'}",
+        )
+
+    # Classification table required by the task: for every case the
+    # lab ray is an atmosphere-entering characteristic (mu_obs>0 at a
+    # boundary fixed in the lab frame); the seed is the interior
+    # diffusion field at the photon's comoving direction, on whichever
+    # hemisphere the aberration selects.
+    with open(out_dir / "char_classification.txt", "w") as fh:
+        fh.write(
+            "# mu_obs beta mu_cmf interior_hemisphere ray_role "
+            "boundary_condition\n"
+        )
+        for beta in (0.0, 0.1, -0.1, 0.3, -0.3):
+            for mu in (1.0, 0.8, 0.3, 0.1):
+                _, mu_cmf = seed_oracle_boosted(mu, beta)
+                hemi = (
+                    "outward"
+                    if mu_cmf > 1.0e-12
+                    else "tangential" if mu_cmf > -1.0e-12 else "inward"
+                )
+                fh.write(
+                    f"{mu:6.2f} {beta:+6.2f} {mu_cmf:+9.5f} {hemi:>10s} "
+                    "entering interior_diffusion_field@mu_cmf\n"
+                )
+
+    # Discriminators for the negative-mu_cmf cases (only beta=+0.3,
+    # mu_obs=0.1 in this grid): the seed must be the inward-
+    # hemisphere value J - 3|mu'|H, boosted - not clamped-to-J, not
+    # zero, and not the outward-hemisphere value at |mu'|.
+    for geom in ("sph", "pp"):
+        rows = char_rows[geom]
+        r = next(
+            x
+            for x in rows
+            if x["method"] == b"STAU"
+            and np.isclose(x["beta"], 0.3)
+            and np.isclose(x["mu"], 0.1)
+        )
+        got = r["f1"]
+        i_seed, mu_cmf = seed_oracle_boosted(0.1, 0.3)
+        gam = 1.0 / np.sqrt(1.0 - 0.3**2)
+        norm = JY_CONST * R1**2
+        d3 = (gam * (1.0 + 0.3 * mu_cmf)) ** 3
+        rep.check(
+            f"{geom} beta=+0.3 mu=0.1 is a comoving-inward photon "
+            f"(mu_cmf={mu_cmf:+.4f}<0): seed = D^3*(J-3|mu_cmf|H), "
+            "the advected interior inward hemisphere",
+            mu_cmf < 0.0
+            and np.isclose(got, norm * (1.0 - 3.0 * abs(mu_cmf) * 0.2) * d3, rtol=2.0e-4)
+            and not np.isclose(got, norm * 1.0 * d3, rtol=1.0e-3)
+            and not np.isclose(got, norm * (1.0 + 3.0 * abs(mu_cmf) * 0.2) * d3, rtol=1.0e-3)
+            and got > 0.0,
+            f"got={got:.9e} inward={norm * (1.0 - 3.0 * abs(mu_cmf) * 0.2) * d3:.9e} "
+            f"clampJ={norm * d3:.9e} outward={norm * (1.0 + 3.0 * abs(mu_cmf) * 0.2) * d3:.9e}",
+        )
+
+    # PP-vs-spherical cosine consistency: at the same boundary cosine
+    # the two geometries must seed the same comoving state (Part D
+    # convention check).  Tolerance covers the different chord
+    # attenuation at chi=1e-8.
+    sph_rows = char_rows["sph"]
+    pp_rows = char_rows["pp"]
+    n_bad = 0
+    worst = ""
+    for rs in sph_rows:
+        rp = next(
+            (
+                x
+                for x in pp_rows
+                if x["method"] == rs["method"]
+                and np.isclose(x["beta"], rs["beta"])
+                and np.isclose(x["mu"], rs["mu"])
+            ),
+            None,
+        )
+        if rp is None or not np.isclose(rp["f1"], rs["f1"], rtol=5.0e-5):
+            n_bad += 1
+            worst = f"{rs['method'].decode()} beta={rs['beta']:+.1f} mu={rs['mu']:.1f}"
+    rep.check(
+        "PP and spherical seeds agree at the same boundary cosine "
+        "(confirms MU_AT_RMAX is the correct PP boundary mu)",
+        n_bad == 0,
+        f"bad={n_bad} worst: {worst or 'none'}",
+    )
+
+    # --- TEST 12 (Part D): plane-parallel relativistic run ----------
+    pg = np.loadtxt(out_dir / "ppgrid.txt")
+    pmu, pw = pg[:, 1], pg[:, 2]
+    pp_rel_0 = np.loadtxt(out_dir / "flux_pp_rel_0.txt")
+    pp_norel_0 = np.loadtxt(out_dir / "flux_pp_norel_0.txt")
+    pp_rel_p = np.loadtxt(out_dir / "flux_pp_rel_p.txt")
+    pp_rel_m = np.loadtxt(out_dir / "flux_pp_rel_m.txt")
+    pp_norel_p = np.loadtxt(out_dir / "flux_pp_norel_p.txt")
+
+    rep.check(
+        "PP: all manufactured runs produce finite positive flux",
+        all(np.all(np.isfinite(x)) and np.all(x > 0.0)
+            for x in (pp_rel_0, pp_norel_0, pp_rel_p, pp_rel_m, pp_norel_p)),
+        f"{pp_rel_0} {pp_rel_p} {pp_rel_m}",
+    )
+    rep.check(
+        "PP: V=0 under DO_REL reproduces the non-rel run bitwise",
+        np.array_equal(pp_rel_0, pp_norel_0),
+        f"rel={pp_rel_0} norel={pp_norel_0}",
+    )
+    for sign, tag in ((1.0, "p"), (-1.0, "m")):
+        got = np.loadtxt(out_dir / f"flux_pp_rel_{tag}.txt")
+        beta = sign * 20000.0 / C_KMS
+        gam = 1.0 / np.sqrt(1.0 - beta * beta)
+        expect = 0.0
+        for mu, w in zip(pmu, pw):
+            i_seed, _ = seed_oracle_boosted(mu, beta)
+            tau = 1.0e-8 * gam * (1.0 - beta * mu) * (R1 - RND) / mu
+            expect += w * i_seed * np.exp(-tau)
+        expect *= JY_CONST * R1**2
+        rep.check(
+            f"PP: V={'+' if sign > 0 else '-'}20000 boundary-sum "
+            "matches the boosted oracle over the mu grid "
+            "(Doppler factor + aberration)",
+            np.allclose(got, expect, rtol=1.0e-4, atol=0.0),
+            f"got={got} expect={expect}",
+        )
+    rep.check(
+        "PP: +V flux exceeds -V flux (outflow boosts, inflow deboosts)",
+        np.all(pp_rel_p > pp_rel_m),
+        f"p={pp_rel_p} m={pp_rel_m}",
+    )
+    # OMP determinism of the PP path.
+    omp_pp = {}
+    for nt in (1, 8):
+        d = out_dir / f"omp_pp{nt}"
+        d.mkdir(exist_ok=True)
+        env = dict(os.environ, OMP_NUM_THREADS=str(nt))
+        r = subprocess.run(
+            [str(binary), str(d), "pp"],
+            cwd=d,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if r.returncode == 0:
+            omp_pp[nt] = d
+    if len(omp_pp) == 2:
+        same = all(
+            np.array_equal(
+                np.loadtxt(omp_pp[1] / f.name),
+                np.loadtxt(omp_pp[8] / f.name),
+            )
+            for f in sorted(omp_pp[1].glob("flux_pp_*.txt"))
+        )
+        rep.check(
+            "PP: OMP determinism, flux identical at 1 vs 8 threads",
+            same,
+            "",
+        )
 
     # --- TEST 9: superluminal rejection -----------------------------
     # The literal 299792.458 can sit a few ulps below the fp value of
