@@ -315,7 +315,8 @@ compiles.
 - Tests: coherent vs non-coherent vs converged redistribution
   reference.
 - Acceptance: single fold verified; spectra converge in NUM_ES.
-- Status: AUDIT DONE, acceptance pending. Source audit in
+- Status: AUDIT DONE + NUMERICAL TESTS DONE, acceptance pending
+  independent review. Source audit in
   docs/audits/CMF_FLUX_P8_ES_REDISTRIBUTION_AUDIT.md; plan in
   CMF_FLUX_P8_IMPLEMENTATION_PLAN.md.
   - Single fold confirmed at every ESEC*RJ_ES site; OBS_FRAME adds
@@ -323,12 +324,28 @@ compiles.
   - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
     each ES sweep (OBS side) and after each great-iteration (model
     side); render uses the freshest in-memory convolve.
-  - Open items: Rayleigh convention differs under INC_RAY=T
-    (model CHI_SCAT*RJ_ES vs obs ESEC*RJ_ES + CHI_RAY*RJ); no
-    NUM_ES residual gate (P8.2); STEQ_T sign unverified; P7
-    3|H|<J positivity diagnostic deferred to P8/final validation.
-  - Numerical acceptance criteria in the plan doc are NOT yet
-    met; do not mark complete until T1-T7 pass.
+  - test_es_conv.py 29/29 (drv_es_conv + drv_es_render; ifort
+    -O0 -g -traceback -qopenmp -mkl=sequential): convolver
+    battery (Planck 1.46e-5 max/1.28e-6 rms; temp 1.4e-3; edge
+    9.1e-4; grid-saturated), one-fold elementwise census, T4
+    coherent-vs-noncoherent flux discriminator (8e-3..1.4e-2),
+    Q-RAY bound measured (DTA/TA <= 8.6e-4, dF/F <= 9.2e-3 at
+    chi_ray=sigma_es, narrow-feature scattering-dominated case;
+    <=1.8e-8 / <=7.2e-11 for smooth thermal-dominated fields).
+  - Q-RAY resolved quantitatively (audit section 8 item 1):
+    measurable only where Rayleigh is a large scattering
+    fraction AND the field has feature-scale contrast. Inert
+    under INC_RAY=F. No source change proposed - the model-side
+    expression feeds the Jacobian, so a convention fix first
+    needs the solver-implication map.
+  - KNOP/ES call sequence verified at source: sweep k consumes
+    Jbar_{k-1} from ES_J_CONV; FG/MOM refresh runs before the
+    convolve-write inside each non-final sweep; render uses
+    Jbar_N from the in-place RJ_CMF_ST convolve; no stale-RJ_ES
+    path to the render in the covered chain.
+  - Open items: no NUM_ES residual gate (P8.2); STEQ_T sign
+    unverified; P7 3|H|<J positivity diagnostic deferred to
+    P8/final validation.
 
 ### P8.2 KNOP maturity gate
 - Problem: no OBS-side acceptance gate preventing a spectrum from an
