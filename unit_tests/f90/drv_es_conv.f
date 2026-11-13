@@ -1,0 +1,275 @@
+C
+C Manufactured driver for the production electron-scattering
+C convolution COMP_J_CONV_V2 (P8.1 acceptance).
+C
+C The routine is exercised in its 'J PASSED VIA CALL' /
+C 'RETURN J VIA CALL' mode so no EDDFACTOR/ES_J_CONV files are
+C needed: the manufactured J goes in, the convolved J comes back.
+C
+C Usage: drv_es_conv <out_dir> <mode> [arg3] [arg4] [arg5]
+C   modes:
+C     planck   J = B_nu(T(K))            - Planck preservation
+C     const    J = const                 - constant-field response
+C     line     J = B + narrow Gaussian   - spectral feature smearing
+C     edge     narrow features near grid ends
+C     temp     J = B(Tmid) at all depths - pure T dependence of BETA
+C     pos      J = B with zeroed blocks  - positivity
+C     grid     J = B(T) at arg3 = NCF    - grid-refinement series
+C     qray     INC_RAY manufactured atmosphere; emits both
+C              emissivity conventions + all fields for the
+C              CHI_RAY*(RJ_ES-RJ) measurement
+C
+C   arg3 = NCF for grid (default 256), NU0 for line/edge
+C   arg4 = Gaussian width (line) or unused
+C   arg5 = peak amplitude factor (line)
+C
+      PROGRAM DRV_ES_CONV
+      USE SET_KIND_MODULE
+      IMPLICIT NONE
+C
+      INTEGER, PARAMETER :: ND=4
+      INTEGER, PARAMETER :: NCFMX=1024
+      INTEGER, PARAMETER :: LU_OUT=31
+C
+      REAL(KIND=LDP), ALLOCATABLE :: J_STORE(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: J_IN(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: RJ_CONT(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: NU(:)
+      REAL(KIND=LDP) T(ND)
+      REAL(KIND=LDP) NU0,DNU,AMP,NU_HI,NU_LO
+C
+C COMMON blocks required by COMP_J_CONV_V2.
+C
+      COMMON/CONSTANTS/ CHIBF,CHIFF,HDKT,TWOHCSQ
+      COMMON/LINE/ OPLIN,EMLIN
+      REAL(KIND=LDP) CHIBF,CHIFF,HDKT,TWOHCSQ
+      REAL(KIND=LDP) OPLIN,EMLIN
+C
+      CHARACTER(LEN=256) OUT_DIR,SARG
+      CHARACTER(LEN=32) MODE
+      INTEGER I,K,ML,NCF,CONT_REC,LUDUM
+      LOGICAL L_FALSE
+      REAL(KIND=LDP) BB,T1
+C
+      BB(T1,NU0)=TWOHCSQ*(NU0**3)/
+     1   (EXP(MIN(700.0_LDP,HDKT*NU0/T1))-1.0_LDP)
+C
+      CALL GETARG(1,OUT_DIR)
+      CALL GETARG(2,MODE)
+      NCF=256
+      NU0=20.0_LDP
+      DNU=0.5_LDP
+      AMP=100.0_LDP
+      CALL GETARG(3,SARG)
+      IF(LEN_TRIM(SARG) .GT. 0)THEN
+        IF(MODE .EQ. 'grid')THEN
+          READ(SARG,*)NCF
+        ELSE IF(MODE .EQ. 'qray')THEN
+          READ(SARG,*)AMP
+        ELSE
+          READ(SARG,*)NU0
+        END IF
+      ELSE IF(MODE .EQ. 'qray')THEN
+        AMP=0.025_LDP
+      END IF
+      CALL GETARG(4,SARG)
+      IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)DNU
+      CALL GETARG(5,SARG)
+      IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)AMP
+C
+      IF(NCF .GT. NCFMX)STOP 'NCF>NCFMX'
+      ALLOCATE(J_STORE(ND,NCF),J_IN(ND,NCF),RJ_CONT(ND,NCF),
+     1     NU(NCF))
+C
+      CHIBF=0.0_LDP
+      CHIFF=0.0_LDP
+      HDKT=4.7994145_LDP
+      TWOHCSQ=0.0147452575_LDP
+      OPLIN=0.0_LDP
+      EMLIN=0.0_LDP
+      L_FALSE=.FALSE.
+      LUDUM=7
+      CONT_REC=0
+C
+      T(1)=5.0_LDP
+      T(2)=2.0_LDP
+      T(3)=1.0_LDP
+      T(4)=0.5_LDP
+C
+C Decreasing log-spaced frequency grid (10^15 Hz), spanning the
+C production range where e.s. redistribution acts.
+C
+      NU_HI=300.0_LDP
+      NU_LO=0.02_LDP
+      DO ML=1,NCF
+        NU(ML)=EXP( LOG(NU_HI)+(LOG(NU_LO)-LOG(NU_HI))*
+     1            (ML-1.0_LDP)/(NCF-1.0_LDP) )
+      END DO
+C
+      J_STORE(:,:)=0.0_LDP
+      IF(MODE .EQ. 'planck' .OR. MODE .EQ. 'grid')THEN
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(T(K),NU(ML))
+          END DO
+        END DO
+      ELSE IF(MODE .EQ. 'const')THEN
+        J_STORE(:,:)=1.0_LDP
+      ELSE IF(MODE .EQ. 'line' .OR. MODE .EQ. 'edge')THEN
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(T(K),NU(ML))
+          END DO
+        END DO
+        IF(MODE .EQ. 'line')THEN
+          DO K=1,ND
+            DO ML=1,NCF
+              J_STORE(K,ML)=J_STORE(K,ML)+
+     1          AMP*BB(T(K),NU0)*
+     2          EXP(-0.5_LDP*((NU(ML)-NU0)/DNU)**2)
+            END DO
+          END DO
+        ELSE
+          DO K=1,ND
+            DO ML=1,NCF
+              J_STORE(K,ML)=J_STORE(K,ML)+
+     1          AMP*BB(T(K),NU(2))*
+     2          EXP(-0.5_LDP*((NU(ML)-NU(2))/DNU)**2)+
+     3          AMP*BB(T(K),NU(NCF-1))*
+     4          EXP(-0.5_LDP*((NU(ML)-NU(NCF-1))/DNU)**2)
+            END DO
+          END DO
+        END IF
+      ELSE IF(MODE .EQ. 'qray')THEN
+C Non-Planckian J: a diluted blackbody plus a narrow emission
+C feature at the CHI_RAY band centre gives a real RJ_ES-RJ
+C contrast - the convention difference CHI_RAY*(RJ_ES-RJ)
+C vanishes identically when J is already Planckian, and a
+C feature narrower than the kernel width is what e.s.
+C redistribution actually smears (the SOB-wing motivation).
+C RJ_CONT keeps the unbumped continuum for the ETA definition.
+        DO K=1,ND
+          DO ML=1,NCF
+            RJ_CONT(K,ML)=(0.15_LDP+0.85_LDP*(K-1.0_LDP)/
+     1        (ND-1.0_LDP))*BB(T(3),NU(ML))
+            J_STORE(K,ML)=RJ_CONT(K,ML) +
+     2        50.0_LDP*BB(T(3),6.0_LDP)*
+     3        EXP(-0.5_LDP*((NU(ML)-6.0_LDP)/0.5_LDP)**2)*
+     4        (1.0_LDP-0.5_LDP*(K-1.0_LDP)/(ND-1.0_LDP))
+          END DO
+        END DO
+      ELSE IF(MODE .EQ. 'pos')THEN
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(T(K),NU(ML))
+          END DO
+        END DO
+        J_STORE(:,NCF/3:2*NCF/5)=0.0_LDP
+      ELSE IF(MODE .EQ. 'temp')THEN
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(T(3),NU(ML))
+          END DO
+        END DO
+      ELSE
+        STOP 'unknown mode'
+      END IF
+C
+      J_IN(:,:)=J_STORE(:,:)
+C
+      CALL COMP_J_CONV_V2(J_STORE,NCF*ND,NU,T,ND,NCF,
+     1     LUDUM,'J PASSED VIA CALL',CONT_REC,L_FALSE,L_FALSE,
+     2     LUDUM,'RETURN J VIA CALL')
+C
+      IF(MODE .EQ. 'qray')THEN
+        CALL QRAY_BLOCK(OUT_DIR,NU,T,J_IN,J_STORE,RJ_CONT,
+     1     ND,NCF,LU_OUT,AMP)
+      ELSE
+        OPEN(LU_OUT,FILE=TRIM(OUT_DIR)//'/esconv_'//
+     1       TRIM(MODE)//'.txt',STATUS='UNKNOWN')
+        WRITE(LU_OUT,'(A,I3,A,I5)')'# ND=',ND,' NCF=',NCF
+        WRITE(LU_OUT,'(A)')'# ML NU T J_IN JBAR'
+        DO K=1,ND
+          DO ML=1,NCF
+            WRITE(LU_OUT,'(I5,ES27.17E3,ES15.7,2(ES27.17E3))')
+     1        ML,NU(ML),T(K),J_IN(K,ML),J_STORE(K,ML)
+          END DO
+        END DO
+        CLOSE(LU_OUT)
+      END IF
+C
+      STOP
+      END
+C
+C*******************************************************************
+C
+C Q-RAY block: manufacture an INC_RAY=T atmosphere and emit the two
+C production emissivity conventions elementwise.
+C
+C   TA_model = ETA_CLUMP + CHI_SCAT_CLUMP*RJ_ES   (comp_j_blank:843)
+C   TA_obs   = ETA_CLUMP + ESEC_CLUMP*RJ_ES
+C             + CHI_RAY_CLUMP*RJ                  (COMP_JCONT:751)
+C
+C CHI_RAY uses the production Rayleigh shape - neutral-H Rayleigh
+C scattering rises steeply with frequency; we take chi_ray ∝ NU**4
+C normalized per depth (the standard H I Rayleigh form, as produced
+C by RAYLEIGH_SCAT below the Lyman edges). ESEC is uniform; ETA is
+C a thermal (absorptive) emissivity; CLUMP_FAC is applied to all
+C opacity/emissivity factors as in production.
+C
+      SUBROUTINE QRAY_BLOCK(OUT_DIR,NU,T,RJ,RJ_ES,RJ_CONT,
+     1     ND,NCF,LU,RRAY0)
+      USE SET_KIND_MODULE
+      IMPLICIT NONE
+      INTEGER ND,NCF,LU
+      REAL(KIND=LDP) NU(NCF),T(ND),RJ(ND,NCF),RJ_ES(ND,NCF)
+      REAL(KIND=LDP) RJ_CONT(ND,NCF),RRAY0
+      CHARACTER(LEN=*) OUT_DIR
+C
+      REAL(KIND=LDP) CHI_RAY(ND,NCF),ESEC(ND),ETA(ND,NCF)
+      REAL(KIND=LDP) CHI(ND,NCF),CLUMP(ND)
+      REAL(KIND=LDP) TA_MODEL(ND,NCF),TA_OBS(ND,NCF)
+      INTEGER I,ML
+C
+C Rayleigh opacity rising as NU**4, weighted down with depth so it
+C resembles a recombined outer atmosphere. Amplitude chosen so the
+C max chi_ray/esec ratio is O(1) at the outer edge - a deliberately
+C strong but plausible case for bounding the convention difference.
+C
+      DO I=1,ND
+        ESEC(I)=0.05_LDP*I                    ! rises inward
+        CLUMP(I)=1.0_LDP+0.05_LDP*(ND-I)      ! mild clumping outward
+        DO ML=1,NCF
+          CHI_RAY(I,ML)=RRAY0*ESEC(I)*
+     1      EXP(-0.5_LDP*((NU(ML)-6.0_LDP)/4.0_LDP)**2)*
+     2      (1.0_LDP+2.0_LDP*(I-1)/(ND-1.0_LDP))   ! stronger inward
+          ETA(I,ML)=0.01_LDP*ESEC(I)*RJ_CONT(I,ML)
+          CHI(I,ML)=ESEC(I)+CHI_RAY(I,ML)+0.01_LDP*I
+        END DO
+      END DO
+C
+      DO I=1,ND
+        DO ML=1,NCF
+          TA_MODEL(I,ML)=ETA(I,ML)*CLUMP(I)+
+     1      (ESEC(I)+CHI_RAY(I,ML))*CLUMP(I)*RJ_ES(I,ML)
+          TA_OBS(I,ML)=ETA(I,ML)*CLUMP(I)+
+     1      ESEC(I)*CLUMP(I)*RJ_ES(I,ML)+
+     2      CHI_RAY(I,ML)*CLUMP(I)*RJ(I,ML)
+        END DO
+      END DO
+C
+      OPEN(LU,FILE=TRIM(OUT_DIR)//'/esconv_qray_fields.txt',
+     1     STATUS='UNKNOWN')
+      WRITE(LU,'(A)')'# I ML NU RJ RJ_ES CHI_RAY ESEC ETA CHI'//
+     1  ' TA_MODEL TA_OBS CLUMP'
+      DO I=1,ND
+        DO ML=1,NCF
+          WRITE(LU,'(I3,I5,10(ES27.17E3))')
+     1      I,ML,NU(ML),RJ(I,ML),RJ_ES(I,ML),CHI_RAY(I,ML),
+     2      ESEC(I),ETA(I,ML),CHI(I,ML),TA_MODEL(I,ML),
+     3      TA_OBS(I,ML),CLUMP(I)
+        END DO
+      END DO
+      CLOSE(LU)
+      RETURN
+      END
