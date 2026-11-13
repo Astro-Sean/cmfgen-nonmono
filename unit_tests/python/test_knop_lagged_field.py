@@ -964,21 +964,21 @@ def test_mom_gam_fac_floor_discontinuity_pin():
     )
 
 
-def test_qcell_histogram_covers_ordered_march():
-    """KN_QC cell statistics must sample the ordered march too.
+def test_qcell_histogram_gated_by_verify_pass():
+    """KN_QC cell statistics must sample verify passes only.
 
     SWEEP_FLD_ORD computes its per-cell residuals inline and never
-    calls MARCH, so the KN_Q_ACCUM sites added for the unordered
-    path alone left the production ordered census with zero cell
-    samples. Each ordered residual site must accumulate exactly
-    the cells that feed RES, once per channel per verify pass.
+    calls MARCH, so each residual site carries its own gated
+    KN_Q_ACCUM call. Accumulation is gated by the local L_QP
+    verify-pass argument, never by shared module state, so a
+    production pass can never enter the histogram.
     """
     ord_body = section(FG, "SUBROUTINE SWEEP_FLD_ORD", "SUBROUTINE BUILD_FREQ")
     sites = [
         m.start()
-        for m in re.finditer(r"IF\(KN_Q_ACC\)CALL KN_Q_ACCUM\(T1\)", ord_body)
+        for m in re.finditer(r"IF\(L_QP\)CALL KN_Q_ACCUM\(T1,INWARD\)", ord_body)
     ]
-    check("SWEEP_FLD_ORD has four gated KN_Q_ACCUM sites", len(sites) == 4)
+    check("SWEEP_FLD_ORD has four L_QP-gated KN_Q_ACCUM sites", len(sites) == 4)
     for pos in sites:
         prefix = ord_body[max(0, pos - 400) : pos]
         check(
@@ -992,21 +992,132 @@ def test_qcell_histogram_covers_ordered_march():
     )
     march_body = section(FG, "SUBROUTINE MARCH", "SUBROUTINE KN_Q_ACCUM")
     check(
-        "MARCH keeps its four unordered KN_Q_ACCUM sites",
-        len(re.findall(r"IF\(KN_Q_ACC\)CALL KN_Q_ACCUM\(DCELL\)", march_body))
+        "MARCH keeps its four L_QP-gated KN_Q_ACCUM sites",
+        len(re.findall(r"IF\(L_QP\)CALL KN_Q_ACCUM\(DCELL,INWARD\)", march_body))
         == 4,
     )
-    verify = section(FG, "KN_QC accumulation: armed", "Same argmax capture")
     check(
-        "KN_Q_ACC armed once and disarmed after both verify calls",
-        verify.count("KN_Q_ACC=.TRUE.") == 1
-        and verify.count("KN_Q_ACC=.FALSE.") == 1
-        and verify.index("KN_Q_ACC=.TRUE.") < verify.index("KN_Q_ACC=.FALSE."),
+        "MARCH signature takes the verify-pass flag",
+        "SUBROUTINE MARCH(FLD,L,INWARD,RES,L_QP)" in FG,
+    )
+    check(
+        "SWEEP_FLD forwards L_QP into MARCH",
+        "CALL MARCH(FLD,L,INWARD,RES,L_QP)" in FG,
+    )
+
+
+def test_qcell_histogram_race_free_layout():
+    """Phase-4 race fix: per-ray/per-channel accumulation.
+
+    The shared gate KN_Q_ACC/KN_Q_ACC_CH let one OpenMP ray arm
+    accumulation while another was still in its production sweep,
+    and the shared KN_QC_* counters were updated concurrently
+    with no ordering, so the old histogram, percentiles and
+    channel maxima are invalid evidence. Accumulation must now
+    be per-ray: each worker writes only its own LS slice, the
+    channel comes from the local INWARD flag, and the serial
+    totals are reduced after the ray loop joins.
+    """
+    accum = section(FG, "SUBROUTINE KN_Q_ACCUM", "RETURN\n\tEND")
+    check(
+        "accumulator takes an explicit channel argument",
+        "SUBROUTINE KN_Q_ACCUM(DX,L_IN)" in FG,
+    )
+    check(
+        "channel resolved from the local inward flag",
+        "IF(.NOT.L_IN)CH=2" in accum,
+    )
+    for pat in (
+        "KN_QC_N_RAY(LS,CH)",
+        "KN_QC_MAX_RAY(LS,CH)",
+        "KN_QC_NT_RAY(LS,CH,",
+        "KN_QC_HIST_RAY(LS,CH,",
+    ):
+        check(f"accumulator writes per-ray array {pat}", pat in accum)
+    for pat in ("KN_QC_N(", "KN_QC_MAX(", "KN_QC_NT(", "KN_QC_HIST("):
+        check(f"accumulator never touches shared {pat}", pat not in accum)
+    check(
+        "no shared accumulation gate assignments remain",
+        "KN_Q_ACC=" not in FG and "KN_Q_ACC_CH=" not in FG,
+    )
+    check(
+        "verify block carries no arming comments or calls",
+        "KN_Q_ACC" not in section(
+            FG, "KN_QC accumulation needs no arming", "Same argmax capture"
+        ),
+    )
+    check(
+        "per-ray storage allocated for rays x channels x bins",
+        "KN_QC_HIST_RAY(KN_NP,2,403)" in FG
+        and "KN_QC_NT_RAY(KN_NP,2,3)" in FG
+        and "KN_QC_MAX_RAY(KN_NP,2)" in FG,
+    )
+    check(
+        "per-ray storage deallocated with the other diagnostics",
+        "KN_QC_HIST_RAY,KN_QC_N_RAY,KN_QC_NT_RAY,KN_QC_MAX_RAY" in FG,
+    )
+    red = section(FG, "Reduce the per-ray Q cell statistics", "T1_W=OMP_GET_WTIME")
+    check(
+        "serial reduction sums counts and histograms over rays",
+        "KN_QC_N=SUM(KN_QC_N_RAY,DIM=1)" in red
+        and "KN_QC_NT=SUM(KN_QC_NT_RAY,DIM=1)" in red
+        and "KN_QC_HIST=SUM(KN_QC_HIST_RAY,DIM=1)" in red,
+    )
+    check(
+        "serial reduction takes per-channel maxima over rays",
+        "KN_QC_MAX(J)=MAXVAL(KN_QC_MAX_RAY(:,J))" in red,
+    )
+    check(
+        "reduction runs after the parallel ray loop",
+        FG.index("!$OMP END PARALLEL DO")
+        < FG.index("Reduce the per-ray Q cell statistics"),
+    )
+
+
+def test_qargmax_store_mapping_diagnostics():
+    """Phase-4 Q argmax write-eligibility audit diagnostics.
+
+    The report must invert J_PNT for the Q argmax ray point,
+    list every matching model depth with its compact store row,
+    classify writability, read back the retained store value and
+    print VMAX_RAW next to the floor-protected VMAXF.
+    """
+    check(
+        "KN_QA_VM stores the raw column max",
+        "KN_QA_VM(LS,1)=MAXVAL(FLD(1:NI,WRC_L))" in FG
+        and "KN_QA_VM(LS,2)=MAXVAL(FLD_P(1:NI,WRC_L))" in FG,
+    )
+    check(
+        "report prints raw and floored peaks",
+        "vold,vnew,vmaxraw,vmaxf,denom=" in FG,
+    )
+    check(
+        "inverse J_PNT scan lists every matching model depth",
+        "J_PNT(IQ_KM,IQ_R) .EQ. KN_QA_J(IQ_R,IQ_C)" in FG
+        and "qmap2 K/jpn/cdi/ok=" in FG,
+    )
+    check(
+        "writability classes A/B/C are reported",
+        "qmap2 class=A" in FG and "qmap2 class=B" in FG
+        and "qmap2 class=C" in FG,
+    )
+    check(
+        "retained store value read at slot L-1",
+        "IQ_SLOT=KN_QA_L(IQ_R,IQ_C)-1" in FG
+        and "I_P_DEPTH_NEXT(IQ_KC2,IQ_R,IQ_SLOT)" in FG
+        and "I_M_DEPTH_NEXT(IQ_KC2,IQ_R,IQ_SLOT)" in FG,
+    )
+    check(
+        "pre-refresh store snapshot armed from last argmax",
+        "KN_QARG_VB=I_P_DEPTH_NEXT(KN_QARG_KC,KN_QARG_LS," in FG
+        and "KN_QARG_L-1" in FG,
     )
 
 
 if __name__ == "__main__":
-    test_qcell_histogram_covers_ordered_march()
+    test_qcell_histogram_gated_by_verify_pass()
+    test_qcell_histogram_race_free_layout()
+    test_qargmax_store_mapping_diagnostics()
     test_ord_sweep_dispatch_fallback()
     test_missing_donor_consistent_drop()
     test_build_freq_fail_closed()
