@@ -172,7 +172,7 @@ def test_freq_match_mirror():
 
 
 def test_edge_clamp_census():
-    """All three clamp sites update the census; report is printed."""
+    """All four clamp sites update the census; report is printed."""
     check(
         "census counters declared",
         "N_EDGE_CLAMP" in OBSF and "CLAMP_GRID_MAX" in OBSF,
@@ -182,12 +182,12 @@ def test_edge_clamp_census():
         "N_EDGE_CLAMP=0" in OBSF,
     )
     check(
-        "all three clamp sites update the census",
-        OBSF.count("N_EDGE_CLAMP=N_EDGE_CLAMP+1") == 3,
+        "all four clamp sites update the census",
+        OBSF.count("N_EDGE_CLAMP=N_EDGE_CLAMP+1") == 4,
     )
     check(
         "updates are OpenMP-safe",
-        OBSF.count("$OMP CRITICAL (CLAMP_CENSUS)") == 3,
+        OBSF.count("$OMP CRITICAL (CLAMP_CENSUS)") == 4,
     )
     check(
         "window and full-grid overshoot tracked separately",
