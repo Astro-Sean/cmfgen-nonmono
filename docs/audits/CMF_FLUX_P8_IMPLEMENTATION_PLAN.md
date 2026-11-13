@@ -6,9 +6,12 @@ complete until the acceptance criteria below are met.
 
 Status 15-Nov-2026: the manufactured battery is implemented and
 passing - `unit_tests/f90/drv_es_conv.f`,
-`unit_tests/f90/drv_es_render.f`,
-`unit_tests/python/test_es_conv.py` (29/29). Measured results
+`unit_tests/f90/drv_es_render.f`, `unit_tests/f90/drv_es_seq.f`,
+`unit_tests/f90/drv_knop_guard.f`,
+`unit_tests/python/test_es_conv.py` (67/67). Measured results
 recorded in section 2.1 and folded into the audit document.
+T5 and T6 are executable production-linked tests, not source
+inspection.
 
 ## 1. What the audit established
 
