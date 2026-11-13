@@ -111,46 +111,143 @@ with P5/P6/P7.
 
 ## 2.1 Implemented coverage and measured results
 
-`test_es_conv.py` (29/29 PASS; ifort `-O0 -g -traceback
--extend-source -fpp -qopenmp -mkl=sequential`, MKL sequential):
+`test_es_conv.py` (67/67 PASS; ifort production objects -
+`compile_and_link_prod` links the exact `.o` files the
+production executables use, plus `-qopenmp -mkl` per the
+probed production link line; MKL sequential). Test-class
+breakdown:
 
-- T1: elementwise rebuild of both emissivity conventions from the
-  emitted fields matches to <=1e-12 of the emissivity scale;
-  `DTA = CHI_RAY*CLUMP*(RJ_ES-RJ)` reproduced to machine noise
-  at all three Rayleigh amplitudes.
-- T2: coherent-vs-non-coherent emissivity difference recorded
-  (1.0e-3 to 1.7e-3 relative at the feature).
-- T3 battery, measured:
-    planck max 1.46e-5 / rms 1.28e-6 (significant support);
-    const non-negative, 3 zeros at the Wien-underflow edge,
-    rescale documented;
-    line peak preserved (Jbar_peak/J_peak = 1.000);
-    edge max rel 9.1e-4, no ringing;
-    temp (0.5/1.0/5.0e4 K) max 1.4e-3;
-    pos Jbar >= 0 with a zeroed interior band;
-    grid NCF=128/256/512 max err 1.32e-5/1.46e-5/1.66e-5 -
-    saturates as expected since the operator width is physical.
-- T4: coherent-vs-non-coherent emissivity rendered through the
-  real `OBS_FRAME_SUB_V9` differs in emergent flux by
-  8.4e-3..1.4e-2 - the convolved fold measurably propagates.
-- T7: the same renders confirm the observer-frame transfer adds
-  nothing: all flux differences trace to the supplied TA
-  variants alone.
-- T8 / Q-RAY resolution (manufactured, scattering-dominated,
-  narrow feature at the Rayleigh band):
-    max|DTA/TA| = 1.5e-4 / 5.6e-4 / 8.6e-4 and
-    max|dF/F|     = 1.6e-3 / 6.0e-3 / 9.2e-3
-  at chi_ray/sigma_es = 0.1 / 0.5 / 1.0. For a smooth continuum
-  (same sweep, earlier thermal-dominated ETA) the bound was
-  <=1.8e-8 emissivity / <=7.2e-11 flux. The convention
-  difference is measurable exactly where physics says it must
-  be: Rayleigh a large fraction of the scattering opacity AND a
-  field with redistribution contrast at feature scales.
-- T5/T6: established statically (audit sections 6-7); the
-  refresh ordering is verified at source level - refresh call
-  precedes the convolve write inside each non-final sweep, and
-  `rd_cmf_flux_controls` fails closed on the guard. No test gap
-  identified in the covered call chain.
+- **Executable production-linked**: T5 (sequencing harness on
+  the real `COMP_J_CONV_V2`), T6 (the real
+  `RD_OPTIONS_INTO_STORE` + `RD_CMF_FLUX_CONTROLS` path on a
+  manufactured control file).
+- **Real-convolver manufactured**: T3 battery (planck / const /
+  linepair / bnd / tempu / edge / pos / grid), T4 render
+  discriminator through the real `OBS_FRAME_SUB_V9`.
+- **Algebraic reconstruction**: T1 emissivity rebuild, T8 Q-RAY
+  census.
+- **Source-inspection only**: the per-sweep call-order
+  verification in audit section 6 (complements, not replaces,
+  the T5 executable check).
+
+T1 (algebraic): elementwise rebuild of both emissivity
+conventions matches to <=1e-12 of the emissivity scale;
+`DTA = CHI_RAY*CLUMP*(RJ_ES-RJ)` holds to machine noise at all
+three Rayleigh amplitudes.
+
+T3 battery, measured:
+
+    planck  max 1.46e-5 / rms 1.28e-6 (significant support)
+    const   non-negative; 3 zeros at the Wien-underflow edge;
+            B/B_es rescale behaviour documented
+    linepair narrow-feature battery (below)
+    bnd     extended-domain boundary reference (below)
+    tempu   uniform-T series (below)
+    edge    max rel 9.1e-4, no ringing
+    pos     Jbar >= 0 with a zeroed interior band
+    grid    NCF=128/256/512 max err 1.32e-5/1.46e-5/1.66e-5 -
+            saturates as expected (operator width is physical)
+
+Narrow-feature smearing (linepair, baseline-subtracted):
+`J_line = B + A*Gaussian` and `J_cont = B` convolved separately;
+the excess is measured against its input, not the global max.
+The production operator is a weak second-derivative smoother
+((beta/B_L)^2 ~ 1e-6 in ln nu at 1e4 K), so FWHM growth is
+unmeasurable; the asserted signature is the redistribution
+pattern itself: peak drop, line-core depletion, wing lift,
+recorded with the integrated-excess drift:
+
+    NCF=256: peak 3.9986e-4 -> 3.9978e-4, core -7.5e-8,
+             wing +2.1e-8, max|dexc|/pk 2.25e-4,
+             int drift -3.1e-5, no negative ringing
+    NCF=512: peak 3.9983e-4 -> 3.9975e-4, core -7.5e-8,
+             wing +2.3e-8, max|dexc|/pk 2.26e-4,
+             int drift -2.7e-5, no negative ringing
+
+The response is resolution-consistent (2.25e-4 vs 2.26e-4),
+so the measurement is not dominated by under-resolution
+(feature: sigma_ln_nu = 0.2; 5.3 / 10.6 grid points per sigma).
+
+Frequency boundaries (bnd/bndp): the extended domain appends
+NCF/4 same-spacing nodes beyond BOTH production ends, so every
+production node coincides exactly with an extended node - this
+isolates the boundary treatment (one-sided -2/dx^2 stencil
+rows plus coherent, non-interpolated endpoints per the source
+comment) from resolution/interpolation error on steep slopes.
+Result at NCF = 256 and 512:
+
+    interior (middle 60%, significant mask): max 9.1e-5 / 8.5e-5
+    upper edge (last 6 nodes):               0.0 / 0.0
+    lower edge (first 6 nodes):              max 1.2e-3 / 2.4e-3
+
+The upper edge is numerically identical because the field
+there is Wien-dead (the extended content beyond NU=300 is
+zero); the lower edge - the only end where J is alive at the
+boundary - shows ~1-2e-3 local discrepancy, consistent with
+the manufactured feature's ~0.4% tail lying beyond the
+production boundary. Earlier versions of this test conflated
+grid-resolution differences on steep slopes with boundary
+distortion and are superseded.
+
+Temperature dependence (tempu): uniform `T(k)=T_TEST`,
+`J=B(T_TEST)` so the experiment isolates
+beta(T)=1.84e-3*sqrt(T):
+
+    T=5e3   beta=1.30e-3  beta/B=8.1e-4,6.0e-4  max 1.55e-4
+    T=1e4   beta=1.84e-3  beta/B=1.14e-3,8.5e-4 max 1.82e-13
+    T=5e4   beta=4.12e-3  beta/B=2.55e-3,1.91e-3 max 4.46e-14
+
+RMS is computed on the same significant-J mask as the maximum.
+The 5e3 case sits at the cold-temperature end of the fit's
+intended range; the error there is still <=2e-4.
+
+T4 (render fold-in): the coherent emissivity rendered through
+the real `OBS_FRAME_SUB_V9` differs from the non-coherent
+variant by 8.4e-3..1.4e-2 in emergent flux - the convolved
+fold measurably propagates; the render adds nothing of its own
+(same T7 evidence).
+
+T5 (executable, `drv_es_seq.f`): the smallest sequencing
+harness that mirrors the production ordering, NOT a link of
+`CMF_FLUX_SUB_V5`. It reproduces the operations the audit
+identified - per sweep: consume Jbar from the file-slot array,
+produce J (scripted: `J_k = LAM*Jbar_{k-1} + NEWK*(1+PERT_k)`),
+store ST=J_k, refresh slot (counter only, standing for
+`FG_KNOP_REFRESH_V1`/`MOM_KNOP_REFRESH_V1`), then convolve the
+STORED J through the real `COMP_J_CONV_V2` into the next
+file-slot Jbar; the render folds ESEC*conv(J_N). NEWK is a
+distinguishable spectral feature so the generations differ.
+Broken-ordering modes fail as designed:
+
+    'stale'   sweep 2 fed Jbar_0: perturbing NEW_1 leaves TA
+              bitwise silent (the J_1 generation cannot
+              propagate) while NEW_2 still responds - detected.
+    'preconv' convolve before the store: same signature -
+              detected.
+    'oldrend' render folds Jbar_1: TA responds to NEW_1 but is
+              bitwise silent to NEW_2 - detected.
+    Correct mode: both scripted generations propagate;
+              REFRESH_COUNT=1 between the sweeps.
+
+T6 (executable, `drv_knop_guard.f`): the production store
+reader + `RD_CMF_FLUX_CONTROLS` on a control file built from a
+real model VADAT plus the OBS-required keys. Verified by the
+named diagnostic, not the exit code (ifort STOP returns 0):
+
+    A  KNOP=T NUM_ES=1 COH_ES=F -> STOP
+       'DO_NONMONO_KNOP=T requires NUM_ES>=2 and
+        COH_ERENT_ES=F' (emitted)
+    B  KNOP=T NUM_ES=2 COH_ES=T -> same STOP (emitted)
+    C  KNOP=T NUM_ES=2 COH_ES=F -> reader returns, GUARD_PASS
+
+Q-RAY (T8) resolution, unchanged from the earlier battery:
+scattering-dominated ETA with a narrow feature at the Rayleigh
+band gives max|DTA/TA| = 1.5e-4/5.6e-4/8.6e-4 and
+max|dF/F| = 1.6e-3/6.0e-3/9.2e-3 at chi_ray/sigma_es =
+0.1/0.5/1.0; the smooth-continuum thermal-dominated case gave
+<=1.8e-8 / <=7.2e-11. Quantitatively resolved; convention
+decision deferred (not a complete production Jacobian
+verification - see audit section 8).
 
 ## 3. P8.2 maturity gate (proposal, not implemented)
 
