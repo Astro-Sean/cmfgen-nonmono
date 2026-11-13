@@ -1491,7 +1491,114 @@ def test_kn_census_and_geo_diagnostics():
     )
 
 
+def test_ray83_lifecycle_audit():
+    """Phase-5.1 ray-83 lifecycle pins.
+
+    Three source-level facts established the ray-83 stale-store
+    mechanism and must not silently regress:
+
+    1. KN_WATCH_CELL prints after the result-arg finalisation
+       (NPASS=MAX(NP_M,NP_P)) so NXIT/NPASS/RESID carry committed
+       values. The earlier placement printed pre-finalisation
+       sentinels (-1/0/0) on every ray.
+    2. The no-compressing-coupling fast exit (.NOT. HAS_CP) forces
+       RES=0.0 without measuring the pass residual; HAS_CP itself
+       requires BOTH GAM<0 and a compressing-depth neighbour, so a
+       purely expanding ray always takes it. This is the upstream
+       reason an under-converged expanding-only field can reach the
+       store with a clean-exit label.
+    3. MATCH_FREQ/SRC_PRIME/KN_ORD_SPV share one coupling contract:
+       expanding (GAM>0) reads the in-pass fresh FLD(I,L-1) with a
+       signed Q; compressing (GAM<0) reads the matched upwind slot
+       L+NFM_L at the compressing-depth ray points with ABS(Q).
+    """
+    ray = section(FG, "SUBROUTINE KNOP_RAY_SOLVE_V1", "\tEND\n")
+    # KN_WATCH print must sit after the pass/residual finalisation.
+    npass_pos = ray.index("NPASS=MAX(NP_M,NP_P)")
+    watch_pos = ray.index("KN_WATCH ray/ixit/npas/resid=")
+    check(
+        "KN_WATCH prints after NPASS/RESID finalisation",
+        watch_pos > npass_pos,
+    )
+
+    ord_sweep = section(FG, "SUBROUTINE SWEEP_FLD_ORD", "\tEND\n")
+    # HAS_CP fast exit: forced clean exit, residual not measured.
+    hc = ord_sweep.index("IF(.NOT. HAS_CP)THEN")
+    hc_block = ord_sweep[hc : hc + 700]
+    check(
+        "no-compressing exit forces RES=0 without measuring",
+        "CLEAN_EXIT=.TRUE." in hc_block
+        and "IXIT=0" in hc_block
+        and "RES=0.0_LDP" in hc_block,
+    )
+    check(
+        "no-compressing exit requires NPO>=2 confirmation pass",
+        "IF(NPO .GE. 2)THEN" in hc_block,
+    )
+    # HAS_CP definition: compressing drift AND a store-backed depth.
+    setup = section(FG, "SUBROUTINE KNOP_RAY_SOLVE_V1", "SWEEP_FLD(")
+    check(
+        "HAS_CP needs GAM<0 and a compressing-depth neighbour",
+        "IF(GAM(I,LS) .LT. 0.0_LDP .AND." in setup
+        and "IKC1(I) .EQ. 1 .OR. IKC2(I) .EQ. 1))HAS_CP=.TRUE." in setup,
+    )
+
+    # MATCH_FREQ: remap only for compressing points, capped on-grid.
+    mf = section(FG, "SUBROUTINE MATCH_FREQ", "END\n!")
+    check(
+        "MATCH_FREQ remaps only compressing points",
+        "IF(GAM(I,LS) .LT. 0.0_LDP)THEN" in mf
+        and "NFM_L(I)=NNF" in mf,
+    )
+    check(
+        "MATCH_FREQ slot offset capped at NCF-L and floored at 1",
+        "NNF=NCF-L" in mf and "NNF=MAX(1,CEILING(T1))" in mf,
+    )
+    check(
+        "MATCH_FREQ log-span refined on the captured frequency grid",
+        "DLNM_L(I)=LOG(KN_FREQ(L)/KN_FREQ(L+NNF))" in mf,
+    )
+
+    # SRC_PRIME coupling contract.
+    sp = section(FG, "SUBROUTINE SRC_PRIME", "END\n!")
+    check(
+        "expanding source uses in-pass fresh L-1 with signed Q",
+        "INEXT_V=FLD(I,L-1)" in sp and "SP_L(I)=SR_L(I)+Q_L(I)*INEXT_V" in sp,
+    )
+    check(
+        "compressing source uses matched slot with ABS(Q)",
+        "FLD(JPR1(I),L+NFM_L(I))" in sp
+        and "SP_L(I)=SR_L(I)+ABS(Q_L(I))*INEXT_V" in sp,
+    )
+    check(
+        "compressing donor bounded by NCF",
+        "L+NFM_L(I) .LE. NCF" in sp,
+    )
+    check(
+        "exact-zero GAM reads no donor (NaN guard)",
+        "IF(GAM(I,LS) .EQ. 0.0_LDP)THEN" in sp
+        and "SP_L(I)=SR_L(I)" in sp,
+    )
+
+    # Ordered sweep mirrors the same contract through the SPW ring.
+    spv = section(FG, "SUBROUTINE KN_ORD_SPV", "END\n!")
+    check(
+        "ordered expanding branch reads FLD(R,L-1) signed",
+        "SPV=PK_SR(R,L)+PK_Q(R,L)*FLD(R,L-1)" in spv,
+    )
+    check(
+        "ordered compressing branch reads matched slot ABS(Q)",
+        "INEXT_V=FLD(JPR1(R),L+NNF2)" in spv
+        and "SPV=PK_SR(R,L)+ABS(PK_Q(R,L))*INEXT_V" in spv,
+    )
+    check(
+        "ordered compressing offset capped identically",
+        "NNF2=NCF-L" in spv and "NNF2=MAX(1,CEILING(T1))" in spv,
+    )
+
+
 if __name__ == "__main__":
+    test_ray83_lifecycle_audit()
     test_kn_census_and_geo_diagnostics()
     test_kn_sib_depth_snapshot()
     test_jump_diag_veto_attribution()
