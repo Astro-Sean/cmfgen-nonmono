@@ -1308,6 +1308,18 @@
 !
 	LOGICAL KN_Q_RESID
 !
+! KN_JUMP_DIAG (default FALSE): diagnostic-only veto-trigger
+! attribution for the KNOP commit jump veto (failure isolation,
+! phase 5). When T, each FG_JUMP_MAX call records the single cell
+! behind its return value (branch, coordinates, candidate,
+! retained, column peak, sibling reference, ratio) into the
+! calling ray's own slot, and the commit block prints one compact
+! record per channel that individually exceeds FG_COMMIT_JUMP on
+! each rejected ray. Read-only: commit decisions are unchanged.
+! VADAT keyword [KN_JUMP_DIAG].
+!
+	LOGICAL KN_JUMP_DIAG
+!
 ! KN_MAT_FREEZE (default FALSE): diagnostic-only matter freeze
 ! for the KNOP failure isolation (P1-T1c arm M). When T, every
 ! SOLVE_FOR_POPS call takes the GS_POPS_HELD path: SOLVEBA still
