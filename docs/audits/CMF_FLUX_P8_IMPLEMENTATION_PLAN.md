@@ -8,7 +8,7 @@ Status 15-Nov-2026: the manufactured battery is implemented and
 passing - `unit_tests/f90/drv_es_conv.f`,
 `unit_tests/f90/drv_es_render.f`, `unit_tests/f90/drv_es_seq.f`,
 `unit_tests/f90/drv_knop_guard.f`,
-`unit_tests/python/test_es_conv.py` (67/67). Measured results
+`unit_tests/python/test_es_conv.py` (75/75). Measured results
 recorded in section 2.1 and folded into the audit document.
 T5 and T6 are executable production-linked tests, not source
 inspection.
@@ -114,7 +114,7 @@ with P5/P6/P7.
 
 ## 2.1 Implemented coverage and measured results
 
-`test_es_conv.py` (67/67 PASS; ifort production objects -
+`test_es_conv.py` (75/75 PASS; ifort production objects -
 `compile_and_link_prod` links the exact `.o` files the
 production executables use, plus `-qopenmp -mkl` per the
 probed production link line; MKL sequential). Test-class
@@ -156,41 +156,77 @@ Narrow-feature smearing (linepair, baseline-subtracted):
 the excess is measured against its input, not the global max.
 The production operator is a weak second-derivative smoother
 ((beta/B_L)^2 ~ 1e-6 in ln nu at 1e4 K), so FWHM growth is
-unmeasurable; the asserted signature is the redistribution
-pattern itself: peak drop, line-core depletion, wing lift,
-recorded with the integrated-excess drift:
+below one grid cell and reported as unresolved; the asserted
+signature is the redistribution pattern itself: peak drop,
+line-core depletion, wing lift. Integrated excess is measured
+over the FULL domain (not the input feature mask) in both
+measures, and reported rather than asserted conserved - the
+interior column sums of the discrete operator are -H = 1 but
+the one-sided endpoint rows differ, and the B/B_es rescale is
+pointwise:
 
     NCF=256: peak 3.9986e-4 -> 3.9978e-4, core -7.5e-8,
-             wing +2.1e-8, max|dexc|/pk 2.25e-4,
-             int drift -3.1e-5, no negative ringing
+             wing +2.1e-8, max|dexc|/pk 2.25e-4
+             int(exc) dlnnu 2.0978e-4 -> 2.0978e-4 (-3.96e-6)
+             int(exc) dnu   4.0112e-4 -> 4.0112e-4 (+4.47e-7)
+             wing fraction outside >5% input mask 0.027
+             FWHM_ln 0.415 -> 0.452 (<1 cell, unresolved)
     NCF=512: peak 3.9983e-4 -> 3.9975e-4, core -7.5e-8,
-             wing +2.3e-8, max|dexc|/pk 2.26e-4,
-             int drift -2.7e-5, no negative ringing
+             wing +2.3e-8, max|dexc|/pk 2.26e-4
+             int(exc) dlnnu 2.0978e-4 -> 2.0978e-4 (-3.45e-6)
+             int(exc) dnu   4.0105e-4 -> 4.0105e-4 (+1.09e-6)
+             wing fraction outside >5% input mask 0.022
+             FWHM_ln 0.452 -> 0.452 (<1 cell, unresolved)
 
 The response is resolution-consistent (2.25e-4 vs 2.26e-4),
-so the measurement is not dominated by under-resolution
-(feature: sigma_ln_nu = 0.2; 5.3 / 10.6 grid points per sigma).
+so the measurement is not dominated by under-resolution. The
+feature is Gaussian in nu while the operator acts in ln nu:
+the local approx sigma_ln_nu = sigma_nu/nu0 = 0.200 vs the
+measured second-moment width 0.242 / 0.245 (6.4 / 13.0 grid
+points per actual sigma). The kernel width itself is below
+the grid cell - this battery resolves the feature, not the
+kernel. Finite-boundary sensitivity (linext, same pair on the
+extended grid): full-domain int(exc_out) dlnnu agrees to
++2.3e-5 relative and the shared-node exc_out agrees to max
+8.1e-4 / 1.5e-3 - an interior feature feels the boundary at
+~1e-3.
 
 Frequency boundaries (bnd/bndp): the extended domain appends
 NCF/4 same-spacing nodes beyond BOTH production ends, so every
 production node coincides exactly with an extended node - this
 isolates the boundary treatment (one-sided -2/dx^2 stencil
-rows plus coherent, non-interpolated endpoints per the source
-comment) from resolution/interpolation error on steep slopes.
-Result at NCF = 256 and 512:
+rows, coherent non-interpolated endpoints, and the B/B_es
+rescale) from resolution/interpolation error on steep slopes.
+Manufactured features are ALIVE at both bounds: a Gaussian
+near nu=0.045 (significant field where the lower one-sided
+stencil acts) and one near nu=260 (a live field inside the
+Wien-dead Planck zone, exercising the endpoint rescale path).
+Result at NCF = 256 / 512, all four depth rows:
 
-    interior (middle 60%, significant mask): max 9.1e-5 / 8.5e-5
-    upper edge (last 6 nodes):               0.0 / 0.0
-    lower edge (first 6 nodes):              max 1.2e-3 / 2.4e-3
+    interior (middle 60%, significant mask): max 1.30e-4 / 1.34e-4
+    lower edge (last 6 nodes): max 1.0e-4 / 2.0e-4,
+             rms 4.2e-5 / 8.1e-5, nsig=24, maxratio <=1.0002,
+             <=2 sign changes (no ringing)
+    upper edge (first 6 nodes): max rel 1.0 - suppression to
+             <=1e-2 of the extended reference at T >= 1e4 K
+             (documented limitation, audit section 8.5.1)
 
-The upper edge is numerically identical because the field
-there is Wien-dead (the extended content beyond NU=300 is
-zero); the lower edge - the only end where J is alive at the
-boundary - shows ~1-2e-3 local discrepancy, consistent with
-the manufactured feature's ~0.4% tail lying beyond the
-production boundary. Earlier versions of this test conflated
-grid-resolution differences on steep slopes with boundary
-distortion and are superseded.
+Tolerance justification: the lower-edge discrepancy is
+resolution-stable at ~2e-4 (256 -> 512 does not shrink it),
+so the bound is set at 5x the measured maximum (1e-3) - a
+real stencil-error acceptance, not a recorded diagnostic.
+The upper-edge suppression is the measured Wien-rescale
+limitation of the production routine (unshifted endpoint
+B_es >> B in the denormal-Planck zone -> exp(ln B - ln B_es)
+crushes J; suppression-only, non-ringing, non-negative). The
+test asserts the bounded suppression-only character and
+reports the ~1.0 magnitude - it is not hidden by a loose
+tolerance. Follow-up: a derived endpoint/rescale guard for
+the Wien-dead regime belongs to a separate production gate;
+the extended-domain reference is in place to verify it.
+Earlier versions of this test conflated grid-resolution
+differences on steep slopes with boundary distortion and are
+superseded.
 
 Temperature dependence (tempu): uniform `T(k)=T_TEST`,
 `J=B(T_TEST)` so the experiment isolates
