@@ -1378,6 +1378,22 @@
 	TYPE(KN_JT_REC), ALLOCATABLE, SAVE :: KN_JT(:,:)
 	DATA KN_JUMP_DIAG /.FALSE./
 !
+! KN_SIB_STAT: same-depth sibling distribution record for one
+! (channel, store slot), filled by KN_SIB_DEPTH_SNAP_V1 before the
+! OpenMP ray loop and printed after it. N counts valid retained-
+! store samples; VMIN/V10/VMED/V90/VMAX are order statistics on the
+! sorted valid values; VRAY is the target ray's retained value (-1
+! when absent/invalid); PCT is the percent of valid siblings
+! strictly below VRAY. See the subroutine for the percentile
+! convention.
+!
+	TYPE KN_SIB_STAT
+	  INTEGER :: N=0,RANK=0
+	  REAL(KIND=LDP) :: VMIN=-1.0_LDP,V10=-1.0_LDP,VMED=-1.0_LDP
+	  REAL(KIND=LDP) :: V90=-1.0_LDP,VMAX=-1.0_LDP
+	  REAL(KIND=LDP) :: VRAY=-1.0_LDP,PCT=-1.0_LDP
+	END TYPE KN_SIB_STAT
+!
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
 ! freeze arm event the raw KN_CHI_EXT/KN_ETA_EXT snapshots are
 ! summed into KN_COEF_FP(1:2); each refresh then re-sums the
@@ -1500,6 +1516,93 @@
 	DEALLOCATE(VPK)
 	RETURN
 	END SUBROUTINE KN_JMP_SIBREF_V1
+!
+! KN_SIB_STAT / KN_SIB_DEPTH_SNAP_V1 (diagnostic, [KN_JUMP_DIAG]):
+! same-depth sibling distribution for a single veto-trigger cell.
+! KN_JMP_SIBREF_V1's REF is the median of per-ray COLUMN MAXIMA over
+! all compressing depths -- it cannot say whether sibling rays carry
+! comparable intensity at one model depth K. This snapshot resolves
+! J_PNT(K,RS) per ray, keeps only rays whose ray point is valid and
+! whose retained store value is finite and positive, and reports
+! order statistics on that same-depth sample. Built serially before
+! the OpenMP ray loop: once the loop runs, committing rays rewrite
+! the store and any in-loop read of a sibling column would race
+! those writes. Read-only; no solver state is touched.
+!
+! Percentile convention (documented, deterministic): valid values
+! are sorted ascending by insertion sort; VMIN/V10/VMED/V90/VMAX are
+! nearest-rank order statistics with index CEILING(p*N) clamped to
+! [1,N], except VMED which uses the upper-middle rank (N+1)/2 to
+! match KN_JMP_SIBREF_V1. RANK = 1 + count of siblings strictly
+! below VRAY (ties share the lower rank); PCT = 100*count_below/N.
+!
+	SUBROUTINE KN_SIB_DEPTH_SNAP_V1(KQ,NLO,NHI,RS_TGT,STORE,ST)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER KQ,NLO,NHI,RS_TGT
+	REAL(KIND=LDP) STORE(:,:,:)
+	TYPE(KN_SIB_STAT) ST(:)
+	INTEGER IS,RS,KC,NOK,JP,I2,J2,IOS,NSL
+	REAL(KIND=LDP) V,VT
+	REAL(KIND=LDP), ALLOCATABLE :: WRK(:)
+!
+	NSL=NHI-NLO+1
+	DO IS=1,NSL
+	  ST(IS)=KN_SIB_STAT()
+	END DO
+	KC=COMP_DEPTH_IDX(KQ)
+	IF(KC .LT. 1 .OR. NSL .LT. 1)RETURN
+	ALLOCATE(WRK(KN_NP),STAT=IOS)
+	IF(IOS .NE. 0)THEN
+	  DO IS=1,NSL
+	    ST(IS)%N=-1
+	  END DO
+	  RETURN
+	END IF
+	DO IS=1,NSL
+	  NOK=0
+	  DO RS=1,KN_NP
+	    JP=J_PNT(KQ,RS)
+	    IF(JP .LT. 1 .OR. JP .GT. NI_RAY(RS))CYCLE
+	    V=STORE(KC,RS,NLO+IS-1)
+	    IF(.NOT.(ABS(V) .LE. HUGE(V)))CYCLE
+	    IF(V .LE. 0.0_LDP)CYCLE
+	    NOK=NOK+1
+	    WRK(NOK)=V
+	  END DO
+	  ST(IS)%N=NOK
+	  IF(NOK .EQ. 0)CYCLE
+	  DO I2=2,NOK
+	    VT=WRK(I2)
+	    J2=I2-1
+	    DO WHILE(J2 .GE. 1)
+	      IF(WRK(J2) .LE. VT)EXIT
+	      WRK(J2+1)=WRK(J2)
+	      J2=J2-1
+	    END DO
+	    WRK(J2+1)=VT
+	  END DO
+	  ST(IS)%VMIN=WRK(1)
+	  ST(IS)%VMAX=WRK(NOK)
+	  ST(IS)%VMED=WRK((NOK+1)/2)
+	  ST(IS)%V10=WRK(MAX(1,CEILING(0.10_LDP*NOK)))
+	  ST(IS)%V90=WRK(MAX(1,CEILING(0.90_LDP*NOK)))
+	  IF(RS_TGT .GE. 1 .AND. RS_TGT .LE. KN_NP)THEN
+	    V=STORE(KC,RS_TGT,NLO+IS-1)
+	    IF(ABS(V) .LE. HUGE(V) .AND. V .GT. 0.0_LDP)THEN
+	      ST(IS)%VRAY=V
+	      J2=0
+	      DO I2=1,NOK
+	        IF(WRK(I2) .LT. V)J2=J2+1
+	      END DO
+	      ST(IS)%RANK=J2+1
+	      ST(IS)%PCT=100.0_LDP*J2/NOK
+	    END IF
+	  END IF
+	END DO
+	DEALLOCATE(WRK)
+	RETURN
+	END SUBROUTINE KN_SIB_DEPTH_SNAP_V1
 !
 ! ==============================================================================
 !
@@ -7401,6 +7504,8 @@ C
 	LOGICAL IQ_WRT,IQ_SAME
 	REAL(KIND=LDP) IQ_VB,IQ_VA
 	INTEGER*8 IQ_C1
+	TYPE(KN_SIB_STAT) KN_SIB_M(5),KN_SIB_P(5),KN_ST
+	INTEGER KN_SIB_CH,KN_SIB_IS,KN_SIB_IK
 	REAL(KIND=LDP) T0,T1_W,T2,IQ_T,IQ_A
 	REAL(KIND=LDP), ALLOCATABLE :: QS_TMP(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
@@ -7672,6 +7777,26 @@ C
 	  RETURN
 	END IF
 !
+! KN_SIB_DEPTH (diagnostic, [KN_JUMP_DIAG]): same-depth sibling
+! snapshot for the ray-83 veto trigger measured in the isolation
+! results -- model depth K=2, store slots 1434..1438 (field
+! L=1435..1439), target ray 83, both channels. KN_JMP_SIBREF_V1's
+! REF is a median of per-ray column maxima and cannot classify a
+! same-depth anomaly; this snapshot resolves J_PNT(K,RS) per ray
+! on the retained store BEFORE the parallel loop commits any ray.
+! Reading sibling columns inside the loop would race those writes.
+! Read-only; no solver state is touched.
+!
+	IF(KN_JUMP_DIAG .AND. ALLOCATED(J_PNT) .AND.
+	1   ALLOCATED(COMP_DEPTH_IDX) .AND.
+	2   ALLOCATED(I_P_DEPTH_NEXT) .AND.
+	3   ALLOCATED(I_M_DEPTH_NEXT))THEN
+	  CALL KN_SIB_DEPTH_SNAP_V1(2,1434,1438,83,
+	1    I_M_DEPTH_NEXT,KN_SIB_M)
+	  CALL KN_SIB_DEPTH_SNAP_V1(2,1434,1438,83,
+	1    I_P_DEPTH_NEXT,KN_SIB_P)
+	END IF
+!
 ! One ray per thread: each thread owns column LS of the shared module
 ! arrays (GAM, RAY_PNT, I_*_DEPTH_NEXT), so no atomics are needed.
 ! KN_MAX_THREADS bounds the per-thread NI*NCF work-array memory.
@@ -7757,6 +7882,58 @@ C
 	  DO J=1,2
 	    KN_QC_MAX(J)=MAXVAL(KN_QC_MAX_RAY(:,J))
 	  END DO
+	END IF
+!
+! KN_SIB_DEPTH report (diagnostic): the same-depth sibling
+! distributions captured before the ray loop. N is the count of
+! rays with a valid J_PNT(K,.) ray point and a finite positive
+! retained value; order stats follow the documented nearest-rank
+! convention. JMP_SIB_* are labelled explicitly: they are the
+! median of per-ray column maxima over ALL compressing depths,
+! not the same-depth median reported here.
+!
+	IF(KN_JUMP_DIAG)THEN
+	  WRITE(LUER,'(A,I4,A,I4,A,I5,A,I5)')
+	1   '  KN-SIB K=',2,' ray=',83,' slots L=',1435,'..',1439
+	  DO KN_SIB_CH=1,2
+	    DO KN_SIB_IS=1,5
+	      IF(KN_SIB_CH .EQ. 1)THEN
+	        KN_ST=KN_SIB_M(KN_SIB_IS)
+	      ELSE
+	        KN_ST=KN_SIB_P(KN_SIB_IS)
+	      END IF
+	      WRITE(LUER,'(A,I1,A,I4,A,I5,A,6ES12.5)')
+	1       '    ch',KN_SIB_CH,' L=',KN_SIB_IS+1434,
+	2       ' n=',KN_ST%N,' min,p10,med,p90,max,ray83=',
+	3       KN_ST%VMIN,KN_ST%V10,KN_ST%VMED,KN_ST%V90,
+	4       KN_ST%VMAX,KN_ST%VRAY
+	      WRITE(LUER,'(A,I1,A,I4,A,I4,A,ES12.5,A,ES12.5)')
+	1       '    ch',KN_SIB_CH,' L=',KN_SIB_IS+1434,
+	2       ' rank=',KN_ST%RANK,' pct=',KN_ST%PCT,
+	3       ' ref-colmax-med=',
+	4       MERGE(JMP_SIB_M(KN_SIB_IS+1434),
+	5            JMP_SIB_P(KN_SIB_IS+1434),KN_SIB_CH .EQ. 1)
+	    END DO
+	  END DO
+!
+! Candidate-scale context: when the ray-83 P-channel record exists
+! (KN_JT is written during the loop and survives until the next
+! refresh's reallocation), report the veto candidate against the
+! same-depth P median and the ray's own retained value.
+!
+	  IF(KN_JT_READY .AND. 83 .LE. KN_NP .AND.
+	1   KN_JT(83,2)%BR .GT. 0)THEN
+	    KN_SIB_IK=KN_JT(83,2)%L2-1434
+	    IF(KN_SIB_IK .GE. 1 .AND. KN_SIB_IK .LE. 5 .AND.
+	1     KN_SIB_P(KN_SIB_IK)%VMED .GT. 0.0_LDP)THEN
+	      WRITE(LUER,'(A,I5,A,4ES12.5)')
+	1       '    KN-SIB ray83 ch2 trigger L=',KN_JT(83,2)%L2,
+	2       ' v1,medP,v1/medP,v1/v2=',
+	3       KN_JT(83,2)%V1,KN_SIB_P(KN_SIB_IK)%VMED,
+	4       KN_JT(83,2)%V1/KN_SIB_P(KN_SIB_IK)%VMED,
+	5       KN_JT(83,2)%V1/KN_JT(83,2)%V2
+	    END IF
+	  END IF
 	END IF
 	T1_W=OMP_GET_WTIME()-T0
 !
