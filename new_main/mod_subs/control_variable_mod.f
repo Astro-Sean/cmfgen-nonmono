@@ -1349,6 +1349,23 @@
 	LOGICAL KN_WATCH_CELL
 	INTEGER KN_WATCH_K,KN_WATCH_LS,KN_WATCH_SLOT
 !
+! KN_NOCP_PROBE / KN_NOCP_PROBE_LS (diagnostic, default off):
+! phase-5.2 experiment on the no-compressing fast exit in
+! SWEEP_FLD / SWEEP_FLD_ORD. When armed for ray KN_NOCP_PROBE_LS,
+! that ray skips the .NOT. HAS_CP forced-clean-exit shortcut and
+! runs the ordinary residual-tolerance/stall/plateau/cap
+! iteration, while every store write for the ray (commit, capped
+! commit, heal) is suppressed so the measured candidate cannot
+! repair the retained store it is diagnosing. Per-pass residual,
+! argmax, threshold-count, omega and ratio telemetry is printed
+! for both directional solves, and the refresh prints before/after
+! checksums of the target ray's store slices. All other rays keep
+! production behaviour. VADAT keywords [KN_NOCP_PROBE] and
+! [KN_NOCP_PROBE_LS].
+!
+	LOGICAL KN_NOCP_PROBE
+	INTEGER KN_NOCP_PROBE_LS
+!
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
 ! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
