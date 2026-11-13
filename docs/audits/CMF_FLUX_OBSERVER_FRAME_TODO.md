@@ -252,7 +252,15 @@ compiles.
   OBS_FRAME_SUB_V9 cross-check on the same model.
 - Acceptance: numerical integral matches analytic within quadrature
   tolerance; constant reproduced to quoted digits or corrected.
-- Status: OPEN
+- Status: DONE. See docs/audits/CMF_FLUX_P6_FLUX_NORMALISATION_AUDIT.md
+  - Jy constant derived to 6.5993417128 (code uses 6.59934, upstream
+    precision); PAR_FLUX identified as cgs specific intensity;
+    HQW_AT_RMAX verified as the Nordlund mu dmu quadrature;
+    constant-I and limb-law analytic tests pass; angular convergence
+    demonstrated NP=9..129; flat-spectrum velocity invariance holds;
+    pure D^2 boost scales as beta^2; tree V9 bitwise identical to
+    frozen upstream V9 on all 24 manufactured outputs.
+    No production defect found; no source change made.
 
 ## P7. Relativistic transformations (Priority 7)
 
