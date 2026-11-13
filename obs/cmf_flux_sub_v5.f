@@ -694,20 +694,29 @@
 ! RECOMPUTE_SIGMA_TRUE in the population solve: SIGMA_TRUE_CORE
 ! returns SIGMA_TRUE=0 at a cell with degenerate R spacing or a
 ! fully stagnant neighbourhood, which marks it non-compressing and
-! biases the Sobolev EW and profile estimates.  ALLOW_SIGMA_UNDEF=T
+! biases the Sobolev EW and profile estimates.  The abort covers
+! the EW-only derivation as well as the nonmono flags: a warning
+! plus sigma_true=0 would let an apparently complete EW through
+! on cells where no gradient was measured.  ALLOW_SIGMA_UNDEF=T
 ! (default F) downgrades the abort to a warning.
 !
 	  IF(N_SIG_UNDEF .GT. 0)THEN
 	    WRITE(LUER,*)'CMF_FLUX_SUB_V5:',N_SIG_UNDEF,
 	1   ' of',ND,'cells have no usable velocity gradient;',
 	2   ' SIGMA_TRUE=0 marks them non-compressing'
-	    IF(.NOT. ALLOW_SIGMA_UNDEF .AND.
-	1       (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP))THEN
+	    IF(.NOT. ALLOW_SIGMA_UNDEF)THEN
 	      WRITE(LUER,*)'Aborting: undefined SIGMA_TRUE cells make'
 	1     //' the Sobolev EW/profile estimates unreliable.  Set'
 	2     //' ALLOW_SIGMA_UNDEF=T to downgrade this to a warning.'
 	      STOP
 	    END IF
+! Override reached (ALLOW_SIGMA_UNDEF=T): the run continues, but
+! every EW and force diagnostic covering an undefined cell is
+! incomplete, since T1 uses the marker value sigma_true=0 rather
+! than a measured gradient.
+	    WRITE(LUER,*)'ALLOW_SIGMA_UNDEF=T: continuing anyway.'
+	1   //' EW and force values involving those',N_SIG_UNDEF,
+	2   ' cells are incomplete and potentially biased.'
 	  END IF
 !
 ! Report how many cells carry |sigma|>200: the Sobolev tau scales as
