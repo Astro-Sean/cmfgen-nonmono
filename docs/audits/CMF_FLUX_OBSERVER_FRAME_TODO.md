@@ -119,7 +119,14 @@ compiles.
 - Tests: CLUMP_FAC = 1/2/5 manufactured run; deposited + continuum
   opacity scale linearly with f in both stored and rendered arrays.
 - Acceptance: exactly one fold verified numerically.
-- Status: OPEN
+- Status: DONE. `test_sob_flux_obs` now runs the production routine
+  on a depth-varying CLUMP_FAC=(1.0,2.0,0.5,1.5) model: the stored
+  deposit normalizes identically at every depth (clump-independent),
+  integrates to CHIL*1e-15, and static pins assert the .INC deposit
+  carries zero CLUMP_FAC factors while the render fold
+  (`*_RND_ST*CLUMP_FAC`, cmf_flux_sub_v5.f) exists exactly once.
+  ED in ESEC=6.65E-15*ED is the smooth RVTJ electron density -
+  consistent with the unclumped-storage convention.
 
 ### P3.2 Resolve ADD_SOB_LINE_PROF divergence (defect D2)
 - Files: `obs/ADD_SOB_LINE_PROF.INC`, routine in `cmf_flux_sub_v5.f`.
@@ -135,7 +142,14 @@ compiles.
   within FP tolerance.
 - Acceptance: one implementation; tests assert the production
   convention.
-- Status: OPEN
+- Status: DONE. The .INC now holds the production routine verbatim
+  and `cmf_flux_sub_v5.f` INCLUDEs it - one copy, compiled by both
+  production and tests. `drv_sob_prof.f` signature updated;
+  `test_sob_flux_obs` expectations corrected to the unclumped
+  convention (integrals CHIL*1e-15, drop/inj sums unclumped). Stale
+  "clumped deposit" comments fixed. Also renamed the .INC driver
+  binary to drv_sob_prof_inc - it previously collided with the
+  f90 driver's bin/drv_sob_prof and could run the wrong routine.
 
 ### P3.3 `sob_line_es_update.f` convention reconciliation (P5)
 - Problem: orphan routine assumes clumped-ETA_ST storage and computes
