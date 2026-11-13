@@ -2249,3 +2249,118 @@ ray per refresh. That directly names the veto trigger and
 tests whether it is the same cell every refresh (deterministic
 mask) or migrates (genuine dynamics). Cost: one comparison
 chain inside an already-O(ND*NCF) scan, diagnostic-gated.
+
+## 22. Veto-trigger attribution: ray 83 rejected by an ordinary retained-store jump (2026-11-13)
+
+Section 21.7's recommended diagnostic is implemented and measured.
+FG_JUMP_MAX now records, per ray and channel, the cell and branch
+behind its return value under the diagnostic-only KN_JUMP_DIAG flag
+(VADAT key, default F). Branch codes: 0 none, 1 non-finite candidate,
+2 floor-column sibling-reference violation, 3 ordinary
+retained-store jump. Ties keep the first cell in (KS,LS2) scan order.
+The production calculation, sanitization, caps, VMAX_S construction,
+sibling fallback and return value are unchanged; the record adds only
+comparisons inside the existing scan. Storage is KN_JT(KN_NP,2),
+indexed by ray and channel so OpenMP workers never share a slot;
+one compact KN-JT record prints per exceeding channel inside
+!$OMP CRITICAL on a rejected ray.
+
+Source commits: 8d100053 (attribution in FG_JUMP_MAX), dfef0cfb
+(control-variable declaration), 1cbe1904 (VADAT read, default F),
+086b707c (regression checks). Diagnostic builds: 0672cd89, d2f98b4d,
+experiment exe 5aac7cb6 (adds two temporary KN-JTDBG prints, removed
+before the final commit), final clean build 597a500a.
+
+Tests: test_knop_lagged_field.py 187 checks pass (new coverage for
+ordinary/sibling/non-finite/no-trigger/tie/disabled/OpenMP-safety
+patterns), test_knop_ray 43/43, test_knop_status_text all pass,
+make KEEP_EXE=1 cmfgen clean on 597a500a.
+
+### 22.1 Experiment
+
+Run m15_2p82d_KNOP_p5_jtdiag, job 13120025 on vipc2483, staged from
+the iso_M iteration-157 checkpoint lineage (FGINEXT_GS seed
+893143f3c47405f23d4c7aca57d64080). VADAT: KN_FREEZE_COEF=F,
+KN_MAT_FREEZE=T, KN_Q_RESID=T, KN_JUMP_DIAG=T (verified in the
+resolved VADAT and echoed T at runtime). Two complete KNOP
+refreshes captured; job scancelled afterwards. Internal script
+requeues restored checkpoint state between attempts; the measured
+refreshes are refresh counters 1 and 2 of the final attempt.
+
+Two earlier p5 jobs (13118590, 13119305) produced jump-rejections
+without KN-JT records; the diagnostic state was confirmed only on
+exe 5aac7cb6, which prints flag/ready each refresh. Whether the
+earlier output was lost to OUTGEN rotation across internal requeues
+or ran a pre-diagnostic exe is unresolved; it does not affect the
+13120025 measurement.
+
+### 22.2 Measured trigger (refresh 2)
+
+Refresh 1: commit rejects=0, jump-rej=0 -- no veto, no record.
+
+Refresh 2: jump-rej=1 (ray 83). KN-JT record:
+
+    KN-JT ray=  83 ch= 2 ref=     2 br=   3 ks,kc,jp,l2=
+        2     2     2  1437 nskip=    67
+    v1,v2,vms,ref= 1.69994E-23 9.51275E-26 9.51962E-26
+        1.83137E-22 nf=0 ratio,thr,jval=
+        1.77701E+02 5.00000E+01 1.77701E+02
+
+Branch 3 -- ordinary retained-store jump violation. NOT a
+non-finite candidate (nf=0) and NOT the floor-column
+sibling-reference fallback (VMAX_S=9.5E-26 > 1E-28, so the ordinary
+branch applied). KS=2, KC=2, ray point JP=2, field frequency
+L2=1437 (destination store slot 1436), 67 cells skipped as outside
+the writable domain.
+
+Same-refresh Q argmax (for contrast): ray 83 ch2 j=2 l=1372,
+VOLD=1.43E-29, VNEW=4.72E-27, retained=before=1.81E-29, delta=0 --
+the ray-level veto still froze the whole ray including the Q-defect
+cell. The veto trigger sits at the same ray point j=2 but a
+different frequency (1437 vs 1372 this refresh; the Q argmax
+frequency itself drifted 1330 -> 1372 across checkpoint
+generations).
+
+### 22.3 Physical significance
+
+Absolute scales matter more than the normalized ratio:
+
+- VMAX_S(1437)=9.52E-26: the entire stored P-channel column peaks at
+  ~1E-25, i.e. a numerically dead floor-level column (live columns
+  are ~1E-15; the write floor is 1E-30).
+- V1=1.70E-23 is ~178x the retained V2=9.51E-26, but still ~11x
+  BELOW the sibling reference REF=1.83E-22. The candidate is
+  conservative relative to sibling rays; the RETAINED value is the
+  anomalous one, sitting ~2000x below the sibling scale.
+- The veto therefore fires on a stale near-floor store cell whose
+  recovery candidate trips the whole-ray jump bound. Because the
+  ray is rejected, the store never updates, the cell stays
+  near-floor, and the next refresh's candidate trips the veto
+  again: a self-reinforcing latch, not a physical extreme.
+
+Direct spectral impact at this frequency is likely nil (values
+~1E-23 vs live field ~1E-15). The mechanism is what matters: the
+same latch on a live column would freeze legitimate field updates.
+
+### 22.4 Stability across refreshes
+
+Within job 13120025 the veto is intermittent: refresh 1 clean,
+refresh 2 triggered at ray 83/ch2/(K=2,j=2,L=1437). Earlier p5
+attempts showed jump-rej on consecutive refreshes but carry no
+attribution. Trigger recurrence at the same cell across refreshes
+is therefore NOT yet established; the honest statement is that the
+veto is state-dependent and recurrent on this checkpoint lineage,
+with ray 83 P-channel ray point j=2 as the persistent locus.
+
+### 22.5 Answers to the isolation question
+
+Ray 83's jump rejection is caused by an ORDINARY retained-store
+jump violation (branch 3) at (KS=2, KC=2, JP=2, L=1437), candidate
+1.70E-23 vs retained 9.51E-26, ratio 177.7 vs bound 50. It is not
+a non-finite candidate and not the sibling-reference fallback. The
+trigger column is floor-level dead; the candidate is below the
+sibling reference, so the veto is suppressing a recovery write,
+not an extreme seed. No commit-policy or solver change is implied
+by this measurement; any remedy (e.g. floor-aware veto scaling,
+per-cell rather than per-ray commit granularity) is a separate,
+explicitly gated decision.
