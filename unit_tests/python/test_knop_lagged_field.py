@@ -1194,7 +1194,99 @@ def test_qcell_histogram_alloc_failure_path():
     )
 
 
+def test_jump_diag_veto_attribution():
+    fn = section(FG, "FUNCTION FG_JUMP_MAX", "SUBROUTINE HEAL_STORE")
+    # A. ordinary jump: argmax cell tracked with strict-> tie rule
+    check(
+        "ordinary jump records argmax cell",
+        "VR=ABS(V1-V2)/" in fn
+        and "MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP)" in fn
+        and "VR .GT. JT_BEST" in fn
+        and "%BR=3" in fn
+        and "%KS=JT_KS" in fn
+        and "%L2=JT_L2" in fn,
+    )
+    # B. sibling-reference fallback branch 2 with ratio and threshold
+    check(
+        "sibling-reference branch records ratio and threshold",
+        "%BR=2" in fn
+        and "%RATIO=V1/REF(LS2)" in fn
+        and "%THR=FG_COMMIT_JUMP*REF(LS2)" in fn,
+    )
+    # C. non-finite candidate branch 1 before the HUGE return
+    check(
+        "non-finite candidate branch 1 recorded",
+        "%BR=1" in fn and "%NF=.TRUE." in fn,
+    )
+    br1 = section(fn, "%BR=1", "FG_JUMP_MAX=HUGE")
+    check(
+        "branch 1 record precedes the HUGE return",
+        "%JVAL=HUGE(FG_JUMP_MAX)" in br1,
+    )
+    # D. no trigger reported below thresholds: report filter
+    rep = section(
+        FG,
+        "IF(KN_JUMP_DIAG .AND. KN_JT_READY)THEN",
+        "END IF\n\t  ELSE IF",
+    )
+    check(
+        "report fires only for exceeding channels",
+        "KN_JT(LS,J)%BR .LE. 2 .OR." in rep
+        and "KN_JT(LS,J)%JVAL .GT. FG_COMMIT_JUMP" in rep,
+    )
+    # E. deterministic ties: strict > keeps first cell in scan order
+    check(
+        "tie-break is strict greater-than (first cell wins)",
+        ".GT. JT_BEST" in fn and ".GE. JT_BEST" not in fn,
+    )
+    # F. diagnostic disabled by default; gated writes
+    check(
+        "diagnostic gated by KN_JUMP_DIAG and KN_JT_READY",
+        "L_DIAG=KN_JUMP_DIAG .AND. KN_JT_READY" in fn
+        and "DATA KN_JUMP_DIAG /.FALSE./" in FG,
+    )
+    check(
+        "every record write is inside an L_DIAG guard",
+        fn.count("IF(L_DIAG") >= 4,
+    )
+    # G. OpenMP safety: per-ray/per-channel slices, critical print
+    check(
+        "records indexed by ray and channel only",
+        "KN_JT(LS,ICH)%" in fn
+        and "KN_JT(KN_NP,2)" in FG,
+    )
+    check(
+        "report serialized under OMP critical",
+        "!$OMP CRITICAL (KN_JT_UPD)" in FG
+        and "!$OMP END CRITICAL (KN_JT_UPD)" in FG,
+    )
+    # production behaviour preserved
+    check(
+        "production return values unchanged",
+        "FG_JUMP_MAX=MAX(FG_JUMP_MAX,VR)" in fn
+        and "FG_JUMP_MAX=HUGE(FG_JUMP_MAX)" in fn,
+    )
+    check(
+        "both call sites pass channel indices",
+        "FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1)" in FG
+        and "FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2)" in FG,
+    )
+    check(
+        "VADAT plumbing wired",
+        "LOGICAL KN_JUMP_DIAG" in CTRL_MOD
+        and "'KN_JUMP_DIAG'" in RD_CONTROL
+        and "CALL SET_FG_JUMP_DIAG(KN_JUMP_DIAG)" in RD_CONTROL
+        and "SUBROUTINE SET_FG_JUMP_DIAG" in FG,
+    )
+    check(
+        "cleanup deallocates KN_JT and resets readiness",
+        "IF(ALLOCATED(KN_JT))DEALLOCATE(KN_JT)" in FG
+        and "KN_JT_READY=.FALSE." in FG,
+    )
+
+
 if __name__ == "__main__":
+    test_jump_diag_veto_attribution()
     test_qcell_histogram_gated_by_verify_pass()
     test_qcell_histogram_race_free_layout()
     test_qargmax_store_mapping_diagnostics()
