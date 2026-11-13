@@ -2877,3 +2877,214 @@ Status: PASS WITH LIMITATIONS -- lifecycle resolved, root cause
 narrowed to the no-compressing fast exit plus the store latch;
 no solver or commit-policy change made; no production-
 readiness claim.
+
+## 26. Phase-5.2 -- no-compressing fast-exit residual experiment
+
+Diagnostic-only implementation of the phase-5.1 recommended
+next step: measure whether ray 83's expanding-only solve would
+converge under the ordinary iteration if the .NOT. HAS_CP
+forced-clean-exit shortcut did not fire after the minimum pass
+count. No production policy changed.
+
+### 26.1 What was added
+
+- VADAT [KN_NOCP_PROBE] (default F) + [KN_NOCP_PROBE_LS]
+  (default 83), wired through control_variable_mod.f,
+  rd_control_variables.f and SET_FG_NOCP_PROBE into the
+  FG_J_CMF_NONMONO_MOD_V1 state.
+- Module predicate KN_NOCP_PROBE_RAY(LS): true only when the
+  flag is armed and LS equals the configured index; an
+  out-of-range index can never match a ray (fail-safe).
+- In SWEEP_FLD and SWEEP_FLD_ORD the forced-clean exit is now
+  `IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN`. For the probe
+  ray the sweep continues into the ordinary
+  residual-tolerance / bulk / stall / plateau / hot-pass /
+  pass-cap exit chain unchanged; every other ray keeps the
+  production fast exit bit-for-bit.
+- Commit isolation: for the probe ray only, the
+  WRITE_STORE / WRITE_STORE_CAP calls (normal and capped
+  commit), the FG_RAY_SEEDED mark and both HEAL_STORE calls
+  are skipped, so the measured candidate cannot repair the
+  retained store it diagnoses. The commit decision chain
+  still runs, so JUMP, the KN-JT records and the verdict
+  counters show what the candidate would have faced; the
+  would-be verdict is kept in NOP_VC and FG_RAY_VC is set to
+  the probe code 7.
+- Pass telemetry: NOP_PASS records per completed pass, per
+  direction (dir 1 = INWARD=T solve -> RES_M/NP_M, dir 2 =
+  INWARD=F solve -> RES_P/NP_P): residual, absolute update at
+  the worst cell (WRC_ADEL = |VNEW-VOLD| captured at every
+  argmax site in MARCH and the ordered inline march), the
+  OMEGA_RAY the pass started with (snapshot before the
+  pass-end damping rewrites it), the same-direction ratio
+  with a freshness flag (stale values print as -1), the
+  argmax (ray point, frequency), five cumulative DCELL
+  threshold counts (>KN_RAY_TOL, >1E-2, >1E-1, >1, >10)
+  accumulated by NOP_CELL inside the same significance gate
+  NBAD_CUR/NTOT_CUR use, and the hot-mode flag.
+- Refresh level: KN_NOP_ARM validates the index against
+  KN_NP before allocating; the refresh prints before/after
+  sums of I_M_DEPTH_NEXT(:,LS,:) and I_P_DEPTH_NEXT(:,LS,:)
+  for the probe ray so any escaped write shows as a nonzero
+  delta.
+
+### 26.2 Source audit answers (Part 1)
+
+A. The .NOT. HAS_CP exits sit at the pass-loop tail in both
+   sweeps: SWEEP_FLD fires unconditionally after pass 1;
+   SWEEP_FLD_ORD requires NPO>=2 (a stale-slope confirmation
+   pass). Neither measures a residual first -- RES at that
+   point is the last completed pass's max DCELL.
+B. SWEEP_FLD exits after pass 1; SWEEP_FLD_ORD after pass 2.
+C. RES just before the exit is the completed pass's max
+   normalized cell change.
+D. It is discarded: the branch sets RES=0 and zeroes
+   RES_FREQ, so the measured value never reaches the caller.
+E. OMEGA_RAY is reset to KN_RAY_OMEGA at each sweep start and
+   adapted per pass by the same-direction ratio damping
+   (grow -> *0.7 floor 0.45, contract -> *1.15 cap 1.0,
+   sign-flip -> *0.7); identical logic in both sweeps.
+F. M and P are separate field arrays (FLD, FLD_P), separate
+   pass counters (NP_M, NP_P), residuals (RES_M, RES_P),
+   exit codes and bad-cell censuses; the solves run
+   sequentially, M then P.
+G. Shared per-pass state modified by a normal pass:
+   RES_FREQ, KN_RES_PASS, BEST_RES/NB/NT, WRC_* argmax,
+   SGN_ACC/KN_SGN_SUM sign accumulators, RHO_WIN,
+   OMEGA_RAY, RES_PREV, RATIO_OM, NSTALL/NOSC/NPLAT,
+   HOTMODE/W_LO/W_HI, NCP_P/NNG_P clamp census, KN_HOT_CNT.
+H. The KN_Q_RESID L_QP path cannot be reused for iteration:
+   it exits after exactly one map application (IXIT=9)
+   before KN_RES_PASS/RHO_WIN and writes a scratch field,
+   deliberately keeping the verify out of production
+   telemetry. The probe instead runs the real production
+   iteration on the production field.
+
+### 26.3 Verification so far
+
+- plane/fg_j_cmf_nonmono_v1.f compiles clean under
+  viper_intel_nodebug ifort flags (only the pre-existing
+  NB_Q/NT_Q INTEGER*8 argument warnings on the Q-verify
+  calls, unchanged by this work).
+- control_variable_mod.f and rd_control_variables.f compile
+  clean.
+- unit_tests/python/test_knop_lagged_field.py: all checks
+  pass including 27 new KN_NOCP_PROBE pins (defaults,
+  fail-safe index, both-sweep gating, exit-rule retention,
+  all four store-write suppressions, per-direction pass
+  counts, telemetry completeness, checksum wiring).
+- The runtime pass sequence and store-write isolation are
+  exercised by the probe job itself (KN-NOP report +
+  before/after store checksums), which is stronger evidence
+  than a synthetic driver for this diagnostic.
+
+### 26.4 Experiment design
+
+- Baseline: configs/dessart_m15_2p82d_KNOP_p8_base.yaml --
+  identical to p7_census (KN_NOCP_PROBE absent = F), same
+  iso_M it157 warm-start lineage, FGINEXT_GS 893143f3,
+  KN_FREEZE_COEF=F, KN_MAT_FREEZE=T, KN_Q_RESID=T,
+  KN_JUMP_DIAG=T, KN_WATCH armed on K=2/LS=83/slot=1436.
+- Probe: configs/dessart_m15_2p82d_KNOP_p8_probe.yaml --
+  same plus KN_NOCP_PROBE=T, KN_NOCP_PROBE_LS=83.
+- Both run on the p8 install built from this source; the
+  whole-ray jump veto, commit thresholds and sibling
+  references are untouched.
+
+### 26.5 Static validation record (requirements 1-6)
+
+Recorded after the full build completed and both jobs were
+submitted.
+
+1. Source revision: cmfgen_jfnk HEAD f8c9573f3a1a1629d16db98
+   719a19d9e1fe9ff4f12 ("docs: mark the relativistic
+   transformations audit done") plus the uncommitted phase-5.2
+   diff: plane/fg_j_cmf_nonmono_v1.f, control_variable_mod.f,
+   rd_control_variables.f, test_knop_lagged_field.py and the
+   two audit docs. Dirty-tree status at build time is exactly
+   that diff set; obs_frame_sub_v9.f plus its two test files
+   carry unrelated earlier obs-frame work.
+2. Executable checksum: exe/cmfgen_dev.exe and
+   cmfgen_p8_install/exe/cmfgen_dev.exe both md5
+   2f8fc36c888118dda3a8a4b1bcd80e85 (16,556,768 bytes). The
+   workflow provenance line reported the parent-workspace
+   git string "1c6abd31(dirty x36)" -- that is the enclosing
+   SN2024pba repo, not cmfgen_jfnk; the exe itself is the p8
+   build of the revision above.
+3. Baseline and probe run the same executable by
+   construction: both configs resolve to
+   cmfgen_build=cmfgen_p8_install and the submit script pins
+   the same binary path.
+4. Checkpoint fingerprints: FGINEXT_GS md5
+   893143f3c47405f23d4c7aca57d64080 (5,367,543,560 bytes)
+   byte-identical in m15_2p82d_KNOP_iso_M (source),
+   m15_2p82d_KNOP_p8_base and m15_2p82d_KNOP_p8_probe.
+   SN_HYDRO_DATA md5 ea6c5d5bd2d1c0ae785d70d4c9a56053
+   identical in both p8 run dirs.
+5. VADAT identity: diff of the two resolved configs shows
+   only model_name/model_dir, the description text and the
+   two probe keys (KN_NOCP_PROBE=T, KN_NOCP_PROBE_LS=83).
+   All other vadat_overrides are identical
+   (KN_FREEZE_COEF=F, KN_MAT_FREEZE=T, KN_Q_RESID=T,
+   KN_JUMP_DIAG=T, KN_WATCH_CELL=T K=2 LS=83 SLOT=1436).
+   The baseline generated VADAT contains no KN_NOCP keys
+   (defaults F/83 apply); the probe VADAT diff is checked
+   post-run.
+6. FG_RAY_VC=7 exclusion (verified in source): every
+   consumer of FG_RAY_VC is a diagnostic COUNT() or
+   MAXVAL mask -- committed=VC==0, jump-rej=VC==1,
+   nc-rej=VC==2, capped=VC==3, div=VC==4, unsolved=VC==-1,
+   and MAXVAL(FG_RAY_DCH,MASK=VC==0). Code 7 matches none
+   of them, so the probe ray is absent from every verdict
+   counter and cannot enter the committed-delta statistic.
+   Maturity gating reads RES_LS/NBAD/NST residuals, never
+   FG_RAY_VC. Caveat recorded honestly: the refresh-level
+   scalar counters FG_NC_CAP/FG_NC_REJ and FG_RF_DCHG are
+   incremented inside the commit branch before the probe
+   overwrite, so a probe ray that reaches a capped or
+   nc-rejected verdict adds one count to those scalars;
+   NOP_VC preserves the per-ray truth and DCH stays 0
+   (WRITE_STORE* skipped, DCH_M/P remain at their 0.0
+   entry initialisation), so FG_RF_DCHG cannot be inflated
+   by the probe ray.
+7. NOP_VC preservation (verified in source): NOP_VC=
+   FG_RAY_VC(LS) executes at line ~9878 immediately after
+   the commit chain and before FG_RAY_VC(LS)=7, so it holds
+   exactly the verdict the unmodified chain produced
+   (0 commit / 1 jump-veto / 2 nc-rej / 3 capped), or -1
+   when the ray never reached the chain (divergence).
+8. Store-write coverage (verified in source): inside
+   KNOP_RAY_SOLVE_V1 the only writers of I_M_DEPTH_NEXT /
+   I_P_DEPTH_NEXT are WRITE_STORE, WRITE_STORE_CAP and
+   HEAL_STORE; all call sites are .NOT. L_NOPROBE-guarded.
+   SEED_FLD and FG_JUMP_MAX only read the store. The
+   in-place Gauss-Seidel writeback at FG_J_CMF_NONMONO_V1
+   lines ~5484-5655 is a different mechanism (per-frequency
+   sweep, outside the refresh window the checksums bracket)
+   and is identical between baseline and probe by
+   construction. The before/after ray-83 store sums in the
+   refresh output are the empirical check.
+
+### 26.6 Build and test record
+
+- ./build.sh completed: Fortran tree builds clean, both
+  cmfgen_dev.exe and cmf_flux.exe/obs_frame.exe produced.
+- Unit suite: 86/89 test files pass. The three remaining
+  failures are environmental and pre-existing, unrelated
+  to this change: test_auto_ion.py and
+  test_sobew_angular_floor.py hardcode fixture paths under
+  /ptmp/sbrennan/... which do not exist on this host
+  (workspace lives at /viper/ptmp1/sbrennan/...); 
+  test_par_opac.py needs opac/mod_par_opac.o which
+  build.sh does not produce (opac/Makefile exists but is
+  not in the build graph). test_sob_prof.py initially
+  failed on a stale obs_frame_sub_v9.o (source touched
+  after the object build); rebuilding obs/ objects fixed
+  it -- 5 passed, 0 failed on rerun.
+- unit_tests/python/test_knop_lagged_field.py: all checks
+  pass including the 27 new KN_NOCP_PROBE pins.
+
+Status: IMPLEMENTED, BUILT, JOBS SUBMITTED -- awaiting
+probe-job pass histories and store checksums for the
+interpretation gate. No commit-policy remedy; no
+production-readiness claim.
