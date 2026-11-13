@@ -172,18 +172,36 @@ def test_freq_match_mirror():
 
 
 def test_edge_clamp_census():
-    """All four clamp sites update the census; report is printed."""
+    """P5: clamps tolerate only derived round-off; real undercoverage
+    aborts with LOCAL vs GLOBAL diagnostics; census splits classes."""
     check(
-        "census counters declared",
-        "N_EDGE_CLAMP" in OBSF and "CLAMP_GRID_MAX" in OBSF,
+        "census counters declared incl. class split",
+        "N_EDGE_CLAMP" in OBSF
+        and "CLAMP_GRID_MAX" in OBSF
+        and "N_CLAMP_LOCAL" in OBSF
+        and "N_CLAMP_GLOBAL" in OBSF,
+    )
+    check(
+        "derived round-off tolerance is declared",
+        "EDGE_TOL=1.0E-12_LDP" in OBSF,
+    )
+    check(
+        "the 2% physical tolerance is gone",
+        "1.02_LDP*SM_FREQ_CMF" not in OBSF
+        and "0.98_LDP*SM_FREQ_CMF" not in OBSF,
     )
     check(
         "counters zeroed before the LS loop",
-        "N_EDGE_CLAMP=0" in OBSF,
+        "N_EDGE_CLAMP=0" in OBSF and "N_CLAMP_LOCAL=0" in OBSF,
     )
     check(
         "all four clamp sites update the census",
         OBSF.count("N_EDGE_CLAMP=N_EDGE_CLAMP+1") == 4,
+    )
+    check(
+        "all four clamp sites classify local vs global",
+        OBSF.count("N_CLAMP_GLOBAL=N_CLAMP_GLOBAL+1") == 4
+        and OBSF.count("N_CLAMP_LOCAL=N_CLAMP_LOCAL+1") == 4,
     )
     check(
         "updates are OpenMP-safe",
@@ -194,15 +212,42 @@ def test_edge_clamp_census():
         "CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)" in OBSF
         and "T4 .GT. CLAMP_GRID_MAX" in OBSF,
     )
-    report = section(OBSF, "IF(N_EDGE_CLAMP .GT. 0)THEN", "END IF")
     check(
-        "report prints count and worst location",
-        "N_EDGE_CLAMP" in report and "CLAMP_I_WORST" in report,
+        "named abort diagnostics exist at every clamp and the "
+        "serial assertion",
+        OBSF.count("GLOBAL_CMF_GRID_UNDERCOVERAGE") >= 5
+        and OBSF.count("LOCAL_WINDOW_UNDERCOVERAGE") >= 5,
     )
     check(
-        "out-of-grid clamp raises a warning to widen MIN_CF/MAX_CF",
-        "CLAMP_GRID_MAX .GT. 0.0_LDP" in report
-        and "MIN_CF/MAX_CF" in report,
+        "aborts name the fix (widen MIN_CF/MAX_CF)",
+        "widen MAX_CF" in OBSF and "widen MIN_CF" in OBSF,
+    )
+    check(
+        "per-band serial coverage assertion present",
+        "(1.0_LDP+EDGE_TOL)" in OBSF
+        and "(1.0_LDP-EDGE_TOL)" in OBSF
+        and "X_MAX_RAY" in OBSF
+        and "X_MIN_RAY" in OBSF,
+    )
+    check(
+        "ray extrema computed once (hoisted), not per band",
+        OBSF.count("MAXVAL((1.0_LDP-VMU_RAY)*GAM_RAY)") == 1
+        and OBSF.count("MINVAL((1.0_LDP-VMU_RAY)*GAM_RAY)") == 1,
+    )
+    check(
+        "bracket invariant guarded at both interpolation sites",
+        OBSF.count("bad bracket") == 2
+        and OBSF.count("degenerate bracket") == 2
+        and OBSF.count("interp fraction outside [0,1]") == 2
+        and OBSF.count("non-finite ETA/CHI") == 2,
+    )
+    report = section(OBSF, "IF(N_EDGE_CLAMP .GT. 0)THEN", "END IF")
+    check(
+        "report prints the class split and worst location",
+        "N_CLAMP_LOCAL" in report
+        and "N_CLAMP_GLOBAL" in report
+        and "CLAMP_I_WORST" in report
+        and "CLAMP_T1_GLB" in report,
     )
 
 
