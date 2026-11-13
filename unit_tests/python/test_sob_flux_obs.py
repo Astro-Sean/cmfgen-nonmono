@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Regression test for resolved Sobolev profile deposition in OBS.
 
-The driver calls ADD_SOB_LINE_PROF from obs/ADD_SOB_LINE_PROF.INC directly.
+The driver INCLUDEs obs/ADD_SOB_LINE_PROF.INC, which is also the file
+cmf_flux_sub_v5.f INCLUDEs, so this test compiles the exact production
+routine.  The stored ETA_ST/CHI_ST arrays are unclumped by convention:
+the deposit integrates to CHIL (not CHIL*CLUMP_FAC) and CLUMP_FAC is
+folded into the render copies once, in cmf_flux_sub_v5.f.
+
 The assertions cover profile normalization on a nonuniform CMF grid,
-per-Hz units, maser/blend-cell drops, and skipping non-SOB or off-grid
-lines.
+per-Hz units, clump-independence of the stored deposit, maser/blend-cell
+drops, and skipping non-SOB or off-grid lines.
 """
 
 import sys
@@ -27,7 +32,12 @@ C_KMS = 299792.458
 F0 = 0.5
 VDOP = 50.0
 
-MODULE_SOURCES = [TREE / "tools" / "set_kind_module.f"]
+MODULE_SOURCES = [
+    TREE / "tools" / "set_kind_module.f",
+    TREE / "obs" / "cmf_flux_cntrl_var_mod.f",
+    TREE / "unix" / "term_io.f",
+    TREE / "subs" / "voigt_1p0.f",
+]
 
 
 def nu_grid():
@@ -52,7 +62,7 @@ def main():
     blank_dir.mkdir(parents=True, exist_ok=True)
 
     binary = compile_driver(
-        "drv_sob_prof",
+        "drv_sob_prof_inc",
         MODULE_SOURCES + [F90DIR / "drv_sob_prof.f"],
         extra_flags=[f"-I{TREE / 'obs'}"],
     )
@@ -91,13 +101,13 @@ def main():
     expected_eta = np.zeros((ND, NCF))
     for i in range(ND):
         if valid[i]:
-            expected_chi[i, :] = chil[i] * clump[i] * prof
-            expected_eta[i, :] = etal[i] * clump[i] * prof
+            expected_chi[i, :] = chil[i] * prof
+            expected_eta[i, :] = etal[i] * prof
 
     x_dop = (nu - F0) / dnu_d
     fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
-    ax.plot(x_dop, chi_delta[0, :] / (chil[0] * clump[0]), label="depth 1")
-    ax.plot(x_dop, chi_delta[1, :] / (chil[1] * clump[1]), label="depth 2")
+    ax.plot(x_dop, chi_delta[0, :] / chil[0], label="depth 1 (clump=1.0)")
+    ax.plot(x_dop, chi_delta[1, :] / chil[1], label="depth 2 (clump=2.0)")
     ax.plot(x_dop, prof, "k--", lw=1, label="normalized Gaussian")
     ax.set_xlim(-3.2, 3.2)
     ax.set_xlabel(r"$(\nu-\nu_0)/\Delta\nu_D$")
@@ -113,8 +123,15 @@ def main():
         f"max chi err={np.abs(chi_delta-expected_chi).max():.3e}",
     )
 
+    rep.check(
+        "stored deposit is independent of CLUMP_FAC (folded once at render)",
+        np.allclose(chi_delta[0, :] / chil[0], prof, rtol=2.0e-12, atol=0.0)
+        and np.allclose(chi_delta[1, :] / chil[1], prof, rtol=2.0e-12, atol=0.0),
+        "clump 1.0 and 2.0 depths normalize to the same profile",
+    )
+
     integrals = np.sum(chi_delta * dn[None, :], axis=1)
-    expected_integrals = np.where(valid, 1.0e-15 * chil * clump, 0.0)
+    expected_integrals = np.where(valid, 1.0e-15 * chil, 0.0)
     rep.check(
         "line opacity integrates to CHIL over frequency",
         np.allclose(integrals, expected_integrals, rtol=2.0e-12, atol=0.0),
@@ -139,14 +156,32 @@ def main():
     rep.check(
         "drop and injection diagnostics are finite and correct",
         n_drop == 2
-        and np.isclose(drop_sum, 0.4 * 0.5 + 0.5 * 1.5)
-        and np.isclose(inj_sum, 0.2 * 1.0 + 0.3 * 2.0),
+        and np.isclose(drop_sum, 0.4 + 0.5)
+        and np.isclose(inj_sum, 0.2 + 0.3),
         f"n_drop={n_drop} drop={drop_sum:.6e} inj={inj_sum:.6e}",
     )
 
     rep.check(
         "deposited line opacity remains positive",
         np.all(chi_delta >= 0.0) and np.all(eta_delta >= 0.0),
+    )
+
+    # Clumping convention pin: the stored arrays are unclumped, so the
+    # .INC deposit must never multiply by CLUMP_FAC, and the render
+    # copies in cmf_flux_sub_v5.f must fold it in exactly once.
+    inc_src = (TREE / "obs" / "ADD_SOB_LINE_PROF.INC").read_text()
+    rep.check(
+        "INC deposit applies CLUMP_FAC zero times",
+        inc_src.count("CLUMP_FAC(I)*WT") == 0
+        and inc_src.count("ETAL_MAT(I,S)*CLUMP_FAC") == 0
+        and inc_src.count("CHIL_MAT(I,S)*CLUMP_FAC") == 0,
+    )
+    host_src = (TREE / "obs" / "cmf_flux_sub_v5.f").read_text()
+    rep.check(
+        "render fold applies CLUMP_FAC exactly once per stored array",
+        host_src.count("ETA_RND_ST(:,ML)=ETA_RND_ST(:,ML)*CLUMP_FAC(:)") == 1
+        and host_src.count("CHI_RND_ST(:,ML)=CHI_RND_ST(:,ML)*CLUMP_FAC(:)")
+        == 1,
     )
 
     eta_blank = np.loadtxt(blank_dir / "eta_out.txt", dtype=float)
