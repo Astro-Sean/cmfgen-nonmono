@@ -162,3 +162,22 @@ submitted.
 - Veto intermittent across the two refreshes; recurrence at the
   same cell not yet established. Diagnostic-only; no solver or
   commit-policy change; no production-readiness claim.
+
+## 2026-11-13 (KN_SIB_DEPTH same-depth sibling measurement)
+
+- Added KN_SIB_DEPTH_SNAP_V1 (commits b5048d7b, aadfa169): a
+  serial, KN_JUMP_DIAG-gated snapshot of the retained M/P store at
+  K=2, ray 83, L=1435..1439 taken before the OpenMP ray loop.
+  Nearest-rank order statistics; invalid values excluded; no
+  cross-ray reads inside the loop.
+- Job 13122828 (exe 4bd70f4f, checkpoint 893143f3, it158-159, two
+  refreshes): ray-83 P-channel retained store at K=2 is rank 2/84
+  at L=1437, L=1438 AND L=1439 -- a contiguous band ~470x below
+  the same-depth median. M channel dead floor, no anomaly.
+- Classification A: genuinely anomalous stale store, not a
+  legitimate spatial variation and not an over-broad distribution.
+  The veto candidate V1=1.67E-23 sits at 0.35x the same-depth
+  median -- the rejected write would move ray 83 TOWARD the
+  sibling-consistent field, confirming the self-reinforcing latch.
+- Spectral impact unverified; requires formal-solution/emergent-
+  spectrum check. Diagnostic-only; no solver change.

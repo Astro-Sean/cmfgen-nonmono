@@ -2364,3 +2364,95 @@ not an extreme seed. No commit-policy or solver change is implied
 by this measurement; any remedy (e.g. floor-aware veto scaling,
 per-cell rather than per-ray commit granularity) is a separate,
 explicitly gated decision.
+
+## 23. Same-depth sibling measurement: ray 83 retained store is genuinely anomalous (2026-11-13)
+
+Section 22 identified the ray-83 veto trigger at (K=2, KC=2,
+JP=2, L=1437, slot 1436) but could not classify it: the existing
+REF is the median of per-ray column maxima over ALL compressing
+depths, not a same-depth statistic. This section reports the actual
+retained-store distribution at the same physical model depth and
+frequency.
+
+### 23.1 Diagnostic: KN_SIB_DEPTH_SNAP_V1
+
+A bounded, read-only snapshot runs serially after
+KN_JMP_SIBREF_V1 and before the OpenMP ray loop, gated on
+KN_JUMP_DIAG. For every ray RS it resolves JP=J_PNT(2,RS),
+validates JP against NI_RAY(RS), and reads the retained value at
+(COMP_DEPTH_IDX(2)=2, RS, slot) for slots 1434..1438 (field
+L=1435..1439) in both I_M_DEPTH_NEXT and I_P_DEPTH_NEXT. Values
+that are non-finite or non-positive are excluded. Order statistics
+use the documented nearest-rank convention: sorted ascending,
+percentile p takes rank CEILING(p*N) clamped to [1,N]; the median
+uses the upper-middle rank (N+1)/2 to match KN_JMP_SIBREF_V1. Ray
+rank counts siblings strictly below the ray's retained value;
+percentile = 100*count_below/N. The snapshot must precede the ray
+loop because committing rays rewrite the store; reading sibling
+columns inside FG_JUMP_MAX or the loop would race those writes.
+Commits: b5048d7b (diagnostic), aadfa169 (tests).
+
+### 23.2 Experiment
+
+Job 13122828 on vipc2607 (2 OMP threads), exe md5 4bd70f4f built
+from b5048d7b+aadfa169 on top of 34c2d684, checkpoint FGINEXT_GS
+md5 893143f3c47405f23d4c7aca57d64080 (iso_M it157 warm seed,
+verified). VADAT: KN_FREEZE_COEF=F, KN_MAT_FREEZE=T,
+KN_Q_RESID=T, KN_JUMP_DIAG=T. Two complete refreshes captured at
+great iterations 158 and 159; job cancelled afterwards. The three
+neut2 jobs were not touched.
+
+### 23.3 Measured distributions (identical to printed precision at both refreshes)
+
+P channel (I_P_DEPTH_NEXT), K=2, n=84 valid rays:
+
+    L=1435: min 9.22E-28  p10 8.07E-26  med 1.04E-24  p90 4.52E-21  max 5.69E-21  ray83 4.23E-24  rank 59 (69.0%)
+    L=1436: min 1.20E-28  p10 3.75E-25  med 1.04E-23  p90 5.16E-22  max 6.60E-22  ray83 5.51E-25  rank 24 (27.4%)
+    L=1437: min 2.42E-28  p10 1.69E-23  med 4.72E-23  p90 7.45E-23  max 7.83E-23  ray83 9.99E-26  rank  2 ( 1.2%)
+    L=1438: min 1.83E-27  p10 7.30E-24  med 1.98E-22  p90 2.47E-22  max 2.48E-22  ray83 1.93E-25  rank  2 ( 1.2%)
+    L=1439: min 2.01E-27  p10 5.40E-24  med 2.25E-22  p90 2.46E-22  max 2.56E-22  ray83 2.51E-25  rank  2 ( 1.2%)
+
+M channel (I_M_DEPTH_NEXT): all five frequencies sit at the
+~1E-30..1E-27 floor; ray 83 ranks 83/84 (near the top) at every
+slot. The M channel carries no field at these frequencies and
+shows no anomaly.
+
+Veto trigger (refresh 1, it 158; refresh 2, it 159 reproduces
+V1=1.66523E-23 vs V2=9.99450E-26, ratio 165.6):
+
+    ch2 L=1437: V1=1.665E-23  medP=4.723E-23  V1/medP=0.353  V1/V2=166.6
+    REF (MEDIAN OF PER-RAY COLUMN MAXIMA, labelled, not same-depth) = 1.831E-22
+
+### 23.4 Classification: A
+
+Ray 83's retained P-channel store at K=2 is genuinely anomalously
+small relative to same-depth siblings: rank 2 of 84 (1.2
+percentile) at L=1437, and the same rank at L=1438 and L=1439 --
+a contiguous frequency band, not an isolated cell. The sibling
+distribution is not too broad for the median to classify (p10 to
+p90 spans a factor ~4.4 at L=1437), so this is not case C. The
+candidate V1=1.67E-23 lies at 0.35x the same-depth median, inside
+the lower sibling range (just below p10), so the candidate is not
+anomalous relative to siblings either -- ruling out D. Ray 83 is
+far outside the normal distribution, ruling out B.
+
+Two consequences follow. First, the veto trigger is a stale-store
+artifact: the retained value is ~470x below the same-depth median
+while the sweep candidate is already near the sibling-consistent
+field, so FG_JUMP_MAX rejects precisely the write that would heal
+the anomaly -- the self-reinforcing latch hypothesised in section
+22 is now confirmed against same-depth evidence, not the column
+REF. Second, the anomaly is a contiguous band (L>=1437) on one ray
+at one depth, consistent with a localized stale-store region rather
+than a global normalization error.
+
+### 23.5 Caveats
+
+Absolute intensities are ~1E-23 at L~1437; whether this band has
+observable spectral impact is not established here. The required
+check is through the formal solution and emergent spectrum, which
+this diagnostic does not perform. M-channel statistics are
+uninformative at these frequencies (dead floor). The snapshot
+covers one depth/frequency window by design; it does not map the
+full extent of the stale region. No solver, commit-policy, or
+production-readiness change is implied.
