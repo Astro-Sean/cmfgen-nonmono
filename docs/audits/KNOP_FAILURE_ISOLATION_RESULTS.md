@@ -2505,8 +2505,10 @@ stale regions were found in this refresh set.
 ### 24.3 Phase 2 - geometry-conditioned sibling comparison
 
 Ray geometry at K=2: impact parameter p_t=1.15363E+05, local
-direction cosine mu_t=3.90340E-01, Lorentz factor
-Gam_t~1.1E-09. KN_GEO selects the 8 nearest rays by impact
+direction cosine mu_t=3.90340E-01, signed comoving frequency
+drift Gam_t~1.1E-09 (GAM is dnu/drift per unit path, not a
+Lorentz factor -- corrected in Phase 5.1). KN_GEO selects the 8
+nearest rays by impact
 parameter (nearP) and by |mu| (nearMU); on this ray ordering the
 two selectors return identical sets (n=8), so they form a single
 geometry-matched reference -- a limitation: independent
@@ -2656,3 +2658,222 @@ the SOB production product is isolated from it.
 Status: PASS WITH LIMITATIONS -- diagnostics complete and
 consistent; no commit-policy remedy implemented; no
 production-readiness claim.
+
+## 25. Phase-5.1 audit: ray-83 solver lifecycle and root cause (2026-11-13)
+
+Follow-up to section 24. Objective: identify the upstream cause of
+the low P-channel field on ray 83 and resolve the NXIT=-1/NPASS=0
+telemetry inconsistency. Source revision: db852040 plus the
+KN_WATCH relocation described below (diagnostic-only).
+Executable: the measured p7 binary md5
+116b8e8703f9ec9355053ff860b76182; checkpoint md5
+893143f3c47405f23d4c7aca57d64080.
+
+### 25.1 Part 1 - executable and source provenance
+
+The submission metadata "git 1c6abd31(dirty x30)" describes the
+PARENT workspace repo (/viper/ptmp1/sbrennan/SN2024pba), not the
+cmfgen_jfnk code repo. cmfgen_jfnk is its own git repository; at
+the p7 build it sat at b3ce7753 (the KN_CEN/KN_GEO report-format
+fix the successful run required), and db852040 differs from it
+only in documentation. The working-tree diff of
+plane/fg_j_cmf_nonmono_v1.f between the measured build and HEAD
+is empty for every solver routine: KNOP_RAY_SOLVE_V1, SWEEP_FLD,
+SWEEP_FLD_ORD, FG_JUMP_MAX, MARCH, MATCH_FREQ, BUILD_FREQ,
+WRITE_STORE and WRITE_STORE_CAP are byte-identical. The only
+subsequent source change is the KN_WATCH print relocation in
+section 25.2, which moves a WRITE(LUER,...) block and cannot
+alter solver state.
+
+Answer: the measured executable reproduces the current GitHub
+source for all routines under audit. The "dirty x30" provenance
+string was a harness labelling artifact, not a code divergence.
+
+### 25.2 Part 2 - the NXIT=-1/NPASS=0 telemetry
+
+Root cause of the telemetry: KN_WATCH_CELL was placed BEFORE the
+result-argument finalisation in KNOP_RAY_SOLVE_V1. NXIT/NPASS/
+RESID are only assigned at the routine tail (the NDIV branch and
+NPASS=MAX(NP_M,NP_P)); at the old print site they still held
+their entry sentinels -1/0/0 on every ray. The "unsolved ray"
+reading was a print-order defect, not a solve failure.
+
+Fix applied (diagnostic-only): the KN_WATCH block moved to after
+NTBLK/NPASS finalisation, before the 900 cleanup label. It now
+prints committed values; rays that genuinely fail early still
+print their correct sentinel. No solver behaviour changed.
+
+Complete ray-83 control flow, reconstructed from source:
+
+- Both directional sweeps execute: prod M and prod P context
+  records exist for every refresh.
+- Each sweep completes exactly 2 passes and exits IXIT=0.
+- FLD_P is a marched solution, not a bare seed: SWEEP_FLD_ORD
+  runs MARCH over the full (NI,NCF) grid for two passes.
+- The candidate V1 is genuine solver output.
+- The -1/0 telemetry was the print-order artifact above.
+
+The deeper finding: IXIT=0 with RES=0.0 is the
+.not.HAS_CP fast exit, which FORCES RES=0.0_LDP without
+measuring the pass residual (SWEEP_FLD_ORD, the
+"IF(.NOT. HAS_CP)THEN / IF(NPO .GE. 2)" block). HAS_CP requires
+BOTH GAM(I,LS)<0 AND a compressing-depth neighbour
+(IKC1/IKC2); ray 83 has GAM>=0 at every ray point, so it always
+takes this exit after the 2-pass minimum. The "clean exit" label
+is a minimum-pass shortcut, not a verified fixed point.
+
+Independent check: the KN_Q_RESID verify pass applies exactly
+one more map application to a scratch copy and measures the
+true one-map residual. On ray 83 it reports ~8.0E+01, argmax at
+(j=2,l=1330), where VOLD~2.1E-28 and VNEW~1.7E-26. The committed
+field is therefore NOT a fixed point of the march map; near-floor
+cells in the inner region are still evolving. Caveat: the verify
+argmax sits at ~1E-28, five orders below the store-anomaly
+magnitude (~1E-23); the link between under-converged floor cells
+and the K=2/L~1437 store band is suggestive (same ray point
+j=2) but not proven.
+
+Answer: the measured candidate comes from a COMPLETED ray solve
+(two marched passes per direction) but NOT from a verified-
+converged one; the clean-exit label is forced by the
+no-compressing-coupling fast path.
+
+### 25.3 Part 3 - frequency-coupling audit
+
+MATCH_FREQ(L) defaults NFM_L=1, DLNM_L=KN_DLN_P(L); only for
+GAM(I,LS)<0 does it compute NNF=ceil(DRF_L/K_N_DLN_N) capped at
+NCF-L and floored at 1, refining DLNM_L on the captured KN_FREQ
+grid. SRC_PRIME and KN_ORD_SPV implement one shared contract:
+
+- GAM=0: no donor read (NaN guard).
+- GAM>0 (expanding): SP=SR+Q*FLD(I,L-1), L>1, in-pass fresh,
+  signed Q.
+- GAM<0 (compressing): SP=SR+ABS(Q)*INEXT_V, donor at the
+  matched slot L+NFM_L(I) interpolated between the
+  compressing-depth ray points JPR1/JPR2.
+
+For ray 83, GAM>=0 at every ray point (geometry audit,
+section 24.3): the compressing remap is NEVER exercised.
+MATCH_FREQ cannot be the cause -- it is not invoked for this
+ray's coupling. The expanding branch uses FLD(I,L-1) with a
+correct L>1 guard and signed Q; store slot is L-1 only inside
+WRITE_STORE/FG_JUMP_MAX, consistently. No off-by-one, no
+invalid donor, no frequency-ordering defect found for this
+ray. The audit of compressing remapping itself (discontinuities
+in NFM_L, boundary behaviour) is moot for ray 83 and remains
+open for rays that do compress.
+
+Answer: MATCH_FREQ is behaving correctly and is irrelevant to
+ray 83's anomaly.
+
+### 25.4 Part 4 - directional sweep audit
+
+Architecture: KNOP_RAY_SOLVE_V1 solves the inward field FLD
+first, then copies FLD(NI,:)=IM_NI as the outward sweep's inner
+boundary and solves FLD_P. Ordering M-then-P is correct: the
+outward inner boundary is supplied by the inward outer value.
+Within each sweep the boundary rows are handled before MARCH;
+non-core rays read IM_NI(L) at the inner edge.
+
+For ray 83 both directions exited IXIT=0 after 2 passes via
+the .NOT. HAS_CP path. The P field is dominated by its inner
+boundary (IM_NI from M) plus the expanding frequency cascade;
+there is no compressing upwind store read anywhere on this
+ray. The first anomalous location is the inner region: the Q
+argmax sits at ray point j=2 across l~1330-1372, and the store
+veto cluster sits at K=1/K=2 (J_PNT->j=2) across L~1371-1437 --
+the same inner-boundary band. Ray 83's divergence from its
+geometric neighbours begins at the inner boundary, not in the
+interior or at the outer edge.
+
+Answer: the low P field originates at the inner boundary /
+first ray points, consistent with an under-converged seed
+transient rather than a coefficient or interior-coupling fault.
+
+### 25.5 Part 5 - coefficient and geometry comparison
+
+Phase-5 config was KN_FREEZE_COEF=F, KN_MAT_FREEZE=T,
+KN_Q_RESID=T: populations frozen, coefficients NOT frozen.
+KN_CHI_COEF/KN_ETA_COEF/KN_CHI_EXT/KN_ETA_EXT/GAM/R_RAY/Z and
+the frequency-match arrays are per-ray-point quantities built
+by BUILD_FREQ from the captured opacity and the static ray
+geometry; they differ ray to ray by construction.
+
+Decisive evidence that the operator is normal: the rejected
+candidate V1=1.665E-23 sits at 0.35x the all-ray median and
+inside the p10-p90 sibling band at the trigger slot. The same
+operator on neighbouring rays produces sibling-consistent
+values; only ray 83's STORE is anomalous. If the coefficients
+or geometry were wrong, the candidate would be anomalous too --
+it is not. The low RETAINED value is a bookkeeping artifact of
+the lagged store, not an operator output.
+
+Answer: the problem is associated with the lagged retained
+store and the under-converged ray solve, not with local
+coefficients, geometry, or boundary values.
+
+### 25.6 Part 6 - testing
+
+Added test_ray83_lifecycle_audit to
+unit_tests/python/test_knop_lagged_field.py (14 checks, all
+PASS): KN_WATCH post-finalisation placement, the forced-RES=0
+no-compressing exit and its NPO>=2 confirmation, the HAS_CP
+definition, MATCH_FREQ compressing-only remap and slot caps,
+the SRC_PRIME/KN_ORD_SPV coupling contract (expanding L-1
+signed-Q, compressing L+NFM ABS-Q, NCF bound, GAM=0 NaN guard).
+These are source-pattern pins matching the file's existing
+convention; they guard against regression, not numerical
+correctness. Full file: all checks PASS.
+
+Build: plane/fg_j_cmf_nonmono_v1.f compiles clean under the
+viper_intel_nodebug flags (ifort -extend-source -O3 AVX512);
+only pre-existing #6075 arg-type warnings in the Q-verify calls.
+
+### 25.7 Part 7 - documentation and remaining uncertainties
+
+GAM terminology corrected (section 24.3): GAM is the signed
+comoving frequency drift, not a Lorentz factor.
+
+Remaining uncertainties:
+
+- Whether the under-converged floor cells (verify residual
+  ~80 at 1E-28) actually drive the K=2/L~1437 store anomaly
+  (~1E-23) is unproven; magnitudes differ by five orders.
+- Whether 2 passes genuinely suffice for expanding-only rays
+  in general, or whether ray 83 is a marginal case, needs a
+  convergence study (more passes, or measuring RES instead of
+  forcing it on the .NOT. HAS_CP exit).
+- The compressing-remap audit (NFM_L discontinuities, boundary
+  behaviour) remains open for rays that do have GAM<0 cells.
+- Commit-policy remedy still not implemented or authorised.
+
+### 25.8 Phase-5.1 deliverable summary
+
+1. Candidate comes from a completed ray solve (2 marched
+   passes per direction) but NOT a verified-converged one.
+2. NXIT=-1/NPASS=0 was a print-order defect (KN_WATCH ran
+   before result-arg finalisation); fixed. The real exit is
+   IXIT=0/RES=0 via the forced .NOT. HAS_CP fast exit.
+3. Measured executable matches current source for all audited
+   routines; the "dirty x30" string was the parent repo.
+4. First anomalous location: inner boundary / ray point j=2,
+   frequency band l~1330-1437 (Q argmax + store cluster).
+5. MATCH_FREQ is correct and never invoked for ray 83
+   (GAM>=0 everywhere).
+6. Problem associated with the lagged store + under-converged
+   expanding-only solve, not coefficients/geometry/boundary.
+7. Commit-policy experiment is NOT yet the right next step:
+   the latch is confirmed but the candidate itself is an
+   under-converged output of a fast-exit ray. Releasing the
+   veto would commit an unverified field.
+8. Recommended next experiment: measure (do not force) the
+   residual on the .NOT. HAS_CP exit for ray 83 -- e.g. a
+   diagnostic that lets the sweep continue to the normal
+   residual-tolerance exit and reports the true pass count and
+   residual. This tests whether the under-convergence is the
+   root cause before any commit-policy change.
+
+Status: PASS WITH LIMITATIONS -- lifecycle resolved, root cause
+narrowed to the no-compressing fast exit plus the store latch;
+no solver or commit-policy change made; no production-
+readiness claim.
