@@ -138,3 +138,27 @@ submitted.
 - Race-free histogram valid for first time: ch2 max 80.58,
   only ~116 cells DCELL>1 of ~1e8 samples.
 - Next: instrument FG_JUMP_MAX argmax to name the vetoing cell.
+
+## 2026-11-13 - KN_JUMP_DIAG veto-trigger attribution implemented and measured
+
+- FG_JUMP_MAX records the veto trigger per ray/channel under
+  KN_JUMP_DIAG (VADAT key, default F): branch 0-3 (none,
+  non-finite, sibling-fallback, ordinary jump), KS/KC/JP/L2,
+  V1/V2/VMAX_S/REF, ratio/threshold. Production math unchanged;
+  KN_JT(KN_NP,2) is ray/channel indexed for OpenMP safety; one
+  compact record per exceeding channel on rejected rays.
+- Commits 8d100053, dfef0cfb, 1cbe1904, 086b707c. Tests: 187
+  lagged-field checks, 43/43 ray, status-text pass; builds
+  0672cd89/d2f98b4d/5aac7cb6, final clean 597a500a.
+- Experiment job 13120025 (p5_jtdiag, iso_M it157 lineage,
+  KN_FREEZE_COEF=F KN_MAT_FREEZE=T KN_Q_RESID=T KN_JUMP_DIAG=T):
+  two refreshes. Refresh 1 no veto; refresh 2 ray 83 ch2
+  jump-rejected by BRANCH 3 ordinary jump at (K=2,j=2,L=1437,
+  slot 1436): V1=1.70E-23 vs V2=9.51E-26, ratio 177.7 > 50.
+- Column is floor-level dead (VMAX_S~9.5E-26); candidate is ~11x
+  below sibling REF=1.83E-22 -- veto suppresses a recovery write,
+  a self-reinforcing latch, not an extreme seed. Q argmax same
+  ray/point, l=1372, still frozen (delta 0).
+- Veto intermittent across the two refreshes; recurrence at the
+  same cell not yet established. Diagnostic-only; no solver or
+  commit-policy change; no production-readiness claim.
