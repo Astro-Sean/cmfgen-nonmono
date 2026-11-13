@@ -181,3 +181,44 @@ submitted.
   sibling-consistent field, confirming the self-reinforcing latch.
 - Spectral impact unverified; requires formal-solution/emergent-
   spectrum check. Diagnostic-only; no solver change.
+
+## 2026-11-13 (Phase-5 stale-store audit: census, geometry, trajectory, provenance, data flow)
+
+- Added KN_CEN full-store census (per-ray exceed counter,
+  depth x log-band histogram, top-4 worst-VR records per
+  ray/channel) and KN_GEO geometry-conditioned sibling stats
+  (all / nearest-impact-parameter / nearest-|mu|, n=8), plus
+  KN_WATCH_CELL per-cell commit tracing. All gated on
+  KN_JUMP_DIAG/KN_WATCH_CELL; read-only; commits 1ac9d3a0,
+  96acb945, b3ce7753 (report-format fixes after a forrtl
+  severe(61) on the first census print).
+- Job 13125258 (exe md5 116b8e87, checkpoint 893143f3, it158-162,
+  five refreshes, vipm2001 2 threads): census finds exactly 14
+  exceed cells per refresh, ALL on ray 83 ch2 (7 at K=1, 7 at
+  K=2, band 22; worst at l2=1437 and l2=1371). M channel clean.
+  No other stale regions.
+- KN_GEO: ray 83 stays rank 2/8 of geometry-matched neighbors at
+  all three slots; deficit ~142x at trigger L=1437, shrinking to
+  ~6-15x at L>=1438 where near rays carry less flux. Outlier
+  persists after geometry matching.
+- Trajectory: V1 frozen at 1.6652E-23 (drift ~2E-05 over five
+  refreshes), V2 frozen at 9.9945E-26, jump-reject every refresh,
+  ray exits unsolved; global residual falls 3.3E-02 -> 5.6E-03
+  and unconverged cells 103520 -> 156. Classification A: stable
+  candidate under a frozen stale store.
+- Provenance: anomaly present in FRESH_knop it124 cold-start
+  checkpoint; rejections since ~it3; p5 tag-mismatch rebuild
+  (I_NEXT=0, SEEDED=0) shows the anomaly REGENERATES from a
+  zeroed store -- iteration dynamics produce it, the veto only
+  preserves it. Exact first-writing iteration unrecoverable.
+- Data flow: I_*_DEPTH_NEXT feeds only the KNOP lagged solve and
+  the OBS KNOP warm-start under DO_NONMONO_KNOP; the SOB
+  production path never allocates or reads it. Stale store
+  cannot affect the production spectrum.
+- Recommendation: commit-policy experimentation is justified as
+  a gated diagnostic (the latch is confirmed), but the root
+  cause is upstream -- ray 83's solve produces the low field in
+  the l~1330-1437 band (same region as the persistent Q argmax).
+- Tests: KNOP suites pass; build clean through the harness
+  stage. Diagnostic-only; no solver/commit-policy/default
+  change; no convergence or production-readiness claim.

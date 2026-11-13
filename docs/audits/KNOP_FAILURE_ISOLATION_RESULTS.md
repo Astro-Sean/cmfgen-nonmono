@@ -2456,3 +2456,203 @@ uninformative at these frequencies (dead floor). The snapshot
 covers one depth/frequency window by design; it does not map the
 full extent of the stale region. No solver, commit-policy, or
 production-readiness change is implied.
+
+## 24. Phase-5 audit: census, geometry matching, trajectory, provenance, data flow (2026-11-13)
+
+Five-phase read-only audit of the confirmed ray-83 stale-store
+latch. No solver, commit-policy, or VADAT default was changed;
+all additions are KN_JUMP_DIAG/KN_WATCH_CELL-gated diagnostics.
+
+### 24.1 Experiment provenance
+
+- Source commits: 1ac9d3a0 (KN_CEN census + KN_GEO siblings),
+  96acb945 (tests), b3ce7753 (report-format fixes).
+- Executable: cmfgen_dev.exe md5 116b8e8703f9ec9355053ff860b76182,
+  built from the cmfgen_p7_install tree (git base 1c6abd31, dirty
+  x30 -- install tree is not pinned to a commit; recorded as a
+  provenance limitation).
+- Checkpoint: FGINEXT_GS md5
+  893143f3c47405f23d4c7aca57d64080 (iso_M it157 warm seed,
+  verified tag=157 VER=3).
+- VADAT: KN_FREEZE_COEF=F, KN_MAT_FREEZE=T, KN_Q_RESID=T,
+  KN_JUMP_DIAG=T, KN_WATCH_CELL=T (K=2, LS=83, slot=1436).
+- Job 13125258 on vipm2001, 2 OMP threads; five complete
+  refreshes at great iterations 158-162; cancelled afterwards.
+  Model: dessart_m15_2p82d_KNOP_p7_census.
+
+### 24.2 Phase 1 - full-store anomaly census
+
+Per refresh, identical to printed precision (199,232,784 writable
+cells per channel per refresh):
+
+    ch1 (M): cells=199232784  skipped=0  floor=3562506  exceed=0
+    ch2 (P): cells=199232784  skipped=0  floor=3548951  exceed=14
+
+All 14 exceed cells (VR > FG_COMMIT_JUMP=50) are on ray 83,
+P channel: 7 at compressing depth K=1 (ks=1,kc=1,jp=1) and 7 at
+K=2 (ks=2,kc=2,jp=2), all inside log-frequency band 22. The
+per-ray top-4 records show the worst cells at field frequencies
+l2=1437 (VR~165.6) and l2=1371 (VR~160.1) on both depths -- two
+frequency clusters, consistent with the KN_Q_RESID defect band
+l~1330-1372 reported earlier. No other ray has any exceed cell;
+the next-largest VR values on other rays are ~0.4-0.55, three
+orders below the veto bound. M channel is clean (dead floor).
+
+Answer: the stale-store region is exactly one ray, one channel,
+two compressing depths, one frequency band. No other latent
+stale regions were found in this refresh set.
+
+### 24.3 Phase 2 - geometry-conditioned sibling comparison
+
+Ray geometry at K=2: impact parameter p_t=1.15363E+05, local
+direction cosine mu_t=3.90340E-01, Lorentz factor
+Gam_t~1.1E-09. KN_GEO selects the 8 nearest rays by impact
+parameter (nearP) and by |mu| (nearMU); on this ray ordering the
+two selectors return identical sets (n=8), so they form a single
+geometry-matched reference -- a limitation: independent
+nearP/nearMU cross-checks are not available on this grid.
+
+P channel retained store, ray 83 vs subsets:
+
+    slot 1436 (L=1437): all-med 4.72E-23  near-med 1.42E-23
+        ray83=9.99E-26  rank 2/84 all, 2/8 near
+    slot 1437 (L=1438): all-med 1.98E-22  near-med 2.90E-24
+        ray83=1.93E-25  rank 2/84 all, 2/8 near
+    slot 1438 (L=1439): all-med 2.25E-22  near-med 1.53E-24
+        ray83=2.51E-25  rank 2/84 all, 2/8 near
+
+Geometry matching matters quantitatively: geometrically near
+rays genuinely carry less flux at L>=1438, shrinking the
+apparent deficit from ~470x (all-ray median) to ~6-15x. At the
+trigger slot L=1437 the gap remains ~142x below the near
+median. Ray 83 stays bottom-quartile (rank 2 of 8) at all three
+slots.
+
+Answer: ray 83 remains an outlier after geometry matching, but
+the anomaly magnitude is geometry-dependent -- strongest at the
+trigger frequency, reduced at L>=1438.
+
+### 24.4 Phase 3 - candidate trajectory over five refreshes
+
+Trigger cell (K=2, ray 83, ch2, l2=1437, slot 1436), pre-commit
+candidate V1 vs retained V2:
+
+    refresh  V1            V2            VR      verdict resid-max
+    1 (it158) 1.66521E-23  9.99450E-26  165.61   jump-rej  3.30E-02
+    2 (it159) 1.66523E-23  9.99450E-26  165.61   jump-rej  2.46E-02
+    3 (it160) 1.66523E-23  9.99450E-26  165.62   jump-rej  7.99E-03
+    4 (it161) 1.66524E-23  9.99450E-26  165.62   jump-rej  1.13E-02
+    5 (it162) 1.66524E-23  9.99450E-26  165.62   jump-rej  5.56E-03
+
+V1 is frozen to four significant figures (relative drift ~2E-05
+over five refreshes); V2 is exactly frozen because the veto
+preserves it. KN_WATCH shows the ray exits unsolved (ixit=-1,
+npas=0) every refresh; commit rejects=1 every refresh; the Q
+argmax stays on ray 83 ch2 at (j=2,l=1330) with
+prod-coincidence=DIFF-RAY. Meanwhile the rest of the field
+converges around the frozen ray: refresh residual max falls
+3.3E-02 -> 5.6E-03 and unconverged cells collapse
+103,520 -> 156 (fraction 1.66E-04 -> 2.5E-07).
+
+Classification: A -- the candidate remains stable while the
+retained store is frozen. It is not progressively moving (B),
+not oscillating (C), and not moving away from the sibling
+distribution (D). The candidate is a fixed point of the stale
+store: the ray solve reads the same low upwind field every
+refresh, reproduces ~the same candidate, and the veto rejects it
+identically.
+
+### 24.5 Phase 4 - checkpoint provenance
+
+FGINEXT_GS format (VER=3, magic 20260916) fully decoded: records
+carry N_COMP/NP/NCF/ND, R/V/SIGMA, COMP_DEPTH_IDX, convergence
+fields, KN_FREQ, then I_P_DEPTH_NEXT and I_M_DEPTH_NEXT as
+(N_COMP,NP,NCF) column-major arrays. The two intensity records
+exceed 2 GB each; gfortran emits segmented record markers for
+them, which broke naive 4-byte parsing -- handled by seek-based
+cell extraction.
+
+Store archaeology across archived generations:
+
+- The anomaly is already present in the it124 checkpoint of the
+  FRESH_knop cold-start run and its seed2 copy -- the stale
+  value was generated during cold-start iteration, not imported
+  from an older model.
+- Commit rejections are active from ~it3 of that run; diverged
+  rays stayed 0 throughout, so the anomaly is not a
+  divergence-heal artifact.
+- Only the latest checkpoint generation survives per run
+  (atomic rename overwrites); there is no per-iteration store
+  history, so the exact first-writing iteration and cell cannot
+  be reconstructed.
+- The p5 tag-mismatch rebuild is the decisive control: a failed
+  restore fell back to I_NEXT=0 with SEEDED=0, the first commits
+  went through unconditionally, and the anomaly REGENERATED at
+  V2~9.5E-26 (still ~500x below siblings). The defect is
+  produced by the iteration dynamics on ray 83, not merely
+  preserved by the veto.
+
+Answer: provenance is partially reconstructable -- generation
+during the cold-start KNOP run is confirmed and regeneration
+from a zeroed store is demonstrated; the exact originating
+iteration is not recoverable from surviving artifacts.
+
+### 24.6 Phase 5 - data flow and spectral relevance
+
+Call-graph trace (verified, not assumed):
+
+- I_P_DEPTH_NEXT / I_M_DEPTH_NEXT are written only by
+  WRITE_STORE / WRITE_STORE_CAP inside the KNOP ray loop and
+  read only as the lagged upwind intensity for the next KNOP
+  refresh on the same ray/channel/frequency. They feed the ray
+  solve -> J moments -> populations/opacity/emissivity within
+  DO_NONMONO_KNOP runs.
+- Under DO_NONMONO_KNOP, the OBS driver registers its grid via
+  SET_FG_GS_OBS_GRID and warm-starts through
+  RESTORE_FG_INEXT_OBS (frequency remap), then runs per-ES-sweep
+  KNOP refreshes; the emergent OBSFLUX comes from the
+  OBS-converged field, not directly from the stored values.
+- The production SOB route (DO_NONMONO_SOB + USE_LAM_ES=T)
+  never executes FG_J_CMF_NONMONO_V1: the lagged store arrays
+  are not allocated, FGINEXT_GS is not written, and the SOB
+  formal-J path (FG_J_CMF_V13) has no coupling to them.
+
+Answer: the stale KNOP store cannot affect the production
+spectrum. It can affect KNOP diagnostic runs end-to-end
+(populations, opacity, and the OBS KNOP warm-start), which is
+why the latch still matters for the KNOP reference path, but
+the SOB production product is isolated from it.
+
+### 24.7 Deliverable summary
+
+1. Measured: full-store census x5 refreshes, geometry-matched
+   sibling stats, five-refresh candidate trajectory,
+   checkpoint archaeology, and the KNOP->OBS/production data
+   flow.
+2. Ray 83 remains an outlier after geometry matching (rank 2/8
+   at all three slots), though the deficit shrinks to ~6-15x at
+   L>=1438 where near rays carry less flux.
+3. No other stale-store regions: all 14 exceed cells sit on
+   ray 83 ch2; M channel clean.
+4. Candidate stable over five refreshes: classification A,
+   frozen to four significant figures while the rest of the
+   field converges around it.
+5. Provenance partially reconstructable: cold-start origin
+   confirmed, regeneration from a zeroed store demonstrated,
+   exact first-writing iteration unrecoverable.
+6. Production spectrum unaffected: KNOP store is confined to
+   the diagnostic/reference path.
+7. Commit-policy experimentation is justified as the next
+   diagnostic step, with one caveat: because the anomaly
+   regenerates from a zeroed store, commit policy is the
+   latch, not the root cause. The root cause is whatever makes
+   ray 83's solve produce a low field in this band (the same
+   region as the persistent Q argmax at l~1330-1371). A gated
+   experiment (e.g. floor/staleness-aware veto or bounded
+   healing) can test whether releasing the write converges
+   the store, but should be paired with tracking whether the
+   healed field stays consistent or re-drifts.
+
+Status: PASS WITH LIMITATIONS -- diagnostics complete and
+consistent; no commit-policy remedy implemented; no
+production-readiness claim.
