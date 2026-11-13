@@ -105,3 +105,18 @@ never inferred from a lower one.
 - One-refresh iso_M it157 run staged recipe documented in
   KNOP_FAILURE_ISOLATION_RESULTS.md section 20.5; submission
   pending.
+
+## 2026-11-13 - Phase 4 follow-up: KN_QC allocation-failure path
+
+- Closed the KN_QC_READY gap: per-ray histogram arrays could
+  be unallocated after a STAT=IOS2 failure while L_QP verify
+  passes still called KN_Q_ACCUM.
+- KN_QC_READY defaults FALSE, requires clean STAT plus all
+  five ALLOCATED checks, gates the accumulator early return,
+  the serial reduction and the summary; cleanup resets it and
+  deallocates per array.
+- Summary prints explicit unavailable text rather than a zero
+  histogram; Q residual path unchanged.
+- Tests: new alloc-failure-path checks, all 172 pass,
+test_knop_ray 43/43, build clean. Diagnostic run still not
+submitted.
