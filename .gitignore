@@ -75,3 +75,6 @@ tests/f90/bin/
 
 # Local Devin agent config (skills); not part of the code
 .devin/
+
+# Build serialization lock (see build.sh)
+.build.lock.d/
