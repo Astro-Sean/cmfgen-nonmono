@@ -1285,7 +1285,108 @@ def test_jump_diag_veto_attribution():
     )
 
 
+def test_kn_sib_depth_snapshot():
+    """Same-depth sibling snapshot for the ray-83 veto cell.
+
+    The snapshot must run serially before the OpenMP ray loop (the
+    store is about to be rewritten by committing rays), must resolve
+    J_PNT(K,RS) per ray with the NI_RAY(RS) validity bound, must
+    exclude non-finite and non-positive retained values, must cover
+    both channels, and must document the REF distinction.
+    """
+    snap = section(
+        FG,
+        "SUBROUTINE KN_SIB_DEPTH_SNAP_V1",
+        "END SUBROUTINE KN_SIB_DEPTH_SNAP_V1",
+    )
+    check("snapshot subroutine exists", len(snap) > 0)
+    check(
+        "per-ray J_PNT resolution with NI_RAY bound",
+        "JP=J_PNT(KQ,RS)" in snap
+        and "JP .LT. 1 .OR. JP .GT. NI_RAY(RS)" in snap,
+    )
+    check(
+        "compact row from COMP_DEPTH_IDX and slot offset",
+        "KC=COMP_DEPTH_IDX(KQ)" in snap
+        and "STORE(KC,RS,NLO+IS-1)" in snap,
+    )
+    check(
+        "non-finite and non-positive values excluded",
+        ".NOT.(ABS(V) .LE. HUGE(V))" in snap and "V .LE. 0.0_LDP" in snap,
+    )
+    check(
+        "documented percentile convention present",
+        "CEILING(0.10_LDP*NOK)" in snap
+        and "CEILING(0.90_LDP*NOK)" in snap
+        and "(NOK+1)/2" in snap,
+    )
+    check(
+        "deterministic insertion sort",
+        "WRK(J2+1)=VT" in snap and "DO WHILE(J2 .GE. 1)" in snap,
+    )
+    check(
+        "ray rank counts strictly-lower siblings",
+        "IF(WRK(I2) .LT. V)J2=J2+1" in snap
+        and "ST(IS)%PCT=100.0_LDP*J2/NOK" in snap,
+    )
+    check(
+        "allocation failure marks N=-1 not a fake zero",
+        "ST(IS)%N=-1" in snap,
+    )
+
+    # Call site: inside FG_KNOP_REFRESH_V1, after the sibling
+    # reference build and before the OMP parallel loop, gated on
+    # KN_JUMP_DIAG with allocation guards.
+    call = re.search(
+        r"IF\(KN_JUMP_DIAG \.AND\. ALLOCATED\(J_PNT\).*?"
+        r"CALL KN_SIB_DEPTH_SNAP_V1\(2,1434,1438,83,"
+        r".*?I_M_DEPTH_NEXT,KN_SIB_M\)"
+        r".*?CALL KN_SIB_DEPTH_SNAP_V1\(2,1434,1438,83,"
+        r".*?I_P_DEPTH_NEXT,KN_SIB_P\)"
+        r".*?END IF",
+        FG,
+        re.S,
+    )
+    check("gated serial snapshot call for both channels", call is not None)
+    if call is not None:
+        pos = call.start()
+        par = FG.find("!$OMP PARALLEL DO", pos)
+        check(
+            "snapshot precedes the OpenMP ray loop",
+            par > pos,
+        )
+        sibref = FG.rfind("KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT", 0, pos)
+        check(
+            "snapshot runs after sibling references are built",
+            sibref > 0 and sibref < pos,
+        )
+
+    # No cross-ray store reads inside FG_JUMP_MAX or the ray loop:
+    # the snapshot is the only new consumer of sibling columns.
+    jmp = section(FG, "FUNCTION FG_JUMP_MAX", "END")
+    check(
+        "FG_JUMP_MAX does not read sibling rays",
+        "KN_SIB" not in jmp,
+    )
+    check(
+        "report block gated on KN_JUMP_DIAG",
+        "IF(KN_JUMP_DIAG)THEN" in FG
+        and "KN-SIB K=" in FG
+        and "ref-colmax-med=" in FG,
+    )
+    check(
+        "REF labelled as column-max median not same-depth",
+        "ref-colmax-med=" in FG
+        and "column maxima" in FG,
+    )
+    check(
+        "trigger V1 ratios reported against same-depth median",
+        "v1,medP,v1/medP,v1/v2=" in FG,
+    )
+
+
 if __name__ == "__main__":
+    test_kn_sib_depth_snapshot()
     test_jump_diag_veto_attribution()
     test_qcell_histogram_gated_by_verify_pass()
     test_qcell_histogram_race_free_layout()
