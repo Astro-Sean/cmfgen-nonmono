@@ -2079,3 +2079,46 @@ is not implemented; if the local before/retained pair is
 inconclusive a separate design is proposed, scratch-only,
 never written to production I_NEXT, with cost estimated
 before any full-array copy.
+
+### 20.6 Allocation-failure path closed (KN_QC_READY)
+
+Follow-up audit of the Phase-4 histogram found one remaining
+failure path: the KN_QC_*_RAY arrays are allocated with
+STAT=IOS2, and on failure the initialisation block is skipped
+while the verify sweep still runs with L_QP=.TRUE. KN_Q_ACCUM
+then wrote to unallocated storage, and the zero-initialised
+global counters could have read as a measured empty histogram.
+
+Fix (diagnostic-only, committed after 55b2fbc8):
+
+- New module flag KN_QC_READY, default FALSE. It is cleared
+  before every refresh's cell-stat allocation, set TRUE only
+  when IOS2 is clean AND all five allocatables the accumulator
+  and reduction touch are confirmed allocated, and cleared
+  again in cleanup.
+- KN_Q_ACCUM returns immediately while KN_QC_READY is FALSE,
+  before any array access. L_QP keeps its verify-pass meaning
+  and is not reused as the readiness flag.
+- The serial reduction and the summary histogram are gated on
+  KN_QC_READY; the summary prints an explicit "q cells
+  unavailable: histogram allocation failed" line instead of a
+  fake zero histogram. The Q residual calculation itself is
+  untouched and keeps running.
+- Cleanup now deallocates each KN_QC array under its own
+  ALLOCATED check (the old single DEALLOCATE could error on a
+  partially allocated set) and resets KN_QC_READY.
+- Failure branch also zeroes the KN_QC_N/NT/MAX scalars so a
+  previous refresh's counts cannot leak into a failed one.
+
+Tests: test_knop_lagged_field.py gained
+test_qcell_histogram_alloc_failure_path (readiness flag,
+per-array allocation checks, accumulator early return,
+reduction/report gating, per-array cleanup, L_QP separation);
+the earlier per-ray deallocation check was updated for the
+split DEALLOCATE. All 172 checks pass; test_knop_ray 43/43;
+status-text all pass; make KEEP_EXE=1 cmfgen clean.
+
+Remaining limitation: source-pattern tests prove the guard
+structure, not a forced-allocation-failure runtime exercise;
+a runtime fault-injection test would need a harness hook that
+does not exist yet.
