@@ -1585,11 +1585,20 @@ C
 ! DO_REL_CORRECTIONS it is aberrated as
 !   mu_cmf = (mu_obs - beta)/(1 - beta*mu_obs),  beta = V_RAY/c.
 ! For fast outflow on a near-grazing ray mu_cmf can go negative: the
-! photon is incoming in the comoving frame and the result is the
-! inward Eddington extension of the diffusion field, which is the
-! physically meaningful local value there.
+! photon is then comoving-inward but still lab-outward - the outflow
+! advects it across the fixed boundary faster than it streams back
+! into the interior.  It belongs to the inward hemisphere of the
+! interior diffusion field, so J + 3*mu_cmf*H is still the right
+! intensity there (the field below the boundary, not an
+! extrapolation of emitted radiation).  In plane-parallel geometry
+! Z_RAY is the slant depth, so Z_RAY/R_RAY is 1/MU, not a cosine;
+! the boundary cosine is the fixed ray cosine MU_AT_RMAX(LS).
 !
-	          T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	          IF(PLANE_PARALLEL)THEN
+	            T1=MU_AT_RMAX(LS)
+	          ELSE
+	            T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	          END IF
 	          IF(DO_REL_CORRECTIONS)T1=(T1-V_RAY(SM_NRAY)/C_KMS)/
 	1            (1.0_LDP-V_RAY(SM_NRAY)*T1/C_KMS)
 	          PAR_FLUX=T3+3.0_LDP*T1*T4
@@ -1655,9 +1664,15 @@ C
 !
 ! Same comoving-cosine aberration as the STAU branch: the angular
 ! argument is evaluated in the frame of the moments, then the
-! intensity is boosted by NU_ON_NU0**3.
+! intensity is boosted by NU_ON_NU0**3.  In plane-parallel geometry
+! Z_RAY is the slant depth, so Z_RAY/R_RAY is 1/MU, not a cosine; the
+! boundary cosine is the fixed ray cosine MU_AT_RMAX(LS).
 !
-	        T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	        IF(PLANE_PARALLEL)THEN
+	          T1=MU_AT_RMAX(LS)
+	        ELSE
+	          T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	        END IF
 	        IF(DO_REL_CORRECTIONS)T1=(T1-V_RAY(SM_NRAY)/C_KMS)/
 	1          (1.0_LDP-V_RAY(SM_NRAY)*T1/C_KMS)
 	        PAR_FLUX=T3+3.0_LDP*T1*T4
