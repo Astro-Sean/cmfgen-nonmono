@@ -142,4 +142,124 @@
      1     STATUS='REPLACE')
       WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX_B
       CLOSE(LU_OUT)
+!
+! Restore the zero-emissivity optically thin model and rerun the
+! diffusion-boundary cases through the ETAZ integrator.  With no
+! emissivity the result is the boundary seed times exp(-tau_total),
+! so it must match the STAU march cell product to FP accuracy.
+!
+      ETA_CMF=0.0_LDP
+      CHI_CMF=1.0E-8_LDP
+      V=200.0_LDP
+      MAX_DEL_V_RES_ZONE=50.0_LDP
+      IB_J_CMF=100.0_LDP
+      IB_H_CMF=10.0_LDP
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'ETAZ',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_ib_etaz.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+!
+      IB_J_CMF=200.0_LDP
+      IB_H_CMF=20.0_LDP
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'ETAZ',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_ib2_etaz.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+!
+! Optically thicker, emissivity-bearing model: both integrators then
+! carry the full formal solution and differ only in quadrature, so
+! they must agree within a loose tolerance rather than exactly.
+!
+      ETA_CMF=1.0E-3_LDP
+      CHI_CMF=0.2_LDP
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'STAU',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_thick_stau.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+!
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'ETAZ',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_thick_etaz.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+!
+! Same thick model with four times the insertion count.  If the ETAZ
+! trapezoid is the only source of disagreement with STAU, this value
+! must land closer to the STAU result than the low-resolution one.
+!
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,4*N_INS_OBS,'ETAZ',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_thick_etaz_hi.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+!
+! Negative-opacity cell: every ray crossing it must take the STAU-to-
+! ETAZ fallback rather than the polynomial update.  The seeded
+! boundary still has to reach the surface on those rays.
+!
+      CHI_CMF=0.2_LDP
+      CHI_CMF(3,:)=-0.05_LDP
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'STAU',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_negchi_stau.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+      CHI_CMF(3,:)=0.2_LDP
+!
+! Reversing velocity field under ETAZ: the seeded boundary must still
+! reach the surface on rays that ran to the inner boundary.
+!
+      V=(/5000.0_LDP,1000.0_LDP,4500.0_LDP,500.0_LDP,
+     1    2000.0_LDP/)
+      MAX_DEL_V_RES_ZONE=20.0_LDP
+      OBS_FLUX=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ,OBS_FLUX,NOS,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'ETAZ',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_nonmono_etaz.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
       END
