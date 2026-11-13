@@ -246,6 +246,40 @@ this a production defect.
   Lambda-iteration structure; the model loop runs to convergence
   anyway.
 
+Verified per-sweep call sequence (OBS path, non-coherent):
+
+1. `ES_J_CONV` open `STATUS='OLD'` (`:1603-1608`); if the open
+   fails, `COHERENT_ES=T` for that sweep - a cold start, not a
+   stale read.
+2. Per frequency `ML` (continuum loop to `10000 CONTINUE`,
+   `:2257`): `COMP_JCONT` reads record `ML` of `ES_J_CONV` into
+   `RJ_ES` - sweep k consumes `Jbar_{k-1}` - builds
+   `TA = eta + ESEC*RJ_ES + (CHI_RAY+DUST)*RJ`, solves, stores
+   `RJ_CMF_ST(:,ML)=RJ` (`:2253`) so the array always holds the
+   CURRENT sweep's J.
+3. After the frequency loop, non-final sweeps only:
+   `FG_KNOP_REFRESH_V1` (`:2280-2283`, DO_NONMONO_KNOP) /
+   `MOM_KNOP_REFRESH_V1` (`:2293-2296`, DO_NONMONO_SOB without
+   USE_LAM_ES) - the lagged I_NEXT/J_NEXT matures between
+   sweeps.
+4. Then, still inside sweep k: `COMP_J_CONV_V2(WM,...,
+   'EDDFACTOR',...)` (`:2367-2375`) convolves the J just written
+   to EDDFACTOR records during this sweep and rewrites
+   `ES_J_CONV` - producing `Jbar_k` for sweep k+1. Refresh
+   therefore precedes the convolve-write in the same
+   inter-sweep block; both run inside the ES loop before
+   `END DO` at `:2379`.
+5. After the loop: the render fold-in convolves `RJ_CMF_ST`
+   (=J_N) in place (`:2568-2573`) and folds `ESEC*Jbar_N` into
+   `ETA_RND_ST` (`:2577-2579`) - the freshest convolution
+   reaches `OBS_FRAME_SUB_V9`.
+
+No stale-RJ_ES path to the render exists in the covered chain:
+the only file consumer is the next sweep's `COMP_JCONT`, and
+`USE_FIXED_J` skips both the convolve write (`:2367` gate) and
+the iteration it would feed. `DO_SOB_FLUX_OBS` phase 2 forces
+coherent and convolves in memory (item 4 of section 7).
+
 ## 7. KNOP / non-monotonic interactions
 
 1. The KNOP formal solver `FG_J_CMF_NONMONO_V1` receives `TA`
@@ -285,13 +319,30 @@ to `sigma*J` consistently on both sides.
 
 **Unresolved questions / audit items:**
 
-1. (Q-RAY) `comp_j_blank` non-coherent `CHI_SCAT*RJ_ES` convolves
-   Rayleigh with the e.s. redistribution, while the obs side and
-   `do_var_cont` keep Rayleigh coherent on `RJ`. Inert while
-   `INC_RAY=F`. Needs: an `INC_RAY=T` census of `CHI_RAY/ESEC`
-   magnitudes in the production models, and a decision on the
-   correct physical convention (Rayleigh is near-coherent, so the
-   obs-side form is likely the intended one).
+1. (Q-RAY) RESOLVED quantitatively 15-Nov-2026 (manufactured,
+   `drv_es_conv qray` + `drv_es_render` through the real
+   `OBS_FRAME_SUB_V9`; `test_es_conv.py`). `comp_j_blank`
+   non-coherent `CHI_SCAT*RJ_ES` convolves Rayleigh with the e.s.
+   redistribution, while the obs side and `do_var_cont` keep
+   Rayleigh coherent on `RJ`. Measured two-regime bound:
+     - smooth continuum, thermal-dominated ETA: `max|DTA/TA|`
+       <=1.8e-8, `max|dF/F|` <=7.2e-11 - negligible;
+     - scattering-dominated ETA (~1% absorption) with a narrow
+       emission feature inside the Rayleigh band:
+       `max|DTA/TA|` = 1.5e-4 / 5.6e-4 / 8.6e-4 and
+       `max|dF/F|` = 1.6e-3 / 6.0e-3 / 9.2e-3 at
+       chi_ray/sigma_es = 0.1 / 0.5 / 1.0 - measurable, scaling
+       roughly linearly with the Rayleigh fraction.
+   The convention difference is consequential exactly where the
+   physics says it must be: Rayleigh a large fraction of the
+   scattering opacity AND a J field with redistribution contrast
+   at feature scales (narrow line light, sharp edges - the
+   SOB-wing regime). Inert while `INC_RAY=F`; the obs-side form
+   (Rayleigh coherent) is the physically motivated convention,
+   but no source change is proposed here - the model-side
+   expression feeds the Jacobian through `comp_j_blank`, so a
+   convention fix must first map the solver implications
+   (which derivatives assume `CHI_SCAT*RJ_ES`).
 2. (Q-MATURITY) No acceptance gate ties `NUM_ES_ITERATIONS` to a
    measured `|Jbar_N - Jbar_{N-1}|` residual. Convergence is
    assumed from a fixed count. This is the P8.2 item.
@@ -327,6 +378,61 @@ to `sigma*J` consistently on both sides.
    iteration scheme but is not the coefficient source. The code
    comment is correct as far as it goes; no formula attribution
    issue found.
+
+## 8.5 Measured operator characterization (P8.1 acceptance tests)
+
+`unit_tests/f90/drv_es_conv.f` drives the real `COMP_J_CONV_V2`
+in 'J PASSED VIA CALL' mode; `unit_tests/f90/drv_es_render.f`
+renders manufactured emissivities through the real
+`OBS_FRAME_SUB_V9` (V=0 static atmosphere, ND=4). Harness:
+`unit_tests/python/test_es_conv.py`, 29/29 PASS, ifort
+`-O0 -g -traceback -extend-source -fpp -qopenmp
+-mkl=sequential`, MKL sequential.
+
+The production operator is NOT a discrete kernel matrix. Per
+depth and per fit term L it solves the Helmholtz-type
+tridiagonal system
+`(1 - (beta/BCOEF_L)^2 * d^2/dln nu^2) D = J` and sums
+`J_ES = sum_L ACOEF_L * D_L` (`comp_j_conv_v2.f:249-294`),
+followed by a Wien-side wavelength shift and a `B/B_es` rescale
+(`:302-354`). `beta = 1.84E-3*sqrt(T)` (`:269`) sets the
+smearing width at ~3-4% in ln nu for T=1e4 K (~8% at 5e4 K).
+Consequences for testing:
+
+- No row-sum (`sum(R)=1`) normalization test applies; the
+  operator's normalization is implicit in the Helmholtz
+  structure plus the Planck-preserving rescale.
+- A constant J is NOT returned unchanged: it maps to `B/B_es`
+  where the rescale is active and to 0 where `B` underflows
+  (3 grid points at the Wien edge on the manufactured grid).
+  Documented operator behaviour, not a defect.
+- The smallest resolvable feature is set by the grid, not the
+  kernel: on the manufactured NCF=256 grid (9.6 dex) the
+  spacing ~3.8% in ln nu nearly matches the operator width.
+
+Measured battery results:
+
+| case | result |
+| --- | --- |
+| planck `J=B(T)` | max rel 1.46e-5, rms 1.28e-6 (significant-J support; Wien-underflow masked) |
+| const | Jbar >= 0; B/B_es rescale documented; 3 zeros at Wien edge |
+| line (narrow bump) | Jbar >= 0, peak ratio preserved 1.000 |
+| edge (step) | max rel 9.1e-4, no ringing |
+| temp 0.5/1/5 x 1e4 K | max rel 1.4e-3 (grows with beta, expected) |
+| pos (zeroed interior band) | Jbar >= 0 |
+| grid NCF 128/256/512 | max err 1.32e-5 / 1.46e-5 / 1.66e-5 - saturates (operator width is physical, not discretization error) |
+
+Emissivity/render checks (manufactured fields, real
+`OBS_FRAME_SUB_V9`):
+
+- Both emissivity conventions rebuilt elementwise to <=1e-12
+  of the emissivity scale; `DTA = CHI_RAY*CLUMP*(RJ_ES-RJ)`
+  exact to machine noise.
+- Coherent-vs-non-coherent emergent flux differs by
+  8.4e-3..1.4e-2 - the convolved fold measurably propagates to
+  the observed flux (T4 discriminator).
+- All render flux differences trace to the supplied TA variant
+  alone: the transfer adds no second scattering term (T7).
 
 ## 9. Equations verified against references
 
