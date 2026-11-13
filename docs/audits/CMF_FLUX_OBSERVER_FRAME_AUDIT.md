@@ -267,14 +267,21 @@ local Planck gradient (line scattering dominating at the photosphere),
 `J+3*mu*H` mixes a converged J with a first-order H. Physics choice,
 upstream-consistent in the DIF limit; flag for manufactured test D.
 
-**P4. Edge clamps substitute boundary opacity.** Three clamp sites
-(:841-855 red loc1, :909-924 blue, :955-970 red) use boundary opacity
-within a 2% window and abort beyond. Census exists
-(`N_EDGE_CLAMP`, `CLAMP_FRAC_MAX`, worst indices) but there is no
-strict production gate requiring zero unexplained clamps, and the
-clamp means a genuinely under-covered Doppler reach degrades the
-spectrum silently up to 2%. Sobolev profile truncation at band edges
-is not separately tracked.
+**P4. Edge clamps substitute boundary opacity.** RESOLVED (P5).
+The four clamp sites (loc-1 blue/red, loc-2 blue/red) previously
+substituted window-edge opacity for T1 up to 2% outside the SM
+window - a physical extrapolation, not a numerical tolerance; a
+real ~0.1% global coverage gap on the TypeIIn model was silently
+substituted. Analysis (see the P5 audit note) shows the band window
+provably contains every required T1 whenever the global grid covers
+the bound frequencies, so every clamp is global undercoverage and
+local undercoverage is unreachable. Now: clamps survive only within
+a derived EDGE_TOL=1e-12 round-off band and are censused by class
+(N_CLAMP_LOCAL/N_CLAMP_GLOBAL); larger overshoots abort with
+GLOBAL_CMF_GRID_UNDERCOVERAGE (widen MIN_CF/MAX_CF) or
+LOCAL_WINDOW_UNDERCOVERAGE. A serial per-band assertion verifies
+coverage before the OpenMP loop. Sobolev profile truncation at band
+edges is still not separately tracked.
 
 **P5. `sob_line_es_update.f` convention.** Dead in production (unit
 test only); assumes clumped scattering inside `ETA_ST` and computes
