@@ -198,22 +198,35 @@
 	INTEGER IST,IEND
 !
 ! Edge-clamp census: the frequency hunts below clamp the local CMF
-! frequency T1 to the SM_FREQ_CMF window edge when the observer-frame
-! Doppler reach lands just outside the tabulated window (within the
-! 2% guard; beyond it the code aborts).  The clamp substitutes the
-! window-edge opacity for the true frequency bracket -- harmless
-! round-off on a well-padded grid, physically wrong if it recurs or
-! reaches past the full FREQ_CMF bounds.  Count the clamps and keep
-! the worst overshoot vs the window and vs the whole grid, so a
-! coverage gap shows in the log instead of a silently degraded
-! spectrum.  Updated under !$OMP CRITICAL inside the ML loop.
+! frequency T1 to the SM_FREQ_CMF window edge only when the overshoot
+! is within EDGE_TOL of the edge frequency -- pure round-off from the
+! different association order of OBS_FREQ(ML)*(1-VMU)*GAM versus the
+! bound products used to build the window (O(eps_mach) ~ 1e-15
+! relative; 1e-12 leaves 10^3 ulps of headroom and is still orders of
+! magnitude below the smallest grid spacing or physical Doppler gap).
+! Anything larger is real undercoverage and aborts: T1 past
+! FREQ_CMF(1)/FREQ_CMF(NCF) means the global CMF grid itself cannot
+! supply the opacity (GLOBAL_CMF_GRID_UNDERCOVERAGE - widen
+! MIN_CF/MAX_CF); T1 inside FREQ_CMF but outside SM_FREQ_CMF means the
+! band window was built wrong (LOCAL_WINDOW_UNDERCOVERAGE - a code
+! defect; by construction the window strictly contains every required
+! T1, so this should never fire).  The clamps and both undercoverage
+! classes are counted separately with per-class worst-case records.
+! Updated under !$OMP CRITICAL inside the ML loop.
 !
+	REAL(KIND=LDP), PARAMETER :: EDGE_TOL=1.0E-12_LDP
 	INTEGER N_EDGE_CLAMP
+	INTEGER N_CLAMP_LOCAL
+	INTEGER N_CLAMP_GLOBAL
 	INTEGER CLAMP_ML_WORST
 	INTEGER CLAMP_LS_WORST
 	INTEGER CLAMP_I_WORST
+	INTEGER CLAMP_LOC_ML,CLAMP_LOC_LS,CLAMP_LOC_I
 	REAL(KIND=LDP) CLAMP_FRAC_MAX
 	REAL(KIND=LDP) CLAMP_GRID_MAX
+	REAL(KIND=LDP) CLAMP_LOC_MAX
+	REAL(KIND=LDP) CLAMP_T1_GLB,CLAMP_T1_LOC
+	REAL(KIND=LDP) X_MIN_RAY,X_MAX_RAY
 !
 	REAL(KIND=LDP) MAX_VMU
 	REAL(KIND=LDP) T1,T2,T3,T4
@@ -437,11 +450,19 @@
 ! the LS loop.
 !
 	N_EDGE_CLAMP=0
+	N_CLAMP_LOCAL=0
+	N_CLAMP_GLOBAL=0
 	CLAMP_FRAC_MAX=0.0_LDP
 	CLAMP_GRID_MAX=0.0_LDP
+	CLAMP_LOC_MAX=0.0_LDP
 	CLAMP_ML_WORST=0
 	CLAMP_LS_WORST=0
 	CLAMP_I_WORST=0
+	CLAMP_LOC_ML=0
+	CLAMP_LOC_LS=0
+	CLAMP_LOC_I=0
+	CLAMP_T1_GLB=0.0_LDP
+	CLAMP_T1_LOC=0.0_LDP
 !
 	DO 50000 LS=1,NP_TMP
 !
@@ -682,6 +703,26 @@
 ! Determine the sections of ETA_CMF and CHI_CMF need for each band of
 ! observer's frame frequencies.
 !
+!
+! dev7: use MAXVAL(ABS(VMU_RAY)), not the signed max.  The Doppler
+! reach of nu_obs is set by the largest |VMU| on the ray; on a
+! non-monotonic field a strong negative-V excursion can make
+! MINVAL(VMU_RAY) more negative than MAXVAL(VMU_RAY) is positive, so
+! the signed max under-covers the blue (high-frequency) CMF window
+! and the per-frequency edge clamps then substitute boundary opacity.
+! For monotonic outflow the mirrored far-side ray makes |VMU|
+! symmetric, so MAXVAL(ABS) reduces to MAXVAL(VMU) and the window is
+! unchanged.  X_MIN_RAY/X_MAX_RAY are the exact extrema of the
+! observer->CMF Doppler factor over the whole ray (mirror included);
+! the required CMF range for any observer band is exactly
+! [nu_lo*X_MIN_RAY, nu_hi*X_MAX_RAY], used by the per-band coverage
+! assertion below.  All three are loop-invariant and hoisted out of
+! the OUT_ML window loop.
+!
+	  MAX_VMU=MAXVAL(ABS(VMU_RAY))
+	  X_MIN_RAY=MINVAL((1.0_LDP-VMU_RAY)*GAM_RAY)
+	  X_MAX_RAY=MAXVAL((1.0_LDP-VMU_RAY)*GAM_RAY)
+!
 	  SM_NCF=0
 	  DO OUT_ML=1,NUM_BANDS
 !
@@ -692,21 +733,9 @@
 ! window slightly.
 !
 !
-! dev7: use MAXVAL(ABS(VMU_RAY)), not the signed max.  The Doppler
-! reach of nu_obs is set by the largest |VMU| on the ray; on a
-! non-monotonic field a strong negative-V excursion can make
-! MINVAL(VMU_RAY) more negative than MAXVAL(VMU_RAY) is positive, so
-! the signed max under-covers the blue (high-frequency) CMF window
-! and the per-frequency edge clamps then substitute boundary opacity.
-! For monotonic outflow the mirrored far-side ray makes |VMU|
-! symmetric, so MAXVAL(ABS) reduces to MAXVAL(VMU) and the window is
-! unchanged.
-!
-	    MAX_VMU=MAXVAL(ABS(VMU_RAY))
 	    T2=1.0_LDP+1.2_LDP*MAX_VMU
 	    IF(DO_REL_CORRECTIONS)THEN
-!	       T2=(MAXVAL((1.0D0-VMU_RAY)*GAM_RAY) -1.0D0)*1.05D0+1.0D0
-	       T2=MAXVAL((1.0_LDP-VMU_RAY)*GAM_RAY)
+	       T2=X_MAX_RAY
 	    END IF
 	    I=MIN(NOS,1+(OUT_ML-1)*NOS_INC)
 	    T1=OBS_FREQ(I)*T2
@@ -725,8 +754,7 @@
 !
 	    T2=1.0_LDP-1.2_LDP*MAX_VMU
 	    IF(DO_REL_CORRECTIONS)THEN
-!	      T2=(MINVAL((1.0D0-VMU_RAY)*GAM_RAY) -1.0D0)*1.05D0+1.0D0
-	      T2=MINVAL((1.0_LDP-VMU_RAY)*GAM_RAY)
+	      T2=X_MIN_RAY
 	    END IF
 	    I=MIN(NOS,OUT_ML*NOS_INC)
 	    T1=OBS_FREQ(I)*T2
@@ -774,6 +802,60 @@
 	    CALL TUNE(2,'MON_INTERP')
 	    SM_FREQ_CMF(1:SM_NCF)=
 	1       FREQ_CMF(STRT_INDX_CMF(OUT_ML):END_INDX_CMF(OUT_ML))
+!
+! dev7/P5: assert the band window contains every CMF frequency the ML
+! loop can request before any OpenMP work starts.  The required set
+! for this band is OBS_FREQ(ML)*X(I) with X=(1-VMU)*GAM > 0, so its
+! span is exactly [OBS_FREQ(last)*X_MIN_RAY,
+! OBS_FREQ(first)*X_MAX_RAY] - two comparisons verify the whole set.
+! A violation means either the window construction regressed
+! (LOCAL_WINDOW_UNDERCOVERAGE: bound inside FREQ_CMF but outside the
+! SM slice, unreachable while the +-10 pad and bounded hunts stand)
+! or the bound itself sits off the global grid
+! (GLOBAL_CMF_GRID_UNDERCOVERAGE: widen MIN_CF/MAX_CF).  Substituting
+! window-edge opacity for a missing bracket is not acceptable, so we
+! stop rather than emit a plausible but under-covered spectrum.
+!
+	    T1=OBS_FREQ(MIN(NOS,1+(OUT_ML-1)*NOS_INC))*X_MAX_RAY
+	    IF(T1 .GT. SM_FREQ_CMF(1)*(1.0_LDP+EDGE_TOL))THEN
+	      WRITE(LUER,'(A)')'Error in OBS_FRAME_SUB_V9'
+	      IF(T1 .GT. FREQ_CMF(1))THEN
+	        WRITE(LUER,'(A)')'GLOBAL_CMF_GRID_UNDERCOVERAGE (blue):'//
+	1        ' required CMF frequency lies above FREQ_CMF(1);'//
+	2        ' widen MAX_CF.'
+	      ELSE
+	        WRITE(LUER,'(A)')'LOCAL_WINDOW_UNDERCOVERAGE (blue):'//
+	1        ' required CMF frequency inside FREQ_CMF but outside'//
+	2        ' the band window - window construction bug.'
+	      END IF
+	      WRITE(LUER,'(A,ES16.8)')'  required T1=',T1
+	      WRITE(LUER,'(A,2ES16.8)')'  SM window edges=',
+	1        SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	      WRITE(LUER,'(A,2ES16.8)')'  FREQ_CMF edges=',
+	1        FREQ_CMF(1),FREQ_CMF(NCF)
+	      WRITE(LUER,'(A,3I8)')'  LS,OUT_ML,SM_NCF=',LS,OUT_ML,SM_NCF
+	      STOP
+	    END IF
+	    T1=OBS_FREQ(MIN(NOS,OUT_ML*NOS_INC))*X_MIN_RAY
+	    IF(T1 .LT. SM_FREQ_CMF(SM_NCF)*(1.0_LDP-EDGE_TOL))THEN
+	      WRITE(LUER,'(A)')'Error in OBS_FRAME_SUB_V9'
+	      IF(T1 .LT. FREQ_CMF(NCF))THEN
+	        WRITE(LUER,'(A)')'GLOBAL_CMF_GRID_UNDERCOVERAGE (red):'//
+	1        ' required CMF frequency lies below FREQ_CMF(NCF);'//
+	2        ' widen MIN_CF.'
+	      ELSE
+	        WRITE(LUER,'(A)')'LOCAL_WINDOW_UNDERCOVERAGE (red):'//
+	1        ' required CMF frequency inside FREQ_CMF but outside'//
+	2        ' the band window - window construction bug.'
+	      END IF
+	      WRITE(LUER,'(A,ES16.8)')'  required T1=',T1
+	      WRITE(LUER,'(A,2ES16.8)')'  SM window edges=',
+	1        SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	      WRITE(LUER,'(A,2ES16.8)')'  FREQ_CMF edges=',
+	1        FREQ_CMF(1),FREQ_CMF(NCF)
+	      WRITE(LUER,'(A,3I8)')'  LS,OUT_ML,SM_NCF=',LS,OUT_ML,SM_NCF
+	      STOP
+	    END IF
 !
 	    INDX(1:NRAY)=1
 !
@@ -844,26 +926,58 @@
 ! blue-edge guard below; a grossly off-grid T1 still aborts.
 !
 	    IF(T1 .GT. SM_FREQ_CMF(1))THEN
-	      IF(T1 .LE. 1.02_LDP*SM_FREQ_CMF(1))THEN
+!
+! dev7/P5: a T1 beyond the window edge is either round-off from the
+! different association order of the bound products (O(eps_mach) -
+! tolerated and censused) or real undercoverage.  T4>0 means T1 is
+! off the global FREQ_CMF grid - missing opacity we refuse to fake;
+! T4=0 means the band window itself was built wrong.
+!
+	      T3=(T1-SM_FREQ_CMF(1))/SM_FREQ_CMF(1)
+	      T4=MAX(0.0_LDP,(T1-FREQ_CMF(1))/FREQ_CMF(1))
+	      IF(T3 .LE. EDGE_TOL)THEN
 	        K=2
-	        T3=(T1-SM_FREQ_CMF(1))/SM_FREQ_CMF(1)
-	        T4=MAX(0.0_LDP,(T1-FREQ_CMF(1))/FREQ_CMF(1))
 !$OMP CRITICAL (CLAMP_CENSUS)
 	        N_EDGE_CLAMP=N_EDGE_CLAMP+1
 	        CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
-	        IF(T4 .GT. CLAMP_GRID_MAX)THEN
-	          CLAMP_GRID_MAX=T4
-	          CLAMP_ML_WORST=ML
-	          CLAMP_LS_WORST=LS
-	          CLAMP_I_WORST=1
+	        IF(T4 .GT. 0.0_LDP)THEN
+	          N_CLAMP_GLOBAL=N_CLAMP_GLOBAL+1
+	          IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	            CLAMP_GRID_MAX=T4
+	            CLAMP_ML_WORST=ML
+	            CLAMP_LS_WORST=LS
+	            CLAMP_I_WORST=1
+	            CLAMP_T1_GLB=T1
+	          END IF
+	        ELSE
+	          N_CLAMP_LOCAL=N_CLAMP_LOCAL+1
+	          IF(T3 .GT. CLAMP_LOC_MAX)THEN
+	            CLAMP_LOC_MAX=T3
+	            CLAMP_LOC_ML=ML
+	            CLAMP_LOC_LS=LS
+	            CLAMP_LOC_I=1
+	            CLAMP_T1_LOC=T1
+	          END IF
 	        END IF
 !$OMP END CRITICAL (CLAMP_CENSUS)
 	        T1=SM_FREQ_CMF(1)
 	      ELSE
-	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V5'
-	        WRITE(LUER,*)'Bad K indx (loc 1, blue edge): T1=',T1
-	        WRITE(LUER,*)T1,SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
-	        WRITE(LUER,*)'LS, OUT_ML, ML=',LS,OUT_ML,ML
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	        IF(T4 .GT. 0.0_LDP)THEN
+	          WRITE(LUER,'(A)')'GLOBAL_CMF_GRID_UNDERCOVERAGE'//
+	1          ' (loc 1, blue edge): T1 above FREQ_CMF(1);'//
+	2          ' widen MAX_CF.'
+	        ELSE
+	          WRITE(LUER,'(A)')'LOCAL_WINDOW_UNDERCOVERAGE'//
+	1          ' (loc 1, blue edge): T1 inside FREQ_CMF but'//
+	2          ' above the SM window.'
+	        END IF
+	        WRITE(LUER,'(A,ES16.8)')'  T1=',T1
+	        WRITE(LUER,'(A,2ES16.8)')'  SM edges=',
+	1          SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	        WRITE(LUER,'(A,2ES16.8)')'  FREQ_CMF edges=',
+	1          FREQ_CMF(1),FREQ_CMF(NCF)
+	        WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,1
 	        STOP
 	      END IF
 	    END IF
@@ -871,45 +985,105 @@
 	      K=K+1
 	      IF(K .GT. SM_NCF)THEN
 !
-! dev7: T1 can fall below the lowest CMF frequency when the FREQ_CMF
-! grid under-covers the observer-frame Doppler reach (observed ~0.1%
-! below the grid edge on the non-monotonic TypeIIn model, where the
-! extreme (1-VMU)*GAM occurs at a deep far-side ray point).  Within a
-! bounded guard we clamp T1 to the edge frequency: T2=0 then selects
-! the boundary opacity exactly, so no extrapolation is performed and
-! ETA/CHI cannot go negative.  Beyond the guard T1 is genuinely
-! corrupt and we abort.
+! dev7/P5: red-edge counterpart of the clamp above.  The 2% guard
+! that used to substitute boundary opacity for real coverage gaps
+! (observed ~0.1% on the non-monotonic TypeIIn model) is replaced by
+! the derived EDGE_TOL round-off band; genuine undercoverage aborts.
 !
-	        IF(T1 .GE. 0.98_LDP*SM_FREQ_CMF(SM_NCF))THEN
+	        T3=(SM_FREQ_CMF(SM_NCF)-T1)/SM_FREQ_CMF(SM_NCF)
+	        T4=MAX(0.0_LDP,(FREQ_CMF(NCF)-T1)/FREQ_CMF(NCF))
+	        IF(T3 .LE. EDGE_TOL)THEN
 	          K=SM_NCF
-	          T3=(SM_FREQ_CMF(SM_NCF)-T1)/SM_FREQ_CMF(SM_NCF)
-	          T4=MAX(0.0_LDP,(FREQ_CMF(NCF)-T1)/FREQ_CMF(NCF))
 !$OMP CRITICAL (CLAMP_CENSUS)
 	          N_EDGE_CLAMP=N_EDGE_CLAMP+1
 	          CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
-	          IF(T4 .GT. CLAMP_GRID_MAX)THEN
-	            CLAMP_GRID_MAX=T4
-	            CLAMP_ML_WORST=ML
-	            CLAMP_LS_WORST=LS
-	            CLAMP_I_WORST=1
+	          IF(T4 .GT. 0.0_LDP)THEN
+	            N_CLAMP_GLOBAL=N_CLAMP_GLOBAL+1
+	            IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	              CLAMP_GRID_MAX=T4
+	              CLAMP_ML_WORST=ML
+	              CLAMP_LS_WORST=LS
+	              CLAMP_I_WORST=1
+	              CLAMP_T1_GLB=T1
+	            END IF
+	          ELSE
+	            N_CLAMP_LOCAL=N_CLAMP_LOCAL+1
+	            IF(T3 .GT. CLAMP_LOC_MAX)THEN
+	              CLAMP_LOC_MAX=T3
+	              CLAMP_LOC_ML=ML
+	              CLAMP_LOC_LS=LS
+	              CLAMP_LOC_I=1
+	              CLAMP_T1_LOC=T1
+	            END IF
 	          END IF
 !$OMP END CRITICAL (CLAMP_CENSUS)
 	          T1=SM_FREQ_CMF(SM_NCF)
 	          EXIT
 	        END IF
-	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V5'
-	        WRITE(LUER,*)'Bad K indx (loc 1): K=',K
-	        WRITE(LUER,*)T1,SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
-	        WRITE(LUER,*)'LS, OUT_ML, ML=',LS,OUT_ML,ML
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	        IF(T4 .GT. 0.0_LDP)THEN
+	          WRITE(LUER,'(A)')'GLOBAL_CMF_GRID_UNDERCOVERAGE'//
+	1          ' (loc 1, red edge): T1 below FREQ_CMF(NCF);'//
+	2          ' widen MIN_CF.'
+	        ELSE
+	          WRITE(LUER,'(A)')'LOCAL_WINDOW_UNDERCOVERAGE'//
+	1          ' (loc 1, red edge): T1 inside FREQ_CMF but'//
+	2          ' below the SM window.'
+	        END IF
+	        WRITE(LUER,'(A,ES16.8)')'  T1=',T1
+	        WRITE(LUER,'(A,2ES16.8)')'  SM edges=',
+	1          SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	        WRITE(LUER,'(A,2ES16.8)')'  FREQ_CMF edges=',
+	1          FREQ_CMF(1),FREQ_CMF(NCF)
+	        WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,1
 	        STOP
 	      END IF
 	    END DO
 	    INDX(1)=K
-	    T2=(T1-SM_FREQ_CMF(K))/(SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K))
+!
+! dev7/P5: bracket-invariant guard.  The hunts must leave
+! SM_FREQ_CMF(K-1) >= T1 >= SM_FREQ_CMF(K) with K in [2,SM_NCF]; a
+! NaN T1 (e.g. NaN velocity input) would slip through both hunts
+! silently, and a broken invariant corrupts ETA/CHI far downstream.
+! T2 is clipped only inside the same derived round-off band.
+!
+	    IF(T1 .NE. T1 .OR. K .LT. 2 .OR. K .GT. SM_NCF)THEN
+	      WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	      WRITE(LUER,'(A,I8,A,ES16.8)')'  bad bracket (loc 1): K=',K,
+	1        ' T1=',T1
+	      WRITE(LUER,'(A,3I8)')'  LS,OUT_ML,ML=',LS,OUT_ML,ML
+	      STOP
+	    END IF
+	    T4=SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K)
+	    IF(T4 .LE. 0.0_LDP)THEN
+	      WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	      WRITE(LUER,'(A,I8,A,ES16.8)')
+	1        '  degenerate bracket (loc 1): K=',K,' dNU=',T4
+	      WRITE(LUER,'(A,3I8)')'  LS,OUT_ML,ML=',LS,OUT_ML,ML
+	      STOP
+	    END IF
+	    T2=(T1-SM_FREQ_CMF(K))/T4
+	    IF(T2 .LT. -EDGE_TOL .OR. T2 .GT. 1.0_LDP+EDGE_TOL)THEN
+	      WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	      WRITE(LUER,'(A,ES16.8,A,I8,A,ES16.8)')
+	1        '  interp fraction outside [0,1] (loc 1): T2=',T2,
+	2        ' K=',K,' T1=',T1
+	      WRITE(LUER,'(A,3I8)')'  LS,OUT_ML,ML=',LS,OUT_ML,ML
+	      STOP
+	    END IF
+	    T2=MIN(1.0_LDP,MAX(0.0_LDP,T2))
 	    ETA_VEC(1)=
 	1      T2*(ETA_CMF_RAY(1,K-1)-ETA_CMF_RAY(1,K))+ETA_CMF_RAY(1,K)
 	    CHI_VEC(1)=
 	1      T2*(CHI_CMF_RAY(1,K-1)-CHI_CMF_RAY(1,K))+CHI_CMF_RAY(1,K)
+	    IF(ETA_VEC(1) .NE. ETA_VEC(1) .OR.
+     1	     CHI_VEC(1) .NE. CHI_VEC(1))THEN
+	      WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	      WRITE(LUER,'(A,I8,A,ES16.8)')
+     1	      '  non-finite ETA/CHI after interp (loc 1): K=',K,' T1=',T1
+	      WRITE(LUER,'(A,3I8)')'  LS,OUT_ML,ML=',LS,OUT_ML,ML
+	      STOP
+	    END IF
 !
 	    IF(DO_REL_CORRECTIONS)THEN
 	      ETA_VEC(1)=ETA_VEC(1)*NU_ON_NU0_RAY(1)**2
@@ -943,32 +1117,58 @@
 !	        IF(K .GT. SM_NCF)THEN
 	        IF(K .LE. 1)THEN
 !
-! dev7: symmetric counterpart of the loc-1 edge clamp.  If T1 lands
-! modestly above the highest CMF frequency, clamp T1 to the edge so
-! T2=1 selects the boundary opacity exactly; a grossly off-grid T1
-! still aborts.
+! dev7/P5: symmetric counterpart of the loc-1 edge clamp, now with
+! the derived EDGE_TOL round-off band.  Within it the substitution
+! is exact to working precision; beyond it T4>0 means the global
+! grid lacks the required frequency and T4=0 means the band window
+! was built wrong - both abort with named diagnostics.
 !
-	          IF(T1 .LE. 1.02_LDP*SM_FREQ_CMF(1))THEN
+	          T3=(T1-SM_FREQ_CMF(1))/SM_FREQ_CMF(1)
+	          T4=MAX(0.0_LDP,(T1-FREQ_CMF(1))/FREQ_CMF(1))
+	          IF(T3 .LE. EDGE_TOL)THEN
 	            K=2
-	            T3=(T1-SM_FREQ_CMF(1))/SM_FREQ_CMF(1)
-	            T4=MAX(0.0_LDP,(T1-FREQ_CMF(1))/FREQ_CMF(1))
 !$OMP CRITICAL (CLAMP_CENSUS)
 	            N_EDGE_CLAMP=N_EDGE_CLAMP+1
 	            CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
-	            IF(T4 .GT. CLAMP_GRID_MAX)THEN
-	              CLAMP_GRID_MAX=T4
-	              CLAMP_ML_WORST=ML
-	              CLAMP_LS_WORST=LS
-	              CLAMP_I_WORST=I
+	            IF(T4 .GT. 0.0_LDP)THEN
+	              N_CLAMP_GLOBAL=N_CLAMP_GLOBAL+1
+	              IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	                CLAMP_GRID_MAX=T4
+	                CLAMP_ML_WORST=ML
+	                CLAMP_LS_WORST=LS
+	                CLAMP_I_WORST=I
+	                CLAMP_T1_GLB=T1
+	              END IF
+	            ELSE
+	              N_CLAMP_LOCAL=N_CLAMP_LOCAL+1
+	              IF(T3 .GT. CLAMP_LOC_MAX)THEN
+	                CLAMP_LOC_MAX=T3
+	                CLAMP_LOC_ML=ML
+	                CLAMP_LOC_LS=LS
+	                CLAMP_LOC_I=I
+	                CLAMP_T1_LOC=T1
+	              END IF
 	            END IF
 !$OMP END CRITICAL (CLAMP_CENSUS)
 	            T1=SM_FREQ_CMF(1)
 	            EXIT
 	          END IF
-	          WRITE(LUER,*)'Error in OBS_FRAME_SUB_V5'
-	          WRITE(LUER,*)'Bad K indx (loc 2): K=',K
-	          WRITE(LUER,*)T1,SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
-	          WRITE(LUER,*)'LS, OUT_ML, ML, I=',LS,OUT_ML,ML,I
+	          WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	          IF(T4 .GT. 0.0_LDP)THEN
+	            WRITE(LUER,'(A)')'GLOBAL_CMF_GRID_UNDERCOVERAGE'//
+     1        ' (loc 2, blue edge): T1 above FREQ_CMF(1);'//
+     2        ' widen MAX_CF.'
+	          ELSE
+	            WRITE(LUER,'(A)')'LOCAL_WINDOW_UNDERCOVERAGE'//
+     1        ' (loc 2, blue edge): T1 inside FREQ_CMF but'//
+     2        ' above the SM window.'
+	          END IF
+	          WRITE(LUER,'(A,ES16.8)')'  T1=',T1
+	          WRITE(LUER,'(A,2ES16.8)')'  SM edges=',
+     1      SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	          WRITE(LUER,'(A,2ES16.8)')'  FREQ_CMF edges=',
+     1      FREQ_CMF(1),FREQ_CMF(NCF)
+	          WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,I
 	          STOP
 	        END IF
 	      END DO
@@ -987,44 +1187,106 @@
 	        K=K+1
 	        IF(K .GT. SM_NCF)THEN
 !
-! dev7: same edge handling as loc 1.  The FREQ_CMF grid under-covers
-! the observer-frame Doppler reach on non-monotonic rays (measured
-! gap ~0.1% at deep far-side ray points on the TypeIIn model), so a
-! modest off-grid T1 is clamped to the boundary frequency and uses
-! the boundary opacity (T2=0) rather than extrapolating.  A grossly
-! off-grid T1 still aborts.
+! dev7/P5: red-edge counterpart of the clamp above, same EDGE_TOL
+! round-off band and local/global classification.  The measured
+! ~0.1% overshoots on the TypeIIn model were real global
+! undercoverage and now abort instead of substituting edge opacity.
 !
-	          IF(T1 .GE. 0.98_LDP*SM_FREQ_CMF(SM_NCF))THEN
+	          T3=(SM_FREQ_CMF(SM_NCF)-T1)/SM_FREQ_CMF(SM_NCF)
+	          T4=MAX(0.0_LDP,(FREQ_CMF(NCF)-T1)/FREQ_CMF(NCF))
+	          IF(T3 .LE. EDGE_TOL)THEN
 	            K=SM_NCF
-	            T3=(SM_FREQ_CMF(SM_NCF)-T1)/SM_FREQ_CMF(SM_NCF)
-	            T4=MAX(0.0_LDP,(FREQ_CMF(NCF)-T1)/FREQ_CMF(NCF))
 !$OMP CRITICAL (CLAMP_CENSUS)
 	            N_EDGE_CLAMP=N_EDGE_CLAMP+1
 	            CLAMP_FRAC_MAX=MAX(CLAMP_FRAC_MAX,T3)
-	            IF(T4 .GT. CLAMP_GRID_MAX)THEN
-	              CLAMP_GRID_MAX=T4
-	              CLAMP_ML_WORST=ML
-	              CLAMP_LS_WORST=LS
-	              CLAMP_I_WORST=I
+	            IF(T4 .GT. 0.0_LDP)THEN
+	              N_CLAMP_GLOBAL=N_CLAMP_GLOBAL+1
+	              IF(T4 .GT. CLAMP_GRID_MAX)THEN
+	                CLAMP_GRID_MAX=T4
+	                CLAMP_ML_WORST=ML
+	                CLAMP_LS_WORST=LS
+	                CLAMP_I_WORST=I
+	                CLAMP_T1_GLB=T1
+	              END IF
+	            ELSE
+	              N_CLAMP_LOCAL=N_CLAMP_LOCAL+1
+	              IF(T3 .GT. CLAMP_LOC_MAX)THEN
+	                CLAMP_LOC_MAX=T3
+	                CLAMP_LOC_ML=ML
+	                CLAMP_LOC_LS=LS
+	                CLAMP_LOC_I=I
+	                CLAMP_T1_LOC=T1
+	              END IF
 	            END IF
 !$OMP END CRITICAL (CLAMP_CENSUS)
 	            T1=SM_FREQ_CMF(SM_NCF)
 	            EXIT
 	          END IF
-	          WRITE(LUER,*)'Error in OBS_FRAME_SUB_V5'
-	          WRITE(LUER,*)'Bad K indx (loc 2b): K=',K
-	          WRITE(LUER,*)T1,SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
-	          WRITE(LUER,*)'LS, OUT_ML, ML, I=',LS,OUT_ML,ML,I
+	          WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	          IF(T4 .GT. 0.0_LDP)THEN
+	            WRITE(LUER,'(A)')'GLOBAL_CMF_GRID_UNDERCOVERAGE'//
+     1        ' (loc 2, red edge): T1 below FREQ_CMF(NCF);'//
+     2        ' widen MIN_CF.'
+	          ELSE
+	            WRITE(LUER,'(A)')'LOCAL_WINDOW_UNDERCOVERAGE'//
+     1        ' (loc 2, red edge): T1 inside FREQ_CMF but'//
+     2        ' below the SM window.'
+	          END IF
+	          WRITE(LUER,'(A,ES16.8)')'  T1=',T1
+	          WRITE(LUER,'(A,2ES16.8)')'  SM edges=',
+     1      SM_FREQ_CMF(1),SM_FREQ_CMF(SM_NCF)
+	          WRITE(LUER,'(A,2ES16.8)')'  FREQ_CMF edges=',
+     1      FREQ_CMF(1),FREQ_CMF(NCF)
+	          WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,I
 	          STOP
 	        END IF
 	      END DO
 !
 	      INDX(I)=K
-	      T2=(T1-SM_FREQ_CMF(K))/(SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K))
+!
+! dev7/P5: bracket-invariant guard, same as loc 1.  T1 must be
+! finite (a NaN velocity input would pass both hunts silently),
+! K in [2,SM_NCF], the bracket strictly decreasing, and T2 within
+! the derived round-off band of [0,1] - anything larger means the
+! hunts failed, not a fraction to clip.
+!
+	      IF(T1 .NE. T1 .OR. K .LT. 2 .OR. K .GT. SM_NCF)THEN
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	        WRITE(LUER,'(A,I8,A,ES16.8)')'  bad bracket (loc 2): K=',K,
+     1	    ' T1=',T1
+	        WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,I
+	        STOP
+	      END IF
+	      T4=SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K)
+	      IF(T4 .LE. 0.0_LDP)THEN
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	        WRITE(LUER,'(A,I8,A,ES16.8)')
+     1	    '  degenerate bracket (loc 2): K=',K,' dNU=',T4
+	        WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,I
+	        STOP
+	      END IF
+	      T2=(T1-SM_FREQ_CMF(K))/T4
+	      IF(T2 .LT. -EDGE_TOL .OR. T2 .GT. 1.0_LDP+EDGE_TOL)THEN
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	        WRITE(LUER,'(A,ES16.8,A,I8,A,ES16.8)')
+     1	    '  interp fraction outside [0,1] (loc 2): T2=',T2,
+     2	    ' K=',K,' T1=',T1
+	        WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,I
+	        STOP
+	      END IF
+	      T2=MIN(1.0_LDP,MAX(0.0_LDP,T2))
 	      ETA_VEC(I)=
 	1       T2*(ETA_CMF_RAY(J,K-1)-ETA_CMF_RAY(J,K))+ETA_CMF_RAY(J,K)
 	      CHI_VEC(I)=
 	1       T2*(CHI_CMF_RAY(J,K-1)-CHI_CMF_RAY(J,K))+CHI_CMF_RAY(J,K)
+	      IF(ETA_VEC(I) .NE. ETA_VEC(I) .OR.
+     1	     CHI_VEC(I) .NE. CHI_VEC(I))THEN
+	        WRITE(LUER,*)'Error in OBS_FRAME_SUB_V9'
+	        WRITE(LUER,'(A,I8,A,ES16.8)')
+     1	    '  non-finite ETA/CHI after interp (loc 2): K=',K,' T1=',T1
+	        WRITE(LUER,'(A,4I8)')'  LS,OUT_ML,ML,I=',LS,OUT_ML,ML,I
+	        STOP
+	      END IF
 !
 	      IF(DO_REL_CORRECTIONS)THEN
 	        ETA_VEC(I)=ETA_VEC(I)*NU_ON_NU0_RAY(I)**2
@@ -1576,24 +1838,29 @@
 	   CLOSE(UNIT=82)
 	 END IF
 !
-! Edge-clamp census report.  A nonzero count means at least one
-! observer-frame frequency sampled the window-edge opacity instead
-! of a true bracket.  When the worst clamp also fell outside the
-! full FREQ_CMF grid the substitution is physical -- warn so the
-! user widens MIN_CF/MAX_CF rather than trusting the edge bins.
+! Edge-clamp census report.  Every surviving clamp is within the
+! EDGE_TOL round-off band (larger overshoots abort above), so a
+! nonzero count documents association-order events, not physical
+! substitution.  The local/global split is kept anyway: any
+! N_CLAMP_GLOBAL>0 means the band window was pinned at the global
+! edge when the overshoot occurred, and N_CLAMP_LOCAL>0 would flag
+! a window-construction regression even at round-off scale.
 !
 	IF(N_EDGE_CLAMP .GT. 0)THEN
-	  WRITE(LUER,'(A,I8,2(A,ES10.3))')
+	  WRITE(LUER,'(A,I8,A,I8,A,I8)')
 	1     'OBS_FRAME CMF edge clamps:',N_EDGE_CLAMP,
-	2     '  max frac outside SM window =',CLAMP_FRAC_MAX,
-	3     '  max frac outside FREQ_CMF =',CLAMP_GRID_MAX
-	  WRITE(LUER,'(A,3I8)')
-	1     '  worst (ML,LS,ray point) =',
-	2     CLAMP_ML_WORST,CLAMP_LS_WORST,CLAMP_I_WORST
-	  IF(CLAMP_GRID_MAX .GT. 0.0_LDP)THEN
-	    WRITE(LUER,'(A)')'Warning: observer-frame Doppler reach'
-	1     //' exceeded the CMF frequency grid; boundary opacity'
-	2     //' substituted.  Widen MIN_CF/MAX_CF.'
+	2     '  local-window:',N_CLAMP_LOCAL,
+	3     '  global-grid:',N_CLAMP_GLOBAL
+	  WRITE(LUER,'(A,2(A,ES10.3))')
+	1     '  max frac outside SM window =',CLAMP_FRAC_MAX,
+	2     '  max frac outside FREQ_CMF =',CLAMP_GRID_MAX
+	  WRITE(LUER,'(A,3I8,A,ES16.8)')
+	1     '  worst global (ML,LS,ray point,T1) =',
+	2     CLAMP_ML_WORST,CLAMP_LS_WORST,CLAMP_I_WORST,' ',CLAMP_T1_GLB
+	  IF(N_CLAMP_LOCAL .GT. 0)THEN
+	    WRITE(LUER,'(A,3I8,A,ES16.8)')
+	1     '  worst local  (ML,LS,ray point,T1) =',
+	2     CLAMP_LOC_ML,CLAMP_LOC_LS,CLAMP_LOC_I,' ',CLAMP_T1_LOC
 	  END IF
 	END IF
 !
