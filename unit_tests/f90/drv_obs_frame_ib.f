@@ -7,6 +7,7 @@
       INTEGER, PARAMETER :: NC=3
       INTEGER, PARAMETER :: NP=7
       INTEGER, PARAMETER :: NOS=2
+      INTEGER, PARAMETER :: NOSB=16
       INTEGER, PARAMETER :: LU_OUT=21
 
       REAL(KIND=LDP) :: ETA_CMF(ND,NCF)
@@ -21,6 +22,8 @@
       REAL(KIND=LDP) :: HQW_AT_RMAX(NP)
       REAL(KIND=LDP) :: OBS_FREQ(NOS)
       REAL(KIND=LDP) :: OBS_FLUX(NOS)
+      REAL(KIND=LDP) :: OBS_FREQ_B(NOSB)
+      REAL(KIND=LDP) :: OBS_FLUX_B(NOSB)
       REAL(KIND=LDP) :: MAX_DEL_V_RES_ZONE(ND)
       REAL(KIND=LDP) :: TAU_MAX
       REAL(KIND=LDP) :: ES_DTAU
@@ -118,5 +121,25 @@
       OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_nonmono.txt',
      1     STATUS='REPLACE')
       WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX
+      CLOSE(LU_OUT)
+!
+! Sixteen observer frequencies so the !$OMP DO over ML has enough
+! iterations to split across 8 threads.  Frequencies span the same
+! band as the first cases; the reversing velocity profile is kept so
+! the per-ray hunts take different branches on different threads.
+!
+      DO I=1,NOSB
+        OBS_FREQ_B(I)=4.45_LDP-0.40_LDP*REAL(I-1,LDP)/REAL(NOSB-1,LDP)
+      END DO
+      OBS_FLUX_B=0.0_LDP
+      CALL OBS_FRAME_SUB_V9(ETA_CMF,CHI_CMF,FREQ_CMF,
+     1      R,V,T,ED,ND,NCF,P,MU_AT_RMAX,HQW_AT_RMAX,NC,NP,
+     2      OBS_FREQ_B,OBS_FLUX_B,NOSB,MAX_DEL_V_RES_ZONE,
+     3      TAU_MAX,ES_DTAU,N_INS_OBS,'STAU',TAU_REF,
+     4      WRITE_RTAU,WRITE_IP,WRITE_DFR,DO_REL,PLANE_PARALLEL,
+     5      IB_J_CMF,IB_H_CMF,.TRUE.)
+      OPEN(UNIT=LU_OUT,FILE=TRIM(OUT_DIR)//'/flux_omp.txt',
+     1     STATUS='REPLACE')
+      WRITE(LU_OUT,'(2(ES25.17,1X))')OBS_FLUX_B
       CLOSE(LU_OUT)
       END
