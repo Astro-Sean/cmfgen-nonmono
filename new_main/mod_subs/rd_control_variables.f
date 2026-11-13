@@ -1527,6 +1527,16 @@
 	1     'Independent fixed-point residual in the KNOP refresh?')
 	  CALL SET_FG_Q_RESID(KN_Q_RESID)
 !
+! KN_JUMP_DIAG (default FALSE): diagnostic-only veto-trigger
+! attribution for the KNOP commit jump veto. T records which
+! cell and branch fires FG_JUMP_MAX on each rejected ray; F
+! preserves production behaviour.
+!
+	  KN_JUMP_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(KN_JUMP_DIAG,'KN_JUMP_DIAG',L_FALSE,
+	1     'Attribute KNOP jump-veto triggers per ray?')
+	  CALL SET_FG_JUMP_DIAG(KN_JUMP_DIAG)
+!
 ! KN_MAT_FREEZE (default FALSE): diagnostic-only matter freeze for
 ! the KNOP failure isolation (P1-T1c arm M). T holds POPS at its
 ! checkpoint values every SOLVE_FOR_POPS call (the GS_POPS_HELD
