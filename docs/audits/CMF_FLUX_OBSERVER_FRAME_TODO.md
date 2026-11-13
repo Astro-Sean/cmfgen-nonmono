@@ -315,7 +315,20 @@ compiles.
 - Tests: coherent vs non-coherent vs converged redistribution
   reference.
 - Acceptance: single fold verified; spectra converge in NUM_ES.
-- Status: OPEN
+- Status: AUDIT DONE, acceptance pending. Source audit in
+  docs/audits/CMF_FLUX_P8_ES_REDISTRIBUTION_AUDIT.md; plan in
+  CMF_FLUX_P8_IMPLEMENTATION_PLAN.md.
+  - Single fold confirmed at every ESEC*RJ_ES site; OBS_FRAME adds
+    no scattering term (ETA_RND arrives pre-folded).
+  - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
+    each ES sweep (OBS side) and after each great-iteration (model
+    side); render uses the freshest in-memory convolve.
+  - Open items: Rayleigh convention differs under INC_RAY=T
+    (model CHI_SCAT*RJ_ES vs obs ESEC*RJ_ES + CHI_RAY*RJ); no
+    NUM_ES residual gate (P8.2); STEQ_T sign unverified; P7
+    3|H|<J positivity diagnostic deferred to P8/final validation.
+  - Numerical acceptance criteria in the plan doc are NOT yet
+    met; do not mark complete until T1-T7 pass.
 
 ### P8.2 KNOP maturity gate
 - Problem: no OBS-side acceptance gate preventing a spectrum from an
