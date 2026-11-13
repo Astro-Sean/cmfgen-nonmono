@@ -8228,8 +8228,8 @@ C
 	3       KN_GS%VMIN,KN_GS%V10,KN_GS%VMED,KN_GS%V90,
 	4       KN_GS%VMAX,KN_GS%VRAY
 	        WRITE(LUER,'(A,A6,A,I4,A,ES12.5)')
-	1       '    ',KN_GEO_LAB(KN_SIB_IK),' rank,pct=',
-	2       KN_GS%RANK,KN_GS%PCT
+	1       '    ',KN_GEO_LAB(KN_SIB_IK),' rank=',
+	2       KN_GS%RANK,' pct=',KN_GS%PCT
 	      END DO
 	    END DO
 	  END DO
@@ -8285,7 +8285,7 @@ C
 	    KN_CEN_ALL(KN_CEN_J+1)=KN_CEN_TMP
 	  END DO
 	  DO KN_CEN_I=1,MIN(16,KN_CEN_NZ)
-	    WRITE(LUER,'(A,I3,A,I4,A,I2,A,4I6,A,5ES12.5)')
+	    WRITE(LUER,'(A,I3,A,I4,A,I2,3I6,A,5ES12.5)')
 	1     '    KN-CEN top ray=',KN_CEN_ALL(KN_CEN_I)%RS,
 	2     ' ch=',KN_CEN_ALL(KN_CEN_I)%CH,
 	3     ' ks,kc,jp,l2=',KN_CEN_ALL(KN_CEN_I)%KS,
