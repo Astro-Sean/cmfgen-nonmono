@@ -317,7 +317,7 @@ emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
 to `sigma*J` consistently on both sides. The folding algebra
 is now backed by the executable battery in section 8.5
-(67 checks, all passing at the measured tolerances) plus the
+(75 checks, all passing at the measured tolerances) plus the
 static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
@@ -395,7 +395,7 @@ manufactured emissivities through the real `OBS_FRAME_SUB_V9`
 (V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
 iteration ordering; `drv_knop_guard.f` drives the production
 store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
-`unit_tests/python/test_es_conv.py`, 67/67 PASS. Production
+`unit_tests/python/test_es_conv.py`, 75/75 PASS. Production
 tree sources link as the exact `.o` files the production
 executables use (`compile_and_link_prod`, ifort `-qopenmp`,
 MKL sequential); only drivers and the `obs_v9_adapter` shim
@@ -432,22 +432,135 @@ side (`NU(I) > 1.5*TEMP(K)`), applied to all lower frequencies
 as a uniform wavelength offset; the interpolation back onto
 the grid skips both end points explicitly (the source comment
 notes the endpoints scatter coherently); interior edge points
-extrapolate if needed. This is the treatment the `bnd` test
-measures.
+extrapolate if needed; the whole log-space shift/interp/rescale
+block is gated on `MINVAL(PLANCK_FN)>0 .AND. MINVAL(PLANCK_ES)>0`
+(`:302`), so a depth whose scaled Planck underflows to exactly 0
+escapes the rescale entirely. This is the treatment the `bnd`
+test measures.
 
-Measured battery results (67/67 PASS):
+Feature coordinate note: the manufactured line feature is a
+Gaussian in nu, while the operator acts in ln nu. The local
+approximation sigma_ln_nu ~ sigma_nu/nu0 = 0.200 understates
+the actual ln(nu) width; the measured second-moment width is
+0.242 (NCF=256) / 0.245 (NCF=512), i.e. 6.4 / 13.0 grid points
+per actual sigma. The kernel width itself ((beta/B_L)^2 ~ 1e-6
+in ln nu at 1e4 K) is far below the grid cell; this battery
+resolves the FEATURE, not the kernel, and no kernel-width
+claim is made.
+
+Measured battery results (75/75 PASS):
 
 | case | result |
 | --- | --- |
 | planck `J=B(T)` | max rel 1.46e-5, rms 1.28e-6 (significant-J support; Wien-underflow masked) |
 | const | Jbar >= 0; B/B_es rescale documented; 3 zeros at Wien edge |
-| linepair 256 | peak 3.9986e-4 -> 3.9978e-4; core -7.5e-8 / wing +2.1e-8; max|dexc|/pk 2.25e-4; int drift -3.1e-5; no ringing |
-| linepair 512 | peak 3.9983e-4 -> 3.9975e-4; core -7.5e-8 / wing +2.3e-8; max|dexc|/pk 2.26e-4; int drift -2.7e-5; resolution-consistent |
-| bnd 256/512 | interior vs extended domain max 9.1e-5/8.5e-5; upper edge 0 (field Wien-dead); lower edge max 1.2e-3/2.4e-3 (feature tail beyond boundary) |
+| linepair 256 | peak 3.9986e-4 -> 3.9978e-4; core -7.5e-8 / wing +2.1e-8; max|dexc|/pk 2.25e-4; full-domain integrals below; no ringing |
+| linepair 512 | peak 3.9983e-4 -> 3.9975e-4; core -7.5e-8 / wing +2.3e-8; max|dexc|/pk 2.26e-4; resolution-consistent |
+| bnd 256/512 | interior vs extended max 1.30e-4/1.34e-4; lower edge max 1.0e-4/2.0e-4, rms 4.2e-5/8.1e-5 (nsig=24, maxratio <=1.0002, <=2 sign changes); upper edge suppression ~1.0 (documented limitation, below) |
 | edge (step) | max rel 9.1e-4, no ringing |
 | tempu 5e3/1e4/5e4 K (uniform T) | max 1.55e-4 / 1.82e-13 / 4.46e-14; beta/B_L reported per case; same mask for max and rms |
 | pos (zeroed interior band) | Jbar >= 0 |
 | grid NCF 128/256/512 | max err 1.32e-5 / 1.46e-5 / 1.66e-5 - saturates (operator width is physical) |
+
+Full-domain line-excess integrals (linepair, all nodes - not
+restricted to the input feature mask; ascending-nu trapezoid):
+
+| measure | NCF | in | out | drift |
+| --- | --- | --- | --- | --- |
+| int(exc) dlnnu | 256 | 2.0978e-4 | 2.0978e-4 | -3.96e-6 |
+| int(exc) dlnnu | 512 | 2.0978e-4 | 2.0978e-4 | -3.45e-6 |
+| int(exc) dnu   | 256 | 4.0112e-4 | 4.0112e-4 | +4.47e-7 |
+| int(exc) dnu   | 512 | 4.0105e-4 | 4.0105e-4 | +1.09e-6 |
+
+On the extended grid (linext) the dlnnu drift is at machine
+precision (~1e-15), and the production-vs-extended full-domain
+output integral agrees to +2.3e-5 relative. The measured
+drift is reported, not elevated to a conservation law: the
+interior column sums of the discrete operator are -H = 1 but
+the one-sided endpoint rows do not share that property, and
+the pointwise B/B_es rescale is not an integral-preserving
+step. The output excess outside the input >5%-of-peak
+footprint is 2.7% (256) / 2.2% (512) of int(exc_out) dlnnu -
+the redistributed wing content. FWHM_ln(nu): 0.415 -> 0.452
+(256), 0.452 -> 0.452 (512); the change is below one grid
+cell at both resolutions and is reported as unresolved (the
+assertion is that the feature does not NARROW by more than
+two cells - a smearing operator must not sharpen).
+
+Extended-domain (linext) boundary sensitivity of the smeared
+feature: exc_out restricted to the shared production nodes
+differs from the production-grid exc_out by max 8.1e-4 (256) /
+1.5e-3 (512) on the significant mask - the boundary influence
+on an interior feature is ~1e-3, an order below the feature
+itself.
+
+### 8.5.1 Upper-edge Wien-rescale suppression (measured limitation)
+
+The live-feature boundary test exposed a real production
+behaviour, confirmed against the extended-domain reference:
+
+- With a significant field alive at the upper production bound
+  (manufactured Gaussian at nu~260, amplitude ~0.5), the
+  production-grid Jbar at the high-nu end is suppressed to
+  <=1e-2 of the extended-domain result at T >= 1e4 K; at
+  T = 2e4 K and 1e4 K the output is crushed to ~1e-82 and
+  ~1e-273 respectively (max rel discrepancy 1.0).
+- The suppression is one-sided: the signed production-minus-
+  extended difference is <= 0 at every significant node (max
+  output/input ratio 1.0017, from the T=0.5e4 row), with <= 2
+  sign changes - no amplification and no ringing.
+- The depth where the scaled Planck underflows to exactly 0
+  (T=0.5e4) escapes the rescale entirely per the
+  `MINVAL(PLANCK_FN)>0` gate at `comp_j_conv_v2.f:302`, and
+  there the production and extended results agree to <=2e-4.
+
+Mechanism (source-traced, `comp_j_conv_v2.f:302-354`): in the
+Wien-dead zone the Helmholtz-solved `B_es` at the endpoint is
+enormously larger than `B` (smeared fill of the dead tail;
+B_es ~ 1e60-1e300 vs B ~ 1e-100-1e-300). Interior nodes are
+corrected by the wavelength shift - `PLANCK_NU` is derived by
+matching `PLANCK_ES` to `PLANCK_FN`, so the shifted B_es ~
+B and the rescale factor ~ 1. The two endpoint nodes are
+explicitly not interpolated ("coherent scattering"), so they
+keep the unshifted `ln B_es`; the final
+`EXP(J_ES + PLANCK_FN - PLANCK_ES)` then applies
+`exp(ln B - ln B_es)` ~ e^-280, crushing J at and smoothly
+inward of the endpoint wherever B is denormal (measured
+penetration to nu ~ 15-20 at T=5e4, recovering at significant
+B). On the extended grid the same nodes are interior, receive
+the shifted correction, and the field survives.
+
+Classification: a documented production limitation, not a
+test-harness artifact - the discrepancy is suppression-only,
+non-negative, non-ringing, and reproduced at both
+resolutions. The test asserts the bounded suppression-only
+character (no amplification, <=3 sign changes, finite,
+non-negative) and reports the magnitude; it does not conceal
+the ~1.0 relative discrepancy with a tolerance.
+
+Follow-up candidate (production-side, NOT implemented): in
+the Wien-dead regime the rescale multiplies a live J feature
+by a Planck ratio defined by underflow-denormal B values -
+the B/B_es correction was designed to fix residual errors of
+the fitted convolution at significant B, and its validity
+does not extend to the denormal-Planck zone. A guarded
+treatment would need a derivation - e.g. extend the
+wavelength-shift interpolation to the endpoint nodes, or mask
+the rescale where `B` is denormal - plus a regression against
+the extended-domain reference. Any such change alters stock
+behaviour in the Wien-dead zone and belongs to a separate
+gate, not P8.1.
+
+Test-harness lesson (driver fix, this round): the first
+linext run showed a spurious ~6.4e-4 excess band near nu~0.2
+on the extended grid only. Cause: `drv_es_conv` allocated
+`J_STORE`/`J_IN` at the pre-extension NCF while the extended
+grid used NCF+NCF/2, so the convolver walked past `J_STORE`
+into `J_IN` (second convolve read corrupted input). Fixed by
+resolving the extended NCF before ALLOCATE; the anomaly
+vanished and the boundary results changed at the ~1e-4 level
+(lower edge improved ~6x where the polluted zone overlapped).
+The clean numbers above are post-fix.
 
 ES-iteration sequencing (T5, `drv_es_seq.f`): scripted
 two-sweep harness mirroring the production ordering on the
