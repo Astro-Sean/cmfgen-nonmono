@@ -83,3 +83,25 @@ never inferred from a lower one.
 - Filenames in this folder: `NAME_AUDIT[_YYYY-MM-DD].md` for
   point-in-time audits, undated for living docs like this log and
   the two active audit files above.
+
+## 2026-11-13 - Phase 4: KN_QC race fix + Q argmax store mapping
+
+- Audited KN_QC histogram: confirmed shared-gate race
+  (KN_Q_ACC/KN_Q_ACC_CH toggled per ray inside the OpenMP
+  loop; shared KN_QC_* counters updated concurrently).
+  Prior cell histogram/percentile/channel-max output is
+  invalid evidence.
+- Replaced with L_QP-gated per-ray/per-channel accumulation
+  (KN_QC_*_RAY(LS,CH,...)), channel from local INWARD,
+  serial reduction after the ray loop. MARCH gained L_QP.
+- Added Q-argmax inverse J_PNT mapping (qmap2 class A/B/C),
+  retained-store readback at slot L-1, pre-refresh
+  KN_QARG_* snapshot for before/retained pairs, and
+  VMAX_RAW vs floored VMAXF reporting.
+- Tests: test_knop_lagged_field.py updated + 3 new checks,
+  all pass; test_knop_ray 43/43; status-text all pass;
+  build clean. Diagnostic-only, defaults off, production
+  exe untouched.
+- One-refresh iso_M it157 run staged recipe documented in
+  KNOP_FAILURE_ISOLATION_RESULTS.md section 20.5; submission
+  pending.
