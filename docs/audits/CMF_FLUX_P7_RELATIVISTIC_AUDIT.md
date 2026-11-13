@@ -14,7 +14,7 @@ resolution code was touched.
 
 ## 1. Confirmed defects
 
-Two defects were confirmed and fixed in this phase.
+Three defects were confirmed and fixed in this phase.
 
 ### 1.1 Superluminal velocities were floored into a finite spectrum
 
@@ -51,6 +51,22 @@ relation, so its angular argument must be the comoving direction
 cosine, not `mu_obs = Z/R`.  The difference is O(beta): for a boundary
 flow at beta the old code evaluated the seed at the wrong angle.
 Corrected at both sites (section 4).
+
+### 1.3 Plane-parallel boundary cosine was not a direction cosine
+
+In `PLANE_PARALLEL` geometry `Z(I)=R(I)/MU` is the slant depth, so the
+seed's `Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)` evaluates to `1/MU` at the
+inner boundary - a value in `(1,inf)`, not a direction cosine.  That
+bogus value enters `J + 3*mu*H` directly on the non-relativistic path
+(e.g. `PLANE_PARALLEL_NO_V` runs) and additionally passes through the
+aberration under `DO_REL_CORRECTIONS`, where `1 - beta*mu` can hit
+zero or produce `mu_cmf` well outside `[-1,1]`.  Production reaches
+the branch via `(DO_NONMONO_SOB .or. DO_NONMONO_KNOP) .and. DIF` on a
+plane-parallel model (`PLANE_PARALLEL` or `PLANE_PARALLEL_NO_V` - a
+geometry property, e.g. `rev_hydro_turb.f`, not one of the solver
+modes rejected under the nonmono flags).  Fixed at both sites:
+`MU_AT_RMAX(LS)` is used as the boundary cosine in PP mode
+(section 4.5).
 
 ## 2. Frame conventions (Part 1)
 
@@ -205,8 +221,17 @@ aberration relation and Mihalas & Mihalas ch. 14.
 
 Production path: `IB_J_CMF_ST(ML)=RJ(ND)`, `IB_H_CMF_ST(ML)=
 HFLUX_AT_IB` in `obs/cmf_flux_sub_v5.f` - both are comoving-frame
-moments of the inner-boundary radiation field.  The diffusion-limit
-emergent intensity is the Eddington relation in the comoving frame:
+moments of the inner-boundary radiation field.  Provenance:
+`RJ(ND)` is the converged comoving mean intensity of the continuum
+moment solve; `HFLUX_AT_IB` is set inside `comp_j_blank.f` to
+`DBB/CHI(ND)/3` under the `DIF` inner-boundary branch - the
+diffusion-limit Eddington flux `(1/3*chi)*dB/dR` applied by the same
+boundary condition the moment solver itself uses (non-`DIF` runs
+take the incident-intensity branch instead, and `DO_IB` callers only
+set the flag when `DIF` is on).  The stored pair therefore describes
+precisely the two-sided diffusion field the derivation below
+requires.  The emergent intensity is the Eddington relation in the
+comoving frame:
 
 ```
 I_cmf(mu_cmf) = J_cmf + 3*mu_cmf*H_cmf .
@@ -217,7 +242,11 @@ belongs to the frame in which `J` and `H` are measured.  Fix (both
 STAU ~:1585 and ETAZ ~:1657 sites):
 
 ```
-T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)            ! mu_obs
+IF(PLANE_PARALLEL)THEN
+  T1=MU_AT_RMAX(LS)                          ! mu_obs (defect 1.3)
+ELSE
+  T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)           ! mu_obs
+END IF
 IF(DO_REL_CORRECTIONS)
    T1=(T1-V_RAY(SM_NRAY)/C_KMS)/
       (1.0_LDP - V_RAY(SM_NRAY)*T1/C_KMS)   ! mu_cmf
@@ -228,28 +257,140 @@ IF(DO_REL_CORRECTIONS) PAR_FLUX = PAR_FLUX * NU_ON_NU0_RAY**3
 Under `DO_REL_CORRECTIONS=F` the line is skipped - the non-relativistic
 path is bitwise unchanged.
 
-### 4.3 mu_cmf <= 0 cases
+### 4.3 Moving-boundary characteristic derivation (Part A)
 
-At a solid inner boundary `SM_NRAY=NRAY` gives `mu_obs = Z/R > 0`
-(near-side outgoing rays).  But `mu_cmf = (mu_obs-beta)/(1-beta*mu_obs)
-< 0` whenever `beta > mu_obs` - i.e., on near-grazing rays when the
-boundary flow is fast enough.  Physical meaning: a photon that leaves
-the moving surface at `mu_obs>0` in the lab was emitted *inward* in
-the surface's comoving frame - aberration drags the lab-forward
-hemisphere into part of the comoving-backward hemisphere.
+The phrases "outward ray" and "entering characteristic" are not
+interchangeable at a boundary whose radiation data move with the gas,
+so the four statements are derived separately.
 
-Treatment: the code does not extrapolate or clip; it evaluates
-`J + 3*mu_cmf*H` at the negative `mu_cmf`, which is the inward
-Eddington extension of the diffusion field.  For a diffusion boundary
-that is the physically consistent local value - the linear-in-mu law
-is a moment truncation, valid on both hemispheres of the comoving
-frame, and the photon genuinely was comoving-inward.  No special
-casing is required; the behaviour is documented and tested (the
-`beta=99.9 km/s` manufactured case has `mu_cmf` slightly below
-`mu_obs` everywhere; production `V(ND)` values that could push
-`mu_cmf<0` would need `beta > mu_obs`, only possible on grazing rays
-of fast inner-boundary flows, where the same linear law still
-applies).
+**What the boundary is.**  `R(ND)` is a fixed Eulerian sphere in the
+lab frame: during the spectrum computation `R` and `V` are static
+input arrays and the gas velocity `V(r)` flows through every grid
+surface, including `R(ND)`.  The boundary does not move; the radiation
+data at it (`IB_J_CMF=RJ(ND)`, `IB_H_CMF=HFLUX_AT_IB`) are moments in
+the *comoving* frame, i.e. in the frame of the gas streaming through
+the fixed surface.  "The moving boundary" is shorthand for "the
+boundary data live in a moving frame".
+
+**(i) Photon travelling outward in the observer (lab) frame.**
+`mu_obs = Z_RAY/R_RAY > 0` at the boundary point.  Every seeded ray
+has this: the seed sites fire only for solid-wall core rays
+(`SM_NRAY=NRAY`, `LS<=NC`) at the near-side boundary crossing, whose
+tangent points toward the observer.  This is a statement about the
+lab-frame trajectory, not a frame-dependent quantity: a boost
+changes the *comoving* cosine (and can flip its sign, below), never
+the fact that the photon crosses the fixed sphere outward.
+
+**(ii) Photon travelling outward relative to the gas.**  `mu_cmf > 0`.
+Since `1 - beta*mu_obs > 0` for `|beta|<1, mu_obs<=1`,
+
+```
+sign(mu_cmf) = sign(mu_obs - beta)
+```
+
+- `beta > 0` (outflow): `mu_obs > beta` gives `mu_cmf > 0`;
+  `mu_obs = beta` gives `mu_cmf = 0` (comoving-tangential);
+  `0 < mu_obs < beta` gives `mu_cmf < 0` - the photon's lab-frame
+  outward radial speed `c*mu_obs` is slower than the gas outflow, so
+  relative to the fluid it sinks back toward the core.
+- `beta = 0`: `mu_cmf = mu_obs > 0` identically.
+- `beta < 0` (inflow/reversing): `mu_obs > 0 > beta` gives
+  `mu_cmf > 0` for every `mu_obs > 0`.  A comoving-inward seed can
+  never occur on an outward lab ray under inflow.
+
+**(iii) Characteristic entering the computational atmosphere.**  The
+domain is `r >= R(ND)` in the lab frame, and the boundary is fixed in
+the lab frame, so entering vs leaving is decided by `mu_obs` alone:
+`mu_obs > 0` at `R(ND)` means the characteristic proceeds to larger
+`r`, i.e. it enters.  All seed rays enter; none leave.  In particular
+an entering characteristic can have `mu_cmf < 0` (case `0 < mu_obs <
+beta`): the photon still crosses the fixed surface outward in the lab
+frame; it is only *in the gas frame* that it heads inward.
+
+**(iv) Characteristic leaving the atmosphere.**  `mu_obs < 0` at
+`R(ND)` - a photon propagating into the interior.  None of the seeded
+rays are of this kind (a solid wall has no incident radiation from
+below; the far-side characteristic exists only for a hollow core,
+which `DO_IB_DIFF_FLUX` disables).
+
+**Which photons supply the `0 < mu_obs < beta` lab state.**  The
+aberration maps the entering characteristics `mu_obs in (0,1]` onto
+the comoving interval `mu_cmf in (-beta, 1]` (`mu_obs=0 -> -beta`,
+`mu_obs=1 -> 1`).  For `beta>0` the lower slice `(-beta,0)` is the
+interior field's *inward* hemisphere: photons that inside the gas are
+heading back toward the core, but which the faster-moving fluid
+advects across the fixed boundary into the atmosphere.  They are not
+envelope radiation (an envelope photon at the inner boundary would be
+a lab-frame *inward* characteristic, `mu_obs<0`) and they are not
+emitted by the core surface - they are ordinary members of the
+two-sided interior radiation field.
+
+### 4.4 Eddington law on both hemispheres (Part B)
+
+The seed evaluates
+
+```
+I_cmf(mu_cmf) = J_cmf + 3*mu_cmf*H_cmf
+```
+
+on `mu_cmf in (-beta,1]`, i.e. on the inward hemisphere too when
+`beta>0`.  Whether that is physically justified reduces to two
+questions.
+
+**(a) Is the field at R(ND) a two-sided diffusion field?**  Yes, by
+model premise.  The seed is gated on `DIF` (via
+`DO_NONMONO_SOB .or. DO_NONMONO_KNOP .and. DIF` in the caller): the
+diffusion inner boundary condition asserts that `R(ND)` sits deep
+enough that the comoving intensity is nearly isotropic.  `IB_J_CMF`
+and `IB_H_CMF` are the model's own converged comoving moments
+(`RJ(ND)`, `R^2 H` from the moment solution), and the linear-in-mu
+law is the unique angular distribution at first order in anisotropy
+consistent with those two moments - the same closure the moment
+solver itself applies at `R(ND)`.  Crucially, at an *interior*
+diffusion point both hemispheres are populated: photons stream
+inward and outward with a small net outward flux `H`.  Evaluating
+`J + 3*mu_cmf*H` at `mu_cmf<0` is therefore not an extrapolation -
+it is the interior distribution on its natural domain, and returns
+the dimmer inward-hemisphere intensity `J - 3|mu_cmf|H`, which is
+exactly what the advected photons of section 4.3(iii) carry.  This is
+unlike an outer boundary, where the inward hemisphere is an external
+incident field, not part of `J,H`.
+
+**(b) Can the available moments determine the required incoming
+boundary intensity?**  The two moments determine the linear closure
+uniquely, and under the diffusion premise that is the appropriate
+closure - so for `mu_cmf in (-beta,1]` the answer is determined, and
+it is `J + 3*mu_cmf*H`, no special-casing and no clamp.  What the
+moments cannot determine is the `O(mu^2)` structure of the true
+boundary field (a `K`-moment or petal correction, e.g. limb-darkening
+of the inner sphere).  A more accurate seed on *either* hemisphere
+would need the `K` moment or the full angular field at `R(ND)`;
+neither is stored by the moment pipeline (`RJ`, `RSQHNU` only).  The
+seed is therefore as accurate as - and exactly consistent with - the
+atmosphere's own inner-boundary description.  Positivity on both
+hemispheres requires `3|H| < J`, guaranteed by the diffusion premise;
+no positivity clamp is applied, so a model that misplaces `R(ND)`
+outside the diffusion regime produces a visibly wrong seed rather
+than a silently floored one.
+
+**Conclusion.**  Retain the current prescription: the lab-frame seed
+is `D^3 * (J + 3*mu_cmf*H)` at the aberrated comoving cosine over the
+full domain `mu_cmf in (-beta,1]`.  It is the lab-frame transform of
+the interior diffusion field evaluated at the photon's own comoving
+state - the physically correct boundary value for every characteristic
+entering the computational atmosphere.
+
+### 4.5 Plane-parallel boundary cosine (defect 1.3)
+
+In `PLANE_PARALLEL` mode `Z(I)=R(I)/MU_AT_RMAX(LS)` is a slant depth,
+so `Z_RAY/R_RAY` evaluates to `1/MU_AT_RMAX(LS)` at the boundary, not
+to a direction cosine.  Passing it through the aberration gives a
+meaningless `mu_cmf` (and a singular denominator for
+`beta*mu_obs=1`).  Fixed at both seed sites: the boundary cosine is
+`MU_AT_RMAX(LS)` under `PLANE_PARALLEL`, `Z_RAY/R_RAY` otherwise.
+Verified by the `char pp` battery - per-ray seeds at fixed `mu` match
+the spherical seeds at the same boundary cosine and the independent
+oracle to ~3e-7.
 
 Frequency interpolation: `IB_J_CMF`, `IB_H_CMF` are interpolated at
 the CMF band frequency before the `mu_cmf` combination - verified
@@ -310,7 +451,9 @@ New files:
 - `unit_tests/f90/drv_obs_frame_rel.f` - driver with modes
   `run` (flux battery), `quad` (angular-grid dump for the independent
   boundary sum), `prop` (closed-form property checks), `sl V`
-  (single-velocity validation probe), `nan` (NaN probe).
+  (single-velocity validation probe), `nan` (NaN probe),
+  `char sph|pp [mu]` (single-ray boundary-seed table), `pp`
+  (full-grid plane-parallel battery).
 - `unit_tests/python/test_obs_frame_rel.py` - harness with analytic
   and independently-evaluated predictions.
 
@@ -346,6 +489,26 @@ Coverage (P7 spec TEST 1-10):
    input.
 10. `OMP_NUM_THREADS=1,2,4,8` full `run` mode - all 18 flux files
     bitwise identical across thread counts.
+11. `char` mode (Part C): 80 single-ray seeds -
+    `beta in {0,+/-0.1,+/-0.3}` x `mu_obs in {1.0,0.8,0.3,0.1}` x
+    STAU/ETAZ x spherical/PP - against the independent
+    forward-boosted diffusion-field oracle (section 6.1), `rtol=2e-4`
+    realised at ~3e-7.  The oracle builds `I'(mu')=J+3mu'H` on a
+    400001-point comoving grid, maps every direction forward
+    `mu=(mu'+beta)/(1+beta mu')` carrying `I' [gam(1+beta mu')]^3`,
+    and interpolates at `mu_obs`; it never evaluates the inverse
+    aberration used in the code.  The `beta=+0.3, mu_obs=0.1` case
+    (`mu_cmf=-0.206`) is additionally asserted to be the
+    inward-hemisphere value `D^3*(J-3|mu_cmf|H)` - measurably
+    distinct from clamped-`J`, zero, and outward-hemisphere
+    alternatives.  PP and spherical seeds agree at the same boundary
+    cosine, verifying defect 1.3's fix.
+12. `pp` mode (Part D): 8-ray plane-parallel grid at
+    `mu in [0.05,1]`, `NC=NP` so every ray is seeded.  `V=0` rel =
+    norel bitwise; `V=+/-20000` matches the oracle-weighted boundary
+    sum (Doppler + aberration), `rtol=1e-4`; `+V` exceeds `-V`;
+    OMP 1 vs 8 bitwise; PP direction cosine conventionally consistent
+    with the spherical path (item 11 cross-check).
 
 ## 7. Non-relativistic compatibility (Part 6)
 
@@ -362,10 +525,28 @@ Coverage (P7 spec TEST 1-10):
 
 ## 8. Numerical results
 
-`test_obs_frame_rel.py`: **26 passed, 0 failed** (OMP_NUM_THREADS=1
+`test_obs_frame_rel.py`: **37 passed, 0 failed** (OMP_NUM_THREADS=1
 determinism bitwise against 2/4/8 threads, `max_abs_diff=0.0`).
 
-Selected values:
+Part C/D selected values (boundary-condition verification):
+
+- `char` single-ray seeds: all 80 cases
+  (`beta 0/+-0.1/+-0.3` x `mu_obs 1.0/0.8/0.3/0.1` x STAU/ETAZ x
+  spherical/PP) match the forward-boosted diffusion-field oracle;
+  worst relative deviation `3.1e-7` (tolerance `2e-4`).
+- Comoving-inward case `beta=+0.3, mu_obs=0.1` (`mu_cmf=-0.20619`):
+  seed `550.04` = the interior inward-hemisphere value
+  `D^3*(J-3|mu_cmf|H)` (`550.04`); the clamped-`J` alternative
+  predicts `627.69`, the outward-hemisphere alternative `705.35` -
+  the production value is unambiguously the advected interior field.
+- PP vs spherical at the same boundary cosine: all 40 pairs agree
+  (`5e-5` bound), confirming `MU_AT_RMAX(LS)` is the correct PP
+  boundary direction cosine.
+- PP 8-ray grid: `V=0` rel = norel bitwise (`543.24934`);
+  `V=+20000` `621.85307` and `V=-20000` `473.22840` vs oracle sums
+  `621.85323`/`473.22852` (`2.6e-7`); `+V > -V`; OMP 1 vs 8 bitwise.
+
+Carried-over selected values:
 
 - `V=0` rel vs norel: `14142961.33685997` bitwise both bands.
 - Thin shell `chi=1e-6`, `V=20000/40000 km/s`: `4363.8066/4363.8160`
@@ -391,23 +572,35 @@ Selected values:
   NaN aborts with `NON_FINITE_VELOCITY`; `+/-0.99c` pass validation
   and complete with finite flux.
 - Regressions: `test_obs_frame_ib` 10/10, `test_obs_frame_cov`
-  15/15, `test_sob_flux_obs` 11/11, dispatch checks all pass.
+  15/15, `test_sob_flux_obs` 11/11, `test_obs_nonmono_dispatch`
+  all pass.
 
 ## 9. Remaining limitations
 
-- The aberration fix applies the comoving cosine inside the
-  Eddington law but keeps the upstream moment set (`J`, `H` only);
-  a `K`-moment anisotropy correction is beyond the diffusion
-  approximation itself.
+- The inner-boundary prescription is limited by the moment set it is
+  given: `J,H` determine only the linear-in-mu closure (section 4.4b).
+  The `O(mu^2)` angular structure of a real boundary field (a
+  `K`-moment or petal term) is not available from the moment pipeline
+  and cannot be reconstructed; the seed is exactly as accurate as the
+  atmosphere's own diffusion inner boundary, not more.  A higher-order
+  prescription would require storing `K(ND)` or the full angular
+  field - out of scope of this path.
+- The linear law is positive on both hemispheres only under the
+  diffusion premise `3|H| << J`; no positivity clamp is applied, so a
+  model whose `R(ND)` is too shallow for diffusion would produce a
+  visibly wrong (possibly negative) seed rather than a silently
+  floored one.  Regime enforcement stays a model-level
+  responsibility, consistent with `DIF`'s contract upstream.
 - `V_RTOL` reprojection only arises through ulp-level overshoot of a
   validated grid; its `GAM` value is large enough that the P5
   coverage guard aborts the run downstream in practice.
-- Plane-parallel geometry shares the same validation but is not
-  exercised by the manufactured battery (production CMFGEN runs use
-  spherical geometry for this path).
 - The 2e-8 km/s window between the `299792.458` literal and the fp
   `C_KMS` is documented in section 5; it is unreachable through
   VADAT-parsed model velocities at physically meaningful precision.
+- The `char`/`pp` manufactured batteries use uniform `V` and flat
+  `IB_J/IB_H`; depth-dependent boundary moments and non-uniform `V`
+  interpolation at the boundary point are covered only by the
+  regression suites, not by dedicated manufactured cases.
 
 ## 10. References
 
