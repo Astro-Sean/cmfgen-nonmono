@@ -283,15 +283,28 @@ compiles.
     exactly once at the local ray point.
   - Defect fixed: diffusion IB seed evaluated J+3*mu*H with mu_obs;
     now aberrated to mu_cmf=(mu_obs-beta)/(1-beta*mu_obs) at both
-    STAU and ETAZ sites, gated on DO_REL_CORRECTIONS.  mu_cmf<=0 is
-    the inward Eddington extension, documented.
+    STAU and ETAZ sites, gated on DO_REL_CORRECTIONS.
+  - Boundary-condition physics verified (audit sec 4.3-4.4): the
+    inner boundary is a fixed Eulerian surface, so entering
+    characteristics are mu_obs>0 regardless of beta; the aberration
+    maps them onto mu_cmf in (-beta,1].  For beta>0 and
+    0<mu_obs<beta the photon is comoving-inward - interior radiation
+    advected across the fixed boundary, not envelope incidence - and
+    J+3*mu_cmf*H on the populated inward hemisphere is the correct
+    seed.  Validity requires the diffusion premise at R(ND) and the
+    linear closure; documented.
+  - Defect fixed: PP boundary cosine was Z_RAY/R_RAY = 1/MU (a slant
+    depth, not a cosine); now MU_AT_RMAX(LS) at both seed sites.
   - Defect fixed: T2<=0 warning + T2=1e-12 floor (GAM=1e6) replaced
     by fail-closed validation - NON_FINITE_VELOCITY on the V grid,
     SUPERLUMINAL_VELOCITY on grid and interpolated ray values
     (ulp-level overshoot inside V_RTOL=64*eps reprojected only),
     BAD_DOPPLER_DENOM on a non-positive 1-VMU.
-  - test_obs_frame_rel.py 26/26; OMP 1/2/4/8 bitwise deterministic;
-    P5 cov 15/15, P6 norm 54/54 (frozen-ref bitwise kept).
+  - test_obs_frame_rel.py: char battery - 80 single-ray seeds
+    (beta 0/+-0.1/+-0.3 x mu 1.0/0.8/0.3/0.1 x STAU/ETAZ x sph/PP)
+    vs independent forward-boosted diffusion-field oracle; pp
+    battery - 8-ray PP grid, V=0 bitwise, +/-V vs oracle, OMP 1/8
+    bitwise; full suite pass count in the audit doc.
 
 ## P8. Electron scattering + KNOP maturity (Priority 8)
 
