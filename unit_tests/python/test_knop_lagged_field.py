@@ -1054,7 +1054,10 @@ def test_qcell_histogram_race_free_layout():
     )
     check(
         "per-ray storage deallocated with the other diagnostics",
-        "KN_QC_HIST_RAY,KN_QC_N_RAY,KN_QC_NT_RAY,KN_QC_MAX_RAY" in FG,
+        "DEALLOCATE(KN_QC_HIST_RAY)" in FG
+        and "DEALLOCATE(KN_QC_N_RAY)" in FG
+        and "DEALLOCATE(KN_QC_NT_RAY)" in FG
+        and "DEALLOCATE(KN_QC_MAX_RAY)" in FG,
     )
     red = section(FG, "Reduce the per-ray Q cell statistics", "T1_W=OMP_GET_WTIME")
     check(
@@ -1114,10 +1117,88 @@ def test_qargmax_store_mapping_diagnostics():
     )
 
 
+def test_qcell_histogram_alloc_failure_path():
+    """KN_QC_READY must gate accumulation on allocation success.
+
+    The per-ray KN_QC_*_RAY arrays are allocated with STAT=IOS2.
+    A failed allocation used to leave KN_Q_ACCUM writing to
+    unallocated storage on the next L_QP verify pass, and the
+    zero-initialised globals could read as a measured empty
+    histogram. KN_QC_READY now tracks allocation end to end:
+    FALSE before the attempt, TRUE only when the STAT is clean
+    and every array the accumulator and reduction touch is
+    allocated, FALSE again at cleanup. L_QP keeps its verify-pass
+    meaning and is never reused as the readiness flag.
+    """
+    check(
+        "KN_QC_READY declared and defaults FALSE",
+        "LOGICAL, SAVE :: KN_QC_READY=.FALSE." in FG,
+    )
+    alloc = section(
+        FG,
+        "KN_QC_READY=.FALSE.\n\t  ALLOCATE(KN_QS_STAT",
+        "RES_LS=0.0_LDP",
+    )
+    check(
+        "readiness reset before the cell-stat allocation",
+        "KN_QC_READY=.FALSE." in alloc,
+    )
+    check(
+        "readiness requires clean STAT and every KN_QC array",
+        "IOS2 .EQ. 0 .AND. ALLOCATED(KN_QC_HIST)" in alloc
+        and "ALLOCATED(KN_QC_HIST_RAY)" in alloc
+        and "ALLOCATED(KN_QC_N_RAY)" in alloc
+        and "ALLOCATED(KN_QC_NT_RAY)" in alloc
+        and "ALLOCATED(KN_QC_MAX_RAY)" in alloc
+        and "KN_QC_READY=.TRUE." in alloc,
+    )
+    check(
+        "failure branch zeroes scalars and reports unavailable",
+        "KN_QC cell histogram unavailable" in alloc
+        and "Q residual unaffected" in alloc
+        and "KN_QC_N=0_8; KN_QC_NT=0_8; KN_QC_MAX=0.0_LDP" in alloc,
+    )
+    accum = section(FG, "SUBROUTINE KN_Q_ACCUM", "RETURN\n\tEND")
+    check(
+        "accumulator returns before touching storage when not ready",
+        accum.index("IF(.NOT.KN_QC_READY)RETURN")
+        < accum.index("KN_QC_N_RAY(LS,CH)"),
+    )
+    red = section(FG, "Reduce the per-ray Q cell statistics", "T1_W=OMP_GET_WTIME")
+    check(
+        "serial reduction gated on KN_QC_READY",
+        "IF(KN_QC_READY)THEN" in red
+        and "ALLOCATED(KN_QC_HIST_RAY)" not in red,
+    )
+    clean = section(FG, "DEALLOCATE(KN_QS_STAT)", "CONTAINS")
+    check(
+        "cleanup deallocates each KN_QC array separately",
+        "IF(ALLOCATED(KN_QC_HIST))DEALLOCATE(KN_QC_HIST)" in clean
+        and "IF(ALLOCATED(KN_QC_HIST_RAY))DEALLOCATE(KN_QC_HIST_RAY)"
+        in clean
+        and "IF(ALLOCATED(KN_QC_MAX_RAY))DEALLOCATE(KN_QC_MAX_RAY)"
+        in clean,
+    )
+    check(
+        "cleanup resets readiness",
+        "KN_QC_READY=.FALSE." in clean,
+    )
+    check(
+        "summary distinguishes unavailable from an empty histogram",
+        "q cells unavailable: histogram" in FG
+        and "IF(KN_QC_READY)THEN\n\t      DO J=1,2" in FG,
+    )
+    check(
+        "L_QP is not reused as the readiness flag",
+        "KN_QC_READY" not in section(FG, "SUBROUTINE MARCH", "END"),
+    )
+
+
 if __name__ == "__main__":
     test_qcell_histogram_gated_by_verify_pass()
     test_qcell_histogram_race_free_layout()
     test_qargmax_store_mapping_diagnostics()
+    test_qcell_histogram_alloc_failure_path()
     test_ord_sweep_dispatch_fallback()
     test_missing_donor_consistent_drop()
     test_build_freq_fail_closed()
