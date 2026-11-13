@@ -2122,3 +2122,130 @@ Remaining limitation: source-pattern tests prove the guard
 structure, not a forced-allocation-failure runtime exercise;
 a runtime fault-injection test would need a harness hook that
 does not exist yet.
+
+## 21. Phase-4 measurement: Q argmax is writable; ray-level jump veto freezes it (2026-11-13)
+
+Run: job 13117853, partition small, node vipc2323, 2 OpenMP
+threads, wall 24.5 min, cancelled after two complete refreshes.
+Executable cmfgen_p4_install/exe/cmfgen_dev.exe md5 3457bbb2
+(built from ce82a9f0: race-free KN_QC + KN_QC_READY + qmap2/
+qstore diagnostics). Warm checkpoint FGINEXT_GS md5
+893143f3c47405f23d4c7aca57d64080 (iso_M it157, verified staged).
+Config identical to neut2_QF: KN_FREEZE_COEF=F, KN_MAT_FREEZE=T,
+KN_Q_RESID=T, watch armed K=3/LS=82/SLOT=1636. Staged manually
+(same recipe as neut2; pipeline inline STELLA->CMFGEN conversion
+was bypassed, SN_HYDRO_DATA copied from neut2_QF). Refreshes at
+great iterations ~158 and ~159.
+
+### 21.1 Q argmax (both refreshes, identical)
+
+ray=83, channel=2 (outward/P), ray point j=2, field L=1330,
+destination slot 1329.
+
+- VOLD=2.0718E-28, VNEW=1.6903E-26 (Q=80.58)
+- VMAX_RAW=2.0739E-28, VMAXF=1.0E-25 (floor), denom=VOLD,
+  floor-dom=F
+- prod ray resid=0, ixit=0, npas=2, omega=1.0 both channels;
+  production argmax is a different ray/cell (DIFF-RAY)
+- sibref@qargmax (JMP_SIB_P at L=1330) = 3.12678E-25
+
+VMAX_RAW correction confirmed: the L=1330 column peak is
+2.07e-28, eight orders below the 1e-25 floor. VMAXF=1e-25 is
+entirely the imposed bound. The Q defect |VNEW-VOLD|=1.67e-26
+is ~80x the entire column peak and ~240x the sibling reference
+scale; the 80.6 ratio is a relative defect on a numerically
+zero column, not 17% of a physical peak.
+
+### 21.2 Mapping: class C, writable
+
+J_PNT(K,83)=2 has exactly one solution: model depth K=2,
+COMP_DEPTH_IDX(2)=2 (>0). RAY_PNT weight 1.0,
+R_RAY(2,83)=KN_R(2)=1.25303E+05 cm -- the ray point sits exactly
+on model depth 2. Destination store slot L-1=1329 in
+I_P_DEPTH_NEXT.
+
+### 21.3 Store before/retained: frozen by ray-level veto
+
+| refresh | before | retained | delta | verdict |
+|---------|--------|----------|-------|---------|
+| ~158    | -1 (first) | 2.79114E-28 | - | vc=1 jump-rej |
+| ~159    | 2.79114E-28 | 2.79114E-28 | 0.0 | vc=1 jump-rej, same=T |
+
+The committed store value did not change across the refresh.
+Verdict census each refresh: ~82-83 committed, exactly 1
+jump-reject (ray 83), 0 nc-rejects, 0-1 capped, 1 unsolved.
+
+Veto analysis (FG_JUMP_MAX, plane source ~11914): the jump
+test is |V1-V2|/MAX(V2,VMAX_S/FG_COMMIT_JUMP) per cell with
+FG_COMMIT_JUMP=50, whole-ray rollback when the ray maximum
+exceeds the bound; floor-columns (VMAX_S<=1e-28) fall back to
+the sibling reference REF(LS2)>1e-28 with bound 50*REF.
+At the argmax cell itself V1=2.07e-28 vs V2=2.79e-28 gives a
+normalized ratio ~0.26 -- orders below the veto bound, and it
+is a downward update which the upward-jump test barely sees.
+The ray-83 rejection is therefore triggered by a DIFFERENT
+cell on the same ray; FG_JUMP_MAX returns only the ray maximum
+and does not record which cell fired.
+
+### 21.4 Race-free histogram now valid
+
+KN_QC_READY path worked: real per-channel distributions
+printed (sample counts overflow the I8 field -> '********',
+cosmetic only; threshold counts are exact).
+
+- ch=1 (M): max=1.96E-02, n>1e-2=19, n>1e-1=0, n>1=0
+- ch=2 (P): max=80.58, n>1e-2=116147, n>1e-1=11730, n>1=116
+- p50~1e-8, p95~2e-5, p99~9e-5 -- extreme heavy tail confirmed
+  with race-free data: ~116 cells carry DCELL>1 out of
+  ~1e8 samples; essentially the whole defect is a handful of
+  floor-column cells.
+
+Per-ray Q distribution: 28 rays with max>1e-2, 3 with >1e-1,
+1 with >1 (ray 83 at 80.6).
+
+### 21.5 Refresh-level context
+
+| refresh | KN_RF_RESID | sw maxchg | bad cells | churn | retained dmax | pending |
+|---------|-------------|-----------|-----------|-------|---------------|---------|
+| ~158    | 3.301E-02   | 2.195E+03 | 103520    | 365   | 6.834E-01     | 0       |
+| ~159    | 2.460E-02   | 7.137E-01 | 12535     | 0     | 4.914E-01     | 0       |
+
+Same slow contraction as the neut2 arms; Q frozen at 80.58.
+
+### 21.6 Interpretation (decision tree -> refined Case C)
+
+The persistent Q argmax is INSIDE the store domain (class C)
+but its update is suppressed INDIRECTLY: ray 83 is
+jump-rejected every refresh by an unidentified cell elsewhere
+on the ray, so the whole-ray rollback freezes this cell's
+store slot (before==retained exactly). The argmax cell's own
+proposed delta is small and downward (ratio ~0.26 of the veto
+scale) and would not itself trip the veto.
+
+Consequences:
+
+1. The Q=80.6 defect is not structurally excluded (not
+   Case A/B); it is commit-gated at ray granularity.
+2. The vetoing cell on ray 83 is unknown -- FG_JUMP_MAX does
+   not record it. Identifying it is the cheapest next
+   diagnostic: record argmax (K,LS2) inside FG_JUMP_MAX under
+   a diagnostic flag, or arm KN_WATCH_CELL on ray 83's
+   suspected veto region.
+3. VMAX_RAW shows the defect lives on a numerically dead
+   column (peak 2e-28 vs floor 1e-25): physical impact on the
+   emergent spectrum is likely nil at this frequency, but the
+   same mechanism may act on live columns elsewhere -- the
+   cell histogram says only ~116 cells exceed DCELL>1.
+4. Do not bypass commit machinery yet: first name the vetoing
+   cell and check whether ray 83's rejection is legitimate
+   (genuine jump) or a floor-column artifact of the
+   sibling-reference fallback.
+
+### 21.7 Next recommended experiment
+
+Add a diagnostic argmax record to FG_JUMP_MAX (ray, K, LS2,
+V1, V2, VMAX_S, REF, branch taken) printed once per rejected
+ray per refresh. That directly names the veto trigger and
+tests whether it is the same cell every refresh (deterministic
+mask) or migrates (genuine dynamics). Cost: one comparison
+chain inside an already-O(ND*NCF) scan, diagnostic-gated.
