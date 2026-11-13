@@ -122,7 +122,9 @@ COVERAGE = {
     "obs/mod_cmf_obs.f": ("exec", [
         UT + "test_sob_prof.py"]),
     "obs/obs_frame_sub_v9.f": ("exec", [
-        UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py"]),
+        UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py",
+        UT + "test_obs_frame_ib.py", UT + "test_obs_frame_cov.py",
+        UT + "test_obs_frame_norm.py", UT + "test_obs_frame_rel.py"]),
     "obs/rd_cmf_flux_controls.f": ("exec", [
         UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py"]),
     "plane/fg_j_cmf_nonmono_v1.f": ("exec", [
