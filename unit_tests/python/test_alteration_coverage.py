@@ -89,6 +89,8 @@ COVERAGE = {
         TC + "test_newton_core.f90", TC + "test_nm_window.f90",
         TC + "test_pc_quality.f90", TC + "test_schur.f90",
         TC + "test_gmres_edge.f90"]),
+    "new_main/mod_subs/jfnk_t_fixed_mode_v1.f": ("exec", [
+        UT + "test_jfnk_t_fixed.py"]),
     "new_main/mod_subs/knop_status_mod.f90": ("exec", [
         UT + "test_knop_status_text.py", UT + "test_knop_ray.py"]),
     "new_main/mod_subs/lam_handoff_mod.f90": ("exec", [
@@ -115,6 +117,8 @@ COVERAGE = {
         UT + "test_rv_hydro_rdin.py"]),
     "newsubs/rd_rv_file_v2.f": ("exec", [
         UT + "test_rd_rv_file.py"]),
+    "obs/ADD_SOB_LINE_PROF.INC": ("exec", [
+        UT + "test_sob_prof.py", UT + "test_sob_line_es.py"]),
     "obs/cmf_flux_cntrl_var_mod.f": ("exec", [
         UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py"]),
     "obs/cmf_flux_sub_v5.f": ("exec", [
@@ -126,7 +130,10 @@ COVERAGE = {
         UT + "test_obs_frame_ib.py", UT + "test_obs_frame_cov.py",
         UT + "test_obs_frame_norm.py", UT + "test_obs_frame_rel.py"]),
     "obs/rd_cmf_flux_controls.f": ("exec", [
-        UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py"]),
+        UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py",
+        UT + "test_es_conv.py"]),
+    "obs/sob_line_es_update.f": ("exec", [
+        UT + "test_sob_line_es.py"]),
     "plane/fg_j_cmf_nonmono_v1.f": ("exec", [
         UT + "test_knop_ray.py", UT + "test_mom_solve.py",
         UT + "test_fg_gs.py"]),
@@ -328,6 +335,7 @@ COVERAGE = {
     "new_main/subs/Makefile": ("exempt",
         "build system; make all must stay clean"),
     "obs/Makefile": ("exempt", "build system; make all must stay clean"),
+    "pgplt/Makefile": ("exempt", "build system; make all must stay clean"),
     "plane/Makefile": ("exempt", "build system; make all must stay clean"),
     "subs/Makefile": ("exempt", "build system; make all must stay clean"),
 }
