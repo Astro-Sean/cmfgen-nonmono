@@ -96,7 +96,7 @@ def test_commit_jump_veto_seed_waiver():
     check(
         "WRITE_STORE commit marks the ray seeded",
         re.search(
-            r"CALL WRITE_STORE\(FLD_P,I_P_DEPTH_NEXT,DCH_P\)[\s\S]{0,300}?"
+            r"CALL WRITE_STORE\(FLD_P,I_P_DEPTH_NEXT,DCH_P\)[\s\S]{0,700}?"
             r"FG_RAY_SEEDED\(LS\)=1",
             FG,
         )
@@ -1523,7 +1523,9 @@ def test_ray83_lifecycle_audit():
 
     ord_sweep = section(FG, "SUBROUTINE SWEEP_FLD_ORD", "\tEND\n")
     # HAS_CP fast exit: forced clean exit, residual not measured.
-    hc = ord_sweep.index("IF(.NOT. HAS_CP)THEN")
+    # Phase 5.2: the exit is bypassed only for the armed probe ray;
+    # with the flag off the condition reduces to the original form.
+    hc = ord_sweep.index("IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN")
     hc_block = ord_sweep[hc : hc + 700]
     check(
         "no-compressing exit forces RES=0 without measuring",
@@ -1597,6 +1599,136 @@ def test_ray83_lifecycle_audit():
     )
 
 
+def test_nocp_probe_diagnostics():
+    """Phase-5.2 KN_NOCP_PROBE pins: diagnostic-only fast-exit probe."""
+    # 1. Defaults off in both the module state and the VADAT reader.
+    check(
+        "KN_NOCP_PROBE defaults false in module state",
+        "DATA KN_NOCP_PROBE /.FALSE./" in FG,
+    )
+    RD = RD_CONTROL
+    check(
+        "KN_NOCP_PROBE defaults false in VADAT",
+        "KN_NOCP_PROBE=.FALSE." in RD
+        and "KN_NOCP_PROBE_LS=83" in RD
+        and "CALL SET_FG_NOCP_PROBE(KN_NOCP_PROBE,KN_NOCP_PROBE_LS)" in RD,
+    )
+
+    # 2/4/8. Single predicate keys both the bypass and the no-write
+    # guard; only the armed ray index can match, and the refresh
+    # arming validates the index against KN_NP.
+    check(
+        "probe predicate matches only the armed ray",
+        "KN_NOCP_PROBE_RAY = KN_NOCP_PROBE .AND. LS .EQ. "
+        "KN_NOCP_PROBE_LS" in FG,
+    )
+    check(
+        "probe arming validates ray index against KN_NP",
+        "KN_NOCP_PROBE_LS .GE. 1 .AND." in FG
+        and "KN_NOCP_PROBE_LS .LE. KN_NP" in FG,
+    )
+    check(
+        "probe telemetry arrays allocated only when armed",
+        "KN_NOP_ARM=.FALSE." in FG and "KN_NOP_ARM=.TRUE." in FG,
+    )
+
+    # 3/5. Both sweep routines bypass the forced-clean exit only
+    # for the probe ray; the bypass is .NOT. L_NOPROBE gated so a
+    # disabled flag restores the exact production condition.
+    n_bypass = FG.count(".NOT. HAS_CP .AND. .NOT. L_NOPROBE")
+    check("both sweeps gate the no-cp exit on the probe", n_bypass == 2)
+    check(
+        "no unconditional HAS_CP exit remains",
+        "IF(.NOT. HAS_CP)THEN" not in FG,
+    )
+
+    # 6. Ordinary exit rules still follow the probe pass record:
+    # NOP_PASS is invoked before the exit tests, and the
+    # residual-tolerance, bulk, stall and cap exits are unchanged.
+    check(
+        "NOP_PASS recorded before exit tests in both sweeps",
+        FG.count("IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE)")
+        == 2,
+    )
+    for tok in (
+        "IF(RES .LT. KN_RAY_TOL)THEN",
+        "NPO .GE. KN_RAY_MAXPASS",
+        "IXIT=4",
+        "IXIT=3",
+        "IXIT=5",
+    ):
+        check(f"ordinary exit rule retained: {tok}", tok in FG)
+
+    # 7. Every store-write path is suppressed for the probe ray:
+    # normal commit, capped commit, seed flag and divergence heal.
+    check(
+        "WRITE_STORE guarded for probe ray",
+        "IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT"
+        in FG
+        and "IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT"
+        in FG,
+    )
+    check(
+        "WRITE_STORE_CAP guarded for probe ray",
+        FG.count("IF(.NOT. L_NOPROBE)\n\t1    CALL WRITE_STORE_CAP")
+        == 2,
+    )
+    check(
+        "seed flag and heal guarded for probe ray",
+        "ALLOCATED(FG_RAY_SEEDED) .AND. .NOT. L_NOPROBE" in FG
+        and "IF(.NOT. L_NOPROBE)THEN\n\t    CALL HEAL_STORE"
+        in FG.replace("\t    CALL HEAL_STORE", "\t    CALL HEAL_STORE"),
+    )
+    check(
+        "probe verdict cannot masquerade as a commit",
+        "FG_RAY_VC(LS)=7" in FG and "NOP_VC=FG_RAY_VC(LS)" in FG,
+    )
+
+    # 9. Per-direction pass counts reported independently.
+    check(
+        "NP_M and NP_P recorded independently",
+        "KN_NOP_NP(1)=NP_M; KN_NOP_NP(2)=NP_P" in FG
+        and "KN_NOP_IX(1)=IXIT_M; KN_NOP_IX(2)=IXIT_P" in FG
+        and "KN_NOP_RS(1)=RES_M; KN_NOP_RS(2)=RES_P" in FG,
+    )
+
+    # Telemetry completeness: per-pass residual, absolute update at
+    # the worst cell, five threshold counts, omega snapshot, ratio
+    # freshness, hot flag, and the refresh-level store checksum.
+    check(
+        "per-pass telemetry fields populated",
+        "KN_NOP_RES(NPO_D,NPD)=RES_D" in FG
+        and "KN_NOP_AD(NPO_D,NPD)=WRC_ADEL" in FG
+        and "KN_NOP_OMG(NPO_D,NPD)=NOP_OMG_SNAP" in FG
+        and "KN_NOP_HOT(NPO_D,NPD)=HOT_D" in FG
+        and "KN_NOP_CT(NPO_D,NPD,1:5)=NOP_CC(1:5)" in FG,
+    )
+    check(
+        "absolute update captured at argmax sites",
+        FG.count("WRC_ADEL=ABS(VNEW-VOLD)") >= 6,
+    )
+    check(
+        "DCELL threshold census gated like NBAD_CUR",
+        FG.count("IF(L_NOPROBE)CALL NOP_CELL(") == 6,
+    )
+    check(
+        "omega snapshot taken at pass start",
+        FG.count("IF(L_NOPROBE)NOP_OMG_SNAP=OMEGA_RAY") == 2,
+    )
+    check(
+        "stale ratio suppressed with freshness flag",
+        "NOP_RAT_FRESH=.TRUE." in FG
+        and "KN_NOP_RAT(NPO_D,NPD)=-1.0_LDP" in FG,
+    )
+    check(
+        "refresh prints before/after store checksums",
+        "KN_NOP_SM0=SUM(I_M_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))" in FG
+        and "KN_NOP_SP1=SUM(I_P_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))"
+        in FG
+        and "delta M/P=" in FG,
+    )
+
+
 if __name__ == "__main__":
     test_ray83_lifecycle_audit()
     test_kn_census_and_geo_diagnostics()
@@ -1633,4 +1765,5 @@ if __name__ == "__main__":
     test_mom_sweep_report_reads_sweep_drift()
     test_mom_stall_text_matches_direction_schedule()
     test_fg_trial_churn_arm()
+    test_nocp_probe_diagnostics()
     print("all KNOP lagged-field checks passed")
