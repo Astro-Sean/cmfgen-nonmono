@@ -206,6 +206,33 @@ def test_edge_clamp_census():
     )
 
 
+def test_trans_type_census():
+    """Per-line treatment census reports BLANK/SOB/other and flags
+    lines invisible to every spectral channel."""
+    check(
+        "census counters declared",
+        "N_BLANK_TRT" in SUB and "N_SOB_TRT" in SUB and "N_OTH_TRT" in SUB,
+    )
+    check(
+        "census prints the three treatment counts",
+        "Transition treatment census: BLANK,SOB,other" in SUB,
+    )
+    check(
+        "unrecognized TRANS_TYPE lines are named",
+        "' TRANS_TYPE='," in SUB,
+    )
+    check(
+        "SOB lines without deposit are flagged as EW-only",
+        "carry no observed flux" in SUB and "DO_SOB_FLUX_OBS=F" in SUB,
+    )
+    ins = SUB.find("CALL INS_LINE_V5")
+    cen = SUB.find("Transition treatment census")
+    check(
+        "census runs before INS_LINE_V5",
+        0 < cen < ins,
+    )
+
+
 def test_output_checks():
     """OBS_FREQ monotonicity and OBS_FLUX finiteness are enforced."""
     body = section(
@@ -350,6 +377,7 @@ def main():
     test_first_freq_dlog_nu()
     test_freq_match_mirror()
     test_edge_clamp_census()
+    test_trans_type_census()
     test_output_checks()
     test_sob_phase_guards()
     test_fg_dispatch_knop_only()
