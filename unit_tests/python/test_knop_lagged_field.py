@@ -1385,7 +1385,114 @@ def test_kn_sib_depth_snapshot():
     )
 
 
+def test_kn_census_and_geo_diagnostics():
+    """Full-store census and geometry-conditioned sibling stats.
+
+    The census hooks must live inside FG_JUMP_MAX's existing cell
+    loop (the only place V1/V2/VR are all live), stay indexed by
+    (LS,ICH) for OpenMP safety, stay bounded, and stay gated on
+    KN_JUMP_DIAG via KN_CEN_READY. The geo snapshot must recover
+    impact parameter from R_RAY^2-Z^2 (the P dummy is not
+    retained), use MU=Z/R_RAY, and report three subsets.
+    """
+    jmp = section(FG, "FUNCTION FG_JUMP_MAX", "END\n!")
+    check("census cell counter inside the cell loop", "KN_CEN_NCELL(LS,ICH)" in jmp)
+    check(
+        "exceed counter and histogram gated on VR>FG_COMMIT_JUMP",
+        "IF(VR .GT. FG_COMMIT_JUMP)THEN" in jmp
+        and "KN_CEN_NEXC(LS,ICH)" in jmp
+        and "KN_CEN_HIST(LS,ICH,KS,KN_CEN_IB)" in jmp,
+    )
+    check(
+        "top-N records bounded and deterministic",
+        "KN_CEN_TOP(LS,ICH,KN_CEN_NTOP)%VR" in jmp
+        and "KN_CEN_IT=KN_CEN_NTOP" in jmp
+        and "KN_CEN_TOP(LS,ICH,KN_CEN_IT)=\n\t1             KN_CEN_TOP(LS,ICH,KN_CEN_IT-1)" in jmp.replace(" ", " "),
+    )
+    check(
+        "per-ray JMAX recorded at all three exits",
+        jmp.count("KN_CEN_JMAX(LS,ICH)=") >= 3,
+    )
+    check(
+        "V2-invalid and floor-column cells counted separately",
+        "KN_CEN_NSKV(LS,ICH)" in jmp and "KN_CEN_NFLR(LS,ICH)" in jmp,
+    )
+    check(
+        "no full N_COMP x NP x NCF census array",
+        "KN_CEN_HIST(KN_NP,2,KN_ND,KN_CEN_NB)" in FG
+        and "KN_CEN_TOP(KN_NP,2,KN_CEN_NTOP)" in FG,
+    )
+    check(
+        "census gated on KN_CEN_READY not just KN_JUMP_DIAG",
+        "L_CEN=KN_JUMP_DIAG .AND. KN_CEN_READY" in jmp,
+    )
+    check(
+        "readiness requires all arrays allocated",
+        "KN_CEN_READY=ALLOCATED(KN_CEN_NCELL)" in FG
+        and "ALLOCATED(KN_CEN_TOP)" in FG,
+    )
+    check(
+        "cleanup deallocates census and geo storage",
+        "IF(ALLOCATED(KN_CEN_TOP))DEALLOCATE(KN_CEN_TOP)" in FG
+        and "IF(ALLOCATED(KN_GEO_REPS))DEALLOCATE(KN_GEO_REPS)" in FG
+        and "KN_CEN_READY=.FALSE." in FG,
+    )
+
+    geo = section(FG, "SUBROUTINE KN_SIB_GEO_V1", "END SUBROUTINE KN_SIB_GEO_V1")
+    check("geo subroutine exists", len(geo) > 0)
+    check(
+        "impact parameter recovered from ray grid",
+        "PG(N1)=SQRT(MAX(R_RAY(JP,RS)**2-Z(JP,RS)**2,0.0_LDP))" in geo,
+    )
+    check(
+        "direction cosine and signed drift captured",
+        "PM(N1)=Z(JP,RS)/R_RAY(JP,RS)" in geo
+        and "PA(N1)=GAM(JP,RS)" in geo,
+    )
+    check(
+        "J_PNT validity bound applied per ray",
+        "JP .LT. 1 .OR. JP .GT. NI_RAY(RS)" in geo,
+    )
+    check(
+        "invalid retained values excluded",
+        "V .LE. 0.0_LDP" in geo and ".NOT.(ABS(V) .LE. HUGE(V))" in geo,
+    )
+    check(
+        "three subsets reported: all, near-P, near-MU",
+        "REP%SUB(1)" in geo and "REP%SUB(2)" in geo and "REP%SUB(3)" in geo
+        and "ABS(PG-REP%P_T)" in geo and "ABS(PM-REP%MU_T)" in geo,
+    )
+    check(
+        "subset size bounded by KN_GEO_NB",
+        "N2=MIN(KN_GEO_NB,N1)" in geo,
+    )
+    check(
+        "same nearest-rank convention as sibling snap",
+        "CEILING(0.10_LDP*NT)" in section(FG, "SUBROUTINE KN_GEO_STATS_V1", "END SUBROUTINE KN_GEO_STATS_V1"),
+    )
+
+    # Report blocks gated and bounded.
+    check(
+        "geo report gated on KN_JUMP_DIAG",
+        "IF(KN_JUMP_DIAG .AND. ALLOCATED(KN_GEO_REPS))THEN" in FG
+        and "KN-GEO ch" in FG,
+    )
+    check(
+        "census report gated on KN_CEN_READY",
+        "IF(KN_CEN_READY)THEN" in FG and "KN-CEN refresh=" in FG,
+    )
+    check(
+        "top list capped at 16",
+        "MIN(16,KN_CEN_NZ)" in FG,
+    )
+    check(
+        "region map is depth x log-band not full array",
+        "KN_CEN_H2(KN_ND,KN_CEN_NB)" in FG and "KN-CEN map K=" in FG,
+    )
+
+
 if __name__ == "__main__":
+    test_kn_census_and_geo_diagnostics()
     test_kn_sib_depth_snapshot()
     test_jump_diag_veto_attribution()
     test_qcell_histogram_gated_by_verify_pass()
