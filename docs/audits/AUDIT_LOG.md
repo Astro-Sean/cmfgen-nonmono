@@ -222,3 +222,43 @@ submitted.
 - Tests: KNOP suites pass; build clean through the harness
   stage. Diagnostic-only; no solver/commit-policy/default
   change; no convergence or production-readiness claim.
+
+## 2026-11-13 (Phase-5.1 ray-83 lifecycle and root-cause audit)
+
+- Provenance resolved: the "git 1c6abd31(dirty x30)" submission
+  string describes the PARENT workspace repo, not cmfgen_jfnk.
+  The measured exe (md5 116b8e87) reproduces current source for
+  every audited routine; only diff is the KN_WATCH relocation.
+- NXIT=-1/NPASS=0 explained: KN_WATCH_CELL printed before the
+  result-arg finalisation, so it emitted entry sentinels on every
+  ray. Moved the block after NPASS/RESID finalisation
+  (diagnostic-only; no solver change).
+- Root cause narrowed: ray 83 has GAM>=0 at all ray points, so
+  HAS_CP=false and both sweeps take the .NOT. HAS_CP fast exit
+  at NPO>=2, which FORCES RES=0.0 without measuring. The "clean
+  exit" is a minimum-pass shortcut, not a verified fixed point.
+  KN_Q_RESID verify shows a true one-map residual ~8.0E+01 on
+  ray 83 (argmax j=2, l~1330, near-floor cells ~1E-28).
+- MATCH_FREQ/SRC_PRIME/KN_ORD_SPV audited: one consistent
+  coupling contract (expanding L-1 signed-Q in-pass fresh;
+  compressing L+NFM_L ABS-Q at compressing-depth points). Ray
+  83 never invokes the compressing remap; MATCH_FREQ is correct
+  and irrelevant to the anomaly.
+- Directional sweep: M-then-P ordering correct; IM_NI supplies
+  the outward inner boundary. First anomaly at inner boundary /
+  ray point j=2 across l~1330-1437.
+- Coefficients/geometry normal: rejected candidate V1 is
+  sibling-consistent (0.35x median, inside p10-p90); only the
+  retained store is anomalous -> lagged-store bookkeeping plus
+  under-converged solve, not an operator fault.
+- Tests: test_ray83_lifecycle_audit adds 14 source-pattern pins
+  (all PASS); full KNOP suite passes; ifort build clean.
+- GAM terminology corrected: signed comoving frequency drift,
+  not Lorentz factor.
+- Recommendation: commit-policy experiment NOT yet justified --
+  releasing the veto would commit an unverified under-converged
+  field. Next experiment: measure (not force) the residual on
+  the .NOT. HAS_CP exit for ray 83 to test whether
+  under-convergence is the root cause.
+- Status: PASS WITH LIMITATIONS; diagnostic-only; no solver or
+  commit-policy change; no production-readiness claim.
