@@ -1343,6 +1343,41 @@
 	DATA KN_WC_FL /0,0/,KN_WC_BR /0,0/
 	DATA KN_Q_RESID /.FALSE./
 !
+! KN_JUMP_DIAG (diagnostic, [KN_JUMP_DIAG], default FALSE):
+! veto-trigger attribution for FG_JUMP_MAX. Each call records the
+! single cell responsible for its return value into the calling
+! ray's own (LS,channel) slice, so the OpenMP ray loop needs no
+! reduction and no shared scalar is ever written. Branch codes:
+!   0 = no trigger recorded
+!   1 = non-finite candidate (first in scan order; function
+!       returns HUGE immediately)
+!   2 = floor-column sibling-reference violation
+!       (VMAX_S<=1E-28, REF>1E-28, V1>FG_COMMIT_JUMP*REF;
+!       function returns HUGE immediately)
+!   3 = ordinary retained-store jump; the cell attaining the
+!       maximum ratio |V1-V2|/MAX(V2,VMAX_S/FG_COMMIT_JUMP).
+!       Ties keep the first cell in scan order (strict > update).
+! JVAL holds the function's return for that channel; the commit
+! block prints a record only for channels whose JVAL exceeds
+! FG_COMMIT_JUMP (branches 1/2 always exceed via HUGE). NSKIP
+! counts model depths on the ray that fell outside the writable
+! store domain (KC<1 or JP2 outside 1..NI). Read-only: the
+! production scan, sanitization, VMAX_S build and return value
+! are unchanged.
+!
+	TYPE KN_JT_REC
+	  INTEGER :: BR=0,KS=0,KC=0,JP=0,L2=0,NSKIP=0
+	  REAL(KIND=LDP) :: V1=0.0_LDP,V2=0.0_LDP,VMS=0.0_LDP
+	  REAL(KIND=LDP) :: REF=0.0_LDP,RATIO=0.0_LDP
+	  REAL(KIND=LDP) :: THR=0.0_LDP,JVAL=0.0_LDP
+	  LOGICAL :: NF=.FALSE.
+	END TYPE KN_JT_REC
+	LOGICAL, SAVE :: KN_JUMP_DIAG
+	LOGICAL, SAVE :: KN_JT_READY=.FALSE.
+	INTEGER, SAVE :: KN_JT_REFRESH=0
+	TYPE(KN_JT_REC), ALLOCATABLE, SAVE :: KN_JT(:,:)
+	DATA KN_JUMP_DIAG /.FALSE./
+!
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
 ! freeze arm event the raw KN_CHI_EXT/KN_ETA_EXT snapshots are
 ! summed into KN_COEF_FP(1:2); each refresh then re-sums the
@@ -7002,6 +7037,14 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_JUMP_DIAG(DO_J)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_JUMP_DIAG
+	IMPLICIT NONE
+	LOGICAL DO_J
+	KN_JUMP_DIAG=DO_J
+	RETURN
+	END
+!
 ! SET_FG_WATCH_CELL (diagnostic, [KN_WATCH_CELL]): arm the
 ! per-cell commit telemetry on geometry index KW, ray LS and
 ! store slot SLOT (field frequency = slot+1 for slot>=1; the
@@ -7535,6 +7578,19 @@ C
 	    WRITE(LUER,'(A)')'    KN_QC cell histogram unavailable:'//
 	1   ' allocation failed; Q residual unaffected'
 	  END IF
+	END IF
+!
+! KN_JUMP_DIAG (diagnostic): per-ray/per-channel veto-trigger
+! records, one slice per OpenMP worker. KN_JT_READY stays FALSE
+! on allocation failure so FG_JUMP_MAX simply skips recording;
+! the commit decision is unaffected either way.
+!
+	KN_JT_REFRESH=KN_JT_REFRESH+1
+	IF(KN_JUMP_DIAG)THEN
+	  KN_JT_READY=.FALSE.
+	  IF(ALLOCATED(KN_JT))DEALLOCATE(KN_JT)
+	  ALLOCATE(KN_JT(KN_NP,2),STAT=IOS2)
+	  IF(IOS2 .EQ. 0 .AND. ALLOCATED(KN_JT))KN_JT_READY=.TRUE.
 	END IF
 	RES_LS=0.0_LDP
 	RHO_M_LS=0.0_LDP; RHO_P_LS=0.0_LDP
@@ -8431,6 +8487,8 @@ C
 	IF(ALLOCATED(KN_QC_NT_RAY))DEALLOCATE(KN_QC_NT_RAY)
 	IF(ALLOCATED(KN_QC_MAX_RAY))DEALLOCATE(KN_QC_MAX_RAY)
 	KN_QC_READY=.FALSE.
+	IF(ALLOCATED(KN_JT))DEALLOCATE(KN_JT)
+	KN_JT_READY=.FALSE.
 	RETURN
 !
 ! ----------------------------------------------------------------
@@ -8506,7 +8564,7 @@ C
 	EXTERNAL ERROR_LU
 	INTEGER KN_DUMP_N
 	INTEGER NI,NCF
-	INTEGER I,K,KC,L,JPT,IOS
+	INTEGER I,J,K,KC,L,JPT,IOS
 	INTEGER, ALLOCATABLE :: IKC1(:),IKC2(:),JPR1(:),JPR2(:),IGRD(:)
 	INTEGER NGRD
 !
@@ -8952,14 +9010,42 @@ C
 	  IF(FG_SEED_COMMIT .AND. ALLOCATED(FG_RAY_SEEDED))
 	1    L_UNSEED=(FG_RAY_SEEDED(LS) .EQ. 0)
 	  IF(.NOT. L_UNSEED)JUMP=
-	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M),
-	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P))
+	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1),
+	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2))
 	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
 !$OMP CRITICAL (FG_REJ_UPD)
 	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
 !$OMP END CRITICAL (FG_REJ_UPD)
 	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=1
 	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
+!
+! KN_JUMP_DIAG (diagnostic): one compact record per channel
+! that individually exceeds the veto bound. BR<=2 records are
+! HUGE returns and always fire; BR=3 fires only when its ratio
+! beat FG_COMMIT_JUMP. Each thread prints only its own ray.
+!
+	    IF(KN_JUMP_DIAG .AND. KN_JT_READY)THEN
+!$OMP CRITICAL (KN_JT_UPD)
+	      DO J=1,2
+	        IF(KN_JT(LS,J)%BR .GT. 0 .AND.
+	1       (KN_JT(LS,J)%BR .LE. 2 .OR.
+	2        KN_JT(LS,J)%JVAL .GT. FG_COMMIT_JUMP))THEN
+	          WRITE(LUER,'(A,I4,A,I2,A,I6,A,I4,A,4I6,A,I6)')
+	1        '  KN-JT ray=',LS,' ch=',J,' ref=',KN_JT_REFRESH,
+	2        ' br=',KN_JT(LS,J)%BR,' ks,kc,jp,l2=',
+	3        KN_JT(LS,J)%KS,KN_JT(LS,J)%KC,
+	4        KN_JT(LS,J)%JP,KN_JT(LS,J)%L2,
+	5        ' nskip=',KN_JT(LS,J)%NSKIP
+	          WRITE(LUER,'(A,4ES12.5,A,I1,A,3ES12.5)')
+	1        '    v1,v2,vms,ref=',KN_JT(LS,J)%V1,
+	2        KN_JT(LS,J)%V2,KN_JT(LS,J)%VMS,KN_JT(LS,J)%REF,
+	3        ' nf=',MERGE(1,0,KN_JT(LS,J)%NF),
+	4        ' ratio,thr,jval=',KN_JT(LS,J)%RATIO,
+	5        KN_JT(LS,J)%THR,KN_JT(LS,J)%JVAL
+	        END IF
+	      END DO
+!$OMP END CRITICAL (KN_JT_UPD)
+	    END IF
 	  ELSE IF(FG_COMMIT_CONV .AND.
 	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2 .AND.
 	2     (RES_M .LE. KN_RAY_TOL .OR.
@@ -11911,14 +11997,27 @@ C
 ! committed-near-blowup class (audit: retained delta 4.19E-1 ->
 ! 5.03E3) while allowing genuine factor-of-few rewrites.
 ! ----------------------------------------------------------------
-	REAL(KIND=LDP) FUNCTION FG_JUMP_MAX(FLD,STORE,REF)
+	REAL(KIND=LDP) FUNCTION FG_JUMP_MAX(FLD,STORE,REF,ICH)
 	REAL(KIND=LDP) FLD(NI,NCF)
 	REAL(KIND=LDP) STORE(:,:,:)
 	REAL(KIND=LDP) REF(:)
+	INTEGER ICH
 	INTEGER KS,LS2,JP2
 	REAL(KIND=LDP) V1,V2
 	REAL(KIND=LDP) VMAX_S(NCF)
+	REAL(KIND=LDP) VR,JT_BEST,JT_V1S
+	INTEGER JT_KS,JT_KC,JT_JP,JT_L2,JT_NSKIP
+	LOGICAL L_DIAG
 	FG_JUMP_MAX=0.0_LDP
+!
+! KN_JUMP_DIAG (diagnostic, read-only): track the cell behind the
+! return value. L_DIAG is resolved once; every write targets only
+! this call's own (LS,ICH) slice of KN_JT. Branch codes and the
+! tie rule are documented at the KN_JT_REC declaration.
+!
+	L_DIAG=KN_JUMP_DIAG .AND. KN_JT_READY
+	JT_BEST=0.0_LDP; JT_V1S=0.0_LDP
+	JT_KS=0; JT_KC=0; JT_JP=0; JT_L2=0; JT_NSKIP=0
 !
 ! Store-column peak per frequency. The jump test is keyed on the
 ! retained store's own scale, not the new field's: a write is a
@@ -11942,12 +12041,30 @@ C
 	END DO
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
+	  IF(L_DIAG .AND. KC .LT. 1)JT_NSKIP=JT_NSKIP+1
 	  IF(KC .GE. 1)THEN
 	    JP2=J_PNT(KS,LS)
+	    IF(L_DIAG .AND.
+	1   (JP2 .LT. 1 .OR. JP2 .GT. NI))JT_NSKIP=JT_NSKIP+1
 	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
 	      DO LS2=2,NCF
 	        V1=FLD(JP2,LS2)
 	        IF(.NOT.(ABS(V1) .LE. HUGE(V1)))THEN
+	          IF(L_DIAG)THEN
+	            V2=STORE(KC,LS,LS2-1)
+	            KN_JT(LS,ICH)%BR=1
+	            KN_JT(LS,ICH)%KS=KS
+	            KN_JT(LS,ICH)%KC=KC
+	            KN_JT(LS,ICH)%JP=JP2
+	            KN_JT(LS,ICH)%L2=LS2
+	            KN_JT(LS,ICH)%V1=V1
+	            KN_JT(LS,ICH)%V2=V2
+	            KN_JT(LS,ICH)%VMS=VMAX_S(LS2)
+	            KN_JT(LS,ICH)%REF=REF(LS2)
+	            KN_JT(LS,ICH)%NF=.TRUE.
+	            KN_JT(LS,ICH)%NSKIP=JT_NSKIP
+	            KN_JT(LS,ICH)%JVAL=HUGE(FG_JUMP_MAX)
+	          END IF
 	          FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	          RETURN
 	        END IF
@@ -11969,6 +12086,22 @@ C
 	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)THEN
 	          IF(REF(LS2) .GT. 1.0E-28_LDP .AND.
 	1          V1 .GT. FG_COMMIT_JUMP*REF(LS2))THEN
+	            IF(L_DIAG)THEN
+	              V2=STORE(KC,LS,LS2-1)
+	              KN_JT(LS,ICH)%BR=2
+	              KN_JT(LS,ICH)%KS=KS
+	              KN_JT(LS,ICH)%KC=KC
+	              KN_JT(LS,ICH)%JP=JP2
+	              KN_JT(LS,ICH)%L2=LS2
+	              KN_JT(LS,ICH)%V1=V1
+	              KN_JT(LS,ICH)%V2=V2
+	              KN_JT(LS,ICH)%VMS=VMAX_S(LS2)
+	              KN_JT(LS,ICH)%REF=REF(LS2)
+	              KN_JT(LS,ICH)%RATIO=V1/REF(LS2)
+	              KN_JT(LS,ICH)%THR=FG_COMMIT_JUMP*REF(LS2)
+	              KN_JT(LS,ICH)%NSKIP=JT_NSKIP
+	              KN_JT(LS,ICH)%JVAL=HUGE(FG_JUMP_MAX)
+	            END IF
 	            FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	            RETURN
 	          END IF
@@ -11976,12 +12109,36 @@ C
 	        END IF
 	        V2=STORE(KC,LS,LS2-1)
 	        IF(V2 .LE. 0.0_LDP .OR. .NOT.(ABS(V2) .LE. HUGE(V2)))CYCLE
-	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,ABS(V1-V2)/
-	1          MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP))
+	        VR=ABS(V1-V2)/
+	1        MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP)
+	        IF(L_DIAG .AND. VR .GT. JT_BEST)THEN
+	          JT_BEST=VR; JT_V1S=V1
+	          JT_KS=KS; JT_KC=KC; JT_JP=JP2; JT_L2=LS2
+	        END IF
+	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,VR)
 	      END DO
 	    END IF
 	  END IF
 	END DO
+!
+! Ordinary-jump record: the cell that set the running maximum.
+! Strict > keeps the first cell in (KS,LS2) scan order on ties.
+!
+	IF(L_DIAG .AND. JT_BEST .GT. 0.0_LDP)THEN
+	  KN_JT(LS,ICH)%BR=3
+	  KN_JT(LS,ICH)%KS=JT_KS
+	  KN_JT(LS,ICH)%KC=JT_KC
+	  KN_JT(LS,ICH)%JP=JT_JP
+	  KN_JT(LS,ICH)%L2=JT_L2
+	  KN_JT(LS,ICH)%V1=JT_V1S
+	  KN_JT(LS,ICH)%V2=STORE(JT_KC,LS,JT_L2-1)
+	  KN_JT(LS,ICH)%VMS=VMAX_S(JT_L2)
+	  KN_JT(LS,ICH)%REF=REF(JT_L2)
+	  KN_JT(LS,ICH)%RATIO=JT_BEST
+	  KN_JT(LS,ICH)%THR=FG_COMMIT_JUMP
+	  KN_JT(LS,ICH)%JVAL=FG_JUMP_MAX
+	  KN_JT(LS,ICH)%NSKIP=JT_NSKIP
+	END IF
 	RETURN
 	END
 !
