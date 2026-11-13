@@ -669,13 +669,19 @@
 	    STOP
 	  END IF
 !
-! Under the nonmono flags only, derive the unclamped velocity
-! gradient the OBS paths consume: SIGMA_TRUE feeds the Sobolev EW
-! estimator (Dessart et al. 2015, Sec. 3.1) under DO_NONMONO_SOB
-! and is the SIGMA_TRUE_IN argument of FG_J_CMF_NONMONO_V1 under
-! DO_NONMONO_KNOP.  Both flags default F; stock path unchanged.
+! Derive the unclamped velocity gradient the OBS paths consume:
+! SIGMA_TRUE feeds the Sobolev EW estimator (Dessart et al. 2015,
+! Sec. 3.1) under DO_NONMONO_SOB and is the SIGMA_TRUE_IN argument
+! of FG_J_CMF_NONMONO_V1 under DO_NONMONO_KNOP.  It is also derived
+! whenever the EW estimator runs on a genuinely non-monotonic field
+! (N_NONMONO_OBS>0): the RVTJ SIGMA column is the clamped work
+! gradient (floored at -0.999 under a SOB-population model), so an
+! EW computed from it uses a velocity field the model never had.
+! Both nonmono flags default F; a monotonic field never enters here
+! and the stock path is unchanged.
 !
-	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR.
+	1   (DO_SOBOLEV_LINES .AND. N_NONMONO_OBS .GT. 0))THEN
 	  IOS=0
 	  IF(.NOT. ALLOCATED(SIGMA_TRUE))ALLOCATE(SIGMA_TRUE(ND),STAT=IOS)
 	  IF(IOS .NE. 0)THEN
@@ -695,7 +701,8 @@
 	    WRITE(LUER,*)'CMF_FLUX_SUB_V5:',N_SIG_UNDEF,
 	1   ' of',ND,'cells have no usable velocity gradient;',
 	2   ' SIGMA_TRUE=0 marks them non-compressing'
-	    IF(.NOT. ALLOW_SIGMA_UNDEF)THEN
+	    IF(.NOT. ALLOW_SIGMA_UNDEF .AND.
+	1       (DO_NONMONO_SOB .OR. DO_NONMONO_KNOP))THEN
 	      WRITE(LUER,*)'Aborting: undefined SIGMA_TRUE cells make'
 	1     //' the Sobolev EW/profile estimates unreliable.  Set'
 	2     //' ALLOW_SIGMA_UNDEF=T to downgrade this to a warning.'
@@ -2969,14 +2976,17 @@
 ! Note: Using CMF_ABS_EW takes much longer and was added for determining strongest lines
 !          to include in polarizatin calculations.
 !
-! With DO_NONMONO_SOB the Sobolev EW estimators use the unclamped
-! SIGMA_TRUE (with the same max(|1+sig*mu^2|,-0.2(1+sig)) tau floor as
-! the populations), matching the gradient the line rates used.  The
-! default path passes the clamped SIGMA, identical to before.
+! The Sobolev EW estimator uses the unclamped SIGMA_TRUE whenever it
+! has been derived (with the same max(|1+sig*mu^2|,-0.2(1+sig)) tau
+! floor as the populations), matching the gradient the line rates
+! used.  SIGMA_TRUE is filled under DO_NONMONO_SOB, DO_NONMONO_KNOP,
+! or whenever this estimator runs on a non-monotonic field; on a
+! monotonic field the array stays unallocated and the call passes
+! the stored SIGMA, identical to before.
 !
 	IF(DO_CMF_EW)THEN
 	  INCLUDE 'CMF_ABS_EW.INC'
-	ELSE IF(DO_NONMONO_SOB)THEN
+	ELSE IF(ALLOCATED(SIGMA_TRUE))THEN
 	  CALL SOBEW_GRAD_V2(SOURCE,CHI_CLUMP,CHI_SCAT_CLUMP,CHIL,ETAL,
 	1            V,SIGMA_TRUE,R,P,FORCE_MULT,STARS_LUM,AQW,HQW,TA,EW,
 	1            CONT_INT,
