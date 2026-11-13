@@ -215,6 +215,15 @@
 ! Updated under !$OMP CRITICAL inside the ML loop.
 !
 	REAL(KIND=LDP), PARAMETER :: EDGE_TOL=1.0E-12_LDP
+C
+C Interpolation of a validated strictly-subluminal V grid can
+C overshoot c by at most a few ulps at the fastest point.  V_RTOL
+C bounds that overshoot: an interpolated V_RAY inside it is
+C reprojected just inside the domain; anything beyond it is invalid
+C input or a code defect and aborts.
+C
+	REAL(KIND=LDP), PARAMETER ::
+     1          V_RTOL=64.0_LDP*EPSILON(1.0_LDP)
 	INTEGER N_EDGE_CLAMP
 	INTEGER N_CLAMP_LOCAL
 	INTEGER N_CLAMP_GLOBAL
@@ -289,6 +298,33 @@
 	  WRITE(LUER,*)'Warning in OBS_FRAME_SUB_V4'
 	  WRITE(LUER,*)'N_INS_OBS is outside the recommended range'
 	  WRITE(LUER,*)'N_INS_OBS=',N_INS_OBS
+	END IF
+!
+! Fail-closed velocity validation, active only when relativistic
+! corrections are requested.  A validated strictly-subluminal input
+! grid guarantees the interpolated ray speed can only reach c by
+! round-off (bounded by V_RTOL at the ray check below); a NaN slips
+! past the ABS test, so it is checked first.
+!
+	IF(DO_REL_CORRECTIONS)THEN
+	  DO I=1,ND
+	    IF(V(I) .NE. V(I))THEN
+	      WRITE(LUER,'(A)')
+     1	      'Error in OBS_FRAME_SUB_V9: NON_FINITE_VELOCITY'
+	      WRITE(LUER,'(A,I6,A)')'  V(',I,') is not finite'
+	      WRITE(LUER,'(A,ES14.6)')'  C_KMS=',C_KMS
+	      STOP
+	    END IF
+	    IF(ABS(V(I)) .GE. C_KMS)THEN
+	      WRITE(LUER,'(A)')
+     1	      'Error in OBS_FRAME_SUB_V9: SUPERLUMINAL_VELOCITY'
+	      WRITE(LUER,'(A,I6,A,ES14.6)')'  V(',I,')=',V(I)
+	      WRITE(LUER,'(A,ES14.6)')'  C_KMS=',C_KMS
+	      WRITE(LUER,'(A)')
+     1	      '  Input velocity grid must satisfy ABS(V) < c'
+	      STOP
+	    END IF
+	  END DO
 	END IF
 !
 	IF(WRITE_IP)THEN
@@ -660,21 +696,56 @@
 	  IF(DO_REL_CORRECTIONS)THEN
 	    DO I=1,NRAY
 !
-! dev7: guard the gamma radicand.  Interpolation on a revised grid can
-! push V_RAY a few ulps past C_KMS at the fastest point; without the
-! floor the sqrt returns NaN and poisons NU_ON_NU0_RAY and every
-! frequency of this ray.  A genuinely superluminal input V is still
-! reported rather than hidden.
+! dev7 -> P7: fail closed on the interpolated speed.  The input grid
+! was validated above, so |V_RAY| >= c beyond V_RTOL is invalid input
+! or a code defect - abort rather than floor it into a finite gamma.
+! A sub-ulp overshoot of a validated grid is reprojected just inside
+! the domain; it cannot hide physical input because the grid itself
+! must already be strictly subluminal.
 !
+	      IF(V_RAY(I) .NE. V_RAY(I))THEN
+	        WRITE(LUER,'(A)')
+	1          'Error in OBS_FRAME_SUB_V9: NON_FINITE_VELOCITY'
+	        WRITE(LUER,'(A,I6,A,I6)')'  LS=',LS,' I=',I
+	        WRITE(LUER,'(A,L2,A,ES14.6)')
+	1          '  PLANE_PARALLEL=',PLANE_PARALLEL,' P(LS)=',P(LS)
+	        WRITE(LUER,'(2(A,ES14.6))')
+	1          '  R_RAY=',R_RAY(I),' Z_RAY=',Z_RAY(I)
+	        STOP
+	      END IF
 	      T2=1.0_LDP-V_RAY(I)*V_RAY(I)/C_KMS/C_KMS
 	      IF(T2 .LE. 0.0_LDP)THEN
-	        WRITE(LUER,'(A,I5,A,I6,A,ES14.6)')
-	1          'Warning OBS_FRAME_SUB_V9: V_RAY >= c at LS=',LS,
-	2          ' I=',I,' V_RAY(km/s)=',V_RAY(I)
-	        T2=1.0E-12_LDP
+	        IF(ABS(V_RAY(I)) .LT. C_KMS*(1.0_LDP+V_RTOL))THEN
+	          T2=1.0_LDP-(1.0_LDP-V_RTOL)*(1.0_LDP-V_RTOL)
+	        ELSE
+	          WRITE(LUER,'(A)')
+	1            'Error in OBS_FRAME_SUB_V9: SUPERLUMINAL_VELOCITY'
+	          WRITE(LUER,'(A,I6,A,I6)')'  LS=',LS,' I=',I
+	          WRITE(LUER,'(2(A,ES14.6))')
+	1            '  V_RAY=',V_RAY(I),' C_KMS=',C_KMS
+	          WRITE(LUER,'(A,L2,A,ES14.6)')
+	1            '  PLANE_PARALLEL=',PLANE_PARALLEL,' P(LS)=',P(LS)
+	          WRITE(LUER,'(2(A,ES14.6))')
+	1            '  R_RAY=',R_RAY(I),' Z_RAY=',Z_RAY(I)
+	          STOP
+	        END IF
 	      END IF
 	      GAM_RAY(I)=1.0_LDP/SQRT(T2)
-	      NU_ON_NU0_RAY(I)=1.0_LDP/GAM_RAY(I)/(1.0_LDP-VMU_RAY(I))
+!
+! The Doppler denominator must stay finite and positive.  |VMU|<1
+! follows from the speed check above, but a non-finite interpolated
+! VMU would otherwise pass silently into every frequency transform.
+!
+	      T4=1.0_LDP-VMU_RAY(I)
+	      IF(.NOT.(T4 .GT. 0.0_LDP))THEN
+	        WRITE(LUER,'(A)')
+	1          'Error in OBS_FRAME_SUB_V9: BAD_DOPPLER_DENOM'
+	        WRITE(LUER,'(A,I6,A,I6)')'  LS=',LS,' I=',I
+	        WRITE(LUER,'(2(A,ES14.6))')
+	1          '  VMU_RAY=',VMU_RAY(I),' V_RAY=',V_RAY(I)
+	        STOP
+	      END IF
+	      NU_ON_NU0_RAY(I)=1.0_LDP/GAM_RAY(I)/T4
 	    END DO
 	  ELSE
 	     GAM_RAY(:)=1.0_LDP
@@ -1507,7 +1578,20 @@
 	          T2=(T1-SM_FREQ_CMF(K))/(SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K))
 	          T3=T2*(IB_J_CMF(J-1)-IB_J_CMF(J))+IB_J_CMF(J)
 	          T4=T2*(IB_H_CMF(J-1)-IB_H_CMF(J))+IB_H_CMF(J)
+!
+! T1 is the ray direction cosine at the boundary point.  IB_J_CMF and
+! IB_H_CMF are comoving moments, so the angular argument of the
+! comoving intensity law must be the comoving cosine: under
+! DO_REL_CORRECTIONS it is aberrated as
+!   mu_cmf = (mu_obs - beta)/(1 - beta*mu_obs),  beta = V_RAY/c.
+! For fast outflow on a near-grazing ray mu_cmf can go negative: the
+! photon is incoming in the comoving frame and the result is the
+! inward Eddington extension of the diffusion field, which is the
+! physically meaningful local value there.
+!
 	          T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	          IF(DO_REL_CORRECTIONS)T1=(T1-V_RAY(SM_NRAY)/C_KMS)/
+	1            (1.0_LDP-V_RAY(SM_NRAY)*T1/C_KMS)
 	          PAR_FLUX=T3+3.0_LDP*T1*T4
 	          IF(DO_REL_CORRECTIONS)
 	1            PAR_FLUX=PAR_FLUX*NU_ON_NU0_RAY(SM_NRAY)**3
@@ -1568,7 +1652,14 @@
 	        T2=(T1-SM_FREQ_CMF(K))/(SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K))
 	        T3=T2*(IB_J_CMF(J-1)-IB_J_CMF(J))+IB_J_CMF(J)
 	        T4=T2*(IB_H_CMF(J-1)-IB_H_CMF(J))+IB_H_CMF(J)
+!
+! Same comoving-cosine aberration as the STAU branch: the angular
+! argument is evaluated in the frame of the moments, then the
+! intensity is boosted by NU_ON_NU0**3.
+!
 	        T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	        IF(DO_REL_CORRECTIONS)T1=(T1-V_RAY(SM_NRAY)/C_KMS)/
+	1          (1.0_LDP-V_RAY(SM_NRAY)*T1/C_KMS)
 	        PAR_FLUX=T3+3.0_LDP*T1*T4
 	        IF(DO_REL_CORRECTIONS)
 	1            PAR_FLUX=PAR_FLUX*NU_ON_NU0_RAY(SM_NRAY)**3
