@@ -1284,6 +1284,33 @@
 !
 	      IF(HOLLOW_CORE .AND. LS .LE. NC .AND. .NOT. BACK_SIDE)THEN
 	        PAR_FLUX=PAR_FLUX*EXP(-TAU(IEND))
+	      ELSE IF(DO_IB_DIFF_FLUX .AND. SM_NRAY .EQ. NRAY
+     1            .AND. LS .LE. NC)THEN
+!
+! dev7: inner-boundary seed for the emissivity integral, the
+! counterpart of the STAU branch above.  The formal solution along the
+! ray is I_out = I_IB * exp(-tau_total) + integral of eta*exp(-tau),
+! so the diffusion-boundary intensity enters as an incident term
+! attenuated by the whole-ray optical depth, not as part of the
+! integrand.  TAU is built from the same corrected DTAU STAU's A0
+! product uses, so the attenuation is the same in both methods.
+! Only core-intersecting rays (LS<=NC) that ran untruncated to the
+! inner boundary (SM_NRAY==NRAY) get the seed; grazing and truncated
+! rays keep the zero seed, matching STAU.  Gated on DO_IB_DIFF_FLUX,
+! which callers set only for non-monotonic runs with a diffusion
+! boundary, so the stock path is unchanged.
+!
+	        K=INDX(SM_NRAY)
+	        J=STRT_INDX_CMF(OUT_ML)+K-1
+	        T1=OBS_FREQ(ML)*(1.0_LDP-VMU_RAY(SM_NRAY))*GAM_RAY(SM_NRAY)
+	        T2=(T1-SM_FREQ_CMF(K))/(SM_FREQ_CMF(K-1)-SM_FREQ_CMF(K))
+	        T3=T2*(IB_J_CMF(J-1)-IB_J_CMF(J))+IB_J_CMF(J)
+	        T4=T2*(IB_H_CMF(J-1)-IB_H_CMF(J))+IB_H_CMF(J)
+	        T1=Z_RAY(SM_NRAY)/R_RAY(SM_NRAY)
+	        PAR_FLUX=T3+3.0_LDP*T1*T4
+	        IF(DO_REL_CORRECTIONS)
+	1            PAR_FLUX=PAR_FLUX*NU_ON_NU0_RAY(SM_NRAY)**3
+	        PAR_FLUX=PAR_FLUX*EXP(-TAU(IEND))
 	      ELSE
 	        PAR_FLUX=0.0_LDP
 	      END IF
