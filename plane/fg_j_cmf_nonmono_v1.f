@@ -1281,6 +1281,16 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QC_MAX_RAY(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: KN_QS_STAT(:)
 !
+! KN_QC_READY gates the cell histogram end to end. It is FALSE
+! until every KN_QC_* allocatable is confirmed allocated and
+! zeroed in the refresh setup, and KN_Q_ACCUM returns without
+! touching storage while it is FALSE, so a failed STAT=IOS2
+! allocation can never produce writes to unallocated arrays or
+! a fake zero histogram in the summary. L_QP keeps its own
+! meaning (the verify pass) and is not reused for this.
+!
+	LOGICAL, SAVE :: KN_QC_READY=.FALSE.
+!
 ! Phase-4 Q-argmax store snapshot (diagnostic, [KN_Q_RESID] only):
 ! the serial summary identifies the global Q argmax cell only
 ! after the ray loop, but the store "before" value must be read
@@ -7497,6 +7507,7 @@ C
 ! and the channel totals are reduced serially after the ray
 ! loop. The flat KN_QC_* arrays keep the summary code unchanged.
 !
+	  KN_QC_READY=.FALSE.
 	  ALLOCATE(KN_QS_STAT(KN_NP),KN_QC_HIST(2,403),
 	1   KN_QC_HIST_RAY(KN_NP,2,403),KN_QC_N_RAY(KN_NP,2),
 	2   KN_QC_NT_RAY(KN_NP,2,3),KN_QC_MAX_RAY(KN_NP,2),STAT=IOS2)
@@ -7506,6 +7517,23 @@ C
 	    KN_QC_N=0_8; KN_QC_N_RAY=0_8
 	    KN_QC_NT=0_8; KN_QC_NT_RAY=0_8
 	    KN_QC_MAX=0.0_LDP; KN_QC_MAX_RAY=0.0_LDP
+	  END IF
+!
+! Readiness requires every array the accumulator and the serial
+! reduction touch, not just a clean STAT: a partial allocation
+! must leave the histogram off while the Q residual sweep runs
+! unchanged. KN_QC_N/KN_QC_NT/KN_QC_MAX are SAVED scalars and
+! need no allocation check.
+!
+	  IF(IOS2 .EQ. 0 .AND. ALLOCATED(KN_QC_HIST) .AND.
+	1   ALLOCATED(KN_QC_HIST_RAY) .AND.
+	2   ALLOCATED(KN_QC_N_RAY) .AND. ALLOCATED(KN_QC_NT_RAY)
+	3   .AND. ALLOCATED(KN_QC_MAX_RAY))THEN
+	    KN_QC_READY=.TRUE.
+	  ELSE
+	    KN_QC_N=0_8; KN_QC_NT=0_8; KN_QC_MAX=0.0_LDP
+	    WRITE(LUER,'(A)')'    KN_QC cell histogram unavailable:'//
+	1   ' allocation failed; Q residual unaffected'
 	  END IF
 	END IF
 	RES_LS=0.0_LDP
@@ -7663,7 +7691,7 @@ C
 ! and maxima are exact once the loop is joined; rays that never
 ! reached a verify pass contribute zeros.
 !
-	IF(ALLOCATED(KN_QC_HIST_RAY))THEN
+	IF(KN_QC_READY)THEN
 	  KN_QC_N=SUM(KN_QC_N_RAY,DIM=1)
 	  KN_QC_NT=SUM(KN_QC_NT_RAY,DIM=1)
 	  KN_QC_HIST=SUM(KN_QC_HIST_RAY,DIM=1)
@@ -8200,7 +8228,7 @@ C
 ! with ~+/-0.05 dex resolution; ch=1 is the inward (M) pass,
 ! ch=2 the outward (P) pass.
 !
-	    IF(ALLOCATED(KN_QC_HIST))THEN
+	    IF(KN_QC_READY)THEN
 	      DO J=1,2
 	        IF(KN_QC_N(J) .GT. 0_8)THEN
 !
@@ -8231,6 +8259,14 @@ C
 	7        KN_QC_NT(J,1),KN_QC_NT(J,2),KN_QC_NT(J,3)
 	        END IF
 	      END DO
+	    ELSE
+!
+! Allocation failed at setup: say so explicitly rather than
+! letting the zero-initialised globals read as a measured
+! empty histogram. The per-ray Q residual above is unaffected.
+!
+	      WRITE(LUER,'(A)')'    q cells unavailable: histogram'//
+	1     ' allocation failed'
 	    END IF
 	  END IF
 	  END IF
@@ -8388,8 +8424,13 @@ C
 	1  KN_QA_VM,KN_QA_J,KN_QA_L)
 	IF(ALLOCATED(KN_PA_RES))DEALLOCATE(KN_PA_RES,KN_PA_OMG,
 	1  KN_PA_IX,KN_PA_NP)
-	IF(ALLOCATED(KN_QS_STAT))DEALLOCATE(KN_QS_STAT,KN_QC_HIST,
-	1  KN_QC_HIST_RAY,KN_QC_N_RAY,KN_QC_NT_RAY,KN_QC_MAX_RAY)
+	IF(ALLOCATED(KN_QS_STAT))DEALLOCATE(KN_QS_STAT)
+	IF(ALLOCATED(KN_QC_HIST))DEALLOCATE(KN_QC_HIST)
+	IF(ALLOCATED(KN_QC_HIST_RAY))DEALLOCATE(KN_QC_HIST_RAY)
+	IF(ALLOCATED(KN_QC_N_RAY))DEALLOCATE(KN_QC_N_RAY)
+	IF(ALLOCATED(KN_QC_NT_RAY))DEALLOCATE(KN_QC_NT_RAY)
+	IF(ALLOCATED(KN_QC_MAX_RAY))DEALLOCATE(KN_QC_MAX_RAY)
+	KN_QC_READY=.FALSE.
 	RETURN
 !
 ! ----------------------------------------------------------------
@@ -11552,6 +11593,13 @@ C
 	REAL(KIND=LDP) DX
 	LOGICAL L_IN
 	INTEGER IB,CH
+!
+! Allocation-failure path: L_QP still marks the verify pass, but
+! the per-ray storage exists only when the refresh setup set
+! KN_QC_READY. Without the guard a failed ALLOCATE(STAT=IOS2)
+! would leave these writes pointing at unallocated memory.
+!
+	IF(.NOT.KN_QC_READY)RETURN
 	CH=1
 	IF(.NOT.L_IN)CH=2
 	KN_QC_N_RAY(LS,CH)=KN_QC_N_RAY(LS,CH)+1_8
