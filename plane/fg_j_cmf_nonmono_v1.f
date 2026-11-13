@@ -1394,6 +1394,58 @@
 	  REAL(KIND=LDP) :: VRAY=-1.0_LDP,PCT=-1.0_LDP
 	END TYPE KN_SIB_STAT
 !
+! KN_CEN_*: full-store jump census (diagnostic, [KN_JUMP_DIAG]).
+! FG_JUMP_MAX already visits every writable cell and forms the
+! sanitized candidate V1, the retained V2 and the jump ratio VR;
+! the census accumulates per-(ray,channel) counters, a coarse
+! (model depth x log-frequency-band) exceed histogram and the
+! KN_CEN_NTOP largest-VR records per ray. Every array is indexed
+! by the calling ray, so the OpenMP ray loop stays race-free and
+! no N_COMP x NP x NCF array is allocated. Read-only: the scan,
+! sanitization and return value are unchanged.
+!
+	TYPE KN_CEN_REC
+	  INTEGER :: RS=0,CH=0,KS=0,KC=0,JP=0,L2=0
+	  REAL(KIND=LDP) :: V1=0.0_LDP,V2=0.0_LDP,VMS=0.0_LDP
+	  REAL(KIND=LDP) :: VR=0.0_LDP,RAT=0.0_LDP
+	END TYPE KN_CEN_REC
+	INTEGER, SAVE :: KN_CEN_NB=32,KN_CEN_NTOP=4
+	LOGICAL, SAVE :: KN_CEN_READY=.FALSE.
+	INTEGER, ALLOCATABLE, SAVE :: KN_CEN_NCELL(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_CEN_NSKV(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_CEN_NFLR(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_CEN_NEXC(:,:)
+	INTEGER, ALLOCATABLE, SAVE :: KN_CEN_HIST(:,:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_CEN_JMAX(:,:)
+	TYPE(KN_CEN_REC), ALLOCATABLE, SAVE :: KN_CEN_TOP(:,:,:)
+!
+! KN_GEO_*: geometry-conditioned sibling comparison (diagnostic,
+! [KN_JUMP_DIAG]). KN_SIB_DEPTH_SNAP_V1 compares all valid rays at
+! a model depth, but rays have different impact parameters and
+! local direction cosines, so the all-ray median is not obviously
+! the physical reference. KN_SIB_GEO_V1 keeps the per-ray samples
+! for one store slot and reports the same order statistics for
+! three subsets: all valid rays, the KN_GEO_NB rays nearest in
+! impact parameter P, and the KN_GEO_NB rays nearest in local
+! direction cosine MU=Z/R at the model-depth ray point. Geometry
+! comes from the stored ray arrays: P^2=R_RAY^2-Z^2 exactly (the
+! ray grid is built from P), MU=Z/R_RAY, GAM is the signed
+! comoving frequency drift. Read-only.
+!
+	TYPE KN_GEO_SUB
+	  INTEGER :: N=0,RANK=0
+	  REAL(KIND=LDP) :: VMIN=-1.0_LDP,V10=-1.0_LDP,VMED=-1.0_LDP
+	  REAL(KIND=LDP) :: V90=-1.0_LDP,VMAX=-1.0_LDP
+	  REAL(KIND=LDP) :: VRAY=-1.0_LDP,PCT=-1.0_LDP
+	END TYPE KN_GEO_SUB
+	TYPE KN_GEO_REP
+	  TYPE(KN_GEO_SUB) :: SUB(3)
+	  REAL(KIND=LDP) :: P_T=-1.0_LDP,MU_T=-1.0_LDP,GAM_T=-1.0_LDP
+	  INTEGER :: NRAW=0
+	END TYPE KN_GEO_REP
+	INTEGER, SAVE :: KN_GEO_NB=8
+	TYPE(KN_GEO_REP), ALLOCATABLE, SAVE :: KN_GEO_REPS(:,:)
+!
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
 ! freeze arm event the raw KN_CHI_EXT/KN_ETA_EXT snapshots are
 ! summed into KN_COEF_FP(1:2); each refresh then re-sums the
@@ -1603,6 +1655,162 @@
 	DEALLOCATE(WRK)
 	RETURN
 	END SUBROUTINE KN_SIB_DEPTH_SNAP_V1
+!
+! ----------------------------------------------------------------
+! KN_GEO_STATS_V1: order statistics for one value sample, same
+! convention as KN_SIB_DEPTH_SNAP_V1 (ascending insertion sort,
+! nearest-rank CEILING(p*N), upper-middle median, rank = 1 +
+! count strictly below the target value). VT<=0 means the target
+! ray has no valid sample; rank statistics are then meaningless
+! and stay at their -1/0 defaults.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_GEO_STATS_V1(VAL,NT,VT,ST)
+	REAL(KIND=LDP) VAL(:),VT,VTS
+	INTEGER NT
+	TYPE(KN_GEO_SUB) ST
+	REAL(KIND=LDP) WRK(NT)
+	INTEGER I2,J2
+	ST%N=NT
+	IF(NT .LT. 1)RETURN
+	WRK=VAL(1:NT)
+	DO I2=2,NT
+	  VTS=WRK(I2); J2=I2-1
+	  DO WHILE(J2 .GE. 1 .AND. WRK(J2) .GT. VTS)
+	    WRK(J2+1)=WRK(J2); J2=J2-1
+	  END DO
+	  WRK(J2+1)=VTS
+	END DO
+	ST%VMIN=WRK(1)
+	ST%V10=WRK(MAX(1,CEILING(0.10_LDP*NT)))
+	ST%VMED=WRK((NT+1)/2)
+	ST%V90=WRK(MAX(1,CEILING(0.90_LDP*NT)))
+	ST%VMAX=WRK(NT)
+	IF(VT .GT. 0.0_LDP)THEN
+	  ST%VRAY=VT
+	  J2=0
+	  DO I2=1,NT
+	    IF(WRK(I2) .LT. VT)J2=J2+1
+	  END DO
+	  ST%RANK=J2+1
+	  ST%PCT=100.0_LDP*J2/NT
+	END IF
+	RETURN
+	END SUBROUTINE KN_GEO_STATS_V1
+!
+! ----------------------------------------------------------------
+! KN_SIB_GEO_V1: geometry-conditioned sibling comparison for one
+! (model depth KQ, store slot, channel store, target ray). Keeps
+! the per-ray retained values plus impact parameter P, local
+! direction cosine MU and signed GAM at the KQ ray point, then
+! reports order statistics for all valid rays and for the
+! KN_GEO_NB nearest rays in P and in MU. P^2 = R_RAY^2 - Z^2 is
+! exact on this ray grid (R_RAY was built as SQRT(Z^2+P^2)); the
+! dummy P array of FG_J_CMF_NONMONO_V1 is not retained, so this
+! reconstruction is the only access path. Read-only.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_SIB_GEO_V1(KQ,SLOT,RS_TGT,STORE,REP)
+	INTEGER KQ,SLOT,RS_TGT
+	REAL(KIND=LDP) STORE(:,:,:)
+	TYPE(KN_GEO_REP) REP
+	INTEGER KC,JP,RS,NS,N1,N2,I2,J2,II
+	REAL(KIND=LDP) V,PT,MUT,GT,VT
+	REAL(KIND=LDP), ALLOCATABLE :: VAL(:),PG(:),PM(:),PA(:),WK(:)
+	INTEGER, ALLOCATABLE :: O1(:),O2(:)
+	KC=COMP_DEPTH_IDX(KQ)
+	REP%NRAW=0; REP%P_T=-1.0_LDP; REP%MU_T=-1.0_LDP
+	REP%GAM_T=-1.0_LDP
+	IF(KC .LT. 1)RETURN
+	IF(.NOT.(ALLOCATED(R_RAY) .AND. ALLOCATED(Z) .AND.
+	1 ALLOCATED(GAM)))RETURN
+	NS=0
+	DO RS=1,SIZE(STORE,2)
+	  JP=J_PNT(KQ,RS)
+	  IF(JP .LT. 1 .OR. JP .GT. NI_RAY(RS))CYCLE
+	  V=STORE(KC,RS,SLOT)
+	  IF(.NOT.(ABS(V) .LE. HUGE(V)) .OR. V .LE. 0.0_LDP)CYCLE
+	  NS=NS+1
+	END DO
+	IF(NS .LT. 1)RETURN
+	ALLOCATE(VAL(NS),PG(NS),PM(NS),PA(NS),O1(NS),O2(NS),WK(NS))
+	N1=0
+	DO RS=1,SIZE(STORE,2)
+	  JP=J_PNT(KQ,RS)
+	  IF(JP .LT. 1 .OR. JP .GT. NI_RAY(RS))CYCLE
+	  V=STORE(KC,RS,SLOT)
+	  IF(.NOT.(ABS(V) .LE. HUGE(V)) .OR. V .LE. 0.0_LDP)CYCLE
+	  N1=N1+1
+	  VAL(N1)=V
+	  PG(N1)=SQRT(MAX(R_RAY(JP,RS)**2-Z(JP,RS)**2,0.0_LDP))
+	  PM(N1)=Z(JP,RS)/R_RAY(JP,RS)
+	  PA(N1)=GAM(JP,RS)
+	  IF(RS .EQ. RS_TGT)THEN
+	    PT=PG(N1); MUT=PM(N1); GT=PA(N1)
+	    REP%P_T=PT; REP%MU_T=MUT; REP%GAM_T=GT
+	  END IF
+	END DO
+	REP%NRAW=N1
+!
+! Target value for the rank statistics: re-read the target ray's
+! store cell directly (the fill loop keeps values only, not ray
+! indices, and matching by value would be wrong on ties).
+!
+	V=-1.0_LDP
+	IF(RS_TGT .GE. 1 .AND. RS_TGT .LE. SIZE(STORE,2))THEN
+	  JP=J_PNT(KQ,RS_TGT)
+	  IF(JP .GE. 1 .AND. JP .LE. NI_RAY(RS_TGT))THEN
+	    VT=STORE(KC,RS_TGT,SLOT)
+	    IF(ABS(VT) .LE. HUGE(VT) .AND. VT .GT. 0.0_LDP)V=VT
+	  END IF
+	END IF
+!
+! All-valid statistics; the target ray is one sample of N1,
+! matching the KN_SIB_DEPTH_SNAP_V1 convention.
+!
+	CALL KN_GEO_STATS_V1(VAL,N1,V,REP%SUB(1))
+!
+! Nearest-in-P and nearest-in-MU subsets: selection sort the
+! indices by |PG-P_T| / |PM-MU_T|, take the first KN_GEO_NB
+! (or fewer when NS is smaller). Ties keep sample order, which is
+! deterministic because the fill loop runs RS=1..NP.
+!
+	N2=MIN(KN_GEO_NB,N1)
+	IF(N2 .GT. 0 .AND. REP%P_T .GT. -1.0_LDP)THEN
+	  PA=ABS(PG-REP%P_T)
+	  O1=[(I2,I2=1,N1)]
+	  DO I2=2,N1
+	    J2=I2-1
+	    DO WHILE(J2 .GE. 1 .AND.
+	1   (PA(O1(J2)) .GT. PA(O1(J2+1)) .OR.
+	2    (PA(O1(J2)) .EQ. PA(O1(J2+1)) .AND.
+	3     O1(J2) .GT. O1(J2+1))))
+	      II=O1(J2); O1(J2)=O1(J2+1); O1(J2+1)=II; J2=J2-1
+	    END DO
+	  END DO
+	  DO I2=1,N2
+	    WK(I2)=VAL(O1(I2))
+	  END DO
+	  CALL KN_GEO_STATS_V1(WK,N2,V,REP%SUB(2))
+	END IF
+	IF(N2 .GT. 0 .AND. REP%MU_T .GT. -1.0_LDP)THEN
+	  PA=ABS(PM-REP%MU_T)
+	  O2=[(I2,I2=1,N1)]
+	  DO I2=2,N1
+	    J2=I2-1
+	    DO WHILE(J2 .GE. 1 .AND.
+	1   (PA(O2(J2)) .GT. PA(O2(J2+1)) .OR.
+	2    (PA(O2(J2)) .EQ. PA(O2(J2+1)) .AND.
+	3     O2(J2) .GT. O2(J2+1))))
+	      II=O2(J2); O2(J2)=O2(J2+1); O2(J2+1)=II; J2=J2-1
+	    END DO
+	  END DO
+	  DO I2=1,N2
+	    WK(I2)=VAL(O2(I2))
+	  END DO
+	  CALL KN_GEO_STATS_V1(WK,N2,V,REP%SUB(3))
+	END IF
+	DEALLOCATE(VAL,PG,PM,PA,O1,O2,WK)
+	RETURN
+	END SUBROUTINE KN_SIB_GEO_V1
 !
 ! ==============================================================================
 !
@@ -7505,7 +7713,14 @@ C
 	REAL(KIND=LDP) IQ_VB,IQ_VA
 	INTEGER*8 IQ_C1
 	TYPE(KN_SIB_STAT) KN_SIB_M(5),KN_SIB_P(5),KN_ST
+	TYPE(KN_GEO_SUB) KN_GS
+	TYPE(KN_CEN_REC), ALLOCATABLE :: KN_CEN_ALL(:)
+	TYPE(KN_CEN_REC) KN_CEN_TMP
+	CHARACTER(LEN=6) KN_GEO_LAB(3)
+	INTEGER, ALLOCATABLE :: KN_CEN_H2(:,:)
 	INTEGER KN_SIB_CH,KN_SIB_IS,KN_SIB_IK
+	INTEGER KN_CEN_I,KN_CEN_J,KN_CEN_K,KN_CEN_NALL
+	INTEGER KN_CEN_NREJ,KN_CEN_NZ,KN_CEN_IT2
 	REAL(KIND=LDP) T0,T1_W,T2,IQ_T,IQ_A
 	REAL(KIND=LDP), ALLOCATABLE :: QS_TMP(:)
 	REAL(KIND=LDP), ALLOCATABLE :: RES_LS(:)
@@ -7696,6 +7911,42 @@ C
 	  IF(ALLOCATED(KN_JT))DEALLOCATE(KN_JT)
 	  ALLOCATE(KN_JT(KN_NP,2),STAT=IOS2)
 	  IF(IOS2 .EQ. 0 .AND. ALLOCATED(KN_JT))KN_JT_READY=.TRUE.
+!
+! KN_CEN (diagnostic): full-store jump census storage. Same
+! gate and failure semantics as KN_JT -- KN_CEN_READY stays
+! FALSE unless every array allocated and zeroed, and
+! FG_JUMP_MAX skips all census writes while it is FALSE.
+!
+	  KN_CEN_READY=.FALSE.
+	  IF(ALLOCATED(KN_CEN_NCELL))DEALLOCATE(KN_CEN_NCELL)
+	  IF(ALLOCATED(KN_CEN_NSKV))DEALLOCATE(KN_CEN_NSKV)
+	  IF(ALLOCATED(KN_CEN_NFLR))DEALLOCATE(KN_CEN_NFLR)
+	  IF(ALLOCATED(KN_CEN_NEXC))DEALLOCATE(KN_CEN_NEXC)
+	  IF(ALLOCATED(KN_CEN_HIST))DEALLOCATE(KN_CEN_HIST)
+	  IF(ALLOCATED(KN_CEN_JMAX))DEALLOCATE(KN_CEN_JMAX)
+	  IF(ALLOCATED(KN_CEN_TOP))DEALLOCATE(KN_CEN_TOP)
+	  ALLOCATE(KN_CEN_NCELL(KN_NP,2),KN_CEN_NSKV(KN_NP,2),
+	1   KN_CEN_NFLR(KN_NP,2),KN_CEN_NEXC(KN_NP,2),
+	2   KN_CEN_JMAX(KN_NP,2),KN_CEN_HIST(KN_NP,2,KN_ND,KN_CEN_NB),
+	3   KN_CEN_TOP(KN_NP,2,KN_CEN_NTOP),STAT=IOS2)
+	  IF(IOS2 .EQ. 0)THEN
+	    KN_CEN_NCELL=0; KN_CEN_NSKV=0; KN_CEN_NFLR=0
+	    KN_CEN_NEXC=0; KN_CEN_HIST=0
+	    KN_CEN_JMAX=0.0_LDP
+	    DO KN_CEN_I=1,KN_NP
+	      DO KN_CEN_J=1,2
+	        DO KN_CEN_K=1,KN_CEN_NTOP
+	          KN_CEN_TOP(KN_CEN_I,KN_CEN_J,KN_CEN_K)=KN_CEN_REC()
+	        END DO
+	      END DO
+	    END DO
+	    KN_CEN_READY=ALLOCATED(KN_CEN_NCELL) .AND.
+	1   ALLOCATED(KN_CEN_NSKV) .AND. ALLOCATED(KN_CEN_NFLR) .AND.
+	2   ALLOCATED(KN_CEN_NEXC) .AND. ALLOCATED(KN_CEN_HIST) .AND.
+	3   ALLOCATED(KN_CEN_JMAX) .AND. ALLOCATED(KN_CEN_TOP)
+	  END IF
+	ELSE
+	  KN_CEN_READY=.FALSE.
 	END IF
 	IF(KN_JUMP_DIAG)WRITE(LUER,'(A,L1,A,L1,A,I6)')
 	1 '  KN-JT diag flag=',KN_JUMP_DIAG,
@@ -7795,6 +8046,21 @@ C
 	1    I_M_DEPTH_NEXT,KN_SIB_M)
 	  CALL KN_SIB_DEPTH_SNAP_V1(2,1434,1438,83,
 	1    I_P_DEPTH_NEXT,KN_SIB_P)
+!
+! KN_GEO (diagnostic, same gate): geometry-conditioned sibling
+! reps for the veto band -- store slots 1436..1438 (field
+! L=1437..1439), both channels, same target ray and depth.
+! Allocated once; the reps are overwritten each refresh before
+! the loop, matching the KN_SIB_* lifetime.
+!
+	  IF(.NOT. ALLOCATED(KN_GEO_REPS))
+	1   ALLOCATE(KN_GEO_REPS(2,3))
+	  DO KN_SIB_IS=1,3
+	    CALL KN_SIB_GEO_V1(2,1435+KN_SIB_IS,83,
+	1     I_M_DEPTH_NEXT,KN_GEO_REPS(1,KN_SIB_IS))
+	    CALL KN_SIB_GEO_V1(2,1435+KN_SIB_IS,83,
+	1     I_P_DEPTH_NEXT,KN_GEO_REPS(2,KN_SIB_IS))
+	  END DO
 	END IF
 !
 ! One ray per thread: each thread owns column LS of the shared module
@@ -7934,6 +8200,123 @@ C
 	5       KN_JT(83,2)%V1/KN_JT(83,2)%V2
 	    END IF
 	  END IF
+	END IF
+!
+! KN-GEO report (diagnostic): geometry-conditioned sibling stats
+! for the veto band, captured before the ray loop. SUB(1)=all
+! valid rays, SUB(2)=KN_GEO_NB nearest in impact parameter,
+! SUB(3)=KN_GEO_NB nearest in local direction cosine MU=Z/R.
+!
+	IF(KN_JUMP_DIAG .AND. ALLOCATED(KN_GEO_REPS))THEN
+	  KN_GEO_LAB(1)='all   '; KN_GEO_LAB(2)='nearP '
+	  KN_GEO_LAB(3)='nearMU'
+	  DO KN_SIB_CH=1,2
+	    DO KN_SIB_IS=1,3
+	      WRITE(LUER,'(A,I1,A,I5,A,I5,A,I4,A,3ES12.5)')
+	1       '  KN-GEO ch',KN_SIB_CH,' slot=',1435+KN_SIB_IS,
+	2       ' L=',1436+KN_SIB_IS,
+	3       ' nraw=',KN_GEO_REPS(KN_SIB_CH,KN_SIB_IS)%NRAW,
+	4       ' p_t,mu_t,gam_t=',
+	5       KN_GEO_REPS(KN_SIB_CH,KN_SIB_IS)%P_T,
+	6       KN_GEO_REPS(KN_SIB_CH,KN_SIB_IS)%MU_T,
+	7       KN_GEO_REPS(KN_SIB_CH,KN_SIB_IS)%GAM_T
+	      DO KN_SIB_IK=1,3
+	        KN_GS=KN_GEO_REPS(KN_SIB_CH,KN_SIB_IS)%SUB(KN_SIB_IK)
+	        WRITE(LUER,'(A,A6,A,I4,A,6ES12.5)')
+	1       '    ',KN_GEO_LAB(KN_SIB_IK),' n=',KN_GS%N,
+	2       ' min,p10,med,p90,max,ray83=',
+	3       KN_GS%VMIN,KN_GS%V10,KN_GS%VMED,KN_GS%V90,
+	4       KN_GS%VMAX,KN_GS%VRAY
+	        WRITE(LUER,'(A,A6,A,I4,A,ES12.5)')
+	1       '    ',KN_GEO_LAB(KN_SIB_IK),' rank,pct=',
+	2       KN_GS%RANK,KN_GS%PCT
+	      END DO
+	    END DO
+	  END DO
+	END IF
+!
+! KN-CEN report (diagnostic): the full-store jump census. Cell
+! counts cover every writable (KC>=1, valid JP) cell the veto
+! scan examined; exceed counts use the same VR>FG_COMMIT_JUMP
+! bound as the veto. The top list merges each ray's KN_CEN_NTOP
+! records and sorts by VR descending (ties keep gather order:
+! ray, then channel, then record slot -- deterministic). The
+! region map sums exceed cells over (ray,channel) into
+! (model depth, log-frequency band); band IB covers field
+! frequencies in (NCF**((IB-1)/NB), NCF**(IB/NB)].
+!
+	IF(KN_CEN_READY)THEN
+	  KN_CEN_NREJ=COUNT(MAXVAL(KN_CEN_JMAX,DIM=2)
+	1   .GT. FG_COMMIT_JUMP)
+	  WRITE(LUER,'(A,I6,A,I6)')
+	1   '  KN-CEN refresh=',KN_JT_REFRESH,
+	2   ' rays rejected(jump)=',KN_CEN_NREJ
+	  DO KN_SIB_CH=1,2
+	    WRITE(LUER,'(A,I1,A,4I12)')
+	1     '    ch',KN_SIB_CH,' cells,skv,floor,exceed=',
+	2     SUM(KN_CEN_NCELL(:,KN_SIB_CH)),
+	3     SUM(KN_CEN_NSKV(:,KN_SIB_CH)),
+	4     SUM(KN_CEN_NFLR(:,KN_SIB_CH)),
+	5     SUM(KN_CEN_NEXC(:,KN_SIB_CH))
+	  END DO
+	  KN_CEN_NALL=KN_NP*2*KN_CEN_NTOP
+	  ALLOCATE(KN_CEN_ALL(KN_CEN_NALL),KN_CEN_H2(KN_ND,KN_CEN_NB))
+	  KN_CEN_NZ=0
+	  DO KN_CEN_I=1,KN_NP
+	    DO KN_CEN_J=1,2
+	      DO KN_CEN_K=1,KN_CEN_NTOP
+	        IF(KN_CEN_TOP(KN_CEN_I,KN_CEN_J,KN_CEN_K)%VR
+	1       .GT. 0.0_LDP)THEN
+	          KN_CEN_NZ=KN_CEN_NZ+1
+	          KN_CEN_ALL(KN_CEN_NZ)=
+	1         KN_CEN_TOP(KN_CEN_I,KN_CEN_J,KN_CEN_K)
+	        END IF
+	      END DO
+	    END DO
+	  END DO
+	  DO KN_CEN_I=2,KN_CEN_NZ
+	    KN_CEN_TMP=KN_CEN_ALL(KN_CEN_I)
+	    KN_CEN_J=KN_CEN_I-1
+	    DO WHILE(KN_CEN_J .GE. 1 .AND.
+	1   KN_CEN_ALL(KN_CEN_J)%VR .LT. KN_CEN_TMP%VR)
+	      KN_CEN_ALL(KN_CEN_J+1)=KN_CEN_ALL(KN_CEN_J)
+	      KN_CEN_J=KN_CEN_J-1
+	    END DO
+	    KN_CEN_ALL(KN_CEN_J+1)=KN_CEN_TMP
+	  END DO
+	  DO KN_CEN_I=1,MIN(16,KN_CEN_NZ)
+	    WRITE(LUER,'(A,I3,A,I4,A,I2,A,4I6,A,5ES12.5)')
+	1     '    KN-CEN top ray=',KN_CEN_ALL(KN_CEN_I)%RS,
+	2     ' ch=',KN_CEN_ALL(KN_CEN_I)%CH,
+	3     ' ks,kc,jp,l2=',KN_CEN_ALL(KN_CEN_I)%KS,
+	4     KN_CEN_ALL(KN_CEN_I)%KC,KN_CEN_ALL(KN_CEN_I)%JP,
+	5     KN_CEN_ALL(KN_CEN_I)%L2,
+	6     ' v1,v2,vms,vr,rat=',KN_CEN_ALL(KN_CEN_I)%V1,
+	7     KN_CEN_ALL(KN_CEN_I)%V2,KN_CEN_ALL(KN_CEN_I)%VMS,
+	8     KN_CEN_ALL(KN_CEN_I)%VR,KN_CEN_ALL(KN_CEN_I)%RAT
+	  END DO
+	  KN_CEN_H2=0
+	  DO KN_CEN_K=1,KN_ND
+	    DO KN_CEN_I=1,KN_CEN_NB
+	      KN_CEN_H2(KN_CEN_K,KN_CEN_I)=
+	1     SUM(KN_CEN_HIST(:,1,KN_CEN_K,KN_CEN_I))+
+	2     SUM(KN_CEN_HIST(:,2,KN_CEN_K,KN_CEN_I))
+	    END DO
+	  END DO
+	  DO KN_CEN_K=1,KN_ND
+	    KN_CEN_NALL=SUM(KN_CEN_H2(KN_CEN_K,:))
+	    IF(KN_CEN_NALL .GT. 0)THEN
+	      WRITE(LUER,'(A,I4,A,I8)')
+	1     '    KN-CEN map K=',KN_CEN_K,' exceed=',KN_CEN_NALL
+	      DO KN_CEN_I=1,KN_CEN_NB
+	        IF(KN_CEN_H2(KN_CEN_K,KN_CEN_I) .GT. 0)THEN
+	          WRITE(LUER,'(A,I4,A,I8)')
+	1         '      b',KN_CEN_I,'x',KN_CEN_H2(KN_CEN_K,KN_CEN_I)
+	        END IF
+	      END DO
+	    END IF
+	  END DO
+	  DEALLOCATE(KN_CEN_ALL,KN_CEN_H2)
 	END IF
 	T1_W=OMP_GET_WTIME()-T0
 !
@@ -8669,6 +9052,15 @@ C
 	KN_QC_READY=.FALSE.
 	IF(ALLOCATED(KN_JT))DEALLOCATE(KN_JT)
 	KN_JT_READY=.FALSE.
+	IF(ALLOCATED(KN_CEN_NCELL))DEALLOCATE(KN_CEN_NCELL)
+	IF(ALLOCATED(KN_CEN_NSKV))DEALLOCATE(KN_CEN_NSKV)
+	IF(ALLOCATED(KN_CEN_NFLR))DEALLOCATE(KN_CEN_NFLR)
+	IF(ALLOCATED(KN_CEN_NEXC))DEALLOCATE(KN_CEN_NEXC)
+	IF(ALLOCATED(KN_CEN_HIST))DEALLOCATE(KN_CEN_HIST)
+	IF(ALLOCATED(KN_CEN_JMAX))DEALLOCATE(KN_CEN_JMAX)
+	IF(ALLOCATED(KN_CEN_TOP))DEALLOCATE(KN_CEN_TOP)
+	KN_CEN_READY=.FALSE.
+	IF(ALLOCATED(KN_GEO_REPS))DEALLOCATE(KN_GEO_REPS)
 	RETURN
 !
 ! ----------------------------------------------------------------
@@ -12187,7 +12579,8 @@ C
 	REAL(KIND=LDP) VMAX_S(NCF)
 	REAL(KIND=LDP) VR,JT_BEST,JT_V1S
 	INTEGER JT_KS,JT_KC,JT_JP,JT_L2,JT_NSKIP
-	LOGICAL L_DIAG
+	INTEGER KN_CEN_IB,KN_CEN_IT
+	LOGICAL L_DIAG,L_CEN
 	FG_JUMP_MAX=0.0_LDP
 !
 ! KN_JUMP_DIAG (diagnostic, read-only): track the cell behind the
@@ -12196,6 +12589,7 @@ C
 ! tie rule are documented at the KN_JT_REC declaration.
 !
 	L_DIAG=KN_JUMP_DIAG .AND. KN_JT_READY
+	L_CEN=KN_JUMP_DIAG .AND. KN_CEN_READY
 	JT_BEST=0.0_LDP; JT_V1S=0.0_LDP
 	JT_KS=0; JT_KC=0; JT_JP=0; JT_L2=0; JT_NSKIP=0
 !
@@ -12228,6 +12622,8 @@ C
 	1   (JP2 .LT. 1 .OR. JP2 .GT. NI))JT_NSKIP=JT_NSKIP+1
 	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
 	      DO LS2=2,NCF
+	        IF(L_CEN)KN_CEN_NCELL(LS,ICH)=
+	1       KN_CEN_NCELL(LS,ICH)+1
 	        V1=FLD(JP2,LS2)
 	        IF(.NOT.(ABS(V1) .LE. HUGE(V1)))THEN
 	          IF(L_DIAG)THEN
@@ -12245,6 +12641,7 @@ C
 	            KN_JT(LS,ICH)%NSKIP=JT_NSKIP
 	            KN_JT(LS,ICH)%JVAL=HUGE(FG_JUMP_MAX)
 	          END IF
+	          IF(L_CEN)KN_CEN_JMAX(LS,ICH)=HUGE(FG_JUMP_MAX)
 	          FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	          RETURN
 	        END IF
@@ -12264,6 +12661,8 @@ C
 ! peak. REF<=0 means no sane sibling sample (true cold start)
 ! and the fill stays exempt.
 	        IF(VMAX_S(LS2) .LE. 1.0E-28_LDP)THEN
+	          IF(L_CEN)KN_CEN_NFLR(LS,ICH)=
+	1         KN_CEN_NFLR(LS,ICH)+1
 	          IF(REF(LS2) .GT. 1.0E-28_LDP .AND.
 	1          V1 .GT. FG_COMMIT_JUMP*REF(LS2))THEN
 	            IF(L_DIAG)THEN
@@ -12282,18 +12681,60 @@ C
 	              KN_JT(LS,ICH)%NSKIP=JT_NSKIP
 	              KN_JT(LS,ICH)%JVAL=HUGE(FG_JUMP_MAX)
 	            END IF
+	            IF(L_CEN)KN_CEN_JMAX(LS,ICH)=HUGE(FG_JUMP_MAX)
 	            FG_JUMP_MAX=HUGE(FG_JUMP_MAX)
 	            RETURN
 	          END IF
 	          CYCLE
 	        END IF
 	        V2=STORE(KC,LS,LS2-1)
-	        IF(V2 .LE. 0.0_LDP .OR. .NOT.(ABS(V2) .LE. HUGE(V2)))CYCLE
+	        IF(V2 .LE. 0.0_LDP .OR. .NOT.(ABS(V2) .LE. HUGE(V2)))THEN
+	          IF(L_CEN)KN_CEN_NSKV(LS,ICH)=
+	1         KN_CEN_NSKV(LS,ICH)+1
+	          CYCLE
+	        END IF
 	        VR=ABS(V1-V2)/
 	1        MAX(V2,VMAX_S(LS2)/FG_COMMIT_JUMP)
 	        IF(L_DIAG .AND. VR .GT. JT_BEST)THEN
 	          JT_BEST=VR; JT_V1S=V1
 	          JT_KS=KS; JT_KC=KC; JT_JP=JP2; JT_L2=LS2
+	        END IF
+!
+! KN_CEN (diagnostic): per-ray exceed counter, coarse
+! (depth,log-frequency-band) histogram and the KN_CEN_NTOP
+! largest-VR records. Top insertion is strict >, so the first
+! cell in (KS,LS2) scan order wins ties -- the same rule the
+! KN_JT trigger record uses.
+!
+	        IF(L_CEN)THEN
+	          IF(VR .GT. FG_COMMIT_JUMP)THEN
+	            KN_CEN_NEXC(LS,ICH)=KN_CEN_NEXC(LS,ICH)+1
+	            KN_CEN_IB=1+INT(LOG(REAL(LS2,KIND=LDP))/
+	1           LOG(REAL(NCF,KIND=LDP))*KN_CEN_NB)
+	            KN_CEN_IB=MAX(1,MIN(KN_CEN_NB,KN_CEN_IB))
+	            KN_CEN_HIST(LS,ICH,KS,KN_CEN_IB)=
+	1           KN_CEN_HIST(LS,ICH,KS,KN_CEN_IB)+1
+	          END IF
+	          IF(VR .GT. KN_CEN_TOP(LS,ICH,KN_CEN_NTOP)%VR)THEN
+	            KN_CEN_IT=KN_CEN_NTOP
+	            DO WHILE(KN_CEN_IT .GT. 1 .AND.
+	1           VR .GT. KN_CEN_TOP(LS,ICH,KN_CEN_IT-1)%VR)
+	              KN_CEN_TOP(LS,ICH,KN_CEN_IT)=
+	1             KN_CEN_TOP(LS,ICH,KN_CEN_IT-1)
+	              KN_CEN_IT=KN_CEN_IT-1
+	            END DO
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%RS=LS
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%CH=ICH
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%KS=KS
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%KC=KC
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%JP=JP2
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%L2=LS2
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%V1=V1
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%V2=V2
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%VMS=VMAX_S(LS2)
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%VR=VR
+	            KN_CEN_TOP(LS,ICH,KN_CEN_IT)%RAT=V1/V2
+	          END IF
 	        END IF
 	        FG_JUMP_MAX=MAX(FG_JUMP_MAX,VR)
 	      END DO
@@ -12319,6 +12760,7 @@ C
 	  KN_JT(LS,ICH)%JVAL=FG_JUMP_MAX
 	  KN_JT(LS,ICH)%NSKIP=JT_NSKIP
 	END IF
+	IF(L_CEN)KN_CEN_JMAX(LS,ICH)=FG_JUMP_MAX
 	RETURN
 	END
 !
