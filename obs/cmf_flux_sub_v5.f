@@ -220,7 +220,8 @@
 !
 	INTEGER NUM_SIM_LINES
 	INTEGER SOB_MASER_DROP	!masing (depth,line) cells dropped by ADD_SOB_LINE_PROF
-	REAL(KIND=LDP) SOB_DROP_EMIS,SOB_INJ_EMIS	!clumped emissivity dropped/injected
+	INTEGER N_BLANK_TRT,N_SOB_TRT,N_OTH_TRT	!per-line treatment census
+	REAL(KIND=LDP) SOB_DROP_EMIS,SOB_INJ_EMIS	!emissivity dropped/injected
 	INTEGER SIM_INDX
 	INTEGER TMP_MAX_SIM
 	REAL(KIND=LDP) OVER_FREQ_DIF
@@ -1061,6 +1062,44 @@
 	      VEC_TRANS_TYPE(I)='SOB'
 	    END IF
 	  END DO
+	END IF
+!
+! Transition-treatment census.  Every line lands in exactly one
+! spectral channel: 'BLANK' lines are inserted into the CMF grid by
+! INS_LINE_V5 and blanketed; 'SOB' lines are excluded from that grid
+! and reach the observed spectrum only through the DO_SOB_FLUX_OBS
+! deposit - with the flag off they carry no observed flux (EW
+! estimates only, the upstream semantics).  Any other TRANS_TYPE
+! matches neither channel, so the line is invisible to both - name
+! it rather than letting it drop silently.  NOT flag-gated: the
+! stock path gains a few LUER lines per call but no numerical
+! change, and the omission it reports is silent in upstream too.
+!
+	N_BLANK_TRT=0
+	N_SOB_TRT=0
+	N_OTH_TRT=0
+	DO I=1,N_LINE_FREQ
+	  IF(VEC_TRANS_TYPE(I) .EQ. 'BLANK')THEN
+	    N_BLANK_TRT=N_BLANK_TRT+1
+	  ELSE IF(VEC_TRANS_TYPE(I)(1:3) .EQ. 'SOB')THEN
+	    N_SOB_TRT=N_SOB_TRT+1
+	  ELSE
+	    N_OTH_TRT=N_OTH_TRT+1
+	    WRITE(LUER,'(A,I7,2A)')'  transition',I,' TRANS_TYPE=',
+	1     VEC_TRANS_TYPE(I)
+	  END IF
+	END DO
+	WRITE(LUER,'(A,3(1X,I8))')
+	1   ' Transition treatment census: BLANK,SOB,other =',
+	2   N_BLANK_TRT,N_SOB_TRT,N_OTH_TRT
+	IF(N_OTH_TRT .GT. 0)THEN
+	  WRITE(LUER,'(A)')'  The above are invisible to both the'//
+	1   ' blanketing solve and the Sobolev deposit.'
+	END IF
+	IF(N_SOB_TRT .GT. 0 .AND. .NOT. DO_SOB_FLUX_OBS)THEN
+	  WRITE(LUER,'(1X,I8,A)')N_SOB_TRT,
+	1   ' SOB transitions carry no observed flux'//
+	2   ' (DO_SOB_FLUX_OBS=F); EW estimates only.'
 	END IF
 !
 	DO ML=1,N_LINE_FREQ
