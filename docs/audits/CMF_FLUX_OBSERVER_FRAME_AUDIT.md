@@ -190,8 +190,8 @@ built from the same corrected DTAU. Manufactured tests show thin-model
 STAU/ETAZ agreement at 5e-9 and convergence of the thick-model
 difference with ray resolution (9.6% -> 3.9% at 4x insertions).
 
-**D2. ADD_SOB_LINE_PROF production vs .INC divergence (Pillar 4/5).**
-Two implementations exist with different clumping conventions and
+**D2. ADD_SOB_LINE_PROF production vs .INC divergence (Pillar 4/5). FIXED**
+Two implementations existed with different clumping conventions and
 different signatures:
 - Production (`cmf_flux_sub_v5.f:3157-3379`): deposits
   `CHIL_MAT(I,S)*WT`, `ETAL_MAT(I,S)*WT` - UNCLUMPED, matching the
@@ -199,15 +199,18 @@ different signatures:
   Signature includes `ARAD_VEC`, `C4_VEC`, `ED_IN` for
   `DO_SOB_DEP_WINGS`/`DO_SOB_DEP_FLOOR`; has the per-line >10% maser
   drop report.
-- `.INC` copy (`obs/ADD_SOB_LINE_PROF.INC:127-138`): deposits
+- `.INC` copy (`obs/ADD_SOB_LINE_PROF.INC:127-138`): deposited
   `CHIL_MAT*CLUMP_FAC`, `ETAL_MAT*CLUMP_FAC` - CLUMPED at deposit,
-  which would double-clump under the render fold; lacks the
+  which would have double-clumped under the render fold; lacked the
   wings/floor arguments and the per-line report.
-The in-file comment says "keep the two in sync"; they are not. Unit
-tests compiling the `.INC` therefore validate a convention the
-production renderer no longer uses (and would over-weight line
-opacity by `CLUMP_FAC`). The production convention (unclumped deposit)
-is the self-consistent one.
+The in-file comment said "keep the two in sync"; they were not.
+`test_sob_flux_obs` even asserted the clumped-deposit expectation.
+FIX: `obs/ADD_SOB_LINE_PROF.INC` now holds the production routine
+verbatim and `cmf_flux_sub_v5.f` INCLUDEs it - a single copy compiled
+by production and tests. `test_sob_flux_obs` now asserts the
+unclumped convention (deposit independent of CLUMP_FAC, integral =
+CHIL*1e-15) plus static pins that the .INC has no CLUMP_FAC factor
+and the render fold exists exactly once.
 
 **D3. Blue-edge guard asymmetry at loc 1 (Pillar 6, latent). FIXED**
 The loc-1 frequency hunt (`obs_frame_sub_v9.f:824-866`) only hunted K
