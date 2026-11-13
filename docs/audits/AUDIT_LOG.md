@@ -120,3 +120,21 @@ never inferred from a lower one.
 - Tests: new alloc-failure-path checks, all 172 pass,
 test_knop_ray 43/43, build clean. Diagnostic run still not
 submitted.
+
+## 2026-11-13 - Phase-4 measurement run 13117853
+
+- Staged p4_qargmax run manually (pipeline conversion bypassed):
+  Phase-4 exe 3457bbb2, iso_M it157 checkpoint verified
+  (FGINEXT_GS 893143f3), neut2_QF config, KN_Q_RESID=T,
+  KN_FREEZE_COEF=F, KN_MAT_FREEZE=T. Job ran 24.5 min on
+  vipc2323, two refreshes at great iters ~158-159, scancelled.
+- Result: Q argmax ray 83 ch2 j=2 L=1330 is class C writable
+  (K=2, CDI=2, slot 1329). Store before==retained=2.79114E-28,
+  delta 0, verdict jump-reject (vc=1) both refreshes. Ray-level
+  FG_JUMP_MAX veto from an unidentified different cell freezes
+  the whole ray; the argmax cell's own delta ratio ~0.26.
+- VMAX_RAW=2.07e-28 proves the 1e-25 VMAXF was pure floor;
+  defect is ~80x the dead column's peak.
+- Race-free histogram valid for first time: ch2 max 80.58,
+  only ~116 cells DCELL>1 of ~1e8 samples.
+- Next: instrument FG_JUMP_MAX argmax to name the vetoing cell.
