@@ -276,7 +276,22 @@ compiles.
   Doppler transform.
 - Acceptance: powers + aberration documented; superluminal input
   rejected.
-- Status: OPEN
+- Status: DONE. See docs/audits/CMF_FLUX_P7_RELATIVISTIC_AUDIT.md
+  - Doppler convention derived from the photon four-momentum and
+    verified (NU_ON_NU0 = 1/GAM/(1-beta*mu), signed V_RAY kept);
+    GAM uses total radial speed; eta*D^2, chi/D, I*D^3 applied
+    exactly once at the local ray point.
+  - Defect fixed: diffusion IB seed evaluated J+3*mu*H with mu_obs;
+    now aberrated to mu_cmf=(mu_obs-beta)/(1-beta*mu_obs) at both
+    STAU and ETAZ sites, gated on DO_REL_CORRECTIONS.  mu_cmf<=0 is
+    the inward Eddington extension, documented.
+  - Defect fixed: T2<=0 warning + T2=1e-12 floor (GAM=1e6) replaced
+    by fail-closed validation - NON_FINITE_VELOCITY on the V grid,
+    SUPERLUMINAL_VELOCITY on grid and interpolated ray values
+    (ulp-level overshoot inside V_RTOL=64*eps reprojected only),
+    BAD_DOPPLER_DENOM on a non-positive 1-VMU.
+  - test_obs_frame_rel.py 26/26; OMP 1/2/4/8 bitwise deterministic;
+    P5 cov 15/15, P6 norm 54/54 (frozen-ref bitwise kept).
 
 ## P8. Electron scattering + KNOP maturity (Priority 8)
 
