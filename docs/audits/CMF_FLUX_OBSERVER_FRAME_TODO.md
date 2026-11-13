@@ -216,7 +216,27 @@ compiles.
 - Tests: reversing-V model engineered to hit edges; non-rel vs rel.
 - Acceptance: zero unexplained clamps on reference models; margin
   documented.
-- Status: OPEN
+- Status: DONE. See docs/audits/CMF_FLUX_P5_FREQUENCY_COVERAGE_AUDIT.md
+  for the full derivation. In short: the required CMF set for a band
+  is exactly [nu_lo*X_min, nu_hi*X_max] with X=(1-VMU)*GAM; the hunts
+  place the bounds inside FREQ_CMF and the +-10 pad keeps the SM
+  edges strictly outside them, so LOCAL undercoverage is unreachable
+  by construction - every clamp is GLOBAL undercoverage. Changes:
+  (a) a per-band serial assertion verifies the two bound comparisons
+  before the OpenMP loop and aborts with LOCAL_WINDOW_UNDERCOVERAGE
+  or GLOBAL_CMF_GRID_UNDERCOVERAGE; (b) the four edge clamps now
+  tolerate only the derived EDGE_TOL=1e-12 round-off band and abort
+  with the same named diagnostics plus (LS,OUT_ML,ML,I,T1,SM edges,
+  FREQ_CMF edges); (c) the census splits N_CLAMP_LOCAL/N_CLAMP_GLOBAL
+  with per-class worst records, all under OMP CRITICAL; (d) both
+  interpolation sites got a bracket-invariant guard (T1 finite, K in
+  [2,SM_NCF], denominator >0, T2 in [-eps,1+eps], ETA/CHI finite);
+  (e) X_MIN_RAY/X_MAX_RAY hoisted out of the band loop. Tests:
+  drv_obs_frame_cov (mono/reversing/negative V, rel mapping + non-rel
+  limit, NUM_BANDS 1-vs-2 bitwise equality, grid-extension bitwise
+  stability, CHI feature detection, blue+red undercoverage aborts);
+  OMP matrix bitwise at 1/2/4/8. Remaining: LOCAL coverage can only
+  fire on a construction regression (by design).
 
 ## P6. Angular integration and flux normalization (Priority 6)
 
