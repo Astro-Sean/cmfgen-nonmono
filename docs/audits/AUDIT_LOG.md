@@ -262,3 +262,87 @@ submitted.
   under-convergence is the root cause.
 - Status: PASS WITH LIMITATIONS; diagnostic-only; no solver or
   commit-policy change; no production-readiness claim.
+
+## 2026-11-13 (Phase-5.2 ray-83 no-compressing fast-exit probe: implementation)
+
+Implemented the diagnostic experiment recommended by the
+phase-5.1 audit: measure whether ray 83's expanding-only KNOP
+solve converges under the ordinary iteration once the
+.NOT. HAS_CP forced-clean-exit shortcut is bypassed, without
+letting the measured candidate touch the retained store.
+
+Source changes (all diagnostic-only, default off):
+
+- plane/fg_j_cmf_nonmono_v1.f: KN_NOCP_PROBE/KN_NOCP_PROBE_LS
+  module state + KN_NOCP_PROBE_RAY predicate + SET_FG_NOCP_PROBE;
+  .NOT. HAS_CP exits in SWEEP_FLD and SWEEP_FLD_ORD gated on
+  .NOT. L_NOPROBE; per-pass NOP_PASS/NOP_CELL telemetry
+  (residual, |VNEW-VOLD| at argmax via WRC_ADEL, omega
+  snapshot, same-direction ratio with freshness flag, five
+  DCELL threshold counts inside the NBAD_CUR significance
+  gate, hot flag, per-direction pass/exit recording);
+  commit isolation (WRITE_STORE, WRITE_STORE_CAP, seed flag,
+  HEAL_STORE all skipped for the probe ray; would-be verdict
+  kept in NOP_VC, FG_RAY_VC=7); refresh-level KN_NOP_ARM
+  index validation and before/after store checksums.
+- new_main/mod_subs/control_variable_mod.f: VADAT declarations.
+- new_main/mod_subs/rd_control_variables.f: VADAT reads +
+  setter call.
+- unit_tests/python/test_knop_lagged_field.py: 27 new pins
+  plus updated HAS_CP-exit and seed-waiver regex windows.
+
+Part-1 audit findings (recorded in results section 26.2):
+SWEEP_FLD fast exit fires after pass 1, SWEEP_FLD_ORD after
+pass 2; the just-measured RES is overwritten by RES=0; OMEGA
+is per-sweep reset and ratio-damped; M/P are fully separate
+solves; the L_QP verify path cannot be reused for iteration.
+
+Verification: single-file ifort compiles clean for all three
+sources; full python suite passes. Full ./build.sh and the
+two-job baseline/probe experiment pending at log time.
+
+Strict non-change list honoured: no transfer equation, GAM,
+MATCH_FREQ, source coupling, boundary, opacity/emissivity,
+population solver, KN_RAY_TOL, pass cap, commit threshold or
+sibling-reference change; no new default-on diagnostic; no
+convergence claim from IXIT=0/RES=0.
+
+## 2026-11-13 (Phase-5.2 build, submission and static validation)
+
+./build.sh completed clean for the Fortran tree; both
+cmfgen_dev.exe and the obs binaries were produced. Unit
+suite: 86/89 test files pass; the three failures are
+environmental and pre-existing (two hardcode missing
+/ptmp fixture paths, one needs the unbuilt opac/ module);
+test_sob_prof recovered after an obs/ object rebuild.
+Source revision f8c9573f + the uncommitted phase-5.2 diff;
+exe md5 2f8fc36c888118dda3a8a4b1bcd80e85 identical for the
+tree exe and the cmfgen_p8_install copy both jobs use.
+
+Jobs: baseline dessart_m15_2p82d_KNOP_p8_base FINAL
+13129245 (RUNNING, 2 OpenMP threads launcher-resolved),
+probe dessart_m15_2p82d_KNOP_p8_probe FINAL 13129255
+(PENDING at log time); OBS dependents 13129246/13129256.
+Checkpoint FGINEXT_GS md5 893143f3c47405f23d4c7aca57d64080
+and SN_HYDRO_DATA md5 ea6c5d5bd2d1c0ae785d70d4c9a56053
+verified identical across iso_M, p8_base and p8_probe.
+Resolved-config diff confirms the only VADAT delta is
+KN_NOCP_PROBE=T + KN_NOCP_PROBE_LS=83; baseline VADAT
+carries no KN_NOCP keys.
+
+Static validation recorded in results section 26.5:
+FG_RAY_VC=7 matches no verdict COUNT()/MAXVAL mask so the
+probe ray is excluded from every commit-verdict counter
+and maturity inputs (maturity reads residuals, not VC);
+NOP_VC captures the would-be verdict before the 7
+overwrite; WRITE_STORE/WRITE_STORE_CAP/HEAL_STORE are the
+only store writers inside KNOP_RAY_SOLVE_V1 and all are
+probe-guarded; the per-frequency in-place store writeback
+in FG_J_CMF_NONMONO_V1 is a separate mechanism outside the
+refresh window the checksums bracket. Bounded caveat: the
+refresh scalar counters FG_NC_CAP/FG_NC_REJ can still count
+a probe ray's would-be capped/nc-rejected verdict (+1 max);
+per-ray truth is preserved by NOP_VC and VC=7.
+
+Awaiting runtime KN-NOP pass histories and before/after
+store checksums for the interpretation gate.
