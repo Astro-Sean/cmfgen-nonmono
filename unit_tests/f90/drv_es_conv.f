@@ -34,9 +34,11 @@ C
       REAL(KIND=LDP), ALLOCATABLE :: J_STORE(:,:)
       REAL(KIND=LDP), ALLOCATABLE :: J_IN(:,:)
       REAL(KIND=LDP), ALLOCATABLE :: RJ_CONT(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: J_LINE(:,:)
       REAL(KIND=LDP), ALLOCATABLE :: NU(:)
       REAL(KIND=LDP) T(ND)
-      REAL(KIND=LDP) NU0,DNU,AMP,NU_HI,NU_LO
+      REAL(KIND=LDP) NU0,DNU,AMP,NU_HI,NU_LO,TTST,DLN
+      CHARACTER(LEN=20) FNAME
 C
 C COMMON blocks required by COMP_J_CONV_V2.
 C
@@ -47,7 +49,7 @@ C
 C
       CHARACTER(LEN=256) OUT_DIR,SARG
       CHARACTER(LEN=32) MODE
-      INTEGER I,K,ML,NCF,CONT_REC,LUDUM
+      INTEGER I,K,ML,NCF,NCF_P,NEXT,CONT_REC,LUDUM
       LOGICAL L_FALSE
       REAL(KIND=LDP) BB,T1
 C
@@ -62,7 +64,8 @@ C
       AMP=100.0_LDP
       CALL GETARG(3,SARG)
       IF(LEN_TRIM(SARG) .GT. 0)THEN
-        IF(MODE .EQ. 'grid')THEN
+        IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
+     1     MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
           READ(SARG,*)NCF
         ELSE IF(MODE .EQ. 'qray')THEN
           READ(SARG,*)AMP
@@ -72,14 +75,25 @@ C
       ELSE IF(MODE .EQ. 'qray')THEN
         AMP=0.025_LDP
       END IF
-      CALL GETARG(4,SARG)
-      IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)DNU
-      CALL GETARG(5,SARG)
-      IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)AMP
+C tempu passes the uniform temperature through NU0.
+      TTST=NU0
+      IF(MODE .NE. 'linepair')THEN
+        CALL GETARG(4,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)DNU
+        CALL GETARG(5,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)AMP
+      ELSE
+        CALL GETARG(4,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)NU0
+        CALL GETARG(5,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)DNU
+        CALL GETARG(6,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)AMP
+      END IF
 C
       IF(NCF .GT. NCFMX)STOP 'NCF>NCFMX'
       ALLOCATE(J_STORE(ND,NCF),J_IN(ND,NCF),RJ_CONT(ND,NCF),
-     1     NU(NCF))
+     1     J_LINE(ND,NCF),NU(NCF))
 C
       CHIBF=0.0_LDP
       CHIFF=0.0_LDP
@@ -101,10 +115,26 @@ C production range where e.s. redistribution acts.
 C
       NU_HI=300.0_LDP
       NU_LO=0.02_LDP
-      DO ML=1,NCF
-        NU(ML)=EXP( LOG(NU_HI)+(LOG(NU_LO)-LOG(NU_HI))*
+      IF(MODE .EQ. 'bnd')THEN
+C Extended domain: the production log spacing is continued NEXT
+C points beyond BOTH ends, so every production node coincides
+C exactly with an extended node.  The truncated/extended
+C comparison then isolates the boundary treatment of the
+C operator; interpolating between different spacings would
+C measure resolution error on steep slopes instead.
+        NCF_P=NCF
+        NEXT=NCF_P/4
+        NCF=NCF_P+2*NEXT
+        DLN=LOG(NU_HI/NU_LO)/(NCF_P-1.0_LDP)
+        DO ML=1,NCF
+          NU(ML)=NU_HI*EXP((NEXT-(ML-1.0_LDP))*DLN)
+        END DO
+      ELSE
+        DO ML=1,NCF
+          NU(ML)=EXP( LOG(NU_HI)+(LOG(NU_LO)-LOG(NU_HI))*
      1            (ML-1.0_LDP)/(NCF-1.0_LDP) )
-      END DO
+        END DO
+      END IF
 C
       J_STORE(:,:)=0.0_LDP
       IF(MODE .EQ. 'planck' .OR. MODE .EQ. 'grid')THEN
@@ -158,6 +188,39 @@ C RJ_CONT keeps the unbumped continuum for the ETA definition.
      4        (1.0_LDP-0.5_LDP*(K-1.0_LDP)/(ND-1.0_LDP))
           END DO
         END DO
+      ELSE IF(MODE .EQ. 'tempu')THEN
+C Uniform temperature at every depth: isolates the local
+C beta(T)=1.84E-3*sqrt(T) width dependence from the
+C Planck-preserving correction (the old 'temp' mode mixed
+C different T per depth with a single B(T3) field).
+        DO K=1,ND
+          T(K)=TTST
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(TTST,NU(ML))
+          END DO
+        END DO
+      ELSE IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
+C Diluted continuum plus narrow Gaussians close to the
+C PRODUCTION frequency bounds (NU=0.02 and NU=300 on the
+C production grid): on the extended grid those features sit in
+C the interior, so the truncated/extended comparison exposes the
+C boundary distortion of the tridiagonal operator.
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=(0.3_LDP+0.5_LDP*(K-1.0_LDP)/
+     1        (ND-1.0_LDP))*BB(T(3),NU(ML)) +
+     2        20.0_LDP*BB(T(3),1.76_LDP)*
+     3        EXP(-0.5_LDP*((NU(ML)-0.06_LDP)/0.012_LDP)**2) +
+     4        20.0_LDP*BB(T(3),1.76_LDP)*
+     5        EXP(-0.5_LDP*((NU(ML)-200.0_LDP)/15.0_LDP)**2)
+          END DO
+        END DO
+      ELSE IF(MODE .EQ. 'linepair')THEN
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(T(K),NU(ML))
+          END DO
+        END DO
       ELSE IF(MODE .EQ. 'pos')THEN
         DO K=1,ND
           DO ML=1,NCF
@@ -175,6 +238,52 @@ C RJ_CONT keeps the unbumped continuum for the ETA definition.
         STOP 'unknown mode'
       END IF
 C
+      IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
+     1   MODE .EQ. 'bndp')THEN
+        WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF
+      ELSE IF(MODE .EQ. 'bnd')THEN
+        WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF_P
+      ELSE
+        FNAME=MODE
+      END IF
+C
+      IF(MODE .EQ. 'linepair')THEN
+C Baseline-subtracted smearing measurement: convolve the plain
+C continuum and the continuum+feature separately through the
+C real operator so the excess (CONV(J_line)-CONV(J_cont)) can be
+C measured against the input excess.
+        J_IN(:,:)=J_STORE(:,:)
+        CALL COMP_J_CONV_V2(J_STORE,NCF*ND,NU,T,ND,NCF,
+     1       LUDUM,'J PASSED VIA CALL',CONT_REC,L_FALSE,L_FALSE,
+     2       LUDUM,'RETURN J VIA CALL')
+        RJ_CONT(:,:)=J_STORE(:,:)
+        DO K=1,ND
+          DO ML=1,NCF
+            J_LINE(K,ML)=J_IN(K,ML)+
+     1        AMP*BB(T(3),NU0)*
+     2        EXP(-0.5_LDP*((NU(ML)-NU0)/DNU)**2)
+          END DO
+        END DO
+        J_STORE(:,:)=J_LINE(:,:)
+        CALL COMP_J_CONV_V2(J_STORE,NCF*ND,NU,T,ND,NCF,
+     1       LUDUM,'J PASSED VIA CALL',CONT_REC,L_FALSE,L_FALSE,
+     2       LUDUM,'RETURN J VIA CALL')
+        OPEN(LU_OUT,FILE=TRIM(OUT_DIR)//'/esconv_'//
+     1       TRIM(FNAME)//'.txt',STATUS='UNKNOWN')
+        WRITE(LU_OUT,'(A,I3,A,I5)')'# ND=',ND,' NCF=',NCF
+        WRITE(LU_OUT,'(A)')'# ML NU T J_CONT JBAR_CONT'//
+     1    ' J_LINE JBAR_LINE'
+        DO K=1,ND
+          DO ML=1,NCF
+            WRITE(LU_OUT,'(I5,ES27.17E3,ES15.7,4(ES27.17E3))')
+     1        ML,NU(ML),T(K),J_IN(K,ML),RJ_CONT(K,ML),
+     2        J_LINE(K,ML),J_STORE(K,ML)
+          END DO
+        END DO
+        CLOSE(LU_OUT)
+        STOP
+      END IF
+C
       J_IN(:,:)=J_STORE(:,:)
 C
       CALL COMP_J_CONV_V2(J_STORE,NCF*ND,NU,T,ND,NCF,
@@ -186,7 +295,7 @@ C
      1     ND,NCF,LU_OUT,AMP)
       ELSE
         OPEN(LU_OUT,FILE=TRIM(OUT_DIR)//'/esconv_'//
-     1       TRIM(MODE)//'.txt',STATUS='UNKNOWN')
+     1       TRIM(FNAME)//'.txt',STATUS='UNKNOWN')
         WRITE(LU_OUT,'(A,I3,A,I5)')'# ND=',ND,' NCF=',NCF
         WRITE(LU_OUT,'(A)')'# ML NU T J_IN JBAR'
         DO K=1,ND
