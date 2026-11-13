@@ -6,22 +6,33 @@ C The routine is exercised in its 'J PASSED VIA CALL' /
 C 'RETURN J VIA CALL' mode so no EDDFACTOR/ES_J_CONV files are
 C needed: the manufactured J goes in, the convolved J comes back.
 C
-C Usage: drv_es_conv <out_dir> <mode> [arg3] [arg4] [arg5]
+C Usage: drv_es_conv <out_dir> <mode> [arg3..arg6]
 C   modes:
 C     planck   J = B_nu(T(K))            - Planck preservation
 C     const    J = const                 - constant-field response
 C     line     J = B + narrow Gaussian   - spectral feature smearing
 C     edge     narrow features near grid ends
-C     temp     J = B(Tmid) at all depths - pure T dependence of BETA
+C     tempu    J = B(TTST) uniform T     - pure T dependence of BETA
 C     pos      J = B with zeroed blocks  - positivity
 C     grid     J = B(T) at arg3 = NCF    - grid-refinement series
+C     linepair cont and cont+feature convolved separately on the
+C              production grid (arg3=NCF, arg4=NU0, arg5=DNU,
+C              arg6=AMP) - baseline-subtracted smearing
+C     bndp     live features at both production bounds, production
+C              grid (arg3=NCF)
+C     bnd      same field on the appended-node extended grid
+C              (arg3=NCF_P; NCF=NCF_P+NCF_P/2 internally)
+C     linext   linepair on the same extended grid - boundary
+C              sensitivity of the smeared feature
 C     qray     INC_RAY manufactured atmosphere; emits both
 C              emissivity conventions + all fields for the
 C              CHI_RAY*(RJ_ES-RJ) measurement
 C
-C   arg3 = NCF for grid (default 256), NU0 for line/edge
-C   arg4 = Gaussian width (line) or unused
-C   arg5 = peak amplitude factor (line)
+C   arg3 = NCF for grid/linepair/linext/bnd/bndp, NU0 for
+C          line/edge/tempu, AMP for qray
+C   arg4 = Gaussian width (line) / NU0 (linepair,linext)
+C   arg5 = peak amplitude (line) / DNU (linepair,linext)
+C   arg6 = AMP (linepair,linext)
 C
       PROGRAM DRV_ES_CONV
       USE SET_KIND_MODULE
@@ -65,6 +76,7 @@ C
       CALL GETARG(3,SARG)
       IF(LEN_TRIM(SARG) .GT. 0)THEN
         IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
+     1     MODE .EQ. 'linext' .OR.
      1     MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
           READ(SARG,*)NCF
         ELSE IF(MODE .EQ. 'qray')THEN
@@ -77,7 +89,17 @@ C
       END IF
 C tempu passes the uniform temperature through NU0.
       TTST=NU0
-      IF(MODE .NE. 'linepair')THEN
+C
+C Extended-domain modes: resolve the true NCF BEFORE allocating -
+C the arrays must span the extended grid or the convolver walks
+C out of bounds into the neighbouring allocation.
+      NCF_P=NCF
+      NEXT=0
+      IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext')THEN
+        NEXT=NCF_P/4
+        NCF=NCF_P+2*NEXT
+      END IF
+      IF(MODE .NE. 'linepair' .AND. MODE .NE. 'linext')THEN
         CALL GETARG(4,SARG)
         IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)DNU
         CALL GETARG(5,SARG)
@@ -115,16 +137,13 @@ C production range where e.s. redistribution acts.
 C
       NU_HI=300.0_LDP
       NU_LO=0.02_LDP
-      IF(MODE .EQ. 'bnd')THEN
+      IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext')THEN
 C Extended domain: the production log spacing is continued NEXT
 C points beyond BOTH ends, so every production node coincides
 C exactly with an extended node.  The truncated/extended
 C comparison then isolates the boundary treatment of the
 C operator; interpolating between different spacings would
 C measure resolution error on steep slopes instead.
-        NCF_P=NCF
-        NEXT=NCF_P/4
-        NCF=NCF_P+2*NEXT
         DLN=LOG(NU_HI/NU_LO)/(NCF_P-1.0_LDP)
         DO ML=1,NCF
           NU(ML)=NU_HI*EXP((NEXT-(ML-1.0_LDP))*DLN)
@@ -200,22 +219,24 @@ C different T per depth with a single B(T3) field).
           END DO
         END DO
       ELSE IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
-C Diluted continuum plus narrow Gaussians close to the
-C PRODUCTION frequency bounds (NU=0.02 and NU=300 on the
-C production grid): on the extended grid those features sit in
-C the interior, so the truncated/extended comparison exposes the
-C boundary distortion of the tridiagonal operator.
+C Diluted continuum plus features that stay ALIVE at the
+C production frequency bounds (NU=0.02 and NU=300): each
+C Gaussian sits ~1.7 sigma inside the end node so the field
+C and its ln(nu) curvature are significant where the
+C one-sided endpoint stencils act. Absolute amplitudes are
+C used - the Planck continuum is Wien-dead at both ends for
+C T=1e4 K, so scaling to B there would zero the features.
         DO K=1,ND
           DO ML=1,NCF
             J_STORE(K,ML)=(0.3_LDP+0.5_LDP*(K-1.0_LDP)/
      1        (ND-1.0_LDP))*BB(T(3),NU(ML)) +
-     2        20.0_LDP*BB(T(3),1.76_LDP)*
-     3        EXP(-0.5_LDP*((NU(ML)-0.06_LDP)/0.012_LDP)**2) +
-     4        20.0_LDP*BB(T(3),1.76_LDP)*
-     5        EXP(-0.5_LDP*((NU(ML)-200.0_LDP)/15.0_LDP)**2)
+     2        0.5_LDP*
+     3        EXP(-0.5_LDP*((NU(ML)-0.045_LDP)/0.015_LDP)**2)+
+     4        0.5_LDP*
+     5        EXP(-0.5_LDP*((NU(ML)-260.0_LDP)/25.0_LDP)**2)
           END DO
         END DO
-      ELSE IF(MODE .EQ. 'linepair')THEN
+      ELSE IF(MODE .EQ. 'linepair' .OR. MODE .EQ. 'linext')THEN
         DO K=1,ND
           DO ML=1,NCF
             J_STORE(K,ML)=BB(T(K),NU(ML))
@@ -241,13 +262,13 @@ C
       IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
      1   MODE .EQ. 'bndp')THEN
         WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF
-      ELSE IF(MODE .EQ. 'bnd')THEN
+      ELSE IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext')THEN
         WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF_P
       ELSE
         FNAME=MODE
       END IF
 C
-      IF(MODE .EQ. 'linepair')THEN
+      IF(MODE .EQ. 'linepair' .OR. MODE .EQ. 'linext')THEN
 C Baseline-subtracted smearing measurement: convolve the plain
 C continuum and the continuum+feature separately through the
 C real operator so the excess (CONV(J_line)-CONV(J_cont)) can be
