@@ -329,15 +329,39 @@ is written before phase 2, so phase-2 cannot contaminate it - verified
 by ordering (:2379 write precedes phase-2 render). UNVERIFIED: no
 guard prevents a second `DO_SOB_FLUX_OBS` pass.
 
+**P11. TRANS_TYPE values matching no spectral channel.** Every line
+lands in exactly one of: 'BLANK' -> inserted into the CMF grid by
+`INS_LINE_V5`/`INS_LINE_OBS_V4` and blanketed; 'SOB' -> excluded
+from that grid, reaching the observed spectrum only via the
+`DO_SOB_FLUX_OBS` deposit (flag off = EW estimate only, upstream
+semantics). Any other `TRANS_TYPE` - e.g. 'CMF' from `TRANS_*='CMF'`
+or `GLOBAL_LINE='CMF'`, an accepted VADAT value - matches neither
+channel and was previously invisible in the observed spectrum with
+no diagnostic (a longstanding upstream quirk, verified in
+`cmfgen_reference/cur_cmf` - every inserter filters strictly on
+'BLANK'). ADDRESSED by census: `cmf_flux_sub_v5.f` now counts
+BLANK/SOB/other after `VEC_TRANS_TYPE` is finalized, names every
+unmatched transition, and warns when SOB lines exist with
+`DO_SOB_FLUX_OBS=F`. Diagnostic only (LUER lines); the upstream
+quirk itself is preserved - aborting on 'CMF' was rejected since
+CMF is a legitimate population-solve transfer choice whose
+observed-frame meaning is simply "not blanketed here".
+
 ## 5. Test coverage status
 
 - `unit_tests/` drivers exist for Sobolev machinery; `drv_sob_line_es.f`
-  exercises `SOB_LINE_ES_UPDATE` (orphan routine, P5). `.INC` Sobolev
-  deposit tests exercise the *stale* convention (D2).
-- No manufactured tests for: STAU/ETAZ boundary agreement, boundary
-  moment scaling, OpenMP reproducibility, clumping sweep (f=1/2/5),
-  angular integration vs `pi*I*(R/D)^2`, frequency/ray-resolution
-  convergence, superluminal rejection.
+  exercises `SOB_LINE_ES_UPDATE` (orphan routine, P5). The Sobolev
+  deposit tests now exercise the production routine via the shared
+  `.INC` (D2 fixed).
+- Manufactured tests now exist for: STAU/ETAZ boundary agreement and
+  boundary moment scaling (drv_obs_frame_ib, 10 checks), OpenMP
+  reproducibility at 1/2/4/8 threads, clump-independence of the
+  deposit (CLUMP_FAC in {0.5,1,1.5,2}), nonuniform-NU deposit
+  integrals, maser/blend-repair drops, off-grid and non-SOB skips,
+  negative-CHI STAU->ETAZ fallback, reversing-velocity ETAZ.
+- Still no manufactured tests for: angular integration vs
+  `pi*I*(R/D)^2`, frequency/ray-resolution convergence sweeps,
+  superluminal rejection, `DO_SOB_DEP_WINGS` Voigt path.
 - Prior audit open items still apply: no live numerical comparison of
   OBSFRAME vs OBSFLUX, no non-monotonic runtime validation of the
   render path, KNOP maturity gate absent (`GET_FG_GS_MATURITY` exists
