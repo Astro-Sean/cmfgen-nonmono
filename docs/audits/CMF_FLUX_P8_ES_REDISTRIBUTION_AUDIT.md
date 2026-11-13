@@ -315,7 +315,10 @@ coherent and convolves in memory (item 4 of section 7).
 RJ_ES site applies the product exactly once as the scattered
 emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
-to `sigma*J` consistently on both sides.
+to `sigma*J` consistently on both sides. The folding algebra
+is now backed by the executable battery in section 8.5
+(67 checks, all passing at the measured tolerances) plus the
+static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
 
@@ -373,54 +376,103 @@ to `sigma*J` consistently on both sides.
    `spec_plt/subs/do_clump_shift.f` read `RJ_ES`/`ES_J_CONV` as
    downstream consumers; they do not feed the flux chain.
 9. (Q-CITE) `comp_j_conv_v2.f:114` cites "Rybicki and Hummer A&A
-   290,553" (the 1994 redistribution-function fit); the task's
-   listed RH-1992 ALI reference is the correct basis for the
-   iteration scheme but is not the coefficient source. The code
-   comment is correct as far as it goes; no formula attribution
-   issue found.
+   290,553" - verified: Rybicki, G. B. & Hummer, D. G. 1994,
+   'An Accelerated Lambda Iteration Method for Multilevel
+   Radiative Transfer. III. Noncoherent Electron Scattering',
+   A&A 290, 553-562 (arXiv astro-ph/9404019). That paper IS the
+   coefficient source (the two-term exponential fit in ln nu
+   and the ACOEF/BCOEF constants) and the physical basis for
+   the line-wing/continuum-edge redistribution treatment. The
+   code comment is correct; the additional Planck-preserving
+   shift/rescale in the same routine is a CMFGEN extension
+   beyond the published fit.
 
 ## 8.5 Measured operator characterization (P8.1 acceptance tests)
 
 `unit_tests/f90/drv_es_conv.f` drives the real `COMP_J_CONV_V2`
-in 'J PASSED VIA CALL' mode; `unit_tests/f90/drv_es_render.f`
-renders manufactured emissivities through the real
-`OBS_FRAME_SUB_V9` (V=0 static atmosphere, ND=4). Harness:
-`unit_tests/python/test_es_conv.py`, 29/29 PASS, ifort
-`-O0 -g -traceback -extend-source -fpp -qopenmp
--mkl=sequential`, MKL sequential.
+in 'J PASSED VIA CALL' mode; `drv_es_render.f` renders
+manufactured emissivities through the real `OBS_FRAME_SUB_V9`
+(V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
+iteration ordering; `drv_knop_guard.f` drives the production
+store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
+`unit_tests/python/test_es_conv.py`, 67/67 PASS. Production
+tree sources link as the exact `.o` files the production
+executables use (`compile_and_link_prod`, ifort `-qopenmp`,
+MKL sequential); only drivers and the `obs_v9_adapter` shim
+compile fresh.
 
 The production operator is NOT a discrete kernel matrix. Per
-depth and per fit term L it solves the Helmholtz-type
-tridiagonal system
+depth and per Rybicki & Hummer fit term L it solves the
+Helmholtz-type tridiagonal system
 `(1 - (beta/BCOEF_L)^2 * d^2/dln nu^2) D = J` and sums
 `J_ES = sum_L ACOEF_L * D_L` (`comp_j_conv_v2.f:249-294`),
 followed by a Wien-side wavelength shift and a `B/B_es` rescale
 (`:302-354`). `beta = 1.84E-3*sqrt(T)` (`:269`) sets the
-smearing width at ~3-4% in ln nu for T=1e4 K (~8% at 5e4 K).
-Consequences for testing:
+smearing width; (beta/B_L)^2 ~ 1e-6 in ln nu at 1e4 K, i.e.
+the operator is a weak second-derivative smoother, narrower
+than any resolvable feature on production grids.
 
-- No row-sum (`sum(R)=1`) normalization test applies; the
-  operator's normalization is implicit in the Helmholtz
-  structure plus the Planck-preserving rescale.
-- A constant J is NOT returned unchanged: it maps to `B/B_es`
-  where the rescale is active and to 0 where `B` underflows
-  (3 grid points at the Wien edge on the manufactured grid).
-  Documented operator behaviour, not a defect.
-- The smallest resolvable feature is set by the grid, not the
-  kernel: on the manufactured NCF=256 grid (9.6 dex) the
-  spacing ~3.8% in ln nu nearly matches the operator width.
+Three implementation layers must be distinguished when
+interpreting these measurements: the physical redistribution
+integral (frequency-integrated, roughly conservative); the
+Rybicki & Hummer (1994, A&A 290, 553; arXiv astro-ph/9404019)
+two-term fitting approximation of that integral; and the
+production tridiagonal solve plus the ADDITIONAL
+Planck-preserving wavelength shift/rescale, which is a CMFGEN
+extension, not part of the published fit. Properties of the
+underlying integral (e.g. photon conservation) must not be
+asserted for the implementation; the measured integrated-excess
+drift below is the honest characterization.
 
-Measured battery results:
+Boundary treatment (from source, `comp_j_conv_v2.f:249-258,
+302-354`): rows 1 and NCF of the tridiagonal operator use the
+one-sided stencil `-2/(ln(nu_1/nu_2))^2` (and the symmetric
+form at NCF); the wavelength shift is derived only on the Wien
+side (`NU(I) > 1.5*TEMP(K)`), applied to all lower frequencies
+as a uniform wavelength offset; the interpolation back onto
+the grid skips both end points explicitly (the source comment
+notes the endpoints scatter coherently); interior edge points
+extrapolate if needed. This is the treatment the `bnd` test
+measures.
+
+Measured battery results (67/67 PASS):
 
 | case | result |
 | --- | --- |
 | planck `J=B(T)` | max rel 1.46e-5, rms 1.28e-6 (significant-J support; Wien-underflow masked) |
 | const | Jbar >= 0; B/B_es rescale documented; 3 zeros at Wien edge |
-| line (narrow bump) | Jbar >= 0, peak ratio preserved 1.000 |
+| linepair 256 | peak 3.9986e-4 -> 3.9978e-4; core -7.5e-8 / wing +2.1e-8; max|dexc|/pk 2.25e-4; int drift -3.1e-5; no ringing |
+| linepair 512 | peak 3.9983e-4 -> 3.9975e-4; core -7.5e-8 / wing +2.3e-8; max|dexc|/pk 2.26e-4; int drift -2.7e-5; resolution-consistent |
+| bnd 256/512 | interior vs extended domain max 9.1e-5/8.5e-5; upper edge 0 (field Wien-dead); lower edge max 1.2e-3/2.4e-3 (feature tail beyond boundary) |
 | edge (step) | max rel 9.1e-4, no ringing |
-| temp 0.5/1/5 x 1e4 K | max rel 1.4e-3 (grows with beta, expected) |
+| tempu 5e3/1e4/5e4 K (uniform T) | max 1.55e-4 / 1.82e-13 / 4.46e-14; beta/B_L reported per case; same mask for max and rms |
 | pos (zeroed interior band) | Jbar >= 0 |
-| grid NCF 128/256/512 | max err 1.32e-5 / 1.46e-5 / 1.66e-5 - saturates (operator width is physical, not discretization error) |
+| grid NCF 128/256/512 | max err 1.32e-5 / 1.46e-5 / 1.66e-5 - saturates (operator width is physical) |
+
+ES-iteration sequencing (T5, `drv_es_seq.f`): scripted
+two-sweep harness mirroring the production ordering on the
+real convolver - sweep k consumes `Jbar_{k-1}`, stores J_k,
+refresh slot, convolve stored J_k to `Jbar_k`, render folds
+`ESEC*Jbar_2`. Perturbation probes show both scripted
+generations propagate to the rendered TA; broken-ordering
+modes are detected exactly where they must be silent:
+'stale' (sweep 2 fed `Jbar_0`) is bitwise silent to the J_1
+generation; 'preconv' (convolve before the store) identically;
+'oldrend' (render folds `Jbar_1`) is bitwise silent to the
+J_2 generation. REFRESH_COUNT=1 between sweeps. This harness
+mirrors the audited ordering; it is NOT a link of
+`CMF_FLUX_SUB_V5` and does not by itself cover the file-slot
+mechanics (`ES_J_CONV` direct-access records), which remain
+source-verified.
+
+KNOP ES guard (T6, `drv_knop_guard.f`): the real
+`RD_OPTIONS_INTO_STORE` + `RD_CMF_FLUX_CONTROLS` on a
+manufactured control file (production VADAT key lines + OBS
+keys). `KNOP=T, NUM_ES=1, COH_ES=F` and `KNOP=T, NUM_ES=2,
+COH_ES=T` both STOP with the named
+'DO_NONMONO_KNOP=T requires NUM_ES>=2 and COH_ERENT_ES=F'
+diagnostic; `KNOP=T, NUM_ES=2, COH_ES=F` returns cleanly
+(GUARD_PASS). Verified by message content, not exit status.
 
 Emissivity/render checks (manufactured fields, real
 `OBS_FRAME_SUB_V9`):
