@@ -1569,6 +1569,21 @@
 	1     MERGE(KN_WATCH_LS,0,KN_WATCH_CELL),
 	2     MERGE(KN_WATCH_SLOT,0,KN_WATCH_CELL))
 !
+! KN_NOCP_PROBE (default off): diagnostic-only no-compressing
+! fast-exit probe for the KNOP failure isolation (phase 5.2).
+! Arms one ray to skip the .NOT. HAS_CP forced-clean exit and run
+! the ordinary iteration while its store writes stay suppressed.
+! KN_NOCP_PROBE_LS defaults to 83, the phase-5 anomaly ray; an
+! out-of-range index simply never matches a ray.
+!
+	  KN_NOCP_PROBE=.FALSE.
+	  KN_NOCP_PROBE_LS=83
+	  CALL RD_STORE_LOG(KN_NOCP_PROBE,'KN_NOCP_PROBE',L_FALSE,
+	1     'Arm KNOP no-compressing fast-exit probe?')
+	  CALL RD_STORE_INT(KN_NOCP_PROBE_LS,'KN_NOCP_PROBE_LS',L_FALSE,
+	1     'KNOP no-cp probe ray index LS')
+	  CALL SET_FG_NOCP_PROBE(KN_NOCP_PROBE,KN_NOCP_PROBE_LS)
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
