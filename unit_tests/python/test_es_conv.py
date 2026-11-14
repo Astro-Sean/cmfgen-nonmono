@@ -134,6 +134,7 @@ RENDER_SRCS = [
 ]
 
 MODES = ["planck", "const", "edge", "pos"]
+SWP_NU0 = ["299.5", "296", "290", "280", "260", "200"]
 TEMPU = ["0.5", "1.0", "5.0"]
 QRAY_AMPS = ["0.1", "0.5", "1.0"]
 VADAT_TEMPLATE = TREE / "lte_hydro" / "lte_tst1" / "VADAT"
@@ -300,6 +301,20 @@ def main():
     run(conv_bin, out_dir, "bnd", "256", cwd=out_dir)
     run(conv_bin, out_dir, "bndp", "512", cwd=out_dir)
     run(conv_bin, out_dir, "bnd", "512", cwd=out_dir)
+    # TEST C (Wien-tail continuum): a smooth non-Planck continuum
+    # alive through the Wien-dead upper end, production vs
+    # extended grid, both resolutions.
+    for n in ("256", "512"):
+        run(conv_bin, out_dir, "wcp", n, cwd=out_dir)
+        run(conv_bin, out_dir, "wce", n, cwd=out_dir)
+    # TEST D (feature-position sweep): the same absolute-
+    # amplitude Gaussian moved progressively inward from the
+    # upper endpoint - maps where the boundary treatment acts.
+    for nu0 in SWP_NU0:
+        run(
+            conv_bin, out_dir, "swp", nu0, "12.0", "0.5",
+            cwd=out_dir,
+        )
     run(
         conv_bin, out_dir, "linext", "256", "2", "0.4", "50",
         cwd=out_dir,
@@ -496,14 +511,15 @@ def main():
     # 'bnd' appends NEXT=NCF_P/4 same-spacing nodes beyond both
     # production ends, so the interior production nodes coincide
     # exactly - the comparison isolates the boundary treatment
-    # (one-sided -2/Delta^2 stencil rows + unshifted, non-
-    # interpolated endpoints + the B/B_es rescale) rather than
-    # resolution/interp differences.  Manufactured features sit
-    # ALIVE at both production bounds: a Gaussian near nu=0.045
-    # (significant field and curvature where the lower one-sided
-    # stencil acts) and one near nu=260 (a live field inside the
-    # Wien-dead Planck zone, which exercises the endpoint
-    # rescale path).
+    # (one-sided -2/Delta^2 stencil rows + the uncorrected
+    # endpoint treatment where no genuine shifted PLANCK_ES
+    # exists + the interior wavelength-shift/rescale path) rather
+    # than resolution/interp differences.  Manufactured features
+    # sit ALIVE at both production bounds: a Gaussian near
+    # nu=0.045 (significant field and curvature where the lower
+    # one-sided stencil acts) and one near nu=260 (a live field
+    # inside the Wien-dead Planck zone, which exercises the
+    # endpoint treatment).
     for ncfp in ("256", "512"):
         dp = np.loadtxt(out_dir / f"esconv_bndp{int(ncfp):05d}.txt")
         de = np.loadtxt(out_dir / f"esconv_bnd{int(ncfp):05d}.txt")
@@ -590,18 +606,58 @@ def main():
             f"max {mx:.3e} rms {rms:.3e} nsig={nsig} "
             f"maxratio {rat_max:.4f} signchanges={sc}",
         )
-        # Upper edge: the convolved field is SUPPRESSED, never
-        # amplified, in the Wien-dead Planck zone - the B/B_es
-        # rescale with denormal B_es at the non-interpolated
-        # endpoint crushes J to <=1e-2 of the extended reference
-        # (documented production limitation).  What is asserted is
-        # the suppression-only, non-ringing, non-negative
-        # character; the measured magnitude is reported.
+        # Upper edge (TEST B/E): before the endpoint-rescale fix,
+        # the B/B_es correction crushed the live feature to ~1e-20
+        # of the extended reference at the top node.  The node is
+        # now left uncorrected where no genuine shifted PLANCK_ES
+        # exists (audit sec 8.5.1): the endpoint must recover the
+        # extended result to stencil error, and no node may be
+        # suppressed by orders of magnitude.  The remaining
+        # discrepancy on deeper Wien-side nodes is the stock
+        # wavelength-shift path evaluating the feature at a
+        # shifted position - bounded, sign-changing across the
+        # zone, and reported against both the extended reference
+        # and the input.
         mx, rms, nsig, rat_max, sc = edge_stats["upper"]
+        jin = dp[:, 3].reshape(nd, n_p)
+        ep = np.abs(jp[:, 0] - je_i[:, 0]) / np.maximum(
+            np.abs(je_i[:, 0]), 1e-300
+        )
         rep.check(
-            f"bnd {ncfp} upper: no amplification or ringing "
-            "(documented suppression)",
-            rat_max < 1.0 + 1e-2 and sc <= 3,
+            f"bnd {ncfp} upper: endpoint recovers extended ref",
+            ep.max() < 5e-2,
+            f"out(NU1)={jp[0, 0]:.4e} ext={je_i[0, 0]:.4e} "
+            f"in={jin[0, 0]:.4e} "
+            f"reldiff max over depths={ep.max():.3e}",
+        )
+        oi_min = oi_max = 1.0
+        oe_min = 1.0
+        pert = []
+        for k in range(nd):
+            sig_u = edge_hi & (
+                np.abs(jin[k]) > 1e-6 * np.abs(jin[k]).max()
+            )
+            oi = jp[k][sig_u] / np.maximum(jin[k][sig_u], 1e-300)
+            oe = jp[k][sig_u] / np.maximum(je_i[k][sig_u], 1e-300)
+            oi_min = min(oi_min, oi.min())
+            oi_max = max(oi_max, oi.max())
+            oe_min = min(oe_min, oe.min())
+            dsig = np.abs(jp[k] - je_i[k]) / np.maximum(
+                np.abs(je_i[k]), 1e-300
+            )
+            pert.append(dsig[sig_u].max())
+        rep.check(
+            f"bnd {ncfp} upper: live feature not destroyed "
+            "(out/in and out/ext bounded)",
+            oi_min > 0.3 and oe_min > 0.3,
+            f"min out/in {oi_min:.3f} max out/in {oi_max:.3f} "
+            f"min out/ext {oe_min:.3f} max/ext {rat_max:.3f} "
+            f"perT maxdrel {[f'{p:.1e}' for p in pert]}",
+        )
+        rep.check(
+            f"bnd {ncfp} upper: no catastrophic suppression "
+            "vs extended (bounded factor, not orders)",
+            oe_min > 0.3 and rat_max < 3.0 and sc <= 6,
             f"max drel {mx:.3e} rms {rms:.3e} nsig={nsig} "
             f"maxratio {rat_max:.4f} signchanges={sc}",
         )
@@ -609,6 +665,107 @@ def main():
             f"bnd {ncfp}: output finite and non-negative",
             np.all(np.isfinite(jp)) and np.all(jp >= 0.0),
         )
+
+    # -- TEST C: smooth non-Planck Wien-tail continuum ------------------
+    # A NU**0.5 ramp alive across the Wien-dead upper end (driver
+    # mode wcp/wce).  The extended run skips the whole Planck
+    # block (B underflows exactly at the extended top), so it
+    # returns the raw convolved field: it is the right reference
+    # at the boundary nodes, but interior Wien-side differences
+    # against it are the DESIGNED wavelength shift on a steep
+    # profile, not suppression.  Assert: endpoint/top-zone
+    # agreement vs extended, and bounded output/input over the
+    # whole Wien-alive zone (no orders-of-magnitude loss).
+    for ncfp in ("256", "512"):
+        dp = np.loadtxt(out_dir / f"esconv_wcp{int(ncfp):05d}.txt")
+        de = np.loadtxt(out_dir / f"esconv_wce{int(ncfp):05d}.txt")
+        n_p = int(dp[:, 0].max())
+        nd = dp.shape[0] // n_p
+        n_e = int(de[:, 0].max())
+        next_ = (n_e - n_p) // 2
+        nu_p = dp[:, 1].reshape(nd, n_p)[0]
+        jin = dp[:, 3].reshape(nd, n_p)
+        jp = dp[:, 4].reshape(nd, n_p)
+        je_i = de[:, 4].reshape(nd, n_e)[:, next_ : next_ + n_p]
+        top = nu_p > 0.85 * nu_p.max()
+        mx = 0.0
+        for k in range(nd):
+            sig = top & (np.abs(je_i[k]) > 1e-6 * np.abs(je_i[k]).max())
+            dd = np.abs(jp[k] - je_i[k]) / np.maximum(np.abs(je_i[k]), 1e-300)
+            mx = max(mx, dd[sig].max())
+        rep.check(
+            f"wcp {ncfp}: Wien continuum survives at boundary "
+            "(top nodes vs extended)",
+            mx < 5e-2,
+            f"max rel {mx:.3e} over {top.sum()} top nodes "
+            "(bound covers the designed shift on the ramp slope)",
+        )
+        alive = nu_p > 20.0
+        oi_min, oi_max = 1.0, 1.0
+        for k in range(nd):
+            sig = alive & (np.abs(jin[k]) > 1e-6 * np.abs(jin[k]).max())
+            oi = jp[k][sig] / np.maximum(jin[k][sig], 1e-300)
+            oi_min = min(oi_min, oi.min())
+            oi_max = max(oi_max, oi.max())
+        rep.check(
+            f"wcp {ncfp}: non-thermal continuum bounded vs input "
+            "(no catastrophic loss)",
+            oi_min > 0.3 and oi_max < 5.0,
+            f"out/in in [{oi_min:.3f},{oi_max:.3f}] "
+            "(interior spread = designed wavelength shift)",
+        )
+        rep.check(
+            f"wcp {ncfp}: output finite and non-negative",
+            np.all(np.isfinite(jp)) and np.all(jp >= 0.0),
+        )
+
+    # -- TEST D: feature-position sweep -------------------------------
+    # Same absolute Gaussian (AMP=0.5, DNU=12) moved from ~0.5
+    # cells inside the endpoint to deep interior.  With the
+    # endpoint-rescale fix the feature survives at every position:
+    # peak ratio stays near unity modulo the weak tridiagonal
+    # smearing; the only residual is the designed shift on
+    # interior Wien-side nodes.  Report peak ratio and the
+    # endpoint-node ratio per position.
+    swp_rat = []
+    for nu0 in SWP_NU0:
+        d = np.loadtxt(
+            out_dir / f"esconv_swp{int(10 * float(nu0)):05d}.txt"
+        )
+        n_p = int(d[:, 0].max())
+        nd = d.shape[0] // n_p
+        jin = d[:, 3].reshape(nd, n_p)
+        jp = d[:, 4].reshape(nd, n_p)
+        pk = (jp.max(axis=1) / np.maximum(jin.max(axis=1), 1e-300)).min()
+        # Endpoint ratio only where the endpoint input is
+        # significant - for far-inward positions in(NU1) is
+        # denormal and a ratio there measures round-off, not the
+        # boundary treatment.
+        sig0 = jin[:, 0] > 1e-3 * jin.max(axis=1)
+        e0 = (
+            (jp[sig0, 0] / np.maximum(jin[sig0, 0], 1e-300)).min()
+            if sig0.any()
+            else np.nan
+        )
+        swp_rat.append((float(nu0), pk, e0))
+    worst = min(r[1] for r in swp_rat)
+    esig = [r for r in swp_rat if np.isfinite(r[2])]
+    worst_e = min(r[2] for r in esig)
+    rep.check(
+        "swp: feature peak preserved at all swept positions",
+        worst > 0.5,
+        " ".join(
+            f"nu0={a:g}:{p:.3f}" for a, p, _ in swp_rat
+        ),
+    )
+    rep.check(
+        "swp: endpoint node bounded at all swept positions",
+        worst_e > 0.3,
+        " ".join(
+            f"nu0={a:g}:{e:.3f}" if np.isfinite(e) else f"nu0={a:g}:n/a"
+            for a, _, e in swp_rat
+        ),
+    )
 
     # -- edge step (positivity record) ---------------------------------------
     nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_edge.txt")
