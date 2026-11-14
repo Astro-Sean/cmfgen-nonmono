@@ -24,6 +24,11 @@ C     bnd      same field on the appended-node extended grid
 C              (arg3=NCF_P; NCF=NCF_P+NCF_P/2 internally)
 C     linext   linepair on the same extended grid - boundary
 C              sensitivity of the smeared feature
+C     wcp      smooth non-Planck continuum alive through the
+C              Wien-dead upper end, production grid (arg3=NCF)
+C     wce      same continuum on the extended grid (arg3=NCF_P)
+C     swp      absolute-amplitude Gaussian at arg3=NU0 - upper
+C              boundary feature-position sweep (arg4=DNU,arg5=AMP)
 C     qray     INC_RAY manufactured atmosphere; emits both
 C              emissivity conventions + all fields for the
 C              CHI_RAY*(RJ_ES-RJ) measurement
@@ -76,7 +81,8 @@ C
       CALL GETARG(3,SARG)
       IF(LEN_TRIM(SARG) .GT. 0)THEN
         IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
-     1     MODE .EQ. 'linext' .OR.
+     1     MODE .EQ. 'linext' .OR. MODE .EQ. 'wcp' .OR.
+     1     MODE .EQ. 'wce' .OR.
      1     MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
           READ(SARG,*)NCF
         ELSE IF(MODE .EQ. 'qray')THEN
@@ -95,7 +101,8 @@ C the arrays must span the extended grid or the convolver walks
 C out of bounds into the neighbouring allocation.
       NCF_P=NCF
       NEXT=0
-      IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext')THEN
+      IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext' .OR.
+     1   MODE .EQ. 'wce')THEN
         NEXT=NCF_P/4
         NCF=NCF_P+2*NEXT
       END IF
@@ -137,7 +144,8 @@ C production range where e.s. redistribution acts.
 C
       NU_HI=300.0_LDP
       NU_LO=0.02_LDP
-      IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext')THEN
+      IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext' .OR.
+     1   MODE .EQ. 'wce')THEN
 C Extended domain: the production log spacing is continued NEXT
 C points beyond BOTH ends, so every production node coincides
 C exactly with an extended node.  The truncated/extended
@@ -236,6 +244,30 @@ C T=1e4 K, so scaling to B there would zero the features.
      5        EXP(-0.5_LDP*((NU(ML)-260.0_LDP)/25.0_LDP)**2)
           END DO
         END DO
+      ELSE IF(MODE .EQ. 'wcp' .OR. MODE .EQ. 'wce')THEN
+C Smooth non-Planck continuum alive across the whole Wien-dead
+C upper end: a NU**0.5 ramp with depth-varying normalisation on a
+C weak Planck floor.  Tests whether the upper-boundary
+C suppression is specific to the narrow bnd feature or applies
+C to the entire non-thermal field.
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=(0.2_LDP+0.6_LDP*(K-1.0_LDP)/
+     1        (ND-1.0_LDP))*(NU(ML)/NU_HI)**0.5_LDP+
+     2        0.01_LDP*BB(T(K),NU(ML))
+          END DO
+        END DO
+      ELSE IF(MODE .EQ. 'swp')THEN
+C Feature-position sweep: one absolute-amplitude Gaussian moved
+C progressively inward from the upper endpoint, on a weak Planck
+C floor.  Same field at every depth - the per-depth T rows give
+C the temperature response for free.
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=0.05_LDP*BB(T(3),NU(ML))+
+     1        AMP*EXP(-0.5_LDP*((NU(ML)-NU0)/DNU)**2)
+          END DO
+        END DO
       ELSE IF(MODE .EQ. 'linepair' .OR. MODE .EQ. 'linext')THEN
         DO K=1,ND
           DO ML=1,NCF
@@ -260,10 +292,13 @@ C T=1e4 K, so scaling to B there would zero the features.
       END IF
 C
       IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
-     1   MODE .EQ. 'bndp')THEN
+     1   MODE .EQ. 'wcp' .OR. MODE .EQ. 'bndp')THEN
         WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF
-      ELSE IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext')THEN
+      ELSE IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext' .OR.
+     1   MODE .EQ. 'wce')THEN
         WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF_P
+      ELSE IF(MODE .EQ. 'swp')THEN
+        WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NINT(10.0_LDP*NU0)
       ELSE
         FNAME=MODE
       END IF
