@@ -317,7 +317,7 @@ emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
 to `sigma*J` consistently on both sides. The folding algebra
 is now backed by the executable battery in section 8.5
-(113 checks, all passing at the measured tolerances) plus the
+(115 checks, all passing at the measured tolerances) plus the
 static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
@@ -395,7 +395,7 @@ manufactured emissivities through the real `OBS_FRAME_SUB_V9`
 (V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
 iteration ordering; `drv_knop_guard.f` drives the production
 store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
-`unit_tests/python/test_es_conv.py`, 113/113 PASS. Production
+`unit_tests/python/test_es_conv.py`, 115/115 PASS. Production
 tree sources link as the exact `.o` files the production
 executables use (`compile_and_link_prod`, ifort `-qopenmp`,
 MKL sequential); only drivers and the `obs_v9_adapter` shim
@@ -462,7 +462,7 @@ in ln nu at 1e4 K) is far below the grid cell; this battery
 resolves the FEATURE, not the kernel, and no kernel-width
 claim is made.
 
-Measured battery results (113/113 PASS):
+Measured battery results (115/115 PASS):
 
 | case | result |
 | --- | --- |
@@ -470,7 +470,8 @@ Measured battery results (113/113 PASS):
 | lte `J=B(T)` zone map | endpoint rel 6.5e19/4.6e124/6.3e56 at B(1)<=3e-118 of char; invalid-map abs err <=2.5e-87 of char; corrected+continuation <=2.05e-13 over 717 nodes; gate-skip depth bounded <=2.3e-6 abs (sec 8.5.1) |
 | brk match battery | 10/10 synthetic cases return exact FAIL/ML/T1/PLANCK_NU; ML never exceeds NCF+1; no PFN(0) read (sec 8.5.2) |
 | cnt continuation battery | 12/12 synthetic cases return exact FAIL/NPNU; only positive finite nodes written; FAIL=5/6 defensive bounds exercised (sec 8.5.3) |
-| itp rescale battery | 6/6 synthetic maps match the walk oracle node-by-node (max dev 4.3e-14); invalid nodes return raw J exactly, valid nodes uncontaminated (sec 8.5.3) |
+| itp rescale battery | 12/12 synthetic maps match the walk oracle node-by-node (max dev 4.3e-14): valid, NPNU=0/1/2, truncated, NaN/+Inf, degenerate, non-monotone out-of-range weights, boundary-exact, non-positive; invalid nodes return raw J exactly (sec 8.5.3) |
+| bndchk cross-binary | -check bounds -fpe0 build of the production source reruns brk/cnt/itp: completes and reproduces every number - no OOB index, no unordered-NaN compare, no unvalidated arithmetic (sec 8.5.3) |
 | nanj / neg input guards | NaN depth passes input verbatim + fort.4 warning, others convolve; signed convolved output stays finite via the MINVAL(J_ES) gate |
 | nant / inft / zpf output guards | NaN and +Inf convolver output bypassed with a per-field named diagnostic, invalid J_ES left visible; exact-zero PLANCK_FN takes the silent gate-skip leaving raw J_ES (sec 8.5.3) |
 | const | Jbar >= 0; B/B_es rescale documented; 0 zeros at Wien edge |
@@ -752,23 +753,38 @@ FAIL=6 is unreachable through production input - a
 defensive bound exercised directly by the `cnt` battery.
 
 **Interpolation denominators.** `ES_SHIFTED_RESCALE` keeps
-the stock walk (`NU(ML) < PLANCK_NU(I+1)`, capped at
-`NPNU-1` so only written map nodes are read even without
-short-circuit evaluation), then validates each bracket
-before dividing: `PLANCK_NU(I)` and `PLANCK_NU(I+1)` finite
-and positive, `T2 = PLANCK_NU(I+1)-PLANCK_NU(I)` finite and
-nonzero, and the resulting weight `T1` finite. An invalid
-bracket - a node below the truncated map, a duplicated or
-degenerate pair, a non-finite or non-positive map node -
-takes the established uncorrected treatment
+the stock walk, rewritten without any reliance on
+short-circuit evaluation: `I` is tested in its own IF
+before `PLANCK_NU(I+1)` is read, `PLANCK_NU(I+1)` is
+proven finite before the compare (an unordered NaN compare
+would stop the walk anyway and trips `-fpe0`), and for
+`NPNU < 2` the walk body is skipped entirely so
+`PLANCK_NU(2)` is never touched.  Each bracket is then
+validated strictly before its arithmetic: index range,
+`PLANCK_NU(I)` and `PLANCK_NU(I+1)` finite (separate IFs,
+then separate IFs for positivity - a chained `.AND.` with
+a NaN operand is itself an unordered compare), `T2` finite
+and nonzero, `T1` finite, and finally `T1` inside
+`[-W_TOL, 1+W_TOL]` with `W_TOL = 64*eps` - a weight
+outside is extrapolation through a broken map, not
+interpolation, and the node takes the uncorrected
+treatment.  The band exists because bracket arithmetic
+can round a genuinely valid node a few ulp past an
+endpoint; inside it the weight is snapped back to [0,1],
+never clamped into range.  An invalid bracket - a node
+below the truncated map, a duplicated or degenerate pair,
+a non-finite or non-positive map node, an out-of-range
+weight - shares the established uncorrected treatment
 (`PLANCK_ES(ML)=PLANCK_FN(ML)`, `J_ES(ML)=A(ML)`, the raw
-convolved field), the same treatment as the I=1 Wien-end
-bracket; a diagnostic reports the node count and depth.
-Valid nodes are interpolated normally, so an invalid node
-never contaminates a valid one, and the uncorrected state
-is local: nodes above the first invalid node keep their
-genuine shifted evaluation, nodes at and below it keep the
-raw convolved field.
+convolved field) with the I=1 Wien-end bracket; a
+diagnostic reports the node count and depth.  Valid nodes
+are interpolated normally, so an invalid node never
+contaminates a valid one, and the uncorrected state is
+local: nodes above the first invalid node keep their
+genuine shifted evaluation, nodes at and below it keep
+the raw convolved field.  The same sequential-IF
+treatment went into `ES_PLANCK_NU_CONT`, whose `.LE.`
+compares had the same latent NaN-compare risk.
 
 **Manufactured coverage.** `cnt` drives 12 synthetic
 continuation cases through `ES_PLANCK_NU_CONT` - valid fill,
@@ -776,12 +792,23 @@ zero/negative/NaN/Inf `PLANCK_NU` anchors, zero and negative
 `NU` anchors, an interior `NU` defect, a forced non-positive
 denominator, and a single-node tail - all returning the
 expected FAIL/NPNU with no out-of-bounds or non-positive
-node written. `itp` drives 6 synthetic maps through
-`ES_SHIFTED_RESCALE` - valid, truncated (NPNU<NCF),
-degenerate last bracket, NaN node, non-positive node, and a
-one-node map - matched node-by-node against an independent
-walk oracle (max deviation 4.3e-14), with invalid nodes
-returning exactly the raw input and valid nodes untouched.
+node written. `itp` drives 12 synthetic maps through
+`ES_SHIFTED_RESCALE` - valid, `NPNU=0/1/2` (the unwritten
+region poisoned with NaN so any access aborts a trap
+build), truncated (`NPNU<NCF`), NaN and `+Inf` nodes, a
+duplicate last pair, two non-monotone maps whose capped
+brackets produce `T1=4/3` and `T1=-2` (out-of-range
+weights, rejected as extrapolation), boundary-exact node
+hits (`T1=1` exactly - on a decreasing `NU` an exact node
+always resolves in the lower bracket, so `T1=0` is
+unreachable through the walk and the [0,1] check covers
+both ends), and a non-positive node - matched node-by-node
+against an independent walk oracle (max deviation 4.3e-14),
+with invalid nodes returning exactly the raw input and
+valid nodes untouched.  A second driver binary compiles
+`comp_j_conv_v2.f` and the driver with `-check bounds
+-fpe0` and reruns `brk`/`cnt`/`itp`: it completes every
+battery and reproduces every number.
 `nant`/`inft` make `TEMP(2)` NaN/+Inf so `J_ES`,
 `PLANCK_ES` and `PLANCK_FN` go non-finite through the real
 convolution path: the depth is bypassed, its NaN/Inf output
