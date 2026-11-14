@@ -317,7 +317,7 @@ emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
 to `sigma*J` consistently on both sides. The folding algebra
 is now backed by the executable battery in section 8.5
-(102 checks, all passing at the measured tolerances) plus the
+(113 checks, all passing at the measured tolerances) plus the
 static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
@@ -395,7 +395,7 @@ manufactured emissivities through the real `OBS_FRAME_SUB_V9`
 (V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
 iteration ordering; `drv_knop_guard.f` drives the production
 store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
-`unit_tests/python/test_es_conv.py`, 102/102 PASS. Production
+`unit_tests/python/test_es_conv.py`, 113/113 PASS. Production
 tree sources link as the exact `.o` files the production
 executables use (`compile_and_link_prod`, ifort `-qopenmp`,
 MKL sequential); only drivers and the `obs_v9_adapter` shim
@@ -442,12 +442,15 @@ Rayleigh-Jeans side). Interior edge points extrapolate if
 needed; the whole log-space shift/interp/rescale block is
 gated on `MINVAL(PLANCK_FN)>0 .AND. MINVAL(PLANCK_ES)>0
 .AND. MINVAL(J_ES)>0` so a depth whose scaled Planck
-underflows to exactly 0, or whose convolution turns signed,
-escapes the rescale entirely; a per-depth non-finite-input
-check skips the convolution with a WARNING_LU diagnostic
-upstream of the gate. The PLANCK_NU bracket search itself is
-bounded since the robustness follow-up (sec 8.5.2). This is
-the treatment the `bnd` test measures.
+underflows to exactly 0, or whose convolution turns signed
+or non-finite, escapes the rescale entirely; per-depth
+non-finite input and non-finite convolver-output checks sit
+upstream of the gate with WARNING_LU diagnostics. The
+PLANCK_NU bracket search itself is bounded since the
+robustness follow-up (sec 8.5.2), and the continuation and
+interpolation denominators are validated since the second
+follow-up (sec 8.5.3). This is the treatment the `bnd`
+test measures.
 
 Feature coordinate note: the manufactured line feature is a
 Gaussian in nu, while the operator acts in ln nu. The local
@@ -459,14 +462,17 @@ in ln nu at 1e4 K) is far below the grid cell; this battery
 resolves the FEATURE, not the kernel, and no kernel-width
 claim is made.
 
-Measured battery results (102/102 PASS):
+Measured battery results (113/113 PASS):
 
 | case | result |
 | --- | --- |
 | planck `J=B(T)` | max rel 1.46e-5, rms 1.28e-6 (significant-J support; Wien-underflow masked) |
 | lte `J=B(T)` zone map | endpoint rel 6.5e19/4.6e124/6.3e56 at B(1)<=3e-118 of char; invalid-map abs err <=2.5e-87 of char; corrected+continuation <=2.05e-13 over 717 nodes; gate-skip depth bounded <=2.3e-6 abs (sec 8.5.1) |
 | brk match battery | 10/10 synthetic cases return exact FAIL/ML/T1/PLANCK_NU; ML never exceeds NCF+1; no PFN(0) read (sec 8.5.2) |
+| cnt continuation battery | 12/12 synthetic cases return exact FAIL/NPNU; only positive finite nodes written; FAIL=5/6 defensive bounds exercised (sec 8.5.3) |
+| itp rescale battery | 6/6 synthetic maps match the walk oracle node-by-node (max dev 4.3e-14); invalid nodes return raw J exactly, valid nodes uncontaminated (sec 8.5.3) |
 | nanj / neg input guards | NaN depth passes input verbatim + fort.4 warning, others convolve; signed convolved output stays finite via the MINVAL(J_ES) gate |
+| nant / inft / zpf output guards | NaN and +Inf convolver output bypassed with a per-field named diagnostic, invalid J_ES left visible; exact-zero PLANCK_FN takes the silent gate-skip leaving raw J_ES (sec 8.5.3) |
 | const | Jbar >= 0; B/B_es rescale documented; 0 zeros at Wien edge |
 | linepair 256 | peak 3.9986e-4 -> 3.9978e-4; core -7.5e-8 / wing +2.1e-8; max|dexc|/pk 2.25e-4; full-domain integrals below; no ringing |
 | linepair 512 | peak 3.9983e-4 -> 3.9975e-4; core -7.5e-8 / wing +2.3e-8; max|dexc|/pk 2.26e-4; resolution-consistent |
@@ -699,6 +705,94 @@ and no invented shift. `nanj` shows the skipped depth passes
 its NaN input through verbatim beside three normally
 convolved depths plus the fort.4 warning; `neg` shows a
 signed convolved output stays finite through the gate.
+
+### 8.5.3 Correction-path safeguards (second robustness
+### follow-up, 14-Nov-2026)
+
+The path after `ES_PLANCK_NU_MATCH` is now validated end to
+end, and the two denominator-using stages are split into
+callable production subroutines (`ES_PLANCK_NU_CONT`,
+`ES_SHIFTED_RESCALE`) so the manufactured driver exercises
+the same object code.
+
+**Finite-field validation.** `MINVAL` cannot detect a NaN, so
+all three logarithm arguments are now checked with
+`ALL(IEEE_IS_FINITE(...))` before `LOG(PLANCK_FN)`,
+`LOG(PLANCK_ES)` and `LOG(J_ES)`. A non-finite convolver
+output takes a WARNING_LU diagnostic naming the depth and
+each non-finite field, skips the correction, and leaves the
+invalid `J_ES` in place for the caller to see - the same
+policy as the non-finite input check, and distinct from it:
+a bad INPUT field skips the convolution itself, while a bad
+convolVER OUTPUT still reports the convolved (non-finite)
+values rather than replacing them. Finite-but-non-positive
+fields still take the stock MINVAL gate-skip silently (the
+cold-depth zero-Planck state is physical, not a defect). No
+clipping or positive floors are introduced. A derived
+`PLANCK_NU` that comes out non-finite or non-positive fails
+the map with FAIL=7 (same truncate/bypass semantics as the
+match failures).
+
+**Continuation denominators.** `ES_PLANCK_NU_CONT` computes
+`T1 = 1/NU(I-1) - 1/PLANCK_NU(I-1)` and
+`PLANCK_NU(ML) = 1/(1/NU(ML) - T1)` with every operand
+checked first: both anchors finite and positive, T1 finite,
+each `NU(ML)` finite positive, and each denominator finite
+and strictly positive (a continued frequency is a physical
+positive frequency, so sign is required, not just nonzero).
+FAIL=5 covers a bad anchor or non-finite shift (NPNU=I-1);
+FAIL=6 covers a bad `NU(ML)` or bad denominator
+(NPNU=ML-1). On failure no extrapolated shift is invented:
+the map keeps only its genuine nodes 1:NPNU, nodes beyond
+NPNU are never written, and the interpolation treats output
+nodes below `PLANCK_NU(NPNU)` as off-map. With a strictly
+decreasing positive `NU` and a positive anchor the
+denominator exceeds `1/PLANCK_NU(I-1)` by construction, so
+FAIL=6 is unreachable through production input - a
+defensive bound exercised directly by the `cnt` battery.
+
+**Interpolation denominators.** `ES_SHIFTED_RESCALE` keeps
+the stock walk (`NU(ML) < PLANCK_NU(I+1)`, capped at
+`NPNU-1` so only written map nodes are read even without
+short-circuit evaluation), then validates each bracket
+before dividing: `PLANCK_NU(I)` and `PLANCK_NU(I+1)` finite
+and positive, `T2 = PLANCK_NU(I+1)-PLANCK_NU(I)` finite and
+nonzero, and the resulting weight `T1` finite. An invalid
+bracket - a node below the truncated map, a duplicated or
+degenerate pair, a non-finite or non-positive map node -
+takes the established uncorrected treatment
+(`PLANCK_ES(ML)=PLANCK_FN(ML)`, `J_ES(ML)=A(ML)`, the raw
+convolved field), the same treatment as the I=1 Wien-end
+bracket; a diagnostic reports the node count and depth.
+Valid nodes are interpolated normally, so an invalid node
+never contaminates a valid one, and the uncorrected state
+is local: nodes above the first invalid node keep their
+genuine shifted evaluation, nodes at and below it keep the
+raw convolved field.
+
+**Manufactured coverage.** `cnt` drives 12 synthetic
+continuation cases through `ES_PLANCK_NU_CONT` - valid fill,
+zero/negative/NaN/Inf `PLANCK_NU` anchors, zero and negative
+`NU` anchors, an interior `NU` defect, a forced non-positive
+denominator, and a single-node tail - all returning the
+expected FAIL/NPNU with no out-of-bounds or non-positive
+node written. `itp` drives 6 synthetic maps through
+`ES_SHIFTED_RESCALE` - valid, truncated (NPNU<NCF),
+degenerate last bracket, NaN node, non-positive node, and a
+one-node map - matched node-by-node against an independent
+walk oracle (max deviation 4.3e-14), with invalid nodes
+returning exactly the raw input and valid nodes untouched.
+`nant`/`inft` make `TEMP(2)` NaN/+Inf so `J_ES`,
+`PLANCK_ES` and `PLANCK_FN` go non-finite through the real
+convolution path: the depth is bypassed, its NaN/Inf output
+is left visible, neighbouring depths convolve normally, and
+the warning names depth and all three fields. `zpf` makes
+`TEMP(2)` cold enough that `PLANCK_FN` underflows to exact
+zero at the Wien end: the silent MINVAL gate-skip leaves a
+real convolved `J_ES` (JBAR/J_IN ~ 4.8e6 at the Wien nodes,
+vs ~1 had the correction run) with no diagnostic - the
+finite-but-zero case is the documented physical gate-skip,
+not a failure.
 
 Test-harness lesson (driver fix, this round): the first
 linext run showed a spurious ~6.4e-4 excess band near nu~0.2
