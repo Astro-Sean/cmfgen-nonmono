@@ -324,7 +324,7 @@ compiles.
   - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
     each ES sweep (OBS side) and after each great-iteration (model
     side); render uses the freshest in-memory convolve.
-  - test_es_conv.py 113/113 (drv_es_conv + drv_es_render +
+  - test_es_conv.py 115/115 (drv_es_conv + drv_es_render +
     drv_es_seq + drv_knop_guard; production .o objects via
     compile_and_link_prod, ifort -O0 -g -traceback -qopenmp
     -mkl=sequential): convolver battery (Planck 1.46e-5
@@ -369,10 +369,19 @@ compiles.
     (finite positive endpoints, finite nonzero interval,
     finite weight; off-map and degenerate nodes take the
     uncorrected treatment without contaminating valid nodes).
-    cnt (12 cases) and itp (6 maps, node-by-node oracle)
-    batteries run on the production objects; nant/inft put
-    non-finite convolver output through the real path; zpf
-    covers the finite-but-zero silent gate-skip.
+    cnt (12 cases) and itp (12 maps incl. NPNU=0/1/2,
+    non-monotone out-of-range weights, boundary-exact hits;
+    node-by-node oracle) run on the production objects;
+    nant/inft put non-finite convolver output through the
+    real path; zpf covers the finite-but-zero silent
+    gate-skip.  Final bounds pass: the shifted walk is
+    written without short-circuit reliance (separate IFs
+    bound I and prove nodes finite before every access and
+    compare), the interpolation weight must sit inside
+    [0,1] within a documented 64-eps band (outside is
+    extrapolation, rejected), and a -check bounds -fpe0
+    cross-binary completes brk/cnt/itp reproducing every
+    number.
   - Q-RAY resolved quantitatively (audit section 8 item 1):
     measurable only where Rayleigh is a large scattering
     fraction AND the field has feature-scale contrast. Inert
