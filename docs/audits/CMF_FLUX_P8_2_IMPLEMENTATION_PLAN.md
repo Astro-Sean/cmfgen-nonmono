@@ -19,7 +19,8 @@ changed. `ES_RESID_DIAG=F` (default) leaves runs bit-identical.
 | `obs/Makefile` | `es_resid_diag.o` added to `OBJ1` and to the `cmf_flux_sub_v5.o` dependency line. |
 | `unit_tests/f90/drv_es_resid.f90` | NEW. Manufactured driver: `compare A..J` synthetic pairs, `seq`/`seqstale`/`seqcold` file-level chains, `omp` determinism mode. |
 | `unit_tests/python/test_es_resid.py` | NEW. 20-check battery covering spec section 11 cases 1-14. |
-| `scripts/p8_es_sweep_compare.py` | NEW. Sweep post-processor: parses `ES_RESID_DIAG` + `obs_fin_10` grids, emits `p82_residual_history.csv`, `p82_final_audit.csv`, `p82_spectrum_metrics.csv`, `p82_line_metrics.csv`, and three PNGs. |
+| `unit_tests/python/es_sweep_compare.py` | Spectral comparator: pairwise `obs_fin_10` on identical grids - global/active residuals, continuum windows, line core/wings/EW/centroid, integrated diff; CSV + PNG. |
+| `unit_tests/python/es_resid_collect.py` | NEW. Diagnostic collector: parses `ES_RESID_DIAG` + `batobs.log` across the sweep tree, emits `p82_residual_history.csv`, `p82_final_audit.csv`, `p82_runtimes.csv`, residual-history PNG. |
 | `docs/audits/CMF_FLUX_P8_2_ES_CONVERGENCE_AUDIT.md` | Source audit, sequences, design, results. |
 | `docs/TODO.md`, `README.md` | Status entries. |
 
@@ -100,8 +101,36 @@ Sweep experiment layout used here:
                                         KNOP: DO_NONMONO_KNOP=T)
 ```
 
-`scripts/p8_es_sweep_compare.py --root <model dir> --out <outdir>`
-collects residuals, spectra, final-generation audit and runtimes.
+`unit_tests/python/es_resid_collect.py --root <model dir> --out <outdir>`
+collects residual histories, the final-generation audit and runtimes;
+`unit_tests/python/es_sweep_compare.py <obs_fin_10 ...> --labels ...`
+produces the spectral comparisons.
+
+## Experiment configuration note: P4 coverage guard
+
+The cloned param files initially inherited `MIN_CF=3.0D-3` from the
+reference run. The current executable carries the P4 observer-frame
+coverage guard in `OBS_FRAME_SUB_V9`, which the reference run's binary
+predates. The guard requires, per obs band and per ray,
+`OBS_FREQ(edge)*X_MIN_RAY >= FREQ_CMF(NCF)`; the reference grid was
+silently undercovered at the red edge.
+
+The required red edge is `NU_MIN_OBS*X_MIN_RAY` with
+`NU_MIN_OBS=NU(NCF)*(1+2*VINF/c)` by default - i.e. it tracks `MIN_CF`,
+so lowering `MIN_CF` alone chases the requirement (3.0e-3 -> required
+2.93e-3; 2.0e-3 -> required 1.95e-3; X_MIN_RAY ~ 0.888 from the fast
+outer ejecta, beyond the `2*VINF` pad). The experiment pins the obs
+grid instead:
+
+```
+2.4D-3    [MIN_CF]
+908117.0  [OBS_LAM_MAX]   ! NU_MIN_OBS=3.30e-3 - reproduces the
+                          ! reference OBS_FREQ grid
+```
+
+With `NU_MIN_OBS` decoupled from `MIN_CF`, `MIN_CF=2.4e-3` sits ~18%
+below the required 2.93e-3. All sweep runs share identical CMF and obs
+grids. This is a configuration correction, not a code change.
 
 ## Deviations from the prompt
 
