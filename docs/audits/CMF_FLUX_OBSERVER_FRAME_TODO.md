@@ -324,7 +324,7 @@ compiles.
   - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
     each ES sweep (OBS side) and after each great-iteration (model
     side); render uses the freshest in-memory convolve.
-  - test_es_conv.py 87/87 (drv_es_conv + drv_es_render +
+  - test_es_conv.py 102/102 (drv_es_conv + drv_es_render +
     drv_es_seq + drv_knop_guard; production .o objects via
     compile_and_link_prod, ifort -O0 -g -traceback -qopenmp
     -mkl=sequential): convolver battery (Planck 1.46e-5
@@ -344,6 +344,19 @@ compiles.
     bound measured (DTA/TA <= 8.6e-4, dF/F <= 9.2e-3 at
     chi_ray=sigma_es, narrow-feature scattering-dominated case;
     <=1.8e-8 / <=7.2e-11 for smooth thermal-dominated fields).
+  - Robustness follow-up DONE: PLANCK_NU match now bounded
+    (ES_PLANCK_NU_MATCH, fail codes 0-4, truncate-at-last-valid
+    / bypass-on-first-node, WARNING_LU diagnostic, no PFN(0) or
+    past-NCF access); input-J finiteness + MINVAL(J_ES)>0
+    guards ahead of LOG(J_ES). lte mode measures the endpoint
+    LTE trade directly: corrected interior + continuation hold
+    ~2e-13 relative, lower endpoint ~1e-14..6e-14, upper
+    endpoint returns raw convolved J_ES so the large relative
+    error sits only where B/Bchar < 1e-15 (PFN(1) classified
+    normal/subnormal/zero by ieee_class_is, not "denormal").
+    brk mode drives all ES_PLANCK_NU_MATCH failure codes
+    through the production object; nanj/neg verify the
+    finiteness and sign gates.
   - Q-RAY resolved quantitatively (audit section 8 item 1):
     measurable only where Rayleigh is a large scattering
     fraction AND the field has feature-scale contrast. Inert
