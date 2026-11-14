@@ -146,6 +146,79 @@ runtimes unsupported). Source-level ownership audit stands
 as the primary evidence; the threaded-MKL hypothesis is
 testable with the environment-variable control above.
 
+## 5a. Run-to-run floating-point drift attribution
+
+Linked libraries (ldd on exe/cmf_flux.exe and every
+exe_frozen/*/cmf_flux.exe): `libmkl_intel_lp64`,
+**`libmkl_intel_thread`**, `libmkl_core`, `libiomp5` - the
+Intel-threaded MKL layer, which honours MKL_NUM_THREADS.
+Build flags (Makefile_definitions): `ifort -qopenmp -mkl`
+line at :113 with `-lmkl_intel_lp64 -lmkl_intel_thread`.
+
+Numerical-library call sites in the field-update path:
+
+- `mom_j_cmf_nonmono_v1.f:3232,3341` - `CALL DGTSV` per
+  frequency inside the moment solve (invoked sequentially
+  from COMP_JCONT_V4.INC:988). DGTSV is a tridiagonal scan;
+  MKL does not parallelise a single NDx1 solve - serial
+  kernel in practice.
+- `fg_j_cmf_nonmono_v1.f:11878` - `CALL DGESV` on an 8x8
+  system inside SWEEP_FLD_ORD (inside the parallel ray
+  loop). MKL does not thread an 8x8 LU.
+
+So threaded MKL is linked but its in-path call sites are
+serial kernels at these problem sizes - the threaded layer
+is present but probably not the channel. Not ruled out:
+MKL can dispatch CPU-specific code paths by feature, so
+cross-node FP differences can still come through MKL even
+without internal threading.
+
+Job-record cross-check (sacct) sharpened the empirical
+picture:
+
+- knop_n4 (job 13156999): viper08, 4 CPU -> {0.265340,
+  0.177620} at gens 3-4.
+- knop_n6 (job 13154194): vipc2142, 8 CPU -> {0.265314,
+  0.177358}.
+- knop_n8 (job 13154196): vipc2304, 8 CPU -> same drifted
+  values as n6.
+- knop_n12 first run (job 13154178): vipc2142, 8 CPU ->
+  {0.265340, 0.177620} - the OTHER cluster on the SAME node
+  as n6 with the SAME thread count.
+
+So vipc2142 hosted both clusters at 8 threads: n6 vs n12
+differ run-to-run on identical hardware and thread count.
+That rules out node-hardware and thread-count explanations
+and leaves genuine run-to-run nondeterminism - from a
+channel outside the audited ray loops (the loops were shown
+order-independent). The channel is not yet identified:
+candidate unaudited paths are the moment solver's per-
+frequency sequencing and any threaded-MKL dispatch kernel,
+plus the possibility that a sub-print-precision difference
+at gens 1-2 (from any source) is amplified by iteration to
+the visible 1e-4 band.
+
+Additional finding - knop_n12 rerun is warm-started: the
+batch template removes ES_J_CONV at start (batobs.sh:133)
+but keeps EDDFACTOR, so the resubmitted run seeds its
+formal solve from the timed-out run's ~9 generations. Its
+gen-2 residual reads R=9.99997E-01 at K=16 with
+MAX_ABS=5.8e-4 (~25x below the cold-start 1.44e-2) - the
+residual labels are shifted relative to the cold-start
+n2-n8 history, but the 12-sweep endpoint remains a valid
+(or slightly more converged) N=12 field for the spectral
+comparison. Flagged for the N8->N12 interpretation.
+
+Decisive test remains the same-config repeat with
+MKL_NUM_THREADS=1 + MKL_DYNAMIC=FALSE plus a bitwise
+ES_J_CONV diff at equal generation - not run in this
+session (a gen-4 KNOP run costs ~76 min).
+
+Classification update: A holds for the audited ray loops.
+System-level drift is confirmed run-to-run nondeterminism
+(same node, same threads) - category E (unresolved source)
+until the MKL-controlled repeat runs.
+
 ## 6. Recommendations
 
 No code change is warranted for the ray loops - no defect
