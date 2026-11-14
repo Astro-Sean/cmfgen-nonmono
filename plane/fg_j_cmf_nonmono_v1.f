@@ -1345,19 +1345,43 @@
 !
 ! KN_NOCP_PROBE (diagnostic, [KN_NOCP_PROBE], default FALSE) +
 ! KN_NOCP_PROBE_LS (default 83): phase-5.2 experiment on the
-! no-compressing fast exit. When armed for ray LS, the sweep's
-! .NOT. HAS_CP forced-clean-exit shortcut is bypassed so the ray
-! runs the ordinary residual-tolerance/stall/plateau/cap
-! iteration, and the commit block skips every I_NEXT store write
-! for that ray (normal and capped paths) so the measured
-! candidate cannot repair the latch it is diagnosing. All other
-! rays keep the production fast exit and commit policy. The ray
-! index is validated against KN_NP at refresh start; an
+! no-compressing fast exit. The shortcut it bypassed was removed
+! in phase 5.3R, so probe and ordinary rays now run the same
+! residual-tolerance/stall/plateau/cap iteration; the flag still
+! records per-pass telemetry and the commit block skips every
+! I_NEXT store write for that ray (normal and capped paths) so
+! the measured candidate cannot repair the latch it diagnoses.
+! The ray index is validated against KN_NP at refresh start; an
 ! out-of-range index simply never matches a ray.
 !
 	LOGICAL, SAVE :: KN_NOCP_PROBE
 	INTEGER, SAVE :: KN_NOCP_PROBE_LS=83
 	DATA KN_NOCP_PROBE /.FALSE./
+!
+! KN_PSWEEP_DIAG (diagnostic, [KN_PSWEEP_DIAG], default FALSE):
+! phase-5.3K full-pass field capture on the ordered ray sweeps.
+! When armed, each completed pass of SWEEP_FLD_ORD snapshots the
+! input field X at pass head and the output field Y at march end
+! and reports the complete-map defect R_MAP = max|Y-X|/SCALE and
+! RMS_MAP with the march's own column-peak normalisation
+! SCALE = MAX(|X|,1E-4*VMAXF(L)), recorded separately from the
+! existing local RES. KN_PSWEEP_LS selects the ray (<=0 arms all
+! rays), KN_PSWEEP_PLO/PHI bound the captured pass window, and
+! KN_PSWEEP_SNAP additionally writes unformatted X/Y pairs for
+! offline residual reproduction, bounded by KN_PSWEEP_SNHI
+! (snapshot passes 1..SNHI only, 0 = none). Records are buffered per solve
+! and flushed once under CRITICAL, so armed rays on different
+! threads cannot interleave or duplicate lines. All capture state
+! is per-call local storage; nothing writes to production arrays,
+! OMEGA_RAY, or any exit decision.
+!
+	LOGICAL, SAVE :: KN_PSWEEP_DIAG
+	LOGICAL, SAVE :: KN_PSWEEP_SNAP
+	INTEGER, SAVE :: KN_PSWEEP_SNHI=0
+	INTEGER, SAVE :: KN_PSWEEP_LS=0
+	INTEGER, SAVE :: KN_PSWEEP_PLO=1
+	INTEGER, SAVE :: KN_PSWEEP_PHI=9999
+	DATA KN_PSWEEP_DIAG /.FALSE./, KN_PSWEEP_SNAP /.FALSE./
 !
 ! KN_NOP_* pass telemetry (diagnostic, armed whenever
 ! KN_NOCP_PROBE_LS names a valid ray): per-pass records for the
@@ -3851,7 +3875,7 @@
 	      KN_IC(LK)=IC
 	      IF(LK .EQ. KN_NCF)THEN
 	        KN_STORE_READY=.TRUE.
-	        IF(KN_FREEZE_COEF)THEN
+	        IF(KN_FREEZE_COEF .AND. .NOT. KN_COEF_FROZEN)THEN
 	          KN_COEF_FROZEN=.TRUE.
 !
 ! Fingerprint the raw snapshots at the arm event: every slot
@@ -7442,6 +7466,28 @@ C
 	RETURN
 	END
 !
+! SET_FG_PSWEEP_DIAG (diagnostic, [KN_PSWEEP_*]): arm the
+! phase-5.3K full-pass capture. The pass window is clamped at
+! entry so a reversed pair fails closed (empty window captures
+! nothing) instead of recording from a bad bound.
+!
+	SUBROUTINE SET_FG_PSWEEP_DIAG(DO_P,LS_P,PLO_P,PHI_P,SNAP_P,
+	1   SNHI_P)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1   KN_PSWEEP_DIAG,KN_PSWEEP_LS,KN_PSWEEP_PLO,KN_PSWEEP_PHI,
+	2   KN_PSWEEP_SNAP,KN_PSWEEP_SNHI
+	IMPLICIT NONE
+	LOGICAL DO_P,SNAP_P
+	INTEGER LS_P,PLO_P,PHI_P,SNHI_P
+	KN_PSWEEP_DIAG=DO_P
+	KN_PSWEEP_LS=LS_P
+	KN_PSWEEP_PLO=MAX(1,PLO_P)
+	KN_PSWEEP_PHI=MAX(KN_PSWEEP_PLO,PHI_P)
+	KN_PSWEEP_SNAP=SNAP_P
+	KN_PSWEEP_SNHI=MAX(0,SNHI_P)
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_AITKEN(DO_AIT)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AITKEN
 	IMPLICIT NONE
@@ -10526,27 +10572,17 @@ C
 	  WRC_PI=WRC_I; WRC_PL=WRC_L
 !
 ! KN_NOCP_PROBE (diagnostic, phase 5.2): record this completed
-! pass before the exit tests. A probe ray skips only the
-! forced-clean .NOT. HAS_CP shortcut below; the residual-tolerance,
-! bulk, stall, plateau, hot-pass and cap exits all still apply,
-! so the probe measures whether the ordinary iteration converges
-! without the shortcut rather than creating a new criterion.
+! pass before the exit tests. Phase 5.3R removed the forced-clean
+! .NOT. HAS_CP shortcut that used to sit here: it overwrote the
+! measured pass residual with RES=0/RES_FREQ=0 and exited with
+! IXIT=0 after one pass, so a ray whose ordered march still moved
+! (the lagged C-corner of Paper II Eqs 31-32 keeps a genuine
+! cross-pass dependency even with no compressing cells) was
+! committed as converged. Probe and ordinary rays now share the
+! same measured exits below; L_NOPROBE only records telemetry and
+! suppresses store writes.
 !
 	  IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE)
-	  IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN
-!
-!	    No compressing cells: the single pass is the exact solve, so
-!	    the pass-1 change is a seed transient, not a fixed-point
-!	    residual. Report 0 so this ray cannot pin the gate; the
-!	    per-frequency residuals are also dropped so this ray cannot
-!	    inflate KN_HOT_CNT.
-!
-	    CLEAN_EXIT=.TRUE.
-	    IXIT=0
-	    RES=0.0_LDP
-	    RES_FREQ(1:NCF)=0.0_LDP
-	    EXIT
-	  END IF
 	  IF(RES .LT. KN_RAY_TOL)THEN
 	    CLEAN_EXIT=.TRUE.
 	    IXIT=1
@@ -10821,6 +10857,7 @@ C
 ! ----------------------------------------------------------------
 	SUBROUTINE SWEEP_FLD_ORD(FLD,INWARD,RES,NPO,NB_O,NT_O,IXIT,
 	1   NB_B,NT_B,L_QP)
+	USE ITER_LEDGER_MOD, ONLY: LEDG_N_RF
 	REAL(KIND=LDP) FLD(NI,NCF),RES
 	LOGICAL INWARD,L_QP
 	INTEGER NPO,IXIT
@@ -10841,6 +10878,22 @@ C
 	LOGICAL HOTMODE
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
+!
+! KN_PSWEEP_DIAG (phase 5.3K): per-solve capture state. PSD_X is
+! the immutable pass input; PSD_REC buffers one record per
+! captured pass and is flushed once under CRITICAL at solve end,
+! so the parallel ray loop cannot interleave or duplicate lines.
+! Everything here is local to this call, so no diagnostic state
+! survives between rays or model iterations.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: PSD_X(:,:),PSD_REC(:,:)
+	LOGICAL PSD_ARM
+	INTEGER PSD_N,PSD_NMAX,PSD_JMX,PSD_LMX
+	INTEGER*8 PSD_NV,PSD_NFLR,PSD_NNF
+	REAL(KIND=LDP) PSD_OMG0,PSD_DMAX,PSD_DABS,PSD_DRMS
+	REAL(KIND=LDP) PSD_T1,PSD_T2,PSD_T3
+	CHARACTER*80 PSD_FN
+	CHARACTER*1 PSD_CH
 !
 ! FG_ORD_AITKEN (VADAT [KN_ORD_AITKEN], default F): guarded Aitken
 ! delta-squared extrapolation of the pass iterate, aimed at the
@@ -10927,6 +10980,28 @@ C
 	  DIVERGED=.TRUE.
 	  IXIT=5
 	  RETURN
+	END IF
+!
+! KN_PSWEEP_DIAG: arm this solve's capture. The X buffer is one
+! full field copy, the record buffer one line per pass; an alloc
+! failure drops the diagnostic and leaves the solver path
+! untouched.
+!
+	PSD_ARM=KN_PSWEEP_DIAG .AND. .NOT. L_QP .AND.
+	1   (KN_PSWEEP_LS .LE. 0 .OR. LS .EQ. KN_PSWEEP_LS)
+	PSD_N=0
+	IF(PSD_ARM)THEN
+	  PSD_NMAX=KN_RAY_MAXPASS+KN_RAY_HOTPASSES+8
+	  ALLOCATE(PSD_X(NI,NCF),STAT=IOS)
+	  IF(IOS .NE. 0)THEN
+	    PSD_ARM=.FALSE.
+	  ELSE
+	    ALLOCATE(PSD_REC(PSD_NMAX,18),STAT=IOS)
+	    IF(IOS .NE. 0)THEN
+	      DEALLOCATE(PSD_X)
+	      PSD_ARM=.FALSE.
+	    END IF
+	  END IF
 	END IF
 ! AA supersedes the per-cell secant step; running both on the
 ! same iterate lets a bad Aitken jump corrupt the AA history.
@@ -11016,6 +11091,17 @@ C
 	  DO L=1,NCF
 	    VMAXF(L)=MAX(MAXVAL(FLD(1:NI,L)),1.0E-25_LDP)
 	  END DO
+!
+! KN_PSWEEP_DIAG: snapshot the pass input before the march
+! overwrites FLD in place. VMAXF just built is the pass's own
+! column-peak scale, so the R_MAP normalisation reuses it rather
+! than rebuilding a parallel one.
+!
+	  IF(PSD_ARM .AND. NPO .GE. KN_PSWEEP_PLO .AND.
+	1     NPO .LE. KN_PSWEEP_PHI)THEN
+	    PSD_X(1:NI,1:NCF)=FLD(1:NI,1:NCF)
+	    PSD_OMG0=OMEGA_RAY
+	  END IF
 !
 	  IF(INWARD)THEN
 !
@@ -11362,6 +11448,86 @@ C
 	  NB_O=NBAD_CUR
 	  NT_O=NTOT_CUR
 !
+! KN_PSWEEP_DIAG: the march is complete here (Aitken/AA and the
+! exit tests still ahead), so FLD is the raw pass output Y and
+! Y-X the complete relaxed-map defect for this pass. The scale is
+! the production one the march residual uses: MAX(|X|,1E-4*VMAXF).
+! Floor cells still count in the RMS (NFLR records their share);
+! only a non-finite delta is excluded, and NNF flags that.
+!
+	  IF(PSD_ARM .AND. NPO .GE. KN_PSWEEP_PLO .AND.
+	1     NPO .LE. KN_PSWEEP_PHI .AND. PSD_N .LT. PSD_NMAX)THEN
+	    PSD_N=PSD_N+1
+	    PSD_DMAX=0.0_LDP
+	    PSD_DABS=0.0_LDP
+	    PSD_DRMS=0.0_LDP
+	    PSD_JMX=0
+	    PSD_LMX=0
+	    PSD_NV=0_8
+	    PSD_NFLR=0_8
+	    PSD_NNF=0_8
+	    DO L=1,NCF
+	      DO J=1,NI
+	        PSD_T1=FLD(J,L)-PSD_X(J,L)
+	        PSD_T3=MAX(ABS(PSD_X(J,L)),1.0E-4_LDP*VMAXF(L))
+	        IF(PSD_T1 .NE. PSD_T1 .OR.
+	1           ABS(PSD_T1) .GT. 0.5_LDP*HUGE(PSD_T1))THEN
+	          PSD_NNF=PSD_NNF+1_8
+	        ELSE
+	          PSD_T2=ABS(PSD_T1)/PSD_T3
+	          PSD_DRMS=PSD_DRMS+PSD_T2*PSD_T2
+	          PSD_NV=PSD_NV+1_8
+	          IF(PSD_T2 .GT. PSD_DMAX)THEN
+	            PSD_DMAX=PSD_T2
+	            PSD_DABS=ABS(PSD_T1)
+	            PSD_JMX=J
+	            PSD_LMX=L
+	          END IF
+	          IF(ABS(PSD_X(J,L)) .LT. 1.0E-4_LDP*VMAXF(L))
+	1           PSD_NFLR=PSD_NFLR+1_8
+	        END IF
+	      END DO
+	    END DO
+	    IF(PSD_NV .GT. 0_8)PSD_DRMS=SQRT(PSD_DRMS/PSD_NV)
+	    PSD_REC(PSD_N,1)=DBLE(NPO)
+	    PSD_REC(PSD_N,2)=PSD_OMG0
+	    PSD_REC(PSD_N,3)=OMEGA_RAY
+	    PSD_REC(PSD_N,4)=RES
+	    PSD_REC(PSD_N,5)=PSD_DMAX
+	    PSD_REC(PSD_N,6)=PSD_DRMS
+	    PSD_REC(PSD_N,7)=PSD_DABS
+	    PSD_REC(PSD_N,8)=DBLE(PSD_JMX)
+	    PSD_REC(PSD_N,9)=DBLE(PSD_LMX)
+	    PSD_REC(PSD_N,10)=DBLE(NBAD_CUR)
+	    PSD_REC(PSD_N,11)=DBLE(NTOT_CUR)
+	    PSD_REC(PSD_N,12)=DBLE(PSD_NV)
+	    PSD_REC(PSD_N,13)=DBLE(PSD_NFLR)
+	    PSD_REC(PSD_N,14)=DBLE(PSD_NNF)
+	    PSD_REC(PSD_N,15)=DBLE(NCP_P)
+	    PSD_REC(PSD_N,16)=DBLE(NNG_P)
+	    PSD_REC(PSD_N,17)=-9.0_LDP
+	    PSD_REC(PSD_N,18)=-9.0_LDP
+	    IF(PSD_JMX .GT. 0)THEN
+	      PSD_REC(PSD_N,17)=SIGN(1.0_LDP,GAM(PSD_JMX,LS))
+	      IF(PSD_JMX .LE. SIZE(NFM_L))
+	1       PSD_REC(PSD_N,18)=DBLE(NFM_L(PSD_JMX))
+	    END IF
+	    IF(KN_PSWEEP_SNAP .AND. NPO .LE. KN_PSWEEP_SNHI)THEN
+!$OMP CRITICAL (KN_PSD_IO)
+	      WRITE(PSD_FN,'(A,I4.4,A,I4.4,A)')
+	1      'KN_PSWEEP_XY_r',LS,'_p',NPO,'.bin'
+	      OPEN(UNIT=87,FILE=PSD_FN,FORM='UNFORMATTED',
+	1         STATUS='REPLACE',ACTION='WRITE',IOSTAT=IOS)
+	      IF(IOS .EQ. 0)THEN
+	        WRITE(87)NI,NCF,LS,NPO,INWARD
+	        WRITE(87)PSD_X(1:NI,1:NCF)
+	        WRITE(87)FLD(1:NI,1:NCF)
+	        CLOSE(87)
+	      END IF
+!$OMP END CRITICAL (KN_PSD_IO)
+	    END IF
+	  END IF
+!
 ! Newest history residual r_k = g(x_k)-x_k (the pass delta). On a
 ! rejected-mix pass the pair is discarded with the history below.
 !
@@ -11562,27 +11728,17 @@ C
 	  WRC_PI=WRC_I; WRC_PL=WRC_L
 !
 ! KN_NOCP_PROBE (diagnostic, phase 5.2): record this completed
-! pass before the exit tests. A probe ray skips only the
-! forced-clean .NOT. HAS_CP shortcut below; the residual-tolerance,
-! bulk, stall, plateau, hot-pass and cap exits all still apply,
-! so the probe measures whether the ordinary iteration converges
-! without the shortcut rather than creating a new criterion.
+! pass before the exit tests. Phase 5.3R removed the forced-clean
+! .NOT. HAS_CP shortcut that used to sit here: it overwrote the
+! measured pass-2 residual with RES=0/RES_FREQ=0 and exited with
+! IXIT=0, so a ray whose ordered march still moved (the lagged
+! C-corner of Paper II Eqs 31-32 keeps a genuine cross-pass
+! dependency even with no compressing cells) was committed as
+! converged. Probe and ordinary rays now share the same measured
+! exits below; L_NOPROBE only records telemetry and suppresses
+! store writes.
 !
 	  IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE)
-	  IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN
-!
-!	    No compressing cells: pass 1 still carries the stale slope
-!	    corner of the seed, so confirm on a second pass before a
-!	    clean exit (see SWEEP_FLD for the legacy one-pass exit).
-!
-	    IF(NPO .GE. 2)THEN
-	      CLEAN_EXIT=.TRUE.
-	      IXIT=0
-	      RES=0.0_LDP
-	      RES_FREQ(1:NCF)=0.0_LDP
-	      EXIT
-	    END IF
-	  END IF
 	  IF(RES .LT. KN_RAY_TOL)THEN
 	    CLEAN_EXIT=.TRUE.
 	    IXIT=1
@@ -11793,6 +11949,32 @@ C
 	    END IF
 	  END IF
 	END DO
+!
+! KN_PSWEEP_DIAG: flush one buffered line per captured pass under
+! CRITICAL so armed rays on other threads cannot interleave. The
+! solve-end NPO/IXIT are written with every record so partial
+! and completed sequences are distinguishable; a failed open
+! drops the diagnostic write only.
+!
+	IF(PSD_ARM)THEN
+	  IF(INWARD)THEN
+	    PSD_CH='M'
+	  ELSE
+	    PSD_CH='P'
+	  END IF
+!$OMP CRITICAL (KN_PSD_IO)
+	  OPEN(UNIT=87,FILE='KN_PSWEEP_DIAG.dat',POSITION='APPEND',
+	1     STATUS='UNKNOWN',ACTION='WRITE',IOSTAT=IOS)
+	  IF(IOS .EQ. 0)THEN
+	    DO JW=1,PSD_N
+	      WRITE(87,*)'PSD',LS,PSD_CH,INT(LEDG_N_RF),NPO,IXIT,
+	1       (PSD_REC(JW,KW),KW=1,18)
+	    END DO
+	    CLOSE(87)
+	  END IF
+!$OMP END CRITICAL (KN_PSD_IO)
+	  DEALLOCATE(PSD_X,PSD_REC)
+	END IF
 !
 	DEALLOCATE(VMAXF)
 	IF(DO_AIT)DEALLOCATE(FLD_PRV,DLT_PRV)
