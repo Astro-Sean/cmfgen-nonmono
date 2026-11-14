@@ -31,6 +31,14 @@ C                        off the arrays; on failure the matched region ends
 C                        (or the whole correction is bypassed when no valid
 C                        node exists) and the uncorrected J_ES stands.
 C                        Non-finite J input is skipped with a diagnostic.
+C                        Same date, follow-up: all three fields checked
+C                        finite before the LOGs (MINVAL cannot spot a
+C                        NaN), every continuation and interpolation
+C                        denominator is validated (ES_PLANCK_NU_CONT,
+C                        ES_SHIFTED_RESCALE), and a derived PLANCK_NU
+C                        that is not finite-positive fails the map.  A
+C                        bad node takes the same uncorrected treatment
+C                        and never contaminates its neighbours.
 C Altered 20-Oct-2003 : No scaling peformed when PLANCK_FN has zero''s.
 C Altered 18-Aug-2003 : FILE_DATE inserted into INFO call.
 C Altered 17-Oct-2002 : Computation of BB changed to avoid floating overflow.
@@ -116,8 +124,8 @@ C
 	INTEGER J_DIM
 	INTEGER NCF_RD
 	INTEGER ND_RD
-	INTEGER FAIL,LUE
-	LOGICAL MAP_OK,J_OK
+	INTEGER FAIL,LUE,NPNU
+	LOGICAL MAP_OK,J_OK,FLD_OK
 	CHARACTER*20 FILE_DATE
 C
 C Constants for opacity etc [Set in CMFGEN].
@@ -332,8 +340,34 @@ C BB curve. At longer wavelengths we will use a simple scaling.
 C
 C Because of the steep variation of B on the Wien side, we operate on Log(B).
 C
-	  IF( MINVAL(PLANCK_FN) .GT. 0.0_LDP .AND. MINVAL(PLANCK_ES) .GT.
-     1	    0.0_LDP .AND. MINVAL(J_ES) .GT. 0.0_LDP)THEN
+C MINVAL alone cannot be trusted to spot a non-finite field, so the
+C finiteness of all three logarithm arguments is checked explicitly
+C before any LOG is taken.  A non-finite convolver output (J_ES,
+C PLANCK_ES or PLANCK_FN) is diagnosed per field and bypassed, and
+C the invalid result is left in J_ES for the caller to see - the same
+C policy as the non-finite input check above, not a silent repair.
+C Finite but non-positive values still take the stock MINVAL gate:
+C that branch is an expected physical state (a zero Planck node on
+C the coldest depths), not a numerical defect.
+C
+	  FLD_OK=ALL(IEEE_IS_FINITE(PLANCK_FN)) .AND.
+     1	       ALL(IEEE_IS_FINITE(PLANCK_ES)) .AND.
+     2	       ALL(IEEE_IS_FINITE(J_ES))
+	  IF(.NOT. FLD_OK)THEN
+	    LUE=WARNING_LU()
+	    WRITE(LUE,'(A,I5,A)')'*** Warning in COMP_J_CONV_V2: '//
+     1	    'non-finite convolver output at depth',K,
+     2	    ' - Planck correction bypassed'
+	    IF(.NOT. ALL(IEEE_IS_FINITE(J_ES)))WRITE(LUE,'(A)')
+     1	    '    J_ES (convolver output) is non-finite'
+	    IF(.NOT. ALL(IEEE_IS_FINITE(PLANCK_FN)))WRITE(LUE,'(A)')
+     1	    '    PLANCK_FN is non-finite'
+	    IF(.NOT. ALL(IEEE_IS_FINITE(PLANCK_ES)))WRITE(LUE,'(A)')
+     1	    '    PLANCK_ES is non-finite'
+	  END IF
+	  IF( FLD_OK .AND. MINVAL(PLANCK_FN) .GT. 0.0_LDP .AND.
+     1	    MINVAL(PLANCK_ES) .GT. 0.0_LDP .AND.
+     2	    MINVAL(J_ES) .GT. 0.0_LDP)THEN
 	    PLANCK_ES(:)=LOG(PLANCK_ES(:))
 	    PLANCK_FN(:)=LOG(PLANCK_FN(:))
 C
@@ -387,72 +421,65 @@ C
 	        EXIT
 	      END IF
               PLANCK_NU(I)=T1*NU(ML-1)+(1.0_LDP-T1)*NU(ML)
+C
+C A matched weight guarantees PLANCK_NU between NU(ML) and NU(ML-1)
+C only while NU itself is positive and finite.  The map must stay a
+C positive frequency - anything else would poison the continuation
+C anchors and the interpolation below.
+C
+	      IF(.NOT. IEEE_IS_FINITE(PLANCK_NU(I)) .OR.
+     1	         PLANCK_NU(I) .LE. 0.0_LDP)THEN
+	        FAIL=7
+	        LUE=WARNING_LU()
+	        WRITE(LUE,'(A,I5,A,I5,A,I2)')'*** Warning in '//
+     1	        'COMP_J_CONV_V2: PLANCK_NU match failed, K=',K,
+     2	        ' I=',I,' FAIL=',FAIL
+	        WRITE(LUE,'(A,4ES15.7)')'    NU(I), PLANCK_ES(I), '//
+     1	        'PLANCK_FN(1), PLANCK_FN(NCF)=',NU(I),PLANCK_ES(I),
+     2        PLANCK_FN(1),PLANCK_FN(NCF)
+	        IF(I .GT. 2)THEN
+	          WRITE(LUE,'(A)')'    matched region truncated; '//
+     1	          'last valid shift continues the map'
+	        ELSE
+	          WRITE(LUE,'(A)')'    no valid node: Planck '//
+     1	          'correction bypassed, uncorrected J_ES returned'
+	          MAP_OK=.FALSE.
+	        END IF
+	        EXIT
+	      END IF
 	      I=I+1
 	    END DO
 C
 	    IF(MAP_OK)THEN
 C
-C Apply same wavelength shift as for our last (i.e. lowest)
-C frequency as determined by matching the Planck function.
+C The matched region ends at I-1; ES_PLANCK_NU_CONT continues the
+C map with the same wavelength shift as the last derived node, the
+C stock treatment below the matched region.  Every reciprocal is
+C guarded inside the subroutine: a bad anchor or a non-positive,
+C non-finite or vanishing denominator ends the map at NPNU rather
+C than producing an infinite or negative frequency.  Only the
+C nodes in 1:NPNU are genuine shifted positions.
 C
-	    T1=1.0_LDP/NU(I-1)-1.0_LDP/PLANCK_NU(I-1)		!Wavelength shift
-	    DO ML=I,NCF
-	      PLANCK_NU(ML)=1.0_LDP/( 1.0_LDP/NU(ML) - T1)
-	    END DO
+	    CALL ES_PLANCK_NU_CONT(NU,PLANCK_NU,I,NCF,NPNU,FAIL)
+	    IF(FAIL .NE. 0)THEN
+	      LUE=WARNING_LU()
+	      WRITE(LUE,'(A,I5,A,I5,A,I2)')'*** Warning in '//
+     1	      'COMP_J_CONV_V2: PLANCK_NU continuation failed, K=',
+     2	      K,' at ML=',NPNU+1,' FAIL=',FAIL
+	      WRITE(LUE,'(A,I5,A)')'    map truncated after node',
+     1	      NPNU,': below-map nodes take the uncorrected treatment'
+	    END IF
 C
-C We now perform a simple linear interpolation of the electron scattered
-C Planck function back onto the old frequency grid. We apply the same
-C interpolation to J_ES also. We use "A" as a temporary store for J_ES,
-C and "C" as a temporary store for PLANCK_ES.
+C ES_SHIFTED_RESCALE interpolates the scattered Planck function and
+C J_ES back onto the frequency grid through the shifted map, then
+C applies the B/B_es rescale.  Every interpolation bracket is
+C validated inside: a truncated, non-finite, non-positive or
+C degenerate bracket leaves that node in the established
+C uncorrected state instead of dividing through a bad interval.
 C
-C No interpolation is done for the end points (which have coherent scattering).
-C The immediate interior points, if necessary, are handled by extrapolation.
+	    CALL ES_SHIFTED_RESCALE(NU,PLANCK_NU,PLANCK_FN,PLANCK_ES,
+     1	    J_ES,A,C,NCF,NPNU,K)
 C
-	    A(:)=LOG(J_ES(:))
-	    J_ES(1)=A(1)		!Must be in LOG form: not modified by interp.
-	    J_ES(NCF)=A(NCF)
-	    C(:)=PLANCK_ES(:)	!Already taken LOG
-	    I=1
-	    DO ML=2,NCF-1
-	      DO WHILE (NU(ML) .LT. PLANCK_NU(I+1) .AND. I .LT. NCF-1)
-	         I=I+1
-	      END DO
-	      T1=(NU(ML)-PLANCK_NU(I))/(PLANCK_NU(I+1)-PLANCK_NU(I))
-	      PLANCK_ES(ML)=T1*C(I+1)+(1.0_LDP-T1)*C(I)
-	      J_ES(ML)=T1*A(I+1)+(1.0_LDP-T1)*A(I)
-	      IF(I .EQ. 1)THEN
-C
-C When the shifted bracket still contains the forced endpoint
-C PLANCK_NU(1)=NU(1), neither interpolation is a genuine shifted
-C evaluation: the endpoint anchor violates the
-C ln B_es(NU) = ln B(PLANCK_NU) relation the map relies on.  The
-C B/B_es factor below is then not a calibration - in the
-C Wien-dead zone the unshifted B_es exceeds B by orders of
-C magnitude (measured ~1E20 at T=5E4 K), which crushed a live
-C non-thermal feature to ~1E-20 of the extended-domain result
-C (P8.1 audit sec 8.5.1).  At these nodes the raw convolved
-C J_ES stands: the operator output is the honest answer, and a
-C Planck field is still recovered wherever B is significant.
-C Not flag-gated: the old factor is a valid calibration only
-C where the shift map is genuine.
-C
-	        PLANCK_ES(ML)=PLANCK_FN(ML)
-	        J_ES(ML)=A(ML)
-	      END IF
-	    END DO
-C
-C The same invalid-map treatment applies at the upper endpoint:
-C its shifted position lies off the grid (the smeared B_es is
-C smallest at the boundary itself), so no genuine shifted
-C PLANCK_ES exists and the rescale is set to unity.
-C
-	    PLANCK_ES(1)=PLANCK_FN(1)
-C
-C To remove any residual variations (primarily at low frequencies) we now
-C scale J according the the ratio of the PLANCK functions.
-C
-	     J_ES(:)=EXP( J_ES(:)+ (PLANCK_FN(:)-PLANCK_ES(:)) )
-!
 	    END IF
 C
 C When MAP_OK is false no valid shift map exists: J_ES still holds the
@@ -580,5 +607,197 @@ C
 	END IF
 C
 	T1=(PES-PFN(ML))/T2
+	RETURN
+	END
+C
+C
+C
+	SUBROUTINE ES_PLANCK_NU_CONT(NU,PNU,I,NCF,NPNU,FAIL)
+	USE SET_KIND_MODULE
+	USE, INTRINSIC :: IEEE_ARITHMETIC
+	IMPLICIT NONE
+C
+C Wavelength-shift continuation for the COMP_J_CONV_V2 Planck map,
+C split out 14-Nov-2026 with the same purpose as
+C ES_PLANCK_NU_MATCH: the same production code is driven directly
+C by the manufactured driver.  PNU(1:I-1) already holds genuine
+C derived nodes (endpoint plus match results); nodes I:NCF take the
+C constant wavelength shift of the last derived node, exactly the
+C stock continuation:
+C
+C   T1 = 1/NU(I-1) - 1/PNU(I-1)
+C   PNU(ML) = 1/(1/NU(ML) - T1)
+C
+C Every reciprocal is guarded: the anchors and each denominator
+C must be finite, and the denominator must be strictly positive so
+C the continued frequency stays a positive physical frequency.
+C With NU strictly decreasing and a positive PNU(I-1) anchor the
+C denominator is > 1/PNU(I-1) by construction, so the denominator
+C failure is unreachable through production input - it is a
+C defensive bound exercised directly by the driver.
+C
+C On failure no extrapolated shift is invented: the map keeps only
+C its genuine nodes and NPNU reports the last valid index.  Nodes
+C beyond NPNU are left untouched (never written) and the caller's
+C interpolation treats the region below PNU(NPNU) as off-map.
+C
+C FAIL codes (continuing the ES_PLANCK_NU_MATCH sequence):
+C   5  anchor NU(I-1) or PNU(I-1) not finite-positive, or the
+C      shift T1 they produce is non-finite; NPNU=I-1.
+C   6  denominator at ML not finite or not positive (covers a
+C      non-positive or non-finite NU(ML)); NPNU=ML-1.
+C
+	INTEGER NCF,I,NPNU,FAIL
+	REAL(LDP) NU(NCF),PNU(NCF)
+	REAL(LDP) T1,DEN
+	INTEGER ML
+C
+	FAIL=0
+	NPNU=NCF
+C
+	IF(.NOT. IEEE_IS_FINITE(NU(I-1)) .OR.
+     1	   NU(I-1) .LE. 0.0_LDP .OR.
+     2	   .NOT. IEEE_IS_FINITE(PNU(I-1)) .OR.
+     3	   PNU(I-1) .LE. 0.0_LDP)THEN
+	  FAIL=5
+	  NPNU=I-1
+	  RETURN
+	END IF
+	T1=1.0_LDP/NU(I-1)-1.0_LDP/PNU(I-1)
+	IF(.NOT. IEEE_IS_FINITE(T1))THEN
+	  FAIL=5
+	  NPNU=I-1
+	  RETURN
+	END IF
+C
+	DO ML=I,NCF
+	  IF(.NOT. IEEE_IS_FINITE(NU(ML)) .OR.
+     1	     NU(ML) .LE. 0.0_LDP)THEN
+	    FAIL=6
+	    NPNU=ML-1
+	    RETURN
+	  END IF
+	  DEN=1.0_LDP/NU(ML)-T1
+	  IF(.NOT. IEEE_IS_FINITE(DEN) .OR. DEN .LE. 0.0_LDP)THEN
+	    FAIL=6
+	    NPNU=ML-1
+	    RETURN
+	  END IF
+	  PNU(ML)=1.0_LDP/DEN
+	END DO
+	RETURN
+	END
+C
+C
+C
+	SUBROUTINE ES_SHIFTED_RESCALE(NU,PNU,PFN,PES,JES,A,C,NCF,
+     1	                            NPNU,K)
+	USE SET_KIND_MODULE
+	USE, INTRINSIC :: IEEE_ARITHMETIC
+	IMPLICIT NONE
+C
+C Shifted-grid interpolation and the Planck-preserving rescale of
+C COMP_J_CONV_V2, split out 14-Nov-2026 so the manufactured driver
+C can feed synthetic maps through the same object code.  PNU(1:NPNU)
+C is the validated shifted-frequency map from ES_PLANCK_NU_MATCH /
+C ES_PLANCK_NU_CONT; PFN, PES and JES are the log-space Planck,
+C scattered Planck and convolved fields on the NU grid.
+C
+C For each interior output node the bracket
+C PNU(I+1) <= NU(ML) <= PNU(I) is located by the stock walk, then
+C checked before it is used: both endpoints must be finite positive
+C frequencies and the interval finite and nonzero, and the weight
+C must come out finite.  A mathematically monotone map can still
+C carry duplicate or degenerate nodes numerically.
+C
+C Where no genuine shifted evaluation exists the node takes the
+C established invalid-map treatment: PLANCK_ES(ML)=PLANCK_FN(ML)
+C (unity rescale) and J_ES(ML)=A(ML) (raw convolved field).  That
+C covers the I=1 bracket containing the forced endpoint
+C (P8.1 Wien-end correction), an output node below the last valid
+C map frequency PNU(NPNU) (map truncated by
+C ES_PLANCK_NU_CONT), and any degenerate bracket.  Nodes whose
+C bracket is valid keep their interpolated values - an invalid
+C node never contaminates a valid one.
+C
+	INTEGER NCF,NPNU,K
+	REAL(LDP) NU(NCF),PNU(NCF),PFN(NCF),PES(NCF),JES(NCF)
+	REAL(LDP) A(NCF),C(NCF)
+C
+	INTEGER ML,I,NBAD,LUE
+	REAL(LDP) T1,T2
+	LOGICAL BRK_OK
+	INTEGER WARNING_LU
+	EXTERNAL WARNING_LU
+C
+	A(:)=LOG(JES(:))
+	JES(1)=A(1)		!Must be in LOG form: not modified by interp.
+	JES(NCF)=A(NCF)
+	C(:)=PES(:)		!Already taken LOG
+	I=1
+	NBAD=0
+	DO ML=2,NCF-1
+	  DO WHILE (NU(ML) .LT. PNU(I+1) .AND. I .LT. NPNU-1)
+	     I=I+1
+	  END DO
+C
+C A truncated map ends at PNU(NPNU): an output node below that
+C frequency has no on-grid bracket at all.  The stock clamp would
+C only extrapolate inside the last bracket, so the node takes the
+C uncorrected treatment instead.  When NPNU=NCF the bound
+C reproduces the stock NCF-1 cap exactly.
+C
+	  BRK_OK=.TRUE.
+	  IF(NPNU .LT. NCF .AND. I .EQ. NPNU-1 .AND.
+     1	     NU(ML) .LT. PNU(NPNU))BRK_OK=.FALSE.
+	  IF(NPNU .LT. 2)BRK_OK=.FALSE.
+	  IF(BRK_OK)THEN
+	    T2=PNU(I+1)-PNU(I)
+	    BRK_OK=IEEE_IS_FINITE(PNU(I)) .AND.
+     1	           IEEE_IS_FINITE(PNU(I+1)) .AND.
+     2	           PNU(I) .GT. 0.0_LDP .AND.
+     3	           PNU(I+1) .GT. 0.0_LDP .AND.
+     4	           IEEE_IS_FINITE(T2) .AND. T2 .NE. 0.0_LDP
+	  END IF
+	  IF(BRK_OK)THEN
+	    T1=(NU(ML)-PNU(I))/T2
+	    BRK_OK=IEEE_IS_FINITE(T1)
+	  END IF
+C
+	  IF(BRK_OK)THEN
+	    PES(ML)=T1*C(I+1)+(1.0_LDP-T1)*C(I)
+	    JES(ML)=T1*A(I+1)+(1.0_LDP-T1)*A(I)
+	  END IF
+C
+C The I=1 bracket containing the forced PLANCK_NU(1)=NU(1) anchor
+C and every invalid bracket share the same treatment: no genuine
+C shifted evaluation exists, so the B/B_es factor is unity and the
+C raw convolved J_ES stands (the 14-Nov-2026 Wien-end correction).
+C
+	  IF(.NOT. BRK_OK .OR. I .EQ. 1)THEN
+	    IF(.NOT. BRK_OK)NBAD=NBAD+1
+	    PES(ML)=PFN(ML)
+	    JES(ML)=A(ML)
+	  END IF
+	END DO
+C
+	IF(NBAD .GT. 0)THEN
+	  LUE=WARNING_LU()
+	  WRITE(LUE,'(A,I5,A,I5,A)')'*** Warning in '//
+     1	  'COMP_J_CONV_V2: ',NBAD,' node(s) at depth',K,
+     2	  ' have no genuine shifted bracket - uncorrected J_ES kept'
+	END IF
+C
+C The same invalid-map treatment applies at the upper endpoint:
+C its shifted position lies off the grid (the smeared B_es is
+C smallest at the boundary itself), so no genuine shifted
+C PLANCK_ES exists and the rescale is set to unity.
+C
+	PES(1)=PFN(1)
+C
+C To remove any residual variations (primarily at low frequencies) we now
+C scale J according the the ratio of the PLANCK functions.
+C
+	JES(:)=EXP( JES(:)+ (PFN(:)-PES(:)) )
 	RETURN
 	END
