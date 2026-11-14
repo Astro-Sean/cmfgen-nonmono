@@ -317,7 +317,7 @@ emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
 to `sigma*J` consistently on both sides. The folding algebra
 is now backed by the executable battery in section 8.5
-(115 checks, all passing at the measured tolerances) plus the
+(116 checks, all passing at the measured tolerances) plus the
 static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
@@ -395,7 +395,7 @@ manufactured emissivities through the real `OBS_FRAME_SUB_V9`
 (V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
 iteration ordering; `drv_knop_guard.f` drives the production
 store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
-`unit_tests/python/test_es_conv.py`, 115/115 PASS. Production
+`unit_tests/python/test_es_conv.py`, 116/116 PASS. Production
 tree sources link as the exact `.o` files the production
 executables use (`compile_and_link_prod`, ifort `-qopenmp`,
 MKL sequential); only drivers and the `obs_v9_adapter` shim
@@ -462,7 +462,7 @@ in ln nu at 1e4 K) is far below the grid cell; this battery
 resolves the FEATURE, not the kernel, and no kernel-width
 claim is made.
 
-Measured battery results (115/115 PASS):
+Measured battery results (116/116 PASS):
 
 | case | result |
 | --- | --- |
@@ -470,7 +470,7 @@ Measured battery results (115/115 PASS):
 | lte `J=B(T)` zone map | endpoint rel 6.5e19/4.6e124/6.3e56 at B(1)<=3e-118 of char; invalid-map abs err <=2.5e-87 of char; corrected+continuation <=2.05e-13 over 717 nodes; gate-skip depth bounded <=2.3e-6 abs (sec 8.5.1) |
 | brk match battery | 10/10 synthetic cases return exact FAIL/ML/T1/PLANCK_NU; ML never exceeds NCF+1; no PFN(0) read (sec 8.5.2) |
 | cnt continuation battery | 12/12 synthetic cases return exact FAIL/NPNU; only positive finite nodes written; FAIL=5/6 defensive bounds exercised (sec 8.5.3) |
-| itp rescale battery | 12/12 synthetic maps match the walk oracle node-by-node (max dev 4.3e-14): valid, NPNU=0/1/2, truncated, NaN/+Inf, degenerate, non-monotone out-of-range weights, boundary-exact, non-positive; invalid nodes return raw J exactly (sec 8.5.3) |
+| itp rescale battery | 14/14 synthetic maps match the walk oracle node-by-node (max dev 4.3e-14): valid, NPNU=0/1/2, truncated, NaN/+Inf, degenerate, non-monotone out-of-range weights, boundary-exact, non-positive map, NaN/non-positive output-grid NU; invalid nodes return raw J exactly (sec 8.5.3) |
 | bndchk cross-binary | -check bounds -fpe0 build of the production source reruns brk/cnt/itp: completes and reproduces every number - no OOB index, no unordered-NaN compare, no unvalidated arithmetic (sec 8.5.3) |
 | nanj / neg input guards | NaN depth passes input verbatim + fort.4 warning, others convolve; signed convolved output stays finite via the MINVAL(J_ES) gate |
 | nant / inft / zpf output guards | NaN and +Inf convolver output bypassed with a per-field named diagnostic, invalid J_ES left visible; exact-zero PLANCK_FN takes the silent gate-skip leaving raw J_ES (sec 8.5.3) |
@@ -792,7 +792,7 @@ zero/negative/NaN/Inf `PLANCK_NU` anchors, zero and negative
 `NU` anchors, an interior `NU` defect, a forced non-positive
 denominator, and a single-node tail - all returning the
 expected FAIL/NPNU with no out-of-bounds or non-positive
-node written. `itp` drives 12 synthetic maps through
+node written. `itp` drives 14 synthetic maps through
 `ES_SHIFTED_RESCALE` - valid, `NPNU=0/1/2` (the unwritten
 region poisoned with NaN so any access aborts a trap
 build), truncated (`NPNU<NCF`), NaN and `+Inf` nodes, a
@@ -802,13 +802,22 @@ weights, rejected as extrapolation), boundary-exact node
 hits (`T1=1` exactly - on a decreasing `NU` an exact node
 always resolves in the lower bracket, so `T1=0` is
 unreachable through the walk and the [0,1] check covers
-both ends), and a non-positive node - matched node-by-node
-against an independent walk oracle (max deviation 4.3e-14),
-with invalid nodes returning exactly the raw input and
-valid nodes untouched.  A second driver binary compiles
+both ends), a non-positive map node, and NaN/non-positive
+output-grid `NU(ML)` nodes (the ordered compares are never
+reached - the NaN-NU case is a `-fpe0` proof, and its valid
+neighbours return exactly the case-1 values, no
+contamination) - matched node-by-node against an
+independent walk oracle (max deviation 4.3e-14), with
+invalid nodes returning exactly the raw input and valid
+nodes untouched.  A second driver binary compiles
 `comp_j_conv_v2.f` and the driver with `-check bounds
 -fpe0` and reruns `brk`/`cnt`/`itp`: it completes every
-battery and reproduces every number.
+battery and reproduces every number.  Final IEEE pass: the
+remaining combined finite-check/ordered-compare
+expressions (NU_OK, the derived-`PLANCK_NU` FAIL=7 gate,
+the T2 denominators in MATCH and RESCALE, and the MATCH
+walk compares against PFN) are written sequentially - no
+NaN operand can reach an ordered comparison on any path.
 `nant`/`inft` make `TEMP(2)` NaN/+Inf so `J_ES`,
 `PLANCK_ES` and `PLANCK_FN` go non-finite through the real
 convolution path: the depth is bypassed, its NaN/Inf output
