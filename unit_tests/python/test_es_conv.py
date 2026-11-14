@@ -51,7 +51,8 @@ Drivers (all call the REAL production routines):
             nodes poisoned with NaN), truncated, NaN node, +Inf
             node, duplicate pair, non-monotone maps giving
             weights below 0 and above 1, boundary-exact node
-            hits, non-positive node - every bracket and weight
+            hits, non-positive map node, NaN and non-positive
+            output-grid NU nodes - every bracket and weight
             validation path.  A second binary compiles
             comp_j_conv_v2.f + the driver with -check bounds
             -fpe0 and reruns brk/cnt/itp: an abort is an
@@ -762,8 +763,12 @@ def main():
     # expected JES/PES.  An invalid node takes
     # JES(ML)=exp(A(ML)) (=raw input) and PES=PFN; a valid node
     # interpolates the log fields.
-    d = np.loadtxt(out_dir / "esconv_itp.txt").reshape(12, 8, 6)
+    d = np.loadtxt(out_dir / "esconv_itp.txt").reshape(14, 8, 6)
     NU_B = 9.0 - np.arange(1, 9)            # 8..1 decreasing
+    NU_B13 = NU_B.copy(); NU_B13[4] = np.nan
+    NU_B14 = NU_B.copy(); NU_B14[4] = -1.0
+    NU_BC = {ic: (NU_B13 if ic == 13 else NU_B14 if ic == 14
+                  else NU_B) for ic in range(1, 15)}
     PFN_B = 2.0 * np.arange(1, 9)
     C_B = 3.0 * np.arange(1, 9)
     JIN_B = 5.0 * np.arange(1, 9)
@@ -783,32 +788,34 @@ def main():
         10: np.array([7.5, 6.5, 5.5, 4.5, 2.5, 2.6, 4.0, 5.0]),
         11: np.array([7.5, 6.5, 5.5, 5.0, 3.5, 3.0, 1.5, 0.5]),
         12: np.array([7.5, 6.5, 5.5, -1.0, 3.5, 2.5, 1.5, 0.5]),
+        13: NU_B - 0.5,
+        14: NU_B - 0.5,
     }
-    NPNU_B = {1: 8, 2: 0, 3: 1, 4: 2, 5: 5, 6: 8,
-              7: 8, 8: 8, 9: 8, 10: 8, 11: 8, 12: 8}
+    NPNU_B = {ic: ({2: 0, 3: 1, 4: 2, 5: 5}.get(ic, 8))
+              for ic in range(1, 15)}
 
-    def itp_expect(pnu, npnu):
+    def itp_expect(nu, pnu, npnu):
         pes = C_B.copy()
         jes = np.empty(8)
         jes[0] = A_B[0]
         jes[-1] = A_B[-1]
         i = 0
         for ml in range(1, 7):
-            nu_ok = np.isfinite(NU_B[ml]) and NU_B[ml] > 0.0
+            nu_ok = np.isfinite(nu[ml]) and nu[ml] > 0.0
             if nu_ok and npnu >= 2:
                 while True:
                     if i >= npnu - 2:
                         break
                     if not np.isfinite(pnu[i + 1]):
                         break
-                    if NU_B[ml] < pnu[i + 1]:
+                    if nu[ml] < pnu[i + 1]:
                         i += 1
                     else:
                         break
             brk = nu_ok and npnu >= 2
             if brk and npnu < 8 and i == npnu - 2:
                 if np.isfinite(pnu[npnu - 1]) and (
-                    NU_B[ml] < pnu[npnu - 1]
+                    nu[ml] < pnu[npnu - 1]
                 ):
                     brk = False
             if brk:
@@ -821,7 +828,7 @@ def main():
                 t2 = pnu[i + 1] - pnu[i]
                 brk = np.isfinite(t2) and t2 != 0.0
             if brk:
-                t1 = (NU_B[ml] - pnu[i]) / t2
+                t1 = (nu[ml] - pnu[i]) / t2
                 brk = np.isfinite(t1)
             if brk:
                 brk = t1 >= -W_TOL and t1 <= 1.0 + W_TOL
@@ -836,8 +843,8 @@ def main():
         return np.exp(jes + PFN_B - pes), pes
 
     ok, det = True, []
-    for ic in range(1, 13):
-        jes_exp, pes_exp = itp_expect(PNU_B[ic], NPNU_B[ic])
+    for ic in range(1, 15):
+        jes_exp, pes_exp = itp_expect(NU_BC[ic], PNU_B[ic], NPNU_B[ic])
         jes_got = d[ic - 1, :, 4]
         pes_got = d[ic - 1, :, 5]
         good = (
@@ -852,16 +859,16 @@ def main():
             f"{np.max(np.abs(jes_got - jes_exp)):.1e}"
         )
     rep.check(
-        "itp: all twelve map cases match the walk oracle "
-        "node-by-node (valid, NPNU=0/1/2, truncated, NaN, +Inf, "
+        "itp: all fourteen map cases match the walk oracle "
+        "node-by-node (valid, NPNU=0/1/2, truncated, NaN/+Inf map, "
         "degenerate, non-monotone T1>1 and T1<0, boundary-exact, "
-        "non-positive)",
+        "non-positive map, NaN-NU and negative-NU output nodes)",
         ok,
         " ".join(det),
     )
     rep.check(
         "itp: invalid nodes retain raw J exactly at the "
-        "off-map/degenerate/out-of-range nodes",
+        "off-map/degenerate/out-of-range/bad-NU nodes",
         np.allclose(d[4, 5:7, 4], JIN_B[5:7])
         and np.isclose(d[7, 6, 4], 35.0)
         and np.isclose(d[8, 6, 4], 35.0)
@@ -870,9 +877,23 @@ def main():
         and np.allclose(d[1, 1:7, 4], JIN_B[1:7])
         and np.allclose(d[2, 1:7, 4], JIN_B[1:7])
         and np.allclose(d[3, 1:7, 4], JIN_B[1:7])
+        and np.isclose(d[12, 4, 4], JIN_B[4])
+        and np.isclose(d[12, 4, 5], PFN_B[4])
+        and np.isclose(d[13, 4, 4], JIN_B[4])
+        and np.isclose(d[13, 4, 5], PFN_B[4])
         and d[0, 2, 4] != JIN_B[2] and d[4, 2, 4] != JIN_B[2],
         f"offmap {d[4,5:7,4]}, degen {d[7,6,4]}, "
-        f"T1out {d[8,6,4]},{d[9,6,4]}",
+        f"T1out {d[8,6,4]},{d[9,6,4]}, "
+        f"badNU {d[12,4,4]},{d[13,4,4]}",
+    )
+    rep.check(
+        "itp: valid neighbours of a NaN-NU node keep their "
+        "case-1 interpolated values (same map, no contamination)",
+        np.isclose(d[12, 3, 4], d[0, 3, 4])
+        and np.isclose(d[12, 5, 4], d[0, 5, 4])
+        and not np.isclose(d[12, 3, 4], JIN_B[3]),
+        f"neighbours {d[12,3,4]},{d[12,5,4]} vs case1 "
+        f"{d[0,3,4]},{d[0,5,4]}",
     )
     rep.check(
         "itp: boundary-exact node hits give pure lower-node values",
