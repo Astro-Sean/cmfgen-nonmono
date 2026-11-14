@@ -29,6 +29,23 @@ Drivers (all call the REAL production routines):
             and the unshifted/non-interpolated endpoint treatment
             are probed, and the extended result restricted to the
             shared nodes is the boundary reference.
+    lte     J = B(T): LTE endpoint diagnostic - emits the
+            convolved Planck replica, the PLANCK_NU map, and a
+            zone flag per node (via the production
+            ES_PLANCK_NU_MATCH) so the endpoint/bracket LTE
+            trade-off is measured separately from the corrected
+            interior.
+    brk     synthetic ES_PLANCK_NU_MATCH battery: the match
+            failure codes cannot be reached through the Planck
+            path (PFN monotone over the Wien-gated region), so
+            the same production object is driven with crafted
+            log-space targets - valid, above/below range,
+            floor-walk, degenerate, NaN/Inf, boundary-exact,
+            persisted-ML.
+    nanj    NaN at one node/depth: per-depth convolution skip +
+            WARNING_LU diagnostic, field left visible.
+    neg     signed convolved output: the MINVAL(J_ES) gate must
+            fire before LOG(J_ES) can produce NaN.
     tempu   J = B(T_TEST) with T(k)=T_TEST uniform: isolates the
             beta(T)=1.84E-3*sqrt(T) width dependence.
     edge    bound-free-like step: positivity, recorded max rel.
@@ -315,6 +332,14 @@ def main():
             conv_bin, out_dir, "swp", nu0, "12.0", "0.5",
             cwd=out_dir,
         )
+    # LTE endpoint diagnostic: J = B(T), zone map emitted by a
+    # replica that calls the same production ES_PLANCK_NU_MATCH.
+    run(conv_bin, out_dir, "lte", "256", cwd=out_dir)
+    # Synthetic bracket battery on the production match routine.
+    run(conv_bin, out_dir, "brk", cwd=out_dir)
+    # Input guards: NaN input field and signed convolved output.
+    run(conv_bin, out_dir, "nanj", "256", cwd=out_dir)
+    run(conv_bin, out_dir, "neg", "256", cwd=out_dir)
     run(
         conv_bin, out_dir, "linext", "256", "2", "0.4", "50",
         cwd=out_dir,
@@ -336,6 +361,208 @@ def main():
     rep.check(
         "planck: Jbar finite and non-negative everywhere",
         np.all(np.isfinite(rjes)) and np.all(rjes >= 0.0),
+    )
+
+    # -- LTE endpoint trade-off diagnostic (P8.1 robustness) ------------
+    # J = B(T): the lte driver emits, per node, the input Planck
+    # field, the replicated convolved Planck field, the PLANCK_NU
+    # map, a zone flag from a replica that calls the production
+    # ES_PLANCK_NU_MATCH, and JBAR.  Zones: 0 corrected interior,
+    # 1 upper endpoint, 2 invalid-map bracket (I=1 during the
+    # shift interpolation), 3 gate-skip (MINVAL block not
+    # entered), 4 continuation tail, 5 bypass, 9 lower endpoint.
+    # The trade the audit documents: at zones 1 and 2 no genuine
+    # shifted PLANCK_ES exists, so Jbar returns the raw convolved
+    # field rather than the exact B - the relative LTE error there
+    # is large and HONESTLY reported, with the confinement
+    # (B/bchar and |dJ|/bchar) measured rather than assumed.
+    d = np.loadtxt(out_dir / "esconv_lte0300x0002.txt")
+    ncf_l = int(d[:, 0].max())
+    nd = d.shape[0] // ncf_l
+    nu_l = d[:, 1].reshape(nd, ncf_l)[0]
+    tt = d[:, 2].reshape(nd, ncf_l)[:, 0]
+    jin_l = d[:, 3].reshape(nd, ncf_l)
+    zn_l = d[:, 6].reshape(nd, ncf_l).astype(int)
+    fail_l = d[:, 7].reshape(nd, ncf_l).astype(int)
+    jbar_l = d[:, 8].reshape(nd, ncf_l)
+    TINY = np.finfo(np.float64).tiny          # 2.2e-308
+    HDKT_ = 4.7994145
+    TW2_ = 0.0147452575
+
+    def pfn_prod(nu_, t_):
+        """The T3-scaled Planck field the routine matches
+        (production formula, comp_j_conv_v2.f ~:306)."""
+        x_ = HDKT_ * nu_ / t_
+        t3_ = min(700.0, 0.5 * HDKT_ * nu_ / t_)
+        if t3_ < 1.0:
+            t3_ = 0.0
+        return TW2_ * nu_**3 * np.exp(t3_ - x_) / (1.0 - np.exp(-x_))
+
+    def ieee_cls(v):
+        if v == 0.0:
+            return "zero"
+        return "subnormal" if abs(v) < TINY else "normal"
+
+    # IEEE classification of the two Planck quantities at the
+    # endpoint: the driver input B(1) and the production PFN(1).
+    b1_cls = [ieee_cls(jin_l[k, 0]) for k in range(nd)]
+    pfn1 = np.array([pfn_prod(nu_l[0], t) for t in tt])
+    pfn1_cls = [ieee_cls(v) for v in pfn1]
+    rep.check(
+        "lte: endpoint input B(1) IEEE class per depth",
+        all(c == "normal" for c in b1_cls),
+        f"B(1)={['%.2e' % jin_l[k, 0] for k in range(nd)]} "
+        f"classes={b1_cls} (driver formula saturates at e^-700)",
+    )
+    rep.check(
+        "lte: production PFN(1) class is normal/subnormal/zero, "
+        "not uniformly 'denormal'",
+        pfn1_cls == ["normal", "normal", "subnormal", "zero"],
+        f"PFN(1)={['%.2e' % v for v in pfn1]} classes={pfn1_cls} "
+        f"(T=1e4 K is subnormal, T=5e3 K underflows to zero)",
+    )
+    rel_l = np.abs(jbar_l - jin_l) / np.maximum(np.abs(jin_l), 1e-300)
+    abs_l = np.abs(jbar_l - jin_l)
+    bchar = jin_l.max(axis=1)
+    # No match failure is expected on the standard grid: the Wien
+    # gate keeps every entered node above the Planck maximum, where
+    # PFN is monotone and a kernel-averaged PES always brackets.
+    rep.check(
+        "lte: no match failure on the standard grid",
+        np.all(fail_l == -1),
+        f"FAIL values {sorted(set(fail_l.ravel()))}",
+    )
+    corr = (zn_l == 0) | (zn_l == 4)
+    corr_rel = rel_l[corr]
+    rep.check(
+        "lte: corrected interior + continuation recover B "
+        "(algebraic identity)",
+        corr_rel.max() < 5e-12,
+        f"max rel {corr_rel.max():.3e} over {corr.sum()} nodes",
+    )
+    lo_rel = rel_l[zn_l == 9]
+    rep.check(
+        "lte: lower endpoint recovers B",
+        lo_rel.max() < 5e-12,
+        f"max rel {lo_rel.max():.3e}",
+    )
+    trade = (zn_l == 1) | (zn_l == 2)
+    bsig = jin_l / bchar[:, None]          # input as fraction of Bchar
+    asig = abs_l / bchar[:, None]          # abs error as fraction
+    rep.check(
+        "lte: large rel error confined to dead-weight frequencies "
+        "on corrected depths (B < 1e-40 of characteristic)",
+        np.all(
+            (rel_l <= 1e-3) | (bsig < 1e-40) | (zn_l == 3)
+        ),
+        f"worst B/bchar among rel>1e-3 non-skip nodes: "
+        f"{bsig[(rel_l > 1e-3) & (zn_l != 3)].max():.3e}",
+    )
+    rep.check(
+        "lte: absolute endpoint+bracket error negligible vs "
+        "characteristic intensity",
+        asig[trade].max() < 1e-40,
+        f"max abserr/bchar {asig[trade].max():.3e} "
+        f"over {trade.sum()} invalid-map nodes",
+    )
+    rep.check(
+        "lte: endpoint rel error recorded (the honest trade)",
+        np.all(rel_l[zn_l == 1] > 1e6),
+        f"rel_err(NU1)="
+        f"{['%.2e' % rel_l[k, 0] for k in range(nd) if (zn_l[k] == 1).any()]} "
+        f"(raw convolved field stands where no shifted map exists)",
+    )
+    skip = zn_l == 3
+    rep.check(
+        "lte: gate-skip depth (PFN contains zero) stays finite "
+        "and small in absolute terms",
+        skip.all(axis=1).sum() >= 1
+        and np.all(np.isfinite(jbar_l[skip]))
+        and asig[skip].max() < 1e-4,
+        f"depths fully skipped: {skip.all(axis=1).sum()} "
+        f"max abserr/bchar {asig[skip].max():.3e}",
+    )
+    rep.check(
+        "lte: Jbar finite and non-negative everywhere",
+        np.all(np.isfinite(jbar_l)) and np.all(jbar_l >= 0.0),
+    )
+
+    # -- ES_PLANCK_NU_MATCH synthetic bracket battery -------------------
+    # The match failure codes cannot be produced through the
+    # Planck path (PFN is monotone over the Wien-gated region and
+    # PES is a kernel average), so the brk driver feeds synthetic
+    # log-space targets to the same production object code.
+    # Expected: (FAIL, ML_out, T1, PNU) per case.
+    d = np.loadtxt(out_dir / "esconv_brk.txt")
+    brk_exp = {
+        1: (0, 3, 0.5, 6.5),   # valid interior bracket
+        2: (1, 9, 0.0, 0.0),   # above range: ML bounded at NCF+1
+        3: (2, 1, 0.0, 0.0),   # below PFN(1): no PFN(0) read
+        4: (2, 9, 0.0, 0.0),   # floor walk bounded at NCF+1
+        5: (3, 4, 0.0, 0.0),   # degenerate denominator
+        6: (4, 1, 0.0, 0.0),   # NaN target
+        7: (4, 1, 0.0, 0.0),   # +Inf target
+        8: (2, 1, 0.0, 0.0),   # huge-negative (tiny linear Planck)
+        9: (0, 5, 0.0, 4.0),   # target exactly on a PFN node
+        10: (0, 5, 0.5, 4.5),  # continuation from persisted ML
+    }
+    ok = True
+    det = []
+    for row in d:
+        icase = int(row[0])
+        ml_out, t1, pnu = int(row[4]), row[5], row[6]
+        fa, mle, t1e, pnue = brk_exp[icase]
+        good = (
+            int(row[3]) == fa
+            and ml_out == mle
+            and abs(t1 - t1e) < 1e-7
+            and (fa != 0 or abs(pnu - pnue) < 1e-6)
+            and (fa != 0 or 0.0 <= t1 <= 1.0)
+        )
+        ok = ok and good
+        det.append(f"c{icase}:F{int(row[3])}/ML{ml_out}")
+    rep.check(
+        "brk: all ten match cases return the expected FAIL/ML/T1/PNU",
+        ok and len(d) == 10,
+        " ".join(det),
+    )
+    rep.check(
+        "brk: no out-of-bounds walk (ML never exceeds NCF+1, "
+        "no PFN(0) read)",
+        np.all(d[:, 4] >= 1) and np.all(d[:, 4] <= 9),
+        f"ML range [{d[:, 4].min():.0f},{d[:, 4].max():.0f}]",
+    )
+
+    # -- input-guard probes --------------------------------------------
+    nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_nanj.txt")
+    nan_pos = ~np.isfinite(rjes[1])
+    rep.check(
+        "nanj: NaN input depth passes through verbatim, others "
+        "convolve normally",
+        nan_pos.sum() == 1
+        and np.isfinite(rjes[0]).all()
+        and np.isfinite(rjes[2]).all()
+        and np.isfinite(rjes[3]).all()
+        and np.array_equal(
+            np.delete(rjes[1], np.where(nan_pos)[0]),
+            np.delete(rj[1], np.where(nan_pos)[0]),
+        ),
+        f"non-finite nodes at depth 2: {nan_pos.sum()} "
+        f"(field left visible, convolution skipped)",
+    )
+    fort4 = out_dir / "fort.4"
+    rep.check(
+        "nanj: skip emits a named warning diagnostic",
+        fort4.exists()
+        and "non-finite J input" in fort4.read_text(),
+        (fort4.read_text().strip()[:80] if fort4.exists() else "no fort.4"),
+    )
+    nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_neg.txt")
+    rep.check(
+        "neg: signed convolved output stays finite (LOG gate)",
+        np.all(np.isfinite(rjes)),
+        f"min {rjes.min():.3e} "
+        "(MINVAL(J_ES)<=0 skips the Planck block before LOG)",
     )
 
     # -- constant field ----------------------------------------------------
