@@ -5676,3 +5676,48 @@ residual and a non-clean exit. Whether that changes commit
 behaviour (nc-rej vs capped commit) is the measurement.
 
 Status at audit time: both jobs queued; results pending.
+
+
+Phase 5.3S - first production measurements (probe job 13157367)
+=============================================================
+
+Running on the OLD exe with KN_NOCP_PROBE on ray 82, so the probe
+ray already exercises the measured-exit path the 5.3R fix makes
+universal. Three+ refreshes captured so far [M].
+
+Ray-82 P-direction pass history (KN_PSWEEP_DIAG, 4 solves):
+  passes 1-4:  res 0.39-0.71, argmax (3,17881)/(3,27360)/(3,14406)
+  passes 5-8:  corner mode resolves - res at (3,17881) falls
+               0.62 -> 0.11
+  passes 9-25: plateau - res oscillates 0.03-0.08 with argmax
+               wandering J=2 across many frequencies, nbad
+               decaying slowly ~8800 -> ~5800
+Exit: npP=20-25, stall class (ixit=3), resP~6e-2 (~30x tol).
+Verdict: would-be capped (v=3); probe suppresses the write.
+
+M-direction: converges measured (resM ~7e-4-9e-4 < tol in 2-3
+passes).
+
+REVISION OF THE PERIOD-2 CLAIM [M]
+----------------------------------
+The earlier evidence for a persistent period-2 orbit is revised:
+the alternating cell values ({3.18e-8,1.90e-8}) and the pass-1/
+pass-2 residual alternation belong to the early transient phase.
+With pass-3+ history the corner mode DECAYS by ~pass 8; what
+persists is a broad non-contracting plateau above tolerance
+(~6K cells at J=2, res~0.05) - a stall regime, not a locked
+orbit. The 5.3R concern stands either way: under the old exit the
+ray committed at pass 2, the transient's WORST point (res 0.62);
+under the fix it iterates to a better state (res ~0.05) and then
+exits honestly non-converged through the existing stall path.
+
+Ray-83 (KN_WATCH): ixit=3 stall, npas 26-34, resid 0.69-0.95 on
+this arm - running the ordinary path (its HAS_CP differs from the
+frz82 arm's), honestly reported non-converged, verdict capped.
+
+Refresh census (probe arm): ray exits: exact=0 tol=53-59
+bulk=22-28 stall=3 cap=0 plat=0; commit verdicts: committed=81
+capped=2 unsolved=1. exact=0 means no other ray used the old
+forced exit on this arm's state.
+
+fix82 (13158010, corrected exe): still in early setup at capture.
