@@ -4,6 +4,9 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
+! Altered 14-Nov-2026 : DAMP_FJ/J_RESCUE - under-relaxation and
+!                          previous-frequency restore for the
+!                          continuum J/f iteration.
 ! Altered 15-Nov-2026 : ES_RESID_DIAG/ES_DIAG_AFLOOR/ES_DIAG_DEPTHS
 !                          for the P8.2 ES convergence diagnostic.
 ! Altered 06-Nov-2026 : Restore the DO_NONMONO_KNOP controls removed
@@ -233,6 +236,12 @@
 	  ES_DIAG_DEPTHS=.TRUE.
 	  CALL RD_STORE_LOG(ES_DIAG_DEPTHS,'ES_DIAG_DEPTHS',L_FALSE,
 	1        'Write per-depth ES residual rows?')
+	  DAMP_FJ=1.0_LDP
+	  CALL RD_STORE_DBLE(DAMP_FJ,'DAMP_FJ',L_FALSE,
+	1        'Under-relaxation factor for continuum J/f iteration')
+	  J_RESCUE=.FALSE.
+	  CALL RD_STORE_LOG(J_RESCUE,'J_RESCUE',L_FALSE,
+	1        'Restore previous J/f on continuum J blow-up?')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
