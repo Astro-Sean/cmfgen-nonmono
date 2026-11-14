@@ -8,7 +8,7 @@ Status 14-Nov-2026: the manufactured battery is implemented and
 passing - `unit_tests/f90/drv_es_conv.f`,
 `unit_tests/f90/drv_es_render.f`, `unit_tests/f90/drv_es_seq.f`,
 `unit_tests/f90/drv_knop_guard.f`,
-`unit_tests/python/test_es_conv.py` (113/113). Measured results
+`unit_tests/python/test_es_conv.py` (115/115). Measured results
 recorded in section 2.1 and folded into the audit document.
 T5 and T6 are executable production-linked tests, not source
 inspection. The numerical-safeguard follow-up (explicit
@@ -119,7 +119,7 @@ with P5/P6/P7.
 
 ## 2.1 Implemented coverage and measured results
 
-`test_es_conv.py` (113/113 PASS; ifort production objects -
+`test_es_conv.py` (115/115 PASS; ifort production objects -
 `compile_and_link_prod` links the exact `.o` files the
 production executables use, plus `-qopenmp -mkl` per the
 probed production link line; MKL sequential). Test-class
@@ -301,16 +301,23 @@ wavelength-shift continuation (finite positive anchors,
 finite strictly-positive denominator; FAIL=5/6, NPNU reports
 the last genuine node). `ES_SHIFTED_RESCALE` validates every
 interpolation bracket (finite positive endpoints, finite
-nonzero interval, finite weight; off-map nodes below
-`PNU(NPNU)` take the established uncorrected treatment, as
-does any degenerate bracket; an invalid node never
-contaminates a valid one). A derived `PLANCK_NU` that is not
+nonzero interval, finite weight inside [0,1] up to a
+documented 64-eps round-off band; off-map nodes below
+`PNU(NPNU)`, degenerate brackets and out-of-range weights
+all take the established uncorrected treatment; an invalid
+node never contaminates a valid one).  All comparisons are
+written without short-circuit reliance - the walk tests `I`
+in a separate IF before `PNU(I+1)` is read and proves the
+node finite before the compare. A derived `PLANCK_NU` that is not
 finite-positive fails the map with FAIL=7. Manufactured
 coverage on the production objects: `cnt` (12 continuation
-cases), `itp` (6 map cases, node-by-node walk oracle),
-`nant`/`inft` (non-finite convolver output through the real
-path), `zpf` (finite-but-zero `PLANCK_FN` silent gate-skip
-leaving raw `J_ES`).
+cases), `itp` (12 map cases incl. NPNU=0/1/2 with NaN-poisoned
+tails, non-monotone out-of-range weights and boundary-exact
+hits; node-by-node walk oracle), `nant`/`inft` (non-finite
+convolver output through the real path), `zpf` (finite-but-zero
+`PLANCK_FN` silent gate-skip leaving raw `J_ES`), plus a
+`-check bounds -fpe0` cross-binary that completes all three
+helper batteries and reproduces every number.
 
 Q-RAY (T8) resolution, unchanged from the earlier battery:
 scattering-dominated ETA with a narrow feature at the Rayleigh
