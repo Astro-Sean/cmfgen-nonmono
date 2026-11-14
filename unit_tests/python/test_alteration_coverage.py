@@ -148,6 +148,8 @@ COVERAGE = {
         UT + "test_sp_mon_interp.py"]),
     "pgplt/mon_interp_sp.f": ("exec", [
         UT + "test_sp_mon_interp.py"]),
+    "subs/comp_j_conv_v2.f": ("exec", [
+        UT + "test_es_conv.py"]),
     "subs/comp_obs_v2.f": ("exec", [
         UT + "test_comp_obs.py", UT + "test_comp_obs_retain.py"]),
     "subs/comp_obs_v3.f": ("exec", [
