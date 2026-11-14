@@ -29,6 +29,19 @@ C              Wien-dead upper end, production grid (arg3=NCF)
 C     wce      same continuum on the extended grid (arg3=NCF_P)
 C     swp      absolute-amplitude Gaussian at arg3=NU0 - upper
 C              boundary feature-position sweep (arg4=DNU,arg5=AMP)
+C     lte      J = B(T(K)) LTE trade-off diagnostic: emits the
+C              replica convolved Planck field, the replicated
+C              bounded PLANCK_NU map, a per-node zone flag, and
+C              JBAR (arg3=NCF; arg4/arg5 = NU_HI/NU_LO grid bounds
+C              for pathological-grid match-failure probes)
+C     nanj     J = B with a NaN injected at depth 2 - non-finite
+C              input handling
+C     neg      J = B with a negative mid-grid block - exercises
+C              the MINVAL(J_ES) gate ahead of LOG(J_ES)
+C     brk      synthetic ES_PLANCK_NU_MATCH battery: valid, above-
+C              range, below-range, floor-walk, degenerate, NaN, Inf,
+C              huge-negative, boundary-exact, and persisted-ML
+C              targets through the production object code
 C     qray     INC_RAY manufactured atmosphere; emits both
 C              emissivity conventions + all fields for the
 C              CHI_RAY*(RJ_ES-RJ) measurement
@@ -41,6 +54,7 @@ C   arg6 = AMP (linepair,linext)
 C
       PROGRAM DRV_ES_CONV
       USE SET_KIND_MODULE
+      USE, INTRINSIC :: IEEE_ARITHMETIC
       IMPLICIT NONE
 C
       INTEGER, PARAMETER :: ND=4
@@ -82,7 +96,8 @@ C
       IF(LEN_TRIM(SARG) .GT. 0)THEN
         IF(MODE .EQ. 'grid' .OR. MODE .EQ. 'linepair' .OR.
      1     MODE .EQ. 'linext' .OR. MODE .EQ. 'wcp' .OR.
-     1     MODE .EQ. 'wce' .OR.
+     1     MODE .EQ. 'wce' .OR. MODE .EQ. 'lte' .OR.
+     1     MODE .EQ. 'nanj' .OR. MODE .EQ. 'neg' .OR.
      1     MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
           READ(SARG,*)NCF
         ELSE IF(MODE .EQ. 'qray')THEN
@@ -139,11 +154,29 @@ C
       T(3)=1.0_LDP
       T(4)=0.5_LDP
 C
+      IF(MODE .EQ. 'brk')THEN
+C Bracket battery: exercises the production ES_PLANCK_NU_MATCH
+C directly on synthetic log-space targets - the Planck path cannot
+C reach the failure codes (see test header), so they are driven
+C here through the same object code the convolver calls.
+        CALL BRK_MATCH_BLOCK(OUT_DIR,LU_OUT)
+        STOP
+      END IF
+C
 C Decreasing log-spaced frequency grid (10^15 Hz), spanning the
 C production range where e.s. redistribution acts.
 C
       NU_HI=300.0_LDP
       NU_LO=0.02_LDP
+      IF(MODE .EQ. 'lte')THEN
+C Pathological grids for the match-failure probes: arg4/arg5
+C override the frequency bounds (e.g. a grid inside the Planck
+C peak triggers the below-range failure at the first Wien node).
+        CALL GETARG(4,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)NU_HI
+        CALL GETARG(5,SARG)
+        IF(LEN_TRIM(SARG) .GT. 0)READ(SARG,*)NU_LO
+      END IF
       IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext' .OR.
      1   MODE .EQ. 'wce')THEN
 C Extended domain: the production log spacing is continued NEXT
@@ -164,12 +197,19 @@ C measure resolution error on steep slopes instead.
       END IF
 C
       J_STORE(:,:)=0.0_LDP
-      IF(MODE .EQ. 'planck' .OR. MODE .EQ. 'grid')THEN
+      IF(MODE .EQ. 'planck' .OR. MODE .EQ. 'grid' .OR.
+     1   MODE .EQ. 'lte' .OR. MODE .EQ. 'nanj')THEN
         DO K=1,ND
           DO ML=1,NCF
             J_STORE(K,ML)=BB(T(K),NU(ML))
           END DO
         END DO
+        IF(MODE .EQ. 'nanj')THEN
+C Non-finite input probe: one NaN mid-grid at depth 2 leaves the
+C other depths untouched, so the same run shows the diagnosed skip
+C and the normal path side by side.
+          J_STORE(2,NCF/2)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        END IF
       ELSE IF(MODE .EQ. 'const')THEN
         J_STORE(:,:)=1.0_LDP
       ELSE IF(MODE .EQ. 'line' .OR. MODE .EQ. 'edge')THEN
@@ -281,6 +321,16 @@ C the temperature response for free.
           END DO
         END DO
         J_STORE(:,NCF/3:2*NCF/5)=0.0_LDP
+      ELSE IF(MODE .EQ. 'neg')THEN
+C Signed input probe: the convolved J_ES picks up negative nodes,
+C so the MINVAL(J_ES) gate must skip the Planck block before the
+C A(:)=LOG(J_ES) statement can produce NaN.
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(T(K),NU(ML))
+          END DO
+        END DO
+        J_STORE(:,NCF/2-2:NCF/2+2)=-1.0_LDP
       ELSE IF(MODE .EQ. 'temp')THEN
         DO K=1,ND
           DO ML=1,NCF
@@ -297,6 +347,11 @@ C
       ELSE IF(MODE .EQ. 'bnd' .OR. MODE .EQ. 'linext' .OR.
      1   MODE .EQ. 'wce')THEN
         WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NCF_P
+      ELSE IF(MODE .EQ. 'lte')THEN
+C Grid-tagged name so the pathological-grid probes do not collide
+C with the default-grid diagnostic in the same work directory.
+        WRITE(FNAME,'(A,I4.4,A,I4.4)')'lte',NINT(NU_HI),'x',
+     1    NINT(100.0_LDP*NU_LO)
       ELSE IF(MODE .EQ. 'swp')THEN
         WRITE(FNAME,'(A,I5.5)')TRIM(MODE),NINT(10.0_LDP*NU0)
       ELSE
@@ -349,6 +404,9 @@ C
       IF(MODE .EQ. 'qray')THEN
         CALL QRAY_BLOCK(OUT_DIR,NU,T,J_IN,J_STORE,RJ_CONT,
      1     ND,NCF,LU_OUT,AMP)
+      ELSE IF(MODE .EQ. 'lte')THEN
+        CALL LTE_MAP_BLOCK(OUT_DIR,NU,T,J_IN,J_STORE,
+     1     ND,NCF,LU_OUT,FNAME)
       ELSE
         OPEN(LU_OUT,FILE=TRIM(OUT_DIR)//'/esconv_'//
      1       TRIM(FNAME)//'.txt',STATUS='UNKNOWN')
@@ -435,6 +493,249 @@ C
      3      TA_OBS(I,ML),CLUMP(I)
         END DO
       END DO
+      CLOSE(LU)
+      RETURN
+      END
+C
+C*******************************************************************
+C
+C LTE endpoint diagnostic (P8.1 robustness audit): replicates the
+C convolved Planck field B_es through the production THOMAS_RH and
+C the bounded PLANCK_NU map so the per-node treatment zone can be
+C measured against the production JBAR.
+C
+C The replication is diagnostic only: it mirrors the production
+C formulas (same BB scaling with the T3 cap, same stencil
+C coefficients, same bounded bracket search and continuation) so the
+C zone flags describe what the production routine actually did.
+C
+C ZONE codes: 0 corrected interior, 1 upper endpoint, 2 invalid-map
+C bracket (I=1 during the shift interpolation), 3 gate-skip
+C (MINVAL block not entered), 4 continuation tail (bracket beyond
+C the last derived node), 5 no-valid-map bypass, 9 lower endpoint.
+C
+      SUBROUTINE LTE_MAP_BLOCK(OUT_DIR,NU,T,JIN,JBAR,ND,NCF,LU,FNAME)
+      USE SET_KIND_MODULE
+      USE, INTRINSIC :: IEEE_ARITHMETIC
+      IMPLICIT NONE
+      INTEGER ND,NCF,LU
+      REAL(KIND=LDP) NU(NCF),T(ND),JIN(ND,NCF),JBAR(ND,NCF)
+      CHARACTER(LEN=*) OUT_DIR,FNAME
+C
+      COMMON/CONSTANTS/ CHIBF,CHIFF,HDKT,TWOHCSQ
+      REAL(KIND=LDP) CHIBF,CHIFF,HDKT,TWOHCSQ
+C
+      INTEGER NCOEF,IONE
+      PARAMETER (NCOEF=2,IONE=1)
+      REAL(KIND=LDP) ACOEF(2),BCOEF(2)
+      DATA ACOEF/1.690703717290_LDP,-0.690703717290_LDP/
+      DATA BCOEF/1.614249968779_LDP,2.154326524957_LDP/
+C
+      REAL(KIND=LDP) A_ST(NCF),C_ST(NCF)
+      REAL(KIND=LDP) A(NCF),H(NCF),C(NCF),D(NCF)
+      REAL(KIND=LDP) B(NCF),BES(NCF)
+      REAL(KIND=LDP) PES(NCF),PFN(NCF),PNU(NCF)
+      INTEGER ZN(NCF)
+      REAL(KIND=LDP) BETA,T1,T2,T3,D1,D2,DH
+      INTEGER I,K,L,ML,FAIL,LASTOK
+      LOGICAL MAPOK
+C
+      A_ST(1)=0.0_LDP
+      C_ST(1)=-2.0_LDP/( LOG(NU(1)/NU(2)) )**2
+      DO ML=2,NCF-1
+        D1=LOG(NU(ML-1)/NU(ML))
+        D2=LOG(NU(ML)/NU(ML+1))
+        DH=0.5_LDP*(D1+D2)
+        A_ST(ML)=-1.0_LDP/D1/DH
+        C_ST(ML)=-1.0_LDP/D2/DH
+      END DO
+      A_ST(NCF)=-2.0_LDP/( LOG(NU(NCF-1)/NU(NCF)) )**2
+      C_ST(NCF)=0.0_LDP
+C
+      OPEN(LU,FILE=TRIM(OUT_DIR)//'/esconv_'//TRIM(FNAME)//'.txt',
+     1     STATUS='UNKNOWN')
+      WRITE(LU,'(A,I3,A,I5)')'# ND=',ND,' NCF=',NCF
+      WRITE(LU,'(A)')'# ML NU T B B_ES PNU ZONE FAIL JBAR'
+      DO K=1,ND
+        BETA=1.84E-03_LDP*SQRT(T(K))
+        T3=0.5_LDP*HDKT*NU(1)/T(K)
+        IF(T3 .LT. 1.0_LDP)T3=0.0_LDP
+        IF(T3 .GT. 700.0_LDP)T3=700.0_LDP
+        DO ML=1,NCF
+          T1=EXP( -HDKT*NU(ML)/T(K) )
+          T2=EXP( T3-HDKT*NU(ML)/T(K) )
+          B(ML)=TWOHCSQ*(NU(ML)**3)*T2/(1.0_LDP-T1)
+        END DO
+        BES(:)=0.0_LDP
+        DO L=1,NCOEF
+          T1=BETA*BETA/BCOEF(L)/BCOEF(L)
+          A(:)=T1*A_ST(:)
+          H(:)=-1.0_LDP
+          C(:)=T1*C_ST(:)
+          D(:)=B(:)
+          CALL THOMAS_RH(A,H,C,D,NCF,IONE)
+          BES(:)=BES(:)+ACOEF(L)*D(:)
+        END DO
+C
+        PNU(:)=0.0_LDP
+        ZN(:)=3
+        FAIL=-1
+        IF(MINVAL(B) .GT. 0.0_LDP .AND. MINVAL(BES) .GT. 0.0_LDP)THEN
+          PES(:)=LOG(BES(:))
+          PFN(:)=LOG(B(:))
+          PNU(1)=NU(1)
+          I=2
+          ML=1
+          LASTOK=1
+          MAPOK=.TRUE.
+          DO WHILE(I .LE. NCF)
+            IF(NU(I) .LE. 1.5_LDP*T(K))EXIT
+C The replica calls the same production match the convolver does,
+C so the zone map can never drift from the shipped search.
+            CALL ES_PLANCK_NU_MATCH(PES(I),PFN,ML,NCF,FAIL,T1)
+            IF(FAIL .NE. 0)THEN
+              IF(I .LE. 2)MAPOK=.FALSE.
+              EXIT
+            END IF
+            PNU(I)=T1*NU(ML-1)+(1.0_LDP-T1)*NU(ML)
+            LASTOK=I
+            FAIL=-1
+            I=I+1
+          END DO
+          IF(MAPOK)THEN
+            T1=1.0_LDP/NU(I-1)-1.0_LDP/PNU(I-1)
+            DO ML=I,NCF
+              PNU(ML)=1.0_LDP/(1.0_LDP/NU(ML)-T1)
+            END DO
+            ZN(1)=1
+            ZN(NCF)=9
+            I=1
+            DO ML=2,NCF-1
+              DO WHILE(NU(ML) .LT. PNU(I+1) .AND. I .LT. NCF-1)
+                I=I+1
+              END DO
+              IF(I .EQ. 1)THEN
+                ZN(ML)=2
+              ELSE IF(I+1 .GT. LASTOK)THEN
+                ZN(ML)=4
+              ELSE
+                ZN(ML)=0
+              END IF
+            END DO
+          ELSE
+            ZN(:)=5
+          END IF
+        END IF
+        DO ML=1,NCF
+          WRITE(LU,'(I5,ES27.17E3,ES15.7,3(ES27.17E3),2I3,
+     1      ES27.17E3)')ML,NU(ML),T(K),JIN(K,ML),BES(ML),
+     2      PNU(ML),ZN(ML),FAIL,JBAR(K,ML)
+        END DO
+      END DO
+      CLOSE(LU)
+      RETURN
+      END
+C
+C
+C
+      SUBROUTINE BRK_MATCH_BLOCK(OUT_DIR,LU)
+      USE SET_KIND_MODULE
+      USE, INTRINSIC :: IEEE_ARITHMETIC
+      IMPLICIT NONE
+C
+C Synthetic battery for ES_PLANCK_NU_MATCH.  The convolver feeds the
+C match only log-space Planck targets, and on the Wien-gated region
+C PLANCK_FN is monotone and PLANCK_ES is a kernel average, so the
+C failure codes cannot be produced through the public call - they
+C are driven here on the same compiled code the convolver uses.
+C
+C Columns: ICASE, ML_IN, PES, FAIL, ML_OUT, T1, PNU
+C ICASE list:
+C  1  valid interior bracket, fresh walk (ML=1)
+C  2  target above every PFN (fresh walk)         -> FAIL=1, ML=NCF+1
+C  3  target below PFN(1) at first node           -> FAIL=2, ML=1
+C  4  persistent ML floor walk off the top        -> FAIL=2, ML=NCF+1
+C  5  degenerate PFN(ML-1)=PFN(ML) bracket        -> FAIL=3
+C  6  NaN target                                 -> FAIL=4
+C  7  +Inf target                                -> FAIL=4
+C  8  huge-negative target (log of a tiny Planck) -> FAIL=2
+C  9  target exactly on a PFN node               -> FAIL=0, T1=0
+C 10  continuation from a persisted ML            -> FAIL=0
+C
+      CHARACTER(LEN=*) OUT_DIR
+      INTEGER LU
+      INTEGER, PARAMETER :: NB=8
+      REAL(KIND=LDP) NU_B(NB),PFN_B(NB),PFN_D(NB)
+      REAL(KIND=LDP) PES,T1,PNU
+      INTEGER ML,FAIL,I
+C
+      DO I=1,NB
+        NU_B(I)=NB+1.0_LDP-I
+        PFN_B(I)=2.0_LDP*I-10.0_LDP
+        PFN_D(I)=PFN_B(I)
+      END DO
+      PFN_D(4)=PFN_D(3)
+C
+      OPEN(LU,FILE=TRIM(OUT_DIR)//'/esconv_brk.txt',
+     1     STATUS='UNKNOWN')
+      WRITE(LU,'(A)')'# ICASE ML_IN PES FAIL ML_OUT T1 PNU'
+C
+      ML=1
+      PES=-5.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      PNU=0.0_LDP
+      IF(FAIL .EQ. 0)PNU=T1*NU_B(ML-1)+(1.0_LDP-T1)*NU_B(ML)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')1,1,PES,FAIL,ML,T1,PNU
+C
+      ML=1
+      PES=10.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')2,1,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=1
+      PES=-20.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')3,1,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=5
+      PES=-20.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')4,5,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=4
+      PES=-4.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_D,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')5,4,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=1
+      PES=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')6,1,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=1
+      PES=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')7,1,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=1
+      PES=-1.0E300_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')8,1,PES,FAIL,ML,T1,0.0_LDP
+C
+      ML=1
+      PES=0.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      PNU=0.0_LDP
+      IF(FAIL .EQ. 0)PNU=T1*NU_B(ML-1)+(1.0_LDP-T1)*NU_B(ML)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')9,1,PES,FAIL,ML,T1,PNU
+C
+      ML=3
+      PES=-1.0_LDP
+      CALL ES_PLANCK_NU_MATCH(PES,PFN_B,ML,NB,FAIL,T1)
+      PNU=0.0_LDP
+      IF(FAIL .EQ. 0)PNU=T1*NU_B(ML-1)+(1.0_LDP-T1)*NU_B(ML)
+      WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')10,3,PES,FAIL,ML,T1,PNU
+C
       CLOSE(LU)
       RETURN
       END
