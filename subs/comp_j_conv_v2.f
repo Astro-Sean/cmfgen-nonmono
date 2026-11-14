@@ -438,9 +438,13 @@ C only while NU itself is positive and finite.  The map must stay a
 C positive frequency - anything else would poison the continuation
 C anchors and the interpolation below.
 C
-	      IF(.NOT. IEEE_IS_FINITE(PLANCK_NU(I)) .OR.
-     1	         PLANCK_NU(I) .LE. 0.0_LDP)THEN
+	      FAIL=0
+	      IF(.NOT. IEEE_IS_FINITE(PLANCK_NU(I)))THEN
 	        FAIL=7
+	      ELSE IF(PLANCK_NU(I) .LE. 0.0_LDP)THEN
+	        FAIL=7
+	      END IF
+	      IF(FAIL .NE. 0)THEN
 	        LUE=WARNING_LU()
 	        WRITE(LUE,'(A,I5,A,I5,A,I2)')'*** Warning in '//
      1	        'COMP_J_CONV_V2: PLANCK_NU match failed, K=',K,
@@ -589,7 +593,16 @@ C
 	  RETURN
 	END IF
 C
+C A non-finite PFN element would make the ordered compares below
+C unordered (NaN) - reachable only through a crafted driver map
+C since the production gate keeps PFN finite.  FAIL=3 already
+C names the non-finite-interval defect.
+C
 	DO WHILE(ML .LE. NCF)
+	  IF(.NOT. IEEE_IS_FINITE(PFN(ML)))THEN
+	    FAIL=3
+	    RETURN
+	  END IF
 	  IF(PES .LE. PFN(ML))EXIT
 	  ML=ML+1
 	END DO
@@ -603,6 +616,10 @@ C
 	END IF
 C
 	DO WHILE(ML .LE. NCF)
+	  IF(.NOT. IEEE_IS_FINITE(PFN(ML-1)))THEN
+	    FAIL=3
+	    RETURN
+	  END IF
 	  IF(PES .GE. PFN(ML-1))EXIT
 	  ML=ML+1
 	END DO
@@ -612,7 +629,14 @@ C
 	END IF
 C
 	T2=PFN(ML-1)-PFN(ML)
-	IF(T2 .EQ. 0.0_LDP .OR. .NOT. IEEE_IS_FINITE(T2))THEN
+C Same NaN-in-.OR. hazard as elsewhere: finiteness is proven in a
+C separate IF before T2 enters any ordered comparison.
+C
+	IF(.NOT. IEEE_IS_FINITE(T2))THEN
+	  FAIL=3
+	  RETURN
+	END IF
+	IF(T2 .EQ. 0.0_LDP)THEN
 	  FAIL=3
 	  RETURN
 	END IF
@@ -788,7 +812,14 @@ C an unordered NaN compare would stop the walk anyway and could
 C trip an invalid-operation trap.  For NPNU < 2 the walk body
 C is skipped entirely and PNU(2) is never read.
 C
-	  NU_OK=IEEE_IS_FINITE(NU(ML)) .AND. NU(ML) .GT. 0.0_LDP
+C NU itself must be proven finite before the ordered compare: a
+C NaN inside a chained .AND. is still evaluated and would trip an
+C invalid-operation trap under -fpe0.
+C
+	  NU_OK=.FALSE.
+	  IF(IEEE_IS_FINITE(NU(ML)))THEN
+	    IF(NU(ML) .GT. 0.0_LDP)NU_OK=.TRUE.
+	  END IF
 	  IF(NU_OK .AND. NPNU .GE. 2)THEN
 	    DO
 	      IF(I .GE. NPNU-1)EXIT
@@ -822,7 +853,8 @@ C
 	  IF(BRK_OK)BRK_OK=PNU(I+1) .GT. 0.0_LDP
 	  IF(BRK_OK)THEN
 	    T2=PNU(I+1)-PNU(I)
-	    BRK_OK=IEEE_IS_FINITE(T2) .AND. T2 .NE. 0.0_LDP
+	    BRK_OK=IEEE_IS_FINITE(T2)
+	    IF(BRK_OK)BRK_OK=T2 .NE. 0.0_LDP
 	  END IF
 	  IF(BRK_OK)THEN
 	    T1=(NU(ML)-PNU(I))/T2
