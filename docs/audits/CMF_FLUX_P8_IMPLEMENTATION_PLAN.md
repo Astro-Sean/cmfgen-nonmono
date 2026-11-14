@@ -4,14 +4,19 @@ Companion to `CMF_FLUX_P8_ES_REDISTRIBUTION_AUDIT.md`. Proposed
 work only - no production source is changed here. P8.1 is not
 complete until the acceptance criteria below are met.
 
-Status 15-Nov-2026: the manufactured battery is implemented and
+Status 14-Nov-2026: the manufactured battery is implemented and
 passing - `unit_tests/f90/drv_es_conv.f`,
 `unit_tests/f90/drv_es_render.f`, `unit_tests/f90/drv_es_seq.f`,
 `unit_tests/f90/drv_knop_guard.f`,
-`unit_tests/python/test_es_conv.py` (102/102). Measured results
+`unit_tests/python/test_es_conv.py` (113/113). Measured results
 recorded in section 2.1 and folded into the audit document.
 T5 and T6 are executable production-linked tests, not source
-inspection.
+inspection. The numerical-safeguard follow-up (explicit
+finite-field checks before the LOGs, validated continuation and
+interpolation denominators in `ES_PLANCK_NU_CONT` /
+`ES_SHIFTED_RESCALE`, and the derived-node finite-positive
+check FAIL=7) is implemented and covered by the cnt/itp/
+nant/inft/zpf batteries.
 
 ## 1. What the audit established
 
@@ -114,7 +119,7 @@ with P5/P6/P7.
 
 ## 2.1 Implemented coverage and measured results
 
-`test_es_conv.py` (102/102 PASS; ifort production objects -
+`test_es_conv.py` (113/113 PASS; ifort production objects -
 `compile_and_link_prod` links the exact `.o` files the
 production executables use, plus `-qopenmp -mkl` per the
 probed production link line; MKL sequential). Test-class
@@ -283,6 +288,29 @@ named diagnostic, not the exit code (ifort STOP returns 0):
         COH_ERENT_ES=F' (emitted)
     B  KNOP=T NUM_ES=2 COH_ES=T -> same STOP (emitted)
     C  KNOP=T NUM_ES=2 COH_ES=F -> reader returns, GUARD_PASS
+
+Numerical-safeguard follow-up (14-Nov-2026): the correction
+path after `ES_PLANCK_NU_MATCH` is now validated end to end.
+`FLD_OK = ALL(IEEE_IS_FINITE(...))` on `PLANCK_FN`,
+`PLANCK_ES` and `J_ES` must hold before any LOG is taken
+(MINVAL cannot spot a NaN); a non-finite convolver output is
+diagnosed per field and bypassed, the invalid `J_ES` left
+visible - the same policy as the non-finite input check.
+`ES_PLANCK_NU_CONT` guards both reciprocals of the
+wavelength-shift continuation (finite positive anchors,
+finite strictly-positive denominator; FAIL=5/6, NPNU reports
+the last genuine node). `ES_SHIFTED_RESCALE` validates every
+interpolation bracket (finite positive endpoints, finite
+nonzero interval, finite weight; off-map nodes below
+`PNU(NPNU)` take the established uncorrected treatment, as
+does any degenerate bracket; an invalid node never
+contaminates a valid one). A derived `PLANCK_NU` that is not
+finite-positive fails the map with FAIL=7. Manufactured
+coverage on the production objects: `cnt` (12 continuation
+cases), `itp` (6 map cases, node-by-node walk oracle),
+`nant`/`inft` (non-finite convolver output through the real
+path), `zpf` (finite-but-zero `PLANCK_FN` silent gate-skip
+leaving raw `J_ES`).
 
 Q-RAY (T8) resolution, unchanged from the earlier battery:
 scattering-dominated ETA with a narrow feature at the Rayleigh
