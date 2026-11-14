@@ -324,15 +324,18 @@ compiles.
   - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
     each ES sweep (OBS side) and after each great-iteration (model
     side); render uses the freshest in-memory convolve.
-  - test_es_conv.py 75/75 (drv_es_conv + drv_es_render +
+  - test_es_conv.py 87/87 (drv_es_conv + drv_es_render +
     drv_es_seq + drv_knop_guard; production .o objects via
     compile_and_link_prod, ifort -O0 -g -traceback -qopenmp
     -mkl=sequential): convolver battery (Planck 1.46e-5
     max/1.28e-6 rms; baseline-subtracted narrow-feature
     smearing signature at NCF=256/512; full-domain integrals in
     dlnnu and dnu; appended-domain boundary reference interior
-    1.3e-4, lower edge <=2e-4, upper-edge Wien-rescale
-    suppression documented; uniform-T beta(T) series; edge
+    1.3e-4, lower edge <=2e-4, upper-edge Wien-rescale defect
+    CORRECTED in comp_j_conv_v2.f (endpoint + invalid-bracket
+    nodes now uncorrected - endpoint recovers to 8.3e-3/1.6e-2,
+    live feature preserved at all swept positions 0.983-0.999);
+    uniform-T beta(T) series; edge
     9.1e-4; grid-saturated), one-fold elementwise census, T4
     coherent-vs-noncoherent flux discriminator (8e-3..1.4e-2),
     T5 executable sequencing harness (stale/preconv/oldrend
