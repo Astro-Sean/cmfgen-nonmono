@@ -39,6 +39,20 @@ import numpy as np
 
 C_AA = 2.99792458e18  # speed of light, Angstrom/s
 
+# Fortran Ew.d output can drop the 'E' when the exponent needs three
+# digits ('2.1499-265' == 2.1499e-265).  Repair before float().
+_DROP_E = re.compile(r"^([+-]?\d+\.?\d*)([+-]\d{2,3})$")
+
+
+def _f(tok):
+    try:
+        return float(tok)
+    except ValueError:
+        m = _DROP_E.match(tok)
+        if m:
+            return float(m.group(1) + "e" + m.group(2))
+        raise
+
 # Default windows (rest Angstroms) chosen in line-free and line-rich
 # regions typical of the SN II / IIn optical range.  All windows are
 # reported in the CSV and named on the plots; override with --cont and
@@ -62,7 +76,7 @@ def read_obs_fin_10(path):
     vals = []
     i = start
     while len(vals) < nfreq and i < len(lines):
-        vals.extend(float(x) for x in lines[i].split())
+        vals.extend(_f(x) for x in lines[i].split())
         i += 1
     if len(vals) != nfreq:
         raise SystemExit(f"{path}: short frequency block")
@@ -74,7 +88,7 @@ def read_obs_fin_10(path):
     i += 1
     fvals = []
     while len(fvals) < nfreq and i < len(lines):
-        fvals.extend(float(x) for x in lines[i].split())
+        fvals.extend(_f(x) for x in lines[i].split())
         i += 1
     if len(fvals) != nfreq:
         raise SystemExit(f"{path}: short flux block")
