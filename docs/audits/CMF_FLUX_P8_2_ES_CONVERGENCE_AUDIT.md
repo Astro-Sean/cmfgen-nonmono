@@ -296,8 +296,9 @@ Controlled NUM_ES sweep on one physical model per pathway:
 Experiment status: the NUM_ES sweep matrix on
 `m15_2p82d_SOB_l14_lte_adp2_tauto/cmfgen/2.82days` is complete
 for SOB (N=1,2,3,4,6,8,12 plus a NUM_ES=2 diag-off control) and
-in progress for KNOP (N=2..12 at 4 CPU - KNOP needs more than
-the interactive node's 30G at 8 CPU; see 6.6). The coverage
+for KNOP N=2,3,4,6,8 (plus diag-off control); KNOP N=12 was
+resubmitted with an 8h budget after hitting the 1h55 job limit
+at gen 9 - gens 1-9 are already recorded below. The coverage
 configuration required for the current executable is in
 `CMF_FLUX_P8_2_IMPLEMENTATION_PLAN.md` (the `MIN_CF=2.4D-3` +
 `OBS_LAM_MAX=908117` pair that satisfies the P4 red-edge guard
@@ -394,7 +395,29 @@ Unlike the SN_A dataset (ratio ~0.55-0.65 held to gen 12), this
 model's per-sweep gain is still decaying at N=12 - production
 NUM_ES=2 leaves a ~20% first-refresh delta un-iterated.
 
-[pending m15 KNOP: see 6.6]
+KNOP pathway, `GLOBAL_MAX_R` (ND=70, NCF=182712 - denser grid
+than SOB because the non-mono formal solve carries
+line-resolution frequencies; n2..n8 complete, n12 in progress):
+
+| gen | R_GLOBAL | argmax depth |
+|---|---|---|
+| 2 | 5.77912E-01 | K=62 |
+| 3 | 2.65340E-01 | K=1 |
+| 4 | 1.77620E-01 | K=62 |
+| 5 | 1.21865E-01 | K=62 |
+| 6 | 1.25971E-01 | K=62 |
+| 7 | 1.13227E-01 | K=62 |
+| 8 | 8.57058E-02 | K=62 |
+| 9 | 7.78778E-02 | K=62 |
+
+Contraction ~0.46/0.67/0.69/1.03/0.90/0.76/0.91 - slower than
+SOB and with a small gen-6 uptick; the residual parks at the
+inner layers (K=62) after the first sweeps. Still ~8% max-node
+delta at gen 9 (the first 2h run timed out at gen 9; rerun in
+progress - see 6.5 note). Determinism: gens 1-2 bit-exact
+across runs on different nodes/thread counts; from gen 3 a
+~1e-4 relative drift appears between nodes (FP reduction
+order), without changing the shape of the history.
 
 ### 6.2 Final-generation render verification
 
@@ -411,10 +434,10 @@ the last completed RJ_ES generation bit-for-bit. The
 manufactured stale-render and cold-start cases are covered by
 unit tests 15-17 in `test_es_resid.py`.
 
-m15 second dataset: verified for sob N=1,2,3,4,6,8,12 - the
-render consumes the last completed RJ_ES generation bit-for-bit
-(RENDER_MATCH=T, MAX_ABS_DIFF=0 in every run;
-`p82_final_audit.csv`).
+m15 second dataset: verified for sob N=1..12 and knop
+N=2,3,4,6,8 - the render consumes the last completed RJ_ES
+generation bit-for-bit (RENDER_MATCH=T, MAX_ABS_DIFF=0 in every
+run; `p82_final_audit.csv`).
 
 Diagnostic-off control: `obs_p82_sob_n2_diagoff` (ES_RESID_DIAG=F)
 produced no ES_RESID_DIAG file and its obs_fin_10 is
@@ -489,7 +512,18 @@ gen 12. INTEGRATED_DF stays in the 6e7..1e8 Jy*AA band.
 H-alpha metrics (LINE_DEW -7..-10 AA per pair, LINE_CORE
 ~1.2-3.7e-2) confirm the line region keeps moving.
 
-[pending m15 KNOP: `p82_spectrum_metrics.csv` knop rows]
+KNOP pathway (n2..n8 complete; obs_fin_10 ES-sensitive as the
+single-phase incoherent fold reaches the spectrum directly):
+
+    pair    GLOBAL_MAX_R
+    2->3    5.251e-02
+    3->4    3.187e-02
+    4->6    3.926e-02
+    6->8    2.649e-02
+
+Bigger per-step spectral deltas than SOB (matches the field
+residuals being ~3x larger), still ~2.6% drift between N=6 and
+N=8 - KNOP also has not plateaued within the tested range.
 
 ### 6.4 Line-profile convergence
 
@@ -529,6 +563,10 @@ m15 batobs wall times (shared interactive node, 8 CPU SOB /
 
     sob  N=1  273s   N=2  237s   N=3  245s   N=4  375s
          N=6  468s   N=8  850s   N=12 770s
+    knop N=2  1139-1595s   N=3  2702s   N=4  4567s
+         N=6  4560s   N=8  5090s   N=12 >2h (first run hit the
+         1h55 job limit mid-sweep-10; gens 1-9 survived via the
+         diagnostic flush; resubmitted with 8h)
 
 Diagnostic overhead is within run-to-run noise on this shared
 node: NUM_ES=2 diag-on 237s vs diag-off 259s (the diag-off
