@@ -237,3 +237,82 @@ found. For attribution of the residual drift:
 
 Nothing here requires touching the redistribution operator,
 ray ordering, formal solution, or NUM_ES_ITERATIONS.
+
+## 7. Binary-drift resolution (Nov 14, corrective update)
+
+The cross-run drift reported in sections 5 and 5a is now
+attributed to a mid-sweep executable change, not to
+run-to-run floating-point nondeterminism.
+
+### 7.1 Build timeline vs run timeline
+
+exe/cmf_flux.exe is rebuilt in place; every obs run loads
+$cmfdist/exe/cmf_flux.exe (batobs.log confirms the live
+path for all six KNOP runs). On 14-Nov the concurrent
+PHASE_5_3 session edited production files and rebuilt:
+
+- 20:54  fg_j_cmf_nonmono_v1.f edited
+- 20:56  unit-test/prod objects rebuilt (J_RESCUE-v1)
+- 21:27  obs/cmf_flux_sub_v5.f, obs/COMP_JCONT_V4.INC
+- 22:01  obs/cmf_flux_cntrl_var_mod.f,
+         obs/rd_cmf_flux_controls.f (J_RESCUE read as
+         true when the key is absent)
+- 22:04  full exe relink (J_RESCUE-v2)
+
+J_RESCUE (commits 01f41989, 218001cd, 66a0965f) adds a
+bounded-rescue treatment for non-physical RJ_ES fields in
+COMP_JCONT_V4.INC:739/789/794, default-on.
+
+### 7.2 Binary attribution per run
+
+| run        | start      | binary          | cluster gen3/gen4        |
+|------------|------------|-----------------|--------------------------|
+| knop_n2    | ~19:4x     | A pre-J_RESCUE  | A                        |
+| knop_n3    | ~20:2x     | A pre-J_RESCUE  | 0.265340/0.177620        |
+| knop_n4    | 20:37      | A pre-J_RESCUE  | 0.265340/0.177620        |
+| knop_n6    | ~21:18     | B J_RESCUE-v1   | 0.265314/0.177358        |
+| knop_n8    | ~21:4x     | B J_RESCUE-v1   | 0.265314/0.177358        |
+| knop_n12   | Nov13 ~1:55| A pre-J_RESCUE  | 0.265340/0.177620        |
+| knop_n12   | 22:20      | C J_RESCUE-v2   | R=1.0@K=16, +40k active  |
+
+Binary A is deterministic at printed precision across
+nodes (viper08, vipc2142) and thread counts (4 vs 8);
+binary B likewise (vipc2142 vs vipc2304). There is no
+remaining evidence of within-binary nondeterminism in
+this dataset.
+
+### 7.3 Revised classification
+
+- Audited ray loops: classification A stands (race-free,
+  synchronous, order-independent at the loop level).
+- Observed gen-3/4 "drift": attributed to the J_RESCUE
+  code change between binaries A and B, not FP
+  nondeterminism. The earlier "same node same threads yet
+  different cluster" observation is fully explained: n4
+  and n12-first share binary A; n6/n8 share binary B.
+- MKL threading: still linked (libmkl_intel_thread), in-
+  path call sites remain serial at these sizes, and no
+  numerical evidence now requires the MKL_NUM_THREADS=1
+  controlled repeat. It is retired to optional status.
+- System-level classification: resolved - the drift was
+  configuration drift (live-rebuilt executable), not
+  category E.
+
+### 7.4 Experiment-integrity consequence
+
+The KNOP sweep spans three binaries: n2-n4 on A, n6-n8 on
+B, n12 on C. Pairwise spectrum differences 2->3 and 3->4
+are single-binary (A); 4->6 crosses A->B; 6->8 is
+single-binary (B); 8->12 crosses B->C and is invalid as
+a sweep-count comparison. The SOB sweep (all completed by
+19:56, before the first J_RESCUE build) is internally
+consistent on binary A. Cross-pathway SOB-vs-KNOP
+comparisons mix binary A SOB with binary B KNOP results.
+
+The controlling process defect: obs runs load the live
+exe/cmf_flux.exe instead of a pinned exe_frozen/ build, so
+a concurrent-session rebuild changed the algorithm under
+an in-flight experiment. Recommendation: pin one frozen
+executable per sweep and record its hash in the run
+metadata; never rebuild the live exe while an experiment
+sweep is in flight.
