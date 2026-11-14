@@ -46,10 +46,17 @@ Drivers (all call the REAL production routines):
             zero/negative/non-finite PNU and NU anchors, interior
             NU defects, a forced non-positive denominator and a
             single-node tail, through the production object.
-    itp     synthetic ES_SHIFTED_RESCALE battery: valid map,
-            truncated map (NPNU<NCF), degenerate last bracket,
-            NaN and non-positive map nodes, one-node map - every
-            interpolation-bracket validation path on the object.
+    itp     synthetic ES_SHIFTED_RESCALE battery on the
+            production object: valid, NPNU=0/1/2 (unwritten
+            nodes poisoned with NaN), truncated, NaN node, +Inf
+            node, duplicate pair, non-monotone maps giving
+            weights below 0 and above 1, boundary-exact node
+            hits, non-positive node - every bracket and weight
+            validation path.  A second binary compiles
+            comp_j_conv_v2.f + the driver with -check bounds
+            -fpe0 and reruns brk/cnt/itp: an abort is an
+            arithmetic or bounds defect; outputs are compared
+            number-for-number.
     nanj    NaN at one node/depth: per-depth convolution skip +
             WARNING_LU diagnostic, field left visible.
     neg     signed convolved output: the MINVAL(J_ES) gate must
@@ -106,10 +113,15 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import (
     F90DIR,
+    PROD_MOD_INC,
     TREE,
     WORKDIR,
     Report,
     compile_and_link_prod,
+    compile_objs,
+    is_prod_source,
+    link_prod,
+    prod_objs,
     run,
 )
 
@@ -301,6 +313,29 @@ def main():
     guard_bin = compile_and_link_prod("drv_knop_guard", GUARD_SRCS)
     rend_bin = compile_and_link_prod("drv_es_render", RENDER_SRCS)
 
+    # Bounds- and trap-checked build of the same production
+    # source: comp_j_conv_v2.f and the driver compiled with
+    # -check bounds -fpe0 and linked against the production
+    # objects for everything else.  The synthetic batteries feed
+    # short maps, NaN/Inf nodes and degenerate brackets through
+    # the helpers, so any out-of-range index or non-validated
+    # arithmetic aborts this binary outright.
+    bnd_flags = ["-check", "bounds", "-fpe0"]
+    bnd_fresh = [TREE / "subs" / "comp_j_conv_v2.f", F90DIR / "drv_es_conv.f"]
+    bnd_objs = compile_objs(
+        "drv_es_conv_bnd",
+        bnd_fresh,
+        extra_flags=bnd_flags + PROD_MOD_INC,
+    )
+    bnd_prod = [
+        s
+        for s in CONV_SRCS
+        if is_prod_source(s) and s.name != "comp_j_conv_v2.f"
+    ]
+    conv_bnd = link_prod(
+        "drv_es_conv_bnd", bnd_objs + prod_objs(bnd_prod)
+    )
+
     # -- driver runs ----------------------------------------------------
     for mode in MODES:
         run(conv_bin, out_dir, mode, cwd=out_dir)
@@ -358,6 +393,16 @@ def main():
     # production object code.
     run(conv_bin, out_dir, "cnt", cwd=out_dir)
     run(conv_bin, out_dir, "itp", cwd=out_dir)
+    # Same batteries under compiler bounds checking and floating
+    # invalid trapping into a parallel output dir: completion is
+    # the assertion (an abort is a bounds/arithmetic defect, not
+    # a test disagreement) and the outputs are compared to the
+    # standard binary's.
+    bnd_dir = out_dir / "bndchk"
+    bnd_dir.mkdir(exist_ok=True)
+    run(conv_bnd, bnd_dir, "brk", cwd=out_dir)
+    run(conv_bnd, bnd_dir, "cnt", cwd=out_dir)
+    run(conv_bnd, bnd_dir, "itp", cwd=out_dir)
     # Input guards: NaN input field and signed convolved output.
     # fort.4 is per-process and overwritten from the top, so each
     # guarded run's WARNING_LU output is captured immediately.
@@ -713,26 +758,34 @@ def main():
 
     # -- itp: shifted-interpolation battery -------------------------------
     # ES_SHIFTED_RESCALE on synthetic maps.  Python oracle: same
-    # walk semantics, then per-node expected JES/PES.  An invalid
-    # node takes JES(ML)=exp(A(ML)) (=raw input) and PES=PFN; a
-    # valid node interpolates the log fields.
-    d = np.loadtxt(out_dir / "esconv_itp.txt").reshape(6, 8, 6)
+    # sequential walk and validation semantics, then per-node
+    # expected JES/PES.  An invalid node takes
+    # JES(ML)=exp(A(ML)) (=raw input) and PES=PFN; a valid node
+    # interpolates the log fields.
+    d = np.loadtxt(out_dir / "esconv_itp.txt").reshape(12, 8, 6)
     NU_B = 9.0 - np.arange(1, 9)            # 8..1 decreasing
     PFN_B = 2.0 * np.arange(1, 9)
     C_B = 3.0 * np.arange(1, 9)
     JIN_B = 5.0 * np.arange(1, 9)
     A_B = np.log(JIN_B)
+    W_TOL = 64.0 * np.finfo(float).eps
+    nan = np.nan
     PNU_B = {
         1: NU_B - 0.5,
-        2: NU_B - 0.5,
-        3: np.array([7.5, 6.5, 5.5, 4.5, 3.5, 2.5, 3.0, 3.0]),
-        4: np.array(
-            [7.5, 6.5, 5.5, 4.5, np.nan, 2.5, 1.5, 0.5]
-        ),
-        5: np.array([7.5, 6.5, 5.5, -1.0, 3.5, 2.5, 1.5, 0.5]),
-        6: NU_B - 0.5,
+        2: np.full(8, nan),
+        3: np.array([7.5, nan, nan, nan, nan, nan, nan, nan]),
+        4: np.array([7.5, 6.5, nan, nan, nan, nan, nan, nan]),
+        5: NU_B - 0.5,
+        6: np.array([7.5, 6.5, 5.5, 4.5, nan, 2.5, 1.5, 0.5]),
+        7: np.array([7.5, 6.5, 5.5, 4.5, 3.5, np.inf, 1.5, 0.5]),
+        8: np.array([7.5, 6.5, 5.5, 4.5, 3.5, 2.5, 3.0, 3.0]),
+        9: np.array([7.5, 6.5, 5.5, 4.5, 3.5, 2.5, 4.0, 2.5]),
+        10: np.array([7.5, 6.5, 5.5, 4.5, 2.5, 2.6, 4.0, 5.0]),
+        11: np.array([7.5, 6.5, 5.5, 5.0, 3.5, 3.0, 1.5, 0.5]),
+        12: np.array([7.5, 6.5, 5.5, -1.0, 3.5, 2.5, 1.5, 0.5]),
     }
-    NPNU_B = {1: 8, 2: 5, 3: 8, 4: 8, 5: 8, 6: 1}
+    NPNU_B = {1: 8, 2: 0, 3: 1, 4: 2, 5: 5, 6: 8,
+              7: 8, 8: 8, 9: 8, 10: 8, 11: 8, 12: 8}
 
     def itp_expect(pnu, npnu):
         pes = C_B.copy()
@@ -741,27 +794,39 @@ def main():
         jes[-1] = A_B[-1]
         i = 0
         for ml in range(1, 7):
-            while i < npnu - 2 and NU_B[ml] < pnu[i + 1]:
-                i += 1
-            brk = True
-            if npnu < 8 and i == npnu - 2 and NU_B[ml] < pnu[npnu - 1]:
-                brk = False
-            if npnu < 2:
-                brk = False
+            nu_ok = np.isfinite(NU_B[ml]) and NU_B[ml] > 0.0
+            if nu_ok and npnu >= 2:
+                while True:
+                    if i >= npnu - 2:
+                        break
+                    if not np.isfinite(pnu[i + 1]):
+                        break
+                    if NU_B[ml] < pnu[i + 1]:
+                        i += 1
+                    else:
+                        break
+            brk = nu_ok and npnu >= 2
+            if brk and npnu < 8 and i == npnu - 2:
+                if np.isfinite(pnu[npnu - 1]) and (
+                    NU_B[ml] < pnu[npnu - 1]
+                ):
+                    brk = False
+            if brk:
+                brk = i >= 0 and i + 1 <= npnu - 1
+            if brk:
+                brk = np.isfinite(pnu[i]) and pnu[i] > 0.0
+            if brk:
+                brk = np.isfinite(pnu[i + 1]) and pnu[i + 1] > 0.0
             if brk:
                 t2 = pnu[i + 1] - pnu[i]
-                brk = (
-                    np.isfinite(pnu[i])
-                    and np.isfinite(pnu[i + 1])
-                    and pnu[i] > 0.0
-                    and pnu[i + 1] > 0.0
-                    and np.isfinite(t2)
-                    and t2 != 0.0
-                )
+                brk = np.isfinite(t2) and t2 != 0.0
             if brk:
                 t1 = (NU_B[ml] - pnu[i]) / t2
                 brk = np.isfinite(t1)
             if brk:
+                brk = t1 >= -W_TOL and t1 <= 1.0 + W_TOL
+            if brk:
+                t1 = min(1.0, max(0.0, t1))
                 pes[ml] = t1 * C_B[i + 1] + (1.0 - t1) * C_B[i]
                 jes[ml] = t1 * A_B[i + 1] + (1.0 - t1) * A_B[i]
             if not brk or i == 0:
@@ -771,7 +836,7 @@ def main():
         return np.exp(jes + PFN_B - pes), pes
 
     ok, det = True, []
-    for ic in range(1, 7):
+    for ic in range(1, 13):
         jes_exp, pes_exp = itp_expect(PNU_B[ic], NPNU_B[ic])
         jes_got = d[ic - 1, :, 4]
         pes_got = d[ic - 1, :, 5]
@@ -787,24 +852,49 @@ def main():
             f"{np.max(np.abs(jes_got - jes_exp)):.1e}"
         )
     rep.check(
-        "itp: all six map cases match the walk oracle node-by-node "
-        "(valid interp, truncated, degenerate, NaN, non-positive, "
-        "one-node)",
+        "itp: all twelve map cases match the walk oracle "
+        "node-by-node (valid, NPNU=0/1/2, truncated, NaN, +Inf, "
+        "degenerate, non-monotone T1>1 and T1<0, boundary-exact, "
+        "non-positive)",
         ok,
         " ".join(det),
     )
     rep.check(
-        "itp: invalid nodes never contaminate valid ones (raw J "
-        "at exactly the off-map/degenerate nodes)",
-        np.isclose(d[1, 5, 4], 30.0)
-        and np.isclose(d[1, 6, 4], 35.0)
-        and np.isclose(d[2, 6, 4], 35.0)
-        and np.allclose(d[3, 4:7, 4], JIN_B[4:7])
-        and np.allclose(d[4, 3:7, 4], JIN_B[3:7])
-        and np.allclose(d[5, 1:7, 4], JIN_B[1:7])
-        and d[0, 2, 4] != JIN_B[2] and d[1, 2, 4] != JIN_B[2],
-        f"off-map JES {d[1,5:7,4]}, degen {d[2,6,4]}, "
-        f"nan-adjacent {d[3,4:7,4]}",
+        "itp: invalid nodes retain raw J exactly at the "
+        "off-map/degenerate/out-of-range nodes",
+        np.allclose(d[4, 5:7, 4], JIN_B[5:7])
+        and np.isclose(d[7, 6, 4], 35.0)
+        and np.isclose(d[8, 6, 4], 35.0)
+        and np.isclose(d[9, 6, 4], 35.0)
+        and np.allclose(d[11, 3:7, 4], JIN_B[3:7])
+        and np.allclose(d[1, 1:7, 4], JIN_B[1:7])
+        and np.allclose(d[2, 1:7, 4], JIN_B[1:7])
+        and np.allclose(d[3, 1:7, 4], JIN_B[1:7])
+        and d[0, 2, 4] != JIN_B[2] and d[4, 2, 4] != JIN_B[2],
+        f"offmap {d[4,5:7,4]}, degen {d[7,6,4]}, "
+        f"T1out {d[8,6,4]},{d[9,6,4]}",
+    )
+    rep.check(
+        "itp: boundary-exact node hits give pure lower-node values",
+        np.isclose(d[10, 3, 5], C_B[3])
+        and np.isclose(d[10, 5, 5], C_B[5]),
+        f"PES at exact nodes: {d[10,3,5]:.6f},{d[10,5,5]:.6f} "
+        f"(expect {C_B[3]},{C_B[5]})",
+    )
+    bnd_ok, bnd_det = True, []
+    for name in ("esconv_brk.txt", "esconv_cnt.txt", "esconv_itp.txt"):
+        a = np.loadtxt(out_dir / name)
+        b = np.loadtxt(bnd_dir / name)
+        same = a.shape == b.shape and np.allclose(
+            a, b, rtol=1e-9, atol=1e-30, equal_nan=True
+        )
+        bnd_ok = bnd_ok and same
+        bnd_det.append(f"{name}:{'same' if same else 'DIFF'}")
+    rep.check(
+        "bndchk: -check bounds -fpe0 binary completes the "
+        "batteries and reproduces every number",
+        bnd_ok,
+        " ".join(bnd_det),
     )
 
     # -- constant field ----------------------------------------------------
