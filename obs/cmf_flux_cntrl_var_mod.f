@@ -214,6 +214,20 @@
 !
 	LOGICAL :: ALLOW_SIGMA_UNDEF=.FALSE.
 !
+! ES_RESID_DIAG (default F): P8.2 electron-scattering redistribution
+! convergence diagnostic in CMF_FLUX_SUB_V5/ES_RESID_DIAG_MOD.  When
+! T, each completed ES_J_CONV generation is compared against the
+! previous one and per-depth plus global residuals and a final
+! generation audit are written to ES_RESID_DIAG.  Diagnostic only -
+! the sweep ordering, convolve count, and render fields are
+! unchanged.  ES_DIAG_AFLOOR is the active-frequency mask floor (a
+! diagnostic mask, not a convergence tolerance).  ES_DIAG_DEPTHS
+! toggles the per-depth rows (globals are always written).
+!
+	LOGICAL :: DO_ES_RESID_DIAG=.FALSE.
+	REAL(KIND=LDP) :: ES_DIAG_AFLOOR=1.0E-12_LDP
+	LOGICAL :: ES_DIAG_DEPTHS=.TRUE.
+!
 ! SOB_SIGMA_MAX (default <=0 = off).  When >0, CMF_FLUX_SUB_V5 clamps
 ! |SIGMA_TRUE| to this bound before the Sobolev EW/profile estimators
 ! see it, and reports how many cells were clipped.  Extreme sigma
