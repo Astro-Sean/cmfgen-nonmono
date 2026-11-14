@@ -791,6 +791,75 @@ Two candidate gates were tested:
   diverged bands.  obs_blank_resc5 (job 13157778)
   carries v4.
 
+v4 result: obs_blank_resc5 produced an IR tail identical
+to resc2 (max I ~ 6e18, 4109 points >1e10).  The FEDD>2
+test fired nowhere - a smooth multiplicative ratchet
+keeps f in bounds because f is the ratio K/J: if J and K
+scale together the shape looks converged while the
+amplitude drifts.  Deeper reading showed why no
+iteration-level test can catch it: in the pure-scattering
+IR regime (ETA ~ 1e-21 << scattering), the formal-solve
+source TA = ETA + CHI_SCAT*RJ is nearly homogeneous in J,
+so J = A.J + b.ETA has a continuum of near-fixed-points -
+any amplitude satisfies the iteration.  The loop's only
+convergence test is on FEDD, which is amplitude-blind.
+KNOP's coupled moment solver does not share this defect
+and converges the same frequencies cleanly: its stored
+EDDFACTOR field is flat J ~ 1e-7-1e-5 across the whole
+band, which is the reference answer.
+
+The remaining defect was in RESC_CAP itself:
+MAX(1e4*prev, 1e-3) is a floor - once JNU_PREV inflated
+past ~1e-7 the relative term recalibrated the cap upward
+and the ratchet walked underneath it.  v5 replaces the
+floor with the smaller of two bounds, split by role:
+
+- RESC_CAP (post-loop restore + RJ_ES sanitize):
+  MIN(1e4*JNU_PREVmax, RESC_JMAX).  The relative bound
+  catches single-step explosions and dark-region garbage;
+  RESC_JMAX (new control, default 1e-3) is an absolute
+  ceiling - legitimate J peaks at 4.8e-5 across the whole
+  converged grid (KNOP and SOB agree), and the largest
+  legitimate adjacent-frequency Jmax ratio measured is
+  ~44x, so the 1e4x bound has ~200x margin and cannot
+  false-fire on real transitions.
+- RESC_CAP_IT (in-loop early exit only): the previous
+  loose bound MIN(1e10, MAX(1e4*prev,1e-3)).  Iterates
+  may transiently overshoot a tight cap, so the
+  early-exit stays on runaway scale - it trims wasted
+  iterations, it does not decide validity.
+
+obs_blank_resc6 (job 13158209) carries v5.
+
+v5 result on mc170_H10 - the objective is met.  The
+BLANK render completes and returns a bounded blanketed
+spectrum:
+
+- Rescues fire only inside the eigenproblem band
+  FL~0.031-0.053 (every diverged frequency restores the
+  last converged field); frequencies below 0.031 converge
+  on their own, so the deep tail is real, not fallback.
+- obs_fin_10: max I = 2.3e6 Jy, zero points >1e10 - vs
+  resc5's 5.9e18 and the converged KNOP reference at
+  1.6e6.  Deep-IR edge 3.4e4 vs KNOP 2.6e4.
+- Ratio to the fully-converged KNOP spectrum: median 1.00
+  over FL 0.5-5 (optical/UV, exact), 1.36 below the band,
+  ~4.3 median inside the restored band (max ~70x).  The
+  band overshoot is the flat last-converged field sitting
+  slightly above KNOP's local J - bounded, flagged, and
+  ~10 orders below the previous garbage.
+- 57 mild L>20 warnings kept (stock semantics, same as
+  sob_es1's 153-exit pattern); no RJ_ES sanitize events.
+
+The remaining ~4x band overshoot is acceptable for the
+science goal (the band sits at lambda >~5.6 um, outside
+every photometric band used in the light-curve fit), and
+it is honest: every rescued frequency is logged.
+
+Verification on the v5 objects: P8.1 battery 116/116,
+P8.2 battery 20/20 - J_RESCUE=F default leaves the stock
+path untouched.
+
 Known limitation: all J_RESCUE machinery lives in the ND
 (non-INC_GRID) branch of COMP_JCONT_V4.INC, which is the
 path every production render on these models takes.  The
