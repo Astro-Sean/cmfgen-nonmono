@@ -1501,12 +1501,11 @@ def test_ray83_lifecycle_audit():
        (NPASS=MAX(NP_M,NP_P)) so NXIT/NPASS/RESID carry committed
        values. The earlier placement printed pre-finalisation
        sentinels (-1/0/0) on every ray.
-    2. The no-compressing-coupling fast exit (.NOT. HAS_CP) forces
-       RES=0.0 without measuring the pass residual; HAS_CP itself
-       requires BOTH GAM<0 and a compressing-depth neighbour, so a
-       purely expanding ray always takes it. This is the upstream
-       reason an under-converged expanding-only field can reach the
-       store with a clean-exit label.
+    2. Phase 5.3R removed the no-compressing fast exit (.NOT.
+       HAS_CP -> forced RES=0.0 clean exit) that used to let an
+       under-converged expanding-only field reach the store with a
+       clean-exit label; HAS_CP=F rays now share the measured
+       RES<KN_RAY_TOL / stall / maxpass exits with every other ray.
     3. MATCH_FREQ/SRC_PRIME/KN_ORD_SPV share one coupling contract:
        expanding (GAM>0) reads the in-pass fresh FLD(I,L-1) with a
        signed Q; compressing (GAM<0) reads the matched upwind slot
@@ -1522,20 +1521,26 @@ def test_ray83_lifecycle_audit():
     )
 
     ord_sweep = section(FG, "SUBROUTINE SWEEP_FLD_ORD", "\tEND\n")
-    # HAS_CP fast exit: forced clean exit, residual not measured.
-    # Phase 5.2: the exit is bypassed only for the armed probe ray;
-    # with the flag off the condition reduces to the original form.
-    hc = ord_sweep.index("IF(.NOT. HAS_CP .AND. .NOT. L_NOPROBE)THEN")
-    hc_block = ord_sweep[hc : hc + 700]
+    leg_sweep = section(FG, "SUBROUTINE SWEEP_FLD(FLD", "\tEND\n")
+    # 5.3R: the HAS_CP=F forced-clean exits were removed from both
+    # sweeps; the measured tolerance test is the only success path.
     check(
-        "no-compressing exit forces RES=0 without measuring",
-        "CLEAN_EXIT=.TRUE." in hc_block
-        and "IXIT=0" in hc_block
-        and "RES=0.0_LDP" in hc_block,
+        "ORD: no .NOT. HAS_CP exit branch remains",
+        "IF(.NOT. HAS_CP" not in ord_sweep,
     )
     check(
-        "no-compressing exit requires NPO>=2 confirmation pass",
-        "IF(NPO .GE. 2)THEN" in hc_block,
+        "legacy SWEEP_FLD: no .NOT. HAS_CP exit branch remains",
+        "IF(.NOT. HAS_CP" not in leg_sweep,
+    )
+    check(
+        "ORD measured tolerance exit IXIT=1 present",
+        "IF(RES .LT. KN_RAY_TOL)THEN" in ord_sweep
+        and "IXIT=1" in ord_sweep,
+    )
+    check(
+        "legacy measured tolerance exit IXIT=1 present",
+        "IF(RES .LT. KN_RAY_TOL)THEN" in leg_sweep
+        and "IXIT=1" in leg_sweep,
     )
     # HAS_CP definition: compressing drift AND a store-backed depth.
     setup = section(FG, "SUBROUTINE KNOP_RAY_SOLVE_V1", "SWEEP_FLD(")
@@ -1632,14 +1637,19 @@ def test_nocp_probe_diagnostics():
         "KN_NOP_ARM=.FALSE." in FG and "KN_NOP_ARM=.TRUE." in FG,
     )
 
-    # 3/5. Both sweep routines bypass the forced-clean exit only
-    # for the probe ray; the bypass is .NOT. L_NOPROBE gated so a
-    # disabled flag restores the exact production condition.
+    # 3/5. Phase 5.3R removed the forced-clean HAS_CP=F exits the
+    # probe used to bypass, so probe rays now run the same measured
+    # exits as ordinary rays; L_NOPROBE still drives telemetry and
+    # the no-write guards.
     n_bypass = FG.count(".NOT. HAS_CP .AND. .NOT. L_NOPROBE")
-    check("both sweeps gate the no-cp exit on the probe", n_bypass == 2)
+    check("no-cp forced-clean exit removed from both sweeps", n_bypass == 0)
     check(
         "no unconditional HAS_CP exit remains",
         "IF(.NOT. HAS_CP)THEN" not in FG,
+    )
+    check(
+        "probe ray still suppresses store writes",
+        FG.count(".NOT. L_NOPROBE)CALL WRITE_STORE") >= 2,
     )
 
     # 6. Ordinary exit rules still follow the probe pass record:
