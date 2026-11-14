@@ -58,6 +58,16 @@ follows the stock upstream path.
   electron-scattering field (`RJ_ES`, the `ES_J_CONV` generations)
   to `ES_RESID_DIAG`, plus a final render-generation audit.
   Diagnostic only; the sweep and render are unchanged.
+- **Continuum J rescue** (`J_RESCUE`, `RESC_JMAX` OBS keys, on by
+  default): on dense interacting-SN structures the stock continuum
+  J/f iteration can ratchet to an unphysical amplitude in the
+  pure-scattering infrared, where the formal-solve source is nearly
+  homogeneous in J and the `FEDD` convergence test is
+  amplitude-blind. A frequency that exits with a non-finite or
+  over-cap field restores the previous frequency's converged
+  field and the render always returns a bounded spectrum; rescued
+  frequencies are logged. Explicit `J_RESCUE=F` restores stock
+  behaviour. See `docs/audits/BLANK_RENDER_J_RESCUE.md`.
 - General correctness fixes in the population solve, the
   observed-frame tools and the build.
 
