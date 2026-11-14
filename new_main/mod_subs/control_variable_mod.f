@@ -1366,6 +1366,25 @@
 	LOGICAL KN_NOCP_PROBE
 	INTEGER KN_NOCP_PROBE_LS
 !
+! KN_PSWEEP_* (diagnostic, default off): phase-5.3K full-pass
+! field capture on the SWEEP_FLD_ORD ordered march. For every
+! completed pass inside KN_PSWEEP_PLO..PHI on ray KN_PSWEEP_LS
+! (<=0 = all rays) the sweep buffers one machine-readable record
+! carrying the production RES beside the complete-map defect
+! R_MAP/RMS_MAP, pass-entry/exit OMEGA_RAY, argmax location and
+! cell census; KN_PSWEEP_SNAP additionally writes binary X/Y
+! field pairs for those passes. Disabled leaves no allocations,
+! no I/O and no solver decision changes. VADAT [KN_PSWEEP_DIAG],
+! [KN_PSWEEP_LS], [KN_PSWEEP_PLO], [KN_PSWEEP_PHI],
+! [KN_PSWEEP_SNAP], [KN_PSWEEP_SNHI].
+!
+	LOGICAL KN_PSWEEP_DIAG
+	LOGICAL KN_PSWEEP_SNAP
+	INTEGER KN_PSWEEP_SNHI
+	INTEGER KN_PSWEEP_LS
+	INTEGER KN_PSWEEP_PLO
+	INTEGER KN_PSWEEP_PHI
+!
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
 ! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
