@@ -257,3 +257,86 @@ labels the KN_RES_PASS findings differently:
    test_iter_ledger.py 31/31, test_mom_aa_state.py 62/62,
    test_vadat_keys.py 85/85 - see FG_FIELD_DRIFT_AUDIT.md and
    AUDIT_LOG.md for per-revision detail.
+
+## Phase 5.3 cycle - P-direction false convergence (14-Nov-2026)
+
+Continuation of the drift audit into the ordered ray sweeps. Full
+record in `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`; the fix is
+committed on `main` (`0ef42d05` and the companion entries).
+
+### What the cycle found
+
+1. The `.NOT. HAS_CP` fast exits in `SWEEP_FLD` (one pass) and
+   `SWEEP_FLD_ORD` (two passes) measured the pass residual and then
+   overwrote `RES`/`RES_FREQ` with 0 before exiting `IXIT=0`. The
+   commit gate treats that as converged, so a ray whose ordered
+   march still moved was committed mid-iteration. Demonstrated
+   defect, not a reporting quirk.
+2. The lagged C-corner terms (Knop Paper II Eqs 31-32) keep a
+   genuine cross-pass dependency even with no compressing cells,
+   so no single pass can be exact on a real stencil. At `J=NI-1`
+   the DSU slope also reads the ring-aliased row-1 slot, so the
+   lagged corner reaches both ray ends.
+3. Ray 82 P-direction (m15 frz82 arm): pass-1 `R_MAP=0.482`
+   argmax `(3,17881)`, pass-2 `R_MAP=0.621` argmax `(3,27360)`,
+   ~27K above-tolerance cells per pass - then forced clean under
+   the old exit. The corner cell alternates `3.18e-8 <-> 1.90e-8`
+   across passes and refreshes, a two-state orbit pinned to ~0.3%
+   - consistent with an intrinsic period-2 mode of the ordered
+   map, coefficient-insensitive (frozen 0.62 vs live 0.68).
+4. Store churn (`sw` 0.84 frozen vs 0.27 live) is the coefficient-
+   stream divergence, a separate quantity from the corner mode.
+5. Manufactured ring-faithful stencil: the map converges to a
+   unique seed-independent fixed point that satisfies the
+   simultaneous stencil residual at roundoff - the machinery is
+   self-consistent, the early exit was the defect. Aitken and
+   under-relaxation break a genuine two-cycle and reach the
+   underlying fixed point; shallow Anderson does not. Both
+   accelerators sit behind `NPO>=3`/`NPO>=4`, unreachable under
+   the old two-pass exit.
+
+### What was changed (5.3R, approved and implemented)
+
+Both forced-clean `.NOT. HAS_CP` exit blocks deleted from
+`plane/fg_j_cmf_nonmono_v1.f`. `RES`/`RES_FREQ` are always
+measured; `IXIT=0` is retired; every success path now requires
+`RES<KN_RAY_TOL` or the floored bulk exit. Maximum-pass and
+stall/plateau/cap semantics unchanged; `HAS_CP=T` rays untouched.
+No tolerances, stencil coefficients, ring semantics, donor
+indexing, store write-back, `INEXT_RELAX`, `OMEGA_RAY`,
+accelerator mathematics or population equations were changed.
+Tests: `kn_psweep_source_test.py` (25 pins), `kn_ccorner_test.py`
+(manufactured stencil + exit-policy + period-2 classifier),
+`test_knop_lagged_field.py` re-pinned; KNOP/moment/JFNK/OBS
+regressions all pass. Debug exe `c3d8b584`; production exe
+`f52d8125` untouched.
+
+### Outstanding issues
+
+- [~] Production validation in flight: `p53s_fix82` (13158010,
+  corrected exe, frz82-clone VADAT) and `p53q_probe82` (13157367)
+  are queued behind `AssocMaxJobsLimit`. Needed answers: does
+  ray-82 P reach stall/plateau/maxpass (`IXIT` 3/4/6), does the
+  corner orbit persist as a true two-cycle at pass 3+ (d1 finite,
+  d2 small), do the verdicts route to nc-reject or capped commit,
+  and does `fg_rf`/`KN_RF_RESID` honestly show the ~0.6 residual.
+- [ ] Ray 83 under measured exits: floor-dominated cells should
+  now return a real residual; confirm the convergence
+  classification stays separate from the jump-veto path and the
+  ray cannot reach the converged `WRITE_STORE`.
+- [ ] `KN_HOT_CNT` should now accumulate the L~17881 column;
+  confirm the hot-window machinery picks it up as intended.
+- [ ] Maturity-gate timing: models with corner-oscillating rays
+  will report honest (larger) `fg_rf` and may hold the gate open
+  longer - expected consequence of truthful reporting, flag in
+  run notes.
+- [ ] Corner-mode acceleration decision deferred: guarded Aitken
+  or `OMEGA_RAY<1` break the manufactured two-cycle, shallow
+  Anderson does not. Selection waits on the production pass-3+
+  evidence; no accelerator was enabled in 5.3R.
+- [ ] Whether the ray-83 floor cells and the ray-82 corner share
+  a mechanism or need separate handling remains open.
+- [ ] Earlier open items still stand: sbatch model-level
+  validation runs (dominant owed item), headline-drift relabel
+  (cosmetic), synthetic-case numeric drivers beyond the
+  manufactured stencil test added in 5.3Q.
