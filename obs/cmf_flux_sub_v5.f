@@ -15,8 +15,14 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	USE MOD_LEV_DIS_BLK
 	USE EDDFAC_REC_DEFS_MOD
+	USE ES_RESID_DIAG_MOD
 	IMPLICIT NONE
 !
+! Altered: 15-Nov-2026 : P8.2 ES convergence diagnostics [ES_RESID_DIAG,
+!                          default F]: ES_RESID_SEED/UPDATE/RENDER/FINAL
+!                          calls bracket the ES_J_CONV writes and the
+!                          render fold-in. Diagnostic only - the ES
+!                          sweep ordering and all fields are unchanged.
 ! Altered: 10-Nov-2026 : Call FG_KNOP_REFRESH_V1 after each non-final
 !                          ES sweep under DO_NONMONO_KNOP so the
 !                          lagged compressing-branch I_NEXT coupling
@@ -1561,6 +1567,18 @@
 ! end on the phase-2 frequency sweep.
 !
 	ACCESS_F=5
+!
+! P8.2 [ES_RESID_DIAG, default F]: snapshot any pre-existing
+! ES_J_CONV (the OLD_J warm start above) as field generation 0
+! before sweep 1 overwrites it.  Coherent runs produce no file
+! generations, so the diagnostic stays off.
+!
+	IF(DO_ES_RESID_DIAG .AND. SOB_PHASE .EQ. 1 .AND.
+     1   .NOT. RD_COHERENT_ES)THEN
+	  CALL ES_RESID_SEED(ND,NCF,DO_NONMONO_KNOP,ES_DIAG_AFLOOR,
+     1    ES_DIAG_DEPTHS,NUM_ES_ITERATIONS,LUER)
+	END IF
+!
 	DO ES_COUNTER=1,NUM_ES_ITERATIONS
 !
 ! This forces CMF_FORM_SOL_V? to be used for OBSFLUX computation.
@@ -2374,6 +2392,15 @@
 	1        ACCESS_F,'ES_J_CONV',LU_ES)
 	  CLOSE(LU_ES)	
 !
+! P8.2 [ES_RESID_DIAG, default F]: the write above completed field
+! generation ES_COUNTER of ES_J_CONV; read it back and compare
+! against the stored previous generation.
+!
+	  IF(DO_ES_RESID_DIAG)THEN
+	    CALL ES_RESID_UPDATE(ND,NCF,ES_COUNTER,
+     1        NUM_ES_ITERATIONS,LUER)
+	  END IF
+!
 	END IF
 !
 	END DO		!ES_COUNTER
@@ -2570,6 +2597,17 @@
 	  CALL COMP_J_CONV_V2(RJ_CMF_ST,I,NU,T,ND,NCF,
 	1         K,'J PASSED VIA CALL',EDD_CONT_REC,L_FALSE,L_FALSE,
 	1         K,'RETURN J VIA CALL')
+	END IF
+!
+! P8.2 [ES_RESID_DIAG, default F]: RJ_CMF_ST now holds the convolved
+! field the render folds as ESEC*J - verify it is the last completed
+! generation and write the generation summary.  Phase 1 only: phase
+! 2 is coherent and carries no field generations.
+!
+	IF(DO_ES_RESID_DIAG .AND. SOB_PHASE .EQ. 1 .AND.
+     1   .NOT. RD_COHERENT_ES)THEN
+	  CALL ES_RESID_RENDER(RJ_CMF_ST,ND,NCF,LUER)
+	  CALL ES_RESID_FINAL(NUM_ES_ITERATIONS,LUER)
 	END IF
 !
 	ESEC(1:ND)=6.65E-15_LDP*ED(1:ND)
