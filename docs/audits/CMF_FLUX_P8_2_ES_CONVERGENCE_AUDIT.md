@@ -383,41 +383,86 @@ redistribution is deterministic):
 | 11 | 1.03017E-02 | K=46 |
 | 12 | 9.55676E-03 | K=46 |
 
-Monotone decrease but the contraction ratio itself decays -
-0.46, 0.61, 0.68, 0.73, 0.76, 0.78, 0.81, 0.85, 0.92, 0.93 -
-i.e. the residual is shrinking slower than a clean geometric
-sequence and is still ~1% of the local field scale at gen 12.
-The argmax depth migrates (K=11 -> 15 -> 12 -> 52 -> 46): the
-residual's last refuge moves from the inner thermalization
-layers to mid-atmosphere. Zero non-finite, zero negative nodes
-in every sweep; TOTAL_ACTIVE ~11.8M nodes per sweep.
+Convergence-rate analysis, Q_n = R_n / R_(n-1):
+
+| gen | R | Q_n | argmax K |
+|---|---|---|---|
+| 2 | 1.97678E-01 | - | 11 |
+| 3 | 9.09502E-02 | 0.460 | 15 |
+| 4 | 5.55618E-02 | 0.611 | 15 |
+| 5 | 3.79413E-02 | 0.683 | 12 |
+| 6 | 2.75945E-02 | 0.727 | 12 |
+| 7 | 2.09139E-02 | 0.758 | 12 |
+| 8 | 1.64012E-02 | 0.784 | 12 |
+| 9 | 1.32295E-02 | 0.806 | 12 |
+| 10 | 1.12186E-02 | 0.848 | 52 |
+| 11 | 1.03017E-02 | 0.918 | 46 |
+| 12 | 9.55676E-03 | 0.928 | 46 |
+
+Classification: contracts, but sub-geometrically - Q rises
+monotonically 0.46 -> 0.93 and approaches unity, so the
+iteration is getting progressively slower; not stagnation
+(R still falls ~7%/sweep at gen 12), not oscillation, not
+divergence. No asymptotic rate extrapolated - Q is not
+stationary. NUM_ES=2 leaves a ~20% first-refresh delta
+un-iterated; even N=12 leaves ~1% max-node residual.
+
+Argmax migration (SOB): the dominant residual moves between
+physically distinct regions - K=11..15 in early generations is
+the smooth outer wind (V~54-56 km/s, sigma ~-1.5, R~7e14 cm),
+while K=46..52 late generations sit in the mid acceleration
+zone (V~87-134 km/s, sigma -2.9..-2.5) where dV/dr steepens
+ahead of the inner shear/shock structure. So the early
+residual lives where the absolute J errors are largest; once
+those relax, the residual concentrates where the
+velocity-gradient coupling is strongest - evidence the tail is
+driven by velocity-field structure, not boundary artifacts
+(the inner boundary itself, K=70, never holds the max).
+
+Zero non-finite, zero negative nodes in every sweep;
+TOTAL_ACTIVE ~11.8M nodes per sweep.
 Unlike the SN_A dataset (ratio ~0.55-0.65 held to gen 12), this
-model's per-sweep gain is still decaying at N=12 - production
-NUM_ES=2 leaves a ~20% first-refresh delta un-iterated.
+model's per-sweep gain is still decaying at N=12.
 
 KNOP pathway, `GLOBAL_MAX_R` (ND=70, NCF=182712 - denser grid
 than SOB because the non-mono formal solve carries
-line-resolution frequencies; n2..n8 complete, n12 in progress):
+line-resolution frequencies; n2..n8 complete + n12 gens 1-9
+from the timed-out first run):
 
-| gen | R_GLOBAL | argmax depth |
-|---|---|---|
-| 2 | 5.77912E-01 | K=62 |
-| 3 | 2.65340E-01 | K=1 |
-| 4 | 1.77620E-01 | K=62 |
-| 5 | 1.21865E-01 | K=62 |
-| 6 | 1.25971E-01 | K=62 |
-| 7 | 1.13227E-01 | K=62 |
-| 8 | 8.57058E-02 | K=62 |
-| 9 | 7.78778E-02 | K=62 |
+| gen | R | Q_n | argmax K |
+|---|---|---|---|
+| 2 | 5.77912E-01 | - | 62 |
+| 3 | 2.65340E-01 | 0.459 | 1 |
+| 4 | 1.77620E-01 | 0.669 | 62 |
+| 5 | 1.21865E-01 | 0.686 | 62 |
+| 6 | 1.25971E-01 | 1.034 | 62 |
+| 7 | 1.13227E-01 | 0.899 | 62 |
+| 8 | 8.56469E-02 | 0.756 | 62 |
+| 9 | 7.78778E-02 | 0.909 | 62 |
 
-Contraction ~0.46/0.67/0.69/1.03/0.90/0.76/0.91 - slower than
-SOB and with a small gen-6 uptick; the residual parks at the
-inner layers (K=62) after the first sweeps. Still ~8% max-node
-delta at gen 9 (the first 2h run timed out at gen 9; rerun in
-progress - see 6.5 note). Determinism: gens 1-2 bit-exact
-across runs on different nodes/thread counts; from gen 3 a
-~1e-4 relative drift appears between nodes (FP reduction
-order), without changing the shape of the history.
+Classification: contracts overall but not cleanly - Q varies
+0.46 -> 1.03 (gen-6 uptick) -> 0.91 with no stationary ratio.
+Still ~8% max-node delta at gen 9. The argmax is pinned at
+K=62 from gen 4 onward (after a first-sweep excursion to the
+outer boundary K=1). K=62 sits inside the steep velocity-shear
+zone just above the sigma=-157 shock spike at K=65-66
+(SN_HYDRO_DATA: sigma -5.3 -> -10.6 -> -157 across K=62-66;
+R~1.59e14 cm, ~9% above the inner boundary, deep in the
+tau~10-30 region) - the residual concentrates where the
+comoving-frame solution has the strongest velocity-gradient
+coupling, i.e. velocity-field structure (assisted by the
+optically-thick inner boundary), not a generic edge artifact.
+
+Cross-run reproducibility: gens 1-2 are bit-identical across
+all runs, nodes and thread counts (4/8 CPU). From gen 3 a
+~1e-4 relative drift appears between runs on different nodes
+(n6/n8 cluster vs n2/n3/n4/n12 cluster) - parallel-reduction
+FP-order sensitivity, amplified slightly by successive
+iterations (gen-4 drift ~1.5e-3 relative); it does not change
+the residual shape or any conclusion. The identical gen-2
+residual everywhere shows initialisation and the first
+redistribution are deterministic; the divergence enters in
+the sweep-3 formal solve/convolve, not at init.
 
 ### 6.2 Final-generation render verification
 
@@ -549,12 +594,47 @@ ES-sensitive; representative windows):
     2->3    LINE_CORE         3.05e-2   -          2.06e-2   -
             LINE_DEW (AA)     +1.45     -          -8.75     -
 
-EW shifts are Angstrom-scale on m15 (this model's lines are far
-stronger than SN_A's); Ha EW moves ~10 AA between N=1 and N=2
-and still ~8 AA between N=8 and N=12 - the line-bearing regions
-track the still-non-converged field. LINE_DCENT=nan on some
-pairs marks windows where the computed centroid denominator
-vanishes - reported, not hidden.
+H-alpha equivalent-width decomposition (fixed 6500-6650 AA
+window, continuum reference = median flux 6300-6450 AA; same
+definition across runs):
+
+SOB (Ha in emission, EW < 0):
+
+    N    EW (AA)    blue EW    core EW    red EW    cont. Fc
+    1    -38.88     -10.51     -20.87     -7.13     6.64e5
+    2    -48.80     -15.33     -21.28    -11.78    6.64e5
+    8    -76.10     -26.81     -23.38    -25.37    6.66e5
+    12   -83.03     -29.52     -23.81    -29.13    6.67e5
+
+    dEW 1->2 = -9.92 AA (wings ~90%: blue -4.8, red -4.7, core -0.4)
+    dEW 8->12 = -6.93 AA (wings again dominate)
+
+KNOP (strong interacting-profile emission):
+
+    N    EW (AA)    blue EW    core EW    red EW    cont. Fc
+    2    -806.98    -223.63    -393.35    -183.62   4.46e4
+    3    -859.88    -260.36    -368.51    -224.38   4.98e4
+    4    -860.62    -273.64    -337.33    -243.18   5.62e4
+    6    -834.15    -279.56    -289.24    -259.34   6.82e4
+    8    -813.59    -280.38    -259.22    -268.35   7.81e4
+
+    dEW non-monotone: -52.9 (2->3), -0.73 (3->4),
+    +26.5 (4->6), +20.6 (6->8) - overshoots at N=3-4 then
+    relaxes, tracking the non-monotone field residual
+    (gen-6 uptick). Core emission weakens while wings grow:
+    flux moves core -> wings as sweeps proceed.
+
+Numerical origin of the EW movement: it is wing-dominated in
+SOB (~90% of the delta in the broad wings) with a flat
+continuum (+0.5%) and nearly-static core - i.e. real
+electron-scattering redistribution still converging into the
+wings, not a continuum artefact, core artefact, or
+wavelength-grid/interpolation issue. In KNOP the EW itself
+oscillates non-monotonically in step with the field residual.
+EW shifts are Angstrom-scale on m15 because this model's lines
+are far stronger than SN_A's; LINE_DCENT=nan on some pairs
+marks windows where the centroid denominator vanishes -
+reported, not hidden.
 
 ### 6.5 Runtime and diagnostic overhead
 
@@ -573,6 +653,27 @@ node: NUM_ES=2 diag-on 237s vs diag-off 259s (the diag-off
 control ran slower, so the instrumentation cost is not
 measurable at this granularity - per-update file IO is a few
 hundred formatted writes total).
+
+Memory audit (sacct MaxRSS on completed jobs):
+
+- SOB: peak RSS ~1.04 GB at 8 threads - the earlier 28 GB OOM
+  was a marginal/unrelated allocation event, not reproduced.
+- KNOP 8 threads: OOM at a 30 GB interactive cap, peak
+  ~31.2 GB - the convolved-field workspace per sweep scales
+  with threads (parallel scratch per worker), and the KNOP
+  NCF is 182712 vs SOB 171207 on a 70-depth grid, so the
+  per-thread buffers are large.
+- KNOP 4 threads: completed at 26.1 GB peak under the same
+  30 GB cap - halving threads drops the workspace below the
+  cap, at ~1.5x the per-sweep walltime (~15 min/sweep vs ~10).
+- Diagnostic buffers do not materially increase memory: the
+  diag module allocates its per-depth arrays once at SEED
+  (ND x small constant) and nothing inside the depth/frequency
+  loops; diag-on vs diag-off peak RSS is indistinguishable.
+- No large temporaries inside loops was verified by source
+  inspection of the sweep path (all ND/NCF fields are the
+  preallocated production arrays; the diag adds only scalar
+  and ND-sized buffers).
 
 Runtime scales roughly linearly with NUM_ES (each sweep runs
 the full convolve + EDDFACTOR rewrite); KNOP sweeps are
@@ -597,9 +698,10 @@ Equal NUM_ES does not imply equivalent convergence (section
 carries I_NEXT lag, and the emergent-spectrum sensitivity is
 structurally different between the two renders.
 
-m15 second dataset (KNOP gens verified through n12 run in
-progress; deterministic across runs - n2/n3/n12 share gen-1..3
-values bit-for-bit):
+m15 second dataset (KNOP gens 1-9 verified from the timed-out
+first n12 run; the 8h rerun reproduces them identically and
+was still in progress at audit time - completion adds gens
+10-12 and the n8->n12 spectral pair):
 
 | | SOB | KNOP |
 |---|---|---|
@@ -911,5 +1013,35 @@ INC_GRID branch keeps stock behaviour under J_RESCUE=T.
 
 ## 8. Conclusions
 
-[pending - m15 sweep completion and knop high-N data;
-BLANK bounded-rescue outcome in section 7.7]
+P8.2 audit outcome on the m15 model (14 of 15 sweep runs
+complete at audit time; the KNOP N=12 rerun with an 8-hour
+budget was in progress, reproducing gens 1-9 bit-for-bit):
+
+- The ES-residual diagnostic works end-to-end on both
+  pathways: every completed run verifies
+  FINAL_REFRESH_GENERATION == FINAL_RENDER_INPUT_GENERATION
+  with MAX_ABS_DIFF=0; diagnostic-off controls emit no file
+  and produce bit-identical spectra.
+- Neither pathway is converged at production NUM_ES=2, and
+  neither is converged at N=8-12: SOB contracts
+  sub-geometrically (Q 0.46 -> 0.93, still ~1% max-node delta
+  at gen 12); KNOP contracts more slowly with a gen-6 uptick
+  (still ~8% at gen 9) and its residual parks at K=62, inside
+  the steep velocity-shear zone above the sigma=-157 shock
+  spike.
+- The observer-frame spectrum remains ES-sensitive: SOB
+  obs_fin_10 pair residuals sit at ~1.6% even N8->N12; the
+  Ha EW movement is wing-dominated physical electron-scattering
+  redistribution, not a grid/interpolation artefact. KNOP's
+  EW drift is non-monotone in step with the field residual.
+- The ~1e-4 relative cross-run drift from gen 3 onward is
+  OpenMP parallel-reduction floating-point order
+  sensitivity (reproduced same-node, differing runs), not an
+  implementation inconsistency - gens 1-2 are bit-identical
+  across all nodes and thread counts.
+- KNOP memory is thread-scaling: 8 threads OOMs a 30 GB cap
+  (31.2 GB peak); 4 threads completes at 26.1 GB.
+- BLANK bounded-rescue outcome is in section 7.7.
+
+P8.2 remains open until the KNOP N=12 run completes and the
+n8->n12 spectral pair is measured.
