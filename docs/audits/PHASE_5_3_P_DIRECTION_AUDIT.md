@@ -1444,3 +1444,429 @@ The audit does NOT establish that any production change is
 warranted. The next authorised step is the test programme
 (T1-T10 revised) after ChatGPT reviews this corrected
 correspondence.
+
+========================================================================
+PHASE 5.3B - WAVELENGTH DISCRETISATION AND JACOBIAN AUDIT
+========================================================================
+Dated addendum to the Phase 5.3A corrections (commit 15ddf6c3).
+Audit-only: no Fortran, parameter, or behaviour changes. Claim
+labels as before: [V] verified code behaviour, [M] measured
+numerical behaviour, [H] hypothesised cause, [D] demonstrated
+defect. No defect is demonstrated by anything below.
+
+------------------------------------------------------------------------
+B1. EXACT WAVELENGTH-COEFFICIENT COMPARISON (Task 1)
+------------------------------------------------------------------------
+
+Paper II (arXiv:0909.4264, verified against the arXiv HTML
+rendering), for a_lambda >= 0 on an ascending-wavelength grid
+lambda_{l-1} < lambda_l < lambda_{l+1}:
+
+    p_l^-  = -lambda_{l-1}/(lambda_l - lambda_{l-1})   (< 0)
+    p_l^|  =  lambda_l    /(lambda_l - lambda_{l-1})    (> 0)
+    p_l^+  =  0
+    chi_hat_paper = chi + xi * a_l * p_l^|
+
+Code (fg_j_cmf_nonmono_v1.f): expanding cells (GAM > 0) use
+
+    DLN        = ln(nu_{L-1}/nu_L) = ln(lambda_L/lambda_{L-1}) > 0
+    chi_hat_cd = chi + |GAM|/DLN                    (lines 11998-11999)
+    Q_cd       = GAM/(DLN * chi_hat_cd)             (line 12055)
+                 -> donor term Q_cd * FLD(J,L-1)   (KN_ORD_SPV, def. 10675)
+
+Exact transformations (verified algebraically):
+
+    p_l^|   = lambda_l/(lambda_l-lambda_{l-1})
+            = 1/(1 - lambda_{l-1}/lambda_l)
+            = 1/(1 - exp(-DLN))
+    |p_l^-| = lambda_{l-1}/(lambda_l-lambda_{l-1})
+            = exp(-DLN)/(1-exp(-DLN))
+            = 1/(exp(DLN) - 1)
+    (identity check: p_l^| - |p_l^-| = 1 exactly)
+
+Comparison ratios requested:
+
+    R_chi   = [1/DLN] / [1/(1-exp(-DLN))] = (1-exp(-DLN))/DLN
+    R_donor = [1/DLN] / [1/(exp(DLN)-1)]   = (exp(DLN)-1)/DLN
+
+Small-DLN expansions:
+
+    R_chi   = 1 - DLN/2 + DLN^2/6 - DLN^3/24 + ...
+    R_donor = 1 + DLN/2 + DLN^2/6 + DLN^3/24 + ...
+
+The two ratios are NOT identical and have OPPOSITE first-order
+deviations: the code's 1/DLN under-estimates the paper's p_l^|
+opacity weight by ~DLN/2 and over-estimates the |p_l^-| donor
+weight by ~DLN/2. They do not share a common correction factor.
+
+Interpretation: the paper's p_l coefficients are the exact
+coefficients of a FORWARD DIFFERENCE of d(lambda I)/d lambda on
+the linear lambda grid: [lambda_l I_l - lambda_{l-1} I_{l-1}]
+/(lambda_l - lambda_{l-1}) = p_l^| I_l + p_l^- I_{l-1}. The
+code's 1/DLN weights correspond to replacing the linear spacing
+lambda_l - lambda_{l-1} by lambda_l * DLN = lambda_l *
+ln(lambda_l/lambda_{l-1}), i.e. a first-order LOGARITHMIC-grid
+discretisation of the same derivative (equivalently, a
+d/dln(lambda) difference). This is a controlled approximation
+of Paper II's linear discretisation, exact only as DLN -> 0.
+
+GRID STATISTICS (measured, not invented):
+Source: CONT_FREQ of run
+cmfgen_validation/m15_2p82d_KNOP_p8_probe/cmfgen/2.82days/
+(NCF = 56377, header !NCF,56377; ML 1..56377 monotonic
+decreasing frequency 200 -> 3.0e-3 in 1e15 Hz, i.e. wavelength
+~1.5 -> ~1e5 Ang ascending with index).
+
+    DLN = ln(nu_{L-1}/nu_L) over all 56376 interior bins:
+      MIN    = 1.6592e-05
+      MAX    = 1.9368e-03
+      MEDIAN = 1.6680e-04
+      MEAN   = 1.9702e-04
+      92.8% of bins have DLN > 1e-4;  1.5% have DLN > 1e-3.
+
+    R_chi   in [0.999032, 0.999992]   -> code opacity increment
+                                          LOW by <= 0.097%
+    R_donor in [1.000008, 1.000969]   -> code donor coefficient
+                                          HIGH by <= 0.097%
+    Worst bins at DLN = 1.94e-3 (the coarsest ~1.5% of the grid,
+    around nu ~ 1.1e2 x1e15 Hz and the grid edges).
+
+CONCLUSION for Task 1: classification B-with-caveat.
+  - Versus Paper II the code uses a controlled first-order
+    logarithmic discretisation whose coefficient error is
+    <= ~0.1% on this grid, with opposite-sign errors in the
+    opacity and donor coefficients.
+  - CAVEAT: the code cites "Knop Paper I Eq 7" (chi_hat =
+    chi + |GAM|/dLOG_NU) and "Eq 9" (signed Q) in its own
+    diagnostics (OUTGEN lines 702-703). If Paper I defines
+    exactly this logarithmic form, then versus Paper I the
+    code may be EXACT and the Paper-II difference is a
+    formulation choice between the two papers (Paper II
+    introduced the xi Crank-Nicholson mixing and the
+    fully-implicit variant). Paper I's text was NOT available
+    for this audit; verifying Eq 7/9 of Paper I is required
+    to promote this from B to A-or-C. See U8.
+  - xi question: the code has no [1-xi] remainder terms; its
+    unconditional chi_hat increment and signed-Q source are
+    consistent with xi = 1 (fully implicit wavelength
+    discretisation) in Paper II's notation, modulo the
+    discretisation difference above.
+  - a_l vs GAM: GAM = 3.33564e-6 * (V_RAY/R_RAY) *
+    (1 + SIGMA_RAY*MU^2) (lines 3563-3566) is the signed
+    comoving-frame frequency-gradient coefficient. Structural
+    correspondence to a_l is established (signed, zero at
+    turning points, enters opacity via |.| and source via
+    signed Q); the exact algebraic identity including all
+    geometrical factors is UNVERIFIED pending Paper I's a_l
+    definition (U2/U8). Even if a_l = c*GAM for some constant
+    c, that factor rescales both opacity and donor terms
+    coherently and cannot by itself produce the observed
+    O(0.6) residual.
+  - QUANTITATIVE CONTEXT: the coefficient discrepancy is
+    <= 0.1% while the measured P residual plateau is ~60-70%.
+    The discretisation difference is ~600x smaller than the
+    observed defect and CANNOT be its cause. This downgrades
+    mechanism M4 accordingly.
+
+------------------------------------------------------------------------
+B2. FREQUENCY INDEX DIRECTION - U7 RESOLVED (Task 2)
+------------------------------------------------------------------------
+
+Code frequency grid (CONT_FREQ, same run): ML = 1 has the
+HIGHEST frequency (200e15 Hz) and ML = NCF the lowest
+(3e-3e15 Hz): nu DESCENDS with index L. Therefore
+
+    lambda_L = c/nu_L  ASCENDS with L
+    (lambda_1 ~ 1.5 Ang ... lambda_NCF ~ 1e5 Ang)
+
+so the code's frequency index L orders wavelengths in the SAME
+direction as Paper II's wavelength index l: code L <-> paper l
+with lambda_L = lambda_l (up to grid construction details).
+The solver's L is identified with CONT_FREQ's ML: both index
+the same NCF-element model frequency array (NCF = 56377 in the
+cited run), and KN_DLN_P(L) = ln(nu_{L-1}/nu_L) > 0 confirms
+the descending-nu ordering is the one the coefficients use.
+
+Log-interval transformation:
+
+    DLN_code = ln(nu_{L-1}/nu_L)
+             = ln( (c/lambda_{L-1}) / (c/lambda_L) )
+             = ln(lambda_L/lambda_{L-1})
+             = DLN_lambda  > 0   (since lambda_L > lambda_{L-1})
+
+Sign of the wavelength derivative: for expanding flow
+(GAM > 0 <-> a_lambda > 0) the upwind direction in wavelength
+is toward SMALLER lambda (the photon redshifts to larger
+lambda as it propagates; upstream it had smaller lambda).
+Paper II's a_l >= 0 branch takes the donor at l-1
+(p_l^- != 0, p_l^+ = 0). The code's expanding branch takes the
+donor at L-1, which is the same physical bin:
+lambda_{L-1} < lambda_L. CONSISTENT.
+
+Therefore: code donor index L-1 <-> paper donor index l-1;
+code ascending-L frequency march <-> paper ascending-l
+wavelength march for expanding rows; DLN_code = DLN_lambda.
+U7 RESOLVED: no index-direction inconsistency found. The
+remaining caveat is only the unverified a_l = GAM algebraic
+identity (U2/U8), not the direction.
+
+------------------------------------------------------------------------
+B3. CORRECTED JACOBIAN EXPERIMENT - T6 REVISED (Task 3)
+------------------------------------------------------------------------
+
+Maps distinguished:
+
+    G(x) = undamped one-pass ordered sweep (VNEW field before
+           relaxation; mathematically the map whose fixed
+           point the sweep seeks)
+    H(x) = x + OMEGA_RAY * (G(x) - x)   (one damped pass)
+
+The production sweep applies relaxation AND adaptive OMEGA_RAY
+(RATIO_OM feedback, lines 10427-10471) plus optional P2
+limiters. A finite-difference probe through the normal path
+measures a state-dependent, non-autonomous map - not a clean
+Jacobian of either G or H.
+
+EXPERIMENT A - UNDAMPED MAP JACOBIAN J_G:
+  - Hold PK_A0..A4, PK_SR, PK_Q, PK_DTAU fixed (per-refresh
+    coefficients).
+  - Hold IM_NI fixed.
+  - Identical boundary data and sweep ordering for all
+    perturbations (same KN_RAY_ORDERED path, same SPW preview
+    behaviour).
+  - Set OMEGA_RAY = 1.0 for the probe pass; disable P2
+    (FG_ORD_P2DAMP = F); prevent the adaptive-relaxation
+    update from running (or snapshot/restore OMEGA_RAY around
+    the probe pass).
+  - Evaluate exactly ONE complete ordered P sweep from x and
+    from x + eps*d; record full FLD_P output.
+  - J_G d ~ [G(x+eps d) - G(x)]/eps.
+
+EXPERIMENT B - DAMPED ITERATION JACOBIAN J_H:
+  - Same fixed coefficients, IM_NI, ordering.
+  - Hold OMEGA_RAY fixed at a specified value (e.g. 0.45, the
+    observed floor, and 1.0); do NOT let RATIO_OM adapt it
+    during the probe.
+  - Evaluate one complete damped sweep from x and x+eps d.
+  - J_H d ~ [H(x+eps d) - H(x)]/eps.
+
+Identity (when differentiable and the same fixed Omega is used):
+
+    J_H = (1 - OMEGA_RAY) * I + OMEGA_RAY * J_G
+
+Verification: compute J_H d via Experiment B and
+(1-OMEGA) d + OMEGA (J_G d) via Experiment A on the same
+direction d; agreement to finite-difference truncation level
+validates both the implementation of the probe and the
+linearity assumption locally.
+
+Protocol for both:
+  - At least two eps values (e.g. eps and eps/10 scaled to the
+    field norm); require consistency between them.
+  - Record which cells hit the VNEW<0->1e-30 floor, the
+    NONMONO_INEXT_CAP, or the KN_ORD_DS sign/min clamps in
+    each evaluation; a derivative measured across an
+    active-set change is NOT a smooth Jacobian element and
+    must be flagged, not averaged.
+  - d should be a smooth probe direction (e.g. a low-order
+    polynomial in (J,L), or the previous-pass update vector
+    x_n - x_{n-1}) - not a single-cell spike, which measures
+    one stencil row only.
+  - Power iteration on J_G (or J_H) with the probe sweep as
+    the matrix-free operator estimates the dominant
+    eigen-direction; the Rayleigh quotient gives |lambda|.
+    Non-normal growth is assessed separately by tracking
+    ||delta_n|| over many probe iterations (Trefethen &
+    Embree transient-growth diagnostic).
+
+This is a DESIGN specification only; nothing is implemented.
+
+------------------------------------------------------------------------
+B4. CORRECTED PERIODICITY TELEMETRY - T4/A4 REVISED (Task 4)
+------------------------------------------------------------------------
+
+Fixed normalisation (replaces the per-pass VMAXF ambiguity):
+
+  - At experiment start, save a reference per-frequency scale
+        s_L = VMAXF(L) computed once from the initial FLD_P
+    (or from a stored reference field). Use THE SAME s_L for
+    every pass-to-pass comparison. Do not recompute VMAXF per
+    pass for the norm (VMAXF(L) = max_J FLD(J,L) changes as
+    the field evolves and would make norms incomparable).
+  - Norm over a FIXED index set: all marched ray points
+    J = 1..NI_83 and all frequencies L = 1..NCF (or the
+    documented hot subset, stated explicitly).
+  - Report BOTH:
+        RMS:   ||x_n - x_{n-k}||_2 / sqrt(NI*NCF)  with each
+               cell weighted by 1/s_L^2 (or unweighted, stated)
+        MAX:   max_{J,L} |x_n-x_{n-k}| / s_L
+  - Keep floor-dominated cells identifiable: flag cells where
+    VOLD <= 1e-4*s_L (the residual denominator floor) or where
+    the 1e-30 positivity floor / CAP was active; report the
+    norm both including and excluding them.
+
+Distances, for k = 1,2,3,4:
+
+    d_k(n) = ||x_n - x_{n-k}||   (fixed s_L, fixed index set)
+
+Periodicity classification: candidate period p requires
+d_p(n) -> 0 (below a stated fraction of d_1's running mean)
+while d_1(n) remains finite and bounded away from zero.
+For a period-2 candidate additionally require, sustained
+over >= 10 consecutive passes:
+  - alternating update-vector signs: sign(VNEW - VOLD) at the
+    argmax cells flips systematically between even/odd passes;
+  - stable spatial-frequency support: the (J,L) set carrying
+    the largest |x_n - x_{n-1}| is the same across passes
+    (compare with the RES argmax at j in {1,2});
+  - repeated field values at even/odd pass separation:
+    x_{n} ~ x_{n-2} elementwise to within the stated norm,
+    not merely the scalar residual.
+
+Scalar RES history alone remains insufficient evidence for
+any periodicity class.
+
+------------------------------------------------------------------------
+B5. CORRECTED INDEPENDENT REFERENCE SOLUTION - T9 REVISED (Task 5)
+------------------------------------------------------------------------
+
+The ordered sweep is NONLINEAR: KN_ORD_DS sign/min clamps,
+the VNEW<0 -> 1e-30 positivity floor, the NONMONO_INEXT_CAP
+upper cap, and state-dependent active sets. A dense direct
+linear solve of G(x)-x=0 is therefore NOT automatically valid.
+
+Reference formulation: solve the nonlinear fixed-point
+problem
+
+    F(x) = G(x) - x = 0
+
+on the single-ray (or reduced) P system with:
+  - the same PK coefficients (PK_A0..A4, PK_SR, PK_Q,
+    PK_DTAU) from the same refresh;
+  - the same frequency grid and ray geometry (NI_83, NCF,
+    GAM, DLNM_L, SPW stencil);
+  - the same IM_NI boundary and j=1 outflow edge;
+  - the same donor interpolation and endpoint (KN_ORD_DS)
+    treatment;
+  - the same floor/cap rules - unless an explicitly separate
+    LINEARISED reference (floors/caps removed, clamps frozen
+    at their active-set values) is being studied for
+    comparison.
+
+ admissible methods, in order of preference:
+  1. Nonlinear Newton or trust-region root solve on F(x)=0
+     with matrix-free Jacobian-vector products from B3
+     Experiment A (the same complete-sweep probes).
+  2. Piecewise-linear active-set solve: iterate the linear
+     solve, update the active set (floor/cap/clamp states),
+     re-solve; converge when the active set is unchanged
+     between iterations AND the residual is below tolerance.
+  3. Dense direct solve of the linearised operator ONLY
+     after demonstrating that (a) no floor/cap/clamp changes
+     sign anywhere in the domain of interest and (b) the
+     active operator is fixed - i.e. the problem is provably
+     linear on the relevant set.
+  4. Another independently verified convergent method that
+     preserves the same discrete equations (e.g. a
+     time-dependent relaxation to steady state with a
+     contractive splitting, or a Krylov solve of the
+     linearised system preconditioned by the sweep).
+
+Validation of the reference:
+  - ||F(x_ref)|| below a stated tolerance under the SAME
+    residual norm used by the sweep;
+  - cross-check between at least two of the methods above
+    (agreement to discretisation/truncation level);
+  - spot-check that the reference satisfies the boundary
+    conditions and the discrete equation residual cell-by-
+    cell, not just in norm.
+
+Only with x_ref in hand can seed-sensitivity experiments
+(T9 original) address causality: if the retained store is
+far from x_ref AND the sweep from x_ref converges, the store
+is upstream; if the sweep from x_ref also cycles, the map
+itself is non-contractive. Different seeds alone still do
+not prove the historical anomaly's origin.
+
+------------------------------------------------------------------------
+B6. U1-U7 STATUS UPDATE
+------------------------------------------------------------------------
+
+U1 (J_G spectrum / stability boundary): STILL OPEN. Now has a
+    concrete measurement design (B3 Experiments A/B). No
+    eigenvalue estimate exists yet.
+U2 (algebraic identity code<->Paper II): PARTIALLY RESOLVED.
+    The structural correspondence and the index mapping are
+    established (B1, B2); the coefficient-level difference is
+    quantified (<=0.1% on this grid). The term-by-term
+    algebraic identity remains unresolved pending Paper I's
+    a_l definition and Eq 7/9 text (now U8). Impact on the
+    observed residual is bounded at ~0.1% - cannot explain
+    O(0.6) residuals.
+U3 (L=1 opacity-increment question): STILL OPEN, unchanged.
+U4 (j=1 endpoint consistency with paper boundary closure):
+    STILL OPEN, unchanged.
+U5 (periodicity class): STILL OPEN, now with the corrected
+    fixed-normalisation telemetry spec (B4).
+U6 (store-anomaly causality): STILL OPEN, now with the
+    nonlinear reference-solution requirements (B5).
+U7 (index-direction algebra): RESOLVED (B2). No inconsistency;
+    code L and paper l share ascending-wavelength order.
+
+New unresolved questions:
+
+U8. Does the code's discretisation match Knop Paper I
+    (A&A 496, 295-298, DOI 10.1051/0004-6361:200810290) Eqs.
+    7 and 9 EXACTLY? The code cites those equations for
+    chi_hat = chi + |GAM|/dLOG_NU and signed Q. Paper I's
+    text was not retrievable in this audit; if Eq 7/9 define
+    the logarithmic form, the code-vs-Paper-II difference is
+    a paper-to-paper formulation choice, not an
+    approximation error. REQUIRED before closing U2.
+
+U9. Is a_l identically GAM (including the 3.33564e-6
+    geometrical factor and the (1+sigma*mu^2) term), or does
+    Paper I/II define a_l with additional factors (e.g. the
+    lambda weighting of Eq. 1's d(lambda I)/d lambda)? The
+    sign and zero-set correspond; the magnitude identity is
+    unverified. Affects only coefficient normalisation, not
+    the structural conclusions.
+
+U10. Does the <=0.1% wavelength-coefficient discrepancy have
+    any dynamical amplification through the iteration map
+    (e.g. near a stability boundary)? Bounded a priori by the
+    coefficient ratio, but the map's sensitivity is exactly
+    what B3 measures; no claim either way until then.
+
+------------------------------------------------------------------------
+B7. CONSOLIDATED STATUS AFTER 5.3B
+------------------------------------------------------------------------
+
+[V] verified code behaviour (new this phase):
+- chi_hat = chi + |GAM|/DLN for all L>1 coupling cells;
+  Q = GAM/(DLN*chi_hat) > 0 for expanding cells.
+- DLN = ln(lambda_L/lambda_{L-1}) > 0; code L and paper l
+  share ascending-wavelength order; expanding donor L-1 <->
+  l-1 consistent.
+- Grid statistics: DLN in [1.66e-5, 1.94e-3], median 1.67e-4
+  on the m15_2p82d grid; coefficient discrepancy <= 0.1%.
+
+[M] measured numerical behaviour: unchanged from 5.3A -
+persistent bounded oscillatory residual plateau ~0.6-0.7,
+argmax j in {1,2} outer edge, OMEGA floor 0.45, M converges
+in 2 passes.
+
+[H] hypothesised cause: M1-M7 from 5.3A stand, with M4
+    (wavelength-coupling discretisation) now bounded at <=0.1%
+    coefficient error and explicitly noted as unable to
+    explain the O(0.6) residual by itself.
+
+[D] demonstrated defect: NONE. The wavelength-coefficient
+    difference is a quantified small approximation
+    (classification B), not a demonstrated violation of the
+    intended discretisation; whether it violates Paper I's
+    intended form awaits U8.
+
+No solver change, test implementation, or production
+parameter change is authorised or implied by this addendum.
+The audit awaits ChatGPT's review of the B1-B7 corrections.
