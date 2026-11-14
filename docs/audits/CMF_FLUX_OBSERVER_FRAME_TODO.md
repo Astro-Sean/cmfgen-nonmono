@@ -324,7 +324,7 @@ compiles.
   - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
     each ES sweep (OBS side) and after each great-iteration (model
     side); render uses the freshest in-memory convolve.
-  - test_es_conv.py 102/102 (drv_es_conv + drv_es_render +
+  - test_es_conv.py 113/113 (drv_es_conv + drv_es_render +
     drv_es_seq + drv_knop_guard; production .o objects via
     compile_and_link_prod, ifort -O0 -g -traceback -qopenmp
     -mkl=sequential): convolver battery (Planck 1.46e-5
@@ -357,6 +357,22 @@ compiles.
     brk mode drives all ES_PLANCK_NU_MATCH failure codes
     through the production object; nanj/neg verify the
     finiteness and sign gates.
+  - Second robustness follow-up DONE (14-Nov-2026): the
+    correction path after the match is validated end to end -
+    ALL(IEEE_IS_FINITE) on PLANCK_FN/PLANCK_ES/J_ES before the
+    LOGs (MINVAL cannot spot a NaN; non-finite output bypassed
+    with a per-field diagnostic and left visible), derived
+    PLANCK_NU required finite-positive (FAIL=7),
+    ES_PLANCK_NU_CONT guards both reciprocal denominators
+    (FAIL=5/6, NPNU = last genuine node, no invented shift),
+    ES_SHIFTED_RESCALE validates every interpolation bracket
+    (finite positive endpoints, finite nonzero interval,
+    finite weight; off-map and degenerate nodes take the
+    uncorrected treatment without contaminating valid nodes).
+    cnt (12 cases) and itp (6 maps, node-by-node oracle)
+    batteries run on the production objects; nant/inft put
+    non-finite convolver output through the real path; zpf
+    covers the finite-but-zero silent gate-skip.
   - Q-RAY resolved quantitatively (audit section 8 item 1):
     measurable only where Rayleigh is a large scattering
     fraction AND the field has feature-scale contrast. Inert
