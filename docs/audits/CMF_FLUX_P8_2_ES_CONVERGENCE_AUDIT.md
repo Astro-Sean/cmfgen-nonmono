@@ -498,13 +498,20 @@ K=62 investigation (per-depth diagnostic rows, all sweeps):
   optical-depth/boundary conditioning effect; that is stated
   as an open item rather than assigned a mechanism.
 
-Cross-run reproducibility: gens 1-2 are bit-identical across
-all runs, nodes and thread counts (4/8 CPU). From gen 3 a
-~1e-4 relative drift appears between runs - including runs on
-the SAME node (knop_n6 vs knop_n12, both vipc2142), so this is
-run-to-run floating-point nondeterminism, not node hardware.
-It grows to ~1.5e-3 by gen 4 through successive-iteration
-amplification; residual shape and all conclusions unchanged.
+Cross-run reproducibility - CORRECTED (Nov 14): the ~1e-4
+gen-3/gen-4 differences between runs are binary-version
+differences, not floating-point nondeterminism. exe/cmf_flux.exe
+was rebuilt in place mid-sweep by the concurrent session
+(J_RESCUE bounded-rescue code, COMP_JCONT_V4.INC:739/789/794,
+default-on): n2-n4 and the first (interrupted) n12 ran the
+pre-J_RESCUE binary and agree at printed precision across
+nodes and thread counts; n6/n8 ran the J_RESCUE-v1 binary and
+agree with each other; the 22:20 n12 rerun ran J_RESCUE-v2 and
+produces a materially different field (gen-2 R=1.0@K=16,
+TOTAL_ACTIVE +40k vs all cold runs). Within-binary runs are
+identical at printed precision on every node/thread mix
+tested - no within-binary nondeterminism is demonstrated.
+Full provenance in section 9.
 
 OpenMP source audit of the sweep path (obs/cmf_flux_sub_v5.f,
 obs/COMP_JCONT_V4.INC, subs/comp_j_conv_v2.f,
@@ -782,9 +789,10 @@ carries I_NEXT lag, and the emergent-spectrum sensitivity is
 structurally different between the two renders.
 
 m15 second dataset (KNOP gens 1-9 verified from the timed-out
-first n12 run; the 8h rerun reproduces them identically and
-was still in progress at audit time - completion adds gens
-10-12 and the n8->n12 spectral pair):
+first n12 run, binary A). NOTE - corrected Nov 14: the 8h
+rerun does NOT reproduce these generations; it runs a newer
+binary (J_RESCUE-v2) and is a different-code N=12, not a
+continuation or same-code completion. See section 9:
 
 | | SOB | KNOP |
 |---|---|---|
@@ -1155,14 +1163,141 @@ budget was in progress, reproducing gens 1-9 bit-for-bit):
   Ha EW movement is wing-dominated physical electron-scattering
   redistribution, not a grid/interpolation artefact. KNOP's
   EW drift is non-monotone in step with the field residual.
-- The ~1e-4 relative cross-run drift from gen 3 onward is
-  OpenMP parallel-reduction floating-point order
-  sensitivity (reproduced same-node, differing runs), not an
-  implementation inconsistency - gens 1-2 are bit-identical
-  across all nodes and thread counts.
+- The ~1e-4 relative cross-run differences from gen 3 onward
+  are binary-version differences (pre-J_RESCUE vs
+  J_RESCUE-v1/v2 exe rebuilt mid-sweep), not floating-point
+  nondeterminism - within-binary runs agree at printed
+  precision on all nodes and thread counts.
 - KNOP memory is thread-scaling: 8 threads OOMs a 30 GB cap
   (31.2 GB peak); 4 threads completes at 26.1 GB.
 - BLANK bounded-rescue outcome is in section 7.7.
 
 P8.2 remains open until the KNOP N=12 run completes and the
 n8->n12 spectral pair is measured.
+
+## 9. Restart provenance and experiment integrity (Nov 14)
+
+This section supersedes the earlier "warm-start via retained
+EDDFACTOR" interpretation, which was wrong on the mechanism.
+
+### 9.1 EDDFACTOR lifecycle - what it is and is not
+
+EDDFACTOR is a direct-access unformatted file. Each record
+ACCESS_F holds `RJ(1:ND), FL` - the converged continuum J per
+frequency - plus control/f-factor records defined by
+eddfac_rec_defs_mod.f (EDD_CONT_REC=3, INITIAL_ACCESS_REC=15,
+FINISH_REC=5). Written per frequency as each ML completes
+(obs/cmf_flux_sub_v5.f:1602,2140,2175,2192,2329,2340,2352;
+unformatted OPEN at :2783; writer
+new_main/subs/open_rw_eddfactor.f; per-frequency record write
+COMP_JCONT_V4.INC:978,1141).
+
+It is read at run start ONLY under two flags:
+- USE_FIXED_J=T: RD_CONT_J_OBS replays stored J per frequency
+  (obs/rd_cont_j_obs.f:40-70; invoked COMP_JCONT_V4.INC:142/147).
+- OLD_J=T: a stored J seeds J_ES (cmf_flux_sub_v5.f:1534-1546).
+
+In all P8.2 KNOP configs both flags are F (verified in every
+CMF_FLUX_PARAM). EDDFACTOR is therefore a pure OUTPUT product
+in these runs: it is not fed back into the formal solve, is
+not an acceleration or convergence-history variable, and its
+retention or deletion cannot seed a rerun. The warm-start
+mechanism that does exist is USE_OLDJ_FOR_ES + ES_J_CONV
+(section 1.2), and batobs.sh deletes ES_J_CONV at start.
+
+Moreover batobs.sh's cleanup (`find . -maxdepth 1 -type f
+-delete` keeping only batobs.sh, CMF_FLUX_PARAM_INIT,
+cmf_OBS logs and obs_fin_10_*) deletes EDDFACTOR too, so
+nothing field-bearing survives a rerun at all. The restarted
+n12 is a genuine cold start of its generation counter.
+
+### 9.2 Actual restart history - binary provenance
+
+The real provenance defect is the live-rebuilt executable,
+not a retained file:
+
+| event | time Nov 14 | effect |
+|---|---|---|
+| concurrent edits: fg_j_cmf_nonmono_v1.f | 20:54 | J_RESCUE-v1 source |
+| prod/unit-test objects rebuilt | 20:56 | binary B live |
+| obs/cmf_flux_sub_v5.f, COMP_JCONT_V4.INC | 21:27 | |
+| cntrl_var_mod + rd_cmf_flux_controls | 22:01 | J_RESCUE default-on |
+| full exe relink | 22:04 | binary C live |
+
+| run | start | binary | outcome |
+|---|---|---|---|
+| interrupted n12 (job 13154178) | Nov 13 ~1:55 | A | ~9 gens, timed out |
+| knop_n2, n3, n4 | 19:4x-20:37 | A | cluster 0.265340/0.177620 |
+| knop_n6, n8 | ~21:18-21:4x | B | cluster 0.265314/0.177358 |
+| restarted n12 (job 13159102) | 22:20 | C | R=1.0@K=16, ACTIVE 12509426 |
+
+All knop run dirs share identical parent inputs (no parent
+model file changed after Nov 14 00:38); all params identical
+except NUM_ES. The only difference between the n12 rerun and
+n2-n8 is the executable it loaded.
+
+### 9.3 Restart-generation mapping
+
+The interrupted run's ~9 completed sweeps (binary A) left no
+retained state: the rerun deleted ES_J_CONV, EDDFACTOR and
+SCRATCH contents, and no restore path was triggered (OUTGEN
+clean). The restarted job's diagnostic generation N is its own
+fresh sweep N under binary C - it does not continue the
+interrupted iteration. There is no composable sweep count:
+9 sweeps of binary A plus N sweeps of binary C do not form
+one iteration sequence.
+
+| diagnostic row | physical sweep | binary | ES_J_CONV | EDDFACTOR | RJ_ES seed |
+|---|---|---|---|---|---|
+| old run gen N | N (A-path) | A | live at interrupt | live at interrupt | warm from A store |
+| rerun gen N | N (C-path) | C | fresh from gen 1 | fresh output | cold (file deleted) |
+
+### 9.4 Classification and comparison validity
+
+Classification: the restart is NOT a continuation of the
+interrupted iteration (option A ruled out - no state carried
+across). It is also not a same-code warm start (B) since the
+initial state is a clean cold start. It is an independent
+N=12 run under a DIFFERENT BINARY - closest to option C in
+spirit (mixed-generational experiment) but the mechanism is
+a code change, not state mixing.
+
+Consequences for the sweep table:
+
+- SOB sweep (all runs done by 19:56): entirely binary A,
+  internally consistent; its N8->N12 comparison stands.
+- KNOP pairs: 2->3 and 3->4 are single-binary (A) and valid;
+  4->6 crosses A->B (contaminated by the J_RESCUE code
+  change); 6->8 is single-binary (B) and valid;
+  8->12 crosses B->C and CANNOT serve as a controlled
+  sweep-count comparison.
+- The n12 endpoint, when it completes, is an internally
+  consistent N=12 under binary C only.
+
+### 9.5 Is a controlled cold-start N=12 needed?
+
+Yes, for a single-binary N8->N12 comparison: rerun the
+affected KNOP points under one pinned executable. The n6/n8
+binary-B sweeps already give a same-binary 6->8 pair; a
+binary-B N=12 would close the series, but binary B no longer
+exists as a file (live exe overwritten). Options: (a) rebuild
+the tree at the pre-J_RESCUE-v2 commit into exe_frozen/ and
+rerun N=6,8,12 on it (~3x 30-90 min at 8 threads), or (b)
+complete a binary-C sweep for N=8 then compare 8->12 under C
+(~2 runs). Both need approval; none submitted here.
+
+Process fix recommended for future sweeps: pin a frozen
+executable (exe_frozen/<hash>) per experiment and record the
+binary hash in run metadata; never let the live exe rebuild
+under an in-flight sweep.
+
+### 9.6 MKL drift status
+
+Retired as the explanation for this dataset: the only
+demonstrated cross-run differences coincide exactly with
+binary versions, and within-binary runs are identical at
+printed precision across nodes and thread counts. Genuine
+FP nondeterminism is not evidenced by this data; the
+MKL_NUM_THREADS=1 controlled repeat remains an optional
+check for a future single-binary experiment, not required
+to explain the observed sweep history.
