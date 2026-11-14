@@ -4,6 +4,8 @@
 	USE CMF_FLUX_CNTRL_VAR_MOD
 	IMPLICIT NONE
 !
+! Altered 15-Nov-2026 : ES_RESID_DIAG/ES_DIAG_AFLOOR/ES_DIAG_DEPTHS
+!                          for the P8.2 ES convergence diagnostic.
 ! Altered 06-Nov-2026 : Restore the DO_NONMONO_KNOP controls removed
 !                          13-Oct-2026: Knop formal J selection plus
 !                          its prerequisite checks (BLANK lines,
@@ -222,6 +224,15 @@
 	  SOB_DEP_CHI_FLOOR=1.0_LDP
 	  CALL RD_STORE_DBLE(SOB_DEP_CHI_FLOOR,'SOB_DEP_CHI_FLOOR',L_FALSE,
 	1        'Line opacity floor for masing deposit cells')
+	  DO_ES_RESID_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(DO_ES_RESID_DIAG,'ES_RESID_DIAG',L_FALSE,
+	1        'Write ES redistribution convergence diagnostics?')
+	  ES_DIAG_AFLOOR=1.0E-12_LDP
+	  CALL RD_STORE_DBLE(ES_DIAG_AFLOOR,'ES_DIAG_AFLOOR',L_FALSE,
+	1        'ES residual active-frequency mask floor')
+	  ES_DIAG_DEPTHS=.TRUE.
+	  CALL RD_STORE_LOG(ES_DIAG_DEPTHS,'ES_DIAG_DEPTHS',L_FALSE,
+	1        'Write per-depth ES residual rows?')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
