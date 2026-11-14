@@ -53,6 +53,11 @@ follows the stock upstream path.
   BA Jacobian. `DO_ES_ALI_BA` requires `DO_ES_ALI`; denominator
   floor activations are counted in `ES_ALI_NFLOOR` and
   `ES_ALI_BA_NFLOOR`.
+- **ES redistribution convergence diagnostic** (`ES_RESID_DIAG` OBS
+  key, default off): writes per-sweep residuals of the non-coherent
+  electron-scattering field (`RJ_ES`, the `ES_J_CONV` generations)
+  to `ES_RESID_DIAG`, plus a final render-generation audit.
+  Diagnostic only; the sweep and render are unchanged.
 - General correctness fixes in the population solve, the
   observed-frame tools and the build.
 
