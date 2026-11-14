@@ -294,12 +294,14 @@ Controlled NUM_ES sweep on one physical model per pathway:
 ## 6. Results
 
 Experiment status: the NUM_ES sweep matrix on
-`m15_2p82d_SOB_l14_lte_adp2_tauto/cmfgen/2.82days` is configured
-(SOB 1,2,3,4,6,8,12; KNOP 2,3,4,6,8,12; diag-off controls at NUM_ES=2)
-and queued. The coverage configuration required for the current
-executable is in `CMF_FLUX_P8_2_IMPLEMENTATION_PLAN.md` (the
-`MIN_CF=2.4D-3` + `OBS_LAM_MAX=908117` pair that satisfies the P4
-red-edge guard while reproducing the reference OBS_FREQ grid).
+`m15_2p82d_SOB_l14_lte_adp2_tauto/cmfgen/2.82days` is complete
+for SOB (N=1,2,3,4,6,8,12 plus a NUM_ES=2 diag-off control) and
+in progress for KNOP (N=2..12 at 4 CPU - KNOP needs more than
+the interactive node's 30G at 8 CPU; see 6.6). The coverage
+configuration required for the current executable is in
+`CMF_FLUX_P8_2_IMPLEMENTATION_PLAN.md` (the `MIN_CF=2.4D-3` +
+`OBS_LAM_MAX=908117` pair that satisfies the P4 red-edge guard
+while reproducing the reference OBS_FREQ grid).
 
 ### 6.1 Residual histories
 
@@ -358,7 +360,41 @@ Note (section 1.5): KNOP J additionally depends on I_NEXT lag
 maturity, so Delta_JES understates the true sweep-to-sweep
 change - the maturity census is the companion diagnostic.
 
-[pending m15: `p82_residual_history.csv` per-run histories]
+Second dataset: `m15_2p82d_SOB_l14_lte_adp2_tauto/cmfgen/2.82days`
+(obs_p82_* dirs; sob N=1,2,3,4,6,8,12 complete). `OLD_J=F`, cold
+start, `ES_RESID_DIAG=T`, `MIN_CF=2.4D-3` + `OBS_LAM_MAX=908117`.
+
+SOB pathway, `GLOBAL_MAX_R` per completed generation (ND=70,
+NCF=171207; identical across runs of different NUM_ES - the
+redistribution is deterministic):
+
+| gen | R_GLOBAL | argmax depth |
+|---|---|---|
+| 2 | 1.97678E-01 | K=11 |
+| 3 | 9.09502E-02 | K=15 |
+| 4 | 5.55618E-02 | K=15 |
+| 5 | 3.79413E-02 | K=12 |
+| 6 | 2.75945E-02 | K=12 |
+| 7 | 2.09139E-02 | K=12 |
+| 8 | 1.64012E-02 | K=12 |
+| 9 | 1.32295E-02 | K=12 |
+| 10 | 1.12186E-02 | K=52 |
+| 11 | 1.03017E-02 | K=46 |
+| 12 | 9.55676E-03 | K=46 |
+
+Monotone decrease but the contraction ratio itself decays -
+0.46, 0.61, 0.68, 0.73, 0.76, 0.78, 0.81, 0.85, 0.92, 0.93 -
+i.e. the residual is shrinking slower than a clean geometric
+sequence and is still ~1% of the local field scale at gen 12.
+The argmax depth migrates (K=11 -> 15 -> 12 -> 52 -> 46): the
+residual's last refuge moves from the inner thermalization
+layers to mid-atmosphere. Zero non-finite, zero negative nodes
+in every sweep; TOTAL_ACTIVE ~11.8M nodes per sweep.
+Unlike the SN_A dataset (ratio ~0.55-0.65 held to gen 12), this
+model's per-sweep gain is still decaying at N=12 - production
+NUM_ES=2 leaves a ~20% first-refresh delta un-iterated.
+
+[pending m15 KNOP: see 6.6]
 
 ### 6.2 Final-generation render verification
 
@@ -375,7 +411,15 @@ the last completed RJ_ES generation bit-for-bit. The
 manufactured stale-render and cold-start cases are covered by
 unit tests 15-17 in `test_es_resid.py`.
 
-[pending m15: `p82_final_audit.csv`]
+m15 second dataset: verified for sob N=1,2,3,4,6,8,12 - the
+render consumes the last completed RJ_ES generation bit-for-bit
+(RENDER_MATCH=T, MAX_ABS_DIFF=0 in every run;
+`p82_final_audit.csv`).
+
+Diagnostic-off control: `obs_p82_sob_n2_diagoff` (ES_RESID_DIAG=F)
+produced no ES_RESID_DIAG file and its obs_fin_10 is
+bit-identical to the diag-on `obs_p82_sob_n2` run (max|dF|=0) -
+the diagnostic is observational only.
 
 ### 6.3 NUM_ES vs observer-frame spectrum
 
@@ -424,7 +468,28 @@ incoherent fold reaches the emergent spectrum):
     Argmax lands on real line features, not UV weak nodes -
     line cores and wings move measurably between low sweeps.
 
-[pending m15 + knop N=6,8,12: `p82_spectrum_metrics.csv`]
+m15 second dataset (GLOBAL_LINE=BLANK, so the incoherent ES
+fold reaches obs_fin_10 on the SOB pathway as well - unlike the
+SN_A coherent-phase-2 render, obs_fin_10 IS ES-sensitive here).
+Consecutive-pair residuals on the shared 158443-point grid:
+
+    pair    GLOBAL_MAX_R    GLOBAL_MAX_REL   argmax lam (AA)
+    1->2    6.540e-02       1.879e-01        1241
+    2->3    2.871e-02       1.053e-01        -
+    3->4    1.860e-02       6.852e-02        -
+    4->6    2.310e-02       8.563e-02        -
+    6->8    1.399e-02       5.592e-02        -
+    8->12   1.621e-02       7.019e-02        -
+
+The spectrum-level delta shrinks overall but not monotonically
+at the tail (4->6 and 8->12 uptick over their predecessors):
+the emergent spectrum is still drifting ~1.5% between N=8 and
+N=12, consistent with the field residual still being ~1% at
+gen 12. INTEGRATED_DF stays in the 6e7..1e8 Jy*AA band.
+H-alpha metrics (LINE_DEW -7..-10 AA per pair, LINE_CORE
+~1.2-3.7e-2) confirm the line region keeps moving.
+
+[pending m15 KNOP: `p82_spectrum_metrics.csv` knop rows]
 
 ### 6.4 Line-profile convergence
 
@@ -444,8 +509,22 @@ with the flux residual.
 
 ### 6.5 Runtime and diagnostic overhead
 
-[pending: `p82_runtimes.csv` - wall time vs NUM_ES; NUM_ES=2
-diag-on vs diag-off pairs on m15]
+m15 batobs wall times (shared interactive node, 8 CPU SOB /
+4 CPU KNOP; `p82_runtimes.csv`):
+
+    sob  N=1  273s   N=2  237s   N=3  245s   N=4  375s
+         N=6  468s   N=8  850s   N=12 770s
+
+Diagnostic overhead is within run-to-run noise on this shared
+node: NUM_ES=2 diag-on 237s vs diag-off 259s (the diag-off
+control ran slower, so the instrumentation cost is not
+measurable at this granularity - per-update file IO is a few
+hundred formatted writes total).
+
+Runtime scales roughly linearly with NUM_ES (each sweep runs
+the full convolve + EDDFACTOR rewrite); KNOP sweeps are
+slower than SOB sweeps at equal N because the non-mono formal
+solve precedes the refresh (see 6.6 note on 30G memory).
 
 ### 6.6 SOB versus KNOP
 
@@ -465,6 +544,118 @@ Equal NUM_ES does not imply equivalent convergence (section
 carries I_NEXT lag, and the emergent-spectrum sensitivity is
 structurally different between the two renders.
 
-## 7. Conclusions
+## 7. BLANK render on non-monotonic populations
 
-[pending - m15 sweep completion and knop high-N data]
+`obs_line_treatment: blank` in the pipeline yaml produces an
+OBS-stage run with `GLOBAL_LINE=BLANK`, all `DO_NONMONO_*`
+flags F: the populations are loaded from the converged model,
+but the OBS solve runs the stock `FG_J_CMF_V12` +
+`MOM_J_CMF_V8` + `N_ON_J` f-convergence machinery
+(`obs/COMP_JCONT_V4.INC`). None of the fork's
+non-monotonic alterations in that file apply to this branch.
+
+### 7.1 Failure on SN_A mc170_H10
+
+All five attempted configurations stop at the same guard,
+`ABS(RJ(1)) .GT. 1.0E+30`, inside the per-frequency f
+convergence loop, at nu ~ 0.053e15 Hz (lambda ~ 5.6 um,
+far-IR continuum, first inner-boundary thermalisation zone):
+
+| run | overrides | result |
+|---|---|---|
+| obs_blank | stock (N_ON_J, DELV_MOM=0.5, OLD_J=F) | FAIL ~2 min |
+| obs_blank_dm | DELV_MOM=1.0 | FAIL ~2 min |
+| obs_blank_gonly | N_TYPE=G_ONLY + DELV_MOM=1.0 | FAIL ~2 min |
+| obs_blank_full | N_TYPE=MIXED + DELV_MOM=1.0 + INC_GRID=T | FAIL ~2 min |
+| obs_blank_oldj | OLD_J=T (warm RJ_ES seed from model EDDFACTOR) | FAIL ~2 min |
+
+The knobs suggested by the stock error message (N_TYPE,
+DELV_MOM/DELV_FG, INC_GRID+NINS) do not rescue the run.
+
+Per project directive, `N_TYPE=N_ON_J` is the fixed choice
+for BLANK renders - it is the acceptable variant because the
+alternatives (G_ONLY, MIXED) engage velocity-switch handling
+this model does not need. The G_ONLY/MIXED rows above were
+probes of the stock suggestion list only; no further N_TYPE
+experiments are planned.
+
+### 7.2 Counter-example: m15 SDEC render
+
+`cmfgen_validation/m15_2p82d_SOB_l14_lte_adp2_tauto/cmfgen/
+2.82days/SDEC/Cr` is a genuine plain-BLANK OBS run -
+`DO_NONMONO_KNOP=F`, `DO_NONMONO_SOB=F`, `DO_SOB_FLUX_OBS=F`,
+`GLOBAL_LINE=BLANK`, full frequency range (MIN_CF=3e-3 to
+MAX_CF=200, 331778 continuum frequencies) - that completed
+"CMF_FLUX has finished" on the same Sobolev-relaxed m15
+population files. BLANK-on-SOB populations is therefore not
+categorically blocked: the mc170_H10 divergence is a
+model-specific numerical instability of the J/f iteration at
+the far-IR boundary, not a structural rejection of the
+population provenance.
+
+### 7.3 USE_FIXED_J mechanism
+
+`COMP_JCONT_V4.INC:132` carries a stock `USE_FIXED_J` branch:
+under `CONT_VEL` (auto-true for SECTION='CONTINUUM') it calls
+`RD_CONT_J_OBS`, which walks EDDFACTOR records and
+interpolates the stored continuum J at the current frequency,
+then renders without a J/f solve. This is the closest stock
+mechanism to "BLANK transfer evaluated on populations/J from
+a cheaper line treatment" - the same division of labour as
+the deposited-SOB render, with BLANK chi/eta structure on a
+stored field.
+
+Constraints found while testing it:
+
+- It needs an EDDFACTOR on a compatible grid. The model's own
+  EDDFACTOR fails immediately: `COMPUTE_EDDFAC=F` then reads
+  records index-aligned and checks `ABS(T1-FL)/FL .LE. 1e-14`
+  (`COMP_JCONT_V4.INC:719-725`); the model grid (~3700
+  records) differs from the OBS continuum grid (4650), so the
+  run stops at ML=2 with "incorrect reading of the mean
+  intensity" (job obs_blank_fixedj, 6 s).
+- An OBS-grid EDDFACTOR from a completed run on the same
+  model (obs_sob_es1) is NOT usable either: the sob and blank
+  runs build different continuum grids (obs_blank_fixedj2
+  stopped at FL=200.0 against a zero tag - the grids differ
+  from the first record).  USE_FIXED_J seeding therefore has
+  no viable source file on this model.
+
+### 7.4 Source adaptation: DAMP_FJ and J_RESCUE
+
+Because no parameter or stored-field path reaches a BLANK
+render on mc170_H10, two guarded mechanisms were added to
+`COMP_JCONT_V4.INC` (ND-path f loop; the ACCURATE/INC_GRID
+branch is unchanged):
+
+- `DAMP_FJ` (real, default 1.0): under-relaxes the f/J
+  iteration - `FEDD <- FOLD + w*(FEDD-FOLD)` and
+  `RJ <- RJ_old + w*(RJ-RJ_old)` - while the convergence test
+  still measures the undamped residual.  At the default the
+  update is bit-identical to stock.
+- `J_RESCUE` (logical, default F): if the iteration exits
+  with non-finite or exploding boundary J (>1e25 inside the
+  loop triggers early exit; >1e30 or NaN at loop exit
+  triggers the restore), the previous frequency's converged
+  J/f/BC fields are restored, a warning is logged, and the
+  run continues.  The EDDFACTOR record stores the fallback J,
+  so later frequencies warm-start from it.  No effect at the
+  first frequency - no previous field exists there, and the
+  stock guard still stops the run.
+
+Project directive: a non-monotonic model's OBS stage must
+always return a blanketed spectrum.  These controls are the
+mechanism; N_TYPE stays N_ON_J throughout (no velocity-switch
+variants).
+
+Validation runs on mc170_H10:
+
+| run | overrides | result |
+|---|---|---|
+| obs_blank_damp | DAMP_FJ=0.3 + J_RESCUE=T | [pending] |
+| obs_blank_resc | J_RESCUE=T (no damping) | [pending] |
+
+## 8. Conclusions
+
+[pending - m15 sweep completion and knop high-N data;
+BLANK damped/rescue render outcome in section 7.4]
