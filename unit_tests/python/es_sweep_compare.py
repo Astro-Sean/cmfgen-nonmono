@@ -282,11 +282,14 @@ def make_plots(lam, spectra, pair_summ, outdir, cont_w, line_w):
     labels = [s[0] for s in spectra]
     xs = list(range(len(spectra)))
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.plot(xs[1:], [p[2] for p in pair_summ], "o-", lw=1.4)
+    vals = [p[2] for p in pair_summ]
+    if vals:
+        ax.plot(xs[1:], vals, "o-", lw=1.4)
     ax.set_xticks(xs, labels)
     ax.set_xlabel("NUM_ES_ITERATIONS")
     ax.set_ylabel("GLOBAL_MAX_R vs previous run")
-    ax.set_yscale("log")
+    if vals and all(v > 0 for v in vals):
+        ax.set_yscale("log")
     ax.set_title("Emergent-spectrum residual vs ES sweep count")
     fig.tight_layout()
     fig.savefig(outdir / "residual_vs_sweep.png", dpi=160)
@@ -307,9 +310,10 @@ def make_plots(lam, spectra, pair_summ, outdir, cont_w, line_w):
     fig.savefig(outdir / "overlaid_spectra.png", dpi=160)
     plt.close(fig)
 
-    fig, axes = plt.subplots(len(spectra) - 1, 1, sharex=True,
-                             figsize=(9, 2.2 * (len(spectra) - 1)))
-    if len(spectra) - 1 == 1:
+    npair = max(len(spectra) - 1, 1)
+    fig, axes = plt.subplots(npair, 1, sharex=True,
+                             figsize=(9, 2.2 * npair))
+    if npair == 1:
         axes = [axes]
     for ax, (la, _, fa), (lb, _, fb) in zip(axes, spectra, spectra[1:]):
         ax.plot(lam, fb - fa, lw=0.7)
