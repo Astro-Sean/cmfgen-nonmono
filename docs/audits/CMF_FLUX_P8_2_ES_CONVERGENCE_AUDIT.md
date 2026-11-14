@@ -534,7 +534,20 @@ plane/fg_j_cmf_nonmono_v1.f, obs/obs_frame_sub_v9.f):
   identified; this is normal FP/ordering sensitivity, not a
   race or init defect.
 
-### 6.2 Final-generation render verification
+Follow-up audit
+(`docs/audits/CMF_FLUX_P8_2_OPENMP_SHARED_STATE_AUDIT.md`):
+the deeper source trace classifies the ray loops themselves
+as race-free *synchronous* (block-Jacobi over rays: all store
+accesses are own-LS-slice, the sibling reference JMP_SIB is
+an immutable pre-loop median, all in-loop shared updates are
+protected integer counters) - NOT asynchronous Gauss-Seidel
+consumption. The residual drift therefore originates outside
+the ray loops; the leading open candidates are the linked
+threaded MKL (mkl_gnu_thread/intel_thread) and CPU-dispatch
+FP differences below the ~6-digit print precision, amplified
+by iteration. A repeated same-config run with
+MKL_NUM_THREADS=1 plus a bitwise ES_J_CONV diff is the
+decisive test and remains open.
 
 Every completed SN_A run writes:
 
