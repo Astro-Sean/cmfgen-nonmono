@@ -1584,6 +1584,31 @@
 	1     'KNOP no-cp probe ray index LS')
 	  CALL SET_FG_NOCP_PROBE(KN_NOCP_PROBE,KN_NOCP_PROBE_LS)
 !
+! KN_PSWEEP_* (default off): diagnostic-only full-pass capture in
+! SWEEP_FLD_ORD for the phase-5.3K P-sweep measurement. LS<=0 arms
+! every ray; PLO/PHI bound the captured pass window.
+!
+	  KN_PSWEEP_DIAG=.FALSE.
+	  KN_PSWEEP_SNAP=.FALSE.
+	  KN_PSWEEP_SNHI=0
+	  KN_PSWEEP_LS=0
+	  KN_PSWEEP_PLO=1
+	  KN_PSWEEP_PHI=9999
+	  CALL RD_STORE_LOG(KN_PSWEEP_DIAG,'KN_PSWEEP_DIAG',L_FALSE,
+	1     'Arm KNOP full-pass sweep capture?')
+	  CALL RD_STORE_LOG(KN_PSWEEP_SNAP,'KN_PSWEEP_SNAP',L_FALSE,
+	1     'Write KN_PSWEEP X/Y field snapshots?')
+	  CALL RD_STORE_INT(KN_PSWEEP_SNHI,'KN_PSWEEP_SNHI',L_FALSE,
+	1     'KN_PSWEEP last snapshotted pass (0 none)')
+	  CALL RD_STORE_INT(KN_PSWEEP_LS,'KN_PSWEEP_LS',L_FALSE,
+	1     'KN_PSWEEP ray index (<=0 all)')
+	  CALL RD_STORE_INT(KN_PSWEEP_PLO,'KN_PSWEEP_PLO',L_FALSE,
+	1     'KN_PSWEEP first pass captured')
+	  CALL RD_STORE_INT(KN_PSWEEP_PHI,'KN_PSWEEP_PHI',L_FALSE,
+	1     'KN_PSWEEP last pass captured')
+	  CALL SET_FG_PSWEEP_DIAG(KN_PSWEEP_DIAG,KN_PSWEEP_LS,
+	1     KN_PSWEEP_PLO,KN_PSWEEP_PHI,KN_PSWEEP_SNAP,KN_PSWEEP_SNHI)
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
