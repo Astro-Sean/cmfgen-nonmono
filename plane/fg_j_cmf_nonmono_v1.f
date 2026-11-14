@@ -10140,10 +10140,10 @@ C
 	  WRITE(LUER,'(A,I4,A,2I4,A,2ES12.4)')
 	1   '  KN-NOP ray probe-only ls=',LS,' npM,npP=',NP_M,NP_P,
 	2   ' resM,resP=',RES_M,RES_P
-	  WRITE(LUER,'(A,I4,A,2I4,A,I4,A,ES12.4,A,ES12.4)')
+	  WRITE(LUER,'(A,3I4,A,I4,A,ES12.4,A,ES12.4)')
 	1   '    ixitM,ixitP,nxit=',IXIT_M,IXIT_P,NXIT,
 	2   ' npass(max)=',NPASS,' resid=',RESID,' jump=',JUMP
-	  WRITE(LUER,'(A,I4)',advance='no')
+	  WRITE(LUER,'(A)',advance='no')
 	1   '    would-be verdict='
 	  IF(NOP_VC .GE. 0)THEN
 	    WRITE(LUER,'(I4)',advance='no') NOP_VC
@@ -10153,7 +10153,7 @@ C
 	  WRITE(LUER,'(A)')
 	1   ' (7=probe suppressed; 0=commit 1=jump-veto 2=nc-rej 3=capped)'
 	  DO J=1,2
-	    WRITE(LUER,'(A,I2,A,I4)')
+	    WRITE(LUER,'(A,I2,A,I4,A)')
 	1     '    dir',J,' passes recorded (sweep np=',KN_NOP_NP(J),'):'
 	    DO JJ=1,KN_NOP_NREC(J)
 	      WRITE(LUER,'(A,I4,A,4(1X,ES11.3))')

@@ -3006,11 +3006,16 @@ submitted.
    carry unrelated earlier obs-frame work.
 2. Executable checksum: exe/cmfgen_dev.exe and
    cmfgen_p8_install/exe/cmfgen_dev.exe both md5
-   2f8fc36c888118dda3a8a4b1bcd80e85 (16,556,768 bytes). The
+   fee96b6a2a7c02fc176b0bf8ed9d0285 (post format-fix
+   rebuild; the earlier build was
+   2f8fc36c888118dda3a8a4b1bcd80e85). The
    workflow provenance line reported the parent-workspace
    git string "1c6abd31(dirty x36)" -- that is the enclosing
    SN2024pba repo, not cmfgen_jfnk; the exe itself is the p8
-   build of the revision above.
+   build of the revision above. The two builds differ only
+   in three format strings inside the L_NOPROBE-gated
+   KN-NOP report block; the baseline path is byte-identical
+   in behaviour.
 3. Baseline and probe run the same executable by
    construction: both configs resolve to
    cmfgen_build=cmfgen_p8_install and the submit script pins
@@ -3084,7 +3089,524 @@ submitted.
 - unit_tests/python/test_knop_lagged_field.py: all checks
   pass including the 27 new KN_NOCP_PROBE pins.
 
-Status: IMPLEMENTED, BUILT, JOBS SUBMITTED -- awaiting
-probe-job pass histories and store checksums for the
-interpretation gate. No commit-policy remedy; no
-production-readiness claim.
+### 26.7 Baseline control data (first p8 run, refreshes 1-2)
+
+The first baseline submission (job 13129245, later failed on a
+transient Ca2_COL_DATA open at it161 -- the symlink target was
+being rewritten at that instant; infra flake, not solver)
+completed KNOP refreshes 1 and 2 at great iterations 158-159.
+Both refreshes reproduce the p7_census diagnostics
+bit-for-bit, confirming the p8 build is scientifically
+identical on the production path:
+
+- KN-JT ray=83 ch=2: v1=1.66521E-23 (refresh 2:
+  1.66523E-23), v2=9.99450E-26, vms=1.00017E-25,
+  ref=1.83138E-22, ratio=165.613, threshold=50, jval=165.613.
+- KN_WATCH (post-relocation fix): ixit=0, npass=2,
+  resid=0.0000E+00 -- the .NOT. HAS_CP fast exit with RES
+  forced to zero, exactly the bookkeeping exit phase 5.1
+  identified. NXIT now reports 0 (p7 printed the -1 entry
+  sentinel before the relocation fix).
+- exit ixitM/ixitP/nxit = 0/0/0; verdict=1 (jump-veto);
+  ray-dch=1.6561E+02.
+- prod M/P lines: res=0.000E+00, ixit=0, npas=2,
+  omega=1.000E+00 for both channels.
+- KN_Q_RESID independent verify: ray-83 P-channel residual
+  8.059E+01 (per-ray max; M-channel 2.169E-15); refresh
+  residual max 3.3013E-02 vs tol 2.0E-03.
+- commit verdicts refresh 1: committed=82 jump-rej=1
+  nc-rej=0 capped=1 div=0 unsolved=1; refresh 2:
+  committed=83 jump-rej=1 nc-rej=0 capped=0 div=0
+  unsolved=1 (the previously capped ray committed).
+- The ray-83 candidate remains sibling-consistent
+  (KN-SIB ch2 trigger L=1437: v1/medP=0.3526, v1/v2=166.6)
+  while the retained store stays at the anomalous floor
+  value -- the latch reproduces exactly as in p7.
+
+The resubmitted baseline (job 13130310) and the probe
+(job 13129255) were both pending at QOSGrpCpuLimit
+(account mpe_cpu group CPU cap shared across users).
+
+### 26.8 First probe run -- partial data and format fix
+
+Probe job 13129255 started at 22:36 and reached KNOP
+refresh 1 at great iteration 158 before aborting at 22:43
+(exit 61:0). forrtl reported a format/variable-type
+mismatch at fg_j_cmf_nonmono_v1.f:10143 inside the
+L_NOPROBE-gated KN-NOP report block -- three format
+strings in that block had descriptor/count errors
+((A,I4,A,2I4,...) where three exit-code integers follow
+the label; (A,I4) fed one argument; (A,I2,A,I4) fed five).
+All three were corrected; the file recompiles clean and
+the exe was rebuilt (md5 fee96b6a...) and redeployed.
+
+Data captured before the abort (ray header printed, pass
+detail lost):
+
+- KN_WATCH: ixit=3, npass=30, resid=6.2903E-01;
+  exit ixitM/ixitP/nxit = 1/3/3; verdict=7;
+  ray-dch=0.0000E+00 (no commit delta -- suppression
+  working); geom K/LS/slot->KC/JP2 = 2/83/1436->2/2;
+  sibref m/p = 1.83148E-22/1.83138E-22 (unchanged).
+- KN-NOP ray header: npM=2, npP=30,
+  resM=4.2390E-08, resP=6.2903E-01.
+
+Reading: the M (inward) solve reached the residual
+tolerance in 2 passes; the P (outward) solve bypassed the
+no-compressing fast exit and ran 30 passes before the
+same-direction stall exit (ixit=3) at residual ~0.63 --
+orders of magnitude above KN_RAY_TOL and far from the
+KN_Q_RESID one-map value of ~80 only in the sense that
+the iterated residual is already lower than a single map
+application but still not converged. This is preliminary
+evidence for outcome B (stall), pending the full
+per-pass histories from the resubmitted probe (job
+13134014) on the fixed exe.
+
+Status: IMPLEMENTED, BUILT (exe fee96b6a), JOBS
+RESUBMITTED -- baseline 13130310 pending (will pick up
+the fixed exe by path), probe 13134014 pending. Awaiting
+pass histories and store checksums for the interpretation
+gate. No commit-policy remedy; no production-readiness
+claim.
+
+### 26.9 Corrected-exe experiment -- complete runtime evidence
+
+Both jobs ran on the fixed executable. Confirmed at
+runtime: `cmfgen_jfnk/exe/cmfgen_dev.exe` and
+`cmfgen_p8_install/exe/cmfgen_dev.exe` are byte-identical,
+md5 `fee96b6a2a7c02fc176b0bf8ed9d0285`; both OUTGENs
+report `Using 2 OpenMP threads (launcher-resolved)`.
+Baseline job 13130310 (KN_NOCP_PROBE unset) and probe job
+13134014 (KN_NOCP_PROBE=T, KN_NOCP_PROBE_LS=83) share the
+iso_M it157 checkpoint lineage (FGINEXT_GS md5
+893143f3..., SN_HYDRO_DATA md5 ea6c5d5b...) and identical
+VADAT apart from the two probe keys. Jobs were still
+running when this section was written; refreshes 1-4 of
+each are reported below and are mutually consistent.
+
+#### Baseline control (KN_NOCP_PROBE=F), refreshes 1-4
+
+Ray 83 every refresh: `ixit=0 npas=2 resid=0.0000E+00`,
+`exit ixitM/ixitP/nxit= 0 0 0`, `verdict=1` (jump veto),
+`ray-dch=1.6561E+02`, sibref m/p@slot =
+1.83148E-22/1.83138E-22 -- bit-for-bit the p7 behaviour.
+Both directional sweeps take the `.NOT. HAS_CP` forced
+exit after the minimum pass count; `RES=0` is assigned,
+not measured. Verdict histogram refresh 1:
+`committed=82 jump-rej=1 nc-rej=0 capped=1 div=0
+unsolved=1` (85 rays accounted).
+
+#### Probe (KN_NOCP_PROBE=T, LS=83), refresh 1 -- full record
+
+Ray header: `ixit=3 npas=30 resid=6.2903E-01`,
+`exit ixitM/ixitP/nxit= 1 3 3`, `verdict=7`,
+`ray-dch=0.0000E+00`, would-be verdict `NOP_VC=3`
+(capped). Store checksums (refresh-level, before/after
+the parallel ray loop):
+
+    M store sum = 1.15428447E-01 -> 1.15428447E-01  delta 0.000E+00
+    P store sum = 2.08812112E-01 -> 2.08812112E-01  delta 0.000E+00
+
+M direction (dir 1, inward; converged):
+
+    p 1 res=1.000E-01 ad=1.000E-30 omg=1.000 rat=-1.000 j/L=  1     2  ct>tol..>10 = 868/109/0/0/0 hot=F
+    p 2 res=4.239E-08 ad=4.366E-19 omg=1.000 rat= 4.239E-07 j/L=  2 13185 ct = 0/0/0/0/0 hot=F  -> IXIT=1 (tol)
+
+P direction (dir 2, outward; stalled). Columns:
+res | |VNEW-VOLD| at argmax | OMEGA_RAY | same-dir ratio |
+argmax (j,L) | significant-cell counts >tol/1e-2/1e-1/1/10 |
+hot. OMEGA trajectory: 1.0,1.0,1.0,1.0,0.70,0.805,0.926,
+0.648,0.745,0.522,0.600,0.450(floor),...,0.450.
+
+    p  1 res= 7.787E+01 ad=7.787E-28 omg=1.000 rat=-1.000 j/L=  1  1331 ct=104500/100158/ 6344/ 144/  28 hot=F
+    p  2 res= 3.253E+02 ad=4.726E-27 omg=1.000 rat= 4.178E+00 j/L=  2  1372 ct=105843/103286/10988/ 190/  56 hot=F
+    p  3 res= 8.059E+01 ad=1.670E-26 omg=1.000 rat= 2.477E-01 j/L=  2  1330 ct=105940/103366/11293/ 192/  34 hot=F
+    p  4 res= 2.535E+02 ad=3.685E-27 omg=1.000 rat= 3.146E+00 j/L=  2  1372 ct=105704/103156/11078/ 152/  44 hot=F
+    p  5 res= 8.362E+00 ad=1.803E-27 omg=0.700 rat= 3.299E-02 j/L=  2  1330 ct=104482/101952/ 8900/  38/   0 hot=F
+    p  6 res= 3.615E+00 ad=1.345E-28 omg=0.805 rat= 4.323E-01 j/L=  1  1331 ct=103407/100357/ 4292/  18/   0 hot=F
+    p  7 res= 1.322E+01 ad=4.947E-27 omg=0.926 rat= 3.658E+00 j/L=  2  1249 ct=102142/ 29681/ 4111/  42/   2 hot=F
+    p  8 res= 2.174E+00 ad=4.201E-25 omg=0.648 rat= 1.644E-01 j/L=  2  1233 ct= 90571/ 81383/ 5675/   6/   0 hot=F
+    p  9 res= 2.964E+00 ad=7.275E-28 omg=0.745 rat= 1.364E+00 j/L=  2  1303 ct= 87629/ 82270/ 3746/  14/   0 hot=F
+    p 10 res= 6.443E-01 ad=9.544E-29 omg=0.522 rat= 2.173E-01 j/L=  2  1331 ct= 98372/ 55396/ 1793/   0/   0 hot=F
+    p 11 res= 4.727E+00 ad=3.116E-28 omg=0.600 rat= 7.338E+00 j/L=  2  1635 ct= 99666/ 56551/ 1782/  18/   0 hot=F
+    p 12 res= 1.336E+00 ad=4.934E-29 omg=0.450 rat= 2.826E-01 j/L=  2  1636 ct= 90167/ 55888/ 1958/   8/   0 hot=F
+    p 13 res= 1.467E+00 ad=6.125E-29 omg=0.518 rat= 1.098E+00 j/L=  1  1636 ct= 80941/ 42716/ 1768/   8/   0 hot=F
+    p 14 res= 9.702E-01 ad=7.128E-29 omg=0.450 rat= 6.616E-01 j/L=  1  1636 ct= 83702/ 39614/  829/   0/   0 hot=F
+    p 15 res= 8.338E-01 ad=8.800E-29 omg=0.450 rat= 8.594E-01 j/L=  1  1636 ct= 75767/ 39763/  851/   0/   0 hot=F
+    p 16 res= 1.608E+00 ad=4.046E-28 omg=0.450 rat= 1.929E+00 j/L=  2  1281 ct= 80033/ 42175/  949/   4/   0 hot=F
+    p 17 res= 1.205E+00 ad=2.147E-29 omg=0.450 rat= 7.491E-01 j/L=  2  1282 ct= 83203/ 53632/ 1027/   2/   0 hot=F
+    p 18 res= 1.462E+00 ad=1.898E-28 omg=0.450 rat= 1.214E+00 j/L=  2  1653 ct= 77882/ 51744/ 1120/   4/   0 hot=F
+    p 19 res= 1.631E+00 ad=3.484E-26 omg=0.450 rat= 1.116E+00 j/L=  2  1247 ct= 78080/ 44961/ 1044/   5/   0 hot=F
+    p 20 res= 1.246E+00 ad=1.028E-27 omg=0.450 rat= 7.640E-01 j/L=  2  1249 ct= 78398/ 42905/ 1178/   3/   0 hot=T
+    p 21 res= 1.015E+00 ad=1.306E-27 omg=0.450 rat= 8.142E-01 j/L=  2  1249 ct= 80717/ 47927/  891/   1/   0 hot=T
+    p 22 res= 1.551E+00 ad=2.982E-25 omg=0.450 rat= 1.528E+00 j/L=  2  1233 ct= 74587/ 46497/  613/   3/   0 hot=T
+    p 23 res= 1.067E+00 ad=5.658E-26 omg=0.450 rat= 6.879E-01 j/L=  2  1234 ct= 90311/ 57630/ 1985/   2/   0 hot=T
+    p 24 res= 8.012E-01 ad=4.730E-26 omg=0.450 rat= 7.510E-01 j/L=  1  1234 ct= 82034/ 47243/ 2155/   0/   0 hot=T
+    p 25 res= 6.674E-01 ad=5.360E-26 omg=0.450 rat= 8.330E-01 j/L=  1  1234 ct= 82637/ 44460/ 1482/   0/   0 hot=T
+    p 26 res= 5.965E-01 ad=5.470E-29 omg=0.450 rat= 8.938E-01 j/L=  2  1282 ct= 79863/ 37804/ 1141/   0/   0 hot=T
+    p 27 res= 6.219E-01 ad=2.445E-08 omg=0.450 rat= 1.043E+00 j/L=  2 10845 ct= 70489/ 35280/  791/   0/   0 hot=T
+    p 28 res= 5.746E-01 ad=1.621E-26 omg=0.450 rat= 9.240E-01 j/L=  2  1248 ct= 92321/ 60422/ 1109/   0/   0 hot=T
+    p 29 res= 6.318E-01 ad=5.237E-26 omg=0.450 rat= 1.100E+00 j/L=  2  1634 ct= 89281/ 58684/  864/   0/   0 hot=T
+    p 30 res= 6.290E-01 ad=1.545E-27 omg=0.450 rat= 9.957E-01 j/L=  2  1635 ct= 87145/ 59927/  591/   0/   0 hot=T -> IXIT=3 (stall)
+
+Hot-pass extension: TRY_HOT fired near pass 19-20
+(hot=F through p19, hot=T p20-p30); the restricted
+hot-frequency window did not break the cycle, NSTALL
+reached 2 and the sweep exited IXIT=3. Exit class 3 is
+the production stall exit (NSTALL>=2 after hot-mode
+exhaustion), class 6 would have been the plateau
+variant -- L_PLAT did not fire.
+
+Refreshes 2-4 (probe): npM=2/npP=26 each, resM =
+1.1022E-07 / 8.8543E-08 / 4.4720E-08 (IXIT=1), resP =
+6.9633E-01 / 6.9618E-01 / 6.9614E-01 (IXIT=3), would-be
+verdict NOP_VC=3 every time, store deltas 0.000E+00 on
+both channels every refresh. Store checksum drift
+ACROSS refreshes (M 1.15428447->1.15428564E-01,
+P 2.08812112->2.08812701E-01 over r1->r4, ~1e-6
+relative) is the ambient lagged-store rebuild from the
+evolving field, not ray-83 writes: the within-refresh
+before/after delta is exactly zero every time.
+
+#### Requirement-by-requirement runtime confirmation
+
+1-4. Source rev f8c9573f + uncommitted diff; exe md5
+fee96b6a... identical tree/install; checkpoint and VADAT
+fingerprints identical except KN_NOCP_PROBE keys; both
+jobs `Using 2 OpenMP threads`.
+5. `commit verdicts` histograms in the probe never count
+ray 83: r1 `committed=82 capped=1 unsolved=1`, r2-r4
+`committed=83 unsolved=1`, `jump-rej=0` throughout, and
+`worst=(ixit 3, v 7)` lists ray 83 separately. VC=7
+matches none of the COUNT() masks (0,1,2,3,4,-1), so it
+is excluded from every verdict counter and maturity
+input; 84 counted rays + ray 83 = 85 total.
+6. `NOP_VC=FG_RAY_VC(LS)` is captured before
+`FG_RAY_VC(LS)=7` (fg_j_cmf_nonmono_v1.f:9876-9880) and
+is what the report prints as `would-be verdict` (=3,
+capped, every refresh).
+7. I_M_DEPTH_NEXT and I_P_DEPTH_NEXT ray-83 checksums
+identical before/after on all four refreshes, delta
+0.000E+00 (values above).
+8. Zero delta on both store sums is itself the proof no
+WRITE_STORE/WRITE_STORE_CAP/seed/HEAL_STORE ran for ray
+83; all four paths are additionally `.NOT. L_NOPROBE`
+guarded in source (verified statically, section 26.5).
+9-10. M and P histories reported independently above:
+per-pass residual, |VNEW-VOLD| at the argmax cell,
+argmax (j,L), OMEGA_RAY, same-direction contraction
+ratio with staleness handling, five DCELL threshold
+counts, hot flag, and per-direction exit class/reason.
+11. Cell census: counts are over the SAME significance
+    gate NBAD_CUR/NTOT_CUR use,
+    `MAX(VOLD,|VNEW|) > 1.0E-4*VMAXF(L)`; the first
+    threshold `>KN_RAY_TOL` (=2.0E-3) is identical to
+    NBAD_CUR's test, and the refresh-level line
+    `stall/cap rays: ... bad cells= 87145` equals the
+    probe pass-30 ct>tol count exactly -- cross-check
+    that the census is the maturity-gate population.
+    Total marched cells = NI_83 x NCF (NCF=56377);
+    the significance gate then selects the optically
+    relevant subset (NTOT_CUR). NI_83 is not printed in
+    production output (behind PRINT_KNOP_DEBUG); the
+    counts above are per-ray-83 significant cells.
+12. KN_Q_RESID comparison below.
+
+#### KN_Q_RESID versus production residuals (req 12)
+
+    refresh  q-resid max  q argmax (ray,ch,j,L)      prod argmax (j,L)   exact-defect  prod res  prod npass
+    1        1.23014E+01  83, ch2, (2,1303)          (2,1635)            1.23014E+01  6.290E-01  30
+    2        9.40918E+00  83, ch2, (2,1282)          (2,14403)           9.40918E+00  6.963E-01  26
+    3        9.40920E+00  83, ch2, (2,1282)          (2,14403)           9.40920E+00  6.962E-01  26
+    4        9.40920E+00  83, ch2, (2,1282)          (2,14403)           9.40920E+00  6.961E-01  26
+
+`prod-coincidence=SAME-RAY-DIFF-CELL` on every refresh:
+both diagnostics put the worst defect on ray 83,
+channel 2 (outward), ray point j=2, but at different
+frequencies (Q: L~1282-1303; prod: L~1635/14403). The
+two numbers measure different objects:
+
+- KN_Q_RESID applies ONE undamped map to a scratch copy
+  of the post-solve field (IXIT=9 path, no OMEGA
+  relaxation, no multi-pass GS state) and reports the
+  normalized defect at its own argmax -- values
+  9.41-12.30.
+- The production P residual is the max normalized
+  |VNEW-VOLD| over the LAST of 26-30 damped passes with
+  OMEGA_RAY already at its 0.45 floor -- values
+  ~0.696. Under a stalled limit cycle the last-pass
+  change measures the cycle amplitude, not the
+  distance to the fixed point, so it sits far below the
+  single-map defect.
+- Starting fields differ (Q uses the committed field
+  state at diagnostic time; prod iterates within the
+  refresh against the lagged store), the pass counts
+  differ by construction, and the sweep ordering is
+  the same M-then-P but Q does not reproduce the
+  in-pass fresh-donor coupling of repeated passes.
+- Channel 1 agrees perfectly: q chmax M ~1e-15 and
+  prod M res ~1e-7 -- both directions' diagnostics
+  concur that M is converged and P is not.
+
+#### Interpretation gate -- OUTCOME B (STALL)
+
+The no-compressing fast exit is not the only problem.
+With the shortcut bypassed, ray 83's outward solve does
+not converge: the residual oscillates in a limit cycle
+between ~0.57 and ~3.3 for 26-30 passes, OMEGA_RAY sits
+at its 0.45 damping floor, the hot-pass extension
+fires and does not break the cycle, and the production
+stall classifier exits IXIT=3 -- the same class the
+code assigns to genuinely stalled rays. The inward
+solve converges on tolerance in 2 passes every refresh.
+The fast exit was masking a real non-contractive
+expanding-direction iteration, not a slowly convergent
+one. This is evidence about the iteration, not a
+convergence result: no commit-policy change is
+justified, and the would-be verdict (capped, NOP_VC=3)
+does not certify the candidate. Per the strict
+non-change list, production defaults, equations,
+thresholds and the population solver are untouched;
+the probe is VADAT-gated and off by default.
+
+### 26.10 Final interpretation -- 70-refresh evidence (2026-11-14)
+
+Both jobs remained healthy to iteration ~230+ (70 KNOP
+refreshes each at last check) and were still running at
+finalization; they will exit at the 24 h walltime limit,
+not by convergence (model convergence ~50%). The user
+accepted the 70-refresh record as complete evidence --
+the P-direction stall is stationary, not transient.
+
+#### Experiment provenance (final)
+
+- Baseline 13130310 / probe 13134014, partition small,
+  account mpe_cpu, QOS n0001, TimeLimit 23:59:00.
+- Executable: cmfgen_p8_install/exe/cmfgen_dev.exe md5
+  fee96b6a2a7c02fc176b0bf8ed9d0285, byte-identical to
+  cmfgen_jfnk/exe/cmfgen_dev.exe; both jobs resolved the
+  same binary by path. Source revision f8c9573f plus the
+  uncommitted phase-5.2 diff (probe-gated only).
+- Checkpoints: FGINEXT_GS md5 893143f3c47405f23d4c7aca57d64080
+  (iso_M it157), SN_HYDRO_DATA md5 ea6c5d5bd2d1c0ae785d70d4c9a56053
+  -- byte-identical across iso_M, p8_base, p8_probe.
+- VADAT: identical except probe KN_NOCP_PROBE=T /
+  KN_NOCP_PROBE_LS=83 (baseline has neither key).
+  Shared: KN_FREEZE_COEF=F, KN_MAT_FREEZE=T,
+  KN_Q_RESID=T, KN_JUMP_DIAG=T, KN_WATCH_CELL=T,
+  KN_WATCH_K=2, KN_WATCH_LS=83, KN_WATCH_SLOT=1436.
+- Runtime: `Using 2 OpenMP threads (launcher-resolved)`
+  in both OUTGENs.
+- Job status at documentation time (2026-11-14 ~10:00
+  CET): both jobs still RUNNING on the small partition
+  (~9.6 h wall, great iteration ~232, ~74 KNOP
+  refreshes each). The reported pass histories and
+  store checksums are the refreshes already written to
+  OUTGEN; no final exit status is claimed -- normal
+  completion or the 24 h walltime kill will be
+  appended as a post-commit experiment update if it
+  adds information. The user accepted the 70-refresh
+  record as complete evidence because the P-direction
+  stall is stationary, not transient.
+- The comparison is fully controlled: same exe, same
+  checkpoint, same VADAT modulo the probe keys, same
+  thread count, same node class.
+
+#### P-direction failure-mode classification: D (oscillatory), on a plateau
+
+Residual definition (unchanged production metric):
+DCELL = |VNEW - VOLD| / MAX(VOLD, 1.0E-4 * VMAXF(L)),
+maxed over the marched ray cells; RES is the pass max.
+
+M history (every refresh): 2 passes, resM -> ~1e-7..1e-9,
+IXIT=1 (KN_RAY_TOL=2e-3). Converged.
+
+P history (refresh 1, 30 passes; refreshes 2-70, 26-28
+passes): after an initial collapse from ~78 to ~0.6 by
+pass ~10, the residual oscillates without sustained
+contraction for the remaining 16-20 passes:
+
+    p20-p30 res = 1.246, 1.015, 1.551, 1.067, 0.801,
+    0.667, 0.597, 0.622, 0.575, 0.632, 0.629
+    final-7 mean = 0.646, range [0.575, 0.801]
+
+Across refreshes resP quantizes to a small set of levels
+(0.629, 0.575, 0.689, 0.696, 0.719) -- a stationary
+limit cycle, ~320x above KN_RAY_TOL. Hot-pass extension
+fires near pass 19-20 (hot=T thereafter) and does not
+break the cycle; NSTALL reaches 2 and the sweep exits
+IXIT=3 (production stall class; the plateau variant
+IXIT=6 did not fire). This is oscillatory non-contraction
+(class D), which also sits on a sustained plateau (class
+B character); the production classifier calls it stall.
+It is NOT slow convergence (class C): there is no
+downward trend over the final 20 passes.
+
+Contraction ratio: the printed `rat` is the
+same-direction residual ratio R(n)/R(n-1) used by the
+damping logic, NOT a convergence factor. Pass 1 prints
+the -1.0 sentinel (no prior pass -- unavailable). Later
+values fluctuate 0.03-7.3, exceeding 1 whenever the
+residual grew that pass; under omega damping they do not
+measure an undamped contraction rate. Neither residual
+is ever zero on the P path, so the ratio is defined but
+carries no convergence information in a limit cycle.
+
+#### Failure localisation (Part 4)
+
+Across all ~1900 recorded P-pass argmax cells in 70
+refreshes, the ray-point index j is ONLY ever 1 or 2
+(559 vs 1420 occurrences) -- the inner boundary. The
+frequency index L wanders widely: concentrated in
+L~1230-1660 (1233,1234,1247-1249,1264,1281,1282,1303,
+1330,1331,1372,1445,1634-1654) with excursions to
+2960, 4348, 5252, 10845, 14403, 27680, 27683.
+
+The original anomaly cell is K=2, L~1437 (store slot
+1436), retained store 9.99450E-26 vs sibling-consistent
+candidate 1.66521E-23. The P argmax does NOT sit on
+L=1437: it overlaps the same inner-boundary region and
+the same ~1300s band (1330/1331/1372/1445 recur) but the
+dominant residual cells move across a broad frequency
+range. Conclusion: the sweep non-convergence is a broad
+inner-boundary (j=1-2) phenomenon spanning many
+frequencies; the specific retained-store anomaly at
+L~1437 is one cell inside that bad region, not the
+sole or even the dominant residual site. The residual
+argmax and the store-anomaly cell are verified to be
+DIFFERENT indices.
+
+#### M/P coupling (Part 5)
+
+Data dependencies (fg_j_cmf_nonmono_v1.f:9624-9706):
+FLD is seeded from I_M_DEPTH_NEXT and swept with
+INWARD=.TRUE. (M); on success IM_NI(1:NCF)=FLD(NI,1:NCF)
+captures the converged inward intensity at the innermost
+ray point. FLD_P is separately seeded from
+I_P_DEPTH_NEXT and swept with INWARD=.FALSE. (P).
+Inside the sweeps the P inner boundary reads
+I_CORE=IM_NI(L) (ZERO_FLUX/PNT_SRCE methods) and
+VNEW=IM_NI(L) for LS>KN_NC -- the converged M field
+supplies P's inner boundary. Coupling is ONE-WAY M->P;
+P never feeds back into M within a refresh, and the two
+channels use separate field arrays and separate lagged
+stores. The probe gates only the .NOT. HAS_CP exit and
+the store writes; SEED_FLD, IM_NI hand-off, sweep order
+(M then P) and boundary conditions are untouched --
+verified in source and by the unchanged M behaviour
+(2 passes, IXIT=1 every refresh).
+
+Why M converges in 2 passes while P stalls: ray 83's
+retained I_M store is already at its map's fixed point
+under the current ambient field (absolute updates
+~1e-19-1e-30; the pass-1 "residual" 0.1 is a
+near-floor-cell artifact that vanishes next pass). The
+retained I_P store is NOT -- it carries the latch
+anomaly -- and, more fundamentally, the expanding-only
+P map (GAM>=0 everywhere, MATCH_FREQ never invoked, no
+compressing anchor points) does not contract: 26-30
+damped passes reach a limit cycle rather than the
+fixed point. The fast exit hid both facts; removing it
+reveals that the P-direction iteration itself is
+defective for this ray, independent of the store latch.
+
+#### Store and commit isolation (Part 6)
+
+- I_M_DEPTH_NEXT(:,83,:) and I_P_DEPTH_NEXT(:,83,:)
+  before/after sums identical on every refresh, delta
+  0.000E+00 (r1: M 1.15428447E-01, P 2.08812112E-01;
+  r70-class values drift ~1e-6 relative ACROSS
+  refreshes from the ambient store rebuild, never
+  within one).
+- WRITE_STORE, WRITE_STORE_CAP, FG_RAY_SEEDED update
+  and HEAL_STORE are all .NOT. L_NOPROBE-guarded
+  (fg_j_cmf_nonmono_v1.f commit block ~9820-9880);
+  zero checksum delta is the runtime proof none ran.
+- Abnormal exits: the DIVERGED branch (NDIV=1, GOTO 800)
+  bypasses the commit block entirely, so a diverged
+  probe ray could not write either; ray 83 never
+  diverged (IXIT=3). The guard is on L_NOPROBE, not on
+  exit class, so every exit path is covered.
+- FG_RAY_VC(LS)=7 matches no COUNT() mask
+  (0,1,2,3,4,-1); runtime histograms account 84 rays +
+  ray 83 = 85 with worst=(ixit 3, v 7). Maturity reads
+  residual metrics, not VC.
+- NOP_VC=FG_RAY_VC(LS) captured before the =7
+  overwrite (lines 9876-9880); report prints it as
+  would-be verdict = 3 (capped) every refresh.
+
+#### Baseline vs probe (Part 7)
+
+    quantity          baseline (fast exit)     probe (bypass)
+    ray83 ixitM/P/nxit  0/0/0                  1/3/3
+    npM / npP           2 / 2                  2 / 26-30
+    resM / resP         0 (assigned) / 0       ~1e-7..1e-9 / ~0.696
+    exit class          manufactured clean     M tol, P stall
+    verdict (VC)        1 jump-veto            7 (NOP_VC=3 capped)
+    ray-dch             1.6561E+02             0.0000E+00
+    store writes        vetoed (jump)          suppressed (probe)
+    KN_Q_RESID ch2      ~80.6 (r1-3)           ~9.4-12.3
+    KN_Q_RESID ch1      ~1e-15                 ~1e-15
+
+What changes when the fast exit is bypassed: ray 83's
+P channel actually iterates -- 26-30 passes instead of
+the 2-pass manufactured exit -- and reveals a
+non-contractive limit cycle at residual ~0.70. What
+stays unchanged: the M channel (converges identically),
+the retained store (never written either way -- veto in
+baseline, probe suppression in probe), the ambient
+field evolution of all other 84 rays, and the
+independent Q diagnostic's verdict that ray 83 ch2 is
+the worst cell in the model.
+
+The Q-resid contrast (80.6 baseline vs 9.4-12.3 probe)
+quantifies the iteration's partial progress: ~30 damped
+passes moved the one-map defect down ~8x but could not
+close it -- consistent with a limit cycle that improves
+the field then stalls, not with convergence.
+
+#### Scientific interpretation (Part 8)
+
+Established by this experiment:
+
+1. The .NOT. HAS_CP fast exit reports IXIT=0/RES=0 for
+   ray 83 without measuring anything; the true
+   iteration does not converge.
+2. Bypassing it does NOT resolve the directional
+   convergence problem: the P sweep limit-cycles at
+   ~0.70 normalized residual (class D oscillatory on a
+   class-B plateau) and exits via the production stall
+   classifier.
+3. The defect is concentrated at the inner boundary
+   (j=1-2) across a broad frequency range overlapping
+   but not identical to the L~1437 store-anomaly cell.
+4. M and P decouple cleanly: M converges, P does not;
+   the only M->P coupling is the converged IM_NI inner
+   boundary, which is sound.
+
+NOT established (explicitly unproven):
+
+- That the P sweep caused the retained-store anomaly.
+  The anomaly cell (j=2,L~1437) is inside the bad
+  region but is not the dominant residual site; the
+  store latch and the sweep non-convergence are two
+  facts whose causal order is undetermined. The probe
+  suppressed store writes, so it measured the sweep
+  given the latched store -- it cannot say whether a
+  converged P solve would have produced the
+  sibling-consistent candidate or whether the latch
+  itself poisons the iteration.
+- Whether the limit cycle is a property of the
+  expanding-only discretisation (no compressing anchor,
+  MATCH_FREQ never invoked for this ray) or of the
+  lagged-store/Gauss-Seidel coupling under the current
+  ambient field.
+- Any production remedy: no commit-policy change is
+  justified; the candidate is not a converged solution.
+
+Status: DIAGNOSTIC COMPLETE -- outcome D/B (oscillatory
+stall), store isolation proven, controlled baseline/
+probe pair on exe fee96b6a. Jobs left running to
+walltime; no solver, commit-policy, or default changes.
+Commits held pending user review of this record.

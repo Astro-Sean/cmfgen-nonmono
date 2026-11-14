@@ -346,3 +346,120 @@ per-ray truth is preserved by NOP_VC and VC=7.
 
 Awaiting runtime KN-NOP pass histories and before/after
 store checksums for the interpretation gate.
+
+## 2026-11-13 (Phase-5.2 probe run 1: partial data, format fix, resubmit)
+
+Probe job 13129255 ran 7 min, completed KNOP refresh 1 at
+it158, then aborted on a format/variable-type mismatch at
+fg_j_cmf_nonmono_v1.f:10143 -- three format strings in
+the L_NOPROBE-gated KN-NOP report block had descriptor
+errors. All three fixed; file recompiles clean; exe
+rebuilt via incremental make DEBUG=nodebug cmfgen and
+redeployed to cmfgen_p8_install (new md5
+fee96b6a2a7c02fc176b0bf8ed9d0285; prior build
+2f8fc36c888118dda3a8a4b1bcd80e85 differed only inside
+the probe-gated report block). Probe resubmitted as
+13134014; baseline resubmit 13130310 still pending and
+will pick up the fixed exe by path, so both jobs will
+run the same binary.
+
+Partial data from the aborted run (ray header only):
+npM=2 npP=30 resM=4.2390E-08 resP=6.2903E-01;
+ixitM=1 ixitP=3 nxit=3; verdict=7; ray-dch=0.
+Preliminary reading: M converged on tolerance, P bypassed
+the fast exit and stalled (ixit=3) at residual ~0.63 --
+early evidence for outcome B pending full pass histories.
+
+Baseline job 13129245 (first submission) had earlier
+completed refreshes 1-2 reproducing p7 bit-for-bit, then
+failed at it161 on a transient Ca2_COL_DATA open (symlink
+target mid-rewrite; infra flake). Resubmitted as 13130310.
+
+## 2026-11-14 (Phase-5.2 corrected-exe experiment: outcome B, stall)
+
+Both jobs ran on the fixed exe (md5 fee96b6a...,
+tree/install byte-identical; 2 OpenMP threads each).
+Baseline 13130310 and probe 13134014 share the iso_M
+it157 checkpoint and identical VADAT except the probe
+keys. Four refreshes each, mutually consistent
+(docs/audits/KNOP_FAILURE_ISOLATION_RESULTS.md 26.9 has
+the full record).
+
+Baseline ray 83 every refresh: ixit=0 npas=2 resid=0,
+ixitM/P/nxit=0/0/0, verdict=1 jump-veto, ray-dch=1.6561E+02
+-- the manufactured RES=0 fast exit, unchanged.
+
+Probe ray 83 every refresh: M solves to tolerance in 2
+passes (resM 4e-8..1e-7, IXIT=1); P bypasses the fast
+exit and runs 26-30 passes, residual oscillating ~0.57-3.3
+in a limit cycle, OMEGA_RAY pinned at the 0.45 floor,
+hot-pass extension fires (hot=T from ~p20) and fails to
+break the cycle, production stall classifier exits
+IXIT=3 at resP~0.696. Would-be verdict NOP_VC=3 (capped).
+Store checksums for I_M/I_P_DEPTH_NEXT ray 83 identical
+before/after every refresh, delta 0.000E+00 both channels
+(cross-refresh drift ~1e-6 relative is the ambient
+lagged-store rebuild, not ray-83 writes). VC=7 excluded
+from all verdict counters at runtime: histograms account
+84 rays + ray 83 = 85, worst=(ixit 3, v 7).
+
+KN_Q_RESID independently flags the same ray/channel:
+q argmax ray 83 ch2 at j=2 every refresh,
+prod-coincidence=SAME-RAY-DIFF-CELL, exact-defect
+9.41-12.30 vs production last-pass residual ~0.696 --
+consistent once the differences are accounted for (single
+undamped map vs 26-30 damped GS passes at the omega
+floor; cycle amplitude vs distance to fixed point;
+different argmax frequencies). Channel 1 agrees:
+q chmax M ~1e-15, prod M res ~1e-7.
+
+Interpretation gate: OUTCOME B (STALL). The no-CP fast
+exit was masking a genuinely non-contractive
+expanding-direction iteration for ray 83, not a slowly
+convergent one. No commit-policy change justified; no
+production-readiness claim; probe remains VADAT-gated,
+default off. Census note: the >tol counts are the
+significance-gated NBAD_CUR population (cross-checked:
+pass-30 ct>tol=87145 equals the refresh 'bad cells' for
+the stall ray); total marched cells = NI_83 x NCF(56377),
+NI_83 not printed in production output.
+
+## 2026-11-14 (Phase-5.2 final interpretation: oscillatory stall, 70 refreshes)
+
+User accepted the 70-refresh record as complete (jobs
+still running to the 24 h walltime; model convergence
+~50%, exit will be a timeout not convergence). Final
+classification and provenance recorded in
+KNOP_FAILURE_ISOLATION_RESULTS.md section 26.10.
+
+P-direction failure mode: class D oscillatory on a
+class-B plateau. After collapsing to ~0.6 by pass ~10,
+resP oscillates 0.57-3.3 for the remaining passes with
+no downward trend; final-7 mean 0.646, range
+[0.575,0.801], ~320x above KN_RAY_TOL=2e-3. Across 70
+refreshes resP quantises to {0.629,0.575,0.689,0.696,
+0.719} -- a stationary limit cycle. Hot-pass extension
+fires ~p20 and fails; production exit IXIT=3 (stall).
+Not slow convergence: no trend over the last 20 passes.
+
+Localisation: every recorded P argmax has j in {1,2}
+(inner boundary); L concentrated 1230-1660 with
+excursions to 27683. The L~1437 store-anomaly cell is
+inside the bad region but is NOT the dominant residual
+site -- argmax and anomaly indices verified different.
+
+Coupling: one-way M->P via IM_NI inner boundary
+(fg_j_cmf_nonmono_v1.f:9665, 11185-11195); separate
+FLD/FLD_P arrays and stores; probe touches neither.
+M converges in 2 passes every refresh; P limit-cycles.
+
+Baseline Q-resid ~80.6 vs probe ~9.4-12.3 on ray 83
+ch2: the ~30 damped passes cut the one-map defect ~8x
+but did not converge -- consistent with a limit cycle
+that improves then stalls.
+
+Established: fast exit masked a real non-contractive
+P iteration; bypassing it does not fix convergence.
+Unproven: causal order of store latch vs sweep defect;
+any production remedy. No commit-policy change
+justified. Commits held for user review.
