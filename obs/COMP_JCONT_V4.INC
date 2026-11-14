@@ -719,18 +719,31 @@
 !
 ! J_RESCUE bound for this frequency.  A field is treated as
 ! diverged when any depth value is non-finite or exceeds the
-! larger of 1e4 times the previous frequency's scale and a
-! small floor, capped by an absolute backstop.  mc170_H10
-! showed why a boundary-only absolute test fails: J can exit
-! the iteration already at 1e25 while RJ(1) stays small, and
-! that field then poisons the next frequency's warm start.
-! FIRST_FREQ has no previous field - the backstop alone applies.
+! SMALLER of 1e4 times the previous frequency's scale and the
+! absolute ceiling RESC_JMAX.  Both bounds are needed:
+! mc170_H10 showed why a boundary-only test fails (J exits at
+! 1e25 while RJ(1) stays small), and why a per-frequency
+! relative bound alone fails (a slow ratchet inflates
+! JNU_PREV, recalibrating 1e4*prev upward so each step stays
+! under the moving cap).  Legitimate J on these models peaks
+! near 5e-5 and adjacent-frequency Jmax varies by at most
+! ~50x (measured on the converged KNOP field), so 1e4x prev
+! never binds a real transition while RESC_JMAX~1e-3 is
+! never a valid solution.  FIRST_FREQ has no previous field -
+! the absolute ceiling alone applies (restore cannot fire).
+! RESC_CAP_IT is a looser bound used only for the in-loop
+! early exit: mid-iteration iterates may transiently
+! overshoot a tight cap, so that check stays on the old
+! runaway scale - it trims wasted iterations, not validity.
 !
 	  IF(J_RESCUE)THEN
 	    IF(FIRST_FREQ)THEN
-	      RESC_CAP=1.0E+10_LDP
+	      RESC_CAP=RESC_JMAX
+	      RESC_CAP_IT=RESC_JMAX
 	    ELSE
-	      RESC_CAP=MIN(1.0E+10_LDP,
+	      RESC_CAP=MIN(RESC_JMAX,
+	1          1.0E+4_LDP*MAXVAL(ABS(JNU_PREV(1:ND))))
+	      RESC_CAP_IT=MIN(1.0E+10_LDP,
 	1          MAX(1.0E+4_LDP*MAXVAL(ABS(JNU_PREV(1:ND))),
 	2              1.0E-3_LDP))
 	    END IF
@@ -1011,7 +1024,7 @@
 !
 	     IF(J_RESCUE)THEN
 	       T3=MAXVAL(ABS(RJ(1:ND)))
-	       IF(T3 .NE. T3 .OR. T3 .GT. RESC_CAP)THEN
+	       IF(T3 .NE. T3 .OR. T3 .GT. RESC_CAP_IT)THEN
 	         F_DID_NOT_CONV=.TRUE.
 	         INACCURATE=.FALSE.
 	         EXIT
