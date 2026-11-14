@@ -59,10 +59,13 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       deleted, `IXIT=0` retired, all success paths require measured
       `RES<KN_RAY_TOL`; debug exe `c3d8b584`, production exe
       `f52d8125` untouched.
-- [~] Production validation of the fix - jobs `p53s_fix82` (13158010)
-      and `p53q_probe82` (13157367) queued on interactive; open
-      questions: ray-82 exit class reached, two-cycle persistence at
-      pass 3+, nc-reject vs capped verdicts, honest `fg_rf`/`KN_HOT_CNT`.
+- [~] Production validation of the fix - `p53q_probe82` (13157367)
+      delivered the first pass-3+ history: ray-82 P-dir transient
+      resolves by ~pass 8, then plateaus ~0.05 (stall exit ixit=3,
+      would-be capped verdict). The two-cycle was the early
+      transient, not a persistent orbit - audit revised. `p53s_fix82`
+      (13158010, corrected exe) still in setup; will confirm the
+      same exit path on all rays plus honest `fg_rf`/`KN_HOT_CNT`.
 - [ ] Ray-83 floor-cell behaviour under measured exits (jump veto vs
       convergence classification separation).
 - [ ] Corner-mode acceleration decision (guarded Aitken / OMEGA_RAY /
