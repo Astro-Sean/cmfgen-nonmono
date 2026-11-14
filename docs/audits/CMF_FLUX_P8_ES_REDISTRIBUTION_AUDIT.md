@@ -317,7 +317,7 @@ emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
 to `sigma*J` consistently on both sides. The folding algebra
 is now backed by the executable battery in section 8.5
-(87 checks, all passing at the measured tolerances) plus the
+(102 checks, all passing at the measured tolerances) plus the
 static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
@@ -395,7 +395,7 @@ manufactured emissivities through the real `OBS_FRAME_SUB_V9`
 (V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
 iteration ordering; `drv_knop_guard.f` drives the production
 store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
-`unit_tests/python/test_es_conv.py`, 87/87 PASS. Production
+`unit_tests/python/test_es_conv.py`, 102/102 PASS. Production
 tree sources link as the exact `.o` files the production
 executables use (`compile_and_link_prod`, ifort `-qopenmp`,
 MKL sequential); only drivers and the `obs_v9_adapter` shim
@@ -440,10 +440,14 @@ calibration (sec 8.5.1). The lower endpoint keeps its raw
 `PLANCK_ES` (a benign ~unity factor on the smooth
 Rayleigh-Jeans side). Interior edge points extrapolate if
 needed; the whole log-space shift/interp/rescale block is
-gated on `MINVAL(PLANCK_FN)>0 .AND. MINVAL(PLANCK_ES)>0`
-(`:302`), so a depth whose scaled Planck underflows to
-exactly 0 escapes the rescale entirely. This is the treatment
-the `bnd` test measures.
+gated on `MINVAL(PLANCK_FN)>0 .AND. MINVAL(PLANCK_ES)>0
+.AND. MINVAL(J_ES)>0` so a depth whose scaled Planck
+underflows to exactly 0, or whose convolution turns signed,
+escapes the rescale entirely; a per-depth non-finite-input
+check skips the convolution with a WARNING_LU diagnostic
+upstream of the gate. The PLANCK_NU bracket search itself is
+bounded since the robustness follow-up (sec 8.5.2). This is
+the treatment the `bnd` test measures.
 
 Feature coordinate note: the manufactured line feature is a
 Gaussian in nu, while the operator acts in ln nu. The local
@@ -455,11 +459,14 @@ in ln nu at 1e4 K) is far below the grid cell; this battery
 resolves the FEATURE, not the kernel, and no kernel-width
 claim is made.
 
-Measured battery results (87/87 PASS):
+Measured battery results (102/102 PASS):
 
 | case | result |
 | --- | --- |
 | planck `J=B(T)` | max rel 1.46e-5, rms 1.28e-6 (significant-J support; Wien-underflow masked) |
+| lte `J=B(T)` zone map | endpoint rel 6.5e19/4.6e124/6.3e56 at B(1)<=3e-118 of char; invalid-map abs err <=2.5e-87 of char; corrected+continuation <=2.05e-13 over 717 nodes; gate-skip depth bounded <=2.3e-6 abs (sec 8.5.1) |
+| brk match battery | 10/10 synthetic cases return exact FAIL/ML/T1/PLANCK_NU; ML never exceeds NCF+1; no PFN(0) read (sec 8.5.2) |
+| nanj / neg input guards | NaN depth passes input verbatim + fort.4 warning, others convolve; signed convolved output stays finite via the MINVAL(J_ES) gate |
 | const | Jbar >= 0; B/B_es rescale documented; 0 zeros at Wien edge |
 | linepair 256 | peak 3.9986e-4 -> 3.9978e-4; core -7.5e-8 / wing +2.1e-8; max|dexc|/pk 2.25e-4; full-domain integrals below; no ringing |
 | linepair 512 | peak 3.9983e-4 -> 3.9975e-4; core -7.5e-8 / wing +2.3e-8; max|dexc|/pk 2.26e-4; resolution-consistent |
@@ -581,21 +588,117 @@ Corrected measurements (post-fix):
 | planck sig support | 1.46e-5 | 1.46e-5 (unchanged; masked dead nodes now emit raw B_es) |
 | const Wien zeros | 3 | 0 |
 
-Residual, documented: at the endpoint a Planck input now
-returns the convolved B_es (~1e-38 at T=5e4) instead of the
-algebraically-exact B (~1e-57) - LTE invariance is traded for
-non-thermal preservation only where both values are denormal
-(emitted field ~1e-38 vs ~1e-57, both << any real field). The
-interior Wien-side wavelength-shift distortion of non-Planck
-fields (up to ~50% on a steep ramp at nu~110, T=1e4) is the
-stock CMFGEN correction and is unchanged.
+Residual, measured (LTE trade-off, `lte` driver mode, zone map
+from the production `ES_PLANCK_NU_MATCH`): at the upper
+endpoint and the invalid-map bracket (I=1 zone during the
+shift interpolation) the rescale is unity by construction, so
+a Planck input returns the RAW convolved field there instead
+of the algebraically exact B. Measured at the endpoint (driver
+input B vs output Jbar, T=5e4/2e4/1e4/5e3 K): input B(1) =
+3.46e-120 / 3.93e-299 / 3.93e-299 / 3.93e-299 - all NORMAL
+IEEE values (the driver formula saturates at its e^-700 cap
+below ~2e4 K); output Jbar(1) = 2.24e-100 / 1.82e-174 /
+2.46e-242 / 3.93e-299, i.e. relative errors 6.5e19 / 4.6e124 /
+6.3e56 / ~0 (T=5e3 is gate-skipped). The production-scaled
+PLANCK_FN(1) the routine matches against is a different
+quantity: 1.17e-57 (normal) / 1.88e-151 (normal) / 1.99e-316
+(SUBNORMAL - the only subnormal case) / exactly 0 (exact
+underflow, which is what the MINVAL gate keys on at T=5e3).
+The earlier statement that exact LTE recovery is lost "only
+where both Planck values are denormal" was wrong on both
+counts: the endpoint input is always normal here, and at
+T=5e3 the production Planck is exactly zero, not subnormal.
 
-Latent risk noted (pre-existing, unchanged): the PLANCK_NU
-match loops `DO WHILE(PLANCK_ES(I) .GT. PLANCK_FN(ML))` /
-`.LT. PLANCK_FN(ML-1)` at `:310-315` carry no `ML <= NCF`
-bound; if `PLANCK_ES(I)` lies outside the entire `PLANCK_FN`
-range the index overruns the array. Not triggered on the
-manufactured or validation grids; recorded for P8.2.
+The honest size of the trade: relative LTE error is large
+ONLY at frequencies whose Planck intensity is vanishingly
+small next to the characteristic field. On the corrected
+depths every node with rel error > 1e-3 sits at B <= 2.6e-97
+of the characteristic intensity (97 orders down); the
+absolute error at the endpoint and bracket is <= 2.5e-87 of
+the characteristic intensity (measured: endpoint
+9.4e-99/1.2e-171/1.3e-238, bracket max 2.5e-87). The corrected
+interior plus the continuation tail recover B to <= 2.05e-13
+relative over 717 nodes (the algebraic identity) including
+nodes at B ~ 0.17 of the characteristic intensity, and the
+lower endpoint to <= 5.7e-14 - LTE invariance holds wherever
+the Planck field is anywhere near significant. At the
+gate-skip depth (T=5e3, PLANCK_FN contains an exact zero)
+the uncorrected convolution returns with large relative
+error at 29 nodes reaching B/bchar = 5.9e-12 - NOT confined
+to dead-weight frequencies, but bounded by 2.3e-6 of the
+characteristic intensity in absolute terms. The interior
+Wien-side wavelength-shift distortion of non-Planck fields
+(up to ~50% on a steep ramp at nu~110, T=1e4) is the stock
+CMFGEN correction and is unchanged.
+
+### 8.5.2 Bounded PLANCK_NU match (robustness follow-up)
+
+The match loops noted above as a latent risk are now bounded
+(this commit), with the search split out as
+`ES_PLANCK_NU_MATCH` so the production loop and the test
+replica call the same object code.
+
+Ordering and monotonicity: `NU` decreases with index. The
+`NU(I) > 1.5*TEMP(K)` gate keeps every entered node above the
+Planck maximum (nu_peak ~ 0.59*TEMP for B_nu ~ nu^3), so over
+the entered region `PLANCK_FN = log B(NU)` increases with ML -
+that monotonicity is what the 1.5T gate exists to provide.
+`PLANCK_ES` is the log of a kernel-averaged Planck field and
+follows the same ordering modulo smearing. A valid bracket
+for target `PLANCK_ES(I)` is the first ML in [2,NCF] with
+`PLANCK_FN(ML-1) <= PLANCK_ES(I) <= PLANCK_FN(ML)` and a
+nonzero finite denominator `T2 = PLANCK_FN(ML-1) - PLANCK_FN(ML)`;
+the shifted position is then
+`PLANCK_NU(I) = T1*NU(ML-1) + (1-T1)*NU(ML)`,
+`T1 = (PLANCK_ES(I)-PLANCK_FN(ML))/T2` in [0,1]. On the Planck
+input path the bracket always exists (PES is a kernel average
+of PFN, so it cannot leave the PFN range) - verified: FAIL=-1
+at all depths on the standard grid and on pathological
+sub-peak and peak-cropped grids - so the failure codes below
+are defensive bounds, not expected production states.
+
+Defects corrected (pre-fix code): the first loop could
+increment ML to NCF+1 and read PLANCK_FN(NCF+1) when a target
+lay above the range; the second loop read PLANCK_FN(0) when
+ML=1; the enclosing `DO WHILE(NU(I) > ...)` could advance I
+to NCF+1 on a grid entirely above the gate; and a zero or
+non-finite `T2` produced a NaN `PLANCK_NU` that the
+interpolation and `EXP` rescale propagated. None relied on
+short-circuit evaluation: bounds are checked in separate
+control flow before every array access.
+
+Fail-safe response (consistent with the established
+uncorrected treatment): a failed match produces NO PLANCK_NU
+- extrapolating would invent a value violating
+`ln B_es(NU) = ln B(PLANCK_NU)`. If the first entered node
+(I=2) has no valid bracket, no map exists at all and the
+whole Planck correction is bypassed (raw convolved J_ES
+stands, as in the MINVAL gate-skip); a failure at I > 2 ends
+the matched region at the last derived node and the standard
+continuation supplies the last valid shift - the same
+treatment the stock code already applies below the match
+region. Every failure emits a WARNING_LU (fort.4) diagnostic
+naming K, I, the FAIL code, NU(I), PLANCK_ES(I), and the
+PLANCK_FN endpoints. FAIL codes: 1 target above the PFN
+range, 2 target below the reachable floor (ML=1 or the
+persistent walk off the top), 3 degenerate denominator,
+4 non-finite target. The Planck block gate also gained
+`MINVAL(J_ES) > 0` so `A(:)=LOG(J_ES)` cannot see a signed
+convolution, and a per-depth non-finite-input check skips
+the convolution with a warning rather than logging garbage
+(the invalid input field is left visible downstream).
+
+Verification: the `brk` driver mode feeds ten synthetic
+log-space targets through the real object - valid bracket,
+above-range (ML bounded at NCF+1), below-range (no PFN(0)
+read), floor-walk, degenerate denominator, NaN, +Inf,
+huge-negative, boundary-exact node, and persisted-ML
+continuation - all ten return the expected
+FAIL/ML/T1/PLANCK_NU exactly, with no out-of-bounds access
+and no invented shift. `nanj` shows the skipped depth passes
+its NaN input through verbatim beside three normally
+convolved depths plus the fort.4 warning; `neg` shows a
+signed convolved output stays finite through the gate.
 
 Test-harness lesson (driver fix, this round): the first
 linext run showed a spurious ~6.4e-4 excess band near nu~0.2
