@@ -324,7 +324,7 @@ compiles.
   - RJ_ES provenance: EDDFACTOR convolved by COMP_J_CONV_V2 after
     each ES sweep (OBS side) and after each great-iteration (model
     side); render uses the freshest in-memory convolve.
-  - test_es_conv.py 115/115 (drv_es_conv + drv_es_render +
+  - test_es_conv.py 116/116 (drv_es_conv + drv_es_render +
     drv_es_seq + drv_knop_guard; production .o objects via
     compile_and_link_prod, ifort -O0 -g -traceback -qopenmp
     -mkl=sequential): convolver battery (Planck 1.46e-5
@@ -369,9 +369,10 @@ compiles.
     (finite positive endpoints, finite nonzero interval,
     finite weight; off-map and degenerate nodes take the
     uncorrected treatment without contaminating valid nodes).
-    cnt (12 cases) and itp (12 maps incl. NPNU=0/1/2,
-    non-monotone out-of-range weights, boundary-exact hits;
-    node-by-node oracle) run on the production objects;
+    cnt (12 cases) and itp (14 maps incl. NPNU=0/1/2,
+    non-monotone out-of-range weights, boundary-exact hits,
+    NaN/non-positive output-grid NU; node-by-node oracle)
+    run on the production objects;
     nant/inft put non-finite convolver output through the
     real path; zpf covers the finite-but-zero silent
     gate-skip.  Final bounds pass: the shifted walk is
