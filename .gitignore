@@ -48,8 +48,6 @@ cmfgen_obsidian/
 # Root .md docs are local-only (agent rules, history, audit notes)
 /*.md
 !/README.md
-!/AGENTS.md
-!/AGENTS_HISTORY.md
 
 # Python caches and test artifacts
 __pycache__/
