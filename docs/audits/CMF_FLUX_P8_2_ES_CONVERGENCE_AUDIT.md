@@ -505,7 +505,22 @@ EW shifts of tenths of an Angstrom between 2 and 3 sweeps;
 line centres move ~0.03 AA. The line metrics shrink in step
 with the flux residual.
 
-[pending: `p82_line_metrics.csv` per-window table]
+m15 second dataset, SOB pathway (BLANK render - obs_fin_10 is
+ES-sensitive; representative windows):
+
+    pair    metric            Hb        HeI5876    Ha        CaII
+    1->2    LINE_CORE         4.83e-2   1.18e-1    3.70e-2   2.24e-3
+            LINE_DEW (AA)     +2.86     -7.51      -10.21    -0.31
+            LINE_DCENT (AA)   +2.09     +3.95      +113.5    +0.56
+    2->3    LINE_CORE         3.05e-2   -          2.06e-2   -
+            LINE_DEW (AA)     +1.45     -          -8.75     -
+
+EW shifts are Angstrom-scale on m15 (this model's lines are far
+stronger than SN_A's); Ha EW moves ~10 AA between N=1 and N=2
+and still ~8 AA between N=8 and N=12 - the line-bearing regions
+track the still-non-converged field. LINE_DCENT=nan on some
+pairs marks windows where the computed centroid denominator
+vanishes - reported, not hidden.
 
 ### 6.5 Runtime and diagnostic overhead
 
@@ -543,6 +558,28 @@ Equal NUM_ES does not imply equivalent convergence (section
 1.5): the fields differ in grid density, the knop J also
 carries I_NEXT lag, and the emergent-spectrum sensitivity is
 structurally different between the two renders.
+
+m15 second dataset (KNOP gens verified through n12 run in
+progress; deterministic across runs - n2/n3/n12 share gen-1..3
+values bit-for-bit):
+
+| | SOB | KNOP |
+|---|---|---|
+| frequency coverage NCF | 171207 | 182712 |
+| gen-2 R_GLOBAL | 1.98e-1 | 5.78e-1 |
+| gen-3 R_GLOBAL | 9.10e-2 | 2.65e-1 |
+| gen-4 R_GLOBAL | 5.56e-2 | 1.78e-1 |
+| contraction 2->3->4 | 0.46 / 0.61 | 0.46 / 0.67 |
+| obs_fin_10 ES-sensitive | yes (BLANK fold) | yes |
+
+KNOP's first refresh moves J by ~58% - nearly 3x SOB's first
+delta on the same model - and the per-depth rows show the
+change is broad (R ~0.2-0.58 at most depths), not localized to
+a boundary band. KNOP sweeps cost ~10min each at 8 CPU
+(~15min at 4 CPU): the interactive node's 30G memory is
+sufficient only at 4 CPU (8-CPU runs peaked at 31.2G and were
+OOM-killed; the convolved-field workspace scales with threads
+here).
 
 ## 7. BLANK render on non-monotonic populations
 
@@ -648,14 +685,118 @@ always return a blanketed spectrum.  These controls are the
 mechanism; N_TYPE stays N_ON_J throughout (no velocity-switch
 variants).
 
-Validation runs on mc170_H10:
+Validation runs on mc170_H10 (v1 implementation, RJ(1)-based
+detection):
 
 | run | overrides | result |
 |---|---|---|
-| obs_blank_damp | DAMP_FJ=0.3 + J_RESCUE=T | [pending] |
-| obs_blank_resc | J_RESCUE=T (no damping) | [pending] |
+| obs_blank_damp | DAMP_FJ=0.3 + J_RESCUE=T | completed; ~32k rescues |
+| obs_blank_resc | J_RESCUE=T (no damping) | completed; ~35k rescues |
+
+DAMP_FJ=0.3 did not converge the infrared wall either - the
+failure is not iteration overshoot.
+
+### 7.5 Root cause: JNU_PREV poison chain, not a single stiff frequency
+
+Reading the resc-run EDDFACTOR and ES_J_CONV showed what the
+log had hidden:
+
+- The first divergent frequency (FL=0.0530) exited the f loop
+  via the L>20 path with J already at 9.7e24..6.4e53 across
+  depth - but `ABS(RJ(1))` stayed under the 1e25 in-loop
+  trigger and the 1e30 post-loop guard, so no rescue fired.
+  The garbage J was written to EDDFACTOR.
+- `JNU_PREV` is saved at the top of every frequency iteration
+  from the previous frequency's stored RJ.  Once record
+  0.0530 stored garbage, every later frequency "rescued" back
+  to the same garbage - a self-perpetuating poison chain.
+- The convolve pass then carried the garbage into RJ_ES
+  (ES_J_CONV holds the identical 9.7e24..6.4e53 at IR
+  frequencies), and the incoherent emissivity
+  `ESEC*RJ_ES` injected it into sweep 2.
+
+So the enormous RJ_ES is downstream contamination; the first
+divergence is coherent-stage (sweep 1, `COH_ES=F`, no ESEC
+term at all).
+
+### 7.6 v2 J_RESCUE: field-wide detection + RJ_ES sanitize
+
+Corrections to the rescue machinery (same file, same flags):
+
+- Detection now uses `MAXVAL(ABS(RJ(1:ND)))` plus non-finite
+  checks at all depths, for both the in-loop early exit and
+  the post-loop restore.
+- The bound is per-frequency:
+  `RESC_CAP = MIN(1e10, MAX(1e4*max|JNU_PREV|, 1e-3))` -
+  a 4-order jump between adjacent continuum frequencies is
+  unambiguous runaway, and the relative test catches fields
+  far below any absolute ceiling.  FIRST_FREQ uses the 1e10
+  backstop alone (no previous field).
+- New sanitize: when `.NOT. COHERENT_ES`, the read-back
+  RJ_ES is tested against the same bound; a non-physical
+  convolved field falls back to the local coherent J for
+  that frequency only, so `ESEC*RJ_ES` stays sane in sweep 2.
+- Message throttling (first 20 + every 500th) and a
+  first-divergence depth dump: scalars (DBB, DIF, HBC_CMF,
+  NBC_CMF, dLOG_NU) plus per-depth R, V, ED, CHI, ETA, ESEC,
+  CHI_SCAT, ZETA, RJ, FEDD, JNU_PREV.
+
+Expected effect: even where the underlying IR solve still
+diverges, the stored J stays bounded and sane, the warm
+start is unpoisoned, and sweep-2 emissivities are physical.
+The first-divergence dump records which input field drives
+the runaway.  obs_blank_resc2 (J_RESCUE=T, DAMP_FJ=1.0,
+job 13157399) is the validation run.
+
+### 7.7 First-divergence anatomy and the ratchet flaw
+
+The NRESC=1 dump at FL=0.0532 localized the runaway:
+J is sane over K=1..96, then spikes at the inner boundary
+(K=97..100: 6.6e-6 -> 1.1e-4 -> 2.8e-3 -> 0.24).  FEDD
+oscillates 0.35..0.84 non-monotonically in those cells;
+DBB=-2.0e-12 (DTDR<0 from the cool inner zone);
+ESEC~2e-5 dominates CHI~2e-6 - dense, pure-scattering
+inner layers.  Extending the existing nonmono luminosity-
+derived DTDR and the DBB>=0 floor to J_RESCUE made DBB
+positive (+1.5e-11) but the runaway was identical
+(obs_blank_resc3, job 13157606) - the sign of the
+boundary coefficient is not the driver.
+
+Reading resc2's stored EDDFACTOR exposed a subtler defect
+in the v2 cap: Jmax vs frequency is sane outside
+0.025..0.048 but inside the band ramps smoothly from ~1e-4
+to ~3e8 with stored FEDD of 1e4..1e6.  A converged moment
+solution cannot have f>1, so the band is a slow ratchet:
+each frequency stores slightly-larger under-cap garbage,
+JNU_PREV absorbs it, and the next iteration grows from
+there.  RESC_CAP = 1e4*prev was too loose to catch it.
+
+Two candidate gates were tested:
+
+- v3 gated restore on a new F_DID_NOT_CONV flag (any L>20
+  or early-exit).  obs_blank_resc4 (job 13157729) showed
+  this is wrong on this model: stiff frequencies routinely
+  exit L>20 with residuals ~1e-3 and a sane field - stock
+  semantics keep them, sob_es1 has 153 such exits and a
+  bounded spectrum.  Restoring on convergence status
+  froze J at the first frequency's field; the run was
+  cancelled.
+- v4 gates on field validity instead: non-finite J or f,
+  |RJ|max > RESC_CAP, or |FEDD|max > 2.  f <= 1 is
+  required for a real radiation field, so f > 2 at any
+  depth marks an invalid iterate; the ratchet fields had
+  f ~ 1e4-1e6 while every converged field has f <= 1.
+  Mild L>20 exits keep their fields (stock behaviour), so
+  the warm-start chain is unbroken outside genuinely
+  diverged bands.  obs_blank_resc5 (job 13157778)
+  carries v4.
+
+Known limitation: all J_RESCUE machinery lives in the ND
+(non-INC_GRID) branch of COMP_JCONT_V4.INC, which is the
+path every production render on these models takes.  The
+INC_GRID branch keeps stock behaviour under J_RESCUE=T.
 
 ## 8. Conclusions
 
 [pending - m15 sweep completion and knop high-N data;
-BLANK damped/rescue render outcome in section 7.4]
+BLANK bounded-rescue outcome in section 7.7]
