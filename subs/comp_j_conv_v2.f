@@ -18,6 +18,11 @@ C
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 C
+C Altered 14-Nov-2026 : Planck-ratio rescale suppressed where the shifted
+C                        PLANCK_ES evaluation is not genuine (upper endpoint
+C                        and nodes whose bracket contains it).  B_es/B there
+C                        is not a calibration and crushed live non-thermal
+C                        fields (P8.1 audit sec 8.5.1).  Not flag-gated.
 C Altered 20-Oct-2003 : No scaling peformed when PLANCK_FN has zero''s.
 C Altered 18-Aug-2003 : FILE_DATE inserted into INFO call.
 C Altered 17-Oct-2002 : Computation of BB changed to avoid floating overflow.
@@ -346,7 +351,33 @@ C
 	      T1=(NU(ML)-PLANCK_NU(I))/(PLANCK_NU(I+1)-PLANCK_NU(I))
 	      PLANCK_ES(ML)=T1*C(I+1)+(1.0_LDP-T1)*C(I)
 	      J_ES(ML)=T1*A(I+1)+(1.0_LDP-T1)*A(I)
+	      IF(I .EQ. 1)THEN
+C
+C When the shifted bracket still contains the forced endpoint
+C PLANCK_NU(1)=NU(1), neither interpolation is a genuine shifted
+C evaluation: the endpoint anchor violates the
+C ln B_es(NU) = ln B(PLANCK_NU) relation the map relies on.  The
+C B/B_es factor below is then not a calibration - in the
+C Wien-dead zone the unshifted B_es exceeds B by orders of
+C magnitude (measured ~1E20 at T=5E4 K), which crushed a live
+C non-thermal feature to ~1E-20 of the extended-domain result
+C (P8.1 audit sec 8.5.1).  At these nodes the raw convolved
+C J_ES stands: the operator output is the honest answer, and a
+C Planck field is still recovered wherever B is significant.
+C Not flag-gated: the old factor is a valid calibration only
+C where the shift map is genuine.
+C
+	        PLANCK_ES(ML)=PLANCK_FN(ML)
+	        J_ES(ML)=A(ML)
+	      END IF
 	    END DO
+C
+C The same invalid-map treatment applies at the upper endpoint:
+C its shifted position lies off the grid (the smeared B_es is
+C smallest at the boundary itself), so no genuine shifted
+C PLANCK_ES exists and the rescale is set to unity.
+C
+	    PLANCK_ES(1)=PLANCK_FN(1)
 C
 C To remove any residual variations (primarily at low frequencies) we now
 C scale J according the the ratio of the PLANCK functions.
