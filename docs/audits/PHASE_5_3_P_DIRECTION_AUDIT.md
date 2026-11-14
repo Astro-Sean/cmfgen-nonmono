@@ -839,3 +839,608 @@ Left open (for ChatGPT review / proposed tests):
   downstream symptom of the non-contractive map (T9).
 - Whether any production remedy is warranted at all - none
   is proposed or authorised by this audit.
+
+========================================================================
+PHASE 5.3A CORRECTIONS - dated addendum
+========================================================================
+
+Independent review (against committed source and Knop et al. 2009,
+Paper II, arXiv:0909.4264) found errors in the original audit. This
+section supersedes the affected parts of sections 2, 5.1, 5.3, 5.4,
+6, 7, 8 and 9 above. The original text is retained for provenance;
+where the two disagree, THIS section is authoritative.
+
+Status of claims used below:
+  [V] verified code behaviour (traced in source)
+  [M] measured numerical behaviour (Phase 5.2 runtime data)
+  [H] hypothesised cause (plausible, undemonstrated)
+  [D] demonstrated defect (none established to date)
+
+------------------------------------------------------------------------
+A1. CORRECTED EFFECTIVE-OPACITY ANALYSIS (supersedes sections 2, 5.1,
+    5.3, 5.4)
+------------------------------------------------------------------------
+
+The original audit stated that expanding cells use plain CHI_L with
+the GAM_MAG/DLN contribution restricted to compressing cells. That is
+wrong for L > 1. Traced coefficient construction
+(fg_j_cmf_nonmono_v1.f, per-frequency block ~lines 11900-12071):
+
+L = 1 branch (lines 11900-11976):
+  - CALL MATCH_FREQ(1) runs, then value guards clamp
+    CHI_L >= 1e-30, ETA_L, GAM, GAM_MAG, dGAMdR to finite values.
+  - Q_L(I) = 0 for all I (line 11927).
+  - The opacity increment and Q_L assignment are gated by
+        IF(GAM(I,LS) .LT. 0 .AND. KN_RF_COUPLING(I,L))
+    (lines 11928, 11957): ONLY compressing cells (GAM < 0) with an
+    in-range matched donor receive
+        CHI_L += GAM_MAG/DLN          (line 11940)
+        DCHR_L -= dGAMdR/DLN           (line 11941)
+        Q_L    = GAM/(DLN*CHI_L)       (line 11963, signed GAM < 0)
+  - For expanding cells (GAM >= 0) at L = 1: NO opacity increment,
+    Q_L = 0, plain CHI_L, SR_L = ETA_L/CHI_L. In the sweep,
+    KN_ORD_SPV's L > 1 guard returns SR only - consistent: no
+    donor exists below the grid and the coupling is dropped.
+  - Physical/numerical meaning: L = 1 is a one-sided frequency
+    boundary. For expanding flow the upwind donor would be L = 0,
+    outside the grid, so the coupling term is omitted entirely.
+    Whether the |GAM|/DLN opacity increment should still apply at
+    L = 1 (the paper's chi_hat depends on p_l^|, which exists
+    regardless of donor availability) is an OPEN modelling
+    question - see U3 below. Not asserted as a defect.
+
+L > 1 branch (lines 11977-12071):
+  - CALL MATCH_FREQ(L), then for EVERY cell with
+    KN_RF_COUPLING(I,L) true:
+        Q_L(I) = GAM_MAG(I,LS)/DLN            (line 11998, temporary)
+        CHI_L(I) = CHI_L(I) + Q_L(I)          (line 11999)
+    KN_RF_COUPLING (lines 12205-12211) returns .TRUE. immediately
+    for GAM >= 0; for GAM < 0 it additionally requires the matched
+    frequency to stay inside the grid (IKC checks). GAM_MAG =
+    |GAM| >= 0 by construction (lines 78, 3566).
+  - CHI_L is then re-guarded: non-finite or < 1e-30 -> 1e-30
+    (lines 12002-12009). DLNM_L is guarded > 0 (lines 11992-11996).
+  - DCHR_L gets SIGN(GAM)*dGAMdR/DLN for coupling cells (line 12016).
+  - Q_L is then OVERWRITTEN (lines 12048-12058):
+        IF(KN_RF_COUPLING(I,L)) Q_L(I) = GAM(I,LS)/(DLN*CHI_L(I))
+        ELSE Q_L(I) = 0
+    using the UPDATED (incremented, guarded) CHI_L.
+  - SR_L = ETA_L/CHI_L (line 12059) with the same updated CHI_L.
+
+CORRECTED effective opacity for L > 1, expanding cells (GAM > 0,
+KN_RF_COUPLING = .TRUE.):
+
+    chi_hat(J,L) = CHI_L(J) + GAM_MAG(J,LS)/DLNM_L(J)
+                 = chi(J,L) + |GAM(J,LS)| / DLN_L
+    chi_hat >= 1e-30   (guard, line 12004)
+    Q_L(J)     = GAM(J,LS) / (DLNM_L(J) * chi_hat(J,L))   > 0
+    DTAU(J,L), PK_A0..PK_A4, PK_SR, PK_Q all built from chi_hat.
+
+So expanding cells DO receive the |GAM|/DLN generalised-opacity
+increment for every L > 1 - identical in form to compressing cells.
+The asymmetry is confined to L = 1, where expanding cells get plain
+chi and no coupling while compressing cells keep the increment.
+
+GAM sign: GAM(J,LS) > 0 defines the expanding branch; GAM_MAG =
+|GAM| > 0; DLNM_L > 0 after guard; chi_hat > 0 after guard. Hence
+PK_Q = GAM/(DLN*chi_hat) is STRICTLY POSITIVE for every expanding
+coupling cell. The signed-Q vs |Q| asymmetry (signed in the
+expanding SPV branch, ABS in the compressing branch) cannot
+produce a sign defect on ray 83: both evaluations yield a
+positive coupling coefficient. See A3.
+
+------------------------------------------------------------------------
+A2. KNOP PAPER II TO CODE CORRESPONDENCE
+------------------------------------------------------------------------
+
+Paper: Knop, Hauschildt & Baron (2009), A&A 501, 813-820
+( arXiv:0909.4264 ), equations verified against the arXiv HTML
+rendering. The code is NOT a literal transcription of Paper II:
+it uses a different source-function splitting (S' = SR + Q*I_donor
+inside the formal solve) rather than the paper's A/B/C matrix +
+Delta-I decomposition. The table below records the strongest
+supportable correspondence; entries marked UNRESOLVED are places
+where no algebraic identity has been established.
+
+Paper quantity            | Code quantity              | Location            | Correspondence
+--------------------------|----------------------------|---------------------|----------------------------------
+a_l (signed coupling coef)| GAM(I,LS) (signed)         | fg_j_cmf_nonmono_v1  | STRUCTURAL: both are the signed
+                          |                            | ~line 3566           | velocity-gradient coupling term;
+                          |                            |                     | a_l>0 <-> GAM>0 <-> upwind donor
+                          |                            |                     | at the lower grid index. Sign
+                          |                            |                     | convention consistent IF the
+                          |                            |                     | paper's wavelength ordering
+                          |                            |                     | (lambda ascending) maps to the
+                          |                            |                     | code's frequency ordering
+                          |                            |                     | (nu ascending) with the
+                          |                            |                     | appropriate reversal. UNRESOLVED:
+                          |                            |                     | exact coefficient identity
+                          |                            |                     | (a_l vs V/R*(1+sigma*mu^2)
+                          |                            |                     | factors).
+p_l^- (expanding donor wt) | Q*FLD(J,L-1) term in SPV    | KN_ORD_SPV lines     | STRUCTURAL: paper B^- multiplies
+                          | (L>1 branch)                | 10684-10691          | I_{l-1} for a_l>=0 with
+                          |                            |                     | coefficient ~ -(a_l/chi_hat)
+                          |                            |                     | *p_l^- *beta; code uses
+                          |                            |                     | Q*FLD(J,L-1), Q =
+                          |                            |                     | GAM/(DLN*chi_hat) > 0.
+                          |                            |                     | For log-spaced grids
+                          |                            |                     | |p_l^-| ~ 1/DLN, so the
+                          |                            |                     | magnitudes are compatible.
+                          |                            |                     | UNRESOLVED: exact algebraic
+                          |                            |                     | identity including the
+                          |                            |                     | alpha/beta/gamma weighting
+                          |                            |                     | the paper applies.
+p_l^| (diagonal coupling)  | GAM_MAG/DLN added to CHI_L  | lines 11998-11999,    | STRUCTURAL: paper chi_hat =
+                          | (opacity increment)         | 12055               | chi + xi*a_l*p_l^| with
+                          |                            |                     | p_l^| = lambda_l/(lambda_l -
+                          |                            |                     | lambda_{l-1}) > 0 for
+                          |                            |                     | a_l>=0; code adds
+                          |                            |                     | |GAM|/DLN > 0. Both are
+                          |                            |                     | positive gradient terms in
+                          |                            |                     | the effective opacity.
+                          |                            |                     | UNRESOLVED: whether
+                          |                            |                     | |GAM|/DLN == a_l*p_l^|
+                          |                            |                     | algebraically (depends on
+                          |                            |                     | grid-spacing convention).
+chi_hat (generalised opac.)| CHI_L after += GAM_MAG/DLN  | lines 11999-12009,   | VERIFIED correspondence at
+                          | (chi_hat)                   | used in DTAU/Q/SR    | the level of "effective
+                          |                            | (lines 12055,12059,  | opacity = chi + positive
+                          |                            | 12076-12088)         | coupling term": code's
+                          |                            |                     | chi_hat enters DTAU
+                          |                            |                     | (via KN_DTAU_INT_V1),
+                          |                            |                     | SR = ETA/chi_hat and
+                          |                            |                     | Q = GAM/(DLN*chi_hat),
+                          |                            |                     | matching the paper's role
+                          |                            |                     | of chi_hat in d tau =
+                          |                            |                     | chi_hat ds and in the
+                          |                            |                     | source denominators.
+PK_Q (off-diagonal wl      | B^-, B^+ coefficients      | KN_ORD_SPV, Q_L      | STRUCTURAL ONLY: the paper's
+coupling)                  | (Eqs. 19-21,26-28)          | construction          | wavelength-coupling matrix
+                          |                            |                     | elements carry alpha/beta/
+                          |                            |                     | gamma spatial weights AND
+                          |                            |                     | p_l^+/- factors; the code
+                          |                            |                     | collapses this to a single
+                          |                            |                     | Q multiplying the donor
+                          |                            |                     | intensity inside S'.
+                          |                            |                     | UNRESOLVED: whether the
+                          |                            |                     | omission of the spatial
+                          |                            |                     | quadrature weights is
+                          |                            |                     | exact for the piecewise-
+                          |                            |                     | linear source assumed, or
+                          |                            |                     | an approximation.
+B^diag (self-coupling)     | (no explicit equivalent)    | VNEW formula lines   | DIFFERENCE: Paper II Eqs.
+(1-B^diag)^-1 prefactor    |                            | 11280-11283          | 31-34 carry an explicit
+                          |                            |                     | (1-B^diag)^-1 where
+                          |                            |                     | B^diag contains the
+                          |                            |                     | S-tilde self-term
+                          |                            |                     | (~ -4 a_l I_l/chi_hat for
+                          |                            |                     | xi=1). The code's S'
+                          |                            |                     | contains NO FLD(J,L)
+                          |                            |                     | self-term for expanding
+                          |                            |                     | rows, so its analogue of
+                          |                            |                     | B^diag is zero and the
+                          |                            |                     | prefactor is 1. UNRESOLVED:
+                          |                            |                     | whether the code's
+                          |                            |                     | splitting (self-coupling
+                          |                            |                     | folded entirely into
+                          |                            |                     | chi_hat) is algebraically
+                          |                            |                     | equivalent to the
+                          |                            |                     | paper's xi choice, or a
+                          |                            |                     | different (possibly
+                          |                            |                     | Paper-I-style) splitting.
+PK_A0..PK_A4 (formal        | alpha/beta/gamma-type      | lines 12129-12144,    | STRUCTURAL: both are
+solution coefficients)     | exponential-integral       | EEL/E0-E3 moments    | exponential-integral
+                          | weights over DTAU          |                     | weights over segment
+                          |                            |                     | optical depth; the paper
+                          |                            |                     | cites Olson & Kunasz
+                          |                            |                     | (1987)/Hauschildt (1992)
+                          |                            |                     | for the same family.
+                          |                            |                     | UNRESOLVED: term-by-term
+                          |                            |                     | mapping (the code's A1/A2
+                          |                            |                     | two-node source weights
+                          |                            |                     | vs the paper's
+                          |                            |                     | alpha/beta/gamma on
+                          |                            |                     | i-1,i,i+1 nodes) - the
+                          |                            |                     | stencils are organised
+                          |                            |                     | differently (parabola
+                          |                            |                     | correction vs linear
+                          |                            |                     | interpolation).
+Lagged C-corner (i+1,l-1)   | SPW preview + KN_ORD_DS     | KN_ORD_SPW_FILL      | VERIFIED correspondence:
+(n) in Eqs. 31-32           | slopes at marching front    | line 11259,          | Paper II Eqs. 31-32
+                          |                            | KN_ORD_DS 10759      | explicitly keep the
+                          |                            |                     | spatial-downwind /
+                          |                            |                     | wavelength-upwind corner
+                          |                            |                     | at iteration (n); the
+                          |                            |                     | code's comment at
+                          |                            |                     | 10808-10816 says the
+                          |                            |                     | same. This is the one
+                          |                            |                     | place lag is BY DESIGN
+                          |                            |                     | in both formulations.
+L = 1 boundary              | L=1 branch: Q=0, plain chi  | lines 11900-11976,   | DIFFERENCE/OPEN: the
+                          | for expanding; increment    | KN_ORD_SPV L>1 guard | paper's p_l coefficients
+                          | kept for compressing        | line 10686           | are defined for interior
+                          |                            |                     | l; edge treatment is not
+                          |                            |                     | specified in the excerpted
+                          |                            |                     | equations. Whether the
+                          |                            |                     | code's asymmetric L=1
+                          |                            |                     | handling matches the
+                          |                            |                     | paper's boundary closure
+                          |                            |                     | is UNRESOLVED.
+
+Algebra status: no claim is made that the code's discrete
+equation is algebraically identical to Paper II Eqs. 2, 11-17,
+19-30. The correspondence established is at the level of
+structures (signed coupling -> upwind donor; positive gradient
+term -> effective opacity; lagged downwind corner; exponential
+weights). The term-by-term algebraic identity is UNRESOLVED and
+is listed as open question U2.
+
+------------------------------------------------------------------------
+A3. SIGNED-Q HYPOTHESIS - REASSESSED (supersedes section 5.3 and
+    defect candidate D3)
+------------------------------------------------------------------------
+
+Original candidate D3 proposed that CHI_L could go negative on an
+expanding row, flipping the sign of the signed-Q coupling while
+compressing rows keep |Q|. Inspection of the guards shows this
+cannot happen at the point where PK_Q is computed:
+
+- For L > 1: CHI_L is incremented by GAM_MAG/DLN (line 11999),
+  then IMMEDIATELY re-guarded: any non-finite or CHI_L < 1e-30 is
+  reset to 1e-30 (lines 12002-12009) BEFORE Q_L is recomputed at
+  line 12055. DLNM_L is likewise guarded > 0 (lines 11992-11996).
+- For L = 1: CHI_L guarded >= 1e-30 at lines 11903-11908 before
+  any use.
+- Therefore at every Q_L evaluation, chi_hat >= 1e-30 > 0,
+  DLN > 0, and for expanding rows GAM > 0 -> PK_Q > 0 strictly.
+- GAM_MAG = |GAM| >= 0 by construction (lines 78, 3566), so the
+  opacity increment is non-negative; chi_hat >= chi whenever the
+  increment applies (chi itself could in principle be small but
+  the guard floors the sum).
+
+CONCLUSION: negative CHI_L at the PK_Q computation is impossible
+under the current guards. PK_Q is strictly positive on every
+expanding coupling cell. The signed-vs-ABS asymmetry between the
+two SPV branches is therefore MOOT for ray 83 (and for any model
+with chi_hat > 0): both branches produce a positive coupling
+coefficient. D3 is REMOVED as an active defect candidate. It is
+retained only as a note that IF a future code path computed Q
+before the chi_hat guard, the sign asymmetry would matter.
+
+------------------------------------------------------------------------
+A4. PERIOD-2 CLAIM - REASSESSED (supersedes sections 6.3, 7 mechanism
+    framing)
+------------------------------------------------------------------------
+
+Phase 5.2 measured a persistent bounded oscillatory residual
+plateau (RES ~ 0.57-0.80, excursions ~3.3, quantised across 70
+refreshes). That is the MEASURED result [M]. The original audit
+then asserted a "period-2-like limit cycle of the damped map" and
+used RES ~ 0.6 at OMEGA = 0.45 to infer an orbit amplitude ~0.3.
+That inference is NOT established:
+
+- RES is a max-norm scalar of the undamped defect |G(x)-x|. A
+  scalar residual history cannot establish periodicity of the
+  full intensity vector x in (NI x NCF) space.
+- The orbit-amplitude estimate assumed a strict period-2 orbit
+  with alternating sign of G(x)-x; a higher-period orbit, a
+  quasi-periodic orbit, or a noisy bounded non-convergent
+  trajectory can produce the same scalar history.
+- Correct distinction: for a candidate period-p orbit, the
+  relevant quantities are the FIELD-LEVEL distances
+        d1_n = ||x_n - x_{n-1}||
+        d2_n = ||x_n - x_{n-2}||
+        (and d_p for the candidate period p)
+  Periodicity requires d_p -> 0 while d1 stays bounded away
+  from 0. The orbit amplitude about the midpoint is
+  (x_n - x_{n+p/2})/2 for even p - NOT the same as the
+  pass-to-pass distance d1. The original text conflated these.
+
+REQUIRED TELEMETRY (design only, not implemented):
+- Snapshot FLD_P (or a reduced probe set) at pass end for the
+  probe ray; compute ||x_n - x_{n-k}|| for k = 1,2,3,4 under a
+  FIXED normalisation (e.g. divide by the pass-start VMAXF(L)
+  snapshot from the SAME pass index, or by a stored reference
+  field - VMAXF(L) itself changes between passes because it is
+  recomputed from the current FLD each pass, line ~10930).
+- Compare update-vector signs: sign(VNEW - VOLD) per cell across
+  consecutive passes; a period-2 mode shows systematic sign
+  alternation in the same cells.
+- Localise the update vector: report argmax of |x_n - x_{n-1}|
+  in (J,L) and compare with the RES argmax (j in {1,2}).
+- Acceptance for calling it period-2: d2_n / d1_n -> 0 while
+  d1_n stays O(0.1-1) of its running mean, sustained over >= 10
+  passes, on the full field (not just the argmax cell).
+
+Until such telemetry exists, the correct statement is:
+"persistent bounded oscillatory residual plateau; periodicity
+class unresolved; period-2 is a hypothesis, not a measurement."
+
+------------------------------------------------------------------------
+A5. M-STORE CLAIMS - SEPARATED (supersedes section 7 mechanism A
+    wording)
+------------------------------------------------------------------------
+
+The original audit wrote that "M converges because its retained
+store was already at the fixed point and/or its coupling
+structure differs; P's retained store was NOT at the fixed
+point." Only part of that is supported:
+
+FACTS [M]:
+- M converges in 2 passes every refresh (IXIT_M = 1, res ~ 4e-8).
+- M's retained store shows no identified anomaly comparable to
+  the P-channel store discrepancy documented in Phase 5.2.
+- IM_NI (M's inner-boundary row) is consumed by P as a fixed
+  boundary; its accuracy inherits M's convergence.
+
+NOT ESTABLISHED:
+- M's initial distance from its own fixed point is NOT
+  independently known. Two passes to tolerance is consistent
+  with EITHER a store already near the fixed point OR a
+  strongly contractive map OR a loose effective tolerance for
+  that channel. The data do not distinguish these.
+- No measurement demonstrates that the P store anomaly is the
+  CAUSE of the P non-convergence rather than a co-symptom.
+
+Corrected mechanism wording: the M/P asymmetry is an OBSERVED
+fact; its explanation is OPEN. Candidate explanations
+(store proximity, coupling structure, boundary role) are
+hypotheses to be tested (T9 revised below), not conclusions.
+
+------------------------------------------------------------------------
+A6. OUTER RADIAL ENDPOINT ANALYSIS (new candidate mechanism -
+    distinct from L=1 frequency closure)
+------------------------------------------------------------------------
+
+The P residual argmax sits at j in {1,2} - the OUTER/escape edge
+(corrected orientation, original section 4.1). The outermost
+point j=1 is computed by the interior VNEW formula; its source
+reconstruction differs from interior rows through KN_ORD_DS's
+R=1 endpoint branch (lines 10762-10772):
+
+    SA = KN_ORD_SEC(1,L) = (S'(2,L) - S'(1,L)) / DTAU(1,L)
+    SB = KN_ORD_SEC(2,L) = (S'(3,L) - S'(2,L)) / DTAU(2,L)
+    TDT = DTAU(1,L) + DTAU(2,L)
+    DD = SA + (SA - SB) * DTAU(1,L)/TDT        (slope extrapolation)
+    DS(1,L) = (SIGN(SA)+SIGN(DD)) * MIN(|SA|, 0.5*|DD|)
+
+- SA, SB are secant slopes of S' between rows (1,2) and (2,3);
+  all three S' values are fresh within the pass at the time
+  J=1 is processed (rows 2,3 solved earlier; SPJ(1,L) computed
+  in row 1's own L-loop before KN_ORD_DS(1,L) is called).
+- DD extrapolates the slope trend one half-cell beyond row 1;
+  the 0.5 factor damps the extrapolated magnitude; the
+  (SIGN(SA)+SIGN(DD)) factor ZEROES DS when the extrapolated
+  slope reverses sign relative to SA (opposite signs -> 0).
+- When signs agree, |DS(1)| = min(2|SA|, |DD|) - up to twice
+  the first secant magnitude. The parabola correction enters
+  VNEW(1,L) as -DSD*A4(1,L); A4 is O(DTAU) for thin cells, so
+  the correction is bounded by ~2*secant*DTAU ~ O(S' jump)
+  across the first two cells.
+- At J=2: DSD = KN_ORD_DS(2,L) uses the INTERIOR branch
+  (secants SEC(1), SEC(2), weighted DD, three-way min with
+  0.5|DD|); DSU = KN_ORD_DS(3,L) likewise. So the j=1/j=2
+  residual asymmetry is plausible: j=1 carries the endpoint
+  extrapolation while j=2 carries the interior clamp.
+- Error entering from j=2 can be AMPLIFIED at j=1 only through
+  the S'(1),S'(2),S'(3) secants and the A-coefficient weights;
+  the sign/min clamps bound but do not eliminate this path.
+  Whether the endpoint formula is consistent with Paper II's
+  boundary treatment: Paper II does not specify the spatial
+  endpoint closure in the excerpted equations (the alpha/beta/
+  gamma coefficients at i=1,i=ni come from Olson & Kunasz 1987 /
+  Hauschildt 1992); the monotonic-parabola DS is CMFGEN's own
+  construction in the spirit of SLOPES. CONSISTENCY UNRESOLVED.
+
+This is registered as a DISTINCT candidate mechanism (M-ENDPOINT
+below), not merged with the L=1 frequency-boundary question.
+
+------------------------------------------------------------------------
+A7. REVISED TEST ACCEPTANCE CRITERIA (supersedes T1, T5, T6, T9)
+------------------------------------------------------------------------
+
+T1 (manufactured expanding-only problem) - REVISED:
+  Build a discrete manufactured problem on the SAME grid and
+  SAME coefficient machinery (PK_A*, PK_Q, PK_SR, DTAU, SPW/DS
+  stencils). Two acceptance levels:
+    (a) Discrete manufactured solution: choose FLD* satisfying
+        the discrete equations exactly (solve the linear system
+        or construct forcing), verify one undamped pass returns
+        FLD* to roundoff and RES -> 0 under iteration.
+    (b) Continuous analytic solution: if used, acceptance is
+        agreement to the DISCRETISATION error (measured by grid
+        refinement), NOT roundoff. Roundoff-level agreement with
+        a continuous solution is impossible where spatial or
+        frequency truncation error exists and would falsely
+        indicate a defect.
+
+T5 (frequency-grid refinement) - REVISED:
+  Refinement alone cannot identify a mechanism. Required
+  accompanying measurements at each resolution:
+    - chi_hat(J,L) and Q(J,L) fields (does the coupling
+      strength per bin stay constant, grow, or shift?)
+    - effective optical depth per frequency bin
+    - residual SHAPE: argmax (J,L) distribution, not just the
+      scalar max
+    - convergence behaviour: passes to exit, OMEGA trajectory,
+      plateau level
+  Acceptance: a mechanism hypothesis is supported only if the
+  predicted scaling (e.g. cycle amplitude ~ f(NCF)) matches;
+  otherwise refinement is diagnostic, not discriminating.
+
+T6 (computed vs reconstructed residual) - REVISED:
+  A finite-difference Jacobian-vector product must replay the
+  COMPLETE ordered sweep from perturbed initial field states:
+  perturb FLD_P by eps*direction, run the full SWEEP_FLD_ORD
+  (boundary + all rows + all frequencies, fixed PK coefficients
+  and fixed IM_NI), measure ||G(x+eps*d)-G(x)||/eps. Perturbing
+  one local VNEW calculation measures a single stencil row, not
+  the sweep Jacobian - the GS ordering makes the Jacobian
+  non-local through the fresh-donor dependencies.
+  Acceptance: Jv product consistent with two independent eps
+  values (eps and eps/10 agree to truncation level); residual
+  reconstruction agrees with reported RES to roundoff.
+
+T9 (retained-store sensitivity) - REVISED:
+  Different seeds probe sensitivity to initial condition and
+  possible basins of attraction; they CANNOT by themselves
+  establish the causal origin of the historical store anomaly.
+  Required for the causal claim:
+    - an INDEPENDENT reference solution for the P field on ray
+      83 (e.g. a fully-converged single-ray solve by a
+      different method - dense direct solve of the discrete
+      system, or many more undamped iterations with a
+      verified-contractive variant), against which both the
+      retained store and the sweep endpoint are compared;
+    - demonstration that the store anomaly persists when the
+      sweep is started from the reference solution (isolating
+      store-vs-sweep causality).
+  Without the reference solution, T9 output is labelled
+  "seed sensitivity", not "cause".
+
+------------------------------------------------------------------------
+A8. UPDATED MECHANISM RANKING
+------------------------------------------------------------------------
+
+Confidence is assigned to the HYPOTHESIS, not to plausibility.
+No mechanism is demonstrated; no code defect is proven.
+
+M1. Non-contractive frequency/radial GS map [H, leading]
+    The S' = SR + Q*I_donor term makes G implicit; where Q is
+    large the undamped map can have spectral radius > 1 or
+    real eigenvalues < -(2/OMEGA-1), producing bounded
+    oscillation under damping + nonlinear floors. Consistent
+    with: persistent plateau, OMEGA floor, broad bad-cell
+    census. NOT demonstrated: no J_G estimate exists.
+    Tests: T1, T3, T6, T9.
+
+M2. Lagged C-corner coupling at the marching front [H]
+    By-design lag (Paper II Eqs. 31-32 analogue) injects
+    one-pass-old S' at leading-edge rows; the argmax sits at
+    the outer edge where the front terminates. Could sustain
+    a two-pass mode but is also present in convergent M/P
+    solves elsewhere. Tests: T7, T6.
+
+M3. Outer radial endpoint reconstruction [H, NEW]
+    KN_ORD_DS R=1 extrapolation can produce |DS| up to 2x the
+    first secant; interacts with A4 weighting at j=1. A
+    plausible amplifier for error arriving from j=2 but the
+    clamps bound it. Consistency with Paper II boundary
+    closure unresolved. Tests: manufactured endpoint problem,
+    T5 residual-shape.
+
+M4. Effective-opacity / wavelength-coupling discretisation
+    mismatch [H, downgraded]
+    chi_hat = chi + |GAM|/DLN is applied for ALL L>1 coupling
+    cells (corrected A1); the remaining question is whether
+    |GAM|/DLN == a_l*p_l^| and whether the single-Q source
+    splitting (vs paper's A/B/C + Delta-I) is exact. This is
+    now a FORMULATION question, not a sign/opacity bug.
+    Tests: algebraic comparison (U2), T1.
+
+M5. L=1 frequency boundary closure [H, narrowed]
+    Expanding L=1 drops both the donor AND the opacity
+    increment; compressing L=1 keeps the increment. Asymmetric
+    but arguably consistent (no donor exists). Effect on ray
+    83 likely small (argmax L interior). Tests: T2 zero-GAM,
+    edge-sensitive manufactured case.
+
+M6. Nonlinear positivity floor / upper cap [H, low]
+    VNEW < 0 -> 1e-30 and CAP = 1e20 are nonsmooth; if they
+    fire during the cycle they can sustain relaxation
+    oscillation. P2_DAMP is OFF by default. UNVERIFIED:
+    per-pass NNEG/NCAP not in probe telemetry (gap D5 stands).
+
+M7. Inner boundary condition via IM_NI [H, low]
+    I_P(NI) relaxed toward I_M(NI) assumes equality of the two
+    streams at the inner boundary. If the true fixed point
+    requires I_P != I_M there, a persistent boundary defect
+    propagates outward. Argmax is NOT at j=NI, so any effect
+    must amplify along the march. Tests: T4 perturbation.
+
+Ordering rationale: M1-M3 are the only mechanisms that act
+AT the observed argmax location (outer edge) with the right
+qualitative signature (bounded oscillation). M4-M7 are either
+upstream formulation questions or weaker local effects.
+NONE is assigned HIGH confidence; all require the proposed
+tests.
+
+------------------------------------------------------------------------
+A9. UNRESOLVED MATHEMATICAL QUESTIONS
+------------------------------------------------------------------------
+
+U1. Does J_G (the sweep Jacobian, including fresh-donor GS
+    couplings and the lagged C-corner) have spectral radius
+    or damped-iteration stability boundary compatible with the
+    observed plateau? Requires T6 finite-difference probing or
+    a reduced single-ray dense solve.
+
+U2. Algebraic identity between the code's discretisation and
+    Paper II Eqs. 2, 11-17, 19-30: specifically whether
+    |GAM|/DLN == a_l*p_l^|, whether Q == the paper's
+    wavelength-coupling coefficient including alpha/beta/gamma
+    spatial weights, and whether omitting the S-tilde self-term
+    (B^diag = 0 in the code) is an exact splitting or an
+    approximation. Requires term-by-term algebra or a
+    manufactured comparison.
+
+U3. Should the L=1 expanding cell retain the |GAM|/DLN
+    opacity increment even though the donor is absent? The
+    paper's chi_hat depends on p_l^| which exists at the edge;
+    the code drops it for expanding L=1 but keeps it for
+    compressing L=1. Consistency with Paper II edge treatment
+    unresolved (paper excerpt does not specify l=1 closure).
+
+U4. Is the j=1 endpoint slope formula (KN_ORD_DS R=1 branch)
+    consistent with the boundary closure the paper's
+    alpha/beta/gamma coefficients imply at i=1? The paper
+    cites Olson & Kunasz (1987)/Hauschildt (1992) for those
+    coefficients; the code's monotonic-parabola DS is a
+    different (CMFGEN-native) construction.
+
+U5. Periodicity class of the P orbit: period-2 vs higher
+    period vs quasiperiodic vs noisy bounded trajectory.
+    Requires the field-level telemetry defined in A4.
+
+U6. Causal direction between the retained-store anomaly and
+    the sweep non-convergence: does the store anomaly cause
+    the cycle, does the cycle cause the anomaly, or are both
+    symptoms of an upstream defect (e.g. coefficient or
+    boundary construction)? Requires the independent
+    reference solution defined in T9.
+
+U7. Sign convention mapping between the paper's wavelength
+    grid (lambda ascending) and the code's frequency grid
+    (nu ascending): whether "upwind at l-1" in the paper
+    corresponds to "donor at L-1" in the code for expanding
+    flow, including the lambda<->nu reversal. Structural
+    consistency is established; the index-direction algebra
+    is not yet written out.
+
+------------------------------------------------------------------------
+A10. WHAT THE CORRECTED AUDIT ESTABLISHES
+------------------------------------------------------------------------
+
+Verified code behaviour [V]:
+- chi_hat = chi + |GAM|/DLN applied to ALL L>1 coupling cells
+  (expanding and compressing); plain chi + no coupling only
+  for expanding L=1.
+- PK_Q strictly positive on expanding coupling cells; the
+  signed/ABS asymmetry cannot flip sign under current guards.
+- SPW ring is a consistent shift register; residual is the
+  undamped defect pre-relaxation; OMEGA floor 0.45.
+- KN_ORD_DS endpoint formulas and their clamps, as written
+  in A6.
+
+Measured behaviour [M]:
+- Persistent bounded oscillatory residual plateau ~0.6-0.7
+  with excursions ~3.3; argmax j in {1,2} (OUTER edge);
+  broad L distribution; M converges in 2 passes.
+
+Hypothesised [H]: all seven mechanisms M1-M7; none demonstrated.
+Demonstrated defect [D]: NONE.
+
+The audit does NOT establish that any production change is
+warranted. The next authorised step is the test programme
+(T1-T10 revised) after ChatGPT reviews this corrected
+correspondence.
