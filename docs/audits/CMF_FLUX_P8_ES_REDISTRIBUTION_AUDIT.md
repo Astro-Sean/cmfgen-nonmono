@@ -317,7 +317,7 @@ emissivity; the observer-frame transfer receives the folded
 emissivity and adds nothing further; the coherent limit reduces
 to `sigma*J` consistently on both sides. The folding algebra
 is now backed by the executable battery in section 8.5
-(75 checks, all passing at the measured tolerances) plus the
+(87 checks, all passing at the measured tolerances) plus the
 static call-chain verification in sections 6-7.
 
 **Unresolved questions / audit items:**
@@ -395,7 +395,7 @@ manufactured emissivities through the real `OBS_FRAME_SUB_V9`
 (V=0 static atmosphere, ND=4); `drv_es_seq.f` exercises the ES
 iteration ordering; `drv_knop_guard.f` drives the production
 store reader + `RD_CMF_FLUX_CONTROLS`. Harness:
-`unit_tests/python/test_es_conv.py`, 75/75 PASS. Production
+`unit_tests/python/test_es_conv.py`, 87/87 PASS. Production
 tree sources link as the exact `.o` files the production
 executables use (`compile_and_link_prod`, ifort `-qopenmp`,
 MKL sequential); only drivers and the `obs_v9_adapter` shim
@@ -425,18 +425,25 @@ asserted for the implementation; the measured integrated-excess
 drift below is the honest characterization.
 
 Boundary treatment (from source, `comp_j_conv_v2.f:249-258,
-302-354`): rows 1 and NCF of the tridiagonal operator use the
-one-sided stencil `-2/(ln(nu_1/nu_2))^2` (and the symmetric
-form at NCF); the wavelength shift is derived only on the Wien
-side (`NU(I) > 1.5*TEMP(K)`), applied to all lower frequencies
-as a uniform wavelength offset; the interpolation back onto
-the grid skips both end points explicitly (the source comment
-notes the endpoints scatter coherently); interior edge points
-extrapolate if needed; the whole log-space shift/interp/rescale
-block is gated on `MINVAL(PLANCK_FN)>0 .AND. MINVAL(PLANCK_ES)>0`
-(`:302`), so a depth whose scaled Planck underflows to exactly 0
-escapes the rescale entirely. This is the treatment the `bnd`
-test measures.
+302-380` post-fix): rows 1 and NCF of the tridiagonal operator
+use the one-sided stencil `-2/(ln(nu_1/nu_2))^2` (and the
+symmetric form at NCF); the wavelength shift is derived only
+on the Wien side (`NU(I) > 1.5*TEMP(K)`), applied to all lower
+frequencies as a uniform wavelength offset; the interpolation
+back onto the grid runs `ML=2,NCF-1`; nodes whose shifted
+bracket still contains the forced `PLANCK_NU(1)=NU(1)` value
+(final `I=1`) and the upper endpoint itself receive NO shift
+and NO rescale - `PLANCK_ES=PLANCK_FN` (factor unity) and the
+raw convolved `J_ES` stands, because no genuine shifted
+`PLANCK_ES` exists there and the `B/B_es` ratio is then not a
+calibration (sec 8.5.1). The lower endpoint keeps its raw
+`PLANCK_ES` (a benign ~unity factor on the smooth
+Rayleigh-Jeans side). Interior edge points extrapolate if
+needed; the whole log-space shift/interp/rescale block is
+gated on `MINVAL(PLANCK_FN)>0 .AND. MINVAL(PLANCK_ES)>0`
+(`:302`), so a depth whose scaled Planck underflows to
+exactly 0 escapes the rescale entirely. This is the treatment
+the `bnd` test measures.
 
 Feature coordinate note: the manufactured line feature is a
 Gaussian in nu, while the operator acts in ln nu. The local
@@ -448,15 +455,17 @@ in ln nu at 1e4 K) is far below the grid cell; this battery
 resolves the FEATURE, not the kernel, and no kernel-width
 claim is made.
 
-Measured battery results (75/75 PASS):
+Measured battery results (87/87 PASS):
 
 | case | result |
 | --- | --- |
 | planck `J=B(T)` | max rel 1.46e-5, rms 1.28e-6 (significant-J support; Wien-underflow masked) |
-| const | Jbar >= 0; B/B_es rescale documented; 3 zeros at Wien edge |
+| const | Jbar >= 0; B/B_es rescale documented; 0 zeros at Wien edge |
 | linepair 256 | peak 3.9986e-4 -> 3.9978e-4; core -7.5e-8 / wing +2.1e-8; max|dexc|/pk 2.25e-4; full-domain integrals below; no ringing |
 | linepair 512 | peak 3.9983e-4 -> 3.9975e-4; core -7.5e-8 / wing +2.3e-8; max|dexc|/pk 2.26e-4; resolution-consistent |
-| bnd 256/512 | interior vs extended max 1.30e-4/1.34e-4; lower edge max 1.0e-4/2.0e-4, rms 4.2e-5/8.1e-5 (nsig=24, maxratio <=1.0002, <=2 sign changes); upper edge suppression ~1.0 (documented limitation, below) |
+| bnd 256/512 | interior vs extended max 1.30e-4/1.34e-4; lower edge max 1.0e-4/2.0e-4, rms 4.2e-5/8.1e-5; upper edge endpoint 8.3e-3/1.6e-2, feature preserved (sec 8.5.1) |
+| wcp 256/512 | Wien-dead non-Planck continuum: top nodes vs ext max 2.2e-4/1.8e-2; out/in bounded [1.00,1.52] |
+| swp nu0=299.5..200 | feature peak ratio 0.983-0.999 at all positions incl. ~0.5 cells from endpoint |
 | edge (step) | max rel 9.1e-4, no ringing |
 | tempu 5e3/1e4/5e4 K (uniform T) | max 1.55e-4 / 1.82e-13 / 4.46e-14; beta/B_L reported per case; same mask for max and rms |
 | pos (zeroed interior band) | Jbar >= 0 |
@@ -494,62 +503,99 @@ differs from the production-grid exc_out by max 8.1e-4 (256) /
 on an interior feature is ~1e-3, an order below the feature
 itself.
 
-### 8.5.1 Upper-edge Wien-rescale suppression (measured limitation)
+### 8.5.1 Upper-edge Wien-rescale suppression (diagnosed, corrected)
 
 The live-feature boundary test exposed a real production
-behaviour, confirmed against the extended-domain reference:
+defect, confirmed against the extended-domain reference and
+corrected in `comp_j_conv_v2.f` (this commit):
 
 - With a significant field alive at the upper production bound
   (manufactured Gaussian at nu~260, amplitude ~0.5), the
-  production-grid Jbar at the high-nu end is suppressed to
-  <=1e-2 of the extended-domain result at T >= 1e4 K; at
-  T = 2e4 K and 1e4 K the output is crushed to ~1e-82 and
-  ~1e-273 respectively (max rel discrepancy 1.0).
-- The suppression is one-sided: the signed production-minus-
-  extended difference is <= 0 at every significant node (max
-  output/input ratio 1.0017, from the T=0.5e4 row), with <= 2
-  sign changes - no amplification and no ringing.
-- The depth where the scaled Planck underflows to exactly 0
-  (T=0.5e4) escapes the rescale entirely per the
-  `MINVAL(PLANCK_FN)>0` gate at `comp_j_conv_v2.f:302`, and
-  there the production and extended results agree to <=2e-4.
+  pre-fix production-grid Jbar at the high-nu end was
+  suppressed to <=1e-2 of the extended-domain result at
+  T >= 1e4 K; at T = 2e4 K and 1e4 K the output was crushed
+  to ~1e-82 and ~1e-273 respectively (max rel discrepancy 1.0).
+- The suppression was one-sided (no amplification, no
+  ringing), and the depth whose scaled Planck underflows to
+  exactly 0 (T=0.5e4) escaped the rescale per the
+  `MINVAL(PLANCK_FN)>0` gate and agreed to <=2e-4.
 
-Mechanism (source-traced, `comp_j_conv_v2.f:302-354`): in the
-Wien-dead zone the Helmholtz-solved `B_es` at the endpoint is
-enormously larger than `B` (smeared fill of the dead tail;
-B_es ~ 1e60-1e300 vs B ~ 1e-100-1e-300). Interior nodes are
-corrected by the wavelength shift - `PLANCK_NU` is derived by
-matching `PLANCK_ES` to `PLANCK_FN`, so the shifted B_es ~
-B and the rescale factor ~ 1. The two endpoint nodes are
-explicitly not interpolated ("coherent scattering"), so they
-keep the unshifted `ln B_es`; the final
-`EXP(J_ES + PLANCK_FN - PLANCK_ES)` then applies
-`exp(ln B - ln B_es)` ~ e^-280, crushing J at and smoothly
-inward of the endpoint wherever B is denormal (measured
-penetration to nu ~ 15-20 at T=5e4, recovering at significant
-B). On the extended grid the same nodes are interior, receive
-the shifted correction, and the field survives.
+Mechanism (source-traced, pre-fix `comp_j_conv_v2.f:302-354`):
+in the Wien-dead zone the Helmholtz-solved `B_es` at the
+endpoint is enormously larger than `B` (measured B_es ~ 1e-38
+vs B ~ 1e-57 at T=5e4; ~1e62 vs ~1e-316 at T=1e4). Two
+coupled defects followed:
 
-Classification: a documented production limitation, not a
-test-harness artifact - the discrepancy is suppression-only,
-non-negative, non-ringing, and reproduced at both
-resolutions. The test asserts the bounded suppression-only
-character (no amplification, <=3 sign changes, finite,
-non-negative) and reports the magnitude; it does not conceal
-the ~1.0 relative discrepancy with a tolerance.
+1. `PLANCK_NU(1)=NU(1)` is FORCED, not derived - the endpoint
+   anchor violates the `ln B_es(NU) = ln B(PLANCK_NU)`
+   relation the interior map satisfies by construction.
+2. The log-interpolation runs `ML=2,NCF-1`; the endpoint and
+   the nodes whose shifted bracket `[PLANCK_NU(I),
+   PLANCK_NU(I+1)]` still contains the forced value (final
+   `I=1`, i.e. `NU(ML) > PLANCK_NU(2)`) therefore keep or
+   interpolate against the unshifted `ln B_es`, while the
+   final `EXP(J_ES + PLANCK_FN - PLANCK_ES)` applies the
+   `B/B_es` factor to ALL nodes. The corrupted zone is
+   contiguous at the top (measured: nu >= 248, 6 nodes at
+   NCF=256; nu >= 283, 4 nodes at NCF=512 - identical to the
+   `|logF|>0.01` set). For a Planck input the endpoint factor
+   is algebraically exact (J_es = B_es divides back out), so
+   the defect is invisible to the LTE test but destroys any
+   non-Planck field by ~1e-20 to ~1e-280.
 
-Follow-up candidate (production-side, NOT implemented): in
-the Wien-dead regime the rescale multiplies a live J feature
-by a Planck ratio defined by underflow-denormal B values -
-the B/B_es correction was designed to fix residual errors of
-the fitted convolution at significant B, and its validity
-does not extend to the denormal-Planck zone. A guarded
-treatment would need a derivation - e.g. extend the
-wavelength-shift interpolation to the endpoint nodes, or mask
-the rescale where `B` is denormal - plus a regression against
-the extended-domain reference. Any such change alters stock
-behaviour in the Wien-dead zone and belongs to a separate
-gate, not P8.1.
+Options evaluated against the extended-domain reference:
+
+- Extend the shift interpolation to the endpoints (rejected):
+  the endpoint's correct shifted position is off the grid.
+  Deriving PLANCK_NU(1) gives nu~252 (NCF=256, T=5e4) - the
+  smeared B_es is smallest AT the boundary, so no on-grid
+  node supplies B_es(NU1) = B(NU1). Naive extension
+  extrapolates the log-interp with weight T1 = -9.7 and still
+  suppresses the live field by a factor ~360 - uncontrolled
+  extrapolation, exactly the failure the boundary condition
+  warns about.
+- Restrict the rescale where the shifted evaluation is not
+  genuine (selected): at the endpoint and the I=1-bracket
+  nodes no valid shifted `PLANCK_ES` exists, so the `B/B_es`
+  factor is not a calibration - it is the convolution's own
+  boundary error applied to an arbitrary J. Setting
+  `PLANCK_ES = PLANCK_FN` (factor unity) and `J_ES = A(ML)`
+  (the raw convolved value) there reproduces the
+  extended-domain treatment: on the extended grid the same
+  nodes sit inside the domain and, when B underflows at the
+  extended top, the whole block is skipped and the output is
+  the raw J_ES.
+- Consistent endpoint treatment on both fields (equivalent
+  statement of the selected fix): where the map cannot
+  produce a genuine shifted evaluation, no calibration data
+  exists and the operator output stands.
+
+Corrected measurements (post-fix):
+
+| case | before | after |
+| --- | --- | --- |
+| bnd 256 upper edge | max rel ~1.0 (1e-20..1e-273 crush) | max 8.3e-3 (T=5e4), 3.4e-3/1.7e-3/8.4e-4 per T; endpoint 8.3e-3 vs ext |
+| bnd 512 upper edge | same suppression | endpoint 1.6e-2; corrupted-zone nodes raw (rel <=5e-8..1.6e-2); deeper Wien-side nodes carry the designed shift (zone bounded factor 0.69-1.02, not orders) |
+| wcp continuum (top nodes) | n/a | max 2.2e-4 (256) / 1.8e-2 (512) vs extended; out/in in [1.00,1.52] - bounded designed shift, no loss |
+| swp positions nu0=299.5..200 | n/a | peak ratio 0.983-0.999 at all positions incl. 0.5 cells from the endpoint; endpoint node ratio ~1.0 where significant |
+| planck sig support | 1.46e-5 | 1.46e-5 (unchanged; masked dead nodes now emit raw B_es) |
+| const Wien zeros | 3 | 0 |
+
+Residual, documented: at the endpoint a Planck input now
+returns the convolved B_es (~1e-38 at T=5e4) instead of the
+algebraically-exact B (~1e-57) - LTE invariance is traded for
+non-thermal preservation only where both values are denormal
+(emitted field ~1e-38 vs ~1e-57, both << any real field). The
+interior Wien-side wavelength-shift distortion of non-Planck
+fields (up to ~50% on a steep ramp at nu~110, T=1e4) is the
+stock CMFGEN correction and is unchanged.
+
+Latent risk noted (pre-existing, unchanged): the PLANCK_NU
+match loops `DO WHILE(PLANCK_ES(I) .GT. PLANCK_FN(ML))` /
+`.LT. PLANCK_FN(ML-1)` at `:310-315` carry no `ML <= NCF`
+bound; if `PLANCK_ES(I)` lies outside the entire `PLANCK_FN`
+range the index overruns the array. Not triggered on the
+manufactured or validation grids; recorded for P8.2.
 
 Test-harness lesson (driver fix, this round): the first
 linext run showed a spurious ~6.4e-4 excess band near nu~0.2
