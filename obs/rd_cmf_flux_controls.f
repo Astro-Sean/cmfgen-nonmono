@@ -242,6 +242,9 @@
 	  J_RESCUE=.FALSE.
 	  CALL RD_STORE_LOG(J_RESCUE,'J_RESCUE',L_FALSE,
 	1        'Restore previous J/f on continuum J blow-up?')
+	  RESC_JMAX=1.0D-3
+	  CALL RD_STORE_DBLE(RESC_JMAX,'RESC_JMAX',L_FALSE,
+	1        'Absolute stored-J ceiling for J_RESCUE')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
