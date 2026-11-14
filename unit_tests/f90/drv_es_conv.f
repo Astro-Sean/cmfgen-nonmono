@@ -888,24 +888,40 @@ C
       USE, INTRINSIC :: IEEE_ARITHMETIC
       IMPLICIT NONE
 C
-C Synthetic battery for ES_SHIFTED_RESCALE.  A valid map, a
-C truncated map (NPNU<NCF), a degenerate last bracket, a map
-C carrying a NaN node, a map with a non-positive node and a
-C one-node map are driven through the same object the convolver
-C calls.  JES is positive so the internal LOG is honest; PFN and
-C PES carry log-space ramps.
+C Synthetic battery for ES_SHIFTED_RESCALE, driven through the
+C same object the convolver calls.  JES is positive so the
+C internal LOG is honest; PFN and PES carry log-space ramps.
+C Nodes beyond NPNU are poisoned with NaN where the case claims
+C they are never touched: under -fpe0 any unordered compare on
+C them aborts, so the short-map cases double as access proofs.
 C
 C Columns: ICASE, ML, NU, PNU, JES_OUT, PES_OUT
 C ICASE list:
-C  1  valid full map NPNU=NB                    -> all interior
-C     nodes interpolated except the I=1 endpoint bracket
-C  2  truncated map NPNU=5: NU below PNU(5) is off-map
-C  3  duplicate last pair PNU(7)=PNU(8)=3: the zero-width bracket
-C     is only reachable at the walk cap, so it sits above the
-C     interior node NU=2 and lands there
-C  4  NaN at PNU(5): every bracket touching it is invalid
-C  5  PNU(4)<=0: every bracket touching it is invalid
-C  6  NPNU=1: no valid bracket anywhere - raw JES everywhere
+C  1  valid full map NPNU=NB: interior nodes interpolated,
+C     the I=1 endpoint bracket uncorrected
+C  2  NPNU=0: no map at all - every node raw, PNU never read
+C     (all of PNU poisoned with NaN)
+C  3  NPNU=1: no bracket exists - every node raw, PNU(2:NB)
+C     poisoned with NaN
+C  4  NPNU=2: only the endpoint bracket exists - every node
+C     uncorrected (I=1) or off-map; PNU(3:NB) poisoned
+C  5  truncated map NPNU=5: NU below PNU(5) is off-map
+C  6  NaN at PNU(5): the walk cannot cross it, so it and every
+C     node below take the uncorrected treatment
+C  7  +Inf at PNU(6): bracket touching it is invalid
+C  8  duplicate last pair PNU(7)=PNU(8)=3: the zero-width
+C     bracket lands at the walk cap
+C  9  non-monotone map, weight above 1 at the capped bracket:
+C     PNU(7) lifted above PNU(6) so NU=2 sits below the last
+C     pair and T1=4/3 - extrapolation, rejected
+C 10  non-monotone map, weight below 0 at the capped bracket:
+C     increasing last pair gives T1=-2 - extrapolation,
+C     rejected
+C 11  boundary-exact hits: NU(4)=PNU(4) and NU(6)=PNU(6) give
+C     T1=1 exactly (an exact node resolves in the lower
+C     bracket on a decreasing NU grid; T1=0 is unreachable
+C     through this walk, the [0,1] check covers both ends)
+C 12  PNU(4)<=0: every bracket touching it is invalid
 C
       CHARACTER(LEN=*) OUT_DIR
       INTEGER LU
@@ -918,7 +934,7 @@ C
      1     STATUS='UNKNOWN')
       WRITE(LU,'(A)')'# ICASE ML NU PNU JES_OUT PES_OUT'
 C
-      DO ICASE=1,6
+      DO ICASE=1,12
         DO ML=1,NB
           NU_B(ML)=NB+1.0_LDP-ML
           PNU_B(ML)=NU_B(ML)-0.5_LDP
@@ -927,15 +943,42 @@ C
           JES_B(ML)=5.0_LDP*ML
         END DO
         NPNU=NB
-        IF(ICASE .EQ. 2)NPNU=5
+        IF(ICASE .EQ. 2)THEN
+          NPNU=0
+          PNU_B(:)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        END IF
         IF(ICASE .EQ. 3)THEN
+          NPNU=1
+          PNU_B(2:NB)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        END IF
+        IF(ICASE .EQ. 4)THEN
+          NPNU=2
+          PNU_B(3:NB)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        END IF
+        IF(ICASE .EQ. 5)NPNU=5
+        IF(ICASE .EQ. 6)PNU_B(5)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        IF(ICASE .EQ. 7)PNU_B(6)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+        IF(ICASE .EQ. 8)THEN
           PNU_B(7)=3.0_LDP
           PNU_B(8)=3.0_LDP
         END IF
-        IF(ICASE .EQ. 4)PNU_B(5)=
-     1    IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
-        IF(ICASE .EQ. 5)PNU_B(4)=-1.0_LDP
-        IF(ICASE .EQ. 6)NPNU=1
+        IF(ICASE .EQ. 9)THEN
+          PNU_B(7)=4.0_LDP
+          PNU_B(8)=2.5_LDP
+        END IF
+        IF(ICASE .EQ. 10)THEN
+          PNU_B(5)=2.5_LDP
+          PNU_B(6)=2.6_LDP
+          PNU_B(7)=4.0_LDP
+          PNU_B(8)=5.0_LDP
+        END IF
+        IF(ICASE .EQ. 11)THEN
+          PNU_B(4)=5.0_LDP
+          PNU_B(6)=3.0_LDP
+        END IF
+        IF(ICASE .EQ. 12)PNU_B(4)=-1.0_LDP
         CALL ES_SHIFTED_RESCALE(NU_B,PNU_B,PFN_B,PES_B,JES_B,
      1    A_B,C_B,NB,NPNU,1)
         DO ML=1,NB
