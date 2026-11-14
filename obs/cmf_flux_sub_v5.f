@@ -144,6 +144,9 @@
 	REAL(KIND=LDP) T1,T2,T3,T4
 	REAL(KIND=LDP) FL,FL_OLD
 	REAL(KIND=LDP) FG_COUNT
+	INTEGER NRESC
+	INTEGER NES_SAN
+	LOGICAL F_DID_NOT_CONV
 !
 !
 ! REC_SIZE     is the (maximum) record length in bytes.
@@ -342,6 +345,8 @@
 	REAL(KIND=LDP) N_ON_J(NDMAX)
 	REAL(KIND=LDP) N_ON_J_PREV(NDMAX)
 	REAL(KIND=LDP) JNU_PREV(NDMAX)
+	REAL(KIND=LDP) RJ_OLD(NDMAX)
+	REAL(KIND=LDP) RESC_CAP
 	REAL(KIND=LDP) RSQHNU_PREV(NDMAX)
 	REAL(KIND=LDP) GEDD(NDMAX)
 	REAL(KIND=LDP) RSQHNU(NDMAX)
@@ -1510,15 +1515,18 @@
 ! accumulated inside the ML loop below:  integral(dB_nu/dT/chi dnu)
 ! = 7.2188e11*T^3/ROSS_MEAN.  A non-positive DTDR without valid
 ! Rosseland data falls through unchanged so the COMP_JCONT_V4 guard
-! below still catches it.
+! below still catches it.  mc170_H10 showed the same inversion hits
+! plain-BLANK renders: DTDR<0 there seeded DBB<0 and the inner-
+! boundary J ran away in the f iteration - J_RESCUE carries the
+! flag for that render class.
 !
-	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR. J_RESCUE) .AND.
 	1    DTDR .LT. 0.0_LDP)THEN
 	  IF(ROSS_MEAN(ND) .GT. 0.0_LDP .AND. STARS_LUM .GT. 0.0_LDP)THEN
 	    DTDR=STARS_LUM*7.2685E+11_LDP*ROSS_MEAN(ND)/
 	1       (7.218771E+11_LDP*R(ND)*R(ND)*(T(ND)**3))
 	    WRITE(LUER,*)
-	1      'Nonmono OBS: using luminosity-derived DTDR at IB =',DTDR
+	1      'OBS: using luminosity-derived DTDR at IB =',DTDR
 	  END IF
 	END IF
 ! 
