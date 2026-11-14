@@ -238,14 +238,15 @@
 !
 	REAL(KIND=LDP) :: DAMP_FJ=1.0_LDP
 !
-! J_RESCUE (default F): when the continuum J iteration exits with a
-! non-finite or exploding boundary J, restore the previous
-! frequency's converged J/f field, warn, and continue.  Guarantees
-! that a single stiff frequency cannot abort the render; degraded
-! frequencies are listed in the log.  Has no effect at the first
+! J_RESCUE (default T): when the continuum J iteration exits with a
+! non-finite or otherwise invalid J/f field, restore the previous
+! frequency's converged field, warn, and continue.  Guarantees
+! that a stiff frequency cannot abort the render or poison the
+! warm-start chain; degraded frequencies are listed in the log.
+! Dormant on converging models.  Has no effect at the first
 ! frequency (no previous field exists - the run still stops).
 !
-	LOGICAL :: J_RESCUE=.FALSE.
+	LOGICAL :: J_RESCUE=.TRUE.
 !
 ! RESC_JMAX (default 1e-3, code units): absolute ceiling on the
 ! stored continuum J used by the J_RESCUE cap.  Converged fields
