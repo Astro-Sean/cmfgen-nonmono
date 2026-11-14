@@ -9,8 +9,8 @@ Drivers (all call the REAL production routines):
   drv_es_conv   - COMP_J_CONV_V2 in 'J PASSED VIA CALL' mode.
     planck  J = B_nu(T): Jbar must recover B at depth; metric on
             the significant-J support only (Wien-tail underflow
-            masked - a relative error there measures denormal
-            noise, not the operator).
+            masked - a relative error there measures
+            subnormal-or-zero noise, not the operator).
     const   J = constant: documented B/B_es rescale response;
             assert non-negative and finite.
     linepair    J_cont = B(T) and J_line = B(T)+A*Gaussian, both
@@ -42,10 +42,27 @@ Drivers (all call the REAL production routines):
             log-space targets - valid, above/below range,
             floor-walk, degenerate, NaN/Inf, boundary-exact,
             persisted-ML.
+    cnt     synthetic ES_PLANCK_NU_CONT battery: valid anchors,
+            zero/negative/non-finite PNU and NU anchors, interior
+            NU defects, a forced non-positive denominator and a
+            single-node tail, through the production object.
+    itp     synthetic ES_SHIFTED_RESCALE battery: valid map,
+            truncated map (NPNU<NCF), degenerate last bracket,
+            NaN and non-positive map nodes, one-node map - every
+            interpolation-bracket validation path on the object.
     nanj    NaN at one node/depth: per-depth convolution skip +
             WARNING_LU diagnostic, field left visible.
     neg     signed convolved output: the MINVAL(J_ES) gate must
             fire before LOG(J_ES) can produce NaN.
+    nant    NaN TEMP at depth 2 with finite J: the convolved
+            J_ES/PLANCK_ES/PLANCK_FN go non-finite through the
+            real path; the IEEE gate must bypass the correction,
+            name the depth and fields, and leave J_ES visible.
+    inft    +Inf TEMP at depth 2: same non-finite gate.
+    zpf     TEMP at depth 2 cold enough that PLANCK_FN
+            underflows to exact zero at the Wien end while the
+            convolution stays real: the silent positivity
+            gate-skip must leave the raw convolved J_ES.
     tempu   J = B(T_TEST) with T(k)=T_TEST uniform: isolates the
             beta(T)=1.84E-3*sqrt(T) width dependence.
     edge    bound-free-like step: positivity, recorded max rel.
@@ -337,9 +354,44 @@ def main():
     run(conv_bin, out_dir, "lte", "256", cwd=out_dir)
     # Synthetic bracket battery on the production match routine.
     run(conv_bin, out_dir, "brk", cwd=out_dir)
+    # Synthetic continuation and interpolation batteries on the
+    # production object code.
+    run(conv_bin, out_dir, "cnt", cwd=out_dir)
+    run(conv_bin, out_dir, "itp", cwd=out_dir)
     # Input guards: NaN input field and signed convolved output.
+    # fort.4 is per-process and overwritten from the top, so each
+    # guarded run's WARNING_LU output is captured immediately.
+    (out_dir / "fort.4").unlink(missing_ok=True)
     run(conv_bin, out_dir, "nanj", "256", cwd=out_dir)
+    fort4_nanj = (
+        (out_dir / "fort.4").read_text()
+        if (out_dir / "fort.4").exists()
+        else ""
+    )
     run(conv_bin, out_dir, "neg", "256", cwd=out_dir)
+    # Output guards: non-finite convolver output (NaN and Inf
+    # temperatures) and a finite-but-zero Planck field.
+    (out_dir / "fort.4").unlink(missing_ok=True)
+    run(conv_bin, out_dir, "nant", "256", cwd=out_dir)
+    fort4_nant = (
+        (out_dir / "fort.4").read_text()
+        if (out_dir / "fort.4").exists()
+        else ""
+    )
+    (out_dir / "fort.4").unlink(missing_ok=True)
+    run(conv_bin, out_dir, "inft", "256", cwd=out_dir)
+    fort4_inft = (
+        (out_dir / "fort.4").read_text()
+        if (out_dir / "fort.4").exists()
+        else ""
+    )
+    (out_dir / "fort.4").unlink(missing_ok=True)
+    run(conv_bin, out_dir, "zpf", "256", cwd=out_dir)
+    fort4_zpf = (
+        (out_dir / "fort.4").read_text()
+        if (out_dir / "fort.4").exists()
+        else ""
+    )
     run(
         conv_bin, out_dir, "linext", "256", "2", "0.4", "50",
         cwd=out_dir,
@@ -550,12 +602,10 @@ def main():
         f"non-finite nodes at depth 2: {nan_pos.sum()} "
         f"(field left visible, convolution skipped)",
     )
-    fort4 = out_dir / "fort.4"
     rep.check(
         "nanj: skip emits a named warning diagnostic",
-        fort4.exists()
-        and "non-finite J input" in fort4.read_text(),
-        (fort4.read_text().strip()[:80] if fort4.exists() else "no fort.4"),
+        "non-finite J input" in fort4_nanj,
+        fort4_nanj.strip()[:80] or "no fort.4",
     )
     nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_neg.txt")
     rep.check(
@@ -563,6 +613,198 @@ def main():
         np.all(np.isfinite(rjes)),
         f"min {rjes.min():.3e} "
         "(MINVAL(J_ES)<=0 skips the Planck block before LOG)",
+    )
+
+    # -- convolver-output validity guards (non-finite gate) --------------
+    # The driver keeps J finite (the warm-depth Planck field) and
+    # makes TEMP non-finite or zero at depth 2, so the convolved
+    # J_ES, PLANCK_ES and PLANCK_FN go non-finite or non-positive
+    # through the real production path.  nant/inft must hit the
+    # IEEE finiteness gate with a named diagnostic and leave the
+    # invalid field visible; zpf is the finite-but-zero case
+    # (silent positivity gate-skip, same policy as a cold depth).
+    nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_nant.txt")
+    rep.check(
+        "nant: NaN convolver output visible at bad depth, others "
+        "convolve normally",
+        (~np.isfinite(rjes[1])).all()
+        and np.isfinite(rjes[0]).all()
+        and np.isfinite(rjes[2]).all()
+        and np.isfinite(rjes[3]).all(),
+        f"finite depths: {[np.isfinite(rjes[k]).all() for k in range(4)]}",
+    )
+    rep.check(
+        "nant: warning names depth and every non-finite field",
+        "non-finite convolver output at depth    2" in fort4_nant
+        and "PLANCK_FN" in fort4_nant
+        and "PLANCK_ES" in fort4_nant
+        and "J_ES" in fort4_nant,
+        fort4_nant.strip()[:120] or "no fort.4",
+    )
+    nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_inft.txt")
+    rep.check(
+        "inft: +Inf convolver output caught the same way",
+        (~np.isfinite(rjes[1])).all()
+        and np.isfinite(rjes[0]).all()
+        and np.isfinite(rjes[2]).all()
+        and np.isfinite(rjes[3]).all(),
+        f"finite depths: {[np.isfinite(rjes[k]).all() for k in range(4)]}",
+    )
+    rep.check(
+        "inft: warning emitted for the non-finite gate",
+        "non-finite convolver output" in fort4_inft,
+        fort4_inft.strip()[:80] or "no fort.4",
+    )
+    nu, rj, rjes, _, nd, ncf = load_fields(out_dir / "esconv_zpf.txt")
+    rep.check(
+        "zpf: finite-but-zero PLANCK_FN gate-skips silently, "
+        "output stays finite",
+        np.all(np.isfinite(rjes)) and np.all(rjes > 0.0),
+        f"min {rjes.min():.3e}",
+    )
+    rep.check(
+        "zpf: no non-finite diagnostic on the silent skip",
+        "non-finite" not in fort4_zpf,
+        fort4_zpf.strip()[:80] or "(empty)",
+    )
+    rep.check(
+        "zpf: bypassed correction leaves raw convolution (B_es "
+        ">> B on the Wien side)",
+        (rjes[1] / rj[1]).max() > 1e4,
+        f"max JBAR/J_IN {(rjes[1] / rj[1]).max():.3e} "
+        "(a corrected Planck field would return ~1)",
+    )
+
+    # -- cnt: continuation battery ----------------------------------------
+    # ES_PLANCK_NU_CONT on synthetic anchors: valid fill, bad
+    # PNU/NU anchors (FAIL=5), bad interior NU or a forced
+    # non-positive denominator (FAIL=6), single-node tail.
+    d = np.loadtxt(out_dir / "esconv_cnt.txt")
+    cnt_exp = {
+        1: (0, 8), 2: (5, 2), 3: (5, 2), 4: (5, 2), 5: (5, 2),
+        6: (5, 2), 7: (5, 2), 8: (6, 4), 9: (6, 4), 10: (6, 4),
+        11: (6, 2), 12: (0, 8),
+    }
+    ok, det = True, []
+    for row in d:
+        ic, fa, npnu = int(row[0]), int(row[1]), int(row[2])
+        pnu = row[3:]
+        good = (fa, npnu) == cnt_exp[ic]
+        # Written nodes must be positive and finite - except the
+        # anchors of a FAIL=5 case, which are the defect itself.
+        if npnu > 0 and fa in (0, 6):
+            good = good and np.all(np.isfinite(pnu[:npnu]))
+            good = good and np.all(pnu[:npnu] > 0.0)
+        if npnu < 8:
+            good = good and np.all(pnu[npnu:] == 0.0)
+        ok = ok and good
+        det.append(f"c{ic}:F{fa}/N{npnu}")
+    rep.check(
+        "cnt: all twelve continuation cases return the expected "
+        "FAIL/NPNU with only positive finite nodes written",
+        ok and len(d) == 12,
+        " ".join(det),
+    )
+    rep.check(
+        "cnt: valid continuation stays positive and decreasing",
+        np.all(np.diff(d[0, 3:]) < 0.0) and np.all(d[0, 3:] > 0.0),
+        f"PNU(1..8)={d[0, 3:]}",
+    )
+
+    # -- itp: shifted-interpolation battery -------------------------------
+    # ES_SHIFTED_RESCALE on synthetic maps.  Python oracle: same
+    # walk semantics, then per-node expected JES/PES.  An invalid
+    # node takes JES(ML)=exp(A(ML)) (=raw input) and PES=PFN; a
+    # valid node interpolates the log fields.
+    d = np.loadtxt(out_dir / "esconv_itp.txt").reshape(6, 8, 6)
+    NU_B = 9.0 - np.arange(1, 9)            # 8..1 decreasing
+    PFN_B = 2.0 * np.arange(1, 9)
+    C_B = 3.0 * np.arange(1, 9)
+    JIN_B = 5.0 * np.arange(1, 9)
+    A_B = np.log(JIN_B)
+    PNU_B = {
+        1: NU_B - 0.5,
+        2: NU_B - 0.5,
+        3: np.array([7.5, 6.5, 5.5, 4.5, 3.5, 2.5, 3.0, 3.0]),
+        4: np.array(
+            [7.5, 6.5, 5.5, 4.5, np.nan, 2.5, 1.5, 0.5]
+        ),
+        5: np.array([7.5, 6.5, 5.5, -1.0, 3.5, 2.5, 1.5, 0.5]),
+        6: NU_B - 0.5,
+    }
+    NPNU_B = {1: 8, 2: 5, 3: 8, 4: 8, 5: 8, 6: 1}
+
+    def itp_expect(pnu, npnu):
+        pes = C_B.copy()
+        jes = np.empty(8)
+        jes[0] = A_B[0]
+        jes[-1] = A_B[-1]
+        i = 0
+        for ml in range(1, 7):
+            while i < npnu - 2 and NU_B[ml] < pnu[i + 1]:
+                i += 1
+            brk = True
+            if npnu < 8 and i == npnu - 2 and NU_B[ml] < pnu[npnu - 1]:
+                brk = False
+            if npnu < 2:
+                brk = False
+            if brk:
+                t2 = pnu[i + 1] - pnu[i]
+                brk = (
+                    np.isfinite(pnu[i])
+                    and np.isfinite(pnu[i + 1])
+                    and pnu[i] > 0.0
+                    and pnu[i + 1] > 0.0
+                    and np.isfinite(t2)
+                    and t2 != 0.0
+                )
+            if brk:
+                t1 = (NU_B[ml] - pnu[i]) / t2
+                brk = np.isfinite(t1)
+            if brk:
+                pes[ml] = t1 * C_B[i + 1] + (1.0 - t1) * C_B[i]
+                jes[ml] = t1 * A_B[i + 1] + (1.0 - t1) * A_B[i]
+            if not brk or i == 0:
+                pes[ml] = PFN_B[ml]
+                jes[ml] = A_B[ml]
+        pes[0] = PFN_B[0]
+        return np.exp(jes + PFN_B - pes), pes
+
+    ok, det = True, []
+    for ic in range(1, 7):
+        jes_exp, pes_exp = itp_expect(PNU_B[ic], NPNU_B[ic])
+        jes_got = d[ic - 1, :, 4]
+        pes_got = d[ic - 1, :, 5]
+        good = (
+            np.allclose(jes_got, jes_exp, rtol=1e-6, atol=1e-12)
+            and np.allclose(pes_got, pes_exp, rtol=1e-6, atol=1e-12)
+            and np.all(np.isfinite(jes_got))
+            and np.all(jes_got > 0.0)
+        )
+        ok = ok and good
+        det.append(
+            f"c{ic}:"
+            f"{np.max(np.abs(jes_got - jes_exp)):.1e}"
+        )
+    rep.check(
+        "itp: all six map cases match the walk oracle node-by-node "
+        "(valid interp, truncated, degenerate, NaN, non-positive, "
+        "one-node)",
+        ok,
+        " ".join(det),
+    )
+    rep.check(
+        "itp: invalid nodes never contaminate valid ones (raw J "
+        "at exactly the off-map/degenerate nodes)",
+        np.isclose(d[1, 5, 4], 30.0)
+        and np.isclose(d[1, 6, 4], 35.0)
+        and np.isclose(d[2, 6, 4], 35.0)
+        and np.allclose(d[3, 4:7, 4], JIN_B[4:7])
+        and np.allclose(d[4, 3:7, 4], JIN_B[3:7])
+        and np.allclose(d[5, 1:7, 4], JIN_B[1:7])
+        and d[0, 2, 4] != JIN_B[2] and d[1, 2, 4] != JIN_B[2],
+        f"off-map JES {d[1,5:7,4]}, degen {d[2,6,4]}, "
+        f"nan-adjacent {d[3,4:7,4]}",
     )
 
     # -- constant field ----------------------------------------------------
@@ -965,9 +1207,9 @@ def main():
         jp = d[:, 4].reshape(nd, n_p)
         pk = (jp.max(axis=1) / np.maximum(jin.max(axis=1), 1e-300)).min()
         # Endpoint ratio only where the endpoint input is
-        # significant - for far-inward positions in(NU1) is
-        # denormal and a ratio there measures round-off, not the
-        # boundary treatment.
+        # significant - for far-inward positions in(NU1)
+        # underflows to subnormal or zero and a ratio there
+        # measures round-off, not the boundary treatment.
         sig0 = jin[:, 0] > 1e-3 * jin.max(axis=1)
         e0 = (
             (jp[sig0, 0] / np.maximum(jin[sig0, 0], 1e-300)).min()
