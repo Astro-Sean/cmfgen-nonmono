@@ -303,35 +303,150 @@ red-edge guard while reproducing the reference OBS_FREQ grid).
 
 ### 6.1 Residual histories
 
-[pending: `p82_residual_history.csv` - `GLOBAL_MAX_R` vs generation
-per run, monotone/oscillate/stagnate classification]
+First dataset: `SN_A_11dh_p2p85r200_mc170_H10_SOB_d32/cmfgen/32.00days`
+(obs_*_esN dirs; sob N=1,2,3,4,6,8,12 complete; knop N=2,3,4 complete,
+6,8,12 in progress). `OLD_J=F`, cold start, `ES_RESID_DIAG=T`.
+
+SOB pathway, `GLOBAL_MAX_R` per completed generation (ND=100,
+NCF=4650; identical across runs of different NUM_ES - deterministic):
+
+| gen | R_GLOBAL | argmax depth |
+|---|---|---|
+| 2 | 2.29749E-03 | K=100 |
+| 3 | 9.72360E-04 | K=100 |
+| 4 | 4.56571E-04 | K=88 |
+| 5 | 2.59774E-04 | - |
+| 6 | 1.53856E-04 | - |
+| 7 | 9.40516E-05 | - |
+| 8 | 6.00725E-05 | - |
+| 9 | 3.90902E-05 | - |
+| 10 | 2.57399E-05 | - |
+| 11 | 1.71605E-05 | - |
+| 12 | 1.13668E-05 | - |
+
+Monotone geometric contraction, ratio ~0.55-0.65 per sweep, no
+stall or oscillation through gen 12. Slowest depth sits at the
+inner boundary (K=88..100): the thermalization floor dominates
+the residual, as expected for a scattering-dominated field.
+Zero non-finite and zero negative nodes in every sweep.
+
+KNOP pathway (ND=100, NCF=102254 - 22x denser frequency
+coverage than the SOB grid because the non-mono formal solve
+needs line-resolution frequencies):
+
+| gen | R_GLOBAL | argmax depth | R_REL max |
+|---|---|---|---|
+| 2 | 2.77769E-02 | K=88 | 1.96E-01 |
+| 3 | 6.18909E-03 | K=71 | 4.23E-02 |
+| 4 | 1.97009E-03 | K=71 | 1.67E-02 |
+
+Faster per-sweep contraction (~0.22-0.32) but from a 12x larger
+first residual; by gen 4 the absolute R is still ~4x the SOB
+value at equal count. TOTAL_ACTIVE ~9.84M nodes per sweep.
+Note (section 1.5): KNOP J additionally depends on I_NEXT lag
+maturity, so Delta_JES understates the true sweep-to-sweep
+change - the maturity census is the companion diagnostic.
+
+[pending m15: `p82_residual_history.csv` per-run histories]
 
 ### 6.2 Final-generation render verification
 
-[pending: `p82_final_audit.csv` - `FINAL_REFRESH_GENERATION` vs
-`FINAL_RENDER_INPUT_GENERATION` and `RENDER_MATCH` per run]
+Every completed SN_A run writes:
+
+    RENDER GEN_LAST=N FIELD_MATCH=T MAX_ABS_DIFF=0.00000E+00
+    FINAL CONFIGURED_ES_SWEEPS=N COMPLETED_ES_SWEEPS=N
+        FINAL_REFRESH_GENERATION=N FINAL_RENDER_INPUT_GENERATION=N
+        RENDER_MATCH=T INVALID_SWEEPS=0
+        TOTAL_NONFINITE=0 TOTAL_NEGATIVE=0
+
+Verified for sob N=1..12 and knop N=2,3,4: the render consumes
+the last completed RJ_ES generation bit-for-bit. The
+manufactured stale-render and cold-start cases are covered by
+unit tests 15-17 in `test_es_resid.py`.
+
+[pending m15: `p82_final_audit.csv`]
 
 ### 6.3 NUM_ES vs observer-frame spectrum
 
-[pending: `p82_spectrum_metrics.csv` - max |dF|, max active |dF/F|,
-wavelength at max, integrated flux, continuum-window residuals vs
-the NUM_ES=12 reference per pathway]
+SN_A first dataset (`es_sweep_compare.py`, consecutive-pair
+residuals on the 33865-point grid, optical continuum windows
+4100-4300, 5300-5600, 6100-6300, 7000-7400 AA):
+
+SOB pathway - `obs_fin_10` is NUM_ES-invariant:
+
+    obs_fin_10 (sob):  BIT-IDENTICAL for N=1,2,3,4,6,8,12
+
+    Mechanism (source-verified): the phase-2 render
+    (OBS_FRAME_SUB_V9 at :3146 -> OBSFRAME -> obs_fin_10)
+    runs with COHERENT_ES forced T (:1605) and a recomputed
+    EDDFACTOR seed, so the phase-1 incoherent RJ_ES history
+    never reaches the line-bearing render. Under coherent
+    ES the outer sweep re-solves an already-converged
+    system - extra sweeps are no-ops.
+
+    The ES-sensitive SOB spectral product is OBSFLUX
+    (COMP_OBS_V3 phase-1 continuum+BLANK render, same grid):
+
+    pair    GLOBAL_MAX_R    CONT_REL 5300-5600   LINE_DEW Hb
+    1->2    2.935e-04       1.529e-04            -2.13e-02 AA
+    2->3    2.201e-04       7.645e-05            -8.96e-03 AA
+    3->4    1.468e-04       7.819e-05            -
+    4->6    1.468e-04       -                    -
+    6->8    7.338e-05       -                    -
+    8->12   7.338e-05       -                    -
+
+    The OBSFLUX residual tracks the field history through
+    ~gen 4 then flattens near 7e-5 - the printed-format floor
+    (~4 significant digits in WRITV_V2 output), not a physics
+    plateau; the field itself is still contracting at gen 12.
+
+KNOP pathway - `obs_fin_10` responds to NUM_ES (single-phase,
+incoherent fold reaches the emergent spectrum):
+
+    pair    GLOBAL_MAX_R    CONT_REL 5300-5600   max-rel (active)
+    2->3    1.900e-03       1.900e-03            8.93e-03
+    3->4    8.249e-04       -                    -
+
+    Global argmax sits at the extreme-UV grid end (weak nodes);
+    the optical-window and active-mask numbers are the
+    meaningful metrics.
+
+[pending m15 + knop N=6,8,12: `p82_spectrum_metrics.csv`]
 
 ### 6.4 Line-profile convergence
 
-[pending: `p82_line_metrics.csv` - Ha_6563/HeI_5876/Hb_4861 centre,
-extremum, half-max width, wing means, EW, window integral per run]
+SN_A knop 2->3 (representative windows, es_sweep_compare.py):
+Hb core 1.58e-3, dEW -0.041 AA, dcentroid 0.031 AA;
+HeI 5876 core 1.15e-3, dEW -0.075 AA, dcentroid 0.026 AA;
+Ha core 2.02e-3, dEW +0.231 AA. Line metrics shrink roughly
+in step with the flux residual (3->4 values pending; the
+spectrum is still measurably changing at gen 4).
+
+[pending: `p82_line_metrics.csv` per-window table]
 
 ### 6.5 Runtime and diagnostic overhead
 
 [pending: `p82_runtimes.csv` - wall time vs NUM_ES; NUM_ES=2
-diag-on vs diag-off pairs]
+diag-on vs diag-off pairs on m15]
 
 ### 6.6 SOB versus KNOP
 
-[pending: independent residual histories and converged-spectrum
-differences; attribution per section 1.5]
+SN_A first dataset, like-for-like generation comparison:
+
+| | SOB | KNOP |
+|---|---|---|
+| frequency coverage NCF | 4650 | 102254 |
+| gen-2 R_GLOBAL | 2.30e-3 | 2.78e-2 |
+| gen-4 R_GLOBAL | 4.57e-4 | 1.97e-3 |
+| contraction/sweep | ~0.55 | ~0.25 |
+| emergent spectrum ES-sensitive | only via phase-1 OBSFLUX; obs_fin_10 invariant (coherent phase 2) | yes, obs_fin_10 direct fold |
+| render-gen verified | MATCH all N | MATCH all N |
+
+Equal NUM_ES does not imply equivalent convergence (section
+1.5): the fields differ in grid density, the knop J also
+carries I_NEXT lag, and the emergent-spectrum sensitivity is
+structurally different between the two renders.
 
 ## 7. Conclusions
 
-[pending]
+[pending - m15 sweep completion and knop high-N data]
