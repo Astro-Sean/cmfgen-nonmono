@@ -39,6 +39,17 @@ C                        ES_SHIFTED_RESCALE), and a derived PLANCK_NU
 C                        that is not finite-positive fails the map.  A
 C                        bad node takes the same uncorrected treatment
 C                        and never contaminates its neighbours.
+C                        Same date, final bounds pass: the shifted
+C                        walk is now written without any reliance on
+C                        short-circuit evaluation (PNU(I+1) is read
+C                        only after I is proven inside the written
+C                        map and the node finite), the bracket
+C                        arithmetic is validated strictly before use,
+C                        and the interpolation weight must lie inside
+C                        [0,1] up to a documented round-off band -
+C                        an out-of-range weight is extrapolation
+C                        through a broken map and takes the
+C                        uncorrected treatment like any bad bracket.
 C Altered 20-Oct-2003 : No scaling peformed when PLANCK_FN has zero''s.
 C Altered 18-Aug-2003 : FILE_DATE inserted into INFO call.
 C Altered 17-Oct-2002 : Computation of BB changed to avoid floating overflow.
@@ -655,11 +666,24 @@ C
 	FAIL=0
 	NPNU=NCF
 C
-	IF(.NOT. IEEE_IS_FINITE(NU(I-1)) .OR.
-     1	   NU(I-1) .LE. 0.0_LDP .OR.
-     2	   .NOT. IEEE_IS_FINITE(PNU(I-1)) .OR.
-     3	   PNU(I-1) .LE. 0.0_LDP)THEN
-	  FAIL=5
+C Sequential checks again: a NaN operand inside a chained .OR.
+C compare is an unordered comparison and can trip an
+C invalid-operation trap, so each value is proven finite before
+C it is compared.
+C
+	IF(FAIL .EQ. 0)THEN
+	  IF(.NOT. IEEE_IS_FINITE(NU(I-1)))FAIL=5
+	END IF
+	IF(FAIL .EQ. 0)THEN
+	  IF(NU(I-1) .LE. 0.0_LDP)FAIL=5
+	END IF
+	IF(FAIL .EQ. 0)THEN
+	  IF(.NOT. IEEE_IS_FINITE(PNU(I-1)))FAIL=5
+	END IF
+	IF(FAIL .EQ. 0)THEN
+	  IF(PNU(I-1) .LE. 0.0_LDP)FAIL=5
+	END IF
+	IF(FAIL .NE. 0)THEN
 	  NPNU=I-1
 	  RETURN
 	END IF
@@ -671,14 +695,23 @@ C
 	END IF
 C
 	DO ML=I,NCF
-	  IF(.NOT. IEEE_IS_FINITE(NU(ML)) .OR.
-     1	     NU(ML) .LE. 0.0_LDP)THEN
+	  IF(.NOT. IEEE_IS_FINITE(NU(ML)))THEN
+	    FAIL=6
+	    NPNU=ML-1
+	    RETURN
+	  END IF
+	  IF(NU(ML) .LE. 0.0_LDP)THEN
 	    FAIL=6
 	    NPNU=ML-1
 	    RETURN
 	  END IF
 	  DEN=1.0_LDP/NU(ML)-T1
-	  IF(.NOT. IEEE_IS_FINITE(DEN) .OR. DEN .LE. 0.0_LDP)THEN
+	  IF(.NOT. IEEE_IS_FINITE(DEN))THEN
+	    FAIL=6
+	    NPNU=ML-1
+	    RETURN
+	  END IF
+	  IF(DEN .LE. 0.0_LDP)THEN
 	    FAIL=6
 	    NPNU=ML-1
 	    RETURN
@@ -706,9 +739,11 @@ C
 C For each interior output node the bracket
 C PNU(I+1) <= NU(ML) <= PNU(I) is located by the stock walk, then
 C checked before it is used: both endpoints must be finite positive
-C frequencies and the interval finite and nonzero, and the weight
-C must come out finite.  A mathematically monotone map can still
-C carry duplicate or degenerate nodes numerically.
+C frequencies, the interval finite and nonzero, the weight finite
+C and inside [0,1] - a genuine shifted evaluation is an
+C interpolation, never an extrapolation through a broken map.
+C A mathematically monotone map can still carry duplicate,
+C degenerate or locally non-monotone nodes numerically.
 C
 C Where no genuine shifted evaluation exists the node takes the
 C established invalid-map treatment: PLANCK_ES(ML)=PLANCK_FN(ML)
@@ -716,17 +751,24 @@ C (unity rescale) and J_ES(ML)=A(ML) (raw convolved field).  That
 C covers the I=1 bracket containing the forced endpoint
 C (P8.1 Wien-end correction), an output node below the last valid
 C map frequency PNU(NPNU) (map truncated by
-C ES_PLANCK_NU_CONT), and any degenerate bracket.  Nodes whose
-C bracket is valid keep their interpolated values - an invalid
-C node never contaminates a valid one.
+C ES_PLANCK_NU_CONT), any degenerate bracket, and any out-of-range
+C weight.  Nodes whose bracket is valid keep their interpolated
+C values - an invalid node never contaminates a valid one.
 C
 	INTEGER NCF,NPNU,K
 	REAL(LDP) NU(NCF),PNU(NCF),PFN(NCF),PES(NCF),JES(NCF)
 	REAL(LDP) A(NCF),C(NCF)
 C
+C Round-off band on the interpolation weight: the bracket
+C arithmetic can round a genuinely valid node a few ulp past the
+C endpoint, so W_TOL ulps are snapped back to [0,1].  Anything
+C beyond the band is a real extrapolation and is left invalid.
+C
+	REAL(LDP), PARAMETER :: W_TOL=64.0_LDP*EPSILON(1.0_LDP)
+C
 	INTEGER ML,I,NBAD,LUE
 	REAL(LDP) T1,T2
-	LOGICAL BRK_OK
+	LOGICAL BRK_OK,NU_OK
 	INTEGER WARNING_LU
 	EXTERNAL WARNING_LU
 C
@@ -737,9 +779,27 @@ C
 	I=1
 	NBAD=0
 	DO ML=2,NCF-1
-	  DO WHILE (NU(ML) .LT. PNU(I+1) .AND. I .LT. NPNU-1)
-	     I=I+1
-	  END DO
+C
+C Locate the bracket by the stock upward walk, but bound it in
+C separate control flow: Fortran need not short-circuit .AND.,
+C so the bound on I is tested in its own IF before PNU(I+1) is
+C touched, and PNU(I+1) is checked finite before the compare -
+C an unordered NaN compare would stop the walk anyway and could
+C trip an invalid-operation trap.  For NPNU < 2 the walk body
+C is skipped entirely and PNU(2) is never read.
+C
+	  NU_OK=IEEE_IS_FINITE(NU(ML)) .AND. NU(ML) .GT. 0.0_LDP
+	  IF(NU_OK .AND. NPNU .GE. 2)THEN
+	    DO
+	      IF(I .GE. NPNU-1)EXIT
+	      IF(.NOT. IEEE_IS_FINITE(PNU(I+1)))EXIT
+	      IF(NU(ML) .LT. PNU(I+1))THEN
+	        I=I+1
+	      ELSE
+	        EXIT
+	      END IF
+	    END DO
+	  END IF
 C
 C A truncated map ends at PNU(NPNU): an output node below that
 C frequency has no on-grid bracket at all.  The stock clamp would
@@ -747,24 +807,31 @@ C only extrapolate inside the last bracket, so the node takes the
 C uncorrected treatment instead.  When NPNU=NCF the bound
 C reproduces the stock NCF-1 cap exactly.
 C
-	  BRK_OK=.TRUE.
-	  IF(NPNU .LT. NCF .AND. I .EQ. NPNU-1 .AND.
-     1	     NU(ML) .LT. PNU(NPNU))BRK_OK=.FALSE.
-	  IF(NPNU .LT. 2)BRK_OK=.FALSE.
+	  BRK_OK=NU_OK .AND. NPNU .GE. 2
+	  IF(BRK_OK .AND. NPNU .LT. NCF)THEN
+	    IF(I .EQ. NPNU-1)THEN
+	      IF(IEEE_IS_FINITE(PNU(NPNU)))THEN
+	        IF(NU(ML) .LT. PNU(NPNU))BRK_OK=.FALSE.
+	      END IF
+	    END IF
+	  END IF
+	  IF(BRK_OK)BRK_OK=I .GE. 1 .AND. I+1 .LE. NPNU
+	  IF(BRK_OK)BRK_OK=IEEE_IS_FINITE(PNU(I))
+	  IF(BRK_OK)BRK_OK=PNU(I) .GT. 0.0_LDP
+	  IF(BRK_OK)BRK_OK=IEEE_IS_FINITE(PNU(I+1))
+	  IF(BRK_OK)BRK_OK=PNU(I+1) .GT. 0.0_LDP
 	  IF(BRK_OK)THEN
 	    T2=PNU(I+1)-PNU(I)
-	    BRK_OK=IEEE_IS_FINITE(PNU(I)) .AND.
-     1	           IEEE_IS_FINITE(PNU(I+1)) .AND.
-     2	           PNU(I) .GT. 0.0_LDP .AND.
-     3	           PNU(I+1) .GT. 0.0_LDP .AND.
-     4	           IEEE_IS_FINITE(T2) .AND. T2 .NE. 0.0_LDP
+	    BRK_OK=IEEE_IS_FINITE(T2) .AND. T2 .NE. 0.0_LDP
 	  END IF
 	  IF(BRK_OK)THEN
 	    T1=(NU(ML)-PNU(I))/T2
 	    BRK_OK=IEEE_IS_FINITE(T1)
 	  END IF
-C
+	  IF(BRK_OK)BRK_OK=T1 .GE. -W_TOL .AND.
+     1	                 T1 .LE. 1.0_LDP+W_TOL
 	  IF(BRK_OK)THEN
+	    T1=MAX(0.0_LDP,MIN(1.0_LDP,T1))
 	    PES(ML)=T1*C(I+1)+(1.0_LDP-T1)*C(I)
 	    JES(ML)=T1*A(I+1)+(1.0_LDP-T1)*A(I)
 	  END IF
