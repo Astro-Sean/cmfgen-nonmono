@@ -404,20 +404,40 @@ monotonically 0.46 -> 0.93 and approaches unity, so the
 iteration is getting progressively slower; not stagnation
 (R still falls ~7%/sweep at gen 12), not oscillation, not
 divergence. No asymptotic rate extrapolated - Q is not
-stationary. NUM_ES=2 leaves a ~20% first-refresh delta
-un-iterated; even N=12 leaves ~1% max-node residual.
+stationary.
 
-Argmax migration (SOB): the dominant residual moves between
-physically distinct regions - K=11..15 in early generations is
-the smooth outer wind (V~54-56 km/s, sigma ~-1.5, R~7e14 cm),
-while K=46..52 late generations sit in the mid acceleration
-zone (V~87-134 km/s, sigma -2.9..-2.5) where dV/dr steepens
-ahead of the inner shear/shock structure. So the early
-residual lives where the absolute J errors are largest; once
-those relax, the residual concentrates where the
-velocity-gradient coupling is strongest - evidence the tail is
-driven by velocity-field structure, not boundary artifacts
-(the inner boundary itself, K=70, never holds the max).
+Interpretation note: R_n is a consecutive-iterate difference
+max|J_n - J_(n-1)| / max|J| - it is not the true error against
+the converged solution, not the fraction of the original
+correction remaining, and not a direct bound on the spectral
+error. At NUM_ES_ITERATIONS=2 the measured difference between
+the available consecutive redistribution generations remains
+large (0.198); convergence has not been demonstrated. At
+N=12 the same measured difference is 0.0096 - still an
+iterate-to-iterate statement, not a converged-solution bound.
+
+Argmax migration (SOB) - metric-dependent, so reported under
+both definitions in the diagnostic:
+
+- By the global-scale metric R_K = D_K/S_K (max absolute
+  difference over frequencies normalised by the max |J| at
+  that depth), the argmax sits at K=11..15 through gen ~9,
+  then shifts to K=46..52 at gens 10-12. Both are physically
+  distinct regions: K=11..15 is the smooth outer wind
+  (V~54-56 km/s, sigma~-1.5), K=46..52 the mid acceleration
+  zone (V~87-134 km/s, sigma -2.9..-2.5).
+- By the per-node metric RREL_K (max over active nodes of
+  |dJ|/|J| at that node), the argmax stays at K=14..18 at
+  EVERY generation - the largest relative node change never
+  leaves the outer wind.
+- The migration is therefore partly a normalisation effect:
+  the mid-atmosphere field is ~100x stronger (S~3e-2 vs
+  1.2e-4) and its absolute difference D decays slower at late
+  generations (K=52: D 7.1e-4->3.0e-4 over gens 8-12, while
+  the outer wind D reaches ~1e-6), so K=46..52 overtakes
+  K=11..15 in the D/S metric. The strongest absolute changes
+  are always in the mid-atmosphere; the strongest relative
+  changes are always in the outer wind.
 
 Zero non-finite, zero negative nodes in every sweep;
 TOTAL_ACTIVE ~11.8M nodes per sweep.
@@ -442,27 +462,77 @@ from the timed-out first run):
 
 Classification: contracts overall but not cleanly - Q varies
 0.46 -> 1.03 (gen-6 uptick) -> 0.91 with no stationary ratio.
-Still ~8% max-node delta at gen 9. The argmax is pinned at
-K=62 from gen 4 onward (after a first-sweep excursion to the
-outer boundary K=1). K=62 sits inside the steep velocity-shear
-zone just above the sigma=-157 shock spike at K=65-66
-(SN_HYDRO_DATA: sigma -5.3 -> -10.6 -> -157 across K=62-66;
-R~1.59e14 cm, ~9% above the inner boundary, deep in the
-tau~10-30 region) - the residual concentrates where the
-comoving-frame solution has the strongest velocity-gradient
-coupling, i.e. velocity-field structure (assisted by the
-optically-thick inner boundary), not a generic edge artifact.
+Still ~8% consecutive-iterate difference at gen 9. The argmax
+is pinned at K=62 from gen 4 onward (after a first-sweep
+excursion to the outer boundary K=1).
+
+K=62 investigation (per-depth diagnostic rows, all sweeps):
+
+- The maximum is a sharp single-cell spike, not a broad
+  region: at gen 2, R=0.578 at K=62 vs 0.356/0.308 at
+  K=61/63; at gen 8, 8.56e-2 vs 6.43/6.36e-2. It is NOT at
+  the sigma=-157 shock spike (K=65-66 residuals are lower,
+  ~4.7e-2 at gen 8), so the residual maximum does not sit at
+  the maximum velocity gradient.
+- Decomposed: at gen 2 the absolute difference D at K=62
+  (1.34e-2) is comparable to K=64-66 (1.38-1.42e-2), but the
+  field scale S at K=62 (2.32e-2) is a local minimum vs
+  K=63-66 (3.8-7.6e-2) - the D/S ratio is amplified by the
+  locally weak field. At the same time the per-node metric
+  RREL reaches 0.98 at K=62 (vs 0.44-0.71 nearby): at least
+  one frequency node there changes by ~98% of its own
+  magnitude between generations - a genuine near-complete
+  refresh of a weak node, not only a normalisation artefact.
+- By gen 8, RREL at K=62 (0.214) is actually below K=61
+  (0.254): the argmax under the global D/S metric persists
+  chiefly because the local |J| scale stays small.
+- K=62 sits at the onset of the sigma steepening (sigma -5.3,
+  between -5.1 at K=61 and -5.7 at K=63, before the -10.6
+  -> -157 plunge at K=64-65), ~9% above the inner boundary,
+  deep in the optically-thick region. The available data
+  support: (a) a weak-field local cell whose consecutive
+  updates stay relatively large, plus (b) some amplification
+  of the ratio metric by the small scale. They do NOT
+  distinguish between a local velocity-gradient response, a
+  non-local coupling with the shock region, or an
+  optical-depth/boundary conditioning effect; that is stated
+  as an open item rather than assigned a mechanism.
 
 Cross-run reproducibility: gens 1-2 are bit-identical across
 all runs, nodes and thread counts (4/8 CPU). From gen 3 a
-~1e-4 relative drift appears between runs on different nodes
-(n6/n8 cluster vs n2/n3/n4/n12 cluster) - parallel-reduction
-FP-order sensitivity, amplified slightly by successive
-iterations (gen-4 drift ~1.5e-3 relative); it does not change
-the residual shape or any conclusion. The identical gen-2
-residual everywhere shows initialisation and the first
-redistribution are deterministic; the divergence enters in
-the sweep-3 formal solve/convolve, not at init.
+~1e-4 relative drift appears between runs - including runs on
+the SAME node (knop_n6 vs knop_n12, both vipc2142), so this is
+run-to-run floating-point nondeterminism, not node hardware.
+It grows to ~1.5e-3 by gen 4 through successive-iteration
+amplification; residual shape and all conclusions unchanged.
+
+OpenMP source audit of the sweep path (obs/cmf_flux_sub_v5.f,
+obs/COMP_JCONT_V4.INC, subs/comp_j_conv_v2.f,
+plane/fg_j_cmf_nonmono_v1.f, obs/obs_frame_sub_v9.f):
+
+- The obs driver, convolver and COMP_JCONT_V4 carry no OMP
+  directives; all parallel regions are in the formal solvers
+  (fg_j_cmf_nonmono_v1.f: 76 directives; obs_frame_sub_v9.f:
+  17).
+- All !$OMP ATOMIC/CRITICAL updates found are INTEGER
+  counters and diagnostics (N_NEG_INT, KN_CENS_*,
+  KN_HOT_CNT histogram, first-failure records) - integer
+  accumulation is order-independent; no FP reduction variable
+  was found lacking a reduction/atomic clause.
+- The drift source is instead the ray loop:
+  `!$OMP PARALLEL DO SCHEDULE(DYNAMIC)` over rays where each
+  ray reads the shared I_M/I_P store state that other rays
+  update in place (Gauss-Seidel coupling - the code comments
+  themselves flag mixed-generation store reads). Dynamic
+  scheduling changes completion order run to run, so a ray's
+  input mix of refreshed/unrefreshed neighbour state varies -
+  legitimate algorithmic order sensitivity, consistent with
+  bit-identical early gens (stores start from a common seed)
+  and drift once fields develop structure.
+- No missing reduction clause, no shared-array element
+  written by two threads, and no uninitialised read was
+  identified; this is normal FP/ordering sensitivity, not a
+  race or init defect.
 
 ### 6.2 Final-generation render verification
 
@@ -552,8 +622,8 @@ Consecutive-pair residuals on the shared 158443-point grid:
 The spectrum-level delta shrinks overall but not monotonically
 at the tail (4->6 and 8->12 uptick over their predecessors):
 the emergent spectrum is still drifting ~1.5% between N=8 and
-N=12, consistent with the field residual still being ~1% at
-gen 12. INTEGRATED_DF stays in the 6e7..1e8 Jy*AA band.
+N=12, consistent with the consecutive-generation field
+difference still measuring ~1e-2 at gen 12. INTEGRATED_DF stays in the 6e7..1e8 Jy*AA band.
 H-alpha metrics (LINE_DEW -7..-10 AA per pair, LINE_CORE
 ~1.2-3.7e-2) confirm the line region keeps moving.
 
@@ -720,6 +790,43 @@ a boundary band. KNOP sweeps cost ~10min each at 8 CPU
 sufficient only at 4 CPU (8-CPU runs peaked at 31.2G and were
 OOM-killed; the convolved-field workspace scales with threads
 here).
+
+### 6.7 Consolidated convergence summary
+
+All values measured with identical definitions/windows; field
+residual is the consecutive-generation metric R_N at the last
+completed generation; spectral delta is the adjacent-pair
+obs_fin_10 GLOBAL_MAX_R; Ha EW in Angstroms, same
+window/continuum definitions as 6.4; runtime in seconds.
+
+SOB:
+
+    N   R_N       argmaxK  pair dF     Ha EW     integ dF     t(s)
+    1   -         -        -          -38.9     -            273
+    2   1.98e-01  K=11     6.54e-02   -48.8     6e7..1e8     237
+    3   9.10e-02  K=15     2.87e-02   -         -            245
+    4   5.56e-02  K=15     1.86e-02   -         -            375
+    6   2.76e-02  K=12     2.31e-02   -         -            468
+    8   1.64e-02  K=12     1.40e-02   -76.1     -            850
+    12  9.56e-03  K=46     1.62e-02   -83.0     -            770
+    (pair dF listed at each row is N_prev->N)
+
+KNOP:
+
+    N   R_N       argmaxK  pair dF     Ha EW     t(s)
+    2   5.78e-01  K=62     -          -807.0    1139-1595
+    3   2.65e-01  K=1      5.25e-02   -859.9    2702
+    4   1.78e-01  K=62     3.19e-02   -860.6    4567
+    6   1.26e-01  K=62     3.93e-02   -834.2    4560
+    8   8.56e-02  K=62     2.65e-02   -813.6    5090
+    12  pending (rerun in progress; gens 1-9 recorded)
+
+Statement: spectral convergence has NOT been demonstrated for
+either pathway - adjacent-pair spectral differences remain
+~1.5-2.6% at the highest tested sweep counts, and the Ha EW
+keeps moving by several Angstroms per added sweep. No new
+tolerance is defined; the convergence target must be stated
+with a physical motivation before P8.3's gate is set.
 
 ## 7. BLANK render on non-monotonic populations
 
@@ -1022,13 +1129,14 @@ budget was in progress, reproducing gens 1-9 bit-for-bit):
   FINAL_REFRESH_GENERATION == FINAL_RENDER_INPUT_GENERATION
   with MAX_ABS_DIFF=0; diagnostic-off controls emit no file
   and produce bit-identical spectra.
-- Neither pathway is converged at production NUM_ES=2, and
-  neither is converged at N=8-12: SOB contracts
-  sub-geometrically (Q 0.46 -> 0.93, still ~1% max-node delta
-  at gen 12); KNOP contracts more slowly with a gen-6 uptick
-  (still ~8% at gen 9) and its residual parks at K=62, inside
-  the steep velocity-shear zone above the sigma=-157 shock
-  spike.
+- At production NUM_ES=2 the measured consecutive-generation
+  difference remains large (SOB 0.198, KNOP 0.578), and it is
+  still non-negligible at the highest tested sweeps (SOB
+  0.0096 at gen 12, KNOP 0.078 at gen 9); convergence of the
+  redistributed field has not been demonstrated. SOB
+  contracts sub-geometrically (Q 0.46 -> 0.93); KNOP more
+  slowly with a gen-6 uptick, its residual pinned at the
+  weak-field single cell K=62.
 - The observer-frame spectrum remains ES-sensitive: SOB
   obs_fin_10 pair residuals sit at ~1.6% even N8->N12; the
   Ha EW movement is wing-dominated physical electron-scattering
