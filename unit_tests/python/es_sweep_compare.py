@@ -37,7 +37,9 @@ from pathlib import Path
 
 import numpy as np
 
-C_AA = 2.99792458e18  # speed of light, Angstrom/s
+# CMFGEN stores continuum frequencies in units of 1e15 Hz.
+# lam[AA] = c / nu = 2.99792458e18 / (nu_raw * 1e15) = 2997.92458 / nu_raw
+C_AA = 2997.92458
 
 # Fortran Ew.d output can drop the 'E' when the exponent needs three
 # digits ('2.1499-265' == 2.1499e-265).  Repair before float().
