@@ -38,6 +38,19 @@ C     nanj     J = B with a NaN injected at depth 2 - non-finite
 C              input handling
 C     neg      J = B with a negative mid-grid block - exercises
 C              the MINVAL(J_ES) gate ahead of LOG(J_ES)
+C     nant     J finite, TEMP(2)=NaN - non-finite convolver output
+C              must bypass the Planck correction with a diagnostic
+C     inft     J finite, TEMP(2)=+Inf - same gate, infinite case
+C     zpf      J finite, TEMP(2) cold enough that PLANCK_FN
+C              underflows to exact zero at the Wien end while the
+C              convolution stays real - the MINVAL gate must skip
+C              the correction silently and leave raw J_ES
+C     cnt      synthetic ES_PLANCK_NU_CONT battery: valid, zero,
+C              negative, non-finite, non-monotone and single-node
+C              cases through the production object code
+C     itp      synthetic ES_SHIFTED_RESCALE battery: valid,
+C              truncated, duplicated, non-finite, non-positive and
+C              one-node maps through the production object code
 C     brk      synthetic ES_PLANCK_NU_MATCH battery: valid, above-
 C              range, below-range, floor-walk, degenerate, NaN, Inf,
 C              huge-negative, boundary-exact, and persisted-ML
@@ -98,6 +111,8 @@ C
      1     MODE .EQ. 'linext' .OR. MODE .EQ. 'wcp' .OR.
      1     MODE .EQ. 'wce' .OR. MODE .EQ. 'lte' .OR.
      1     MODE .EQ. 'nanj' .OR. MODE .EQ. 'neg' .OR.
+     1     MODE .EQ. 'nant' .OR. MODE .EQ. 'inft' .OR.
+     1     MODE .EQ. 'zpf' .OR.
      1     MODE .EQ. 'bnd' .OR. MODE .EQ. 'bndp')THEN
           READ(SARG,*)NCF
         ELSE IF(MODE .EQ. 'qray')THEN
@@ -160,6 +175,22 @@ C directly on synthetic log-space targets - the Planck path cannot
 C reach the failure codes (see test header), so they are driven
 C here through the same object code the convolver calls.
         CALL BRK_MATCH_BLOCK(OUT_DIR,LU_OUT)
+        STOP
+      END IF
+      IF(MODE .EQ. 'cnt')THEN
+C Continuation battery: ES_PLANCK_NU_CONT is driven with valid,
+C zero, negative, non-finite and non-monotone inputs.  With
+C positive anchors on a monotone NU the denominator is
+C structurally positive, so the FAIL=5/6 guards can only be
+C exercised directly on the same production object.
+        CALL CNT_CONT_BLOCK(OUT_DIR,LU_OUT)
+        STOP
+      END IF
+      IF(MODE .EQ. 'itp')THEN
+C Interpolation battery: ES_SHIFTED_RESCALE is driven with valid,
+C truncated, duplicated, non-finite and degenerate shifted maps so
+C every bracket validation path is checked on the real object.
+        CALL ITP_RESCALE_BLOCK(OUT_DIR,LU_OUT)
         STOP
       END IF
 C
@@ -331,6 +362,29 @@ C A(:)=LOG(J_ES) statement can produce NaN.
           END DO
         END DO
         J_STORE(:,NCF/2-2:NCF/2+2)=-1.0_LDP
+      ELSE IF(MODE .EQ. 'nant' .OR. MODE .EQ. 'inft' .OR.
+     1   MODE .EQ. 'zpf')THEN
+C Pathological-temperature probes for the field-validity gate: the
+C input field is finite (the warm-depth Planck field) while TEMP
+C is made non-finite or zero at depth 2, so the convolved J_ES,
+C PLANCK_ES or PLANCK_FN comes out non-finite or non-positive on
+C the real code path and the guard upstream of the LOGs must
+C bypass the correction instead of logging garbage.  The other
+C depths run the normal path beside it.
+        DO K=1,ND
+          DO ML=1,NCF
+            J_STORE(K,ML)=BB(5.0_LDP,NU(ML))
+          END DO
+        END DO
+        IF(MODE .EQ. 'nant')
+     1    T(2)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        IF(MODE .EQ. 'inft')
+     1    T(2)=IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+C T=0.5 puts PFN(1) in exact underflow (the lte gate-skip case)
+C while BETA stays nonzero, so the gate-skip can be told apart
+C from a corrected field.  T=0 would make the convolution the
+C identity operator and could not distinguish bypass from fix.
+        IF(MODE .EQ. 'zpf')T(2)=0.5_LDP
       ELSE IF(MODE .EQ. 'temp')THEN
         DO K=1,ND
           DO ML=1,NCF
@@ -512,7 +566,8 @@ C
 C ZONE codes: 0 corrected interior, 1 upper endpoint, 2 invalid-map
 C bracket (I=1 during the shift interpolation), 3 gate-skip
 C (MINVAL block not entered), 4 continuation tail (bracket beyond
-C the last derived node), 5 no-valid-map bypass, 9 lower endpoint.
+C the last derived node), 5 no-valid-map bypass, 6 off-map node
+C below a truncated PLANCK_NU map, 9 lower endpoint.
 C
       SUBROUTINE LTE_MAP_BLOCK(OUT_DIR,NU,T,JIN,JBAR,ND,NCF,LU,FNAME)
       USE SET_KIND_MODULE
@@ -537,7 +592,7 @@ C
       REAL(KIND=LDP) PES(NCF),PFN(NCF),PNU(NCF)
       INTEGER ZN(NCF)
       REAL(KIND=LDP) BETA,T1,T2,T3,D1,D2,DH
-      INTEGER I,K,L,ML,FAIL,LASTOK
+      INTEGER I,K,L,ML,FAIL,LASTOK,NPNU,FAILC
       LOGICAL MAPOK
 C
       A_ST(1)=0.0_LDP
@@ -603,19 +658,22 @@ C so the zone map can never drift from the shipped search.
             I=I+1
           END DO
           IF(MAPOK)THEN
-            T1=1.0_LDP/NU(I-1)-1.0_LDP/PNU(I-1)
-            DO ML=I,NCF
-              PNU(ML)=1.0_LDP/(1.0_LDP/NU(ML)-T1)
-            END DO
+C The replica calls the same production continuation the convolver
+C does; NPNU reports the last genuine map node (NCF unless the
+C continuation was truncated, unreachable on the standard grids).
+            CALL ES_PLANCK_NU_CONT(NU,PNU,I,NCF,NPNU,FAILC)
             ZN(1)=1
             ZN(NCF)=9
             I=1
             DO ML=2,NCF-1
-              DO WHILE(NU(ML) .LT. PNU(I+1) .AND. I .LT. NCF-1)
+              DO WHILE(NU(ML) .LT. PNU(I+1) .AND. I .LT. NPNU-1)
                 I=I+1
               END DO
               IF(I .EQ. 1)THEN
                 ZN(ML)=2
+              ELSE IF(NPNU .LT. NCF .AND. I .EQ. NPNU-1 .AND.
+     1                NU(ML) .LT. PNU(NPNU))THEN
+                ZN(ML)=6
               ELSE IF(I+1 .GT. LASTOK)THEN
                 ZN(ML)=4
               ELSE
@@ -735,6 +793,156 @@ C
       PNU=0.0_LDP
       IF(FAIL .EQ. 0)PNU=T1*NU_B(ML-1)+(1.0_LDP-T1)*NU_B(ML)
       WRITE(LU,'(I3,I4,ES23.14E3,I4,I4,2ES15.7)')10,3,PES,FAIL,ML,T1,PNU
+C
+      CLOSE(LU)
+      RETURN
+      END
+C
+C
+C
+      SUBROUTINE CNT_CONT_BLOCK(OUT_DIR,LU)
+      USE SET_KIND_MODULE
+      USE, INTRINSIC :: IEEE_ARITHMETIC
+      IMPLICIT NONE
+C
+C Synthetic battery for ES_PLANCK_NU_CONT.  With positive anchors
+C and a strictly decreasing NU the continuation denominator is
+C structurally > 1/PNU(I-1) > 0, so the FAIL=5/6 guards cannot be
+C reached through the convolver - they are driven here on the same
+C compiled code.
+C
+C Columns: ICASE, FAIL, NPNU, then PNU(1..NB)
+C ICASE list:
+C  1  valid anchors, monotone NU            -> FAIL=0, NPNU=NB
+C  2  PNU(I-1)=0                            -> FAIL=5
+C  3  PNU(I-1) negative                    -> FAIL=5
+C  4  PNU(I-1)=NaN                         -> FAIL=5
+C  5  PNU(I-1)=+Inf                        -> FAIL=5
+C  6  NU(I-1)=0                            -> FAIL=5
+C  7  NU(I-1) negative                     -> FAIL=5
+C  8  NU(ML)=0 mid-grid                    -> FAIL=6, NPNU=ML-1
+C  9  NU(ML) negative mid-grid             -> FAIL=6, NPNU=ML-1
+C 10  NU(ML)=NaN mid-grid                  -> FAIL=6, NPNU=ML-1
+C 11  non-monotone NU forces DEN<=0        -> FAIL=6, NPNU=I-1
+C 12  single-node tail (I=NCF)             -> FAIL=0, NPNU=NB
+C
+      CHARACTER(LEN=*) OUT_DIR
+      INTEGER LU
+      INTEGER, PARAMETER :: NB=8
+      REAL(KIND=LDP) NU_B(NB),PNU_B(NB)
+      INTEGER ML,I,FAIL,NPNU,ICASE
+      REAL(KIND=LDP) ANCH
+C
+      OPEN(LU,FILE=TRIM(OUT_DIR)//'/esconv_cnt.txt',
+     1     STATUS='UNKNOWN')
+      WRITE(LU,'(A)')'# ICASE FAIL NPNU PNU(1..NB)'
+C
+      DO ICASE=1,12
+        DO ML=1,NB
+          NU_B(ML)=10.0_LDP*0.8_LDP**(ML-1)
+          PNU_B(ML)=0.0_LDP
+        END DO
+C Derived anchors: PNU(1)=NU(1) forced endpoint, PNU(2) a genuine
+C match result (slightly below NU(2) as the smear shifts down).
+        PNU_B(1)=NU_B(1)
+        PNU_B(2)=0.95_LDP*NU_B(2)
+        I=3
+        IF(ICASE .EQ. 2)PNU_B(2)=0.0_LDP
+        IF(ICASE .EQ. 3)PNU_B(2)=-1.0_LDP
+        IF(ICASE .EQ. 4)PNU_B(2)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        IF(ICASE .EQ. 5)PNU_B(2)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_POSITIVE_INF)
+        IF(ICASE .EQ. 6)NU_B(2)=0.0_LDP
+        IF(ICASE .EQ. 7)NU_B(2)=-1.0_LDP
+        IF(ICASE .EQ. 8)NU_B(5)=0.0_LDP
+        IF(ICASE .EQ. 9)NU_B(5)=-1.0_LDP
+        IF(ICASE .EQ. 10)NU_B(5)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        IF(ICASE .EQ. 11)THEN
+C NU(3) above NU(2) breaks the monotone grid; combined with a large
+C PNU anchor the first denominator comes out negative on paper,
+C exercising the DEN<=0 guard the monotone proof makes unreachable.
+          NU_B(3)=100.0_LDP*NU_B(2)
+          PNU_B(2)=10.0_LDP*NU_B(2)
+        END IF
+        IF(ICASE .EQ. 12)THEN
+          DO ML=1,NB
+            PNU_B(ML)=0.9_LDP*NU_B(ML)
+          END DO
+          I=NB
+        END IF
+        CALL ES_PLANCK_NU_CONT(NU_B,PNU_B,I,NB,NPNU,FAIL)
+        WRITE(LU,'(I3,I4,I4,8ES15.7)')ICASE,FAIL,NPNU,
+     1    (PNU_B(ML),ML=1,NB)
+      END DO
+C
+      CLOSE(LU)
+      RETURN
+      END
+C
+C
+C
+      SUBROUTINE ITP_RESCALE_BLOCK(OUT_DIR,LU)
+      USE SET_KIND_MODULE
+      USE, INTRINSIC :: IEEE_ARITHMETIC
+      IMPLICIT NONE
+C
+C Synthetic battery for ES_SHIFTED_RESCALE.  A valid map, a
+C truncated map (NPNU<NCF), a degenerate last bracket, a map
+C carrying a NaN node, a map with a non-positive node and a
+C one-node map are driven through the same object the convolver
+C calls.  JES is positive so the internal LOG is honest; PFN and
+C PES carry log-space ramps.
+C
+C Columns: ICASE, ML, NU, PNU, JES_OUT, PES_OUT
+C ICASE list:
+C  1  valid full map NPNU=NB                    -> all interior
+C     nodes interpolated except the I=1 endpoint bracket
+C  2  truncated map NPNU=5: NU below PNU(5) is off-map
+C  3  duplicate last pair PNU(7)=PNU(8)=3: the zero-width bracket
+C     is only reachable at the walk cap, so it sits above the
+C     interior node NU=2 and lands there
+C  4  NaN at PNU(5): every bracket touching it is invalid
+C  5  PNU(4)<=0: every bracket touching it is invalid
+C  6  NPNU=1: no valid bracket anywhere - raw JES everywhere
+C
+      CHARACTER(LEN=*) OUT_DIR
+      INTEGER LU
+      INTEGER, PARAMETER :: NB=8
+      REAL(KIND=LDP) NU_B(NB),PNU_B(NB),PFN_B(NB)
+      REAL(KIND=LDP) PES_B(NB),JES_B(NB),A_B(NB),C_B(NB)
+      INTEGER ML,ICASE,NPNU
+C
+      OPEN(LU,FILE=TRIM(OUT_DIR)//'/esconv_itp.txt',
+     1     STATUS='UNKNOWN')
+      WRITE(LU,'(A)')'# ICASE ML NU PNU JES_OUT PES_OUT'
+C
+      DO ICASE=1,6
+        DO ML=1,NB
+          NU_B(ML)=NB+1.0_LDP-ML
+          PNU_B(ML)=NU_B(ML)-0.5_LDP
+          PFN_B(ML)=2.0_LDP*ML
+          PES_B(ML)=3.0_LDP*ML
+          JES_B(ML)=5.0_LDP*ML
+        END DO
+        NPNU=NB
+        IF(ICASE .EQ. 2)NPNU=5
+        IF(ICASE .EQ. 3)THEN
+          PNU_B(7)=3.0_LDP
+          PNU_B(8)=3.0_LDP
+        END IF
+        IF(ICASE .EQ. 4)PNU_B(5)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        IF(ICASE .EQ. 5)PNU_B(4)=-1.0_LDP
+        IF(ICASE .EQ. 6)NPNU=1
+        CALL ES_SHIFTED_RESCALE(NU_B,PNU_B,PFN_B,PES_B,JES_B,
+     1    A_B,C_B,NB,NPNU,1)
+        DO ML=1,NB
+          WRITE(LU,'(I3,I4,4ES23.14E3)')ICASE,ML,NU_B(ML),
+     1      PNU_B(ML),JES_B(ML),PES_B(ML)
+        END DO
+      END DO
 C
       CLOSE(LU)
       RETURN
