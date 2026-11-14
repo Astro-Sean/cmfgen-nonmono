@@ -463,3 +463,35 @@ P iteration; bypassing it does not fix convergence.
 Unproven: causal order of store latch vs sweep defect;
 any production remedy. No commit-policy change
 justified. Commits held for user review.
+
+## 2026-11-XX - Phase 5.3 expanding-only P-direction audit (docs only)
+
+Created docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md: full
+source-traced reconstruction of the P sweep (discrete
+equation, dependency map, boundary conditions, frequency
+march, iteration map, residual/relaxation audit), ranked
+suspected mechanisms, and ten proposed tests with acceptance
+criteria. No solver changes.
+
+Key findings:
+- Discrete equation and ordering verified: mixed
+  Gauss-Seidel (fresh upwind radial + fresh frequency donor),
+  SPW ring confirmed as a consistent shift register (no
+  off-by-one); residual is the undamped defect measured
+  pre-relaxation; OMEGA_RAY history consistent with a
+  period-2-like limit cycle of the damped map.
+- CORRECTION: j=1-2 argmax is the OUTER edge of the ray
+  (depth K~1-2, top of atmosphere), not the inner boundary --
+  per J_PNT(1)=1 / "R(1) sits on the outermost ray" (line
+  4144) and J_PNT(2,83)=2. Phase-5.2 "inner boundary"
+  phrasing corrected in the Phase-5.2 report status block.
+- IM_NI verified: clean one-way snapshot of converged M
+  inner-boundary intensity (line 9665), read-only during P.
+- No array-bound, sign, aliasing, or OpenMP defect found in
+  inspected paths. Top mechanism candidate: unaccelerated
+  frequency-coupled GS map is non-contractive where Q is
+  large (implicit S' = SR + Q*I term); secondary candidates:
+  lagged C-corner preview, signed-vs-abs Q asymmetry (only
+  if CHI_L<0 occurs), L=1 closure assumption.
+- Ten tests proposed (T1-T10) pending ChatGPT review; no
+  implementation authorised.
