@@ -2,6 +2,13 @@
 ! Program section to compute the continuum intensity. Opacities must have
 ! previuosly been evaluated.
 !
+! Altered 14-Nov-2026 - DAMP_FJ/J_RESCUE controls for the continuum
+!                         J/f iteration: optional under-relaxation of
+!                         the FEDD/RJ iterates and optional
+!                         previous-frequency restore on a diverged
+!                         boundary J.  Defaults preserve the stock
+!                         updates bit-identically; both are off unless
+!                         set in CMF_FLUX_PARAM.
 ! Altered 10-Nov-2026 - Dispatch to FG_J_CMF_NONMONO_V1 only on
 !                         DO_NONMONO_KNOP.  A DO_NONMONO_SOB population
 !                         was converged on the clamped-SIGMA
@@ -102,11 +109,12 @@
 ! inwards-decreasing Planck gradient is no diffusion flux through
 ! the boundary, so floor DBB at a small positive value --
 ! numerically zero-flux, but strictly positive because
-! JFEAU_IBC_V2 rejects RJ(ND)<=0.  Only under the nonmono flags,
+! JFEAU_IBC_V2 rejects RJ(ND)<=0.  Only under the nonmono flags
+! or J_RESCUE (the same inversion class on a plain-BLANK render),
 ! and only for DBB<0, so the hollow-core DBB=0 case below and all
 ! default runs are unchanged.
 !
-	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
+	IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR. J_RESCUE) .AND.
 	1    DBB .LT. 0.0_LDP)THEN
 	  DBB=1.0D-99
 	  DDBBDT=0.0_LDP
@@ -679,6 +687,8 @@
 	    HBC_CMF(:)=0.0_LDP		!1:3
 	    NBC_CMF(:)=0.0_LDP		!1:3
 	    FG_COUNT=0.0_LDP
+	    NRESC=0
+	    NES_SAN=0
 !
 ! edited 09-Nov-2026: under DO_NONMONO_SOB + USE_LAM_ES=F the OBS
 ! moment solve is MOM_J_CMF_NONMONO_V1, whose generalized opacity
@@ -705,6 +715,25 @@
 	    END DO
 	    HBC_PREV(:)=HBC_CMF(:)
 	    NBC_PREV(:)=NBC_CMF(:)
+	  END IF
+!
+! J_RESCUE bound for this frequency.  A field is treated as
+! diverged when any depth value is non-finite or exceeds the
+! larger of 1e4 times the previous frequency's scale and a
+! small floor, capped by an absolute backstop.  mc170_H10
+! showed why a boundary-only absolute test fails: J can exit
+! the iteration already at 1e25 while RJ(1) stays small, and
+! that field then poisons the next frequency's warm start.
+! FIRST_FREQ has no previous field - the backstop alone applies.
+!
+	  IF(J_RESCUE)THEN
+	    IF(FIRST_FREQ)THEN
+	      RESC_CAP=1.0E+10_LDP
+	    ELSE
+	      RESC_CAP=MIN(1.0E+10_LDP,
+	1          MAX(1.0E+4_LDP*MAXVAL(ABS(JNU_PREV(1:ND))),
+	2              1.0E-3_LDP))
+	    END IF
 	  END IF
 !
 	  IF(COMPUTE_EDDFAC)THEN
@@ -737,13 +766,39 @@
 	      WRITE(LUER,*)'Error occurred in '//SECTION
 	      STOP
 	    END IF
+!
+! J_RESCUE: a convolved field that already carries a diverged
+! solution (non-finite or many orders above any physical J)
+! poisons the incoherent emissivity term ESEC*RJ_ES at every
+! depth.  Fall back to the local coherent field for this
+! frequency only so the f iteration still sees a sane source.
+!
+	    IF(J_RESCUE)THEN
+	      T3=MAXVAL(ABS(RJ_ES(1:ND)))
+	      IF(T3 .NE. T3 .OR. T3 .GT. RESC_CAP)THEN
+	        NES_SAN=NES_SAN+1
+	        IF(NES_SAN .LE. 20 .OR. MOD(NES_SAN,500) .EQ. 0)THEN
+	          WRITE(LUER,*)'J_RESCUE: non-physical RJ_ES at FL=',FL,
+	1                 ' in section '//SECTION
+	          WRITE(LUER,*)'Using local coherent J for the ES'//
+	1                  ' emissivity at this frequency.'
+	        END IF
+	        RJ_ES(1:ND)=RJ(1:ND)
+	      END IF
+	    END IF
 	  END IF
 !
 ! We will do this twice, so that F is of higher accuracy.
 !
 	  INACCURATE=.TRUE.
 	  L=0
+	  F_DID_NOT_CONV=.FALSE.
 	  DO WHILE(INACCURATE)
+!
+! DAMP_FJ: under-relaxed J/f iteration.  RJ_OLD holds the iterate
+! entering this pass; skipped entirely at the default DAMP_FJ=1.
+!
+	     IF(DAMP_FJ .NE. 1.0_LDP)RJ_OLD(1:ND)=RJ(1:ND)
 !
 	     IF(COHERENT_ES)THEN
 	       TA(1:ND)=ETA_CLUMP(1:ND)+CHI_SCAT_CLUMP(1:ND)*RJ(1:ND)
@@ -937,6 +992,32 @@
 	     END IF
 	     CALL TUNE(ITWO,'MOM_J_CMF')
 !
+! Under-relax RJ toward the previous iterate [DAMP_FJ]; at 1.0 the
+! update is identical to the undamped step.  J_RESCUE exits early
+! once the boundary J runs away - the post-loop block restores the
+! previous frequency's converged field.
+!
+	     IF(DAMP_FJ .NE. 1.0_LDP)THEN
+	       DO I=1,ND
+	         RJ(I)=RJ_OLD(I)+DAMP_FJ*(RJ(I)-RJ_OLD(I))
+	       END DO
+	     END IF
+!
+! J_RESCUE: exit early once the field runs away at ANY depth.
+! The check must span the whole field - mc170_H10 produced
+! diverged J that stayed under a boundary-only threshold at
+! index 1 while deeper depths carried 1e50, and that field
+! then poisoned JNU_PREV for every later frequency.
+!
+	     IF(J_RESCUE)THEN
+	       T3=MAXVAL(ABS(RJ(1:ND)))
+	       IF(T3 .NE. T3 .OR. T3 .GT. RESC_CAP)THEN
+	         F_DID_NOT_CONV=.TRUE.
+	         INACCURATE=.FALSE.
+	         EXIT
+	       END IF
+	     END IF
+!
 ! We set NEW_FREQ to false so that FG_J_CMF continues to use the same
 ! AV_PREV and CV_PREV. NEW_FREQ must be set to true again outside the
 ! F iteration loop.
@@ -954,6 +1035,8 @@
 	        T1=0.0_LDP
 	        DO I=1,ND
 	          T1=MAX(ABS(FOLD(I)-FEDD(I)),T1)
+	          IF(DAMP_FJ .NE. 1.0_LDP)
+	1            FEDD(I)=FOLD(I)+DAMP_FJ*(FEDD(I)-FOLD(I))
 	          FOLD(I)=FEDD(I)
 	        END DO
 	        IF(T1 .GT. ACC_EDD_FAC)INACCURATE=.TRUE.
@@ -962,9 +1045,72 @@
 	      IF(L .GT. 20)THEN
 	         WRITE(LUER,*)'Possible error converging f - T1 is',T1
 	         WRITE(LUER,*)'Frequency is ',FL,' in section '//SECTION
+	         F_DID_NOT_CONV=.TRUE.
 	      	 INACCURATE=.FALSE.
 	      END IF
 	    END DO
+!
+! J_RESCUE: if the iteration above left a non-finite or exploding
+! J at ANY depth, restore the previous frequency's converged field
+! rather than aborting at the guard below.  The stored EDDFACTOR
+! record then carries the fallback J, so later frequencies warm
+! start from it; degraded frequencies are listed in the log.
+! FIRST_FREQ has no previous field to restore - the guard still
+! stops the run in that case.
+!
+	    IF(J_RESCUE .AND. .NOT. FIRST_FREQ)THEN
+	      T3=MAXVAL(ABS(RJ(1:ND)))
+	      T4=MAXVAL(ABS(FEDD(1:ND)))
+!
+! A stored field is only a valid moment solution if f stays
+! physical: f is bounded by 1 for a real radiation field, so
+! |FEDD|>2 at any depth marks the iterate as invalid whatever
+! its magnitude.  mc170_H10 showed why a J-magnitude test
+! alone is wrong: under-cap fields stored diverged J with
+! f~1e5, then ratcheted upward as JNU_PREV.  A bare
+! non-convergence test is also wrong: stiff frequencies on
+! this model routinely exit L>20 with residuals ~1e-3 and a
+! sane field - stock semantics keep them, and they must be
+! kept or every frequency after the first degrades to a copy
+! of JNU_PREV.  Restore only when the field itself is bad:
+! non-finite, exploding J, or unphysical f.
+!
+	      IF(T3 .NE. T3 .OR. T4 .NE. T4 .OR.
+	1         T3 .GT. RESC_CAP .OR. T4 .GT. 2.0D0)THEN
+	        NRESC=NRESC+1
+	        IF(NRESC .LE. 20 .OR. MOD(NRESC,500) .EQ. 0)THEN
+	          WRITE(LUER,*)' '
+	          WRITE(LUER,*)'J_RESCUE: continuum J diverged at FL=',FL,
+	1                 ' in section '//SECTION
+	          WRITE(LUER,*)'Restoring previous-frequency J/f field.'
+	        END IF
+!
+! On the first rescue of the section, dump the input and iterate
+! fields at this frequency so the driver of the runaway is on
+! record (per depth: structure, opacities, emissivities, J/f).
+!
+	        IF(NRESC .EQ. 1)THEN
+	          WRITE(LUER,*)'J_RESCUE first-divergence state at FL=',FL
+	          WRITE(LUER,*)'DBB=',DBB,' DIF=',DIF,' dLOG_NU=',dLOG_NU
+	          WRITE(LUER,*)'HBC_CMF(1:3)=',HBC_CMF(1:3)
+	          WRITE(LUER,*)'NBC_CMF(1:3)=',NBC_CMF(1:3)
+	          WRITE(LUER,'(A,11A14)')' K','R','V','ED','CHI','ETA',
+	1            'ESEC','CHI_SCAT','ZETA','RJ','FEDD','JNU_PREV'
+	          DO I=1,ND
+	            WRITE(LUER,'(I4,11ES14.5)')I,R(I),V(I),ED(I),CHI(I),
+	1            ETA(I),ESEC(I),CHI_SCAT(I),ZETA(I),RJ(I),FEDD(I),
+	2            JNU_PREV(I)
+	          END DO
+	        END IF
+	        RJ(1:ND)=JNU_PREV(1:ND)
+	        FEDD(1:ND)=FEDD_PREV(1:ND)
+	        GEDD(1:ND)=GEDD_PREV(1:ND)
+	        N_ON_J(1:ND)=N_ON_J_PREV(1:ND)
+	        RSQHNU(1:ND)=RSQHNU_PREV(1:ND)
+	        HBC_CMF(1:3)=HBC_PREV(1:3)
+	        NBC_CMF(1:3)=NBC_PREV(1:3)
+	      END IF
+	    END IF
 !
 	    IF(COHERENT_ES)THEN
 	      SOURCE(1:ND)=ZETA(1:ND)+CHI_SCAT(1:ND)*RJ(1:ND)/CHI(1:ND)
