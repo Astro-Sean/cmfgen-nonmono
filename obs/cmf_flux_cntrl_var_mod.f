@@ -247,6 +247,15 @@
 !
 	LOGICAL :: J_RESCUE=.FALSE.
 !
+! RESC_JMAX (default 1e-3, code units): absolute ceiling on the
+! stored continuum J used by the J_RESCUE cap.  Converged fields
+! on SN ejecta models reach ~5e-5 at the optical peak and are far
+! smaller elsewhere, so 1e-3 leaves ~20x headroom while catching
+! the slow multiplicative ratchet that relative-per-frequency
+! bounds cannot see.  Only active when J_RESCUE=T.
+!
+	REAL(KIND=LDP) :: RESC_JMAX=1.0D-3
+!
 ! SOB_SIGMA_MAX (default <=0 = off).  When >0, CMF_FLUX_SUB_V5 clamps
 ! |SIGMA_TRUE| to this bound before the Sobolev EW/profile estimators
 ! see it, and reports how many cells were clipped.  Extreme sigma
