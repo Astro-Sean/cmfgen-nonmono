@@ -334,15 +334,26 @@ KNOP pathway (ND=100, NCF=102254 - 22x denser frequency
 coverage than the SOB grid because the non-mono formal solve
 needs line-resolution frequencies):
 
-| gen | R_GLOBAL | argmax depth | R_REL max |
-|---|---|---|---|
-| 2 | 2.77769E-02 | K=88 | 1.96E-01 |
-| 3 | 6.18909E-03 | K=71 | 4.23E-02 |
-| 4 | 1.97009E-03 | K=71 | 1.67E-02 |
+| gen | R_GLOBAL | argmax depth |
+|---|---|---|
+| 2 | 2.77769E-02 | K=88 |
+| 3 | 6.18909E-03 | K=71 |
+| 4 | 1.97009E-03 | K=71 |
+| 5 | 7.70972E-04 | K=71 |
+| 6 | 3.51556E-04 | K=12 |
+| 7 | 1.59749E-04 | K=12 |
+| 8 | 7.39900E-05 | K=10 |
+| 9 | 3.46684E-05 | K=7 |
+| 10 | 1.62949E-05 | K=4 |
+| 11 | 7.70055E-06 | K=1 |
+| 12 | 3.69700E-06 | K=1 |
 
-Faster per-sweep contraction (~0.22-0.32) but from a 12x larger
-first residual; by gen 4 the absolute R is still ~4x the SOB
-value at equal count. TOTAL_ACTIVE ~9.84M nodes per sweep.
+Monotone geometric contraction ~0.45/sweep through gen 12.
+Unlike SOB (worst depth pinned at the inner boundary), the
+KNOP argmax depth marches outward as deep layers converge
+first - K=88 -> 71 -> 12 -> 7 -> 4 -> 1 - leaving the outer
+atmosphere as the residual's last refuge. Zero non-finite and
+zero negative nodes. TOTAL_ACTIVE ~9.84M nodes per sweep.
 Note (section 1.5): KNOP J additionally depends on I_NEXT lag
 maturity, so Delta_JES understates the true sweep-to-sweep
 change - the maturity census is the companion diagnostic.
@@ -403,24 +414,31 @@ SOB pathway - `obs_fin_10` is NUM_ES-invariant:
 KNOP pathway - `obs_fin_10` responds to NUM_ES (single-phase,
 incoherent fold reaches the emergent spectrum):
 
-    pair    GLOBAL_MAX_R    CONT_REL 5300-5600   max-rel (active)
-    2->3    1.900e-03       1.900e-03            8.93e-03
-    3->4    8.249e-04       -                    -
+    pair    GLOBAL_MAX_R    argmax lam (AA)
+    2->3    1.900e-03       5524  (He I 5876 region)
+    3->4    8.249e-04       6516  (Ha wing)
+    4->6    5.079e-04
+    6->8    1.270e-04
+    8->12   6.350e-05       (printed-format floor)
 
-    Global argmax sits at the extreme-UV grid end (weak nodes);
-    the optical-window and active-mask numbers are the
-    meaningful metrics.
+    Argmax lands on real line features, not UV weak nodes -
+    line cores and wings move measurably between low sweeps.
 
 [pending m15 + knop N=6,8,12: `p82_spectrum_metrics.csv`]
 
 ### 6.4 Line-profile convergence
 
-SN_A knop 2->3 (representative windows, es_sweep_compare.py):
-Hb core 1.58e-3, dEW -0.041 AA, dcentroid 0.031 AA;
-HeI 5876 core 1.15e-3, dEW -0.075 AA, dcentroid 0.026 AA;
-Ha core 2.02e-3, dEW +0.231 AA. Line metrics shrink roughly
-in step with the flux residual (3->4 values pending; the
-spectrum is still measurably changing at gen 4).
+SN_A knop, es_sweep_compare.py representative windows:
+
+    pair    metric            Hb        HeI5876    Ha        CaII
+    2->3    LINE_CORE         1.58e-3   1.15e-3    2.02e-3   -
+            LINE_DEW (AA)     -0.041    -0.075     +0.231    +0.373
+            LINE_DCENT (AA)   0.031     0.026      -         -
+    3->4    LINE_DEW (AA)     +3.6e-4   -0.027     +0.168    +0.047
+
+EW shifts of tenths of an Angstrom between 2 and 3 sweeps;
+line centres move ~0.03 AA. The line metrics shrink in step
+with the flux residual.
 
 [pending: `p82_line_metrics.csv` per-window table]
 
