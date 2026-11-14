@@ -1,6 +1,11 @@
 # KNOP Production Failure Isolation - Results
 
-Status: IN PROGRESS - diagnostic arms launched, runtime results pending.
+Status: COMPLETE - Phase 5.2 probe experiment finished and committed
+(`5cf564e0`). Outcome B (STALL): bypassing the `.NOT. HAS_CP` fast exit
+does not restore P-direction convergence; ray 83's P sweep enters a
+stationary oscillatory regime (see sections 26.9-26.10). Phase 5.3
+source audit of the expanding-only P sweep is in
+`docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
 
 This document records the failure-isolation experiment defined by the
 revised work order (Phases 1-7). Sections marked PENDING RUNTIME await
