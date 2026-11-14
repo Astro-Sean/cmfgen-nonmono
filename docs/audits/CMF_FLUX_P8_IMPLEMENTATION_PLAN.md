@@ -8,7 +8,7 @@ Status 15-Nov-2026: the manufactured battery is implemented and
 passing - `unit_tests/f90/drv_es_conv.f`,
 `unit_tests/f90/drv_es_render.f`, `unit_tests/f90/drv_es_seq.f`,
 `unit_tests/f90/drv_knop_guard.f`,
-`unit_tests/python/test_es_conv.py` (87/87). Measured results
+`unit_tests/python/test_es_conv.py` (102/102). Measured results
 recorded in section 2.1 and folded into the audit document.
 T5 and T6 are executable production-linked tests, not source
 inspection.
@@ -61,7 +61,7 @@ T3. **Convolve production-operator battery.** Feed manufactured
         at depth (the routine is built to recover B). Metric on
         the significant-J support only; Wien-tail underflow
         points are masked since a relative error there measures
-        denormal noise, not the operator.
+        underflow-level noise, not the operator.
       - Constant-field response: document, do not assume - the
         Planck-preserving rescale maps a constant to `B/B_es`
         where the rescale is active, and outputs zero where B
@@ -114,7 +114,7 @@ with P5/P6/P7.
 
 ## 2.1 Implemented coverage and measured results
 
-`test_es_conv.py` (87/87 PASS; ifort production objects -
+`test_es_conv.py` (102/102 PASS; ifort production objects -
 `compile_and_link_prod` links the exact `.o` files the
 production executables use, plus `-qopenmp -mkl` per the
 probed production link line; MKL sequential). Test-class
@@ -219,7 +219,7 @@ resolution-stable at ~2e-4 (256 -> 512 does not shrink it),
 so the bound is set at 5x the measured maximum (1e-3) - a
 real stencil-error acceptance, not a recorded diagnostic.
 The pre-fix upper edge was the measured Wien-rescale defect
-(unshifted endpoint B_es >> B in the denormal-Planck zone ->
+(unshifted endpoint B_es >> B in the Wien-dead Planck zone ->
 exp(ln B - ln B_es) crushed J to <=1e-20). The defect is now
 corrected in comp_j_conv_v2.f (audit section 8.5.1): nodes
 with no genuine shifted PLANCK_ES (the upper endpoint and
