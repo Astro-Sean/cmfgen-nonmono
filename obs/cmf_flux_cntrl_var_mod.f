@@ -228,6 +228,25 @@
 	REAL(KIND=LDP) :: ES_DIAG_AFLOOR=1.0E-12_LDP
 	LOGICAL :: ES_DIAG_DEPTHS=.TRUE.
 !
+! DAMP_FJ (default 1.0 = off): under-relaxation factor for the
+! continuum J/f iteration in COMP_JCONT_V4.INC.  At 1.0 the update
+! is bit-identical to stock; below 1.0 the FEDD and RJ iterates are
+! mixed toward the previous iteration, which stabilises the
+! formal-solution/moment feedback on stiff frequencies.  The
+! convergence test still measures the undamped residual, so a
+! converged damped solution satisfies the same tolerance as stock.
+!
+	REAL(KIND=LDP) :: DAMP_FJ=1.0_LDP
+!
+! J_RESCUE (default F): when the continuum J iteration exits with a
+! non-finite or exploding boundary J, restore the previous
+! frequency's converged J/f field, warn, and continue.  Guarantees
+! that a single stiff frequency cannot abort the render; degraded
+! frequencies are listed in the log.  Has no effect at the first
+! frequency (no previous field exists - the run still stops).
+!
+	LOGICAL :: J_RESCUE=.FALSE.
+!
 ! SOB_SIGMA_MAX (default <=0 = off).  When >0, CMF_FLUX_SUB_V5 clamps
 ! |SIGMA_TRUE| to this bound before the Sobolev EW/profile estimators
 ! see it, and reports how many cells were clipped.  Extreme sigma
