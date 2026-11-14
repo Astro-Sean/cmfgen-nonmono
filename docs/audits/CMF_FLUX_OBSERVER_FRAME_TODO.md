@@ -398,7 +398,30 @@ compiles.
     unverified; P7 3|H|<J positivity diagnostic deferred to
     P8/final validation.
 
-### P8.2 KNOP maturity gate
+### P8.2 ES redistribution convergence diagnostic
+- Problem: the NUM_ES redistributed-field iteration (RJ_ES via
+  COMP_J_CONV_V2 between sweeps) had no measured convergence
+  history, and the render's consumption of the latest generation
+  was verified at source but not exercised end to end.
+- Solution: `ES_RESID_DIAG_MOD` (obs/es_resid_diag.f), gated by
+  `ES_RESID_DIAG`/`ES_DIAG_AFLOOR`/`ES_DIAG_DEPTHS` in
+  CMF_FLUX_PARAM (all optional, defaults preserve production).
+  Compares consecutive completed ES_J_CONV generations
+  (R_GLOBAL = max_K D_K/S_K), counts active/masked/non-finite/
+  negative nodes, and audits the render's field against the last
+  stored generation. Diagnostic only.
+- Tests: `test_es_resid.py` (20 checks on the production .o:
+  manufactured pairs, contraction/oscillation series, zero and
+  non-finite fields, generation bookkeeping, render
+  consumption/stale rejection, cold start, OMP determinism).
+- Acceptance: consecutive-generation residual histories for SOB
+  and KNOP on a real model; final-generation render verification;
+  spectral differences vs NUM_ES quantified.
+- Status: AUDIT + IMPLEMENTATION DONE; sweep experiments and
+  results pending in
+  docs/audits/CMF_FLUX_P8_2_ES_CONVERGENCE_AUDIT.md (section 6).
+
+### P8.3 KNOP maturity gate
 - Problem: no OBS-side acceptance gate preventing a spectrum from an
   immature lagged I_NEXT field.
 - Solution: configurable gate on the refresh maturity metric; derive
