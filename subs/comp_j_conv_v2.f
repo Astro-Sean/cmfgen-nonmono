@@ -16,6 +16,7 @@ C
 	1             LU_IN,FILE_IN,CONT_REC,RD_NU,ALLOW_UNEQUAL_FREQ,
 	1             LU_OUT,FILE_OUT)
 	USE SET_KIND_MODULE
+	USE, INTRINSIC :: IEEE_ARITHMETIC
 	IMPLICIT NONE
 C
 C Altered 14-Nov-2026 : Planck-ratio rescale suppressed where the shifted
@@ -23,6 +24,13 @@ C                        PLANCK_ES evaluation is not genuine (upper endpoint
 C                        and nodes whose bracket contains it).  B_es/B there
 C                        is not a calibration and crushed live non-thermal
 C                        fields (P8.1 audit sec 8.5.1).  Not flag-gated.
+C                        Same edit: PLANCK_NU match loops bounded so a
+C                        target outside the PLANCK_FN range, a non-finite
+C                        value, or a degenerate interval cannot run ML or I
+C                        off the arrays; on failure the matched region ends
+C                        (or the whole correction is bypassed when no valid
+C                        node exists) and the uncorrected J_ES stands.
+C                        Non-finite J input is skipped with a diagnostic.
 C Altered 20-Oct-2003 : No scaling peformed when PLANCK_FN has zero''s.
 C Altered 18-Aug-2003 : FILE_DATE inserted into INFO call.
 C Altered 17-Oct-2002 : Computation of BB changed to avoid floating overflow.
@@ -92,6 +100,8 @@ C
 C
 	INTEGER ERROR_LU
 	EXTERNAL ERROR_LU
+	INTEGER WARNING_LU
+	EXTERNAL WARNING_LU
 	LOGICAL FILE_OPEN
 	LOGICAL UNEQUAL_FREQ
 C
@@ -106,6 +116,8 @@ C
 	INTEGER J_DIM
 	INTEGER NCF_RD
 	INTEGER ND_RD
+	INTEGER FAIL,LUE
+	LOGICAL MAP_OK,J_OK
 	CHARACTER*20 FILE_DATE
 C
 C Constants for opacity etc [Set in CMFGEN].
@@ -271,6 +283,22 @@ C
 !
 	DO K=1,ND
 C
+C A non-finite input field cannot be convolved or logged - decline the
+C depth and leave the invalid input visible downstream rather than
+C writing solver garbage over it.  The EXTRA_J_ST check is nested so
+C the unallocated array is never referenced.
+C
+	  J_OK=ALL(IEEE_IS_FINITE(J_STORE(K,1:J_DIM)))
+	  IF(J_OK .AND. J_DIM .LT. NCF)THEN
+	    J_OK=ALL(IEEE_IS_FINITE(EXTRA_J_ST(K,J_DIM+1:NCF)))
+	  END IF
+	  IF(.NOT. J_OK)THEN
+	    LUE=WARNING_LU()
+	    WRITE(LUE,'(A,I5,A)')'*** Warning in COMP_J_CONV_V2: '//
+     1	    'non-finite J input at depth',K,' - convolution skipped'
+	    CYCLE
+	  END IF
+C
 	  BETA=1.84E-03_LDP*SQRT(TEMP(K))
 	  T3=0.5_LDP*HDKT*NU(1)/TEMP(K)
 	  IF(T3 .LT. 1)T3=0.0_LDP
@@ -304,24 +332,65 @@ C BB curve. At longer wavelengths we will use a simple scaling.
 C
 C Because of the steep variation of B on the Wien side, we operate on Log(B).
 C
-	  IF( MINVAL(PLANCK_FN) .GT. 0.0_LDP .AND. MINVAL(PLANCK_ES) .GT. 0.0_LDP)THEN
+	  IF( MINVAL(PLANCK_FN) .GT. 0.0_LDP .AND. MINVAL(PLANCK_ES) .GT.
+     1	    0.0_LDP .AND. MINVAL(J_ES) .GT. 0.0_LDP)THEN
 	    PLANCK_ES(:)=LOG(PLANCK_ES(:))
 	    PLANCK_FN(:)=LOG(PLANCK_FN(:))
 C
 	    PLANCK_NU(1)=NU(1)
 	    I=2
 	    ML=1
-	    DO WHILE(NU(I) .GT. 1.5_LDP*TEMP(K))
-	      DO WHILE(PLANCK_ES(I) .GT. PLANCK_FN(ML))
-	        ML=ML+1
-	      END DO
-	      DO WHILE(PLANCK_ES(I) .LT. PLANCK_FN(ML-1))
-	         ML=ML+1
-	      END DO
-	      T1=(PLANCK_ES(I)-PLANCK_FN(ML))/(PLANCK_FN(ML-1)-PLANCK_FN(ML))
+	    MAP_OK=.TRUE.
+	    DO WHILE(I .LE. NCF)
+	      IF(NU(I) .LE. 1.5_LDP*TEMP(K))EXIT
+C
+C The match itself lives in ES_PLANCK_NU_MATCH (end of this file):
+C a bounded form of the stock two-phase walk.  NU decreases with
+C index; the NU(I) > 1.5*TEMP gate keeps the entered region on the
+C Wien side of the Planck maximum (nu_peak ~ 0.59*TEMP), where
+C PLANCK_FN increases with ML, so the intended bracket is the first
+C ML in [2,NCF] with PLANCK_FN(ML-1) <= PLANCK_ES(I) <= PLANCK_FN(ML).
+C The stock loops walked ML with no bound: a target outside the
+C PLANCK_FN range ran off the end of the array, and the ML-1 lookup
+C at ML=1 read PLANCK_FN(0).  The subroutine keeps every PLANCK_FN
+C access in bounds without relying on short-circuit evaluation.
+C
+	      CALL ES_PLANCK_NU_MATCH(PLANCK_ES(I),PLANCK_FN,ML,NCF,
+     1	                            FAIL,T1)
+	      IF(FAIL .NE. 0)THEN
+C
+C No genuine bracket: a target outside the PLANCK_FN range has no
+C on-grid shifted position, and extrapolating would invent a
+C PLANCK_NU that violates the ln B_es(NU) = ln B(PLANCK_NU) relation.
+C With at least one derived node the matched region simply ends here
+C and the continuation below supplies the last valid shift, the same
+C treatment the stock code applies below the match region.  A
+C first-node failure means no valid map exists at all, so the whole
+C Planck correction is bypassed and the raw convolved J_ES stands
+C (the uncorrected treatment of the 14-Nov-2026 edit).
+C
+	        LUE=WARNING_LU()
+	        WRITE(LUE,'(A,I5,A,I5,A,I2)')'*** Warning in '//
+     1	        'COMP_J_CONV_V2: PLANCK_NU match failed, K=',K,
+     2	        ' I=',I,' FAIL=',FAIL
+	        WRITE(LUE,'(A,4ES15.7)')'    NU(I), PLANCK_ES(I), '//
+     1	        'PLANCK_FN(1), PLANCK_FN(NCF)=',NU(I),PLANCK_ES(I),
+     2        PLANCK_FN(1),PLANCK_FN(NCF)
+	        IF(I .GT. 2)THEN
+	          WRITE(LUE,'(A)')'    matched region truncated; '//
+     1	          'last valid shift continues the map'
+	        ELSE
+	          WRITE(LUE,'(A)')'    no valid node: Planck '//
+     1	          'correction bypassed, uncorrected J_ES returned'
+	          MAP_OK=.FALSE.
+	        END IF
+	        EXIT
+	      END IF
               PLANCK_NU(I)=T1*NU(ML-1)+(1.0_LDP-T1)*NU(ML)
 	      I=I+1
 	    END DO
+C
+	    IF(MAP_OK)THEN
 C
 C Apply same wavelength shift as for our last (i.e. lowest)
 C frequency as determined by matching the Planck function.
@@ -384,6 +453,12 @@ C scale J according the the ratio of the PLANCK functions.
 C
 	     J_ES(:)=EXP( J_ES(:)+ (PLANCK_FN(:)-PLANCK_ES(:)) )
 !
+	    END IF
+C
+C When MAP_OK is false no valid shift map exists: J_ES still holds the
+C raw convolution, which is what the correction would have reduced to
+C anyway where no genuine shifted PLANCK_ES exists.
+C
 	END IF
 C
 C Store the computed  J to be used to treat the electron scattering. We
@@ -424,5 +499,86 @@ C
 	  IF(J_DIM .NE. NCF)DEALLOCATE (EXTRA_J_ST)
 	END IF
 C
+	RETURN
+	END
+C
+C
+C
+	SUBROUTINE ES_PLANCK_NU_MATCH(PES,PFN,ML,NCF,FAIL,T1)
+	USE SET_KIND_MODULE
+	USE, INTRINSIC :: IEEE_ARITHMETIC
+	IMPLICIT NONE
+C
+C Bounded bracket search for the COMP_J_CONV_V2 Planck wavelength
+C shift, split out 14-Nov-2026 so the same production code can be
+C exercised directly by the manufactured driver.  PES is a log-space
+C target PLANCK_ES(I); PFN is the full log-B grid.  ML carries the
+C walk position between calls and only ever moves upward, as in the
+C stock two-loop search.
+C
+C The caller gates on NU(I) > 1.5*TEMP, which keeps the entered
+C region above the Planck maximum (nu_peak ~ 0.59*TEMP); there PFN
+C increases with index and the intended match is the first ML in
+C [2,NCF] with PFN(ML-1) <= PES <= PFN(ML).  Because NU decreases
+C with index, T1 = (PES-PFN(ML))/(PFN(ML-1)-PFN(ML)) gives the
+C shifted position T1*NU(ML-1) + (1-T1)*NU(ML).
+C
+C FAIL codes:
+C   0  bracket found; T1 set.
+C   1  PES above every PFN(ML): the smeared target is larger than
+C      any on-grid B, so no shifted position exists.
+C   2  PES below the reachable floor: either PES <= PFN(1) (the
+C      stock code read PFN(0) here) or PFN(ML-1) still exceeds PES
+C      when ML has walked off the top of the array.
+C   3  degenerate interval PFN(ML-1) = PFN(ML): the denominator
+C      is zero or non-finite and no weight can be formed.
+C   4  PES is not finite.
+C In every failure case no PLANCK_NU is produced: inventing one
+C would violate the ln B_es(NU) = ln B(PLANCK_NU) relation, so the
+C caller falls back to the established uncorrected-convolution
+C treatment rather than extrapolating.
+C
+	INTEGER NCF,ML,FAIL
+	REAL(LDP) PES,T1
+	REAL(LDP) PFN(NCF)
+	REAL(LDP) T2
+C
+	FAIL=0
+	T1=0.0_LDP
+C
+	IF(.NOT. IEEE_IS_FINITE(PES))THEN
+	  FAIL=4
+	  RETURN
+	END IF
+C
+	DO WHILE(ML .LE. NCF)
+	  IF(PES .LE. PFN(ML))EXIT
+	  ML=ML+1
+	END DO
+	IF(ML .GT. NCF)THEN
+	  FAIL=1
+	  RETURN
+	END IF
+	IF(ML .EQ. 1)THEN
+	  FAIL=2
+	  RETURN
+	END IF
+C
+	DO WHILE(ML .LE. NCF)
+	  IF(PES .GE. PFN(ML-1))EXIT
+	  ML=ML+1
+	END DO
+	IF(ML .GT. NCF)THEN
+	  FAIL=2
+	  RETURN
+	END IF
+C
+	T2=PFN(ML-1)-PFN(ML)
+	IF(T2 .EQ. 0.0_LDP .OR. .NOT. IEEE_IS_FINITE(T2))THEN
+	  FAIL=3
+	  RETURN
+	END IF
+C
+	T1=(PES-PFN(ML))/T2
 	RETURN
 	END
