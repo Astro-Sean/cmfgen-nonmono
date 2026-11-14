@@ -8,7 +8,7 @@ Status 15-Nov-2026: the manufactured battery is implemented and
 passing - `unit_tests/f90/drv_es_conv.f`,
 `unit_tests/f90/drv_es_render.f`, `unit_tests/f90/drv_es_seq.f`,
 `unit_tests/f90/drv_knop_guard.f`,
-`unit_tests/python/test_es_conv.py` (75/75). Measured results
+`unit_tests/python/test_es_conv.py` (87/87). Measured results
 recorded in section 2.1 and folded into the audit document.
 T5 and T6 are executable production-linked tests, not source
 inspection.
@@ -114,7 +114,7 @@ with P5/P6/P7.
 
 ## 2.1 Implemented coverage and measured results
 
-`test_es_conv.py` (75/75 PASS; ifort production objects -
+`test_es_conv.py` (87/87 PASS; ifort production objects -
 `compile_and_link_prod` links the exact `.o` files the
 production executables use, plus `-qopenmp -mkl` per the
 probed production link line; MKL sequential). Test-class
@@ -195,8 +195,9 @@ Frequency boundaries (bnd/bndp): the extended domain appends
 NCF/4 same-spacing nodes beyond BOTH production ends, so every
 production node coincides exactly with an extended node - this
 isolates the boundary treatment (one-sided -2/dx^2 stencil
-rows, coherent non-interpolated endpoints, and the B/B_es
-rescale) from resolution/interpolation error on steep slopes.
+rows, the uncorrected endpoint/invalid-bracket treatment of
+sec 8.5.1, and the interior wavelength-shift/rescale path)
+from resolution/interpolation error on steep slopes.
 Manufactured features are ALIVE at both bounds: a Gaussian
 near nu=0.045 (significant field where the lower one-sided
 stencil acts) and one near nu=260 (a live field inside the
@@ -207,23 +208,27 @@ Result at NCF = 256 / 512, all four depth rows:
     lower edge (last 6 nodes): max 1.0e-4 / 2.0e-4,
              rms 4.2e-5 / 8.1e-5, nsig=24, maxratio <=1.0002,
              <=2 sign changes (no ringing)
-    upper edge (first 6 nodes): max rel 1.0 - suppression to
-             <=1e-2 of the extended reference at T >= 1e4 K
-             (documented limitation, audit section 8.5.1)
+    upper edge (first 6 nodes): endpoint vs ext 8.3e-3 / 1.6e-2;
+             feature preserved (min out/in 0.999 / 0.685, the
+             512 floor being the designed shift on the steep
+             feature, not suppression); bounded factor vs
+             extended (0.69-1.02), <=2 sign changes
 
 Tolerance justification: the lower-edge discrepancy is
 resolution-stable at ~2e-4 (256 -> 512 does not shrink it),
 so the bound is set at 5x the measured maximum (1e-3) - a
 real stencil-error acceptance, not a recorded diagnostic.
-The upper-edge suppression is the measured Wien-rescale
-limitation of the production routine (unshifted endpoint
-B_es >> B in the denormal-Planck zone -> exp(ln B - ln B_es)
-crushes J; suppression-only, non-ringing, non-negative). The
-test asserts the bounded suppression-only character and
-reports the ~1.0 magnitude - it is not hidden by a loose
-tolerance. Follow-up: a derived endpoint/rescale guard for
-the Wien-dead regime belongs to a separate production gate;
-the extended-domain reference is in place to verify it.
+The pre-fix upper edge was the measured Wien-rescale defect
+(unshifted endpoint B_es >> B in the denormal-Planck zone ->
+exp(ln B - ln B_es) crushed J to <=1e-20). The defect is now
+corrected in comp_j_conv_v2.f (audit section 8.5.1): nodes
+with no genuine shifted PLANCK_ES (the upper endpoint and
+brackets containing the forced PLANCK_NU(1)=NU(1)) receive
+no shift and no rescale, which reproduces the extended-domain
+treatment. Residual at the endpoint is the one-sided stencil
+error (~1e-2); deeper Wien-side nodes still carry the
+designed wavelength-shift distortion (~0.7 factor on a steep
+feature at 512) which is stock behaviour, not suppression.
 Earlier versions of this test conflated grid-resolution
 differences on steep slopes with boundary distortion and are
 superseded.
