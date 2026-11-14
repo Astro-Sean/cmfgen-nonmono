@@ -857,8 +857,14 @@ every photometric band used in the light-curve fit), and
 it is honest: every rescued frequency is logged.
 
 Verification on the v5 objects: P8.1 battery 116/116,
-P8.2 battery 20/20 - J_RESCUE=F default leaves the stock
-path untouched.
+P8.2 battery 20/20 - rerun with J_RESCUE defaulting T
+(explicit F still restores stock abort behaviour).
+
+Default flip (14-Nov-2026): J_RESCUE now defaults T in
+rd_cmf_flux_controls.f and cmf_flux_cntrl_var_mod.f, so a
+BLANK render carries the rescue unless a config opts out.
+The mechanism and validation are summarised for users in
+docs/audits/BLANK_RENDER_J_RESCUE.md.
 
 Known limitation: all J_RESCUE machinery lives in the ND
 (non-INC_GRID) branch of COMP_JCONT_V4.INC, which is the
