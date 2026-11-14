@@ -6,7 +6,9 @@
 !
 ! Altered 14-Nov-2026 : DAMP_FJ/J_RESCUE - under-relaxation and
 !                          previous-frequency restore for the
-!                          continuum J/f iteration.
+!                          continuum J/f iteration.  J_RESCUE
+!                          defaults T so an unrescuable render
+!                          requires an explicit opt-out.
 ! Altered 15-Nov-2026 : ES_RESID_DIAG/ES_DIAG_AFLOOR/ES_DIAG_DEPTHS
 !                          for the P8.2 ES convergence diagnostic.
 ! Altered 06-Nov-2026 : Restore the DO_NONMONO_KNOP controls removed
@@ -239,7 +241,7 @@
 	  DAMP_FJ=1.0_LDP
 	  CALL RD_STORE_DBLE(DAMP_FJ,'DAMP_FJ',L_FALSE,
 	1        'Under-relaxation factor for continuum J/f iteration')
-	  J_RESCUE=.FALSE.
+	  J_RESCUE=.TRUE.
 	  CALL RD_STORE_LOG(J_RESCUE,'J_RESCUE',L_FALSE,
 	1        'Restore previous J/f on continuum J blow-up?')
 	  RESC_JMAX=1.0D-3
