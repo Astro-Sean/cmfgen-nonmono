@@ -339,7 +339,7 @@
         END IF
       ELSE
         WRITE(LU_DIAG,'(A)')
-     1    'SEED GEN=NONE - no ES_J_CONV (cold start, sweep 1 coherent)'
+     1    'SEED GEN=NONE - no ES_J_CONV (cold start)'
       END IF
       RETURN
       END SUBROUTINE ES_RESID_SEED
@@ -430,6 +430,11 @@
      1             NACT_K,NMASK_K,NNONF_K,NNEG_K)
       END IF
 !
+! A killed job must not lose the completed sweep rows to buffered
+! I/O - the residual history is the deliverable of the diagnostic.
+!
+      FLUSH(LU_DIAG)
+!
       IF(ALLOCATED(RJ_PREV))DEALLOCATE(RJ_PREV)
       CALL MOVE_ALLOC(RJ_NEW,RJ_PREV)
       HAS_PREV=.TRUE.
@@ -485,6 +490,7 @@
       WRITE(LU_DIAG,'(A,I0,A,L1,A,ES12.5)')
      1  'RENDER GEN_LAST=',GEN_COUNT,' FIELD_MATCH=',RENDER_MATCH,
      2  ' MAX_ABS_DIFF=',DMAX
+      FLUSH(LU_DIAG)
       RETURN
       END SUBROUTINE ES_RESID_RENDER
 !
