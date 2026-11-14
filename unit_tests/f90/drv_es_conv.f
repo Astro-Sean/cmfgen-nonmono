@@ -50,7 +50,9 @@ C              negative, non-finite, non-monotone and single-node
 C              cases through the production object code
 C     itp      synthetic ES_SHIFTED_RESCALE battery: valid,
 C              truncated, duplicated, non-finite, non-positive and
-C              one-node maps through the production object code
+C              one-node maps plus non-finite and non-positive
+C              output-grid NU nodes through the production
+C              object code
 C     brk      synthetic ES_PLANCK_NU_MATCH battery: valid, above-
 C              range, below-range, floor-walk, degenerate, NaN, Inf,
 C              huge-negative, boundary-exact, and persisted-ML
@@ -922,6 +924,11 @@ C     T1=1 exactly (an exact node resolves in the lower
 C     bracket on a decreasing NU grid; T1=0 is unreachable
 C     through this walk, the [0,1] check covers both ends)
 C 12  PNU(4)<=0: every bracket touching it is invalid
+C 13  NaN at NU(5): the ordered compares are never reached
+C     (-fpe0 proof), the node is raw and the persisted walk
+C     index is undisturbed for the following nodes
+C 14  NU(5)=-1: finite but non-positive - same raw-node
+C     treatment through a different operand class
 C
       CHARACTER(LEN=*) OUT_DIR
       INTEGER LU
@@ -934,7 +941,7 @@ C
      1     STATUS='UNKNOWN')
       WRITE(LU,'(A)')'# ICASE ML NU PNU JES_OUT PES_OUT'
 C
-      DO ICASE=1,12
+      DO ICASE=1,14
         DO ML=1,NB
           NU_B(ML)=NB+1.0_LDP-ML
           PNU_B(ML)=NU_B(ML)-0.5_LDP
@@ -979,6 +986,9 @@ C
           PNU_B(6)=3.0_LDP
         END IF
         IF(ICASE .EQ. 12)PNU_B(4)=-1.0_LDP
+        IF(ICASE .EQ. 13)NU_B(5)=
+     1    IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+        IF(ICASE .EQ. 14)NU_B(5)=-1.0_LDP
         CALL ES_SHIFTED_RESCALE(NU_B,PNU_B,PFN_B,PES_B,JES_B,
      1    A_B,C_B,NB,NPNU,1)
         DO ML=1,NB
