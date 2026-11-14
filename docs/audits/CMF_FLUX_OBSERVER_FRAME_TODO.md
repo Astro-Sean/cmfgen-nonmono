@@ -417,9 +417,14 @@ compiles.
 - Acceptance: consecutive-generation residual histories for SOB
   and KNOP on a real model; final-generation render verification;
   spectral differences vs NUM_ES quantified.
-- Status: AUDIT + IMPLEMENTATION DONE; sweep experiments and
-  results pending in
+- Status: AUDIT + IMPLEMENTATION DONE; m15 sweep experiments
+  14/15 complete (SOB N=1..12 and KNOP N=2..8 plus both
+  diag-off controls all done and verified; KNOP N=12 rerun
+  with 8h budget in progress - gens 1-9 recorded). Results,
+  convergence-rate analysis, EW decomposition, cross-node
+  reproducibility and memory audit in
   docs/audits/CMF_FLUX_P8_2_ES_CONVERGENCE_AUDIT.md (section 6).
+  P8.2 stays open until the N=12 spectral pair is measured.
 
 ### P8.3 KNOP maturity gate
 - Problem: no OBS-side acceptance gate preventing a spectrum from an
