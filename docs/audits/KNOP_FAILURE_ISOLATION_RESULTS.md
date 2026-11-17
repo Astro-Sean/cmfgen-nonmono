@@ -3615,3 +3615,116 @@ stall), store isolation proven, controlled baseline/
 probe pair on exe fee96b6a. Jobs left running to
 walltime; no solver, commit-policy, or default changes.
 Commits held pending user review of this record.
+
+### 26.11 Phase 5.4 -- significant-cell Q metrics and three-seed probe design (2026-11-15)
+
+Scope: diagnostic-only extension of the existing KN_Q_RESID
+machinery plus the experimental design for the controlled
+P-direction seed test. No solver arithmetic, relaxation,
+commit policy, threshold, or production path changed. All new
+output is gated behind the existing KN_Q_RESID/KN_JUMP_DIAG
+verify-pass diagnostics and the KN_NOCP_PROBE probe ray.
+
+#### A. Significant-cell Q-residual split (implemented)
+
+Motivation: the Phase-4/5.2 evidence showed the unconditioned
+KN_Q_RESID maximum is dominated by floor-level cells, so the
+reported residual overstates the physically significant defect.
+The accumulator now carries the absolute update and the
+production significance test into KN_Q_ACCUM instead of
+reconstructing either from DCELL after the fact.
+
+New per-ray/per-channel quantities (same race-safe layout as
+KN_QC_*_RAY, reduced serially after the ray loop):
+
+- KN_QS_N:    count of significant cells,
+              max(|VOLD|,|VNEW|) > 1.0E-4*VMAX(L)
+- KN_QS_MAX:  max DCELL over significant cells only
+- KN_QS_SUM2: sum DCELL^2 over significant cells (RMS at report)
+- KN_QS_ABS:  max |VNEW-VOLD| over all finite-DCELL cells
+- KN_QS_FLR:  max DCELL over non-significant (floor) cells
+
+The production significance criterion is evaluated at the call
+site because VMAXF(L) (ordered sweep) and VMAX_L (MARCH) are
+only in scope there; the j=1 ordered boundary site passes a
+VOLD-only test because VNEW is not yet formed at that point.
+NaN DCELL values are excluded from all new statistics, matching
+the histogram's existing guard. The original unconditioned
+KN_QC_MAX/histogram/threshold output is unchanged for
+comparison. Allocation failure still leaves KN_QC_READY false
+and every new write returns early.
+
+Report: one `q sig ch=` line per channel per verify pass with
+nsig, sigmax, rms, absmax, flrmax. The significant fraction is
+nsig/KN_QC_N.
+
+#### B. Three-seed P-direction probe (design, not yet implemented)
+
+Question (Phase-5.3 corrected): does the same frozen-coefficient
+P-direction map produce the same bounded non-contracting
+trajectory regardless of the initial field? This tests
+sensitivity to initial conditions, NOT the historical cause of
+the retained-store anomaly; causality would require an
+independent reference solution.
+
+Arms (ray 83, channel P, via KN_NOCP_PROBE/KN_NOCP_PROBE_LS;
+store writes suppressed, fast exit bypassed):
+
+- A: actual retained P store (baseline, reproduces 5.2 probe)
+- B: smoothed/relaxed retained P field (damps the stale-store
+  structure; tests whether the latch seeds the plateau)
+- C: saved last P candidate (tests a different initial basin)
+
+The sibling-median field is NOT used as a seed: KN_SIB_GEO_V1
+provides local store statistics, not a complete NI x NCF ray
+field, and copying local medians across geometries is not a
+valid initial condition.
+
+Measurements per pass (existing KN_PSWEEP_DIAG telemetry plus
+new items):
+
+- production residual and KN_Q_RESID significant-cell split
+  (new metrics above)
+- OMEGA_RAY, residual argmax (j,L), signed update direction
+- negative-value floor/cap activity counts
+- separate j=1 endpoint vs j=2 interior contributions
+  (KN_ORD_DS R=1 branch is a named candidate mechanism)
+- full-field pass snapshots (KN_PSWEEP_SNAP unformatted pairs)
+  or a reduced field sufficient for the distance metric
+
+Distance metric, fixed reference normalisation across passes:
+
+  d_k^(n) = ||W (x_n - x_{n-k})||_2 / ||W x_ref||_2,  k=1..4
+
+where W is a fixed intensity weight (not the changing
+VMAXF(L)). d_k plateau vs decay distinguishes a bounded
+non-contracting orbit candidate from slow convergence;
+period-2 structure would show d_2 << d_1, d_3.
+
+Interpretation gate: identical plateaus from all three seeds
+support seed-insensitive non-convergence under the tested
+relaxation. They do NOT prove the undamped map has spectral
+radius > 1, do NOT establish periodicity of the full field
+vector, and do NOT establish causality for the store anomaly.
+A full-sweep Jacobian-vector experiment remains the decisive
+test and is out of scope here.
+
+#### C. Carried-forward Phase-5.3 corrections
+
+- Persistent bounded non-contracting residual behaviour is
+  measured; the mechanism (ordered frequency coupling vs
+  KN_ORD_DS R=1 endpoint reconstruction vs their interaction)
+  and any periodicity remain hypotheses.
+- The recurring residual maximum at j=1,2 is the OUTER escape
+  edge (ray points run outermost j=1 to innermost j=NI; the P
+  sweep marches NI-1 -> 1).
+- The expanding-cell sign is consistent:
+  chi_hat = chi + |GAM|/DLN, Q = GAM/(DLN*chi_hat) > 0; the
+  signed-vs-abs asymmetry is not the suspected defect.
+- The Paper II linear-wavelength comparison differs by at most
+  ~0.1% on the audited grid, far below the ~60-70% plateau.
+- Three seeds test initial-condition sensitivity only.
+
+Status: Q significant-cell diagnostics implemented, unit
+tested, built; three-seed probe design recorded pending
+implementation. No convergence or production-readiness claim.
