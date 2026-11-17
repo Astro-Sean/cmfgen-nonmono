@@ -1281,6 +1281,26 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QC_MAX_RAY(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: KN_QS_STAT(:)
 !
+! KN_QS_* significant-cell split of the same verify-pass DCELL
+! stream (diagnostic): SIG marks cells passing the production
+! significance test max(|VOLD|,|VNEW|) > 1E-4*VMAX(L). Per ray
+! and channel the accumulator tracks the significant-cell max,
+! sum of squares (for RMS), count, the all-cell absolute update
+! max |VNEW-VOLD|, and the max DCELL over non-significant
+! (floor-dominated) cells. Totals are reduced serially like the
+! KN_QC_* arrays; the original unconditioned max is unchanged.
+!
+	INTEGER*8, ALLOCATABLE, SAVE :: KN_QS_N_RAY(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QS_MAX_RAY(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QS_SUM2_RAY(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QS_ABS_RAY(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_QS_FLR_RAY(:,:)
+	INTEGER*8, SAVE :: KN_QS_N(2)=0_8
+	REAL(KIND=LDP), SAVE :: KN_QS_MAX(2)=0.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_QS_SUM2(2)=0.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_QS_ABS(2)=0.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_QS_FLR(2)=0.0_LDP
+!
 ! KN_QC_READY gates the cell histogram end to end. It is FALSE
 ! until every KN_QC_* allocatable is confirmed allocated and
 ! zeroed in the refresh setup, and KN_Q_ACCUM returns without
@@ -7990,13 +8010,21 @@ C
 	  KN_QC_READY=.FALSE.
 	  ALLOCATE(KN_QS_STAT(KN_NP),KN_QC_HIST(2,403),
 	1   KN_QC_HIST_RAY(KN_NP,2,403),KN_QC_N_RAY(KN_NP,2),
-	2   KN_QC_NT_RAY(KN_NP,2,3),KN_QC_MAX_RAY(KN_NP,2),STAT=IOS2)
+	2   KN_QC_NT_RAY(KN_NP,2,3),KN_QC_MAX_RAY(KN_NP,2),
+	3   KN_QS_N_RAY(KN_NP,2),KN_QS_MAX_RAY(KN_NP,2),
+	4   KN_QS_SUM2_RAY(KN_NP,2),KN_QS_ABS_RAY(KN_NP,2),
+	5   KN_QS_FLR_RAY(KN_NP,2),STAT=IOS2)
 	  IF(IOS2 .EQ. 0)THEN
 	    KN_QS_STAT=0
 	    KN_QC_HIST=0_8; KN_QC_HIST_RAY=0_8
 	    KN_QC_N=0_8; KN_QC_N_RAY=0_8
 	    KN_QC_NT=0_8; KN_QC_NT_RAY=0_8
 	    KN_QC_MAX=0.0_LDP; KN_QC_MAX_RAY=0.0_LDP
+	    KN_QS_N=0_8; KN_QS_N_RAY=0_8
+	    KN_QS_MAX=0.0_LDP; KN_QS_MAX_RAY=0.0_LDP
+	    KN_QS_SUM2=0.0_LDP; KN_QS_SUM2_RAY=0.0_LDP
+	    KN_QS_ABS=0.0_LDP; KN_QS_ABS_RAY=0.0_LDP
+	    KN_QS_FLR=0.0_LDP; KN_QS_FLR_RAY=0.0_LDP
 	  END IF
 !
 ! Readiness requires every array the accumulator and the serial
@@ -8008,10 +8036,16 @@ C
 	  IF(IOS2 .EQ. 0 .AND. ALLOCATED(KN_QC_HIST) .AND.
 	1   ALLOCATED(KN_QC_HIST_RAY) .AND.
 	2   ALLOCATED(KN_QC_N_RAY) .AND. ALLOCATED(KN_QC_NT_RAY)
-	3   .AND. ALLOCATED(KN_QC_MAX_RAY))THEN
+	3   .AND. ALLOCATED(KN_QC_MAX_RAY) .AND.
+	4   ALLOCATED(KN_QS_N_RAY) .AND. ALLOCATED(KN_QS_MAX_RAY)
+	5   .AND. ALLOCATED(KN_QS_SUM2_RAY) .AND.
+	6   ALLOCATED(KN_QS_ABS_RAY) .AND. ALLOCATED(KN_QS_FLR_RAY))
+	1   THEN
 	    KN_QC_READY=.TRUE.
 	  ELSE
 	    KN_QC_N=0_8; KN_QC_NT=0_8; KN_QC_MAX=0.0_LDP
+	    KN_QS_N=0_8; KN_QS_MAX=0.0_LDP; KN_QS_SUM2=0.0_LDP
+	    KN_QS_ABS=0.0_LDP; KN_QS_FLR=0.0_LDP
 	    WRITE(LUER,'(A)')'    KN_QC cell histogram unavailable:'//
 	1   ' allocation failed; Q residual unaffected'
 	  END IF
@@ -8329,6 +8363,11 @@ C
 	  KN_QC_HIST=SUM(KN_QC_HIST_RAY,DIM=1)
 	  DO J=1,2
 	    KN_QC_MAX(J)=MAXVAL(KN_QC_MAX_RAY(:,J))
+	    KN_QS_N(J)=SUM(KN_QS_N_RAY(:,J))
+	    KN_QS_MAX(J)=MAXVAL(KN_QS_MAX_RAY(:,J))
+	    KN_QS_SUM2(J)=SUM(KN_QS_SUM2_RAY(:,J))
+	    KN_QS_ABS(J)=MAXVAL(KN_QS_ABS_RAY(:,J))
+	    KN_QS_FLR(J)=MAXVAL(KN_QS_FLR_RAY(:,J))
 	  END DO
 	END IF
 !
@@ -9060,6 +9099,21 @@ C
 	7        KN_QC_NT(J,1),KN_QC_NT(J,2),KN_QC_NT(J,3)
 	        END IF
 	      END DO
+!
+! Significant-cell split (diagnostic): nsig counts cells passing
+! the production significance test; sigmax/rms cover only those,
+! absmax is the all-cell |VNEW-VOLD| maximum, flrmax the DCELL
+! maximum over floor-dominated cells. The unconditioned q max
+! above is unchanged for comparison.
+!
+	      DO J=1,2
+	        WRITE(LUER,'(A,I1,A,I8,A,4ES12.5)')
+	1      '    q sig ch=',J,' nsig=',KN_QS_N(J),
+	2      ' sigmax,rms,absmax,flrmax=',
+	3      KN_QS_MAX(J),
+	4      SQRT(KN_QS_SUM2(J)/MAX(KN_QS_N(J),1_8)),
+	5      KN_QS_ABS(J),KN_QS_FLR(J)
+	      END DO
 	    ELSE
 !
 ! Allocation failed at setup: say so explicitly rather than
@@ -9239,6 +9293,11 @@ C
 	IF(ALLOCATED(KN_QC_N_RAY))DEALLOCATE(KN_QC_N_RAY)
 	IF(ALLOCATED(KN_QC_NT_RAY))DEALLOCATE(KN_QC_NT_RAY)
 	IF(ALLOCATED(KN_QC_MAX_RAY))DEALLOCATE(KN_QC_MAX_RAY)
+	IF(ALLOCATED(KN_QS_N_RAY))DEALLOCATE(KN_QS_N_RAY)
+	IF(ALLOCATED(KN_QS_MAX_RAY))DEALLOCATE(KN_QS_MAX_RAY)
+	IF(ALLOCATED(KN_QS_SUM2_RAY))DEALLOCATE(KN_QS_SUM2_RAY)
+	IF(ALLOCATED(KN_QS_ABS_RAY))DEALLOCATE(KN_QS_ABS_RAY)
+	IF(ALLOCATED(KN_QS_FLR_RAY))DEALLOCATE(KN_QS_FLR_RAY)
 	KN_QC_READY=.FALSE.
 	IF(ALLOCATED(KN_JT))DEALLOCATE(KN_JT)
 	KN_JT_READY=.FALSE.
@@ -11124,7 +11183,8 @@ C
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
-	        IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
+	        IF(L_QP)CALL KN_Q_ACCUM(T1,VOLD,
+	1       VOLD.GT.1.0E-4_LDP*VMAXF(L),INWARD)
 	      END IF
 	      FLD(1,L)=0.0_LDP
 	    END DO
@@ -11178,7 +11238,8 @@ C
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
-	        IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
+	        IF(L_QP)CALL KN_Q_ACCUM(T1,ABS(VNEW-VOLD),
+	1       MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
 	          IF(L_NOPROBE)CALL NOP_CELL(T1)
@@ -11299,7 +11360,8 @@ C
 	      END IF
 	      RES=MAX(RES,T1)
 	      RES_FREQ(L)=MAX(RES_FREQ(L),T1)
-	      IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
+	      IF(L_QP)CALL KN_Q_ACCUM(T1,ABS(VNEW-VOLD),
+	1     MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
 	        IF(L_NOPROBE)CALL NOP_CELL(T1)
@@ -11386,7 +11448,8 @@ C
 	        END IF
 	        RES=MAX(RES,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
-	        IF(L_QP)CALL KN_Q_ACCUM(T1,INWARD)
+	        IF(L_QP)CALL KN_Q_ACCUM(T1,ABS(VNEW-VOLD),
+	1       MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)
 	        IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	          NTOT_CUR=NTOT_CUR+1
 	          IF(L_NOPROBE)CALL NOP_CELL(T1)
@@ -12577,7 +12640,8 @@ C
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
-	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
+	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,ABS(VNEW-VOLD),
+	1   MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAX_L,INWARD)
 	  END IF
 	  FLD(1,L)=0.0_LDP
 	  DO I=1,NI-1
@@ -12602,7 +12666,8 @@ C
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
-	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
+	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,ABS(VNEW-VOLD),
+	1   MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAX_L,INWARD)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
 	      IF(L_NOPROBE)CALL NOP_CELL(DCELL)
@@ -12658,7 +12723,8 @@ C
 	  END IF
 	  RES=MAX(RES,DCELL)
 	  RESL=MAX(RESL,DCELL)
-	  IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
+	  IF(L_QP)CALL KN_Q_ACCUM(DCELL,ABS(VNEW-VOLD),
+	1 MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAX_L,INWARD)
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
 	    IF(L_NOPROBE)CALL NOP_CELL(DCELL)
@@ -12687,7 +12753,8 @@ C
 	    END IF
 	    RES=MAX(RES,DCELL)
 	    RESL=MAX(RESL,DCELL)
-	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,INWARD)
+	    IF(L_QP)CALL KN_Q_ACCUM(DCELL,ABS(VNEW-VOLD),
+	1   MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAX_L,INWARD)
 	    IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	      NTOT_CUR=NTOT_CUR+1
 	      IF(L_NOPROBE)CALL NOP_CELL(DCELL)
@@ -12785,9 +12852,9 @@ C
 ! -> 2), so no shared mutable gate or counter is touched. The
 ! channel totals are reduced serially after the ray loop.
 ! ----------------------------------------------------------------
-	SUBROUTINE KN_Q_ACCUM(DX,L_IN)
-	REAL(KIND=LDP) DX
-	LOGICAL L_IN
+	SUBROUTINE KN_Q_ACCUM(DX,DABS,SIG,L_IN)
+	REAL(KIND=LDP) DX,DABS
+	LOGICAL SIG,L_IN
 	INTEGER IB,CH
 !
 ! Allocation-failure path: L_QP still marks the verify pass, but
@@ -12800,6 +12867,23 @@ C
 	IF(.NOT.L_IN)CH=2
 	KN_QC_N_RAY(LS,CH)=KN_QC_N_RAY(LS,CH)+1_8
 	IF(DX .GT. KN_QC_MAX_RAY(LS,CH))KN_QC_MAX_RAY(LS,CH)=DX
+!
+! Significant-cell split: DABS is |VNEW-VOLD| and SIG is the
+! production significance test evaluated at the call site. Only
+! finite DX values enter the new statistics, matching the
+! histogram's NaN guard.
+!
+	IF(DX .EQ. DX)THEN
+	  IF(DABS .GT. KN_QS_ABS_RAY(LS,CH))
+	1   KN_QS_ABS_RAY(LS,CH)=DABS
+	  IF(SIG)THEN
+	    KN_QS_N_RAY(LS,CH)=KN_QS_N_RAY(LS,CH)+1_8
+	    IF(DX .GT. KN_QS_MAX_RAY(LS,CH))KN_QS_MAX_RAY(LS,CH)=DX
+	    KN_QS_SUM2_RAY(LS,CH)=KN_QS_SUM2_RAY(LS,CH)+DX*DX
+	  ELSE
+	    IF(DX .GT. KN_QS_FLR_RAY(LS,CH))KN_QS_FLR_RAY(LS,CH)=DX
+	  END IF
+	END IF
 	IF(DX .GT. 1.0E-2_LDP)
 	1   KN_QC_NT_RAY(LS,CH,1)=KN_QC_NT_RAY(LS,CH,1)+1_8
 	IF(DX .GT. 1.0E-1_LDP)
