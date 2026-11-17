@@ -13,6 +13,7 @@ the printed census fields: exit class (NXIT), residual, store
 writes, matching census (NMATCH/NMAX), and store finiteness.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -1388,10 +1389,14 @@ def main():
     _on = run(bin_, "pnom", cwd=WORKDIR, check=False).stdout
     d32a, s32a = parse(_om)
     d32b, s32b = parse(_on)
+    # The driver echoes wall time (`t=  0.0 s`), which jitters
+    # between runs; parity is judged on everything else.
+    _norm = lambda s: re.sub(r"t=\s*\d+\.\d s", "t=X s", s)
     ok = (
         "RESULT_OK" in d32a
         and "RESULT_OK" in d32b
-        and _om.replace("pmon", "x") == _on.replace("pnom", "x")
+        and _norm(_om).replace("pmon", "x")
+        == _norm(_on).replace("pnom", "x")
     )
     rep.check(
         "T32 MON-class vs plain captured method: identical "
