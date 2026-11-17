@@ -3658,7 +3658,7 @@ Report: one `q sig ch=` line per channel per verify pass with
 nsig, sigmax, rms, absmax, flrmax. The significant fraction is
 nsig/KN_QC_N.
 
-#### B. Three-seed P-direction probe (design, not yet implemented)
+#### B. Three-seed P-direction probe (design; implemented as B2)
 
 Question (Phase-5.3 corrected): does the same frozen-coefficient
 P-direction map produce the same bounded non-contracting
@@ -3671,14 +3671,11 @@ Arms (ray 83, channel P, via KN_NOCP_PROBE/KN_NOCP_PROBE_LS;
 store writes suppressed, fast exit bypassed):
 
 - A: actual retained P store (baseline, reproduces 5.2 probe)
-- B: smoothed/relaxed retained P field (damps the stale-store
-  structure; tests whether the latch seeds the plateau)
+- B: geometry-matched sibling-median seed (revised arm):
+  same-depth sibling median per store slot, constructed only
+  where the J_PNT mapping and a non-empty sibling sample make
+  it valid; unmappable cells keep the retained seed
 - C: saved last P candidate (tests a different initial basin)
-
-The sibling-median field is NOT used as a seed: KN_SIB_GEO_V1
-provides local store statistics, not a complete NI x NCF ray
-field, and copying local medians across geometries is not a
-valid initial condition.
 
 Measurements per pass (existing KN_PSWEEP_DIAG telemetry plus
 new items):
@@ -3726,5 +3723,73 @@ test and is out of scope here.
 - Three seeds test initial-condition sensitivity only.
 
 Status: Q significant-cell diagnostics implemented, unit
-tested, built; three-seed probe design recorded pending
-implementation. No convergence or production-readiness claim.
+tested, built; three-seed probe implemented (below). No
+convergence or production-readiness claim.
+
+#### A2. Significance-test caveat (review correction)
+
+The j=1 ordered boundary site passes a VOLD-only significance
+test because VNEW is not yet formed at that point: its cells
+count toward nsig and the significant RMS on the strength of
+the pre-update value alone, without a computed update. The
+aggregate significant fraction therefore mixes cells with a
+genuine computed update and boundary cells tested on VOLD
+only; read the j-split telemetry (B2) alongside nsig when
+interpreting the fraction.
+
+#### B2. Three-seed probe -- implementation (KN_SEED_ARM)
+
+New diagnostic key [KN_SEED_ARM], default -1 = off; requires
+KN_NOCP_PROBE armed for the same ray and is inert otherwise.
+Values outside -1..2 fail closed to off.
+
+Seed injection (after the ordinary SEED_FLD fill of I_P for
+the probe ray only):
+
+- 0 = arm A: retained store (baseline; telemetry only)
+- 1 = arm B: same-depth sibling median per store slot via
+  KN_SEED_SIB -- the KN_SIB_DEPTH_SNAP_V1 sample and
+  nearest-rank convention; cells with no mappable ray point or
+  an empty sibling sample keep the retained seed
+- 2 = arm C: replay of KN_SEED_PC, the previous refresh's
+  final P iterate (saved every refresh whatever the exit
+  class; KN_SEED_PCIX records IXIT_P for provenance). First
+  refresh has no candidate: falls back to the retained seed
+  and reports KN_SEED_USED=3.
+
+The I_M solve is never reseeded (its IM_NI hand-off is
+identical across arms), the injected seed and saved candidate
+never touch the retained store, and store writes for the probe
+ray remain suppressed by the existing KN_NOCP_PROBE path.
+
+Per-refresh archive: KNSEED_P_L<LS>_a<arm>_r<ref>.bin holds
+header ints, x_ref and the injected x_0 field.
+
+Telemetry (P channel only, non-verify passes):
+
+- d_k(n) = ||W(x_n - x_{n-k})||_2 / ||W x_ref||_2, k=1..4,
+  with the per-cell weight
+  W(j,L)=1/MAX(|x_ref(j,L)|, 1E-4*colmax(x_ref,L)) and W=0 on
+  all-zero reference columns. A pure per-column 1/colmax
+  weight was rejected: it overflows on the dead columns the
+  probe is meant to study and lets floor-scale cells dominate
+  the norm. x_ref is the retained-store seed, identical
+  across arms while the store is unchanged; -1 while k
+  exceeds the pass count.
+- j-split of the same weighted |x_n-x_{n-1}| update: j=1
+  (outer endpoint), j=2, j>=3 -- the Phase-5.3A
+  endpoint/interior separation for the KN_ORD_DS R=1 question.
+- existing res/ad/omg/rat, argmax, threshold counts and
+  per-refresh KN-SEED arm/used/fill/pcix summary.
+
+Run spec (chunk 3): three separate runs, one arm each, from
+the same checkpoint with KN_FREEZE_COEF=T coefficients (the
+frozen map under test), identical boundaries, grid, ordering
+and relaxation; >=30 passes via KN_RAY_MAXPASS; store
+checksums (existing KN-NOP before/after lines) must show zero
+delta. Interpretation gate unchanged from B: identical
+plateaus support seed-insensitive non-convergence only; no
+spectral-radius, periodicity or causality claim. Deferred
+follow-up: repeat the best-behaved arm with the j=1 endpoint
+reconstruction instrumented (measure first; no formula change
+yet).
