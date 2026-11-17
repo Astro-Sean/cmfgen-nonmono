@@ -1,9 +1,18 @@
-# KNOP maturity gate — control-flow map (P8.3 preparation)
+# KNOP maturity gate — control-flow map (P8.3)
 
-17-Nov-2026. Preparation only: no source changes while the KN_SEED_ARM
-three-seed experiment (uncommitted in `plane/fg_j_cmf_nonmono_v1.f`)
-is active. Records where the lagged-field state lives, who can write
-the spectrum, and where a gate belongs.
+17-Nov-2026. Records where the lagged-field state lives, who can
+write the spectrum, and where the gate landed. Implementation:
+`obs/knop_spec_gate.f` (KNOP_SPEC_GATE_EVAL), wired before the
+`DO SOB_PHASE` loop in `cmf_flux_sub_v5.f`; control key
+`DO_KNOP_SPEC_GATE` (default T) in `rd_cmf_flux_controls.f` and
+`cmf_flux_cntrl_var_mod.f`. Gate state lives in the module, not a
+new counter.
+
+Post-implementation corrections to the map below: `mom_refresh_conv`
+stays F on the FG-refresh KNOP route so it is evidence-only, and
+`mode=LAMBDA_GS` corroborates the frozen state. The predicate gates
+on `n_frozen` / `frozen` / `mode` / `n_mature` plus the stall marker
+and manifest termination.
 
 ## 1. State writers
 
