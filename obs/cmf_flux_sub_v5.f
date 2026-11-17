@@ -1567,6 +1567,35 @@
 !
 	NSOB_PHASE=1
 	IF(DO_SOB_FLUX_OBS)NSOB_PHASE=2
+!
+! P8.3 KNOP output gate (17-Nov-2026): the automatic afterok chain
+! keeps a stalled model out of the OBS job, but skip_final submits
+! and manual batobs.sh reruns reach these writes unguarded.  The
+! gate reads the model directory's GS_STATE/manifest once here so
+! every spectrum write below (both phases) is covered.  Under
+! DO_KNOP_SPEC_GATE=T a non-converged state stops the run; the
+! opt-out marks the files instead.  Non-KNOP models leave
+! KNOP_SPEC_ALLOW T and take no branch.
+!
+	IF(DO_NONMONO_KNOP)THEN
+	  CALL KNOP_SPEC_GATE_EVAL(LUER)
+	  IF(.NOT. KNOP_SPEC_ALLOW)THEN
+	    IF(DO_KNOP_SPEC_GATE)THEN
+	      WRITE(LUER,'(A)')'Error: KNOP model is not in a'//
+	1        ' converged state ('//TRIM(KNOP_SPEC_CLASS)//').'
+	      WRITE(LUER,'(A)')'No production spectrum was written;'//
+	1        ' see obs/KNOP_SPEC_STATUS for the evidence.  Set'
+	      WRITE(LUER,'(A)')'DO_KNOP_SPEC_GATE=F for a marked'//
+	1        ' diagnostic render.'
+	      STOP
+	    ELSE
+	      WRITE(LUER,'(A)')' KNOP spectrum gate override:'//
+	1        ' '//TRIM(KNOP_SPEC_CLASS)//' - writing a marked'//
+	2        ' diagnostic spectrum (DO_KNOP_SPEC_GATE=F).'
+	    END IF
+	  END IF
+	END IF
+!
 	DO SOB_PHASE=1,NSOB_PHASE
 !
 ! Restart the direct-access record counter for each phase: it is
@@ -2453,6 +2482,11 @@
 	IF(SOB_PHASE .EQ. 1)THEN
 	CALL CHK_OBS_FLUX(OBS_FLUX,N_OBS,'OBSFLUX',LUER)
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFLUX','UNKNOWN',' ',' ',IZERO,IOS)
+! P8.3: marker reached only on the DO_KNOP_SPEC_GATE=F diagnostic
+! opt-out (the gate stops non-converged states above otherwise).
+	IF(KNOP_SPEC_STATE .GT. 1)
+     1    WRITE(LU_FLUX,'(A)')'! knop_spec_status: '//
+     2    TRIM(KNOP_SPEC_CLASS)
 	  WRITE(STRING,'(I10)')N_OBS
 	  DO WHILE(STRING(1:1) .EQ. ' ')
 	       STRING(1:)=STRING(2:)
@@ -2744,6 +2778,9 @@
 !
 	CALL CHK_OBS_FLUX(OBS_FLUX,N_OBS,'OBSFRAME phase 1',LUER)
 	CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
+	IF(KNOP_SPEC_STATE .GT. 1)
+     1    WRITE(LU_FLUX,'(A)')'! knop_spec_status: '//
+     2    TRIM(KNOP_SPEC_CLASS)
 	  WRITE(STRING,'(I10)')N_OBS
 	  DO WHILE(STRING(1:1) .EQ. ' ')
 	       STRING(1:)=STRING(2:)
@@ -3165,6 +3202,9 @@
 !
 	  CALL CHK_OBS_FLUX(OBS_FLUX,N_OBS,'OBSFRAME phase 2',LUER)
 	  CALL GEN_ASCI_OPEN(LU_FLUX,'OBSFRAME','UNKNOWN',' ',' ',IZERO,IOS)
+	  IF(KNOP_SPEC_STATE .GT. 1)
+     1      WRITE(LU_FLUX,'(A)')'! knop_spec_status: '//
+     2      TRIM(KNOP_SPEC_CLASS)
 	    WRITE(STRING,'(I10)')N_OBS
 	    DO WHILE(STRING(1:1) .EQ. ' ')
 	      STRING(1:)=STRING(2:)
