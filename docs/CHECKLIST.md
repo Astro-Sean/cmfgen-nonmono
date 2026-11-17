@@ -84,6 +84,12 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       still owes the all-rays honest-exit evidence - killed by SIGXCPU
       (interactive CPU cap) mid-iteration-1; needs a general-partition
       resubmit.
+- [x] KNOP spectrum-output gate (P8.3): `obs/knop_spec_gate.f`
+      classifies GS_STATE + stall marker + manifest before the
+      OBSFLUX/OBSFRAME writes; non-converged KNOP models stop under
+      `DO_KNOP_SPEC_GATE=T` (default) or render a marked diagnostic
+      under the F opt-out.  `unit_tests/python/test_knop_spec_gate.py`
+      (9 cases, production object).
 
 ## 4. Diagnostics and instrumentation (all default-off, verified)
 
