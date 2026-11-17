@@ -434,7 +434,10 @@ compiles.
 - Tests: spectra vs refresh count / NUM_ES_ITERATIONS / OBS grid /
   freq-match toggles.
 - Acceptance: documented threshold + behavior below threshold.
-- Status: OPEN
+- Control-flow map and proposed gate location:
+  docs/audits/KNOP_MATURITY_GATE_MAP.md (17-Nov-2026). Implementation
+  deferred until the KN_SEED_ARM three-seed experiment finishes.
+- Status: OPEN (mapped)
 
 ## P9. Spatial resolution convergence (Priority 9)
 
