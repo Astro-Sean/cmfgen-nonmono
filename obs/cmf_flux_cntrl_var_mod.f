@@ -276,6 +276,32 @@
 !
 	LOGICAL :: ALLOW_NONMONO_OBS=.FALSE.
 !
+! KNOP spectrum-output gate (P8.3, 17-Nov-2026).  Under
+! DO_NONMONO_KNOP the lagged J_NEXT field and the population
+! convergence history live in the model directory's GS_STATE file,
+! written every SOLVE_FOR_POPS call.  The slurm afterok chain
+! already keeps a stalled model out of the automatic OBS job, but
+! skip_final submissions and manual batobs.sh reruns reach the
+! spectrum writes unguarded.  KNOP_SPEC_GATE_EVAL reads that
+! existing solver state (plus the stall marker and the run
+! manifest when present) and classifies the model before any
+! OBSFLUX/OBSFRAME write:
+!   0 - not a KNOP model (gate not applicable; output allowed)
+!   1 - KNOP_CONVERGED: frozen=F, n_frozen=0, refresh converged
+!   2 - KNOP_MATURE_STALLED: stall evidence with n_mature>0
+!   3 - KNOP_IMMATURE: still frozen or refresh unconverged
+!   4 - KNOP_EXECUTION_INCOMPLETE: GS_STATE absent/malformed or the
+!       manifest records a killed/abnormal model segment
+! DO_KNOP_SPEC_GATE (default T) blocks every non-converged state.
+! An explicit F opts out for diagnostic renders; the output files
+! then carry a '! knop_spec_status:' marker line so a stalled or
+! immature render cannot pass as a converged spectrum.
+!
+	LOGICAL :: DO_KNOP_SPEC_GATE=.TRUE.
+	INTEGER :: KNOP_SPEC_STATE=0
+	CHARACTER(LEN=32) :: KNOP_SPEC_CLASS='NOT_EVALUATED'
+	LOGICAL :: KNOP_SPEC_ALLOW=.TRUE.
+!
 ! DO_NONMONO_FREQ_MATCH (default F in this file, matching the
 ! population-side VADAT default in RD_CONTROL_VARIABLES): under
 ! DO_NONMONO_SOB + USE_LAM_ES=F the population run auto-sets this
