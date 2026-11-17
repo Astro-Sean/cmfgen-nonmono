@@ -1609,6 +1609,15 @@
 	  CALL SET_FG_PSWEEP_DIAG(KN_PSWEEP_DIAG,KN_PSWEEP_LS,
 	1     KN_PSWEEP_PLO,KN_PSWEEP_PHI,KN_PSWEEP_SNAP,KN_PSWEEP_SNHI)
 !
+! KN_SEED_ARM (default -1 = off): phase-5.4 three-seed probe on
+! the KN_NOCP_PROBE ray's P direction. Values outside -1..2 are
+! clamped to off inside the setter.
+!
+	  KN_SEED_ARM=-1
+	  CALL RD_STORE_INT(KN_SEED_ARM,'KN_SEED_ARM',L_FALSE,
+	1     'KNOP seed arm for probe P sweep (-1 off,0 ret,1 sib,2 cand)')
+	  CALL SET_FG_SEED_ARM(KN_SEED_ARM)
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
