@@ -1385,6 +1385,18 @@
 	INTEGER KN_PSWEEP_PLO
 	INTEGER KN_PSWEEP_PHI
 !
+! KN_SEED_ARM (diagnostic, default -1 = off): phase-5.4
+! three-seed P-direction experiment. Requires KN_NOCP_PROBE
+! armed for the same ray. 0 = retained-store seed (baseline),
+! 1 = same-depth sibling-median seed where the sample is
+! valid, 2 = saved last-P-candidate seed. Adds fixed-reference
+! d_k pass distances, a j=1/j=2/j>=3 update split and an
+! archived xref + injected seed per refresh; the I_M solve,
+! store, coefficients and every solver input are unchanged.
+! VADAT [KN_SEED_ARM].
+!
+	INTEGER KN_SEED_ARM
+!
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
 ! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
