@@ -72,6 +72,18 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       safeguarded Anderson) - deferred until production pass history
       exists; do not enable an accelerator without it.
 - [ ] Whether rays 82/83 share a mechanism or need separate handling.
+- [x] Frozen-executable experiment hygiene (the p82 drift root cause):
+      `scripts/cmf_run_manifest.py` pins the resolved exes into
+      `exe_frozen/<sha16>_<sha16>/` shaped as a cmfdist; submit_cmfgen.sh
+      repoints CMFDIST at it, writes `manifest.json`, and the generated
+      slurm re-verifies sha256 immediately before exec (mismatch aborts
+      before batch.sh).  Post-run segments record exit code, termination
+      class (normal / stall / signal kill) and output hashes.  Opt-out:
+      `cmfgen.pin_executables: false`.  SN2024pba repo commit f0902fb9;
+      tests `scripts/test_cmf_run_manifest.py` (4/4).  fix82 (13158010)
+      still owes the all-rays honest-exit evidence - killed by SIGXCPU
+      (interactive CPU cap) mid-iteration-1; needs a general-partition
+      resubmit.
 
 ## 4. Diagnostics and instrumentation (all default-off, verified)
 
