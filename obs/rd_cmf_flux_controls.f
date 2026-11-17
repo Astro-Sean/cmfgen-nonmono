@@ -543,6 +543,23 @@
 	1      ' consistent with the population continuum.'
 	  END IF
 !
+! DO_KNOP_SPEC_GATE (default T, P8.3): with it on, a KNOP model
+! whose GS_STATE shows a frozen, stalled or incomplete solver state
+! is refused before the OBSFLUX/OBSFRAME writes.  An explicit F
+! opts out for diagnostic renders; the output files then carry a
+! '! knop_spec_status:' marker so they cannot be mistaken for a
+! converged spectrum.  Read unconditionally; only consulted under
+! DO_NONMONO_KNOP.
+!
+	  DO_KNOP_SPEC_GATE=.TRUE.
+	  CALL RD_STORE_LOG(DO_KNOP_SPEC_GATE,'DO_KNOP_SPEC_GATE',
+	1      L_FALSE,'Gate OBSFLUX/OBSFRAME on the KNOP solver state?')
+	  IF(DO_NONMONO_KNOP .AND. .NOT. DO_KNOP_SPEC_GATE)THEN
+	    WRITE(LUER,'(A)')' DO_KNOP_SPEC_GATE=F: diagnostic'//
+	1      ' render permitted; output files will carry the'//
+	2      ' knop_spec_status marker.'
+	  END IF
+!
 ! Escape key for the fail-closed non-monotonic detector in
 ! CMF_FLUX_SUB_V5: read unconditionally so it can rescue a run whose
 ! obs controls carry no nonmono flag at all (e.g. a KNOP model read
