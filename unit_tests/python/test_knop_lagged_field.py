@@ -1657,7 +1657,9 @@ def test_nocp_probe_diagnostics():
     # residual-tolerance, bulk, stall and cap exits are unchanged.
     check(
         "NOP_PASS recorded before exit tests in both sweeps",
-        FG.count("IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE)")
+        FG.count(
+            "IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE,FLD,L_QP)"
+        )
         == 2,
     )
     for tok in (
@@ -1816,7 +1818,117 @@ def test_qsig_significant_cell_metrics():
     )
 
 
+def test_seed_arm_probe():
+    """Phase-5.4 three-seed P-direction probe wiring and safety."""
+    check(
+        "off by default; arm clamped to -1..2",
+        "INTEGER, SAVE :: KN_SEED_ARM=-1" in FG
+        and "KN_SEED_ARM .GT. 2" in FG,
+    )
+    check(
+        "VADAT declares and reads KN_SEED_ARM",
+        "INTEGER KN_SEED_ARM" in CTRL_MOD
+        and "RD_STORE_INT(KN_SEED_ARM,'KN_SEED_ARM'" in RD_CONTROL,
+    )
+    check(
+        "reader calls the setter",
+        "CALL SET_FG_SEED_ARM(KN_SEED_ARM)" in RD_CONTROL,
+    )
+    check(
+        "experiment still requires the probe ray",
+        "L_SEED=L_NOPROBE .AND. KN_SEED_ARM .GE. 0" in FG,
+    )
+    check(
+        "injection after the retained SEED_FLD fill only",
+        "CALL SEED_FLD(FLD_P,I_P_DEPTH_NEXT)" in FG
+        and "IF(L_SEED)CALL KN_SEED_SETUP_P(FLD_P,I_P_DEPTH_NEXT)" in FG,
+    )
+    check(
+        "x_ref captured before injection (retained seed)",
+        FG.index("KN_DK_XREF(1:NI,1:NCF)=FLD(1:NI,1:NCF)")
+        < FG.index("IF(KN_SEED_ARM .EQ. 1)THEN"),
+    )
+    check(
+        "fixed per-cell weight floors and kills dead columns",
+        "MAX(ABS(KN_DK_XREF(K,L)),1.0E-4_LDP*CM)" in FG
+        and "KN_DK_W(K,L)=0.0_LDP" in FG,
+    )
+    check(
+        "ring seeded with injected x_0",
+        FG.count("KN_DK_HIST(1:NI,1:NCF,") >= 5,
+    )
+    check(
+        "arm C falls back to retained seed with used=3",
+        "KN_SEED_USED=3" in FG,
+    )
+    check(
+        "arm C candidate validated by dims before replay",
+        "SIZE(KN_SEED_PC,1) .EQ. NI" in FG
+        and "SIZE(KN_SEED_PC,2) .EQ. NCF" in FG,
+    )
+    check(
+        "candidate saved whatever the exit class",
+        "KN_SEED_PCIX=IXIT_P" in FG
+        and "CALL KN_SEED_SAVE_P(FLD_P)" in FG,
+    )
+    sib = FG[FG.index("SUBROUTINE KN_SEED_SIB") :]
+    check(
+        "arm B keeps the same-depth nearest-rank median",
+        "WRK((NOK+1)/2)" in sib and "J_PNT(KS,RS)" in sib,
+    )
+    check(
+        "arm B leaves unmappable cells on the retained seed",
+        "IF(NOK .LT. 1)CYCLE" in sib
+        and "IF(JP2 .LT. 1 .OR. JP2 .GT. NI)CYCLE" in sib,
+    )
+    check(
+        "store stays read-only in the sib fill",
+        "STORE(" in sib and "STORE(KC,RS" in sib
+        and "STORE(KC,RS,LS2-1)=" not in sib,
+    )
+    check(
+        "archive write serialised under OMP critical",
+        "!$OMP CRITICAL (KN_SEED_IO)" in FG
+        and "KNSEED_P_L" in FG,
+    )
+    acc = section(FG, "SUBROUTINE NOP_PASS", "SUBROUTINE KN_Q_ACCUM")
+    check(
+        "d_k gated to P channel, armed rays, non-verify passes",
+        "L_SEED .AND. NPD .EQ. 2 .AND. .NOT. LQP_D" in acc,
+    )
+    check(
+        "d_k fixed-reference formula",
+        "KN_NOP_DK(NPO_D,2,K_D)=SQRT(DKT1)/DKT2" in acc
+        and "KN_DK_W(JP_D,L_D)*(FLD_D(JP_D,L_D)-" in acc,
+    )
+    check(
+        "k beyond pass count reports -1",
+        "KN_NOP_DK(NPO_D,2,K_D)=-1.0_LDP" in acc,
+    )
+    check(
+        "j-split buckets 1/2/3+",
+        "DKJ(MIN(JP_D,3))" in acc,
+    )
+    check(
+        "call sites pass field and verify flag",
+        FG.count("CALL NOP_PASS(NPO,RES,INWARD,HOTMODE,FLD,L_QP)") == 2,
+    )
+    check(
+        "record arrays allocated and zeroed with KN_NOP group",
+        "KN_NOP_DK(KN_NOP_MAXP,2,4)" in FG
+        and "KN_NOP_DK=-1.0_LDP" in FG
+        and FG.count("DEALLOCATE(KN_NOP_DK)") == 2
+        and FG.count("DEALLOCATE(KN_NOP_J3)") == 2,
+    )
+    check(
+        "summary and per-pass report lines present",
+        "KN-SEED ray=" in FG and "dk1..4=" in FG
+        and "j1/j2/j3+=" in FG,
+    )
+
+
 if __name__ == "__main__":
+    test_seed_arm_probe()
     test_qsig_significant_cell_metrics()
     test_ray83_lifecycle_audit()
     test_kn_census_and_geo_diagnostics()
