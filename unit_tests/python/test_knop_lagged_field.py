@@ -976,7 +976,7 @@ def test_qcell_histogram_gated_by_verify_pass():
     ord_body = section(FG, "SUBROUTINE SWEEP_FLD_ORD", "SUBROUTINE BUILD_FREQ")
     sites = [
         m.start()
-        for m in re.finditer(r"IF\(L_QP\)CALL KN_Q_ACCUM\(T1,INWARD\)", ord_body)
+        for m in re.finditer(r"IF\(L_QP\)CALL KN_Q_ACCUM\(T1,", ord_body)
     ]
     check("SWEEP_FLD_ORD has four L_QP-gated KN_Q_ACCUM sites", len(sites) == 4)
     for pos in sites:
@@ -993,7 +993,7 @@ def test_qcell_histogram_gated_by_verify_pass():
     march_body = section(FG, "SUBROUTINE MARCH", "SUBROUTINE KN_Q_ACCUM")
     check(
         "MARCH keeps its four L_QP-gated KN_Q_ACCUM sites",
-        len(re.findall(r"IF\(L_QP\)CALL KN_Q_ACCUM\(DCELL,INWARD\)", march_body))
+        len(re.findall(r"IF\(L_QP\)CALL KN_Q_ACCUM\(DCELL,", march_body))
         == 4,
     )
     check(
@@ -1021,7 +1021,7 @@ def test_qcell_histogram_race_free_layout():
     accum = section(FG, "SUBROUTINE KN_Q_ACCUM", "RETURN\n\tEND")
     check(
         "accumulator takes an explicit channel argument",
-        "SUBROUTINE KN_Q_ACCUM(DX,L_IN)" in FG,
+        "SUBROUTINE KN_Q_ACCUM(DX,DABS,SIG,L_IN)" in FG,
     )
     check(
         "channel resolved from the local inward flag",
@@ -1739,7 +1739,85 @@ def test_nocp_probe_diagnostics():
     )
 
 
+def test_qsig_significant_cell_metrics():
+    acc = section(
+        FG,
+        "SUBROUTINE KN_Q_ACCUM",
+        "Write the converged ray field back",
+    )
+    check(
+        "accumulator takes absolute update and significance flag",
+        "SUBROUTINE KN_Q_ACCUM(DX,DABS,SIG,L_IN)" in acc
+        and "REAL(KIND=LDP) DX,DABS" in acc
+        and "LOGICAL SIG,L_IN" in acc,
+    )
+    check(
+        "significant branch updates max/sum2/count",
+        "IF(SIG)THEN" in acc
+        and "KN_QS_N_RAY(LS,CH)=KN_QS_N_RAY(LS,CH)+1_8" in acc
+        and "KN_QS_SUM2_RAY(LS,CH)=KN_QS_SUM2_RAY(LS,CH)+DX*DX" in acc,
+    )
+    check(
+        "floor branch tracks non-significant max",
+        "KN_QS_FLR_RAY(LS,CH)=DX" in acc,
+    )
+    check(
+        "absolute update max tracked for all cells",
+        "KN_QS_ABS_RAY(LS,CH)=DABS" in acc,
+    )
+    check(
+        "new stats gated by the same readiness flag",
+        acc.index("IF(.NOT.KN_QC_READY)RETURN")
+        < acc.index("KN_QS_N_RAY"),
+    )
+    n_calls = len(re.findall(r"CALL KN_Q_ACCUM\(", FG))
+    check("all Q accumulation call sites updated", n_calls == 8)
+    check(
+        "ordered sites use VMAXF significance test",
+        FG.count("MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)")
+        == 3,
+    )
+    check(
+        "unordered sites use VMAX_L significance test",
+        FG.count("MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAX_L,INWARD)")
+        == 4,
+    )
+    check(
+        "j=1 ordered boundary uses VOLD-only arguments",
+        "VOLD.GT.1.0E-4_LDP*VMAXF(L),INWARD)" in FG,
+    )
+    alloc = section(FG, "ALLOCATE(KN_QS_STAT", "KN_QC_READY=.TRUE.")
+    check(
+        "KN_QS arrays allocated with the KN_QC group",
+        "KN_QS_N_RAY(KN_NP,2)" in alloc
+        and "KN_QS_FLR_RAY(KN_NP,2)" in alloc,
+    )
+    check(
+        "readiness requires every KN_QS array",
+        alloc.count("ALLOCATED(KN_QS_") == 5,
+    )
+    red = section(FG, "KN_QC_HIST=SUM(KN_QC_HIST_RAY", "END IF")
+    check(
+        "serial reduction covers all five KN_QS totals",
+        all(f"KN_QS_{k}(J)" in red for k in ("N", "MAX", "SUM2", "ABS", "FLR")),
+    )
+    clean = section(FG, "DEALLOCATE(KN_QS_STAT)", "CONTAINS")
+    check(
+        "cleanup deallocates each KN_QS array",
+        all(
+            f"IF(ALLOCATED(KN_QS_{k}_RAY))DEALLOCATE(KN_QS_{k}_RAY)"
+            in clean
+            for k in ("N", "MAX", "SUM2", "ABS", "FLR")
+        ),
+    )
+    check(
+        "summary prints significant-cell split",
+        "q sig ch=" in FG and "sigmax,rms,absmax,flrmax=" in FG,
+    )
+
+
 if __name__ == "__main__":
+    test_qsig_significant_cell_metrics()
     test_ray83_lifecycle_audit()
     test_kn_census_and_geo_diagnostics()
     test_kn_sib_depth_snapshot()
