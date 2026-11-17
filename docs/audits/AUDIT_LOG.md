@@ -495,3 +495,36 @@ Key findings:
   if CHI_L<0 occurs), L=1 closure assumption.
 - Ten tests proposed (T1-T10) pending ChatGPT review; no
   implementation authorised.
+
+## 2026-11-15 - Phase 5.4: significant-cell Q metrics + three-seed design
+
+Extended KN_Q_ACCUM (diagnostic-only, verify-pass gated) with a
+significant-cell split: nsig count, sigmax, sig-RMS sum,
+all-cell |VNEW-VOLD| max, and floor-cell max, using the
+production significance test max(|VOLD|,|VNEW|) >
+1.0E-4*VMAX(L) evaluated at the call site (VMAXF in the
+ordered sweep, VMAX_L in MARCH). Per-ray/per-channel storage,
+serial reduction, KN_QC_READY alloc-failure guard preserved;
+unconditioned KN_QC_* output unchanged. Reported as a `q sig
+ch=` line per channel per verify pass.
+
+Three-seed P-direction probe designed (not yet implemented):
+arms = retained store / smoothed retained / last candidate on
+ray 83 via KN_NOCP_PROBE; sibling-median rejected as a seed
+(KN_SIB_GEO_V1 is local statistics, not a full ray field);
+measurements = production + significant-cell residuals,
+OMEGA_RAY, argmax (j,L), signed direction, floor/cap counts,
+j=1 vs j=2 split, pass snapshots, fixed-reference d_k metric
+k=1..4. Interpretation gate recorded: identical plateaus
+support seed-insensitive non-convergence only; no spectral
+radius, periodicity, or causality claim. Phase-5.3
+corrections (outer-edge argmax, bounded-not-proven-periodic
+plateau, chi_hat sign consistent, ~0.1% Paper II grid
+difference, seeds != causality) carried into the design.
+
+Tests: unit_tests/python/test_knop_lagged_field.py extended
+(new test_qsig_significant_cell_metrics; older call-site
+regexes updated for the extended signature);
+test_knop_ray.py and test_knop_status_text.py run. Build via
+./build.sh. Details in KNOP_FAILURE_ISOLATION_RESULTS.md
+section 26.11.
