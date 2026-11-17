@@ -528,3 +528,22 @@ regexes updated for the extended signature);
 test_knop_ray.py and test_knop_status_text.py run. Build via
 ./build.sh. Details in KNOP_FAILURE_ISOLATION_RESULTS.md
 section 26.11.
+
+## 2026-11-15 - Phase 5.4b: three-seed probe implementation
+
+KN_SEED_ARM (diagnostic, default -1 = off, requires
+KN_NOCP_PROBE for the same ray): injects one of three I_P
+seeds on the probe ray after SEED_FLD -- arm A retained store,
+arm B same-depth sibling median where the mapping/sample is
+valid (KN_SEED_SIB; the earlier rejection covered only
+fabricating a full sibling field, not a partial valid fill),
+arm C previous refresh's last P iterate (KN_SEED_PC,
+cold-start falls back and reports used=3). I_M never
+reseeded; store untouched; archive writes xref + x_0 to
+KNSEED_P_*.bin per refresh. Telemetry adds fixed-reference
+d_k(n)=||W(x_n-x_{n-k})||/||W x_ref|| for k=1..4 (per-cell
+weight 1/MAX(|xref|,1E-4*colmax), W=0 on dead columns; -1
+before x_{n-k} exists) and a j=1/j=2/j>=3 weighted update
+split, recorded per P pass via NOP_PASS. Interpretation
+gate and A2 VOLD-only caveat recorded in results section
+26.11. Diagnostic-only; no solver, commit or store changes.
