@@ -434,10 +434,22 @@ compiles.
 - Tests: spectra vs refresh count / NUM_ES_ITERATIONS / OBS grid /
   freq-match toggles.
 - Acceptance: documented threshold + behavior below threshold.
-- Control-flow map and proposed gate location:
-  docs/audits/KNOP_MATURITY_GATE_MAP.md (17-Nov-2026). Implementation
-  deferred until the KN_SEED_ARM three-seed experiment finishes.
-- Status: OPEN (mapped)
+- Implemented 17-Nov-2026: KNOP_SPEC_GATE_EVAL (obs/knop_spec_gate.f)
+  classifies the model from GS_STATE / .CMFGEN_KNOP_STALLED /
+  manifest.json before the DO SOB_PHASE loop in CMF_FLUX_SUB_V5;
+  non-converged states stop the run under DO_KNOP_SPEC_GATE=T
+  (default) and write a marked diagnostic under the opt-out.
+  States: KNOP_CONVERGED allowed; KNOP_MATURE_STALLED / KNOP_IMMATURE
+  / KNOP_EXECUTION_INCOMPLETE blocked or marked.  Map:
+  docs/audits/KNOP_MATURITY_GATE_MAP.md.  Production-object tests:
+  unit_tests/python/test_knop_spec_gate.py (9 cases).
+- Regression note: byte-identical OBSFLUX is unattainable on
+  m15_2p82d_SOB_l14_lte_adp2_tauto - repeated renders of the SAME
+  binary differ (J_RESCUE fired 896 times; restore path is
+  run-dependent, flux corr 0.99999, median rel diff 1.5e-3).  The
+  gated and ungated renders sit inside that noise floor; the gate
+  branches are structurally inert under DO_NONMONO_KNOP=F.
+- Status: DONE (regression bounded by model's own render noise)
 
 ## P9. Spatial resolution convergence (Priority 9)
 
