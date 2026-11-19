@@ -282,6 +282,39 @@ change is argued).
 - Manufactured test: `unit_tests/f90/drv_jres_events.f` +
   `python/test_jres_events.py` - record layout, section-transition
   JTOT flush, and JEND counters verified.
-- Open: diagnostic-enabled vs disabled spectrum comparison needs a
-  production render on the rebuilt exe; the ten-render ensemble
-  waits on build success + executable freeze/hash per the plan.
+- Measured on the model (job 13335395, frozen exe
+  `exe_frozen/844b17b0fb430c6e_79b0651256a8b508`, cmf_flux sha256
+  `79b0651256a8b508...`):
+  - OBSFLUX diag-off vs diag-on is byte-identical - the
+    instrumentation is numerically inert on this render.
+  - `JTOT CONTINUUM nresc=75738 nes_san=0`: 75738 NRESC events per
+    render, not ~223.  The audit's ~223 was the print-throttle count
+    (NRESC<=20 or mod500; 190 J_RESCUE lines appear in this
+    render's OUT_FLUX); ~892 in the earlier log was ~4 renders
+    accumulated under APPEND.  JEV/JTOT are the true counts.
+  - Trigger class for every event: trig=3 - finite J marginally over
+    the absolute cap (rjmax ~1.001-1.05 x RESC_JMAX=1e-3).  No NaN,
+    no Inf, no unphysical FEDD (ftrig=0), no first-frequency case,
+    no LINE-section event, no FATAL.
+  - Every event's offending depth sits on the sigma=-0.999 clamp
+    floor (SIG field = -9.9900E-01): 87% at the outermost depth
+    (idx 70), the rest at idx 65-69 - the compressed outer region.
+    Formal solver recorded at the call site: FG_J_CMF_V12 with
+    LAM_ES_TC on all events (the stock OBS dispatch under
+    DO_NONMONO_SOB=F in CMF_FLUX_PARAM - SIGMA_TRUE is not even
+    allocated on this path, which is why the SIGT field reads
+    0.0 here; the -0.999 SIGMA floor is the compression marker).
+  - Interpretation narrowed: the rescue does not fire on solver
+    explosions here - it fires on a converged Fedd iteration whose
+    outermost-depth J lands ~1-5% above the absolute RESC_JMAX
+    ceiling at clamped-compression cells.  Whether that is a real
+    J excess or a too-tight absolute cap at the outer depth is the
+    threshold question for the next phase; the events are not
+    evidence of NaN/Inf failure.
+- Abort survival: section totals are sealed idempotently and the
+  CONTINUUM JTOT is flushed before the phase-1 OBS_FRAME_SUB_V9
+  call, so the record survives the model's normal termination
+  (GLOBAL_CMF_GRID_UNDERCOVERAGE STOP at the second obs-frame
+  pass - same exit as production, which also reaches no RETURN).
+- Open: the ten-render ensemble can start now - production build
+  succeeds, the executable is frozen and hash-recorded above.
