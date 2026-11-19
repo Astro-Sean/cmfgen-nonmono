@@ -1,0 +1,391 @@
+# CMFGEN KNOP maturity and equation audit (Phase 2.5)
+
+Baseline: Phase 2.4 report commit `72bac47b`.
+Audit commits: `dd307f7d` (OBS FGINEXT_GS checkpoint dump),
+`40842972` (obs-side KN_Q_RESID read),
+`0a065e06` (JSCN cadence cap 150 -> 600 for 4-sweep dumps).
+
+Frozen diagnostic executables:
+
+| commit | exe sha256 (first 16) | frozen path |
+|---|---|---|
+| dd307f7d | dca8da4bd0102805 | exe_frozen/dd307f7d433f2130_dca8da4bd0102805/ |
+| 40842972 | 6161a365ea2ca173 | exe_frozen/40842972_6161a365ea2ca173/ |
+| 0a065e06 | b409293a14eaf3e0 | exe_frozen/0a065e06_b409293a14eaf3e0/ (K-matrix exe) |
+
+Phase 2.4 ensemble: `obs_ensemble/` under the validation tree.
+Phase 2.5 maturity runs (all on exe b409293a14eaf3e0, all with
+KN_Q_RESID=T and ES_RESID_DIAG=T):
+
+- `caseK1_knop_nores_es2`: NUM_ES=2 cold (current config, control)
+- `caseK2_knop_nores_es4`: NUM_ES=4 cold (job 13344788)
+- `caseK3_knop_nores_restart`: NUM_ES=2, warm-started from K2's
+  FGINEXT_GS (job 13344889, afterok on K2)
+- `caseK4_knop_nores_restart4`: NUM_ES=4, same warm start
+  (job 13344890, afterok on K2)
+
+All runs use identical frozen populations, RVTJ, MODEL and MODEL_SPEC
+inputs. No production defaults, population numbers, RESC_JMAX or
+J_RESCUE behavior were changed.
+
+## 1. Executive summary
+
+Phase 2.4 showed KNOP reducing the inner-boundary median field by
+~100x relative to V12 but with an immature lagged I_NEXT field
+(refresh residual 0.98 vs tol 2.0e-3). This audit establishes:
+
+1. The published `4*a_lambda*I` term is genuinely absent from the
+   implemented equation and has no mathematically equivalent
+   contribution elsewhere in the ray solve. It is a documented,
+   inherited CMFGEN truncation shared by stock V12/V13 - not a
+   KNOP-specific defect. Expected effect: 3*dLOG_NU ~ 0.025% of
+   the velocity coupling magnitude on the OBS continuum grid
+   (dLOG_NU ~ 8e-5), sign-aware (absorption-side in expansion,
+   source-side in compression). It does not explain the 40-100x
+   V12/KNOP field difference.
+2. The reported "I_NEXT residual=0.98" is a normalized lagged-map
+   fixed-point iterate change (max over rays/cells of
+   |VNEW-VOLD|/max(VOLD, 1e-4*column_peak)), not a transfer-equation
+   residual and not a residual of the coupled wavelength system.
+3. KNOP immaturity in Phase 2.4 is explained by: cold-started
+   I_NEXT, NUM_ES=2 (one refresh), and stall/cap/plateau ray exits
+   whose stores are not committed under FG_COMMIT_CONV.
+4. The Phase 2.3 count of 75,738 V12 rescue events is the two-sweep
+   event total (44,924 sweep-1 + 30,814 sweep-2), reconciled exactly
+   against the Phase 2.4 mature-sweep count of 30,814.
+5. The 1/(1-omega) ~ 435 scattering scale at depth 70 is a local
+   equilibrium intensity for a source of form S = zeta + omega*J,
+   not a hard bound; V12's tail sits at/above it, KNOP's ~10x below.
+
+## 2. Exact continuous transfer equation implemented
+
+Published (Knop, Hauschildt & Baron 2009, Paper I, Eq 1):
+
+    dI_lambda/ds = eta_lambda - chi_lambda*I_lambda
+                   - 4*a_lambda*I_lambda
+                   - a_lambda * d(lambda*I_lambda)/d(lambda)
+
+with a_lambda the comoving wavelength-stretch rate (O(v/c):
+a_lambda ~ mu^2 dbeta/dr + beta(1-mu^2)/r).
+
+Implemented (source comments, fg_j_cmf_nonmono_v1.f ~line 4500 and
+the V12/V13 construction it reduces to):
+
+    dI_nu/ds = eta_nu - chi_nu*I_nu + GAM * dI_nu/d(ln nu)
+
+with GAM = (V/(cR))(1 + SIGMA*mu^2) = -d(ln nu)/ds = +a_lambda at
+O(beta) (verified: gamma^3*mu*(mu+beta) dbeta/dr + gamma*beta
+(1-mu^2)/r -> mu^2 dbeta/dr + beta(1-mu^2)/r = GAM).
+
+## 3. Exact discretized equation implemented
+
+Decreasing-nu grid, dLOG_NU > 0 the local log spacing to the upwind
+bin. Per cell i on ray LS:
+
+    chi_hat = chi_i + |GAM_i|/dLOG_NU          (strictly positive)
+    Q       = (GAM_i/dLOG_NU)/chi_hat          (signed)
+    S'_i    = eta_i/chi_hat + Q * I_upwind_i
+
+    I_M outward march (GAM >= 0): I_upwind = I_M_PREV  (bluer bin,
+        already computed this sweep)
+    I_M inward march (GAM < 0):  I_upwind = I_M_DEPTH_NEXT (redder
+        bin, lagged I_NEXT store)
+
+Formal step: short-characteristics integral with the monotonic
+parabolic source fit (identical A0..A4/E0..E3 coefficient machinery
+as V12). The equivalent difference form:
+
+    dI/ds = eta - chi_hat*I + (GAM/dLOG_NU)*I_upwind
+          = eta - chi*I - (|GAM|/dLOG_NU)*I + (GAM/dLOG_NU)*I_upwind
+
+GAM > 0: -GAM*(I - I_prev)/dLOG_NU  = +GAM*dI/dlnnu upwind-diff
+GAM < 0: +GAM*(I - I_next)/dLOG_NU  = +GAM*dI/dlnnu upwind-diff
+
+so the discrete equation is the upwind-difference form of
+
+    dI/ds = eta - chi*I + GAM*dI/d(ln nu)
+
+i.e. section 2's continuous equation, differenced consistently.
+
+## 4. The 4*a*I term analysis
+
+Transformation (independent audit). The Lorentz-invariant specific
+intensity is i = I_nu/nu^3. Along a comoving ray the invariant
+equation is clean: di/ds = j - alpha*i, with the comoving frequency
+drift d(nu)/ds = -a*nu (a = a_lambda):
+
+    i = I_nu/nu^3
+    di/ds = d(i)/ds|_nu + (d nu/ds) di/d nu
+          = (1/nu^3) dI/ds|_nu - a*nu * d(I/nu^3)/d nu
+          = (1/nu^3) [ dI/ds + 3*a*I - a*nu*dI/d nu ]
+
+Equating di/ds = (eta - chi*I)/nu^3:
+
+    dI_nu/ds = eta_nu - chi_nu*I_nu - 3*a*I_nu + a*dI_nu/d(ln nu)
+
+Applying the identical construction to i = I_lambda*lambda^5/c^4
+with d(lambda)/ds = +a*lambda:
+
+    dI_lambda/ds = eta_lambda - chi_lambda*I_lambda
+                   - 4*a_lambda*I_lambda
+                   - a_lambda*d(lambda*I_lambda)/d(lambda)
+
+which reproduces Paper I Eq 1 term-for-term. The two forms are the
+same physics under i = I_nu/nu^3 = I_lambda*lambda^5/c^4.
+
+Answers to the audit questions:
+
+1. Explicitly implemented? No. No term proportional to I at
+   coefficient 3*a or 4*a appears in chi_hat, Q, S', or the march.
+2. Absorbed into a transformed variable? No - the field variable is
+   the specific intensity itself; no invariant-intensity transform
+   is applied (I_nu/nu^3 would carry no proportional term).
+3. Absorbed into generalized opacity? Partially but not
+   equivalently: |GAM|/dLOG_NU in chi_hat is the implicit half of
+   the upwind *difference*, not the proportional term.
+4. In discretized wavelength coefficients? No - the code is a
+   frequency formulation; no p-/p|/p+ structure exists.
+5. Canceled algebraically? Only in part: the code's own comment
+   (fg_j_cmf_nonmono_v1.f ~line 4516) correctly identifies that the
+   nu-form coefficient is 3 (not 4) and that an earlier S_tilde
+   transplant (4*Q*dLOG_NU*I_upwind, removed 07-Sep-2026) was a
+   double-count. But the -3*a*I_nu term has no counterpart in the
+   solved equation.
+6. Does omission change the physical equation? Yes. The complete
+   equation is dI/ds = eta - chi*I - 3*a*I + a*dI/d(ln nu); the
+   solved equation drops -3*a*I.
+
+Expected numerical effect, measured on the actual OBS continuum
+grid (74,704 frequencies, dLOG_NU median 8.3e-5, p95 1.7e-4):
+relative to the implicit coupling opacity |GAM|/dLOG_NU, the
+omitted proportional term is 3*dLOG_NU ~ 2.5e-4 (0.025%), and
+relative to the local total opacity it is far smaller still
+(3|GAM| ~ 1.5e-9 vs chi ~ 0.5-40 at depth 70). The omission is
+sign-aware (absorption for GAM>0, source for GAM<0). On much
+coarser frequency grids (dLOG_NU ~ 1e-2) it would reach ~3% of
+the coupling. This is a documented inherited CMFGEN truncation
+(the V12/V13 convention), orders of magnitude too small to
+explain the 40-100x V12/KNOP field difference, which is set by
+the upwind direction itself. Classified: known physics
+deviation, not the artifact cause; a quantification run on a
+coarse grid may be considered separately but is not warranted
+on this grid.
+
+## 5. Generalized-opacity derivation
+
+Independent derivation from Paper I Eq 1 in frequency form. Write
+the coupling C = -3*a*I + a*dI/d(ln nu). For the nu-grid decreasing
+and information transported nu_high -> nu_low when a > 0
+(expansion), the upwind difference is (I_k - I_{k-1})/dLOG_NU:
+
+    C ~ -3*a*I_k + a*(I_k - I_{k-1})/dLOG_NU
+      = -(3*a + a/dLOG_NU)*I_k + (a/dLOG_NU)*I_{k-1}
+
+    chi_hat_correct = chi + 3*a + a/dLOG_NU
+    chi_hat_code    = chi + a/dLOG_NU
+
+a < 0 (compression): transport reverses (nu_low -> nu_high), donor
+is I_{k+1} (lagged I_NEXT):
+
+    C ~ -3*a*I_k + a*(I_{k+1} - I_k)/dLOG_NU
+      = -3*a*I_k - a*I_k/dLOG_NU + a*I_{k+1}/dLOG_NU
+      = -(|a|/dLOG_NU - 3|a|)*I_k - (|a|/dLOG_NU)*... 
+
+    chi_hat_correct = chi + |a|/dLOG_NU - 3|a|   (the -3*a*I with
+                        a<0 is +3|a|I, a source moved to the RHS)
+    chi_hat_code    = chi + |a|/dLOG_NU
+
+Positivity: chi_hat_code > 0 always (chi > 0, |GAM|/dLOG_NU >= 0).
+The sign-aware source/absorption split of the missing term matches
+the solver's own convention: for GAM>0 it belongs inside chi_hat
+(sink), for GAM<0 it is a +3|GAM|I explicit source. Under the code
+equation alone, chi_hat positivity does not alter the equation - the
+|GAM|/dLOG_NU inside chi_hat is exactly the implicit upwind half of
+GAM*(I_upwind - I)/dLOG_NU; moving it between sides is algebraically
+exact for the solved (truncated) equation.
+
+## 6. Wavelength-upwind audit
+
+Verified against the solve loop (fg_j_cmf_nonmono_v1.f):
+
+- OBS frequency grid strictly decreasing in nu.
+- GAM(I,LS) = (V/cR)(1 + SIGMA_RAY*mu^2), signed.
+- GAM == 0: no donor read, pure sink-free march.
+- GAM > 0: donor I_M_PREV/I_P_PREV (previous, bluer bin).
+- GAM < 0: donor I_M_DEPTH_NEXT/I_P_DEPTH_NEXT (redder bin,
+  lagged store).
+- DO_NONMONO_FREQ_MATCH=T (auto-set): the lagged donor foot is
+  interpolated across the OBS/model grid difference (Ceulemans
+  et al. 2025).
+- Asymmetric-spacing correction: FG_NU_NEXT replaces dLOG_NU for
+  compressing cells whose next-bin spacing differs (line edges).
+- chi_hat = chi + |GAM|/dLN > 0 always; signed Q in source.
+- Optical-depth increments: V12's DTAU construction on chi_hat
+  (Euler-Maclaurin-corrected, clamped between endpoint chi*dZ).
+- Source interpolation: monotonic parabolic dS fit, same as V12.
+- Angular quadrature: unchanged ray set; mu enters via (1+sigma*mu^2).
+- Boundaries: DIFFUSION inner condition on chi_hat rows;
+  zero-flux/dbb outer handling as V12.
+- Zero/sign-changing coupling: GAM==0 skips the donor; sign flip
+  switches donor direction cell-by-cell along the ray.
+
+## 7. GS iteration and residual definitions
+
+Three nested iterations, reported independently:
+
+1. Ray-local field solve (SWEEP_FLD / SWEEP_FLD_ORD): alternates
+   frequency-march direction per pass; per-pass residual
+   RES = max_cells |VNEW-VOLD|/max(VOLD, 1e-4*VMAX_L)
+   where VMAX_L is the frequency-column peak on that ray. Cells
+   below 1e-4 of the column peak are excluded from the census.
+   Exit classes (IXIT): 0 exact single pass; 1 RES < KN_RAY_TOL
+   (2e-3); 2 bulk (NPO>=6, bad-fraction <= max(50, NT/1000),
+   contraction check, RES <= KN_RAY_BULK_TOL); 3 stall (two
+   consecutive same-direction ratios > KN_RAY_STALL=0.98);
+   4 pass cap (NPO >= KN_RAY_MAXPASS=60 or hot-pass budget);
+   5 diverged (non-finite or RES > 1e3*best); 6 plateau (three
+   consecutive same-direction ratios in [0.95,1.05]); 9 verify.
+   Adaptive OMEGA_RAY: same-direction ratio > 1.05 -> *0.7 floored
+   at 0.45; < 0.5 -> *1.15 toward 1; two signed-update sign flips
+   damp likewise. Commit gate FG_COMMIT_CONV=T: IXIT 3/4/6 rays do
+   NOT commit - their lagged store keeps the pre-refresh
+   generation; FG_COMMIT_NC=0.05 bounds per-cell change for
+   non-converged committed rays; FG_COMMIT_JUMP=50 bounds whole-ray
+   rewrites.
+2. Refresh (FG_KNOP_REFRESH_V1): once per ES sweep after the
+   frequency loop (skipped on the last sweep), re-solves every
+   ray's lagged field against the committed store. Reported
+   KN_RF_RESID = MAXVAL over rays of the last-pass RES - i.e. the
+   max normalized *iterate change*, a lagged fixed-point map
+   metric, NOT a transfer-equation residual and NOT a residual of
+   the coupled wavelength boundary problem. The 0.98 from Phase
+   2.4 is this quantity. The independent fixed-point residual
+   (KN_Q_RESID diagnostic) re-applies the map once to the
+   committed field - the closest available "equation residual";
+   enabled for the K runs.
+3. Outer ES loop (NUM_ES_ITERATIONS): the refresh runs between
+   sweeps, so NUM_ES=2 yields exactly one refresh and NUM_ES=4
+   yields three. No convergence check terminates the ES loop -
+   it is a fixed count. The OBS render has no outer population
+   iteration beyond this. A separate full-field metric exists:
+   ES_RESID_DIAG (enabled in the K runs) snapshots each sweep's
+   ES_J_CONV generation and reports per-depth and global
+   max/median relative change between consecutive sweeps - the
+   direct measure of sweep-to-sweep field drift required by
+   Task 5, independent of the refresh-internal iterate residual.
+
+Termination in Phase 2.4: NUM_ES limit (2 sweeps, 1 refresh) - not
+a convergence criterion. Blockers: cold-started I_NEXT=0; refresh
+rays exiting stall/cap/plateau without commit; adaptive damping
+flooring OMEGA_RAY on hot frequencies; fine OBS-grid |GAM|/dLN
+modes.
+
+## 8. KNOP maturity experiments
+
+[in progress - K2/K3/K4]
+
+## 9. Remaining rescue-event analysis (Phase 2.4 data)
+
+caseC mature sweep: 2,192 fired triggers, all trig=3 (absolute
+RESC_JMAX cap). Argmax depth histogram: 68 (1186), 70 (481),
+69 (440), 67 (65) - 2,172/2,192 = 99% in the inversion column
+67-70; 20 events at depths 22, 55, 56, 59.
+
+Field at argmax vs local quantities:
+
+- J/zeta: median 2.58, p5 1.25, p95 4.88, max 1.9e5. Median
+  event is a field ~2.6x the local thermal source crossing the
+  absolute cap - a legitimate peak pattern, not the V12 ~300x
+  runaway. Tail: 16 freqs J/zeta>435 (0.7%), 24 freqs >100 (1.1%)
+  - the candidate genuine-spike class, to be re-audited at maturity.
+- J/prevf: median 0.0037 - rescued J is ~270x below the
+  previous-frequency field: the trigger is an absolute-cap event,
+  not a chain-propagation signature.
+- J/J(ND): median 1.03 - profiles are boundary-flat.
+- sigma_true at argmax: median -31.3 (range -31.8..-3.4) - all in
+  strongly compressing cells.
+
+Interpretation: remaining KNOP triggers are dominated by modest
+J/zeta peaks in the inversion column, not solver runaway; the
+high-J/zeta tail (~1%) may be immature-map spikes and is the
+population the K-runs' maturity trend will test. Against the
+local scattering equilibrium J_eq = zeta/(1-omega) the fired
+median is J/J_eq = 0.006 (p95 0.011, 0.7% above) - the absolute
+cap is triggering on fields far inside the diffusion-limit
+value, i.e. the trigger population is a ceiling artifact of the
+cap's absolute scale at these zeta values, not field failure.
+Whether the high-J/zeta tail shrinks with maturity is measured
+in section 8.
+
+## 10. Scattering-source analysis
+
+Implemented decomposition (formal solve): S = ETA/CHI with
+SOURCE = ZETA + THETA*RJ, THETA = CHI_SCAT/CHI (single-scattering
+albedo omega), ZETA = thermal part. Depth 70 (Phase 2.4 data):
+Chi(es)=0.513, Chi(tot)=0.514 -> omega ~= 0.9977.
+
+For a source S = zeta + omega*J, the local equilibrium in a
+pure-scattering optically thick medium is J_eq = zeta/(1-omega).
+This is the intensity the local solution converges to, not an
+upper bound: J can exceed zeta/(1-omega) where non-local
+contributions (boundary radiation, advected donors) feed it, and
+it is below where the medium is thin. At depth 70, 1/(1-omega) ~
+435 is therefore the correct *scale* for local diffuse
+equilibrium, used here as a plausibility discriminator.
+
+J/J_eq statistics over the fired (cap-triggering) frequencies:
+
+- A (V12+restore): median J/J_eq = 0.90, p95 2.5 - 47% of the
+  rescued fields exceed the local scattering equilibrium; the
+  pinned tail sits essentially AT the diffusion-limit value.
+- B (V12 no restore): median 9.1, p95 112 - the unrescued field
+  climbs far above local equilibrium (90% of fired freqs above).
+- C (KNOP no restore): median 0.006, p95 0.011 - rescued events
+  are fields orders of magnitude below local equilibrium (the
+  absolute cap catches modest peaks, not runaways); 0.7% exceed.
+- D (KNOP+restore): median 0.0008 - the pins sit far inside the
+  equilibrium scale.
+
+The scattering equilibrium is frequency-dependent: at depths
+63-70 the continuum opacity splits between electron-scattering
+windows (chi ~ 0.513, omega ~ 0.998, J_eq ~ 435*zeta) and
+bound-free edges (chi ~ 40, omega ~ 0.01, J_eq ~ zeta). The
+argmax events concentrate in the scattering windows. tau from
+depth 68 to the boundary is ~45 - the region is optically thick,
+so local equilibrium arguments are applicable.
+
+The ratio is not a hard bound and is not used as one; the decisive
+evidence remains the zeta-profile tracking (KNOP follows the
+source; V12 decouples to the cap).
+
+## 11. Final converged spectral comparison
+
+[pending K-run maturity]
+
+## 12. Phase 2.3 / Phase 2.4 count reconciliation
+
+Reconciled exactly:
+
+- J_RESCUE_EVENTS (JEV) records one line per rescue event per
+  sweep; J_RESCUE_FREQ (JFRQ) records one summary line per
+  frequency per sweep.
+- caseA JEV total = 75,738 = JFRQ sweep-1 fired (44,924) +
+  sweep-2 fired (30,814). Verified by per-sweep JFRQ recount.
+- Phase 2.3's "75,738" was the two-sweep event total; Phase 2.4's
+  "30,814" is the mature-sweep unique-frequency count. Same grid,
+  same exe family, same events - different counting windows.
+- Restoration shrinks the trigger set between sweeps
+  (44,924 -> 30,814) because capped donors feed fewer downstream
+  rescues. Without restore (caseB) the same 46,159 freqs fire on
+  both sweeps (92,318 total) - the unrescued field re-triggers
+  identically.
+- caseB sweep-1 (46,159) > caseA sweep-1 (44,924): even within
+  sweep 1 the capped-donor chain suppresses some triggers.
+
+No definition or sampling inconsistency remains; counts may be
+compared across phases only after fixing the window (mature sweep
+vs all-sweep total).
+
+## 13. Recommendation for further development
+
+[pending K-run results]
