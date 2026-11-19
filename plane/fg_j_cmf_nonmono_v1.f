@@ -8600,7 +8600,7 @@ C
 	1   '  KN-SEED ray=',KN_NOCP_PROBE_LS,' arm=',KN_SEED_ARM,
 	2   ' used=',KN_SEED_USED,' sib fill/map=',
 	3   KN_SEED_NFILL,KN_SEED_NMAP,' pcix=',KN_SEED_PCIX
-	  WRITE(LUER,'(A,2I8,A,I8,A,I3,A,I4,2(1X,ES11.3),1X,F7.4)')
+	  WRITE(LUER,'(A,2I8,A,I8,A,2I4,A,3(1X,ES11.3),A,1X,F7.4)')
 	1   '    unmapped/retained=',KN_SEED_NUNM,KN_SEED_NRET,
 	2   ' dead=',KN_DK_NDEAD,' pcref/pcnp=',KN_SEED_PCREF,
 	3   KN_SEED_PCNP,' dab/rmax/pcrs=',KN_SEED_DAB,
