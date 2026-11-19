@@ -118,3 +118,28 @@ Open item for the commit: confirm the `mode=` vocabulary written by
 MODE_NOW in GS_STATE (FULL/LAMBDA/...) so the frozen-state test reads
 the right token, and decide the exact field set the predicate needs
 beyond `n_frozen`, `frozen`, `mom_refresh_conv`.
+
+## 7. Implemented gate - corrected precedence (17-Nov-2026)
+
+KNOP_SPEC_GATE_EVAL (obs/knop_spec_gate.f) implements the gate at the
+spectrum-writing boundary in cmf_flux.exe. The first version was
+audited and corrected the same day:
+
+- Manifest scan is segment-aware: the authoritative model-execution
+  record is the last runs[] segment with "label":"FINAL"; open
+  segments carry null exit_code/termination (the OBS render's own
+  open segment must not poison the classification).
+- GS_STATE now carries run_id= (SLURM_JOB_ID, 'local' for non-slurm
+  runs; solve_for_pops.f). A converged-looking state whose run_id
+  does not match the FINAL segment's slurm_job_id - or that has no
+  run_id/manifest at all - classifies KNOP_PROVENANCE_UNVERIFIED (5),
+  closing the warm-restart stale-state hole.
+- .CMFGEN_KNOP_STALLED now records the stalled execution's job id;
+  a stale marker cannot stall-classify a later run (kept on disk).
+- Precedence: GS_STATE missing/malformed -> 4; FINAL open/abnormal
+  -> 4; solver state -> 2/3/1; converged downgraded to 5 when
+  provenance cannot be verified. States 2-4 block under
+  DO_KNOP_SPEC_GATE=T; state 5 renders with marked output.
+- 'knop_stall' termination defers to the solver-state stall
+  classification; mom_refresh_conv, ba_rej_consec and lum_ratio
+  remain evidence-only (written to KNOP_SPEC_STATUS, never gate).
