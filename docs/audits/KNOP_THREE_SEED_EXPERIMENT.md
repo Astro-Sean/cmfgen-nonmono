@@ -164,14 +164,73 @@ Initial-state checksums (identical across all four arms, verified
 | SN_HYDRO_DATA | `ea6c5d5bd2d1c0ae785d70d4c9a56053` |
 
 Job submissions (`run_model_grid.py`, small partition, 8 cpus, 64G,
-23:59 limit, requeue-enabled):
+23:59 limit, requeue-enabled).
+
+### 4.1 First submission (FAILED - telemetry defect)
+
+| Arm | FINAL job | OBS job | Outcome |
+|-----|-----------|---------|---------|
+| A   | 13334092 | 13334093 | FAILED 6m18s; OBS cancelled |
+| B   | 13334165 | 13334166 | FAILED 5m51s; OBS cancelled |
+| C   | 13334174 | 13334175 | FAILED 5m51s; OBS cancelled |
+| A/A | 13334185 | 13334186 | FAILED 5m49s; OBS cancelled |
+
+All four died identically: `forrtl: severe (61):
+format/variable-type mismatch` in `fg_knop_refresh_v` at
+`fg_j_cmf_nonmono_v1.f:8603`, on the second `KN-SEED` summary WRITE
+at the first refresh. The format
+`'(A,2I8,A,I8,A,I3,A,I4,2(1X,ES11.3),1X,F7.4)'` mismatched the
+14-item list: `KN_SEED_PCNP` (integer) hit an `A` descriptor, and the
+trailing `' schg='`/SCHG pair had no descriptors at all. These jobs
+are not experiment runs; they are retained in this record as the
+failed attempt.
+
+Salvage: each crashed run had already written its first-refresh
+binary record. Parsed values (reader: sequential unformatted records;
+14-int header, 4 reals, XREF then X0 as NI x NCF Fortran-order):
+
+| Arm | used | seed action at r0001 | X0 vs XREF |
+|-----|------|----------------------|------------|
+| A   | 0 | retained seed | identical |
+| B   | 1 | nmap=nfill=169128, nunm=3777192 | 169128 elements differ |
+| C   | 2 -> 4 | first-refresh fallback (no saved PC) | identical |
+| A/A | 3 | control | identical |
+
+So the seed machinery itself worked before the crash: arm B's X0
+genuinely diverged from the reference in exactly the fill count, and
+arm C took its documented fallback. The KN-NOP store checksums
+printed `delta M/P=0` on every arm before the fatal write, giving a
+first live confirmation of the no-commit suppression.
+
+### 4.2 Correction and re-submission
+
+Fix (diagnostic WRITE only, no solver arithmetic):
+`fg_j_cmf_nonmono_v1.f:8603` format replaced by
+`'(A,2I8,A,I8,A,2I4,A,3(1X,ES11.3),A,1X,F7.4)'`, matching all 14
+items in order. Commit `e1df4324`.
+
+Isolated runtime check: the exact statement was compiled and run
+under ifort with representative values; output
+`unmapped/retained=      17       3 dead=    4210 pcref/pcnp= 158  30 dab/rmax/pcrs=   2.841E-01   9.137E-01   6.290E-01 schg=  0.4375`
+shows all 14 items in order with correct types and readable field
+separation.
+
+New executable: rebuilt at 13:39 19-Nov-2026 from tree commit
+`e1df4324` plus uncommitted obs-path work (`obs/COMP_JCONT_V4.INC`
+md5 10dfa3176527c118, `obs/cmf_flux_sub_v5.f` 94b86ad611dda6e3,
+`obs/jres_validity.f` 407929f99c824e94 - JRESC event-writer guards,
+diagnostic path only, owned by a parallel session and deliberately
+not committed here). `exe/cmfgen_dev.exe` md5
+`3f37f22bd133468fb2854758d19abf12`, 16,661,392 bytes. Build: ifort
+production flags, clean except pre-existing `#6075`/`#8291` remarks;
+post-build unit suite all pass at time of resubmission.
 
 | Arm | FINAL job | OBS job |
 |-----|-----------|---------|
-| A   | 13334092 | 13334093 |
-| B   | 13334165 | 13334166 |
-| C   | 13334174 | 13334175 |
-| A/A | 13334185 | 13334186 |
+| A   | 13339955 | 13339956 |
+| B   | 13339970 | 13339971 |
+| C   | 13339980 | 13339981 |
+| A/A | 13339988 | 13339989 |
 
 OBS jobs are dependency-held on their FINAL. Per-run `VADAT` is
 generated at job start by `prepare_VADAT.py` from
