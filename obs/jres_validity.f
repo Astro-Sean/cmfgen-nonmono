@@ -81,6 +81,9 @@
 ! the RETURNs; a render that aborts mid-section (e.g. the OBS_FRAME
 ! undercoverage STOP) still carries the section JTOT already emitted.
 	LOGICAL :: CONT_SEALED=.FALSE.,LINE_SEALED=.FALSE.
+! J_RESCUE_DUMP unit + counter for JRESC_DMP (bounded full-field
+! dump; JEV stays one line per event so parsers are not flooded).
+	INTEGER :: LUD=0,NDMP=0
 	END MODULE
 !
 ! JRESC_EV: one machine-readable J_RESCUE_EVENTS record per rescue
@@ -103,10 +106,18 @@
 ! djmax/dfmax: max|field_before - field_after| of the restore.
 ! ltc1:   SIGMA_TRUE < -1 at the offending depth.
 ! luedd:  field reached the LU_EDD record (F only for FATAL).
+! prevj/prevf: max|JNU_PREV| and max|FEDD_PREV| - the post-restore
+!         maxima, so RJMAX_AFTER_RESTORE and the relative cap
+!         1E4*prevj are recoverable without another pass (0 when no
+!         snapshot applies, e.g. NES_SAN or FIRST_FREQ).
+! etab/chib/zetab: ETA, CHI, ZETA at the offending depth - the
+!         local emissivity/opacity/thermal-source scale the cap is
+!         measured against.
 !
 	SUBROUTINE JRESC_EV(ETYPE,FREQ_INDX,ML,FL,SECTION,FIRST_FREQ,
 	1    FG_NM,MOM_NM,L,FDNC,TRIG,FTRIG,BAD,RJMAX,FEDMAX,RJESMX,
-	2    RCAP,RCAPIT,SNAPOK,DJMAX,DFMAX,RB,VB,SIGB,SIGTB,LUER)
+	2    RCAP,RCAPIT,SNAPOK,DJMAX,DFMAX,RB,VB,SIGB,SIGTB,
+	3    PREVJ,PREVF,ETAB,CHIB,ZETAB,LUER)
 	USE SET_KIND_MODULE
 	USE JRES_DIAG_STATE
 	IMPLICIT NONE
@@ -114,6 +125,7 @@
 	INTEGER FREQ_INDX,ML,L,TRIG,FTRIG,BAD,LUER
 	REAL(KIND=LDP) FL,RJMAX,FEDMAX,RJESMX,RCAP,RCAPIT
 	REAL(KIND=LDP) DJMAX,DFMAX,RB,VB,SIGB,SIGTB
+	REAL(KIND=LDP) PREVJ,PREVF,ETAB,CHIB,ZETAB
 	LOGICAL FIRST_FREQ,FDNC,SNAPOK,LTC1
 	CHARACTER(LEN=1) LUF
 	IF(LUE .EQ. 0)THEN
@@ -121,7 +133,8 @@
 	1    ACTION='WRITE')
 	  WRITE(LUE,'(A)')'! JEV type indx ml fl sect first fg mom L'//
 	1    ' fdnc trig ftrig bad rjmax fedmax rjesmax rcap rcapit'//
-	2    ' snapok djmax dfmax R V SIG SIGT ltc1 luedd'
+	2    ' snapok djmax dfmax R V SIG SIGT ltc1 luedd'//
+	3    ' prevj prevf etab chib zetab'
 	END IF
 	LTC1=(SIGTB .LT. -1.0_LDP)
 	LUF='T'
@@ -146,11 +159,54 @@
 	END IF
 	WRITE(LUE,'(A,1X,A,2(1X,I6),1X,ES16.8,1X,A,1X,L1,1X,A,1X,A,'//
 	1   '1X,I3,1X,L1,2(1X,I2),1X,I4,5(1X,ES12.4),1X,L1,'//
-	2   '2(1X,ES12.4),4(1X,ES12.4),1X,L1,1X,A)')
+	2   '2(1X,ES12.4),4(1X,ES12.4),1X,L1,1X,A,5(1X,ES12.4))')
 	3   'JEV',ETYPE,FREQ_INDX,ML,FL,TRIM(SECTION),FIRST_FREQ,
 	4   TRIM(FG_NM),TRIM(MOM_NM),L,FDNC,TRIG,FTRIG,BAD,RJMAX,
 	5   FEDMAX,RJESMX,RCAP,RCAPIT,SNAPOK,DJMAX,DFMAX,RB,VB,SIGB,
-	6   SIGTB,LTC1,LUF
+	6   SIGTB,LTC1,LUF,PREVJ,PREVF,ETAB,CHIB,ZETAB
+	RETURN
+	END
+!
+! JRESC_DMP: bounded full-field dump for the first 200 NRESC events.
+! The JEV line carries maxima only; the restore's depth structure
+! (isolated outer-cell excess vs whole-profile change) needs the
+! actual vectors.  J_RESCUE_DUMP keeps them out of the event file so
+! JEV stays one-line-per-event.  200 blocks is enough to characterize
+! the profile shape without an I/O flood (~3 MB).
+!
+! Per block: a JDMP header (indx fl sect bad nd) then ND rows of
+!   i R V SIG SIGT RJ_before JNU_PREV FEDD FEDD_PREV ETA CHI ZETA
+! RJ_before is the pre-restore formal field; the restore has not run
+! at this call site.
+!
+	SUBROUTINE JRESC_DMP(ETYPE,FREQ_INDX,FL,SECTION,BAD,ND,
+	1    RJ,JP,FEDD,FP,ETA,CHI,ZETA,R,V,SIG,SIGT,LUER)
+	USE SET_KIND_MODULE
+	USE JRES_DIAG_STATE
+	IMPLICIT NONE
+	CHARACTER(LEN=*) ETYPE,SECTION
+	INTEGER FREQ_INDX,BAD,ND,LUER,I
+	REAL(KIND=LDP) FL
+	REAL(KIND=LDP) RJ(ND),JP(ND),FEDD(ND),FP(ND)
+	REAL(KIND=LDP) ETA(ND),CHI(ND),ZETA(ND),R(ND),V(ND)
+	REAL(KIND=LDP) SIG(ND),SIGT(ND)
+	IF(ETYPE .NE. 'NRESC')RETURN
+	IF(NDMP .GE. 200)RETURN
+	IF(LUD .EQ. 0)THEN
+	  OPEN(NEWUNIT=LUD,FILE='J_RESCUE_DUMP',STATUS='UNKNOWN',
+	1    ACTION='WRITE')
+	  WRITE(LUD,'(A)')'! JDMP indx fl sect bad nd then ND rows:'
+	1    //' i R V SIG SIGT rj jprev fedd feddprev eta chi zeta'
+	END IF
+	NDMP=NDMP+1
+	WRITE(LUD,'(A,1X,I6,1X,ES16.8,1X,A,1X,I4,1X,I4)')
+	1  'JDMP',FREQ_INDX,FL,TRIM(SECTION),BAD,ND
+	DO I=1,ND
+	  WRITE(LUD,'(A,1X,I4,12(1X,ES13.5))')'JDJ',I,R(I),V(I),
+	1    SIG(I),SIGT(I),RJ(I),JP(I),FEDD(I),FP(I),ETA(I),CHI(I),
+	2    ZETA(I)
+	END DO
+	FLUSH(LUD)
 	RETURN
 	END
 !
