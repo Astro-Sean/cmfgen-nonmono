@@ -4100,3 +4100,97 @@ injected seed verbatim per refresh).
 Build/test status this pass: fg_j_cmf_nonmono_v1.f compiles
 with zero errors under production flags; test_knop_lagged_
 field.py all checks pass; test_knop_endpoint.py 6/6.
+
+### 26.14 Phase-5.5 final correction -- shadow purity and continuation semantics (2026-11-19)
+
+Narrow correction pass on the phase-5.5 diagnostics before the
+three-seed launch. No production transfer arithmetic changed.
+
+#### 1. Shadow source-evaluation purity
+
+KN_ORD_SPV writes one module-scoped diagnostic:
+KN_DBG_NDON(R,L)=KN_DBG_NDON(R,L)+1 inside the expanding
+(GAM>0, L>1) donor-read branch -- a census of production donor
+accesses, allocated only by unit-test drivers. The three
+shadow evaluations in KN_SH_CELL call SPV up to four times per
+cell and were contaminating that census.
+
+Fix: an OPTIONAL logical argument L_CNT on KN_ORD_SPV
+(default T). Only the increment is gated; all branches (GAM=0,
+GAM>0 expanding, GAM<0 compressing, FG_FREQ_MATCH NNF2,
+JPR1/JPR2 IKC selection, WINX interpolation, PK_SR/PK_Q
+contributions, the L+NNF2>NCF boundary fallback) are
+untouched. KN_SH_EVAL_H passes .FALSE.; all four production
+call sites (KN_ORD_SPW_FILL, both P-march source calls) keep
+the default. Mutable-state audit of SPV: INEXT_V and T1 are
+host-scope scratch carried in the OMP PRIVATE clause of the
+ray loop -- thread-private, and SPV already wrote them on
+production calls, so the shadow introduces no new shared
+state. KN_DBG_NDON is the only module-scope write; with
+L_CNT=F the shadow path is fully read-only on the field and
+on all diagnostics.
+
+#### 2. KN_DBG_NDON verification
+
+Verification is by construction and by the test pin: the only
+write site sits behind L_CNT_L, and the shadow is the sole
+caller passing F. A before/after shadow-evaluation check is
+built into the experiment readout: KN_DBG_NDON counts now
+measure production donor accesses only. Expanding and
+compressing cells take different branches; only the expanding
+branch carried the counter.
+
+#### 3. Continuation minimum-pass semantics
+
+L_CONT_READY = .NOT. L_CONT .OR. NPO .GE. KN_CONT_NP now
+gates the clean exit (RES<KN_RAY_TOL, IXIT=1) and the bulk
+exit (IXIT=2) in BOTH SWEEP_FLD and SWEEP_FLD_ORD, on top of
+the previously gated stall (IXIT=3/6) and cap (IXIT=4) exits.
+KN_CONT_NP is therefore a MINIMUM pass count: the solve runs
+at least KN_CONT_NP passes before any convergence exit may
+fire; at NPO>=KN_CONT_NP normal convergence evaluation
+resumes and the cap exit still bounds the run at NP_EFF.
+
+#### 4. Numerical safety exceptions
+
+Deliberately NOT gated: the non-finite-NaN and blow-up exits
+(RES .NE. RES, RES>HUGE, RES>1E3*BEST_RES after pass 3,
+IXIT=5), the BUILD_FREQ divergence flag, allocation-failure
+exits, and boundary/geometry guards. In both sweeps these sit
+before the convergence exits in loop order, so a numerically
+invalid pass terminates the solve immediately -- continuation
+never forces a bad field through more iterations.
+
+Three classes are distinct: MINIMUM continuation (passes
+guaranteed before conv exits open), MAXIMUM continuation
+(NP_EFF cap still applies), NUMERICALLY TERMINATED
+continuation (IXIT=5 any time, including before the
+minimum).
+
+#### 5. Updated endpoint test coverage
+
+drv_knop_endpoint now prints the four-point Lagrange
+reference error (ERR_3 column). test_knop_endpoint.py
+asserts: A/B/C exact for all three reconstructions; D
+production order 2.00 and three-point reference order 2.00
+with the four-point reference finite; E monotone error
+decrease with observed order ~3.00 recorded but no fixed
+order demanded (limiter region). DUPD is documented as a
+unit-representative discrepancy (A4REP=1), not the
+PK_A4-weighted production error.
+
+#### 6. Remaining limitations
+
+- Continuation suppresses CONVERGENCE exits only; it cannot
+  manufacture convergence, and a genuinely converged field
+  simply iterates extra passes at residual < KN_RAY_TOL.
+- The shadow counter fix covers KN_DBG_NDON, the only
+  module-scope write inside SPV; host scratch (T1, INEXT_V)
+  remains shared by design (thread-private per ray, same as
+  production).
+- L_QP verify-pass semantics unchanged; a verify call is a
+  separate mode, not a continuation pass.
+- Test cases A-G of the task are source-level guarantees
+  verified by the gate logic and pins; no standalone run of
+  each case has been executed (the solver requires a model
+  context).
