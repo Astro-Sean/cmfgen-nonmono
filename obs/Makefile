@@ -31,7 +31,8 @@ OBJ1  =  cmf_flux_v5.o cmf_flux_sub_v5.o mod_cmf_obs.o mod_freq_obs.o \
         cmf_flux_cntrl_var_mod.o rd_cmf_flux_controls.o check_cmf_flux_param_consis.o \
         rd_model_file.o revise_obs_p.o  ins_line_v5.o obs_frame_sub_v9.o\
         ins_line_obs_v4.o rd_cont_j_obs.o set_forbid_zero.o form_ew.o \
-        comp_ew_abs_ew.o sob_line_es_update.o es_resid_diag.o knop_spec_gate.o
+        comp_ew_abs_ew.o sob_line_es_update.o es_resid_diag.o knop_spec_gate.o \
+        jres_validity.o
  
 OBJ2  =  obs_frame_v2.o obs_frame_sub_v9.o 
 
