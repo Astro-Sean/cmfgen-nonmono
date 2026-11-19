@@ -1388,12 +1388,15 @@
 ! KN_SEED_ARM (diagnostic, default -1 = off): phase-5.4
 ! three-seed P-direction experiment. Requires KN_NOCP_PROBE
 ! armed for the same ray. 0 = retained-store seed (baseline),
-! 1 = same-depth sibling-median seed where the sample is
-! valid, 2 = saved last-P-candidate seed. Adds fixed-reference
-! d_k pass distances, a j=1/j=2/j>=3 update split and an
-! archived xref + injected seed per refresh; the I_M solve,
-! store, coefficients and every solver input are unchanged.
-! VADAT [KN_SEED_ARM].
+! 1 = leave-one-out same-depth sibling-median seed where the
+! sample is valid, 2 = saved last-P-candidate seed,
+! 3 = A/A reproducibility control (identical seed to arm 0).
+! Adds fixed-reference d_k pass distances, C_k lag
+! correlations, sign and even/odd tracking, a j=1/j=2/j>=3
+! update split, ambient-input fingerprints, shadow cell
+! evaluations and an archived xref + injected seed per
+! refresh; the I_M solve, store, coefficients and every
+! solver input are unchanged. VADAT [KN_SEED_ARM].
 !
 	INTEGER KN_SEED_ARM
 !
