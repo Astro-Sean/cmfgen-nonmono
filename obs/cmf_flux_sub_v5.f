@@ -159,12 +159,16 @@
 ! evaluation only fills the pre-iteration NES_SAN record.
 ! JDMX/JFMX are the restore deltas.
 	CHARACTER(LEN=24) FG_SOL_NM,MOM_SOL_NM
-	REAL(KIND=LDP) JDMX,JFMX,SIGT_OFF
-! SIGT_OFF carries SIGMA_TRUE(JIDX*) to the event writer only when the
-! array exists: under the stock OBS render (DO_NONMONO_SOB=F in
-! CMF_FLUX_PARAM) SIGMA_TRUE is never allocated and indexing it faults.
-! SIGMA is always available and its -0.999 floor already marks the
-! compressing cells of a SOB-population model.
+	REAL(KIND=LDP) JDMX,JFMX,SIGT_OFF,JPREVJ,JPREVF
+	INTEGER JNUND
+	REAL(KIND=LDP), ALLOCATABLE :: SIGT_WRK(:)
+! SIGT_WRK/SIGT_OFF: the event record wants the TRUE velocity
+! gradient at the offending depth, but under the stock OBS render
+! (DO_NONMONO_SOB=F in CMF_FLUX_PARAM) SIGMA_TRUE is never allocated.
+! SIGT_WRK is a diagnostic-only temporary filled once via the same
+! SIGMA_TRUE_CORE stencil the production path uses - it never feeds
+! FG_J_CMF_V12 or any solver input.  JPREVJ/JPREVF hold the snapshot
+! maxima so the JEV record carries the relative-cap terms.
 !
 !
 !
