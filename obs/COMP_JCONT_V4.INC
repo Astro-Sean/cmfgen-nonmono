@@ -787,12 +787,14 @@
 ! frequency only so the f iteration still sees a sane source.
 !
 	    IF(J_RESCUE)THEN
-	      T3=MAXVAL(ABS(RJ_ES(1:ND)))
-	      IF(T3 .NE. T3 .OR. T3 .GT. RESC_CAP)THEN
+	      JTRES=JRES_TRIG(RJ_ES,ND,RESC_CAP,JIDXJ,T3X)
+	      IF(JTRES .NE. 0)THEN
 	        NES_SAN=NES_SAN+1
 	        IF(NES_SAN .LE. 20 .OR. MOD(NES_SAN,500) .EQ. 0)THEN
 	          WRITE(LUER,*)'J_RESCUE: non-physical RJ_ES at FL=',FL,
 	1                 ' in section '//SECTION
+	          WRITE(LUER,*)'  trigger=',JTRES,' depth=',JIDXJ,
+	1                 ' max|RJ_ES|=',T3X
 	          WRITE(LUER,*)'Using local coherent J for the ES'//
 	1                  ' emissivity at this frequency.'
 	        END IF
@@ -1023,8 +1025,8 @@
 ! then poisoned JNU_PREV for every later frequency.
 !
 	     IF(J_RESCUE)THEN
-	       T3=MAXVAL(ABS(RJ(1:ND)))
-	       IF(T3 .NE. T3 .OR. T3 .GT. RESC_CAP_IT)THEN
+	       JTRES=JRES_TRIG(RJ,ND,RESC_CAP_IT,JIDXJ,T3X)
+	       IF(JTRES .NE. 0)THEN
 	         F_DID_NOT_CONV=.TRUE.
 	         INACCURATE=.FALSE.
 	         EXIT
@@ -1071,9 +1073,9 @@
 ! FIRST_FREQ has no previous field to restore - the guard still
 ! stops the run in that case.
 !
-	    IF(J_RESCUE .AND. .NOT. FIRST_FREQ)THEN
-	      T3=MAXVAL(ABS(RJ(1:ND)))
-	      T4=MAXVAL(ABS(FEDD(1:ND)))
+	    IF(J_RESCUE)THEN
+	      JTRJ=JRES_TRIG(RJ,ND,RESC_CAP,JIDXJ,T3X)
+	      JTRF=JRES_TRIG(FEDD,ND,2.0_LDP,JIDXF,T4X)
 !
 ! A stored field is only a valid moment solution if f stays
 ! physical: f is bounded by 1 for a real radiation field, so
@@ -1088,13 +1090,60 @@
 ! of JNU_PREV.  Restore only when the field itself is bad:
 ! non-finite, exploding J, or unphysical f.
 !
-	      IF(T3 .NE. T3 .OR. T4 .NE. T4 .OR.
-	1         T3 .GT. RESC_CAP .OR. T4 .GT. 2.0D0)THEN
+	      IF(JTRJ .NE. 0 .OR. JTRF .NE. 0)THEN
+!
+! FIRST_FREQ has no previous-frequency field to restore.  The old
+! path let the invalid field reach LU_EDD whenever RJ(1) stayed
+! under the element-1-only 1E30 backstop - an interior-depth
+! explosion slipped it.  No physical fallback exists here, so
+! abort with the offending field, depth, frequency and trigger
+! instead of writing a degraded record.  Finite-but-unconverged
+! fields (JTR=0) are untouched: stock L>20 semantics unchanged.
+!
+	        IF(FIRST_FREQ)THEN
+	          WRITE(LUER,*)' '
+	          WRITE(LUER,*)'J_RESCUE fatal: invalid J/f at the',
+	1            ' first frequency, no fallback exists.'
+	          WRITE(LUER,*)'  FL=',FL,' FREQ_INDX=',FREQ_INDX,
+	1            ' section '//SECTION
+	          WRITE(LUER,*)'  RJ: trigger=',JTRJ,' depth=',JIDXJ,
+	1            ' max|RJ|=',T3X,' cap=',RESC_CAP
+	          WRITE(LUER,*)'  FEDD: trigger=',JTRF,' depth=',JIDXF,
+	1            ' max|FEDD|=',T4X,' cap=',2.0_LDP
+	          WRITE(LUER,*)'  L=',L,' F_DID_NOT_CONV=',F_DID_NOT_CONV
+	          WRITE(LUER,*)'Aborting before LU_EDD write.'
+	          STOP
+	        END IF
+!
+! The restore fallback is only valid if the stored snapshot is
+! itself valid: a poisoned JNU_PREV would ratchet every later
+! frequency.  Fail closed rather than copy a bad field forward.
+!
+	        JTRPJ=JRES_TRIG(JNU_PREV,ND,RESC_JMAX,JIDXP,T3XP)
+	        JTRPF=JRES_TRIG(FEDD_PREV,ND,2.0_LDP,JIDXP,T4PX)
+	        IF(JTRPJ .NE. 0 .OR. JTRPF .NE. 0)THEN
+	          WRITE(LUER,*)' '
+	          WRITE(LUER,*)'J_RESCUE fatal: previous-frequency',
+	1            ' fallback is itself invalid.'
+	          WRITE(LUER,*)'  FL=',FL,' FREQ_INDX=',FREQ_INDX,
+	1            ' section '//SECTION
+	          WRITE(LUER,*)'  JNU_PREV: trigger=',JTRPJ,' depth=',
+	1            JIDXP,' max=',T3XP,' cap=',RESC_JMAX
+	          WRITE(LUER,*)'  FEDD_PREV: trigger=',JTRPF,' depth=',
+	1            JIDXP,' max=',T4PX,' cap=',2.0_LDP
+	          WRITE(LUER,*)'Aborting - no valid fallback field.'
+	          STOP
+	        END IF
+!
 	        NRESC=NRESC+1
 	        IF(NRESC .LE. 20 .OR. MOD(NRESC,500) .EQ. 0)THEN
 	          WRITE(LUER,*)' '
 	          WRITE(LUER,*)'J_RESCUE: continuum J diverged at FL=',FL,
 	1                 ' in section '//SECTION
+	          WRITE(LUER,*)'  RJ trig=',JTRJ,' depth=',JIDXJ,
+	1                 ' max|RJ|=',T3X,' cap=',RESC_CAP
+	          WRITE(LUER,*)'  FEDD trig=',JTRF,' depth=',JIDXF,
+	1                 ' max|FEDD|=',T4X
 	          WRITE(LUER,*)'Restoring previous-frequency J/f field.'
 	        END IF
 !
