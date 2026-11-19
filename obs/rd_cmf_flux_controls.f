@@ -572,6 +572,17 @@
 	  CALL RD_STORE_LOG(ALLOW_NONMONO_OBS,'ALLOW_NONMONO_OBS',L_FALSE,
 	1      'Allow OBS processing of a non-monotonic RVTJ model?')
 !
+! Diagnostic-only keys for the Phase 2.4 V12-vs-KNOP observer
+! comparison.  Read unconditionally: both default to the production
+! behaviour (stock formal solver, full restore) when absent.
+!
+	  OBS_FG_KNOP=.FALSE.
+	  CALL RD_STORE_LOG(OBS_FG_KNOP,'OBS_FG_KNOP',L_FALSE,
+	1     'Use FG_J_CMF_NONMONO_V1 as the OBS formal solver (diagnostic)?')
+	  J_RESCUE_RESTORE=.TRUE.
+	  CALL RD_STORE_LOG(J_RESCUE_RESTORE,'J_RESCUE_RESTORE',L_FALSE,
+	1     'Apply the previous-frequency restore on J_RESCUE events?')
+!
 !
 ! The flag defaults to F, so the stock OBS path is unchanged unless
 ! the population model used the non-monotonic Sobolev treatment.
@@ -780,9 +791,9 @@
 
 	  WRITE(LUMOD,'()')
 	  CALL RD_STORE_LOG(ACCURATE,'INC_GRID',L_TRUE,'Increase grid size to improve accuracy? ')
-	  IF(DO_NONMONO_KNOP .AND. ACCURATE)THEN
+	  IF((DO_NONMONO_KNOP .OR. OBS_FG_KNOP) .AND. ACCURATE)THEN
 	    WRITE(LUER,*)'Error in RD_CMF_FLUX_CONTROLS:'
-	    WRITE(LUER,*)'DO_NONMONO_KNOP=T requires INC_GRID=F.'
+	    WRITE(LUER,*)'DO_NONMONO_KNOP/OBS_FG_KNOP requires INC_GRID=F.'
 	    WRITE(LUER,*)'The extended-grid Knop formal solution is not'
 	    WRITE(LUER,*)'implemented.'
 	    STOP
