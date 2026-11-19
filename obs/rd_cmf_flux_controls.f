@@ -44,6 +44,7 @@
 	INTEGER ISPEC
 	INTEGER ID
 	LOGICAL L_FALSE_TMP
+	LOGICAL KN_Q_RESID_OBS
 	EXTERNAL GET_KEY_STRING
 !
 !
@@ -751,6 +752,21 @@
 	  CALL RD_STORE_LOG(PRINT_KNOP_DEBUG,'PRINT_KNOP_DEBUG',L_FALSE,
 	1      'Print verbose KNOP solver diagnostics?')
 	  CALL SET_FG_KNOP_DEBUG(PRINT_KNOP_DEBUG)
+!
+! KN_Q_RESID (default F): obs-side mirror of the VADAT key. Each
+! refresh call re-applies the lagged map once to the committed
+! field and reports the independent fixed-point residual, so the
+! KNOP maturity experiment can separate last-pass iterate change
+! from distance to a fixed point. Diagnostic only; the default F
+! leaves the OBS control read unchanged. Read under the KNOP
+! routes only so stock renders never see the key.
+!
+	  IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN
+	    KN_Q_RESID_OBS=.FALSE.
+	    CALL RD_STORE_LOG(KN_Q_RESID_OBS,'KN_Q_RESID',L_FALSE,
+	1      'Report independent fixed-point residual in refresh?')
+	    CALL SET_FG_Q_RESID(KN_Q_RESID_OBS)
+	  END IF
 !
 ! DO_NONMONO_FREQ_MATCH: obs-side mirror of the VADAT auto-sets in
 ! RD_CONTROL_VARIABLES (correctness, not a knob).  Both nonmono
