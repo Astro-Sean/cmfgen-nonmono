@@ -3793,3 +3793,170 @@ spectral-radius, periodicity or causality claim. Deferred
 follow-up: repeat the best-behaved arm with the j=1 endpoint
 reconstruction instrumented (measure first; no formula change
 yet).
+
+### 26.12 Phase 5.5 -- pre-launch source audit and dependency map (2026-11-19)
+
+Verified directly in `plane/fg_j_cmf_nonmono_v1.f` at commit
+fadf7543 (not from the prior documentation).
+
+#### A. P-direction pass structure (SWEEP_FLD_ORD, INWARD=.FALSE.)
+
+Boundary row j=NI (inner): VNEW = I_CORE -- DIFFUSION uses
+PK_ETANI(L), KN_DBB(L), KN_R(KN_ND), KN_P(LS), PK_CHINI(L);
+ZERO_FLUX/PNT_SRCE/other rays use IM_NI(L) (plus KN_IC(L) for
+core rays LS<=NC_PNT_SRCE_L). Relaxed in place.
+
+Interior march J=NI-1 .. 1 (descending), L order follows
+sign(GAM(J,LS)): ascending on expanding rows, descending on
+compressing rows:
+
+  VNEW = FLD(J+1,L)*PK_A0(J,L)
+       + SPW(j+1)*PK_A1(J,L) + SPJ*PK_A2(J,L)
+       - DS(j+1)*PK_A3(J,L) - DS(j)*PK_A4(J,L)
+  FLD(J,L) = VOLD + OMEGA_RAY*(VNEW-VOLD)
+
+j=1 (outer escape edge) takes the SAME interior formula; there is
+no imposed outer boundary value for P. Its slope term DS(1) uses
+the R=1 extrapolation branch of KN_ORD_DS (endpoint parabola
+extrapolation, the Phase-5.3A candidate mechanism). The M sweep
+differs: its j=1 is an imposed FLD(1,L)=0 (zero incident).
+
+#### B. What each cell read during a pass (verified per call site)
+
+Fresh (same pass):
+- FLD(J+1,L): the marched upwind row, updated in place.
+- S'(j+1,l) = SPW slot MOD(J,4)+1: written by row j+1's own march
+  (fresh source evaluation).
+- S'(j,l) = SPJ: evaluated on current FLD; expanding cells read
+  FLD(j,l-1) same row (fresh, ascending L order); compressing
+  self-mapped cells read FLD(j,l+NNF2) same row (fresh,
+  descending L order).
+
+Lagged / preview:
+- S'(j-1,l) inside DS(j): the downwind row previewed once by
+  KN_ORD_SPW_FILL(FLD,J-1) at the start of row j's iteration --
+  the lagged C-corner of Paper II Eqs 31/32.
+- Compressing-cell donors FLD(JPR1/2, L+NNF2) when JPR is not
+  the current row: read from whatever march state those rows are
+  in (lagged when JPR lies on the unmarched side).
+
+Updated during a pass: FLD itself (in place), SPW ring, RES,
+RES_FREQ, NBAD/NTOT, NNEG/NCAP, KN_SGN_SUM, P2 sign state (when
+armed), AA/Aitken history (when armed), VMAXF(L) rebuilt per
+pass from column peaks -- the significance floor MOVES with the
+field; the d_k weight W is fixed from x_ref instead.
+
+Fixed for the whole solve: PK_DTAU, PK_A0..A4, PK_SR, PK_Q,
+PK_ETANI, PK_CHINI, GAM, JPR1/2, WINX, NFM_L, DRF_L, IKC1/2,
+KN_DLN_N, KN_IC, KN_DBB, KN_R, KN_P, KN_NC, KN_INNER_METH,
+NC_PNT_SRCE_L, KN_RAY_TOL, NONMONO_INEXT_CAP. OMEGA_RAY resets
+to KN_RAY_OMEGA at solve head and adapts at pass end only.
+
+Changed between solves within one refresh: IM_NI(L)=FLD(NI,L) --
+the converged I_M innermost snapshot; one-way M->P hand-off,
+identical across seed arms (I_M is never reseeded and converges
+from the same frozen I_M store).
+
+Changed between refreshes: retained stores via WRITE_STORE
+commits (slot LS2-1, KC=COMP_DEPTH_IDX(KS) -> JP2=J_PNT(KS,LS)),
+FG_RAY_SEEDED flags, KN_SEED_PC (arm-C archive), ambient sibling
+stores (other rays' commits; the probe ray's own stores are
+suppressed under KN_NOCP_PROBE).
+
+#### C. Verified agreement with the documented design
+
+- KN_SEED_ARM arms match section 26.11B2: 0=retained, 1=KN_SEED_SIB
+  same-depth sibling median (J_PNT-mapped cells only, store
+  read-only), 2=KN_SEED_PC replay (dims checked, used=3 fallback).
+- x_ref captured before injection; KN_DK_HIST ring seeded with
+  x_0; d_k gated to P channel non-verify passes; j-split records
+  j=1/j=2/j>=3.
+- NOP_PASS records before the ordinary exit tests at both call
+  sites; verify pass (L_QP) excluded from d_k.
+- M->P coupling confirmed one-way: P reads IM_NI only at j=NI;
+  nothing in the P solve writes back into M inputs.
+
+#### D. Discrepancies found
+
+- Arm B includes the probe ray in its own sibling sample (the
+  KN_SIB_DEPTH_SNAP_V1 convention). With ~84 rays the bias is
+  ~1/84, but the pre-launch spec requires leave-one-out; Phase 2
+  below excludes RS==LS.
+- KN_SEED_PC lacked provenance (source refresh/pass/residual);
+  added below.
+
+#### E. Implemented extensions (phase 5.5, this commit)
+
+Arm definitions now: 0=A retained, 1=B leave-one-out sibling
+median (probe ray excluded from its own sample), 2=C candidate
+replay, 3=A/A reproducibility control (identical seed to arm 0;
+a paired arm-0/arm-3 run bounds measurement noise). Cold-start
+fallback moved to used=4 to keep it distinct from arm 3.
+
+Arm-B per-refresh record: NMAP mappable cells, NUNM unmapped
+store pairs, NRET mappable-but-empty cells keeping the retained
+seed, NFILL replacements, DAB the weighted seed-to-seed
+distance, RMAX the largest single replacement, SCHG the
+fraction of significant cells changed. Arm-C provenance:
+PCREF source refresh, PCNP source pass count, PCIX exit class,
+PCRS residual -- repeated arm-C refreshes chain one candidate
+through the next and are not independent seeds.
+
+Per-P-pass records (all in the KN_NOP report):
+- d1..d4 (unchanged) and j=1/j=2/j>=3 weighted update split.
+- C1..C4 phase-space lag correlations on the weighted update
+  vectors dX_n = x_n - x_{n-1}; -2 marks an invalid value
+  (lagged update not yet defined or zero norm). Period-2 now
+  needs C2 -> +1 with C1 -> -1 plus consistent even/odd d2.
+- sign-reversal fraction over significant cells (first pass
+  reports -1; only cells significant in both iterates count).
+- EOD: latest d2 on even vs odd passes (even/odd drift).
+- W0 coverage: dead-column cell count plus the largest
+  absolute and relative updates the weight discards.
+- ambient-input fingerprints: XOR/rotate bit folds of IM_NI,
+  the frozen PK pack, the ray's retained I_P store column,
+  KN_IC/KN_DBB boundary inputs, and GAM+NFM_L. Pass-invariant
+  inputs give identical hashes across passes and across arms;
+  a hash change localises where ambient inputs differ.
+- shadow cell evaluation: KN_SH_CELL re-evaluates each P
+  update on the live state and on the frozen pass-start
+  snapshot (KN_SH_SNAP), assembling its own source/secant
+  vector and replicating the KN_ORD_DS endpoint and interior
+  branches. |shadow-live - VNEW| is the assembly-consistency
+  record (ring bookkeeping, preview lag, endpoint
+  recurrence); |shadow-snap - VNEW| is the ordered-vs-Jacobi
+  frequency-ordering delta. Both split j=1/j=2/j>=3 with
+  ordering argmax and RMS. The literal F00/F10/F01/F11
+  factorial is not constructible -- a production endpoint on
+  frozen inputs does not exist; the live-vs-snap pair is the
+  honest equivalent.
+
+Run notes: KN_NOP_MAXP already scales with KN_RAY_MAXPASS, so
+MAXPASS>=80 gives the 80-pass history directly. Arm C chained
+across refreshes realises the single-continuation experiment
+(no reinitialisation at the refresh boundary) while arm A/A
+supplies the identical-input control. Zero-store-write
+guarantee unchanged: all new paths are read-only records or
+module-scoped shadows; WRITE_STORE/WRITE_STORE_CAP remain
+gated by .NOT. L_NOPROBE.
+
+#### F. Limitations and deferred items
+
+- Phase-8 directional Jv probes are not implemented: an
+  honest estimate needs a full one-pass shadow march (the
+  per-cell shadow evaluates one cell, not the operator's
+  spatial propagation). The per-cell ordering/consistency
+  deltas above already localise the largest single-cell
+  sensitivities; the pass-level Jv remains open.
+- shadow-live differences at compressing rows include the
+  deliberate ring-preview lag as well as any bookkeeping
+  error; the j-split separates where, not which.
+- A/A arm verifies determinism of a single build; it does
+  not bound OpenMP scheduling variation across thread
+  counts.
+- Fingerprints prove input equality, not correctness; a
+  hash that matches across arms only confirms the operator
+  inputs are the same.
+- The period-2 gate (C2->+1, C1->-1, consistent even/odd)
+  has not yet been run; d2/d1 and d2/d3 ratios are reported
+  per pass for offline evaluation.
