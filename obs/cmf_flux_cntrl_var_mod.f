@@ -285,6 +285,34 @@
 !
 	LOGICAL :: ALLOW_NONMONO_OBS=.FALSE.
 !
+! OBS_FG_KNOP (default F): diagnostic-only observer formal-solver
+! selector for the Phase 2.4 V12-vs-KNOP field comparison.  When T,
+! COMP_JCONT_V4 routes the formal J call to FG_J_CMF_NONMONO_V1
+! (Knop et al. 2009) with the OBS-derived SIGMA_TRUE, WITHOUT the
+! DO_NONMONO_KNOP flag -- so the KNOP population gates (KNOP_SPEC
+! maturity check, provenance requirements, obs-frame boundary
+! handling) stay off and the rest of the render is the stock V12
+! path.  Requires SIGMA_TRUE (derived here like the nonmono paths)
+! and the solver's OBS-grid registration (SET_FG_GS_OBS_GRID).  The
+! KNOP lagged I_NEXT machinery matures inside the render via the
+! between-sweep FG_KNOP_REFRESH_V1 arm, same as a KNOP model run.
+! Diagnostic only; never selects production dispatch.
+!
+	LOGICAL :: OBS_FG_KNOP=.FALSE.
+!
+! J_RESCUE_RESTORE (default T): when F and J_RESCUE=T, the rescue
+! trigger, event records (NRESC++, throttled prints, JEV/JDMP
+! diagnostics) all fire exactly as production, but the
+! previous-frequency field copies (RJ/FEDD/GEDD/N_ON_J/RSQHNU/
+! HBC/NBC <- *_PREV) and the JNU_PREV-validity abort are skipped --
+! the unrescued field reaches LU_EDD and chains into JNU_PREV.  Used
+! to expose the unrescued formal-solver field for the V12-vs-KNOP
+! comparison.  The boundary corrections gated on J_RESCUE
+! (negative-DBB floor, luminosity-DTDR replacement) are unaffected.
+! Diagnostic only; default preserves production behaviour.
+!
+	LOGICAL :: J_RESCUE_RESTORE=.TRUE.
+!
 ! KNOP spectrum-output gate (P8.3, 17-Nov-2026).  Under
 ! DO_NONMONO_KNOP the lagged J_NEXT field and the population
 ! convergence history live in the model directory's GS_STATE file,
