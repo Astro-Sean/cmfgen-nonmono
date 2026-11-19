@@ -785,3 +785,11 @@ debug exe relinked.
   (+3 uncommitted obs JRESC-guard files, checksummed in the experiment
   doc). Resubmitted: a=13339955/56 b=13339970/71 c=13339980/81
   aa=13339988/89.
+### 2026-11-19 Four-arm experiment live: first-refresh validation passed
+
+- All four resubmitted arms printed KN-NOP store (delta M/P=0) and all
+  three KN-SEED lines at refresh 1, wrote valid r0001 binary records,
+  and continued past the prior crash point.
+- First telemetry: arm B sibling-median seed is a large perturbation
+  (dab=8.26E4, nfill=169128, schg=1.0, pcrs=2.280 vs 0.629 retained).
+  Arm C used its documented fallback (used=4) on refresh 1.

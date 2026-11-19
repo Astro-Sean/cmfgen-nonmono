@@ -237,6 +237,31 @@ generated at job start by `prepare_VADAT.py` from
 `config_resolved.yaml`; `KN_SEED_ARM` sits under `vadat_overrides`
 (verified in all four resolved configs).
 
+### 4.3 First-refresh validation (all arms PASS)
+
+Each arm ran past the previously fatal write. `KN-NOP store` printed
+delta M/P=0 on every arm; all three `KN-SEED` lines printed; the
+`KNSEED_P_L0083_a<arm>_r0001.bin` record (2,706,216 bytes) exists and
+parses under the documented layout:
+
+| Arm | used | dead | pcref/pcnp | dab | rmax | pcrs | schg |
+|-----|------|------|-----------|-----|------|------|------|
+| A   | 0 | 3 | 1/30 | 0 | 0 | 0.629 | 0 |
+| B   | 1 | 3 | 1/18 | 8.258E4 | 2.157E-2 | 2.280 | 1.0 |
+| C   | 4 (fallback) | 3 | 1/30 | 0 | 0 | 0.629 | 0 |
+| A/A | 3 | 3 | 1/30 | 0 | 0 | 0.629 | 0 |
+
+All four jobs continued running well past the write (a/b/c >11 min,
+A/A >7 min; the old crash fired at ~6 min). The experiment is now
+LIVE.
+
+Early readout (one refresh only, not a result): arm B's
+sibling-median seed is a large perturbation by design
+(dab=8.26E4, 169128 cells filled, schg=1.0) and its first probe
+P-solve ended at residual 2.280 vs 0.629 on the retained-seed arms.
+Whether that gap closes or persists across refreshes is the
+experiment question.
+
 ## 5. Telemetry captured per run (Phase 4)
 
 - OUTGEN `KN-SEED` summaries: `used`, `sib fill/map`, `pcix`,
