@@ -1588,19 +1588,19 @@ def test_ray83_lifecycle_audit():
     )
 
     # Ordered sweep mirrors the same contract through the SPW ring.
-    spv = section(FG, "SUBROUTINE KN_ORD_SPV", "END\n!")
+    spv = section(FG, "SUBROUTINE KN_ORD_SPV_IMPL", "END SUBROUTINE KN_ORD_SPV_IMPL")
     check(
         "ordered expanding branch reads FLD(R,L-1) signed",
-        "SPV=PK_SR(R,L)+PK_Q(R,L)*FLD(R,L-1)" in spv,
+        "SPV=SR_A(R,L)+Q_A(R,L)*FLD_A(R,L-1)" in spv,
     )
     check(
         "ordered compressing branch reads matched slot ABS(Q)",
-        "INEXT_V=FLD(JPR1(R),L+NNF2)" in spv
-        and "SPV=PK_SR(R,L)+ABS(PK_Q(R,L))*INEXT_V" in spv,
+        "INEXT_V=FLD_A(JPR1_A(R),L+NNF2)" in spv
+        and "SPV=SR_A(R,L)+ABS(Q_A(R,L))*INEXT_V" in spv,
     )
     check(
         "ordered compressing offset capped identically",
-        "NNF2=NCF-L" in spv and "NNF2=MAX(1,CEILING(T1))" in spv,
+        "NNF2=NCF_A-L" in spv and "NNF2=MAX(1,CEILING(T1L))" in spv,
     )
 
 
@@ -2001,7 +2001,7 @@ def test_shadow_correction_phase55():
         "FUNCTION KN_SH_EVAL_H(FSL,FSF,J,L)" in FG
         and "VSH=KN_SH_EVAL_H(FLD,KN_SH_SNAP,J,L)" in FG
         and "VS=FSL(J+1,L)*PK_A0(J,L)" in FG
-        and "CALL KN_ORD_SPV(FSF,RS,L,SV(KR),.FALSE.)" in FG,
+        and "CALL KN_ORD_SPV_SHADOW(FSF,RS,L,SV(KR))" in FG,
     )
     check(
         "three metric groups: consistency, frozen, freq-order",
@@ -2047,15 +2047,30 @@ def test_shadow_correction_phase55():
         "KN_CONT_NP+16" in FG,
     )
     check(
-        "shadow source eval suppresses the donor counter",
-        "LOGICAL, OPTIONAL :: L_CNT" in FG
-        and "L_CNT_L .AND. ALLOCATED(KN_DBG_NDON)" in FG
-        and "CALL KN_ORD_SPV(FSF,RS,L,SV(KR),.FALSE.)" in FG,
+        "ABI-safe worker/wrapper/shadow: no OPTIONAL anywhere",
+        "SUBROUTINE KN_ORD_SPV_IMPL" in FG
+        and "LOGICAL L_CNT" in FG
+        and "OPTIONAL" not in
+        section(FG, "SUBROUTINE KN_ORD_SPV(FLD", "END\n")
+        and "CALL KN_ORD_SPV_IMPL(PK_SR,PK_Q,DRF_L,JPR1,JPR2,WINX,"
+        in FG
+        and FG.count("IKC1,IKC2,LS,NCF,FLD,R,L,SPV,") == 2,
     )
     check(
-        "production SPV calls keep default counter behaviour",
+        "worker counter guard is nested (no SIZE on unallocated)",
+        "IF(ALLOCATED(KN_DBG_NDON))THEN" in FG
+        and "L .LE. SIZE(KN_DBG_NDON,2))THEN" in FG,
+    )
+    check(
+        "shadow entry suppresses the donor counter",
+        "CALL KN_ORD_SPV_SHADOW(FSF,RS,L,SV(KR))" in FG
+        and "L,SPV,.FALSE.)" in FG,
+    )
+    check(
+        "production SPV calls keep the four-argument entry",
         "CALL KN_ORD_SPV(FLD,R,L2,T1)" in FG
-        and "CALL KN_ORD_SPV(FLD,J,L,SPJ)" in FG,
+        and "CALL KN_ORD_SPV(FLD,J,L,SPJ)" in FG
+        and "L,SPV,.TRUE.)" in FG,
     )
     check(
         "continuation is a minimum: convergence exits gated",
