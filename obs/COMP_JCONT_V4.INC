@@ -401,12 +401,13 @@
 	1               VDOP_VEC_EXT,DELV_FRAC_FG,REXT_FAC,
 	1               METHOD,FIRST_FREQ,NEW_FREQ,NCEXT,NPEXT,NDEXT)
 	     ELSE
-	       IF(DO_NONMONO_KNOP)THEN
+	       IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN
 !	         The Knop solver needs an extended-grid SIGMA_TRUE, which is
 !	         not implemented.  Fail loudly rather than let V12 abort on
 !	         sigma < -1 with a misleading message.  INC_GRID=F is also
 !	         enforced in RD_CMF_FLUX_CONTROLS.
-	         WRITE(LUER,*)'Error: DO_NONMONO_KNOP requires INC_GRID=F;'
+	         WRITE(LUER,*)'Error: DO_NONMONO_KNOP/OBS_FG_KNOP'//
+	1          ' requires INC_GRID=F;'
 	         WRITE(LUER,*)'extended-grid Knop formal solution'//
 	1          ' is not implemented.'
 	         STOP
@@ -922,7 +923,7 @@
 	1                  METHOD,FIRST_FREQ,NEW_FREQ,NC,NP,ND)
 	       INBC=0.0_LDP
 	     ELSE
-	        IF(DO_NONMONO_KNOP)THEN
+	        IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN
 !	          Knop et al. (2009) CMF formal solver for non-monotonic
 !	          velocity fields: required when sigma < -1, where V12
 !	          aborts or returns expansion-biased intensities.
@@ -1138,6 +1139,8 @@
 ! FIRST_FREQ has no previous field to restore - the guard still
 ! stops the run in that case.
 !
+	    JTRJ=0
+	    JTRF=0
 	    IF(J_RESCUE)THEN
 	      JTRJ=JRES_TRIG(RJ,ND,RESC_CAP,JIDXJ,T3X)
 	      JTRF=JRES_TRIG(FEDD,ND,2.0_LDP,JIDXF,T4X)
@@ -1210,7 +1213,11 @@
 ! The restore fallback is only valid if the stored snapshot is
 ! itself valid: a poisoned JNU_PREV would ratchet every later
 ! frequency.  Fail closed rather than copy a bad field forward.
+! Under J_RESCUE_RESTORE=F the snapshot is never restored to, so
+! there is no chain to protect: skip the check and let the
+! unrescued field propagate (diagnostic comparison only).
 !
+	    IF(J_RESCUE_RESTORE)THEN
 	        JTRPJ=JRES_TRIG(JNU_PREV,ND,RESC_JMAX,JIDXP,T3XP)
 	        JTRPF=JRES_TRIG(FEDD_PREV,ND,2.0_LDP,JIDXP,T4PX)
 	        IF(JTRPJ .NE. 0 .OR. JTRPF .NE. 0)THEN
@@ -1242,6 +1249,7 @@
 	          END IF
 	          STOP
 	        END IF
+	    END IF
 !
 	        NRESC=NRESC+1
 	        IF(NRESC .LE. 20 .OR. MOD(NRESC,500) .EQ. 0)THEN
@@ -1252,7 +1260,13 @@
 	1                 ' max|RJ|=',T3X,' cap=',RESC_CAP
 	          WRITE(LUER,*)'  FEDD trig=',JTRF,' depth=',JIDXF,
 	1                 ' max|FEDD|=',T4X
-	          WRITE(LUER,*)'Restoring previous-frequency J/f field.'
+	          IF(J_RESCUE_RESTORE)THEN
+	            WRITE(LUER,*)
+	1            'Restoring previous-frequency J/f field.'
+	          ELSE
+	            WRITE(LUER,*)
+	1            'J_RESCUE_RESTORE=F: field kept (no restore).'
+	          END IF
 	        END IF
 !
 ! On the first rescue of the section, dump the input and iterate
@@ -1312,6 +1326,14 @@
 	1          ND,RJ,JNU_PREV,FEDD,FEDD_PREV,ETA,CHI,ZETA,
 	2          R,V,SIGMA,SIGT_WRK,LUER)
 	        END IF
+!
+! J_RESCUE_RESTORE=F leaves the solver's own outputs in place: the
+! unrescued RJ reaches LU_EDD and the next frequency's JNU_PREV
+! snapshot inherits it, so the field chain propagates naturally
+! (Phase 2.4 no-restore comparison).  Events, prints and the
+! JEV/JDMP records above still fire on the trigger.
+!
+	    IF(J_RESCUE_RESTORE)THEN
 	        RJ(1:ND)=JNU_PREV(1:ND)
 	        FEDD(1:ND)=FEDD_PREV(1:ND)
 	        GEDD(1:ND)=GEDD_PREV(1:ND)
@@ -1319,6 +1341,7 @@
 	        RSQHNU(1:ND)=RSQHNU_PREV(1:ND)
 	        HBC_CMF(1:3)=HBC_PREV(1:3)
 	        NBC_CMF(1:3)=NBC_PREV(1:3)
+	    END IF
 	      END IF
 	    END IF
 !
@@ -1343,6 +1366,40 @@
 !
 	    ACCESS_F=ACCESS_F+1
 	    FL_OLD=FL
+!
+! DO_J_RES_DIAG per-frequency field record (Phase 2.4): JFRQ
+! covers every frequency, not just triggers, so the V12 and
+! KNOP renders produce aligned field summaries.  'SCAN' cadence
+! dumps every 500th frequency give aligned radial profiles on
+! the identical grid.  Post-LU_EDD state is recorded, so under
+! J_RESCUE_RESTORE=F the unrescued field is what JFRQ carries.
+!
+	    IF(DO_J_RES_DIAG)THEN
+	      IF(.NOT. ALLOCATED(SIGT_WRK))THEN
+	        ALLOCATE(SIGT_WRK(ND))
+	        CALL SIGMA_TRUE_CORE(SIGT_WRK,R,V,ND,JNUND)
+	      END IF
+	      JFIDX=MAXLOC(ABS(RJ(1:ND)),DIM=1)
+	      JPREVJ=RZERO
+	      JPREVF=RZERO
+	      IF(.NOT. FIRST_FREQ)THEN
+	        JPREVJ=MAXVAL(ABS(JNU_PREV(1:ND)))
+	        JPREVF=MAXVAL(ABS(FEDD_PREV(1:ND)))
+	      END IF
+	      CALL JRESC_FRQ(FREQ_INDX,ML,FL,SECTION,FG_SOL_NM,
+	1        F_DID_NOT_CONV,RJ,ND,JFIDX,ABS(RJ(ND)),
+	2        MAXVAL(ABS(FEDD(1:ND))),MAXVAL(ABS(GEDD(1:ND))),
+	3        JTRJ,JTRF,(JTRJ .NE. 0 .OR. JTRF .NE. 0),
+	4        ((JTRJ .NE. 0 .OR. JTRF .NE. 0) .AND. J_RESCUE_RESTORE
+	5         .AND. J_RESCUE),
+	6        JPREVJ,JPREVF,SIGMA(JFIDX),SIGT_WRK(JFIDX),
+	7        ETA(JFIDX),CHI(JFIDX),ZETA(JFIDX),LUER)
+	      IF(MOD(FREQ_INDX,500) .EQ. 0)THEN
+	        CALL JRESC_DMP('SCAN',FREQ_INDX,FL,SECTION,JFIDX,
+	1          ND,RJ,JNU_PREV,FEDD,FEDD_PREV,ETA,CHI,ZETA,
+	2          R,V,SIGMA,SIGT_WRK,LUER)
+	      END IF
+	    END IF
 !
 ! Set up for the compuation of the observes flux. LST_ITERATION is
 ! TRUE if FLUX_CAL_ONLY is true (single iteration with coherent,
