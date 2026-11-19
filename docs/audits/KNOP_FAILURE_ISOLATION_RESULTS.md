@@ -4261,13 +4261,23 @@ published branch formulas, including the production NNF2
 definition (T1=DRF/KN_DLN_N, NNF2=NCF-L when T1>=NCF-L else
 MAX(1,CEILING(T1))), and compared at 1e-12.
 
-(c) Operand integrity. The driver prints shape+SUM for every
-input array (SR_A, Q_A, DRF_A, WINX_A, JPR1_A, JPR2_A, IKC1_A,
-IKC2_A, FLD_A, plus module operands GAM and KN_DLN_N) before and
-after the matrix; KN_DBG_NDON is diffed elementwise against a
-saved copy, so the single permitted change (+1 at (2,3) from the
+(c) Operand integrity, elementwise per invocation. Every worker
+input (SR_A, Q_A, DRF_A, WINX_A, JPR1_A, JPR2_A, IKC1_A, IKC2_A,
+FLD_A, plus module operands GAM and KN_DLN_N) is snapshotted
+immediately before EACH worker call and compared elementwise
+after it; the per-case NWS/NWP fields count changed elements.
+GAM is compared in its actual branch-configured state - the
+driver changes it per case and never resets it ahead of the
+comparison, so a worker-side write could not hide behind the
+case setup. KN_DBG_NDON is the single permitted mutable input
+and is handled separately: it is diffed elementwise against a
+saved copy so the one expected increment (+1 at (2,3) from the
 production expanding call) is verified explicitly and every
-other entry is proven unchanged.
+other entry is proven unchanged. Matrix-level shape+SUM
+checksums remain as a secondary guard. A test-only mutation
+(SR_A(1,1) overwritten after a call) was verified to fail the
+harness on both the per-invocation count and the checksum, then
+reverted.
 
 (d) Wrapper source pins. KN_ORD_SPV and KN_ORD_SPV_SHADOW are
 internal to KNOP_RAY_SOLVE_V1 and cannot be called outside the
