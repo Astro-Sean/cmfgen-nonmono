@@ -1400,6 +1400,21 @@
 !
 	INTEGER KN_SEED_ARM
 !
+! KN_CONT_NP (diagnostic, default 0 = off): single-refresh
+! continuation pass count for the probe P solve. Requires
+! KN_NOCP_PROBE armed. When set >0 and the seed machinery is
+! armed (any arm incl. 3), the ordered and unordered sweeps
+! suppress the stall (IXIT=3/6) and pass-cap (IXIT=4) exits
+! until NPO reaches KN_CONT_NP, so one solve runs KN_CONT_NP
+! consecutive P passes with every solve-local history
+! (OMEGA_RAY, AA/P2 state, d_k ring, sign state) persisting -
+! the true single-refresh continuation arm C is not. Store
+! writes stay suppressed for the probe ray. The converged
+! (IXIT=1/2) exits still apply: a solve that reaches the
+! residual floor ends there regardless. VADAT [KN_CONT_NP].
+!
+	INTEGER KN_CONT_NP
+!
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march (KN_RAY_ORDERED=T) field
 ! iterate at pass boundaries inside SWEEP_FLD_ORD. Targets the
