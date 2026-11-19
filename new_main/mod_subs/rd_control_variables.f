@@ -1618,6 +1618,14 @@
 	1     'KNOP seed arm for probe P sweep (-1 off,0-2 seeds,3 AA)')
 	  CALL SET_FG_SEED_ARM(KN_SEED_ARM)
 !
+! KN_CONT_NP (default 0 = off): uninterrupted-pass count for the
+! probe P solve; stall/cap exits stay closed until this count.
+!
+	  KN_CONT_NP=0
+	  CALL RD_STORE_INT(KN_CONT_NP,'KN_CONT_NP',L_FALSE,
+	1     'KNOP probe single-refresh continuation passes (0 off)')
+	  CALL SET_FG_CONT_NP(KN_CONT_NP)
+!
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
 ! Replaces the SOLVEBA_V13 correction solve inside SOLVE_FOR_POPS
