@@ -703,3 +703,15 @@ Tests: both suites pass. Production and debug compiles clean.
 Tests: spv 21/21, endpoint 6/6, lagged-field all pass. Production
 and debug compiles clean (only pre-existing #6075 warnings);
 debug exe relinked.
+### 2026-11-19 Phase-5.5 test hardening: SPV entry points
+
+- drv_knop_spv.f90 hardened: shape+SUM operand checksums before
+  and after the branch matrix, elementwise KN_DBG_NDON diff
+  (single expected +1 at (2,3)), JPR2-only compressing case
+  added, unallocated-counter case run last.
+- test_knop_spv.py: independent expected values for every branch
+  (expanding, compressing donor subsets, boundary, FG_FREQ_MATCH
+  NNF2), wrapper source pins, four-tier coverage report.
+  72/72 pass; caught a format-descriptor bug on first run.
+- Production source unchanged since c145ba16; builds from that
+  revision remain valid. Suites: endpoint 6/6, lagged-field pass.
