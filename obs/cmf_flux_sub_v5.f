@@ -149,7 +149,7 @@
 	LOGICAL F_DID_NOT_CONV
 ! J_RESCUE validity machinery (jres_validity.f): JRES_TRIG checks a
 ! field elementwise for non-finite values and a magnitude cap.
-	INTEGER JTRJ,JTRF,JTRPJ,JTRPF,JTRES,JIDXJ,JIDXF,JIDXP
+	INTEGER JTRJ,JTRF,JTRPJ,JTRPF,JTRES,JIDXJ,JIDXF,JIDXP,JFIDX
 	INTEGER JRES_TRIG
 	EXTERNAL JRES_TRIG
 	REAL(KIND=LDP) T3X,T4X,T3XP,T4PX
@@ -715,7 +715,7 @@
 ! Both nonmono flags default F; a monotonic field never enters here
 ! and the stock path is unchanged.
 !
-	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR.
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR. OBS_FG_KNOP .OR.
 	1   (DO_SOBOLEV_LINES .AND. N_NONMONO_OBS .GT. 0))THEN
 	  IOS=0
 	  IF(.NOT. ALLOCATED(SIGMA_TRUE))ALLOCATE(SIGMA_TRUE(ND),STAT=IOS)
@@ -1746,7 +1746,7 @@
 ! uses MOM_J_CMF_NONMONO_V1, whose lagged store is process-local and
 ! needs no OBS-grid remap.
 !
-	IF(DO_NONMONO_KNOP)THEN
+	IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN
 	  CALL SET_FG_GS_OBS_GRID(NU,NCF)
 !
 ! Refresh memory budget (10-Nov-2026): the OBS exe does not read
@@ -2361,7 +2361,7 @@
 ! Stock path unchanged.
 ! edited by Sean Brennan
 !
-	IF(DO_NONMONO_KNOP .AND.
+	IF((DO_NONMONO_KNOP .OR. OBS_FG_KNOP) .AND.
 	1    ES_COUNTER .LT. NUM_ES_ITERATIONS)THEN
 	  CALL FG_KNOP_REFRESH_V1()
 	END IF
@@ -2481,7 +2481,7 @@
 ! that runs FG_J_CMF_NONMONO_V1. Stock path unchanged.
 ! edited by Sean Brennan
 !
-	IF(DO_NONMONO_KNOP)THEN
+	IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN
 	  CALL GET_FG_GS_MATURITY(GS_OK_OBS,GS_CHG_OBS,GS_CAP_OBS,
 	1    GS_MAXCHG_OBS,GS_CAPPED_OBS,GS_NBAD_OBS,GS_NTOT_OBS,
 	2    GS_NCONV_OBS,GS_NDIV_OBS,GS_NRAY_OBS,GS_NBAD_BLK_OBS,
