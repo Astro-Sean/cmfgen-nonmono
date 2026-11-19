@@ -197,7 +197,9 @@
 !	  Cadence dumps (every 500th frequency at the call site) give an
 !	  aligned radial grid across renders for the V12-vs-KNOP field
 !	  comparison; separate cap so they cannot displace trigger dumps.
-	  IF(NSCND .GE. 150)RETURN
+!	  Cap 600 covers four ES sweeps of the ~150-index cadence set for
+!	  the Phase 2.5 maturity comparison.
+	  IF(NSCND .GE. 600)RETURN
 	  NSCND=NSCND+1
 	ELSE IF(ETYPE .EQ. 'NRESC')THEN
 	  IF(NDMP .GE. 200)RETURN
