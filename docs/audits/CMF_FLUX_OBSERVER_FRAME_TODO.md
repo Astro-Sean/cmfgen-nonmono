@@ -453,10 +453,14 @@ compiles.
   unit_tests/python/test_knop_spec_gate.py (19 cases).
 - Regression note: byte-identical OBSFLUX is unattainable on
   m15_2p82d_SOB_l14_lte_adp2_tauto - repeated renders of the SAME
-  binary differ (J_RESCUE fired 896 times; restore path is
-  run-dependent, flux corr 0.99999, median rel diff 1.5e-3).  The
-  gated and ungated renders sit inside that noise floor; the gate
-  branches are structurally inert under DO_NONMONO_KNOP=F.
+  binary differ (J_RESCUE events ~223 printed per render; restore
+  path is run-dependent, flux corr 0.99999, median rel diff 1.5e-3).
+  The gated and ungated renders sit inside that noise floor; the
+  gate branches are structurally inert under DO_NONMONO_KNOP=F.
+  Full mechanism audit: docs/audits/CMF_FLUX_J_RESCUE_AUDIT.md -
+  the rescues are V12 diverging in the sigma<-1 compression zones,
+  not FP noise; first-frequency interior divergence can still write
+  an invalid LU_EDD field unchecked (Phase 2 follow-up).
 - Status: DONE (regression bounded by model's own render noise)
 
 ## P9. Spatial resolution convergence (Priority 9)
