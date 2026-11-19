@@ -75,6 +75,12 @@
 	INTEGER :: LUE=0
 	INTEGER :: NC_CNT=0,NL_CNT=0,NE_CNT=0,NEL_CNT=0
 	CHARACTER(LEN=12) :: LSECT=' '
+! Sealed flags make JTOT emission idempotent: the continuum totals are
+! flushed at the CONTINUUM->LINE transition inside CMF_FLUX_SUB_V5 and
+! again from JRESC_EV on the first LINE event and from JRESC_TOT at
+! the RETURNs; a render that aborts mid-section (e.g. the OBS_FRAME
+! undercoverage STOP) still carries the section JTOT already emitted.
+	LOGICAL :: CONT_SEALED=.FALSE.,LINE_SEALED=.FALSE.
 	END MODULE
 !
 ! JRESC_EV: one machine-readable J_RESCUE_EVENTS record per rescue
@@ -159,12 +165,17 @@
 	CHARACTER(LEN=*) SECTION
 	IF(LUE .EQ. 0)RETURN
 	IF(SECTION .EQ. 'CONTINUUM')THEN
+	  IF(CONT_SEALED)RETURN
+	  CONT_SEALED=.TRUE.
 	  WRITE(LUE,'(A,1X,A,2(1X,A,I8))')'JTOT',SECTION,
 	1    'nresc=',NC_CNT,'nes_san=',NE_CNT
 	ELSE
+	  IF(LINE_SEALED)RETURN
+	  LINE_SEALED=.TRUE.
 	  WRITE(LUE,'(A,1X,A,2(1X,A,I8))')'JTOT',SECTION,
 	1    'nresc=',NL_CNT,'nes_san=',NEL_CNT
 	END IF
+	FLUSH(LUE)
 	RETURN
 	END
 !
@@ -187,5 +198,6 @@
 	WRITE(LUE,'(A,4(1X,A,I8))')'JEND',
 	1    'nresc_cont=',NC_CNT,'nesan_cont=',NE_CNT,
 	2    'nresc_line=',NL_CNT,'nesan_line=',NEL_CNT
+	FLUSH(LUE)
 	RETURN
 	END
