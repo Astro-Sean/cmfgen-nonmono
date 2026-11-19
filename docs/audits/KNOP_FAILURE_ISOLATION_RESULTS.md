@@ -3931,14 +3931,19 @@ Per-P-pass records (all in the KN_NOP report):
   frozen inputs does not exist; the live-vs-snap pair is the
   honest equivalent.
 
-Run notes: KN_NOP_MAXP already scales with KN_RAY_MAXPASS, so
-MAXPASS>=80 gives the 80-pass history directly. Arm C chained
-across refreshes realises the single-continuation experiment
-(no reinitialisation at the refresh boundary) while arm A/A
-supplies the identical-input control. Zero-store-write
-guarantee unchanged: all new paths are read-only records or
-module-scoped shadows; WRITE_STORE/WRITE_STORE_CAP remain
-gated by .NOT. L_NOPROBE.
+Run notes: KN_NOP_MAXP scales with
+MAX(KN_RAY_MAXPASS+KN_RAY_HOTPASSES,KN_CONT_NP)+16, so a large
+MAXPASS or the new KN_CONT_NP gives the 80-pass history
+directly. Arm C chained across refreshes is a
+CHAINED_FIELD_SEED_WITH_HISTORY_RESET arm -- it carries only
+the previous final P field into the next refresh while
+OMEGA_RAY, the P2/AA history arrays, the pass-local rings and
+all refresh-derived quantities are rebuilt and ambient sibling
+stores may have changed. It is NOT uninterrupted full-state
+continuation; the true single-refresh mode is the KN_CONT_NP
+diagnostic (see 26.13). Zero-store-write guarantee unchanged:
+all new paths are read-only records or module-scoped shadows;
+WRITE_STORE/WRITE_STORE_CAP remain gated by .NOT. L_NOPROBE.
 
 #### F. Limitations and deferred items
 
@@ -3960,3 +3965,138 @@ gated by .NOT. L_NOPROBE.
 - The period-2 gate (C2->+1, C1->-1, consistent even/odd)
   has not yet been run; d2/d1 and d2/d3 ratios are reported
   per pass for offline evaluation.
+
+### 26.13 Phase-5.5 correction pass -- diagnostic audit fixes (2026-11-19)
+
+Focused audit of the phase-5.5 diagnostics. Solver arithmetic,
+relaxation, commit policy, convergence criteria and boundary
+conditions are unchanged; every addition below is read-only
+instrumentation or a gated diagnostic mode.
+
+#### 1. Full-field ordering versus frozen-input measurement
+
+The pre-correction snapshot comparison |VSS-VNEW| froze the
+entire field at pass start, so it mixed fresh-spatial and
+fresh-frequency differences. It is now recorded as
+SHADOW_FULL_ORDER_VS_FROZEN (group shO) and is no longer
+described as an isolated frequency-ordering measurement.
+
+#### 2. Isolated frequency-ordering measurement
+
+New hybrid shadow KN_SH_EVAL_H(FSL,FSF,J,L): spatial inputs
+read live (FSL=FLD, so FSL(J+1,L) is the fresh marched upwind
+value and the actual boundary row is preserved), while every
+source entering the stencil is rebuilt by KN_ORD_SPV on the
+frozen snapshot FSF=KN_SH_SNAP. Inside KN_ORD_SPV the only
+field arguments are FLD(R,L-1) for expanding cells and the
+FLD(JPR1/2,L+NFM_L) WINX-interpolated donor for compressing
+cells, so rebuilding sources on FSF freezes exactly the
+frequency coupling; the spatial march direction, boundary
+inputs and PK_* coefficients are production-identical.
+DELTA_FREQ = |VSL-VSH| is group shF; group shO is now
+|VSS-VNEW| (full frozen); group shC is |VSL-VNEW| (assembly
+consistency, renamed ENDPOINT_ASSEMBLY_CONSISTENCY, still
+measures ring bookkeeping + preview lag, not mathematical
+correctness). No shadow call writes FLD.
+
+#### 3. Independent endpoint mathematical verification
+
+unit_tests/f90/drv_knop_endpoint.f is a standalone offline
+driver (no production objects): manufactured S(tau) on a
+geometric tau grid tau(j)=T0+S0*(R^(j-1)-1), four refinement
+levels. Subject: the production j=1 formula (SA secant, SB
+secant, DD=SA+(SA-SB)*dt1/(dt1+dt2) extrapolation, DS=
+(sign(SA)+sign(DD))*min(|SA|,0.5|DD|)). Reference: derivative
+at tau(1) of the Lagrange interpolant through points 1..3
+(and 1..4 for order checking) -- a different algebraic path
+with no limiter. test_knop_endpoint.py asserts: A constant and
+B linear exact to 1e-10; C quadratic exact to 1e-10 (the
+secant extrapolation is node-exact for quadratics and the
+limiter does not bind); D exp(0.7t) error O(h^2), measured
+order 2.00 over three refinements; E cos extremum at the
+endpoint (analytic dS/dtau=0) bounded <1e-2 and shrinking at
+order 3 -- the limiter region is recorded, not required to be
+exact. DUPD=|DS_err|*|A4REP| with A4REP=1 reports the
+formal-update discrepancy scale (linear in PK_A4(1,L)).
+
+#### 4. Normalised shadow residuals
+
+Each KN_SH_CELL record now carries both the absolute
+discrepancy and the production-normalised value D_NORM =
+|V_shadow - VNEW| / MAX(|VOLD|, 1E-4*VMAXF(L)), with VOLD =
+FLD(J,L) at update time -- the same DCELL normalisation and
+the same significance test MAX(|VOLD|,|VNEW|) > 1E-4*VMAXF(L)
+as the production residual. KN_SH_ACC accumulates per group:
+abs max, j=1/j=2/j>=3 split, (j,l) argmax, abs RMS, cell
+count, normalised max, normalised RMS, significant-cell
+normalised RMS, significant count = 12 slots x 3 groups = 36
+slots in KN_NOP_SH. The d_k reference weight is unchanged.
+
+#### 5. Corrected arm-C interpretation
+
+Arm C is CHAINED_FIELD_SEED_WITH_HISTORY_RESET: only the
+final P field crosses the refresh boundary. OMEGA_RAY resets
+to KN_RAY_OMEGA, the P2/AA history arrays are reallocated per
+solve, pass-local rings (d_k, RHO_WIN, sign accumulators) are
+rebuilt, refresh-derived quantities (PK_* pack, VMAXF scale,
+IM_NI) are reconstructed, and ambient sibling stores can move
+under it. It remains a valid seed-sensitivity arm; it is not a
+continuation control.
+
+#### 6. Single-refresh continuation status
+
+Implemented as KN_CONT_NP (VADAT [KN_CONT_NP], default 0 =
+off). When armed on the probe P solve, SWEEP_FLD and
+SWEEP_FLD_ORD compute NP_EFF=MAX(KN_RAY_MAXPASS,KN_CONT_NP)
+and gate the stall (IXIT=3/6) and pass-cap (IXIT=4) exits on
+L_CONT, so one solve runs KN_CONT_NP uninterrupted P passes
+with all solve-local history (OMEGA_RAY, AA/P2 state, rings,
+sign state) persisting. Converged exits IXIT=1/2 still apply
+-- a genuinely converged solve ends normally. Same checkpoint,
+same initial field, same frozen coefficients, same IM_NI,
+same ordering, same relaxation; store writes stay suppressed
+for the probe ray. KN_NOP_MAXP sized
+MAX(MAXPASS+HOTPASSES,CONT_NP)+16 so telemetry covers the run.
+Refresh-boundary reinitialisation does not occur between
+passes because the solve never exits.
+
+#### 7. Fingerprint limitations
+
+Six per-pass fingerprints now fold: fp1 = IM_NI boundary
+handoff; fp2 = PK_* packed coefficients (static per refresh);
+fp3 = retained P-store column (x_ref); fp4 = KN_IC/KN_DBB
+ambient inputs; fp5 = GAM column + NFM_L donor map (static
+coupling geometry); fp6 = JPR1/JPR2 rows + WINX weights +
+DRF_L donor grid + IKC indices (compressing-donor structure).
+Together they cover every operator input the sweep reads.
+They do NOT cover the iterate field itself (that is the state
+being measured, not an input) or ambient stores of other rays.
+Identical hashes prove input equality only; element-wise
+maximum-difference checks are done offline on the archived
+KNSEED_* xref payloads (the seed archive writes x_ref and the
+injected seed verbatim per refresh).
+
+#### 8. Updated experiment decision criteria
+
+- Seed sensitivity: arm trajectories must differ by more than
+  the arm-3 A/A spread under the single-threaded, identical-
+  build configuration before an initial-field claim is made.
+- Endpoint: prioritise endpoint investigation only if the
+  offline reference shows a defect OR group shC concentrates
+  at j=1,2 above the significant-cell norm; the manufactured
+  tests now bound the formula itself.
+- Frequency ordering: prioritise sweep investigation only if
+  group shF (isolated DELTA_FREQ) reproduces the plateau's
+  frequency/spatial structure; group shO alone no longer
+  carries that interpretation.
+- Interaction: a large |shO - shF - endpoint part| residual
+  would flag a spatial-x-frequency interaction; with only
+  three groups the full 2x2 factorial is still not
+  constructible.
+- Continuation: plateau persistence under KN_CONT_NP (no
+  refresh resets) versus arm C (refresh resets) separates
+  solve-local dynamics from refresh-coupled dynamics.
+
+Build/test status this pass: fg_j_cmf_nonmono_v1.f compiles
+with zero errors under production flags; test_knop_lagged_
+field.py all checks pass; test_knop_endpoint.py 6/6.
