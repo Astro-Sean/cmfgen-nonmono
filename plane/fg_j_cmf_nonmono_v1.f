@@ -10595,7 +10595,7 @@ C
 ! (NPO>=5, the same floor the damping branch uses) enter.
 	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
 	INTEGER NRHO,JW,KW,NP_EFF
-	LOGICAL ASC,HOTMODE,L_PLAT,L_CONT
+	LOGICAL ASC,HOTMODE,L_PLAT,L_CONT,L_CONT_READY
 	NPO=0
 	NSTALL=0
 	NPLAT(1)=0; NPLAT(2)=0
@@ -10898,7 +10898,14 @@ C
 ! suppresses store writes.
 !
 	  IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE,FLD,L_QP)
-	  IF(RES .LT. KN_RAY_TOL)THEN
+!
+! L_CONT_READY: convergence exits stay closed until the requested
+! KN_CONT_NP uninterrupted passes have run -- continuation is a
+! MINIMUM, not a best-effort window. Safety exits (DIVERGED,
+! non-finite, alloc, boundary) are deliberately untouched.
+!
+	  L_CONT_READY=.NOT. L_CONT .OR. NPO .GE. KN_CONT_NP
+	  IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN
 	    CLEAN_EXIT=.TRUE.
 	    IXIT=1
 	    EXIT
@@ -10923,7 +10930,7 @@ C
 ! stall/plateau/cap, so an IXIT=2 exit now certifies the field the
 ! refresh commit gate writes unconverged-free.
 !
-	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
+	  IF(L_CONT_READY .AND. NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
 	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL)
 	3     .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
@@ -11023,9 +11030,20 @@ C
 ! upwind at l+NFM (matched slot under DO_NONMONO_FREQ_MATCH). The
 ! caller guarantees r is inside 1..NI and uses the ring slot of r.
 ! ----------------------------------------------------------------
-	SUBROUTINE KN_ORD_SPV(FLD,R,L,SPV)
+	SUBROUTINE KN_ORD_SPV(FLD,R,L,SPV,L_CNT)
 	REAL(KIND=LDP) FLD(NI,NCF),SPV
 	INTEGER R,L,NNF2
+!
+! L_CNT (optional, default T): the shadow evaluations pass F so
+! their probe reads do not contaminate the KN_DBG_NDON
+! donor-access census -- the counter is a measurement of the
+! production operator, not of the diagnostic. All other
+! arithmetic is identical either way.
+!
+	LOGICAL, OPTIONAL :: L_CNT
+	LOGICAL L_CNT_L
+	L_CNT_L=.TRUE.
+	IF(PRESENT(L_CNT))L_CNT_L=L_CNT
 	IF(GAM(R,LS) .EQ. 0.0_LDP)THEN
 !
 !	  Exact zero: no frequency coupling exists, so no donor may be
@@ -11035,7 +11053,8 @@ C
 	ELSE IF(GAM(R,LS) .GT. 0.0_LDP)THEN
 	  SPV=PK_SR(R,L)
 	  IF(L .GT. 1)THEN
-	    IF(ALLOCATED(KN_DBG_NDON) .AND. LS .EQ. KN_DBG_LS .AND.
+	    IF(L_CNT_L .AND. ALLOCATED(KN_DBG_NDON) .AND.
+	1        LS .EQ. KN_DBG_LS .AND.
 	1        L .LE. SIZE(KN_DBG_NDON,2))
 	2        KN_DBG_NDON(R,L)=KN_DBG_NDON(R,L)+1
 	    SPV=PK_SR(R,L)+PK_Q(R,L)*FLD(R,L-1)
@@ -11190,7 +11209,7 @@ C
 ! sequence here (baseline NPO-1), so the floor is NPO>=4.
 	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
 	INTEGER NRHO,JW,KW,NP_EFF
-	LOGICAL HOTMODE,L_CONT,L_SIG
+	LOGICAL HOTMODE,L_CONT,L_SIG,L_CONT_READY
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
 !
@@ -12090,7 +12109,13 @@ C
 ! store writes.
 !
 	  IF(L_NOPROBE)CALL NOP_PASS(NPO,RES,INWARD,HOTMODE,FLD,L_QP)
-	  IF(RES .LT. KN_RAY_TOL)THEN
+!
+! L_CONT_READY: same minimum-continuation rule as SWEEP_FLD --
+! convergence exits reopen only after KN_CONT_NP passes. The
+! DIVERGED/non-finite exits above stay armed throughout.
+!
+	  L_CONT_READY=.NOT. L_CONT .OR. NPO .GE. KN_CONT_NP
+	  IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN
 	    CLEAN_EXIT=.TRUE.
 	    IXIT=1
 	    EXIT
@@ -12100,7 +12125,7 @@ C
 ! the consecutive-pass ratio. [KN_RAY_BULK_TOL] floors the exit on
 ! the residual here too (edited 20-Oct-2026).
 !
-	  IF(NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
+	  IF(L_CONT_READY .AND. NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
 	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL)
 	3     .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
@@ -13434,7 +13459,7 @@ C
 	DO KR=-1,2
 	  RS=J+KR
 	  IF(RS .GE. 1 .AND. RS .LE. NI)THEN
-	    CALL KN_ORD_SPV(FSF,RS,L,SV(KR))
+	    CALL KN_ORD_SPV(FSF,RS,L,SV(KR),.FALSE.)
 	  END IF
 	END DO
 	SCM=0.0_LDP
