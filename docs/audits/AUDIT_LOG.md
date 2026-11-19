@@ -661,3 +661,26 @@ continuation gates); test_knop_endpoint.py 6/6. KN_SH_* state
 is only written when the single probe ray is armed, so no new
 OMP shared-state path exists. Three-seed launch still gated
 on a debug-build pass.
+
+## 2026-11-19 - Phase-5.5 final correction: shadow purity + continuation minimum
+
+Narrow follow-up to the 26.13 pass. Two defects found by source
+audit of the diagnostics, one test strengthening.
+
+- KN_ORD_SPV contaminated KN_DBG_NDON: the shadow's source
+  calls ran the expanding-branch donor counter. Fixed with an
+  OPTIONAL L_CNT arg (default T, production call sites
+  unchanged); KN_SH_EVAL_H passes F. SPV's other writes (T1,
+  INEXT_V) are OMP-private host scratch, same as production.
+- KN_CONT_NP was best-effort, not a minimum: the clean
+  (IXIT=1) and bulk (IXIT=2) exits still fired early. Added
+  L_CONT_READY=.NOT.L_CONT .OR. NPO>=KN_CONT_NP gating both
+  exits in both sweeps. Safety exits (non-finite, blow-up,
+  divergence, alloc) deliberately ungated and ordered before
+  the convergence tests.
+- drv_knop_endpoint prints the four-point reference error;
+  test_knop_endpoint asserts prod+ref order 2.00 on case D,
+  monotone decrease on case E, DUPD documented as
+  unit-representative (A4REP=1).
+
+Tests: both suites pass. Production and debug compiles clean.
