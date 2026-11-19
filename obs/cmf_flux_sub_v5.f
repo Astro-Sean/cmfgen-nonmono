@@ -159,7 +159,13 @@
 ! evaluation only fills the pre-iteration NES_SAN record.
 ! JDMX/JFMX are the restore deltas.
 	CHARACTER(LEN=24) FG_SOL_NM,MOM_SOL_NM
-	REAL(KIND=LDP) JDMX,JFMX
+	REAL(KIND=LDP) JDMX,JFMX,SIGT_OFF
+! SIGT_OFF carries SIGMA_TRUE(JIDX*) to the event writer only when the
+! array exists: under the stock OBS render (DO_NONMONO_SOB=F in
+! CMF_FLUX_PARAM) SIGMA_TRUE is never allocated and indexing it faults.
+! SIGMA is always available and its -0.999 floor already marks the
+! compressing cells of a SOB-population model.
+!
 !
 !
 ! REC_SIZE     is the (maximum) record length in bytes.
@@ -2783,6 +2789,11 @@
 ! continuum+BLANK product.  The phase-2 OBS_FRAME call below the
 ! SOB line loop renders the line-bearing arrays.
 !
+! CONTINUUM-section totals flush before this call: the phase-1
+! OBS_FRAME_SUB_V9 can STOP on GLOBAL_CMF_GRID_UNDERCOVERAGE,
+! which skips every RETURN-time JRESC_TOT.
+!
+	IF(DO_J_RES_DIAG)CALL JRESC_SECTOT('CONTINUUM')
 	IF(SOB_PHASE .EQ. 1)THEN
 	CALL OBS_FRAME_SUB_V9(ETA_RND_ST,CHI_RND_ST,NU,
 	1            R,TA,T,ED,ND,NCF,
