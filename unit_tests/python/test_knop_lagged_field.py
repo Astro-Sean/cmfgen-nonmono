@@ -1664,7 +1664,8 @@ def test_nocp_probe_diagnostics():
     )
     for tok in (
         "IF(RES .LT. KN_RAY_TOL)THEN",
-        "NPO .GE. KN_RAY_MAXPASS",
+        "NPO .GE. NP_EFF",
+        "NP_EFF=MAX(KN_RAY_MAXPASS",
         "IXIT=4",
         "IXIT=3",
         "IXIT=5",
@@ -1962,7 +1963,7 @@ def test_seed_arm_probe():
         "record arrays allocated and zeroed with KN_NOP group",
         "KN_NOP_DK(KN_NOP_MAXP,2,4)" in FG
         and "KN_NOP_DK=-1.0_LDP" in FG
-        and "KN_NOP_SH(KN_NOP_MAXP,2,12)" in FG
+        and "KN_NOP_SH(KN_NOP_MAXP,2,36)" in FG
         and FG.count("DEALLOCATE(KN_NOP_DK)") == 2
         and FG.count("DEALLOCATE(KN_NOP_J3)") == 2
         and FG.count("DEALLOCATE(KN_NOP_SH)") == 2,
@@ -1974,7 +1975,7 @@ def test_seed_arm_probe():
     )
     check(
         "shadow cell call is probe-P only and verify-excluded",
-        "CALL KN_SH_CELL(FLD,J,L,VNEW)" in FG
+        "CALL KN_SH_CELL(FLD,J,L,VNEW,DNRM,L_SIG)" in FG
         and "L_SEED .AND. KN_DK_RDY .AND. .NOT. L_QP" in FG,
     )
     check(
@@ -1988,11 +1989,67 @@ def test_seed_arm_probe():
     check(
         "summary and per-pass report lines present",
         "KN-SEED ray=" in FG and "dk1..4=" in FG
-        and "j1/j2/j3+=" in FG and "shO j1..3+=" in FG,
+        and "j1/j2/j3+=" in FG and "shO a/j1..3+=" in FG,
+    )
+
+
+def test_shadow_correction_phase55():
+    """Phase-5.5 correction: hybrid frequency-frozen shadow,
+    normalised metrics, continuation mode, donor fingerprint."""
+    check(
+        "hybrid two-field evaluator freezes only freq donors",
+        "FUNCTION KN_SH_EVAL_H(FSL,FSF,J,L)" in FG
+        and "VSH=KN_SH_EVAL_H(FLD,KN_SH_SNAP,J,L)" in FG
+        and "VS=FSL(J+1,L)*PK_A0(J,L)" in FG
+        and "CALL KN_ORD_SPV(FSF,RS,L,SV(KR))" in FG,
+    )
+    check(
+        "three metric groups: consistency, frozen, freq-order",
+        "VSL=KN_SH_EVAL(FLD,J,L)" in FG
+        and "VSS=KN_SH_EVAL(KN_SH_SNAP,J,L)" in FG
+        and "DLF=ABS(VSL-VSH)" in FG
+        and "CALL KN_SH_ACC(KN_SH_R(1,1),DLV,DVN" in FG
+        and "CALL KN_SH_ACC(KN_SH_R(2,1),DLS,DSN" in FG
+        and "CALL KN_SH_ACC(KN_SH_R(3,1),DLF,DFN" in FG,
+    )
+    check(
+        "production normalisation passed in from call site",
+        "DNRM=MAX(ABS(VOLD),1.0E-4_LDP*VMAXF(L))" in FG
+        and "L_SIG=MAX(ABS(VOLD),ABS(VNEW)) .GT." in FG,
+    )
+    check(
+        "single-refresh continuation gates stall and cap exits",
+        FG.count("L_CONT=L_SEED .AND. KN_CONT_NP .GT. 0 .AND."
+                 " .NOT. INWARD") == 2
+        and FG.count("IF(NSTALL .GE. 2 .AND. .NOT. L_CONT)THEN") == 2
+        and FG.count("IF(NPO .GE. NP_EFF)THEN") == 2,
+    )
+    check(
+        "KN_CONT_NP plumbed through VADAT and setter",
+        "INTEGER KN_CONT_NP" in CTRL_MOD
+        and "RD_STORE_INT(KN_CONT_NP,'KN_CONT_NP'" in RD_CONTROL
+        and "CALL SET_FG_CONT_NP(KN_CONT_NP)" in RD_CONTROL
+        and "SUBROUTINE SET_FG_CONT_NP" in FG,
+    )
+    check(
+        "converged exits unaffected by continuation",
+        "IXIT=2" in FG and "L_CONT" in FG,
+    )
+    check(
+        "donor-map fingerprint folds JPR/WINX/DRF/IKC inputs",
+        "KN_FPH(WINX(1:NI),NI)" in FG
+        and "KN_FPH(DRF_L(1:NI),NI)" in FG
+        and "INT(JPR1(JP_D),8)" in FG
+        and "INT(IKC1(JP_D),8)" in FG,
+    )
+    check(
+        "telemetry sized to cover continuation passes",
+        "KN_CONT_NP+16" in FG,
     )
 
 
 if __name__ == "__main__":
+    test_shadow_correction_phase55()
     test_seed_arm_probe()
     test_qsig_significant_cell_metrics()
     test_ray83_lifecycle_audit()
