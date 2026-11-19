@@ -84,6 +84,9 @@
 ! J_RESCUE_DUMP unit + counter for JRESC_DMP (bounded full-field
 ! dump; JEV stays one line per event so parsers are not flooded).
 	INTEGER :: LUD=0,NDMP=0
+! J_RESCUE_FREQ unit + NSCND cap for cadence ('SCAN') profile
+! dumps: separate from NDMP so trigger dumps are not displaced.
+	INTEGER :: LUFQ=0,NSCND=0
 	END MODULE
 !
 ! JRESC_EV: one machine-readable J_RESCUE_EVENTS record per rescue
@@ -190,17 +193,31 @@
 	REAL(KIND=LDP) RJ(ND),JP(ND),FEDD(ND),FP(ND)
 	REAL(KIND=LDP) ETA(ND),CHI(ND),ZETA(ND),R(ND),V(ND)
 	REAL(KIND=LDP) SIG(ND),SIGT(ND)
-	IF(ETYPE .NE. 'NRESC')RETURN
-	IF(NDMP .GE. 200)RETURN
+	IF(ETYPE .EQ. 'SCAN')THEN
+!	  Cadence dumps (every 500th frequency at the call site) give an
+!	  aligned radial grid across renders for the V12-vs-KNOP field
+!	  comparison; separate cap so they cannot displace trigger dumps.
+	  IF(NSCND .GE. 150)RETURN
+	  NSCND=NSCND+1
+	ELSE IF(ETYPE .EQ. 'NRESC')THEN
+	  IF(NDMP .GE. 200)RETURN
+	  NDMP=NDMP+1
+	ELSE
+	  RETURN
+	END IF
 	IF(LUD .EQ. 0)THEN
 	  OPEN(NEWUNIT=LUD,FILE='J_RESCUE_DUMP',STATUS='UNKNOWN',
 	1    ACTION='WRITE')
 	  WRITE(LUD,'(A)')'! JDMP indx fl sect bad nd then ND rows:'
 	1    //' i R V SIG SIGT rj jprev fedd feddprev eta chi zeta'
 	END IF
-	NDMP=NDMP+1
-	WRITE(LUD,'(A,1X,I6,1X,ES16.8,1X,A,1X,I4,1X,I4)')
-	1  'JDMP',FREQ_INDX,FL,TRIM(SECTION),BAD,ND
+	IF(ETYPE .EQ. 'SCAN')THEN
+	  WRITE(LUD,'(A,1X,I6,1X,ES16.8,1X,A,1X,I4,1X,I4)')
+	1    'JSCN',FREQ_INDX,FL,TRIM(SECTION),BAD,ND
+	ELSE
+	  WRITE(LUD,'(A,1X,I6,1X,ES16.8,1X,A,1X,I4,1X,I4)')
+	1    'JDMP',FREQ_INDX,FL,TRIM(SECTION),BAD,ND
+	END IF
 	DO I=1,ND
 	  WRITE(LUD,'(A,1X,I4,12(1X,ES13.5))')'JDJ',I,R(I),V(I),
 	1    SIG(I),SIGT(I),RJ(I),JP(I),FEDD(I),FP(I),ETA(I),CHI(I),
@@ -255,5 +272,52 @@
 	1    'nresc_cont=',NC_CNT,'nesan_cont=',NE_CNT,
 	2    'nresc_line=',NL_CNT,'nesan_line=',NEL_CNT
 	FLUSH(LUE)
+	RETURN
+	END
+!
+! JRESC_FRQ: one machine-readable J_RESCUE_FREQ record per
+! continuum frequency (DO_J_RES_DIAG, default F).  The JEV file
+! only covers trigger frequencies; the V12-vs-KNOP comparison
+! needs the field state at EVERY frequency, so this separate file
+! keeps the full-sweep record without flooding JEV.  ~NCF lines.
+!
+! Record layout (JFRQ):
+!   indx ml fl sect fg fdnc rjmax jdep rjnd fedmax gedmax
+!   trig ftrig fired restored prevj prevf sig sigt eta chi zeta
+! rjmax/jdep: max|RJ| and its depth index post-restore (or post-
+! bypass under J_RESCUE_RESTORE=F - the record states which).
+! rjnd: |RJ(ND)| - the inner-boundary value where the Phase 2.3
+! inversion artifact lives.  trig/ftrig: this frequency's rescue
+! triggers.  fired: the trigger armed an intervention (J_RESCUE
+! block entered).  restored: the *_PREV copies actually ran -
+! F under J_RESCUE_RESTORE=F or when fired=F.  prevj/prevf:
+! max|JNU_PREV|/max|FEDD_PREV| snapshots (0 on FIRST_FREQ).
+! sig/sigt/eta/chi/zeta: at depth jdep, the local source scales.
+!
+	SUBROUTINE JRESC_FRQ(FREQ_INDX,ML,FL,SECTION,FG_NM,FDNC,
+	1    RJ,ND,JDEP,RJND,FEDMAX,GEDMAX,TRIG,FTRIG,FIRED,RESTOR,
+	2    PREVJ,PREVF,SIGB,SIGTB,ETAB,CHIB,ZETAB,LUER)
+	USE SET_KIND_MODULE
+	USE JRES_DIAG_STATE
+	IMPLICIT NONE
+	CHARACTER(LEN=*) SECTION,FG_NM
+	INTEGER FREQ_INDX,ML,ND,JDEP,TRIG,FTRIG,LUER
+	REAL(KIND=LDP) FL,RJ(ND),RJND,FEDMAX,GEDMAX
+	REAL(KIND=LDP) RJMAX,PREVJ,PREVF,SIGB,SIGTB,ETAB,CHIB,ZETAB
+	LOGICAL FDNC,FIRED,RESTOR
+	RJMAX=MAXVAL(ABS(RJ(1:ND)))
+	IF(LUFQ .EQ. 0)THEN
+	  OPEN(NEWUNIT=LUFQ,FILE='J_RESCUE_FREQ',STATUS='UNKNOWN',
+	1    ACTION='WRITE')
+	  WRITE(LUFQ,'(A)')'! JFRQ indx ml fl sect fg fdnc rjmax jdep'//
+	1    ' rjnd fedmax gedmax trig ftrig fired restored prevj'//
+	2    ' prevf sig sigt eta chi zeta'
+	END IF
+	WRITE(LUFQ,'(A,1X,I6,1X,I6,1X,ES16.8,1X,A,1X,A,1X,L1,'//
+	1   '1X,ES12.4,1X,I4,4(1X,ES12.4),2(1X,I2),2(1X,L1),'//
+	2   '7(1X,ES12.4))')
+	3   'JFRQ',FREQ_INDX,ML,FL,TRIM(SECTION),TRIM(FG_NM),FDNC,
+	4   RJMAX,JDEP,RJND,FEDMAX,GEDMAX,TRIG,FTRIG,FIRED,RESTOR,
+	5   PREVJ,PREVF,SIGB,SIGTB,ETAB,CHIB,ZETAB
 	RETURN
 	END
