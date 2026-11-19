@@ -1528,10 +1528,32 @@
 ! of SWEEP_FLD_ORD and cannot see its locals.
 !
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_SH_SNAP(:,:)
-	REAL(KIND=LDP), SAVE :: KN_SH_CMAX=0.0_LDP,KN_SH_CJ(3)=0.0_LDP
-	REAL(KIND=LDP), SAVE :: KN_SH_OMAX=0.0_LDP,KN_SH_OJ(3)=0.0_LDP
-	REAL(KIND=LDP), SAVE :: KN_SH_ORMS=0.0_LDP,KN_SH_ON=0.0_LDP
-	INTEGER, SAVE :: KN_SH_OJMX=0,KN_SH_OLMX=0
+!
+! Per-group accumulators (KN_SH_CELL fills, NOP_PASS stores):
+! g=1 live-vs-prod assembly consistency, g=2 full-frozen vs prod
+! ordering (spatial+frequency combined -- SHADOW_FULL_ORDER_
+! VS_FROZEN), g=3 isolated frequency ordering (spatial-live,
+! donor-frozen -- DELTA_FREQ). Columns: 1 absmax, 2..4 j=1/2/3+
+! abs max, 5 argmax j, 6 argmax l, 7 sumsq abs (RMS), 8 cell
+! count, 9 normalised max, 10 sumsq normalised, 11 sumsq
+! normalised over significant cells, 12 significant count.
+!
+	REAL(KIND=LDP), SAVE :: KN_SH_R(3,12)
+!
+! KN_CONT_NP (diagnostic, [KN_CONT_NP], default 0): single-
+! refresh continuation length for the probe ray's P solve.
+! When >0 and the probe/seed machinery is armed, the P sweep
+! ignores the stall and pass-cap exits until NPO reaches
+! KN_CONT_NP -- 80+ uninterrupted passes inside ONE solve, so
+! OMEGA_RAY, the P2/AA histories and the SPW ring state persist
+! exactly as production keeps them across passes. Arm C alone
+! cannot do this: a new refresh re-seeds the field but resets
+! every solve-local history (omega, P2, sign state, ring), so
+! it is a chained field seed, not an uninterrupted
+! continuation. Off in production; telemetry arrays are grown
+! to cover the extra passes.
+!
+	INTEGER, SAVE :: KN_CONT_NP=0
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_SH(:,:,:)
 !
 ! KN_JUMP_DIAG (diagnostic, [KN_JUMP_DIAG], default FALSE):
@@ -7630,6 +7652,14 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_CONT_NP(NP_P)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_CONT_NP
+	IMPLICIT NONE
+	INTEGER NP_P
+	KN_CONT_NP=MAX(0,NP_P)
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_AITKEN(DO_AIT)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AITKEN
 	IMPLICIT NONE
@@ -8292,15 +8322,16 @@ C
 	IF(ALLOCATED(KN_NOP_HOT))DEALLOCATE(KN_NOP_HOT)
 	IF(KN_NOCP_PROBE .AND. KN_NOCP_PROBE_LS .GE. 1 .AND.
 	1   KN_NOCP_PROBE_LS .LE. KN_NP)THEN
-	  KN_NOP_MAXP=KN_RAY_MAXPASS+KN_RAY_HOTPASSES+16
+	  KN_NOP_MAXP=MAX(KN_RAY_MAXPASS+KN_RAY_HOTPASSES+16,
+	1   KN_CONT_NP+16)
 	  ALLOCATE(KN_NOP_RES(KN_NOP_MAXP,2),KN_NOP_AD(KN_NOP_MAXP,2),
 	1   KN_NOP_OMG(KN_NOP_MAXP,2),KN_NOP_RAT(KN_NOP_MAXP,2),
 	2   KN_NOP_AI(KN_NOP_MAXP,2),KN_NOP_AL(KN_NOP_MAXP,2),
 	3   KN_NOP_CT(KN_NOP_MAXP,2,5),KN_NOP_HOT(KN_NOP_MAXP,2),
 	4   KN_NOP_DK(KN_NOP_MAXP,2,4),KN_NOP_J3(KN_NOP_MAXP,2,3),
 	5   KN_NOP_CK(KN_NOP_MAXP,2,4),KN_NOP_SGN(KN_NOP_MAXP,2),
-	6   KN_NOP_W0(KN_NOP_MAXP,2,2),KN_NOP_FP(KN_NOP_MAXP,2,5),
-	7   KN_NOP_SH(KN_NOP_MAXP,2,12),STAT=IOS)
+	6   KN_NOP_W0(KN_NOP_MAXP,2,2),KN_NOP_FP(KN_NOP_MAXP,2,6),
+	7   KN_NOP_SH(KN_NOP_MAXP,2,36),STAT=IOS)
 	  IF(IOS .EQ. 0)THEN
 	    KN_NOP_RES=0.0_LDP; KN_NOP_AD=0.0_LDP
 	    KN_NOP_OMG=0.0_LDP; KN_NOP_RAT=-1.0_LDP
@@ -10467,15 +10498,23 @@ C
 	2       KN_NOP_SGN(JJ,2),KN_NOP_W0(JJ,2,1),
 	3       KN_NOP_W0(JJ,2,2),' fp1/fp5=',
 	4       KN_NOP_FP(JJ,2,1),KN_NOP_FP(JJ,2,5)
-	        WRITE(LUER,'(A,4(1X,ES11.3))')
-	1       '        shC j1..3+=',
+	        WRITE(LUER,'(A,4(1X,ES11.3),A,2(1X,ES11.3))')
+	1       '        shC a/j1..3+=',
 	2       KN_NOP_SH(JJ,2,1),KN_NOP_SH(JJ,2,2),
-	3       KN_NOP_SH(JJ,2,3),KN_NOP_SH(JJ,2,4)
-	        WRITE(LUER,'(A,4(1X,ES11.3),A,I4,1X,I5,A,ES11.3)')
-	1       '        shO j1..3+=',KN_NOP_SH(JJ,2,5),
-	2       KN_NOP_SH(JJ,2,6),KN_NOP_SH(JJ,2,7),
-	3       KN_NOP_SH(JJ,2,8),' @j,l=',INT(KN_NOP_SH(JJ,2,9)),
-	4       INT(KN_NOP_SH(JJ,2,10)),' rms=',KN_NOP_SH(JJ,2,11)
+	3       KN_NOP_SH(JJ,2,3),KN_NOP_SH(JJ,2,4),
+	4       ' nm/nr=',KN_NOP_SH(JJ,2,9),KN_NOP_SH(JJ,2,10)
+	        WRITE(LUER,'(A,4(1X,ES11.3),A,I4,1X,I5,A,2(1X,ES11.3))')
+	1       '        shO a/j1..3+=',KN_NOP_SH(JJ,2,13),
+	2       KN_NOP_SH(JJ,2,14),KN_NOP_SH(JJ,2,15),
+	3       KN_NOP_SH(JJ,2,16),' @j,l=',INT(KN_NOP_SH(JJ,2,17)),
+	4       INT(KN_NOP_SH(JJ,2,18)),' nm/nr=',
+	5       KN_NOP_SH(JJ,2,21),KN_NOP_SH(JJ,2,22)
+	        WRITE(LUER,'(A,4(1X,ES11.3),A,I4,1X,I5,A,2(1X,ES11.3))')
+	1       '        shF a/j1..3+=',KN_NOP_SH(JJ,2,25),
+	2       KN_NOP_SH(JJ,2,26),KN_NOP_SH(JJ,2,27),
+	3       KN_NOP_SH(JJ,2,28),' @j,l=',INT(KN_NOP_SH(JJ,2,29)),
+	4       INT(KN_NOP_SH(JJ,2,30)),' nm/nr=',
+	5       KN_NOP_SH(JJ,2,33),KN_NOP_SH(JJ,2,34)
 	      END IF
 	    END DO
 	  END DO
@@ -10555,8 +10594,8 @@ C
 ! rays. Only ratios whose baseline pass cleared the seed transient
 ! (NPO>=5, the same floor the damping branch uses) enter.
 	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
-	INTEGER NRHO,JW,KW
-	LOGICAL ASC,HOTMODE,L_PLAT
+	INTEGER NRHO,JW,KW,NP_EFF
+	LOGICAL ASC,HOTMODE,L_PLAT,L_CONT
 	NPO=0
 	NSTALL=0
 	NPLAT(1)=0; NPLAT(2)=0
@@ -10584,6 +10623,15 @@ C
 	OMEGA_RAY=KN_RAY_OMEGA
 	BEST_RES=HUGE(RES)
 	BEST_NB=0_8; BEST_NT=0_8
+!
+! KN_CONT_NP (diagnostic): single-refresh continuation on the
+! probe P solve -- the stall and cap exits stay closed until
+! NPO reaches KN_CONT_NP so every solve-local history (omega,
+! sign state, ring, AA) persists uninterrupted. Off in
+! production and on the M sweep.
+!
+	L_CONT=L_SEED .AND. KN_CONT_NP .GT. 0 .AND. .NOT. INWARD
+	NP_EFF=MAX(KN_RAY_MAXPASS,MERGE(KN_CONT_NP,0,L_CONT))
 	DO
 	  NPO=NPO+1
 !
@@ -10890,7 +10938,7 @@ C
 ! marginal |Q|/(chi+|Q|) modes live on contiguous compression
 ! frequencies, so extra passes there cost little per pass.
 !
-	  IF(NSTALL .GE. 2)THEN
+	  IF(NSTALL .GE. 2 .AND. .NOT. L_CONT)THEN
 	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
 	      HOTMODE=.TRUE.
 	    ELSE
@@ -10899,7 +10947,7 @@ C
 	      EXIT
 	    END IF
 	  END IF
-	  IF(NPO .GE. KN_RAY_MAXPASS)THEN
+	  IF(NPO .GE. NP_EFF)THEN
 	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
 	      HOTMODE=.TRUE.
 	    ELSE
@@ -11141,8 +11189,8 @@ C
 ! for the exported median. The residual history is a single
 ! sequence here (baseline NPO-1), so the floor is NPO>=4.
 	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
-	INTEGER NRHO,JW,KW
-	LOGICAL HOTMODE
+	INTEGER NRHO,JW,KW,NP_EFF
+	LOGICAL HOTMODE,L_CONT,L_SIG
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
 !
@@ -11241,6 +11289,10 @@ C
 	OMEGA_RAY=KN_RAY_OMEGA
 	BEST_RES=HUGE(RES)
 	BEST_NB=0_8; BEST_NT=0_8
+! See SWEEP_FLD -- continuation holds every solve-local
+! history (omega, AA/P2 state, rings) intact until KN_CONT_NP.
+	L_CONT=L_SEED .AND. KN_CONT_NP .GT. 0 .AND. .NOT. INWARD
+	NP_EFF=MAX(KN_RAY_MAXPASS,MERGE(KN_CONT_NP,0,L_CONT))
 	ALLOCATE(VMAXF(NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,'(A)')'  FG-KNOP sweep alloc failed: VMAXF'
@@ -11369,14 +11421,7 @@ C
 	  IF(L_SEED .AND. .NOT. INWARD .AND. KN_DK_RDY .AND.
 	1   .NOT. L_QP)THEN
 	    KN_SH_SNAP(1:NI,1:NCF)=FLD(1:NI,1:NCF)
-	    KN_SH_CMAX=0.0_LDP
-	    KN_SH_CJ(1:3)=0.0_LDP
-	    KN_SH_OMAX=0.0_LDP
-	    KN_SH_OJ(1:3)=0.0_LDP
-	    KN_SH_ORMS=0.0_LDP
-	    KN_SH_ON=0.0_LDP
-	    KN_SH_OJMX=0
-	    KN_SH_OLMX=0
+	    KN_SH_R(1:3,1:12)=0.0_LDP
 	  END IF
 !
 ! KN_PSWEEP_DIAG: snapshot the pass input before the march
@@ -11669,11 +11714,19 @@ C
 	        END IF
 !
 ! KN_SEED_ARM shadow (diagnostic): re-evaluate this update on the
-! live state and on the pass-start snapshot. Reads only -- the
-! production field, ring and stores are untouched.
+! live state, on the pass-start snapshot, and spatial-live/
+! frequency-frozen. DNRM/SIG reuse the production normalisation
+! and significance test evaluated on VOLD=FLD(J,L) (the
+! not-yet-committed value). Reads only -- the production field,
+! ring and stores are untouched.
 !
-	        IF(L_SEED .AND. KN_DK_RDY .AND. .NOT. L_QP)
-	1         CALL KN_SH_CELL(FLD,J,L,VNEW)
+	        IF(L_SEED .AND. KN_DK_RDY .AND. .NOT. L_QP)THEN
+	          VOLD=FLD(J,L)
+	          DNRM=MAX(ABS(VOLD),1.0E-4_LDP*VMAXF(L))
+	          L_SIG=MAX(ABS(VOLD),ABS(VNEW)) .GT.
+	1            1.0E-4_LDP*VMAXF(L)
+	          CALL KN_SH_CELL(FLD,J,L,VNEW,DNRM,L_SIG)
+	        END IF
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	        IF(T1 .GT. RES)THEN
@@ -12060,7 +12113,7 @@ C
 ! a stall/cap exit with residual left only inside a contiguous
 ! hot-frequency run continues restricted to that window.
 !
-	  IF(NSTALL .GE. 2)THEN
+	  IF(NSTALL .GE. 2 .AND. .NOT. L_CONT)THEN
 	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
 	      HOTMODE=.TRUE.
 	    ELSE
@@ -12069,7 +12122,7 @@ C
 	      EXIT
 	    END IF
 	  END IF
-	  IF(NPO .GE. KN_RAY_MAXPASS)THEN
+	  IF(NPO .GE. NP_EFF)THEN
 	    IF(.NOT. HOTMODE .AND. TRY_HOT())THEN
 	      HOTMODE=.TRUE.
 	    ELSE
@@ -13036,7 +13089,7 @@ C
 ! stops recording rather than writing out of bounds.
 !
 	SUBROUTINE NOP_PASS(NPO_D,RES_D,INW_D,HOT_D,FLD_D,LQP_D)
-	INTEGER NPO_D,NPD,JP_D,L_D,K_D,NREV,NPAIR
+	INTEGER NPO_D,NPD,JP_D,L_D,K_D,NREV,NPAIR,JB
 	INTEGER(KIND=1) ISN
 	INTEGER(KIND=8) HF
 	REAL(KIND=LDP) RES_D,FLD_D(NI,NCF)
@@ -13243,27 +13296,72 @@ C
 	  END IF
 	  KN_NOP_FP(NPO_D,2,5)=HF
 !
-! Shadow cell records accumulated by KN_SH_CELL during this
-! pass's march: slots 1-4 consistency (max, j=1, j=2, j>=3),
-! 5-8 ordering delta, 9-10 ordering argmax (j,l), 11-12
-! ordering RMS and cell count.
+! fp6: the compressing-cell donor map -- JPR rows, WINX
+! interpolation weight, DRF_L donor grid and IKC indices. With
+! fp5 this covers every spatial/donor structure the operator
+! reads; what is NOT folded is the field itself (the iterate,
+! not an input) and ambient sibling stores beyond this ray's
+! own column.
 !
-	  KN_NOP_SH(NPO_D,2,1)=KN_SH_CMAX
-	  KN_NOP_SH(NPO_D,2,2)=KN_SH_CJ(1)
-	  KN_NOP_SH(NPO_D,2,3)=KN_SH_CJ(2)
-	  KN_NOP_SH(NPO_D,2,4)=KN_SH_CJ(3)
-	  KN_NOP_SH(NPO_D,2,5)=KN_SH_OMAX
-	  KN_NOP_SH(NPO_D,2,6)=KN_SH_OJ(1)
-	  KN_NOP_SH(NPO_D,2,7)=KN_SH_OJ(2)
-	  KN_NOP_SH(NPO_D,2,8)=KN_SH_OJ(3)
-	  KN_NOP_SH(NPO_D,2,9)=DBLE(KN_SH_OJMX)
-	  KN_NOP_SH(NPO_D,2,10)=DBLE(KN_SH_OLMX)
-	  IF(KN_SH_ON .GT. 0.0_LDP)THEN
-	    KN_NOP_SH(NPO_D,2,11)=SQRT(KN_SH_ORMS/KN_SH_ON)
+	  HF=0_8
+	  IF(ALLOCATED(JPR1) .AND. ALLOCATED(JPR2) .AND.
+	1   ALLOCATED(WINX) .AND. ALLOCATED(DRF_L))THEN
+	    DO JP_D=1,NI
+	      HF=IEOR(HF,INT(JPR1(JP_D),8))
+	      HF=ISHFTC(HF,11)
+	      HF=IEOR(HF,INT(JPR2(JP_D),8))
+	      HF=ISHFTC(HF,11)
+	    END DO
+	    HF=IEOR(HF,KN_FPH(WINX(1:NI),NI))
+	    HF=IEOR(HF,KN_FPH(DRF_L(1:NI),NI))
+	    IF(ALLOCATED(IKC1) .AND. ALLOCATED(IKC2))THEN
+	      DO JP_D=1,NI
+	        HF=IEOR(HF,INT(IKC1(JP_D),8))
+	        HF=ISHFTC(HF,7)
+	        HF=IEOR(HF,INT(IKC2(JP_D),8))
+	        HF=ISHFTC(HF,7)
+	      END DO
+	    END IF
 	  ELSE
-	    KN_NOP_SH(NPO_D,2,11)=0.0_LDP
+	    HF=-1_8
 	  END IF
-	  KN_NOP_SH(NPO_D,2,12)=KN_SH_ON
+	  KN_NOP_FP(NPO_D,2,6)=HF
+!
+! Shadow cell records accumulated by KN_SH_CELL during this
+! pass's march. Three groups of 12 slots: g=1 assembly
+! consistency |VSL-VNEW|, g=2 full-frozen ordering |VSS-VNEW|,
+! g=3 isolated frequency ordering |VSL-VSH|. Within a group:
+! 1 absmax, 2-4 j=1/2/3+ abs max, 5-6 argmax (j,l), 7 abs RMS,
+! 8 cell count, 9 normalised max, 10 normalised RMS, 11
+! significant-cell normalised RMS, 12 significant count.
+!
+	  DO K_D=1,3
+	    JB=12*(K_D-1)
+	    KN_NOP_SH(NPO_D,2,JB+1)=KN_SH_R(K_D,1)
+	    KN_NOP_SH(NPO_D,2,JB+2)=KN_SH_R(K_D,2)
+	    KN_NOP_SH(NPO_D,2,JB+3)=KN_SH_R(K_D,3)
+	    KN_NOP_SH(NPO_D,2,JB+4)=KN_SH_R(K_D,4)
+	    KN_NOP_SH(NPO_D,2,JB+5)=KN_SH_R(K_D,5)
+	    KN_NOP_SH(NPO_D,2,JB+6)=KN_SH_R(K_D,6)
+	    KN_NOP_SH(NPO_D,2,JB+8)=KN_SH_R(K_D,8)
+	    KN_NOP_SH(NPO_D,2,JB+9)=KN_SH_R(K_D,9)
+	    KN_NOP_SH(NPO_D,2,JB+12)=KN_SH_R(K_D,12)
+	    IF(KN_SH_R(K_D,8) .GT. 0.0_LDP)THEN
+	      KN_NOP_SH(NPO_D,2,JB+7)=SQRT(KN_SH_R(K_D,7)/
+	1        KN_SH_R(K_D,8))
+	      KN_NOP_SH(NPO_D,2,JB+10)=SQRT(KN_SH_R(K_D,10)/
+	1        KN_SH_R(K_D,8))
+	    ELSE
+	      KN_NOP_SH(NPO_D,2,JB+7)=0.0_LDP
+	      KN_NOP_SH(NPO_D,2,JB+10)=0.0_LDP
+	    END IF
+	    IF(KN_SH_R(K_D,12) .GT. 0.0_LDP)THEN
+	      KN_NOP_SH(NPO_D,2,JB+11)=SQRT(KN_SH_R(K_D,11)/
+	1        KN_SH_R(K_D,12))
+	    ELSE
+	      KN_NOP_SH(NPO_D,2,JB+11)=0.0_LDP
+	    END IF
+	  END DO
 	  IF(NPO_D .GT. 1)THEN
 	    KN_DK_HIST(1:NI,1:NCF,5)=KN_DK_HIST(1:NI,1:NCF,4)
 	    KN_DK_HIST(1:NI,1:NCF,4)=KN_DK_HIST(1:NI,1:NCF,3)
@@ -13314,16 +13412,29 @@ C
 ! at an already-marched row. That difference is itself measured
 ! (it is the preview-lag part of the consistency record).
 ! ----------------------------------------------------------------
-	REAL(KIND=LDP) FUNCTION KN_SH_EVAL(FS,J,L)
-	REAL(KIND=LDP) FS(NI,NCF)
+	REAL(KIND=LDP) FUNCTION KN_SH_EVAL_H(FSL,FSF,J,L)
+	REAL(KIND=LDP) FSL(NI,NCF),FSF(NI,NCF)
 	INTEGER J,L,KR,RS
 	REAL(KIND=LDP) SV(-1:2),SCM,SC0,SCP
 	REAL(KIND=LDP) SA,SB,DD,TDT,DS1,DS2,VS
+!
+! Two-field shadow evaluation. FSF supplies every field read
+! that is a frequency-coupled donor: inside KN_ORD_SPV the only
+! field arguments are FLD(R,L-1) for expanding cells and
+! FLD(JPR1/2,L+NFM_L) through the WINX interpolation for
+! compressing cells, so building all sources on FSF freezes the
+! frequency coupling exactly -- nothing else inside SPV touches
+! the field. FSL supplies the spatial inputs: the marched
+! upwind term FSL(J+1,L) and, implicitly, whichever spatial
+! state the caller passes (live FLD for the hybrid, or FSF
+! itself for the full-frozen evaluation). KN_ORD_DS's own field
+! reads are only through the source vector SV built here.
+!
 	SV(-1:2)=0.0_LDP
 	DO KR=-1,2
 	  RS=J+KR
 	  IF(RS .GE. 1 .AND. RS .LE. NI)THEN
-	    CALL KN_ORD_SPV(FS,RS,L,SV(KR))
+	    CALL KN_ORD_SPV(FSF,RS,L,SV(KR))
 	  END IF
 	END DO
 	SCM=0.0_LDP
@@ -13390,42 +13501,99 @@ C
 	1     MIN(ABS(SA),ABS(SB),0.5_LDP*ABS(DD))
 	END IF
 !
-	VS=FS(J+1,L)*PK_A0(J,L)+
+	VS=FSL(J+1,L)*PK_A0(J,L)+
 	1   (SV(1)*PK_A1(J,L)+SV(0)*PK_A2(J,L)-
 	2   DS2*PK_A3(J,L)-DS1*PK_A4(J,L))
 	IF(VS .LT. 0.0_LDP .OR. VS .NE. VS)VS=1.0E-30_LDP
 	IF(VS .GT. NONMONO_INEXT_CAP)VS=NONMONO_INEXT_CAP
-	KN_SH_EVAL=VS
+	KN_SH_EVAL_H=VS
+	RETURN
+	END
+!
+! Backward-compatible single-field form: live and full-frozen
+! evaluations pass the same field twice.
+!
+	REAL(KIND=LDP) FUNCTION KN_SH_EVAL(FS,J,L)
+	REAL(KIND=LDP) FS(NI,NCF)
+	INTEGER J,L
+	KN_SH_EVAL=KN_SH_EVAL_H(FS,FS,J,L)
 	RETURN
 	END
 !
 ! ----------------------------------------------------------------
-! KN_SH_CELL (diagnostic): compare the production VNEW against
-! the shadow on the live state (assembly consistency -- ring
-! slotting, preview lag, endpoint recurrence) and on the frozen
-! pass-start snapshot (ordered vs Jacobi frequency coupling).
-! Accumulates per-pass maxima split j=1 / j=2 / j>=3 plus the
-! ordering argmax and RMS; NOP_PASS stores the slots. Read-only.
+! KN_SH_CELL (diagnostic): three shadow evaluations per P cell.
+!
+! VSL (live): re-evaluates the update on the production state.
+! |VSL-VNEW| is ENDPOINT_ASSEMBLY_CONSISTENCY -- ring bookkeeping
+! and preview lag, including the j=1 endpoint reconstruction. It
+! verifies implementation consistency, not mathematical
+! correctness (the independent endpoint check lives in the
+! drv_knop_endpoint driver).
+!
+! VSS (full frozen): same update evaluated entirely on the
+! pass-start snapshot. |VSS-VNEW| is SHADOW_FULL_ORDER_
+! VS_FROZEN -- it mixes spatial-march freshness (FLD(J+1,L))
+! and frequency-donor freshness.
+!
+! VSH (hybrid): spatial inputs live (FSL=FLD), frequency donors
+! frozen (FSF=KN_SH_SNAP). DELTA_FREQ = |VSL-VSH| isolates the
+! frequency-ordering term: inside KN_ORD_SPV the only field
+! arguments are FLD(R,L-1) for expanding cells and the
+! FLD(JPR1/2,L+NFM_L) WINX-interpolated donor for compressing
+! cells, so building sources on the snapshot freezes exactly
+! the frequency coupling.
+!
+! All three keep the production stencil, boundary, coefficients
+! and march direction; only field-read freshness differs.
+! Absolute and DCELL-normalised metrics accumulate per group
+! into KN_SH_R; NOP_PASS stores the slots. Read-only.
 ! ----------------------------------------------------------------
-	SUBROUTINE KN_SH_CELL(FLD,J,L,VNEW)
-	REAL(KIND=LDP) FLD(NI,NCF),VNEW
+	SUBROUTINE KN_SH_CELL(FLD,J,L,VNEW,DNRM,SIG)
+	REAL(KIND=LDP) FLD(NI,NCF),VNEW,DNRM
 	INTEGER J,L,JG
-	REAL(KIND=LDP) VSL,VSS,DLV,DLS
+	REAL(KIND=LDP) VSL,VSS,VSH
+	REAL(KIND=LDP) DLV,DLS,DLF,DVN,DSN,DFN
+	LOGICAL SIG
 	VSL=KN_SH_EVAL(FLD,J,L)
 	VSS=KN_SH_EVAL(KN_SH_SNAP,J,L)
+	VSH=KN_SH_EVAL_H(FLD,KN_SH_SNAP,J,L)
 	DLV=ABS(VSL-VNEW)
 	DLS=ABS(VSS-VNEW)
+	DLF=ABS(VSL-VSH)
+	DVN=DLV/DNRM
+	DSN=DLS/DNRM
+	DFN=DLF/DNRM
 	JG=MIN(J,3)
-	KN_SH_CMAX=MAX(KN_SH_CMAX,DLV)
-	KN_SH_CJ(JG)=MAX(KN_SH_CJ(JG),DLV)
-	IF(DLS .GT. KN_SH_OMAX)THEN
-	  KN_SH_OMAX=DLS
-	  KN_SH_OJMX=J
-	  KN_SH_OLMX=L
+	CALL KN_SH_ACC(KN_SH_R(1,1),DLV,DVN,JG,J,L,SIG)
+	CALL KN_SH_ACC(KN_SH_R(2,1),DLS,DSN,JG,J,L,SIG)
+	CALL KN_SH_ACC(KN_SH_R(3,1),DLF,DFN,JG,J,L,SIG)
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_SH_ACC (diagnostic): fold one per-cell discrepancy into a
+! group accumulator -- abs max + j-split + argmax + sums of
+! squares, absolute and DCELL-normalised, with the
+! significant-cell normalised sum and count kept apart.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_SH_ACC(R,DV,DVN,JG,J,L,SIG)
+	REAL(KIND=LDP) R(12),DV,DVN
+	INTEGER JG,J,L
+	LOGICAL SIG
+	IF(DV .GT. R(1))THEN
+	  R(1)=DV
+	  R(5)=DBLE(J)
+	  R(6)=DBLE(L)
 	END IF
-	KN_SH_OJ(JG)=MAX(KN_SH_OJ(JG),DLS)
-	KN_SH_ORMS=KN_SH_ORMS+DLS*DLS
-	KN_SH_ON=KN_SH_ON+1.0_LDP
+	R(1+JG)=MAX(R(1+JG),DV)
+	R(7)=R(7)+DV*DV
+	R(8)=R(8)+1.0_LDP
+	R(9)=MAX(R(9),DVN)
+	R(10)=R(10)+DVN*DVN
+	IF(SIG)THEN
+	  R(11)=R(11)+DVN*DVN
+	  R(12)=R(12)+1.0_LDP
+	END IF
 	RETURN
 	END
 !
