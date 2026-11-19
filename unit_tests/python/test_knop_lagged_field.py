@@ -798,7 +798,7 @@ def test_ord_sweep_dispatch_fallback():
         "fallback path never touches SPW",
         "SPW" not in sweep,
     )
-    march = section(FG, "SUBROUTINE MARCH(FLD", "SUBROUTINE WRITE_STORE")
+    march = section(FG, "SUBROUTINE MARCH(FLD", "SUBROUTINE NOP_PASS")
     check(
         "MARCH never touches the pack or SPW",
         "PK_" not in march and "SPW" not in march,
@@ -1821,9 +1821,9 @@ def test_qsig_significant_cell_metrics():
 def test_seed_arm_probe():
     """Phase-5.4 three-seed P-direction probe wiring and safety."""
     check(
-        "off by default; arm clamped to -1..2",
+        "off by default; arm clamped to -1..3",
         "INTEGER, SAVE :: KN_SEED_ARM=-1" in FG
-        and "KN_SEED_ARM .GT. 2" in FG,
+        and "KN_SEED_ARM .GT. 3" in FG,
     )
     check(
         "VADAT declares and reads KN_SEED_ARM",
@@ -1858,8 +1858,8 @@ def test_seed_arm_probe():
         FG.count("KN_DK_HIST(1:NI,1:NCF,") >= 5,
     )
     check(
-        "arm C falls back to retained seed with used=3",
-        "KN_SEED_USED=3" in FG,
+        "arm C falls back to retained seed with used=4",
+        "KN_SEED_USED=4" in FG,
     )
     check(
         "arm C candidate validated by dims before replay",
@@ -1869,7 +1869,13 @@ def test_seed_arm_probe():
     check(
         "candidate saved whatever the exit class",
         "KN_SEED_PCIX=IXIT_P" in FG
-        and "CALL KN_SEED_SAVE_P(FLD_P)" in FG,
+        and "CALL KN_SEED_SAVE_P(FLD_P,RES_P,NP_P)" in FG,
+    )
+    check(
+        "arm C provenance: source refresh, pass count, residual",
+        "KN_SEED_PCREF=KN_JT_REFRESH" in FG
+        and "KN_SEED_PCNP=NP_S" in FG
+        and "KN_SEED_PCRS=RES_S" in FG,
     )
     sib = FG[FG.index("SUBROUTINE KN_SEED_SIB") :]
     check(
@@ -1877,9 +1883,17 @@ def test_seed_arm_probe():
         "WRK((NOK+1)/2)" in sib and "J_PNT(KS,RS)" in sib,
     )
     check(
+        "arm B is leave-one-out (probe ray excluded from sample)",
+        "IF(RS .EQ. LS)CYCLE" in sib,
+    )
+    check(
+        "arm B counts unmapped store pairs",
+        "NUNM=NUNM+NCF-1" in sib,
+    )
+    check(
         "arm B leaves unmappable cells on the retained seed",
         "IF(NOK .LT. 1)CYCLE" in sib
-        and "IF(JP2 .LT. 1 .OR. JP2 .GT. NI)CYCLE" in sib,
+        and "IF(JP2 .LT. 1 .OR. JP2 .GT. NI)THEN" in sib,
     )
     check(
         "store stays read-only in the sib fill",
@@ -1910,6 +1924,37 @@ def test_seed_arm_probe():
         "DKJ(MIN(JP_D,3))" in acc,
     )
     check(
+        "lag correlations C_1..4 on update vectors, -2 sentinel",
+        "KN_NOP_CK(NPO_D,2,K_D)=DKDOT(K_D)/" in acc
+        and "KN_NOP_CK(NPO_D,2,K_D)=-2.0_LDP" in acc
+        and "KN_DK_HIST(JP_D,L_D,K_D+1)" in acc,
+    )
+    check(
+        "per-cell update sign tracking over significant cells",
+        "KN_DK_SGN(JP_D,L_D)=ISN" in acc
+        and "KN_NOP_SGN(NPO_D,2)=DBLE(NREV)/DBLE(NPAIR)" in acc,
+    )
+    check(
+        "W=0 dead-column coverage recorded",
+        "KN_NOP_W0(NPO_D,2,1)=WA0" in acc
+        and "KN_NOP_W0(NPO_D,2,2)=WA1" in acc
+        and "KN_DK_NDEAD" in FG,
+    )
+    check(
+        "even/odd subsequence drift tracked",
+        "KN_DK_EOD(MOD(NPO_D,2)+1)" in acc,
+    )
+    check(
+        "ambient-input fingerprints recorded per P pass",
+        "KN_NOP_FP(NPO_D,2,1)=KN_FPH(IM_NI(1:NCF),NCF)" in acc
+        and "KN_NOP_FP(NPO_D,2,5)=HF" in acc
+        and "ALLOCATED(PK_A0)" in acc,
+    )
+    check(
+        "fingerprint fold has no integer-multiply overflow path",
+        "ISHFTC(HV,17)" in FG and "TRANSFER(X(KF),HV)" in FG,
+    )
+    check(
         "call sites pass field and verify flag",
         FG.count("CALL NOP_PASS(NPO,RES,INWARD,HOTMODE,FLD,L_QP)") == 2,
     )
@@ -1917,13 +1962,33 @@ def test_seed_arm_probe():
         "record arrays allocated and zeroed with KN_NOP group",
         "KN_NOP_DK(KN_NOP_MAXP,2,4)" in FG
         and "KN_NOP_DK=-1.0_LDP" in FG
+        and "KN_NOP_SH(KN_NOP_MAXP,2,12)" in FG
         and FG.count("DEALLOCATE(KN_NOP_DK)") == 2
-        and FG.count("DEALLOCATE(KN_NOP_J3)") == 2,
+        and FG.count("DEALLOCATE(KN_NOP_J3)") == 2
+        and FG.count("DEALLOCATE(KN_NOP_SH)") == 2,
+    )
+    check(
+        "pass-start snapshot frozen for the shadow evaluation",
+        "KN_SH_SNAP(1:NI,1:NCF)=FLD(1:NI,1:NCF)" in FG
+        and "L_SEED .AND. .NOT. INWARD" in FG,
+    )
+    check(
+        "shadow cell call is probe-P only and verify-excluded",
+        "CALL KN_SH_CELL(FLD,J,L,VNEW)" in FG
+        and "L_SEED .AND. KN_DK_RDY .AND. .NOT. L_QP" in FG,
+    )
+    check(
+        "shadow replicates the three KN_ORD_DS branches",
+        "FUNCTION KN_SH_EVAL" in FG
+        and FG[FG.index("FUNCTION KN_SH_EVAL") :].count(
+            "0.5_LDP*ABS(DD)"
+        )
+        >= 2,
     )
     check(
         "summary and per-pass report lines present",
         "KN-SEED ray=" in FG and "dk1..4=" in FG
-        and "j1/j2/j3+=" in FG,
+        and "j1/j2/j3+=" in FG and "shO j1..3+=" in FG,
     )
 
 
