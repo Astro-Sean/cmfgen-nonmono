@@ -4274,7 +4274,11 @@ and is handled separately: it is diffed elementwise against a
 saved copy so the one expected increment (+1 at (2,3) from the
 production expanding call) is verified explicitly and every
 other entry is proven unchanged. Matrix-level shape+SUM
-checksums remain as a secondary guard. A test-only mutation
+checksums remain as a secondary guard only - they are not the
+operand-integrity evidence. Scope: the elementwise compare
+covers exactly the eleven array operands listed; scalar
+controls (FG_FREQ_MATCH, KN_DBG_LS) and other module state are
+deliberately outside its scope. A test-only mutation
 (SR_A(1,1) overwritten after a call) was verified to fail the
 harness on both the per-invocation count and the checksum, then
 reverted.
@@ -4288,12 +4292,16 @@ host-array argument list, .TRUE. for production and .FALSE. for
 shadow, and the four-argument signature is preserved. The
 wrappers are NOT runtime-covered by this test.
 
-Results: 72/72 checks pass. Every case bit-identical (BEQ=T);
-NDP=+1 only on the expanding L>1 call, 0 elsewhere; NDS=0 on all
-allocated cases; all independent expected values match (e.g.
+Results: 93/93 checks pass (test_knop_spv.py). Every case
+bit-identical (BEQ=T); NDP=+1 only on the expanding L>1 call, 0
+elsewhere; NDS=0 on all allocated cases; NWS=NWP=0 on every
+case (all eleven array inputs elementwise unchanged through
+both calls); all independent expected values match (e.g.
 gamp: 1.523+0.32*0.22=1.5934; fmtch NNF2=2: 1.524+0.32*0.185=
-1.5832); all operand checksums identical before/after; NDON
-elementwise diff shows exactly (2,3)+1.
+1.5832); matrix checksums identical before/after (secondary);
+NDON elementwise diff shows exactly (2,3)+1.
+test_knop_endpoint.py: 6/6. test_knop_lagged_field.py: all
+checks pass.
 
 The test also caught two driver bugs on first run: GAM was
 indexed by frequency rather than by the ray column LS=1, and a
@@ -4310,7 +4318,8 @@ immediately.
   OPTIONAL-argument or interface diagnostics remain.
 - Debug flags (-g -O0 -check bounds): zero errors, same
   pre-existing warnings only.
-- test_knop_spv.py: 21/21.
+- test_knop_spv.py: 93/93 (11-case matrix, elementwise
+  per-invocation operand checks).
 - test_knop_endpoint.py: 6/6 (unchanged).
 - test_knop_lagged_field.py: all pass (pins updated to the
   worker/wrapper/shadow structure).
