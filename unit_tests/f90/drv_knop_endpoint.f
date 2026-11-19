@@ -18,9 +18,10 @@
 ! Manufactured cases A-E per the phase-5.5 audit task. The tau
 ! grid is geometric: tau(j) = T0 + S0*(R^(j-1)-1), so dt(1)=S0*(R-1)
 ! halves per refinement level while the stretch ratio stays fixed.
-! DUPD reports |DS_err|*|A4REP| - the formal-update discrepancy
-! scales linearly with PK_A4(1,L); a unit representative weight
-! keeps the number interpretable.
+! DUPD reports |DS_err|*|A4REP| with A4REP=1: a unit-
+! representative formal-update discrepancy, NOT the actual
+! PK_A4(1,L)-weighted production transfer error (the real
+! coefficient varies per cell and is not measured here).
 !
       PROGRAM DRV_KNOP_ENDPOINT
       IMPLICIT NONE
@@ -38,7 +39,7 @@
       DATA CN/'A','B','C','D','E'/
       WRITE(6,'(A)')'CASE LV      H             ANA          '//
      1 ' PROD          ERR_P     REL_P       REF           '//
-     2 'ERR_R     REL_R       ORD_P  ORD_R  DUPD'
+     2 'ERR_R     REL_R       ERR_3       DUPD'
       DO IC=1,NC
         DO LV=1,NLV
           S0=0.05_LDP/2.0_LDP**(LV-1)
@@ -94,11 +95,11 @@
           ERR(LV)=ER
           HH(LV)=DT1
           WRITE(6,'(A3,I2,1X,ES12.5,1X,ES13.6,1X,ES13.6,1X,ES11.3,
-     1     1X,ES11.3,1X,ES13.6,1X,ES11.3,1X,ES11.3,1X,F6.2,1X,F6.2,
+     1     1X,ES11.3,1X,ES13.6,1X,ES11.3,1X,ES11.3,1X,ES11.3,
      2     1X,ES11.3)')
      3     ' '//CN(IC)//' ',LV,DT1,ANA,DSP,EP,
      4     EP/MAX(ABS(ANA),1.0E-30_LDP),D2,ER,
-     5     ER/MAX(ABS(ANA),1.0E-30_LDP),0.0_LDP,0.0_LDP,
+     5     ER/MAX(ABS(ANA),1.0E-30_LDP),E3,
      6     EP*A4REP
           DEALLOCATE(TAU,S)
         END DO
