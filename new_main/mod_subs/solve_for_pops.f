@@ -105,6 +105,15 @@
 !
 	INTEGER, SAVE :: ITS_SINCE_START=0
 	INTEGER, SAVE :: ITER_TYPE_LAST_IT=-1
+!
+! RUN_ID binds each GS_STATE write to the executing slurm job so the
+! OBS-side KNOP_SPEC_GATE_EVAL can tell a stale state file (written by
+! a previous job, left behind by a warm restart or requeue) from one
+! produced by the run being rendered. 'local' marks non-slurm runs;
+! it can never match a manifest segment, so such states classify as
+! provenance-unverified rather than converged.
+!
+	CHARACTER(LEN=40) :: RUN_ID
 	CHARACTER(LEN=128) :: ITER_MSG
 	LOGICAL FORCE_LAMBDA
 	LOGICAL LAM_AT_ENTRY
@@ -3112,10 +3121,14 @@
 ! greps '^n_frozen=' with -m1.
 !
 	IF(DO_NONMONO_KNOP)THEN
+	  RUN_ID=' '
+	  CALL GET_ENVIRONMENT_VARIABLE('SLURM_JOB_ID',RUN_ID)
+	  IF(RUN_ID .EQ. ' ')RUN_ID='local'
 	  OPEN(NEWUNIT=LU_GS,FILE='GS_STATE',STATUS='REPLACE',
 	1    IOSTAT=IOS)
 	  IF(IOS .EQ. 0)THEN
 	    WRITE(LU_GS,'(A,I0)')'n_frozen=',N_FROZEN
+	    WRITE(LU_GS,'(A,A)')'run_id=',TRIM(RUN_ID)
 	    WRITE(LU_GS,'(A,I0,A,L2)')'iter=',MAIN_COUNTER,
 	1    ' frozen=',GS_FREEZE
 	    WRITE(LU_GS,'(A,A)')'mode=',TRIM(MODE_NOW)
