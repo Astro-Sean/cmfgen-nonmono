@@ -4239,29 +4239,57 @@ The counter guard is now nested IFs (L_CNT -> ALLOCATED ->
 bounds) so SIZE is never evaluated on an unallocated array; the
 first dimension is also checked before indexing R.
 
-#### 3. Runtime test coverage
+#### 3. Test coverage, in four distinct tiers
 
-New runtime test: unit_tests/f90/drv_knop_spv.f90 +
-unit_tests/python/test_knop_spv.py. The driver USEs
-FG_J_CMF_NONMONO_MOD_V1 and calls KN_ORD_SPV_IMPL with
-L_CNT=.TRUE./.FALSE. across the full branch matrix (10 cases):
-gam0; expanding L>1 and L=1; compressing with two, one, and no
-valid donors; compressing L+NNF2>NCF boundary; FG_FREQ_MATCH on
-(NNF2=2 and NNF2=1); and the unallocated-KN_DBG_NDON path.
-Per case it prints both SPV values, a bitwise TRANSFER
+unit_tests/f90/drv_knop_spv.f90 + unit_tests/python/
+test_knop_spv.py. Coverage is reported in four tiers because the
+wrappers are internal procedures and cannot be invoked without a
+full ray context:
+
+(a) Runtime worker coverage. The driver USEs
+FG_J_CMF_NONMONO_MOD_V1 and calls the compiled KN_ORD_SPV_IMPL
+with L_CNT=.TRUE./.FALSE. across an 11-case branch matrix: gam0;
+expanding L>1 and L=1; compressing with two, JPR1-only,
+JPR2-only, and no valid donors; compressing L+NNF2>NCF boundary;
+FG_FREQ_MATCH on (NNF2=2 and NNF2=1); and the unallocated
+KN_DBG_NDON path. Per case: both SPV values, a bitwise TRANSFER
 comparison, and the production/shadow KN_DBG_NDON deltas.
 
-Results: 21/21 checks pass. Every case bit-identical (BEQ=T);
-NDP=+1 only on the expanding L>1 call, 0 elsewhere; NDS=0 on all
-allocated cases; the unallocated path runs clean. Spot-checked
-arithmetic is exact to machine precision against the manufactured
-values (e.g. gamp: 1.523+0.32*0.22=1.5934; fmtch NNF2=2:
-1.524+0.32*0.185=1.5832). Operand checksums confirm the worker
-writes none of its array arguments.
+(b) Independent arithmetic. Every case's expected SPV is
+recomputed in Python from the manufactured inputs using the
+published branch formulas, including the production NNF2
+definition (T1=DRF/KN_DLN_N, NNF2=NCF-L when T1>=NCF-L else
+MAX(1,CEILING(T1))), and compared at 1e-12.
 
-The test also caught a real driver bug on first run: GAM was
-indexed by frequency rather than by the ray column LS=1; the
-counter deltas exposed it immediately.
+(c) Operand integrity. The driver prints shape+SUM for every
+input array (SR_A, Q_A, DRF_A, WINX_A, JPR1_A, JPR2_A, IKC1_A,
+IKC2_A, FLD_A, plus module operands GAM and KN_DLN_N) before and
+after the matrix; KN_DBG_NDON is diffed elementwise against a
+saved copy, so the single permitted change (+1 at (2,3) from the
+production expanding call) is verified explicitly and every
+other entry is proven unchanged.
+
+(d) Wrapper source pins. KN_ORD_SPV and KN_ORD_SPV_SHADOW are
+internal to KNOP_RAY_SOLVE_V1 and cannot be called outside the
+ray context without scaffolding that would distort the test;
+the wrappers are therefore pinned at source level instead:
+each contains exactly one CALL KN_ORD_SPV_IMPL with the full
+host-array argument list, .TRUE. for production and .FALSE. for
+shadow, and the four-argument signature is preserved. The
+wrappers are NOT runtime-covered by this test.
+
+Results: 72/72 checks pass. Every case bit-identical (BEQ=T);
+NDP=+1 only on the expanding L>1 call, 0 elsewhere; NDS=0 on all
+allocated cases; all independent expected values match (e.g.
+gamp: 1.523+0.32*0.22=1.5934; fmtch NNF2=2: 1.524+0.32*0.185=
+1.5832); all operand checksums identical before/after; NDON
+elementwise diff shows exactly (2,3)+1.
+
+The test also caught two driver bugs on first run: GAM was
+indexed by frequency rather than by the ray column LS=1, and a
+format-descriptor misalignment printed integer SIZE() values as
+raw bytes; the counter deltas and checksum parse exposed both
+immediately.
 
 #### 4. Compiler and test results
 
@@ -4285,8 +4313,8 @@ counter deltas exposed it immediately.
   calls per cell per L inside the refresh/ordered-sweep source
   fills - negligible next to the march solve, and ifort inlines
   at -O3 within the same TU.
-- The runtime test exercises the worker directly; the wrapper
-  argument values are additionally pinned at source level
-  (test_knop_lagged_field).
+- Runtime coverage is at the worker level; the two wrappers are
+  internal procedures and their forwarding is source-pinned
+  (test_knop_spv + test_knop_lagged_field), not executed.
 - The three-seed experiment remains unlaunched, gated on review
   of this pass.
