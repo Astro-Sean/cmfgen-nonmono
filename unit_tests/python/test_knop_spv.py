@@ -22,10 +22,16 @@ Coverage is reported in four distinct tiers:
                     using the published branch formulas
                     (including the production NNF2 definition) and
                     compared at 1e-12.
-  OPERAND         - the driver prints shape+SUM for every input
-                    INTEGRITY         array before and after the
-                    matrix; KN_DBG_NDON is diffed elementwise
-                    against a saved copy.  Any operand write fails.
+  OPERAND         - every input array is snapshotted before
+                    INTEGRITY         EACH worker call and compared
+                    elementwise after it (NWS/NWP per case).  GAM
+                    is checked in its branch-configured state -
+                    the driver sets it, the worker must never
+                    write it.  KN_DBG_NDON is the one permitted
+                    mutable input: it is diffed elementwise and
+                    the single +1 at (2,3) is verified explicitly.
+                    Matrix-level shape+SUM checksums remain as a
+                    secondary guard.
   WRAPPER SOURCE  - the two thin wrappers are internal to
                     PINS              KNOP_RAY_SOLVE_V1 and cannot
                     be called without the full ray context, so
@@ -147,11 +153,13 @@ EXP_NDP = {
     "unall": -1,
 }
 
-# Arrays whose PRE/POST checksum must be identical.  NDON is
+# Arrays whose PRE/POST checksum must be identical.  GAM is
+# covered by the per-invocation elementwise compare (the driver
+# deliberately changes it to configure each branch).  NDON is
 # handled separately (one expected +1 delta at (2,3)).
 OPERANDS = [
     "SR", "Q", "FLD", "DRF", "WINX", "JPR1", "JPR2",
-    "IKC1", "IKC2", "GAM", "DLN",
+    "IKC1", "IKC2", "DLN",
 ]
 
 
@@ -171,7 +179,8 @@ def main():
     cases = {}
     for m in re.finditer(
         r"SPCASE\s+(\S+)\s+R\s*(\d+)\s+L\s*(\d+)\s+SVT\s*(\S+)\s+"
-        r"SVF\s*(\S+)\s+BEQ\s*([TF])\s+NDP\s*(-?\d+)\s+NDS\s*(-?\d+)",
+        r"SVF\s*(\S+)\s+BEQ\s*([TF])\s+NDP\s*(-?\d+)\s+NDS\s*(-?\d+)"
+        r"\s+NWS\s*(-?\d+)\s+NWP\s*(-?\d+)",
         out,
     ):
         cases[m.group(1).strip()] = {
@@ -182,6 +191,8 @@ def main():
             "BEQ": m.group(6) == "T",
             "NDP": int(m.group(7)),
             "NDS": int(m.group(8)),
+            "NWS": int(m.group(9)),
+            "NWP": int(m.group(10)),
         }
 
     for name, ndp in EXP_NDP.items():
@@ -193,6 +204,12 @@ def main():
         rep.check(f"{name} NDP={ndp}", c["NDP"] == ndp, str(c["NDP"]))
         exp_nds = -1 if name == "unall" else 0
         rep.check(f"{name} NDS={exp_nds}", c["NDS"] == exp_nds)
+        rep.check(
+            f"{name} inputs unchanged shadow call", c["NWS"] == 0,
+        )
+        rep.check(
+            f"{name} inputs unchanged prod call", c["NWP"] == 0,
+        )
 
     # ---- INDEPENDENT ARITHMETIC ----
     for name, c in cases.items():
