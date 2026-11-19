@@ -58,6 +58,10 @@ PROD_SRC = [
     TREE / "obs" / "obs_frame_sub_v9.f",
     TREE / "obs" / "comp_ew_abs_ew.f",
     TREE / "obs" / "check_cmf_flux_param_consis.f",
+    # Rescue/ES-diag/gate siblings now referenced by cmf_flux_sub_v5.
+    TREE / "obs" / "jres_validity.f",
+    TREE / "obs" / "es_resid_diag.f",
+    TREE / "obs" / "knop_spec_gate.f",
 ]
 
 # Archives as positional link inputs (must follow the objects); their
