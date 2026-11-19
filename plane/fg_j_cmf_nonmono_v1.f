@@ -1439,15 +1439,29 @@
 !      store slot, filled only where the sample is non-empty,
 !   2 = arm C: saved last P candidate (KN_SEED_PC from the
 !      previous refresh; falls back to the retained seed with a
-!      reported flag when no candidate exists yet).
+!      reported flag when no candidate exists yet),
+!   3 = arm A/A: retained store again -- the reproducibility
+!      control. Bit-identical seed to arm 0 under the same
+!      checkpoint; identical trajectories across an arm-0/arm-3
+!      run pair set the measurement noise floor for the A/B/C
+!      comparison. Repeated arm-C refreshes are NOT independent
+!      seeds: each replays the previous refresh's candidate, so
+!      the trajectory chains through refreshes (PCREF/PCNP/PCIX/
+!      PCRS below record the candidate's provenance).
 ! The I_M solve is never reseeded: it converges and its IM_NI
 ! hand-off is identical across arms, so the P map sees one
 ! varying input -- the seed. Neither the injected seed nor the
 ! saved candidate touches the retained store (store writes are
 ! already suppressed for the probe ray). KN_SEED_USED records
-! the seed actually applied (0/1/2 plus 3 = arm-C cold-start
+! the seed actually applied (0..3 plus 4 = arm-C cold-start
 ! fallback); KN_SEED_NMAP/NFILL count arm-B mappable and filled
-! cells. X_REF (= the retained-store seed, identical across
+! cells, KN_SEED_NUNM/NRET the unmapped pairs and the
+! mappable-but-empty cells that keep the retained seed, and
+! KN_SEED_DAB/RMAX/SCHG record the weighted seed distance, the
+! largest single replacement and the fraction of significant
+! cells actually changed. Arm B excludes the probe ray from
+! its own sibling sample (leave-one-out). X_REF (= the
+! retained-store seed, identical across
 ! arms while the store is unchanged) and the injected seed are
 ! written each refresh to KNSEED_P_L<LS>_a<arm>_r<ref>.bin.
 !
@@ -1458,7 +1472,7 @@
 ! production significance floor applied per cell, so floor
 ! cells and all-zero columns contribute sub-dominantly instead
 ! of overflowing through a 1/dead-column factor. KN_DK_HIST
-! holds the last four pass
+! holds the last five pass
 ! iterates for the probe ray (ring advanced at pass end);
 ! KN_DK_X0 is the injected seed (x_0). Recorded into
 ! KN_NOP_DK(pass,dir,k); a k larger than the pass count reports
@@ -1472,16 +1486,53 @@
 	INTEGER, SAVE :: KN_SEED_ARM=-1
 	INTEGER, SAVE :: KN_SEED_USED=-1
 	INTEGER, SAVE :: KN_SEED_NMAP=0,KN_SEED_NFILL=0
+	INTEGER, SAVE :: KN_SEED_NUNM=0,KN_SEED_NRET=0
+	REAL(KIND=LDP), SAVE :: KN_SEED_DAB=-1.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_SEED_RMAX=-1.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_SEED_SCHG=-1.0_LDP
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_SEED_PC(:,:)
 	LOGICAL, SAVE :: KN_SEED_PCV=.FALSE.
 	INTEGER, SAVE :: KN_SEED_PCIX=-1
+	INTEGER, SAVE :: KN_SEED_PCREF=-1,KN_SEED_PCNP=-1
+	REAL(KIND=LDP), SAVE :: KN_SEED_PCRS=-1.0_LDP
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_DK_HIST(:,:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_DK_X0(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_DK_XREF(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_DK_W(:,:)
+	INTEGER(KIND=1), ALLOCATABLE, SAVE :: KN_DK_SGN(:,:)
+	INTEGER, SAVE :: KN_DK_NDEAD=0
+	REAL(KIND=LDP), SAVE :: KN_DK_EOD(2)=0.0_LDP
 	LOGICAL, SAVE :: KN_DK_RDY=.FALSE.
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_DK(:,:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_J3(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_CK(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_SGN(:,:)
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_W0(:,:,:)
+	INTEGER(KIND=8), ALLOCATABLE, SAVE :: KN_NOP_FP(:,:,:)
+!
+! Shadow cell evaluation (diagnostic, probe P passes only):
+! KN_SH_SNAP holds the pass-start field; KN_SH_CELL re-evaluates
+! the (j,l) update once on the live state and once on the
+! snapshot, assembling its own source/secant vector instead of
+! reading the SPW ring. |shadow-live - VNEW| measures assembly
+! consistency (catches stale ring slots, the j=1 endpoint
+! recurrence included); |shadow-snap - VNEW| is the ordered-vs-
+! frozen-input (Gauss-Seidel vs Jacobi) difference -- the
+! frequency-ordering measurement. The literal F00/F10/F01/F11
+! factorial is not constructible: a "production endpoint on
+! frozen inputs" does not exist, since the production endpoint
+! is only evaluated inside the live march. The honest
+! decomposition is (live vs prod) for recurrence consistency,
+! (snap vs live) for ordering, each split j=1 / j=2 / j>=3.
+! Accumulators are module-level because KN_SH_CELL is a sibling
+! of SWEEP_FLD_ORD and cannot see its locals.
+!
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_SH_SNAP(:,:)
+	REAL(KIND=LDP), SAVE :: KN_SH_CMAX=0.0_LDP,KN_SH_CJ(3)=0.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_SH_OMAX=0.0_LDP,KN_SH_OJ(3)=0.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_SH_ORMS=0.0_LDP,KN_SH_ON=0.0_LDP
+	INTEGER, SAVE :: KN_SH_OJMX=0,KN_SH_OLMX=0
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_NOP_SH(:,:,:)
 !
 ! KN_JUMP_DIAG (diagnostic, [KN_JUMP_DIAG], default FALSE):
 ! veto-trigger attribution for FG_JUMP_MAX. Each call records the
@@ -7565,7 +7616,7 @@ C
 !
 ! SET_FG_SEED_ARM (diagnostic, [KN_SEED_ARM]): arm the
 ! phase-5.4 three-seed P-direction experiment. Values outside
-! -1..2 fail closed to off; the experiment still requires
+! -1..3 fail closed to off; the experiment still requires
 ! KN_NOCP_PROBE armed for the same ray before any seed is
 ! touched.
 !
@@ -7574,7 +7625,7 @@ C
 	IMPLICIT NONE
 	INTEGER ARM_P
 	KN_SEED_ARM=ARM_P
-	IF(KN_SEED_ARM .LT. -1 .OR. KN_SEED_ARM .GT. 2)
+	IF(KN_SEED_ARM .LT. -1 .OR. KN_SEED_ARM .GT. 3)
 	1   KN_SEED_ARM=-1
 	RETURN
 	END
@@ -8232,6 +8283,11 @@ C
 	IF(ALLOCATED(KN_NOP_AL))DEALLOCATE(KN_NOP_AL)
 	IF(ALLOCATED(KN_NOP_DK))DEALLOCATE(KN_NOP_DK)
 	IF(ALLOCATED(KN_NOP_J3))DEALLOCATE(KN_NOP_J3)
+	IF(ALLOCATED(KN_NOP_CK))DEALLOCATE(KN_NOP_CK)
+	IF(ALLOCATED(KN_NOP_SGN))DEALLOCATE(KN_NOP_SGN)
+	IF(ALLOCATED(KN_NOP_W0))DEALLOCATE(KN_NOP_W0)
+	IF(ALLOCATED(KN_NOP_FP))DEALLOCATE(KN_NOP_FP)
+	IF(ALLOCATED(KN_NOP_SH))DEALLOCATE(KN_NOP_SH)
 	IF(ALLOCATED(KN_NOP_CT))DEALLOCATE(KN_NOP_CT)
 	IF(ALLOCATED(KN_NOP_HOT))DEALLOCATE(KN_NOP_HOT)
 	IF(KN_NOCP_PROBE .AND. KN_NOCP_PROBE_LS .GE. 1 .AND.
@@ -8242,12 +8298,16 @@ C
 	2   KN_NOP_AI(KN_NOP_MAXP,2),KN_NOP_AL(KN_NOP_MAXP,2),
 	3   KN_NOP_CT(KN_NOP_MAXP,2,5),KN_NOP_HOT(KN_NOP_MAXP,2),
 	4   KN_NOP_DK(KN_NOP_MAXP,2,4),KN_NOP_J3(KN_NOP_MAXP,2,3),
-	5   STAT=IOS)
+	5   KN_NOP_CK(KN_NOP_MAXP,2,4),KN_NOP_SGN(KN_NOP_MAXP,2),
+	6   KN_NOP_W0(KN_NOP_MAXP,2,2),KN_NOP_FP(KN_NOP_MAXP,2,5),
+	7   KN_NOP_SH(KN_NOP_MAXP,2,12),STAT=IOS)
 	  IF(IOS .EQ. 0)THEN
 	    KN_NOP_RES=0.0_LDP; KN_NOP_AD=0.0_LDP
 	    KN_NOP_OMG=0.0_LDP; KN_NOP_RAT=-1.0_LDP
 	    KN_NOP_AI=0; KN_NOP_AL=0; KN_NOP_CT=0; KN_NOP_HOT=.FALSE.
 	    KN_NOP_DK=-1.0_LDP; KN_NOP_J3=0.0_LDP
+	    KN_NOP_CK=-2.0_LDP; KN_NOP_SGN=-1.0_LDP
+	    KN_NOP_W0=0.0_LDP; KN_NOP_FP=0_8; KN_NOP_SH=0.0_LDP
 	    KN_NOP_ARM=.TRUE.
 	  END IF
 	END IF
@@ -8437,6 +8497,13 @@ C
 	1   '  KN-SEED ray=',KN_NOCP_PROBE_LS,' arm=',KN_SEED_ARM,
 	2   ' used=',KN_SEED_USED,' sib fill/map=',
 	3   KN_SEED_NFILL,KN_SEED_NMAP,' pcix=',KN_SEED_PCIX
+	  WRITE(LUER,'(A,2I8,A,I8,A,I3,A,I4,2(1X,ES11.3),1X,F7.4)')
+	1   '    unmapped/retained=',KN_SEED_NUNM,KN_SEED_NRET,
+	2   ' dead=',KN_DK_NDEAD,' pcref/pcnp=',KN_SEED_PCREF,
+	3   KN_SEED_PCNP,' dab/rmax/pcrs=',KN_SEED_DAB,
+	4   KN_SEED_RMAX,KN_SEED_PCRS,' schg=',KN_SEED_SCHG
+	  WRITE(LUER,'(A,2(1X,ES11.3))')
+	1   '    eod even/odd=',KN_DK_EOD(1),KN_DK_EOD(2)
 	END IF
 !
 ! Reduce the per-ray Q cell statistics into the channel totals.
@@ -9371,6 +9438,12 @@ C
 	IF(ALLOCATED(KN_NOP_HOT))DEALLOCATE(KN_NOP_HOT)
 	IF(ALLOCATED(KN_NOP_DK))DEALLOCATE(KN_NOP_DK)
 	IF(ALLOCATED(KN_NOP_J3))DEALLOCATE(KN_NOP_J3)
+	IF(ALLOCATED(KN_NOP_CK))DEALLOCATE(KN_NOP_CK)
+	IF(ALLOCATED(KN_NOP_SGN))DEALLOCATE(KN_NOP_SGN)
+	IF(ALLOCATED(KN_NOP_W0))DEALLOCATE(KN_NOP_W0)
+	IF(ALLOCATED(KN_NOP_FP))DEALLOCATE(KN_NOP_FP)
+	IF(ALLOCATED(KN_NOP_SH))DEALLOCATE(KN_NOP_SH)
+	IF(ALLOCATED(KN_SH_SNAP))DEALLOCATE(KN_SH_SNAP)
 	IF(ALLOCATED(KN_Q_LS))DEALLOCATE(KN_Q_LS)
 	IF(ALLOCATED(KN_QA_Q))DEALLOCATE(KN_QA_Q,KN_QA_VOLD,KN_QA_VN,
 	1  KN_QA_VM,KN_QA_J,KN_QA_L)
@@ -9923,7 +9996,7 @@ C
 !
 	IF(L_SEED)THEN
 	  KN_SEED_PCIX=IXIT_P
-	  CALL KN_SEED_SAVE_P(FLD_P)
+	  CALL KN_SEED_SAVE_P(FLD_P,RES_P,NP_P)
 	END IF
 	IF(DIVERGED)THEN
 	  NDIV=1
@@ -10385,6 +10458,24 @@ C
 	1       '        j1/j2/j3+=',
 	2       KN_NOP_J3(JJ,2,1),KN_NOP_J3(JJ,2,2),
 	3       KN_NOP_J3(JJ,2,3)
+	        WRITE(LUER,'(A,4(1X,ES11.3))')
+	1       '        ck1..4=',
+	2       KN_NOP_CK(JJ,2,1),KN_NOP_CK(JJ,2,2),
+	3       KN_NOP_CK(JJ,2,3),KN_NOP_CK(JJ,2,4)
+	        WRITE(LUER,'(A,3(1X,ES11.3),A,2(1X,Z16.16))')
+	1       '        sgn/w0a/w0r=',
+	2       KN_NOP_SGN(JJ,2),KN_NOP_W0(JJ,2,1),
+	3       KN_NOP_W0(JJ,2,2),' fp1/fp5=',
+	4       KN_NOP_FP(JJ,2,1),KN_NOP_FP(JJ,2,5)
+	        WRITE(LUER,'(A,4(1X,ES11.3))')
+	1       '        shC j1..3+=',
+	2       KN_NOP_SH(JJ,2,1),KN_NOP_SH(JJ,2,2),
+	3       KN_NOP_SH(JJ,2,3),KN_NOP_SH(JJ,2,4)
+	        WRITE(LUER,'(A,4(1X,ES11.3),A,I4,1X,I5,A,ES11.3)')
+	1       '        shO j1..3+=',KN_NOP_SH(JJ,2,5),
+	2       KN_NOP_SH(JJ,2,6),KN_NOP_SH(JJ,2,7),
+	3       KN_NOP_SH(JJ,2,8),' @j,l=',INT(KN_NOP_SH(JJ,2,9)),
+	4       INT(KN_NOP_SH(JJ,2,10)),' rms=',KN_NOP_SH(JJ,2,11)
 	      END IF
 	    END DO
 	  END DO
@@ -11268,6 +11359,26 @@ C
 	    VMAXF(L)=MAX(MAXVAL(FLD(1:NI,L)),1.0E-25_LDP)
 	  END DO
 !
+! KN_SEED_ARM shadow (diagnostic, probe P passes): freeze the
+! pass-start field so KN_SH_CELL can evaluate frozen-input
+! updates against it, and reset the per-pass shadow
+! accumulators. Must run before the march overwrites FLD in
+! place; the verify pass is skipped like the other iterate
+! diagnostics.
+!
+	  IF(L_SEED .AND. .NOT. INWARD .AND. KN_DK_RDY .AND.
+	1   .NOT. L_QP)THEN
+	    KN_SH_SNAP(1:NI,1:NCF)=FLD(1:NI,1:NCF)
+	    KN_SH_CMAX=0.0_LDP
+	    KN_SH_CJ(1:3)=0.0_LDP
+	    KN_SH_OMAX=0.0_LDP
+	    KN_SH_OJ(1:3)=0.0_LDP
+	    KN_SH_ORMS=0.0_LDP
+	    KN_SH_ON=0.0_LDP
+	    KN_SH_OJMX=0
+	    KN_SH_OLMX=0
+	  END IF
+!
 ! KN_PSWEEP_DIAG: snapshot the pass input before the march
 ! overwrites FLD in place. VMAXF just built is the pass's own
 ! column-peak scale, so the R_MAP normalisation reuses it rather
@@ -11556,6 +11667,13 @@ C
 	          NCAP=NCAP+1
 	          NCP_P=NCP_P+1
 	        END IF
+!
+! KN_SEED_ARM shadow (diagnostic): re-evaluate this update on the
+! live state and on the pass-start snapshot. Reads only -- the
+! production field, ring and stores are untouched.
+!
+	        IF(L_SEED .AND. KN_DK_RDY .AND. .NOT. L_QP)
+	1         CALL KN_SH_CELL(FLD,J,L,VNEW)
 	        VOLD=FLD(J,L)
 	        T1=ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
 	        IF(T1 .GT. RES)THEN
@@ -12918,9 +13036,13 @@ C
 ! stops recording rather than writing out of bounds.
 !
 	SUBROUTINE NOP_PASS(NPO_D,RES_D,INW_D,HOT_D,FLD_D,LQP_D)
-	INTEGER NPO_D,NPD,JP_D,L_D,K_D
+	INTEGER NPO_D,NPD,JP_D,L_D,K_D,NREV,NPAIR
+	INTEGER(KIND=1) ISN
+	INTEGER(KIND=8) HF
 	REAL(KIND=LDP) RES_D,FLD_D(NI,NCF)
 	REAL(KIND=LDP) DKT1,DKT2,DKJ(3)
+	REAL(KIND=LDP) DXN,WDX,DXK,DN2,CM2,WA0,WA1
+	REAL(KIND=LDP) DKN2(4),DKDOT(4)
 	LOGICAL INW_D,HOT_D,LQP_D
 	NPD=MERGE(1,2,INW_D)
 	IF(NPO_D .GT. KN_NOP_MAXP)THEN
@@ -12988,13 +13110,322 @@ C
 	    END IF
 	  END DO
 	  KN_NOP_J3(NPO_D,2,1:3)=DKJ(1:3)
+!
+! Phase-space lag correlations on the update vectors:
+!   C_k(n) = <W*dX_n, W*dX_{n-k}> / (||W*dX_n|| ||W*dX_{n-k}||)
+! with dX_m = x_m - x_{m-1}. History slot k holds x_{n-k} at
+! call time, so dX_{n-k} = HIST(k) - HIST(k+1); the fifth slot
+! exists only to close the k=4 difference. A zero norm means the
+! lagged update has not happened yet (slots seeded with x_0),
+! which reports -2 -- outside the valid [-1,1] range so an
+! under-run pass is told apart from a measured anti-correlation.
+! C_k is the period-2 discriminator d_k cannot give: a genuine
+! 2-cycle has C_2 -> +1 with C_1 -> -1.
+!
+	  DN2=0.0_LDP
+	  DKN2=0.0_LDP
+	  DKDOT=0.0_LDP
+	  NREV=0
+	  NPAIR=0
+	  WA0=0.0_LDP
+	  WA1=0.0_LDP
+	  DO L_D=1,NCF
+	    CM2=0.0_LDP
+	    DO JP_D=1,NI
+	      CM2=MAX(CM2,ABS(KN_DK_XREF(JP_D,L_D)))
+	    END DO
+	    DO JP_D=1,NI
+	      DXN=FLD_D(JP_D,L_D)-KN_DK_HIST(JP_D,L_D,1)
+	      WDX=DXN*KN_DK_W(JP_D,L_D)
+	      DN2=DN2+WDX*WDX
+	      DO K_D=1,4
+	        DXK=(KN_DK_HIST(JP_D,L_D,K_D)-
+	1             KN_DK_HIST(JP_D,L_D,K_D+1))*
+	2             KN_DK_W(JP_D,L_D)
+	        DKN2(K_D)=DKN2(K_D)+DXK*DXK
+	        DKDOT(K_D)=DKDOT(K_D)+WDX*DXK
+	      END DO
+!
+! Update-sign bookkeeping over significant cells only: pairs
+! where both passes moved the cell count a reversal when the
+! sign flips. KN_DK_SGN is reseeded per refresh, so the first
+! pass of a solve scores no pairs (reports -1).
+!
+	      IF(MAX(ABS(FLD_D(JP_D,L_D)),
+	1        ABS(KN_DK_HIST(JP_D,L_D,1))) .GT.
+	2        1.0E-4_LDP*CM2)THEN
+	        ISN=INT(SIGN(1.0_LDP,DXN),KIND=1)
+	        IF(KN_DK_SGN(JP_D,L_D) .NE. 0_1 .AND.
+	1          ISN .NE. 0_1)THEN
+	          NPAIR=NPAIR+1
+	          IF(ISN .NE. KN_DK_SGN(JP_D,L_D))NREV=NREV+1
+	        END IF
+	        KN_DK_SGN(JP_D,L_D)=ISN
+	      END IF
+!
+! W=0 (dead-column) coverage: the largest updates the weight
+! throws away, absolute and relative to the previous iterate.
+! Needed to show the C_k/d_k norm is not blind to a cell the
+! experiment cares about.
+!
+	      IF(KN_DK_W(JP_D,L_D) .EQ. 0.0_LDP)THEN
+	        WA0=MAX(WA0,ABS(DXN))
+	        IF(ABS(KN_DK_HIST(JP_D,L_D,1)) .GT. 0.0_LDP)
+	1        WA1=MAX(WA1,ABS(DXN)/
+	2          ABS(KN_DK_HIST(JP_D,L_D,1)))
+	      END IF
+	    END DO
+	  END DO
+	  DO K_D=1,4
+	    IF(DN2 .GT. 0.0_LDP .AND. DKN2(K_D) .GT. 0.0_LDP)THEN
+	      KN_NOP_CK(NPO_D,2,K_D)=DKDOT(K_D)/
+	1        SQRT(DN2*DKN2(K_D))
+	    ELSE
+	      KN_NOP_CK(NPO_D,2,K_D)=-2.0_LDP
+	    END IF
+	  END DO
+	  IF(NPAIR .GT. 0)THEN
+	    KN_NOP_SGN(NPO_D,2)=DBLE(NREV)/DBLE(NPAIR)
+	  ELSE
+	    KN_NOP_SGN(NPO_D,2)=-1.0_LDP
+	  END IF
+	  KN_NOP_W0(NPO_D,2,1)=WA0
+	  KN_NOP_W0(NPO_D,2,2)=WA1
+!
+! Even/odd subsequence drift: the latest d_2 recorded on an
+! even- vs odd-numbered pass. Persistent divergence between the
+! two slots is the even/odd signature of a 2-cycle; both near
+! equal argues against one. Slots 1=even pass, 2=odd pass.
+!
+	  KN_DK_EOD(MOD(NPO_D,2)+1)=KN_NOP_DK(NPO_D,2,2)
+!
+! Ambient-input fingerprints (probe P passes): XOR/rotate folds
+! of the operator inputs the seed experiment claims are held
+! constant -- IM_NI (M->P boundary), the frozen coefficient
+! pack, this ray's retained I_P store column, the inner-boundary
+! inputs, and the coupling structure. Recorded per pass so a
+! change between passes or across arms shows as a hash change;
+! inputs are pass-invariant so pass-end equals pass-start.
+!
+	  KN_NOP_FP(NPO_D,2,1)=KN_FPH(IM_NI(1:NCF),NCF)
+	  IF(ALLOCATED(PK_A0))THEN
+	    HF=KN_FPH(PK_A0,NI*NCF)
+	    HF=IEOR(HF,KN_FPH(PK_SR,NI*NCF))
+	    HF=ISHFTC(HF,7)
+	    HF=IEOR(HF,KN_FPH(PK_Q,NI*NCF))
+	    HF=ISHFTC(HF,7)
+	    HF=IEOR(HF,KN_FPH(PK_DTAU,NI*NCF))
+	  ELSE
+	    HF=-1_8
+	  END IF
+	  KN_NOP_FP(NPO_D,2,2)=HF
+	  IF(ALLOCATED(I_P_DEPTH_NEXT))THEN
+	    KN_NOP_FP(NPO_D,2,3)=KN_FPH(I_P_DEPTH_NEXT(:,LS,:),
+	1        SIZE(I_P_DEPTH_NEXT(:,LS,:)))
+	  ELSE
+	    KN_NOP_FP(NPO_D,2,3)=-1_8
+	  END IF
+	  IF(ALLOCATED(KN_IC) .AND. ALLOCATED(KN_DBB))THEN
+	    HF=KN_FPH(KN_IC(1:NCF),NCF)
+	    HF=IEOR(HF,KN_FPH(KN_DBB(1:NCF),NCF))
+	  ELSE
+	    HF=-1_8
+	  END IF
+	  KN_NOP_FP(NPO_D,2,4)=HF
+	  IF(ALLOCATED(GAM) .AND. ALLOCATED(NFM_L))THEN
+	    HF=KN_FPH(GAM(1:NI,LS),NI)
+	    DO JP_D=1,NI
+	      HF=IEOR(HF,INT(NFM_L(JP_D),8))
+	      HF=ISHFTC(HF,13)
+	    END DO
+	  ELSE
+	    HF=-1_8
+	  END IF
+	  KN_NOP_FP(NPO_D,2,5)=HF
+!
+! Shadow cell records accumulated by KN_SH_CELL during this
+! pass's march: slots 1-4 consistency (max, j=1, j=2, j>=3),
+! 5-8 ordering delta, 9-10 ordering argmax (j,l), 11-12
+! ordering RMS and cell count.
+!
+	  KN_NOP_SH(NPO_D,2,1)=KN_SH_CMAX
+	  KN_NOP_SH(NPO_D,2,2)=KN_SH_CJ(1)
+	  KN_NOP_SH(NPO_D,2,3)=KN_SH_CJ(2)
+	  KN_NOP_SH(NPO_D,2,4)=KN_SH_CJ(3)
+	  KN_NOP_SH(NPO_D,2,5)=KN_SH_OMAX
+	  KN_NOP_SH(NPO_D,2,6)=KN_SH_OJ(1)
+	  KN_NOP_SH(NPO_D,2,7)=KN_SH_OJ(2)
+	  KN_NOP_SH(NPO_D,2,8)=KN_SH_OJ(3)
+	  KN_NOP_SH(NPO_D,2,9)=DBLE(KN_SH_OJMX)
+	  KN_NOP_SH(NPO_D,2,10)=DBLE(KN_SH_OLMX)
+	  IF(KN_SH_ON .GT. 0.0_LDP)THEN
+	    KN_NOP_SH(NPO_D,2,11)=SQRT(KN_SH_ORMS/KN_SH_ON)
+	  ELSE
+	    KN_NOP_SH(NPO_D,2,11)=0.0_LDP
+	  END IF
+	  KN_NOP_SH(NPO_D,2,12)=KN_SH_ON
 	  IF(NPO_D .GT. 1)THEN
+	    KN_DK_HIST(1:NI,1:NCF,5)=KN_DK_HIST(1:NI,1:NCF,4)
 	    KN_DK_HIST(1:NI,1:NCF,4)=KN_DK_HIST(1:NI,1:NCF,3)
 	    KN_DK_HIST(1:NI,1:NCF,3)=KN_DK_HIST(1:NI,1:NCF,2)
 	    KN_DK_HIST(1:NI,1:NCF,2)=KN_DK_HIST(1:NI,1:NCF,1)
 	  END IF
 	  KN_DK_HIST(1:NI,1:NCF,1)=FLD_D(1:NI,1:NCF)
 	END IF
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_FPH (diagnostic): XOR/rotate bit-fold fingerprint of a real
+! array. No multiplies, so no integer overflow dependence; equal
+! arrays in equal order give equal hashes, any changed element
+! almost surely changes the hash. Used by the KN_NOP ambient-
+! input records to prove the operator inputs match across the
+! seed arms and stay constant across passes.
+! ----------------------------------------------------------------
+	FUNCTION KN_FPH(X,NN)
+	INTEGER(KIND=8) KN_FPH
+	REAL(KIND=LDP) X(*)
+	INTEGER NN,KF
+	INTEGER(KIND=8) HV
+	HV=INT(Z'9E3779B97F4A7C15',8)
+	DO KF=1,NN
+	  HV=IEOR(HV,TRANSFER(X(KF),HV))
+	  HV=ISHFTC(HV,17)
+	END DO
+	KN_FPH=HV
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_SH_EVAL (diagnostic): one (j,l) outward-cell update evaluated
+! entirely on the passed field FS. Builds its own source vector
+! S'(j-1..j+2) via KN_ORD_SPV on FS, its own secants from
+! PK_DTAU, and replicates the three KN_ORD_DS branches (R=1
+! endpoint extrapolation, R=NI endpoint, interior parabola with
+! the sign-and-min clamps) plus the production update stencil
+! and floor/cap. Called by KN_SH_CELL with FS=FLD (live) and
+! FS=KN_SH_SNAP (frozen pass input); it never writes anything.
+!
+! One intentional difference from the production march: the
+! ring-previewed downwind source S'(j-1) is re-evaluated at
+! cell-update time, so on the live call this routine sees
+! fresher values than the ring where a compressing donor points
+! at an already-marched row. That difference is itself measured
+! (it is the preview-lag part of the consistency record).
+! ----------------------------------------------------------------
+	REAL(KIND=LDP) FUNCTION KN_SH_EVAL(FS,J,L)
+	REAL(KIND=LDP) FS(NI,NCF)
+	INTEGER J,L,KR,RS
+	REAL(KIND=LDP) SV(-1:2),SCM,SC0,SCP
+	REAL(KIND=LDP) SA,SB,DD,TDT,DS1,DS2,VS
+	SV(-1:2)=0.0_LDP
+	DO KR=-1,2
+	  RS=J+KR
+	  IF(RS .GE. 1 .AND. RS .LE. NI)THEN
+	    CALL KN_ORD_SPV(FS,RS,L,SV(KR))
+	  END IF
+	END DO
+	SCM=0.0_LDP
+	SC0=0.0_LDP
+	SCP=0.0_LDP
+	IF(J .GT. 1 .AND. ABS(PK_DTAU(J-1,L)) .GT. 1.0E-30_LDP)
+	1   SCM=(SV(0)-SV(-1))/PK_DTAU(J-1,L)
+	IF(ABS(PK_DTAU(J,L)) .GT. 1.0E-30_LDP)
+	1   SC0=(SV(1)-SV(0))/PK_DTAU(J,L)
+	IF(J+1 .LE. NI-1 .AND. ABS(PK_DTAU(J+1,L)) .GT. 1.0E-30_LDP)
+	1   SCP=(SV(2)-SV(1))/PK_DTAU(J+1,L)
+!
+! DS(j): the three KN_ORD_DS branches with the same secants the
+! ring would hold.
+!
+	IF(J .EQ. 1)THEN
+	  SA=SC0
+	  SB=SCP
+	  TDT=PK_DTAU(1,L)+PK_DTAU(2,L)
+	  IF(ABS(TDT) .LT. 1.0E-30_LDP)THEN
+	    DD=0.0_LDP
+	  ELSE
+	    DD=SA+(SA-SB)*PK_DTAU(1,L)/TDT
+	  END IF
+	  DS1=(SIGN(1.0_LDP,SA)+SIGN(1.0_LDP,DD))*
+	1     MIN(ABS(SA),0.5_LDP*ABS(DD))
+	ELSE
+	  SA=SCM
+	  SB=SC0
+	  TDT=PK_DTAU(J-1,L)+PK_DTAU(J,L)
+	  IF(ABS(TDT) .LT. 1.0E-30_LDP)THEN
+	    DD=0.0_LDP
+	  ELSE
+	    DD=(SA*PK_DTAU(J,L)+SB*PK_DTAU(J-1,L))/TDT
+	  END IF
+	  DS1=(SIGN(1.0_LDP,SA)+SIGN(1.0_LDP,SB))*
+	1     MIN(ABS(SA),ABS(SB),0.5_LDP*ABS(DD))
+	END IF
+!
+! DS(j+1): interior parabola, or the NI endpoint extrapolation
+! when j+1 is the inner boundary row.
+!
+	IF(J+1 .GE. NI)THEN
+	  SA=SC0
+	  SB=SCM
+	  TDT=PK_DTAU(NI-2,L)+PK_DTAU(NI-1,L)
+	  IF(ABS(TDT) .LT. 1.0E-30_LDP)THEN
+	    DD=0.0_LDP
+	  ELSE
+	    DD=SA+(SA-SB)*PK_DTAU(NI-1,L)/TDT
+	  END IF
+	  DS2=(SIGN(1.0_LDP,SA)+SIGN(1.0_LDP,DD))*
+	1     MIN(ABS(SA),0.5_LDP*ABS(DD))
+	ELSE
+	  SA=SC0
+	  SB=SCP
+	  TDT=PK_DTAU(J,L)+PK_DTAU(J+1,L)
+	  IF(ABS(TDT) .LT. 1.0E-30_LDP)THEN
+	    DD=0.0_LDP
+	  ELSE
+	    DD=(SA*PK_DTAU(J+1,L)+SB*PK_DTAU(J,L))/TDT
+	  END IF
+	  DS2=(SIGN(1.0_LDP,SA)+SIGN(1.0_LDP,SB))*
+	1     MIN(ABS(SA),ABS(SB),0.5_LDP*ABS(DD))
+	END IF
+!
+	VS=FS(J+1,L)*PK_A0(J,L)+
+	1   (SV(1)*PK_A1(J,L)+SV(0)*PK_A2(J,L)-
+	2   DS2*PK_A3(J,L)-DS1*PK_A4(J,L))
+	IF(VS .LT. 0.0_LDP .OR. VS .NE. VS)VS=1.0E-30_LDP
+	IF(VS .GT. NONMONO_INEXT_CAP)VS=NONMONO_INEXT_CAP
+	KN_SH_EVAL=VS
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_SH_CELL (diagnostic): compare the production VNEW against
+! the shadow on the live state (assembly consistency -- ring
+! slotting, preview lag, endpoint recurrence) and on the frozen
+! pass-start snapshot (ordered vs Jacobi frequency coupling).
+! Accumulates per-pass maxima split j=1 / j=2 / j>=3 plus the
+! ordering argmax and RMS; NOP_PASS stores the slots. Read-only.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_SH_CELL(FLD,J,L,VNEW)
+	REAL(KIND=LDP) FLD(NI,NCF),VNEW
+	INTEGER J,L,JG
+	REAL(KIND=LDP) VSL,VSS,DLV,DLS
+	VSL=KN_SH_EVAL(FLD,J,L)
+	VSS=KN_SH_EVAL(KN_SH_SNAP,J,L)
+	DLV=ABS(VSL-VNEW)
+	DLS=ABS(VSS-VNEW)
+	JG=MIN(J,3)
+	KN_SH_CMAX=MAX(KN_SH_CMAX,DLV)
+	KN_SH_CJ(JG)=MAX(KN_SH_CJ(JG),DLV)
+	IF(DLS .GT. KN_SH_OMAX)THEN
+	  KN_SH_OMAX=DLS
+	  KN_SH_OJMX=J
+	  KN_SH_OLMX=L
+	END IF
+	KN_SH_OJ(JG)=MAX(KN_SH_OJ(JG),DLS)
+	KN_SH_ORMS=KN_SH_ORMS+DLS*DLS
+	KN_SH_ON=KN_SH_ON+1.0_LDP
 	RETURN
 	END
 !
@@ -13643,31 +14074,45 @@ C
 	SUBROUTINE KN_SEED_SETUP_P(FLD,STORE)
 	REAL(KIND=LDP) FLD(NI,NCF)
 	REAL(KIND=LDP) STORE(:,:,:)
-	INTEGER IOS2,K,L,LUS
-	REAL(KIND=LDP) CM
+	INTEGER IOS2,K,L,LUS,NCHG,NSIG
+	REAL(KIND=LDP) CM,DKT,DKX
 	LOGICAL DIMOK
 	CHARACTER*80 SDFN
 	KN_SEED_USED=KN_SEED_ARM
 	KN_SEED_NMAP=0
 	KN_SEED_NFILL=0
+	KN_SEED_NUNM=0
+	KN_SEED_NRET=0
+	KN_SEED_DAB=-1.0_LDP
+	KN_SEED_RMAX=-1.0_LDP
+	KN_SEED_SCHG=-1.0_LDP
 	KN_DK_RDY=.FALSE.
 !
 	DIMOK=.FALSE.
 	IF(ALLOCATED(KN_DK_XREF) .AND. ALLOCATED(KN_DK_HIST) .AND.
-	1   ALLOCATED(KN_DK_X0) .AND. ALLOCATED(KN_DK_W))THEN
+	1   ALLOCATED(KN_DK_X0) .AND. ALLOCATED(KN_DK_W) .AND.
+	2   ALLOCATED(KN_DK_SGN) .AND. ALLOCATED(KN_SH_SNAP))THEN
 	  DIMOK=SIZE(KN_DK_XREF,1) .EQ. NI .AND.
 	1       SIZE(KN_DK_XREF,2) .EQ. NCF .AND.
 	2       SIZE(KN_DK_HIST,1) .EQ. NI .AND.
-	3       SIZE(KN_DK_W,1) .EQ. NI .AND.
-	4       SIZE(KN_DK_W,2) .EQ. NCF
+	3       SIZE(KN_DK_HIST,3) .EQ. 5 .AND.
+	4       SIZE(KN_DK_W,1) .EQ. NI .AND.
+	5       SIZE(KN_DK_W,2) .EQ. NCF .AND.
+	6       SIZE(KN_DK_SGN,1) .EQ. NI .AND.
+	7       SIZE(KN_DK_SGN,2) .EQ. NCF .AND.
+	8       SIZE(KN_SH_SNAP,1) .EQ. NI .AND.
+	9       SIZE(KN_SH_SNAP,2) .EQ. NCF
 	END IF
 	IF(.NOT. DIMOK)THEN
 	  IF(ALLOCATED(KN_DK_XREF))DEALLOCATE(KN_DK_XREF)
 	  IF(ALLOCATED(KN_DK_X0))DEALLOCATE(KN_DK_X0)
 	  IF(ALLOCATED(KN_DK_HIST))DEALLOCATE(KN_DK_HIST)
 	  IF(ALLOCATED(KN_DK_W))DEALLOCATE(KN_DK_W)
+	  IF(ALLOCATED(KN_DK_SGN))DEALLOCATE(KN_DK_SGN)
+	  IF(ALLOCATED(KN_SH_SNAP))DEALLOCATE(KN_SH_SNAP)
 	  ALLOCATE(KN_DK_XREF(NI,NCF),KN_DK_X0(NI,NCF),
-	1     KN_DK_HIST(NI,NCF,4),KN_DK_W(NI,NCF),STAT=IOS2)
+	1     KN_DK_HIST(NI,NCF,5),KN_DK_W(NI,NCF),
+	2     KN_DK_SGN(NI,NCF),KN_SH_SNAP(NI,NCF),STAT=IOS2)
 	  IF(IOS2 .NE. 0)RETURN
 	END IF
 	KN_DK_XREF(1:NI,1:NCF)=FLD(1:NI,1:NCF)
@@ -13686,27 +14131,66 @@ C
 	  END DO
 	END DO
 !
-! Arm injection: arm A keeps the retained seed; arm B overlays
-! same-depth sibling medians only where a valid sample exists;
-! arm C replays the previous refresh's last P iterate and marks
-! the cold-start fallback when none exists yet.
+! Arm injection: arm A and arm A/A keep the retained seed; arm B
+! overlays leave-one-out same-depth sibling medians only where a
+! valid sample exists; arm C replays the previous refresh's last
+! P iterate and marks the cold-start fallback when none exists.
 !
 	IF(KN_SEED_ARM .EQ. 1)THEN
-	  CALL KN_SEED_SIB(FLD,STORE,KN_SEED_NMAP,KN_SEED_NFILL)
+	  CALL KN_SEED_SIB(FLD,STORE,KN_SEED_NMAP,KN_SEED_NFILL,
+	1     KN_SEED_NUNM)
 	ELSE IF(KN_SEED_ARM .EQ. 2)THEN
 	  IF(KN_SEED_PCV .AND. ALLOCATED(KN_SEED_PC) .AND.
 	1    SIZE(KN_SEED_PC,1) .EQ. NI .AND.
 	2    SIZE(KN_SEED_PC,2) .EQ. NCF)THEN
 	    FLD(1:NI,1:NCF)=KN_SEED_PC(1:NI,1:NCF)
 	  ELSE
-	    KN_SEED_USED=3
+	    KN_SEED_USED=4
 	  END IF
 	END IF
+!
+! Seed-difference statistics vs the retained reference: the
+! weighted distance uses the same per-cell weight as d_k, RMAX
+! is the largest single-cell replacement, SCHG the fraction of
+! significant cells the arm actually changed. Arms A and A/A
+! inject nothing, so all three read zero by construction -- a
+! recorded consistency check, not a computed result.
+!
+	KN_SEED_NRET=MAX(0,KN_SEED_NMAP-KN_SEED_NFILL)
+	DKT=0.0_LDP
+	DKX=0.0_LDP
+	KN_SEED_RMAX=0.0_LDP
+	NCHG=0
+	NSIG=0
+	DO L=1,NCF
+	  CM=0.0_LDP
+	  DO K=1,NI
+	    CM=MAX(CM,ABS(KN_DK_XREF(K,L)))
+	  END DO
+	  DO K=1,NI
+	    DKT=DKT+(KN_DK_W(K,L)*(FLD(K,L)-
+	1        KN_DK_XREF(K,L)))**2
+	    DKX=DKX+(KN_DK_W(K,L)*KN_DK_XREF(K,L))**2
+	    KN_SEED_RMAX=MAX(KN_SEED_RMAX,
+	1        ABS(FLD(K,L)-KN_DK_XREF(K,L)))
+	    IF(MAX(ABS(FLD(K,L)),ABS(KN_DK_XREF(K,L))) .GT.
+	1        1.0E-4_LDP*CM)THEN
+	      NSIG=NSIG+1
+	      IF(FLD(K,L) .NE. KN_DK_XREF(K,L))NCHG=NCHG+1
+	    END IF
+	  END DO
+	END DO
+	KN_SEED_DAB=SQRT(DKT)/SQRT(MAX(DKX,1.0E-300_LDP))
+	IF(NSIG .GT. 0)KN_SEED_SCHG=DBLE(NCHG)/DBLE(NSIG)
+	KN_DK_NDEAD=COUNT(KN_DK_W(1:NI,1:NCF) .EQ. 0.0_LDP)
+	KN_DK_SGN(1:NI,1:NCF)=0_1
+	KN_DK_EOD(1:2)=0.0_LDP
 	KN_DK_X0(1:NI,1:NCF)=FLD(1:NI,1:NCF)
 	KN_DK_HIST(1:NI,1:NCF,1)=FLD(1:NI,1:NCF)
 	KN_DK_HIST(1:NI,1:NCF,2)=FLD(1:NI,1:NCF)
 	KN_DK_HIST(1:NI,1:NCF,3)=FLD(1:NI,1:NCF)
 	KN_DK_HIST(1:NI,1:NCF,4)=FLD(1:NI,1:NCF)
+	KN_DK_HIST(1:NI,1:NCF,5)=FLD(1:NI,1:NCF)
 	KN_DK_RDY=.TRUE.
 !
 !$OMP CRITICAL (KN_SEED_IO)
@@ -13717,7 +14201,10 @@ C
 	1     STATUS='REPLACE',ACTION='WRITE',IOSTAT=IOS2)
 	IF(IOS2 .EQ. 0)THEN
 	  WRITE(LUS)NI,NCF,LS,KN_SEED_ARM,KN_SEED_USED,KN_JT_REFRESH,
-	1     KN_SEED_NMAP,KN_SEED_NFILL,KN_SEED_PCIX
+	1     KN_SEED_NMAP,KN_SEED_NFILL,KN_SEED_NUNM,KN_SEED_NRET,
+	2     KN_SEED_PCIX,KN_SEED_PCREF,KN_SEED_PCNP,KN_DK_NDEAD
+	  WRITE(LUS)KN_SEED_DAB,KN_SEED_RMAX,KN_SEED_SCHG,
+	1     KN_SEED_PCRS
 	  WRITE(LUS)KN_DK_XREF(1:NI,1:NCF)
 	  WRITE(LUS)KN_DK_X0(1:NI,1:NCF)
 	  CLOSE(LUS)
@@ -13733,9 +14220,10 @@ C
 ! the ray's dimensions change (grid revision invalidates the
 ! old candidate implicitly by shape).
 ! ----------------------------------------------------------------
-	SUBROUTINE KN_SEED_SAVE_P(FLD)
+	SUBROUTINE KN_SEED_SAVE_P(FLD,RES_S,NP_S)
 	REAL(KIND=LDP) FLD(NI,NCF)
-	INTEGER IOS2
+	REAL(KIND=LDP) RES_S
+	INTEGER IOS2,NP_S
 	IF(ALLOCATED(KN_SEED_PC))THEN
 	  IF(SIZE(KN_SEED_PC,1) .NE. NI .OR.
 	1     SIZE(KN_SEED_PC,2) .NE. NCF)THEN
@@ -13748,6 +14236,9 @@ C
 	  IF(IOS2 .NE. 0)RETURN
 	END IF
 	KN_SEED_PC(1:NI,1:NCF)=FLD(1:NI,1:NCF)
+	KN_SEED_PCREF=KN_JT_REFRESH
+	KN_SEED_PCNP=NP_S
+	KN_SEED_PCRS=RES_S
 	KN_SEED_PCV=.TRUE.
 	RETURN
 	END
@@ -13762,26 +14253,34 @@ C
 ! tests the stale-store structure without inventing values
 ! where the geometry gives none.
 ! ----------------------------------------------------------------
-	SUBROUTINE KN_SEED_SIB(FLD,STORE,NMAP,NFILL)
+	SUBROUTINE KN_SEED_SIB(FLD,STORE,NMAP,NFILL,NUNM)
 	REAL(KIND=LDP) FLD(NI,NCF)
 	REAL(KIND=LDP) STORE(:,:,:)
-	INTEGER NMAP,NFILL
+	INTEGER NMAP,NFILL,NUNM
 	INTEGER KS,KC,JP2,LS2,RS,NOK,I2,J2,JP,IOS2
 	REAL(KIND=LDP) V,VT
 	REAL(KIND=LDP), ALLOCATABLE :: WRK(:)
 	NMAP=0
 	NFILL=0
+	NUNM=0
 	ALLOCATE(WRK(KN_NP),STAT=IOS2)
 	IF(IOS2 .NE. 0)RETURN
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
-	  IF(KC .LT. 1)CYCLE
+	  IF(KC .LT. 1)THEN
+	    NUNM=NUNM+NCF-1
+	    CYCLE
+	  END IF
 	  JP2=J_PNT(KS,LS)
-	  IF(JP2 .LT. 1 .OR. JP2 .GT. NI)CYCLE
+	  IF(JP2 .LT. 1 .OR. JP2 .GT. NI)THEN
+	    NUNM=NUNM+NCF-1
+	    CYCLE
+	  END IF
 	  DO LS2=2,NCF
 	    NMAP=NMAP+1
 	    NOK=0
 	    DO RS=1,KN_NP
+	      IF(RS .EQ. LS)CYCLE
 	      JP=J_PNT(KS,RS)
 	      IF(JP .LT. 1 .OR. JP .GT. NI_RAY(RS))CYCLE
 	      V=STORE(KC,RS,LS2-1)
