@@ -1534,12 +1534,12 @@ def test_ray83_lifecycle_audit():
     )
     check(
         "ORD measured tolerance exit IXIT=1 present",
-        "IF(RES .LT. KN_RAY_TOL)THEN" in ord_sweep
+        "IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN" in ord_sweep
         and "IXIT=1" in ord_sweep,
     )
     check(
         "legacy measured tolerance exit IXIT=1 present",
-        "IF(RES .LT. KN_RAY_TOL)THEN" in leg_sweep
+        "IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN" in leg_sweep
         and "IXIT=1" in leg_sweep,
     )
     # HAS_CP definition: compressing drift AND a store-backed depth.
@@ -1663,7 +1663,7 @@ def test_nocp_probe_diagnostics():
         == 2,
     )
     for tok in (
-        "IF(RES .LT. KN_RAY_TOL)THEN",
+        "IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN",
         "NPO .GE. NP_EFF",
         "NP_EFF=MAX(KN_RAY_MAXPASS",
         "IXIT=4",
@@ -2001,7 +2001,7 @@ def test_shadow_correction_phase55():
         "FUNCTION KN_SH_EVAL_H(FSL,FSF,J,L)" in FG
         and "VSH=KN_SH_EVAL_H(FLD,KN_SH_SNAP,J,L)" in FG
         and "VS=FSL(J+1,L)*PK_A0(J,L)" in FG
-        and "CALL KN_ORD_SPV(FSF,RS,L,SV(KR))" in FG,
+        and "CALL KN_ORD_SPV(FSF,RS,L,SV(KR),.FALSE.)" in FG,
     )
     check(
         "three metric groups: consistency, frozen, freq-order",
@@ -2045,6 +2045,34 @@ def test_shadow_correction_phase55():
     check(
         "telemetry sized to cover continuation passes",
         "KN_CONT_NP+16" in FG,
+    )
+    check(
+        "shadow source eval suppresses the donor counter",
+        "LOGICAL, OPTIONAL :: L_CNT" in FG
+        and "L_CNT_L .AND. ALLOCATED(KN_DBG_NDON)" in FG
+        and "CALL KN_ORD_SPV(FSF,RS,L,SV(KR),.FALSE.)" in FG,
+    )
+    check(
+        "production SPV calls keep default counter behaviour",
+        "CALL KN_ORD_SPV(FLD,R,L2,T1)" in FG
+        and "CALL KN_ORD_SPV(FLD,J,L,SPJ)" in FG,
+    )
+    check(
+        "continuation is a minimum: convergence exits gated",
+        FG.count(
+            "L_CONT_READY=.NOT. L_CONT .OR. NPO .GE. KN_CONT_NP"
+        )
+        == 2
+        and FG.count(
+            "IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN"
+        )
+        == 2
+        and FG.count("IF(L_CONT_READY .AND. NPO .GE. 6") == 2,
+    )
+    check(
+        "safety exits ungated by continuation",
+        "IF(RES .NE. RES .OR. RES .GT. HUGE(RES)" in FG
+        and FG.count("IXIT=5") >= 2,
     )
 
 
