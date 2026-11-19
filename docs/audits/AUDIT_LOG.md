@@ -740,3 +740,15 @@ debug exe relinked.
 - Documentation only: no production source, driver, or test
   changes. Suites rerun: spv 93/93, endpoint 6/6, lagged-field
   pass.
+### 2026-11-19 Phase-5.4: three-seed probe experiment launched
+
+- docs/audits/KNOP_THREE_SEED_EXPERIMENT.md opened (status RUNNING).
+- Four arms submitted from the p8_probe recipe on the identical iso_M
+  it157 checkpoint (FGINEXT_GS 893143f3): arm 0 retained store
+  (13334092), arm 1 sibling-median (13334165), arm 2 chained candidate
+  (13334174), arm 3 A/A control (13334185). Pinned exe md5 2e2c1522f5ec.
+- Resolved-config diffs contain only KN_SEED_ARM and the description.
+  All checkpoint checksums verified identical across arms.
+- Caveat recorded in the doc: the exe was built on a dirty tree
+  carrying uncommitted DO_J_RES_DIAG SIGMA_TRUE allocation guards
+  (obs diagnostic path only); identical binary across arms.
