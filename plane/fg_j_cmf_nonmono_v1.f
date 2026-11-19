@@ -2340,6 +2340,78 @@
 	KN_NOCP_PROBE_RAY = KN_NOCP_PROBE .AND. LS .EQ. KN_NOCP_PROBE_LS
 	END FUNCTION KN_NOCP_PROBE_RAY
 !
+! ----------------------------------------------------------------
+! KN_ORD_SPV_IMPL (diagnostic-split worker, phase 5.5): the single
+! source-evaluation implementation behind both KN_ORD_SPV
+! (production, L_CNT=T) and KN_ORD_SPV_SHADOW (shadow, L_CNT=F).
+! Module scope gives every caller an explicit interface and lets
+! the unit-test driver exercise the compiled routine directly.
+! Host-scope operands arrive as arguments; module-scope operands
+! (GAM, KN_DLN_N, FG_FREQ_MATCH, KN_DBG_*) are read here exactly
+! as the old internal routine read them. T1L/INEXT_V are local --
+! the internal version reused host scratch, which was safe only
+! because those host variables are OMP-private. The donor counter
+! guard is nested because Fortran does not short-circuit .AND.:
+! SIZE() on an unallocated array is undefined.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_ORD_SPV_IMPL(SR_A,Q_A,DRF_A,JPR1_A,JPR2_A,
+	1   WINX_A,IKC1_A,IKC2_A,LS_A,NCF_A,FLD_A,R,L,SPV,L_CNT)
+	REAL(KIND=LDP) SR_A(:,:),Q_A(:,:),DRF_A(:),WINX_A(:)
+	REAL(KIND=LDP) FLD_A(:,:),SPV
+	INTEGER JPR1_A(:),JPR2_A(:),IKC1_A(:),IKC2_A(:)
+	INTEGER LS_A,NCF_A,R,L,NNF2
+	LOGICAL L_CNT
+	REAL(KIND=LDP) T1L,INEXT_V
+	IF(GAM(R,LS_A) .EQ. 0.0_LDP)THEN
+!
+!	  Exact zero: no frequency coupling exists, so no donor may be
+!	  read at all -- 0*NaN is NaN in IEEE arithmetic.
+!
+	  SPV=SR_A(R,L)
+	ELSE IF(GAM(R,LS_A) .GT. 0.0_LDP)THEN
+	  SPV=SR_A(R,L)
+	  IF(L .GT. 1)THEN
+	    IF(L_CNT)THEN
+	      IF(ALLOCATED(KN_DBG_NDON))THEN
+	        IF(LS_A .EQ. KN_DBG_LS .AND.
+	1           R .LE. SIZE(KN_DBG_NDON,1) .AND.
+	1           L .LE. SIZE(KN_DBG_NDON,2))THEN
+	          KN_DBG_NDON(R,L)=KN_DBG_NDON(R,L)+1
+	        END IF
+	      END IF
+	    END IF
+	    SPV=SR_A(R,L)+Q_A(R,L)*FLD_A(R,L-1)
+	  END IF
+	ELSE
+	  NNF2=1
+	  IF(FG_FREQ_MATCH .AND. L .LT. NCF_A .AND.
+	1     KN_DLN_N(L) .GT. 0.0_LDP)THEN
+	    T1L=DRF_A(R)/KN_DLN_N(L)
+	    IF(T1L .GE. DBLE(NCF_A-L))THEN
+	      NNF2=NCF_A-L
+	    ELSE
+	      NNF2=MAX(1,CEILING(T1L))
+	    END IF
+	  END IF
+	  IF(L+NNF2 .LE. NCF_A)THEN
+	    IF(IKC1_A(R) .EQ. 1 .AND. IKC2_A(R) .EQ. 1)THEN
+	      INEXT_V=(1.0_LDP-WINX_A(R))*FLD_A(JPR1_A(R),L+NNF2)+
+	1             WINX_A(R)*FLD_A(JPR2_A(R),L+NNF2)
+	    ELSE IF(IKC1_A(R) .EQ. 1)THEN
+	      INEXT_V=FLD_A(JPR1_A(R),L+NNF2)
+	    ELSE IF(IKC2_A(R) .EQ. 1)THEN
+	      INEXT_V=FLD_A(JPR2_A(R),L+NNF2)
+	    ELSE
+	      INEXT_V=0.0_LDP
+	    END IF
+	    SPV=SR_A(R,L)+ABS(Q_A(R,L))*INEXT_V
+	  ELSE
+	    SPV=SR_A(R,L)
+	  END IF
+	END IF
+	RETURN
+	END SUBROUTINE KN_ORD_SPV_IMPL
+!
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
 ! 
@@ -11030,62 +11102,27 @@ C
 ! upwind at l+NFM (matched slot under DO_NONMONO_FREQ_MATCH). The
 ! caller guarantees r is inside 1..NI and uses the ring slot of r.
 ! ----------------------------------------------------------------
-	SUBROUTINE KN_ORD_SPV(FLD,R,L,SPV,L_CNT)
+! KN_ORD_SPV / KN_ORD_SPV_SHADOW: thin ABI-safe entry points over
+! the single module-scope worker KN_ORD_SPV_IMPL. The production
+! four-argument interface is preserved verbatim for all existing
+! call sites; the shadow entry exists so diagnostic evaluations
+! cannot contaminate the KN_DBG_NDON donor-access census. No
+! OPTIONAL arguments anywhere, so no explicit-interface or
+! argument-presence question can arise at any call site.
+!
+	SUBROUTINE KN_ORD_SPV(FLD,R,L,SPV)
 	REAL(KIND=LDP) FLD(NI,NCF),SPV
-	INTEGER R,L,NNF2
+	INTEGER R,L
+	CALL KN_ORD_SPV_IMPL(PK_SR,PK_Q,DRF_L,JPR1,JPR2,WINX,
+	1   IKC1,IKC2,LS,NCF,FLD,R,L,SPV,.TRUE.)
+	RETURN
+	END
 !
-! L_CNT (optional, default T): the shadow evaluations pass F so
-! their probe reads do not contaminate the KN_DBG_NDON
-! donor-access census -- the counter is a measurement of the
-! production operator, not of the diagnostic. All other
-! arithmetic is identical either way.
-!
-	LOGICAL, OPTIONAL :: L_CNT
-	LOGICAL L_CNT_L
-	L_CNT_L=.TRUE.
-	IF(PRESENT(L_CNT))L_CNT_L=L_CNT
-	IF(GAM(R,LS) .EQ. 0.0_LDP)THEN
-!
-!	  Exact zero: no frequency coupling exists, so no donor may be
-!	  read at all -- 0*NaN is NaN in IEEE arithmetic.
-!
-	  SPV=PK_SR(R,L)
-	ELSE IF(GAM(R,LS) .GT. 0.0_LDP)THEN
-	  SPV=PK_SR(R,L)
-	  IF(L .GT. 1)THEN
-	    IF(L_CNT_L .AND. ALLOCATED(KN_DBG_NDON) .AND.
-	1        LS .EQ. KN_DBG_LS .AND.
-	1        L .LE. SIZE(KN_DBG_NDON,2))
-	2        KN_DBG_NDON(R,L)=KN_DBG_NDON(R,L)+1
-	    SPV=PK_SR(R,L)+PK_Q(R,L)*FLD(R,L-1)
-	  END IF
-	ELSE
-	  NNF2=1
-	  IF(FG_FREQ_MATCH .AND. L .LT. NCF .AND.
-	1     KN_DLN_N(L) .GT. 0.0_LDP)THEN
-	    T1=DRF_L(R)/KN_DLN_N(L)
-	    IF(T1 .GE. DBLE(NCF-L))THEN
-	      NNF2=NCF-L
-	    ELSE
-	      NNF2=MAX(1,CEILING(T1))
-	    END IF
-	  END IF
-	  IF(L+NNF2 .LE. NCF)THEN
-	    IF(IKC1(R) .EQ. 1 .AND. IKC2(R) .EQ. 1)THEN
-	      INEXT_V=(1.0_LDP-WINX(R))*FLD(JPR1(R),L+NNF2)+
-	1             WINX(R)*FLD(JPR2(R),L+NNF2)
-	    ELSE IF(IKC1(R) .EQ. 1)THEN
-	      INEXT_V=FLD(JPR1(R),L+NNF2)
-	    ELSE IF(IKC2(R) .EQ. 1)THEN
-	      INEXT_V=FLD(JPR2(R),L+NNF2)
-	    ELSE
-	      INEXT_V=0.0_LDP
-	    END IF
-	    SPV=PK_SR(R,L)+ABS(PK_Q(R,L))*INEXT_V
-	  ELSE
-	    SPV=PK_SR(R,L)
-	  END IF
-	END IF
+	SUBROUTINE KN_ORD_SPV_SHADOW(FLD,R,L,SPV)
+	REAL(KIND=LDP) FLD(NI,NCF),SPV
+	INTEGER R,L
+	CALL KN_ORD_SPV_IMPL(PK_SR,PK_Q,DRF_L,JPR1,JPR2,WINX,
+	1   IKC1,IKC2,LS,NCF,FLD,R,L,SPV,.FALSE.)
 	RETURN
 	END
 !
@@ -13459,7 +13496,7 @@ C
 	DO KR=-1,2
 	  RS=J+KR
 	  IF(RS .GE. 1 .AND. RS .LE. NI)THEN
-	    CALL KN_ORD_SPV(FSF,RS,L,SV(KR),.FALSE.)
+	    CALL KN_ORD_SPV_SHADOW(FSF,RS,L,SV(KR))
 	  END IF
 	END DO
 	SCM=0.0_LDP
