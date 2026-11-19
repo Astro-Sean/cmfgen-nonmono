@@ -2501,6 +2501,22 @@
 	  WRITE(LUER,'(A)')' ----------------------------------------------------'
 	END IF
 !
+! OBS-path I_NEXT checkpoint (Phase 2.5 maturity experiment): the
+! restart-chain arm needs the final lagged field to persist past
+! this process. DUMP_FG_INEXT_GS writes FGINEXT_GS on the working
+! (OBS) frequency grid; the next render's first-call init remaps it
+! back through RESTORE_FG_INEXT_OBS, so a chain of renders extends
+! the same Gauss-Seidel iteration across process boundaries.
+! NITSF=0: the OBS path has no population tag and the OBS restore
+! validates on the R/V/SIGMA fingerprint instead. Gated to the
+! diagnostic selector routes only; production V12 renders have no
+! I_NEXT store and the dump would early-return anyway.
+! edited by Sean Brennan
+!
+	IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN
+	  CALL DUMP_FG_INEXT_GS(0,R,V,SIGMA,ND,91)
+	END IF
+!
 !
 !
 !
