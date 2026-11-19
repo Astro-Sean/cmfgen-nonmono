@@ -768,3 +768,20 @@ debug exe relinked.
   L_NOPROBE, so the probe's measured delta still enters the maturity
   diagnostic.
 - No solver changes; running jobs untouched.
+### 2026-11-19 KN-SEED telemetry format fix; experiment resubmitted
+
+- Defect: WRITE(LUER) at fg_j_cmf_nonmono_v1.f:8603 crashed all four
+  first-submission arms (13334092/13334165/13334174/13334185 FAILED
+  ~6 min; OBS cancelled) with forrtl severe(61) - PCNP integer hit an
+  A descriptor and ' schg='/SCHG had no descriptors.
+- Corrected format to '(A,2I8,A,I8,A,2I4,A,3(1X,ES11.3),A,1X,F7.4)';
+  verified in an isolated ifort runtime test (all 14 items in order).
+  Diagnostic write only - no solver arithmetic.
+- Salvaged r0001 KNSEED records prove the seed machinery worked before
+  the crash: arm B filled 169128 probe cells from sibling medians,
+  arm C took its documented first-refresh fallback, KN-NOP checksums
+  showed zero store delta on every arm.
+- Rebuilt exe md5 3f37f22bd133468fb2854758d19abf12 at commit e1df4324
+  (+3 uncommitted obs JRESC-guard files, checksummed in the experiment
+  doc). Resubmitted: a=13339955/56 b=13339970/71 c=13339980/81
+  aa=13339988/89.
