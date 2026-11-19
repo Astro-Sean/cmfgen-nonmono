@@ -715,3 +715,17 @@ debug exe relinked.
   72/72 pass; caught a format-descriptor bug on first run.
 - Production source unchanged since c145ba16; builds from that
   revision remain valid. Suites: endpoint 6/6, lagged-field pass.
+### 2026-11-19 Phase-5.5: elementwise SPV operand integrity
+
+- drv_knop_spv.f90: SNAP_INP/NWRT_INP snapshot every worker input
+  (incl. GAM and KN_DLN_N) before EACH invocation and compare
+  elementwise after it - NWS/NWP per case replace the checksum
+  as the primary integrity evidence. GAM is compared in its
+  branch-configured state; no reset ahead of the comparison.
+- KN_DBG_NDON remains the single permitted mutable input:
+  elementwise diff shows exactly one +1 at (2,3).
+- test_knop_spv.py: NWS/NWP assertions per case; GAM dropped
+  from the checksum list (covered per-invocation). 93/93 pass.
+- Mutation check: a test-only SR_A(1,1) overwrite failed the
+  harness on both the per-invocation count and the checksum;
+  reverted.
