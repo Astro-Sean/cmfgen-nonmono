@@ -768,6 +768,43 @@
 	    END IF
 	  END IF
 !
+! DO_J_RES_DIAG: pre-solve dispatch names mirror the flag chain
+! below so a pre-iteration NES_SAN record still names the solver
+! this frequency will run.  Each call site below overwrites these
+! with the branch that actually executed, so post-solve records
+! carry the true dispatch, not the flag inference.
+!
+	  IF(DO_J_RES_DIAG)THEN
+	    IF(PLANE_PARALLEL_NO_V)THEN
+	      FG_SOL_NM='FCOMP_PP_V2'
+	    ELSE IF(PLANE_PARALLEL)THEN
+	      FG_SOL_NM='PP_FORM_CMF_V2'
+	    ELSE IF(USE_FORMAL_REL .AND. USE_HEN_GREEN)THEN
+	      FG_SOL_NM='CMF_FORMAL_REL_V5'
+	    ELSE IF(USE_FORMAL_REL)THEN
+	      FG_SOL_NM='CMF_FORMAL_REL_V4'
+	    ELSE IF(DO_NONMONO_KNOP)THEN
+	      FG_SOL_NM='FG_J_CMF_NONMONO_V1'
+	    ELSE
+	      FG_SOL_NM='FG_J_CMF_V12'
+	    END IF
+	    IF(PLANE_PARALLEL_NO_V)THEN
+	      MOM_SOL_NM='MOM_J_PP_V1'
+	    ELSE IF(PLANE_PARALLEL)THEN
+	      MOM_SOL_NM='PP_MOM_CMF_V1'
+	    ELSE IF(USE_DJDT_RTE)THEN
+	      MOM_SOL_NM='MOM_J_DDT_V6'
+	    ELSE IF(USE_J_REL)THEN
+	      MOM_SOL_NM='MOM_JREL_V9'
+	    ELSE IF(USE_LAM_ES)THEN
+	      MOM_SOL_NM='LAM_ES_TC'
+	    ELSE IF(DO_NONMONO_SOB)THEN
+	      MOM_SOL_NM='MOM_J_CMF_NONMONO_V1'
+	    ELSE
+	      MOM_SOL_NM='MOM_J_CMF_V8'
+	    END IF
+	  END IF
+!
 ! If we are using incoherent electron scattering, RJEXT_ES must be available.
 !
 	  IF(.NOT. COHERENT_ES)THEN
@@ -797,6 +834,15 @@
 	1                 ' max|RJ_ES|=',T3X
 	          WRITE(LUER,*)'Using local coherent J for the ES'//
 	1                  ' emissivity at this frequency.'
+	        END IF
+	        IF(DO_J_RES_DIAG)THEN
+	          JDMX=MAXVAL(ABS(RJ_ES(1:ND)-RJ(1:ND)))
+	          CALL JRESC_EV('NES_SAN',FREQ_INDX,ML,FL,SECTION,
+	1            FIRST_FREQ,FG_SOL_NM,MOM_SOL_NM,L,F_DID_NOT_CONV,
+	2            JTRES,IZERO,JIDXJ,MAXVAL(ABS(RJ(1:ND))),
+	3            MAXVAL(ABS(FEDD(1:ND))),T3X,RESC_CAP,RESC_CAP_IT,
+	4            L_TRUE,JDMX,RZERO,R(JIDXJ),V(JIDXJ),SIGMA(JIDXJ),
+	5            SIGMA_TRUE(JIDXJ),LUER)
 	        END IF
 	        RJ_ES(1:ND)=RJ(1:ND)
 	      END IF
@@ -828,11 +874,13 @@
 	     FG_COUNT=FG_COUNT+1
 	     IF(PLANE_PARALLEL_NO_V)THEN
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FCOMP_PP'
+	       FG_SOL_NM='FCOMP_PP_V2'
 	       SOURCE(1:ND)=TA(1:ND)/CHI_CLUMP(1:ND)
 	       CALL FCOMP_PP_V2(R,TC,FEDD,SOURCE,CHI_CLUMP,IPLUS,HBC_CMF,
 	1               NBC_CMF,INBC,DBB,IC,THK_CONT,DIF,ND,NC,METHOD)
 	     ELSE IF(PLANE_PARALLEL)THEN
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling PP_FORM_CMF_V2'
+	       FG_SOL_NM='PP_FORM_CMF_V2'
 	       CALL PP_FORM_CMF_V2(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,
 	1               TC,TB,FEDD,GEDD,N_ON_J,INBC,
 	1               HBC_CMF(1),HBC_CMF(2),NBC_CMF(1),NBC_CMF(2),
@@ -846,6 +894,7 @@
 	       ELSE
 	         TA(1:ND)=ETA_CLUMP(1:ND)+ESEC_CLUMP(1:ND)*RJ_ES(1:ND)+ CHI_RAY_CLUMP(1:ND)*RJ(1:ND)
 	       END IF
+               FG_SOL_NM='CMF_FORMAL_REL_V5'
                CALL CMF_FORMAL_REL_V5
 	1                 (TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,HFLUX_AT_IB,HFLUX_AT_OB,IPLUS,
@@ -857,6 +906,7 @@
 	       INBC=0.0_LDP
              ELSE IF(USE_FORMAL_REL)THEN
                IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling CMF_FORMAL_REL_V4 in COMP_JCONT_V4.INC'
+               FG_SOL_NM='CMF_FORMAL_REL_V4'
                CALL CMF_FORMAL_REL_V4
 	1                 (TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,HFLUX_AT_IB,HFLUX_AT_OB,IPLUS,
@@ -882,6 +932,7 @@
 !	          on the fine OBS grid distorted the spectrum.
 	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
 	1               'Calling FG_J_CMF_NONMONO_V1 (Knop et al. 2009)'
+	          FG_SOL_NM='FG_J_CMF_NONMONO_V1'
 	          CALL SET_FG_NU_NEXT(NU(MIN(ML+1,NCF)))
 	          CALL FG_J_CMF_NONMONO_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
@@ -892,6 +943,7 @@
 	1                  FIRST_FREQ,NEW_FREQ,NC,NP,ND,SIGMA_TRUE,NCF)
 	        ELSE
 	          IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling FG_J_CMF_V12'
+	          FG_SOL_NM='FG_J_CMF_V12'
 	          CALL FG_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
 	1                  TC,FEDD,AQW,HQW,KQW,NQW,HMIDQW,NMIDQW,
 	1                  INBC,HBC_CMF(1),IPLUS,FL,dLOG_NU,DIF,DBB,IC,
@@ -918,6 +970,7 @@
 	     CALL TUNE(IONE,'MOM_J_CMF')
              IF(PLANE_PARALLEL_NO_V)THEN
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling MOM_J_PP_V1'
+	       MOM_SOL_NM='MOM_J_PP_V1'
 	       CALL MOM_J_PP_V1(TA,CHI_CLUMP,TB,
 	1                  R,FEDD,RJ,RSQHNU,HBC_CMF,NBC_CMF,INBC,
 	1                  FL,DIF,DBB,IC,METHOD,L_TRUE,
@@ -926,6 +979,7 @@
 	       IF(.NOT. DIF)HFLUX_AT_OB=0.5_LDP*IC*(0.5_LDP+INBC)-INBC*RJ(ND)
              ELSE IF(PLANE_PARALLEL)THEN
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling PP_MOM_CMF_V1'
+	       MOM_SOL_NM='PP_MOM_CMF_V1'
 	       CALL PP_MOM_CMF_V1(TA,CHI_CLUMP,TB,V,SIGMA,R,
 	1                  FEDD,GEDD,N_ON_J,RJ,RSQHNU,
 	1                  VDOP_VEC,DELV_FRAC_MOM,
@@ -938,6 +992,7 @@
 !
 	    ELSE IF(USE_DJDT_RTE)THEN
 	      IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling MOM_J_DDT_V6'
+	      MOM_SOL_NM='MOM_J_DDT_V6'
 	      CALL MOM_J_DDT_V6(TA,CHI_CLUMP,TB,
 	1              V,R,FEDD,RJ,RSQHNU,XM,                    !Use TC for DJDt_TERM,
 	1              HFLUX_AT_IB,HFLUX_AT_OB,
@@ -949,6 +1004,7 @@
 
              ELSE IF(USE_J_REL)THEN
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling MOM_JREL_V9'
+	       MOM_SOL_NM='MOM_JREL_V9'
 	       CALL MOM_JREL_V9(TA,CHI_CLUMP,TB,V,SIGMA,R,
 	1             RJ,RSQHNU,HFLUX_AT_IB,HFLUX_AT_OB,VDOP_VEC,DELV_FRAC_MOM,
 	1             FL,dLOG_NU,DBB,
@@ -966,6 +1022,7 @@
                END IF
 	     ELSE IF(USE_LAM_ES)THEN
 	       IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Using J from formal-solution for ray-by-ray solution'
+	       MOM_SOL_NM='LAM_ES_TC'
 	       RJ(1:ND)=TC(1:ND); RSQHNU(1:ND)=0.0_LDP
 	       CALL GET_RSQH_REL(RSQHNU, R, V, FL, ND)
 	       IF(L .LT. 3)FOLD(1:ND)=0.0_LDP
@@ -986,6 +1043,7 @@
 !	         nu(ML+1) for the compressing forward spacing.
 	         IF(FG_COUNT .EQ. 1)WRITE(LUER,*)
 	1            'Calling MOM_J_CMF_NONMONO_V1 (Knop et al. 2009)'
+	         MOM_SOL_NM='MOM_J_CMF_NONMONO_V1'
 	         CALL SET_MOM_NU_NEXT(NU(MIN(ML+1,NCF)))
 	         CALL MOM_J_CMF_NONMONO_V1(TA,CHI_CLUMP,TB,
 	1              V,SIGMA,SIGMA_TRUE,R,
@@ -996,6 +1054,7 @@
 	1              FIRST_FREQ,NEW_FREQ,NC,NP,ND,FREQ_INDX,NCF)
 	       ELSE
 	         IF(FG_COUNT .EQ. 1)WRITE(LUER,*)'Calling MOM_J_CMF_V8'
+	         MOM_SOL_NM='MOM_J_CMF_V8'
 	         CALL MOM_J_CMF_V8(TA,CHI_CLUMP,TB,V,SIGMA,R,
 	1  	       RJ,RSQHNU,VDOP_VEC,DELV_FRAC_MOM,
 	1              FL,dLOG_NU,DIF,DBB,IC,
@@ -1112,6 +1171,21 @@
 	1            ' max|FEDD|=',T4X,' cap=',2.0_LDP
 	          WRITE(LUER,*)'  L=',L,' F_DID_NOT_CONV=',F_DID_NOT_CONV
 	          WRITE(LUER,*)'Aborting before LU_EDD write.'
+	          IF(DO_J_RES_DIAG)THEN
+	            IF(JTRJ .NE. 0)THEN
+	              JIDXP=JIDXJ
+	            ELSE
+	              JIDXP=JIDXF
+	            END IF
+	            T3XP=RZERO
+	            IF(.NOT. COHERENT_ES)
+	1            T3XP=MAXVAL(ABS(RJ_ES(1:ND)))
+	            CALL JRESC_EV('FATAL',FREQ_INDX,ML,FL,SECTION,
+	1            FIRST_FREQ,FG_SOL_NM,MOM_SOL_NM,L,F_DID_NOT_CONV,
+	2            JTRJ,JTRF,JIDXP,T3X,T4X,T3XP,RESC_CAP,RESC_CAP_IT,
+	3            L_FALSE,RZERO,RZERO,R(JIDXP),V(JIDXP),
+	4            SIGMA(JIDXP),SIGMA_TRUE(JIDXP),LUER)
+	          END IF
 	          STOP
 	        END IF
 !
@@ -1132,6 +1206,16 @@
 	          WRITE(LUER,*)'  FEDD_PREV: trigger=',JTRPF,' depth=',
 	1            JIDXP,' max=',T4PX,' cap=',2.0_LDP
 	          WRITE(LUER,*)'Aborting - no valid fallback field.'
+	          IF(DO_J_RES_DIAG)THEN
+	            JFMX=RZERO
+	            IF(.NOT. COHERENT_ES)
+	1            JFMX=MAXVAL(ABS(RJ_ES(1:ND)))
+	            CALL JRESC_EV('FATAL',FREQ_INDX,ML,FL,SECTION,
+	1            FIRST_FREQ,FG_SOL_NM,MOM_SOL_NM,L,F_DID_NOT_CONV,
+	2            JTRPJ,JTRPF,JIDXP,T3X,T4X,JFMX,RESC_CAP,
+	3            RESC_CAP_IT,L_FALSE,T3XP,T4PX,R(JIDXP),
+	4            V(JIDXP),SIGMA(JIDXP),SIGMA_TRUE(JIDXP),LUER)
+	          END IF
 	          STOP
 	        END IF
 !
@@ -1163,6 +1247,35 @@
 	1            ETA(I),ESEC(I),CHI_SCAT(I),ZETA(I),RJ(I),FEDD(I),
 	2            JNU_PREV(I)
 	          END DO
+	        END IF
+!
+! Restore-delta record: djmax/dfmax are the max field change the
+! restore applies (post-restore the field IS the snapshot, so the
+! delta against the diverged iterate is the whole diagnostic).
+! Recorded before the copies so rjmax/fedmax carry the diverged
+! values.  snapok is T by construction - the snapshot was
+! validated above and this branch is unreachable otherwise.
+!
+	        IF(DO_J_RES_DIAG)THEN
+	          JDMX=RZERO
+	          JFMX=RZERO
+	          DO I=1,ND
+	            JDMX=MAX(JDMX,ABS(RJ(I)-JNU_PREV(I)))
+	            JFMX=MAX(JFMX,ABS(FEDD(I)-FEDD_PREV(I)))
+	          END DO
+	          IF(JTRJ .NE. 0)THEN
+	            JIDXP=JIDXJ
+	          ELSE
+	            JIDXP=JIDXF
+	          END IF
+	          T3XP=RZERO
+	          IF(.NOT. COHERENT_ES)
+	1          T3XP=MAXVAL(ABS(RJ_ES(1:ND)))
+	          CALL JRESC_EV('NRESC',FREQ_INDX,ML,FL,SECTION,
+	1          FIRST_FREQ,FG_SOL_NM,MOM_SOL_NM,L,F_DID_NOT_CONV,
+	2          JTRJ,JTRF,JIDXP,T3X,T4X,T3XP,RESC_CAP,RESC_CAP_IT,
+	3          L_TRUE,JDMX,JFMX,R(JIDXP),V(JIDXP),
+	4          SIGMA(JIDXP),SIGMA_TRUE(JIDXP),LUER)
 	        END IF
 	        RJ(1:ND)=JNU_PREV(1:ND)
 	        FEDD(1:ND)=FEDD_PREV(1:ND)
