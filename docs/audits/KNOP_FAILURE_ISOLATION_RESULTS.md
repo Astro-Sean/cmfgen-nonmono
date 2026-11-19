@@ -4194,3 +4194,99 @@ PK_A4-weighted production error.
   verified by the gate logic and pins; no standalone run of
   each case has been executed (the solver requires a model
   context).
+
+
+### 26.15 Phase-5.5 follow-up -- KN_ORD_SPV ABI-safe interface (2026-11-19)
+
+Follow-up audit of the OPTIONAL-argument design added in 26.14.
+
+#### 1. Original interface concern
+
+The 26.14 fix gave KN_ORD_SPV a fifth, OPTIONAL dummy argument
+(L_CNT). KN_ORD_SPV is an internal procedure of
+KNOP_RAY_SOLVE_V1, so every caller already had an explicit
+interface and the OPTIONAL call was legal; the audit nevertheless
+flagged the design as fragile (an OPTIONAL argument on an internal
+routine depends on that nesting never changing) and requested a
+structure with no OPTIONAL anywhere. It also flagged the
+single-expression guard `L_CNT_L .AND. ALLOCATED(...) .AND. ... .AND.
+L .LE. SIZE(...)`: Fortran does not guarantee short-circuit .AND.,
+so SIZE could be evaluated on an unallocated array.
+
+#### 2. Chosen ABI-safe implementation
+
+Single worker plus two thin entry points, all explicit-interface:
+
+- KN_ORD_SPV_IMPL (module scope, ~line 2370): required LOGICAL
+  L_CNT argument; holds the one copy of the source-term
+  arithmetic (GAM=0, expanding signed-Q, compressing ABS(Q),
+  NNF2/FG_FREQ_MATCH, JPR1/JPR2 + WINX donor interpolation).
+  Module-scope operands (GAM, KN_DLN_N, FG_FREQ_MATCH,
+  KN_DBG_NDON, KN_DBG_LS) are read exactly as before; host-scope
+  operands (PK_SR, PK_Q, DRF_L, JPR*, WINX, IKC*, LS, NCF) arrive
+  as arguments. T1L and INEXT_V are now procedure-local - the old
+  host scratch was safe only because it was OMP-private.
+- KN_ORD_SPV (internal wrapper, ~line 11110): preserves the
+  original four-argument signature; calls the worker with
+  L_CNT=.TRUE. All three production call sites
+  (KN_ORD_SPW_FILL ~11139; SWEEP_FLD_ORD ~11534, ~11744) are
+  byte-identical to before.
+- KN_ORD_SPV_SHADOW (internal wrapper, ~line 11121): same call
+  with L_CNT=.FALSE.; the single shadow call site in
+  KN_SH_EVAL_H (~13499) uses it.
+
+The counter guard is now nested IFs (L_CNT -> ALLOCATED ->
+bounds) so SIZE is never evaluated on an unallocated array; the
+first dimension is also checked before indexing R.
+
+#### 3. Runtime test coverage
+
+New runtime test: unit_tests/f90/drv_knop_spv.f90 +
+unit_tests/python/test_knop_spv.py. The driver USEs
+FG_J_CMF_NONMONO_MOD_V1 and calls KN_ORD_SPV_IMPL with
+L_CNT=.TRUE./.FALSE. across the full branch matrix (10 cases):
+gam0; expanding L>1 and L=1; compressing with two, one, and no
+valid donors; compressing L+NNF2>NCF boundary; FG_FREQ_MATCH on
+(NNF2=2 and NNF2=1); and the unallocated-KN_DBG_NDON path.
+Per case it prints both SPV values, a bitwise TRANSFER
+comparison, and the production/shadow KN_DBG_NDON deltas.
+
+Results: 21/21 checks pass. Every case bit-identical (BEQ=T);
+NDP=+1 only on the expanding L>1 call, 0 elsewhere; NDS=0 on all
+allocated cases; the unallocated path runs clean. Spot-checked
+arithmetic is exact to machine precision against the manufactured
+values (e.g. gamp: 1.523+0.32*0.22=1.5934; fmtch NNF2=2:
+1.524+0.32*0.185=1.5832). Operand checksums confirm the worker
+writes none of its array arguments.
+
+The test also caught a real driver bug on first run: GAM was
+indexed by frequency rather than by the ray column LS=1; the
+counter deltas exposed it immediately.
+
+#### 4. Compiler and test results
+
+- Production flags (-O3 -align array64byte, Makefile FG recipe):
+  fg_j_cmf_nonmono_v1.f compiles with zero errors; the only
+  warnings are the pre-existing #6075 NB_Q/NT_Q kind mismatches
+  at the SWEEP_FLD call sites (unrelated, unchanged). No
+  OPTIONAL-argument or interface diagnostics remain.
+- Debug flags (-g -O0 -check bounds): zero errors, same
+  pre-existing warnings only.
+- test_knop_spv.py: 21/21.
+- test_knop_endpoint.py: 6/6 (unchanged).
+- test_knop_lagged_field.py: all pass (pins updated to the
+  worker/wrapper/shadow structure).
+- Debug executable relinked via make DEBUG=debug cmfgen.
+
+#### 5. Remaining limitations
+
+- KN_ORD_SPV_IMPL is a module procedure; the internal wrappers
+  add one CALL layer per source evaluation. Cost is two extra
+  calls per cell per L inside the refresh/ordered-sweep source
+  fills - negligible next to the march solve, and ifort inlines
+  at -O3 within the same TU.
+- The runtime test exercises the worker directly; the wrapper
+  argument values are additionally pinned at source level
+  (test_knop_lagged_field).
+- The three-seed experiment remains unlaunched, gated on review
+  of this pass.
