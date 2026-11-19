@@ -1,24 +1,66 @@
-# KNOP three-seed convergence-robustness experiment
+# KNOP three-seed probe experiment
 
 Status: RUNNING (jobs queued/submitted 19-Nov-2026; results sections pending)
 
 ## 1. Objective and scope
 
-Determine whether the KNOP non-monotonic solver converges to the same
-retained solution when the probe-ray seed state at each J_NEXT refresh is
-changed. The experiment exercises the existing `KN_SEED_ARM` machinery on
-the designed host (`m15_2p82d_KNOP_p8_probe` recipe), not a wholesale
-reinitialisation of the model: all four arms boot from the identical
-iso_M it157 warm-restart checkpoint and differ only in which field seeds
-the probe ray's retained store candidate at each refresh.
+Determine whether the probe ray's P-direction solve converges to the
+same retained solution when its initial field at each J_NEXT refresh is
+changed. The experiment exercises the existing `KN_SEED_ARM` machinery
+on the designed host (`m15_2p82d_KNOP_p8_probe` recipe).
 
-Distinguishes:
+### 1.1 What this experiment tests
 
-1. Robust convergence to the same solution.
-2. Convergence to different solutions dependent on seeding.
-3. False convergence via stopping criteria.
-4. Failure to converge / strong sensitivity.
-5. Agreement in the emergent spectrum despite internal field differences.
+- It varies the initial P-direction field of ONE probe ray
+  (`KN_NOCP_PROBE_LS=83`).
+- The probe ray never commits its candidate to the retained `I_NEXT`
+  store (source evidence in section 2.1): normal writes, capped writes,
+  heal writes, and the seed-commit marker are all suppressed.
+- It therefore isolates the sensitivity of the probe-ray P solve to
+  its initial field, per refresh, under a live non-LTE model.
+
+### 1.2 What this experiment does not test
+
+- It does NOT directly test sensitivity of the entire non-LTE model to
+  different population or radiation-field initialisations: all four
+  arms boot from the identical iso_M it157 checkpoint, and only the
+  probe ray's per-refresh seed differs.
+- It does NOT establish global KNOP convergence robustness. The store,
+  populations, and spectrum can only differ between arms through
+  indirect channels (see section 1.4), not through a seeded store.
+- The KNOP solver as a whole must not be classified as robust or
+  initialisation-sensitive on the basis of this experiment alone.
+
+### 1.3 The A/A arm
+
+Arm A/A (`KN_SEED_ARM=3`) uses the same retained-store seed as arm A
+(`KN_SEED_ARM=0`) - it is a repeatability control for the same seed
+and the same probe calculation, not a different physical
+initialisation. Any difference between A and A/A in initial fields,
+per-pass histories, or final probe fields measures nondeterminism of
+the run (e.g. OpenMP scheduling order on 8 threads, timing-dependent
+refresh boundaries), not physical sensitivity to the seed. Differences
+between A/A and A are reported quantitatively and are not
+automatically interpreted as physics.
+
+### 1.4 Propagation channels to watch
+
+Although the probe cannot write the store, its measured quantities are
+not fully inert:
+
+- `FG_RF_DCHG` is updated with the probe's candidate delta at
+  `fg_j_cmf_nonmono_v1.f:10223` and `:10249` (inside the capped/normal
+  commit branches, NOT gated on `L_NOPROBE`). `FG_RF_DCHG` feeds
+  `RF_DCHG=MAX(FG_RF_DCHG,FG_RF_PEND)` at `:6666`, which enters the
+  `GS_MAX_ALL` maturity reading. A probe candidate that persistently
+  differs from the retained generation therefore keeps RF_DCHG
+  elevated - conservative, and identical across arms only to the
+  extent their probe candidates agree.
+- The veto counters `FG_NC_CAP`/`FG_NC_REJ` (`:10220`, `:10230`) count
+  the probe's would-be verdict; the ray is then re-marked verdict 7.
+- Whether these channels can actually shift the convergence path or
+  exit reason between arms is a measurement question for the
+  comparison phase.
 
 ## 2. What the seed actually modifies (Phase-1 finding)
 
@@ -41,10 +83,36 @@ Distinguishes:
 The seed modifies the initial formal-solve ray field on probe ray
 `KN_NOCP_PROBE_LS=83` only. Population initialisation, the radiation
 field on all other rays, and all model inputs are untouched.
-`KN_NOCP_PROBE=T` suppresses store writes from the probe ray, so the
-probe seed cannot contaminate the retained `I_NEXT` store; arm
-differences therefore measure convergence and reproducibility of the
-probe solve and of the whole-model trajectory around it.
+
+### 2.1 Probe-ray no-commit evidence (source)
+
+`KN_NOCP_PROBE_RAY(LS)` (`fg_j_cmf_nonmono_v1.f:2337-2341`, a pure
+function: `KN_NOCP_PROBE .AND. LS .EQ. KN_NOCP_PROBE_LS`) sets the
+host-local `L_NOPROBE` at `:9796`. Every store-write pathway is
+gated on it:
+
+- Capped commit: `WRITE_STORE_CAP` for M and P at `:10214-10218`,
+  both under `IF(.NOT. L_NOPROBE)`.
+- Normal commit: `WRITE_STORE` for M and P at `:10237-10239`, both
+  under `IF(.NOT. L_NOPROBE)`.
+- Seed-commit marker: `FG_RAY_SEEDED(LS)=1` at `:10246-10247` -
+  the probe measures its first-commit candidate but never marks
+  itself seeded, so the jump-veto waiver state is also unchanged.
+- Divergence heal: `HEAL_STORE` for M and P at `:10410-10413`,
+  under `IF(.NOT. L_NOPROBE)`.
+- Verdict bookkeeping: the probe's reached verdict is copied to
+  `NOP_VC` and `FG_RAY_VC(LS)` overwritten with probe code 7 at
+  `:10264-10268`.
+
+Runtime verification is built in: `KN-NOP store` lines at
+`:8580-8590` print `SUM` of the probe ray's M and P store slices
+before and after each solve; identical sums (delta 0) prove no
+commit, capped commit or heal wrote those slices.
+
+As noted in section 1.4, `FG_RF_DCHG` / `FG_NC_CAP` / `FG_NC_REJ`
+are deliberately NOT gated: the probe's measured delta still
+counts toward the refresh-change diagnostic and its would-be
+verdict still counts in the veto tallies.
 
 Restart/state files carrying information into each run (all staged
 identically from the iso_M it157 donor): `POINT1`, `POINT2`, `SCRTEMP`,
@@ -123,3 +191,26 @@ generated at job start by `prepare_VADAT.py` from
 ## 6-10. Results, comparison, interpretation
 
 Pending - jobs in queue as of 19-Nov-2026.
+
+When telemetry arrives, results are reported separately as:
+
+A. Probe P-solve convergence sensitivity - per-refresh seed used
+   (`KN_SEED_USED`), per-pass NOP histories, `dab/rmax/pcrs/schg`,
+   final probe fields and `KNSEED_P_L0083_*.bin` XREF/X0 records,
+   per arm.
+B. A/A repeatability control - quantitative A-vs-A/A differences in
+   initial fields, per-pass histories and final probe fields,
+   attributed to run nondeterminism unless evidence says otherwise.
+C. Rest-of-model differences - population, J/store and spectral
+   comparisons between arms, on identical grids.
+D. Propagation plausibility - whether any observed arm difference can
+   plausibly have propagated through a shared store or population
+   update given the no-commit design (expected channels are limited
+   to the diagnostic accumulators in section 1.4 plus convergence
+   timing).
+
+Classification: the experiment can support "probe P-solve robust /
+sensitive / non-convergent" per arm. It does not license a
+whole-solver robustness claim; a wider claim would need genuinely
+reinitialised population/field states, which this design does not
+produce.
