@@ -218,3 +218,70 @@ change is argued).
    nondeterminism amplifier, not FP noise.
 6. `RESC_CAP_IT` in-loop exit leaves the diverged iterate as the
    stored field for FIRST_FREQ (sec 5) - same defect as 1.
+
+## 13. Implementation status (Phase 2.1A + 2.2)
+
+### 2.1A validity guards - committed
+
+- `obs/jres_validity.f`: `JRES_TRIG` (elementwise IEEE_IS_FINITE +
+  cap, returns trigger class + offending index + max) and
+  `JRES_FIN`.  Replaces the `MAXVAL(ABS()).NE.itself` checks at all
+  three validity sites (RJ_ES sanitize, in-loop RJ runaway exit,
+  post-loop RJ+FEDD).  Defect 2 closed.
+- `COMP_JCONT_V4.INC` FIRST_FREQ path: an invalid RJ or FEDD now
+  aborts with field/depth/FL/FREQ_INDX/section/trigger BEFORE
+  SOURCE construction and the LU_EDD write.  No physical fallback
+  exists at ML=1, so fail-closed is the documented response.
+  Defects 1 and 6 closed.
+- Later frequencies: `JNU_PREV`/`FEDD_PREV` snapshots are validated
+  with `JRES_TRIG` before the restore; an invalid fallback aborts
+  instead of ratcheting a poisoned field forward.
+- Finite-but-unconverged fields (both triggers 0) are untouched:
+  caps, the f<=2 bound, solver dispatch, and the 20-pass cap all
+  unchanged.
+- Manufactured tests: `unit_tests/f90/drv_jres_trig.f` +
+  `python/test_jres_validity.py` - 7/7 (converged, interior/boundary
+  NaN, interior Inf, over-cap, f>2, finite-unconverged keep).
+- The fatal-path test is covered by the code path itself: the STOP
+  precedes both SOURCE construction and `WRITE(LU_EDD)`, and no
+  record index is allocated before the write, so no LU_EDD record
+  can be written on a fatal case.
+
+### 2.2 J_RESCUE_EVENTS - committed (diagnostic only)
+
+- `DO_J_RES_DIAG` (VADAT/CMF_FLUX controls, default F) gates all
+  output; `J_RESCUE_EVENTS` is written per render
+  (STATUS='UNKNOWN' - OUT_FLUX accumulates renders, events must
+  not).
+- `JEV` records: one per NES_SAN / NRESC / FATAL with
+  type, FREQ_INDX, ML, FL, SECTION, FIRST_FREQ, the actual solver
+  dispatch (name strings are assigned inside each CALL branch, not
+  inferred from flags), L, F_DID_NOT_CONV, RJ and FEDD trigger
+  classes, offending depth, RJ/FEDD/RJ_ES maxima, RESC_CAP,
+  RESC_CAP_IT, snapshot validity, restore deltas
+  max|field_before-field_after|, and R/V/SIGMA/SIGMA_TRUE at the
+  offending depth with a SIGMA_TRUE < -1 flag.
+- `JTOT` per-section totals on every section transition (and at
+  render end); `JEND` cumulative per-section totals once per
+  render.  Counters live in JRES_DIAG_STATE and are independent of
+  the NRESC<=20/mod-500 print throttle.
+- Event counter scope/aggregation (the ~223 vs ~892 question):
+  NRESC and NES_SAN are process-lifetime counters reset only at
+  FIRST_FREQ; ~223 printed J_RESCUE lines is the per-render count
+  under the print throttle, ~892 lines is the accumulation across
+  ~4 appended renders in OUT_FLUX (STATUS='APPEND').  JEV counts
+  every event with no throttle, so the per-render JEV count is the
+  true event count; JTOT/JEND give per-section splits.
+- FATAL records (luedd=F) are emitted but not counted in the
+  rescue totals - they are aborts, not rescues.
+- Diagnostics change nothing numerical: every record write sits
+  behind `IF(DO_J_RES_DIAG)` and reads state only; the solver-name
+  and delta locals are write-only under the flag off.  The one
+  unconditional overhead is a handful of 24-char assignments at the
+  dispatch sites.
+- Manufactured test: `unit_tests/f90/drv_jres_events.f` +
+  `python/test_jres_events.py` - record layout, section-transition
+  JTOT flush, and JEND counters verified.
+- Open: diagnostic-enabled vs disabled spectrum comparison needs a
+  production render on the rebuilt exe; the ten-render ensemble
+  waits on build success + executable freeze/hash per the plan.

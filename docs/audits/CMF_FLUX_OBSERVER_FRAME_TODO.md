@@ -459,8 +459,25 @@ compiles.
   gate branches are structurally inert under DO_NONMONO_KNOP=F.
   Full mechanism audit: docs/audits/CMF_FLUX_J_RESCUE_AUDIT.md -
   the rescues are V12 diverging in the sigma<-1 compression zones,
-  not FP noise; first-frequency interior divergence can still write
-  an invalid LU_EDD field unchecked (Phase 2 follow-up).
+  not FP noise (V12 attribution still pending the per-event
+  SIGMA_TRUE correlation, not assumed).
+- Phase 2.1A (committed): elementwise IEEE_IS_FINITE guards
+  replace the MAXVAL self-comparisons; an invalid first-frequency
+  field now aborts before SOURCE/LU_EDD (was: written unchecked);
+  the JNU_PREV/FEDD_PREV fallback is itself validated before the
+  restore.  Finite-but-unconverged fields untouched.  7/7
+  manufactured trig cases pass.
+- Phase 2.2 (committed): DO_J_RES_DIAG (default F) writes
+  J_RESCUE_EVENTS - one JEV record per NES_SAN/NRESC/FATAL with
+  actual solver dispatch, triggers, offending depth, field maxima,
+  caps, restore deltas, and R/V/SIGMA/SIGMA_TRUE at the offending
+  depth; JTOT per-section totals and JEND render totals are
+  independent of the print throttle (the ~223/render printed lines
+  vs ~892 accumulated lines was APPEND-mode accumulation across
+  renders).  Diagnostic only - no numerical path touched.
+- Open: diag-on vs diag-off spectrum comparison on the rebuilt
+  exe; the ten-render ensemble waits on build success + exe
+  freeze/hash.
 - Status: DONE (regression bounded by model's own render noise)
 
 ## P9. Spatial resolution convergence (Priority 9)
