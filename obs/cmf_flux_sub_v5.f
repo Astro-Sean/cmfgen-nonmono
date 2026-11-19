@@ -1574,8 +1574,10 @@
 ! gate reads the model directory's GS_STATE/manifest once here so
 ! every spectrum write below (both phases) is covered.  Under
 ! DO_KNOP_SPEC_GATE=T a non-converged state stops the run; the
-! opt-out marks the files instead.  Non-KNOP models leave
-! KNOP_SPEC_ALLOW T and take no branch.
+! opt-out marks the files instead.  KNOP_PROVENANCE_UNVERIFIED (5)
+! is allowed through but the state>1 marker rules label every
+! written file.  Non-KNOP models leave KNOP_SPEC_ALLOW T and take
+! no branch.
 !
 	IF(DO_NONMONO_KNOP)THEN
 	  CALL KNOP_SPEC_GATE_EVAL(LUER)
@@ -1593,6 +1595,10 @@
 	1        ' '//TRIM(KNOP_SPEC_CLASS)//' - writing a marked'//
 	2        ' diagnostic spectrum (DO_KNOP_SPEC_GATE=F).'
 	    END IF
+	  ELSE IF(KNOP_SPEC_STATE .GT. 1)THEN
+	    WRITE(LUER,'(A)')' KNOP spectrum gate:'//
+	1        ' '//TRIM(KNOP_SPEC_CLASS)//' - writing a marked'//
+	2        ' spectrum (state not bound to this execution).'
 	  END IF
 	END IF
 !
