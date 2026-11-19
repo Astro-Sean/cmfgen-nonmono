@@ -729,3 +729,14 @@ debug exe relinked.
 - Mutation check: a test-only SR_A(1,1) overwrite failed the
   harness on both the per-invocation count and the checksum;
   reverted.
+### 2026-11-19 Phase-5.5: SPV test-doc correction
+
+- Section 26.15 updated to the current test revision: 93/93 for
+  test_knop_spv (was stale 72/72 and 21/21), NWS=NWP=0 recorded
+  as the elementwise per-invocation result, matrix checksums
+  demoted to secondary evidence, and the operand scope stated
+  explicitly (eleven array inputs; scalar controls and other
+  module state are outside the compare).
+- Documentation only: no production source, driver, or test
+  changes. Suites rerun: spv 93/93, endpoint 6/6, lagged-field
+  pass.
