@@ -547,3 +547,53 @@ before x_{n-k} exists) and a j=1/j=2/j>=3 weighted update
 split, recorded per P pass via NOP_PASS. Interpretation
 gate and A2 VOLD-only caveat recorded in results section
 26.11. Diagnostic-only; no solver, commit or store changes.
+## 2026-11-19 - Phase 5.5: pre-launch audit + extended probe diagnostics
+
+Source-level audit of the P-sweep dependency structure recorded
+in KNOP_FAILURE_ISOLATION_RESULTS.md 26.12 (verified per call
+site, not from prior docs): fresh vs lagged inputs per cell,
+the j=NI boundary and IM_NI hand-off, per-pass vs per-refresh
+invariants, and one design discrepancy fixed below.
+
+Extensions to KN_SEED_ARM (diagnostic-only, zero store writes):
+
+- Arm B is now leave-one-out (probe ray excluded from its own
+  sibling sample) and reports NMAP/NUNM/NRET/NFILL counts, the
+  weighted seed distance DAB, max replacement RMAX and the
+  significant-changed fraction SCHG.
+- Arm C carries provenance: source refresh PCREF, pass count
+  PCNP, exit class PCIX, residual PCRS; repeated C refreshes
+  are documented as chained, not independent, seeds.
+- Arm 3 added: A/A reproducibility control (identical seed to
+  arm 0). Cold-start fallback re-coded to used=4.
+- New per-P-pass telemetry: C1..C4 lag correlations on the
+  weighted update vectors (-2 sentinel for undefined lags --
+  the period-2 gate now needs C2 up, C1 down and consistent
+  even/odd d2, not d2 alone), significant-cell sign-reversal
+  fraction, even/odd subsequence d2 drift, W=0 dead-column
+  coverage, and ambient-input fingerprints (XOR/rotate folds
+  of IM_NI, the PK pack, retained store, boundary inputs and
+  the coupling map -- identical hashes prove input equality
+  across arms and passes).
+- Shadow cell evaluation: KN_SH_CELL re-evaluates each P-cell
+  update on the live state and on the pass-start snapshot
+  (KN_SH_SNAP) with independently assembled sources/secants
+  and replicated KN_ORD_DS endpoint/interior branches.
+  Live-vs-production measures assembly consistency (ring,
+  preview lag, endpoint recurrence); snap-vs-live measures
+  the ordered-vs-Jacobi ordering effect; both split
+  j=1/j=2/j>=3 with argmax and RMS. The literal 2x2
+  factorial is documented as not constructible and replaced
+  by this pair.
+- KN_FPH: multiply-free int64 bit-fold fingerprint helper.
+
+Deferred: phase-8 directional Jv probes (need a full shadow
+pass, not per-cell); period-2/seed-sensitivity verdicts await
+the run. KN_NOP_MAXP already scales with KN_RAY_MAXPASS, so
+MAXPASS>=80 gives the extended history; arm-C chaining is the
+single-refresh continuation mode.
+
+Tests: test_knop_lagged_field.py updated for the new arms and
+records (LOO check, used=4, C_k/sign/W0/EOD/FP/shadow checks,
+MARCH slice boundary narrowed to the routine itself). Build
+via ./build.sh.
