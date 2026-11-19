@@ -287,15 +287,22 @@
 ! manifest when present) and classifies the model before any
 ! OBSFLUX/OBSFRAME write:
 !   0 - not a KNOP model (gate not applicable; output allowed)
-!   1 - KNOP_CONVERGED: frozen=F, n_frozen=0, refresh converged
+!   1 - KNOP_CONVERGED: frozen=F, n_frozen=0, refresh converged,
+!       and GS_STATE run_id bound to the manifest FINAL segment
 !   2 - KNOP_MATURE_STALLED: stall evidence with n_mature>0
 !   3 - KNOP_IMMATURE: still frozen or refresh unconverged
 !   4 - KNOP_EXECUTION_INCOMPLETE: GS_STATE absent/malformed or the
-!       manifest records a killed/abnormal model segment
-! DO_KNOP_SPEC_GATE (default T) blocks every non-converged state.
-! An explicit F opts out for diagnostic renders; the output files
-! then carry a '! knop_spec_status:' marker line so a stalled or
-! immature render cannot pass as a converged spectrum.
+!       manifest FINAL segment is open/abnormal
+!   5 - KNOP_PROVENANCE_UNVERIFIED: solver state looks converged but
+!       cannot be bound to this execution (no manifest, no FINAL
+!       segment, or run_id mismatch, e.g. a stale state left by a
+!       warm restart); renders but every output is marked
+! States 2-4 set KNOP_SPEC_ALLOW=F; 5 sets ALLOW=T but the state>1
+! marker rules label all written spectra.  DO_KNOP_SPEC_GATE
+! (default T) blocks every non-allowed state.  An explicit F opts
+! out for diagnostic renders; the output files then carry a
+! '! knop_spec_status:' marker line so a stalled or immature
+! render cannot pass as a converged spectrum.
 !
 	LOGICAL :: DO_KNOP_SPEC_GATE=.TRUE.
 	INTEGER :: KNOP_SPEC_STATE=0
