@@ -590,10 +590,74 @@ Extensions to KN_SEED_ARM (diagnostic-only, zero store writes):
 Deferred: phase-8 directional Jv probes (need a full shadow
 pass, not per-cell); period-2/seed-sensitivity verdicts await
 the run. KN_NOP_MAXP already scales with KN_RAY_MAXPASS, so
-MAXPASS>=80 gives the extended history; arm-C chaining is the
-single-refresh continuation mode.
+MAXPASS>=80 gives the extended history; arm-C chaining is a
+field-seed-with-history-reset arm, not uninterrupted
+continuation (corrected in the 26.13 pass).
 
 Tests: test_knop_lagged_field.py updated for the new arms and
 records (LOO check, used=4, C_k/sign/W0/EOD/FP/shadow checks,
 MARCH slice boundary narrowed to the routine itself). Build
 via ./build.sh.
+
+## 2026-11-19 - Phase-5.5 correction pass: shadow/frequency/endpoint audit fixes
+
+Source-level audit and correction of the phase-5.5 diagnostics
+(task: ensure the shadow measurements actually separate spatial
+ordering, frequency ordering, endpoint reconstruction and their
+interactions). Diagnostic-only; no solver arithmetic, relaxation,
+commit policy, convergence or boundary changes.
+
+- KN_SH_EVAL split: KN_SH_EVAL_H(FSL,FSF,J,L) is a two-field
+  evaluator -- spatial inputs live (FSL(J+1,L) upwind, actual
+  boundary row), every source rebuilt by KN_ORD_SPV on the
+  frozen snapshot FSF. Inside SPV the only field reads are
+  FLD(R,L-1) (expanding) and the FLD(JPR1/2,L+NFM_L) WINX donor
+  (compressing), so FSF freezes exactly the frequency coupling.
+  KN_SH_EVAL(FS)=H(FS,FS) keeps the one-field form.
+- Three metric groups in KN_SH_R(3,12): shC=|VSL-VNEW|
+  ENDPOINT_ASSEMBLY_CONSISTENCY (ring/preview lag, not a
+  correctness proof), shO=|VSS-VNEW| SHADOW_FULL_ORDER_VS_
+  FROZEN (mixed ordering, no longer called the frequency
+  delta), shF=|VSL-VSH| DELTA_FREQ (isolated frequency
+  ordering). Per group: abs max, j=1/2/3+ split, (j,l) argmax,
+  abs RMS, count, DCELL-normalised max/RMS, significant-cell
+  normalised RMS and count -- 36 slots in KN_NOP_SH.
+- Normalisation passed in from the march call site:
+  DNRM=MAX(|VOLD|,1E-4*VMAXF(L)), significance
+  MAX(|VOLD|,|VNEW|)>1E-4*VMAXF(L) -- same test as production
+  DCELL. d_k weight unchanged.
+- Independent endpoint verification (offline):
+  unit_tests/f90/drv_knop_endpoint.f, standalone driver, no
+  production objects. Manufactured A-E S(tau) cases on a
+  geometric tau grid, 4 refinement levels; production j=1
+  secant-extrapolation+limiter formula vs independent
+  Lagrange-basis derivative. test_knop_endpoint.py 6/6: A/B/C
+  exact, D second-order (measured 2.00), E extremum bounded
+  and shrinking -- limiter region documented.
+- Arm C relabelled CHAINED_FIELD_SEED_WITH_HISTORY_RESET in
+  docs: only the final P field crosses the refresh boundary;
+  OMEGA_RAY, P2/AA history, rings and ambient inputs are all
+  rebuilt. Not uninterrupted continuation.
+- New KN_CONT_NP diagnostic (VADAT, default 0): single-refresh
+  continuation on the probe P solve -- stall (IXIT=3/6) and
+  cap (IXIT=4) exits gated on L_CONT so one solve runs
+  KN_CONT_NP uninterrupted passes with all solve-local
+  history persisting. Converged exits IXIT=1/2 unaffected.
+  KN_NOP_MAXP sized to cover it. Same checkpoint/field/
+  coefficients/IM_NI/ordering/relaxation; store writes stay
+  suppressed.
+- Fingerprint audit: fp6 added (JPR1/JPR2 rows, WINX weights,
+  DRF_L donor grid, IKC indices) so all six fingerprints
+  cover every static/coefficient/boundary/store/donor-map
+  input. Coverage and the prove-equality-not-identity
+  caveat recorded in 26.13; element-wise diffs are offline
+  on the archived KNSEED xref payloads.
+
+Verification: fg_j_cmf_nonmono_v1.f, control_variable_mod.f
+and rd_control_variables.f compile with zero errors under
+production flags; test_knop_lagged_field.py all checks pass
+(pins updated for the 36-slot shadow, hybrid evaluator,
+continuation gates); test_knop_endpoint.py 6/6. KN_SH_* state
+is only written when the single probe ray is armed, so no new
+OMP shared-state path exists. Three-seed launch still gated
+on a debug-build pass.
