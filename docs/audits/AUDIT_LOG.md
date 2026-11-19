@@ -752,3 +752,19 @@ debug exe relinked.
 - Caveat recorded in the doc: the exe was built on a dirty tree
   carrying uncommitted DO_J_RES_DIAG SIGMA_TRUE allocation guards
   (obs diagnostic path only); identical binary across arms.
+### 2026-11-19 Three-seed doc: scientific scope clarified
+
+- KNOP_THREE_SEED_EXPERIMENT.md rewritten to state what the design
+  actually measures: the initial P-direction field of one probe ray,
+  whose I_NEXT store commits (normal, capped, heal) and seed-commit
+  marker are all suppressed via KN_NOCP_PROBE_RAY -> L_NOPROBE gates.
+  The experiment isolates probe-P-solve seed sensitivity; it does not
+  test whole-model initialisation sensitivity and cannot license a
+  global KNOP robustness classification.
+- A/A arm documented as a repeatability control for the same seed -
+  differences measure run nondeterminism, not physics.
+- Propagation channel caveat recorded: FG_RF_DCHG (feeding RF_DCHG /
+  GS_MAX_ALL) and the veto counters are intentionally NOT gated on
+  L_NOPROBE, so the probe's measured delta still enters the maturity
+  diagnostic.
+- No solver changes; running jobs untouched.
