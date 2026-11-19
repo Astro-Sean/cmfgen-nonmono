@@ -153,6 +153,13 @@
 	INTEGER JRES_TRIG
 	EXTERNAL JRES_TRIG
 	REAL(KIND=LDP) T3X,T4X,T3XP,T4PX
+! J_RESCUE_EVENTS diagnostics [DO_J_RES_DIAG, default F]: solver
+! names are set inside the actual dispatch branches so the record
+! reflects the call that ran, not the flags; the pre-solve flag
+! evaluation only fills the pre-iteration NES_SAN record.
+! JDMX/JFMX are the restore deltas.
+	CHARACTER(LEN=24) FG_SOL_NM,MOM_SOL_NM
+	REAL(KIND=LDP) JDMX,JFMX
 !
 !
 ! REC_SIZE     is the (maximum) record length in bytes.
@@ -2806,7 +2813,14 @@
 ! At present the line EW's are automatically computed when the
 ! CONTINUM Flux is evaluated.
 !
-	IF(.NOT. DO_SOBOLEV_LINES)RETURN
+! J_RESCUE_EVENTS totals [DO_J_RES_DIAG]: both RETURN points end
+! the render, so each emits one JEND record plus the pending
+! section's JTOT.
+!
+	IF(.NOT. DO_SOBOLEV_LINES)THEN
+	  IF(DO_J_RES_DIAG)CALL JRESC_TOT()
+	  RETURN
+	END IF
 !
 ! Phase 1 only: the EW estimates and the SOB deposit need a single
 ! pass over the line list.  Deposits land in ETA_CMF_ST/CHI_CMF_ST
@@ -3245,8 +3259,10 @@
 	    END DO
 	  CLOSE(UNIT=82)
 	END IF
-!	
+!
 	CALL TUNE(2,'SOB_EW')
+!
+	IF(DO_J_RES_DIAG)CALL JRESC_TOT()
 !
 	RETURN
 !
