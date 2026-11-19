@@ -434,15 +434,23 @@ compiles.
 - Tests: spectra vs refresh count / NUM_ES_ITERATIONS / OBS grid /
   freq-match toggles.
 - Acceptance: documented threshold + behavior below threshold.
-- Implemented 17-Nov-2026: KNOP_SPEC_GATE_EVAL (obs/knop_spec_gate.f)
-  classifies the model from GS_STATE / .CMFGEN_KNOP_STALLED /
-  manifest.json before the DO SOB_PHASE loop in CMF_FLUX_SUB_V5;
-  non-converged states stop the run under DO_KNOP_SPEC_GATE=T
-  (default) and write a marked diagnostic under the opt-out.
-  States: KNOP_CONVERGED allowed; KNOP_MATURE_STALLED / KNOP_IMMATURE
-  / KNOP_EXECUTION_INCOMPLETE blocked or marked.  Map:
-  docs/audits/KNOP_MATURITY_GATE_MAP.md.  Production-object tests:
-  unit_tests/python/test_knop_spec_gate.py (9 cases).
+- Implemented 17-Nov-2026, corrected same day after audit:
+  KNOP_SPEC_GATE_EVAL (obs/knop_spec_gate.f) classifies the model
+  from GS_STATE / .CMFGEN_KNOP_STALLED / manifest.json before the
+  DO SOB_PHASE loop in CMF_FLUX_SUB_V5.  Precedence: execution
+  integrity (FINAL manifest segment open/abnormal) before solver
+  state; a converged-looking GS_STATE is downgraded to
+  KNOP_PROVENANCE_UNVERIFIED unless its run_id (SLURM_JOB_ID,
+  written by solve_for_pops.f) matches the last FINAL segment's
+  slurm_job_id -- closing the stale-state hole after a warm
+  restart.  States 2-4 block under DO_KNOP_SPEC_GATE=T; state 5
+  renders with all output files marked; the F opt-out marks any
+  non-converged render.  The stall marker now carries the job id
+  of the execution that stalled, so a stale marker cannot misclassify
+  a later run.  Manifest scan is segment-aware (last label=="FINAL"
+  record; an open OBS segment's null exit_code no longer poisons the
+  classification).  Production-object tests:
+  unit_tests/python/test_knop_spec_gate.py (19 cases).
 - Regression note: byte-identical OBSFLUX is unattainable on
   m15_2p82d_SOB_l14_lte_adp2_tauto - repeated renders of the SAME
   binary differ (J_RESCUE fired 896 times; restore path is
