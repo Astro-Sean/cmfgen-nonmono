@@ -123,6 +123,12 @@ COVERAGE = {
         UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py"]),
     "obs/cmf_flux_sub_v5.f": ("exec", [
         UT + "test_sob_prof.py", UT + "test_obs_nonmono_dispatch.py"]),
+    "obs/es_resid_diag.f": ("exec", [
+        UT + "test_es_resid.py"]),
+    "obs/jres_validity.f": ("exec", [
+        UT + "test_jres_validity.py", UT + "test_jres_events.py"]),
+    "obs/knop_spec_gate.f": ("exec", [
+        UT + "test_knop_spec_gate.py"]),
     "obs/mod_cmf_obs.f": ("exec", [
         UT + "test_sob_prof.py"]),
     "obs/obs_frame_sub_v9.f": ("exec", [
