@@ -247,6 +247,9 @@
 	  RESC_JMAX=1.0D-3
 	  CALL RD_STORE_DBLE(RESC_JMAX,'RESC_JMAX',L_FALSE,
 	1        'Absolute stored-J ceiling for J_RESCUE')
+	  DO_J_RES_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(DO_J_RES_DIAG,'DO_J_RES_DIAG',L_FALSE,
+	1        'Write J_RESCUE_EVENTS machine-readable records')
 	  CALL RD_STORE_DBLE(EW_CUT_OFF,'EW_CUT',L_TRUE,
 	1        'Output EW info only if ABS(EW) > EW_CUT')
 	  CALL RD_STORE_LOG(SOB_FREQ_IN_OBS,'SOB_FREQ_IN_OBS',L_TRUE,
