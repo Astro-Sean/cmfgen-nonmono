@@ -684,3 +684,22 @@ audit of the diagnostics, one test strengthening.
   unit-representative (A4REP=1).
 
 Tests: both suites pass. Production and debug compiles clean.
+### 2026-11-19 Phase-5.5 follow-up: KN_ORD_SPV ABI-safe interface
+
+- Replaced the OPTIONAL L_CNT design with a module-scope worker
+  (KN_ORD_SPV_IMPL, required LOGICAL L_CNT) plus two
+  explicit-interface entry points: KN_ORD_SPV (production, .TRUE.,
+  original 4-arg signature so all three production call sites are
+  byte-identical) and KN_ORD_SPV_SHADOW (.FALSE.). No OPTIONAL
+  argument remains; every caller has an explicit interface.
+- Donor-counter guard restructured to nested IFs: SIZE is never
+  evaluated on an unallocated array (Fortran does not short-circuit
+  .AND.); first dimension checked too. Worker scratch T1L/INEXT_V
+  made procedure-local.
+- New runtime test drv_knop_spv.f90 + test_knop_spv.py: 10-branch
+  matrix, bitwise SPV equality, counter delta assertions. 21/21
+  pass. Caught a driver-side GAM column-index bug on first run.
+
+Tests: spv 21/21, endpoint 6/6, lagged-field all pass. Production
+and debug compiles clean (only pre-existing #6075 warnings);
+debug exe relinked.
