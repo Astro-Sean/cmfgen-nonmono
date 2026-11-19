@@ -257,6 +257,15 @@
 !
 	REAL(KIND=LDP) :: RESC_JMAX=1.0D-3
 !
+! DO_J_RES_DIAG (default F): machine-readable J_RESCUE event
+! records in J_RESCUE_EVENTS (NRESC/NES_SAN event type, frequency,
+! section, trigger class, offending depth/values, caps, solver
+! dispatch, SIGMA_TRUE at the offending depth, snapshot validity,
+! restore deltas, per-section and per-render totals).  Diagnostic
+! only: no numerical path, rescue decision, or iteration changes.
+!
+	LOGICAL :: DO_J_RES_DIAG=.FALSE.
+!
 ! SOB_SIGMA_MAX (default <=0 = off).  When >0, CMF_FLUX_SUB_V5 clamps
 ! |SIGMA_TRUE| to this bound before the Sobolev EW/profile estimators
 ! see it, and reports how many cells were clipped.  Extreme sigma
