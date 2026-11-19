@@ -147,6 +147,12 @@
 	INTEGER NRESC
 	INTEGER NES_SAN
 	LOGICAL F_DID_NOT_CONV
+! J_RESCUE validity machinery (jres_validity.f): JRES_TRIG checks a
+! field elementwise for non-finite values and a magnitude cap.
+	INTEGER JTRJ,JTRF,JTRPJ,JTRPF,JTRES,JIDXJ,JIDXF,JIDXP
+	INTEGER JRES_TRIG
+	EXTERNAL JRES_TRIG
+	REAL(KIND=LDP) T3X,T4X,T3XP,T4PX
 !
 !
 ! REC_SIZE     is the (maximum) record length in bytes.
