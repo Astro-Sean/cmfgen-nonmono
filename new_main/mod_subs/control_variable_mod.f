@@ -1308,6 +1308,22 @@
 !
 	LOGICAL KN_Q_RESID
 !
+! KN_CERT_CONV (default TRUE, Phase 2.15): production convergence
+! certification in KNOP_RAY_SOLVE_V1. When T, the independent
+! one-pass verify residual must exist and pass KN_RAY_TOL for a
+! ray to certify FULL_CONVERGENCE; missing or invalid
+! verification fails closed. F keeps the pre-certification commit
+! gate while the six-class status is still recorded per ray.
+! VADAT keyword [KN_CERT_CONV].
+!
+	LOGICAL KN_CERT_CONV
+!
+! KN_CERT_DIAG (default FALSE): when T, KNOP_RAY_SOLVE_V1 writes
+! one KN-CS machine-readable certification record per ray per
+! refresh. VADAT keyword [KN_CERT_DIAG].
+!
+	LOGICAL KN_CERT_DIAG
+!
 ! KN_JUMP_DIAG (default FALSE): diagnostic-only veto-trigger
 ! attribution for the KNOP commit jump veto (failure isolation,
 ! phase 5). When T, each FG_JUMP_MAX call records the single cell
