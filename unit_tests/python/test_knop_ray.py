@@ -1611,6 +1611,15 @@ def main():
         "c18": (3, 0),  # plateau exit -> STAG
         "c19": (2, 0),  # BULK/ITLIM fold -> ITLIM
         "c20": (4, 6),  # channel divergence code -> DIV
+        "c21": (5, 3),  # negative residual -> INV
+        "c22": (5, 2),  # negative verify residual -> INV
+        "c23": (5, 2),  # bulk exit, verify never ran -> INV
+        "c24": (5, 2),  # bulk exit, non-finite verify -> INV
+        "c25": (1, 0),  # bulk exit, above-tol verify -> BULK
+        "c26": (5, 7),  # INVR=7 wins over NDIV -> INV
+        "c27": (5, 8),  # INVR=8 -> INV
+        "c28": (5, 9),  # INVR=9 -> INV
+        "c29": (4, 6),  # no INVR arg, NDIV -> DIV
     }
     _cok = "RESULT_OK" in d
     _cbad = []
@@ -1620,8 +1629,8 @@ def main():
             _cok = False
             _cbad.append(f"{_k}:{_got}!={_e}")
     rep.check(
-        "T39 certification classifier: 20 deterministic rows cover "
-        "all six classes and reason codes (csut)",
+        "T39 certification classifier: 29 deterministic rows cover "
+        "all six classes, reason codes, and both INVR arities (csut)",
         _cok,
         " ".join(_cbad) if _cbad else f"{len(_cert_exp)} rows as expected",
     )
