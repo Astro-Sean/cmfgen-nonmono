@@ -1,0 +1,8 @@
+=== obs_p221 standalone observer validation ===
+staging cloned from obs_p219/run_diag_on (user staging of 2026-11-20, model m15_2p82d_KNOP_seed_b)
+model exe: 8a5737badd61716c (Nov 19 build, 0 fg_rf_all_conv strings = pre-flag era)
+model end state: 'Iteration budget exhausted before convergence; writing unconverged model state' (seed_b OUTGEN)
+observer exe: exe/cmf_flux.exe sha256=abe47258074741435bcd6c8389bce671ad9e29e5d074c6cd32b18f50bcb8fb26 (rebuilt 2026-11-20 12:28, corrected GET_FG_GS_MATURITY signature, contains rf_not_allconv)
+jobs: 13427285 obs_p221_on (PRINT_KNOP_DEBUG=T), 13427286 obs_p221_off (PRINT_KNOP_DEBUG=F)
+identical otherwise: same staging symlinks, CMF_FLUX_PARAM_INIT differs only in PRINT_KNOP_DEBUG, DO_KNOP_SPEC_GATE=F both
+previous attempt job 13422341 OOM-killed: ReqMem=30G interactive cap, MaxRSS=97GB in 22s; resubmitted general/200G
