@@ -2181,8 +2181,9 @@
 ! a bulk exit meets only the provisional contract (BULK_ONLY);
 ! any nominal exit arriving with an inconsistent residual is
 ! INVALID. KN_CERTIFY folds the two channels with the
-! severity-ordered class codes and short-circuits diverged rays
-! to DIVERGENCE.
+! severity-ordered class codes, short-circuits diverged rays
+! to DIVERGENCE, and (Phase 2.16) short-circuits rays flagged
+! invalid at the detecting site to INVALID_STATE first.
 !
 	PURE SUBROUTINE KN_CERT_CH(IXIT,RES,Q,LCERT,ISTAT,IREA)
 	USE SET_KIND_MODULE
@@ -2194,7 +2195,12 @@
 	LOGICAL LRF,LQF
 	LRF=(RES .EQ. RES) .AND. (ABS(RES) .LT. HUGE(RES))
 	LQF=(Q .EQ. Q) .AND. (ABS(Q) .LT. HUGE(Q))
-	IF(.NOT. LRF)THEN
+!
+! RES is a max norm of |dFLD|/scale terms, so any negative value is
+! not a slow-contraction report -- it is a broken residual, and a
+! broken residual cannot certify (Phase 2.16, reason 3).
+!
+	IF(.NOT. LRF .OR. RES .LT. 0.0_LDP)THEN
 	  ISTAT=KN_CS_INV; IREA=3; RETURN
 	END IF
 	IF(IXIT .LT. 0 .OR. IXIT .GT. 6)THEN
@@ -2222,21 +2228,46 @@
 	  END IF
 	ELSE IF(IXIT .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
 	1    RES .LE. KN_RAY_BULK_TOL)THEN
-	  ISTAT=KN_CS_BULK; IREA=0
+!
+! BULK_ONLY is provisional, not converged, but it still cannot
+! stand on a verify result that is missing (-1), negative or
+! non-finite when certification is on (Phase 2.16, reason 2).
+! LCERT=F keeps the legacy contract: no verify is consulted.
+!
+	  IF(LCERT .AND. .NOT. (LQF .AND. Q .GE. 0.0_LDP))THEN
+	    ISTAT=KN_CS_INV; IREA=2
+	  ELSE
+	    ISTAT=KN_CS_BULK; IREA=0
+	  END IF
 	ELSE
 	  ISTAT=KN_CS_INV; IREA=5
 	END IF
 	END SUBROUTINE KN_CERT_CH
 !
+! INVR (Phase 2.16): ray-local invalid-state reason set at the site
+! that detected it -- 3 invalid residual, 7 non-finite transfer
+! coefficient or input field, 8 non-positive frequency span or bad
+! geometry, 9 allocation failure. DIVERGED still governs containment
+! (the sweeps and the 800 heal path read it unchanged); INVR carries
+! the distinction so a repaired NaN/Inf coefficient classifies
+! INVALID_STATE rather than genuine DIVERGENCE. Checked before the
+! NDIV fold: invalid state outranks finite runaway when both are
+! present. Optional so legacy callers (unit table, older call sites)
+! keep the two-channel fold semantics.
+!
 	PURE SUBROUTINE KN_CERTIFY(IXM,IXP,RESM,RESP,QM,QP,NDIV,
-	1   LCERT,ISTAT,IREA)
+	1   LCERT,ISTAT,IREA,INVR)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 	INTEGER, INTENT(IN) :: IXM,IXP,NDIV
 	REAL(KIND=LDP), INTENT(IN) :: RESM,RESP,QM,QP
 	LOGICAL, INTENT(IN) :: LCERT
 	INTEGER, INTENT(OUT) :: ISTAT,IREA
+	INTEGER, OPTIONAL, INTENT(IN) :: INVR
 	INTEGER ISM,ISP,IRM,IRP
+	IF(PRESENT(INVR) .AND. INVR .NE. 0)THEN
+	  ISTAT=KN_CS_INV; IREA=INVR; RETURN
+	END IF
 	IF(NDIV .NE. 0)THEN
 	  ISTAT=KN_CS_DIV; IREA=6; RETURN
 	END IF
@@ -10040,6 +10071,10 @@ C
 	INTEGER*8 NB_BQ,NT_BQ,NPT2_SV,NCLS_SV(4)
 	INTEGER WRC_SV(8)
 	LOGICAL LDVS_SV,LCES_SV
+! INVS_SV: INVR is saved across the verify scratch sweep alongside
+! DIVERGED (Phase 2.16) -- a coefficient fault hit only on the
+! independent re-solve must not mark the production state invalid.
+	INTEGER INVS_SV
 !
 ! RES_FREQ(L): per-frequency max overwrite residual of the last
 ! completed pass, accumulated inside MARCH. Stage-1 instrumentation
@@ -10127,6 +10162,13 @@ C
 ! (Phase 2.15); set where the classifier ran or in the diverged
 ! heal path, kept for the post-finalise KN-CS record.
 	INTEGER ICLS,IREA,IDEC
+! INVR (Phase 2.16): ray-local invalid-state reason, set at the
+! detecting site (BUILD_FREQ coefficient/span guards, alloc
+! failures, non-finite or negative sweep residuals) alongside the
+! DIVERGED containment flag. Sticky for the rest of the ray solve:
+! once the operator or residual is invalid no later pass can
+! certify it. 0 = no invalid state.
+	INTEGER INVR
 	INTEGER*8 NB_BM,NT_BM,NB_BP,NT_BP
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
 	LOGICAL L_HOT_OVER,L_UNSEED
@@ -10153,7 +10195,7 @@ C
 	NBBLK=0_8; NTBLK=0_8; NB_BM=0_8; NT_BM=0_8
 	NB_BP=0_8; NT_BP=0_8
 	NP2=0_8; NP2_CNT=0_8
-	DIVERGED=.FALSE.
+	DIVERGED=.FALSE.; INVR=0
 	DCH_M=0.0_LDP; DCH_P=0.0_LDP
 	W_LO=0; W_HI=0; NHOT=0
 	SGN_ACC=0.0_LDP; SGN_PRV=0.0_LDP; NOSC_FL=0
@@ -10180,6 +10222,10 @@ C
 	IF(NI .LT. 1 .OR. NCF .LT. 2)THEN
 	  NXIT=-2
 	  RESID=1.0_LDP
+! Phase 2.16: record the invalid geometry in the authoritative
+! status before the early return (reason 8).
+	  IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=KN_CS_INV
+	  IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=8
 	  IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=3
 	  RETURN
 	END IF
@@ -10200,6 +10246,9 @@ C
 	1   '  FG-KNOP refresh alloc failed: ray LS=',LS,
 	2   ' NI=',NI,' bytes~',27_8*NI+3_8*NCF
 	  RESID=1.0_LDP
+! Phase 2.16: allocation failure is an invalid state (reason 9).
+	  IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=KN_CS_INV
+	  IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=9
 	  IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=6
 	  RETURN
 	END IF
@@ -10354,6 +10403,11 @@ C
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,'(A,I5)')'  FG-KNOP refresh alloc failed: FLD, LS=',LS
 	  RESID=1.0_LDP
+! Phase 2.16: allocation failure is an invalid state (reason 9);
+! the 900 path skips the classify point so record it here.
+	  INVR=9
+	  IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=KN_CS_INV
+	  IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=9
 	  GOTO 900
 	END IF
 	FLD(1:NI,1:NCF)=0.0_LDP
@@ -10422,6 +10476,10 @@ C
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,'(A,I5)')'  FG-KNOP refresh alloc failed: FLD_P, LS=',LS
 	  RESID=1.0_LDP
+! Phase 2.16: allocation failure is an invalid state (reason 9).
+	  INVR=9
+	  IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=KN_CS_INV
+	  IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=9
 	  DEALLOCATE(FLD)
 	  GOTO 900
 	END IF
@@ -10505,7 +10563,7 @@ C
 	END IF
 	IF((KN_CERT_CONV .OR. KN_Q_RESID) .AND. NDIV .EQ. 0 .AND.
 	1   ALLOCATED(FLD) .AND. ALLOCATED(FLD_P))THEN
-	  LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT
+	  LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT; INVS_SV=INVR
 	  WRC_SV(1)=WRC_I; WRC_SV(2)=WRC_L; WRC_SV(3)=WRC_PI
 	  WRC_SV(4)=WRC_PL; WRC_SV(5)=WRC_SAME
 	  WRC_SV(6)=WRC_IM; WRC_SV(7)=WRC_LM; WRC_SV(8)=WRC_SM
@@ -10576,7 +10634,7 @@ C
 	  ELSE IF(ALLOCATED(KN_QS_STAT))THEN
 	    KN_QS_STAT(LS)=4
 	  END IF
-	  DIVERGED=LDVS_SV; CLEAN_EXIT=LCES_SV
+	  DIVERGED=LDVS_SV; CLEAN_EXIT=LCES_SV; INVR=INVS_SV
 	  WRC_I=WRC_SV(1); WRC_L=WRC_SV(2); WRC_PI=WRC_SV(3)
 	  WRC_PL=WRC_SV(4); WRC_SAME=WRC_SV(5)
 	  WRC_IM=WRC_SV(6); WRC_LM=WRC_SV(7); WRC_SM=WRC_SV(8)
@@ -10593,7 +10651,7 @@ C
 ! reads as missing verification under KN_CERT_CONV.
 !
 	CALL KN_CERTIFY(IXIT_M,IXIT_P,RES_M,RES_P,Q_M,Q_P,
-	1   NDIV,KN_CERT_CONV,ICLS,IREA)
+	1   NDIV,KN_CERT_CONV,ICLS,IREA,INVR)
 	IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=ICLS
 	IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=IREA
 !
@@ -10804,7 +10862,13 @@ C
 ! Rays that jumped here over the classify point (divergence during
 ! the pack build or the M solve) still carry the authoritative
 ! status; the classify point itself also maps NDIV to this class.
-	  ICLS=KN_CS_DIV; IREA=6
+! Phase 2.16: a detected invalid state (INVR set) outranks finite
+! runaway -- the store heal above runs identically either way.
+	  IF(INVR .NE. 0)THEN
+	    ICLS=KN_CS_INV; IREA=INVR
+	  ELSE
+	    ICLS=KN_CS_DIV; IREA=6
+	  END IF
 	  IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=ICLS
 	  IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=IREA
 	  IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=4
@@ -11219,8 +11283,19 @@ C
 ! at once: the caller skips the write-back, so the runaway field never
 ! reaches the store. No FLD copy is kept (NI*NCF*8 B per thread).
 !
-	  IF(RES .NE. RES .OR. RES .GT. HUGE(RES) .OR.
-	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
+! Phase 2.16 split: a non-finite or negative residual is an
+! INVALID state (INVR=3) -- the pass produced a broken norm, not
+! a measured contraction. A finite same-direction blow-up stays
+! plain DIVERGENCE. Both still abort the sweep via DIVERGED.
+!
+	  IF(RES .NE. RES .OR. .NOT.(ABS(RES) .LE. HUGE(RES)) .OR.
+	1     RES .LT. 0.0_LDP)THEN
+	    INVR=3
+	    DIVERGED=.TRUE.
+	    IXIT=5
+	    EXIT
+	  END IF
+	  IF(NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES)THEN
 	    DIVERGED=.TRUE.
 	    IXIT=5
 	    EXIT
@@ -11772,7 +11847,7 @@ C
 	ALLOCATE(VMAXF(NCF),STAT=IOS)
 	IF(IOS .NE. 0)THEN
 	  WRITE(LUER,'(A)')'  FG-KNOP sweep alloc failed: VMAXF'
-	  DIVERGED=.TRUE.
+	  DIVERGED=.TRUE.; INVR=9
 	  IXIT=5
 	  RETURN
 	END IF
@@ -12410,8 +12485,17 @@ C
 ! direction parity), so same-direction bookkeeping reduces to the
 ! previous pass.
 !
-	  IF(RES .NE. RES .OR. RES .GT. HUGE(RES) .OR.
-	1     (NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES))THEN
+! Phase 2.16 split, as in SWEEP_FLD: non-finite/negative residual
+! -> invalid state (INVR=3); finite blow-up -> DIVERGENCE.
+!
+	  IF(RES .NE. RES .OR. .NOT.(ABS(RES) .LE. HUGE(RES)) .OR.
+	1     RES .LT. 0.0_LDP)THEN
+	    INVR=3
+	    DIVERGED=.TRUE.
+	    IXIT=5
+	    EXIT
+	  END IF
+	  IF(NPO .GE. 3 .AND. RES .GT. 1.0E+3_LDP*BEST_RES)THEN
 	    DIVERGED=.TRUE.
 	    IXIT=5
 	    EXIT
@@ -12923,25 +13007,26 @@ C
 	  DO I=1,NI
 	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
 	1      CHI_L(I) .LT. 1.0E-30_LDP)THEN
-	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))
-	1        DIVERGED=.TRUE.
+	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))THEN
+	        DIVERGED=.TRUE.; INVR=7
+	      END IF
 	      CHI_L(I)=1.0E-30_LDP
 	    END IF
 	    IF(.NOT.(ABS(ETA_L(I)) .LE. HUGE(ETA_L(I))))THEN
 	      ETA_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))THEN
 	      GAM(I,LS)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))THEN
 	      GAM_MAG(I,LS)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))THEN
 	      dGAMdR(I,LS)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	  END DO
 	  DO I=1,NI
@@ -12956,7 +13041,7 @@ C
 !
 	      IF(.NOT.(DLN .GT. 0.0_LDP))THEN
 	        DLN=1.0E-30_LDP
-	        DIVERGED=.TRUE.
+	        DIVERGED=.TRUE.; INVR=8
 	      END IF
 	      CHI_L(I)=CHI_L(I)+GAM_MAG(I,LS)/DLN
 	      DCHR_L(I)=DCHR_L(I)-dGAMdR(I,LS)/DLN
@@ -12965,13 +13050,14 @@ C
 	  DO I=1,NI
 	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
 	1      CHI_L(I) .LT. 1.0E-30_LDP)THEN
-	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))
-	1        DIVERGED=.TRUE.
+	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))THEN
+	        DIVERGED=.TRUE.; INVR=7
+	      END IF
 	      CHI_L(I)=1.0E-30_LDP
 	    END IF
 	    IF(.NOT.(ABS(DCHR_L(I)) .LE. HUGE(DCHR_L(I))))THEN
 	      DCHR_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	  END DO
 	  DO I=1,NI
@@ -12979,7 +13065,7 @@ C
 	      DLN=DLNM_L(I)
 	      IF(.NOT.(DLN .GT. 0.0_LDP))THEN
 	        DLN=1.0E-30_LDP
-	        DIVERGED=.TRUE.
+	        DIVERGED=.TRUE.; INVR=8
 	      END IF
 	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
 	    END IF
@@ -12988,11 +13074,11 @@ C
 	  DO I=1,NI
 	    IF(.NOT.(ABS(Q_L(I)) .LE. HUGE(Q_L(I))))THEN
 	      Q_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(SR_L(I)) .LE. HUGE(SR_L(I))))THEN
 	      SR_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	  END DO
 	ELSE
@@ -13013,7 +13099,7 @@ C
 	    DLN=DLNM_L(I)
 	    IF(.NOT.(DLN .GT. 0.0_LDP))THEN
 	      DLN=1.0E-30_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=8
 	    END IF
 	    IF(KN_RF_COUPLING(I,L))THEN
 	      Q_L(I)=GAM_MAG(I,LS)/DLN
@@ -13023,8 +13109,9 @@ C
 	  DO I=1,NI
 	    IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))) .OR.
 	1      CHI_L(I) .LT. 1.0E-30_LDP)THEN
-	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))
-	1        DIVERGED=.TRUE.
+	      IF(.NOT.(ABS(CHI_L(I)) .LE. HUGE(CHI_L(I))))THEN
+	        DIVERGED=.TRUE.; INVR=7
+	      END IF
 	      CHI_L(I)=1.0E-30_LDP
 	    END IF
 	  END DO
@@ -13032,7 +13119,7 @@ C
 	    DLN=DLNM_L(I)
 	    IF(.NOT.(DLN .GT. 0.0_LDP))THEN
 	      DLN=1.0E-30_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=8
 	    END IF
 	    IF(KN_RF_COUPLING(I,L))DCHR_L(I)=DCHR_L(I)+
 	1      SIGN(1.0_LDP,GAM(I,LS))*dGAMdR(I,LS)/DLN
@@ -13042,35 +13129,38 @@ C
 ! sweep could not have solved -- flag the ray as failed (DIVERGED)
 ! so the refresh rejects it instead of polishing a repaired value
 ! into a committed field. Sub-floor finite values still take the
-! documented clamps.
+! documented clamps. INVR marks these as INVALID_STATE (Phase 2.16,
+! reason 7/8): DIVERGED alone cannot separate a broken coefficient
+! from a finite runaway, and the classifier must not report this
+! ray as a genuine divergence.
 !
 	  DO I=1,NI
 	    IF(.NOT.(ABS(ETA_L(I)) .LE. HUGE(ETA_L(I))))THEN
 	      ETA_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(GAM(I,LS)) .LE. HUGE(GAM(I,LS))))THEN
 	      GAM(I,LS)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(GAM_MAG(I,LS)) .LE. HUGE(GAM_MAG(I,LS))))THEN
 	      GAM_MAG(I,LS)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(dGAMdR(I,LS)) .LE. HUGE(dGAMdR(I,LS))))THEN
 	      dGAMdR(I,LS)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(DCHR_L(I)) .LE. HUGE(DCHR_L(I))))THEN
 	      DCHR_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	  END DO
 	  DO I=1,NI
 	    DLN=DLNM_L(I)
 	    IF(.NOT.(DLN .GT. 0.0_LDP))THEN
 	      DLN=1.0E-30_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=8
 	    END IF
 	    IF(KN_RF_COUPLING(I,L))THEN
 	      Q_L(I)=GAM(I,LS)/(DLN*CHI_L(I))
@@ -13082,11 +13172,11 @@ C
 	  DO I=1,NI
 	    IF(.NOT.(ABS(Q_L(I)) .LE. HUGE(Q_L(I))))THEN
 	      Q_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	    IF(.NOT.(ABS(SR_L(I)) .LE. HUGE(SR_L(I))))THEN
 	      SR_L(I)=0.0_LDP
-	      DIVERGED=.TRUE.
+	      DIVERGED=.TRUE.; INVR=7
 	    END IF
 	  END DO
 	END IF
@@ -13108,11 +13198,20 @@ C
 	  CALL KN_DTAU_INT_V1(NI,CHI_L,DCHR_L,
 	1    Z(1,LS),R_RAY(1,LS),DTAU_L)
 	END IF
+!
+! DTAU_L(I) is the interval between depth I and I+1, so index NI
+! has no interval and neither build branch writes it. Pin the
+! boundary value the in-sweep dump also reports (0) so the
+! refresh dump cannot carry uninitialised heap into the
+! operator-parity comparison.
+!
+	DTAU_L(NI)=0.0_LDP
 	DO I=1,NI-1
 	  IF(.NOT.(ABS(DTAU_L(I)) .LE. HUGE(DTAU_L(I))) .OR.
 	1    DTAU_L(I) .LT. 0.0_LDP)THEN
-	    IF(.NOT.(ABS(DTAU_L(I)) .LE. HUGE(DTAU_L(I))))
-	1      DIVERGED=.TRUE.
+	    IF(.NOT.(ABS(DTAU_L(I)) .LE. HUGE(DTAU_L(I))))THEN
+	      DIVERGED=.TRUE.; INVR=7
+	    END IF
 	    DTAU_L(I)=0.5_LDP*(CHI_L(I)+CHI_L(I+1))*
 	1       (Z(I,LS)-Z(I+1,LS))
 	  END IF
@@ -13175,7 +13274,9 @@ C
 	1     .NOT.(ABS(A1L(I)) .LE. HUGE(A1L(I))) .OR.
 	2     .NOT.(ABS(A2L(I)) .LE. HUGE(A2L(I))) .OR.
 	3     .NOT.(ABS(A3L(I)) .LE. HUGE(A3L(I))) .OR.
-	4     .NOT.(ABS(A4L(I)) .LE. HUGE(A4L(I))))DIVERGED=.TRUE.
+	4     .NOT.(ABS(A4L(I)) .LE. HUGE(A4L(I))))THEN
+	    DIVERGED=.TRUE.; INVR=7
+	  END IF
 	END DO
 !
 ! Audit dump (unit tests only): the refresh-side discrete operator
