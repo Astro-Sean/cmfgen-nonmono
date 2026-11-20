@@ -1,0 +1,20 @@
+diagcap diagnostic arm (submitted 2026-11-20, job 13429272)
+
+Purpose: name the two capped-commit production rays that keep the
+refresh residual at ~6.5E-2 under frozen matter in A1/A2.
+
+Setup: cp -a clone of m15_2p82d_KNOP_B1_PREFLAG (prepared dir state;
+same pre-flag exe_frozen/93364cac tree, same iso_M it157 donor, same
+VADAT_INIT, SN_HYDRO_DATA byte-identical, KN_MAT_FREEZE=T and
+KN_NOCP_PROBE ray-83 retained).
+
+Delta vs B1 (config_resolved.yaml vadat_overrides only):
+    KN_PSWEEP_DIAG: T
+    KN_PSWEEP_LS: -1        (arm per-ray R_MAP capture on ALL rays)
+
+Output of interest: KN_PSWEEP_DIAG.dat in the run dir - per-ray
+per-pass full-map defect records. Stall/capped rays plateau at ~6E-2;
+converging rays drop below tolerance.
+
+No source change; diagnostic keys exist at 217049ee (fg_j_cmf_nonmono_v1.f
+1380-1406) and are stated to be production-inert.
