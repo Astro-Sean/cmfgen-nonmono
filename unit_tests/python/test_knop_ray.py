@@ -95,6 +95,15 @@ def parse(out):
         if t[0] == "VC":
             store[("vc", int(t[1]))] = (int(t[2]), _f(t[3]))
             continue
+        if t[0] == "CLS":
+            store[("cls", int(t[1]))] = (int(t[2]), int(t[3]))
+            continue
+        if t[0] == "SEED":
+            store[("seed", int(t[1]))] = int(t[2])
+            continue
+        if t[0] == "CERT":
+            store[("cert", t[1])] = (int(t[2]), int(t[3]))
+            continue
         m = re.match(r"^(\w+)=\s*(\S+)", ln)
         if m:
             k, v = m.group(1), m.group(2)
@@ -1566,6 +1575,142 @@ def main():
         and _rd.get("REPL_FRQFP") == 0.0,
         f"hot1={_rd.get('REPL_HOT1')} spent={_rd.get('REPL_HOTSPENT')} "
         f"maxabs={_rd.get('REPL_MAXABS')}",
+    )
+
+    # -- Phase 2.15: authoritative six-class certification status ----
+    #
+    # 'csut' drives KN_CERTIFY over a deterministic table: every
+    # class, every reason code, both severity folds and the
+    # LCERT=F legacy contract. The commit gate reads
+    # ICLS==KN_CS_FULL alone, so the rows pin the exact class the
+    # gate consumes; the refresh cases below exercise the same
+    # classes through the production solve->verify->commit path.
+    r = run(bin_, "csut", cwd=WORKDIR, check=False)
+    d, store = parse(r.stdout)
+    _cert_exp = {
+        # (cls, rea): 0 FULL, 1 BULK, 2 ITLIM, 3 STAG, 4 DIV, 5 INV
+        "c01": (0, 0),  # strict residual + verified -> FULL
+        "c02": (3, 1),  # residual ok, verify above tol -> STAG
+        "c03": (1, 0),  # TOL < RES <= BTOL bulk exits -> BULK
+        "c04": (5, 5),  # BTOL=0 disables the floor -> INV
+        "c05": (2, 0),  # pass cap -> ITLIM
+        "c06": (3, 0),  # stall exit -> STAG
+        "c07": (4, 6),  # NDIV -> DIV
+        "c08": (5, 3),  # NaN residual -> INV
+        "c09": (5, 3),  # Inf residual -> INV
+        "c10": (5, 2),  # verify never ran -> INV
+        "c11": (5, 2),  # non-finite verify -> INV
+        "c12": (1, 0),  # FULL/BULK fold -> BULK
+        "c13": (0, 0),  # LCERT=F -> legacy FULL
+        "c14": (1, 0),  # LCERT=F does not rescue bulk -> BULK
+        "c15": (0, 0),  # IXIT=2 at strict residual + verify -> FULL
+        "c16": (0, 0),  # historical IXIT=0 -> FULL
+        "c17": (5, 5),  # unset exit -> INV
+        "c18": (3, 0),  # plateau exit -> STAG
+        "c19": (2, 0),  # BULK/ITLIM fold -> ITLIM
+        "c20": (4, 6),  # channel divergence code -> DIV
+    }
+    _cok = "RESULT_OK" in d
+    _cbad = []
+    for _k, _e in _cert_exp.items():
+        _got = store.get(("cert", _k))
+        if _got != _e:
+            _cok = False
+            _cbad.append(f"{_k}:{_got}!={_e}")
+    rep.check(
+        "T39 certification classifier: 20 deterministic rows cover "
+        "all six classes and reason codes (csut)",
+        _cok,
+        " ".join(_cbad) if _cbad else f"{len(_cert_exp)} rows as expected",
+    )
+
+    # 'cerb': KN_RAY_BULK_TOL=1E30 floors every bulk exit at the
+    # first pass, so each ray must classify BULK_ONLY (cls=1) and
+    # take the capped provisional write (VC=3) -- never VC=0 and
+    # never the seeded mark.
+    r = run(bin_, "cerb", cwd=WORKDIR, check=False)
+    d, store = parse(r.stdout)
+    rep.check(
+        "T40 BULK_ONLY takes only the capped provisional write "
+        "(VC=3, SEED=0, never ordinary WRITE_STORE)",
+        "RESULT_OK" in d
+        and all(store.get(("cls", i), (-1, -1))[0] == 1 for i in (1, 2, 3))
+        and all(store.get(("vc", i), (-1,))[0] == 3 for i in (1, 2, 3))
+        and all(store.get(("seed", i), -1) == 0 for i in (1, 2, 3))
+        and d.get("RF_NCCAP", 0) == 3
+        and d.get("RF_RESID", 0.0) > 2.0e-3,
+        f"RESID={d.get('RF_RESID'):.3e} NCCAP={d.get('RF_NCCAP')} "
+        f"cls={[store.get(('cls', i)) for i in (1, 2, 3)]} "
+        f"vc={[store.get(('vc', i)) for i in (1, 2, 3)]}",
+    )
+
+    # 'cer0': the same bulk rays with FG_COMMIT_NC=0 retain the
+    # pre-refresh store (VC=2); no capped write, still no seed.
+    r = run(bin_, "cer0", cwd=WORKDIR, check=False)
+    d, store = parse(r.stdout)
+    rep.check(
+        "T41 BULK_ONLY with FG_COMMIT_NC=0 retains the store "
+        "(VC=2, no cap write, no seed)",
+        "RESULT_OK" in d
+        and all(store.get(("cls", i), (-1, -1))[0] == 1 for i in (1, 2, 3))
+        and all(store.get(("vc", i), (-1,))[0] == 2 for i in (1, 2, 3))
+        and all(store.get(("seed", i), -1) == 0 for i in (1, 2, 3))
+        and d.get("RF_NCCAP", -1) == 0
+        and d.get("RF_NCREJ", 0) == 3,
+        f"NCCAP={d.get('RF_NCCAP')} NCREJ={d.get('RF_NCREJ')} "
+        f"vc={[store.get(('vc', i)) for i in (1, 2, 3)]}",
+    )
+
+    # 'cern': strict path -- BTOL=0, the same rays converge to
+    # ~1E-10 and the independent verify passes, so every ray
+    # certifies FULL_CONVERGENCE (cls=0) and commits via
+    # WRITE_STORE (VC=0, SEED=1).
+    r = run(bin_, "cern", cwd=WORKDIR, check=False)
+    d, store = parse(r.stdout)
+    rep.check(
+        "T42 strict residuals + valid verify -> FULL_CONVERGENCE "
+        "(cls=0, VC=0, SEED=1)",
+        "RESULT_OK" in d
+        and all(store.get(("cls", i), (-1, -1))[0] == 0 for i in (1, 2, 3))
+        and all(store.get(("vc", i), (-1,))[0] == 0 for i in (1, 2, 3))
+        and all(store.get(("seed", i), -1) == 1 for i in (1, 2, 3)),
+        f"RESID={d.get('RF_RESID'):.3e} "
+        f"cls={[store.get(('cls', i)) for i in (1, 2, 3)]} "
+        f"vc={[store.get(('vc', i)) for i in (1, 2, 3)]}",
+    )
+
+    # 'cer2': two refreshes of the bulk-floored rays -- the
+    # provisional write may repeat (per-cell cap bounds each one)
+    # but must never promote to a converged commit or seed.
+    r = run(bin_, "cer2", cwd=WORKDIR, check=False)
+    d, store = parse(r.stdout)
+    rep.check(
+        "T43 repeated provisional commits stay capped and never "
+        "become full commits (VC=3 on both passes)",
+        "RESULT_OK" in d
+        and all(store.get(("cls", i), (-1, -1))[0] == 1 for i in (1, 2, 3))
+        and all(store.get(("vc", i), (-1,))[0] == 3 for i in (1, 2, 3))
+        and all(store.get(("seed", i), -1) == 0 for i in (1, 2, 3))
+        and d.get("RF_NCCAP", 0) == 6,
+        f"NCCAP={d.get('RF_NCCAP')} NCREJ={d.get('RF_NCREJ')} "
+        f"vc={[store.get(('vc', i)) for i in (1, 2, 3)]}",
+    )
+
+    # 'cerp': probe armed on ray 3 under the same bulk floor --
+    # the probe still solves and classifies, but its verdict is
+    # the suppressed code 7 and the production rays are unchanged.
+    r = run(bin_, "cerp", cwd=WORKDIR, check=False)
+    d, store = parse(r.stdout)
+    rep.check(
+        "T44 probe ray under certification: suppressed verdict "
+        "(VC=7), production rays still BULK/provisional",
+        "RESULT_OK" in d
+        and all(store.get(("cls", i), (-1, -1))[0] == 1 for i in (1, 2, 3))
+        and store.get(("vc", 3), (-1,))[0] == 7
+        and all(store.get(("vc", i), (-1,))[0] == 3 for i in (1, 2))
+        and d.get("RF_NCCAP", 0) == 2,
+        f"NCCAP={d.get('RF_NCCAP')} "
+        f"vc={[store.get(('vc', i)) for i in (1, 2, 3)]}",
     )
 
     rep.summary()
