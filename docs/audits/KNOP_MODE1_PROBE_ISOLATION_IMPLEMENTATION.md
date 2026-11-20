@@ -38,11 +38,22 @@ verdict so the mask can never disagree with the commit guards).
 - `XRAY=0` reproduces the old `MAXVAL(RES,MASK=NDV==0)` exactly.
 - All production rays diverged -> maximum over production
   residuals (diverged values), not a silent zero.
-- Degenerate no-production-ray run -> unmasked `MAXVAL(RES)`,
-  preserving the pre-change value for that pathological case.
+- No production ray at all -> fixed fail-closed sentinel `1.0`,
+  never `MAXVAL(RES)`. The probe value can never reach the
+  controller: `1.0` is the established unsolved/diverged-ray
+  residual convention, sits above `GS_MATURE_TOL` and
+  `GS_UNSAFE_TOL` so the gate cannot read mature, and is
+  positive so the `KN_RF_RESID>0` guard still lets the omega
+  pool run, where an empty production pool retains
+  `OMEGA_PREV` via the `KN_RHO_MIN_SAM` path.
 
-`KN_RF_RESID` now calls this helper (:8904) after
+`KN_RF_RESID` now calls this helper (:8911) after
 `KN_PROD_MASK`/`KN_PROD_XRAY` are built (:8889-8895).
+`KN_PROD_POOL_STAT(NDV,XRAY)` (pure, :2084) reports the branch
+taken - 0 normal pool, 1 all-diverged fallback, 2 no-production
+sentinel - so a caller can tell a measured residual from the
+sentinel; the refresh prints a `KN-PROD resid:` banner when
+the sentinel fires.
 
 ### 2.2 `KN_OMEGA_POOL_V1` - optional `EXCL` arg (:2078)
 
@@ -143,9 +154,14 @@ identical inputs and every production export must equal `rf3`.
 
 `punit` exercises `KN_PROD_RESID_V1` (excluded argmax, XRAY=0
 parity, below-max probe, all-diverged fallback, diverged-probe
-fallback, degenerate all-probe fallback) and `KN_OMEGA_POOL_V1`
-EXCL (probe above/below P90, pool size 40 vs 42, min-sample
-retain, diagnostic rho preserved).
+fallback) and the no-production degenerate case: probe residual
+swept over 9.0, 1E-9 and 1E30 returns the fixed `1.0` sentinel
+every time with `KN_PROD_POOL_STAT=2` (`ISTAT=1` on the
+all-diverged fallback). `KN_OMEGA_POOL_V1` EXCL coverage: probe
+above/below P90, pool size 40 vs 42, min-sample retain,
+diagnostic rho preserved, and an all-probe single-ray pool
+reporting `NSAM=0` with `OMEGA_PREV` retained for both sane and
+wild probe rho values.
 
 Results (this tree, 20-Nov-2026):
 
@@ -190,5 +206,5 @@ Results (this tree, 20-Nov-2026):
 
 - Build: `make DEBUG=nodebug all` clean (only pre-existing #6075
   warnings), `exe/cmfgen_dev.exe` sha256
-  `e2733b215b68330066ec9c10eb3da3e33d605223b111ab120966fc2a41b8ec5f`.
+  `841bece91585a1dd5395dfbe9955ba6f5d62c05716e12fbf4c6ea19dedd23000`.
 - Test driver: `unit_tests/bin/knray` (production objects + driver).
