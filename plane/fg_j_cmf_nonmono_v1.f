@@ -2027,6 +2027,42 @@
 !
 ! ==============================================================================
 !
+! KN_PROD_RESID_V1 ([KN_NOCP_PROBE] MODE 1 isolation, 20-Nov-2026):
+! the residual pool the global controller reads. The diagnostic
+! probe ray keeps its RES_LS entry and its own telemetry, but it
+! must not feed KN_RF_RESID -- its seed-dependent solve would
+! otherwise set the maturity gate input for rays it cannot commit.
+! XRAY is the armed probe index (0 = no probe): with XRAY=0 this
+! reproduces the old MAXVAL(RES,MASK=NDV==0) exactly, and with all
+! production rays diverged it falls back to the maximum over
+! production residuals (never an empty-pool zero). A degenerate
+! run with no production ray at all keeps the old unmasked
+! MAXVAL so the controller still sees a real residual.
+!
+	PURE REAL(KIND=LDP) FUNCTION KN_PROD_RESID_V1(RES,NDV,XRAY)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	REAL(KIND=LDP), INTENT(IN) :: RES(:)
+	INTEGER, INTENT(IN) :: NDV(:),XRAY
+	INTEGER I2,NOK
+	NOK=0
+	KN_PROD_RESID_V1=-HUGE(1.0_LDP)
+	DO I2=1,SIZE(NDV)
+	  IF(I2 .NE. XRAY .AND. NDV(I2) .EQ. 0)THEN
+	    NOK=NOK+1
+	    KN_PROD_RESID_V1=MAX(KN_PROD_RESID_V1,RES(I2))
+	  END IF
+	END DO
+	IF(NOK .EQ. 0)THEN
+	  DO I2=1,SIZE(NDV)
+	    IF(I2 .NE. XRAY)
+	1    KN_PROD_RESID_V1=MAX(KN_PROD_RESID_V1,RES(I2))
+	  END DO
+	END IF
+	IF(KN_PROD_RESID_V1 .EQ. -HUGE(1.0_LDP))
+	1  KN_PROD_RESID_V1=MAXVAL(RES)
+	END FUNCTION KN_PROD_RESID_V1
+!
 ! KN_OMEGA_POOL_V1 (audit Issues 2 + 5): pool the non-diverged rays'
 ! per-direction same-map contraction ratios, take the P90 quantile
 ! and map it to the next INEXT_RELAX target. The ratios describe the
@@ -2037,16 +2073,20 @@
 ! eigenvalue analysis. Below KN_RHO_MIN_SAM samples the P90 index is
 ! just the pool maximum, so the controller keeps OMEGA_PREV and
 ! reports coverage instead of letting one ray set the update.
+! EXCL ([KN_NOCP_PROBE] MODE 1, optional): ray index whose samples
+! are withheld from the pool while RHOM/RHOP keep their values for
+! diagnostics. Absent or 0 samples every ray, exactly as before.
 !
 	SUBROUTINE KN_OMEGA_POOL_V1(RHOM,RHOP,NDV,OMEGA_PREV,OMEGA_NEW,
-	1    NSAM,RHO_P90,RHO_MED,RHO_MX)
+	1    NSAM,RHO_P90,RHO_MED,RHO_MX,EXCL)
 	USE SET_KIND_MODULE
 	IMPLICIT NONE
 	INTEGER NDV(:)
 	REAL(KIND=LDP) RHOM(:),RHOP(:)
 	REAL(KIND=LDP) OMEGA_PREV,OMEGA_NEW,RHO_P90,RHO_MED,RHO_MX
 	INTEGER NSAM
-	INTEGER I2,K2,NRAY
+	INTEGER, OPTIONAL, INTENT(IN) :: EXCL
+	INTEGER I2,K2,NRAY,XEX
 	REAL(KIND=LDP) T2
 	REAL(KIND=LDP), ALLOCATABLE :: POOL(:)
 !
@@ -2054,10 +2094,12 @@
 	OMEGA_NEW=OMEGA_PREV
 	NSAM=0
 	RHO_P90=0.0_LDP; RHO_MED=0.0_LDP; RHO_MX=0.0_LDP
+	XEX=0
+	IF(PRESENT(EXCL))XEX=EXCL
 	ALLOCATE(POOL(2*NRAY),STAT=I2)
 	IF(I2 .NE. 0)RETURN
 	DO I2=1,NRAY
-	  IF(NDV(I2) .EQ. 0)THEN
+	  IF(I2 .NE. XEX .AND. NDV(I2) .EQ. 0)THEN
 	    IF(RHOM(I2) .GT. 0.0_LDP)THEN
 	      NSAM=NSAM+1; POOL(NSAM)=RHOM(I2)
 	    END IF
@@ -5709,6 +5751,15 @@ C
 ! around the coupled eval sweep) sees the same Gauss-Seidel I_NEXT
 ! state as the baseline; the default path leaves it .FALSE.
 !
+! [KN_NOCP_PROBE] MODE 1 note (20-Nov-2026): this sweep write is
+! deliberately NOT gated on L_NOPROBE. "No-commit" for the probe
+! covers only the refresh-window WRITE_STORE/WRITE_STORE_CAP/
+! HEAL_STORE paths (guarded below); the sweep update below reads
+! the production I_P field and the retained slot snapshot, so it
+! is arm-independent production state -- the probe's perturbed
+! refresh iterate never reaches it. Gating it here would change
+! the model, not isolate the diagnostic.
+!
 ! NEW_FREQ snapshot (edited 02-Nov-2026): comp_j_blank
 ! re-enters this routine inside its J accuracy loop with
 ! NEW_FREQ=.FALSE. after the first call of each frequency (DO_ES_ALI
@@ -8095,6 +8146,8 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: RHO_M_LS(:),RHO_P_LS(:)
 	REAL(KIND=LDP) KN_NOP_SM0,KN_NOP_SP0,KN_NOP_SM1,KN_NOP_SP1
 	REAL(KIND=LDP) RHO_H(4),RHO_MX
+	INTEGER KN_PROD_XRAY
+	LOGICAL, ALLOCATABLE :: KN_PROD_MASK(:)
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
@@ -8197,7 +8250,7 @@ C
 	2   NDV_LS(KN_NP),NMX_LS(KN_NP),NMT_LS(KN_NP),NCM_LS(KN_NP),
 	3   NXT_LS(KN_NP),NP2_LS(KN_NP),NBB_LS(KN_NP),NTB_LS(KN_NP),
 	4   RHO_M_LS(KN_NP),RHO_P_LS(KN_NP),
-	5   NCL_LS(KN_NP),NNL_LS(KN_NP),
+	5   NCL_LS(KN_NP),NNL_LS(KN_NP),KN_PROD_MASK(KN_NP),
 	6   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 !
@@ -8810,11 +8863,22 @@ C
 ! SOLVE_FOR_POPS instead; the backstop still sees every
 ! non-diverged residual.
 !
-	IF(COUNT(NDV_LS .EQ. 0) .GT. 0)THEN
-	  KN_RF_RESID=MAXVAL(RES_LS,MASK=NDV_LS .EQ. 0)
-	ELSE
-	  KN_RF_RESID=MAXVAL(RES_LS)
-	END IF
+! MODE 1 probe isolation ([KN_NOCP_PROBE], 20-Nov-2026): every
+! global pool below is built on KN_PROD_MASK, which excludes only
+! the armed diagnostic ray (KN_NOCP_PROBE_RAY). The probe keeps
+! solving, keeps its RES_LS/RHO_*_LS/census entries and all KN-NOP
+! telemetry; it no longer feeds the residual maximum, the omega
+! pool, the share censuses or the commit counters the controller
+! reads. Its ordinary frequency-sweep store writes are NOT probe
+! activity -- they use the production I_P field and stay included
+! (see the sweep block comment near FG_GS_MAXCHG).
+!
+	KN_PROD_XRAY=0
+	DO LS=1,KN_NP
+	  KN_PROD_MASK(LS)=.NOT. KN_NOCP_PROBE_RAY(LS)
+	  IF(.NOT. KN_PROD_MASK(LS))KN_PROD_XRAY=LS
+	END DO
+	KN_RF_RESID=KN_PROD_RESID_V1(RES_LS,NDV_LS,KN_PROD_XRAY)
 !
 ! Adaptive under-relaxation of the lagged store (KN_ADAPT_RELAX,
 ! default T): the residual maxima of successive refresh calls are the
@@ -8849,7 +8913,8 @@ C
 	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
 	  IF(FG_ADAPT_OMEGA_V2)THEN
 	    CALL KN_OMEGA_POOL_V1(RHO_M_LS,RHO_P_LS,NDV_LS,
-	1      INEXT_RELAX,T2,L,RHO_H(2),RHO_H(1),RHO_MX)
+	1      INEXT_RELAX,T2,L,RHO_H(2),RHO_H(1),RHO_MX,
+	2      KN_PROD_XRAY)
 	    IF(CONV_DIAG_LVL .GE. 2)THEN
 	      IF(L .GE. KN_RHO_MIN_SAM)THEN
 	        WRITE(LUER,'(A,ES10.3,A,
@@ -8894,14 +8959,16 @@ C
 ! checkpoint comparability; NDV stays out of the numerator here
 ! (the gate tiers diverged rays separately via FG_GS_NDIV).
 !
-	FG_RF_CAPPED=SUM(NCL_LS)+SUM(NNL_LS)
+	FG_RF_CAPPED=SUM(NCL_LS,MASK=KN_PROD_MASK)+
+	1  SUM(NNL_LS,MASK=KN_PROD_MASK)
 	FG_INEXT_CAPPED=FG_INEXT_CAPPED+
-	1  SUM(NCP_LS)+SUM(NNG_LS)+SUM(NDV_LS)
-	FG_GS_NDIV=SUM(NDV_LS)
-	FG_GS_NBAD=SUM(NBD_LS)
-	FG_GS_NTOT=SUM(NTT_LS)
-	FG_GS_NBAD_BLK=SUM(NBB_LS)
-	FG_GS_NTOT_BLK=SUM(NTB_LS)
+	1  SUM(NCP_LS,MASK=KN_PROD_MASK)+SUM(NNG_LS,MASK=KN_PROD_MASK)+
+	2  SUM(NDV_LS,MASK=KN_PROD_MASK)
+	FG_GS_NDIV=SUM(NDV_LS,MASK=KN_PROD_MASK)
+	FG_GS_NBAD=SUM(NBD_LS,MASK=KN_PROD_MASK)
+	FG_GS_NTOT=SUM(NTT_LS,MASK=KN_PROD_MASK)
+	FG_GS_NBAD_BLK=SUM(NBB_LS,MASK=KN_PROD_MASK)
+	FG_GS_NTOT_BLK=SUM(NTB_LS,MASK=KN_PROD_MASK)
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP FIELD ----------------------------------'
 	WRITE(LUER,'(A)')'  KNOP I_NEXT refresh (lagged coupling):'
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
@@ -8910,8 +8977,13 @@ C
 ! T-06 ledger: total per-ray passes this refresh fed to the
 ! ITER_LEDGER np_rf column (audit F-22/F-24).
 	IF(LEDG_ACTIVE)LEDG_NP_RF=LEDG_NP_RF+SUM(NPS_LS)
-	WRITE(LUER,'(A,I8)')'    diverged rays=',SUM(NDV_LS)
-	WRITE(LUER,'(A,I8)')'    clamp events=',SUM(NNG_LS)
+	WRITE(LUER,'(A,I8)')'    diverged rays=',
+	1  SUM(NDV_LS,MASK=KN_PROD_MASK)
+	WRITE(LUER,'(A,I8)')'    clamp events=',
+	1  SUM(NNG_LS,MASK=KN_PROD_MASK)
+	IF(KN_PROD_XRAY .GT. 0)WRITE(LUER,'(A,I4,A,ES10.3,A,I8,A,I14)')
+	1  '    probe ray=',KN_PROD_XRAY,' resid=',RES_LS(KN_PROD_XRAY),
+	2  ' div=',NDV_LS(KN_PROD_XRAY),' nbad=',NBD_LS(KN_PROD_XRAY)
 	WRITE(LUER,'(A,I14)')'    same-census cap/floor=',FG_RF_CAPPED
 	WRITE(LUER,'(A,I14,A,I14,A,ES9.2)')
 	1  '    unconverged cells=',FG_GS_NBAD,' of',FG_GS_NTOT,
@@ -8941,10 +9013,16 @@ C
 ! counts and bad-cell share decide whether the stall criterion or
 ! the pass cap is the refresh bottleneck.
 !
+! The probe keeps its exit-class and max-residual telemetry but not
+! its bad cells: NX_BAD feeds FG_GS_NSTAL/NPLAT below and those are
+! gate inputs (GS_NBAD_STAL/PLAT shares), so they are production
+! only under MODE 1.
+!
 	NX_CNT=0; NX_BAD=0; NX_RMX=0.0_LDP
 	DO LS=1,KN_NP
 	  NX_CNT(NXT_LS(LS))=NX_CNT(NXT_LS(LS))+1
-	  NX_BAD(NXT_LS(LS))=NX_BAD(NXT_LS(LS))+NBD_LS(LS)
+	  IF(KN_PROD_MASK(LS))
+	1    NX_BAD(NXT_LS(LS))=NX_BAD(NXT_LS(LS))+NBD_LS(LS)
 	  NX_RMX(NXT_LS(LS))=MAX(NX_RMX(NXT_LS(LS)),RES_LS(LS))
 	END DO
 !
@@ -9444,10 +9522,14 @@ C
 ! FG_RAY_DCH but writes nothing to the store; that delta is what
 ! the retained field still owes, so it must reach the maturity
 ! export (RF_DCHG) or GS_MAX_ALL can read mature on an old store.
+! MODE 1 ([KN_NOCP_PROBE]): the probe's veto/reject verdicts are
+! would-be decisions on a suppressed commit -- they keep their
+! FG_RAY_VC/FG_RAY_DCH telemetry but cannot hold a production debt.
 !
 	  FG_RF_PEND=MAX(0.0_LDP,
 	1    MAXVAL(FG_RAY_DCH,
-	2    MASK=(FG_RAY_VC .EQ. 1) .OR. (FG_RAY_VC .EQ. 2)))
+	2    MASK=((FG_RAY_VC .EQ. 1) .OR. (FG_RAY_VC .EQ. 2)) .AND.
+	3    KN_PROD_MASK))
 	  WRITE(LUER,'(6(A,I5),A,I5,A,I5,A)')
 	1    '    commit verdicts: committed=',COUNT(FG_RAY_VC.EQ.0),
 	2    '  jump-rej=',COUNT(FG_RAY_VC.EQ.1),
@@ -9530,7 +9612,7 @@ C
 	END IF
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
-	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS)
+	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS,KN_PROD_MASK)
 	IF(ALLOCATED(KN_NOP_RES))DEALLOCATE(KN_NOP_RES)
 	IF(ALLOCATED(KN_NOP_AD))DEALLOCATE(KN_NOP_AD)
 	IF(ALLOCATED(KN_NOP_OMG))DEALLOCATE(KN_NOP_OMG)
@@ -10139,8 +10221,11 @@ C
 	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1),
 	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2))
 	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
+! MODE 1 ([KN_NOCP_PROBE]): the probe's veto verdict stays on
+! FG_RAY_VC below, but a suppressed commit must not move the
+! production rejection counter.
 !$OMP CRITICAL (FG_REJ_UPD)
-	    FG_COMMIT_REJ=FG_COMMIT_REJ+1
+	    IF(.NOT. L_NOPROBE)FG_COMMIT_REJ=FG_COMMIT_REJ+1
 !$OMP END CRITICAL (FG_REJ_UPD)
 	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=1
 	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
@@ -10217,7 +10302,9 @@ C
 	      IF(.NOT. L_NOPROBE)
 	1    CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
 !$OMP CRITICAL (FG_CAP_UPD)
-	      FG_NC_CAP=FG_NC_CAP+1
+! MODE 1 ([KN_NOCP_PROBE]): the probe's WRITE_STORE_CAP above is
+! suppressed, so it must not count as a production capped commit.
+	      IF(.NOT. L_NOPROBE)FG_NC_CAP=FG_NC_CAP+1
 !$OMP END CRITICAL (FG_CAP_UPD)
 !$OMP CRITICAL (FG_DCHG_UPD)
 	      FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
@@ -10227,7 +10314,9 @@ C
 	1        MAX(DCH_M,DCH_P)
 	    ELSE
 !$OMP CRITICAL (FG_NC_UPD)
-	      FG_NC_REJ=FG_NC_REJ+1
+! MODE 1 ([KN_NOCP_PROBE]): a suppressed commit must not count as
+! a production non-converged reject either.
+	      IF(.NOT. L_NOPROBE)FG_NC_REJ=FG_NC_REJ+1
 !$OMP END CRITICAL (FG_NC_UPD)
 	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=2
 	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
