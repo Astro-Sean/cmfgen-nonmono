@@ -241,7 +241,8 @@
       KN_FREQ(NCFX),KN_DLN_P(NCFX),KN_DLN_N(NCFX), &
       KN_IC(NCFX),KN_DBB(NCFX), &
       I_P_DEPTH_NEXT(N_COMP,KNP,NCFX), &
-      I_M_DEPTH_NEXT(N_COMP,KNP,NCFX),STAT=IOS)
+      I_M_DEPTH_NEXT(N_COMP,KNP,NCFX), &
+      FG_RAY_SEEDED(KNP),STAT=IOS)
       IF(IOS .NE. 0)THEN
         WRITE(*,'(A)')'RESULT alloc_fail=1'
         GOTO 999
@@ -516,6 +517,14 @@
       NONMONO_INEXT_CAP=1.0E+20_LDP
       FG_COMMIT_CONV=.TRUE.
       FG_COMMIT_NC=0.05_LDP
+!
+! The KR_DBG dump blocks hold the production sweep's last pass;
+! the certification verify pass is an extra scratch sweep that
+! would overwrite them, so the ab* operator-parity cases keep
+! certification off. Production leaves it on (default).
+!
+      CALL SET_FG_CERT_CONV(NCASE .NE. 15 .AND. NCASE .NE. 22 &
+         .AND. NCASE .NE. 32 .AND. NCASE .NE. 33)
       FG_COMMIT_JUMP=50.0_LDP
       FG_DIV_HEAL_CAP=1.0E+6_LDP
       FG_BULK_CONTR=.FALSE.
@@ -548,6 +557,17 @@
 !
       I_P_DEPTH_NEXT=0.0_LDP
       I_M_DEPTH_NEXT=0.0_LDP
+!
+! FG_RAY_SEEDED=1 reproduces the pre-certification harness state
+! (the array was unallocated, so the seed-fill waiver never armed
+! and the jump veto always evaluated). The certification cases
+! (79-83) model fresh rays instead so the waiver and the SEED
+! marks are observable.
+!
+      FG_RAY_SEEDED=1
+      IF(NCASE .EQ. 79 .OR. NCASE .EQ. 80 .OR. &
+         NCASE .EQ. 81 .OR. NCASE .EQ. 82 .OR. NCASE .EQ. 83) &
+         FG_RAY_SEEDED=0
 !
 ! Seed the lagged store with a smooth field; for 'fixed' the seed is
 ! the analytic fixed point of a two-bin coupled solve so the pass
@@ -926,19 +946,22 @@
         END IF
 !
 ! cerb/cer0/cern/cer2/cerp (79-83): Phase 2.15 commit gate
-! end-to-end. A huge positive KN_RAY_BULK_TOL floors every bulk
-! exit at its first pass, so the rays must leave classified
-! BULK_ONLY -- capped provisional writes (VC=3) under
-! FG_COMMIT_NC>0, retained store (VC=2) under NC=0, never a
-! converged commit or seeded mark. 'cern' keeps the strict
-! BTOL=0 path where the same rays certify FULL_CONVERGENCE;
-! 'cer2' runs two refreshes to pin repeated provisional
-! behaviour; 'cerp' arms ray 3 as the probe so its suppressed
-! verdict stays out of the production cert census.
+! end-to-end. A negative KN_RAY_TOL disables the residual
+! exit so the rays march to the NPO>=6 bulk test, where the
+! huge positive KN_RAY_BULK_TOL floor accepts them -- and the
+! residual still reads above the (negative) tolerance, so the
+! classifier lands on BULK_ONLY: capped provisional writes
+! (VC=3) under FG_COMMIT_NC>0, retained store (VC=2) under
+! NC=0, never a converged commit or seeded mark. 'cern'
+! keeps the strict BTOL=0 path where the same rays certify
+! FULL_CONVERGENCE; 'cer2' runs two refreshes to pin repeated
+! provisional behaviour; 'cerp' arms ray 3 as the probe so
+! its suppressed verdict stays out of the cert census.
 !
         IF(NCASE .EQ. 79 .OR. NCASE .EQ. 80 .OR. &
            NCASE .EQ. 82 .OR. NCASE .EQ. 83)THEN
           KN_RAY_BULK_TOL=1.0E30_LDP
+          KN_RAY_TOL=-1.0E-30_LDP
         END IF
 ! rfmx (84): cap every ray at one pass so all exits are
 ! iteration-limited -- the all-ray flag must read F.
@@ -1986,14 +2009,18 @@
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c08 ',ICLS_T,IREA_T
 !
-! c09: non-finite (Inf) P residual -> INV.
+! c09: non-finite (Inf) P residual -> INV. The finite M
+! channel gets a valid verify so the worst-channel reason is
+! the P channel's non-finite state, not the missing verify.
       RE_T(1)=1.0E-4_LDP; RE_T(2)=RQINF
+      QQ_T(1)=0.0_LDP; QQ_T(2)=0.0_LDP
       CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c09 ',ICLS_T,IREA_T
 !
 ! c10: nominal exits with the verify never run -> INV.
       RE_T(2)=1.0E-4_LDP
+      QQ_T(1)=-1.0_LDP; QQ_T(2)=-1.0_LDP
       CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c10 ',ICLS_T,IREA_T
