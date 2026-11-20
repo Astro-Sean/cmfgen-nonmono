@@ -2096,6 +2096,21 @@
 	END IF
 	END FUNCTION KN_PROD_POOL_STAT
 !
+! KN_PROD_OMEGA_OK (MODE 1, 20-Nov-2026): may the production
+! residual pool feed the adaptive-omega controller this refresh?
+! Status 2 (no production rays) must not -- KN_RF_RESID is then
+! the fail-closed 1.0 sentinel, not a measured residual, so both
+! the V2 rho pool and the legacy cross-refresh ratio have to keep
+! their previous state (and KN_RF_RESID_PRV must not record the
+! sentinel as this refresh's denominator for the next ratio).
+!
+	PURE LOGICAL FUNCTION KN_PROD_OMEGA_OK(ISTAT)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: ISTAT
+	KN_PROD_OMEGA_OK=(ISTAT .NE. 2)
+	END FUNCTION KN_PROD_OMEGA_OK
+!
 ! KN_OMEGA_POOL_V1 (audit Issues 2 + 5): pool the non-diverged rays'
 ! per-direction same-map contraction ratios, take the P90 quantile
 ! and map it to the next INEXT_RELAX target. The ratios describe the
@@ -8179,7 +8194,7 @@ C
 	REAL(KIND=LDP), ALLOCATABLE :: RHO_M_LS(:),RHO_P_LS(:)
 	REAL(KIND=LDP) KN_NOP_SM0,KN_NOP_SP0,KN_NOP_SM1,KN_NOP_SP1
 	REAL(KIND=LDP) RHO_H(4),RHO_MX
-	INTEGER KN_PROD_XRAY
+	INTEGER KN_PROD_XRAY,KN_PROD_IST
 	LOGICAL, ALLOCATABLE :: KN_PROD_MASK(:)
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
@@ -8911,10 +8926,10 @@ C
 	  KN_PROD_MASK(LS)=.NOT. KN_NOCP_PROBE_RAY(LS)
 	  IF(.NOT. KN_PROD_MASK(LS))KN_PROD_XRAY=LS
 	END DO
+	KN_PROD_IST=KN_PROD_POOL_STAT(NDV_LS,KN_PROD_XRAY)
 	KN_RF_RESID=KN_PROD_RESID_V1(RES_LS,NDV_LS,KN_PROD_XRAY)
-	IF(KN_PROD_POOL_STAT(NDV_LS,KN_PROD_XRAY) .EQ. 2)
-	1  WRITE(LUER,'(A)')
-	2  '    KN-PROD resid: no production rays -- fail-closed 1.0'
+	IF(KN_PROD_IST .EQ. 2)WRITE(LUER,'(A)')
+	1  '    KN-PROD resid: no production rays -- fail-closed 1.0'
 !
 ! Adaptive under-relaxation of the lagged store (KN_ADAPT_RELAX,
 ! default T): the residual maxima of successive refresh calls are the
@@ -8946,7 +8961,17 @@ C
 ! filled below for telemetry only. F restores the cross-iteration
 ! estimate.
 !
-	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP)THEN
+! MODE 1 (20-Nov-2026): an empty production pool reports the
+! fail-closed 1.0 sentinel. That value must not enter omega
+! adaptation on either path -- V2's pool has no production
+! samples anyway, but the legacy cross-refresh ratio would read
+! it as a measured residual and also write it into
+! KN_RF_RESID_PRV as the next denominator. KN_PROD_OMEGA_OK
+! keeps the whole block off for status 2 only; status 0/1 keep
+! the existing behaviour exactly.
+!
+	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP .AND.
+	1   KN_PROD_OMEGA_OK(KN_PROD_IST))THEN
 	  IF(FG_ADAPT_OMEGA_V2)THEN
 	    CALL KN_OMEGA_POOL_V1(RHO_M_LS,RHO_P_LS,NDV_LS,
 	1      INEXT_RELAX,T2,L,RHO_H(2),RHO_H(1),RHO_MX,
