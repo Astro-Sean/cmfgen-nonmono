@@ -30,26 +30,42 @@ Attribution vs the phase objective:
   (median -31.0). V12 clamps this input to -0.999. J climbs
   smoothly inward from ~1e-9 to ~1e-3 across the whole compressed
   column; the offending values live at the inner boundary.
-- **(C) possibly-legitimate boundary J — partially open.** At
-  idx 70 the local source scale (ZETA=ETA/CHI ~ 3e-6) is ~300x
-  below computed J. A scattering-dominated diffusion ceiling
-  (J ~ S/(1-omega)) could justify ~1e-3 only if omega ~ 0.997;
-  cannot be fully ruled out on these fields, but the tail events
-  (up to 94x cap), the uniform spike across all 44,924 frequencies,
-  and 36% F_DID_NOT_CONV incidence tilt toward artifact.
-- **(A) cap miscalibration — secondary.** The KNOP-derived "5e-5
-  peak" calibration came from a different solver/model and does not
-  transfer; but the sweep shows the cap is doing real work, not
-  clipping noise: at 2e-3 the event count only falls to 64k and the
-  spectrum diverges 78% in spectral mass — the field inflates into
-  whatever headroom it gets.
+- **(C) possibly-legitimate boundary J — narrowed by measurement
+  (updated 20-Nov-2026).** The scattering fraction is measured:
+  omega = CHI_SCAT/CHI = 0.9992 at idx 70 (0.9996+ at idx 59-62),
+  so the diffusion-limit equilibrium J_eq = ETA/(CHI-CHI_SCAT)
+  ~1.6e-3 at the first-divergence frequency and ~4.1e-2 median
+  across events. Computed J sits at 0.36-0.62 of the local
+  equilibrium at the dominant cells — below bound, not inflated
+  vs it — and below B_nu(T=8.7e4 K) ~2e-3. A legitimate
+  sub-equilibrium field cannot be ruled out for the bulk; the
+  unambiguous artifact subset is the 1.5% of events that exceed
+  their own J_eq (idx 62, max 11x) plus the 36%
+  F_DID_NOT_CONV incidence.
+- **(A) cap miscalibration — quantitatively confirmed (added
+  20-Nov-2026).** The local transfer-equation equilibrium
+  J_eq = ETA/(CHI-CHI_SCAT) at the event cells is measurable per
+  event (CHI_SCAT is pure Thomson, calibrated exactly from ED).
+  Median J_eq at idx 70 is 4.1e-2 — the flat 1e-3 cap sits ~40x
+  below the local equilibrium bound. 98.5% of the 75,738 events are
+  BELOW their own J_eq; only 1,022 (1.5%) exceed it (max 11x,
+  concentrated at idx 62, the sigma_true=-156 cell). The cap is
+  not clipping an out-of-equilibrium runaway at idx 70; it is
+  firing on a field that sits 4% of the local equilibrium scale.
+  The KNOP-derived "5e-5 peak" calibration also came from a
+  different solver/model and does not transfer. But the sweep
+  shows the cap is still doing work: at 2e-3 the event count only
+  falls to 64k and the spectrum diverges 78% in spectral mass —
+  the field grows into whatever headroom it gets.
 
 Recommendation: **retain RESC_JMAX=1.0e-3** (see sec. 11). Raising
 it admits larger unverified fields into the warm-start chain and
 materially reshapes the emergent spectrum without resolving the
 events. The real fix is a formal solution valid at sigma_true
 <-1 (the KNOP arbitrary-velocity path, Knop et al. 2009), not
-cap recalibration.
+cap recalibration. A per-cell equilibrium-relative bound (sec. 6a)
+is the natural next-generation criterion and should be evaluated
+in a separate review.
 
 ## 2. Baseline reproducibility
 
@@ -148,11 +164,13 @@ idx ~15, ~1e-4 by the low 60s — reaching ~1e-3 exactly at the inner
 boundary (idx 70). The whole compressed column inflates; only the
 inner boundary cells cross the cap. ZETA (= ETA/CHI, the local
 source function, OPACITIES_V4.INC:171) at those cells is ~3e-6 —
-computed J sits ~300x above local source scale. A scattering-
-dominated diffusion ceiling J ~ S/(1-omega) could reach ~1e-3 only
-at omega ~ 0.997; the tail events (up to 94x cap) exceed any such
-ceiling. FEDD at the boundary converges to ~0.335-0.95 (finite,
-physical-looking) — the Eddington factor gives no warning.
+computed J sits ~300x above local source scale. The
+diffusion-limit ceiling is not ZETA though: with omega measured
+at 0.9992 the local equilibrium J_eq = ETA/(CHI-CHI_SCAT) is
+~1.6e-3 at this frequency (sec. 6a) — the computed J sits BELOW
+it, not above. FEDD at the boundary converges to ~0.335-0.95
+(finite, physical-looking) — the Eddington factor gives no
+warning.
 
 - F_DID_NOT_CONV=T on 27,433 events (36%) — on a third of affected
   frequencies the f iteration did not even converge, yet still
@@ -198,6 +216,58 @@ value is dimensionally valid but physically uncalibrated for this
 model family — and the sweep data shows the artifact makes any
 single number arbitrary in a different way: whatever ceiling is
 chosen, the field inflates toward it.
+
+## 6a. Local-equilibrium bound J_eq = ETA/(CHI-CHI_SCAT) (added 20-Nov-2026)
+
+ZETA in sec. 4a/6 is ETA/CHI with the scattering emissivity
+excluded (verified: zetab ~1.3e-6 << CHI_SCAT*J ~5e-4, so ETA is
+the thermal+line emissivity only). The physically relevant bound
+is the local fixed point of the steady moment equation,
+J_eq = ETA/(CHI-CHI_SCAT), the value J approaches in the
+optically thick diffusion limit. It is computable per event
+because CHI_SCAT is pure Thomson scattering:
+CHI_SCAT(I) = ED(I)*6.65e-15 exactly (verified against the
+first-divergence LUER table to all printed digits at idx 59-70).
+Boundary B_nu(T=8.67e4 K at idx 70) is 1.6e-3-4e-3 across the
+event band, so the measured J ~1e-3 also sits below the local
+Planck scale.
+
+Measured on rmax_1000 (all 75,738 events; machine-readable:
+`obs_ensemble/jres_phase23_jeq_summary.json`):
+
+- 69,561 events have CHI > CHI_SCAT (finite bound); the other
+  6,177 (idx 59-61) are nearly pure-scattering cells where no
+  finite local equilibrium exists.
+- **98.5% of bounded events have rjmax < J_eq**; median
+  rj/J_eq = 0.044 at idx 70, 0.28-0.78 at idx 59-69.
+- **Over-equilibrium subset: 1,022 events (1.5%)**, max rj/J_eq
+  = 11.2, with 894 at idx 62 alone (sigma_true = -156, the
+  sharpest compression cell) — the only place the computed field
+  exceeds the local transfer equilibrium.
+- Absorption optical depth across the idx 69->70 cell
+  (DR = 4.3e9 cm): median ~2e5 — the boundary is deeply
+  thermalizing at these frequencies, so J << J_eq at idx 70
+  (median 4% of equilibrium) is not explained by photon escape.
+  Either the V12 formal solution under-predicts boundary J in
+  the compressed column, or the inner boundary condition pins
+  J(ND) below the local equilibrium its own diffusion argument
+  would imply. Both readings are solver-defect classes, not a
+  valid high-J physics.
+- The over-cap tail (max 9.4e-2) remains within the range of
+  J_eq values across frequencies (J_eq spans 1.4e-3 .. 1.6e-1),
+  so amplitude alone does not prove artifact; the 11x
+  over-equilibrium events at idx 62 do.
+
+Verdict on the ceiling: the flat 1e-3 cap is dimensionally valid
+but has no calibration to local physics — it sits ~40x below the
+median equilibrium bound at the dominant event site. It flags
+fields that are almost all sub-equilibrium; the genuinely
+anomalous (over-equilibrium) population is a ~1.5% subset at the
+max-compression cell. A physically motivated replacement is a
+per-cell bound of order kappa*J_eq (or a bound on J/J_eq), which
+would retain the idx-62 artifact guard without firing on
+sub-equilibrium fields — to be evaluated under separate review,
+not adopted here.
 
 ## 7. Threshold sensitivity (RESC_JMAX sweep)
 
@@ -295,7 +365,7 @@ convergence certifies the f iteration stopped; it does not certify
 the formal solution in the compressed regime. 36% of events carried
 F_DID_NOT_CONV=T — the iteration literally did not converge on
 a third of the offending frequencies, yet still emitted
-finite-but-inflated J.
+finite over-cap J.
 
 Knop, Hauschildt & Baron (2009, A&A 496, 295, DOI
 10.1051/0004-6361:200810290) built their formal solver because
@@ -310,21 +380,31 @@ What the measurements establish:
   (13 byte-identical renders), localized (idx 59-70, the inversion
   cells), and marginal in the median (1.17x cap) with a real tail
   (94x).
-- The J field at those cells is inflated vs local source scale by
-  ~300-1000x; whether that is an artifact or a legitimate
-  diffusion-limit asymptote (J ~ S/(1-omega)) is not fully
-  decidable from J/ZETA/ETA alone — the discriminator is an
-  independent formal solver on the same grid, i.e. the
-  DO_NONMONO_KNOP path.
+- The J field at those cells is inflated vs the pure-emissivity
+  source scale (ZETA) by ~300-1000x, but that comparison omits
+  the scattering fixed point: vs the true local equilibrium
+  J_eq = ETA/(CHI-CHI_SCAT) the field is mostly BELOW bound
+  (median 4% at idx 70, 28-78% at idx 59-69), with a real
+  over-equilibrium subset of 1,022 events (1.5%, max 11x) at the
+  sharpest compression cell idx 62. Whether the sub-equilibrium
+  boundary J is a legitimate photon-escape value or an
+  under-predicted artifact (tau_abs ~2e5 argues the cells
+  thermalize) is not decidable from J/ETA/CHI alone — the
+  discriminator is an independent formal solver on the same
+  grid, i.e. the DO_NONMONO_KNOP path.
 - The restore is a correct stopgap: it substitutes the previous
   frequency's clipped boundary field — same spike shape, pinned
   just under cap — so JNU_PREV remains smooth in frequency.
 
 Unresolved physics questions:
 
-1. Is the ~1e-3 boundary J a correct photon-trapping asymptote or
-   an inflated artifact? Decide by running the same model through
-   the KNOP/FSM formal path and comparing J at idx 59-70.
+1. Is the ~1e-3 boundary J a correct sub-equilibrium value or an
+   under/over-predicted artifact? The over-equilibrium subset at
+   idx 62 (max 11x local J_eq) is unambiguous artifact; the bulk
+   sub-equilibrium field is undecided. Decide by running the same
+   model through the KNOP/FSM formal path and comparing J at
+   idx 59-70 (the Phase 2.4 V12-vs-KNOP comparison addresses
+   exactly this).
 2. Does the restored boundary J bias the emergent spectrum
    systematically (it feeds the Eddington factor -> flux)? The
    10-78% spectral divergence shows the field is load-bearing;
@@ -346,17 +426,24 @@ support recalibrating upward:
   mass — a material physics change with no evidence it is toward
   truth.
 - The threshold's KNOP-derived calibration (5e-5 peaks) does not
-  transfer to this model's inversion physics, but the cap's actual
-  role here is different: it is an early-warning bound on a region
-  where the formal solver is out-of-domain. It is doing that job.
+  transfer to this model's inversion physics, and the measured
+  J_eq analysis shows the flat cap sits ~40x below the local
+  equilibrium bound at the dominant event cell — but the cap's
+  actual role here is an early-warning bound on a region where
+  the formal solver is out-of-domain, and it does catch the
+  genuine over-equilibrium subset at idx 62. No measured basis
+  for a better flat number exists; raising it demonstrably moves
+  the artifact's amplitude, not its count to zero.
 
-Better long-term criterion (future phase, needs review): bound J
-against the local source scale (e.g. flag when RJ exceeds
-kappa*ZETA or the diffusion-limit J=S/(1-omega) at that cell) —
-a physically motivated per-cell test rather than a flat number —
-AND/OR route the compressed cells to the arbitrary-velocity formal
-solve. Do not change the production default under this audit;
-the sweep data, not opinion, should drive that review.
+Better long-term criterion (future phase, needs review): a
+per-cell equilibrium-relative bound — flag when RJ exceeds
+kappa*J_eq = kappa*ETA/(CHI-CHI_SCAT) at that cell (sec. 6a) —
+retains the idx-62 artifact guard without firing on
+sub-equilibrium fields. This is now backed by measurement, not
+just dimensional argument. AND/OR route the compressed cells to
+the arbitrary-velocity formal solve. Do not change the
+production default under this audit; the sweep data, not
+opinion, should drive that review.
 
 ## Appendix: run inventory
 
@@ -389,3 +476,74 @@ with `--remove-destination` + hashing the source PINIT, and all
 existing manifests were repaired to the true values. Render data
 was unaffected — OBSFLUX hashes prove all 13 baseline renders ran
 the same effective config.
+
+## Appendix B: exact commits and source diffs
+
+Diagnostic and audit commits for this phase (all on `main`,
+ancestors of HEAD at write time; `git show <sha>` for diffs):
+
+| commit | content |
+|--------|---------|
+| `9fa3c274` | jres diag: guard SIGMA_TRUE read - unallocated on stock OBS render |
+| `4a37ef59` | jres diag: seal section totals so JTOT survives aborting renders |
+| `9b3296df` | jres audit: event-file measurement - 75738 marginal over-cap restores, all on the sigma floor |
+| `b52c01ee` | jres diag: prev-field maxima, source scales, sigma_true_core record + bounded JDMP dump |
+| `307cfc1a` | jres events driver: extended signature fields |
+| `51abf436` | jres diag: sigt_wrk temp array + snapshot maxima + source scales at event sites |
+| `f6d99e78` | docs: Phase 2.3 J_RESCUE threshold attribution - measured results (this document) |
+
+Frozen executables (byte-identical to the `exe/` copies at freeze
+time, sha256 reverified 20-Nov-2026):
+
+- Baseline: `exe_frozen/844b17b0fb430c6e_79b0651256a8b508/`
+  cmf_flux `79b0651256a8b508cf0250dcfbf2b486a60a5b9a573d035f84993f271e0b2375`,
+  cmfgen_dev `844b17b0fb430c6e145bd7ecad6dd55bf98aeb3abb2cc61920fcc531c7c0019e`,
+  source HEAD `538b15d6` (PROVENANCE.txt).
+- Diagnostic-extended (Phase 2.3 JEV fields + JDMP):
+  `exe_frozen/844b17b0fb430c6e_d0125473c474290c/cmf_flux.exe`
+  `d0125473c474290c5af82780f227f7c5dbc6ae0a07e71a2ceb7bbb6f7de93f1b`.
+
+## Appendix C: independent verification addendum (20-Nov-2026)
+
+Post-hoc checks re-run on the archived data (no re-render needed;
+all values reproduced from the recorded event files):
+
+1. **Limiter attribution recount.** Independently recomputed
+   CAP_USED vs CAP_PREV for every JEV record in all 11 runs:
+   ABSOLUTE limiter on 100% of events in every run (PREV limiter:
+   0). NRESC recounts: 75,738 x 13 baseline renders + rmax_1000;
+   71,752 / 73,821 / 64,032 for the sweep — all match manifests.
+2. **OBSFLUX sha256 re-verified on disk**: all 13 baseline
+   renders, off_newexe and rmax_1000 =
+   `bd78a10852347cde...` (byte-identical); sweep =
+   `d81a2d4f...`, `a1bfe073...`, `34a7ed5b...` as reported.
+3. **SIGT reconstruction cross-check.** The offline replica
+   (`sigma_true_check.py`) applied to the FULL-PRECISION RVTJ
+   R,V arrays reproduces every recorded JEV SIGT to <=5e-4
+   (the print precision of the JEV record) across all 283k events
+   in rmax_1000/1100/1250/2000. Earlier replica-vs-JDMP residuals
+   up to 4.3 at idx 62-70 are dump-print precision (ES14.5 = 6
+   digits) amplified by the ~1/dlnR stencil weights on the
+   compressed grid — not a stencil or orientation defect; the
+   replica matches the production routine term-for-term at both
+   boundaries (verified algebraically).
+4. **Production-routine unit test**: `unit_tests/python/
+   test_sigma_true.py` re-run 20-Nov-2026: 16/16 PASS, including
+   homologous V=aR (max|sigma|=7e-14), the independent
+   mirror-stencil check (T3b, max err 0), compression
+   sigma<-1, and both one-sided boundaries. This is the
+   "allocated SIGMA_TRUE" analogue: the render diagnostic calls
+   the same `SIGMA_TRUE_CORE` into a scratch array, so
+   correctness reduces to stencil+inputs, covered here and in
+   item 3.
+5. **Manifest augmentation**: `command` (`./batobs.sh`), `cwd`
+   (`<run>/obs`) and `MKL_NUM_THREADS` (`unset`, mkl/2026.0
+   module loaded) were added post-hoc to all run manifests on
+   20-Nov-2026; values are fixed by `run_one.sh` and the slurm
+   env, recorded in each manifest's `manifest_augmented` note.
+   Event/output data untouched.
+6. **Diffusion-equilibrium audit (sec. 6a)**: CHI_SCAT = ED *
+   6.65e-15 verified exactly against the LUER first-divergence
+   table; ETA excludes the scattering term (zetab << CHI_SCAT*J).
+   J_eq bound computed per event; summary in
+   `obs_ensemble/jres_phase23_jeq_summary.json`.
