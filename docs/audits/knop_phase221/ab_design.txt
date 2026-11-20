@@ -1,0 +1,8 @@
+B1_PREFLAG job 13427111 cmfdist=exe_frozen/93364cac... exe sha256=93364cace2fabdd94577f8ae983abbddd9affdb2a453e1c688a2a4f9bdc9d7de (git ~217049ee, 0 FG_RF_ALL_CONV occurrences in source)
+B2_POSTFLAG job 13427115 cmfdist=exe_frozen/58a699d0f37864e6_abe4725807474143 exe sha256=58a699d0f37864e6741c5f089bbb12d8d6ee838b628ab993b6e636c0ba61732d (HEAD 595f9ae7)
+B1 OBS 13427112, B2 OBS 13427116 (pending, 200G)
+VADAT_INIT sha256 f238af979b9613d318e0e2b665f42205444761e4dcea0c29d0bae2561626c4c0 identical across A1/B1/B2
+SN_HYDRO_DATA sha256 347eda19ce4f645ccf41dfec737c8de6f55078de810c0ff0971ee95213d72fa0 identical to iso_M donor
+resolved configs differ only in description + pinned exe section
+A1/A2 (13414391/13414398) launched 10:52 on exe 93364cac = PRE-FLAG replicates (user design: commits 8b421089..217049ee)
+delta 217049ee..595f9ae7 on solver/obs source = 8 commits (certification bundle)
