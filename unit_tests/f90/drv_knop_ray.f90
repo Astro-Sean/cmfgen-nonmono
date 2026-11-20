@@ -121,6 +121,7 @@
       IF(CNAME .EQ. 'p1t1h') NCASE=74
       IF(CNAME .EQ. 'p1t1d') NCASE=75
       IF(CNAME .EQ. 'p1t1c') NCASE=76
+      IF(CNAME .EQ. 'p1t1x') NCASE=77
       IF(CNAME .EQ. 'prbz')  NCASE=69
       IF(CNAME .EQ. 'prbl')  NCASE=70
       IF(CNAME .EQ. 'prbr')  NCASE=71
@@ -177,6 +178,10 @@
       END IF
       IF(NCASE .EQ. 76)THEN
         CALL DRV_P1T1R('ctrl')
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 77)THEN
+        CALL DRV_P1T1R('cert')
         GOTO 999
       END IF
 !
@@ -3853,6 +3858,66 @@
           CLOSE(97)
         END DO
         WRITE(*,'(A,I10)')'P1R_CTRL_NEVAL=',NEVAL
+        GOTO 995
+      END IF
+!
+! cert mode: production solve with KN_Q_RESID armed, then classify
+! the outcome under the Phase 2.13 convergence contract using the
+! returned exit class and residual quantities only. Optional
+! p1t1x_opts.txt supplies a KN_RAY_BULK_TOL override (strategy D).
+!
+      IF(MODE .EQ. 'cert')THEN
+        OPEN(76,FILE='p1t1x_opts.txt',STATUS='OLD',IOSTAT=IOS)
+        IF(IOS .EQ. 0)THEN
+          READ(76,*,IOSTAT=IOS)T3
+          IF(IOS .EQ. 0)KN_RAY_BULK_TOL=T3
+          CLOSE(76)
+        END IF
+        ALLOCATE(KN_Q_LS(1),KN_QS_STAT(1),KN_QA_Q(1,2), &
+      KN_QA_J(1,2),KN_QA_L(1,2),KN_QA_VOLD(1,2),KN_QA_VN(1,2), &
+      KN_QA_VM(1,2),STAT=IOS)
+        KN_Q_RESID=.TRUE.
+        OPEN(77,FILE='p1t1d_seed.txt',STATUS='OLD',IOSTAT=IOS)
+        IF(IOS .EQ. 0)THEN
+          READ(77,'(A)')WLN
+          IF(WLN(1:1) .EQ. 'N' .OR. WLN(1:1) .EQ. 'n')THEN
+            YV=Y0
+          ELSE
+            REWIND(77)
+            READ(77,*)YV
+          END IF
+          CLOSE(77)
+        ELSE
+          YV=Y0
+        END IF
+        CALL YINJECT(YV)
+        KN_RAY_OMEGA=1.0_LDP
+        CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
+      NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
+      RHO_MSV,RHO_PSV,NCLS8,NNLS8)
+        QRES=-1.0_LDP
+        IF(ALLOCATED(KN_Q_LS))QRES=KN_Q_LS(1)
+        WRITE(*,'(A,I3,A,ES16.8,A,I4,A,I10,A,I10,A,ES16.8)') &
+      'P1X_RAW ixit=',NXITSV,' resid=',RESIDSV,' npass=',NPASSSV, &
+      ' nbad=',NBAD8,' ntot=',NTOT8,' qres=',QRES
+        IF(NDIV8 .GT. 0 .OR. RESIDSV .NE. RESIDSV)THEN
+          WLN='INVALID_STATE'
+        ELSE IF(NXITSV .EQ. 5)THEN
+          WLN='DIVERGENCE'
+        ELSE IF(NXITSV .EQ. 4)THEN
+          WLN='ITERATION_LIMIT'
+        ELSE IF(NXITSV .EQ. 3 .OR. NXITSV .EQ. 6)THEN
+          WLN='STAGNATION'
+        ELSE IF(NXITSV .EQ. 1 .OR. (NXITSV .EQ. 2 .AND. &
+      RESIDSV .LE. KN_RAY_TOL .AND. QRES .LE. KN_RAY_TOL))THEN
+          WLN='FULL_CONVERGENCE'
+        ELSE IF(NXITSV .EQ. 2)THEN
+          WLN='BULK_ONLY'
+        ELSE
+          WLN='INVALID_STATE'
+        END IF
+        WRITE(*,'(A,A12,A,ES16.8)')'P1X_STATUS ',WLN, &
+      ' btol=',KN_RAY_BULK_TOL
         GOTO 995
       END IF
 !
