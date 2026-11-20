@@ -423,6 +423,11 @@
 ! diagnostic under DO_NONMONO_KNOP.
 !
 	LOGICAL GS_OK_OBS
+! GS_ALLCONV_OBS (Phase 2.18): trailing arg added to
+! GET_FG_GS_MATURITY for the all-ray refresh verdict; this call
+! was still on the pre-extension signature, which is an arg-count
+! mismatch on a unit with no explicit interface.
+	LOGICAL GS_ALLCONV_OBS
 	REAL(KIND=LDP) GS_CHG_OBS,GS_MAXCHG_OBS
 	REAL(KIND=LDP) GS_SW_MAXCHG_OBS,GS_RF_DCHG_OBS
 	INTEGER GS_CAP_OBS,GS_CAPPED_OBS,GS_NDIV_OBS,GS_NRAY_OBS
@@ -2487,7 +2492,8 @@
 	2    GS_NCONV_OBS,GS_NDIV_OBS,GS_NRAY_OBS,GS_NBAD_BLK_OBS,
 	3    GS_SW_MAXCHG_OBS,GS_SW_NCONV_OBS,GS_RF_DCHG_OBS,
 	4    GS_NSTAL_OBS,GS_NPLAT_OBS,
-	5    GS_SW_CAPPED_OBS,GS_SW_CAPTOT_OBS,GS_RF_CAPPED_OBS)
+	5    GS_SW_CAPPED_OBS,GS_SW_CAPTOT_OBS,GS_RF_CAPPED_OBS,
+	6    GS_ALLCONV_OBS)
 	  WRITE(LUER,'(/,A)')
 	1    ' ------------- KNOP I_NEXT maturity (OBS) -------------'
 	  WRITE(LUER,'(A,L1)')'    checkpoint restored     : ',GS_OK_OBS
@@ -2498,6 +2504,7 @@
 	  WRITE(LUER,'(A,I18)')'    cells >50% change   : ',GS_NCONV_OBS
 	  WRITE(LUER,'(A,ES12.4)')'    refresh resid dchg : ',GS_RF_DCHG_OBS
 	  WRITE(LUER,'(A,I18)')'    sweep cells >50%    : ',GS_SW_NCONV_OBS
+	  WRITE(LUER,'(A,L1)')'    all-ray refresh conv: ',GS_ALLCONV_OBS
 	  WRITE(LUER,'(A)')' ----------------------------------------------------'
 	END IF
 !
