@@ -41,11 +41,8 @@ verdict so the mask can never disagree with the commit guards).
 - No production ray at all -> fixed fail-closed sentinel `1.0`,
   never `MAXVAL(RES)`. The probe value can never reach the
   controller: `1.0` is the established unsolved/diverged-ray
-  residual convention, sits above `GS_MATURE_TOL` and
-  `GS_UNSAFE_TOL` so the gate cannot read mature, and is
-  positive so the `KN_RF_RESID>0` guard still lets the omega
-  pool run, where an empty production pool retains
-  `OMEGA_PREV` via the `KN_RHO_MIN_SAM` path.
+  residual convention and sits above `GS_MATURE_TOL` and
+  `GS_UNSAFE_TOL` so the gate cannot read mature.
 
 `KN_RF_RESID` now calls this helper (:8911) after
 `KN_PROD_MASK`/`KN_PROD_XRAY` are built (:8889-8895).
@@ -53,7 +50,8 @@ verdict so the mask can never disagree with the commit guards).
 taken - 0 normal pool, 1 all-diverged fallback, 2 no-production
 sentinel - so a caller can tell a measured residual from the
 sentinel; the refresh prints a `KN-PROD resid:` banner when
-the sentinel fires.
+the sentinel fires. The status is computed once into the
+refresh-local `KN_PROD_IST` and drives the omega gate below.
 
 ### 2.2 `KN_OMEGA_POOL_V1` - optional `EXCL` arg (:2078)
 
@@ -64,6 +62,35 @@ convention, `KN_RHO_MIN_SAM` retain path and the omega formula are
 all unchanged. Call site passes `KN_PROD_XRAY` (:8912). An absent
 or `0` EXCL samples every ray - the probe-off path is the old code
 byte for byte.
+
+### 2.2b `KN_PROD_OMEGA_OK` - empty-pool omega gate (20-Nov-2026)
+
+The 1.0 sentinel passes the outer `KN_RF_RESID .GT. 0` test, so
+without a gate the adaptive-omega block ran on a state with no
+production rays:
+
+- V2 path: `KN_OMEGA_POOL_V1` has no production samples anyway
+  (EXCL removes the only ray) and retains `OMEGA_PREV`, but the
+  trailing `KN_RF_RESID_PRV=KN_RF_RESID` still wrote the sentinel
+  into the cross-refresh history.
+- Legacy path (`FG_ADAPT_OMEGA_V2=F`): worse - the sentinel is a
+  fake measured residual, so `KN_RF_RESID/KN_RF_RESID_PRV` adapts
+  `INEXT_RELAX` on a phantom value and then records `1.0` as the
+  next denominator.
+
+`KN_PROD_OMEGA_OK(ISTAT)` (pure, :2104) returns `.TRUE.` for
+pool status 0 and 1, `.FALSE.` only for status 2. The outer
+condition is now
+
+    IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP .AND.
+    1   KN_PROD_OMEGA_OK(KN_PROD_IST))THEN
+
+so an empty production pool skips the whole block: no V2 pool
+call, no legacy ratio update, no `KN_RF_RESID_PRV` write. Status
+0 and 1 keep the old behaviour exactly - the all-diverged
+fallback residual is a measured production value and feeds the
+controller as before. The sentinel stays `1.0` for the maturity
+gate; it just never reaches omega state.
 
 ### 2.3 `KN_PROD_MASK` / `KN_PROD_XRAY` - refresh-locals
 
@@ -161,11 +188,26 @@ all-diverged fallback). `KN_OMEGA_POOL_V1` EXCL coverage: probe
 above/below P90, pool size 40 vs 42, min-sample retain,
 diagnostic rho preserved, and an all-probe single-ray pool
 reporting `NSAM=0` with `OMEGA_PREV` retained for both sane and
-wild probe rho values.
+wild probe rho values, plus `KN_PROD_OMEGA_OK` returning T/T/F
+on status 0/1/2 and `KN_PROD_POOL_STAT=0` on a normal pool.
+
+End-to-end cases `prbz`/`prbl`/`prbr` arm the driver's only ray
+as the probe so no production rays remain:
+
+- `prbz` (V2 path): `RF_RESID=1.0`, `INEXT_RELAX` held at the
+  seeded 0.62, `KN_RF_RESID_PRV` held at the seeded 0.4.
+- `prbl` (legacy ratio): same frozen state - without the gate
+  the ratio would have read `1.0/0.4=2.5` and moved omega to
+  ~0.453.
+- `prbr` (two refreshes): pass 1 all-probe keeps `RESID_PRV=0.7`;
+  pass 2 un-arms the probe and the legacy ratio resumes on the
+  real residual `9.11235277E-15` with the preserved `0.7`
+  denominator, giving `INEXT_RELAX=0.81` exactly and writing
+  `RESID_PRV` to the real residual - never the sentinel.
 
 Results (this tree, 20-Nov-2026):
 
-- `test_knop_mode1.py`: 6/6 PASS. `prb`: RF_RESID=9.1124E-15 =
+- `test_knop_mode1.py`: 9/9 PASS. `prb`: RF_RESID=9.1124E-15 =
   rf3 bitwise, NTOT/NTB 180 vs 270 (probe's 90 cells out), probe
   resid 5.68E-15 still reported, VC(3)=7, KN-NOP delta=0,
   production RSTORE bitwise identical to rf3. `prbv`: would-be
@@ -206,5 +248,5 @@ Results (this tree, 20-Nov-2026):
 
 - Build: `make DEBUG=nodebug all` clean (only pre-existing #6075
   warnings), `exe/cmfgen_dev.exe` sha256
-  `841bece91585a1dd5395dfbe9955ba6f5d62c05716e12fbf4c6ea19dedd23000`.
+  `93364cace2fabdd94577f8ae983abbddd9affdb2a453e1c688a2a4f9bdc9d7de`.
 - Test driver: `unit_tests/bin/knray` (production objects + driver).
