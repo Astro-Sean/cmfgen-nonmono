@@ -870,11 +870,13 @@
 !
         IF(NCASE .EQ. 69 .OR. NCASE .EQ. 70)THEN
           CALL SET_FG_NOCP_PROBE(.TRUE.,1)
+          KN_ADAPT_RELAX=.TRUE.
           KN_RF_RESID_PRV=0.4_LDP
           INEXT_RELAX=0.62_LDP
           FG_ADAPT_OMEGA_V2=(NCASE .EQ. 69)
         END IF
         IF(NCASE .EQ. 71)THEN
+          KN_ADAPT_RELAX=.TRUE.
           KN_RF_RESID_PRV=0.7_LDP
           INEXT_RELAX=0.62_LDP
           FG_ADAPT_OMEGA_V2=.FALSE.
