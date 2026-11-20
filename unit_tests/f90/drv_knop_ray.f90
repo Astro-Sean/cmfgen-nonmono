@@ -2189,6 +2189,18 @@
       WRITE(*,'(A,2I3)')'CERT c28 ',ICLS_T,IREA_T
       INVR_T=0
 !
+! c29: NDIV divergence reported without the optional INVR argument
+! -> DIV. Pairs with c01 (no INVR, FULL) so the absent-argument
+! path is exercised on both sides of the NDIV gate.
+      IX_T(1)=1; IX_T(2)=1
+      RE_T(1)=1.0E-4_LDP; RE_T(2)=1.0E-4_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=0.0_LDP
+      ND_T=1
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c29 ',ICLS_T,IREA_T
+      ND_T=0
+!
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
       END SUBROUTINE DRV_CERT
