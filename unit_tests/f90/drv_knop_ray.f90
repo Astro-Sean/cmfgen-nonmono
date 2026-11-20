@@ -125,6 +125,14 @@
       IF(CNAME .EQ. 'prbz')  NCASE=69
       IF(CNAME .EQ. 'prbl')  NCASE=70
       IF(CNAME .EQ. 'prbr')  NCASE=71
+      IF(CNAME .EQ. 'csut')  NCASE=78
+      IF(CNAME .EQ. 'cerb')  NCASE=79
+      IF(CNAME .EQ. 'cer0')  NCASE=80
+      IF(CNAME .EQ. 'cern')  NCASE=81
+      IF(CNAME .EQ. 'cer2')  NCASE=82
+      IF(CNAME .EQ. 'cerp')  NCASE=83
+      IF(CNAME .EQ. 'rfmx')  NCASE=84
+      IF(CNAME .EQ. 'rfab')  NCASE=85
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -184,6 +192,10 @@
         CALL DRV_P1T1R('cert')
         GOTO 999
       END IF
+      IF(NCASE .EQ. 78)THEN
+        CALL DRV_CERT()
+        GOTO 999
+      END IF
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -205,6 +217,7 @@
       IF(NCASE .GE. 59 .AND. NCASE .LE. 62)KNP=3
       IF(NCASE .EQ. 63)KNP=3
       IF(NCASE .GE. 64 .AND. NCASE .LE. 66)KNP=3
+      IF(NCASE .GE. 79 .AND. NCASE .LE. 85)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -911,8 +924,38 @@
           INEXT_RELAX=0.62_LDP
           FG_ADAPT_OMEGA_V2=.FALSE.
         END IF
+!
+! cerb/cer0/cern/cer2/cerp (79-83): Phase 2.15 commit gate
+! end-to-end. A huge positive KN_RAY_BULK_TOL floors every bulk
+! exit at its first pass, so the rays must leave classified
+! BULK_ONLY -- capped provisional writes (VC=3) under
+! FG_COMMIT_NC>0, retained store (VC=2) under NC=0, never a
+! converged commit or seeded mark. 'cern' keeps the strict
+! BTOL=0 path where the same rays certify FULL_CONVERGENCE;
+! 'cer2' runs two refreshes to pin repeated provisional
+! behaviour; 'cerp' arms ray 3 as the probe so its suppressed
+! verdict stays out of the production cert census.
+!
+        IF(NCASE .EQ. 79 .OR. NCASE .EQ. 80 .OR. &
+           NCASE .EQ. 82 .OR. NCASE .EQ. 83)THEN
+          KN_RAY_BULK_TOL=1.0E30_LDP
+        END IF
+! rfmx (84): cap every ray at one pass so all exits are
+! iteration-limited -- the all-ray flag must read F.
+! rfab (85): two refreshes; the first converges (flag T), the
+! second is pass-capped (must reset to F, not stay stale T).
+        IF(NCASE .EQ. 84)KN_RAY_MAXPASS=1
+        IF(NCASE .EQ. 85)NRF=2
+        IF(NCASE .EQ. 80)FG_COMMIT_NC=0.0_LDP
+        IF(NCASE .EQ. 82)NRF=2
+        IF(NCASE .EQ. 83)THEN
+          CALL SET_FG_NOCP_PROBE(.TRUE.,3)
+          I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*2.5_LDP
+          I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*2.5_LDP
+        END IF
         DO IRF=1,NRF
         IF(NCASE .EQ. 71)CALL SET_FG_NOCP_PROBE(IRF .EQ. 1,1)
+        IF(NCASE .EQ. 85 .AND. IRF .EQ. 2)KN_RAY_MAXPASS=1
         IF(NRF .GT. 1)WRITE(*,'(A,I2)')'RF_PASS ',IRF
         CALL FG_KNOP_REFRESH_V1()
         WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
@@ -926,6 +969,7 @@
         WRITE(*,'(A,ES16.8)')'RF_INEXT_RELAX=',INEXT_RELAX
         WRITE(*,'(A,I8)')'RF_HEAL=',FG_DIV_HEAL
         WRITE(*,'(A,L2)')'RF_FAIL=',FG_RF_FAILED
+        WRITE(*,'(A,L2)')'RF_ALLCONV=',FG_RF_ALL_CONV
         WRITE(*,'(A,I8)')'RF_JREJ=',FG_COMMIT_REJ
         WRITE(*,'(A,I8)')'RF_NCREJ=',FG_NC_REJ
         WRITE(*,'(A,I8)')'RF_NCCAP=',FG_NC_CAP
@@ -939,6 +983,17 @@
           DO LS=1,KN_NP
             WRITE(*,'(A,I2,A,I3,A,ES16.8)')'VC ',LS,' ', &
       FG_RAY_VC(LS),' ',FG_RAY_DCH(LS)
+          END DO
+        END IF
+        IF(ALLOCATED(KN_CS_LS))THEN
+          DO LS=1,KN_NP
+            WRITE(*,'(A,I2,A,I3,A,I3)')'CLS ',LS,' ', &
+      KN_CS_LS(LS),' ',KN_CS_REA(LS)
+          END DO
+        END IF
+        IF(ALLOCATED(FG_RAY_SEEDED))THEN
+          DO LS=1,KN_NP
+            WRITE(*,'(A,I2,A,I2)')'SEED ',LS,' ',FG_RAY_SEEDED(LS)
           END DO
         END IF
         DO K=1,N_COMP
@@ -1851,13 +1906,182 @@
       END SUBROUTINE DRV_M1UNIT
 !
 ! ----------------------------------------------------------------------
+! Phase 2.15 certification classifier: deterministic table over
+! KN_CERTIFY covering every class, every reason code, both
+! severity folds and the LCERT=F legacy mode. The commit gate in
+! KNOP_RAY_SOLVE_V1 reads only ICLS==KN_CS_FULL, so these rows
+! pin the exact class the gate sees; 'cerb'/'cer0'/'cern'/'cer2'
+! run the same classes end-to-end through the refresh.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_CERT()
+      INTEGER I_C,ICLS_T,IREA_T
+      INTEGER IX_T(2),ND_T
+      REAL(KIND=LDP) RE_T(2),QQ_T(2)
+      REAL(KIND=LDP) RQNAN,RQINF,RQZ
+      LOGICAL LC_T
+      CHARACTER(LEN=8) CN_T
+!
+      KN_RAY_TOL=2.0E-3_LDP
+      KN_RAY_BULK_TOL=6.0E-2_LDP
+      RQZ=0.0_LDP
+      RQNAN=RQZ/RQZ
+      RQINF=1.0_LDP/RQZ
+      ND_T=0
+!
+! c01: both channels strict residual + verified -> FULL.
+      IX_T(1)=1; IX_T(2)=1
+      RE_T(1)=1.9E-4_LDP; RE_T(2)=1.9E-4_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=1.0E-4_LDP; LC_T=.TRUE.
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c01 ',ICLS_T,IREA_T
+!
+! c02: residual passes, verify residual above tol -> STAG.
+      QQ_T(1)=5.0E-3_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c02 ',ICLS_T,IREA_T
+!
+! c03: bulk floored exits, TOL < RES <= BTOL -> BULK.
+      IX_T(1)=2; IX_T(2)=2
+      RE_T(1)=8.3E-3_LDP; RE_T(2)=3.0E-2_LDP
+      QQ_T(1)=-1.0_LDP; QQ_T(2)=-1.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c03 ',ICLS_T,IREA_T
+!
+! c04: same inputs with BTOL=0 -> bulk rule disabled, an IXIT=2
+! arriving anyway has no contract -> INV (fail closed).
+      KN_RAY_BULK_TOL=0.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c04 ',ICLS_T,IREA_T
+      KN_RAY_BULK_TOL=6.0E-2_LDP
+!
+! c05: pass-cap exit -> ITLIM.
+      IX_T(1)=4; IX_T(2)=4
+      RE_T(1)=1.0E-2_LDP; RE_T(2)=1.0E-2_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c05 ',ICLS_T,IREA_T
+!
+! c06: same-direction stall exit -> STAG.
+      IX_T(1)=3; IX_T(2)=3
+      RE_T(1)=5.0E-2_LDP; RE_T(2)=5.0E-2_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c06 ',ICLS_T,IREA_T
+!
+! c07: NDIV set -> DIV regardless of channel exits.
+      IX_T(1)=1; IX_T(2)=1; ND_T=1
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c07 ',ICLS_T,IREA_T
+      ND_T=0
+!
+! c08: non-finite (NaN) M residual -> INV.
+      IX_T(1)=1; IX_T(2)=1
+      RE_T(1)=RQNAN; RE_T(2)=1.0E-4_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c08 ',ICLS_T,IREA_T
+!
+! c09: non-finite (Inf) P residual -> INV.
+      RE_T(1)=1.0E-4_LDP; RE_T(2)=RQINF
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c09 ',ICLS_T,IREA_T
+!
+! c10: nominal exits with the verify never run -> INV.
+      RE_T(2)=1.0E-4_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c10 ',ICLS_T,IREA_T
+!
+! c11: verify ran but returned a non-finite value -> INV.
+      QQ_T(1)=RQNAN
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c11 ',ICLS_T,IREA_T
+!
+! c12: severity fold -- M channel FULL, P channel BULK -> BULK.
+      IX_T(1)=1; IX_T(2)=2
+      RE_T(1)=1.0E-4_LDP; RE_T(2)=8.3E-3_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=-1.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c12 ',ICLS_T,IREA_T
+!
+! c13: LCERT=F -> legacy contract, no verify required.
+      IX_T(1)=1; IX_T(2)=1
+      RE_T(1)=1.0E-4_LDP; RE_T(2)=1.0E-4_LDP
+      QQ_T(2)=-1.0_LDP; LC_T=.FALSE.
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c13 ',ICLS_T,IREA_T
+!
+! c14: LCERT=F does not rescue a bulk exit either -> BULK.
+      IX_T(1)=2; IX_T(2)=2
+      RE_T(1)=8.3E-3_LDP; RE_T(2)=8.3E-3_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c14 ',ICLS_T,IREA_T
+      LC_T=.TRUE.
+!
+! c15: bulk code arriving with strict residual met -> FULL when
+! the verify also passes (the class follows the residual
+! contract, not the exit code alone).
+      RE_T(1)=1.0E-4_LDP; RE_T(2)=1.0E-4_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=0.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c15 ',ICLS_T,IREA_T
+!
+! c16: historical IXIT=0 exact exit still certifies.
+      IX_T(1)=0; IX_T(2)=0
+      RE_T(1)=0.0_LDP; RE_T(2)=0.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c16 ',ICLS_T,IREA_T
+!
+! c17: unset exit code -> INV.
+      IX_T(1)=-1; IX_T(2)=-1
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c17 ',ICLS_T,IREA_T
+!
+! c18: plateau exit (IXIT=6) -> STAG.
+      IX_T(1)=6; IX_T(2)=6
+      RE_T(1)=5.0E-2_LDP; RE_T(2)=5.0E-2_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c18 ',ICLS_T,IREA_T
+!
+! c19: severity fold -- BULK channel vs ITLIM channel -> ITLIM.
+      IX_T(1)=2; IX_T(2)=4
+      RE_T(1)=8.3E-3_LDP; RE_T(2)=1.0E-2_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c19 ',ICLS_T,IREA_T
+!
+! c20: explicit channel divergence code -> DIV.
+      IX_T(1)=5; IX_T(2)=5
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
+      WRITE(*,'(A,2I3)')'CERT c20 ',ICLS_T,IREA_T
+!
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+      END SUBROUTINE DRV_CERT
+!
+! ----------------------------------------------------------------------
 ! Maturity read-back (audit Issue 3): calls the production
 ! GET_FG_GS_MATURITY so the test sees the RF_DCHG the release gate
 ! in SOLVE_FOR_POPS is actually fed -- committed-or-pending after
 ! the fold, not the committed-only store delta.
 ! ----------------------------------------------------------------------
       SUBROUTINE DRV_MATURITY()
-      LOGICAL GS_OK_T
+      LOGICAL GS_OK_T,GS_ALLC_T
       REAL(KIND=LDP) GS_CHG_T,GS_MAX_T,GS_SWM_T,GS_RFD_T
       INTEGER GS_CAPF_T,GS_CAPP_T,GS_NDIV_T,GS_NRAY_T
       INTEGER*8 GS_NBAD_T,GS_NTOT_T,GS_NCONV_T,GS_NBLK_T,GS_SWN_T
@@ -1869,9 +2093,10 @@
       GS_NDIV_T,GS_NRAY_T,GS_NBLK_T, &
       GS_SWM_T,GS_SWN_T,GS_RFD_T, &
       GS_NSTL_T,GS_NPLT_T, &
-      GS_SWC_T,GS_SWT_T,GS_RFC_T)
+      GS_SWC_T,GS_SWT_T,GS_RFC_T,GS_ALLC_T)
       WRITE(*,'(A,L2)')'GS_OK=',GS_OK_T
       WRITE(*,'(A,ES16.8)')'GS_RFD=',GS_RFD_T
+      WRITE(*,'(A,L2)')'GS_ALLCONV=',GS_ALLC_T
       RETURN
       END SUBROUTINE DRV_MATURITY
 !
