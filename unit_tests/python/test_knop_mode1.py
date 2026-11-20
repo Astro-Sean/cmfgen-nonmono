@@ -82,7 +82,20 @@ def main():
         "M1U_RES_LOW": 0.3,
         "M1U_RES_ALLDV": 1.0e30,  # all-diverged fallback
         "M1U_RES_ALLDVP": 8.0,   # diverged production max, not probe
-        "M1U_RES_SOLO": 9.0,     # degenerate all-probe fallback
+        "M1U_RES_DVIST": 1.0e30,
+        # degenerate all-probe run: fixed fail-closed sentinel,
+        # independent of the probe residual value entirely
+        "M1U_RES_SOLO": 1.0,
+        "M1U_RES_SOLO2": 1.0,
+        "M1U_RES_SOLO3": 1.0,
+        "M1U_IST_SOLO": 2,
+        "M1U_IST_SOLO2": 2,
+        "M1U_IST_ALLDV": 1,
+        # empty production omega pool retains OMEGA_PREV whatever
+        # the probe rho looks like
+        "M1U_OM_NOPROD": 0.75,
+        "M1U_OM_NOPROD2": 0.75,
+        "M1U_NSAM_NOPROD": 0,
         "M1U_OM_BASE": None,
         "M1U_RHOP_DIAG": 1.5,    # diagnostic rho preserved
     }
