@@ -2265,8 +2265,15 @@
 	INTEGER, INTENT(OUT) :: ISTAT,IREA
 	INTEGER, OPTIONAL, INTENT(IN) :: INVR
 	INTEGER ISM,ISP,IRM,IRP
-	IF(PRESENT(INVR) .AND. INVR .NE. 0)THEN
-	  ISTAT=KN_CS_INV; IREA=INVR; RETURN
+!
+! Nested rather than combined: Fortran does not guarantee
+! short-circuit evaluation, so INVR must not be referenced before
+! PRESENT confirms it exists (portability, all compilers).
+!
+	IF(PRESENT(INVR))THEN
+	  IF(INVR .NE. 0)THEN
+	    ISTAT=KN_CS_INV; IREA=INVR; RETURN
+	  END IF
 	END IF
 	IF(NDIV .NE. 0)THEN
 	  ISTAT=KN_CS_DIV; IREA=6; RETURN
