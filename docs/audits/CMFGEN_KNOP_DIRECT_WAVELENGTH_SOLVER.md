@@ -178,3 +178,82 @@ No production default, equation, population, scattering,
 RESC_JMAX or J_RESCUE change is made or proposed here. The
 direct method solves the same discretised equations; the
 documented nonlinear guards remain post-solve policy.
+
+## 9. Driver-level verification: Newton solve of the
+   implemented store map (knray p1t1n, 20-Nov-2026)
+
+Before any production-facing implementation, the fixed-point
+question was tested directly on the implemented map in the
+existing p1t1b finite-difference harness
+(unit_tests/f90/drv_knop_ray.f90, new case tag p1t1n;
+diagnostic only, no production change).
+
+The state X is the packed compressing store: 3 compressing
+depths x 5 active slots x {P,M} channels, NX=30, seeded at
+X0V = the 30-iterate fixed point of the refreshed map. For
+each map variant the driver forms J2 (FD Jacobian, amplitude
+1e-5 of per-element scale), solves
+(I - J2) * DXP = F(X) - X by DGESV, and re-evaluates the true
+map residual ||F(X*) - X*||. Machine-readable record:
+docs/audits/knop_p1t1n_map_solve.json.
+
+### Results by map variant
+
+| variant    | map content                    | J nnz | rho(J)     | Newton RN0 -> RN_final        |
+|------------|--------------------------------|-------|------------|-------------------------------|
+| fullw05    | sweep + FG_KNOP_REFRESH_V1     |     0 | 0          | 0 -> 0 (X0V already exact)    |
+| swp_w05    | sweep only, omega=0.5          |    64 | 0.5 = 1-w  | 5.5e-7 -> 2.4e-14 in 1 step   |
+| swp_w10    | sweep only, omega=1.0          |    35 | 0 (nilpotent) | 1.1e-6 -> 0 exactly        |
+
+X*_swp05 = X*_swp10 to 2.7e-14 (L2): relaxation preserves
+the fixed point, as required. The true lagged fixed point
+sits 9.9e-7 max-element / 2.1e-6 L2 from the committed field
+X0V - the same order as the refresh's own truncation
+(residual 8.6e-9 relative on |X| ~ 70), so the production
+refresh is converging toward the same fixed point the direct
+solve lands on. FREEZE_I_PREV ablation (p1t1bf) leaves the
+spectrum identical: the packed-store map is not
+I_PREV-mediated. Perturbed-iteration probes (p1t1b) contract
+at 0.5 for the sweep map and 0 for the refreshed map -
+dynamic confirmation of the FD eigenvalues.
+
+### What this establishes
+
+1. The implemented store map is affine: the FD Jacobian is
+   amplitude-independent, and one Newton step takes the
+   residual to ~1e-14..1e-16. A direct solve of the lagged
+   fixed-point problem exists and is reachable in a single
+   dense 30x30 solve on this problem.
+2. On the p1t1 synthetic problem the unrelaxed lagged
+   Jacobian is nilpotent (rho = 0): the wavelength-coupling
+   graph is a DAG ending at the unwritten boundary slot.
+   Iteration non-contraction cannot occur here; the observed
+   eigenvalue 0.5 on the relaxed map is purely the
+   under-relaxation factor, not physics.
+3. The rho ~ 0.97 production stiffness is NOT reproduced by
+   this synthetic problem. Per section 4 it requires either
+   cyclic cross-depth donor chains or the |GAM|/DLN >> chi
+   regime; the p1t1 geometry has a three-depth acyclic
+   chain. A stiffer synthetic case (compression bands with
+   cyclic donor mapping, or much smaller DLN) is needed to
+   exercise the mechanism the Schur solver targets.
+4. Map-level Newton is not the Schur solver: (I - J)^-1
+   accelerates the implemented fixed-point iteration. Its
+   fixed point coincides with the wavelength-chain solution
+   when the map is affine, but it does not expose the
+   per-cell matrix r = b - A x residuals of Task 3. The
+   Schur-complement derivation in sections 2-3 remains the
+   production-relevant formulation; this result validates
+   that a direct solve of the same discrete equations is
+   both well-posed and computable.
+
+### Status
+
+PASS WITH LIMITATIONS: direct fixed-point solve verified
+exact on the implemented map for the synthetic problem;
+synthetic problem is acyclic and does not reproduce the
+production stiffness regime. No production solver, default,
+or dispatch touched; knray p1t1n/p1t1b/p1t1bf all RESULT_OK
+(binary rebuilt against libsubs.a at fg_j_cmf_nonmono_v1.f
+of 20-Nov-2026, including the concurrent KN_NOCP_PROBE
+MODE-1 changes).
