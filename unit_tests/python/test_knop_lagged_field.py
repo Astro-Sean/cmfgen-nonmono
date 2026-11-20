@@ -270,23 +270,19 @@ def test_bulk_exit_residual_floor():
     )
     check(
         "both bulk exits carry the residual floor",
-        FG.count("KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.") >= 2
+        FG.count("KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.") >= 2
         and FG.count("RES .LE. KN_RAY_BULK_TOL))THEN") == 2,
     )
     check(
-        "commit gate admits floored or unfloored bulk exits",
-        re.search(
+        "commit gate routes non-certified exits to the capped "
+        "provisional path",
+        "FG_COMMIT_CONV .AND. ICLS .NE. KN_CS_FULL" in FG
+        and re.search(
             r"IXIT_M \.EQ\. 2 \.AND\. \(KN_RAY_BULK_TOL \.LE\. "
             r"0\.0_LDP \.OR\.[\s\S]*?RES_M \.LE\. KN_RAY_BULK_TOL\)",
             FG,
         )
-        is not None
-        and re.search(
-            r"IXIT_P \.EQ\. 2 \.AND\. \(KN_RAY_BULK_TOL \.LE\. "
-            r"0\.0_LDP \.OR\.[\s\S]*?RES_P \.LE\. KN_RAY_BULK_TOL\)",
-            FG,
-        )
-        is not None,
+        is None,
     )
     check(
         "exit census prints the bulk floor",
