@@ -1,0 +1,24 @@
+Members found non-ELF (garbage or zero-length) in lib/libsubs.a at
+Phase 2.17 state (sha 5dfc4d92... and in the older FROZEN archive
+exe_frozen/508b12ca... - corruption predates Phase 2.17):
+
+  check_vec_nan.o        tools/check_vec_nan.f
+  chk_little_endian.o    tools/chk_little_endian.f
+  chk_string.o           tools/chk_string.f
+  condit_string.o        tools/condit_string.f
+  constants_mod.o        tools/constants_mod.f
+  count_occur.o          tools/count_occur.f   (zero-length)
+  form_sp_num.o          tools/form_sp_num.f
+  gen_in.o               tools/gen_in.f
+  get_lu.o               tools/get_lu.f
+  lambert_wm_fun.o       tools/lambert_wm_fun.f
+  set_kind_module.o      tools/set_kind_module.f
+  usr_list_opt.o         tools/usr_list_opt.f
+  usr_option.o           tools/usr_option.f
+  var_op_v6.o            newsubs/var_op_v6.f
+  wr_string.o            tools/wr_string.f
+
+All rebuilt from source with viper_intel_nodebug flags and restored
+in the repaired 631-member archive. None is pulled by the knray
+driver link; set_kind_module is a compile-time-only module whose
+runtime init symbol the driver resolves from a sibling object.
