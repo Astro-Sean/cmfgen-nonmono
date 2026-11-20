@@ -17,6 +17,10 @@
 !   sibref three-ray poisoned store -> KN_JMP_SIBREF_V1 reference
 !   rf3    three identical rays -> per-ray refresh census
 !   jmpx   floored ray + Inf sibling -> sibling-ref jump veto
+!   prb    ray 3 armed as diagnostic probe -> MODE 1 isolation
+!   prbv   probe with 1E6 store -> probe veto stays off counters
+!   prbs   probe + KN_SEED_ARM=1 -> arm-independent production
+!   punit  MODE 1 helper unit checks (resid pool, omega EXCL)
 !
       PROGRAM DRV_KNOP_RAY
       USE, INTRINSIC :: IEEE_ARITHMETIC
@@ -101,11 +105,16 @@
       IF(CNAME .EQ. 'p1t1')  NCASE=57
       IF(CNAME .EQ. 'p1t1b') NCASE=58
       IF(CNAME .EQ. 'p1t1bf')NCASE=58
+      IF(CNAME .EQ. 'p1t1n') NCASE=58
       IF(CNAME .EQ. 'repl')  NCASE=59
       IF(CNAME .EQ. 'replo') NCASE=60
       IF(CNAME .EQ. 'replc') NCASE=61
       IF(CNAME .EQ. 'replh') NCASE=62
       IF(CNAME .EQ. 'topo')  NCASE=63
+      IF(CNAME .EQ. 'prb')   NCASE=64
+      IF(CNAME .EQ. 'prbv')  NCASE=65
+      IF(CNAME .EQ. 'prbs')  NCASE=66
+      IF(CNAME .EQ. 'punit') NCASE=67
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -133,6 +142,10 @@
         CALL DRV_OMEGA(NCASE)
         GOTO 999
       END IF
+      IF(NCASE .EQ. 67)THEN
+        CALL DRV_M1UNIT()
+        GOTO 999
+      END IF
 !
 ! Grid: R decreasing outward->inward, mildly non-uniform so the
 ! log-space spans differ per cell.
@@ -153,6 +166,7 @@
       IF(NCASE .GE. 46 .AND. NCASE .LE. 48)KNP=3
       IF(NCASE .GE. 59 .AND. NCASE .LE. 62)KNP=3
       IF(NCASE .EQ. 63)KNP=3
+      IF(NCASE .GE. 64 .AND. NCASE .LE. 66)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -810,6 +824,29 @@
         SOLUTION_METHOD='INTEGRAL'
         NRF=1
         IF(NCASE .EQ. 46)NRF=2
+!
+! prb/prbv/prbs (64-66): MODE 1 probe isolation end-to-end. Ray 3
+! is armed as the diagnostic probe and its retained store is
+! scaled so its solve seeds, residuals and telemetry differ from
+! the two identical production rays. The sibling medians behind
+! JMP_SIB are unaffected (median of {s,s,k*s} is s), so rays 1-2
+! see the same inputs as 'rf3' and every production export must
+! match the rf3 baseline exactly. 'prbv' scales by 1E6 so the
+! probe's would-be commit fails the jump veto; 'prbs' additionally
+! arms KN_SEED_ARM=1 (sibling-median probe seed) to show the
+! production controller values are seed-arm independent.
+!
+        IF(NCASE .GE. 64 .AND. NCASE .LE. 66)THEN
+          CALL SET_FG_NOCP_PROBE(.TRUE.,3)
+          IF(NCASE .EQ. 65)THEN
+            I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*1.0E6_LDP
+            I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*1.0E6_LDP
+          ELSE
+            I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*2.5_LDP
+            I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*2.5_LDP
+          END IF
+          IF(NCASE .EQ. 66)CALL SET_FG_SEED_ARM(1)
+        END IF
         DO IRF=1,NRF
         IF(NRF .GT. 1)WRITE(*,'(A,I2)')'RF_PASS ',IRF
         CALL FG_KNOP_REFRESH_V1()
@@ -826,6 +863,12 @@
         WRITE(*,'(A,I8)')'RF_JREJ=',FG_COMMIT_REJ
         WRITE(*,'(A,I8)')'RF_NCREJ=',FG_NC_REJ
         WRITE(*,'(A,I8)')'RF_NCCAP=',FG_NC_CAP
+        WRITE(*,'(A,I14)')'RF_NBAD=',FG_GS_NBAD
+        WRITE(*,'(A,I14)')'RF_NTOT=',FG_GS_NTOT
+        WRITE(*,'(A,I14)')'RF_NBB=',FG_GS_NBAD_BLK
+        WRITE(*,'(A,I14)')'RF_NTB=',FG_GS_NTOT_BLK
+        WRITE(*,'(A,I14)')'RF_CAPPED=',FG_RF_CAPPED
+        WRITE(*,'(A,I14)')'RF_ICAP=',FG_INEXT_CAPPED
         IF(ALLOCATED(FG_RAY_VC))THEN
           DO LS=1,KN_NP
             WRITE(*,'(A,I2,A,I3,A,ES16.8)')'VC ',LS,' ', &
@@ -1624,6 +1667,91 @@
       END SUBROUTINE DRV_OMEGA
 !
 ! ----------------------------------------------------------------------
+! DRV_M1UNIT ('punit', 67): unit checks for the MODE 1 isolation
+! helpers on synthetic arrays -- KN_PROD_RESID_V1 fallback and
+! exclusion behaviour, KN_OMEGA_POOL_V1 EXCL pooling, and the
+! KN_NOCP_PROBE_RAY predicate. No ray grid needed.
+! ----------------------------------------------------------------------
+      SUBROUTINE DRV_M1UNIT()
+      INTEGER NDV_U(40)
+      REAL(KIND=LDP) RES_U(40),RHOM_U(40),RHOP_U(40)
+      REAL(KIND=LDP) OM0,OM1,OMB,RHO_P90,RHO_MED,RHO_MX
+      REAL(KIND=LDP) OM1B,P90B,MXB,MEDB
+      INTEGER NSAM,NSB,I2
+      LOGICAL L1,L2,L3
+!
+! --- residual pool ---
+!
+      NDV_U=0
+      RES_U(1)=0.1_LDP; RES_U(2)=0.3_LDP; RES_U(3)=5.0_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_PX=',
+     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_P0=',
+     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),0)
+      RES_U(3)=0.2_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_LOW=',
+     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      NDV_U(1)=1; NDV_U(2)=1
+      RES_U(1)=1.0E30_LDP; RES_U(2)=1.0E30_LDP; RES_U(3)=5.0_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_ALLDV=',
+     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      NDV_U(3)=1
+      RES_U(1)=7.0_LDP; RES_U(2)=8.0_LDP; RES_U(3)=9.0_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_ALLDVP=',
+     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      NDV_U(1:3)=0
+      RES_U(1)=9.0_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_SOLO=',
+     &  KN_PROD_RESID_V1(RES_U(1:1),NDV_U(1:1),1)
+!
+! --- omega pool exclusion ---
+!
+      NDV_U=0
+      DO I2=1,20
+        RHOM_U(I2)=0.60_LDP
+        RHOP_U(I2)=0.62_LDP
+      END DO
+      RHOM_U(21)=1.4_LDP; RHOP_U(21)=1.5_LDP
+      OM0=0.75_LDP
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:20),RHOP_U(1:20),NDV_U(1:20),
+     &  OM0,OMB,NSB,P90B,MEDB,MXB)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_BASE=',OMB
+      WRITE(*,'(A,I8)')'M1U_NSAM_BASE=',NSB
+      WRITE(*,'(A,ES16.8)')'M1U_P90_BASE=',P90B
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21),NDV_U(1:21),
+     &  OM0,OM1,NSAM,RHO_P90,RHO_MED,RHO_MX,21)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_EXHI=',OM1
+      WRITE(*,'(A,I8)')'M1U_NSAM_EXHI=',NSAM
+      WRITE(*,'(A,ES16.8)')'M1U_P90_EXHI=',RHO_P90
+      WRITE(*,'(A,ES16.8)')'M1U_RHOP_DIAG=',RHOP_U(21)
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21),NDV_U(1:21),
+     &  OM0,OM1B,NSB,P90B,MEDB,MXB)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_INCL=',OM1B
+      WRITE(*,'(A,I8)')'M1U_NSAM_INCL=',NSB
+      WRITE(*,'(A,ES16.8)')'M1U_P90_INCL=',P90B
+      RHOM_U(21)=0.05_LDP; RHOP_U(21)=0.06_LDP
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21),NDV_U(1:21),
+     &  OM0,OM1,NSAM,RHO_P90,RHO_MED,RHO_MX,21)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_EXLO=',OM1
+      WRITE(*,'(A,I8)')'M1U_NSAM_EXLO=',NSAM
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:5),RHOP_U(1:5),NDV_U(1:5),
+     &  OM0,OM1B,NSB,P90B,MEDB,MXB,5)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_FEW=',OM1B
+      WRITE(*,'(A,I8)')'M1U_NSAM_FEW=',NSB
+!
+! --- probe predicate ---
+!
+      CALL SET_FG_NOCP_PROBE(.TRUE.,3)
+      L1=KN_NOCP_PROBE_RAY(3)
+      L2=KN_NOCP_PROBE_RAY(1)
+      CALL SET_FG_NOCP_PROBE(.FALSE.,3)
+      L3=KN_NOCP_PROBE_RAY(3)
+      WRITE(*,'(A,3L2)')'M1U_PRED=',L1,L2,L3
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+      END SUBROUTINE DRV_M1UNIT
+!
+! ----------------------------------------------------------------------
 ! Maturity read-back (audit Issue 3): calls the production
 ! GET_FG_GS_MATURITY so the test sees the RF_DCHG the release gate
 ! in SOLVE_FOR_POPS is actually fed -- committed-or-pending after
@@ -1885,6 +2013,10 @@
       REAL(KIND=LDP), ALLOCATABLE :: SPSP(:,:),SMSP(:,:),SMPP(:,:), &
       SMMP(:,:)
       REAL(KIND=LDP), ALLOCATABLE :: J1(:,:),J2(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: XST(:),DXP(:),JN(:,:),ANW(:,:)
+      INTEGER, ALLOCATABLE :: IPI8(:)
+      INTEGER NWIT
+      REAL(KIND=LDP) RDX
       REAL(KIND=LDP), ALLOCATABLE :: RESV(:)
       REAL(KIND=LDP), ALLOCATABLE :: A8(:,:),VR8(:,:),WK8(:),WR8(:), &
       WI8(:),VL8(:,:)
@@ -2371,6 +2503,109 @@
       WR8(IMX),WI8(IMX),SQRT(WR8(IMX)**2+WI8(IMX)**2)
         END IF
         DEALLOCATE(A8,VR8,WK8,WR8,WI8,VL8)
+!
+! p1t1n: Newton solve of the implemented fixed-point equation
+! F(X)=X on the packed compressing store, run per variant inside
+! the IV loop so each map is solved with its own J2 and its own
+! refresh/relaxation setting (IRFI(IV), OMV(IV)). The three
+! variants isolate the physics: fullw05 packs the post-refresh
+! store, so its map already contains the inner fixed-point solve
+! and comes out locally constant; swp_w05/swp_w10 pack the
+! post-sweep store and are the raw lagged inner map whose spectral
+! radius the refresh exists to overcome. For an affine map one
+! Newton step is the exact fixed point; ||F(X*)-X*|| then reports
+! whether a stable fixed point exists and whether the map is
+! affine to FD accuracy. Step 0 reuses J2 (Jacobian at X0V);
+! later steps rebuild the FD Jacobian at the current iterate.
+! Diagnostic only - the production solver is untouched and only
+! this driver's own store is perturbed.
+!
+        IF(CARG .EQ. 'p1t1n')THEN
+          ALLOCATE(XST(NX),DXP(NX),IPI8(NX),JN(NX,NX),ANW(NX,NX), &
+          STAT=IOS)
+          IF(IOS .NE. 0)THEN
+            WRITE(*,'(A)')'RESULT p1t1n_alloc=1'
+            RETURN
+          END IF
+          XST=X0V
+          RDX=0.0_LDP
+          OPEN(98,FILE='p1t1b_newton_'//TRIM(VNAME(IV))//'.txt', &
+          STATUS='REPLACE')
+          DO NWIT=0,4
+            CALL MAP_F(XST,XNEW,IRFI(IV))
+            NEVAL=NEVAL+1
+            RN=0.0_LDP; RD=0.0_LDP
+            DO J=1,NX
+              RN=RN+(XNEW(J)-XST(J))**2
+              RD=RD+XST(J)**2
+            END DO
+            RN=SQRT(RN); RD=SQRT(RD)
+            WRITE(98,'(I4,3ES16.8)')NWIT,RN,RDX, &
+      RN/MAX(RD,1.0E-30_LDP)
+            WRITE(*,'(A,I2,A,I2,A,3ES16.8)')'P1B_NWT IV',IV, &
+      ' IT',NWIT,' RN DX REL',RN,RDX, &
+      RN/MAX(RD,1.0E-30_LDP)
+            IF(NWIT .EQ. 4)EXIT
+            IF(RN .EQ. 0.0_LDP)EXIT
+            IF(NWIT .EQ. 0)THEN
+              JN=J2
+            ELSE
+!
+! FD Jacobian at the current iterate, same construction and
+! amplitude as J2 above.
+!
+              AMPF=1.0E-5_LDP
+              DO J=1,NX
+                EPSV=AMPF*MAX(ABS(XST(J)),XFLOOR)
+                XPR=XST
+                XPR(J)=XPR(J)+EPSV
+                CALL MAP_F(XPR,XFP,IRFI(IV))
+                NEVAL=NEVAL+1
+                IF(XST(J)-EPSV .GE. 0.0_LDP)THEN
+                  XPR=XST
+                  XPR(J)=XPR(J)-EPSV
+                  CALL MAP_F(XPR,XO,IRFI(IV))
+                  NEVAL=NEVAL+1
+                  DO JP=1,NX
+                    JN(JP,J)=(XFP(JP)-XO(JP))/(2.0_LDP*EPSV)
+                  END DO
+                ELSE
+                  DO JP=1,NX
+                    JN(JP,J)=(XFP(JP)-XNEW(JP))/EPSV
+                  END DO
+                END IF
+              END DO
+            END IF
+!
+! Solve (I - J) * DXP = F(XST) - XST; DXP is overwritten with the
+! step. For an affine map XST+DXP is the exact fixed point.
+!
+            ANW=-JN
+            DO J=1,NX
+              ANW(J,J)=ANW(J,J)+1.0_LDP
+            END DO
+            DXP=XNEW-XST
+            CALL DGESV(NX,1,ANW,NX,IPI8,DXP,NX,INFO8)
+            WRITE(*,'(A,I2,A,I2,A,I4)')'P1B_NWT IV',IV, &
+      ' IT',NWIT,' DGESV_INFO',INFO8
+            IF(INFO8 .NE. 0)EXIT
+            RDX=0.0_LDP
+            DO J=1,NX
+              RDX=RDX+DXP(J)**2
+            END DO
+            RDX=SQRT(RDX)
+            XST=XST+DXP
+          END DO
+          CLOSE(98)
+          OPEN(99,FILE='p1t1b_Xstar_'//TRIM(VNAME(IV))//'.txt', &
+          STATUS='REPLACE')
+          DO J=1,NX
+            WRITE(99,'(I8,ES25.16)')J,XST(J)
+          END DO
+          CLOSE(99)
+          WRITE(*,'(A,I2,A,I8)')'P1B_NWT IV',IV,' NEVAL',NEVAL
+          DEALLOCATE(XST,DXP,IPI8,JN,ANW)
+        END IF
       END DO
       INEXT_RELAX=0.5_LDP
       WRITE(*,'(A,I8)')'P1B_NEVAL ',NEVAL
@@ -2381,8 +2616,10 @@
 ! is 1E-3*||X0||_2. Per step we record ||X_{n+1}-X0||,
 ! ||X_{n+1}-X_n|| and the step-to-step contraction ratio; the first
 ! ratio of each type is meaningless (RNPRV=0) and is ignored on the
-! python side.
+! python side. p1t1n skips this block: its product is the per-variant
+! Newton residual history, not the relaxed-iteration probes.
 !
+      IF(CARG .NE. 'p1t1n')THEN
       TNRM=0.0_LDP
       DO J=1,NX
         TNRM=TNRM+X0V(J)**2
@@ -2445,6 +2682,7 @@
       END DO
       END DO
       CLOSE(97)
+      END IF
 !
       DEALLOCATE(XO,XNEW,X0V,FX0,XPR,XFP,STO_P,STO_M,J1,J2,JW, &
       RESV,VDOM,VPT,WKCH,POSP,POSM,FDIF,SPSP,SMSP,SMPP,SMMP)
