@@ -282,7 +282,77 @@ modes.
 
 ## 8. KNOP maturity experiments
 
-[in progress - K2/K3/K4]
+Run matrix (exe b409293a14eaf3e0, OBS_FG_KNOP=T, J_RESCUE_RESTORE=F,
+KN_Q_RESID=T, ES_RESID_DIAG=T, identical frozen inputs):
+
+- K1 `caseK1_knop_nores_es2`: NUM_ES=2, cold start - current-config
+  control on the Phase-2.5 executable.
+- K2 `caseK2_knop_nores_es4`: NUM_ES=4, cold start - jobs
+  13346271/13346469, completed 16:38 (rc=0).
+- K3 `caseK3_knop_nores_restart`: NUM_ES=2 warm from K2's
+  FGINEXT_GS - job 13348330.
+- K4 `caseK4_knop_nores_restart4`: NUM_ES=4 warm from K2's
+  FGINEXT_GS - job 13348331.
+
+Restart mechanics: the OBS restore accepts 'FGINEXT_GS' in the
+working directory or '../FGINEXT_GS' (run root). The run root is
+the only staging point that survives render setup - batobs.sh
+runs `find . -maxdepth 1 -type f -delete` over obs/ at startup
+(keeping only batobs.sh, CMF_FLUX_PARAM_INIT, cmf_OBS logs and
+dated spectra), which removes any checkpoint staged inside obs/.
+Both warm runs report 'I_NEXT checkpoint present: YES
+../FGINEXT_GS', 'I_NEXT valid: YES' (R/V/SIGMA/COMP_DEPTH_IDX
+fingerprint matched), 'RESTORED COMPLETE I_NEXT GENERATION
+(tag=0)', OBS remap 74704 -> 74704.
+
+K2 sweep history (OUT_FLUX refresh blocks + ES_RESID_DIAG):
+
+| sweep | refresh resid (iterate) | KN_Q_RESID (indep.) | ES_RESID max rel chg | argmax depth |
+|---|---|---|---|---|
+| 1 | 0.9767 | 1.460 | - (first gen) | - |
+| 2 | 0.9769 | 3.354 | 0.864 | 62 |
+| 3 | 0.8067 | 1.043 | 0.717 | 62 |
+| 4 | - (last sweep, no refresh) | - | 0.595 | 62 |
+
+Iterate residual stays ~0.98-0.81 (tol 2e-3): not converged
+after 3 refreshes. The independent fixed-point residual is
+non-monotone (1.46 -> 3.35 -> 1.04) and O(1) - the committed
+field is nowhere near a fixed point. The sweep-to-sweep field
+change at depth 62 decays slowly (0.86 -> 0.72 -> 0.60, ~0.82
+per sweep geometric factor): even if the decay held, reaching
+1e-3 relative change needs roughly 20 more sweeps. K2 rescue
+events: 9,340 across 4 sweeps (2,337/2,192/2,313/2,498 - not
+decaying).
+
+K3 warm continuation (sweeps 5-6 of the chain, completed rc=0):
+
+- Refresh after chain-sweep 5: iterate residual 0.76597
+  (improved from 0.98) but independent q residual 5.9497 -
+  WORSE than every cold-run value. Identical numbers appear in
+  K4's first refresh (same checkpoint, same sweep) - a good
+  determinism cross-check.
+- ES_RESID chain-sweep 6: GLOBAL_MAX_REL=0.659 at depth 14 -
+  still ~66% per-sweep change; the argmax moved off the
+  inversion column (K2's depth 62).
+- K3 rescue events: 8,704 across 2 sweeps.
+
+Chain-sweep summary so far (iterate / independent):
+
+| chain sweep | refresh resid | KN_Q_RESID | ES_RESID max rel |
+|---|---|---|---|
+| 2 (K2) | 0.977 | 1.46 | 0.864 @ d62 |
+| 3 (K2) | 0.977 | 3.35 | 0.717 @ d62 |
+| 4 (K2) | 0.807 | 1.04 | 0.595 @ d62 |
+| 5 (K3/K4) | 0.766 | 5.95 | - |
+
+The lagged map is not contracting: the iterate residual decays
+slowly while the independent fixed-point residual oscillates
+upward (1.46, 3.35, 1.04, 5.95). This is the same bounded
+non-contraction previously seen on the USE_LAM_ES=F moment path
+- the I_NEXT lagged map on this model does not converge within
+the available damping/pass budget.
+
+[in progress - K4 sweeps 6-8 running, K1 control running]
 
 ## 9. Remaining rescue-event analysis (Phase 2.4 data)
 
