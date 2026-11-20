@@ -14,9 +14,9 @@ quantity the global controller reads:
 
 - the refresh residual maximum (`KN_RF_RESID`),
 - the adaptive-omega sample pool (`KN_OMEGA_POOL_V1` / `RHO_P90`),
-- the share censuses (`FG_GS_NBAD/NTOT/NBAD_BLK/NTOT_BLK/NDIV`,
-  `FG_RF_CAPPED`, `FG_INEXT_CAPPED`, the exit-class bad-cell sums
-  behind `FG_GS_NSTAL/NPLAT`),
+- the share censuses (`FG_GS_NBAD/NTOT/NBAD_BLK/NTOT_BLK/NDIV/
+  NCONV`, `FG_RF_CAPPED`, `FG_INEXT_CAPPED`, the exit-class
+  bad-cell sums behind `FG_GS_NSTAL/NPLAT`),
 - the pending-delta maturity input (`FG_RF_PEND`),
 - the commit/rejection counters (`FG_COMMIT_REJ`, `FG_NC_REJ`,
   `FG_NC_CAP`, `FG_DIV_HEAL`).
@@ -62,14 +62,18 @@ work arrays (:8249), filled at :8889-8895 from
 `KN_PROD_XRAY` records the single excluded index for the
 index-based reductions.
 
-### 2.4 Census reductions masked (:8955-8970)
+### 2.4 Census reductions masked (:8950-8970)
 
-`FG_RF_CAPPED`, `FG_INEXT_CAPPED`, `FG_GS_NDIV`, `FG_GS_NBAD`,
-`FG_GS_NTOT`, `FG_GS_NBAD_BLK`, `FG_GS_NTOT_BLK` are `SUM(...,
-MASK=KN_PROD_MASK)`. The printed `diverged rays=`/`clamp events=`
-lines use the same mask; a new `probe ray=` line prints the
-probe's own resid/div/nbad next to them so the excluded
-contribution is still visible in OUTGEN.
+`FG_GS_NCONV` (the refresh churn numerator behind the 0.1% churn
+tier), `FG_RF_CAPPED`, `FG_INEXT_CAPPED`, `FG_GS_NDIV`,
+`FG_GS_NBAD`, `FG_GS_NTOT`, `FG_GS_NBAD_BLK`, `FG_GS_NTOT_BLK`
+are `SUM(..., MASK=KN_PROD_MASK)`. `FG_GS_MAXCHG` inherits the
+mask through `KN_RF_RESID`; the pre-refresh `FG_SW_*` snapshots
+stay probe-inclusive (sweep writes are production state).
+The printed `diverged rays=`/`clamp events=` lines use the same
+mask; a new `probe ray=` line prints the probe's own
+resid/div/nbad next to them so the excluded contribution is
+still visible in OUTGEN.
 
 ### 2.5 Exit-class bad-cell sums (:9008-9020)
 
@@ -186,5 +190,5 @@ Results (this tree, 20-Nov-2026):
 
 - Build: `make DEBUG=nodebug all` clean (only pre-existing #6075
   warnings), `exe/cmfgen_dev.exe` sha256
-  `03ccd243848d1f3fac1ec0121f8d69e70c13135876e1da204b12e9a8355e5a37`.
+  `e2733b215b68330066ec9c10eb3da3e33d605223b111ab120966fc2a41b8ec5f`.
 - Test driver: `unit_tests/bin/knray` (production objects + driver).
