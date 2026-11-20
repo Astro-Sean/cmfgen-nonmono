@@ -1527,6 +1527,27 @@
 	1     'Independent fixed-point residual in the KNOP refresh?')
 	  CALL SET_FG_Q_RESID(KN_Q_RESID)
 !
+! KN_CERT_CONV (default TRUE, Phase 2.15): production convergence
+! certification in KNOP_RAY_SOLVE_V1. T runs the independent
+! one-pass verify per ray before the commit decision and makes
+! FULL_CONVERGENCE require both the production residual and the
+! verify residual below KN_RAY_TOL; a missing or invalid verify
+! can then never certify. F restores the pre-certification
+! commit semantics while the six-class status is still recorded.
+!
+	  KN_CERT_CONV=.TRUE.
+	  CALL RD_STORE_LOG(KN_CERT_CONV,'KN_CERT_CONV',L_FALSE,
+	1     'Certify KNOP commits on the independent residual?')
+	  CALL SET_FG_CERT_CONV(KN_CERT_CONV)
+!
+! KN_CERT_DIAG (default FALSE): one machine-readable KN-CS
+! certification record per ray per refresh.
+!
+	  KN_CERT_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(KN_CERT_DIAG,'KN_CERT_DIAG',L_FALSE,
+	1     'Print per-ray KNOP certification records?')
+	  CALL SET_FG_CERT_DIAG(KN_CERT_DIAG)
+!
 ! KN_JUMP_DIAG (default FALSE): diagnostic-only veto-trigger
 ! attribution for the KNOP commit jump veto. T records which
 ! cell and branch fires FG_JUMP_MAX on each rejected ray; F
