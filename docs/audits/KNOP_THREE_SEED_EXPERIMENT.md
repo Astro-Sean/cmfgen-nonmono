@@ -1,6 +1,8 @@
 # KNOP three-seed probe experiment
 
-Status: RUNNING (jobs queued/submitted 19-Nov-2026; results sections pending)
+Status: LIVE -- arm C lost to designed non-convergence abort
+(20-Nov-2026 03:42); arms A, B, A/A still running. Interim analysis
+appended in sections 6-10; the experiment is NOT complete.
 
 ## 1. Objective and scope
 
@@ -272,11 +274,242 @@ experiment question.
 - Standard iteration histories (population MAX_CHNG, GS_MAXCHG,
   refresh residuals) from OUTGEN.
 
-## 6-10. Results, comparison, interpretation
+## 6. Interim scheduler and job status (20-Nov-2026 ~09:15 CET)
 
-Pending - jobs in queue as of 19-Nov-2026.
+| Arm | FINAL job | State | OBS job | State | Latest refresh / iter |
+|-----|-----------|-------|---------|-------|-----------------------|
+| A   | 13339955 | RUNNING 18:52 elapsed (~5:07 left) | 13339956 | PENDING (afterok) | r399 / it557 |
+| B   | 13339970 | RUNNING 18:52 elapsed | 13339971 | PENDING (afterok) | r435 / it593 |
+| C   | 13339980 | FAILED exit 6:0 at 03:42:41 after 13:21:22 | 13339981 | CANCELLED (dependency) | r292 / it449 |
+| A/A | 13339988 | RUNNING 18:48 elapsed | 13339989 | PENDING (afterok) | r458 / it615 |
 
-When telemetry arrives, results are reported separately as:
+All eight jobs ran on vipc2057 (8 requested, 16 allocated, OMP=16).
+FINAL jobs are requeue-enabled on wall limit only
+(`FINAL_REQUEUE_WHEN=wall`, `MAX=500`): the three survivors are
+expected to hit the 23:59 wall and requeue, which is normal
+continuation, not failure. Arm C's exit was a CMFGEN `STOP`, not a
+wall kill, so the wrapper correctly refused to requeue.
+
+Failure classification for arm C: NUMERICAL, designed abort.
+`SOLVE_FOR_POPS` stopped the run at it449 with
+
+    SOLVE_FOR_POPS: release_no_progress: demand= 8.211E+01
+      rel_dem= 8.211E+01  raw_drift= 6.364E-02  count=    10
+    SOLVE_FOR_POPS:   10 releases with no demand progress reach
+      GS_REL_NOPROG_LIM
+      the release/refreeze cycle never matured the lagged field;
+      stopping as non-convergent
+
+the `GS_REL_NOPROG_LIM=10` (KNOP auto-set) field-maturity guard -
+the same stop class as `FRESH_knop` job 13005611 (it124). No
+scheduler, filesystem, or diagnostic-write fault is involved.
+Artifacts preserved in place:
+`cmfgen_validation/m15_2p82d_KNOP_seed_c/cmfgen/2.82days/`
+(`OUTGEN` 10.7 MB, `WARNINGS`, `cmf_13339980.{out,err}`,
+`FGINEXT_GS`, `CUR_MODEL_DATA`, `SCRTEMP`, all 292 `KNSEED_*` bins,
+manifest). The OBS job never started; `obs/` holds only
+`batobs.sh`/`CMF_FLUX_PARAM_INIT`. A partially-written `OBSFLUX`
+(1.17 MB) exists but is a live progress file, not a final spectrum.
+
+One refresh per great iteration fires on every arm
+(`refresh n = iteration 157+n` while running), so `refresh` is a
+clean comparison axis across arms.
+
+## 7. Telemetry findings (refreshes parsed from OUTGEN)
+
+Extraction: `scripts/parse_knop_seed.py` (new; parse patterns
+adapted from `parse_knop_iso.py`). Table:
+`docs/audits/knop_seed_telemetry.csv` (1575 rows).
+
+### 7.1 Probe-ray P-solve outcome per arm
+
+| Arm | used | resP (final probe P resid) | npP | probe exit (ixit) |
+|-----|------|----------------------------|-----|-------------------|
+| A   | 0 | pinned 0.69614 essentially every refresh | 26-28 | 3 (stall), always |
+| B   | 1 | pinned 2.2799 every refresh | 18 always | 3 (stall), always |
+| C   | 4->2 | oscillates 0.2615-2.8738, median 0.614 | 10-61, mean 19.5 | mostly 3; 39 plateau exits (ixit=6) |
+| A/A | 3 | pinned 0.69614 | 26-28 | 3 (stall), always |
+
+The probe ray is the per-refresh residual argmax on every arm at
+essentially every refresh (`q argmax ray=83`), so `rf_resid`,
+`fg_rf`, and `GS_MAXCHG` are the probe's own residual. All other
+rays' per-ray residual distributions are identical across arms to
+printed precision (`q dist p50=5.716-5.732E-4, p95=6.828E-3` at
+matched refreshes).
+
+Pass-1 residuals at refresh ~100 show what the seed is worth at
+solve start: A retained seed 7.79E+01, B sibling median 5.24E+03
+(~67x worse), C chained candidate 2.01E+00 (~40x better). Within
+2-3 passes all three collapse to the same O(1) residual regime:
+the perturbation mostly decays during the solve, but the stall
+exit lands on a different endpoint per arm (A 0.696, B 2.28, C
+0.26-2.87 oscillating). Across refreshes there is no systematic
+amplification: B's dab is pinned at 8.256-8.258E4 and resP at
+2.2799 for all 435 records; C's dab holds ~0.177-0.18 and resP
+oscillates without drift.
+
+Arm B bookkeeping: `sib_fill = sib_map = 169128` (all live cells
+filled), `nunm = 3,777,192`, `nret = 0`, `ndead = 3`, `schg = 1.0`
+every refresh - the sibling-median map is complete and constant.
+Arm C chains correctly: r1 took the documented fallback (`used=4`),
+r2+ all `used=2` with `pcref/pcnp/pcrs` describing the candidate
+saved at the same refresh (i.e. what the next refresh chains).
+The chain has limit-cycle epochs: resP=2.8738, npP=10, ixit=6 for
+16 consecutive refreshes (r127-142), 15 (r165-179), 8 (r264-271) -
+the chained seed recycles a bad candidate until the solve escapes.
+`pcnp` range 10-61.
+
+M direction is untouched: npM=2, resM ~3E-9 on all arms.
+
+### 7.2 Arm C abort mechanism (measured, not hypothesized)
+
+`GS_MAX_ALL = MAX(GS_MAXCHG, GS_SW_MAXCHG, GS_RF_DCHG)`; the gate
+reads immature when `GS_MAX_ALL > GS_UNSAFE_TOL = 0.5` (plus the
+bad-cell share tier). `GS_MAXCHG` is the refresh residual max =
+the probe's residual here. Release events require the gate to
+sample a mature reading.
+
+- A/A/A: probe resP pinned at 0.69614 > 0.5 on all 396+/455
+  refreshes -> gate never matures -> permanently
+  `gs_freeze_forced+hold_pops` -> zero releases -> counter never
+  arms. B identical situation at resP=2.2799.
+- C: probe resP < 0.5 in 53 of 292 refreshes (chained seed
+  occasionally lands a better-than-0.5 candidate). Every
+  `release_no_progress` event sits in a sub-0.5 resP window
+  (verified at refs 48, 154, 184, 204, 209, 241, 246, 253, 260,
+  292). 232 frozen iterations vs 59 release/frozen-alternating
+  iterations; 10 judged no-progress releases -> STOP at it449.
+
+So the abort is arm-C-specific but NOT a solver defect or a seed
+poisoning: the model on all four arms sits in the same
+freeze-hold, non-contracting state (population demand ~82, Model
+Convergence pinned at 50% on every logged iteration, `applied=0`).
+C died because its chained seed made the probe residual oscillate
+across the 0.5 threshold, which let the release machinery prove
+10 times that the field was not mature. The other arms carry the
+same unmatured field silently under permanent freeze.
+
+Underlying non-maturity is the known cold-KNOP regime
+(`FRESH_knop` it124, same stop); what the seed changed is only
+the gate-sampling trajectory. Attribution caveat: field-level
+nondeterminism exists (section 8), but the release trigger is
+correlated with the chained-seed oscillation, not with noise -
+retained-seed resP is pinned to 5 digits over 396+ refreshes.
+
+### 7.3 Global model state comparison
+
+- Population demand identical across arms to printed precision:
+  it158-160 demand 5.998E+01/6.062E+01/6.129E+01 on every arm;
+  late-run plateau 8.211E+01 (C) vs 8.212E+01 (A). `applied=0`
+  (held) throughout; `conv=50%` pinned.
+- Commit verdicts identical: `v_committed`, `v_capped`,
+  `v_unsolved`, `solves_po` all equal at matched refreshes.
+- Diagnostics that INCLUDE the probe differ, as designed:
+  `unconv_cells` (probe cells counted), `retained_max`
+  (`FG_RF_DCHG` gets the probe's candidate delta, :10223/:10249
+  not `L_NOPROBE`-gated), `omega` (`rho_max` in the adaptive
+  INEXT_RELAX estimate is the probe residual - A 0.9895,
+  B 1.09-1.19, C 0.99-1.19 -> applied omega differs ~6E-4 mean,
+  ~1.3E-3 max).
+
+## 8. A/A repeatability control (first decision gate)
+
+- Telemetry (all 396 common refreshes): every extracted field
+  identical to printed precision - resP, resM, npP, npM, rf_resid,
+  q_arg_resid, worst_resid, retained_max, omega, unconv_cells,
+  exit census, verdicts. Zero differences including integer pass
+  counts.
+- Binary field level (XREF = retained seed, NI=3 x NCF=56377):
+  NOT bitwise identical. On ~88.5K physical cells (|x| <= 1E15,
+  excluding ~80.5K uninitialized-scale cells at identical
+  positions and ~70 NaN cells at identical positions): rel diff
+  p50 = 3.6E-8 (r1) growing to ~6E-5 (r50), then BOUNDED at
+  ~5.5E-5 median / p99 ~2E-3 / max ~7E-3 through r396. Same level
+  at j=1,2,3. Within each arm X0 == XREF bitwise (verified).
+- Interpretation: OpenMP-order floating-point nondeterminism in
+  the committed store, present from refresh 1 (identical donor
+  checkpoint, divergence occurs inside it158 sweeps), saturating
+  at ~5E-5 median. This sets the experiment's noise floor: seed
+  effects (O(1) relative, schg=1.0) are ~4 orders of magnitude
+  above it.
+- Verdict: A/A establishes adequate repeatability to interpret
+  B and C. Macroscopic solve behavior (residuals, pass counts,
+  verdicts) is deterministic at diagnostic precision; raw field
+  values carry bounded ~1E-4-relative noise.
+
+## 9. Binary record integrity audit
+
+- All 1,575 `KNSEED_P_L0083_a<arm>_r<NNNN>.bin` records verified:
+  size 2,706,216 B each, sequential-unformatted layout
+  (14-int header, 4 real*8, XREF then X0 as NI=3 x NCF=56377
+  Fortran-order real*8), record markers consistent, header
+  arm/used/refresh fields matching filename and expected codes.
+  No truncated or misaligned records.
+- Content checks: `ndead=3` in every record (NI*NCF-ndead=169128
+  live = arm B's nfill). NaN cells ~66-95 per record at positions
+  consistent between arms. ~80.5K cells hold uninitialized-scale
+  values (|x| > 1E15) - the probe FLD workspace outside the
+  stored/transported cells; positions identical between A and A/A
+  (same pass counts -> same workspace reuse) but differ for B/C
+  (different pass trajectories). They are excluded from field
+  statistics as INVALID, not silently treated as zeros.
+- `pcrs` records the residual of the candidate saved at the same
+  refresh (`KN_SEED_SAVE_P`), i.e. what the NEXT refresh chains -
+  not the injected seed's quality.
+
+## 10. Seed response and propagation (interim)
+
+Measured facts:
+
+- B perturbation: ~46.3K physical cells changed at rel p50 ~1.0;
+  ~42K cells toggled between physical and uninitialized-scale
+  values in both directions; ~85 cells seeded to NaN.
+  Perturbation decays ~3 orders during the first 2-3 passes
+  (5242 -> O(1)) but the solve ends on a fixed worse stall point
+  (2.2799) with FEWER passes (18 vs A's 26-28). No growth across
+  435 refreshes; not converging better on any observed refresh.
+- C perturbation: chained candidate is the best start by ~40x
+  (pass-1 residual ~2 vs 78), oscillates mid-solve, lands at a
+  variable endpoint (0.26-2.87). It is occasionally BETTER than
+  the retained-seed floor (min 0.2615) - which is exactly what
+  opened the release gate and killed the run. Chained refreshes
+  are dependent trials (limit-cycle epochs r127-142, r165-179,
+  r264-271); they must not be counted as independent samples.
+- Whole-model propagation: no committed-field or population
+  propagation detected (probe store delta M/P = 0 on every
+  refresh of every arm; verdicts and demand identical). Two
+  diagnostic channels do respond, as documented in 1.4:
+  probe-inclusive diagnostics (rf_resid, unconv census,
+  retained_max, omega) differ, and the adaptive-omega channel
+  measurably perturbs the retained field update globally
+  (omega differs ~6E-4 mean; retained-seed XREF for B/C vs A
+  differs ~1.3E-3 median - ~20x the A/A noise floor, ~1000x
+  below the seed perturbation itself). Populations remain
+  identical to printed precision.
+- First observable point of global divergence: the probe
+  residual itself (deterministic per seed), then omega/retained
+  drift at ~1E-3 relative. No propagation into populations,
+  commit verdicts, or other rays' residual distributions.
+- Spectrum: NOT ready - OBS jobs pending on FINAL completion
+  (A/B/AA) or cancelled (C). No comparison performed.
+
+Interpretation vs measurement (kept separate): the measured
+records show the probe P-solve converges to a seed-dependent
+stall endpoint. Whether that endpoint spread means anything for
+a COMMITTING ray (the production question) cannot be answered by
+this experiment - the probe never commits by design, so no arm
+tests what a seeded store would do downstream. Arm C's abort
+demonstrates a real indirect sensitivity: seed-dependent probe
+residuals modulate the freeze/release gate trajectory
+(`GS_MAX_ALL` samples the probe's max residual). That is a
+maturity-guard design observation, not evidence the seed
+strategies change the physical solution. No arm shows evidence
+of a better CONVERGED candidate: all probe solves end in
+stall/plateau exits above KN_RAY_TOL.
+
+## 6-10 original placeholder text (superseded by the above)
+
+Results are reported separately as:
 
 A. Probe P-solve convergence sensitivity - per-refresh seed used
    (`KN_SEED_USED`), per-pass NOP histories, `dab/rmax/pcrs/schg`,
