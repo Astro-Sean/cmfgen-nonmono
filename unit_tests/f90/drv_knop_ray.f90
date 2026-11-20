@@ -116,6 +116,9 @@
       IF(CNAME .EQ. 'prbs')  NCASE=66
       IF(CNAME .EQ. 'punit') NCASE=67
       IF(CNAME .EQ. 'p1t1s') NCASE=68
+      IF(CNAME .EQ. 'prbz')  NCASE=69
+      IF(CNAME .EQ. 'prbl')  NCASE=70
+      IF(CNAME .EQ. 'prbr')  NCASE=71
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -828,7 +831,7 @@
         FG_GS_NCF=KN_NCF
         SOLUTION_METHOD='INTEGRAL'
         NRF=1
-        IF(NCASE .EQ. 46)NRF=2
+        IF(NCASE .EQ. 46 .OR. NCASE .EQ. 71)NRF=2
 !
 ! prb/prbv/prbs (64-66): MODE 1 probe isolation end-to-end. Ray 3
 ! is armed as the diagnostic probe and its retained store is
@@ -854,10 +857,34 @@
           END IF
           IF(NCASE .EQ. 66)CALL SET_FG_SEED_ARM(1)
         END IF
+!
+! prbz/prbl/prbr (69-71): MODE 1 empty-production omega guard.
+! The single ray is armed as the diagnostic probe, leaving zero
+! production rays: KN_RF_RESID takes the 1.0 fail-closed sentinel
+! and the controller must hold INEXT_RELAX and KN_RF_RESID_PRV at
+! their seeded values. 'prbz' runs the V2 rho-pool path; 'prbl'
+! the legacy cross-refresh ratio where an unguarded sentinel
+! would move omega; 'prbr' un-arms the probe on pass 2 so a real
+! production refresh must resume without the sentinel as its
+! residual-ratio denominator.
+!
+        IF(NCASE .EQ. 69 .OR. NCASE .EQ. 70)THEN
+          CALL SET_FG_NOCP_PROBE(.TRUE.,1)
+          KN_RF_RESID_PRV=0.4_LDP
+          INEXT_RELAX=0.62_LDP
+          FG_ADAPT_OMEGA_V2=(NCASE .EQ. 69)
+        END IF
+        IF(NCASE .EQ. 71)THEN
+          KN_RF_RESID_PRV=0.7_LDP
+          INEXT_RELAX=0.62_LDP
+          FG_ADAPT_OMEGA_V2=.FALSE.
+        END IF
         DO IRF=1,NRF
+        IF(NCASE .EQ. 71)CALL SET_FG_NOCP_PROBE(IRF .EQ. 1,1)
         IF(NRF .GT. 1)WRITE(*,'(A,I2)')'RF_PASS ',IRF
         CALL FG_KNOP_REFRESH_V1()
         WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
+        WRITE(*,'(A,ES16.8)')'RF_RESPRV=',KN_RF_RESID_PRV
         WRITE(*,'(A,ES16.8)')'RF_DCHG=',FG_RF_DCHG
         WRITE(*,'(A,ES16.8)')'RF_PEND=',FG_RF_PEND
         WRITE(*,'(A,I8)')'RF_NDIV=',FG_GS_NDIV
@@ -1770,6 +1797,14 @@
       CALL KN_OMEGA_POOL_V1(RHOM_U(1:1),RHOP_U(1:1),NDV_U(1:1), &
         OM0,OM1B,NSB,P90B,MEDB,MXB,1)
       WRITE(*,'(A,ES16.8)')'M1U_OM_NOPROD2=',OM1B
+!
+! --- omega gate helper: status 0/1 admit, status 2 blocks ---
+!
+      WRITE(*,'(A,L2)')'M1U_OMOK0=',KN_PROD_OMEGA_OK(0)
+      WRITE(*,'(A,L2)')'M1U_OMOK1=',KN_PROD_OMEGA_OK(1)
+      WRITE(*,'(A,L2)')'M1U_OMOK2=',KN_PROD_OMEGA_OK(2)
+      WRITE(*,'(A,I4)')'M1U_IST_NORM=', &
+        KN_PROD_POOL_STAT(NDV_U,3)
 !
 ! --- probe predicate ---
 !
@@ -3192,7 +3227,7 @@
             CALL MAP_F(XNEW,XO,IRFI(IV))
             NEVAL=NEVAL+1
             RD=SQRT(SUM((XO-XNEW)**2))
-            WRITE(98,'(A,I2,A,I2,A,I5,2ES16.8)')'NWT seed',ISEED, &
+            WRITE(98,'(A,I2,A,I2,A,I5,A,2ES16.8)')'NWT seed',ISEED, &
       ' it',NWT,' kgm',NGM,' res',RN,RD
           END DO
           CALL MAP_F(XNEW,XO,IRFI(IV))
