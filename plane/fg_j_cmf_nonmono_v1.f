@@ -555,6 +555,15 @@
 	LOGICAL, SAVE :: FG_RF_FAILED=.FALSE.
 	LOGICAL, SAVE :: FG_JMP_FAIL_INJ=.FALSE.
 !
+! FG_RF_ALL_CONV (Phase 2.17): TRUE only when every production ray
+! in the just-finished refresh certified KN_CS_FULL. Derived from
+! the KN_CS_LS census, never from a residual magnitude, so a
+! BULK_ONLY field under the maturity band cannot certify. Reset
+! FALSE at refresh entry (fail closed); exported through
+! GET_FG_GS_MATURITY for the final-acceptance gate.
+!
+	LOGICAL, SAVE :: FG_RF_ALL_CONV=.FALSE.
+!
 ! KN_RHO_MIN_SAM (audit Issue 5): minimum pooled sample count the
 ! adaptive-omega P90 index needs before it is a quantile at all. The
 ! index (9*L+9)/10 equals L for every L < 10, so a "P90" over fewer
@@ -1243,6 +1252,49 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: KN_PA_RES(:,:),KN_PA_OMG(:,:)
 	INTEGER, ALLOCATABLE, SAVE :: KN_PA_IX(:,:),KN_PA_NP(:,:)
 !
+! Six-class per-ray convergence status (Phase 2.15, 20-Nov-2026).
+! IXIT remains the raw exit-code telemetry; the authoritative
+! certification decision is KN_CERTIFY's class:
+!
+!   KN_CS_FULL  : production residual <= KN_RAY_TOL on both
+!                 channels AND the independent one-pass verify
+!                 residual <= KN_RAY_TOL on both channels. Only
+!                 this class may take the ordinary WRITE_STORE
+!                 converged path.
+!   KN_CS_BULK  : a bulk exit fired under a positive
+!                 KN_RAY_BULK_TOL floor (RES<=BTOL) but the strict
+!                 RES<=TOL contract is unmet. Provisional store
+!                 updates (WRITE_STORE_CAP) are allowed; never a
+!                 converged commit.
+!   KN_CS_ITLIM : iteration-limit exit.
+!   KN_CS_STAG  : stall/plateau exit, or a nominal residual exit
+!                 whose independent verify residual failed.
+!   KN_CS_DIV   : finite numerical runaway / diverged iterate.
+!   KN_CS_INV   : non-finite residual, missing or invalid verify
+!                 result, unset exit code, allocation failure or
+!                 missing field -- fail closed.
+!
+! Codes are severity-ordered so MAX over the two channels yields
+! the ray status. KN_CS_LS carries the per-ray class and
+! KN_CS_REA the reason code (0 ok, 1 verify failed, 2 verify
+! missing/invalid, 3 non-finite residual, 4 alloc failure,
+! 5 unset/inconsistent exit, 6 diverged).
+!
+	INTEGER, PARAMETER :: KN_CS_FULL=0,KN_CS_BULK=1,
+	1   KN_CS_ITLIM=2,KN_CS_STAG=3,KN_CS_DIV=4,KN_CS_INV=5
+	INTEGER, ALLOCATABLE, SAVE :: KN_CS_LS(:),KN_CS_REA(:)
+!
+! KN_CERT_CONV (VADAT [KN_CERT_CONV], default TRUE): require the
+! independent Q verify inside the FULL_CONVERGENCE contract.
+! Missing or invalid verification can then never certify. Set F
+! only to reproduce pre-certification behaviour; the status is
+! still recorded honestly either way.
+! KN_CERT_DIAG (VADAT [KN_CERT_DIAG], default FALSE): one
+! machine-readable KN-CS record per ray per refresh.
+!
+	LOGICAL, SAVE :: KN_CERT_CONV
+	LOGICAL, SAVE :: KN_CERT_DIAG
+!
 ! KN_QC_* cell-level Q statistics (diagnostic): every DCELL
 ! computed inside MARCH/SWEEP_FLD_ORD during the verify passes
 ! is accumulated per ray and channel (1=M inward, 2=P outward),
@@ -1362,6 +1414,8 @@
 	DATA KN_WATCH_ON /.FALSE./,KN_WC_HIT /.FALSE.,.FALSE./
 	DATA KN_WC_FL /0,0/,KN_WC_BR /0,0/
 	DATA KN_Q_RESID /.FALSE./
+	DATA KN_CERT_CONV /.TRUE./
+	DATA KN_CERT_DIAG /.FALSE./
 !
 ! KN_NOCP_PROBE (diagnostic, [KN_NOCP_PROBE], default FALSE) +
 ! KN_NOCP_PROBE_LS (default 83): phase-5.2 experiment on the
@@ -2110,6 +2164,84 @@
 	INTEGER, INTENT(IN) :: ISTAT
 	KN_PROD_OMEGA_OK=(ISTAT .NE. 2)
 	END FUNCTION KN_PROD_OMEGA_OK
+!
+! KN_CERT_CH / KN_CERTIFY (Phase 2.15, 20-Nov-2026): the
+! authoritative convergence classifier. Per channel, the nominal
+! exits (IXIT 0/1/2) do not certify by themselves:
+! RES<=KN_RAY_TOL certifies only when the independent one-pass
+! verify residual Q also passes (LCERT=T); a verify pass that ran
+! and failed degrades to STAGNATION with reason 1; a verify result
+! that never materialised is INVALID (fail closed). RES>TOL under
+! a bulk exit meets only the provisional contract (BULK_ONLY);
+! any nominal exit arriving with an inconsistent residual is
+! INVALID. KN_CERTIFY folds the two channels with the
+! severity-ordered class codes and short-circuits diverged rays
+! to DIVERGENCE.
+!
+	PURE SUBROUTINE KN_CERT_CH(IXIT,RES,Q,LCERT,ISTAT,IREA)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: IXIT
+	REAL(KIND=LDP), INTENT(IN) :: RES,Q
+	LOGICAL, INTENT(IN) :: LCERT
+	INTEGER, INTENT(OUT) :: ISTAT,IREA
+	LOGICAL LRF,LQF
+	LRF=(RES .EQ. RES) .AND. (ABS(RES) .LT. HUGE(RES))
+	LQF=(Q .EQ. Q) .AND. (ABS(Q) .LT. HUGE(Q))
+	IF(.NOT. LRF)THEN
+	  ISTAT=KN_CS_INV; IREA=3; RETURN
+	END IF
+	IF(IXIT .LT. 0 .OR. IXIT .GT. 6)THEN
+	  ISTAT=KN_CS_INV; IREA=5; RETURN
+	END IF
+	IF(IXIT .EQ. 5)THEN
+	  ISTAT=KN_CS_DIV; IREA=6; RETURN
+	END IF
+	IF(IXIT .EQ. 4)THEN
+	  ISTAT=KN_CS_ITLIM; IREA=0; RETURN
+	END IF
+	IF(IXIT .EQ. 3 .OR. IXIT .EQ. 6)THEN
+	  ISTAT=KN_CS_STAG; IREA=0; RETURN
+	END IF
+	IF(RES .LE. KN_RAY_TOL)THEN
+	  IF(.NOT. LCERT)THEN
+	    ISTAT=KN_CS_FULL; IREA=0; RETURN
+	  END IF
+	  IF(LQF .AND. Q .GE. 0.0_LDP .AND. Q .LE. KN_RAY_TOL)THEN
+	    ISTAT=KN_CS_FULL; IREA=0
+	  ELSE IF(LQF .AND. Q .GT. 0.0_LDP)THEN
+	    ISTAT=KN_CS_STAG; IREA=1
+	  ELSE
+	    ISTAT=KN_CS_INV; IREA=2
+	  END IF
+	ELSE IF(IXIT .EQ. 2 .AND. KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
+	1    RES .LE. KN_RAY_BULK_TOL)THEN
+	  ISTAT=KN_CS_BULK; IREA=0
+	ELSE
+	  ISTAT=KN_CS_INV; IREA=5
+	END IF
+	END SUBROUTINE KN_CERT_CH
+!
+	PURE SUBROUTINE KN_CERTIFY(IXM,IXP,RESM,RESP,QM,QP,NDIV,
+	1   LCERT,ISTAT,IREA)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: IXM,IXP,NDIV
+	REAL(KIND=LDP), INTENT(IN) :: RESM,RESP,QM,QP
+	LOGICAL, INTENT(IN) :: LCERT
+	INTEGER, INTENT(OUT) :: ISTAT,IREA
+	INTEGER ISM,ISP,IRM,IRP
+	IF(NDIV .NE. 0)THEN
+	  ISTAT=KN_CS_DIV; IREA=6; RETURN
+	END IF
+	CALL KN_CERT_CH(IXM,RESM,QM,LCERT,ISM,IRM)
+	CALL KN_CERT_CH(IXP,RESP,QP,LCERT,ISP,IRP)
+	IF(ISM .GE. ISP)THEN
+	  ISTAT=ISM; IREA=IRM
+	ELSE
+	  ISTAT=ISP; IREA=IRP
+	END IF
+	END SUBROUTINE KN_CERTIFY
 !
 ! KN_OMEGA_POOL_V1 (audit Issues 2 + 5): pool the non-diverged rays'
 ! per-direction same-map contraction ratios, take the P90 quantile
@@ -6722,7 +6854,8 @@ C
 	2                             NDIV,NRAY,NBAD_BLK,
 	3                             SW_MAXCHG,SW_NCONV,RF_DCHG,
 	4                             NBAD_STAL,NBAD_PLAT,
-	5                             SW_CAPPED,SW_CAPTOT,RF_CAPPED)
+	5                             SW_CAPPED,SW_CAPTOT,RF_CAPPED,
+	6                             RF_ALLCONV)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     I_NEXT_GS_OK,FG_GS_CHG_FILE,FG_GS_CAP_FILE,
@@ -6730,7 +6863,8 @@ C
 	3     FG_GS_NCONV,FG_GS_NP,FG_GS_NDIV,FG_GS_NBAD_BLK,
 	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,FG_RF_PEND,
 	5     FG_GS_NSTAL,FG_GS_NPLAT,FG_RF_FAILED,
-	6     FG_SW_CAPPED,FG_SW_CAPTOT,FG_RF_CAPPED
+	6     FG_SW_CAPPED,FG_SW_CAPTOT,FG_RF_CAPPED,
+	7     FG_RF_ALL_CONV
 	IMPLICIT NONE
 	LOGICAL GS_OK
 	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG
@@ -6738,6 +6872,10 @@ C
 	INTEGER*8 NBAD,NTOT,NCONV,NBAD_BLK,SW_NCONV
 	INTEGER*8 NBAD_STAL,NBAD_PLAT
 	INTEGER*8 SW_CAPPED,SW_CAPTOT,RF_CAPPED
+! RF_ALLCONV (Phase 2.17): the last completed refresh's all-ray
+! verdict; the caller folds it into the final-acceptance gate so a
+! provisional field can never certify as a converged solution.
+	LOGICAL RF_ALLCONV
 	GS_OK=I_NEXT_GS_OK
 	CHG_FILE=FG_GS_CHG_FILE
 	CAP_FILE=FG_GS_CAP_FILE
@@ -6782,6 +6920,7 @@ C
 	SW_CAPPED=FG_SW_CAPPED
 	SW_CAPTOT=FG_SW_CAPTOT
 	RF_CAPPED=FG_RF_CAPPED
+	RF_ALLCONV=FG_RF_ALL_CONV
 	RETURN
 	END
 !
@@ -7745,6 +7884,22 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_CERT_CONV(DO_C)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_CERT_CONV
+	IMPLICIT NONE
+	LOGICAL DO_C
+	KN_CERT_CONV=DO_C
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_CERT_DIAG(DO_D)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_CERT_DIAG
+	IMPLICIT NONE
+	LOGICAL DO_D
+	KN_CERT_DIAG=DO_D
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_JUMP_DIAG(DO_J)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_JUMP_DIAG
 	IMPLICIT NONE
@@ -8168,6 +8323,7 @@ C
 	INTEGER IQ_R,IQ_C,IQ_W,IQ_N,IQ_K
 	INTEGER IQ_B1,IQ_B2,IQ_B3
 	INTEGER IQ_KM,IQ_NM,IQ_SLOT,IQ_KC2
+	INTEGER KN_NACT,KN_NFULL,KN_CCLS(0:5)
 	LOGICAL IQ_WRT,IQ_SAME
 	REAL(KIND=LDP) IQ_VB,IQ_VA
 	INTEGER*8 IQ_C1
@@ -8299,7 +8455,8 @@ C
 	3   NXT_LS(KN_NP),NP2_LS(KN_NP),NBB_LS(KN_NP),NTB_LS(KN_NP),
 	4   RHO_M_LS(KN_NP),RHO_P_LS(KN_NP),
 	5   NCL_LS(KN_NP),NNL_LS(KN_NP),KN_PROD_MASK(KN_NP),
-	6   STAT=IOS)
+	6   KN_CS_LS(KN_NP),KN_CS_REA(KN_NP),
+	7   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
 !
 ! KN_Q_RESID (diagnostic): per-ray scratch for the independent
@@ -8432,6 +8589,13 @@ C
 	NCL_LS=0_8; NNL_LS=0_8
 	NST_LS=0; NPS_LS=0; NCP_LS=0; NNG_LS=0; NBD_LS=0; NTT_LS=0
 	NDV_LS=0; NMX_LS=1; NMT_LS=0; NCM_LS=0; NXT_LS=-1; NP2_LS=0_8
+! Rays that return before the classifier ran (NI<2, NCF<2,
+! allocation failure) stay fail-closed.
+	KN_CS_LS=KN_CS_INV; KN_CS_REA=5
+! Fail closed until the post-solve census below proves every
+! production ray certified FULL on this refresh; an aborted or
+! incomplete refresh can never leave TRUE behind.
+	FG_RF_ALL_CONV=.FALSE.
 	NBB_LS=0_8; NTB_LS=0_8
 	KN_AA_APP=0_8; KN_AA_VETO=0_8; KN_AA_REJ=0_8; KN_AA_SNG=0_8
 	FG_RF_DCHG=0.0_LDP
@@ -9102,6 +9266,33 @@ C
 	2  ' bulk=',NX_CNT(2),' stall=',NX_CNT(3),' cap=',NX_CNT(4),
 	3  ' div=',NX_CNT(5),' plat=',NX_CNT(6)
 !
+! Certification census (Phase 2.15): the authoritative
+! six-class status the commit gate consumed. Probe excluded --
+! it never enters a production commit decision.
+!
+	KN_NACT=COUNT(KN_PROD_MASK)
+	KN_NFULL=COUNT(KN_CS_LS .EQ. KN_CS_FULL .AND. KN_PROD_MASK)
+	KN_CCLS(0)=KN_NFULL
+	KN_CCLS(1)=COUNT(KN_CS_LS .EQ. KN_CS_BULK .AND. KN_PROD_MASK)
+	KN_CCLS(2)=COUNT(KN_CS_LS .EQ. KN_CS_ITLIM .AND. KN_PROD_MASK)
+	KN_CCLS(3)=COUNT(KN_CS_LS .EQ. KN_CS_STAG .AND. KN_PROD_MASK)
+	KN_CCLS(4)=COUNT(KN_CS_LS .EQ. KN_CS_DIV .AND. KN_PROD_MASK)
+	KN_CCLS(5)=COUNT(KN_CS_LS .EQ. KN_CS_INV .AND. KN_PROD_MASK)
+	WRITE(LUER,'(A,I5,5(A,I5))')
+	1  '    cert census: full=',KN_CCLS(0),
+	2  ' bulk=',KN_CCLS(1),' itlim=',KN_CCLS(2),
+	3  ' stag=',KN_CCLS(3),' div=',KN_CCLS(4),' inv=',KN_CCLS(5)
+!
+! All-ray verdict (Phase 2.17): TRUE only when every production
+! ray certified FULL this refresh. An incomplete census (rays
+! still INV) or a failed refresh stage reads FALSE.
+!
+	FG_RF_ALL_CONV=(.NOT. FG_RF_FAILED) .AND.
+	1   (KN_NFULL .EQ. KN_NACT) .AND. KN_NACT .GT. 0
+	WRITE(LUER,'(A,L2,A,I5,A,I5)')
+	1  '    rf_all_conv=',FG_RF_ALL_CONV,' full=',KN_NFULL,
+	2  ' active=',KN_NACT
+!
 ! Floored bulk exits are now distinguishable from the stall/cap
 ! stop rules by their residual ceiling (edited,
 ! 20-Oct-2026): a bulk count with maxres <= KN_RAY_BULK_TOL is
@@ -9673,6 +9864,7 @@ C
 	END IF
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
+	2   KN_CS_LS,KN_CS_REA,
 	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS,KN_PROD_MASK)
 	IF(ALLOCATED(KN_NOP_RES))DEALLOCATE(KN_NOP_RES)
 	IF(ALLOCATED(KN_NOP_AD))DEALLOCATE(KN_NOP_AD)
@@ -9908,6 +10100,10 @@ C
 ! that the population-release gate still counts as immature.
 !
 	INTEGER IXIT_M,IXIT_P
+! Authoritative certification status/reason this ray leaves with
+! (Phase 2.15); set where the classifier ran or in the diverged
+! heal path, kept for the post-finalise KN-CS record.
+	INTEGER ICLS,IREA,IDEC
 	INTEGER*8 NB_BM,NT_BM,NB_BP,NT_BP
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
 	LOGICAL L_HOT_OVER,L_UNSEED
@@ -9921,6 +10117,8 @@ C
 ! telemetry with cap events.
 !
 	NSTORE=0; NPASS=0; NCAP=0; NNEG=0; NDIV=0; NMAX=1
+	ICLS=KN_CS_INV; IREA=5
+	Q_M=-1.0_LDP; Q_P=-1.0_LDP
 	NBAD=0; NTOT=0; NB_M=0; NB_P=0; NT_M=0; NT_P=0
 	NMATCH=0; NCOMP=0
 	NXIT=-1; IXIT_M=-1; IXIT_P=-1
@@ -10256,217 +10454,33 @@ C
 !$OMP END CRITICAL (KN_HOT_UPD)
 	  END IF
 !
-! W9 (17-Oct-2026, [FG_COMMIT_JUMP], default 50.0): whole-ray
-! commit guard. A runaway pass that stayed below the divergence
-! threshold would once commit a near-blowup into the store (audit:
-! retained delta 4.19E-1 -> 5.03E3). Reject the commit when the
-! max |V1-V2|/max(V2,1e-4*peak) over either store exceeds
-! FG_COMMIT_JUMP; the pre-refresh slot values stay in place, so
-! the next refresh re-seeds from the committed (sane) field.
-! Genuine factor-of-few rewrites still pass. Direct slot fills
-! (cells the store left at the floor) are excluded -- those are
-! seeds, not overwrites.
-!
-!
-! Per-ray seed-fill waiver (edited 02-Nov-2026,
-! [FG_SEED_COMMIT], default T): a ray that has never taken a
-! WRITE_STORE commit skips the jump veto for its first commit --
-! see the FG_RAY_SEEDED declaration. JUMP stays 0 so the
-! FG_COMMIT_CONV branch below still decides on exit quality.
-!
-	  JUMP=0.0_LDP
-	  L_UNSEED=.FALSE.
-	  IF(FG_SEED_COMMIT .AND. ALLOCATED(FG_RAY_SEEDED))
-	1    L_UNSEED=(FG_RAY_SEEDED(LS) .EQ. 0)
-	  IF(.NOT. L_UNSEED)JUMP=
-	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1),
-	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2))
-	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
-! MODE 1 ([KN_NOCP_PROBE]): the probe's veto verdict stays on
-! FG_RAY_VC below, but a suppressed commit must not move the
-! production rejection counter.
-!$OMP CRITICAL (FG_REJ_UPD)
-	    IF(.NOT. L_NOPROBE)FG_COMMIT_REJ=FG_COMMIT_REJ+1
-!$OMP END CRITICAL (FG_REJ_UPD)
-	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=1
-	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
-!
-! KN_JUMP_DIAG (diagnostic): one compact record per channel
-! that individually exceeds the veto bound. BR<=2 records are
-! HUGE returns and always fire; BR=3 fires only when its ratio
-! beat FG_COMMIT_JUMP. Each thread prints only its own ray.
-!
-	    IF(KN_JUMP_DIAG .AND. KN_JT_READY)THEN
-!$OMP CRITICAL (KN_JT_UPD)
-	      DO J=1,2
-	        IF(KN_JT(LS,J)%BR .GT. 0 .AND.
-	1       (KN_JT(LS,J)%BR .LE. 2 .OR.
-	2        KN_JT(LS,J)%JVAL .GT. FG_COMMIT_JUMP))THEN
-	          WRITE(LUER,'(A,I4,A,I2,A,I6,A,I4,A,4I6,A,I6)')
-	1        '  KN-JT ray=',LS,' ch=',J,' ref=',KN_JT_REFRESH,
-	2        ' br=',KN_JT(LS,J)%BR,' ks,kc,jp,l2=',
-	3        KN_JT(LS,J)%KS,KN_JT(LS,J)%KC,
-	4        KN_JT(LS,J)%JP,KN_JT(LS,J)%L2,
-	5        ' nskip=',KN_JT(LS,J)%NSKIP
-	          WRITE(LUER,'(A,4ES12.5,A,I1,A,3ES12.5)')
-	1        '    v1,v2,vms,ref=',KN_JT(LS,J)%V1,
-	2        KN_JT(LS,J)%V2,KN_JT(LS,J)%VMS,KN_JT(LS,J)%REF,
-	3        ' nf=',MERGE(1,0,KN_JT(LS,J)%NF),
-	4        ' ratio,thr,jval=',KN_JT(LS,J)%RATIO,
-	5        KN_JT(LS,J)%THR,KN_JT(LS,J)%JVAL
-	        END IF
-	      END DO
-!$OMP END CRITICAL (KN_JT_UPD)
-	    END IF
-	  ELSE IF(FG_COMMIT_CONV .AND.
-	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2 .AND.
-	2     (RES_M .LE. KN_RAY_TOL .OR.
-	3      (IXIT_M .EQ. 2 .AND. (KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
-	4       RES_M .LE. KN_RAY_BULK_TOL)))) .OR.
-	5     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2 .AND.
-	6     (RES_P .LE. KN_RAY_TOL .OR.
-	7      (IXIT_P .EQ. 2 .AND. (KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
-	8       RES_P .LE. KN_RAY_BULK_TOL))))))THEN
-!
-! edited 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
-! commits. A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
-! unset code) means the fixed-point solve ended above KN_RAY_TOL;
-! committing its last iterate wrote that unconverged field into
-! the lagged store bounded only by the FG_COMMIT_JUMP magnitude --
-! the runaway class (residual 0.465 vs tol 2E-3 committed with
-! retained delta 21). The residual test also catches the bulk
-! exit: IXIT=2 fires on the bad-cell fraction alone, so a ray with
-! residual ~0.5 and <0.1% bad cells was still classed converged.
-! edited 20-Oct-2026: a bulk exit that also clears
-! [KN_RAY_BULK_TOL] counts as converged here -- the sweep already
-! floored it at the residual the maturity gate's bulk rule
-! accepts, so sending it to WRITE_STORE_CAP only parked the store
-! one capped step from the fixed point (the 8-12 nc-capped
-! commits per refresh on ). With KN_RAY_BULK_TOL<=0 the
-! floor is off entirely -- the IXIT=2 exit fired on bad-fraction
-! alone, so the commit test must admit it rather than require
-! BTOL>0 (edited 20-Oct-2026: the two semantics were
-! inconsistent, bulk exits fired and were never accepted).
-! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
-! (per-cell change bounded by NC; the store keeps tracking a
-! contracting field but cannot ratchet faster than NC/refresh).
-! NC=0 skips the write: the store keeps the pre-refresh
-! generation, a sane consistent seed. The residual still reports
-! RES_M/RES_P, so the maturity gate reads the ray as unconverged
-! either way.
-!
-! edited 20-Nov-2026 [Phase 2.14]: the <=0 short-circuit added
-! above let IXIT=2 commit as converged at any residual
-! (measured: RES=8.3E-3 vs TOL=2E-3, qres=2.8E-3, 41/6227 bad
-! cells -- a bad-fraction subset is not the global fixed point).
-! BULK_TOL now means: >0, residual floor the bulk rule may accept;
-! =0, bulk exit disabled. A ray that would previously have exited
-! BULK_ONLY now keeps sweeping to the normal exits, so the same
-! field reaches the genuine residual exit in the same pass count
-! (RES=1.9E-4, qres=0 on the phase-2.13 deck). Rays that still end
-! unconverged take this same NC-capped provisional path, which is
-! what preserves progress without a false converged write.
-!
-	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
-	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
-	      IF(.NOT. L_NOPROBE)
-	1    CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
-	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
-	      IF(.NOT. L_NOPROBE)
-	1    CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
-!$OMP CRITICAL (FG_CAP_UPD)
-! MODE 1 ([KN_NOCP_PROBE]): the probe's WRITE_STORE_CAP above is
-! suppressed, so it must not count as a production capped commit.
-	      IF(.NOT. L_NOPROBE)FG_NC_CAP=FG_NC_CAP+1
-!$OMP END CRITICAL (FG_CAP_UPD)
-!$OMP CRITICAL (FG_DCHG_UPD)
-	      FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
-!$OMP END CRITICAL (FG_DCHG_UPD)
-	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=3
-	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=
-	1        MAX(DCH_M,DCH_P)
-	    ELSE
-!$OMP CRITICAL (FG_NC_UPD)
-! MODE 1 ([KN_NOCP_PROBE]): a suppressed commit must not count as
-! a production non-converged reject either.
-	      IF(.NOT. L_NOPROBE)FG_NC_REJ=FG_NC_REJ+1
-!$OMP END CRITICAL (FG_NC_UPD)
-	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=2
-	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
-	    END IF
-	  ELSE
-	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
-	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
-	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
-	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
-!
-! First full commit of this ray -- the jump veto engages on the
-! next refresh (seed-fill waiver, [FG_SEED_COMMIT]). A probe ray
-! measures the candidate but must not mark itself seeded: the
-! store keeps its pre-refresh generation either way.
-!
-	    IF(ALLOCATED(FG_RAY_SEEDED) .AND. .NOT. L_NOPROBE)
-	1    FG_RAY_SEEDED(LS)=1
-!$OMP CRITICAL (FG_DCHG_UPD)
-	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
-!$OMP END CRITICAL (FG_DCHG_UPD)
-	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=0
-	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=MAX(DCH_M,DCH_P)
-	  END IF
-	END IF
-!
-! KN_NOCP_PROBE (diagnostic): every store write above was
-! suppressed for the probe ray, so a would-be commit verdict
-! (0) would falsely claim a write happened. Record the
-! decision the chain reached in NOP_VC for the pass report,
-! then mark the ray with the probe code 7. The jump veto
-! value JUMP and the KN-JT records still show what the
-! candidate would have faced.
-!
-	IF(L_NOPROBE)THEN
-	  IF(ALLOCATED(FG_RAY_VC))THEN
-	    NOP_VC=FG_RAY_VC(LS)
-	    FG_RAY_VC(LS)=7
-	  END IF
-	END IF
-!
-! Audit dump: the committed full-ray fields for this solve (the
-! sparse store only keeps compressing depths, so the conservation
-! checker cannot reconstruct transport sums without these).
-!
-	IF(ALLOCATED(KR_DBG_FLDM) .AND. LS .EQ. KN_DBG_LS .AND.
-	1    NI .LE. SIZE(KR_DBG_FLDM,1) .AND.
-	2    NCF .LE. SIZE(KR_DBG_FLDM,2))THEN
-	  KR_DBG_FLDM(1:NI,1:NCF)=FLD(1:NI,1:NCF)
-	  KR_DBG_FLDP(1:NI,1:NCF)=FLD_P(1:NI,1:NCF)
-	END IF
-!
-! KN_Q_RESID (diagnostic, [KN_Q_RESID]): independent fixed-point
-! residual. With OMEGA_RAY<1 the committed field is not the raw
-! map output, so the production RES understates the true
+! KN_Q_RESID / KN_CERT_CONV: independent fixed-point residual,
+! now evaluated BEFORE the commit decision (Phase 2.15,
+! 20-Nov-2026). With OMEGA_RAY<1 the committed field is not the
+! raw map output, so the production RES understates the true
 ! fixed-point gap; re-apply exactly one sweep pass to a scratch
 ! copy of each channel's field and record that pass residual.
 ! The L_QP hook inside SWEEP_FLD/SWEEP_FLD_ORD exits after the
 ! first completed pass, so the verify costs one pass per channel
-! and never reaches the store. Production outputs above are
-! final; host-shared sweep outputs a verify pass would overwrite
-! (clamp census, worst-cell record, rho export, p2damp count,
-! exit flags) are saved and restored.
+! and never reaches the store. Host-shared sweep outputs a
+! verify pass would overwrite (clamp census, worst-cell record,
+! rho export, p2damp count, exit flags) are saved and restored,
+! so the production residuals, flags and counters the commit
+! gate reads below still carry the production solve's values.
+! Under KN_CERT_CONV the verify result is a certificate input:
+! a nominal exit without a valid Q cannot certify (see
+! KN_CERT_CH). KN_Q_RESID alone keeps the original diagnostic
+! role -- run the verify and keep KN_Q_LS/KN_QS_STAT telemetry
+! without letting it gate the commit.
 !
-!
-! Ray census marks: rays skipped by the verify gate get an
-! explicit status so the summary can separate diverged rays,
-! missing-field rays and evaluated rays instead of folding them
-! into the -1 sentinel pool.
-!
-	IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))THEN
+	IF(ALLOCATED(KN_QS_STAT))THEN
 	  IF(NDIV .NE. 0)THEN
 	    KN_QS_STAT(LS)=2
 	  ELSE IF(.NOT. (ALLOCATED(FLD) .AND. ALLOCATED(FLD_P)))THEN
 	    KN_QS_STAT(LS)=5
 	  END IF
 	END IF
-	IF(KN_Q_RESID .AND. NDIV .EQ. 0 .AND.
+	IF((KN_CERT_CONV .OR. KN_Q_RESID) .AND. NDIV .EQ. 0 .AND.
 	1   ALLOCATED(FLD) .AND. ALLOCATED(FLD_P))THEN
 	  LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT
 	  WRC_SV(1)=WRC_I; WRC_SV(2)=WRC_L; WRC_SV(3)=WRC_PI
@@ -10548,6 +10562,195 @@ C
 	  NCAP=NPCS_SV; NNEG=NNGS_SV; NP2_CNT=NPT2_SV
 	  RHO_M=RHOS_SV(1); RHO_P=RHOS_SV(2)
 	END IF
+!
+! Authoritative classification (Phase 2.15): folds the two
+! channels' exit codes, production residuals and verify residuals
+! into the six-class status the commit gate consumes. Q_M/Q_P
+! stay at -1 when the verify did not run, which the classifier
+! reads as missing verification under KN_CERT_CONV.
+!
+	CALL KN_CERTIFY(IXIT_M,IXIT_P,RES_M,RES_P,Q_M,Q_P,
+	1   NDIV,KN_CERT_CONV,ICLS,IREA)
+	IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=ICLS
+	IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=IREA
+!
+! W9 (17-Oct-2026, [FG_COMMIT_JUMP], default 50.0): whole-ray
+! commit guard. A runaway pass that stayed below the divergence
+! threshold would once commit a near-blowup into the store (audit:
+! retained delta 4.19E-1 -> 5.03E3). Reject the commit when the
+! max |V1-V2|/max(V2,1e-4*peak) over either store exceeds
+! FG_COMMIT_JUMP; the pre-refresh slot values stay in place, so
+! the next refresh re-seeds from the committed (sane) field.
+! Genuine factor-of-few rewrites still pass. Direct slot fills
+! (cells the store left at the floor) are excluded -- those are
+! seeds, not overwrites.
+!
+!
+! Per-ray seed-fill waiver (edited 02-Nov-2026,
+! [FG_SEED_COMMIT], default T): a ray that has never taken a
+! WRITE_STORE commit skips the jump veto for its first commit --
+! see the FG_RAY_SEEDED declaration. JUMP stays 0 so the
+! FG_COMMIT_CONV branch below still decides on exit quality.
+!
+	  JUMP=0.0_LDP
+	  L_UNSEED=.FALSE.
+	  IF(FG_SEED_COMMIT .AND. ALLOCATED(FG_RAY_SEEDED))
+	1    L_UNSEED=(FG_RAY_SEEDED(LS) .EQ. 0)
+	  IF(.NOT. L_UNSEED)JUMP=
+	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1),
+	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2))
+	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
+! MODE 1 ([KN_NOCP_PROBE]): the probe's veto verdict stays on
+! FG_RAY_VC below, but a suppressed commit must not move the
+! production rejection counter.
+!$OMP CRITICAL (FG_REJ_UPD)
+	    IF(.NOT. L_NOPROBE)FG_COMMIT_REJ=FG_COMMIT_REJ+1
+!$OMP END CRITICAL (FG_REJ_UPD)
+	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=1
+	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
+!
+! KN_JUMP_DIAG (diagnostic): one compact record per channel
+! that individually exceeds the veto bound. BR<=2 records are
+! HUGE returns and always fire; BR=3 fires only when its ratio
+! beat FG_COMMIT_JUMP. Each thread prints only its own ray.
+!
+	    IF(KN_JUMP_DIAG .AND. KN_JT_READY)THEN
+!$OMP CRITICAL (KN_JT_UPD)
+	      DO J=1,2
+	        IF(KN_JT(LS,J)%BR .GT. 0 .AND.
+	1       (KN_JT(LS,J)%BR .LE. 2 .OR.
+	2        KN_JT(LS,J)%JVAL .GT. FG_COMMIT_JUMP))THEN
+	          WRITE(LUER,'(A,I4,A,I2,A,I6,A,I4,A,4I6,A,I6)')
+	1        '  KN-JT ray=',LS,' ch=',J,' ref=',KN_JT_REFRESH,
+	2        ' br=',KN_JT(LS,J)%BR,' ks,kc,jp,l2=',
+	3        KN_JT(LS,J)%KS,KN_JT(LS,J)%KC,
+	4        KN_JT(LS,J)%JP,KN_JT(LS,J)%L2,
+	5        ' nskip=',KN_JT(LS,J)%NSKIP
+	          WRITE(LUER,'(A,4ES12.5,A,I1,A,3ES12.5)')
+	1        '    v1,v2,vms,ref=',KN_JT(LS,J)%V1,
+	2        KN_JT(LS,J)%V2,KN_JT(LS,J)%VMS,KN_JT(LS,J)%REF,
+	3        ' nf=',MERGE(1,0,KN_JT(LS,J)%NF),
+	4        ' ratio,thr,jval=',KN_JT(LS,J)%RATIO,
+	5        KN_JT(LS,J)%THR,KN_JT(LS,J)%JVAL
+	        END IF
+	      END DO
+!$OMP END CRITICAL (KN_JT_UPD)
+	    END IF
+	  ELSE IF(FG_COMMIT_CONV .AND. ICLS .NE. KN_CS_FULL)THEN
+!
+! edited 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
+! commits. A stall, pass-cap or plateau exit (IXIT 3/4/6, or an
+! unset code) means the fixed-point solve ended above KN_RAY_TOL;
+! committing its last iterate wrote that unconverged field into
+! the lagged store bounded only by the FG_COMMIT_JUMP magnitude --
+! the runaway class (residual 0.465 vs tol 2E-3 committed with
+! retained delta 21). The residual test also catches the bulk
+! exit: IXIT=2 fires on the bad-cell fraction alone, so a ray with
+! residual ~0.5 and <0.1% bad cells was still classed converged.
+! edited 20-Oct-2026: a bulk exit that also clears
+! [KN_RAY_BULK_TOL] counts as converged here -- the sweep already
+! floored it at the residual the maturity gate's bulk rule
+! accepts, so sending it to WRITE_STORE_CAP only parked the store
+! one capped step from the fixed point (the 8-12 nc-capped
+! commits per refresh on ). With KN_RAY_BULK_TOL<=0 the
+! floor is off entirely -- the IXIT=2 exit fired on bad-fraction
+! alone, so the commit test must admit it rather than require
+! BTOL>0 (edited 20-Oct-2026: the two semantics were
+! inconsistent, bulk exits fired and were never accepted).
+! With FG_COMMIT_NC>0 the ray takes a capped provisional commit
+! (per-cell change bounded by NC; the store keeps tracking a
+! contracting field but cannot ratchet faster than NC/refresh).
+! NC=0 skips the write: the store keeps the pre-refresh
+! generation, a sane consistent seed. The residual still reports
+! RES_M/RES_P, so the maturity gate reads the ray as unconverged
+! either way.
+!
+! edited 20-Nov-2026 [Phase 2.14/2.15]: the <=0 short-circuit
+! let IXIT=2 commit as converged at any residual (measured:
+! RES=8.3E-3 vs TOL=2E-3, qres=2.8E-3 -- a bad-fraction subset
+! is not the global fixed point). BULK_TOL now means: >0,
+! residual floor the bulk rule may accept; =0, bulk exit
+! disabled. The commit test now reads the six-class status from
+! KN_CERTIFY, so only FULL_CONVERGENCE reaches WRITE_STORE: a
+! bulk floored exit is BULK_ONLY and takes the same NC-capped
+! provisional path as the other non-certified exits, a nominal
+! exit whose independent verify failed or never ran cannot
+! certify either.
+!
+	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
+	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
+	      IF(.NOT. L_NOPROBE)
+	1    CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
+	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
+	      IF(.NOT. L_NOPROBE)
+	1    CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+!$OMP CRITICAL (FG_CAP_UPD)
+! MODE 1 ([KN_NOCP_PROBE]): the probe's WRITE_STORE_CAP above is
+! suppressed, so it must not count as a production capped commit.
+	      IF(.NOT. L_NOPROBE)FG_NC_CAP=FG_NC_CAP+1
+!$OMP END CRITICAL (FG_CAP_UPD)
+!$OMP CRITICAL (FG_DCHG_UPD)
+	      FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
+!$OMP END CRITICAL (FG_DCHG_UPD)
+	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=3
+	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=
+	1        MAX(DCH_M,DCH_P)
+	    ELSE
+!$OMP CRITICAL (FG_NC_UPD)
+! MODE 1 ([KN_NOCP_PROBE]): a suppressed commit must not count as
+! a production non-converged reject either.
+	      IF(.NOT. L_NOPROBE)FG_NC_REJ=FG_NC_REJ+1
+!$OMP END CRITICAL (FG_NC_UPD)
+	      IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=2
+	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
+	    END IF
+	  ELSE
+	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
+	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
+	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
+	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+!
+! First full commit of this ray -- the jump veto engages on the
+! next refresh (seed-fill waiver, [FG_SEED_COMMIT]). A probe ray
+! measures the candidate but must not mark itself seeded: the
+! store keeps its pre-refresh generation either way.
+!
+	    IF(ALLOCATED(FG_RAY_SEEDED) .AND. .NOT. L_NOPROBE)
+	1    FG_RAY_SEEDED(LS)=1
+!$OMP CRITICAL (FG_DCHG_UPD)
+	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
+!$OMP END CRITICAL (FG_DCHG_UPD)
+	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=0
+	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=MAX(DCH_M,DCH_P)
+	  END IF
+	END IF
+!
+! KN_NOCP_PROBE (diagnostic): every store write above was
+! suppressed for the probe ray, so a would-be commit verdict
+! (0) would falsely claim a write happened. Record the
+! decision the chain reached in NOP_VC for the pass report,
+! then mark the ray with the probe code 7. The jump veto
+! value JUMP and the KN-JT records still show what the
+! candidate would have faced.
+!
+	IF(L_NOPROBE)THEN
+	  IF(ALLOCATED(FG_RAY_VC))THEN
+	    NOP_VC=FG_RAY_VC(LS)
+	    FG_RAY_VC(LS)=7
+	  END IF
+	END IF
+!
+! Audit dump: the committed full-ray fields for this solve (the
+! sparse store only keeps compressing depths, so the conservation
+! checker cannot reconstruct transport sums without these).
+!
+	IF(ALLOCATED(KR_DBG_FLDM) .AND. LS .EQ. KN_DBG_LS .AND.
+	1    NI .LE. SIZE(KR_DBG_FLDM,1) .AND.
+	2    NCF .LE. SIZE(KR_DBG_FLDM,2))THEN
+	  KR_DBG_FLDM(1:NI,1:NCF)=FLD(1:NI,1:NCF)
+	  KR_DBG_FLDP(1:NI,1:NCF)=FLD_P(1:NI,1:NCF)
+	END IF
+!
 	DEALLOCATE(FLD,FLD_P)
 !
 800	CONTINUE
@@ -10575,6 +10778,12 @@ C
 	  END IF
 	  RESID=1.0_LDP
 	  NXIT=5
+! Rays that jumped here over the classify point (divergence during
+! the pack build or the M solve) still carry the authoritative
+! status; the classify point itself also maps NDIV to this class.
+	  ICLS=KN_CS_DIV; IREA=6
+	  IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=ICLS
+	  IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=IREA
 	  IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=4
 	  IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=0.0_LDP
 	ELSE
@@ -10619,6 +10828,30 @@ C
 !
 	NBBLK=NB_BM+NB_BP
 	NTBLK=NT_BM+NT_BP
+!
+! KN_CERT_DIAG (diagnostic, [KN_CERT_DIAG], default F): one
+! machine-readable certification record per ray. cls is the
+! authoritative six-class status, rea its reason code, dec the
+! store decision actually taken (FG_RAY_VC semantics: 0 full
+! commit, 1 jump veto, 2 retained NC=0, 3 capped provisional,
+! 4 diverged, 7 probe). Placed after the result-arg finalisation
+! so NXIT/RESID/NPASS carry committed values; under OMP each
+! thread writes only its own ray.
+!
+	IF(KN_CERT_DIAG)THEN
+	  IDEC=-9
+	  IF(ALLOCATED(FG_RAY_VC))IDEC=FG_RAY_VC(LS)
+!$OMP CRITICAL (KN_CS_UPD)
+	  WRITE(LUER,'(A,I4,A,I2,A,I2,3(A,I3),3(A,ES11.4),
+	1     2(A,ES11.4),2(A,ES10.3),3(A,I8),A,I2)')
+	2    ' KN-CS ray=',LS,' cls=',ICLS,' rea=',IREA,
+	3    ' ixm=',IXIT_M,' ixp=',IXIT_P,' nx=',NXIT,
+	4    ' resm=',RES_M,' resp=',RES_P,' res=',RESID,
+	5    ' qm=',Q_M,' qp=',Q_P,' tol=',KN_RAY_TOL,
+	6    ' btol=',KN_RAY_BULK_TOL,' np=',NPASS,
+	7    ' nbd=',NBAD,' nt=',NTOT,' dec=',IDEC
+!$OMP END CRITICAL (KN_CS_UPD)
+	END IF
 !
 ! KN_WATCH_CELL (diagnostic): one record per solve for the armed
 ! ray - exit class, pass count, residual, geometry mapping and
