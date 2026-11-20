@@ -3871,6 +3871,8 @@
         IF(IOS .EQ. 0)THEN
           READ(76,*,IOSTAT=IOS)T3
           IF(IOS .EQ. 0)KN_RAY_BULK_TOL=T3
+          READ(76,*,IOSTAT=IOS)T3
+          IF(IOS .EQ. 0)KN_RAY_MAXPASS=NINT(T3)
           CLOSE(76)
         END IF
         ALLOCATE(KN_Q_LS(1),KN_QS_STAT(1),KN_QA_Q(1,2), &
