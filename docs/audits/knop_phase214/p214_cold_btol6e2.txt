@@ -1,0 +1,2 @@
+P1X_RAW ixit=  2 resid=  8.32052398E-03 npass=  14 nbad=        41 ntot=      6227 qres=  2.79648408E-03
+P1X_STATUS BULK_ONLY    btol=  6.00000000E-02

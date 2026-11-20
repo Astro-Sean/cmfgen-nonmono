@@ -1,0 +1,2 @@
+P1X_RAW ixit=  1 resid=  0.00000000E+00 npass=   2 nbad=         0 ntot=      6227 qres=  0.00000000E+00
+P1X_STATUS FULL_CONVERG btol=  0.00000000E+00

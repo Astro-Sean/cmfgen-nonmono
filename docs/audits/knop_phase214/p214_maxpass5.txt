@@ -1,0 +1,2 @@
+P1X_RAW ixit=  4 resid=  3.04725479E-01 npass=   5 nbad=      3048 ntot=      6227 qres=  1.91091009E-01
+P1X_STATUS ITERATION_LI btol=  0.00000000E+00
