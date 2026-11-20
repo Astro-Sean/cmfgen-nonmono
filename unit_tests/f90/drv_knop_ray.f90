@@ -133,6 +133,8 @@
       IF(CNAME .EQ. 'cerp')  NCASE=83
       IF(CNAME .EQ. 'rfmx')  NCASE=84
       IF(CNAME .EQ. 'rfab')  NCASE=85
+      IF(CNAME .EQ. 'invdln')NCASE=86
+      IF(CNAME .EQ. 'inval') NCASE=87
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -217,7 +219,7 @@
       IF(NCASE .GE. 59 .AND. NCASE .LE. 62)KNP=3
       IF(NCASE .EQ. 63)KNP=3
       IF(NCASE .GE. 64 .AND. NCASE .LE. 66)KNP=3
-      IF(NCASE .GE. 79 .AND. NCASE .LE. 85)KNP=3
+      IF(NCASE .GE. 79 .AND. NCASE .LE. 87)KNP=3
       KN_NP=KNP
       KN_NC=0
       KN_NCF=NCFX
@@ -242,7 +244,7 @@
       KN_IC(NCFX),KN_DBB(NCFX), &
       I_P_DEPTH_NEXT(N_COMP,KNP,NCFX), &
       I_M_DEPTH_NEXT(N_COMP,KNP,NCFX), &
-      FG_RAY_SEEDED(KNP),STAT=IOS)
+      FG_RAY_SEEDED(KNP),KN_CS_LS(KNP),KN_CS_REA(KNP),STAT=IOS)
       IF(IOS .NE. 0)THEN
         WRITE(*,'(A)')'RESULT alloc_fail=1'
         GOTO 999
@@ -257,6 +259,10 @@
 !
       IF(NCASE .EQ. 47)NI_RAY(1)=0
       IF(NCASE .EQ. 48)NI_RAY(1)=1
+! inval (87): an absurd NI_RAY forces the ray's working-array
+! ALLOCATE to fail inside the solve -- the ray must classify
+! INVALID_STATE (allocation failure), not divergence.
+      IF(NCASE .EQ. 87)NI_RAY(1)=2000000000
       DO LS=1,KNP
         DO I=1,NIX
           RAY_PNT(I,LS)=I
@@ -477,6 +483,13 @@
         KN_DLN_N(L)=LOG(KN_FREQ(L)/KN_FREQ(L+1))
       END DO
       KN_DLN_N(NCFX)=KN_DLN_P(NCFX)
+! invdln (86): a degenerate (zero) frequency span is an invalid
+! interval -- the BUILD_FREQ DLN guard must flag INVALID_STATE,
+! not divergence.
+      IF(NCASE .EQ. 86)THEN
+        KN_DLN_P(2)=0.0_LDP
+        KN_DLN_N(2)=0.0_LDP
+      END IF
       KN_IC=0.0_LDP
       KN_DBB=0.0_LDP
 !
@@ -1111,6 +1124,10 @@
       WRITE(*,'(A,I8)')'NTOT=',NTOT
       WRITE(*,'(A,I10)')'NCAP_LST=',NCAP_LST
       WRITE(*,'(A,I10)')'NNG_LST=',NNG_LST
+      IF(ALLOCATED(KN_CS_LS))THEN
+        WRITE(*,'(A,I3,A,I3)')'CLS_R=',KN_CS_LS(1), &
+      ' ',KN_CS_REA(1)
+      END IF
       IF(NCASE .GE. 16 .AND. ALLOCATED(KR_DBG_CHIH))THEN
         DO L=1,NCFX
           DO I=1,ND
@@ -1938,7 +1955,7 @@
 ! ----------------------------------------------------------------------
       SUBROUTINE DRV_CERT()
       INTEGER I_C,ICLS_T,IREA_T
-      INTEGER IX_T(2),ND_T
+      INTEGER IX_T(2),ND_T,INVR_T
       REAL(KIND=LDP) RE_T(2),QQ_T(2)
       REAL(KIND=LDP) RQNAN,RQINF,RQZ
       LOGICAL LC_T
@@ -1965,10 +1982,12 @@
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c02 ',ICLS_T,IREA_T
 !
-! c03: bulk floored exits, TOL < RES <= BTOL -> BULK.
+! c03: bulk floored exits, TOL < RES <= BTOL, valid verify -> BULK.
+! (Phase 2.16: under LCERT a bulk class also needs an evaluated,
+! finite, non-negative Q -- see c23/c24 for the fail-closed rows.)
       IX_T(1)=2; IX_T(2)=2
       RE_T(1)=8.3E-3_LDP; RE_T(2)=3.0E-2_LDP
-      QQ_T(1)=-1.0_LDP; QQ_T(2)=-1.0_LDP
+      QQ_T(1)=3.0E-2_LDP; QQ_T(2)=4.0E-2_LDP
       CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c03 ',ICLS_T,IREA_T
@@ -2032,9 +2051,10 @@
       WRITE(*,'(A,2I3)')'CERT c11 ',ICLS_T,IREA_T
 !
 ! c12: severity fold -- M channel FULL, P channel BULK -> BULK.
+! (Phase 2.16: the BULK channel's verify must be evaluated.)
       IX_T(1)=1; IX_T(2)=2
       RE_T(1)=1.0E-4_LDP; RE_T(2)=8.3E-3_LDP
-      QQ_T(1)=0.0_LDP; QQ_T(2)=-1.0_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=3.0E-2_LDP
       CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c12 ',ICLS_T,IREA_T
@@ -2087,6 +2107,7 @@
 ! c19: severity fold -- BULK channel vs ITLIM channel -> ITLIM.
       IX_T(1)=2; IX_T(2)=4
       RE_T(1)=8.3E-3_LDP; RE_T(2)=1.0E-2_LDP
+      QQ_T(1)=3.0E-2_LDP; QQ_T(2)=-1.0_LDP
       CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c19 ',ICLS_T,IREA_T
@@ -2096,6 +2117,77 @@
       CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
       QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T)
       WRITE(*,'(A,2I3)')'CERT c20 ',ICLS_T,IREA_T
+!
+! Phase 2.16 rows: invalid-state separation, negative residuals,
+! complete verify validation under LCERT, and the INVR override.
+!
+      INVR_T=0
+!
+! c21: negative production residual -> INV (a max norm cannot be
+! negative; a negative RES is a broken residual, reason 3).
+      IX_T(1)=1; IX_T(2)=1
+      RE_T(1)=-1.0E-4_LDP; RE_T(2)=1.0E-4_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=0.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c21 ',ICLS_T,IREA_T
+!
+! c22: negative verify residual on the strict path -> INV(2).
+      RE_T(1)=1.0E-4_LDP
+      QQ_T(1)=-5.0E-3_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c22 ',ICLS_T,IREA_T
+!
+! c23: bulk exits but the verify never ran (Q=-1) -> INV, not
+! BULK -- the missing-verification sentinel cannot hide behind
+! the provisional class (reason 2).
+      IX_T(1)=2; IX_T(2)=2
+      RE_T(1)=8.3E-3_LDP; RE_T(2)=3.0E-2_LDP
+      QQ_T(1)=-1.0_LDP; QQ_T(2)=-1.0_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c23 ',ICLS_T,IREA_T
+!
+! c24: bulk exits with a non-finite verify -> INV, not BULK.
+      QQ_T(1)=RQNAN; QQ_T(2)=3.0E-2_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c24 ',ICLS_T,IREA_T
+!
+! c25: bulk exits with an evaluated but above-tol verify -> BULK.
+! BULK is already a provisional class; only missing/invalid Q
+! fails it closed.
+      QQ_T(1)=5.0E-2_LDP; QQ_T(2)=4.0E-2_LDP
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c25 ',ICLS_T,IREA_T
+!
+! c26: invalid coefficient (INVR=7) plus finite divergence
+! (NDIV=1) -> INV wins over DIV.
+      IX_T(1)=5; IX_T(2)=5
+      RE_T(1)=1.0E-2_LDP; RE_T(2)=1.0E-2_LDP
+      QQ_T(1)=0.0_LDP; QQ_T(2)=0.0_LDP
+      ND_T=1; INVR_T=7
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c26 ',ICLS_T,IREA_T
+      ND_T=0
+!
+! c27: invalid frequency span (INVR=8) on nominal exits -> INV.
+      IX_T(1)=1; IX_T(2)=1
+      RE_T(1)=1.0E-4_LDP; RE_T(2)=1.0E-4_LDP
+      INVR_T=8
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c27 ',ICLS_T,IREA_T
+!
+! c28: allocation failure (INVR=9) -> INV.
+      INVR_T=9
+      CALL KN_CERTIFY(IX_T(1),IX_T(2),RE_T(1),RE_T(2), &
+      QQ_T(1),QQ_T(2),ND_T,LC_T,ICLS_T,IREA_T,INVR_T)
+      WRITE(*,'(A,2I3)')'CERT c28 ',ICLS_T,IREA_T
+      INVR_T=0
 !
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
