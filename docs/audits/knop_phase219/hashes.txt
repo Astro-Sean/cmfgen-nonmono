@@ -1,0 +1,10 @@
+ee03b158402f678af39fe246dd4d5477a8195519c7c5e1d934b5fa308866515f  unit_tests/bin/knray_p218
+e3db3555a60a0200ed9b5731531400b4403367e853c2926da9c9fdfbe61c176e  unit_tests/bin/cmf_flux_p219
+98d0eee849e81db5d0f3351d6c422f0b9fa9ac78845f3f4ba6be1dc4148ce5ab  lib/libsubs.a
+630
+9fcaa202 audit: Phase 2.15 production convergence certification
+48cd5d49 test_knop_lagged_field: pin the cert gate and floored bulk exits
+1a7400fc test_knop_ray: skip scalar store entries in the OMP diff
+c4cff903 drv_knop_ray: model seeded rays and genuine bulk exits in cert cases
+db184329 audit: Phase 2.18 build integrity and final verification
+66ea1e65 cmf_flux_sub_v5: match extended maturity-export signature
