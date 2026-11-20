@@ -1,0 +1,89 @@
+{
+  "audit": "Phase 2.7 driver-level direct-solve verification",
+  "case": "knray p1t1n",
+  "date": "2026-11-20",
+  "driver": "unit_tests/f90/drv_knop_ray.f90 DRV_P1T1B, case tag p1t1n",
+  "binary": "unit_tests/bin/knray",
+  "method": "Newton solve of the implemented packed-store fixed-point equation F(X)=X via (I-J2)*DXP = F(X)-X, J2 = FD Jacobian (amp 1e-5 of per-element scale, floor 1e-3) at X0V; per-variant MAP_F(IRFI(IV)). Diagnostic only; production solver untouched.",
+  "state": {
+    "nx": 30,
+    "layout": "3 compressing depths x 5 active store slots x {P,M} channels",
+    "compressing_depth_idx": [1, 2, 3],
+    "compressing_ray_points": [4, 5, 6],
+    "packed_slots": "1..NSLOT-1 (slot NSLOT is never written)",
+    "seed": "X0V = 30-iterate fixed point of the refreshed map (warm-up)",
+    "x0_norm_l2": 150.7
+  },
+  "variants": {
+    "fullw05": {
+      "irf": 1, "omega": 0.5,
+      "meaning": "full sweep + FG_KNOP_REFRESH_V1; packs post-refresh store",
+      "jacobian_nnz": 0,
+      "jacobian_max_eig_mod": 0.0,
+      "jacobian_trace": 0.0,
+      "newton_residual_history": [0.0],
+      "xstar_minus_x0_l2": 0.0,
+      "xstar_minus_x0_max": 0.0,
+      "interpretation": "refresh fully re-solves the lagged chain below FD noise; the composite map is a constant map -> committed field is seed-independent in this problem"
+    },
+    "swp_w05": {
+      "irf": 0, "omega": 0.5,
+      "meaning": "sweep only, relaxed writes; packs post-sweep store",
+      "jacobian_nnz": 64,
+      "jacobian_max_eig_mod": 0.5000000001,
+      "jacobian_trace": 15.0,
+      "eigenvalue_note": "all 30 eigenvalues = 1-omega = 0.5 to FD accuracy",
+      "newton_residual_history": [5.51180068e-07, 2.38328452e-14, 2.13168604e-14, 2.13168604e-14, 2.13168604e-14],
+      "newton_final_relative": 1.41474012e-16,
+      "xstar_minus_x0_l2": 2.14086821e-06,
+      "xstar_minus_x0_max": 9.90698041e-07,
+      "xstar_minus_x0_argmax_elem": 5
+    },
+    "swp_w10": {
+      "irf": 0, "omega": 1.0,
+      "meaning": "sweep only, unrelaxed writes; the raw lagged inner map",
+      "jacobian_nnz": 35,
+      "jacobian_max_eig_mod": 0.0,
+      "jacobian_trace": 0.0,
+      "eigenvalue_note": "J is nonzero but nilpotent: the slot-coupling graph is a DAG on this synthetic problem",
+      "newton_residual_history": [1.10236013e-06, 2.41610654e-14, 2.00971835e-14, 0.0],
+      "xstar_minus_x0_l2": 2.14086820e-06,
+      "xstar_minus_x0_max": 9.90698034e-07,
+      "xstar_minus_x0_argmax_elem": 5
+    },
+    "cross_variant": {
+      "xstar_swp05_minus_swp10_l2": 2.71739419e-14,
+      "note": "relaxation preserves the fixed point exactly, as required for a consistent under-relaxed map"
+    }
+  },
+  "ablation": {
+    "case": "knray p1t1bf (FREEZE_I_PREV=T, IV=2 only)",
+    "jacobian_max_eig_mod": 0.5000000001,
+    "result": "identical eigenvalue spectrum -> the packed-store map is not I_PREV-mediated"
+  },
+  "consistency": {
+    "fd_amplitudes": [1e-4, 1e-5],
+    "column_consistency": "max |J1-J2|/(scale) ~ 0 on all variants -> affine to FD accuracy",
+    "repeat_eval_maxdiff": 0.0,
+    "nl_contraction_probe": {
+      "case": "knray p1t1b (25-step perturbed iterations)",
+      "irf0_tail_ratio": 0.5,
+      "irf1_tail_ratio": 0.0,
+      "note": "dynamic contraction matches the FD eigenvalues: sweep map contracts at 1-omega, refreshed map kills perturbations in one step"
+    }
+  },
+  "key_findings": [
+    "The implemented packed-store map is affine: one Newton step takes ||F(X*)-X*|| to ~2e-14 (swp_w05) and exactly 0 (swp_w10); a direct solve exists and is reachable in one shot.",
+    "On this synthetic problem the unrelaxed lagged Jacobian is nilpotent (rho=0): the wavelength-coupling graph is a DAG ending at the unwritten boundary slot. The rho~0.97 production stiffness is NOT reproduced here - that requires cyclic cross-depth donor chains or the |GAM|/DLN >> chi regime, absent in p1t1 geometry.",
+    "The relaxed map's eigenvalues are exactly 1-omega=0.5: relaxation is the only source of spectral radius on a nilpotent base map.",
+    "The true lagged fixed point sits 9.9e-7 (max elementwise) / 2.14e-6 (L2) from the production committed field X0V - the same order as the refresh's own truncation residual (8.6e-9 relative on |X|~70), so the refresh is converging on the same fixed point.",
+    "Newton on the refreshed map is trivial (J=0): the refresh already computes the seed-independent answer."
+  ],
+  "caveats": [
+    "A map-level Newton solve accelerates the implemented fixed-point iteration; it is not identical to the Schur-complement solve of the per-cell transfer equations derived in sections 2-3, though their fixed points coincide when the map is affine.",
+    "The synthetic problem does not exercise the production-stiffness regime; results verify the mechanism, not the rho~0.97 case.",
+    "FD Jacobian noise floor (~1e-5 amplitude on |X|~70) limits eigenvalue accuracy to ~1e-6; nilpotence is inferred from eigenvalues below that floor, not proven to the last bit."
+  ],
+  "neval_total": 704,
+  "result": "RESULT_OK"
+}
