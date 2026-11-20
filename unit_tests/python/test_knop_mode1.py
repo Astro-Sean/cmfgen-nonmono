@@ -98,6 +98,7 @@ def main():
         "M1U_NSAM_NOPROD": 0,
         "M1U_OM_BASE": None,
         "M1U_RHOP_DIAG": 1.5,    # diagnostic rho preserved
+        "M1U_IST_NORM": 0,
     }
     for k, v in exp.items():
         if v is not None:
@@ -110,6 +111,10 @@ def main():
         and d.get("M1U_NSAM_INCL") == 42
         and abs(d.get("M1U_OM_FEW", 0) - 0.75) < 1e-15
         and d.get("M1U_NSAM_FEW") == 8
+        # omega gate helper: only the empty pool blocks adaptation
+        and d.get("M1U_OMOK0") is True
+        and d.get("M1U_OMOK1") is True
+        and d.get("M1U_OMOK2") is False
     )
     rep.check(
         "M1 helper unit checks: residual pool, omega EXCL, fallbacks",
@@ -207,6 +212,72 @@ def main():
         ok,
         f"arm={d.get('SEED_ARM')} RF_RESID={d.get('RF_RESID'):.3e} "
         f"vs rf3 {db.get('RF_RESID'):.3e}",
+    )
+
+    # -- M7: all-probe refresh, V2 path: omega + history frozen ------
+    # One ray, armed as the probe: no production rays remain. The
+    # 1.0 sentinel must not adapt INEXT_RELAX (0.62 seeded) nor
+    # overwrite KN_RF_RESID_PRV (0.4 seeded).
+    r = run(bin_, "prbz", cwd=WORKDIR, check=False)
+    d, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d
+        and "no production rays" in r.stdout
+        and d.get("RF_RESID") == 1.0
+        and d.get("RF_INEXT_RELAX") == 0.62
+        and d.get("RF_RESPRV") == 0.4
+    )
+    rep.check(
+        "M7 prbz: all-probe V2, sentinel keeps omega and RESID_PRV",
+        ok,
+        f"resid={d.get('RF_RESID')} inext={d.get('RF_INEXT_RELAX')} "
+        f"resprv={d.get('RF_RESPRV')}",
+    )
+
+    # -- M8: all-probe refresh, legacy ratio path frozen -------------
+    # Unguarded, the legacy branch would read 1.0/0.4 = 2.5 and move
+    # INEXT_RELAX to ~0.453; the gate must leave both at seeds.
+    r = run(bin_, "prbl", cwd=WORKDIR, check=False)
+    d, _ = parse(r.stdout)
+    ok = (
+        "RESULT_OK" in d
+        and "no production rays" in r.stdout
+        and d.get("RF_RESID") == 1.0
+        and d.get("RF_INEXT_RELAX") == 0.62
+        and d.get("RF_RESPRV") == 0.4
+    )
+    rep.check(
+        "M8 prbl: all-probe legacy ratio bypassed, state frozen",
+        ok,
+        f"resid={d.get('RF_RESID')} inext={d.get('RF_INEXT_RELAX')} "
+        f"resprv={d.get('RF_RESPRV')}",
+    )
+
+    # -- M9: production resumes after an all-probe refresh -----------
+    # Pass 1 all-probe (sentinel, PRV seeded 0.7), pass 2 probe off:
+    # the legacy ratio must resume with 0.7 as denominator, not 1.0.
+    r = run(bin_, "prbr", cwd=WORKDIR, check=False)
+    segs = re.split(r"RF_PASS\s+\d", r.stdout)[1:]
+    d1, _ = parse(segs[0])
+    d2, _ = parse(segs[1])
+    res2 = d2.get("RF_RESID", 0.0)
+    t2 = min(max(res2 / 0.7, 0.0), 50.0)
+    want = 0.5 * 0.62 + 0.5 * min(1.0, max(0.05, 1.0 / (1.0 + t2)))
+    ok = (
+        len(segs) == 2
+        and "no production rays" in segs[0]
+        and d1.get("RF_RESID") == 1.0
+        and d1.get("RF_RESPRV") == 0.7
+        and d1.get("RF_INEXT_RELAX") == 0.62
+        and 0.0 < res2 < 0.1
+        and d2.get("RF_RESPRV") == res2
+        and abs(d2.get("RF_INEXT_RELAX", -1) - want) < 1e-8
+    )
+    rep.check(
+        "M9 prbr: legacy ratio resumes on real resid, denominator 0.7",
+        ok,
+        f"p1 resid={d1.get('RF_RESID')} resprv={d1.get('RF_RESPRV')} "
+        f"p2 resid={res2} inext={d2.get('RF_INEXT_RELAX')} want={want:.8f}",
     )
 
     return rep.summary()
