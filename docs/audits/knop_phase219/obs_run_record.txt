@@ -1,0 +1,12 @@
+Phase 2.19 cmf_flux OBS execution record
+=========================================
+Binary:   /viper/ptmp1/sbrennan/SN2024pba/cmfgen_jfnk/unit_tests/bin/cmf_flux_p219
+SHA256:   e3db3555a60a0200ed9b5731531400b4403367e853c2926da9c9fdfbe61c176e
+Model:    /ptmp/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_FRESH_knop/cmfgen/2.82days
+Workdir:  /ptmp/sbrennan/SN2024pba/obs_p219/run_diag_on/obs (isolated; production dir untouched)
+Entry:    CMF_OBS_EXE override into batobs.sh
+
+Slurm attempts:
+  13420401  interactive  FAIL  - rejected by partition (2h limit vs 1:59 cap), setup only
+  13420402  interactive  FAIL  - batobs.sh: $ATOMIC unset (script env requirement), fixed
+  13420413  interactive  PENDING/RUNNING - LD_LIBRARY_PATH exported for MKL; awaiting completion
