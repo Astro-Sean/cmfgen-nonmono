@@ -10226,7 +10226,14 @@ C
 ! geometry (no march is possible, but no transfer domain exists
 ! either) and stays in the plain unsolved census with RESID=0.
 !
-	IF(NI .LT. 1 .OR. NCF .LT. 2)THEN
+! NI .GT. SIZE(R_RAY,1) (Phase 2.20): a corrupt NI_RAY cannot be
+! caught by the big ALLOCATE alone -- Linux overcommit lets a
+! multi-hundred-GB virtual alloc succeed, and the geometry loop
+! below then reads R_RAY/RAY_PNT out of bounds and segfaults.
+! The array extent is the only honest bound on a ray's point
+! count, so out-of-extent NI fails closed here.
+!
+	IF(NI .LT. 1 .OR. NI .GT. SIZE(R_RAY,1) .OR. NCF .LT. 2)THEN
 	  NXIT=-2
 	  RESID=1.0_LDP
 ! Phase 2.16: record the invalid geometry in the authoritative
