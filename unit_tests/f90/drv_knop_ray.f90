@@ -831,16 +831,18 @@
 ! the two identical production rays. The sibling medians behind
 ! JMP_SIB are unaffected (median of {s,s,k*s} is s), so rays 1-2
 ! see the same inputs as 'rf3' and every production export must
-! match the rf3 baseline exactly. 'prbv' scales by 1E6 so the
-! probe's would-be commit fails the jump veto; 'prbs' additionally
-! arms KN_SEED_ARM=1 (sibling-median probe seed) to show the
-! production controller values are seed-arm independent.
+! match the rf3 baseline exactly. 'prbv' scales the probe store
+! down by 1E-4 so its converged candidate lands ~1E4 times the
+! retained slice -- a real jump veto (relative-to-store) whose
+! rejection must not reach the production counters; 'prbs'
+! additionally arms KN_SEED_ARM=1 (sibling-median probe seed) to
+! show the production controller values are seed-arm independent.
 !
         IF(NCASE .GE. 64 .AND. NCASE .LE. 66)THEN
           CALL SET_FG_NOCP_PROBE(.TRUE.,3)
           IF(NCASE .EQ. 65)THEN
-            I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*1.0E6_LDP
-            I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*1.0E6_LDP
+            I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*1.0E-4_LDP
+            I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*1.0E-4_LDP
           ELSE
             I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*2.5_LDP
             I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*2.5_LDP
@@ -1684,25 +1686,25 @@
 !
       NDV_U=0
       RES_U(1)=0.1_LDP; RES_U(2)=0.3_LDP; RES_U(3)=5.0_LDP
-      WRITE(*,'(A,ES16.8)')'M1U_RES_PX=',
-     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
-      WRITE(*,'(A,ES16.8)')'M1U_RES_P0=',
-     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),0)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_PX=', &
+        KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_P0=', &
+        KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),0)
       RES_U(3)=0.2_LDP
-      WRITE(*,'(A,ES16.8)')'M1U_RES_LOW=',
-     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_LOW=', &
+        KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
       NDV_U(1)=1; NDV_U(2)=1
       RES_U(1)=1.0E30_LDP; RES_U(2)=1.0E30_LDP; RES_U(3)=5.0_LDP
-      WRITE(*,'(A,ES16.8)')'M1U_RES_ALLDV=',
-     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_ALLDV=', &
+        KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
       NDV_U(3)=1
       RES_U(1)=7.0_LDP; RES_U(2)=8.0_LDP; RES_U(3)=9.0_LDP
-      WRITE(*,'(A,ES16.8)')'M1U_RES_ALLDVP=',
-     &  KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_ALLDVP=', &
+        KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
       NDV_U(1:3)=0
       RES_U(1)=9.0_LDP
-      WRITE(*,'(A,ES16.8)')'M1U_RES_SOLO=',
-     &  KN_PROD_RESID_V1(RES_U(1:1),NDV_U(1:1),1)
+      WRITE(*,'(A,ES16.8)')'M1U_RES_SOLO=', &
+        KN_PROD_RESID_V1(RES_U(1:1),NDV_U(1:1),1)
 !
 ! --- omega pool exclusion ---
 !
@@ -1713,29 +1715,29 @@
       END DO
       RHOM_U(21)=1.4_LDP; RHOP_U(21)=1.5_LDP
       OM0=0.75_LDP
-      CALL KN_OMEGA_POOL_V1(RHOM_U(1:20),RHOP_U(1:20),NDV_U(1:20),
-     &  OM0,OMB,NSB,P90B,MEDB,MXB)
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:20),RHOP_U(1:20), &
+        NDV_U(1:20),OM0,OMB,NSB,P90B,MEDB,MXB)
       WRITE(*,'(A,ES16.8)')'M1U_OM_BASE=',OMB
       WRITE(*,'(A,I8)')'M1U_NSAM_BASE=',NSB
       WRITE(*,'(A,ES16.8)')'M1U_P90_BASE=',P90B
-      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21),NDV_U(1:21),
-     &  OM0,OM1,NSAM,RHO_P90,RHO_MED,RHO_MX,21)
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21), &
+        NDV_U(1:21),OM0,OM1,NSAM,RHO_P90,RHO_MED,RHO_MX,21)
       WRITE(*,'(A,ES16.8)')'M1U_OM_EXHI=',OM1
       WRITE(*,'(A,I8)')'M1U_NSAM_EXHI=',NSAM
       WRITE(*,'(A,ES16.8)')'M1U_P90_EXHI=',RHO_P90
       WRITE(*,'(A,ES16.8)')'M1U_RHOP_DIAG=',RHOP_U(21)
-      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21),NDV_U(1:21),
-     &  OM0,OM1B,NSB,P90B,MEDB,MXB)
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21), &
+        NDV_U(1:21),OM0,OM1B,NSB,P90B,MEDB,MXB)
       WRITE(*,'(A,ES16.8)')'M1U_OM_INCL=',OM1B
       WRITE(*,'(A,I8)')'M1U_NSAM_INCL=',NSB
       WRITE(*,'(A,ES16.8)')'M1U_P90_INCL=',P90B
       RHOM_U(21)=0.05_LDP; RHOP_U(21)=0.06_LDP
-      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21),NDV_U(1:21),
-     &  OM0,OM1,NSAM,RHO_P90,RHO_MED,RHO_MX,21)
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:21),RHOP_U(1:21), &
+        NDV_U(1:21),OM0,OM1,NSAM,RHO_P90,RHO_MED,RHO_MX,21)
       WRITE(*,'(A,ES16.8)')'M1U_OM_EXLO=',OM1
       WRITE(*,'(A,I8)')'M1U_NSAM_EXLO=',NSAM
-      CALL KN_OMEGA_POOL_V1(RHOM_U(1:5),RHOP_U(1:5),NDV_U(1:5),
-     &  OM0,OM1B,NSB,P90B,MEDB,MXB,5)
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:5),RHOP_U(1:5),NDV_U(1:5), &
+        OM0,OM1B,NSB,P90B,MEDB,MXB,5)
       WRITE(*,'(A,ES16.8)')'M1U_OM_FEW=',OM1B
       WRITE(*,'(A,I8)')'M1U_NSAM_FEW=',NSB
 !
