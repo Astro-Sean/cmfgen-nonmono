@@ -117,6 +117,9 @@
       IF(CNAME .EQ. 'punit') NCASE=67
       IF(CNAME .EQ. 'p1t1s') NCASE=68
       IF(CNAME .EQ. 'p1t1r') NCASE=72
+      IF(CNAME .EQ. 'p1t1j') NCASE=73
+      IF(CNAME .EQ. 'p1t1h') NCASE=74
+      IF(CNAME .EQ. 'p1t1d') NCASE=75
       IF(CNAME .EQ. 'prbz')  NCASE=69
       IF(CNAME .EQ. 'prbl')  NCASE=70
       IF(CNAME .EQ. 'prbr')  NCASE=71
@@ -156,7 +159,19 @@
         GOTO 999
       END IF
       IF(NCASE .EQ. 72)THEN
-        CALL DRV_P1T1R()
+        CALL DRV_P1T1R('all')
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 73)THEN
+        CALL DRV_P1T1R('jac')
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 74)THEN
+        CALL DRV_P1T1R('hist')
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 75)THEN
+        CALL DRV_P1T1R('testd')
         GOTO 999
       END IF
 !
@@ -3466,9 +3481,10 @@
 ! pass-end adaptation is outside the one-pass operator.
 ! Diagnostic only; no production path changes.
 ! ------------------------------------------------------------------
-      SUBROUTINE DRV_P1T1R
+      SUBROUTINE DRV_P1T1R(MODE)
       USE SET_KIND_MODULE
       USE FG_J_CMF_NONMONO_MOD_V1
+      CHARACTER(LEN=*) MODE
       INTEGER NDA,NPA,NCFA
       PARAMETER (NDA=70,NPA=2,NCFA=13)
       REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
@@ -3499,8 +3515,9 @@
       INTEGER NXITSV,NMXSV
       REAL(KIND=LDP) RESIDSV,RHO_MSV,RHO_PSV
       INTEGER OMI(4)
-      REAL(KIND=LDP) OMV(4)
-      CHARACTER(LEN=8) VNAME(4)
+      REAL(KIND=LDP) OMV(4),OMH(5),EPJ,QRES
+      CHARACTER(LEN=8) VNAME(4),VHNAME(5)
+      INTEGER NFLOOR,NCAPN
       EXTERNAL KNOP_RAY_SOLVE_V1
 !
       OPEN(89,FILE='p1t1s_in.txt',STATUS='OLD',IOSTAT=IOS)
@@ -3672,6 +3689,104 @@
       OMV(1)=1.0_LDP; OMV(2)=0.5_LDP; OMV(3)=0.507_LDP; OMV(4)=0.507_LDP
       VNAME(1)='om100'; VNAME(2)='om050'; VNAME(3)='om507'
       VNAME(4)='om507r'
+      OMH(1)=1.0_LDP; OMH(2)=0.75_LDP; OMH(3)=0.507_LDP
+      OMH(4)=0.5_LDP; OMH(5)=0.25_LDP
+      VHNAME(1)='om100'; VHNAME(2)='om075'; VHNAME(3)='om507'
+      VHNAME(4)='om050'; VHNAME(5)='om025'
+!
+! jac mode: dense columnwise finite-difference Jacobian at om100
+! and om050 for the full spectrum / SVD / non-normality analysis.
+!
+      IF(MODE .EQ. 'jac')THEN
+        DO IV=1,2
+          CALL GEVAL(Y0,YB,OMV(IV))
+          NEVAL=NEVAL+1
+          OPEN(96,FILE='p1t1r_jac_'//TRIM(VNAME(IV))//'.unf', &
+      STATUS='REPLACE',FORM='UNFORMATTED')
+          WRITE(96)NX
+          DO J=1,NX
+            EPJ=1.0E-5_LDP*MAX(ABS(Y0(J)),1.0E-3_LDP)
+            YV=Y0
+            YV(J)=YV(J)+EPJ
+            CALL GEVAL(YV,YO,OMV(IV))
+            NEVAL=NEVAL+1
+            YW=(YO-YB)/EPJ
+            WRITE(96)YW
+          END DO
+          CLOSE(96)
+        END DO
+        WRITE(*,'(A,I10)')'P1R_JAC_NEVAL=',NEVAL
+        GOTO 995
+      END IF
+!
+! hist mode: iterate G at fixed omega from a cold start and record
+! the step-residual ratio sequence. This is the production pass
+! history with the pass-end OMEGA_RAY adaptation disabled, which is
+! exactly the fixed-omega experiment of Part 7.
+!
+      IF(MODE .EQ. 'hist')THEN
+        DO IV=1,5
+          OPEN(97,FILE='p1t1r_hist_'//TRIM(VHNAME(IV))//'.txt', &
+      STATUS='REPLACE')
+          YV=0.0_LDP
+          RPREV=-1.0_LDP
+          DO K=1,50
+            CALL GEVAL(YV,YO,OMH(IV))
+            NEVAL=NEVAL+1
+            RN=SQRT(SUM((YO-YV)**2))/MAX(SQRT(SUM(YO**2)), &
+      1.0E-30_LDP)
+            WRITE(97,'(I4,3ES20.12)')K,RN, &
+      MERGE(RN/RPREV,0.0_LDP,RPREV .GT. 0.0_LDP), &
+      SQRT(SUM(YO**2))
+            RPREV=RN
+            YV=YO
+          END DO
+          CLOSE(97)
+        END DO
+        WRITE(*,'(A,I10)')'P1R_HIST_NEVAL=',NEVAL
+        GOTO 995
+      END IF
+!
+! testd mode: clean seeded run. The seed vector comes from a file
+! (or 'NORMAL' for the un-seeded case); every invocation is a fresh
+! process so no module state carries over. KN_Q_RESID is armed so
+! the production verify residual lands in KN_Q_LS(1).
+!
+      IF(MODE .EQ. 'testd')THEN
+        ALLOCATE(KN_Q_LS(1),KN_QS_STAT(1),KN_QA_Q(1,2), &
+      KN_QA_J(1,2),KN_QA_L(1,2),KN_QA_VOLD(1,2),KN_QA_VN(1,2), &
+      KN_QA_VM(1,2),STAT=IOS)
+        KN_Q_RESID=.TRUE.
+        OPEN(77,FILE='p1t1d_seed.txt',STATUS='OLD',IOSTAT=IOS)
+        IF(IOS .EQ. 0)THEN
+          READ(77,'(A)')WLN
+          IF(WLN(1:1) .EQ. 'N' .OR. WLN(1:1) .EQ. 'n')THEN
+            YV=Y0
+          ELSE
+            REWIND(77)
+            READ(77,*)YV
+          END IF
+          CLOSE(77)
+        ELSE
+          YV=Y0
+        END IF
+        CALL GEVAL(YV,YO,1.0_LDP)
+        NEVAL=NEVAL+1
+        WRITE(*,'(A,3ES16.8)')'P1TD_GRES ', &
+      SQRT(SUM((YO-YV)**2)), &
+      SQRT(SUM((YO-YV)**2))/MAX(SQRT(SUM(YO**2)),1.0E-30_LDP), &
+      MAXVAL(ABS(YO-YV))
+        CALL YINJECT(YV)
+        KN_RAY_OMEGA=1.0_LDP
+        CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
+      NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
+      RHO_MSV,RHO_PSV,NCLS8,NNLS8)
+        QRES=-1.0_LDP
+        IF(ALLOCATED(KN_Q_LS))QRES=KN_Q_LS(1)
+        WRITE(*,'(A,ES16.8,A,I4,A,ES16.8)')'P1TD_RESID=',RESIDSV, &
+      ' npass=',NPASSSV,' qres=',QRES
+        GOTO 995
+      END IF
 !
       DO IV=1,3
 !
@@ -3792,26 +3907,46 @@
       1.0E-30_LDP)
       CLOSE(99)
 !
+! Branch census: count G(Y0) outputs sitting on the floor or cap,
+! and dump the omega=1 fixed points so testd runs can seed from
+! them in fresh processes.
+!
+      NFLOOR=COUNT(YB .LE. 1.0E-29_LDP)
+      NCAPN=COUNT(YB .GE. 0.5_LDP*NONMONO_INEXT_CAP)
+      WRITE(*,'(A,2I8,A,I8)')'P1R_CENSUS ',NFLOOR,NCAPN,' of ',NX
+      OPEN(88,FILE='p1t1r_ystar_om100.txt',STATUS='REPLACE')
+      WRITE(88,'(ES24.16)')YF(1:NX,1)
+      CLOSE(88)
+!
 ! TEST D: seed the store with the omega=1 fixed point and run the
 ! original refresh path (full pass budget) - does KN_Q_RESID/RESID
 ! collapse relative to the un-seeded original iteration?
 !
       IF(NW .GT. 0)THEN
+        ALLOCATE(KN_Q_LS(1),KN_QS_STAT(1),KN_QA_Q(1,2), &
+      KN_QA_J(1,2),KN_QA_L(1,2),KN_QA_VOLD(1,2),KN_QA_VN(1,2), &
+      KN_QA_VM(1,2),STAT=IOS)
+        KN_Q_RESID=.TRUE.
         YW=YF(1:NX,1)
         CALL YINJECT(YW)
         KN_RAY_OMEGA=1.0_LDP
         CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
       NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
       RHO_MSV,RHO_PSV,NCLS8,NNLS8)
-        WRITE(*,'(A,ES16.8,A,I4)')'P1R_SEEDED_RESID=',RESIDSV, &
-      ' npass=',NPASSSV
+        QRES=-1.0_LDP
+        IF(ALLOCATED(KN_Q_LS))QRES=KN_Q_LS(1)
+        WRITE(*,'(A,ES16.8,A,I4,A,ES16.8)')'P1R_SEEDED_RESID=', &
+      RESIDSV,' npass=',NPASSSV,' qres=',QRES
         CALL YINJECT(Y0)
         CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
       NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
       RHO_MSV,RHO_PSV,NCLS8,NNLS8)
-        WRITE(*,'(A,ES16.8,A,I4)')'P1R_UNS_RESID=',RESIDSV, &
-      ' npass=',NPASSSV
+        QRES=-1.0_LDP
+        IF(ALLOCATED(KN_Q_LS))QRES=KN_Q_LS(1)
+        WRITE(*,'(A,ES16.8,A,I4,A,ES16.8)')'P1R_UNS_RESID=',RESIDSV, &
+      ' npass=',NPASSSV,' qres=',QRES
       END IF
+  995 CONTINUE
       WRITE(*,'(A,I10)')'P1R_NEVAL=',NEVAL
       WRITE(*,'(A)')'RESULT_OK'
       RETURN
