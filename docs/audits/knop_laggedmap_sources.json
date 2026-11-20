@@ -1,0 +1,44 @@
+{
+  "phase": "2.6",
+  "file": "plane/fg_j_cmf_nonmono_v1.f",
+  "map_structure": {
+    "insweep_write": {
+      "lines": [5837, 5891],
+      "formula": "I_NEXT(KC,LS,i) = T2 + INEXT_RELAX*(T1-T2)",
+      "snapshot_relax": "SNP_P/SNP_M per-frequency snapshot, relax vs snapshot on DO_ES_ALI re-entries (:5718, :262)"
+    },
+    "refresh": {
+      "gate": "FREQ_IDX_ITER==KN_NCF-1, DO_KNOP_REFRESH, ~FREEZE_I_NEXT, HAS_COMPRESSING, INTEGRAL (:8111-8135)",
+      "coefficients": "monotone-cubic CHI/ETA on extended grid, frozen across refreshes, FNV fingerprint guard (:8149-8193)",
+      "solver": "KNOP_RAY_SOLVE_V1 per ray, OMP parallel, multi-pass fixed-point (:8563-8571)",
+      "exit_classes": "exact, tol, bulk, stall, cap, div, plat"
+    },
+    "storage": "I_P_DEPTH_NEXT/I_M_DEPTH_NEXT, sparse N_COMP x NP x NCF; slot s=FREQ_IDX_ITER+1; read i+1 write i (:242-252)"
+  },
+  "residual_definitions": {
+    "refresh_resid": "MAXVAL(RES_LS); per-ray max unrelaxed |vnew-vold|/max(vold,1e-4*column peak), LAST-PASS inner iterate change (:8811-8816)",
+    "kn_q_resid": "max over rays of one-pass map application on committed field; |vnew-vold|/vold per cell; true fixed-point residual (:9011-9021, :10282)"
+  },
+  "adaptive_omega": {
+    "flag": "KN_ADAPT_RELAX default T",
+    "input_v2": "KN_OMEGA_POOL_V1 over RHO_M_LS/RHO_P_LS = per-ray median post-transient same-direction pass ratio; pooled p90 (:8837-8852)",
+    "update": "omega <- 1/(1+rho_p90), smoothed, clamped [0.05,1] (:8852-8870)",
+    "measured": "omega=0.5072 on K2 refresh 1 => rho_p90 ~0.97",
+    "note": "W5 comment (:8830-8836): cross-iteration residual ratio miskeys omega when populations drift"
+  },
+  "observed_refresh_census_k2_first": {
+    "resid_max": 0.9767, "q_resid": 1.46018, "passes_max": 61,
+    "unconverged_cells": "49129573/728400004 = 6.74%",
+    "exits": {"tol": 35, "bulk": 34, "stall": 1, "plat": 15, "cap": 0, "div": 0}
+  },
+  "hypothesis_verdicts": {
+    "A_ordering": "excluded", "B_swap": "excluded",
+    "C_stale_coef": "excluded as primary (frozen+fingerprinted)",
+    "D_init": "not shown", "E_gam_sign": "excluded",
+    "F_boundary": "not excluded, not fully traced",
+    "G_residual_metric": "excluded",
+    "H_spectral_radius": "CONFIRMED dominant: code-measured rho_p90~0.97; stiff |GAM|/DLN chain ~pure translation",
+    "I_split": "correct split; creates the stiffness measured in H",
+    "J_source_feedback": "contributing: omega~0.999 scattering at depths 66-70"
+  }
+}
