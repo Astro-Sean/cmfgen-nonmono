@@ -1,0 +1,86 @@
+{
+ "audit": "Phase 2.9 stiff production-geometry packed-map validation",
+ "case": "knray_p29 p1t1s",
+ "date": "2026-11-20",
+ "provenance": {
+  "git_head": "24e227d6",
+  "driver_sha256": "90c9b9ff6f74deb14eec9fa26fabac84c59d9eff4f3ce4f1531e9d70a02dab6c (pre-p1t1s); p1t1s adds DRV_P1T1S",
+  "solver_src_sha256": "73ad55b8597b8cba62dee0d97f30afa0fe05a4eb1544ff242209f7b12463aecf",
+  "solver_src_state": "HEAD 24e227d6 + one uncommitted line: FG_GS_NCONV=SUM(NST_LS,MASK=KN_PROD_MASK) - affects only the probe-convergence counter, not the packed map or its inputs; KN_NOCP_PROBE inert (SET_FG_NOCP_PROBE never called by this case)",
+  "binary": "unit_tests/bin/knray_p29",
+  "binary_sha256": "f2583656ee4da2ec21ebbeabae988c177feb8ac5eebd4e47a377ddb91e85010e",
+  "build": "ifort -O0 -g -extend-source -qopenmp -mkl, prod_obj production objects for helper sources",
+  "note": "unit_tests/bin/knray_p29 is a separate binary; the earlier knray artifacts are untouched"
+ },
+ "input_deck": {
+  "file": "docs/audits/knop_phase29/p1t1s_in.txt",
+  "source": "caseK2_knop_nores_es4 J_RESCUE_DUMP JDMP idx 4238-4250 (longest contiguous rescue-trigger window, 13 freqs) + OUT_FLUX ESEC/CHI_SCAT table at FL=14.3276 (nearest cadence; ESEC essentially frequency-independent)",
+  "directly_observed": ["R","V","SIG","SIGT","FL spacing","CHI","ETA","ZETA","ESEC","CHI_SCAT"],
+  "reconstructed_or_assumed": ["VDOP=1% of |V| (not archived)","ZERO_FLUX boundary (production uses DIF=T, DBB~1.4e-4)","single central ray P=0","FRQV scale 1e15"],
+  "nd": 70, "ncf": 13,
+  "sigt_min": -155.61, "all_depths_sigt_lt_-1": true,
+  "chi_range": [2.24186e-09, 0.516614],
+  "esec_range": [2.24186e-09, 0.513114],
+  "dln_mean": 1.668e-4
+ },
+ "state": {
+  "nx": 1680,
+  "layout": "70 compressing depths x 12 active slots x {P,M}",
+  "compressing_ray_points": 3224,
+  "matched_offsets_gt1": 282,
+  "max_matched_offset": 12,
+  "ni_ray": 248
+ },
+ "key_structural_result": {
+  "theorem": "packed lagged-store map is strictly upper-triangular in slot index for ANY geometry",
+  "proof": "compressing reads use store slot FREQ_IDX_ITER+K2 with K2=NM_RAY>=1 (fg_j_cmf_nonmono_v1.f:4691-4693); writes go to slot FREQ_IDX_ITER (store-update block ~L5887); every packed edge (KC_w,L)<-(KC,L+K2) is strictly upward in slot -> nilpotent",
+  "empirical": "swp_w10 map-iteration residual reaches EXACTLY 0 at k=13=NSLOT; nilpotency degree <= NSLOT; power iteration collapses to 0 in first steps",
+  "graph": "acyclic by construction; all SCCs singletons; no cross-depth cycles possible in the packed lagged map"
+ },
+ "variants": {
+  "fullw05": {
+   "meaning": "sweep + FG_KNOP_REFRESH_V1",
+   "power_iter_rho": 0.0,
+   "newton": "1-2 GMRES-Newton steps to <=2e-19 from all 3 seeds; seed agreement |dX|<=2.0e-19",
+   "interpretation": "refresh converges internally -> constant map, same as synthetic"
+  },
+  "swp_w05": {
+   "meaning": "sweep only, INEXT_RELAX=0.5",
+   "power_iter_rho": 0.6087,
+   "power_iter_tail_range": [0.6087, 0.6489],
+   "note": "rho > 1-omega: in-sweep relaxed writes blend old and new at each slot, so the relaxed map is not simply (1-w)I+wF; residual non-nilpotent structure is real but mild",
+   "newton": "converges but slower: seed1 1 step (warm), seed2 6 steps to 8.7e-10, seed3 3+ steps to 2.0e-6 (stalled at Krylov cap); |Xfix2-Xfix1|=2.1e-9, |Xfix3-Xfix1|=2.2e-6"
+  },
+  "swp_w10": {
+   "meaning": "sweep only, INEXT_RELAX=1.0 (raw lagged map)",
+   "power_iter_rho": 0.0,
+   "nilpotence": "F^k residual exactly 0 at k=13=NSLOT",
+   "newton": "converges from all seeds: 5,3 outer steps to 5.0e-15/2.3e-14; seed agreement |dX|<=3.1e-14"
+  }
+ },
+ "stiffness_attribution": {
+  "A_large_gam_dln": "exercised (SIGT=-155.6, offsets to 12 bins, |GAM|/DLN large): still nilpotent -> does NOT create packed-map stiffness",
+  "B_cyclic_donors": "impossible in packed map (slot-monotone edges); ruled out",
+  "C_block_coupling": "expanding reads use I_PREV (unpacked); no packed P<->M or exp<->comp edges; ruled out",
+  "D_scattering": "real ESEC/CHI_SCAT loaded; map still nilpotent -> scattering does not mediate packed-store coupling (scattering feedback enters JNU/outer loop, not the lagged store)",
+  "where_rho_097_lives": "in the refresh inner iteration (in-place re-solve, KN_Q_RESID) - NOT in the packed lagged map; the 0.97 pass-ratio is the refresh operator's contraction, a different object"
+ },
+ "common_norms_p1t1n_revisit": {
+  "old_claim": "|X*-X0|_Linf=9.9e-7 vs refresh residual 8.6e-9 (apparent 115x)",
+  "recompute": {
+   "abs_L2": 2.141e-06, "rel_L2": 1.421e-08,
+   "abs_Linf": 9.907e-07, "rel_Linf": 1.416e-08,
+   "rel_elem_max": 9.34e-08,
+   "refresh_residual_relative": 8.6e-09,
+   "conclusion": "lagged-vs-committed distance (1.4e-8 rel) is 1.65x the refresh truncation (8.6e-9) - same order, genuinely consistent; the 115x was absolute-vs-relative mismatch"
+  },
+  "concentration": "P-channel slots 1-2 (~1e-6 abs); M channel <=2e-8"
+ },
+ "limitations": [
+  "packed map is a fixed-point of the lagged store; the stiff refresh inner operator was not probed here - rho~0.97 lives there",
+  "ESEC from nearest cadence table (FL=14.33 vs window 10.85); documented approximation",
+  "boundary config differs from production render (ZERO_FLUX vs DIF=T)",
+  "VDOP estimated; single central ray; 13-frequency window",
+  "KN_Q_RESID collapse claim limited to the packed map residual; per-ray Schur solve (Phase 2.8) validated separately"
+ ]
+}
