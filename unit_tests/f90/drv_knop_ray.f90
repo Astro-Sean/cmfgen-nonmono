@@ -116,6 +116,7 @@
       IF(CNAME .EQ. 'prbs')  NCASE=66
       IF(CNAME .EQ. 'punit') NCASE=67
       IF(CNAME .EQ. 'p1t1s') NCASE=68
+      IF(CNAME .EQ. 'p1t1r') NCASE=72
       IF(CNAME .EQ. 'prbz')  NCASE=69
       IF(CNAME .EQ. 'prbl')  NCASE=70
       IF(CNAME .EQ. 'prbr')  NCASE=71
@@ -152,6 +153,10 @@
       END IF
       IF(NCASE .EQ. 68)THEN
         CALL DRV_P1T1S()
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 72)THEN
+        CALL DRV_P1T1R()
         GOTO 999
       END IF
 !
@@ -3445,3 +3450,557 @@
       END SUBROUTINE GMRESV
 !
       END SUBROUTINE DRV_P1T1S
+!
+! ------------------------------------------------------------------
+! DRV_P1T1R: refresh inner-operator experiment (Phase 2.10).
+! The iterated state is the per-ray field FLD(NI,NCF), seeded from
+! the lagged store by SEED_FLD and iterated in place by the ordered
+! march. With KN_RAY_MAXPASS=1 a KNOP_RAY_SOLVE_V1 call is exactly
+! one production pass; KR_DBG_FLDM/KR_DBG_FLDP export the resulting
+! field, so the diagnostic map
+!     Y = seeded FLD at (depth-point, slot)  ->  G(Y) = post-pass FLD
+! reproduces the original in-place ordering with no code change.
+! Free state per channel: NWD depth points x NCFA-1 slots (slot 1 is
+! never seeded and slots map L=s+1), packed P-then-M like p1t1s.
+! OMEGA_RAY is frozen per experiment through KN_RAY_OMEGA; the
+! pass-end adaptation is outside the one-pass operator.
+! Diagnostic only; no production path changes.
+! ------------------------------------------------------------------
+      SUBROUTINE DRV_P1T1R
+      USE SET_KIND_MODULE
+      USE FG_J_CMF_NONMONO_MOD_V1
+      INTEGER NDA,NPA,NCFA
+      PARAMETER (NDA=70,NPA=2,NCFA=13)
+      REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
+      REAL(KIND=LDP) ETA_M(NDA,NCFA),CHI_M(NDA,NCFA),ESC_M(NDA,NCFA)
+      REAL(KIND=LDP) JNU_A(NDA),FEDD_A(NDA),IPLUS_A(NPA)
+      REAL(KIND=LDP) JQW_A(NDA,NPA),HQW_A(NDA,NPA),KQW_A(NDA,NPA)
+      REAL(KIND=LDP) NQW_A(NDA,NPA),HMID_A(NDA,NPA),NMID_A(NDA,NPA)
+      REAL(KIND=LDP) VDOP_A(NDA),FRQV(NCFA),DLNV(NCFA),TARR(NDA)
+      REAL(KIND=LDP) DBB_A,IC_A,VDOP_F,REXT_A,INBC_A,HBC_A,DLOGA
+      CHARACTER*6 METH_A
+      CHARACTER(LEN=8) SOPT_A
+      CHARACTER(LEN=12) IBND_A
+      CHARACTER(LEN=64) WLN
+      LOGICAL THK_A,INIT_A,NEWF_A
+      INTEGER NC_A,L,I,LSDBG,IOS,NRAYS
+      INTEGER NI,NW,NX
+      INTEGER, ALLOCATABLE :: WKCH(:),DPNT(:)
+      REAL(KIND=LDP), ALLOCATABLE :: Y0(:),YO(:),YB(:),YV(:),YW(:)
+      REAL(KIND=LDP), ALLOCATABLE :: YS(:,:),YF(:,:),HV(:,:),HH(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: STO_P(:,:,:),STO_M(:,:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: RESV(:)
+      REAL(KIND=LDP) RN,RD,RLAM,RPREV,RLO,RHI,TNRM,AFFN,AFFD
+      INTEGER KC,SL,J,IV,IA,JP,K,ISEED,KGM,NPASSSV
+      INTEGER NCAPSV,NNGSV,NSTSV,NCPSV,NNLSV
+      INTEGER*8 NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NP28,NBB8,NTB8
+      INTEGER*8 NCLS8,NNLS8
+      INTEGER*8 NEVAL
+      INTEGER NXITSV,NMXSV
+      REAL(KIND=LDP) RESIDSV,RHO_MSV,RHO_PSV
+      INTEGER OMI(4)
+      REAL(KIND=LDP) OMV(4)
+      CHARACTER(LEN=8) VNAME(4)
+      EXTERNAL KNOP_RAY_SOLVE_V1
+!
+      OPEN(89,FILE='p1t1s_in.txt',STATUS='OLD',IOSTAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1r_deck_missing=1'
+        RETURN
+      END IF
+      READ(89,'(A)')WLN
+      READ(89,'(A)')WLN
+      READ(89,*)I,L
+      IF(I .NE. NDA .OR. L .NE. NCFA)THEN
+        WRITE(*,'(A,2I6)')'RESULT p1t1r_dim_mismatch=',I,L
+        RETURN
+      END IF
+      CALL RSEC(89,'R',RA)
+      CALL RSEC(89,'V',VA)
+      CALL RSEC(89,'SIG',SGA)
+      CALL RSEC(89,'SIGT',SGT)
+      CALL RSEC(89,'ESEC',ESC_M(1:NDA,1))
+      CALL RSEC(89,'CHI_SCAT',TARR)
+      CALL RSEC(89,'FL',FRQV)
+      DO L=1,NCFA
+        CALL RSEC(89,'CHI',CHI_M(1:NDA,L))
+      END DO
+      DO L=1,NCFA
+        CALL RSEC(89,'ETA',ETA_M(1:NDA,L))
+      END DO
+      CLOSE(89)
+      ESC_M=SPREAD(ESC_M(1:NDA,1),2,NCFA)
+      FRQV=FRQV*1.0E15_LDP
+      DO L=1,NCFA-1
+        DLNV(L)=LOG(FRQV(L)/FRQV(L+1))
+      END DO
+      DLNV(NCFA)=DLNV(NCFA-1)
+!
+      PA(1)=0.0_LDP
+      PA(2)=1.2E4_LDP
+      VDOP_A=0.01_LDP*MAXVAL(ABS(VA))
+      VDOP_F=0.5_LDP
+      REXT_A=1.0_LDP
+      DBB_A=0.0_LDP
+      IC_A=0.0_LDP
+      METH_A='ZERO'
+      SOPT_A='INT'
+      IBND_A='ZERO_FLUX'
+      THK_A=.FALSE.
+      NEWF_A=.TRUE.
+      NC_A=0
+      LSDBG=1
+      NRAYS=1
+!
+      FG_FREQ_MATCH=.TRUE.
+      FG_ORD_SWEEP=.TRUE.
+      DO_KNOP_REFRESH=.TRUE.
+      FREEZE_I_NEXT=.FALSE.
+      KNOP_DIAG_NO_REGRID=.TRUE.
+      FREEZE_I_PREV=.FALSE.
+      FG_ORD_AITKEN=.FALSE.
+      FG_ORD_AA=.FALSE.
+      FG_ORD_P2DAMP=.FALSE.
+      KN_RAY_TOL=2.0E-3_LDP
+      KN_RAY_MAXPASS=60
+      KN_RAY_BULK_TOL=0.0_LDP
+      KN_RAY_OMEGA=1.0_LDP
+      KN_RAY_STALL=0.98_LDP
+      KN_RAY_HOTPASSES=0
+      KN_HOT_TOTAL_PASSES=0
+      KN_ADAPT_RELAX=.FALSE.
+      INEXT_RELAX=0.5_LDP
+      KN_RAY_PACK_MB=2048.0_LDP
+      NONMONO_INEXT_CAP=1.0E+20_LDP
+      FG_COMMIT_CONV=.TRUE.
+      FG_COMMIT_NC=0.05_LDP
+      FG_COMMIT_JUMP=50.0_LDP
+      FG_DIV_HEAL_CAP=1.0E+6_LDP
+      FG_BULK_CONTR=.FALSE.
+      FG_ADAPT_OMEGA_V2=.FALSE.
+      KN_DBG_LS=LSDBG
+!
+      JQW_A=1.0_LDP; HQW_A=1.0_LDP; KQW_A=1.0_LDP
+      NQW_A=1.0_LDP; HMID_A=1.0_LDP; NMID_A=1.0_LDP
+      JNU_A=0.0_LDP; FEDD_A=0.0_LDP; IPLUS_A=0.0_LDP
+      INBC_A=0.0_LDP; HBC_A=0.0_LDP
+!
+      DO L=1,NCFA
+        IF(L .LT. NCFA)THEN
+          CALL SET_FG_NU_NEXT(FRQV(L+1))
+        ELSE
+          CALL SET_FG_NU_NEXT(FRQV(NCFA)*EXP(-DLNV(NCFA)))
+        END IF
+        INIT_A=(L .EQ. 1)
+        DLOGA=DLNV(L)
+        CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L),ESC_M(1,L), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NRAYS,NDA,SGT,NCFA)
+      END DO
+      CALL FG_KNOP_REFRESH_V1()
+!
+      IF(.NOT. ALLOCATED(I_P_DEPTH_NEXT))THEN
+        WRITE(*,'(A)')'RESULT p1t1r_store_missing=1'
+        RETURN
+      END IF
+      NI=NI_RAY(1)
+      ALLOCATE(KR_DBG_FLDM(NI,NCFA),KR_DBG_FLDP(NI,NCFA),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1r_dbg_alloc=1'
+        RETURN
+      END IF
+      ALLOCATE(STO_P(SIZE(I_P_DEPTH_NEXT,1),1, &
+      SIZE(I_P_DEPTH_NEXT,3)), &
+      STO_M(SIZE(I_M_DEPTH_NEXT,1),1,SIZE(I_M_DEPTH_NEXT,3)), &
+      WKCH(NDA),DPNT(NDA),STAT=IOS)
+      STO_P=I_P_DEPTH_NEXT
+      STO_M=I_M_DEPTH_NEXT
+!
+! Writable set: compressing depths whose J_PNT lands on a valid ray
+! point - the SEED_FLD source cells. Y packs slot 2..NCF of the
+! field at those points, P channel first then M.
+!
+      NW=0
+      DO K=1,NDA
+        KC=COMP_DEPTH_IDX(K)
+        IF(KC .GE. 1)THEN
+          I=J_PNT(K,1)
+          IF(I .GE. 1 .AND. I .LE. NI)THEN
+            NW=NW+1
+            WKCH(NW)=KC
+            DPNT(NW)=I
+          END IF
+        END IF
+      END DO
+      NX=2*NW*(NCFA-1)
+      ALLOCATE(Y0(NX),YO(NX),YB(NX),YV(NX),YW(NX),YS(NX,3),YF(NX,3), &
+      HV(NX,42),HH(42,41),RESV(300),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1r_alloc_fail=1'
+        RETURN
+      END IF
+      WRITE(*,'(A,4I8)')'P1R_DIMS ',NX,NW,NCFA,NI
+!
+      OPEN(91,FILE='p1t1r_idx.txt',STATUS='REPLACE')
+      WRITE(91,'(A,3I8)')'P1RIDX ',NX,NW,NCFA
+      J=0
+      DO SL=2,NCFA
+        DO I=1,NW
+          J=J+1
+          WRITE(91,'(A,I6,1X,A1,1X,3I6)')'ELEM',J,'P',WKCH(I),DPNT(I),SL
+        END DO
+      END DO
+      DO SL=2,NCFA
+        DO I=1,NW
+          J=J+1
+          WRITE(91,'(A,I6,1X,A1,1X,3I6)')'ELEM',J,'M',WKCH(I),DPNT(I),SL
+        END DO
+      END DO
+      CLOSE(91)
+!
+! Baseline seed: the post-refresh committed store -> seed field.
+!
+      CALL YSEED(Y0)
+      CALL GEVAL(Y0,YB,1.0_LDP)
+      NEVAL=0
+      TNRM=SQRT(SUM(Y0**2))
+      WRITE(*,'(A,2ES16.8)')'P1R_Y0 ',TNRM,SQRT(SUM((YB-Y0)**2))
+!
+      OMV(1)=1.0_LDP; OMV(2)=0.5_LDP; OMV(3)=0.507_LDP; OMV(4)=0.507_LDP
+      VNAME(1)='om100'; VNAME(2)='om050'; VNAME(3)='om507'
+      VNAME(4)='om507r'
+!
+      DO IV=1,3
+!
+! Power iteration on J_G at the warm state.
+!
+        OPEN(97,FILE='p1t1r_pow_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        DO J=1,NX
+          YV(J)=SIN(0.37_LDP*DBLE(J))
+        END DO
+        YV=YV/SQRT(SUM(YV**2))
+        CALL GEVAL(Y0,YB,OMV(IV))
+        NEVAL=NEVAL+1
+        RPREV=1.0_LDP
+        RLO=1.0E30_LDP; RHI=0.0_LDP
+        DO K=1,60
+          CALL GMATVEC(Y0,YB,YV,YW,OMV(IV))
+          NEVAL=NEVAL+1
+          RLAM=SQRT(SUM(YW**2))
+          WRITE(97,'(I4,3ES20.12)')K,RLAM,RLAM/RPREV
+          IF(K .GT. 45)THEN
+            RLO=MIN(RLO,RLAM); RHI=MAX(RHI,RLAM)
+          END IF
+          RPREV=MAX(RLAM,1.0E-300_LDP)
+          IF(RLAM .GT. 0.0_LDP)YV=YW/RLAM
+        END DO
+        WRITE(97,'(A,3ES20.12)')'RHO_EST ',RLAM,RLO,RHI
+        CLOSE(97)
+!
+! Arnoldi Ritz values: 40-step Krylov basis on J_G; the small H
+! eigenproblem goes to DGEEV externally by the python side; here we
+! only dump the Arnoldi vectors' Rayleigh quotients.
+!
+        OPEN(97,FILE='p1t1r_arnoldi_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        DO J=1,NX
+          HV(J,1)=SIN(0.71_LDP*DBLE(J))+0.3_LDP*COS(0.19_LDP*DBLE(J))
+        END DO
+        HV(1:NX,1)=HV(1:NX,1)/SQRT(SUM(HV(1:NX,1)**2))
+        DO K=1,40
+          CALL GMATVEC(Y0,YB,HV(1:NX,K),YW,OMV(IV))
+          NEVAL=NEVAL+1
+          DO IA=1,K
+            HH(IA,K)=SUM(YW*HV(1:NX,IA))
+            YW=YW-HH(IA,K)*HV(1:NX,IA)
+          END DO
+          HH(K+1,K)=SQRT(SUM(YW**2))
+          IF(HH(K+1,K) .GT. 0.0_LDP .AND. K .LT. 41) &
+      HV(1:NX,K+1)=YW/HH(K+1,K)
+        END DO
+        DO K=1,41
+          WRITE(97,*) (HH(K,IA),IA=1,MIN(40,K))
+        END DO
+        CLOSE(97)
+!
+! JFNK-Newton on G(Y)=Y from three seeds.
+!
+        OPEN(98,FILE='p1t1r_newton_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        YS(1:NX,1)=Y0
+        YS(1:NX,2)=0.5_LDP*Y0
+        DO J=1,NX
+          YS(J,2)=YS(J,2)+1.0E-3_LDP*MAX(ABS(Y0(J)),1.0E-3_LDP)* &
+      SIN(1.7_LDP*DBLE(J))
+        END DO
+        YS(1:NX,3)=0.0_LDP
+        DO ISEED=1,3
+          YV=YS(1:NX,ISEED)
+          DO K=1,6
+            CALL GEVAL(YV,YO,OMV(IV))
+            NEVAL=NEVAL+1
+            RN=SQRT(SUM((YO-YV)**2))
+            IF(RN .LT. 1.0E-13_LDP*MAX(1.0_LDP,TNRM))EXIT
+            YW=YO-YV
+            CALL GMRESG(YV,YO,YW,YB,OMV(IV),KGM,RD,NEVAL)
+            YV=YV+YB
+            CALL GEVAL(YV,YO,OMV(IV))
+            NEVAL=NEVAL+1
+            RD=SQRT(SUM((YO-YV)**2))
+            WRITE(98,'(A,I2,A,I2,A,I5,A,2ES16.8)')'NWT s',ISEED, &
+      ' i',K,' kg',KGM,' r',RN,RD
+          END DO
+          YF(1:NX,ISEED)=YV
+          WRITE(98,'(A,I2,A,2ES16.8)')'SEED ',ISEED,' fin',RD, &
+      SQRT(SUM(YV**2))
+        END DO
+        DO ISEED=2,3
+          WRITE(98,'(A,I2,2ES16.8)')'YF_DIFF s',ISEED, &
+      SQRT(SUM((YF(1:NX,ISEED)-YF(1:NX,1))**2)), &
+      MAXVAL(ABS(YF(1:NX,ISEED)-YF(1:NX,1)))
+        END DO
+        CLOSE(98)
+      END DO
+!
+! Affinity test at omega=1: G(Y1+Y2)-G(0) vs G(Y1)-G(0)+G(Y2)-G(0).
+!
+      OPEN(99,FILE='p1t1r_affine.txt',STATUS='REPLACE')
+      CALL GEVAL(YS(1:NX,3),YB,1.0_LDP)
+      NEVAL=NEVAL+1
+      YS(1:NX,3)=YB
+      CALL GEVAL(Y0,YO,1.0_LDP)
+      NEVAL=NEVAL+1
+      YS(1:NX,1)=YO-YB
+      DO J=1,NX
+        YV(J)=0.3_LDP*Y0(J)*COS(0.9_LDP*DBLE(J))+ &
+      1.0E-4_LDP*SIN(2.1_LDP*DBLE(J))
+      END DO
+      CALL GEVAL(YV,YO,1.0_LDP)
+      NEVAL=NEVAL+1
+      YS(1:NX,2)=YO-YB
+      YW=Y0+YV
+      CALL GEVAL(YW,YO,1.0_LDP)
+      NEVAL=NEVAL+1
+      YW=YO-YB
+      AFFD=SQRT(SUM((YW-(YS(1:NX,1)+YS(1:NX,2)))**2))
+      AFFN=SQRT(SUM(YS(1:NX,1)**2))+SQRT(SUM(YS(1:NX,2)**2))
+      WRITE(99,'(A,3ES16.8)')'AFFINE_ERR ',AFFD,AFFN,AFFD/MAX(AFFN, &
+      1.0E-30_LDP)
+      CLOSE(99)
+!
+! TEST D: seed the store with the omega=1 fixed point and run the
+! original refresh path (full pass budget) - does KN_Q_RESID/RESID
+! collapse relative to the un-seeded original iteration?
+!
+      IF(NW .GT. 0)THEN
+        YW=YF(1:NX,1)
+        CALL YINJECT(YW)
+        KN_RAY_OMEGA=1.0_LDP
+        CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
+      NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
+      RHO_MSV,RHO_PSV,NCLS8,NNLS8)
+        WRITE(*,'(A,ES16.8,A,I4)')'P1R_SEEDED_RESID=',RESIDSV, &
+      ' npass=',NPASSSV
+        CALL YINJECT(Y0)
+        CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
+      NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
+      RHO_MSV,RHO_PSV,NCLS8,NNLS8)
+        WRITE(*,'(A,ES16.8,A,I4)')'P1R_UNS_RESID=',RESIDSV, &
+      ' npass=',NPASSSV
+      END IF
+      WRITE(*,'(A,I10)')'P1R_NEVAL=',NEVAL
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+!
+      CONTAINS
+!
+      SUBROUTINE RSEC(U,KEY,ARR)
+      INTEGER U
+      CHARACTER(LEN=*) KEY
+      REAL(KIND=LDP) ARR(:)
+      CHARACTER(LEN=64) HDR
+      READ(U,*)HDR
+      IF(TRIM(HDR) .NE. TRIM(KEY))THEN
+        WRITE(*,'(2A)')'RSEC key mismatch: ',TRIM(HDR)
+        STOP 9
+      END IF
+      READ(U,*)ARR
+      RETURN
+      END SUBROUTINE RSEC
+!
+! YSEED: pack the seed field implied by the current store: SEED_FLD
+! puts STORE(KC,LS,s) into FLD(J_PNT,s+1), so Y element (KC,s) is the
+! store slot s for s=1..NCFA-1.
+!
+      SUBROUTINE YSEED(Y)
+      REAL(KIND=LDP) Y(:)
+      INTEGER I2,SL2,J2
+      J2=0
+      DO SL2=1,NCFA-1
+        DO I2=1,NW
+          J2=J2+1
+          Y(J2)=I_P_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      DO SL2=1,NCFA-1
+        DO I2=1,NW
+          J2=J2+1
+          Y(J2)=I_M_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE YSEED
+!
+! YINJECT: write Y into the store slots the seed reads.
+!
+      SUBROUTINE YINJECT(Y)
+      REAL(KIND=LDP) Y(:)
+      INTEGER I2,SL2,J2
+      J2=0
+      DO SL2=1,NCFA-1
+        DO I2=1,NW
+          J2=J2+1
+          I_P_DEPTH_NEXT(WKCH(I2),1,SL2)=Y(J2)
+        END DO
+      END DO
+      DO SL2=1,NCFA-1
+        DO I2=1,NW
+          J2=J2+1
+          I_M_DEPTH_NEXT(WKCH(I2),1,SL2)=Y(J2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE YINJECT
+!
+! GEVAL: one production pass. Restores the post-refresh store
+! snapshot, injects the seed vector, runs KNOP_RAY_SOLVE_V1 with a
+! single-pass budget at the given OMEGA_RAY, then repacks the
+! exported fields at the seeded ray points.
+!
+      SUBROUTINE GEVAL(YI,YO,OMG)
+      REAL(KIND=LDP) YI(:),YO(:),OMG
+      INTEGER I2,SL2,J2,MP_SV
+      I_P_DEPTH_NEXT=STO_P
+      I_M_DEPTH_NEXT=STO_M
+      CALL YINJECT(YI)
+      MP_SV=KN_RAY_MAXPASS
+      KN_RAY_MAXPASS=1
+      KN_RAY_OMEGA=OMG
+      CALL KNOP_RAY_SOLVE_V1(1,RESIDSV,NSTSV,NPASSSV,NCAPSV,NNGSV, &
+      NBAD8,NTOT8,NDIV8,NMAT8,NCMP8,NMXSV,NXITSV,NP28,NBB8,NTB8, &
+      RHO_MSV,RHO_PSV,NCLS8,NNLS8)
+      KN_RAY_MAXPASS=MP_SV
+      J2=0
+      DO SL2=2,NCFA
+        DO I2=1,NW
+          J2=J2+1
+          YO(J2)=KR_DBG_FLDP(DPNT(I2),SL2)
+        END DO
+      END DO
+      DO SL2=2,NCFA
+        DO I2=1,NW
+          J2=J2+1
+          YO(J2)=KR_DBG_FLDM(DPNT(I2),SL2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE GEVAL
+!
+      SUBROUTINE GMATVEC(YB,FB,V,W,OMG)
+      REAL(KIND=LDP) YB(:),FB(:),V(:),W(:),OMG
+      REAL(KIND=LDP) EPSM,VS
+      REAL(KIND=LDP), ALLOCATABLE :: XP(:),FP(:)
+      ALLOCATE(XP(NX),FP(NX))
+      VS=SQRT(SUM(V**2))
+      EPSM=1.0E-5_LDP*MAX(SQRT(SUM(YB**2)),1.0E-3_LDP)/MAX(VS,1.0E-30_LDP)
+      XP=YB+EPSM*V
+      CALL GEVAL(XP,FP,OMG)
+      W=(FP-FB)/EPSM
+      DEALLOCATE(XP,FP)
+      RETURN
+      END SUBROUTINE GMATVEC
+!
+      SUBROUTINE GMRESG(YB,FB,RHS,DX,OMG,NGM,RRES,NEV)
+      REAL(KIND=LDP) YB(:),FB(:),RHS(:),DX(:),OMG
+      INTEGER NGM
+      REAL(KIND=LDP) RRES
+      INTEGER*8 NEV
+      INTEGER KM,IU,JU,NRES
+      PARAMETER (KM=80)
+      REAL(KIND=LDP), ALLOCATABLE :: VV(:,:),HHG(:,:),CS(:),SN(:), &
+      GG(:),YY(:),W2(:)
+      REAL(KIND=LDP) BETA,HT,T1,T2,RTOL
+      ALLOCATE(VV(NX,KM+1),HHG(KM+1,KM),CS(KM),SN(KM),GG(KM+1), &
+      YY(KM),W2(NX))
+      RTOL=1.0E-9_LDP
+      DX=0.0_LDP
+      NGM=0
+      DO NRES=1,3
+        CALL GMATVEC(YB,FB,DX,W2,OMG)
+        NEV=NEV+1
+        W2=RHS-(DX-W2)
+        BETA=SQRT(SUM(W2**2))
+        IF(BETA .LT. RTOL*MAX(SQRT(SUM(RHS**2)),1.0E-30_LDP))EXIT
+        VV(1:NX,1)=W2/BETA
+        GG=0.0_LDP; GG(1)=BETA
+        DO IU=1,KM
+          CALL GMATVEC(YB,FB,VV(1:NX,IU),W2,OMG)
+          NEV=NEV+1
+          W2=VV(1:NX,IU)-W2
+          DO JU=1,IU
+            HHG(JU,IU)=SUM(W2*VV(1:NX,JU))
+            W2=W2-HHG(JU,IU)*VV(1:NX,JU)
+          END DO
+          HHG(IU+1,IU)=SQRT(SUM(W2**2))
+          IF(HHG(IU+1,IU) .GT. 0.0_LDP) &
+      VV(1:NX,IU+1)=W2/HHG(IU+1,IU)
+          DO JU=1,IU-1
+            T1=CS(JU)*HHG(JU,IU)+SN(JU)*HHG(JU+1,IU)
+            T2=-SN(JU)*HHG(JU,IU)+CS(JU)*HHG(JU+1,IU)
+            HHG(JU,IU)=T1; HHG(JU+1,IU)=T2
+          END DO
+          HT=SQRT(HHG(IU,IU)**2+HHG(IU+1,IU)**2)
+          IF(HT .EQ. 0.0_LDP)THEN
+            CS(IU)=1.0_LDP; SN(IU)=0.0_LDP
+          ELSE
+            CS(IU)=HHG(IU,IU)/HT; SN(IU)=HHG(IU+1,IU)/HT
+          END IF
+          HHG(IU,IU)=HT
+          HHG(IU+1,IU)=0.0_LDP
+          T1=CS(IU)*GG(IU)
+          GG(IU+1)=-SN(IU)*GG(IU)
+          GG(IU)=T1
+          NGM=NGM+1
+          IF(ABS(GG(IU+1)) .LT. &
+      RTOL*MAX(BETA,1.0E-30_LDP))EXIT
+        END DO
+        DO JU=IU,1,-1
+          T1=GG(JU)
+          DO K=JU+1,IU
+            T1=T1-HHG(JU,K)*YY(K)
+          END DO
+          IF(HHG(JU,JU) .NE. 0.0_LDP)THEN
+            YY(JU)=T1/HHG(JU,JU)
+          ELSE
+            YY(JU)=0.0_LDP
+          END IF
+        END DO
+        DO JU=1,IU
+          DX=DX+YY(JU)*VV(1:NX,JU)
+        END DO
+        IF(ABS(GG(IU+1)) .LT. &
+      RTOL*MAX(BETA,1.0E-30_LDP))EXIT
+      END DO
+      CALL GMATVEC(YB,FB,DX,W2,OMG)
+      NEV=NEV+1
+      W2=RHS-(DX-W2)
+      RRES=SQRT(SUM(W2**2))
+      DEALLOCATE(VV,HHG,CS,SN,GG,YY,W2)
+      RETURN
+      END SUBROUTINE GMRESG
+!
+      END SUBROUTINE DRV_P1T1R
