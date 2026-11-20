@@ -115,6 +115,7 @@
       IF(CNAME .EQ. 'prbv')  NCASE=65
       IF(CNAME .EQ. 'prbs')  NCASE=66
       IF(CNAME .EQ. 'punit') NCASE=67
+      IF(CNAME .EQ. 'p1t1s') NCASE=68
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -144,6 +145,10 @@
       END IF
       IF(NCASE .EQ. 67)THEN
         CALL DRV_M1UNIT()
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 68)THEN
+        CALL DRV_P1T1S()
         GOTO 999
       END IF
 !
@@ -1679,7 +1684,7 @@
       REAL(KIND=LDP) RES_U(40),RHOM_U(40),RHOP_U(40)
       REAL(KIND=LDP) OM0,OM1,OMB,RHO_P90,RHO_MED,RHO_MX
       REAL(KIND=LDP) OM1B,P90B,MXB,MEDB
-      INTEGER NSAM,NSB,I2
+      INTEGER NSAM,NSB,I2,ISTU
       LOGICAL L1,L2,L3
 !
 ! --- residual pool ---
@@ -1705,6 +1710,22 @@
       RES_U(1)=9.0_LDP
       WRITE(*,'(A,ES16.8)')'M1U_RES_SOLO=', &
         KN_PROD_RESID_V1(RES_U(1:1),NDV_U(1:1),1)
+      WRITE(*,'(A,I4)')'M1U_IST_SOLO=', &
+        KN_PROD_POOL_STAT(NDV_U(1:1),1)
+      RES_U(1)=1.0E-9_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_SOLO2=', &
+        KN_PROD_RESID_V1(RES_U(1:1),NDV_U(1:1),1)
+      WRITE(*,'(A,I4)')'M1U_IST_SOLO2=', &
+        KN_PROD_POOL_STAT(NDV_U(1:1),1)
+      RES_U(1)=1.0E30_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_SOLO3=', &
+        KN_PROD_RESID_V1(RES_U(1:1),NDV_U(1:1),1)
+      NDV_U(1)=1; NDV_U(2)=1
+      RES_U(1)=1.0E30_LDP; RES_U(2)=1.0E30_LDP; RES_U(3)=5.0_LDP
+      WRITE(*,'(A,ES16.8)')'M1U_RES_DVIST=', &
+        KN_PROD_RESID_V1(RES_U(1:3),NDV_U(1:3),3)
+      WRITE(*,'(A,I4)')'M1U_IST_ALLDV=', &
+        KN_PROD_POOL_STAT(NDV_U(1:3),3)
 !
 ! --- omega pool exclusion ---
 !
@@ -1740,6 +1761,15 @@
         OM0,OM1B,NSB,P90B,MEDB,MXB,5)
       WRITE(*,'(A,ES16.8)')'M1U_OM_FEW=',OM1B
       WRITE(*,'(A,I8)')'M1U_NSAM_FEW=',NSB
+      RHOM_U(1)=0.05_LDP; RHOP_U(1)=0.06_LDP
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:1),RHOP_U(1:1),NDV_U(1:1), &
+        OM0,OM1B,NSB,P90B,MEDB,MXB,1)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_NOPROD=',OM1B
+      WRITE(*,'(A,I8)')'M1U_NSAM_NOPROD=',NSB
+      RHOM_U(1)=99.0_LDP; RHOP_U(1)=99.0_LDP
+      CALL KN_OMEGA_POOL_V1(RHOM_U(1:1),RHOP_U(1:1),NDV_U(1:1), &
+        OM0,OM1B,NSB,P90B,MEDB,MXB,1)
+      WRITE(*,'(A,ES16.8)')'M1U_OM_NOPROD2=',OM1B
 !
 ! --- probe predicate ---
 !
@@ -2800,3 +2830,581 @@
       END SUBROUTINE PACK_X
 !
       END SUBROUTINE DRV_P1T1B
+!
+! ------------------------------------------------------------------
+! DRV_P1T1S: production-coefficient packed-map experiment (Phase 2.9).
+! Identical machinery to DRV_P1T1B but the physical input deck is read
+! from 'p1t1s_in.txt' (extracted caseK2 J_RESCUE_DUMP window plus the
+! nearest OUT_FLUX ESEC/CHI_SCAT table) instead of built inline. The
+! FD dense Jacobian used at NX=30 is infeasible here (NX ~ 1.5E3), so
+! the Jacobian action is probed by map matvecs: spectral radius by
+! power iteration, Newton direction by GMRES on (I-J). The donor dump
+! (DBS/DBSI/JMAP lines) lets the python side build the exact packed
+! graph and test acyclicity without an FD pass.
+! Diagnostic only; no production path changes.
+! ------------------------------------------------------------------
+      SUBROUTINE DRV_P1T1S
+      USE SET_KIND_MODULE
+      USE FG_J_CMF_NONMONO_MOD_V1
+      INTEGER NDA,NPA,NCFA
+      PARAMETER (NDA=70,NPA=2,NCFA=13)
+      REAL(KIND=LDP) RA(NDA),VA(NDA),SGA(NDA),SGT(NDA),PA(NPA)
+      REAL(KIND=LDP) ETA_M(NDA,NCFA),CHI_M(NDA,NCFA),ESC_M(NDA,NCFA)
+      REAL(KIND=LDP) JNU_A(NDA),FEDD_A(NDA),IPLUS_A(NPA)
+      REAL(KIND=LDP) JQW_A(NDA,NPA),HQW_A(NDA,NPA),KQW_A(NDA,NPA)
+      REAL(KIND=LDP) NQW_A(NDA,NPA),HMID_A(NDA,NPA),NMID_A(NDA,NPA)
+      REAL(KIND=LDP) VDOP_A(NDA),FRQV(NCFA),DLNV(NCFA),TARR(NDA)
+      REAL(KIND=LDP) DBB_A,IC_A,VDOP_F,REXT_A,INBC_A,HBC_A,DLOGA
+      CHARACTER*6 METH_A
+      CHARACTER(LEN=8) SOPT_A
+      CHARACTER(LEN=12) IBND_A
+      CHARACTER(LEN=64) WLN
+      LOGICAL THK_A,INIT_A,NEWF_A
+      INTEGER NC_A,NITER,ITR,L,I,LSDBG,IOS,NRAYS
+      INTEGER NCOMP,NSNP,NSLOT,NW,NX
+      INTEGER, ALLOCATABLE :: POSP(:,:),POSM(:,:),WKCH(:)
+      REAL(KIND=LDP), ALLOCATABLE :: XO(:),XNEW(:),X0V(:),FX0(:)
+      REAL(KIND=LDP), ALLOCATABLE :: STO_P(:,:,:),STO_M(:,:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: SPSP(:,:),SMSP(:,:),SMPP(:,:), &
+      SMMP(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: VDOM(:),VPT(:),RESV(:)
+      REAL(KIND=LDP), ALLOCATABLE :: XSEED(:,:),XFIX(:,:)
+      REAL(KIND=LDP) RN,RD,TNRM,EPSV,RLAM,RPREV,RLO,RHI
+      INTEGER KC,SL,J,IV,IA,JP,K,NWARM,ISEED,KGM,NGM,NWT
+      INTEGER*8 NEVAL
+      INTEGER IRFI(3)
+      REAL(KIND=LDP) OMV(3)
+      CHARACTER(LEN=8) VNAME(3)
+!
+! Deck reader: token/section layout produced by the extractor script.
+!
+      OPEN(89,FILE='p1t1s_in.txt',STATUS='OLD',IOSTAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1s_deck_missing=1'
+        RETURN
+      END IF
+      READ(89,'(A)')WLN
+      READ(89,'(A)')WLN
+      READ(89,*)I,L
+      IF(I .NE. NDA .OR. L .NE. NCFA)THEN
+        WRITE(*,'(A,2I6)')'RESULT p1t1s_dim_mismatch=',I,L
+        RETURN
+      END IF
+      CALL RDSECT(89,'R',RA)
+      CALL RDSECT(89,'V',VA)
+      CALL RDSECT(89,'SIG',SGA)
+      CALL RDSECT(89,'SIGT',SGT)
+      CALL RDSECT(89,'ESEC',ESC_M(1:NDA,1))
+      CALL RDSECT(89,'CHI_SCAT',TARR)
+      CALL RDSECT(89,'FL',FRQV)
+      DO L=1,NCFA
+        CALL RDSECT(89,'CHI',CHI_M(1:NDA,L))
+      END DO
+      DO L=1,NCFA
+        CALL RDSECT(89,'ETA',ETA_M(1:NDA,L))
+      END DO
+      CLOSE(89)
+      ESC_M=SPREAD(ESC_M(1:NDA,1),2,NCFA)
+      FRQV=FRQV*1.0E15_LDP
+      DO L=1,NCFA-1
+        DLNV(L)=LOG(FRQV(L)/FRQV(L+1))
+      END DO
+      DLNV(NCFA)=DLNV(NCFA-1)
+!
+      PA(1)=0.0_LDP
+      PA(2)=1.2E4_LDP
+      VDOP_A=0.01_LDP*MAXVAL(ABS(VA))
+      VDOP_F=0.5_LDP
+      REXT_A=1.0_LDP
+      DBB_A=0.0_LDP
+      IC_A=0.0_LDP
+      METH_A='ZERO'
+      SOPT_A='INT'
+      IBND_A='ZERO_FLUX'
+      THK_A=.FALSE.
+      NEWF_A=.TRUE.
+      NC_A=0
+      LSDBG=1
+      NRAYS=1
+!
+      FG_FREQ_MATCH=.TRUE.
+      FG_ORD_SWEEP=.TRUE.
+      DO_KNOP_REFRESH=.TRUE.
+      FREEZE_I_NEXT=.FALSE.
+      KNOP_DIAG_NO_REGRID=.TRUE.
+      FREEZE_I_PREV=.FALSE.
+      FG_ORD_AITKEN=.FALSE.
+      FG_ORD_AA=.FALSE.
+      FG_ORD_P2DAMP=.FALSE.
+      KN_RAY_TOL=2.0E-3_LDP
+      KN_RAY_MAXPASS=60
+      KN_RAY_BULK_TOL=0.0_LDP
+      KN_RAY_OMEGA=1.0_LDP
+      KN_RAY_STALL=0.98_LDP
+      KN_RAY_HOTPASSES=0
+      KN_HOT_TOTAL_PASSES=0
+      KN_ADAPT_RELAX=.FALSE.
+      INEXT_RELAX=0.5_LDP
+      KN_RAY_PACK_MB=2048.0_LDP
+      NONMONO_INEXT_CAP=1.0E+20_LDP
+      FG_COMMIT_CONV=.TRUE.
+      FG_COMMIT_NC=0.05_LDP
+      FG_COMMIT_JUMP=50.0_LDP
+      FG_DIV_HEAL_CAP=1.0E+6_LDP
+      FG_BULK_CONTR=.FALSE.
+      FG_ADAPT_OMEGA_V2=.FALSE.
+      KN_DBG_LS=LSDBG
+      ALLOCATE(KN_DBG_CHIH(NDA,NCFA),KN_DBG_Q(NDA,NCFA), &
+      KN_DBG_DCHR(NDA,NCFA),KN_DBG_DTAU(NDA,NCFA), &
+      KN_DBG_SPM(NDA,NCFA),KN_DBG_SPP(NDA,NCFA), &
+      KN_DBG_WX(NDA,NCFA),KN_DBG_DLNM(NDA,NCFA), &
+      KN_DBG_IMPR(NDA,NCFA),KN_DBG_IPPR(NDA,NCFA), &
+      KN_DBG_NM(NDA,NCFA),KN_DBG_KC1(NDA,NCFA),KN_DBG_KC2(NDA,NCFA), &
+      KN_DBG_A0(NDA,NCFA),KN_DBG_A1(NDA,NCFA),KN_DBG_A2(NDA,NCFA), &
+      KN_DBG_A3(NDA,NCFA),KN_DBG_A4(NDA,NCFA),KN_DBG_SR(NDA,NCFA), &
+      KN_DBG_INEXTM(NDA,NCFA),KN_DBG_INEXTP(NDA,NCFA), &
+      KN_DBG_NDON(NDA,NCFA),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1salloc_fail=1'
+        RETURN
+      END IF
+      KN_DBG_CHIH=-1.0_LDP; KN_DBG_Q=-1.0_LDP; KN_DBG_DCHR=-1.0_LDP
+      KN_DBG_DTAU=-1.0_LDP; KN_DBG_SPM=-1.0_LDP; KN_DBG_SPP=-1.0_LDP
+      KN_DBG_WX=-1.0_LDP; KN_DBG_DLNM=-1.0_LDP
+      KN_DBG_IMPR=-1.0_LDP; KN_DBG_IPPR=-1.0_LDP
+      KN_DBG_NM=-1; KN_DBG_KC1=-1; KN_DBG_KC2=-1
+      KN_DBG_A0=-1.0_LDP; KN_DBG_A1=-1.0_LDP; KN_DBG_A2=-1.0_LDP
+      KN_DBG_A3=-1.0_LDP; KN_DBG_A4=-1.0_LDP; KN_DBG_SR=-1.0_LDP
+      KN_DBG_INEXTM=-1.0_LDP; KN_DBG_INEXTP=-1.0_LDP
+      KN_DBG_NDON=0
+!
+      JQW_A=1.0_LDP; HQW_A=1.0_LDP; KQW_A=1.0_LDP
+      NQW_A=1.0_LDP; HMID_A=1.0_LDP; NMID_A=1.0_LDP
+      JNU_A=0.0_LDP; FEDD_A=0.0_LDP; IPLUS_A=0.0_LDP
+      INBC_A=0.0_LDP; HBC_A=0.0_LDP
+!
+! Cold sweep: iteration 1 of the packed fixed-point sequence.
+!
+      DO L=1,NCFA
+        IF(L .LT. NCFA)THEN
+          CALL SET_FG_NU_NEXT(FRQV(L+1))
+        ELSE
+          CALL SET_FG_NU_NEXT(FRQV(NCFA)* &
+      EXP(-DLNV(NCFA)))
+        END IF
+        INIT_A=(L .EQ. 1)
+        DLOGA=DLNV(L)
+        CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L),CHI_M(1,L),ESC_M(1,L), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L),DLOGA, &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,INIT_A,NEWF_A,NC_A,NRAYS,NDA,SGT,NCFA)
+      END DO
+      CALL FG_KNOP_REFRESH_V1()
+!
+      IF(.NOT. ALLOCATED(I_P_DEPTH_NEXT))THEN
+        WRITE(*,'(A)')'RESULT p1t1sstore_missing=1'
+        RETURN
+      END IF
+      NCOMP=SIZE(I_P_DEPTH_NEXT,1)
+      NSNP=SIZE(I_P_DEPTH_NEXT,2)
+      NSLOT=SIZE(I_P_DEPTH_NEXT,3)
+      IF(NSNP .NE. 1)THEN
+        WRITE(*,'(A)')'RESULT p1t1snp_unsupported=1'
+        RETURN
+      END IF
+      ALLOCATE(STO_P(NCOMP,NSNP,NSLOT),STO_M(NCOMP,NSNP,NSLOT), &
+      POSP(NCOMP,NSLOT),POSM(NCOMP,NSLOT),WKCH(NCOMP),STAT=IOS)
+      STO_P=I_P_DEPTH_NEXT
+      STO_M=I_M_DEPTH_NEXT
+      NW=0
+      POSP=0; POSM=0
+      DO K=1,NDA
+        KC=COMP_DEPTH_IDX(K)
+        IF(KC .GE. 1)THEN
+          I=J_PNT(K,1)
+          IF(I .GE. 1 .AND. I .LE. NI_RAY(1))THEN
+            NW=NW+1
+            WKCH(NW)=KC
+          END IF
+        END IF
+      END DO
+      NX=2*NW*(NSLOT-1)
+      J=0
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          POSP(WKCH(I),SL)=J
+        END DO
+      END DO
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          POSM(WKCH(I),SL)=J
+        END DO
+      END DO
+      ALLOCATE(XO(NX),XNEW(NX),X0V(NX),FX0(NX),VDOM(NX),VPT(NX), &
+      RESV(300),XSEED(NX,3),XFIX(NX,3), &
+      SPSP(SIZE(I_P_STORE,1),SIZE(I_P_STORE,2)), &
+      SMSP(SIZE(I_M_STORE,1),SIZE(I_M_STORE,2)), &
+      SMPP(SIZE(I_P_PREV,1),SIZE(I_P_PREV,2)), &
+      SMMP(SIZE(I_M_PREV,1),SIZE(I_M_PREV,2)),STAT=IOS)
+      IF(IOS .NE. 0)THEN
+        WRITE(*,'(A)')'RESULT p1t1sx_alloc_fail=1'
+        RETURN
+      END IF
+      SPSP=I_P_STORE
+      SMSP=I_M_STORE
+      SMPP=I_P_PREV
+      SMMP=I_M_PREV
+      WRITE(*,'(A,5I8)')'P1S_DIMS ',NX,NW,NSLOT,NCOMP,NI_RAY(1)
+!
+      OPEN(91,FILE='p1t1s_idx.txt',STATUS='REPLACE')
+      WRITE(91,'(A,4I8)')'P1SIDX ',NX,NW,NSLOT,NCOMP
+      J=0
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          WRITE(91,'(A,I8,1X,A1,1X,2I6)')'ELEM',J,'P',WKCH(I),SL
+        END DO
+      END DO
+      DO SL=1,NSLOT-1
+        DO I=1,NW
+          J=J+1
+          WRITE(91,'(A,I8,1X,A1,1X,2I6)')'ELEM',J,'M',WKCH(I),SL
+        END DO
+      END DO
+      CLOSE(91)
+!
+! Warm up the packed map so X0V is a realistic iterate.
+!
+      NWARM=30
+      CALL PACK_X(X0V)
+      NEVAL=0
+      DO ITR=2,NWARM
+        CALL MAP_F(X0V,XNEW,1)
+        NEVAL=NEVAL+1
+        RN=SQRT(SUM((XNEW-X0V)**2))
+        RESV(ITR)=RN
+        X0V=XNEW
+      END DO
+!
+! Donor/topology dump: one record set per (ray point, freq) so the
+! python side can build the exact packed-graph edge list
+! (write (KC_w,L) <- read (KC1|KC2,L+NM)).
+!
+      OPEN(96,FILE='p1t1s_dbs.txt',STATUS='REPLACE')
+      DO I=1,NI_RAY(LSDBG)
+        DO L=1,NCFA
+          WRITE(96,'(A,I3,A,I3,A,11ES16.8)')'DBS ',I,' ',L,' ', &
+      KN_DBG_CHIH(I,L),KN_DBG_Q(I,L),KN_DBG_DCHR(I,L), &
+      KN_DBG_DTAU(I,L),KN_DBG_SPM(I,L),KN_DBG_SPP(I,L), &
+      KN_DBG_WX(I,L),KN_DBG_DLNM(I,L),KN_DBG_IMPR(I,L), &
+      KN_DBG_IPPR(I,L),KN_DBG_SR(I,L)
+          WRITE(96,'(A,I3,A,I3,A,3I6)')'DBSI ',I,' ',L,' ', &
+      KN_DBG_NM(I,L),KN_DBG_KC1(I,L),KN_DBG_KC2(I,L)
+          WRITE(96,'(A,I3,A,I3,A,2ES16.8)')'DBSN ',I,' ',L,' ', &
+      KN_DBG_INEXTM(I,L),KN_DBG_INEXTP(I,L)
+        END DO
+      END DO
+      DO K=1,NDA
+        WRITE(96,'(A,I3,A,2I6)')'JMAP ',K,' ',J_PNT(K,LSDBG), &
+      COMP_DEPTH_IDX(K)
+      END DO
+      CLOSE(96)
+!
+      IRFI(1)=1; IRFI(2)=0; IRFI(3)=0
+      OMV(1)=0.5_LDP; OMV(2)=0.5_LDP; OMV(3)=1.0_LDP
+      VNAME(1)='fullw05'; VNAME(2)='swp_w05'; VNAME(3)='swp_w10'
+!
+      DO IV=1,3
+        INEXT_RELAX=OMV(IV)
+        CALL MAP_F(X0V,FX0,IRFI(IV))
+        NEVAL=NEVAL+1
+        TNRM=SQRT(SUM(X0V**2))
+!
+! Power iteration on the packed Jacobian via map matvecs. For a
+! nilpotent J the iterate collapses in <= nilpotency-degree steps;
+! that collapse is itself the test, not a failure of the estimator.
+!
+        OPEN(97,FILE='p1t1s_pow_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        DO J=1,NX
+          VPT(J)=SIN(0.37_LDP*DBLE(J))
+        END DO
+        VPT=VPT/SQRT(SUM(VPT**2))
+        RPREV=1.0_LDP
+        RLO=1.0E30_LDP; RHI=0.0_LDP
+        DO K=1,60
+          CALL MATVEC(X0V,FX0,VPT,VDOM,IRFI(IV))
+          NEVAL=NEVAL+1
+          RLAM=SQRT(SUM(VDOM**2))
+          WRITE(97,'(I4,3ES20.12)')K,RLAM,RLAM/RPREV
+          IF(K .GT. 45)THEN
+            RLO=MIN(RLO,RLAM); RHI=MAX(RHI,RLAM)
+          END IF
+          RPREV=MAX(RLAM,1.0E-300_LDP)
+          IF(RLAM .GT. 0.0_LDP)VPT=VDOM/RLAM
+        END DO
+        WRITE(97,'(A,3ES20.12)')'RHO_EST ',RLAM,RLO,RHI
+        CLOSE(97)
+!
+! Nilpotence chain: F^d(X0) becomes constant when d exceeds the
+! longest slot-directed dependency path. Residual collapse to the
+! map noise floor is the structural certificate.
+!
+        IF(IRFI(IV) .EQ. 0)THEN
+          XNEW=X0V
+          DO K=1,NSLOT+2
+            CALL MAP_F(XNEW,XO,0)
+            NEVAL=NEVAL+1
+            RN=SQRT(SUM((XO-XNEW)**2))
+            WRITE(*,'(A,I2,A,I4,A,ES16.8)')'P1S_NILP iv',IV, &
+      ' k',K,' res',RN
+            XNEW=XO
+          END DO
+        END IF
+!
+! JFNK-Newton from three seeds. Inner solve: GMRES on (I-J) via
+! matvecs; no explicit matrix, no damping, no shift. Linear-solve
+! residual and true map residual are both recorded.
+!
+        OPEN(98,FILE='p1t1s_newton_'//TRIM(VNAME(IV))//'.txt', &
+        STATUS='REPLACE')
+        XSEED(1:NX,1)=X0V
+        XSEED(1:NX,2)=0.5_LDP*X0V
+        DO J=1,NX
+          XSEED(J,2)=XSEED(J,2)+1.0E-3_LDP*MAX(ABS(X0V(J)),1.0E-3_LDP)* &
+      SIN(1.7_LDP*DBLE(J))
+        END DO
+        XSEED(1:NX,3)=0.0_LDP
+        DO ISEED=1,3
+          XNEW=XSEED(1:NX,ISEED)
+          DO NWT=1,6
+            CALL MAP_F(XNEW,XO,IRFI(IV))
+            NEVAL=NEVAL+1
+            RN=SQRT(SUM((XO-XNEW)**2))
+            IF(RN .LT. 1.0E-13_LDP*MAX(1.0_LDP,TNRM))EXIT
+            VPT=XO-XNEW
+            CALL GMRESV(XNEW,XO,VPT,VDOM,IRFI(IV),NGM,RD,NEVAL)
+            XNEW=XNEW+VDOM
+            CALL MAP_F(XNEW,XO,IRFI(IV))
+            NEVAL=NEVAL+1
+            RD=SQRT(SUM((XO-XNEW)**2))
+            WRITE(98,'(A,I2,A,I2,A,I5,2ES16.8)')'NWT seed',ISEED, &
+      ' it',NWT,' kgm',NGM,' res',RN,RD
+          END DO
+          CALL MAP_F(XNEW,XO,IRFI(IV))
+          NEVAL=NEVAL+1
+          XFIX(1:NX,ISEED)=XNEW
+          RN=SQRT(SUM((XO-XNEW)**2))
+          WRITE(98,'(A,I2,A,2ES16.8)')'SEED ',ISEED, &
+      ' final',RN,SQRT(SUM(XNEW**2))
+        END DO
+        DO ISEED=2,3
+          WRITE(98,'(A,I2,2ES16.8)')'XFIX_DIFF seed',ISEED, &
+      SQRT(SUM((XFIX(1:NX,ISEED)-XFIX(1:NX,1))**2)), &
+      MAXVAL(ABS(XFIX(1:NX,ISEED)-XFIX(1:NX,1)))
+        END DO
+        CLOSE(98)
+      END DO
+      WRITE(*,'(A,I10)')'P1S_NEVAL=',NEVAL
+      WRITE(*,'(A)')'RESULT_OK'
+      RETURN
+!
+      CONTAINS
+!
+      SUBROUTINE RDSECT(U,KEY,ARR)
+      INTEGER U
+      CHARACTER(LEN=*) KEY
+      REAL(KIND=LDP) ARR(:)
+      CHARACTER(LEN=64) HDR
+      READ(U,*)HDR
+      IF(TRIM(HDR) .NE. TRIM(KEY))THEN
+        WRITE(*,'(2A)')'RDSECT key mismatch: ',TRIM(HDR)
+        STOP 9
+      END IF
+      READ(U,*)ARR
+      RETURN
+      END SUBROUTINE RDSECT
+!
+      SUBROUTINE MAP_F(XV,XO,IRF)
+      REAL(KIND=LDP) XV(:),XO(:)
+      INTEGER IRF
+      INTEGER L2,I2,SL2,J2,JP2
+      LOGICAL LI,LF
+      I_P_STORE=SPSP
+      I_M_STORE=SMSP
+      I_P_PREV=SMPP
+      I_M_PREV=SMMP
+      JQW_A=1.0_LDP; HQW_A=1.0_LDP; KQW_A=1.0_LDP
+      NQW_A=1.0_LDP; HMID_A=1.0_LDP; NMID_A=1.0_LDP
+      JNU_A=0.0_LDP; FEDD_A=0.0_LDP; IPLUS_A=0.0_LDP
+      INBC_A=0.0_LDP; HBC_A=0.0_LDP
+      I_P_DEPTH_NEXT=STO_P
+      I_M_DEPTH_NEXT=STO_M
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          JP2=POSP(WKCH(I2),SL2)
+          IF(JP2 .GT. 0) &
+      I_P_DEPTH_NEXT(WKCH(I2),1,SL2)=XV(JP2)
+          JP2=POSM(WKCH(I2),SL2)
+          IF(JP2 .GT. 0) &
+      I_M_DEPTH_NEXT(WKCH(I2),1,SL2)=XV(JP2)
+        END DO
+      END DO
+      DO L2=1,NCFA
+        IF(L2 .LT. NCFA)THEN
+          CALL SET_FG_NU_NEXT(FRQV(L2+1))
+        ELSE
+          CALL SET_FG_NU_NEXT(FRQV(NCFA)*EXP(-DLNV(NCFA)))
+        END IF
+        LI=(L2 .EQ. 1)
+        LF=.TRUE.
+        CALL FG_J_CMF_NONMONO_V1(ETA_M(1,L2),CHI_M(1,L2),ESC_M(1,L2), &
+      VA,SGA,RA,PA, &
+      JNU_A,FEDD_A,JQW_A,HQW_A,KQW_A,NQW_A,HMID_A,NMID_A, &
+      INBC_A,HBC_A,IPLUS_A,FRQV(L2),DLNV(L2), &
+      IBND_A,DBB_A,IC_A,VDOP_A,VDOP_F,REXT_A, &
+      METH_A,SOPT_A,THK_A,LI,LF,NC_A,NRAYS,NDA,SGT,NCFA)
+      END DO
+      IF(IRF .EQ. 1)CALL FG_KNOP_REFRESH_V1()
+      J2=0
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_P_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_M_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE MAP_F
+!
+      SUBROUTINE PACK_X(XO)
+      REAL(KIND=LDP) XO(:)
+      INTEGER L2,I2,SL2,J2
+      J2=0
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_P_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      DO SL2=1,NSLOT-1
+        DO I2=1,NW
+          J2=J2+1
+          XO(J2)=I_M_DEPTH_NEXT(WKCH(I2),1,SL2)
+        END DO
+      END DO
+      RETURN
+      END SUBROUTINE PACK_X
+!
+! MATVEC: J*v via one forward-difference map probe. The amplitude is
+! scaled to the seed-point magnitude so vanishing elements still see
+! a resolvable perturbation.
+!
+      SUBROUTINE MATVEC(XB,FB,V,W,IRF)
+      REAL(KIND=LDP) XB(:),FB(:),V(:),W(:)
+      INTEGER IRF
+      REAL(KIND=LDP) EPSM,VS
+      REAL(KIND=LDP), ALLOCATABLE :: XP(:),FP(:)
+      ALLOCATE(XP(NX),FP(NX))
+      VS=SQRT(SUM(V**2))
+      EPSM=1.0E-5_LDP*MAX(SQRT(SUM(XB**2)),1.0E-3_LDP)/MAX(VS,1.0E-30_LDP)
+      XP=XB+EPSM*V
+      CALL MAP_F(XP,FP,IRF)
+      W=(FP-FB)/EPSM
+      DEALLOCATE(XP,FP)
+      RETURN
+      END SUBROUTINE MATVEC
+!
+! GMRESV: solve (I-J)*dx = rhs by unrestarted-then-restarted GMRES
+! using MATVEC for the J action. Returns the Krylov count and the
+! achieved linear residual; no shift or damping is applied.
+!
+      SUBROUTINE GMRESV(XB,FB,RHS,DX,IRF,NGM,RRES,NEV)
+      REAL(KIND=LDP) XB(:),FB(:),RHS(:),DX(:)
+      INTEGER IRF,NGM
+      REAL(KIND=LDP) RRES
+      INTEGER*8 NEV
+      INTEGER KM,IU,JU,NRES
+      PARAMETER (KM=80)
+      REAL(KIND=LDP), ALLOCATABLE :: VV(:,:),HH(:,:),CS(:),SN(:), &
+      GG(:),YY(:),W2(:)
+      REAL(KIND=LDP) BETA,HT,T1,T2,RTOL
+      ALLOCATE(VV(NX,KM+1),HH(KM+1,KM),CS(KM),SN(KM),GG(KM+1), &
+      YY(KM),W2(NX))
+      RTOL=1.0E-9_LDP
+      DX=0.0_LDP
+      NGM=0
+      DO NRES=1,3
+        CALL MATVEC(XB,FB,DX,W2,IRF)
+        NEV=NEV+1
+        W2=RHS-(DX-W2)
+        BETA=SQRT(SUM(W2**2))
+        IF(BETA .LT. RTOL*MAX(SQRT(SUM(RHS**2)),1.0E-30_LDP))EXIT
+        VV(1:NX,1)=W2/BETA
+        GG=0.0_LDP; GG(1)=BETA
+        DO IU=1,KM
+          CALL MATVEC(XB,FB,VV(1:NX,IU),W2,IRF)
+          NEV=NEV+1
+          W2=VV(1:NX,IU)-W2
+          DO JU=1,IU
+            HH(JU,IU)=SUM(W2*VV(1:NX,JU))
+            W2=W2-HH(JU,IU)*VV(1:NX,JU)
+          END DO
+          HH(IU+1,IU)=SQRT(SUM(W2**2))
+          IF(HH(IU+1,IU) .GT. 0.0_LDP) &
+      VV(1:NX,IU+1)=W2/HH(IU+1,IU)
+          DO JU=1,IU-1
+            T1=CS(JU)*HH(JU,IU)+SN(JU)*HH(JU+1,IU)
+            T2=-SN(JU)*HH(JU,IU)+CS(JU)*HH(JU+1,IU)
+            HH(JU,IU)=T1; HH(JU+1,IU)=T2
+          END DO
+          HT=SQRT(HH(IU,IU)**2+HH(IU+1,IU)**2)
+          IF(HT .EQ. 0.0_LDP)THEN
+            CS(IU)=1.0_LDP; SN(IU)=0.0_LDP
+          ELSE
+            CS(IU)=HH(IU,IU)/HT; SN(IU)=HH(IU+1,IU)/HT
+          END IF
+          HH(IU,IU)=HT
+          HH(IU+1,IU)=0.0_LDP
+          T1=CS(IU)*GG(IU)
+          GG(IU+1)=-SN(IU)*GG(IU)
+          GG(IU)=T1
+          NGM=NGM+1
+          IF(ABS(GG(IU+1)) .LT. &
+      RTOL*MAX(BETA,1.0E-30_LDP))EXIT
+        END DO
+        DO JU=IU,1,-1
+          T1=GG(JU)
+          DO K=JU+1,IU
+            T1=T1-HH(JU,K)*YY(K)
+          END DO
+          IF(HH(JU,JU) .NE. 0.0_LDP)THEN
+            YY(JU)=T1/HH(JU,JU)
+          ELSE
+            YY(JU)=0.0_LDP
+          END IF
+        END DO
+        DO JU=1,IU
+          DX=DX+YY(JU)*VV(1:NX,JU)
+        END DO
+        IF(ABS(GG(IU+1)) .LT. &
+      RTOL*MAX(BETA,1.0E-30_LDP))EXIT
+      END DO
+      CALL MATVEC(XB,FB,DX,W2,IRF)
+      NEV=NEV+1
+      W2=RHS-(DX-W2)
+      RRES=SQRT(SUM(W2**2))
+      DEALLOCATE(VV,HH,CS,SN,GG,YY,W2)
+      RETURN
+      END SUBROUTINE GMRESV
+!
+      END SUBROUTINE DRV_P1T1S
