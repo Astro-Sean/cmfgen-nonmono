@@ -96,3 +96,8 @@ KNOP_RAY_SOLVE_V1: 49 passed, 0 failed
   [PASS] M9 prbr: legacy ratio resumes on real resid, denominator 0.7  (p1 resid=1.0 resprv=0.7 p2 resid=9.11235277e-15 inext=0.81 want=0.81000000)
 ------------------------------------------------------------
 KNOP_MODE1_PROBE_ISOLATION: 9 passed, 0 failed
+
+== frozen executables ==
+knray_p215 sha256 3504af4a26a543fc8dfa59e6232684ac2a3faa69f695f65096e96e9460a20313
+exe_frozen/2bb070d920c6bf82_abe4725807474143/cmfgen_dev.exe sha256 2bb070d920c6bf8221eaeea66c36d9d7730e69041e747e85dedad93e572f8d92 (HEAD e41e1fcc)
+exe_frozen/2bb070d920c6bf82_abe4725807474143/cmf_flux.exe   sha256 abe47258074741435bcd6c8389bce671ad9e29e5d074c6cd32b18f50bcb8fb26
