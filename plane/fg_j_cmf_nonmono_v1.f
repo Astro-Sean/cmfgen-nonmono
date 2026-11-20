@@ -8947,7 +8947,7 @@ C
 	FG_SW_MAXCHG=FG_GS_MAXCHG
 	FG_SW_NCONV=FG_GS_NCONV
 	FG_GS_MAXCHG=KN_RF_RESID
-	FG_GS_NCONV=SUM(NST_LS)
+	FG_GS_NCONV=SUM(NST_LS,MASK=KN_PROD_MASK)
 !
 ! C1 (Nov-2026): same-census cap numerator. NCP_LS/NNG_LS accumulate
 ! cap/floor events over EVERY pass of the field solve while the
