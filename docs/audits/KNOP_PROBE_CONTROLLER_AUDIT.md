@@ -296,6 +296,19 @@ test it was designed to fail.
 
 ## 5. Seed binary array validity
 
+SUPERSEDED (20-Nov-2026): the cell-value claims in this section were
+computed with a misaligned binary reader (`parse_knop_seed.py` started
+each array at its 4-byte record marker). Corrected parsing shows every
+one of the 1610 records clean - no invalid-scale or non-finite cells.
+Defects in section 6 that rest on those values: M1 (dead-column
+resurrection) is void - there are no dead columns and DAB measures
+weak-cell relative change on valid cells; M2 (metrics over invalid
+cells) is void - the metrics are verified consistent with the stored
+arrays; M4 keeps its source-level mechanism (NaN cells evade the
+census) but only as a latent property, not an observed condition.
+Sections 1-4, and findings H1-H4, M3, L1, L2, are source-derived and
+unaffected. See `KNOP_ACTIVE_FIELD_VALIDITY_AUDIT.md`.
+
 Record writer :14426-14442 (NI=3 x NCF=56377, verified: 2,706,216 B
 records, consistent markers, header fields match filename).
 
