@@ -1,0 +1,51 @@
+ Maximum number of points along ray in FG_J_CMF_NONMONO_V1 is   248
+FG_J_CMF_NONMONO_V1: Gauss-Seidel storage
+    compressing points=    52  of ND=    70
+    sparse in-place write (Opt A+B, no CURR arrays)
+GS RESTART STATE (FG_J_CMF_NONMONO_V1):
+  cold start (NITSF<=0): no GS restore
+  FALLING BACK TO LAMBDA REBUILD (I_NEXT=0)
+FG_J_CMF_NONMONO_V1:     50 depths have SIGMA < -1 (non-monotonic flow handled).
+FG_J_CMF_NONMONO_V1: non-monotonic formal solver
+    multi-root rays=   1  (min=  2  max=  2 turning points)
+    sigma_min= -1.5561E+02  sigma_max=  1.0000E+00
+    N(sigma<0)=    50  N(sigma<-1)=    50
+    chi_hat = chi + |GAM|/dLOG_NU (Knop Paper I Eq 7)
+    signed Q = (GAM/dLOG_NU)/chi_hat in S_hat (Eq 9)
+    no S_tilde (nu-form 3a_nu*I dropped by CMFGEN convention)
+    upwind: I_PREV (GAM>=0) / I_NEXT (GAM<0, lagged GS)
+
+ --------------------------------- KNOP FIELD ----------------------------------
+  KNOP I_NEXT refresh (lagged coupling):
+    residual max=  1.7722E-03  (tol  2.0E-03)
+    passes<=    13
+    diverged rays=       0
+    clamp events=       0
+    same-census cap/floor=             0
+    unconverged cells=             0 of          6227   frac= 0.00E+00
+    store cells>50%=           681
+    best-pass bad cells=             0 of          6227
+    healed slots=     0   commit rejects=     0   nc rejects=     0   nc capped=     0
+    t=      0.1 s
+    retained-field delta: max=  1.9539E+02 pending=  0.0000E+00
+    ray exits: exact=    0 tol=    1 bulk=    0 stall=    0 cap=    0 div=    0 plat=    0
+    cert census: full=    1 bulk=    0 itlim=    0 stag=    0 div=    0 inv=    0
+    rf_all_conv= T full=    1 active=    1
+    march census: ord rays=       1  unordered rays=       0
+    solves M ord, M uno, P ord, P uno=         1         0         1         0
+ FG-KNOP worst ray=     1 ni=   248
+    residual=  1.772E-03 passes=  13
+    matched/compress=           282/          2808
+    max offset=    12
+    note: freq-1 field computed but not stored (no lagged-memory slot at either band edge)
+    commit verdicts: committed=    1  jump-rej=    0  nc-rej=    0  capped=    0  div=    0  unsolved=    0  worst=(ixit    1,v    0)
+    worst-ray delta: commit=  1.954E+02  max=  1.954E+02  committed-max=  1.954E+02
+    pending-ray delta: max=  0.000E+00
+    worst cell: i=  164 l=    1 same-cell passes=  11 max same=  11
+    hot frequencies:       0 in    0 contiguous runs (block-GS candidates)
+P1R_DIMS     1248      52      13     248
+P1R_Y0   1.54023614E-03  8.82418869E-09
+P1X_RAW ixit=  1 resid=  1.87904203E-04 npass=  14 nbad=         0 ntot=      6227 qres=  3.36594109E-09
+P1X_STATUS FULL_CONVERG btol=  0.00000000E+00
+P1R_NEVAL=         0
+RESULT_OK

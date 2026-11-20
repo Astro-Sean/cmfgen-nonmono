@@ -149,3 +149,25 @@ refresh. This is a hypothesis pending the live run in Phase 2.15-7.
 - Live-model behaviour (Part G), population-level A/B and the
   genuine mixed-sign deck are still open, exactly as in Phase
   2.15-2.16.
+
+## 10. Independent validation addendum
+
+Verified end-to-end on knray_p217 (sha256
+21c1028a2889c8d54eee661e02e1d131d8b4272675851bc4a391914426ef63e1),
+built from the working tree including the uncommitted Phase 2.16
+hardening (INVR invalid-state reasons, negative-residual and
+BULK verify checks in KN_CERT_CH):
+
+- csut: 20/20 classifier rows exact.
+- cerb/cern/cer2: full=3/3 -> rf_all_conv=T.
+- cerp: probe excluded, full=2 active=2 -> T.
+- rfmx (maxpass=1): itlim=3/3 -> F.
+- rfab: pass1 T then pass2 F -> stale state cleared.
+- p1t1x production deck: BTOL=0 -> ixit=1 RESID=1.87904203E-4
+  qres=3.4e-9 FULL; BTOL=6e-2 -> ixit=2 RESID=8.32052398E-3
+  qres=2.796e-3 BULK_ONLY; maxpass=5 -> ITERATION_LIMIT.
+- Census WRITE format bug found and fixed: '(A,6(A,I5))'
+  misaligned ' inv=' onto an I5 slot (runtime error 61);
+  corrected to '(A,I5,5(A,I5))' with staged counts.
+
+Machine-readable outputs: docs/audits/knop_phase217/.

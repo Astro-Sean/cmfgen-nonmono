@@ -1,0 +1,144 @@
+  KN-NOP ray probe-only ls=   3 npM,npP=   5   5 resM,resP=  5.6804E-15  5.4963E-15
+    ixitM,ixitP,nxit=   1   1   1 npass(max)=   5 resid=  5.6804E-15 jump=  2.9346E+00
+    would-be verdict=   0 (7=probe suppressed; 0=commit 1=jump-veto 2=nc-rej 3=capped)
+    dir 1 passes recorded (sweep np=   5):
+      p   1 res/ad/omg/rat=   1.570E+26   1.570E-03   1.000E+00  -1.000E+00
+        j/L=   2     1 ct>tol/1e-2/1e-1/1/10=       42       42       42       36       27 hot=F
+      p   2 res/ad/omg/rat=   6.996E-03   8.499E-06   1.000E+00  -1.000E+00
+        j/L=   3     1 ct>tol/1e-2/1e-1/1/10=       30        0        0        0        0 hot=F
+      p   3 res/ad/omg/rat=   3.862E-07   5.898E-10   1.000E+00   2.460E-33
+        j/L=   2     2 ct>tol/1e-2/1e-1/1/10=       35        0        0        0        0 hot=F
+      p   4 res/ad/omg/rat=   1.031E-10   1.261E-13   1.000E+00   1.474E-08
+        j/L=   3     1 ct>tol/1e-2/1e-1/1/10=       20        0        0        0        0 hot=F
+      p   5 res/ad/omg/rat=   5.680E-15   8.674E-18   1.000E+00   1.471E-08
+        j/L=   2     2 ct>tol/1e-2/1e-1/1/10=        0        0        0        0        0 hot=F
+    dir 2 passes recorded (sweep np=   5):
+      p   1 res/ad/omg/rat=   1.922E+26   1.922E-03   1.000E+00  -1.000E+00
+        j/L=   1     1 ct>tol/1e-2/1e-1/1/10=       48       48       45       33       33 hot=F
+      p   2 res/ad/omg/rat=   4.647E-03   5.573E-06   1.000E+00  -1.000E+00
+        j/L=   3     1 ct>tol/1e-2/1e-1/1/10=       30        0        0        0        0 hot=F
+      p   3 res/ad/omg/rat=   3.687E-07   5.528E-10   1.000E+00   1.918E-33
+        j/L=   2     2 ct>tol/1e-2/1e-1/1/10=       35        0        0        0        0 hot=F
+      p   4 res/ad/omg/rat=   7.002E-11   8.436E-14   1.000E+00   1.507E-08
+        j/L=   3     1 ct>tol/1e-2/1e-1/1/10=       25        0        0        0        0 hot=F
+      p   5 res/ad/omg/rat=   5.496E-15   8.240E-18   1.000E+00   1.491E-08
+        j/L=   2     2 ct>tol/1e-2/1e-1/1/10=        0        0        0        0        0 hot=F
+  KN-NOP store ray=   3 before M/P=  5.85000000E-03  1.17000000E-02 after M/P=  5.85000000E-03  1.17000000E-02 delta M/P= 0.000E+00 0.000E+00
+
+ --------------------------------- KNOP FIELD ----------------------------------
+  KNOP I_NEXT refresh (lagged coupling):
+    residual max=  9.1124E-15  (tol  1.0E-14)
+    passes<=     5
+    diverged rays=       0
+    clamp events=       0
+    probe ray=   3 resid= 5.680E-15 div=       0 nbad=             0
+    same-census cap/floor=             0
+    unconverged cells=             0 of           180   frac= 0.00E+00
+    store cells>50%=            60
+    best-pass bad cells=             0 of           180
+    healed slots=     0   commit rejects=     0   nc rejects=     0   nc capped=     0
+    t=      0.0 s
+    retained-field delta: max=  8.8366E+00 pending=  0.0000E+00
+    ray exits: exact=    0 tol=    3 bulk=    0 stall=    0 cap=    0 div=    0 plat=    0
+    cert census: full=    2 bulk=    0 itlim=    0 stag=    0 div=    0 inv=    0
+    rf_all_conv= T full=    2 active=    2
+    march census: ord rays=       0  unordered rays=       3
+    solves M ord, M uno, P ord, P uno=         0         3         0         3
+ FG-KNOP worst ray=     1 ni=     8
+    residual=  9.112E-15 passes=   5
+    matched/compress=             0/            54
+    max offset=     1
+    note: freq-1 field computed but not stored (no lagged-memory slot at either band edge)
+    commit verdicts: committed=    2  jump-rej=    0  nc-rej=    0  capped=    0  div=    0  unsolved=    0  worst=(ixit    1,v    0)
+    worst-ray delta: commit=  8.837E+00  max=  8.837E+00  committed-max=  8.837E+00
+    pending-ray delta: max=  0.000E+00
+    worst cell: i=    2 l=    2 same-cell passes=   1 max same=   1
+    hot frequencies:       0 in    0 contiguous runs (block-GS candidates)
+RF_RESID=  9.11235277E-15
+RF_RESPRV= -1.00000000E+00
+RF_DCHG=  8.83656909E+00
+RF_PEND=  0.00000000E+00
+RF_NDIV=       0
+RF_MAXCHG=  9.11235277E-15
+RF_STAL=  0.00000000E+00
+RF_PLAT=  0.00000000E+00
+RF_INEXT_RELAX=  5.00000000E-01
+RF_HEAL=       0
+RF_FAIL= F
+RF_ALLCONV= T
+RF_JREJ=       0
+RF_NCREJ=       0
+RF_NCCAP=       0
+RF_NBAD=             0
+RF_NTOT=           180
+RF_NBB=             0
+RF_NTB=           180
+RF_CAPPED=             0
+RF_ICAP=             0
+VC  1   0   8.83656909E+00
+VC  2   0   8.83656909E+00
+VC  3   7   0.00000000E+00
+STORE  1  1   1.17304803E-03  1.19022486E-03
+STORE  1  2   1.14400500E-03  1.16002569E-03
+STORE  1  3   1.11736355E-03  1.13235719E-03
+STORE  1  4   1.09277059E-03  1.10684898E-03
+STORE  1  5   1.06184900E-03  1.07519012E-03
+STORE  2  1   9.16481507E-04  9.26927275E-04
+STORE  2  2   8.93723922E-04  9.03469095E-04
+STORE  2  3   8.72851710E-04  8.81974123E-04
+STORE  2  4   8.53614909E-04  8.62178649E-04
+STORE  2  5   8.31398452E-04  8.39299334E-04
+STORE  3  1   7.05903798E-04  7.12152820E-04
+STORE  3  2   6.88334918E-04  6.94164363E-04
+STORE  3  3   6.72223670E-04  6.77680209E-04
+STORE  3  4   6.57386992E-04  6.62509690E-04
+STORE  3  5   6.41369022E-04  6.46118798E-04
+RSTORE  1  1  1   1.17304803E-03  1.19022486E-03
+RSTORE  1  1  2   1.14400500E-03  1.16002569E-03
+RSTORE  1  1  3   1.11736355E-03  1.13235719E-03
+RSTORE  1  1  4   1.09277059E-03  1.10684898E-03
+RSTORE  1  1  5   1.06184900E-03  1.07519012E-03
+RSTORE  1  2  1   9.16481507E-04  9.26927275E-04
+RSTORE  1  2  2   8.93723922E-04  9.03469095E-04
+RSTORE  1  2  3   8.72851710E-04  8.81974123E-04
+RSTORE  1  2  4   8.53614909E-04  8.62178649E-04
+RSTORE  1  2  5   8.31398452E-04  8.39299334E-04
+RSTORE  1  3  1   7.05903798E-04  7.12152820E-04
+RSTORE  1  3  2   6.88334918E-04  6.94164363E-04
+RSTORE  1  3  3   6.72223670E-04  6.77680209E-04
+RSTORE  1  3  4   6.57386992E-04  6.62509690E-04
+RSTORE  1  3  5   6.41369022E-04  6.46118798E-04
+RSTORE  2  1  1   1.17304803E-03  1.19022486E-03
+RSTORE  2  1  2   1.14400500E-03  1.16002569E-03
+RSTORE  2  1  3   1.11736355E-03  1.13235719E-03
+RSTORE  2  1  4   1.09277059E-03  1.10684898E-03
+RSTORE  2  1  5   1.06184900E-03  1.07519012E-03
+RSTORE  2  2  1   9.16481507E-04  9.26927275E-04
+RSTORE  2  2  2   8.93723922E-04  9.03469095E-04
+RSTORE  2  2  3   8.72851710E-04  8.81974123E-04
+RSTORE  2  2  4   8.53614909E-04  8.62178649E-04
+RSTORE  2  2  5   8.31398452E-04  8.39299334E-04
+RSTORE  2  3  1   7.05903798E-04  7.12152820E-04
+RSTORE  2  3  2   6.88334918E-04  6.94164363E-04
+RSTORE  2  3  3   6.72223670E-04  6.77680209E-04
+RSTORE  2  3  4   6.57386992E-04  6.62509690E-04
+RSTORE  2  3  5   6.41369022E-04  6.46118798E-04
+RSTORE  3  1  1   6.05000000E-04  3.02500000E-04
+RSTORE  3  1  2   6.60000000E-04  3.30000000E-04
+RSTORE  3  1  3   7.15000000E-04  3.57500000E-04
+RSTORE  3  1  4   7.70000000E-04  3.85000000E-04
+RSTORE  3  1  5   8.25000000E-04  4.12500000E-04
+RSTORE  3  2  1   6.60000000E-04  3.30000000E-04
+RSTORE  3  2  2   7.20000000E-04  3.60000000E-04
+RSTORE  3  2  3   7.80000000E-04  3.90000000E-04
+RSTORE  3  2  4   8.40000000E-04  4.20000000E-04
+RSTORE  3  2  5   9.00000000E-04  4.50000000E-04
+RSTORE  3  3  1   7.15000000E-04  3.57500000E-04
+RSTORE  3  3  2   7.80000000E-04  3.90000000E-04
+RSTORE  3  3  3   8.45000000E-04  4.22500000E-04
+RSTORE  3  3  4   9.10000000E-04  4.55000000E-04
+RSTORE  3  3  5   9.75000000E-04  4.87500000E-04
+GS_OK= F
+GS_RFD=  8.83656909E+00
+GS_ALLCONV= T
+RESULT_OK
