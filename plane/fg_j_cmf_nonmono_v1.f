@@ -2032,12 +2032,21 @@
 ! probe ray keeps its RES_LS entry and its own telemetry, but it
 ! must not feed KN_RF_RESID -- its seed-dependent solve would
 ! otherwise set the maturity gate input for rays it cannot commit.
-! XRAY is the armed probe index (0 = no probe): with XRAY=0 this
-! reproduces the old MAXVAL(RES,MASK=NDV==0) exactly, and with all
-! production rays diverged it falls back to the maximum over
-! production residuals (never an empty-pool zero). A degenerate
-! run with no production ray at all keeps the old unmasked
-! MAXVAL so the controller still sees a real residual.
+! XRAY is the armed probe index (0 = no probe). Three cases, in
+! order: (A) any non-diverged production ray -> its max residual,
+! the old MAXVAL(RES,MASK=NDV==0) when XRAY=0; (B) production
+! rays exist but all diverged -> max over production residuals
+! only, still probe-free; (C) no production ray at all -> fixed
+! sentinel 1.0, never MAXVAL(RES). The probe's value can never
+! reach the controller: 1.0 is the established fail-closed
+! residual sentinel (unsolved/diverged rays report 1.0), sits
+! above GS_MATURE_TOL and GS_UNSAFE_TOL so the gate cannot read
+! mature, and is positive so the KN_RF_RESID>0 guard still lets
+! the omega pool run -- where an empty production pool retains
+! OMEGA_PREV via the KN_RHO_MIN_SAM path. KN_PROD_POOL_STAT
+! reports which branch the value came from so a caller can tell
+! a measured residual from the sentinel: 0 normal pool,
+! 1 all-diverged fallback, 2 no-production sentinel.
 !
 	PURE REAL(KIND=LDP) FUNCTION KN_PROD_RESID_V1(RES,NDV,XRAY)
 	USE SET_KIND_MODULE
@@ -2060,8 +2069,32 @@
 	  END DO
 	END IF
 	IF(KN_PROD_RESID_V1 .EQ. -HUGE(1.0_LDP))
-	1  KN_PROD_RESID_V1=MAXVAL(RES)
+	1  KN_PROD_RESID_V1=1.0_LDP
 	END FUNCTION KN_PROD_RESID_V1
+!
+! KN_PROD_POOL_STAT: which branch KN_PROD_RESID_V1 takes for the
+! same (NDV,XRAY) -- 0 a non-diverged production ray exists,
+! 1 production rays exist but all diverged, 2 no production ray
+! at all (the 1.0 sentinel case).
+!
+	PURE INTEGER FUNCTION KN_PROD_POOL_STAT(NDV,XRAY)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: NDV(:),XRAY
+	INTEGER I2,NOK,NPR
+	NOK=0; NPR=0
+	DO I2=1,SIZE(NDV)
+	  IF(I2 .NE. XRAY)THEN
+	    NPR=NPR+1
+	    IF(NDV(I2) .EQ. 0)NOK=NOK+1
+	  END IF
+	END DO
+	KN_PROD_POOL_STAT=2
+	IF(NPR .GT. 0)THEN
+	  KN_PROD_POOL_STAT=1
+	  IF(NOK .GT. 0)KN_PROD_POOL_STAT=0
+	END IF
+	END FUNCTION KN_PROD_POOL_STAT
 !
 ! KN_OMEGA_POOL_V1 (audit Issues 2 + 5): pool the non-diverged rays'
 ! per-direction same-map contraction ratios, take the P90 quantile
@@ -8879,6 +8912,9 @@ C
 	  IF(.NOT. KN_PROD_MASK(LS))KN_PROD_XRAY=LS
 	END DO
 	KN_RF_RESID=KN_PROD_RESID_V1(RES_LS,NDV_LS,KN_PROD_XRAY)
+	IF(KN_PROD_POOL_STAT(NDV_LS,KN_PROD_XRAY) .EQ. 2)
+	1  WRITE(LUER,'(A)')
+	2  '    KN-PROD resid: no production rays -- fail-closed 1.0'
 !
 ! Adaptive under-relaxation of the lagged store (KN_ADAPT_RELAX,
 ! default T): the residual maxima of successive refresh calls are the
