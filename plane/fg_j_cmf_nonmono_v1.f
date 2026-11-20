@@ -10321,11 +10321,11 @@ C
 	  ELSE IF(FG_COMMIT_CONV .AND.
 	1    (.NOT. (IXIT_M .GE. 0 .AND. IXIT_M .LE. 2 .AND.
 	2     (RES_M .LE. KN_RAY_TOL .OR.
-	3      (IXIT_M .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	3      (IXIT_M .EQ. 2 .AND. (KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
 	4       RES_M .LE. KN_RAY_BULK_TOL)))) .OR.
 	5     .NOT. (IXIT_P .GE. 0 .AND. IXIT_P .LE. 2 .AND.
 	6     (RES_P .LE. KN_RAY_TOL .OR.
-	7      (IXIT_P .EQ. 2 .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	7      (IXIT_P .EQ. 2 .AND. (KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
 	8       RES_P .LE. KN_RAY_BULK_TOL))))))THEN
 !
 ! edited 17-Oct-2026: [FG_COMMIT_CONV] fail-closed
@@ -10354,6 +10354,18 @@ C
 ! generation, a sane consistent seed. The residual still reports
 ! RES_M/RES_P, so the maturity gate reads the ray as unconverged
 ! either way.
+!
+! edited 20-Nov-2026 [Phase 2.14]: the <=0 short-circuit added
+! above let IXIT=2 commit as converged at any residual
+! (measured: RES=8.3E-3 vs TOL=2E-3, qres=2.8E-3, 41/6227 bad
+! cells -- a bad-fraction subset is not the global fixed point).
+! BULK_TOL now means: >0, residual floor the bulk rule may accept;
+! =0, bulk exit disabled. A ray that would previously have exited
+! BULK_ONLY now keeps sweeping to the normal exits, so the same
+! field reaches the genuine residual exit in the same pass count
+! (RES=1.9E-4, qres=0 on the phase-2.13 deck). Rays that still end
+! unconverged take this same NC-capped provisional path, which is
+! what preserves progress without a false converged write.
 !
 	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
 	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
@@ -11151,11 +11163,13 @@ C
 ! gate's bulk rule accepts. Rays above the floor fall through to
 ! stall/plateau/cap, so an IXIT=2 exit now certifies the field the
 ! refresh commit gate writes unconverged-free.
+! Edited 20-Nov-2026 [Phase 2.14]: BULK_TOL=0 now disables this
+! exit instead of dropping the floor; see the ORD sweep comment.
 !
 	  IF(L_CONT_READY .AND. NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
 	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL)
-	3     .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	3     .AND. (KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
 	4      RES .LE. KN_RAY_BULK_TOL))THEN
 	    IXIT=2
 	    EXIT
@@ -12310,12 +12324,18 @@ C
 ! [FG_BULK_CONTR]: same ordering fix as SWEEP_FLD -- the bulk exit
 ! must not fire on a noncontracting pass sequence; RATIO_OM here is
 ! the consecutive-pass ratio. [KN_RAY_BULK_TOL] floors the exit on
-! the residual here too (edited 20-Oct-2026).
+! the residual here too (edited 20-Oct-2026). Edited 20-Nov-2026
+! [Phase 2.14]: BULK_TOL=0 must disable this exit, not bypass the
+! floor -- the <=0 short-circuit let a ray exit 'converged' at
+! RES=8.3E-3 vs TOL=2E-3 (bad-fraction 41/6227) and the commit gate
+! then wrote it as converged. The bad-count test is a subset
+! criterion; only a positive floor documents how much residual the
+! bulk rule may accept.
 !
 	  IF(L_CONT_READY .AND. NPO .GE. 6 .AND. NT_O .GT. 0 .AND.
 	1     NB_O .LE. MAX(50_8,NT_O/1000) .AND.
 	2     (.NOT. FG_BULK_CONTR .OR. RATIO_OM .LE. KN_RAY_STALL)
-	3     .AND. (KN_RAY_BULK_TOL .LE. 0.0_LDP .OR.
+	3     .AND. (KN_RAY_BULK_TOL .GT. 0.0_LDP .AND.
 	4      RES .LE. KN_RAY_BULK_TOL))THEN
 	    IXIT=2
 	    EXIT
