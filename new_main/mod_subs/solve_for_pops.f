@@ -165,6 +165,11 @@
 	INTEGER*8 GS_NBAD_EFF,GS_NCONV_ALL
 	INTEGER*8 GS_NBAD_STAL,GS_NBAD_PLAT
 	LOGICAL GS_UNSAFE,GS_PIN,FG_TRIAL
+! GS_RF_ALLCONV (Phase 2.17): the FG refresh's all-ray KN_CS_FULL
+! verdict, exported by GET_FG_GS_MATURITY. It gates only final
+! acceptance (LAM_FIELD_NOT_READY), not the release/progress
+! logic -- provisional fields keep moving the iteration.
+	LOGICAL GS_RF_ALLCONV
 ! GS_FG_PRECHURN: GS_FG_IMMATURE evaluated before the store-churn OR
 ! (snapshot, not a saved state). FG_CHURN_MARG: immature ONLY via
 ! churn and inside the [FG_TRIAL_CHURN] factor (edited,
@@ -1093,13 +1098,18 @@
 !
 	LAM_AT_ENTRY=LAMBDA_ITERATION
 	GS_FG_IMMATURE=.FALSE.
+! Fail closed: a call where the FG refresh never ran (no lagged
+! field on this route, or a skipped refresh) cannot inherit a
+! verified field verdict.
+	GS_RF_ALLCONV=.FALSE.
 	IF(HAS_LAGGED_FIELD)THEN
 	  CALL GET_FG_GS_MATURITY(GS_OK,GS_CHG_FILE,GS_CAP_FILE,
 	1      GS_MAXCHG,GS_CAPPED,GS_NBAD,GS_NTOT,GS_NCONV,
 	2      GS_NDIV,GS_NRAY,GS_NBAD_BLK,
 	3      GS_SW_MAXCHG,GS_SW_NCONV,GS_RF_DCHG,
 	4      GS_NBAD_STAL,GS_NBAD_PLAT,
-	5      GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED)
+	5      GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED,
+	6      GS_RF_ALLCONV)
 	  CALL GET_MOM_GS_MATURITY(MOM_RAN,MOM_OK,MOM_CHG_FILE,
 	1      MOM_CAP_FILE,MOM_MAXCHG,MOM_CAPPED,MOM_NEGJ,
 	2      MOM_NBAD5,MOM_NBAD50,MOM_NTOT,MOM_NQUAR,
@@ -3152,6 +3162,10 @@
 	    WRITE(LU_GS,'(A,I0)')'mom_nhuge=',MOM_SW_NHUGE
 	    WRITE(LU_GS,'(A,ES12.4)')'mom_maxchg=',MOM_SW_MAXCHG
 	    WRITE(LU_GS,'(A,L2)')'mom_refresh_conv=',MOM_RF_CONV
+! Phase 2.17: the all-ray verdict behind LAM_FIELD_NOT_READY --
+! F here means the last refresh left provisional stores and the
+! converged exit cannot fire on this field.
+	    WRITE(LU_GS,'(A,L2)')'fg_rf_all_conv=',GS_RF_ALLCONV
 	    WRITE(LU_GS,'(A,I0)')'ba_rej_consec=',BA_NREJ_CONSEC
 	    WRITE(LU_GS,'(A,I0)')'ba_sat_cnt=',BA_SAT_CNT
 	    WRITE(LU_GS,'(A,ES12.4)')'lum_ratio=',LUM_RATIO_OI
@@ -3492,6 +3506,26 @@
 !
 	LAM_FIELD_NOT_READY=LAM_FIELD_GATE(HAS_LAGGED_FIELD,GS_POPS_HELD,
 	1   GS_FREEZE,GS_RAW_IMMATURE,N_MATURE,GS_REL_STABLE)
+!
+! Phase 2.17 all-ray verification: the converged exit in
+! CMFGEN_SUB requires .NOT. LAM_FIELD_NOT_READY. A KNOP field
+! whose last refresh left any production ray below KN_CS_FULL
+! (bulk/stall/cap/diverged/iteration-limit/invalid) is a
+! provisional field -- it may still drive intermediate
+! iterations, but it must never be the field a converged model
+! is accepted on. Numerical maturity alone (GS_MAX_ALL <=
+! GS_MATURE_TOL) cannot see the six-class status, so the verdict
+! is folded in here, after all final-call state is set. The next
+! iteration re-runs the refresh and re-checks populations, which
+! is the required re-validation; existing iteration limits and
+! the release watchdog terminate fail-closed if the field never
+! verifies.
+!
+	IF(DO_NONMONO_KNOP .AND. HAS_LAGGED_FIELD .AND.
+	1   .NOT. GS_RF_ALLCONV)THEN
+	  LAM_FIELD_NOT_READY=.TRUE.
+	  CALL APPEND_ITER_REASON(ITER_REASON,'rf_not_allconv')
+	END IF
 	IF(FORCE_LAMBDA)THEN
 	  CNT_STABLE_LAM=0
 	  LAM_STABLE_PROVEN=.FALSE.
