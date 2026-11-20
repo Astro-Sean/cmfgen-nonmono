@@ -1,0 +1,14 @@
+=== flag strings in frozen pre-flag exe (93364cac) ===
+GS_STATE
+ GS_STATE restart: adopted n_frozen=
+=== flag strings in current exe (58a699d0) ===
+rf_not_allconv
+GS_STATE
+fg_rf_all_conv=
+ GS_STATE restart: adopted n_frozen=
+    rf_all_conv=
+fg_j_cmf_nonmono_mod_v1_mp_fg_rf_all_conv_
+=== frozen cmf_flux (484f34b1) ===
+0
+=== current cmf_flux (abe47258) ===
+1
