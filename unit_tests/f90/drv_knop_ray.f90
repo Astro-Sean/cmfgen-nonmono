@@ -120,6 +120,7 @@
       IF(CNAME .EQ. 'p1t1j') NCASE=73
       IF(CNAME .EQ. 'p1t1h') NCASE=74
       IF(CNAME .EQ. 'p1t1d') NCASE=75
+      IF(CNAME .EQ. 'p1t1c') NCASE=76
       IF(CNAME .EQ. 'prbz')  NCASE=69
       IF(CNAME .EQ. 'prbl')  NCASE=70
       IF(CNAME .EQ. 'prbr')  NCASE=71
@@ -172,6 +173,10 @@
       END IF
       IF(NCASE .EQ. 75)THEN
         CALL DRV_P1T1R('testd')
+        GOTO 999
+      END IF
+      IF(NCASE .EQ. 76)THEN
+        CALL DRV_P1T1R('ctrl')
         GOTO 999
       END IF
 !
@@ -3515,12 +3520,19 @@
       INTEGER NXITSV,NMXSV
       REAL(KIND=LDP) RESIDSV,RHO_MSV,RHO_PSV
       INTEGER OMI(4)
-      REAL(KIND=LDP) OMV(4),OMH(5),EPJ,QRES
+      REAL(KIND=LDP) OMV(4),OMH(5),EPJ,QRES,T1,T2,T3,T4,RR(5)
       CHARACTER(LEN=8) VNAME(4),VHNAME(5)
       INTEGER NFLOOR,NCAPN
       EXTERNAL KNOP_RAY_SOLVE_V1
 !
-      OPEN(89,FILE='p1t1s_in.txt',STATUS='OLD',IOSTAT=IOS)
+      OPEN(78,FILE='p1t1r_deck.txt',STATUS='OLD',IOSTAT=IOS)
+      IF(IOS .EQ. 0)THEN
+        READ(78,'(A)')WLN
+        CLOSE(78)
+      ELSE
+        WLN='p1t1s_in.txt'
+      END IF
+      OPEN(89,FILE=TRIM(WLN),STATUS='OLD',IOSTAT=IOS)
       IF(IOS .NE. 0)THEN
         WRITE(*,'(A)')'RESULT p1t1r_deck_missing=1'
         RETURN
@@ -3788,6 +3800,62 @@
         GOTO 995
       END IF
 !
+! ctrl mode: structure-aware controller strategies, implemented as
+! an external per-pass omega policy over the same one-pass G. Each
+! pass calls the production solve exactly once, so the in-place
+! update order and branch logic are unchanged; only the omega
+! sequence differs. Strategies:
+!   1 = fixed omega=1 (nilpotent reference)
+!   2 = transient window W=13 then production-style damping
+!   3 = median-of-5 ratio controller
+!   4 = structure-aware: omega=1 while the iterate contracts or
+!       stays inside the transient window, else fall back to the
+!       median controller
+!
+      IF(MODE .EQ. 'ctrl')THEN
+        DO IV=1,4
+          OPEN(97,FILE='p1t1r_ctrl_s'//CHAR(ICHAR('0')+IV)//'.txt', &
+      STATUS='REPLACE')
+          YV=0.0_LDP
+          T1=1.0_LDP
+          RPREV=-1.0_LDP
+          RR=0.0_LDP
+          DO K=1,40
+            CALL GEVAL(YV,YO,T1)
+            NEVAL=NEVAL+1
+            RN=SQRT(SUM((YO-YV)**2))/MAX(SQRT(SUM(YO**2)), &
+      1.0E-30_LDP)
+            NFLOOR=COUNT(YO .LE. 1.0E-29_LDP)
+            T2=MERGE(RN/RPREV,0.0_LDP,RPREV .GT. 0.0_LDP)
+            WRITE(97,'(I4,4ES20.12,I6)')K,RN,T2,T1, &
+      SQRT(SUM(YO**2)),NFLOOR
+            RR(1:4)=RR(2:5)
+            RR(5)=T2
+            RPREV=RN
+            YV=YO
+            IF(RN .LT. 1.0E-13_LDP)EXIT
+            IF(IV .EQ. 2)THEN
+              IF(K .GT. 13 .AND. T2 .GT. 1.05_LDP) &
+      T1=MAX(0.45_LDP,T1*0.7_LDP)
+            ELSE IF(IV .EQ. 3)THEN
+              IF(K .GE. 5)THEN
+                CALL MED5(RR,T4)
+                IF(T4 .GT. 1.05_LDP)T1=MAX(0.45_LDP,T1*0.7_LDP)
+                IF(T4 .LT. 0.5_LDP)T1=MIN(1.0_LDP,T1*1.15_LDP)
+              END IF
+            ELSE IF(IV .EQ. 4)THEN
+              IF(K .GT. 13)THEN
+                CALL MED5(RR,T4)
+                IF(T4 .GT. 1.05_LDP)T1=MAX(0.45_LDP,T1*0.7_LDP)
+              END IF
+            END IF
+          END DO
+          CLOSE(97)
+        END DO
+        WRITE(*,'(A,I10)')'P1R_CTRL_NEVAL=',NEVAL
+        GOTO 995
+      END IF
+!
       DO IV=1,3
 !
 ! Power iteration on J_G at the warm state.
@@ -4044,6 +4112,21 @@
       END DO
       RETURN
       END SUBROUTINE GEVAL
+!
+      SUBROUTINE MED5(R,MED)
+      REAL(KIND=LDP) R(5),MED,S(5)
+      INTEGER I1,J1
+      S=R
+      DO I1=1,4
+        DO J1=I1+1,5
+          IF(S(J1) .LT. S(I1))THEN
+            MED=S(I1); S(I1)=S(J1); S(J1)=MED
+          END IF
+        END DO
+      END DO
+      MED=S(3)
+      RETURN
+      END SUBROUTINE MED5
 !
       SUBROUTINE GMATVEC(YB,FB,V,W,OMG)
       REAL(KIND=LDP) YB(:),FB(:),V(:),W(:),OMG
