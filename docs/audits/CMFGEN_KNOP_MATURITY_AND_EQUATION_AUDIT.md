@@ -56,6 +56,17 @@ Phase 2.4 showed KNOP reducing the inner-boundary median field by
 5. The 1/(1-omega) ~ 435 scattering scale at depth 70 is a local
    equilibrium intensity for a source of form S = zeta + omega*J,
    not a hard bound; V12's tail sits at/above it, KNOP's ~10x below.
+6. The K1-K4 chain (eight sweeps) is complete: iterate residual
+   decays only ~0.96 per refresh while the independent
+   fixed-point residual oscillates at O(1); rescue counts grow
+   in the warm chain. The lagged map is bounded, not
+   contracting - no converged KNOP spectrum exists.
+7. Verified Phase 2.3 result carried in: the depth-62
+   super-equilibrium spike (894 events, max 11x J_eq) is
+   V12-specific. On the same 2,040 frequencies KNOP never puts
+   its argmax at depth 62 and its global-max field is ~16x
+   below V12's J(62) - the compression-cell spike is an artifact
+   of the sigma clamp, not a physical field (section 9a).
 
 ## 2. Exact continuous transfer equation implemented
 
@@ -336,23 +347,67 @@ K3 warm continuation (sweeps 5-6 of the chain, completed rc=0):
   inversion column (K2's depth 62).
 - K3 rescue events: 8,704 across 2 sweeps.
 
-Chain-sweep summary so far (iterate / independent):
+K4 warm continuation (sweeps 5-8 of the chain, completed rc=0):
 
-| chain sweep | refresh resid | KN_Q_RESID | ES_RESID max rel |
-|---|---|---|---|
-| 2 (K2) | 0.977 | 1.46 | 0.864 @ d62 |
-| 3 (K2) | 0.977 | 3.35 | 0.717 @ d62 |
-| 4 (K2) | 0.807 | 1.04 | 0.595 @ d62 |
-| 5 (K3/K4) | 0.766 | 5.95 | - |
+- Refresh residuals: 0.7660 -> 0.7642 -> 0.7575 (tol 2e-3).
+- Independent q residual: 5.950 -> 5.632 -> 0.986.
+- ES_RESID GLOBAL_MAX_REL: 0.659 @ d14 (gen 2), 0.566 @ d1
+  (gen 3), 0.490 @ d63 (gen 4) - slowly decaying, and the
+  argmax wanders (14 -> 1 -> 63) rather than pinning on the
+  inversion column.
+- K4 rescue events: 17,519 across 4 sweeps
+  (4,680/4,024/4,279/4,536) - rising on the last two sweeps.
+
+K1 cold control (NUM_ES=2, completed rc=0): single refresh
+residual 0.9767, independent q 1.46018 - bit-identical values
+to K2's first refresh (same cold start, same generations 1-2),
+which is the expected determinism check. Rescue events 4,529
+(2,337/2,192).
+
+All four runs terminate GLOBAL_CMF_GRID_UNDERCOVERAGE (rc=0)
+- the expected production termination, recorded as such, not a
+completed model.
+
+Complete chain history (iterate / independent):
+
+| chain sweep | refresh resid | KN_Q_RESID | ES_RESID max rel | run |
+|---|---|---|---|---|
+| 2 | 0.977 | 1.46 | 0.864 @ d62 | K2 |
+| 3 | 0.977 | 3.35 | 0.717 @ d62 | K2 |
+| 4 | 0.807 | 1.04 | 0.595 @ d62 | K2 |
+| 5 | 0.766 | 5.95 | 0.659 @ d14 | K3/K4 |
+| 6 | 0.764 | 5.63 | 0.566 @ d1 | K4 |
+| 7 | 0.757 | 0.99 | 0.490 @ d63 | K4 |
 
 The lagged map is not contracting: the iterate residual decays
-slowly while the independent fixed-point residual oscillates
-upward (1.46, 3.35, 1.04, 5.95). This is the same bounded
+by a factor ~0.96 per refresh (0.977 -> 0.757 over six
+refreshes); at that rate ~150 further refresh generations would
+be needed for the 2e-3 tolerance. The independent fixed-point
+residual oscillates at O(1) (1.46, 3.35, 1.04, 5.95, 5.63,
+0.99) with no trend - the committed field is nowhere near a
+fixed point and the warm restart did not improve it (5.95 at
+chain sweep 5 is the worst value in the chain). Rescue-event
+counts do not decay with maturity; in the warm chain they grow
+(4,024 -> 4,279 -> 4,536) and the fired argmax population
+spreads inward to depths 66-68. This is the same bounded
 non-contraction previously seen on the USE_LAM_ES=F moment path
 - the I_NEXT lagged map on this model does not converge within
 the available damping/pass budget.
 
-[in progress - K4 sweeps 6-8 running, K1 control running]
+Per-run summary:
+
+| run | config | sweeps | rescue events | OBSFLUX sha256 prefix |
+|---|---|---|---|---|
+| K1 | es2 cold | 2 | 4,529 | 6adf9511b39b0771 |
+| K2 | es4 cold | 4 | 9,340 | fbda89069b433947 |
+| K3 | es2 warm (K2 ckpt) | 2 | 8,704 | 7ff4adb3502a7493 |
+| K4 | es4 warm (K2 ckpt) | 4 | 17,519 | 1eb4acae1b8cf042 |
+
+Rescue-event argmax depth histograms (all sweeps): K1
+{68:1186, 70:481, 69:440, 67:65}; K2 {67:1109, 68:688,
+70:514, 69:156}; K4 {67:1921, 70:1673, 68:484, 66:317,
+69:97}. The KNOP fired population concentrates at depths
+66-70 and shows no peak at depth 62 - see section 9a.
 
 ## 9. Remaining rescue-event analysis (Phase 2.4 data)
 
@@ -386,6 +441,64 @@ value, i.e. the trigger population is a ceiling artifact of the
 cap's absolute scale at these zeta values, not field failure.
 Whether the high-J/zeta tail shrinks with maturity is measured
 in section 8.
+
+## 9a. Index-62 investigation (verified Phase 2.3 + Phase 2.5 data)
+
+Phase 2.3 verification established the event-depth statistics
+of the V12 rescue population (audit doc
+CMF_FLUX_J_RESCUE_THRESHOLD_ATTRIBUTION.md, commit 03440d56;
+independently reproduced from rmax_1000/J_RESCUE_EVENTS):
+
+- 75,738 events over 13 renders; all trigger the absolute cap
+  (CAP_PREV never binds); all at sigma_true < -1 (median -31,
+  worst -155.6 at depth 62).
+- Per-event local equilibrium J_eq = etab/(chib - chi_scat),
+  with chi_scat pure Thomson verified against the LUER dump:
+  98.5% of events sit BELOW their local J_eq; 1,022 events
+  exceed it; 894 of the 1,022 sit at depth 62.
+
+Index-62 cell properties (this model, index 62 = strongest
+compression cell):
+
+- sigma_true ~= -155.6 (median -31.0 over all events);
+  clamped V12 sigma = -0.999.
+- J_eq event-depth distribution over the 2,040 bad=62 events:
+  median J/J_eq = 0.78, p90 = 4.31, max = 11.2; 894 events
+  exceed J_eq (exactly reproducing the Phase 2.3 count).
+
+Direct V12-vs-KNOP comparison on the SAME 2,040 frequencies
+(mature-sweep JFRQ rows; KNOP data from caseC, caseK2):
+
+- KNOP argmax depth on these frequencies is NEVER 62 in caseC
+  (0 of 2,040) and below the top-8 in caseK2 (<8 of 2,040).
+  KNOP places its argmax at depth 70 for ~95% of them (caseC
+  1948, caseK2 1684), with the remainder at 66-69 or
+  uncompressing depths.
+- Field magnitudes: median V12 J(62) = 7.31e-3; median KNOP
+  GLOBAL maximum over all depths = 3.84e-4 on the same
+  frequencies - V12's compression-cell value is ~16x KNOP's
+  largest value anywhere. KNOP J(62) is therefore at least
+  ~16x below V12 J(62), and below the 1.0e-3 cap.
+
+Interpretation: the depth-62 super-equilibrium spike is a
+V12-specific feature. It has no counterpart in the solver that
+carries the true (unclamped) velocity gradient and the correct
+GAM<0 upwind direction: in KNOP the strongest compression cell
+produces no local field maximum. This supports classifying the
+894-event population as a formal-solver artifact of the
+sigma clamp at sigma_true << -1, not a physical radiation
+field. It does NOT establish that KNOP's J(62) is correct -
+KNOP remains unconverged (section 8) - only that the spike is
+absent under the mathematically consistent treatment.
+
+The converse population also differs: the 98.5% sub-equilibrium
+V12 events at depths 63-70 (median J/J_eq ~ 0.04 at depth 70)
+sit far below the local thermalization scale in a region with
+tau_abs ~ 2e5 across the boundary cell. Whether that
+sub-equilibrium field is a second V12 defect (under-populated
+diffusion solution) or a legitimate non-local transfer result
+is not yet decided - the KNOP field at those depths is itself
+unconverged, so no two-sided conclusion is drawn.
 
 ## 10. Scattering-source analysis
 
@@ -428,9 +541,37 @@ The ratio is not a hard bound and is not used as one; the decisive
 evidence remains the zeta-profile tracking (KNOP follows the
 source; V12 decouples to the cap).
 
+Reconciliation with the Phase 2.3 event-depth measurement: the
+caseA figure above (median J/J_eq = 0.90 at argmax depth)
+samples JFRQ rows at each frequency's argmax depth, while the
+Phase 2.3 verification (98.5% below, 1.5% above) samples JEV
+rows at the rescue-event depth over all sweeps. Both windows
+are consistent: argmax depth 70 carries the largest J and the
+largest J_eq, while the event depth selects cells where the
+absolute cap actually fired. The fixed point of the
+implemented source form is exact: SOURCE = ZETA +
+CHI_SCAT*RJ/CHI (COMP_JCONT_V4.INC:562, :1349) gives
+J -> ZETA/(1 - CHI_SCAT/CHI) = ETA/(CHI - CHI_SCAT) = J_eq
+wherever the local iterate dominates non-local input.
+
 ## 11. Final converged spectral comparison
 
-[pending K-run maturity]
+No converged KNOP spectrum exists to compare: section 8 shows
+the lagged map still O(1) from a fixed point after eight
+chained sweeps. What can be reported is the mutual divergence
+of the K-run OBSFLUX products (sha256, all distinct):
+
+- K1 6adf9511b39b0771, K2 fbda89069b433947,
+  K3 7ff4adb3502a7493, K4 1eb4acae1b8cf042.
+
+File-level comparison of the OBSFLUX products shows order-unity
+content differences between successive generations (K2 vs K3
+median relative difference ~0.29, K1 vs K4 ~1.38 on
+commonly-gridded records) - consistent with the sweep-to-sweep
+ES_RESID changes of ~50-66%. A V12-vs-KNOP final-spectrum
+comparison is deferred until the lagged map reaches a fixed
+point; drawing one now would compare a snapshot of a
+non-contracting iteration, not a solution.
 
 ## 12. Phase 2.3 / Phase 2.4 count reconciliation
 
@@ -458,4 +599,50 @@ vs all-sweep total).
 
 ## 13. Recommendation for further development
 
-[pending K-run results]
+Findings:
+
+1. Equation audit: the implemented equation is the nu-form
+   drift equation dI/ds = eta - chi_hat*I + Q*I_upwind with
+   chi_hat = chi + |GAM|/DLN. The explicit a*I-proportional
+   piece of Knop's lambda-form 4*a*I is omitted by the same
+   convention as stock V12/V13; its conservative same-bin part
+   is inside the |GAM|/DLN upwind diagonal (verified against
+   the in-source audit note, fg_j_cmf_nonmono_v1.f:89-101).
+   Residual size ~3*dLOG_NU ~ 0.025% of the velocity-coupling
+   magnitude - cannot produce the observed 40-100x V12/KNOP
+   field differences. Not the defect to chase first.
+2. The depth-62 super-equilibrium spike is V12-specific
+   (section 9a): absent from KNOP on the same frequencies,
+   consistent with sigma-clamp breakdown at sigma_true = -156.
+   The V12 artifact class is now verified, not conjectured.
+3. KNOP is not converged (section 8): iterate residual ~0.96
+   per refresh, independent q residual oscillating O(1) after
+   eight chained sweeps; rescue counts grow in the warm chain.
+   KNOP J smaller than V12 J is therefore a signature of a
+   different (possibly correct) sign/upwind treatment, not
+   proof of correctness.
+4. The remaining KNOP fired population (sections 8-9) is
+   dominated by modest sub-equilibrium peaks at depths 66-70 -
+   plausibly a ceiling artifact of the absolute cap's scale,
+   but that verdict requires a converged field.
+
+Recommended order of work:
+
+- Solve the I_NEXT lagged-map non-contraction first (contract
+  factor, damping schedule, or a Jacobian-coupled update);
+  every downstream question - the fired population, the
+  spectrum, any per-cell rescue bound - is ill-posed while the
+  map does not converge.
+- Retain RESC_JMAX = 1.0e-3 (user decision, Phase 2.3). Keep
+  the J_eq measurements as the baseline scale for judging
+  KNOP's mature field, not as a threshold.
+- Do not implement a per-cell kappa*J_eq bound now: it would
+  hide the same class of solver defect the absolute cap hides.
+- Once KNOP converges, redo this audit's comparisons at the
+  fixed point: J(62) vs J_eq, the fired population, and the
+  OBSFLUX product against the V12 baseline.
+- The three-seed probe experiment
+  (KNOP_THREE_SEED_EXPERIMENT.md, live) addresses
+  initialisation sensitivity of the probe-ray solve, a
+  different question; its results complement but do not
+  replace the global maturity criterion used here.
