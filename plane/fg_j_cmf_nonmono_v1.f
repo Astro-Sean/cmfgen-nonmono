@@ -654,6 +654,12 @@
 	INTEGER*8, SAVE :: FG_EVAL_NST,FG_EVAL_NPL
 	INTEGER*8, SAVE :: FG_EVAL_HOT,FG_EVAL_NOS
 	LOGICAL, SAVE :: FG_EVAL_SRDY
+! FG_EVAL_RFAC (Phase 2.18): the all-ray verdict rides the same
+! push/pop boundary as the rest of the refresh census. The INIT
+! reset of FG_RF_ALL_CONV fires inside an eval sweep as well, so
+! without this slot the POP would leave a verified production field
+! reading unverified until the next refresh.
+	LOGICAL, SAVE :: FG_EVAL_RFAC
 	CHARACTER(LEN=6), SAVE :: FG_EVAL_CLS
 !
 ! W5 (17-Oct-2026): FG_ADAPT_OMEGA_V2=T prices rho_est from the
@@ -2366,6 +2372,7 @@
 	FG_EVAL_HOT=KN_HOT_SPENT
 	FG_EVAL_NOS=FG_NOSLOT_CNT
 	FG_EVAL_SRDY=KN_STORE_READY
+	FG_EVAL_RFAC=FG_RF_ALL_CONV
 	FG_EVAL_FRQ=FREQ_IDX_ITER
 	FG_EVAL_EFRQ=FG_ERR_ON_FREQ
 	FG_EVAL_ETYP=FG_ERR_TYPE
@@ -2418,6 +2425,7 @@
 	KN_HOT_SPENT=FG_EVAL_HOT
 	FG_NOSLOT_CNT=FG_EVAL_NOS
 	KN_STORE_READY=FG_EVAL_SRDY
+	FG_RF_ALL_CONV=FG_EVAL_RFAC
 	FREQ_IDX_ITER=FG_EVAL_FRQ
 	FG_ERR_ON_FREQ=FG_EVAL_EFRQ
 	FG_ERR_TYPE=FG_EVAL_ETYP
@@ -3030,6 +3038,14 @@
 !
 	IF(INIT)THEN
 	  IF(.NOT. JFNK_IN_EVAL)FREEZE_I_NEXT=.FALSE.
+! Phase 2.18: clear the all-ray verdict whenever a new formal solve
+! starts. Without this a TRUE left by a verified refresh survived
+! every early-return path in FG_KNOP_REFRESH_V1 (freeze, guard, I/O
+! error) and could even leak across two models run in one process,
+! letting a never-verified field look certified until the next
+! census completed. Fail closed: the flag now means "the last
+! completed refresh attempt certified all production rays".
+	  FG_RF_ALL_CONV=.FALSE.
 	  R_STORE(1:ND)=R(1:ND)
 	  GAM_REL_STORE(1:ND)=1.0_LDP/SQRT(1.0_LDP-(V(1:ND)/2.99792458E+10_LDP)**2)
 	  DO I=1,ND-1
@@ -8455,9 +8471,16 @@ C
 	3   NXT_LS(KN_NP),NP2_LS(KN_NP),NBB_LS(KN_NP),NTB_LS(KN_NP),
 	4   RHO_M_LS(KN_NP),RHO_P_LS(KN_NP),
 	5   NCL_LS(KN_NP),NNL_LS(KN_NP),KN_PROD_MASK(KN_NP),
-	6   KN_CS_LS(KN_NP),KN_CS_REA(KN_NP),
-	7   STAT=IOS)
+	6   STAT=IOS)
 	IF(IOS .NE. 0)RETURN
+!
+! The authoritative per-ray status survives the refresh epilogue:
+! callers read KN_CS_LS/KN_CS_REA after the routine returns, so
+! these live outside the scratch deallocate like FG_RAY_VC does.
+!
+	IF(ALLOCATED(KN_CS_LS))DEALLOCATE(KN_CS_LS,KN_CS_REA)
+	ALLOCATE(KN_CS_LS(KN_NP),KN_CS_REA(KN_NP),STAT=IOS2)
+	IF(IOS2 .NE. 0)RETURN
 !
 ! KN_Q_RESID (diagnostic): per-ray scratch for the independent
 ! fixed-point residual; each ray owns its LS slot so the parallel
@@ -9864,7 +9887,6 @@ C
 	END IF
 	DEALLOCATE(RES_LS,NST_LS,NPS_LS,NCP_LS,NNG_LS,NBD_LS,NTT_LS,
 	1   NDV_LS,NMX_LS,NMT_LS,NCM_LS,NXT_LS,NP2_LS,
-	2   KN_CS_LS,KN_CS_REA,
 	2   NBB_LS,NTB_LS,RHO_M_LS,RHO_P_LS,NCL_LS,NNL_LS,KN_PROD_MASK)
 	IF(ALLOCATED(KN_NOP_RES))DEALLOCATE(KN_NOP_RES)
 	IF(ALLOCATED(KN_NOP_AD))DEALLOCATE(KN_NOP_AD)
@@ -10013,7 +10035,8 @@ C
 !
 	REAL(KIND=LDP), ALLOCATABLE :: FLD_Q(:,:)
 	REAL(KIND=LDP) RES_Q,Q_M,Q_P,RHOS_SV(2)
-	INTEGER NP_Q,NB_Q,NT_Q,IXQ_Q,NPCS_SV,NNGS_SV
+	INTEGER NP_Q,IXQ_Q,NPCS_SV,NNGS_SV
+	INTEGER*8 NB_Q,NT_Q
 	INTEGER*8 NB_BQ,NT_BQ,NPT2_SV,NCLS_SV(4)
 	INTEGER WRC_SV(8)
 	LOGICAL LDVS_SV,LCES_SV
