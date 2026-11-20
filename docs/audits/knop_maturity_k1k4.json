@@ -1,0 +1,63 @@
+{
+  "generated": "2026-11-20",
+  "phase": "2.5",
+  "purpose": "Machine-readable K1-K4 KNOP maturity summary and index-62 V12-vs-KNOP comparison; companion to CMFGEN_KNOP_MATURITY_AND_EQUATION_AUDIT.md",
+  "exe_sha_prefix": "b409293a14eaf3e0",
+  "config": "OBS_FG_KNOP=T, J_RESCUE_RESTORE=F, KN_Q_RESID=T, ES_RESID_DIAG=T",
+  "termination_all_runs": "GLOBAL_CMF_GRID_UNDERCOVERAGE (rc=0; expected production termination, not a completed model)",
+  "runs": {
+    "K1": {"case": "caseK1_knop_nores_es2", "num_es": 2, "start": "cold",
+      "refresh_resid": [0.9767], "kn_q_resid": [1.46018],
+      "fired_per_sweep": [2337, 2192], "rescue_total": 4529,
+      "obsflux_sha256_prefix": "6adf9511b39b0771"},
+    "K2": {"case": "caseK2_knop_nores_es4", "num_es": 4, "start": "cold",
+      "jobs": [13346271, 13346469],
+      "refresh_resid": [0.9767, 0.9769, 0.8067], "kn_q_resid": [1.46018, 3.35355, 1.04273],
+      "es_resid_max_rel": [0.864, 0.717, 0.595], "es_argmax_depth": [62, 62, 62],
+      "fired_per_sweep": [2337, 2192, 2313, 2498], "rescue_total": 9340,
+      "obsflux_sha256_prefix": "fbda89069b433947"},
+    "K3": {"case": "caseK3_knop_nores_restart", "num_es": 2, "start": "warm_from_K2_FGINEXT_GS",
+      "job": 13348330,
+      "refresh_resid": [0.7660], "kn_q_resid": [5.94974],
+      "es_resid_max_rel": [0.659], "es_argmax_depth": [14],
+      "fired_per_sweep": [4680, 4024], "rescue_total": 8704,
+      "obsflux_sha256_prefix": "7ff4adb3502a7493"},
+    "K4": {"case": "caseK4_knop_nores_restart4", "num_es": 4, "start": "warm_from_K2_FGINEXT_GS",
+      "job": 13348331,
+      "refresh_resid": [0.7660, 0.7642, 0.7575], "kn_q_resid": [5.94974, 5.63205, 0.98564],
+      "es_resid_max_rel": [0.659, 0.566, 0.490], "es_argmax_depth": [14, 1, 63],
+      "fired_per_sweep": [4680, 4024, 4279, 4536], "rescue_total": 17519,
+      "obsflux_sha256_prefix": "1eb4acae1b8cf042"}
+  },
+  "chain_sweeps": [
+    {"chain_sweep": 2, "run": "K2", "refresh_resid": 0.9767, "kn_q_resid": 1.46018, "es_max_rel": 0.864, "es_argmax": 62},
+    {"chain_sweep": 3, "run": "K2", "refresh_resid": 0.9769, "kn_q_resid": 3.35355, "es_max_rel": 0.717, "es_argmax": 62},
+    {"chain_sweep": 4, "run": "K2", "refresh_resid": 0.8067, "kn_q_resid": 1.04273, "es_max_rel": 0.595, "es_argmax": 62},
+    {"chain_sweep": 5, "run": "K3/K4", "refresh_resid": 0.76597, "kn_q_resid": 5.94974, "es_max_rel": 0.659, "es_argmax": 14},
+    {"chain_sweep": 6, "run": "K4", "refresh_resid": 0.76417, "kn_q_resid": 5.63205, "es_max_rel": 0.566, "es_argmax": 1},
+    {"chain_sweep": 7, "run": "K4", "refresh_resid": 0.75745, "kn_q_resid": 0.98564, "es_max_rel": 0.490, "es_argmax": 63}
+  ],
+  "convergence_assessment": {
+    "iterate_residual_decay_per_refresh": 0.96,
+    "refreshes_to_2e-3_at_observed_rate": "~150",
+    "independent_q_residual_behavior": "oscillates O(1): 1.46, 3.35, 1.04, 5.95, 5.63, 0.99; no trend",
+    "rescue_count_trend": "not decaying; warm chain grows 4024 -> 4279 -> 4536",
+    "verdict": "lagged I_NEXT map bounded but not contracting; KNOP not converged"
+  },
+  "determinism_checks": {
+    "K1_vs_K2_first_refresh": "identical (0.9767 / 1.46018) - same cold start",
+    "K3_vs_K4_first_refresh": "identical (0.7660 / 5.94974) - same warm checkpoint"
+  },
+  "index62": {
+    "source": "rmax_1000/J_RESCUE_EVENTS (bad=62) vs caseC/caseK2 J_RESCUE_FREQ",
+    "v12_bad62_events": 2040,
+    "v12_j_over_jeq": {"median": 0.78, "p90": 4.31, "max": 11.2, "n_over_unity": 894},
+    "sigma_true_at_62": -155.6,
+    "knop_argmax_depth_on_same_freqs_caseC": {"70": 1948, "69": 21, "68": 15, "51": 12, "56": 10, "60": 9, "59": 7, "53": 6, "62": 0},
+    "knop_argmax_depth_on_same_freqs_caseK2": {"70": 1684, "69": 166, "68": 89, "67": 34, "62": "<8"},
+    "v12_j62_median": 7.31e-3,
+    "knop_global_rjmax_median_same_freqs": 3.84e-4,
+    "v12_over_knop_globalmax_median": 16.2,
+    "conclusion": "depth-62 super-equilibrium spike is V12-specific; KNOP field at that cell is at least ~16x lower and below the 1e-3 cap; not evidence of KNOP correctness (unconverged)"
+  }
+}
