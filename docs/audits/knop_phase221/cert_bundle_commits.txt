@@ -1,0 +1,8 @@
+3295014c knop_ray_solve: bound NI by the ray array extent
+9dcf621a fg_j_cmf_nonmono_v1: nest the INVR presence check
+98acf207 fg_j_cmf_nonmono_v1: add invalid-state reasons, all-ray flag
+66ea1e65 cmf_flux_sub_v5: match extended maturity-export signature
+2b0254a3 fg_j_cmf_nonmono_v1: clear all-ray verdict on init, keep it across eval push/pop
+ba8255e0 solve_for_pops: hold converged exit until all-ray KNOP verification
+55174211 fg_j_cmf_nonmono_v1: six-class ray certification and all-ray refresh verdict
+c46176fb fg_j_cmf_nonmono_v1: KN_RAY_BULK_TOL=0 disables bulk exit per documented semantics (Phase 2.14)
