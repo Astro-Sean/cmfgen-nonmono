@@ -1,0 +1,98 @@
+knop_phase215 certification results (knray_p215 sha256 3504af4a26a543fc8dfa59e6232684ac2a3faa69f695f65096e96e9460a20313)
+HEAD 48cd5d490ae4627eda1512d1fadccc1135d3631d
+libsubs.a sha256 e66618945801bfc6d7fc28956cede808f2755b0ebc0e82923c019b1a414e47f1
+fg_j_cmf_nonmono_v1.f sha256 855353adffd85513cd6e8a1707df1ee0e1caf76d7cafcadec4a4f5377fc9d0a9
+
+== csut classifier table ==
+CERT c01   0  0
+CERT c02   3  1
+CERT c03   1  0
+CERT c04   5  5
+CERT c05   2  0
+CERT c06   3  0
+CERT c07   4  6
+CERT c08   5  3
+CERT c09   5  3
+CERT c10   5  2
+CERT c11   5  2
+CERT c12   1  0
+CERT c13   0  0
+CERT c14   1  0
+CERT c15   0  0
+CERT c16   0  0
+CERT c17   5  5
+CERT c18   3  0
+CERT c19   2  0
+CERT c20   4  6
+
+== cerb (bulk floor, NC>0) ==
+    ray exits: exact=    0 tol=    0 bulk=    3 stall=    0 cap=    0 div=    0 plat=    0
+    cert census: full=    0 bulk=    3 itlim=    0 stag=    0 div=    0 inv=    0
+RF_NCCAP=       3
+VC  1   3   5.00000000E-02
+VC  2   3   5.00000000E-02
+VC  3   3   5.00000000E-02
+CLS  1   1   0
+CLS  2   1   0
+CLS  3   1   0
+SEED  1  0
+SEED  2  0
+SEED  3  0
+== cern (strict path) ==
+    ray exits: exact=    0 tol=    3 bulk=    0 stall=    0 cap=    0 div=    0 plat=    0
+    cert census: full=    3 bulk=    0 itlim=    0 stag=    0 div=    0 inv=    0
+RF_RESID=  9.11235277E-15
+VC  1   0   8.83656909E+00
+VC  2   0   8.83656909E+00
+VC  3   0   8.83656909E+00
+CLS  1   0   0
+CLS  2   0   0
+CLS  3   0   0
+SEED  1  1
+SEED  2  1
+SEED  3  1
+
+== cer0 (bulk floor, NC=0) ==
+    cert census: full=    0 bulk=    3 itlim=    0 stag=    0 div=    0 inv=    0
+RF_NCREJ=       3
+RF_NCCAP=       0
+VC  1   2   0.00000000E+00
+VC  2   2   0.00000000E+00
+VC  3   2   0.00000000E+00
+CLS  1   1   0
+CLS  2   1   0
+CLS  3   1   0
+
+== cer2 (two refreshes) ==
+RF_PASS  1
+    cert census: full=    0 bulk=    3 itlim=    0 stag=    0 div=    0 inv=    0
+RF_NCCAP=       3
+VC  1   3   5.00000000E-02
+VC  2   3   5.00000000E-02
+VC  3   3   5.00000000E-02
+RF_PASS  2
+    cert census: full=    0 bulk=    3 itlim=    0 stag=    0 div=    0 inv=    0
+RF_NCCAP=       6
+VC  1   3   5.00000000E-02
+VC  2   3   5.00000000E-02
+VC  3   3   5.00000000E-02
+
+== cerp (probe ray 3) ==
+  KN-NOP ray probe-only ls=   3 npM,npP=   6   6 resM,resP=  0.0000E+00  0.0000E+00
+  KN-NOP store ray=   3 before M/P=  5.85000000E-03  1.17000000E-02 after M/P=  5.85000000E-03  1.17000000E-02 delta M/P= 0.000E+00 0.000E+00
+    cert census: full=    0 bulk=    2 itlim=    0 stag=    0 div=    0 inv=    0
+RF_NCCAP=       2
+VC  1   3   5.00000000E-02
+VC  2   3   5.00000000E-02
+VC  3   7   0.00000000E+00
+CLS  1   1   0
+CLS  2   1   0
+CLS  3   1   0
+
+== suite totals ==
+  [PASS] T44 probe ray under certification: suppressed verdict (VC=7), production rays still BULK/provisional  (NCCAP=2.0 vc=[(3, 0.05), (3, 0.05), (7, 0.0)])
+------------------------------------------------------------
+KNOP_RAY_SOLVE_V1: 49 passed, 0 failed
+  [PASS] M9 prbr: legacy ratio resumes on real resid, denominator 0.7  (p1 resid=1.0 resprv=0.7 p2 resid=9.11235277e-15 inext=0.81 want=0.81000000)
+------------------------------------------------------------
+KNOP_MODE1_PROBE_ISOLATION: 9 passed, 0 failed
