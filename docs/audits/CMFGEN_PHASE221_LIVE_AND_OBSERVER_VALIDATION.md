@@ -61,10 +61,59 @@ executable `93364cac` is the PRE-FLAG build. `git show
 also scopes "commits 8b421089..217049ee". A1/A2 are therefore pre-flag
 replicate arms by design - identical to each other, not pre-vs-post.
 
-Both runs were healthy at snapshot: A2 was printing population-solve
-output near iteration 258; A1 was emitting the ray-83 watch diagnostics.
 No `cert census`/`rf_all_conv` lines exist in the pre-flag output (the
 census did not exist in that build).
+
+Configuration correction recorded 20-Nov: every arm carries
+`KN_MAT_FREEZE=T` in its live VADAT (line 341; inherited from the
+`m15_2p82d_KNOP_iso_M` donor config - the "failure-isolation arm M:
+frozen matter" description). At `217049ee:solve_for_pops.f` ~2216 the
+hold condition `... .OR. KN_MAT_FREEZE` snapshots and rolls back the
+population update on every call regardless of field state. The observed
+`held=T` on all ~120 population calls, the constant `applied correction
+0.000E+00` under an attempted `8.1E+01` maximum change, and the exact
+`Model Convergence: 50 %` plateau are therefore BY DESIGN, not a stall:
+populations cannot move under this arm, and the "ten releases" counter
+cannot accrue (`n_raw_releases=1`, `n_rel_noprog=1` in GS_STATE).
+
+What the arm actually measures is the lagged-field trajectory at fixed
+populations. Over 122 refreshes in A2 (`it`~286 at extraction):
+
+- refresh residual `residual max`: median 6.4-6.5E-2, range
+  [3.4E-2, 7.5E-2], no downward trend across refresh blocks 1-122;
+  1 of 122 refreshes below the 5% maturity bound;
+- `retained-field delta` ~4.0-4.5E-2 (GS_RF_DCHG - under the 5% bound);
+- sweep drift `sw=` ~5.0-6.3E-2;
+- ray exits steady at tol~65 / bulk~16 / stall=3 (probe included;
+  NX_CNT counts the probe, so production stall = 2), unsolved=1 (the
+  NI=1 ray, residual 0);
+- commit verdicts: 121 of 122 refreshes `committed=81 capped=2
+  unsolved=1`, one `committed=80 capped=3`;
+- the KN-CEN top-offender set locked in at refresh 2 and never changed:
+  production rays 22, 45, 50 on the inward (ch1) arm, probe ray 83 on
+  ch2; flagged cells show the pinned-floor signature (`v1~1E-30` raw vs
+  `vms~1E-28` stored, ratio ~1E7).
+
+So the lagged store is at a near-fixed point in drift while a fixed
+small set of rays fails to converge its own solve each refresh - the
+committed field contains capped/provisional content every cycle. The
+two capped-commit rays are production rays within the {22,45,50} set;
+OUTGEN does not name them per ray (per-ray verdicts live in
+`FG_RAY_VC`/`NXT_LS`/`RES_LS` in memory only).
+
+Diagnostic arm submitted to name them: `m15_2p82d_KNOP_diagcap`
+`13429272` - clone of the B1_PREFLAG deck (same `93364cac` pre-flag
+tree, same iso_M donor, same VADAT including `KN_MAT_FREEZE=T` and the
+ray-83 probe) plus `KN_PSWEEP_DIAG=T`, `KN_PSWEEP_LS=-1` (per-ray,
+per-pass full-map defect `R_MAP` capture for every ray,
+diagnostic-only). Its `KN_PSWEEP_DIAG.dat` records which production
+rays plateau at ~6E-2 vs contract to tolerance.
+
+Counter note: `GS_STATE` shows `n_mature=123` consecutive under
+`KN_MAT_FREEZE` while the printed sweep/refresh metrics exceed 5%. The
+release counters under the unconditional MAT_FREEZE hold do not read
+as the normal gate transcript; treat them as diagnostic bookkeeping
+only.
 
 Completion analysis (great iterations, releases, freeze counts,
 GS_MAX_ALL, GS_RF_DCHG, MAXCH, no-progress counters, termination)
@@ -102,10 +151,22 @@ eras, so the comparison isolates certification behaviour, not a
 tolerance change. It is correct to describe the experiment as
 "pre-certification-era" vs "current certified", and not as flag-only.
 
-If B1/B2 complete, the release/freeze and convergence histories give a
-valid causal comparison for the ten-release failure class. A1/A2 are
-pre-flag replicates; their agreement measures repeatability, not the
-effect of certification.
+Limitation recorded 20-Nov: both arms inherit `KN_MAT_FREEZE=T` (see
+Part B), so B1/B2 cannot answer the ten-release population-release
+question - under frozen matter the release counter cannot accrue at
+all. What they DO provide is a valid pre/post comparison of the
+lagged-field trajectory and the ray-exit/commit-verdict census at
+fixed populations: whether the certification bundle (all-ray flag,
+census classes, INIT reset) changes which refreshes are treated as
+valid, and whether the post-flag build marks the capped-commit
+refreshes `rf_all_conv=F` that the pre-flag build silently accepts.
+That is the scientifically relevant subset of the original design.
+
+For a ten-release population comparison the arms need
+`KN_MAT_FREEZE=F`; that is a design decision for the user, not a
+silent reconfiguration (the option is recorded in the README artifacts
+and B1/B2 remain submittable in a free-matter variant under new
+names).
 
 ## PART D - observer execution
 
@@ -183,11 +244,16 @@ inputs, successful refresh, population convergence, observer spectrum.
    object `b2d5ded4`, provenance chain recorded.
 2. Invalid-ray test on that build chain: PASS - `inv=1`,
    `rf_all_conv=F`, reason 8 on the guarded path, no invalid access.
-3. A1/A2 complete: PENDING - running 4h+/24h at snapshot, healthy.
-4. Ten-release failure recurred: PENDING - requires completed OUTGENs.
-5. Valid pre/post comparison: CONSTRUCTED - B1 `93364cac` vs B2
-   `58a699d0`, identical inputs; A1/A2 are additional pre-flag
-   replicates. Result pending.
+3. A1/A2 complete: PENDING - running 5h+/24h. NOTE: both arms carry
+   `KN_MAT_FREEZE=T` (frozen-matter diagnostic); held=T every call is
+   by design, populations cannot converge under this arm.
+4. Ten-release failure recurred: CANNOT OCCUR under MAT_FREEZE arms -
+   the release counter cannot accrue while populations are held. The
+   question remains open for a free-matter arm.
+5. Valid pre/post comparison: CONSTRUCTED but RE-SCOPED - B1
+   `93364cac` vs B2 `58a699d0`, identical inputs, both frozen-matter:
+   valid for field-trajectory/certification comparison, NOT for the
+   ten-release population question (would need KN_MAT_FREEZE=F arms).
 6. cmf_flux completes: PENDING - p221 arms 13427285/6 queued at 200G
    after the diagnosed 30G OOM; dependent OBS jobs queued behind FINALs.
 7. Diagnostic on/off OBSFLUX byte-identical: PENDING - arms submitted,
