@@ -171,3 +171,27 @@ BULK verify checks in KN_CERT_CH):
   corrected to '(A,I5,5(A,I5))' with staged counts.
 
 Machine-readable outputs: docs/audits/knop_phase217/.
+
+## 11. Optional-argument portability fix (KN_CERTIFY)
+
+The Phase 2.16 INVR gate was written as a combined condition:
+
+    IF(PRESENT(INVR) .AND. INVR .NE. 0)THEN
+
+Fortran does not guarantee short-circuit evaluation of .AND., so
+a compiler may evaluate INVR while it is absent. Replaced with
+explicitly nested IFs: PRESENT first, then the value test inside
+the same block. Classification priority is unchanged: a present,
+non-zero INVR still short-circuits to INVALID_STATE before the
+NDIV divergence fold and the two-channel certification fold.
+
+Coverage (csut, now 29 rows): c01 calls without INVR and returns
+FULL; new row c29 calls without INVR with NDIV=1 and returns DIV;
+c26 keeps INVR=7 winning over NDIV=1; c27/c28 keep INVR=8/9.
+Rows c21-c28, added with the Phase 2.16 hardening but previously
+unchecked by test_knop_ray.py, are now asserted in _cert_exp.
+
+Checked build: fg_j_cmf_nonmono_v1.f compiled with ifort
+`-check bounds,uninit,arg_temp_created,output_conversion -warn all
+-O2` and linked as knray_chk ran the full csut table with no
+runtime diagnostics. Full suite after the fix: 49/49.
