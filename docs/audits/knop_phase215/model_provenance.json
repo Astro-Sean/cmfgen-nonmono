@@ -1,0 +1,13 @@
+{
+ "model": "m15_2p82d_FRESH_knop",
+ "nd": 70,
+ "sigma_min": -156.8861170899891,
+ "sigma_max": -1.037000928724024,
+ "expanding_cells": 0,
+ "compressing_cells": 70,
+ "v_min": 48.91759,
+ "v_max": 7073.564,
+ "v_monotonic": true
+}347eda19ce4f645ccf41dfec737c8de6f55078de810c0ff0971ee95213d72fa0  SN_HYDRO_DATA
+2b23e1ef0c6942ec48cb38cfa82fb097681698e4d5db5b39bc1c74a1293e3580  VADAT
+f238af979b9613d318e0e2b665f42205444761e4dcea0c29d0bae2561626c4c0  VADAT_INIT
