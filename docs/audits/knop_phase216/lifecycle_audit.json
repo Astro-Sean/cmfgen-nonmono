@@ -1,0 +1,41 @@
+{
+ "phase": "2.16",
+ "head": "9964bcd6",
+ "store_lifecycle": {
+  "commit_paths": {
+   "converged": "WRITE_STORE (INEXT_RELAX blend)",
+   "provisional": "WRITE_STORE_CAP (FG_COMMIT_NC ratchet)"
+  },
+  "consumers": [
+   "SEED_FLD (next refresh seed)",
+   "upwind I_*_DEPTH_NEXT at l+/-1 in frequency march (lines ~5163-5233)",
+   "FGINEXT_GS checkpoint fort.291"
+  ],
+  "status_propagation": "NXIT -> NXT_LS -> NX_CNT histogram -> LUER print only; no store-level tag",
+  "fg_rf_conv_flag": "ABSENT (MOM side has MOM_RF_CONV)"
+ },
+ "maturity_gate": {
+  "composite": "GS_MAX_ALL = MAX(GS_MAXCHG, GS_SW_MAXCHG, GS_RF_DCHG)",
+  "GS_MATURE_TOL": 0.05,
+  "bulk_residual_observed": [
+   0.018,
+   0.031
+  ],
+  "reads_mature": true
+ },
+ "m15_death_chain": [
+  "bulk exit maxres ~3e-2 at floor 6e-2",
+  "GS_MAX_ALL~0.03 < 0.05 -> mature",
+  "freeze releases",
+  "MAXCH fails to drop 10% or drift>0.5",
+  "N_REL_NOPROG++",
+  "10 releases -> STOP non-convergent"
+ ],
+ "mixed_sign_model": {
+  "available": false,
+  "all_models_sigma_range": [
+   -156.9,
+   -1.037
+  ]
+ }
+}
