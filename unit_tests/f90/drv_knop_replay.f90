@@ -306,6 +306,18 @@
 ! Extra requested passes likewise fail at the first unavailable value.
 ! Channel 1 is P, channel 2 is M; this is distinct from KN_PA indexing.
       END IF
+! impose (phase 2.27G/E2): substitute the deck IM_NI boundary row for
+! the replay-recomputed one at the M-to-P handoff inside the same
+! uninterrupted solve, isolating the downstream P contribution from
+! the M reconstruction gap. Stage rows record both values.
+      IF(MODE .EQ. 'impose')THEN
+        ALLOCATE(KN_IMPOSE_ROW(NCF),STAT=IOS)
+        IF(IOS .NE. 0)ERROR STOP 'impose: alloc'
+        KN_IMPOSE_ROW(1:NCF)=FLDM_POST(NI,1:NCF)
+        KN_IMPOSE_IMNI=.TRUE.
+        KN_STAGE_ENABLED=.TRUE.; KN_STAGE_LS=1; KN_STAGE_RAY=LSX
+        KN_DIAG_REFRESH=1_8
+      END IF
       IF(MODE .EQ. 'seed')THEN
         IF(SVAL .EQ. 'cold')THEN
           LCOLD=.TRUE.
