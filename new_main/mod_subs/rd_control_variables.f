@@ -98,6 +98,7 @@
 	INTEGER KN_M_MAXPASS_V,KN_RAY_MAXPASS_V,MOM_AA_M_V,
 	1     MOM_AA_OUT_M_V,KN_ORD_AA_M_V
 	INTEGER KN_RAY_HOTPASSES_V,KN_HOT_TOTAL_PASSES_V
+	INTEGER KN_RDUMP_L1,KN_RDUMP_L2,KN_RDUMP_L3
 	LOGICAL KN_ADAPT_RELAX_V
 	LOGICAL FG_ADAPT_OMEGA_V2_V,FG_PLATEAU_DET_V
 	LOGICAL MOM_ADAPT_OMEGA_V2_V
@@ -1646,6 +1647,22 @@
 	  CALL RD_STORE_INT(KN_CONT_NP,'KN_CONT_NP',L_FALSE,
 	1     'KNOP probe single-refresh continuation passes (0 off)')
 	  CALL SET_FG_CONT_NP(KN_CONT_NP)
+!
+! KN_RDUMP_LS/KN_RDUMP_LS2 (default -1 = off): rays whose ordered-
+! march replay deck (PK_* coefficients, donor topology, seeded and
+! final P fields) is written to KNRDUMP_L<LS>_r<ref>.bin each
+! refresh for the offline stall replay driver.
+!
+	  KN_RDUMP_L1=-1
+	  KN_RDUMP_L2=-1
+	  KN_RDUMP_L3=-1
+	  CALL RD_STORE_INT(KN_RDUMP_L1,'KN_RDUMP_LS',L_FALSE,
+	1     'KNOP replay-deck dump ray (-1 off)')
+	  CALL RD_STORE_INT(KN_RDUMP_L2,'KN_RDUMP_LS2',L_FALSE,
+	1     'KNOP replay-deck dump ray 2 (-1 off)')
+	  CALL RD_STORE_INT(KN_RDUMP_L3,'KN_RDUMP_LS3',L_FALSE,
+	1     'KNOP replay-deck dump ray 3 (-1 off)')
+	  CALL SET_FG_RDUMP_LS(KN_RDUMP_L1,KN_RDUMP_L2,KN_RDUMP_L3)
 !
 ! ------------------------------------------------------------------
 ! JFNK (Jacobian-Free Newton-Krylov) population solver.
