@@ -1559,6 +1559,17 @@
 	1     'Attribute KNOP jump-veto triggers per ray?')
 	  CALL SET_FG_JUMP_DIAG(KN_JUMP_DIAG)
 !
+! KN_BADID (default FALSE): diagnostic-only bad-cell identity
+! tracking across KNOP refreshes (round-2 phase-2). T records
+! each ray's last-pass above-tolerance cells as packed ids and
+! diffs consecutive censuses (intersection/Jaccard/new/gone).
+! F allocates nothing and preserves production behaviour.
+!
+	  KN_BADID=.FALSE.
+	  CALL RD_STORE_LOG(KN_BADID,'KN_BADID',L_FALSE,
+	1     'Track KNOP bad-cell identity across refreshes?')
+	  CALL SET_FG_BADID(KN_BADID)
+!
 ! KN_MAT_FREEZE (default FALSE): diagnostic-only matter freeze for
 ! the KNOP failure isolation (P1-T1c arm M). T holds POPS at its
 ! checkpoint values every SOLVE_FOR_POPS call (the GS_POPS_HELD
