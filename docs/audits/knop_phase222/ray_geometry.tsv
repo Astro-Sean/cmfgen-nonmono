@@ -1,0 +1,28 @@
+# Phase 2.22 ray geometry audit (model m15_2p82d, ND=70, NC=15, NP=85)
+# Convention: non-core ray LS is tangent at model depth 86-LS (impar.f: P(I)=R(ND-I+NC+1));
+# NI_SMALL = number of model shells crossed = 86-LS; NI_RAY >= NI_SMALL (Doppler inserts).
+# Flagged/argmax cells are all at the rays' OUTER-ENTRY points (I=1..5, model depths 1-5).
+# mu values computed at the flagged outer depths; GAM = 1 + sigma*mu^2 (GAM<0 = compressing).
+#
+# ray	role	P_tangent_cm	tangent_depth	NI_SMALL	V_tan_kms	sig_tan	mu@d2	GAM@d2	verdict	class
+22	KN-CEN offender	1.4762e+14	64	64	3815.6	-10.62	0.993	-0.022	capped-or-unsolved	prod non-committing
+45	KN-CEN offender	4.6466e+14	41	41	73.3	-2.18	0.929	+0.106	capped-or-unsolved	prod non-committing
+50	KN-CEN offender	5.0135e+14	36	36	67.6	-1.96	0.934	+0.096	capped-or-unsolved	prod non-committing
+82	GS_MAXCHG argmax	1.0249e+15	4	4	49.6	-1.12	0.576	+0.657	committed	prod, all-expanding
+83	probe (diagnostic)	1.1536e+15	3	3	49.1	-1.07	0.393	+0.840	probe-suppressed	ixit=3 stall, npas 26-30
+84	grazing	1.2530e+15	2	2	48.9	-1.04	0.081	+0.993	committed	prod, NI=2
+85	outermost grazing	1.2531e+15	1	1	48.9	-1.04	-	-	unsolved (NI=1 degenerate)	prod, never classifies
+#
+# converged-ray comparison set (committed, not flagged):
+# ray	P_tangent_cm	tangent_depth	NI_SMALL	V_tan_kms	sig_tan
+30	conv (committed)	2.6601e+14	56	56	352.1	-4.84
+40	conv (committed)	4.2227e+14	46	46	83.8	-2.71
+60	conv (committed)	5.8080e+14	26	26	60.1	-1.67
+70	conv (committed)	6.6368e+14	16	16	55.7	-1.48
+#
+# outer-edge model state (depths 1-5): R=1.2531e15..9.08e14 cm (8.6-6.2 Rstar),
+# V=48.9-50.5 km/s ~ VTURB=50 km/s, sigma=-1.04..-1.18 (marginal compression),
+# THK_CONT=F thin outer BC pins I_M=0 at each ray's outermost point.
+# Frequencies flagged (CONT_FREQ, l2=freq index): 490=nu52.5e15/lam57.1A,
+# 1040=nu23.2e15/lam129.1A, 2068=nu10.5e15/lam284.9A, 1248-1282=nu18.8-18.1e15/
+# lam159-165A, 1371=nu16.9e15/lam177.7A, 14403=nu5.27e15/lam568.9A.
