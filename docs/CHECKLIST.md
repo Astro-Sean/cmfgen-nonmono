@@ -1,5 +1,52 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## Phase 2.30 P2 production-operator evaluation (01-Dec-2026)
+
+Offline A/B replay evaluation of KN_ORD_P2DAMP against the
+confirmed ray-81/82 period-2 limit cycle. Damper stays F; no
+production change.
+
+- [x] Part 1 source verification: KN_ORD_P2DAMP ->
+      FG_ORD_P2DAMP (module DATA default F), KN_P2_TRACK/
+      KN_P2_CLEAR/KN_P2_MID shared at all three march sites,
+      P2_SGN/P2_FLIP/P2_DMP allocated per solve (per-thread),
+      phase-2.29A stale-state fix present.
+- [x] Part 2 replay-only P2 override: `p2=<v>` keyed token in
+      drv_knop_replay.f90 scanned over all args >=3, malformed/
+      duplicate rejected before deck open, applied as the single
+      write to FG_ORD_P2DAMP after deck restore; RESULT echoes
+      p2_deck/p2_eff/p2_ovr. Composes with omf. VADAT reader and
+      production default untouched (pinned).
+- [x] Part 6 mapd mode (driver side): `mapd <candidate.bin>`
+      seeds both lagged store columns from a KN_REPLAY_END-format
+      candidate, forces omega=1 + P2 off + one pass, reports
+      R(X)-X argmax on the production DCELL scale and writes
+      KN_MAPD_RX.bin (X, R(X), candidate VMAXF columns) for the
+      fixed-baseline-mask and significance-migration analysis.
+- [x] Tests: test_knop_replay_p2.py 25/25 PASS (override pins +
+      arg-layer rejection); test_knop_p2_state.py 19/19;
+      test_knop_ray.py 49/49 unchanged. test_knop_lagged_field
+      carries a PRE-EXISTING stale pin (expects RES.GT.HUGE;
+      source moved to .NOT.(ABS(RES).LE.HUGE) at 98acf207,
+      ancestor of baseline) - not phase-2.30 work.
+- [ ] Part 3 deck capture: BLOCKED pending the next knop_formal
+      submission. No KNRDUMP decks exist anywhere (phase-2.26
+      archive holds replay outputs only); live job 13473182 was
+      launched unarmed and cannot be retrofitted; pending
+      13474708 is the sob_diag route (no KNOP ordered solve).
+      Arm on the next intended knop_formal run:
+      KN_RDUMP_LS=81, KN_RDUMP_LS2=82, KN_RDUMP_LS3=84 plus the
+      KNOMG2/KNAPPLY omega-schedule capture. No dedicated run
+      submitted for this.
+- [ ] Parts 4-10 (baseline fidelity, A/B replay, raw-defect eval,
+      mechanism kernel, branch-crossing, fixed-cell analysis,
+      pass/fail) all gated on Part 3 decks.
+- [ ] Part 11 live validation: not started; gated on offline
+      replay passing first.
+- Note: commits made locally per change; NOT pushed per the
+      phase-2.30 task restriction ("do not push without
+      approval").
+
 Living checklist of the non-monotonic CMFGEN development. Maintained
 per AGENTS.md section 11: update it in the same edit as the change it
 records, keep every tick honest, and cite evidence (audit doc, commit,
