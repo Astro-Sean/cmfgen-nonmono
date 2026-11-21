@@ -41,6 +41,28 @@ two submissions on different nodes):
       tauto checkpoint, ~575 s/iteration, it>=686 at last check);
       obs follower 13473184 chained.
 
+## Phase 2.28 limit-cycle identification (21-Nov-2026)
+
+Audit: `docs/audits/CMFGEN_PHASE228_LIMIT_CYCLE_AUDIT.md`.
+
+- [x] Ray-81 geometry resolved: all-expanding (GAM>0 at all 5 points,
+      min T2=0.85), zero compressing cells; multi-resonance and
+      direction-handling hypotheses refuted for this ray.
+- [x] Replay-history per-cell analysis: the L081 stall is an exact
+      period-2 limit cycle (bit-identical two-state alternation,
+      54K+ cells on the boundary row, omega-independent per the
+      phase227 sweep). Ray 82 same class; ray 84 carries the same
+      orbit at the underflow floor and certifies clean - certified
+      class tracks where the orbit's amplitude meets the
+      significance floor, not map quality.
+- [x] Orbit localised to the lagged corner/boundary feedback
+      (lagged SPW preview into KN_ORD_DS, endpoint DS(NI), relaxed
+      IM_NI copy) on high-albedo floored cells; micro-channel
+      inside that loop still open (PARTIAL).
+- [ ] C1 evaluation pending: KN_ORD_P2DAMP on a diagnostic arm -
+      the replay histories are the missing per-cell evidence the
+      flag was waiting for. No solver change authorized.
+
 ## Phase 2.27B isolated preparation (21-Nov-2026)
 
 - [x] Rechecked both original captures: JobHeldUser. No release, cancel,
