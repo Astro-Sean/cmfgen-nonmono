@@ -1,6 +1,7 @@
 ! drv_conv_exit -- CLI driver for the nine-gate converged-exit
-! replica CONV_EXIT_EVAL (LAM_HANDOFF_MOD). Prints one NAME=VALUE
-! line per check; test_conv_exit.py parses and asserts on them.
+! replica CONV_EXIT_EVAL (LAM_HANDOFF_MOD) and the binding-margin
+! classifier CONV_MARGIN_EVAL. Prints one NAME=VALUE line per
+! check; test_conv_exit.py parses and asserts on them.
 !
 ! The driver calls the production module routines -- not a copy of
 ! the intended logic -- so a drifted replica conjunct, label or
@@ -18,6 +19,8 @@ program drv_conv_exit
   logical bits(9)
   integer mc_lam,last_ng
   real(kind=ldp) ex_maxch
+  real(kind=ldp) act_m,rel_m,trb_m
+  character(len=8) act_c,rel_c,rel_w
   real(kind=ldp), parameter :: EPS=1.0_LDP
 !
 ! ---- exhaustive truth table over the nine gates ------------------
@@ -119,6 +122,111 @@ program drv_conv_exit
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
     -1,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,L1)') 'E_forcedlam=',all_met,' lam_ok=',lam_ok
+!
+! ---- CONV_MARGIN_EVAL ---------------------------------------------
+! eps=0.05 -> small=1.0, sat_raw=2.0e3, ex_maxch=0.03 (passing).
+! Print per case: act margin/channel, released margin/channel/why,
+! stage-B margin.
+!
+! SAT-released exm must not win the binding slot: the run-class
+! worst-margin defect.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,1.0e15_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_sat=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! Unsaturated material exm binds and beats ex_maxch.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,500.0_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_bind=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! Small exempted demand is released, never binding.
+  call conv_margin_eval(0.05_LDP,5.0_LDP,0.4_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_small=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! Stage-B needed releases the channel but is not a SAT release.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,1500.0_LDP,0.0_LDP, &
+    2.0e3_LDP,.true.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_trcneed=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! Stage-B complete (release) releases the channel too.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,1500.0_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.true.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_trcrel=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! SAT outranks a simultaneous trc-need in the reason string.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,5.0e3_LDP,0.0_LDP, &
+    2.0e3_LDP,.true.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_sat_trc=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! exr binding: unsaturated relative-floor demand wins the active
+! slot over a small-margin ex_maxch.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,0.0_LDP,800.0_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_exr_bind=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! exr SAT-released: the relative-floor channel reports on the
+! released row.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,0.4_LDP,3.0e3_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_exr_sat=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! BA_EX_RELFRAC disabled -> exr=0 contributes nothing anywhere.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,0.4_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_exr_off=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! BA_DEM_PFLOOR disabled -> exm=0 contributes nothing anywhere.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,0.0_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,0.0_LDP,0.0_LDP,0, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_pfl_off=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! Stage-B demand armed: trb margin reads vs absmax.
+  call conv_margin_eval(0.05_LDP,0.03_LDP,0.4_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,100.0_LDP,10.0_LDP,3, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_trabs=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
+!
+! Stage-B armed is not a binding gate: a live trb demand cannot
+! take the active slot from the exempted-demand channels.
+  call conv_margin_eval(0.05_LDP,50.0_LDP,0.4_LDP,0.0_LDP, &
+    2.0e3_LDP,.false.,.false.,1.0e6_LDP,10.0_LDP,3, &
+    act_m,act_c,rel_m,rel_c,rel_w,trb_m)
+  write(*,'(A,ES10.3,A,A,A,ES10.3,A,A,A,A,A,ES10.3)') &
+    'M_trabs_hi=',act_m,' ch=',trim(act_c),' rel=',rel_m,' rch=', &
+    trim(rel_c),' why=',trim(rel_w),' trb=',trb_m
 !
   write(*,'(A)') 'DONE'
 end program drv_conv_exit
