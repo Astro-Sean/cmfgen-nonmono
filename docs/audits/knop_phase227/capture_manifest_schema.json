@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Phase 2.27 pre-submission capture manifest",
+  "type": "object",
+  "required": ["schema_version", "capture_id", "intended_job_type", "source_commit", "source_hashes", "generated_utc", "generation_command", "executable", "compiler", "compiler_flags", "linked_libraries", "inputs", "environment", "scratch_path", "working_path", "output_path", "diagnostic_configuration", "submission_allowed", "readiness"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "capture_id": {"type": "string", "minLength": 1},
+    "intended_job_type": {"enum": ["normal", "debug"]},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_hashes": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/hash"}},
+    "generated_utc": {"type": "string"},
+    "generation_command": {"type": "array", "items": {"type": "string"}},
+    "executable": {"$ref": "#/$defs/file"},
+    "compiler": {"type": "string"},
+    "compiler_flags": {"type": "array", "items": {"type": "string"}},
+    "linked_libraries": {"type": "object"},
+    "inputs": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/file"}},
+    "environment": {"type": "object", "additionalProperties": {"type": "string"}},
+    "scratch_path": {"$ref": "#/$defs/absolute_path"},
+    "working_path": {"$ref": "#/$defs/absolute_path"},
+    "output_path": {"$ref": "#/$defs/absolute_path"},
+    "diagnostic_configuration": {"type": "object"},
+    "submission_allowed": {"const": false},
+    "readiness": {"enum": ["PREPARED_NOT_VALIDATED", "BLOCKED"]}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "absolute_path": {"type": "string", "pattern": "^/"},
+    "file": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"$ref": "#/$defs/absolute_path"}, "sha256": {"$ref": "#/$defs/hash"}}}
+  }
+}
