@@ -45,6 +45,15 @@ follows the stock upstream path.
   `ITER_LEDGER` row per great iteration on the non-monotonic paths,
   recording solver call counts, refresh and stage timings,
   freeze/release events and memory use.
+- **KNOP replay telemetry** (`KN_RDUMP_LS`, `KN_RDUMP_LS2`,
+  `KN_RDUMP_LS3` VADAT keys, default off): writes a binary
+  per-refresh deck for each armed ray (march coefficients, donor
+  topology, both store columns, seeded and final fields, applied
+  outcome) plus a per-pass applied-omega record, so a ray solve can
+  be re-run offline under the same solver. The replay driver lives
+  in `unit_tests/f90/drv_knop_replay.f90`; the audit trail is in
+  `docs/audits/knop_phase2*`. Diagnostic only; the solve is
+  unchanged.
 - **ES accelerated Lambda iteration** (`DO_ES_ALI`, `DO_ES_ALI_BA`):
   an Olson-Auer-Buchler Jacobi step on the stored approximate-Lambda
   diagonal converges the coherent electron-scattering J loop in a
