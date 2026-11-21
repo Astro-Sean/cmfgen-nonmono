@@ -90,7 +90,7 @@ follows the stock upstream path.
 | `subs/`, `newsubs/`, `com/`, `disp/` | Upstream source, surgical edits only |
 | `obs/` | Observed-frame tools (`cmf_flux`, `obs_frame`) |
 | `unit_tests/` | Test drivers; `run_all_tests.py` runs the suite |
-| `docs/` | README figures and audit notes |
+| `docs/` | `audits/`, `plans/`, `figures/`, and the VADAT key reference `NONMONO_KEYS.md` |
 
 ## Building
 
@@ -111,7 +111,7 @@ new paths converge or produce a valid interacting-supernova
 spectrum. Current runtime status is tracked in `AGENTS_HISTORY.md`
 and the audit notes under `docs/audits/`.
 
-See [`docs/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md`](docs/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md)
+See [`docs/plans/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md`](docs/plans/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md)
 for the staged investigation plan and acceptance tests.
 
 ## Attribution
