@@ -9,6 +9,38 @@ Legend: `[x]` done and evidenced, `[~]` in progress or done with
 documented limitations, `[ ]` outstanding. Blocked/failed items say so
 explicitly.
 
+## Fresh SOB + KNOP campaign (21-Nov-2026)
+
+Run-area cleanup removed ~336 GB of stale model dirs (all KNOP_*, old
+SOB/VAL/FRESH arms, phase227b captures); LUC baselines and inputs kept.
+Resubmission on the fresh build (git=5236c37a) exposed two cold-start
+blockers, both diagnosed deterministically (identical death point across
+two submissions on different nodes):
+
+- [x] `arnaud_rothenflug.dat` Ti III->IV line `3d_2De` renamed to
+      `3p6_3d_2De` in all three cmfgen_base* copies and staged run dirs.
+      READ_ARNAUD_ION_DATA does substring matching of the arnaud name
+      against atom-file level names; the TkIV data carries the `3p6_`
+      prefix so the line never matched, ION_POT 27.49 eV fell outside
+      the (68.9,70.8) bracket, and the routine STOPped at 22 s - the
+      "missing/stale RVTJ" signature. Offline simulation of the whole
+      file+atom data shows this was the only line that STOPs under this
+      species set; the next candidate (FeSIX->SEV 3s, 195.8 eV) lands
+      inside its (184.9,224.0) bracket and continues, confirmed in the
+      run that followed. Data fix, not code: shared base input file.
+- [x] `se_ba_non_therm_v3.f90` guarded copies of the
+      `RADIOACTIVE_DECAY_ENERGY` pointer on ASSOCIATED (commit
+      57f34a7e). The pointer is allocated only under INC_RAD_DECAYS=T;
+      with TRT_NON_TE=T (SOB recommended default) and zero isotope
+      blocks in SN_HYDRO_DATA the routine was still called and
+      segfaulted (SIGSEGV at line 76, batch exit 174). Not flag-gated:
+      zero decay energy is the correct contribution.
+- [ ] sob_diag model run to convergence/spectrum - submitted
+      13474708/13474709 on the fixed build, pending on `small`.
+- [~] knop_formal running (13473182, warm restart off the converged
+      tauto checkpoint, ~575 s/iteration, it>=686 at last check);
+      obs follower 13473184 chained.
+
 ## Phase 2.27B isolated preparation (21-Nov-2026)
 
 - [x] Rechecked both original captures: JobHeldUser. No release, cancel,
