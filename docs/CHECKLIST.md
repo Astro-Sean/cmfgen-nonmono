@@ -105,6 +105,37 @@ Audit: `docs/audits/CMFGEN_PHASE228_LIMIT_CYCLE_AUDIT.md`.
       the replay histories are the missing per-cell evidence the
       flag was waiting for. No solver change authorized.
 
+## Phase 2.29A P2 state-management fix (01-Dec-2026)
+
+Audit: `docs/audits/CMFGEN_PHASE229A_P2_STATE_FIX.md`.
+KN_ORD_P2DAMP default unchanged (F).
+
+- [x] Stale-state defect fixed at all three march paths: the P2
+      tracker ran only inside the significance gate while the
+      midpoint commit ran unconditionally; insignificant cells now
+      clear P2_SGN/P2_FLIP/P2_DMP on the ELSE branch and take the
+      ordinary relaxed update. Triplicated inline logic replaced
+      by shared module procedures KN_P2_TRACK/KN_P2_CLEAR/
+      KN_P2_MID (module scope for unit-test access).
+- [x] Midpoint underflow fixed: SQRT(A*B) -> SQRT(A)*SQRT(B);
+      the product form collapsed to zero below ~1E-154 endpoints
+      while floor cells legitimately reach ~1E-283.
+- [x] RES_INT/RES_BND diagnostic split added (boundary rows =
+      inward I=1 zero row + outward NI/IM_NI row); KNPASS print
+      under PRINT_KNOP_DEBUG. Diagnostic only; RES criterion
+      unchanged.
+- [x] Tests: new test_knop_p2_state.py 19/19 PASS (state
+      machine, all three call sites, midpoint range); existing
+      test_knop_ray.py 49/49 PASS incl. bit-identical
+      repeatability and 1v4-thread determinism - the off-state
+      path is bitwise unchanged.
+- [~] Replay evaluation on immutable L081/L082/L084 histories:
+      orbits confirmed at interior cells near l~1517-1523
+      (rel ~4e-2 L081, ~8.5e-2 L082); simulated tracker would
+      have armed. P2-on replay of the production operator not
+      possible - the KNRDUMP input decks no longer exist;
+      R(X) unevaluated. Arm KN_RDUMP_LS on the next run.
+
 ## Phase 2.27B isolated preparation (21-Nov-2026)
 
 - [x] Rechecked both original captures: JobHeldUser. No release, cancel,

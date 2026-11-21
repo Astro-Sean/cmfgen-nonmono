@@ -3047,6 +3047,85 @@
 	RETURN
 	END SUBROUTINE KN_ORD_SPV_IMPL
 !
+!
+! ----------------------------------------------------------------
+! KN_P2_TRACK / KN_P2_CLEAR / KN_P2_MID -- the shared per-cell
+! period-2 state machine behind KN_ORD_P2DAMP (VADAT
+! [KN_ORD_P2DAMP], default F), used by all three commit sites in
+! SWEEP_FLD_ORD (inward march, inner boundary row, outward march).
+! edited 21-Nov-2026 (phase 2.29A): before this the tracker ran
+! only on significant cells while the damped commit ran on every
+! cell, so a cell leaving significance kept firing the midpoint on
+! a stale classification. The caller now runs KN_P2_TRACK under
+! the significance test and KN_P2_CLEAR on its ELSE branch, so an
+! insignificant cell always reaches the commit with a cleared
+! state and the ordinary relaxed update.
+!
+! State (one int*1 triple per cell, allocated per solve so each
+! OMP thread owns its own copy -- no cross-thread sharing):
+!
+!   SGN  = sign of the last committed update delta (0 = no history)
+!   FLIP = consecutive sign-reversal count; resets on any
+!          non-reversal (same sign or zero delta)
+!   DMP  = damped state: 0 off, 1..NREL counting flip-free passes
+!          until release; a fresh reversal re-arms it to 1
+!
+! Transitions: SGN==0 is fresh history -- the first signed update
+! records its sign without counting a flip. A reversal while
+! damped re-arms DMP=1 instead of releasing, so a persistent
+! alternation never escapes the bracket. The int*1 range (127) is
+! safe: FLIP is capped at 100 and DMP resets by NREL+1<=101.
+!
+	SUBROUTINE KN_P2_TRACK(SGN_ST,FLIP_ST,DMP_ST,VOLD,VNEW,
+	1   NFLIP,NREL)
+	INTEGER*1 SGN_ST,FLIP_ST,DMP_ST,SGN_P
+	INTEGER NFLIP,NREL
+	REAL(KIND=LDP) VOLD,VNEW
+	SGN_P=0_1
+	IF(VNEW .GT. VOLD)SGN_P=1_1
+	IF(VNEW .LT. VOLD)SGN_P=-1_1
+	IF(SGN_ST .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
+	1   SGN_P .NE. SGN_ST)THEN
+	  IF(FLIP_ST .LT. 100_1)FLIP_ST=FLIP_ST+1_1
+	  IF(INT(FLIP_ST) .GE. NFLIP)DMP_ST=1_1
+	ELSE
+	  FLIP_ST=0_1
+	  IF(DMP_ST .GT. 0_1)THEN
+	    DMP_ST=DMP_ST+1_1
+	    IF(INT(DMP_ST) .GT. NREL)DMP_ST=0_1
+	  END IF
+	END IF
+	SGN_ST=SGN_P
+	RETURN
+	END
+!
+	SUBROUTINE KN_P2_CLEAR(SGN_ST,FLIP_ST,DMP_ST)
+	INTEGER*1 SGN_ST,FLIP_ST,DMP_ST
+	SGN_ST=0_1; FLIP_ST=0_1; DMP_ST=0_1
+	RETURN
+	END
+!
+! Damped-commit midpoint. For a pure multiplicative lambda=-1 mode
+! the geometric mean of the flip bracket is the exact fixed point
+! (F(x)/x* = x*/x); a general orbit only guarantees a bounded step
+! inside the bracket, so this is a collapse heuristic, not a
+! fixed-point theorem. Written as SQRT(A)*SQRT(B) rather than
+! SQRT(A*B): the product form underflows below ~1E-154^2 while the
+! stored field legitimately runs to ~1E-283 on floor cells (the
+! ray-84 orbit of the phase-228 audit) where SQRT(A*B) would
+! collapse the midpoint to zero instead of the bracket mean.
+! Overflow is not reachable: NONMONO_INEXT_CAP bounds A,B <= 1E20.
+!
+	REAL(KIND=LDP) FUNCTION KN_P2_MID(VOLD,VNEW)
+	REAL(KIND=LDP) VOLD,VNEW
+	IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
+	  KN_P2_MID=SQRT(VOLD)*SQRT(VNEW)
+	ELSE
+	  KN_P2_MID=0.5_LDP*(VOLD+VNEW)
+	END IF
+	RETURN
+	END
+!
 	END MODULE FG_J_CMF_NONMONO_MOD_V1
 !
 ! 
@@ -12731,6 +12810,12 @@ C
 	REAL(KIND=LDP) BEST_RES
 	INTEGER*8 BEST_NB,BEST_NT
 	REAL(KIND=LDP) RATIO_PV
+! RES_INT/RES_BND (phase 2.29A diagnostic): the ray-81 limit cycle
+! lives on the outward NI boundary row (relaxed toward IM_NI), so
+! the residual ledger splits that row plus the inward I=1 zero-
+! incident row from the marched interior. Diagnostic only --
+! RES_TOTAL=RES is still the sole convergence criterion.
+	REAL(KIND=LDP) RES_INT,RES_BND
 ! RHO_WIN/RHO_SRT: same role as in SWEEP_FLD (audit A1) -- ring of
 ! post-transient consecutive-pass residual ratios and a sort copy
 ! for the exported median. The residual history is a single
@@ -12814,7 +12899,6 @@ C
 ! so each OMP thread owns its own copy.
 !
 	INTEGER*1, ALLOCATABLE :: P2_SGN(:,:),P2_FLIP(:,:),P2_DMP(:,:)
-	INTEGER*1 SGN_P
 	LOGICAL DO_P2
 !
 	NPO=0
@@ -12828,6 +12912,7 @@ C
 	CLEAN_EXIT=.FALSE.
 	DIVERGED=.FALSE.
 	RES=1.0E+30_LDP
+	RES_INT=0.0_LDP; RES_BND=0.0_LDP
 	RES_PREV(1)=0.0_LDP
 	RES_PREV(2)=0.0_LDP
 	RATIO_OM=0.0_LDP
@@ -13025,6 +13110,7 @@ C
 	          WRC_ADEL=VOLD
 	        END IF
 	        RES=MAX(RES,T1)
+	        RES_BND=MAX(RES_BND,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(L_QP)CALL KN_Q_ACCUM(T1,VOLD,
 	1       VOLD.GT.1.0E-4_LDP*VMAXF(L),INWARD)
@@ -13082,6 +13168,7 @@ C
 	          WRC_ADEL=ABS(VNEW-VOLD)
 	        END IF
 	        RES=MAX(RES,T1)
+	        RES_INT=MAX(RES_INT,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(L_QP)CALL KN_Q_ACCUM(T1,ABS(VNEW-VOLD),
 	1       MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)
@@ -13117,42 +13204,24 @@ C
 ! FG_ORD_P2N times in a row rides a lambda<0 mode the bulk
 ! KN_SGN_SUM cannot see. P2_DMP counts flip-free passes while
 ! damped, so the collapse releases once the cell settles.
+! Insignificant cells clear the whole P2 state on the ELSE branch
+! (phase 2.29A): a stale P2_DMP otherwise kept damping an
+! unmonitored cell.
 !
-	          IF(DO_P2)THEN
-	            SGN_P=0_1
-	            IF(VNEW .GT. VOLD)SGN_P=1_1
-	            IF(VNEW .LT. VOLD)SGN_P=-1_1
-	            IF(P2_SGN(J,L) .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
-	1             SGN_P .NE. P2_SGN(J,L))THEN
-	              IF(P2_FLIP(J,L) .LT. 100_1)
-	1               P2_FLIP(J,L)=P2_FLIP(J,L)+1_1
-	              IF(INT(P2_FLIP(J,L)) .GE. FG_ORD_P2N)
-	1               P2_DMP(J,L)=1_1
-	            ELSE
-	              P2_FLIP(J,L)=0_1
-	              IF(P2_DMP(J,L) .GT. 0_1)THEN
-	                P2_DMP(J,L)=P2_DMP(J,L)+1_1
-	                IF(INT(P2_DMP(J,L)) .GT. FG_ORD_P2REL)
-	1                 P2_DMP(J,L)=0_1
-	              END IF
-	            END IF
-	            P2_SGN(J,L)=SGN_P
-	          END IF
+	          IF(DO_P2)CALL KN_P2_TRACK(P2_SGN(J,L),P2_FLIP(J,L),
+	1       P2_DMP(J,L),VOLD,VNEW,FG_ORD_P2N,FG_ORD_P2REL)
+	        ELSE
+	          IF(DO_P2)CALL KN_P2_CLEAR(P2_SGN(J,L),P2_FLIP(J,L),
+	1       P2_DMP(J,L))
 	        END IF
 !
-! Damped commit: for a pure multiplicative period-2 mode the
-! geometric midpoint of the flip bracket is the fixed point itself
-! (F(x)/x* = x*/x), and in general a bounded step inside the
-! bracket -- the relaxation path changes, the fixed point does not.
-! Arithmetic fallback covers a zero endpoint.
+! Damped commit: only reachable with P2_DMP live, which now
+! implies this cell passed the significance test this pass
+! (phase 2.29A stale-state fix).
 !
 	        IF(DO_P2)THEN
 	          IF(P2_DMP(J,L) .GT. 0_1)THEN
-	            IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
-	              FLD(J,L)=SQRT(VOLD*VNEW)
-	            ELSE
-	              FLD(J,L)=0.5_LDP*(VOLD+VNEW)
-	            END IF
+	            FLD(J,L)=KN_P2_MID(VOLD,VNEW)
 	            NP2_CNT=NP2_CNT+1
 	          ELSE
 	            FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
@@ -13209,6 +13278,7 @@ C
 	        WRC_ADEL=ABS(VNEW-VOLD)
 	      END IF
 	      RES=MAX(RES,T1)
+	      RES_BND=MAX(RES_BND,T1)
 	      RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	      IF(L_QP)CALL KN_Q_ACCUM(T1,ABS(VNEW-VOLD),
 	1     MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)
@@ -13219,34 +13289,15 @@ C
 	          NBAD_CUR=NBAD_CUR+1
 	          IF(.NOT. L_QP)CALL BID_PUSH(NI,L,INWARD)
 	        END IF
-	        IF(DO_P2)THEN
-	          SGN_P=0_1
-	          IF(VNEW .GT. VOLD)SGN_P=1_1
-	          IF(VNEW .LT. VOLD)SGN_P=-1_1
-	          IF(P2_SGN(NI,L) .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
-	1           SGN_P .NE. P2_SGN(NI,L))THEN
-	            IF(P2_FLIP(NI,L) .LT. 100_1)
-	1             P2_FLIP(NI,L)=P2_FLIP(NI,L)+1_1
-	            IF(INT(P2_FLIP(NI,L)) .GE. FG_ORD_P2N)
-	1             P2_DMP(NI,L)=1_1
-	          ELSE
-	            P2_FLIP(NI,L)=0_1
-	            IF(P2_DMP(NI,L) .GT. 0_1)THEN
-	              P2_DMP(NI,L)=P2_DMP(NI,L)+1_1
-	              IF(INT(P2_DMP(NI,L)) .GT. FG_ORD_P2REL)
-	1               P2_DMP(NI,L)=0_1
-	            END IF
-	          END IF
-	          P2_SGN(NI,L)=SGN_P
-	        END IF
+	        IF(DO_P2)CALL KN_P2_TRACK(P2_SGN(NI,L),P2_FLIP(NI,L),
+	1       P2_DMP(NI,L),VOLD,VNEW,FG_ORD_P2N,FG_ORD_P2REL)
+	      ELSE
+	        IF(DO_P2)CALL KN_P2_CLEAR(P2_SGN(NI,L),P2_FLIP(NI,L),
+	1       P2_DMP(NI,L))
 	      END IF
 	      IF(DO_P2)THEN
 	        IF(P2_DMP(NI,L) .GT. 0_1)THEN
-	          IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
-	            FLD(NI,L)=SQRT(VOLD*VNEW)
-	          ELSE
-	            FLD(NI,L)=0.5_LDP*(VOLD+VNEW)
-	          END IF
+	          FLD(NI,L)=KN_P2_MID(VOLD,VNEW)
 	          NP2_CNT=NP2_CNT+1
 	        ELSE
 	          FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
@@ -13317,6 +13368,7 @@ C
 	          WRC_ADEL=ABS(VNEW-VOLD)
 	        END IF
 	        RES=MAX(RES,T1)
+	        RES_INT=MAX(RES_INT,T1)
 	        RES_FREQ(L)=MAX(RES_FREQ(L),T1)
 	        IF(L_QP)CALL KN_Q_ACCUM(T1,ABS(VNEW-VOLD),
 	1       MAX(VOLD,ABS(VNEW)).GT.1.0E-4_LDP*VMAXF(L),INWARD)
@@ -13340,36 +13392,22 @@ C
 	          END IF
 !
 ! P2 tracking (KN_ORD_P2DAMP): same per-cell sign-flip test as the
-! inward march above.
+! inward march above, with the same insignificant-cell clear.
 !
-	          IF(DO_P2)THEN
-	            SGN_P=0_1
-	            IF(VNEW .GT. VOLD)SGN_P=1_1
-	            IF(VNEW .LT. VOLD)SGN_P=-1_1
-	            IF(P2_SGN(J,L) .NE. 0_1 .AND. SGN_P .NE. 0_1 .AND.
-	1             SGN_P .NE. P2_SGN(J,L))THEN
-	              IF(P2_FLIP(J,L) .LT. 100_1)
-	1               P2_FLIP(J,L)=P2_FLIP(J,L)+1_1
-	              IF(INT(P2_FLIP(J,L)) .GE. FG_ORD_P2N)
-	1               P2_DMP(J,L)=1_1
-	            ELSE
-	              P2_FLIP(J,L)=0_1
-	              IF(P2_DMP(J,L) .GT. 0_1)THEN
-	                P2_DMP(J,L)=P2_DMP(J,L)+1_1
-	                IF(INT(P2_DMP(J,L)) .GT. FG_ORD_P2REL)
-	1                 P2_DMP(J,L)=0_1
-	              END IF
-	            END IF
-	            P2_SGN(J,L)=SGN_P
-	          END IF
+	          IF(DO_P2)CALL KN_P2_TRACK(P2_SGN(J,L),P2_FLIP(J,L),
+	1       P2_DMP(J,L),VOLD,VNEW,FG_ORD_P2N,FG_ORD_P2REL)
+	        ELSE
+	          IF(DO_P2)CALL KN_P2_CLEAR(P2_SGN(J,L),P2_FLIP(J,L),
+	1       P2_DMP(J,L))
 	        END IF
+!
+! Damped commit: only reachable with P2_DMP live, which now
+! implies this cell passed the significance test this pass
+! (phase 2.29A stale-state fix).
+!
 	        IF(DO_P2)THEN
 	          IF(P2_DMP(J,L) .GT. 0_1)THEN
-	            IF(VOLD .GT. 0.0_LDP .AND. VNEW .GT. 0.0_LDP)THEN
-	              FLD(J,L)=SQRT(VOLD*VNEW)
-	            ELSE
-	              FLD(J,L)=0.5_LDP*(VOLD+VNEW)
-	            END IF
+	            FLD(J,L)=KN_P2_MID(VOLD,VNEW)
 	            NP2_CNT=NP2_CNT+1
 	          ELSE
 	            FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
@@ -13603,6 +13641,15 @@ C
 	      NOSC=0
 	    END IF
 	    KN_SGN_PREV=KN_SGN_SUM
+!
+! phase 2.29A diagnostic split: whether the pinning residual sits
+! on a boundary-assigned row or a marched interior cell.
+!
+	    IF(PRINT_KNOP_DEBUG)THEN
+	      WRITE(LUER,'(A,I4,A,I5,A,I5,3(A,ES11.4))')
+	1      ' KNPASS p=',NPO,' r=',LS,' res_i=',RES_INT,
+	2      ' res_b=',RES_BND,' res=',RES
+	    END IF
 !
 ! edited 14-Oct-2026: same seed-transient floor as
 ! SWEEP_FLD -- here the residual history is a single sequence, so
