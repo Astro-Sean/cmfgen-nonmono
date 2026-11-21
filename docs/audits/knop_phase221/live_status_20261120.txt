@@ -1,0 +1,127 @@
+Phase 2.21 live-experiment status snapshot
+Taken 2026-11-20 ~22:15 CET. All numbers read from live files; nothing
+inferred from queued or incomplete jobs.
+
+== Slurm state (squeue/sacct, 22:15 CET) ==
+
+  A1   FINAL 13414391 RUNNING vipc2181 11h15m (start 10:52:11, wall 23:59h,
+        graceful-stop timer 79200 s -> ~08:52 21-Nov, requeue at wall)
+  A2   FINAL 13414398 RUNNING vipc2181 11h15m
+  A1-OBS 13414392 PENDING(Dependency)   A2-OBS 13414399 PENDING(Dependency)
+  B1   FINAL 13427111 PENDING(Nodes DOWN/DRAINED/reserved)
+  B1-OBS 13427112 PENDING(Dependency)
+  B2   FINAL 13427115 PENDING(QOSGrpCpuLimit)
+  B2-OBS 13427116 PENDING(Dependency)
+  diagcap FINAL 13429272 PENDING(QOSGrpCpuLimit)
+  obs_p221_on  13427285 PENDING(QOSGrpCpuLimit)
+  obs_p221_off 13427286 PENDING(QOSGrpCpuLimit)
+
+== Executable provenance (sha256, verified 22:xx) ==
+
+  A1/A2 cmfdist exe_frozen/93364cace2fabdd9_484f34b19ee9e205:
+    cmfgen_dev.exe 93364cace2fabdd94577f8ae983abbddd9affdb2a453e1c688a2a4f9bdc9d7de  (pre-flag, git 217049ee)
+    cmf_flux.exe   484f34b19ee9e205f6c9d3a485de707a81cab0c495c251ec1c7e79ba1888e9c2
+    manifest "exe_launched" records the same hash; exe_verify=ok.
+  B1/diagcap cmfdist
+    exe_frozen/93364cace2fabdd9_484f34b19ee9e205/exe_frozen/93364cace2fabdd9_484f34b19ee9e205
+    (doubled path; nested copy exists and resolves; hash-verified
+    identical to parent pin):
+    cmfgen_dev.exe 93364cace2fabdd94577f8ae983abbddd9affdb2a453e1c688a2a4f9bdc9d7de
+    cmf_flux.exe   484f34b19ee9e205f6c9d3a485de707a81cab0c495c251ec1c7e79ba1888e9c2
+  B2 cmfdist exe_frozen/58a699d0f37864e6_abe4725807474143:
+    cmfgen_dev.exe 58a699d0f37864e6741c5f089bbb12d8d6ee838b628ab993b6e636c0ba61732d  (post-flag, git 595f9ae7)
+    cmf_flux.exe   abe47258074741435bcd6c8389bce671ad9e29e5d074c6cd32b18f50bcb8fb26
+  obs_p221 (13427285/6): CMF_OBS_EXE points at the LIVE path
+    cmfgen_jfnk/exe/cmf_flux.exe - the binary is resolved at job start,
+    not at submission. exe/cmf_flux.exe was rebuilt 17:28 for the
+    user's Phase 2.22 work and is now sha256
+    806832f6e00cf3bef8821c4955c13a756a798c04e4f0cc1e42062646da47892f,
+    NOT the abe47258 recorded at staging. Both arms share the same live
+    path so the on/off comparison stays internally consistent, but the
+    executed binary will be whatever is in exe/ at launch.
+    (live cmfgen_dev.exe is now d50dcacd... - also Phase 2.22 rebuild.)
+
+== Input hashes (verified) ==
+
+  Identical across ALL arms (A1,A2,B1,B2,diagcap):
+    VADAT_INIT    f238af979b9613d3...   (authoritative runtime config)
+    SN_HYDRO_DATA 347eda19ce4f645c...
+  A1/A2 only (replicate pair):
+    MODEL_SPEC d6fd4c41e2af6437 (NUM_BNDS=1) ; IN_ITS b6d9721608adff24
+      (NUM_ITS=10000, D2_EQ_D1=F)
+    MODEL identical to each other; differs from donor MODEL only in the
+      "Model Started on" timestamp line plus the embedded VADAT-key echo
+      (probe-arm keys, FIX_INB_T=F FIX_X_DPTH=0 consistent with VADAT_INIT).
+  B1/B2/diagcap (controlled pair + diagnostic clone):
+    MODEL_SPEC c055864c631948d9 (NUM_BNDS=3 staged; runtime normalizes
+      3 -> 1 under SOL_METH=DIAG - A1 OUTGEN line "NUM_BNDS: 3 -> 1")
+    IN_ITS 6c54d385c84f51c7 (template NUM_ITS=60; slurm rewrites to 10000
+      at launch - run_cmfgen_SINGLE_FINAL.slurm NUM_ITS restore block)
+  Runtime VADAT (A1, generated 10:52): FIX_INB_T=F, FIX_X_DPTH=0,
+    SOL_METH=DIAG, KN_MAT_FREEZE=T, KN_SEED_ARM=3 - identical resolved
+    physics across A/B arms via identical VADAT_INIT.
+
+== Initial checkpoint hashes ==
+
+  Donor: m15_2p82d_KNOP_iso_M it157 (files dated 12-Nov 15:48).
+  B1/B2/diagcap staged copies hash-verified identical to donor:
+    SCRTEMP        (population chkpt) 5704dc486d6f5a16f318...
+    FGINEXT_GS     (radiation-field)  48077bb365c20760f609...
+    MODEL                              c187873d6db028fccff3...
+    CUR_MODEL_DATA                     8936579564b519d08690...
+    POINT1/POINT2  91634fb5c1667304...  (IREC=157, NITSF=157)
+  A1/A2: warm-restart confirmed by OUTGEN (first BA-SOLVE at it=158 =
+  donor it157 + 1). Live POINT1/POINT2/SCRTEMP have been overwritten by
+  the running jobs (A1 now IREC=409, A2 IREC=427); the initial files
+  were the same Nov-12 donor copies staged at submission. A1 vs A2
+  initial conditions identical (all staged inputs hash-equal).
+
+== A1/A2 live progress (pre-flag; no FG_RF_ALL_CONV lines exist) ==
+
+  A1: it=409, refresh 253 @ 22:05 extraction; A2: it=427, refresh 271.
+  A1 and A2 per-refresh residual sequences are BYTE-IDENTICAL over all
+  252 common refreshes - deterministic replicates (same binary, inputs,
+  node, thread count). A2 runs ~18 it ahead on wall-clock jitter only.
+
+  Per-refresh (both arms):
+    refresh residual max : median 6.4713E-2, range [3.45E-2, 7.52E-2],
+      sub-5% refreshes: #96 (3.450E-2), #180 (4.260E-2) - 2/252 only
+    retained-field delta : median 5.00E-2 (exact FG_COMMIT_NC cap
+      value from saturated capped commits - resolved in
+      persistent_ray_analysis.md sec.10, not a display floor),
+      range [2.54E-2, 6.83E-1]; transient 6.83E-1 -> ~5E-2 by r6
+    sweep drift sw       : median ~5.7E-2
+    commit verdicts      : 251 x committed=81 capped=2 unsolved=1;
+                           1 x committed=80 capped=3 (refresh 1)
+    ray exits            : tol=65 bulk=16 stall=3 cap=0 div=0 plat=0
+      (dominant block; stall includes probe ray 83 -> production stall
+      =2); unsolved=1 (NI=1 ray). exact=0 every refresh.
+    KN-CEN offender set  : refresh 1 large set {(1..5,25..28)ch2,50ch1,
+      83ch2}; refresh 2 onward locked {(22,45,50) ch1, (83) ch2} - only
+      2 distinct sets in 271 refreshes.
+    MAXCH                : demand ~8.21E+1, applied 0.0, [HELD] every call
+    Model Convergence    : 50% constant (by design under KN_MAT_FREEZE=T)
+    Mode history (A1)    : it158-160 gs_freeze_forced frozen=T;
+      it161 release_damped (GS release, cap 3.0); it162
+      release_no_progress count=1; it163+ hold_pops only, frozen=F
+    counters             : immature-field iteration last=3;
+      no-progress releases printed 0 (diagnostic bookkeeping under
+      MAT_FREEZE, per Part B caution)
+
+== Observer route ==
+
+  No p221 OBS output exists (jobs pending). Staging verified: run_diag_on
+  vs run_diag_off differ only in PRINT_KNOP_DEBUG T/F;
+  DO_KNOP_SPEC_GATE=F in both; both link the seed_b (pre-flag,
+  unconverged) model files. Stale OUT_FLUX/batobs.log present in the
+  staging dirs are inherited from the obs_p219 clone - NOT p221 job
+  products.
+  obs_p219 user run (cmf_flux_p219 test binary, 13:02): OUT_FLUX header
+  only; "KNOP spectrum gate override: KNOP_IMMATURE - writing a marked
+  diagnostic spectrum" then early termination. No OBSFLUX.
+
+== Termination reasons ==
+
+  None yet - no job has terminated. A1/A2 cannot converge under
+  KN_MAT_FREEZE=T (populations held); expected to run to graceful stop
+  (~08:52 21-Nov) or wall (~10:52) and requeue, not terminate.
