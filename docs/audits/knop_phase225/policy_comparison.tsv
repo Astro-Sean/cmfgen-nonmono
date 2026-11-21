@@ -1,0 +1,6 @@
+policy	accepted_rays	rejected_rays	cells_masked_82P	cells_masked_81P	max_local_res_kept	weighted_resid_82P	false_conv_path
+A_strict_KN_CS_FULL	59	25(16bulk+8stag+1inv)	0	0	n/a(all)	1.16E-06	none (reference)
+B_dual_local<=6E-2+global	75(full+bulk)	9(stag+inv)	0	0	4.2E-02	1.16E-06	global weight hides O VI cells at 1-24% rel error
+C_mask_share>1E-12	unchanged(81/82 still have kept bad cells)	-	114	54	4.2E-02	-	bright cells never masked; no change in verdict
+C_mask_share>1E-6	unchanged	-	5077	79	2.8E-02	-	still 69/18 kept bad cells -> still rejected
+D_separate_physical_verdict	formal=59 FULL (unchanged)	-	n/a	n/a	n/a	-	needs measured rate/pop sensitivity before any NEGLIGIBLE label
