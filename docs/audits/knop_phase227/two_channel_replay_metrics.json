@@ -1,0 +1,18 @@
+{
+  "schema": "Phase 2.27D two-channel replay metrics; null = awaiting capture+runtime",
+  "metric_definitions": {
+    "relerr": "ABS(a-b)/MAX(ABS(a),ABS(b),REL_FLOOR), elementwise per (depth,frequency,channel) cell",
+    "rel_floor": "1.0e-300 (LDP floor; documents denominator, never rescales real data)",
+    "abserr": "ABS(a-b)",
+    "exclusions": "non-finite values counted and reported separately, never silently dropped",
+    "channels": {"1": "P outward", "2": "M inward"}
+  },
+  "provenance": {"executables": "build_v4 normal/debug hashes in completion_status.json", "decks": "v2 KNRDUMP rays 81/82/84, block 0, serial-keyed", "status": "NOT_RUN"},
+  "rays": {
+    "81": {"historical_p_maxrel": 2.656368e-4, "mode_a": null, "mode_b": null, "first_divergence": null},
+    "82": {"historical_p_maxrel": 2.442209e-4, "mode_a": null, "mode_b": null, "first_divergence": null},
+    "84": {"historical_p_maxrel": 3.487919e-8, "mode_a": null, "mode_b": null, "first_divergence": null, "control_tolerance": {"abs": 5e-15, "rel": 0.0}}
+  },
+  "required_fields_per_result": ["max_abs", "max_rel", "median_rel", "p90_rel", "p99_rel", "n_cells", "n_excluded", "exclusion_reasons", "pass_residual_history", "end_state_diff", "channel", "mode", "exe_sha256", "deck_sha256", "refresh_serial"],
+  "controller_comparison": {"mode_c": "KNAPPLY proposed-vs-applied join; first divergent pass; see controller_state_attribution.md", "mode_d": "not implemented; conditional on Mode C"}
+}
