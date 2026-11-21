@@ -73,6 +73,15 @@ tests/plots/
 tests/f90/*.csv
 tests/f90/bin/
 
+# Runtime scratch and captured data (AGENTS.md placement rules:
+# captured data and scratch artifacts are not committed)
+fort.*
+TIMING
+*.npy
+*.npz
+exe/
+unit_tests/systems/_*
+
 # Local Devin agent config (skills); not part of the code
 .devin/
 
