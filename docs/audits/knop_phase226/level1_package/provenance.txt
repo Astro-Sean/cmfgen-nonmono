@@ -1,0 +1,46 @@
+=== build provenance v2 diagnostic exe ===
+date_utc: 2026-11-20T22:37:45Z
+exe: exe/cmfgen_dev_v2dump.exe
+fd78d84a02ea3249bcf3bc0edaffc572ffc353ad33e8b75a019457f4f8d72904  exe/cmfgen_dev_v2dump.exe
+size: 16711984
+
+=== pinned production exe restored ===
+d50dcacd756088e3b61667edbaf10a0dfd80aab0ee5ac1a499e3c1605d18aba6  exe/cmfgen_dev.exe
+
+=== git ===
+e28833fe9d1286c9b92f909f559d92d28f4f7cd1
+ M docs/audits/CMFGEN_PHASE221_LIVE_AND_OBSERVER_VALIDATION.md
+ M docs/audits/knop_phase221/README_pending.md
+ M new_main/mod_subs/rd_control_variables.f
+ M plane/fg_j_cmf_nonmono_v1.f
+?? TIMING
+?? docs/audits/CMFGEN_KNOP_PHASE222_REFRESH_STALL_AUDIT.md
+?? docs/audits/CMFGEN_PHASE222_OUTER_BOUNDARY_RESIDUAL_ATTRIBUTION.md
+?? docs/audits/CMFGEN_PHASE223_PERIOD2_AND_DAMPING_AUDIT.md
+?? docs/audits/CMFGEN_PHASE224_RESIDUAL_NORMALIZATION_AND_REPLAY_AUDIT.md
+?? docs/audits/CMFGEN_PHASE225_PHYSICAL_RESIDUAL_AND_ACCEPTANCE_POLICY.md
+?? docs/audits/knop_phase221/live_status_20261120.txt
+?? docs/audits/knop_phase221/persistent_ray_analysis.md
+?? docs/audits/knop_phase222/
+?? docs/audits/knop_phase223/
+?? docs/audits/knop_phase224/
+?? docs/audits/knop_phase225/
+?? docs/audits/knop_phase226/
+?? exe/
+?? fort.4
+?? unit_tests/f90/drv_knop_replay.f90
+
+=== compiler ===
+ifort (IFORT) 2021.11.1 20231117
+Copyright (C) 1985-2023 Intel Corporation.  All rights reserved.
+ifort (IFORT) 2021.11.1 20231117
+Copyright (C) 1985-2023 Intel Corporation.  All rights reserved.
+
+=== archives ===
+178f96cd944356898e2b2bced0cadef0082fc6cf6ecf7f24fd284afe5b93c591  lib/libsubs.a
+873c53a581bc219716f384909b357b5aab6b6d2f268f72221c7dea01ca9f3125  lib/libmod.a
+
+=== key source hashes ===
+fa265b503c80fa705ee2ee8fa7deadcf7c74fc5a576635f54a4fe510e2905998  plane/fg_j_cmf_nonmono_v1.f
+b4593dafb7532b90e4a4937ef52315fdc9e35bf7cbd7465efe5173b3523a0080  new_main/mod_subs/rd_control_variables.f
+7371c687d1298f708c78252b6b2785b291f96df175b7dea721aa18460bed709c  unit_tests/f90/drv_knop_replay.f90
