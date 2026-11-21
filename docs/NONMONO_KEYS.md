@@ -340,6 +340,12 @@ All default F; instrumentation only - they change output, not the
 solve.
 
 - `GS_DRIFT_DIAG` - per-iteration drift reporting.
+- `KN_BADID` - cross-refresh bad-cell identity census (round-2
+  phase-2): each ray's last-pass above-`KN_RAY_TOL` cells are
+  recorded as packed (ray,freq,point,channel) ids on sparse
+  per-ray lists; the serial epilogue merges and diffs consecutive
+  censuses (intersection, newly bad, recovered, Jaccard, per-
+  channel split). Diagnostic only; criterion and count unchanged.
 - `KN_LUM_TRACE` - first-detection scan of `STEQ_T` after each
   energy-equation accumulation site (site, freq, depth, operands).
 - `KN_WATCH_CELL`/ray lifecycle prints.
