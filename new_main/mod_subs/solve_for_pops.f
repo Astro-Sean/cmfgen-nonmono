@@ -499,8 +499,9 @@
 	1    CONV_TRC_ACTIVE,CONV_TRC_OFF,CONV_TRC_REL,CONV_ALL
 	CHARACTER(LEN=160) CONV_FAILS
 	INTEGER CONV_NPASS,CONV_NPCT
-	REAL(KIND=LDP) CONV_MGN
-	CHARACTER(LEN=8) CONV_MGN_CH
+	REAL(KIND=LDP) CONV_MGN,CONV_REL_MGN,CONV_TRB_MGN
+	CHARACTER(LEN=8) CONV_MGN_CH,CONV_REL_CH,CONV_REL_WHY
+	CHARACTER(LEN=20) CONV_REL_STR,CONV_TRB_STR
 !
 ! N_MATURE counts consecutive calls on which the raw maturity gate
 ! passes; GS_REL_STABLE consecutive mature sweeps are required before
@@ -4508,42 +4509,51 @@
 ! passed.
 !
 	  CONV_NPCT=NINT(100.0_LDP*CONV_NPASS/9.0_LDP)
-	  CONV_MGN=-99.0_LDP
-	  CONV_MGN_CH='none'
-	  IF(EPS .GT. 0.0_LDP .AND. BA_EX_MAXCH .GT. 0.0_LDP .AND.
-	1     LOG10(BA_EX_MAXCH/EPS) .GT. CONV_MGN)THEN
-	    CONV_MGN=LOG10(BA_EX_MAXCH/EPS)
-	    CONV_MGN_CH='ex_maxch'
-	  END IF
-	  IF(EPS .GT. 0.0_LDP .AND. BA_DEM_EXM .GT. 0.0_LDP .AND.
-	1     LOG10(BA_DEM_EXM/MAX(10.0_LDP*EPS,1.0_LDP)) .GT. CONV_MGN)
-	2    THEN
-	    CONV_MGN=LOG10(BA_DEM_EXM/MAX(10.0_LDP*EPS,1.0_LDP))
-	    CONV_MGN_CH='exm'
-	  END IF
-	  IF(EPS .GT. 0.0_LDP .AND. BA_DEM_EXR .GT. 0.0_LDP .AND.
-	1     LOG10(BA_DEM_EXR/MAX(10.0_LDP*EPS,1.0_LDP)) .GT. CONV_MGN)
-	2    THEN
-	    CONV_MGN=LOG10(BA_DEM_EXR/MAX(10.0_LDP*EPS,1.0_LDP))
-	    CONV_MGN_CH='exr'
-	  END IF
-	  IF(BA_TR_MAXSWP .GT. 0 .AND. BA_TR_ABSMAX .GT. 0.0_LDP .AND.
-	1     BA_TR_ABS .GT. 0.0_LDP .AND.
-	2     LOG10(BA_TR_ABS/BA_TR_ABSMAX) .GT. CONV_MGN)THEN
-	    CONV_MGN=LOG10(BA_TR_ABS/BA_TR_ABSMAX)
-	    CONV_MGN_CH='trabs'
-	  END IF
+!
+! Worst-margin report (edited 19-Nov-2026, round-2 audit): the old
+! block priced every channel against its threshold and let a
+! saturated BA_DEM_EXM win the slot, printing e.g.
+! "worst margin 59.8 dex (exm)" while the actually binding gate was
+! ex_maxch. CONV_MARGIN_EVAL (LAM_HANDOFF_MOD) derives each
+! channel's release state from the same predicates the exit gate
+! applies: the 'worst active margin' is taken over channels that
+! hold the exit only, the largest released demand prints on the
+! 'conv marg' row with its release leg (SAT/small/trc), and the
+! Stage-B absolute demand is reported in its own slot -- it is not
+! a release of the exempted-demand gate and never joins the SAT
+! channel. Raw BA_DEM_* values are untouched.
+!
+	  CALL CONV_MARGIN_EVAL(EPS,BA_EX_MAXCH,BA_DEM_EXM,BA_DEM_EXR,
+	1    BA_SAT_RAW,CONV_TRC_NEED,CONV_TRC_REL,BA_TR_ABS,
+	2    BA_TR_ABSMAX,BA_TR_MAXSWP,CONV_MGN,CONV_MGN_CH,
+	3    CONV_REL_MGN,CONV_REL_CH,CONV_REL_WHY,CONV_TRB_MGN)
 	  IF(CONV_MGN .GT. -98.0_LDP)THEN
 	    WRITE(TEMP_CHAR,'(F7.2)')CONV_MGN
 	  ELSE
 	    TEMP_CHAR='    n/a'
 	  END IF
+	  IF(CONV_REL_MGN .GT. -98.0_LDP)THEN
+	    WRITE(CONV_REL_STR,'(F7.2)')CONV_REL_MGN
+	  ELSE
+	    CONV_REL_STR='    n/a'
+	  END IF
+	  IF(CONV_TRB_MGN .GT. -98.0_LDP)THEN
+	    WRITE(CONV_TRB_STR,'(F7.2)')CONV_TRB_MGN
+	  ELSE IF(BA_TR_MAXSWP .GT. 0)THEN
+	    CONV_TRB_STR='    n/a'
+	  ELSE
+	    CONV_TRB_STR='     off'
+	  END IF
 	  CONV_ST='[MET]  '
 	  IF(.NOT. CONV_ALL)CONV_ST='[HOLD] '
 	  WRITE(LUER,'(4X,A14,2X,A,1X,I3,A,A,A,A,A,1X,A)')
-	1    'conv exit',CONV_ST,CONV_NPCT,'%, worst margin ',
+	1    'conv exit',CONV_ST,CONV_NPCT,'%, worst active margin ',
 	2    TRIM(TEMP_CHAR),' dex (',TRIM(CONV_MGN_CH),')',
 	3    'gates:'//TRIM(CONV_FAILS)
+	  WRITE(LUER,'(4X,A14,2X,A,A,A,A,A,A,A,A,A)')
+	1    'conv marg','released ',TRIM(CONV_REL_STR),' dex (',
+	2    TRIM(CONV_REL_CH),', ',TRIM(CONV_REL_WHY),')',
+	3    '  stageB ',TRIM(CONV_TRB_STR)
 	  WRITE(LUER,'(4X,A,I3,A)')
 	1    'Model Convergence:',CONV_NPCT,' %'
 	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
