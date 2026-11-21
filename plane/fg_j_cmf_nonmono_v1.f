@@ -943,6 +943,8 @@
         integer :: kn_replay_ls=-1,kn_replay_refresh=-1
         integer :: kn_stage_ls=-1,kn_stage_ray=-1
         logical :: kn_stage_enabled=.false.
+        logical :: kn_impose_imni=.false.
+        real(kind=ldp), allocatable :: kn_impose_row(:)
         integer(kind=8) :: kn_diag_refresh=0_8
         character(len=4096) :: kn_replay_path=''
 	INTEGER, ALLOCATABLE :: KN_DBG_NM(:,:),KN_DBG_KC1(:,:),
@@ -10746,6 +10748,14 @@ C
 !
 	call kn_stage_field('M_SOLVE_END',ls,2,np_m,fld(ni:ni,1:ncf),
      1    res_m,omega_ray)
+!
+! Imposed-M experiment (diagnostic, phase 2.27G/E2): the replay
+! driver arms KN_IMPOSE_IMNI to substitute the deck boundary row for
+! the recomputed one, isolating the P march from the M gap. The
+! stage row above still records the recomputed value. Off in
+! production.
+!
+	IF(KN_IMPOSE_IMNI)IM_NI(1:NCF)=KN_IMPOSE_ROW(1:NCF)
 !
 ! Fold this field's last-pass residuals into the hot-frequency
 ! histogram before the I_P solve overwrites RES_FREQ.
