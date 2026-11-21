@@ -1,0 +1,142 @@
+{
+  "phase": "2.27",
+  "subphase": "2.27B",
+  "status": "PARTIAL",
+  "generation_method": "Manual transcription of tool-observed build, preservation and candidate-preparation receipts; current hashes and exact commands indexed in phase227b_artifacts.json",
+  "source_commit": "e28833fe9d1286c9b92f909f559d92d28f4f7cd1",
+  "source_dirty": true,
+  "source_hashes": {
+    "plane/fg_j_cmf_nonmono_v1.f": "5cbe33221f4d65e03e99140e63181591cf5d3567edd2599d61299613abcdbe14",
+    "unit_tests/f90/drv_knop_replay.f90": "dd4be2f10b1478b135ba0094ebe741d6817bcc7c2afe18da0280b6be731d666f",
+    "unit_tests/f90/drv_phase227_io.f90": "22bc29bf5daf0a3f7c9ffbc89041139472e6242cf18be4ec2f7288e46eab3cfb"
+  },
+  "external_root": "/viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/phase227b_20261121_0604",
+  "preservation": {
+    "initial_receipt": "preservation_v2/preservation.json",
+    "tracked_diff": "preservation_v2/tracked.diff",
+    "untracked_driver": "preservation_v2/source/unit_tests/f90/drv_knop_replay.f90",
+    "before_doc_update_snapshot": "before_doc_updates",
+    "failed_attempt_preserved": "preservation"
+  },
+  "jobs": [
+    {"id": 13464217, "state": "PENDING", "reason": "JobHeldUser", "started": false, "changed_in_227B": false},
+    {"id": 13464311, "state": "PENDING", "reason": "JobHeldUser", "started": false, "changed_in_227B": false}
+  ],
+  "scheduler_actions_in_227B": [],
+  "production_executable_sha256": "d50dcacd756088e3b61667edbaf10a0dfd80aab0ee5ac1a499e3c1605d18aba6",
+  "armed_diagnostic_executable_sha256": "508e39c9e92729cd4383dd853505ae72bdd539bfbe5adfa7a2397dc24f9830ed",
+  "installed_executables_changed": false,
+  "candidate_executables": {
+    "normal": {"relative_path": "captures_v4/normal/bin/cmfgen_diagnostic.exe", "sha256": "e39a61a7d1485519d4ed5d59b6f7ee70ff5faf6f1fbefb7ef75fd468ae5e5461"},
+    "debug": {"relative_path": "captures_v4/debug/bin/cmfgen_diagnostic.exe", "sha256": "04b8261d2b3c2f90a7e87359b84a5598228f4b13a6cdfa7542608cb7e9e651af"}
+  },
+  "candidate_manifests": {
+    "normal": {"relative_path": "captures_v4/normal/manifest.json", "sha256": "fe9cc2c53fecf26f4bb65c388c876d3b7af0fcea2e45b30d8f1c45d0ce203529"},
+    "debug": {"relative_path": "captures_v4/debug/manifest.json", "sha256": "f1e41e22cb83ecfc408a8ddea1d6b10c7aaf54f9303059088ba3ab6f8730a9b3"}
+  },
+  "candidate_input_files_per_capture": 251,
+  "candidate_input_hashes_identical": true,
+  "input_read_set_certified": false,
+  "snapshot_protection": "read-only independent copies plus pre/post-copy hashes and sealed manifests; not filesystem-enforced immutability",
+  "candidate_readiness": "PREPARED_NOT_VALIDATED",
+  "candidate_execution_blocked_by_runner": true,
+  "submission_allowed": false,
+  "completed": [
+    "preserve original dirty state and held-job references",
+    "prepare separate hash-validated normal/debug candidate directories and templates",
+    "compile/link final isolated solver, replay and actual-Fortran IO harness variants",
+    "prepare actual-Fortran test fixtures without execution"
+  ],
+  "source_reviewed": [
+    "single normal multi-pass omf entry preserves sweep-local lifetime",
+    "M solved once per normal ray call; IM_NI retained through P passes",
+    "ordered pass-entry override preserves controller/stopping/history state",
+    "FLDP_END precedes Q, certification and commit",
+    "v2 retains INEXT_RELAX; deck_omega is deck metadata",
+    "strict canonical KNOMG2 and actual-application KNAPPLY semantics",
+    "stage coordinate-space and incomplete failure-path coverage"
+  ],
+  "syntax_checked": [
+    "final solver/replay/harness compiled and linked in both variants",
+    "new Python helpers passed py_compile",
+    "black/isort and git diff whitespace checks recorded separately"
+  ],
+  "metadata_validated": [
+    "both candidate manifest seals, copied input/provenance and executable hashes",
+    "identical normal/debug input hashes",
+    "linked object/source hashes unchanged during preparation"
+  ],
+  "runtime_tested": [],
+  "awaiting_capture": [
+    "actual production two-channel applied omega histories",
+    "per-pass production/replay stage comparisons for rays 81/82/84",
+    "complete 84-slot census with authoritative production/probe masks",
+    "M/P max, median, p90, p99 and stage-specific residual distributions",
+    "next-refresh retained-store seed attribution"
+  ],
+  "blocked": [
+    "no approved idle diagnostic allocation; task forbids new submissions",
+    "candidate static/restart input role closure incomplete",
+    "actual Fortran IO/control regressions not run",
+    "existing census sidecar lacks requested Q/bulk and per-cell defect/location histories",
+    "failure/heal path stage coverage and global-context replay equivalence incomplete"
+  ],
+  "not_attempted": [
+    "release/cancel/replace/resubmit held jobs",
+    "new scheduler submission or borrowing production allocation",
+    "publishing a full build to production executable/module/library paths",
+    "convergence tuning, AA/P2 enablement, free-matter run",
+    "production population/observer or acceptance-policy changes"
+  ],
+  "phase_227G": {
+    "verdict": "hot_budget_deep_audit.md: global contention ELIMINATED - archived OUTGEN shows spent=11-29/480 every refresh; cap never bound",
+    "new_facts": "IXIT=4 folds itlim/per-sweep-cap/global-reject into KN_CS_ITLIM; hot passes update full controller (RATIO_OM/OMEGA/NOSC/NSTALL/BEST/RES_PREV on window residuals), only RHO_WIN/KN_RES_PASS excluded; rejected consume exits before march+omega-inject+KNOMG row (schedule=executed passes only); stale-admission sequence source-possible but requires spent=480",
+    "ranking": "1 M-reconstruction 2 omega/controller 3 FP; budget channel dead",
+    "recommendation": "Phase 2.27H GO narrow: replay-IM_NI vs deck-IM_NI + archived census IXIT/NP for 81/82/84; no telemetry build justified",
+    "runtime": "all comparisons still NOT_RUN; PARTIAL"
+  },
+  "phase_227F": {
+    "kn_hot_spent_lifecycle": "module SAVE, INTEGER*8; reset per refresh at 8905 (pre-parallel); JFNK-eval push/pop preserves it; per-sweep NHOT cap=120 (resets before M at 10700 and P at 10800, so <=240/ray), global cap=480",
+    "openmp": "class B: spend+over-cap test atomic inside CRITICAL(KN_HOT_SPD) at 11676/12400; TRY_HOT entry read at 15024 unsynchronised - bounded: stale entry burns one unit, zero extra marches; ray loop SCHEDULE(DYNAMIC) at 9129 => allocation schedule-dependent, production itself an ensemble over thread schedules",
+    "deck": "limits KN_RAY_HOTPASSES/KN_HOT_TOTAL_PASSES in deck header (11524); spent/allocation/NHOT not in deck",
+    "replay_modes": "A=fresh budget (ray-local only); B=schedule-bound (recorded pass count already encodes hot passes); C=per-sweep executed-hot allowance sufficient - global order need not be replayed (monotone atomic consume); NOT implemented",
+    "docs": ["hot_budget_source_audit.md","hot_budget_openmp_audit.md","hot_budget_telemetry_design.md","replay_budget_semantics.md","full_refresh_capture_design.md"],
+    "runtime": "all NOT_RUN; telemetry designed but not implemented"
+  },
+  "phase_227E": {
+    "m_to_p_audit": "m_state_dependency_audit.md: IM_NI is the ONLY M quantity P consumes and IS in the deck (phase-1, post-M); deck lacks full FLD, RES_M/IXIT_M/NP_M, M omega, M schedule, KN_HOT_SPENT",
+    "new_divergence_channel": "KN_HOT_SPENT: refresh-global shared hot-pass budget (cap 480, 120/ray), OpenMP-scheduling dependent, not in deck; replay starts fresh - affects stalling rays 81/82 in Mode A; Mode B bounded by schedule length",
+    "m_solve_end_stage": "added at IM_NI assignment; fld(ni:ni,:), RES_M, terminal omega, NP_M; syntax-checked; build_v5",
+    "build_v5_executables": {"normal": "fa6dba2ce394907cd2edf4ca5dfdb2d0428bad4b003057c93e61cd1f8844a9c4", "debug": "3ccfb703539d064aee30fa5e85046b308e7df7a2c6746f58f70216b84e904b0a"},
+    "candidate": "captures_v6 (supersedes v5 executables; same manifest fixes)",
+    "p_attribution": "p_state_attribution.md: gated on M verdict per phase ordering",
+    "runtime": "all comparisons NOT_RUN; IM_NI replay-vs-deck check is cheapest high-value test"
+  },
+  "phase_227D": {
+    "omf_lifecycle_audit": "SOURCE_REVIEWED: one KNOP_RAY_SOLVE_V1 call; M-then-P order identical; injection at pass top overwrites OMEGA_RAY with recorded applied value; l_qp verify pass correctly excluded; proposed=carried-in chain value",
+    "controller_attribution": "controller_state_attribution.md: OMEGA_RAY is both applied value and multiplicative chain state - injection re-anchors chain each pass; NOSC/RATIO/exit decisions remain replay-owned and are the only controller divergence channel (can change pass count, not omega)",
+    "first_divergence": "first_divergence_report.md: ranked hypotheses R1 M-state gap (leading), R2 schedule, R3 commit/seed, R4 FP, R5 controller side-channel; no runtime data",
+    "mode_c": "no new instrumentation needed - KNAPPLY proposed-vs-applied is the divergence measure",
+    "mode_d": "not implemented, conditional on Mode C",
+    "metrics_schema": "two_channel_replay_metrics.json: relerr denominator/floor defined; all results null"
+  },
+  "phase_227C": {
+    "captures_v5": "prepared from build_v4 executables; corrects v4 manifest gaps (CMF_KN_RF_MB env pin, work/data runtime dir)",
+    "captures_v4": "preserved unchanged",
+    "read_set": "read_set_audit.md/json: static closure complete-by-construction; observed trace, fresh-vs-warm restart and species-dynamic coverage unproven",
+    "census": "census_failure_heal_design.md: per-refresh rows OK; defect location, first-failure pass, Q/bulk residual missing",
+    "approval": "capture_approval_checklist.json: overall BLOCKED; gates 1,6,7,9,10,11 await allocation; gate 12 partial"
+  },
+  "runtime_test_plans": ["io_tests_v4_normal/test_plan.json", "io_tests_v4_debug/test_plan.json"],
+  "superseded_artifacts_retained": ["build_v1", "build_v2", "build_v3", "captures", "io_tests_normal", "io_tests_debug", "io_tests_v2_normal", "io_tests_v2_debug"],
+  "diagnostic_refresh_identity": "KN_DIAG_REFRESH: process-local integer(kind=8), incremented once per eligible armed outer refresh; shared by stage/omega/cell/census output and deck filenames; original ledger counters unchanged",
+  "ray84_control": {"reference_p_maxdiff": 3.487919e-8, "planned_abs_tolerance": 5e-15, "planned_relative_tolerance": 0, "current_result": null, "status": "NOT_RUN"},
+  "o0_o3_current_bytewise_result": null,
+  "v2_parser_runtime_regression": "NOT_RUN; parser code unchanged",
+  "per_refresh_per_ray_classifications": null,
+  "per_ray_transition_histories": null,
+  "omega_histories": null,
+  "recorded_omega_replay_metrics": null,
+  "per_ray_residual_summaries": null,
+  "historical_summary_caveat": "No production contraction, fixed-point error, omega-independence or complete-census claim. Seed-omega maxdiff sensitivity does not answer M-channel percentile questions."
+}
