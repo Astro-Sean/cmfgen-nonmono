@@ -476,6 +476,27 @@
 !
 	REAL(KIND=LDP), SAVE :: FG_SW_MAXCHG=0.0_LDP
 	INTEGER*8, SAVE :: FG_SW_NCONV=0
+!
+! FG_GS_MAXSYM / FG_SW_MAXSYM (diagnostic, round-2 phase-2): the
+! symmetric companion of the one-sided store drift. Same census and
+! numerator as FG_GS_MAXCHG (|capped-fresh - stored| on the NEW_FREQ
+! significant cells), but the denominator is
+! MAX(|fresh|,|stored|,1e-4*ray-peak) instead of MAX(stored,floor) --
+! a cell whose old and new values differ by orders of magnitude can
+! never read above 1, so the one-sided metric's magnitude-blowup
+! cases are distinguishable from true order-unity churn. Same W4
+! split: FG_GS_MAXSYM accumulates in-sweep, FG_SW_MAXSYM snapshots it
+! before the refresh residual overwrites FG_GS_MAXCHG. Diagnostic
+! only -- it never enters a convergence gate. FG_GS_SYMK/R/L/C
+! carry its argmax (depth, ray, frequency, channel 1=P 2=M);
+! FG_SW_SYMK/R/L/C hold the same cell at snapshot time.
+!
+	REAL(KIND=LDP), SAVE :: FG_GS_MAXSYM=0.0_LDP
+	REAL(KIND=LDP), SAVE :: FG_SW_MAXSYM=0.0_LDP
+	INTEGER, SAVE :: FG_GS_SYMK=0, FG_GS_SYMR=0, FG_GS_SYML=0
+	INTEGER, SAVE :: FG_GS_SYMC=0
+	INTEGER, SAVE :: FG_SW_SYMK=0, FG_SW_SYMR=0, FG_SW_SYML=0
+	INTEGER, SAVE :: FG_SW_SYMC=0
 	INTEGER, SAVE :: FG_GS_NDIV=0
 	INTEGER*8, SAVE :: FG_GS_NBAD_BLK=-1
 	INTEGER*8, SAVE :: FG_GS_NTOT_BLK=0
@@ -636,6 +657,10 @@
 ! telemetry comes back exactly, whatever the eval left behind.
 !
 	REAL(KIND=LDP), SAVE :: FG_EVAL_MAXCHG,FG_EVAL_SWMX
+	REAL(KIND=LDP), SAVE :: FG_EVAL_GSYM,FG_EVAL_SSYM
+	INTEGER, SAVE :: FG_EVAL_SYK,FG_EVAL_SYR,FG_EVAL_SYL
+	INTEGER, SAVE :: FG_EVAL_SYC,FG_EVAL_SWK,FG_EVAL_SWR
+	INTEGER, SAVE :: FG_EVAL_SWL,FG_EVAL_SWC
 	REAL(KIND=LDP), SAVE :: FG_EVAL_RFD,FG_EVAL_RFP,FG_EVAL_RFRES
 	REAL(KIND=LDP), SAVE :: FG_EVAL_INRLX,FG_EVAL_RFPRV
 	REAL(KIND=LDP), SAVE :: FG_EVAL_ARGV(4)
@@ -1745,6 +1770,41 @@
 	INTEGER, SAVE :: KN_GEO_NB=8
 	TYPE(KN_GEO_REP), ALLOCATABLE, SAVE :: KN_GEO_REPS(:,:)
 !
+! KN_BADID_* (diagnostic, [KN_BADID], default FALSE): bad-cell
+! identity tracking across refreshes. FG_GS_NBAD only counts the
+! cells the last pass left above KN_RAY_TOL; the count alone cannot
+! say whether the same cells persist (a localized contractive
+! tail), churn (a moving population), or alternate (a period-2
+! mode). Each (ray,directional solve) records its last-pass bad
+! cells as packed ids on a per-(ray,channel) sparse list: a full
+! (point x freq) bitset would cost ~77 MB per refresh and the
+! candidate space is ~6e8 cells, while real bad counts run
+! ~1e4-1e5, so sparse int*8 lists are orders of magnitude smaller.
+! KN_BADRAY(LS,ICH) is touched only by the thread solving ray LS,
+! so the parallel ray loop stays race-free; the serial epilogue
+! merges the lists into a sorted unique census and compares it
+! against the previous refresh's census (intersection/union ->
+! Jaccard, newly bad, recovered). KN_BADID_CAP bounds any one
+! channel list: a ray that would exceed it (or hits an allocation
+! failure) marks its channel N=-1 and the census degrades to
+! partial -- solver behaviour is never affected. The id packs
+! (ray,freq,point,channel) with fixed strides so identity is
+! deterministic across refreshes on a fixed ray/frequency grid.
+!
+	LOGICAL, SAVE :: KN_BADID_ON=.FALSE.
+	INTEGER*8, PARAMETER :: KN_BADID_CAP=16000000_8
+	TYPE KN_BLIST_T
+	  INTEGER*8, ALLOCATABLE :: V(:)
+	  INTEGER*8 :: N=0_8
+	END TYPE KN_BLIST_T
+	TYPE(KN_BLIST_T), ALLOCATABLE, SAVE :: KN_BADRAY(:,:)
+	INTEGER*8, ALLOCATABLE, SAVE :: KN_BID_PRV(:)
+	INTEGER*8, SAVE :: KN_BID_NC=0_8,KN_BID_NP=-1_8
+	INTEGER*8, SAVE :: KN_BID_INT=0_8,KN_BID_NEW=0_8
+	INTEGER*8, SAVE :: KN_BID_GONE=0_8,KN_BID_NUNTR=0_8
+	INTEGER*8, SAVE :: KN_BID_INTC(2)=0_8,KN_BID_NCC(2)=0_8
+	REAL(KIND=LDP), SAVE :: KN_BID_JAC=-1.0_LDP
+!
 ! KN_COEF_FP*: frozen-coefficient fingerprints (diagnostic). At the
 ! freeze arm event the raw KN_CHI_EXT/KN_ETA_EXT snapshots are
 ! summed into KN_COEF_FP(1:2); each refresh then re-sums the
@@ -1776,6 +1836,80 @@
 	DATA KN_COEF_HSH_BAD /0_8/
 !
 	CONTAINS
+
+! The symmetric drift formula is shared by the two in-sweep census
+! sites so both (and the unit tests) see one definition. Floor is
+! the per-ray 1e-4 peak passed in by the caller -- channel-specific
+! (VMAX_IP for P, VMAX_IM for M), matching the one-sided metric.
+
+        function fg_dsym_val(fresh,stored,floor) result(dval)
+        implicit none
+        real(kind=ldp), intent(in) :: fresh,stored,floor
+        real(kind=ldp) :: dval
+        dval=abs(fresh-stored)/
+     1    max(abs(fresh),abs(stored),floor)
+        end function fg_dsym_val
+
+! Single accumulation point for the symmetric maximum so the
+! census sites cannot disagree on the argmax bookkeeping. Both
+! sites must call it for every significant cell where the
+! one-sided metric is also evaluated -- a skipped cell here is a
+! skipped cell in the one-sided census too.
+
+        subroutine fg_sym_acc(dval,k,ls,l,idir)
+        implicit none
+        real(kind=ldp), intent(in) :: dval
+        integer, intent(in) :: k,ls,l,idir
+        if(dval.gt.fg_gs_maxsym)then
+            fg_gs_maxsym=dval
+            fg_gs_symk=k
+            fg_gs_symr=ls
+            fg_gs_syml=l
+            fg_gs_symc=idir
+        end if
+        end subroutine fg_sym_acc
+
+! In-place heapsort for the merged bad-cell id list (KN_BADID):
+! the list is INTEGER*8, so INDEXX's LDP array would lose the low
+! channel/point bits above 2^53. No workspace allocation -- the
+! census merge already holds one full-size buffer.
+
+        subroutine kn_i8sort(a)
+        implicit none
+        integer(kind=8), intent(inout) :: a(:)
+        integer(kind=8) :: n,l,ir,i,j,q
+        n=size(a)
+        if(n<2_8)return
+        l=n/2_8+1_8
+        ir=n
+        do
+            if(l>1_8)then
+                l=l-1_8
+                q=a(l)
+            else
+                q=a(ir)
+                a(ir)=a(1)
+                ir=ir-1_8
+                if(ir==1_8)then
+                    a(1)=q
+                    return
+                end if
+            end if
+            i=l
+            j=l+l
+            do while(j<=ir)
+                if(j<ir .and. a(j)<a(j+1_8))j=j+1_8
+                if(q<a(j))then
+                    a(i)=a(j)
+                    i=j
+                    j=j+j
+                else
+                    j=ir+1_8
+                end if
+            end do
+            a(i)=q
+        end do
+        end subroutine kn_i8sort
 
         subroutine kn_replay_fail(path,ray,pass,message)
         use, intrinsic :: iso_fortran_env, only: error_unit
@@ -2597,6 +2731,16 @@
 	FG_EVAL_ARGK=FG_GS_ARGK
 	FG_EVAL_ARGR=FG_GS_ARGR
 	FG_EVAL_ARGL=FG_GS_ARGL
+	FG_EVAL_GSYM=FG_GS_MAXSYM
+	FG_EVAL_SSYM=FG_SW_MAXSYM
+	FG_EVAL_SYK=FG_GS_SYMK
+	FG_EVAL_SYR=FG_GS_SYMR
+	FG_EVAL_SYL=FG_GS_SYML
+	FG_EVAL_SYC=FG_GS_SYMC
+	FG_EVAL_SWK=FG_SW_SYMK
+	FG_EVAL_SWR=FG_SW_SYMR
+	FG_EVAL_SWL=FG_SW_SYML
+	FG_EVAL_SWC=FG_SW_SYMC
 	FG_EVAL_ARGHK=FG_ARG_HK
 	FG_EVAL_ARGHR=FG_ARG_HR
 	FG_EVAL_ARGHL=FG_ARG_HL
@@ -2650,6 +2794,16 @@
 	FG_GS_ARGK=FG_EVAL_ARGK
 	FG_GS_ARGR=FG_EVAL_ARGR
 	FG_GS_ARGL=FG_EVAL_ARGL
+	FG_GS_MAXSYM=FG_EVAL_GSYM
+	FG_SW_MAXSYM=FG_EVAL_SSYM
+	FG_GS_SYMK=FG_EVAL_SYK
+	FG_GS_SYMR=FG_EVAL_SYR
+	FG_GS_SYML=FG_EVAL_SYL
+	FG_GS_SYMC=FG_EVAL_SYC
+	FG_SW_SYMK=FG_EVAL_SWK
+	FG_SW_SYMR=FG_EVAL_SWR
+	FG_SW_SYML=FG_EVAL_SWL
+	FG_SW_SYMC=FG_EVAL_SWC
 	FG_ARG_HK=FG_EVAL_ARGHK
 	FG_ARG_HR=FG_EVAL_ARGHR
 	FG_ARG_HL=FG_EVAL_ARGHL
@@ -4185,6 +4339,8 @@
 	    FREQ_IDX_ITER=0
 	    FG_GS_MAXCHG=0.0_LDP
 	    FG_GS_ARGK=0;  FG_GS_ARGR=0;  FG_GS_ARGL=0
+	    FG_GS_MAXSYM=0.0_LDP
+	    FG_GS_SYMK=0;  FG_GS_SYMR=0;  FG_GS_SYML=0;  FG_GS_SYMC=0
 	    FG_GS_NCONV=0
 	    FG_INEXT_CAPPED=0
 	    FG_SW_CAPPED=0
@@ -4199,6 +4355,8 @@
 !
 	    FG_SW_MAXCHG=0.0_LDP
 	    FG_SW_NCONV=0
+	    FG_SW_MAXSYM=0.0_LDP
+	    FG_SW_SYMK=0;  FG_SW_SYMR=0;  FG_SW_SYML=0;  FG_SW_SYMC=0
 !
 ! FG_RF_DCHG clears here too: it is only rewritten inside
 ! FG_KNOP_REFRESH_V1, so a refresh-skipped iteration would
@@ -6305,6 +6463,8 @@ C
 	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
 	                  FG_GS_ARGL=FREQ_IDX_ITER
 	                END IF
+	                CALL FG_SYM_ACC(FG_DSYM_VAL(T1,T2,
+	1            1.0E-4_LDP*VMAX_IP(LS)),K,LS,FREQ_IDX_ITER,1)
 !
 ! KNSTOR: fixed-point diagnostic for the lagged I_NEXT store. A
 ! cell whose freshly solved intensity still differs from the stored
@@ -6328,6 +6488,13 @@ C
 	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
 	                  FG_GS_ARGL=FREQ_IDX_ITER
 	                END IF
+!
+! The one-sided metric pins this branch at 1; the true symmetric
+! value distinguishes a bounded store sign flip from a magnitude
+! blowup (T2<=0 can give D_sym>1).
+!
+	                CALL FG_SYM_ACC(FG_DSYM_VAL(T1,T2,
+	1            1.0E-4_LDP*VMAX_IP(LS)),K,LS,FREQ_IDX_ITER,1)
 	              END IF
 	            END IF
 	            IF(T2 .GT. 0.0_LDP)THEN
@@ -6365,6 +6532,8 @@ C
 	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
 	                  FG_GS_ARGL=FREQ_IDX_ITER
 	                END IF
+	                CALL FG_SYM_ACC(FG_DSYM_VAL(T1,T2,
+	1            1.0E-4_LDP*VMAX_IM(LS)),K,LS,FREQ_IDX_ITER,2)
 	                IF(PRINT_KNOP_DEBUG .AND. ABS(T1-T2)/T2 .GT.
 	1                 0.25_LDP .AND.
 	2                 MAX(T1,T2) .GT. 1.0E-4_LDP*VMAX_IM(LS) .AND.
@@ -6382,6 +6551,11 @@ C
 	                  FG_GS_ARGK=K;  FG_GS_ARGR=LS
 	                  FG_GS_ARGL=FREQ_IDX_ITER
 	                END IF
+!
+! Same P-side branch note: true symmetric value, not the 1-pin.
+!
+	                CALL FG_SYM_ACC(FG_DSYM_VAL(T1,T2,
+	1            1.0E-4_LDP*VMAX_IM(LS)),K,LS,FREQ_IDX_ITER,2)
 	              END IF
 	            END IF
 	            IF(T2 .GT. 0.0_LDP)THEN
@@ -7210,6 +7384,164 @@ C
 	ARGK=FG_GS_ARGK
 	ARGR=FG_GS_ARGR
 	ARGL=FG_GS_ARGL
+	RETURN
+	END
+!
+! GET_FG_SW_SYM: read-back of the snapshot symmetric sweep drift
+! and its argmax cell (depth, ray, frequency, channel 1=P 2=M).
+! Diagnostic only; never enters a convergence gate.
+!
+	SUBROUTINE GET_FG_SW_SYM(SYM,ARGK,ARGR,ARGL,ARGC)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     FG_SW_MAXSYM,FG_SW_SYMK,FG_SW_SYMR,FG_SW_SYML,
+	2     FG_SW_SYMC
+	IMPLICIT NONE
+	REAL(KIND=LDP) SYM
+	INTEGER ARGK,ARGR,ARGL,ARGC
+	SYM=FG_SW_MAXSYM
+	ARGK=FG_SW_SYMK
+	ARGR=FG_SW_SYMR
+	ARGL=FG_SW_SYML
+	ARGC=FG_SW_SYMC
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_BADID_MERGE_V1 (diagnostic, [KN_BADID]): serial merge of the
+! per-(ray,channel) last-pass bad-cell id lists into one sorted
+! unique census, then a two-pointer diff against the previous
+! refresh's census. Reports ncur/nprev/intersection/newly bad/
+! recovered/Jaccard plus the per-channel (M=inward, P=outward)
+! split, so a persistent residual floor (Jaccard -> 1, same cells)
+! is separable from a churning or alternating population. A ray
+! whose list could not be built (growth/alloc failure) counts in
+! the untracked column and the census is reported partial rather
+! than wrong. Runs once per refresh in the serial epilogue.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_BADID_MERGE_V1(NBD,MASK,NRAY,LU)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     KN_BADRAY,KN_BID_PRV,KN_BID_NC,KN_BID_NP,
+	2     KN_BID_INT,KN_BID_NEW,KN_BID_GONE,KN_BID_NUNTR,
+	3     KN_BID_INTC,KN_BID_NCC,KN_BID_JAC,KN_I8SORT
+	IMPLICIT NONE
+	INTEGER NRAY
+	INTEGER*8 NBD(NRAY)
+	LOGICAL MASK(NRAY)
+	INTEGER LU
+	INTEGER*8 NT8,OFF8,NU8,I8,J8,CBIT
+	INTEGER LSQ,CHQ,IOSQ
+	INTEGER*8, ALLOCATABLE :: ALLQ(:)
+	NT8=0_8
+	KN_BID_NUNTR=0_8
+	DO LSQ=1,NRAY
+	  IF(.NOT. MASK(LSQ))CYCLE
+	  IF(KN_BADRAY(LSQ,1)%N .LT. 0_8 .OR.
+	1     KN_BADRAY(LSQ,2)%N .LT. 0_8)THEN
+	    KN_BID_NUNTR=KN_BID_NUNTR+1_8
+	  ELSE
+	    NT8=NT8+KN_BADRAY(LSQ,1)%N+KN_BADRAY(LSQ,2)%N
+	  END IF
+	END DO
+	KN_BID_NC=NT8
+	ALLOCATE(ALLQ(MAX(NT8,1_8)),STAT=IOSQ)
+	IF(IOSQ .NE. 0)THEN
+	  KN_BID_JAC=-1.0_LDP
+	  WRITE(LU,'(A,I14)')
+	1   '    bad-cell id: merge alloc failed, cells=',NT8
+	  RETURN
+	END IF
+	OFF8=0_8
+	DO LSQ=1,NRAY
+	  IF(.NOT. MASK(LSQ))CYCLE
+	  IF(KN_BADRAY(LSQ,1)%N .LT. 0_8 .OR.
+	1     KN_BADRAY(LSQ,2)%N .LT. 0_8)CYCLE
+	  DO CHQ=1,2
+	    IF(KN_BADRAY(LSQ,CHQ)%N .GT. 0_8)THEN
+	      ALLQ(OFF8+1_8:OFF8+KN_BADRAY(LSQ,CHQ)%N)=
+	1       KN_BADRAY(LSQ,CHQ)%V(1:KN_BADRAY(LSQ,CHQ)%N)
+	      OFF8=OFF8+KN_BADRAY(LSQ,CHQ)%N
+	    END IF
+	  END DO
+	END DO
+	CALL KN_I8SORT(ALLQ(1:OFF8))
+!
+! In-place dedup: a cell is appended once per pass per channel,
+! but the AA-reject rebuild and defensive passes could double a
+! slot -- the set compare below requires uniqueness.
+!
+	NU8=0_8
+	DO I8=1,OFF8
+	  IF(NU8 .EQ. 0_8 .OR. ALLQ(I8) .NE. ALLQ(NU8))THEN
+	    NU8=NU8+1_8
+	    ALLQ(NU8)=ALLQ(I8)
+	  END IF
+	END DO
+	KN_BID_INT=0_8; KN_BID_NEW=0_8; KN_BID_GONE=0_8
+	KN_BID_INTC=0_8; KN_BID_NCC=0_8
+	I8=1_8; J8=1_8
+	DO WHILE(I8 .LE. NU8 .OR. J8 .LE. KN_BID_NP)
+!
+! Fortran .OR. does not short-circuit: guard every KN_BID_PRV(J8)
+! read behind an explicit J8 bound so an empty previous census
+! never indexes the unallocated array.
+!
+	  IF(I8 .LE. NU8)THEN
+	    IF(J8 .LE. KN_BID_NP)THEN
+	      IF(ALLQ(I8) .LT. KN_BID_PRV(J8))THEN
+	        CBIT=MOD(ALLQ(I8),2_8)+1_8
+	        KN_BID_NEW=KN_BID_NEW+1_8
+	        KN_BID_NCC(CBIT)=KN_BID_NCC(CBIT)+1_8
+	        I8=I8+1_8
+	      ELSE IF(ALLQ(I8) .EQ. KN_BID_PRV(J8))THEN
+	        CBIT=MOD(ALLQ(I8),2_8)+1_8
+	        KN_BID_INT=KN_BID_INT+1_8
+	        KN_BID_INTC(CBIT)=KN_BID_INTC(CBIT)+1_8
+	        KN_BID_NCC(CBIT)=KN_BID_NCC(CBIT)+1_8
+	        I8=I8+1_8
+	        J8=J8+1_8
+	      ELSE
+	        KN_BID_GONE=KN_BID_GONE+1_8
+	        J8=J8+1_8
+	      END IF
+	    ELSE
+	      CBIT=MOD(ALLQ(I8),2_8)+1_8
+	      KN_BID_NEW=KN_BID_NEW+1_8
+	      KN_BID_NCC(CBIT)=KN_BID_NCC(CBIT)+1_8
+	      I8=I8+1_8
+	    END IF
+	  ELSE
+	    KN_BID_GONE=KN_BID_GONE+1_8
+	    J8=J8+1_8
+	  END IF
+	END DO
+	IF(KN_BID_NP .LT. 0_8)THEN
+	  KN_BID_JAC=-1.0_LDP
+	ELSE IF(NU8+KN_BID_NP-KN_BID_INT .GT. 0_8)THEN
+	  KN_BID_JAC=DBLE(KN_BID_INT)/
+	1   DBLE(NU8+KN_BID_NP-KN_BID_INT)
+	ELSE
+	  KN_BID_JAC=1.0_LDP
+	END IF
+	WRITE(LU,'(A,I14,4(A,I14),A,F8.5)')'    bad-cell id: cur=',
+	1  NU8,' prev=',MAX(KN_BID_NP,0_8),' inter=',KN_BID_INT,
+	2  ' new=',KN_BID_NEW,' gone=',KN_BID_GONE,
+	3  ' jac=',KN_BID_JAC
+	WRITE(LU,'(A,I14,3(A,I14),A,I4)')
+	1  '    bad-cell ch: Mcur=',KN_BID_NCC(1),
+	2  ' Mint=',KN_BID_INTC(1),' Pcur=',KN_BID_NCC(2),
+	3  ' Pint=',KN_BID_INTC(2),' untracked rays=',
+	4  KN_BID_NUNTR
+	IF(ALLOCATED(KN_BID_PRV))DEALLOCATE(KN_BID_PRV)
+	ALLOCATE(KN_BID_PRV(NU8),STAT=IOSQ)
+	IF(IOSQ .EQ. 0)THEN
+	  KN_BID_PRV(1:NU8)=ALLQ(1:NU8)
+	  KN_BID_NP=NU8
+	ELSE
+	  KN_BID_NP=-1_8
+	END IF
+	DEALLOCATE(ALLQ)
 	RETURN
 	END
 !
@@ -8175,6 +8507,65 @@ C
 	RETURN
 	END
 !
+! SET_FG_BADID / GET_FG_BADID (diagnostic, [KN_BADID]): switch and
+! read-back for the cross-refresh bad-cell identity census. The
+! setter also resets the comparison state when the flag turns off,
+! so an off->on sequence starts a fresh census rather than diffing
+! against a stale stored set.
+!
+	SUBROUTINE SET_FG_BADID(DO_B)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_BADID_ON,KN_BID_NP,
+	1     KN_BID_NC,KN_BID_INT,KN_BID_NEW,KN_BID_GONE,
+	2     KN_BID_JAC,KN_BID_PRV,KN_BADRAY,KN_BID_NUNTR,
+	3     KN_BID_INTC,KN_BID_NCC
+	IMPLICIT NONE
+	LOGICAL DO_B
+	INTEGER I,J
+	KN_BADID_ON=DO_B
+	IF(.NOT. DO_B)THEN
+	  IF(ALLOCATED(KN_BADRAY))THEN
+	    DO I=1,SIZE(KN_BADRAY,1)
+	      DO J=1,SIZE(KN_BADRAY,2)
+	        IF(ALLOCATED(KN_BADRAY(I,J)%V))
+	1           DEALLOCATE(KN_BADRAY(I,J)%V)
+	      END DO
+	    END DO
+	    DEALLOCATE(KN_BADRAY)
+	  END IF
+	  IF(ALLOCATED(KN_BID_PRV))DEALLOCATE(KN_BID_PRV)
+	  KN_BID_NP=-1_8
+	  KN_BID_NC=0_8
+	  KN_BID_INT=0_8; KN_BID_NEW=0_8; KN_BID_GONE=0_8
+	  KN_BID_NUNTR=0_8
+	  KN_BID_INTC=0_8; KN_BID_NCC=0_8
+	  KN_BID_JAC=-1.0_LDP
+	END IF
+	RETURN
+	END
+!
+	SUBROUTINE GET_FG_BADID(NCUR,NPRV,NINT,NNEW,NGONE,JAC,
+	1                        NCC,NIC,NUNTR)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_BID_NC,KN_BID_NP,
+	1     KN_BID_INT,KN_BID_NEW,KN_BID_GONE,KN_BID_JAC,
+	2     KN_BID_NCC,KN_BID_INTC,KN_BID_NUNTR
+	IMPLICIT NONE
+	INTEGER*8 NCUR,NPRV,NINT,NNEW,NGONE
+	INTEGER*8 NCC(2),NIC(2),NUNTR
+	REAL(KIND=LDP) JAC
+	NCUR=KN_BID_NC
+	NPRV=KN_BID_NP
+	NINT=KN_BID_INT
+	NNEW=KN_BID_NEW
+	NGONE=KN_BID_GONE
+	JAC=KN_BID_JAC
+	NCC=KN_BID_NCC
+	NIC=KN_BID_INTC
+	NUNTR=KN_BID_NUNTR
+	RETURN
+	END
+!
 ! SET_FG_WATCH_CELL (diagnostic, [KN_WATCH_CELL]): arm the
 ! per-cell commit telemetry on geometry index KW, ray LS and
 ! store slot SLOT (field frequency = slot+1 for slot>=1; the
@@ -8906,6 +9297,30 @@ C
 	FG_RF_FAILED=.FALSE.
 	KN_HOT_SPENT=0
 !
+! KN_BADID (diagnostic): clear every ray-channel list at refresh
+! top so the lists can only hold THIS refresh's last-pass cells.
+! Buffers persist across refreshes to avoid reallocating; a ray
+! that never solves this refresh leaves an empty list (matching
+! NBD_LS=0), a ray whose list growth failed leaves N=-1. When the
+! flag is off the whole structure is dropped -- zero cost on the
+! default path.
+!
+	IF(ALLOCATED(KN_BADRAY) .AND. SIZE(KN_BADRAY,1) .NE. KN_NP)
+	1   DEALLOCATE(KN_BADRAY)
+	IF(KN_BADID_ON)THEN
+	  IF(.NOT. ALLOCATED(KN_BADRAY))
+	1     ALLOCATE(KN_BADRAY(KN_NP,2),STAT=IOS)
+	  IF(ALLOCATED(KN_BADRAY))KN_BADRAY%N=0_8
+	ELSE IF(ALLOCATED(KN_BADRAY))THEN
+	  DO I=1,KN_NP
+	    DO J=1,2
+	      IF(ALLOCATED(KN_BADRAY(I,J)%V))
+	1         DEALLOCATE(KN_BADRAY(I,J)%V)
+	    END DO
+	  END DO
+	  DEALLOCATE(KN_BADRAY)
+	END IF
+!
 ! Per-ray commit verdict/delta: each thread writes only its own LS
 ! slot inside KNOP_RAY_SOLVE_V1. -1 marks rays that never reached
 ! the commit decision (unsolved/alloc-fail).
@@ -9474,6 +9889,9 @@ C
 !
 	FG_SW_MAXCHG=FG_GS_MAXCHG
 	FG_SW_NCONV=FG_GS_NCONV
+	FG_SW_MAXSYM=FG_GS_MAXSYM
+	FG_SW_SYMK=FG_GS_SYMK;  FG_SW_SYMR=FG_GS_SYMR
+	FG_SW_SYML=FG_GS_SYML;  FG_SW_SYMC=FG_GS_SYMC
 	FG_GS_MAXCHG=KN_RF_RESID
 	FG_GS_NCONV=SUM(NST_LS,MASK=KN_PROD_MASK)
 !
@@ -9516,7 +9934,31 @@ C
 	WRITE(LUER,'(A,I14,A,I14,A,ES9.2)')
 	1  '    unconverged cells=',FG_GS_NBAD,' of',FG_GS_NTOT,
 	2  '   frac=',DBLE(FG_GS_NBAD)/MAX(1_8,FG_GS_NTOT)
+!
+! Bad-cell identity census (diagnostic, [KN_BADID]): merge the
+! per-ray last-pass lists over the same production mask NBD_LS
+! summed into FG_GS_NBAD, sort/dedup, and diff against last
+! refresh's census. Answers whether the unresolved cells are the
+! same cells every refresh (a persistent residual floor) or a
+! churning population. Serial section -- the lists are complete
+! once the parallel ray loop joined.
+!
+	IF(KN_BADID_ON .AND. ALLOCATED(KN_BADRAY))
+	1   CALL KN_BADID_MERGE_V1(NBD_LS,KN_PROD_MASK,KN_NP,LUER)
 	WRITE(LUER,'(A,I14)')'    store cells>50%=',FG_GS_NCONV
+!
+! Sweep-semantics drift pair on one line (round-2 phase-2):
+! fg_sw_one is the stored-field-relative max, fg_sw_sym the
+! max-magnitude-relative companion. fg_sw_one>>fg_sw_sym means the
+! worst cell changed by orders of magnitude (a one-sided
+! magnitude ratio), not that the field churned by that factor.
+!
+	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	1  '    sweep drift: fg_sw_one=',FG_SW_MAXCHG,
+	2  ' fg_sw_sym=',FG_SW_MAXSYM
+	IF(FG_SW_SYMR .GT. 0)WRITE(LUER,'(A,I5,A,I4,A,I8,A,I2)')
+	1  '    fg_sw_sym argmax: k=',FG_SW_SYMK,' r=',FG_SW_SYMR,
+	2  ' f=',FG_SW_SYML,' ch=',FG_SW_SYMC
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
 	2  FG_GS_NTOT_BLK
@@ -11448,6 +11890,68 @@ C
 	CONTAINS
 !
 ! ----------------------------------------------------------------
+! BID_PUSH (diagnostic, [KN_BADID]): append one bad cell's packed
+! identity to this (ray,channel) list. Called only from the census
+! sites beside the NBAD_CUR increments, under .NOT. L_QP, so the
+! list always holds the CURRENT pass's above-tolerance cells of
+! the current directional solve -- matching what NBAD counts.
+! ICH: 1 = INWARD (M channel), 2 = outward (P). The list grows
+! on demand up to KN_BADID_CAP; growth or allocation failure
+! marks the channel N=-1 (partial census) and the solve proceeds
+! untouched. Runs only on the thread owning ray LS.
+! ----------------------------------------------------------------
+	SUBROUTINE BID_PUSH(IPT,LF,INW)
+	INTEGER IPT,LF
+	LOGICAL INW
+	INTEGER ICH,IST
+	INTEGER*8 NWL,IDP
+	INTEGER*8, ALLOCATABLE :: TMP(:)
+	IF(.NOT. KN_BADID_ON)RETURN
+	IF(.NOT. ALLOCATED(KN_BADRAY))RETURN
+	IF(IPT .LT. 1 .OR. IPT .GT. 4096 .OR.
+	1   LF .LT. 1 .OR. LF .GT. 2097151)RETURN
+	ICH=MERGE(1,2,INW)
+	IF(KN_BADRAY(LS,ICH)%N .LT. 0_8)RETURN
+	IF(.NOT. ALLOCATED(KN_BADRAY(LS,ICH)%V))THEN
+	  ALLOCATE(KN_BADRAY(LS,ICH)%V(4096),STAT=IST)
+	  IF(IST .NE. 0)THEN
+	    KN_BADRAY(LS,ICH)%N=-1_8
+	    RETURN
+	  END IF
+	ELSE IF(KN_BADRAY(LS,ICH)%N .GE.
+	1    SIZE(KN_BADRAY(LS,ICH)%V))THEN
+	  NWL=MIN(2_8*INT(SIZE(KN_BADRAY(LS,ICH)%V),8),KN_BADID_CAP)
+	  IF(NWL .LE. SIZE(KN_BADRAY(LS,ICH)%V))THEN
+	    KN_BADRAY(LS,ICH)%N=-1_8
+	    RETURN
+	  END IF
+	  ALLOCATE(TMP(NWL),STAT=IST)
+	  IF(IST .NE. 0)THEN
+	    KN_BADRAY(LS,ICH)%N=-1_8
+	    RETURN
+	  END IF
+	  TMP(1:KN_BADRAY(LS,ICH)%N)=
+	1   KN_BADRAY(LS,ICH)%V(1:KN_BADRAY(LS,ICH)%N)
+	  CALL MOVE_ALLOC(TMP,KN_BADRAY(LS,ICH)%V)
+	END IF
+	IF(KN_BADRAY(LS,ICH)%N .GE. KN_BADID_CAP)THEN
+	  KN_BADRAY(LS,ICH)%N=-1_8
+	  RETURN
+	END IF
+!
+! Fixed-stride packing keeps the id deterministic across refreshes
+! on a fixed ray/frequency grid: ray stride 2^34, frequency stride
+! 2^13 (bounds above), point stride 2, channel in the low bit
+! (0 = inward/M, 1 = outward/P).
+!
+	IDP=(LS-1_8)*17179869184_8+(LF-1_8)*8192_8+
+	1   (IPT-1_8)*2_8+(ICH-1_8)
+	KN_BADRAY(LS,ICH)%N=KN_BADRAY(LS,ICH)%N+1_8
+	KN_BADRAY(LS,ICH)%V(KN_BADRAY(LS,ICH)%N)=IDP
+	RETURN
+	END SUBROUTINE BID_PUSH
+!
+! ----------------------------------------------------------------
 ! Warm-start the per-ray field from the lagged depth store. The
 ! in-sweep store layout is shifted: slot s holds frequency s+1
 ! (FREQ_IDX_ITER is 0 during the first frequency's call), while FLD
@@ -11698,6 +12202,15 @@ C
 	  NBAD_CUR=0; NTOT_CUR=0
 	  NCP_P=0_8; NNG_P=0_8
 	  SGN_ACC=0.0_LDP
+!
+! Identity list resets with the census it mirrors: the list always
+! holds the current pass's bad cells, so at solve end it is the
+! last-pass census NB_O describes. Verify passes (L_QP) never
+! touch it.
+!
+	  IF(.NOT. L_QP .AND. KN_BADID_ON .AND.
+	1    ALLOCATED(KN_BADRAY))
+	2    KN_BADRAY(LS,MERGE(1,2,INWARD))%N=0_8
 	  IF(ASC)THEN
 	    LB=1; LE=NCF; LDI=1
 	  ELSE
@@ -12453,6 +12966,14 @@ C
 	  NNG_P=0_8
 	  KN_SGN_SUM=0.0_LDP
 !
+! Same identity-list reset as SWEEP_FLD: the list mirrors the
+! current pass's bad cells so the last completed pass leaves the
+! census NB_O describes. Verify passes never touch it.
+!
+	  IF(.NOT. L_QP .AND. KN_BADID_ON .AND.
+	1    ALLOCATED(KN_BADRAY))
+	2    KN_BADRAY(LS,MERGE(1,2,INWARD))%N=0_8
+!
 ! Column peaks at pass start for the significance floor, same role
 ! as VMAX_L in MARCH.
 !
@@ -12569,7 +13090,10 @@ C
 	          IF(L_NOPROBE)CALL NOP_CELL(T1)
 	          KN_SGN_SUM=KN_SGN_SUM+
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
-	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	          IF(T1 .GT. KN_RAY_TOL)THEN
+	            NBAD_CUR=NBAD_CUR+1
+	            IF(.NOT. L_QP)CALL BID_PUSH(J,L,INWARD)
+	          END IF
 !
 ! KN_DUMP: per-cell record of late-pass residual outliers. Cells
 ! still changing >20% past the transient passes form the
@@ -12691,7 +13215,10 @@ C
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
 	        IF(L_NOPROBE)CALL NOP_CELL(T1)
-	        IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	        IF(T1 .GT. KN_RAY_TOL)THEN
+	          NBAD_CUR=NBAD_CUR+1
+	          IF(.NOT. L_QP)CALL BID_PUSH(NI,L,INWARD)
+	        END IF
 	        IF(DO_P2)THEN
 	          SGN_P=0_1
 	          IF(VNEW .GT. VOLD)SGN_P=1_1
@@ -12798,7 +13325,10 @@ C
 	          IF(L_NOPROBE)CALL NOP_CELL(T1)
 	          KN_SGN_SUM=KN_SGN_SUM+
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
-	          IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	          IF(T1 .GT. KN_RAY_TOL)THEN
+	            NBAD_CUR=NBAD_CUR+1
+	            IF(.NOT. L_QP)CALL BID_PUSH(J,L,INWARD)
+	          END IF
 	          IF(PRINT_KNOP_DEBUG .AND. T1 .GT. 0.2_LDP .AND.
 	1           NPO .GE. 8 .AND. KN_DUMP_N .LT. 2000)THEN
 	            KN_DUMP_N=KN_DUMP_N+1
@@ -12971,6 +13501,9 @@ C
 !
 	      NBAD_CUR=0
 	      NTOT_CUR=0
+	      IF(.NOT. L_QP .AND. KN_BADID_ON .AND.
+	1      ALLOCATED(KN_BADRAY))
+	2      KN_BADRAY(LS,MERGE(1,2,INWARD))%N=0_8
 	      DO L=1,NCF
 	        DO J=1,NI
 	          T1=ABS(AA_RH(J,L,2))/
@@ -12979,7 +13512,10 @@ C
 	1             ABS(AA_XH(J,L,2)+AA_RH(J,L,2))) .GT.
 	2             1.0E-4_LDP*VMAXF(L))THEN
 	            NTOT_CUR=NTOT_CUR+1
-	            IF(T1 .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	            IF(T1 .GT. KN_RAY_TOL)THEN
+	              NBAD_CUR=NBAD_CUR+1
+	              IF(.NOT. L_QP)CALL BID_PUSH(J,L,INWARD)
+	            END IF
 	          END IF
 	        END DO
 	      END DO
@@ -14071,7 +14607,10 @@ C
 	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
 	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	1       .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	1       .GT. KN_RAY_TOL)THEN
+	        NBAD_CUR=NBAD_CUR+1
+	        IF(.NOT. L_QP)CALL BID_PUSH(I+1,L,INWARD)
+	      END IF
 	    END IF
 	    FLD(I+1,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  END DO
@@ -14117,7 +14656,10 @@ C
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
 	    IF(L_NOPROBE)CALL NOP_CELL(DCELL)
-	    IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	    IF(DCELL .GT. KN_RAY_TOL)THEN
+	      NBAD_CUR=NBAD_CUR+1
+	      IF(.NOT. L_QP)CALL BID_PUSH(NI,L,INWARD)
+	    END IF
 	  END IF
 	  FLD(NI,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  DO I=NI-1,1,-1
@@ -14151,7 +14693,10 @@ C
 ! detector needs sign alternation, not magnitude.
 	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
 	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	      IF(DCELL .GT. KN_RAY_TOL)NBAD_CUR=NBAD_CUR+1
+	      IF(DCELL .GT. KN_RAY_TOL)THEN
+	        NBAD_CUR=NBAD_CUR+1
+	        IF(.NOT. L_QP)CALL BID_PUSH(I,L,INWARD)
+	      END IF
 	    END IF
 	    FLD(I,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	  END DO
