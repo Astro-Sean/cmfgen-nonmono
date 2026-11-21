@@ -11,7 +11,11 @@ Usage:
   python3 unit_tests/python/run_knop_replay.py <deck.bin> [mode] [value]
 
 Modes (passed through to the driver): base | loop <n> | om <v> |
-btol <x> | stall <x> | maxp <n> | seed cold|scale | verify
+btol <x> | stall <x> | maxp <n> | seed cold|scale | verify |
+mapd <cand.bin>
+
+Any argument slot >=3 may also carry p2=<v> to override
+FG_ORD_P2DAMP for this replay only (phase 2.30 A/B arms).
 """
 
 import sys
