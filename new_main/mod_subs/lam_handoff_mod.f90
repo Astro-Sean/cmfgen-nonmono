@@ -102,4 +102,61 @@
       RETURN
       END FUNCTION LAM_HANDOFF_OK
 !
+! Nine-gate converged-exit replica for the SOLVE_FOR_POPS ITER_SUM
+! report. CMFGEN_SUB evaluates the real CONV_EXIT_MET inline at both
+! 9999 exit splits; this evaluator takes the same resolved state,
+! recomputes the lambda-state leg itself, and returns the verdict,
+! the pass count and the failure labels from one source. Routing the
+! replica through one evaluator keeps it from drifting a conjunct or
+! a label away from the real gate -- the missing ninth conjunct
+! (.NOT. LAM_FIELD_NOT_READY, the audit F-32 finding) is exactly the
+! drift class this removes. Label order matches the historical
+! replica; the ninth label is appended last.
+!
+      SUBROUTINE CONV_EXIT_EVAL(RD_LAM,DO_LAM_AUTO,LAST_LAM,&
+     &     MAIN_COUNTER,JFNK_UNCONV,EX_MAXCH,EPS,DEM_OK,&
+     &     HYDRO_REV,POPS_HELD,RESACC_PEND,LAST_NG,FIELD_NRDY,&
+     &     LAM_OK,ALL_MET,NPASS,FAILS)
+      LOGICAL, INTENT(IN) :: RD_LAM,DO_LAM_AUTO,JFNK_UNCONV,DEM_OK
+      LOGICAL, INTENT(IN) :: HYDRO_REV,POPS_HELD,RESACC_PEND,FIELD_NRDY
+      INTEGER, INTENT(IN) :: LAST_LAM,MAIN_COUNTER,LAST_NG
+      REAL(KIND=LDP), INTENT(IN) :: EX_MAXCH,EPS
+      LOGICAL, INTENT(OUT) :: LAM_OK,ALL_MET
+      INTEGER, INTENT(OUT) :: NPASS
+      CHARACTER(LEN=*), INTENT(OUT) :: FAILS
+      LAM_OK=(RD_LAM .AND. .NOT. DO_LAM_AUTO) .OR.&
+     &     (LAST_LAM .NE. MAIN_COUNTER)
+      ALL_MET=LAM_OK .AND. .NOT. JFNK_UNCONV .AND.&
+     &     (EX_MAXCH .LT. EPS) .AND. DEM_OK .AND.&
+     &     .NOT. HYDRO_REV .AND. .NOT. POPS_HELD .AND.&
+     &     .NOT. RESACC_PEND .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.&
+     &     .NOT. FIELD_NRDY
+      NPASS=0
+      IF(LAM_OK)NPASS=NPASS+1
+      IF(.NOT. JFNK_UNCONV)NPASS=NPASS+1
+      IF(EX_MAXCH .LT. EPS)NPASS=NPASS+1
+      IF(DEM_OK)NPASS=NPASS+1
+      IF(.NOT. HYDRO_REV)NPASS=NPASS+1
+      IF(.NOT. POPS_HELD)NPASS=NPASS+1
+      IF(.NOT. RESACC_PEND)NPASS=NPASS+1
+      IF(MAIN_COUNTER .NE. LAST_NG)NPASS=NPASS+1
+      IF(.NOT. FIELD_NRDY)NPASS=NPASS+1
+      FAILS=' all pass'
+      IF(.NOT. ALL_MET)THEN
+        FAILS=' '
+        IF(.NOT. LAM_OK)FAILS=TRIM(FAILS)//' lambda-state'
+        IF(.NOT. (EX_MAXCH .LT. EPS))&
+     &       FAILS=TRIM(FAILS)//' ex_maxch>=eps'
+        IF(JFNK_UNCONV)FAILS=TRIM(FAILS)//' jfnk-unconverged'
+        IF(.NOT. DEM_OK)FAILS=TRIM(FAILS)//' exempted-demand'
+        IF(HYDRO_REV)FAILS=TRIM(FAILS)//' hydro-revision'
+        IF(POPS_HELD)FAILS=TRIM(FAILS)//' pops-held'
+        IF(RESACC_PEND)FAILS=TRIM(FAILS)//' resacc-pending'
+        IF(MAIN_COUNTER .EQ. LAST_NG)&
+     &       FAILS=TRIM(FAILS)//' on-ng-iteration'
+        IF(FIELD_NRDY)FAILS=TRIM(FAILS)//' lam-field-not-ready'
+      END IF
+      RETURN
+      END SUBROUTINE CONV_EXIT_EVAL
+!
       END MODULE LAM_HANDOFF_MOD
