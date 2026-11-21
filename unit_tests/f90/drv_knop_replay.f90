@@ -29,6 +29,18 @@
 !   seed scale <f>  multiply both store columns by f.
 !   verify          extra unrelaxed pass on the final state
 !                   (omega=1) -> the independent map defect.
+!   mapd <file>     one unrelaxed, undamped pass on an arbitrary
+!                   full-field candidate (KN_REPLAY_END format:
+!                   committed P then M). Reports the raw map
+!                   defect R(X)-X on the production DCELL scale
+!                   and writes KN_MAPD_RX.bin for offline
+!                   fixed-mask analysis.
+!   p2=<v>          replay-only override of FG_ORD_P2DAMP,
+!                   v in {0,1,on,off,true,false,yes,no,t,f,y,n}.
+!                   May appear in any argument slot >=3 and
+!                   composes with every mode (incl. omf). The
+!                   production default and VADAT semantics are
+!                   untouched; a malformed p2 token stops the run.
 !
       PROGRAM DRV_KNOP_REPLAY
       use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -49,6 +61,8 @@
       REAL(KIND=LDP) OARG,FSEED
       REAL(KIND=LDP), ALLOCATABLE :: FLDP_SEED(:,:),FLDM_POST(:,:)
       REAL(KIND=LDP), ALLOCATABLE :: FLDP_END(:,:),TMP(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: CAND_P(:,:),CAND_M(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: CAND_VP(:),CAND_VM(:)
       REAL(KIND=LDP), ALLOCATABLE :: OMGSEQ(:)
       REAL(KIND=LDP) T1,T2,T3,T4
       INTEGER NSEQ,IRF_D,ILS_D,IPO_D,IDIR_D,IPV_D,NOSC_D
@@ -56,8 +70,13 @@
       CHARACTER(LEN=256) DECK
       CHARACTER(LEN=32) MODE
       character(len=4096) sval, omega_line
-      INTEGER NLOOP,IV,JP2,K,UH
+      INTEGER NLOOP,IV,JP2,K,UH,NARG,IARG,UC,NCMG,KNI_C,KCF_C
+      INTEGER*8 NDF8
       LOGICAL LCOLD,LSCALE,LV1
+      LOGICAL LP2_SET,LP2_VAL,LP2_DECK
+      CHARACTER(LEN=4096) ATMP
+      REAL(KIND=LDP) DMA,DMI,DTMP
+      INTEGER IMA,JMA,IMI,JMI
       EXTERNAL KNOP_RAY_SOLVE_V1
 !
       CALL GETARG(1,DECK)
@@ -72,6 +91,34 @@
       IF(SVAL .NE. '')READ(SVAL,*,IOSTAT=IOS)OARG
       NLOOP=0
       LCOLD=.FALSE.; LSCALE=.FALSE.; FSEED=1.0_LDP
+!
+! p2=<v> (phase 2.30, replay only): scan every argument slot for a
+! keyed P2 token before the deck is opened so a malformed override
+! fails fast instead of silently falling back to the production
+! default. Slot 3 doubles as the mode value; a schedule path or
+! seed value must therefore never begin with 'p2'. The override
+! itself is applied after the deck restores its recorded flag.
+!
+      LP2_SET=.FALSE.; LP2_VAL=.FALSE.
+      NARG=COMMAND_ARGUMENT_COUNT()
+      DO IARG=3,NARG
+        CALL GETARG(IARG,ATMP)
+        IF(ATMP(1:2) .EQ. 'p2' .OR. ATMP(1:2) .EQ. 'P2')THEN
+          IF(ATMP(3:3) .NE. '=')ERROR STOP 'p2: malformed override'
+          IF(LP2_SET)ERROR STOP 'p2: duplicate override'
+          SELECT CASE(TRIM(ATMP(4:)))
+          CASE('0','f','F','false','FALSE','off','OFF','n','N', &
+      'no','NO')
+            LP2_VAL=.FALSE.
+          CASE('1','t','T','true','TRUE','on','ON','y','Y','yes', &
+      'YES')
+            LP2_VAL=.TRUE.
+          CASE DEFAULT
+            ERROR STOP 'p2: malformed override'
+          END SELECT
+          LP2_SET=.TRUE.
+        END IF
+      END DO
 !
       OPEN(NEWUNIT=UF,FILE=TRIM(DECK),FORM='UNFORMATTED', &
       STATUS='OLD',IOSTAT=IOS)
@@ -262,6 +309,17 @@
       KN_ADAPT_RELAX=.TRUE.
       LEDG_N_RF=1
 !
+! p2= apply (phase 2.30): the deck-restored value is recorded for
+! the RESULT echo, then the replay-only override is the single
+! assignment that can change FG_ORD_P2DAMP in this driver. No
+! other module state is touched, so an A/B pair differs only in
+! the P2 midpoint commit.
+!
+      LP2_DECK=FG_ORD_P2DAMP
+      IF(LP2_SET)FG_ORD_P2DAMP=LP2_VAL
+      WRITE(*,'(A,L1,A,L1,A,L1)')'RESULT p2_deck=',LP2_DECK, &
+      ' p2_eff=',FG_ORD_P2DAMP,' p2_ovr=',LP2_SET
+!
 ! Variant overrides.
 !
       IF(MODE .EQ. 'om' .AND. OARG .GT. 0.0_LDP)KN_RAY_OMEGA=OARG
@@ -344,6 +402,49 @@
           END IF
         END DO
       END IF
+      IF(MODE .EQ. 'mapd')THEN
+! mapd (phase 2.30): independent raw map-defect evaluation. arg3
+! is a KN_REPLAY_END-format candidate (magic, NI, NCF, committed
+! P, committed M). Both lagged store columns are seeded from the
+! candidate, P2 and relaxation are forced off, and the single
+! unrelaxed pass then yields R(X) on both channels inside one
+! production solve, so the internal M-to-P boundary hand-off is
+! the production one. The candidate file is read-only. p2= is
+! rejected here because this mode measures the UNDAMPED map.
+        IF(LP2_SET)ERROR STOP 'mapd: p2 override not allowed'
+        IF(LEN_TRIM(SVAL) .EQ. 0) &
+      ERROR STOP 'mapd: require candidate file'
+        ALLOCATE(CAND_P(NI,NCF),CAND_M(NI,NCF),STAT=IOS)
+        IF(IOS .NE. 0)ERROR STOP 'mapd: alloc'
+        OPEN(NEWUNIT=UC,FILE=TRIM(SVAL),FORM='UNFORMATTED', &
+      STATUS='OLD',IOSTAT=IOS)
+        IF(IOS .NE. 0)ERROR STOP 'mapd: candidate open'
+        READ(UC,IOSTAT=IOS)NCMG,KNI_C,KCF_C
+        IF(IOS .NE. 0 .OR. NCMG .NE. 20261124 .OR. &
+      KNI_C .NE. NI .OR. KCF_C .NE. NCF) &
+      ERROR STOP 'mapd: candidate shape'
+        READ(UC,IOSTAT=IOS)CAND_P
+        IF(IOS .NE. 0)ERROR STOP 'mapd: candidate P'
+        READ(UC,IOSTAT=IOS)CAND_M
+        IF(IOS .NE. 0)ERROR STOP 'mapd: candidate M'
+        CLOSE(UC)
+        KN_RAY_OMEGA=1.0_LDP
+        KN_RAY_MAXPASS=1
+        FG_ORD_P2DAMP=.FALSE.
+        DO K=1,NDD
+          IF(COMP_DEPTH_IDX(K) .GE. 1)THEN
+            JP2=J_PNT(K,1)
+            IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
+              DO L=2,NCF
+                I_P_DEPTH_NEXT(COMP_DEPTH_IDX(K),1,L-1)= &
+      CAND_P(JP2,L)
+                I_M_DEPTH_NEXT(COMP_DEPTH_IDX(K),1,L-1)= &
+      CAND_M(JP2,L)
+              END DO
+            END IF
+          END IF
+        END DO
+      END IF
       IF(LCOLD)THEN
         I_P_DEPTH_NEXT=0.0_LDP
         I_M_DEPTH_NEXT=0.0_LDP
@@ -389,6 +490,57 @@
         IF(IOS .EQ. 0)WRITE(*,'(A,ES13.6)') &
       'RESULT replay_vs_prod_maxdiff=', &
       MAXVAL(ABS(KR_DBG_FLDP-FLDP_END))
+        IF(MODE .EQ. 'mapd')THEN
+! Raw defect D(i,l)=|R(X)-X|/MAX(|X|,1E-4*VMAXF(L)) on the
+! candidate-derived column scale (the production pass scale
+! recomputes VMAXF from its own pre-pass field, which is exactly
+! the seeded candidate). KN_MAPD_RX.bin carries X, R(X) and the
+! column scales so the fixed-baseline-mask and significance-
+! migration checks live in the analysis layer, not the driver.
+          ALLOCATE(CAND_VP(NCF),CAND_VM(NCF),STAT=IOS)
+          IF(IOS .NE. 0)ERROR STOP 'mapd: scale alloc'
+          DO L=1,NCF
+            CAND_VP(L)=MAX(MAXVAL(CAND_P(1:NI,L)),1.0E-25_LDP)
+            CAND_VM(L)=MAX(MAXVAL(CAND_M(1:NI,L)),1.0E-25_LDP)
+          END DO
+          DMA=0.0_LDP; DMI=0.0_LDP
+          IMA=0; JMA=0; IMI=0; JMI=0; NDF8=0_8
+          DO L=1,NCF
+            DO K=1,NI
+              DTMP=ABS(KR_DBG_FLDP(K,L)-CAND_P(K,L))/ &
+      MAX(ABS(CAND_P(K,L)),1.0E-4_LDP*CAND_VP(L))
+              IF(DTMP .GT. DMA)THEN
+                DMA=DTMP; IMA=K; JMA=L
+              END IF
+              IF(DTMP .GT. KN_RAY_TOL)NDF8=NDF8+1_8
+              DTMP=ABS(KR_DBG_FLDM(K,L)-CAND_M(K,L))/ &
+      MAX(ABS(CAND_M(K,L)),1.0E-4_LDP*CAND_VM(L))
+              IF(DTMP .GT. DMI)THEN
+                DMI=DTMP; IMI=K; JMI=L
+              END IF
+              IF(DTMP .GT. KN_RAY_TOL)NDF8=NDF8+1_8
+            END DO
+          END DO
+          WRITE(*,'(A,ES13.6,A,I6,A,I6)') &
+      'RESULT mapd_dmax_p=',DMA,' at_i=',IMA,' l=',JMA
+          WRITE(*,'(A,ES13.6,A,I6,A,I6)') &
+      'RESULT mapd_dmax_m=',DMI,' at_i=',IMI,' l=',JMI
+          WRITE(*,'(A,I10)')'RESULT mapd_nbad=',NDF8
+          OPEN(NEWUNIT=UC,FILE='KN_MAPD_RX.bin', &
+      FORM='UNFORMATTED',STATUS='REPLACE',IOSTAT=IOS)
+          IF(IOS .EQ. 0)THEN
+            WRITE(UC)20261201,NI,NCF
+            WRITE(UC)CAND_P
+            WRITE(UC)KR_DBG_FLDP
+            WRITE(UC)CAND_M
+            WRITE(UC)KR_DBG_FLDM
+            WRITE(UC)CAND_VP
+            WRITE(UC)CAND_VM
+            CLOSE(UC)
+          ELSE
+            ERROR STOP 'mapd: KN_MAPD_RX.bin open failed'
+          END IF
+        END IF
       ELSE
         IF(MODE .EQ. 'hst')THEN
 ! Signed per-cell pass history (phase 2.24): KN_RAY_MAXPASS=1 makes
