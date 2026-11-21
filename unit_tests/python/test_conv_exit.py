@@ -135,7 +135,86 @@ REP.check("E: rd_lam without auto passes the lambda gate",
           tf("E_forcedlam"))
 
 
-# ---- source pins -------------------------------------------------- --------------------------------------------------
+# ---- CONV_MARGIN_EVAL --------------------------------------------
+def mcase(name):
+    """Parse a M_* margin line into (act_m, ch, rel_m, rch, why, trb)."""
+    v = vals.get(name, "")
+    m = re.match(
+        r"(\S+)\s+ch=(\S+)\s+rel=\s*(\S+)\s+rch=(\S+)\s+why=(\S+)\s+trb=\s*(\S+)",
+        v,
+    )
+    if not m:
+        return None
+    return (float(m.group(1)), m.group(2), float(m.group(3)),
+            m.group(4), m.group(5), float(m.group(6)))
+
+
+# SAT-released exm: the reported defect -- 59.8-style dex demand must
+# not win the binding slot; ex_maxch is the worst ACTIVE margin.
+c = mcase("M_sat")
+REP.check("margin: SAT-released exm stays out of the active slot",
+          c is not None and c[1] == "ex_maxch" and c[3] == "exm"
+          and c[4] == "SAT" and c[2] > 5.0)
+
+# Unsaturated material exm is binding and wins the active slot.
+c = mcase("M_bind")
+REP.check("margin: unsaturated exm binds the active slot",
+          c is not None and c[1] == "exm"
+          and abs(c[0] - 2.6990) < 1e-3)
+
+# Small exempted demand is released ('small'), ex_maxch binds.
+c = mcase("M_small")
+REP.check("margin: small exm released with reason 'small'",
+          c is not None and c[1] == "ex_maxch" and c[3] == "exm"
+          and c[4] == "small" and c[2] < 0.0)
+
+# Stage-B need/release are release legs but are NOT SAT.
+c = mcase("M_trcneed")
+REP.check("margin: trc-need releases exm without calling it SAT",
+          c is not None and c[1] == "ex_maxch" and c[3] == "exm"
+          and c[4] == "trc-need")
+c = mcase("M_trcrel")
+REP.check("margin: trc-rel releases exm without calling it SAT",
+          c is not None and c[1] == "ex_maxch" and c[3] == "exm"
+          and c[4] == "trc-rel")
+
+# SAT outranks a simultaneous trc-need in the reason string.
+c = mcase("M_sat_trc")
+REP.check("margin: SAT dominates the release reason",
+          c is not None and c[4] == "SAT")
+
+# exr binding: unsaturated relative-floor demand wins the active slot.
+c = mcase("M_exr_bind")
+REP.check("margin: unsaturated exr binds the active slot",
+          c is not None and c[1] == "exr"
+          and abs(c[0] - 2.9031) < 1e-3)
+
+# exr SAT-released reports on the released row.
+c = mcase("M_exr_sat")
+REP.check("margin: SAT-released exr reports on the released row",
+          c is not None and c[3] == "exr" and c[4] == "SAT")
+
+# BA_EX_RELFRAC disabled -> exr=0 is absent from both slots.
+c = mcase("M_exr_off")
+REP.check("margin: BA_EX_RELFRAC off -> exr contributes nothing",
+          c is not None and c[1] == "ex_maxch" and c[3] == "exm"
+          and c[4] == "small")
+
+# BA_DEM_PFLOOR disabled -> exm=0 is absent from both slots.
+c = mcase("M_pfl_off")
+REP.check("margin: BA_DEM_PFLOOR off -> exm contributes nothing",
+          c is not None and c[1] == "ex_maxch" and c[3] == "none")
+
+# Stage-B armed reports its own margin; off reports -99.
+c = mcase("M_trabs")
+REP.check("margin: armed stage-B reports its own margin",
+          c is not None and abs(c[5] - 1.0) < 1e-3
+          and c[1] == "ex_maxch")
+c = mcase("M_trabs_hi")
+REP.check("margin: stage-B demand never takes the active slot",
+          c is not None and c[1] == "ex_maxch" and c[5] == 5.0)
+
+# ---- source pins --------------------------------------------------
 POPS = (common.TREE / "new_main" / "mod_subs" / "solve_for_pops.f").read_text()
 CMF = (common.TREE / "new_main" / "cmfgen_sub.f").read_text()
 MOD = (common.TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text()
@@ -190,3 +269,28 @@ REP.check("CONV_DEM_OK mirrors BA_DEM_EXIT_OK", dem is not None)
 
 # Margin reporter: the replica derives its classification from the
 # shared evaluator, not from raw threshold comparisons.
+REP.check(
+    "margin reporter calls CONV_MARGIN_EVAL",
+    "CALL CONV_MARGIN_EVAL(EPS,BA_EX_MAXCH,BA_DEM_EXM,BA_DEM_EXR" in POPS,
+)
+REP.check(
+    "margin reporter prints the released demand on its own row",
+    "'conv marg'" in POPS and "worst active margin" in POPS,
+)
+REP.check(
+    "old unclassified margin loop is gone",
+    "LOG10(BA_DEM_EXM/MAX(10.0_LDP*EPS" not in POPS,
+)
+REP.check(
+    "classifier mirrors the release predicates",
+    "EXM .GE. SAT_RAW" in MOD and "TRC_NEED" in MOD
+    and "TRC_REL" in MOD and "EXM .LT. SMALL" in MOD,
+)
+
+
+def main():
+    return REP.summary()
+
+
+if __name__ == "__main__":
+    sys.exit(0 if main() == 0 else 1)
