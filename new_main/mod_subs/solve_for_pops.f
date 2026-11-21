@@ -161,6 +161,10 @@
 	INTEGER*8 GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED
 	INTEGER*8 GS_CAP_NUM,GS_CAP_DEN
 	REAL(KIND=LDP) GS_SW_MAXCHG,GS_RF_DCHG
+! GS_SW_MAXSYM (round-2 phase-2): snapshot symmetric sweep drift
+! from FG, parallel to MOM_SW_MAXSYM. Diagnostic only.
+	REAL(KIND=LDP) GS_SW_MAXSYM
+	INTEGER GS_SYK,GS_SYR,GS_SYL,GS_SYC
 	REAL(KIND=LDP) GS_MAX_ALL
 	INTEGER*8 GS_NBAD_EFF,GS_NCONV_ALL
 	INTEGER*8 GS_NBAD_STAL,GS_NBAD_PLAT
@@ -777,6 +781,8 @@
 	GS_NBAD_BLK=0_8
 	GS_SW_NCONV=0_8
 	GS_SW_MAXCHG=0.0_LDP
+	GS_SW_MAXSYM=0.0_LDP
+	GS_SYK=0;  GS_SYR=0;  GS_SYL=0;  GS_SYC=0
 	GS_RF_DCHG=0.0_LDP
 	GS_SW_CAPPED=0_8
 	GS_SW_CAPTOT=0_8
@@ -1111,6 +1117,7 @@
 	4      GS_NBAD_STAL,GS_NBAD_PLAT,
 	5      GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED,
 	6      GS_RF_ALLCONV)
+	  CALL GET_FG_SW_SYM(GS_SW_MAXSYM,GS_SYK,GS_SYR,GS_SYL,GS_SYC)
 	  CALL GET_MOM_GS_MATURITY(MOM_RAN,MOM_OK,MOM_CHG_FILE,
 	1      MOM_CAP_FILE,MOM_MAXCHG,MOM_CAPPED,MOM_NEGJ,
 	2      MOM_NBAD5,MOM_NBAD50,MOM_NTOT,MOM_NQUAR,
@@ -2719,12 +2726,15 @@
 	    CALL GET_MOM_GS_RELAX(MOM_OM,MOM_PRV,MOM_RFR,MOM_RFC,
 	1         MOM_AI,MOM_AL)
 	    WRITE(LUER,'(A,I6)')' GS_DRIFT it=',MAIN_COUNTER
-	    WRITE(LUER,'(A,3ES12.4,A,2ES12.4)')
-	1     '   ray sw/res/rf =',GS_SW_MAXCHG,GS_MAXCHG,GS_RF_DCHG,
-	2     '  om/prv =',FG_OM,FG_PRV
+	    WRITE(LUER,'(A,4ES12.4,A,2ES12.4)')
+	1     '   ray sw/res/rf/sym =',GS_SW_MAXCHG,GS_MAXCHG,
+	2     GS_RF_DCHG,GS_SW_MAXSYM,'  om/prv =',FG_OM,FG_PRV
 	    WRITE(LUER,'(A,3I8,A,2I12,A,I6)')
 	1     '   ray arg(kc,ray,frq) =',FG_AK,FG_AR,FG_AL,
 	2     '  nconv/ntot =',GS_NCONV,GS_NTOT,'  ndiv =',GS_NDIV
+	    WRITE(LUER,'(A,4I8)')
+	1     '   ray sym arg(k,ray,frq,ch) =',GS_SYK,GS_SYR,GS_SYL,
+	2     GS_SYC
 	    WRITE(LUER,'(A,4ES12.4,A,2ES12.4)')
 	1     '   mom sw/res/rf/sym =',MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG,MOM_SW_MAXSYM,
 	2     '  om/prv =',MOM_OM,MOM_PRV
@@ -4427,13 +4437,14 @@
 ! refresh census exists (GS_NBAD=-1 sentinel: refresh never ran or
 ! no compressing cells).
 !
-	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,ES10.3,1X,A,A,1X,A,I10,'//
-	1    '1X,A,I6,2X,A,1X,A)')
+	    WRITE(LUER,'(4X,A14,2X,ES10.3,1X,A,ES10.3,1X,A,ES10.3,'//
+	1    '1X,A,A,1X,A,I10,1X,A,I6,2X,A,1X,A)')
 	2    MERGE('fg_rf','fg   ',GS_NBAD .GE. 0),GS_MAXCHG,
-	3    ' sw=',GS_SW_MAXCHG,'bad=',NBAD_STR,'churn=',GS_NCONV,
-	4    'capped=',GS_CAPPED,FG_ST,
-	5    MERGE('refresh residual','sweep drift     ',
-	6    GS_NBAD .GE. 0)
+	3    ' sw=',GS_SW_MAXCHG,' sym=',GS_SW_MAXSYM,
+	4    'bad=',NBAD_STR,'churn=',GS_NCONV,
+	5    'capped=',GS_CAPPED,FG_ST,
+	6    MERGE('refresh residual','sweep drift     ',
+	7    GS_NBAD .GE. 0)
 	    IF(MOM_RAN)THEN
 	      MOM_ST='[OK]   '
 	      IF(MOM_UNSAFE_B)THEN
