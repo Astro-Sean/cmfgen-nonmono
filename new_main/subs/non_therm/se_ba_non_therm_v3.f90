@@ -72,11 +72,24 @@
 !
         PI=ACOS(-1.0_LDP)
         SCALE=1.0E+10_LDP/4.0_LDP/PI
-
-        dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
+!
+! RADIOACTIVE_DECAY_ENERGY is only allocated when INC_RAD_DECAYS=T
+! (RD_NUC_DECAY_DATA_V2 returns early otherwise). This routine is called
+! under TREAT_NON_THERMAL_ELECTRONS instead, so TRT_NON_TE=T combined with
+! INC_RAD_DECAYS=F (e.g. SN_HYDRO_DATA with zero isotope blocks) left the
+! pointer unassociated and the copies below segfaulted. Not flag-gated:
+! zero decay energy is the correct contribution for this combination.
+!
+        dE_RAD_DECAY=0.0_LDP
+        WRK_EDEP = 0.0_LDP
+        WRK_EDEP_eV = 0.0_LDP
+        IF(ASSOCIATED(RADIOACTIVE_DECAY_ENERGY))THEN
+          dE_RAD_DECAY=RADIOACTIVE_DECAY_ENERGY
+          WRK_EDEP = RADIOACTIVE_DECAY_ENERGY
+          WRK_EDEP_eV=DEC_NRG_SCL_FAC*RADIOACTIVE_DECAY_ENERGY/ELECTRON_VOLT()
+        END IF
 	dE_SHOCK_POWER=0.0_LDP
 !
-        WRK_EDEP = RADIOACTIVE_DECAY_ENERGY
 	IF(INC_SHOCK_POWER)THEN
 	  WRK_EDEP        = WRK_EDEP + SHOCK_POWER * SHOCK_POWER_FAC
 	  dE_SHOCK_POWER  = SHOCK_POWER * SHOCK_POWER_FAC
@@ -86,7 +99,6 @@
 !
         STEQ_T=STEQ_T+SCALE*WRK_EDEP                      !*FRAC_ELEC_HEATING
 !
-	WRK_EDEP_eV=DEC_NRG_SCL_FAC*RADIOACTIVE_DECAY_ENERGY/ELECTRON_VOLT()
 !
 	DO I=1,NUM_IONS
 	  ATM(I)%NTCXzV(:)=0.0_LDP
