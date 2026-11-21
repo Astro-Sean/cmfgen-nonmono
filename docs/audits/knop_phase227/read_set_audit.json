@@ -1,0 +1,1298 @@
+{
+ "generated_by": "read_set_audit.md manual classification",
+ "basis": "static source+launcher audit; no runtime trace",
+ "manifest_files": {
+  "ADJUST_R_DEFAULTS": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "AlIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "AlV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArSIX_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArSIX_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArSIX_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "ArV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CFDAT_IN": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "CIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CUR_MODEL_DATA": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "CV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Ca2_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Ca2_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Ca2_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaI_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaI_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaI_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaSIX_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaSIX_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaSIX_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CaV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrSIX_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrSIX_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrSIX_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "CrV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "EDDFACTOR_INFO": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "FIN_CAL_GRID": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "Fe2_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Fe2_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Fe2_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeI_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeI_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeI_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeSEV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeSEV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeSEV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeSIX_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeSIX_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeSIX_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "FeV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "GAMMAS_IN": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "GBF_N_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HI_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HI_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HI_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HYD_L_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "He2_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "He2_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "He2_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HeI_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HeI_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "HeI_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "IN_ITS": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "MODEL": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "MODEL_SPEC": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "MgIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "MgV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NUC_DECAY_DATA": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "NV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "NeV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "O2_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "O2_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "O2_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OI_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OI_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OI_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OSIX_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OSIX_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OSIX_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "OV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTAlIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTAlIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTAlV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTArIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTArIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTArSIX_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTArV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCIII_B": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCa2_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCaIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCaIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCaI_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCaSIX_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCaV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCrIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCrIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCrSIX_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTCrV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFe2_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFeIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFeIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFeI_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFeSEV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFeSIX_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTFeV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTHI_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTHe2_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTHeI_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTMgIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTMgIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTMgV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNIII_B": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNIV_B": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNeIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNeIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTNeV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTO2_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOIV_B": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOI_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOI_B": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOSIX_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTOV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSk2_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSk2_B": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSkIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSkIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSkI_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTSkV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTTkIII_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "PHOTTkIV_A": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "RDINR": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "RS_XRAY_FLUXES": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "RVTJ": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "SIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SN_HYDRO_DATA": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "SPECIES_MASSES": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "SV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Sk2_AUTO_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Sk2_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Sk2_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "Sk2_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkI_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkI_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkI_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "SkV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "TWO_PHOT_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "T_IN": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "TkIII_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "TkIII_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "TkIII_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "TkIV_COL_DATA": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "TkIV_F_OSCDAT": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "TkIV_F_TO_S": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "VADAT": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "VADAT_INIT": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "XRAY_PHOT_FITS": {
+   "class": "atomic_or_scientific_data",
+   "in_manifest": true,
+   "role": "link_name"
+  },
+  "arnaud_rothenflug.dat": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  },
+  "ca2_col_data_filtered": {
+   "class": "core_model_input",
+   "in_manifest": true,
+   "role": "static_input"
+  }
+ },
+ "launcher_links_missing": [],
+ "conditional_restart_reads": [
+  "POINT1",
+  "BAMATPNT",
+  "AUTO_CHK_*",
+  "GREY_CHK",
+  "SN_GREY_CHK",
+  "MU_VALUE_CHK",
+  "DDT_WORK_CHK",
+  "COEF_CHK",
+  "SCRTEMP",
+  "STEQ_VALS",
+  "J_COMP",
+  "JEW",
+  "ADIABAT_CHK",
+  "CFDAT_OUT",
+  "CONT_FREQ",
+  "POINT2",
+  "EWDATA",
+  "LINEHEAT",
+  "NETRATE",
+  "TOTRATE",
+  "TRANS_INFO"
+ ],
+ "runtime_output_dirs_required": [
+  "data"
+ ],
+ "env_dependent": {
+  "SCRATCH_DIR": "pinned private",
+  "CMF_KN_RF_MB": "pinned in v5 (was absent in v4)",
+  "SLURM_JOB_ID": "required by runner",
+  "PWD": "log line only",
+  "USER": "log line only"
+ },
+ "dynamic_open_sites": "36 FILNAME/FILENAME construction sites; species subset fixed by MODEL_SPEC, static closure incomplete",
+ "fresh_start_assumption": "restart links into empty scratch; warm-restart intent unconfirmed",
+ "status": "STATIC_CLOSURE_ONLY"
+}
