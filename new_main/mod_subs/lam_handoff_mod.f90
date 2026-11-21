@@ -159,4 +159,96 @@
       RETURN
       END SUBROUTINE CONV_EXIT_EVAL
 !
+! Worst-margin classification for the ITER_SUM 'conv exit'/'conv
+! marg' rows (round-2 phase-2 patch B). The exit gate releases
+! exempted demand on three legs -- small, saturated
+! (>= BA_SAT_RAW) and trace-handled (Stage-B need or release) --
+! but the old reporter priced every channel against its threshold
+! regardless, so a saturated BA_DEM_EXM always won the "worst
+! margin" slot while the actual binding gate sat elsewhere. The
+! classifier derives each channel's release state from the same
+! predicates the gate applies, returns the worst margin over the
+! binding channels only, and reports the largest released demand
+! and the Stage-B absolute demand as separate fields. Stage-B is
+! its own class: it is not a release of the exempted-demand gate
+! and it never joins the SAT channel.
+!
+      SUBROUTINE CONV_MARGIN_EVAL(EPS,EX_MAXCH,EXM,EXR,SAT_RAW,&
+     &     TRC_NEED,TRC_REL,TR_ABS,TR_ABSMAX,TR_MAXSWP,&
+     &     MGN_ACT,CH_ACT,MGN_REL,CH_REL,WHY_REL,MGN_TRB)
+      REAL(KIND=LDP), INTENT(IN) :: EPS,EX_MAXCH,EXM,EXR,SAT_RAW
+      LOGICAL, INTENT(IN) :: TRC_NEED,TRC_REL
+      REAL(KIND=LDP), INTENT(IN) :: TR_ABS,TR_ABSMAX
+      INTEGER, INTENT(IN) :: TR_MAXSWP
+      REAL(KIND=LDP), INTENT(OUT) :: MGN_ACT,MGN_REL,MGN_TRB
+      CHARACTER(LEN=*), INTENT(OUT) :: CH_ACT,CH_REL,WHY_REL
+      REAL(KIND=LDP) SMALL
+      LOGICAL EXM_REL,EXR_REL
+      SMALL=MAX(10.0_LDP*EPS,1.0_LDP)
+      EXM_REL=(EXM .LT. SMALL) .OR. (EXM .GE. SAT_RAW) .OR.&
+     &     TRC_NEED .OR. TRC_REL
+      EXR_REL=(EXR .LT. SMALL) .OR. (EXR .GE. SAT_RAW)
+!
+! Binding set: ex_maxch always holds the exit; an exempted-demand
+! channel holds it only while none of its release legs is true.
+!
+      MGN_ACT=-99.0_LDP
+      CH_ACT='none'
+      IF(EPS .GT. 0.0_LDP .AND. EX_MAXCH .GT. 0.0_LDP)THEN
+        MGN_ACT=LOG10(EX_MAXCH/EPS)
+        CH_ACT='ex_maxch'
+      END IF
+      IF(.NOT. EXM_REL .AND. EXM .GT. 0.0_LDP .AND.&
+     &     LOG10(EXM/SMALL) .GT. MGN_ACT)THEN
+        MGN_ACT=LOG10(EXM/SMALL)
+        CH_ACT='exm'
+      END IF
+      IF(.NOT. EXR_REL .AND. EXR .GT. 0.0_LDP .AND.&
+     &     LOG10(EXR/SMALL) .GT. MGN_ACT)THEN
+        MGN_ACT=LOG10(EXR/SMALL)
+        CH_ACT='exr'
+      END IF
+!
+! Released set: the largest demand the gate let go. The reason
+! string preserves which release leg fired -- SAT first, since a
+! demand above the raw saturation bound dominates the report.
+!
+      MGN_REL=-99.0_LDP
+      CH_REL='none'
+      WHY_REL='-'
+      IF(EXM_REL .AND. EXM .GT. 0.0_LDP .AND.&
+     &     LOG10(EXM/SMALL) .GT. MGN_REL)THEN
+        MGN_REL=LOG10(EXM/SMALL)
+        CH_REL='exm'
+        IF(EXM .GE. SAT_RAW)THEN
+          WHY_REL='SAT'
+        ELSE IF(TRC_NEED)THEN
+          WHY_REL='trc-need'
+        ELSE IF(TRC_REL)THEN
+          WHY_REL='trc-rel'
+        ELSE
+          WHY_REL='small'
+        END IF
+      END IF
+      IF(EXR_REL .AND. EXR .GT. 0.0_LDP .AND.&
+     &     LOG10(EXR/SMALL) .GT. MGN_REL)THEN
+        MGN_REL=LOG10(EXR/SMALL)
+        CH_REL='exr'
+        IF(EXR .GE. SAT_RAW)THEN
+          WHY_REL='SAT'
+        ELSE
+          WHY_REL='small'
+        END IF
+      END IF
+!
+! Stage-B absolute demand vs its armed threshold; -99 when the
+! Stage-B sweep is switched off (BA_TR_MAXSWP=0) or the absolute
+! leg is disabled (BA_TR_ABSMAX=0).
+!
+      MGN_TRB=-99.0_LDP
+      IF(TR_MAXSWP .GT. 0 .AND. TR_ABSMAX .GT. 0.0_LDP .AND.&
+     &     TR_ABS .GT. 0.0_LDP)MGN_TRB=LOG10(TR_ABS/TR_ABSMAX)
+      RETURN
+      END SUBROUTINE CONV_MARGIN_EVAL
+!
       END MODULE LAM_HANDOFF_MOD
