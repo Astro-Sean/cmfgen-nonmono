@@ -36,6 +36,10 @@
       INTEGER NSTORE,NPASS,NCAP,NNEG,NDIV,NMAX,NXIT
       INTEGER*8 NBAD,NTOT,NMATCH,NCOMP,NP2,NBBLK,NTBLK
       INTEGER*8 NCAP_LST,NNG_LST
+      INTEGER*8 NBDQ(1)
+      LOGICAL MSKQ(1)
+      INTEGER*8 BNC,BNP,BINT,BNEW,BGON,BNCC(2),BNIC(2),BNUN
+      REAL(KIND=LDP) BJAC
       REAL(KIND=LDP) RESID,RHO_M,RHO_P
       REAL(KIND=LDP) RR(NDX),LGR(NDX)
       REAL(KIND=LDP) LGW(NDX)
@@ -135,6 +139,8 @@
       IF(CNAME .EQ. 'rfab')  NCASE=85
       IF(CNAME .EQ. 'invdln')NCASE=86
       IF(CNAME .EQ. 'inval') NCASE=87
+      IF(CNAME .EQ. 'badid') NCASE=88
+      IF(CNAME .EQ. 'bido')  NCASE=89
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -291,6 +297,7 @@
       GAMP=4.0E-6_LDP
       IF(NCASE .EQ. 3)GAMP=2.0E-5_LDP
       IF(NCASE .EQ. 4)GAMP=4.0E-6_LDP
+      IF(NCASE .EQ. 88 .OR. NCASE .EQ. 89)GAMP=4.0E-6_LDP
       DO I=1,NIX
         IF(NCASE .EQ. 6)THEN
 ! Two compressing bands (depths 3-4 and 6-7) separated by an
@@ -511,14 +518,17 @@
       KN_HOT_SPENT=0_8
 !
       FG_FREQ_MATCH=(NCASE .EQ. 3)
-      FG_ORD_SWEEP=(NCASE .EQ. 2 .OR. NCASE .EQ. 35)
+      FG_ORD_SWEEP=(NCASE .EQ. 2 .OR. NCASE .EQ. 35 .OR. &
+        NCASE .EQ. 89)
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
       KN_RAY_TOL=2.0E-3_LDP
-      IF(NCASE .EQ. 4)KN_RAY_TOL=1.0E-14_LDP
+      IF(NCASE .EQ. 4 .OR. NCASE .EQ. 88 .OR. NCASE .EQ. 89) &
+        KN_RAY_TOL=1.0E-14_LDP
       KN_RAY_MAXPASS=60
-      IF(NCASE .EQ. 4)KN_RAY_MAXPASS=4
+      IF(NCASE .EQ. 4 .OR. NCASE .EQ. 88 .OR. NCASE .EQ. 89) &
+        KN_RAY_MAXPASS=4
       KN_RAY_BULK_TOL=0.0_LDP
       KN_RAY_OMEGA=1.0_LDP
       KN_RAY_STALL=0.98_LDP
@@ -989,6 +999,24 @@
           I_M_DEPTH_NEXT(:,3,:)=I_M_DEPTH_NEXT(:,3,:)*2.5_LDP
           I_P_DEPTH_NEXT(:,3,:)=I_P_DEPTH_NEXT(:,3,:)*2.5_LDP
         END IF
+!
+! badid/bido (88/89): bad-cell identity tracking end-to-end. One
+! pass-capped refresh leaves a nonzero last-pass census; the
+! production merge inside FG_KNOP_REFRESH_V1 must reproduce
+! FG_GS_NBAD exactly from the packed per-(ray,channel) lists.
+! bido runs the same config through SWEEP_FLD_ORD.
+!
+        IF(NCASE .EQ. 88 .OR. NCASE .EQ. 89)THEN
+          KN_BADID_ON=.TRUE.
+          KN_RAY_MAXPASS=1
+          IF(ALLOCATED(KN_BADRAY))DEALLOCATE(KN_BADRAY)
+          ALLOCATE(KN_BADRAY(KN_NP,2),STAT=IOS)
+          IF(IOS .NE. 0)THEN
+            WRITE(*,'(A)')'RESULT_FAIL badid_alloc'
+            GOTO 999
+          END IF
+          KN_BADRAY%N=0_8
+        END IF
         DO IRF=1,NRF
         IF(NCASE .EQ. 71)CALL SET_FG_NOCP_PROBE(IRF .EQ. 1,1)
         IF(NCASE .EQ. 85 .AND. IRF .EQ. 2)KN_RAY_MAXPASS=1
@@ -1049,6 +1077,19 @@
         END DO
         CALL DRV_MATURITY()
         END DO
+        IF(NCASE .EQ. 88 .OR. NCASE .EQ. 89)THEN
+          WRITE(*,'(A,I14)')'BID_N1=',KN_BADRAY(1,1)%N
+          WRITE(*,'(A,I14)')'BID_N2=',KN_BADRAY(1,2)%N
+          WRITE(*,'(A,I14)')'BID_SUM=',KN_BADRAY(1,1)%N+ &
+      KN_BADRAY(1,2)%N
+          CALL GET_FG_BADID(BNC,BNP,BINT,BNEW,BGON,BJAC,BNCC, &
+      BNIC,BNUN)
+          WRITE(*,'(A,I14)')'BID_NC=',BNC
+          WRITE(*,'(A,I14)')'BID_INT=',BINT
+          WRITE(*,'(A,I14)')'BID_NP=',BNP
+          WRITE(*,'(A,I14)')'BID_UNTR=',BNUN
+          WRITE(*,'(A,ES16.8)')'BID_JAC=',BJAC
+        END IF
         IF(NCASE .EQ. 63)THEN
           INQUIRE(FILE='KNOP_TOPO',EXIST=LEX)
           WRITE(*,'(A,L2)')'TOPO_FILE=',LEX
