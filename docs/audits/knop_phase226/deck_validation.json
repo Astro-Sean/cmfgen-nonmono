@@ -1,0 +1,28 @@
+{
+  "decks": {
+    "L081": {"file": "KNRDUMP_L081_r0000.bin", "blocks": 38, "records": 1216,
+      "records_per_block": 32, "ni": 5, "ncf": 56377, "kn_nc": 15,
+      "fbits": 32709, "imeth": 1, "inner_meth": "DIFFUSION",
+      "ext_present": true, "sib_present": true,
+      "p2damp_bit": false, "aa_bit": false,
+      "res_range": [0.02851, 0.03159], "ixit_set": [3], "np_range": [11, 17]},
+    "L082": {"file": "KNRDUMP_L082_r0000.bin", "blocks": 38, "records": 1216,
+      "records_per_block": 32, "ni": 4, "ncf": 56377, "kn_nc": 15,
+      "fbits": 32709, "imeth": 1, "inner_meth": "DIFFUSION",
+      "ext_present": true, "sib_present": true,
+      "p2damp_bit": false, "aa_bit": false,
+      "res_range": [0.04237, 0.08747], "ixit_set": [3, 6], "np_range": [10, 37]},
+    "L084": {"file": "KNRDUMP_L084_r0000.bin", "blocks": 38, "records": 1216,
+      "records_per_block": 32, "ni": 4, "ncf": 56377, "kn_nc": 15,
+      "fbits": 32709, "imeth": 1, "inner_meth": "DIFFUSION",
+      "ext_present": true, "sib_present": true,
+      "p2damp_bit": false, "aa_bit": false,
+      "res": 0.0002583, "ixit_set": [1], "np": 3}
+  },
+  "magic": 20261123, "record_marker_errors": 0, "truncated_records": 0,
+  "parser": "parse_v2.py (independent, shares no code with Fortran reader)",
+  "dtype_notes": "RAY_PNT/J_PNT/COMP_DEPTH_IDX i4; KN_CHI_EXT/KN_ETA_EXT r4 (default REAL); I_M/I_P_DEPTH_NEXT and JMP_SIB_* r8 (REAL KIND=LDP)",
+  "capture_job": 13446721, "capture_exe_sha256": "fd78d84a02ea3249bcf3bc0edaffc572ffc353ad33e8b75a019457f4f8d72904",
+  "capture_dir": "/viper/ptmp1/sbrennan/SN2024pba/cmfgen_validation/m15_2p82d_KNOP_diagdump_i/cmfgen/2.82days",
+  "cert_census_final": {"full": 59, "bulk": 16, "itlim": 0, "stag": 8, "div": 0, "inv": 1, "active": 84, "rf_all_conv": false}
+}
