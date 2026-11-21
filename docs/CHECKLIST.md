@@ -41,6 +41,48 @@ two submissions on different nodes):
       tauto checkpoint, ~575 s/iteration, it>=686 at last check);
       obs follower 13473184 chained.
 
+## Round-2 Phase-2 diagnostic implementation (21-Nov-2026)
+
+Three instrumentation corrections + audits; physical solver,
+thresholds and production behaviour unchanged except the replica
+correction itself. Head: `a2bbc85b` on main.
+
+- [x] Patch A - nine-gate ITER_SUM replica: shared `CONV_EXIT_EVAL`
+      in `lam_handoff_mod.f90` (512-combination truth table, ALL=AND,
+      NPASS=popcount, `lam-field-not-ready` label, denominator 9).
+      solve_for_pops replica calls the evaluator with the LIVE
+      `LAM_FIELD_NOT_READY`; real `CONV_EXIT_MET` untouched.
+      Commits bb71cfba..4b0c09d4; test_conv_exit 46 checks green.
+- [x] Patch B - margin reporter: `CONV_MARGIN_EVAL` separates
+      active-binding demand from SAT/small/trace-released demand;
+      reporter prints `worst active margin` vs `largest released
+      demand` with the release leg. Commits 61c11c5e..4b0c09d4.
+- [x] Patch C - symmetric FG sweep drift `FG_GS/SW_MAXSYM` +
+      argmax (depth,ray,freq,P/M) exported via `GET_FG_SW_SYM` into
+      GS_DRIFT_DIAG and the compact fg row; diagnostic-only, never
+      a gate. Bad-cell identity: per-(ray,channel) sparse packed-id
+      lists (fixed-stride (ray,freq,point,ch)), serial merge diff
+      with Jaccard/new/gone/untracked, `KN_BADID` VADAT key
+      (default F). Commits 40c12cb7..a2bbc85b; test_fg_sw_sym 60
+      checks green incl. end-to-end refresh merges == FG_GS_NBAD on
+      both sweep paths; test_knop_ray 49 + test_conv_exit 46 +
+      test_lam_handoff 51 green.
+- [x] Assumed-shape interface bug fixed in `KN_BADID_MERGE_V1`
+      (NRAY arg, explicit-shape dummies) - would have segfaulted in
+      production; found by the driver test before any model run.
+- [x] Phase-7 demand audit + Phase-6 block-GS assessment:
+      `docs/audits/CMFGEN_BA_DEMAND_BLOCKGS_AUDIT.md` - demand
+      carriers are C V/C VI quasi-dead rows (n~1e-62..1e-96) at
+      depths 1-22; block-GS NOT justified (orbit is local
+      border-collision, not cross-frequency lag).
+- [~] Build: all exes built (cmfgen_dev 13:54, suite 91/100 in the
+      build log); 9 suite fails include the pre-existing hung
+      `drv_obs_frame_norm_ref` (poll on stdin, killed) - unrelated
+      to this phase; individual checks for A/B/C all green.
+- [ ] Model-run verification through scripts/run_model_grid.py for
+      the new diagnostics (pending - needs an arm; the KN_BADID /
+      GS_DRIFT outputs then land in OUTGEN).
+
 ## Phase 2.28 limit-cycle identification (21-Nov-2026)
 
 Audit: `docs/audits/CMFGEN_PHASE228_LIMIT_CYCLE_AUDIT.md`.
