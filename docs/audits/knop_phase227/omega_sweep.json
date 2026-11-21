@@ -1,0 +1,19 @@
+{
+  "experiment": "omf-prep base-omega sensitivity sweep",
+  "exe": "unit_tests/bin/knray_replay_o3",
+  "deck": "KNRDUMP_L082_r0000.bin block 0",
+  "note": "Historical printed data retained. om mode sets KN_RAY_OMEGA. Driver prints OMG_OUT loaded from the production deck, NOT the replay terminal omega; these omg_out values do not measure replay saturation. maxdiff = max|KR_DBG_FLDP - deck FLDP_END|. Provenance limitations and inspection commands: completion_status.json and parent Phase 2.27 report.",
+  "runs": [
+    {"om_seed": 0.45, "res": 6.266741e-02, "ixit": 3, "npo": 22, "omg_out": 0.450, "maxdiff": 2.442202e-04},
+    {"om_seed": 0.60, "res": 6.380790e-02, "ixit": 3, "npo": 23, "omg_out": 0.450, "maxdiff": 2.442208e-04},
+    {"om_seed": 0.75, "res": 7.280095e-02, "ixit": 6, "npo": 15, "omg_out": 0.450, "maxdiff": 2.442209e-04},
+    {"om_seed": 1.00, "res": 5.986453e-02, "ixit": 3, "npo": 27, "omg_out": 0.450, "maxdiff": 2.442209e-04}
+  ],
+  "finding": "Historical P maxdiff barely changes across four seed omega values. No M distribution or recorded-history comparison was measured; schedule independence and terminal saturation are not established by this table.",
+  "verify_mode": {
+    "note": "Historical verify-mode scalar outputs, not independently validated fixed-point defects. Mode maps P end into store slots then invokes a full ray solve including M; algorithmic-stage equivalence remains unproven.",
+    "L081": {"res": 9.989233e-01, "ixit": 4},
+    "L082": {"res": 9.993184e-01, "ixit": 4},
+    "L084": {"res": 1.771540e-01, "ixit": 4}
+  }
+}
