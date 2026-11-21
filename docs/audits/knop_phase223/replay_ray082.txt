@@ -1,0 +1,13 @@
+=== ray 082 mode base ===
+/viper/ptmp1/sbrennan/SN2024pba/cmfgen_jfnk/unit_tests/bin/knray_replay: error while loading shared libraries: libmkl_intel_lp64.so.3: cannot open shared object file: No such file or directory
+=== ray 082 mode base ===
+forrtl: severe (174): SIGSEGV, segmentation fault occurred
+Image              PC                Routine            Line        Source             
+libc.so.6          0000149935A3EBF0  Unknown               Unknown  Unknown
+knray_replay       000000000051B1D4  knop_ray_solve_v1       13135  fg_j_cmf_nonmono_v1.f
+knray_replay       00000000004E7D18  knop_ray_solve_v1       10393  fg_j_cmf_nonmono_v1.f
+knray_replay       000000000058C134  MAIN__                    240  drv_knop_replay.f90
+knray_replay       0000000000405DDD  Unknown               Unknown  Unknown
+libc.so.6          0000149935A295D0  Unknown               Unknown  Unknown
+libc.so.6          0000149935A29680  __libc_start_main     Unknown  Unknown
+knray_replay       0000000000405CF5  Unknown               Unknown  Unknown
