@@ -9,6 +9,44 @@ Legend: `[x]` done and evidenced, `[~]` in progress or done with
 documented limitations, `[ ]` outstanding. Blocked/failed items say so
 explicitly.
 
+## Phase 2.27B isolated preparation (21-Nov-2026)
+
+- [x] Rechecked both original captures: JobHeldUser. No release, cancel,
+      replacement or new submission. Installed executable hashes unchanged.
+- [x] Preserved dirty source, tracked diff, replay source, audit documents
+      and scheduler references under external phase227b_20261121_0604.
+- [~] Isolated build_v4 normal/debug candidates compile and link; same new
+      solver object is linked into candidate executable, replay and IO harness.
+      Other archived objects retain production flags. Not runtime-tested.
+- [~] omf now uses one uninterrupted ray call with strict two-channel omega
+      injection. State inventory and stage semantics are source-reviewed,
+      not a demonstrated trajectory reproduction.
+- [~] Separate snapshot/manifest/runner templates prepared with hash checks
+      and deliberate execution block pending input/restart read-set review.
+      Read-only/hash-sealed is not filesystem-enforced immutability.
+- [ ] BLOCKED: actual Fortran IO tests, ray-84 control, O0/O3 field comparison
+      and 81/82 identical-stage metrics require an approved isolated allocation.
+      No submission is authorized in this task.
+- [ ] AWAITING CAPTURE: actual omega histories, complete 84-slot census and
+      per-cell transition evidence; existing row format lacks some fields.
+- [ ] Review failure/heal stage coverage and full input closure before any
+      separate scheduler approval. Phase remains PARTIAL; AA/P2 remain off.
+      Evidence: knop_phase227/{capture_isolation_design,replay_state_inventory,
+      replay_lifecycle_comparison,runtime_test_results}.md and completion_status.json.
+
+## Phase 2.27 continuation (21-Nov-2026)
+
+- [~] PARTIAL: omega-history replay and per-refresh ray census unavailable.
+      Captures 13464217/13464311 were pending AssocMaxJobsLimit; held with
+      explicit user approval after finding shared mutable run directories.
+- [~] Diagnostic source only: remove census format type mismatch, increase
+      omega precision and harden omf history validation. ifort syntax checks
+      pass; no executable replacement or runtime regression claimed.
+- [ ] Isolated, hash-pinned captures and allocated replay regressions;
+      uninterrupted sweep-history injection, both-channel percentiles,
+      authoritative ray timelines and cell-level attribution still required.
+      See docs/audits/CMFGEN_PHASE227_ADAPTIVE_OMEGA_AND_RAY_CENSUS.md.
+
 ## 1. Roadmap (AGENTS.md 1.1)
 
 - [x] `DO_NONMONO_SOB` on a non-monotonic model producing a spectrum
