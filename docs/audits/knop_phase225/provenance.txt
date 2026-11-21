@@ -1,0 +1,24 @@
+git_head e28833fe9d1286c9b92f909f559d92d28f4f7cd1
+ifort ifort: remark #10448: Intel(R) Fortran Compiler Classic (ifort) is now deprecated and will be discontinued late 2024. Intel recommends that customers transition now to using the LLVM-based Intel(R) Fortran Compiler (ifx) for continued Windows* and Linux* support, new language support, new language features, and optimizations. Use '-diag-disable=10448' to disable this message.
+270a1a74205b9bb6d753bce4d9cb5b89b916db737b9bc672b580e71fb9d29de1  unit_tests/bin/knray_replay
+ea835a79c00fc4da41b9fc5842b3c5c39521c114890c1a945b5e0b5740a6b88b  unit_tests/f90/drv_knop_replay.f90
+14acdce4839b6d72716621b9cc8eef578b211493756d60a4f5b5f40f0048f1e3  unit_tests/bin/prod_obj/libsubs/fg_j_cmf_nonmono_v1.o
+f21f44c2217a91248ad1edf967965d9806c07b896ed8cbb2e11a6ff19181224d  plane/fg_j_cmf_nonmono_v1.f
+d50dcacd756088e3b61667edbaf10a0dfd80aab0ee5ac1a499e3c1605d18aba6  exe/cmfgen_dev.exe
+-rw-r--r-- 1 sbrennan mpega 13963531556 2026-11-20 20:05:03.727096658 +0100 ../cmfgen_validation/m15_2p82d_KNOP_diagdump_i/cmfgen/2.82days/KNRDUMP_L081_r0000.bin
+-rw-r--r-- 1 sbrennan mpega 13905348600 2026-11-20 20:05:04.545314457 +0100 ../cmfgen_validation/m15_2p82d_KNOP_diagdump_i/cmfgen/2.82days/KNRDUMP_L082_r0000.bin
+
+# Replay binary rebuilt after the KN_NC core-index fix (this phase)
+be979b1e6d087aca299accec1fb196343f3963dacf1cdc3bd60d5c0e8b3d1e89  ../../unit_tests/bin/knray_replay
+7371c687d1298f708c78252b6b2785b291f96df175b7dea721aa18460bed709c  ../../unit_tests/f90/drv_knop_replay.f90
+build: manual link, driver -O0 -g ifort 2024.0.2 classic against
+unit_tests/bin/prod_obj/* (fg_j_cmf_nonmono_v1.o 17:30 vintage,
+sha 14acdce4..), production link line viper_intel_nodebug MKL set.
+NOT a production executable; production behaviour claims rest on
+exe d50dcacd (deck writer) + KN_PSWEEP_DIAG records.
+decks: v1 (magic 20261122) KNRDUMP_L081/L082_r0000.bin, refresh r0000,
+first header only; mtimes 20:05 unchanged by all replays (read-only).
+diagdump_i config: m15_2p82d_KNOP_diagdump_i/config_resolved.yaml.
+version rejection test: magic 20261199 ->
+  RESULT deck_version_unsupported= 20261199 reader_supports=20261122,20261123
+OMP_NUM_THREADS=4 (8 for hst 60), login node viper (short replays).
