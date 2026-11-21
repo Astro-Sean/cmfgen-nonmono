@@ -938,6 +938,13 @@
 ! KN_DBG_LS selects the ray (-1 = off).
 !
 	INTEGER KN_DBG_LS
+        real(kind=ldp), allocatable :: kn_replay_omega(:,:)
+        integer :: kn_replay_count(2)=0,kn_replay_used(2)=0
+        integer :: kn_replay_ls=-1,kn_replay_refresh=-1
+        integer :: kn_stage_ls=-1,kn_stage_ray=-1
+        logical :: kn_stage_enabled=.false.
+        integer(kind=8) :: kn_diag_refresh=0_8
+        character(len=4096) :: kn_replay_path=''
 	INTEGER, ALLOCATABLE :: KN_DBG_NM(:,:),KN_DBG_KC1(:,:),
 	1   KN_DBG_KC2(:,:),KR_DBG_NFM(:,:),KR_DBG_IKC1(:,:),
 	2   KR_DBG_IKC2(:,:),KR_DBG_JPR1(:,:),KR_DBG_JPR2(:,:)
@@ -1463,6 +1470,23 @@
 	INTEGER, SAVE :: KN_PSWEEP_PHI=9999
 	DATA KN_PSWEEP_DIAG /.FALSE./, KN_PSWEEP_SNAP /.FALSE./
 !
+! KN_RDUMP_LS / KN_RDUMP_LS2 / KN_RDUMP_LS3 (diagnostic,
+! [KN_RDUMP_LS], [KN_RDUMP_LS2], [KN_RDUMP_LS3],
+! default -1 = off): phase-2.22 replay-deck
+! writer for the capped-ray refresh-stall audit. When LS matches
+! either key, KNOP_RAY_SOLVE_V1 writes the complete
+! pass-invariant input set of the ordered outward march to
+! KNRDUMP_L<LS>_r<KN_DIAG_REFRESH>.bin (unformatted): the packed
+! PK_* march coefficients, the GAM/WINX/JPR/IKC/DRF donor
+! topology, IM_NI and the boundary constants, the seeded P
+! field, and -- appended after the P sweep -- the final
+! iterate and exit class. An offline driver then replays the
+! exact production operator under controlled seeds and
+! controller variants. Reads only; the field, stores, and
+! exit decisions are unchanged. -1 leaves both keys off.
+!
+	INTEGER, SAVE :: KN_RDUMP_LS=-1,KN_RDUMP_LS2=-1,KN_RDUMP_LS3=-1
+!
 ! KN_NOP_* pass telemetry (diagnostic, armed whenever
 ! KN_NOCP_PROBE_LS names a valid ray): per-pass records for the
 ! probe ray only, written by NOP_PASS inside the ray solve.
@@ -1750,6 +1774,193 @@
 	DATA KN_COEF_HSH_BAD /0_8/
 !
 	CONTAINS
+
+        subroutine kn_replay_fail(path,ray,pass,message)
+        use, intrinsic :: iso_fortran_env, only: error_unit
+        implicit none
+        character(len=*), intent(in) :: path,message
+        integer, intent(in) :: ray,pass
+        write(error_unit,'(a,a,a,i0,a,i0,2a)')
+     1    '[FAIL] file=',trim(path),' ray=',ray,' pass=',pass,
+     2    ' ',trim(message)
+        error stop 227
+        end subroutine kn_replay_fail
+
+        subroutine kn_replay_load(path,ray,refresh)
+        use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+        implicit none
+        character(len=*), intent(in) :: path
+        integer, intent(in) :: ray,refresh
+        integer :: unit,ios,ir,rf,channel,direction,pass,seen(2),n
+        integer :: counts(2),header_ray,header_refresh
+        integer(kind=8) :: bits
+        real(kind=ldp) :: proposed,applied
+        character(len=4096) :: line,extra
+        character(len=16) :: magic,hex
+        if(allocated(kn_replay_omega))
+     1    call kn_replay_fail(path,ray,0,'schedule already loaded')
+        open(newunit=unit,file=path,status='old',iostat=ios)
+        if(ios.ne.0)call kn_replay_fail(path,ray,0,'open failed')
+        read(unit,'(a)',iostat=ios)line
+        if(ios.ne.0)call kn_replay_fail(path,ray,0,'missing header')
+        read(line,*,iostat=ios)magic,header_ray,header_refresh,counts
+        if(ios.ne.0)call kn_replay_fail(path,ray,0,'bad header')
+        if(magic.ne.'KNOMG2'.or.header_ray.ne.ray.or.
+     1    header_refresh.ne.refresh.or.any(counts.lt.1).or.
+     2    any(counts.gt.100000))
+     3    call kn_replay_fail(path,ray,0,'header identity/count')
+        allocate(kn_replay_omega(maxval(counts),2),stat=ios)
+        if(ios.ne.0)call kn_replay_fail(path,ray,0,'allocation')
+        seen=0
+        do n=1,sum(counts)
+          pass=0
+          read(unit,'(a)',iostat=ios)line
+          if(ios.ne.0)call kn_replay_fail(path,ray,0,'missing record')
+          read(line,*,iostat=ios)rf,ir,channel,direction,pass,
+     1      proposed,applied,hex
+          if(ios.ne.0)call kn_replay_fail(path,ray,pass,'bad record')
+          read(line,*,iostat=ios)rf,ir,channel,direction,pass,
+     1      proposed,applied,hex,extra
+          if(ios.ge.0)call kn_replay_fail(path,ray,pass,'extra token')
+          if(ir.ne.ray.or.rf.ne.refresh)
+     1      call kn_replay_fail(path,ray,pass,'record identity')
+          if(channel.lt.1.or.channel.gt.2)
+     1      call kn_replay_fail(path,ray,pass,'channel')
+          if(direction.ne.0)
+     1      call kn_replay_fail(path,ray,pass,'not ordered direction')
+          if(pass.ne.seen(channel)+1.or.pass.gt.counts(channel))
+     1      call kn_replay_fail(path,ray,pass,'duplicate/order/count')
+          if(.not.ieee_is_finite(proposed).or.
+     1       .not.ieee_is_finite(applied))
+     2      call kn_replay_fail(path,ray,pass,'nonfinite omega')
+          if(applied.lt.0.45_ldp.or.applied.gt.1.0_ldp)
+     1      call kn_replay_fail(path,ray,pass,'omega range')
+          if(len_trim(hex).ne.16)
+     1      call kn_replay_fail(path,ray,pass,'omega bits width')
+          read(hex,'(z16)',iostat=ios)bits
+          if(ios.ne.0)call kn_replay_fail(path,ray,pass,'omega bits')
+          if(transfer(applied,bits).ne.bits)
+     1      call kn_replay_fail(path,ray,pass,'binary64 round trip')
+          kn_replay_omega(pass,channel)=applied
+          seen(channel)=pass
+        end do
+        if(any(seen.ne.counts))
+     1    call kn_replay_fail(path,ray,0,'incomplete channel')
+        read(unit,'(a)',iostat=ios)line
+        if(ios.ge.0)call kn_replay_fail(path,ray,0,'extra record')
+        close(unit)
+        kn_replay_path=path
+        kn_replay_count=counts
+        kn_replay_used=0
+        kn_replay_refresh=refresh
+        end subroutine kn_replay_load
+
+        subroutine kn_replay_apply(ls,channel,pass,omega)
+        implicit none
+        integer, intent(in) :: ls,channel,pass
+        real(kind=ldp), intent(inout) :: omega
+        if(.not.allocated(kn_replay_omega))return
+        if(ls.ne.kn_replay_ls)return
+        if(pass.ne.kn_replay_used(channel)+1.or.
+     1    pass.gt.kn_replay_count(channel))
+     2    call kn_replay_fail(kn_replay_path,ls,pass,
+     3    'runtime pass mismatch')
+        omega=kn_replay_omega(pass,channel)
+        kn_replay_used(channel)=pass
+        end subroutine kn_replay_apply
+
+        subroutine kn_census_row(unit,refresh,ray,cls,reason,
+     1    exit_code,nbad,residual,impact,ni,ch_res,ch_exit,
+     2    ch_pass,ch_omega,production)
+        implicit none
+        integer, intent(in) :: unit,ray,cls,reason,exit_code,ni
+        integer(kind=8), intent(in) :: refresh
+        integer, intent(in) :: ch_exit(2),ch_pass(2)
+        integer(kind=8), intent(in) :: nbad
+        real(kind=ldp), intent(in) :: residual,impact,ch_res(2),
+     1    ch_omega(2)
+        logical, intent(in) :: production
+        integer :: channel
+        write(unit,'(5(i0,1x),i0,1x,2(es26.17e3,1x),i0,1x,
+     1    2(es26.17e3,1x,i0,1x,i0,1x,es26.17e3,1x),l1)')
+     2    refresh,ray,cls,reason,exit_code,nbad,residual,impact,ni,
+     3    (ch_res(channel),ch_exit(channel),ch_pass(channel),
+     4    ch_omega(channel),channel=1,2),production
+        end subroutine kn_census_row
+
+        logical function kn_stage_active(ls)
+        implicit none
+        integer, intent(in) :: ls
+        kn_stage_active=(kn_stage_enabled.and.ls.eq.kn_stage_ls)
+     1    .or.ls.eq.kn_rdump_ls.or.ls.eq.kn_rdump_ls2.or.
+     2    ls.eq.kn_rdump_ls3
+        end function kn_stage_active
+
+        subroutine kn_stage_field(stage,ls,channel,pass,field,
+     1    residual,omega)
+        use iter_ledger_mod, only: ledg_n_rf
+        implicit none
+        character(len=*), intent(in) :: stage
+        integer, intent(in) :: ls,channel,pass
+        real(kind=ldp), intent(in) :: field(:,:),residual,omega
+        integer :: unit,ios,ray
+        character(len=64) :: path,label
+        if(.not.kn_stage_active(ls))return
+        ray=ls
+        if(kn_stage_ray.gt.0)ray=kn_stage_ray
+        write(path,'(a,i3.3,a)')'KNSTAGE_L',ray,'.bin'
+        label=stage
+        open(newunit=unit,file=path,form='unformatted',
+     1    status='unknown',position='append',iostat=ios)
+        if(ios.ne.0)call kn_replay_fail(path,ray,pass,'stage open')
+        write(unit)20261127,label,kn_diag_refresh,ray,channel,pass,
+     1    size(field,1),size(field,2),residual,omega
+        write(unit)field
+        close(unit)
+        end subroutine kn_stage_field
+
+        subroutine kn_stage_cell(stage,ls,channel,pass,row,freq,
+     1    value,old,omega)
+        use iter_ledger_mod, only: ledg_n_rf
+        implicit none
+        character(len=*), intent(in) :: stage
+        integer, intent(in) :: ls,channel,pass,row,freq
+        real(kind=ldp), intent(in) :: value,old,omega
+        integer :: unit,ios,ray
+        character(len=64) :: path
+        if(.not.kn_stage_active(ls))return
+        if(row.ne.min(2,ni_ray(ls)).or.
+     1     freq.ne.min(18497,kn_ncf))return
+        ray=ls
+        if(kn_stage_ray.gt.0)ray=kn_stage_ray
+        write(path,'(a,i3.3,a)')'KNCELL_L',ray,'.txt'
+        open(newunit=unit,file=path,status='unknown',
+     1    position='append',iostat=ios)
+        if(ios.ne.0)call kn_replay_fail(path,ray,pass,'cell open')
+        write(unit,'(a,1x,6(i0,1x),3(es26.17e3,1x))')
+     1    stage,kn_diag_refresh,ray,channel,pass,row,freq,value,old,omega
+        close(unit)
+        end subroutine kn_stage_cell
+
+        subroutine kn_omega_applied(ls,channel,pass,proposed,applied)
+        use iter_ledger_mod, only: ledg_n_rf
+        implicit none
+        integer, intent(in) :: ls,channel,pass
+        real(kind=ldp), intent(in) :: proposed,applied
+        integer :: unit,ios,ray
+        character(len=64) :: path
+        if(.not.kn_stage_active(ls))return
+        ray=ls
+        if(kn_stage_ray.gt.0)ray=kn_stage_ray
+        write(path,'(a,i3.3,a)')'KNAPPLY_L',ray,'.txt'
+        open(newunit=unit,file=path,status='unknown',
+     1    position='append',iostat=ios)
+        if(ios.ne.0)call kn_replay_fail(path,ray,pass,'omega open')
+        write(unit,'(5(i0,1x),2(es26.17e3,1x),z16.16)')
+     1    kn_diag_refresh,ray,channel,0,pass,proposed,applied,
+     2    transfer(applied,0_8)
+        close(unit)
+        end subroutine kn_omega_applied
 !
 ! ==============================================================================
 !
@@ -8040,6 +8251,22 @@ C
 	RETURN
 	END
 !
+! SET_FG_RDUMP_LS (diagnostic, [KN_RDUMP_LS]/[KN_RDUMP_LS2]/
+! [KN_RDUMP_LS3]): arms the phase-2.22 replay-deck writer for up
+! to three named rays. Non-positive values leave that key off.
+! The dump is read-only; it cannot change the solve.
+!
+	SUBROUTINE SET_FG_RDUMP_LS(L1_P,L2_P,L3_P)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RDUMP_LS,KN_RDUMP_LS2
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RDUMP_LS3
+	IMPLICIT NONE
+	INTEGER L1_P,L2_P,L3_P
+	KN_RDUMP_LS=L1_P
+	KN_RDUMP_LS2=L2_P
+	KN_RDUMP_LS3=L3_P
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_AITKEN(DO_AIT)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_AITKEN
 	IMPLICIT NONE
@@ -8405,6 +8632,10 @@ C
 	REAL(KIND=LDP) KN_NOP_SM0,KN_NOP_SP0,KN_NOP_SM1,KN_NOP_SP1
 	REAL(KIND=LDP) RHO_H(4),RHO_MX
 	INTEGER KN_PROD_XRAY,KN_PROD_IST
+! FN_D/U_D/IOS_D: unit scratch for the per-ray census sidecar
+! (phase 2.27, diagnostic only).
+	CHARACTER(LEN=42) FN_D
+	INTEGER U_D,IOS_D
 	LOGICAL, ALLOCATABLE :: KN_PROD_MASK(:)
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
 !
@@ -8452,6 +8683,15 @@ C
 	  END IF
 	  RETURN
 	END IF
+        if(kn_rdump_ls.ge.0.or.kn_rdump_ls2.ge.0.or.
+     1    kn_rdump_ls3.ge.0)kn_diag_refresh=kn_diag_refresh+1_8
+        do ls=1,kn_np
+          if(.not.kn_stage_active(ls))cycle
+          call kn_stage_field('REFRESH_START',ls,1,0,
+     1      i_p_depth_next(:,ls,:),0.0_ldp,inext_relax)
+          call kn_stage_field('REFRESH_START',ls,2,0,
+     1      i_m_depth_next(:,ls,:),0.0_ldp,inext_relax)
+        end do
 !
 ! Monotone-cubic coefficients (log space, extended grid) for the
 ! captured per-frequency opacity/emissivity. Same kernels as the
@@ -9353,6 +9593,31 @@ C
 	WRITE(LUER,'(A,L2,A,I5,A,I5)')
 	1  '    rf_all_conv=',FG_RF_ALL_CONV,' full=',KN_NFULL,
 	2  ' active=',KN_NACT
+!
+! Phase 2.27 (diagnostic, observational only): per-ray certification
+! table for the KN_RDUMP_LS* capture runs. The OUTGEN census prints
+! aggregate counts only; the audit needs every ray's KN_CS class,
+! exit code, residual and per-channel context to test whether
+! 81P/82P are outliers or a class. Gated on the same armed-ray
+! keys so ordinary production runs write nothing and stay
+! byte-identical.
+!
+	IF(KN_RDUMP_LS .GE. 0 .OR. KN_RDUMP_LS2 .GE. 0 .OR.
+	1   KN_RDUMP_LS3 .GE. 0)THEN
+	  WRITE(FN_D,'(A,I0,A)')'KNRAY_CENSUS_r',
+	1   KN_DIAG_REFRESH,'.txt'
+	  OPEN(NEWUNIT=U_D,FILE=FN_D,FORM='FORMATTED',
+	1   STATUS='UNKNOWN',POSITION='APPEND',IOSTAT=IOS_D)
+	  IF(IOS_D .EQ. 0)THEN
+	    DO LS=1,KN_NP
+              call kn_census_row(u_d,kn_diag_refresh,ls,kn_cs_ls(ls),
+     1          kn_cs_rea(ls),nxt_ls(ls),nbd_ls(ls),res_ls(ls),
+     2          kn_p(ls),ni_ray(ls),kn_pa_res(ls,:),kn_pa_ix(ls,:),
+     3          kn_pa_np(ls,:),kn_pa_omg(ls,:),kn_prod_mask(ls))
+	    END DO
+	    CLOSE(U_D)
+	  END IF
+	END IF
 !
 ! Floored bulk exits are now distinguishable from the stall/cap
 ! stop rules by their residual ceiling (edited,
@@ -10426,6 +10691,12 @@ C
 	END IF
 	FLD(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD,I_M_DEPTH_NEXT)
+        call kn_stage_field('REFRESH_START_SEED_VIEW',ls,2,0,fld,
+     1    0.0_ldp,kn_ray_omega)
+        call kn_stage_field('NEXT_REFRESH_SEED',ls,2,0,fld,
+     1    0.0_ldp,kn_ray_omega)
+        call kn_stage_field('RAY_SOLVE_START',ls,2,0,fld,
+     1    0.0_ldp,kn_ray_omega)
 	W_LO=0; W_HI=0; NHOT=0
 	IF(ORD_SWEEP)THEN
 	  CALL SWEEP_FLD_ORD(FLD,.TRUE.,RES_M,NP_M,NB_M,NT_M,IXIT_M,
@@ -10467,6 +10738,15 @@ C
 	END IF
 	IM_NI(1:NCF)=FLD(NI,1:NCF)
 !
+! M boundary record (diagnostic, phase 2.27E): the live IM_NI the P
+! sweep is about to consume, with this channel's exit/controller
+! state. The deck already serializes IM_NI; this row lets replay
+! compare its recomputed M endpoint against the production value at
+! the identical stage. Channel 2 = M, consistent with KN_PA.
+!
+	call kn_stage_field('M_SOLVE_END',ls,2,np_m,fld(ni:ni,1:ncf),
+     1    res_m,omega_ray)
+!
 ! Fold this field's last-pass residuals into the hot-frequency
 ! histogram before the I_P solve overwrites RES_FREQ.
 !
@@ -10499,6 +10779,10 @@ C
 	END IF
 	FLD_P(1:NI,1:NCF)=0.0_LDP
 	CALL SEED_FLD(FLD_P,I_P_DEPTH_NEXT)
+        call kn_stage_field('NEXT_REFRESH_SEED',ls,1,0,fld_p,
+     1    0.0_ldp,kn_ray_omega)
+        call kn_stage_field('RAY_SOLVE_START',ls,1,0,fld_p,
+     1    0.0_ldp,kn_ray_omega)
 !
 ! KN_SEED_ARM (diagnostic, phase 5.4): the retained-store seed
 ! just written is also x_ref for the fixed-reference d_k metric;
@@ -10506,6 +10790,13 @@ C
 ! only -- the store and every solver input are unchanged.
 !
 	IF(L_SEED)CALL KN_SEED_SETUP_P(FLD_P,I_P_DEPTH_NEXT)
+!
+! KN_RDUMP_LS/LS2/LS3 (diagnostic, phase 2.22): capture the exact
+! input deck the ordered P march is about to consume, plus the
+! seeded field -- the replay driver re-runs this ray offline.
+!
+	IF(LS .EQ. KN_RDUMP_LS .OR. LS .EQ. KN_RDUMP_LS2 .OR.
+	1   LS .EQ. KN_RDUMP_LS3)CALL KN_RAY_DUMP(1)
 	W_LO=0; W_HI=0; NHOT=0
 	IF(ORD_SWEEP)THEN
 	  CALL SWEEP_FLD_ORD(FLD_P,.FALSE.,RES_P,NP_P,NB_P,NT_P,IXIT_P,
@@ -10527,6 +10818,15 @@ C
 	  KN_PA_RES(LS,2)=RES_P; KN_PA_IX(LS,2)=IXIT_P
 	  KN_PA_NP(LS,2)=NP_P; KN_PA_OMG(LS,2)=OMEGA_RAY
 	END IF
+!
+! Second half of the KN_RDUMP deck: the final P iterate and the
+! exit/controller state, before any seed-save or store logic can
+! touch FLD_P.
+!
+	IF(LS .EQ. KN_RDUMP_LS .OR. LS .EQ. KN_RDUMP_LS2 .OR.
+	1   LS .EQ. KN_RDUMP_LS3)CALL KN_RAY_DUMP(2)
+        call kn_stage_field('FLDP_END_DUMP',ls,1,np_p,fld_p,
+     1    res_p,omega_ray)
 !
 ! KN_SEED_ARM arm C (diagnostic): archive this ray's last P
 ! iterate as the next refresh's seed. Saved whatever the exit
@@ -10588,6 +10888,8 @@ C
 	  ALLOCATE(FLD_Q(NI,NCF),STAT=IOS)
 	  IF(IOS .EQ. 0)THEN
 	    FLD_Q=FLD
+        call kn_stage_field('VERIFY_START',ls,2,0,fld_q,
+     1    res_m,omega_ray)
 !
 ! KN_QC accumulation needs no arming here: the L_QP argument on
 ! these two verify calls already gates every DCELL site, and the
@@ -10603,6 +10905,8 @@ C
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
 	    END IF
 	    Q_M=RES_Q
+        call kn_stage_field('VERIFY_END',ls,2,np_q,fld_q,
+     1    res_q,omega_ray)
 !
 ! Argmax capture for the M (inward) verify pass: WRC_I/WRC_L hold
 ! the sweep's last new-max (depth,freq); FLD still carries the
@@ -10621,6 +10925,8 @@ C
 	      KN_QA_VM(LS,1)=MAXVAL(FLD(1:NI,WRC_L))
 	    END IF
 	    FLD_Q=FLD_P
+        call kn_stage_field('VERIFY_START',ls,1,0,fld_q,
+     1    res_p,omega_ray)
 	    IF(ORD_SWEEP)THEN
 	      CALL SWEEP_FLD_ORD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
@@ -10629,6 +10935,8 @@ C
 	1       IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
 	    END IF
 	    Q_P=RES_Q
+        call kn_stage_field('VERIFY_END',ls,1,np_q,fld_q,
+     1    res_q,omega_ray)
 !
 ! Same argmax capture for the P (outward) verify pass; WRC_I/WRC_L
 ! now carry the P sweep's argmax because it ran last.
@@ -10668,6 +10976,10 @@ C
 	1   NDIV,KN_CERT_CONV,ICLS,IREA,INVR)
 	IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=ICLS
 	IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=IREA
+        call kn_stage_field('CERTIFICATION',ls,2,np_m,fld,
+     1    q_m,real(icls,ldp))
+        call kn_stage_field('CERTIFICATION',ls,1,np_p,fld_p,
+     1    q_p,real(icls,ldp))
 !
 ! W9 (17-Oct-2026, [FG_COMMIT_JUMP], default 50.0): whole-ray
 ! commit guard. A runaway pass that stayed below the divergence
@@ -10773,6 +11085,12 @@ C
 ! certify either.
 !
 	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
+        if(kn_stage_active(ls))then
+          call kn_stage_field('COMMIT_CAP',ls,2,np_m,
+     1      i_m_depth_next(:,ls,:),res_m,fg_commit_nc)
+          call kn_stage_field('COMMIT_CAP',ls,1,np_p,
+     1      i_p_depth_next(:,ls,:),res_p,fg_commit_nc)
+        end if
 	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=1
 	      IF(.NOT. L_NOPROBE)
 	1    CALL WRITE_STORE_CAP(FLD,I_M_DEPTH_NEXT,DCH_M)
@@ -10846,6 +11164,12 @@ C
 	  KR_DBG_FLDP(1:NI,1:NCF)=FLD_P(1:NI,1:NCF)
 	END IF
 !
+        if(kn_stage_active(ls))then
+          call kn_stage_field('COMMIT_END',ls,2,np_m,
+     1      i_m_depth_next(:,ls,:),res_m,0.0_ldp)
+          call kn_stage_field('COMMIT_END',ls,1,np_p,
+     1      i_p_depth_next(:,ls,:),res_p,0.0_ldp)
+        end if
 	DEALLOCATE(FLD,FLD_P)
 !
 800	CONTINUE
@@ -11138,6 +11462,133 @@ C
 	END
 !
 ! ----------------------------------------------------------------
+! KN_RDUMP_LS/LS2 (diagnostic, phase 2.22): write a replay deck
+! for the named ray to KNRDUMP_L<LS>_r<KN_DIAG_REFRESH>.bin. PHASE=1
+! (pre-P-sweep) serializes every module input KNOP_RAY_SOLVE_V1
+! consumes: ray geometry, GAM profile, captured CHI/ETA cubics,
+! frequency tables, boundary constants, both store columns and
+! the seeded P field -- the offline driver pokes them into the
+! same module globals and calls the production solve unchanged,
+! so the replay runs the exact ordered march (and the whole
+! controller) rather than a reimplementation. PHASE=2 appends
+! the production outcome (RES_P/IXIT_P/NP_P/OMEGA_RAY, final
+! iterate) as the verification record. Flag bits record which
+! optional branches ran. Read-only; nothing feeds back into
+! the solve.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_RAY_DUMP(PHASE)
+	USE ITER_LEDGER_MOD, ONLY: LEDG_N_RF
+	INTEGER PHASE
+	CHARACTER(LEN=42) FN
+	INTEGER U,JJ,KK,IOS_D,IMETH_D,FBITS_D
+!
+	WRITE(FN,'(A,I3.3,A,I0,A)')'KNRDUMP_L',LS,'_r',
+	1   KN_DIAG_REFRESH,'.bin'
+	OPEN(NEWUNIT=U,FILE=FN,FORM='UNFORMATTED',STATUS='UNKNOWN',
+	1   POSITION='APPEND',IOSTAT=IOS_D)
+	IF(IOS_D .NE. 0)THEN
+	  WRITE(LUER,'(A,I5)')'  KNRDUMP: open failed, ray',LS
+	  RETURN
+	END IF
+	IF(PHASE .EQ. 1)THEN
+	  IMETH_D=0
+	  IF(KN_INNER_METH .EQ. 'DIFFUSION')IMETH_D=1
+	  IF(KN_INNER_METH .EQ. 'ZERO_FLUX')IMETH_D=2
+	  IF(KN_INNER_METH .EQ. 'PNT_SRCE')IMETH_D=3
+	  FBITS_D=0
+	  IF(FG_FREQ_MATCH)FBITS_D=IBSET(FBITS_D,0)
+	  IF(FG_ORD_P2DAMP)FBITS_D=IBSET(FBITS_D,1)
+	  IF(FG_ORD_SWEEP)FBITS_D=IBSET(FBITS_D,2)
+	  IF(FG_ORD_AITKEN)FBITS_D=IBSET(FBITS_D,3)
+	  IF(FG_ORD_AA)FBITS_D=IBSET(FBITS_D,4)
+	  IF(L_NOPROBE)FBITS_D=IBSET(FBITS_D,5)
+	  IF(FG_BULK_CONTR)FBITS_D=IBSET(FBITS_D,6)
+	  IF(FG_ADAPT_OMEGA_V2)FBITS_D=IBSET(FBITS_D,7)
+	  IF(FG_PLATEAU_DET)FBITS_D=IBSET(FBITS_D,8)
+	  IF(ALLOCATED(KN_CHI_EXT))FBITS_D=IBSET(FBITS_D,9)
+	  IF(FG_SEED_COMMIT)FBITS_D=IBSET(FBITS_D,10)
+	  IF(ALLOCATED(FG_RAY_SEEDED))THEN
+	    IF(FG_RAY_SEEDED(LS) .NE. 0)FBITS_D=IBSET(FBITS_D,11)
+	  END IF
+	  IF(KN_Q_RESID)FBITS_D=IBSET(FBITS_D,12)
+	  IF(KN_CERT_CONV)FBITS_D=IBSET(FBITS_D,13)
+	  IF(ALLOCATED(JMP_SIB_M) .AND. ALLOCATED(JMP_SIB_P))
+	1   FBITS_D=IBSET(FBITS_D,14)
+	  WRITE(U)20261123,LS,NI,KN_ND,KN_ND_EXT,NCF,KN_NC,N_COMP,
+	1     ND_ADD,NC_PNT_SRCE_L,IMETH_D,KN_RAY_MAXPASS,KN_CONT_NP,
+	2     FBITS_D,KN_NP
+	  WRITE(U)KN_RAY_TOL,KN_RAY_BULK_TOL,KN_RAY_OMEGA,
+	1     KN_RAY_STALL,NONMONO_INEXT_CAP,FG_COMMIT_NC,
+	2     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP,INEXT_RELAX,
+	3     REAL(FG_ORD_P2N,LDP),REAL(FG_ORD_P2REL,LDP),
+	4     REAL(KN_RAY_HOTPASSES,LDP),REAL(KN_HOT_TOTAL_PASSES,LDP)
+	  WRITE(U)KN_INNER_METH
+	  WRITE(U)R_EXT(1:KN_ND_EXT)
+	  WRITE(U)LOG_R_EXT(1:KN_ND_EXT)
+	  WRITE(U)KN_R(1:KN_ND)
+	  WRITE(U)KN_P(LS)
+	  WRITE(U)Z(1:NI,LS)
+	  WRITE(U)R_RAY(1:NI,LS)
+	  WRITE(U)RAY_PNT(1:NI,LS)
+	  WRITE(U)J_PNT(1:KN_ND,LS)
+	  WRITE(U)COMP_DEPTH_IDX(1:KN_ND)
+	  WRITE(U)GAM(1:NI,LS)
+	  WRITE(U)GAM_MAG(1:NI,LS)
+	  WRITE(U)dGAMdR(1:NI,LS)
+	  WRITE(U)KN_CHI_COEF(1:KN_ND_EXT,1:4,1:NCF)
+	  WRITE(U)KN_ETA_COEF(1:KN_ND_EXT,1:4,1:NCF)
+	  IF(ALLOCATED(KN_CHI_EXT))WRITE(U)KN_CHI_EXT(1:KN_ND_EXT,1:NCF)
+	  IF(ALLOCATED(KN_ETA_EXT))WRITE(U)KN_ETA_EXT(1:KN_ND_EXT,1:NCF)
+	  WRITE(U)KN_FREQ(1:NCF)
+	  WRITE(U)KN_DLN_P(1:NCF)
+	  WRITE(U)KN_DLN_N(1:NCF)
+	  WRITE(U)KN_IC(1:NCF)
+	  WRITE(U)KN_DBB(1:NCF)
+	  WRITE(U)FLD(1:NI,1:NCF)
+	  WRITE(U)((I_M_DEPTH_NEXT(JJ,LS,KK),JJ=1,N_COMP),
+	1     KK=1,NCF-1)
+	  WRITE(U)((I_P_DEPTH_NEXT(JJ,LS,KK),JJ=1,N_COMP),
+	1     KK=1,NCF-1)
+	  IF(ALLOCATED(JMP_SIB_M))WRITE(U)JMP_SIB_M(1:NCF)
+	  IF(ALLOCATED(JMP_SIB_P))WRITE(U)JMP_SIB_P(1:NCF)
+	  WRITE(U)FLD_P(1:NI,1:NCF)
+	ELSE
+	  WRITE(U)RES_P,NP_P,IXIT_P,OMEGA_RAY
+	  WRITE(U)FLD_P(1:NI,1:NCF)
+	END IF
+	CLOSE(U)
+	RETURN
+	END
+!
+! Phase 2.27 (diagnostic, observational only): per-pass applied
+! OMEGA_RAY history for the KN_RDUMP_LS* armed rays. Production
+! adaptive relaxation evolves inside the sweep from the residual
+! sequence; the v2 deck stores only the terminal value, so a replay
+! cannot recover the pass-by-pass schedule the production solve
+! actually applied. This sidecar text dump records (pass, channel,
+! omega-used, omega-after, RES, same-direction ratio, osc counter)
+! at the point the controller consumed them. Writes go to
+! KNOMG_L<LS>.txt, appended per refresh; no solver state changes.
+!
+	SUBROUTINE KN_OMG_DUMP(LS,IDIR,NPO,OMG_USE,OMG_NEW,
+	1   RES_D,RATIO_D,NOSC_D)
+	USE ITER_LEDGER_MOD, ONLY: LEDG_N_RF
+	INTEGER LS,IDIR,NPO,NOSC_D
+	REAL(KIND=LDP) OMG_USE,OMG_NEW,RES_D,RATIO_D
+	CHARACTER(LEN=42) FN
+	INTEGER U,IOS_D
+!
+	WRITE(FN,'(A,I3.3,A)')'KNOMG_L',LS,'.txt'
+	OPEN(NEWUNIT=U,FILE=FN,FORM='FORMATTED',STATUS='UNKNOWN',
+	1   POSITION='APPEND',IOSTAT=IOS_D)
+	IF(IOS_D .NE. 0)RETURN
+	WRITE(U,'(I0,1X,I3,1X,I4,1X,I2,4(1X,ES26.17E3),1X,I3)')
+	1   KN_DIAG_REFRESH,LS,NPO,IDIR,OMG_USE,OMG_NEW,RES_D,RATIO_D,NOSC_D
+	CLOSE(U)
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
 ! Alternating-direction fixed-point iteration on the coupled field.
 ! Odd passes ascend in frequency (fresh upwind for expanding cells),
 ! even passes descend (fresh upwind for compressing cells). A ray
@@ -11164,6 +11615,9 @@ C
 	REAL(KIND=LDP) RHO_WIN(6),RHO_SRT(6),TW
 	INTEGER NRHO,JW,KW,NP_EFF
 	LOGICAL ASC,HOTMODE,L_PLAT,L_CONT,L_CONT_READY
+! OMG_USED: applied relaxation for the KNOMG armed-ray history
+! (phase 2.27, diagnostic only).
+	REAL(KIND=LDP) OMG_USED
 	NPO=0
 	NSTALL=0
 	NPLAT(1)=0; NPLAT(2)=0
@@ -11208,6 +11662,8 @@ C
 ! NOP_PASS runs, so the used value must be taken here.
 !
 	  IF(L_NOPROBE)NOP_OMG_SNAP=OMEGA_RAY
+	  IF(LS .EQ. KN_RDUMP_LS .OR. LS .EQ. KN_RDUMP_LS2 .OR.
+	1     LS .EQ. KN_RDUMP_LS3)OMG_USED=OMEGA_RAY
 !
 ! W7 (17-Oct-2026): hot-pass extension. When a stall or cap exit
 ! fires with residual left only inside a contiguous hot-frequency
@@ -11452,6 +11908,9 @@ C
 	    END IF
 	  END IF
 	  RES_PREV(IDIR)=RES
+	  IF(LS .EQ. KN_RDUMP_LS .OR. LS .EQ. KN_RDUMP_LS2 .OR.
+	1     LS .EQ. KN_RDUMP_LS3)CALL KN_OMG_DUMP(LS,IDIR,NPO,
+	2     OMG_USED,OMEGA_RAY,RES,RATIO_OM,NOSC_FL)
 !
 ! Worst-cell persistence: if the same (depth,freq) cell held the
 ! pass max last pass too, one unstable mode dominates; a moving max
@@ -11758,6 +12217,10 @@ C
 	LOGICAL HOTMODE,L_CONT,L_SIG,L_CONT_READY
 	REAL(KIND=LDP), ALLOCATABLE :: VMAXF(:)
 	REAL(KIND=LDP) SPJ,DSD,DSU
+! OMG_USED: applied relaxation for the KNOMG armed-ray history
+! (phase 2.27, diagnostic only).
+	REAL(KIND=LDP) OMG_USED
+        real(kind=ldp) omega_proposed
 !
 ! KN_PSWEEP_DIAG (phase 5.3K): per-solve capture state. PSD_X is
 ! the immutable pass input; PSD_REC buffers one record per
@@ -11925,6 +12388,8 @@ C
 ! NOP_PASS runs, so the used value must be taken here.
 !
 	  IF(L_NOPROBE)NOP_OMG_SNAP=OMEGA_RAY
+	  IF(LS .EQ. KN_RDUMP_LS .OR. LS .EQ. KN_RDUMP_LS2 .OR.
+	1     LS .EQ. KN_RDUMP_LS3)OMG_USED=OMEGA_RAY
 !
 ! W7 (17-Oct-2026): hot-pass extension spend accounting, same rule
 ! as SWEEP_FLD -- up to KN_RAY_HOTPASSES extra passes per ray,
@@ -11941,6 +12406,15 @@ C
 	      EXIT
 	    END IF
 	  END IF
+        omega_proposed=omega_ray
+        if(.not.l_qp)call kn_replay_apply(ls,merge(2,1,inward),
+     1    npo,omega_ray)
+        omg_used=omega_ray
+        if(l_noprobe)nop_omg_snap=omega_ray
+        if(.not.l_qp)call kn_omega_applied(ls,merge(2,1,inward),
+     1    npo,omega_proposed,omega_ray)
+        call kn_stage_field('PASS_START',ls,merge(2,1,inward),
+     1    npo,fld,res,omega_ray)
 !
 ! AA history: save the pre-march iterate as the newest pair input.
 ! Lazy allocation at NPO>=4 keeps fast rays free of the
@@ -12057,6 +12531,8 @@ C
 	1           (SPW(L,MOD(J-2,4)+1)*PK_A1(J-1,L)+
 	2           SPJ*PK_A2(J-1,L)+
 	3           DSD*PK_A3(J-1,L)+DSU*PK_A4(J-1,L))
+        call kn_stage_cell('FORMAL_RESULT',ls,merge(2,1,inward),
+     1    npo,j,l,vnew,fld(j,l),omega_ray)
 	        IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	          VNEW=1.0E-30_LDP
 	          NNEG=NNEG+1
@@ -12150,6 +12626,8 @@ C
 	        ELSE
 	          FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	        END IF
+        call kn_stage_cell('RELAXATION_APPLIED',ls,
+     1    merge(2,1,inward),npo,j,l,fld(j,l),vold,omega_ray)
 	      END DO
 	    END DO
 	  ELSE
@@ -12267,6 +12745,8 @@ C
 	1           (SPW(L,MOD(J,4)+1)*PK_A1(J,L)+
 	2           SPJ*PK_A2(J,L)-
 	3           DSU*PK_A3(J,L)-DSD*PK_A4(J,L))
+        call kn_stage_cell('FORMAL_RESULT',ls,merge(2,1,inward),
+     1    npo,j,l,vnew,fld(j,l),omega_ray)
 	        IF(VNEW .LT. 0.0_LDP .OR. VNEW .NE. VNEW)THEN
 	          VNEW=1.0E-30_LDP
 	          NNEG=NNEG+1
@@ -12357,10 +12837,14 @@ C
 	        ELSE
 	          FLD(J,L)=VOLD+OMEGA_RAY*(VNEW-VOLD)
 	        END IF
+        call kn_stage_cell('RELAXATION_APPLIED',ls,
+     1    merge(2,1,inward),npo,j,l,fld(j,l),vold,omega_ray)
 	      END DO
 	    END DO
 	  END IF
 !
+        call kn_stage_field('FIELD_UPDATE',ls,merge(2,1,inward),
+     1    npo,fld,res,omega_ray)
 	  NB_O=NBAD_CUR
 	  NT_O=NTOT_CUR
 !
@@ -12644,6 +13128,10 @@ C
 	    END IF
 	  END IF
 	  RES_PREV(1)=RES
+	  IF(LS .EQ. KN_RDUMP_LS .OR. LS .EQ. KN_RDUMP_LS2 .OR.
+	1     LS .EQ. KN_RDUMP_LS3)CALL KN_OMG_DUMP(LS,
+	2     MERGE(2,1,INWARD),NPO,OMG_USED,OMEGA_RAY,RES,
+	3     RATIO_OM,NOSC)
 	  IF(WRC_I .EQ. WRC_PI .AND. WRC_L .EQ. WRC_PL .AND.
 	1    WRC_I .GT. 0)THEN
 	    WRC_SAME=WRC_SAME+1
