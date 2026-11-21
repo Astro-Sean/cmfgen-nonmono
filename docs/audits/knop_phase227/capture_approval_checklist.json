@@ -1,0 +1,24 @@
+{
+  "phase": "2.27C",
+  "candidate": "captures_v5",
+  "candidate_supersedes": "captures_v4 (manifest gaps: CMF_KN_RF_MB, work/data)",
+  "overall": "BLOCKED",
+  "rule": "A source-only review never substitutes for a runtime gate. No gate may be weakened to make the candidate appear ready.",
+  "gates": [
+    {"id": 1, "name": "complete_input_restart_read_set", "status": "BLOCKED", "evidence": "read_set_audit.md: static closure done; observed trace requires allocation; fresh-start assumption unconfirmed"},
+    {"id": 2, "name": "required_inputs_hash_validated", "status": "PASS_WITH_LIMITATIONS", "evidence": "251 files/capture, identical normal/debug, manifest-validated; subset-actually-opened unproven"},
+    {"id": 3, "name": "executable_library_provenance", "status": "PASS", "evidence": "build_v4 manifests: compiler, flags, static-object and dynamic-library hashes, ldd recorded"},
+    {"id": 4, "name": "separate_scratch_output_paths", "status": "PASS", "evidence": "independent work/scratch/output per variant; cross-capture writes impossible by layout"},
+    {"id": 5, "name": "frozen_runner_exact_executable", "status": "PASS", "evidence": "validate() rehashes bin/executable against sealed manifest at launch"},
+    {"id": 6, "name": "fortran_census_writer_reader_tests", "status": "NOT_RUN", "evidence": "fixtures prepared (io_tests_v4_*); requires SLURM_JOB_ID allocation"},
+    {"id": 7, "name": "fortran_omega_writer_reader_tests", "status": "NOT_RUN", "evidence": "same; 13 omega cases incl. NaN/Inf/roundtrip/wrong serial"},
+    {"id": 8, "name": "replay_lifecycle_review", "status": "SOURCE_REVIEWED", "evidence": "replay_state_inventory.md + lifecycle table; M-once/boundary-retention verified in source only"},
+    {"id": 9, "name": "refresh_serial_tests", "status": "NOT_RUN", "evidence": "single increment site source-reviewed; multi-iteration/early-return tests prepared"},
+    {"id": 10, "name": "ray84_control_revised_replay", "status": "NOT_RUN", "evidence": "reference 3.487919e-8, tolerance 5e-15 abs / 0 rel; awaiting allocation"},
+    {"id": 11, "name": "o0_o3_field_comparison", "status": "NOT_RUN", "evidence": "builds vary solver optimization; bytewise field compare awaiting allocation"},
+    {"id": 12, "name": "census_failure_heal_instrumentation", "status": "PARTIAL", "evidence": "census_failure_heal_design.md: per-refresh rows complete; defect location, first-failure pass, Q/bulk residual fields missing"},
+    {"id": 13, "name": "no_production_change", "status": "PASS", "evidence": "all edits diagnostic-only or tooling; physics untouched"}
+  ],
+  "blocked_reason": "No approved idle diagnostic allocation; submissions prohibited. Gates 1,6,7,9,10,11 cannot close without runtime. Gate 12 needs the missing census fields or an accepted post-processing join.",
+  "held_jobs": [{"id": 13464217, "state": "PENDING (JobHeldUser)"}, {"id": 13464311, "state": "PENDING (JobHeldUser)"}]
+}
