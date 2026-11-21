@@ -497,7 +497,7 @@
 	CHARACTER(LEN=7) TRC_ST,CONV_ST
 	LOGICAL CONV_LAM_OK,CONV_DEM_OK,CONV_TRC_NEED,CONV_TRC_DONE,
 	1    CONV_TRC_ACTIVE,CONV_TRC_OFF,CONV_TRC_REL,CONV_ALL
-	CHARACTER(LEN=120) CONV_FAILS
+	CHARACTER(LEN=160) CONV_FAILS
 	INTEGER CONV_NPASS,CONV_NPCT
 	REAL(KIND=LDP) CONV_MGN
 	CHARACTER(LEN=8) CONV_MGN_CH
@@ -4484,50 +4484,30 @@
 ! alone tells whether the total system -- majors, exempted trace
 ! species, and the lambda-state bookkeeping -- is converged.
 !
-	  CONV_LAM_OK=(RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
-	1    (LAST_LAMBDA .NE. MAIN_COUNTER)
-	  CONV_ALL=CONV_LAM_OK .AND. .NOT. JFNK_UNCONVERGED_COMMIT .AND.
-	1    (BA_EX_MAXCH .LT. EPS) .AND. CONV_DEM_OK .AND.
-	2    .NOT. DONE_HYDRO_REVISION .AND. .NOT. GS_POPS_HELD .AND.
-	3    .NOT. BAACC_PENDING .AND. (MAIN_COUNTER .NE. LAST_NG)
-	  CONV_FAILS=' all pass'
-	  IF(.NOT. CONV_ALL)THEN
-	    CONV_FAILS=' '
-	    IF(.NOT. CONV_LAM_OK)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' lambda-state'
-	    IF(.NOT. (BA_EX_MAXCH .LT. EPS))
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' ex_maxch>=eps'
-	    IF(JFNK_UNCONVERGED_COMMIT)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' jfnk-unconverged'
-	    IF(.NOT. CONV_DEM_OK)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' exempted-demand'
-	    IF(DONE_HYDRO_REVISION)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' hydro-revision'
-	    IF(GS_POPS_HELD)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' pops-held'
-	    IF(BAACC_PENDING)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' resacc-pending'
-	    IF(MAIN_COUNTER .EQ. LAST_NG)
-	1      CONV_FAILS=TRIM(CONV_FAILS)//' on-ng-iteration'
-	  END IF
+! edited 19-Nov-2026 (round-2 audit): the replica was missing the
+! ninth conjunct the real exit carries, .NOT. LAM_FIELD_NOT_READY,
+! so an immature lagged field could print [MET] while the true exit
+! still held. The evaluation now runs through CONV_EXIT_EVAL
+! (LAM_HANDOFF_MOD) so the replica and the real gate share one
+! predicate list, one label set and one pass count; the live
+! LAM_FIELD_NOT_READY assigned above is the same value the exit
+! reads, never a cached copy.
 !
-! Percent-converged figure: share of the 8 exit gates passing, plus
+	  CALL CONV_EXIT_EVAL(RD_LAMBDA,DO_LAMBDA_AUTO,LAST_LAMBDA,
+	1    MAIN_COUNTER,JFNK_UNCONVERGED_COMMIT,BA_EX_MAXCH,EPS,
+	2    CONV_DEM_OK,DONE_HYDRO_REVISION,GS_POPS_HELD,BAACC_PENDING,
+	3    LAST_NG,LAM_FIELD_NOT_READY,CONV_LAM_OK,CONV_ALL,
+	4    CONV_NPASS,CONV_FAILS)
+!
+! Percent-converged figure: share of the 9 exit gates passing, plus
 ! the worst continuous gate's distance from its threshold in dex.
 ! A gate that fails on a logical flag (pops-held, resacc-pending,
-! lambda-state, hydro-revision, jfnk-unconverged, on-NG) has no
-! continuous margin, so the dex figure reads the numeric channels
-! only. [MET] implies 100% -- all gates passed.
+! lambda-state, hydro-revision, jfnk-unconverged, on-NG,
+! lam-field-not-ready) has no continuous margin, so the dex figure
+! reads the numeric channels only. [MET] implies 100% -- all gates
+! passed.
 !
-	  CONV_NPASS=0
-	  IF(CONV_LAM_OK)CONV_NPASS=CONV_NPASS+1
-	  IF(BA_EX_MAXCH .LT. EPS)CONV_NPASS=CONV_NPASS+1
-	  IF(.NOT. JFNK_UNCONVERGED_COMMIT)CONV_NPASS=CONV_NPASS+1
-	  IF(CONV_DEM_OK)CONV_NPASS=CONV_NPASS+1
-	  IF(.NOT. DONE_HYDRO_REVISION)CONV_NPASS=CONV_NPASS+1
-	  IF(.NOT. GS_POPS_HELD)CONV_NPASS=CONV_NPASS+1
-	  IF(.NOT. BAACC_PENDING)CONV_NPASS=CONV_NPASS+1
-	  IF(MAIN_COUNTER .NE. LAST_NG)CONV_NPASS=CONV_NPASS+1
-	  CONV_NPCT=NINT(100.0_LDP*CONV_NPASS/8.0_LDP)
+	  CONV_NPCT=NINT(100.0_LDP*CONV_NPASS/9.0_LDP)
 	  CONV_MGN=-99.0_LDP
 	  CONV_MGN_CH='none'
 	  IF(EPS .GT. 0.0_LDP .AND. BA_EX_MAXCH .GT. 0.0_LDP .AND.
