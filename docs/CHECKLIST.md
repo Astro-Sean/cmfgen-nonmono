@@ -104,12 +104,28 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       transient, not a persistent orbit - audit revised. `p53s_fix82`
       (13158010, corrected exe) still in setup; will confirm the
       same exit path on all rays plus honest `fg_rf`/`KN_HOT_CNT`.
-- [ ] Ray-83 floor-cell behaviour under measured exits (jump veto vs
-      convergence classification separation).
+- [~] Ray-83 floor-cell behaviour under measured exits (jump veto vs
+      convergence classification separation): under measured exits the
+      ray neither converges nor jump-vetoes - it exits capped
+      (ixit=3) on every refresh while its residual holds a period-2
+      cycle (6.894E-01/6.961E-01, B-arm evidence 21-Nov-2026, 113+
+      refreshes, ~88K bad cells/sweep).
 - [ ] Corner-mode acceleration decision (guarded Aitken / OMEGA_RAY /
       safeguarded Anderson) - deferred until production pass history
       exists; do not enable an accelerator without it.
 - [ ] Whether rays 82/83 share a mechanism or need separate handling.
+- [x] Phase-2.21 A/B and repeatability arms (21-Nov-2026): pre-flag
+      frozen exe 93364cac (`KNOP_B1_PREFLAG`, 13427111) vs current
+      58a699d0 `FG_RF_ALL_CONV` + NI guard (`KNOP_B2_POSTFLAG`,
+      13427115) produced the same pinned ray-83 residual cycle -
+      the flag change does not alter this ray's stalled lagged map.
+      A/A pair 13414391/13414398 ran near-identical trajectories:
+      the stall is deterministic, not a seed or race artifact.  All
+      four arms, their pending chain followers, and the held
+      `knop_v2cap` jobs (13464311/13464217) were cancelled after the
+      assessment; the arms were diagnostic-only under the 11-Nov
+      KNOP scoping and their questions are answered by the pinned
+      cycles themselves.
 - [x] Frozen-executable experiment hygiene (the p82 drift root cause):
       `scripts/cmf_run_manifest.py` pins the resolved exes into
       `exe_frozen/<sha16>_<sha16>/` shaped as a cmfdist; submit_cmfgen.sh
@@ -165,9 +181,11 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
 
 ## 6. Reporting consequences to verify on first post-fix runs
 
-- [ ] `fg_rf`/`KN_RF_RESID` now include previously suppressed
-      HAS_CP=F rays (ray 82 ~0.6) - maturity gate may hold longer;
-      confirm this is genuine residual, not a new stall.
+- [x] `fg_rf`/`KN_RF_RESID` now include previously suppressed
+      HAS_CP=F rays (ray 82 ~0.6) - the elevated values are genuine
+      non-contraction, not a reporting artifact: probe ray 83 holds a
+      period-2 6.894E-01/6.961E-01 residual cycle across 113+
+      refreshes on the post-flag build (21-Nov-2026, section 3).
 - [ ] `KN_HOT_CNT` should accumulate the L~17881 corner column.
 - [ ] Converged/rejected/capped census lines change class for
       corner-oscillating rays - record the new mix in the audit.
