@@ -29,6 +29,12 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
 done
 trap 'rmdir "$LOCK_DIR" 2>/dev/null; rm -f exe/*.tmp' EXIT
 
+# Start every build with a clean tree root: drop manual redirect
+# leftovers (build_*.out/.err/.log), Fortran unit dumps (fort.*),
+# TIMING, stray objects/modules and core dumps that collect here.
+# Real outputs live under exe/, lib/, mod/ and the test work dirs.
+rm -f build_*.out build_*.err build_*.log fort.* TIMING ./*.mod ./*.o core core.*
+
 # Makefiles never create the output dirs; a fresh clone fails without them.
 mkdir -p mod lib exe mod_dbg lib_dbg exe_dbg
 
