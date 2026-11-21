@@ -108,7 +108,7 @@ verification checklist.
 
 A clean build or a generated spectrum does not establish that the
 new paths converge or produce a valid interacting-supernova
-spectrum. Current runtime status is tracked in `AGENTS_HISTORY.md`
+spectrum. Current runtime status is tracked in `docs/CHECKLIST.md`
 and the audit notes under `docs/audits/`.
 
 See [`docs/plans/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md`](docs/plans/NUMERICAL_METHODS_DEVELOPMENT_PLAN.md)
