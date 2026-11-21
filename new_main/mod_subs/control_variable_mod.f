@@ -1336,6 +1336,21 @@
 !
 	LOGICAL KN_JUMP_DIAG
 !
+! KN_BADID (default FALSE): diagnostic-only bad-cell identity
+! tracking for the KNOP refresh (round-2 phase-2). When T, each
+! ray's last-pass census records WHICH cells exceeded KN_RAY_TOL
+! (packed ray/frequency/point/channel ids on sparse per-ray
+! lists), the serial epilogue merges them into a sorted census,
+! and the refresh prints the diff against the previous census:
+! intersection, newly bad, recovered, Jaccard similarity, and a
+! per-channel split. The existing bad-cell count and criterion
+! are unchanged; this answers whether unresolved cells are the
+! same cells every refresh (a persistent residual floor) or a
+! churning population. Default F allocates nothing. VADAT
+! keyword [KN_BADID].
+!
+	LOGICAL KN_BADID
+!
 ! KN_MAT_FREEZE (default FALSE): diagnostic-only matter freeze
 ! for the KNOP failure isolation (P1-T1c arm M). When T, every
 ! SOLVE_FOR_POPS call takes the GS_POPS_HELD path: SOLVEBA still
