@@ -9,6 +9,21 @@ Nothing in this audit is inferred from pending jobs.
 Baseline for this audit: tip `595f9ae7` (commits `3295014c` NI guard,
 `e66492ec` Phase 2.20 audit).
 
+## Update 20-Nov-2026 ~22:15 CET - live snapshot
+
+Recorded in `knop_phase221/live_status_20261120.txt`. Job state at
+snapshot: A1/A2 RUNNING (11h15m, on `vipc2181`); B1/B2, all four
+dependent OBS jobs, the diagcap arm, and both obs_p221 arms PENDING.
+No job has terminated; no termination reason exists yet. Working tree
+note: `exe/` was rebuilt at 17:26-17:28 for unrelated Phase 2.22 work
+(`cmfgen_dev.exe` `d50dcacd`, `cmf_flux.exe` `806832f6`); all
+population arms and the dependent OBS jobs run from pinned
+`exe_frozen/` trees and are unaffected. The standalone obs_p221 pair
+points at the live `exe/cmf_flux.exe` path, which is resolved at job
+start: the documented `abe47258` will not be the executed binary; both
+arms share the same live path so the on/off comparison remains
+internally consistent (see Part D).
+
 ## PART A - live executable rebuild
 
 `make cmfgen KEEP_EXE=1` was run in the production tree. The make rule
@@ -83,6 +98,9 @@ populations. Over 122 refreshes in A2 (`it`~286 at extraction):
   [3.4E-2, 7.5E-2], no downward trend across refresh blocks 1-122;
   1 of 122 refreshes below the 5% maturity bound;
 - `retained-field delta` ~4.0-4.5E-2 (GS_RF_DCHG - under the 5% bound);
+  resolved below: at steady state the printed 5.0000E-02 is the
+  FG_COMMIT_NC cap value produced by capped provisional commits, not a
+  reporting floor;
 - sweep drift `sw=` ~5.0-6.3E-2;
 - ray exits steady at tol~65 / bulk~16 / stall=3 (probe included;
   NX_CNT counts the probe, so production stall = 2), unsolved=1 (the
@@ -106,14 +124,83 @@ Diagnostic arm submitted to name them: `m15_2p82d_KNOP_diagcap`
 tree, same iso_M donor, same VADAT including `KN_MAT_FREEZE=T` and the
 ray-83 probe) plus `KN_PSWEEP_DIAG=T`, `KN_PSWEEP_LS=-1` (per-ray,
 per-pass full-map defect `R_MAP` capture for every ray,
-diagnostic-only). Its `KN_PSWEEP_DIAG.dat` records which production
+diagnostic-only; `KN_PSWEEP_*` strings confirmed present in the
+`93364cac` binary). Its `KN_PSWEEP_DIAG.dat` records which production
 rays plateau at ~6E-2 vs contract to tolerance.
+
+Follow-up analysis at refresh ~255 (`knop_phase221/
+persistent_ray_analysis.md`) established:
+
+- the flagged cells are all ch1 (inward arm), model depths 2-5 (the
+  weakest-compression outer edge, sigma -1.04 to -1.18), one EUV
+  slot per ray (l2 = 490/1040/2068, lambda ~57/129/285 A), candidate
+  pinned at the 1e-30 write floor vs seed-era stores ~1e-38-1e-34;
+- the store column peaks at those slots sit just above the 1e-28
+  floor-scan cutoff (~1.001e-28), which is why they are scanned;
+- VR ~ 0.499 is ~1% of the stored column peak in jump-veto
+  normalization (FG_COMMIT_JUMP=50), 100x below the veto - the
+  flagged cells are floor-level and physically insignificant, a
+  stale-store symptom of non-committing rays, not the residual
+  driver;
+- ray geometry: rays 22/45/50 are non-core rays with tangent depths
+  64/41/36 (ejecta and mid-CSM). GAM at the flagged depths is not
+  shared (ray 22 marginally negative, rays 45/50 positive) - the
+  common element is stale stores at outer depths, not a compression
+  class;
+- census reconciliation: the three non-committing production verdicts
+  (2 capped + 1 unsolved of 84) map onto the three flagged rays; the
+  independent q residual has exactly 3 production rays above 1e-2,
+  matching {22,45,50}; ray 85 is the degenerate ni<2 grazing ray;
+- the store-drift argmax sits on ray 82 (depths 1-2) - a grazing ray
+  covering only depths 1-4, same outer-edge territory;
+- adaptive INEXT_RELAX holds omega ~ 0.51 with contraction rho_p90
+  ~ 0.95 - slow contraction, relaxation already sub-unity.
 
 Counter note: `GS_STATE` shows `n_mature=123` consecutive under
 `KN_MAT_FREEZE` while the printed sweep/refresh metrics exceed 5%. The
 release counters under the unconditional MAT_FREEZE hold do not read
 as the normal gate transcript; treat them as diagnostic bookkeeping
 only.
+
+Live progress at 22:15 snapshot (252 refreshes A1 / 271 A2, extraction
+22:05): the A1 and A2 per-refresh `residual max` sequences are
+byte-identical over all 252 common refreshes - the arms are exact
+deterministic replicates (same pinned binary, inputs, node, thread
+count); A2 runs ~18 iterations ahead on scheduling jitter only. Same
+for the KN-CEN offender evolution: refresh 1 shows the larger set
+{(1..5,25..28) ch2, 50 ch1, 83 ch2}, refresh 2 onward is locked to
+{(22,45,50) ch1, (83) ch2} - only 2 distinct offender sets in 271
+refreshes. Sub-5% refresh residuals occur identically in both arms at
+refreshes 96 (3.450E-2) and 180 (4.260E-2); all other refreshes sit at
+~5.5-7.5E-2 against the 2.0E-3 tol. Ray exits hold at tol=65 bulk=16
+stall=3 (probe included; production stall=2) cap=0 div=0 plat=0,
+unsolved=1; commit verdicts 81/2/1 every refresh after refresh 1
+(80/3/1). Mode history (A1): it158-160 `gs_freeze_forced` frozen=T,
+it161 `release_damped` (one GS release, correction cap 3.0), it162
+`release_no_progress` count=1, it163+ `hold_pops` only frozen=F.
+`[HELD]` on all 253/271 population calls; `Model Convergence: 50 %`
+constant; initial `immature-field iteration` counter settles at 3 and
+printed `no-progress releases` stays 0 (diagnostic bookkeeping under
+the unconditional hold, per the counter note above).
+
+Executable/input provenance verified at snapshot (full table in
+`live_status_20261120.txt`): A1/A2 pin `93364cac`/`484f34b1` with
+manifest `exe_verify=ok`; B1/diagcap resolve the doubled
+`exe_frozen/.../exe_frozen/...` cmfdist through a nested copy that is
+hash-identical to the parent pin; B2 pins `58a699d0`/`abe47258`.
+VADAT_INIT (`f238af97`) and SN_HYDRO_DATA (`347eda19`) are
+byte-identical across all five arms. B1/B2/diagcap checkpoint files
+are hash-identical to the iso_M it157 donor (SCRTEMP `5704dc48`,
+FGINEXT_GS `48077bb3`, MODEL `c187873d`, CUR_MODEL_DATA `89365795`,
+POINT1/2 `91634fb5` IREC=157). A1/A2 warm restart is confirmed by the
+first BA-SOLVE at it=158 (donor it157 + 1); their live checkpoint
+files are now overwritten by the running jobs (POINT1 IREC 409/427).
+Two staged-input caveats, both harmless: B-arms' MODEL_SPEC carries
+NUM_BNDS=3 which runtime normalizes to 1 under SOL_METH=DIAG (A1
+OUTGEN prints `NUM_BNDS: 3 -> 1`), and their IN_ITS NUM_ITS=60 is the
+template value that the slurm launcher rewrites to 10000 at launch.
+MODEL differs A-vs-B only in the timestamp line and the embedded
+VADAT-key echo; the authoritative VADAT_INIT is identical.
 
 Completion analysis (great iterations, releases, freeze counts,
 GS_MAX_ALL, GS_RF_DCHG, MAXCH, no-progress counters, termination)
@@ -188,11 +275,26 @@ for the observer-route and diagnostic-independence checks; it does not
 substitute for a converged model in Part F.
 
 Jobs `13427285` (diag on) and `13427286` (diag off) run
-`exe/cmf_flux.exe` `abe47258` via `obs_template/batobs.sh` at
+`exe/cmf_flux.exe` via `obs_template/batobs.sh` at
 general/200G/8 CPU (`obs_p221_setup.txt`, `obs_p221_job.sh`).
-`abe47258` contains `rf_not_allconv` and the extended
-`GET_FG_GS_MATURITY` signature; the corrected interface is exercised in
-the actual OBS route via `RESTORE_FG_INEXT_OBS` in `cmf_flux_sub_v5.f`.
+
+Caveat recorded 22:15 snapshot: `obs_job.sh` exports
+`CMF_OBS_EXE=cmfgen_jfnk/exe/cmf_flux.exe`, i.e. the live path, so the
+binary is resolved at job start rather than at submission. At staging
+the live exe was `abe47258` (contains `rf_not_allconv` and the extended
+`GET_FG_GS_MATURITY` signature; exercised in the OBS route via
+`RESTORE_FG_INEXT_OBS` in `cmf_flux_sub_v5.f`). The 17:28 Phase 2.22
+rebuild replaced it with `806832f6`; since both arms are still pending,
+both will execute the same binary at launch and the diagnostic on/off
+comparison stays internally consistent - but the executed hash must be
+read from the job manifests/output at completion, not assumed
+`abe47258`. The stale OUT_FLUX/batobs.log present in the p221 staging
+dirs are inherited from the obs_p219 clone and are NOT p221 job
+products.
+
+Staging verified at snapshot: `CMF_FLUX_PARAM_INIT` in run_diag_on vs
+run_diag_off differ only in `PRINT_KNOP_DEBUG` (T vs F);
+`DO_KNOP_SPEC_GATE=F` in both; both link the seed_b model files.
 
 Runtime, exit status, memory, and OBSFLUX checksum will be recorded on
 completion. Link/startup alone is not counted as validation.
@@ -236,33 +338,69 @@ inputs, successful refresh, population convergence, observer spectrum.
   `ab_design.txt`, `cert_bundle_commits.txt`,
   `dessart_m15_2p82d_KNOP_B1_PREFLAG.yaml`,
   `dessart_m15_2p82d_KNOP_B2_POSTFLAG.yaml`,
-  `obs_p221_setup.txt`, `obs_p221_job.sh`, `README_pending.md`.
+  `obs_p221_setup.txt`, `obs_p221_job.sh`, `README_pending.md`,
+  `live_status_20261120.txt`, `persistent_ray_analysis.md`.
 
-## FINAL REPORT (interim - live items pending)
+## FINAL REPORT (interim - live items pending; 22:20 snapshot)
 
 1. Live executable rebuilt with NI guard: YES - `58a699d0`, guarded
    object `b2d5ded4`, provenance chain recorded.
 2. Invalid-ray test on that build chain: PASS - `inv=1`,
    `rf_all_conv=F`, reason 8 on the guarded path, no invalid access.
-3. A1/A2 complete: PENDING - running 5h+/24h. NOTE: both arms carry
-   `KN_MAT_FREEZE=T` (frozen-matter diagnostic); held=T every call is
-   by design, populations cannot converge under this arm.
+3. A1/A2 complete: PENDING - running 11h+/24h at snapshot (it ~410-430,
+   no termination; expected graceful stop ~08:52 or wall ~10:52 21-Nov
+   with requeue). Both arms carry `KN_MAT_FREEZE=T` (frozen-matter
+   diagnostic); held=T every call is by design, populations cannot
+   converge under this arm. NEW: A1/A2 trajectories are byte-identical
+   over all 252 common refreshes - the pre-flag replicate pair confirms
+   deterministic execution on identical inputs.
 4. Ten-release failure recurred: CANNOT OCCUR under MAT_FREEZE arms -
-   the release counter cannot accrue while populations are held. The
-   question remains open for a free-matter arm.
+   the release counter cannot accrue while populations are held. A1
+   shows exactly one damped release (it161) and one no-progress release
+   (it162) before the hold-only steady state. The question remains open
+   for a free-matter arm.
 5. Valid pre/post comparison: CONSTRUCTED but RE-SCOPED - B1
    `93364cac` vs B2 `58a699d0`, identical inputs, both frozen-matter:
    valid for field-trajectory/certification comparison, NOT for the
    ten-release population question (would need KN_MAT_FREEZE=F arms).
+   B1/B2 checkpoints hash-verified identical to the iso_M it157 donor.
+   Both FINALs still PENDING at snapshot.
 6. cmf_flux completes: PENDING - p221 arms 13427285/6 queued at 200G
    after the diagnosed 30G OOM; dependent OBS jobs queued behind FINALs.
+   Recorded caveat: the p221 pair resolves `exe/cmf_flux.exe` at job
+   start; since the 17:28 Phase 2.22 rebuild, that path no longer holds
+   `abe47258` (now `806832f6`). Both arms share the same live path, so
+   the on/off comparison remains internally consistent under whichever
+   binary runs.
 7. Diagnostic on/off OBSFLUX byte-identical: PENDING - arms submitted,
-   comparison scripted.
+   staging diff-verified (`PRINT_KNOP_DEBUG` only), comparison scripted.
 8. Final population evaluated against latest verified field: PENDING -
-   needs a completed post-flag model; ordering already proven at source
-   (Phase 2.19/2.20).
-9. 5% maturity criterion: DOCUMENTED - `GS_MATURE_TOL` bounds
-   `GS_RF_DCHG`; it is a bounded-drift criterion, not field equality.
-    Live confirmation pending.
+   needs a completed post-flag model; B2 has not started. Ordering
+   already proven at source (Phase 2.19/2.20).
+9. 5% maturity criterion: RESOLVED - `GS_MATURE_TOL` bounds
+   `GS_RF_DCHG`. The steady-state 5.0000E-02 is the exact
+   FG_COMMIT_NC bound saturated by capped provisional commits
+   (`worst-ray delta: max=5.000E-02 committed-max=4.91E-03`), not a
+   reporting floor; it measures the retained store used by
+   population rates, and it certifies bounded drift only - a stalled
+   ray can hold it at the cap while its field stays unconverged
+   (refresh residual ~6.5E-2 vs 2.0E-3 tol throughout). Only 2/252
+   refreshes dip below 5%. See persistent_ray_analysis.md section 10.
 10. Mixed-sign velocity fields: UNVALIDATED - no genuine inversion
     model exists; requirements documented in Part G.
+11. Rays 22/45/50: DIAGNOSED at telemetry level - three
+    non-committing production rays (2 capped + 1 unsolved verdict of
+    84) whose retained stores keep seed-era values at outer-edge EUV
+    columns; the KN-CEN flagged cells (depths 2-5, ch1, floor-level
+    candidates under the thin outer boundary) are the stale-store
+    symptom, not the residual driver. The store-update argmax instead
+    sits on ray 82 essentially every refresh (depths 1-2, freq
+    ~1263-1653 ~160-178 A EUV, bndry/cycle classes) - the second-outermost
+    grazing ray (NI_RAY~4, covers only depths 1-4). The unifying
+    picture is the outer boundary itself: thinnest,
+    weakest-compression region (sigma just below -1, thin BC) where
+    both the drift (ray 82 / probe ray 83 cells) and the stale
+    stores (rays 22/45/50 columns) concentrate. Root cause of the
+    stall itself is UNAVAILABLE in this binary and waits on the
+    diagcap arm (KN_PSWEEP_DIAG all-ray per-pass capture, job
+    13429272 pending).
