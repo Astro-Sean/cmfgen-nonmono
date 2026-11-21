@@ -1,7 +1,7 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
 Living checklist of the non-monotonic CMFGEN development. Maintained
-per AGENTS.md section 10: update it in the same edit as the change it
+per AGENTS.md section 11: update it in the same edit as the change it
 records, keep every tick honest, and cite evidence (audit doc, commit,
 or job id) rather than intent.
 
@@ -176,6 +176,6 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
 
 - [x] Vault notes updated for removed exit class (`Knop formal
       solver.md`, gitignored but maintained on disk).
-- [x] TODO/audit documents current (`FIELD_DRIFT_TODO.md`,
-      `PHASE_5_3_P_DIRECTION_AUDIT.md` 5600+ lines).
+- [x] TODO/audit documents current (`docs/plans/FIELD_DRIFT_TODO.md`,
+      `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md` 5600+ lines).
 - [x] All work committed and pushed to `origin/main`.
