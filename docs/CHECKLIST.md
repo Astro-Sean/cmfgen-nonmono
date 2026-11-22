@@ -306,7 +306,16 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       Luc's own input_hydro.dat is NOT in the tree (both
       candidate files are our converter output) - only the
       .fl exists, so source-vs-recipe cannot be separated;
-      V13 isolates the recipe. Blocked only on a
+      V13 isolates the recipe. Arm declared:
+      dessart_m15_2p82d_VAL_sob_l13_ngoff_cold (config hash
+      b3c90852d4bd8291) - cold start LTE_EST=T, identical deck
+      to VAL_sob_ngoff_cold but VEL_LAW=13 (tau_es grid, V12
+      recipe on our data). Exit criterion: converged V13
+      spectrum's narrow-core FWHMs and blend weights vs the
+      V14 ngoff model's - cores sharpen toward Luc's ~330-440
+      km/s -> grid recipe implicated; still ~1000 km/s ->
+      grid exonerated for cores, look to T/populations.
+      Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
       and feature contrast vs the published .fl.
