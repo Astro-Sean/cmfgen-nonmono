@@ -445,6 +445,42 @@ the arbitrary-velocity formal solve. Do not change the
 production default under this audit; the sweep data, not
 opinion, should drive that review.
 
+## 11a. Addendum: m15 end-to-end verification supersedes the
+## retain-1e-3 call (22-Nov-2026)
+
+A clean truth reference now exists that this audit lacked: the
+pre-J_RESCUE Oct-16 executable run on the same m15
+(`m15_2p82d_VAL_sob_diag`) populations reproduces the Nov-11
+spectrum exactly (median optical continuum 9.99e-7 vs 1.00e-6)
+with an unsuppressed J field peaking at ~0.122 - while the
+1e-3-capped render collapses the continuum ~100-270x (median
+8.75e-9). Identical exe/params/pops with `J_RESCUE=F` recovers
+the reference spectrum to 0.004%. The flat cap was therefore
+clipping verified-legitimate fields on this model family, not
+guarding an artifact; the "field grows into the headroom"
+sweep result (sec. 7) tested only up to 2e-3, far below the
+true ~0.12 saturation.
+
+Production default changed to `RESC_JMAX=1e2`: ~3 orders above
+the m15 measured peak, ~23 orders below the observed runaway
+(J -> 1e25). The `1e4*JNU_PREV` relative bound - not the flat
+rail - is the working per-frequency detector (measured
+adjacent-frequency growth ~1.5x here, ~44x worst across
+models).
+
+Cost of the change: on the tauto model this audit measured,
+the 1e2 rail no longer flags the compressed-cell
+sub-equilibrium events (they pass silently, as on every
+pre-rescue build). That early-warning/diagnostic role is lost;
+if it is wanted back, the per-cell `J/J_eq` bound in sec. 6a is
+the right criterion - it fires only on the over-equilibrium
+subset (idx 62) regardless of model J scale, which no flat
+value can do. Also unchanged by this fix: the sigma_true<-1
+inner-boundary inversion itself, which still needs the
+arbitrary-velocity solver - 1e2 does not claim the
+uncapped high-J fields are physical, only that they reproduce
+the stock-V12 spectrum.
+
 ## Appendix: run inventory
 
 Run root:
