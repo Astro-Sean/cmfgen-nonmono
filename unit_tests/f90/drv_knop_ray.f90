@@ -1257,6 +1257,14 @@
             WRITE(*,'(A,I2,A,I2,A,5I6)')'DBRI ',I,' ',L,' ', &
       KR_DBG_NFM(I,L),KR_DBG_IKC1(I,L),KR_DBG_IKC2(I,L), &
       KR_DBG_JPR1(I,L),KR_DBG_JPR2(I,L)
+!
+! DBRC: the march recurrence coefficients A0..A4 plus DTAU, so the
+! operator identities A0=exp(-DTAU) and A0+A1+A2=1 (constant-source
+! equilibrium) are checkable cell by cell.
+!
+            WRITE(*,'(A,I2,A,I2,A,6ES16.8)')'DBRC ',I,' ',L,' ', &
+      KR_DBG_A0(I,L),KR_DBG_A1(I,L),KR_DBG_A2(I,L), &
+      KR_DBG_A3(I,L),KR_DBG_A4(I,L),KR_DBG_DTAU(I,L)
             WRITE(*,'(A,I2,A,I2,A,I6)')'DBRD ',I,' ',L,' ', &
       KN_DBG_NDON(I,L)
           END DO
