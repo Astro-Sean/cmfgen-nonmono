@@ -402,6 +402,21 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       to the 7-col contract, 14/14 pass. The array-per-row
       convention in unit_tests/work/*input_hydro.dat is a stale
       test artifact of the old quirk.
+      FRESH-START DEFECT (22-Nov-2026, third): AUTO_ADD defaults
+      .TRUE. (rd_control_variables.f:3100) and AUTO_ADD_ION then
+      requires RVTJ/EDDFACTOR_INFO/EDDFACTOR from a previous model
+      (job 13573027 died IOS=29 on EDDFACTOR_INFO). The
+      m15_2p82d_VAL_sob_diag* runs never hit this because they are
+      warm restarts inheriting those files; every production VADAT
+      carries AUTO_ADD=F explicitly. A true cold start with
+      LTE_EST=T still needs AUTO_ADD=F -> the NON-GRID init path
+      generates the ion _IN files itself. Luc's VADAT lacks the
+      key (his source may not have it); configs based on his file
+      must set it explicitly. Fix landed in
+      configs/dessart_m15_2p82d_LUC_exact.yaml; job 13573428 then
+      passed init and is iterating (DIE_CIII/NIV/OV linked via
+      allow_dielectronic; DIE_ScI/Sc2 forced F,F - no Sc die_data
+      at any vintage).
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
