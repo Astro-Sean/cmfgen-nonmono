@@ -330,8 +330,14 @@ to OUTGEN; auto-sets print ` SOB auto-set:` lines.
   OBSFLUX/OBSFRAME writes; non-converged KNOP models stop under T
   or render a marked diagnostic under the F opt-out
   (`test_knop_spec_gate.py`, 9 cases).
-- `DAMP_FJ`/`J_RESCUE` - continuum-J rescue controls
-  (`COMP_JCONT_V4.INC` etc.); defaults preserve stock behaviour.
+- `DAMP_FJ`/`J_RESCUE`/`RESC_JMAX` - continuum-J rescue controls
+  (`COMP_JCONT_V4.INC` etc.); `J_RESCUE=T` restores the previous
+  frequency's field when stored J exceeds
+  `MIN(RESC_JMAX, 1e4*JNU_PREVmax)`. `RESC_JMAX` default `1e2`
+  (22-Nov-2026; was `1e-3`) is a runaway sanity rail - the
+  relative bound is the working detector. The old `1e-3` rail
+  clipped legitimate m15 fields (~1e-1) and collapsed the
+  spectrum ~100x. `DAMP_FJ` stays `1.0` (off).
 - `ES_RESID_DIAG` - OBS-side ES residual writer.
 
 ## 6. Diagnostic-only keys
