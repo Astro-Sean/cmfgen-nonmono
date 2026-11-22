@@ -175,12 +175,16 @@ Plots are diagnostics only -- every assertion is numeric.
 
 ## Notes on upstream quirks the tests had to accommodate
 
-- `rv_sn_model_sniin.f` reads `V_HYDRO` as a whole array inside its
-  row loop and calls `LIN_INTERP` with the uninitialized output `V` as
-  the interpolation coordinate.  The first quirk means a data row must
-  carry `NHYDRO+6` values; the second is now caught loudly by the new
-  strict `LIN_INTERP` monotonicity guards (verified by
-  `test_rv_sniin.py` vfill=Z/I cases).
+- `rv_sn_model_sniin.f` read `V_HYDRO` as a whole array inside its row
+  loop until Nov-2026 -- an upstream bug: it consumed `NHYDRO+6` values
+  per row, so every real 7-column `input_hydro.dat` hit EOF (and the
+  array-per-row format it implied could never feed `set_abund_clump`'s
+  4-value read of the same file).  Fixed to `V_HYDRO(I)`; rows are now
+  `R V RHO T XL XTAU TAU`, inner->outer.  The second quirk -- a
+  `LIN_INTERP` call with the uninitialized output `V` as the
+  interpolation coordinate -- is caught loudly by the strict
+  `LIN_INTERP` monotonicity guards (verified by `test_rv_sniin.py`
+  vfill=Z/I cases).
 - The same file's R/V "reversal" loop swaps each pair twice and is
   therefore a no-op; `V_HYDRO` direction expectations in
   `test_rv_sniin.py` account for this.

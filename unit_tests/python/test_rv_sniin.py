@@ -109,12 +109,13 @@ def write_hydro(d, v_row=None):
     """Synthetic input_hydro.dat.
 
     The production row read is
-        READ(LU,*) R_HYDRO(I), V_HYDRO, XD, XT, XL, XTAU, TAU_HYDRO(I)
-    where V_HYDRO is the *whole array* (an upstream quirk present in
-    both trees), so one READ consumes NHYDRO+6 values.  Giving each
-    row exactly 14 columns with NHYDRO=8 makes each read take exactly
-    one line: R_HYDRO(i)=col1, V_HYDRO(1:8)=cols2-9 (re-read every
-    row, so keep them identical), TAU_HYDRO(i)=col14.
+        READ(LU,*) R_HYDRO(I), V_HYDRO(I), XD, XT, XL, XTAU, TAU_HYDRO(I)
+    (the whole-array V_HYDRO read was an upstream bug, fixed Nov-2026:
+    it consumed NHYDRO+6 values per row and EOF'd every real 7-column
+    file; it also could never coexist with SET_ABUND_CLUMP's 4-value
+    row read of the same file).  Each row carries 7 columns:
+    R_HYDRO(i)=col1, V_HYDRO(i)=col2, rho/T dummies in cols3-4,
+    XL/XTAU in cols5-6, TAU_HYDRO(i)=col7.
     """
     d.mkdir(parents=True, exist_ok=True)
     if v_row is None:
@@ -126,8 +127,8 @@ def write_hydro(d, v_row=None):
         f.write(f"{n}\n")
         f.write("header2\n")
         for i in range(n):
-            cols = [R_HYD[i], *v_row, 1.0, 1.0, 1.0, 1.0, TAU_HYD[i]]
-            assert len(cols) == 14
+            cols = [R_HYD[i], v_row[i], 1.0, 1.0, 1.0, 1.0, TAU_HYD[i]]
+            assert len(cols) == 7
             f.write(" ".join(f"{x:.8e}" for x in cols) + "\n")
 
 

@@ -384,6 +384,24 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       never successfully run on our converter files - LUC_l12's
       early death is consistent with this. If V12-vs-V14 ever
       needs a real run, the converter format needs fixing first.
+      RESOLVED (22-Nov-2026): two coordinated fixes. (1) Reader:
+      V_HYDRO -> V_HYDRO(I) in rv_sn_model_sniin.f. The whole-array
+      read could never coexist with SET_ABUND_CLUMP's 4-value row
+      read of the same file (array-per-row gives it rho=V[2],
+      T=V[3]), so the 7-column table is the only self-consistent
+      contract; the unindexed read was a latent upstream bug that
+      killed every V12 run at ~row 7 (forrtl severe(24): job
+      13572087, identical to LUC_l12's death). (2) Writer:
+      prepare_VADAT.py now emits rows inner->outer in both
+      input_hydro.dat branches (was outer->inner); the reader's
+      reversal and abund_clump's reversed-index read both require
+      increasing R. generate_eddfactor.py's tau read made
+      order-aware. Verified: drv on the real 64-row m15 file gives
+      decreasing R grid (1.253e5 -> 1.455e4), V endpoints exact,
+      sigma -1.05 outer / -31..-36 inner; test_rv_sniin.py updated
+      to the 7-col contract, 14/14 pass. The array-per-row
+      convention in unit_tests/work/*input_hydro.dat is a stale
+      test artifact of the old quirk.
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms

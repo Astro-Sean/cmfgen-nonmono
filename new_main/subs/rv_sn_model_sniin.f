@@ -139,7 +139,12 @@
 ! TB is the radius and TC is tau_es scaled with the temperature to resolve shock
         ALLOCATE (R_HYDRO(NHYDRO),V_HYDRO(NHYDRO),TAU_HYDRO(NHYDRO))
         DO I=1,NHYDRO
-           READ(LU,*) R_HYDRO(I),V_HYDRO,XD,XT,XL,XTAU,TAU_HYDRO(I)
+! Bug fix (Nov-2026): V_HYDRO lacked its subscript in the read list.
+! An unindexed array expands to all NHYDRO elements per row, so each
+! iteration consumed ~NHYDRO/7 records and hit end-of-file
+! (forrtl severe(24) at this line) long before the loop finished.
+! Not flag-gated: the VEL_LAW=12 path could never run with this typo.
+           READ(LU,*) R_HYDRO(I),V_HYDRO(I),XD,XT,XL,XTAU,TAU_HYDRO(I)
         ENDDO
         CLOSE(LU)
 
