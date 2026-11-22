@@ -111,6 +111,25 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       (c) bounded cold-start arm. Exit criterion: converged
       cold-start run or an evidenced REJECTED/BLOCKED verdict.
       No accelerator enabled in production by default.
+- [~] Lagged-store lifecycle audit (22-Nov-2026): user-requested
+      source+runtime investigation of I_P/I_M_DEPTH_NEXT across
+      sweep reads/writes, refresh re-solve, commit, heal, seed and
+      checkpoint paths, with literature comparison (Knop Paper II
+      converges the coupled BVP inside each formal solve; the dev
+      lagged store is an explicit-source shortcut). New production-
+      object battery test_knop_lagged_map.py (26 checks, 25 PASS):
+      cold/warm/poisoned seeds on single-band, two-band-reversal and
+      strong-compression profiles all reach finite seed-independent
+      committed fixed points (KN_Q_RESID q max = 0.0); diverged
+      poisoned seeds heal without committing. ONE CONFIRMED DEFECT:
+      a converged certified solve can be permanently jump-vetoed by
+      a poisoned retained generation - the store keeps NaN/Inf
+      forever while cert reports FULL (HEAL_STORE runs only on
+      diverged rays; pinned failing as sdab). Fix candidate
+      deferred: retained-side sanity in FG_JUMP_MAX or an entry-side
+      heal. docs/audits/CMFGEN_KNOP_LAGGED_STORE_POISON_AUDIT.md.
+      Production-scale rho~0.97 stall not reachable on the
+      manufactured grid; K1 stays open.
 - [ ] BLANK spectrum + Luc comparison: renderer verified 22-Nov
       (RESC_JMAX fix; obs_fin_10 valid). Blocked only on a
       converged conventional-solver model from either route;
