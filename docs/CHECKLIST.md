@@ -219,6 +219,50 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       code-version microphysics. dFR_DATA empty (STAU) so no
       formation attribution this run. Pending: np-arm OBS for
       the same-data different-solver A/B.
+- [ ] Declared audit A1 (22-Nov, user-directed, long-standing):
+      WHY do line SHAPES differ from Luc's .fl even where
+      strengths are close? Observed so far: model O IV/O III
+      features broader + red-smeared; smooth ~8000 km/s ejecta
+      bump at 5600 absent in Luc; UV continuum 0.81 of Luc;
+      H-alpha close. Testable branches: (a) velocity mapping -
+      our vel_law=14 reconstructed V(R) + ND=70 downsampled
+      grid vs Luc's native structure; (b) temperature -
+      FIX_T=T pins converted hydro T (12.7k->86.7k K) vs Luc's
+      solved electron T - user authorized a FIX_T=F attempt;
+      (c) rendering - observer-spectrum convolution/resolution
+      settings; (d) populations - np JFNK A/B when OBS lands.
+      Evidence plan: quantify feature widths/offsets in km/s on
+      isolated lines (Ha, C IV, O VI, O IV 3400, 5600 bump);
+      read .fl metadata; compare SN_HYDRO_DATA V/rho/T against
+      the conversion source; then the FIX_T=F warm-restart arm
+      on the converged ngoff checkpoint. Exit criterion: named
+      dominant cause + fix arm verdict, or evidenced BLOCKED.
+      Measurements (22-Nov, scripts in /tmp/line_shape_audit*):
+      .fl col1 = wavelength A (15.7 A - 74 um), vt50 in the
+      name = vturb 50 km/s matching our VTURB=50; TDOP here is
+      the thermal-Doppler T (1e4 K), negligible width. Velocity
+      scale AGREES: blend-peak velocities match (C IV +17.5k,
+      O IV 3400 -17.2k, He II 1640 blue edge -17k km/s both);
+      the ejecta V mapping is not the problem. Mismatch is in
+      the narrow cores + blend weights: H-beta core FWHM 330
+      (Luc) vs 960 (ours), H-alpha 438 vs 560, He II 4686 300
+      vs 420, C IV 3980 vs 4560 - ours systematically broader;
+      He I 10830 peaks opposite sides (+2852 vs -2992); O VI
+      5290 strong in Luc, absent in ours; O V 1371/Si IV 1400
+      blend maxima at very different velocities. Structure:
+      CSM spans depths 1-54 (V 49-195 km/s, T 12.7-30k, rho to
+      8e-14), shell 55-63, ejecta/CDS 64-70 (V to 7074, T to
+      86.7k, sigma_true -157). Interpretation: cores form in
+      the slow CSM; their width is set by the emission region
+      (ionization) + electron-scattering wings (T_e) - both
+      temperature-structure effects, pointing at FIX_T.
+      Arm declared: dessart_m15_2p82d_VAL_sob_ngoff_thinT
+      (config hash d0ef3098836f3f20) - warm restart of the
+      converged it409 ngoff checkpoint, fix_temperature:false
+      thin release (FIX_T=F + FIX_INB_T=T + FIX_X_DPTH auto at
+      the tau_es=2/3 photosphere), DO_T_AUTO=T + DO_LAM_IT=T +
+      DO_LAM_AUTO=T per the SOB_l14_freet recipe, DO_NG=F held,
+      DO_JFNK=F (required for FIX_X_DPTH), 200 extra its.
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
