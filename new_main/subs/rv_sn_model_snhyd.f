@@ -66,8 +66,10 @@
 !      2010; Dessart, Audit & Hillier 2015):
 !      a) a blended grid coordinate U = integral of
 !         dlog_tau + ALPHA_R*|dlogR| along the hydro profile, with
-!         log_tau clamped below at TAU_LO (no more than LOG_DEC_CAP
-!         decades under tau_max).  A grid uniform in U is uniform in
+!         log_tau clamped below at TAU_LO (at most LOG_DEC_CAP
+!         natural-log units under tau_max; a region thinner than
+!         that in tau contributes only its |dlogR| share, so a huge
+!         tau dynamic range cannot starve the grid).  A grid uniform in U is uniform in
 !         log tau where the flow is optically thick and uniform in
 !         log R wherever tau is nearly flat -- the thin outer
 !         atmosphere, or an internal gap in a detached shell -- and
