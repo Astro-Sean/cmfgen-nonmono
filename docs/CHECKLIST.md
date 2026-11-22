@@ -263,6 +263,17 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       the tau_es=2/3 photosphere), DO_T_AUTO=T + DO_LAM_IT=T +
       DO_LAM_AUTO=T per the SOB_l14_freet recipe, DO_NG=F held,
       DO_JFNK=F (required for FIX_X_DPTH), 200 extra its.
+      First submission CANCELLED (13570910/13570911): the
+      launcher's NON_MONO_SOB recommended defaults inject
+      FIX_T=T into vadat_overrides for unset keys, which beat
+      the prepare_VADAT thin-mode stamp - the live VADAT had
+      FIX_T=T + FIX_INB_T=T + FIX_X_DPTH=24, and RD_FIX_T=T pins
+      T at ALL depths in solve_for_pops.f:1014 regardless of the
+      inner-boundary mask. Resubmitted with explicit FIX_T=F +
+      FIX_INB_T=T in vadat_overrides (13570980/13570981);
+      FIX_X_DPTH left unset so prepare_VADAT auto-fills the
+      tau_es=2/3 photosphere index (computed 24 on the first
+      attempt = pin depths 47-70, solve T at 1-46).
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
