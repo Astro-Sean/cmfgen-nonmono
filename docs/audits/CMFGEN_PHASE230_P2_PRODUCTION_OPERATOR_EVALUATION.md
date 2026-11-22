@@ -382,3 +382,34 @@ CSM/ejecta velocity transition and may carry GAM<0 cells, in which
 case it retains the ordered march under the dispatch change. Deck
 capture via configs/dessart_m15_2p82d_KNOP_ray83_probe.yaml remains
 the owed production evidence.
+
+## Live-model ray-83 capture, probe 13560532 (22-Nov-2026)
+
+Warm-restart probe off the rd it250 checkpoint (NUM_ITS=1, dump rays
+81/83/84, KN_ORD_P2DAMP=F), exe pinned at ae48088c with the census
+fix. KNRAY_CENSUS_r1:
+
+| Ray | exit | nbad | residual | NI | gam_min | neg cells |
+|---:|---:|---:|---:|---:|---:|---:|
+| 81 | 1 (FULL) | 0 | 7.7e-21 | 5 | 6.6e-10 | 0 |
+| 83 | 1 (FULL) | 0 | 6.6e-18 | 3 | 1.1e-9 | 0 |
+| 84 | 1 (FULL) | 0 | 1.3e-22 | 4 | 1.3e-9 | 0 |
+
+Ray 83 - the previously dominant failure (residual 1.043, 101307 bad
+cells at r249) - is a wholly expanding ray and converged under the
+dispatch change in the live model. The NI=3 grazing geometry was
+incidental to the failure; all three captured rays share the
+all-positive-GAM population. Dispatch candidate verdict: VERIFIED in
+production for the expanding-ray population.
+
+The refresh-level residual fg_rf=4.05e-2 with 135579 bad cells is
+carried by the inner rays (census rays 1-3: exit=2, nbad ~20-28K,
+NI~300-340), which plausibly contain GAM<0 compressing cells and
+retain the ordered march by design. That population is a distinct,
+still-open mechanism; the dispatch change intentionally does not
+touch it.
+
+OBS BLANK render 13560175 also completed (8:22) with obs_fin_10
+written (161423 continuum frequencies, all rows positive) and zero
+J_RESCUE events - the VINF fix also eliminated the edge-driven
+continuum-J divergence seen in the two failed renders.
