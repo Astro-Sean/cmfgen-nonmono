@@ -1,5 +1,64 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## Ray-83 gradient and sweep-order investigation (22-Nov-2026)
+
+- [~] User-authorized KNOP formal / USE_LAM_ES=T / DIAG investigation.
+      Question: does the grazing-ray failure arise near a projected-gradient
+      zero, or from lagged source coupling in the spatial-major march?
+      Evidence plan: compare Dessart Sec 3.1 with the signed CMF operator;
+      inspect captured ray geometry; compare the existing ordered and
+      frequency-major production sweeps using the same input deck.
+      Exit criterion: an evidenced correction with regression and replay
+      checks, or a precise missing-state blocker and a deferred decision.
+      No SIGMA/GAM clipping, tolerance relaxation or P2-on model is allowed.
+      Ray 83 is not among the three captured rays; its exact trajectory
+      must not be inferred from ray 81's deck.
+- [~] Original-object sweep comparison 13557757 completed: frequency-major
+      gives FULL / zero bad cells on 81/82/84, residuals 5.805058e-21,
+      4.945920e-21, 6.681912e-23; repeated fields byte-identical.
+      Both 81/82 have GAM > 0 everywhere. No SIGMA clamp applies to this
+      evidence. Ordered replay still STAG on 81/82; production-trajectory
+      M/IM_NI discrepancy remains open. Parser tests 29/29 pass.
+- [~] One-line dispatch candidate implemented in KNOP_RAY_SOLVE_V1:
+      only wholly non-negative-GAM rays use the existing frequency-major
+      solver. Negative/mixed-sign selection and all physics/gates stay
+      unchanged. Regression 13557822 failed 4/8 before the edit, including
+      positive/zero dispatch and field-equivalence checks. Full build,
+      post-edit regressions and live ray-83 verification still owed.
+- [~] Earlier capture audit 13557300 validated selected inputs but failed
+      before baseline replay on missing MKL runtime loader path; keep the
+      original knray_replay_p230_o3 binary for a loader-corrected baseline.
+      Do not rebuild that baseline against the dispatch candidate.
+- [~] Original binary baseline rerun 13558443: ray 84 repeated fields
+      match bytewise (sha256 111602c0...); 81/82 abort on strict runtime
+      pass-count mismatch. Ray 81 requests pass 3 where the recorded
+      schedule is exhausted. The strict guard is retained. Captured
+      trajectory fidelity FAILS on the stalled rays; dispatch comparisons
+      remain tests of the replay inputs, not proof of a live-model fix.
+- [~] Full clean build 13558165: compiled and linked clean; aggregate
+      suite reported 9 failures, none from the dispatch edit. Mine fixed
+      (gzzo fixture, three stale pins); rest pre-existing environmental
+      or infrastructure gaps (missing run fixtures, es_conv GUARD_SRCS
+      link list, phase227_io harness args, par_opac missing .o, DGELSY
+      under mkl/2026.2, se_ba_non_therm coverage manifest).
+- [x] Candidate A/B 13559005: six focused batteries rc=0 (oneway,
+      lagged_field, gs_drift, obs_dispatch, replay_p2, knop_ray).
+      Base-mode deck replays, original exe vs candidate exe: rays 81/82
+      STAG at 1.9e-2/4.5e-2 under the original reach 5.8e-21/4.9e-21
+      FULL under the candidate; ray 84 FULL either way. Dispatch count
+      confirms frequency_rays=1 per ray. Ordered-retention path verified
+      only on manufactured mixed-sign cases; live ray-83 capture still
+      owed. Verdict: production-object PASS, live-model open.
+- [~] SOB BLANK render 13557228 FAILED (exit 3): OBS_FRAME_SUB_V9 rejected
+      red-edge CMF undercoverage, required 2.93133478e-3 below grid MIN_CF
+      3.0e-3. Runtime BLANK controls and NUM_ES=2 were correct. Continuum
+      J_RESCUE warnings also occurred and require a separate quality check.
+      Preserve failed products; investigate frequency-coverage padding and
+      rerender via run_model_grid.py without weakening the coverage guard.
+      Rerender submitted as 13558872 with cmf_flux_param_overrides
+      MIN_CF=2.0D-3 (renderer grid only; model VADAT MIN_CF untouched).
+      OBSFRAME/spectrum validation owed on completion.
+
 ## Phase 2.30 P2 production-operator evaluation (01-Dec-2026)
 
 Offline A/B replay evaluation of KN_ORD_P2DAMP against the
