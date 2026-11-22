@@ -24,6 +24,16 @@ Pins the OBS-side changes made 09-Nov-2026:
    was converged on the clamped-SIGMA V13 formal J, so its OBS render
    must use the clamped V12, not the Knop solver (cold I_NEXT on the
    fine OBS grid distorted the spectrum).
+8. VINF coverage sizing (22-Nov-2026): the OBS grid margins
+   (NU_MIN_OBS/NU_MAX_OBS, INS_LINE_V5/V4 extents) must use the full
+   |V| range whenever the RVTJ field is genuinely non-monotonic
+   (N_NONMONO_OBS>0), not only when a solver flag is set.  A stock-J
+   render admitted under ALLOW_NONMONO_OBS under-covered the red
+   anchor when VINF stayed at the slow V(1) wind speed while the
+   interior ejecta moved >100x faster, and NU_MIN_OBS co-scales with
+   NU(NCF) so no MIN_CF override could repair it (jobs 13557228,
+   13558872 both died on GLOBAL_CMF_GRID_UNDERCOVERAGE at the same
+   0.977 required/edge ratio).
 """
 
 import re
@@ -382,6 +392,33 @@ def test_fg_dispatch_knop_only():
     )
 
 
+def test_vinf_coverage_gate():
+    """VINF must reflect the full |V| range on any detected
+    non-monotonic field, including ALLOW_NONMONO_OBS renders."""
+    body = section(
+        SUB,
+        "VINF sets the CMF-to-observer frequency coverage margins",
+        "VINF=MAXVAL(ABS(V(1:ND)))",
+    )
+    check(
+        "VINF=MAXVAL gate includes the detected field",
+        "N_NONMONO_OBS .GT. 0" in body,
+    )
+    check(
+        "VINF=MAXVAL gate keeps the solver flags",
+        "DO_NONMONO_SOB" in body and "DO_NONMONO_KNOP" in body,
+    )
+    check(
+        "stock default VINF=V(1) precedes the gate",
+        SUB.index("VINF=V(1)") < SUB.index("VINF=MAXVAL(ABS(V(1:ND)))"),
+    )
+    check(
+        "VINF gate runs after the velocity detector",
+        SUB.index("N_NONMONO_OBS=N_NONMONO_OBS+1")
+        < SUB.index("VINF=MAXVAL(ABS(V(1:ND)))"),
+    )
+
+
 def test_knop_es_refresh_guard():
     """NUM_ES<2 or COH_ES under KNOP must fail closed; OBS must print
     the I_NEXT maturity census after the ES loop."""
@@ -426,6 +463,7 @@ def main():
     test_output_checks()
     test_sob_phase_guards()
     test_fg_dispatch_knop_only()
+    test_vinf_coverage_gate()
     test_knop_es_refresh_guard()
     print("all obs nonmono dispatch checks passed")
 
