@@ -87,6 +87,11 @@
         STOP
       END IF
       IF(MODE .EQ. '')MODE='base'
+      IF(MODE .EQ. 'sweep')THEN
+        IF(TRIM(SVAL) .NE. 'ordered' .AND. &
+      TRIM(SVAL) .NE. 'frequency') &
+      ERROR STOP 'sweep: expected ordered or frequency'
+      END IF
       OARG=-1.0_LDP
       IF(SVAL .NE. '')READ(SVAL,*,IOSTAT=IOS)OARG
       NLOOP=0
@@ -315,6 +320,8 @@
 ! other module state is touched, so an A/B pair differs only in
 ! the P2 midpoint commit.
 !
+      IF(MODE .EQ. 'sweep')FG_ORD_SWEEP=TRIM(SVAL) .EQ. 'ordered'
+      WRITE(*,'(A,L1)')'RESULT ordered_sweep=',FG_ORD_SWEEP
       LP2_DECK=FG_ORD_P2DAMP
       IF(LP2_SET)FG_ORD_P2DAMP=LP2_VAL
       WRITE(*,'(A,L1,A,L1,A,L1)')'RESULT p2_deck=',LP2_DECK, &
@@ -473,6 +480,12 @@
       ' prod_ixit=',IXIT_I
         WRITE(*,'(A,ES13.6)')'RESULT prod_res=',RES_OUT
         WRITE(*,'(A,ES13.6)')'RESULT resid_arg=',RESID
+        WRITE(*,'(A,I0,A,I0,A,I0,A,I0)') &
+      'RESULT class=',KN_CS_LS(1),' reason=',KN_CS_REA(1), &
+      ' nbad=',NBAD8,' p2_count=',NP28
+        WRITE(*,'(A,I0,A,I0)') &
+      'RESULT ordered_rays=',KN_CENS_ORD_RAY, &
+      ' frequency_rays=',KN_CENS_UNO_RAY
 ! Committed end state for offline trajectory work (phase 2.24):
 ! maxp=n runs reproduce production passes 1..n, so per-n dumps
 ! recover the production-trajectory committed fields.
