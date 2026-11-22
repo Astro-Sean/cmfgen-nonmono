@@ -315,6 +315,9 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       V14 ngoff model's - cores sharpen toward Luc's ~330-440
       km/s -> grid recipe implicated; still ~1000 km/s ->
       grid exonerated for cores, look to T/populations.
+      Submitted: CMFGEN 13572032 + OBS 13572033 (VEL_LAW=13
+      preserved in VADAT; n_ob_ins forced 30->0 so the RDINR
+      grid matches MODEL_SPEC ND).
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
