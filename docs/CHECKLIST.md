@@ -1,5 +1,18 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## Standing directive: vel_law=13 (22-Nov-2026)
+
+User directive: use vel_law=13 for all future runs (SOB and
+KNOP). Recorded in AGENTS.md section 1.2. New configs carry
+`cmfgen.vel_law: 13` + explicit `vadat_overrides VEL_LAW='13'`
+(the forced non-mono table defaults VEL_LAW=11 when the key is
+absent). Rationale from the ND=70 production-grid A/B/C
+(below): the tau-ES grid puts ~80% of depths in the CSM where
+narrow cores form. VEL_LAW=14 remains available as an explicit
+per-arm override (e.g. the thinT continuation 13570980 still
+runs V14 - it is a V14-state warm restart, not a fresh
+default-path run).
+
 ## VEL_LAW=14 robustness audit (22-Nov-2026, user-directed)
 
 - [x] VERIFIED-with-pinned-defects: construction matches the
