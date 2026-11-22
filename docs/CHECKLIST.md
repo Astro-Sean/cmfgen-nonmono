@@ -17,19 +17,27 @@ production change.
       write to FG_ORD_P2DAMP after deck restore; RESULT echoes
       p2_deck/p2_eff/p2_ovr. Composes with omf. VADAT reader and
       production default untouched (pinned).
-- [x] Part 6 mapd mode (driver side): `mapd <candidate.bin>`
-      seeds both lagged store columns from a KN_REPLAY_END-format
-      candidate, forces omega=1 + P2 off + one pass, reports
-      R(X)-X argmax on the production DCELL scale and writes
-      KN_MAPD_RX.bin (X, R(X), candidate VMAXF columns) for the
-      fixed-baseline-mask and significance-migration analysis.
+- [~] Part 6 mapd prototype (driver side only): implemented,
+      but NOT validated as R(X). Sparse-store seeding need not
+      reproduce an arbitrary full candidate, and KR_DBG output
+      is not a raw pre-relaxation VNEW capture. Do not use this
+      mode to accept the damper until these gaps are closed.
 - [x] Tests: test_knop_replay_p2.py 25/25 PASS (override pins +
       arg-layer rejection); test_knop_p2_state.py 19/19;
       test_knop_ray.py 49/49 unchanged. test_knop_lagged_field
       carries a PRE-EXISTING stale pin (expects RES.GT.HUGE;
       source moved to .NOT.(ABS(RES).LE.HUGE) at 98acf207,
       ancestor of baseline) - not phase-2.30 work.
-- [ ] Part 3 deck capture: armed COLD-start run submitted
+- [~] 22-Nov-2026 capture/fidelity audit opened: determine
+      whether job 13488131 supplies complete v2 decks and
+      authoritative M/P schedules, then run a P2-off baseline.
+      Exit criterion: validated replay inputs and fidelity
+      verdict, or an exact missing-state blocker. No production
+      numerical changes or P2-on live run authorized by this audit.
+      Direct inspection finds decks for rays 81/82/84 through
+      refresh 250 and KNAPPLY files. The earlier no-decks claim
+      below was false and is superseded by this audit.
+- [~] Part 3 deck capture: armed COLD-start run submitted
       13488131 (config dessart_m15_2p82d_VAL_knop_formal_rd.yaml,
       KN_RDUMP_LS=81/LS2=82/LS3=84, KN_ORD_P2DAMP=F, LTE_EST=T,
       warm_restart=false, pinned exe 358814d3/8a62e7ea at
@@ -50,9 +58,25 @@ production change.
       SOB - consistent with that comparison cell. All six
       generated VAL_* cells except sob_jfnk/sob_tri carry
       sob; generated files, flagged not hand-edited.
-- [ ] Parts 4-10 (baseline fidelity, A/B replay, raw-defect eval,
-      mechanism kernel, branch-crossing, fixed-cell analysis,
-      pass/fail) all gated on Part 3 decks.
+- [~] 22-Nov-2026: bounded P2-off baseline audit submitted as
+      interactive job 13557300; selected input validation at
+      refreshes 1/10/250 precedes O3 production-object replay,
+      twice per selected ray at refresh 250. First attempt
+      13557295 lacked numpy; replacement explicitly loads
+      python-waterboa/2024.06. No P2-on jobs submitted.
+      Audit: CMFGEN_PHASE230_P2_PRODUCTION_OPERATOR_EVALUATION.md.
+      Infrastructure tests: test_phase230_capture_audit.py 5/5
+      PASS; black/isort applied; ruff unavailable in environment.
+- [~] SOB-population BLANK render: isolated OBS-only job
+      13557228 submitted via run_model_grid.py, currently pending
+      on QOSGrpCpuLimit. Original SOB spectrum retained.
+      Config: dessart_m15_2p82d_VAL_sob_diag_blank.yaml (parent
+      project). Staged VADAT/RVTJ/all POP* byte-identical to source.
+      CMF parameter preflight verifies BLANK GLOBAL_LINE/TRANS_*,
+      DO_SOB_FLUX_OBS=F, NUM_ES=2. Spectrum validation still owed.
+- [ ] Parts 4-10: baseline fidelity remains unproven; A/B replay,
+      raw-defect evaluation, mechanism and branch analysis, and
+      acceptance decision await validated inputs and baseline.
 - [ ] Part 11 live validation: not started; gated on offline
       replay passing first.
 - Note: commits made locally per change; NOT pushed per the
