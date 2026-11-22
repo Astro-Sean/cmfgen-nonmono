@@ -1,5 +1,54 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## BLANK spectrum faint-continuum root cause (22-Nov-2026)
+
+- [x] Forensic isolation on the 13560175 render (obs_fin_10 median
+      optical continuum 8.75e-9 vs 1.00e-6 in the same-populations
+      Nov-11 render, ~100-270x faint, wavelength dependent, red/IR
+      unaffected). Old-exe/new-populations arm (13562156, Oct-16
+      frozen exe, Nov-11 params) reproduced the Nov-11 spectrum
+      exactly (median 9.99e-7) - populations and OBS params
+      exonerated; defect is in the Oct-16 -> Nov-22 obs code.
+- [x] Stored-field comparison (EDDFACTOR, 71-double records):
+      new-exe J pinned at 9.948e-4 - just under RESC_JMAX=1e-3 -
+      across FL~20 -> 0.3 while the old exe legitimately reaches
+      3.7e-2 at FL=10 (real peak ~0.122). J_RESCUE=T was tripping
+      on physically valid fields and J_RESCUE_RESTORE latched the
+      stale previous-frequency field down the warm-start chain.
+- [x] A/B proof: identical exe+params+pops, J_RESCUE=F (13563
+      series, obs_noresc) recovered the old spectrum to 0.004%
+      (median 9.0532e-5-band, Halpha 1.22e-6), zero rescue events;
+      the J field then matched the old exe (3.70e-2 at FL=10).
+- [x] Param-file pitfall recorded: batobs.sh regenerates
+      CMF_FLUX_PARAM from CMF_FLUX_PARAM_INIT at run start - edits
+      to CMF_FLUX_PARAM alone are silently reverted. The earlier
+      "J_RESCUE exonerated" arms (obs_noresc/norestore first
+      submissions) still ran T [J_RESCUE] and were false negatives.
+      Correct override syntax is `F [KEY]` in CMF_FLUX_PARAM_INIT,
+      never `KEY=VALUE`.
+- [x] Fix landed and VERIFIED: RESC_JMAX default 1e-3 -> 1e2
+      (cntrl_var_mod + rd_cmf_flux_controls, comments in
+      COMP_JCONT_V4 updated). Rationale: the flat rail was
+      calibrated on mc170 (legit peaks ~5e-5); m15 legit peak
+      ~1.2e-1. 1e2 sits ~3 orders above the m15 peak, ~23 below
+      the observed runaway (1e25); the 1e4*JNU_PREV relative
+      bound remains the working detector. Verification arm
+      obs_rmax (job 13564117, T [J_RESCUE] + rebuilt exe):
+      zero rescue events, J field unclipped (3.7048e-2 at FL=10,
+      peak 1.218e-1), obs_fin_10 opt-median 9.9894e-7 -
+      identical to obs_noresc and obs_oldexe at every checkpoint
+      2000-50000 A (ratio 1.0000). Unit batteries
+      test_jres_validity 7/7, test_jres_events pass.
+      Source commits 310a9364 + f2471abf + cc5eafc2.
+- [ ] Outstanding: a genuinely-divergent arm proving the rescue
+      still fires under the new rail; the tauto model's
+      sigma-clamp boundary artifact is no longer clipped by the
+      flat rail (reverts to stock pre-rescue fields) - per-cell
+      J/J_eq bound is the deferred model-independent criterion
+      (threshold-attribution audit sec. 6a). CHECKLIST 13560175
+      entry remains valid for undercoverage but its spectrum is
+      superseded (faint, do not use).
+
 ## Ray-83 gradient and sweep-order investigation (22-Nov-2026)
 
 - [~] User-authorized KNOP formal / USE_LAM_ES=T / DIAG investigation.
