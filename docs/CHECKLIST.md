@@ -689,8 +689,13 @@ two submissions on different nodes):
       blocks in SN_HYDRO_DATA the routine was still called and
       segfaulted (SIGSEGV at line 76, batch exit 174). Not flag-gated:
       zero decay energy is the correct contribution.
-- [ ] sob_diag model run to convergence/spectrum - submitted
-      13474708/13474709 on the fixed build, pending on `small`.
+- [x] sob_diag model run to convergence/spectrum: 13474708 stalled
+      at it387 (counted correction pinned ~6% at depths 1-13, NG
+      pulses correlated); warm restart with DO_NG=F converged at
+      it409 (13567608, all gates MET) and rendered obs_fin_10
+      (13567609) - rms 0.042 vs Luc across 7 bands. Cold-start
+      acceptance arm 13569107 running (it76, demand ~38 at last
+      poll); V13 discriminator 13572032 running (it33).
 - [~] knop_formal running (13473182, warm restart off the converged
       tauto checkpoint, ~575 s/iteration, it>=686 at last check);
       obs follower 13473184 chained.
