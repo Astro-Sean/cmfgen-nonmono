@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Unit tests for new_main/subs/rv_sn_model_snhyd.f (VEL_LAW=13).
+"""Unit tests for new_main/subs/rv_sn_model_snhyd.f (VEL_LAW=13/14).
 
 This is a new file with no reference counterpart.  It reads
 SN_HYDRO_DATA, expands the hydro grid (R -> R + V*dt, with the
 matching density scaling), builds an R grid uniform in LOG(tau_es)
-(TAU_OPT=0) or in a blended tau/log-R coordinate (TAU_OPT=1), packs
-NBND_INS=3 points at each boundary, and interpolates V with the
-production monotone cubic -- SIGMA comes from the cubic derivative.
+(TAU_OPT=0, VEL_LAW=13) or in a blended tau/log-R coordinate with
+feature insertion (TAU_OPT=1, VEL_LAW=14), packs NBND_INS=3 points
+at each boundary, and interpolates V with the production monotone
+cubic -- SIGMA comes from the cubic derivative.
 
 Checks:
   * all newly added input guards abort (ND, missing file, missing
@@ -18,6 +19,15 @@ Checks:
     nodes, SIGMA consistent with dlnV/dlnR-1 (homologous -> 0,
     beta-law -> ~BETA-1), velocity-reversal profiles produce
     SIGMA < -1 (the feature VEL_LAW=13 exists to keep).
+  * TAU_OPT=1 semantics: the blended coordinate steers the grid with
+    the Kappa column above the TAU_LO clamp, and is exactly invariant
+    under a uniform ltau shift (constant Kappa rescale).
+  * pinned VEL_LAW=14 audit defects (desired-behaviour checks,
+    currently failing): non-finite interior Kappa silently absorbed
+    by the floor MAX; non-finite interior Density/V/R segfaults in
+    LIN_INTERP; negative interior Density silent; missing Sigma
+    silently disables feature detection.  See
+    docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md.
 """
 
 import sys
@@ -69,7 +79,9 @@ def build():
     return link_prod("snhyd", objs, moddir=md)
 
 
-def write_snhyd(d, r, v, sig, dens, kap, temp=None, age=OLD_AGE, mass_frac=True):
+def write_snhyd(
+    d, r, v, sig, dens, kap, temp=None, age=OLD_AGE, mass_frac=True, sigma=True
+):
     """Write a synthetic SN_HYDRO_DATA in the production layout."""
     d.mkdir(parents=True, exist_ok=True)
     n = len(r)
@@ -89,7 +101,8 @@ def write_snhyd(d, r, v, sig, dens, kap, temp=None, age=OLD_AGE, mass_frac=True)
         f.write("\n")
         put_block(f, "Radius grid (10^10cm)", r)
         put_block(f, "Velocity (km/s)", v)
-        put_block(f, "Sigma (dlnV/dlnr-1)", sig)
+        if sigma:
+            put_block(f, "Sigma (dlnV/dlnr-1)", sig)
         put_block(f, "Temperature (10^4 K)", temp)
         put_block(f, "Density (gm/cm^3)", dens)
         put_block(f, "Kappa (cm^2/gm)", kap)
@@ -550,6 +563,125 @@ def main():
             "max rel diff vs no-floor="
             f"{np.abs(a[:, 0] - rnofloor).max() / rnofloor.min():.2e}",
         )
+
+    # ---------------- TAU_OPT=1 semantics -------------------------
+    # The blended coordinate must respond to the Kappa column only
+    # where the cumulative tau beats the TAU_LO clamp.  On a beta
+    # profile the inner third is optically thick: boosting Kappa
+    # there must pull depths inward (the Rosseland-aware upgrade
+    # over the constant-kappa_es TAU_OPT=0 recipe).
+    d = WORKDIR / "snhyd_kapsteer"
+    r, v, sig, dens, kap = profiles("beta")
+    write_snhyd(d, r, v, sig, dens, kap)
+    p0 = run_case(exe, d, OLD_AGE, tau_opt=1)
+    kap2 = kap.copy()
+    kap2[2 * NX // 3 :] *= 30.0  # boost the optically thick third
+    write_snhyd(d, r, v, sig, dens, kap2)
+    p1 = run_case(exe, d, OLD_AGE, tau_opt=1)
+    ok = "RESULT_OK" in p0.stdout and "RESULT_OK" in p1.stdout
+    rep.check("kappa-steer TAU_OPT=1: both complete", ok)
+    if ok:
+        _, _, a0 = parse(p0.stdout)
+        _, _, a1 = parse(p1.stdout)
+        rmid = r[2 * NX // 3]
+        n0 = np.sum(a0[:, 0] < rmid)
+        n1 = np.sum(a1[:, 0] < rmid)
+        rep.check(
+            "kappa-steer: higher inner opacity pulls depths inward",
+            n1 > n0,
+            f"n(R<{rmid:.2e}): {n0} -> {n1}",
+        )
+
+    # The blended coordinate is built from DIFFERENCES of ltau, so a
+    # uniform shift of the whole tau curve (a constant Kappa
+    # rescaling) cancels exactly: TAU_LO and every clamped
+    # contribution shift together and the U grid must come out
+    # identical.  kappa x7 up exercises more of the tau branch;
+    # x0.001 pushes the whole profile under the clamp (pure logR
+    # limit).  Both must reproduce the baseline grid node-for-node.
+    for fac, tag in ((7.0, "x7"), (1.0e-3, "x0.001")):
+        d = WORKDIR / f"snhyd_kaprescale{tag}"
+        r, v, sig, dens, kap = profiles("beta")
+        write_snhyd(d, r, v, sig, dens, kap)
+        p0 = run_case(exe, d, OLD_AGE, tau_opt=1)
+        write_snhyd(d, r, v, sig, dens, kap * fac)
+        p1 = run_case(exe, d, OLD_AGE, tau_opt=1)
+        ok = "RESULT_OK" in p0.stdout and "RESULT_OK" in p1.stdout
+        rep.check(f"kappa rescale {tag} TAU_OPT=1: both complete", ok)
+        if ok:
+            _, _, a0 = parse(p0.stdout)
+            _, _, a1 = parse(p1.stdout)
+            rep.check(
+                f"kappa rescale {tag}: grid invariant under ltau shift",
+                np.allclose(a0[:, 0], a1[:, 0], rtol=1e-9, atol=0.0),
+                "max rel diff="
+                f"{np.abs(a0[:, 0] - a1[:, 0]).max() / a0[:, 0].min():.2e}",
+            )
+
+    # ---------------- pinned audit defects (22-Nov-2026) ----------
+    # Desired behaviour is a clean abort; the current code either
+    # crashes inside LIN_INTERP or produces a quietly wrong grid.
+    # These checks FAIL on the present source - they pin the defects
+    # found by the VEL_LAW=14 robustness audit (see
+    # docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md).
+
+    # D1: non-finite interior Kappa.  The MAX(kappa,floor) absorbs a
+    # NaN first argument, so the corrupted cell silently takes the
+    # floor opacity and the returned grid is valid-looking but
+    # shifted.  No finiteness screening exists on any input column.
+    d = WORKDIR / "snhyd_nankap"
+    r, v, sig, dens, kap = profiles("beta")
+    kap_n = kap.copy()
+    kap_n[NX // 2] = np.nan
+    write_snhyd(d, r, v, sig, dens, kap_n)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "PINNED D1: non-finite Kappa aborts (currently silently wrong)",
+        "RESULT_OK" not in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    # D2: non-finite interior Density.  NaN propagates through
+    # kappa*rho into tau and TAU_LO; the LIN_INTERP bracket walk then
+    # reads out of bounds and the driver segfaults (rc 174).
+    d = WORKDIR / "snhyd_nandens"
+    dens_n = dens.copy()
+    dens_n[NX // 2] = np.nan
+    write_snhyd(d, r, v, sig, dens_n, kap)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "PINNED D2: non-finite Density aborts (currently segfaults)",
+        "RESULT_OK" not in p.stdout and p.returncode == 0,
+        f"rc={p.returncode}",
+    )
+
+    # D3: negative interior Density is accepted silently - only
+    # DENSITY(1) is screened, so a sign error deeper in the file
+    # produces a quietly wrong kappa*rho tau integral.
+    d = WORKDIR / "snhyd_negdens"
+    dens_n = dens.copy()
+    dens_n[NX // 2] = -abs(dens_n[NX // 2])
+    write_snhyd(d, r, v, sig, dens_n, kap)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "PINNED D3: negative interior Density aborts (currently silent)",
+        "RESULT_OK" not in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    # D4: a file with no Sigma section runs TAU_OPT=1 with every
+    # feature-detection input zeroed - no reversal entries, no sigma
+    # minima - and silently assumes homology in the expansion factor.
+    # The recipe should at least warn that its stated inputs are
+    # missing.
+    d = WORKDIR / "snhyd_nosigma"
+    write_snhyd(d, r, v, sig, dens, kap, sigma=False)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "PINNED D4: missing Sigma warns/aborts under TAU_OPT=1",
+        "RESULT_OK" not in p.stdout or "sigma" in p.stdout.lower(),
+        f"rc={p.returncode}",
+    )
 
     # ---------------- plot ---------------------------------------
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
