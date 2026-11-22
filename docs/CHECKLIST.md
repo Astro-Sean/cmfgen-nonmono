@@ -130,6 +130,24 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       heal. docs/audits/CMFGEN_KNOP_LAGGED_STORE_POISON_AUDIT.md.
       Production-scale rho~0.97 stall not reachable on the
       manufactured grid; K1 stays open.
+- [x] Discrete-operator verification (22-Nov-2026): new
+      test_knop_operator.py + DBRC dump in drv_knop_ray check the
+      refresh-side operator against the mathematics it discretises,
+      not just sweep/refresh self-consistency. 16/16 PASS on
+      all-expanding (gposo) and sign-reversal (gcr) profiles:
+      A0=exp(-DTAU) to 7e-18, A0+A1+A2=1 to print precision
+      (constant-source equilibrium preserved), Q*CHIH*DLNM=signed
+      GAM to ~5e-9, CHIH=chi+|GAM|/DLN at coupled cells of EITHER
+      sign (expanding cells couple to the live previous-frequency
+      donor - verified, not assumed), CHIH=chi at uncoupled cells,
+      DTAU=trapezoid(CHIH) exact under KN_METHOD_SAV='ZERO',
+      SR*CHIH=analytic ETA to 5e-8, field finite/non-negative with
+      vacuum outer BC and thermalisation onto the modified source
+      at thick cells (1%). The ZERO-method DTAU is plain trapezoid,
+      ~6.5% above the analytic int chi dz on the manufactured grid
+      (discretization, not defect). gcr outer boundary cell i=1 is
+      uncoupled at all frequencies (KN_COUPLING_OK drops both sides
+      consistently).
 - [ ] BLANK spectrum + Luc comparison: renderer verified 22-Nov
       (RESC_JMAX fix; obs_fin_10 valid). Blocked only on a
       converged conventional-solver model from either route;
