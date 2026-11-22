@@ -341,6 +341,36 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       Submitted: CMFGEN 13572032 + OBS 13572033 (VEL_LAW=13
       preserved in VADAT; n_ob_ins forced 30->0 so the RDINR
       grid matches MODEL_SPEC ND).
+- [x] Production-code grid A/B/C at ND=70 on the real structure
+      (unit_tests/work/grid_ab, scratch): drv_snhyd TAU_OPT=0/1 on
+      SN_HYDRO_DATA + drv_sniin70 (production RV_SN_MODEL_SNIIN) on
+      repackaged input_hydro.dat. Measured:
+        points at V<100:        V12 55 / V13 58 / V14 22
+        points 50-300 km/s:     V12 38 / V13 27 / V14 33
+        points 300-2000 km/s:   V12  3 / V13  2 / V14 16
+        points >2000 km/s:      V12  7 / V13  6 / V14 14
+        depths tau_es 0.1-10:   V12 16 / V13 12 / V14 34
+        CDS sigma min:          V12 -36 / V13 -63 / V14 -82
+                                (source true sigma -157)
+        max adjacent |d sigma|: V12 27 / V13 58 / V14 60
+      Verdict: V13 ~ V12 in placement (confirms the V12 recipe on
+      our data) but in velocity space V14 is NOT under-resolved in
+      the CSM (33 pts, med dV 4.4 km/s) and is 5-8x better resolved
+      through the shell/CDS/ejecta and 2-3x better in the
+      line-forming tau band. The tau_es grids dump ~80% of depths
+      into the optically thin outer CSM (V<100, tau<0.1). "Optimal"
+      splits by feature: V12/V13 for raw CSM point count, V14 for
+      CDS spike capture + ejecta/shell coverage. Spectrum decides.
+      NEW DEFECT FOUND: the production V12 reader's row read is
+        READ R_HYDRO(I), V_HYDRO(whole array), XD, XT, XL, XTAU,
+        TAU_HYDRO(I)  -> NHYDRO+6 values per row
+      so our converter's 7-column input_hydro.dat cannot feed
+      VEL_LAW=12 (EOF at row 2; confirmed with both sniin_new and
+      sniin70 drivers). The file also must be ordered inner->outer
+      or the grid returns ascending (inner R at depth 1). V12 has
+      never successfully run on our converter files - LUC_l12's
+      early death is consistent with this. If V12-vs-V14 ever
+      needs a real run, the converter format needs fixing first.
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
