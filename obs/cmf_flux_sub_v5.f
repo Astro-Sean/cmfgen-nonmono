@@ -790,10 +790,16 @@
 ! INS_LINE_V5/INS_LINE_OBS_V4.  On a non-monotonic field V(1) is the
 ! slow outer material while the interior moves much faster, so an
 ! undersized VINF leaves Doppler-shifted opacity outside the refined
-! grid regions.  Use the full velocity-magnitude range on the
-! non-monotonic paths only; stock keeps VINF=V(1).
+! grid regions.  Gate on the detected field, not the flag: a stock-J
+! render admitted under ALLOW_NONMONO_OBS is the same non-monotonic
+! model, and sizing the margins by V(1) there under-covers the
+! observer grid red anchor (NU_MIN_OBS scales with NU(NCF), so no
+! MIN_CF override can repair the undercoverage; verified on
+! m15_2p82d VAL_sob_diag_blank, job 13558872).  Monotonic fields keep
+! VINF=V(1) - MAXVAL(|V|) is then identical anyway.
 !
-	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)
+	IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP .OR.
+	1   N_NONMONO_OBS .GT. 0)
 	1   VINF=MAXVAL(ABS(V(1:ND)))
 !
 ! 
