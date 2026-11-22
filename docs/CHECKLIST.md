@@ -286,7 +286,27 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       from a free-T equilibrium; the run ping-pongs
       LAMBDA_TFIX <-> FULL with capped T steps. Watch: does
       the demand contract or cycle.
-      Blocked only on a
+      VEL_LAW audit (22-Nov, user: 'Luc uses vel_law 12'):
+      VADAT VEL_LAW selects the runtime R/V/SIGMA build; YAML
+      vel_law selects the converter SIGMA formula. Paths:
+      V12 = RV_SN_MODEL_SNIIN - reads input_hydro.dat, grid
+      uniform in log(tau_es) + NBND_INS boundary packing,
+      LIN_INTERP V in R + two-sided fd sigma. V14 =
+      RV_SN_MODEL_SNHYD TAU_OPT=1 - reads SN_HYDRO_DATA,
+      blended tau-Rosseland/log-R grid, monotone-cubic V +
+      analytic sigma. V13 = SNHYD TAU_OPT=0 = V12 recipe on
+      our data (the clean A/B). Verified at recipe level by
+      offline emulation on the same 40-pt source: V12 grid
+      puts 57 of 70 depths in V<100 km/s (4 in the ejecta);
+      our V14 RVTJ grid has 22 in V<100 and 14 in the ejecta.
+      CDS sigma spikes to -130 (V14 cubic) vs ~-53 (V12 fd).
+      The two paths sample the line-forming regions
+      completely differently - a live suspect for the CSM
+      narrow-core broadening and the ejecta blend weights.
+      Luc's own input_hydro.dat is NOT in the tree (both
+      candidate files are our converter output) - only the
+      .fl exists, so source-vs-recipe cannot be separated;
+      V13 isolates the recipe. Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
       and feature contrast vs the published .fl.
