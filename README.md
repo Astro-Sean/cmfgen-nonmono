@@ -77,6 +77,13 @@ follows the stock upstream path.
   field and the render always returns a bounded spectrum; rescued
   frequencies are logged. Explicit `J_RESCUE=F` restores stock
   behaviour. See `docs/audits/BLANK_RENDER_J_RESCUE.md`.
+- **Hydro-structure velocity grids** (`VEL_LAW` 12, 13 and 14):
+  `RV_SN_MODEL_SNHYD` builds the depth grid from `SN_HYDRO_DATA`,
+  uniform in `log tau_es` (VEL_LAW=13) or in a blended
+  tau-Rosseland and log-radius coordinate with structure-aware
+  insertion at velocity reversals and density spikes (VEL_LAW=14).
+  The `RV_SN_MODEL_SNIIN` reader was repaired so VEL_LAW=12 again
+  runs on the standard seven-column `input_hydro.dat`.
 - General correctness fixes in the population solve, the
   observed-frame tools and the build.
 
