@@ -31,6 +31,10 @@ Cases:
          and DTAU is analytically integrable.
   gcr    linear sign-reversal GAM(i) = GAMP*0.3*(i-4.5): cells 1-4
          compressing, 5-8 expanding, continuous through zero.
+  gnego  all-compressing (NCASE=17, ordered) - the pure lagged-store
+         regime: every donor read goes through I_*_DEPTH_NEXT.
+  gzb    discrete combination (NCASE=31): expansion at cell 3, exact
+         zero at cell 4, compression at cell 5.
 """
 
 import math
@@ -92,7 +96,23 @@ def gam_of(case, i):
         return GAMP * (0.5 + 0.1 * i)
     if case == "gcr":
         return GAMP * 0.3 * (i - 4.5)
+    if case == "gnego":
+        return -GAMP * (0.5 + 0.1 * i)
+    if case == "gzb":
+        if i == 3:
+            return GAMP * (1.0 + 0.3 * i)
+        if i == 4:
+            return 0.0
+        if i == 5:
+            return -GAMP * (1.0 + 0.3 * i)
+        return GAMP * (0.5 + 0.1 * i)
     raise ValueError(case)
+
+
+# All-expanding (monotonic outflow), all-compressing (monotonic
+# inflow - every donor read hits the lagged store), continuous sign
+# reversal, and a discrete expansion/zero/compression combination.
+CASES = ("gposo", "gcr", "gnego", "gzb")
 
 
 def _f(x):
@@ -136,7 +156,7 @@ def main():
     )
 
     data = {}
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         r = run(bin_, case, cwd=WORKDIR, check=False)
         rep.check(
             f"{case}: driver completed and converged",
@@ -147,7 +167,7 @@ def main():
 
     # -- T1: dump coverage and march-coefficient structure. A slots
     #    are filled on intervals 1..NI-1; i=NI keeps the -1 sentinel.
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         dbr, dbrc = data[case]
         ok = len(dbr) == ND * NCFX and len(dbrc) == ND * NCFX
         interior = True
@@ -166,7 +186,7 @@ def main():
 
     # -- T2: A0 = exp(-DTAU) at every interval (attenuation of the
     #    upwind field). Exact in the production build.
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         worst = 0.0
         for (i, l), a in data[case][1].items():
             if i >= ND:
@@ -182,7 +202,7 @@ def main():
     #    must march to itself. The E-series build preserves this
     #    exactly at all DTAU; the DBRC print is ES16.8, so the
     #    residual is bounded by print precision (~5e-9), not fp.
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         worst = 0.0
         for (i, l), a in data[case][1].items():
             if i >= ND:
@@ -200,7 +220,7 @@ def main():
     #    chi_base. Where Q = 0 the whole coupling is dropped and
     #    chi_hat reduces to chi_base. On this uniform log grid the
     #    expanding span equals DLNM, so one identity covers both.
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         dbr, _ = data[case]
         q_w, c_w, ncoupled = 0.0, 0.0, 0
         uncoupled_neg = []
@@ -240,7 +260,7 @@ def main():
     #    this folds the chi_hat coupling into the opacity correctly).
     #    As a sanity cross-check the trapezoid sum must sit near the
     #    analytic int chi dz (few % at this grid resolution).
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         dbr, _ = data[case]
         d_w, s_w = 0.0, 0.0
         for (i, l), v in dbr.items():
@@ -273,7 +293,7 @@ def main():
         )
 
     # -- T5b: SR*CHIH = ETA against the analytic profile (both cases).
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         worst = 0.0
         for (i, l), v in data[case][0].items():
             e = eta_base(i, l)
@@ -288,7 +308,7 @@ def main():
     #    and thermalises onto the modified source at optically thick
     #    interior cells (DTAU per cell ~ 20-600 on this model, so the
     #    field must sit close to the local SP).
-    for case in ("gposo", "gcr"):
+    for case in CASES:
         dbr, _ = data[case]
         finite = all(
             math.isfinite(v["fldm"]) and math.isfinite(v["fldp"])
