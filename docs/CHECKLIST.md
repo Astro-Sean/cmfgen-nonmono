@@ -1,39 +1,77 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
-## Cold-start converge + BLANK spectrum campaign (22-Nov-2026)
+## Cold-start CONVENTIONAL-solver campaign (22-Nov-2026, refocused)
 
-User goal: both DO_NONMONO_SOB and DO_NONMONO_KNOP runs must run
-from a cold start (LTE_EST=T), converge, and produce a
-line-blanketed converged spectrum.
+User directive (22-Nov-2026): both DO_NONMONO_SOB and
+DO_NONMONO_KNOP must produce a converged model from a cold start
+(LTE_EST=T) under the CONVENTIONAL population solver - DO_JFNK=F.
+JFNK is unproven and does not count toward this goal. DIAG
+satisfies the matrix-option requirement for now (TRI is a
+follow-up cell). Both routes must then emit a line-blanketed
+observer-frame spectrum for quantitative comparison against
+Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
 
 - [x] Route audit: both routes already cold-start (LTE_EST=T,
       warm_restart=false in the resolved configs). Neither
-      converges: sob_diag (DIAG pops solve) exhausted NUM_ITS at
-      it387, 88%, oscillating 75-100% with ex_maxch pinned ~2 dex
-      at the sigma_true<-1 inner cells; knop_formal_rd stalled at
-      44% (lagged-map non-contraction, the documented KNOP
-      research program).
+      converges under the conventional solver: sob_diag
+      (DO_JFNK=F, DIAG) exhausted NUM_ITS at it387, 88%;
+      knop_formal_rd stalled at 44% (killed at it250 by the
+      stall detector, lagged field never matured).
 - [x] Attribution: sob_diag and the it718-converged
       m15_2p82d_SOB_l14_lte_np are the SAME model with identical
       convergence aids (BA_DEM_PFLOOR=1e-30, BA_TR_MAXSWP=3,
       BA_EX_RELFRAC=0, ESEC_CHK, EPS_TERM=5e-2). The single
       substantive difference is DO_JFNK=T vs F - JFNK converged
-      where DIAG oscillates. DO_SOB_FG_KNOP is implemented but
-      was never armed on any model (absent from all resolved
-      configs).
-- [~] SOB-route verification arm SUBMITTED: the proven np recipe
-      verbatim (DO_NONMONO_SOB + USE_LAM_ES=T + DO_JFNK=T frozen
-      tier + obs_line_treatment=blank) on the post-RESC_JMAX
-      build. Question: does it reproduce it718 convergence and
-      emit a valid BLANK spectrum? Exit: converged 100% +
-      obs_fin parity vs the Luc/old-exe baseline; FAIL = new
-      recipe-specific stall data for the ex_maxch study.
-- [ ] KNOP route: knop_formal_rd 44%; DO_JFNK also admitted under
-      KNOP once the lagged field matures (GS_FREEZE=F) - the map
-      non-contraction gates that. Follow the section-18/19
-      work-order arms; do not launch a fresh full run blind.
-- [ ] BLANK spectrum: renderer verified 22-Nov (RESC_JMAX fix);
-      blocked only on a converged model from either route.
+      where DIAG oscillates. Under the refocused goal the np
+      convergence is a REFERENCE fixed point, not the deliverable.
+- [~] np verification arm RUNNING (13564952 + OBS 13564953,
+      submitted 18:22 22-Nov): np recipe verbatim
+      (DO_JFNK=T + USE_LAM_ES=T + obs_line_treatment=blank) on
+      the post-RESC_JMAX build. Reclassified role: checks that
+      the recipe still reproduces it718 convergence on the
+      current build and supplies the converged reference state
+      + BLANK spectrum for the conventional-solver work and the
+      Luc overlay. Does NOT satisfy the campaign goal.
+- [ ] Declared bounded investigation S1 - SOB-DIAG oscillation.
+      Question: what makes the conventional population map
+      non-contracting on the m15 structure? Evidence so far:
+      nine-gate evaluator shows only ex_maxch>=eps failing
+      (raw max correction ~6% vs EPS=5%) for ~250+ iterations;
+      the argmax correction migrates across ~8 metal rows
+      (SIII/AlV/OIII/SIV/MgV/AlSIX/NeIII/OIV) clustered at
+      depths 1-19 (OUTER region - depth 1 is RMAX, the slow
+      wind; sigma_true=-1.037 at depth 1, -2.6/-1.97 deeper in
+      the compression); exempted ~100% demands cycle through CV
+      Rydberg levels at depths 1-11 (quasi-dead rows, phase-7
+      audit); SE residual column dominated by depths 64-70
+      (inner fast ejecta). Not a single-row period-2 flip.
+      Evidence plan: per-row correction trajectories and
+      level identities across the stalled window; correlate
+      stuck rows with sigma_true<-1 and Sobolev multi-resonance
+      cells; compare against the np fixed point at the same
+      rows once the arm lands. Exit criterion: named root
+      cause + FIX commit with regression, or an evidenced
+      BLOCKED verdict. No tolerance relaxation, no new clamps.
+- [ ] Declared bounded investigation K1 - KNOP formal
+      non-contraction. Question: can the corrected-exit build
+      contract the lagged field from a cold start, and what
+      breaks the period-2 orbit on inner rays 1-3 (~88K bad
+      cells/sweep, exit=2, NI~300-340)? Evidence plan: (a)
+      fix82-class honest-exit arm resubmitted on general
+      partition (13158010 died on the interactive CPU cap)
+      with KN_RDUMP_LS armed on the inner-ray population;
+      (b) offline replay of the deferred corner-mode
+      acceleration candidates (guarded Aitken / OMEGA_RAY /
+      safeguarded Anderson / KN_ORD_P2DAMP) on validated decks
+      per the phase-2.30 protocol before any live trial;
+      (c) bounded cold-start arm. Exit criterion: converged
+      cold-start run or an evidenced REJECTED/BLOCKED verdict.
+      No accelerator enabled in production by default.
+- [ ] BLANK spectrum + Luc comparison: renderer verified 22-Nov
+      (RESC_JMAX fix; obs_fin_10 valid). Blocked only on a
+      converged conventional-solver model from either route;
+      compare_finished_vs_luc.py supplies band ratios, log-rms
+      and feature contrast vs the published .fl.
 
 ## BLANK spectrum faint-continuum root cause (22-Nov-2026)
 
