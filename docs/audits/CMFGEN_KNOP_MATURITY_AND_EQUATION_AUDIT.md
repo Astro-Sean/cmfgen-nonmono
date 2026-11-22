@@ -636,6 +636,13 @@ Recommended order of work:
 - Retain RESC_JMAX = 1.0e-3 (user decision, Phase 2.3). Keep
   the J_eq measurements as the baseline scale for judging
   KNOP's mature field, not as a threshold.
+  SUPERSEDED 22-Nov-2026: the m15 interacting-model A/B showed
+  the 1e-3 rail clipping verified-legitimate fields (~1.2e-1)
+  and collapsing the production spectrum ~100x; the default is
+  now 1e2 (commits 310a9364/f2471abf/cc5eafc2). The Phase 2.3
+  decision predates the old-exe truth reference; explicit
+  RESC_JMAX=1e-3 in CMF_FLUX_PARAM still restores it per run.
+  The J_eq-as-baseline-scale recommendation stands unchanged.
 - Do not implement a per-cell kappa*J_eq bound now: it would
   hide the same class of solver defect the absolute cap hides.
 - Once KNOP converges, redo this audit's comparisons at the
