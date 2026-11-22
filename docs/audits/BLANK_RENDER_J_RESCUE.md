@@ -84,13 +84,22 @@ detector.  Two caps split the roles:
 
 - `RESC_CAP` (stored-field validity + `RJ_ES` sanitize):
   `MIN(1e4 * MAXVAL(ABS(JNU_PREV)), RESC_JMAX)`.  The relative
-  term catches single-step explosions and garbage in dark
-  regions; `RESC_JMAX` (new key, default `1e-3` code units) is an
-  absolute ceiling that no converged field on this model class
-  approaches - legitimate J peaks at 4.8e-5 across the whole grid
-  (KNOP and SOB agree), and the largest legitimate adjacent-
-  frequency Jmax ratio measured is ~44x, so `1e4x` has ~200x
-  margin and cannot false-fire on a real transition.
+  term is the working detector - it catches single-step
+  explosions and garbage in dark regions.  `RESC_JMAX` (default
+  `1e2` code units; `1e-3` before 22-Nov-2026) is now a pure
+  sanity rail: the physical J scale is model-dependent
+  (~4.8e-5 on mc170, ~1.2e-1 measured on the m15 interacting
+  model), so no single flat value can express "legitimate" for
+  every model.  The 22-Nov m15 A/B showed the old 1e-3 rail
+  clipping real fields across the UV/optical and the restore
+  latching a stale field - emergent continuum collapsed
+  ~100-270x.  1e2 sits ~3 orders above the m15 peak and ~23
+  orders below the observed runaway signature (J -> 1e25), so
+  it bounds the slow multiplicative ratchet the relative cap
+  cannot see while never firing on a measured field.  The
+  largest legitimate adjacent-frequency Jmax ratio measured is
+  ~44x, so `1e4x` retains ~200x margin and cannot false-fire on
+  a real transition.
 
 - `RESC_CAP_IT` (in-loop early exit only): the previous loose
   bound `MIN(1e10, MAX(1e4*prev, 1e-3))`.  Iterates may
@@ -129,7 +138,7 @@ so the origin of each failure band can be inspected.
 | key | default | role |
 |---|---|---|
 | `J_RESCUE` | `T` | master switch; explicit `F` restores stock abort-on-divergence behaviour |
-| `RESC_JMAX` | `1e-3` | absolute J ceiling in code units; raise for models whose legitimate J exceeds ~5e-5 |
+| `RESC_JMAX` | `1e2` | runaway ceiling on stored J in code units; the `1e4*JNU_PREV` relative bound is the working detector |
 | `DAMP_FJ` | `1.0` | under-relaxation for the f/J update; kept off - it does not fix the eigenproblem |
 | `ALLOW_NONMONO_OBS` | `F` | required for BLANK renders on non-monotonic RVTJ models (pipeline stamps it) |
 
@@ -189,7 +198,9 @@ instead of aborting or emitting a poisoned tail.
 - At the first frequency there is no previous field to restore;
   a divergence there still stops the run (honest behaviour -
   there is nothing valid to fall back to).
-- `RESC_JMAX` is a code-units scale tuned on this model class
-  (legitimate J <= ~5e-5).  A model family with systematically
-  larger J should set `RESC_JMAX` explicitly rather than rely on
-  the 1e-3 default.
+- `RESC_JMAX` is a code-units sanity rail, not a per-model
+  calibration: the legitimate J scale is model-dependent
+  (~5e-5 on mc170, ~1e-1 on m15).  The 1e2 default sits above
+  every legitimate field measured on this project; a model
+  family with genuinely larger fields must set `RESC_JMAX`
+  explicitly rather than rely on the default.
