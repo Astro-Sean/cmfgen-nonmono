@@ -133,8 +133,11 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
 - [x] Discrete-operator verification (22-Nov-2026): new
       test_knop_operator.py + DBRC dump in drv_knop_ray check the
       refresh-side operator against the mathematics it discretises,
-      not just sweep/refresh self-consistency. 16/16 PASS on
-      all-expanding (gposo) and sign-reversal (gcr) profiles:
+      not just sweep/refresh self-consistency. 32/32 PASS across all
+      three GAM regimes - all-expanding outflow (gposo),
+      all-compressing inflow (gnego, the pure lagged-store regime),
+      continuous sign reversal (gcr) and a discrete
+      expansion/zero/compression combination (gzb):
       A0=exp(-DTAU) to 7e-18, A0+A1+A2=1 to print precision
       (constant-source equilibrium preserved), Q*CHIH*DLNM=signed
       GAM to ~5e-9, CHIH=chi+|GAM|/DLN at coupled cells of EITHER
