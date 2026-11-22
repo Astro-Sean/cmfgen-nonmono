@@ -105,6 +105,46 @@ the key is structurally incompatible, not a knob). Overrides of
 explicit user values (e.g. `GLOBAL_LINE`) print a banner warning
 to OUTGEN; auto-sets print ` SOB auto-set:` lines.
 
+## 1.5 Velocity-law dispatch (VEL_LAW)
+
+`VEL_LAW` is a stock key, but this fork modifies two of its
+readers and adds two more, so the dispatch table lives here.
+Dispatch in `new_main/cmfgen_sub.f` (VELTYPE):
+
+- `VEL_LAW=11` - `SET_RV_HYDRO_MODEL_V3`: reads R/V/SIGMA verbatim
+  from `RDINR` when `RD_IN_R_GRID=T`. `MODEL_SPEC ND` must equal
+  the RDINR count exactly, so the forced non-mono table also
+  forces `N_OB_INS=0`, `N_IB_INS=0`.
+- `VEL_LAW=12` - `RV_SN_MODEL_SNIIN`: reads `input_hydro.dat`
+  (7-column SNIIN table, rows ordered inner->outer, tau_es column
+  last). Grid uniform in the file's own log(tau_es) plus
+  `NBND_INS=3` packed at each boundary; linear-interp V, two-sided
+  centred-difference SIGMA. Repaired 22-Nov-2026 (commit
+  `10e2b47a`): the row read used `V_HYDRO` unsubscripted, so it
+  demanded NHYDRO+6 values per row and EOF'd every real file at
+  ~row 7; and `prepare_VADAT.py` now writes rows inner->outer.
+- `VEL_LAW=13` - `RV_SN_MODEL_SNHYD(TAU_OPT=0)`: same V12 grid
+  recipe (uniform log tau_es + boundary packing) but sourced from
+  `SN_HYDRO_DATA` with monotone-cubic V and analytic-derivative
+  SIGMA. Standing default for new runs (user directive
+  22-Nov-2026, AGENTS.md 1.2).
+- `VEL_LAW=14` - `RV_SN_MODEL_SNHYD(TAU_OPT=1)`: blended
+  tau-Rosseland + log-R coordinate with structure-aware insertion
+  at `sigma < -1` entries/minima and density spikes
+  (`U_GAP_FAC` cell-gap floor). Same V/sigma evaluation as 13.
+
+Grid-side comparison on the real m15 structure (ND=70, production
+drivers, `unit_tests/work/grid_ab`): the tau_es grids put ~80% of
+depths below V=100 km/s; VEL_LAW=14 trades most of that for 5-8x
+the resolution in the 300-2000 km/s shell and the ejecta, and
+captures the CDS sigma spike deeper (-82 vs -63/-36, source -157).
+
+`VEL_LAW` in `vadat_overrides` always wins: the forced non-mono
+table stamps 11 only when the key is absent. `RD_IN_R_GRID=F`
+with 12/13/14 (the readers build the grid themselves); `T` with
+11. YAML `cmfgen.vel_law` feeds `--vel-law` in prepare_VADAT,
+which stamps the same value in the initial VADAT.
+
 ## 2. Acceleration and ALO keys
 
 - `DO_FG13_ALO` (default F; absent-key auto-set T under SOB +
