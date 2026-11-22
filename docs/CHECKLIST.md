@@ -91,8 +91,36 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       or conditioning; partial decay then restall is also
       informative. Submitted 22-Nov: CMFGEN job 13567608 (small),
       OBS chained 13567609, tree 1fcfd3a8, pinned exe
-      e031e8597875c541_9080452b4e65c32e. Verdict recorded here
-      when the arm answers.
+      e031e8597875c541_9080452b4e65c32e.
+      ARM VERDICT (22-Nov): CONVERGED. Warm-restart from the
+      it387 stalled checkpoint with DO_NG=F: ex_maxch fell
+      monotonically (21.1 -> 9.9 -> 4.3 -> 2.9 -> 2.3 -> 1.7 ->
+      1.1 through it394) and the nine-gate evaluator passed at
+      it409 - 'conv exit [MET] 100%, worst active margin
+      -0.03 dex (ex_maxch) gates: all pass', exit reason 'clean
+      convergence (MAXCH < EPS, exempted demand small)',
+      exempted demand 3.9e-2% (the CV Rydberg churn vanished
+      once the counted rows settled). 22 additional iterations.
+      Verdict on the S1 question: NG periodic re-excitation was
+      SUSTAINING the boundary-pinned oscillation at depths 1-13;
+      the population map itself contracts. The stalled state was
+      a limit-cycle held at the EPS boundary by the accelerator,
+      not an absent fixed point. Caveat: warm restart rebuilds
+      J (no FGINEXT_GS in the checkpoint) so the trajectory is
+      perturbed - the deciding end-to-end test is the cold-start
+      NG-off arm below. S1 closes as DECISION: production
+      candidate is DO_NG=F; fix = disable NG for the SOB route
+      (no code change needed - VADAT key exists).
+      Declared follow-on (22-Nov): cold-start arm
+      dessart_m15_2p82d_VAL_sob_ngoff_cold - identical sob_diag
+      recipe (LTE_EST=T, DIAG, DO_JFNK=F) with DO_NG=F from
+      scratch. THE SOB-leg acceptance test: if it converges,
+      the conventional SOB pipeline cold-starts to a converged
+      model. If it stalls at the same place, DO_AV=F (the other
+      periodic accelerator, ITS/AV=8) is the next knob.
+      Submitted 22-Nov: CMFGEN job 13569107 (small, NUM_ITS=1000),
+      OBS chained 13569108, tree 8afaa8e3 +CHECKLIST, same pinned
+      exe, VADAT identical to the ngoff warm arm.
       Exit criterion: named root cause + FIX commit with
       regression, or an evidenced BLOCKED verdict. No
       tolerance relaxation, no new clamps.
@@ -151,8 +179,25 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       (discretization, not defect). gcr outer boundary cell i=1 is
       uncoupled at all frequencies (KN_COUPLING_OK drops both sides
       consistently).
-- [ ] BLANK spectrum + Luc comparison: renderer verified 22-Nov
-      (RESC_JMAX fix; obs_fin_10 valid). Blocked only on a
+- [~] BLANK spectrum + Luc comparison: renderer verified 22-Nov
+      (RESC_JMAX fix; obs_fin_10 valid). First converged
+      conventional-solver SOB spectrum exists 22-Nov from the
+      sob_diag_ngoff arm (warm-restart convergence, OBS job
+      13567609, obs_fin_10 133179 pts all finite). vs Luc's .fl
+      (identical compare_finished_vs_luc.py methodology, run on
+      the ngoff path): band medians FUV 0.990, UV 1.056, blue
+      1.015, opt1 0.998, opt2 0.950, red 0.935;
+      rms3000-1e4 = 0.042 (unconverged parent scored 0.327 with
+      feature ratios 8-142x - its obs_fin_10 of Nov 22 02:57 is
+      a stalled-state render, not a route product);
+      feature pk/cont ratios vs Luc: C IV 0.94, C III] 1.12,
+      Mg II 0.95, H-alpha 1.06, H-beta 0.93, H-gamma 0.84,
+      H-delta 0.87, Ly-alpha 0.37, Na D 0.63. Overlay:
+      cmfgen_validation/plots/validation/ngoff_vs_luc.png.
+      compare_finished_vs_luc.py MODELS updated: ngoff entry
+      added, parent relabelled UNCONVERGED. Acceptance still
+      open: same test on a COLD-START converged model.
+      Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
       and feature contrast vs the published .fl.
