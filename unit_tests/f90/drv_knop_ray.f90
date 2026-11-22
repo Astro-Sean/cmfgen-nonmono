@@ -145,6 +145,13 @@
       IF(CNAME .EQ. 'inval') NCASE=87
       IF(CNAME .EQ. 'badid') NCASE=88
       IF(CNAME .EQ. 'bido')  NCASE=89
+      IF(CNAME .EQ. 'lagc')  NCASE=90
+      IF(CNAME .EQ. 'lagw')  NCASE=91
+      IF(CNAME .EQ. 'lagr')  NCASE=92
+      IF(CNAME .EQ. 'lags')  NCASE=93
+      IF(CNAME .EQ. 'sdab')  NCASE=94
+      IF(CNAME .EQ. 'sdp')   NCASE=95
+      IF(CNAME .EQ. 'qres')  NCASE=96
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -303,7 +310,7 @@
       IF(NCASE .EQ. 4)GAMP=4.0E-6_LDP
       IF(NCASE .EQ. 88 .OR. NCASE .EQ. 89)GAMP=4.0E-6_LDP
       DO I=1,NIX
-        IF(NCASE .EQ. 6)THEN
+        IF(NCASE .EQ. 6 .OR. NCASE .EQ. 92)THEN
 ! Two compressing bands (depths 3-4 and 6-7) separated by an
 ! expanding cell: the velocity-gradient sign reverses twice along
 ! the ray, exercising the sign-dependent upwind pick in both
@@ -314,7 +321,7 @@
           ELSE
             GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
           END IF
-        ELSE IF(NCASE .EQ. 7)THEN
+        ELSE IF(NCASE .EQ. 7 .OR. NCASE .EQ. 93)THEN
 ! Strong compression: same single band, GAM ~150x deeper negative -
 ! the sigma << -1 regime.
           IF(I .GE. 3 .AND. I .LE. 5)THEN
@@ -621,6 +628,38 @@
         END DO
       END DO
 !
+! lagc/lagr/lags: cold start -- the store carries no generation at
+! all, the worst-converged legal seed state. FG_RAY_SEEDED=0 marks
+! the ray uncommitted so the cold-path waiver and SEED census fire
+! the way a production cold start does.
+!
+      IF(NCASE .EQ. 90 .OR. NCASE .EQ. 92 .OR. NCASE .EQ. 93)THEN
+        I_M_DEPTH_NEXT=0.0_LDP
+        I_P_DEPTH_NEXT=0.0_LDP
+        FG_RAY_SEEDED=0
+      END IF
+!
+! sdp: the retained store arrives poisoned -- a NaN slot, an Inf
+! slot, negatives, and overflow-magnitude values on every
+! compressing depth. A refresh must either commit only finite
+! values or refuse the commit; poison must never pass through.
+!
+      IF(NCASE .EQ. 95)THEN
+        FG_RAY_SEEDED=0
+        DO K=1,N_COMP
+          I_M_DEPTH_NEXT(K,1,2)=IEEE_VALUE(0.0_LDP, &
+      IEEE_POSITIVE_INF)
+          I_P_DEPTH_NEXT(K,1,2)=IEEE_VALUE(0.0_LDP, &
+      IEEE_POSITIVE_INF)
+          I_M_DEPTH_NEXT(K,1,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          I_P_DEPTH_NEXT(K,1,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          I_M_DEPTH_NEXT(K,1,4)=-5.0_LDP
+          I_P_DEPTH_NEXT(K,1,4)=-7.0_LDP
+          I_M_DEPTH_NEXT(K,1,5)=1.0E200_LDP
+          I_P_DEPTH_NEXT(K,1,5)=1.0E200_LDP
+        END DO
+      END IF
+!
       IF(NCASE .EQ. 38)THEN
 !
 ! sibref: probe KN_JMP_SIBREF_V1 on a three-ray store with a
@@ -925,6 +964,14 @@
         SOLUTION_METHOD='INTEGRAL'
         NRF=1
         IF(NCASE .EQ. 46 .OR. NCASE .EQ. 71)NRF=2
+! lag*/sdab/qres: multi-refresh lagged-map probes. Three refreshes
+! track the outer lagged-field iteration on a fixed captured
+! problem; sdab re-seeds garbage between refresh 1 and 2.
+        IF(NCASE .GE. 90 .AND. NCASE .LE. 93)NRF=3
+        IF(NCASE .EQ. 94)NRF=2
+! qres: arm the independent fixed-point residual diagnostic so the
+! committed field's true map residual is printed per ray.
+        IF(NCASE .EQ. 96)KN_Q_RESID=.TRUE.
 !
 ! prb/prbv/prbs (64-66): MODE 1 probe isolation end-to-end. Ray 3
 ! is armed as the diagnostic probe and its retained store is
@@ -1027,6 +1074,27 @@
         DO IRF=1,NRF
         IF(NCASE .EQ. 71)CALL SET_FG_NOCP_PROBE(IRF .EQ. 1,1)
         IF(NCASE .EQ. 85 .AND. IRF .EQ. 2)KN_RAY_MAXPASS=1
+!
+! sdab (seed A/B): refresh 2 starts from a garbage retained field
+! -- finite but ~1E3x oversized with an alternating sign sawtooth
+! plus a NaN and an Inf slot, the shape of a badly-converged or
+! corrupted generation. If the per-ray solve converges the
+! committed field is seed-independent; the python side compares
+! the refresh-1 and refresh-2 committed stores.
+!
+        IF(NCASE .EQ. 94 .AND. IRF .EQ. 2)THEN
+          DO K=1,N_COMP
+            DO L=1,NCFX-1
+              T1=1.0E-1_LDP*(1.0_LDP+0.05_LDP*L)* &
+      (1.0_LDP-2.0_LDP*MOD(K+L,2))
+              I_M_DEPTH_NEXT(K,1,L)=T1
+              I_P_DEPTH_NEXT(K,1,L)=T1
+            END DO
+          END DO
+          I_M_DEPTH_NEXT(1,1,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          I_P_DEPTH_NEXT(2,1,4)=IEEE_VALUE(0.0_LDP, &
+      IEEE_POSITIVE_INF)
+        END IF
         IF(NRF .GT. 1)WRITE(*,'(A,I2)')'RF_PASS ',IRF
         CALL FG_KNOP_REFRESH_V1()
         WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
