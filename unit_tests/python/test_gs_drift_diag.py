@@ -72,7 +72,8 @@ def test_diag_block_separates_raw_relaxed_retained():
     )
     check(
         "ray line prints sweep drift, refresh residual, retained delta",
-        "GS_SW_MAXCHG,GS_MAXCHG,GS_RF_DCHG" in block,
+        "GS_SW_MAXCHG,GS_MAXCHG," in block
+        and "GS_RF_DCHG,GS_SW_MAXSYM" in block,
     )
     check(
         "mom line prints sweep drift, maxchg, retained delta, symmetric",
