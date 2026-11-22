@@ -1,5 +1,40 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## Cold-start converge + BLANK spectrum campaign (22-Nov-2026)
+
+User goal: both DO_NONMONO_SOB and DO_NONMONO_KNOP runs must run
+from a cold start (LTE_EST=T), converge, and produce a
+line-blanketed converged spectrum.
+
+- [x] Route audit: both routes already cold-start (LTE_EST=T,
+      warm_restart=false in the resolved configs). Neither
+      converges: sob_diag (DIAG pops solve) exhausted NUM_ITS at
+      it387, 88%, oscillating 75-100% with ex_maxch pinned ~2 dex
+      at the sigma_true<-1 inner cells; knop_formal_rd stalled at
+      44% (lagged-map non-contraction, the documented KNOP
+      research program).
+- [x] Attribution: sob_diag and the it718-converged
+      m15_2p82d_SOB_l14_lte_np are the SAME model with identical
+      convergence aids (BA_DEM_PFLOOR=1e-30, BA_TR_MAXSWP=3,
+      BA_EX_RELFRAC=0, ESEC_CHK, EPS_TERM=5e-2). The single
+      substantive difference is DO_JFNK=T vs F - JFNK converged
+      where DIAG oscillates. DO_SOB_FG_KNOP is implemented but
+      was never armed on any model (absent from all resolved
+      configs).
+- [~] SOB-route verification arm SUBMITTED: the proven np recipe
+      verbatim (DO_NONMONO_SOB + USE_LAM_ES=T + DO_JFNK=T frozen
+      tier + obs_line_treatment=blank) on the post-RESC_JMAX
+      build. Question: does it reproduce it718 convergence and
+      emit a valid BLANK spectrum? Exit: converged 100% +
+      obs_fin parity vs the Luc/old-exe baseline; FAIL = new
+      recipe-specific stall data for the ex_maxch study.
+- [ ] KNOP route: knop_formal_rd 44%; DO_JFNK also admitted under
+      KNOP once the lagged field matures (GS_FREEZE=F) - the map
+      non-contraction gates that. Follow the section-18/19
+      work-order arms; do not launch a fresh full run blind.
+- [ ] BLANK spectrum: renderer verified 22-Nov (RESC_JMAX fix);
+      blocked only on a converged model from either route.
+
 ## BLANK spectrum faint-continuum root cause (22-Nov-2026)
 
 - [x] Forensic isolation on the 13560175 render (obs_fin_10 median
