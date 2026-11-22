@@ -318,3 +318,35 @@ change is argued).
   pass - same exit as production, which also reaches no RETURN).
 - Open: the ten-render ensemble can start now - production build
   succeeds, the executable is frozen and hash-recorded above.
+
+## 14. Addendum: RESC_JMAX recalibrated 1e-3 -> 1e2 (22-Nov-2026)
+
+End-to-end A/B on `m15_2p82d_VAL_sob_diag` populations showed the
+flat 1e-3 rail clipping verified-legitimate fields: the pre-rescue
+Oct-16 executable reproduces the Nov-11 spectrum exactly with J
+peaking ~1.2e-1, while the capped render collapses the optical
+continuum ~100-270x (median 8.75e-9 vs 9.99e-7). `J_RESCUE=F` on
+the identical exe/params/pops recovers the reference spectrum to
+0.004%. The m15 legit J scale (~1e-1) sits ~20x above the 1e-3
+rail calibrated on mc170 (~5e-5) - the flat default cannot be
+model-independent, as sec. 4/6 already concluded.
+
+New default: `RESC_JMAX=1e2` (~3 orders above the m15 peak, ~23
+below the observed 1e25 runaway). The `1e4*JNU_PREV` relative
+bound stays the working per-frequency detector; the rail now only
+bounds the multiplicative ratchet.
+
+Consequences to track:
+
+- On `m15_2p82d_SOB_l14_lte_adp2_tauto` the same rail no longer
+  clips the documented sigma-clamp boundary artifact
+  (sec. 6a of CMF_FLUX_J_RESCUE_THRESHOLD_ATTRIBUTION.md:
+  ~1.5% of its events exceeded local J_eq up to 11x). That
+  model's renders revert to pre-rescue stock behavior - the
+  fields every historical render used. If artifact clipping is
+  wanted there, the per-cell J/J_eq bound (threshold audit
+  sec. 6a) is the correct criterion; it is model-independent in
+  a way no flat value can be. Open item in CHECKLIST.
+- The `1e4*prev` relative term plus the in-loop `RESC_CAP_IT`
+  remain unchanged; `RESC_CAP_IT`'s 1e-3 floor sits inside a
+  MAX() so it only ever raises the loose bound.
