@@ -58,6 +58,32 @@
       Rerender submitted as 13558872 with cmf_flux_param_overrides
       MIN_CF=2.0D-3 (renderer grid only; model VADAT MIN_CF untouched).
       OBSFRAME/spectrum validation owed on completion.
+- [~] 13558872 ALSO failed on the same guard: required/edge ratio was
+      identical (0.9771) in both jobs, so the undercoverage is structural
+      and MIN_CF cannot repair it. Re-review found the defect in
+      cmf_flux_sub_v5: NU_MIN_OBS = MAX(NU(NCF-3),
+      NU(NCF)*(1+2*VINF/c)) is sized by VINF, which stays V(1) on the
+      stock-J BLANK path (ALLOW_NONMONO_OBS escape). Here V(1)=48.9 km/s
+      (CSM) while the ejecta reaches 7073 km/s, so the OBS red anchor
+      landed inside the required Doppler range by construction. The
+      sob_diag render passed on the same model only because
+      DO_NONMONO_SOB already fed VINF=MAXVAL(|V|). Fixed by gating the
+      MAXVAL sizing on N_NONMONO_OBS>0 as well (field-driven, same
+      precedent as the INC_GRID rejection; commit 86d21335, pin added
+      in test_obs_nonmono_dispatch, ea64b5fc). Rerender 13560175
+      submitted with the rebuilt exe; OBSFRAME validation still owed.
+- [x] Census defect found and fixed in the same re-review: KN_PA_*
+      channel arrays allocated only under KN_Q_RESID but kn_census_row
+      reads them whenever KN_RDUMP_LS* is armed, so every KNRAY_CENSUS
+      row carried uninitialised channel columns (the 4.2e-322 values in
+      the refresh-249 ray-83 row). Allocation now covers either
+      consumer (commit 8204b8c0).
+- [~] Ray-83 state from the r249 census: NI=3 (grazing ray, three
+      depth cells), exit class 3 (stall), residual 1.043, 101307 bad
+      cells. Larger and geometrically distinct from the 81/82 failure;
+      whether it holds GAM<0 cells decides if the dispatch change
+      reaches it. Deck capture via configs/dessart_m15_2p82d_
+      KNOP_ray83_probe.yaml still owed.
 
 ## Phase 2.30 P2 production-operator evaluation (01-Dec-2026)
 
