@@ -80,6 +80,21 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       admission visible in OUTGEN plus Model Convergence, or a
       named failure mode. Distinct from the np arm (l14) by
       velocity law only.
+- [~] KNOP JFNK production-level arm RUNNING (13574052 + OBS
+      13574053, submitted 22-Nov, exe hash 5c27abfe):
+      FRESH_knop recipe + DO_JFNK=T under the 22-Nov directive
+      VEL_LAW=13, cold LTE start, pinned T, DIAG, ND=70, 64G
+      (dessart_m15_2p82d_FRESH_knop_jfnk.yaml ->
+      cmfgen_validation/m15_2p82d_FRESH_knop_jfnk). Production
+      JFNK gates (FRZ 3.0, COR 5.0, NREQ 2, WARMUP 6) and
+      production GS maturity machinery (N_LAM_RWARM=4,
+      GS_FREEZE_LIM=60, GS_REL_STABLE=2) - NOT the wide-open
+      jfnk_probe settings. Question (serves K1): does the KNOP
+      lagged field mature enough to admit JFNK (GS_FREEZE=F
+      gate), and does JFNK change the known KNOP non-
+      contraction outcome? Exit criterion: JFNK admission or
+      sustained non-admission visible in OUTGEN, plus a named
+      convergence/stall verdict.
 - [~] Declared bounded investigation S1 - SOB-DIAG oscillation.
       Question: what makes the conventional population map
       non-contracting on the m15 structure? Evidence so far:
@@ -959,10 +974,15 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
 
 ## 5. Test and validation tiers
 
-- [x] Static/unit batteries: knop_ray 43, lagged_field suite,
-      mom_solve 137, mom_gs 34, jfnk opint 36 + regressions,
+- [x] Static/unit batteries: knop_ray 49, knop_lagged_map 25/26
+      (sdab pinned-fail, documented defect), lagged_field suite,
+      knop_operator 32, knop_spv 93, knop_p2_state 19,
+      knop_replay_p2 29, knop_spec_gate 19, knop_endpoint 6,
+      mom_solve 137, mom_gs 34, mom_aa_state 62, mom_sweep_table 8,
+      es_resid 20, jfnk opint 36 + regressions,
       obs_frame 11+15, ng_abstain 17, lam_handoff 51, gs_drift_diag,
-      iter_conv_gate 13 - all green at last run.
+      iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
+      test_es_conv remains blocked on the known obs/ archive gap.
 - [x] Manufactured ordered-stencil + exit-policy + period-2
       classifier (`kn_ccorner_test.py`).
 - [x] Stale-archive gate maintained (libsubs.a member rebuilt with
