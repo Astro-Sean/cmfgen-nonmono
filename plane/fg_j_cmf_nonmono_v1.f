@@ -9248,12 +9248,6 @@ C
 	    KN_QA_VN=-1.0_LDP; KN_QA_VM=-1.0_LDP
 	    KN_QA_J=0; KN_QA_L=0
 	  END IF
-	  ALLOCATE(KN_PA_RES(KN_NP,2),KN_PA_OMG(KN_NP,2),
-	1   KN_PA_IX(KN_NP,2),KN_PA_NP(KN_NP,2),STAT=IOS2)
-	  IF(IOS2 .EQ. 0)THEN
-	    KN_PA_RES=-1.0_LDP; KN_PA_OMG=-1.0_LDP
-	    KN_PA_IX=-1; KN_PA_NP=-1
-	  END IF
 !
 ! Cell-level accumulators: per-refresh fresh census. KN_QS_STAT
 ! marks each ray's verify outcome (0 = never reached the verify
@@ -9303,6 +9297,25 @@ C
 	    KN_QS_ABS=0.0_LDP; KN_QS_FLR=0.0_LDP
 	    WRITE(LUER,'(A)')'    KN_QC cell histogram unavailable:'//
 	1   ' allocation failed; Q residual unaffected'
+	  END IF
+	END IF
+!
+! KN_PA_* hold the per-ray per-channel solve results that
+! kn_census_row writes to KNRAY_CENSUS_r*.txt. The capture keys
+! (KN_RDUMP_LS*) drive that writer even when KN_Q_RESID is off,
+! so allocating only inside the Q block left uninitialised
+! channel columns in every census record (the 4.2E-322 garbage
+! seen in the refresh-249 ray-83 row). Allocate when either
+! consumer can run; fill sites stay ALLOCATED-guarded.
+!
+	IF(KN_Q_RESID .OR. KN_RDUMP_LS .GE. 0 .OR.
+	1   KN_RDUMP_LS2 .GE. 0 .OR. KN_RDUMP_LS3 .GE. 0)THEN
+	  IF(.NOT. ALLOCATED(KN_PA_RES))
+	1   ALLOCATE(KN_PA_RES(KN_NP,2),KN_PA_OMG(KN_NP,2),
+	2     KN_PA_IX(KN_NP,2),KN_PA_NP(KN_NP,2),STAT=IOS2)
+	  IF(ALLOCATED(KN_PA_RES))THEN
+	    KN_PA_RES=-1.0_LDP; KN_PA_OMG=-1.0_LDP
+	    KN_PA_IX=-1; KN_PA_NP=-1
 	  END IF
 	END IF
 !
