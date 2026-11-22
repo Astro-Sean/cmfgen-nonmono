@@ -197,6 +197,28 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       compare_finished_vs_luc.py MODELS updated: ngoff entry
       added, parent relabelled UNCONVERGED. Acceptance still
       open: same test on a COLD-START converged model.
+      Oxygen-residual audit (22-Nov, user question 'is the
+      atomic data correct'): all O atom files (O2/OIII/OIV/OV/
+      OSIX osc, coll, photo, IN) byte-identical to upstream
+      cmfgen_reference - no local corruption. Checked f/A at
+      the discrepant multiplets against standard values:
+      O IV 1338.6 f=0.117, 1343.5 f=0.104, UV2 multiplet
+      3381-3425, O III 5592 f=0.15, O V 1371.3 f=0.158,
+      O VI 3811/3834 f=0.23/0.11 - all correct. The deviations
+      are strength/shape, not data: O VI doublet present in
+      both (Luc's slightly stronger); the ~5600 bump is a
+      smooth ~8000 km/s blend, not a discrete mis-ID'd line.
+      Regional medians model/Luc (ngoff): 1320-1400=0.81,
+      3180-3250=1.29, 3380-3430=1.22, 5550-5700=1.23,
+      3790-3850=1.01 - vs the UNCONVERGED parent (13.7, 0.76,
+      6.7, 0.91, 0.63) showing the residuals are strongly
+      population-state dependent and collapsed toward Luc at
+      convergence. Suspects ranked: FIX_T hydro-T (12.7k K CSM
+      -> 86.7k K ejecta) vs Luc's solved electron T; the
+      non-mono velocity/line-overlap reprocessing itself;
+      code-version microphysics. dFR_DATA empty (STAU) so no
+      formation attribution this run. Pending: np-arm OBS for
+      the same-data different-solver A/B.
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
