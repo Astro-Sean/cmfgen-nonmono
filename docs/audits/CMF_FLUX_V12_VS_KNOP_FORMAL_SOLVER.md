@@ -404,10 +404,21 @@ Post-render answers to the pre-render questions:
 
 ## 13. Recommendation for production use
 
-1. Keep DO_NONMONO_SOB + USE_LAM_ES=T as the production route and
-   keep RESC_JMAX=1.0e-3 with the restore enabled. The restore is
-   load-bearing: without it the artifact inflates the spectrum by
-   ~89x median.
+1. Keep DO_NONMONO_SOB + USE_LAM_ES=T as the production route.
+   NOTE (22-Nov-2026 addendum): the RESC_JMAX=1.0e-3 flat rail
+   measured here was recalibrated to 1e2 after the m15
+   interacting-model A/B proved it clipped verified-legitimate
+   fields (~0.12) and collapsed that model's continuum ~100x.
+   The flat rail now bounds only true runaway (>=1e2); the
+   1e4*JNU_PREV relative bound is the working detector. This
+   means the tauto-model boundary artifact quantified in this
+   audit is NO LONGER clipped by the restore - its renders
+   revert to pre-rescue stock fields. If the restore's
+   ~89x-inflation guard is still wanted on that model, the
+   per-cell J/J_eq bound (threshold-attribution audit sec. 6a)
+   is the model-independent criterion to implement; no flat
+   value separates its artifact (~9e-2) from m15's legitimate
+   fields (~0.12).
 2. Accept the measurement that the V12-rescue spectrum carries a
    solver artifact: the independent solver's field is ~5-60x
    lower at the same points, and the artifact's spectral imprint
