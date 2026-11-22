@@ -78,12 +78,27 @@
       row carried uninitialised channel columns (the 4.2e-322 values in
       the refresh-249 ray-83 row). Allocation now covers either
       consumer (commit 8204b8c0).
-- [~] Ray-83 state from the r249 census: NI=3 (grazing ray, three
-      depth cells), exit class 3 (stall), residual 1.043, 101307 bad
-      cells. Larger and geometrically distinct from the 81/82 failure;
-      whether it holds GAM<0 cells decides if the dispatch change
-      reaches it. Deck capture via configs/dessart_m15_2p82d_
-      KNOP_ray83_probe.yaml still owed.
+- [x] Ray-83 production capture landed: probe 13560532 (warm restart
+      from the rd it250 checkpoint, NUM_ITS=1, dump rays 81/83/84,
+      exe at ae48088c). Census r1: rays 81/83/84 all exit=1 FULL with
+      zero bad cells, residuals 7.7e-21 / 6.6e-18 / 1.3e-22. Deck
+      parse: ray 83 has gam_min=1.096e-9 > 0, zero compressing cells
+      - a wholly expanding ray, so the dispatch reroutes it like
+      81/82. The NI=3 grazing geometry was incidental; the live-model
+      dispatch verdict is now VERIFIED for the expanding population.
+      Remaining bad cells (135579 total, fg_rf=4.05e-2) sit on inner
+      rays 1-3 (nbad ~25K each, exit=2, NI~300-340) - the population
+      that plausibly carries GAM<0 cells and retains the ordered
+      march; a distinct mechanism, still open.
+- [x] SOB BLANK render 13560175 COMPLETED (8:22, exe at 86d21335):
+      obs_fin_10 written (161423 continuum frequencies, 36322 rows
+      all positive), OUT_FLUX/OBSFLUX produced, zero undercoverage
+      and zero J_RESCUE events in batobs.log - the VINF fix removed
+      the edge-driven continuum-J divergence as well. The standing
+      obligation "regenerate the SOB-population spectrum with BLANK"
+      is satisfied: populations untouched (byte-identical staging),
+      GLOBAL_LINE=BLANK, original SOB render preserved in
+      m15_2p82d_VAL_sob_diag.
 
 ## Phase 2.30 P2 production-operator evaluation (01-Dec-2026)
 
