@@ -248,14 +248,20 @@
 !
 	LOGICAL :: J_RESCUE=.TRUE.
 !
-! RESC_JMAX (default 1e-3, code units): absolute ceiling on the
-! stored continuum J used by the J_RESCUE cap.  Converged fields
-! on SN ejecta models reach ~5e-5 at the optical peak and are far
-! smaller elsewhere, so 1e-3 leaves ~20x headroom while catching
-! the slow multiplicative ratchet that relative-per-frequency
-! bounds cannot see.  Only active when J_RESCUE=T.
+! RESC_JMAX (default 1e2, code units): runaway ceiling on the
+! stored continuum J used by the J_RESCUE cap.  The physical J
+! scale is model-dependent - ~5e-5 on the mc170 wind model but
+! ~1e-1 on the interacting m15 model (measured on the converged
+! old-code render, 22-Nov-2026), where the old 1e-3 rail clipped
+! legitimate fields over most of the UV/optical and the restore
+! latched a stale field, collapsing the continuum ~100-270x.
+! 1e2 sits ~3 orders above the m15 peak and ~23 orders below the
+! observed runaway (J -> 1e25): it bounds the slow multiplicative
+! ratchet the relative cap cannot see, while the 1e4*JNU_PREV
+! term remains the working per-frequency detector.  Only active
+! when J_RESCUE=T.
 !
-	REAL(KIND=LDP) :: RESC_JMAX=1.0D-3
+	REAL(KIND=LDP) :: RESC_JMAX=1.0D+2
 !
 ! DO_J_RES_DIAG (default F): machine-readable J_RESCUE event
 ! records in J_RESCUE_EVENTS (NRESC/NES_SAN event type, frequency,
