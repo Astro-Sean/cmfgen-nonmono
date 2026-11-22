@@ -78,6 +78,10 @@
       IF(CNAME .EQ. 'gzn4')  NCASE=30
       IF(CNAME .EQ. 'gzb')   NCASE=31
       IF(CNAME .EQ. 'gpos')  NCASE=16
+      IF(CNAME .EQ. 'gposo') NCASE=16
+      IF(CNAME .EQ. 'gnego') NCASE=17
+      IF(CNAME .EQ. 'gzzo')  NCASE=16
+      IF(CNAME .EQ. 'gzzf')  NCASE=16
       IF(CNAME .EQ. 'gneg')  NCASE=17
       IF(CNAME .EQ. 'gpp')   NCASE=18
       IF(CNAME .EQ. 'gpn0')  NCASE=19
@@ -410,6 +414,8 @@
             GAM(I,1)=GAMP*(0.5_LDP+0.1_LDP*I)
           END IF
         END IF
+        IF(CNAME .EQ. 'gzzo' .OR. CNAME .EQ. 'gzzf') &
+          GAM(I,1)=0.0_LDP
         GAM_MAG(I,1)=ABS(GAM(I,1))
         dGAMdR(I,1)=0.3_LDP*GAM(I,1)/RR(I)
       END DO
@@ -519,7 +525,8 @@
 !
       FG_FREQ_MATCH=(NCASE .EQ. 3)
       FG_ORD_SWEEP=(NCASE .EQ. 2 .OR. NCASE .EQ. 35 .OR. &
-        NCASE .EQ. 89)
+        NCASE .EQ. 89 .OR. CNAME .EQ. 'gposo' .OR. &
+        CNAME .EQ. 'gnego' .OR. CNAME .EQ. 'gzzo')
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
@@ -1149,6 +1156,8 @@
       RHO_M,RHO_P,NCAP_LST,NNG_LST)
 !
       WRITE(*,'(A,I4)')'RESULT resid_ok=',1
+      WRITE(*,'(A,I0,A,I0)')'DISPATCH ordered=',KN_CENS_ORD_RAY, &
+      ' frequency=',KN_CENS_UNO_RAY
       WRITE(*,'(A,ES16.8)')'RESID=',RESID
       WRITE(*,'(A,ES16.8)')'RHO_M=',RHO_M
       WRITE(*,'(A,ES16.8)')'RHO_P=',RHO_P
