@@ -32,26 +32,52 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       current build and supplies the converged reference state
       + BLANK spectrum for the conventional-solver work and the
       Luc overlay. Does NOT satisfy the campaign goal.
-- [ ] Declared bounded investigation S1 - SOB-DIAG oscillation.
+- [~] Declared bounded investigation S1 - SOB-DIAG oscillation.
       Question: what makes the conventional population map
       non-contracting on the m15 structure? Evidence so far:
       nine-gate evaluator shows only ex_maxch>=eps failing
-      (raw max correction ~6% vs EPS=5%) for ~250+ iterations;
-      the argmax correction migrates across ~8 metal rows
-      (SIII/AlV/OIII/SIV/MgV/AlSIX/NeIII/OIV) clustered at
-      depths 1-19 (OUTER region - depth 1 is RMAX, the slow
-      wind; sigma_true=-1.037 at depth 1, -2.6/-1.97 deeper in
-      the compression); exempted ~100% demands cycle through CV
-      Rydberg levels at depths 1-11 (quasi-dead rows, phase-7
-      audit); SE residual column dominated by depths 64-70
-      (inner fast ejecta). Not a single-row period-2 flip.
-      Evidence plan: per-row correction trajectories and
-      level identities across the stalled window; correlate
-      stuck rows with sigma_true<-1 and Sobolev multi-resonance
-      cells; compare against the np fixed point at the same
-      rows once the arm lands. Exit criterion: named root
-      cause + FIX commit with regression, or an evidenced
-      BLOCKED verdict. No tolerance relaxation, no new clamps.
+      (raw max correction ~6% vs EPS=5%) for ~250+ iterations.
+      CORRECTION_SUM final state localises the instability:
+      >0.1% demands exist ONLY at depths 1-13 (~28 rows/depth
+      >10%); depths 14-70 are all below 0.1%. Depths 1-13 are
+      the outer near-constant-V wind (sigma_true ~ -1 to -1.4;
+      the near-singular Sobolev tau-floor regime).
+      S1 finding 1 (22-Nov): the exempted churn DEVELOPED late -
+      FeI dead rows ~0.5-3% through it240, CV Rydberg demands
+      grew 5.75% (it286) -> 86% (it330) -> ~100% pinned (it374+,
+      depths 1-11, cycling across 1s_nl levels). Not a static
+      floor artifact; a growing regional instability.
+      S1 finding 2 (22-Nov, user's exempted-rows question): the
+      counted blocker set is a MIX - dead/marginal counted rows
+      (SIII 1Se@13 7e-28, OIII 3Pe[2]@1 3e-14, NeIII ground@1
+      1e-12, SIV@19 ~1e-8) AND genuinely populated rows
+      (AlV lvl65@16 n=58 demanding +183%, MgV@14, OIV@9, NIV@8,
+      He2 n=2@13). The instability crosses the 1e-30 floor
+      boundary both ways - the exemption splits the metric, not
+      the physics. Exempted CV Rydbergs (~1e-74 vs CV ground
+      ~50 at depth 1) are individually negligible but are the
+      sensor for a real defect, per the documented
+      cascade-refill class. Counter-evidence note: AlV is the
+      DOMINANT stage at depth 1-2 (~4.6e5); an unstable excited
+      level of a dominant stage is closer to material.
+      S1 finding 3: ES_ALI converges internally each call
+      (0 unconverged freqs, dJ/J ~1e-4) so the field is not
+      churning within a call - the non-contraction lives in the
+      population update given a (nearly) fixed field. The
+      persistent +6% INCREASE demand on SIII@13 for ~15
+      consecutive iterations is same-sign marching, not a
+      clean 2-cycle; the argmax then migrates across ~8 rows.
+      NG fires with abstentions and the 75% dips land on NG
+      iterations - plausible periodic re-excitation.
+      Open discriminator: is the map discontinuous at the
+      tau-floor branch switch (border-collision, phase-7
+      classification for these same rows) or smoothly
+      non-contracting? Different fixes. Pending: np-arm A/B
+      on the same rows when 13564952 lands; NG-off
+      warm-restart arm if a cheap discriminator is wanted.
+      Exit criterion: named root cause + FIX commit with
+      regression, or an evidenced BLOCKED verdict. No
+      tolerance relaxation, no new clamps.
 - [ ] Declared bounded investigation K1 - KNOP formal
       non-contraction. Question: can the corrected-exit build
       contract the lagged field from a cold start, and what
