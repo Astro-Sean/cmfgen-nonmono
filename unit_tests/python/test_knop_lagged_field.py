@@ -2082,7 +2082,7 @@ def test_shadow_correction_phase55():
     )
     check(
         "safety exits ungated by continuation",
-        "IF(RES .NE. RES .OR. RES .GT. HUGE(RES)" in FG
+        FG.count("IF(RES .NE. RES .OR. .NOT.(ABS(RES) .LE. HUGE(RES)) .OR.") == 2
         and FG.count("IXIT=5") >= 2,
     )
 
