@@ -726,16 +726,20 @@
 ! 1e25 while RJ(1) stays small), and why a per-frequency
 ! relative bound alone fails (a slow ratchet inflates
 ! JNU_PREV, recalibrating 1e4*prev upward so each step stays
-! under the moving cap).  Legitimate J on these models peaks
-! near 5e-5 and adjacent-frequency Jmax varies by at most
-! ~50x (measured on the converged KNOP field), so 1e4x prev
-! never binds a real transition while RESC_JMAX~1e-3 is
-! never a valid solution.  FIRST_FREQ has no previous field -
-! the absolute ceiling alone applies (restore cannot fire).
-! RESC_CAP_IT is a looser bound used only for the in-loop
-! early exit: mid-iteration iterates may transiently
-! overshoot a tight cap, so that check stays on the old
-! runaway scale - it trims wasted iterations, not validity.
+! under the moving cap).  The 1e4*prev term is the working
+! detector: measured per-frequency Jmax growth is ~1.5x on
+! this model family, so 1e4x never binds a real transition.
+! RESC_JMAX is only a sanity rail - the physical J scale is
+! model-dependent (~5e-5 on mc170, ~1e-1 on the m15
+! interacting model); the earlier 1e-3 value clipped
+! legitimate m15 fields and latched the restore, collapsing
+! the emergent continuum ~100x (audit 22-Nov-2026).  FIRST_FREQ
+! has no previous field - the absolute ceiling alone applies
+! (restore cannot fire).  RESC_CAP_IT is a looser bound used
+! only for the in-loop early exit: mid-iteration iterates may
+! transiently overshoot a tight cap, so that check stays on
+! the old runaway scale - it trims wasted iterations, not
+! validity.
 !
 	  IF(J_RESCUE)THEN
 	    IF(FIRST_FREQ)THEN
