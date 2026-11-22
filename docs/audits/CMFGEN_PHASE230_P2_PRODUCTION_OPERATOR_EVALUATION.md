@@ -311,3 +311,74 @@ so the ordered-retention path is verified only by the manufactured
 mixed-sign regression (gnego/gzb/mixed arms pass); a live ray-83
 capture remains the missing production evidence. Dispatch candidate
 status: production-object A/B PASS; live-model validation open.
+
+## Code re-review findings (22-Nov-2026, second pass)
+
+Two production defects found during the user-requested re-review of
+the OBS coverage path and the KNOP solver.
+
+### Finding 1: OBS red-edge undercoverage is structural, not parametric
+
+BLANK renders 13557228 and 13558872 both stopped on
+GLOBAL_CMF_GRID_UNDERCOVERAGE (red) with an identical required/edge
+ratio 0.9771, so no MIN_CF value can satisfy the guard: the OBS
+grid's red anchor NU_MIN_OBS scales with NU(NCF). The chain:
+
+- obs_frame_sub_v9 checks OBS_FREQ(N_OBS)*X_MIN_RAY against the SM
+  window red edge (band 100 reads the last OBS_FREQ point, which is
+  the appended NU_MIN_OBS anchor, not present in the OBS_FREQ file).
+- NU_MIN_OBS = MAX(NU(NCF-3), NU(NCF)*(1+2*VINF/c))
+  (cmf_flux_sub_v5.f:1275-1276). With VINF=V(1)=48.9 km/s (the CSM
+  wind speed in this model; ejecta reaches 7073.6 km/s at ND), the
+  margin factor is 1.00033 and the anchor lands at 2.0007e-3.
+- X_MIN_RAY = 0.9767 from max|VMU| = 7073 km/s, so required =
+  1.954e-3 < MIN_CF = 2.0e-3: undercoverage by 2.3%.
+- The dev7 fix VINF=MAXVAL(|V|) at cmf_flux_sub_v5.f:796 was gated
+  only on DO_NONMONO_SOB/DO_NONMONO_KNOP; the stock-J BLANK path
+  admitted under ALLOW_NONMONO_OBS kept VINF=V(1). The sob_diag
+  render passed on the same model solely because its flag fed VINF
+  correctly (margin 1.0472*0.9767 = 1.023 coverage).
+
+Fix: the MAXVAL sizing is now also gated on the detected field
+(N_NONMONO_OBS>0), matching the INC_GRID rejection's "check the
+field, not the flag" precedent. Commit 86d21335; source pin added
+to test_obs_nonmono_dispatch (ea64b5fc). Rerender submitted as job
+13560175 with cmf_flux.exe rebuilt at the fix.
+
+### Finding 2: KNRAY_CENSUS channel columns uninitialised under dump keys
+
+KN_PA_RES/KN_PA_IX/KN_PA_NP/KN_PA_OMG were allocated only inside
+the KN_Q_RESID block (fg_j_cmf_nonmono_v1.f:9239), but
+kn_census_row reads them whenever KN_RDUMP_LS* is armed. Every
+census row therefore wrote uninitialised channel columns (the
+4.2e-322 values in the refresh-249 ray-83 row). Allocation now
+covers either consumer and the -1 sentinel is applied each refresh;
+commit 8204b8c0. All pre-existing census channel fields in the
+capture set are unusable and must not be analysed.
+
+### Re-review verdicts (no change needed)
+
+- Dispatch change (eb33d5fe) is per-ray, OpenMP-safe, and consistent
+  across I_M/I_P; GAM(I,LS) is ray-local and fixed during a solve.
+- The ordered-march stall is a contractivity failure of the
+  Paper-II lagged C-corner iteration (KN_ORD_SPW_FILL previews the
+  not-yet-marched row from its pre-march state), not a
+  discretisation bug. On all-expanding rays the frequency route is
+  a near-direct solve (one-way coupling), which is why 1e-21
+  residuals appear.
+- Exit machinery is already fortified: bulk exit requires
+  bad-fraction <= 0.1%, RES <= KN_RAY_BULK_TOL and same-direction
+  contraction; stall/plateau/cap/diverge classes are distinct.
+- Watchdog stack (GS_FREEZE_LIM/GS_PRECOND_LIM/GS_REL_NOPROG_LIM
+  in-model plus submit-side KNOP_STALL_MAX) performed correctly on
+  the 13488131 cold run.
+
+### Ray-83 state (from KNRAY_CENSUS_r249)
+
+NI=3 grazing ray (three depth cells), exit class 3, residual 1.043,
+101307 bad cells, production mask T. Geometrically distinct from
+the mid-impact-parameter 81/82 population; it plausibly samples the
+CSM/ejecta velocity transition and may carry GAM<0 cells, in which
+case it retains the ordered march under the dispatch change. Deck
+capture via configs/dessart_m15_2p82d_KNOP_ray83_probe.yaml remains
+the owed production evidence.
