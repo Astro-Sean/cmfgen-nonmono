@@ -367,14 +367,14 @@ def test_fg_dispatch_knop_only():
     # The SET_FG_GS_OBS_GRID registration and the OBS refresh gates
     # must match the same routing or the lagged store is never used.
     check(
-        "OBS grid registration gated on KNOP only",
-        "IF(DO_NONMONO_KNOP)THEN\n\t  CALL SET_FG_GS_OBS_GRID"
-        in SUB,
+        "OBS grid registration gated on KNOP or OBS_FG_KNOP",
+        "IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN\n"
+        "\t  CALL SET_FG_GS_OBS_GRID" in SUB,
     )
     check(
-        "FG refresh gated on KNOP only",
-        "IF(DO_NONMONO_KNOP .AND.\n\t1    ES_COUNTER"
-        in SUB,
+        "FG refresh gated on KNOP or OBS_FG_KNOP",
+        "IF((DO_NONMONO_KNOP .OR. OBS_FG_KNOP) .AND.\n"
+        "\t1    ES_COUNTER" in SUB,
     )
     check(
         "MOM refresh gated on SOB + not USE_LAM_ES",
@@ -406,9 +406,9 @@ def test_knop_es_refresh_guard():
         < SUB.index("CALL GET_FG_GS_MATURITY"),
     )
     check(
-        "maturity diagnostic gated on DO_NONMONO_KNOP",
-        "IF(DO_NONMONO_KNOP)THEN\n\t  CALL GET_FG_GS_MATURITY"
-        in SUB,
+        "maturity diagnostic gated on KNOP or OBS_FG_KNOP",
+        "IF(DO_NONMONO_KNOP .OR. OBS_FG_KNOP)THEN\n"
+        "\t  CALL GET_FG_GS_MATURITY" in SUB,
     )
     check(
         "maturity variables declared",
