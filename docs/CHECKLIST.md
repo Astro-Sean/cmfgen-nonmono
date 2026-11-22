@@ -274,6 +274,18 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       FIX_X_DPTH left unset so prepare_VADAT auto-fills the
       tau_es=2/3 photosphere index (computed 24 on the first
       attempt = pin depths 47-70, solve T at 1-46).
+      VADAT verified live: FIX_T=F, FIX_INB_T=T, FIX_X_DPTH=24,
+      DO_T_AUTO=T, DO_NG=F. Early behaviour (it410-420): the T
+      release IS active - FULL mode prints 'Temperature held
+      fixed at 24 depths at inner boundary'. But each released
+      FULL step demands an enormous change: it417 1.5e5% (BA
+      rejected), it420 1.0e7% capped to 100% applied (ba=HELD),
+      driven by CSIX lev1 at depth 46 (the release boundary)
+      and CV Rydberg runaway at depth 18 - the SAME dead-row
+      class as the parent stall. The hydro-pinned state is far
+      from a free-T equilibrium; the run ping-pongs
+      LAMBDA_TFIX <-> FULL with capped T steps. Watch: does
+      the demand contract or cycle.
       Blocked only on a
       converged conventional-solver model from either route;
       compare_finished_vs_luc.py supplies band ratios, log-rms
