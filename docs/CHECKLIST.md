@@ -29,15 +29,27 @@ production change.
       carries a PRE-EXISTING stale pin (expects RES.GT.HUGE;
       source moved to .NOT.(ABS(RES).LE.HUGE) at 98acf207,
       ancestor of baseline) - not phase-2.30 work.
-- [ ] Part 3 deck capture: BLOCKED pending the next knop_formal
-      submission. No KNRDUMP decks exist anywhere (phase-2.26
-      archive holds replay outputs only); live job 13473182 was
-      launched unarmed and cannot be retrofitted; pending
-      13474708 is the sob_diag route (no KNOP ordered solve).
-      Arm on the next intended knop_formal run:
-      KN_RDUMP_LS=81, KN_RDUMP_LS2=82, KN_RDUMP_LS3=84 plus the
-      KNOMG2/KNAPPLY omega-schedule capture. No dedicated run
-      submitted for this.
+- [ ] Part 3 deck capture: armed COLD-start run submitted
+      13488131 (config dessart_m15_2p82d_VAL_knop_formal_rd.yaml,
+      KN_RDUMP_LS=81/LS2=82/LS3=84, KN_ORD_P2DAMP=F, LTE_EST=T,
+      warm_restart=false, pinned exe 358814d3/8a62e7ea at
+      git=92284e61). No KNRDUMP decks exist anywhere else
+      (phase-2.26 archive holds replay outputs only). Run
+      FAILED at it250 after 22h: the wrapper's KNOP stall
+      detector counted 149 consecutive GS-frozen LAMBDA
+      iterations (limit KNOP_STALL_MAX=60) - the lagged field
+      never matured from LTE (fg_rf ~1.04, rf_not_allconv).
+      Not a crash; the non-convergence kill worked. Old
+      warm-run 13473182 (it712, refresh residual 0.107 =
+      stall floor) cancelled to make room. Deck capture still
+      open - no decks produced before the kill.
+- [x] OBS line treatment corrected: rd config inherited
+      obs_line_treatment: sob (deposited Sobolev comparison)
+      -> now blank per the 14-Nov directive (blanketed CMF
+      spectrum). sob_diag OBS (13474709, completed) rendered
+      SOB - consistent with that comparison cell. All six
+      generated VAL_* cells except sob_jfnk/sob_tri carry
+      sob; generated files, flagged not hand-edited.
 - [ ] Parts 4-10 (baseline fidelity, A/B replay, raw-defect eval,
       mechanism kernel, branch-crossing, fixed-cell analysis,
       pass/fail) all gated on Part 3 decks.
