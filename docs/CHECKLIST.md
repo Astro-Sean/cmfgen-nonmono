@@ -73,8 +73,23 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       tau-floor branch switch (border-collision, phase-7
       classification for these same rows) or smoothly
       non-contracting? Different fixes. Pending: np-arm A/B
-      on the same rows when 13564952 lands; NG-off
-      warm-restart arm if a cheap discriminator is wanted.
+      on the same rows when 13564952 lands.
+      Declared arm (22-Nov, user-approved): sob_diag_ngoff -
+      warm restart of the stalled sob_diag it387 checkpoint
+      (warm_restart_from m15_2p82d_VAL_sob_diag/cmfgen/2.82days)
+      with DO_NG=F, NUM_ITS=60 additional iterations, otherwise
+      identical VADAT (config:
+      configs/dessart_m15_2p82d_VAL_sob_diag_ngoff.yaml,
+      model_dir m15_2p82d_VAL_sob_diag_ngoff). Question: is the
+      pinned ~6% counted-correction oscillation at depths 1-13
+      driven by periodic NG re-excitation (the 75% conv dips
+      land on NG iterations) or is the population map itself
+      non-contracting? Exit criterion: corrections contract
+      below EPS -> NG implicated, next arm is cold-start
+      NG-off; still pinned -> NG exonerated as driver and the
+      defect is map discontinuity (tau-floor border collision)
+      or conditioning; partial decay then restall is also
+      informative. Verdict and job id recorded here.
       Exit criterion: named root cause + FIX commit with
       regression, or an evidenced BLOCKED verdict. No
       tolerance relaxation, no new clamps.
