@@ -11180,6 +11180,17 @@ C
 ! slope endpoints; otherwise the alternating passes run unchanged.
 !
 	ORD_SWEEP=FG_ORD_SWEEP .AND. HAVE_PACK .AND. NI .GE. 3
+! An all-expanding ray couples each frequency bin to its
+! lower-frequency donor only, so the ordered spatial march
+! contributes nothing the frequency-major pass lacks; the
+! lagged source preview it adds was observed to hold the
+! residual at a fixed level on production rays 81/82
+! (refresh-250 decks, job 13557757). Restrict the ordered
+! march to rays with a compressing cell (GAM < 0), where the
+! higher-frequency donor genuinely enters the discretisation.
+! Coefficients, SIGMA_TRUE and all thresholds are unchanged.
+!
+	IF(ORD_SWEEP)ORD_SWEEP=ANY(GAM(1:NI,LS) .LT. 0.0_LDP)
 	IF(ORD_SWEEP)THEN
 	  ALLOCATE(SPW(NCF,4),STAT=IOS)
 	  IF(IOS .NE. 0)ORD_SWEEP=.FALSE.
