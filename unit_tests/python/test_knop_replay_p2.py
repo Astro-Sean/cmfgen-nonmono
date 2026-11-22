@@ -68,8 +68,7 @@ def main():
     )
     rep.check(
         "malformed p2 rejected (no '=' after key)",
-        "ATMP(3:3) .NE. '='" in src
-        and "ERROR STOP 'p2: malformed override'" in src,
+        "ATMP(3:3) .NE. '='" in src and "ERROR STOP 'p2: malformed override'" in src,
     )
     rep.check(
         "duplicate p2 rejected",
@@ -91,21 +90,16 @@ def main():
     )
     rep.check(
         "deck value recorded before override",
-        "LP2_DECK=FG_ORD_P2DAMP" in src
-        and "IF(LP2_SET)FG_ORD_P2DAMP=LP2_VAL" in src,
+        "LP2_DECK=FG_ORD_P2DAMP" in src and "IF(LP2_SET)FG_ORD_P2DAMP=LP2_VAL" in src,
     )
     rep.check(
         "override applied after deck restore, before solve",
-        src.find("LP2_DECK=FG_ORD_P2DAMP")
-        > src.find("FG_ORD_P2DAMP=BTEST(FBITS,1)")
-        and src.find("LP2_DECK=FG_ORD_P2DAMP")
-        < src.find("CALL KNOP_RAY_SOLVE_V1"),
+        src.find("LP2_DECK=FG_ORD_P2DAMP") > src.find("FG_ORD_P2DAMP=BTEST(FBITS,1)")
+        and src.find("LP2_DECK=FG_ORD_P2DAMP") < src.find("CALL KNOP_RAY_SOLVE_V1"),
     )
     rep.check(
         "effective P2 echoed in RESULT",
-        "RESULT p2_deck=" in src
-        and "p2_eff=" in src
-        and "p2_ovr=" in src,
+        "RESULT p2_deck=" in src and "p2_eff=" in src and "p2_ovr=" in src,
     )
 
     # ---- source pins: mapd mode ----------------------------------
@@ -129,10 +123,8 @@ def main():
     )
     rep.check(
         "mapd seeds both lagged store columns from candidate",
-        "I_P_DEPTH_NEXT(COMP_DEPTH_IDX(K),1,L-1)= &\n      CAND_P(JP2,L)"
-        in src
-        and "I_M_DEPTH_NEXT(COMP_DEPTH_IDX(K),1,L-1)= &\n      CAND_M(JP2,L)"
-        in src,
+        "I_P_DEPTH_NEXT(COMP_DEPTH_IDX(K),1,L-1)= &\n      CAND_P(JP2,L)" in src
+        and "I_M_DEPTH_NEXT(COMP_DEPTH_IDX(K),1,L-1)= &\n      CAND_M(JP2,L)" in src,
     )
     rep.check(
         "mapd validates candidate magic/shape",
@@ -164,8 +156,7 @@ def main():
     )
     rep.check(
         "no replay-only tokens in production solver",
-        "mapd" not in prod
-        and re.search(r"(?<![a-zA-Z])p2=", prod) is None,
+        "mapd" not in prod and re.search(r"(?<![a-zA-Z])p2=", prod) is None,
     )
     rep.check(
         "VADAT reader untouched by replay modes",
@@ -203,7 +194,11 @@ def main():
     )
     r = run(
         exe,
-        "no_such_deck.bin", "base", "x", "p2=0", "p2=1",
+        "no_such_deck.bin",
+        "base",
+        "x",
+        "p2=0",
+        "p2=1",
         check=False,
     )
     rep.check(
@@ -217,13 +212,22 @@ def main():
         "deck_open_fail" in r.stdout,
         f"rc={r.returncode} out={r.stdout.strip()[-80:]}",
     )
-    r = run(exe, "no_such_deck.bin", "omf", "sched.txt", "3", "p2=1",
-            check=False)
+    r = run(exe, "no_such_deck.bin", "omf", "sched.txt", "3", "p2=1", check=False)
     rep.check(
         "p2= composes with omf arg layout",
         "deck_open_fail" in r.stdout,
         f"rc={r.returncode}",
     )
+
+    for sweep in ("ordered", "frequency"):
+        r = run(exe, "no_such_deck.bin", "sweep", sweep, check=False)
+        rep.check(f"valid sweep {sweep} passes parse", "deck_open_fail" in r.stdout)
+    for sweep in ("", "invalid"):
+        r = run(exe, "no_such_deck.bin", "sweep", sweep, check=False)
+        rep.check(
+            f"invalid sweep {sweep!r} rejected before deck open",
+            r.returncode != 0 and "sweep:" in r.stderr,
+        )
 
     return rep.summary()
 
