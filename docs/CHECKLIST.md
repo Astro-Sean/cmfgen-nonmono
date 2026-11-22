@@ -68,6 +68,18 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       current build and supplies the converged reference state
       + BLANK spectrum for the conventional-solver work and the
       Luc overlay. Does NOT satisfy the campaign goal.
+- [~] JFNK production-level arm RUNNING (13573913 + OBS
+      13573914, submitted 22-Nov, exe hash 5c27abfe):
+      FRESH_sob recipe + DO_JFNK=T under the 22-Nov directive
+      VEL_LAW=13, cold LTE start, pinned T, DIAG, ND=70
+      (dessart_m15_2p82d_FRESH_sob_jfnk.yaml ->
+      cmfgen_validation/m15_2p82d_FRESH_sob_jfnk). Question:
+      does the admission-gated JFNK pathway reproduce
+      it718-class convergence on the current build under the
+      mandated velocity law? Exit criterion: JFNK-FRZ/JFNK
+      admission visible in OUTGEN plus Model Convergence, or a
+      named failure mode. Distinct from the np arm (l14) by
+      velocity law only.
 - [~] Declared bounded investigation S1 - SOB-DIAG oscillation.
       Question: what makes the conventional population map
       non-contracting on the m15 structure? Evidence so far:
