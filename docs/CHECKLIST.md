@@ -1,5 +1,28 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## VEL_LAW=14 robustness audit (22-Nov-2026, user-directed)
+
+- [x] VERIFIED-with-pinned-defects: construction matches the
+      Python replica node-for-node on synthetic (5e-12) and the
+      real m15 file (2.3e-14); production RVTJ grid = driver
+      output to 2e-10. The blend+insertion fixes the V12 CSM
+      starvation (36 vs 61 CSM depths, 19 vs 7 ejecta on the
+      real file); TAU_LO cap is load-bearing (literal-decades
+      reading would drift back to 49/13). Feature insertion
+      lands on the CDS sigma-min to the ulp; kappa steering
+      verified above the cap; ltau-shift invariance exact
+      (6.6e-14). LOG_DEC_CAP comment corrected (natural-log
+      units, not decades). Four defects pinned failing in
+      test_rv_snhyd.py (42 pass / 4 pinned): D1 non-finite
+      Kappa silently absorbed by the floor MAX -> shifted grid;
+      D2 non-finite Density/V/R -> LIN_INTERP bracket-walk OOB
+      segfault rc=174; D3 negative interior Density silent;
+      D4 missing Sigma silently kills feature detection +
+      assumes homology. Fix candidate (input finiteness/
+      positivity screen + missing-Sigma warning) deferred for
+      sign-off. Full audit:
+      docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md.
+
 ## Cold-start CONVENTIONAL-solver campaign (22-Nov-2026, refocused)
 
 User directive (22-Nov-2026): both DO_NONMONO_SOB and
