@@ -89,7 +89,10 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       NG-off; still pinned -> NG exonerated as driver and the
       defect is map discontinuity (tau-floor border collision)
       or conditioning; partial decay then restall is also
-      informative. Verdict and job id recorded here.
+      informative. Submitted 22-Nov: CMFGEN job 13567608 (small),
+      OBS chained 13567609, tree 1fcfd3a8, pinned exe
+      e031e8597875c541_9080452b4e65c32e. Verdict recorded here
+      when the arm answers.
       Exit criterion: named root cause + FIX commit with
       regression, or an evidenced BLOCKED verdict. No
       tolerance relaxation, no new clamps.
