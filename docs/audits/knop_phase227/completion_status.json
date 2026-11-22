@@ -88,6 +88,13 @@
     "convergence tuning, AA/P2 enablement, free-matter run",
     "production population/observer or acceptance-policy changes"
   ],
+  "phase_227G_runtime": {
+    "e1": "RUN: replay M vs deck M med rel diff 5.7e-3/2.7e-3/4.1e-6 (81/82/84); IM_NI med 3.1e-2/3.6e-2/4.1e-6 - real mismatch",
+    "e2": "RUN: imposed deck IM_NI changes P-end maxdiff only 2.656e-4->2.625e-4 (81), 2.442e-4->2.438e-4 (82), 3.49e-8->1.27e-8 (84) - M gap REAL but NOT CAUSAL",
+    "discrete": "replay NPO 23/27 vs production 12/24 on 81/82 (IXIT=3 both) - step-type trajectory divergence; ray 84 identical 3/1",
+    "attribution": "P-side decision/state divergence leads; next capture must record per-pass rows incl. W_LO/W_HI (never recorded; replay recomputes discontinuous window) + prod-vs-prod repeat control",
+    "doc": "e1e2_imposed_m_results.md; solver hook KN_IMPOSE_IMNI + driver mode 'impose' added (diagnostic-only), build_v6 O3"
+  },
   "phase_227G": {
     "verdict": "hot_budget_deep_audit.md: global contention ELIMINATED - archived OUTGEN shows spent=11-29/480 every refresh; cap never bound",
     "new_facts": "IXIT=4 folds itlim/per-sweep-cap/global-reject into KN_CS_ITLIM; hot passes update full controller (RATIO_OM/OMEGA/NOSC/NSTALL/BEST/RES_PREV on window residuals), only RHO_WIN/KN_RES_PASS excluded; rejected consume exits before march+omega-inject+KNOMG row (schedule=executed passes only); stale-admission sequence source-possible but requires spent=480",
