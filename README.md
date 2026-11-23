@@ -1,6 +1,6 @@
 # CMFGEN with non-monotonic velocity fields
 
-> **Warning: this code is under active development (03-Nov-2026).**
+> **Warning: this code is under active development.**
 > Solver
 > behaviour, input keys and outputs change between commits. Nothing
 > here should be treated as production-ready or science-validated.
@@ -16,24 +16,25 @@ returns negative or NaN intensities.
 
 ## What this fork adds
 
-All new solver paths are opt-in. With their flags unset the code
-follows the stock upstream path.
+The non-monotonic transfer and JFNK solver paths are opt-in.
+The observed-frame continuum rescue described below is enabled by default.
 
 - **Knop formal solver** (Knop, Hauschildt & Baron 2009): sign-aware
-  comoving-frame frequency coupling, so `sigma < -1` zones no longer
-  produce negative intensities. Lagged `I_NEXT`/`J_NEXT` maps are
-  checkpointed across restarts and refreshed before each population
-  update.
+  comoving-frame frequency coupling for velocity reversals. This route
+  remains diagnostic; full-model convergence and physical correctness
+  are not established. Lagged `I_NEXT`/`J_NEXT` maps are checkpointed
+  across restarts and refreshed before each population update.
 - **Non-monotonic Sobolev treatment** (Dessart, Audit & Hillier
   2015): the unclamped velocity gradient drives the line opacity in
   the compression zone and the optical-depth denominator is floored
   so it cannot cross zero.
 - **Newton-Krylov population solve** (Knoll & Keyes 2004; Arramy et
-  al. 2024): an opt-in GMRES update for stalled models where the
-  stock Newton step overshoots, with residual-based acceptance and
-  bounded budgets. Admission requires the formal-J path
+  al. 2024): an optional GMRES population update with residual-based
+  acceptance and bounded budgets. Admission requires the formal-J path
   (`USE_LAM_ES=T`); input checks reject `DO_JFNK` on the
-  moment-store route.
+  moment-store route. Enabling the flag does not guarantee admission.
+  Frozen-J updates use stored radiative terms; coupled transfer requires
+  separate controls. Full-model effectiveness remains unverified.
 - **Trace-species handling**: demand floors plus a Stage-B polish
   phase stop physically empty levels from stalling the convergence
   exit.
@@ -107,9 +108,9 @@ module load intel mkl
 ./build_debug.sh    # bounds-checked debug build
 ```
 
-All new behaviour is off by default and switched on through VADAT
-input keys. See `AGENTS.md` for the development rules and
-verification checklist.
+VADAT input keys select the solver paths and diagnostics. Defaults can
+also depend on the selected route; see `docs/NONMONO_KEYS.md` for details
+and `AGENTS.md` for the development rules and verification checklist.
 
 ## Validation status
 
@@ -128,9 +129,9 @@ D. John Hillier (Hillier & Miller 1998, *ApJ* 496, 407,
 [DOI](https://doi.org/10.1086/305350) |
 [ADS](https://ui.adsabs.harvard.edu/abs/1998ApJ...496..407H)), and
 to the authors of the methods this fork builds on (see References).
-This repository is a development fork; the maintainer takes no
-credit for the original code. Please cite the upstream CMFGEN
-papers and the method papers listed below, not this fork.
+The maintainer takes no credit for any of the code in this repository.
+All credit belongs to the original authors. Please cite the upstream
+CMFGEN papers and the method papers listed below, not this fork.
 
 ## References
 
