@@ -407,6 +407,26 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       (AGENTS.md 1.2); the arm's FWHM question is answered for
       convergence before spectra - the V12 recipe cannot produce
       a converged model here.
+      POST-VERDICT (23-Nov): dead conventional arms cancelled -
+      LUC_exact (13573428+OBS 13573429, held it68-212, 68 held
+      FULLs) and l13_ngoff_cold (13572032+OBS 13572033, held at
+      it372, 56 held FULLs; fin0 13591841 finalized, no converged
+      write). VADAT-knob audit for the CV dead-zone: no key
+      triggers or cures it - DIE_C* = F,F in every arm,
+      DC_METH=R in both a failing (LUC) and a pre-wall (knop_jfnk)
+      arm, MAX_LAM/NUM_LAM/FIX_BA identical, DO_NG on AND off both
+      held. Only VEL_LAW (grid coordinate) separates failing from
+      converging arms. COUNTER-EVIDENCE on the solver side:
+      FRESH_sob_jfnk (same V13 grid) was carried THROUGH the
+      held-zone by JFNK and reached [MET] 100% all-gates at
+      it413 - cancelled by user before the converged write; SCRATCH
+      checkpoints at ~it413 persist (BAMAT/BAMATPNT/CSCRATCH
+      09:43), so a warm restart can finish it in a few its and
+      yield the only V13 converged model + spectrum for the A/B.
+      FRESH_knop_jfnk cancelled at it132 (still lambda warmup, 0
+      held) - restartable, low value. Remaining live: ngoff_cold
+      V14 conventional (13569107, it375, 89%) = the conventional
+      cold-start arm under the restored default.
 - [x] Production-code grid A/B/C at ND=70 on the real structure
       (unit_tests/work/grid_ab, scratch): drv_snhyd TAU_OPT=0/1 on
       SN_HYDRO_DATA + drv_sniin70 (production RV_SN_MODEL_SNIIN) on
