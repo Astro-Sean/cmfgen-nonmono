@@ -427,6 +427,24 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       held) - restartable, low value. Remaining live: ngoff_cold
       V14 conventional (13569107, it375, 89%) = the conventional
       cold-start arm under the restored default.
+      RENDER (23-Nov): all three V13 arms re-submitted as *_fin0
+      warm restarts (warm_restart_from the parent's last SCRTEMP)
+      and stopped via the pipeline's own graceful-stop route -
+      0 [NUM_ITS] written into the live IN_ITS; CMFGEN re-reads
+      IN_ITS each iteration (cmfgen_sub.f ~5759), clamps
+      NUM_ITS_TO_DO to 1, takes one LST_ITERATION, writes
+      POP*/RVTJ/OBSFLUX and exits clean. init_num_its: 0 in YAML
+      does NOT do this - FINAL always writes NUM_ITS=10000 and
+      the batch guard rewrites a startup 0 back to FINAL_NUM_ITS.
+      States at write: l13 it375 78%, sob_jfnk it416 78% [HOLD]
+      (the it413 [MET] all-gates pass was transient; three more
+      lambda its regressed to the held dead-zone), knop_jfnk
+      it134 44% (KNOP_IMMATURE, needed DO_KNOP_SPEC_GATE=F ->
+      marked diagnostic render, obs 13592257). Spectra:
+      outputs/dessart_m15_2p82d_{VAL_sob_l13_ngoff_cold,
+      FRESH_sob_jfnk,FRESH_knop_jfnk}_fin0_CMFGEN_2.82408d.dat/png
+      - all non-converged-state renders, usable for the V13 vs
+      V14 shape A/B but not as converged validation products.
 - [x] Production-code grid A/B/C at ND=70 on the real structure
       (unit_tests/work/grid_ab, scratch): drv_snhyd TAU_OPT=0/1 on
       SN_HYDRO_DATA + drv_sniin70 (production RV_SN_MODEL_SNIIN) on
