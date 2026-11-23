@@ -1,5 +1,48 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+## Per-iteration OUTGEN layout refactor (23-Nov-2026)
+
+- [x] Formatting-only refactor of the per-iteration console report.
+      New free-form module `new_main/mod_subs/iter_log_fmt_mod.f90`
+      (80-col rules/section banners, aligned `key : value` rows,
+      end-of-iteration `IT N | mode -> mode | BA x | Conv y% | t s`
+      banner). Consumers: `cmfgen_sub.f`, `comp_j_blank.f`,
+      `solve_for_pops.f`, `solveba_v13.f`; chatter gates added in
+      `se_ba_non_therm_v3.f90` (species dump -> level 2),
+      `electron_non_therm_spec.f90`, `read_ba_data_v3.f`,
+      `fixpop_in_ba_v3.f`, `fiddle_pop_corrections_v2.f`. RUNAWAY
+      census is now one top-N table + suppressed-count line;
+      DEC/INC vectors carry an index header; JFNK DEFER/ADMIT
+      verdicts and BA progress lines gate at >=1. No new VADAT
+      key: semantics ride on existing `CONV_DIAG_LVL` (0-2), see
+      NONMONO_KEYS section 6. Parser tokens kept verbatim
+      (test_iter_output.py pins).
+- [x] ./build.sh clean; all touched objects recompiled;
+      cmfgen_dev.exe/cmf_flux.exe/obs_frame.exe produced.
+      test_iter_output.py 51/51, test_alteration_coverage.py 3/3.
+      Pre-existing suite failures unchanged and unrelated:
+      test_auto_ion (missing fixture dir), test_es_conv
+      (drv_knop_guard misses fg_j_cmf_nonmono_v1.o link dep,
+      `set_fg_q_resid_` - predates this change), knop_lagged_map
+      (labeled KNOWN DEFECT), rv_snhyd 4 pinned defects,
+      par_opac + phase227_io environment issues.
+- [x] Live A/B: warm-restart copies of converged
+      m15_2p82d_VAL_sob_diag_ngoff (it409 state, 8 OMP threads,
+      interactive partition, jobs 13599622/13599623). Old-binary
+      OUTGEN vs new-binary OUTGEN across it410-412: identical
+      Model Convergence (89%), luminosity, ES_ALI/JCOMP counts,
+      Max % inc/dec, ITER_SUM pops/residual rows; `Maximm
+      changes` (MAXCH) differs at ~1e-10 relative - OpenMP
+      reduction ordering noise, present between any two runs;
+      zero arithmetic statements changed in the diff. NOT
+      bit-identical in the strict sense; numerically equivalent
+      to displayed precision. New layout verified live: section
+      headers, kv rows, DEC/INC index header, IT banner
+      (`IT 410 | FULL_TFIX -> FULL_TFIX | BA HELD | Conv 89% |
+      376.5 s`). RUNAWAY table path not exercised live (model
+      below POP_RUNAWAY_DEM); levels 0/1 covered by source pins
+      only.
+
 ## Standing directive: vel_law=13 (22-Nov-2026)
 
 User directive: use vel_law=13 for all future runs (SOB and
