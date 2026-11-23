@@ -381,6 +381,32 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       Submitted: CMFGEN 13572032 + OBS 13572033 (VEL_LAW=13
       preserved in VADAT; n_ob_ins forced 30->0 so the RDINR
       grid matches MODEL_SPEC ND).
+      ARM VERDICT (23-Nov): FAIL - non-convergent dead-zone at
+      the underresolved CDS/ejecta jump. From it1 the FULL-mode
+      BA solve demands saturated corrections (MAXCH=1e7%) on the
+      whole CV ion (all ~25 superlevels, drain to C3+; the model
+      has no C5+ species) at cliff depths 51-52 and 60-62
+      (V 70-290 km/s, sigma_true -2.0 to -4.7). LAMBDA steps run
+      benignly (demand ~2%) but every cnt_lam_escape into FULL
+      produces ba_damped_full -> ba=HELD with maxatt=0 (nothing
+      applied); held-reject loops repeat until ba_sat_demote.
+      Root cause is grid, not sigma: V14 cells carry sigma_true
+      -4.8 to -5.3 across the same band and converge - the V13
+      tau_es recipe crosses the CDS in one cell pair (tau_es
+      17.7->160.7, V 2380->6375, ~6 cells for V=100-2400 km/s vs
+      V14's ~24 graded cells), so depth-coupled BA derivatives
+      saturate. Same failure class in FRESH_sob_jfnk (held
+      it295-302), LUC_exact (V12, held from it68, plus 3364
+      flux-accuracy warnings), FRESH_knop_jfnk (still in lambda
+      warm-up). Stored STEQ residuals in the band are
+      large/negative under V13/V12 vs positive/smooth under V14.
+      This is the dead-row class of the parent stall - the
+      AGENTS.md 6 trigger case: if a V12-recipe run is still
+      needed, revisit solveba_nonmono BA damping. Consequence:
+      vel_law 14 restored as the pipeline default 23-Nov-2026
+      (AGENTS.md 1.2); the arm's FWHM question is answered for
+      convergence before spectra - the V12 recipe cannot produce
+      a converged model here.
 - [x] Production-code grid A/B/C at ND=70 on the real structure
       (unit_tests/work/grid_ab, scratch): drv_snhyd TAU_OPT=0/1 on
       SN_HYDRO_DATA + drv_sniin70 (production RV_SN_MODEL_SNIIN) on
