@@ -186,9 +186,12 @@ COVERAGE = {
     # ------------- link path: source-text pins only -------------------
     "new_main/cmfgen_sub.f": ("pin", [
         UT + "test_iter_conv_gate.py", UT + "test_jfnk_regressions.py",
-        UT + "test_knop_status_text.py", UT + "test_lam_handoff.py"]),
+        UT + "test_knop_status_text.py", UT + "test_lam_handoff.py",
+        UT + "test_iter_output.py"]),
     "new_main/mod_subs/comp_j_blank.f": ("pin", [
-        UT + "test_knop_status_text.py"]),
+        UT + "test_knop_status_text.py", UT + "test_iter_output.py"]),
+    "new_main/mod_subs/iter_log_fmt_mod.f90": ("pin", [
+        UT + "test_iter_output.py"]),
     "new_main/mod_subs/rd_control_variables.f": ("pin", [
         UT + "test_vadat_keys.py", UT + "test_iter_conv_gate.py",
         UT + "test_gs_drift_diag.py", UT + "test_pop_audit.py",
@@ -198,9 +201,10 @@ COVERAGE = {
         UT + "test_iter_conv_gate.py", UT + "test_iter_ledger.py",
         UT + "test_gs_drift_diag.py", UT + "test_pop_audit.py",
         UT + "test_jfnk_regressions.py", UT + "test_knop_lagged_field.py",
-        UT + "test_knop_status_text.py", UT + "test_lam_handoff.py"]),
+        UT + "test_knop_status_text.py", UT + "test_lam_handoff.py",
+        UT + "test_iter_output.py"]),
     "new_main/subs/solveba_v13.f": ("pin", [
-        UT + "test_knop_lagged_field.py"]),
+        UT + "test_knop_lagged_field.py", UT + "test_iter_output.py"]),
     "obs/COMP_JCONT_V4.INC": ("pin", [
         UT + "test_obs_nonmono_dispatch.py"]),
 
@@ -239,10 +243,15 @@ COVERAGE = {
     "new_main/subs/eval_adiabatic_v3.f": ("exec", [
         UT + "test_adiabatic.py"]),
     "new_main/subs/fiddle_pop_corrections_v2.f": ("exec",
-        [UT + "test_fpc.py"]),
-    "new_main/subs/fixpop_in_ba_v3.f": ("exempt",
-        "diff is diagnostic-message wording only ('this call' "
-        "suffix); no behavior changed"),
+        [UT + "test_fpc.py", UT + "test_iter_output.py"]),
+    "new_main/subs/fixpop_in_ba_v3.f": ("pin", [
+        UT + "test_iter_output.py"]),
+    "new_main/subs/non_therm/electron_non_therm_spec.f90": ("pin", [
+        UT + "test_iter_output.py"]),
+    "new_main/subs/non_therm/se_ba_non_therm_v3.f90": ("pin", [
+        UT + "test_iter_output.py"]),
+    "new_main/subs/read_ba_data_v3.f": ("pin", [
+        UT + "test_iter_output.py"]),
     "new_main/subs/generate_full_matrix_v3.f": ("exec",
         [UT + "test_gfm.py"]),
     "new_main/subs/get_pops_at_prev_time_step_v5.f": ("exec",
