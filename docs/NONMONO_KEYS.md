@@ -410,6 +410,21 @@ solve.
 - `JFNK_HSCAN` - fences the production OPPROBE call site.
 - `ITER_HISTORY`/`ITER_LEDGER` - machine-readable iteration rows
   (`test_iter_ledger.py`).
+- `CONV_DIAG_LVL` (integer, default 2, clamped 0..2) -
+  per-iteration OUTGEN verbosity. Since 23-Nov-2026 it also gates
+  the shared layout in `iter_log_fmt_mod.f90` (`test_iter_output.py`):
+  0 = ITER_SUM block + `IT` status banner + `Model Convergence` +
+  timing; 1 = adds section banners and per-call status lines
+  (solve type, max corrections, luminosity, RUNAWAY top-N table,
+  ES_ALI/JCOMP census, JFNK verdicts, scale lines); 2 = everything,
+  incl. trace noise (non-thermal species dump, DEC/INC vectors,
+  setup chatter, held-fixed notices, BA_READ_V3 progress).
+  Exception/error records print at every level. Parser tokens
+  ('Current great iteration count is', 'POPULATION SOLVE',
+  'Luminosity of star', 'Time taken for iteration', 'Maximm
+  changes...', 'Maximum %', 'Average number of calls to FG_J_CMF
+  is', 'ITER_TYPE', 'Model Convergence:') keep their exact wording
+  wherever they print.
 
 ## 7. JFNK keys
 
