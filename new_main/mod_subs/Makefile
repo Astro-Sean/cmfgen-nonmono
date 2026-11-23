@@ -32,6 +32,7 @@ MOD = $(LIB_MOD)(mod_cmfgen.o)\
       $(LIB_MOD)(two_phot_mod.o)\
       $(LIB_MOD)(knop_status_mod.o)\
       $(LIB_MOD)(iter_ledger_mod.o)\
+      $(LIB_MOD)(iter_log_fmt_mod.o)\
       $(LIB_MOD)(lam_handoff_mod.o)\
       $(LIB_MOD)(var_rad_mod.o)
 
@@ -118,7 +119,7 @@ $(LIB)(mod_ray_mom_store.o) : ../../plane/mod_ray_mom_store.f
 	$(F90) -c $(OPTION) ../../plane/mod_ray_mom_store.f
 	ar $(AR_OPTION) $(LIB) mod_ray_mom_store.o
 
-$(LIB)(comp_j_blank.o) : comp_j_blank.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mod_ray_mom_store.o) $(LIB_MOD)(knop_status_mod.o) $(LIB_MOD)(iter_ledger_mod.o)
+$(LIB)(comp_j_blank.o) : comp_j_blank.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mod_ray_mom_store.o) $(LIB_MOD)(knop_status_mod.o) $(LIB_MOD)(iter_ledger_mod.o) $(LIB_MOD)(iter_log_fmt_mod.o)
 	$(F90) -c $(OPTION) comp_j_blank.f
 	ar $(AR_OPTION) $(LIB) comp_j_blank.o
 
@@ -193,7 +194,7 @@ $(LIB)(set_new_model_estimates.o) : set_new_model_estimates.f $(LIB)(opac_mod.o)
                                                                                                                       
 $(LIB)(solve_for_pops.o) : solve_for_pops.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
                                   $(LIB_MOD)(ang_qw_mod.o) $(LIB_MOD)(knop_status_mod.o) $(LIB_MOD)(iter_ledger_mod.o)\
-                                  $(LIB_MOD)(lam_handoff_mod.o)
+                                  $(LIB_MOD)(iter_log_fmt_mod.o) $(LIB_MOD)(lam_handoff_mod.o)
 	$(F90) -c $(OPTION) solve_for_pops.f
 	ar $(AR_OPTION) $(LIB) solve_for_pops.o
 
@@ -229,6 +230,14 @@ $(LIB_MOD)(knop_status_mod.o) : knop_status_mod.f90
 $(LIB_MOD)(iter_ledger_mod.o) : iter_ledger_mod.f90
 	$(F90) -c $(FFREE) iter_ledger_mod.f90
 	ar $(AR_OPTION) $(LIB_MOD) iter_ledger_mod.o
+
+# Shared layout for the per-iteration OUTGEN report (section
+# banners, key/value rows, end-of-iteration status line). USEd by
+# cmfgen_sub.f, comp_j_blank.f, solve_for_pops.f and solveba_v13.f;
+# like knop_status_mod it must land in libmod.a during d_mod_subs.
+$(LIB_MOD)(iter_log_fmt_mod.o) : iter_log_fmt_mod.f90
+	$(F90) -c $(FFREE) iter_log_fmt_mod.f90
+	ar $(AR_OPTION) $(LIB_MOD) iter_log_fmt_mod.o
 
 # RD_LAMBDA -> full-iteration handoff predicate and stability-count
 # step (LAM_FIELD gate). USEd by solve_for_pops.f (mod_subs) and
