@@ -4247,7 +4247,7 @@
 	    WRITE(LUER,'(A)')'   conv exit      = live evaluation of the'//
 	1    ' CMFGEN_SUB converged-exit test on the total system;'//
 	2    ' [MET] the exit would fire on this call, [HOLD] lists'//
-	3    ' the gates still failing; N% = share of the 8 exit'//
+	3    ' the gates still failing; N% = share of the 9 exit'//
 	4    ' gates passing, worst margin = worst numeric channel'//
 	5    ' vs its gate in dex'
 	    WRITE(LUER,'(A)')'   se / se2       = max SE residual;'//
@@ -4256,13 +4256,19 @@
 	1    ' (halves on reject) / consecutive rejections'
 	    WRITE(LUER,'(A)')'   lum            = inner/outer luminosity'//
 	1    ' ratio and relative drift (diagnostic only for shocks)'
+! edited 23-Nov-2026: legend corrected to match the printed fields --
+! bad counts significant cells whose refresh fixed-point residual
+! exceeds KN_RAY_TOL (not a 50% census), churn counts in-sweep cells
+! changing by more than 50% (there is no 5% census on the fg row),
+! and capped includes writes clamped at NONMONO_INEXT_CAP.
 	    WRITE(LUER,'(A)')'   fg / mom       = lagged-field sweep'//
-	1    ' metrics: d = max rel. change; bad = cells >50%;'//
-	2    ' churn = cells >5%; >5%,>50% = mom-cell counts,'//
-	3    ' >50% printed as count/threshold; negJ ='//
-	4    ' significant negative-J repairs; quar/pquar ='//
-	5    ' quarantined cells (pquar persistent); capped ='//
-	6    ' dropped non-finite writes'
+	1    ' metrics: d = max rel. change; bad = significant'//
+	2    ' cells failing the refresh residual (KN_RAY_TOL);'//
+	3    ' churn = cells >50%; >5%,>50% = mom-cell counts,'//
+	4    ' >50% printed as count/threshold; negJ ='//
+	5    ' significant negative-J repairs; quar/pquar ='//
+	6    ' quarantined cells (pquar persistent); capped ='//
+	7    ' capped/non-finite writes'
 	    WRITE(LUER,'(A)')'   status         = [OK] inside the'//
 	1    ' maturity gates, [WARN] marginal tier,'//
 	2    ' [BAD] unsafe/failed, [HELD] pops frozen,'//
