@@ -7,6 +7,7 @@
 	1             FIRST_MATRIX,LAST_MATRIX)
 	USE SET_KIND_MODULE
 	USE MOD_CMFGEN
+	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 ! Altered 15-Sep-2011 : Fixed bug: IS was not being set [ID=SPECIES_END_ID(ISPEC)] for last ionization stage.
@@ -64,7 +65,14 @@
 	    ZERO_STEQ(NT-1)=.TRUE.
 	  END IF
 	  IF(LAST_MATRIX)THEN
-            WRITE(LUER,'(A)')' Electron density held fixed at all depths.'
+!
+! edited 29-Nov-2026: held-fixed notices are level-2 diagnostics;
+! the ITER_SUM mode name (LAMBDA_TFIX etc.) already carries the
+! pinned-T state at levels 0-1.
+!
+            IF(CONV_DIAG_LVL .GE. 2)
+	1         WRITE(LUER,'(A)')
+	2         ' Electron density held fixed at all depths.'
 	  END IF
 	END IF
 !
@@ -79,7 +87,7 @@
 	    ZERO_STEQ(NT)=.TRUE.
 	  END IF
 	END IF
-	IF(MOD_FIXED_T .AND. LAST_MATRIX)THEN
+	IF(MOD_FIXED_T .AND. LAST_MATRIX .AND. CONV_DIAG_LVL .GE. 2)THEN
 	   I=MOD_FIX_T_D_END-MOD_FIX_T_D_ST+1
 	   IF(I .EQ. ND)THEN
               WRITE(LUER,'(A,I4,A)')' Temperature held fixed at all',
@@ -96,7 +104,8 @@
 	IF( FIX_IN_BOUND_T .AND. DEPTH_INDX .GE. (ND+1-FIX_LST_X_DPTHS) )THEN
 	  BA(NT,:)=0.0_LDP
 	  IF(DIAG_BAND)THEN
-	    IF(DEPTH_INDX .EQ. ND .AND. .NOT. ZERO_STEQ(NT))THEN
+	    IF(DEPTH_INDX .EQ. ND .AND. .NOT. ZERO_STEQ(NT) .AND.
+	1         CONV_DIAG_LVL .GE. 2)THEN
               WRITE(LUER,'(A,I4,A)')' Temperature held fixed at',
 	1                 FIX_LST_X_DPTHS,'depths at inner boundary'
 	    END IF
