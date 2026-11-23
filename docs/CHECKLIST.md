@@ -445,6 +445,26 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       FRESH_sob_jfnk,FRESH_knop_jfnk}_fin0_CMFGEN_2.82408d.dat/png
       - all non-converged-state renders, usable for the V13 vs
       V14 shape A/B but not as converged validation products.
+      FWHM A/B on the renders (23-Nov, /tmp/v13_v14_fwhm_ab.py,
+      narrow cores in km/s):
+        Hbeta   Luc 290 | v14_ngoff 990 | v13_l13 750 |
+                v13_sobjfnk 590 | v13_knopjf 270
+        Halpha  Luc 388 | v14_ngoff 550 | v13_l13 562 |
+                v13_sobjfnk 400 | v13_knopjf 350
+        HeII4686 Luc 270 | v14_ngoff 400 | v13_l13 440 |
+                v13_sobjfnk 290 | v13_knopjf 170
+      Verdict: grid recipe EXONERATED for the ~3x core broadening -
+      same-solver V13 vs V14 narrows Hbeta ~24% (990->750), leaves
+      Halpha unchanged (562 vs 550), HeII slightly broader. Mild
+      effect at most, far short of the 3x gap; and no converged V13
+      state exists to test harder. Also noted: v14_np_jfnk wrote
+      UNCONVERGED state (budget exhausted, last gate ex_maxch
+      0.02 dex short) yet matches Luc's cores (330/338) - the
+      solver/population state moves cores more than the grid does;
+      and thinT's free-T Hbeta blew out to 4190, so T-release did
+      NOT sharpen cores in this realization. CIV1549 stands apart:
+      Luc 2725 vs ~1600-1800 everywhere - a different-feature
+      problem, not a width problem.
 - [x] Production-code grid A/B/C at ND=70 on the real structure
       (unit_tests/work/grid_ab, scratch): drv_snhyd TAU_OPT=0/1 on
       SN_HYDRO_DATA + drv_sniin70 (production RV_SN_MODEL_SNIIN) on
