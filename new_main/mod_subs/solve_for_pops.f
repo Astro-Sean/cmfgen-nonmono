@@ -17,6 +17,7 @@
 	USE KNOP_STATUS_MOD
 	USE ITER_LEDGER_MOD
 	USE LAM_HANDOFF_MOD
+	USE ITER_LOG_FMT_MOD
 	IMPLICIT NONE
 !
 ! Altered: 20-Oct-2026 : No-progress totals N_FROZEN_TOT /
@@ -1035,19 +1036,27 @@
 	END IF
 ! 
 !
-	WRITE(LUER,'(/,A)')
-	1  ' ---------------------------- POPULATION SOLVE -------------------------------'
-	IF(LAMBDA_ITERATION)THEN
-	  WRITE(LUER,*)'LAMBDA iteration used'
+! edited 29-Nov-2026: section banner and status rows via
+! ITER_LOG_FMT_MOD at CONV_DIAG_LVL>=1. 'POPULATION SOLVE' keeps
+! its exact text -- parse_knop_iso/parse_knop_seed use it as a
+! block delimiter. JFNK_BA_SRC_IT stamping is state, not output,
+! so it stays unconditional.
+!
+	IF(CONV_DIAG_LVL .GE. 1)THEN
+	  CALL ILF_SECTION(LUER,'POPULATION SOLVE')
+	  IF(LAMBDA_ITERATION)
+	1    CALL ILF_KV(LUER,'Solve type','LAMBDA iteration')
+	  IF(COMPUTE_BA)THEN
+	    CALL ILF_KV(LUER,'BA matrix','computed')
+	  ELSE
+	    CALL ILF_KV(LUER,'BA matrix','**NOT** computed')
+	  END IF
 	END IF
 !
 	IF(COMPUTE_BA)THEN
-	  WRITE(LUER,*)'BA matrix computed'
 ! Stamp the source-iteration of SE(ID)%BA so JFNK deferral probes can
 ! report the stored operator's age relative to the admission state.
 	  JFNK_BA_SRC_IT=MAIN_COUNTER
-	ELSE
-	  WRITE(LUER,*)'BA matrix **NOT** computed'
 	END IF
 	FLUSH(LUER)
 !
@@ -2442,14 +2451,21 @@
 	4     N_REL_SINCE .GE. 1 .AND.
 	5     N_REL_SINCE .LE. GS_REL_N)THEN
 	    CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_rel_defer')
-	    WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
-	    WRITE(LUER,'(A)')
-	1   '    reason : coupled tier held during GS release window'
-	    WRITE(LUER,'(A,I6,A,I6)')
-	1   '    live calls since release / window :',N_REL_SINCE,
-	2   ' /',GS_REL_N
-	    WRITE(LUER,'(A)')
-	1   '    disposition : frozen tier / SOLVEBA path this call'
+!
+! edited 29-Nov-2026: JFNK admission/deferral verdicts print at
+! CONV_DIAG_LVL>=1 (the warmup defer below already used that
+! level); level 0 leaves the ITER_SUM 'jfnk' row as the record.
+!
+	    IF(CONV_DIAG_LVL .GE. 1)THEN
+	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	      WRITE(LUER,'(A)')
+	1     '    reason : coupled tier held during GS release window'
+	      WRITE(LUER,'(A,I6,A,I6)')
+	1     '    live calls since release / window :',N_REL_SINCE,
+	2     ' /',GS_REL_N
+	      WRITE(LUER,'(A)')
+	1     '    disposition : frozen tier / SOLVEBA path this call'
+	    END IF
 ! Under DO_NONMONO_SOB the coupled tier is never demand-admitted
 ! ([JFNK_COUPLED_SOB], 23-Oct-2026): a full-sweep eval per JVP is too
 ! expensive to fire on a demand signal that has not first certified
@@ -2506,13 +2522,15 @@
 	2       .NOT. (JFNK_COUPLED .AND. JFNK_COUPLED_SOB .AND.
 	3                .NOT. JFNK_CPL_SOB_DEAD .AND.
 	4                ASSOCIATED(JFNK_SWEEP_CB)))THEN
-	        WRITE(LUER,'(A,I4,A)')'    JFNK: stable-LAMBDA relief'//
-	1       ' suppressed (reach-skip streak >=',JFNK_REL_REACH_MAX,
-	2       ')'
+	        IF(CONV_DIAG_LVL .GE. 1)
+	1       WRITE(LUER,'(A,I4,A)')'    JFNK: stable-LAMBDA relief'//
+	2       ' suppressed (reach-skip streak >=',JFNK_REL_REACH_MAX,
+	3       ')'
 	      ELSE
 	        JFNK_NREQ_EFF=1
-	        WRITE(LUER,'(A)')'    JFNK: stable-LAMBDA relief active'//
-	1       ' (frozen-tier NREQ -> 1)'
+	        IF(CONV_DIAG_LVL .GE. 1)
+	1       WRITE(LUER,'(A)')'    JFNK: stable-LAMBDA relief active'//
+	2       ' (frozen-tier NREQ -> 1)'
 	      END IF
 	    END IF
 	    IF(JFNK_GATE_IN .GT. 0.0_LDP .AND.
@@ -2520,21 +2538,23 @@
 	2        JFNK_FRZ_HITS .LT. JFNK_NREQ_EFF))THEN
 	      JFNK_THIS=.FALSE.
 	      CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_defer')
-	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
-	      WRITE(LUER,'(A,ES12.4)')
-	1     '    last non-LAMBDA demand BA_LAST_RAW:',JFNK_DEM_IN
-	      WRITE(LUER,'(A,ES12.4)')
-	1     '    demanded population change MAXCH  :',MAXCH
-	      WRITE(LUER,'(A,ES12.4)')
-	1     '    frozen-tier admission gate        :',JFNK_GATE_IN
-	      WRITE(LUER,'(A,1X,A3)')
-	1     '    demand still contracting          :',
-	2     MERGE('yes','no ',JFNK_DEM_CTR)
-	      WRITE(LUER,'(A,I3,A,I3)')
-	1     '    consecutive sub-gate calls, need  :',
-	1     JFNK_FRZ_HITS,' /',JFNK_NREQ_EFF
-	      WRITE(LUER,'(A)')
-	1     '    disposition : falls back to SOLVEBA path'
+	      IF(CONV_DIAG_LVL .GE. 1)THEN
+	        WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	        WRITE(LUER,'(A,ES12.4)')
+	1       '    last non-LAMBDA demand BA_LAST_RAW:',JFNK_DEM_IN
+	        WRITE(LUER,'(A,ES12.4)')
+	1       '    demanded population change MAXCH  :',MAXCH
+	        WRITE(LUER,'(A,ES12.4)')
+	1       '    frozen-tier admission gate        :',JFNK_GATE_IN
+	        WRITE(LUER,'(A,1X,A3)')
+	1       '    demand still contracting          :',
+	2       MERGE('yes','no ',JFNK_DEM_CTR)
+	        WRITE(LUER,'(A,I3,A,I3)')
+	1       '    consecutive sub-gate calls, need  :',
+	1       JFNK_FRZ_HITS,' /',JFNK_NREQ_EFF
+	        WRITE(LUER,'(A)')
+	1       '    disposition : falls back to SOLVEBA path'
+	      END IF
 	    END IF
 !
 ! Optional no-commit hold ([JFNK_FRZ_FAIL_LIM], default 0 = off): the
@@ -2549,12 +2569,14 @@
 	      JFNK_FRZ_HOLD=JFNK_FRZ_HOLD-1
 	      JFNK_THIS=.FALSE.
 	      CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_frz_hold')
-	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
-	      WRITE(LUER,'(A)')'    reason : frozen-tier no-commit hold'
-	      WRITE(LUER,'(A,I4)')
-	1     '    SOLVEBA calls remaining after this:',JFNK_FRZ_HOLD
-	      WRITE(LUER,'(A)')
-	1     '    disposition : falls back to SOLVEBA path'
+	      IF(CONV_DIAG_LVL .GE. 1)THEN
+	        WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	        WRITE(LUER,'(A)')'    reason : frozen-tier no-commit hold'
+	        WRITE(LUER,'(A,I4)')
+	1       '    SOLVEBA calls remaining after this:',JFNK_FRZ_HOLD
+	        WRITE(LUER,'(A)')
+	1       '    disposition : falls back to SOLVEBA path'
+	      END IF
 	    ELSE IF(JFNK_THIS .AND. JFNK_FRZ_FAIL_LIM .GT. 0 .AND.
 	1       JFNK_FRZ_FAIL_STREAK .GE. JFNK_FRZ_FAIL_LIM)THEN
 	      JFNK_FRZ_FAIL_N=JFNK_FRZ_FAIL_STREAK
@@ -2562,15 +2584,17 @@
 	      JFNK_FRZ_HOLD=MAX(0,JFNK_FRZ_FAIL_HOLD-1)
 	      JFNK_THIS=.FALSE.
 	      CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_frz_hold')
-	      WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
-	      WRITE(LUER,'(A)')'    reason : frozen-tier no-commit hold'
-	      WRITE(LUER,'(A,I4,A,I4)')
-	1     '    consecutive no-commit outcomes    :',JFNK_FRZ_FAIL_N,
-	2     ' /',JFNK_FRZ_FAIL_LIM
-	      WRITE(LUER,'(A,I4)')
-	1     '    SOLVEBA calls remaining after this:',JFNK_FRZ_HOLD
-	      WRITE(LUER,'(A)')
-	1     '    disposition : falls back to SOLVEBA path'
+	      IF(CONV_DIAG_LVL .GE. 1)THEN
+	        WRITE(LUER,'(/,A)')' ---------------------------------- JFNK DEFER ---------------------------------'
+	        WRITE(LUER,'(A)')'    reason : frozen-tier no-commit hold'
+	        WRITE(LUER,'(A,I4,A,I4)')
+	1       '    consecutive no-commit outcomes    :',JFNK_FRZ_FAIL_N,
+	2       ' /',JFNK_FRZ_FAIL_LIM
+	        WRITE(LUER,'(A,I4)')
+	1       '    SOLVEBA calls remaining after this:',JFNK_FRZ_HOLD
+	        WRITE(LUER,'(A)')
+	1       '    disposition : falls back to SOLVEBA path'
+	      END IF
 	    END IF
 	  END IF
 	END IF
@@ -2638,7 +2662,8 @@
 ! LAMBDA_ITERATION=F and GS_FREEZE=F by construction, so the
 ! branches here cannot double-report it.
 !
-	IF(USE_JFNK_SOLVER .AND. .NOT. JFNK_THIS)THEN
+	IF(USE_JFNK_SOLVER .AND. .NOT. JFNK_THIS .AND.
+	1    CONV_DIAG_LVL .GE. 1)THEN
 	  IF(.NOT. USE_LAM_ES)THEN
 !
 ! Permanent hold-off: the MOM lagged store has no eval freeze (see
@@ -2774,9 +2799,16 @@
 	    WRITE(ITER_MSG,'(A,I5,A)')' ITER_TYPE it=',MAIN_COUNTER,
 	1     '  Running FULL ITERATION (BA linearization step)'
 	  END IF
-	  WRITE(LUER,'(/,A)')REPEAT('~',LEN_TRIM(ITER_MSG))
-	  WRITE(LUER,'(A)')TRIM(ITER_MSG)
-	  WRITE(LUER,'(A,/)')REPEAT('~',LEN_TRIM(ITER_MSG))
+!
+! edited 29-Nov-2026: the ITER_TYPE banner only prints at
+! CONV_DIAG_LVL>=1; ITER_TYPE_LAST_IT is stamped regardless so the
+! once-per-call bookkeeping is unchanged.
+!
+	  IF(CONV_DIAG_LVL .GE. 1)THEN
+	    WRITE(LUER,'(/,A)')REPEAT('~',LEN_TRIM(ITER_MSG))
+	    WRITE(LUER,'(A)')TRIM(ITER_MSG)
+	    WRITE(LUER,'(A,/)')REPEAT('~',LEN_TRIM(ITER_MSG))
+	  END IF
 	END IF
 !
 ! BA_TR_ABS/BA_DEM_EXM are exported by SOLVEBA_V13 (demanded exempted
@@ -2793,28 +2825,30 @@
 	BA_ARG_J=0;  BA_ARG_I=0;  BA_ARG_PCT=0.0_LDP
 !
 	IF(JFNK_THIS)THEN
-	  WRITE(LUER,'(/,A)')' ---------------------------------- JFNK ADMIT ---------------------------------'
-	  WRITE(LUER,'(A,ES12.4)')
-	1   '    demanded population change MAXCH  :',MAXCH
-	  WRITE(LUER,'(A,ES12.4)')
-	1   '    frozen-tier admission gate        :',JFNK_GATE_IN
-	  WRITE(LUER,'(A,ES12.4)')
-	1   '    coupled-tier admission gate       :',JFNK_COR_GATE
-	  WRITE(LUER,'(A,I3,A,I3)')
-	1   '    consecutive sub-gate calls frz/cpl:',JFNK_FRZ_HITS,
-	2   ' /',JFNK_CPL_HITS
-	  IF(JFNK_COUPLED_THIS)THEN
-	    WRITE(LUER,'(A)')
-	1   '    admitted tier : JFNK-CPL, J re-solved per eval'
-	  ELSE
-	    WRITE(LUER,'(A)')
-	1   '    admitted tier : JFNK-FRZ, J frozen during solve'
-	  END IF
-	  IF(.NOT. JFNK_COUPLED_THIS .AND. DO_NONMONO_SOB .AND.
-	1     JFNK_COUPLED .AND. JFNK_COUPLED_SOB .AND.
-	2     .NOT. JFNK_CPL_SOB_DEAD .AND. ASSOCIATED(JFNK_SWEEP_CB))THEN
-	    WRITE(LUER,'(A)')
-	1   '    coupled-SOB fallback armed (fires on reach fail)'
+	  IF(CONV_DIAG_LVL .GE. 1)THEN
+	    WRITE(LUER,'(/,A)')' ---------------------------------- JFNK ADMIT ---------------------------------'
+	    WRITE(LUER,'(A,ES12.4)')
+	1     '    demanded population change MAXCH  :',MAXCH
+	    WRITE(LUER,'(A,ES12.4)')
+	1     '    frozen-tier admission gate        :',JFNK_GATE_IN
+	    WRITE(LUER,'(A,ES12.4)')
+	1     '    coupled-tier admission gate       :',JFNK_COR_GATE
+	    WRITE(LUER,'(A,I3,A,I3)')
+	1     '    consecutive sub-gate calls frz/cpl:',JFNK_FRZ_HITS,
+	2     ' /',JFNK_CPL_HITS
+	    IF(JFNK_COUPLED_THIS)THEN
+	      WRITE(LUER,'(A)')
+	1     '    admitted tier : JFNK-CPL, J re-solved per eval'
+	    ELSE
+	      WRITE(LUER,'(A)')
+	1     '    admitted tier : JFNK-FRZ, J frozen during solve'
+	    END IF
+	    IF(.NOT. JFNK_COUPLED_THIS .AND. DO_NONMONO_SOB .AND.
+	1       JFNK_COUPLED .AND. JFNK_COUPLED_SOB .AND.
+	2       .NOT. JFNK_CPL_SOB_DEAD .AND. ASSOCIATED(JFNK_SWEEP_CB))THEN
+	      WRITE(LUER,'(A)')
+	1     '    coupled-SOB fallback armed (fires on reach fail)'
+	    END IF
 	  END IF
 	  IF(JFNK_COUPLED_THIS)THEN
 	    CALL APPEND_ITER_REASON(ITER_REASON,'jfnk_cpl')
@@ -4568,6 +4602,14 @@
 	  WRITE(LUER,'(4X,A,I3,A)')
 	1    'Model Convergence:',CONV_NPCT,' %'
 	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
+!
+! edited 29-Nov-2026: export this call's status words for the
+! end-of-iteration banner (ILF_BANNER in CMFGEN_SUB, printed beside
+! 'Time taken for iteration'). Lives inside the ITER_SUM gate so
+! the stock path never sets it.
+!
+	  CALL ILF_SET_BANNER(MODE_NOW,MODE_NEXT,BA_CH,CONV_NPCT,
+	1    MAIN_COUNTER)
 !
 ! Append one row per iteration; header only when the file is new.
 ! The file survives requeues in the run directory, which is what the
