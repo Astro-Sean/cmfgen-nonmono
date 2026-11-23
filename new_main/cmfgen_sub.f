@@ -43,6 +43,7 @@
 	1    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS
 	USE ITER_LEDGER_MOD
 	USE LAM_HANDOFF_MOD
+	USE ITER_LOG_FMT_MOD
 	IMPLICIT NONE
 !
 ! Altered 16-Oct-2026 : Stage-B trace polish admits a material hidden
@@ -224,6 +225,7 @@
 ! iteration is reported just before the routine returns.
 !
 	REAL(KIND=LDP) T_GIT_START
+	REAL(KIND=LDP) T_GIT_ELAP
 	REAL(KIND=LDP) OMP_GET_WTIME
 	REAL(KIND=LDP) TW
 	LOGICAL GIT_CLK_SET
@@ -1477,9 +1479,19 @@
 !
 	FCONV_IT1_ACTIVE=(SUPPRESS_FCONV_IT1 .AND. MAIN_COUNTER .EQ. 1)
 !
-	IF(GIT_CLK_SET)WRITE(LUER,'(A,I4,A,F10.1,A)')
-	1  ' Time taken for iteration',MAIN_COUNTER-1,':',
-	2  OMP_GET_WTIME()-T_GIT_START,' [s]'
+	IF(GIT_CLK_SET)THEN
+	  T_GIT_ELAP=OMP_GET_WTIME()-T_GIT_START
+	  WRITE(LUER,'(A,I4,A,F10.1,A)')
+	1    ' Time taken for iteration',MAIN_COUNTER-1,':',
+	2    T_GIT_ELAP,' [s]'
+!
+! edited 29-Nov-2026: end-of-iteration status banner
+! (ITER_LOG_FMT_MOD). Prints only on dev paths -- SOLVE_FOR_POPS
+! exports the mode/BA/conv words for this counter; the stock path
+! never sets them, so nothing prints and OUTGEN is unchanged.
+!
+	  CALL ILF_BANNER(LUER,MAIN_COUNTER-1,T_GIT_ELAP)
+	END IF
 	T_GIT_START=OMP_GET_WTIME()
 	GIT_CLK_SET=.TRUE.
 !
@@ -1494,14 +1506,17 @@
 	1  CALL LEDG_ITER_RESET(OMP_GET_WTIME(),
 	2    JFNK_N_RESIDUAL_EVALS,JFNK_N_JVP_EVALS)
 !
+! edited 29-Nov-2026: iteration framing uses 80-col '=' rules and
+! the shared section banner so every phase prints at the same
+! width; the count line keeps its exact wording (scripts grep it).
+! The SETUP header only appears at CONV_DIAG_LVL>=1 since level 0
+! prints nothing beneath it.
+!
 	WRITE(LUER,'(A)')' '
-	WRITE(LUER,'(X,80A)')('*',I=1,80)
-	WRITE(LUER,'(X,80A)')('*',I=1,80)
-	WRITE(LUER,'(A)')' '
+	CALL ILF_RULE(LUER,'=')
 	WRITE(LUER,'(A,I8)')' Current great iteration count is',MAIN_COUNTER
-	WRITE(LUER,'(A)')' '
-	WRITE(LUER,'(A)')
-	1  ' ----------------------------- ITERATION SETUP ------------------------------'
+	CALL ILF_RULE(LUER,'=')
+	IF(CONV_DIAG_LVL .GE. 1)CALL ILF_SECTION(LUER,'ITERATION SETUP')
 	FLUSH(LUER)
 !
 ! Temporary diagnostic: catch a bad temperature entering the iteration
@@ -1832,13 +1847,20 @@
 	CALL TUNE(ITWO,'DTDR')
 !
 	LST_DEPTH_ONLY=.FALSE.
-	WRITE(LUER,*)'The value of DTDR is :',DTDR
+!
+! edited 29-Nov-2026: per-iteration OUTGEN cleanup -- setup/progress
+! chatter (DTDR, BA zeroing, STEQ dispatch, EDDINGTON, non-thermal
+! entry, CHECK_SPEC_CONV marker) prints only at CONV_DIAG_LVL=2.
+! Status lines and the ITER_SUM block keep printing at 0/1.
+!
+	IF(CONV_DIAG_LVL .GE. 2)
+	1    WRITE(LUER,*)'The value of DTDR is :',DTDR
 	WRITE(LUER,'(A)')' '
 ! 
 !
 ! Zero STEQ and BA arrays.
 !
-	WRITE(6,*)'Zeroing BA matrices'
+	IF(CONV_DIAG_LVL .GE. 2)WRITE(6,*)'Zeroing BA matrices'
 	FLUSH(UNIT=6)
 	CALL TUNE(IONE,'ZBA')
 !$OMP PARALLEL WORKSHARE
@@ -1879,7 +1901,7 @@
 	X_COOL(:,:)=0.0_LDP
 	DIELUM(:)=0.0_LDP
 	CALL TUNE(3,' ')
-	WRITE(6,*)'Zeroed BA matrices'
+	IF(CONV_DIAG_LVL .GE. 2)WRITE(6,*)'Zeroed BA matrices'
 	FLUSH(UNIT=6)
 ! 
 !
@@ -1901,7 +1923,7 @@
 !	  DST=K
 !	  DEND=K
 !
-	  WRITE(6,*)'Call STEQ routines'
+	  IF(CONV_DIAG_LVL .GE. 2)WRITE(6,*)'Call STEQ routines'
 	  CALL TUNE(IONE,'STEQ')
           DO ID=1,NUM_IONS-1
             LOC_ID=ID
@@ -1946,7 +1968,9 @@
 	END IF
 !
 	IF(TREAT_NON_THERMAL_ELECTRONS)THEN
-	  WRITE(6,*)'Beginning calculation of non-thermal electron spectrum: ED next'
+	  IF(CONV_DIAG_LVL .GE. 2)
+	1    WRITE(6,*)
+	2    'Beginning calculation of non-thermal electron spectrum: ED next'
 	  CALL TUNE(IONE,'NON_THERM')
 	    CALL ELECTRON_NON_THERM_SPEC(ND)
 	  CALL TUNE(ITWO,'NON_THERM')
@@ -2321,7 +2345,8 @@
 ! list-directed write printed an unlabeled "T  15 T" line every
 ! iteration (print-hygiene fix, not flag-gated, no value change).
 !
-	WRITE(LUER,'(A,L2,A,I10,A,L2)')'  EDDINGTON=',EDDINGTON,
+	IF(CONV_DIAG_LVL .GE. 2)
+	1    WRITE(LUER,'(A,L2,A,I10,A,L2)')'  EDDINGTON=',EDDINGTON,
 	1   ' ACCESS_F=',ACCESS_F,' COMPUTE_EDDFAC=',COMPUTE_EDDFAC
 !
 ! Decide whether to use an file with old J values to provide an initial
@@ -3338,9 +3363,8 @@
 	  END IF
 	END IF
 !
-	WRITE(LUER,*)' '
-	WRITE(LUER,*)'Number of weak lines is',NUM_OF_WEAK_LINES
-	WRITE(LUER,*)' '
+	IF(CONV_DIAG_LVL .GE. 1)
+	1    CALL ILF_KVI(LUER,'Number of weak lines',NUM_OF_WEAK_LINES)
 !
 ! 
 !
@@ -3586,8 +3610,13 @@
 !
 	WRITE(STRING,'(I5)')MAIN_COUNTER; STRING=ADJUSTL(STRING)
 	STRING=' Luminosity of star (d=1,ND)(iteration '//TRIM(STRING)//') is:'
-	WRITE(LUER,'(A,ES18.8,A,ES18.8,A,/)')TRIM(STRING),RLUMST(1),
-	1   ' (outer)',RLUMST(ND),' (inner)'
+!
+! Keep the exact wording: parse_knop_iso/parse_knop_seed grep
+! 'Luminosity of star' as an iteration delimiter.
+!
+	IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(LUER,'(A,ES18.8,A,ES18.8,A,/)')TRIM(STRING),RLUMST(1),
+	2   ' (outer)',RLUMST(ND),' (inner)'
 	FLUSH(LUER)
 !
 ! edited 18-Oct-2026: [KN_NO_GAIN] per-iteration census
@@ -3651,7 +3680,8 @@
 !
 	IF(.NOT. LAMBDA_ITERATION .AND. .NOT. LST_ITERATION .AND. .NOT. USE_FIXED_J)THEN
 	  CALL CHECK_SPEC_CONV(OBS_FLUX,OBS_FREQ,T1,T2,CHK,N_OBS)
-	  WRITE(6,*)'Exited CHECK_SPEC_CONV';FLUSH(UNIT=6)
+	  IF(CONV_DIAG_LVL .GE. 2)WRITE(6,*)'Exited CHECK_SPEC_CONV'
+	  FLUSH(UNIT=6)
 	END IF
 !
 ! Compute ROSSELAND and FLUX mean opacities. These MEAN opacities DO NOT
@@ -5841,9 +5871,13 @@
 !
 ! Last iteration: report its elapsed time before returning.
 !
-	IF(GIT_CLK_SET)WRITE(LUER,'(A,I4,A,F10.1,A)')
+	IF(GIT_CLK_SET)THEN
+	  T_GIT_ELAP=OMP_GET_WTIME()-T_GIT_START
+	  WRITE(LUER,'(A,I4,A,F10.1,A)')
 	1  ' Time taken for iteration',MAIN_COUNTER,':',
-	2  OMP_GET_WTIME()-T_GIT_START,' [s]'
+	2  T_GIT_ELAP,' [s]'
+	  CALL ILF_BANNER(LUER,MAIN_COUNTER,T_GIT_ELAP)
+	END IF
 !
 !
 ! ===================================================================
