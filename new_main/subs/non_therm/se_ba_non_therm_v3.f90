@@ -5,7 +5,8 @@
         USE MOD_NON_THERM
 	USE NUC_ISO_MOD
 	USE SHOCK_POWER_MOD
-	USE CONTROL_VARIABLE_MOD, only : INC_SHOCK_POWER, SHOCK_POWER_FAC
+	USE CONTROL_VARIABLE_MOD, only : INC_SHOCK_POWER, SHOCK_POWER_FAC, &
+	        CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 ! Altered 17-Aug-2025 : Fixed bug -- accessing wrong stat weigth in ion ID+1.
@@ -160,7 +161,13 @@
 	          ATM(ID)%NTCXzV(DPTH_INDX)=ATM(ID)%NTCXzV(DPTH_INDX)  &
 	                          +Hz_to_erg*T1*(ATM(ID)%EDGEXzV_F(NL_F)+ION_EXC_EN)  ! non-thermal cooling?
 !
-	          IF(DPTH_INDX .EQ. 1)WRITE(6,*)TRIM(ION_ID(ID)),I,T1
+! edited 29-Nov-2026: per-level rate dump moved behind
+! CONV_DIAG_LVL=2 -- it printed one line per level per depth-1
+! call (the dominant OUTGEN flood in TREAT_NON_THERMAL_ELECTRONS
+! runs). Rates themselves are unchanged.
+!
+	          IF(DPTH_INDX .EQ. 1 .AND. CONV_DIAG_LVL .GE. 2) &
+	             WRITE(6,*)TRIM(ION_ID(ID)),I,T1
 	          SE(ID)%STEQ(NL,DPTH_INDX)=SE(ID)%STEQ(NL,DPTH_INDX)-T1
 	          SE(ID)%STEQ(SE_ION_LEV,DPTH_INDX)=SE(ID)%STEQ(SE_ION_LEV,DPTH_INDX)+T1
 	          LOCAL_ION_HEATING(DPTH_INDX)=LOCAL_ION_HEATING(DPTH_INDX)+ T1*(ATM(ID)%EDGEXzV_F(NL_F)+ION_EXC_EN)
@@ -298,7 +305,9 @@
 	               Hz_TO_eV*LOCAL_ION_HEATING(I)+Hz_TO_eV*LOCAL_EXC_HEATING(I)
 	END DO
 	CLOSE(LU_TH)
-	WRITE(6,*)'Scale factor is ',DEC_NRG_SCL_FAC
+	IF(CONV_DIAG_LVL .GE. 1) &
+	  WRITE(6,'(A,ES12.4)') &
+	    ' Non-thermal deposition scale factor : ',DEC_NRG_SCL_FAC
 !
 	RETURN
 	END
