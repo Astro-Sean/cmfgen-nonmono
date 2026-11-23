@@ -36,6 +36,7 @@
 	USE CONTROL_VARIABLE_MOD
 	USE MOD_RAY_MOM_STORE, ONLY: HNU_AT_OB
 	USE ITER_LEDGER_MOD
+	USE ITER_LOG_FMT_MOD
 	IMPLICIT NONE
 !
 ! Altered : 05-Oct-2026 : Keep stock CMF_FORM_SOL off the Knop path.
@@ -604,7 +605,9 @@ C
 	    IF(FREQ_INDX .EQ. NCF)CLOSE(UNIT=LU_JCOMP)
 	  END IF
 	  IF(FREQ_INDX .EQ. NCF)THEN
-	    WRITE(LUER,*)'Average number of calls to FG_J_CMF is',FLOAT(FG_COUNT)/FLOAT(NCF)
+	    IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,*)
+	1       'Average number of calls to FG_J_CMF is',
+	2       FLOAT(FG_COUNT)/FLOAT(NCF)
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
 	    IF(T1 .GT. 100.0_LDP)THEN
@@ -907,9 +910,16 @@ C
 	         END IF
 	       ELSE
 	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)THEN
-	           IF(DO_NONMONO_SOB)WRITE(LUER,'(/,A)')
-	1            ' --------------------------------- SOB SOLVER ---------------------------------'
-	           WRITE(LUER,*)'Calling FG_J_CMF_V13 in COMP_J_BLANK'
+!
+! edited 29-Nov-2026: field-solver header through
+! ITER_LOG_FMT_MOD at CONV_DIAG_LVL>=1; level 0 prints nothing
+! under the section (ITER_SUM carries the status).
+!
+	           IF(DO_NONMONO_SOB .AND. CONV_DIAG_LVL .GE. 1)
+	1             CALL ILF_SECTION(LUER,'FIELD SOLVER (SOB)')
+	           IF(CONV_DIAG_LVL .GE. 1)
+	2             CALL ILF_KV(LUER,'Routine',
+	3             'FG_J_CMF_V13 in COMP_J_BLANK')
 	         END IF
 	         IF(LEDG_ACTIVE)TW=OMP_GET_WTIME()
 	         CALL FG_J_CMF_V13(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,P,
@@ -992,10 +1002,11 @@ C
 	         CALL OUT_JH(TA,RSQHNU,T1,T2,FL,NCF,R,V,ND,FIRST_FREQ,'NORMAL')
 	       END IF
 	     ELSE IF(USE_LAM_ES)THEN
-	       IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)WRITE(LUER,'(A)')
-	1         'Field solver: ray solutions with lambda'//
-	2         ' iteration (USE_LAM_ES); the moment equations'//
-	3         ' are not solved'
+	       IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0 .AND.
+	1         CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A)')
+	2         'Field solver: ray solutions with lambda'//
+	3         ' iteration (USE_LAM_ES); the moment equations'//
+	4         ' are not solved'
 	       IF(ES_ALI_ON)THEN
 !
 ! edited 27-Oct-2026: Olson-Auer-Buchler Jacobi update of
@@ -1093,9 +1104,10 @@ C
 !	        velocity field. V13 still runs each frequency above, so
 !	        GET_MOMS_NON_REL inside the solver reads fresh N_ON_J ray
 !	        moments. Default (no non-mono flag) keeps MOM_J_CMF_V11.
-	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0)
-	1             WRITE(LUER,*)'Field solver: moment equations'//
-	2             ' (MOM_J_CMF_NONMONO_V1)'
+	         IF(FIRST_FREQ .AND. J_IT_COUNTER .EQ. 0 .AND.
+	1             CONV_DIAG_LVL .GE. 1)
+	2             WRITE(LUER,*)'Field solver: moment equations'//
+	3             ' (MOM_J_CMF_NONMONO_V1)'
 !
 ! Pass nu(k+1) to the moment solver so compressing depths use the
 ! forward spacing ln(nu_k/nu_{k+1}) (asymmetric-spacing fix,
@@ -1367,7 +1379,9 @@ C
 	    END IF
 	  END IF
 	  IF(FREQ_INDX .EQ. NCF)THEN
-	    WRITE(LUER,*)'Average number of calls to FG_J_CMF is',FLOAT(FG_COUNT)/FLOAT(NCF)
+	    IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,*)
+	1       'Average number of calls to FG_J_CMF is',
+	2       FLOAT(FG_COUNT)/FLOAT(NCF)
 !
 ! edited 27-Oct-2026: one-line ES-ALI summary per great
 ! iteration [DO_ES_ALI]: frequencies that exited with the last RJ
@@ -1378,16 +1392,19 @@ C
 ! ever engages; ES_ALI_BA_NFLOOR is printed alongside for the
 ! DO_VAR_CONT side (accumulated there, cumulative here).
 !
-	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)
-	1     WRITE(LUER,'(A,I6,A,ES10.2,A,I6,A,I10,A,I10)')
-	1     ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
-	2     ', max final dJ/J=',ES_ALI_DJMAX,
-	3     ', ALO fallbacks=',ES_ALI_NFALL,
-	4     ', J-floor hits run=',ES_ALI_NFLOOR,
-	5     ', BA-floor hits run=',ES_ALI_BA_NFLOOR
+	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
+	      IF(CONV_DIAG_LVL .GE. 1)
+	1       WRITE(LUER,'(A,I6,A,ES10.2,A,I6,A,I10,A,I10)')
+	2       ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
+	3       ', max final dJ/J=',ES_ALI_DJMAX,
+	4       ', ALO fallbacks=',ES_ALI_NFALL,
+	5       ', J-floor hits run=',ES_ALI_NFLOOR,
+	6       ', BA-floor hits run=',ES_ALI_BA_NFLOOR
+	    END IF
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
-	    WRITE(LUER,'(A,ES10.3,A,I5,A,ES10.3,A,I10)')
+	    IF(CONV_DIAG_LVL .GE. 1)
+	1     WRITE(LUER,'(A,ES10.3,A,I5,A,ES10.3,A,I10)')
 	1     ' JCOMP census: worst |%diff| ',JCMP_W_REL,' at depth ',
 	2     JCMP_W_I,' nu ',JCMP_W_NU,'; cells above 50% ',JCMP_N50
 	    IF(T1 .GT. 100.0_LDP)THEN
