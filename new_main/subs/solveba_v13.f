@@ -30,6 +30,7 @@
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_SECTION
 	IMPLICIT NONE
 !
 ! Altered 20-Oct-2026 : BA13-TRACE also emits at CONV_DIAG_LVL=1
@@ -173,6 +174,7 @@
 ! flags, L_DUP the dedup test.
 !
 	INTEGER JX,IX,NK,IDW,LEW,ILO,IHI,FLG,CGF
+	INTEGER RW_NSUP,RW_NDONE
 	REAL(KIND=LDP) RW_MAX,RW_T1,RW_NOLD,RW_IONF,RW_APP,RW_DEN
 	INTEGER, ALLOCATABLE :: RW_J(:),RW_I(:)
 	LOGICAL L_DUP
@@ -1070,8 +1072,12 @@
 	1          ' MAJOR scaling assumed'
 	END IF
 !
-	WRITE(LUER,'(/,A)')
-	1  ' ------------------------ SOLVEBA POPULATION UPDATE ------------------------'
+! edited 29-Nov-2026: section banner via ITER_LOG_FMT_MOD at
+! CONV_DIAG_LVL>=1; level 0 prints nothing from this routine except
+! the exception records (rejections, rollbacks, warnings).
+!
+	IF(CONV_DIAG_LVL .GE. 1)
+	1    CALL ILF_SECTION(LUER,'SOLVEBA POPULATION UPDATE')
 !
 ! Solve for the perturbations. ND: The scaling of BA is now done within
 ! CMF_BLKBAND.
@@ -1209,7 +1215,7 @@
 ! is never silent in OUTGEN. BA_MASK_* is reset inside
 ! POP_FLOOR_STEP even when the mask is off.
 !
-	IF(BA_MASK_N .GT. 0)THEN
+	IF(BA_MASK_N .GT. 0 .AND. CONV_DIAG_LVL .GE. 1)THEN
 	  WRITE(LUER,'(A,I6,A,A,A,I4,A,ES12.4)')
 	1    'POP_MASK: suppressed ',BA_MASK_N,
 	2    ' floor-level corrections; largest ',
@@ -1570,7 +1576,7 @@
 	  END DO
 	END DO
 	BA_DEM_EXM=100.0_LDP*STEQ_EXM
-	IF(JEXM .GT. 0)THEN
+	IF(JEXM .GT. 0 .AND. CONV_DIAG_LVL .GE. 1)THEN
 	  WRITE(LUER,9215)IEXM,BA_DEM_EXM,TRIM(EQ_DESC(JEXM)),
 	1   '          --- iteration ',MAIN_COUNTER
 	END IF
@@ -1601,7 +1607,7 @@
 	    END DO
 	  END DO
 	  BA_DEM_EXR=100.0_LDP*EXR_VAL
-	  IF(JEXR .GT. 0)THEN
+	  IF(JEXR .GT. 0 .AND. CONV_DIAG_LVL .GE. 1)THEN
 	    WRITE(LUER,9217)IEXR,BA_DEM_EXR,TRIM(EQ_DESC(JEXR)),
 	1     '      --- iteration ',MAIN_COUNTER
 	  END IF
@@ -1626,21 +1632,28 @@
 	ELSE
 	  BA_ARG_J=JDEC;  BA_ARG_I=IDEC;  BA_ARG_PCT=DECREASE
 	END IF
-	IF(LAMBDA_IT)THEN
- 	  WRITE(LUER,9000)IINC,ABS(INCREASE),'  (LAMBDA)',
-	1          '          --- iteration ',MAIN_COUNTER
-	  WRITE(LUER,9200)IDEC,DECREASE,'  (LAMBDA)',
-	1          '          --- iteration ',MAIN_COUNTER
-	ELSE IF(BA_COMPUTED)THEN
- 	  WRITE(LUER,9000)IINC,ABS(INCREASE),'  (BA computed)',
-	1          '     --- iteration ',MAIN_COUNTER
-	  WRITE(LUER,9200)IDEC,DECREASE,'  (BA computed)',
-	1          '     --- iteration ',MAIN_COUNTER
-	ELSE
- 	  WRITE(LUER,9000)IINC,ABS(INCREASE),'  (BA not computed)',
-	1          ' --- iteration ',MAIN_COUNTER
-	  WRITE(LUER,9200)IDEC,DECREASE,'  (BA not computed)',
-	1          ' --- iteration ',MAIN_COUNTER
+!
+! edited 29-Nov-2026: the per-call max-increase/decrease lines print
+! at CONV_DIAG_LVL>=1. Exact wording kept -- the slurm tracker and
+! check_convergence.py grep 'Maximum % increase/decrease'.
+!
+	IF(CONV_DIAG_LVL .GE. 1)THEN
+	  IF(LAMBDA_IT)THEN
+ 	    WRITE(LUER,9000)IINC,ABS(INCREASE),'  (LAMBDA)',
+	1            '          --- iteration ',MAIN_COUNTER
+	    WRITE(LUER,9200)IDEC,DECREASE,'  (LAMBDA)',
+	1            '          --- iteration ',MAIN_COUNTER
+	  ELSE IF(BA_COMPUTED)THEN
+ 	    WRITE(LUER,9000)IINC,ABS(INCREASE),'  (BA computed)',
+	1            '     --- iteration ',MAIN_COUNTER
+	    WRITE(LUER,9200)IDEC,DECREASE,'  (BA computed)',
+	1            '     --- iteration ',MAIN_COUNTER
+	  ELSE
+ 	    WRITE(LUER,9000)IINC,ABS(INCREASE),'  (BA not computed)',
+	1            ' --- iteration ',MAIN_COUNTER
+	    WRITE(LUER,9200)IDEC,DECREASE,'  (BA not computed)',
+	1            ' --- iteration ',MAIN_COUNTER
+	  END IF
 	END IF
 9000	FORMAT(' Maximum % increase at depth ',I4,' is',ES10.2,A,A,I4)
 9200	FORMAT(' Maximum % decrease at depth ',I4,' is',ES10.2,A,A,I4)
@@ -1774,9 +1787,19 @@
 	  END IF
 	END IF
 !
-	WRITE(6,*)'Maximm changes as returned by SOLVEBA_V13 is',MAXCH
-	WRITE(6,'(A,10ES10.2)')' DEC_VEC: ',MAX_DEC_VEC(1:10)
-	WRITE(6,'(A,10ES10.2)')' INC_VEC: ',MAX_INC_VEC(1:10)
+!
+! edited 29-Nov-2026: 'Maximm changes' keeps its exact wording
+! (check_convergence.py / cmfgen_convergence.py grep it) at
+! CONV_DIAG_LVL>=1; the DEC/INC vectors are level-2 trace and get
+! an index header over their 10 columns.
+!
+	IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(6,*)'Maximm changes as returned by SOLVEBA_V13 is',MAXCH
+	IF(CONV_DIAG_LVL .GE. 2)THEN
+	  WRITE(6,'(10X,10I10)')(K,K=1,10)
+	  WRITE(6,'(A,10ES10.2)')' DEC_VEC: ',MAX_DEC_VEC(1:10)
+	  WRITE(6,'(A,10ES10.2)')' INC_VEC: ',MAX_INC_VEC(1:10)
+	END IF
 !
 ! edited 29-Sep-2026: locate the variable index driving the
 ! largest corrections. The depth-only print hides whether the same
@@ -1893,8 +1916,9 @@
 	    END DO
 	    MINSCALE=MIN(SCALE,MINSCALE)
 	  END DO
-	  WRITE(LUER,'(A,1PE12.4)')
-	1  ' The local minimum value of scale is:',MINSCALE
+	  IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(LUER,'(A,1PE12.4)')
+	2    ' The local minimum value of scale is:',MINSCALE
 !
 !
 	ELSE IF(SCALE_OPT(1:4) .EQ. 'NONE')THEN
@@ -1919,8 +1943,9 @@
 	    MINSCALE=MIN(SCALE,MINSCALE)
 	  END DO
 !
-	  WRITE(LUER,'(A,1PE12.4)')
-	1  ' The minimum value of scale for all species is:',MINSCALE
+	  IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(LUER,'(A,1PE12.4)')
+	2    ' The minimum value of scale for all species is:',MINSCALE
 !
 !
 	ELSE IF(SCALE_OPT(1:5) .EQ. 'MAJOR')THEN
@@ -1961,7 +1986,8 @@
 	    T3=MAX( T3,ABS(STEQ(NT,I)) )
 	  END DO
 	  SCALE=MIN( MAX_dT_COR/T3,SCALE )
-	  WRITE(LUER,'(A,1PE12.4)')' The value of scale is:',SCALE
+	  IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(LUER,'(A,1PE12.4)')' The value of scale is:',SCALE
 !
 ! Update the population levels (and the temperature) .
 !
@@ -2129,7 +2155,8 @@
 	      END IF
 	    END DO
 	  END DO
-	  IF(JTRC .GT. 0 .AND. BA_TRACE_PHASE)THEN
+	  IF(JTRC .GT. 0 .AND. BA_TRACE_PHASE .AND.
+	1     CONV_DIAG_LVL .GE. 1)THEN
 	    WRITE(LUER,9216)ITRC,BA_TR_ABS,TRIM(EQ_DESC(JTRC)),
 	1   '          --- iteration ',MAIN_COUNTER
 	  END IF
@@ -2152,12 +2179,23 @@
 	  IF(POP_RUNAWAY_DEM .GT. 0.0_LDP .AND. ALLOCATED(STEQ_RAW) .AND.
 	1     POP_RUNAWAY_TOPN .GT. 0)THEN
 	    RW_MAX=0.0_LDP
+	    RW_NSUP=0
 	    DO I=1,ND
 	      DO J=1,NT-2
 	        RW_MAX=MAX(RW_MAX,ABS(STEQ_RAW(J,I)))
+	        IF(100.0_LDP*ABS(STEQ_RAW(J,I)) .GE. POP_RUNAWAY_DEM)
+	1         RW_NSUP=RW_NSUP+1
 	      END DO
 	    END DO
-	    IF(100.0_LDP*RW_MAX .GE. POP_RUNAWAY_DEM)THEN
+!
+! edited 29-Nov-2026: rows print as one aligned table at
+! CONV_DIAG_LVL>=1 (columns: depth eq level n ionf demand%
+! applied% fl cons) with a single '... and K more' line for the
+! suprathreshold channels outside the top-N. RW_NSUP is a count
+! only -- it feeds the suppressed-row line, not any test.
+!
+	    IF(100.0_LDP*RW_MAX .GE. POP_RUNAWAY_DEM .AND.
+	1       CONV_DIAG_LVL .GE. 1)THEN
 	      WRITE(LUER,'(A,I6,A,ES12.4,A,ES12.4,A,I4)')
 	1       ' RUNAWAY it=',MAIN_COUNTER,' maxdem%= ',
 	2       100.0_LDP*RW_MAX,' thresh%= ',POP_RUNAWAY_DEM,
@@ -2165,6 +2203,16 @@
 	      ALLOCATE(RW_J(POP_RUNAWAY_TOPN),RW_I(POP_RUNAWAY_TOPN),
 	1         STAT=IOS)
 	      IF(IOS .EQ. 0)THEN
+! edited 29-Nov-2026: the header reuses the row's field widths so
+! the columns stay aligned if the row format ever moves; REPEAT
+! pads 'level' to its 30-wide column (A w>len right-justifies).
+!
+	        WRITE(LUER,'(1X,A5,2X,A5,1X,A30,4(1X,A11),'//
+	1       '1X,A2,1X,A4)')'depth','eq',
+	2       'level'//REPEAT(' ',25),'n','ionf','demand %',
+	3       'applied %','fl','cons'
+	        WRITE(LUER,'(A)')REPEAT('-',100)
+	        RW_NDONE=0
 	        DO K=1,POP_RUNAWAY_TOPN
 	          RW_T1=0.0_LDP
 	          JX=0
@@ -2223,14 +2271,15 @@
 	            RW_APP=0.0_LDP
 	            IF(POPS(JX,IX) .GT. 0.0_LDP)RW_APP=1.0E7_LDP
 	          END IF
-	          WRITE(LUER,'(A,I4,A,I4,A,A,A,ES12.4,A,ES12.4,'
-	2         //'A,ES12.4,A,ES12.4,A,I1,A,I1)')
-	1         ' RUNAWAY d=',IX,' eq=',JX,' ',TRIM(EQ_DESC(JX)),
-	2         ' n=',RW_NOLD,' ionf=',RW_IONF,
-	3         ' dem%= ',100.0_LDP*STEQ_RAW(JX,IX),
-	4         ' app%= ',100.0_LDP*RW_APP,
-	5         ' fl=',FLG,' cons=',CGF
+	          RW_NDONE=RW_NDONE+1
+	          WRITE(LUER,'(1X,I5,2X,I5,1X,A30,4(1X,ES11.4),'//
+	1         '1X,I2,1X,I4)')
+	2         IX,JX,EQ_DESC(JX),RW_NOLD,RW_IONF,
+	3         100.0_LDP*STEQ_RAW(JX,IX),100.0_LDP*RW_APP,FLG,CGF
 	        END DO
+	        IF(RW_NSUP .GT. RW_NDONE)
+	1       WRITE(LUER,'(A,I6,A)')'    ... and ',
+	2       RW_NSUP-RW_NDONE,' more rows at/above threshold'
 	        DEALLOCATE(RW_J,RW_I)
 	      END IF
 	    END IF
