@@ -111,6 +111,7 @@ CHG=$(LIB_MOD)(chg_exch_mod_v3.o)
 MOD=$(LIB_MOD)(mod_cmfgen.o)
 DIS=$(LIB_MOD)(mod_lev_dis_blk.o)
 CONT=$(LIB_MOD)(control_variable_mod.o)
+ILF=$(LIB_MOD)(iter_log_fmt_mod.o)
 NUC=$(LIB_MOD)(nuc_iso_mod.o)
 HYD=$(LIB_MOD)(cmf_hydro_module.o)
 EDD=$(LIB_MOD)(eddfac_rec_defs_mod.o)
@@ -187,6 +188,13 @@ $(MOD):
 
 $(CONT):
 	(cd ../mod_subs ; make)
+
+$(ILF):
+	(cd ../mod_subs ; make)
+
+# solveba_v13.f USEs iter_log_fmt_mod for the OUTGEN section
+# banners and RUNAWAY table layout.
+$(LIB)(solveba_v13.o) : $(ILF)
 
 $(EDD):
 	(cd ../mod_subs ; make)
