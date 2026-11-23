@@ -1,5 +1,48 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [~] JFNK integration audit, 23-Nov-2026: PASS WITH LIMITATIONS.
+      Scope: SOB + USE_LAM_ES=T + DIAG; input, admission, residual,
+      update/rollback, TRI selection, and unsupported-route guards.
+      Source trace: rd_control_variables parses DO_JFNK into
+      USE_JFNK_SOLVER; solve_for_pops:2827-2872 dispatches either
+      JFNK_SOLVE_CORR_V1 or conventional SOLVEBA_V13. Admission requires
+      warmup, an eligible non-Lambda call, contracting last full-call
+      demand below the gate, and hysteresis (SOB stable-Lambda relief
+      can reduce NREQ to 1). DO_JFNK does not imply Newton executed.
+      Frozen residual includes stored radiative terms and CMAT_RAD
+      linearization; it is not a fully coupled transfer Newton solve.
+      F(0) mismatch above 1e-6 rejects frozen Newton. Applied frozen
+      steps are re-evaluated against the entry residual; non-improving
+      steps restore populations and fall back to SOLVEBA. Failed ran
+      attempts force a BA rebuild. Fixed-T masking is executable-tested.
+      Coupled sweep registration in cmfgen_sub:1463-1466 requires
+      JFNK_COUPLED. SOB additionally needs JFNK_COUPLED_SOB and uses the
+      reach-fail fallback, not demand admission. Neither flag is set in
+      the current arm: it tests frozen-J JFNK, not coupled acceleration.
+      TRI: prepare_VADAT forces DIAG unless JFNK_USE_BANDED=T, when it
+      selects TRI; this audit does not validate a live banded model.
+      Tests on interactive jobs 13602310 and 13602407: solver suite
+      89 reported pass / 0 unexpected fail, operator battery 36/0,
+      fixed-T predicate 1/0 (four modes), VADAT parser 85/0. Source-only
+      test_jfnk_regressions.py also passed. The 89 includes four known
+      XFAIL diagnostics and skipped inapplicable cases; three XFAILs
+      are poor per-depth LU residual accuracy on ill-conditioned
+      surrogate blocks (mild 7.26e8, hard 8.54e14, shock 8.29e14).
+      They are numerical-quality limitations, not new regressions.
+      Live job 13601645: through it16, LAMBDA_TFIX; OUTGEN explicitly
+      defers JFNK on Lambda-designated iterations, with no admission.
+      Effectiveness and speedup remain UNVERIFIED on this cold arm.
+      Its NG=T, NT=F, and newer binary differ from the conventional
+      production arm, so this pair is not a controlled timing A/B.
+      Status-report correction: ITER_HISTORY se/se2 columns are SE
+      diagnostics, not outer/inner luminosities; lum at it16 is 7.902.
+      No solver source, run settings, or live jobs changed. Verdict:
+      wiring supported by inspected code and targeted tests; full-model
+      residual repeatability, accepted Newton progress, coupled/banded
+      production correctness, and wall-clock benefit are not certified.
+      This audit closes with DEFERRED effectiveness pending actual
+      admissions in the existing run; no follow-on campaign submitted.
+
 ## Per-iteration OUTGEN layout refactor (23-Nov-2026)
 
 - [x] Formatting-only refactor of the per-iteration console report.
