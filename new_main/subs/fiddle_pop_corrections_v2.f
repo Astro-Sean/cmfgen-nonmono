@@ -8,7 +8,7 @@
 	1              SCALE_OPT,LAMBDA_IT,LU_SUM,NT,ND)
 	USE SET_KIND_MODULE
 	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP,
-	1     DO_SOB_FG_KNOP
+	1     DO_SOB_FG_KNOP,CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 ! Altered: 14-Feb-2014 -- Changed to V2 -- added MAX_dT_COR to call.
@@ -227,7 +227,9 @@
 	      END DO
 	    END IF
 	  END DO
-	  WRITE(6,'(A,ES12.4)')' The minimum value of scale for Major species is:',MIN_SCALE
+	  IF(CONV_DIAG_LVL .GE. 1)
+	1    WRITE(6,'(A,ES12.4)')
+	2    ' The minimum value of scale for Major species is:',MIN_SCALE
 	END IF
 !
 ! Only adjust populatons at adjacent depths when the corrections are rediculously large
