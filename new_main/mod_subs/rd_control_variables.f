@@ -4405,6 +4405,13 @@
 	  CALL RD_STORE_LOG(NG_ABSTAIN,'NG_ABSTAIN',L_FALSE,
 	1   'Hold non-contractive/non-positive NG components per-component?')
 !
+! NG_SHADOW_DIAG: see CONTROL_VARIABLE_MOD. Diagnostics only;
+! module-initialized .FALSE., so an absent key and unit-test
+! drivers both leave it off. Needs DO_NG=T to have events.
+!
+	  CALL RD_STORE_LOG(NG_SHADOW_DIAG,'NG_SHADOW_DIAG',L_FALSE,
+	1   'Report per-window NG fit diagnostics at each NG event?')
+!
 	  WRITE(LUSCR,'()')
 	  AVERAGE_DO=.FALSE.; NUM_OSC_AV=4; ITS_PER_AV=8
 	  CALL RD_STORE_LOG(AVERAGE_DO,'DO_AV',L_FALSE,'Perform averaging of oscillating pops')
