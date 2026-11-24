@@ -438,6 +438,11 @@ def main():
         else "",
     )
     rep.check(
+        "nurf: nu-census prints the full source decomposition",
+        "H/X0" in rn.stdout and "rmax" in rn.stdout,
+        rn.stdout[-400:],
+    )
+    rep.check(
         "nurf: implicit arms land the same fixed point",
         kv(rn.stdout, "RF_NUSOLV_MAXREL") < 0.5
         and kv(rn.stdout, "RF_BLK_MAXREL") < 0.5,
