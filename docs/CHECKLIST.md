@@ -265,6 +265,30 @@ Exit criterion: converges, stalls bounded, or detonates; verdict
 recorded here with job id and commit. Any negative or nonfinite write
 amplification beyond existing guards stops the arm for diagnosis.
 
+Status 24-Nov-2026: E1-E3 implemented and pushed through `66cb87c7`.
+`test_mom_blk` 59/59, including dense-reference machine-precision
+solves, a signed upwind edge, and the solver-error contraction probe
+(lagged growth 1.847/iter on the marginal ring; block error ratio
+3.27e-15). `test_mom_solve` 143/143, `test_mom_nu` 53/53, and
+`test_vadat_keys` 91/91. The capture sign audit is closed analytically
+and by the signed manufactured case: capture satisfies
+`NU_X0 + NU_CUP*J(NU_KUP)=XM_SAVE`, so the implicit row is
+`tri*x - NU_CUP*xup = NU_X0`; PSI remains only in `NU_TB`. The solver
+now reports the true final preconditioned residual rather than only
+the Arnoldi estimate. The production archive and `cmfgen_dev.exe`
+were refreshed; frozen sha256
+`3763d79869ca12c48c5bd7144bb81c876fa0c0b2ecf1099975f70a2173951cd4`.
+E4 arm submitted through `run_model_grid.py`: CMFGEN `13655952`, OBS
+`13655953` (dependent), same eps1em3 seed/deck with `USE_LAM_ES=F`,
+`MOM_NUSOLV=F`, `MOM_BLKGMRES=T`. Verdict pending. The full
+`run_all_tests.py` pass was stopped after the solver source changed
+mid-run; before that point all moment and VADAT batteries were green,
+while the known unrelated pre-existing reds remained `test_auto_ion`
+(missing fixture), `test_cfr4` (harness decode), `test_es_conv`
+(obs archive gap), and the documented `test_knop_lagged_map` sdab
+failure. `test_fg_sw_sym` and `test_fnv1a` pass after the companion-
+object fix. A final full pass from the committed state is still owed.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
