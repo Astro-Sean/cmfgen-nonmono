@@ -1415,6 +1415,17 @@ KN_ORD_P2DAMP default unchanged (F).
       best-pass-rejection WRITEs :6707/6713/6719, commit
       4a79500b). OBS chains 13651767 + 13652627 cancelled on
       dead dependencies.
+      PHASE 2 (24-Nov-2026, user check-in granted): plan doc
+      docs/plans/MOM_NUSOLV_MARGINAL_MODES_TODO.md. Question:
+      do a near-marginal ring freeze band (|1-A|<1e-2 keeps old
+      iterate) plus a per-cell nu-write trust region (cap ~1e2
+      on the normalized ratio) stop the amplified commits while
+      keeping the exact solve on non-marginal modes? Evidence:
+      new NMARG/NCAP census vs NRING, commit magnitudes vs the
+      1e23 excursions, residual trend, population drift. Exit:
+      bounded stall without excursions (marginal-ring hypothesis
+      confirmed, decide implicit-H phase next), still amplified
+      (hypothesis wrong), or converges.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
