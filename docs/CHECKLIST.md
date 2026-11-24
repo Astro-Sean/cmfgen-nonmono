@@ -280,7 +280,13 @@ were refreshed; frozen sha256
 `3763d79869ca12c48c5bd7144bb81c876fa0c0b2ecf1099975f70a2173951cd4`.
 E4 arm submitted through `run_model_grid.py`: CMFGEN `13655952`, OBS
 `13655953` (dependent), same eps1em3 seed/deck with `USE_LAM_ES=F`,
-`MOM_NUSOLV=F`, `MOM_BLKGMRES=T`. Verdict pending. The full
+`MOM_NUSOLV=F`, `MOM_BLKGMRES=T`. CMFGEN is running; verdict
+pending. Early runtime evidence at it670: four refresh cycles
+completed in 2.6-9.1 s; `blk-gmres` never exceeded five Krylov
+iterations, used no restarts, and held final residuals below 1E-3,
+though 33 of the first 55 lines needed zero iterations because the
+incoming iterate already satisfied the captured-system tolerance.
+The outer field response remains the open question. The full
 `run_all_tests.py` pass was stopped after the solver source changed
 mid-run; before that point all moment and VADAT batteries were green,
 while the known unrelated pre-existing reds remained `test_auto_ion`
@@ -589,6 +595,36 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       settle/conditioning series + iterations/wall time
       to exit, then decide whether a guarded-acceptance
       NG_ADAPT candidate justifies the third arm.
+      A/B VERDICT (24-Nov-2026, jobs COMPLETED): ngshadow
+      converged it972 in 5h49m; ngoff converged it984 in
+      6h03m - NG cadence net-positive by 12 its / 14 min
+      (~4%) from the same perturbed warm state. 19 events
+      at cadence 16 (it672..960). Telemetry across all
+      events: production N=4-7 fits NEVER settled (settle
+      1.4..160; |c|1 ~ 1e3..4e4 late); committed kicks
+      decayed 3.2%/2.8% -> 0.08%/0.09% tracking demand.
+      Kick value asymmetric: mid-run kicks net-positive
+      (rebound re-damped faster than unaccelerated tail);
+      late kicks ~neutral (it960 rebounded 1.1e-3 -> 6.4e-2
+      then re-damped to eps in ~10 its, about what the tail
+      alone needed). Genuinely settled deep-window
+      predictions exist at N~11-12 but propose ~100x
+      smaller moves (1e-4 vs 2-3e-2), and it688 showed the
+      degenerate failure mode (|c|1=1.00 = prediction
+      copies newest iterate) - a settle gate needs a
+      coefficient-norm guard to be safe. Mechanism answer:
+      the cadence fires unsettled extrapolation gambles
+      that pay mid-run; a Magritte settle-gate would defer
+      ~all of them (equiv to ngoff, ~12 its slower on this
+      model) so adaptive-acceptance alone loses the small
+      win. Only variant the data justifies: a near-eps
+      abstention (skip NG when demand < C*eps with C~5-10,
+      or when predicted move >~ remaining demand) worth
+      ~1% - below the noise floor for a third arm unless
+      a new deck shows bigger kick waste. NO third arm
+      submitted; keeping NG cadence as is. NG1 mechanism
+      question answered; gate-design constraints recorded
+      for any future NG_ADAPT proposal.
 - [ ] Declared bounded investigation K1 - KNOP formal
       non-contraction. Question: can the corrected-exit build
       contract the lagged field from a cold start, and what
@@ -1638,12 +1674,15 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       (sdab pinned-fail, documented defect), lagged_field suite,
       knop_operator 32, knop_spv 93, knop_p2_state 19,
       knop_replay_p2 29, knop_spec_gate 19, knop_endpoint 6,
-      mom_solve 143 (incl. nurf/nuw MOM_NUSOLV arms), mom_nu 32,
+      mom_solve 143 (incl. nurf/nuw MOM_NUSOLV and MOM_BLKGMRES
+      refresh arms), mom_nu 53, mom_blk 59,
       mom_gs 34, mom_aa_state 62, mom_sweep_table 8,
-      es_resid 20, jfnk opint 36 + regressions,
+      vadat_keys 91, es_resid 20, jfnk opint 36 + regressions,
       obs_frame 11+15, ng_abstain 17, lam_handoff 51, gs_drift_diag,
-      iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
-      test_es_conv remains blocked on the known obs/ archive gap.
+      iter_conv_gate 13. Targeted moment/VADAT batteries are green
+      at 24-Nov-2026; a final full run_all_tests pass from the
+      block-GMRES commit is still owed. test_es_conv remains blocked
+      on the known obs/ archive gap.
 - [x] Manufactured ordered-stencil + exit-policy + period-2
       classifier (`kn_ccorner_test.py`).
 - [x] Stale-archive gate maintained (libsubs.a member rebuilt with
