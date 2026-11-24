@@ -242,6 +242,16 @@
       This audit closes with DEFERRED effectiveness pending actual
       admissions in the existing run; no follow-on campaign submitted.
 
+## Moment-machinery audit (24-Nov-2026, user-directed)
+
+Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
+correct and robust - row assembly (TA/TB/TC/XM), H reconstruction,
+EPS sign-splitting, LAG_BND scaling, XM_POS clipping, boundary rows,
+upwind conventions, capture consistency.
+Evidence plan: line-level static audit plus python-driven tests
+closing coverage gaps beyond test_mom_nu/solve/gs/aa_state batteries.
+Exit criterion: verdict per component (VERIFIED/DEFECT), fixes or
+rejected hypotheses recorded in docs/audits/.
 ## Per-iteration OUTGEN layout refactor (23-Nov-2026)
 
 - [x] Formatting-only refactor of the per-iteration console report.
