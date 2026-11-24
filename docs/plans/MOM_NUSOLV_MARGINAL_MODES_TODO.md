@@ -158,3 +158,77 @@ FAIL/opt-in otherwise.
   (`MOM_J_CMF_NONMONO_V1`) route, currently FAIL/opt-in.
 - No default-path change: all edits stay inside the
   `MOM_NUSOLV`-gated blocks and routine.
+
+## 6. Phase 3: lagged-field investigation (24-Nov-2026, user directive)
+
+F4 verdict (arm 13653300): NMARG=0 everywhere, cap binding but
+unable to contain - amplification is not ring inversion. Phase 3
+investigates the lagged field itself.
+
+### Mechanism analysis (pre-census)
+
+Matrix amplification is impossible on the captured rows:
+MOM_LAG_BND bounds lagged weight by diagonal excess, so every
+row coupling a < 1 strictly; chain composition then decays, and
+NMARG=0 bounds ring gain 1/(1-A) <= 100. Yet the write cap
+(100x) fires hundreds-thousands per pass. Resolution must be in
+the captured source X0, not the matrix:
+
+1. X0 carries the lagged H-divergence + EPS scatter + upwind-J
+   content. H is reconstructed algebraically from same-frequency
+   J each sweep, so the H store scales with whatever field was
+   committed - including inflated commits. Feedback loop closes
+   through the store, not the matrix: commit inflates J -> H
+   store inflates in proportion -> next X0 inflates -> solve
+   output linear in X0 -> commit re-inflates. No a < 1 bound
+   constrains this because the gain is in R1 = X0/(TB*|J|), the
+   source-to-field ratio, which the lagbnd census cannot see.
+2. xm_pos evidence (arm 13653300, 9 refreshes): thousands of
+   rows per refresh with negative RHS, worst clipped 1.9e5-4.5e5
+   in scaled units. Per the code comments these are compressing,
+   absorption-dominated rows with ~zero local source - the rows
+   where the operator split has no physical positive source at
+   all. The static source cannot balance the lagged debit there
+   no matter how the write is guarded.
+3. lagbnd massively active (864K-1031K boundary-lag cells per
+   pass): huge row populations sit at or past the M-matrix edge
+   (excess ~ 0), i.e. the compressing grid is exactly where the
+   diffusion-style closure is marginal. Physical reading: in
+   compressing regions the CMF transport is advection-dominated,
+   H is legitimately negative, and the source-positive moment
+   hierarchy does not admit the solution within a lagged frame.
+   This is the structural reason lambda-style iteration cannot
+   contract there - consistent with the lamesF stall itself.
+
+### Census instrumentation (committed fcde29ad)
+
+Per-pass nu-census print decomposes the capture: per-row a-value
+max, source inflation R1 = X0/(TB|J|) max, H-share of X0, EPS
+share, negative-RHS row count. Discrimination logic:
+
+- rmax small (<10) with caps firing -> ring gain at the band
+  edge (A ~ 0.99) amplifies moderate sources; tighten band.
+- rmax large (>50) -> source inflation confirmed; H/EPS share
+  picks the lever: H-share high -> implicit-H capture (feasible:
+  VB/VC row coefficients already assembled; but converges toward
+  the coupled wavelength-depth solve); EPS-dominated -> EPS
+  implicitness or tighter EPS bound.
+- Either way the compressing-row negative-source population is
+  the structural floor: rows whose only positive source is the
+  clipped zero cannot carry a physical fixed point of the split.
+
+### Probe arm
+
+lamesF_nusolv3, CMFGEN 13654121 (+OBS 13654122), same eps1em3
+seed, instrumented exe. Queued behind QOSGrpCpuLimit at writing.
+
+### Optimization decision tree (after census)
+
+1. If H dominates inflated X0: implicit-H capture is the only
+   in-frame lever, but note it converges structurally to the
+   Baron & Hauschildt coupled wavelength-depth block solve -
+   at that point prefer the real block solve over a half-port.
+2. If EPS dominates: EPS-implicit treatment is smaller surgery.
+3. If neither (static-source/clip dominated): the lagged frame
+   is wrong in compressing regions, full stop - close the route
+   and concentrate on the coupled solve or USE_LAM_ES=T.
