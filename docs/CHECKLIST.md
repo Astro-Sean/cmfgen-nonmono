@@ -1439,6 +1439,34 @@ KN_ORD_P2DAMP default unchanged (F).
       lamesF_nusolv2.yaml - same eps1em3 seed, MOM_NUSOLV=T.
       CMFGEN 13653300, OBS 13653301. Pinned exe 3fc083cd
       carries 4d78adaf.
+      VERDICT (24-Nov-2026, job 13653300, killed at it675
+      after 9 it): FAIL - guards correct but the mechanism
+      hypothesis is refuted. NMARG=0 on every pass of every
+      iteration: no ring on the real grid is near-marginal,
+      so the freeze band never engages - the amplification
+      never came from near-singular 1/(1-A) division. The
+      write cap binds (59-7210 cells/pass) but cannot contain
+      the excursions: it limits one pass's write to 100x, and
+      20-40 passes per refresh compound past it - commits hit
+      7.5e23 largest change with 685K-1M cells moved, the
+      same class as the unguarded arm. Populations degrade
+      identically (outer L 9.1e7 by it675). Sharper mechanism:
+      in the explosive regime the exact solve of stale-input
+      equations amplifies through chain composition and the
+      lagged source magnitude - loop gain above unity no
+      matter what guards the write. The lagged splitting is
+      the defect, not its ordering: Baron & Hauschildt 2004
+      solve the coupled wavelength-depth system directly, no
+      lagged iteration. Unit-side the guards are verified
+      exact (test_mom_nu 53/53 incl. the iterated probe:
+      unguarded growth measured exactly 1000.00/iter = the
+      c/(1-a) amplification rate) - the failure is physical-
+      regime, not implementation. OBS 13653301 cancelled on
+      the dead dependency. Route stays FAIL/opt-in; the only
+      contraction-capable lever left is reducing the lagged
+      fraction itself (implicit H channel, or a coupled
+      wavelength-depth block solve) - needs a user decision
+      before a phase 3.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
