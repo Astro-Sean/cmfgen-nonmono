@@ -1,5 +1,47 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [~] BLKBAND zero-row audit - PARTIAL verdict (24-Nov-2026):
+      Ni10 day-40 saved BA_ASCI_N_D5 is 193x193 with no exact zero
+      rows/columns or zero populations, but 12 non-finite entries:
+      rows 173-176,179-180 in columns 180 (FeIII) and 193 (T).
+      RHS is finite; POPS(180)=3.9648488283438e-163. D41 and DND
+      captures are finite with no exact zero rows/columns. D5 SHA256:
+      a1245865ccaabb1ad3f297fad09e87cb0e81f8e44dd9384bd6596980b36ab684.
+      Capture is after GENERATE_FULL_MATRIX_V3 population-column scaling,
+      before null pinning, DGEEQU, or DGETRF. Invalid derivatives therefore
+      predate factorization; small finite populations are not proof of
+      null equations. Source: DGEEQU INFO ignored; failed DIAG depths
+      zero STEQ and still return FLAG=T. Consequently the output finite
+      check and BA-SOLVE ok=T do not certify a valid whole-grid solve.
+      Snapshot OUTGEN has 562 failures, iterations 23-106, depths
+      1-6,11-12, and no null-pinning notices. The run was live; counts
+      and captures are not synchronized to a single failing call.
+      Frozen executable dac3e784948a2a4e has the null-pin symbol;
+      manifest records git 4f69b20b with 19 dirty files, so current
+      source is not proven identical to that binary.
+      Production-object tests: test_cmf_blkband_pin.py 6 checks PASS;
+      test_sub_sob_line.py 22 checks PASS. They do not cover tiny-positive
+      emissivity overflow or this captured model. Diagnostic SciPy LAPACK
+      replay of D5 returned INFO=0 but 193 non-finite solution entries;
+      this is not production-MKL validation.
+      FIX landed (this commit): reproduced through the production
+      sub_sob_line_v3.o - the lambda-iteration derivative
+      VC_SIM=JBAR*CHIL_MAT/ETAL_MAT**2 (and SRAT=ETAL/ETAL_MAT) overflows
+      to Inf when ETAL_MAT is positive but pinned near the population
+      floor; tiny POPS cannot rescue an already-infinite product, so
+      Inf/NaN enters the BA Jacobian (the captured D5 column-180/193
+      pattern). The existing ETAL_MAT sign guard now also zeroes
+      non-finite VB_SIM/VC_SIM, and SRAT is zeroed when its quotient is
+      non-finite - same defect class, same zero-the-unusable-derivative
+      remedy already in the routine. New drv case tiny_etal
+      (ETAL_MAT=1E-160): before the fix VB_SIM printed -9.3E159 and
+      NNAN>0; after, VB/VC zeroed and all BA finite. test_sub_sob_line
+      25/25 PASS incl. sig_clmp=base bitwise (default path unchanged).
+      Remaining: full-model verification (a rerun of the Ni10 40d arm on
+      this binary) and the separate diagnostics gap - DGEEQU IFAIL is
+      unchecked and a failed DIAG depth returns ok=T with zeroed STEQ -
+      left open, needs a user decision on the solve contract.
+
 - [~] Declared bounded investigation K1 phase 2 - period-2
       damping arm plus NI=1/handoff gate fixes (24-Nov-2026,
       work-order on branch knop/lam-handoff-ni1). Audit findings
@@ -1285,6 +1327,27 @@ KN_ORD_P2DAMP default unchanged (F).
       LAGB/XMNEG census. Exit: converges (map contractive, route
       back in contention), stalls again (same bounded class), or
       detonates (new defect). Single arm, no chain.
+      VERDICT (24-Nov-2026, job 13646071, killed at it~688 after
+      22 it): STALLED - same bounded non-contraction class. The
+      compressing branch is the whole defect: expanding-direction
+      refresh passes contract cleanly (residual ~1e4 -> 1-3, a few
+      hundred cells above 5%), compressing-direction passes stall
+      at residual ~1e4 with ~10K+ cells >5% every iteration.
+      Retained store oscillates between best-pass candidates
+      differing by 1e6-1e8 (bounded limit cycle, no fixed point).
+      Containment clean: 0 negative J_NEXT, 0 quarantined, 0 solve
+      failures; F4 census live (off-grid reads 0 on sweep, 184
+      inside one refresh). Structural deadlock: conv-exit held on
+      lam-field-not-ready (MOM_J_GS_OK can never fire while the
+      refresh stalls) + ex_maxch>=eps (demand 1e5-1e6 vs eps 1e-3).
+      Stall population = the audit's predicted marginal cells:
+      ~10K GAM-floor (|1+sigma*K| resonance floored at 1e-2),
+      ~96K eps-limit hits/pass, ~8.6K neg-RHS rows, LAG_BND bound
+      scaling 170K-1M cells/sweep (smallest lag 0.0). Fixes worked
+      as intended (map-mismatch floor removed, honest counting);
+      the rho~1 compressing lagged coupling is not fixable by
+      relaxation - needs an implicit/direct frequency-chain solve.
+      OBS 13646072 cancelled on the dead dependency.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
