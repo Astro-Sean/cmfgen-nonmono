@@ -156,6 +156,31 @@ REP.check(
     tf("H_nm_quiet_dem"),
 )
 
+# ---- strict/weak field split (KN_LAM_PARTIAL_HANDOFF wiring) -------
+# LAM_HANDOFF_OK reads the weak flag; CONV_EXIT_EVAL reads the strict.
+REP.check(
+    "split: fold-only hold opens the handoff",
+    tf("P1_partial_handoff"),
+)
+REP.check(
+    "split: fold-only hold blocks the exit, fold label",
+    not tf("P1_partial_exit")
+    and "lam-field-not-converged" in vals.get("P1_partial_exit", ""),
+)
+REP.check(
+    "split: weak-gate hold blocks the handoff",
+    not tf("P2_gate_handoff"),
+)
+REP.check(
+    "split: weak-gate hold blocks the exit, gate label",
+    not tf("P2_gate_exit")
+    and "lam-field-not-ready" in vals.get("P2_gate_exit", ""),
+)
+REP.check(
+    "split: clean field opens handoff and exit",
+    tf("P3_clean_handoff") and tf("P3_clean_exit"),
+)
+
 # ---- Production integration source pins ---------------------------
 def src(rel):
     return (common.TREE / rel).read_text()
@@ -233,6 +258,27 @@ REP.check(
     "pin: LAM_FIELD_NOT_READY / HAS_LAGGED_FIELD declared",
     "LOGICAL LAM_FIELD_NOT_READY" in cvm
     and "LOGICAL HAS_LAGGED_FIELD" in cvm,
+)
+REP.check(
+    "pin: strict flag declared and recomputed per call",
+    "LOGICAL LAM_FIELD_NOT_CONVERGED" in cvm
+    and "LAM_FIELD_NOT_CONVERGED=LAM_FIELD_NOT_READY" in sfp,
+)
+REP.check(
+    "pin: fold-in is flag-gated on KN_LAM_PARTIAL_HANDOFF",
+    "IF(.NOT. KN_LAM_PARTIAL_HANDOFF)LAM_FIELD_NOT_READY=.TRUE." in sfp,
+)
+REP.check(
+    "pin: exit conjuncts read the strict flag",
+    cms.count(".NOT. LAM_FIELD_NOT_CONVERGED") >= 3,
+)
+REP.check(
+    "pin: KN_LAM_PARTIAL_HANDOFF parsed with default F",
+    re.search(
+        r"KN_LAM_PARTIAL_HANDOFF=\.FALSE\.\s*\n\s*CALL RD_STORE_LOG",
+        rcv,
+    )
+    is not None,
 )
 REP.check(
     "pin: no_refresh token gated to FG routes",
