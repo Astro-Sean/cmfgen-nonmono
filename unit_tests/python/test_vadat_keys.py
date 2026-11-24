@@ -78,6 +78,7 @@ HELPERS = [
     "newsubs/rd_store_log.f",
     "new_main/mod_subs/iter_ledger_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
+    "plane/mom_blk_gmres_mod.f",
     "plane/mom_j_cmf_nonmono_v1.f",
     "new_main/mod_subs/rd_control_variables.f",
 ]
@@ -834,6 +835,36 @@ def main():
         "RESULT_OK" in p.stdout
         and v.get("MOM_NUSOLV") == "F"
         and v.get("MOM_NUSOLV_SLV") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # MOM_BLKGMRES opt-in key parses and lands on both stores. It is
+    # independent of MOM_NUSOLV; solver precedence when both are set is
+    # pinned by the moment-solver unit batteries rather than the parser.
+    d = write_vadat(
+        WORKDIR / "vadat_mom_blkgmres",
+        {"MOM_BLKGMRES": "T"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_BLKGMRES=T parses, lands, and reaches the solver module",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_BLKGMRES") == "T"
+        and v.get("MOM_BLKGMRES_SLV") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_mom_blkgmres_def",
+        {"MOM_BLKGMRES": None},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_BLKGMRES absent key defaults F on both stores",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_BLKGMRES") == "F"
+        and v.get("MOM_BLKGMRES_SLV") == "F",
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
