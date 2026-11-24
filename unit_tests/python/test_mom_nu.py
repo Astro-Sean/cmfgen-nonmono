@@ -361,6 +361,78 @@ def main():
         "readers of a frozen node solve with it as a constant",
     )
 
+    # --- iter: composite-map dynamics on a marginal ring ----------------
+    # Explosive-regime emulation: the 2-cycle's exact solve amplifies
+    # the lagged feedback by c/(1-a) = 1000 per iteration. Theory
+    # rates: conf1 (freeze band) rides the damped Jacobi step at
+    # ~1.025/iter; conf2 (cap only) is bound by the trust region at
+    # 100/iter; conf3 (unguarded) amplifies at 1000/iter. Measuring
+    # the realised rates pins both the amplification mechanism and
+    # the guard mechanics under iteration - the static cases above
+    # cannot see this (the m15 failure was dynamical).
+    r = run(exe, "iter", "nu_iter", cwd=WORKDIR)
+    rep.check("iter: driver completed", "RESULT_OK" in r.stdout)
+    trajs = {1: [], 2: [], 3: []}
+    cens = {1: [], 2: [], 3: []}
+    for line in r.stdout.splitlines():
+        if line.startswith("ITER"):
+            p = line.split()
+            conf, it = int(p[1]), int(p[2])
+            trajs[conf].append(float(p[3]))
+            cens[conf].append(tuple(int(v) for v in p[5:9]))
+    rep.check(
+        "iter: all three configurations ran 40 iterations",
+        all(len(trajs[c]) == 40 for c in (1, 2, 3)),
+    )
+
+    def slope(xs, i0, i1):
+        """Log-linear growth rate per iteration over xs[i0:i1]."""
+        ly = np.log(np.array(xs[i0:i1]))
+        return np.exp(np.polyfit(np.arange(len(ly)), ly, 1)[0])
+
+    r1 = slope(trajs[1], 20, 40)
+    rep.check(
+        "iter conf1 (freeze): ring drifts at the damped Jacobi rate",
+        abs(r1 / 1.025 - 1.0) < 0.15,
+        f"measured {r1:.4f}/iter vs theory 1.025",
+    )
+    r2 = slope(trajs[2], 4, 14)
+    rep.check(
+        "iter conf2 (cap only): growth bound by the trust region",
+        abs(r2 / 100.0 - 1.0) < 0.10,
+        f"measured {r2:.2f}/iter vs theory 100",
+    )
+    r3 = slope(trajs[3], 2, 10)
+    rep.check(
+        "iter conf3 (unguarded): growth at the amplification rate",
+        abs(r3 / 1000.0 - 1.0) < 0.10,
+        f"measured {r3:.2f}/iter vs theory 1000",
+    )
+    rep.check(
+        "iter: freeze band fires every iteration in conf1 only",
+        all(c[0] == ND - 1 for c in cens[1][5:])
+        and all(c[0] == 0 for c in cens[2])
+        and all(c[0] == 0 for c in cens[3]),
+        f"conf1 NMARG/it={cens[1][10][0]}, "
+        f"conf2={cens[2][10][0]}, conf3={cens[3][10][0]}",
+    )
+    rep.check(
+        "iter: write cap binds on both ring members in conf2",
+        all(c[1] == 2 * (ND - 1) for c in cens[2][2:15]),
+        f"NCAP/it={cens[2][10][1]}",
+    )
+    rep.check(
+        "iter: unguarded run never caps",
+        all(c[1] == 0 for c in cens[3]),
+    )
+    rep.check(
+        "iter: ordering of outcomes matches the m15 phenomenology",
+        trajs[1][-1] < trajs[2][-1] < trajs[3][-1],
+        f"x9(40): freeze {trajs[1][-1]:.2e} < cap {trajs[2][-1]:.2e}"
+        f" < unguarded {trajs[3][-1]:.2e} - freeze drifts (stall),"
+        " cap explodes slower, unguarded explodes fastest",
+    )
+
     rep.summary()
 
 
