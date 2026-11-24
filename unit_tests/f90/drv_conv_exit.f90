@@ -28,7 +28,8 @@ program drv_conv_exit
 !   1 lambda-state ok, 2 not jfnk-unconverged, 3 ex_maxch<eps,
 !   4 dem_ok, 5 not hydro-revision, 6 not pops-held,
 !   7 not resacc-pending, 8 not on-ng-iteration,
-!   9 not field-not-ready.
+!   9 not field-not-converged (the strict flag; the truth table
+!   mirrors it into both field args, which is the flag-F wiring).
 ! lam_ok is driven through last_lam=0,rd_lam=F,do_lam_auto=F and
 ! main_counter = 1 (pass) or 0 (fail); the on-ng gate drives
 ! last_ng = -1 (pass) or = main_counter (fail).
@@ -44,7 +45,7 @@ program drv_conv_exit
     call conv_exit_eval(.false.,.false.,0,mc_lam, &
       .not.bits(2),ex_maxch,EPS,bits(4),.not.bits(5), &
       .not.bits(6),.not.bits(7),last_ng,.not.bits(9), &
-      lam_ok,all_met,npass,fails)
+      .not.bits(9),lam_ok,all_met,npass,fails)
     npop=count(bits)
     if (all_met .neqv. (npop .eq. 9) .or. npass .ne. npop) &
       nbad=nbad+1
@@ -57,62 +58,62 @@ program drv_conv_exit
 ! Case A: the eight pre-fix gates pass, field not ready -> HOLD.
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.true.,lam_ok,all_met,npass,fails)
+    -1,.true.,.true.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,I0,A,A)') 'A_holdfield=',all_met, &
     ' npass=',npass,' fails=',trim(fails)
 !
 ! Case B: all nine pass -> MET.
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,I0,A,A)') 'B_allpass=',all_met, &
     ' npass=',npass,' fails=',trim(fails)
 !
 ! Case C: each single failure in turn.
   call conv_exit_eval(.false.,.false.,0,0, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_lamstate=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .true.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_jfnk=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,2.0_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_exm=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.false.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_dem=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.true.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_hydro=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.true.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_held=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.true., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_pend=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    1,.false.,lam_ok,all_met,npass,fails)
+    1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_onng=',all_met,' fails=',trim(fails)
 !
 ! Case D: several gates fail together -> all labels present.
   call conv_exit_eval(.false.,.false.,0,0, &
     .true.,2.0_LDP,EPS,.false.,.false.,.true.,.true., &
-    0,.true.,lam_ok,all_met,npass,fails)
+    0,.true.,.true.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,I0,A,A)') 'D_multi=',all_met, &
     ' npass=',npass,' fails=',trim(fails)
 !
@@ -120,8 +121,18 @@ program drv_conv_exit
 ! even with last_lam=main_counter.
   call conv_exit_eval(.true.,.false.,0,0, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,L1)') 'E_forcedlam=',all_met,' lam_ok=',lam_ok
+!
+! Strict/weak split (24-Nov-2026, KN_LAM_PARTIAL_HANDOFF): the
+! ninth gate reads FIELD_NCONV; FIELD_NRDY only picks the label.
+! Fold-only hold (weak F, strict T) must still block the exit
+! and name 'lam-field-not-converged', not the gate label.
+  call conv_exit_eval(.false.,.false.,0,1, &
+    .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
+    -1,.false.,.true.,lam_ok,all_met,npass,fails)
+  write(*,'(A,L1,A,I0,A,A)') 'F_foldonly=',all_met, &
+    ' npass=',npass,' fails=',trim(fails)
 !
 ! ---- CONV_MARGIN_EVAL ---------------------------------------------
 ! eps=0.05 -> small=1.0, sat_raw=2.0e3, ex_maxch=0.03 (passing).
