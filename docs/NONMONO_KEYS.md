@@ -220,6 +220,15 @@ which stamps the same value in the initial VADAT.
 - `NG_ABSTAIN` - per-component NG-extrapolation hold on
   zero-diff and non-positive extrapolation; auto-set under SOB
   (`test_ng_abstain.py`).
+- `NG_SHADOW_DIAG` (default F, diagnostic-only) - at each NG
+  event, `DO_NG_BAND_ACCEL_V4` reads up to 16 SCRTEMP records
+  and reports per band and window size N=4..nwin the
+  affine-fit coefficient L1 norm, implied prediction move,
+  predicted-residual ratio, and the successive-prediction
+  settle ratio that gates adaptive Ng (Magritte, Ceulemans
+  et al. 2024, Sec 4.2; bounded investigation NG1). Lines are
+  prefixed `ng shadow`. No physics or state change; needs
+  `DO_NG=T` to have events (`test_ng_shadow.py`).
 
 ## 3. BA-solver guards and quarantine
 
