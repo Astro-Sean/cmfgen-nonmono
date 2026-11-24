@@ -367,7 +367,9 @@ which stamps the same value in the initial VADAT.
   the composite map's fixed point is the swept system's. The
   lagged H and EPS scatter terms stay explicit. Census: rings,
   singular-frozen rings, frozen rows, rejected negatives print
-  per pass on the `nu-solve` line; `NU_FRESH` freezes
+  per pass on the `nu-solve` line; companion `nu-census` lines report
+  coupling ratios, source inflation, the H-share of `NU_X0`, and
+  nonpositive-excess rows. `NU_FRESH` freezes
   active-set-skipped columns. Targets the bounded
   non-contraction measured on the m15 compressing flow
   (lamesF arm, job 13646071).
@@ -383,8 +385,10 @@ which stamps the same value in the initial VADAT.
   damped, non-negative, trust-region policy. Inactive frequency
   columns are pinned to their incoming iterate. When both
   `MOM_BLKGMRES` and `MOM_NUSOLV` are true, the block solve takes
-  precedence. Census prints iterations, restarts, final residual,
-  rejected writes and write caps on the `blk-gmres` line. Lagged H,
+  precedence. Census prints iterations, restarts, the final true
+  preconditioned residual, rejected writes and write caps on the
+  `blk-gmres` line; companion `nu-census` lines decompose the captured
+  rows. Lagged H,
   EPS scatter, source functions and boundary closures remain outer
   iteration data. Diagnostic solver key.
 - `KN_NI1_FULL` (default F, 24-Nov-2026): certify a production
