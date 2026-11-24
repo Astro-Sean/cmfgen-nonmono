@@ -11,7 +11,9 @@
 !   mode : homo | beta | dec | comp1 | comp2 | strong | jump | zero |
 !          sigx | vconst | compw | recall (comp1 + NEW_FREQ=F recall
 !          per frequency -- the comp_j_blank INACCURATE pattern; the
-!         sweep census must not exceed GS_NTOT)
+!         sweep census must not exceed GS_NTOT) | nurf (comp1 +
+!         NUSOLV-off vs NUSOLV-on refresh A/B -- fixed-point
+!         invariance of the implicit frequency-chain pass)
 !   ntype: nonj | gonly
 !   niter: number of sweeps over all NCF frequencies
 !   outbc: 1 (Eddington closure) or 2 (negated interior row)
@@ -56,7 +58,7 @@
       INTEGER IB1,IB2
       REAL(KIND=LDP), ALLOCATABLE :: CKJ(:,:),CKH(:,:)
       REAL(KIND=LDP), ALLOCATABLE :: JRF0(:,:),HRF0(:,:)
-      REAL(KIND=LDP), ALLOCATABLE :: JDSC(:,:),JASC(:,:)
+      REAL(KIND=LDP), ALLOCATABLE :: JDSC(:,:),JASC(:,:),JNUV(:,:)
       REAL(KIND=LDP) JV(ND),HSC(ND),V11MAX,V11REL
       INTEGER(KIND=2), ALLOCATABLE :: CKQ(:,:)
       REAL(KIND=LDP) DMAX
@@ -164,13 +166,14 @@
       ELSE IF(MODE .EQ. 'vconst')THEN
         NCASE=4; SIGT=-1.0_LDP
       ELSE IF(MODE .EQ. 'comp1' .OR. MODE .EQ. 'ckpt' .OR.
-     1        MODE .EQ. 'rfd' .OR. MODE .EQ. 'recall')THEN
+     1        MODE .EQ. 'rfd' .OR. MODE .EQ. 'nurf' .OR.
+     2        MODE .EQ. 'recall')THEN
         NCASE=5; SIGT(10:13)=-4.0_LDP
       ELSE IF(MODE .EQ. 'comp2')THEN
         NCASE=6; SIGT(7:9)=-4.0_LDP; SIGT(15:17)=-6.0_LDP
       ELSE IF(MODE .EQ. 'strong')THEN
         NCASE=7; SIGT(10:14)=-12.0_LDP
-      ELSE IF(MODE .EQ. 'compw')THEN
+      ELSE IF(MODE .EQ. 'compw' .OR. MODE .EQ. 'nuw')THEN
         NCASE=8; SIGT(8:16)=-4.0_LDP
       ELSE IF(MODE .EQ. 'jump')THEN
         NCASE=9; SIGT(12:12)=-60.0_LDP
@@ -476,7 +479,8 @@
         WRITE(*,'(A,I10)')'SEED_XMNEG=',MOM_XMNEG
       END IF
 !
-      IF(MODE .EQ. 'rfd')THEN
+      IF(MODE .EQ. 'rfd' .OR. MODE .EQ. 'nurf' .OR.
+     1   MODE .EQ. 'nuw')THEN
 !
 ! Test D: refresh-order invariance. The sweep above leaves
 ! J_NEXT_FRQ populated and KN_M_READY set; re-drive the captured
@@ -486,6 +490,12 @@
 ! to the refresh exit tolerance -- a direction-dependent fixed
 ! point would mean the traversal order itself is doing physics.
 !
+! nurf adds the MOM_NUSOLV arm: a third refresh with the implicit
+! frequency-chain pass enabled. It must land on the same fixed
+! point -- the captured equations are the swept row's own, so the
+! composite map's solution is identical -- which the store
+! comparison measures directly.
+!
         ALLOCATE(JRF0(ND_NM,NCF),HRF0(ND_NM,NCF),
      1   JDSC(ND_NM,NCF),JASC(ND_NM,NCF),STAT=IOS)
         IF(IOS .NE. 0)GOTO 999
@@ -494,17 +504,51 @@
         CALL SET_MOM_RF_DIR_OPT('DESC',.TRUE.,.TRUE.,.TRUE.)
         CALL MOM_KNOP_REFRESH_V1()
         JDSC(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+        IF(MODE .NE. 'rfd')
+     1   WRITE(*,'(A,L2)')'RF_DESC_CONV=',MOM_RF_CONV
         J_NEXT_FRQ(1:ND_NM,1:NCF)=JRF0
         H_NEXT_FRQ(1:ND_NM,1:NCF)=HRF0
-        CALL SET_MOM_RF_DIR_OPT('ASC ',.TRUE.,.TRUE.,.TRUE.)
-        CALL MOM_KNOP_REFRESH_V1()
-        JASC(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
-        T1=MAXVAL(ABS(JRF0))
-        WRITE(*,'(A,ES16.8E3)')'RF_ASCDESC_MAXDIFF=',
-     1    MAXVAL(ABS(JASC-JDSC))/MAX(T1,1.0E-30_LDP)
-        WRITE(*,'(A,ES16.8E3)')'RF_ASCDESC_MAXREL=',
-     1    MAXVAL(ABS(JASC-JDSC)/
-     2    (ABS(JDSC)+1.0E-4_LDP*MAX(T1,1.0E-30_LDP)))
+        IF(MODE .EQ. 'rfd')THEN
+          CALL SET_MOM_RF_DIR_OPT('ASC ',.TRUE.,.TRUE.,.TRUE.)
+          CALL MOM_KNOP_REFRESH_V1()
+          JASC(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+          T1=MAXVAL(ABS(JRF0))
+          WRITE(*,'(A,ES16.8E3)')'RF_ASCDESC_MAXDIFF=',
+     1      MAXVAL(ABS(JASC-JDSC))/MAX(T1,1.0E-30_LDP)
+          WRITE(*,'(A,ES16.8E3)')'RF_ASCDESC_MAXREL=',
+     1      MAXVAL(ABS(JASC-JDSC)/
+     2      (ABS(JDSC)+1.0E-4_LDP*MAX(T1,1.0E-30_LDP)))
+        ELSE
+!
+! MOM_NUSOLV arm ('nurf' mode): the chain solve runs after each pass
+! inside the same refresh driver. JDSC is the NUSOLV=F fixed point;
+! the NUSOLV=T store must agree -- the chain solve satisfies the
+! captured equations exactly, so any bulk disagreement is a
+! capture/consistency defect, not physics.
+!
+          ALLOCATE(JNUV(ND_NM,NCF),STAT=IOS)
+          IF(IOS .NE. 0)GOTO 999
+          CALL SET_MOM_NUSOLV(.TRUE.)
+          CALL SET_MOM_RF_DIR_OPT('ALT ',.TRUE.,.TRUE.,.TRUE.)
+          CALL MOM_KNOP_REFRESH_V1()
+          JNUV(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+          T1=MAXVAL(ABS(JRF0))
+          WRITE(*,'(A,ES16.8E3)')'RF_NUSOLV_MAXDIFF=',
+     1      MAXVAL(ABS(JNUV-JDSC))/MAX(T1,1.0E-30_LDP)
+          WRITE(*,'(A,ES16.8E3)')'RF_NUSOLV_MAXREL=',
+     1      MAXVAL(ABS(JNUV-JDSC)/
+     2      (ABS(JDSC)+1.0E-4_LDP*MAX(T1,1.0E-30_LDP)))
+          WRITE(*,'(A,L2)')'RF_NUSOLV_CONV=',MOM_RF_CONV
+          WRITE(*,'(A,ES16.8E3)')'NU_PASS_CHG=',MOM_NU_CHG_LAST
+          WRITE(*,'(A,I10)')'NU_NRING_T=',MOM_NU_NRING_T
+          WRITE(*,'(A,I10)')'NU_NSING_T=',MOM_NU_NSING_T
+          WRITE(*,'(A,I10)')'NU_NFRZ_T=',MOM_NU_NFRZ_T
+          WRITE(*,'(A,I10)')'NU_NNEG_T=',MOM_NU_NNEG_T
+          WRITE(*,'(A,F4.1)')'NU_FINISHED=',
+     1      MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
+          CALL SET_MOM_NUSOLV(.FALSE.)
+          DEALLOCATE(JNUV)
+        END IF
         WRITE(*,'(A,F4.1)')'RF_FINISHED=',
      1    MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
         DEALLOCATE(JRF0,HRF0,JDSC,JASC)
