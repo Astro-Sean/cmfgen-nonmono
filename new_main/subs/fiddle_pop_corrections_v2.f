@@ -23,6 +23,12 @@
 	INTEGER NT
 	INTEGER ND
 	INTEGER LU_SUM
+!
+! edited 24-Nov-2026 (W5): validation messages go to the standard
+! error stream, not unit 6.
+!
+	INTEGER LUER,ERROR_LU
+	EXTERNAL ERROR_LU
 	REAL(KIND=LDP) POPS(NT,ND)
 	REAL(KIND=LDP) STEQ(NT,ND)
 !
@@ -105,18 +111,26 @@
 	  CALL RD_STORE_INT(CONSISTENCY_CNT,'CONSIS_CNT',L_FALSE,'Check whether adjacent pops consistent every ? iterations')
 	  CALL CLEAN_RD_STORE()
 !
-	  IF(L_ST .LT. 1 .OR. L_END .GT. ND)THEN
-	    WRITE(6,*)'Error in depth indices in ADJUST_CORRECTIONS -- invalid range'
-	    WRITE(6,*)'Depth indices=',L_ST,L_END
+	  LUER=ERROR_LU()
+!
+! edited 24-Nov-2026 (W5): L_ST > L_END passed the old check and
+! made every DO L=L_ST,L_END loop below empty, so the file was
+! silently ignored. Now rejected like the out-of-grid range; the
+! applied values are echoed so the warning is actionable.
+!
+	  IF(L_ST .LT. 1 .OR. L_END .GT. ND .OR. L_ST .GT. L_END)THEN
+	    WRITE(LUER,*)'Error in depth indices in ADJUST_CORRECTIONS -- invalid range'
+	    WRITE(LUER,*)'Depth indices requested=',L_ST,L_END
 	    L_ST=1; L_END=ND
+	    WRITE(LUER,*)'Depth indices applied =',L_ST,L_END
 	    RELAX_VARIABLE=1.0_LDP; T_LIM_VARIABLE=0.2_LDP
 	    POP_LIM_VARIABLE=100.0_LDP*CHANGE_LIM		!=>implies no effect
 	  END IF
 !
 	  IF(T_LIM_VARIABLE .LT. 0.0_LDP .OR. T_LIM_VARIABLE .GT. 0.20_LDP)THEN
-	    WRITE(6,*)'Error for T LIMIT in ADJUST_CORRECTIONS -- invalid value'
-	    WRITE(6,*)'Valid range is 0.0 to 0.2'
-	    WRITE(6,*)'T LIMIT parameter read in is',T_LIM_VARIABLE
+	    WRITE(LUER,*)'Error for T LIMIT in ADJUST_CORRECTIONS -- invalid value'
+	    WRITE(LUER,*)'Valid range is 0.0 to 0.2'
+	    WRITE(LUER,*)'T LIMIT parameter read in is',T_LIM_VARIABLE
 	    T_LIM_VARIABLE=0.2_LDP
 	  END IF
 	  DO L=L_ST,L_END
@@ -124,19 +138,27 @@
 	  END DO
 !
 	  IF(POP_LIM_VARIABLE .LE. 1.0_LDP)THEN
-	    WRITE(6,*)'Error for POP LIMIT in ADJUST_CORRECTIONS -- invalid value'
-	    WRITE(6,*)'Valid range is > 1.0'
-	    WRITE(6,*)'POP LIMIT parameter read in',POP_LIM_VARIABLE
+	    WRITE(LUER,*)'Error for POP LIMIT in ADJUST_CORRECTIONS -- invalid value'
+	    WRITE(LUER,*)'Valid range is > 1.0'
+	    WRITE(LUER,*)'POP LIMIT parameter read in',POP_LIM_VARIABLE
 	    POP_LIM_VARIABLE=100.0_LDP*CHANGE_LIM		!=>implies no effect
 	  END IF
 	  DO L=L_ST,L_END
 	    POP_LIM(L)=POP_LIM_VARIABLE
 	  END DO
 !
-	  IF(RELAX_VARIABLE .LT. 0.0_LDP .OR. RELAX_VARIABLE .GT. 2.0_LDP)THEN
-	    WRITE(6,*)'Error for relaxation parameter in ADJUST_CORRECTIONS -- invalid value'
-	    WRITE(6,*)'Valid range is 0.0 to 2.0 '
-	    WRITE(6,*)'Relaxation parameter read in is',RELAX_VARIABLE
+!
+! edited 24-Nov-2026 (W5): RELAX=0 used to pass the check and
+! applied POPS*(1-0) for the whole run while MAXCH kept reporting
+! the demand -- a silent no-op. Require 0 < RELAX <= 2; the .NOT.
+! form also rejects a non-finite value.
+!
+	  IF(.NOT.(RELAX_VARIABLE .GT. 0.0_LDP) .OR.
+	1        RELAX_VARIABLE .GT. 2.0_LDP)THEN
+	    WRITE(LUER,*)'Error for relaxation parameter in ADJUST_CORRECTIONS -- invalid value'
+	    WRITE(LUER,*)'Valid range is > 0.0 and <= 2.0'
+	    WRITE(LUER,*)'Relaxation parameter read in is',RELAX_VARIABLE
+	    WRITE(LUER,*)'Relaxation parameter applied  is',1.0_LDP
 	    RELAX_VARIABLE=1.0_LDP
 	  END IF
 	  DO L=L_ST,L_END

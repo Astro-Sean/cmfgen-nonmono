@@ -126,6 +126,78 @@ def main():
     rep.check("stocknan POPS rows are NaN (floor not applied)",
               all(math.isnan(v) for v in p2), f"{p2}")
 
+    # W5 (24-Nov-2026): ADJUST_CORRECTIONS validation.  Small
+    # uniform STEQ gives SCALE=1 so RELAX is the multiplier.
+    # RELAX=0: warn, applied 1.0, full correction at both depths.
+    d = casedir("relax0")
+    out = run(exe, "relax0", cwd=d).stdout
+    rep.check("relax0 completes", "DONE_" in out)
+    rep.check("relax0 warns + applies 1.0",
+              "Error for relaxation parameter" in out
+              and "applied  is" in out,
+              out[-400:])
+    p1 = row(out, "P1")
+    rep.check("relax0 P1(1)=0.995 (full correction)",
+              close(p1[0], 0.995), f"{p1[0]}")
+    p2 = row(out, "P2")
+    rep.check("relax0 P2(1)=0.995 (full correction)",
+              close(p2[0], 0.995), f"{p2[0]}")
+
+    # RELAX=0.5: half correction (positive control).
+    d = casedir("relaxhalf")
+    out = run(exe, "relaxhalf", cwd=d).stdout
+    p1 = row(out, "P1")
+    rep.check("relaxhalf P1(1)=0.9975 (half correction)",
+              close(p1[0], 0.9975), f"{p1[0]}")
+    rep.check("relaxhalf T row=2.9985 (half correction)",
+              close(p1[3], 2.9985), f"{p1[3]}")
+
+    # RELAX=0.5 over L_ST=1,L_END=1 only: depth1 half, depth2 full.
+    d = casedir("relaxrange")
+    out = run(exe, "relaxrange", cwd=d).stdout
+    p1 = row(out, "P1")
+    p2 = row(out, "P2")
+    rep.check("relaxrange P1(1)=0.9975 (RELAX in range)",
+              close(p1[0], 0.9975), f"{p1[0]}")
+    rep.check("relaxrange P2(1)=0.995 (default RELAX outside range)",
+              close(p2[0], 0.995), f"{p2[0]}")
+
+    # L_ST > L_END: warn, defaults restored on the full range.
+    d = casedir("badorder")
+    out = run(exe, "badorder", cwd=d).stdout
+    rep.check("badorder completes", "DONE_" in out)
+    rep.check("badorder warns requested+applied",
+              "invalid range" in out
+              and "requested" in out
+              and "applied" in out,
+              out[-400:])
+    p1 = row(out, "P1")
+    rep.check("badorder P1(1)=0.995 (defaults full range)",
+              close(p1[0], 0.995), f"{p1[0]}")
+
+    # L_END > ND: warn, defaults restored on the full range.
+    d = casedir("lbeyond")
+    out = run(exe, "lbeyond", cwd=d).stdout
+    rep.check("lbeyond completes", "DONE_" in out)
+    rep.check("lbeyond warns requested+applied",
+              "invalid range" in out
+              and "requested" in out
+              and "applied" in out,
+              out[-400:])
+    p1 = row(out, "P1")
+    rep.check("lbeyond P1(1)=0.995 (defaults full range)",
+              close(p1[0], 0.995), f"{p1[0]}")
+
+    # Lambda iteration: RELAX file value is overridden to 1.0.
+    d = casedir("lamadj")
+    out = run(exe, "lamadj", cwd=d).stdout
+    p1 = row(out, "P1")
+    rep.check("lamadj P1(1)=0.995 (Lambda override)",
+              close(p1[0], 0.995), f"{p1[0]}")
+    p2 = row(out, "P2")
+    rep.check("lamadj P2(1)=0.995 (Lambda override)",
+              close(p2[0], 0.995), f"{p2[0]}")
+
     rep.summary()
 
 

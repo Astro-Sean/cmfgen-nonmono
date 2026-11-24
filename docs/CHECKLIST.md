@@ -1149,6 +1149,16 @@ KN_ORD_P2DAMP default unchanged (F).
       conjunct. conv_exit 53/53, vadat_keys parse 95/95. The
       OFF->WARN/WARN->HARD production A/B is prepared, BLOCKED on
       cluster submission.
+- [x] `ADJUST_CORRECTIONS` file validation (24-Nov-2026): RELAX=0
+      used to pass the range check and applied POPS*(1-0) for the
+      whole run while MAXCH kept reporting demand (silent freeze);
+      L_ST > L_END passed too and every range loop ran empty
+      (silent ignore). Now 0 < RELAX <= 2 and
+      1 <= L_ST <= L_END <= ND are enforced loudly on the
+      ERROR_LU stream with requested+applied values; the T_LIM and
+      POP_LIM checks and the Lambda override (RELAX=1, POP_LIM
+      huge) are unchanged. test_fpc 32/32 (relax0/relaxhalf/
+      relaxrange/badorder/lbeyond/lamadj pins).
 
 ## 3. KNOP P-sweep defect cycle (phases 5.3K-5.3S, Nov-2026)
 
@@ -1245,7 +1255,8 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       history/fit refuse cases under NG_NF_HIST/NG_NF_NEW),
       lam_handoff 51, conv_exit 53 (24-Nov-2026: +ES_ALI_GATE
       OFF/WARN/HARD arms), vadat_keys 95 (+ES_ALI_GATE parse/
-      clamp, JFNK_PC_QUAL auto-set/opt-out), gs_drift_diag,
+      clamp, JFNK_PC_QUAL auto-set/opt-out), fpc 32
+      (+ADJUST_CORRECTIONS RELAX/range validation), gs_drift_diag,
       iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
       test_es_conv remains blocked on the known obs/ archive gap.
 - [x] Manufactured ordered-stencil + exit-policy + period-2
