@@ -591,6 +591,19 @@
 !
 	LOGICAL LAM_FIELD_NOT_READY
 !
+! LAM_FIELD_NOT_CONVERGED (no VADAT key): the strict per-call
+! field verdict the converged exit reads. It is
+! LAM_FIELD_NOT_READY plus, on the KNOP lagged-field route, the
+! all-ray certification fold-in (rf_not_allconv). With
+! KN_LAM_PARTIAL_HANDOFF=F both flags carry the fold -- the
+! legacy behavior where one flag served both the handoff and
+! the exit. With T the fold reaches only this flag, so a field
+! mature by the share gates but not yet all-ray FULL can hand
+! off while the exit keeps waiting for every ray. Recomputed
+! every SOLVE_FOR_POPS call; .FALSE. without a lagged field.
+!
+	LOGICAL LAM_FIELD_NOT_CONVERGED
+!
 ! LAM_FIELD_BLK (no VADAT key): once-per-streak latch for the
 ! SOLVE_FOR_POPS "stable count met but field not ready" OUTGEN
 ! diagnostic. Set when the first blocked call of a streak prints,
@@ -1480,6 +1493,26 @@
 	LOGICAL KN_ORD_P2DAMP
 	INTEGER KN_ORD_P2N
 	INTEGER KN_ORD_P2REL
+!
+! KN_NI1_FULL (default FALSE): certify a production NI=1 ray
+! KN_CS_FULL with reason 0 in KNOP_RAY_SOLVE_V1 instead of leaving
+! it KN_CS_INV. A single-point ray has no marchable transfer
+! domain, so there is nothing to converge -- vacuous FULL is the
+! honest class. With F the ray keeps the legacy INV status and
+! holds FG_RF_ALL_CONV FALSE. VADAT [KN_NI1_FULL].
+!
+	LOGICAL KN_NI1_FULL
+!
+! KN_LAM_PARTIAL_HANDOFF (default FALSE): split the KNOP
+! lagged-field verdict the LAMBDA-to-full handoff reads from the
+! one the converged exit reads. With T the rf_not_allconv fold-in
+! raises only LAM_FIELD_NOT_CONVERGED, so a field mature by the
+! share gates but not yet all-ray FULL can hand off while the exit
+! still waits for every ray. With F the fold reaches
+! LAM_FIELD_NOT_READY too -- the legacy single-flag behavior.
+! VADAT [KN_LAM_PARTIAL_HANDOFF].
+!
+	LOGICAL KN_LAM_PARTIAL_HANDOFF
 !
 ! KN_GATE_DIVERGENCE (default FALSE, prototype, dormant): replace
 ! the absolute GS_MAXCHG>GS_UNSAFE_TOL unsafe tier in SOLVE_FOR_POPS
