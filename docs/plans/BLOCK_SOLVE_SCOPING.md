@@ -85,3 +85,15 @@ The toy prototype (phase C) is the cheap decisive evidence - if
 the block solve does not contract the manufactured compressing
 case, the route dies there at low cost. Phase C is therefore the
 first implementation target after A/B report.
+
+
+## Implementation status (24-Nov-2026)
+
+Phases A-D are complete and the phase-D design was implemented as
+`MOM_BLKGMRES`, default F. E1-E3 are green: the matrix-free production
+solver matches dense references to machine precision on manufactured
+chains, rings, marginal rings, mixed-sign structures and inactive
+columns; the integrated moment-solver and VADAT batteries are green.
+E4 is in progress on the eps1em3 seed through CMFGEN job 13655952.
+The production verdict remains pending, so this document is closed as
+a scoping plan but not as a solver validation.
