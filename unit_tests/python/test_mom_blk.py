@@ -191,6 +191,14 @@ def lagged_iteration_matrix(a, nd, ncf):
 def main():
     rep = Report("test_mom_blk")
     exe = build()
+    prodexe = compile_driver(
+        "drv_mom_blk_solve",
+        [
+            TREE / "tools" / "set_kind_module.f",
+            TREE / "plane" / "mom_blk_gmres_mod.f",
+            F90DIR / "drv_mom_blk_solve.f",
+        ],
+    )
 
     for mode in CASES:
         tag = f"blk_{mode}"
@@ -216,6 +224,26 @@ def main():
             f"{mode}: final dense residual at machine level",
             resid < 2.0e-12,
             f"max relative residual {resid:.2e}",
+        )
+        pr = run(prodexe, tag, cwd=WORKDIR)
+        rep.check(
+            f"{mode}: production GMRES module converged",
+            "RESULT_OK" in pr.stdout,
+            pr.stdout.strip().splitlines()[-2:],
+        )
+        xprod = np.zeros(ND * NCF)
+        with open(WORKDIR / f"{tag}_xgm.txt") as f:
+            for ln in f:
+                q = ln.split()
+                i = int(q[0]) - 1
+                k = int(q[1]) - 1
+                xprod[k * ND + i] = float(q[2])
+        perr = np.max(np.abs(xprod - xd)) / scale
+        prtrue = np.max(np.abs(b - a @ xprod)) / max(np.max(np.abs(b)), 1.0)
+        rep.check(
+            f"{mode}: production GMRES matches dense reference",
+            perr < 5.0e-12,
+            f"err {perr:.2e}, dense-resid {prtrue:.2e}",
         )
         if mode != "fresh":
             rep.check(
