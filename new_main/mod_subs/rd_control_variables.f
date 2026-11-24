@@ -2493,6 +2493,27 @@
 	1     'Flip-free passes before a damped cell is released')
 	  CALL SET_FG_ORD_P2DAMP(KN_ORD_P2DAMP,KN_ORD_P2N,KN_ORD_P2REL)
 !
+! KN_NI1_FULL (default FALSE): certify a production NI=1 ray
+! KN_CS_FULL (reason 0) -- a single-point ray has no transfer
+! domain, so vacuous FULL is the honest class and it stops
+! holding FG_RF_ALL_CONV FALSE. F keeps the legacy INV census.
+!
+	  KN_NI1_FULL=.FALSE.
+	  CALL RD_STORE_LOG(KN_NI1_FULL,'KN_NI1_FULL',L_FALSE,
+	1     'Certify single-point KNOP rays KN_CS_FULL?')
+	  CALL SET_FG_NI1_FULL(KN_NI1_FULL)
+!
+! KN_LAM_PARTIAL_HANDOFF (default FALSE): under KNOP the
+! LAMBDA-to-full handoff reads only the weak field-readiness
+! gate while the converged exit keeps the strict all-ray-FULL
+! verdict (LAM_FIELD_NOT_CONVERGED). F folds rf_not_allconv
+! into both flags -- the legacy behavior.
+!
+	  KN_LAM_PARTIAL_HANDOFF=.FALSE.
+	  CALL RD_STORE_LOG(KN_LAM_PARTIAL_HANDOFF,
+	1     'KN_LAM_PARTIAL_HANDOFF',L_FALSE,
+	2     'Hand off on the weak field gate under KNOP?')
+!
 ! KN_GATE_DIVERGENCE (default FALSE, prototype): swap the absolute
 ! GS_UNSAFE_TOL unsafe tier in the SOLVE_FOR_POPS maturity gate for
 ! a divergence test on the refresh max residual -- unsafe only on
