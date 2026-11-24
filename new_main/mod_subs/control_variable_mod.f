@@ -1855,6 +1855,23 @@
 !
 	LOGICAL NG_ABSTAIN
 !
+! NG_SHADOW_DIAG (default FALSE, VADAT [NG_SHADOW_DIAG]):
+! diagnostics-only telemetry for the NG fit - bounded
+! investigation NG1 (docs/CHECKLIST.md), measuring whether the
+! accepted kicks are unstable extrapolations or net-positive
+! slow-mode moves. When T, DO_NG_BAND_ACCEL_V4 reads up to 16
+! SCRTEMP records at each NG event and reports, per band and
+! per window size N, the affine-fit coefficient L1 norm, the
+! implied prediction move, the predicted-residual ratio, and
+! the settle ratio of successive predictions to successive
+! iterates that gates adaptive Ng (Ceulemans et al. 2024,
+! arXiv:2411.03040, Sec 4.2). No population, flag, or
+! scheduling state is changed - output only, lines prefixed
+! "ng shadow". Module-initialized so drivers that never parse
+! VADAT stay defined.
+!
+	LOGICAL :: NG_SHADOW_DIAG=.FALSE.
+!
 ! BA saturation demotion (nonmono paths, disabled by default):
 ! counts consecutive non-LAMBDA calls whose raw correction demand
 ! stays at or above BA_SAT_RAW. An applied correction pinned on
