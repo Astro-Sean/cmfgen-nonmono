@@ -35,6 +35,15 @@ The observed-frame continuum rescue described below is enabled by default.
   moment-store route. Enabling the flag does not guarantee admission.
   Frozen-J updates use stored radiative terms; coupled transfer requires
   separate controls. Full-model effectiveness remains unverified.
+- **Coupled moment block solve** (`MOM_BLKGMRES`, default off):
+  on the opt-in `USE_LAM_ES=F` moment route, the captured
+  wavelength-depth rows can be solved in one matrix-free restarted
+  GMRES solve instead of lagging the frequency-neighbour term. The
+  depth-tridiagonal inverse preconditioner is applied per frequency;
+  opacities, electron-scattering terms, source functions, H closure
+  and boundary closures remain outer-iteration data. The solver
+  follows the Baron & Hauschildt coupled-system direction and remains
+  an unvalidated research option.
 - **Trace-species handling**: demand floors plus a Stage-B polish
   phase stop physically empty levels from stalling the convergence
   exit.
@@ -94,7 +103,7 @@ The observed-frame continuum rescue described below is enabled by default.
 |---|---|
 | `new_main/` | Main program and the VADAT input readers |
 | `new_main/subs/` | New-solver support routines |
-| `plane/` | The Knop formal solver |
+| `plane/` | The Knop formal solver and non-monotonic moment solvers |
 | `subs/`, `newsubs/`, `com/`, `disp/` | Upstream source, surgical edits only |
 | `obs/` | Observed-frame tools (`cmf_flux`, `obs_frame`) |
 | `unit_tests/` | Test drivers; `run_all_tests.py` runs the suite |
@@ -140,6 +149,9 @@ CMFGEN papers and the method papers listed below, not this fork.
   [arXiv:0902.1876](https://arxiv.org/abs/0902.1876)
 - Knop, Hauschildt & Baron 2009, *A&A* 501, 813,
   [DOI](https://doi.org/10.1051/0004-6361/200911793)
+- Baron & Hauschildt 2004, *A&A* 427, 987,
+  [DOI](https://doi.org/10.1051/0004-6361:20040039) |
+  [arXiv:astro-ph/0408212](https://arxiv.org/abs/astro-ph/0408212)
 - Dessart, Audit & Hillier 2015, *MNRAS* 449, 4304,
   [DOI](https://doi.org/10.1093/mnras/stv609) |
   [arXiv:1503.05463](https://arxiv.org/abs/1503.05463)
