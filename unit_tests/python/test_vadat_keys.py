@@ -807,6 +807,36 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # MOM_NUSOLV opt-in key parses and lands on both stores: the
+    # CONTROL_VARIABLE_MOD slot and the solver module copy (via
+    # SET_MOM_NUSOLV). Default absent-key read must stay F.
+    d = write_vadat(
+        WORKDIR / "vadat_mom_nusolv",
+        {"MOM_NUSOLV": "T"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_NUSOLV=T parses, lands, and reaches the solver module",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_NUSOLV") == "T"
+        and v.get("MOM_NUSOLV_SLV") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_mom_nusolv_def",
+        {"MOM_NUSOLV": None},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_NUSOLV absent key defaults F on both stores",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_NUSOLV") == "F"
+        and v.get("MOM_NUSOLV_SLV") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # MOM_FAC_RLX opt-in key parses and lands.
     d = write_vadat(
         WORKDIR / "vadat_mom_facrlx",
