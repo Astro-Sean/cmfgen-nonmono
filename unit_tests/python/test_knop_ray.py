@@ -1323,22 +1323,44 @@ def main():
 
     # -- T29: legitimately inactive ray is excluded (audit Issue 5,
     #    test T32). 'ni1' gives ray 1 NI=1 -- a single-point geometry
-    #    with no marchable domain. It keeps the plain unsolved verdict
-    #    and a zero residual, so the residual max reads only the
-    #    converged active rays.
+    #    with no marchable domain. With KN_NI1_FULL off it keeps the
+    #    unsolved verdict and INV certification, so the all-ray
+    #    verdict stays FALSE; 'ni1f' arms the flag and the ray
+    #    certifies vacuous FULL with reason 0, letting RF_ALLCONV
+    #    read the real two-ray convergence.
     d29, s29 = parse(run(bin_, "ni1", cwd=WORKDIR, check=False).stdout)
     ok = (
         "RESULT_OK" in d29
         and s29.get(("vc", 1), (0, 0.0))[0] == -1
         and s29.get(("vc", 2), (0, 0.0))[0] == 0
         and d29.get("RF_RESID", 1.0) < 1.0e-6
+        and s29.get(("cls", 1), (0, 0))[0] == 5
+        and not d29.get("RF_ALLCONV", True)
     )
     rep.check(
-        "T29 single-point ray (NI=1) excluded: unsolved verdict, "
-        "residual max from active rays only",
+        "T29a single-point ray (NI=1) excluded: unsolved verdict, "
+        "INV certification, all-conv verdict blocked (flag off)",
         ok,
         f"VC1={s29.get(('vc', 1), ('?', 0.0))[0]} "
-        f"RF_RESID={d29.get('RF_RESID'):.3e}",
+        f"CLS1={s29.get(('cls', 1), ('?', '?'))[0]} "
+        f"RF_RESID={d29.get('RF_RESID'):.3e} "
+        f"RF_ALLCONV={d29.get('RF_ALLCONV')}",
+    )
+    d29f, s29f = parse(run(bin_, "ni1f", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d29f
+        and s29f.get(("vc", 1), (0, 0.0))[0] == -1
+        and s29f.get(("cls", 1), (1, 1)) == (0, 0)
+        and d29f.get("RF_RESID", 1.0) < 1.0e-6
+        and d29f.get("RF_ALLCONV", False)
+    )
+    rep.check(
+        "T29b KN_NI1_FULL armed: vacuous FULL certification, "
+        "all-conv verdict reads the converged rays",
+        ok,
+        f"CLS1={s29f.get(('cls', 1), ('?', '?'))} "
+        f"RF_RESID={d29f.get('RF_RESID'):.3e} "
+        f"RF_ALLCONV={d29f.get('RF_ALLCONV')}",
     )
 
     # -- T30: heal census counts only real modifications (audit
