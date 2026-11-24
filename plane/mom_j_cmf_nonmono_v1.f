@@ -638,15 +638,20 @@
 ! COH-floor and HBC-floor fixes; the abort guard plus the
 ! pre-refresh restore contain a recurrence if it is still unstable.
 !
-! MOM_RF_KEEPNEG (VADAT key, default TRUE): cells whose XM hit a
-! post-solve repair (significant negJ, non-finite or runaway
-! rejection) keep their previous J_NEXT_FRQ iterate instead of
-! storing the repaired value -- the repair is a display-level fix,
-! not a fixed-point output, and storing it injects discontinuous
-! noise the lagged map then chases. In the repair itself XM_FB_NM
-! (the previous valid field) is already written into XM_NM, so
-! this flag only controls whether the freeze shows up in J_NEXT_FRQ
-! as an un-written cell vs the relaxed write of the fallback.
+! MOM_RF_KEEPNEG (VADAT key, default FALSE since 06-Nov-2026): cells
+! whose XM hit a post-solve repair (significant negJ, non-finite or
+! runaway rejection) keep their previous J_NEXT_FRQ iterate instead
+! of storing the repaired value -- the repair is a display-level
+! fix, not a fixed-point output, and storing it injects
+! discontinuous noise the lagged map then chases. In the repair
+! itself XM_FB_NM (the previous valid field) is already written
+! into XM_NM, so this flag only controls whether the freeze shows
+! up in J_NEXT_FRQ as an un-written cell vs the relaxed write of
+! the fallback. Default F stores the fallback: on the
+! globally-compressing m15 the T behaviour pinned ~183K cells at
+! stale iterates and carried unphysical negative J into STEQ every
+! iteration; storing the repair was the smaller poison (audit
+! 24-Nov-2026 comment fix).
 !
 ! MOM_RF_BULK_EXIT (VADAT key, default TRUE): the refresh max-norm
 ! asymptotes on a few marginally contractive compressing cells
@@ -673,7 +678,7 @@
 ! still capped per cell, so a true bulk detonation always trips
 ! N50 and aborts.
 !
-! MOM_RF_ACTIVE (VADAT key, default FALSE): active-set
+! MOM_RF_ACTIVE (VADAT key, default TRUE): active-set
 ! front-tracking over frequencies in the refresh. A frequency's
 ! solve only depends on the lagged store at slot L-1 (expanding
 ! cells) and slots L+MOM_NM_{J,H}(I) (compressing cells), so a
@@ -694,7 +699,7 @@
 	INTEGER*8, SAVE :: MOM_RF_NDIVSKP=0
 	INTEGER*8, SAVE :: MOM_RF_NCONSEC=0
 !
-! MOM_RF_DIR (VADAT key, default 'AUTO'): refresh pass ordering.
+! MOM_RF_DIR (VADAT key, default 'ALT'): refresh pass ordering.
 ! Knop Paper II's GS solve is physically guided -- the pass follows
 ! the direction information actually propagates in (r,nu) space. On
 ! a grid where nearly every coupling row is compressing sigma < -1 at all 70 depths) an ascending pass reads only the
@@ -848,6 +853,12 @@
 ! lagged-debit mechanism above.
 !
 	INTEGER*8, SAVE :: MOM_XMNEG=0
+!
+! MOM_GS_NOFF: sweep-side count of compressing rows whose matched
+! upwind slot lands past the red frequency edge (JUP=0 boundary
+! read). Twin of the refresh PASS_NOFF census. 24-Nov-2026.
+!
+	INTEGER*8, SAVE :: MOM_GS_NOFF=0
 !
 ! MOM_XMWORST: largest |negative XM| clipped by MOM_XM_POS this sweep.
 ! The bound discards lagged debit; this tracks how much, so the cost
@@ -1785,6 +1796,7 @@
 	  MOM_LAGB_MIN=1.0_LDP
 	  MOM_XMNEG=0
 	  MOM_XMWORST=0.0_LDP
+	  MOM_GS_NOFF=0
 	END IF
 !
 !
@@ -2649,8 +2661,15 @@
 !
 	    DO I=1,ND_NM
 	      IF(MOM_NM_J(I) .GE. 1 .AND.
-	1         FREQ_INDX+MOM_NM_J(I) .LE. NCF_IN)
-	1        JUP_NM(I)=JNEXT_RF_READ(I,FREQ_INDX+MOM_NM_J(I))
+	1         FREQ_INDX+MOM_NM_J(I) .LE. NCF_IN)THEN
+	        T1=JNEXT_RF_READ(I,FREQ_INDX+MOM_NM_J(I))
+	        IF(.NOT. (ABS(T1) .LE. HUGE(T1)))THEN
+	          JUP_NM(I)=0.0_LDP
+	          MOM_INEXT_CAPPED=MOM_INEXT_CAPPED+1
+	        ELSE
+	          JUP_NM(I)=T1
+	        END IF
+	      END IF
 	    END DO
 	  ELSE
 !
@@ -2660,10 +2679,26 @@
 !
 	    DO I=1,ND_NM
 	      IF(MOM_NM_J(I) .GE. 1 .AND.
-	1         FREQ_INDX+MOM_NM_J(I) .LE. NCF_IN)
-	1        JUP_NM(I)=J_NEXT_FRQ(I,FREQ_INDX+MOM_NM_J(I))
+	1         FREQ_INDX+MOM_NM_J(I) .LE. NCF_IN)THEN
+	        T1=J_NEXT_FRQ(I,FREQ_INDX+MOM_NM_J(I))
+	        IF(.NOT. (ABS(T1) .LE. HUGE(T1)))THEN
+	          JUP_NM(I)=0.0_LDP
+	          MOM_INEXT_CAPPED=MOM_INEXT_CAPPED+1
+	        ELSE
+	          JUP_NM(I)=T1
+	        END IF
+	      END IF
 	    END DO
 	  END IF
+!
+! Compressing rows whose matched upwind slot FREQ_INDX+MOM_NM_J lands
+! past the red edge get JUP=0 -- a free-outflow boundary in frequency.
+! Census twin of the refresh PASS_NOFF (audit 24-Nov-2026); sweep
+! calls only, refresh re-calls count in the driver.
+!
+	  IF(.NOT. MOM_KN_REFRESHING)MOM_GS_NOFF=MOM_GS_NOFF+
+	1    INT(COUNT(Q_NM(1:ND_NM) .LT. 0.0_LDP .AND.
+	2    (FREQ_INDX+MOM_NM_J(1:ND_NM)) .GT. NCF_IN),8)
 	END IF
 !
 ! HUP_NM: the upwind R^2*H for the explicit HS*H_up midpoint terms.
@@ -4262,11 +4297,12 @@
 	2    ' non-monotonic rows; ',MOM_EPS_FWD,
 	3    ' forward-epsilon midpoints; largest |EPS|/HU ',
 	4    MOM_EPS_RAT,'; epsilon-cap hits ',MOM_EPS_CAP_SW
-	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3,A,I10,A,ES12.4)')
+	WRITE(LUER,'(4X,A10,2X,I10,A,ES10.3,A,I10,A,ES12.4,A,I10)')
 	1    'lagbnd',MOM_LAGB_CNT,' boundary-lag cells,'//
 	2    ' smallest lag ',MOM_LAGB_MIN,
 	3    '; negative RHS rows ',MOM_XMNEG,
-	4    ' worst clipped ',MOM_XMWORST
+	4    ' worst clipped ',MOM_XMWORST,
+	5    '; off-grid reads ',MOM_GS_NOFF
 	WRITE(LUER,'(4X,A10,2X,2(A,ES10.3,A,I5,A,I5),A)')
 	1    'matrix','smallest DR ',MOM_MIN_DR,' at (',MOM_MIN_DR_I,',',
 	2    MOM_MIN_DR_L,'); smallest DR|a| ',MOM_MIN_DRA,' at (',
@@ -5689,6 +5725,10 @@
 !
 ! Same sanitize as the GET_MOMS_NON_REL path: a store captured before
 ! the guards existed (or from a failed sweep) can hold NaN factors.
+! NMID_ON_HMID keeps its SIGN-capped form, not a [0,1] clip -- the
+! sign of 1+sigma*g drives the H-row direction split, and clipping
+! g>1 or g<0 makes the refresh solve a different system than the
+! sweep at sign-transition midpoints (stability audit 24-Nov-2026).
 !
 	    DO I=1,ND_NM
 	      IF(.NOT. (ABS(K_ON_J(I)) .LE. HUGE(K_ON_J(I))))
@@ -5700,7 +5740,8 @@
 	1        NMID_ON_J(I)=0.0_LDP
 	      IF(.NOT. (ABS(NMID_ON_HMID(I)) .LE. HUGE(NMID_ON_HMID(I))))
 	1        NMID_ON_HMID(I)=0.0_LDP
-	      NMID_ON_HMID(I)=MIN(1.0_LDP,MAX(0.0_LDP,NMID_ON_HMID(I)))
+	      NMID_ON_HMID(I)=SIGN(MIN(ABS(NMID_ON_HMID(I)),
+	1       1.0E+12_LDP),NMID_ON_HMID(I))
 	    END DO
 	    HBC=KN_MHBC(L);  NBC=KN_MNBC(L);  IN_HBC=KN_MINHBC(L)
 	    JPLUS_IB=KN_MJPIB(L);  JMIN_IB=KN_MJMIB(L)
@@ -5730,8 +5771,8 @@
 	        IF(.NOT. (ABS(NMID_ON_HMID_SAVE(I)) .LE.
 	1            HUGE(NMID_ON_HMID_SAVE(I))))
 	2          NMID_ON_HMID_SAVE(I)=0.0_LDP
-	        NMID_ON_HMID_SAVE(I)=MIN(1.0_LDP,
-	1            MAX(0.0_LDP,NMID_ON_HMID_SAVE(I)))
+	        NMID_ON_HMID_SAVE(I)=SIGN(MIN(ABS(NMID_ON_HMID_SAVE(I)),
+	1            1.0E+12_LDP),NMID_ON_HMID_SAVE(I))
 	      END DO
 	      HBC_SAVE=KN_MHBC(L-1);  NBC_SAVE=KN_MNBC(L-1)
 	      IN_HBC_SAVE=KN_MINHBC(L-1)
@@ -6905,7 +6946,8 @@
 	1      NMID_ON_J(I)=0.0_LDP
 	  IF(.NOT. (ABS(NMID_ON_HMID(I)) .LE. HUGE(NMID_ON_HMID(I))))
 	1      NMID_ON_HMID(I)=0.0_LDP
-	  NMID_ON_HMID(I)=MIN(1.0_LDP,MAX(0.0_LDP,NMID_ON_HMID(I)))
+	  NMID_ON_HMID(I)=SIGN(MIN(ABS(NMID_ON_HMID(I)),
+	1       1.0E+12_LDP),NMID_ON_HMID(I))
 	END DO
 	K_ON_J_SAVE(1:ND_NM)=K_ON_J(1:ND_NM)
 	NMID_ON_J_SAVE(1:ND_NM)=NMID_ON_J(1:ND_NM)
