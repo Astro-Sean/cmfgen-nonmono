@@ -921,10 +921,12 @@
 ! modes stay on the sweep's damped update. Writes are additionally
 ! bounded by MOM_NU_WRITECAP times the normalized old value so a
 ! single call cannot jump a cell by more than the retained-store
-! veto's order of magnitude.
+! veto's order of magnitude. Both are SAVE variables rather than
+! PARAMETERs so test drivers can scan them; there is no VADAT
+! key - the model interface keeps the compiled defaults.
 !
-	REAL(KIND=LDP), PARAMETER :: MOM_NU_RING_BAND=1.0E-2_LDP
-	REAL(KIND=LDP), PARAMETER :: MOM_NU_WRITECAP=1.0E2_LDP
+	REAL(KIND=LDP), SAVE :: MOM_NU_RING_BAND=1.0E-2_LDP
+	REAL(KIND=LDP), SAVE :: MOM_NU_WRITECAP=1.0E2_LDP
 !
 ! MOM_XMWORST: largest |negative XM| clipped by MOM_XM_POS this sweep.
 ! The bound discards lagged debit; this tracks how much, so the cost
