@@ -1383,6 +1383,38 @@ KN_ORD_P2DAMP default unchanged (F).
       H/EPS terms still explicit or in XM_POS/LAG_BND), or
       detonates (capture/consistency defect on the real grid).
       Single arm, no chain.
+      VERDICT (24-Nov-2026, jobs 13651766 + 13652626, killed at
+      it675 after ~9 it): STALLED with amplification - REFUTED as
+      the sole fix. The chain solve runs in production exactly as
+      unit-verified: 208 calls, rings resolved 5.8K -> 2.3K per
+      pass, 0 singular, 0 frozen on bad coefficients, negative
+      rejections declining 20K -> ~460/pass. But every refresh
+      still stall-exits; residuals oscillate 37 - 2.7e4 with no
+      contraction trend (the 37-250 minima are lower than the
+      dead arm's ~2e4 plateau - the implicit-J map intermittently
+      touches near-convergence but cannot stay). Store commits
+      ESCALATE vs the dead arm's bounded 1e6-1e8 limit cycle:
+      after two vetoed iterations the committed moves ran
+      6.9e7 -> 4.6e11 -> 1.0e23 -> 1.8e8 with 697K-979K cells
+      moved >5%. Populations dragged off the converged premise:
+      outer luminosity 4.27e8 -> 8.9e7 (~5x), raw MAXCH demand
+      to 1e26. JNEXT_RELAX wanders 0.48-0.80, estimated
+      contraction factor 0.05-1.15 - no stable contraction.
+      Mechanism: the ring solve x_j*(1-A)=S_j amplifies
+      near-marginal cycles (cyclic product A -> 1 IS the rho~1
+      sign-flip mode); the 1e-10 freeze threshold only catches
+      exact degeneracy, so A~0.9999 rings return amplified
+      exact solutions the damped write-back passes through, and
+      once the >50x veto opens the commits explode. Conclusion:
+      the composite map's stiffness is not the lagged-J graph
+      alone - lagged H/EPS terms stay explicit, and marginal
+      modes need treatment beyond an exact solve (physical
+      |1-A| freeze band, per-cell nu-write cap, or implicit
+      H-channel coupling). Side results: two format crashes
+      fixed en route (mine at :6029; latent pre-existing
+      best-pass-rejection WRITEs :6707/6713/6719, commit
+      4a79500b). OBS chains 13651767 + 13652627 cancelled on
+      dead dependencies.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
