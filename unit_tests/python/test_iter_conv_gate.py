@@ -85,15 +85,19 @@ def test_maturity_predicates_exist():
 
 
 def test_T01_exit_maturity_conjunct():
-    # F-01 landed: both exit blocks carry .NOT. LAM_FIELD_NOT_READY,
-    # the per-call verdict from LAM_FIELD_GATE (held .OR. frozen
-    # .OR. HAS_LAGGED_FIELD .AND. (raw-immature .OR. under the
-    # N_MATURE/GS_REL_STABLE window)). Forced F off the lagged-field
-    # routes, so stock and SOB+LAM_ES=T are unchanged.
+    # F-01 landed: both exit blocks carry the strict field verdict,
+    # .NOT. LAM_FIELD_NOT_CONVERGED -- the per-call LAM_FIELD_GATE
+    # result (held .OR. frozen .OR. HAS_LAGGED_FIELD .AND.
+    # (raw-immature .OR. under the N_MATURE/GS_REL_STABLE window))
+    # plus the KNOP rf_not_allconv fold-in. Equals the old folded
+    # LAM_FIELD_NOT_READY unless KN_LAM_PARTIAL_HANDOFF releases the
+    # handoff path. Forced F off the lagged-field routes, so stock
+    # and SOB+LAM_ES=T are unchanged.
     REP.check(
-        "T-01: every CONV_EXIT_MET block gates on LAM_FIELD_NOT_READY",
+        "T-01: every CONV_EXIT_MET block gates on "
+        "LAM_FIELD_NOT_CONVERGED",
         len(BLOCKS) >= 2
-        and all(".NOT. LAM_FIELD_NOT_READY" in b for b in BLOCKS),
+        and all(".NOT. LAM_FIELD_NOT_CONVERGED" in b for b in BLOCKS),
     )
     # The deferred-exit diagnostic mirrors the term so its "only
     # resacc pending" claim stays true under an immature field.
@@ -101,7 +105,7 @@ def test_T01_exit_maturity_conjunct():
         "T-01: deferred-exit diagnostic mirrors the maturity term",
         re.search(
             r"CONV_EXIT_MET \.AND\. BAACC_PENDING[\s\S]{0,300}?"
-            r"\.NOT\. LAM_FIELD_NOT_READY",
+            r"\.NOT\. LAM_FIELD_NOT_CONVERGED",
             CMF,
         )
         is not None,
