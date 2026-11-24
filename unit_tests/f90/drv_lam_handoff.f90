@@ -15,6 +15,9 @@ program drv_lam_handoff
   integer cnt
   logical proven
   integer i
+  logical lam_ok,all_met
+  integer npass
+  character(len=160) fails
 !
 ! ---- LAM_FIELD_GATE(has_lagged, held, freeze, raw_immature,
 !                     n_mature, rel_stable) -------------------------
@@ -173,6 +176,41 @@ program drv_lam_handoff
   write(*,'(A,L1)') 'H_nm_quiet_dem=', &
     lam_handoff_ok(.true.,.true.,1.0_LDP,.false.,.true., &
                    .true.,.false.)
+!
+! ---- strict/weak field split (24-Nov-2026, KN_LAM_PARTIAL_HANDOFF) --
+! LAM_HANDOFF_OK reads the weak flag (LAM_FIELD_NOT_READY);
+! CONV_EXIT_EVAL reads the strict one (LAM_FIELD_NOT_CONVERGED).
+! P1: fold-only hold -- weak F, strict T: the handoff opens, the
+!     converged exit stays shut on the all-ray-FULL fold.
+! P2: gate hold -- weak T, strict T: both stay shut.
+! P3: clean -- both F: both open.
+!
+  write(*,'(A,L1)') 'P1_partial_handoff=', &
+    lam_handoff_ok(.true.,.true.,20.0_LDP,.false.,.true., &
+                   .true.,.false.)
+  call conv_exit_eval(.false.,.false.,0,1, &
+    .false.,0.5_LDP,1.0_LDP,.true.,.false.,.false.,.false., &
+    -1,.false.,.true.,lam_ok,all_met,npass,fails)
+  write(*,'(A,L1,A,A)') 'P1_partial_exit=',all_met, &
+    ' fails=',trim(fails)
+!
+  write(*,'(A,L1)') 'P2_gate_handoff=', &
+    lam_handoff_ok(.true.,.true.,20.0_LDP,.false.,.true., &
+                   .true.,.true.)
+  call conv_exit_eval(.false.,.false.,0,1, &
+    .false.,0.5_LDP,1.0_LDP,.true.,.false.,.false.,.false., &
+    -1,.true.,.true.,lam_ok,all_met,npass,fails)
+  write(*,'(A,L1,A,A)') 'P2_gate_exit=',all_met, &
+    ' fails=',trim(fails)
+!
+  write(*,'(A,L1)') 'P3_clean_handoff=', &
+    lam_handoff_ok(.true.,.true.,20.0_LDP,.false.,.true., &
+                   .true.,.false.)
+  call conv_exit_eval(.false.,.false.,0,1, &
+    .false.,0.5_LDP,1.0_LDP,.true.,.false.,.false.,.false., &
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
+  write(*,'(A,L1,A,A)') 'P3_clean_exit=',all_met, &
+    ' fails=',trim(fails)
 !
   write(*,'(A)') 'DONE'
 end program drv_lam_handoff
