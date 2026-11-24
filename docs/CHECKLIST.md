@@ -465,6 +465,16 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       guarded-acceptance FIX with a matched A/B run, or the
       cadence is shown net-positive and NG stays as is -
       recorded here either way.
+      Status 24-Nov-2026: diagnostics landed. NG_SHADOW_DIAG
+      (default F) reports per band and window N=4..nwin the
+      affine coefficient L1 norm, implied prediction move,
+      predicted-residual ratio and Magritte settle ratio, from
+      a weighted Gram/DGESV constrained fit using the
+      production banding and 1/x weighting. test_ng_shadow.py
+      16/16 (serving-stub SCRTEMP, numpy-verified numbers,
+      bit-identical POP output F vs T); test_vadat_keys.py
+      87/87; test_ng_abstain.py 17/17. Next: telemetry from a
+      live DO_NG=T deck before any acceptance-gate candidate.
 - [ ] Declared bounded investigation K1 - KNOP formal
       non-contraction. Question: can the corrected-exit build
       contract the lagged field from a cold start, and what
