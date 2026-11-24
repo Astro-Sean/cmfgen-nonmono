@@ -20,7 +20,8 @@
 	1             NT,ND,NG_BAND,NG_DONE,MAXDEC,MAXINC,
 	1             DO_NG_VALIDITY_CHECK,NG_ABSTAIN,LUSCR,LUER)
 	USE SET_KIND_MODULE
-	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP
+	USE CONTROL_VARIABLE_MOD, ONLY: DO_NONMONO_SOB,DO_NONMONO_KNOP,
+	1                               NG_SHADOW_DIAG
 	IMPLICIT NONE
 !
 ! Altered 05-Oct-2026 : Freeze prescribed R,V,SIGMA under non-mono.
@@ -78,6 +79,16 @@
 	INTEGER I,J
 	INTEGER ICOUNT
 	INTEGER, PARAMETER :: RITE_N_TIMES=1
+!
+! Shadow-window diagnostics (NG_SHADOW_DIAG only). Extended
+! history is read into RDX through scratch arrays so POPS, R, V
+! and SIGMA keep the newest-record values the caller expects.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: RDX(:,:,:)
+	REAL(KIND=LDP) POPX(NT,ND)
+	REAL(KIND=LDP) RX(ND),VX(ND),SX(ND)
+	LOGICAL NEWMOD_S,WRVSIG_S
+	INTEGER NREC_AVA,NITSF_S,LST_NG_S
 !
 	LOGICAL NEWMOD
 	LOGICAL WRITE_RVSIG
@@ -145,6 +156,46 @@
 	    RDPOPS(NT+2,:,I)=V(:)
 	    RDPOPS(NT+3,:,I)=SIGMA(:)+1.0_LDP
 	  END DO
+	END IF
+!
+! [NG_SHADOW_DIAG, default F] diagnostics only (bounded
+! investigation NG1, docs/CHECKLIST.md): extend the history
+! window to 16 records and report, per band and window size,
+! the affine-fit coefficient norm, implied prediction move,
+! predicted-residual ratio, and the successive-prediction
+! settle ratio that gates adaptive Ng (Ceulemans et al. 2024,
+! arXiv:2411.03040, Sec 4.2). Nothing here mutates POPS,
+! BIG_POPS, flags or scheduling; extra reads use scratch
+! arrays. The non-mono structure freeze is applied to the
+! extended records so the diagnostic sees the same history the
+! fit sees. A failed extra read just shortens the window.
+!
+	IF(NG_SHADOW_DIAG)THEN
+	  ALLOCATE(RDX(NT+3,ND,16))
+	  RDX(:,:,1:4)=RDPOPS(:,:,:)
+	  NREC_AVA=4
+	  DO I=5,16
+	    J=IREC-(I-1)*IT_STEP
+	    IF(J.LT.1)EXIT
+	    CALL SCR_READ_V2(RX,VX,SX,POPX,J,NITSF_S,RITE_N_TIMES,
+	1                LST_NG_S,WRVSIG_S,NT,ND,LUSCR,NEWMOD_S)
+	    IF(NEWMOD_S)EXIT
+	    NREC_AVA=I
+	    RDX(1:NT,:,I)=POPX(1:NT,:)
+	    RDX(NT+1,:,I)=RX(:)
+	    RDX(NT+2,:,I)=VX(:)
+	    RDX(NT+3,:,I)=SX(:)+1.0_LDP
+	  END DO
+	  IF(DO_NONMONO_SOB .OR. DO_NONMONO_KNOP)THEN
+	    DO I=5,NREC_AVA
+	      RDX(NT+1,:,I)=R(:)
+	      RDX(NT+2,:,I)=V(:)
+	      RDX(NT+3,:,I)=SIGMA(:)+1.0_LDP
+	    END DO
+	  END IF
+	  CALL NG_SHADOW_REPORT_V1(RDX,NREC_AVA,NT+3,ND,NG_BAND,
+	1                LST_NG,IREC,LUER)
+	  DEALLOCATE(RDX)
 	END IF
 !
 ! Now perform the NG acceleration. The accelerated estimates for the populations
@@ -453,6 +504,229 @@
 	WEIGHT=.TRUE.
 !
 	CALL NGACCEL(NEWPOP,TEMP,NS,WEIGHT)
+!
+	RETURN
+	END
+!
+!
+! Diagnostics-only shadow of the NG history fit, called from
+! DO_NG_BAND_ACCEL_V4 when [NG_SHADOW_DIAG] is T (default F -
+! the production path is unchanged when absent). For each
+! depth band - partitioned exactly as NG_MIT_BAND_OPT_V1 - and
+! each window size N=4..min(NREC,16, records since LST_NG), a
+! weighted affine fit is formed:
+!
+!   p = sum_i c_i x_(i+1),   sum_i c_i = 1,
+!
+! with c the constrained least-squares solution minimizing the
+! weighted norm of the implied residual sum_i c_i r_i, where
+! r_i(k) = x_i(k) - x_(i+1)(k) and w(k) = 1/x_1(k), the same
+! convention as NGACCEL. The Gram matrix of the residuals is
+! accumulated once per band; each window size solves a leading
+! (N-1)x(N-1) sub-system through LAPACK DGESV. The "previous
+! running prediction" is the same fit on records 2..N - what
+! the window contained one solver call earlier - so the settle
+! ratio
+!
+!   max_rel(p_cur, p_prev) / max_rel(x_1, x_2)
+!
+! mirrors the Magritte adaptive-Ng acceptance test (Ceulemans
+! et al. 2024, arXiv:2411.03040, Sec 4.2): settle < 1 means
+! the prediction is converging faster than the ordinary
+! iteration and a kick would be accepted. Also reported are
+! the affine coefficient L1 norm (error amplification of the
+! fit) and the relative move the prediction would apply.
+! This routine prints to LUER and returns; it mutates nothing.
+!
+! edited 24-Nov-2026: bounded investigation NG1.
+!
+	SUBROUTINE NG_SHADOW_REPORT_V1(RDX,NREC,NT_MOD,ND,NBAND,
+	1            LST_NG,IREC,LUER)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER NREC            !records available in RDX (>=4)
+	INTEGER NT_MOD          !rows per depth (NT+3)
+	INTEGER ND
+	INTEGER NBAND
+	INTEGER LST_NG          !record index of last NG commit
+	INTEGER IREC            !newest record index
+	INTEGER LUER
+!
+	REAL(KIND=LDP) RDX(NT_MOD,ND,NREC)
+!
+	INTEGER, PARAMETER :: NMAX=16
+	INTEGER LST,LEND,NW
+	INTEGER K
+	INTEGER IPIV(NMAX-1)
+	REAL(KIND=LDP) G(NMAX-1,NMAX-1)
+	REAL(KIND=LDP) GA(NMAX-1,NMAX-1)
+	REAL(KIND=LDP) RHS(NMAX-1),C(NMAX-1),CP(NMAX-1)
+	REAL(KIND=LDP) RN(NMAX-1)
+!
+! Records older than the last injection belong to a different
+! iteration epoch - the adaptive window resets on a kick, so
+! the explored window is capped at IREC-LST_NG as well as the
+! storage bound.
+!
+	NW=MIN(NREC,NMAX)
+	IF(LST_NG .GT. 0)NW=MIN(NW,IREC-LST_NG)
+	WRITE(LUER,'(A,I6,A,I6,A,I3)')
+	1 'ng shadow: irec=',IREC,' lst_ng=',LST_NG,' nwin=',NW
+	IF(NW .LT. 4)RETURN
+!
+	IF(NBAND .LE. 0 .OR. NBAND .GE. ND)THEN
+	  LST=1
+	  LEND=ND
+	  CALL NG_SHD_BAND_V1(RDX,NREC,NT_MOD,ND,LST,LEND,NW,
+	1         G,GA,RHS,C,CP,RN,IPIV,NMAX,LUER)
+	ELSE
+	  DO K=ND,1,-NBAND
+	    LST=MAX(K-NBAND+1,1)
+	    LEND=LST+NBAND-1
+	    CALL NG_SHD_BAND_V1(RDX,NREC,NT_MOD,ND,LST,LEND,NW,
+	1         G,GA,RHS,C,CP,RN,IPIV,NMAX,LUER)
+	  END DO
+	END IF
+!
+	RETURN
+	END
+!
+!
+! Per-band worker for NG_SHADOW_REPORT_V1. Builds the residual
+! Gram matrix over band depths LST..LEND and reports one line
+! per window size. Work arrays are passed in to keep the
+! caller-side band loop free of local storage.
+!
+! edited 24-Nov-2026: bounded investigation NG1.
+!
+	SUBROUTINE NG_SHD_BAND_V1(RDX,NREC,NT_MOD,ND,LST,LEND,NW,
+	1         G,GA,RHS,C,CP,RN,IPIV,NMAX,LUER)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER NREC,NT_MOD,ND,LST,LEND,NW,NMAX,LUER
+	INTEGER IPIV(NMAX-1)
+	REAL(KIND=LDP) RDX(NT_MOD,ND,NREC)
+	REAL(KIND=LDP) G(NMAX-1,NMAX-1)
+	REAL(KIND=LDP) GA(NMAX-1,NMAX-1)
+	REAL(KIND=LDP) RHS(NMAX-1),C(NMAX-1),CP(NMAX-1)
+	REAL(KIND=LDP) RN(NMAX-1)
+!
+	INTEGER I,J,K,L,N,NR,NR2,INFO
+	REAL(KIND=LDP) W,T1,T2,DEN,CL1,RESP,DENP
+	REAL(KIND=LDP) MOVE,SETN,SETD,SETTLE
+	EXTERNAL DGESV
+!
+! Accumulate the weighted residual Gram once; leading
+! sub-matrices serve every window size.
+!
+	G=0.0_LDP
+	DO L=LST,LEND
+	  DO K=1,NT_MOD
+	    W=1.0_LDP
+	    IF(RDX(K,L,1) .NE. 0.0_LDP)W=1.0_LDP/RDX(K,L,1)
+	    DO I=1,NW-1
+	      RN(I)=RDX(K,L,I)-RDX(K,L,I+1)
+	    END DO
+	    DO I=1,NW-1
+	      DO J=I,NW-1
+	        G(I,J)=G(I,J)+W*RN(I)*RN(J)
+	      END DO
+	    END DO
+	  END DO
+	END DO
+	DO I=1,NW-1
+	  DO J=1,I-1
+	    G(I,J)=G(J,I)
+	  END DO
+	END DO
+!
+	DO N=4,NW
+	  NR=N-1
+	  GA=0.0_LDP
+	  GA(1:NR,1:NR)=G(1:NR,1:NR)
+	  RHS=0.0_LDP
+	  RHS(1:NR)=1.0_LDP
+	  CALL DGESV(NR,1,GA,NMAX-1,IPIV,RHS,NMAX-1,INFO)
+	  IF(INFO .NE. 0)THEN
+	    WRITE(LUER,'(A,I3,A,I3,A,I2,A)')
+	1    'ng shadow: band ',LST,'-',LEND,' N=',N,' singular'
+	    CYCLE
+	  END IF
+	  DEN=SUM(RHS(1:NR))
+	  IF(ABS(DEN) .LT. 1.0E-60_LDP)THEN
+	    WRITE(LUER,'(A,I3,A,I3,A,I2,A)')
+	1    'ng shadow: band ',LST,'-',LEND,' N=',N,' den~0'
+	    CYCLE
+	  END IF
+	  C(1:NR)=RHS(1:NR)/DEN
+	  CL1=SUM(ABS(C(1:NR)))
+!
+! Predicted residual contraction: c^T G c relative to the
+! norm of the newest residual r_1.
+!
+	  RESP=0.0_LDP
+	  DO I=1,NR
+	    T2=0.0_LDP
+	    DO J=1,NR
+	      T2=T2+C(J)*G(J,I)
+	    END DO
+	    RESP=RESP+C(I)*T2
+	  END DO
+	  IF(RESP .GT. 0.0_LDP .AND. G(1,1) .GT. 0.0_LDP)THEN
+	    RESP=SQRT(RESP/G(1,1))
+	  ELSE
+	    RESP=-1.0_LDP
+	  END IF
+!
+! Previous running prediction: same constrained fit on records
+! 2..N (residuals r_2..r_(N-1), coefficients on x_3..x_N).
+!
+	  NR2=N-2
+	  GA=0.0_LDP
+	  GA(1:NR2,1:NR2)=G(2:NR2+1,2:NR2+1)
+	  RHS=0.0_LDP
+	  RHS(1:NR2)=1.0_LDP
+	  CALL DGESV(NR2,1,GA,NMAX-1,IPIV,RHS,NMAX-1,INFO)
+	  DENP=0.0_LDP
+	  IF(INFO .EQ. 0)THEN
+	    DENP=SUM(RHS(1:NR2))
+	    CP(1:NR2)=RHS(1:NR2)/DENP
+	  END IF
+!
+	  MOVE=0.0_LDP
+	  SETN=0.0_LDP
+	  SETD=0.0_LDP
+	  DO L=LST,LEND
+	    DO K=1,NT_MOD
+	      T1=0.0_LDP
+	      DO I=1,NR
+	        T1=T1+C(I)*RDX(K,L,I+1)
+	      END DO
+	      T2=0.0_LDP
+	      IF(INFO .EQ. 0 .AND. ABS(DENP) .GE. 1.0E-60_LDP)THEN
+	        DO I=1,NR2
+	          T2=T2+CP(I)*RDX(K,L,I+2)
+	        END DO
+	      END IF
+	      IF(ABS(RDX(K,L,1)) .GT. 1.0E-300_LDP)
+	1       MOVE=MAX(MOVE,ABS(T1-RDX(K,L,1))/ABS(RDX(K,L,1)))
+	      IF(ABS(T2) .GT. 1.0E-300_LDP)
+	1       SETN=MAX(SETN,ABS(T1-T2)/ABS(T2))
+	      IF(ABS(RDX(K,L,2)) .GT. 1.0E-300_LDP)
+	1       SETD=MAX(SETD,
+	2       ABS(RDX(K,L,1)-RDX(K,L,2))/ABS(RDX(K,L,2)))
+	    END DO
+	  END DO
+	  SETTLE=-1.0_LDP
+	  IF(SETD .GT. 0.0_LDP .AND. INFO .EQ. 0 .AND.
+	1   ABS(DENP) .GE. 1.0E-60_LDP)SETTLE=SETN/SETD
+	  WRITE(LUER,'(A,I3,A,I3,A,I2,4(A,ES10.2))')
+	1  'ng shadow: band ',LST,'-',LEND,' N=',N,
+	2  ' |c|1=',CL1,' move=',MOVE,' predres=',RESP,
+	3  ' settle=',SETTLE
+	END DO
 !
 	RETURN
 	END
