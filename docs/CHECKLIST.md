@@ -1,5 +1,55 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [~] Declared bounded investigation K1 phase 2 - period-2
+      damping arm plus NI=1/handoff gate fixes (24-Nov-2026,
+      work-order on branch knop/lam-handoff-ni1). Audit findings
+      that motivate it: (i) the 9-14 STAG rays per refresh are the
+      wholly compressing core rays - the worst ray is a ray 1-12
+      core ray in 109/122 iterations, and the depth-node estimate
+      of GAM is negative at every point on rays 1-11; phase 2.28
+      showed ray 81's stall is an exact period-2 border-collision
+      limit cycle and phase 2.29A hardened the KN_ORD_P2DAMP state
+      machine for it, while phase 2.29 rejects block-GS for this
+      class. (ii) The NI=1 ray (LS=85) returns before the
+      classifier, stays KN_CS_INV, and made FG_RF_ALL_CONV
+      unreachable: the model sat in LAMBDA all 122 iterations
+      (rf_not_allconv on every ITER_MODE line, demand already
+      below LAM_EXIT, stable counter 0/5). (iii) The rf_not_allconv
+      fold-in leaked an exit-grade criterion into the handoff
+      gate, deadlocking LAMBDA.
+      Changes (branch knop/lam-handoff-ni1, flag-gated, code at
+      7abcc264..9394f6d6): KN_NI1_FULL certifies the NI=1 ray
+      vacuous FULL
+      (FG_NI1_FULL -> KN_CS_FULL/reason 0 in the NI=1 early
+      return); KN_LAM_PARTIAL_HANDOFF splits the field verdicts -
+      LAM_FIELD_NOT_CONVERGED (strict, exit + CONV_EXIT_EVAL ninth
+      conjunct) always carries the rf_not_allconv fold, while
+      LAM_FIELD_NOT_READY (weak, LAM_STABLE_STEP / LAM_HANDOFF_OK /
+      stable counter) carries it only when the flag is off.
+      Arm T1 (phase 2.28 C1, zero code):
+      configs/dessart_m15_2p82d_FRESH_knop_v14_p2d.yaml - warm
+      restart from the failed it122 checkpoint (same seed as the
+      nbulk arm for direct attribution), baseline-pinned exe
+      (same sha as nbulk), KN_ORD_P2DAMP=T + P2N=2/P2REL=3 +
+      KN_RAY_BULK_TOL=0, KN_RDUMP_LS=11/12, KN_Q_RESID=T; CMFGEN
+      13639702, OBS 13639703. Success signature: p2damped>0 on
+      the stalled rays and rf_resid falls from 3.7-5.2e-2 toward
+      <1e-2, or STAG+PLAT 9-14 -> <=2. If p2damped fires but the
+      floor is unchanged the orbit is not a pure lambda=-1 mode
+      (fallback arm: KN_ORD_AITKEN=T). Exit criterion: census
+      unambiguous vs the nbulk baseline (~2-3 iterations), then
+      cancel.
+      Arm T3-validation (planned): same restart + KN_NI1_FULL=T,
+      KN_LAM_PARTIAL_HANDOFF=T (+ P2DAMP if T1 positive) - does
+      the run leave LAMBDA, do full BA steps run, and what happens
+      to demand and the field. If the first full step detonates
+      the field, stop and report; no damping or tolerance changes
+      to hide it.
+      Arm T4 (conditional, only if T1 fails): ordered A/B -
+      KN_RAY_ORDERED=T vs F, two short warm restarts, then read
+      the GAM profile from the .bin deck before any mixed-only
+      dispatch proposal (GAM is not SIGMA: T2 flips at
+      MU**2=-1/SIGMA for SIGMA<-1).
 - [x] KNOP V14 cold-start A/B arms + bulk-exit arm: VERDICT
       (24-Nov-2026, serves K1). Both cold-start arms FAILED at
       it122 (13606657 DO_JFNK=F, 13606660 DO_JFNK=T, exit 6):
