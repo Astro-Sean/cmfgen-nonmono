@@ -294,6 +294,19 @@ C produce Inf/NaN or a wrong-sign derivative in the BA matrix.
 	        VB_SIM(I,SIM_INDX)=0.0_LDP
 	        VC_SIM(I,SIM_INDX)=0.0_LDP
 	      END IF
+C edited 24-Nov-2026: same hazard as the sign guard above, on the
+C overflow path -- a positive ETAL_MAT pinned near the population
+C floor (cold thin depths; FeIII on the Ni10 day-40 ejecta) makes
+C 1/ETAL_MAT**2 overflow, and the resulting Inf/NaN entered the BA
+C Jacobian as DGETRF failures at those depths. Zero the
+C non-representable derivative; the floor population state itself
+C is handled by the post-solve demand mask in SOLVEBA_V13.
+	      IF(.NOT. (ABS(VB_SIM(I,SIM_INDX)) .LE. HUGE(1.0_LDP))
+	1       .OR. .NOT. (ABS(VC_SIM(I,SIM_INDX)) .LE.
+	2       HUGE(1.0_LDP)))THEN
+	        VB_SIM(I,SIM_INDX)=0.0_LDP
+	        VC_SIM(I,SIM_INDX)=0.0_LDP
+	      END IF
 	      IF(NEG_OPACITY(I))VB_SIM(I,SIM_INDX)=0.0_LDP
 	    END DO
 	  END DO
@@ -367,6 +380,11 @@ C physical input upstream evaluated, so test .NE. rather than .GT.
 	      ELSE
 	        SRAT=0.0_LDP
 	      END IF
+C edited 24-Nov-2026: same overflow hazard -- ETAL(K)/ETAL_MAT is
+C unrepresentable when ETAL_MAT is pinned near the population
+C floor, and a non-finite SRAT injects Inf/NaN into the cross-line
+C derivative. Zero it as in the VB_SIM/VC_SIM guard above.
+	      IF(.NOT. (ABS(SRAT) .LE. HUGE(1.0_LDP)))SRAT=0.0_LDP
 	      RATE_FAC=EINA(SIM_INDX)*POPS(NUP,K)*U_STAR_RATIO(K,SIM_INDX)
 	      DO J=1,NUM_SIM_LINES
 	        OPAC_FAC=OSCIL(J)*OPLIN
