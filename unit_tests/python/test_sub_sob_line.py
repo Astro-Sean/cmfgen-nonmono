@@ -25,6 +25,7 @@ those branches are unreachable from a live call and are not claimed
 as covered.
 """
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,16 @@ def build():
     return link_prod("drv_sub_sob_line", objs + LIBS, moddir=md)
 
 
+def fval(tok):
+    # Fortran ESw.d fields overflow the exponent digit count: extreme
+    # magnitudes print as '-9.27+159' (the E is dropped). Reinsert it so
+    # the overflowed values are still parsed (as finite numbers or
+    # Infinity) instead of raising here.
+    if "E" not in tok.upper():
+        tok = re.sub(r"([+-])([0-9]+)$", r"E\1\2", tok)
+    return float(tok)
+
+
 def parse(out):
     vals = {"VB": {}, "V2": {}, "ZN": {}, "DR": {}, "ST": {},
             "BAU": {}, "BAT": {}, "NAN": None, "EW": None}
@@ -83,20 +94,20 @@ def parse(out):
         if not t:
             continue
         if t[0] == "VB" and len(t) == 4:
-            vals["VB"][int(t[1])] = (float(t[2]), float(t[3]))
+            vals["VB"][int(t[1])] = (fval(t[2]), fval(t[3]))
         elif t[0] == "V2" and len(t) == 4:
-            vals["V2"][int(t[1])] = (float(t[2]), float(t[3]))
+            vals["V2"][int(t[1])] = (fval(t[2]), fval(t[3]))
         elif t[0] == "ZN" and len(t) == 4:
-            vals["ZN"][int(t[1])] = (float(t[2]), float(t[3]))
+            vals["ZN"][int(t[1])] = (fval(t[2]), fval(t[3]))
         elif t[0] == "DR" and len(t) == 3:
-            vals["DR"][int(t[1])] = float(t[2])
+            vals["DR"][int(t[1])] = fval(t[2])
         elif t[0] == "ST" and len(t) == 5:
-            vals["ST"][int(t[1])] = (float(t[2]), float(t[3]),
-                                     float(t[4]))
+            vals["ST"][int(t[1])] = (fval(t[2]), fval(t[3]),
+                                     fval(t[4]))
         elif t[0] == "BAU" and len(t) == 6:
-            vals["BAU"][int(t[1])] = tuple(float(x) for x in t[2:])
+            vals["BAU"][int(t[1])] = tuple(fval(x) for x in t[2:])
         elif t[0] == "BAT" and len(t) == 5:
-            vals["BAT"][int(t[1])] = tuple(float(x) for x in t[2:])
+            vals["BAT"][int(t[1])] = tuple(fval(x) for x in t[2:])
         elif t[0] == "NAN":
             vals["NAN"] = int(t[1])
         elif t[0] == "EW":
@@ -162,6 +173,22 @@ def main():
         for i in (1, 2, 4, 5, 6, 7, 8)
     )
     rep.check("neg_etal: VC_SIM=JBAR*CHIL_MAT/ETAL_MAT^2", ok)
+
+    # -- tiny-positive ETAL_MAT overflow -------------------------------------
+    # Same hazard class as neg_etal: a positive ETAL_MAT small enough to
+    # overflow 1/ETAL_MAT**2 must not inject Inf/NaN into VB_SIM/VC_SIM or
+    # the BA Jacobian (Ni10 day-40 DGETRF failures, captured BA_ASCI_N_D5).
+    te = parse(run(binary, "tiny_etal").stdout)
+    rep.check("tiny_etal: all outputs finite", te["NAN"] == 0)
+    rep.check(
+        "tiny_etal: VB_SIM/VC_SIM zeroed at overflowing depth",
+        te["VB"][3] == (0.0, 0.0),
+    )
+    rep.check(
+        "tiny_etal: BA entries all finite",
+        all(finite(x) for v in te["BAU"].values() for x in v)
+        and all(finite(x) for v in te["BAT"].values() for x in v),
+    )
 
     # -- NEG_OPACITY -------------------------------------------------------
     no = parse(run(binary, "neg_opac").stdout)
