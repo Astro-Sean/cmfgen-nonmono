@@ -102,6 +102,7 @@
       IF(CNAME .EQ. 'jmp2')  NCASE=46
       IF(CNAME .EQ. 'ni0')   NCASE=47
       IF(CNAME .EQ. 'ni1')   NCASE=48
+      IF(CNAME .EQ. 'ni1f')  NCASE=97
       IF(CNAME .EQ. 'heal')  NCASE=49
       IF(CNAME .EQ. 'esav')  NCASE=50
       IF(CNAME .EQ. 'pmon')  NCASE=51
@@ -275,7 +276,7 @@
 ! in the plain unsolved census.
 !
       IF(NCASE .EQ. 47)NI_RAY(1)=0
-      IF(NCASE .EQ. 48)NI_RAY(1)=1
+      IF(NCASE .EQ. 48 .OR. NCASE .EQ. 97)NI_RAY(1)=1
 ! inval (87): an absurd NI_RAY forces the ray's working-array
 ! ALLOCATE to fail inside the solve -- the ray must classify
 ! INVALID_STATE (allocation failure), not divergence.
@@ -537,6 +538,7 @@
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
+      FG_NI1_FULL=(NCASE .EQ. 97)
       KN_RAY_TOL=2.0E-3_LDP
       IF(NCASE .EQ. 4 .OR. NCASE .EQ. 88 .OR. NCASE .EQ. 89) &
         KN_RAY_TOL=1.0E-14_LDP
@@ -1395,6 +1397,7 @@
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
+      FG_NI1_FULL=(NCASE .EQ. 97)
       KN_RAY_TOL=2.0E-3_LDP
       KN_RAY_MAXPASS=60
       KN_RAY_BULK_TOL=0.0_LDP
@@ -1652,6 +1655,7 @@
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
+      FG_NI1_FULL=(NCASE .EQ. 97)
       KN_RAY_TOL=2.0E-3_LDP
       KN_RAY_MAXPASS=60
       KN_RAY_BULK_TOL=0.0_LDP
@@ -2688,6 +2692,7 @@
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
+      FG_NI1_FULL=(NCASE .EQ. 97)
       KN_RAY_TOL=2.0E-3_LDP
       KN_RAY_MAXPASS=60
       KN_RAY_BULK_TOL=0.0_LDP
@@ -3485,6 +3490,7 @@
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
+      FG_NI1_FULL=(NCASE .EQ. 97)
       KN_RAY_TOL=2.0E-3_LDP
       KN_RAY_MAXPASS=60
       KN_RAY_BULK_TOL=0.0_LDP
@@ -4077,6 +4083,7 @@
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
+      FG_NI1_FULL=(NCASE .EQ. 97)
       KN_RAY_TOL=2.0E-3_LDP
       KN_RAY_MAXPASS=60
       KN_RAY_BULK_TOL=0.0_LDP
