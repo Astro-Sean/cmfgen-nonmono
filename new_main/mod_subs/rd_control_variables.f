@@ -1401,6 +1401,18 @@
 	1     'Implicit frequency-chain solve after each MOM pass?')
 	  CALL SET_MOM_NUSOLV(MOM_NUSOLV)
 !
+! MOM_BLKGMRES (default FALSE): solve the captured MOM rows as one
+! coupled wavelength-depth system by matrix-free GMRES. The captured
+! NU_X0 RHS already excludes the upwind frequency term, so that term
+! becomes implicit exactly once; the diagonal PSI piece remains only
+! in NU_TB. Default off: the stock refresh is unchanged. When both
+! keys are set the block solve takes precedence over MOM_NUSOLV.
+!
+	  MOM_BLKGMRES=.FALSE.
+	  CALL RD_STORE_LOG(MOM_BLKGMRES,'MOM_BLKGMRES',L_FALSE,
+	1     'Coupled wavelength-depth GMRES solve after each MOM pass?')
+	  CALL SET_MOM_BLKGMRES(MOM_BLKGMRES)
+!
 ! MOM_FAC_RLX (default 0.25 since 06-Nov-2026, was 1.0 = off):
 ! under-relax the Eddington-factor update between great iterations
 ! in MOM_J_CMF_NONMONO_V1. With pops held the formal-solve factor
