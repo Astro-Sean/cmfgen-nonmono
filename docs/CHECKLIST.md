@@ -1426,6 +1426,19 @@ KN_ORD_P2DAMP default unchanged (F).
       bounded stall without excursions (marginal-ring hypothesis
       confirmed, decide implicit-H phase next), still amplified
       (hypothesis wrong), or converges.
+      LANDED (24-Nov-2026, commit 4d78adaf): freeze band +
+      write cap in MOM_NU_CHAIN_SOLVE; the FSCL trust-region
+      scale is the incoming column's own scale. Unit verdict:
+      test_mom_nu 44/44 (marg frozen, margok solved exact
+      above the band, cap clamps to the cap value to machine
+      precision); test_mom_solve 143/143 fixed-point regression
+      untouched (guards inert on comp1's contractive map);
+      mom_gs 34/34, vadat_keys 89/89, aa_state 62/62,
+      sweep_table 8/8.
+      ARM (24-Nov-2026): configs/dessart_m15_2p82d_VAL_sob_
+      lamesF_nusolv2.yaml - same eps1em3 seed, MOM_NUSOLV=T.
+      CMFGEN 13653300, OBS 13653301. Pinned exe 3fc083cd
+      carries 4d78adaf.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
