@@ -269,7 +269,7 @@ Status 24-Nov-2026: E1-E3 implemented and pushed through `66cb87c7`.
 `test_mom_blk` 59/59, including dense-reference machine-precision
 solves, a signed upwind edge, and the solver-error contraction probe
 (lagged growth 1.847/iter on the marginal ring; block error ratio
-3.27e-15). `test_mom_solve` 143/143, `test_mom_nu` 53/53, and
+3.27e-15). `test_mom_solve` 144/144, `test_mom_nu` 53/53, and
 `test_vadat_keys` 91/91. The capture sign audit is closed analytically
 and by the signed manufactured case: capture satisfies
 `NU_X0 + NU_CUP*J(NU_KUP)=XM_SAVE`, so the implicit row is
@@ -293,7 +293,12 @@ while the known unrelated pre-existing reds remained `test_auto_ion`
 (missing fixture), `test_cfr4` (harness decode), `test_es_conv`
 (obs archive gap), and the documented `test_knop_lagged_map` sdab
 failure. `test_fg_sw_sym` and `test_fnv1a` pass after the companion-
-object fix. A final full pass from the committed state is still owed.
+object fix. The long fixed-source `nu-census` WRITE was split onto
+continuation lines after the running arm showed only the a>0.9 prefix;
+`test_mom_solve` now pins the presence of the `rmax` and `H/X0` fields.
+The alteration manifest was also updated to register
+`plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
+is still owed.
 
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
@@ -1674,7 +1679,7 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       (sdab pinned-fail, documented defect), lagged_field suite,
       knop_operator 32, knop_spv 93, knop_p2_state 19,
       knop_replay_p2 29, knop_spec_gate 19, knop_endpoint 6,
-      mom_solve 143 (incl. nurf/nuw MOM_NUSOLV and MOM_BLKGMRES
+      mom_solve 144 (incl. nurf/nuw MOM_NUSOLV and MOM_BLKGMRES
       refresh arms), mom_nu 53, mom_blk 59,
       mom_gs 34, mom_aa_state 62, mom_sweep_table 8,
       vadat_keys 91, es_resid 20, jfnk opint 36 + regressions,
