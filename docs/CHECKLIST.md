@@ -242,6 +242,14 @@
       This audit closes with DEFERRED effectiveness pending actual
       admissions in the existing run; no follow-on campaign submitted.
 
+## Coupled wavelength-depth block solve scoping (24-Nov-2026, user-directed)
+
+Question: viability + cost of replacing the lagged frequency
+iteration with a Baron & Hauschildt coupled block solve.
+Plan: docs/plans/BLOCK_SOLVE_SCOPING.md, phases A-E.
+Exit criterion: per-phase verdicts; implementation only after
+phase-D design sign-off. Toy prototype (phase C) is the decisive
+cheap evidence.
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
