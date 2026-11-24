@@ -32,6 +32,8 @@
 !   sig_true   DO_NONMONO_SOB=T, clamped F, SIGMA_TRUE /= SIGMA
 !   sig_clmp   DO_NONMONO_SOB=T, clamped T (must equal base bitwise)
 !   neg_etal   ETAL_MAT(3,1)<0: VB_SIM/VC_SIM zeroed at that depth
+!   tiny_etal  ETAL_MAT(3,1)=1E-160>0: 1/ETAL_MAT**2 overflows;
+!              VB_SIM/VC_SIM must not propagate Inf/NaN into BA
 !   neg_opac   NEG_OPACITY(4)=T: VB_SIM zeroed at that depth
 !   zeropop    POPS(NUP,K)=0: expanded dRATE_dUP stays finite
 !   zerorat    U_STAR_RATIO(:,1)=0: expanded dRATE_dT stays finite
@@ -213,6 +215,8 @@
         SIGMA_TRUE(5)=-0.3_LDP
       CASE('neg_etal')
         ETAL_MAT(3,1)=-2.0E4_LDP
+      CASE('tiny_etal')
+        ETAL_MAT(3,1)=1.0E-160_LDP
       CASE('neg_opac')
         NEG_OPACITY(4)=.TRUE.
       CASE('zeropop')
