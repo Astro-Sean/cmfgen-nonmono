@@ -901,15 +901,30 @@
 	LOGICAL NU_CACHE_RDY
 !
 ! Chain-solve census per call: rings solved, singular rings frozen,
-! rows frozen on bad coefficients, results rejected non-finite or
-! negative. The _T variants accumulate across calls (a whole
-! refresh); MOM_NU_CHG_LAST holds the last call's max drift.
+! near-marginal rings frozen, rows frozen on bad coefficients,
+! results rejected non-finite or negative, writes clamped by the
+! trust-region cap. The _T variants accumulate across calls (a
+! whole refresh); MOM_NU_CHG_LAST holds the last call's max drift.
 !
 	INTEGER*8, SAVE :: MOM_NU_NRING=0,MOM_NU_NSING=0,
-	1   MOM_NU_NFRZ=0,MOM_NU_NNEG=0
+	1   MOM_NU_NMARG=0,MOM_NU_NFRZ=0,MOM_NU_NNEG=0,MOM_NU_NCAP=0
 	INTEGER*8, SAVE :: MOM_NU_NRING_T=0,MOM_NU_NSING_T=0,
-	1   MOM_NU_NFRZ_T=0,MOM_NU_NNEG_T=0
+	1   MOM_NU_NMARG_T=0,MOM_NU_NFRZ_T=0,MOM_NU_NNEG_T=0,
+	2   MOM_NU_NCAP_T=0
 	REAL(KIND=LDP), SAVE :: MOM_NU_CHG_LAST=0.0_LDP
+!
+! Marginal-mode guards (25-Nov-2026): the ring solve x_j*(1-A)=S_j
+! amplifies its lagged source terms by 1/|1-A|; near A~1 that is an
+! amplified solve of stale inputs, not a signal (lamesF_nusolv arm:
+! near-marginal sign-flip rings produced 1e23 commit excursions).
+! Rings with |1-A| below MOM_NU_RING_BAND freeze instead - those
+! modes stay on the sweep's damped update. Writes are additionally
+! bounded by MOM_NU_WRITECAP times the normalized old value so a
+! single call cannot jump a cell by more than the retained-store
+! veto's order of magnitude.
+!
+	REAL(KIND=LDP), PARAMETER :: MOM_NU_RING_BAND=1.0E-2_LDP
+	REAL(KIND=LDP), PARAMETER :: MOM_NU_WRITECAP=1.0E2_LDP
 !
 ! MOM_XMWORST: largest |negative XM| clipped by MOM_XM_POS this sweep.
 ! The bound discards lagged debit; this tracks how much, so the cost
@@ -6026,11 +6041,12 @@
 !
 	  IF(MOM_NUSOLV .AND. NU_CACHE_RDY)THEN
 	    CALL MOM_NU_CHAIN_SOLVE(KN_M_NCF,NU_CHG,NU_N5,NU_N50)
-	    WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,I10,A,I10,A,4(I10,A))')
+	    WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,I10,A,I10,A,6(I10,A))')
 	1    'nu-solve','largest change ',NU_CHG,'; ',
 	2    NU_N5,' cells above 5%, ',NU_N50,' above 50%; ',
-	3    MOM_NU_NRING,' rings (',MOM_NU_NSING,' singular), ',
-	4    MOM_NU_NFRZ,' frozen, ',MOM_NU_NNEG,' rejected negative'
+	3    MOM_NU_NRING,' rings (',MOM_NU_NSING,' singular, ',
+	4    MOM_NU_NMARG,' marginal), ',MOM_NU_NFRZ,' frozen, ',
+	5    MOM_NU_NNEG,' rejected neg, ',MOM_NU_NCAP,' write-capped'
 	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
 	    PASS_N5=PASS_N5+NU_N5
 	    PASS_N50=PASS_N50+NU_N50
@@ -7297,8 +7313,12 @@
 !     the lagged map a rho~1 two-cycle, and longer loops wherever
 !     MOM_NM_J strides >1 compose one. Composing x = r + a*x_next
 !     around the loop gives x_first*(1-A) = S with A the cyclic
-!     product; A~1 is a singular cycle (its members freeze -- the
-!     lagged map's own guards stay in charge there).
+!     product; A~1 is a marginal cycle -- exact in the captured
+!     coefficients but amplifying lagged error by 1/(1-A), so
+!     rings with |1-A| below MOM_NU_RING_BAND freeze at the old
+!     iterate (counted NMARG) and only exactly-degenerate ones
+!     count NSING. Writes are trust-region capped at
+!     MOM_NU_WRITECAP times the normalized old value.
 ! Both are resolved exactly in O(NCF) per depth.
 !
 ! The depth terms TA*J(i-1), TC*J(i+1) read the live store, so
@@ -7327,11 +7347,12 @@
 !
 	INTEGER I,J,JJ,K0,KC,KT,KV,NW,P
 	REAL(KIND=LDP) RHS,TB_V,PROD,SUM,A_V
-	REAL(KIND=LDP) XOLD,XNEW,RLX,TJ,FSCL
+	REAL(KIND=LDP) XOLD,XNEW,RLX,TJ,FSCL,XCAP
 	LOGICAL CACHES_OK
 !
 	MOM_NU_NRING=0_8; MOM_NU_NSING=0_8
-	MOM_NU_NFRZ=0_8;  MOM_NU_NNEG=0_8
+	MOM_NU_NMARG=0_8; MOM_NU_NFRZ=0_8
+	MOM_NU_NNEG=0_8;  MOM_NU_NCAP=0_8
 	CHG_NU=0.0_LDP;   N5_NU=0_8;  N50_NU=0_8
 !
 ! The caller contracts on NU_CACHE_RDY; bail rather than crash if a
@@ -7419,7 +7440,10 @@
 !	        exact -- a substitution pass would divide by it.
 !	        |1-A|~0 or an overflowing product is an incompatible
 !	        cycle -- freeze the members at the old iterate rather
-!	        than divide by it.
+!	        than divide by it. |1-A| below MOM_NU_RING_BAND is a
+!	        near-marginal mode: the solve would amplify lagged
+!	        source error by 1/|1-A|, so those rings freeze too
+!	        (counted separately in NMARG; 25-Nov-2026).
 !
 	        A_V=1.0_LDP
 	        DO J=P,NW
@@ -7432,6 +7456,12 @@
 	            ST(WL(J))=2
 	          END DO
 	          MOM_NU_NSING=MOM_NU_NSING+1
+	        ELSE IF(ABS(1.0_LDP-A_V) .LT. MOM_NU_RING_BAND)THEN
+	          DO J=P,NW
+	            XV(WL(J))=J_NEXT_FRQ(I,WL(J))
+	            ST(WL(J))=2
+	          END DO
+	          MOM_NU_NMARG=MOM_NU_NMARG+1
 	        ELSE
 	          DO J=P,NW
 	            PROD=1.0_LDP
@@ -7464,9 +7494,21 @@
 !	  non-finite or negative chain results are rejected to the
 !	  previous iterate (a solved row is only kept where it is a
 !	  usable field value), otherwise the store moves by the
-!	  pass's relaxation factor.
+!	  pass's relaxation factor. FSCL is the incoming column's own
+!	  scale -- a solved explosion must not inflate the trust
+!	  region it is about to be capped by. The write is
+!	  trust-region capped at MOM_NU_WRITECAP times the
+!	  normalized old value so one call cannot move a cell past
+!	  the retained-store veto's order of magnitude
+!	  (25-Nov-2026: uncapped marginal-ring solves produced 1E23
+!	  commit excursions on m15).
 !
-	  FSCL=MAXVAL(ABS(XV(1:NCF)))
+	  FSCL=0.0_LDP
+	  DO K0=1,NCF
+	    TJ=J_NEXT_FRQ(I,K0)
+	    IF(ABS(TJ) .LE. HUGE(TJ) .AND. TJ .GT. 0.0_LDP)
+	1     FSCL=MAX(FSCL,TJ)
+	  END DO
 	  DO K0=1,NCF
 	    XNEW=XV(K0)
 	    IF(.NOT. (ABS(XNEW) .LE. HUGE(XNEW)))THEN
@@ -7475,6 +7517,11 @@
 	      MOM_NU_NNEG=MOM_NU_NNEG+1
 	    ELSE
 	      XOLD=J_NEXT_FRQ(I,K0)
+	      TB_V=MAX(ABS(XOLD),1.0E-4_LDP*FSCL)
+	      IF(XNEW .GT. MOM_NU_WRITECAP*TB_V)THEN
+	        XNEW=MOM_NU_WRITECAP*TB_V
+	        MOM_NU_NCAP=MOM_NU_NCAP+1
+	      END IF
 	      TJ=ABS(XNEW-XOLD)/MAX(MAX(ABS(XOLD),ABS(XNEW)),
 	1      1.0E-4_LDP*FSCL)
 	      CHG_NU=MAX(CHG_NU,TJ)
@@ -7491,7 +7538,9 @@
 	DEALLOCATE(AV,RV,XV,TV,ST,WL)
 	MOM_NU_NRING_T=MOM_NU_NRING_T+MOM_NU_NRING
 	MOM_NU_NSING_T=MOM_NU_NSING_T+MOM_NU_NSING
+	MOM_NU_NMARG_T=MOM_NU_NMARG_T+MOM_NU_NMARG
 	MOM_NU_NFRZ_T=MOM_NU_NFRZ_T+MOM_NU_NFRZ
+	MOM_NU_NCAP_T=MOM_NU_NCAP_T+MOM_NU_NCAP
 	MOM_NU_NNEG_T=MOM_NU_NNEG_T+MOM_NU_NNEG
 	MOM_NU_CHG_LAST=CHG_NU
 	RETURN
