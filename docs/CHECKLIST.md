@@ -32,22 +32,35 @@
       nbulk arm for direct attribution), baseline-pinned exe
       (same sha as nbulk), KN_ORD_P2DAMP=T + P2N=2/P2REL=3 +
       KN_RAY_BULK_TOL=0, KN_RDUMP_LS=11/12, KN_Q_RESID=T; CMFGEN
-      13639702, OBS 13639703. Success signature: p2damped>0 on
-      the stalled rays and rf_resid falls from 3.7-5.2e-2 toward
-      <1e-2, or STAG+PLAT 9-14 -> <=2. If p2damped fires but the
-      floor is unchanged the orbit is not a pure lambda=-1 mode
-      (fallback arm: KN_ORD_AITKEN=T). Exit criterion: census
-      unambiguous vs the nbulk baseline (~2-3 iterations), then
-      cancel.
-      Arm T3-validation (planned): same restart + KN_NI1_FULL=T,
-      KN_LAM_PARTIAL_HANDOFF=T (+ P2DAMP if T1 positive) - does
-      the run leave LAMBDA, do full BA steps run, and what happens
-      to demand and the field. If the first full step detonates
-      the field, stop and report; no damping or tolerance changes
-      to hide it.
-      Arm T4 (conditional, only if T1 fails): ordered A/B -
-      KN_RAY_ORDERED=T vs F, two short warm restarts, then read
-      the GAM profile from the .bin deck before any mixed-only
+      13639702, OBS 13639703. VERDICT NEGATIVE (24-Nov-2026,
+      canceled after 2 iterations): p2damped fired pervasively
+      (1.0e9 / 7.8e8 writes per refresh; 23M/17M on worst ray 11)
+      but the floor held at 4.31/3.95e-2 (baseline band
+      2.5-4.4e-2) and cert stag went UP 9-14 -> 28/22, not down
+      to <=2 - the sign-flip tracker catches noise flips on
+      genuinely contracting cells and midpoint-commits land off
+      the fixed point. The orbit is not a pure multiplicative
+      lambda=-1 mode (fallback arm KN_ORD_AITKEN=T remains open,
+      gated on this report).
+      Arm T3-validation: same restart + KN_NI1_FULL=T,
+      KN_LAM_PARTIAL_HANDOFF=T (no P2DAMP - T1 negative) -
+      configs/dessart_m15_2p82d_FRESH_knop_v14_hand.yaml; CMFGEN
+      13640311, OBS 13640312, branch pin
+      bfffac62006c60d3_0e7b904d4a648954 at a75e3c7c. Read: does
+      CNT_STABLE_LAM advance off 0/5 on the iterations whose only
+      hold was rf_not_allconv (3 of 8 in nbulk), does the run
+      leave LAMBDA, are full BA steps stable. If the first full
+      step detonates the field, stop and report; no damping or
+      tolerance changes to hide it.
+      Arm T4-B (T1 failed -> triggered): ordered A/B, arm B is
+      KN_RAY_ORDERED=F - configs/dessart_m15_2p82d_FRESH_knop_v14
+      _ordf.yaml; CMFGEN 13640315, OBS 13640316, baseline pin
+      7f4c690ab4cac684_6a33ed6eb6ecf72b (same sha as arm A =
+      nbulk run 13636956, not re-run). RDUMP rays 11 (worst,
+      ALLNEG), 12 (ALLNEG), 22 (mixed-sign non-committer; GAM
+      census from SN_HYDRO_DATA: rays 1-15 ALLNEG, 16-36 MIXED,
+      37-85 ALLPOS). Read GAM profile from the .bin deck before
+      any mixed-only
       dispatch proposal (GAM is not SIGMA: T2 flips at
       MU**2=-1/SIGMA for SIGMA<-1).
 - [x] KNOP V14 cold-start A/B arms + bulk-exit arm: VERDICT
