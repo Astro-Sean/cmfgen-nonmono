@@ -1252,7 +1252,13 @@ KN_ORD_P2DAMP default unchanged (F).
       formal J) - validated default for new configs.
 - [ ] SOB moment route `USE_LAM_ES=F` - FAIL on m15 (job 12316397:
       lagged map never contracts, ~183K persistently frozen cells).
-      Kept documented, not selected.
+      Kept documented, not selected. Stability audit 24-Nov-2026:
+      per-solve tridiagonal operator VERIFIED sound; lagged map
+      stiff by construction and stabilized by counted mechanisms
+      incl. two equation-modifying bounds; defect found -
+      refresh/sweep NMID_ON_HMID regularization mismatch holds a
+      residual floor at sign-transition cells. Audit:
+      docs/audits/MOM_J_CMF_NONMONO_STABILITY_AUDIT_2026-11-24.md.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
