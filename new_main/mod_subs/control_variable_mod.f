@@ -1271,6 +1271,15 @@
 !
 	LOGICAL MOM_NUSOLV
 !
+! MOM_BLKGMRES (default FALSE): after each MOM refresh pass, solve
+! the captured wavelength-depth system in one matrix-free GMRES
+! solve. The depth tridiagonal terms and sign-keyed upwind
+! wavelength coupling are implicit together; lagged H, EPS scatter,
+! source functions and boundary closures stay outer-iteration data.
+! Diagnostic solver key. VADAT keyword [MOM_BLKGMRES].
+!
+	LOGICAL MOM_BLKGMRES
+!
 ! MOM_FAC_RLX (default 0.25, was 1.0 = off): under-relaxation
 ! weight for the Eddington-factor update between great iterations
 ! in MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
