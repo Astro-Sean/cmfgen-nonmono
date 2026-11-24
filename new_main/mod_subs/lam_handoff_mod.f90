@@ -113,12 +113,22 @@
 ! drift class this removes. Label order matches the historical
 ! replica; the ninth label is appended last.
 !
+! edited 24-Nov-2026 [KN_LAM_PARTIAL_HANDOFF, default F]: the ninth
+! conjunct reads the strict FIELD_NCONV (LAM_FIELD_NOT_CONVERGED --
+! gate verdict plus the rf_not_allconv fold-in), matching the real
+! exit. FIELD_NRDY stays an input so the FAILS label can still
+! separate a weak-gate hold ('lam-field-not-ready') from a
+! fold-only hold ('lam-field-not-converged'); FIELD_NCONV implies
+! FIELD_NRDY under the flag-off wiring, so the default label text
+! is unchanged.
+!
       SUBROUTINE CONV_EXIT_EVAL(RD_LAM,DO_LAM_AUTO,LAST_LAM,&
      &     MAIN_COUNTER,JFNK_UNCONV,EX_MAXCH,EPS,DEM_OK,&
      &     HYDRO_REV,POPS_HELD,RESACC_PEND,LAST_NG,FIELD_NRDY,&
-     &     LAM_OK,ALL_MET,NPASS,FAILS)
+     &     FIELD_NCONV,LAM_OK,ALL_MET,NPASS,FAILS)
       LOGICAL, INTENT(IN) :: RD_LAM,DO_LAM_AUTO,JFNK_UNCONV,DEM_OK
       LOGICAL, INTENT(IN) :: HYDRO_REV,POPS_HELD,RESACC_PEND,FIELD_NRDY
+      LOGICAL, INTENT(IN) :: FIELD_NCONV
       INTEGER, INTENT(IN) :: LAST_LAM,MAIN_COUNTER,LAST_NG
       REAL(KIND=LDP), INTENT(IN) :: EX_MAXCH,EPS
       LOGICAL, INTENT(OUT) :: LAM_OK,ALL_MET
@@ -130,7 +140,7 @@
      &     (EX_MAXCH .LT. EPS) .AND. DEM_OK .AND.&
      &     .NOT. HYDRO_REV .AND. .NOT. POPS_HELD .AND.&
      &     .NOT. RESACC_PEND .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.&
-     &     .NOT. FIELD_NRDY
+     &     .NOT. FIELD_NCONV
       NPASS=0
       IF(LAM_OK)NPASS=NPASS+1
       IF(.NOT. JFNK_UNCONV)NPASS=NPASS+1
@@ -140,7 +150,7 @@
       IF(.NOT. POPS_HELD)NPASS=NPASS+1
       IF(.NOT. RESACC_PEND)NPASS=NPASS+1
       IF(MAIN_COUNTER .NE. LAST_NG)NPASS=NPASS+1
-      IF(.NOT. FIELD_NRDY)NPASS=NPASS+1
+      IF(.NOT. FIELD_NCONV)NPASS=NPASS+1
       FAILS=' all pass'
       IF(.NOT. ALL_MET)THEN
         FAILS=' '
@@ -154,7 +164,13 @@
         IF(RESACC_PEND)FAILS=TRIM(FAILS)//' resacc-pending'
         IF(MAIN_COUNTER .EQ. LAST_NG)&
      &       FAILS=TRIM(FAILS)//' on-ng-iteration'
-        IF(FIELD_NRDY)FAILS=TRIM(FAILS)//' lam-field-not-ready'
+        IF(FIELD_NCONV)THEN
+          IF(FIELD_NRDY)THEN
+            FAILS=TRIM(FAILS)//' lam-field-not-ready'
+          ELSE
+            FAILS=TRIM(FAILS)//' lam-field-not-converged'
+          END IF
+        END IF
       END IF
       RETURN
       END SUBROUTINE CONV_EXIT_EVAL
