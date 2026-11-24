@@ -21,6 +21,10 @@
 !            normalized old value -> write clamped, NCAP counted
 !   neg    : chain solving to negative values -> rejected
 !   nonfin : TB=0 and nonfinite RHS rows -> frozen
+!   iter   : iterated composite map on a marginal 2-cycle with a
+!            lagged feedback in X0 -- emulates sweep + chain solve
+!            across passes; prints the ring trajectory under three
+!            guard configurations (band+cap, cap only, unguarded)
 !
 ! Usage: drv_mom_nu <mode> <tag>
 !
@@ -32,8 +36,8 @@
       INTEGER ND,NCF
       PARAMETER (ND=4,NCF=10)
 !
-      INTEGER I,K,IOS
-      REAL(KIND=LDP) CHG,T3,AV0,RV0
+      INTEGER I,K,IOS,ICONF,IT
+      REAL(KIND=LDP) CHG,T3,AV0,RV0,XJ9,XJ10
       INTEGER*8 N5,N50
       CHARACTER(LEN=32) MODE,OUTTAG
       REAL(KIND=LDP), ALLOCATABLE :: J0(:,:)
@@ -198,6 +202,67 @@
         NU_X0(1,6)=1.0_LDP/T3
         J_NEXT_FRQ(2,4)=2.5_LDP
         J_NEXT_FRQ(1,6)=2.5_LDP
+      CASE('iter')
+! Iterated composite map, explosive regime: columns 9-10 form a
+! 2-cycle with a9=a10=0.99995 (cyclic product 0.9999, |1-A|=1E-4
+! inside the freeze band) and carry a lagged feedback c=0.05 in
+! their X0, emulating the lagged H/EPS content of the real rows.
+! c/(1-a)=1000 > 1, so the exact ring solve amplifies by ~1000x
+! per iteration when allowed to run; the frozen ring only feels
+! the damped Jacobi step (total coupling 1.04995, damped growth
+! ~1.025/iter); the write cap binds at ~100x/iter. Theory rates
+! per configuration: conf1 freeze 1.025, conf2 cap-only 1E2,
+! conf3 unguarded 1E3 -- the python side measures them.
+!
+! Per outer iteration: recapture the feedback from the current
+! store (the lag), damped-Jacobi the ring members (the sweep's
+! explicit upwind read), then the chain solve.
+        DO K=2,8
+          DO I=1,ND-1
+            NU_CUP(I,K)=AV0
+            NU_KUP(I,K)=K-1
+          END DO
+        END DO
+        DO I=1,ND-1
+          NU_CUP(I,9)=0.99995_LDP;  NU_KUP(I,9)=10
+          NU_CUP(I,10)=0.99995_LDP; NU_KUP(I,10)=9
+        END DO
+        DO ICONF=1,3
+          SELECT CASE(ICONF)
+          CASE(1)
+            MOM_NU_RING_BAND=1.0E-2_LDP
+            MOM_NU_WRITECAP=1.0E2_LDP
+          CASE(2)
+            MOM_NU_RING_BAND=0.0_LDP
+            MOM_NU_WRITECAP=1.0E2_LDP
+          CASE(3)
+            MOM_NU_RING_BAND=0.0_LDP
+            MOM_NU_WRITECAP=1.0E30_LDP
+          END SELECT
+          NU_X0(1:ND-1,1:NCF)=RV0
+          J_NEXT_FRQ=1.0_LDP
+          DO IT=1,40
+            DO I=1,ND-1
+              NU_X0(I,9)=RV0+0.05_LDP*J_NEXT_FRQ(I,10)
+              NU_X0(I,10)=RV0+0.05_LDP*J_NEXT_FRQ(I,9)
+            END DO
+            DO I=1,ND-1
+              XJ9=NU_X0(I,9)+NU_CUP(I,9)*J_NEXT_FRQ(I,10)
+              XJ10=NU_X0(I,10)+NU_CUP(I,10)*J_NEXT_FRQ(I,9)
+              J_NEXT_FRQ(I,9)=J_NEXT_FRQ(I,9)+
+     &          0.5_LDP*(XJ9-J_NEXT_FRQ(I,9))
+              J_NEXT_FRQ(I,10)=J_NEXT_FRQ(I,10)+
+     &          0.5_LDP*(XJ10-J_NEXT_FRQ(I,10))
+            END DO
+            CALL MOM_NU_CHAIN_SOLVE(NCF,CHG,N5,N50)
+            WRITE(*,'(A,I3,I4,2ES24.8E3,4I8)')'ITER',ICONF,IT,
+     &        J_NEXT_FRQ(1,9),J_NEXT_FRQ(1,10),
+     &        INT(MOM_NU_NMARG),INT(MOM_NU_NCAP),
+     &        INT(MOM_NU_NFRZ),INT(MOM_NU_NNEG)
+          END DO
+        END DO
+        WRITE(*,'(A)')'RESULT_OK'
+        STOP
       CASE DEFAULT
         WRITE(*,'(A)')'RESULT unknown_mode=1'
         STOP 1
