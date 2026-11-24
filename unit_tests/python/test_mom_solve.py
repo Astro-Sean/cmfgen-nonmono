@@ -420,24 +420,30 @@ def main():
     )
 
     # --- MOM_NUSOLV arms -----------------------------------------------
-    # 'nurf' (comp1 geometry) runs a NUSOLV=F DESC refresh then a
-    # NUSOLV=T ALT refresh from the same lagged store. The chain solve
-    # satisfies the captured equations exactly, so the two arms must
+    # 'nurf' (comp1 geometry) runs a NUSOLV=F DESC refresh, then
+    # NUSOLV=T and BLKGMRES=T ALT refreshes from the same lagged store.
+    # Both implicit arms solve the captured equations, so they must
     # land on the same fixed point -- a bulk disagreement means the
     # captured coefficients are not the swept row's own.
     rn = run(exe, "nurf", "nonj", "3", "1", "diff", "none", "0",
              "t_nurf", cwd=WORKDIR)
     rep.check("nurf: driver completed", "RESULT_OK" in rn.stdout)
     rep.check(
-        "nurf: NUSOLV refresh ran and exited",
-        kv(rn.stdout, "NU_FINISHED") > 0.5,
-        rn.stdout[-200:] if kv(rn.stdout, "NU_FINISHED") < 0.5 else "",
+        "nurf: implicit refreshes ran and exited",
+        kv(rn.stdout, "NU_FINISHED") > 0.5
+        and kv(rn.stdout, "BLK_FINISHED") > 0.5
+        and kv(rn.stdout, "BLK_RESID") < 1.0e-2,
+        rn.stdout[-300:]
+        if min(kv(rn.stdout, "NU_FINISHED"), kv(rn.stdout, "BLK_FINISHED"), 1.0) < 0.5
+        else "",
     )
     rep.check(
-        "nurf: NUSOLV arm lands the same fixed point",
-        kv(rn.stdout, "RF_NUSOLV_MAXREL") < 0.5,
+        "nurf: implicit arms land the same fixed point",
+        kv(rn.stdout, "RF_NUSOLV_MAXREL") < 0.5
+        and kv(rn.stdout, "RF_BLK_MAXREL") < 0.5,
         f"RF_NUSOLV_MAXREL={kv(rn.stdout, 'RF_NUSOLV_MAXREL')} "
-        f"RF_NUSOLV_MAXDIFF={kv(rn.stdout, 'RF_NUSOLV_MAXDIFF')}",
+        f"RF_BLK_MAXREL={kv(rn.stdout, 'RF_BLK_MAXREL')} "
+        f"RF_BLK_MAXDIFF={kv(rn.stdout, 'RF_BLK_MAXDIFF')}",
     )
 
     # 'nuw' (compw geometry, thin + albedo->1) is the marginal-map
