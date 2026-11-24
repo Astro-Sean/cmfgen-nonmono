@@ -1259,6 +1259,18 @@ KN_ORD_P2DAMP default unchanged (F).
       refresh/sweep NMID_ON_HMID regularization mismatch holds a
       residual floor at sign-transition cells. Audit:
       docs/audits/MOM_J_CMF_NONMONO_STABILITY_AUDIT_2026-11-24.md.
+      Retest arm (24-Nov-2026, user-directed):
+      configs/dessart_m15_2p82d_VAL_sob_lamesF.yaml - warm restart
+      from the converged m15_2p82d_VAL_sob_jfnk_eps1em3 checkpoint
+      on the post-audit solver (commits 910c4667, 51542bbf: refresh
+      regularization now matches the sweep, JUP finite guard, sweep
+      off-grid census). DO_JFNK=F (admission needs USE_LAM_ES=T).
+      Question: does the lagged J map contract from converged
+      populations on the m15 ejecta? Evidence: MOM_GS drift census,
+      refresh convergence (MOM_RF_CONV/DCHG), quarantine count,
+      LAGB/XMNEG census. Exit: converges (map contractive, route
+      back in contention), stalls again (same bounded class), or
+      detonates (new defect). Single arm, no chain.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
