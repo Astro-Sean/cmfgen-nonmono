@@ -99,3 +99,28 @@ E4. Battery + arm on eps1em3 seed, verdict per checklist rules.
   regime where the lagged version measured 1000/iter
 - arm exit criteria as for the nusolv arms: converges / stalls
   bounded / detonates, with census evidence either way
+
+## 7. VADAT parameter proposal for MOM_BLKGMRES
+
+- proposed key and default: `MOM_BLKGMRES`, default F.
+- user-level decision: whether a research run replaces the lagged
+  frequency pass with the coupled wavelength-depth linear solve after
+  each MOM refresh pass.
+- why an internal default is insufficient: the solve is an unproven
+  numerical experiment at production conditioning and costs several
+  sweep-like operator applications per pass. It must remain opt-in
+  until the eps1em3 arm and wider model matrix establish reliability.
+  The default F path is unchanged.
+- interactions: `MOM_NUSOLV` remains the per-depth chain experiment.
+  If both are true, `MOM_BLKGMRES` takes precedence because both
+  consume the same captured rows and the block system contains the
+  depth coupling the chain solve leaves lagged. Capture keys, damping,
+  write caps and active-set behaviour are unchanged.
+- tests: `test_vadat_keys` covers present and absent keys on the
+  control store and solver module; `test_mom_blk` covers the matrix-
+  free solver against dense references; `test_mom_solve` exercises
+  the integrated refresh arm and the precedence path.
+- physics or numerical strategy: numerical strategy only. The same
+  captured row equations, source terms, guards, boundary closures and
+  write-back policy are used; no physical closure or opacity model is
+  changed.
