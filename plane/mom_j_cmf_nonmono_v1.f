@@ -881,6 +881,16 @@
 !
 	LOGICAL MOM_NUSOLV
 !
+! MOM_BLKGMRES (VADAT key, default FALSE): after each refresh pass,
+! solve the captured wavelength-depth system in one matrix-free
+! preconditioned GMRES solve. The depth-tridiagonal terms and the
+! sign-keyed upwind wavelength term are implicit together; lagged H,
+! EPS scatter, source functions and boundary closures remain outer
+! iteration data. When both block and chain keys are set the block
+! solve takes precedence. edited 24-Nov-2026.
+!
+	LOGICAL MOM_BLKGMRES
+!
 ! Captured row equations, one column per frequency. NU_TA/NU_TB/
 ! NU_TC are the depth-tridiagonal coefficients as solved; NU_CUP/
 ! NU_KUP are the upwind-J term's effective coefficient and target
@@ -912,6 +922,15 @@
 	1   MOM_NU_NMARG_T=0,MOM_NU_NFRZ_T=0,MOM_NU_NNEG_T=0,
 	2   MOM_NU_NCAP_T=0
 	REAL(KIND=LDP), SAVE :: MOM_NU_CHG_LAST=0.0_LDP
+!
+! Block-GMRES census per call: Krylov iterations, restarts, final
+! relative preconditioned residual, nonfinite or negative rejected
+! writes, trust-region capped writes, and the last damped drift.
+!
+	INTEGER*8, SAVE :: MOM_BLK_NITER=0,MOM_BLK_NREST=0,
+	1   MOM_BLK_NFRZ=0,MOM_BLK_NNEG=0,MOM_BLK_NCAP=0
+	REAL(KIND=LDP), SAVE :: MOM_BLK_RESID=0.0_LDP,
+	1   MOM_BLK_CHG_LAST=0.0_LDP
 !
 ! Capture census [MOM_NUSOLV, diagnostic]: per-pass decomposition of
 ! the captured rows. The LAG_BND bound makes every row's implicit
@@ -1061,6 +1080,7 @@
 	DATA MOM_GAM_PIN /.TRUE./
 	DATA MOM_LAG_BND /.TRUE./
 	DATA MOM_NUSOLV /.FALSE./
+	DATA MOM_BLKGMRES /.FALSE./
 	DATA NU_CACHE_RDY /.FALSE./
 	DATA MOM_ABS_FLR /0.0_LDP/
 	DATA MOM_H_IMPL /.FALSE./
@@ -3349,8 +3369,9 @@
 !
 	XM_SAVE_NM=XM_NM
 !
-! [MOM_NUSOLV] Capture the assembled row equations for the implicit
-! frequency-chain pass. NU_CUP is the upwind-J coefficient folded
+! [MOM_NUSOLV/MOM_BLKGMRES] Capture the assembled row equations for
+! the implicit frequency-chain or coupled block pass. NU_CUP is the
+! upwind-J coefficient folded
 ! with every bound already applied (LAG_SCL scaling, the boundary
 ! row's negated sign); NU_X0 is the RHS minus the upwind term as
 ! read, so NU_X0 + NU_CUP*J(NU_KUP) = XM_SAVE identically -- the
@@ -3362,7 +3383,7 @@
 ! assembly's selector (A_BND under the Eddington boundary, Q_NM(1)
 ! under the negated interior row); row ND has no upwind edge.
 !
-	IF(MOM_NUSOLV .AND. FREQ_INDX .GE. 1 .AND.
+	IF((MOM_NUSOLV .OR. MOM_BLKGMRES) .AND. FREQ_INDX .GE. 1 .AND.
 	1   FREQ_INDX .LE. NCF_IN)THEN
 	  IF(.NOT. ALLOCATED(NU_TB))THEN
 	    ALLOCATE(NU_TA(ND_NM,NCF_IN),NU_TB(ND_NM,NCF_IN),
@@ -6096,7 +6117,22 @@
 ! pass output is the composite operator the depth sweeps alone
 ! could not reach.
 !
-	  IF(MOM_NUSOLV .AND. NU_CACHE_RDY)THEN
+	  IF(MOM_BLKGMRES .AND. NU_CACHE_RDY)THEN
+	    CALL MOM_BLK_SOLVE(KN_M_NCF,NU_CHG,NU_N5,NU_N50)
+	    WRITE(LUER,'(4X,A10,2X,A,I6,A,I3,A,ES10.3,A,ES10.3,A,I10,A,I10,A,3(I10,A))')
+	1    'blk-gmres','iter ',MOM_BLK_NITER,' restarts ',
+	2    MOM_BLK_NREST,' resid ',MOM_BLK_RESID,'; largest change ',
+	3    NU_CHG,'; ',NU_N5,' cells above 5%, ',NU_N50,' above 50%; ',
+	4    MOM_BLK_NFRZ,' frozen, ',MOM_BLK_NNEG,' rejected neg, ',
+	5    MOM_BLK_NCAP,' write-capped'
+	    IF(NUC_NROW .GT. 0_8)THEN
+	      WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)') 'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
+	      WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
+	    END IF
+	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
+	    PASS_N5=PASS_N5+NU_N5
+	    PASS_N50=PASS_N50+NU_N50
+	  ELSE IF(MOM_NUSOLV .AND. NU_CACHE_RDY)THEN
 	    CALL MOM_NU_CHAIN_SOLVE(KN_M_NCF,NU_CHG,NU_N5,NU_N50)
 	    WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,I10,A,I10,A,6(I10,A))')
 	1    'nu-solve','largest change ',NU_CHG,'; ',
@@ -7609,6 +7645,99 @@
 !
 !**********************************************************************
 !
+! MOM_BLK_SOLVE [MOM_BLKGMRES, default F]: coupled wavelength-depth
+! solve of the captured pass equations. The RHS is NU_X0, which already
+! excludes the upwind frequency term read by the sweep. That term is
+! therefore moved to the implicit left-hand side exactly once; the PSI
+! diagonal already lives in NU_TB and is not added again. Inactive
+! columns are pinned to the incoming iterate. The accepted field uses
+! the same damped, non-negative, trust-region write policy as the chain
+! solve.
+!
+	SUBROUTINE MOM_BLK_SOLVE(NCF,CHG_NU,N5_NU,N50_NU)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1
+	USE MOM_BLK_GMRES_MOD
+	IMPLICIT NONE
+!
+	INTEGER NCF
+	REAL(KIND=LDP) CHG_NU
+	INTEGER*8 N5_NU,N50_NU
+!
+	REAL(KIND=LDP), ALLOCATABLE :: XSOL(:,:)
+	INTEGER I,K0,INFO,NITER,NREST
+	REAL(KIND=LDP) RESID,XOLD,XNEW,RLX,TJ,FSCL,TB_V
+	LOGICAL CACHES_OK
+!
+	MOM_BLK_NITER=0_8; MOM_BLK_NREST=0_8
+	MOM_BLK_NFRZ=0_8;  MOM_BLK_NNEG=0_8
+	MOM_BLK_NCAP=0_8
+	MOM_BLK_RESID=HUGE(MOM_BLK_RESID)
+	CHG_NU=0.0_LDP; N5_NU=0_8; N50_NU=0_8
+!
+	CACHES_OK=ALLOCATED(NU_TB) .AND. ALLOCATED(NU_KUP)
+	1   .AND. ALLOCATED(NU_FRESH) .AND. ALLOCATED(J_NEXT_FRQ)
+	IF(CACHES_OK)CACHES_OK=SIZE(NU_TB,1) .GE. ND_NM .AND.
+	1   SIZE(NU_TB,2) .GE. NCF .AND. SIZE(J_NEXT_FRQ,2) .GE. NCF
+	2   .AND. SIZE(NU_FRESH) .GE. NCF
+	IF(.NOT. CACHES_OK)RETURN
+!
+	ALLOCATE(XSOL(ND_NM,NCF))
+	CALL MOM_BLK_GMRES_SOLVE(ND_NM,NCF,NU_TA,NU_TB,NU_TC,NU_X0,
+	1  NU_CUP,NU_KUP,NU_FRESH,J_NEXT_FRQ(1:ND_NM,1:NCF),XSOL,
+	2  40,1.0E-3_LDP,4,NITER,NREST,RESID,INFO)
+	MOM_BLK_NITER=NITER
+	MOM_BLK_NREST=NREST
+	MOM_BLK_RESID=RESID
+	IF(INFO .NE. 0)THEN
+	  MOM_BLK_NFRZ=INT(ND_NM,8)*INT(NCF,8)
+	  DEALLOCATE(XSOL)
+	  RETURN
+	END IF
+!
+! The write cap uses the same per-depth frequency scale as the chain
+! solve. Rejecting a nonfinite or negative cell leaves the previous
+! iterate in place; otherwise the store moves only by the pass damping.
+!
+	DO I=1,ND_NM
+	  FSCL=0.0_LDP
+	  DO K0=1,NCF
+	    TJ=J_NEXT_FRQ(I,K0)
+	    IF(ABS(TJ) .LE. HUGE(TJ) .AND. TJ .GT. 0.0_LDP)
+	1     FSCL=MAX(FSCL,TJ)
+	  END DO
+	  DO K0=1,NCF
+	    XNEW=XSOL(I,K0)
+	    IF(.NOT. (ABS(XNEW) .LE. HUGE(XNEW)))THEN
+	      MOM_BLK_NFRZ=MOM_BLK_NFRZ+1
+	    ELSE IF(XNEW .LT. 0.0_LDP)THEN
+	      MOM_BLK_NNEG=MOM_BLK_NNEG+1
+	    ELSE
+	      XOLD=J_NEXT_FRQ(I,K0)
+	      TB_V=MAX(ABS(XOLD),1.0E-4_LDP*FSCL)
+	      IF(XNEW .GT. MOM_NU_WRITECAP*TB_V)THEN
+	        XNEW=MOM_NU_WRITECAP*TB_V
+	        MOM_BLK_NCAP=MOM_BLK_NCAP+1
+	      END IF
+	      TJ=ABS(XNEW-XOLD)/MAX(MAX(ABS(XOLD),ABS(XNEW)),
+	1      1.0E-4_LDP*FSCL)
+	      CHG_NU=MAX(CHG_NU,TJ)
+	      IF(TJ .GT. 0.05_LDP)N5_NU=N5_NU+1
+	      IF(TJ .GT. 0.50_LDP)N50_NU=N50_NU+1
+	      RLX=JNEXT_RELAX
+	      IF(MOM_KN_REFRESHING .AND. ALLOCATED(MOM_DAMP_NM))
+	1       RLX=MOM_DAMP_NM(I,K0)
+	      J_NEXT_FRQ(I,K0)=XOLD+RLX*(XNEW-XOLD)
+	    END IF
+	  END DO
+	END DO
+	MOM_BLK_CHG_LAST=CHG_NU
+	DEALLOCATE(XSOL)
+	RETURN
+	END
+!
+!**********************************************************************
+!
 ! SET_MOM_NUSOLV: runtime wiring for MOM_NUSOLV, called once from
 ! RD_CONTROL_VARIABLES after the VADAT key is read.
 !
@@ -7617,5 +7746,18 @@
 	IMPLICIT NONE
 	LOGICAL DO_NUS
 	MOM_NUSOLV=DO_NUS
+	RETURN
+	END
+
+!**********************************************************************
+!
+! SET_MOM_BLKGMRES: runtime wiring for MOM_BLKGMRES, called once from
+! RD_CONTROL_VARIABLES after the VADAT key is read.
+!
+	SUBROUTINE SET_MOM_BLKGMRES(DO_BLK)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_BLKGMRES
+	IMPLICIT NONE
+	LOGICAL DO_BLK
+	MOM_BLKGMRES=DO_BLK
 	RETURN
 	END
