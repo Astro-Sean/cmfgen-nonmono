@@ -17,6 +17,8 @@ Cases (drv_knop_ray.f90):
   sdab  warm seed refresh, then a garbage seed refresh (seed B)
   sdp   poisoned store seed (NaN/Inf/negative/huge) x 1 refresh
   qres  KN_Q_RESID=T x 1 refresh -> independent fixed-point residual
+  sdac  retained store scaled 1E-6 (sane) -> genuine jump veto
+  sdad  one NaN slot per retained row -> row heal, then commit
 
 The committed store must always be finite, certifications must be
 honest (no FULL claim while the independent residual fails), and
@@ -153,7 +155,10 @@ def main():
     bin_ = build()
 
     runs = {}
-    for case in ("lagc", "lagw", "lagr", "lags", "sdab", "sdp", "qres"):
+    for case in (
+        "lagc", "lagw", "lagr", "lags",
+        "sdab", "sdp", "qres", "sdac", "sdad",
+    ):
         r = run(bin_, case, cwd=WORKDIR, check=False)
         runs[case] = r
         rep.check(
@@ -167,9 +172,7 @@ def main():
     # -- T1: every committed store is finite, cold or warm, on the
     # single-band profile and on the complementary reversal and
     # strong-compression profiles. Poison never passes through.
-    # sdab refresh 2 is exempt: it exposes the retained-poison defect
-    # documented under T4 and is checked separately there.
-    for case in ("lagc", "lagw", "lagr", "lags", "sdp"):
+    for case in ("lagc", "lagw", "lagr", "lags", "sdab", "sdp", "sdad"):
         allfin = all(store_finite(rec) for rec in refr[case])
         rep.check(
             f"{case}: committed store finite on every refresh",
@@ -180,7 +183,10 @@ def main():
     # -- T2: certification classes in range. CLS describes the solve,
     # VC the commit decision -- a certified solve can still be
     # commit-vetoed (VC=1/2/3), so no cross-consistency is claimed.
-    for case in ("lagc", "lagw", "lagr", "lags", "sdab", "sdp", "qres"):
+    for case in (
+        "lagc", "lagw", "lagr", "lags",
+        "sdab", "sdp", "qres", "sdac", "sdad",
+    ):
         ok = True
         for rec in refr[case]:
             for ls, (cls, _rea) in rec["cls"].items():
@@ -203,23 +209,56 @@ def main():
 
     # -- T4: sdab seed A/B. Refresh 1 commits a converged field from
     # the warm seed. The store is then re-poisoned (garbage + NaN +
-    # Inf) and refresh 2 converges the ray again -- but the commit
-    # jump veto compares against the poisoned retained generation and
-    # rejects, so the garbage stays in the store. HEAL_STORE only runs
-    # on diverged rays, so this door has no recovery path: the slot is
-    # stuck on every later refresh. Documented defect, kept failing:
-    # a converged certified field must be able to replace a poisoned
-    # retained generation.
+    # Inf) and refresh 2 converges the ray again. W2 (24-Nov-2026):
+    # the retained rows are healed at the seed read before the veto
+    # sees them, so the certified field commits in the same refresh
+    # and must equal the refresh-1 field (seed-independent fixed
+    # point); no NaN/Inf may remain in the committed store.
     ra, rb = refr["sdab"][0], refr["sdab"][1]
     full_a = all(v[0] == 0 for v in ra["cls"].values())
     full_b = all(v[0] == 0 for v in rb["cls"].values())
     d_ab = store_rel_diff(ra, rb)
     rep.check(
-        "sdab: converged field replaces poisoned retained store "
-        "[KNOWN DEFECT: jump veto keeps garbage]",
+        "sdab: converged field replaces poisoned retained store",
         store_finite(rb) and full_b and d_ab < 0.05,
         f"full_a={full_a} full_b={full_b} "
-        f"vc_b={rb['vc']} d={d_ab:.3e}",
+        f"vc_b={rb['vc']} d={d_ab:.3e} poison={rb.get('RF_POISON')}",
+    )
+
+    # -- T4b: sdac genuine-jump control. Refresh 2 keeps the
+    # refresh-1 retained generation scaled down 1E-6 -- sane, so no
+    # poison heal may fire (RF_POISON=0) -- and the converged
+    # candidate lands ~1E6 x the retained slice: a real relative
+    # jump the veto must still reject (VC=1, finite JUMP>50).
+    rc = refr["sdac"][1]
+    vc_c = rc["vc"].get(1, (-1, 0.0))
+    rep.check(
+        "sdac: sane store, genuine factor->50 jump still vetoed",
+        rc.get("RF_POISON") == 0
+        and vc_c[0] == 1
+        and _finite(vc_c[1])
+        and vc_c[1] > 50.0,
+        f"vc={rc['vc']} poison={rc.get('RF_POISON')}",
+    )
+
+    # -- T4c: sdad partial-row poison. Refresh 2 puts one NaN slot
+    # per (depth,channel) retained row on ray 1 over the refresh-1
+    # committed generation. The heal must zero exactly the offending
+    # slots (RF_POISON = 2*N_COMP, not whole rows), then commit the
+    # same certified field as refresh 1 (VC=0, d_ad<5%).
+    rd = refr["sdad"][1]
+    rad_ = refr["sdad"][0]
+    n_comp = len({k for (_ls, k, _l) in rd["rstore"]})
+    vc_d = rd["vc"].get(1, (-1, 0.0))
+    d_ad = store_rel_diff(rad_, rd)
+    rep.check(
+        "sdad: partially poisoned rows healed slotwise, then commit",
+        store_finite(rd)
+        and vc_d[0] == 0
+        and rd.get("RF_POISON") == 2 * n_comp
+        and d_ad < 0.05,
+        f"vc={rd['vc']} poison={rd.get('RF_POISON')} "
+        f"ncomp={n_comp} d={d_ad:.3e}",
     )
 
     # -- T5: qres independent fixed-point residual -- reported for

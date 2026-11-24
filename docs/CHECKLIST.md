@@ -359,17 +359,23 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       checkpoint paths, with literature comparison (Knop Paper II
       converges the coupled BVP inside each formal solve; the dev
       lagged store is an explicit-source shortcut). New production-
-      object battery test_knop_lagged_map.py (26 checks, 25 PASS):
+      object battery test_knop_lagged_map.py (34 checks, 34 PASS
+      after the 24-Nov-2026 poison-heal fix):
       cold/warm/poisoned seeds on single-band, two-band-reversal and
       strong-compression profiles all reach finite seed-independent
       committed fixed points (KN_Q_RESID q max = 0.0); diverged
-      poisoned seeds heal without committing. ONE CONFIRMED DEFECT:
-      a converged certified solve can be permanently jump-vetoed by
-      a poisoned retained generation - the store keeps NaN/Inf
-      forever while cert reports FULL (HEAL_STORE runs only on
-      diverged rays; pinned failing as sdab). Fix candidate
-      deferred: retained-side sanity in FG_JUMP_MAX or an entry-side
-      heal. docs/audits/CMFGEN_KNOP_LAGGED_STORE_POISON_AUDIT.md.
+      poisoned seeds heal without committing. The one confirmed
+      defect - a converged certified solve permanently jump-vetoed
+      by a poisoned retained generation, NaN/Inf kept forever while
+      cert reported FULL (HEAL_STORE only on diverged rays) - FIXED
+      24-Nov-2026 on fix/convergence-liveness-and-guards:
+      retained-side row sanity now runs at the seed read, at the
+      veto (heal + one re-eval) and in the retained NC=0 branch,
+      counted under FG_POISON_HEAL; sdab passes (VC=0, same
+      seed-independent fixed point), new sdac pins the genuine
+      factor->50 veto on a sane store, sdad pins slotwise partial
+      heals (2*N_COMP slots, siblings kept); OMP 1 vs 4 identical.
+      docs/audits/CMFGEN_KNOP_LAGGED_STORE_POISON_AUDIT.md.
       Production-scale rho~0.97 stall not reachable on the
       manufactured grid; K1 stays open.
 - [x] Discrete-operator verification (22-Nov-2026): new
@@ -1209,8 +1215,9 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
 
 ## 5. Test and validation tiers
 
-- [x] Static/unit batteries: knop_ray 49, knop_lagged_map 25/26
-      (sdab pinned-fail, documented defect), lagged_field suite,
+- [x] Static/unit batteries: knop_ray 49, knop_lagged_map 34/34
+      (sdab defect fixed 24-Nov-2026, sdac/sdad added),
+      lagged_field suite,
       knop_operator 32, knop_spv 93, knop_p2_state 19,
       knop_replay_p2 29, knop_spec_gate 19, knop_endpoint 6,
       mom_solve 137, mom_gs 34, mom_aa_state 62, mom_sweep_table 8,

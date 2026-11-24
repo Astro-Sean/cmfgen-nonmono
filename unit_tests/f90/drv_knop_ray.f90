@@ -152,6 +152,8 @@
       IF(CNAME .EQ. 'sdab')  NCASE=94
       IF(CNAME .EQ. 'sdp')   NCASE=95
       IF(CNAME .EQ. 'qres')  NCASE=96
+      IF(CNAME .EQ. 'sdac')  NCASE=97
+      IF(CNAME .EQ. 'sdad')  NCASE=98
 !
 ! The A/B case drives the production in-sweep solver itself
 ! (FG_J_CMF_NONMONO_V1) and needs its own model-input setup, so it
@@ -969,6 +971,10 @@
 ! problem; sdab re-seeds garbage between refresh 1 and 2.
         IF(NCASE .GE. 90 .AND. NCASE .LE. 93)NRF=3
         IF(NCASE .EQ. 94)NRF=2
+! sdac/sdad (W2 poison-heal A/B, 24-Nov-2026): same two-refresh
+! commit probe as sdab; refresh 2 mutates ray 1's retained store
+! per case before FG_KNOP_REFRESH_V1 runs.
+        IF(NCASE .EQ. 97 .OR. NCASE .EQ. 98)NRF=2
 ! qres: arm the independent fixed-point residual diagnostic so the
 ! committed field's true map residual is printed per ray.
         IF(NCASE .EQ. 96)KN_Q_RESID=.TRUE.
@@ -1095,6 +1101,32 @@
           I_P_DEPTH_NEXT(2,1,4)=IEEE_VALUE(0.0_LDP, &
       IEEE_POSITIVE_INF)
         END IF
+!
+! sdac (W2, 24-Nov-2026): genuine-jump control. Refresh 2 keeps the
+! refresh-1 retained generation but scaled down by 1E-6 -- every
+! slot stays finite, positive and below the cap*median bound, so
+! no heal may fire (RF_POISON=0) while the converged candidate
+! lands ~1E6 x the retained slice: a real relative jump the veto
+! must still reject (VC=1).
+!
+        IF(NCASE .EQ. 97 .AND. IRF .EQ. 2)THEN
+          I_M_DEPTH_NEXT(:,1,:)=I_M_DEPTH_NEXT(:,1,:)*1.0E-6_LDP
+          I_P_DEPTH_NEXT(:,1,:)=I_P_DEPTH_NEXT(:,1,:)*1.0E-6_LDP
+        END IF
+!
+! sdad (W2, 24-Nov-2026): partial-row poison. Refresh 2 puts one
+! NaN slot on every compressing depth of ray 1, both channels,
+! over the refresh-1 committed generation -- the heal must zero
+! only the offending slot (RF_POISON=2 per depth row pair), leave
+! the finite siblings in place, and let the certified solve
+! commit (VC=0) a field equal to refresh 1's.
+!
+        IF(NCASE .EQ. 98 .AND. IRF .EQ. 2)THEN
+          DO K=1,N_COMP
+            I_M_DEPTH_NEXT(K,1,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+            I_P_DEPTH_NEXT(K,1,3)=IEEE_VALUE(0.0_LDP,IEEE_QUIET_NAN)
+          END DO
+        END IF
         IF(NRF .GT. 1)WRITE(*,'(A,I2)')'RF_PASS ',IRF
         CALL FG_KNOP_REFRESH_V1()
         WRITE(*,'(A,ES16.8)')'RF_RESID=',KN_RF_RESID
@@ -1107,6 +1139,7 @@
         WRITE(*,'(A,ES16.8)')'RF_PLAT=',DBLE(FG_GS_NPLAT)
         WRITE(*,'(A,ES16.8)')'RF_INEXT_RELAX=',INEXT_RELAX
         WRITE(*,'(A,I8)')'RF_HEAL=',FG_DIV_HEAL
+        WRITE(*,'(A,I8)')'RF_POISON=',FG_POISON_HEAL
         WRITE(*,'(A,L2)')'RF_FAIL=',FG_RF_FAILED
         WRITE(*,'(A,L2)')'RF_ALLCONV=',FG_RF_ALL_CONV
         WRITE(*,'(A,I8)')'RF_JREJ=',FG_COMMIT_REJ

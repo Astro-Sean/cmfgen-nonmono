@@ -113,13 +113,28 @@ inside a solve that still converges.
   warm and perturbed seeds land on the same store; poisoned seeds
   diverge and heal without committing garbage; KN_Q_RESID reports
   an exact fixed-point residual.
-- CONFIRMED DEFECT: a converged certified solve can be permanently
-  jump-vetoed by a poisoned retained generation; the store then
-  keeps non-finite values indefinitely while cert reports FULL.
-  Pinned failing as test_knop_lagged_map sdab. Fix candidate
-  (deferred): retained-side sanity inside FG_JUMP_MAX, or an
-  entry-side heal of non-finite/non-positive retained slots at
-  refresh start -- one slot-class change, default-path neutral.
+- CONFIRMED DEFECT -> FIXED (24-Nov-2026): a converged certified
+  solve could be permanently jump-vetoed by a poisoned retained
+  generation; the store kept non-finite values indefinitely while
+  cert reported FULL. Mechanism as diagnosed: SEED_FLD copies the
+  retained slots verbatim, so a NaN/Inf slot survived the sweep at
+  un-swept cells and the veto read the certified field's own
+  non-finite candidate as a branch-1 HUGE return -- a
+  veto-time-only heal could not rescue a candidate that had
+  already inherited the poison.
+  Fix landed on branch fix/convergence-liveness-and-guards:
+  row-scoped retained-side sanity (KN_STORE_ROW_SANE +
+  KN_ROW_MEDIAN/KN_HEAL_ROW sharing HEAL_STORE's median and
+  zero-slot convention) now runs at the seed read, at the jump
+  veto (heal, then one re-evaluation), and in the retained
+  FG_COMMIT_NC=0 branch, counted under FG_POISON_HEAL. A sane
+  store is untouched, so the default path is bit-identical.
+  sdab now passes (VC=0, committed field identical to the
+  refresh-1 seed-independent fixed point); sdac pins the genuine
+  factor->50 veto with a sane store (VC=1, JUMP=1E6,
+  FG_POISON_HEAL=0); sdad pins slotwise healing (one NaN per row,
+  FG_POISON_HEAL=2*N_COMP, siblings preserved); OMP 1 vs 4 give
+  identical committed fields and heal totals.
 - NOT ADDRESSED: production-scale contraction (rho~0.97, period-2
   inner rays) needs the real model's ~4E4-bin grid; the
   manufactured battery cannot see it. No solver change made.

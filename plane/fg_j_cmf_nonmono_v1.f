@@ -509,6 +509,16 @@
 	INTEGER*8, SAVE :: FG_GS_NSTAL=0
 	INTEGER*8, SAVE :: FG_GS_NPLAT=0
 	INTEGER, SAVE :: FG_DIV_HEAL=0
+!
+! FG_POISON_HEAL (24-Nov-2026, W2 lagged-store poison audit):
+! retained-store slots healed outside the diverged-ray path -- at
+! the seed read, at the jump veto, and in the retained
+! FG_COMMIT_NC=0 branch. Separated from FG_DIV_HEAL because the
+! trigger class differs: a diverged ray earned its poison, while
+! a retained row here would veto or seed-corrupt an otherwise
+! certified solve (the sdab defect). Same KN_HEAL_ROW convention.
+!
+	INTEGER, SAVE :: FG_POISON_HEAL=0
 	INTEGER, SAVE :: FG_COMMIT_REJ=0
 	REAL(KIND=LDP), SAVE :: FG_COMMIT_JUMP=50.0_LDP
 	REAL(KIND=LDP), SAVE :: FG_DIV_HEAL_CAP=1.0E+6_LDP
@@ -669,6 +679,7 @@
 	INTEGER, SAVE :: FG_EVAL_ARGHK(4),FG_EVAL_ARGHR(4)
 	INTEGER, SAVE :: FG_EVAL_ARGHL(4)
 	INTEGER, SAVE :: FG_EVAL_NDIV,FG_EVAL_HEAL,FG_EVAL_JREJ
+	INTEGER, SAVE :: FG_EVAL_POH
 	INTEGER, SAVE :: FG_EVAL_NCR,FG_EVAL_NCC,FG_EVAL_CAPF
 	INTEGER, SAVE :: FG_EVAL_FRQ,FG_EVAL_ECNT
 	INTEGER, SAVE :: FG_EVAL_ETYP(1000)
@@ -2760,6 +2771,7 @@
 	FG_EVAL_NST=FG_GS_NSTAL
 	FG_EVAL_NPL=FG_GS_NPLAT
 	FG_EVAL_HEAL=FG_DIV_HEAL
+	FG_EVAL_POH=FG_POISON_HEAL
 	FG_EVAL_JREJ=FG_COMMIT_REJ
 	FG_EVAL_NCR=FG_NC_REJ
 	FG_EVAL_NCC=FG_NC_CAP
@@ -2823,6 +2835,7 @@
 	FG_GS_NSTAL=FG_EVAL_NST
 	FG_GS_NPLAT=FG_EVAL_NPL
 	FG_DIV_HEAL=FG_EVAL_HEAL
+	FG_POISON_HEAL=FG_EVAL_POH
 	FG_COMMIT_REJ=FG_EVAL_JREJ
 	FG_NC_REJ=FG_EVAL_NCR
 	FG_NC_CAP=FG_EVAL_NCC
@@ -4450,6 +4463,7 @@
 	    FG_GS_NSTAL=0
 	    FG_GS_NPLAT=0
 	    FG_DIV_HEAL=0
+	    FG_POISON_HEAL=0
 	    FG_COMMIT_REJ=0
 	    FG_NC_REJ=0
 	    FG_NC_CAP=0
@@ -10054,11 +10068,12 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
 	2  FG_GS_NTOT_BLK
-	WRITE(LUER,'(A,I6,A,I6,A,I6,A,I6)')
+	WRITE(LUER,'(A,I6,A,I6,A,I6,A,I6,A,I6)')
 	1  '    healed slots=',FG_DIV_HEAL,
 	2  '   commit rejects=',FG_COMMIT_REJ,
 	3  '   nc rejects=',FG_NC_REJ,
-	4  '   nc capped=',FG_NC_CAP
+	4  '   nc capped=',FG_NC_CAP,
+	5  '   poison heals=',FG_POISON_HEAL
 	IF(KN_HOT_SPENT .GT. 0)WRITE(LUER,'(A,I8,A,I6)')
 	1  '    hot-pass budget spent=',INT(MIN(KN_HOT_SPENT,2**30_8)),
 	2  '  cap=',KN_HOT_TOTAL_PASSES
@@ -10847,6 +10862,7 @@ C
 	INTEGER KN_DUMP_N
 	INTEGER NI,NCF
 	INTEGER I,J,K,KC,L,JPT,IOS
+	INTEGER KS,NPHL
 	INTEGER, ALLOCATABLE :: IKC1(:),IKC2(:),JPR1(:),JPR2(:),IGRD(:)
 	INTEGER NGRD
 !
@@ -11237,6 +11253,37 @@ C
 	  GOTO 900
 	END IF
 	FLD(1:NI,1:NCF)=0.0_LDP
+!
+! edited 24-Nov-2026 [W2 lagged-store poison audit,
+! FG_POISON_HEAL]: heal insane retained rows before the seed
+! reads them. A non-finite, non-positive, or
+! >FG_DIV_HEAL_CAP*row-median retained slot seeds a non-finite
+! candidate at un-swept cells; the jump veto then reads the
+! certified solve's own output as a HUGE return and vetoes it --
+! a converged certified solve permanently blocked by a store it
+! never repairs (sdab pin, docs/audits/
+! CMFGEN_KNOP_LAGGED_STORE_POISON_AUDIT). Only offending rows
+! heal, same zero-slot convention as the diverged-ray
+! HEAL_STORE, counted under FG_POISON_HEAL; a sane store is
+! untouched, so the default path is bit-identical.
+!
+	IF(.NOT. L_NOPROBE)THEN
+	  NPHL=0
+	  DO KS=1,KN_ND
+	    KC=COMP_DEPTH_IDX(KS)
+	    IF(KC .GE. 1)THEN
+	      IF(.NOT. KN_STORE_ROW_SANE(I_M_DEPTH_NEXT,LS,KC))
+	1      CALL KN_HEAL_ROW(I_M_DEPTH_NEXT,LS,KC,NPHL)
+	      IF(.NOT. KN_STORE_ROW_SANE(I_P_DEPTH_NEXT,LS,KC))
+	1      CALL KN_HEAL_ROW(I_P_DEPTH_NEXT,LS,KC,NPHL)
+	    END IF
+	  END DO
+	  IF(NPHL .GT. 0)THEN
+!$OMP CRITICAL (FG_HEAL_UPD)
+	    FG_POISON_HEAL=FG_POISON_HEAL+NPHL
+!$OMP END CRITICAL (FG_HEAL_UPD)
+	  END IF
+	END IF
 	CALL SEED_FLD(FLD,I_M_DEPTH_NEXT)
         call kn_stage_field('REFRESH_START_SEED_VIEW',ls,2,0,fld,
      1    0.0_ldp,kn_ray_omega)
@@ -11561,6 +11608,37 @@ C
 	  IF(.NOT. L_UNSEED)JUMP=
 	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1),
 	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2))
+!
+! edited 24-Nov-2026 [W2 lagged-store poison audit]: retained-side
+! sanity at the veto. An insane retained row manufactures the veto
+! independent of the fresh field, so before rejecting a certified
+! solve the store must be re-checked: heal only the offending rows
+! (same zero-slot convention), count them under FG_POISON_HEAL,
+! and re-evaluate the jump once. A still-out-of-bounds verdict is
+! the genuine fresh-field jump. The seed-time heal above keeps
+! this nearly unreachable; a hit means the row went bad between
+! seeding and certification.
+!
+	  IF(JUMP .GT. FG_COMMIT_JUMP .AND. .NOT. L_NOPROBE)THEN
+	    NPHL=0
+	    DO KS=1,KN_ND
+	      KC=COMP_DEPTH_IDX(KS)
+	      IF(KC .GE. 1)THEN
+	        IF(.NOT. KN_STORE_ROW_SANE(I_M_DEPTH_NEXT,LS,KC))
+	1        CALL KN_HEAL_ROW(I_M_DEPTH_NEXT,LS,KC,NPHL)
+	        IF(.NOT. KN_STORE_ROW_SANE(I_P_DEPTH_NEXT,LS,KC))
+	1        CALL KN_HEAL_ROW(I_P_DEPTH_NEXT,LS,KC,NPHL)
+	      END IF
+	    END DO
+	    IF(NPHL .GT. 0)THEN
+!$OMP CRITICAL (FG_HEAL_UPD)
+	      FG_POISON_HEAL=FG_POISON_HEAL+NPHL
+!$OMP END CRITICAL (FG_HEAL_UPD)
+	      JUMP=
+	1    MAX(FG_JUMP_MAX(FLD,I_M_DEPTH_NEXT,JMP_SIB_M,1),
+	2        FG_JUMP_MAX(FLD_P,I_P_DEPTH_NEXT,JMP_SIB_P,2))
+	    END IF
+	  END IF
 	  IF(JUMP .GT. FG_COMMIT_JUMP)THEN
 ! MODE 1 ([KN_NOCP_PROBE]): the probe's veto verdict stays on
 ! FG_RAY_VC below, but a suppressed commit must not move the
@@ -11664,6 +11742,29 @@ C
 	      IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=
 	1        MAX(DCH_M,DCH_P)
 	    ELSE
+!
+! edited 24-Nov-2026 [W2 lagged-store poison audit]: the retained
+! generation this ray keeps has the same sanity requirement as
+! the veto path -- a poisoned row left in place seeds a non-finite
+! candidate on the next refresh even after a certified sane solve.
+!
+	      IF(.NOT. L_NOPROBE)THEN
+	        NPHL=0
+	        DO KS=1,KN_ND
+	          KC=COMP_DEPTH_IDX(KS)
+	          IF(KC .GE. 1)THEN
+	            IF(.NOT. KN_STORE_ROW_SANE(I_M_DEPTH_NEXT,LS,KC))
+	1            CALL KN_HEAL_ROW(I_M_DEPTH_NEXT,LS,KC,NPHL)
+	            IF(.NOT. KN_STORE_ROW_SANE(I_P_DEPTH_NEXT,LS,KC))
+	1            CALL KN_HEAL_ROW(I_P_DEPTH_NEXT,LS,KC,NPHL)
+	          END IF
+	        END DO
+	        IF(NPHL .GT. 0)THEN
+!$OMP CRITICAL (FG_HEAL_UPD)
+	          FG_POISON_HEAL=FG_POISON_HEAL+NPHL
+!$OMP END CRITICAL (FG_HEAL_UPD)
+	        END IF
+	      END IF
 !$OMP CRITICAL (FG_NC_UPD)
 ! MODE 1 ([KN_NOCP_PROBE]): a suppressed commit must not count as
 ! a production non-converged reject either.
@@ -15880,66 +15981,121 @@ C
 ! ----------------------------------------------------------------
 	SUBROUTINE HEAL_STORE(STORE)
 	REAL(KIND=LDP) STORE(:,:,:)
-	INTEGER KS,LS2,KC,NV,NHL,II,JJ
-	REAL(KIND=LDP) VMED,VT,VSORT(NCF)
+	INTEGER KS,KC,NHL
 	NHL=0
 	DO KS=1,KN_ND
 	  KC=COMP_DEPTH_IDX(KS)
-	  IF(KC .GE. 1)THEN
-	    NV=0
-	    DO LS2=1,NCF-1
-	      IF(STORE(KC,LS,LS2) .GT. 0.0_LDP .AND.
-	1         STORE(KC,LS,LS2) .LT. HUGE(STORE))THEN
-	        NV=NV+1
-	        VSORT(NV)=STORE(KC,LS,LS2)
-	      END IF
-	    END DO
-!
-! Fully poisoned row (edited 19-Oct-2026): with no sane
-! slot there is no median to build on; the old CYCLE left every
-! NaN/negative entry in place, so SEED_FLD re-seeded NaN at residual
-! 1.0 every refresh -- the failure this heal exists to break. Zero
-! the whole row so the next refresh takes the seeded floor path.
-!
-	    IF(NV .EQ. 0)THEN
-	      DO LS2=1,NCF-1
-	        IF(STORE(KC,LS,LS2) .NE. 0.0_LDP)THEN
-	          STORE(KC,LS,LS2)=0.0_LDP
-	          NHL=NHL+1
-	        END IF
-	      END DO
-	      CYCLE
-	    END IF
-!
-! Median of the sane values, insertion sort -- per-depth scale
-! reference for the poisoned-slot test. NCF is O(100), so the
-! O(N^2) cost only lands on diverged rays.
-!
-	    DO II=2,NV
-	      VT=VSORT(II)
-	      JJ=II-1
-	      DO WHILE(JJ .GE. 1)
-	        IF(VSORT(JJ) .LE. VT)EXIT
-	        VSORT(JJ+1)=VSORT(JJ)
-	        JJ=JJ-1
-	      END DO
-	      VSORT(JJ+1)=VT
-	    END DO
-	    VMED=VSORT((NV+1)/2)
-	    DO LS2=1,NCF-1
-	      IF(STORE(KC,LS,LS2) .NE. 0.0_LDP .AND.
-	1         (.NOT. (STORE(KC,LS,LS2) .GT. 0.0_LDP) .OR.
-	2         .NOT. (STORE(KC,LS,LS2) .LT. HUGE(STORE)) .OR.
-	3         STORE(KC,LS,LS2) .GT. FG_DIV_HEAL_CAP*VMED))THEN
-	        STORE(KC,LS,LS2)=0.0_LDP
-	        NHL=NHL+1
-	      END IF
-	    END DO
-	  END IF
+	  IF(KC .GE. 1)CALL KN_HEAL_ROW(STORE,LS,KC,NHL)
 	END DO
 !$OMP CRITICAL (FG_HEAL_UPD)
 	FG_DIV_HEAL=FG_DIV_HEAL+NHL
 !$OMP END CRITICAL (FG_HEAL_UPD)
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_ROW_MEDIAN: median of the sane (finite positive) slots in one
+! store row (KC,LS,:) -- the per-depth scale reference for the
+! poisoned-slot test, shared by HEAL_STORE and the W2
+! retained-side sanity checks (24-Nov-2026). NCF is O(100), so
+! the O(N^2) insertion sort only lands on healed rows.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_ROW_MEDIAN(STORE,LS,KC,NV,VMED)
+	REAL(KIND=LDP) STORE(:,:,:)
+	INTEGER LS,KC,NV,LS2,II,JJ
+	REAL(KIND=LDP) VMED,VT,VSORT(NCF)
+	NV=0
+	DO LS2=1,NCF-1
+	  IF(STORE(KC,LS,LS2) .GT. 0.0_LDP .AND.
+	1     STORE(KC,LS,LS2) .LT. HUGE(STORE))THEN
+	    NV=NV+1
+	    VSORT(NV)=STORE(KC,LS,LS2)
+	  END IF
+	END DO
+	IF(NV .EQ. 0)RETURN
+	DO II=2,NV
+	  VT=VSORT(II)
+	  JJ=II-1
+	  DO WHILE(JJ .GE. 1)
+	    IF(VSORT(JJ) .LE. VT)EXIT
+	    VSORT(JJ+1)=VSORT(JJ)
+	    JJ=JJ-1
+	  END DO
+	  VSORT(JJ+1)=VT
+	END DO
+	VMED=VSORT((NV+1)/2)
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_STORE_ROW_SANE (24-Nov-2026, W2 poison audit): .FALSE. when a
+! nonzero slot in row (KC,LS,:) is non-finite, non-positive, or
+! above FG_DIV_HEAL_CAP*row-median -- the same predicate the heal
+! applies, so a row the heal would touch is the row this calls
+! insane. Zero slots are the seeded-floor convention, not poison.
+! ----------------------------------------------------------------
+	LOGICAL FUNCTION KN_STORE_ROW_SANE(STORE,LS,KC)
+	REAL(KIND=LDP) STORE(:,:,:)
+	INTEGER LS,KC,NV,LS2
+	REAL(KIND=LDP) VMED,X
+	KN_STORE_ROW_SANE=.TRUE.
+	CALL KN_ROW_MEDIAN(STORE,LS,KC,NV,VMED)
+	DO LS2=1,NCF-1
+	  X=STORE(KC,LS,LS2)
+	  IF(X .EQ. 0.0_LDP)CYCLE
+	  IF(.NOT. (X .GT. 0.0_LDP) .OR.
+	1     .NOT. (X .LT. HUGE(X)))THEN
+	    KN_STORE_ROW_SANE=.FALSE.
+	    RETURN
+	  END IF
+	  IF(NV .GT. 0 .AND. X .GT. FG_DIV_HEAL_CAP*VMED)THEN
+	    KN_STORE_ROW_SANE=.FALSE.
+	    RETURN
+	  END IF
+	END DO
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_HEAL_ROW (24-Nov-2026, W2 poison audit): the per-row heal
+! HEAL_STORE applies -- zero a slot that is non-finite,
+! non-positive, or above FG_DIV_HEAL_CAP*row-median; with no sane
+! slot at all (NV=0) there is no median, so zero every nonzero
+! slot. NHL accumulates the zeroed count into the caller's
+! counter (FG_DIV_HEAL on the diverged-ray path, FG_POISON_HEAL
+! on the seed/veto/retained paths).
+! ----------------------------------------------------------------
+	SUBROUTINE KN_HEAL_ROW(STORE,LS,KC,NHL)
+	REAL(KIND=LDP) STORE(:,:,:)
+	INTEGER LS,KC,NHL,NV,LS2
+	REAL(KIND=LDP) VMED
+	CALL KN_ROW_MEDIAN(STORE,LS,KC,NV,VMED)
+!
+! Fully poisoned row (edited 19-Oct-2026): with no sane slot
+! there is no median to build on; the old CYCLE left every
+! NaN/negative entry in place, so SEED_FLD re-seeded NaN at
+! residual 1.0 every refresh -- the failure this heal exists to
+! break. Zero the whole row so the next refresh takes the
+! seeded floor path.
+!
+	IF(NV .EQ. 0)THEN
+	  DO LS2=1,NCF-1
+	    IF(STORE(KC,LS,LS2) .NE. 0.0_LDP)THEN
+	      STORE(KC,LS,LS2)=0.0_LDP
+	      NHL=NHL+1
+	    END IF
+	  END DO
+	  RETURN
+	END IF
+	DO LS2=1,NCF-1
+	  IF(STORE(KC,LS,LS2) .NE. 0.0_LDP .AND.
+	1     (.NOT. (STORE(KC,LS,LS2) .GT. 0.0_LDP) .OR.
+	2      .NOT. (STORE(KC,LS,LS2) .LT. HUGE(STORE)) .OR.
+	3      STORE(KC,LS,LS2) .GT. FG_DIV_HEAL_CAP*VMED))THEN
+	    STORE(KC,LS,LS2)=0.0_LDP
+	    NHL=NHL+1
+	  END IF
+	END DO
 	RETURN
 	END
 !
