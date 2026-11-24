@@ -220,7 +220,22 @@ share, negative-RHS row count. Discrimination logic:
 ### Probe arm
 
 lamesF_nusolv3, CMFGEN 13654121 (+OBS 13654122), same eps1em3
-seed, instrumented exe. Queued behind QOSGrpCpuLimit at writing.
+seed, instrumented exe. The CMFGEN job is running; its nu-census
+output is still the evidence needed for the H/EPS source-inflation
+split.
+
+### Coupled-solve follow-through (24-Nov-2026)
+
+`MOM_BLKGMRES` now implements the real wavelength-depth coupled solve
+behind a default-off key. It is not the half-port implicit-H capture:
+depth terms and the sign-keyed frequency neighbour are implicit in one
+matrix-free GMRES solve, while H, EPS scatter, source functions and
+boundary closures remain outer-iterated. Unit evidence is green
+(`test_mom_blk` 59/59; integrated `test_mom_solve` 144/144), but the
+production route remains unproven until the eps1em3 arm returns. The
+first arm is `dessart_m15_2p82d_VAL_sob_lamesF_blkgmres`, CMFGEN
+13655952, running with `USE_LAM_ES=F`, `MOM_NUSOLV=F` and
+`MOM_BLKGMRES=T`.
 
 ### Optimization decision tree (after census)
 
