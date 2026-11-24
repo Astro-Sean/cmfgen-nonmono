@@ -229,6 +229,12 @@ only on agreement for a few directions.
   cases where both converge and improves a measured residual or cost on the
   target case without changing the discretized equations.
 
+  Status 24-Nov-2026: the first production prototype is `MOM_BLKGMRES`.
+  It satisfies the manufactured dense-reference agreement tests and is
+  integrated behind a default-off key. The remaining acceptance test is
+  the production eps1em3 arm: it must improve the measured refresh or
+  cost picture without changing the discretized equations.
+
 ### Defer
 
 Do not add generic minimum-spacing changes, positivity repairs, or new
