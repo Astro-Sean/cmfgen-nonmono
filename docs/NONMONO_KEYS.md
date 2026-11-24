@@ -371,6 +371,22 @@ which stamps the same value in the initial VADAT.
   active-set-skipped columns. Targets the bounded
   non-contraction measured on the m15 compressing flow
   (lamesF arm, job 13646071).
+- `MOM_BLKGMRES` (default F, 24-Nov-2026): after each MOM refresh
+  pass, solve the captured wavelength-depth rows in one matrix-free,
+  restarted GMRES solve (`MOM_BLK_SOLVE` and `MOM_BLK_GMRES_MOD`).
+  Depth-tridiagonal terms and the sign-keyed upwind wavelength term
+  are implicit together. `NU_X0` already excludes the upwind term
+  read by the sweep, so that coupling becomes implicit exactly once;
+  the diagonal PSI absorption remains only in `NU_TB`. The left
+  preconditioner is the existing per-frequency depth-tridiagonal
+  inverse applied by DGTSV. The write-back keeps the chain solve's
+  damped, non-negative, trust-region policy. Inactive frequency
+  columns are pinned to their incoming iterate. When both
+  `MOM_BLKGMRES` and `MOM_NUSOLV` are true, the block solve takes
+  precedence. Census prints iterations, restarts, final residual,
+  rejected writes and write caps on the `blk-gmres` line. Lagged H,
+  EPS scatter, source functions and boundary closures remain outer
+  iteration data. Diagnostic solver key.
 - `KN_NI1_FULL` (default F, 24-Nov-2026): certify a production
   NI=1 ray KN_CS_FULL (reason 0) in `KNOP_RAY_SOLVE_V1` instead
   of leaving it KN_CS_INV. A single-point ray has no marchable
