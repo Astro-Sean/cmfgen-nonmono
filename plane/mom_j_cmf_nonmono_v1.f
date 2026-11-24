@@ -913,6 +913,23 @@
 	2   MOM_NU_NCAP_T=0
 	REAL(KIND=LDP), SAVE :: MOM_NU_CHG_LAST=0.0_LDP
 !
+! Capture census [MOM_NUSOLV, diagnostic]: per-pass decomposition of
+! the captured rows. The LAG_BND bound makes every row's implicit
+! coupling ratio a=|NU_CUP|/NU_TB smaller than excess/TB < 1, so
+! the chain solve cannot amplify through its matrix -- large solves
+! must come from source inflation: NU_X0 large relative to the
+! field, fed by the lagged H/EPS content. Measuring the a-value
+! distribution, the source-inflation ratio X0/(TB*|J|), the excess
+! margin, and the H/EPS/static decomposition of X0 picks the
+! mechanism on the real grid. Reset per pass at the NU_FRESH
+! reset; printed on the nu-solve line. edited 25-Nov-2026.
+!
+	INTEGER*8, SAVE :: NUC_NROW=0,NUC_NA9=0,NUC_NA99=0,
+	1   NUC_NR10=0,NUC_NR100=0,NUC_XSNEG=0
+	REAL(KIND=LDP), SAVE :: NUC_AMAX=0.0_LDP,NUC_RMAX=0.0_LDP,
+	1   NUC_HSUM=0.0_LDP,NUC_XSUM=0.0_LDP
+	INTEGER, SAVE :: NUC_RMAX_I=0,NUC_RMAX_K=0
+!
 ! Marginal-mode guards (25-Nov-2026): the ring solve x_j*(1-A)=S_j
 ! amplifies its lagged source terms by 1/|1-A|; near A~1 that is an
 ! amplified solve of stale inputs, not a signal (lamesF_nusolv arm:
@@ -3388,6 +3405,39 @@
 	      T3=NU_CUP(I,FREQ_INDX)*JUP_NM(I)
 	    END IF
 	    NU_X0(I,FREQ_INDX)=XM_SAVE_NM(I)-T3
+!
+!	    Capture census: a-value, excess margin, source-inflation
+!	    ratio and the H-content share of X0. Scaling by LAG_SCL is
+!	    uniform per row, so the H/X0 share is scaling-invariant.
+!
+	    T4=ABS(NU_X0(I,FREQ_INDX))
+	    T5=ABS(NU_TB(I,FREQ_INDX))
+	    IF(T5 .GT. 0.0_LDP)THEN
+	      NUC_NROW=NUC_NROW+1
+	      T6=ABS(NU_CUP(I,FREQ_INDX))/T5
+	      NUC_AMAX=MAX(NUC_AMAX,T6)
+	      IF(T6 .GT. 0.9_LDP)NUC_NA9=NUC_NA9+1
+	      IF(T6 .GT. 0.99_LDP)NUC_NA99=NUC_NA99+1
+	      IF(T5-ABS(NU_TA(I,FREQ_INDX))-ABS(NU_TC(I,FREQ_INDX))
+	1        .LE. 0.0_LDP)NUC_XSNEG=NUC_XSNEG+1
+	      IF(ALLOCATED(J_NEXT_FRQ) .AND.
+	1        SIZE(J_NEXT_FRQ,2) .GE. FREQ_INDX)THEN
+	        T6=T4/(T5*MAX(ABS(J_NEXT_FRQ(I,FREQ_INDX)),
+	1        1.0E-30_LDP))
+	        IF(T6 .GT. 10.0_LDP)NUC_NR10=NUC_NR10+1
+	        IF(T6 .GT. 100.0_LDP)NUC_NR100=NUC_NR100+1
+	        IF(T6 .GT. NUC_RMAX)THEN
+	          NUC_RMAX=T6
+	          NUC_RMAX_I=I
+	          NUC_RMAX_K=FREQ_INDX
+	        END IF
+	      END IF
+	      NUC_XSUM=NUC_XSUM+T4
+	      IF(I .GT. 1)THEN
+	        NUC_HSUM=NUC_HSUM+ABS(VB_NM(I)*HUP_NM(I-1)+
+	1          VC_NM(I)*HUP_NM(I))
+	      END IF
+	    END IF
 	  END DO
 !
 ! Boundary rows. The Eddington row keys on A_BND and keeps a
@@ -5844,6 +5894,11 @@
 ! chain solve freezes skipped frequencies rather than solve them.
 !
 	  IF(ALLOCATED(NU_FRESH))NU_FRESH(1:KN_M_NCF)=.FALSE.
+	  NUC_NROW=0_8; NUC_NA9=0_8; NUC_NA99=0_8
+	  NUC_NR10=0_8; NUC_NR100=0_8; NUC_XSNEG=0_8
+	  NUC_AMAX=0.0_LDP; NUC_RMAX=0.0_LDP
+	  NUC_HSUM=0.0_LDP; NUC_XSUM=0.0_LDP
+	  NUC_RMAX_I=0; NUC_RMAX_K=0
 !
 ! Jacobi update for the compressing upwind read: freeze the
 ! J_{k+1} field at pass start so descending passes do not consume
@@ -6049,6 +6104,10 @@
 	3    MOM_NU_NRING,' rings (',MOM_NU_NSING,' singular, ',
 	4    MOM_NU_NMARG,' marginal), ',MOM_NU_NFRZ,' frozen, ',
 	5    MOM_NU_NNEG,' rejected neg, ',MOM_NU_NCAP,' write-capped'
+	    IF(NUC_NROW .GT. 0_8)THEN
+	      WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)') 'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
+	      WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
+	    END IF
 	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
 	    PASS_N5=PASS_N5+NU_N5
 	    PASS_N50=PASS_N50+NU_N50
