@@ -14,6 +14,11 @@
 !   depth  : nonzero TA/TC depth terms (lagged reads)
 !   fresh  : NU_FRESH=F columns frozen, fresh columns solved
 !   sing   : ring with cyclic product A=1 -> frozen (incompatible)
+!   marg   : ring with A=0.9999 (|1-A| below MOM_NU_RING_BAND) ->
+!            frozen as near-marginal, NMARG counted
+!   margok : ring with |1-A|=0.0591 above the band -> still solved
+!   cap    : one row solving far past MOM_NU_WRITECAP times its
+!            normalized old value -> write clamped, NCAP counted
 !   neg    : chain solving to negative values -> rejected
 !   nonfin : TB=0 and nonfinite RHS rows -> frozen
 !
@@ -141,6 +146,32 @@
         END DO
         J_NEXT_FRQ(1:ND,2)=4.0_LDP
         J_NEXT_FRQ(1:ND,3)=5.0_LDP
+      CASE('marg')
+! Same 2-cycle shape as ring2 but with cyclic product 0.9999:
+! |1-A|=1E-4 is inside the marginal band, so both members freeze
+! at the seeded field instead of solving the amplified system.
+        NU_X0(1:ND-1,1:NCF)=RV0
+        DO I=1,ND-1
+          NU_CUP(I,2)=0.9999_LDP; NU_KUP(I,2)=3
+          NU_CUP(I,3)=1.0_LDP;    NU_KUP(I,3)=2
+        END DO
+        J_NEXT_FRQ(1:ND,2)=4.0_LDP
+        J_NEXT_FRQ(1:ND,3)=5.0_LDP
+      CASE('margok')
+! Cyclic product 0.97*0.97=0.9409 -> |1-A|=0.0591, above the band:
+! the ring still gets the exact solve (amplification ~17x is
+! tolerable signal, and the python side checks it densely).
+        NU_X0(1:ND-1,1:NCF)=RV0
+        DO I=1,ND-1
+          NU_CUP(I,2)=0.97_LDP; NU_KUP(I,2)=3
+          NU_CUP(I,3)=0.97_LDP; NU_KUP(I,3)=2
+        END DO
+      CASE('cap')
+! Uncoupled rows (every column a boundary constant) except column
+! 5, which solves to 1E6 against an incoming scale of ~1 -- the
+! trust region must clamp its write to 1E2*max(1,1E-4*FSCL)=1E2.
+        NU_X0(1:ND-1,1:NCF)=RV0
+        NU_X0(1:ND-1,5)=1.0E6_LDP
       CASE('neg')
 ! Negative sources produce a negative exact solution -- every cell
 ! must be rejected to the previous iterate.
@@ -181,8 +212,10 @@
       WRITE(*,'(A,I10)')'NU_N50=',N50
       WRITE(*,'(A,I10)')'NU_NRING=',MOM_NU_NRING
       WRITE(*,'(A,I10)')'NU_NSING=',MOM_NU_NSING
+      WRITE(*,'(A,I10)')'NU_NMARG=',MOM_NU_NMARG
       WRITE(*,'(A,I10)')'NU_NFRZ=',MOM_NU_NFRZ
       WRITE(*,'(A,I10)')'NU_NNEG=',MOM_NU_NNEG
+      WRITE(*,'(A,I10)')'NU_NCAP=',MOM_NU_NCAP
 !
       OPEN(UNIT=301,FILE=TRIM(OUTTAG)//'_xv.txt',STATUS='REPLACE')
       WRITE(301,'(A)')'# I K JOLD XNEW'
