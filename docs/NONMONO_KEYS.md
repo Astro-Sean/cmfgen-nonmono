@@ -342,6 +342,21 @@ which stamps the same value in the initial VADAT.
 - `MOM_XM_POS` / `MOM_XMWORST` - negative-RHS clipping guard plus
   a report of the largest clipped value each sweep so the
   safeguard's cost is measured, not assumed.
+- `KN_NI1_FULL` (default F, 24-Nov-2026): certify a production
+  NI=1 ray KN_CS_FULL (reason 0) in `KNOP_RAY_SOLVE_V1` instead
+  of leaving it KN_CS_INV. A single-point ray has no marchable
+  transfer domain, so vacuous FULL is the honest class; with F
+  the ray holds `FG_RF_ALL_CONV` FALSE forever and, through the
+  rf_not_allconv fold-in, the LAMBDA handoff shut.
+- `KN_LAM_PARTIAL_HANDOFF` (default F, 24-Nov-2026): split the
+  field verdicts. `LAM_FIELD_NOT_CONVERGED` (strict, read by the
+  converged exit in `cmfgen_sub` and the `CONV_EXIT_EVAL`
+  replica) always carries the gate result plus the
+  rf_not_allconv fold-in; `LAM_FIELD_NOT_READY` (weak, read by
+  `LAM_STABLE_STEP`, `LAM_HANDOFF_OK` and the stable counter)
+  carries the fold only when this key is F. With T a field
+  mature by the share gates but not yet all-ray FULL can hand
+  off while the exit keeps waiting for every ray.
 
 ## 5. OBS/render keys
 
