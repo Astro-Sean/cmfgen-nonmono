@@ -59,6 +59,7 @@ OBJ = $(LIB)(add_dust_eta.o)\
       $(LIB)(n_weight.o)\
       $(LIB)(mom_j_cmf_v8.o)\
       $(LIB)(mom_j_cmf_v11.o)\
+      $(LIB)(mom_blk_gmres_mod.o)\
       $(LIB)(mom_j_cmf_nonmono_v1.o)\
       $(LIB)(mom_j_ddt_v6.o)\
       $(LIB)(mom_j_pp_v1.o)\
@@ -167,7 +168,11 @@ $(LIB)(mom_j_cmf_v8.o) : mom_j_cmf_v8.f $(LIB)(mod_ray_mom_store.o)
 	$(F90) -c $(OPTION) mom_j_cmf_v8.f
 	ar $(AR_OPTION) $(LIB) mom_j_cmf_v8.o
 
-$(LIB)(mom_j_cmf_nonmono_v1.o) : mom_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)knop_status_mod.mod $(MOD_DIR)iter_ledger_mod.mod
+$(LIB)(mom_blk_gmres_mod.o) : mom_blk_gmres_mod.f
+	$(F90) -c $(OPTION) mom_blk_gmres_mod.f
+	ar $(AR_OPTION) $(LIB) mom_blk_gmres_mod.o
+
+$(LIB)(mom_j_cmf_nonmono_v1.o) : mom_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(LIB)(mom_blk_gmres_mod.o) $(MOD_DIR)knop_status_mod.mod $(MOD_DIR)iter_ledger_mod.mod
 	$(F90) -c $(OPTION) mom_j_cmf_nonmono_v1.f
 	ar $(AR_OPTION) $(LIB) mom_j_cmf_nonmono_v1.o
 
