@@ -33,7 +33,9 @@ def check(name, passed):
 
 
 def test_heal_store_zeroes_fully_poisoned_rows():
-    body = section(FG, "SUBROUTINE HEAL_STORE", "RETURN\n\tEND")
+    # W2 (24-Nov-2026) moved the per-row heal into KN_HEAL_ROW;
+    # HEAL_STORE now delegates to it, so the pin scans the helper.
+    body = section(FG, "SUBROUTINE KN_HEAL_ROW", "RETURN\n\tEND")
     check(
         "HEAL_STORE no longer skips fully poisoned rows",
         "IF(NV .EQ. 0)CYCLE" not in body,
