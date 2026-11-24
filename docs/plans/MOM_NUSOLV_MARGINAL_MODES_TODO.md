@@ -110,7 +110,22 @@ region binding as designed, NCAP=6/iter); freeze-band drift
 freeze < cap < unguarded matches the m15 phenomenology: stall,
 bounded-rate explosion, explosion.
 
-### [ ] F4 - rebuild, relink, re-arm
+### [x] F4 - rebuild, relink, re-arm
+
+ARM VERDICT (24-Nov-2026, job 13653300, killed at it675):
+FAIL - the guards are correct but the marginal-ring
+hypothesis is refuted. NMARG=0 throughout: no real-grid ring
+is near-marginal, so the freeze band never engages. The cap
+binds per-pass but 20-40 passes/refresh compound past it -
+commits reached 7.5e23 with up to 1M cells moved, same class
+as the unguarded arm, populations degrading identically.
+The amplification is the exact solve's loop gain through
+chain composition and lagged source magnitude - a property
+of the lagged splitting itself in the explosive regime, not
+of ring near-degeneracy or write magnitude. Phase-3 decision
+(needs user check-in): implicit H channel to shrink the
+lagged fraction, or close the line - the route stays
+FAIL/opt-in otherwise.
 
 - `compile_and_link_prod` + `make -C new_main` (the relink step
   that cost job 13651386 - do not skip).
