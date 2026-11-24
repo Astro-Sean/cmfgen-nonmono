@@ -124,3 +124,18 @@ E4. Battery + arm on eps1em3 seed, verdict per checklist rules.
   captured row equations, source terms, guards, boundary closures and
   write-back policy are used; no physical closure or opacity model is
   changed.
+
+
+## 8. Implementation status (24-Nov-2026)
+
+E1-E3 are implemented and pushed through `66cb87c7`. The production
+GMRES module reports the true final preconditioned residual. Targeted
+batteries are green: `test_mom_blk` 59/59, `test_mom_solve` 144/144,
+`test_mom_nu` 53/53 and `test_vadat_keys` 91/91. The iterated solver-
+error probe contracts on the same marginal ring where the lagged
+frequency iteration amplifies. This probe measures the linear solver
+error only; H/EPS feedback remains outer-iterated as section 4 warns.
+
+E4 is running as `dessart_m15_2p82d_VAL_sob_lamesF_blkgmres`, CMFGEN
+job 13655952, with `USE_LAM_ES=F`, `MOM_NUSOLV=F` and
+`MOM_BLKGMRES=T`. The production verdict is not yet known.
