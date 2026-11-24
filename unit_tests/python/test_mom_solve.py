@@ -419,6 +419,45 @@ def main():
         f"RF_ASCDESC_MAXDIFF={kv(rd.stdout, 'RF_ASCDESC_MAXDIFF')}",
     )
 
+    # --- MOM_NUSOLV arms -----------------------------------------------
+    # 'nurf' (comp1 geometry) runs a NUSOLV=F DESC refresh then a
+    # NUSOLV=T ALT refresh from the same lagged store. The chain solve
+    # satisfies the captured equations exactly, so the two arms must
+    # land on the same fixed point -- a bulk disagreement means the
+    # captured coefficients are not the swept row's own.
+    rn = run(exe, "nurf", "nonj", "3", "1", "diff", "none", "0",
+             "t_nurf", cwd=WORKDIR)
+    rep.check("nurf: driver completed", "RESULT_OK" in rn.stdout)
+    rep.check(
+        "nurf: NUSOLV refresh ran and exited",
+        kv(rn.stdout, "NU_FINISHED") > 0.5,
+        rn.stdout[-200:] if kv(rn.stdout, "NU_FINISHED") < 0.5 else "",
+    )
+    rep.check(
+        "nurf: NUSOLV arm lands the same fixed point",
+        kv(rn.stdout, "RF_NUSOLV_MAXREL") < 0.5,
+        f"RF_NUSOLV_MAXREL={kv(rn.stdout, 'RF_NUSOLV_MAXREL')} "
+        f"RF_NUSOLV_MAXDIFF={kv(rn.stdout, 'RF_NUSOLV_MAXDIFF')}",
+    )
+
+    # 'nuw' (compw geometry, thin + albedo->1) is the marginal-map
+    # regime -- the lagged refresh can only stall here at best.
+    # Both arms must still return admissible fields; the NUSOLV arm
+    # must not regress convergence or admissibility.
+    rw = run(exe, "nuw", "nonj", "3", "1", "diff", "none", "1",
+             "t_nuw", "0.9", "0.01", "0.0", "0.0", cwd=WORKDIR)
+    rep.check("nuw: driver completed", "RESULT_OK" in rw.stdout)
+    rep.check(
+        "nuw: NUSOLV refresh ran and exited",
+        kv(rw.stdout, "NU_FINISHED") > 0.5,
+        rw.stdout[-200:] if kv(rw.stdout, "NU_FINISHED") < 0.5 else "",
+    )
+    rep.check(
+        "nuw: NUSOLV store admissible",
+        kv(rw.stdout, "STORE_MINJ") > 0.0,
+        f"STORE_MINJ={kv(rw.stdout, 'STORE_MINJ')}",
+    )
+
     # --- Repeat-call census scope ------------------------------------
     # 'recall' mimics the comp_j_blank INACCURATE loop: a second call
     # at each frequency with NEW_FREQ=F. The sweep census measures the
