@@ -1047,6 +1047,25 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # NG_SHADOW_DIAG: module-initialized F, no auto-set, so an
+    # absent key stays off; explicit T opts in.
+    d = write_vadat(WORKDIR / "vadat_ng_shadow_def", {})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "NG_SHADOW_DIAG absent-key default F",
+        "RESULT_OK" in p.stdout and v.get("NG_SHADOW_DIAG") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(WORKDIR / "vadat_ng_shadow_on", {"NG_SHADOW_DIAG": "T"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "NG_SHADOW_DIAG explicit T parsed",
+        "RESULT_OK" in p.stdout and v.get("NG_SHADOW_DIAG") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # RLOC defaults to zero so the legacy V-space path stays live.
     d = write_vadat(WORKDIR / "vadat_rloc_def", {})
     p = run_vadat(exe, d)
