@@ -3571,6 +3571,16 @@
 	  LAM_FIELD_NOT_READY=.TRUE.
 	  CALL APPEND_ITER_REASON(ITER_REASON,'rf_not_allconv')
 	END IF
+!
+! edited 24-Nov-2026 (W3, [ES_ALI_GATE]): the ES-ALI fixed-point
+! verdict for this call. A COMP_J_BLANK sweep that left any
+! production frequency above ES_ALI_TOL at the ES_ALI_MAX pass
+! cap sets ES_ALI_CALL_UNC/NUNC; OFF ignores it, WARN prints it
+! in the ITER_SUM convergence block, HARD makes it a tenth exit
+! conjunct (the ES_NRDY arg to CONV_EXIT_EVAL and the matching
+! CMFGEN_SUB clause). Stays F when DO_ES_ALI is off.
+!
+	ES_FIELD_NOT_READY=DO_ES_ALI .AND. (ES_ALI_CALL_NUNC .GT. 0)
 	IF(FORCE_LAMBDA)THEN
 	  CNT_STABLE_LAM=0
 	  LAM_STABLE_PROVEN=.FALSE.
@@ -4548,8 +4558,9 @@
 	  CALL CONV_EXIT_EVAL(RD_LAMBDA,DO_LAMBDA_AUTO,LAST_LAMBDA,
 	1    MAIN_COUNTER,JFNK_UNCONVERGED_COMMIT,BA_EX_MAXCH,EPS,
 	2    CONV_DEM_OK,DONE_HYDRO_REVISION,GS_POPS_HELD,BAACC_PENDING,
-	3    LAST_NG,LAM_FIELD_NOT_READY,CONV_LAM_OK,CONV_ALL,
-	4    CONV_NPASS,CONV_FAILS)
+	3    LAST_NG,LAM_FIELD_NOT_READY,
+	4    ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'HARD',
+	5    CONV_LAM_OK,CONV_ALL,CONV_NPASS,CONV_FAILS)
 !
 ! Percent-converged figure: share of the 9 exit gates passing, plus
 ! the worst continuous gate's distance from its threshold in dex.
@@ -4607,6 +4618,17 @@
 	3    '  stageB ',TRIM(CONV_TRB_STR)
 	  WRITE(LUER,'(4X,A,I3,A)')
 	1    'Model Convergence:',CONV_NPCT,' %'
+!
+! edited 24-Nov-2026 (W3, [ES_ALI_GATE]): under WARN an
+! unconverged ES-ALI sweep names itself in the convergence block
+! without holding the exit; under HARD it is already a conjunct
+! (es-ali-unconverged in the gate list above).
+!
+	  IF(ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'WARN')
+	1    WRITE(LUER,'(4X,A,I6,A,ES10.2,A)')
+	2    'ES_ALI gate WARN: ',ES_ALI_CALL_NUNC,
+	3    ' freqs unconverged at cap, max dJ/J ',ES_ALI_CALL_DJMAX,
+	4    ' (not blocking exit)'
 	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
 !
 ! edited 29-Nov-2026: export this call's status words for the

@@ -215,7 +215,6 @@ def main():
             "baseline: absent JFNK_PC_PAR_FACTOR defaults F",
             v.get("JFNK_PC_PAR_FACTOR") == "F",
         )
-
     cases = [
         # (name, mutations, expect_ok, expect_stdout_substr)
         (
@@ -1085,6 +1084,45 @@ def main():
         and "NUM_BNDS of at least 3" not in p_hi.stdout
         and v_hi.get("METH_SOL") == "TRI",
         p_hi.stdout[-400:] if "RESULT_OK" not in p_hi.stdout else "",
+    )
+
+    # ES_ALI_GATE (W3, 24-Nov-2026): absent key defaults to the WARN
+    # arm, explicit values round-trip case-normalized, and an invalid
+    # value warns and resets to WARN rather than dying.
+    d = write_vadat(WORKDIR / "vadat_es_gate_abs", {})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "ES_ALI_GATE absent -> WARN default",
+        "RESULT_OK" in p.stdout
+        and v.get("ES_ALI_GATE", "").strip() == "WARN",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(WORKDIR / "vadat_es_gate_hard", {"ES_ALI_GATE": "hard"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    scr = (d / "MODEL_SCR").read_text() if (d / "MODEL_SCR").exists() else ""
+    rep.check(
+        "ES_ALI_GATE=hard -> HARD case-normalized + echoed",
+        "RESULT_OK" in p.stdout
+        and "[ES_ALI_GATE]" in scr
+        and v.get("ES_ALI_GATE", "").strip() == "HARD",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(WORKDIR / "vadat_es_gate_bad", {"ES_ALI_GATE": "LOUD"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "ES_ALI_GATE=LOUD invalid -> warn + WARN",
+        "RESULT_OK" in p.stdout
+        and "Invalid ES_ALI_GATE" in p.stdout
+        and v.get("ES_ALI_GATE", "").strip() == "WARN",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "ES_ALI_MAX clamp raised to 50",
+        "RESULT_OK" in p.stdout
+        and int(v.get("ES_ALI_MAX", "0")) <= 50,
     )
 
     return rep.summary()

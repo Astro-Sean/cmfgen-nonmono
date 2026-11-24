@@ -156,7 +156,7 @@ which stamps the same value in the initial VADAT.
   dJ/dCHI, dJ/dETA diagonals under `DO_NONMONO_SOB`. J stays the
   `USE_LAM_ES=T` formal solution.
 - `DO_ES_ALI` (default F; `ES_ALI_TOL` 1e-4, `ES_ALI_MAX`
-  20-clamped): under `DO_NONMONO_SOB` + `USE_LAM_ES=T` +
+  50-clamped): under `DO_NONMONO_SOB` + `USE_LAM_ES=T` +
   `COHERENT_ES` on the V13 path (not `DO_SOB_FG_KNOP`), the
   `RJ=TC` Lambda update in `comp_j_blank.f` becomes an
   Olson-Auer-Buchler Jacobi step on the stored V13 diagonal:
@@ -190,6 +190,21 @@ which stamps the same value in the initial VADAT.
   `DO_ES_ALI` + `COHERENT_ES` + `.NOT.USE_LAM_ES` +
   `.NOT.DOB_FG_KNOP`; shares ES_DJ/ES_ALI_TOL/ES_ALI_MAX and the
   fallback/print accounting. Runtime status unverified.
+- `ES_ALI_GATE` (default WARN, 24-Nov-2026; values
+  OFF|WARN|HARD, case-insensitive): certifies the ES-ALI fixed
+  point at model-convergence evaluation. The Jacobi loop can
+  exit `COMP_J_BLANK` with `ES_DJ > ES_ALI_TOL` when the pass
+  budget runs out (previously shared `J_IT_COUNTER > 20`;
+  now a separate `ES_ALI_PASS <= ES_ALI_MAX`, and the clamp on
+  `ES_ALI_MAX` was raised 20 -> 50). Per call the unconverged
+  count is exported (`ES_ALI_CALL_NUNC`) and `solve_for_pops`
+  derives `ES_FIELD_NOT_READY`. `OFF` keeps the historical
+  behaviour (counters only, no exit effect, bitwise identical);
+  `WARN` prints a `Model Convergence` warning without blocking;
+  `HARD` adds `.NOT. ES_FIELD_NOT_READY` as a `CONV_EXIT_MET`
+  conjunct, exactly as `LAM_FIELD_NOT_READY` is included - the
+  only new conjunct, per the work order. `test_conv_exit.py`
+  pins all three arms; `test_vadat_keys.py` pins parsing.
 - `DO_ES_ALI_BA` (default F; `ES_ALI_BA_MIN` 0.1): same Jacobi
   factor as DO_ES_ALI applied to the stored ALO when
   `do_var_cont.f` fills TX - the BA linearization then sees the

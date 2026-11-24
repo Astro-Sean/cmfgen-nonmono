@@ -1130,6 +1130,19 @@ KN_ORD_P2DAMP default unchanged (F).
 - [x] `DO_ES_ALI` accelerated Lambda iteration - ~30 warm-start
       iterations to the control fixed point (X2/X3 arms);
       `DO_ES_ALI_BA` stays opt-in.
+- [x] ES-ALI fixed point certified at exit evaluation (24-Nov-2026,
+      `fix/convergence-liveness-and-guards`): the Jacobi loop could
+      exit `COMP_J_BLANK` with `ES_DJ > ES_ALI_TOL` when the shared
+      `J_IT_COUNTER > 20` cap bit, and `ES_ALI_NUNC` only counted.
+      Now a separate `ES_ALI_PASS <= ES_ALI_MAX` budget (clamp
+      raised 20 -> 50), per-call `ES_ALI_CALL_NUNC/NFALL/DJMAX`
+      exported to `solve_for_pops` (`ES_FIELD_NOT_READY`), and
+      `ES_ALI_GATE` OFF|WARN|HARD (default WARN): OFF keeps the old
+      behaviour bitwise, WARN prints in the `Model Convergence`
+      report, HARD adds the `CONV_EXIT_EVAL`/`CONV_EXIT_MET`
+      conjunct. conv_exit 53/53, vadat_keys parse 89/89. The
+      OFF->WARN/WARN->HARD production A/B is prepared, BLOCKED on
+      cluster submission.
 
 ## 3. KNOP P-sweep defect cycle (phases 5.3K-5.3S, Nov-2026)
 
@@ -1224,7 +1237,9 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       es_resid 20, jfnk opint 36 + regressions,
       obs_frame 11+15, ng_abstain 23 (24-Nov-2026: +non-finite
       history/fit refuse cases under NG_NF_HIST/NG_NF_NEW),
-      lam_handoff 51, gs_drift_diag,
+      lam_handoff 51, conv_exit 53 (24-Nov-2026: +ES_ALI_GATE
+      OFF/WARN/HARD arms), vadat_keys 89 (+ES_ALI_GATE
+      parse/clamp), gs_drift_diag,
       iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
       test_es_conv remains blocked on the known obs/ archive gap.
 - [x] Manufactured ordered-stencil + exit-policy + period-2

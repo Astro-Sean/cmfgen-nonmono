@@ -5114,6 +5114,14 @@
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
 	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_READY
+	6    .AND. .NOT. (ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'HARD')
+!
+! edited 24-Nov-2026 (W3, [ES_ALI_GATE]): under HARD the ES-ALI
+! fixed-point census joins the exit conjuncts exactly as
+! LAM_FIELD_NOT_READY does -- a sweep that left frequencies above
+! ES_ALI_TOL at the pass cap is not a converged radiation field.
+! OFF and WARN resolve the clause to .TRUE., so those paths are
+! unchanged.
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
@@ -5546,6 +5554,11 @@
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
 	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_READY
+	6    .AND. .NOT. (ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'HARD')
+!
+! edited 24-Nov-2026 (W3, [ES_ALI_GATE]): under HARD the ES-ALI
+! fixed-point census joins the exit conjuncts exactly as
+! LAM_FIELD_NOT_READY does; OFF and WARN resolve it to .TRUE.
 !
 ! Deferred-exit diagnostic: when every other gate passes but the
 ! resacc verdict is still pending, name the one-iteration deferral
@@ -5558,7 +5571,8 @@
 	2    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3    .NOT. GS_POPS_HELD .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.
 	4    .NOT. LAM_FIELD_NOT_READY .AND.
-	5    CONV_DIAG_LVL .GE. 1)
+	5    .NOT. (ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'HARD')
+	6    .AND. CONV_DIAG_LVL .GE. 1)
 	5    WRITE(LUER,'(A)')' Converged exit deferred: resacc '//
 	6    'verdict pending on the armed BA step'
 !

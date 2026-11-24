@@ -591,6 +591,36 @@
 !
 	LOGICAL LAM_FIELD_NOT_READY
 !
+! ES_FIELD_NOT_READY (no VADAT key): per-call verdict set in
+! SOLVE_FOR_POPS -- the last COMP_J_BLANK frequency sweep left at
+! least one ES-ALI frequency unconverged (ES_ALI_CALL_NUNC > 0).
+! How it reaches the exit is selected by ES_ALI_GATE: OFF ignores
+! it, WARN prints a warning, HARD joins the converged-exit
+! conjuncts. Stays .FALSE. when DO_ES_ALI is F.
+!
+	LOGICAL ES_FIELD_NOT_READY
+!
+! ES_ALI_GATE (VADAT [ES_ALI_GATE], default WARN; values
+! OFF|WARN|HARD, case-insensitive): what the ES-ALI fixed-point
+! census may do to the converged exit. OFF restores the pre-W3
+! behaviour (diagnostic counters only); WARN prints a warning in
+! the ITER_SUM Model Convergence block but does not block; HARD
+! makes .NOT. ES_FIELD_NOT_READY a tenth exit conjunct, included
+! exactly as LAM_FIELD_NOT_READY is.
+!
+	CHARACTER(LEN=4) ES_ALI_GATE
+!
+! ES-ALI per-call census (no VADAT keys): set in COMP_J_BLANK over
+! the production frequency sweep, reset at FIRST_FREQ alongside
+! the printed counters. NUNC/NFALL count frequencies that exited
+! above ES_ALI_TOL / on the plain-Lambda fallback, CALL_DJMAX is
+! the worst final relative dJ, CALL_UNC latches the unconverged
+! class. JFNK eval sweeps do not contribute.
+!
+	LOGICAL ES_ALI_CALL_UNC
+	INTEGER ES_ALI_CALL_NUNC,ES_ALI_CALL_NFALL
+	REAL(KIND=LDP) ES_ALI_CALL_DJMAX
+!
 ! LAM_FIELD_BLK (no VADAT key): once-per-streak latch for the
 ! SOLVE_FOR_POPS "stable count met but field not ready" OUTGEN
 ! diagnostic. Set when the first blocked call of a streak prints,

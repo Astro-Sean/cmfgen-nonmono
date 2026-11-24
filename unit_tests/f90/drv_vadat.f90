@@ -113,4 +113,7 @@
       WRITE(*,'(A,I5)')'jfnk_itry_cap=',jfnk_itry_cap
       WRITE(*,'(A,ES12.5)')'POP_RUNAWAY_DEM=',POP_RUNAWAY_DEM
       WRITE(*,'(A,I5)')'POP_RUNAWAY_TOPN=',POP_RUNAWAY_TOPN
+      WRITE(*,'(A,A)')'ES_ALI_GATE=',ES_ALI_GATE
+      WRITE(*,'(A,I5)')'ES_ALI_MAX=',ES_ALI_MAX
+      WRITE(*,'(A,L2)')'DO_ES_ALI=',DO_ES_ALI
       END

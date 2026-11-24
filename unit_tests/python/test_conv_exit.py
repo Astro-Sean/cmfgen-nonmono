@@ -18,10 +18,13 @@ integration points by source inspection:
   * case B: all nine pass -> MET, NPASS=9 (100%);
   * case C: each single failure prints exactly its own label;
   * case D: multiple failures print all labels;
+  * cases F/G: the ES_NRDY veto holds the exit and names itself
+    without joining the nine-gate NPASS;
   * source pins: the solve_for_pops call passes the live
-    LAM_FIELD_NOT_READY, the percent denominator is 9.0, the real
-    CONV_EXIT_MET blocks are unchanged, and CONV_DEM_OK keeps its
-    BA_DEM_EXIT_OK mirror semantics.
+    LAM_FIELD_NOT_READY and the resolved ES conjunct, the percent
+    denominator is 9.0, the real CONV_EXIT_MET blocks are
+    unchanged, and CONV_DEM_OK keeps its BA_DEM_EXIT_OK mirror
+    semantics.
 
 Run: python3 unit_tests/python/test_conv_exit.py
 """
@@ -134,6 +137,24 @@ REP.check(
 REP.check("E: rd_lam without auto passes the lambda gate",
           tf("E_forcedlam"))
 
+# ---- cases F/G: the ES_NRDY veto (W3, 24-Nov-2026) ---------------
+# All nine gates pass but the resolved ES veto is armed: the exit
+# holds, the label names the ES census, and NPASS stays the nine
+# physical gates -- the conditional gate is not a tenth point of
+# the percent figure.
+REP.check("F: es_nrdy alone holds the exit", not tf("F_esnrdy"))
+REP.check("F: npass stays the nine physical gates",
+          field("F_esnrdy", "npass=") == "9")
+REP.check("F: label names es-ali-unconverged",
+          "es-ali-unconverged" in fails_part("F_esnrdy"))
+got = set(fails_part("G_esheld").split())
+REP.check(
+    "G: es_nrdy + pops-held lists both labels",
+    not tf("G_esheld")
+    and "es-ali-unconverged" in got
+    and "pops-held" in got,
+)
+
 
 # ---- CONV_MARGIN_EVAL --------------------------------------------
 def mcase(name):
@@ -221,13 +242,18 @@ MOD = (common.TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text(
 
 call = re.search(
     r"CALL CONV_EXIT_EVAL\(RD_LAMBDA,DO_LAMBDA_AUTO,LAST_LAMBDA,"
-    r"[\s\S]{0,300}?LAM_FIELD_NOT_READY,CONV_LAM_OK,CONV_ALL,"
+    r"[\s\S]{0,300}?LAM_FIELD_NOT_READY,"
+    r"[\s\S]{0,120}?CONV_LAM_OK,CONV_ALL,"
     r"[\s\S]{0,80}?CONV_NPASS,CONV_FAILS\)",
     POPS,
 )
 REP.check(
     "replica calls CONV_EXIT_EVAL with the live LAM_FIELD_NOT_READY",
     call is not None,
+)
+REP.check(
+    "replica passes the resolved ES_NRDY (ES_ALI_GATE=HARD arm)",
+    "ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'HARD'" in POPS,
 )
 REP.check(
     "percent-converged denominator is nine gates",
@@ -237,14 +263,20 @@ REP.check(
     "evaluator carries the ninth conjunct",
     ".NOT. FIELD_NRDY" in MOD and "lam-field-not-ready" in MOD,
 )
-# Both real exit blocks keep all nine conjuncts (the patch must not
-# touch the production gate).
+REP.check(
+    "evaluator carries the ES_NRDY veto and label",
+    ".NOT. ES_NRDY" in MOD and "es-ali-unconverged" in MOD,
+)
+# Both real exit blocks keep all nine conjuncts plus the ES_NRDY
+# clause (W3): capture through the ES_ALI_GATE conjunct so a block
+# missing it fails the count.
 blocks = re.findall(
-    r"CONV_EXIT_MET=\([\s\S]{0,400}?\.NOT\. LAM_FIELD_NOT_READY", CMF
+    r"CONV_EXIT_MET=\([\s\S]{0,500}?ES_ALI_GATE \.EQ\. 'HARD'\)", CMF
 )
 REP.check(
-    "both CONV_EXIT_MET blocks keep LAM_FIELD_NOT_READY",
-    len(blocks) >= 2,
+    "both CONV_EXIT_MET blocks keep LAM_FIELD_NOT_READY + ES gate",
+    len(blocks) >= 2
+    and all(".NOT. LAM_FIELD_NOT_READY" in b for b in blocks),
 )
 for tok in (
     "JFNK_UNCONVERGED_COMMIT",
@@ -254,6 +286,7 @@ for tok in (
     "GS_POPS_HELD",
     "BAACC_PENDING",
     "MAIN_COUNTER .NE. LAST_NG",
+    "ES_FIELD_NOT_READY .AND. ES_ALI_GATE .EQ. 'HARD'",
 ):
     REP.check(
         f"exit blocks keep {tok}",

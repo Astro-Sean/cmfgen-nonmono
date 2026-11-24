@@ -2715,6 +2715,15 @@
 	  HAS_LAGGED_FIELD=.FALSE.
 	  LAM_FIELD_NOT_READY=.FALSE.
 	  LAM_FIELD_BLK=.FALSE.
+!
+! edited 24-Nov-2026 (W3): the ES-ALI verdict and census start
+! clean; COMP_J_BLANK fills them per production sweep.
+!
+	  ES_FIELD_NOT_READY=.FALSE.
+	  ES_ALI_CALL_UNC=.FALSE.
+	  ES_ALI_CALL_NUNC=0
+	  ES_ALI_CALL_NFALL=0
+	  ES_ALI_CALL_DJMAX=0.0_LDP
 	  BA_NREJ_SOFT=0
 	  BA_SAT_LIM=0
 	  CALL RD_STORE_INT(BA_SAT_LIM,'BA_SAT_LIM',L_FALSE,
@@ -2786,8 +2795,25 @@
 	1     'ES-ALI convergence target: max relative dJ per frequency')
 	  ES_ALI_MAX=20
 	  CALL RD_STORE_INT(ES_ALI_MAX,'ES_ALI_MAX',L_FALSE,
-	1     'Max J passes per frequency under ES-ALI (<=20)')
-	  IF(ES_ALI_MAX .GT. 20)ES_ALI_MAX=20
+	1     'Max J passes per frequency under ES-ALI (<=50)')
+!
+! edited 24-Nov-2026 (W3): the ES pass budget is now separate
+! from the J_IT_COUNTER forced exit, so the cap can reach 50.
+! The default stays 20 pending the OFF/WARN A/B on the m15
+! warm-restart arm; ES_ALI_GATE selects what an unconverged
+! frequency census does to the converged exit.
+!
+	  IF(ES_ALI_MAX .GT. 50)ES_ALI_MAX=50
+	  ES_ALI_GATE='WARN'
+	  CALL RD_STORE_CHAR(ES_ALI_GATE,'ES_ALI_GATE',L_FALSE,
+	1     'ES-ALI exit gate: OFF, WARN or HARD')
+	  CALL SET_CASE_UP(ES_ALI_GATE,IZERO,IZERO)
+	  IF(ES_ALI_GATE .NE. 'OFF' .AND. ES_ALI_GATE .NE. 'WARN'
+	1    .AND. ES_ALI_GATE .NE. 'HARD')THEN
+	    WRITE(LUER,'(A,A,A)')' Invalid ES_ALI_GATE value "',
+	1    TRIM(ES_ALI_GATE),'"; resetting to WARN'
+	    ES_ALI_GATE='WARN'
+	  END IF
 !
 ! edited 08-Nov-2026: removed the DO_ES_ALI + DO_NONMONO_KNOP
 ! without KN_NO_GAIN read-time warning. KN_NO_GAIN is now forced T

@@ -44,7 +44,7 @@ program drv_conv_exit
     call conv_exit_eval(.false.,.false.,0,mc_lam, &
       .not.bits(2),ex_maxch,EPS,bits(4),.not.bits(5), &
       .not.bits(6),.not.bits(7),last_ng,.not.bits(9), &
-      lam_ok,all_met,npass,fails)
+      .false.,lam_ok,all_met,npass,fails)
     npop=count(bits)
     if (all_met .neqv. (npop .eq. 9) .or. npass .ne. npop) &
       nbad=nbad+1
@@ -57,62 +57,62 @@ program drv_conv_exit
 ! Case A: the eight pre-fix gates pass, field not ready -> HOLD.
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.true.,lam_ok,all_met,npass,fails)
+    -1,.true.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,I0,A,A)') 'A_holdfield=',all_met, &
     ' npass=',npass,' fails=',trim(fails)
 !
 ! Case B: all nine pass -> MET.
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,I0,A,A)') 'B_allpass=',all_met, &
     ' npass=',npass,' fails=',trim(fails)
 !
 ! Case C: each single failure in turn.
   call conv_exit_eval(.false.,.false.,0,0, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_lamstate=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .true.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_jfnk=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,2.0_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_exm=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.false.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_dem=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.true.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_hydro=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.true.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_held=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.true., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_pend=',all_met,' fails=',trim(fails)
 !
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    1,.false.,lam_ok,all_met,npass,fails)
+    1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'C_onng=',all_met,' fails=',trim(fails)
 !
 ! Case D: several gates fail together -> all labels present.
   call conv_exit_eval(.false.,.false.,0,0, &
     .true.,2.0_LDP,EPS,.false.,.false.,.true.,.true., &
-    0,.true.,lam_ok,all_met,npass,fails)
+    0,.true.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,I0,A,A)') 'D_multi=',all_met, &
     ' npass=',npass,' fails=',trim(fails)
 !
@@ -120,8 +120,26 @@ program drv_conv_exit
 ! even with last_lam=main_counter.
   call conv_exit_eval(.true.,.false.,0,0, &
     .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
-    -1,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,L1)') 'E_forcedlam=',all_met,' lam_ok=',lam_ok
+!
+! ---- ES_NRDY conjunct (24-Nov-2026, W3) --------------------------
+! The ES-ALI liveness veto is passed resolved (ES_FIELD_NOT_READY
+! already gated to ES_ALI_GATE=HARD at the call sites). It vetoes
+! ALL_MET and names itself in FAILS but stays out of NPASS.
+!
+! Case F: all nine pass but es_nrdy armed -> HOLD, label present.
+  call conv_exit_eval(.false.,.false.,0,1, &
+    .false.,0.5_LDP,EPS,.true.,.false.,.false.,.false., &
+    -1,.false.,.true.,lam_ok,all_met,npass,fails)
+  write(*,'(A,L1,A,I0,A,A)') 'F_esnrdy=',all_met, &
+    ' npass=',npass,' fails=',trim(fails)
+!
+! Case G: es_nrdy combined with a second failure -> both labels.
+  call conv_exit_eval(.false.,.false.,0,1, &
+    .false.,0.5_LDP,EPS,.true.,.false.,.true.,.false., &
+    -1,.false.,.true.,lam_ok,all_met,npass,fails)
+  write(*,'(A,L1,A,A)') 'G_esheld=',all_met,' fails=',trim(fails)
 !
 ! ---- CONV_MARGIN_EVAL ---------------------------------------------
 ! eps=0.05 -> small=1.0, sat_raw=2.0e3, ex_maxch=0.03 (passing).

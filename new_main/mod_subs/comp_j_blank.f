@@ -138,6 +138,15 @@
 	LOGICAL ES_ALI_MOM_ON
 	LOGICAL ES_ALI_FB
 	LOGICAL ALO_OK
+!
+! edited 24-Nov-2026 (W3): ES_ALI_PASS is the per-frequency ES
+! pass budget, counted independently of the FEDD J_IT_COUNTER
+! forced exit (which kept the ES loop at <=20 passes and accepted
+! an above-tolerance exit silently). ES_MORE carries the loop
+! while budget remains.
+!
+	INTEGER ES_ALI_PASS
+	LOGICAL ES_MORE
 	REAL(KIND=LDP) ES_DJ
 	REAL(KIND=LDP) RJNEW
 	REAL(KIND=LDP) DEN
@@ -726,6 +735,14 @@ C
 	    ES_ALI_NUNC=0
 	    ES_ALI_NFALL=0
 	    ES_ALI_DJMAX=0.0_LDP
+!
+! edited 24-Nov-2026 (W3): per-call gate census, reset with the
+! printed counters -- one COMP_J_BLANK call is one ES verdict.
+!
+	    ES_ALI_CALL_UNC=.FALSE.
+	    ES_ALI_CALL_NUNC=0
+	    ES_ALI_CALL_NFALL=0
+	    ES_ALI_CALL_DJMAX=0.0_LDP
 	  ELSE
 	    dLOG_NU=LOG(FL_OLD/FL)
 	    DO I=1,ND
@@ -806,6 +823,7 @@ C We will do this twice, so that F is of higher accuracy.
 C
 	  INACCURATE=.TRUE.
 	  J_IT_COUNTER=0
+	  ES_ALI_PASS=0
 C
 C edited 27-Oct-2026: ES-ALI gate [DO_ES_ALI].  The
 C Olson-Auer-Buchler update below uses the diagonal stored by
@@ -839,7 +857,10 @@ C
 	  ES_DJ=0.0_LDP
 	  DO WHILE(INACCURATE)
 C
-	     IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)ES_DJ=0.0_LDP
+	     IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
+	       ES_DJ=0.0_LDP
+	       ES_ALI_PASS=ES_ALI_PASS+1
+	     END IF
 	     IF(COHERENT_ES)THEN
 	       TA(1:ND)=ETA_CLUMP(1:ND)+CHI_SCAT_CLUMP(1:ND)*RJ(1:ND)
 	     ELSE
@@ -1205,7 +1226,20 @@ C
 C Check if F has converged.
 C
 	      INACCURATE=.FALSE.
-	      IF(J_IT_COUNTER .LT. 20 .OR. COMPUTE_EDDFAC)THEN
+C
+C edited 24-Nov-2026 (W3): the ES pass budget is ES_ALI_PASS,
+C counted independently of the FEDD J_IT_COUNTER forced exit,
+C which used to bound the ES loop at <=20 passes and let an
+C above-tolerance frequency exit silently. While ES budget
+C remains the convergence test keeps running so the ES clause
+C can hold the loop; the forced exit fires only once ES is off,
+C fell back to plain Lambda, or spent the whole budget still
+C above ES_ALI_TOL.
+C
+	      ES_MORE=(ES_ALI_ON .OR. ES_ALI_MOM_ON) .AND.
+	1        .NOT. ES_ALI_FB .AND. ES_ALI_PASS .LT. ES_ALI_MAX
+	      IF(J_IT_COUNTER .LT. 20 .OR. COMPUTE_EDDFAC .OR.
+	1    ES_MORE)THEN
 	        T1=0.0_LDP
 	        DO I=1,ND
 	          T1=MAX(ABS(FOLD(I)-FEDD(I)),T1)
@@ -1215,16 +1249,19 @@ C
 C
 C edited 27-Oct-2026: under DO_ES_ALI the ES iterate keeps
 C passing until the last update is below ES_ALI_TOL or the pass cap
-C ES_ALI_MAX is reached (clamped to 20 at read time, so the existing
-C forced exit still bounds the loop).  Fallback frequencies are not
-C forced to extra passes.
+C ES_ALI_MAX is reached.  Fallback frequencies are not
+C forced to extra passes.  edited 24-Nov-2026 (W3): the cap is
+C read on ES_ALI_PASS, not the shared J_IT_COUNTER.
 C
 	        IF((ES_ALI_ON .OR. ES_ALI_MOM_ON) .AND. .NOT. ES_ALI_FB
 	1          .AND. ES_DJ .GT. ES_ALI_TOL .AND.
-	2          J_IT_COUNTER .LT. ES_ALI_MAX)INACCURATE=.TRUE.
+	2          ES_ALI_PASS .LT. ES_ALI_MAX)INACCURATE=.TRUE.
 	      END IF
 C
-	      IF(J_IT_COUNTER .GT. 20)THEN
+	      IF(J_IT_COUNTER .GT. 20 .AND.
+	1    (.NOT. (ES_ALI_ON .OR. ES_ALI_MOM_ON) .OR. ES_ALI_FB .OR.
+	2     (ES_DJ .GT. ES_ALI_TOL .AND.
+	3      ES_ALI_PASS .GE. ES_ALI_MAX)))THEN
 	         FCONV_CAP_CNT=FCONV_CAP_CNT+1
 	         FCONV_CAP_T1=MAX(FCONV_CAP_T1,T1)
 	         IF(FCONV_IT1_ACTIVE)THEN
@@ -1243,6 +1280,21 @@ C result for the once-per-iteration print [DO_ES_ALI].
 C
 	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
 	      ES_ALI_DJMAX=MAX(ES_ALI_DJMAX,ES_DJ)
+!
+! edited 24-Nov-2026 (W3): mirror the census into the module-scope
+! per-call counters the exit gate reads (ES_ALI_GATE=HARD makes
+! ES_FIELD_NOT_READY a converged-exit conjunct). JFNK eval sweeps
+! must not contaminate the production verdict.
+!
+	      IF(.NOT. JFNK_IN_EVAL)THEN
+	        ES_ALI_CALL_DJMAX=MAX(ES_ALI_CALL_DJMAX,ES_DJ)
+	        IF(ES_ALI_FB)THEN
+	          ES_ALI_CALL_NFALL=ES_ALI_CALL_NFALL+1
+	        ELSE IF(ES_DJ .GT. ES_ALI_TOL)THEN
+	          ES_ALI_CALL_NUNC=ES_ALI_CALL_NUNC+1
+	          ES_ALI_CALL_UNC=.TRUE.
+	        END IF
+	      END IF
 	      IF(ES_ALI_FB)THEN
 	        ES_ALI_NFALL=ES_ALI_NFALL+1
 	      ELSE IF(ES_DJ .GT. ES_ALI_TOL)THEN
@@ -1394,12 +1446,13 @@ C
 !
 	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
 	      IF(CONV_DIAG_LVL .GE. 1)
-	1       WRITE(LUER,'(A,I6,A,ES10.2,A,I6,A,I10,A,I10)')
+	1       WRITE(LUER,'(A,I6,A,ES10.2,A,I6,A,I10,A,I10,A,A)')
 	2       ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
 	3       ', max final dJ/J=',ES_ALI_DJMAX,
 	4       ', ALO fallbacks=',ES_ALI_NFALL,
 	5       ', J-floor hits run=',ES_ALI_NFLOOR,
-	6       ', BA-floor hits run=',ES_ALI_BA_NFLOOR
+	6       ', BA-floor hits run=',ES_ALI_BA_NFLOOR,
+	7       ', gate=',ES_ALI_GATE
 	    END IF
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)

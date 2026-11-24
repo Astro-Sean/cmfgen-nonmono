@@ -113,12 +113,21 @@
 ! drift class this removes. Label order matches the historical
 ! replica; the ninth label is appended last.
 !
+! edited 24-Nov-2026 (W3): ES_NRDY is the resolved ES-ALI liveness
+! veto -- ES_FIELD_NOT_READY already gated to the ES_ALI_GATE=HARD
+! arm by the caller, so it is .FALSE. under OFF and WARN and the
+! conjunct is inert there. It vetoes ALL_MET and names itself in
+! FAILS exactly as FIELD_NRDY does, but stays out of NPASS: the
+! percent figure keeps its denominator of the nine physical gates
+! whether or not the conditional gate is armed.
+!
       SUBROUTINE CONV_EXIT_EVAL(RD_LAM,DO_LAM_AUTO,LAST_LAM,&
      &     MAIN_COUNTER,JFNK_UNCONV,EX_MAXCH,EPS,DEM_OK,&
      &     HYDRO_REV,POPS_HELD,RESACC_PEND,LAST_NG,FIELD_NRDY,&
-     &     LAM_OK,ALL_MET,NPASS,FAILS)
+     &     ES_NRDY,LAM_OK,ALL_MET,NPASS,FAILS)
       LOGICAL, INTENT(IN) :: RD_LAM,DO_LAM_AUTO,JFNK_UNCONV,DEM_OK
       LOGICAL, INTENT(IN) :: HYDRO_REV,POPS_HELD,RESACC_PEND,FIELD_NRDY
+      LOGICAL, INTENT(IN) :: ES_NRDY
       INTEGER, INTENT(IN) :: LAST_LAM,MAIN_COUNTER,LAST_NG
       REAL(KIND=LDP), INTENT(IN) :: EX_MAXCH,EPS
       LOGICAL, INTENT(OUT) :: LAM_OK,ALL_MET
@@ -130,7 +139,7 @@
      &     (EX_MAXCH .LT. EPS) .AND. DEM_OK .AND.&
      &     .NOT. HYDRO_REV .AND. .NOT. POPS_HELD .AND.&
      &     .NOT. RESACC_PEND .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.&
-     &     .NOT. FIELD_NRDY
+     &     .NOT. FIELD_NRDY .AND. .NOT. ES_NRDY
       NPASS=0
       IF(LAM_OK)NPASS=NPASS+1
       IF(.NOT. JFNK_UNCONV)NPASS=NPASS+1
@@ -155,6 +164,7 @@
         IF(MAIN_COUNTER .EQ. LAST_NG)&
      &       FAILS=TRIM(FAILS)//' on-ng-iteration'
         IF(FIELD_NRDY)FAILS=TRIM(FAILS)//' lam-field-not-ready'
+        IF(ES_NRDY)FAILS=TRIM(FAILS)//' es-ali-unconverged'
       END IF
       RETURN
       END SUBROUTINE CONV_EXIT_EVAL
