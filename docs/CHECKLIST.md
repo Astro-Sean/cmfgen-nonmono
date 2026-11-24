@@ -250,6 +250,21 @@ Plan: docs/plans/BLOCK_SOLVE_SCOPING.md, phases A-E.
 Exit criterion: per-phase verdicts; implementation only after
 phase-D design sign-off. Toy prototype (phase C) is the decisive
 cheap evidence.
+
+## Coupled wavelength-depth block solve implementation (24-Nov-2026, user-directed)
+
+Question: can the matrix-free, preconditioned wavelength-depth GMRES
+solve replace the lagged frequency pass in the MOM refresh without
+disturbing the default path.
+Evidence plan: E1 dense-reference manufactured-graph battery; E2
+standalone production-module tests to machine precision; E3
+VADAT-gated integration behind MOM_BLKGMRES; E4 full unit batteries
+and one bounded eps1em3 arm. Track GMRES iterations, final residual,
+rejected writes and refresh residuals.
+Exit criterion: converges, stalls bounded, or detonates; verdict
+recorded here with job id and commit. Any negative or nonfinite write
+amplification beyond existing guards stops the arm for diagnosis.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
