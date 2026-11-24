@@ -860,6 +860,57 @@
 !
 	INTEGER*8, SAVE :: MOM_GS_NOFF=0
 !
+! MOM_NUSOLV (VADAT key, default FALSE): after each refresh pass,
+! re-solve the captured row equations with the upwind-J term made
+! implicit along each depth's frequency chain. At fixed depth every
+! row owns exactly one upwind edge -- the bluer neighbour L-1
+! expanding, or the matched redder slot L+MOM_NM_J compressing --
+! so the frequency coupling is a functional graph: chains ending
+! on boundary slots, plus closed rings where the upwind direction
+! flips (the expanding/compressing 2-cycles that pin the lagged
+! map at rho~1; matched strides >1 make longer rings). The graph
+! is solved exactly in O(NCF) per depth -- the direct-solve
+! treatment the CMF literature uses for this boundary-value
+! structure in wavelength (Baron & Hauschildt 2004, A&A 427, 987;
+! Jacobi-type passes on the same system fail). Alternated with
+! the depth-implicit sweeps, both operators solve the captured
+! equations, so the composite map's fixed point is the captured
+! linear system's solution. The lagged H and EPS scatter terms
+! stay explicit -- they are cross-channel or cross-depth reads
+! owned by the outer iteration. edited 25-Nov-2026.
+!
+	LOGICAL MOM_NUSOLV
+!
+! Captured row equations, one column per frequency. NU_TA/NU_TB/
+! NU_TC are the depth-tridiagonal coefficients as solved; NU_CUP/
+! NU_KUP are the upwind-J term's effective coefficient and target
+! (0 = boundary/outflow read, no in-grid edge); NU_X0 is the
+! assembled RHS minus the upwind term actually read, so
+! NU_X0 + NU_CUP*J(NU_KUP) = XM_SAVE by construction -- at the
+! composite fixed point the chain solve reproduces the swept
+! system exactly, including every row bound (LAG_SCL, EPS_SCL,
+! XM_POS are already folded into the captured values). NU_FRESH
+! marks columns captured during the current pass -- the
+! active-set schedule skips cold frequencies, and stale columns
+! are frozen rather than solved against old coefficients.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: NU_TA(:,:),NU_TB(:,:),
+	1   NU_TC(:,:),NU_X0(:,:),NU_CUP(:,:)
+	INTEGER, ALLOCATABLE :: NU_KUP(:,:)
+	LOGICAL, ALLOCATABLE :: NU_FRESH(:)
+	LOGICAL NU_CACHE_RDY
+!
+! Chain-solve census per call: rings solved, singular rings frozen,
+! rows frozen on bad coefficients, results rejected non-finite or
+! negative. The _T variants accumulate across calls (a whole
+! refresh); MOM_NU_CHG_LAST holds the last call's max drift.
+!
+	INTEGER*8, SAVE :: MOM_NU_NRING=0,MOM_NU_NSING=0,
+	1   MOM_NU_NFRZ=0,MOM_NU_NNEG=0
+	INTEGER*8, SAVE :: MOM_NU_NRING_T=0,MOM_NU_NSING_T=0,
+	1   MOM_NU_NFRZ_T=0,MOM_NU_NNEG_T=0
+	REAL(KIND=LDP), SAVE :: MOM_NU_CHG_LAST=0.0_LDP
+!
 ! MOM_XMWORST: largest |negative XM| clipped by MOM_XM_POS this sweep.
 ! The bound discards lagged debit; this tracks how much, so the cost
 ! of the safeguard can be measured against the row scale instead of
@@ -975,6 +1026,8 @@
 	DATA MOM_EPS_LIM /.TRUE./
 	DATA MOM_GAM_PIN /.TRUE./
 	DATA MOM_LAG_BND /.TRUE./
+	DATA MOM_NUSOLV /.FALSE./
+	DATA NU_CACHE_RDY /.FALSE./
 	DATA MOM_ABS_FLR /0.0_LDP/
 	DATA MOM_H_IMPL /.FALSE./
 	DATA MOM_XM_POS /.TRUE./
@@ -3261,6 +3314,116 @@
 	1    COUNT(ABS(SIGMA_TRUE_NM(1:ND_NM)) .GT. 1.0E+4_LDP)
 !
 	XM_SAVE_NM=XM_NM
+!
+! [MOM_NUSOLV] Capture the assembled row equations for the implicit
+! frequency-chain pass. NU_CUP is the upwind-J coefficient folded
+! with every bound already applied (LAG_SCL scaling, the boundary
+! row's negated sign); NU_X0 is the RHS minus the upwind term as
+! read, so NU_X0 + NU_CUP*J(NU_KUP) = XM_SAVE identically -- the
+! chain solve then solves the same equations DGTSV just solved,
+! split along the other direction. Rows later rebuilt by the
+! negative-J repair keep their pre-repair RHS here; the repair is
+! inactive at a positive-J fixed point. The lagged H and EPS scatter
+! terms stay inside NU_X0. Boundary row 1 mirrors the RHS
+! assembly's selector (A_BND under the Eddington boundary, Q_NM(1)
+! under the negated interior row); row ND has no upwind edge.
+!
+	IF(MOM_NUSOLV .AND. FREQ_INDX .GE. 1 .AND.
+	1   FREQ_INDX .LE. NCF_IN)THEN
+	  IF(.NOT. ALLOCATED(NU_TB))THEN
+	    ALLOCATE(NU_TA(ND_NM,NCF_IN),NU_TB(ND_NM,NCF_IN),
+	1      NU_TC(ND_NM,NCF_IN),NU_X0(ND_NM,NCF_IN),
+	2      NU_CUP(ND_NM,NCF_IN),NU_KUP(ND_NM,NCF_IN))
+	  ELSE IF(SIZE(NU_TB,1) .NE. ND_NM .OR.
+	1      SIZE(NU_TB,2) .NE. NCF_IN)THEN
+	    DEALLOCATE(NU_TA,NU_TB,NU_TC,NU_X0,NU_CUP,NU_KUP)
+	    ALLOCATE(NU_TA(ND_NM,NCF_IN),NU_TB(ND_NM,NCF_IN),
+	1      NU_TC(ND_NM,NCF_IN),NU_X0(ND_NM,NCF_IN),
+	2      NU_CUP(ND_NM,NCF_IN),NU_KUP(ND_NM,NCF_IN))
+	  END IF
+	  IF(.NOT. ALLOCATED(NU_FRESH))THEN
+	    ALLOCATE(NU_FRESH(NCF_IN))
+	    NU_FRESH(1:NCF_IN)=.FALSE.
+	  ELSE IF(SIZE(NU_FRESH) .NE. NCF_IN)THEN
+	    DEALLOCATE(NU_FRESH)
+	    ALLOCATE(NU_FRESH(NCF_IN))
+	    NU_FRESH(1:NCF_IN)=.FALSE.
+	  END IF
+	  NU_FRESH(FREQ_INDX)=.TRUE.
+	  DO I=2,ND_NM-1
+	    NU_TA(I,FREQ_INDX)=TA_NM(I)
+	    NU_TB(I,FREQ_INDX)=TB_NM(I)
+	    NU_TC(I,FREQ_INDX)=TC_NM(I)
+	    NU_CUP(I,FREQ_INDX)=0.0_LDP
+	    NU_KUP(I,FREQ_INDX)=0
+	    T3=0.0_LDP
+	    IF(Q_NM(I) .GE. 0.0_LDP)THEN
+	      IF(FREQ_INDX .GT. 1)THEN
+	        NU_CUP(I,FREQ_INDX)=LAG_SCL_NM(I)*PSIPREV_NM(I)
+	        NU_KUP(I,FREQ_INDX)=FREQ_INDX-1
+	        T3=NU_CUP(I,FREQ_INDX)*RSQJNU_PREV_NM(I)
+	      END IF
+	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN .AND.
+	1      MOM_NM_J(I) .GE. 1 .AND.
+	2      FREQ_INDX+MOM_NM_J(I) .LE. NCF_IN)THEN
+	      NU_CUP(I,FREQ_INDX)=LAG_SCL_NM(I)*PSI_NM(I)
+	      NU_KUP(I,FREQ_INDX)=FREQ_INDX+MOM_NM_J(I)
+	      T3=NU_CUP(I,FREQ_INDX)*JUP_NM(I)
+	    END IF
+	    NU_X0(I,FREQ_INDX)=XM_SAVE_NM(I)-T3
+	  END DO
+!
+! Boundary rows. The Eddington row keys on A_BND and keeps a
+! positive upwind coefficient; the negated interior row keys on
+! Q_NM(1) and its upwind term enters XM with a minus sign, so the
+! captured coefficient carries it.
+!
+	  NU_TA(1,FREQ_INDX)=TA_NM(1)
+	  NU_TB(1,FREQ_INDX)=TB_NM(1)
+	  NU_TC(1,FREQ_INDX)=TC_NM(1)
+	  NU_CUP(1,FREQ_INDX)=0.0_LDP
+	  NU_KUP(1,FREQ_INDX)=0
+	  T3=0.0_LDP
+	  IF(OUT_BC_TYPE .LE. 1)THEN
+	    IF(A_BND .GE. 0.0_LDP)THEN
+	      IF(FREQ_INDX .GT. 1)THEN
+	        NU_CUP(1,FREQ_INDX)=LAG_SCL_NM(1)*PSIPREV_NM(1)
+	        NU_KUP(1,FREQ_INDX)=FREQ_INDX-1
+	        T3=NU_CUP(1,FREQ_INDX)*RSQJNU_PREV_NM(1)
+	      END IF
+	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN .AND.
+	1      MOM_NM_J(1) .GE. 1 .AND.
+	2      FREQ_INDX+MOM_NM_J(1) .LE. NCF_IN)THEN
+	      NU_CUP(1,FREQ_INDX)=LAG_SCL_NM(1)*PSI_NM(1)
+	      NU_KUP(1,FREQ_INDX)=FREQ_INDX+MOM_NM_J(1)
+	      T3=NU_CUP(1,FREQ_INDX)*JUP_NM(1)
+	    END IF
+	  ELSE
+	    IF(Q_NM(1) .GE. 0.0_LDP)THEN
+	      IF(FREQ_INDX .GT. 1)THEN
+	        NU_CUP(1,FREQ_INDX)=-LAG_SCL_NM(1)*PSIPREV_NM(1)
+	        NU_KUP(1,FREQ_INDX)=FREQ_INDX-1
+	        T3=NU_CUP(1,FREQ_INDX)*RSQJNU_PREV_NM(1)
+	      END IF
+	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN .AND.
+	1      MOM_NM_J(1) .GE. 1 .AND.
+	2      FREQ_INDX+MOM_NM_J(1) .LE. NCF_IN)THEN
+	      NU_CUP(1,FREQ_INDX)=-LAG_SCL_NM(1)*PSI_NM(1)
+	      NU_KUP(1,FREQ_INDX)=FREQ_INDX+MOM_NM_J(1)
+	      T3=NU_CUP(1,FREQ_INDX)*JUP_NM(1)
+	    END IF
+	  END IF
+	  NU_X0(1,FREQ_INDX)=XM_SAVE_NM(1)-T3
+!
+	  NU_TA(ND_NM,FREQ_INDX)=TA_NM(ND_NM)
+	  NU_TB(ND_NM,FREQ_INDX)=TB_NM(ND_NM)
+	  NU_TC(ND_NM,FREQ_INDX)=TC_NM(ND_NM)
+	  NU_CUP(ND_NM,FREQ_INDX)=0.0_LDP
+	  NU_KUP(ND_NM,FREQ_INDX)=0
+	  NU_X0(ND_NM,FREQ_INDX)=XM_SAVE_NM(ND_NM)
+	  NU_CACHE_RDY=.TRUE.
+	END IF
+!
 	GT_DL(1:ND_NM-1)=TA_NM(2:ND_NM)
 	GT_DU(1:ND_NM-1)=TC_NM(1:ND_NM-1)
 	GT_D(1:ND_NM)=TB_NM(1:ND_NM)
@@ -5225,6 +5388,8 @@
 	INTEGER*8 NAA_SKIP
 	INTEGER IPIV_AA(MOM_AA_M)
 	REAL(KIND=LDP) PASS_CHG,T0,BEST_CHG,MIN_RES,RESID0
+	REAL(KIND=LDP) NU_CHG
+	INTEGER*8 NU_N5,NU_N50
 	REAL(KIND=LDP) RES_PREV(2),RATIO_M,FCMP,BEST_CHG_D(2)
 	REAL(KIND=LDP) PASS_NU,PASS_R,PASS_V,PASS_SIGT,PASS_GAM,PASS_Q
 	REAL(KIND=LDP) T3,T4,STEP,CYC,TCOL,D1,D2,LAMC,T1X
@@ -5657,6 +5822,12 @@
 	  MOM_XMNEG=0
 	  MOM_XMWORST=0.0_LDP
 !
+! [MOM_NUSOLV] Columns not visited this pass keep stale captured
+! coefficients; NU_FRESH marks only this pass's captures so the
+! chain solve freezes skipped frequencies rather than solve them.
+!
+	  IF(ALLOCATED(NU_FRESH))NU_FRESH(1:KN_M_NCF)=.FALSE.
+!
 ! Jacobi update for the compressing upwind read: freeze the
 ! J_{k+1} field at pass start so descending passes do not consume
 ! this-pass writes (the GS cascade diverged to ~1E10 residuals on
@@ -5844,6 +6015,26 @@
 	    PASS_NQ=PASS_NQ+MOM_GS_NQUAR
 	    PASS_NHUGE=PASS_NHUGE+MOM_GS_NHUGE
 	  END DO
+!
+! [MOM_NUSOLV] Implicit frequency-chain pass: solve this pass's
+! captured equations exactly along each depth's upwind graph
+! (chains + rings). Where the lagged map's rho~1 compressing
+! cycles had the sweeps ping-ponging between passes, the chain
+! solve satisfies every row's upwind term simultaneously, so the
+! pass output is the composite operator the depth sweeps alone
+! could not reach.
+!
+	  IF(MOM_NUSOLV .AND. NU_CACHE_RDY)THEN
+	    CALL MOM_NU_CHAIN_SOLVE(KN_M_NCF,NU_CHG,NU_N5,NU_N50)
+	    WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,I10,A,I10,A,4(I10,A))')
+	1    'nu-solve','largest change ',NU_CHG,'; ',
+	2    NU_N5,' cells above 5%, ',NU_N50,' above 50%; ',
+	3    MOM_NU_NRING,' rings (',MOM_NU_NSING,' singular), ',
+	4    MOM_NU_NFRZ,' frozen, ',MOM_NU_NNEG,' rejected negative'
+	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
+	    PASS_N5=PASS_N5+NU_N5
+	    PASS_N50=PASS_N50+NU_N50
+	  END IF
 !
 ! Active-set update: keep L active next pass when its own residual
 ! was hot, its expanding input L-1 was hot, or any slot in
@@ -7086,5 +7277,235 @@
 	IF(ALLOCATED(RES_L))DEALLOCATE(RES_L)
 	IF(ALLOCATED(NMUP_L))DEALLOCATE(NMUP_L)
 	IF(ALLOCATED(RES_PASS))DEALLOCATE(RES_PASS)
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! MOM_NU_CHAIN_SOLVE [MOM_NUSOLV, default F]: implicit solve of the
+! captured row equations along each depth's frequency chain.
+!
+! At fixed depth every row owns exactly one upwind-J edge (bluer
+! neighbour L-1 when expanding, matched redder slot L+MOM_NM_J when
+! compressing), so the frequency coupling is a functional graph.
+! Two structures exist:
+!   - chains: a walk from any node terminates at a boundary slot
+!     (NU_KUP=0: blue edge, red-edge outflow, or a row with no
+!     upwind term) or at an already-resolved node;
+!   - rings: a walk revisits itself where the upwind direction
+!     flips -- the expanding/compressing transition pairs that make
+!     the lagged map a rho~1 two-cycle, and longer loops wherever
+!     MOM_NM_J strides >1 compose one. Composing x = r + a*x_next
+!     around the loop gives x_first*(1-A) = S with A the cyclic
+!     product; A~1 is a singular cycle (its members freeze -- the
+!     lagged map's own guards stay in charge there).
+! Both are resolved exactly in O(NCF) per depth.
+!
+! The depth terms TA*J(i-1), TC*J(i+1) read the live store, so
+! outer depths already updated this call enter Gauss-Seidel fresh;
+! the lagged H and EPS scatter terms stayed inside NU_X0 at
+! capture. The write is the sweep's own damped, non-negativity-
+! enforced update -- a chain solve that produces a non-finite or
+! negative result is solving a bad row and keeps the old iterate.
+! Baron & Hauschildt 2004 (A&A 427, 987) use the same direct solve
+! for the wavelength boundary-value structure of a non-monotonic
+! CMF formal solution; Jacobi-type passes on it do not converge,
+! which is the bounded-noncontraction stall this replaces.
+! edited 25-Nov-2026.
+!
+	SUBROUTINE MOM_NU_CHAIN_SOLVE(NCF,CHG_NU,N5_NU,N50_NU)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1
+	IMPLICIT NONE
+!
+	INTEGER NCF
+	REAL(KIND=LDP) CHG_NU
+	INTEGER*8 N5_NU,N50_NU
+!
+	REAL(KIND=LDP), ALLOCATABLE :: AV(:),RV(:),XV(:)
+	INTEGER, ALLOCATABLE :: TV(:),ST(:),WL(:)
+!
+	INTEGER I,J,JJ,K0,KC,KT,KV,NW,P
+	REAL(KIND=LDP) RHS,TB_V,PROD,SUM,A_V
+	REAL(KIND=LDP) XOLD,XNEW,RLX,TJ,FSCL
+	LOGICAL CACHES_OK
+!
+	MOM_NU_NRING=0_8; MOM_NU_NSING=0_8
+	MOM_NU_NFRZ=0_8;  MOM_NU_NNEG=0_8
+	CHG_NU=0.0_LDP;   N5_NU=0_8;  N50_NU=0_8
+!
+! The caller contracts on NU_CACHE_RDY; bail rather than crash if a
+! caller ever runs the solve without a captured band.
+!
+	CACHES_OK=ALLOCATED(NU_TB) .AND. ALLOCATED(NU_KUP)
+	1   .AND. ALLOCATED(NU_FRESH) .AND. ALLOCATED(J_NEXT_FRQ)
+	IF(CACHES_OK)CACHES_OK=SIZE(NU_TB,2) .GE. NCF .AND.
+	1   SIZE(J_NEXT_FRQ,2) .GE. NCF .AND. SIZE(NU_FRESH) .GE. NCF
+	IF(.NOT. CACHES_OK)RETURN
+!
+	ALLOCATE(AV(NCF),RV(NCF),XV(NCF),TV(NCF),ST(NCF),WL(NCF))
+!
+	DO I=1,ND_NM-1
+!
+!	  Normalized row: x(k) = r(k) + a(k)*x(t(k)). Rows with a dead
+!	  diagonal or non-finite inputs are resolved constants -- any
+!	  downwind reader then consumes a valid value, the same
+!	  dropped-contribution semantics the sweep's zeroed-slot guard
+!	  uses.
+!
+	  DO K0=1,NCF
+	    IF(.NOT. NU_FRESH(K0))THEN
+	      ST(K0)=2; XV(K0)=J_NEXT_FRQ(I,K0)
+	    ELSE
+	      TB_V=NU_TB(I,K0)
+	      RHS=NU_X0(I,K0)
+	      IF(I .GT. 1)RHS=RHS-NU_TA(I,K0)*J_NEXT_FRQ(I-1,K0)
+	      IF(I .LT. ND_NM)RHS=RHS-NU_TC(I,K0)*J_NEXT_FRQ(I+1,K0)
+	      IF(.NOT. (ABS(TB_V) .GT. 0.0_LDP) .OR.
+	1        .NOT. (ABS(RHS) .LE. HUGE(RHS)) .OR.
+	2        .NOT. (ABS(NU_CUP(I,K0)) .LE. HUGE(NU_CUP(I,K0))))THEN
+	        ST(K0)=2
+	        XV(K0)=J_NEXT_FRQ(I,K0)
+	        MOM_NU_NFRZ=MOM_NU_NFRZ+1
+	      ELSE
+	        AV(K0)=NU_CUP(I,K0)/TB_V
+	        RV(K0)=RHS/TB_V
+	        TV(K0)=NU_KUP(I,K0)
+	        XV(K0)=J_NEXT_FRQ(I,K0)
+	        ST(K0)=0
+	      END IF
+	    END IF
+	  END DO
+!
+!	  Resolve the graph: for each unvisited node, follow its upwind
+!	  edge until a boundary, a resolved node, or the walk itself.
+!
+	  DO K0=1,NCF
+	    IF(ST(K0) .NE. 0)CYCLE
+	    NW=0
+	    KC=K0
+	    DO
+	      IF(KC .EQ. 0)THEN
+	        XV(WL(NW))=RV(WL(NW))
+	        ST(WL(NW))=2
+	        DO J=NW-1,1,-1
+	          KV=WL(J)
+	          XV(KV)=RV(KV)+AV(KV)*XV(TV(KV))
+	          ST(KV)=2
+	        END DO
+	        EXIT
+	      ELSE IF(ST(KC) .EQ. 2)THEN
+	        DO J=NW,1,-1
+	          KV=WL(J)
+	          XV(KV)=RV(KV)+AV(KV)*XV(TV(KV))
+	          ST(KV)=2
+	        END DO
+	        EXIT
+	      ELSE IF(ST(KC) .EQ. 1)THEN
+	        DO J=NW,1,-1
+	          IF(WL(J) .EQ. KC)THEN
+	            P=J
+	            EXIT
+	          END IF
+	        END DO
+	        MOM_NU_NRING=MOM_NU_NRING+1
+!
+!	        Ring: each member reads the next in walk order, the last
+!	        wrapping to the first. x_j = r_j + a_j*x_{j+1} composed
+!	        around the loop gives x_j*(1-A) = S_j, A the cyclic
+!	        product (the same for every member) and S_j the
+!	        accumulated source starting at member j. Computing each
+!	        member by its own composition keeps members with a_j=0
+!	        exact -- a substitution pass would divide by it.
+!	        |1-A|~0 or an overflowing product is an incompatible
+!	        cycle -- freeze the members at the old iterate rather
+!	        than divide by it.
+!
+	        A_V=1.0_LDP
+	        DO J=P,NW
+	          A_V=A_V*AV(WL(J))
+	        END DO
+	        IF(.NOT. (ABS(A_V) .LE. HUGE(A_V)) .OR.
+	1          ABS(1.0_LDP-A_V) .LT. 1.0E-10_LDP)THEN
+	          DO J=P,NW
+	            XV(WL(J))=J_NEXT_FRQ(I,WL(J))
+	            ST(WL(J))=2
+	          END DO
+	          MOM_NU_NSING=MOM_NU_NSING+1
+	        ELSE
+	          DO J=P,NW
+	            PROD=1.0_LDP
+	            SUM=0.0_LDP
+	            DO JJ=0,NW-P
+	              KT=P+MOD(J-P+JJ,NW-P+1)
+	              SUM=SUM+PROD*RV(WL(KT))
+	              PROD=PROD*AV(WL(KT))
+	            END DO
+	            XV(WL(J))=SUM/(1.0_LDP-A_V)
+	            ST(WL(J))=2
+	          END DO
+	        END IF
+	        DO J=P-1,1,-1
+	          KV=WL(J)
+	          XV(KV)=RV(KV)+AV(KV)*XV(TV(KV))
+	          ST(KV)=2
+	        END DO
+	        EXIT
+	      ELSE
+	        NW=NW+1
+	        WL(NW)=KC
+	        ST(KC)=1
+	        KC=TV(KC)
+	      END IF
+	    END DO
+	  END DO
+!
+!	  Damped write, same policy as the sweep's J_NEXT_FRQ update:
+!	  non-finite or negative chain results are rejected to the
+!	  previous iterate (a solved row is only kept where it is a
+!	  usable field value), otherwise the store moves by the
+!	  pass's relaxation factor.
+!
+	  FSCL=MAXVAL(ABS(XV(1:NCF)))
+	  DO K0=1,NCF
+	    XNEW=XV(K0)
+	    IF(.NOT. (ABS(XNEW) .LE. HUGE(XNEW)))THEN
+	      MOM_NU_NFRZ=MOM_NU_NFRZ+1
+	    ELSE IF(XNEW .LT. 0.0_LDP)THEN
+	      MOM_NU_NNEG=MOM_NU_NNEG+1
+	    ELSE
+	      XOLD=J_NEXT_FRQ(I,K0)
+	      TJ=ABS(XNEW-XOLD)/MAX(MAX(ABS(XOLD),ABS(XNEW)),
+	1      1.0E-4_LDP*FSCL)
+	      CHG_NU=MAX(CHG_NU,TJ)
+	      IF(TJ .GT. 0.05_LDP)N5_NU=N5_NU+1
+	      IF(TJ .GT. 0.50_LDP)N50_NU=N50_NU+1
+	      RLX=JNEXT_RELAX
+	      IF(MOM_KN_REFRESHING .AND. ALLOCATED(MOM_DAMP_NM))
+	1       RLX=MOM_DAMP_NM(I,K0)
+	      J_NEXT_FRQ(I,K0)=XOLD+RLX*(XNEW-XOLD)
+	    END IF
+	  END DO
+	END DO
+!
+	DEALLOCATE(AV,RV,XV,TV,ST,WL)
+	MOM_NU_NRING_T=MOM_NU_NRING_T+MOM_NU_NRING
+	MOM_NU_NSING_T=MOM_NU_NSING_T+MOM_NU_NSING
+	MOM_NU_NFRZ_T=MOM_NU_NFRZ_T+MOM_NU_NFRZ
+	MOM_NU_NNEG_T=MOM_NU_NNEG_T+MOM_NU_NNEG
+	MOM_NU_CHG_LAST=CHG_NU
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! SET_MOM_NUSOLV: runtime wiring for MOM_NUSOLV, called once from
+! RD_CONTROL_VARIABLES after the VADAT key is read.
+!
+	SUBROUTINE SET_MOM_NUSOLV(DO_NUS)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_NUSOLV
+	IMPLICIT NONE
+	LOGICAL DO_NUS
+	MOM_NUSOLV=DO_NUS
 	RETURN
 	END
