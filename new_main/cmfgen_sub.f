@@ -5107,13 +5107,17 @@
 ! GS_FREEZE without GS_HOLD_POPS) or frozen field is not a
 ! converged one. Set per SOLVE_FOR_POPS call; forced F on stock
 ! and plain SOB+LAM_ES=T, so those paths are unchanged.
+! edited 24-Nov-2026: the conjunct reads the strict
+! LAM_FIELD_NOT_CONVERGED -- the same value unless
+! KN_LAM_PARTIAL_HANDOFF released the handoff path, in which case
+! the exit still waits for the all-ray-FULL fold.
 !
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
-	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_READY
+	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_CONVERGED
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
@@ -5536,28 +5540,31 @@
 ! JFNK_UNCONVERGED_COMMIT blocks this branch unless the nonlinear
 ! target was met, so the distinction is harmless there.
 !
-! .NOT. LAM_FIELD_NOT_READY (audit T-01/F-01): demanded-population
+! .NOT. LAM_FIELD_NOT_CONVERGED (audit T-01/F-01): demanded-population
 ! quiet is not lagged-field maturity -- see the same conjunct at
-! the 9999 exit above for the full rationale.
+! the 9999 exit above for the full rationale. The strict flag is
+! the same value as the old folded LAM_FIELD_NOT_READY unless
+! KN_LAM_PARTIAL_HANDOFF released the handoff path.
 !
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
-	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_READY
+	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_CONVERGED
 !
 ! Deferred-exit diagnostic: when every other gate passes but the
 ! resacc verdict is still pending, name the one-iteration deferral
-! so a triage does not read it as a stall. LAM_FIELD_NOT_READY is
-! mirrored so the "only resacc pending" claim stays true when an
-! immature lagged field is also blocking (same term as the gate).
+! so a triage does not read it as a stall. LAM_FIELD_NOT_CONVERGED
+! is mirrored so the "only resacc pending" claim stays true when
+! an unverified lagged field is also blocking (same term as the
+! gate).
 !
 	  IF(.NOT. CONV_EXIT_MET .AND. BAACC_PENDING .AND.
 	1    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	2    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3    .NOT. GS_POPS_HELD .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.
-	4    .NOT. LAM_FIELD_NOT_READY .AND.
+	4    .NOT. LAM_FIELD_NOT_CONVERGED .AND.
 	5    CONV_DIAG_LVL .GE. 1)
 	5    WRITE(LUER,'(A)')' Converged exit deferred: resacc '//
 	6    'verdict pending on the armed BA step'
