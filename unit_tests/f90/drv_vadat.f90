@@ -116,4 +116,5 @@
       WRITE(*,'(A,A)')'ES_ALI_GATE=',ES_ALI_GATE
       WRITE(*,'(A,I5)')'ES_ALI_MAX=',ES_ALI_MAX
       WRITE(*,'(A,L2)')'DO_ES_ALI=',DO_ES_ALI
+      WRITE(*,'(A,L2)')'JFNK_PC_QUAL=',JFNK_PC_QUAL
       END

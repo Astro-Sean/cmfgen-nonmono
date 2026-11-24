@@ -4101,6 +4101,28 @@
 	      JFNK_CAUCHY=.TRUE.
 	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_CAUCHY=T'
 	    END IF
+!
+! edited 24-Nov-2026 (W4): JFNK_PC_QUAL default-on under DO_JFNK.
+! The plain acceptance only proves M is invertible (x=1 microtest,
+! rcond(M)); the qual probe catches M^-1 A annihilating a probe
+! direction (tests/jfnk_core/test_pc_quality.f90 Q2: ||I-M^-1A||
+! >0.5 while accepted). Absent-key only -- an explicit F stays an
+! opt-out and gets the warning. The solver-module mirror syncs
+! through the same setter the parse used.
+!
+	    CALL GET_KEY_STRING(TMP_STRING,'JFNK_PC_QUAL',L_FALSE,
+	1     L_FALSE_TMP)
+	    IF(.NOT. L_FALSE_TMP)THEN
+	      JFNK_PC_QUAL=.TRUE.
+	      CALL JFNK_PC_SET_OPTIONS_V1(JFNK_PTC_SIGNED,
+	1       JFNK_REG_ZERO_COL, JFNK_ROW_TINY_EQUIL,
+	2       JFNK_PC_RCOND_GATE, JFNK_PC_RCOND_MIN,
+	3       JFNK_PC_ITRY_CAP, JFNK_PC_QUAL, JFNK_PC_QUAL_TOL)
+	      WRITE(LUER,'(A)')' JFNK auto-set: JFNK_PC_QUAL=T'
+	    ELSE IF(.NOT. JFNK_PC_QUAL)THEN
+	      WRITE(LUER,'(A)')' Warning: JFNK_PC_QUAL=F -- the'//
+	1     ' preconditioner blindspot probe is disabled'
+	    END IF
 	    IF(JFNK_MAXCH_CNV .LE. 0.0_LDP)THEN
 	      WRITE(LUER,*)'Warning: JFNK_MXCH_TOL=0 - the secondary'
 	1    ,' convergence target is inactive; it needs a ready'

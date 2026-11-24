@@ -1127,6 +1127,12 @@ KN_ORD_P2DAMP default unchanged (F).
 - [x] JFNK population solve (`DO_JFNK`, admission gated on
       `USE_LAM_ES=T`) - implemented, test batteries green; coupled
       evals use a frozen lagged store (documented caveat).
+- [x] `JFNK_PC_QUAL` default-on under `DO_JFNK=T` (24-Nov-2026):
+      the x=1 microtest only proved M invertible; the probe now
+      rejects factorizations with `||I - M^-1 A|| > 0.5`
+      (test_pc_quality Q2). Absent-key auto-set + banner under
+      DO_JFNK; explicit F is a warned opt-out; rejection falls
+      back, no STOP.
 - [x] `DO_ES_ALI` accelerated Lambda iteration - ~30 warm-start
       iterations to the control fixed point (X2/X3 arms);
       `DO_ES_ALI_BA` stays opt-in.
@@ -1140,7 +1146,7 @@ KN_ORD_P2DAMP default unchanged (F).
       `ES_ALI_GATE` OFF|WARN|HARD (default WARN): OFF keeps the old
       behaviour bitwise, WARN prints in the `Model Convergence`
       report, HARD adds the `CONV_EXIT_EVAL`/`CONV_EXIT_MET`
-      conjunct. conv_exit 53/53, vadat_keys parse 89/89. The
+      conjunct. conv_exit 53/53, vadat_keys parse 95/95. The
       OFF->WARN/WARN->HARD production A/B is prepared, BLOCKED on
       cluster submission.
 
@@ -1238,8 +1244,8 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       obs_frame 11+15, ng_abstain 23 (24-Nov-2026: +non-finite
       history/fit refuse cases under NG_NF_HIST/NG_NF_NEW),
       lam_handoff 51, conv_exit 53 (24-Nov-2026: +ES_ALI_GATE
-      OFF/WARN/HARD arms), vadat_keys 89 (+ES_ALI_GATE
-      parse/clamp), gs_drift_diag,
+      OFF/WARN/HARD arms), vadat_keys 95 (+ES_ALI_GATE parse/
+      clamp, JFNK_PC_QUAL auto-set/opt-out), gs_drift_diag,
       iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
       test_es_conv remains blocked on the known obs/ archive gap.
 - [x] Manufactured ordered-stencil + exit-policy + period-2

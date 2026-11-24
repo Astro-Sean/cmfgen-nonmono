@@ -461,6 +461,21 @@ honoured even on non-Lambda iterations). Implementation:
 `new_main/mod_subs/jfnk_solver_v1.f90` and the `jfnk_*` modules;
 semantics per `../AGENTS.md` section 8.
 
+- `JFNK_PC_QUAL` (default T under `DO_JFNK=T` since 24-Nov-2026,
+  F otherwise; `JFNK_PC_QUAL_TOL` 0.5): preconditioner-quality
+  probe run per factorization - measures `||I - M^-1 A||` along
+  a probe direction and rejects a block that is invertible but
+  not a preconditioner (the plain acceptance only proves `M`
+  invertible; `tests/jfnk_core/test_pc_quality.f90` Q2 builds
+  `A = I - (1-1e-9) u u^T` with `A*1 = 1` and shows
+  `||I - M^-1 A|| > 0.5` while accepted). Absent-key under
+  `DO_JFNK=T` auto-sets T with the usual banner (the probe cost
+  is one extra matvec + norm per factorization); an explicit
+  `JFNK_PC_QUAL=F` is a respected opt-out and prints a one-line
+  warning that the blindspot probe is disabled. Rejection fails
+  the factorization and the ridge/fallback ladder stays
+  reachable - no STOP.
+
 ## 8. Historical status notes
 
 Dated records of why the machinery above exists. For current

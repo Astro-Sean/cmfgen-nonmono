@@ -215,6 +215,15 @@ def main():
             "baseline: absent JFNK_PC_PAR_FACTOR defaults F",
             v.get("JFNK_PC_PAR_FACTOR") == "F",
         )
+        # W4: JFNK_PC_QUAL default-on under DO_JFNK (absent-key
+        # auto-set). Baseline VADAT arms DO_JFNK and omits the key.
+        rep.check(
+            "baseline: DO_JFNK=T + absent JFNK_PC_QUAL auto-sets T",
+            v.get("JFNK_PC_QUAL") == "T"
+            and "JFNK auto-set: JFNK_PC_QUAL=T" in p.stdout,
+            p.stdout[-300:],
+        )
+
     cases = [
         # (name, mutations, expect_ok, expect_stdout_substr)
         (
@@ -282,6 +291,18 @@ def main():
             {"JFNK_COUPLED": "T"},
             True,
             "Forcing",
+        ),
+        (
+            "DO_JFNK=T + explicit JFNK_PC_QUAL=F warns (opt-out)",
+            {"JFNK_PC_QUAL": "F"},
+            True,
+            "preconditioner blindspot probe is disabled",
+        ),
+        (
+            "DO_JFNK=T + explicit JFNK_PC_QUAL=T kept, no auto-set",
+            {"JFNK_PC_QUAL": "T"},
+            True,
+            "RESULT_OK",
         ),
         (
             "JFNK_COUPLED_SOB=T without JFNK_COUPLED auto-F",
@@ -1123,6 +1144,42 @@ def main():
         "ES_ALI_MAX clamp raised to 50",
         "RESULT_OK" in p.stdout
         and int(v.get("ES_ALI_MAX", "0")) <= 50,
+    )
+
+    # JFNK_PC_QUAL (W4, 24-Nov-2026): DO_JFNK=F leaves the parsed
+    # default untouched -- no auto-set banner, no warning, value F.
+    d = write_vadat(WORKDIR / "vadat_pcq_off", {"DO_JFNK": "F"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_JFNK=F -> JFNK_PC_QUAL stays F, no auto-set",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_PC_QUAL") == "F"
+        and "JFNK auto-set: JFNK_PC_QUAL" not in p.stdout
+        and "blindspot probe is disabled" not in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    # Explicit F under DO_JFNK=T parses F and emits the opt-out
+    # warning (the cases-table entry already pins the warning text).
+    d = write_vadat(WORKDIR / "vadat_pcq_expF", {"JFNK_PC_QUAL": "F"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_JFNK=T + explicit JFNK_PC_QUAL=F parses F",
+        "RESULT_OK" in p.stdout and v.get("JFNK_PC_QUAL") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    # Explicit T under DO_JFNK=T is kept and does not re-fire the
+    # auto-set banner.
+    d = write_vadat(WORKDIR / "vadat_pcq_expT", {"JFNK_PC_QUAL": "T"})
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "DO_JFNK=T + explicit JFNK_PC_QUAL=T parses T, no banner",
+        "RESULT_OK" in p.stdout
+        and v.get("JFNK_PC_QUAL") == "T"
+        and "JFNK auto-set: JFNK_PC_QUAL" not in p.stdout,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
     return rep.summary()
