@@ -1094,7 +1094,8 @@
 !
 	END MODULE MOD_MOM_J_NONMONO_V1
 !
-!
+!
+
 !
 ! MOM_J_CMF_NONMONO_V1: Non-monotonic moment solver for the mean
 ! intensity J at a single frequency in the comoving frame.
@@ -1906,7 +1907,8 @@
 	  MOM_GS_NOFF=0
 	END IF
 !
-!
+!
+
 !
 ! Get Eddington factors on the revised grid.
 !
@@ -6126,7 +6128,13 @@
 	4    MOM_BLK_NFRZ,' frozen, ',MOM_BLK_NNEG,' rejected neg, ',
 	5    MOM_BLK_NCAP,' write-capped'
 	    IF(NUC_NROW .GT. 0_8)THEN
-	      WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)') 'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
+	      ! Keep every census field on continuation lines. A single long fixed-
+	      ! source record is truncated before the H/X0 descriptors.
+	            WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)')
+	1    'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,
+	2    ' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',
+	3    NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',
+	4    NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
 	      WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
 	    END IF
 	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
@@ -6141,7 +6149,13 @@
 	4    MOM_NU_NMARG,' marginal), ',MOM_NU_NFRZ,' frozen, ',
 	5    MOM_NU_NNEG,' rejected neg, ',MOM_NU_NCAP,' write-capped'
 	    IF(NUC_NROW .GT. 0_8)THEN
-	      WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)') 'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
+	      ! Keep every census field on continuation lines. A single long fixed-
+	      ! source record is truncated before the H/X0 descriptors.
+	            WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)')
+	1    'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,
+	2    ' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',
+	3    NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',
+	4    NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
 	      WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
 	    END IF
 	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
