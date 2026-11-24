@@ -451,6 +451,14 @@ def _prod_mod_mtime():
     )
 
 
+# Object-level dependencies introduced by USE or explicit calls across
+# production archive members. prod_obj links individual members rather
+# than whole archives, so these companions must be explicit.
+_PROD_COMPANION_SOURCES = {
+    "mom_j_cmf_nonmono_v1.f": ["plane/mom_blk_gmres_mod.f"],
+}
+
+
 def compile_and_link_prod(name, sources, moddir=None, extra_flags=None):
     """Build bin/name from a mixed source list.
 
@@ -468,6 +476,12 @@ def compile_and_link_prod(name, sources, moddir=None, extra_flags=None):
     for s in sources:
         s = Path(s)
         (prod if is_prod_source(s) else test).append(s)
+    have = {s.name for s in prod}
+    for s in list(prod):
+        for comp in _PROD_COMPANION_SOURCES.get(s.name, []):
+            if Path(comp).name not in have:
+                prod.append(TREE / comp)
+                have.add(Path(comp).name)
     objs = prod_objs(prod) if prod else []
     if test:
         tflags = list(extra_flags or []) + PROD_MOD_INC
