@@ -1261,6 +1261,16 @@
 !
 	LOGICAL MOM_XM_POS
 !
+! MOM_NUSOLV (default FALSE): after each MOM refresh pass, re-solve
+! the captured row equations with the upwind-J term implicit along
+! each depth's frequency chain (chains plus the sign-flip rings the
+! lagged map stalls on). Targets the bounded-noncontraction class
+! measured on the m15 compressing flow (lamesF arm): the sweep's
+! lagged coupling direction gets an exact per-depth solve instead
+! of iteration at rho~1. VADAT keyword [MOM_NUSOLV].
+!
+	LOGICAL MOM_NUSOLV
+!
 ! MOM_FAC_RLX (default 0.25, was 1.0 = off): under-relaxation
 ! weight for the Eddington-factor update between great iterations
 ! in MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
