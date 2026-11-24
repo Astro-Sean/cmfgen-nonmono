@@ -351,6 +351,26 @@ which stamps the same value in the initial VADAT.
 - `MOM_XM_POS` / `MOM_XMWORST` - negative-RHS clipping guard plus
   a report of the largest clipped value each sweep so the
   safeguard's cost is measured, not assumed.
+- `MOM_NUSOLV` (default F, 25-Nov-2026): after each MOM refresh
+  pass, re-solve the captured row equations with the upwind-J
+  term implicit along each depth's frequency chain
+  (`MOM_NU_CHAIN_SOLVE`). At fixed depth every row owns one
+  upwind edge -- bluer L-1 expanding, matched redder
+  L+MOM_NM_J compressing -- so the coupling is a functional
+  graph: chains plus closed rings at the sign flips (the
+  expanding/compressing 2-cycles that pin the lagged map at
+  rho~1; matched strides >1 make longer rings). Solved exactly
+  in O(NCF) per depth -- the direct-solve treatment the CMF
+  literature uses for this boundary-value structure in
+  wavelength (Baron & Hauschildt 2004, A&A 427, 987). Captured
+  coefficients are the swept row's own post-LAG_SCL/EPS_SCL, so
+  the composite map's fixed point is the swept system's. The
+  lagged H and EPS scatter terms stay explicit. Census: rings,
+  singular-frozen rings, frozen rows, rejected negatives print
+  per pass on the `nu-solve` line; `NU_FRESH` freezes
+  active-set-skipped columns. Targets the bounded
+  non-contraction measured on the m15 compressing flow
+  (lamesF arm, job 13646071).
 - `KN_NI1_FULL` (default F, 24-Nov-2026): certify a production
   NI=1 ray KN_CS_FULL (reason 0) in `KNOP_RAY_SOLVE_V1` instead
   of leaving it KN_CS_INV. A single-point ray has no marchable
