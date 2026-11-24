@@ -263,6 +263,73 @@ def main():
         "frozen members must not move",
     )
 
+    # --- marg: near-marginal ring freezes in the band -------------------
+    # a2*a3 = 0.9999 -> |1-A|=1e-4 < MOM_NU_RING_BAND: both members
+    # must freeze at the seeded field, counted NMARG not NSING.
+    out, xv = run_case(rep, exe, "marg", "nu_marg")
+    rep.check(
+        "marg: near-marginal ring counted per depth",
+        kv(out, "NU_NMARG") == ND - 1,
+        f"NMARG={kv(out, 'NU_NMARG')}",
+    )
+    rep.check(
+        "marg: ring is not counted singular",
+        kv(out, "NU_NSING") == 0,
+    )
+    rep.check(
+        "marg: ring members keep the old iterate",
+        np.allclose(xv[:, 1], 4.0) and np.allclose(xv[:, 2], 5.0),
+        "frozen members must not move",
+    )
+    rep.check(
+        "marg: uncoupled columns still solve",
+        np.allclose(xv[: ND - 1, 0], RV0) and np.allclose(
+            xv[: ND - 1, 3:], RV0
+        ),
+        "columns outside the ring are ordinary boundaries",
+    )
+
+    # --- margok: ring just above the band still solves ------------------
+    # a2*a3 = 0.9409 -> |1-A|=0.0591 > band: exact solve, no freeze.
+    out, xv = run_case(rep, exe, "margok", "nu_margok")
+    xsol = (RV0 + 0.97 * RV0) / (1.0 - 0.97 * 0.97)
+    exp = np.full((ND - 1, NCF), RV0)
+    exp[:, 1] = xsol
+    exp[:, 2] = xsol
+    rep.check(
+        "margok: ring solved exactly above the band",
+        np.allclose(xv[: ND - 1], exp, rtol=1e-12, atol=1e-14),
+        f"max diff {np.abs(xv[:ND-1]-exp).max():.2e}",
+    )
+    rep.check(
+        "margok: nothing marginal, nothing capped",
+        kv(out, "NU_NMARG") == 0 and kv(out, "NU_NCAP") == 0,
+        f"NMARG={kv(out, 'NU_NMARG')} NCAP={kv(out, 'NU_NCAP')}"
+        f" (solved {xsol:.3f} is below the 1e2 write cap)",
+    )
+
+    # --- cap: trust region clamps an explosive write --------------------
+    # Column 5 solves to 1e6 against an incoming scale of 1: the
+    # write must clamp to MOM_NU_WRITECAP*max(|XOLD|, 1e-4*FSCL)
+    # = 1e2*max(1, 1e-4) = 100. Other columns solve freely.
+    out, xv = run_case(rep, exe, "cap", "nu_cap")
+    rep.check(
+        "cap: one capped write per depth",
+        kv(out, "NU_NCAP") == ND - 1,
+        f"NCAP={kv(out, 'NU_NCAP')}",
+    )
+    rep.check(
+        "cap: explosive cell clamped at the cap value",
+        np.allclose(xv[: ND - 1, 4], 100.0, rtol=1e-12),
+        f"col5 = {xv[:ND-1, 4]}",
+    )
+    rep.check(
+        "cap: ordinary columns unaffected",
+        np.allclose(xv[: ND - 1, 0], RV0) and np.allclose(
+            xv[: ND - 1, 5:], RV0
+        ),
+    )
+
     # --- neg: negative chain results rejected ---------------------------
     out, xv = run_case(rep, exe, "neg", "nu_neg")
     rep.check(
