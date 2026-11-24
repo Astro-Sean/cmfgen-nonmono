@@ -1467,6 +1467,22 @@ KN_ORD_P2DAMP default unchanged (F).
       fraction itself (implicit H channel, or a coupled
       wavelength-depth block solve) - needs a user decision
       before a phase 3.
+      PHASE 3 (24-Nov-2026, user directive "investigate and
+      optimise the lagged field"): Question: which lagged
+      terms dominate the loop gain in the explosive regime -
+      the H-channel upwind reads, the EPS_PREV midpoint
+      transfers, the other-depth J terms, or boundary reads -
+      and can reducing their lag (implicit-H capture on the
+      same graph, or tighter update timing) drop the composite
+      loop gain below unity? Evidence plan: (1) enumerate
+      every lagged term in the row assembly and its update
+      timing; (2) instrument the capture to census lagged-term
+      magnitudes vs the diagonal per row class; (3) implement
+      the dominant term's implicitness; unit exactness tests
+      as before. Exit: loop-gain census below unity on the
+      stall cohort (implement, arm), lagged fraction irreducible
+      within the splitting (close line, block-solve writeup),
+      or user redirect.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
