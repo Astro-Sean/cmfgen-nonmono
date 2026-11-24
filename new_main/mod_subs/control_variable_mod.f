@@ -1590,7 +1590,7 @@
 ! lagged auxiliary term may not debit a row past its accumulated
 ! positive RHS. VADAT keyword [MOM_EPS_LIM].
 !
-! MOM_RF_DIR (default 'AUTO'): pass ordering for MOM_KNOP_REFRESH.
+! MOM_RF_DIR (default 'ALT'): pass ordering for MOM_KNOP_REFRESH.
 ! AUTO measures the compressing-row fraction on the sweep and runs
 ! only the dominant coupling direction once one side holds >=90% of
 ! rows (the physically-guided ordering of Knop Paper II Sect. 3.2);
