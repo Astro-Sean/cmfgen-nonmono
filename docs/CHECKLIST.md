@@ -465,7 +465,8 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       guarded-acceptance FIX with a matched A/B run, or the
       cadence is shown net-positive and NG stays as is -
       recorded here either way.
-      Status 24-Nov-2026: diagnostics landed. NG_SHADOW_DIAG
+      Status 24-Nov-2026: diagnostics landed, commits
+      39bfc2c6..b81a2f54. NG_SHADOW_DIAG
       (default F) reports per band and window N=4..nwin the
       affine coefficient L1 norm, implied prediction move,
       predicted-residual ratio and Magritte settle ratio, from
