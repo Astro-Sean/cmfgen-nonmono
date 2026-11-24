@@ -147,6 +147,9 @@ COVERAGE = {
         UT + "test_knop_ray.py", UT + "test_mom_solve.py"]),
     "plane/mod_ray_mom_store.f": ("exec", [
         UT + "test_knop_ray.py", UT + "test_mom_solve.py"]),
+    "plane/mom_blk_gmres_mod.f": ("exec", [
+        UT + "test_mom_blk.py", UT + "test_mom_solve.py",
+        UT + "test_vadat_keys.py"]),
     "plane/mom_j_cmf_nonmono_v1.f": ("exec", [
         UT + "test_mom_solve.py", UT + "test_mom_sweep_table.py",
         UT + "test_mom_gs.py"]),
