@@ -95,6 +95,21 @@ moves are unbounded - they cannot explode.
   guards inactive on comp1's contractive map must leave the
   RF_NUSOLV_* tolerances untouched).
 
+### [x] F3b - iterated-dynamics probe (added during implementation)
+
+The static cases cannot see the m15 failure - it was dynamical.
+`drv_mom_nu iter` emulates the composite sweep+nu-solve loop on a
+marginal 2-cycle in the explosive regime (lagged feedback
+c/(1-a)=1000 per iteration) and measures the realised growth
+rates under three guard configurations. Verdict (test_mom_nu
+53/53): unguarded growth measured exactly 1000.00/iter - the
+amplification rate c/(1-a), confirming the marginal-ring
+mechanism quantitatively; cap-only growth 102.5/iter (the trust
+region binding as designed, NCAP=6/iter); freeze-band drift
+~1.04/iter (the damped Jacobi rate, NMARG=3/iter). Ordering
+freeze < cap < unguarded matches the m15 phenomenology: stall,
+bounded-rate explosion, explosion.
+
 ### [ ] F4 - rebuild, relink, re-arm
 
 - `compile_and_link_prod` + `make -C new_main` (the relink step
