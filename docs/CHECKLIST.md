@@ -474,8 +474,17 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       production banding and 1/x weighting. test_ng_shadow.py
       16/16 (serving-stub SCRTEMP, numpy-verified numbers,
       bit-identical POP output F vs T); test_vadat_keys.py
-      87/87; test_ng_abstain.py 17/17. Next: telemetry from a
-      live DO_NG=T deck before any acceptance-gate candidate.
+      87/87; test_ng_abstain.py 17/17.
+      Telemetry arm 24-Nov-2026:
+      dessart_m15_2p82d_VAL_sob_jfnk_ngshadow - identical
+      eps1em3 deck warm-restarted from that run's 2.82d
+      checkpoint with NG_SHADOW_DIAG=T (outer-repo config
+      commit 90ac2c0e; binary d47fe28b incl. flag). CMFGEN
+      job 13646902 (+OBS 13646903), shares the lamesF
+      restart source. Collect per-event settle/conditioning
+      series across NG events, then decide whether a
+      guarded-acceptance NG_ADAPT candidate justifies the
+      matched A/B run.
 - [ ] Declared bounded investigation K1 - KNOP formal
       non-contraction. Question: can the corrected-exit build
       contract the lagged field from a cold start, and what
