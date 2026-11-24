@@ -87,6 +87,10 @@
           CUP(I,11)=0.45_LDP; KUP(I,11)=10
           CUP(I,10)=0.40_LDP; KUP(I,10)=9
         END DO
+! Boundary-row equations can carry a negated upwind coefficient in
+! production. Keep one signed edge here so the operator test covers
+! that convention rather than only positive absorption-like coupling.
+        CUP(1,5)=-CUP(1,5)
       CASE('depth')
         DO K=2,NCF
           DO I=1,ND-1
