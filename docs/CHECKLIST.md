@@ -1369,6 +1369,20 @@ KN_ORD_P2DAMP default unchanged (F).
       VADAT path verified both stores (test_vadat_keys +2 arms).
       Open: whether it contracts the real m15 stall - needs an
       arm run (bounded investigation, declare before submit).
+      ARM (24-Nov-2026): configs/dessart_m15_2p82d_VAL_sob_
+      lamesF_nusolv.yaml - identical deck and identical eps1em3
+      warm-restart seed to the stalled arm, MOM_NUSOLV=T the only
+      change. Question: does the per-depth chain solve contract
+      the compressing-direction map where Jacobi passes could
+      not? Evidence: nu-solve census per pass (rings, singular,
+      frozen, rejected; NU_CHG trend), refresh residual
+      trajectory vs the stalled arm's plateau ~1e4, MOM_RF_CONV /
+      MOM_J_GS_OK firing, lam-field-not-ready release. Exit:
+      converges (route viable again), stalls identically (chain
+      solve insufficient - the stiffness lives in the lagged
+      H/EPS terms still explicit or in XM_POS/LAG_BND), or
+      detonates (capture/consistency defect on the real grid).
+      Single arm, no chain.
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
