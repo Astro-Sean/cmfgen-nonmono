@@ -1822,6 +1822,17 @@
 !
 	LOGICAL NG_ABSTAIN
 !
+! NG_NF_ABORT (default FALSE, VADAT [NG_NF_ABORT]): when T, a
+! non-finite history entry or accelerated value in
+! NG_MIT_BAND_OPT_V1 stops the model (fail fast) instead of
+! refusing only that acceleration call. The refuse-and-continue
+! default preserves the pre-guard behaviour for valid data and
+! changes only the invalid-data path (previously a NaN could be
+! committed to POPS). Declared without a module initializer; the
+! read site in RD_CONTROL_VARIABLES carries the .FALSE. default.
+!
+	LOGICAL NG_NF_ABORT
+!
 ! BA saturation demotion (nonmono paths, disabled by default):
 ! counts consecutive non-LAMBDA calls whose raw correction demand
 ! stays at or above BA_SAT_RAW. An applied correction pinned on

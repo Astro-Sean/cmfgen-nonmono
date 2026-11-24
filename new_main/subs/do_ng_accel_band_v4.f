@@ -214,6 +214,7 @@
 	SUBROUTINE NG_MIT_BAND_OPT_V1(POPS,RDPOPS,ND,NT,NBAND,
 	1                NG_DONE,MAXDEC,MAXINC,NG_ABSTAIN,LUER)
 	USE SET_KIND_MODULE
+	USE CONTROL_VARIABLE_MOD, ONLY: NG_NF_ABORT,CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 ! Altered 01-Jun-2003: NUM_BAD_NG now correctly initialized to zero.
@@ -253,12 +254,65 @@
 	INTEGER NS
 	INTEGER NUM_BAD_NG
 	INTEGER DEC_LOC,INC_LOC
-	INTEGER I,K,L
+	INTEGER I,J,K,L
 	INTEGER LST,LEND
 	INTEGER LOC_NBAND
 	INTEGER, PARAMETER :: IONE=1
 !
+! edited 24-Nov-2026 [NG_NF_ABORT]: non-finite census for the NG
+! accelerator. The banded fit solves one global (A,B) least-squares
+! over the whole band (NGACCEL), so one non-finite history entry or
+! one overflowing extrapolation propagates into every component and
+! can be committed to POPS. NG_NF_HIST counts calls refused on a
+! non-finite history plane, NG_NF_NEW calls refused on a non-finite
+! accelerated field. Default path is unchanged: every value a
+! production run produces is finite, so neither counter can move.
+!
+	INTEGER, SAVE :: NG_NF_HIST=0
+	INTEGER, SAVE :: NG_NF_NEW=0
+	INTEGER NNF,KF,LF,JF
+	LOGICAL L_BAD_T
+!
 	NUM_BAD_NG=0
+!
+! Pre-scan: the four history planes feed the band (A,B) fit below.
+! On the first non-finite entry the call fails closed -- POPS
+! untouched, NG_DONE=.FALSE. -- because a poisoned fit has no
+! trustworthy component to hold or accept. One line names the
+! census and the first offender's component/depth/plane.
+!
+	NNF=0
+	KF=0; LF=0; JF=0
+	DO J=1,4
+	  DO L=1,ND
+	    DO K=1,NT
+	      IF(.NOT. (RDPOPS(K,L,J) .GT. -HUGE(1.0_LDP) .AND.
+	1         RDPOPS(K,L,J) .LT. HUGE(1.0_LDP)))THEN
+	        NNF=NNF+1
+	        IF(KF .EQ. 0)THEN
+	          KF=K; LF=L; JF=J
+	        END IF
+	      END IF
+	    END DO
+	  END DO
+	END DO
+	IF(NNF .GT. 0)THEN
+	  NG_NF_HIST=NG_NF_HIST+1
+	  WRITE(LUER,'(A,I8,A,3I5)')
+	1    ' NG: non-finite history entries=',NNF,
+	2    '  first at comp,depth,plane ',KF,LF,JF
+	  WRITE(LUER,'(A,I6,A,I6)')
+	1    ' NG non-finite census: hist=',NG_NF_HIST,
+	2    ' new=',NG_NF_NEW
+	  IF(NG_NF_ABORT)THEN
+	    WRITE(LUER,*)'NG_NF_ABORT=T: stopping on non-finite'//
+	1      ' NG history'
+	    STOP
+	  END IF
+	  NG_DONE=.FALSE.
+	  RETURN
+	END IF
+!
 	IF(NBAND .LE. 0 .OR. NBAND .GE. ND)THEN
           LOC_NBAND=ND
 	  NS=NT*ND
@@ -271,6 +325,72 @@
 	    CALL DO_TRANS_AND_NG_V1(NEWPOP(1,LST),RDPOPS,LST,LEND,NT,ND,NS)
 	  END DO
           LOC_NBAND=NBAND
+	END IF
+!
+! Post-scan: a finite history can still produce a non-finite NEWPOP
+! when the band solve overflows (near-singular least-squares with a
+! huge dynamic range). Refuse the call outright rather than let the
+! NG_ABSTAIN hold convert a NaN: holding NEWPOP=POPS at a NaN cell
+! is no fix when POPS itself may be bad, and a non-finite sibling
+! must never reach the acceptance scan below.
+!
+	NNF=0
+	KF=0; LF=0
+	DO L=1,ND
+	  DO K=1,NT
+	    IF(.NOT. (NEWPOP(K,L) .GT. -HUGE(1.0_LDP) .AND.
+	1       NEWPOP(K,L) .LT. HUGE(1.0_LDP)))THEN
+	      NNF=NNF+1
+	      IF(KF .EQ. 0)THEN
+	        KF=K; LF=L
+	      END IF
+	    END IF
+	  END DO
+	END DO
+	IF(NNF .GT. 0)THEN
+	  NG_NF_NEW=NG_NF_NEW+1
+	  WRITE(LUER,'(A,I8,A,2I5)')
+	1    ' NG: non-finite accelerated values=',NNF,
+	2    '  first at comp,depth ',KF,LF
+	  WRITE(LUER,'(A,I6,A,I6)')
+	1    ' NG non-finite census: hist=',NG_NF_HIST,
+	2    ' new=',NG_NF_NEW
+	  IF(NG_NF_ABORT)THEN
+	    WRITE(LUER,*)'NG_NF_ABORT=T: stopping on non-finite'//
+	1      ' NG accelerated value'
+	    STOP
+	  END IF
+	  NG_DONE=.FALSE.
+	  RETURN
+	END IF
+!
+! A non-finite POPS is corrupt model state from upstream of this
+! call; report it and fail the acceleration. This call must not
+! silently heal it.
+!
+	NNF=0
+	KF=0; LF=0
+	DO L=1,ND
+	  DO K=1,NT
+	    IF(.NOT. (POPS(K,L) .GT. -HUGE(1.0_LDP) .AND.
+	1       POPS(K,L) .LT. HUGE(1.0_LDP)))THEN
+	      NNF=NNF+1
+	      IF(KF .EQ. 0)THEN
+	        KF=K; LF=L
+	      END IF
+	    END IF
+	  END DO
+	END DO
+	IF(NNF .GT. 0)THEN
+	  WRITE(LUER,'(A,I8,A,2I5)')
+	1    ' NG error: POPS carries non-finite values=',NNF,
+	2    '  first at comp,depth ',KF,LF
+	  IF(NG_NF_ABORT)THEN
+	    WRITE(LUER,*)'NG_NF_ABORT=T: stopping on non-finite POPS'
+	    STOP
+	  END IF
+	  NG_DONE=.FALSE.
+	  RETURN
 	END IF
 !
 ! edited 05-Oct-2026: [NG_ABSTAIN] per-component hold.
@@ -292,8 +412,8 @@
 	IF(NG_ABSTAIN)THEN
 	  DO L=1,ND
 	    DO K=1,NT
-	      IF(NEWPOP(K,L) .LE. 0.0_LDP .OR.
-	1        POPS(K,L) .LE. 0.0_LDP .OR.
+	      IF(.NOT. (NEWPOP(K,L) .GT. 0.0_LDP) .OR.
+	1        .NOT. (POPS(K,L) .GT. 0.0_LDP) .OR.
 	2        RDPOPS(K,L,1) .EQ. RDPOPS(K,L,2))
 	3        NEWPOP(K,L)=POPS(K,L)
 	    END DO
@@ -310,6 +430,16 @@
 	  LOCDEC=1000.0_LDP
 	  DO K=1,NT
 	    T1=NEWPOP(K,L)/POPS(K,L)
+! edited 24-Nov-2026: NaN-safe acceptance. A non-finite ratio used
+! to slip past both bounds (NaN < x is false under either MAX
+! semantic) and commit a NaN at the depth. Such a component is
+! held at its current value -- the NG_ABSTAIN convention -- and
+! excluded from the bound scan. Finite ratios, including negative
+! ones that veto the depth through LOCDEC, are unchanged.
+	    IF(.NOT. (T1 .GT. -HUGE(T1) .AND. T1 .LT. HUGE(T1)))THEN
+	      NEWPOP(K,L)=POPS(K,L)
+	      CYCLE
+	    END IF
 	    LOCINC=MAX(LOCINC,T1)
 	    LOCDEC=MIN(LOCDEC,T1)
 	  END DO
@@ -320,8 +450,17 @@
 ! see whether the predicted corrections are "reasonable".
 !
 	  T1=NEWPOP(NT,L)-RDPOPS(NT,L,1)
-	  IF(T1 .NE. 0.0_LDP)T2=(RDPOPS(NT,L,1)-RDPOPS(NT,L,2))/T1
-	  IF(T1 .NE. 0 .AND. T2 .LT. 0.0_LDP)THEN
+	  T2=0.0_LDP
+! edited 24-Nov-2026: T2 was assigned only under T1 /= 0 and then
+! read in a separate .AND. test, which Fortran does not guarantee
+! short-circuits -- an uninitialized read. The flag carries the
+! verdict through one nested test.
+	  L_BAD_T=.FALSE.
+	  IF(T1 .NE. 0.0_LDP)THEN
+	    T2=(RDPOPS(NT,L,1)-RDPOPS(NT,L,2))/T1
+	    L_BAD_T=(T2 .LT. 0.0_LDP)
+	  END IF
+	  IF(L_BAD_T)THEN
 	    NUM_BAD_NG=NUM_BAD_NG+1
 	    WRITE(LUER,*)'NUM_BAD_NG=',NUM_BAD_NG
 	    WRITE(LUER,'(A,I4)')'No accelleration perfromed at depth ',L
@@ -389,6 +528,11 @@
 	MAXINC=100.0_LDP*(MAXINC-1.0_LDP)
 	MAXDEC=100.0_LDP*(1.0_LDP/MAXDEC-1.0_LDP)
 	WRITE(LUER,'(A,I3)')' NG Acceleration performed using NG_BAND=',LOC_NBAND
+	IF(CONV_DIAG_LVL .GE. 1 .AND.
+	1   (NG_NF_HIST .GT. 0 .OR. NG_NF_NEW .GT. 0))
+	2   WRITE(LUER,'(A,I6,A,I6)')
+	3   ' NG non-finite census: hist=',NG_NF_HIST,
+	4   ' new=',NG_NF_NEW
 	WRITE(LUER,'(A,I3,A,ES10.2)')
 	1  ' Max NG % increase at depth ',INC_LOC,' is',MAXINC
 	WRITE(LUER,'(A,I3,A,ES10.2)')

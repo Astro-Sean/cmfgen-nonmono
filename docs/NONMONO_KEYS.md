@@ -220,6 +220,17 @@ which stamps the same value in the initial VADAT.
 - `NG_ABSTAIN` - per-component NG-extrapolation hold on
   zero-diff and non-positive extrapolation; auto-set under SOB
   (`test_ng_abstain.py`).
+- `NG_NF_ABORT` (default F, 24-Nov-2026) - fail-fast switch for
+  the NG non-finite guards in `NG_MIT_BAND_OPT_V1`. The banded
+  fit solves one global (A,B) least-squares per band, so a
+  single non-finite history entry (`SCRTEMP` record) poisons
+  every accelerated component; previously the NaN slipped past
+  the acceptance bounds and committed to `POPS`. With the key
+  absent or F the call is refused closed (`NG_DONE=F`, `POPS`
+  untouched, `NG_NF_HIST`/`NG_NF_NEW` censused, one log line);
+  with T the model stops on the first non-finite entry. The
+  default path is unchanged - every value a valid run produces
+  is finite.
 
 ## 3. BA-solver guards and quarantine
 

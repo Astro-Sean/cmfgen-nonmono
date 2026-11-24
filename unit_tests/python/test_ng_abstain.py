@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import re
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -259,6 +261,52 @@ def main():
         not ng_done_t and "all components held" in out_t,
     )
     rep.check("all-static history: NG_DONE=T under F (upstream)", ng_done_f)
+
+    # -- W1: non-finite safety (NG_NF_HIST / NG_NF_NEW) -----------
+    # A single NaN history entry must fail the call closed:
+    # NG_DONE=F, POPS bit-identical to the newest estimate, and the
+    # hist census reports the event.
+    rd = all_good_history()
+    rd[0, 2, 0] = float("nan")
+    path = write_case("ng_nan_hist.txt", rd, True)
+    ng_done, pops, _, out = parse(run(bins["new"], path).stdout)
+    rep.check("nan history: NG_DONE=F", not ng_done)
+    m = re.search(r"NG non-finite census: hist=\s*(\d+) new=\s*(\d+)", out)
+    rep.check(
+        "nan history: hist census incremented",
+        m is not None and int(m.group(1)) == 1,
+        out[-300:],
+    )
+    untouched = all(
+        (pops[k + 1, l + 1] == rd[k, l, 0])
+        or (np.isnan(rd[k, l, 0]) and np.isnan(pops[k + 1, l + 1]))
+        for k in range(NT)
+        for l in range(ND)
+    )
+    rep.check("nan history: POPS left untouched", untouched)
+
+    # Finite history that overflows the band (A,B) solve produces a
+    # non-finite accelerated field: refuse the call, count NG_NF_NEW.
+    rd = np.zeros((NT, ND, 4))
+    for k in range(NT):
+        for l in range(ND):
+            base = 1.0e300 * (1.0 + 0.01 * l + 0.02 * k)
+            rd[k, l] = [base * (1.0 + 0.1 * j) for j in range(1, 5)]
+    path = write_case("ng_ovf.txt", rd, True)
+    ng_done, pops, _, out = parse(run(bins["new"], path).stdout)
+    rep.check("overflow fit: NG_DONE=F", not ng_done)
+    m = re.search(r"NG non-finite census: hist=\s*(\d+) new=\s*(\d+)", out)
+    rep.check(
+        "overflow fit: new census incremented",
+        m is not None and int(m.group(2)) == 1,
+        out[-300:],
+    )
+    untouched = all(
+        pops[k + 1, l + 1] == rd[k, l, 0]
+        for k in range(NT)
+        for l in range(ND)
+    )
+    rep.check("overflow fit: POPS left untouched", untouched)
 
     # -- Plot: T2/T3 scenario ------------------------------------
     fig, ax = plt.subplots(figsize=(6.5, 4))

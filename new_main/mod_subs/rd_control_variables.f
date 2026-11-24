@@ -4384,6 +4384,15 @@
 	  CALL RD_STORE_LOG(NG_ABSTAIN,'NG_ABSTAIN',L_FALSE,
 	1   'Hold non-contractive/non-positive NG components per-component?')
 !
+! NG_NF_ABORT (edited 24-Nov-2026): optional fail-fast switch for
+! the NG non-finite guards in NG_MIT_BAND_OPT_V1. Default F keeps
+! the new refuse-the-call behaviour; T stops the model on the
+! first non-finite history entry, accelerated value, or POPS cell.
+!
+	  NG_NF_ABORT=.FALSE.
+	  CALL RD_STORE_LOG(NG_NF_ABORT,'NG_NF_ABORT',L_FALSE,
+	1   'Stop the model on a non-finite NG history/accelerated value?')
+!
 	  WRITE(LUSCR,'()')
 	  AVERAGE_DO=.FALSE.; NUM_OSC_AV=4; ITS_PER_AV=8
 	  CALL RD_STORE_LOG(AVERAGE_DO,'DO_AV',L_FALSE,'Perform averaging of oscillating pops')

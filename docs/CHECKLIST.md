@@ -1215,7 +1215,9 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       knop_replay_p2 29, knop_spec_gate 19, knop_endpoint 6,
       mom_solve 137, mom_gs 34, mom_aa_state 62, mom_sweep_table 8,
       es_resid 20, jfnk opint 36 + regressions,
-      obs_frame 11+15, ng_abstain 17, lam_handoff 51, gs_drift_diag,
+      obs_frame 11+15, ng_abstain 23 (24-Nov-2026: +non-finite
+      history/fit refuse cases under NG_NF_HIST/NG_NF_NEW),
+      lam_handoff 51, gs_drift_diag,
       iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
       test_es_conv remains blocked on the known obs/ archive gap.
 - [x] Manufactured ordered-stencil + exit-policy + period-2
