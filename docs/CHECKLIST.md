@@ -46,12 +46,26 @@
       KN_LAM_PARTIAL_HANDOFF=T (no P2DAMP - T1 negative) -
       configs/dessart_m15_2p82d_FRESH_knop_v14_hand.yaml; CMFGEN
       13640311, OBS 13640312, branch pin
-      bfffac62006c60d3_0e7b904d4a648954 at a75e3c7c. Read: does
-      CNT_STABLE_LAM advance off 0/5 on the iterations whose only
-      hold was rf_not_allconv (3 of 8 in nbulk), does the run
-      leave LAMBDA, are full BA steps stable. If the first full
-      step detonates the field, stop and report; no damping or
-      tolerance changes to hide it.
+      bfffac62006c60d3_0e7b904d4a648954 at a75e3c7c. VERDICT:
+      handoff mechanism works, first full step detonates
+      (canceled after it130). (a) inv=0 from it122 - the NI=1
+      ray certifies FULL under KN_NI1_FULL. (b) CNT_STABLE_LAM
+      advanced 0->5 over it125-129 on the rf_not_allconv-only
+      calls (flag-off ordf control: pinned 0/5 through 6+ free
+      iterations); the conv-exit FAILS label correctly splits
+      'lam-field-not-ready' (weak+strict hold) from
+      'lam-field-not-converged' (strict-only hold). (c)
+      DO_LAM_AUTO switched to full iterations at it129 - the
+      LAMBDA deadlock broke, field_ready=T, demand 15.9%.
+      (d) it130 demanded 1.0e7 raw, applied a bounded 400%,
+      reverted FULL->LAMBDA: the SE residual sits at depths
+      66-70 (41.6% of the column at depth 70, worst eq
+      NeV:2s2_2p2_3Pe), exempted FeI demand 385% at depth 16.
+      The strict gate's all-FULL leg exists precisely because
+      an unconverged (4e-2-floor ordered march) lagged field
+      poisons the first Newton step; the weak gate alone is
+      not sufficient evidence on this model. Production keeps
+      the strict behavior (flags default F).
       Arm T4-B (T1 failed -> triggered): ordered A/B, arm B is
       KN_RAY_ORDERED=F - configs/dessart_m15_2p82d_FRESH_knop_v14
       _ordf.yaml; CMFGEN 13640315, OBS 13640316, baseline pin
@@ -59,7 +73,22 @@
       nbulk run 13636956, not re-run). RDUMP rays 11 (worst,
       ALLNEG), 12 (ALLNEG), 22 (mixed-sign non-committer; GAM
       census from SN_HYDRO_DATA: rays 1-15 ALLNEG, 16-36 MIXED,
-      37-85 ALLPOS). Read GAM profile from the .bin deck before
+      37-85 ALLPOS). VERDICT: unconditional win over 13
+      refreshes (canceled) - every production ray certifies
+      FULL (census full=84, stag=0, unconverged cells=0),
+      residual 1.8e-3 -> 5.1e-4 (< tol 2e-3), independent q
+      4.2e-2 -> 6.9e-4; only the NI=1 ray still holds
+      rf_all_conv off. Deck GAM profiles confirm the census:
+      ray 11 = 140/140 negative, ray 12 = 127/129 (two
+      marginal blips), ray 22 = 102/128 with three sign
+      crossings - wholly compressing and mixed rays alike
+      converge under the frequency-major march, so no
+      mixed-only restriction is motivated; the ordered march
+      itself is the stall source. Next-step candidate:
+      KN_RAY_ORDERED=F + KN_NI1_FULL=T (strict gate opens on
+      honest all-FULL evidence; KN_LAM_PARTIAL_HANDOFF not
+      needed). Aitken fallback unnecessary - orbit already
+      gone. Read GAM profile from the .bin deck before
       any mixed-only
       dispatch proposal (GAM is not SIGMA: T2 flips at
       MU**2=-1/SIGMA for SIGMA<-1).
