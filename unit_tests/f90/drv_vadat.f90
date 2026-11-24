@@ -10,6 +10,7 @@
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
            jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
       USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_BULK_TOL
+      USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_NUSOLV_SLV=>MOM_NUSOLV
       IMPLICIT NONE
 !
       INTEGER :: LUIN=20, LUSCR=26, LUER=6, NUM_BNDS
@@ -64,6 +65,8 @@
       WRITE(*,'(A,ES12.5)')'RLOC_SHOCK_POWER=',RLOC_SHOCK_POWER
       WRITE(*,'(A,ES12.5)')'DRLOC_SHOCK_POWER=',DRLOC_SHOCK_POWER
       WRITE(*,'(A,L2)')'MOM_H_IMPL=',MOM_H_IMPL
+      WRITE(*,'(A,L2)')'MOM_NUSOLV=',MOM_NUSOLV
+      WRITE(*,'(A,L2)')'MOM_NUSOLV_SLV=',MOM_NUSOLV_SLV
       WRITE(*,'(A,ES12.5)')'MOM_ABS_FLR=',MOM_ABS_FLR
       WRITE(*,'(A,ES12.5)')'MOM_FAC_RLX=',MOM_FAC_RLX
       WRITE(*,'(A,ES12.5)')'MOM_TRIAL_LAM=',MOM_TRIAL_LAM
