@@ -1387,6 +1387,20 @@
 	  CALL SET_MOM_LAG_OPTS(MOM_GAM_PIN,MOM_LAG_BND,MOM_ABS_FLR,
 	1     MOM_H_IMPL,MOM_XM_POS)
 !
+! MOM_NUSOLV (default FALSE): after each MOM refresh pass, solve the
+! captured row equations implicitly along each depth's frequency
+! chain -- the expanding/compressing sign-flip cycles the lagged map
+! iterates at rho~1 become directly-solved rings. The captured
+! coefficients are the swept row's own, so the composite map's fixed
+! point is the swept system's fixed point; the lagged H and EPS
+! scatter terms stay outer-iteration data. Default off: the stock
+! refresh is unchanged.
+!
+	  MOM_NUSOLV=.FALSE.
+	  CALL RD_STORE_LOG(MOM_NUSOLV,'MOM_NUSOLV',L_FALSE,
+	1     'Implicit frequency-chain solve after each MOM pass?')
+	  CALL SET_MOM_NUSOLV(MOM_NUSOLV)
+!
 ! MOM_FAC_RLX (default 0.25 since 06-Nov-2026, was 1.0 = off):
 ! under-relax the Eddington-factor update between great iterations
 ! in MOM_J_CMF_NONMONO_V1. With pops held the formal-solve factor
