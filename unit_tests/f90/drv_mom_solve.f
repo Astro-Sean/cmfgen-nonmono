@@ -548,6 +548,37 @@
      1      MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
           CALL SET_MOM_NUSOLV(.FALSE.)
           DEALLOCATE(JNUV)
+!
+! Block-GMRES arm: same restart, same refresh driver, but the captured
+! rows are solved as one wavelength-depth system. JASC is reused as
+! the block-solve store. The fixed point must again agree with the
+! swept system; this arm exercises the production capture, inactive-
+! column pinning, GMRES write-back and precedence wiring together.
+!
+          J_NEXT_FRQ(1:ND_NM,1:NCF)=JRF0
+          H_NEXT_FRQ(1:ND_NM,1:NCF)=HRF0
+          CALL SET_MOM_BLKGMRES(.TRUE.)
+          CALL SET_MOM_NUSOLV(.TRUE.)
+          CALL SET_MOM_RF_DIR_OPT('ALT ',.TRUE.,.TRUE.,.TRUE.)
+          CALL MOM_KNOP_REFRESH_V1()
+          JASC(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
+          T1=MAXVAL(ABS(JRF0))
+          WRITE(*,'(A,ES16.8E3)')'RF_BLK_MAXDIFF=',
+     1      MAXVAL(ABS(JASC-JDSC))/MAX(T1,1.0E-30_LDP)
+          WRITE(*,'(A,ES16.8E3)')'RF_BLK_MAXREL=',
+     1      MAXVAL(ABS(JASC-JDSC)/
+     2      (ABS(JDSC)+1.0E-4_LDP*MAX(T1,1.0E-30_LDP)))
+          WRITE(*,'(A,L2)')'RF_BLK_CONV=',MOM_RF_CONV
+          WRITE(*,'(A,ES16.8E3)')'BLK_PASS_CHG=',MOM_BLK_CHG_LAST
+          WRITE(*,'(A,I10)')'BLK_NITER=',MOM_BLK_NITER
+          WRITE(*,'(A,ES16.8E3)')'BLK_RESID=',MOM_BLK_RESID
+          WRITE(*,'(A,I10)')'BLK_NFRZ=',MOM_BLK_NFRZ
+          WRITE(*,'(A,I10)')'BLK_NNEG=',MOM_BLK_NNEG
+          WRITE(*,'(A,I10)')'BLK_NCAP=',MOM_BLK_NCAP
+          WRITE(*,'(A,F4.1)')'BLK_FINISHED=',
+     1      MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
+          CALL SET_MOM_BLKGMRES(.FALSE.)
+          CALL SET_MOM_NUSOLV(.FALSE.)
         END IF
         WRITE(*,'(A,F4.1)')'RF_FINISHED=',
      1    MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
