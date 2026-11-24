@@ -2234,6 +2234,19 @@
 	REAL(KIND=LDP) LUM_RATIO_OI
 	REAL(KIND=LDP) LUM_OUT_ABS
 !
+! EHB residual diagnostic (W6, 24-Nov-2026): CMFGEN_SUB converts
+! the assembled electron-energy-balance residual STEQ_T_EHB into a
+! per-shell luminosity (same r^2*T1 + LUM_FROM_ETA_V2 recipe as
+! DEP_RAD_EQ) and stores the worst shell's share of the emergent
+! luminosity here for the ITER_SUM / exit-report print.
+! EHB_RES_DEPTH=0 marks "not assembled this call" (EHB off).
+! Diagnostic only -- deliberately no CONV_EXIT_MET conjunct:
+! shock/deposition terms make a hard energy gate unsuitable.
+!
+	REAL(KIND=LDP) EHB_RES_LUM
+	REAL(KIND=LDP) EHB_RES_FRAC
+	INTEGER EHB_RES_DEPTH
+!
 ! Luminosity runaway guard (KNOP only): a call whose outer
 ! luminosity grew by more than LUM_DIV_FAC over the previous call
 ! counts toward LUM_DIV_N consecutive-growth trips of LUM_BLOCKED;

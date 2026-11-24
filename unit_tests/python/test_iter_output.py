@@ -205,6 +205,25 @@ def test_verbosity_levels():
         "CONV_DIAG_LVL .GE. 1" in FPC
         and "minimum value of scale for Major species" in FPC,
     )
+    check(
+        "W6: energy-balance token present, gated at level >=1",
+        "Energy balance (diagnostic only)" in POPS
+        and re.search(
+            r"IF\(CONV_DIAG_LVL \.GE\. 1\)THEN\s*\n\s*"
+            r"IF\(EHB_RES_DEPTH",
+            POPS,
+        )
+        is not None,
+    )
+    check(
+        "W6: N/A branch pins 'shock/decay terms not assembled'",
+        "(shock/decay terms not assembled here)" in POPS
+        and "(shock/decay terms not assembled here)" in CMF,
+    )
+    check(
+        "W6: diagnostic is not a CONV_EXIT_MET conjunct",
+        re.search(r"EHB_RES[^!\n]*CONV_EXIT", POPS + CMF) is None,
+    )
 
 
 def test_runaway_table_layout():

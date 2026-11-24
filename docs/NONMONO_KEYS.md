@@ -451,6 +451,23 @@ solve.
   changes...', 'Maximum %', 'Average number of calls to FG_J_CMF
   is', 'ITER_TYPE', 'Model Convergence:') keep their exact wording
   wherever they print.
+- Energy-balance diagnostic (24-Nov-2026, no key): at
+  `CONV_DIAG_LVL >= 1` the ITER_SUM `Model Convergence` block and
+  the final budgeted-iteration report print one line,
+  `Energy balance (diagnostic only): max |4pi(chi J - eta) -
+  De/Dt| / scale = ... at depth ...`. `CMFGEN_SUB` converts the
+  assembled `STEQ_T_EHB` residual to a per-shell luminosity with
+  the same `r^2*T1` + `LUM_FROM_ETA_V2` recipe `DEP_RAD_EQ` uses;
+  `scale` is the share of the emergent luminosity
+  `|RLUMST(ND)|`. When `USE_ELEC_HEAT_BAL`/`COMP_STEQ_T_EHB` are
+  off the line prints `N/A (shock/decay terms not assembled
+  here)`. Deliberately diagnostic-only: shock deposition and
+  radioactive decay terms make an inner/outer or per-shell
+  luminosity agreement unsuitable as a convergence gate (the
+  documented `BA_LUM_GATE` no-op precedent), so the metric never
+  enters `CONV_EXIT_MET` or any other conjunct
+  (`test_iter_output.py` pins the token, the >=1 gate, and the
+  absence from `CONV_EXIT`).
 
 ## 7. JFNK keys
 

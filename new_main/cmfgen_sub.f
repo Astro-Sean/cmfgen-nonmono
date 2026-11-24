@@ -4597,9 +4597,31 @@
 	  IF(LST_ITERATION .AND. VERBOSE_OUTPUT)THEN
 	    CALL WR2D_V2(STEQ_T_EHB,IONE,ND,'After BF update','%',L_TRUE,LU_T_EHB)
 	  END IF
+!
+! edited 24-Nov-2026 (W6): the worst-shell EHB residual in
+! luminosity units, exported for the ITER_SUM and final-exit
+! diagnostics. TA takes the same T1*R^2 + LUM_FROM_ETA_V2
+! emissivity-to-luminosity conversion DEP_RAD_EQ gets at
+! :4312-4334, so the reported fraction is "share of the emergent
+! luminosity mis-balanced in one shell". Diagnostic only -- a
+! hard gate here is unsuitable for shocked CSM (BA_LUM_GATE
+! precedent), so no CONV_EXIT_MET conjunct.
+!
+	  TA(1:ND)=ABS(STEQ_T_EHB(1:ND))*R(1:ND)*R(1:ND)*4.1274E-12_LDP
+	  CALL LUM_FROM_ETA_V2(TA,R,LUM_FROM_ETA_METHOD,ND)
+	  EHB_RES_DEPTH=MAXLOC(TA(1:ND),DIM=1)
+	  EHB_RES_LUM=TA(EHB_RES_DEPTH)
+	  IF(ABS(RLUMST(ND)) .GT. 1.0E-30_LDP)THEN
+	    EHB_RES_FRAC=EHB_RES_LUM/ABS(RLUMST(ND))
+	  ELSE
+	    EHB_RES_FRAC=-1.0_LDP
+	  END IF
 	ELSE
 	  STEQ_T_EHB=0.0_LDP
 	  CALL WR2D_V2(STEQ_T_EHB,IONE,ND,'Electron Energy Balance Equation (not computed)','%',L_TRUE,LU_SE)
+	  EHB_RES_DEPTH=0
+	  EHB_RES_LUM=0.0_LDP
+	  EHB_RES_FRAC=0.0_LDP
 	END IF
 !
 ! 
@@ -5186,6 +5208,29 @@
 	    WRITE(LUER,'(A)')
 	1     ' Iteration budget exhausted before convergence;'//
 	2     ' writing unconverged model state.'
+	  END IF
+!
+! edited 24-Nov-2026 (W6): same energy-balance line ITER_SUM
+! carries each call, printed once at the final budgeted
+! iteration. Diagnostic only.
+!
+	  IF(CONV_DIAG_LVL .GE. 1)THEN
+	    IF(EHB_RES_DEPTH .GT. 0 .AND. EHB_RES_FRAC .GE. 0.0_LDP)THEN
+	      WRITE(LUER,'(A,ES10.3,A,I5)')
+	1       ' Energy balance (diagnostic only): max'//
+	2       ' |4pi(chi J - eta) - De/Dt| / scale = ',
+	3       EHB_RES_FRAC,' at depth ',EHB_RES_DEPTH
+	    ELSE IF(EHB_RES_DEPTH .GT. 0)THEN
+	      WRITE(LUER,'(A,ES10.3,A,I5)')
+	1       ' Energy balance (diagnostic only): max'//
+	2       ' |4pi(chi J - eta) - De/Dt| / scale = N/A'//
+	3       ' (L_outer ~ 0); shell lum = ',EHB_RES_LUM,
+	4       ' at depth ',EHB_RES_DEPTH
+	    ELSE
+	      WRITE(LUER,'(A)')
+	1       ' Energy balance (diagnostic only): N/A'//
+	2       ' (shock/decay terms not assembled here)'
+	    END IF
 	  END IF
 !
 	  CALL TUNE(ITWO,'GIT')

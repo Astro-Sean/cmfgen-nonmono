@@ -4629,6 +4629,30 @@
 	2    'ES_ALI gate WARN: ',ES_ALI_CALL_NUNC,
 	3    ' freqs unconverged at cap, max dJ/J ',ES_ALI_CALL_DJMAX,
 	4    ' (not blocking exit)'
+!
+! edited 24-Nov-2026 (W6): electron-energy-balance residual as a
+! share of the emergent luminosity (computed in CMFGEN_SUB after
+! the SE%T_EHB add; EHB_RES_DEPTH=0 marks the unassembled case).
+! Diagnostic only -- no exit conjunct.
+!
+	  IF(CONV_DIAG_LVL .GE. 1)THEN
+	    IF(EHB_RES_DEPTH .GT. 0 .AND. EHB_RES_FRAC .GE. 0.0_LDP)THEN
+	      WRITE(LUER,'(4X,A,ES10.3,A,I5)')
+	1       'Energy balance (diagnostic only): max'//
+	2       ' |4pi(chi J - eta) - De/Dt| / scale = ',
+	3       EHB_RES_FRAC,' at depth ',EHB_RES_DEPTH
+	    ELSE IF(EHB_RES_DEPTH .GT. 0)THEN
+	      WRITE(LUER,'(4X,A,ES10.3,A,I5)')
+	1       'Energy balance (diagnostic only): max'//
+	2       ' |4pi(chi J - eta) - De/Dt| / scale = N/A'//
+	3       ' (L_outer ~ 0); shell lum = ',EHB_RES_LUM,
+	4       ' at depth ',EHB_RES_DEPTH
+	    ELSE
+	      WRITE(LUER,'(4X,A)')
+	1       'Energy balance (diagnostic only): N/A'//
+	2       ' (shock/decay terms not assembled here)'
+	    END IF
+	  END IF
 	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
 !
 ! edited 29-Nov-2026: export this call's status words for the

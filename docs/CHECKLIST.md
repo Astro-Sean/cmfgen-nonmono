@@ -1159,6 +1159,20 @@ KN_ORD_P2DAMP default unchanged (F).
       POP_LIM checks and the Lambda override (RELAX=1, POP_LIM
       huge) are unchanged. test_fpc 32/32 (relax0/relaxhalf/
       relaxrange/badorder/lbeyond/lamadj pins).
+- [x] Energy-balance convergence diagnostic (24-Nov-2026):
+      CONV_EXIT_MET has no energy/flux conjunct and the manual
+      recommends checking L(r) and the electron cooling balance.
+      At CONV_DIAG_LVL >= 1 the ITER_SUM Model Convergence block
+      and the final budgeted-iteration report now print
+      `Energy balance (diagnostic only): max |4pi(chi J - eta) -
+      De/Dt| / scale = ... at depth ...`, with `N/A` when the EHB
+      residual was not assembled. CMFGEN_SUB converts
+      STEQ_T_EHB to a per-shell luminosity via the DEP_RAD_EQ
+      recipe; scale = share of |RLUMST(ND)|. Diagnostic only by
+      design (BA_LUM_GATE precedent - shocked CSM makes a hard
+      energy gate unsuitable); no exit conjunct added.
+      test_iter_output pins the token, the >=1 gate, and the
+      absence from CONV_EXIT.
 
 ## 3. KNOP P-sweep defect cycle (phases 5.3K-5.3S, Nov-2026)
 
