@@ -167,6 +167,22 @@ Re-run of the full battery against the current tree:
 3. Boundary-row sign logic is audit-hardened but has no dedicated
    unit driver coverage at sigma(1) near -1.
 
+## 11. Postscript: MOM_BLKGMRES implementation
+
+Later on 24-Nov-2026 the coupled wavelength-depth solve landed behind
+`MOM_BLKGMRES` (default F). The capture identity in section 7 is the
+sign convention the block solver uses: since
+`NU_X0 + NU_CUP*J(NU_KUP)=XM_SAVE`, the implicit row is
+`TA*x(i-1)+TB*x(i)+TC*x(i+1)-NU_CUP*x(NU_KUP)=NU_X0`. The diagonal
+PSI absorption remains only inside `NU_TB`. A manufactured case with
+a negative boundary-row upwind coefficient now covers the signed edge.
+
+Post-implementation targeted batteries: `test_mom_blk` 59/59,
+`test_mom_solve` 144/144, `test_mom_nu` 53/53, and
+`test_vadat_keys` 91/91. These results supersede the 89/89 VADAT count
+in the audit-time table above; the rest of that table remains the
+point-in-time evidence for the machinery audited here.
+
 ## Verdict
 
 The moment machinery is correct as implemented - no assembly
