@@ -430,6 +430,41 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       Exit criterion: named root cause + FIX commit with
       regression, or an evidenced BLOCKED verdict. No
       tolerance relaxation, no new clamps.
+- [ ] Declared bounded investigation NG1 - NG sawtooth and
+      adaptive acceleration (24-Nov-2026). Question: on the
+      eps1em3 production deck (m15_2p82d_VAL_sob_jfnk_eps1em3,
+      DO_NG=T, NG_ABSTAIN=T, ITS/NG=15, EPS_TERM=1e-3) the
+      accepted NG kick every ~16 counters rebounds the
+      demanded correction by ~55-60x, then the unaccelerated
+      map re-damps to ~78% of the pre-kick demand per cycle -
+      is the kick a wasted transient or a net-positive
+      slow-mode extrapolation, and would a Magritte-style
+      settle-gated or regularised fit do better on wall clock?
+      Evidence so far: SCRTEMP replay of 14 historical events
+      reproduces committed kicks to 2.1e-13; Gram condition
+      27-190 (not singular); affine coefficient L1 ~1e3 late;
+      successive 4-record shadow predictions move 2.4-3.1x
+      more than the ordinary iterates, so a Magritte settle
+      gate would have deferred all six late events examined.
+      Evidence plan: (a) diagnostics-only shadow-window report
+      (NG_SHADOW_DIAG, default F) logging per-band fit
+      coefficients, conditioning and settle ratio for growing
+      windows N=4..16 - the deferred 16-Oct adaptive-gate
+      assessment required a diagnostics-only first step;
+      (b) matched warm-restart A/B at identical checkpoint,
+      binary and EPS_TERM: DO_NG=T cadence vs DO_NG=F vs one
+      guarded variant if (a) motivates it; judged on
+      iterations and wall time to the same nine-gate exit.
+      Parameter proposal (per AGENTS 9.1): NG_SHADOW_DIAG,
+      default F, diagnostic-only. User decision: opt in to
+      NG fit telemetry on a live deck; no physics change,
+      no behaviour change when F. No auto-set. Interactions:
+      none beyond requiring DO_NG=T to have events to
+      inspect. Exit criterion: settle/conditioning data
+      identify the kick mechanism and either justify a
+      guarded-acceptance FIX with a matched A/B run, or the
+      cadence is shown net-positive and NG stays as is -
+      recorded here either way.
 - [ ] Declared bounded investigation K1 - KNOP formal
       non-contraction. Question: can the corrected-exit build
       contract the lagged field from a cold start, and what
