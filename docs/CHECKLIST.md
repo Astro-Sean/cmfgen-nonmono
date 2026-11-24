@@ -1173,6 +1173,19 @@ KN_ORD_P2DAMP default unchanged (F).
       energy gate unsuitable); no exit conjunct added.
       test_iter_output pins the token, the >=1 gate, and the
       absence from CONV_EXIT.
+- [x] Branch verification (24-Nov-2026): full `./build.sh` clean,
+      all exes linked (cmfgen_dev md5 da13b2e3); embedded
+      tests/f90 JFNK suite 30/30; run_all_tests.py 99/107 with
+      all reds accounted for - 6 documented pre-existing gaps
+      (auto_ion + sobew_angular_floor missing run fixtures,
+      es_conv + par_opac obs/ archive gap, phase227_io CLI gap,
+      rv_snhyd 4 pinned defects) plus two follow-ups fixed this
+      session: `938e534a` retargets the knop_lagged_field
+      fully-poisoned-row pin to KN_HEAL_ROW, and test_ave_dc
+      resolves its out-of-tree OSCDAT fixture via a scratch
+      symlink. Audit doc:
+      docs/audits/CONVERGENCE_FIX_REPORT_2026-11-24.md. Branch
+      fix/convergence-liveness-and-guards, 8 commits on 3fd9152b.
 
 ## 3. KNOP P-sweep defect cycle (phases 5.3K-5.3S, Nov-2026)
 
