@@ -481,10 +481,15 @@ Luc's m15 .fl (tooling: cmfgen_validation/compare_finished_vs_luc.py).
       checkpoint with NG_SHADOW_DIAG=T (outer-repo config
       commit 90ac2c0e; binary d47fe28b incl. flag). CMFGEN
       job 13646902 (+OBS 13646903), shares the lamesF
-      restart source. Collect per-event settle/conditioning
-      series across NG events, then decide whether a
-      guarded-acceptance NG_ADAPT candidate justifies the
-      matched A/B run.
+      restart source. A/B control same checkpoint, binary
+      and EPS_TERM: dessart_m15_2p82d_VAL_sob_jfnk_ngoff
+      (DO_NG=F; config commit 58cc2d65; CMFGEN job
+      13646953 +OBS 13646954) - the ngshadow arm doubles
+      as the accelerated side since the flag is
+      POP-bit-identical. Collect per-event
+      settle/conditioning series + iterations/wall time
+      to exit, then decide whether a guarded-acceptance
+      NG_ADAPT candidate justifies the third arm.
 - [ ] Declared bounded investigation K1 - KNOP formal
       non-contraction. Question: can the corrected-exit build
       contract the lagged field from a cold start, and what
