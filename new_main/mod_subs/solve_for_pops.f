@@ -3551,6 +3551,7 @@
 !
 	LAM_FIELD_NOT_READY=LAM_FIELD_GATE(HAS_LAGGED_FIELD,GS_POPS_HELD,
 	1   GS_FREEZE,GS_RAW_IMMATURE,N_MATURE,GS_REL_STABLE)
+	LAM_FIELD_NOT_CONVERGED=LAM_FIELD_NOT_READY
 !
 ! Phase 2.17 all-ray verification: the converged exit in
 ! CMFGEN_SUB requires .NOT. LAM_FIELD_NOT_READY. A KNOP field
@@ -3566,10 +3567,21 @@
 ! the release watchdog terminate fail-closed if the field never
 ! verifies.
 !
+! edited 24-Nov-2026 [KN_LAM_PARTIAL_HANDOFF, default F]: the
+! fold-in now writes the strict exit verdict
+! LAM_FIELD_NOT_CONVERGED unconditionally, and
+! LAM_FIELD_NOT_READY only when the flag is off. With the flag
+! on, the handoff path (LAM_STABLE_STEP, the probe conjunct, the
+! stable counter below) reads the weak gate alone, per the
+! GS_RF_ALLCONV contract -- all-ray certification gates final
+! acceptance only, not the handoff that lets populations move
+! enough to earn it.
+!
 	IF(DO_NONMONO_KNOP .AND. HAS_LAGGED_FIELD .AND.
 	1   .NOT. GS_RF_ALLCONV)THEN
-	  LAM_FIELD_NOT_READY=.TRUE.
+	  LAM_FIELD_NOT_CONVERGED=.TRUE.
 	  CALL APPEND_ITER_REASON(ITER_REASON,'rf_not_allconv')
+	  IF(.NOT. KN_LAM_PARTIAL_HANDOFF)LAM_FIELD_NOT_READY=.TRUE.
 	END IF
 	IF(FORCE_LAMBDA)THEN
 	  CNT_STABLE_LAM=0
@@ -4542,14 +4554,17 @@
 ! still held. The evaluation now runs through CONV_EXIT_EVAL
 ! (LAM_HANDOFF_MOD) so the replica and the real gate share one
 ! predicate list, one label set and one pass count; the live
-! LAM_FIELD_NOT_READY assigned above is the same value the exit
-! reads, never a cached copy.
+! flags assigned above are the same values the exit reads, never
+! cached copies. edited 24-Nov-2026: the ninth conjunct reads the
+! strict LAM_FIELD_NOT_CONVERGED (the rf_not_allconv fold-in),
+! matching the real exit; the weak LAM_FIELD_NOT_READY is passed
+! too so the FAILS label can still name the gate that holds.
 !
 	  CALL CONV_EXIT_EVAL(RD_LAMBDA,DO_LAMBDA_AUTO,LAST_LAMBDA,
 	1    MAIN_COUNTER,JFNK_UNCONVERGED_COMMIT,BA_EX_MAXCH,EPS,
 	2    CONV_DEM_OK,DONE_HYDRO_REVISION,GS_POPS_HELD,BAACC_PENDING,
-	3    LAST_NG,LAM_FIELD_NOT_READY,CONV_LAM_OK,CONV_ALL,
-	4    CONV_NPASS,CONV_FAILS)
+	3    LAST_NG,LAM_FIELD_NOT_READY,LAM_FIELD_NOT_CONVERGED,
+	4    CONV_LAM_OK,CONV_ALL,CONV_NPASS,CONV_FAILS)
 !
 ! Percent-converged figure: share of the 9 exit gates passing, plus
 ! the worst continuous gate's distance from its threshold in dex.
