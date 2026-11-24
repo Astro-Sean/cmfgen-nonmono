@@ -1348,6 +1348,27 @@ KN_ORD_P2DAMP default unchanged (F).
       the rho~1 compressing lagged coupling is not fixable by
       relaxation - needs an implicit/direct frequency-chain solve.
       OBS 13646072 cancelled on the dead dependency.
+      FIX (24-Nov-2026): `MOM_NUSOLV` (VADAT key, default F)
+      implements that direct solve inside the refresh driver. Per
+      depth the rows' upwind-J coupling is a functional graph in
+      frequency (each row owns one edge: k-1 expanding, k+MOM_NM_J
+      compressing) - chains plus rings at the sign flips that pin
+      the map at rho~1. `MOM_NU_CHAIN_SOLVE` resolves the captured
+      equations exactly in O(NCF) per depth after each pass
+      (Baron & Hauschildt 2004, A&A 427, 987: the wavelength-chain
+      boundary-value structure wants a direct solve, not Jacobi
+      iteration). Capture folds LAG_SCL/EPS_SCL/boundary sign into
+      the coefficients so the composite map's fixed point is the
+      swept system's; NU_FRESH freezes active-set-skipped columns;
+      write-back reuses the sweep's damped non-negativity update;
+      NU_CHG merges into PASS_CHG for the exit check. Unit
+      verdict: test_mom_nu 32/32 exact vs dense solves (chains,
+      2-cycles, 4-ring, mixed graph, GS-depth ordering, frozen/
+      rejected paths); nurf arm lands the NUSOLV=T fixed point
+      2.2% off the NUSOLV=F one on comp1; nuw admissible on compw;
+      VADAT path verified both stores (test_vadat_keys +2 arms).
+      Open: whether it contracts the real m15 stall - needs an
+      arm run (bounded investigation, declare before submit).
 - [~] `DO_NONMONO_KNOP` ray solver - retained for reference/diagnostic
       comparisons; not selected for new production configs (user
       directive 11-Nov-2026). Under active defect-resolution (sec 3).
@@ -1446,7 +1467,8 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
       (sdab pinned-fail, documented defect), lagged_field suite,
       knop_operator 32, knop_spv 93, knop_p2_state 19,
       knop_replay_p2 29, knop_spec_gate 19, knop_endpoint 6,
-      mom_solve 137, mom_gs 34, mom_aa_state 62, mom_sweep_table 8,
+      mom_solve 143 (incl. nurf/nuw MOM_NUSOLV arms), mom_nu 32,
+      mom_gs 34, mom_aa_state 62, mom_sweep_table 8,
       es_resid 20, jfnk opint 36 + regressions,
       obs_frame 11+15, ng_abstain 17, lam_handoff 51, gs_drift_diag,
       iter_conv_gate 13 - green at last run (22-Nov KNOP sweep).
