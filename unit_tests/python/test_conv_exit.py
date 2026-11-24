@@ -221,12 +221,13 @@ MOD = (common.TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text(
 
 call = re.search(
     r"CALL CONV_EXIT_EVAL\(RD_LAMBDA,DO_LAMBDA_AUTO,LAST_LAMBDA,"
-    r"[\s\S]{0,300}?LAM_FIELD_NOT_READY,CONV_LAM_OK,CONV_ALL,"
-    r"[\s\S]{0,80}?CONV_NPASS,CONV_FAILS\)",
+    r"[\s\S]{0,300}?LAM_FIELD_NOT_READY,LAM_FIELD_NOT_CONVERGED,"
+    r"[\s\S]{0,80}?CONV_LAM_OK,CONV_ALL,[\s\S]{0,80}?"
+    r"CONV_NPASS,CONV_FAILS\)",
     POPS,
 )
 REP.check(
-    "replica calls CONV_EXIT_EVAL with the live LAM_FIELD_NOT_READY",
+    "replica calls CONV_EXIT_EVAL with the live strict/weak flags",
     call is not None,
 )
 REP.check(
@@ -234,16 +235,19 @@ REP.check(
     "CONV_NPASS/9.0_LDP" in POPS,
 )
 REP.check(
-    "evaluator carries the ninth conjunct",
-    ".NOT. FIELD_NRDY" in MOD and "lam-field-not-ready" in MOD,
+    "evaluator carries the ninth conjunct on the strict flag",
+    ".NOT. FIELD_NCONV" in MOD
+    and "lam-field-not-ready" in MOD
+    and "lam-field-not-converged" in MOD,
 )
 # Both real exit blocks keep all nine conjuncts (the patch must not
 # touch the production gate).
 blocks = re.findall(
-    r"CONV_EXIT_MET=\([\s\S]{0,400}?\.NOT\. LAM_FIELD_NOT_READY", CMF
+    r"CONV_EXIT_MET=\([\s\S]{0,400}?\.NOT\. LAM_FIELD_NOT_CONVERGED",
+    CMF,
 )
 REP.check(
-    "both CONV_EXIT_MET blocks keep LAM_FIELD_NOT_READY",
+    "both CONV_EXIT_MET blocks keep the strict field verdict",
     len(blocks) >= 2,
 )
 for tok in (
