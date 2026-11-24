@@ -1,5 +1,70 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] KNOP V14 cold-start A/B arms + bulk-exit arm: VERDICT
+      (24-Nov-2026, serves K1). Both cold-start arms FAILED at
+      it122 (13606657 DO_JFNK=F, 13606660 DO_JFNK=T, exit 6):
+      SOLVE_FOR_POPS stopped on GS_REL_NOPROG_LIM (10 releases
+      with no demand progress; final demand 23.3 vs release
+      demand 18.2). JFNK never ran: 542 gate evaluations, all
+      JFNK DEFER (demand 16.8-23.3 vs freeze gate 3.0), so the
+      two arms followed the same LAMBDA path with identical
+      FG-KNOP statistics. V14 does not cure the KNOP cold start.
+      Refresh residual floored at 3.7-5.2e-2 (tol 2e-3) with
+      fg_sw_one sawtoothing on the release/refreeze cadence and
+      ending at 0.26.
+      Follow-on arm (hypothesis: the floor is KN_RAY_BULK_TOL
+      truncation at NPO>=6, which also bypasses TRY_HOT):
+      configs/dessart_m15_2p82d_FRESH_knop_v14_nbulk.yaml, warm
+      restart from the failed DO_JFNK=F run (it122 checkpoint),
+      identical except KN_RAY_BULK_TOL=0.0; CMFGEN 13636956 +
+      OBS 13636957, exe_frozen/7f4c690ab4cac684 (git=e08c16b8,
+      dirty x8 test/audit paths). REJECTED over it122-128:
+      bulk=0 every refresh, residual 2.5-4.4e-2 with no downward
+      trend, tol rays 75-79 (was 70-74) oscillating, the same
+      9-14 rays exit stall/plat and commit capped, unconverged
+      cells ~3.7e3, rho_p90=0.89 rho_max=0.98, fg_sw_one re-pinned
+      at 0.25, hot-pass spend 10-27 of 480. First release (it125,
+      raw_drift 0.26) again grew the demand (16.7 -> 19.3,
+      release_no_progress count=1). Both jobs cancelled once the
+      census was unambiguous. The floor is bounded non-contraction
+      of the lagged map on the compressing hot-frequency runs
+      (852-1654 frequencies in 202-465 contiguous runs, max
+      donor offset 371 bins), not an exit-policy artifact.
+      Manufactured check: unit_tests/f90/drv_knop_block.f90
+      (untracked, no consuming test yet) at chi~1e-5 and
+      |GAM|*dZ/DLN ~ 10 bins converges in 4-5 passes and 2-4
+      refreshes on both sweep paths, so a frozen-coefficient
+      single ray does not reproduce the stall.
+      Side finding: the frequency-form 3*GAM*I term is absent
+      from the solved ray equation (inherited from stock V13);
+      audit estimate ~0.025% of the implicit coupling, not a
+      drift cause, no source change made.
+      K1 stays open. Remaining candidates are BLOCK_GS_DESIGN
+      Stage 2+3 (per-block solves and verdicts on the hot runs)
+      and Stage 4 (per-block Anderson); the release controller
+      overshoot is a separate defect. A further phase needs a
+      user check-in (section 3.3).
+
+- [x] KNOP V14 cold-start A/B arms SUBMITTED (23-Nov-2026): two
+      fresh LTE-start (LTE_EST=T, no warm restart) KNOP formal
+      (USE_LAM_ES=T, DIAG) runs on VEL_LAW=14, identical except
+      DO_JFNK. Configs generated from the FRESH_knop recipe with
+      vel_law 11 -> 14 in both cmfgen.vel_law and VADAT VEL_LAW:
+      configs/dessart_m15_2p82d_FRESH_knop_v14.yaml (DO_JFNK=F,
+      FINAL 13606657 + OBS 13606658) and
+      dessart_m15_2p82d_FRESH_knop_jfnk_v14.yaml (DO_JFNK=T,
+      production JFNK gates, FINAL 13606660 + OBS 13606661).
+      Run dirs: cmfgen_validation/m15_2p82d_FRESH_knop{,_jfnk}_v14.
+      Question (serves K1): does the V14 tau-Rosseland grid cure the
+      V13 CDS-cell-jump dead-row stall that held every prior KNOP
+      cold start, and does JFNK admission change the outcome? Exit
+      criterion: converged write (Model Convergence) or a named
+      failure mode; JFNK admission or sustained non-admission in
+      OUTGEN. SN_HYDRO_DATA validated via prepare_VADAT.parse_sn_hydro
+      (ND=70, R increasing, V/T/rho positive, finite, non-monotonic
+      reversal present). Binary: exe_frozen/7f4c690ab4cac684_6a33ed6eb6ecf72b
+      (git=dd136b82, dirty x6 doc/fixture paths).
+
 - [~] JFNK integration audit, 23-Nov-2026: PASS WITH LIMITATIONS.
       Scope: SOB + USE_LAM_ES=T + DIAG; input, admission, residual,
       update/rollback, TRI selection, and unsupported-route guards.
