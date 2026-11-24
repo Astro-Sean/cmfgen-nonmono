@@ -284,6 +284,36 @@ def main():
         f"err {err:.2e}, it {nit}, rho {rho:.4f}",
     )
 
+    # Iterated-probe analogue. The 1000/iter amplification measured by
+    # drv_mom_nu's iter mode is outer source-feedback amplification
+    # through a nearly singular ring; that feedback remains outer-
+    # iterated by design. The solver-level question is different: from
+    # the same zero initial error state, the lagged frequency iteration
+    # amplifies the error while the coupled solve removes it. Pin that
+    # contraction directly rather than claiming a linear solve can
+    # remove nonlinear H/EPS feedback it does not contain.
+    xlag = np.zeros_like(xd)
+    lag_err = []
+    off = a - bd
+    for _ in range(8):
+        xlag = np.linalg.solve(bd, b - off @ xlag)
+        lag_err.append(
+            np.linalg.norm(xlag - xd) / max(np.linalg.norm(xd), 1.0e-30)
+        )
+    lag_gain = lag_err[-1] / lag_err[-2]
+    xblk, bit, brst, bres, bconv = gmres_restart(
+        a, b, minv, x0=np.zeros_like(xd)
+    )
+    blk_gain = (
+        np.linalg.norm(xblk - xd) / max(np.linalg.norm(xd), 1.0e-30)
+    )
+    rep.check(
+        "iterated probe analogue: coupled solve contracts solver error",
+        lag_gain > 1.0 and bconv and blk_gain < 1.0e-10,
+        f"lagged error growth {lag_gain:.3f}/iter, "
+        f"block error ratio {blk_gain:.2e} after {bit} iterations",
+    )
+
     rep.summary()
 
 
