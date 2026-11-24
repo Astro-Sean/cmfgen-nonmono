@@ -1139,6 +1139,16 @@
 	LOGICAL FG_ORD_P2DAMP
 	INTEGER FG_ORD_P2N,FG_ORD_P2REL
 !
+! FG_NI1_FULL: VADAT [KN_NI1_FULL] (default F, set by
+! SET_FG_NI1_FULL). Certify a production NI=1 ray KN_CS_FULL
+! with reason 0 inside KNOP_RAY_SOLVE_V1's early-return branch
+! instead of leaving it KN_CS_INV: a single-point ray has no
+! marchable transfer domain, so there is nothing to converge
+! and vacuous FULL is the honest class. With F the legacy INV
+! census entry stands and the ray holds FG_RF_ALL_CONV FALSE.
+!
+	LOGICAL FG_NI1_FULL
+!
 ! KN_RAY_STALL: VADAT [KN_RAY_STALL] (default 0.98, set by
 ! SET_FG_STALL_LIM). Same-direction residual ratio above which a
 ! pass counts toward the NSTALL early exit. The 0.90 setting
@@ -1185,6 +1195,7 @@
 	DATA FG_ORD_AA_M /2/
 	DATA FG_ORD_P2DAMP /.FALSE./
 	DATA FG_ORD_P2N /2/,FG_ORD_P2REL /3/
+	DATA FG_NI1_FULL /.FALSE./
 	DATA KN_RAY_STALL /0.98_LDP/
 	DATA KN_AA_APP /0_8/,KN_AA_VETO /0_8/,KN_AA_REJ /0_8/,
 	1     KN_AA_SNG /0_8/
@@ -8769,6 +8780,14 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_NI1_FULL(DO_NI1)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_NI1_FULL
+	IMPLICIT NONE
+	LOGICAL DO_NI1
+	FG_NI1_FULL=DO_NI1
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_STALL_LIM(T)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_STALL
@@ -11025,7 +11044,10 @@ C
 ! refresh residual immature and blocks the population release on a
 ! field that was never built. NI=1 is a legitimate single-point
 ! geometry (no march is possible, but no transfer domain exists
-! either) and stays in the plain unsolved census with RESID=0.
+! either) and stays in the plain unsolved census with RESID=0 --
+! or, under FG_NI1_FULL [KN_NI1_FULL, default F], certifies
+! vacuous KN_CS_FULL with reason 0: nothing on the ray can
+! converge, so nothing on it can hold the all-ray verdict down.
 !
 ! NI .GT. SIZE(R_RAY,1) (Phase 2.20): a corrupt NI_RAY cannot be
 ! caught by the big ALLOCATE alone -- Linux overcommit lets a
@@ -11045,6 +11067,15 @@ C
 	  RETURN
 	END IF
 	IF(NI .EQ. 1)THEN
+! [KN_NI1_FULL] vacuous certification: with the flag on the
+! degenerate ray leaves INV and reads FULL/0, so it stops
+! holding FG_RF_ALL_CONV FALSE on geometry it cannot march.
+! With the flag off the INV census entry stands -- the legacy
+! behavior that permanently blocks the all-ray verdict.
+	  IF(FG_NI1_FULL)THEN
+	    IF(ALLOCATED(KN_CS_LS))KN_CS_LS(LS)=KN_CS_FULL
+	    IF(ALLOCATED(KN_CS_REA))KN_CS_REA(LS)=0
+	  END IF
 	  IF(KN_Q_RESID .AND. ALLOCATED(KN_QS_STAT))KN_QS_STAT(LS)=3
 	  RETURN
 	END IF
