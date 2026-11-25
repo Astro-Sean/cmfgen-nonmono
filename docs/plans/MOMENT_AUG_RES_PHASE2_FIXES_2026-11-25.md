@@ -172,6 +172,37 @@ off AND target residual comparable to the implemented residual;
 or a documented statement of which mechanism is load-bearing
 with the residual cost quantified.
 
+## Status update (25-Nov-2026)
+
+FIX 1 landed. RES_PASS is now slotted per sweep direction
+(expanding slot 1, compressing slot 2) and the new
+MOM_SAME_DIR_RHO routine ratios only consecutive entries of the
+same direction - under ALT mode that is the stride-2, same-map
+ratio the proposal asks for. The estimator pools ratios from
+both direction slots when both have history and reports LOK
+only with three or more ratios, otherwise the old cross-call
+residual ratio stands in. Gate stays MOM_ADAPT_OMEGA_V2 with no
+blending. Manufactured-map check (drv_mom_gate, test_mom_gate
+45/45): rho recovered within 5% on alternating maps with
+per-direction rho 0.45 and 0.5, a diverging map reads 1.69,
+and the consecutive-ratio beat that the old estimator mistook
+for divergence is not flagged. Exit criterion met on the
+manufactured suite; the real-capture consistency half is still
+owed.
+
+FIX 2 landed. JBEST/HBEST now snapshot the field just before
+the outer-AA block, and the new MOM_RF_COMMIT_GATE runs once
+after AA and before the maturity census: non-finite or 1e40
+entries, cells driven to J<=0, 50x jumps against the retained
+store, and bulk regression of the pre-AA n5/n50 counts all
+reject, and rejection restores the snapshot in place with a
+WARN line per cause. drv_mom_gate verifies accept on a clean
+AA step and reject-plus-restore on non-finite, negative,
+jump-violating and bulk-regressing commits; the seed-store
+case confirms the gate compares against the right reference.
+Exit criterion met: every path from AA to commit passes the
+single gate.
+
 ## Ordering note
 
 FIX 1 and FIX 2 are independent and can proceed in either order.
