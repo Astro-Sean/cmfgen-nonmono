@@ -182,3 +182,17 @@ completeness by automation alone: 499 `unclear` sites and the
 table-vs-leave decision on 481 `table-row` sites need the human scope
 review this document exists for. Evidence: `inventory.csv` (2426
 rows), spot-check output, `tools/scan_kv_writes.py` header notes.
+
+## Verdict (update)
+
+25-Nov-2026 (phase 3 close). VERIFIED - core conversion complete.
+Of the 122 real `nf >= 3` kv-line sites in core dirs (new_main 84,
+plane 30, subs 4, stark 4), all are now either `ILF_KVB` blocks or
+deliberately left: per-ray/per-Krylov-direction loop telemetry,
+embedded-sentence messages (alloc-fail, DEFER-PROBE prose), parsed
+tokens, and `rd_bs_strk_tab` expected-vs-read pairs (unclear default).
+`rd_control_variables.f` (7 sites) and `mom_j_cmf_nonmono_v1.f` (3)
+were skipped while carrying uncommitted edits. Helper:
+`ilf_kvb`/`ilf_v{i,r,l,s}` in `iter_log_fmt_mod` with the temporary
+`CMFGEN_COMPACT_KV` env hook (removal owed at refactor close).
+Tests: `unit_tests/python/test_iter_log_kvb.py` (26 checks).
