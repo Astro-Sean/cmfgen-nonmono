@@ -1399,12 +1399,12 @@ C
 !
 	    IF(ES_ALI_ON .OR. ES_ALI_MOM_ON)THEN
 	      IF(CONV_DIAG_LVL .GE. 1)
-	1       WRITE(LUER,'(A,I6,A,ES10.2,A,I6,A,I10,A,I10)')
-	2       ' ES_ALI: freqs unconverged=',ES_ALI_NUNC,
-	3       ', max final dJ/J=',ES_ALI_DJMAX,
-	4       ', ALO fallbacks=',ES_ALI_NFALL,
-	5       ', J-floor hits run=',ES_ALI_NFLOOR,
-	6       ', BA-floor hits run=',ES_ALI_BA_NFLOOR
+	1       CALL ILF_KVB(LUER,' ES_ALI:',5,
+	2       (/'freqs unconverged','max final dJ/J','ALO fallbacks',
+	3       'J-floor hits run','BA-floor hits run'/),
+	4       (/ILF_VI(ES_ALI_NUNC),ILF_VR(ES_ALI_DJMAX,2),
+	5       ILF_VI(ES_ALI_NFALL),ILF_VI(ES_ALI_NFLOOR),
+	6       ILF_VI(ES_ALI_BA_NFLOOR)/))
 	    END IF
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
