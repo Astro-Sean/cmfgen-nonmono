@@ -37,6 +37,19 @@ TWO = $(LIB_MOD)(two_phot_mod.o)
 
 ST = $(LIB_MOD)(steq_data_mod.o)
 
+ILF=$(LIB_MOD)(iter_log_fmt_mod.o)
+
+$(LIB)(two_phot_opac_v3.o) : two_phot_opac_v3.f $(TWO) $(ILF)
+	$(F90) -c  $(FG) two_phot_opac_v3.f
+	ar $(AR_OPTION) $(LIB) two_phot_opac_v3.o
+
+$(LIB)(set_two_phot_v3.o) : set_two_phot_v3.f $(TWO) $(ILF)
+	$(F90) -c  $(FG) set_two_phot_v3.f
+	ar $(AR_OPTION) $(LIB) set_two_phot_v3.o
+
+$(ILF):
+	(cd ../../mod_subs ; make)
+
 $(LIB)(steq_ba_two_phot_rate_v3.o) : steq_ba_two_phot_rate_v3.f $(TWO) $(ST) 
 	$(F90) -c  $(FG) steq_ba_two_phot_rate_v3.f
 	ar $(AR_OPTION) $(LIB) steq_ba_two_phot_rate_v3.o
