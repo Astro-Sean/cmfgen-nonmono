@@ -10,6 +10,7 @@
 	1                 DLAM_THERM,DLAM_TURB,WAVE,
 	1                 ELOG,TLOG,DIAGNOSTICS)
 	USE SET_KIND_MODULE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VR
 	IMPLICIT NONE
 !
 ! Altered 01-Sep-2007: ELOG & TLOG inserted for diagnostic purposes (changed to V2).
@@ -242,13 +243,14 @@
 	      END IF
 	      WRITE(LUER,*)'Possible error in CONV_STRK_V2'
 	      WRITE(LUER,*)'Profile normalization constant differs from 1 by more than 30%'
-	      IF(WAVE .GT. 100.0_LDP .AND. WAVE .LT. 1.0E+05_LDP)THEN
-	        WRITE(LUER,'(3(A,F15.8,A,3X))')' Wave=',WAVE,'A','Lam_ST(1)=',PROF_LAM(1),'A',
-	1                      'Lam_END(NF)=',PROF_LAM(NF),'A'
-	      ELSE
-	        WRITE(LUER,'(3(A,ES16.8,A,3X))')' Wave=',WAVE,'A','Lam_ST(1)=',PROF_LAM(1),'A',
-	1                      'Lam_END(NF)=',PROF_LAM(NF),'A'
-	      END IF
+!
+! ILF_VR picks the ES exponent width by magnitude, so the old
+! F15.8/ES16.8 format IF collapses to one call. The 'A' unit
+! suffixes moved into the labels to keep the values numeric.
+!
+	      CALL ILF_KVB(LUER,' Wavelengths:',3,
+	1         (/'Wave (A)','Lam_ST(1) (A)','Lam_END(NF) (A)'/),
+	2         (/ILF_VR(WAVE,8),ILF_VR(PROF_LAM(1),8),ILF_VR(PROF_LAM(NF),8)/))
 	      WAVE_SAVE=WAVE
 	      WRITE(LUER,'(5A14)')'Norm Const.','    Log(Ne)',
 	1                      '     Log(T)',' dLAM_THERM',' dLAM_TURB'
