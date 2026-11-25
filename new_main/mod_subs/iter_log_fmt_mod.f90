@@ -56,8 +56,12 @@ module iter_log_fmt_mod
     ! against a pre-conversion run.  Compact lines keep the legacy
     ! length and may exceed ilf_maxline; the 100-column budget only
     ! binds the block layout.  Flipped by the driver/test code, not
-    ! by VADAT: no key exists for it yet.
+    ! by VADAT: no key exists for it yet.  As a temporary regression
+    ! hook the first ilf_kvb call also reads CMFGEN_COMPACT_KV
+    ! (leading 1/T/t/Y/y or 0/F/f/N/n); the hook goes away once the
+    ! conversion is complete.
     logical :: log_compact_kv = .false.
+    logical :: kv_env_checked = .false.
 
     ! Status-banner state exported by SOLVE_FOR_POPS once per great
     ! iteration and read by CMFGEN_SUB at the timing line. ILF_IT
@@ -289,6 +293,10 @@ contains
         integer :: i, m, ind0, ind, pad, padcap, vmax, lt, lv, pos
         character(len=320) :: line
         character(len=ilf_val_len + 64) :: frag
+        if (.not. kv_env_checked) then
+            call ilf_kv_env_probe()
+            kv_env_checked = .true.
+        end if
         m = min(n, size(labels), size(vals))
         ind0 = 0
         do while (ind0 < len(header))
@@ -346,6 +354,28 @@ contains
             write (lu, '(a)') trim(line)
         end do
     end subroutine ilf_kvb
+
+    ! Temporary regression hook, deleted when the kv conversion is
+    ! finished: CMFGEN_COMPACT_KV set in the environment overrides
+    ! LOG_COMPACT_KV for the rest of the run.  Leading 1/T/t/Y/y
+    ! selects the legacy one-line layout, 0/F/f/N/n the block; any
+    ! other value is ignored.  Probed once at the first ilf_kvb
+    ! call so a program that sets LOG_COMPACT_KV first keeps its
+    ! own value unless the variable exists.
+    subroutine ilf_kv_env_probe()
+        character(len=16) :: buf
+        integer :: st, ln
+        buf = ' '
+        call get_environment_variable('CMFGEN_COMPACT_KV', buf, &
+            length=ln, status=st)
+        if (st /= 0 .or. ln <= 0) return
+        if (buf(1:1) == '1' .or. buf(1:1) == 'T' .or. &
+            buf(1:1) == 't' .or. buf(1:1) == 'Y' .or. &
+            buf(1:1) == 'y') log_compact_kv = .true.
+        if (buf(1:1) == '0' .or. buf(1:1) == 'F' .or. &
+            buf(1:1) == 'f' .or. buf(1:1) == 'N' .or. &
+            buf(1:1) == 'n') log_compact_kv = .false.
+    end subroutine ilf_kv_env_probe
 
     ! Tagged diagnostic line. WARN/BAD lines also enter the
     ! per-iteration issue census; printing is never conditional here,
