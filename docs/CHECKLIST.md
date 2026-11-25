@@ -1,5 +1,97 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] Commit gate / W16 jump guard: per-column scale (25-Nov-2026).
+      Question: can dim frequency columns grow by orders under a
+      global-max jump scale, as the FG_JUMP_MAX port claims the
+      comment intends? Evidence plan: manufactured 200-column
+      12-decade J spectrum - blow-ups of 1e2..1e8x in the 50
+      dimmest columns flag 0 cells under the global rule, 3000
+      under a per-column one. Verdict FIX landed: both callers
+      (W16 best-pass guard, MOM_RF_COMMIT_GATE) now share
+      MOM_JUMP_CENSUS, which keys the 50x test on the column's own
+      store peak floored at 1E-300 and prices floor columns
+      (store peak <= 1E-28) against the nearest committed column's
+      peak, exempt only on a true cold start - the MOM analogue of
+      FG's sibling-reference rule (per-ray siblings do not exist
+      on the moment grid; nearest committed frequency columns do).
+      Tests: drv_mom_gate dimjmp (1e6x dim blow-up rejected),
+      dimok (3x reshaping accepted), flrseed (5E-7 fill inside
+      50x of a 1.8E-6 reference accepted), flrjmp (1E-2 seed
+      rejected), coldstr (all-floor store exempt); the 8 prior
+      cases pass unchanged, and KEEP_BEST verdicts are identical
+      on the single-scale fixture because per-column and global
+      scales coincide there.
+- [x] Converged exit ignores f-iteration cap exits (25-Nov-2026).
+      Question: can the run print "Convergence criteria met" on an
+      iteration where some frequencies left the f/e-scattering
+      loop at the pass cap, leaving an unconverged ES source in
+      the rates? Evidence plan: FCONV_CAP_CNT was printed and
+      reset each iteration but never read by CONV_EXIT_MET.
+      Verdict FIX landed: the census is saved to
+      FCONV_CAP_IT_CNT/T1 before the reset and joins the gate as
+      a tenth conjunct in both CMFGEN_SUB copies plus the
+      SOLVE_FOR_POPS ITER_SUM replica (CONV_EXIT_EVAL carries
+      CAP_CNT, percent denominator now 10). A held exit names
+      'f-iteration cap exits outstanding' in CONV_EXIT_WHY and
+      prints a distinct "Converged exit deferred" line; on
+      LST_ITERATION the budget-exhausted message reports the hold.
+      Suppressed iteration-1 warnings stay inside the census (the
+      gate reads the physical event, not the print policy).
+      Deadlock analysis: if a frequency keeps capping the exit
+      holds until the iteration budget runs out - stock CMFGEN
+      behaviour is exactly this (the run ends unconverged and
+      writes unconverged state); no threshold or fallback added.
+      Tests: drv_conv_exit truth table extended to 1024
+      combinations, named case G_cap pins cap>0 blocking with
+      npass=9/10 and the 'f-cap-exits' label; test_conv_exit pins
+      the save-before-reset ordering and the gate reading
+      FCONV_CAP_IT_CNT rather than the suppressed subset.
+- [x] Investigation: sign-blind adaptive JNEXT_RELAX (25-Nov-2026).
+      Question: does rho = |r_k|/|r_{k-1}| feeding omega =
+      1/(1+rho) miskey relaxation on monotone-contracting maps?
+      Evidence plan: Python model of a scalar linear map and an
+      alternating two-map schedule, lambda in {-0.9,-0.5,+0.5,
+      +0.9,+0.99}, current rule vs undamped vs a signed estimate.
+      Verdict CONFIRMED: at lambda=+0.9 the adaptive rule parks
+      omega at ~0.51 and contracts at 0.949/pass vs 0.9 undamped
+      (hit the 400-iter cap vs 259 undamped); at lambda=+0.5,
+      79 vs 39 iters; alternating (0.5,0.9) 132 vs 69. For
+      lambda<0 the rule is right (28 vs 277 iters at -0.9) - the
+      formula is optimal exactly for lambda=-rho. The pass-k+1
+      input IS AA-mixed (inner AA at every even pass), so rho
+      measures the accelerated trajectory, not the bare map. A
+      signed estimator lambda_hat = <d_k,d_prev>/<d_prev,d_prev>
+      on same-direction update vectors is prototyped behind
+      module flag MOM_OMEGA_SGN (default F, no VADAT key -
+      [MOM_OMEGA_SGN] proposed in the PR): RES_SGN files the
+      signed same-direction ratio per pass (stride 1 same
+      direction, stride 2 under ALT - the LAMC pair), and
+      MOM_SAME_DIR_SGN medians it into omega* = 1/(1-lambda_hat).
+      Model check: signed rule matches or beats the current rule
+      on every scalar case and never worsens oscillation. The FG
+      sibling (FG_ADAPT_OMEGA_V2) has the same defect class but a
+      different machinery (per-ray pooled RHOM/RHOP, P90
+      statistics); port deferred until the MOM path is exercised
+      on a real run.
+- [x] Investigation: bulk census vetoes legitimate AA steps
+      (25-Nov-2026). Question: does the N5F/N50F-vs-N5P/N50P churn
+      test reject the large-step candidates outer AA exists to
+      produce? Evidence plan: 200-cell manufactured rho=0.95 map,
+      3-term Aitken every third pass, gate replica applying the
+      exact counting rule; repo grep for "commit gate rejected".
+      Verdict CONFIRMED, rule unchanged (proposal only per task):
+      the Aitken step reaches residual ~1e-13 where the pre-AA
+      field sits at ~0.6, yet the gate rejected all 36 offerings
+      because the candidate churns more cells vs the retained
+      store than the pre-AA field - it prices movement, not
+      residual reduction. Cost in the model: 3 iters without the
+      gate vs 111 with. No "commit gate rejected" lines exist in
+      tests/ or docs/ logs, so the veto has not been observed on
+      a real run. Manufactured case aalegit pins the behaviour.
+      Proposal (not implemented): accept the candidate on its
+      map residual r(F)=|G(F)-F| instead of store churn - one
+      extra map evaluation per gate call (a refresh already costs
+      KN_M_MAXPASS of them).
 - [x] JFNK Phase 5: per-depth LU backward-error certificate +
       LSQ fallback (25-Nov-2026). Question: can the per-depth
       factorization prove fitness instead of trusting dgetrf
