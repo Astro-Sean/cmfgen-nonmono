@@ -6484,8 +6484,8 @@
 ! modify J_NEXT_FRQ. IPASS bounds keep the JPREV history inside
 ! recorded passes; a zero prior update leaves the slot empty.
 !
-	  IF(ALLOCATED(RES_SGN) .AND. LDI_PRV .NE. 0 .AND.
-	1     ALLOCATED(JPREV4))THEN
+	  IF(MOM_OMEGA_SGN .AND. ALLOCATED(RES_SGN) .AND.
+	1     LDI_PRV .NE. 0 .AND. ALLOCATED(JPREV4))THEN
 	    SGN_NUM=0.0_LDP;  SGN_DEN=0.0_LDP
 	    IF(LDI .EQ. LDI_PRV .AND. IPASS .GE. 3)THEN
 	      DO L=1,KN_M_NCF
