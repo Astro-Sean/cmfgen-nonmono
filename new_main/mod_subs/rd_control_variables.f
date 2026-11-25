@@ -2032,11 +2032,10 @@
 	1     'Max residual evaluations per JFNK activation (0=off)')
 	  IF(JFNK_MAX_EVALS .LT. 0)JFNK_MAX_EVALS=0
 !
-! Max clip-crossing retries before keeping the last JVP attempt.
-! Each retry shrinks h by 10x; the 21-Oct-2026 h-sweep showed frozen
-! FD resolution requires h_eff ~1e-6+, so retries driven by
-! degenerate floor crossings can push h below the cancellation
-! floor. JFNK_CLIP_RETRY=0 accepts the crossing (diagnostic use).
+! Retained for deck compatibility (audit issue B, 25-Nov-2026):
+! JFNK_JVP_V1 now caps every counted crossing a priori and keeps the
+! FD as-is if one is still reported, so the value is parsed but no
+! longer used.
 !
 	  JFNK_CLIP_RETRY=2
 	  CALL RD_STORE_INT(JFNK_CLIP_RETRY,'JFNK_CLIP_RETRY',L_FALSE,
@@ -2479,6 +2478,15 @@
 	  JFNK_PC_QUAL_TOL=0.5D0
 	  CALL RD_STORE_DBLE(JFNK_PC_QUAL_TOL,'JFNK_PC_QUAL_TOL',
 	1     L_FALSE,'Max allowed M^-1 A direction loss for JFNK_PC_QUAL')
+	  JFNK_PC_CERT=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PC_CERT,'JFNK_PC_CERT',
+	1     L_FALSE,'Backward-error certificate on each factored block?')
+	  JFNK_PC_CERT_TOL=1.0D-8
+	  CALL RD_STORE_DBLE(JFNK_PC_CERT_TOL,'JFNK_PC_CERT_TOL',
+	1     L_FALSE,'Max componentwise residual for JFNK_PC_CERT')
+	  JFNK_PC_LSQFB=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_PC_LSQFB,'JFNK_PC_LSQFB',
+	1     L_FALSE,'LSQ fallback when the LU ridge ladder exhausts?')
 	  JFNK_PC_PAR_FACTOR=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_PC_PAR_FACTOR,'JFNK_PC_PAR_FACTOR',
 	1     L_FALSE,'Depth-parallel preconditioner factorization?'//
@@ -2490,7 +2498,8 @@
 	  CALL JFNK_PC_SET_OPTIONS_V1(JFNK_PTC_SIGNED,
 	1     JFNK_REG_ZERO_COL, JFNK_ROW_TINY_EQUIL,
 	2     JFNK_PC_RCOND_GATE, JFNK_PC_RCOND_MIN, JFNK_PC_ITRY_CAP,
-	3     JFNK_PC_QUAL, JFNK_PC_QUAL_TOL)
+	3     JFNK_PC_QUAL, JFNK_PC_QUAL_TOL,
+	4     JFNK_PC_CERT, JFNK_PC_CERT_TOL, JFNK_PC_LSQFB)
 !
 ! KN_ORD_AITKEN (default FALSE): guarded Aitken delta-squared
 ! extrapolation on the ordered-march field iterate at pass
