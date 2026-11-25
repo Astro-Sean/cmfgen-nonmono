@@ -11,6 +11,7 @@
 	1            ND,ZION,EQSPEC,SPECIES_PRESENT)
 	USE SET_KIND_MODULE
 	USE TWO_PHOT_MOD
+	USE ITER_LOG_FMT_MOD
 	IMPLICIT NONE
 !
 ! Altered 01-MAr-2016: Bug fixed -- related to correction of A values for H I and He II when
@@ -142,8 +143,10 @@ C
 	            IF(.NOT. TWO_PHOT_COEF_FIXED(J))THEN
 	              COEF_TWO(J,1)=COEF_TWO(J,1)/4.0_LDP
 	              LUER=ERROR_LU()
-	              WRITE(LUER,'(1X,A,1X,A,2X,A)')'Warning in SET_TWO_PHOT -- adjusting A'//
-	1               ' as working with full n=2 level',TRIM(SPECIES),TRIM(LEVEL_NAME(I))
+	              CALL ILF_TAG(LUER,'WARN','SET_TWO_PHOT',
+	1               'Warning in SET_TWO_PHOT -- adjusting A as working'//
+	2               ' with full n=2 level '//TRIM(SPECIES)//' '//
+	3               TRIM(LEVEL_NAME(I)))
 	              TWO_PHOT_COEF_FIXED(J)=.TRUE.
 	            END IF
 	         END IF
