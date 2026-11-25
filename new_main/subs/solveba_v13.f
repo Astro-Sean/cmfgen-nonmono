@@ -30,7 +30,7 @@
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
-	USE ITER_LOG_FMT_MOD, ONLY: ILF_SECTION
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_SECTION,ILF_ES_TRIM
 	IMPLICIT NONE
 !
 ! Altered 20-Oct-2026 : BA13-TRACE also emits at CONV_DIAG_LVL=1
@@ -1788,13 +1788,15 @@
 	END IF
 !
 !
-! edited 29-Nov-2026: 'Maximm changes' keeps its exact wording
-! (check_convergence.py / cmfgen_convergence.py grep it) at
-! CONV_DIAG_LVL>=1; the DEC/INC vectors are level-2 trace and get
+! edited 29-Nov-2026: the 'Maximm' typo is fixed to 'Maximum';
+! check_convergence.py / cmfgen_convergence.py accept both
+! spellings. The value prints through ILF_ES_TRIM so the exponent
+! width cannot drift. The DEC/INC vectors are level-2 trace with
 ! an index header over their 10 columns.
 !
 	IF(CONV_DIAG_LVL .GE. 1)
-	1    WRITE(6,*)'Maximm changes as returned by SOLVEBA_V13 is',MAXCH
+	1    WRITE(6,'(A,1X,A)')'Maximum changes as returned by SOLVEBA_V13 is',
+	2    TRIM(ILF_ES_TRIM(MAXCH))
 	IF(CONV_DIAG_LVL .GE. 2)THEN
 	  WRITE(6,'(10X,10I10)')(K,K=1,10)
 	  WRITE(6,'(A,10ES10.2)')' DEC_VEC: ',MAX_DEC_VEC(1:10)
