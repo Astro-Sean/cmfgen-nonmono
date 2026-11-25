@@ -481,6 +481,42 @@ boundary data, EPS donor-stencil choice, row scaling, and matched-
 frequency H strides remain the five derivation points that must be
 closed before Phase 1.
 
+## Augmented J+H residual evaluator phase 0 (25-Nov-2026, user-directed)
+
+Question: does the committed J_NEXT_FRQ/H_NEXT_FRQ field solve the
+full coupled moment equations, not just the bounded partial system.
+Plan: implement the augmented-residual diagnostic derived in
+`docs/plans/MOMENT_H_EPS_IMPLICIT_DERIVATION_2026-11-25.md`; report
+RESID_IMPLEMENTED (rows as assembled, stabilisers active) and
+RESID_TARGET (same rows with LAG_SCL=1, uncapped EPS, no XM_POS clip,
+no MOM_H_IMPL mass, centred V11 EPS midpoint stencil) separately for
+moment and H rows; extend the blk-gmres report with raw and
+post-write-policy residuals. Diagnostic only - no solver rewrite.
+Exit criterion: evaluator verified against an independent
+reimplementation; both residuals reported on the committed field.
+
+Status: implemented behind `MOM_AUG_RES` (default F). New routine
+`MOM_AUG_RESID_V1` evaluates the augmented z(k) = [x, h interleaved]
+system including both spatial boundary rows and the explicit
+frequency-upwind H graph; it runs at each MOM_KNOP_REFRESH_V1 exit
+after all write policies and is read-only. New capture arrays carry
+the H-row and lagged-term coefficients (`NU_HU/NU_HL/NU_HS`,
+`NU_VB/NU_VC`, `NU_EPS(U)`, `NU_EPSP(U)`, `NU_LAGSCL`, `NU_SRC`,
+`NU_CUPU`, `NU_T1B`, `NU_KUH`, `NU_OUTBC`, `NU_HCHK`). The blk-gmres
+line now prints raw `||b-Ax||/||b||` next to the preconditioned
+residual plus the committed-field residuals measured after
+rejection/caps. `test_mom_augres` 58/58 PASS (numpy cross-check,
+machine-precision manufactured field, J/H perturbation detection,
+both boundary types, EPS cap/LAG_SCL/XM_POS/H_IMPL splits, rings and
+chains, off-grid reads, skipped columns, NaN counts, state untouched).
+Moment regressions green: test_mom_solve 144, test_mom_nu 53,
+test_mom_blk 67, test_mom_gs 34, test_mom_aa_state 62,
+test_mom_sweep_table 8, test_vadat_keys 102. Default path unchanged;
+flag off reaches no new code. Build caveat this session: a concurrent
+unrelated kv-block conversion landed mid-build twice (jfnk interface,
+mon_interp link), so full `./build.sh` completion is still owed; every
+archive member the batteries consume is fresh and all 528 checks pass.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
