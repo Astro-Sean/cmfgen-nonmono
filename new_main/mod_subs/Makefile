@@ -206,14 +206,14 @@ $(LIB)(solve_for_pops.o) : solve_for_pops.f $(LIB_MOD)(control_variable_mod.o) $
 # jfnk_solve_corr_v1 is the driver called in place of SOLVEBA_V13.
 # editted by Devin (V7-JFNK, 02-Oct-2026)
 
-$(LIB_MOD)(jfnk_solver_v1.o) : jfnk_solver_v1.f90 $(LIB)(jfnk_cmfgen_int_mod.o)
+$(LIB_MOD)(jfnk_solver_v1.o) : jfnk_solver_v1.f90 $(LIB)(jfnk_cmfgen_int_mod.o) $(LIB_MOD)(iter_log_fmt_mod.o)
 	$(F90) -c $(FFREE) jfnk_solver_v1.f90
 	ar $(AR_OPTION) $(LIB_MOD) jfnk_solver_v1.o
 
 # Operator-consistency probe battery (repeatability, FD/JVP/reference
 # direction sweep, additivity, homogeneity). Callback-based so the
 # same code runs the production residual and the unit-test surrogate.
-$(LIB_MOD)(jfnk_op_probe_v1.o) : jfnk_op_probe_v1.f90
+$(LIB_MOD)(jfnk_op_probe_v1.o) : jfnk_op_probe_v1.f90 $(LIB_MOD)(iter_log_fmt_mod.o)
 	$(F90) -c $(FFREE) jfnk_op_probe_v1.f90
 	ar $(AR_OPTION) $(LIB_MOD) jfnk_op_probe_v1.o
 
