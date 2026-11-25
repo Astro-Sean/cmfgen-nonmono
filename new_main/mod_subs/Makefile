@@ -99,7 +99,7 @@ $(LIB)(adjust_r_grid_v4.o) : adjust_r_grid_v4.f $(LIB_MOD)(mod_cmfgen.o) $(UK)
 	$(F90) -c $(OPTION) adjust_r_grid_v4.f
 	ar $(AR_OPTION) $(LIB) adjust_r_grid_v4.o
 
-$(LIB)(check_param_consistency.o) : check_param_consistency.f $(LIB_MOD)(control_variable_mod.o)
+$(LIB)(check_param_consistency.o) : check_param_consistency.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)
 	$(F90) -c $(OPTION) check_param_consistency.f
 	ar $(AR_OPTION) $(LIB) check_param_consistency.o
 
