@@ -283,7 +283,8 @@ REP.check("cap census saved before the per-iteration reset",
 # Both real exit blocks keep all ten conjuncts (the patch must not
 # touch the production gate).
 blocks = re.findall(
-    r"CONV_EXIT_MET=\([\s\S]{0,400}?\.NOT\. LAM_FIELD_NOT_CONVERGED",
+    r"CONV_EXIT_MET=\([\s\S]{0,400}?\.NOT\. LAM_FIELD_NOT_CONVERGED"
+    r"[\s\S]{0,80}?FCONV_CAP_IT_CNT \.EQ\. 0",
     CMF,
 )
 REP.check(
