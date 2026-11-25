@@ -3612,6 +3612,7 @@ subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
    use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_ND, JFNK_RSCALE, &
                                   JFNK_RSCALE_READY, JFNK_BA_DIAG, &
                                   JFNK_BA_DIAG_READY, JFNK_BA_A, &
+                                  JFNK_BA_DIAG_RAW, JFNK_BA_DIAG_RAW_READY, &
                                   JFNK_LU_READY, JFNK_BA_RIDGE_ADD
    implicit none
    integer,          intent(in) :: n, luer
@@ -3740,8 +3741,10 @@ subroutine jfnk_newton_diagnostic_v1(n, s, fx, J_s, F_pred, &
             i, ii, depth, level, var_name, &
             s(ii), fx(ii), J_s(ii), F_pred(ii), &
             DBLE(JFNK_RSCALE(ii)), &
-            merge(DBLE(JFNK_BA_DIAG(level, depth)), 0.0d0, &
-                  JFNK_BA_DIAG_READY .and. allocated(JFNK_BA_DIAG)), &
+            merge(DBLE(JFNK_BA_DIAG_RAW(level, depth)), &
+                  merge(DBLE(JFNK_BA_DIAG(level, depth)), 0.0d0, &
+                        JFNK_BA_DIAG_READY .and. allocated(JFNK_BA_DIAG)), &
+                  JFNK_BA_DIAG_RAW_READY .and. allocated(JFNK_BA_DIAG_RAW)), &
             abs(J_s(ii)) / max(abs(fx(ii)), 1.0d-30)
       else
          write(luer,'(I4,I8,I6,I5,2X,A8,4ES12.3,ES10.2)') &
@@ -4154,6 +4157,7 @@ end subroutine jfnk_tauto_damp_v1
 !----------------------------------------------------------------------
 subroutine jfnk_blk_lsq_solve(np, chol, braw, ridge, reg, rsf, csf, &
      b, z, info_out)
+   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
    implicit none
    integer, intent(in) :: np
    double precision, intent(in) :: chol(np,np), braw(np,np)
@@ -4190,6 +4194,15 @@ subroutine jfnk_blk_lsq_solve(np, chol, braw, ridge, reg, rsf, csf, &
       z = 0d0
       return
    end if
+! DPOTRS reports info=0 even when chol came from a failed DPOTRF --
+! the nonfinite factor just produces a nonfinite solve. Flag it so
+! the SCHUR/LSQ callers do not propagate garbage as a valid step
+! (test_schur S3 finding).
+   if(.not. all(ieee_is_finite(u))) then
+      z = 0d0
+      info_out = np + 1
+      return
+   end if
    do j = 1, np
       z(j) = u(j) * csf(j)
    end do
@@ -4208,6 +4221,7 @@ end subroutine jfnk_blk_lsq_solve
 !----------------------------------------------------------------------
 subroutine jfnk_schur_form_v1(nd, nt, np_, jt, chol, braw, ridge, &
      reg, rsf, csf, s, sipiv, info)
+   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
    implicit none
    integer, intent(in) :: nd, nt, np_, jt
    double precision, intent(in) :: chol(nt,nt,nd), braw(nt,nt,nd)
@@ -4235,6 +4249,14 @@ subroutine jfnk_schur_form_v1(nd, nt, np_, jt, chol, braw, ridge, &
          s(k,k) = s(k,k) - braw(jt,i,k) * w(i)
       end do
    end do
+! A nonfinite S (from a block solve that slipped nonfinite w past
+! DPOTRS info=0) must not reach DGETRF: NaN pivot comparisons can
+! still return info=0 and the caller then applies a garbage
+! factorization.
+   if(.not. all(ieee_is_finite(s))) then
+      info = nd + 1
+      return
+   end if
    call dgetrf(nd, nd, s, nd, sipiv, info)
    return
 end subroutine jfnk_schur_form_v1
@@ -4255,6 +4277,7 @@ end subroutine jfnk_schur_form_v1
 !----------------------------------------------------------------------
 subroutine jfnk_schur_apply_v1(nd, nt, np_, jt, jne, chol, braw, &
      ridge, reg, rsf, csf, s, sipiv, v, info)
+   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
    implicit none
    integer, intent(in) :: nd, nt, np_, jt, jne
    double precision, intent(in) :: chol(nt,nt,nd), braw(nt,nt,nd)
@@ -4309,6 +4332,9 @@ subroutine jfnk_schur_apply_v1(nd, nt, np_, jt, jne, chol, braw, &
       if(jne >= 1 .and. jne <= nt) v(b+jne) = 0d0
       v(b+jt) = zt(k)
    end do
+! Nonfinite input (NaN braw/trhs) can reach the end with every ierr
+! clean; the apply must not hand the Newton loop a garbage z.
+   if(.not. all(ieee_is_finite(v))) info = nd + 1
    return
 end subroutine jfnk_schur_apply_v1
 
