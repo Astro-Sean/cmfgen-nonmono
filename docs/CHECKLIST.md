@@ -1,5 +1,74 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] JFNK Phase 5: per-depth LU backward-error certificate +
+      LSQ fallback (25-Nov-2026). Question: can the per-depth
+      factorization prove fitness instead of trusting dgetrf
+      info=0, and can a depth that defeats the LU ridge ladder
+      be rescued instead of dropping to Jacobi? Evidence plan:
+      opt-in [JFNK_PC_CERT] solves M_s z = M_s v on a fixed
+      probe and rejects when the componentwise relative
+      residual exceeds JFNK_PC_CERT_TOL (default 1e-8);
+      [JFNK_PC_LSQFB] adds one attempt slot past the ladder top
+      that factorizes B^T B + lam^2 I (SPD for lam>0) and is
+      accepted only by the same certificate; JFNK_DEPTH_LSQ(K)
+      records the choice so the apply dispatches DPOTRS there.
+      Both default F. Verdict FIX landed, measured on
+      jfnk_core: test_pc_quality Q7 cert accepts a good block
+      and Q7b rejects at impossible tol; Q8 a block kept
+      exactly singular by identical row+diagonal fails the one
+      unridged LU attempt (ridge_floor=0, itry_cap=1), the LSQ
+      slot factors it and reports lsq_used=T at itry=itry_max+1;
+      Q8b same block with lsqfb off reports lu_ok=F. Harness
+      note: the new OPTIONAL lsq_used dummy crashed
+      implicit-interface test callers on the present() check -
+      test call sites now pass a scratch logical explicitly
+      (external subroutines), test_pc_quality keeps an explicit
+      interface block. Batteries: jfnk_core 9/9 incl new Q7-Q8,
+      opint 36/36, regressions 96 PASS incl new pins, se_solver
+      unchanged (same documented XFAILs). Caveat recorded:
+      dgetrf is backward stable so the certificate rarely
+      rejects LU in practice - its real gate is the LSQ slot,
+      where potrf failure or a bad residual is the only
+      acceptance test. Remaining owed: Issue-A block-local
+      derivative augmentation (folded into this phase scope per
+      plan - not started); thread-count reproducibility (the
+      se_driver surrogate carries no OpenMP; residual-side
+      determinism is by construction - disjoint per-K writes,
+      integer reduction - and only a full-model state can
+      exercise it).
+- [x] JFNK Phase 4: deterministic JVP step (25-Nov-2026).
+      Question: can the FD step be made a pure function of
+      (jfnk_x, v, POPS_BASE) so the effective operator is a
+      fixed map during each Arnoldi cycle? Evidence plan:
+      extend the a-priori caps to cover every crossing
+      JFNK_N_NEW_CLIP counts, delete the eval-result retry,
+      re-measure additivity/homogeneity/repeatability on the
+      surrogate batteries. Verdict FIX landed: the deleted
+      NRETRY loop shrank h on the eval RESULT - deterministic
+      in (x, v) but state- and path-dependent across calls.
+      All four counted crossings are now capped before the
+      single trial eval: the +/-50 bound on T is now applied
+      in both unknown modes (the residual clamps |x_T| at 50
+      unconditionally; previously only capped under JFNK_LOGX)
+      and the non-log pop/ED 1e-100 floor is capped at half
+      the remaining distance. An unprevented crossing (a
+      boundary the caps do not model) keeps the FD as-is and
+      is counted in JFNK_N_JVP_HRETRY; JFNK_CLIP_RETRY is
+      parsed but unused (deck compatibility). Measured after:
+      opint 36/36 with retr=0, caps=0, clip=0, additivity
+      9e-8..1.3e-7 (FD floor), homogeneity exactly 0, bitwise
+      repeatability; se battery unchanged (mild T3 + T21 x3
+      are the documented known-diagnostic FAILs, values
+      bit-identical to pre-change); regressions 87 PASS incl
+      new pins for the deterministic step and a-priori caps.
+      T9 null-direction floor (rel err 3.5 at 1e-8) is
+      unchanged and inherent to forward FD - the
+      true-residual gate remains the mitigation, by design.
+      Note: the Phase-2 PTC x~=0 test (test_ptc_coords.f90)
+      landed in the prior commit batch; the entry below still
+      lists it as owed. Remaining owed: Phase-5 per-depth LU
+      backward-error certificate + TSVD/LSQ fallback; Issue-A
+      block-local augmentation; thread-count reproducibility.
 - [x] JFNK independent audit + phase-1 fixes (25-Nov-2026).
       Audit verdicts: (a) BA-vs-FD Jacobian gap CONFIRMED at
       source - JFNK_SYNC_ATM_FROM_POPS recomputes POPION,
@@ -564,6 +633,135 @@ flag off reaches no new code. Build caveat this session: a concurrent
 unrelated kv-block conversion landed mid-build twice (jfnk interface,
 mon_interp link), so full `./build.sh` completion is still owed; every
 archive member the batteries consume is fresh and all 528 checks pass.
+
+## Moment solver FIX 1 + FIX 2 (25-Nov-2026, next phase of the augres plan)
+
+Question: can the two correctness defects the Phase-0 audit
+confirmed be removed without touching the operator - the
+MOM_ADAPT_OMEGA_V2 estimator ratioing residuals across
+alternating directional maps (audit F), and the outer-AA
+commit bypassing every pass-level guard (audit G).
+Evidence plan: implement proposals FIX 1 (same-direction
+residual ratios) and FIX 2 (single post-AA commit gate) from
+docs/plans/MOMENT_AUG_RES_PHASE2_FIXES_2026-11-25.md; verify
+on a manufactured-input driver rather than a solver sweep.
+Exit criterion: estimator within 5% of known rho on
+manufactured maps and no AA-to-commit path past the gate.
+
+Verdict FIX landed, both proposals. FIX 1: RES_PASS now holds
+one slot per sweep direction and MOM_SAME_DIR_RHO ratios only
+consecutive same-direction entries (stride-2 under ALT), so
+the estimator reads each map's own contraction instead of the
+cross-map beat. Falls back to the previous cross-call ratio
+only while fewer than three same-direction ratios exist.
+FIX 2: JBEST/HBEST snapshot the field before the outer-AA
+block and MOM_RF_COMMIT_GATE runs once after AA and before
+the maturity census - non-finite or 1e40 values, J<=0 cells,
+50x jumps, and bulk regression of the pre-AA n5/n50 counts
+each reject and restore the snapshot atomically with a WARN
+per cause. New unit pair drv_mom_gate + test_mom_gate
+(45/45): rho recovered on manufactured alternating maps,
+diverging map reads 1.69, the old beat false-positive is not
+flagged, and the gate rejects plus restores on every
+violation class. Regressions green: test_mom_solve 144,
+test_mom_augres 58, test_mom_aa_state 62, test_mom_nu 53,
+test_mom_blk 67, test_mom_gs 34, test_mom_sweep_table 8,
+test_vadat_keys 102. Default path unchanged - V2 estimator
+remains opt-in and the gate runs inside the existing
+LAA_OK block. Still owed: same-direction ratio consistency
+on a real capture; FIX 3-5 wait on the first real-case
+MOM_AUG_RES arm for a damage ranking.
+
+## First real-case MOM_AUG_RES arm (25-Nov-2026)
+
+Question: on a real non-monotonic m15 iterate, how large is the
+implemented-vs-target residual gap on the committed field, and
+which stabiliser (LAG_BND, EPS cap, XM_POS, H_IMPL mass, EPS
+donor stencil) accounts for most of it - the ordering evidence
+for FIX 3-5.
+Arm: configs/dessart_m15_2p82d_VAL_sob_lamesF_blkgmres_augres.yaml,
+the r01 deck (USE_LAM_ES=F, MOM_BLKGMRES=T, JNEXT_RELAX=0.1 cold
+start, ND=70, FIX_T pinned) plus MOM_AUG_RES=T; debug submission
+on the interactive partition (job 13685499; the first attempt,
+13685125, surfaced a latent internal-write overflow in
+cmfgen_sub.f's F-ITER summary - TMP_STRING*80 vs an 88-char
+message - fixed and rebuilt). Live arms checked first - the
+three lamesF_blkgmres runs carry no MOM_AUG_RES and answer
+different questions.
+Evidence plan: mom-aug lines at each MOM_KNOP_REFRESH_V1 exit
+give the two residual norms and the per-mechanism counters;
+extract the series over the captured iterations.
+Exit criterion: a residual-damage ranking with magnitudes, or a
+documented statement that the diagnostic produced no usable
+exits; the arm is cancelled as soon as that answer is in.
+
+Verdict (25-Nov-2026, arm cancelled once the answer was in):
+8 evaluator exits captured over the first ~50 min of a cold
+start; every refresh stalled and retained the pre-refresh field
+(stored-field change 0.0), so the series measures the retained
+store under drifting row coefficients. Results:
+- Scaled moment residual s2mom: 81 at it1 rising to ~330 and
+  plateauing. IMP vs TGT gap: 18% at it1 shrinking to ~1.5-4%
+  later - on a diverging field the equation modifications
+  explain only a small share of the committed-field residual;
+  non-convergence itself dominates.
+- Scaled H residual s2H: 152 at it1, then 1e14..1e56 - the H
+  rows are catastrophically inconsistent and their share grows
+  without bound. This is audit finding B made quantitative:
+  H is reconstructed per sweep column and never re-derived
+  after the block solve, so the stored J/H pair does not solve
+  the augmented system by construction. Largest measured
+  residual damage by orders of magnitude; evidence for FIX 4.
+- Per-mechanism site counts, stable across all 8 exits:
+  lagb ~1.10-1.16M rows scaled every exit (pervasive, not
+  rare), hclip ~157-172k, xmclip ~29-35k, epscap 0 every exit
+  (the EPS cap never fires on this model), offgrid ~1.2-1.5k,
+  bndrows ~400-590, nan 0.
+- The FIX 2 commit gate fired 6 times on real data, all
+  bulk-regression rejections: the outer-AA write moved
+  7.8k-13.8k cells >5% on fields whose guarded path committed
+  zero movement (pre-AA counts 0/0 every exit), and each write
+  was vetoed and restored. The pre-AA baseline is 0/0 whenever
+  the whole sweep is rejected, so AA churn on a rejected sweep
+  always reads as regression - conservative and intended.
+Damage ranking for FIX 3-5: (1) FIX 4 implicit H coupling -
+  s2H is the dominant residual by orders of magnitude; (2)
+  FIX 5 LAG_BND retirement - pervasive (~1.1M rows) but its
+  measured share of s2mom is small; (3) XM_POS ~30k cells;
+  (4) FIX 3 EPS work last - the cap is dormant on this model
+  and the stencil share sits inside the small IMP-TGT gap.
+FIX 1 note: the V2 estimator was not exercised (r01 deck pins
+JNEXT_RELAX); its real-capture consistency check stays open
+and needs an MOM_ADAPT_RELAX=T arm.
+
+## FIX 4 stage-1: augmented-solve contraction prototype (25-Nov-2026)
+
+Question: does the augmented operator (lagged H bracket and H
+reconstruction as implicit rows, z = [x, h interleaved], no
+diagonal mass) contract on a case where the lagged map requires
+MOM_H_IMPL - and what does the mass cost the fixed point.
+Evidence plan: unit_tests/python/test_mom_himpl.py builds both
+operators in numpy from the drv_mom_augres captured-array dumps
+(the "hcon" case = epsmix capture with NU_VB/NU_VC x30) and
+measures the lagged map spectral radius with and without mass,
+the massed-vs-true fixed-point shift, and GMRES iteration counts
+on the augmented operator.
+Exit criterion: the FIX 4 proposal's own - the augmented
+prototype contracts without mass where the lagged map needs it.
+
+Verdict: exit criterion met; FIX landed at prototype stage.
+- rho(lagged, no mass) = 2.55 -> diverges; rho(massed) = 0.83.
+- The massed fixed point is shifted 57% in x from the true
+  solution - the uncompensated |VB|+|VC| diagonal buys
+  contraction at a large model error, quantifying the cost the
+  MOM_H_IMPL comment already flagged qualitatively.
+- The unmassed augmented operator solves exactly (residual
+  2.8e-16, manufactured field recovered to 1.8e-15); GMRES
+  converges in 55 iterations bare, 31 with the per-frequency
+  dense-block preconditioner.
+Next: stage 2 is a production-side matrix-free matvec for the
+augmented operator behind a flag, credited by RESID_TARGET on a
+real capture; MOM_H_IMPL retires only after that lands.
 
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
