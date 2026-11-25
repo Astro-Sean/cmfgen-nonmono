@@ -22,19 +22,30 @@ The observed-frame continuum rescue described below is enabled by default.
 - **Knop formal solver** (Knop, Hauschildt & Baron 2009): sign-aware
   comoving-frame frequency coupling for velocity reversals. This route
   remains diagnostic; full-model convergence and physical correctness
-  are not established. Lagged `I_NEXT`/`J_NEXT` maps are checkpointed
+  are not established. Input forcing sets `KN_NO_GAIN=T`,
+  `USE_LAM_ES=T` and `DO_NONMONO_FREQ_MATCH=T` so the lagged map
+  stays non-expanding. Lagged `I_NEXT`/`J_NEXT` maps are checkpointed
   across restarts and refreshed before each population update.
 - **Non-monotonic Sobolev treatment** (Dessart, Audit & Hillier
   2015): the unclamped velocity gradient drives the line opacity in
   the compression zone and the optical-depth denominator is floored
-  so it cannot cross zero.
+  so it cannot cross zero. Two routes sit under the flag. The
+  production route (`USE_LAM_ES=T`) takes continuum J from the
+  `FG_J_CMF_V13` formal solve on the clamped gradient and converged
+  on the m15 interacting model. The opt-in moment route
+  (`USE_LAM_ES=F`, `MOM_J_CMF_NONMONO_V1`) is experimental and has
+  not shown contraction. Solver modes incompatible with the route
+  are rejected at input and related keys are normalised.
 - **Newton-Krylov population solve** (Knoll & Keyes 2004; Arramy et
   al. 2024): an optional GMRES population update with residual-based
   acceptance and bounded budgets. Admission requires the formal-J path
   (`USE_LAM_ES=T`); input checks reject `DO_JFNK` on the
   moment-store route. Enabling the flag does not guarantee admission.
   Frozen-J updates use stored radiative terms; coupled transfer requires
-  separate controls. Full-model effectiveness remains unverified.
+  separate controls. The per-depth factorisation carries a
+  certificate check with a least-squares fallback when the factor
+  apply does not contract. Full-model effectiveness remains
+  unverified.
 - **Coupled moment block solve** (`MOM_BLKGMRES`, default off):
   on the opt-in `USE_LAM_ES=F` moment route, the captured
   wavelength-depth rows can be solved in one matrix-free restarted
@@ -44,6 +55,26 @@ The observed-frame continuum rescue described below is enabled by default.
   and boundary closures remain outer-iteration data. The solver
   follows the Baron & Hauschildt coupled-system direction and remains
   an unvalidated research option.
+- **Approximate-Lambda acceleration** (`DO_FG13_ALO`,
+  `DO_BA_RES_ACC`, `DO_BA_RES_REUSE`): the V13 formal solve stores
+  the same Olson-Auer-Buchler diagonal the Knop solver uses, and the
+  population update accepts and reuses steps on residual criteria.
+  All three are absent-key auto-sets on the production SOB route.
+- **LAMBDA-phase quarantine** (`BA_LQ_DEM`, `BA_LQ_PAT`,
+  `DO_BA_QUAR`): rows that demand beyond the cap on consecutive
+  LAMBDA calls are parked so their corrections stop churning the
+  exit census; each parking is reported and bounded by
+  `BA_QUAR_MAX`.
+- **Staged solver handoff and exit gating**: a gated LAMBDA warmup
+  hands off to the BA/JFNK step only when field-convergence gates
+  pass, and the converged exit runs a multi-gate census
+  (`CONV_EXIT_EVAL`) including a stored f-iteration cap census, so a
+  warm-started or still-drifting field cannot force an early exit.
+- **Sobolev render wings** (`DO_SOB_DEP_WINGS`, `SOB_DEP_WING_EXT`
+  OBS keys, default off): the deposited Sobolev line core continues
+  as 1/x^2 damping wings out to a configurable extent instead of
+  truncating at three Doppler widths, matching the optical wings
+  the full CMF solve produces.
 - **Trace-species handling**: demand floors plus a Stage-B polish
   phase stop physically empty levels from stalling the convergence
   exit.
