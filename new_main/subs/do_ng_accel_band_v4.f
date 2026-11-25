@@ -543,6 +543,7 @@
 	SUBROUTINE NG_SHADOW_REPORT_V1(RDX,NREC,NT_MOD,ND,NBAND,
 	1            LST_NG,IREC,LUER)
 	USE SET_KIND_MODULE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB,ILF_VI
 	IMPLICIT NONE
 !
 	INTEGER NREC            !records available in RDX (>=4)
@@ -571,8 +572,9 @@
 !
 	NW=MIN(NREC,NMAX)
 	IF(LST_NG .GT. 0)NW=MIN(NW,IREC-LST_NG)
-	WRITE(LUER,'(A,I6,A,I6,A,I3)')
-	1 'ng shadow: irec=',IREC,' lst_ng=',LST_NG,' nwin=',NW
+	CALL ILF_KVB(LUER,'ng shadow:',3,
+	1 (/'irec   ','lst_ng','nwin  '/),
+	2 (/ILF_VI(IREC),ILF_VI(LST_NG),ILF_VI(NW)/))
 	IF(NW .LT. 4)RETURN
 !
 	IF(NBAND .LE. 0 .OR. NBAND .GE. ND)THEN
