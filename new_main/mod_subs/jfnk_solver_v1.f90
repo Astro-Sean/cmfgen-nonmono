@@ -755,6 +755,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    use jfnk_solver_v1_mod
    use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_COUPLED_LOC
    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+   use iter_log_fmt_mod, only: ilf_kvb, ilf_vi, ilf_vr
    implicit none
    external                        :: f, df, dfp, sub
    double precision, external      :: dp
@@ -913,9 +914,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! (Oct-2026 JFNK_MXDL fix)
    if(del < 0d0 .and. mxdl <= 0d0)  mxdl_ = 1d99
    !
-   if(info == 1) write(luer,'(A,I3,A,ES12.4,A,ES12.4)') &
-      '  JFNK: nits=', jfnk_nits, ' res=', real(jfnk_tol), &
-      ' maxch_est=', real(jfnk_maxch_est)
+   if(info == 1) call ilf_kvb(luer, '  JFNK:', 3, &
+      (/'nits','res','maxch_est'/), &
+      (/ilf_vi(jfnk_nits), ilf_vr(jfnk_tol,4), ilf_vr(jfnk_maxch_est,4)/))
    if(info == 1) flush(luer)
    !
    call sub()
@@ -1087,10 +1088,10 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(info == 1 .and. ginfo /= 2) then
          if(jfnk_ptc_active) then
             write(luer,'(A)') ' '
-            write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
-               '  JFNK: eta=', real(jfnk_eta), &
-               '   gres=', real(gres), &
-               '   dtau=', real(jfnk_ptc_dtau)
+            call ilf_kvb(luer, '  JFNK:', 3, &
+               (/'eta ','gres','dtau'/), &
+               (/ilf_vr(jfnk_eta,3), ilf_vr(gres,3), &
+                 ilf_vr(jfnk_ptc_dtau,3)/))
          else
             write(luer,'(A)') ' '
             write(luer,'(A,ES10.3,A,ES10.3)') &
@@ -1169,9 +1170,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! One-time step diagnostic (09-Sep-2026)
       if(jfnk_nits == 0 .and. info == 1) then
-         write(luer,'(A,ES14.6,A,ES14.6,A,ES14.6)') &
-            '  JFNK STEP DIAG: |s|_w=', real(snrm), &
-            ' |s|_inf=', real(s_inf), ' |s|_max=', real(maxval(s))
+         call ilf_kvb(luer, '  JFNK STEP DIAG:', 3, &
+            (/'|s|_w  ','|s|_inf','|s|_max'/), &
+            (/ilf_vr(snrm,6), ilf_vr(s_inf,6), ilf_vr(maxval(s),6)/))
          write(luer,'(A,ES14.6,A,ES14.6)') &
             '    s_min=', real(minval(s)), ' s_max=', real(maxval(s))
       end if
@@ -1264,9 +1265,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             snrm_tr = snrm_tr * scale_fac   ! 2026-09-13 TR-units fix
             s_inf = jfnk_step_inf_cap
             jfnk_n_step_scaled = jfnk_n_step_scaled + 1
-            if(info == 1) write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
-               '  JFNK: scaled step by ', real(scale_fac), &
-               ' |s|=', real(snrm), ' |s|_inf=', real(s_inf)
+            if(info == 1) call ilf_kvb(luer, '  JFNK:', 3, &
+               (/'scaled step by','|s|          ','|s|_inf      '/), &
+               (/ilf_vr(scale_fac,3), ilf_vr(snrm,3), ilf_vr(s_inf,3)/))
          end if
       end if
       !
@@ -1722,9 +1723,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                   jfnk_del = min(mxdl_, snrm_tr * 2d0)
                end if
                ared = tol_ - jfnk_tol
-               if(info == 1) write(luer,'(A,ES10.3,A,ES14.4,A,ES14.4)') &
-                  '  JFNK: line search accepted α=', real(alpha_ls), &
-                  ' ||F||=', real(jfnk_tol), ' ||s||=', real(snrm)
+               if(info == 1) call ilf_kvb(luer, &
+                  '  JFNK: line search accepted:', 3, &
+                  (/'alpha ','||F||','||s||'/), &
+                  (/ilf_vr(alpha_ls,3), ilf_vr(jfnk_tol,4), &
+                    ilf_vr(snrm,4)/))
                jfnk_n_ls_used = jfnk_n_ls_used + 1
                exit ls_loop
             end if
@@ -2089,16 +2092,16 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_maxch_est >= 0d0 .and. jfnk_maxch_est < jfnk_maxch_tol
       if(maxch_converged .and. jfnk_tol >= tol .and. info == 1) then
          if(JFNK_COUPLED_LOC) then
-            write(luer,'(A,ES12.4,A,ES12.4,A,ES12.4)') &
-               '  JFNK: maxch-only convergence blocked in coupled mode; maxch_est=', &
-               real(jfnk_maxch_est), ' |F|=', &
-               real(jfnk_tol), ' |F|/|F0|=', &
-               real(jfnk_tol/max(tol_initial,1d-30))
+            call ilf_kvb(luer, &
+               '  JFNK: maxch-only convergence blocked in coupled mode:', &
+               3, (/'maxch_est','|F|      ','|F|/|F0| '/), &
+               (/ilf_vr(jfnk_maxch_est,4), ilf_vr(jfnk_tol,4), &
+                 ilf_vr(jfnk_tol/max(tol_initial,1d-30),4)/))
          else
-            write(luer,'(A,ES12.4,A,ES12.4,A,ES12.4)') &
-               '  JFNK: maxch-only convergence; maxch_est=', &
-               real(jfnk_maxch_est), ' |F|=', real(jfnk_tol), &
-               ' |F|/|F0|=', real(jfnk_tol/max(tol_initial,1d-30))
+            call ilf_kvb(luer, '  JFNK: maxch-only convergence:', 3, &
+               (/'maxch_est','|F|      ','|F|/|F0| '/), &
+               (/ilf_vr(jfnk_maxch_est,4), ilf_vr(jfnk_tol,4), &
+                 ilf_vr(jfnk_tol/max(tol_initial,1d-30),4)/))
          end if
       end if
       if(jfnk_tol < tol .or. &
@@ -3854,6 +3857,7 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
                                   jfnk_gmres_beta, jfnk_gmres_z, &
                                   jfnk_gmres_g, jfnk_gmres_x_cycle_start
    use jfnk_cmfgen_int_mod, only: JFNK_RSCALE, JFNK_RSCALE_READY
+   use iter_log_fmt_mod, only: ilf_kvb, ilf_vi, ilf_vr
    implicit none
    integer,          intent(in) :: n, luer
    double precision, intent(in) :: x_cur(n), fx_cur(n), gres, del
@@ -3959,8 +3963,9 @@ subroutine jfnk_gmres_dim_experiment_v1(n, x_cur, fx_cur, df, dfp, dp, &
          if(JFNK_RSCALE(i) > rs_max) rs_max = JFNK_RSCALE(i)
       end do
       rs_ratio = rs_max / max(rs_min, 1.0d-30)
-      write(luer,'(A,ES14.4,A,ES14.4,A,ES14.4)') &
-         '  RSCALE: min=', rs_min, ' max=', rs_max, ' ratio=', rs_ratio
+      call ilf_kvb(luer, '  RSCALE:', 3, &
+         (/'min  ','max  ','ratio'/), &
+         (/ilf_vr(rs_min,4), ilf_vr(rs_max,4), ilf_vr(rs_ratio,4)/))
    end if
    write(luer,'(A)') ' '
    !
