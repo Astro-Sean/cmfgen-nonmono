@@ -354,13 +354,15 @@ write-back policy; otherwise the two changes cannot be attributed.
 Cold-start arm authorised by the user 25-Nov-2026:
 `m15_2p82d_VAL_sob_lamesF_blkgmres_cold`, same eps1em3 deck with
 `MOM_BLKGMRES=T` and `MOM_H_IMPL=F`, but no warm-restart checkpoint.
-Question: can the coupled moment route converge as a self-consistent
-population/field iteration once the USE_LAM_ES=T solver-swap shock is
-removed. Exit criterion: convergence, a bounded stall reproducing the
-warm-start behaviour, or detonation. This arm takes precedence over any
-write-back source edit because its verdict decides whether the warm
-stall was mostly an initial-condition shock or a structural outer-loop
-defect.
+CMFGEN 13671134 and OBS 13671135 were submitted 25-Nov-2026 with the
+same pinned executable sha256 as the H_IMPL arm. The resolved config
+has no `warm_restart_from` entry. Question: can the coupled moment
+route converge as a self-consistent population/field iteration once the
+USE_LAM_ES=T solver-swap shock is removed. Exit criterion: convergence,
+a bounded stall reproducing the warm-start behaviour, or detonation.
+This arm takes precedence over any write-back source edit because its
+verdict decides whether the warm stall was mostly an initial-condition
+shock or a structural outer-loop defect.
 
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
