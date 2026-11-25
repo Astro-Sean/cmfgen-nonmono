@@ -19,6 +19,8 @@ module jfnk_cmfgen_int_mod
    logical :: JFNK_BA_BUILT = .false.
    double precision, allocatable :: JFNK_BA_DIAG(:,:)
    logical :: JFNK_BA_DIAG_READY = .false.
+   double precision, allocatable :: JFNK_BA_DIAG_RAW(:,:)
+   logical :: JFNK_BA_DIAG_RAW_READY = .false.
    double precision, allocatable :: JFNK_BA_A(:,:,:)
    logical :: JFNK_LU_READY = .false.
    double precision, allocatable :: JFNK_BA_RIDGE_ADD(:,:)
