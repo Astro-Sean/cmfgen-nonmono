@@ -428,6 +428,21 @@ def prod_obj(src):
 
 
 def prod_objs(srcs):
+    """prod_obj for each source, plus registered companion members.
+
+    Member-level links resolve no archive search, so a member that
+    USEs a module must have that module's .o on the link line too;
+    _PROD_COMPANION_SOURCES records those pairings.  Same expansion
+    as compile_and_link_prod so prod_objs+link_prod callers get it
+    for free.
+    """
+    srcs = [Path(s) for s in srcs]
+    have = {s.name for s in srcs}
+    for s in list(srcs):
+        for comp in _PROD_COMPANION_SOURCES.get(s.name, []):
+            if Path(comp).name not in have:
+                srcs.append(TREE / comp)
+                have.add(Path(comp).name)
     return [prod_obj(s) for s in srcs]
 
 
@@ -455,12 +470,32 @@ def _prod_mod_mtime():
 # production archive members. prod_obj links individual members rather
 # than whole archives, so these companions must be explicit.
 _PROD_COMPANION_SOURCES = {
-    "mom_j_cmf_nonmono_v1.f": ["plane/mom_blk_gmres_mod.f"],
-    # ilf_* logging calls entered both objects with the kv-block
+    "mom_j_cmf_nonmono_v1.f": [
+        "plane/mom_blk_gmres_mod.f",
+        "new_main/mod_subs/iter_log_fmt_mod.f90",
+    ],
+    # ilf_* logging calls entered these objects with the kv-block
     # refactor; prod_obj links members, not archives, so the module
     # object must ride along explicitly.
     "jfnk_op_probe_v1.f90": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
     "jfnk_solver_v1.f90": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "jfnk_solve_corr_v1.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "jfnk_cmfgen_interface_v1.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "comp_j_blank.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "solve_for_pops.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "cmfgen_sub.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "hydcrossl.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "mon_interp.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "rv_sn_model_snhyd.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "solveba_v13.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "do_ng_accel_band_v4.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "set_two_phot_v3.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "two_phot_opac_v3.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "set_two_phot_disp_v3.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "two_phot_opac_disp_v3.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "fg_j_cmf_nonmono_v1.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "fg_j_cmf_v13.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "conv_strk_v2.f": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
 }
 
 
