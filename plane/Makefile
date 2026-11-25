@@ -104,6 +104,8 @@ $(LIB)(%.o) : %.f
 	$(F90) -c $(OPTION) $<
 	ar $(AR_OPTION) $(LIB) $*.o
 
+$(LIB)(fg_j_cmf_v13.o) : fg_j_cmf_v13.f $(MOD_DIR)iter_log_fmt_mod.mod
+
 $(LIB)(characteristics_v2.o) : characteristics_v2.f $(LIB)(mod_space_grid_v2.o)
 	$(F90) -c $(OPTION) characteristics_v2.f
 	ar $(AR_OPTION) $(LIB) characteristics_v2.o
@@ -152,7 +154,7 @@ $(LIB)(fg_j_cmf_v12.o) : fg_j_cmf_v12.f $(LIB)(mod_ray_mom_store.o)
 	$(F90) -c $(OPTION) fg_j_cmf_v12.f
 	ar $(AR_OPTION) $(LIB) fg_j_cmf_v12.o
 
-$(LIB)(fg_j_cmf_nonmono_v1.o) : fg_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)iter_ledger_mod.mod
+$(LIB)(fg_j_cmf_nonmono_v1.o) : fg_j_cmf_nonmono_v1.f $(LIB)(mod_ray_mom_store.o) $(MOD_DIR)iter_ledger_mod.mod $(MOD_DIR)iter_log_fmt_mod.mod
 	$(F90) -c $(OPTION) fg_j_cmf_nonmono_v1.f
 	ar $(AR_OPTION) $(LIB) fg_j_cmf_nonmono_v1.o
 
