@@ -1413,6 +1413,21 @@
 	1     'Coupled wavelength-depth GMRES solve after each MOM pass?')
 	  CALL SET_MOM_BLKGMRES(MOM_BLKGMRES)
 !
+! MOM_AUG_RES (default FALSE): capture the H-row and lagged-term
+! coefficients alongside the NU_* block capture and report the
+! residual of the full coupled J+H moment equations on the
+! committed J_NEXT_FRQ/H_NEXT_FRQ fields at each refresh exit.
+! Two evaluations are reported: RESID_IMPLEMENTED (the equations
+! as assembled, with every stabiliser active) and RESID_TARGET
+! (the same rows with the equation-changing stabilisers removed).
+! Read-only diagnostic; no solver state changes. It also forces
+! the NU_* capture on when neither implicit solver is selected.
+!
+	  MOM_AUG_RES=.FALSE.
+	  CALL RD_STORE_LOG(MOM_AUG_RES,'MOM_AUG_RES',L_FALSE,
+	1     'Report implemented+target augmented J+H residuals?')
+	  CALL SET_MOM_AUG_RES(MOM_AUG_RES)
+!
 ! MOM_FAC_RLX (default 0.25 since 06-Nov-2026, was 1.0 = off):
 ! under-relax the Eddington-factor update between great iterations
 ! in MOM_J_CMF_NONMONO_V1. With pops held the formal-solve factor
