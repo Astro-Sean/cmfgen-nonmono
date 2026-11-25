@@ -793,3 +793,55 @@ debug exe relinked.
 - First telemetry: arm B sibling-median seed is a large perturbation
   (dab=8.26E4, nfill=169128, schg=1.0, pcrs=2.280 vs 0.629 retained).
   Arm C used its documented fallback (used=4) on refresh 1.
+### 2026-11-25 Convergence-strategy defects: jump-guard scale, cap-exit gate, omega sign, bulk veto
+
+- FIX (confirmed defect): the W16 best-pass guard and
+  MOM_RF_COMMIT_GATE both keyed the 50x jump test on
+  MAX(|store|)/50 reduced over ALL frequency columns, so a bright
+  column licensed unlimited growth in dim ones. Manufactured
+  200-column 12-decade spectrum: dim-column blow-ups of 1e2..1e8x
+  flagged 0 cells under the global rule vs 3000 under a
+  per-column scale. Both callers now share MOM_JUMP_CENSUS:
+  per-column store peak /50 floored at 1E-300, floor columns
+  (peak <= 1E-28) referenced to the nearest committed column's
+  peak, exempt only on a true cold start - the moment-grid
+  analogue of FG_JUMP_MAX's sibling reference.
+- FIX (confirmed gap): FCONV_CAP_CNT counted f-iteration cap
+  exits but was reset each iteration unread, so CONV_EXIT_MET
+  could report convergence with an unconverged electron-
+  scattering source in the rates. The census is saved to
+  FCONV_CAP_IT_CNT/T1 before the reset and added as a tenth
+  conjunct in both CMFGEN_SUB exit blocks and the ITER_SUM
+  replica (CONV_EXIT_EVAL); held exits name the reason via
+  CONV_EXIT_WHY and a "Converged exit deferred" line. Deadlock
+  note: a persistently capping run now holds until the iteration
+  budget exhausts - identical to the stock outcome (unconverged
+  exit), no new threshold or fallback.
+- INVESTIGATION (confirmed, prototype off by default): the
+  adaptive JNEXT_RELAX omega update is sign-blind -
+  rho=|r_k|/|r_{k-1}| cannot separate oscillation (lambda<0,
+  wants omega<1) from slow monotone contraction (lambda>0, wants
+  omega up to 1/(1-lambda)). Scalar-map model: lambda=+0.9 gives
+  asymptotic factor 0.949 vs 0.9 undamped (400-cap vs 259 iters);
+  lambda=-0.9 gives 28 vs 277. Signed estimate
+  lambda_hat=<d_k,d_prev>/<d_prev,d_prev> on same-direction
+  update vectors implemented behind MOM_OMEGA_SGN (module flag,
+  default F, no VADAT key; [MOM_OMEGA_SGN] proposed in the PR).
+  Inner AA runs every second pass, so the measured trajectory is
+  the AA-mixed one, not the bare map. FG_ADAPT_OMEGA_V2 shares
+  the defect class but uses different machinery; port deferred.
+- INVESTIGATION (confirmed, rule unchanged): the commit gate's
+  bulk census prices movement vs the retained store, not
+  residual reduction, so it vetoes exactly the steps outer AA
+  exists to take. Manufactured rho=0.95 map: a 3-term Aitken
+  step at residual ~1e-13 was rejected 36 times (gate: N5F/N50F
+  counts exceed the pre-AA counts); 3 iters ungated vs 111
+  gated. No "commit gate rejected" lines exist in repo test or
+  audit logs. Proposal recorded in the PR: residual-based
+  acceptance r(F)=|G(F)-F| at one extra map eval per gate call.
+- Tests: drv_mom_gate gained dimjmp/dimok/flrseed/flrjmp/
+  coldstr/aalegit and sgnpos/sgnosc/sgnfew cases;
+  test_mom_gate.py asserts the new verdicts and warn text;
+  drv_conv_exit.f90 extended to the 1024-combination truth table
+  plus case G_cap; test_conv_exit.py pins the tenth gate, the
+  saved census, and the suppressed-warning exclusion.
