@@ -404,8 +404,32 @@ which stamps the same value in the initial VADAT.
   rows. Lagged H,
   EPS scatter, source functions and boundary closures remain outer
   iteration data. Diagnostic solver key.
-- Dead-key warning (25-Nov-2026): `MOM_BLKGMRES`, `MOM_NUSOLV` and
-  `MOM_H_IMPL` only do work inside `MOM_J_CMF_NONMONO_V1` (SOB +
+- `MOM_AUG_RES` (default F, 25-Nov-2026): augmented-residual
+  diagnostic. Captures the H-row and lagged-term coefficients
+  (`NU_HU/NU_HL/NU_HS`, `NU_VB/NU_VC`, `NU_EPS`, `NU_EPSU`,
+  `NU_EPSP`, `NU_EPSPU`, `NU_LAGSCL`, `NU_SRC`, `NU_CUPU`,
+  `NU_T1B`, `NU_KUH`, `NU_OUTBC`, `NU_HCHK`) alongside the `NU_*`
+  row capture, and at each `MOM_KNOP_REFRESH_V1` exit calls
+  `MOM_AUG_RESID_V1` to evaluate the full coupled J+H equations on
+  the committed `J_NEXT_FRQ`/`H_NEXT_FRQ` fields - after block
+  GMRES, negative-cell rejection, write caps, damping, best-pass
+  selection and outer Anderson acceleration. Two evaluations are
+  reported on the `mom-aug` lines: RESID_IMPLEMENTED (the rows as
+  assembled, stabilisers active) and RESID_TARGET (the same rows
+  with the equation-changing stabilisers removed: centred EPS
+  midpoint stencil, `LAG_SCL=1`, uncapped EPS coefficients, no
+  `XM_POS` clip, no `MOM_H_IMPL` diagonal mass). Moment-row and
+  H-row norms are reported separately, raw and row-scale-normalized,
+  with worst cells, stabiliser-activation counts, off-grid reads and
+  non-finite rows. Read-only: no solver state changes. Also forces
+  the `NU_*` capture on when neither `MOM_NUSOLV` nor
+  `MOM_BLKGMRES` is selected. The `blk-gmres` report additionally
+  gains the raw `||b-Ax||/||b||` residual and the committed-field
+  (post-write-policy) raw and preconditioned residuals.
+  Diagnostic key.
+- Dead-key warning (25-Nov-2026): `MOM_BLKGMRES`, `MOM_NUSOLV`,
+  `MOM_H_IMPL` and `MOM_AUG_RES` only do work inside
+  `MOM_J_CMF_NONMONO_V1` (SOB +
   `USE_LAM_ES=F`). Set T on any other route - production
   `USE_LAM_ES=T`, KNOP, `DO_SOB_FG_KNOP`, or stock - and
   `CHECK_PARAM_CONSISTENCY` prints an inert warning; the run is
