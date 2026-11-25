@@ -212,6 +212,25 @@ COVERAGE = {
         UT + "test_obs_nonmono_dispatch.py"]),
 
     # ------------- link path: shipped, no test coverage yet ------------
+    "new_main/subs/two/set_two_phot_v3.f": ("gap",
+        "two-photon SE setup in the cmfgen_dev.exe link path; the "
+        "alteration is ILF kv-block logging only (warning text now "
+        "goes through ILF_TAG), physics unchanged"),
+    "new_main/subs/two/two_phot_opac_v3.f": ("gap",
+        "two-photon opacity in the cmfgen_dev.exe link path; the "
+        "alteration is ILF kv-block logging only, physics unchanged"),
+    "stark/conv_strk_v2.f": ("gap",
+        "Stark-profile convolution in the shipped link path; the "
+        "alteration is ILF_VR/ILF_KVB logging only, physics "
+        "unchanged"),
+    "subs/hydcrossl.f": ("gap",
+        "hydrogenic cross-sections in the cmfgen_dev.exe link path; "
+        "the alteration is ILF kv-block logging only, physics "
+        "unchanged"),
+    "new_main/subs/get_non_loc_gamma_energy_v2.f": ("gap",
+        "ABS_TRANS + INC_RAD_DECAYS=F guard on the decay-energy "
+        "pointer association (stock-path bug fix, 25-Nov-2026); "
+        "shipped untested"),
     "new_main/cmfgen.f": ("exempt",
         "one-line ALLOCATE(SIGMA_TRUE(ND)) in the main program "
         "setup block; runs only in full model runs -- SIGMA_TRUE "
@@ -302,6 +321,10 @@ COVERAGE = {
         "standalone dispgen visualisation executable"),
     "disp/subs/log_mon_interp.f": ("exempt",
         "standalone dispgen visualisation executable"),
+    "disp/subs/set_two_phot_disp_v3.f": ("exempt",
+        "standalone dispgen visualisation executable"),
+    "disp/subs/two_phot_opac_disp_v3.f": ("exempt",
+        "standalone dispgen visualisation executable"),
     "disp/subs/tst_clump_law.f": ("exempt",
         "standalone dispgen visualisation executable"),
     "misc/plt_ion_mf.f": ("exempt", "standalone plotting tool"),
@@ -353,6 +376,12 @@ COVERAGE = {
     "new_main/mod_subs/Makefile": ("exempt",
         "build system; make all must stay clean"),
     "new_main/subs/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "new_main/subs/two/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "disp/subs/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "stark/Makefile": ("exempt",
         "build system; make all must stay clean"),
     "obs/Makefile": ("exempt", "build system; make all must stay clean"),
     "pgplt/Makefile": ("exempt", "build system; make all must stay clean"),
