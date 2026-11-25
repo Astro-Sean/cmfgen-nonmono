@@ -43,6 +43,16 @@ print(prod_obj(TREE / "new_main/mod_subs/jfnk_solver_v1.f90"))
 PYEOF
 )
 
+# jfnk_solver_v1.o calls the ILF print helpers; extract the module
+# object from the production archive the same way.
+ILF_O=$(python3 - "$ROOT" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1] + "/unit_tests")
+from common import TREE, prod_obj
+print(prod_obj(TREE / "new_main/mod_subs/iter_log_fmt_mod.f90"))
+PYEOF
+)
+
 echo "== [solver test] compile stub int_mod"
 $F90 -c jfnk_int_mod_stub.f90 -module mod -o obj/jfnk_int_mod_stub.o
 
@@ -51,8 +61,8 @@ $F90 -c test_jfnk_solver.f90 -Imod -I$ROOT/mod -module mod \
     -o obj/test_jfnk_solver.o
 
 echo "== [solver test] link"
-$F90 obj/jfnk_int_mod_stub.o "$SOLVER_O" obj/test_jfnk_solver.o \
-    -o test_jfnk_solver
+$F90 obj/jfnk_int_mod_stub.o "$SOLVER_O" "$ILF_O" \
+    obj/test_jfnk_solver.o -o test_jfnk_solver
 
 echo "== [interface test] production archives fresh?"
 python3 - "$ROOT" <<'PYEOF'
