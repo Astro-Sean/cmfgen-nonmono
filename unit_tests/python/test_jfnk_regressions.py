@@ -358,12 +358,13 @@ check(
 check(
     "unknown BA src age guarded (src=-1 on disk load)",
     "JFNK_BA_SRC_IT .GE. 0" in defer
-    and "BA src it=unknown" in defer,
+    and "unknown (loaded from disk this run)" in defer,
 )
 check(
     "raw-direction write keeps A/ES pairing",
-    "'(A,ES12.4,4(A,ES12.4))'" in defer
-    and "'(A,5(A,ES12.4))'" not in defer,
+    "raw direction:',5," in defer
+    and "'|BAz|/|F|','|Az|/|F|','cos(F,Az)'" in defer
+    and "'cos(BAz,Az)','|hv|inf'" in defer,
 )
 check(
     "no implicit-interface call to OPTIONAL-arg FACTOR_PRECOND",
@@ -525,4 +526,79 @@ check(
     and sweep.rindex("GOTO 9999", 0, sweep.index("ACCESS_F=JFNK_EDD_START_REC"))
     > -1
     and "GOTO 9999" not in section(sweep, "ACCESS_F=JFNK_EDD_START_REC", "FLUSH(LUER)"),
+)
+
+
+# Issue-E regression: the PTC fold writes the effective (regularized)
+# diagonal into JFNK_BA_DIAG; physical metrics must price against the
+# raw pre-fold diagonal or dtau shrinkage falsely reports convergence.
+check(
+    "Issue E: raw BA diagonal declared in int module",
+    "JFNK_BA_DIAG_RAW(:,:)" in INTMOD
+    and "JFNK_BA_DIAG_RAW_READY" in INTMOD,
+)
+check(
+    "Issue E: factor fills RAW before the fold",
+    "JFNK_BA_DIAG_RAW(J, K) = JFNK_C_MAT(J, J)" in factor
+    and "JFNK_BA_DIAG_RAW_READY = .TRUE." in factor
+    and factor.index("JFNK_BA_DIAG_RAW(J, K) = JFNK_C_MAT(J, J)")
+    < factor.index("JFNK_BA_A(J,J,K) = JFNK_BA_A(J,J,K) + S_PTC"),
+)
+mce = section(
+    INTERFACE,
+    "jfnk_maxch_est = -1.0_LDP",
+    "Pseudo-time term",
+)
+check(
+    "Issue E: MAXCH prices the raw diagonal",
+    "JFNK_BA_DIAG_RAW(J,K)" in mce
+    and "JFNK_BA_DIAG_RAW_READY" in mce,
+)
+for stub in (
+    "tests/f90/jfnk_int_mod_stub.f90",
+    "tests/jfnk_core/jfnk_int_stub.f90",
+    "unit_tests/jfnk_int_mod_stub.f90",
+):
+    check(
+        f"int-module stub defines JFNK_BA_DIAG_RAW ({stub})",
+        "JFNK_BA_DIAG_RAW" in (ROOT / stub).read_text(),
+    )
+
+# Schur S3 regression: a DPOTRS solve through a failed DPOTRF factor
+# returns info=0 with a nonfinite result; the shared block solve and
+# the schur form/apply must flag it rather than hand the Newton loop
+# a garbage direction.
+check(
+    "S3: blk lsq flags nonfinite DPOTRS result",
+    "ieee_is_finite(u)" in SOLVER and "info_out = np + 1" in SOLVER,
+)
+check(
+    "S3: schur form rejects nonfinite S before DGETRF",
+    "ieee_is_finite(s)" in SOLVER,
+)
+check(
+    "S3: schur apply flags nonfinite output",
+    "ieee_is_finite(v)" in SOLVER,
+)
+check(
+    "jfnk_core links the kv-logging companion object",
+    "iter_log_fmt_mod.o" in (ROOT / "tests/jfnk_core/Makefile").read_text(),
+)
+
+# Phase 2: the folded PTC diagonal must carry the u-coordinate map
+# factor exp(-x) for log unknowns -- the same factor the
+# JFNK_PRECOND_V1 apply rescale uses. test_ptc_coords covers the
+# numerical identity at nonzero iterates; this pins the fold site.
+check(
+    "Phase 2: PTC fold uses the u-coordinate exp(-x) map",
+    "S_PTC = S_PTC * EXP(-X_PTC)" in factor
+    and "jfnk_ptc_scale(IDX_PTC)) /" in factor,
+)
+check(
+    "Phase 2: strip routines anchor at x0, not zero",
+    "(x(i) - jfnk_ptc_x0(i)) * jfnk_ptc_scale(i) / &" in SOLVER,
+)
+check(
+    "ptc-coords regression test wired into jfnk_core",
+    "test_ptc_coords" in (ROOT / "tests/jfnk_core/Makefile").read_text(),
 )
