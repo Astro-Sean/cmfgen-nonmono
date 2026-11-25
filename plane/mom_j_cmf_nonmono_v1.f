@@ -400,6 +400,16 @@
 ! cross-call estimator under KN_ADAPT_RELAX.
 !
 	LOGICAL, SAVE :: MOM_ADAPT_OMEGA_V2=.TRUE.
+! MOM_OMEGA_SGN (no VADAT key yet; set by SET_MOM_OMEGA_SGN, default
+! F): signed variant of the V2 estimator. The magnitude ratio loses
+! the residual's sign, so rho_est cannot separate oscillation
+! (wants omega<1) from slow monotone contraction (wants omega=1 --
+! under-damped by 1/(1+rho)). The signed path ratios successive
+! same-direction UPDATE vectors instead and targets
+! 1/(1-lambda_hat). Off by default pending the proposed
+! [MOM_OMEGA_SGN] key; F keeps the V2 magnitude estimator.
+!
+	LOGICAL, SAVE :: MOM_OMEGA_SGN=.FALSE.
 	REAL(KIND=LDP), SAVE :: MOM_RF_RESID_PRV=-1.0_LDP
 !
 ! Per-cell relaxation schedule for the refresh write. Cells whose
@@ -5554,6 +5564,14 @@
 	RETURN
 	END
 !
+	SUBROUTINE SET_MOM_OMEGA_SGN(DO_SGN)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_OMEGA_SGN
+	IMPLICIT NONE
+	LOGICAL DO_SGN
+	MOM_OMEGA_SGN=DO_SGN
+	RETURN
+	END
+!
 ! GET_MOM_CELL_QUAR: return the quarantine mask (XM_BAD mapped to the
 ! SM grid) recorded by the last non-refresh MOM solve, for
 ! DO_VAR_CONT's unconditional ALO diagonal suppression at frozen
@@ -5685,6 +5703,10 @@
 ! same map instead of cross-map beat readings.
 !
 	REAL(KIND=LDP), ALLOCATABLE :: RES_PASS(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: RES_SGN(:,:)
+	INTEGER LDI_PRV,NSGN
+	REAL(KIND=LDP) DSG,DSG_T,SGN_NUM,SGN_DEN
+	LOGICAL L_SGN
 	INTEGER IPIV_OUT(MOM_AA_OUT_M)
 	REAL(KIND=LDP) GRM_OUT(MOM_AA_OUT_M,MOM_AA_OUT_M),
 	1    BRHS_OUT(MOM_AA_OUT_M)
@@ -5884,6 +5906,9 @@
 !
 	ALLOCATE(RES_PASS(2,KN_M_MAXPASS),STAT=IOS)
 	IF(IOS .EQ. 0)RES_PASS=0.0_LDP
+	ALLOCATE(RES_SGN(2,KN_M_MAXPASS),STAT=IOS)
+	IF(IOS .EQ. 0)RES_SGN=0.0_LDP
+	LDI_PRV=0
 !
 ! AA history restarts every call: each refresh iterates a different
 ! map (the source function was rebuilt from updated populations), so
@@ -6445,6 +6470,51 @@
 	      RES_PASS(1,IPASS)=PASS_CHG
 	    END IF
 	  END IF
+!
+! Signed same-direction update ratio for the MOM_OMEGA_SGN variant
+! (edited 25-Nov-2026): the RES_PASS magnitudes cannot separate a
+! contracting monotone pass (+rho) from an oscillating one (-rho),
+! and the two want opposite omega moves. Pair this pass's update
+! against the last same-direction one -- stride 1 when the pass ran
+! the same direction as the pass before, stride 2 under the
+! alternating schedule (one full cycle, the composite map, same
+! pair the LAMC drift estimate uses). Filed to the direction slot
+! so MOM_SAME_DIR_SGN medians it like RES_PASS. The inner products
+! run on the raw map output, before the cycle check and AA write
+! modify J_NEXT_FRQ. IPASS bounds keep the JPREV history inside
+! recorded passes; a zero prior update leaves the slot empty.
+!
+	  IF(ALLOCATED(RES_SGN) .AND. LDI_PRV .NE. 0 .AND.
+	1     ALLOCATED(JPREV4))THEN
+	    SGN_NUM=0.0_LDP;  SGN_DEN=0.0_LDP
+	    IF(LDI .EQ. LDI_PRV .AND. IPASS .GE. 3)THEN
+	      DO L=1,KN_M_NCF
+	        DO I=1,ND_NM
+	          D1=J_NEXT_FRQ(I,L)-JPREV1(I,L)
+	          D2=JPREV1(I,L)-JPREV2(I,L)
+	          SGN_NUM=SGN_NUM+D1*D2
+	          SGN_DEN=SGN_DEN+D2*D2
+	        END DO
+	      END DO
+	    ELSE IF(LDI .NE. LDI_PRV .AND. IPASS .GE. 5)THEN
+	      DO L=1,KN_M_NCF
+	        DO I=1,ND_NM
+	          D1=J_NEXT_FRQ(I,L)-JPREV2(I,L)
+	          D2=JPREV2(I,L)-JPREV4(I,L)
+	          SGN_NUM=SGN_NUM+D1*D2
+	          SGN_DEN=SGN_DEN+D2*D2
+	        END DO
+	      END DO
+	    END IF
+	    IF(SGN_DEN .GT. 0.0_LDP)THEN
+	      IF(LDI .LT. 0)THEN
+	        RES_SGN(2,IPASS)=SGN_NUM/SGN_DEN
+	      ELSE
+	        RES_SGN(1,IPASS)=SGN_NUM/SGN_DEN
+	      END IF
+	    END IF
+	  END IF
+	  LDI_PRV=LDI
 !
 ! edited 28-Sep-2026: best-pass selection runs here, on
 ! the raw map output, before the cycle check and Anderson update
@@ -7176,27 +7246,17 @@
 ! commit-jump). A best-pass cell can sit orders above the retained
 ! store while every aggregate test passes; committing it re-seeds
 ! the next refresh from a near-blowup. Same rule as FG_JUMP_MAX:
-! the write must exceed 50x its stored value AND the stored column
-! scale (MAX(|store|)/50) to count as a jump, so seed/floor cells
-! and ordinary reshaping still commit.
+! the write must exceed 50x its stored value AND that column's
+! stored peak to count as a jump, so seed/floor cells and ordinary
+! reshaping still commit. The scale is per-column -- the earlier
+! global MAX(|store|)/50 let dim columns grow unchecked under a
+! bright one. Floor columns (store peak <= 1E-28) are judged
+! against the nearest committed column's peak, exempt only on a
+! true cold start; see MOM_JUMP_CENSUS.
 !
 	  IF(KEEP_BEST)THEN
-	    T3=0.0_LDP
-	    DO L=1,KN_M_NCF
-	      DO I=1,ND_NM
-	        T3=MAX(T3,ABS(JNEXT_SAVE(I,L)),ABS(HNEXT_SAVE(I,L)))
-	      END DO
-	    END DO
-	    T3=MAX(T3/50.0_LDP,1.0E-300_LDP)
-	    NJMP=0
-	    DO L=1,KN_M_NCF
-	      DO I=1,ND_NM
-	        IF(ABS(JBEST(I,L)-JNEXT_SAVE(I,L)) .GT.
-	1          50.0_LDP*MAX(ABS(JNEXT_SAVE(I,L)),T3) .OR.
-	2          ABS(HBEST(I,L)-HNEXT_SAVE(I,L)) .GT.
-	3          50.0_LDP*MAX(ABS(HNEXT_SAVE(I,L)),T3))NJMP=NJMP+1
-	      END DO
-	    END DO
+	    CALL MOM_JUMP_CENSUS(JBEST,HBEST,JNEXT_SAVE,HNEXT_SAVE,
+	1      ND_NM,KN_M_NCF,NJMP)
 	    IF(NJMP .GT. 0)THEN
 	      KEEP_BEST=.FALSE.
 	      WRITE(LUER,'(A,I10,A)')
@@ -7705,14 +7765,42 @@
 	1      DTR,L,L_V2)
 	    IF(L_V2)THEN
 	      DTR=MIN(MAX(DTR,0.05_LDP),20.0_LDP)
-	      JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
-	1        0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,
-	2        1.0_LDP/(1.0_LDP+DTR)))
-	      WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
+	      DSG_T=MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+DTR)))
+	      L_SGN=.FALSE.
+!
+! MOM_OMEGA_SGN (edited 25-Nov-2026, off by default): the magnitude
+! rho cannot tell oscillation from slow monotone contraction -- for
+! lambda=+0.9 the sign-blind rule parks omega at ~0.5 (factor 0.95)
+! where undamped already gives 0.9, and the cap at 1 then forbids
+! the over-relaxation that would actually help. RES_SGN carries the
+! signed same-direction update ratio lambda_hat ~ <d_k,d_prev> /
+! <d_prev,d_prev> (the JPREV pairs the LAMC drift estimate uses),
+! so the target becomes 1/(1-lambda_hat): oscillation (lambda_hat<0)
+! still damps to <1, monotone contraction (lambda_hat -> 1) releases
+! to the undamped limit instead of halving it. Used only when the
+! signed record has >=3 ratios; the magnitude estimate stays the
+! fallback inside the same V2 branch.
+!
+	      IF(MOM_OMEGA_SGN .AND. ALLOCATED(RES_SGN))THEN
+	        CALL MOM_SAME_DIR_SGN(RES_SGN,SIZE(RES_SGN,2),
+	1          DSG,NSGN,L_SGN)
+	        IF(L_SGN)DSG_T=MIN(1.0_LDP,MAX(0.05_LDP,
+	1          1.0_LDP/(1.0_LDP-DSG)))
+	      END IF
+	      JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+0.5_LDP*DSG_T
+	      IF(L_SGN)THEN
+	        WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
+	1        '    adaptive JNEXT_RELAX: signed contraction'//
+	2        ' factor ',DSG,' (',NSGN,
+	3        ' same-direction update ratios); new relaxation ',
+	4        JNEXT_RELAX
+	      ELSE
+	        WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
 	1        '    adaptive JNEXT_RELAX: estimated'//
 	2        ' contraction factor ',DTR,' (',L,
 	3        ' same-direction ratios); new relaxation ',
 	4        JNEXT_RELAX
+	      END IF
 	    END IF
 	  END IF
 	  IF(.NOT. L_V2 .AND. MOM_RF_RESID_PRV .GT. 0.0_LDP)THEN
@@ -7773,6 +7861,7 @@
 	IF(ALLOCATED(RES_L))DEALLOCATE(RES_L)
 	IF(ALLOCATED(NMUP_L))DEALLOCATE(NMUP_L)
 	IF(ALLOCATED(RES_PASS))DEALLOCATE(RES_PASS)
+	IF(ALLOCATED(RES_SGN))DEALLOCATE(RES_SGN)
 	RETURN
 	END
 !
@@ -8819,7 +8908,11 @@
 !   2. positivity: no J cell driven non-positive that was positive
 !      in the pre-AA field JP;
 !   3. jump: no cell more than 50x over the pre-refresh store
-!      JS/HS (same formula as the best-pass W16 guard);
+!      JS/HS -- literally the W16 check, shared through
+!      MOM_JUMP_CENSUS so the two cannot drift: per-column store
+!      peak as the scale, floor columns (store peak <= 1E-28)
+!      referenced to the nearest committed column and exempt only
+!      on a true cold start;
 !   4. bulk: the >5%/>50% cell counts of JF vs JS must satisfy the
 !      KEEP_BEST lexicographic bound referenced to the pre-AA
 !      counts (strict n50 improvement, or n50 held with n5 held,
@@ -8879,25 +8972,11 @@
 	  END DO
 	END DO
 !
-! 50x jump guard vs the pre-refresh store -- the same W16 rule the
-! best-pass path applies, with the retained-store scale as floor.
+! 50x jump guard vs the pre-refresh store -- the exact W16 check,
+! shared through MOM_JUMP_CENSUS: per-column store scale, floor
+! columns referenced to the nearest committed column.
 !
-	T3=0.0_LDP
-	DO L=1,NCF
-	  DO I=1,NDIM
-	    T3=MAX(T3,ABS(JS(I,L)),ABS(HS(I,L)))
-	  END DO
-	END DO
-	T3=MAX(T3/50.0_LDP,1.0E-300_LDP)
-	NJMP=0
-	DO L=1,NCF
-	  DO I=1,NDIM
-	    IF(ABS(JF(I,L)-JS(I,L)) .GT.
-	1       50.0_LDP*MAX(ABS(JS(I,L)),T3) .OR.
-	2       ABS(HF(I,L)-HS(I,L)) .GT.
-	3       50.0_LDP*MAX(ABS(HS(I,L)),T3))NJMP=NJMP+1
-	  END DO
-	END DO
+	CALL MOM_JUMP_CENSUS(JF,HF,JS,HS,NDIM,NCF,NJMP)
 !
 	IF(NFIN .GT. 0_8)THEN
 	  KEEP=.FALSE.
@@ -8928,5 +9007,163 @@
 	4    ') -- pre-AA field restored  [WARN]'
 	END IF
 !
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! MOM_JUMP_CENSUS: count committed-write jumps for the 50x retained-
+! store guard, shared by the W16 best-pass guard and
+! MOM_RF_COMMIT_GATE so the two checks cannot drift. Ports the
+! FG_JUMP_MAX rule (fg_j_cmf_nonmono_v1.f) to the moment store:
+!
+!   * non-floor column (VMAX_S > 1E-28): a cell is a jump when
+!     |F-S| exceeds 50x the cell's stored value AND the whole
+!     stored column peak, i.e.
+!       |F-S| > 50*MAX(|S|, VMAX_S/50).
+!     The scale is the column's own peak, NOT the global field
+!     peak: a spectrum spanning many decades lets dim columns grow
+!     by orders under a global bound. (Defect fixed 25-Nov-2026:
+!     both callers previously reduced the scale over ALL columns,
+!     so a bright column licensed any blow-up in a dim one.)
+!   * floor column (VMAX_S <= 1E-28): no committed field exists to
+!     compare against. Fills there were once exempt entirely -- the
+!     FG failure channel (committed delta ~3E7 while the guard saw
+!     nothing). The MOM sibling set of FG's per-ray reference is
+!     the neighbouring frequency columns: the refresh passes
+!     propagate field one bin per pass through the lagged upwind
+!     reads, so a legitimate seed lands within 50x of the nearest
+!     committed column's peak. REF is the larger of the nearest
+!     non-floor peaks on each side; a fill is vetoed only when it
+!     exceeds 50*REF. A column with no committed column anywhere
+!     is a true cold start and stays exempt -- there is no scale
+!     to reject against, and a blanket bound would freeze the
+!     first seed forever.
+!
+! FJ/FH are the candidate R^2*J / R^2*H, SJ/SH the retained store.
+! Non-finite store entries contribute nothing to VMAX_S (the same
+! mask FG_JUMP_MAX applies). NJMP counts cells failing either
+! field. edited 25-Nov-2026.
+!
+	SUBROUTINE MOM_JUMP_CENSUS(FJ,FH,SJ,SH,NDIM,NCF,NJMP)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER, INTENT(IN) :: NDIM,NCF
+	REAL(KIND=LDP), INTENT(IN) :: FJ(NDIM,NCF),FH(NDIM,NCF)
+	REAL(KIND=LDP), INTENT(IN) :: SJ(NDIM,NCF),SH(NDIM,NCF)
+	INTEGER, INTENT(OUT) :: NJMP
+!
+	INTEGER I,L,LL
+	REAL(KIND=LDP) VMAX_S(NCF),T3,REFL,REFR
+!
+	NJMP=0
+	DO L=1,NCF
+	  VMAX_S(L)=0.0_LDP
+	  DO I=1,NDIM
+	    IF(ABS(SJ(I,L)) .LE. HUGE(SJ))
+	1      VMAX_S(L)=MAX(VMAX_S(L),ABS(SJ(I,L)))
+	    IF(ABS(SH(I,L)) .LE. HUGE(SH))
+	1      VMAX_S(L)=MAX(VMAX_S(L),ABS(SH(I,L)))
+	  END DO
+	END DO
+!
+	DO L=1,NCF
+	  IF(VMAX_S(L) .LE. 1.0E-28_LDP)THEN
+!
+! Floor column: the nearest committed column on each side sets the
+! seed scale. A contiguous floor region references its committed
+! boundary columns, so a blow-up cannot propagate inward through
+! unguarded floor columns.
+!
+	    REFL=0.0_LDP;  REFR=0.0_LDP
+	    DO LL=L-1,1,-1
+	      IF(VMAX_S(LL) .GT. 1.0E-28_LDP)THEN
+	        REFL=VMAX_S(LL)
+	        EXIT
+	      END IF
+	    END DO
+	    DO LL=L+1,NCF
+	      IF(VMAX_S(LL) .GT. 1.0E-28_LDP)THEN
+	        REFR=VMAX_S(LL)
+	        EXIT
+	      END IF
+	    END DO
+	    T3=MAX(REFL,REFR)
+	    IF(T3 .LE. 1.0E-28_LDP)CYCLE
+	    DO I=1,NDIM
+	      IF(ABS(FJ(I,L)) .GT. 50.0_LDP*T3 .OR.
+	1        ABS(FH(I,L)) .GT. 50.0_LDP*T3)NJMP=NJMP+1
+	    END DO
+	  ELSE
+	    T3=MAX(VMAX_S(L)/50.0_LDP,1.0E-300_LDP)
+	    DO I=1,NDIM
+	      IF(ABS(FJ(I,L)-SJ(I,L)) .GT.
+	1        50.0_LDP*MAX(ABS(SJ(I,L)),T3) .OR.
+	2        ABS(FH(I,L)-SH(I,L)) .GT.
+	3        50.0_LDP*MAX(ABS(SH(I,L)),T3))NJMP=NJMP+1
+	    END DO
+	  END IF
+	END DO
+	RETURN
+	END
+
+!**********************************************************************
+!
+! MOM_SAME_DIR_SGN: median of the signed same-direction update ratios
+! RES_SGN -- the MOM_OMEGA_SGN variant of MOM_SAME_DIR_RHO. RES_SGN
+! entries are already ratios (<d_k,d_prev>/<d_prev,d_prev> filed per
+! direction slot), so this routine pools and medians them directly
+! rather than ratioing stored magnitudes. Sign is the point: a
+! monotone contraction keeps +lambda, an oscillating pass flips to
+! -lambda, and the caller maps lambda_hat to the omega target
+! 1/(1-lambda_hat) where the magnitude rule could only produce
+! 1/(1+|rho|). Pooling both slots doubles the samples the same way
+! MOM_SAME_DIR_RHO justifies; LOK still requires >=3.
+!
+	SUBROUTINE MOM_SAME_DIR_SGN(RES_SGN,NP,RHO,NR,LOK)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER, INTENT(IN) :: NP
+	REAL(KIND=LDP), INTENT(IN) :: RES_SGN(2,NP)
+	REAL(KIND=LDP), INTENT(OUT) :: RHO
+	INTEGER, INTENT(OUT) :: NR
+	LOGICAL, INTENT(OUT) :: LOK
+!
+	INTEGER I,K,D,NV,IDX(5)
+	REAL(KIND=LDP) RHOV(10),T4
+!
+	RHO=0.0_LDP
+	NR=0
+	LOK=.FALSE.
+!
+	DO D=1,2
+	  NV=0
+	  DO I=NP,1,-1
+	    IF(RES_SGN(D,I) .NE. 0.0_LDP)THEN
+	      NV=NV+1
+	      IDX(NV)=I
+	      IF(NV .GE. 5)EXIT
+	    END IF
+	  END DO
+	  DO K=1,NV
+	    NR=NR+1
+	    RHOV(NR)=RES_SGN(D,IDX(K))
+	  END DO
+	END DO
+	IF(NR .LT. 3)RETURN
+!
+	DO I=1,NR-1
+	  DO K=I+1,NR
+	    IF(RHOV(K) .LT. RHOV(I))THEN
+	      T4=RHOV(I)
+	      RHOV(I)=RHOV(K)
+	      RHOV(K)=T4
+	    END IF
+	  END DO
+	END DO
+	RHO=RHOV((NR+1)/2)
+	LOK=.TRUE.
 	RETURN
 	END
