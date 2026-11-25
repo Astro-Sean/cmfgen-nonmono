@@ -30,7 +30,8 @@
 	1     SPECIES_END_ID,EQ_SPECIES,ATM,MOD_FIXED_NE,
 	2     MOD_FIXED_T
 	USE STEQ_DATA_MOD, ONLY: SE,STEQ_ED,STEQ_T,STEQ_T_EHB
-	USE ITER_LOG_FMT_MOD, ONLY: ILF_SECTION,ILF_ES_TRIM
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_SECTION,ILF_ES_TRIM,
+	1   ILF_KVB,ILF_VI,ILF_VR,ILF_VL,ILF_VS
 	IMPLICIT NONE
 !
 ! Altered 20-Oct-2026 : BA13-TRACE also emits at CONV_DIAG_LVL=1
@@ -1102,11 +1103,13 @@
 !
 	    IF(CONV_DIAG_LVL .GE. 2 .AND. (DO_NONMONO_SOB .OR.
 	1       DO_NONMONO_KNOP .OR. DO_BA_RES_ACC))THEN
-	      WRITE(LUER,'(A,I5,A,L2,A,A4,A,L2,A,L2,A,L2,A,L2)')
-	1      ' BA-SOLVE: it=',MAIN_COUNTER,' lam=',LAMBDA_IT,
-	2      ' meth=',METH_SOL,' newmat=',BA_COMPUTED,
-	3      ' wrinv=',LOC_WR_BA_INV,' wrprt=',WR_PRT_INV,
-	4      ' ok=',SUCCESS
+	      CALL ILF_KVB(LUER,' BA-SOLVE:',7,
+	1      (/'it    ','lam   ','meth  ','newmat','wrinv ',
+	2      'wrprt ','ok    '/),
+	3      (/ILF_VI(MAIN_COUNTER),ILF_VL(LAMBDA_IT),
+	4      ILF_VS(TRIM(METH_SOL)),ILF_VL(BA_COMPUTED),
+	5      ILF_VL(LOC_WR_BA_INV),ILF_VL(WR_PRT_INV),
+	6      ILF_VL(SUCCESS)/))
 	    END IF
 	    IF(.NOT. SUCCESS)THEN
 	      WRITE(LUER,*)'Error in CMF_BLKBAND_V3 - shutting code down'
@@ -1133,10 +1136,10 @@
 	      END DO
 	    END DO
 	    IF(NFIN .GT. 0)THEN
-	      WRITE(LUER,'(A,I8,A,I5,A,I4,A,ES16.6,A,I8)')
-	1      ' SOLVEBA: non-finite STEQ output -- it=',MAIN_COUNTER,
-	2      ' level=',IFIN,' depth=',JFIN,' STEQ=',VFIN,
-	3      ' nbad=',NFIN
+	      CALL ILF_KVB(LUER,' SOLVEBA: non-finite STEQ output',5,
+	1      (/'it   ','level','depth','STEQ ','nbad '/),
+	2      (/ILF_VI(MAIN_COUNTER),ILF_VI(IFIN),ILF_VI(JFIN),
+	3      ILF_VR(VFIN,6),ILF_VI(NFIN)/))
 	      STOP 'SOLVEBA: non-finite STEQ'
 	    END IF
 !
