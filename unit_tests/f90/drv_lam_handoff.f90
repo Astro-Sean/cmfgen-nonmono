@@ -190,7 +190,7 @@ program drv_lam_handoff
                    .true.,.false.)
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,1.0_LDP,.true.,.false.,.false.,.false., &
-    -1,.false.,.true.,lam_ok,all_met,npass,fails)
+    -1,.false.,.true.,0,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'P1_partial_exit=',all_met, &
     ' fails=',trim(fails)
 !
@@ -199,7 +199,7 @@ program drv_lam_handoff
                    .true.,.true.)
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,1.0_LDP,.true.,.false.,.false.,.false., &
-    -1,.true.,.true.,lam_ok,all_met,npass,fails)
+    -1,.true.,.true.,0,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'P2_gate_exit=',all_met, &
     ' fails=',trim(fails)
 !
@@ -208,7 +208,7 @@ program drv_lam_handoff
                    .true.,.false.)
   call conv_exit_eval(.false.,.false.,0,1, &
     .false.,0.5_LDP,1.0_LDP,.true.,.false.,.false.,.false., &
-    -1,.false.,.false.,lam_ok,all_met,npass,fails)
+    -1,.false.,.false.,0,lam_ok,all_met,npass,fails)
   write(*,'(A,L1,A,A)') 'P3_clean_exit=',all_met, &
     ' fails=',trim(fails)
 !
