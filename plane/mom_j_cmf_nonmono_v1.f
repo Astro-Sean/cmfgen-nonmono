@@ -910,6 +910,53 @@
 	LOGICAL, ALLOCATABLE :: NU_FRESH(:)
 	LOGICAL NU_CACHE_RDY
 !
+! Augmented-residual capture [MOM_AUG_RES, diagnostic, default F]:
+! the H-row and lagged-term coefficient data MOM_AUG_RESID_V1 needs
+! to evaluate the full coupled J+H equations on the committed
+! J_NEXT_FRQ/H_NEXT_FRQ fields. NU_HU/NU_HL/NU_HS are the midpoint
+! H-row coefficients (h(m,k) - HS*h_up = HU*x(m+1) - HL*x(m) + EPS
+! terms); NU_VB/NU_VC the lagged-H row weights; NU_EPS/NU_EPSP the
+! post-limiter midpoint coefficients and NU_EPSU/NU_EPSPU their
+! pre-limiter values (the RESID_TARGET form needs the uncapped
+! coefficients, unrecoverable from the scaled pair when EPS_SCL=0);
+! NU_LAGSCL the applied LAG_BND row factor; NU_SRC the lagged-free
+! RHS part; NU_CUPU the upwind-J coefficient before LAG_SCL;
+! NU_T1B the negated-boundary-row normalization; NU_KUH the
+! resolved H upwind frequency index; NU_OUTBC the boundary-row
+! selector (-1 = column never captured); NU_HCHK the |H|<=J clip
+! form (1=AV_VAL, 2=MAX_VAL, 0=none).
+!
+	REAL(KIND=LDP), ALLOCATABLE :: NU_HU(:,:),NU_HL(:,:),
+	1   NU_HS(:,:),NU_VB(:,:),NU_VC(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: NU_EPS(:,:),NU_EPSU(:,:),
+	1   NU_EPSP(:,:),NU_EPSPU(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: NU_LAGSCL(:,:),NU_SRC(:,:),
+	1   NU_CUPU(:,:),NU_T1B(:)
+	INTEGER, ALLOCATABLE :: NU_KUH(:,:),NU_OUTBC(:),NU_HCHK(:)
+	LOGICAL NU_AUG_RDY
+	LOGICAL MOM_AUG_RES
+!
+! MOM_AR_*: last augmented-residual report at module scope so test
+! drivers read it without parsing output. Slot 1 = the equations
+! as assembled with every stabiliser active (RESID_IMPLEMENTED),
+! slot 2 = the same equations with the equation-changing
+! stabilisers removed (RESID_TARGET: centred EPS midpoint
+! stencil, LAG_SCL=1, unscaled EPS, no XM_POS clip, no MOM_H_IMPL
+! diagonal mass). R2 = raw L2 norm; S2 = L2 of the residual scaled
+! by each row's total term magnitude (documented in the routine);
+! MX = worst scaled row residual and its (depth,freq) cell.
+!
+	REAL(KIND=LDP), SAVE :: MOM_AR_R2M(2)=0.0_LDP,
+	1   MOM_AR_R2H(2)=0.0_LDP,MOM_AR_S2M(2)=0.0_LDP,
+	2   MOM_AR_S2H(2)=0.0_LDP,MOM_AR_MXM(2)=0.0_LDP,
+	3   MOM_AR_MXH(2)=0.0_LDP
+	INTEGER, SAVE :: MOM_AR_IM(2)=0,MOM_AR_KM(2)=0,
+	1   MOM_AR_IH(2)=0,MOM_AR_KH(2)=0
+	INTEGER*8, SAVE :: MOM_AR_NCLIP=0,MOM_AR_NLAGB=0,
+	1   MOM_AR_NEPSL=0,MOM_AR_NOFF=0,MOM_AR_NNAN=0,
+	2   MOM_AR_NHCLP=0,MOM_AR_NSKIP=0,MOM_AR_NBNDR=0
+	REAL(KIND=LDP), SAVE :: MOM_AR_RBN2=0.0_LDP
+!
 ! Chain-solve census per call: rings solved, singular rings frozen,
 ! near-marginal rings frozen, rows frozen on bad coefficients,
 ! results rejected non-finite or negative, writes clamped by the
@@ -931,6 +978,19 @@
 	1   MOM_BLK_NFRZ=0,MOM_BLK_NNEG=0,MOM_BLK_NCAP=0
 	REAL(KIND=LDP), SAVE :: MOM_BLK_RESID=0.0_LDP,
 	1   MOM_BLK_CHG_LAST=0.0_LDP
+!
+! Residual census for the captured block system: MOM_BLK_RESRAW is
+! the GMRES solution's raw relative residual ||b-Ax||/||b|| at
+! return (MOM_BLK_RESID is its left-preconditioned counterpart
+! ||M^-1(b-Ax)||/||M^-1 b||); MOM_BLK_RESRAW_POST and
+! MOM_BLK_RESPRE_POST are the same pair recomputed on the
+! committed J_NEXT_FRQ after the wrapper's write policy
+! (non-finite/negative rejection, write caps, damping) -- the gap
+! between the two pairs is exactly what the write policy costs
+! the captured system. [MOM_AUG_RES / MOM_BLKGMRES diagnostics]
+!
+	REAL(KIND=LDP), SAVE :: MOM_BLK_RESRAW=0.0_LDP,
+	1   MOM_BLK_RESRAW_POST=0.0_LDP,MOM_BLK_RESPRE_POST=0.0_LDP
 !
 ! Capture census [MOM_NUSOLV, diagnostic]: per-pass decomposition of
 ! the captured rows. The LAG_BND bound makes every row's implicit
@@ -1082,6 +1142,8 @@
 	DATA MOM_NUSOLV /.FALSE./
 	DATA MOM_BLKGMRES /.FALSE./
 	DATA NU_CACHE_RDY /.FALSE./
+	DATA NU_AUG_RDY /.FALSE./
+	DATA MOM_AUG_RES /.FALSE./
 	DATA MOM_ABS_FLR /0.0_LDP/
 	DATA MOM_H_IMPL /.FALSE./
 	DATA MOM_XM_POS /.TRUE./
@@ -2851,6 +2913,40 @@
 	  END IF
 	END DO
 !
+! [MOM_AUG_RES] Allocate the augmented-residual capture here, before
+! the EPS limiter rescale below destroys the uncapped midpoint
+! coefficients. NU_OUTBC=-1 marks columns not yet written; the
+! evaluator treats them as uncaptured rather than reading stale
+! data.
+!
+	IF(MOM_AUG_RES)THEN
+	  IF(.NOT. ALLOCATED(NU_HU))THEN
+	    ALLOCATE(NU_HU(ND_NM-1,NCF_IN),NU_HL(ND_NM-1,NCF_IN),
+	1      NU_HS(ND_NM-1,NCF_IN),NU_VB(ND_NM,NCF_IN),
+	2      NU_VC(ND_NM,NCF_IN),NU_EPS(ND_NM-1,NCF_IN),
+	3      NU_EPSU(ND_NM-1,NCF_IN),NU_EPSP(ND_NM-1,NCF_IN),
+	4      NU_EPSPU(ND_NM-1,NCF_IN),NU_LAGSCL(ND_NM,NCF_IN),
+	5      NU_SRC(ND_NM,NCF_IN),NU_CUPU(ND_NM,NCF_IN),
+	6      NU_T1B(NCF_IN),NU_KUH(ND_NM-1,NCF_IN),
+	7      NU_OUTBC(NCF_IN),NU_HCHK(NCF_IN))
+	    NU_OUTBC(1:NCF_IN)=-1
+	  ELSE IF(SIZE(NU_HU,1) .NE. ND_NM-1 .OR.
+	1     SIZE(NU_HU,2) .NE. NCF_IN)THEN
+	    DEALLOCATE(NU_HU,NU_HL,NU_HS,NU_VB,NU_VC,NU_EPS,NU_EPSU,
+	1      NU_EPSP,NU_EPSPU,NU_LAGSCL,NU_SRC,NU_CUPU,NU_T1B,
+	2      NU_KUH,NU_OUTBC,NU_HCHK)
+	    ALLOCATE(NU_HU(ND_NM-1,NCF_IN),NU_HL(ND_NM-1,NCF_IN),
+	1      NU_HS(ND_NM-1,NCF_IN),NU_VB(ND_NM,NCF_IN),
+	2      NU_VC(ND_NM,NCF_IN),NU_EPS(ND_NM-1,NCF_IN),
+	3      NU_EPSU(ND_NM-1,NCF_IN),NU_EPSP(ND_NM-1,NCF_IN),
+	4      NU_EPSPU(ND_NM-1,NCF_IN),NU_LAGSCL(ND_NM,NCF_IN),
+	5      NU_SRC(ND_NM,NCF_IN),NU_CUPU(ND_NM,NCF_IN),
+	6      NU_T1B(NCF_IN),NU_KUH(ND_NM-1,NCF_IN),
+	7      NU_OUTBC(NCF_IN),NU_HCHK(NCF_IN))
+	    NU_OUTBC(1:NCF_IN)=-1
+	  END IF
+	END IF
+!
 	IF(N_TYPE .EQ. 'G_ONLY')THEN
 	  DO I=2,ND_NM-1
 	    T3=VB_NM(I)*HUP_NM(I-1) + VC_NM(I)*HUP_NM(I)
@@ -2963,6 +3059,16 @@
 ! (EPS_SCL-1)*2*EPS on the same depth-upwind stencil the assembly
 ! used, then both EPS arrays are rescaled so the boundary row, the
 ! negJ rebuild and the H reconstruction see the capped coefficient.
+!
+! [MOM_AUG_RES] The uncapped coefficients are unrecoverable once
+! the rescale below runs (EPS_SCL=0 destroys them), so they are
+! captured first for the RESID_TARGET evaluation.
+!
+	  IF(MOM_AUG_RES .AND. FREQ_INDX .GE. 1 .AND.
+	1     FREQ_INDX .LE. NCF_IN)THEN
+	    NU_EPSU(1:ND_NM-1,FREQ_INDX)=EPS_NM(1:ND_NM-1)
+	    NU_EPSPU(1:ND_NM-1,FREQ_INDX)=EPS_PREV_NM(1:ND_NM-1)
+	  END IF
 !
 	  DO I=1,ND_NM-1
 	    IF(EPS_SCL_NM(I) .NE. 1.0_LDP)THEN
@@ -3387,8 +3493,8 @@
 ! assembly's selector (A_BND under the Eddington boundary, Q_NM(1)
 ! under the negated interior row); row ND has no upwind edge.
 !
-	IF((MOM_NUSOLV .OR. MOM_BLKGMRES) .AND. FREQ_INDX .GE. 1 .AND.
-	1   FREQ_INDX .LE. NCF_IN)THEN
+	IF((MOM_NUSOLV .OR. MOM_BLKGMRES .OR. MOM_AUG_RES) .AND.
+	1   FREQ_INDX .GE. 1 .AND. FREQ_INDX .LE. NCF_IN)THEN
 	  IF(.NOT. ALLOCATED(NU_TB))THEN
 	    ALLOCATE(NU_TA(ND_NM,NCF_IN),NU_TB(ND_NM,NCF_IN),
 	1      NU_TC(ND_NM,NCF_IN),NU_X0(ND_NM,NCF_IN),
@@ -3409,6 +3515,51 @@
 	    NU_FRESH(1:NCF_IN)=.FALSE.
 	  END IF
 	  NU_FRESH(FREQ_INDX)=.TRUE.
+!
+! [MOM_AUG_RES] H-row and lagged-term data for the augmented
+! residual: midpoint coefficients, resolved H upwind indices and
+! the boundary-row selectors the evaluator cannot recompute from
+! the tridiagonal capture alone. EPS_NM/EPS_PREV_NM at this point
+! are already EPS_SCL-rescaled (the implicit/explicit pair stays
+! consistent); the uncapped pair went to NU_EPSU/NU_EPSPU above.
+!
+	  IF(MOM_AUG_RES)THEN
+	    NU_CUPU(1:ND_NM,FREQ_INDX)=0.0_LDP
+	    DO I=1,ND_NM-1
+	      NU_HU(I,FREQ_INDX)=HU_NM(I)
+	      NU_HL(I,FREQ_INDX)=HL_NM(I)
+	      NU_HS(I,FREQ_INDX)=HS_NM(I)
+	      IF(N_TYPE .EQ. 'G_ONLY')THEN
+	        NU_EPS(I,FREQ_INDX)=0.0_LDP
+	        NU_EPSP(I,FREQ_INDX)=0.0_LDP
+	      ELSE
+	        NU_EPS(I,FREQ_INDX)=EPS_NM(I)
+	        NU_EPSP(I,FREQ_INDX)=EPS_PREV_NM(I)
+	      END IF
+	      IF(GAMH_SIGNED_NM(I) .GE. 0.0_LDP)THEN
+	        NU_KUH(I,FREQ_INDX)=FREQ_INDX-1
+	      ELSE IF(FREQ_INDX+MOM_NM_H(I) .LE. NCF_IN)THEN
+	        NU_KUH(I,FREQ_INDX)=FREQ_INDX+MOM_NM_H(I)
+	      ELSE
+	        NU_KUH(I,FREQ_INDX)=0
+	      END IF
+	    END DO
+	    NU_OUTBC(FREQ_INDX)=OUT_BC_TYPE
+	    IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
+	      NU_HCHK(FREQ_INDX)=1
+	    ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
+	      NU_HCHK(FREQ_INDX)=2
+	    ELSE
+	      NU_HCHK(FREQ_INDX)=0
+	    END IF
+	    IF(OUT_BC_TYPE .GT. 1)THEN
+	      NU_T1B(FREQ_INDX)=0.25_LDP*
+	1        (CHI_HAT_NM(2)+CHI_HAT_NM(1))*(R_NM(2)-R_NM(1))
+	    ELSE
+	      NU_T1B(FREQ_INDX)=0.0_LDP
+	    END IF
+	  END IF
+!
 	  DO I=2,ND_NM-1
 	    NU_TA(I,FREQ_INDX)=TA_NM(I)
 	    NU_TB(I,FREQ_INDX)=TB_NM(I)
@@ -3421,6 +3572,7 @@
 	        NU_CUP(I,FREQ_INDX)=LAG_SCL_NM(I)*PSIPREV_NM(I)
 	        NU_KUP(I,FREQ_INDX)=FREQ_INDX-1
 	        T3=NU_CUP(I,FREQ_INDX)*RSQJNU_PREV_NM(I)
+	        IF(MOM_AUG_RES)NU_CUPU(I,FREQ_INDX)=PSIPREV_NM(I)
 	      END IF
 	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN .AND.
 	1      MOM_NM_J(I) .GE. 1 .AND.
@@ -3428,6 +3580,14 @@
 	      NU_CUP(I,FREQ_INDX)=LAG_SCL_NM(I)*PSI_NM(I)
 	      NU_KUP(I,FREQ_INDX)=FREQ_INDX+MOM_NM_J(I)
 	      T3=NU_CUP(I,FREQ_INDX)*JUP_NM(I)
+	      IF(MOM_AUG_RES)NU_CUPU(I,FREQ_INDX)=PSI_NM(I)
+	    END IF
+	    IF(MOM_AUG_RES)THEN
+	      NU_LAGSCL(I,FREQ_INDX)=LAG_SCL_NM(I)
+	      NU_VB(I,FREQ_INDX)=VB_NM(I)
+	      NU_VC(I,FREQ_INDX)=VC_NM(I)
+	      NU_SRC(I,FREQ_INDX)=DTAUONQ_NM(I)*SOURCE_NM(I)*
+	1        R_NM(I)*R_NM(I)
 	    END IF
 	    NU_X0(I,FREQ_INDX)=XM_SAVE_NM(I)-T3
 !
@@ -3482,6 +3642,7 @@
 	        NU_CUP(1,FREQ_INDX)=LAG_SCL_NM(1)*PSIPREV_NM(1)
 	        NU_KUP(1,FREQ_INDX)=FREQ_INDX-1
 	        T3=NU_CUP(1,FREQ_INDX)*RSQJNU_PREV_NM(1)
+	        IF(MOM_AUG_RES)NU_CUPU(1,FREQ_INDX)=PSIPREV_NM(1)
 	      END IF
 	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN .AND.
 	1      MOM_NM_J(1) .GE. 1 .AND.
@@ -3489,6 +3650,7 @@
 	      NU_CUP(1,FREQ_INDX)=LAG_SCL_NM(1)*PSI_NM(1)
 	      NU_KUP(1,FREQ_INDX)=FREQ_INDX+MOM_NM_J(1)
 	      T3=NU_CUP(1,FREQ_INDX)*JUP_NM(1)
+	      IF(MOM_AUG_RES)NU_CUPU(1,FREQ_INDX)=PSI_NM(1)
 	    END IF
 	  ELSE
 	    IF(Q_NM(1) .GE. 0.0_LDP)THEN
@@ -3496,6 +3658,7 @@
 	        NU_CUP(1,FREQ_INDX)=-LAG_SCL_NM(1)*PSIPREV_NM(1)
 	        NU_KUP(1,FREQ_INDX)=FREQ_INDX-1
 	        T3=NU_CUP(1,FREQ_INDX)*RSQJNU_PREV_NM(1)
+	        IF(MOM_AUG_RES)NU_CUPU(1,FREQ_INDX)=-PSIPREV_NM(1)
 	      END IF
 	    ELSE IF(J_NEXT_VALID .AND. FREQ_INDX .LT. NCF_IN .AND.
 	1      MOM_NM_J(1) .GE. 1 .AND.
@@ -3503,6 +3666,7 @@
 	      NU_CUP(1,FREQ_INDX)=-LAG_SCL_NM(1)*PSI_NM(1)
 	      NU_KUP(1,FREQ_INDX)=FREQ_INDX+MOM_NM_J(1)
 	      T3=NU_CUP(1,FREQ_INDX)*JUP_NM(1)
+	      IF(MOM_AUG_RES)NU_CUPU(1,FREQ_INDX)=-PSI_NM(1)
 	    END IF
 	  END IF
 	  NU_X0(1,FREQ_INDX)=XM_SAVE_NM(1)-T3
@@ -3513,6 +3677,21 @@
 	  NU_CUP(ND_NM,FREQ_INDX)=0.0_LDP
 	  NU_KUP(ND_NM,FREQ_INDX)=0
 	  NU_X0(ND_NM,FREQ_INDX)=XM_SAVE_NM(ND_NM)
+	  IF(MOM_AUG_RES)THEN
+	    NU_LAGSCL(1,FREQ_INDX)=LAG_SCL_NM(1)
+	    NU_VB(1,FREQ_INDX)=VB_NM(1)
+	    NU_VC(1,FREQ_INDX)=VC_NM(1)
+	    IF(OUT_BC_TYPE .GT. 1)THEN
+	      NU_SRC(1,FREQ_INDX)=-SOURCE_NM(1)*R_NM(1)*R_NM(1)
+	    ELSE
+	      NU_SRC(1,FREQ_INDX)=0.0_LDP
+	    END IF
+	    NU_LAGSCL(ND_NM,FREQ_INDX)=1.0_LDP
+	    NU_VB(ND_NM,FREQ_INDX)=0.0_LDP
+	    NU_VC(ND_NM,FREQ_INDX)=0.0_LDP
+	    NU_SRC(ND_NM,FREQ_INDX)=XM_SAVE_NM(ND_NM)
+	    NU_AUG_RDY=.TRUE.
+	  END IF
 	  NU_CACHE_RDY=.TRUE.
 	END IF
 !
@@ -6170,6 +6349,10 @@
 	3    NU_CHG,'; ',NU_N5,' cells above 5%, ',NU_N50,' above 50%; ',
 	4    MOM_BLK_NFRZ,' frozen, ',MOM_BLK_NNEG,' rejected neg, ',
 	5    MOM_BLK_NCAP,' write-capped'
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A10,2X,A,ES10.3,A,ES10.3,A,ES10.3)')
+	1    'blk-gmres','raw resid ',MOM_BLK_RESRAW,
+	2    ' post-write raw ',MOM_BLK_RESRAW_POST,
+	3    ' post-write prec ',MOM_BLK_RESPRE_POST
 	    IF(NUC_NROW .GT. 0_8)THEN
 	      ! Keep every census field on continuation lines. A single long fixed-
 	      ! source record is truncated before the H/X0 descriptors.
@@ -7525,6 +7708,16 @@
 	  MOM_RF_RESID_PRV=MOM_GS_MAXCHG
 	END IF
 !
+! [MOM_AUG_RES] Augmented-residual report on the committed field:
+! at this point J_NEXT_FRQ/H_NEXT_FRQ hold the final retained
+! state after every write policy (negative-cell rejection, write
+! caps, damping, best-pass selection, outer AA), which is exactly
+! what the diagnostic must describe. Read-only; gated to
+! CONV_DIAG_LVL>=1 like the other refresh summaries.
+!
+	IF(MOM_AUG_RES .AND. NU_AUG_RDY .AND.
+	1   CONV_DIAG_LVL .GE. 1)CALL MOM_AUG_RESID_V1(LUER)
+!
 	DEALLOCATE(HRF,OUTJ,OUTH,ETA_L,CHI_L,ESEC_L)
 	DEALLOCATE(JNEXT_RF_READ,JNEXT_SAVE)
 	DEALLOCATE(HNEXT_RF_READ,HNEXT_SAVE)
@@ -7814,8 +8007,10 @@
 	INTEGER*8 N5_NU,N50_NU
 !
 	REAL(KIND=LDP), ALLOCATABLE :: XSOL(:,:)
-	INTEGER I,K0,INFO,NITER,NREST
+	REAL(KIND=LDP), ALLOCATABLE :: RWV(:),ZWV(:),BWV(:)
+	INTEGER I,K0,L0,INFO,NITER,NREST,IPS
 	REAL(KIND=LDP) RESID,XOLD,XNEW,RLX,TJ,FSCL,TB_V
+	REAL(KIND=LDP) RV,RN0,BN0
 	LOGICAL CACHES_OK
 !
 	MOM_BLK_NITER=0_8; MOM_BLK_NREST=0_8
@@ -7834,7 +8029,7 @@
 	ALLOCATE(XSOL(ND_NM,NCF))
 	CALL MOM_BLK_GMRES_SOLVE(ND_NM,NCF,NU_TA,NU_TB,NU_TC,NU_X0,
 	1  NU_CUP,NU_KUP,NU_FRESH,J_NEXT_FRQ(1:ND_NM,1:NCF),XSOL,
-	2  40,1.0E-3_LDP,4,NITER,NREST,RESID,INFO)
+	2  40,1.0E-3_LDP,4,NITER,NREST,RESID,INFO,MOM_BLK_RESRAW)
 	MOM_BLK_NITER=NITER
 	MOM_BLK_NREST=NREST
 	MOM_BLK_RESID=RESID
@@ -7881,6 +8076,59 @@
 	  END DO
 	END DO
 	MOM_BLK_CHG_LAST=CHG_NU
+!
+! Residual of the committed field on the same captured operator:
+! the write policy (rejected non-finite/negative cells, write
+! caps, pass damping) leaves cells away from the GMRES vector, so
+! this is the residual the solve actually achieves. Non-fresh
+! columns are pinned identity rows -- untouched by the write
+! loop, their residual is zero. The preconditioned member uses
+! the same per-frequency DGTSV M as the solver.
+!
+	ALLOCATE(RWV(ND_NM*NCF),ZWV(ND_NM*NCF),BWV(ND_NM*NCF))
+	RN0=0.0_LDP;  BN0=0.0_LDP
+	DO K0=1,NCF
+	  DO I=1,ND_NM
+	    L0=I+(K0-1)*ND_NM
+	    IF(NU_FRESH(K0))THEN
+	      BWV(L0)=NU_X0(I,K0)
+	      RV=NU_X0(I,K0)-NU_TB(I,K0)*J_NEXT_FRQ(I,K0)
+	      IF(I .GT. 1)RV=RV-NU_TA(I,K0)*J_NEXT_FRQ(I-1,K0)
+	      IF(I .LT. ND_NM)RV=RV-NU_TC(I,K0)*J_NEXT_FRQ(I+1,K0)
+	      IF(NU_KUP(I,K0) .GE. 1 .AND. NU_KUP(I,K0) .LE. NCF)
+	1       RV=RV+NU_CUP(I,K0)*J_NEXT_FRQ(I,NU_KUP(I,K0))
+	      RWV(L0)=RV
+	    ELSE
+	      BWV(L0)=J_NEXT_FRQ(I,K0)
+	      RWV(L0)=0.0_LDP
+	    END IF
+	    RN0=RN0+RWV(L0)*RWV(L0)
+	    BN0=BN0+BWV(L0)*BWV(L0)
+	  END DO
+	END DO
+	MOM_BLK_RESRAW_POST=SQRT(RN0)/MAX(SQRT(BN0),1.0E-280_LDP)
+	CALL BLK_PRECOND_VEC(ND_NM,NCF,NU_TA,NU_TB,NU_TC,NU_FRESH,
+	1  RWV,ZWV,IPS)
+	RN0=0.0_LDP
+	IF(IPS .EQ. 0)THEN
+	  DO L0=1,ND_NM*NCF
+	    RN0=RN0+ZWV(L0)*ZWV(L0)
+	  END DO
+	  CALL BLK_PRECOND_VEC(ND_NM,NCF,NU_TA,NU_TB,NU_TC,
+	1    NU_FRESH,BWV,ZWV,IPS)
+	END IF
+	BN0=0.0_LDP
+	IF(IPS .EQ. 0)THEN
+	  DO L0=1,ND_NM*NCF
+	    BN0=BN0+ZWV(L0)*ZWV(L0)
+	  END DO
+	  MOM_BLK_RESPRE_POST=SQRT(RN0)/
+	1    MAX(SQRT(BN0),1.0E-280_LDP)
+	ELSE
+	  MOM_BLK_RESPRE_POST=HUGE(MOM_BLK_RESPRE_POST)
+	END IF
+	DEALLOCATE(RWV,ZWV,BWV)
+!
 	DEALLOCATE(XSOL)
 	RETURN
 	END
@@ -7908,5 +8156,523 @@
 	IMPLICIT NONE
 	LOGICAL DO_BLK
 	MOM_BLKGMRES=DO_BLK
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! SET_MOM_AUG_RES: runtime wiring for MOM_AUG_RES, called once from
+! RD_CONTROL_VARIABLES after the VADAT key is read.
+!
+	SUBROUTINE SET_MOM_AUG_RES(DO_AUG)
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_AUG_RES
+	IMPLICIT NONE
+	LOGICAL DO_AUG
+	MOM_AUG_RES=DO_AUG
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! MOM_AUG_RESID_V1 [MOM_AUG_RES, diagnostic, default F]: residual of
+! the augmented coupled (J,H) system on the committed
+! J_NEXT_FRQ/H_NEXT_FRQ fields.
+!
+! Each frequency call solves the eliminated J system and then
+! reconstructs H midpointwise from the second moment equation. In
+! the augmented unknown z(k) = (x(1,k),h(1,k),...,x(ND,k)) the
+! equations evaluated here are, per captured column k:
+!
+!   moment row i: TA_i x(i-1) + TB_i x(i) + TC_i x(i+1) - xm_i = 0
+!     xm_i = SRC_i + CUP_i x(i,kup_i) + LAGS_i*[ VB_i h(i-1,uh)
+!            + VC_i h(i,uh) + T5(i) - T5(i-1) ]        (interior)
+!     T5(m) = 2*EPSP_m*x(don,u): don = m for EPSP>=0, m+1 for
+!     EPSP<0; u = k-1 for EPSP>=0, k+NM_J(don) in-grid for EPSP<0.
+!   H row m: h(m,k) - HS_m*h(m,uh) - HU_m*x(m+1) + HL_m*x(m)
+!            - T5(m) + 2*EPS_m*x(donE,k) = 0,
+!     donE = m for EPS>=0, m+1 for EPS<0.
+!   row 1 is the captured boundary row (Eddington for OUTBC<=1,
+!   the negated interior row for OUTBC>1, whose lagged H enters as
+!   -HS(1)*h(1,uh)/T1B and whose lagged EPS term is capped against
+!   the row's accumulated positive balance); row ND is the inner
+!   boundary row.
+!
+! RESID_IMPLEMENTED (MOM_AR_* slot 1) evaluates exactly these
+! assembled equations: captured coefficients, LAG_SCL factors,
+! capped EPS coefficients, the XM_POS clip reapplied, the
+! boundary EPS cap replayed. RESID_TARGET (slot 2) evaluates the
+! same rows with the equation-changing stabilisers removed: the
+! centred midpoint EPS stencil (V11 convention: each midpoint
+! contributes E*(x_m+x_{m+1}) split +E/-E over its two rows, at
+! the same resolved frequency upwind), LAG_SCL=1, the uncapped
+! NU_EPSU/NU_EPSPU coefficients, no XM_POS clip, and the
+! MOM_H_IMPL |VB|+|VC| diagonal mass subtracted from TB. Post-solve
+! projections (negative-cell rejection, write caps, damping, the
+! |H|<=J clip, best-pass selection, Anderson acceleration) are not
+! equation changes: they are measured, not reverted -- a cell the
+! write policy held away from the solve legitimately carries
+! residual here. Frozen outer-iteration coefficient
+! regularisations (GAM pinning, the GAM_FAC floor, the HBC/NBC
+! floors) are part of both forms: they define the discretisation's
+! data, not the row structure.
+!
+! Row scale S is the sum of magnitudes of every term entering the
+! row (LHS products plus each RHS contribution); |r|/max(S,TINY0)
+! is a relative measure uniform across the R^2*J dynamic range.
+! Moment rows and H rows share x-units (h = R^2*H), so the two
+! classes are reported separately and never summed together.
+!
+! Read-only: no solver array is written. Columns never captured
+! (NU_OUTBC=-1) are skipped and counted, not zero-filled.
+!
+	SUBROUTINE MOM_AUG_RESID_V1(LU)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1
+	IMPLICIT NONE
+!
+	INTEGER LU
+!
+	INTEGER ND,NCF,I,K,D,U,U1,U2,OUTBC
+	REAL(KIND=LDP) C,CU,E,EP,EU,EUP,T1B,T5,T4
+	REAL(KIND=LDP) XMI,XMT,XMP,XUP
+	REAL(KIND=LDP) THI,THB,TE1,TE2,TE1T,TE2T,TV
+	REAL(KIND=LDP) RM,RT,RH,RHT,SM,ST,SH,SHT,REC,RECT,JBND
+	REAL(KIND=LDP) TAT,TBT,TCT,SL,SR,SMH
+	REAL(KIND=LDP), PARAMETER :: TINY0=1.0E-280_LDP
+	LOGICAL LBN
+!
+	MOM_AR_R2M=0.0_LDP; MOM_AR_R2H=0.0_LDP
+	MOM_AR_S2M=0.0_LDP; MOM_AR_S2H=0.0_LDP
+	MOM_AR_MXM=0.0_LDP; MOM_AR_MXH=0.0_LDP
+	MOM_AR_IM=0; MOM_AR_KM=0; MOM_AR_IH=0; MOM_AR_KH=0
+	MOM_AR_NCLIP=0; MOM_AR_NLAGB=0; MOM_AR_NEPSL=0
+	MOM_AR_NOFF=0;   MOM_AR_NNAN=0;  MOM_AR_NHCLP=0
+	MOM_AR_NSKIP=0;  MOM_AR_NBNDR=0; MOM_AR_RBN2=0.0_LDP
+!
+	LBN=ALLOCATED(NU_TA) .AND. ALLOCATED(NU_TB) .AND.
+	1   ALLOCATED(NU_TC) .AND. ALLOCATED(NU_KUP) .AND.
+	2   ALLOCATED(NU_CUP) .AND. ALLOCATED(NU_CUPU) .AND.
+	3   ALLOCATED(J_NEXT_FRQ) .AND. ALLOCATED(H_NEXT_FRQ) .AND.
+	4   ALLOCATED(NU_HU) .AND. ALLOCATED(NU_HL) .AND.
+	5   ALLOCATED(NU_HS) .AND. ALLOCATED(NU_VB) .AND.
+	6   ALLOCATED(NU_VC) .AND. ALLOCATED(NU_EPS)
+	LBN=LBN .AND. ALLOCATED(NU_EPSU) .AND. ALLOCATED(NU_EPSP)
+	1   .AND. ALLOCATED(NU_EPSPU) .AND. ALLOCATED(NU_LAGSCL)
+	2   .AND. ALLOCATED(NU_SRC) .AND. ALLOCATED(NU_T1B)
+	3   .AND. ALLOCATED(NU_KUH) .AND. ALLOCATED(NU_OUTBC)
+	4   .AND. ALLOCATED(NU_HCHK) .AND. ALLOCATED(MOM_NM_J)
+	IF(.NOT. LBN)THEN
+	  WRITE(LU,*)'MOM_AR: augmented capture not available'
+	  RETURN
+	END IF
+	ND=SIZE(NU_TB,1)
+	NCF=SIZE(NU_TB,2)
+!
+	DO K=1,NCF
+	  IF(NU_OUTBC(K) .LT. 0)THEN
+	    MOM_AR_NSKIP=MOM_AR_NSKIP+INT(ND,8)
+	    CYCLE
+	  END IF
+	  OUTBC=NU_OUTBC(K)
+	  T1B=NU_T1B(K)
+!
+! Moment rows.
+!
+	  DO I=1,ND
+	    LBN=.FALSE.
+	    XUP=0.0_LDP
+	    IF(NU_KUP(I,K) .GE. 1 .AND. NU_KUP(I,K) .LE. NCF)
+	1     XUP=J_NEXT_FRQ(I,NU_KUP(I,K))
+!
+	    IF(I .EQ. 1)THEN
+!
+! Boundary row. Eddington row: the only lagged term is the upwind
+! J edge already in NU_CUP/NU_CUPU. Negated interior row: lagged
+! H as -HS(1)*h(1,uh)/T1B and the boundary-capped EPS term.
+!
+	      IF(OUTBC .LE. 1)THEN
+	        XMI=NU_CUP(1,K)*XUP
+	        XMT=NU_CUPU(1,K)*XUP
+	        RM=NU_TB(1,K)*J_NEXT_FRQ(1,K)+
+	1          NU_TC(1,K)*J_NEXT_FRQ(2,K)-XMI
+	        RT=NU_TB(1,K)*J_NEXT_FRQ(1,K)+
+	1          NU_TC(1,K)*J_NEXT_FRQ(2,K)-XMT
+	        SM=ABS(NU_TB(1,K)*J_NEXT_FRQ(1,K))+
+	1          ABS(NU_TC(1,K)*J_NEXT_FRQ(2,K))+ABS(NU_CUP(1,K)*XUP)
+	        ST=ABS(NU_TB(1,K)*J_NEXT_FRQ(1,K))+
+	1          ABS(NU_TC(1,K)*J_NEXT_FRQ(2,K))+ABS(NU_CUPU(1,K)*XUP)
+	      ELSE
+	        THB=0.0_LDP
+	        IF(NU_HS(1,K) .NE. 0.0_LDP)THEN
+	          U=NU_KUH(1,K)
+	          IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	            THB=-NU_HS(1,K)*H_NEXT_FRQ(1,U)/T1B
+	          ELSE
+	            MOM_AR_NOFF=MOM_AR_NOFF+1
+	            LBN=.TRUE.
+	          END IF
+	        END IF
+	        XMP=NU_SRC(1,K)+NU_CUP(1,K)*XUP+NU_LAGSCL(1,K)*THB
+	        T5=0.0_LDP
+	        C=NU_EPSP(1,K)
+	        IF(C .NE. 0.0_LDP .AND. T1B .NE. 0.0_LDP)THEN
+	          IF(C .GE. 0.0_LDP)THEN
+	            D=1;  U=K-1
+	          ELSE
+	            D=2;  U=0
+	            IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	          END IF
+	          IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	            T5=2.0_LDP*C*J_NEXT_FRQ(D,U)/T1B
+	            IF(MOM_EPS_LIM .AND. T5 .GT. 0.0_LDP)THEN
+	              T4=MAX(XMP,0.0_LDP)
+	              IF(T5 .GT. T4)THEN
+	                T5=T4
+	                MOM_AR_NEPSL=MOM_AR_NEPSL+1
+	              END IF
+	            END IF
+	          ELSE
+	            MOM_AR_NOFF=MOM_AR_NOFF+1
+	            LBN=.TRUE.
+	          END IF
+	        END IF
+	        XMI=XMP-NU_LAGSCL(1,K)*T5
+	        RM=NU_TB(1,K)*J_NEXT_FRQ(1,K)+
+	1          NU_TC(1,K)*J_NEXT_FRQ(2,K)-XMI
+	        SM=ABS(NU_TB(1,K)*J_NEXT_FRQ(1,K))+
+	1          ABS(NU_TC(1,K)*J_NEXT_FRQ(2,K))+ABS(NU_SRC(1,K))+
+	2          ABS(NU_CUP(1,K)*XUP)+NU_LAGSCL(1,K)*
+	3          (ABS(THB)+ABS(T5))
+	        TBT=NU_TB(1,K);  TCT=NU_TC(1,K)
+	        IF(T1B .NE. 0.0_LDP)THEN
+	          E=NU_EPS(1,K);  EU=NU_EPSU(1,K)
+	          IF(E .GE. 0.0_LDP)THEN
+	            TBT=TBT+2.0_LDP*E/T1B
+	          ELSE
+	            TCT=TCT+2.0_LDP*E/T1B
+	          END IF
+	          TBT=TBT-EU/T1B
+	          TCT=TCT-EU/T1B
+	        END IF
+	        CU=NU_EPSPU(1,K)
+	        TE1T=0.0_LDP
+	        IF(CU .NE. 0.0_LDP .AND. T1B .NE. 0.0_LDP)THEN
+	          IF(CU .GE. 0.0_LDP)THEN
+	            U1=K-1;  U2=K-1
+	          ELSE
+	            U1=0;  U2=0
+	            IF(K+MOM_NM_J(1) .LE. NCF)U1=K+MOM_NM_J(1)
+	            IF(K+MOM_NM_J(2) .LE. NCF)U2=K+MOM_NM_J(2)
+	          END IF
+	          IF(U1 .GE. 1)TE1T=CU*J_NEXT_FRQ(1,U1)/T1B
+	          IF(U2 .GE. 1)TE1T=TE1T+CU*J_NEXT_FRQ(2,U2)/T1B
+	        END IF
+	        XMT=NU_SRC(1,K)+NU_CUPU(1,K)*XUP+THB-TE1T
+	        RT=TBT*J_NEXT_FRQ(1,K)+TCT*J_NEXT_FRQ(2,K)-XMT
+	        ST=ABS(TBT*J_NEXT_FRQ(1,K))+ABS(TCT*J_NEXT_FRQ(2,K))+
+	1          ABS(NU_SRC(1,K))+ABS(NU_CUPU(1,K)*XUP)+
+	2          ABS(THB)+ABS(TE1T)
+	      END IF
+!
+	    ELSE IF(I .EQ. ND)THEN
+!
+! Inner boundary row: no lagged terms, identical in both forms.
+!
+	      XMI=NU_SRC(ND,K)
+	      RM=NU_TA(ND,K)*J_NEXT_FRQ(ND-1,K)+
+	1        NU_TB(ND,K)*J_NEXT_FRQ(ND,K)-XMI
+	      RT=RM
+	      SM=ABS(NU_TA(ND,K)*J_NEXT_FRQ(ND-1,K))+
+	1        ABS(NU_TB(ND,K)*J_NEXT_FRQ(ND,K))+ABS(XMI)
+	      ST=SM
+!
+	    ELSE
+!
+! Interior row.
+!
+	      THI=0.0_LDP;  SMH=0.0_LDP
+	      IF(NU_VB(I,K) .NE. 0.0_LDP)THEN
+	        U=NU_KUH(I-1,K)
+	        IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	          TV=NU_VB(I,K)*H_NEXT_FRQ(I-1,U)
+	        ELSE
+	          TV=0.0_LDP
+	          MOM_AR_NOFF=MOM_AR_NOFF+1
+	          LBN=.TRUE.
+	        END IF
+	        THI=THI+TV;  SMH=SMH+ABS(TV)
+	      END IF
+	      IF(NU_VC(I,K) .NE. 0.0_LDP)THEN
+	        U=NU_KUH(I,K)
+	        IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	          TV=NU_VC(I,K)*H_NEXT_FRQ(I,U)
+	        ELSE
+	          TV=0.0_LDP
+	          MOM_AR_NOFF=MOM_AR_NOFF+1
+	          LBN=.TRUE.
+	        END IF
+	        THI=THI+TV;  SMH=SMH+ABS(TV)
+	      END IF
+!
+! +T5 from midpoint I (implemented: single depth-upwind node;
+! target: centred sum at each node's own resolved index).
+!
+	      TE1=0.0_LDP;  TE1T=0.0_LDP
+	      C=NU_EPSP(I,K)
+	      IF(C .NE. 0.0_LDP)THEN
+	        IF(C .GE. 0.0_LDP)THEN
+	          D=I;  U=K-1
+	        ELSE
+	          D=I+1;  U=0
+	          IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	        END IF
+	        IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	          TE1=2.0_LDP*C*J_NEXT_FRQ(D,U)
+	        ELSE
+	          MOM_AR_NOFF=MOM_AR_NOFF+1
+	          LBN=.TRUE.
+	        END IF
+	      END IF
+	      CU=NU_EPSPU(I,K)
+	      IF(CU .NE. 0.0_LDP)THEN
+	        IF(CU .GE. 0.0_LDP)THEN
+	          U1=K-1;  U2=K-1
+	        ELSE
+	          U1=0;  U2=0
+	          IF(K+MOM_NM_J(I) .LE. NCF)U1=K+MOM_NM_J(I)
+	          IF(K+MOM_NM_J(I+1) .LE. NCF)U2=K+MOM_NM_J(I+1)
+	        END IF
+	        IF(U1 .GE. 1)TE1T=CU*J_NEXT_FRQ(I,U1)
+	        IF(U2 .GE. 1)TE1T=TE1T+CU*J_NEXT_FRQ(I+1,U2)
+	      END IF
+!
+! -T5 from midpoint I-1.
+!
+	      TE2=0.0_LDP;  TE2T=0.0_LDP
+	      C=NU_EPSP(I-1,K)
+	      IF(C .NE. 0.0_LDP)THEN
+	        IF(C .GE. 0.0_LDP)THEN
+	          D=I-1;  U=K-1
+	        ELSE
+	          D=I;  U=0
+	          IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	        END IF
+	        IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	          TE2=2.0_LDP*C*J_NEXT_FRQ(D,U)
+	        ELSE
+	          MOM_AR_NOFF=MOM_AR_NOFF+1
+	          LBN=.TRUE.
+	        END IF
+	      END IF
+	      CU=NU_EPSPU(I-1,K)
+	      IF(CU .NE. 0.0_LDP)THEN
+	        IF(CU .GE. 0.0_LDP)THEN
+	          U1=K-1;  U2=K-1
+	        ELSE
+	          U1=0;  U2=0
+	          IF(K+MOM_NM_J(I-1) .LE. NCF)U1=K+MOM_NM_J(I-1)
+	          IF(K+MOM_NM_J(I) .LE. NCF)U2=K+MOM_NM_J(I)
+	        END IF
+	        IF(U1 .GE. 1)TE2T=CU*J_NEXT_FRQ(I-1,U1)
+	        IF(U2 .GE. 1)TE2T=TE2T+CU*J_NEXT_FRQ(I,U2)
+	      END IF
+!
+	      XMI=NU_SRC(I,K)+NU_CUP(I,K)*XUP+
+	1        NU_LAGSCL(I,K)*(THI+TE1-TE2)
+	      IF(NU_LAGSCL(I,K) .LT. 1.0_LDP)
+	1        MOM_AR_NLAGB=MOM_AR_NLAGB+1
+	      IF(MOM_XM_POS .AND. XMI .LT. 0.0_LDP)THEN
+	        XMI=0.0_LDP
+	        MOM_AR_NCLIP=MOM_AR_NCLIP+1
+	      END IF
+	      RM=NU_TA(I,K)*J_NEXT_FRQ(I-1,K)+
+	1        NU_TB(I,K)*J_NEXT_FRQ(I,K)+
+	2        NU_TC(I,K)*J_NEXT_FRQ(I+1,K)-XMI
+	      SM=ABS(NU_TA(I,K)*J_NEXT_FRQ(I-1,K))+
+	1        ABS(NU_TB(I,K)*J_NEXT_FRQ(I,K))+
+	2        ABS(NU_TC(I,K)*J_NEXT_FRQ(I+1,K))+
+	3        ABS(NU_SRC(I,K))+ABS(NU_CUP(I,K)*XUP)+
+	4        NU_LAGSCL(I,K)*(SMH+ABS(TE1)+ABS(TE2))
+!
+! Target LHS: strip the depth-upwind EPS coefficients, restore the
+! centred midpoint stencil, remove the MOM_H_IMPL diagonal mass.
+!
+	      TAT=NU_TA(I,K);  TBT=NU_TB(I,K);  TCT=NU_TC(I,K)
+	      EP=NU_EPS(I-1,K);  EUP=NU_EPSU(I-1,K)
+	      E=NU_EPS(I,K);     EU=NU_EPSU(I,K)
+	      IF(EP .GE. 0.0_LDP)THEN
+	        TAT=TAT+2.0_LDP*EP
+	      ELSE
+	        TBT=TBT+2.0_LDP*EP
+	      END IF
+	      IF(E .GE. 0.0_LDP)THEN
+	        TBT=TBT-2.0_LDP*E
+	      ELSE
+	        TCT=TCT-2.0_LDP*E
+	      END IF
+	      TAT=TAT-EUP
+	      TBT=TBT-EUP+EU
+	      TCT=TCT+EU
+	      IF(MOM_H_IMPL)TBT=TBT-ABS(NU_VB(I,K))-ABS(NU_VC(I,K))
+	      XMT=NU_SRC(I,K)+NU_CUPU(I,K)*XUP+(THI+TE1T-TE2T)
+	      RT=TAT*J_NEXT_FRQ(I-1,K)+TBT*J_NEXT_FRQ(I,K)+
+	1        TCT*J_NEXT_FRQ(I+1,K)-XMT
+	      ST=ABS(TAT*J_NEXT_FRQ(I-1,K))+ABS(TBT*J_NEXT_FRQ(I,K))+
+	1        ABS(TCT*J_NEXT_FRQ(I+1,K))+ABS(NU_SRC(I,K))+
+	2        ABS(NU_CUPU(I,K)*XUP)+SMH+ABS(TE1T)+ABS(TE2T)
+	    END IF
+!
+	    IF(.NOT. (ABS(RM) .LE. HUGE(RM)) .OR.
+	1       .NOT. (ABS(RT) .LE. HUGE(RT)))THEN
+	      MOM_AR_NNAN=MOM_AR_NNAN+1
+	    ELSE
+	      SL=RM/MAX(SM,TINY0)
+	      SR=RT/MAX(ST,TINY0)
+	      MOM_AR_R2M(1)=MOM_AR_R2M(1)+RM*RM
+	      MOM_AR_R2M(2)=MOM_AR_R2M(2)+RT*RT
+	      MOM_AR_S2M(1)=MOM_AR_S2M(1)+SL*SL
+	      MOM_AR_S2M(2)=MOM_AR_S2M(2)+SR*SR
+	      IF(ABS(SL) .GT. MOM_AR_MXM(1))THEN
+	        MOM_AR_MXM(1)=ABS(SL)
+	        MOM_AR_IM(1)=I;  MOM_AR_KM(1)=K
+	      END IF
+	      IF(ABS(SR) .GT. MOM_AR_MXM(2))THEN
+	        MOM_AR_MXM(2)=ABS(SR)
+	        MOM_AR_IM(2)=I;  MOM_AR_KM(2)=K
+	      END IF
+	      IF(LBN)THEN
+	        MOM_AR_NBNDR=MOM_AR_NBNDR+1
+	        MOM_AR_RBN2=MOM_AR_RBN2+SL*SL
+	      END IF
+	    END IF
+	  END DO
+!
+! H rows: committed h against its reconstruction.
+!
+	  DO I=1,ND-1
+	    LBN=.FALSE.
+	    REC=NU_HU(I,K)*J_NEXT_FRQ(I+1,K)-NU_HL(I,K)*J_NEXT_FRQ(I,K)
+	    RECT=REC
+	    SH=ABS(J_NEXT_FRQ(I,K))+ABS(NU_HU(I,K)*J_NEXT_FRQ(I+1,K))+
+	1      ABS(NU_HL(I,K)*J_NEXT_FRQ(I,K))
+	    SHT=SH
+	    IF(NU_HS(I,K) .NE. 0.0_LDP)THEN
+	      U=NU_KUH(I,K)
+	      IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	        TV=NU_HS(I,K)*H_NEXT_FRQ(I,U)
+	      ELSE
+	        TV=0.0_LDP
+	        MOM_AR_NOFF=MOM_AR_NOFF+1
+	        LBN=.TRUE.
+	      END IF
+	      REC=REC+TV;  RECT=RECT+TV
+	      SH=SH+ABS(TV);  SHT=SHT+ABS(TV)
+	    END IF
+	    C=NU_EPSP(I,K)
+	    IF(C .NE. 0.0_LDP)THEN
+	      IF(C .GE. 0.0_LDP)THEN
+	        D=I;  U=K-1
+	      ELSE
+	        D=I+1;  U=0
+	        IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	      END IF
+	      IF(U .GE. 1 .AND. U .LE. NCF)THEN
+	        TV=2.0_LDP*C*J_NEXT_FRQ(D,U)
+	      ELSE
+	        TV=0.0_LDP
+	        MOM_AR_NOFF=MOM_AR_NOFF+1
+	        LBN=.TRUE.
+	      END IF
+	      REC=REC+TV;  SH=SH+ABS(TV)
+	    END IF
+	    E=NU_EPS(I,K)
+	    IF(E .NE. 0.0_LDP)THEN
+	      IF(E .GE. 0.0_LDP)THEN
+	        D=I
+	      ELSE
+	        D=I+1
+	      END IF
+	      REC=REC-2.0_LDP*E*J_NEXT_FRQ(D,K)
+	      SH=SH+ABS(2.0_LDP*E*J_NEXT_FRQ(D,K))
+	    END IF
+	    CU=NU_EPSPU(I,K)
+	    IF(CU .NE. 0.0_LDP)THEN
+	      IF(CU .GE. 0.0_LDP)THEN
+	        U1=K-1;  U2=K-1
+	      ELSE
+	        U1=0;  U2=0
+	        IF(K+MOM_NM_J(I) .LE. NCF)U1=K+MOM_NM_J(I)
+	        IF(K+MOM_NM_J(I+1) .LE. NCF)U2=K+MOM_NM_J(I+1)
+	      END IF
+	      TV=0.0_LDP
+	      IF(U1 .GE. 1)TV=CU*J_NEXT_FRQ(I,U1)
+	      IF(U2 .GE. 1)TV=TV+CU*J_NEXT_FRQ(I+1,U2)
+	      RECT=RECT+TV;  SHT=SHT+ABS(TV)
+	    END IF
+	    EU=NU_EPSU(I,K)
+	    IF(EU .NE. 0.0_LDP)THEN
+	      TV=EU*(J_NEXT_FRQ(I,K)+J_NEXT_FRQ(I+1,K))
+	      RECT=RECT-TV;  SHT=SHT+ABS(TV)
+	    END IF
+!
+	    IF(NU_HCHK(K) .EQ. 1)THEN
+	      JBND=0.5_LDP*(J_NEXT_FRQ(I,K)+J_NEXT_FRQ(I+1,K))
+	    ELSE IF(NU_HCHK(K) .EQ. 2)THEN
+	      JBND=MAX(J_NEXT_FRQ(I,K),J_NEXT_FRQ(I+1,K))
+	    ELSE
+	      JBND=0.0_LDP
+	    END IF
+	    IF(JBND .GT. 0.0_LDP .AND.
+	1       ABS(REC) .GT. 0.99999_LDP*JBND)
+	2      MOM_AR_NHCLP=MOM_AR_NHCLP+1
+!
+	    RH=H_NEXT_FRQ(I,K)-REC
+	    RHT=H_NEXT_FRQ(I,K)-RECT
+	    IF(.NOT. (ABS(RH) .LE. HUGE(RH)) .OR.
+	1       .NOT. (ABS(RHT) .LE. HUGE(RHT)))THEN
+	      MOM_AR_NNAN=MOM_AR_NNAN+1
+	    ELSE
+	      SL=RH/MAX(SH,TINY0)
+	      SR=RHT/MAX(SHT,TINY0)
+	      MOM_AR_R2H(1)=MOM_AR_R2H(1)+RH*RH
+	      MOM_AR_R2H(2)=MOM_AR_R2H(2)+RHT*RHT
+	      MOM_AR_S2H(1)=MOM_AR_S2H(1)+SL*SL
+	      MOM_AR_S2H(2)=MOM_AR_S2H(2)+SR*SR
+	      IF(ABS(SL) .GT. MOM_AR_MXH(1))THEN
+	        MOM_AR_MXH(1)=ABS(SL)
+	        MOM_AR_IH(1)=I;  MOM_AR_KH(1)=K
+	      END IF
+	      IF(ABS(SR) .GT. MOM_AR_MXH(2))THEN
+	        MOM_AR_MXH(2)=ABS(SR)
+	        MOM_AR_IH(2)=I;  MOM_AR_KH(2)=K
+	      END IF
+	      IF(LBN)MOM_AR_NBNDR=MOM_AR_NBNDR+1
+	    END IF
+	  END DO
+	END DO
+!
+	MOM_AR_R2M=SQRT(MOM_AR_R2M)
+	MOM_AR_R2H=SQRT(MOM_AR_R2H)
+	MOM_AR_S2M=SQRT(MOM_AR_S2M)
+	MOM_AR_S2H=SQRT(MOM_AR_S2H)
+	MOM_AR_RBN2=SQRT(MOM_AR_RBN2)
+!
+	WRITE(LU,'(4X,A7,2X,2(A,ES10.3),A,ES10.3,A,ES10.3,A,I6,A,I6)')
+	1  'mom-aug','IMP r2mom ',MOM_AR_R2M(1),' r2H ',MOM_AR_R2H(1),
+	2  ' s2mom ',MOM_AR_S2M(1),' s2H ',MOM_AR_S2H(1),
+	3  ' worst mom cell ',MOM_AR_IM(1),',',MOM_AR_KM(1)
+	WRITE(LU,'(4X,A7,2X,2(A,ES10.3),A,ES10.3,A,ES10.3,A,I6,A,I6)')
+	1  'mom-aug','TGT r2mom ',MOM_AR_R2M(2),' r2H ',MOM_AR_R2H(2),
+	2  ' s2mom ',MOM_AR_S2M(2),' s2H ',MOM_AR_S2H(2),
+	3  ' worst mom cell ',MOM_AR_IM(2),',',MOM_AR_KM(2)
+	WRITE(LU,'(4X,A7,2X,7(A,I10))')
+	1  'mom-aug','counts: xmclip ',MOM_AR_NCLIP,' lagb ',MOM_AR_NLAGB,
+	2  ' epscap ',MOM_AR_NEPSL,' hclip ',MOM_AR_NHCLP,
+	3  ' offgrid ',MOM_AR_NOFF,' bndrows ',MOM_AR_NBNDR,
+	4  ' nan ',MOM_AR_NNAN
+	WRITE(LU,'(4X,A7,2X,A,I10,A,ES10.3)')
+	1  'mom-aug','skipped uncaptured rows ',MOM_AR_NSKIP,
+	2  ' bndrow scaled L2 ',MOM_AR_RBN2
+!
 	RETURN
 	END
