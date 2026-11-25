@@ -67,7 +67,9 @@ def ensure_binary():
     from common import prod_obj
 
     solver_o = Path(prod_obj(SOLVER_SRC))
-    deps = [STUB_SRC, DRIVER_SRC, solver_o]
+    # The production solver calls the ILF print helpers.
+    ilf_o = Path(prod_obj(TREE / "new_main/mod_subs/iter_log_fmt_mod.f90"))
+    deps = [STUB_SRC, DRIVER_SRC, solver_o, ilf_o]
     if BINARY.exists():
         newest = max(p.stat().st_mtime for p in deps)
         if (
@@ -90,6 +92,7 @@ def ensure_binary():
         str(STUB_SRC),
         str(DRIVER_SRC),
         str(solver_o),
+        str(ilf_o),
         "-o",
         str(BINARY),
     ]
