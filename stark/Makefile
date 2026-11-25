@@ -6,6 +6,7 @@ include ../Makefile_definitions
 
 LIB=$(LIB_DIR)libsubs.a
 LIB2=$(LIB_DIR)libsubs.a
+LIB_MOD=$(LIB_DIR)libmod.a
                          
 OBJ = prof_mod.o init_prof_module.o init_prof_module_v2.o \
       set_prof_v4.o set_prof_v5.o set_prof_v6.o \
@@ -35,6 +36,7 @@ $(LIB2)(%.o) : %.f90
 	ar $(AR_OPTION) $(LIB) $*.o
                            
 MOD_FREQ_OBS=mod_freq_obs.o
+ILF=$(LIB_MOD)(iter_log_fmt_mod.o)
 
 # Dependencies
 
@@ -47,8 +49,12 @@ $(LIB)(set_prof_limits_v2.o)   : set_prof_limits_v2.f $(LIB)(prof_mod.o)  $(LIB)
 $(LIB)(strk_bs_hhe.o)          : strk_bs_hhe.f        $(LIB)(rd_bs_strk_tab.o)
 $(LIB)(griem_v2.o)             : griem_v2.f           $(LIB)(griem_stark_mod.o)
                                          
+$(LIB)(conv_strk_v2.o)         : conv_strk_v2.f       $(ILF)
+
 $(MOD_FREQ_OBS):
 	(cd ../obs;  make mod_freq)
+$(ILF):
+	(cd ../new_main/mod_subs;  make)
 
 .dummy : clean
 clean :
