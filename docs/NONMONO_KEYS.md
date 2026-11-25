@@ -474,7 +474,11 @@ solve.
 - `JFNK_HSCAN` - fences the production OPPROBE call site.
 - `ITER_HISTORY`/`ITER_LEDGER` - machine-readable iteration rows
   (`test_iter_ledger.py`).
-- `CONV_DIAG_LVL` (integer, default 2, clamped 0..2) -
+- `OUT_LEVEL` (integer, default 1, clamped 0..3) - output verbosity;
+  `CONV_DIAG_LVL` is the legacy alias used when `OUT_LEVEL` is absent.
+  Level 0 keeps only iteration framing/parser lines/ISSUES, 1 the
+  summary tables, 2 the former full volume, and 3 full per-pass detail.
+- `CONV_DIAG_LVL` (integer, legacy alias of `OUT_LEVEL`) -
   per-iteration OUTGEN verbosity. Since 23-Nov-2026 it also gates
   the shared layout in `iter_log_fmt_mod.f90` (`test_iter_output.py`):
   0 = ITER_SUM block + `IT` status banner + `Model Convergence` +
@@ -484,11 +488,20 @@ solve.
   incl. trace noise (non-thermal species dump, DEC/INC vectors,
   setup chatter, held-fixed notices, BA_READ_V3 progress).
   Exception/error records print at every level. Parser tokens
-  ('Current great iteration count is', 'POPULATION SOLVE',
-  'Luminosity of star', 'Time taken for iteration', 'Maximm
+  ('Current iteration count is', 'POPULATION SOLVE',
+  'Luminosity of star', 'Time taken for iteration', 'Maximum
   changes...', 'Maximum %', 'Average number of calls to FG_J_CMF
   is', 'ITER_TYPE', 'Model Convergence:') keep their exact wording
-  wherever they print.
+  wherever they print. Round 2 (29-Nov-2026) fixed two printed
+  typos: 'Maximm' -> 'Maximum' and 'Current great iteration count'
+  -> 'Current iteration count'; every consumer script accepts both
+  spellings (plot_cmfgen_diagnostics.py, cmfgen_convergence.py,
+  check_convergence.py, check_cmfgen.py, parse_knop_iso.py,
+  parse_knop_seed.py, run_model_grid.py). Round 2 also adds the
+  moment-refresh pass table + one-line summary, the shared
+  run-length compressor for repeated hot-loop messages, the
+  per-iteration ISSUES census, and the fixed-width ES11.4E2/ES11.3E3
+  numeric helper.
 
 ## 7. JFNK keys
 
