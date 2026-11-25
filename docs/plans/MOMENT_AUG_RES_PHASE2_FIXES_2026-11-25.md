@@ -203,9 +203,25 @@ case confirms the gate compares against the right reference.
 Exit criterion met: every path from AA to commit passes the
 single gate.
 
-## Ordering note
+## First real-case measurement (25-Nov-2026)
 
-FIX 1 and FIX 2 are independent and can proceed in either order.
-FIX 3-5 all consume the augmented evaluator; they should follow
-the first real-case MOM_AUG_RES runs so the residual damage
-ranking is evidence, not guesswork.
+Arm: dessart_m15_2p82d_VAL_sob_lamesF_blkgmres_augres (r01 deck +
+MOM_AUG_RES=T, debug submission, job 13685499, cancelled once the
+ranking was in). 8 evaluator exits on a cold-start diverging run;
+every refresh retained the pre-refresh field.
+
+- s2mom 81 -> ~330 plateau; IMP-vs-TGT gap 18% at it1 shrinking to
+  ~1.5-4%. On a diverging field the stabilisers explain little of
+  the committed residual; non-convergence dominates.
+- s2H 152 -> up to 1e56: the H rows are the dominant inconsistency
+  by orders of magnitude (finding B quantitative - H is never
+  re-derived after the block solve).
+- Counts stable across exits: lagb ~1.1M rows, hclip ~160k,
+  xmclip ~30k, epscap 0, offgrid ~1.4k.
+- FIX 2 gate live evidence: 6 bulk-regression rejections; the
+  outer-AA write moved 7.8k-13.8k cells >5% where the guarded
+  path committed zero.
+
+Revised ordering on evidence: FIX 4 first (s2H dominates),
+then FIX 5's LAG_BND arm (pervasive, small measured share),
+XM_POS third, FIX 3 last (cap dormant on this model).
