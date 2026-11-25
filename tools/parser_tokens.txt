@@ -1,0 +1,73 @@
+# Strings that external consumers grep/match in OUTGEN or stdout.
+# Any WRITE/PRINT whose emitted text contains one of these is marked
+# 'parsed' in the inventory: the wording must survive a conversion
+# (keep old line, or update the parser in the same commit).
+#
+# Sources (Phase 1 audit, 2026-11-25):
+#   workspace scripts/: check_cmfgen.py, check_convergence.py,
+#     cmfgen_convergence.py, iter_phase0_metrics.py,
+#     plot_cmfgen_diagnostics.py, plot_maxch_comparison.py,
+#     parse_knop_iso.py, parse_knop_seed.py, run_model_grid.py,
+#     plot_cmfgen_ne_comparison.py
+#   run scripts: cmfgen_validation/*/submit_cmfgen.sh,
+#     cmfgen_validation/jfnk_watch.sh
+#   unit_tests/python/: test_iter_output.py and friends pin these
+#     literals in the Fortran source (static checks)
+Model Convergence
+Luminosity of star
+Time taken for iteration
+ITER_SUM
+ITER_MODE
+ITER_TYPE
+MODE-OUT
+Current iteration count is
+Current great iteration count is
+Maximum % increase at depth
+Maximum % decrease at depth
+Maximum changes as returned by SOLVEBA_V13
+Maximm changes as returned by SOLVEBA_V13
+BA_RES_ACC
+RUNAWAY
+POPULATION SOLVE
+Error performing NG acceleration
+NG Acceleration performed
+Averaging of oscilating
+masked depth columns
+soft rejects
+next lam / comp_ba / fix_t
+lum diag
+se residual
+matched/compress=
+KNOP I_NEXT
+KN-JT
+KN-NOP
+KN-SEED
+eod even/odd
+q ray chmax
+q argmax ray
+FG-KNOP worst ray
+ray exits
+unconverged cells
+retained-field delta
+adaptive INEXT_RELAX
+commit verdicts
+release_no_progress
+solves M ord
+fg_rf
+DEC_VEC
+INC_VEC
+Average number of calls to FG_J_CMF
+Number of frequencies is
+Number of data points
+Number of isotopes
+Time(days) since explosion
+Energy Lum
+TcurA
+TcurB
+kin.energy
+depth-block columns
+post-accel demand
+MAXCH demand
+residual max=
+--- iteration
+EPS_TERM
