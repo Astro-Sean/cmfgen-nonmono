@@ -62,7 +62,7 @@ def parse_outgen(path):
             cur_it = int(m.group(1))
             out["iter_types"].append((cur_it, m.group(2)))
             continue
-        m = re.search(r"Current great iteration count is\s+(\d+)", ln)
+        m = re.search(r"Current iteration count is\s+(\d+)", ln)
         if m:
             cur_it = int(m.group(1))
 
