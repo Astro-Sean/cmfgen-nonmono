@@ -7,6 +7,14 @@ module iter_log_fmt_mod
 ! printing. Formatting only: no numerical state is stored or
 ! altered here.
 !
+! Two key/value styles exist. ilf_kv* emits the fixed 'key : value'
+! rows used by the iteration framing. ilf_kvb emits the vertical
+! 'label = value' block that converts multi-field one-liners: the
+! header text is kept, labels pad to the longest in the block, and
+! the ilf_v* builders right-align each value field (I10 integers,
+! ES reals at the caller's decimals, T/F logicals). LOG_COMPACT_KV
+! collapses a block back to the legacy one-line form for diffs.
+!
 ! Verbosity rides on OUT_LEVEL (preferred VADAT spelling) or the
 ! legacy CONV_DIAG_LVL alias, clamped 0..3 by RD_CONTROL_VARIABLES:
 !   0 - iteration framing, ITER_SUM, Model Convergence, timing,
@@ -26,6 +34,9 @@ module iter_log_fmt_mod
 
     public :: ilf_rule, ilf_section, ilf_subsection
     public :: ilf_kv, ilf_kvd, ilf_kvi
+    public :: ilf_kvb, ilf_vi, ilf_vr, ilf_vl, ilf_vs
+    public :: ilf_val_len
+    public :: log_compact_kv
     public :: ilf_set_banner, ilf_banner
     public :: ilf_es, ilf_es_trim, ilf_tag
     public :: ilf_table_header, ilf_table_row, ilf_metric_row
@@ -35,8 +46,18 @@ module iter_log_fmt_mod
 
     integer, parameter :: ilf_lw = 80          ! section/rule width
     integer, parameter :: ilf_maxline = 100    ! output line budget
+    integer, parameter :: ilf_val_len = 40     ! ilf_v* value buffer
     integer, parameter :: ilf_maxissue = 128
     integer, parameter :: ilf_msglen = 180
+
+    ! Layout switch for ilf_kvb blocks.  .false. prints the vertical
+    ! 'label = value' block; .true. prints the legacy one-line
+    ! 'label=val, label=val' style so a converted log can be diffed
+    ! against a pre-conversion run.  Compact lines keep the legacy
+    ! length and may exceed ilf_maxline; the 100-column budget only
+    ! binds the block layout.  Flipped by the driver/test code, not
+    ! by VADAT: no key exists for it yet.
+    logical :: log_compact_kv = .false.
 
     ! Status-banner state exported by SOLVE_FOR_POPS once per great
     ! iteration and read by CMFGEN_SUB at the timing line. ILF_IT
@@ -157,6 +178,174 @@ contains
         kb = key
         write (lu, '(2x,a30,a,i0)') kb, ': ', n
     end subroutine ilf_kvi
+
+    ! ------------------------------------------------------------------
+    ! Vertical key/value blocks: a header line followed by one
+    ! 'label = value' row per field.  The ilf_v* builders return the
+    ! value field already right-aligned inside an ilf_val_len buffer;
+    ! leading blanks are part of the field so the '=' column only
+    ! depends on the label padding.
+    ! ------------------------------------------------------------------
+
+    ! Integer field, right-aligned in I10.  Values that do not fit
+    ! fall back to the minimal I0 form rather than '*****'.
+    pure function ilf_vi(n) result(str)
+        integer, intent(in) :: n
+        character(len=ilf_val_len) :: str
+        character(len=16) :: tmp
+        str = ' '
+        write (tmp, '(i10)') n
+        if (index(tmp, '*') > 0) then
+            write (tmp, '(i0)') n
+            str = ' '//adjustl(tmp)
+        else
+            str(1:10) = tmp
+        end if
+    end function ilf_vi
+
+    ! Real field, right-aligned in an ES field of width
+    ! max(10, ndec+8) with a two-digit exponent.  NDEC is the
+    ! decimals the old format carried so the printed precision is
+    ! unchanged.  Three exponent digits are used only when two do
+    ! not fit (|x|>=1E100 or underflow below 1E-99), so '*****'
+    ! never appears.  NaN and +/-Inf print as 'NaN'/'Inf'/'-Inf',
+    ! right-aligned in the same field.
+    pure function ilf_vr(x, ndec) result(str)
+        real(kind=ldp), intent(in) :: x
+        integer, intent(in) :: ndec
+        character(len=ilf_val_len) :: str
+        character(len=16) :: fmt
+        integer :: w, d
+        str = ' '
+        d = max(0, ndec)
+        w = max(10, d + 8)
+        if (x /= x) then
+            str(w - 2:w) = 'NaN'
+            return
+        end if
+        if (abs(x) > huge(x)) then
+            if (x > 0.0_ldp) then
+                str(w - 2:w) = 'Inf'
+            else
+                str(w - 3:w) = '-Inf'
+            end if
+            return
+        end if
+        ! Three-digit exponents need the E3 form: inside an E2
+        ! format the processor drops the E ('1.23+100'), which is
+        ! less readable than the widened field.
+        if (abs(x) >= 1.0e100_ldp .or. &
+            (x /= 0.0_ldp .and. abs(x) < 1.0e-99_ldp)) then
+            write (fmt, '("(es",i0,".",i0,"e3)")') &
+                min(w + 1, ilf_val_len), d
+        else
+            write (fmt, '("(es",i0,".",i0,"e2)")') w, d
+        end if
+        write (str, fmt) x
+        if (index(str, '*') > 0) then
+            str = ' '
+            str(w - 2:w) = 'ovf'
+        end if
+    end function ilf_vr
+
+    ! Logical field, 'T'/'F' right-aligned in 10 columns like I10 so
+    ! mixed blocks keep a tidy value edge.
+    pure function ilf_vl(l) result(str)
+        logical, intent(in) :: l
+        character(len=ilf_val_len) :: str
+        str = ' '
+        if (l) then
+            str(10:10) = 'T'
+        else
+            str(10:10) = 'F'
+        end if
+    end function ilf_vl
+
+    ! Short string field: leading blanks are stripped and one blank
+    ! separates '=' from the text.  Content past the buffer is
+    ! truncated; string fields longer than ilf_val_len-1 need a
+    ! hand-written row, not this helper.
+    pure function ilf_vs(s) result(str)
+        character(len=*), intent(in) :: s
+        character(len=ilf_val_len) :: str
+        str = ' '//adjustl(s)
+    end function ilf_vs
+
+    ! 'header' then N rows '    label  = value'.  Labels pad to the
+    ! longest label in the block so every '=' sits in one column.
+    ! Rows are indented 4 columns from an unindented header (a
+    ! header's own leading indent carries over).  If the natural
+    ! label width would push a row past ilf_maxline the padding is
+    ! shrunk; a single label too long to fit even at zero padding
+    ! puts its value on an extra-indented continuation line instead
+    ! of overflowing the budget.  With LOG_COMPACT_KV=.true. the
+    ! whole block collapses to the legacy 'header label=val, ...'
+    ! one-liner.
+    subroutine ilf_kvb(lu, header, n, labels, vals)
+        integer, intent(in) :: lu
+        integer, intent(in) :: n
+        character(len=*), intent(in) :: header
+        character(len=*), intent(in) :: labels(:), vals(:)
+        integer :: i, m, ind0, ind, pad, padcap, vmax, lt, lv, pos
+        character(len=320) :: line
+        character(len=ilf_val_len + 64) :: frag
+        m = min(n, size(labels), size(vals))
+        ind0 = 0
+        do while (ind0 < len(header))
+            if (header(ind0 + 1:ind0 + 1) /= ' ') exit
+            ind0 = ind0 + 1
+        end do
+        ind = max(4, ind0 + 3)
+        if (log_compact_kv) then
+            line = ' '
+            if (len_trim(header) > 0) then
+                line = header(1:len_trim(header))
+            end if
+            pos = len_trim(line) + 1
+            do i = 1, m
+                frag = ' '//trim(adjustl(labels(i)))//'='// &
+                    trim(adjustl(vals(i)))
+                if (i > 1) frag = ','//frag
+                if (pos + len_trim(frag) > len(line)) exit
+                line(pos:) = trim(frag)
+                pos = len_trim(line) + 1
+            end do
+            write (lu, '(a)') trim(line)
+            return
+        end if
+        if (len_trim(header) > 0) then
+            write (lu, '(a)') header(1:len_trim(header))
+        end if
+        if (m <= 0) return
+        pad = 0
+        vmax = 0
+        do i = 1, m
+            pad = max(pad, len_trim(labels(i)))
+            vmax = max(vmax, len_trim(vals(i)))
+        end do
+        padcap = ilf_maxline - ind - 3 - vmax
+        pad = min(pad, max(0, padcap))
+        do i = 1, m
+            lt = len_trim(labels(i))
+            lv = len_trim(vals(i))
+            if (lt <= pad) then
+                line = repeat(' ', ind)//labels(i)(1:pad)//'  ='// &
+                    vals(i)(1:lv)
+            else if (ind + lt + 3 + lv <= ilf_maxline) then
+                line = repeat(' ', ind)//labels(i)(1:lt)//'  ='// &
+                    vals(i)(1:lv)
+            else
+                ! Label too long to share the row with its value:
+                ! split rather than truncate the field text.
+                call ilf_issue_add('WARN', 'ILF', &
+                    'kv row over line budget; value wrapped')
+                write (lu, '(a)') repeat(' ', ind)// &
+                    labels(i)(1:lt)//'  ='
+                line = repeat(' ', ind + 4)//vals(i)(1:lv)
+            end if
+            write (lu, '(a)') trim(line)
+        end do
+    end subroutine ilf_kvb
 
     ! Tagged diagnostic line. WARN/BAD lines also enter the
     ! per-iteration issue census; printing is never conditional here,
