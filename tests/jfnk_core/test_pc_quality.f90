@@ -26,8 +26,27 @@ program test_pc_quality
    use jfnk_solver_v1_mod, only: jfnk_pc_set_options_v1, &
       jfnk_pc_tiny_equil, jfnk_rcond_gate, jfnk_rcond_min, &
       jfnk_itry_cap, jfnk_ridge_floor, jfnk_pc_qual_v2, &
-      jfnk_pc_qual_tol
+      jfnk_pc_qual_tol, jfnk_pc_cert, jfnk_pc_cert_tol, &
+      jfnk_pc_lsqfb
    implicit none
+   interface
+      subroutine jfnk_pc_factor_block_v1(a, n, pre_reg, row_tiny, &
+           ridge_piv, lsq_lam, lsq_mode, luer, &
+           lu, ipiv, rsf, csf, reg, reg_tiny, ridge_rows, &
+           rcond, pivrat, itry_used, ridge_used, lu_ok, lsq_used)
+         implicit none
+         integer, intent(in) :: n, luer
+         double precision, intent(in) :: a(n,n)
+         logical, intent(in) :: pre_reg(n), lsq_mode
+         double precision, intent(in) :: row_tiny, ridge_piv, &
+              lsq_lam
+         double precision, intent(out) :: lu(n,n), rsf(n), csf(n), &
+              ridge_rows(n), rcond, pivrat, ridge_used
+         integer, intent(out) :: ipiv(n), itry_used
+         logical, intent(out) :: reg(n), reg_tiny(n), lu_ok
+         logical, intent(out), optional :: lsq_used
+      end subroutine jfnk_pc_factor_block_v1
+   end interface
    integer, parameter :: N = 12, LUER = 6
    double precision :: a(N,N), lu(N,N), rsf(N), csf(N), rrg(N)
    double precision :: ba_diag(N), ridge_rows(N), rcond, pivrat
@@ -35,7 +54,7 @@ program test_pc_quality
    integer :: ipiv(N), itry_used, nproj, nzero, nzclip, nzmax_hit
    integer :: nsolved, i, j, info, nfail
    logical :: pre_reg(N), reg(N), reg_tiny(N), fixed(N), lu_ok
-   logical :: lsq_mode
+   logical :: lsq_mode, lsq_u
    double precision :: u(N), av(N)
    !
    nfail = 0
@@ -231,6 +250,80 @@ program test_pc_quality
    else
       write(luer,'(A)') 'Q6: gate can fire on this matrix'
    end if
+   !
+   ! ================= Q7: backward-error certificate ================
+   ! On a well-conditioned block the certificate accepts at the default
+   ! tol and reports no LSQ fallback; at an impossible tol every LU
+   ! attempt is rejected (and no fallback exists because lsqfb is off).
+   call jfnk_pc_set_options_v1(.false., .false., .false., .false., &
+        1.0d-13, 3, .false., 0.5d0, .true., 1.0d-8, .false.)
+   call gen_wellcond(a, N)
+   call jfnk_pc_factor_block_v1(a, N, pre_reg, 1.0d-4, 0.0d0, &
+        1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, reg_tiny, &
+        ridge_rows, rcond, pivrat, itry_used, ridge_used, lu_ok, lsq_u)
+   write(luer,'(A,L3,A,I3,A,L3)') &
+      'Q7: cert lu_ok=', lu_ok, ' itry=', itry_used, ' lsq_u=', lsq_u
+   if(.not. lu_ok .or. lsq_u)then
+      print *, 'Q7 FAIL: cert rejected a good block', lu_ok, lsq_u
+      nfail = nfail + 1
+   else
+      write(luer,'(A)') 'Q7: PASS'
+   end if
+   call jfnk_pc_set_options_v1(.false., .false., .false., .false., &
+        1.0d-13, 3, .false., 0.5d0, .true., 1.0d-25, .false.)
+   call jfnk_pc_factor_block_v1(a, N, pre_reg, 1.0d-4, 0.0d0, &
+        1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, reg_tiny, &
+        ridge_rows, rcond, pivrat, itry_used, ridge_used, lu_ok, lsq_u)
+   write(luer,'(A,L3,A,I3)') 'Q7b: impossible-tol lu_ok=', lu_ok, &
+      ' itry=', itry_used
+   if(lu_ok)then
+      print *, 'Q7b FAIL: cert passed at 1e-25 tol'
+      nfail = nfail + 1
+   else
+      write(luer,'(A)') 'Q7b: PASS'
+   end if
+   !
+   ! ============ Q8: LSQ fallback on an LU-uncertifiable block ======
+   ! Duplicating row 3 into row 7 leaves the block exactly singular,
+   ! but the diagonal ridge breaks the duplication at any nonzero
+   ! level, so exhaust needs a controlled ladder: ridge_floor=0 makes
+   ! attempt 0 unridged (dgetrf fails on the singular block), and
+   ! rcond_gate with itry_cap=1 ends the ladder there. With
+   ! JFNK_PC_LSQFB the extra slot factorizes B^T B + lam^2 I -- SPD
+   ! for lam > 0 -- and must report lsq_used=T; with the flag off the
+   ! same block must report lu_ok=F.
+   jfnk_ridge_floor = 0.0d0
+   call jfnk_pc_set_options_v1(.false., .false., .false., .true., &
+        1.0d-13, 1, .false., 0.5d0, .true., 1.0d-8, .true.)
+   call gen_wellcond(a, N)
+   a(7,:) = a(3,:)
+   call jfnk_pc_factor_block_v1(a, N, pre_reg, 1.0d-4, 0.0d0, &
+        1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, reg_tiny, &
+        ridge_rows, rcond, pivrat, itry_used, ridge_used, lu_ok, lsq_u)
+   write(luer,'(A,L3,A,I3,A,L3)') &
+      'Q8: lsqfb lu_ok=', lu_ok, ' itry=', itry_used, ' lsq_u=', lsq_u
+   if(.not. lu_ok .or. .not. lsq_u .or. itry_used /= 1)then
+      print *, 'Q8 FAIL: lsq fallback did not engage', lu_ok, lsq_u, &
+           itry_used
+      nfail = nfail + 1
+   else
+      write(luer,'(A)') 'Q8: PASS'
+   end if
+   call jfnk_pc_set_options_v1(.false., .false., .false., .true., &
+        1.0d-13, 1, .false., 0.5d0, .true., 1.0d-8, .false.)
+   call jfnk_pc_factor_block_v1(a, N, pre_reg, 1.0d-4, 0.0d0, &
+        1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, reg_tiny, &
+        ridge_rows, rcond, pivrat, itry_used, ridge_used, lu_ok, lsq_u)
+   write(luer,'(A,L3)') 'Q8b: lsqfb-off lu_ok=', lu_ok
+   if(lu_ok)then
+      print *, 'Q8b FAIL: LU ladder accepted a singular block'
+      nfail = nfail + 1
+   else
+      write(luer,'(A)') 'Q8b: PASS'
+   end if
+   jfnk_ridge_floor = 1.0d-2
+   call jfnk_pc_set_options_v1(.false., .false., .false., .false., &
+        1.0d-13, 3)
    !
    if(nfail == 0) then
       print *, 'ALL PC-QUALITY TESTS PASSED'
