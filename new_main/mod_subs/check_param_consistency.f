@@ -179,11 +179,13 @@
 ! nothing calls the solver -- dead keys in OUTGEN.  Warn rather
 ! than stop: the run is legal, the key is just misleading.
 !
-	IF((MOM_BLKGMRES .OR. MOM_NUSOLV .OR. MOM_H_IMPL) .AND.
+	IF((MOM_BLKGMRES .OR. MOM_NUSOLV .OR. MOM_H_IMPL .OR.
+	1   MOM_AUG_RES) .AND.
 	1   .NOT. (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES))THEN
 	  WRITE(LUER,*)TRIM(ER_LAB),' MOM_BLKGMRES/MOM_NUSOLV/'//
-	1     'MOM_H_IMPL set but the MOM solver never runs on this'//
-	2     ' route (needs DO_NONMONO_SOB=T and USE_LAM_ES=F)'
+	1     'MOM_H_IMPL/MOM_AUG_RES: the MOM solver never runs'
+	  WRITE(LUER,*)' on this route (needs DO_NONMONO_SOB=T and'//
+	1     ' USE_LAM_ES=F)'
 	END IF
 !
 ! Same audit, same treatment for DO_KNOP_REFRESH=T away from the
