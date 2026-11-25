@@ -5673,21 +5673,25 @@
 	REAL(KIND=LDP) GRM_AA(MOM_AA_M,MOM_AA_M),BRHS_AA(MOM_AA_M)
 	REAL(KIND=LDP) WGRM(MOM_AA_M,MOM_AA_M),WBR(MOM_AA_M)
 	REAL(KIND=LDP) GAM_AA(MOM_AA_M),FNRM,DNRM,SC,XV,WV,DTR
-	REAL(KIND=LDP) OMG_PRV,RHO_H(4)
+	REAL(KIND=LDP) OMG_PRV
 	LOGICAL L_V2
 ! Per-pass max residual of this refresh for the V2 same-map omega
 ! estimator (edited 19-Oct-2026): PASS_CHG is the pass's
 ! MOM_GS_MAXCHG before the counters merge, same normalization the
-! refresh residual prints use.
+! refresh residual prints use. edited 25-Nov-2026 (FIX 1): one
+! slot per traversal direction -- slot 1 ascending (expanding),
+! slot 2 descending (compressing), matching the IDIR convention --
+! so MOM_SAME_DIR_RHO can form ratios between residuals of the
+! same map instead of cross-map beat readings.
 !
-	REAL(KIND=LDP), ALLOCATABLE :: RES_PASS(:)
+	REAL(KIND=LDP), ALLOCATABLE :: RES_PASS(:,:)
 	INTEGER IPIV_OUT(MOM_AA_OUT_M)
 	REAL(KIND=LDP) GRM_OUT(MOM_AA_OUT_M,MOM_AA_OUT_M),
 	1    BRHS_OUT(MOM_AA_OUT_M)
 	REAL(KIND=LDP) WGRM_OUT(MOM_AA_OUT_M,MOM_AA_OUT_M),
 	1    WBR_OUT(MOM_AA_OUT_M),GAM_OUT(MOM_AA_OUT_M)
 	EXTERNAL DGESV
-	LOGICAL LINIT,CONVERGED,BEST_VALID,KEEP_BEST
+	LOGICAL LINIT,CONVERGED,BEST_VALID,KEEP_BEST,KEEP_FIN
 	LOGICAL LRENEW,LAA_OK
 	INTEGER IKONJ_SZ
 	LOGICAL BESTV_D(2),SKIP_D(2)
@@ -5878,7 +5882,7 @@
 ! Alloc-fail just loses the V2 branch -- the estimator falls back
 ! to the cross-call ratio.
 !
-	ALLOCATE(RES_PASS(KN_M_MAXPASS),STAT=IOS)
+	ALLOCATE(RES_PASS(2,KN_M_MAXPASS),STAT=IOS)
 	IF(IOS .EQ. 0)RES_PASS=0.0_LDP
 !
 ! AA history restarts every call: each refresh iterates a different
@@ -6428,8 +6432,19 @@
 ! Same-map record (edited 19-Oct-2026): the pass's max
 ! residual before best-pass/AA modification, appended in pass order
 ! for the adaptive JNEXT_RELAX estimator at the exit.
+! edited 25-Nov-2026 (FIX 1): filed under the pass's traversal
+! direction so the estimator reads same-map pairs. Under the
+! alternating schedule consecutive entries of one slot are one
+! full two-pass cycle apart; under the dominant/SKIP_D schedules
+! they are consecutive passes of the same map.
 !
-	  IF(ALLOCATED(RES_PASS))RES_PASS(IPASS)=PASS_CHG
+	  IF(ALLOCATED(RES_PASS))THEN
+	    IF(LDI .LT. 0)THEN
+	      RES_PASS(2,IPASS)=PASS_CHG
+	    ELSE
+	      RES_PASS(1,IPASS)=PASS_CHG
+	    END IF
+	  END IF
 !
 ! edited 28-Sep-2026: best-pass selection runs here, on
 ! the raw map output, before the cycle check and Anderson update
@@ -7259,6 +7274,17 @@
 ! (audit D2; a MOM_RF_AA=F+MOM_AA_OUT=T config now actually gets
 ! the outer acceleration it asked for).
 !
+! edited 25-Nov-2026 (FIX 2, audit finding G): pre-AA commit-gate
+! snapshot. JBEST/HBEST are free from here on (the best-pass
+! restore above was their last use), so reuse them to hold the
+! field as it stands after every pass-level and best-pass guard --
+! the last state that passed the guards. The single commit gate
+! below restores this snapshot atomically when the post-AA field
+! fails a check.
+!
+	JBEST(1:ND_NM,1:KN_M_NCF)=J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
+	HBEST(1:ND_NM,1:KN_M_NCF)=H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
+!
 	LAA_OK=.FALSE.
 	IF(MOM_AA_OUT)THEN
 	  IF(MOM_AA_OUT_FAIL .AND.
@@ -7476,6 +7502,35 @@
 	    IF(NHIST_OUT .LT. 0)NHIST_OUT=0
 	  END IF
 !
+! edited 25-Nov-2026 (FIX 2, audit finding G): uniform final
+! acceptance. The outer-AA write above is the only store write
+! that lands after every pass-level and best-pass guard, so the
+! field it commits had no finite, positivity, jump or bulk check.
+! One gate now runs here on the exact field about to be kept,
+! checking it against the pre-refresh store and the pre-AA
+! snapshot (JBEST/HBEST): nonfinite entries, new non-positive J,
+! >50x jumps over the retained store, or bulk regression past the
+! KEEP_BEST lexicographic bound all reject. On rejection the
+! pre-AA field -- the last state that passed the guards -- is
+! restored atomically and RETJ_PREV/RETH_PREV are repointed at it
+! so the next call's outer-AA pair stays the committed iterate.
+! When nothing wrote past the snapshot the checks see the
+! already-guarded field and pass trivially.
+!
+	CALL MOM_RF_COMMIT_GATE(J_NEXT_FRQ,H_NEXT_FRQ,
+	1    JNEXT_SAVE,HNEXT_SAVE,JBEST,HBEST,
+	2    ND_NM,KN_M_NCF,LUER,KEEP_FIN)
+	IF(.NOT. KEEP_FIN)THEN
+	  J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)=
+	1    JBEST(1:ND_NM,1:KN_M_NCF)
+	  H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)=
+	1    HBEST(1:ND_NM,1:KN_M_NCF)
+	  IF(ALLOCATED(RETJ_PREV))RETJ_PREV(1:ND_NM,1:KN_M_NCF)=
+	1    J_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
+	  IF(ALLOCATED(RETH_PREV))RETH_PREV(1:ND_NM,1:KN_M_NCF)=
+	1    H_NEXT_FRQ(1:ND_NM,1:KN_M_NCF)
+	END IF
+!
 ! Post-refresh maturity of the RETAINED field: the distance between
 ! the field the populations saw (the pre-refresh store, which is the
 ! sweep's relaxed output) and the store actually carried forward.
@@ -7631,47 +7686,33 @@
 ! cross-call estimate is the fallback. Ports the FG W5 fix
 ! (FG_ADAPT_OMEGA_V2, fg_j_cmf_nonmono_v1.f).
 !
+! edited 25-Nov-2026 (FIX 1, audit finding F): the original
+! version filed residuals in pass order and ratioed consecutive
+! entries, but under the alternating schedule consecutive passes
+! run different maps, so a stride-1 ratio is a cross-map beat
+! reading, not a contraction factor. RES_PASS is now slotted by
+! pass direction and MOM_SAME_DIR_RHO ratios only consecutive
+! entries of the same slot -- one full two-pass cycle under ALT
+! (the composite-map factor), consecutive same-map passes under
+! the dominant/SKIP_D schedules.
+!
 	IF(MOM_ADAPT_RELAX .AND. MOM_GS_MAXCHG .GT. 0.0_LDP .AND.
 	1   MOM_GS_MAXCHG .LE. HUGE(MOM_GS_MAXCHG))THEN
 	  OMG_PRV=JNEXT_RELAX
 	  L_V2=.FALSE.
 	  IF(MOM_ADAPT_OMEGA_V2 .AND. ALLOCATED(RES_PASS))THEN
-	    J=0
-	    DO I=SIZE(RES_PASS),1,-1
-	      IF(RES_PASS(I) .GT. 0.0_LDP)THEN
-	        J=I
-	        EXIT
-	      END IF
-	    END DO
-	    IF(J .GE. 4)THEN
-	      L=0
-	      DO I=MAX(2,J-3),J
-	        IF(RES_PASS(I-1) .GT. 0.0_LDP)THEN
-	          L=L+1
-	          RHO_H(L)=RES_PASS(I)/RES_PASS(I-1)
-	        END IF
-	      END DO
-	      IF(L .GE. 3)THEN
-	        DO I=1,L-1
-	          DO KK=I+1,L
-	            IF(RHO_H(KK) .LT. RHO_H(I))THEN
-	              T4=RHO_H(I)
-	              RHO_H(I)=RHO_H(KK)
-	              RHO_H(KK)=T4
-	            END IF
-	          END DO
-	        END DO
-	        DTR=RHO_H((L+1)/2)
-	        DTR=MIN(MAX(DTR,0.05_LDP),20.0_LDP)
-	        JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
-	1          0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,
-	2          1.0_LDP/(1.0_LDP+DTR)))
-	        WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
-	1          '    adaptive JNEXT_RELAX: estimated'//
-	2          ' contraction factor ',DTR,' (',L,
-	3          ' same-map ratios); new relaxation ',JNEXT_RELAX
-	        L_V2=.TRUE.
-	      END IF
+	    CALL MOM_SAME_DIR_RHO(RES_PASS,SIZE(RES_PASS,2),
+	1      DTR,L,L_V2)
+	    IF(L_V2)THEN
+	      DTR=MIN(MAX(DTR,0.05_LDP),20.0_LDP)
+	      JNEXT_RELAX=0.5_LDP*JNEXT_RELAX+
+	1        0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,
+	2        1.0_LDP/(1.0_LDP+DTR)))
+	      WRITE(LUER,'(A,ES10.3,A,I4,A,ES10.3)')
+	1        '    adaptive JNEXT_RELAX: estimated'//
+	2        ' contraction factor ',DTR,' (',L,
+	3        ' same-direction ratios); new relaxation ',
+	4        JNEXT_RELAX
 	    END IF
 	  END IF
 	  IF(.NOT. L_V2 .AND. MOM_RF_RESID_PRV .GT. 0.0_LDP)THEN
@@ -8673,6 +8714,219 @@
 	WRITE(LU,'(4X,A7,2X,A,I10,A,ES10.3)')
 	1  'mom-aug','skipped uncaptured rows ',MOM_AR_NSKIP,
 	2  ' bndrow scaled L2 ',MOM_AR_RBN2
+!
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! MOM_SAME_DIR_RHO (FIX 1, audit finding F): contraction-factor
+! estimate for the adaptive JNEXT_RELAX update, restricted to
+! same-map residual pairs.
+!
+! RES_PASS(D,I) holds the pass-I max residual filed under its
+! traversal direction (slot 1 ascending/expanding, slot 2
+! descending/compressing). Ratios are formed only between
+! consecutive valid entries of the same slot: under the
+! alternating schedule a same-direction pair spans one full
+! two-pass cycle, so each ratio estimates the composite-map
+! contraction factor; under the dominant or SKIP_D schedules the
+! pair is consecutive passes of the same map. The old pass-ordered
+! record produced stride-1 cross-map ratios -- when the two
+! directional maps contract differently the estimator read the
+! beat note and miskeyed omega.
+!
+! RHO is the median of up to the newest 4 same-direction ratios
+! per slot (<=8 pooled; the two directional subsequences measure
+! the same composite spectrum up to cyclic order, so pooling
+! doubles the samples). LOK is .TRUE. only when at least 3 ratios
+! exist -- below that the caller falls back to the cross-call
+! estimate.
+!
+	SUBROUTINE MOM_SAME_DIR_RHO(RES_PASS,NP,RHO,NR,LOK)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER, INTENT(IN) :: NP
+	REAL(KIND=LDP), INTENT(IN) :: RES_PASS(2,NP)
+	REAL(KIND=LDP), INTENT(OUT) :: RHO
+	INTEGER, INTENT(OUT) :: NR
+	LOGICAL, INTENT(OUT) :: LOK
+!
+	INTEGER I,J,K,D,NV,IDX(5)
+	REAL(KIND=LDP) RHOV(8),T4
+!
+	RHO=0.0_LDP
+	NR=0
+	LOK=.FALSE.
+!
+! Last pass index carrying any residual record.
+!
+	J=0
+	DO I=NP,1,-1
+	  IF(RES_PASS(1,I) .GT. 0.0_LDP .OR.
+	1     RES_PASS(2,I) .GT. 0.0_LDP)THEN
+	    J=I
+	    EXIT
+	  END IF
+	END DO
+	IF(J .LT. 3)RETURN
+!
+	DO D=1,2
+	  NV=0
+	  DO I=J,1,-1
+	    IF(RES_PASS(D,I) .GT. 0.0_LDP)THEN
+	      NV=NV+1
+	      IDX(NV)=I
+	      IF(NV .GE. 5)EXIT
+	    END IF
+	  END DO
+	  DO K=1,NV-1
+	    NR=NR+1
+	    RHOV(NR)=RES_PASS(D,IDX(K))/RES_PASS(D,IDX(K+1))
+	  END DO
+	END DO
+	IF(NR .LT. 3)RETURN
+!
+	DO I=1,NR-1
+	  DO K=I+1,NR
+	    IF(RHOV(K) .LT. RHOV(I))THEN
+	      T4=RHOV(I)
+	      RHOV(I)=RHOV(K)
+	      RHOV(K)=T4
+	    END IF
+	  END DO
+	END DO
+	RHO=RHOV((NR+1)/2)
+	LOK=.TRUE.
+	RETURN
+	END
+!
+!**********************************************************************
+!
+! MOM_RF_COMMIT_GATE (FIX 2, audit finding G): single acceptance
+! policy applied once, after best-pass selection and outer AA, to
+! the exact field about to be committed.
+!
+! The pass-level guards (negative-J repair, write caps, NaN
+! guards), the best-pass lexicographic test, the finite scan and
+! the 50x jump guard all run before the outer-AA write, so an AA
+! correction could previously commit a field that never passed
+! those checks. This gate re-runs the same checks on the final
+! candidate JF/HF:
+!
+!   1. finite: every |J|,|H| entry below the 1E40 poison bound;
+!   2. positivity: no J cell driven non-positive that was positive
+!      in the pre-AA field JP;
+!   3. jump: no cell more than 50x over the pre-refresh store
+!      JS/HS (same formula as the best-pass W16 guard);
+!   4. bulk: the >5%/>50% cell counts of JF vs JS must satisfy the
+!      KEEP_BEST lexicographic bound referenced to the pre-AA
+!      counts (strict n50 improvement, or n50 held with n5 held,
+!      and n5 never beyond 1.5x the pre-AA count).
+!
+! The pre-AA field is the reference because it is the last state
+! that passed the guards: the bulk test then bounds exactly the
+! unguarded write's marginal churn, and a field identical to JP
+! always passes, so paths with no post-snapshot write are never
+! rejected. On any failure KEEP comes back .FALSE. and the caller
+! restores JP/HP atomically.
+!
+	SUBROUTINE MOM_RF_COMMIT_GATE(JF,HF,JS,HS,JP,HP,
+	1   NDIM,NCF,LUER,KEEP)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+!
+	INTEGER, INTENT(IN) :: NDIM,NCF,LUER
+	REAL(KIND=LDP), INTENT(IN) :: JF(NDIM,NCF),HF(NDIM,NCF)
+	REAL(KIND=LDP), INTENT(IN) :: JS(NDIM,NCF),HS(NDIM,NCF)
+	REAL(KIND=LDP), INTENT(IN) :: JP(NDIM,NCF),HP(NDIM,NCF)
+	LOGICAL, INTENT(OUT) :: KEEP
+!
+	INTEGER I,L,NJMP
+	INTEGER*8 N5F,N50F,N5P,N50P,NNEG,NFIN
+	REAL(KIND=LDP) T3,T4
+!
+	KEEP=.TRUE.
+!
+! Bulk census and finite/positivity scan in one pass. The per-
+! column floor and the two-sided floor test mirror the retained-
+! field maturity census so the counts describe the same metric.
+!
+	N5F=0_8;  N50F=0_8;  N5P=0_8;  N50P=0_8
+	NNEG=0_8;  NFIN=0_8
+	DO L=1,NCF
+	  T3=MAX(MAXVAL(ABS(JS(1:NDIM,L))),1.0E-28_LDP)
+	  DO I=1,NDIM
+	    IF(.NOT. (ABS(JF(I,L)) .LT. 1.0E40_LDP) .OR.
+	1       .NOT. (ABS(HF(I,L)) .LT. 1.0E40_LDP))NFIN=NFIN+1
+	    IF(JF(I,L) .LE. 0.0_LDP .AND.
+	1       JP(I,L) .GT. 0.0_LDP)NNEG=NNEG+1
+	    IF(MAX(ABS(JS(I,L)),ABS(JF(I,L))) .GT.
+	1       1.0E-4_LDP*T3)THEN
+	      T4=ABS(JF(I,L)-JS(I,L))/
+	1         MAX(ABS(JS(I,L)),1.0E-4_LDP*T3)
+	      IF(T4 .GT. 0.05_LDP)N5F=N5F+1
+	      IF(T4 .GT. 0.5_LDP)N50F=N50F+1
+	    END IF
+	    IF(MAX(ABS(JS(I,L)),ABS(JP(I,L))) .GT.
+	1       1.0E-4_LDP*T3)THEN
+	      T4=ABS(JP(I,L)-JS(I,L))/
+	1         MAX(ABS(JS(I,L)),1.0E-4_LDP*T3)
+	      IF(T4 .GT. 0.05_LDP)N5P=N5P+1
+	      IF(T4 .GT. 0.5_LDP)N50P=N50P+1
+	    END IF
+	  END DO
+	END DO
+!
+! 50x jump guard vs the pre-refresh store -- the same W16 rule the
+! best-pass path applies, with the retained-store scale as floor.
+!
+	T3=0.0_LDP
+	DO L=1,NCF
+	  DO I=1,NDIM
+	    T3=MAX(T3,ABS(JS(I,L)),ABS(HS(I,L)))
+	  END DO
+	END DO
+	T3=MAX(T3/50.0_LDP,1.0E-300_LDP)
+	NJMP=0
+	DO L=1,NCF
+	  DO I=1,NDIM
+	    IF(ABS(JF(I,L)-JS(I,L)) .GT.
+	1       50.0_LDP*MAX(ABS(JS(I,L)),T3) .OR.
+	2       ABS(HF(I,L)-HS(I,L)) .GT.
+	3       50.0_LDP*MAX(ABS(HS(I,L)),T3))NJMP=NJMP+1
+	  END DO
+	END DO
+!
+	IF(NFIN .GT. 0_8)THEN
+	  KEEP=.FALSE.
+	  WRITE(LUER,'(A,I10,2A)')
+	1    ' MOM_KNOP_REFRESH: commit gate rejected the final'//
+	2    ' field (',NFIN,' non-finite or >1E40 entries)',
+	3    ' -- pre-AA field restored  [WARN]'
+	ELSE IF(NNEG .GT. 0_8)THEN
+	  KEEP=.FALSE.
+	  WRITE(LUER,'(A,I10,2A)')
+	1    ' MOM_KNOP_REFRESH: commit gate rejected the final'//
+	2    ' field (',NNEG,' cells driven to J<=0)',
+	3    ' -- pre-AA field restored  [WARN]'
+	ELSE IF(NJMP .GT. 0)THEN
+	  KEEP=.FALSE.
+	  WRITE(LUER,'(A,I10,2A)')
+	1    ' MOM_KNOP_REFRESH: commit gate rejected the final'//
+	2    ' field (',NJMP,' cells jumped more than 50x over'//
+	3    ' the retained store) -- pre-AA field restored  [WARN]'
+	ELSE IF(.NOT. (N50F .LT. N50P .OR.
+	1   (N50F .LE. N50P .AND. N5F .LE. N5P)) .OR.
+	2   N5F .GT. N5P+N5P/2)THEN
+	  KEEP=.FALSE.
+	  WRITE(LUER,'(A,I10,A,I10,A,I10,A,I10,A,I10,A)')
+	1    ' MOM_KNOP_REFRESH: commit gate rejected the final'//
+	2    ' field (bulk regression: ',N5F,' above 5%, ',N50F,
+	3    ' above 50% vs the pre-AA counts ',N5P,'/',N50P,
+	4    ') -- pre-AA field restored  [WARN]'
+	END IF
 !
 	RETURN
 	END
