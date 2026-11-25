@@ -16,6 +16,21 @@ and the KEEP_BEST lexicographic bulk bound referenced to the pre-AA
 field. drv_mom_gate feeds it manufactured seed / pre-AA / candidate
 triples and this battery checks each verdict and the warn text
 naming the failing check.
+
+25-Nov-2026 per-column jump scale: the 50x test now keys on the
+column's own store peak (the FG_JUMP_MAX rule), not the global
+field max. The dim* cases spread the columns over nine decades so a
+dim-column blow-up fails on its own peak, and the flr*/coldstr
+cases pin the floor-column handling -- a seed consistent with the
+nearest committed column is accepted, one 50x over it is rejected,
+and a store with no committed column anywhere is an exempt cold
+start.
+
+aalegit pins the Investigation-4 measurement, not the desired
+verdict: a candidate that lands on the rho=0.95 fixed point
+(residual ~1e-13) is vetoed by the bulk census because it churns
+more cells vs the store than the one-step pre-AA field. The gate
+prices movement, not residual reduction.
 """
 
 import re
@@ -65,9 +80,10 @@ HELPERS = [
 ]
 
 RHO_CASES = ["rhoalt", "rhosingle", "rhodiv", "rhobeat",
-             "rhoskip", "rhofew"]
+             "rhoskip", "rhofew", "sgnpos", "sgnosc", "sgnfew"]
 GATE_CASES = ["clean", "aafix", "aaimp", "neg", "nonfin", "jump",
-              "bulk", "seedgate"]
+              "bulk", "seedgate", "dimjmp", "dimok", "flrseed",
+              "flrjmp", "coldstr", "aalegit"]
 
 
 def build():
@@ -124,8 +140,26 @@ def main():
               val(outs["rhofew"], "LOK") == "F",
               detail=outs["rhofew"])
 
+    # MOM_OMEGA_SGN: the signed same-direction ratios must keep
+    # their sign through the pooled median -- +0.9 monotone wants
+    # omega -> 1, -0.9 oscillation wants omega ~ 0.53.
+    rho = float(val(outs["sgnpos"], "RHO"))
+    rep.check("sgnpos: monotone +0.9 sign survives",
+              rho > 0.85 and rho < 0.95, detail=outs["sgnpos"])
+    rep.check("sgnpos: 4 pooled ratios",
+              int(val(outs["sgnpos"], "NRAT")) == 4)
+
+    rho = float(val(outs["sgnosc"], "RHO"))
+    rep.check("sgnosc: oscillating -0.9 sign survives",
+              rho < -0.85 and rho > -0.95, detail=outs["sgnosc"])
+
+    rep.check("sgnfew: under-sampled -> LOK=F",
+              val(outs["sgnfew"], "LOK") == "F",
+              detail=outs["sgnfew"])
+
     # FIX 2: uniform commit gate.
-    for case in ["clean", "aafix", "aaimp"]:
+    for case in ["clean", "aafix", "aaimp", "dimok", "flrseed",
+                 "coldstr"]:
         rep.check(f"{case}: committed", val(outs[case], "KEEP") == "T",
                   detail=outs[case])
         rep.check(f"{case}: no gate warn",
@@ -136,6 +170,9 @@ def main():
         ("jump", "jumped more than 50x"),
         ("bulk", "bulk regression"),
         ("seedgate", "bulk regression"),
+        ("dimjmp", "jumped more than 50x"),
+        ("flrjmp", "jumped more than 50x"),
+        ("aalegit", "bulk regression"),
     ]:
         rep.check(f"{case}: rejected", val(outs[case], "KEEP") == "F",
                   detail=outs[case])
