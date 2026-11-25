@@ -59,6 +59,7 @@
 	USE JFNK_SOLVER_V1_MOD
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FREEZE_I_NEXT
 	USE JFNK_OP_PROBE_MOD, ONLY: JFNK_OP_PROBE_V1
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR, ILF_VL, ILF_VS
 	IMPLICIT NONE
 !
 	INTEGER NT,NION,NUM_BNDS,ND,DIAG_INDX
@@ -452,10 +453,11 @@
 	1     MAX(JFNK_RUNG_MIN_EVALS,
 	2     JFNK_EVAL_LIM/3**JFNK_BUDGET_RUNG)
 	    IF(JFNK_BUDGET_RUNG .GE. 2)JFNK_MAX_RESTART_LOC=1
-	    WRITE(LUER,'(A,I2,A,I2,A,I4,A,I4,A,I6,A,I3)')
-	1   '  JFNK budget rung ',JFNK_BUDGET_RUNG,'/',JFNK_RUNG_MAX,
-	2   ': nits=',JFNK_MAX_NEWTON_LOC,' gmres=',jfnk_max_gmres_its,
-	3   ' evals=',JFNK_EVAL_LIM,' restarts=',JFNK_MAX_RESTART_LOC
+	    CALL ILF_KVB(LUER,'  JFNK budget:',6,
+	1   (/'rung','rung max','nits','gmres','evals','restarts'/),
+	2   (/ILF_VI(JFNK_BUDGET_RUNG),ILF_VI(JFNK_RUNG_MAX),
+	3    ILF_VI(JFNK_MAX_NEWTON_LOC),ILF_VI(jfnk_max_gmres_its),
+	4    ILF_VI(JFNK_EVAL_LIM),ILF_VI(JFNK_MAX_RESTART_LOC)/))
 	  END IF
 !
 	  jfnk_use_left_pc=JFNK_LEFT_PRECOND
@@ -877,12 +879,11 @@
 	    IF(JFNK_TAU_RE0 .LE. 0.0_LDP)
 	1     JFNK_TAU_RE0=REAL(TAU_RE_NRM,KIND=LDP)
 	    JFNK_TAU_RE_LAST=REAL(TAU_RE_NRM,KIND=LDP)
-	    WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I2,A,ES10.3,A,I4)')
-	1     '    FIX_T_AUTO: |RE|=',REAL(TAU_RE_NRM),
-	2     '  |RE0|=',REAL(JFNK_TAU_RE0),
-	3     '  rung=',JFNK_TAU_RUNG,
-	4     '  alpha=',REAL(JFNK_TAU_ALPHA),
-	5     '  commits=',JFNK_TAU_NCOMMIT
+	    CALL ILF_KVB(LUER,'    FIX_T_AUTO:',5,
+	1     (/'|RE|','|RE0|','rung','alpha','commits'/),
+	2     (/ILF_VR(TAU_RE_NRM,3),ILF_VR(JFNK_TAU_RE0,3),
+	3      ILF_VI(JFNK_TAU_RUNG),ILF_VR(JFNK_TAU_ALPHA,3),
+	4      ILF_VI(JFNK_TAU_NCOMMIT)/))
 	  END IF
 	  FLUSH(LUER)
 !
@@ -937,10 +938,10 @@
 	2   //' residual'
 	    IF(JFNK_LINTEST .OR. JFNK_HSCAN .OR. JFNK_HADAPT .OR.
 	1       JFNK_TRES_FAC .GT. 0.0_LDP)THEN
-	      WRITE(LUER,'(A,L1,A,L1,A,L1,A,ES10.3)')
-	1     '    phase-1 JVP diagnostics  : lintest=',JFNK_LINTEST,
-	2     ' hscan=',JFNK_HSCAN,' hadapt=',JFNK_HADAPT,
-	3     ' tres_fac=',REAL(JFNK_TRES_FAC)
+	      CALL ILF_KVB(LUER,'    phase-1 JVP diagnostics:',4,
+	1     (/'lintest','hscan','hadapt','tres_fac'/),
+	2     (/ILF_VL(JFNK_LINTEST),ILF_VL(JFNK_HSCAN),
+	3      ILF_VL(JFNK_HADAPT),ILF_VR(JFNK_TRES_FAC,3)/))
 	    END IF
 	    IF(JFNK_PRECOND_REFINE .OR. JFNK_PC_PAR_FACTOR)THEN
 	      WRITE(LUER,'(A)')
@@ -1171,10 +1172,11 @@
 	      JJZ_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JZ_VEC)
 	      REACH_VAL=(2.0_LDP*FJZ_DP-JJZ_DP)/
 	1        MAX(FF2_DP,1.0E-300_LDP)
-	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  JFNK REACH: frac=',REAL(REACH_VAL),
-	2        ' |Jz|/|F|=',REAL(SQRT(JJZ_DP)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
-	3        ' cos(F,Jz)=',REAL(FJZ_DP/SQRT(MAX(FF2_DP*JJZ_DP,1.0E-300_LDP)))
+	      CALL ILF_KVB(LUER,'  JFNK REACH:',3,
+	1        (/'frac','|Jz|/|F|','cos(F,Jz)'/),
+	2        (/ILF_VR(REACH_VAL,4),
+	3        ILF_VR(SQRT(JJZ_DP)/SQRT(MAX(FF2_DP,1.0E-300_LDP)),4),
+	4   ILF_VR(FJZ_DP/SQRT(MAX(FF2_DP*JJZ_DP,1.0E-300_LDP)),4)/))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JZ_VEC,JFNK_N)
 !
 ! Direction gates on the stored-BA metrics (defaults 0 = off): these
@@ -1208,10 +1210,10 @@
 	1        CLIP_FR .GT. JFNK_CLIP_FRAC_MAX)THEN
 	        JFNK_REACH_OK=.FALSE.
 	        jfnk_fx_fresh=.FALSE.
-	        WRITE(LUER,'(A,ES10.2,A,ES10.2,A,I8)')
-	1        '  JFNK GUARD DEFER: clip fraction=',
-	2        REAL(CLIP_FR),' > clip_frac_max=',REAL(JFNK_CLIP_FRAC_MAX),
-	3        ' nclip=',NCLIP_R
+	        CALL ILF_KVB(LUER,'  JFNK GUARD DEFER:',3,
+	1        (/'clip fraction','clip_frac_max','nclip'/),
+	2        (/ILF_VR(CLIP_FR,2),ILF_VR(JFNK_CLIP_FRAC_MAX,2),
+	3         ILF_VI(NCLIP_R)/))
 	      END IF
 !
 ! Pristine-vs-repeat column probe (11-Oct-2026): the residual is
@@ -1296,13 +1298,12 @@
 	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD)
 	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
 	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD)
-	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  JFNK REACH-FD (clipped): |A_FD z|/|F|=',
-	2        REAL(SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
-	3        ' cos(F,A_FDz)=',
-	4        REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
-	5        ' cos(BAz,A_FDz)=',
-	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
+	      CALL ILF_KVB(LUER,'  JFNK REACH-FD (clipped):',3,
+	1        (/'|A_FD z|/|F|','cos(F,A_FDz)','cos(BAz,A_FDz)'/),
+	2        (/ILF_VR(SQRT(JJZ_FD)/
+	3        SQRT(MAX(FF2_DP,1.0E-300_LDP)),4),
+	4   ILF_VR(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP)),4),
+	5   ILF_VR(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)),4)/))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD,JFNK_N)
 	      ELSE
 	        JV_FD=0.0D0
@@ -1390,17 +1391,20 @@
      1       '  DEFER-PROBE ',JFNK_DEFER_PROBE_N,
      2       ' (FD-gate deferral; diagnostics only, Newton still skipped)'
         IF(JFNK_BA_SRC_IT .GE. 0)THEN
-          WRITE(LUER,'(A,I6,A,I6,A,I6,A)')
-     1         '    it=',MAIN_COUNTER,'  BA src it=',JFNK_BA_SRC_IT,
-     2         '  BA age=',MAIN_COUNTER-JFNK_BA_SRC_IT,' its'
+          CALL ILF_KVB(LUER,'    BA source:',3,
+     1         (/'it','BA src it','BA age (its)'/),
+     2         (/ILF_VI(MAIN_COUNTER),ILF_VI(JFNK_BA_SRC_IT),
+     3          ILF_VI(MAIN_COUNTER-JFNK_BA_SRC_IT)/))
         ELSE
-          WRITE(LUER,'(A,I6,A)')
-     1         '    it=',MAIN_COUNTER,
-     2         '  BA src it=unknown (loaded from disk this run)'
+          CALL ILF_KVB(LUER,'    BA source:',2,
+     1         (/'it','BA src it'/),
+     2         (/ILF_VI(MAIN_COUNTER),
+     3          ILF_VS('unknown (loaded from disk this run)')/))
         END IF
-        WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8,A,I8)')
-     1       '    |F| unw=',REAL(F_NU),'  wtd=',REAL(SQRT(FF2_DP)),
-     2       '  resid evals=',JFNK_N_RESIDUAL_EVALS,'  nclip=',NCLIP_R
+        CALL ILF_KVB(LUER,'    |F|:',4,
+     1       (/'unw','wtd','resid evals','nclip'/),
+     2       (/ILF_VR(F_NU,4),ILF_VR(SQRT(FF2_DP),4),
+     3        ILF_VI(JFNK_N_RESIDUAL_EVALS),ILF_VI(NCLIP_R)/))
         WRITE(LUER,'(A,ES12.4,A,ES12.4)')
      1       '    |z_raw|inf=',REAL(ZMAX_RAW),'  |z_clip|inf=',
      2       REAL(MAXVAL(ABS(Z_CLIP)))
@@ -1508,17 +1512,16 @@
             JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
             BAFD_DP=JFNK_DOT_V1(JFNK_N,JV_SAV,JV_FD2)
             JZF_BA=JFNK_DOT_V1(JFNK_N,JV_SAV,JV_SAV)
-            WRITE(LUER,'(A,ES12.4,4(A,ES12.4))')
-     1           '    raw direction:  |BAz|/|F|=',
-     2           REAL(SQRT(JZF_BA)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
-     3           '  |Az|/|F|=',REAL(SQRT(JJZ_FD)/
-     4           SQRT(MAX(FF2_DP,1.0E-300_LDP))),
-     5           '  cos(F,Az)=',
-     6           REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
-     7           '  cos(BAz,Az)=',
-     8           REAL(BAFD_DP/SQRT(MAX(JZF_BA*JJZ_FD,1.0E-300_LDP))),
-     9           '  |hv|inf=',
-     1           REAL(JFNK_PROBE_H_LAST*MAXVAL(ABS(Z_CHK)))
+            CALL ILF_KVB(LUER,'    raw direction:',5,
+     1           (/'|BAz|/|F|','|Az|/|F|','cos(F,Az)',
+     2           'cos(BAz,Az)','|hv|inf'/),
+     3           (/ILF_VR(SQRT(JZF_BA)/
+     4           SQRT(MAX(FF2_DP,1.0E-300_LDP)),4),
+     5           ILF_VR(SQRT(JJZ_FD)/
+     6           SQRT(MAX(FF2_DP,1.0E-300_LDP)),4),
+     7   ILF_VR(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP)),4),
+     8   ILF_VR(BAFD_DP/SQRT(MAX(JZF_BA*JJZ_FD,1.0E-300_LDP)),4),
+     9          ILF_VR(JFNK_PROBE_H_LAST*MAXVAL(ABS(Z_CHK)),4)/))
             DO I=1,NTPR_C
               FD_C_TOP(I)=JV_FD2(TPI(I))
             END DO
@@ -1538,10 +1541,10 @@
 !
         IF(NTPR_C .GT. 0)THEN
           JROW=MOD(I_TOPF-1,JFNK_NT)+1
-          WRITE(LUER,'(A,I8,A,I4,A,I6,A,ES12.4)')
-     1         '    column probe topF idx=',I_TOPF,' K=',K_TOPF,
-     2         ' J=',JROW,'  BA diag=',
-     3         REAL(JFNK_BA_A(JROW,JROW,K_TOPF))
+          CALL ILF_KVB(LUER,'    column probe:',4,
+     1         (/'topF idx','K','J','BA diag'/),
+     2         (/ILF_VI(I_TOPF),ILF_VI(K_TOPF),ILF_VI(JROW),
+     3          ILF_VR(JFNK_BA_A(JROW,JROW,K_TOPF),4)/))
           DO IHS2=1,4
             IF(NEV_CAP .LE. 0 .OR.
      1          JFNK_N_RESIDUAL_EVALS+2 .LE. NEV_CAP)THEN
@@ -1754,13 +1757,12 @@
 	      FJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
 	      JJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
 	      BAFD_DP = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD2)
-	      WRITE(LUER,'(A,I8,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  COLPROBE topF idx=',I_TOPF,' |FDcol|=',
-	2        REAL(SQRT(FJZ_FD)),
-	3        ' |BAcol|=',REAL(SQRT(JJZ_FD)),
-	4        ' |diff|/|BA|=',
-	5        REAL(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
-	1             0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP))
+	      CALL ILF_KVB(LUER,'  COLPROBE:',4,
+	1        (/'topF idx','|FDcol|','|BAcol|','|diff|/|BA|'/),
+	2        (/ILF_VI(I_TOPF),ILF_VR(SQRT(FJZ_FD),4),
+	3         ILF_VR(SQRT(JJZ_FD),4),
+	4         ILF_VR(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
+	5              0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP),4)/))
 !
 ! J->ion map for the per-element labels below; same layout as
 ! JFNK_ROW_ANATOMY_V1 (levels EQXzV..EQXzV+NXzV-1 belong to ion ID;
@@ -1884,13 +1886,12 @@
 	      FJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
 	      JJZ_FD = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD)
 	      BAFD_DP = JFNK_DOT_V1(JFNK_N,JV_FD,JV_FD2)
-	      WRITE(LUER,'(A,I8,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  COLPROBE topZ idx=',I_ZMAX,' |FDcol|=',
-	2        REAL(SQRT(FJZ_FD)),
-	3        ' |BAcol|=',REAL(SQRT(JJZ_FD)),
-	4        ' |diff|/|BA|=',
-	5        REAL(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
-	1             0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP))
+	      CALL ILF_KVB(LUER,'  COLPROBE:',4,
+	1        (/'topZ idx','|FDcol|','|BAcol|','|diff|/|BA|'/),
+	2        (/ILF_VI(I_ZMAX),ILF_VR(SQRT(FJZ_FD),4),
+	3         ILF_VR(SQRT(JJZ_FD),4),
+	4         ILF_VR(SQRT(MAX(FJZ_FD+JJZ_FD-2.0_LDP*BAFD_DP,
+	5              0.0_LDP))/MAX(SQRT(JJZ_FD),1.0E-300_LDP),4)/))
 	      DO K = 1, 8
 	        FMAX_LOC = 0.0_LDP
 	        I_TOPF = 0
@@ -1997,13 +1998,12 @@
 	      FJZ_FD=JFNK_DOT_V1(JFNK_N,jfnk_fx,JV_FD2)
 	      JJZ_FD=JFNK_DOT_V1(JFNK_N,JV_FD2,JV_FD2)
 	      BAFD_DP=JFNK_DOT_V1(JFNK_N,JZ_VEC,JV_FD2)
-	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1        '  JFNK REACH-FD (|z|>1 zeroed): |A_FD z|/|F|=',
-	2        REAL(SQRT(JJZ_FD)/SQRT(MAX(FF2_DP,1.0E-300_LDP))),
-	3        ' cos(F,A_FDz)=',
-	4        REAL(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP))),
-	5        ' cos(BAz,A_FDz)=',
-	6        REAL(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)))
+	      CALL ILF_KVB(LUER,'  JFNK REACH-FD (|z|>1 zeroed):',3,
+	1        (/'|A_FD z|/|F|','cos(F,A_FDz)','cos(BAz,A_FDz)'/),
+	2        (/ILF_VR(SQRT(JJZ_FD)/
+	3        SQRT(MAX(FF2_DP,1.0E-300_LDP)),4),
+	4   ILF_VR(FJZ_FD/SQRT(MAX(FF2_DP*JJZ_FD,1.0E-300_LDP)),4),
+	5   ILF_VR(BAFD_DP/SQRT(MAX(JJZ_DP*JJZ_FD,1.0E-300_LDP)),4)/))
 	      CALL JFNK_ROW_ANATOMY_V1(LUER,JV_FD2,JFNK_N)
 	      ELSE IF(CONV_DIAG_LVL .GE. 2)THEN
 	        WRITE(LUER,'(A)')
@@ -2127,9 +2127,10 @@
 	        JJ_W=MAXLOC(ABS(FB_D),1)
 	        CPL_CHK_ACTIVE=JFNK_CPL_SOB_EACH .OR.
 	1          .NOT. JFNK_CPL_SOB_CHK_DONE
-	        WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1       '  JFNK-CPL consistency: |F_eval-F_prod|_w=',REAL(FB_D2),
-	2       '  rel=',REAL(FB_REL),'  tol=',REAL(JFNK_CPL_SOB_TOL)
+	        CALL ILF_KVB(LUER,'  JFNK-CPL consistency:',3,
+	1       (/'|F_eval-F_prod|_w','rel','tol'/),
+	2       (/ILF_VR(FB_D2,4),ILF_VR(FB_REL,4),
+	3        ILF_VR(JFNK_CPL_SOB_TOL,4)/))
 	        WRITE(LUER,'(A,I10,A,I8,A,I4)')
 	1       '    worst eqn',JJ_W,' depth',(JJ_W-1)/JFNK_NT+1,
 	2       ' slot',MOD(JJ_W-1,JFNK_NT)+1
@@ -2988,10 +2989,11 @@
 ! bookkeeping. Written on every JFNK admission so the phase timers
 ! can be diffed against the iteration wall clock.
 !
-	  WRITE(LUER,'(A,5(F8.1,A),F8.1,A)')
-	1   '    JFNK phase time [s]: cmat=',T_PH_CMAT,
-	2   ' pc=',T_PH_PC,' f0=',T_PH_F0,' prec=',T_PH_PREC,
-	3   ' newton=',T_PH_NWT,' total=',OMP_GET_WTIME()-T_PH_TOT
+	  CALL ILF_KVB(LUER,'    JFNK phase time [s]:',6,
+	1   (/'cmat','pc','f0','prec','newton','total'/),
+	2   (/ILF_VR(T_PH_CMAT,1),ILF_VR(T_PH_PC,1),ILF_VR(T_PH_F0,1),
+	3    ILF_VR(T_PH_PREC,1),ILF_VR(T_PH_NWT,1),
+	4    ILF_VR(OMP_GET_WTIME()-T_PH_TOT,1)/))
 	  WRITE(LUER,'(A)')' '
 !
 ! APPLY_JFNK_UPDATE is the final commit verdict: verify-rejects,
