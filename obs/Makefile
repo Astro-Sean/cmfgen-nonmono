@@ -56,7 +56,7 @@ $(EXE_DIR)cmf_flux.exe :  $(OBJ1) $(FN1) $(FN2) $(FN6) $(FN7) $(INC)
 
 $(EXE_DIR)obs_frame.exe :  $(OBJ2) $(FN1) $(FN2)
 	$(F90) $(OBJ2) \
-              -L$(LIB_DIR) -l$(LN2) -l$(LN1) \
+              -L$(LIB_DIR) -l$(LN2) -l$(LN1) -lmod \
                $(LOCLIB) \
               -o  $(EXE_DIR)obs_frame.exe.tmp
 	mv -f $(EXE_DIR)obs_frame.exe.tmp $(EXE_DIR)obs_frame.exe
