@@ -1,5 +1,51 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] Production-route consolidation audit (25-Nov-2026, work
+      order: moment solver preserved but no longer the production
+      target; production = DO_NONMONO_SOB + USE_LAM_ES=T).
+      Audit verdicts: J-field dispatch clean (V13 RJ=TC writes
+      J/rates under LAM_ES=T); ALO accessor pairing consistent
+      (GET_FG13_ALO_DIAG vs GET_MOM_ALO_DIAG); ES-ALI gating
+      correct incl. DO_ES_ALI_BA hard-STOP; JFNK admission on
+      genuine field maturity (jfnk_cmt ledger honest);
+      BLKGMRES isolation holds (route gate, KN_M_READY
+      self-guard, NU_CACHE_RDY); Nov-24 moment-audit defects
+      F1-F4 already fixed in 910c4667. Five defects found and
+      FIXED this commit: (1) DO_KNOP_REFRESH absent-key default
+      evaluated before the absent-key USE_LAM_ES flip, resolving
+      armed-T on the V13 route - misleading knop_refresh=T echo
+      plus a per-iteration MOM_KNOP_REFRESH_V1 invoke (inert via
+      KN_M_READY); absent key under plain SOB+LAM_ES=T now
+      resolves F, matching what run_model_grid always stamps,
+      and an explicit T warns it is inert. (2) Three shared-code
+      MOM-store gates used the wide KNOP.OR.SOB predicate while
+      the store exists only on SOB+LAM_ES=F - SET_MOM_GS_TAG
+      (cmfgen_sub), RESTORE_MOM_JNEXT_LATEST x2 (solveba_v13),
+      MOM_KNOP_REFRESH_V1 (cmfgen_sub) all narrowed.
+      (3) Documented SOB solver-mode rejections (USE_FIXED_J,
+      USE_FORMAL_REL, USE_J_REL, USE_DJDT_RTE, PP_MOD, PP_NOV)
+      were never coded - STOP added mirroring the KNOP block.
+      (4) MOM_BLKGMRES/MOM_NUSOLV/MOM_H_IMPL set T off the moment
+      route silently dead - CHECK_PARAM_CONSISTENCY inert
+      warnings added. (5) USE_LAM_ES=F banner lacked
+      "unsupported for production" wording - added.
+      Tests: test_vadat_keys 99->103 checks all PASS (new:
+      absent-key refresh resolves F, explicit T honoured+warns,
+      J_REL/PP_MOD rejections, MOM_BLKGMRES dead-key warning,
+      unsupported banner); test_iter_conv_gate 18 PASS (new
+      gate pins); test_obs_nonmono_dispatch PASS; test_dvc
+      170 PASS; test_iter_output PASS. Pre-existing rot fixed:
+      test_vadat_keys HELPERS missed iter_log_fmt_mod.f90 since
+      0cea0a27 added ILF calls to mom_j_cmf_nonmono_v1 - link
+      was broken before this work. Stale comment fixed in
+      scripts/run_model_grid.py (still claimed USE_LAM_ES=F
+      default). Remaining known gaps (deferred): DUMP_MOM_JNEXT_GS
+      called unconditionally in scr_read_v2 (early-return no-op,
+      upstream file left untouched); GS_STATE stale-file read at
+      solve_for_pops.f:697 ungated but all consumers sit inside
+      HAS_LAGGED_FIELD; JCOMP diagnostic vacuous under
+      LAM_ES=T (RJ=TC by construction).
+
 - [~] BLKBAND zero-row audit - PARTIAL verdict (24-Nov-2026):
       Ni10 day-40 saved BA_ASCI_N_D5 is 193x193 with no exact zero
       rows/columns or zero populations, but 12 non-finite entries:

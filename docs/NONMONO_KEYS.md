@@ -21,7 +21,9 @@ explicit input and print a banner.
   every present ion `TRANS_*=SOB`). Rejects solver modes that
   bypass the COMP_J_BLANK non-mono branch: `USE_FIXED_J`,
   `USE_FORMAL_REL`, `USE_J_REL`, `USE_DJDT_RTE`, `PP_MOD`,
-  `PP_NOV` (since 22-Oct-2026). `LAM_SET` is normalized to F
+  `PP_NOV` (STOP coded 25-Nov-2026; documented as rejected since
+  22-Oct-2026 but the check was never implemented until the
+  production-consolidation audit). `LAM_SET` is normalized to F
   (hard-STOP backstop) since 22-Oct-2026.
 - `SIGMA_TRUE` (`MOD_CMFGEN`): unclamped `dlnV/dlnR - 1` from
   centred differences on R,V. `SIGMA` keeps its infrastructure
@@ -66,7 +68,9 @@ explicit input and print a banner.
   intended SOB product: less accurate than `DO_NONMONO_KNOP` but a
   converged initial guess for it (`warm_restart_from`).
 - `USE_LAM_ES=F` (opt-in experiment since 10-Nov-2026; was default
-  21-Oct -> 10-Nov-2026, rewired 12-Oct-2026): continuum J comes
+  21-Oct -> 10-Nov-2026, rewired 12-Oct-2026; banner declares it
+  experimental and unsupported for production validation since
+  25-Nov-2026): continuum J comes
   from `MOM_J_CMF_NONMONO_V1` (the Knop sign-split moment solver
   native to non-monotonic fields), paired with fixed-J +
   `GET_MOM_ALO_DIAG` + `GET_MOM_CELL_QUAR` in `do_var_cont.f` - the
@@ -96,7 +100,12 @@ explicit input and print a banner.
 ### Absent-key auto-sets under DO_NONMONO_SOB
 
 `DO_NONMONO_FREQ_MATCH=T` under `USE_LAM_ES=F`; `DO_FG13_ALO=T`
-under `USE_LAM_ES=T`; `DO_BA_RES_ACC=T`; `DO_BA_RES_REUSE=T` (when
+under `USE_LAM_ES=T`; `DO_KNOP_REFRESH=F` under `USE_LAM_ES=T`
+when not `DO_SOB_FG_KNOP` (25-Nov-2026: the read-site default
+evaluated before the absent-key `USE_LAM_ES` flip, so an absent
+key previously resolved armed-T on the V13 route; an explicit T
+is still honoured but warns it is inert there);
+`DO_BA_RES_ACC=T`; `DO_BA_RES_REUSE=T` (when
 `DO_BA_RES_ACC` ends up T); `NG_ABSTAIN=T`; `DO_ES_ALI=T`
 (11-Nov-2026, when `COHERENT_ES` and not `DO_SOB_FG_KNOP` - both
 `USE_LAM_ES` routes carry a stored diagonal). `LAM_SET=F` is an
@@ -311,7 +320,11 @@ which stamps the same value in the initial VADAT.
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
   within each sweep via `MOM_KNOP_REFRESH_V1`; defaults on under
-  KNOP and under SOB + `USE_LAM_ES=F`.
+  KNOP and under SOB + `USE_LAM_ES=F`. Under plain SOB +
+  `USE_LAM_ES=T` an absent key resolves F (25-Nov-2026) and an
+  explicit T is armed-but-inert: the production call site is
+  gated on `.NOT. USE_LAM_ES` and `CHECK_PARAM_CONSISTENCY`
+  prints an inert warning.
 - `JNEXT_RELAX` - adaptive lagged-J relaxation factor.
 - `GS_FOREIGN_SEED` (default F): on restart, accept a
   fingerprint-valid but tag-mismatched `FGINEXT_GS` (e.g. from a
@@ -391,6 +404,12 @@ which stamps the same value in the initial VADAT.
   rows. Lagged H,
   EPS scatter, source functions and boundary closures remain outer
   iteration data. Diagnostic solver key.
+- Dead-key warning (25-Nov-2026): `MOM_BLKGMRES`, `MOM_NUSOLV` and
+  `MOM_H_IMPL` only do work inside `MOM_J_CMF_NONMONO_V1` (SOB +
+  `USE_LAM_ES=F`). Set T on any other route - production
+  `USE_LAM_ES=T`, KNOP, `DO_SOB_FG_KNOP`, or stock - and
+  `CHECK_PARAM_CONSISTENCY` prints an inert warning; the run is
+  legal but the keys are dead in OUTGEN.
 - `KN_NI1_FULL` (default F, 24-Nov-2026): certify a production
   NI=1 ray KN_CS_FULL (reason 0) in `KNOP_RAY_SOLVE_V1` instead
   of leaving it KN_CS_INV. A single-point ray has no marchable

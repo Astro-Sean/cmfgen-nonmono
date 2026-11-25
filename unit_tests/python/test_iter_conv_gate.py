@@ -171,11 +171,65 @@ def test_T02_sob_mom_census_fixed():
     )
 
 
+def test_mom_gates_narrowed_to_mom_route():
+    """25-Nov-2026 production-consolidation audit: every MOM-store
+    touch in shared code is gated on the only route owning the
+    store -- DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES. Before the fix,
+    KNOP (LAM_ES forced T) and plain SOB+LAM_ES=T fired these
+    armed-but-inert calls each iteration."""
+    sba = (TREE / "new_main" / "subs" / "solveba_v13.f").read_text()
+    REP.check(
+        "MOM_KNOP_REFRESH_V1 call gated on SOB + .NOT. USE_LAM_ES",
+        "IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES .AND. DO_KNOP_REFRESH)"
+        in CMF,
+    )
+    REP.check(
+        "no MOM refresh under the old wide gate",
+        re.search(
+            r"IF\(\(DO_NONMONO_KNOP \.OR\. DO_NONMONO_SOB\)[^\n]*\n[\s\S]{0,80}?"
+            r"CALL MOM_KNOP_REFRESH_V1",
+            CMF,
+        )
+        is None,
+    )
+    REP.check(
+        "SET_MOM_GS_TAG seeded only on the MOM route",
+        re.search(
+            r"IF\(DO_NONMONO_SOB \.AND\. \.NOT\. USE_LAM_ES\)THEN\s*\n\s*"
+            r"CALL SET_MOM_GS_TAG",
+            CMF,
+        )
+        is not None,
+    )
+    n_restore = len(
+        re.findall(
+            r"IF\(DO_NONMONO_SOB \.AND\. \.NOT\. USE_LAM_ES\)THEN\s*\n\s*"
+            r"CALL RESTORE_MOM_JNEXT_LATEST",
+            sba,
+        )
+    )
+    REP.check(
+        "both BA rollback MOM restores gated on the MOM route",
+        n_restore >= 2,
+        f"{n_restore} gated sites",
+    )
+    REP.check(
+        "no RESTORE_MOM_JNEXT_LATEST left under the old wide gate",
+        re.search(
+            r"IF\(DO_NONMONO_KNOP \.OR\. DO_NONMONO_SOB\)THEN\s*\n\s*"
+            r"CALL RESTORE_MOM_JNEXT_LATEST",
+            sba,
+        )
+        is None,
+    )
+
+
 def main():
     test_conv_exit_structure()
     test_maturity_predicates_exist()
     test_T01_exit_maturity_conjunct()
     test_T02_sob_mom_census_fixed()
+    test_mom_gates_narrowed_to_mom_route()
     return REP.summary()
 
 

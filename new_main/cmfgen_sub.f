@@ -970,13 +970,15 @@
 	  CALL SET_FG_GS_TAG(NITSF)
 	END IF
 !
-! The MOM_J_CMF_NONMONO_V1 lagged-field checkpoint is shared by the
-! KNOP and SOB paths (both run the same solver under USE_LAM_ES=F),
-! so SOB needs the tag seeded too -- otherwise every requeue falls
-! back to a cold LAMBDA rebuild and re-pays the whole lagged-field
-! convergence transient (SOB warm probe, 13-Oct-2026).
+! The MOM_J_CMF_NONMONO_V1 lagged-field checkpoint exists only on
+! DO_NONMONO_SOB + USE_LAM_ES=F (25-Nov-2026: gate narrowed to
+! match -- under KNOP and SOB+LAM_ES=T the MOM solver never runs,
+! so seeding the tag armed a restore path with no file behind it).
+! Without the tag every requeue falls back to a cold LAMBDA rebuild
+! and re-pays the whole lagged-field convergence transient (SOB
+! warm probe, 13-Oct-2026).
 !
-	IF(DO_NONMONO_KNOP .OR. DO_NONMONO_SOB)THEN
+	IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)THEN
 	  CALL SET_MOM_GS_TAG(NITSF)
 	END IF
 !
@@ -3350,11 +3352,14 @@
 ! over its captured per-frequency store in alternating frequency
 ! order so the lagged J_NEXT_FRQ coupling converges within the sweep.
 ! Self-guards: no-op unless the MOM solver ran a complete sweep with
-! compressing depths. Gate covers DO_NONMONO_SOB (12-Oct-2026): the
-! moment solver now runs under SOB+LAM_ES=F and its lagged coupling
-! needs the same within-iteration refresh.
+! compressing depths.
+! edited 25-Nov-2026: gate narrowed to the only route with a MOM
+! store -- DO_NONMONO_SOB + USE_LAM_ES=F. The old KNOP leg was a
+! pre-08-Nov vestige (KNOP now forces LAM_ES=T, MOM never runs)
+! and the plain SOB leg fired the armed-but-inert call every
+! iteration on the production V13 route.
 !
-	IF((DO_NONMONO_KNOP .OR. DO_NONMONO_SOB) .AND. DO_KNOP_REFRESH)
+	IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES .AND. DO_KNOP_REFRESH)
 	1    THEN
 	  TW=OMP_GET_WTIME()
 	  CALL MOM_KNOP_REFRESH_V1()

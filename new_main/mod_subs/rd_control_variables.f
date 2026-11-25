@@ -3894,6 +3894,26 @@
 	1       DO_KNOP_REFRESH,MOM_RF_OWNW)
 	      WRITE(LUER,'(A)')' SOB-KNOP auto-set: DO_KNOP_REFRESH=T'
 	    END IF
+!
+! edited 25-Nov-2026: USE_LAM_ES forced T here too -- the flag IS
+! the SOB + USE_LAM_ES=T -> FG_J_CMF_NONMONO_V1 routing.  An
+! explicit F was previously honoured, leaving comp_j_blank on the
+! FG solver while do_var_cont paired GET_MOM_ALO_DIAG on a MOM
+! store that never ran, and the SOB banner announced the moment
+! path.  Same pairing argument as the 08-Nov KNOP force above.
+!
+	    IF(.NOT. USE_LAM_ES)THEN
+	      CALL GET_KEY_STRING(TMP_STRING,'USE_LAM_ES',L_FALSE,
+	1     L_FALSE_TMP)
+	      USE_LAM_ES=.TRUE.
+	      IF(.NOT. L_FALSE_TMP)THEN
+	        WRITE(LUER,'(A)')' SOB-KNOP auto-set: USE_LAM_ES=T'
+	      ELSE
+	        WRITE(LUER,'(A)')
+	1       ' SOB-KNOP override: explicit USE_LAM_ES=F -> T'//
+	2       ' (DO_SOB_FG_KNOP requires the formal-solve pairing)'
+	      END IF
+	    END IF
 	  END IF
 !
 ! Rule 2: DO_NONMONO_SOB. SIGMA_TRUE only reaches the Sobolev line
@@ -3961,7 +3981,8 @@
 	5     ,' K_ON_J/N_ON_J ray moments.  Known risk: bound-free'
 	6     ,' edge doublets shrink dLOG_NU and inflate the'
 	7     ,' advection coefficients.  USE_LAM_ES=T (the SOB default)'
-	8     ,' selects the V13 formal J update.'
+	8     ,' selects the V13 formal J update.  This moment route is'
+	9     ,' experimental -- unsupported for production validation.'
 	      WRITE(LUER,'(A)')
 	1     ' ============================================================'
 !
@@ -4004,6 +4025,31 @@
 ! setting DO_FG13_ALO would echo a V13 operator that never runs.
 	        DO_FG13_ALO=.TRUE.
 	        WRITE(LUER,'(A)')' SOB auto-set: DO_FG13_ALO=T'
+	      END IF
+!
+! edited 25-Nov-2026: re-default DO_KNOP_REFRESH on the resolved
+! route.  Its read-site default (~line 3500) is evaluated before
+! this absent-key USE_LAM_ES flip, so an absent key arrives here
+! armed T for the moment route this deck never takes -- echoing
+! knop_refresh=T on a V13 run and invoking MOM_KNOP_REFRESH_V1
+! (self-guarded, KN_M_READY) every iteration.  With the final
+! solver pairing now T and not DO_SOB_FG_KNOP, an absent key
+! resolves F -- the same value run_model_grid already stamps.
+! An explicit DO_KNOP_REFRESH=T stays honoured (armed-but-inert;
+! CHECK_PARAM_CONSISTENCY warns it is dead on this route).
+! DO_SOB_FG_KNOP is excluded: its own block above already forced
+! the refresh T because the FG solver needs it.
+!
+	      IF(.NOT. DO_SOB_FG_KNOP)THEN
+	        CALL GET_KEY_STRING(TMP_STRING,'DO_KNOP_REFRESH',L_FALSE,
+	1         L_FALSE_TMP)
+	        IF(.NOT. L_FALSE_TMP .AND. DO_KNOP_REFRESH)THEN
+	          DO_KNOP_REFRESH=.FALSE.
+	          CALL SET_FG_KNOP_REFRESH(DO_KNOP_REFRESH)
+	          CALL SET_MOM_RF_DIR_OPT(MOM_RF_DIR,MOM_EPS_LIM,
+	1           DO_KNOP_REFRESH,MOM_RF_OWNW)
+	          WRITE(LUER,'(A)')' SOB auto-set: DO_KNOP_REFRESH=F'
+	        END IF
 	      END IF
 !
 ! DO_FG13_ALO_TRI needs the stored diagonal it extends -- without a
@@ -4176,6 +4222,24 @@
 	  IF(DO_NONMONO_SOB)THEN
 	    WRITE(LUSCR,'(A)')' DO_NONMONO_SOB=T: using unclamped dlnV/dlnR-1'//
 	1     ' (SIGMA_TRUE) with Dessart+2015 tau floor in Sobolev routines'
+!
+! edited 25-Nov-2026: solver-mode rejection, mirroring the KNOP
+! block below.  The key docs have listed these as rejected since
+! 22-Oct-2026 but no check was coded -- under SOB a fixed-J or
+! relativistic/DJDT or plane-parallel deck silently kept stock
+! COMP_J_BLANK branches (or skipped the J solve entirely) while
+! the Sobolev line machinery ran on SIGMA_TRUE.
+!
+	    IF(USE_FIXED_J .OR. USE_FORMAL_REL .OR. USE_J_REL .OR.
+	1      USE_DJDT_RTE .OR. PLANE_PARALLEL .OR.
+	1      PLANE_PARALLEL_NO_V)THEN
+	      WRITE(LUER,*)'Error in RD_CONTROL_VARIABLES:'
+	      WRITE(LUER,*)'DO_NONMONO_SOB is incompatible with USE_FIXED_J,'
+	      WRITE(LUER,*)'relativistic/DJDT solvers, and plane-parallel'
+	      WRITE(LUER,*)'modes.  These paths bypass the non-monotonic'
+	      WRITE(LUER,*)'continuum solve in COMP_J_BLANK.'
+	      STOP
+	    END IF
 	    IF(GLOBAL_LINE_SWITCH(1:4) .EQ. 'NONE')THEN
 	      DO ID=1,NUM_IONS-1
 	        IF(ATM(ID)%XZV_PRES .AND.

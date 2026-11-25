@@ -171,5 +171,34 @@
 	2     ' DO_NONMONO_KNOP, and not DO_SOB_FG_KNOP)'
 	END IF
 !
+! edited 25-Nov-2026 (production-consolidation audit): the MOM_
+! solver keys only do work inside MOM_J_CMF_NONMONO_V1, which
+! comp_j_blank dispatches solely on DO_NONMONO_SOB + USE_LAM_ES=F.
+! On the production V13 route, under KNOP or DO_SOB_FG_KNOP
+! (LAM_ES forced T), and on stock runs they can read T while
+! nothing calls the solver -- dead keys in OUTGEN.  Warn rather
+! than stop: the run is legal, the key is just misleading.
+!
+	IF((MOM_BLKGMRES .OR. MOM_NUSOLV .OR. MOM_H_IMPL) .AND.
+	1   .NOT. (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES))THEN
+	  WRITE(LUER,*)TRIM(ER_LAB),' MOM_BLKGMRES/MOM_NUSOLV/'//
+	1     'MOM_H_IMPL set but the MOM solver never runs on this'//
+	2     ' route (needs DO_NONMONO_SOB=T and USE_LAM_ES=F)'
+	END IF
+!
+! Same audit, same treatment for DO_KNOP_REFRESH=T away from the
+! routes where a refresh really runs: KNOP and DO_SOB_FG_KNOP
+! (FG refresh) and SOB + USE_LAM_ES=F (MOM refresh).  Everywhere
+! else the flag is armed-but-inert -- the production call site
+! is now gated on .NOT. USE_LAM_ES and KN_M_READY never arms.
+!
+	IF(DO_KNOP_REFRESH .AND.
+	1   .NOT. (DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP .OR.
+	2    (DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES)))THEN
+	  WRITE(LUER,*)TRIM(ER_LAB),' DO_KNOP_REFRESH=T is inert'//
+	1     ' on this route: no MOM/FG refresh runs outside KNOP,'//
+	2     ' DO_SOB_FG_KNOP, and SOB + USE_LAM_ES=F'
+	END IF
+!
 	RETURN
 	END	

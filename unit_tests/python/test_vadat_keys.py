@@ -77,6 +77,7 @@ HELPERS = [
     "new_main/mod_subs/check_param_consistency.f",
     "newsubs/rd_store_log.f",
     "new_main/mod_subs/iter_ledger_mod.f90",
+    "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_blk_gmres_mod.f",
     "plane/mom_j_cmf_nonmono_v1.f",
@@ -216,6 +217,10 @@ def main():
             "baseline: absent JFNK_PC_PAR_FACTOR defaults F",
             v.get("JFNK_PC_PAR_FACTOR") == "F",
         )
+        rep.check(
+            "baseline: DO_KNOP_REFRESH=F under explicit LAM_ES=T",
+            v.get("DO_KNOP_REFRESH") == "F",
+        )
 
     cases = [
         # (name, mutations, expect_ok, expect_stdout_substr)
@@ -315,6 +320,36 @@ def main():
             False,
             "BA_DAMP_CAP = 0 (off) or > 1.0",
         ),
+        (
+            "DO_NONMONO_SOB + USE_J_REL aborts",
+            {"USE_J_REL": "T", "DO_JFNK": "F"},
+            False,
+            "DO_NONMONO_SOB is incompatible",
+        ),
+        (
+            "DO_NONMONO_SOB + PP_MOD aborts",
+            {"PP_MOD": "T", "DO_JFNK": "F"},
+            False,
+            "DO_NONMONO_SOB is incompatible",
+        ),
+        (
+            "SOB+LAM_ES=T MOM_BLKGMRES warns dead key",
+            {"MOM_BLKGMRES": "T", "DO_JFNK": "F"},
+            True,
+            "the MOM solver never runs",
+        ),
+        (
+            "SOB+LAM_ES=F banner: unsupported for production",
+            {"USE_LAM_ES": "F", "DO_JFNK": "F"},
+            True,
+            "unsupported for production validation",
+        ),
+        (
+            "DO_SOB_FG_KNOP + explicit USE_LAM_ES=F overridden to T",
+            {"DO_SOB_FG_KNOP": "T", "USE_LAM_ES": "F", "DO_JFNK": "F"},
+            True,
+            "SOB-KNOP override: explicit USE_LAM_ES=F -> T",
+        ),
     ]
     for name, muts, expect_ok, needle in cases:
         d = write_vadat(
@@ -327,6 +362,57 @@ def main():
             (has_ok == expect_ok) and (needle is None or needle in p.stdout),
             "" if needle in p.stdout else p.stdout[-300:],
         )
+
+    # 25-Nov-2026 audit: absent DO_KNOP_REFRESH under resolved
+    # USE_LAM_ES=T resolves F (the value run_model_grid already
+    # stamps). The armed-T default was an ordering artefact of the
+    # absent-key USE_LAM_ES flip.
+    d = write_vadat(
+        WORKDIR / "vadat_sob_kr_absent",
+        {"USE_LAM_ES": None, "DO_JFNK": "F"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "SOB absent-key: DO_KNOP_REFRESH resolves F",
+        "RESULT_OK" in p.stdout
+        and "SOB auto-set: DO_KNOP_REFRESH=F" in p.stdout
+        and v.get("DO_KNOP_REFRESH") == "F",
+        p.stdout[-300:],
+    )
+
+    # An explicit DO_KNOP_REFRESH=T is still honoured on the resolved
+    # T route (auto-sets touch absent keys only) but warns the flag
+    # is dead there.
+    d = write_vadat(
+        WORKDIR / "vadat_sob_kr_on",
+        {"USE_LAM_ES": None, "DO_KNOP_REFRESH": "T", "DO_JFNK": "F"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "SOB explicit DO_KNOP_REFRESH=T honoured + inert warning",
+        "RESULT_OK" in p.stdout
+        and v.get("DO_KNOP_REFRESH") == "T"
+        and "DO_KNOP_REFRESH=T is inert" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # The same explicit T on the moment route stays armed and silent
+    # -- there the refresh is live.
+    d = write_vadat(
+        WORKDIR / "vadat_sob_kr_mom",
+        {"USE_LAM_ES": "F", "DO_KNOP_REFRESH": "T", "DO_JFNK": "F"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "SOB+LAM_ES=F explicit refresh=T stays armed, no inert warning",
+        "RESULT_OK" in p.stdout
+        and v.get("DO_KNOP_REFRESH") == "T"
+        and "DO_KNOP_REFRESH=T is inert" not in p.stdout,
+        p.stdout[-300:],
+    )
 
     # KNOP-consistent config parses and lands the flags.
     d = write_vadat(
