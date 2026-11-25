@@ -55,7 +55,11 @@ def build_ref():
         [REF / "obs" / "obs_frame_v2.f",
          REF / "obs" / "obs_frame_sub_v9.f"],
         moddir=md, extra_flags=PROD_MOD_INC, prod=True)
-    libs = [TREE / "lib" / a for a in ("libdisp.a", "libsubs.a", "libsubs.a")]
+    # libmod.a last: libsubs.a members (mon_interp.o and friends) now
+    # reference ITER_LOG_FMT_MOD symbols, and archive search only
+    # resolves forward.
+    libs = [TREE / "lib" / a for a in (
+        "libdisp.a", "libsubs.a", "libsubs.a", "libmod.a")]
     return link_prod("obs_frame_ref", objs + libs, moddir=md)
 
 
