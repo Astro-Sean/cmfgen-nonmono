@@ -98,6 +98,7 @@
 	REAL(KIND=LDP) BNUE
 	REAL(KIND=LDP) S1
 	REAL(KIND=LDP) T1,T2,T3
+	CHARACTER(LEN=180) FMSG
 !
 ! FG_COUNT is used to determine the average number of calls to FG_J_CMF_V10 per
 ! frequency.
@@ -322,8 +323,10 @@ C
 	            FCONV_SUPPRESSED_CNT=FCONV_SUPPRESSED_CNT+1
 	            FCONV_SUPPRESSED_MAX=MAX(FCONV_SUPPRESSED_MAX,T1)
 	         ELSE
-	            WRITE(LUER,*)'Possible error converging f - T1 is',T1
-	            WRITE(LUER,*)'Frequency is ',FL,' in section '//SECTION
+	            WRITE(FMSG,'(A,ES11.4)')'Possible error converging f - T1 is ',T1
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
+	            WRITE(FMSG,'(A,ES11.4,2A)')'Frequency is ',FL,' in section ',TRIM(SECTION)
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
 	         END IF
 	      	 INACCURATE=.FALSE.
 	      END IF
@@ -542,8 +545,10 @@ C
 	            FCONV_SUPPRESSED_CNT=FCONV_SUPPRESSED_CNT+1
 	            FCONV_SUPPRESSED_MAX=MAX(FCONV_SUPPRESSED_MAX,T1)
 	         ELSE
-	            WRITE(LUER,*)'Possible error converging f - T1 is',T1
-	            WRITE(LUER,*)'Frequency is ',FL,' in section '//SECTION
+	            WRITE(FMSG,'(A,ES11.4)')'Possible error converging f - T1 is ',T1
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
+	            WRITE(FMSG,'(A,ES11.4,2A)')'Frequency is ',FL,' in section ',TRIM(SECTION)
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
 	         END IF
 	      	 INACCURATE=.FALSE.
 	      END IF
@@ -611,20 +616,18 @@ C
 	    T1=ABS(RJ(1))+ABS(TC(1))
 	    IF(T1 .NE. 0)T1=ABS(200.0_LDP*(RJ(1)-TC(1))/T1)
 	    IF(T1 .GT. 100.0_LDP)THEN
-	      WRITE(LUER,'(A)')'***************************************************************************'
-	      WRITE(LUER,'(A)')' Error --- J(mom) and J(ray) differ by more than 100% for last frequency'
-	      WRITE(LUER,'(A)')' It is STRONGLY suggested that you use a finer grid at the outer boundary'
-	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error and/or use plt_jh'
-	      WRITE(LUER,'(A)')'***************************************************************************'
+	      CALL ILF_TAG(LUER,'WARN','J-COMP','Error --- J(mom) and J(ray) differ by more than 100% for last frequency')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','It is STRONGLY suggested that you use a finer grid at the outer boundary')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Tail J__COMP to see boundary error and/or use plt_jh')
 	    ELSE IF(T1 .GT. 50.0_LDP)THEN
-	      WRITE(LUER,'(A)')' Error --- J(mom) and J(ray) differ by more than 50% for last frequency'
-	      WRITE(LUER,'(A)')' It is strongly suggested that you use a finer grid at the outer boundary'
-	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error'
+	      CALL ILF_TAG(LUER,'WARN','J-COMP','Error --- J(mom) and J(ray) differ by more than 50% for last frequency')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','It is strongly suggested that you use a finer grid at the outer boundary')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Tail J__COMP to see boundary error')
 	    ELSE IF(T1 .GT. 20.0_LDP)THEN
-	      WRITE(LUER,'(A)')' Error --- J(mom) and J(ray) differ by more than 20% for last frequency'
-	      WRITE(LUER,'(A)')' Although this is nlikely to effect the colution, it is suggested that'
-	      WRITE(LUER,'(A)')' you use a finer grid at the outer boundary'
-	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error'
+	      CALL ILF_TAG(LUER,'WARN','J-COMP','Error --- J(mom) and J(ray) differ by more than 20% for last frequency')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Although this is unlikely to affect the solution, it is suggested that')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','you use a finer grid at the outer boundary')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Tail J__COMP to see boundary error')
 	    END IF
 	  END IF
 	  CALL TUNE(ITWO,'CONT_VEL')
@@ -1231,8 +1234,10 @@ C
 	            FCONV_SUPPRESSED_CNT=FCONV_SUPPRESSED_CNT+1
 	            FCONV_SUPPRESSED_MAX=MAX(FCONV_SUPPRESSED_MAX,T1)
 	         ELSE
-	            WRITE(LUER,*)'Possible error converging f - T1 is',T1
-	            WRITE(LUER,*)'Frequency is ',FL,' in section '//SECTION
+	            WRITE(FMSG,'(A,ES11.4)')'Possible error converging f - T1 is ',T1
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
+	            WRITE(FMSG,'(A,ES11.4,2A)')'Frequency is ',FL,' in section ',TRIM(SECTION)
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
 	         END IF
 	      	 INACCURATE=.FALSE.
 	      END IF
@@ -1408,18 +1413,18 @@ C
 	1     ' JCOMP census: worst |%diff| ',JCMP_W_REL,' at depth ',
 	2     JCMP_W_I,' nu ',JCMP_W_NU,'; cells above 50% ',JCMP_N50
 	    IF(T1 .GT. 100.0_LDP)THEN
-	      WRITE(LUER,'(/,A)')' Error --- J(mom) and J(ray) differ by more than 100% for last frequency'
-	      WRITE(LUER,'(A)')' It is STRONGLY suggested that you use a finer grid at the outer boundary'
-	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error and/or use plt_jh'
+	      CALL ILF_TAG(LUER,'WARN','J-COMP','Error --- J(mom) and J(ray) differ by more than 100% for last frequency')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','It is STRONGLY suggested that you use a finer grid at the outer boundary')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Tail J__COMP to see boundary error and/or use plt_jh')
 	    ELSE IF(T1 .GT. 50.0_LDP)THEN
-	      WRITE(LUER,'(/,A)')' Error --- J(mom) and J(ray) differ by more than 50% for last frequency'
-	      WRITE(LUER,'(A)')' It is strongly suggested that you use a finer grid at the outer boundary'
-	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error'
+	      CALL ILF_TAG(LUER,'WARN','J-COMP','Error --- J(mom) and J(ray) differ by more than 50% for last frequency')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','It is strongly suggested that you use a finer grid at the outer boundary')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Tail J__COMP to see boundary error')
 	    ELSE IF(T1 .GT. 20.0_LDP)THEN
-	      WRITE(LUER,'(/,A)')' Error --- J(mom) and J(ray) differ by more than 20% for last frequency'
-	      WRITE(LUER,'(A)')' Although this is ulikely to effect the colution, it is suggested that'
-	      WRITE(LUER,'(A)')' you use a finer grid at the outer boundary'
-	      WRITE(LUER,'(A)')' Tail J__COMP to see bundary error'
+	      CALL ILF_TAG(LUER,'WARN','J-COMP','Error --- J(mom) and J(ray) differ by more than 20% for last frequency')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Although this is unlikely to affect the solution, it is suggested that')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','you use a finer grid at the outer boundary')
+	      CALL ILF_TAG(LUER,'INFO','J-COMP','Tail J__COMP to see boundary error')
 	    END IF
 	  END IF
 	  CALL TUNE(ITWO,'CONT_VEL')
@@ -1497,8 +1502,10 @@ C
 	            FCONV_SUPPRESSED_CNT=FCONV_SUPPRESSED_CNT+1
 	            FCONV_SUPPRESSED_MAX=MAX(FCONV_SUPPRESSED_MAX,T1)
 	         ELSE
-	            WRITE(LUER,*)'Possible error converging f - T1 is',T1
-	            WRITE(LUER,*)'Frequency is ',FL,' in section '//SECTION
+	            WRITE(FMSG,'(A,ES11.4)')'Possible error converging f - T1 is ',T1
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
+	            WRITE(FMSG,'(A,ES11.4,2A)')'Frequency is ',FL,' in section ',TRIM(SECTION)
+	            CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(FMSG))
 	         END IF
 	      	 INACCURATE=.FALSE.
 	      END IF
