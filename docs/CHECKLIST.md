@@ -351,6 +351,17 @@ largest-cell excursions while passing the bulk census. Do not change it
 until the H_IMPL controlled arm separates outer H regularization from
 write-back policy; otherwise the two changes cannot be attributed.
 
+Cold-start arm authorised by the user 25-Nov-2026:
+`m15_2p82d_VAL_sob_lamesF_blkgmres_cold`, same eps1em3 deck with
+`MOM_BLKGMRES=T` and `MOM_H_IMPL=F`, but no warm-restart checkpoint.
+Question: can the coupled moment route converge as a self-consistent
+population/field iteration once the USE_LAM_ES=T solver-swap shock is
+removed. Exit criterion: convergence, a bounded stall reproducing the
+warm-start behaviour, or detonation. This arm takes precedence over any
+write-back source edit because its verdict decides whether the warm
+stall was mostly an initial-condition shock or a structural outer-loop
+defect.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
