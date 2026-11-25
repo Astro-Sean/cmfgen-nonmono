@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_conv_exit -- nine-gate ITER_SUM converged-exit replica.
+"""test_conv_exit -- ten-gate ITER_SUM converged-exit replica.
 
 Round-2 phase-2 patch A: the ITER_SUM replica was missing the ninth
 conjunct (.NOT. LAM_FIELD_NOT_READY) that the real CONV_EXIT_MET in
@@ -8,14 +8,25 @@ while the true exit still held. The replica now calls
 CONV_EXIT_EVAL (LAM_HANDOFF_MOD), the same evaluator both sides
 share.
 
+Tenth gate (25-Nov-2026): FCONV_CAP_IT_CNT -- the per-iteration
+census of f-iteration cap exits, saved before the reset in
+CMFGEN_SUB -- joins the gate. A frequency that left the
+f/electron-scattering iteration at the pass cap carried an
+unconverged ES source into the rates the SE solve used, so a
+capped iteration is not a converged one. The suppressed
+iteration-1 warning subset stays inside the census: the gate reads
+the physical event, not the print flag.
+
 Compiles the production lam_handoff_mod.f90 with drv_conv_exit and
 asserts on the printed verdicts, then pins the production
 integration points by source inspection:
 
-  * exhaustive truth table: all 512 input combinations must return
+  * exhaustive truth table: all 1024 input combinations must return
     ALL=AND and NPASS=popcount;
-  * case A: eight old gates pass, field not ready -> HOLD;
-  * case B: all nine pass -> MET, NPASS=9 (100%);
+  * case A: nine old gates pass, field not ready -> HOLD;
+  * case B: all ten pass -> MET, NPASS=10 (100%);
+  * case G: a nonzero f-iteration cap census holds the exit and
+    names 'f-cap-exits';
   * case C: each single failure prints exactly its own label;
   * case D: multiple failures print all labels;
   * source pins: the solve_for_pops call passes the live
@@ -33,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common
 
-REP = common.Report("test_conv_exit (nine-gate exit replica)")
+REP = common.Report("test_conv_exit (ten-gate exit replica)")
 
 WORK = common.WORKDIR / "conv_exit"
 WORK.mkdir(parents=True, exist_ok=True)
@@ -76,22 +87,22 @@ def fails_part(name):
 
 
 # ---- exhaustive truth table --------------------------------------
-REP.check("exhaustive 512-combination table has no violations",
+REP.check("exhaustive 1024-combination table has no violations",
           vals.get("EXH_nbad") == "0")
 
-# ---- case A: eight old gates pass, field not ready ---------------
+# ---- case A: nine old gates pass, field not ready ----------------
 REP.check("A: field-not-ready alone holds the exit",
           not tf("A_holdfield"))
-REP.check("A: npass is 8 of 9",
-          field("A_holdfield", "npass=") == "8")
+REP.check("A: npass is 9 of 10",
+          field("A_holdfield", "npass=") == "9")
 REP.check("A: labels name lam-field-not-ready",
           "lam-field-not-ready" in fails_part("A_holdfield"))
 
-# ---- case B: all nine pass ---------------------------------------
-REP.check("B: all nine pass -> MET",
+# ---- case B: all ten pass ----------------------------------------
+REP.check("B: all ten pass -> MET",
           tf("B_allpass"))
-REP.check("B: npass is 9 -> 100%",
-          field("B_allpass", "npass=") == "9")
+REP.check("B: npass is 10 -> 100%",
+          field("B_allpass", "npass=") == "10")
 REP.check("B: no failures reported",
           "all pass" in vals.get("B_allpass", ""))
 
@@ -133,6 +144,14 @@ REP.check(
 # ---- case E: forced-lambda leg of the lambda-state gate ----------
 REP.check("E: rd_lam without auto passes the lambda gate",
           tf("E_forcedlam"))
+
+# ---- case G: f-iteration cap census holds the exit ---------------
+REP.check("G: cap count > 0 blocks the exit",
+          not tf("G_cap"))
+REP.check("G: npass is 9 of 10",
+          field("G_cap", "npass=") == "9")
+REP.check("G: labels name f-cap-exits",
+          "f-cap-exits" in fails_part("G_cap"))
 
 
 # ---- CONV_MARGIN_EVAL --------------------------------------------
@@ -231,8 +250,8 @@ REP.check(
     call is not None,
 )
 REP.check(
-    "percent-converged denominator is nine gates",
-    "CONV_NPASS/9.0_LDP" in POPS,
+    "percent-converged denominator is ten gates",
+    "CONV_NPASS/10.0_LDP" in POPS,
 )
 REP.check(
     "evaluator carries the ninth conjunct on the strict flag",
@@ -240,7 +259,28 @@ REP.check(
     and "lam-field-not-ready" in MOD
     and "lam-field-not-converged" in MOD,
 )
-# Both real exit blocks keep all nine conjuncts (the patch must not
+REP.check(
+    "evaluator carries the tenth conjunct on the cap census",
+    "CAP_CNT .EQ. 0" in MOD and "f-cap-exits" in MOD,
+)
+# Iteration-1 suppressed warnings do not gate the exit on their own:
+# they are a subset of the same census, so the gate reads
+# FCONV_CAP_IT_CNT and never the suppressed count.
+REP.check(
+    "gate reads the cap census, not the suppressed subset",
+    "FCONV_SUPPRESSED_CNT" not in CMF.split("CONV_EXIT_MET=")[1]
+    or "FCONV_SUPPRESSED_CNT .EQ. 0" in CMF.split("CONV_EXIT_MET=")[1],
+)
+# The census is saved before the per-iteration reset so the count
+# survives to the exit gate.
+save = re.search(
+    r"FCONV_CAP_IT_CNT=FCONV_CAP_CNT[\s\S]{0,200}?"
+    r"FCONV_CAP_CNT=0",
+    CMF,
+)
+REP.check("cap census saved before the per-iteration reset",
+          save is not None)
+# Both real exit blocks keep all ten conjuncts (the patch must not
 # touch the production gate).
 blocks = re.findall(
     r"CONV_EXIT_MET=\([\s\S]{0,400}?\.NOT\. LAM_FIELD_NOT_CONVERGED",
@@ -252,6 +292,7 @@ REP.check(
 )
 for tok in (
     "JFNK_UNCONVERGED_COMMIT",
+    "FCONV_CAP_IT_CNT .EQ. 0",
     "BA_EX_MAXCH .LT. EPS",
     "BA_DEM_EXIT_OK",
     "DONE_HYDRO_REVISION",
