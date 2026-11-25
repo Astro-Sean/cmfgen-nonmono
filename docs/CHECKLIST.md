@@ -364,6 +364,29 @@ This arm takes precedence over any write-back source edit because its
 verdict decides whether the warm stall was mostly an initial-condition
 shock or a structural outer-loop defect.
 
+Cold evidence through iteration 13 shifted the next controlled arm to
+write-back policy. The block solve remains cheap (0-5 GMRES iterations,
+zero restarts), but the adaptive V2 omega estimator repeatedly read a
+clamped 5.0E-2 contraction factor from alternating pass residuals and
+raised `JNEXT_RELAX` toward 0.84. Iterations 12-13 then committed
+`7.5E8` and `6.7E9` largest retained-field changes while the
+outer/inner luminosity ratio stayed near 0.30. The warm `MOM_H_IMPL`
+arm also remained lum-deprived (ratio about 0.04 at iteration 680), so
+the next controlled experiment is fixed damping rather than another
+implicit-H change.
+
+Execution experiment submitted 25-Nov-2026:
+`m15_2p82d_VAL_sob_lamesF_blkgmres_r01`, CMFGEN 13671873 and OBS
+13671874. Same cold-start eps1em3 deck and pinned executable as the
+cold baseline, but `KN_ADAPT_RELAX=F` and `JNEXT_RELAX=0.1D0`. Question:
+does conservative fixed moment write-back remove the outer population/
+field limit cycle that adaptive relaxation sustains. Exit criterion:
+convergence, a lower-amplitude bounded stall, or failure to improve on
+the adaptive cold arm. The submission warned of 21 pre-existing dirty
+paths and reused pinned `cmfgen_dev.exe` sha256
+`60cdf8306f7d24f18abcb390cea66793fe78ef9306b5e148223ad6e4414c3819`;
+no solver source changed for this arm.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
