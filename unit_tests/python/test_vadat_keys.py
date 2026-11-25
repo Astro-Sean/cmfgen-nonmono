@@ -350,6 +350,35 @@ def main():
             True,
             "SOB-KNOP override: explicit USE_LAM_ES=F -> T",
         ),
+        (
+            "DO_JFNK + FIX_INB_T + FIX_X_DPTH aborts (unmasked inner T)",
+            {
+                "FIX_T": "F",
+                "FIX_T_AUTO": "F",
+                "FIX_INB_T": "T",
+                "FIX_X_DPTH": "10",
+            },
+            False,
+            "DO_JFNK=T with FIX_INB_T=T and FIX_X_DPTH>0",
+        ),
+        (
+            "FIX_X_DPTH inner-T pin legal without JFNK",
+            {
+                "DO_JFNK": "F",
+                "FIX_T": "F",
+                "FIX_T_AUTO": "F",
+                "FIX_INB_T": "T",
+                "FIX_X_DPTH": "10",
+            },
+            True,
+            "RESULT_OK",
+        ),
+        (
+            "DO_JFNK + FIX_X_DPTH exempt under all-depth FIX_T=T",
+            {"FIX_INB_T": "T", "FIX_X_DPTH": "10"},
+            True,
+            "RESULT_OK",
+        ),
     ]
     for name, muts, expect_ok, needle in cases:
         d = write_vadat(
