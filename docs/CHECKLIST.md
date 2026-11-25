@@ -423,6 +423,18 @@ first correctness task is a full discrete H/EPS wavelength-coupling
 derivation and a post-write residual measurement. The running pinned
 arms were left unchanged.
 
+H/EPS derivation started 25-Nov-2026. Result recorded in
+`docs/plans/MOMENT_H_EPS_IMPLICIT_DERIVATION_2026-11-25.md`: direct
+substitution of the H recurrence is the wrong implementation because
+alternating upwind directions make the eliminated frequency coupling
+dense or ring-shaped. The clean target is an augmented sparse system
+solving nodal `J` and midpoint `H` together. The smallest safe first
+code change is a diagnostic residual evaluator for that augmented
+system, before any solver rewrite. Spatial boundary rows, frequency
+boundary data, EPS donor-stencil choice, row scaling, and matched-
+frequency H strides remain the five derivation points that must be
+closed before Phase 1.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
