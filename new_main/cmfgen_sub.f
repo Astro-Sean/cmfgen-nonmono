@@ -1481,6 +1481,7 @@
 !
 	IF(GIT_CLK_SET)THEN
 	  T_GIT_ELAP=OMP_GET_WTIME()-T_GIT_START
+	  CALL ILF_ISSUE_REPORT(LUER)
 	  WRITE(LUER,'(A,I4,A,F10.1,A)')
 	1    ' Time taken for iteration',MAIN_COUNTER-1,':',
 	2    T_GIT_ELAP,' [s]'
@@ -1514,7 +1515,7 @@
 !
 	WRITE(LUER,'(A)')' '
 	CALL ILF_RULE(LUER,'=')
-	WRITE(LUER,'(A,I8)')' Current great iteration count is',MAIN_COUNTER
+	WRITE(LUER,'(A,I8)')' Current iteration count is',MAIN_COUNTER
 	CALL ILF_RULE(LUER,'=')
 	IF(CONV_DIAG_LVL .GE. 1)CALL ILF_SECTION(LUER,'ITERATION SETUP')
 	FLUSH(LUER)
@@ -4527,10 +4528,11 @@
 ! the suppressed set was marginal (~ACC_F) or real.
 !
 	IF(FCONV_SUPPRESSED_CNT .GT. 0)THEN
-	  WRITE(LUER,'(A,I6,A,1P,E10.3)')
-	1    ' Possible error converging f:',FCONV_SUPPRESSED_CNT,
+	  WRITE(TMP_STRING,'(A,I6,A,1P,E10.3)')
+	1    'Possible error converging f:',FCONV_SUPPRESSED_CNT,
 	2    ' warnings suppressed on iteration 1; max T1=',
 	3    FCONV_SUPPRESSED_MAX
+	  CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(TMP_STRING))
 	END IF
 	FCONV_SUPPRESSED_CNT=0
 	FCONV_SUPPRESSED_MAX=0.0_LDP
@@ -4541,9 +4543,10 @@
 ! electron-scattering source in the rates used by the SE solve.
 !
 	IF(FCONV_CAP_CNT .GT. 0)THEN
-	  WRITE(LUER,'(A,I6,A,1P,E10.3)')
-	1    ' f-iteration cap exits this iteration:',FCONV_CAP_CNT,
+	  WRITE(TMP_STRING,'(A,I6,A,1P,E10.3)')
+	1    'f-iteration cap exits this iteration:',FCONV_CAP_CNT,
 	2    '  max |dF| at exit=',FCONV_CAP_T1
+	  CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(TMP_STRING))
 	END IF
 	FCONV_CAP_CNT=0
 	FCONV_CAP_T1=0.0_LDP
@@ -5880,6 +5883,7 @@
 !
 	IF(GIT_CLK_SET)THEN
 	  T_GIT_ELAP=OMP_GET_WTIME()-T_GIT_START
+	  CALL ILF_ISSUE_REPORT(LUER)
 	  WRITE(LUER,'(A,I4,A,F10.1,A)')
 	1  ' Time taken for iteration',MAIN_COUNTER,':',
 	2  T_GIT_ELAP,' [s]'
