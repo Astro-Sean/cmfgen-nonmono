@@ -39,6 +39,7 @@ CONV_SOURCES = [
     TREE / "obs" / "sob_line_es_update.f",
     TREE / "subs" / "comp_j_conv_v2.f",
     TREE / "subs" / "thomas_rh.f",
+    TREE / "new_main" / "mod_subs" / "iter_log_fmt_mod.f90",
     TREE / "subs" / "mon_interp.f",
     TREE / "subs" / "write_direct_info_v3.f",
     TREE / "tools" / "chk_little_endian.f",
