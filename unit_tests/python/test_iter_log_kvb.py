@@ -15,7 +15,9 @@ labels past 30 characters, a block that hits the 100-column cap).
 Static pins cover the export list and the layout rules.
 """
 
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -93,7 +95,8 @@ def main():
         "subroutine ilf_kvb" in ilf and "ilf_issue_add" in ilf,
     )
 
-    r = run(build())
+    binary = build()
+    r = run(binary)
     blocks = cases(r.stdout)
     # The 100-column budget binds block layout only; compact mode
     # reproduces legacy one-liners at their original width.
@@ -195,6 +198,28 @@ def main():
         and rows[0].startswith(" ES_ALI:")
         and "freqs unconverged=98" in rows[0]
         and "max final dJ/J=1.96E-03" in rows[0],
+    )
+
+    # Temporary regression hook: CMFGEN_COMPACT_KV is read once at
+    # the first ilf_kvb call.  =1 collapses every block; =0 leaves
+    # the module value alone so an explicit set still works.
+    env1 = dict(os.environ, CMFGEN_COMPACT_KV="1")
+    r1 = subprocess.run(
+        [str(binary)], capture_output=True, text=True, env=env1
+    )
+    rep.check(
+        "env: CMFGEN_COMPACT_KV=1 collapses every block",
+        " ES_ALI: freqs unconverged=98" in r1.stdout
+        and len(cases(r1.stdout)["spec"]) == 1,
+    )
+    env0 = dict(os.environ, CMFGEN_COMPACT_KV="0")
+    r0 = subprocess.run(
+        [str(binary)], capture_output=True, text=True, env=env0
+    )
+    b0 = cases(r0.stdout)
+    rep.check(
+        "env: CMFGEN_COMPACT_KV=0 keeps block form, explicit set still wins",
+        len(b0["spec"]) == 6 and len(b0["compact"]) == 1,
     )
 
     sys.exit(rep.summary())
