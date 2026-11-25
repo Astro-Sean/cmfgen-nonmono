@@ -6,6 +6,7 @@ C All other variables must be double precision.
 C
 	FUNCTION HYDCROSSL(NU,NUION,Z,NEF,N,LST,LEND)
 	USE SET_KIND_MODULE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	IMPLICIT NONE
 C
 C Altered 24-May-1996 ERROR_LU etc installed
@@ -28,7 +29,9 @@ C
 	IF(N .GT. 100 .OR. N .LT. 1)THEN
 	  LUER=ERROR_LU()
 	  WRITE(LUER,*)'Invalid N in HYDCROSSL - LIMIT IS 100'
-	  WRITE(LUER,*)'N=',N,' NUION=',NUION,' Z=',Z
+	  CALL ILF_KVB(LUER,' HYDCROSSL:',3,
+	1         (/'N','NUION','Z'/),
+	2         (/ILF_VI(N),ILF_VR(NUION,12),ILF_VR(Z,12)/))
 	  STOP
 	END IF
 C
@@ -36,7 +39,9 @@ C
 	  LUER=ERROR_LU()
 	  WRITE(LUER,*)'Invalid LST and LEND in HYDCROSSL'
 	  WRITE(LUER,*)'LST=',LST,' LEND=',LEND
-	  WRITE(LUER,*)'N=',N,' NUION=',NUION,' Z=',Z
+	  CALL ILF_KVB(LUER,' HYDCROSSL:',3,
+	1         (/'N','NUION','Z'/),
+	2         (/ILF_VI(N),ILF_VR(NUION,12),ILF_VR(Z,12)/))
 	  STOP
 	END IF
 C
