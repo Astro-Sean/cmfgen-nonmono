@@ -7,6 +7,7 @@
 	SUBROUTINE CHECK_PARAM_CONSISTENCY( )
 	USE SET_KIND_MODULE
 	USE CONTROL_VARIABLE_MOD
+	USE MOD_CMFGEN, ONLY: FIX_IN_BOUND_T, FIX_LST_X_DPTHS
 	IMPLICIT NONE
 !
 	INTEGER LUER
@@ -137,6 +138,31 @@
 	2     ' MOM_J_CMF_NONMONO_V1 J_NEXT/H_NEXT lagged store.'
 	  WRITE(LUER,*)'Set USE_LAM_ES=T (Knop formal or V13 path),'//
 	1     ' or set DO_JFNK=F.'
+	  STOP
+	END IF
+!
+! edited 25-Nov-2026: the FIX_INB_T + FIX_X_DPTH pin lives only in
+! fixpop_in_ba_v3 -- it zeroes the inner FIX_LST_X_DPTHS T rows of
+! the BA system each call.  The JFNK unknown vector masks T by
+! RD_FIX_T, JFNK_FIXT and the VARFIXT range (JFNK_FIX_T_D_ST/END);
+! no JFNK path reads FIX_LST_X_DPTHS, so those rows stay live
+! Newton unknowns while the BA matrix holds them fixed -- the two
+! solvers would carry different equation sets.  Reject the pairing
+! instead of warning: a run that reaches the solver is wrong, not
+! merely misleading.  FIX_T=T (all depths fixed by both routes) and
+! FIX_T_AUTO (VARFIXT range, JFNK_TAUTO mirrors it) stay legal;
+! prepare_VADAT already requires DO_JFNK=F for FIX_X_DPTH decks --
+! this makes the same contract fail closed at the Fortran gate.
+!
+	IF(USE_JFNK_SOLVER .AND. FIX_IN_BOUND_T .AND.
+	1   FIX_LST_X_DPTHS .GT. 0 .AND. .NOT. RD_FIX_T)THEN
+	  WRITE(LUER,*)'Error in control parameters in VADAT'
+	  WRITE(LUER,*)'DO_JFNK=T with FIX_INB_T=T and FIX_X_DPTH>0:'//
+	1     ' fixpop_in_ba_v3 pins the inner FIX_X_DPTH T rows,'//
+	2     ' but no JFNK masking path reads FIX_LST_X_DPTHS --'//
+	3     ' those T rows stay live Newton unknowns.'
+	  WRITE(LUER,*)'Set DO_JFNK=F for FIX_X_DPTH (thin-release)'//
+	1     ' runs, or use FIX_T=T / FIX_T_AUTO for the T policy.'
 	  STOP
 	END IF
 !
