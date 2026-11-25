@@ -19,6 +19,7 @@ C Ref: Steffen. M, 1990, A/&A, 239, 443-450
 C
 	SUBROUTINE MON_INTERP(QZ,NQ,LIN_END,QZR,NX,VARRAY,NV,R,ND)
 	USE SET_KIND_MODULE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	IMPLICIT NONE
 C
 C Altered 05-Oct-2026 : Validate strictly monotonic input and ordered
@@ -76,8 +77,12 @@ C
 	1   (SGN*QZR(NX) .GT. SGN*R(ND)) )THEN
 	  LUER=ERROR_LU()
 	  WRITE(LUER,*)'Error in MON_INTERP - values outside range'
-	  WRITE(LUER,'(1X,2(A,ES20.12),A,I4)')' Input grid:   R(1)=',R(1),'    R(ND)= ',R(ND),'ND=',ND
-	  WRITE(LUER,'(1X,2(A,ES20.12),A,I4)')'Output grid: QZR(1)=',QZR(1),'  QZR(NX)=',QZR(NX),'NX=',NX
+	  CALL ILF_KVB(LUER,' Input grid:',3,
+	1         (/'R(1)','R(ND)','ND'/),
+	2         (/ILF_VR(R(1),12),ILF_VR(R(ND),12),ILF_VI(ND)/))
+	  CALL ILF_KVB(LUER,'Output grid:',3,
+	1         (/'QZR(1)','QZR(NX)','NX'/),
+	2         (/ILF_VR(QZR(1),12),ILF_VR(QZR(NX),12),ILF_VI(NX)/))
 	  STOP
 	END IF
 	I=1
