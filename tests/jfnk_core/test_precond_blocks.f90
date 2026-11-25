@@ -390,6 +390,7 @@ subroutine t_ident_factor(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 24
    double precision :: a(n,n), pre_dummy
@@ -418,7 +419,7 @@ subroutine t_ident_factor(nfail)
                  pv1, itry1, ru1, ok1)
             call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, &
                  0.0d0, 1.0d-4, lsq, 0, lu2, ipiv2, rsf2, csf2, &
-                 reg2, regt, rr2, rcond2, pv2, itry2, ru2, ok2)
+                 reg2, regt, rr2, rcond2, pv2, itry2, ru2, ok2, lsq_u)
             if(ok1 .neqv. ok2)then
                print *, 'T-IDENT FAIL ok', style, imode, seed, ok1, ok2
                nfail = nfail + 1; cycle
@@ -455,6 +456,7 @@ end subroutine t_ident_factor
 !======================================================================
 subroutine t_ident_apply(nfail)
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 24
    double precision :: a(n,n), lu(n,n), v1(n), v2(n), rhs(n)
@@ -476,7 +478,7 @@ subroutine t_ident_apply(nfail)
          pre_reg = .false.
          call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, &
               1.0d-4, lsq, 0, lu, ipiv, rsf, csf, reg, regt, rr, &
-              rcond, pv, itry, ru, ok)
+              rcond, pv, itry, ru, ok, lsq_u)
          fixed = .false.
          fixed(3) = .true.
          rhs = 0.0d0
@@ -510,6 +512,7 @@ subroutine t_linear(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 24
    double precision :: a(n,n), lu(n,n), v1(n), v2(n), va(n), vb(n), &
@@ -540,7 +543,7 @@ subroutine t_linear(nfail)
       jfnk_rcond_gate = (iand(iflags,8) /= 0)
       call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, &
            1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
-           rcond, pv, itry, ru, ok)
+           rcond, pv, itry, ru, ok, lsq_u)
       np=0;nz=0;nc=0;nm=0;ns=0
       va = rhs1
       call jfnk_pc_apply_block_v1(va, rhs1, n, ok, lu, ipiv, rsf, &
@@ -583,6 +586,7 @@ subroutine t_rcond_norm(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: ns(3) = [50, 200, 800]
    double precision, allocatable :: a(:,:), b(:,:), lu(:,:)
@@ -618,7 +622,7 @@ subroutine t_rcond_norm(nfail)
       pre_reg = .false.
       call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, &
            1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
-           rcond2, pv, itry, ru, ok)
+           rcond2, pv, itry, ru, ok, lsq_u)
       if(.not. ok)then
          print *, 'T-RCOND-NORM: factor failed at n=', n
          nfail = nfail + 1; cycle
@@ -808,6 +812,7 @@ end subroutine t_sign
 subroutine t_ridge(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_signed, jfnk_ridge_floor
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    double precision :: a(4,4), lu(4,4), rsf(4), csf(4), rr(4)
    integer :: ipiv(4)
@@ -829,14 +834,14 @@ subroutine t_ridge(nfail)
    jfnk_pc_signed = .true.
    call jfnk_pc_factor_block_v1(a, 4, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    do i = 1, 4
       ds(i) = rr(i)
    end do
    jfnk_pc_signed = .false.
    call jfnk_pc_factor_block_v1(a, 4, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    do i = 1, 4
       du(i) = rr(i)
    end do
@@ -867,6 +872,7 @@ subroutine t_regcol(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_reg_zerocol, jfnk_pc_signed, &
         jfnk_pc_tiny_equil, jfnk_rcond_gate
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 40, r = 17
    double precision :: a(n,n), lu(n,n), b(n), z(n), rhs(n)
@@ -927,7 +933,7 @@ subroutine t_regcol(nfail)
       jfnk_pc_reg_zerocol = .false.
       call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, &
            1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
-           rcond, pv, itry, ru, ok)
+           rcond, pv, itry, ru, ok, lsq_u)
       b = 0.0d0
       do i = 1, n
          b(i) = sin(1.1d0*i)
@@ -942,7 +948,7 @@ subroutine t_regcol(nfail)
       jfnk_pc_reg_zerocol = .true.
       call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, &
            1.0d-4, .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, &
-           rcond, pv, itry, ru, ok)
+           rcond, pv, itry, ru, ok, lsq_u)
       z = b
       call jfnk_pc_apply_block_v1(z, b, n, ok, lu, ipiv, rsf, csf, &
            a, rr, diag, reg, fixed, .false., 1.0d30, &
@@ -965,6 +971,7 @@ subroutine t_tiny_equil(nfail)
    use jfnk_solver_v1_mod, only: jfnk_pc_tiny_equil, jfnk_pc_signed, &
         jfnk_pc_reg_zerocol, jfnk_rcond_gate
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 12
    double precision :: a(n,n), lu(n,n), rsf(n), csf(n), rr(n)
@@ -997,7 +1004,7 @@ subroutine t_tiny_equil(nfail)
    jfnk_pc_tiny_equil = .false.
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    if(count(regt) == 0)then
       print *, 'T-TINY-EQUIL FAIL: raw test flagged nothing'
       nfail = nfail + 1
@@ -1006,7 +1013,7 @@ subroutine t_tiny_equil(nfail)
    jfnk_pc_tiny_equil = .true.
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    if(count(regt) /= 0)then
       print *, 'T-TINY-EQUIL FAIL: equil test flagged', count(regt)
       nfail = nfail + 1
@@ -1016,7 +1023,7 @@ subroutine t_tiny_equil(nfail)
    jfnk_pc_tiny_equil = .true.
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    if(.not. regt(7))then
       print *, 'T-TINY-EQUIL FAIL: equil missed zero row'
       nfail = nfail + 1
@@ -1024,7 +1031,7 @@ subroutine t_tiny_equil(nfail)
    jfnk_pc_tiny_equil = .false.
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 1.0d-8, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    if(.not. regt(7))then
       print *, 'T-TINY-EQUIL FAIL: raw missed zero row'
       nfail = nfail + 1
@@ -1040,6 +1047,7 @@ subroutine t_gate(nfail)
         jfnk_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_ridge_floor
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 30
    double precision :: a(n,n), lu(n,n), rsf(n), csf(n), rr(n)
@@ -1070,7 +1078,7 @@ subroutine t_gate(nfail)
    jfnk_rcond_gate = .false.
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    print '(A,L2,A,I3,A,ES10.2,A,ES10.2)', &
         ' T-GATE default ok=', ok, ' itry=', itry, ' rcond=', rcond, &
         ' ridge=', ru
@@ -1116,7 +1124,7 @@ subroutine t_gate(nfail)
    jfnk_itry_cap = 3
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    if(itry > jfnk_itry_cap - 1)then
       print *, 'T-GATE FAIL: ladder exceeded cap', itry
       nfail = nfail + 1
@@ -1149,6 +1157,7 @@ subroutine t_rcond_nan(nfail)
         jfnk_itry_cap, jfnk_pc_signed, jfnk_pc_reg_zerocol, &
         jfnk_pc_tiny_equil, jfnk_ridge_floor
    implicit none
+   logical :: lsq_u
    integer, intent(inout) :: nfail
    integer, parameter :: n = 12
    double precision :: a(n,n), lu(n,n), rsf(n), csf(n), rr(n)
@@ -1174,7 +1183,7 @@ subroutine t_rcond_nan(nfail)
    jfnk_itry_cap = 3
    call jfnk_pc_factor_block_v1(a, n, pre_reg, 0.0d0, 0.0d0, 1.0d-4, &
         .false., 0, lu, ipiv, rsf, csf, reg, regt, rr, rcond, pv, &
-        itry, ru, ok)
+        itry, ru, ok, lsq_u)
    print '(A,L2,A,I3,A,ES10.2)', &
         ' T-RCOND-NAN ok=', ok, ' itry=', itry, ' rcond=', rcond
    if(ok)then
