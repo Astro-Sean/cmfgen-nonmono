@@ -4580,7 +4580,8 @@
 	1    MAIN_COUNTER,JFNK_UNCONVERGED_COMMIT,BA_EX_MAXCH,EPS,
 	2    CONV_DEM_OK,DONE_HYDRO_REVISION,GS_POPS_HELD,BAACC_PENDING,
 	3    LAST_NG,LAM_FIELD_NOT_READY,LAM_FIELD_NOT_CONVERGED,
-	4    CONV_LAM_OK,CONV_ALL,CONV_NPASS,CONV_FAILS)
+	4    FCONV_CAP_IT_CNT,
+	5    CONV_LAM_OK,CONV_ALL,CONV_NPASS,CONV_FAILS)
 !
 ! Percent-converged figure: share of the 9 exit gates passing, plus
 ! the worst continuous gate's distance from its threshold in dex.
@@ -4590,7 +4591,7 @@
 ! reads the numeric channels only. [MET] implies 100% -- all gates
 ! passed.
 !
-	  CONV_NPCT=NINT(100.0_LDP*CONV_NPASS/9.0_LDP)
+	  CONV_NPCT=NINT(100.0_LDP*CONV_NPASS/10.0_LDP)
 !
 ! Worst-margin report (edited 19-Nov-2026, round-2 audit): the old
 ! block priced every channel against its threshold and let a
