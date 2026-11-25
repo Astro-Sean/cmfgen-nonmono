@@ -264,7 +264,7 @@ $(LIB)(jfnk_t_fixed_mode_v1.o) : jfnk_t_fixed_mode_v1.f
 
 $(LIB)(jfnk_solve_corr_v1.o) : jfnk_solve_corr_v1.f jfnk_t_fixed_mode_v1.f $(LIB_MOD)(control_variable_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
                                   $(LIB_MOD)(steq_data_mod.o) $(LIB_MOD)(jfnk_solver_v1.o) \
-                                  $(LIB_MOD)(jfnk_op_probe_v1.o) \
+                                  $(LIB_MOD)(jfnk_op_probe_v1.o) $(LIB_MOD)(iter_log_fmt_mod.o) \
                                   $(LIB)(jfnk_cmfgen_int_mod.o) $(LIB)(jfnk_cmfgen_interface_v1.o) \
                                   $(LIB)(fg_j_cmf_nonmono_v1.o)
 	$(F90) -c $(OPTION) jfnk_solve_corr_v1.f
