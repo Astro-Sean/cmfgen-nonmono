@@ -245,6 +245,24 @@ def main():
             perr < 5.0e-12,
             f"err {perr:.2e}, dense-resid {prtrue:.2e}",
         )
+        resraw = None
+        for ln in pr.stdout.splitlines():
+            if "RESRAW=" in ln:
+                resraw = float(ln.split("RESRAW=")[1].split()[0])
+        raw2 = np.linalg.norm(b - a @ xprod) / max(
+            np.linalg.norm(b), 1.0e-300
+        )
+        # xprod is the printed (rounded) final vector, so the dense
+        # ||b-Ax|| on it differs from RESRAW (full-precision x) at
+        # the print-rounding scale; a 1% relative bound still pins
+        # RESRAW to the raw residual.
+        rep.check(
+            f"{mode}: reported raw residual matches dense ||b-Ax||/||b||",
+            resraw is not None
+            and abs(resraw - raw2)
+            <= 1.0e-2 * max(raw2, 1.0e-9),
+            f"resraw {resraw}, dense {raw2:.2e}",
+        )
         if mode != "fresh":
             rep.check(
                 f"{mode}: inactive column logic unused as expected",
