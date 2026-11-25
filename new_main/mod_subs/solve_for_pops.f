@@ -757,9 +757,10 @@
 	      N_PRECOND_TOT=MAX(GS_PCT_RD,0_8)
 	      N_REL_NOPROG=MAX(GS_RNP_RD,0)
 	      GS_WAS_FROZEN=GS_FRZ_RD
-	      IF(CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I5,A,I5,A,L2)')
-	1     ' GS_STATE restart: adopted n_frozen=',N_FROZEN,
-	2     ' from iter',GS_IT_RD,'  frozen=',GS_FRZ_RD
+	      IF(CONV_DIAG_LVL .GE. 1)CALL ILF_KVB(LUER,
+	1     ' GS_STATE restart:',3,
+	2     (/'adopted n_frozen','from iter','frozen'/),
+	3     (/ILF_VI(N_FROZEN),ILF_VI(GS_IT_RD),ILF_VL(GS_FRZ_RD)/))
 	    END IF
 	  END IF
 	END IF
@@ -1697,10 +1698,11 @@
 	      WRITE(LUER,'(2A)')'  [PRECOND]',
 	1     TRIM(MOM_STATE_SENTENCE(.FALSE.,.FALSE.,MOM_UNSAFE_B,
 	2     MOM_BROAD,.FALSE.,.TRUE.,MOM_RF_CONV,MAIN_COUNTER))
-	      WRITE(LUER,'(A,ES10.3,A,ES10.3,A,I6)')
-	1   'SOLVE_FOR_POPS: pop preconditioning: demand=',MAXCH,
-	2   ' > limit=',GS_PRECOND_MAX,
-	3   '; hold postponed, live LAMBDA  n_precond=',N_PRECOND
+	      CALL ILF_KVB(LUER,
+	1   'SOLVE_FOR_POPS: pop preconditioning:',4,
+	2   (/'demand   ','limit    ','verdict  ','n_precond'/),
+	3   (/ILF_VR(MAXCH,3),ILF_VR(GS_PRECOND_MAX,3),
+	4   ILF_VS('hold postponed, live LAMBDA'),ILF_VI(N_PRECOND)/))
 	    END IF
 	  ELSE
 	    GS_PRECOND_ACT=.FALSE.
@@ -2754,25 +2756,33 @@
 	    WRITE(LUER,'(A,4ES12.4,A,2ES12.4)')
 	1     '   ray sw/res/rf/sym =',GS_SW_MAXCHG,GS_MAXCHG,
 	2     GS_RF_DCHG,GS_SW_MAXSYM,'  om/prv =',FG_OM,FG_PRV
-	    WRITE(LUER,'(A,3I8,A,2I12,A,I6)')
-	1     '   ray arg(kc,ray,frq) =',FG_AK,FG_AR,FG_AL,
-	2     '  nconv/ntot =',GS_NCONV,GS_NTOT,'  ndiv =',GS_NDIV
-	    WRITE(LUER,'(A,4I8)')
-	1     '   ray sym arg(k,ray,frq,ch) =',GS_SYK,GS_SYR,GS_SYL,
-	2     GS_SYC
-	    WRITE(LUER,'(A,4ES12.4,A,2ES12.4)')
-	1     '   mom sw/res/rf/sym =',MOM_SW_MAXCHG,MOM_MAXCHG,MOM_RF_DCHG,MOM_SW_MAXSYM,
-	2     '  om/prv =',MOM_OM,MOM_PRV
-	    WRITE(LUER,'(A,2L2,A,2I8,A,2I12,A,3ES12.4)')
-	1     '   mom ran/conv =',MOM_RFR,MOM_RFC,
-	2     '  arg(dep,frq) =',MOM_AI,MOM_AL,
-	3     '  nbad50/ntot =',MOM_SW_NBAD50,MOM_SW_NTOT,
-	4     '  arg old/new/colpk =',MOM_SW_ARGV(1),MOM_SW_ARGV(2),
-	5     MOM_SW_ARGV(3)
-	    WRITE(LUER,'(A,2L2,A,I4,A,I4,A,ES12.4,A,L2)')
-	1     '   freeze/justrel =',GS_FREEZE,GS_JUST_REL,
-	2     '  nmat =',N_MATURE,'/',GS_REL_STABLE,
-	3     '  maxch =',MAXCH,'  lam =',LAMBDA_ITERATION
+	    CALL ILF_KVB(LUER,'   ray arg:',6,
+	1     (/'kc   ','ray  ','frq  ','nconv','ntot ','ndiv '/),
+	2     (/ILF_VI(FG_AK),ILF_VI(FG_AR),ILF_VI(FG_AL),
+	3      ILF_VI(INT(GS_NCONV)),ILF_VI(INT(GS_NTOT)),ILF_VI(GS_NDIV)/))
+	    CALL ILF_KVB(LUER,'   ray sym arg:',4,
+	1     (/'k   ','ray ','frq ','ch  '/),
+	2     (/ILF_VI(GS_SYK),ILF_VI(GS_SYR),ILF_VI(GS_SYL),
+	3      ILF_VI(GS_SYC)/))
+	    CALL ILF_KVB(LUER,'   mom sw/res/rf/sym:',6,
+	1     (/'sw ','res','rf ','sym','om ','prv'/),
+	2     (/ILF_VR(MOM_SW_MAXCHG,4),ILF_VR(MOM_MAXCHG,4),
+	3      ILF_VR(MOM_RF_DCHG,4),ILF_VR(MOM_SW_MAXSYM,4),
+	4      ILF_VR(MOM_OM,4),ILF_VR(MOM_PRV,4)/))
+	    CALL ILF_KVB(LUER,'   mom ran/conv:',9,
+	1     (/'ran    ','conv   ','arg dep','arg frq','nbad50 ',
+	2      'ntot   ','arg old','arg new','arg colpk'/),
+	3     (/ILF_VL(MOM_RFR),ILF_VL(MOM_RFC),
+	4      ILF_VI(MOM_AI),ILF_VI(MOM_AL),
+	5      ILF_VI(INT(MOM_SW_NBAD50)),ILF_VI(INT(MOM_SW_NTOT)),
+	6      ILF_VR(MOM_SW_ARGV(1),4),ILF_VR(MOM_SW_ARGV(2),4),
+	7      ILF_VR(MOM_SW_ARGV(3),4)/))
+	    CALL ILF_KVB(LUER,'   freeze/justrel:',6,
+	1     (/'freeze    ','justrel   ','nmat      ','nmat total',
+	2      'maxch     ','lam       '/),
+	3     (/ILF_VL(GS_FREEZE),ILF_VL(GS_JUST_REL),
+	4      ILF_VI(N_MATURE),ILF_VI(GS_REL_STABLE),
+	5      ILF_VR(MAXCH,4),ILF_VL(LAMBDA_ITERATION)/))
 	  END BLOCK
 	END IF
 !
@@ -2999,10 +3009,11 @@
 	  IF(BA_ARG_J .EQ. LST_CHG_J .AND. BA_ARG_I .EQ. LST_CHG_I)THEN
 	    N_SAMECELL=N_SAMECELL+1
 	    IF(CONV_DIAG_LVL .GE. 1)
-	1    WRITE(LUER,'(A,I3,A,I5,A,I4,A,I4,A,ES10.2)')
-	2    'SOLVE_FOR_POPS: same-cell LAMBDA streak ',N_SAMECELL,
-	3    ' at it',MAIN_COUNTER,' (J,I)=(',BA_ARG_J,',',
-	4    BA_ARG_I,') pct=',BA_ARG_PCT
+	1    CALL ILF_KVB(LUER,'SOLVE_FOR_POPS: same-cell LAMBDA',5,
+	2    (/'streak','it    ','J     ','I     ','pct   '/),
+	3    (/ILF_VI(N_SAMECELL),ILF_VI(MAIN_COUNTER),
+	4    ILF_VI(BA_ARG_J),ILF_VI(BA_ARG_I),
+	5    ILF_VR(BA_ARG_PCT,2)/))
 	  ELSE
 	    N_SAMECELL=1
 	  END IF
@@ -4744,11 +4755,14 @@
 	    PLAT_CNT=PLAT_CNT+1
 	    IF(CONV_DIAG_LVL .GE. 1 .AND.
 	1       (PLAT_CNT .EQ. 1 .OR. MOD(PLAT_CNT,PLAT_WIN) .EQ. 0))THEN
-	      WRITE(LUER,'(A,I5,A,2ES11.3,A,2ES11.3,A,2ES11.3)')
-	1      ' CONV_PLATEAU: it=',MAIN_COUNTER,
-	2      ' maxapp range=',MINVAL(HIST_APP),MAXVAL(HIST_APP),
-	3      ' se_res2 range=',MINVAL(HIST_RES),MAXVAL(HIST_RES),
-	4      ' gs_drift range=',MINVAL(HIST_GS),MAXVAL(HIST_GS)
+	      CALL ILF_KVB(LUER,' CONV_PLATEAU:',7,
+	1      (/'it         ','maxapp min ','maxapp max ',
+	2      'se_res2 min ','se_res2 max ','gs_drift min',
+	3      'gs_drift max'/),
+	4      (/ILF_VI(MAIN_COUNTER),
+	5      ILF_VR(MINVAL(HIST_APP),3),ILF_VR(MAXVAL(HIST_APP),3),
+	6      ILF_VR(MINVAL(HIST_RES),3),ILF_VR(MAXVAL(HIST_RES),3),
+	7      ILF_VR(MINVAL(HIST_GS),3),ILF_VR(MAXVAL(HIST_GS),3)/))
 	    END IF
 	  ELSE
 	    PLAT_CNT=0
