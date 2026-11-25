@@ -51,7 +51,9 @@ NT, ND = 4, 8
 def build():
     md = BINDIR / "obj_ng_shd"
     objs = prod_objs([h for h in HELPERS if is_prod_source(h)])
-    objs += [prod_obj(TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f")]
+    objs += prod_objs(
+        [TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f"]
+    )
     objs += compile_objs(
         "ng_shd",
         [F90DIR / "stub_scr_read_ng.f", F90DIR / "drv_ng_shadow.f90"],
