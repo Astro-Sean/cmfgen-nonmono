@@ -954,6 +954,34 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # MOM_AUG_RES opt-in key parses and lands on both stores.
+    d = write_vadat(
+        WORKDIR / "vadat_mom_augres",
+        {"MOM_AUG_RES": "T"},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_AUG_RES=T parses, lands, and reaches the solver module",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_AUG_RES") == "T"
+        and v.get("MOM_AUG_RES_SLV") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_mom_augres_def",
+        {"MOM_AUG_RES": None},
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "MOM_AUG_RES absent key defaults F on both stores",
+        "RESULT_OK" in p.stdout
+        and v.get("MOM_AUG_RES") == "F"
+        and v.get("MOM_AUG_RES_SLV") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     # MOM_FAC_RLX opt-in key parses and lands.
     d = write_vadat(
         WORKDIR / "vadat_mom_facrlx",
