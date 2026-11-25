@@ -50,6 +50,7 @@ HELPERS = [
     "new_main/mod_subs/check_param_consistency.f",
     "newsubs/rd_store_log.f",
     "new_main/mod_subs/iter_ledger_mod.f90",
+    "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
 ]
@@ -65,7 +66,7 @@ def main():
     p = run(exe, cwd=WORKDIR)
     rep.check(
         "driver ran the sweep report",
-        "MOM_J_CMF_NONMONO_V1: GS sweep" in p.stdout,
+        "MOM_J_CMF_NONMONO_V1 GS SWEEP" in p.stdout,
         p.stdout[-400:] if p.returncode != 0 else "",
     )
     matrix = re.search(r"^\s*matrix\s.*$", p.stdout, re.M)

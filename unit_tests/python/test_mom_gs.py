@@ -96,7 +96,7 @@ def main():
     rep.check("rt: event count returned",
               fval(r.stdout, "CAP_FILE") == 2.0)
     rep.check("rt: OUTGEN sweep report written",
-              "MOM_J_CMF_NONMONO_V1: GS sweep" in r.stdout)
+              "MOM_J_CMF_NONMONO_V1 GS SWEEP" in r.stdout)
     rep.check("rt: acceptance sentence written",
               "present, accepted" in r.stdout)
 

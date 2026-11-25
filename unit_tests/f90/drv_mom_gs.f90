@@ -35,6 +35,10 @@
 
     case ('rt')
         mom_gs_tag_exp = 7
+        ! ILF migration folded the sweep banner into the
+        ! CONV_DIAG_LVL>=2 report block; level 2 keeps the
+        ! "OUTGEN sweep report written" check exercised.
+        conv_diag_lvl = 2
         call dump_mom_jnext_gs(7, r, v, sigma, nd_in, lu)
         inquire (file='MOMJNXT_GS', exist=ok_flag)
         write (*, '(a,l1)') 'FILE_OK=', ok_flag

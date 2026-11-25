@@ -57,3 +57,11 @@ C
       LOGICAL DO_MATCH
       RETURN
       END
+C
+C SET_FG_Q_RESID joins the stubs above for the same reason: it is
+C the obs-side mirror of the KN_Q_RESID diagnostic key and is not
+C part of the ES-guard path under test.
+      SUBROUTINE SET_FG_Q_RESID(DO_Q)
+      LOGICAL DO_Q
+      RETURN
+      END
