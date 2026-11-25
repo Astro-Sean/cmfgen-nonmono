@@ -1,5 +1,28 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] DO_JFNK + FIX_X_DPTH inner-T pin: fail closed (25-Nov-2026).
+      Question: does a JFNK run silently ignore the FIX_INB_T +
+      FIX_X_DPTH thin-release T pin? Evidence plan: audit which
+      T-mask channels each solver reads. find showed JFNK tracks
+      RD_FIX_T, JFNK_FIXT and the VARFIXT range
+      (JFNK_FIX_T_D_ST/END) but nothing on the JFNK route reads
+      FIX_LST_X_DPTHS - the pin lives only in fixpop_in_ba_v3,
+      which zeroes those T rows of the BA system each call. The
+      JFNK unknown vector would keep those rows live while the BA
+      matrix holds them fixed: two solvers carrying different
+      equation sets. Verdict FIX landed: check_param_consistency.f
+      now rejects DO_JFNK=T + FIX_INB_T=T + FIX_X_DPTH>0 unless
+      FIX_T=T (all-depth pin is honoured by both routes);
+      FIX_T_AUTO stays legal (JFNK_TAUTO mirrors the VARFIXT
+      range). The subroutine picks up USE MOD_CMFGEN for the FIX
+      flags and the Makefile dependency is updated. prepare_VADAT
+      already warned on the pairing; this makes the same contract
+      fail closed at the Fortran gate. Tests: test_vadat_keys
+      gains three cases - the combination aborts, the pin without
+      JFNK parses legally, and the FIX_T=T exemption passes (105
+      checks total). One retained probe deck
+      (dessart_m15_2p82d_SOB_l14_freet_jfnk_tri.yaml) trips the
+      stop by design; its header notes the abort.
 - [x] Commit gate / W16 jump guard: per-column scale (25-Nov-2026).
       Question: can dim frequency columns grow by orders under a
       global-max jump scale, as the FG_JUMP_MAX port claims the
