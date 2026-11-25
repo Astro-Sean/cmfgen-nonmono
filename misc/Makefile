@@ -108,47 +108,47 @@ $(EXE_DIR)%.exe : %.o $(OANDF)
 
 $(EXE_DIR)plt_rates.exe : plt_rates.o 
 	$(F90) -g plt_rates.o \
-              -L$(LIB_DIR) -l$(LN3) -l$(LN2) -l$(LN1) -l$(LN4) -l$(LN1) \
+              -L$(LIB_DIR) -l$(LN3) -l$(LN2) -l$(LN1) -l$(LN4) -l$(LN1)  -lmod \
               $(PGLIB) $(LAPACK) $(BLAS) $(LOCLIB) $(X11LIB) $(G2CLIB) \
               -g -o $(EXE_DIR)plt_rates.exe
 
 $(EXE_DIR)chk_phot.exe : chk_phot.o recom_chk_v2.o get_exc_freq.o $(OANDF)
 	$(F90) chk_phot.o recom_chk_v2.o get_exc_freq.o \
-              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1) \
+              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1)  -lmod \
               $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -o $(EXE_DIR)chk_phot.exe
 
 $(EXE_DIR)guess_dc.exe : guess_dc.o $(OANDF) 
 	$(F90) guess_dc.o \
-              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1) \
+              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1)  -lmod \
               $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -o $(EXE_DIR)guess_dc.exe
 
 $(EXE_DIR)pack_osc.exe : pack_osc.o $(OANDF)
 	$(F90) pack_osc.o \
-              $(OBJ1) -L$(LIB_DIR)  -l$(LN2) -l$(LN1) \
+              $(OBJ1) -L$(LIB_DIR)  -l$(LN2) -l$(LN1)  -lmod \
               $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -o $(EXE_DIR)pack_osc.exe
 
 $(EXE_DIR)rev_rdinr.exe : rev_rdinr.o 
 	$(F90) rev_rdinr.o \
-              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1) \
+              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1) -lmod \
               $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -o $(EXE_DIR)rev_rdinr.exe
 
 $(EXE_DIR)tlusty_vel.exe : tlusty_vel.o $(OANDF) 
 	$(F90) tlusty_vel.o \
-              $(OBJ1) -L$(LIB_DIR)  -l$(LN2) -l$(LN1) \
+              $(OBJ1) -L$(LIB_DIR)  -l$(LN2) -l$(LN1)  -lmod \
               $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -o $(EXE_DIR)tlusty_vel.exe
 
 $(EXE_DIR)solve_ba_mat.exe : solve_ba_mat.o
-	$(F90) solve_ba_mat.o -L$(LIB_DIR) $(LAPACK) $(BLAS) -l$(LN2) -l$(LN1) \
+	$(F90) solve_ba_mat.o -L$(LIB_DIR) $(LAPACK) $(BLAS) -l$(LN2) -l$(LN1)  -lmod \
               -o $(EXE_DIR)solve_ba_mat.exe
 
 $(EXE_DIR)wr_f_to_s.exe : wr_f_to_s.o output_term_seq.o $(OANDF)
 	$(F90) wr_f_to_s.o output_term_seq.o \
-              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1) -l$(LN2)  \
+              $(OBJ1) -L$(LIB_DIR) -l$(LN2) -l$(LN1) -l$(LN2)   -lmod \
               $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -o $(EXE_DIR)wr_f_to_s.exe
 
