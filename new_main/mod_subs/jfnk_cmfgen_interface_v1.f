@@ -92,6 +92,7 @@
 	JFNK_LU_READY = .FALSE.
 	JFNK_FACTOR_DONE = .FALSE.
 	JFNK_BA_DIAG_READY = .FALSE.
+	JFNK_BA_DIAG_RAW_READY = .FALSE.
 !
 ! Disarm the pseudo-transient scale/anchor (numerical audit, 2026-10):
 ! both are per-activation state frozen from this activation's F(0) by
@@ -150,6 +151,7 @@
 	1       DEALLOCATE(JFNK_SE_STEQ_OFFSET)
 	    IF(ALLOCATED(JFNK_CMAT_RAD))DEALLOCATE(JFNK_CMAT_RAD)
 	    IF(ALLOCATED(JFNK_BA_DIAG))DEALLOCATE(JFNK_BA_DIAG)
+	    IF(ALLOCATED(JFNK_BA_DIAG_RAW))DEALLOCATE(JFNK_BA_DIAG_RAW)
 	    IF(ALLOCATED(JFNK_PRECOND_DIAG))
 	1       DEALLOCATE(JFNK_PRECOND_DIAG)
 	    IF(ALLOCATED(JFNK_LU_FAC))DEALLOCATE(JFNK_LU_FAC)
@@ -176,6 +178,7 @@
 	    IF(ALLOCATED(JFNK_W_DCNM))DEALLOCATE(JFNK_W_DCNM)
 	    JFNK_LU_READY=.FALSE.
 	    JFNK_BA_DIAG_READY=.FALSE.
+	    JFNK_BA_DIAG_RAW_READY=.FALSE.
 	  END IF
 	END IF
 !
@@ -199,6 +202,7 @@
 	    IF(ALLOCATED(JFNK_SE_TEHB_SAVE))DEALLOCATE(JFNK_SE_TEHB_SAVE)
 	    JFNK_LU_READY=.FALSE.
 	    JFNK_BA_DIAG_READY=.FALSE.
+	    JFNK_BA_DIAG_RAW_READY=.FALSE.
 	  END IF
 	END IF
 !
@@ -522,7 +526,8 @@
 	DOUBLE PRECISION, INTENT(IN) :: F_BASE(N)
 !
 	INTEGER I, K, J
-	REAL(KIND=LDP) ABS_FI, FMAX, FLOOR_USE, DABS, DMAX_K, RIDGE_K, RIDGE_FAC
+	REAL(KIND=LDP) ABS_FI, FMAX, FLOOR_USE, DABS, DMAX_K, RIDGE_K,
+	1   RIDGE_FAC, DIAG_J
 	INTEGER LUER, ERROR_LU
 	INTEGER RSCALE_SEL
 	INTEGER JFNK_RSCALE_BRANCH_V1
@@ -579,20 +584,26 @@
 	    JFNK_RSCALE(I) = 1.0_LDP / SQRT(ABS_FI)
 	  END DO
 	ELSE IF(RSCALE_SEL .EQ. 2)THEN
-	  IF(JFNK_BA_DIAG_READY)THEN
+	  IF(JFNK_BA_DIAG_READY .OR. JFNK_BA_DIAG_RAW_READY)THEN
 	    DO K = 1, JFNK_ND
 	      DMAX_K = 0.0_LDP
 	      DO J = 1, JFNK_NT
-	        DMAX_K = MAX(DMAX_K, ABS(JFNK_BA_DIAG(J, K)))
+	        DIAG_J = JFNK_BA_DIAG(J, K)
+	        IF(JFNK_BA_DIAG_RAW_READY)
+	1         DIAG_J = JFNK_BA_DIAG_RAW(J, K)
+	        DMAX_K = MAX(DMAX_K, ABS(DIAG_J))
 	      END DO
 	      DO J = 1, JFNK_NT
 	        I = (K-1)*JFNK_NT + J
 	        IF(I .GT. N) CYCLE
+	        DIAG_J = JFNK_BA_DIAG(J, K)
+	        IF(JFNK_BA_DIAG_RAW_READY)
+	1         DIAG_J = JFNK_BA_DIAG_RAW(J, K)
 	        IF(J .EQ. JFNK_NT-1)THEN
 	          JFNK_RSCALE(I) = 1.0_LDP/MAX(ED(K), 1.0E-30_LDP)
 	        ELSE
 	          JFNK_RSCALE(I) = 1.0_LDP/
-	1             MAX(ABS(JFNK_BA_DIAG(J, K)), 1.0E-30_LDP*DMAX_K)
+	1             MAX(ABS(DIAG_J), 1.0E-30_LDP*DMAX_K)
 	        END IF
 	      END DO
 	    END DO
@@ -604,17 +615,23 @@
 	ELSE IF(RSCALE_SEL .EQ. 3)THEN
 	  RIDGE_FAC = JFNK_BA_RIDGE_FAC
 	  IF(RIDGE_FAC .LE. 0.0_LDP) RIDGE_FAC = 1.0E-3_LDP
-	  IF(JFNK_BA_DIAG_READY)THEN
+	  IF(JFNK_BA_DIAG_READY .OR. JFNK_BA_DIAG_RAW_READY)THEN
 	    DO K = 1, JFNK_ND
 	      DMAX_K = 0.0_LDP
 	      DO J = 1, JFNK_NT
-	        DMAX_K = MAX(DMAX_K, ABS(JFNK_BA_DIAG(J, K)))
+	        DIAG_J = JFNK_BA_DIAG(J, K)
+	        IF(JFNK_BA_DIAG_RAW_READY)
+	1         DIAG_J = JFNK_BA_DIAG_RAW(J, K)
+	        DMAX_K = MAX(DMAX_K, ABS(DIAG_J))
 	      END DO
 	      RIDGE_K = RIDGE_FAC * MAX(DMAX_K, 1.0_LDP)
 	      DO J = 1, JFNK_NT
 	        I = (K-1)*JFNK_NT + J
 	        IF(I .GT. N) CYCLE
-	        DABS = ABS(JFNK_BA_DIAG(J, K))
+	        DIAG_J = JFNK_BA_DIAG(J, K)
+	        IF(JFNK_BA_DIAG_RAW_READY)
+	1         DIAG_J = JFNK_BA_DIAG_RAW(J, K)
+	        DABS = ABS(DIAG_J)
 	        JFNK_RSCALE(I) = SQRT(DABS / (DABS + RIDGE_K + 1.0E-30_LDP))
 	      END DO
 	    END DO
@@ -956,6 +973,7 @@
 	JFNK_BA_RAD_READY = .FALSE.
 	JFNK_BA_RAD_BANDS_READY = .FALSE.
 	JFNK_BA_DIAG_READY = .FALSE.
+	JFNK_BA_DIAG_RAW_READY = .FALSE.
 !
 ! Allocate banded BA_rad storage when JFNK_USE_BANDED=T.
 ! JFNK_CMAT_RAD_BANDS(NT, NT, NUM_BNDS, ND) stores the radiative BA
@@ -1022,7 +1040,22 @@
 	    STOP 'JFNK_BUILD_BA_RAD_V1: alloc BA_DIAG failed'
 	  END IF
 	END IF
+	IF(ALLOCATED(JFNK_BA_DIAG_RAW))THEN
+	  IF(SIZE(JFNK_BA_DIAG_RAW,1).NE.JFNK_NT .OR.
+	1    SIZE(JFNK_BA_DIAG_RAW,2).NE.JFNK_ND)THEN
+	    DEALLOCATE(JFNK_BA_DIAG_RAW)
+	  END IF
+	END IF
+	IF(.NOT. ALLOCATED(JFNK_BA_DIAG_RAW))THEN
+	  ALLOCATE(JFNK_BA_DIAG_RAW(JFNK_NT, JFNK_ND), STAT=IOS)
+	  IF(IOS.NE.0)THEN
+	    WRITE(LUER,*)
+	1      'JFNK_BUILD_BA_RAD_V1: cannot allocate BA_DIAG_RAW'
+	    STOP 'JFNK_BUILD_BA_RAD_V1: alloc BA_DIAG_RAW failed'
+	  END IF
+	END IF
 	JFNK_BA_DIAG = 0.0_LDP
+	JFNK_BA_DIAG_RAW = 0.0_LDP
 !
 ! NaN diagnostic: check SE(ID)%BA for NaN BEFORE GENERATE_FULL_MATRIX_V3
 	  BLOCK
@@ -1077,6 +1110,7 @@
 	  END IF
 	  DO J = 1, JFNK_NT
 	    JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
+	    JFNK_BA_DIAG_RAW(J, K) = JFNK_C_MAT(J, J)
 	  END DO
 !
 ! Zero NaN/Inf in BA_full before storing in CMAT_RAD. The outer
@@ -1105,6 +1139,7 @@
 	      END IF
 	      DO J = 1, JFNK_NT
 	        JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
+	        JFNK_BA_DIAG_RAW(J, K) = JFNK_C_MAT(J, J)
 	      END DO
 	      IF(K .LE. 3 .OR. K .GE. JFNK_ND-2)THEN
 	        WRITE(LUER,'(A,I3,A,I6)')
@@ -1144,6 +1179,7 @@
 	  END IF
 	END DO
 	JFNK_BA_DIAG_READY = .TRUE.
+	JFNK_BA_DIAG_RAW_READY = .TRUE.
 !
 ! --- Save the full BA so we can restore it after the collisional rebuild ---
 !
@@ -1685,7 +1721,7 @@
 	INTEGER, EXTERNAL :: ERROR_LU
 	REAL(KIND=LDP) OMP_GET_WTIME
 	EXTERNAL OMP_GET_WTIME
-	REAL(KIND=LDP) MCE_DABS, MCE_DMAX
+	REAL(KIND=LDP) MCE_DABS, MCE_DMAX, MCE_DJ
 !
 ! Audit 17-Sep-2026 (issue 4): count constraint crossings that are NEW
 ! relative to the baseline Newton point jfnk_x -- i.e. a clip that is
@@ -2094,18 +2130,24 @@
 ! them for the solver.
 !
 	jfnk_maxch_est = -1.0_LDP
-	IF(JFNK_BA_DIAG_READY)THEN
+	IF(JFNK_BA_DIAG_READY .OR. JFNK_BA_DIAG_RAW_READY)THEN
 	  jfnk_maxch_est = 0.0_LDP
 	  DO K = 1, JFNK_ND
 	    MCE_DMAX = 0.0_LDP
 	    DO J = 1, JFNK_NT
-	      MCE_DMAX = MAX(MCE_DMAX, ABS(JFNK_BA_DIAG(J,K)))
+	      MCE_DJ = JFNK_BA_DIAG(J,K)
+	      IF(JFNK_BA_DIAG_RAW_READY)
+	1       MCE_DJ = JFNK_BA_DIAG_RAW(J,K)
+	      MCE_DMAX = MAX(MCE_DMAX, ABS(MCE_DJ))
 	    END DO
 	    DO J = 1, JFNK_NT-2
 	      IDX = (K-1)*JFNK_NT + J
 	      IF(IDX .GT. N) CYCLE
 	      IF(Y(IDX) .NE. Y(IDX)) CYCLE
-	      MCE_DABS = MAX(ABS(JFNK_BA_DIAG(J,K)),
+	      MCE_DJ = JFNK_BA_DIAG(J,K)
+	      IF(JFNK_BA_DIAG_RAW_READY)
+	1       MCE_DJ = JFNK_BA_DIAG_RAW(J,K)
+	      MCE_DABS = MAX(ABS(MCE_DJ),
 	1        1.0E-30_LDP*MCE_DMAX)
 	      jfnk_maxch_est = MAX(jfnk_maxch_est,
 	1        ABS(Y(IDX))/MCE_DABS)
@@ -4014,6 +4056,14 @@
 	  ALLOCATE(JFNK_BA_DIAG(JFNK_NT,JFNK_ND), STAT=IOS)
 	  IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc BA_DIAG failed'
 	END IF
+	IF(ALLOCATED(JFNK_BA_DIAG_RAW))THEN
+	  IF(SIZE(JFNK_BA_DIAG_RAW,1).NE.JFNK_NT .OR.
+	1    SIZE(JFNK_BA_DIAG_RAW,2).NE.JFNK_ND) DEALLOCATE(JFNK_BA_DIAG_RAW)
+	END IF
+	IF(.NOT. ALLOCATED(JFNK_BA_DIAG_RAW))THEN
+	  ALLOCATE(JFNK_BA_DIAG_RAW(JFNK_NT,JFNK_ND), STAT=IOS)
+	  IF(IOS.NE.0)STOP 'JFNK_FACTOR_PRECOND: alloc BA_DIAG_RAW failed'
+	END IF
 	IF(ALLOCATED(JFNK_PRECOND_DIAG))THEN
 	  IF(SIZE(JFNK_PRECOND_DIAG,1).NE.JFNK_NT .OR.
 	1     SIZE(JFNK_PRECOND_DIAG,2).NE.JFNK_ND)
@@ -4164,6 +4214,8 @@
 	IF(REBUILD_BA)THEN
 	  JFNK_BA_DIAG = 0.0_LDP
 	  JFNK_BA_DIAG_READY = .FALSE.
+	  JFNK_BA_DIAG_RAW = 0.0_LDP
+	  JFNK_BA_DIAG_RAW_READY = .FALSE.
 !
 ! PTC fold scale: s_i = max(|F_i|, 1e-8*|F|max), matching
 ! JFNK_SET_PTC_SCALE_V1. The admission build runs after F(0)
@@ -4207,6 +4259,7 @@
 !
 	  DO J = 1, JFNK_NT
 	    JFNK_BA_DIAG(J, K) = JFNK_C_MAT(J, J)
+	    JFNK_BA_DIAG_RAW(J, K) = JFNK_C_MAT(J, J)
 	    JFNK_PRECOND_DIAG(J, K) = JFNK_C_MAT(J, J)
 	  END DO
 !
@@ -4335,6 +4388,14 @@
 	    JFNK_PRECOND_DIAG(JFNK_NT-1,K) = 1.0_LDP
 	  END IF
 	END DO
+!
+! RAW holds the diagonal as assembled from GENERATE_FULL_MATRIX_V3
+! above -- before the PTC fold and the frozen-row identity writes
+! that now sit in JFNK_BA_DIAG. Physical metrics (MAXCH, DIAG
+! residual scaling) read RAW; preconditioner paths keep the folded
+! diagonal they factor.
+!
+	JFNK_BA_DIAG_RAW_READY = .TRUE.
 !
 	  IF(JFNK_PC_SIGN_DIAG .AND. ALLOCATED(D_SD) .AND.
 	1     JFNK_PTC_FOLDED)THEN
