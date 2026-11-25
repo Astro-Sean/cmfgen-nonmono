@@ -154,6 +154,15 @@
 ! against the operator actually applied, not the unregularized BA.
 	LOGICAL, SAVE :: JFNK_BA_DIAG_READY=.FALSE.
 !
+! Physical fixed-J BA diagonal captured before the PTC fold, ridge
+! and frozen-row identity substitution write JFNK_BA_DIAG. MAXCH and
+! the DIAG residual scalings are physical metrics and must price
+! against this denominator; the folded diagonal grows like
+! sigma*exp(-x)/dtau and would falsely report convergence as the
+! regularization strengthens (audit Issue E).
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_BA_DIAG_RAW(:,:)
+	LOGICAL, SAVE :: JFNK_BA_DIAG_RAW_READY=.FALSE.
+!
 ! JFNK_PTC_SGN (NT*ND): per-row sign of the raw BA diagonal captured
 ! at factorization when [JFNK_PTC_SIGNED] is on (default F). The
 ! residual PTC term, the factorization fold and the apply rescale all
